@@ -8,10 +8,13 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "add_issue_dependency": "write",
   "add_user_group_member": "write",
   "create_channel": "write",
+  "create_drive_folder": "write",
+  "create_external_contact": "write",
   "create_issue": "write",
   "create_issue_from_mail": "write",
   "create_user_group": "write",
   "create_wiki_page": "write",
+  "discover_channels": "read",
   "draft_issue_from_mail": "read",
   "draft_mail_reply": "read",
   "edit_comment": "write",
@@ -48,18 +51,23 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "mark_all_notifications_read": "write",
   "mark_mail_read": "write",
   "mark_notification_read": "write",
+  "move_drive_file": "write",
+  "move_drive_folder": "write",
   "move_wiki_page": "write",
   "open_dm": "write",
   "remove_contact_favorite": "write",
   "remove_issue_dependency": "write",
   "remove_user_group_member": "write",
+  "rename_drive_folder": "write",
   "restore_drive_item": "write",
   "rsvp_event": "write",
   "search_drive": "read",
   "search_drive_content": "read",
   "search_members": "read",
   "search_wiki": "read",
+  "sync_mail": "write",
   "unwatch_issue": "write",
+  "update_external_contact": "write",
   "update_issue": "write",
   "update_project": "write",
   "update_user_group": "write",
@@ -207,6 +215,90 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "enum": [
             "PUBLIC",
             "PRIVATE",
+          ],
+          "type": "string",
+        },
+      },
+      "required": [
+        "name",
+        "visibility",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "create_drive_folder",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "maxLength": 255,
+          "minLength": 1,
+          "type": "string",
+        },
+        "parentId": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "spaceId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "spaceId",
+        "name",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "create_external_contact",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "email": {
+          "maxLength": 255,
+          "type": "string",
+        },
+        "force": {
+          "type": "boolean",
+        },
+        "name": {
+          "maxLength": 120,
+          "minLength": 1,
+          "type": "string",
+        },
+        "notes": {
+          "type": "string",
+        },
+        "organization": {
+          "maxLength": 120,
+          "type": "string",
+        },
+        "phone": {
+          "maxLength": 40,
+          "type": "string",
+        },
+        "title": {
+          "maxLength": 100,
+          "type": "string",
+        },
+        "visibility": {
+          "enum": [
+            "SHARED",
+            "PERSONAL",
           ],
           "type": "string",
         },
@@ -393,6 +485,23 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
     },
   },
   {
+    "name": "discover_channels",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "q": {
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "q",
+      ],
+      "type": "object",
+    },
+  },
+  {
     "name": "draft_issue_from_mail",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -469,7 +578,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
         },
         "limit": {
           "default": 50,
-          "maximum": 200,
+          "maximum": 100,
           "minimum": 1,
           "type": "integer",
         },
@@ -1124,6 +1233,66 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
     },
   },
   {
+    "name": "move_drive_file",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "driveFileId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "targetFolderId": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+      },
+      "required": [
+        "driveFileId",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "move_drive_folder",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "folderId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "targetParentId": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+      },
+      "required": [
+        "folderId",
+      ],
+      "type": "object",
+    },
+  },
+  {
     "name": "move_wiki_page",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1253,6 +1422,30 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       },
       "required": [
         "groupId",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "rename_drive_folder",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "folderId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "name": {
+          "maxLength": 255,
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "folderId",
+        "name",
       ],
       "type": "object",
     },
@@ -1416,6 +1609,24 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
     },
   },
   {
+    "name": "sync_mail",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "accountId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "accountId",
+      ],
+      "type": "object",
+    },
+  },
+  {
     "name": "unwatch_issue",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1428,6 +1639,58 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       },
       "required": [
         "issueKey",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "update_external_contact",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "email": {
+          "maxLength": 255,
+          "type": "string",
+        },
+        "externalId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "force": {
+          "type": "boolean",
+        },
+        "name": {
+          "maxLength": 120,
+          "minLength": 1,
+          "type": "string",
+        },
+        "notes": {
+          "type": "string",
+        },
+        "organization": {
+          "maxLength": 120,
+          "type": "string",
+        },
+        "phone": {
+          "maxLength": 40,
+          "type": "string",
+        },
+        "title": {
+          "maxLength": 100,
+          "type": "string",
+        },
+        "visibility": {
+          "enum": [
+            "SHARED",
+            "PERSONAL",
+          ],
+          "type": "string",
+        },
+      },
+      "required": [
+        "externalId",
       ],
       "type": "object",
     },

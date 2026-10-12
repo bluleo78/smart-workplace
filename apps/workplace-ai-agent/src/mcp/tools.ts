@@ -7,8 +7,7 @@ import {
   issueListFilterShape,
   normalizeTimezone,
   parseIssueKey,
-  projectKeyInput,
-  toProjectMemberView,
+  toolAnnotations,
   type McpTool,
 } from '@smart-workplace/mcp-tools-shared';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
@@ -19,10 +18,6 @@ import { buildReadChatAttachmentTool } from './home-attachment-tool.js';
 export type { McpTool };
 
 const issueKey = z.object({ issueKey: z.string().min(1) });
-const updateStatusInput = z.object({
-  issueKey: z.string().min(1),
-  status: z.enum(['TODO', 'IN_PROGRESS', 'DONE', 'CANCELED']),
-});
 // 6c: chat 프로필 도구 입력.
 const addChatMessageInput = z.object({
   threadId: z.number().int().positive(),
@@ -53,24 +48,6 @@ const proposeSetMemberActiveInput = z.object({
   active: z.boolean(),
   summary: z.string().min(1),
 });
-const externalContactFields = {
-  name: z.string().min(1).max(120),
-  email: z.string().max(255).optional(),
-  phone: z.string().max(40).optional(),
-  organization: z.string().max(120).optional(),
-  title: z.string().max(100).optional(),
-  notes: z.string().optional(),
-  visibility: z.enum(['SHARED', 'PERSONAL']),
-};
-// #839: 이름+이메일이 겹치는 연락처가 이미 있으면 서버가 409 경고를 준다 — 사용자가 그래도 저장하라고 확인했을 때만 true.
-const forceField = { force: z.boolean().optional() };
-const createExternalContactInput = z.object({ ...externalContactFields, ...forceField });
-// #839: 수정은 부분 수정(서버 PATCH 가 null=유지) — 모든 필드 optional. 빈 문자열은 비우기(이름 제외).
-const updateExternalContactInput = z.object({
-  externalId: z.number().int().positive(),
-  ...z.object(externalContactFields).partial().shape,
-  ...forceField,
-});
 const proposeDeleteContactInput = z.object({ externalId: z.number().int().positive(), summary: z.string().min(1) });
 // #839: 사용자 그룹 삭제 제안 — 하위 그룹·멤버십까지 캐스케이드, 복원 API 없음.
 const proposeDeleteUserGroupInput = z.object({ groupId: z.number().int().positive(), summary: z.string().min(1) });
@@ -94,13 +71,8 @@ const proposeAddProjectMemberInput = z.object({
   summary: z.string().min(1),
 });
 
-// #333 M4: 드라이브 쓰기/삭제 입력.
-const createFolderInput = z.object({ spaceId: z.number().int().positive(), parentId: z.number().int().positive().nullable().optional(), name: z.string().min(1).max(255) });
-const renameFolderInput = z.object({ folderId: z.number().int().positive(), name: z.string().min(1).max(255) });
-const moveFolderInput = z.object({ folderId: z.number().int().positive(), targetParentId: z.number().int().positive().nullable().optional() });
-// #840: 파일 식별자는 driveFileId(= drive_file.id)로 명명한다. 목록 응답의 core fileId 와 혼동되지 않도록
-// 도구 표면 전체에서 하나의 이름만 쓰고, 폴더는 rename/move 와 같은 folderId 로 통일한다.
-const moveFileInput = z.object({ driveFileId: z.number().int().positive(), targetFolderId: z.number().int().positive().nullable().optional() });
+// #333 M4: 드라이브 삭제 제안 입력(폴더·파일 쓰기 도구는 공유 패키지 — create_drive_folder 등).
+// #840: 파일 식별자는 driveFileId(= drive_file.id)로 명명한다. 목록 응답의 core fileId 와 혼동되지 않도록 도구 표면 전체에서 하나의 이름만 쓰고, 폴더는 folderId 로 통일한다.
 const proposeDeleteFileInput = z.object({ summary: z.string().min(1), driveFileId: z.number().int().positive() });
 const proposeDeleteFolderInput = z.object({ summary: z.string().min(1), folderId: z.number().int().positive() });
 
@@ -140,9 +112,6 @@ const proposeDeleteCommentInput = z.object({
   summary: z.string().min(1),
 });
 const proposeDeleteWikiPageInput = z.object({ pageId: z.number().int().positive(), summary: z.string().min(1) });
-
-// #333 M4: 메일 계정 목록 + 수동 동기화 입력.
-const syncMailInput = z.object({ accountId: z.number().int().positive() });
 
 // #333 M3: 메일 발송 제안 입력 — MailSendRequest 미러 + accountId(소유권 경계) + summary(카드 본문).
 const proposeSendMailInput = z.object({
@@ -199,9 +168,6 @@ const proposeCreateEventInput = z.object({
   attendees: z.array(z.string().min(1)).optional(), // #852: 초대할 구성원 username 목록(주최자 본인은 넣지 않는다)
   summary: z.string().min(1),    // 사람이 읽는 카드 요약
 });
-
-// #350: 채널 목록/탐색 도구 입력 — channelId 를 모를 때 채널 이름 → id 해석용.
-const discoverChannelsInput = z.object({ q: z.string().min(1) });
 
 // 7b: home 컴포저 표시 지시 도구 — 모든 도구가 균일한 {params?, layout?} 봉투를 받는다.
 // layout: 캔버스 배치 규칙(프론트 7c 가 해석). page/replace/pageLabel 모두 선택.
@@ -336,7 +302,8 @@ export function buildTools(
     if (!t) throw new Error(`공유 도구 없음: ${name}`);
     // #853: 되돌릴 수 없는 공유 도구를 직접 실행으로 노출하지 않는다 — 그런 작업은 propose_* 확인 카드로만 한다.
     if (t.kind === 'destructive') throw new Error(`destructive 공유 도구는 직접 노출할 수 없습니다: ${name}`);
-    return t;
+    // WP-342: 연산 성격 힌트를 실어 보낸다 — Claude Code 가 readOnlyHint 로 읽기 도구를 병렬 실행한다. 로컬 전용 도구는 힌트가 없다.
+    return { ...t, annotations: toolAnnotations(t) };
   };
 
   /**
@@ -448,25 +415,13 @@ export function buildTools(
     ];
   }
 
-  // #350: 공개 채널 탐색 — list_channels 에 없는 채널 이름 → channelId 해석(ai-agent 전용).
-  const discoverChannelsTool: McpTool = {
-    name: 'discover_channels',
-    description:
-      '공개 채널을 이름·키워드로 검색해 JSON 배열로 반환합니다(id·name·kind 포함). list_channels 에 없는 공개 채널을 찾아 channelId 를 확보한 뒤 메시지 조회/작성에 사용하세요.',
-    inputSchema: discoverChannelsInput,
-    async handler(args) {
-      const { q } = discoverChannelsInput.parse(args);
-      return JSON.stringify(await client.discoverChannels(agentId, q));
-    },
-  };
-
   if (profile === 'messaging') {
     const tools: McpTool[] = [
       sharedTool('get_channel_messages'),
       sharedTool('get_thread_replies'), // #850: 스레드 답글 조회(스레드 요약)
       sharedTool('add_channel_message'),
       sharedTool('list_channels'),
-      discoverChannelsTool,
+      sharedTool('discover_channels'), // #350: 공개 채널 탐색(이름 → channelId)
     ];
     // L3 위임: 위임 컨텍스트가 있을 때만 노출. channelId·위임자·parent 는 코드가 스탬프(AI 입력 아님).
     if (delegationContext) {
@@ -597,18 +552,8 @@ export function buildTools(
     ];
   };
 
-  // 기존 이슈 쓰기 도구 중 add_comment/edit_comment 는 공유본(sharedTool)으로 대체됨.
-  const updateStatusTool: McpTool = {
-    name: 'update_status',
-    description: '이슈의 상태를 변경합니다. 허용값: TODO / IN_PROGRESS / DONE / CANCELED.',
-    inputSchema: updateStatusInput,
-    async handler(args) {
-      const { issueKey: k, status } = updateStatusInput.parse(args);
-      await client.updateIssueStatus(agentId, k, status);
-      return 'ok';
-    },
-  };
-  // create_issue/update_issue/add_issue_dependency/remove_issue_dependency 는 공유본(sharedTool)으로 대체됨.
+  // 이슈 쓰기 도구(add_comment/edit_comment/create_issue/update_issue/add_issue_dependency/remove_issue_dependency)는 공유본(sharedTool)이다.
+  // 상태 변경은 update_issue 의 status 로 한다(update_status 도구는 WP-343 에서 폐지).
   // #378: unassign_self 실패 시 고정 안내 문구를 반환해 LLM 재해석을 차단한다.
   // 동시에 WORKPLACE_UNASSIGN_ERROR_PATH 사이드카에 오류를 기록해,
   // run-ai-compose 가 최종 메시지를 결정론적으로 override 한다(이중 방어).
@@ -795,21 +740,6 @@ export function buildTools(
     },
   };
 
-  // #333 M4: 메일 계정 목록 + 수동 동기화 도구 — assistant 프로파일 전용.
-  // list_mail_accounts: accountId 가 없을 때 먼저 호출해 계정 식별자를 확보한다.
-  // sync_mail: 서버 소유권 검증 통과 — 호출자 계정만 동기화 가능(직접 실행 안전).
-  const syncMailTool: McpTool = {
-    name: 'sync_mail',
-    description:
-      '지정 메일 계정의 새 메일을 수동으로 가져옵니다(받은편지함 동기화). accountId 는 list_mail_accounts 로 확인하세요.',
-    inputSchema: syncMailInput,
-    async handler(args) {
-      const { accountId } = syncMailInput.parse(args);
-      await client.syncMail(agentId, accountId);
-      return '동기화를 완료했습니다.';
-    },
-  };
-
   /**
    * 제안 도구 공용 — 대상 구성원을 확정하거나 에이전트가 바로 교정할 수 있는 오류 문구를 돌려준다(#833).
    * 도구 표면은 username 만 다루고(숫자 id 미노출) 여기서 user.id 로 해석한다 — LLM 이 숫자 식별자를 만지지 않으면
@@ -833,34 +763,7 @@ export function buildTools(
     return { member: member! };
   };
 
-  // #333 M3: 외부 연락처 쓰기(생성·수정은 직접 실행, 삭제는 제안) — assistant 프로파일 전용.
-  const createExternalContactTool: McpTool = {
-    name: 'create_external_contact',
-    description:
-      '외부 연락처를 생성합니다. visibility 는 SHARED(공유)/PERSONAL(개인). 생성 결과를 JSON 으로 반환합니다. ' +
-      '같은 이름+이메일의 연락처가 이미 있으면 중복 경고 오류가 납니다 — 사용자에게 알리고, 그래도 만들라고 확인받은 경우에만 force: true 로 다시 호출하세요.',
-    inputSchema: createExternalContactInput,
-    async handler(args) {
-      const { force, ...input } = createExternalContactInput.parse(args);
-      return JSON.stringify(await client.createExternalContact(agentId, input, force));
-    },
-  };
-  const updateExternalContactTool: McpTool = {
-    name: 'update_external_contact',
-    description:
-      '외부 연락처를 수정합니다. 준 필드만 바뀌고 나머지는 유지됩니다(빈 문자열 "" 은 그 값 비우기, 이름은 비울 수 없음). ' +
-      '수정 결과 이름+이메일이 다른 연락처와 겹치면 중복 경고 오류가 납니다 — 사용자 확인 후에만 force: true 로 다시 호출하세요. ' +
-      'externalId 는 list_contacts 의 EXTERNAL 항목이 주는 값입니다 — 구성원의 userId 를 넣으면 엉뚱한 사람의 연락처가 바뀝니다.',
-    inputSchema: updateExternalContactInput,
-    async handler(args) {
-      const { externalId, force, ...patch } = updateExternalContactInput.parse(args);
-      // 생략 필드는 JSON 에서 빠져 서버가 유지한다. 아무것도 안 바꾸는 호출은 LLM 의 실수라 조용히 성공시키지 않는다.
-      if (Object.values(patch).every((v) => v === undefined)) {
-        throw new Error('바꿀 필드(name·email·phone·organization·title·notes·visibility) 중 하나 이상을 지정하세요.');
-      }
-      return JSON.stringify(await client.updateExternalContact(agentId, externalId, patch, force));
-    },
-  };
+  // #333 M3: 외부 연락처 삭제는 제안(생성·수정은 공유 도구 create_external_contact·update_external_contact 로 직접 실행) — assistant 프로파일 전용.
   const proposeDeleteContactTool: McpTool = {
     name: 'propose_delete_contact',
     description:
@@ -922,17 +825,6 @@ export function buildTools(
     },
   };
 
-  // #333 M3: 프로젝트 멤버 조회. #846: 사람은 username 으로만 노출한다(get_project 의 members 와 같은 형태 — #833).
-  const listProjectMembersTool: McpTool = {
-    name: 'list_project_members',
-    description: '프로젝트 멤버 목록(username·name·role)을 JSON 으로 반환합니다.',
-    inputSchema: projectKeyInput,
-    async handler(args) {
-      const { projectKey } = projectKeyInput.parse(args);
-      return JSON.stringify((await sc.getProjectMembers(projectKey)).map(toProjectMemberView));
-    },
-  };
-
   // #333 M3: 프로젝트 제안 도구 — 실행하지 않고(사전검증만, #842) 사이드카에 제안 객체를 쓰고 ack 반환.
   const proposeCreateProjectTool: McpTool = {
     name: 'propose_create_project',
@@ -973,46 +865,6 @@ export function buildTools(
   };
 
   // #333 M3: 드라이브 읽기 도구(v1 — 쓰기 연기).
-
-  // #333 M4: 드라이브 폴더/파일 쓰기 도구 — 비가역성이 낮은 정리 작업(폴더 생성·이름변경·이동)은 직접 실행.
-  const createFolderTool: McpTool = {
-    name: 'create_folder',
-    description: '드라이브 스페이스에 새 폴더를 생성합니다. parentId 를 주면 그 하위에 만들고, 생략하면 스페이스 루트에 생성합니다. 생성된 폴더를 JSON 으로 반환합니다.',
-    inputSchema: createFolderInput,
-    async handler(args) {
-      const { spaceId, parentId, name } = createFolderInput.parse(args);
-      return JSON.stringify(await client.createFolder(agentId, spaceId, parentId ?? null, name));
-    },
-  };
-  const renameFolderTool: McpTool = {
-    name: 'rename_folder',
-    description: '폴더 이름을 변경합니다. 변경된 폴더를 JSON 으로 반환합니다.',
-    inputSchema: renameFolderInput,
-    async handler(args) {
-      const { folderId, name } = renameFolderInput.parse(args);
-      return JSON.stringify(await client.renameFolder(agentId, folderId, name));
-    },
-  };
-  const moveFolderTool: McpTool = {
-    name: 'move_folder',
-    description: '폴더를 다른 상위 폴더로 이동합니다. targetParentId 를 생략하면 스페이스 루트로 이동합니다.',
-    inputSchema: moveFolderInput,
-    async handler(args) {
-      const { folderId, targetParentId } = moveFolderInput.parse(args);
-      await client.moveFolder(agentId, folderId, targetParentId ?? null);
-      return 'ok';
-    },
-  };
-  const moveFileTool: McpTool = {
-    name: 'move_file',
-    description: '파일을 다른 폴더로 이동합니다. driveFileId 는 list_drive_items/search_drive 파일 항목의 driveFileId 입니다. targetFolderId 를 생략하면 스페이스 루트로 이동합니다.',
-    inputSchema: moveFileInput,
-    async handler(args) {
-      const { driveFileId, targetFolderId } = moveFileInput.parse(args);
-      await client.moveFile(agentId, driveFileId, targetFolderId ?? null);
-      return 'ok';
-    },
-  };
 
   // #856: 파괴적이거나 다른 사람에게 영향이 나가는 작업 — 확인 카드 제안만 만든다(승인 시 ConfirmActionDispatcher 가 실행).
   // 카드는 summary 만 보여주므로, 사용자가 승인 전에 알아야 할 결과(확정된 사람·함께 지워지는 하위 항목)는 LLM 문구에 맡기지 않고
@@ -1257,7 +1109,6 @@ export function buildTools(
       sharedTool('update_wiki_page'),        // #333 M3: 위키 쓰기(내부)
       sharedTool('add_comment'),
       sharedTool('edit_comment'),
-      updateStatusTool,
       sharedTool('create_issue'),
       sharedTool('update_issue'),
       unassignSelfTool,
@@ -1270,10 +1121,10 @@ export function buildTools(
       sharedTool('get_channel_messages'), // #333 M3: 메시징 읽기
       sharedTool('get_thread_replies'),   // #850: 스레드 답글 조회
       sharedTool('add_channel_message'),  // #333 M3: 메시징 쓰기(내부 쓰기 직접 실행)
-      sharedTool('list_channels'), discoverChannelsTool, // #350: 채널 목록/탐색(이름→channelId 해석)
+      sharedTool('list_channels'), sharedTool('discover_channels'), // #350: 채널 목록/탐색(이름→channelId 해석)
       sharedTool('list_mail'), sharedTool('get_mail'), proposeSendMailTool, // #333 M3: 메일 읽기 + 발송 제안
-      sharedTool('list_mail_accounts'), syncMailTool, // #333 M4: 메일 계정 목록 + 수동 동기화
-      sharedTool('list_contacts'), sharedTool('get_external_contact'), createExternalContactTool, updateExternalContactTool, proposeDeleteContactTool, // #333 M3: 연락처
+      sharedTool('list_mail_accounts'), sharedTool('sync_mail'), // #333 M4: 메일 계정 목록 + 수동 동기화
+      sharedTool('list_contacts'), sharedTool('get_external_contact'), sharedTool('create_external_contact'), sharedTool('update_external_contact'), proposeDeleteContactTool, // #333 M3: 연락처
       // #839: 연락처 facets·즐겨찾기·사용자 그룹. AI Chat 은 요청자 신원으로 호출하므로 개인 그룹·즐겨찾기는 사람의 것이 된다
       // (에이전트 신원 프로필엔 두지 않는다 — 에이전트 계정의 개인 그룹이 생긴다).
       sharedTool('get_contact_facets'), sharedTool('add_contact_favorite'), sharedTool('remove_contact_favorite'),
@@ -1281,13 +1132,13 @@ export function buildTools(
       sharedTool('add_user_group_member'), sharedTool('remove_user_group_member'), proposeDeleteUserGroupTool,
       sharedTool('search_members'), sharedTool('get_member'), sharedTool('get_member_contact'), // #833: 구성원(설정>구성원) 조회 — 연락처와 분리된 도메인
       proposeSetMemberRoleTool, proposeSetMemberActiveTool, // #833: 구성원 쓰기 제안(확인 카드 경유)
-      sharedTool('list_projects'), sharedTool('get_project'), listProjectMembersTool,
+      sharedTool('list_projects'), sharedTool('get_project'), // 멤버는 get_project.members 로 함께 온다(list_project_members 폐지, WP-343)
       proposeCreateProjectTool, proposeDeleteProjectTool, proposeAddProjectMemberTool, // #333 M3: 프로젝트
       sharedTool('list_drive_spaces'), sharedTool('list_drive_items'), sharedTool('search_drive'), // #333 M3: 드라이브 읽기
       sharedTool('get_drive_file_summary'), sharedTool('search_drive_content'), // #850: 파일 요약·내용 검색
       // #850: 알림 인박스 — AI Chat 은 요청자(userId) 신원으로 호출하므로 사람의 알림을 본다(에이전트 신원 프로필엔 두지 않는다).
       sharedTool('list_notifications'), sharedTool('mark_notification_read'), sharedTool('mark_all_notifications_read'),
-      createFolderTool, renameFolderTool, moveFolderTool, moveFileTool, // #333 M4: 드라이브 쓰기(직접 실행)
+      sharedTool('create_drive_folder'), sharedTool('rename_drive_folder'), sharedTool('move_drive_folder'), sharedTool('move_drive_file'), // #333 M4: 드라이브 쓰기(직접 실행)
       proposeDeleteFileTool, proposeDeleteFolderTool, // #333 M4: 드라이브 삭제 제안(confirm 필요)
       // #856: 참석자·프로젝트 멤버·채널 초대·이슈/코멘트/노트 삭제 제안(confirm 필요)
       proposeAddAttendeesTool, proposeRemoveAttendeeTool,
@@ -1330,7 +1181,6 @@ export function buildTools(
     sharedTool('get_wiki_page'),
     sharedTool('add_comment'),
     sharedTool('edit_comment'),
-    updateStatusTool,
     sharedTool('create_issue'),
     sharedTool('update_issue'),
     unassignSelfTool,

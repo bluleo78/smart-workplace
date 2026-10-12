@@ -122,6 +122,7 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
     {
       name: 'create_wiki_page',
       kind: 'write',
+      hints: { destructive: false, idempotent: false },
       description:
         '노트 스페이스에 새 페이지를 생성합니다. parentId 를 주면 그 하위에, 생략하면 최상위에 만듭니다. 생성된 페이지(id·version)를 JSON 으로 반환합니다.',
       inputSchema: createWikiPageInput,
@@ -133,6 +134,8 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
     {
       name: 'update_wiki_page',
       kind: 'write',
+      // 본문 전체 대체(3-way 병합). AI 적용은 매번 이전 판 스냅샷을 남기고, 기준본이 만료되면 409 라 멱등으로 보지 않는다.
+      hints: { destructive: true, idempotent: false },
       description:
         '노트 페이지 제목·본문을 저장합니다. title·body 중 바꿀 필드만 넣으면 넣지 않은 필드는 유지됩니다. ' +
         'body 는 문서 전체를 대체합니다 — body 에서 빠진 텍스트는 삭제됩니다. 일부만 고칠 때도 읽은 본문 전체를 넣되, 요청 범위 밖 블록은 get_wiki_page 로 읽은 그대로 바이트 단위로 복사하세요: ' +
@@ -148,6 +151,7 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
     {
       name: 'move_wiki_page',
       kind: 'write',
+      hints: { destructive: true, idempotent: true },
       description:
         '노트 페이지를 같은 스페이스 안에서 옮깁니다(하위 페이지도 함께). parentId 는 새 부모 페이지 id(null=최상위), ' +
         'position 은 새 부모 아래 순서(0=맨 앞, 생략=맨 끝)입니다. id 는 list_wiki_pages 트리에서 확인하세요. 다른 스페이스나 자기 하위로는 옮길 수 없습니다.',

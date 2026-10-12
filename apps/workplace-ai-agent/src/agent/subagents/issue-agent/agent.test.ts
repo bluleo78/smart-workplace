@@ -16,7 +16,6 @@ describe('issue-agent 정의', () => {
     expect(loaded['issue-agent'].tools).toEqual([
       'mcp__workplace__list_issues',
       'mcp__workplace__get_issue_detail',
-      'mcp__workplace__update_status',
       'mcp__workplace__add_comment',
       'mcp__workplace__edit_comment',
       'mcp__workplace__create_issue',
@@ -35,6 +34,21 @@ describe('issue-agent 정의', () => {
       'mcp__workplace__search_members',
       'mcp__workplace__submit_response',
     ]);
+  });
+
+  // WP-343: update_status 폐지 — 상태 변경은 update_issue 의 status 로 지시한다.
+  it('폐지된 update_status 를 tools·본문 어디에도 두지 않고 update_issue 의 status 로 안내한다', () => {
+    expect(loaded['issue-agent'].tools).not.toContain('mcp__workplace__update_status');
+    const prompt = loaded['issue-agent'].prompt;
+    expect(prompt).not.toContain('update_status');
+    expect(prompt).toContain('update_issue(issueKey, status=...)');
+  });
+
+  // update_issue 는 실패해도 throw 하지 않으므로 상태 변경 지시 옆에서 ok/results 확인을 요구한다.
+  it('상태 변경 지시가 ok·results.content 확인과 실패 비성공 보고를 요구한다', () => {
+    const prompt = loaded['issue-agent'].prompt;
+    expect(prompt).toContain('결과의 `ok` 가 false 이거나 `results.content` 가 `failed` 로 시작하면 상태가 **바뀌지 않은 것**');
+    expect(prompt).toContain('상태 변경이 실패(`ok` false)하면 성공했다고 쓰는 코멘트·보고를 하지 말고');
   });
 
   it('maxTurns=20, description·본문이 비어있지 않다', () => {

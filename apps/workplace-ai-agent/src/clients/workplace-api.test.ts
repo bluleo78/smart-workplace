@@ -53,16 +53,6 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
     ).rejects.toThrow('이미 멤버입니다');
   });
 
-  it('updateIssueStatus → PATCH + 헤더', async () => {
-    const scope = nock(BASE)
-      .matchHeader('authorization', 'Internal tk-internal')
-      .matchHeader('x-on-behalf-of', String(AGENT_ID))
-      .patch(`${PREFIX}/projects/WP/issues/1/status`, { status: 'DONE' })
-      .reply(200, {});
-    await newClient().updateIssueStatus(AGENT_ID, 'WP-1', 'DONE');
-    expect(scope.isDone()).toBe(true);
-  });
-
   // #373: flat author 필드(authorId/authorName/authorKind) → nested author 객체 변환은
   // 공유 도구 핸들러(normalizeIssueDetail)의 책임 — toolClient 는 raw comments 를 그대로 반환.
   it('toolClient.getIssueDetail → comments 를 포함한 raw 응답을 변형 없이 그대로 반환', async () => {
@@ -348,14 +338,14 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
     expect(r.mimeType).toBe('image/png');
   });
 
-  // --- #333 M4: 메일 수동 동기화 ---
+  // --- 공유 도구로 옮긴 쓰기 도구들(WP-343): 같은 경로·본문이 toolClient(agentId) 로 에이전트 신원 헤더를 달고 나가는지 ---
 
-  describe('syncMail', () => {
+  describe('toolClient.syncMail', () => {
     it('POST /mail/accounts/{id}/sync 로 동기화 요청', async () => {
       const scope = nock(BASE, { reqheaders: { authorization: 'Internal tk-internal', 'x-on-behalf-of': '7' } })
         .post(`${PREFIX}/mail/accounts/3/sync`, {})
         .reply(200, { synced: 5 });
-      const out = await newClient().syncMail(7, 3);
+      const out = await newClient().toolClient(7).syncMail(3);
       expect((out as { synced: number }).synced).toBe(5);
       scope.done();
     });
@@ -363,13 +353,28 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
 
   // --- #333 M3: 연락처 조회/생성/수정 ---
 
-  describe('createExternalContact', () => {
+  describe('toolClient.createExternalContact', () => {
     it('POST /contacts/external 로 생성하고 반환', async () => {
       nock(BASE, { reqheaders: { 'x-on-behalf-of': '7' } })
         .post(`${PREFIX}/contacts/external`, { name: '신규', email: 'n@x.com', visibility: 'SHARED' })
         .reply(201, { id: 9, kind: 'EXTERNAL', name: '신규', email: 'n@x.com', organization: null });
-      const out = await newClient().createExternalContact(7, { name: '신규', email: 'n@x.com', visibility: 'SHARED' });
-      expect(out.id).toBe(9);
+      const out = await newClient().toolClient(7).createExternalContact({ name: '신규', email: 'n@x.com', visibility: 'SHARED' });
+      expect((out as { id: number }).id).toBe(9);
+    });
+
+    // #839: 중복 경고(409)를 사용자 확인 뒤 우회하는 force 는 쿼리 파라미터로 나간다.
+    it('force=true 면 ?force=true 를 붙이고, 수정(PATCH)도 같다', async () => {
+      const post = nock(BASE, { reqheaders: { 'x-on-behalf-of': '7' } })
+        .post(`${PREFIX}/contacts/external`, { name: '신규', visibility: 'SHARED' })
+        .query({ force: 'true' })
+        .reply(201, { id: 9 });
+      await newClient().toolClient(7).createExternalContact({ name: '신규', visibility: 'SHARED' }, true);
+      const patch = nock(BASE, { reqheaders: { 'x-on-behalf-of': '7' } })
+        .patch(`${PREFIX}/contacts/external/9`, { phone: '010-1' })
+        .query({ force: 'true' })
+        .reply(200, { id: 9 });
+      await newClient().toolClient(7).updateExternalContact(9, { phone: '010-1' }, true);
+      expect(post.isDone() && patch.isDone()).toBe(true);
     });
   });
 
@@ -463,12 +468,12 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
 
   // --- #333 M4: 드라이브 폴더/파일 쓰기 ---
 
-  describe('createFolder', () => {
-    it('POST /drive/spaces/{id}/folders 로 폴더 생성하고 DriveFolderItem 반환', async () => {
+  describe('toolClient.createDriveFolder', () => {
+    it('POST /drive/spaces/{id}/folders 로 폴더 생성하고 응답을 그대로 반환', async () => {
       const scope = nock(BASE, { reqheaders: { authorization: 'Internal tk-internal', 'x-on-behalf-of': String(AGENT_ID) } })
         .post(`${PREFIX}/drive/spaces/1/folders`, { parentId: null, name: '새 폴더' })
         .reply(201, { id: 10, parentId: null, name: '새 폴더', createdAt: '2026-06-19T00:00:00Z' });
-      const out = await newClient().createFolder(AGENT_ID, 1, null, '새 폴더');
+      const out = (await newClient().toolClient(AGENT_ID).createDriveFolder(1, null, '새 폴더')) as { id: number; parentId: number | null; name: string };
       expect(scope.isDone()).toBe(true);
       expect(out.id).toBe(10);
       expect(out.parentId).toBeNull();
@@ -479,29 +484,29 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
       const scope = nock(BASE, { reqheaders: { 'x-on-behalf-of': String(AGENT_ID) } })
         .post(`${PREFIX}/drive/spaces/1/folders`, { parentId: 5, name: '하위 폴더' })
         .reply(201, { id: 11, parentId: 5, name: '하위 폴더', createdAt: '2026-06-19T00:00:00Z' });
-      const out = await newClient().createFolder(AGENT_ID, 1, 5, '하위 폴더');
+      const out = (await newClient().toolClient(AGENT_ID).createDriveFolder(1, 5, '하위 폴더')) as { parentId: number | null };
       expect(scope.isDone()).toBe(true);
       expect(out.parentId).toBe(5);
     });
   });
 
-  describe('renameFolder', () => {
-    it('PATCH /drive/folders/{id} 로 이름 변경하고 DriveFolderItem 반환', async () => {
+  describe('toolClient.renameDriveFolder', () => {
+    it('PATCH /drive/folders/{id} 로 이름 변경하고 응답을 그대로 반환', async () => {
       const scope = nock(BASE, { reqheaders: { authorization: 'Internal tk-internal', 'x-on-behalf-of': String(AGENT_ID) } })
         .patch(`${PREFIX}/drive/folders/10`, { name: '변경 폴더' })
         .reply(200, { id: 10, parentId: null, name: '변경 폴더', createdAt: '2026-06-19T00:00:00Z' });
-      const out = await newClient().renameFolder(AGENT_ID, 10, '변경 폴더');
+      const out = (await newClient().toolClient(AGENT_ID).renameDriveFolder(10, '변경 폴더')) as { name: string };
       expect(scope.isDone()).toBe(true);
       expect(out.name).toBe('변경 폴더');
     });
   });
 
-  describe('moveFolder', () => {
+  describe('toolClient.moveDriveFolder', () => {
     it('PATCH /drive/folders/{id}/move 로 폴더 이동(void)', async () => {
       const scope = nock(BASE, { reqheaders: { authorization: 'Internal tk-internal', 'x-on-behalf-of': String(AGENT_ID) } })
         .patch(`${PREFIX}/drive/folders/10/move`, { targetParentId: 3 })
         .reply(204);
-      await newClient().moveFolder(AGENT_ID, 10, 3);
+      await newClient().toolClient(AGENT_ID).moveDriveFolder(10, 3);
       expect(scope.isDone()).toBe(true);
     });
 
@@ -509,17 +514,17 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
       const scope = nock(BASE, { reqheaders: { 'x-on-behalf-of': String(AGENT_ID) } })
         .patch(`${PREFIX}/drive/folders/10/move`, { targetParentId: null })
         .reply(204);
-      await newClient().moveFolder(AGENT_ID, 10, null);
+      await newClient().toolClient(AGENT_ID).moveDriveFolder(10, null);
       expect(scope.isDone()).toBe(true);
     });
   });
 
-  describe('moveFile', () => {
+  describe('toolClient.moveDriveFile', () => {
     it('PATCH /drive/files/{id}/move 로 파일 이동(void)', async () => {
       const scope = nock(BASE, { reqheaders: { authorization: 'Internal tk-internal', 'x-on-behalf-of': String(AGENT_ID) } })
         .patch(`${PREFIX}/drive/files/5/move`, { targetFolderId: 10 })
         .reply(204);
-      await newClient().moveFile(AGENT_ID, 5, 10);
+      await newClient().toolClient(AGENT_ID).moveDriveFile(5, 10);
       expect(scope.isDone()).toBe(true);
     });
 
@@ -527,32 +532,32 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
       const scope = nock(BASE, { reqheaders: { 'x-on-behalf-of': String(AGENT_ID) } })
         .patch(`${PREFIX}/drive/files/5/move`, { targetFolderId: null })
         .reply(204);
-      await newClient().moveFile(AGENT_ID, 5, null);
+      await newClient().toolClient(AGENT_ID).moveDriveFile(5, null);
       expect(scope.isDone()).toBe(true);
     });
   });
 
   // --- #350: 채널 목록/탐색 ---
 
-  describe('discoverChannels', () => {
-    it('GET /messaging/channels/discover?q= 로 ChannelItem[] 반환', async () => {
+  describe('toolClient.discoverChannels', () => {
+    it('GET /messaging/channels/discover?q= 로 채널 배열 반환', async () => {
       const scope = nock(BASE, { reqheaders: { authorization: 'Internal tk-internal', 'x-on-behalf-of': String(AGENT_ID) } })
         .get(`${PREFIX}/messaging/channels/discover`)
         .query({ q: '개발팀' })
         .reply(200, [
           { id: 2, kind: 'PUBLIC', name: '개발팀', visibility: 'PUBLIC', member: false, role: null, archived: false, memberCount: 5, unreadCount: 0 },
         ]);
-      const out = await newClient().discoverChannels(AGENT_ID, '개발팀');
+      const out = (await newClient().toolClient(AGENT_ID).discoverChannels('개발팀')) as { name: string }[];
       expect(scope.isDone()).toBe(true);
       expect(out[0].name).toBe('개발팀');
     });
 
-    it('특수문자 q 는 encodeURIComponent 처리', async () => {
+    it('특수문자 q 는 쿼리로 인코딩된다', async () => {
       nock(BASE, { reqheaders: { 'x-on-behalf-of': String(AGENT_ID) } })
         .get(`${PREFIX}/messaging/channels/discover`)
         .query({ q: '팀 채널' })
         .reply(200, []);
-      const out = await newClient().discoverChannels(AGENT_ID, '팀 채널');
+      const out = await newClient().toolClient(AGENT_ID).discoverChannels('팀 채널');
       expect(out).toEqual([]);
     });
   });

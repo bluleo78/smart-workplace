@@ -6,7 +6,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { buildSharedTools, isDisplayableTool, TOOL_LABELS, type SharedToolClient } from '@smart-workplace/mcp-tools-shared';
+import { buildSharedTools, isDisplayableTool, toolAnnotations, TOOL_LABELS, type SharedToolClient } from '@smart-workplace/mcp-tools-shared';
 import { describe, expect, it, vi, type Mock } from 'vitest';
 import { z } from 'zod';
 
@@ -74,6 +74,7 @@ function sharedMock(): MockedShared {
     getMailLinkedIssue: vi.fn().mockResolvedValue(null),
     promoteMailToIssue: vi.fn().mockResolvedValue({ issueKey: 'WP-1' }),
     markMailRead: vi.fn().mockResolvedValue(undefined),
+    syncMail: vi.fn().mockResolvedValue({}),
     // 구성원·연락처
     searchMembers: vi.fn().mockResolvedValue([]),
     getMemberContact: vi.fn().mockResolvedValue({}),
@@ -89,6 +90,8 @@ function sharedMock(): MockedShared {
     updateUserGroup: vi.fn().mockResolvedValue({ id: 1, name: 'g', visibility: 'PERSONAL' }),
     addUserGroupMember: vi.fn().mockResolvedValue({ id: 1, name: 'g', visibility: 'PERSONAL' }),
     removeUserGroupMember: vi.fn().mockResolvedValue(undefined),
+    createExternalContact: vi.fn().mockResolvedValue({}),
+    updateExternalContact: vi.fn().mockResolvedValue({}),
     // 메시징
     listChannels: vi.fn().mockResolvedValue([]),
     getChannelMessages: vi.fn().mockResolvedValue([]),
@@ -98,6 +101,7 @@ function sharedMock(): MockedShared {
     createChannel: vi.fn().mockResolvedValue({}),
     openDm: vi.fn().mockResolvedValue({ id: 1, participants: [] }),
     leaveChannel: vi.fn().mockResolvedValue(undefined),
+    discoverChannels: vi.fn().mockResolvedValue([]),
     // 드라이브
     listDriveSpaces: vi.fn().mockResolvedValue([]),
     listDriveItems: vi.fn().mockResolvedValue({ folders: [], files: [] }),
@@ -107,6 +111,10 @@ function sharedMock(): MockedShared {
     listDriveTrash: vi.fn().mockResolvedValue([]),
     restoreDriveFile: vi.fn().mockResolvedValue(undefined),
     restoreDriveFolder: vi.fn().mockResolvedValue(undefined),
+    createDriveFolder: vi.fn().mockResolvedValue({}),
+    renameDriveFolder: vi.fn().mockResolvedValue({}),
+    moveDriveFolder: vi.fn().mockResolvedValue(undefined),
+    moveDriveFile: vi.fn().mockResolvedValue(undefined),
     // 알림
     listNotifications: vi.fn().mockResolvedValue([]),
     countUnreadNotifications: vi.fn().mockResolvedValue(0),
@@ -126,21 +134,12 @@ function client(): TestClient {
     withOnBehalfOfTenant: () => c,
     // #842: 확인카드 사전검증 — propose_* 는 카드 등록 전에 반드시 이 호출을 통과해야 한다.
     validateAction: vi.fn().mockResolvedValue(undefined),
-    updateIssueStatus: vi.fn().mockResolvedValue(undefined),
     unassignSelf: vi.fn().mockResolvedValue(undefined),
     getProviderCredential: vi.fn(),
     getChatMessages: vi.fn().mockResolvedValue([]),
     addChatMessage: vi.fn().mockResolvedValue(undefined),
     postChatProgress: vi.fn().mockResolvedValue(undefined),
     postMessagingProgress: vi.fn().mockResolvedValue(undefined),
-    discoverChannels: vi.fn().mockResolvedValue([]),
-    syncMail: vi.fn().mockResolvedValue({}),
-    createExternalContact: vi.fn().mockResolvedValue({} as never),
-    updateExternalContact: vi.fn().mockResolvedValue({} as never),
-    createFolder: vi.fn().mockResolvedValue({} as never),
-    renameFolder: vi.fn().mockResolvedValue({} as never),
-    moveFolder: vi.fn().mockResolvedValue(undefined),
-    moveFile: vi.fn().mockResolvedValue(undefined),
     proposeCreateIssue: vi.fn().mockResolvedValue(undefined),
     proposeCreateEvent: vi.fn().mockResolvedValue(undefined),
     listDelegationCandidates: vi.fn().mockResolvedValue([]),
@@ -201,7 +200,6 @@ describe('프로필 구성', () => {
       'search_wiki',
       'unassign_self',
       'update_issue',
-      'update_status',
     ]);
   });
 
@@ -238,7 +236,7 @@ describe('프로필 구성', () => {
     const names = buildTools(client(), AGENT_ID, 'assistant').map((t) => t.name);
     for (const n of [
       // 이슈
-      'get_issue_detail', 'list_issues', 'add_comment', 'edit_comment', 'update_status', 'create_issue', 'update_issue',
+      'get_issue_detail', 'list_issues', 'add_comment', 'edit_comment', 'create_issue', 'update_issue',
       'unassign_self', 'add_issue_dependency', 'remove_issue_dependency',
       // 노트
       'list_wiki_spaces', 'search_wiki', 'get_wiki_page', 'create_wiki_page', 'update_wiki_page',
@@ -256,7 +254,7 @@ describe('프로필 구성', () => {
       'get_contact_facets', 'add_contact_favorite', 'remove_contact_favorite', 'list_user_groups', 'get_user_group',
       'create_user_group', 'update_user_group', 'add_user_group_member', 'remove_user_group_member', 'propose_delete_user_group',
       // 프로젝트
-      'list_projects', 'get_project', 'list_project_members',
+      'list_projects', 'get_project',
       'propose_create_project', 'propose_delete_project', 'propose_add_project_member',
       // 드라이브
       'list_drive_spaces', 'list_drive_items', 'search_drive', 'get_drive_file_summary', 'search_drive_content',
@@ -264,7 +262,7 @@ describe('프로필 구성', () => {
       'list_notifications', 'mark_notification_read', 'mark_all_notifications_read',
       // 메인 AI 채팅 첨부(WP-234)
       'read_chat_attachment',
-      'create_folder', 'rename_folder', 'move_folder', 'move_file', 'propose_delete_file', 'propose_delete_folder',
+      'create_drive_folder', 'rename_drive_folder', 'move_drive_folder', 'move_drive_file', 'propose_delete_file', 'propose_delete_folder',
       // #856 확인카드 제안
       'propose_add_attendees', 'propose_remove_attendee', 'propose_update_project_member_role', 'propose_remove_project_member',
       'propose_add_channel_member', 'propose_leave_channel', 'propose_delete_issue', 'propose_delete_comment', 'propose_delete_wiki_page',
@@ -279,6 +277,23 @@ describe('프로필 구성', () => {
     // 미구현 경계(search_issues)·제거된 도구(respond_chat, #463)는 없어야 한다.
     expect(names).not.toContain('search_issues');
     expect(names).not.toContain('respond_chat');
+  });
+
+  // WP-343: update_status(→ update_issue 의 status)·list_project_members(→ get_project.members)는 폐지 — 어느 프로필에도 없어야 한다.
+  it('폐지된 update_status·list_project_members 는 어느 프로필에도 노출되지 않는다', () => {
+    for (const profile of ['issue', 'chat', 'home', 'messaging', 'assistant'] as const) {
+      const names = buildTools(client(), AGENT_ID, profile).map((t) => t.name);
+      expect(names).not.toContain('update_status');
+      expect(names).not.toContain('list_project_members');
+    }
+  });
+
+  it('상태 변경은 공유 update_issue 의 status 로 가능하다(issue·assistant 프로필 모두 update_issue 노출)', () => {
+    for (const profile of ['issue', 'assistant'] as const) {
+      const tool = find(buildTools(client(), AGENT_ID, profile), 'update_issue');
+      expect(tool.inputSchema.parse({ issueKey: 'WP-1', status: 'IN_PROGRESS' })).toMatchObject({ status: 'IN_PROGRESS' });
+      expect(() => tool.inputSchema.parse({ issueKey: 'WP-1', status: 'WRONG' })).toThrow();
+    }
   });
 
   it('home 표시 도구는 {displayed:true} 만 반환한다(데이터 조회 X)', async () => {
@@ -347,6 +362,17 @@ describe('공유 도구 패리티 (#846)', () => {
     const names = new Set(buildTools(c, AGENT_ID, 'assistant').map((t) => t.name));
     const missing = buildSharedTools(c.sc).map((t) => t.name).filter((n) => !names.has(n));
     expect(missing).toEqual([]);
+  });
+
+  // WP-342: 공유 도구는 workplace-mcp 와 같은 annotations 를 싣고, 로컬 전용 도구에는 없다.
+  it('assistant 프로필의 공유 도구는 공유 함수가 계산한 annotations 를 갖고 로컬 도구는 갖지 않는다', () => {
+    const c = client();
+    const shared = new Map(buildSharedTools(c.sc).map((t) => [t.name, t]));
+    for (const t of buildTools(c, AGENT_ID, 'assistant')) {
+      const s = shared.get(t.name);
+      if (s) expect(t.annotations, t.name).toEqual(toolAnnotations(s));
+      else expect(t.annotations, t.name).toBeUndefined();
+    }
   });
 
   // 알림 API 는 호출자 본인 알림만 돌려준다. 에이전트 신원으로 도는 프로필에 두면 사람이 아닌 에이전트의 알림을 답하게 된다(#850).
@@ -422,19 +448,7 @@ describe('read_chat_attachment 프로필·바인딩 (WP-234)', () => {
 // ---------------------------------------------------------------------------
 // ai-agent 전용 이슈 도구
 // ---------------------------------------------------------------------------
-describe('update_status / unassign_self', () => {
-  it('update_status → client.updateIssueStatus(agentId, key, status)', async () => {
-    const c = client();
-    expect(await find(buildTools(c, AGENT_ID), 'update_status').handler({ issueKey: 'WP-1', status: 'DONE' })).toBe('ok');
-    expect(c.updateIssueStatus).toHaveBeenCalledWith(AGENT_ID, 'WP-1', 'DONE');
-  });
-
-  it('update_status — 잘못된 status 는 zod reject', async () => {
-    const c = client();
-    await expect(find(buildTools(c, AGENT_ID), 'update_status').handler({ issueKey: 'WP-1', status: 'WRONG' })).rejects.toThrow();
-    expect(c.updateIssueStatus).not.toHaveBeenCalled();
-  });
-
+describe('unassign_self', () => {
   it('unassign_self → client.unassignSelf(agentId, key)', async () => {
     const c = client();
     expect(await find(buildTools(c, AGENT_ID), 'unassign_self').handler({ issueKey: 'WP-1' })).toBe('ok');
@@ -586,11 +600,13 @@ describe('threadBinding — add_channel_message 스레드 mirror', () => {
 });
 
 describe('discover_channels (#350)', () => {
-  it('client.discoverChannels(agentId, q) 결과를 JSON 으로 반환한다', async () => {
+  // WP-343: 공유 도구로 이동 — 핸들러 동작은 공유 패키지 테스트가, 여기서는 에이전트 신원(toolClient(agentId))으로 실행되는지만 본다.
+  it('공유 도구로 에이전트 신원(toolClient(agentId))의 discoverChannels 를 호출하고 결과를 JSON 으로 반환한다', async () => {
     const c = client();
-    vi.mocked(c.discoverChannels).mockResolvedValue([{ id: 3, name: '공지', kind: 'PUBLIC' }] as never);
+    vi.mocked(c.sc.discoverChannels).mockResolvedValue([{ id: 3, name: '공지', kind: 'PUBLIC' }]);
     const out = await find(buildTools(c, AGENT_ID, 'messaging'), 'discover_channels').handler({ q: '공지' });
-    expect(c.discoverChannels).toHaveBeenCalledWith(AGENT_ID, '공지');
+    expect(c.toolClient).toHaveBeenCalledWith(AGENT_ID);
+    expect(c.sc.discoverChannels).toHaveBeenCalledWith('공지');
     expect(JSON.parse(out as string)).toEqual([{ id: 3, name: '공지', kind: 'PUBLIC' }]);
   });
 });
@@ -973,19 +989,6 @@ describe('프로젝트 제안 — projectKey → params.key 매핑 (#846)', () =
     await expect(
       find(tools, 'propose_add_project_member').handler({ key: 'WP', username: 'u', role: 'MEMBER', summary: 's' }),
     ).rejects.toThrow();
-    await expect(find(tools, 'list_project_members').handler({ key: 'WP' })).rejects.toThrow();
-  });
-});
-
-describe('list_project_members (#846)', () => {
-  it('userId 없이 username·name·role 만 반환한다', async () => {
-    const c = client();
-    c.sc.getProjectMembers.mockResolvedValue([
-      { userId: 5, username: 'minsu', name: '김민수', role: 'OWNER' } as never,
-    ]);
-    const out = JSON.parse((await find(buildTools(c, 7, 'assistant'), 'list_project_members').handler({ projectKey: 'WP' })) as string);
-    expect(c.sc.getProjectMembers).toHaveBeenCalledWith('WP');
-    expect(out).toEqual([{ username: 'minsu', name: '김민수', role: 'OWNER' }]);
   });
 });
 
@@ -1180,90 +1183,70 @@ describe('submit_response 사이드카', () => {
 });
 
 // ---------------------------------------------------------------------------
-// ai-agent 전용 쓰기 도구(메일 동기화·외부연락처·드라이브)
+// 공유로 옮긴 쓰기 도구(WP-343: 메일 동기화·외부연락처·드라이브 정리) — 에이전트 신원으로 실행되는지
+// 핸들러 동작(인자 매핑·검증)은 공유 패키지 테스트가 맡고, 여기서는 AI Chat 이 같은 도구를 같은 이름으로
+// 노출하고 toolClient(agentId) 로 호출하는지만 본다(옛 ai-agent 전용 클라이언트 메서드는 없어졌다).
 // ---------------------------------------------------------------------------
-describe('sync_mail', () => {
-  it('client.syncMail(agentId, accountId) 호출 후 완료 문자열 반환', async () => {
+describe('공유로 옮긴 쓰기 도구는 에이전트 신원(toolClient(agentId))으로 실행된다 (WP-343)', () => {
+  it('sync_mail → sc.syncMail(accountId) 후 완료 문자열 반환', async () => {
     const c = client();
     const out = await find(buildTools(c, AGENT_ID, 'assistant'), 'sync_mail').handler({ accountId: 5 });
-    expect(c.syncMail).toHaveBeenCalledWith(AGENT_ID, 5);
+    expect(c.toolClient).toHaveBeenCalledWith(AGENT_ID);
+    expect(c.sc.syncMail).toHaveBeenCalledWith(5);
     expect(out).toBe('동기화를 완료했습니다.');
   });
-});
 
-describe('외부 연락처 쓰기', () => {
-  it('create_external_contact → client.createExternalContact(agentId, input)', async () => {
+  it('create_external_contact → force 는 본문이 아니라 별도 인자로 넘긴다(#839 중복 경고 우회)', async () => {
     const c = client();
-    vi.mocked(c.createExternalContact).mockResolvedValue({ id: 3, name: '김거래' } as never);
+    vi.mocked(c.sc.createExternalContact).mockResolvedValue({ id: 3, name: '김거래' });
+    const t = find(buildTools(c, AGENT_ID, 'assistant'), 'create_external_contact');
     const input = { name: '김거래', email: 'k@x.com', visibility: 'SHARED' as const };
-    const out = await find(buildTools(c, AGENT_ID, 'assistant'), 'create_external_contact').handler(input);
-    expect(c.createExternalContact).toHaveBeenCalledWith(AGENT_ID, input, undefined);
-    expect(JSON.parse(out as string)).toEqual({ id: 3, name: '김거래' });
+    expect(JSON.parse((await t.handler(input)) as string)).toEqual({ id: 3, name: '김거래' });
+    expect(c.sc.createExternalContact).toHaveBeenLastCalledWith(input, undefined);
+    await t.handler({ ...input, force: true });
+    expect(c.sc.createExternalContact).toHaveBeenLastCalledWith(input, true);
   });
 
-  it('update_external_contact 는 externalId 를 경로 id 로 분리하고 나머지를 본문으로 넘긴다', async () => {
-    const c = client();
-    await find(buildTools(c, AGENT_ID, 'assistant'), 'update_external_contact').handler({
-      externalId: 9, name: '김거래', visibility: 'PERSONAL',
-    });
-    expect(c.updateExternalContact).toHaveBeenCalledWith(AGENT_ID, 9, { name: '김거래', visibility: 'PERSONAL' }, undefined);
-  });
-
-  it('create_external_contact 의 force 는 본문이 아니라 별도 인자로 넘긴다(#839 중복 경고 우회)', async () => {
-    const c = client();
-    await find(buildTools(c, AGENT_ID, 'assistant'), 'create_external_contact').handler({
-      name: '김거래', email: 'k@x.com', visibility: 'SHARED', force: true,
-    });
-    expect(c.createExternalContact).toHaveBeenCalledWith(AGENT_ID, { name: '김거래', email: 'k@x.com', visibility: 'SHARED' }, true);
-  });
-
-  it('update_external_contact 는 부분 수정 — 준 필드만 보내고 force 를 분리한다(#839)', async () => {
+  it('update_external_contact → externalId 를 경로 id 로 분리하고 나머지(부분 수정)·force 를 넘긴다', async () => {
     const c = client();
     await find(buildTools(c, AGENT_ID, 'assistant'), 'update_external_contact').handler({ externalId: 9, phone: '010-1', force: true });
-    expect(c.updateExternalContact).toHaveBeenCalledWith(AGENT_ID, 9, { phone: '010-1' }, true);
+    expect(c.sc.updateExternalContact).toHaveBeenCalledWith(9, { phone: '010-1' }, true);
   });
 
-  it('update_external_contact 는 바꿀 필드가 없으면 호출하지 않고 거절한다', async () => {
+  it('create_drive_folder — parentId 생략 시 null(루트)로 넘기고 결과를 JSON 으로 반환', async () => {
     const c = client();
-    await expect(find(buildTools(c, AGENT_ID, 'assistant'), 'update_external_contact').handler({ externalId: 9 })).rejects.toThrow(
-      '하나 이상',
-    );
-    expect(c.updateExternalContact).not.toHaveBeenCalled();
-  });
-
-  it('visibility 누락은 스키마가 거부한다', async () => {
-    const c = client();
-    await expect(find(buildTools(c, AGENT_ID, 'assistant'), 'create_external_contact').handler({ name: 'x' })).rejects.toThrow();
-    expect(c.createExternalContact).not.toHaveBeenCalled();
-  });
-});
-
-describe('드라이브 쓰기 (#333 M4, #840)', () => {
-  it('create_folder — parentId 생략 시 null(루트)로 넘기고 결과를 JSON 으로 반환', async () => {
-    const c = client();
-    vi.mocked(c.createFolder).mockResolvedValue({ id: 10, name: '신규폴더' } as never);
-    const out = await find(buildTools(c, 7, 'assistant'), 'create_folder').handler({ spaceId: 1, name: '신규폴더' });
-    expect(c.createFolder).toHaveBeenCalledWith(7, 1, null, '신규폴더');
+    vi.mocked(c.sc.createDriveFolder).mockResolvedValue({ id: 10, name: '신규폴더' });
+    const out = await find(buildTools(c, 7, 'assistant'), 'create_drive_folder').handler({ spaceId: 1, name: '신규폴더' });
+    expect(c.toolClient).toHaveBeenCalledWith(7);
+    expect(c.sc.createDriveFolder).toHaveBeenCalledWith(1, null, '신규폴더');
     expect(JSON.parse(out as string)).toMatchObject({ id: 10, name: '신규폴더' });
   });
 
-  it('rename_folder → client.renameFolder(agentId, folderId, name)', async () => {
+  it('rename_drive_folder → sc.renameDriveFolder(folderId, name)', async () => {
     const c = client();
-    await find(buildTools(c, 7, 'assistant'), 'rename_folder').handler({ folderId: 4, name: '새이름' });
-    expect(c.renameFolder).toHaveBeenCalledWith(7, 4, '새이름');
+    await find(buildTools(c, 7, 'assistant'), 'rename_drive_folder').handler({ folderId: 4, name: '새이름' });
+    expect(c.sc.renameDriveFolder).toHaveBeenCalledWith(4, '새이름');
   });
 
-  it('move_folder — targetParentId 생략 시 루트(null)로 이동', async () => {
+  it('move_drive_folder — targetParentId 생략 시 루트(null)로 이동', async () => {
     const c = client();
-    expect(await find(buildTools(c, 7, 'assistant'), 'move_folder').handler({ folderId: 4 })).toBe('ok');
-    expect(c.moveFolder).toHaveBeenCalledWith(7, 4, null);
+    expect(await find(buildTools(c, 7, 'assistant'), 'move_drive_folder').handler({ folderId: 4 })).toBe('ok');
+    expect(c.sc.moveDriveFolder).toHaveBeenCalledWith(4, null);
   });
 
-  it('move_file 은 driveFileId 를 client.moveFile 에 넘기고, 옛 fileId 파라미터는 거부한다', async () => {
+  it('move_drive_file 은 driveFileId 를 sc.moveDriveFile 에 넘기고, 옛 fileId 파라미터는 거부한다', async () => {
     const c = client();
-    await find(buildTools(c, 7, 'assistant'), 'move_file').handler({ driveFileId: 5, targetFolderId: 3 });
-    expect(c.moveFile).toHaveBeenCalledWith(7, 5, 3);
-    await expect(find(buildTools(c, 7, 'assistant'), 'move_file').handler({ fileId: 812, targetFolderId: 3 })).rejects.toThrow();
+    await find(buildTools(c, 7, 'assistant'), 'move_drive_file').handler({ driveFileId: 5, targetFolderId: 3 });
+    expect(c.sc.moveDriveFile).toHaveBeenCalledWith(5, 3);
+    await expect(find(buildTools(c, 7, 'assistant'), 'move_drive_file').handler({ fileId: 812, targetFolderId: 3 })).rejects.toThrow();
+  });
+
+  it('옛 이름(create_folder·rename_folder·move_folder·move_file)은 어떤 프로필에도 없다', () => {
+    const old = ['create_folder', 'rename_folder', 'move_folder', 'move_file'];
+    for (const p of ['issue', 'chat', 'home', 'messaging', 'assistant'] as McpProfile[]) {
+      const names = buildTools(client(), AGENT_ID, p).map((t) => t.name);
+      expect(names.filter((n) => old.includes(n)), p).toEqual([]);
+    }
   });
 });
 

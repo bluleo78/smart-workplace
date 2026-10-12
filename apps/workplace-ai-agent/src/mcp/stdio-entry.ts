@@ -169,7 +169,8 @@ export function registerStdioTool(server: McpServer, t: McpTool, opts: { vision:
   const shape = (t.inputSchema as z.ZodObject<z.ZodRawShape>).shape;
   server.registerTool(
     t.name,
-    { description: t.description, inputSchema: shape },
+    // WP-342: 공유 도구는 연산 성격 힌트와 표시 이름(title)도 함께 알린다. 로컬 전용 도구는 둘 다 비어 있다.
+    { title: t.annotations?.title, description: t.description, inputSchema: shape, annotations: t.annotations },
     async (args: unknown) => {
       try {
         // 문자열은 text 블록, content 블록 배열(이미지 등)은 그대로(WP-240). 비전 미지원이면 이미지→안내(WP-241).

@@ -22,9 +22,9 @@ test('도구 호출이 인라인으로 중첩 렌더되고 상태가 done(✓) �
       { event: 'progress', data: { label: '이슈 전문가에게 위임 중' } },
       {
         event: 'tool',
-        data: { seq: 1, phase: 'start', toolName: 'update_status', args: { issueKey: 'EX-2', status: '진행중' } },
+        data: { seq: 1, phase: 'start', toolName: 'update_issue', args: { issueKey: 'EX-2', status: '진행중' } },
       },
-      { event: 'tool', data: { seq: 1, phase: 'result', toolName: 'update_status', isError: false } },
+      { event: 'tool', data: { seq: 1, phase: 'result', toolName: 'update_issue', isError: false } },
       { event: 'delta', data: { text: '상태를 변경했어요.' } },
       { event: 'done', data: { sessionId: 's-tool-1' } },
     ],
@@ -40,7 +40,7 @@ test('도구 호출이 인라인으로 중첩 렌더되고 상태가 done(✓) �
 
   // 도구 행: 한국어 라벨 + 이슈키 + 완료 상태
   const toolRow = page.getByTestId('tool-step-tool')
-  await expect(toolRow).toContainText('상태 변경')
+  await expect(toolRow).toContainText('이슈 수정')
   await expect(toolRow).toContainText('EX-2')
   // result 이벤트 후 상태가 done(✓) 으로 전이
   await expect(toolRow).toContainText('✓')
@@ -52,7 +52,7 @@ test('도구 호출이 인라인으로 중첩 렌더되고 상태가 done(✓) �
   // delta 핸들러가 turn 을 교체할 때 steps 를 보존해야 한다(과거 ...last 누락으로 done 순간 증발).
   await expect(page.getByTestId('tool-step-delegation')).toBeVisible()
   await expect(toolRow).toBeVisible()
-  await expect(toolRow).toContainText('상태 변경')
+  await expect(toolRow).toContainText('이슈 수정')
   await expect(toolRow).toContainText('✓')
 })
 
@@ -126,8 +126,8 @@ test('도구 호출과 텍스트가 도착순으로 각각 새 풍선에 분리 
       { event: 'tool', data: { seq: 1, phase: 'result', toolName: 'get_issue_detail', isError: false } },
       { event: 'delta', data: { text: 'EX-1 을 확인했어요. ' } },
       { event: 'delta', data: { text: '상태를 바꿀게요.' } },
-      { event: 'tool', data: { seq: 2, phase: 'start', toolName: 'update_status', args: { issueKey: 'EX-1', status: '진행중' } } },
-      { event: 'tool', data: { seq: 2, phase: 'result', toolName: 'update_status', isError: false } },
+      { event: 'tool', data: { seq: 2, phase: 'start', toolName: 'update_issue', args: { issueKey: 'EX-1', status: '진행중' } } },
+      { event: 'tool', data: { seq: 2, phase: 'result', toolName: 'update_issue', isError: false } },
       { event: 'delta', data: { text: '진행중으로 변경했어요.' } },
       { event: 'done', data: { sessionId: 's-tool-interleave' } },
     ],
@@ -150,7 +150,7 @@ test('도구 호출과 텍스트가 도착순으로 각각 새 풍선에 분리 
   await expect(bubbles.nth(1)).not.toContainText('진행중으로 변경했어요.')
   // 3) 도구B 는 새 풍선(완료 상태 전이도 반영)
   await expect(bubbles.nth(2).getByTestId('tool-step-tool')).toHaveCount(1)
-  await expect(bubbles.nth(2)).toContainText('상태 변경')
+  await expect(bubbles.nth(2)).toContainText('이슈 수정')
   await expect(bubbles.nth(2)).toContainText('✓')
   // 4) 텍스트2 는 새 풍선
   await expect(bubbles.nth(3)).toHaveText('진행중으로 변경했어요.')
@@ -217,7 +217,7 @@ test('세션 복원 시 toolCalls 가 ToolStepList(위임+도구 행) 로 렌더
       widgets: null,
       toolCalls: [
         { kind: 'delegation', label: '이슈 전문가에게 위임 중' },
-        { kind: 'tool', seq: 1, toolName: 'update_status', args: { issueKey: 'EX-5', status: '완료' }, status: 'done' },
+        { kind: 'tool', seq: 1, toolName: 'update_issue', args: { issueKey: 'EX-5', status: '완료' }, status: 'done' },
       ],
       createdAt: '2026-06-22T00:00:01Z',
     },
@@ -242,7 +242,7 @@ test('세션 복원 시 toolCalls 가 ToolStepList(위임+도구 행) 로 렌더
 
   // 도구 행: 완료 상태
   const toolRow = chatPanel.getByTestId('tool-step-tool')
-  await expect(toolRow).toContainText('상태 변경')
+  await expect(toolRow).toContainText('이슈 수정')
   await expect(toolRow).toContainText('EX-5')
   await expect(toolRow).toContainText('✓')
 
@@ -270,7 +270,7 @@ test('세션 복원 시 contentBlocks 로 도구·텍스트 풍선을 스트리�
       widgets: null,
       toolCalls: [
         { kind: 'tool', seq: 1, toolName: 'get_issue_detail', args: { issueKey: 'EX-1' }, status: 'done' },
-        { kind: 'tool', seq: 2, toolName: 'update_status', args: { issueKey: 'EX-1', status: '진행중' }, status: 'done' },
+        { kind: 'tool', seq: 2, toolName: 'update_issue', args: { issueKey: 'EX-1', status: '진행중' }, status: 'done' },
       ],
       // 서버가 영속한 블록 순서 — 도구A → 텍스트1 → 도구B → 텍스트2 (textStart 14 = 'EX-1 을 확인했어요. ' 길이)
       contentBlocks: [
@@ -295,8 +295,8 @@ test('세션 복원 시 contentBlocks 로 도구·텍스트 풍선을 스트리�
     .locator('[data-testid="chat-block-tools"], [data-testid="chat-block"]')
   await expect(bubbles).toHaveCount(4)
   await expect(bubbles.nth(0)).toContainText('이슈 상세 조회')
-  await expect(bubbles.nth(0)).not.toContainText('상태 변경')
+  await expect(bubbles.nth(0)).not.toContainText('이슈 수정')
   await expect(bubbles.nth(1)).toHaveText('EX-1 을 확인했어요.')
-  await expect(bubbles.nth(2)).toContainText('상태 변경')
+  await expect(bubbles.nth(2)).toContainText('이슈 수정')
   await expect(bubbles.nth(3)).toHaveText('진행중으로 변경했어요.')
 })

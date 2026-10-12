@@ -93,7 +93,7 @@ ai-driven-explorer가 웹 UI에서 사용자 관점의 결함을 찾는다면, �
 ```
 ### issue-agent
 - **역할**: 이슈 상태 변경·댓글 추가·자기 자신 unassign
-- **선언 도구**: get_issue_detail, update_status, add_comment, unassign_self
+- **선언 도구**: get_issue_detail, update_issue, add_comment, unassign_self
 - **위임 규칙**:
   - 이슈 생성/삭제 → project-agent 위임
   - 프로젝트 목록/멤버 → project-agent
@@ -289,7 +289,7 @@ curl -s "http://localhost:9090/api/v1/messaging/channels" \
 
 - **이슈 컨텍스트 주입**: AI가 현재 이슈 번호·프로젝트 키를 알고 있는가 (시스템 프롬프트 주입 여부)
 - **`get_issue_detail` 호출**: 상태 변경 전 현재 이슈 상태 확인 도구 호출
-- **`update_status` 파라미터**: 유효한 상태값(OPEN, IN_PROGRESS, DONE 등)만 사용
+- **`update_issue` 의 `status` 파라미터**: 유효한 상태값(OPEN, IN_PROGRESS, DONE 등)만 사용
 
 ### @My AI 멘션 트리거
 
@@ -316,7 +316,7 @@ curl -s "http://localhost:9090/api/v1/messaging/channels" \
 ### tool (도구 호출)
 
 - 선언된 tools 외 호출 없음
-- 필수 도구가 호출됨 (예: update_status 직전 get_issue_detail)
+- 필수 도구가 호출됨 (예: update_issue 직전 get_issue_detail)
 - tool 인자 schema 위반 없음
 - tool_result 에러를 응답에 반영함
 - propose_* 도구 흐름 위반 없음

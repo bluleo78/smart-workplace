@@ -8,6 +8,12 @@ describe('ASSISTANT_SYSTEM_PROMPT', () => {
     expect(ASSISTANT_SYSTEM_PROMPT).toMatch(/첨부.*위임 prompt 에 옮겨/s);
   });
 
+  // WP-343: list_project_members 폐지 — 프로젝트 멤버는 get_project 의 members 로 읽는다.
+  it('프로젝트 읽기 도구에 폐지된 list_project_members 를 안내하지 않는다', () => {
+    expect(ASSISTANT_SYSTEM_PROMPT).not.toContain('list_project_members');
+    expect(ASSISTANT_SYSTEM_PROMPT).toMatch(/get_project\\?` \(멤버 포함\)/);
+  });
+
   it('순수 라우터 지시 + issue-agent 위임 테이블 + general-purpose 금지 문구 포함', () => {
     expect(ASSISTANT_SYSTEM_PROMPT).toContain('라우터');
     expect(ASSISTANT_SYSTEM_PROMPT).toContain('issue-agent');

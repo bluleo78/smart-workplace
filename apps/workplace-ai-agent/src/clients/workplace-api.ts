@@ -67,19 +67,6 @@ export interface ChatMessageItem {
   attachments?: ChatAttachmentMeta[];
 }
 
-// #350: 채널 목록/탐색 응답 단건 — 채널 이름 → channelId 해석에 사용.
-export interface ChannelItem {
-  id: number;
-  kind: string;
-  name: string;
-  visibility: string;
-  member: boolean;
-  role: string | null;
-  archived: boolean;
-  memberCount: number;
-  unreadCount: number;
-}
-
 // 7: 채널 메시지 (LLM 노출용 경량 형태).
 export interface ChannelMessageItem {
   id: number;
@@ -89,38 +76,6 @@ export interface ChannelMessageItem {
   createdAt: string;
   deleted: boolean;
 }
-
-// #333 M3: 연락처 단건(읽기 그라운딩 + 내부 쓰기).
-// #833: 필드명을 API 실제 응답(ContactSummary.type)에 맞춰 `kind` → `type` 으로 교정한다.
-// 기존 `kind` 선언은 단순 캐스트라 컴파일은 통과했지만 런타임에는 늘 undefined 였다.
-export interface ContactItem {
-  // ⚠️ 네임스페이스가 타입별로 다르다 — MEMBER 면 user.id, EXTERNAL 이면 contact_entry.id.
-  // 서로 호환되지 않으므로 도구 계층에서는 이 필드를 그대로 노출하지 말고 userId/externalId 로 분리한다.
-  id: number;
-  type: 'MEMBER' | 'EXTERNAL';
-  name: string;
-  email: string | null;
-  title: string | null;
-  organization: string | null;
-  isFavorite: boolean;
-}
-
-// #333 M4: 드라이브 폴더 생성/이름변경 응답 단건.
-export interface DriveFolderItem { id: number; parentId: number | null; name: string; createdAt: string; }
-
-// #333 M3: 외부연락처 생성 입력 (선택 필드는 undefined 시 JSON 에서 생략).
-export interface ExternalContactInput {
-  name: string;
-  email?: string;
-  phone?: string;
-  organization?: string;
-  title?: string;
-  notes?: string;
-  visibility: 'SHARED' | 'PERSONAL';
-}
-
-// #839: 외부연락처 부분 수정 입력 — 생략(undefined) 필드는 서버가 현재 값을 유지하고, 빈 문자열은 비운다.
-export type ExternalContactPatch = Partial<ExternalContactInput>;
 
 // 6c: 이슈 첨부 메타.
 export interface AttachmentMeta {
@@ -148,8 +103,7 @@ export interface WorkplaceApiClient {
   // #846: 공유 도구(이슈·프로젝트·노트·캘린더·메일·구성원·메시징·드라이브 읽기 등)용 클라이언트.
   //   경로 매핑은 공유 패키지(createSharedToolClient)에 있고, 여기서는 이 에이전트 신원 헤더가 붙은 HTTP 만 넘긴다.
   toolClient(agentId: number): SharedToolClient;
-  // 아래는 ai-agent 전용 도구·흐름(상태 변경·담당 해제·chat·위임 제안·외부연락처/드라이브 쓰기 등)이 쓰는 메서드.
-  updateIssueStatus(agentId: number, issueKey: string, statusKey: string): Promise<void>;
+  // 아래는 ai-agent 전용 도구·흐름(담당 해제·chat·위임 제안 등)이 쓰는 메서드.
   unassignSelf(agentId: number, issueKey: string): Promise<void>;
   // Task 7: getOAuthToken → getProviderCredential 일반화. GET /users/me/provider-credential.
   // anthropic(OAuth 토큰)·opencode(공급자 설정 payload) 양쪽을 ProviderCredential 유니온으로 반환.
@@ -161,19 +115,6 @@ export interface WorkplaceApiClient {
   postChatProgress(agentId: number, threadId: number, payload: ProgressPayload): Promise<void>;
   // A2: 메시징 진행 상태 전송
   postMessagingProgress(agentId: number, channelId: number, payload: ProgressPayload): Promise<void>;
-  // #350: 공개 채널 탐색 — 채널 이름 → channelId 해석.
-  discoverChannels(agentId: number, q: string): Promise<ChannelItem[]>;
-  // #333 M4: 메일 수동 동기화.
-  syncMail(agentId: number, accountId: number): Promise<unknown>;
-  // #333 M3: 외부연락처 내부 쓰기(생성/수정). 삭제는 confirm 실행기(propose).
-  // #839: force=true 면 이름+이메일 중복 경고(409)를 무시하고 저장한다. 수정은 부분 수정.
-  createExternalContact(agentId: number, input: ExternalContactInput, force?: boolean): Promise<ContactItem>;
-  updateExternalContact(agentId: number, id: number, input: ExternalContactPatch, force?: boolean): Promise<ContactItem>;
-  // #333 M4: 드라이브 폴더/파일 쓰기 — 이동은 204(void).
-  createFolder(agentId: number, spaceId: number, parentId: number | null, name: string): Promise<DriveFolderItem>;
-  renameFolder(agentId: number, folderId: number, name: string): Promise<DriveFolderItem>;
-  moveFolder(agentId: number, folderId: number, targetParentId: number | null): Promise<void>;
-  moveFile(agentId: number, fileId: number, targetFolderId: number | null): Promise<void>;
   // #842: 확인카드 사전검증(dry-run). 승인 시점과 같은 권한·매핑·도메인 검증만 서버에서 수행한다.
   //   실패는 AxiosError 로 던져지고 message 는 인터셉터가 서버 사유(describeApiError)로 채운다.
   validateAction(agentId: number, actionType: string, params: Record<string, unknown>): Promise<void>;
@@ -261,13 +202,6 @@ export function createWorkplaceApiClient(opts: {
     },
   });
 
-  // #839: 외부연락처 생성/수정 요청 설정 — force 는 쿼리 파라미터(서버 @RequestParam)라 신원 헤더 설정과 병합한다.
-  // 미지정이면 붙이지 않는다(서버 기본 false).
-  const withForce = (agentId: number, force?: boolean) => ({
-    ...onBehalfOf(agentId),
-    ...(force ? { params: { force } } : {}),
-  });
-
   return {
     toolClient(agentId) {
       // 매 요청에 이 에이전트 신원 헤더를 얹는다. 인증·오류 메시지 보강 인터셉터는 같은 http 인스턴스에서 그대로 적용된다.
@@ -284,16 +218,6 @@ export function createWorkplaceApiClient(opts: {
       return createWorkplaceApiClient({ ...opts, onBehalfOfTenantId: tenantId });
     },
 
-
-
-    async updateIssueStatus(agentId, issueKey, statusKey) {
-      const { projectKey, number } = parseIssueKey(issueKey);
-      await http.patch(
-        `/projects/${projectKey}/issues/${number}/status`,
-        { status: statusKey },
-        onBehalfOf(agentId),
-      );
-    },
 
 
     async unassignSelf(agentId, issueKey) {
@@ -382,55 +306,12 @@ export function createWorkplaceApiClient(opts: {
       await http.post(`/messaging/channels/${channelId}/progress`, payload, onBehalfOf(agentId));
     },
 
-    // #350: 채널 탐색 — 공개 채널을 이름/키워드로 검색. 채널 이름 → channelId 해석에 사용.
-    async discoverChannels(agentId, q) {
-      const r = await http.get(`/messaging/channels/discover?q=${encodeURIComponent(q)}`, onBehalfOf(agentId));
-      return Array.isArray(r.data) ? (r.data as ChannelItem[]) : [];
-    },
-
-
-
     async listThreadIssueAttachments(agentId, threadId) {
       const r = await http.get(`/chat/threads/${threadId}/issue-attachments`, onBehalfOf(agentId));
       const list: AttachmentMeta[] = Array.isArray(r.data) ? r.data : [];
       return list;
     },
 
-
-
-    // #333 M4: 수동 동기화 — POST /mail/accounts/{accountId}/sync. 소유권은 서버가 검증.
-    async syncMail(agentId, accountId) {
-      const r = await http.post(`/mail/accounts/${accountId}/sync`, {}, onBehalfOf(agentId));
-      return r.data;
-    },
-
-
-    async createExternalContact(agentId, input, force) {
-      const r = await http.post(`/contacts/external`, input, withForce(agentId, force));
-      return r.data as ContactItem;
-    },
-    async updateExternalContact(agentId, id, input, force) {
-      const r = await http.patch(`/contacts/external/${id}`, input, withForce(agentId, force));
-      return r.data as ContactItem;
-    },
-
-
-
-    // #333 M4: 드라이브 폴더/파일 쓰기 — 이동은 204(void).
-    async createFolder(agentId, spaceId, parentId, name) {
-      const r = await http.post(`/drive/spaces/${spaceId}/folders`, { parentId: parentId ?? null, name }, onBehalfOf(agentId));
-      return r.data as DriveFolderItem;
-    },
-    async renameFolder(agentId, folderId, name) {
-      const r = await http.patch(`/drive/folders/${folderId}`, { name }, onBehalfOf(agentId));
-      return r.data as DriveFolderItem;
-    },
-    async moveFolder(agentId, folderId, targetParentId) {
-      await http.patch(`/drive/folders/${folderId}/move`, { targetParentId: targetParentId ?? null }, onBehalfOf(agentId));
-    },
-    async moveFile(agentId, fileId, targetFolderId) {
-      await http.patch(`/drive/files/${fileId}/move`, { targetFolderId: targetFolderId ?? null }, onBehalfOf(agentId));
-    },
 
     async downloadThreadIssueAttachment(agentId, threadId, fileId) {
       const r = await http.get(`/chat/threads/${threadId}/issue-attachments/${fileId}/content`, {

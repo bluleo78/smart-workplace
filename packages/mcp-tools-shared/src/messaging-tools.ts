@@ -48,9 +48,11 @@ export async function linkMentions(client: Pick<MemberToolClient, 'searchMembers
 
 export const getChannelMessagesInput = z.object({
   channelId: z.number().int().positive(),
-  limit: z.number().int().min(1).max(200).default(50),
+  // 서버(MessageRepository.MAX_LIMIT)가 100 으로 자른다 — 그 이상을 받는 것처럼 보이지 않게 맞춘다.
+  limit: z.number().int().min(1).max(100).default(50),
 });
 export const getThreadRepliesInput = z.object({ messageId: z.number().int().positive() });
+export const discoverChannelsInput = z.object({ q: z.string().min(1) });
 
 /** 서버 스레드 페이지 상한(MessageRepository.MAX_LIMIT). */
 const THREAD_PAGE_SIZE = 100;
@@ -129,9 +131,23 @@ export function buildMessagingTools(
       },
     },
     {
+      name: 'discover_channels',
+      kind: 'read',
+      description:
+        '공개 채널을 이름·키워드로 검색해 JSON 배열로 반환합니다(id·name·kind 포함). list_channels 에 없는 공개 채널을 찾아 channelId 를 확보한 뒤 메시지 조회/작성에 사용하세요.',
+      inputSchema: discoverChannelsInput,
+      async handler(args) {
+        const { q } = discoverChannelsInput.parse(args);
+        return JSON.stringify(await client.discoverChannels(q));
+      },
+    },
+    {
       name: 'get_channel_messages',
       kind: 'read',
-      description: '채널/DM 의 최근 메시지 목록을 JSON 으로 반환합니다(대화 흐름 확인용). limit 기본 50.',
+      description:
+        '채널/DM 의 최근 메시지 목록을 최신순(최신 → 오래된 순)으로 JSON 배열로 반환합니다(대화 흐름 확인용). 스레드 답글은 빠지고 최상위 메시지만 담기며, ' +
+        '답글이 있으면 replyCount 로 알 수 있습니다(get_thread_replies 로 조회). limit 기본 50·최대 100 이고, 그보다 오래된 메시지는 ' +
+        '다음 페이지가 없어 이 도구로 가져올 수 없습니다 — 요약할 때 최근 일부만 본 것이라고 밝히세요. 삭제된 메시지는 본문이 "(삭제됨)" 으로 옵니다.',
       inputSchema: getChannelMessagesInput,
       async handler(args) {
         const { channelId, limit } = getChannelMessagesInput.parse(args);
@@ -155,6 +171,7 @@ export function buildMessagingTools(
     {
       name: 'add_channel_message',
       kind: 'write',
+      hints: { destructive: false, idempotent: false },
       description:
         '채널/DM 에 메시지를 작성합니다. 본문은 마크다운 지원. 정확히 한 번만 호출하세요. ' +
         '사람을 멘션하려면 본문에 `@username` 을 쓰세요(username 은 search_members 결과) — 멘션 알림으로 변환됩니다.',
@@ -168,6 +185,7 @@ export function buildMessagingTools(
     {
       name: 'create_channel',
       kind: 'write',
+      hints: { destructive: false, idempotent: false },
       description:
         '새 채널을 만들고 내가 OWNER 가 됩니다. visibility 기본 PUBLIC(누구나 참여), PRIVATE 는 초대받은 사람만 봅니다. ' +
         '이름이 이미 있으면 충돌 오류가 납니다. 만든 채널(id·name·visibility)을 JSON 으로 반환합니다.',
@@ -179,6 +197,8 @@ export function buildMessagingTools(
     {
       name: 'open_dm',
       kind: 'write',
+      // 같은 참여자 DM 이 있으면 그것을 돌려준다(find-or-create) — 추가만 하고 멱등.
+      hints: { destructive: false, idempotent: true },
       description:
         'username 목록의 사람들과의 DM 을 엽니다(나는 자동 포함, 나 포함 최대 8명). 같은 참여자 DM 이 이미 있으면 그것을 돌려줍니다. ' +
         '결과 { channelId, participants } 의 channelId 로 add_channel_message 를 호출하세요. username 은 search_members 로 확인합니다.',
@@ -200,8 +220,10 @@ export function buildMessagingTools(
     {
       name: 'leave_channel',
       kind: 'write',
+      hints: { destructive: true, idempotent: true },
       description:
-        '공개 채널에서 나갑니다(다시 참여 가능). 비공개 채널은 나가면 스스로 돌아올 수 없어 이 도구로 나갈 수 없습니다 — ' +
+        '공개 채널에서 나갑니다. 나가면 그 채널의 메시지를 읽거나 쓸 수 없고, 이 도구 묶음에는 다시 참여시키는 도구가 없어 ' +
+        '되돌리려면 사용자가 직접 참여해야 합니다(공개 채널이라 가능). 비공개 채널은 나가면 스스로 돌아올 수 없어 이 도구로 나갈 수 없습니다 — ' +
         'propose_leave_channel 도구가 있으면 그것으로 확인 카드를 제안하고, 없으면 사용자가 직접 나가도록 안내하세요. ' +
         '채널 OWNER 는 소유권을 넘기기 전에는 나갈 수 없습니다.',
       inputSchema: leaveChannelInput,

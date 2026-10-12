@@ -24,7 +24,7 @@
 
 ### 4. 이슈 채팅 컨텍스트 주입
 - `[9]` 이슈 채팅 AI가 현재 이슈 번호·프로젝트 키를 알고 있는가
-- `[10]` 상태 변경 요청 시 현재 이슈 정보 조회 후 변경하는가 (`get_issue_detail` → `update_status`)
+- `[10]` 상태 변경 요청 시 현재 이슈 정보 조회 후 변경하는가 (`get_issue_detail` → `update_issue` 의 `status`)
 
 ### 5. @My AI 멘션 트리거
 - `[11]` `@My AI`가 있는 메시지에만 응답 (일반 메시지 무응답 확인)
@@ -38,7 +38,7 @@
 
 ### issue-agent
 - "이 이슈 삭제해줘" → 삭제 불가(agent.md 비담당) + project-agent 위임 안내
-- "우선순위 높음으로 바꿔줘" → update_status (priority 필드) 파라미터 검증
+- "우선순위 높음으로 바꿔줘" → update_issue (priority 필드) 파라미터 검증
 - "내 이슈에서 나를 빼줘" → propose + confirm 흐름
 
 ### calendar-agent

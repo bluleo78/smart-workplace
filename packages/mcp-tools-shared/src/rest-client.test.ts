@@ -304,3 +304,51 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(await client.searchDriveContent({ q: 'x', limit: 10 })).toEqual({ hits: [] });
   });
 });
+
+describe('createSharedToolClient WP-343 이동 도구 경로', () => {
+  it('드라이브 폴더·파일 정리: 생성·이름변경은 응답 raw, 이동은 본문에 null(루트) 그대로', async () => {
+    const { http, client } = mockHttp();
+    http.post.mockResolvedValueOnce({ data: { id: 10, name: '새 폴더' } });
+    expect(await client.createDriveFolder(1, null, '새 폴더')).toEqual({ id: 10, name: '새 폴더' });
+    expect(http.post).toHaveBeenLastCalledWith('/drive/spaces/1/folders', { parentId: null, name: '새 폴더' });
+    await client.createDriveFolder(1, 5, '하위');
+    expect(http.post).toHaveBeenLastCalledWith('/drive/spaces/1/folders', { parentId: 5, name: '하위' });
+    http.patch.mockResolvedValueOnce({ data: { id: 10, name: '변경' } });
+    expect(await client.renameDriveFolder(10, '변경')).toEqual({ id: 10, name: '변경' });
+    expect(http.patch).toHaveBeenLastCalledWith('/drive/folders/10', { name: '변경' });
+    await client.moveDriveFolder(10, null);
+    expect(http.patch).toHaveBeenLastCalledWith('/drive/folders/10/move', { targetParentId: null });
+    await client.moveDriveFile(5, 10);
+    expect(http.patch).toHaveBeenLastCalledWith('/drive/files/5/move', { targetFolderId: 10 });
+  });
+
+  it('외부 연락처 생성·수정: force 는 true 일 때만 쿼리로 붙는다(#839)', async () => {
+    const { http, client } = mockHttp();
+    const body = { name: '신규', visibility: 'SHARED' as const };
+    await client.createExternalContact(body);
+    expect(http.post).toHaveBeenLastCalledWith('/contacts/external', body, undefined);
+    await client.createExternalContact(body, false);
+    expect(http.post).toHaveBeenLastCalledWith('/contacts/external', body, undefined);
+    await client.createExternalContact(body, true);
+    expect(http.post).toHaveBeenLastCalledWith('/contacts/external', body, { params: { force: true } });
+    await client.updateExternalContact(9, { phone: '010-1' }, true);
+    expect(http.patch).toHaveBeenLastCalledWith('/contacts/external/9', { phone: '010-1' }, { params: { force: true } });
+    await client.updateExternalContact(9, { phone: '010-1' });
+    expect(http.patch).toHaveBeenLastCalledWith('/contacts/external/9', { phone: '010-1' }, undefined);
+  });
+
+  it('메일 동기화는 POST /mail/accounts/{id}/sync 의 응답을 그대로 돌려준다', async () => {
+    const { http, client } = mockHttp();
+    http.post.mockResolvedValueOnce({ data: { saved: 5 } });
+    expect(await client.syncMail(3)).toEqual({ saved: 5 });
+    expect(http.post).toHaveBeenCalledWith('/mail/accounts/3/sync', {});
+  });
+
+  it('채널 탐색은 q 를 쿼리로 보내고 비배열 응답은 빈 배열로 대체한다', async () => {
+    const { http, client } = mockHttp();
+    http.get.mockResolvedValueOnce({ data: [{ id: 2, name: '개발팀' }] });
+    expect(await client.discoverChannels('개발팀')).toEqual([{ id: 2, name: '개발팀' }]);
+    expect(http.get).toHaveBeenLastCalledWith('/messaging/channels/discover', { params: { q: '개발팀' } });
+    expect(await client.discoverChannels('없음')).toEqual([]);
+  });
+});

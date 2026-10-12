@@ -17,6 +17,7 @@ import { createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk';
 import { buildTools } from '../mcp/tools.js';
 import { adaptMcpTool, buildInProcessWorkplaceMcpServer } from './sdk-mcp-server.js';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
+import { toolAnnotations, type SharedTool } from '@smart-workplace/mcp-tools-shared';
 
 describe('adaptMcpTool', () => {
   it('string 반환을 CallToolResult content 로 래핑', async () => {
@@ -35,6 +36,14 @@ describe('adaptMcpTool', () => {
     });
     const res = await adapted.handler({}, undefined);
     expect(res).toEqual({ isError: true, content: [{ type: 'text', text: 'boom' }] });
+  });
+
+  it('McpTool.annotations 를 SDK 도구 정의에 그대로 싣는다(WP-342)', () => {
+    const annotations = { title: '이슈 수정', readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false };
+    const adapted = adaptMcpTool({ name: 't', description: 'd', inputSchema: z.object({}), handler: async () => 'x', annotations });
+    expect(adapted.annotations).toEqual(annotations);
+    // 로컬 전용 도구는 힌트가 없다.
+    expect(adaptMcpTool({ name: 't', description: 'd', inputSchema: z.object({}), handler: async () => 'x' }).annotations).toBeUndefined();
   });
 
   it('inputSchema 를 ZodObject.shape 로 추출', () => {
@@ -91,6 +100,23 @@ describe('adaptMcpTool onTool emit (#462 슬라이스4)', () => {
     expect(lines[1]).toEqual({
       seq: 1, event: 'tool_result', toolName: 'read_chat_attachment', isError: false, result: '첨부:\n[image/png 6KB]',
     });
+  });
+
+  it('공유 도구(SharedTool)가 돌려준 이미지도 같은 경로로 전달되고 onTool result 에 base64 가 새지 않는다 (WP-345)', async () => {
+    const lines: import('./sdk-mcp-server.js').ToolUseLine[] = [];
+    let seq = 0;
+    const image = { type: 'image' as const, data: 'A'.repeat(8192), mimeType: 'image/png' };
+    const shared: SharedTool = {
+      name: 'fake_shared_image', description: 'd', inputSchema: z.object({}), kind: 'read',
+      handler: async () => [{ type: 'text', text: '첨부:' }, image],
+    };
+    // tools.ts 의 sharedTool() 이 하는 것과 같다 — 핸들러는 그대로 두고 annotations 만 얹는다.
+    const adapted = adaptMcpTool({ ...shared, annotations: toolAnnotations(shared) }, { onTool: (l) => lines.push(l), nextSeq: () => (seq += 1) });
+    const res = await adapted.handler({}, undefined);
+    expect(res).toEqual({ content: [{ type: 'text', text: '첨부:' }, image] });
+    const logged = JSON.stringify(lines);
+    expect(logged).not.toContain('AAAA');
+    expect(lines[1]).toMatchObject({ event: 'tool_result', result: '첨부:\n[image/png 6KB]' });
   });
 
   it('ctx 없으면 onTool emit 없이 기존 동작(하위호환)', async () => {

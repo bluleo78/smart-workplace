@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { replaceImagesWithNotice, summarizeToolResult, toMcpContent, type McpContent } from './mcp-content.js';
+import { z } from 'zod';
+import { replaceImagesWithNotice, resultText, summarizeToolResult, toMcpContent, type McpContent } from './mcp-content.js';
+import type { SharedTool } from './mcp-tool.js';
 
 // 6KB 분량의 base64(실제 바이트 = 길이 × 3/4).
 const image6kb: McpContent = { type: 'image', data: 'A'.repeat(8192), mimeType: 'image/png' };
@@ -39,5 +41,38 @@ describe('replaceImagesWithNotice', () => {
       { type: 'text', text: 'a.png' },
       { type: 'text', text: '[image/png 6KB] 볼 수 없음' },
     ]);
+  });
+});
+
+describe('resultText (WP-345)', () => {
+  it('문자열은 그대로', () => {
+    expect(resultText('{"ok":true}')).toBe('{"ok":true}');
+  });
+  it('text 블록만 있는 배열은 줄바꿈으로 이어 붙인다', () => {
+    expect(resultText([{ type: 'text', text: 'a' }, { type: 'text', text: 'b' }])).toBe('a\nb');
+  });
+  it('이미지 블록이 섞이면 던진다(텍스트를 기대하는 자리에서 조용히 넘기지 않는다)', () => {
+    expect(() => resultText([{ type: 'text', text: '첨부:' }, image6kb])).toThrow('이미지 블록');
+  });
+});
+
+// WP-345: 공유 도구도 content 블록 배열을 돌려줄 수 있다 — 아래가 컴파일되면(typecheck) 타입이 넓어진 것이다.
+describe('SharedTool 반환 타입 (WP-345)', () => {
+  const imageTool: SharedTool = {
+    name: 'read_attachment_fake',
+    description: 'd',
+    inputSchema: z.object({}),
+    kind: 'read',
+    handler: async () => [{ type: 'text', text: '첨부:' }, image6kb],
+  };
+  const stringTool: SharedTool = { name: 's', description: 'd', inputSchema: z.object({}), kind: 'read', handler: async () => '{}' };
+
+  it('블록 배열을 돌려주는 공유 도구도 toMcpContent·summarizeToolResult 를 그대로 통과한다', async () => {
+    const out = await imageTool.handler({});
+    expect(toMcpContent(out)).toEqual([{ type: 'text', text: '첨부:' }, image6kb]);
+    expect(summarizeToolResult(out)).toBe('첨부:\n[image/png 6KB]');
+  });
+  it('기존 문자열 도구는 그대로 동작한다', async () => {
+    expect(toMcpContent(await stringTool.handler({}))).toEqual([{ type: 'text', text: '{}' }]);
   });
 });

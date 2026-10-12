@@ -38,10 +38,30 @@ describe('/mcp', () => {
     expect(client.getServerVersion()).toMatchObject({ name: 'genia-works', title: 'Gen:iA Works' });
     const tools = await client.listTools();
     expect(tools.tools.map((t) => t.name)).toContain('create_issue');
-    // #853: kind 가 MCP 표준 힌트로 나가야 클라이언트가 읽기 자동승인·쓰기 확인을 구분한다.
-    const byName = new Map(tools.tools.map((t) => [t.name, t.annotations]));
-    expect(byName.get('get_issue_detail')).toMatchObject({ readOnlyHint: true, destructiveHint: false });
-    expect(byName.get('create_issue')).toMatchObject({ readOnlyHint: false, destructiveHint: false });
+    // #853·WP-342: 연산 성격이 MCP 표준 힌트로 나가야 클라이언트가 읽기 자동승인·덮어쓰기 확인·추가 허용을 구분한다.
+    const byName = new Map(tools.tools.map((t) => [t.name, t]));
+    // 읽기 도구는 destructive·idempotent 힌트를 싣지 않는다(읽기 전용이라 의미가 없다).
+    expect(byName.get('get_issue_detail')?.annotations).toEqual({
+      title: '이슈 상세 조회',
+      readOnlyHint: true,
+      openWorldHint: false,
+    });
+    // 추가만 하는 쓰기 — destructive 아님.
+    expect(byName.get('create_issue')?.annotations).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: false,
+    });
+    // 덮어쓰기(집합 교체 포함)는 write 여도 destructive 로 알린다 — kind 와 분리된 hint (WP-342).
+    expect(byName.get('update_issue')?.annotations).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: true,
+    });
+    // 표시 이름은 top-level title 과 annotations.title 양쪽에 나간다.
+    expect(byName.get('update_issue')?.title).toBe('이슈 수정');
+    expect(byName.get('update_issue')?.annotations?.title).toBe('이슈 수정');
   });
 
   it('tools/call create_issue 가 같은 Bearer 로 workplace-api 를 호출한다', async () => {
@@ -72,5 +92,17 @@ describe('/mcp', () => {
     const client = await connect('swp_valid');
     const res = await client.callTool({ name: 'get_issue_detail', arguments: { issueKey: 'WP-99' } });
     expect(res.isError).toBe(true);
+  });
+
+  it('get_member·get_member_contact 는 없는 구성원을 성공 문자열이 아닌 isError 로 돌려준다 (WP-344)', async () => {
+    nock(API).get('/auth/me').reply(200, { id: 1, username: 'u', kind: 'HUMAN' });
+    // 검색 결과에 정확일치 username 이 없다 — 두 도구 호출 모두 같은 조회를 한다.
+    nock(API).get('/members').query(true).times(2).reply(200, { content: [] });
+    const client = await connect('swp_valid');
+    for (const name of ['get_member', 'get_member_contact']) {
+      const res = await client.callTool({ name, arguments: { username: 'ghost' } });
+      expect(res.isError).toBe(true);
+      expect(JSON.stringify(res.content)).toContain('구성원을 찾을 수 없습니다: ghost');
+    }
   });
 });

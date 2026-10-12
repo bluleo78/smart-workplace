@@ -14,7 +14,7 @@
 - `[5]` pending_action SSE 이벤트가 발생하는가 (홈 compose SSE 한정)
 
 ### 3. 필수 선행 도구
-- `[6]` 변경 도구 직전 조회 도구 호출 (예: update_status 전 get_issue_detail)
+- `[6]` 변경 도구 직전 조회 도구 호출 (예: update_issue 전 get_issue_detail)
 - `[7]` 목록 조회 후 ID 기반 상세 조회 (ID를 추측하지 않는가)
 - `[8]` 검색 전 list로 인덱스 확인 (wiki_agent: search_wiki 선행)
 
@@ -36,7 +36,7 @@
 
 ### issue-agent
 ```
-상태 변경: get_issue_detail → update_status
+상태 변경: get_issue_detail → update_issue(status)
 댓글 추가: get_issue_detail → add_comment
 unassign: get_issue_detail → (propose?) → unassign_self
 ```
@@ -50,7 +50,7 @@ unassign: get_issue_detail → (propose?) → unassign_self
 
 ### drive-agent
 ```
-폴더 생성: list_drive_spaces → create_folder (propose 불필요인지 agent.md 확인)
+폴더 생성: list_drive_spaces → create_drive_folder (propose 불필요인지 agent.md 확인)
 파일 삭제: list_drive_items → propose_delete_drive_item → [pending_action]
 폴더 이동: list_drive_items → propose_move_folder → [pending_action]
 ```
@@ -64,7 +64,7 @@ unassign: get_issue_detail → (propose?) → unassign_self
 ### project-agent
 ```
 프로젝트 생성: list_projects (중복 확인) → propose_create_project → [pending_action]
-멤버 추가: list_project_members → propose_add_project_member → [pending_action]
+멤버 추가: get_project(members 확인) → propose_add_project_member → [pending_action]
 ```
 
 ### messaging-agent

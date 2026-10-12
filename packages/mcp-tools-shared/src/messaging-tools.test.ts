@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { buildMessagingTools, linkMentions, toThreadReplyView, type MessagingToolOptions } from './messaging-tools.js';
 import type { MemberRow, MemberSearchParams, MemberToolClient, MessagingToolClient } from './tool-client.js';
+import { resultText } from './mcp-content.js';
 
 type Client = MessagingToolClient & Pick<MemberToolClient, 'searchMembers'>;
 
@@ -16,6 +17,7 @@ function mockClient(): Client {
     createChannel: vi.fn().mockResolvedValue({ id: 12, name: 'new', visibility: 'PUBLIC' }),
     openDm: vi.fn().mockResolvedValue({ id: 20, participants: [] }),
     leaveChannel: vi.fn().mockResolvedValue(undefined),
+    discoverChannels: vi.fn().mockResolvedValue([]),
   };
 }
 
@@ -45,12 +47,21 @@ describe('buildMessagingTools', () => {
     proposal: null,
   });
 
+  it('discover_channels → client.discoverChannels(q) 결과를 JSON 으로 반환하고 빈 q 는 거절한다 (#350)', async () => {
+    const c = mockClient();
+    vi.mocked(c.discoverChannels).mockResolvedValue([{ id: 3, name: '공지', kind: 'PUBLIC' }]);
+    const out = await tool(c, 'discover_channels').handler({ q: '공지' });
+    expect(c.discoverChannels).toHaveBeenCalledWith('공지');
+    expect(JSON.parse(resultText(out))).toEqual([{ id: 3, name: '공지', kind: 'PUBLIC' }]);
+    await expect(tool(c, 'discover_channels').handler({ q: '' })).rejects.toThrow();
+  });
+
   it('get_thread_replies → nextCursor 를 따라 끝까지 모으고 행의 반복·빈 필드를 지운다 (#850)', async () => {
     const c = mockClient();
     vi.mocked(c.getThreadReplies)
       .mockResolvedValueOnce({ items: [reply(31)], nextCursor: 'c1', hasMore: true })
       .mockResolvedValueOnce({ items: [reply(32)], nextCursor: null, hasMore: false });
-    const out = JSON.parse(await tool(c, 'get_thread_replies').handler({ messageId: 30 }));
+    const out = JSON.parse(resultText(await tool(c, 'get_thread_replies').handler({ messageId: 30 })));
     expect(c.getThreadReplies).toHaveBeenNthCalledWith(1, 30, { limit: 100, cursor: undefined });
     expect(c.getThreadReplies).toHaveBeenNthCalledWith(2, 30, { limit: 100, cursor: 'c1' });
     expect(out).toEqual({
@@ -66,7 +77,7 @@ describe('buildMessagingTools', () => {
     const c = mockClient();
     const page = { items: Array.from({ length: 100 }, (_, i) => reply(i)), nextCursor: 'c', hasMore: true };
     vi.mocked(c.getThreadReplies).mockResolvedValue(page);
-    const out = JSON.parse(await tool(c, 'get_thread_replies').handler({ messageId: 30 }));
+    const out = JSON.parse(resultText(await tool(c, 'get_thread_replies').handler({ messageId: 30 })));
     expect(c.getThreadReplies).toHaveBeenCalledTimes(5);
     expect(out.items).toHaveLength(500);
     expect(out.truncated).toBe(true);
@@ -81,7 +92,7 @@ describe('buildMessagingTools', () => {
     vi.mocked(c.listChannels).mockResolvedValue([{ id: 1, name: '일반' }]);
     const out = await tool(c, 'list_channels').handler({});
     expect(c.listChannels).toHaveBeenCalled();
-    expect(JSON.parse(out)).toEqual([{ id: 1, name: '일반' }]);
+    expect(JSON.parse(resultText(out))).toEqual([{ id: 1, name: '일반' }]);
   });
 
   it('get_channel_messages → limit 기본값 50 으로 client.getChannelMessages 호출', async () => {
@@ -89,7 +100,7 @@ describe('buildMessagingTools', () => {
     vi.mocked(c.getChannelMessages).mockResolvedValue([{ id: 1, body: 'hi' }]);
     const out = await tool(c, 'get_channel_messages').handler({ channelId: 7 });
     expect(c.getChannelMessages).toHaveBeenCalledWith(7, 50);
-    expect(JSON.parse(out)).toEqual([{ id: 1, body: 'hi' }]);
+    expect(JSON.parse(resultText(out))).toEqual([{ id: 1, body: 'hi' }]);
   });
 
   it('get_channel_messages → limit 지정 시 그대로 전달', async () => {
@@ -226,7 +237,7 @@ describe('채널·DM 쓰기 (#855)', () => {
         { userId: 5, name: '김철수', kind: 'HUMAN' },
       ],
     });
-    const out = JSON.parse(await tool(c, 'open_dm').handler({ usernames: ['kim'] }));
+    const out = JSON.parse(resultText(await tool(c, 'open_dm').handler({ usernames: ['kim'] })));
     expect(c.openDm).toHaveBeenCalledWith([5]);
     expect(out).toEqual({ channelId: 20, participants: ['나', '김철수'] });
   });

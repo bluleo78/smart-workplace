@@ -38,7 +38,10 @@ export function buildCalendarTools(client: CalendarToolClient): SharedTool[] {
     {
       name: 'get_event',
       kind: 'read',
-      description: '단일 일정 상세를 JSON 으로 반환합니다. eventId 는 list_events 결과 항목의 id 입니다.',
+      description:
+        '단일 일정 상세를 JSON 으로 반환합니다. 내가 만들었거나 참석자로 초대된 일정만 볼 수 있고(그 외에는 찾을 수 없음 오류), ' +
+        'list_events 에는 없는 전체 참석자 목록(attendees)·내 응답(myRsvpStatus)·내 역할(myRole)·외부 캘린더 동기화 여부(external)가 담깁니다. ' +
+        'eventId 는 list_events 결과 항목의 id 입니다.',
       inputSchema: getEventInput,
       async handler(args) {
         const { eventId } = getEventInput.parse(args);
@@ -48,6 +51,8 @@ export function buildCalendarTools(client: CalendarToolClient): SharedTool[] {
     {
       name: 'rsvp_event',
       kind: 'write',
+      // 응답을 덮어쓰고, 다시 불러도 주최자 알림이 또 쌓이므로 멱등이 아니다.
+      hints: { destructive: true, idempotent: false },
       description:
         '내가 초대받은 일정에 참석 응답을 합니다(ACCEPTED 참석 / DECLINED 불참 / TENTATIVE 미정). 주최자에게 알림이 갑니다. ' +
         '내 초대에만 응답할 수 있고(아니면 찾을 수 없음 오류), 외부 캘린더에서 동기화된 일정은 그 캘린더에서 응답해야 합니다. 응답은 다시 바꿀 수 있습니다.',

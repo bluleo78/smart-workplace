@@ -25,7 +25,6 @@ function client(token: string | Error): WorkplaceApiClient {
     validateAction: vi.fn().mockResolvedValue(undefined),
     // #846: 공유 도구용 클라이언트 — 이 스위트는 도구 핸들러를 실행하지 않으므로 빈 스텁으로 충분.
     toolClient: vi.fn(),
-    updateIssueStatus: vi.fn().mockResolvedValue(undefined),
     unassignSelf: vi.fn().mockResolvedValue(undefined),
     getProviderCredential:
       token instanceof Error
@@ -43,14 +42,6 @@ function client(token: string | Error): WorkplaceApiClient {
     listHomeSessionAttachments: vi.fn().mockResolvedValue([]),
     readHomeAttachmentText: vi.fn(),
     downloadHomeAttachment: vi.fn(),
-    syncMail: vi.fn().mockResolvedValue({} as never),
-    createExternalContact: vi.fn().mockResolvedValue({} as never),
-    updateExternalContact: vi.fn().mockResolvedValue({} as never),
-    createFolder: vi.fn().mockResolvedValue({} as never),
-    renameFolder: vi.fn().mockResolvedValue({} as never),
-    moveFolder: vi.fn().mockResolvedValue(undefined),
-    moveFile: vi.fn().mockResolvedValue(undefined),
-    discoverChannels: vi.fn().mockResolvedValue([]),
     proposeCreateIssue: vi.fn().mockResolvedValue(undefined),
     proposeCreateEvent: vi.fn().mockResolvedValue(undefined),
     listDelegationCandidates: vi.fn().mockResolvedValue([]),

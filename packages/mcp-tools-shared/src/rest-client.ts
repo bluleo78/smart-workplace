@@ -30,6 +30,9 @@ export interface HttpLike {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const unwrapPage = (data: any) => (Array.isArray(data) ? data : (data?.content ?? []));
 
+/** 외부 연락처 force 쿼리 — 서버 기본값이 false 라 true 일 때만 붙인다(미지정과 같은 요청이 되도록). */
+const forceParams = (force?: boolean) => (force ? { params: { force } } : undefined);
+
 /** 인증된 HTTP 인스턴스로 공유 도구 클라이언트를 만든다. */
 export function createSharedToolClient(http: HttpLike): SharedToolClient {
   /** 프로젝트 키는 경로 세그먼트라 인코딩한다. */
@@ -192,6 +195,10 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     async markMailRead(messageId) {
       await http.post(`/mail/messages/${messageId}/read`);
     },
+    async syncMail(accountId) {
+      // 소유권은 서버가 검증한다(남의 계정이면 404). 본문은 빈 객체 — 서버가 요청 본문을 읽지 않는다.
+      return (await http.post(`/mail/accounts/${accountId}/sync`, {})).data;
+    },
 
     // ── 구성원·연락처 ──
     async searchMembers(params) {
@@ -238,6 +245,12 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     async removeUserGroupMember(groupId, { targetType, targetId }) {
       await http.delete(`/user-groups/${groupId}/members/${targetType}/${targetId}`);
     },
+    async createExternalContact(body, force) {
+      return (await http.post('/contacts/external', body, forceParams(force))).data;
+    },
+    async updateExternalContact(externalId, body, force) {
+      return (await http.patch(`/contacts/external/${externalId}`, body, forceParams(force))).data;
+    },
 
     // ── 메시징 ──
     async listChannels() {
@@ -263,6 +276,10 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     },
     async leaveChannel(channelId) {
       await http.post(`/messaging/channels/${channelId}/leave`);
+    },
+    async discoverChannels(q) {
+      const data = (await http.get('/messaging/channels/discover', { params: { q } })).data;
+      return Array.isArray(data) ? data : [];
     },
 
     // ── 드라이브 ──
@@ -290,6 +307,18 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     },
     async restoreDriveFolder(folderId) {
       await http.post(`/drive/folders/${folderId}/restore`);
+    },
+    async createDriveFolder(spaceId, parentId, name) {
+      return (await http.post(`/drive/spaces/${spaceId}/folders`, { parentId, name })).data;
+    },
+    async renameDriveFolder(folderId, name) {
+      return (await http.patch(`/drive/folders/${folderId}`, { name })).data;
+    },
+    async moveDriveFolder(folderId, targetParentId) {
+      await http.patch(`/drive/folders/${folderId}/move`, { targetParentId });
+    },
+    async moveDriveFile(driveFileId, targetFolderId) {
+      await http.patch(`/drive/files/${driveFileId}/move`, { targetFolderId });
     },
 
     // ── 알림 ── 서버가 호출자 본인 알림으로 격리한다(recipientId=callerId).

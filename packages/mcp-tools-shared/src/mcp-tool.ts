@@ -11,6 +11,20 @@ export interface McpTool {
   description: string;
   inputSchema: z.ZodTypeAny;
   handler: (args: unknown) => Promise<McpToolResult>;
+  /**
+   * MCP 표준 도구 힌트(WP-342). 클라이언트(Claude·ChatGPT 등)가 실행 전 확인·병렬 실행 여부를 정하는 데 쓴다.
+   * 공유 도구는 `toolAnnotations()` 가 계산한 값을 각 앱이 실어 보낸다. 로컬 전용 도구는 비워 둔다(힌트 없음).
+   */
+  annotations?: McpToolAnnotations;
+}
+
+/** MCP `ToolAnnotations` 와 같은 모양(SDK 타입에 의존하지 않으려고 구조만 맞춰 둔다). */
+export interface McpToolAnnotations {
+  title?: string;
+  readOnlyHint?: boolean;
+  destructiveHint?: boolean;
+  idempotentHint?: boolean;
+  openWorldHint?: boolean;
 }
 
 /**
@@ -24,11 +38,26 @@ export interface McpTool {
 export type ToolKind = 'read' | 'write' | 'destructive';
 
 /**
+ * 쓰기 도구의 연산 성격(WP-342) — `kind`(노출 범위)와 **별개**다. kind 가 write 여도 덮어쓰거나 지우는 도구는 destructive=true 로
+ * 알려야 클라이언트가 확인을 받는다(MCP 에서 destructiveHint 는 "추가만 하는 변경"이 아니라는 뜻이고 기본값이 true 다).
+ * - destructive: 기존 값을 덮어쓰거나(집합 교체 포함) 제거·해제하면 true. 새로 추가만 하면 false.
+ * - idempotent: 같은 인자로 다시 불러도 저장 상태가 더 바뀌지 않고, 이력·알림이 추가로 쌓이지 않으며, 오류 없이 같은 결과면 true.
+ *   근거를 서버 코드에서 못 찾으면 false(기본값과 같다) — true 는 클라이언트의 자동 재시도를 부른다.
+ * - openWorld: 워크스페이스 밖 시스템(원본 메일 서버 등)에 닿으면 true. 생략하면 false.
+ */
+export interface ToolHints {
+  destructive: boolean;
+  idempotent: boolean;
+  openWorld?: boolean;
+}
+
+// 공유 도구도 문자열(JSON) 또는 content 블록 배열(이미지 등)을 반환할 수 있다(WP-345) — McpTool.handler 와 같은 반환 타입을 그대로 쓴다.
+type SharedToolBase = Omit<McpTool, 'annotations'>;
+
+/**
  * 공유 패키지 도구 — kind 가 **필수**라 태그를 빠뜨리면 타입 오류가 난다(fail-closed).
  * PAT 에는 스코프가 없어 사용자 RBAC 를 그대로 가지므로, 등급 없이 공유 도구가 추가되면 PAT 로 조용히 새어 나간다.
+ * write·destructive 는 `hints` 도 필수다(WP-342) — 연산 성격을 빠뜨리면 typecheck 가 실패한다. read 는 힌트가 필요 없다.
  */
-export interface SharedTool extends McpTool {
-  kind: ToolKind;
-  // 공유 도구는 모두 REST 결과를 문자열(JSON)로 반환한다 — 이미지 등 블록 반환은 에이전트 전용 도구만(WP-240).
-  handler: (args: unknown) => Promise<string>;
-}
+export type SharedTool = SharedToolBase &
+  ({ kind: 'read'; hints?: never } | { kind: 'write' | 'destructive'; hints: ToolHints });

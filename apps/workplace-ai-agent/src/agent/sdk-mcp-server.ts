@@ -32,6 +32,7 @@ interface AdaptCtx {
 // - inputSchema: ZodObject → raw shape(.shape). 모든 도구가 z.object(...) 이므로 안전.
 // - handler: string 반환 → {content:[{type:'text',text}]}, content 블록 배열(이미지 등)은 그대로(WP-240),
 //   throw → {isError:true,...}.
+// - annotations: McpTool.annotations 를 그대로 전달(공유 도구만 값이 있다).
 // - ctx 있으면 호출 직전/직후 onTool 로 라이브 발행(같은 seq 로 start/result 매칭).
 // 반환 제네릭은 SdkMcpToolDefinition<any> — <z.ZodRawShape> 로 좁히면 InferShape 가 never 추론.
 // (의도적 any: SDK 타입의 한계로 정확한 shape 제네릭을 줄 수 없음 → 룰 단건 비활성)
@@ -42,6 +43,8 @@ export function adaptMcpTool(t: McpTool, ctx?: AdaptCtx): SdkMcpToolDefinition<a
     name: t.name,
     description: t.description,
     inputSchema: shape,
+    // WP-342: 공유 도구의 연산 성격 힌트. Claude Code 가 readOnlyHint 를 동시 실행 가능 여부로 읽는다(없으면 직렬 실행).
+    annotations: t.annotations,
     async handler(args: unknown) {
       const seq = ctx ? ctx.nextSeq() : 0;
       if (ctx?.onTool) {

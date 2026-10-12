@@ -48,7 +48,7 @@ export function toIssueListItem(it: IssueRow) {
   };
 }
 
-/** 프로젝트 멤버 → LLM 뷰. 숫자 userId 는 빼고 사람을 가리키는 username 만 준다(#833). get_project·list_project_members 공용. */
+/** 프로젝트 멤버 → LLM 뷰. 숫자 userId 는 빼고 사람을 가리키는 username 만 준다(#833). get_project 의 members 에 쓴다. */
 export function toProjectMemberView({ username, name, role }: { username: string; name?: string; role?: string }) {
   return { username, name, role };
 }
@@ -126,6 +126,7 @@ export function buildProjectTools(client: ProjectToolClient): SharedTool[] {
     {
       name: 'update_project',
       kind: 'write',
+      hints: { destructive: true, idempotent: true },
       description:
         '프로젝트 이름·설명을 바꿉니다. 준 필드만 바뀌고 나머지는 유지됩니다(description: null 은 설명 비우기). 프로젝트 OWNER 만 할 수 있습니다.',
       inputSchema: updateProjectInput,
