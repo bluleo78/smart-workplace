@@ -1,6 +1,8 @@
 package com.workplace.mail.service;
 
+import com.workplace.mail.outbound.MailChangeNotifier;
 import com.workplace.mail.repository.EmailMessageRepository;
+import com.workplace.mail.repository.EmailMessageRepository.ContentOwner;
 import com.workplace.mail.repository.EmailMessageRepository.RuleRow;
 import com.workplace.mail.repository.MailPeopleRepository;
 import com.workplace.mail.util.NeedsReplyRules;
@@ -22,6 +24,7 @@ public class NeedsReplyFinalizer {
 
   private final EmailMessageRepository messageRepo;
   private final MailPeopleRepository peopleRepo;
+  private final MailChangeNotifier notifier;
 
   /** 한 사본 재계산. raw 가 없으면(미분석·배포 전 분류) 그대로 둔다. */
   public void recompute(long messageId) {
@@ -33,6 +36,18 @@ public class NeedsReplyFinalizer {
     Map<Long, Set<String>> addressCache = new HashMap<>();
     for (Long id : messageRepo.listAnalyzedSiblingIds(contentId)) {
       recompute(id, addressCache);
+    }
+  }
+
+  /**
+   * 공유 원본의 분류·자동 발송 표시가 바뀌었을 때(WP-359) — 분석된 사본의 ⑤ 를 다시 계산하고, 그 원본을 가진 모든 사본 소유자 화면을 무효화한다. 동기화 직후
+   * 받아 간 목록은 분석 전이라 "분류 전"·태그 없음으로 남기 때문이다. 아직 분석 안 된 사본의 "분류 전"도 바뀌므로 알림 대상은 분석 여부와 무관하다. 쓰기 트랜잭션
+   * 안에서 불러야 한다(mailChanged 는 AFTER_COMMIT 리스너라 밖에서 발행하면 유실).
+   */
+  public void contentChanged(long contentId) {
+    recomputeForContent(contentId);
+    for (ContentOwner o : messageRepo.listContentOwners(contentId)) {
+      notifier.mailChanged(o.userId(), o.accountId(), null, null);
     }
   }
 

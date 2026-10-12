@@ -6,7 +6,6 @@ import static com.workplace.mail.service.MailAnalysisFixtures.LONG_BODY;
 import static com.workplace.mail.service.MailAnalysisFixtures.SHORT_BODY;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -15,7 +14,6 @@ import static org.mockito.Mockito.when;
 
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
-import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.mail.exception.MailAiException;
 import com.workplace.mail.outbound.AiAgentMailClient;
 import com.workplace.mail.outbound.MailAiMessages.AnalyzeContentRequest;
@@ -24,7 +22,6 @@ import com.workplace.mail.repository.EmailContentRepository;
 import com.workplace.mail.service.MailAnalysisFixtures.Box;
 import com.workplace.mail.util.SingleFlight;
 import com.workplace.support.IntegrationTestBase;
-import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -83,13 +80,6 @@ class MailContentAnalysisTest extends IntegrationTestBase {
         .fetchOneInto(Boolean.class);
   }
 
-  /** 이번 테스트에서 발행된 메일 변경 알림(mail 리소스). */
-  private List<ResourceChangedEvent> mailChanges() {
-    return events.stream(ResourceChangedEvent.class)
-        .filter(e -> "mail".equals(e.resource()))
-        .toList();
-  }
-
   @Test
   void savedCategory_notifiesEveryOwnerOfSharedContent() {
     // WP-359: 분류는 공유 원본에 저장되므로, 아직 분석 안 된 다른 사용자 사본의 "분류 전"도 바로 바뀌어야 한다
@@ -103,10 +93,9 @@ class MailContentAnalysisTest extends IntegrationTestBase {
 
     analysis.analyzeContent(a.userId(), envA);
 
-    assertThat(mailChanges())
-        .extracting(ResourceChangedEvent::scopeId, e -> e.attrs().get("accountId"))
-        .containsExactlyInAnyOrder(
-            tuple(a.userId(), a.accountId()), tuple(b.userId(), b.accountId()));
+    assertThat(MailAnalysisFixtures.mailChanges(events))
+        .extracting(MailAnalysisFixtures::ownerOf)
+        .containsExactlyInAnyOrder(MailAnalysisFixtures.owner(a), MailAnalysisFixtures.owner(b));
   }
 
   @Test
@@ -120,7 +109,7 @@ class MailContentAnalysisTest extends IntegrationTestBase {
     assertThatThrownBy(() -> analysis.analyzeContent(a.userId(), env))
         .isInstanceOf(MailAiException.class);
 
-    assertThat(mailChanges()).isEmpty();
+    assertThat(MailAnalysisFixtures.mailChanges(events)).isEmpty();
   }
 
   @Test

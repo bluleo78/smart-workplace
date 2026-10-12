@@ -6,7 +6,6 @@ import static com.workplace.mail.service.MailAnalysisFixtures.LONG_BODY;
 import static com.workplace.mail.service.MailAnalysisFixtures.SHORT_BODY;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doAnswer;
@@ -17,7 +16,6 @@ import static org.mockito.Mockito.when;
 
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
-import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.mail.exception.MailAiException;
 import com.workplace.mail.outbound.AiAgentMailClient;
 import com.workplace.mail.outbound.MailAiMessages.AnalyzeContentResult;
@@ -27,7 +25,6 @@ import com.workplace.mail.outbound.MailAiMessages.Me;
 import com.workplace.mail.repository.EmailContentRepository;
 import com.workplace.mail.service.MailAnalysisFixtures.Box;
 import com.workplace.support.IntegrationTestBase;
-import java.util.List;
 import java.util.Optional;
 import org.jooq.DSLContext;
 import org.jooq.Record;
@@ -102,13 +99,6 @@ class MailPersonalAnalysisTest extends IntegrationTestBase {
     return req.getValue();
   }
 
-  /** 이번 테스트에서 발행된 메일 변경 알림(mail 리소스). */
-  private List<ResourceChangedEvent> mailChanges() {
-    return events.stream(ResourceChangedEvent.class)
-        .filter(e -> "mail".equals(e.resource()))
-        .toList();
-  }
-
   @Test
   void savedVerdict_notifiesOwnerWithMessageId() {
     // WP-359: 회신필요 판정이 저장되면 소유자 화면이 새로고침 없이 답장필요 태그를 받아야 한다
@@ -120,7 +110,7 @@ class MailPersonalAnalysisTest extends IntegrationTestBase {
 
     analysis.analyzePersonal(box.userId(), env, analysis.newProfileCache());
 
-    assertThat(mailChanges())
+    assertThat(MailAnalysisFixtures.mailChanges(events))
         .anySatisfy(
             e -> {
               assertThat(e.scopeId()).isEqualTo(box.userId());
@@ -143,9 +133,9 @@ class MailPersonalAnalysisTest extends IntegrationTestBase {
 
     analysis.analyzePersonal(a.userId(), envA, analysis.newProfileCache());
 
-    assertThat(mailChanges())
-        .extracting(ResourceChangedEvent::scopeId, e -> e.attrs().get("accountId"))
-        .contains(tuple(a.userId(), a.accountId()), tuple(b.userId(), b.accountId()));
+    assertThat(MailAnalysisFixtures.mailChanges(events))
+        .extracting(MailAnalysisFixtures::ownerOf)
+        .contains(MailAnalysisFixtures.owner(a), MailAnalysisFixtures.owner(b));
   }
 
   @Test
@@ -158,7 +148,7 @@ class MailPersonalAnalysisTest extends IntegrationTestBase {
 
     analysis.analyzePersonal(box.userId(), env, analysis.newProfileCache());
 
-    assertThat(mailChanges()).isEmpty();
+    assertThat(MailAnalysisFixtures.mailChanges(events)).isEmpty();
   }
 
   @Test

@@ -9,7 +9,6 @@ import com.workplace.mail.outbound.MailAiMessages.ClassifyBatchEntry;
 import com.workplace.mail.outbound.MailAiMessages.ClassifyBatchItem;
 import com.workplace.mail.outbound.MailAiMessages.ClassifyBatchRequest;
 import com.workplace.mail.outbound.MailAiMessages.ClassifyBatchResult;
-import com.workplace.mail.outbound.MailChangeNotifier;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.mail.repository.EmailMessageRepository.ClassifyInput;
@@ -60,7 +59,6 @@ public class MailCategoryBackfillService {
   private final AiAgentMailClient mailClient;
   private final AssistantResolver assistantResolver;
   private final NeedsReplyFinalizer finalizer;
-  private final MailChangeNotifier notifier;
   private final TransactionTemplate txTemplate;
 
   public MailCategoryBackfillService(
@@ -69,14 +67,12 @@ public class MailCategoryBackfillService {
       AiAgentMailClient mailClient,
       AssistantResolver assistantResolver,
       NeedsReplyFinalizer finalizer,
-      MailChangeNotifier notifier,
       PlatformTransactionManager txManager) {
     this.messageRepo = messageRepo;
     this.accountRepo = accountRepo;
     this.mailClient = mailClient;
     this.assistantResolver = assistantResolver;
     this.finalizer = finalizer;
-    this.notifier = notifier;
     this.txTemplate = new TransactionTemplate(txManager);
   }
 
@@ -251,12 +247,8 @@ public class MailCategoryBackfillService {
     // mailChanged 는 AFTER_COMMIT 리스너라 트랜잭션 안에서 발행해야 한다(밖에서 발행하면 유실).
     txTemplate.executeWithoutResult(
         s -> {
-          filledContents.forEach(finalizer::recomputeForContent);
-          // 분류는 공유 원본에 저장되므로 같은 원본을 가진 다른 사용자 화면도 무효화한다(WP-359). 백필한 계정은 원본 소유자에 이미 들어 있다.
-          filledContents.stream()
-              .flatMap(c -> messageRepo.listContentOwners(c).stream())
-              .distinct()
-              .forEach(o -> notifier.mailChanged(o.userId(), o.accountId(), null, null));
+          // 분류는 공유 원본에 저장되므로 같은 원본을 가진 다른 사용자 화면도 무효화한다(WP-359)
+          filledContents.forEach(finalizer::contentChanged);
         });
   }
 }

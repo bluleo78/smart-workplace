@@ -3,7 +3,6 @@ package com.workplace.mail.service;
 import static com.workplace.jooq.Tables.EMAIL_CONTENT;
 import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -13,7 +12,6 @@ import static org.mockito.Mockito.when;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.outbound.AgentOutageGuard;
-import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.mail.exception.MailAiException;
 import com.workplace.mail.exception.MailAiUnavailableException;
 import com.workplace.mail.outbound.AiAgentMailClient;
@@ -115,10 +113,9 @@ class MailCategoryBackfillIT extends IntegrationTestBase {
     service.classifyAccountNow(
         a.userId(), a.accountId(), new AgentOutageGuard(), MailCategoryBackfillService.MAX_BATCHES);
 
-    assertThat(events.stream(ResourceChangedEvent.class).filter(e -> "mail".equals(e.resource())))
-        .extracting(ResourceChangedEvent::scopeId, e -> e.attrs().get("accountId"))
-        .containsExactlyInAnyOrder(
-            tuple(a.userId(), a.accountId()), tuple(b.userId(), b.accountId()));
+    assertThat(MailAnalysisFixtures.mailChanges(events))
+        .extracting(MailAnalysisFixtures::ownerOf)
+        .containsExactlyInAnyOrder(MailAnalysisFixtures.owner(a), MailAnalysisFixtures.owner(b));
   }
 
   @Test

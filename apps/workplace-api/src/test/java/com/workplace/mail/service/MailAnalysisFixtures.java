@@ -4,10 +4,15 @@ import static com.workplace.jooq.Tables.EMAIL_ACCOUNT;
 import static com.workplace.jooq.Tables.EMAIL_CONTENT;
 import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
 
+import com.workplace.global.realtime.ResourceChangedEvent;
+import com.workplace.mail.outbound.MailChangeNotifier;
 import com.workplace.mail.repository.EmailContentRepository;
 import com.workplace.support.TestFixtures;
 import java.time.OffsetDateTime;
+import java.util.List;
+import org.assertj.core.groups.Tuple;
 import org.jooq.DSLContext;
+import org.springframework.test.context.event.ApplicationEvents;
 
 /**
  * WP-149 분석 통합 테스트 공용 시드 — 메일함·공유 content·envelope 를 직접 만든다(테넌트#1, 세션 GUC). envelope 는 본문 적재·검증
@@ -26,6 +31,23 @@ public final class MailAnalysisFixtures {
   public record Box(long userId, long accountId, long folderId, String address) {}
 
   private MailAnalysisFixtures() {}
+
+  /** 이번 테스트에서 발행된 메일 변경 알림(mail 리소스) — @RecordApplicationEvents 클래스용(WP-359). */
+  public static List<ResourceChangedEvent> mailChanges(ApplicationEvents events) {
+    return events.stream(ResourceChangedEvent.class)
+        .filter(e -> MailChangeNotifier.RESOURCE_MAIL.equals(e.resource()))
+        .toList();
+  }
+
+  /** 알림 수신 단위(소유자, 계정) — {@link #ownerOf} 와 비교한다. */
+  public static Tuple owner(Box box) {
+    return Tuple.tuple(box.userId(), box.accountId());
+  }
+
+  /** 메일 변경 알림의 (소유자, 계정). */
+  public static Tuple ownerOf(ResourceChangedEvent e) {
+    return Tuple.tuple(e.scopeId(), e.attrs().get("accountId"));
+  }
 
   /** 사용자 1명 + 계정 + INBOX. aiEnabled 는 계정 AI 사용 여부. */
   public static Box mailbox(DSLContext dsl, boolean aiEnabled) {

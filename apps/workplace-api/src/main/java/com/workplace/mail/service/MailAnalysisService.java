@@ -14,7 +14,6 @@ import com.workplace.mail.outbound.MailChangeNotifier;
 import com.workplace.mail.repository.EmailContentRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.mail.repository.EmailMessageRepository.AnalysisContext;
-import com.workplace.mail.repository.EmailMessageRepository.ContentOwner;
 import com.workplace.mail.util.NeedsReplyRules;
 import com.workplace.mail.util.NewContentExtractor;
 import com.workplace.mail.util.SingleFlight;
@@ -137,8 +136,7 @@ public class MailAnalysisService {
     txTemplate.executeWithoutResult(
         status -> {
           if (messageRepo.saveContentAnalysis(messageId, category, summary, skipSummary)) {
-            finalizer.recomputeForContent(ctx.contentId());
-            notifyContentOwners(ctx.contentId());
+            finalizer.contentChanged(ctx.contentId());
           }
         });
     return true;
@@ -197,20 +195,9 @@ public class MailAnalysisService {
         status -> {
           messageRepo.saveForcedContentSummary(messageId, r.summary());
           if (category != null && messageRepo.fillContentCategoryIfEmpty(messageId, category)) {
-            finalizer.recomputeForContent(ctx.contentId()); // 늦게 채운 분류를 ⑤ 에 반영
-            notifyContentOwners(ctx.contentId());
+            finalizer.contentChanged(ctx.contentId()); // 늦게 채운 분류를 ⑤ 에 반영·소유자 화면 무효화
           }
         });
-  }
-
-  /**
-   * 공유 원본의 분류가 바뀌었을 때 그 원본을 가진 모든 소유자 화면을 무효화한다(WP-359) — 동기화 직후 받아 간 목록은 분석 전이라 "분류 전"으로 남기 때문이다.
-   * 쓰기 트랜잭션 안에서 불러야 한다(AFTER_COMMIT 리스너라 밖에서 발행하면 유실).
-   */
-  private void notifyContentOwners(long contentId) {
-    for (ContentOwner o : messageRepo.listContentOwners(contentId)) {
-      notifier.mailChanged(o.userId(), o.accountId(), null, null);
-    }
   }
 
   /** ③ 대상: 적재·검증된 사본 + content 연결 + 미시도. */
@@ -343,8 +330,7 @@ public class MailAnalysisService {
               }
               // 공유 원본 분류를 이번에 채웠다면 같은 원본의 다른 사본(이미 분석됨)도 ⑤ 를 다시 계산해야 한다.
               if (category != null && messageRepo.fillContentCategoryIfEmpty(messageId, category)) {
-                finalizer.recomputeForContent(ctx.contentId()); // 이 사본도 포함(raw 저장됨)
-                notifyContentOwners(ctx.contentId()); // 다른 사본 소유자의 "분류 전"도 바뀐다
+                finalizer.contentChanged(ctx.contentId()); // 이 사본도 포함(raw 저장됨)
               } else {
                 finalizer.recompute(messageId);
               }
