@@ -20,6 +20,14 @@ export interface ContactRow {
   isFavorite?: boolean;
 }
 
+/**
+ * 구성원 행 → LLM 뷰. 숫자 userId 는 빼고 사람을 가리키는 username 만 준다(#833, WP-353). 쓰기 도구는 username 을 받아
+ * 서버 쪽 id 로 해석하므로(requireMember 등) LLM 이 userId 를 알 필요가 없다. 나머지 필드(kind·active·email 등)는 그대로 둔다.
+ */
+export function toMemberView({ userId: _userId, ...rest }: MemberRow): Omit<MemberRow, 'userId'> {
+  return rest;
+}
+
 /** 연락처 LLM 뷰 — 공용 `id` 를 없애고 타입별 식별자(userId / externalId)로 나눠 오용을 막는다. */
 export function toContactView(item: ContactRow) {
   const base = {
@@ -122,14 +130,14 @@ export function buildMemberTools(client: MemberToolClient): SharedTool[] {
       kind: 'read',
       description:
         '우리 워크스페이스의 구성원을 검색해 JSON 으로 반환합니다. 사람을 찾을 때 쓰는 표준 도구입니다. ' +
-        '각 항목의 username 을 담당자(assignees)·멤버 추가·get_member 등 사람을 가리키는 도구에 그대로 넘기세요(숫자 userId 가 아님). ' +
+        '각 항목의 username 을 담당자(assignees)·멤버 추가·get_member 등 사람을 가리키는 도구에 그대로 넘기세요(응답에 숫자 id 는 없습니다). ' +
         'search 로 이름·아이디·이메일 검색, kind 로 HUMAN(사람, 기본)/AGENT(AI)/ALL 한정. 기본은 활성 구성원만이며 includeInactive=true 로 비활성까지 봅니다. ' +
         '결과는 JSON({items, total, hasMore?, nextPage?})이고 한 번에 size 명(기본 20, 최대 100)만 담깁니다. hasMore 가 있으면(true) 뒤에 더 있으니 ' +
         'nextPage 를 page 로 넘겨 이어 조회하거나, search 를 더 좁히거나, 일부만 본 것이라고 밝히세요.',
       inputSchema: searchMembersInput,
       async handler(args) {
         const result = await client.searchMembersPage(searchMembersInput.parse(args));
-        return JSON.stringify(numberedPageView(result.items, result));
+        return JSON.stringify(numberedPageView(result.items.map(toMemberView), result));
       },
     },
     {
@@ -143,7 +151,7 @@ export function buildMemberTools(client: MemberToolClient): SharedTool[] {
         const found = await findMemberByUsername(client, username);
         // 성공 문자열로 돌려주면 "없음" 이 정상 결과로 읽힌다 — contact-tools 처럼 throw 해 isError 로 전달되게 한다.
         if (!found) throw memberNotFound(username);
-        return JSON.stringify(found);
+        return JSON.stringify(toMemberView(found));
       },
     },
     {
@@ -158,9 +166,9 @@ export function buildMemberTools(client: MemberToolClient): SharedTool[] {
         const { username } = memberInput.parse(args);
         const found = await findMemberByUsername(client, username);
         if (!found) throw memberNotFound(username);
-        // 응답의 공용 `id` 는 user.id 다 — userId 로 이름을 바꿔 외부 연락처 id 와의 모호함을 없앤다.
-        const { id, groups, ...rest } = (await client.getMemberContact(found.userId)) as { id?: number; groups?: unknown[] };
-        return JSON.stringify({ userId: id, ...rest, groups: groups ?? [] });
+        // 응답의 공용 `id` 는 user.id(숫자 사용자 ID)라 내보내지 않는다 — 사람은 응답에 함께 오는 username 으로 가리킨다(#833, WP-353).
+        const { id: _userId, groups, ...rest } = (await client.getMemberContact(found.userId)) as { id?: number; groups?: unknown[] };
+        return JSON.stringify({ ...rest, groups: groups ?? [] });
       },
     },
     {

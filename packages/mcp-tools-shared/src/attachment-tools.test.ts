@@ -22,6 +22,9 @@ function slice(status: ExtractedTextSlice['status'], over: Partial<ExtractedText
   };
 }
 
+/** 이슈 첨부 읽기 출력 — 서버 슬라이스의 fileId 가 attachmentId 로 바뀐다. */
+const issueView = ({ fileId, ...rest }: ExtractedTextSlice) => ({ attachmentId: fileId, ...rest });
+
 const READY = slice('READY', { totalChars: 11, truncated: false, nextOffset: 6, text: '가나다라마😀' });
 const IMAGE_SKIP = slice('SKIPPED', { reasonCode: 'IMAGE', reason: '이미지 파일은 글자를 추출하지 않습니다.' });
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
@@ -43,7 +46,7 @@ describe('read_attachment 입력 스키마', () => {
   // 서버 레이어가 inputSchema.shape 를 registerTool 에 넘기므로 superRefine 뒤에도 z.object 여야 한다.
   it('최상위는 z.object 이고 shape 에 source·식별자·범위가 있다', () => {
     expect(readAttachmentInput).toBeInstanceOf(z.ZodObject);
-    expect(Object.keys(readAttachmentInput.shape).sort()).toEqual(['driveFileId', 'fileId', 'issueKey', 'limit', 'offset', 'source']);
+    expect(Object.keys(readAttachmentInput.shape).sort()).toEqual(['attachmentId', 'driveFileId', 'issueKey', 'limit', 'offset', 'source']);
   });
 
   it('JSON 스키마로 직렬화된다(MCP 클라이언트가 받는 형식) — 최상위 type object, source 만 필수', () => {
@@ -54,20 +57,20 @@ describe('read_attachment 입력 스키마', () => {
   });
 
   it('source 별 필수 필드를 확인하고, 다른 source 의 식별자를 섞으면 거부한다', () => {
-    expect(() => readAttachmentInput.parse({ source: 'issue', issueKey: 'WP-1' })).toThrow(/issueKey 와 fileId/);
+    expect(() => readAttachmentInput.parse({ source: 'issue', issueKey: 'WP-1' })).toThrow(/issueKey 와 attachmentId/);
     expect(() => readAttachmentInput.parse({ source: 'drive' })).toThrow(/driveFileId 가 필요/);
-    expect(() => readAttachmentInput.parse({ source: 'issue', issueKey: 'WP-1', fileId: 3, driveFileId: 4 })).toThrow(/driveFileId 를 주지/);
-    expect(() => readAttachmentInput.parse({ source: 'drive', driveFileId: 4, fileId: 3 })).toThrow(/issueKey·fileId 를 주지/);
+    expect(() => readAttachmentInput.parse({ source: 'issue', issueKey: 'WP-1', attachmentId: 3, driveFileId: 4 })).toThrow(/driveFileId 를 주지/);
+    expect(() => readAttachmentInput.parse({ source: 'drive', driveFileId: 4, attachmentId: 3 })).toThrow(/issueKey·attachmentId 를 주지/);
     expect(readAttachmentInput.parse({ source: 'drive', driveFileId: 4 })).toMatchObject({ source: 'drive', driveFileId: 4 });
   });
 
   it('쓰지 않는 source 의 식별자를 null 로 채워도 "없음"으로 받는다(실제 값을 섞으면 여전히 거부)', () => {
-    expect(readAttachmentInput.parse({ source: 'drive', driveFileId: 9, issueKey: null, fileId: null })).toMatchObject({ source: 'drive', driveFileId: 9 });
-    expect(readAttachmentInput.parse({ source: 'issue', issueKey: 'WP-1', fileId: 3, driveFileId: null })).toMatchObject({ source: 'issue', fileId: 3 });
+    expect(readAttachmentInput.parse({ source: 'drive', driveFileId: 9, issueKey: null, attachmentId: null })).toMatchObject({ source: 'drive', driveFileId: 9 });
+    expect(readAttachmentInput.parse({ source: 'issue', issueKey: 'WP-1', attachmentId: 3, driveFileId: null })).toMatchObject({ source: 'issue', attachmentId: 3 });
     // null 은 필수 필드도 채우지 못한다.
     expect(() => readAttachmentInput.parse({ source: 'drive', driveFileId: null })).toThrow(/driveFileId 가 필요/);
-    expect(() => readAttachmentInput.parse({ source: 'issue', issueKey: null, fileId: 3 })).toThrow(/issueKey 와 fileId/);
-    expect(() => readAttachmentInput.parse({ source: 'drive', driveFileId: 9, issueKey: 'WP-1', fileId: null })).toThrow(/issueKey·fileId 를 주지/);
+    expect(() => readAttachmentInput.parse({ source: 'issue', issueKey: null, attachmentId: 3 })).toThrow(/issueKey 와 attachmentId/);
+    expect(() => readAttachmentInput.parse({ source: 'drive', driveFileId: 9, issueKey: 'WP-1', attachmentId: null })).toThrow(/issueKey·attachmentId 를 주지/);
   });
 
   it('limit 은 1..32000, offset 은 0 이상', () => {
@@ -82,17 +85,18 @@ describe('read_attachment 입력 스키마', () => {
 describe('read_attachment — 이슈 첨부', () => {
   it('READY: 구간 읽기 응답을 그대로 JSON 으로. limit 생략 시 기본 12000, offset 생략은 미지정', async () => {
     const c = mockClient();
-    const out = await readAttachment(c).handler({ source: 'issue', issueKey: 'WP-1', fileId: 55 });
+    const out = await readAttachment(c).handler({ source: 'issue', issueKey: 'WP-1', attachmentId: 55 });
     expect(c.readIssueAttachmentText).toHaveBeenCalledWith('WP-1', 55, { offset: undefined, limit: READ_ATTACHMENT_DEFAULT_LIMIT });
-    expect(JSON.parse(resultText(out))).toEqual(READY);
+    // 서버 응답의 core fileId 는 입력과 같은 이름 attachmentId 로 돌려준다(WP-353).
+    expect(JSON.parse(resultText(out))).toEqual(issueView(READY));
     expect(c.downloadIssueAttachment).not.toHaveBeenCalled();
   });
 
   it('offset·limit 을 넘기고, null 은 미지정으로 본다', async () => {
     const c = mockClient();
-    await readAttachment(c).handler({ source: 'issue', issueKey: 'WP-1', fileId: 55, offset: 6, limit: 100 });
+    await readAttachment(c).handler({ source: 'issue', issueKey: 'WP-1', attachmentId: 55, offset: 6, limit: 100 });
     expect(c.readIssueAttachmentText).toHaveBeenLastCalledWith('WP-1', 55, { offset: 6, limit: 100 });
-    await readAttachment(c).handler({ source: 'issue', issueKey: 'WP-1', fileId: 55, offset: null, limit: null });
+    await readAttachment(c).handler({ source: 'issue', issueKey: 'WP-1', attachmentId: 55, offset: null, limit: null });
     expect(c.readIssueAttachmentText).toHaveBeenLastCalledWith('WP-1', 55, { offset: undefined, limit: READ_ATTACHMENT_DEFAULT_LIMIT });
   });
 
@@ -104,8 +108,8 @@ describe('read_attachment — 이슈 첨부', () => {
   ])('%s: text 없이 상태·사유를 그대로 돌려주고 원본은 받지 않는다', async (_label, s) => {
     const c = mockClient();
     vi.mocked(c.readIssueAttachmentText).mockResolvedValue(s);
-    const out = await readAttachment(c).handler({ source: 'issue', issueKey: 'WP-1', fileId: 55 });
-    expect(JSON.parse(resultText(out))).toEqual(s);
+    const out = await readAttachment(c).handler({ source: 'issue', issueKey: 'WP-1', attachmentId: 55 });
+    expect(JSON.parse(resultText(out))).toEqual(issueView(s));
     expect(c.listIssueAttachments).not.toHaveBeenCalled();
     expect(c.downloadIssueAttachment).not.toHaveBeenCalled();
   });
@@ -114,7 +118,7 @@ describe('read_attachment — 이슈 첨부', () => {
     const c = mockClient();
     vi.mocked(c.readIssueAttachmentText).mockResolvedValue(IMAGE_SKIP);
     vi.mocked(c.listIssueAttachments).mockResolvedValue([{ fileId: 55, originalName: '화면.png', mimeType: 'image/png', sizeBytes: 4 }]);
-    const out = (await readAttachment(c).handler({ source: 'issue', issueKey: 'WP-1', fileId: 55 })) as McpContent[];
+    const out = (await readAttachment(c).handler({ source: 'issue', issueKey: 'WP-1', attachmentId: 55 })) as McpContent[];
     expect(c.downloadIssueAttachment).toHaveBeenCalledWith('WP-1', 55);
     expect(out).toEqual([
       { type: 'text', text: '이슈 WP-1 첨부 이미지 "화면.png" (image/png, 4B)' },
@@ -128,7 +132,7 @@ describe('read_attachment — 이슈 첨부', () => {
     vi.mocked(c.listIssueAttachments).mockResolvedValue([
       { fileId: 55, originalName: 'big.jpg', mimeType: 'image/jpeg', sizeBytes: IMAGE_MAX_BYTES + 1 },
     ]);
-    const out = await readAttachment(c).handler({ source: 'issue', issueKey: 'WP-1', fileId: 55 });
+    const out = await readAttachment(c).handler({ source: 'issue', issueKey: 'WP-1', attachmentId: 55 });
     expect(typeof out).toBe('string');
     expect(out).toContain(`크기(${IMAGE_MAX_BYTES + 1}B)`);
     expect(out).not.toContain('형식(');
@@ -139,19 +143,19 @@ describe('read_attachment — 이슈 첨부', () => {
     const c = mockClient();
     vi.mocked(c.readIssueAttachmentText).mockResolvedValue(IMAGE_SKIP);
     vi.mocked(c.downloadIssueAttachment).mockRejectedValue(new FileTooLargeError());
-    const out = await readAttachment(c).handler({ source: 'issue', issueKey: 'WP-1', fileId: 55 });
+    const out = await readAttachment(c).handler({ source: 'issue', issueKey: 'WP-1', attachmentId: 55 });
     expect(typeof out).toBe('string');
     expect(out).toContain(`크기(${IMAGE_MAX_BYTES}B 초과)`);
     // 다른 오류는 삼키지 않는다.
     vi.mocked(c.downloadIssueAttachment).mockRejectedValue(new Error('boom'));
-    await expect(readAttachment(c).handler({ source: 'issue', issueKey: 'WP-1', fileId: 55 })).rejects.toThrow('boom');
+    await expect(readAttachment(c).handler({ source: 'issue', issueKey: 'WP-1', attachmentId: 55 })).rejects.toThrow('boom');
   });
 
   it('보낼 수 없는 이미지 형식(예: HEIC): 원본을 받지 않고 형식만 사유로', async () => {
     const c = mockClient();
     vi.mocked(c.readIssueAttachmentText).mockResolvedValue(IMAGE_SKIP);
     vi.mocked(c.listIssueAttachments).mockResolvedValue([{ fileId: 55, originalName: 'a.heic', mimeType: 'image/heic', sizeBytes: 10 }]);
-    const out = await readAttachment(c).handler({ source: 'issue', issueKey: 'WP-1', fileId: 55 });
+    const out = await readAttachment(c).handler({ source: 'issue', issueKey: 'WP-1', attachmentId: 55 });
     expect(out).toContain('형식(image/heic)');
     expect(out).not.toContain('크기(');
     expect(c.downloadIssueAttachment).not.toHaveBeenCalled();

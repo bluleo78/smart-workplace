@@ -52,12 +52,12 @@ describe('buildSharedIssueTools', () => {
     const c = mockClient();
     vi.mocked(c.getIssueDetail).mockResolvedValue({
       issueKey: 'WP-12',
-      summary: { title: 'T', status: 'TODO', priority: 'MID', assignees: [], blockedBy: [{ number: 5, title: 'x', status: 'TODO' }], blocks: [], blocked: true },
+      summary: { projectKey: 'WP', number: 12, title: 'T', status: 'TODO', priority: 'MID', assignees: [], blockedBy: [{ number: 5, title: 'x', status: 'TODO' }], blocks: [], blocked: true },
       body: 'b',
       comments: [],
     });
     const out = JSON.parse(resultText(await buildSharedIssueTools(c).find((t) => t.name === 'get_issue_detail')!.handler({ issueKey: 'WP-12' })));
-    expect(out).toMatchObject({ issueKey: 'WP-12', title: 'T', blocked: true, blockedBy: [{ number: 5, title: 'x', status: 'TODO' }] });
+    expect(out).toMatchObject({ issueKey: 'WP-12', title: 'T', blocked: true, blockedBy: [{ issueKey: 'WP-5', title: 'x', status: 'TODO' }] });
     expect(c.getIssueDetail).toHaveBeenCalledWith('WP-12');
   });
 
@@ -107,6 +107,67 @@ describe('buildSharedIssueTools', () => {
     const t = buildSharedIssueTools(c).find((x) => x.name === 'create_issue')!;
     await t.handler({ projectKey: 'WP', title: '새 이슈', type: 'BUG', assignees: ['alice'] });
     expect(c.createIssue).toHaveBeenCalledWith('WP', expect.objectContaining({ title: '새 이슈', typeId: 2, assigneeIds: [10] }));
+  });
+
+  // WP-353: parent 는 이슈 도구의 다른 입력(issueKey·otherIssueKey)과 같은 이슈 키(WP-12)로 받고, 서버용 번호로 옮긴다.
+  it('create_issue 의 parent 는 이슈 키 — 서버에는 같은 프로젝트의 번호(parentNumber)로 보낸다', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'create_issue')!;
+    await t.handler({ projectKey: 'WP', title: '하위', parent: 'WP-7' });
+    expect(c.createIssue).toHaveBeenCalledWith('WP', expect.objectContaining({ parentNumber: 7 }));
+  });
+
+  it('create_issue 는 다른 프로젝트의 부모 키를 이슈를 만들기 전에 거부한다', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'create_issue')!;
+    await expect(t.handler({ projectKey: 'WP', title: '하위', parent: 'AB-7' })).rejects.toThrow('같은 프로젝트(WP)');
+    expect(c.createIssue).not.toHaveBeenCalled();
+    await expect(t.handler({ projectKey: 'WP', title: '하위', parent: 7 })).rejects.toThrow(); // 번호만은 더 이상 받지 않는다
+  });
+
+  it('update_issue 의 parent 는 이슈 키(설정)·null(해제), 다른 프로젝트 키는 아무것도 쓰기 전에 거부한다', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    await t.handler({ issueKey: 'WP-12', parent: 'WP-3' });
+    expect(c.setIssueParent).toHaveBeenLastCalledWith('WP-12', 3);
+    await t.handler({ issueKey: 'WP-12', parent: null });
+    expect(c.setIssueParent).toHaveBeenLastCalledWith('WP-12', null);
+    vi.mocked(c.setIssueParent).mockClear();
+    vi.mocked(c.updateIssueContent).mockClear();
+    await expect(t.handler({ issueKey: 'WP-12', title: '수정', parent: 'AB-3' })).rejects.toThrow('같은 프로젝트(WP)');
+    expect(c.updateIssueContent).not.toHaveBeenCalled();
+    expect(c.setIssueParent).not.toHaveBeenCalled();
+  });
+
+  it('create_issue 결과에는 숫자 사용자 ID(reporterId·assignees[].id)가 없고 issueKey 가 있다 (#833, WP-353)', async () => {
+    const c = mockClient();
+    // 서버 IssueResponse 모양.
+    vi.mocked(c.createIssue).mockResolvedValue({
+      id: 100, projectKey: 'WP', number: 21, title: '새 이슈', status: 'TODO', priority: 'MID', reporterId: 10, milestoneId: null, version: 0,
+      assignees: [{ id: 10, username: 'alice', name: '앨리스', kind: 'HUMAN' }], labels: [], blockedBy: [], blocks: [], blocked: false,
+    });
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'create_issue')!;
+    const text = resultText(await t.handler({ projectKey: 'WP', title: '새 이슈', assignees: ['alice'] }));
+    const out = JSON.parse(text);
+    expect(out).toMatchObject({ issueKey: 'WP-21', title: '새 이슈', assignees: [{ username: 'alice', name: '앨리스', kind: 'HUMAN' }] });
+    expect(text).not.toMatch(/reporterId|"id"/);
+  });
+
+  it('add_issue_dependency 결과는 갱신된 의존성만 — 상세 raw 의 숫자 사용자 ID 를 싣지 않는다 (#833, WP-353)', async () => {
+    const c = mockClient();
+    vi.mocked(c.addIssueDependency).mockResolvedValue({
+      summary: {
+        id: 1, projectKey: 'WP', number: 1, title: 't', status: 'TODO', reporterId: 10,
+        blockedBy: [], blocks: [{ number: 2, title: '후속', status: 'TODO', dueDate: null, type: null }], blocked: false,
+      },
+      comments: [{ id: 5, body: 'c', authorId: 10, authorName: '앨리스' }],
+      history: [{ actorId: 10, actorName: '앨리스', eventType: 'DEPENDENCY_ADDED' }],
+      reporter: { id: 10, username: 'alice', name: '앨리스', kind: 'HUMAN' },
+    });
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'add_issue_dependency')!;
+    const text = resultText(await t.handler({ issueKey: 'WP-1', otherIssueKey: 'WP-2', direction: 'blocks' }));
+    expect(JSON.parse(text)).toEqual({ issueKey: 'WP-1', blockedBy: [], blocks: [{ issueKey: 'WP-2', title: '후속', status: 'TODO' }], blocked: false });
+    expect(text).not.toMatch(/Id"|"id"/);
   });
 
   it('update_issue 는 fan-out 후 {ok,results}', async () => {

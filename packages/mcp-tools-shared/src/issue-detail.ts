@@ -2,6 +2,7 @@
 // 백엔드 IssueDetailResponse = { summary: IssueResponse, body, comments[], history[], attachments[], reporter, ... }.
 // WP-307: 예전엔 zod 파싱이 스키마 밖 필드를 조용히 지워 날짜·라벨·마일스톤 등이 빠졌다. 이제 필드를 명시적으로 골라 만들고,
 // AI 가 판단에 쓰는 정보(날짜·분류·계층·작성자·커스텀 필드·첨부·변경 이력)를 모두 싣는다.
+import { formatIssueKey } from './parse.js';
 import {
   labelNames,
   toAuthorView,
@@ -19,9 +20,9 @@ type Raw = Record<string, unknown>;
 /** 변경 이력은 최근 것만 싣는다 — 오래된 이슈의 이력이 응답을 키우지 않게. */
 export const ISSUE_DETAIL_HISTORY_LIMIT = 30;
 
-/** 의존성 링크 요약 — 백엔드 IssueLinkSummary(number,title,status,type) 중 LLM 필요분만. */
+/** 의존성 링크 요약 — 백엔드 IssueLinkSummary(number,title,status,type) 중 LLM 필요분만. 이슈는 어디서나 issueKey 로 가리킨다(WP-353). */
 interface IssueLinkView {
-  number: number;
+  issueKey: string;
   title: string;
   status: string;
 }
@@ -51,7 +52,7 @@ export interface IssueDetail {
   blocks: IssueLinkView[];
   blocked: boolean;
   customFields: { name: string; type: string; value: unknown }[];
-  attachments: { fileId: number; name: string; mimeType: string | null; sizeBytes: number | null; attachedBy: PersonView; attachedAt: string | null }[];
+  attachments: { attachmentId: number; name: string; mimeType: string | null; sizeBytes: number | null; attachedBy: PersonView; attachedAt: string | null }[];
   comments: { id: number; body: string; author: PersonView; createdAt: string | null; updatedAt: string | null }[];
   /** 최근 변경 이력(오래된→최신). from/to 는 상태값 같은 문자열이거나, 집합 변경이면 객체(숫자 id·색 토큰 제외). */
   history: { at: string | null; actor: PersonView; event: string; from: unknown; to: unknown }[];
@@ -95,16 +96,24 @@ function historyValue(event: unknown, v: unknown): unknown {
   }
 }
 
-const links = (arr: unknown): IssueLinkView[] =>
-  ((arr ?? []) as Raw[]).map((l) => ({ number: l.number as number, title: l.title as string, status: l.status as string }));
+/** 링크는 같은 프로젝트 이슈(의존성은 프로젝트 안에서만 건다)라 projectKey 를 빌려 issueKey 를 만든다. 키를 못 만들면 번호만 둔다. */
+const links = (arr: unknown, projectKey: unknown): IssueLinkView[] =>
+  ((arr ?? []) as Raw[]).map((l) => ({
+    issueKey: formatIssueKey(projectKey as string | undefined, l.number as number | undefined) ?? String(l.number ?? ''),
+    title: l.title as string,
+    status: l.status as string,
+  }));
 
 /** summary 중첩을 풀고, 사람은 사람 뷰로, 시각은 KST 로 바꾼다. */
 export function normalizeIssueDetail(raw: unknown): IssueDetail {
   const r = (raw ?? {}) as Raw;
   const s = (r.summary ?? {}) as Raw;
   const history = ((r.history ?? []) as Raw[]).slice(-ISSUE_DETAIL_HISTORY_LIMIT);
+  const issueKey = String(r.issueKey ?? r.key ?? (s.projectKey && `${s.projectKey}-${s.number}`) ?? '');
+  // 의존성 링크는 같은 프로젝트라 이 이슈의 프로젝트 키로 링크의 issueKey 를 만든다.
+  const projectKey = s.projectKey ?? issueKey.replace(/-\d+$/, '');
   return {
-    issueKey: String(r.issueKey ?? r.key ?? (s.projectKey && `${s.projectKey}-${s.number}`) ?? ''),
+    issueKey,
     title: String(s.title ?? r.title ?? ''),
     body: (r.body ?? s.body ?? null) as string | null,
     status: String(s.status ?? r.status ?? ''),
@@ -121,8 +130,8 @@ export function normalizeIssueDetail(raw: unknown): IssueDetail {
     milestone: (s.milestoneName as string | null) ?? null,
     parent: toParentView(s.parent, s.projectKey),
     children: toChildrenView(s.childCount, s.childDoneCount),
-    blockedBy: links(s.blockedBy),
-    blocks: links(s.blocks),
+    blockedBy: links(s.blockedBy, projectKey),
+    blocks: links(s.blocks, projectKey),
     blocked: Boolean(s.blocked),
     customFields: ((s.customFields ?? []) as Raw[]).map((f) => ({
       name: String(f.name ?? ''),
@@ -130,7 +139,8 @@ export function normalizeIssueDetail(raw: unknown): IssueDetail {
       value: f.value ?? null,
     })),
     attachments: ((r.attachments ?? []) as Raw[]).map((a) => ({
-      fileId: a.fileId as number,
+      // 이슈 첨부의 core file id — read_attachment 의 attachmentId 입력으로 넘긴다. 드라이브 driveFileId 와 이름이 겹치지 않게 첨부 id 로 부른다(WP-353).
+      attachmentId: a.fileId as number,
       name: String(a.originalName ?? ''),
       mimeType: (a.mimeType as string | null) ?? null,
       sizeBytes: (a.sizeBytes as number | null) ?? null,

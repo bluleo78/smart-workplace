@@ -48,4 +48,9 @@ describe('messaging-agent 정의', () => {
     expect(prompt).toContain('`nextOffset` 을 `offset` 으로 넘겨 이어 조회하세요');
     expect(prompt).toContain('목록에 없다고 단정하기 전에');
   });
+
+  // WP-353: 채널 목록 항목의 식별자 이름이 channelId 다(예전엔 id) — 쓰기·조회 도구의 입력 이름과 같다.
+  it('채널 목록의 식별자를 channelId 로 안내한다', () => {
+    expect(loaded['messaging-agent'].prompt).toContain('(channelId·name 포함, 이름순)');
+  });
 });

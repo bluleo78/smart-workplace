@@ -99,6 +99,34 @@ export async function listConflicts(
   return (await client.listEvents(from, to)).map(({ id, title, startsAt, endsAt }) => ({ id, title, startsAt, endsAt }));
 }
 
+/** 서버 AttendeeResponse 중 뷰가 읽는 필드 — userId·invitedByUserId 는 숫자 사용자 ID 라 뷰에서 뺀다. */
+interface AttendeeRaw {
+  userId?: number | null;
+  username?: string | null;
+  name?: string | null;
+  invitedByUserId?: number | null;
+  [key: string]: unknown;
+}
+
+/**
+ * 일정 응답 → LLM 뷰(#833, WP-353). 참석자의 숫자 userId·invitedByUserId 를 내보내지 않는다.
+ * 초대한 사람(invitedByUserId)은 같은 응답의 참석자 목록에서 username·name 을 찾아 `invitedBy` 로 바꾼다 — 추가 조회 없이 풀린다
+ * (초대자는 보통 주최자라 참석자에 들어 있다). 목록에 없으면(예: 참석자에서 빠진 사람) 생략한다.
+ * 참석자가 없는 응답(list_events 행·생성 직후)은 그대로 둔다.
+ */
+export function toEventView<T extends { attendees?: AttendeeRaw[] | null }>(event: T): T {
+  if (!Array.isArray(event.attendees)) return event;
+  const people = new Map<number, { username: string | null; name: string | null }>();
+  for (const a of event.attendees) {
+    if (a.userId != null) people.set(a.userId, { username: a.username ?? null, name: a.name ?? null });
+  }
+  const attendees = event.attendees.map(({ userId: _userId, invitedByUserId, ...rest }) => {
+    const inviter = invitedByUserId != null ? people.get(invitedByUserId) : undefined;
+    return inviter ? { ...rest, invitedBy: inviter } : rest;
+  });
+  return { ...event, attendees };
+}
+
 /** 캘린더 도구가 쓰는 클라이언트 — 참석자 username 해석(searchMembers)과 주최자(호출자) 확인(getMe)이 더 필요하다. */
 export type CalendarToolsClient = CalendarToolClient & Pick<MemberToolClient, 'searchMembers'> & CurrentUserClient;
 
@@ -113,7 +141,7 @@ interface EventDetail {
   color: string | null;
   reminderMinutes: number | null;
   recurrenceRule: string | null;
-  attendees?: { userId: number | null; username?: string | null }[] | null;
+  attendees?: { userId: number | null; username?: string | null; name?: string | null; invitedByUserId?: number | null }[] | null;
 }
 
 export const listEventsInput = z.object({ from: z.string().min(1), to: z.string().min(1) });
@@ -180,12 +208,12 @@ export function buildCalendarTools(client: CalendarToolsClient): SharedTool[] {
       kind: 'read',
       description:
         '단일 일정 상세를 JSON 으로 반환합니다. 내가 만들었거나 참석자로 초대된 일정만 볼 수 있고(그 외에는 찾을 수 없음 오류), ' +
-        'list_events 에는 없는 전체 참석자 목록(attendees)·내 응답(myRsvpStatus)·내 역할(myRole)·외부 캘린더 동기화 여부(external)가 담깁니다. ' +
+        'list_events 에는 없는 전체 참석자 목록(attendees: username·name·role·rsvpStatus·invitedBy — 숫자 사용자 ID 는 없고 사람은 username 으로 가리킵니다)·내 응답(myRsvpStatus)·내 역할(myRole)·외부 캘린더 동기화 여부(external)가 담깁니다. ' +
         'eventId 는 list_events 결과 항목의 id 입니다.',
       inputSchema: getEventInput,
       async handler(args) {
         const { eventId } = getEventInput.parse(args);
-        return JSON.stringify(await client.getEvent(eventId));
+        return JSON.stringify(toEventView((await client.getEvent(eventId)) as EventDetail));
       },
     },
     {
@@ -237,7 +265,8 @@ export function buildCalendarTools(client: CalendarToolsClient): SharedTool[] {
           // fail-open: 충돌 정보 없이 진행한다.
         }
         const event = await client.createEvent({ ...fields, startsAt, endsAt, attendeeUserIds }, { notify });
-        return JSON.stringify(conflicts.length > 0 ? { event, conflicts } : { event });
+        const eventView = toEventView(event as EventDetail);
+        return JSON.stringify(conflicts.length > 0 ? { event: eventView, conflicts } : { event: eventView });
       },
     },
     {

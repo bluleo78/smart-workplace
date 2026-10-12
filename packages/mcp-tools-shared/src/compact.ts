@@ -9,6 +9,14 @@ export function dropEmpty<T extends Record<string, unknown>>(row: T): Partial<T>
 }
 
 /**
+ * 지정한 키를 뺀 얕은 복사본. 서버 응답에서 숫자 사용자 ID(ownerId·updatedBy 등)를 걷어낼 때 쓴다(#833, WP-353).
+ * 허용 목록으로 고르지 않고 빼는 이유는 drive-view.ts 와 같다 — 서버에 새 필드가 생겨도 조용히 누락되지 않는다.
+ */
+export function omitKeys<T extends Record<string, unknown>, K extends string>(row: T, ...keys: K[]): Omit<T, K> {
+  return Object.fromEntries(Object.entries(row).filter(([k]) => !(keys as string[]).includes(k))) as Omit<T, K>;
+}
+
+/**
  * 커서 페이지 → LLM 뷰 { items, hasMore?, nextCursor? }(WP-352). 다음 페이지가 없으면 hasMore·nextCursor 를 **생략**한다 —
  * null·false 를 실으면 "더 있나?" 를 매번 해석해야 하고, 빠진 키 = 끝이라는 규칙이 #850 의 dropEmpty 와 같아진다.
  * 서버 hasMore 가 true 여도 nextCursor 가 없으면(비정상) 이어 읽을 수단이 없어 잘림만 알린다.

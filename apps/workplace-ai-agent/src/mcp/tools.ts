@@ -974,7 +974,7 @@ export function buildTools(
     name: 'propose_add_channel_member',
     description:
       '채널에 구성원 초대를 제안합니다. 직접 초대하지 않고 확인 카드용 제안만 만듭니다. 채널 OWNER/ADMIN 만 초대할 수 있고 DM 에는 초대할 수 없습니다. ' +
-      'channelId 는 list_channels 결과의 id, username 은 search_members 결과의 값입니다.',
+      'channelId 는 list_channels 결과의 channelId, username 은 search_members 결과의 값입니다.',
     inputSchema: proposeAddChannelMemberInput,
     async handler(args) {
       const { channelId, username, summary } = proposeAddChannelMemberInput.parse(args);
@@ -988,7 +988,7 @@ export function buildTools(
     name: 'propose_leave_channel',
     description:
       '비공개 채널에서 나가기를 제안합니다. 직접 나가지 않고 확인 카드용 제안만 만듭니다. 비공개 채널은 나가면 다시 초대받아야 돌아올 수 있습니다. ' +
-      '공개 채널은 leave_channel 로 바로 나가세요. 채널 OWNER 는 소유권을 넘기기 전에는 나갈 수 없습니다. channelId 는 list_channels 결과의 id 입니다.',
+      '공개 채널은 leave_channel 로 바로 나가세요. 채널 OWNER 는 소유권을 넘기기 전에는 나갈 수 없습니다. channelId 는 list_channels 결과의 channelId 입니다.',
     inputSchema: proposeLeaveChannelInput,
     async handler(args) {
       const { channelId, summary } = proposeLeaveChannelInput.parse(args);
@@ -1082,7 +1082,7 @@ export function buildTools(
   };
   const proposeDeleteFolderTool: McpTool = {
     name: 'propose_delete_folder',
-    description: '폴더 삭제를 제안합니다. 직접 삭제하지 않고 사용자 확인 카드용 제안만 만듭니다. 삭제는 복구 가능한 soft-delete 이지만 하위 파일·폴더가 포함될 수 있어 확인이 필요합니다. summary 에 어떤 폴더를 지우는지 한 줄로 넣으세요. folderId 는 list_drive_items/search_drive 폴더 항목의 id 입니다. 승인 시 서버가 삭제합니다.',
+    description: '폴더 삭제를 제안합니다. 직접 삭제하지 않고 사용자 확인 카드용 제안만 만듭니다. 삭제는 복구 가능한 soft-delete 이지만 하위 파일·폴더가 포함될 수 있어 확인이 필요합니다. summary 에 어떤 폴더를 지우는지 한 줄로 넣으세요. folderId 는 list_drive_items/search_drive 폴더 항목의 folderId 입니다. 승인 시 서버가 삭제합니다.',
     inputSchema: proposeDeleteFolderInput,
     async handler(args) {
       const { summary, folderId } = proposeDeleteFolderInput.parse(args);

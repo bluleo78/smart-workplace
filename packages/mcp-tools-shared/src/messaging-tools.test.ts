@@ -53,7 +53,8 @@ describe('buildMessagingTools', () => {
     vi.mocked(c.discoverChannels).mockResolvedValue([{ id: 3, name: '공지', kind: 'PUBLIC' }]);
     const out = await tool(c, 'discover_channels').handler({ q: '공지' });
     expect(c.discoverChannels).toHaveBeenCalledWith('공지');
-    expect(JSON.parse(resultText(out))).toEqual([{ id: 3, name: '공지', kind: 'PUBLIC' }]);
+    // 채널은 어디서나 channelId 로 가리킨다(WP-353).
+    expect(JSON.parse(resultText(out))).toEqual([{ channelId: 3, name: '공지', kind: 'PUBLIC' }]);
     await expect(tool(c, 'discover_channels').handler({ q: '' })).rejects.toThrow();
   });
 
@@ -93,17 +94,17 @@ describe('buildMessagingTools', () => {
     vi.mocked(c.listChannels).mockResolvedValue([{ id: 1, name: '일반' }]);
     const out = await tool(c, 'list_channels').handler({});
     expect(c.listChannels).toHaveBeenCalled();
-    expect(JSON.parse(resultText(out))).toEqual({ items: [{ id: 1, name: '일반' }], total: 1 });
+    expect(JSON.parse(resultText(out))).toEqual({ items: [{ channelId: 1, name: '일반' }], total: 1 });
   });
 
   it('list_channels → limit 을 넘으면 잘라 truncated·nextOffset 을 알리고 offset 으로 이어 읽는다 (WP-352)', async () => {
     const c = mockClient();
     vi.mocked(c.listChannels).mockResolvedValue(Array.from({ length: 5 }, (_, i) => ({ id: i + 1, name: `c${i}` })));
     const first = JSON.parse(resultText(await tool(c, 'list_channels').handler({ limit: 2 })));
-    expect(first.items.map((x: { id: number }) => x.id)).toEqual([1, 2]);
+    expect(first.items.map((x: { channelId: number }) => x.channelId)).toEqual([1, 2]);
     expect(first).toMatchObject({ total: 5, truncated: true, nextOffset: 2 });
     const last = JSON.parse(resultText(await tool(c, 'list_channels').handler({ limit: 2, offset: 4 })));
-    expect(last.items.map((x: { id: number }) => x.id)).toEqual([5]);
+    expect(last.items.map((x: { channelId: number }) => x.channelId)).toEqual([5]);
     expect(last).not.toHaveProperty('truncated');
     expect(last).not.toHaveProperty('nextOffset');
   });

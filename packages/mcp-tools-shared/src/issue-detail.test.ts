@@ -37,8 +37,9 @@ describe('normalizeIssueDetail', () => {
   it('의존성 필드를 summary 에서 top-level 로 lift', () => {
     const d = normalizeIssueDetail(raw);
     expect(d.blocked).toBe(true);
-    expect(d.blockedBy).toEqual([{ number: 11, title: '선행작업', status: 'TODO' }]);
-    expect(d.blocks).toEqual([{ number: 13, title: '후속작업', status: 'TODO' }]);
+    // 이슈는 어디서나 issueKey 로 가리킨다 — 링크의 number 가 아니라(WP-353).
+    expect(d.blockedBy).toEqual([{ issueKey: 'WP-11', title: '선행작업', status: 'TODO' }]);
+    expect(d.blocks).toEqual([{ issueKey: 'WP-13', title: '후속작업', status: 'TODO' }]);
   });
 
   it('comment 의 flat author 필드를 nested author 로 변환 — username 은 authorUsername, 없으면 null', () => {
@@ -104,7 +105,7 @@ describe('normalizeIssueDetail', () => {
       children: null,
       reporter: { username: 'bob', name: 'Bob', kind: 'AGENT' },
       customFields: [{ name: '고객사', type: 'TEXT', value: 'ACME' }],
-      attachments: [{ fileId: 11, name: 'a.pdf', mimeType: 'application/pdf', sizeBytes: 100, attachedBy: { username: 'bob', name: 'Bob', kind: null }, attachedAt: '2026-10-01T09:00:00+09:00' }],
+      attachments: [{ attachmentId: 11, name: 'a.pdf', mimeType: 'application/pdf', sizeBytes: 100, attachedBy: { username: 'bob', name: 'Bob', kind: null }, attachedAt: '2026-10-01T09:00:00+09:00' }],
       history: [
         { at: '2026-10-08T00:30:00+09:00', actor: { username: 'bob', name: 'Bob', kind: 'AGENT' }, event: 'STATUS_CHANGED', from: 'TODO', to: 'CANCELED' },
         { at: '2026-10-08T00:31:00+09:00', actor: { username: 'bob', name: 'Bob', kind: 'AGENT' }, event: 'LABELS_CHANGED', from: null, to: { added: [{ name: '긴급' }], removed: [] } },

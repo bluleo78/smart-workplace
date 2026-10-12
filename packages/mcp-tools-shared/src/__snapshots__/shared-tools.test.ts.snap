@@ -443,9 +443,8 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "string",
         },
         "parent": {
-          "exclusiveMinimum": 0,
-          "maximum": 9007199254740991,
-          "type": "integer",
+          "minLength": 1,
+          "type": "string",
         },
         "priority": {
           "enum": [
@@ -1525,7 +1524,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
       "properties": {
-        "driveFileId": {
+        "attachmentId": {
           "anyOf": [
             {
               "exclusiveMinimum": 0,
@@ -1537,7 +1536,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
             },
           ],
         },
-        "fileId": {
+        "driveFileId": {
           "anyOf": [
             {
               "exclusiveMinimum": 0,
@@ -2205,9 +2204,8 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
         "parent": {
           "anyOf": [
             {
-              "exclusiveMinimum": 0,
-              "maximum": 9007199254740991,
-              "type": "integer",
+              "minLength": 1,
+              "type": "string",
             },
             {
               "type": "null",

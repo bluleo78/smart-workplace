@@ -8,7 +8,7 @@ import type { SharedTool } from './mcp-tool.js';
 import { requireActiveMember } from './member-tools.js';
 import { defaultListAssignee, resolveCycleFilter } from './resolve.js';
 import { formatIssueKey } from './parse.js';
-import { cursorPageView, dropEmpty, numberedPageView } from './compact.js';
+import { cursorPageView, dropEmpty, numberedPageView, omitKeys } from './compact.js';
 import { labelNames, toChildrenView, toParentView, toPeopleView, toSeoulIso, typeName } from './issue-view.js';
 import { listIssuesInput } from './schemas.js';
 import type { CreateProjectBody, IssueListQuery, IssueRow, MemberToolClient, ProjectToolClient } from './tool-client.js';
@@ -80,6 +80,14 @@ export function toIssueListItem(it: IssueRow) {
   };
 }
 
+/**
+ * 프로젝트 응답 → LLM 뷰. 소유자 ownerId 는 숫자 사용자 ID 라 내보내지 않는다(#833, WP-353). 서버 응답에는 소유자 이름이 없지만
+ * 소유자는 get_project 의 members 에 role: OWNER 로 username·name 과 함께 나오므로(이미 함께 조회하는 값) 정보가 사라지지 않는다.
+ */
+export function toProjectView(project: Record<string, unknown>) {
+  return omitKeys(project, 'ownerId');
+}
+
 /** 프로젝트 멤버 → LLM 뷰. 숫자 userId 는 빼고 사람을 가리키는 username 만 준다(#833). get_project 의 members 에 쓴다. */
 export function toProjectMemberView({ username, name, role }: { username: string; name?: string; role?: string }) {
   return { username, name, role };
@@ -100,7 +108,7 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       async handler(args) {
         const { page, size } = listProjectsInput.parse(args);
         const result = await client.listProjects(page, size);
-        return JSON.stringify(numberedPageView(result.items, result));
+        return JSON.stringify(numberedPageView((result.items as Record<string, unknown>[]).map(toProjectView), result));
       },
     },
     {
@@ -124,7 +132,7 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
           client.getProjectMembers(projectKey),
         ]);
         return JSON.stringify({
-          ...project,
+          ...toProjectView(project as Record<string, unknown>),
           issueTypes: types.map((t) => t.name),
           labels: labels.map((l) => l.name),
           milestones: milestones.map((m) => m.name),
@@ -177,12 +185,11 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       async handler(args) {
         const { projectKey, name, description } = updateProjectInput.parse(args);
         // 서버 PATCH 는 부분 수정(#858) — 준 필드만 보낸다. 설명 비우기(null)는 clearDescription 플래그로 표현한다.
-        return JSON.stringify(
-          await client.updateProject(
-            projectKey,
-            description === null ? { name, clearDescription: true } : { name, description },
-          ),
+        const updated = await client.updateProject(
+          projectKey,
+          description === null ? { name, clearDescription: true } : { name, description },
         );
+        return JSON.stringify(toProjectView(updated as Record<string, unknown>));
       },
     },
     {
@@ -199,7 +206,7 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
         '다시 부르면 같은 키는 충돌 오류가 나고, PERSONAL 은 프로젝트가 하나 더 생깁니다.',
       inputSchema: createProjectInput,
       async handler(args) {
-        return JSON.stringify(await client.createProject(toCreateProjectBody(createProjectInput.parse(args))));
+        return JSON.stringify(toProjectView((await client.createProject(toCreateProjectBody(createProjectInput.parse(args)))) as Record<string, unknown>));
       },
     },
     {

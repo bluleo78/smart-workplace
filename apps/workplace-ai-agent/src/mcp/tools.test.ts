@@ -744,7 +744,8 @@ describe('discover_channels (#350)', () => {
     const out = await find(buildTools(c, AGENT_ID, 'messaging'), 'discover_channels').handler({ q: '공지' });
     expect(c.toolClient).toHaveBeenCalledWith(AGENT_ID);
     expect(c.sc.discoverChannels).toHaveBeenCalledWith('공지');
-    expect(JSON.parse(out as string)).toEqual([{ id: 3, name: '공지', kind: 'PUBLIC' }]);
+    // WP-353: 채널은 어디서나 channelId 로 가리킨다.
+    expect(JSON.parse(out as string)).toEqual([{ channelId: 3, name: '공지', kind: 'PUBLIC' }]);
   });
 });
 
@@ -1356,7 +1357,7 @@ describe('공유로 옮긴 쓰기 도구는 에이전트 신원(toolClient(agent
     const out = await find(buildTools(c, 7, 'assistant'), 'create_drive_folder').handler({ spaceId: 1, name: '신규폴더' });
     expect(c.toolClient).toHaveBeenCalledWith(7);
     expect(c.sc.createDriveFolder).toHaveBeenCalledWith(1, null, '신규폴더');
-    expect(JSON.parse(out as string)).toMatchObject({ id: 10, name: '신규폴더' });
+    expect(JSON.parse(out as string)).toMatchObject({ folderId: 10, name: '신규폴더' });
   });
 
   it('rename_drive_folder → sc.renameDriveFolder(folderId, name)', async () => {

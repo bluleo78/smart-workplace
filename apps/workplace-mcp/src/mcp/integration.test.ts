@@ -138,7 +138,7 @@ describe('/mcp', () => {
         .get('/projects/WP/issues/12/attachments/3/content')
         .reply(200, png, { 'Content-Type': 'image/png' });
       const client = await connect('swp_valid');
-      const res = await client.callTool({ name: 'read_attachment', arguments: { source: 'issue', issueKey: 'WP-12', fileId: 3 } });
+      const res = await client.callTool({ name: 'read_attachment', arguments: { source: 'issue', issueKey: 'WP-12', attachmentId: 3 } });
       expect(res.isError).toBeFalsy();
       expect(res.content).toEqual([
         { type: 'text', text: '이슈 WP-12 첨부 이미지 "a.png" (image/png, 4B)' },

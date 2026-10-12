@@ -3,7 +3,7 @@
 // 확인 카드로 한다(경로마다 도구 하나 — ai-agent 프로필에는 싣지 않는다). 두 경로가 입력 스키마(addChannelMemberInput)와 대상 해석
 // (requireActiveMember)을 같이 쓴다. 비공개 채널 나가기는 계속 확인 카드(propose_leave_channel)만 한다.
 import { z } from 'zod';
-import { cursorPageView, dropEmpty } from './compact.js';
+import { cursorPageView, dropEmpty, omitKeys } from './compact.js';
 import type { SharedTool } from './mcp-tool.js';
 import { findMemberByUsername, requireActiveMember, searchMembersByTerm } from './member-tools.js';
 import type { MemberRow, MemberToolClient, MessagingToolClient } from './tool-client.js';
@@ -72,6 +72,42 @@ const THREAD_PAGE_SIZE = 100;
 /** 한 번 호출로 모을 답글 상한 — 넘으면 truncated 로 알린다(비정상적으로 긴 스레드의 토큰 폭주 방지). */
 const MAX_THREAD_REPLIES = 500;
 
+type Raw = Record<string, unknown>;
+
+/** 객체 배열의 각 원소에서 키를 뺀다 — 배열이 아니면(없음·null) 그대로 둔다. */
+function omitInEach(list: unknown, ...keys: string[]): unknown {
+  if (!Array.isArray(list)) return list;
+  return list.map((row) => (row && typeof row === 'object' ? omitKeys(row as Raw, ...keys) : row));
+}
+
+/**
+ * 메시지 행의 숫자 사용자 ID 를 걷어낸다(#833, WP-353). 작성자는 authorName(표시 이름)만 남기고 authorId 를 뺀다(답글 뷰의 기존 방식) —
+ * 서버 메시지 응답에 username 은 없고 authorKind(HUMAN/AGENT)와 이름뿐이라, 이름으로 사람을 가리키려는 용도로는 이것으로 충분하다.
+ * 같은 이유로 첨부자(attachedById)·드라이브 링크 생성자(createdById)·제안 작성자(proposedByUserId)·제안 참석자(userId)도 뺀다.
+ * 드라이브 링크의 core fileId 는 driveFileId 와 겹쳐 혼동을 부르므로 함께 뺀다(#840 과 같은 이유).
+ * 멘션(mentions[].id)은 본문의 `<@id>` 토큰과 짝이라 토큰을 이름으로 풀 때(WP-353 후속) 같이 정리한다 — 여기서는 건드리지 않는다.
+ */
+export function stripMessageUserIds({ authorId: _authorId, ...rest }: Raw): Raw {
+  const out: Raw = { ...rest };
+  if ('attachments' in out) out.attachments = omitInEach(out.attachments, 'attachedById');
+  if ('driveLinks' in out) out.driveLinks = omitInEach(out.driveLinks, 'createdById', 'fileId');
+  const proposal = out.proposal as Raw | null | undefined;
+  if (proposal && typeof proposal === 'object') {
+    const { proposedByUserId: _proposedBy, ...p } = proposal;
+    out.proposal = 'attendees' in p ? { ...p, attendees: omitInEach(p.attendees, 'userId') } : p;
+  }
+  return out;
+}
+
+/**
+ * 채널 행(ChannelResponse) → LLM 뷰. 공용 `id` 를 channelId 로 바꾸고(채널 도구의 입력 이름과 같게, #833·WP-353),
+ * 마지막 메시지 미리보기(lastMessage)의 숫자 authorId 는 뺀다(authorName 은 둔다).
+ */
+export function toChannelView({ id, lastMessage, ...rest }: Raw): Raw {
+  const preview = lastMessage && typeof lastMessage === 'object' ? omitKeys(lastMessage as Raw, 'authorId') : lastMessage;
+  return { channelId: id, ...rest, ...(lastMessage !== undefined && { lastMessage: preview }) };
+}
+
 /**
  * 답글 행 → LLM 뷰. 스레드 안에서는 모든 행이 같은 값(channelId·parentMessageId)이거나 답글에는 의미 없는 값
  * (replyCount·unreadReplyCount·followed)이라 지우고, 작성자는 이름으로만 둔다(#833). 삭제되지 않은 행의 deleted:false,
@@ -83,11 +119,10 @@ export function toThreadReplyView({
   replyCount: _replyCount,
   unreadReplyCount: _unreadReplyCount,
   followed: _followed,
-  authorId: _authorId,
   deleted,
   ...rest
 }: Record<string, unknown>) {
-  return dropEmpty({ ...rest, ...(deleted ? { deleted } : {}) });
+  return dropEmpty({ ...stripMessageUserIds(rest), ...(deleted ? { deleted } : {}) });
 }
 
 /**
@@ -143,7 +178,7 @@ export function buildMessagingTools(
       app: 'messaging',
       kind: 'read',
       description:
-        '내가 속한 채널·DM 목록을 JSON({items, total, truncated?, nextOffset?})으로 반환합니다(items 는 id·name·kind·visibility 포함, 이름순). ' +
+        '내가 속한 채널·DM 목록을 JSON({items, total, truncated?, nextOffset?})으로 반환합니다(items 는 channelId·name·kind·visibility 포함, 이름순). ' +
         '채널 이름만 알 때 channelId 를 확보한 뒤 list_channel_messages / add_channel_message 에 사용하세요. ' +
         'total 은 내 채널 전체 수이고 한 번에 limit 개(기본 100, 최대 200)만 담기므로, 더 있으면 truncated:true 와 nextOffset 이 옵니다 — ' +
         'nextOffset 을 offset 으로 넘겨 이어 조회하거나, 이어 조회하지 않고 답한다면 일부만 본 것이라고 밝히세요(목록에 없다는 단정·개수 집계 금지). ' +
@@ -152,7 +187,7 @@ export function buildMessagingTools(
       async handler(args) {
         const { limit, offset } = listChannelsInput.parse(args);
         const all = (await client.listChannels()) as unknown[];
-        const items = all.slice(offset, offset + limit);
+        const items = all.slice(offset, offset + limit).map((c) => toChannelView(c as Raw));
         const next = offset + items.length;
         return JSON.stringify({ items, total: all.length, ...(next < all.length && { truncated: true, nextOffset: next }) });
       },
@@ -162,11 +197,11 @@ export function buildMessagingTools(
       app: 'messaging',
       kind: 'read',
       description:
-        '공개 채널을 이름·키워드로 검색해 JSON 배열로 반환합니다(id·name·kind 포함). list_channels 에 없는 공개 채널을 찾아 channelId 를 확보한 뒤 메시지 조회/작성에 사용하세요.',
+        '공개 채널을 이름·키워드로 검색해 JSON 배열로 반환합니다(channelId·name·kind 포함). list_channels 에 없는 공개 채널을 찾아 channelId 를 확보한 뒤 메시지 조회/작성에 사용하세요.',
       inputSchema: discoverChannelsInput,
       async handler(args) {
         const { q } = discoverChannelsInput.parse(args);
-        return JSON.stringify(await client.discoverChannels(q));
+        return JSON.stringify((await client.discoverChannels(q)).map((c) => toChannelView(c as Raw)));
       },
     },
     {
@@ -182,7 +217,7 @@ export function buildMessagingTools(
       async handler(args) {
         const { channelId, limit, cursor } = listChannelMessagesInput.parse(args);
         const page = await client.listChannelMessages(channelId, { limit, cursor });
-        return JSON.stringify(cursorPageView(page.items, page));
+        return JSON.stringify(cursorPageView((page.items as Raw[]).map(stripMessageUserIds), page));
       },
     },
     {
@@ -222,10 +257,10 @@ export function buildMessagingTools(
       hints: { destructive: false, idempotent: false },
       description:
         '새 채널을 만들고 내가 OWNER 가 됩니다. visibility 기본 PUBLIC(누구나 참여), PRIVATE 는 초대받은 사람만 봅니다. ' +
-        '이름이 이미 있으면 충돌 오류가 납니다. 만든 채널(id·name·visibility)을 JSON 으로 반환합니다.',
+        '이름이 이미 있으면 충돌 오류가 납니다. 만든 채널(channelId·name·visibility)을 JSON 으로 반환합니다.',
       inputSchema: createChannelInput,
       async handler(args) {
-        return JSON.stringify(await client.createChannel(createChannelInput.parse(args)));
+        return JSON.stringify(toChannelView((await client.createChannel(createChannelInput.parse(args))) as Raw));
       },
     },
     {
@@ -287,7 +322,7 @@ export function buildMessagingTools(
       hints: { destructive: false, idempotent: true },
       description:
         '채널에 구성원을 초대합니다(MEMBER 로 추가). 채널 OWNER/ADMIN 만 초대할 수 있고 DM 에는 초대할 수 없습니다. ' +
-        'channelId 는 list_channels 결과의 id, username 은 search_members 결과의 값입니다(활성 구성원만). 이미 멤버면 역할을 그대로 두고 성공합니다. ' +
+        'channelId 는 list_channels 결과의 channelId, username 은 search_members 결과의 값입니다(활성 구성원만). 이미 멤버면 역할을 그대로 두고 성공합니다. ' +
         '초대된 사람에게 인박스·푸시 알림은 가지 않고, 그 사람의 채널 목록에 바로 나타납니다. 채널에 연결된 드라이브 공간이 있으면 그 공간 멤버로도 추가됩니다. ' +
         '결과는 { channelId, member: { username, name } } 입니다. 멤버 제거·역할 변경은 이 도구로 하지 않습니다.',
       inputSchema: addChannelMemberInput,

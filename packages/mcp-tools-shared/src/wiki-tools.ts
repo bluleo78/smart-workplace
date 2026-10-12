@@ -2,7 +2,7 @@
 // 쓰기는 스페이스 멤버십 가드를 서버가 강제하므로 확인 카드 없이 직접 실행한다.
 // update_wiki_page 의 409(기준본 없음 — 만료·기록 없음·현재보다 새 version)는 그대로 throw — 자동 재시도는 하지 않는다. 동시 편집은 서버가 3-way 병합한다(WP-289).
 import { z } from 'zod';
-import { truncatedView } from './compact.js';
+import { omitKeys, truncatedView } from './compact.js';
 import type { SharedTool } from './mcp-tool.js';
 import type { WikiPageRow, WikiToolClient } from './tool-client.js';
 
@@ -93,6 +93,15 @@ export function toWikiPageTree(rows: WikiPageRow[], opts: { rootId?: number; max
   return { items: build(rootParent), total, truncated: included.size < total };
 }
 
+/**
+ * 페이지 상세 → LLM 뷰. 마지막 수정자 updatedBy 는 숫자 사용자 ID 라 내보내지 않는다(#833, WP-353).
+ * 서버 응답에 수정자 이름이 없고(WikiPageDetail 은 id 만), 수정 시각 updatedAt 으로 "언제" 는 알 수 있다 — 이름을 풀려면 id→사용자
+ * 일괄 조회가 필요한데 공유 도구에는 없고(구성원 조회는 검색어 기준), 이 값을 입력으로 받는 도구도 없어 서버 필드를 늘리지 않고 뺀다.
+ */
+export function toWikiPageView(page: Record<string, unknown>) {
+  return omitKeys(page, 'updatedBy');
+}
+
 /** 노트 도구(list_wiki_spaces/list_wiki_pages/search_wiki/get_wiki_page/list_wiki_backlinks/create_wiki_page/update_wiki_page/move_wiki_page). */
 export function buildWikiTools(client: WikiToolClient): SharedTool[] {
   return [
@@ -105,7 +114,8 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
         '개인 노트는 type="PERSONAL"(이름 "내 노트")입니다. search_wiki 는 페이지 내용만 검색하므로, 스페이스 자체를 찾을 때는 이 도구를 쓰세요.',
       inputSchema: z.object({}),
       async handler() {
-        return JSON.stringify(await client.listWikiSpaces());
+        // 스페이스 소유자 ownerId 는 숫자 사용자 ID 라 내보내지 않는다(#833, WP-353) — 내 역할은 role 로 알 수 있다.
+        return JSON.stringify(((await client.listWikiSpaces()) as Record<string, unknown>[]).map((space) => omitKeys(space, 'ownerId')));
       },
     },
     {
@@ -153,7 +163,7 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
       inputSchema: getWikiPageInput,
       async handler(args) {
         const { pageId } = getWikiPageInput.parse(args);
-        return JSON.stringify(await client.getWikiPage(pageId));
+        return JSON.stringify(toWikiPageView((await client.getWikiPage(pageId)) as Record<string, unknown>));
       },
     },
     {
@@ -178,7 +188,7 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
       inputSchema: createWikiPageInput,
       async handler(args) {
         const { spaceId, title, parentId } = createWikiPageInput.parse(args);
-        return JSON.stringify(await client.createWikiPage(spaceId, { parentId: parentId ?? null, title }));
+        return JSON.stringify(toWikiPageView((await client.createWikiPage(spaceId, { parentId: parentId ?? null, title })) as Record<string, unknown>));
       },
     },
     {
@@ -196,7 +206,7 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
       inputSchema: updateWikiPageInput,
       async handler(args) {
         const { pageId, ...body } = updateWikiPageInput.parse(args);
-        return JSON.stringify(await client.updateWikiPage(pageId, body));
+        return JSON.stringify(toWikiPageView((await client.updateWikiPage(pageId, body)) as Record<string, unknown>));
       },
     },
     {
