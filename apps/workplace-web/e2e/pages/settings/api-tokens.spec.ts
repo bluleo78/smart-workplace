@@ -107,8 +107,10 @@ test.describe('/settings/tokens', () => {
 
       // ③ 연결 명령(claude mcp add ...) 코드 블록
       const command = page.getByTestId('token-connect-command');
-      await expect(command).toContainText('claude mcp add');
-      await expect(command).toContainText('swp_PLAINTEXT_');
+      // 복사한 명령이 그대로 실행돼야 하므로 이름·범위·URL·헤더를 전체 문자열로 검증한다(WP-334).
+      await expect(command).toHaveText(
+        /^claude mcp add -s user --transport http genia-works "http:\/\/localhost:6090\/mcp" --header "Authorization: Bearer swp_PLAINTEXT_[^"]+"$/,
+      );
 
       // ④ 모달 닫으면 목록에 새 행 추가(prefix만, 평문 없음) — 만료일도 반영
       await page.keyboard.press('Escape');

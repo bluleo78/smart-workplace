@@ -34,6 +34,8 @@ describe('/mcp', () => {
   it('유효 토큰으로 initialize + tools/list 에 create_issue 가 보인다', async () => {
     nock(API).get('/auth/me').reply(200, { id: 1, username: 'u', kind: 'HUMAN' });
     const client = await connect('swp_valid');
+    // WP-334: 연결 안내 명령의 서버 이름(genia-works)과 같은 이름·브랜드 표기를 알린다.
+    expect(client.getServerVersion()).toMatchObject({ name: 'genia-works', title: 'Gen:iA Works' });
     const tools = await client.listTools();
     expect(tools.tools.map((t) => t.name)).toContain('create_issue');
     // #853: kind 가 MCP 표준 힌트로 나가야 클라이언트가 읽기 자동승인·쓰기 확인을 구분한다.

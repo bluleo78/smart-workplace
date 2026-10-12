@@ -12,7 +12,9 @@ import { buildUserTools } from '../tools/index.js';
 /** 도구 배열을 McpServer 에 등록. 핸들러 반환 → content(문자열은 text 블록, 블록 배열은 그대로 — WP-240), 예외 → isError. */
 export function buildMcpServer(apiBaseUrl: string, token: string): McpServer {
   const client = createPatApiClient({ baseURL: apiBaseUrl, token });
-  const server = new McpServer({ name: 'smart-workplace', version: '0.1.0' });
+  // serverInfo — name 은 설정 키가 없을 때 도구 이름 접두사로 쓰는 클라이언트가 있어 영문·숫자·-·_ 만 쓰고,
+  // 브랜드 표기(콜론·공백 포함)는 표시용 title 로 둔다(WP-334).
+  const server = new McpServer({ name: 'genia-works', title: 'Gen:iA Works', version: '0.1.0' });
   for (const t of buildUserTools(client)) {
     server.registerTool(
       t.name,
