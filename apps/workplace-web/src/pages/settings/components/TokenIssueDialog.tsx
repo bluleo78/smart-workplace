@@ -2,6 +2,8 @@
 // 닫으면 다시 표시되지 않으므로 destructive 톤 경고 + 복사 버튼을 제공하고,
 // 외부 도구(Claude Code) 연결을 바로 할 수 있도록 MCP 연결 명령도 함께 안내한다.
 
+// WP-350: 앱 목록은 공유 패키지 소스(순수 모듈 — 번들에 zod·도구 핸들러가 들어오지 않는다)에서 가져와 하드코딩이 어긋나지 않게 한다.
+import { TOOL_APPS } from '@smart-workplace/mcp-tools-shared/tool-apps';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
@@ -100,7 +102,7 @@ export function TokenIssueDialog({
               </p>
               <ul className="list-disc space-y-0.5 pl-4">
                 <li>
-                  <code className="font-mono">/mcp/x/issue,wiki</code> — 이슈·위키 도구만
+                  <code className="font-mono">/mcp/x/issue,wiki</code> — 이슈·노트 도구만
                 </li>
                 <li>
                   <code className="font-mono">/mcp/readonly</code> — 조회 도구만(읽기 전용)
@@ -109,7 +111,7 @@ export function TokenIssueDialog({
                   <code className="font-mono">/mcp/x/issue,wiki/readonly</code> — 앱 선택 + 읽기 전용
                 </li>
               </ul>
-              <p>앱: issue, project, wiki, drive, mail, messaging, calendar, contacts, notify, member</p>
+              <p>앱: {TOOL_APPS.join(', ')}</p>
             </div>
           </div>
 

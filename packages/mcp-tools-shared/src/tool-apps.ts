@@ -1,6 +1,7 @@
 // src/tool-apps.ts — 공유 도구의 "앱" 분류(WP-350). 외부 MCP 클라이언트(Claude.ai·ChatGPT 등)는 도구 정의를 전부 싣기 때문에
 // 연결할 때 쓸 앱만 고를 수 있게 한다(workplace-mcp 의 `/mcp/x/{apps}`·`X-MCP-Toolsets`). 앱 이름은 URL·헤더에 그대로 쓰는 값이라
 // 소문자 영문이고, 화면 이름(위키=노트 등)이 바뀌어도 이 이름은 바꾸지 않는다.
+// 웹은 서브패스(`/tool-apps`)로 이 TS 소스를 직접 import 한다(토큰 발급 안내의 앱 목록) — tool-labels.ts 처럼 import 없는 순수 모듈로 유지한다(zod·핸들러 금지).
 
 /** 앱 이름 전체 — URL·헤더에 쓰는 값. 새 앱을 추가하면 아래 `TOOL_APP_GUIDES` 도 채워야 한다(타입이 강제). */
 export const TOOL_APPS = [
@@ -51,7 +52,7 @@ export const TOOL_APP_GUIDES: Record<ToolApp, ToolAppGuide> = {
   drive: { label: '드라이브', read: '파일 검색·요약·내용 읽기·휴지통 조회', write: '폴더 생성·이름 변경·이동·휴지통 복원', entry: ['list_drive_items', 'search_drive'] },
   mail: { label: '메일', read: '메일 조회·요약·답장·이슈 초안', write: '읽음 처리·동기화·메일로 이슈 생성(발송은 불가)', entry: ['list_mail_accounts', 'list_mail'] },
   messaging: { label: '채널·DM', read: '채널·메시지·스레드 조회', write: '메시지 작성·채널 생성·초대·DM', entry: ['list_channels', 'get_channel_messages'] },
-  calendar: { label: '캘린더', read: '일정 조회', write: '일정 생성·수정·참석 응답', entry: ['list_events', 'get_event'] },
+  calendar: { label: '캘린더', read: '일정 조회', write: '일정 생성·수정·참석자 변경·참석 응답', entry: ['list_events', 'get_event'] },
   contacts: { label: '연락처', read: '연락처·그룹 조회', write: '즐겨찾기·그룹·외부 연락처 관리', entry: ['list_contacts', 'list_user_groups'] },
   notify: { label: '알림', read: '알림 조회', write: '읽음 처리', entry: ['list_notifications'] },
   member: { label: '구성원', read: '구성원 검색·연락처 조회', write: '', entry: ['search_members', 'get_member'] },

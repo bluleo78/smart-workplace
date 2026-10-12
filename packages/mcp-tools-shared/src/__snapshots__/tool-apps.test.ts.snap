@@ -67,7 +67,7 @@ exports[`도구 앱 태그 (WP-350) > 도구별 앱 스냅샷 1`] = `
   "rsvp_event": "calendar",
   "search_drive": "drive",
   "search_drive_content": "drive",
-  "search_members": "member",
+  "search_members": "member,calendar,project,messaging,contacts",
   "search_wiki": "wiki",
   "sync_mail": "mail",
   "unwatch_issue": "issue",

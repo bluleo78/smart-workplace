@@ -203,7 +203,7 @@ describe('/mcp 연결 범위 (WP-350)', () => {
 
   it('/mcp/x/{apps}/readonly 는 앱 선택과 읽기 전용의 교집합', async () => {
     const r = await open('/mcp/x/calendar/readonly');
-    expect([...r.names].sort()).toEqual(['get_event', 'list_events']);
+    expect([...r.names].sort()).toEqual(['get_event', 'list_events', 'search_members']); // search_members: 참석자 username 확인용으로 calendar 에도 실린다
   });
 
   it('X-MCP-Toolsets 헤더는 경로에 앱 선택이 없을 때 앱 선택으로 쓰이고, /readonly 와도 합쳐진다', async () => {

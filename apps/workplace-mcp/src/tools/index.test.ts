@@ -88,7 +88,7 @@ describe('selectTools (WP-350)', () => {
 
   it('앱 선택과 읽기 전용을 함께 쓰면 교집합', () => {
     const tools = selectTools(all, { apps: ['calendar'], readOnly: true });
-    expect(names(tools).sort()).toEqual(['get_event', 'list_events']);
+    expect(names(tools).sort()).toEqual(['get_event', 'list_events', 'search_members']); // search_members: 참석자 username 확인용으로 calendar 에도 실린다
   });
 });
 

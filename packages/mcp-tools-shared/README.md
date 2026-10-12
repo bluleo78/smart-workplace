@@ -49,17 +49,19 @@ LLM 에 보여줄 형태로 가공하는 일은 **도구 핸들러**가 맡는�
 - **한 도구가 여러 앱에 속할 수 있다**(`app: ['issue', 'drive']`). 그 앱 중 하나만 골라도 도구가 보여야 그 앱 안에서 일이 끊기기 때문이다. 꼭 필요한 선행 조회만 겹치고, "있으면 편한" 수준으로는 퍼뜨리지 않는다.
   - `read_attachment`: 이슈 첨부와 드라이브 파일을 모두 읽는다 → `issue`, `drive`.
   - `list_projects`·`get_project`: 이슈 작업의 출발점(projectKey·담당자·라벨·마일스톤 목록)이다 → `project`, `issue`.
+  - `search_members`: username 을 받는 도구(일정 참석자·프로젝트/채널 멤버·DM·멘션·그룹 멤버)가 설명에서 이 도구로 확인하라고 한다 → `member`, `calendar`, `project`, `messaging`, `contacts`. `mail`·`issue` 에는 싣지 않는다 — `create_issue`(`_from_mail`)의 assignees 는 선택 입력이고("me" 가능) 안내가 `get_project` 의 members 를 가리키며, 어느 설명도 `search_members` 를 가리키지 않는다.
+  - 재발 방지: `tool-apps.test.ts` 가 도구 설명·입력 필드 설명에 나온 다른 공유 도구가 같은 앱 범위에도 있는지 대조한다. 대비·대안 언급처럼 선행 조회가 아닌 경우만 그 테스트의 `CROSS_REF_ALLOWED` 에 이유와 함께 올린다.
 
 | 앱 | 도구 |
 |---|---|
 | `issue` | `list_issues` `get_issue_detail` `create_issue` `update_issue` `add_comment` `update_comment` `add_issue_dependency` `remove_issue_dependency` `watch_issue` `unwatch_issue` + 겹침: `list_projects` `get_project` `read_attachment` |
-| `project` | `list_projects` `get_project` `create_project` `update_project` `add_project_member` |
+| `project` | `list_projects` `get_project` `create_project` `update_project` `add_project_member` + 겹침: `search_members` |
 | `wiki` | `list_wiki_spaces` `list_wiki_pages` `search_wiki` `get_wiki_page` `list_wiki_backlinks` `create_wiki_page` `update_wiki_page` `move_wiki_page` |
 | `drive` | `list_drive_spaces` `list_drive_items` `search_drive` `get_drive_file_summary` `search_drive_content` `list_drive_trash` `restore_drive_item` `create_drive_folder` `rename_drive_folder` `move_drive_folder` `move_drive_file` + 겹침: `read_attachment` |
 | `mail` | `list_mail_accounts` `list_mail` `get_mail` `get_mail_summary` `draft_mail_reply` `draft_issue_from_mail` `create_issue_from_mail` `mark_mail_read` `sync_mail` |
-| `messaging` | `list_channels` `discover_channels` `get_channel_messages` `list_thread_replies` `add_channel_message` `create_channel` `open_dm` `leave_channel` `add_channel_member` |
-| `calendar` | `list_events` `get_event` `rsvp_event` `create_event` `update_event` |
-| `contacts` | `list_contacts` `get_external_contact` `get_contact_facets` `add_contact_favorite` `remove_contact_favorite` `list_user_groups` `get_user_group` `create_user_group` `update_user_group` `add_user_group_member` `remove_user_group_member` `create_external_contact` `update_external_contact` |
+| `messaging` | `list_channels` `discover_channels` `get_channel_messages` `list_thread_replies` `add_channel_message` `create_channel` `open_dm` `leave_channel` `add_channel_member` + 겹침: `search_members` |
+| `calendar` | `list_events` `get_event` `rsvp_event` `create_event` `update_event` + 겹침: `search_members` |
+| `contacts` | `list_contacts` `get_external_contact` `get_contact_facets` `add_contact_favorite` `remove_contact_favorite` `list_user_groups` `get_user_group` `create_user_group` `update_user_group` `add_user_group_member` `remove_user_group_member` `create_external_contact` `update_external_contact` + 겹침: `search_members` |
 | `notify` | `list_notifications` `mark_notification_read` `mark_all_notifications_read` |
 | `member` | `search_members` `get_member` `get_member_contact` |
 

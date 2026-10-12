@@ -115,7 +115,9 @@ export function buildMemberTools(client: MemberToolClient): SharedTool[] {
   return [
     {
       name: 'search_members',
-      app: 'member',
+      // username 을 받는 도구(일정 참석자·프로젝트/채널 멤버·DM·멘션·그룹 멤버)가 설명에서 이 도구로 확인하라고 하므로 그 앱들에도 싣는다(README "앱 분류").
+      // mail·issue 는 제외 — create_issue(_from_mail) 의 assignees 는 선택이고("me" 가능) 안내가 get_project 의 members 를 가리킨다.
+      app: ['member', 'calendar', 'project', 'messaging', 'contacts'],
       kind: 'read',
       description:
         '우리 워크스페이스의 구성원을 검색해 JSON 으로 반환합니다. 사람을 찾을 때 쓰는 표준 도구입니다. ' +
