@@ -211,13 +211,6 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "minLength": 1,
           "type": "string",
         },
-        "role": {
-          "enum": [
-            "OWNER",
-            "MEMBER",
-          ],
-          "type": "string",
-        },
         "username": {
           "minLength": 1,
           "type": "string",
@@ -226,7 +219,6 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       "required": [
         "projectKey",
         "username",
-        "role",
       ],
       "type": "object",
     },

@@ -1,7 +1,8 @@
 // src/project-tools.ts — 프로젝트 조회 2종 + 이슈 목록 조회 + 프로젝트 정보 수정·생성·멤버 추가. 두 앱 공유(#846, #854, WP-349).
 // 생성·멤버 추가는 외부 MCP 에 직접 실행 도구로 노출하고, AI Chat 은 같은 작업을 propose_create_project·propose_add_project_member
 // 확인 카드로 한다(경로마다 도구 하나 — ai-agent 프로필에는 싣지 않는다). 두 경로가 입력 스키마(createProjectInput·addProjectMemberInput)와
-// 대상 해석(requireActiveMember)·요청 본문 변환(toCreateProjectBody)을 같이 쓴다. 삭제·멤버 역할 변경·제거는 계속 확인 카드만 한다.
+// 대상 해석(requireActiveMember)·요청 본문 변환(toCreateProjectBody)을 같이 쓴다. 직접 실행 멤버 추가는 MEMBER 로만 한다 — OWNER 로
+// 들이는 것은 권한 부여(README "계속 빼 둘 것: 구성원 권한 변경")라 카드만 한다. 삭제·멤버 역할 변경·제거도 계속 확인 카드만 한다.
 import { z } from 'zod';
 import type { SharedTool } from './mcp-tool.js';
 import { requireActiveMember } from './member-tools.js';
@@ -37,14 +38,15 @@ export const createProjectInput = z.object({
   type: z.string().optional(),
 });
 /**
- * 프로젝트 멤버 추가 입력(WP-349) — add_project_member 와 확인 카드 propose_add_project_member(이 스키마 + summary)가 같이 쓴다.
+ * 프로젝트 멤버 추가 입력(WP-349) — add_project_member 와 확인 카드 propose_add_project_member 가 같이 쓰는 기반.
+ * role 은 없다: 직접 실행 도구는 늘 MEMBER 로 추가하고, OWNER 를 고를 수 있는 것은 카드(이 스키마 + role + summary)뿐이다 —
+ * OWNER 는 멤버 관리·프로젝트 삭제까지 넘기는 권한 부여라 확인 없이 실행되는 도구에 두지 않는다.
  * #833: 숫자 id 대신 username 을 받는다. 이슈 도구(create_issue 의 assignees)와 같은 방식이며,
  * LLM 표면에 숫자 식별자를 노출하지 않으면 "연락처 id 를 userId 로 넣는" 사고 자체가 불가능해진다.
  */
 export const addProjectMemberInput = z.object({
   projectKey: z.string().min(1),
   username: z.string().min(1),
-  role: z.enum(['OWNER', 'MEMBER']),
 });
 
 /** 생성 입력 → 서버 본문. 확인 카드 실행기(project.create_project)와 POST /projects 가 같은 CreateProjectRequest 로 받는다. */
@@ -194,18 +196,19 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       // 멱등이 아니다. 워크스페이스 밖에 닿지 않는다.
       hints: { destructive: false, idempotent: false },
       description:
-        '프로젝트에 구성원을 멤버로 추가합니다. 프로젝트 OWNER 만 할 수 있습니다. username 은 search_members 결과의 값입니다(활성 구성원만). ' +
-        'role 은 MEMBER(이슈 보기·쓰기) 또는 OWNER(멤버 관리·프로젝트 삭제까지 가능한 관리자)입니다. 이미 멤버이거나 개인 프로젝트에 사람을 넣으면 오류가 납니다' +
-        '(개인 프로젝트에는 AI 에이전트만 MEMBER 로 추가됩니다). 추가된 사람에게 인박스·푸시 알림은 가지 않고, 그 사람의 프로젝트 목록에 바로 나타납니다. ' +
-        '결과는 { projectKey, member: { username, name, role } } 입니다. 역할 변경·멤버 제거는 이 도구로 하지 않습니다.',
+        '프로젝트에 구성원을 MEMBER(이슈 보기·쓰기) 역할로 추가합니다. 프로젝트 OWNER 만 할 수 있습니다. username 은 search_members 결과의 값입니다(활성 구성원만). ' +
+        'OWNER 로 추가하거나 역할을 바꾸는 것, 멤버 제거는 이 도구로 할 수 없습니다(권한 변경은 사용자가 웹에서 직접 합니다). ' +
+        '이미 멤버이거나 개인 프로젝트에 사람을 넣으면 오류가 납니다(개인 프로젝트에는 AI 에이전트만 추가됩니다). ' +
+        '추가된 사람에게 인박스·푸시 알림은 가지 않고, 그 사람의 프로젝트 목록에 바로 나타납니다. 결과는 { projectKey, member: { username, name, role } } 입니다.',
       inputSchema: addProjectMemberInput,
       async handler(args) {
-        const { projectKey, username, role } = addProjectMemberInput.parse(args);
+        const { projectKey, username } = addProjectMemberInput.parse(args);
         // 확인 카드(propose_add_project_member)와 같은 대상 판정·문구 — 없거나 비활성이면 서버를 부르지 않는다.
         const target = await requireActiveMember(client, username);
         if ('error' in target) throw new Error(target.error);
-        const added = await client.addProjectMember(projectKey, { userId: target.member.userId, role });
-        // 숫자 userId 는 돌려주지 않는다(#833). 개인 프로젝트의 AI 에이전트는 서버가 MEMBER 로 고정하므로 응답의 role 을 그대로 쓴다.
+        // 직접 실행은 MEMBER 고정 — OWNER 부여는 확인 카드(propose_add_project_member)만 한다.
+        const added = await client.addProjectMember(projectKey, { userId: target.member.userId, role: 'MEMBER' });
+        // 숫자 userId 는 돌려주지 않는다(#833).
         return JSON.stringify({ projectKey, member: toProjectMemberView(added) });
       },
     },

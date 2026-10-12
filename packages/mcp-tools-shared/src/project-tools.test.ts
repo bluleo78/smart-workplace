@@ -342,25 +342,26 @@ describe('create_project (WP-349)', () => {
 describe('add_project_member (WP-349)', () => {
   it('username 을 user id 로 해석해 추가하고, 결과에는 숫자 userId 없이 username·name·role 만 싣는다', async () => {
     const c = mockClient();
-    const out = await tool(c, 'add_project_member').handler({ projectKey: 'WP', username: 'minsu', role: 'MEMBER' });
+    const out = await tool(c, 'add_project_member').handler({ projectKey: 'WP', username: 'minsu' });
     expect(c.addProjectMember).toHaveBeenCalledWith('WP', { userId: 5, role: 'MEMBER' });
     expect(JSON.parse(resultText(out))).toEqual({ projectKey: 'WP', member: { username: 'minsu', name: '김민수', role: 'MEMBER' } });
   });
 
   it('없는 username·비활성 계정은 서버를 부르지 않고 교정 가능한 사유로 거절한다', async () => {
     const c = mockClient();
-    await expect(tool(c, 'add_project_member').handler({ projectKey: 'WP', username: 'ghost', role: 'MEMBER' })).rejects.toThrow(
+    await expect(tool(c, 'add_project_member').handler({ projectKey: 'WP', username: 'ghost' })).rejects.toThrow(
       "username='ghost' 인 구성원을 찾을 수 없습니다",
     );
-    await expect(tool(c, 'add_project_member').handler({ projectKey: 'WP', username: 'retired', role: 'OWNER' })).rejects.toThrow(
+    await expect(tool(c, 'add_project_member').handler({ projectKey: 'WP', username: 'retired' })).rejects.toThrow(
       '퇴사자(retired) 은 비활성 계정입니다',
     );
     expect(c.addProjectMember).not.toHaveBeenCalled();
   });
 
-  it('role 은 OWNER·MEMBER 만 받는다', async () => {
+  it('OWNER 부여(권한 변경)는 확인 카드만 한다 — 입력에 role 이 없고 role 을 줘도 늘 MEMBER 로 추가한다', async () => {
     const c = mockClient();
-    await expect(tool(c, 'add_project_member').handler({ projectKey: 'WP', username: 'minsu', role: 'ADMIN' })).rejects.toThrow();
-    expect(c.addProjectMember).not.toHaveBeenCalled();
+    expect(Object.keys((tool(c, 'add_project_member').inputSchema as unknown as { shape: object }).shape)).toEqual(['projectKey', 'username']);
+    await tool(c, 'add_project_member').handler({ projectKey: 'WP', username: 'minsu', role: 'OWNER' });
+    expect(c.addProjectMember).toHaveBeenCalledWith('WP', { userId: 5, role: 'MEMBER' });
   });
 });

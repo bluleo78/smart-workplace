@@ -1550,18 +1550,25 @@ describe('WP-349 확인 카드 ↔ create_project·add_project_member·add_chann
     return { c, proposals, card: (n: string) => find(cards, n), tool };
   }
 
-  it('카드 입력 스키마는 직접 실행 도구 스키마에 summary 만 더한 것이다', () => {
+  it('카드 입력 스키마는 직접 실행 도구 스키마에 정해진 필드만 더한 것이다(add_project_member 의 role 은 카드만)', () => {
     const { card, tool } = setup();
-    for (const [direct, cardName] of [
-      ['create_project', 'propose_create_project'],
-      ['add_project_member', 'propose_add_project_member'],
-      ['add_channel_member', 'propose_add_channel_member'],
-    ]) {
+    const summary = { type: 'string', minLength: 1 };
+    // OWNER 부여는 권한 변경이라 확인 카드에만 있다 — 직접 실행 도구에 role 이 새로 생기면 이 표가 깨진다.
+    const role = { type: 'string', enum: ['OWNER', 'MEMBER'] };
+    for (const [direct, cardName, extra] of [
+      ['create_project', 'propose_create_project', { summary }],
+      ['add_project_member', 'propose_add_project_member', { role, summary }],
+      ['add_channel_member', 'propose_add_channel_member', { summary }],
+    ] as const) {
       const d = z.toJSONSchema(tool(direct).inputSchema) as { properties: Record<string, unknown>; required: string[] };
       const k = z.toJSONSchema(card(cardName).inputSchema) as { properties: Record<string, unknown>; required: string[] };
-      expect(k.properties, cardName).toEqual({ ...d.properties, summary: { type: 'string', minLength: 1 } });
-      expect(k.required, cardName).toEqual([...d.required, 'summary']);
+      expect(k.properties, cardName).toEqual({ ...d.properties, ...extra });
+      expect(k.required, cardName).toEqual([...d.required, ...Object.keys(extra)]);
     }
+    expect(Object.keys((z.toJSONSchema(tool('add_project_member').inputSchema) as { properties: object }).properties)).toEqual([
+      'projectKey',
+      'username',
+    ]);
   });
 
   it('프로젝트 생성: 카드 실행기 params 와 POST /projects 본문이 같다', async () => {
@@ -1574,10 +1581,10 @@ describe('WP-349 확인 카드 ↔ create_project·add_project_member·add_chann
     expect(proposals[0].params).toEqual({ key: 'NEW', name: '새 프로젝트', description: '설명', type: 'OPEN' });
   });
 
-  it('멤버 추가·채널 초대: 같은 username 에서 같은 user id 를 고른다', async () => {
+  it('멤버 추가·채널 초대: 같은 username 에서 같은 user id 를 고른다(직접 실행 멤버 추가는 MEMBER 고정)', async () => {
     const { c, proposals, card, tool } = setup();
     await card('propose_add_project_member').handler({ projectKey: 'WP', username: 'minsu', role: 'OWNER', summary: 's' });
-    await tool('add_project_member').handler({ projectKey: 'WP', username: 'minsu', role: 'OWNER' });
+    await tool('add_project_member').handler({ projectKey: 'WP', username: 'minsu' });
     await card('propose_add_channel_member').handler({ channelId: 3, username: 'minsu', summary: 's' });
     await tool('add_channel_member').handler({ channelId: 3, username: 'minsu' });
 
@@ -1585,7 +1592,8 @@ describe('WP-349 확인 카드 ↔ create_project·add_project_member·add_chann
       ['project.add_member', { key: 'WP', userId: 5, role: 'OWNER' }],
       ['messaging.add_channel_member', { id: 3, userId: 5 }],
     ]);
-    expect(c.sc.addProjectMember).toHaveBeenCalledWith('WP', { userId: 5, role: 'OWNER' });
+    // 카드는 OWNER 를 실을 수 있지만 직접 실행은 MEMBER 로만 추가한다(권한 부여는 카드만).
+    expect(c.sc.addProjectMember).toHaveBeenCalledWith('WP', { userId: 5, role: 'MEMBER' });
     expect(c.sc.addChannelMember).toHaveBeenCalledWith(3, 5);
   });
 
@@ -1593,7 +1601,7 @@ describe('WP-349 확인 카드 ↔ create_project·add_project_member·add_chann
     const { c, proposals, card, tool } = setup();
     for (const username of ['ghost', 'retired']) {
       const projectCard = await card('propose_add_project_member').handler({ projectKey: 'WP', username, role: 'MEMBER', summary: 's' });
-      await expect(tool('add_project_member').handler({ projectKey: 'WP', username, role: 'MEMBER' })).rejects.toThrow(projectCard as string);
+      await expect(tool('add_project_member').handler({ projectKey: 'WP', username })).rejects.toThrow(projectCard as string);
       const channelCard = await card('propose_add_channel_member').handler({ channelId: 3, username, summary: 's' });
       await expect(tool('add_channel_member').handler({ channelId: 3, username })).rejects.toThrow(channelCard as string);
     }

@@ -85,8 +85,12 @@ const proposeDeleteUserGroupInput = z.object({ groupId: z.number().int().positiv
 // WP-349: 필드는 외부 MCP create_project 와 같은 공유 스키마에 summary 만 더한다 — 형식 검사가 두 벌로 갈리지 않게.
 const proposeCreateProjectInput = createProjectInput.extend({ summary: z.string().min(1) });
 const proposeDeleteProjectInput = z.object({ projectKey: z.string().min(1), summary: z.string().min(1) });
-// #833: 사람은 숫자 id 대신 username 으로 받는다. WP-349: 외부 MCP add_project_member 와 같은 공유 스키마에 summary 만 더한다.
-const proposeAddProjectMemberInput = addProjectMemberInput.extend({ summary: z.string().min(1) });
+// #833: 사람은 숫자 id 대신 username 으로 받는다. WP-349: 외부 MCP add_project_member 와 같은 공유 기반에 role·summary 를 더한다.
+// role(OWNER 포함)은 카드에만 있다 — OWNER 부여는 권한 변경이라 확인 없는 직접 실행 도구는 MEMBER 로만 추가한다.
+const proposeAddProjectMemberInput = addProjectMemberInput.extend({
+  role: z.enum(['OWNER', 'MEMBER']),
+  summary: z.string().min(1),
+});
 
 // #333 M4: 드라이브 삭제 제안 입력(폴더·파일 쓰기 도구는 공유 패키지 — create_drive_folder 등).
 // #840: 파일 식별자는 driveFileId(= drive_file.id)로 명명한다. 목록 응답의 core fileId 와 혼동되지 않도록 도구 표면 전체에서 하나의 이름만 쓰고, 폴더는 folderId 로 통일한다.
