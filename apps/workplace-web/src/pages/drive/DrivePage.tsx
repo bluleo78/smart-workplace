@@ -88,6 +88,23 @@ function isUploadAborted(err: unknown): boolean {
   return axios.isCancel(err)
 }
 
+// 데스크톱 행 hover 액션 묶음(폴더·파일 공용) — 평소엔 숨기고 hover·키보드 포커스(group-kbd)일 때만 보인다.
+// ⋯ 메뉴가 열린 동안에도 보인다(has-data-[state=open]) — 메뉴가 열리면 바깥 포인터가 막혀 hover 가 풀리는데,
+// 그때 트리거가 숨으면 메뉴가 기준점을 잃고 화면 왼쪽 위로 튄다(WP-335).
+const ROW_HOVER_ACTIONS = 'hidden items-center gap-0.5 group-hover:flex group-kbd:flex has-data-[state=open]:flex'
+
+/** 행 작업 대상 — 파일 또는 폴더 행. */
+type RowTarget = { kind: 'file'; item: DriveFile } | { kind: 'folder'; item: DriveFolder }
+
+// WP-363: 데스크톱 hover 묶음에 버튼으로 꺼내 둘 작업(rowActionsFor 의 key) — 나머지는 ⋯ 메뉴로 간다. label 은 인라인용 짧은 이름.
+const ROW_INLINE_ACTIONS: Record<RowTarget['kind'], { key: string; label: string; testId?: string }[]> = {
+  folder: [{ key: 'move', label: '이동' }],
+  file: [
+    { key: 'download', label: '다운로드' },
+    { key: 'share', label: '공유', testId: 'share-link-btn' },
+  ],
+}
+
 // WP-63: 폴더 목록 미로드(조회 전·실패) 시 쓰는 빈 목록 — 매 렌더 새 객체를 만들지 않도록 모듈 상수로 둔다.
 const EMPTY_ITEMS: DriveItemList = { folders: [], files: [] }
 
@@ -308,7 +325,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   // 태블릿은 데스크톱처럼 체크박스가 상시 보여 선택 진입 경로가 이미 있고, 두 경로가 겹치면 탭 의미가 흔들린다.
   const isCoarse = useIsCoarsePointer()
   const tabletRowMenu = !isMobile && isCoarse
-  const [rowSheet, setRowSheet] = useState<{ kind: 'file'; item: DriveFile } | { kind: 'folder'; item: DriveFolder } | null>(
+  const [rowSheet, setRowSheet] = useState<RowTarget | null>(
     null,
   )
 
@@ -749,10 +766,45 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     )
   }
 
-  // WP-216: 모바일 행 ⋮ 시트의 작업 목록 — 데스크톱 행 액션(인라인 버튼 + ⋯ 메뉴)과 같은 작업·같은 비활성 조건.
+  // 데스크톱 행 hover 묶음 — rowActionsFor 목록을 인라인 버튼(ROW_INLINE_ACTIONS)과 ⋯ 메뉴로 나눠 그린다.
+  // 같은 목록에서 나누므로 비활성 조건이 한곳에만 있고, 삭제는 ⋯ 맨 아래 구분선 밑에 놓인다(WP-363).
+  // 호버 또는 키보드 포커스(focus-visible)일 때만 노출 — focus-within 이면 터치 탭으로도 열려 좁은 폭에서 이름 버튼이 접힌다(WP-207/208).
+  function renderHoverActions(target: RowTarget) {
+    const name = target.item.name
+    const actions = rowActionsFor(target)
+    const inline = ROW_INLINE_ACTIONS[target.kind]
+    return (
+      <div
+        className={ROW_HOVER_ACTIONS}
+        {...(target.kind === 'file' ? { 'data-file-actions': '' } : { 'data-folder-actions': '' })}
+      >
+        {inline.map(({ key, label, testId }) => {
+          const a = actions.find((x) => x.key === key)
+          return a && (
+            <Button
+              key={key}
+              variant="ghost"
+              size="xs"
+              onClick={a.onSelect}
+              disabled={a.disabled}
+              aria-label={`${name} ${a.label}`}
+              data-testid={testId}
+            >
+              {label}
+            </Button>
+          )
+        })}
+        <RowOverflowMenu
+          triggerAriaLabel={`${name} 더보기`}
+          items={actions.filter((a) => !inline.some((i) => i.key === a.key))}
+        />
+      </div>
+    )
+  }
+
+  // 행 작업 목록 — 휴대폰 ⋮ 시트(WP-216)·터치 태블릿 ⋯(WP-237)·데스크톱 hover 묶음(WP-363)이 모두 이 목록 하나를 쓴다.
   // 보관된 공간은 쓰기 작업, 원본 유실 파일은 바이트가 필요한 작업(다운로드·공유·복사)을 막는다.
-  // WP-237: 대상 행을 인자로 받아 터치 태블릿 드롭다운(TouchRowActionsMenu)도 같은 목록을 쓴다.
-  function rowActionsFor(target: { kind: 'file'; item: DriveFile } | { kind: 'folder'; item: DriveFolder }): MobileSheetAction[] {
+  function rowActionsFor(target: RowTarget): MobileSheetAction[] {
     const archived = !!space?.archived
     if (target.kind === 'folder') {
       const f = target.item
@@ -1462,42 +1514,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                 ) : tabletRowMenu ? (
                   renderTabletRowMenu(f.name, `folder-${f.id}`, rowActionsFor({ kind: 'folder', item: f }))
                 ) : (
-                  <>
-                    {/* 행 액션 — 호버 또는 키보드 포커스(focus-visible)일 때만 노출. focus-within 이면 터치 탭의 포인터 포커스로도 열려
-                        좁은 폭(모바일 드로워)에서 이름 버튼이 0폭으로 접히고 클릭이 <li> 로 빠져 폴더가 열리지 않는다(WP-207). */}
-                    <button
-                      type="button"
-                      onClick={() => onRenameFolder(f.id, f.name)}
-                      disabled={!!space?.archived}
-                      className="hidden text-xs text-muted-foreground group-hover:inline-flex group-kbd:inline-flex disabled:opacity-50"
-                    >
-                      이름변경
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPicker({ mode: 'move', kind: 'folder', id: f.id, name: f.name })}
-                      disabled={!!space?.archived}
-                      className="hidden text-xs text-muted-foreground group-hover:inline-flex group-kbd:inline-flex disabled:opacity-50"
-                    >
-                      이동
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPicker({ mode: 'copy', kind: 'folder', id: f.id, name: f.name })}
-                      disabled={!!space?.archived}
-                      className="hidden text-xs text-muted-foreground group-hover:inline-flex group-kbd:inline-flex disabled:opacity-50"
-                    >
-                      복사
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onDeleteFolder(f.id)}
-                      disabled={!!space?.archived}
-                      className="hidden text-xs text-destructive group-hover:inline-flex group-kbd:inline-flex disabled:opacity-50"
-                    >
-                      삭제
-                    </button>
-                  </>
+                  renderHoverActions({ kind: 'folder', item: f })
                 )}
               </DrivePressRow>
             ))}
@@ -1547,65 +1564,13 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                 <span className="w-24 shrink-0 text-right text-xs text-muted-foreground max-lg:hidden">
                   {formatDateOnly(f.updatedAt)}
                 </span>
-                {/* 행 액션 — 데스크톱은 호버 또는 키보드 포커스(focus-visible)일 때만 노출. 주요 3개 인라인 + 더보기(⋯).
-                    focus-within 이면 터치 탭의 포인터 포커스로 열려 모바일에서 이름 버튼이 접히고 미리보기가 안 열린다(WP-208).
-                    모바일은 ⋮ 시트(WP-216), 터치 태블릿은 ⋯ 드롭다운(WP-237)으로 대신한다. */}
+                {/* 행 액션 — 휴대폰은 ⋮ 시트(WP-216), 터치 태블릿은 ⋯ 드롭다운(WP-237), 데스크톱은 hover 묶음(WP-363). */}
                 {isMobile ? (
                   !mobileSelecting && renderRowMore(f.name, `file-${f.id}`, () => setRowSheet({ kind: 'file', item: f }))
                 ) : tabletRowMenu ? (
                   renderTabletRowMenu(f.name, `file-${f.id}`, rowActionsFor({ kind: 'file', item: f }))
                 ) : (
-                  // ⋯ 메뉴가 열린 동안에도 묶음을 보인다(has-data-[state=open]) — 메뉴가 열리면 바깥 포인터가 막혀 hover 가 풀리는데,
-                  // 그때 트리거가 숨으면 메뉴가 기준점을 잃고 화면 왼쪽 위로 튄다(WP-335).
-                  <div data-file-actions className="hidden items-center gap-0.5 group-hover:flex group-kbd:flex has-data-[state=open]:flex">
-                    <Button
-                      variant="ghost"
-                      size="xs"
-                      onClick={() => driveApi.downloadFile(f.id, f.name)}
-                      disabled={isMissingBlob(f)}
-                      aria-label={`${f.name} 다운로드`}
-                    >
-                      다운로드
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="xs"
-                      onClick={() => setShareFile(f)}
-                      disabled={isMissingBlob(f)}
-                      aria-label={`${f.name} 공유 링크`}
-                      data-testid="share-link-btn"
-                    >
-                      공유
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="xs"
-                      onClick={() => onDeleteFile(f.id)}
-                      disabled={!!space?.archived}
-                      className="text-destructive hover:text-destructive"
-                      aria-label={`${f.name} 삭제`}
-                    >
-                      삭제
-                    </Button>
-                    <RowOverflowMenu
-                      triggerAriaLabel={`${f.name} 더보기`}
-                      items={[
-                        { label: '이름 변경', onSelect: () => setRenameFile(f), disabled: !!space?.archived },
-                        { label: '버전 이력', onSelect: () => setVersionFile(f) },
-                        {
-                          label: '이동',
-                          onSelect: () => setPicker({ mode: 'move', kind: 'file', id: f.id, name: f.name }),
-                          disabled: !!space?.archived,
-                        },
-                        {
-                          // #739: 원본 유실 파일은 복제할 바이트가 없어 서버가 404(유실)를 반환하므로 미리 차단.
-                          label: '복사',
-                          onSelect: () => setPicker({ mode: 'copy', kind: 'file', id: f.id, name: f.name }),
-                          disabled: !!space?.archived || isMissingBlob(f),
-                        },
-                      ]}
-                    />
-                  </div>
+                  renderHoverActions({ kind: 'file', item: f })
                 )}
               </DrivePressRow>
             ))}

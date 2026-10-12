@@ -162,7 +162,8 @@ test('폴더 이름 칸도 한글 조합을 끝내는 Enter 로는 저장하지 
 
   const row = page.getByRole('listitem').filter({ hasText: '문서' })
   await row.hover()
-  await row.getByRole('button', { name: '이름변경' }).click()
+  await row.getByRole('button', { name: /더보기/ }).click()
+  await page.getByRole('menuitem', { name: '이름 변경' }).click()
   const input = page.getByTestId('folder-name-input')
   await input.fill('회의록')
   await pressMacChromeImeEnter(input, '록')
