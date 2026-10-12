@@ -433,6 +433,7 @@ test.describe('테넌트 상세', () => {
           name: '기존사용자',
           email: 'existing@example.com',
           isPlatformAdmin: false,
+          ownerEligible: true,
         }),
       }),
     )
@@ -486,6 +487,7 @@ test.describe('테넌트 상세', () => {
           name: '소유자',
           email: 'owner@example.com',
           isPlatformAdmin: false,
+          ownerEligible: true,
         }),
       }),
     )

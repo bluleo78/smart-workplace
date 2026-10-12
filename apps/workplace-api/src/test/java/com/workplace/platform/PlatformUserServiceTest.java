@@ -52,6 +52,27 @@ class PlatformUserServiceTest extends IntegrationTestBase {
     assertThat(result.get().userId()).isEqualTo(userId);
     assertThat(result.get().email()).isEqualTo(email);
     assertThat(result.get().isPlatformAdmin()).isFalse();
+    assertThat(result.get().ownerEligible()).isTrue();
+  }
+
+  /** WP-337 — 에이전트·비활성 계정은 찾되 소유자 지정 불가(ownerEligible=false)로 알려준다. */
+  @Test
+  void lookupByEmail_agentOrInactive_notOwnerEligible() {
+    String agentEmail = "agent-" + UUID.randomUUID().toString().substring(0, 8) + "@example.com";
+    long agent = createHumanUser("에이전트", agentEmail);
+    dsl.update(USER).set(USER.KIND, "AGENT").where(USER.ID.eq(agent)).execute();
+    String inactiveEmail = "off-" + UUID.randomUUID().toString().substring(0, 8) + "@example.com";
+    long inactive = createHumanUser("비활성", inactiveEmail);
+    dsl.update(USER).set(USER.IS_ACTIVE, false).where(USER.ID.eq(inactive)).execute();
+
+    assertThat(service.lookupByEmail(agentEmail))
+        .get()
+        .extracting("ownerEligible")
+        .isEqualTo(false);
+    assertThat(service.lookupByEmail(inactiveEmail))
+        .get()
+        .extracting("ownerEligible")
+        .isEqualTo(false);
   }
 
   @Test

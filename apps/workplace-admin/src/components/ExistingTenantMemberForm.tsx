@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 
 import { platformTenants } from '../api/platformTenants'
 import type { ErrorResponse, PlatformUserLookup } from '../types/platform'
+import { FoundUserCard } from './FoundUserCard'
 import { Button } from './ui/button'
 import { DialogFooter } from './ui/dialog'
 import { FormField } from './ui/form-field'
@@ -54,18 +55,7 @@ export function ExistingTenantMemberForm({
           {serverError}
         </p>
       )}
-      <div className="rounded-md border p-3 text-sm" data-testid="add-member-found-card">
-        <p className="font-medium">{user.name}</p>
-        <p className="text-muted-foreground">{user.email}</p>
-        {user.isPlatformAdmin && (
-          <span
-            className="mt-1 inline-block rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800"
-            data-testid="add-member-platform-admin-badge"
-          >
-            플랫폼 관리자
-          </span>
-        )}
-      </div>
+      <FoundUserCard user={user} testId="add-member-found-card" />
       <FormField label="역할" required>
         <div className="flex flex-col gap-2" data-testid="add-member-role">
           <label className="flex items-center gap-2 text-sm">

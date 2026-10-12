@@ -1,17 +1,16 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import axios from 'axios'
+import { CheckIcon } from 'lucide-react'
 import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
 import { platformTenants } from '../api/platformTenants'
-import type {
-  CreateTenantRequest,
-  ErrorResponse,
-  PlatformUserSearchItem,
-} from '../types/platform'
+import { useUserEmailLookup } from '../hooks/useUserEmailLookup'
+import type { CreateTenantRequest, ErrorResponse } from '../types/platform'
+import { FoundUserCard } from './FoundUserCard'
 import { Button } from './ui/button'
 import {
   Dialog,
@@ -23,12 +22,12 @@ import {
 } from './ui/dialog'
 import { FormField } from './ui/form-field'
 import { Input } from './ui/input'
-import { UserCombobox } from './UserCombobox'
+import { UserEmailLookupField } from './UserEmailLookupField'
 
 // 테넌트 생성 폼 스키마.
 // - name: 필수
 // - slug: 선택(빈 문자열은 미전송 → 서버가 이름에서 자동 생성, #695)
-// 소유자(#496)는 자동완성 콤보박스로 고른 사용자 객체라 폼 스키마 밖의 state 로 둔다(WP-337).
+// 소유자(#496)는 폼 스키마 밖에서 "이메일 + 확인" 정확일치 조회로 지정한다(WP-337, useUserEmailLookup).
 // 비우면 소유자 없는 빈 테넌트를 생성한다.
 const createTenantSchema = z.object({
   name: z.string().min(1, '이름을 입력하세요'),
@@ -48,10 +47,7 @@ interface CreateTenantDialogProps {
 export function CreateTenantDialog({ open, onOpenChange }: CreateTenantDialogProps) {
   const queryClient = useQueryClient()
   const [serverError, setServerError] = useState('')
-  const [owner, setOwner] = useState<PlatformUserSearchItem | null>(null)
-  // 소유자 칸에 입력 중인 검색어 — 쳤지만 목록에서 고르지 않았으면 제출을 막는다(소유자 없는 테넌트가 조용히 생기지 않게).
-  const [ownerQuery, setOwnerQuery] = useState('')
-  const [ownerError, setOwnerError] = useState('')
+  const owner = useUserEmailLookup()
 
   const {
     register,
@@ -68,9 +64,7 @@ export function CreateTenantDialog({ open, onOpenChange }: CreateTenantDialogPro
     if (!next) {
       reset()
       setServerError('')
-      setOwner(null)
-      setOwnerQuery('')
-      setOwnerError('')
+      owner.reset()
     }
     onOpenChange(next)
   }
@@ -92,18 +86,26 @@ export function CreateTenantDialog({ open, onOpenChange }: CreateTenantDialogPro
     },
   })
 
+  // 소유자 칸 오류 — 입력칸 안내(형식·미확인·조회 실패) 또는 찾지 못함.
+  const ownerError =
+    owner.error ||
+    (owner.status === 'not-found'
+      ? '해당 이메일의 사용자가 없습니다. 소유자 없이 만든 뒤 구성원 화면에서 계정을 만들어 추가하세요.'
+      : owner.user && !owner.user.ownerEligible
+        ? '에이전트나 비활성 계정은 소유자로 지정할 수 없습니다.'
+        : undefined)
+
   const onSubmit = (data: CreateTenantFormData) => {
     setServerError('')
-    if (!owner && ownerQuery.trim()) {
-      setOwnerError('목록에서 소유자를 고르거나, 소유자 없이 만들려면 입력을 지우세요.')
-      return
-    }
     const slug = data.slug?.trim()
-    // 소유자를 고르지 않았으면 ownerUserId 를 payload 에서 생략 — 소유자 없는 빈 테넌트로 생성된다.
+    // 소유자 이메일을 썼으면 확인으로 찾은 사용자여야 한다 — 쳤지만 확인 안 했거나 못 찾은 채 소유자 없이 생성되지 않게 막는다.
+    const confirmed = owner.requireConfirmed()
+    if (!confirmed.ok || (confirmed.user && !confirmed.user.ownerEligible)) return
+    // 소유자를 지정하지 않았으면 ownerUserId 를 payload 에서 생략 — 소유자 없는 빈 테넌트로 생성된다.
     mutation.mutate({
       name: data.name,
       ...(slug ? { slug } : {}),
-      ...(owner ? { ownerUserId: owner.id } : {}),
+      ...(confirmed.user ? { ownerUserId: confirmed.user.userId } : {}),
     })
   }
 
@@ -114,7 +116,8 @@ export function CreateTenantDialog({ open, onOpenChange }: CreateTenantDialogPro
           <DialogTitle>테넌트 생성</DialogTitle>
           <DialogDescription>새 테넌트의 정보를 입력하세요.</DialogDescription>
         </DialogHeader>
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+        {/* noValidate — 소유자 칸(type=email)의 브라우저 기본 검증이 제출을 가로채 앱의 안내 문구가 안 보이는 것을 막는다. */}
+        <form noValidate onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           {serverError && (
             <p className="text-sm text-destructive" data-testid="create-tenant-error">
               {serverError}
@@ -131,23 +134,25 @@ export function CreateTenantDialog({ open, onOpenChange }: CreateTenantDialogPro
               {...register('slug')}
             />
           </FormField>
-          <FormField label="소유자 (선택)" htmlFor="tenant-owner" error={ownerError}>
-            <UserCombobox
+          <FormField label="소유자 이메일 (선택)" htmlFor="tenant-owner" error={ownerError}>
+            <UserEmailLookupField
+              lookup={owner}
               id="tenant-owner"
-              value={owner}
-              onChange={(user) => {
-                setOwner(user)
-                setOwnerError('')
-              }}
-              onQueryChange={(q) => {
-                setOwnerQuery(q)
-                setOwnerError('')
-              }}
-              placeholder="이메일·이름으로 검색"
               invalid={!!ownerError}
-              data-testid="create-tenant-owner"
+              inputTestId="create-tenant-owner"
+              checkTestId="create-tenant-owner-check"
             />
-            {/* 모바일 폭에서 placeholder 가 잘리지 않게 "비우면" 안내는 도움말로 분리한다. */}
+            {owner.user && (
+              <FoundUserCard
+                user={owner.user}
+                testId="create-tenant-owner-found"
+                trailing={
+                  owner.user.ownerEligible && (
+                    <CheckIcon className="text-success size-4 shrink-0" aria-label="확인됨" />
+                  )
+                }
+              />
+            )}
             <p className="text-muted-foreground text-xs">
               비워두면 소유자 없는 빈 테넌트로 만들고, 소유자는 나중에 구성원 화면에서 추가합니다.
             </p>
@@ -161,7 +166,12 @@ export function CreateTenantDialog({ open, onOpenChange }: CreateTenantDialogPro
             >
               취소
             </Button>
-            <Button type="submit" disabled={mutation.isPending} data-testid="create-tenant-submit">
+            <Button
+              type="submit"
+              // 소유자 확인 중에는 결과가 나올 때까지 제출을 막는다.
+              disabled={mutation.isPending || owner.isChecking}
+              data-testid="create-tenant-submit"
+            >
               {mutation.isPending ? '생성 중...' : '생성'}
             </Button>
           </DialogFooter>
