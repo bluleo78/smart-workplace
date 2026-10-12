@@ -7,7 +7,7 @@ import Image from '@tiptap/extension-image'
 import type { Node as PMNode } from '@tiptap/pm/model'
 import { ReactNodeViewRenderer } from '@tiptap/react'
 
-import { isIssueImageSrc } from './apiImageSegments'
+import { isIssueImageSrc } from '../../api/issueImages'
 import { RichImageNodeView } from './RichImageNodeView'
 
 export const RichImage = Image.extend({

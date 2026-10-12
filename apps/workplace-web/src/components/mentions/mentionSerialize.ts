@@ -60,12 +60,11 @@ export function bodyToDoc(
 ): JSONContent {
   const nameById = new Map(mentions.map((m) => [m.id, m.name]));
   const lines = body.split('\n');
+  // 멘션 토큰과 (켜져 있으면) 이미지 마크다운을 한 정규식으로 왼쪽부터 훑는다 — 줄마다 lastIndex 만 되돌려 재사용.
+  const re = options.images ? new RegExp(`<@(\\d+)>|${API_IMAGE_MD.source}`, 'g') : /<@(\d+)>/g;
   const content: JSONContent[] = lines.map((line) => {
     const inline: JSONContent[] = [];
-    // 멘션 토큰과 (켜져 있으면) 이미지 마크다운을 한 정규식으로 왼쪽부터 훑는다.
-    const re = options.images
-      ? new RegExp(`<@(\\d+)>|${API_IMAGE_MD.source}`, 'g')
-      : /<@(\d+)>/g;
+    re.lastIndex = 0;
     let last = 0;
     let m: RegExpExecArray | null;
     while ((m = re.exec(line)) !== null) {

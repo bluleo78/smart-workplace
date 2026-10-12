@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.springframework.stereotype.Repository;
 
@@ -126,14 +127,24 @@ public class IssueBodyImageRepository {
    * 방금 저장한 글까지 포함해 읽는다.
    */
   public List<String> textsReferencingImages(long issueId) {
+    return imageTextsOf(ISSUE.ID.eq(issueId));
+  }
+
+  /**
+   * 조건에 맞는 이슈들의 본문과 삭제되지 않은 코멘트 중 이슈 이미지 URL 을 포함할 수 있는 글 — 연결 동기화(이슈 하나)와 만료 스윕 보존
+   * 판정(프로젝트 전체)이 "어떤 글이 이미지를 참조하는가" 를 같은 규칙으로 보게 한 곳에 둔다.
+   */
+  private List<String> imageTextsOf(Condition issues) {
     return dsl.select(ISSUE.BODY)
         .from(ISSUE)
-        .where(ISSUE.ID.eq(issueId))
+        .where(issues)
         .and(ISSUE.BODY.like("%/issue-images/%"))
         .unionAll(
             dsl.select(ISSUE_COMMENT.BODY)
                 .from(ISSUE_COMMENT)
-                .where(ISSUE_COMMENT.ISSUE_ID.eq(issueId))
+                .join(ISSUE)
+                .on(ISSUE.ID.eq(ISSUE_COMMENT.ISSUE_ID))
+                .where(issues)
                 .and(ISSUE_COMMENT.DELETED_AT.isNull())
                 .and(ISSUE_COMMENT.BODY.like("%/issue-images/%")))
         .fetch(0, String.class);
@@ -192,23 +203,9 @@ public class IssueBodyImageRepository {
     }
     Set<Long> alive = new LinkedHashSet<>();
     for (var e : byProject.entrySet()) {
+      // 코멘트에 넣은 이미지(WP-362)도 같은 규칙 — 삭제되지 않은 이슈의 본문·삭제되지 않은 코멘트만 본다.
       List<String> bodies =
-          dsl.select(ISSUE.BODY)
-              .from(ISSUE)
-              .where(ISSUE.PROJECT_ID.eq(e.getKey()))
-              .and(ISSUE.DELETED_AT.isNull())
-              .and(ISSUE.BODY.like("%/issue-images/%"))
-              .unionAll(
-                  // 코멘트에 넣은 이미지(WP-362)도 같은 규칙 — 삭제되지 않은 이슈의 삭제되지 않은 코멘트만 본다.
-                  dsl.select(ISSUE_COMMENT.BODY)
-                      .from(ISSUE_COMMENT)
-                      .join(ISSUE)
-                      .on(ISSUE.ID.eq(ISSUE_COMMENT.ISSUE_ID))
-                      .where(ISSUE.PROJECT_ID.eq(e.getKey()))
-                      .and(ISSUE.DELETED_AT.isNull())
-                      .and(ISSUE_COMMENT.DELETED_AT.isNull())
-                      .and(ISSUE_COMMENT.BODY.like("%/issue-images/%")))
-              .fetch(0, String.class);
+          imageTextsOf(ISSUE.PROJECT_ID.eq(e.getKey()).and(ISSUE.DELETED_AT.isNull()));
       for (String body : bodies) {
         // 참조 파싱은 업로드 URL 형식(urlOf)과 짝인 공용 파서를 쓴다 — 후보가 이미 이 프로젝트로 묶여 있어 키는 가리지 않는다.
         for (long id : IssueBodyImageResponse.idsIn(body)) {

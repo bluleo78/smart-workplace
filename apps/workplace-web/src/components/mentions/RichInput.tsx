@@ -17,6 +17,7 @@ import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import tippy, { type Instance as TippyInstance } from 'tippy.js';
 
+import { IssueBodyImageButton } from '@/components/issue/IssueBodyImageButton';
 import { Button } from '@/components/ui/button';
 import { extractApiError } from '@/lib/api-error';
 import { filesFromPaste, isFileDrag } from '@/lib/clipboardFiles';
@@ -27,7 +28,6 @@ import { isSubmitEnter } from '@/lib/submitEnter';
 
 import { MentionList, type MentionListHandle } from './MentionList';
 import { bodyToDoc, serializeToBody } from './mentionSerialize';
-import { RichImageButton } from './RichImageButton';
 import { hasImage, hasPendingImage, RichImage, settlePendingImage } from './richImageNode';
 import type { MentionCandidate, MentionUser } from './types';
 
@@ -104,9 +104,8 @@ export function RichInput({
   // 에디터 본문 공백 여부 — disableWhenEmpty 가 true 일 때 전송 버튼 비활성화에 사용.
   // initialBody 가 있으면 비어있지 않은 상태로 초기화.
   const [isEmpty, setIsEmpty] = useState(!initialBody || initialBody.trim().length === 0);
-  // 업로드 중 이미지가 남아 있는지 — 전송 버튼·Enter 양쪽을 막는다(WP-362).
+  // 업로드 중 이미지가 남아 있는지 — 전송 버튼 표시용(WP-362). Enter 경로는 submit 이 문서를 직접 본다.
   const [imageUploading, setImageUploading] = useState(false);
-  const imageUploadingRef = useRef(false);
   // maxLength 가 설정된 경우 실시간 글자 수 추적. 직렬화 본문 기준(serializeToBody)으로 서버 검증과 일치.
   const [charCount, setCharCount] = useState(initialBody ? initialBody.trim().length : 0);
 
@@ -161,12 +160,8 @@ export function RichInput({
     onFilesRef.current = onFiles;
   });
 
-  // 이미지 스키마는 에디터 생성 시 1회만 정해진다 — 마운트 시점 값으로 고정. 업로드 함수는 최신값을 ref 로.
+  // 이미지 스키마는 에디터 생성 시 1회만 정해진다 — 마운트 시점 값으로 고정. 업로드 함수는 insertImages 가 매 렌더 최신 prop 을 읽는다.
   const [imagesEnabled] = useState(() => imageUpload != null);
-  const imageUploadRef = useRef(imageUpload);
-  useEffect(() => {
-    imageUploadRef.current = imageUpload;
-  });
   // 자리표시 노드 식별자 순번 — 인스턴스마다 독립.
   const uploadSeq = useRef(0);
   // handlePaste/handleDrop(useEditor 1회 생성 클로저)이 최신 insertImages 를 부르도록 — 위 ref 패턴 동일.
@@ -195,8 +190,7 @@ export function RichInput({
       // 글 없이 이미지만 있어도 비어 있지 않다(WP-362).
       setIsEmpty(editor.getText().trim().length === 0 && !(imagesEnabled && hasImage(editor)));
       if (imagesEnabled) {
-        imageUploadingRef.current = hasPendingImage(editor);
-        setImageUploading(imageUploadingRef.current);
+        setImageUploading(hasPendingImage(editor));
       }
       setCharCount(serializeToBody(editor.getJSON()).trim().length);
       onChangeRef.current?.();
@@ -345,7 +339,7 @@ export function RichInput({
    * 끝나면 그 노드에 src 를 채우고, 실패하면 노드를 지우고 알린다. 형식·크기가 틀린 파일이 섞이면 한 번만 안내한다.
    */
   function insertImages(files: File[], at?: number) {
-    const upload = imageUploadRef.current;
+    const upload = imageUpload;
     if (!editor || !upload) return;
     const valid = files.filter(isValidImageFile);
     if (valid.length < files.length) toast.error(INVALID_IMAGE_MSG);
@@ -380,7 +374,7 @@ export function RichInput({
   function submit() {
     if (!editor) return;
     // 업로드 중 이미지가 있으면 버튼·Enter 모두 막는다 — 자리표시가 빈 이미지로 저장되지 않게(WP-362).
-    if (imageUploadingRef.current) return;
+    if (imagesEnabled && hasPendingImage(editor)) return;
     // 인플라이트 가드(#586) — 이미 전송 중이면 재호출 무시. 버튼 onClick·Enter 키 두 경로가
     // 모두 이 함수를 거치므로 여기 하나로 양쪽 다 차단된다.
     if (submittingRef.current) return;
@@ -451,7 +445,7 @@ export function RichInput({
     return (
       <div className="flex flex-col gap-1" data-testid={`${inputTestId}-wrap`}>
         <div className="flex flex-row items-end gap-2">
-          {imagesEnabled && <RichImageButton compact onFiles={insertImages} testId={`${inputTestId}-image`} />}
+          {imagesEnabled && <IssueBodyImageButton compact onFiles={insertImages} testId={`${inputTestId}-image`} />}
           {leftActions && <div className="flex shrink-0 items-center">{leftActions}</div>}
           <div className="relative min-w-0 flex-1">
             <EditorContent editor={editor} />
@@ -492,7 +486,7 @@ export function RichInput({
       <div className={`flex items-center gap-2 ${leftActions || imagesEnabled ? 'justify-between' : 'justify-end'}`}>
         {(leftActions || imagesEnabled) && (
           <div className="flex items-center gap-1">
-            {imagesEnabled && <RichImageButton onFiles={insertImages} testId={`${inputTestId}-image`} />}
+            {imagesEnabled && <IssueBodyImageButton onFiles={insertImages} testId={`${inputTestId}-image`} />}
             {leftActions}
           </div>
         )}

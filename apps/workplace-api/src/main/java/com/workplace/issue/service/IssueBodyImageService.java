@@ -50,23 +50,31 @@ public class IssueBodyImageService {
   private int demoteGraceHours;
 
   /**
-   * 이슈의 이미지 연결 상태를 맞춘다 — 방금 저장한 글(본문 또는 코멘트)에 새로 들어간 것은 이 이슈에 연결(만료 해제)하고, 본문·살아 있는 코멘트 어디에도
-   * 없는 것은 강등(유예 후 만료 재무장)한다.
+   * 이슈의 이미지 연결 상태를 맞춘다 — 방금 저장한 글(본문 또는 코멘트)에 새로 들어간 것은 이 이슈에 연결(만료 해제)하고, 이전 글에 있던 것이
+   * 본문·살아 있는 코멘트 어디에도 남지 않았으면 강등(유예 후 만료 재무장)한다.
    *
    * <p>왜 이슈 단위인가(WP-362): 코멘트 이미지도 본문 이미지와 같은 이슈에 연결된다. 본문만 보고 빠진 것을 강등하면 본문을 고칠 때 코멘트 이미지가, 코멘트만
    * 보면 코멘트를 고칠 때 본문 이미지가 사라진다.
+   *
+   * <p>건너뛰기: 이전·새 글 모두 이미지 참조가 없으면(대부분의 저장) 아무 쿼리도 하지 않는다. 이전 글에 참조가 없으면 새로 빠질 것도 없으므로 강등
+   * 판정(이슈의 모든 글 읽기)을 생략한다 — 코멘트 작성은 연결만 한다.
    *
    * <p>호출자 계약: 인가하지 않는다. IssueService(본문 생성·편집)·IssueCommentService(코멘트 작성·수정·삭제)가 권한을 통과시키고 글을 저장한
    * 뒤 같은 트랜잭션에서 호출한다. 연결 대상은 "이 프로젝트에 내가 올린 미연결 임시 파일" 또는 "이미 이 이슈 것" 뿐이라, 글에 남의 id 를 적어도 만료를
    * 풀거나 소유를 옮길 수 없다. 대상이 아닌 id·이미 수거된 id 는 건너뛰고 저장은 실패시키지 않는다(며칠 지난 초안 저장 등) — 화면은 "불러올 수 없음" 으로
    * 표시된다.
    *
+   * @param beforeText 저장 전 글 — 새로 만든 글이면 null
    * @param savedText 방금 저장한 글 — 코멘트 삭제처럼 새 글이 없으면 null
    */
-  public void syncIssueImages(ProjectRow project, long issueId, long callerId, String savedText) {
+  public void syncIssueImages(
+      ProjectRow project, long issueId, long callerId, String beforeText, String savedText) {
+    boolean mayDrop = IssueBodyImageResponse.mayReferenceImages(beforeText);
+    if (!mayDrop && !IssueBodyImageResponse.mayReferenceImages(savedText)) return;
     repo.lockIssue(issueId);
     Set<Long> added = IssueBodyImageResponse.idsIn(savedText, project.key());
     repo.claim(issueId, repo.lockClaimable(project.id(), issueId, callerId, added));
+    if (!mayDrop) return;
     Set<Long> referenced = new HashSet<>();
     for (String text : repo.textsReferencingImages(issueId)) {
       referenced.addAll(IssueBodyImageResponse.idsIn(text, project.key()));

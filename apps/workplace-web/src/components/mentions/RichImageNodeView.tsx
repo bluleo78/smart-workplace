@@ -4,11 +4,13 @@
 import { NodeViewWrapper, type ReactNodeViewProps } from '@tiptap/react'
 import { ImageOff } from 'lucide-react'
 
+import { isIssueImageSrc } from '../../api/issueImages'
 import { useApiBlobUrl } from '../../hooks/queries/useApiBlobUrl'
-import { isIssueImageSrc } from './apiImageSegments'
 
 // 썸네일 공통 크기 — 입력창 높이를 덜 차지하도록 높이만 고정하고 너비는 비율대로(최대 폭 제한).
 const THUMB = 'block h-14 lg:h-20 max-w-[12rem] rounded-md border border-border'
+// 이미지가 아직 없는 자리(업로드 중·불러오는 중·실패)의 고정 크기 상자.
+const BOX = `${THUMB} w-20 lg:w-32 flex items-center justify-center text-xs text-muted-foreground`
 
 export function RichImageNodeView({ node, selected }: ReactNodeViewProps) {
   const src = node.attrs.src ? String(node.attrs.src) : ''
@@ -19,7 +21,6 @@ export function RichImageNodeView({ node, selected }: ReactNodeViewProps) {
   const issueImage = isIssueImageSrc(src)
   const { url, isError: fetchError } = useApiBlobUrl(issueImage ? src : null)
   const isError = fetchError || (!pending && !issueImage)
-  const shown = url
 
   // 인라인 노드라 wrapper 는 span. 선택되면(클릭) 테두리로 표시 — Backspace/Delete 로 지울 수 있다는 단서.
   return (
@@ -30,17 +31,17 @@ export function RichImageNodeView({ node, selected }: ReactNodeViewProps) {
       data-pending={pending ? 'true' : undefined}
     >
       {pending ? (
-        <span className={`${THUMB} w-20 lg:w-32 flex items-center justify-center bg-muted text-xs text-muted-foreground`}>
+        <span className={`${BOX} bg-muted`}>
           업로드 중…
         </span>
       ) : isError ? (
-        <span className={`${THUMB} w-20 lg:w-32 flex items-center justify-center gap-1 border-dashed text-xs text-muted-foreground`}>
+        <span className={`${BOX} gap-1 border-dashed`}>
           <ImageOff className="h-3.5 w-3.5" /> 불러올 수 없음
         </span>
-      ) : shown ? (
-        <img src={shown} alt={alt} className={`${THUMB} w-auto object-cover`} draggable={false} />
+      ) : url ? (
+        <img src={url} alt={alt} className={`${THUMB} w-auto object-cover`} draggable={false} />
       ) : (
-        <span className={`${THUMB} w-20 lg:w-32 animate-pulse bg-muted`} />
+        <span className={`${BOX} animate-pulse bg-muted`} />
       )}
     </NodeViewWrapper>
   )

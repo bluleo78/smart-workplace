@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { countApiImages, isIssueImageSrc, splitApiImages, withImagePlaceholders } from './apiImageSegments';
+import { isIssueImageSrc } from '../../api/issueImages';
+import { countApiImages, splitApiImages, withImagePlaceholders } from './apiImageSegments';
 import { bodyToDoc, serializeToBody } from './mentionSerialize';
 
 const IMG = '/api/v1/projects/WP/issue-images/12';
@@ -30,8 +31,6 @@ describe('splitApiImages', () => {
 
   it('이슈 이미지 경로만 이미지 src 로 인정한다', () => {
     expect(isIssueImageSrc(IMG)).toBe(true);
-    expect(isIssueImageSrc(IMG, 'WP')).toBe(true);
-    expect(isIssueImageSrc(IMG, 'OTHER')).toBe(false);
     expect(isIssueImageSrc('/api/v1/admin/users')).toBe(false);
     expect(isIssueImageSrc(`${IMG}/../x`)).toBe(false);
     expect(isIssueImageSrc('blob:http://x/1')).toBe(false);

@@ -1,23 +1,14 @@
-// 코멘트 글 속 이슈 이미지 마크다운(WP-362) — 입력창 복원(bodyToDoc)·입력창 표시(RichImageNodeView)·목록 표시(IssueCommentList)가 같은 규칙을 쓴다.
+// 코멘트 글 속 이슈 이미지 마크다운(WP-362) — 입력창 복원(bodyToDoc)과 목록 표시(IssueCommentList)가 같은 규칙을 쓴다.
+// 경로 형식은 api/issueImages 의 ISSUE_IMAGE_PATH_SOURCE 하나를 따른다.
 
-/**
- * 이슈 이미지 경로 `/api/v1/projects/{키}/issue-images/{id}` — 서버 IssueBodyImageResponse.REF 와 짝.
- * 이 경로만 이미지로 다룬다: 글에 적힌 임의 `/api/v1/...` 를 보는 사람의 인증으로 요청하지 않게(IssueBodyImage 와 같은 이유).
- */
-const ISSUE_IMAGE_PATH = String.raw`/api/v1/projects/([^/\s)]+)/issue-images/\d{1,19}(?!\d)`;
-
-/** src 가 이슈 이미지 경로인지(projectKey 를 주면 그 프로젝트 것만). */
-export function isIssueImageSrc(src: string | null | undefined, projectKey?: string): boolean {
-  const m = src ? new RegExp(`^${ISSUE_IMAGE_PATH}$`).exec(src) : null;
-  return m !== null && (projectKey === undefined || m[1] === projectKey);
-}
+import { ISSUE_IMAGE_PATH_SOURCE } from '../../api/issueImages';
 
 /**
  * 이슈 이미지 마크다운 `![이름](/api/v1/projects/{키}/issue-images/{id})`. group(1)=이름, group(2)=경로, group(3)=프로젝트 키.
  * 이름의 [ ] 는 저장 시 imageMarkdown 이 미리 지운다. 전역 플래그라 exec 로 직접 쓰지 말고 source 로 새 정규식을 만들거나
  * matchAll 로 쓴다(lastIndex 공유 방지).
  */
-export const API_IMAGE_MD = new RegExp(String.raw`!\[([^\]\n]*)\]\((${ISSUE_IMAGE_PATH})\)`, 'g');
+export const API_IMAGE_MD = new RegExp(String.raw`!\[([^\]\n]*)\]\((${ISSUE_IMAGE_PATH_SOURCE})\)`, 'g');
 
 export type ImageSegment = { type: 'text'; value: string } | { type: 'image'; src: string; alt: string };
 
