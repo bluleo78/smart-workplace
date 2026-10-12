@@ -44,6 +44,13 @@ describe('issue-agent 정의', () => {
     expect(prompt).toContain('update_issue(issueKey, status=...)');
   });
 
+  // update_issue 는 실패해도 throw 하지 않으므로 상태 변경 지시 옆에서 ok/results 확인을 요구한다.
+  it('상태 변경 지시가 ok·results.content 확인과 실패 비성공 보고를 요구한다', () => {
+    const prompt = loaded['issue-agent'].prompt;
+    expect(prompt).toContain('결과의 `ok` 가 false 이거나 `results.content` 가 `failed` 로 시작하면 상태가 **바뀌지 않은 것**');
+    expect(prompt).toContain('상태 변경이 실패(`ok` false)하면 성공했다고 쓰는 코멘트·보고를 하지 말고');
+  });
+
   it('maxTurns=20, description·본문이 비어있지 않다', () => {
     expect(loaded['issue-agent'].maxTurns).toBe(20);
     expect(loaded['issue-agent'].description.length).toBeGreaterThan(0);

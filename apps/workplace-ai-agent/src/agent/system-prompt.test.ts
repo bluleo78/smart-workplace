@@ -20,4 +20,12 @@ describe('SYSTEM_PROMPT', () => {
     expect(SYSTEM_PROMPT).toContain("update_issue({issueKey, status: 'DONE'}) + unassign_self");
     expect(SYSTEM_PROMPT).toContain('TODO / IN_PROGRESS / DONE / CANCELED');
   });
+
+  // update_issue 는 실패해도 throw 하지 않고 {ok, results} 로 돌려준다 — 실패를 성공으로 보고하지 않도록 확인을 지시한다.
+  it('update_issue 결과의 ok·results.content 를 확인해 상태 변경 실패를 성공으로 말하지 않도록 지시한다', () => {
+    expect(SYSTEM_PROMPT).toContain('{ok, results}');
+    expect(SYSTEM_PROMPT).toContain('ok 가 false');
+    expect(SYSTEM_PROMPT).toContain("results.content 가 'failed' 로 시작");
+    expect(SYSTEM_PROMPT).toContain('바뀌었다고 말하지 말고');
+  });
 });
