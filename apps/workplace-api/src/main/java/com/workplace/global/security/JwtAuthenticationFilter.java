@@ -1,6 +1,7 @@
 package com.workplace.global.security;
 
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.global.tenant.TenantStatusChecker;
 import com.workplace.permission.service.PermissionService;
 import com.workplace.tenant.repository.MembershipRepository;
 import jakarta.servlet.FilterChain;
@@ -30,16 +31,20 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
   private final PermissionService permissionService;
   private final MembershipRepository membershipRepository;
   private final String internalToken;
+  // WP-341: 정지·삭제된 테넌트의 기존 액세스 토큰을 즉시 막기 위한 상태 확인(짧은 TTL 캐시).
+  private final TenantStatusChecker tenantStatusChecker;
 
   public JwtAuthenticationFilter(
       JwtTokenProvider jwtTokenProvider,
       @Lazy PermissionService permissionService,
       MembershipRepository membershipRepository,
-      @Value("${workplace.ai-agent.internal-token:}") String internalToken) {
+      @Value("${workplace.ai-agent.internal-token:}") String internalToken,
+      TenantStatusChecker tenantStatusChecker) {
     this.jwtTokenProvider = jwtTokenProvider;
     this.permissionService = permissionService;
     this.membershipRepository = membershipRepository;
     this.internalToken = internalToken;
+    this.tenantStatusChecker = tenantStatusChecker;
   }
 
   @Override
@@ -87,6 +92,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
       }
       // active-tenant 클레임이 있으면 요청 스코프에 설정(RLS GUC 주입용). 없으면 fail-closed.
       Long tenantId = jwtTokenProvider.getTenantIdFromToken(token);
+      // WP-341: 정지·삭제·영구 삭제 중인 테넌트의 기존 토큰은 인증을 세우지 않는다(→ 401). 웹은 401 에서 refresh 를
+      // 시도하고 refresh 는 ACTIVE 게이트에서 막혀 로그아웃 흐름으로 이어진다(필터가 응답 바디를 직접 쓰지 않는다).
+      if (tenantId != null && !tenantStatusChecker.isActive(tenantId)) {
+        return;
+      }
       if (tenantId != null) {
         TenantContext.set(tenantId);
       }

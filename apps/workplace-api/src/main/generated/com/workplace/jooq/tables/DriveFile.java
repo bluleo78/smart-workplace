@@ -195,7 +195,7 @@ public class DriveFile extends TableImpl<DriveFileRecord> {
 
     @Override
     public List<Index> getIndexes() {
-        return Arrays.asList(Indexes.IDX_DRIVE_FILE_FOLDER, Indexes.IDX_DRIVE_FILE_TENANT, Indexes.IDX_DRIVE_FILE_TRASH);
+        return Arrays.asList(Indexes.IDX_DRIVE_FILE_FILE_ID, Indexes.IDX_DRIVE_FILE_FOLDER, Indexes.IDX_DRIVE_FILE_TENANT, Indexes.IDX_DRIVE_FILE_TRASH);
     }
 
     @Override

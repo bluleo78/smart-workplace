@@ -6,6 +6,7 @@ import static com.workplace.jooq.Tables.DRIVE_SHARE_LINK_ATTEMPTS;
 import static com.workplace.jooq.Tables.DRIVE_SPACE;
 import static com.workplace.jooq.Tables.DRIVE_SPACE_MEMBER;
 import static com.workplace.jooq.Tables.FILE;
+import static com.workplace.jooq.Tables.TENANT;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -84,6 +85,29 @@ class DriveShareLinkDownloadTest extends IntegrationTestBase {
     // 정답이면 통과
     assertThat(service.resolveForDownload(created.token(), "secret", null, false).driveFileId())
         .isEqualTo(fileId);
+  }
+
+  /**
+   * WP-341: 삭제된 테넌트의 링크는 비밀번호가 틀려도 401 이 아니라 "링크 없음"(404)이다 — 다른 가드보다 먼저 막아 링크 존재를 드러내지 않고, 비활성
+   * 테넌트에 비밀번호 시도 카운터도 쌓지 않는다. (테넌트 상태 변경은 테스트 트랜잭션 롤백으로 원복, 테스트 캐시 TTL=0)
+   */
+  @Test
+  void resolve_deletedTenant_isNotFound_beforePasswordGuard() {
+    long owner = seedUser();
+    long fileId = seedFile(seedSpace(owner));
+    var created =
+        service.create(owner, fileId, new CreateShareLinkRequest("EXTERNAL", "secret", null));
+    String tokenHash = DriveShareLinkService.sha256Hex(created.token());
+    createdTokenHashes.add(tokenHash);
+    dsl.update(TENANT).set(TENANT.STATUS, "DELETED").where(TENANT.ID.eq(1L)).execute();
+    TenantContext.clear();
+
+    assertThatThrownBy(() -> service.resolveForDownload(created.token(), "wrong", null, false))
+        .isInstanceOf(com.workplace.drive.exception.DriveShareLinkNotFoundException.class);
+    assertThat(
+            dsl.fetchCount(
+                DRIVE_SHARE_LINK_ATTEMPTS, DRIVE_SHARE_LINK_ATTEMPTS.TOKEN_HASH.eq(tokenHash)))
+        .isZero();
   }
 
   /** 5회 연속 실패 시 잠금 + 감사 로그 기록, 잠금 중에는 정답 비밀번호도 거부(#700). */

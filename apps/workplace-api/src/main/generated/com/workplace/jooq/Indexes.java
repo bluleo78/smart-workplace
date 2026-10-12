@@ -153,6 +153,7 @@ public class Indexes {
     public static final Index IDX_CONVERSATION_ATTENTION_USER = Internal.createIndex(DSL.name("idx_conversation_attention_user"), ConversationAttention.CONVERSATION_ATTENTION, new OrderField[] { ConversationAttention.CONVERSATION_ATTENTION.USER_ID, ConversationAttention.CONVERSATION_ATTENTION.TENANT_ID }, false);
     public static final Index IDX_CYCLE_PROJECT = Internal.createIndex(DSL.name("idx_cycle_project"), Cycle.CYCLE, new OrderField[] { Cycle.CYCLE.PROJECT_ID }, false);
     public static final Index IDX_CYCLE_TENANT = Internal.createIndex(DSL.name("idx_cycle_tenant"), Cycle.CYCLE, new OrderField[] { Cycle.CYCLE.TENANT_ID }, false);
+    public static final Index IDX_DRIVE_FILE_FILE_ID = Internal.createIndex(DSL.name("idx_drive_file_file_id"), DriveFile.DRIVE_FILE, new OrderField[] { DriveFile.DRIVE_FILE.FILE_ID }, false);
     public static final Index IDX_DRIVE_FILE_FOLDER = Internal.createIndex(DSL.name("idx_drive_file_folder"), DriveFile.DRIVE_FILE, new OrderField[] { DriveFile.DRIVE_FILE.SPACE_ID, DriveFile.DRIVE_FILE.FOLDER_ID }, false);
     public static final Index IDX_DRIVE_FILE_REF_FILE = Internal.createIndex(DSL.name("idx_drive_file_ref_file"), DriveFileRef.DRIVE_FILE_REF, new OrderField[] { DriveFileRef.DRIVE_FILE_REF.DRIVE_FILE_ID }, false);
     public static final Index IDX_DRIVE_FILE_REF_SOURCE = Internal.createIndex(DSL.name("idx_drive_file_ref_source"), DriveFileRef.DRIVE_FILE_REF, new OrderField[] { DriveFileRef.DRIVE_FILE_REF.SOURCE_TYPE, DriveFileRef.DRIVE_FILE_REF.SOURCE_ID }, false);

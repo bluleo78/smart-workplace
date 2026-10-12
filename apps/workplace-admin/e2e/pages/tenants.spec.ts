@@ -15,6 +15,8 @@ function tenant(overrides: Partial<TenantSummary> = {}): TenantSummary {
     status: 'ACTIVE',
     memberCount: 3,
     createdAt: '2026-01-15T09:00:00Z',
+    deletedAt: null,
+    purgeError: null,
     ...overrides,
   }
 }
@@ -115,6 +117,75 @@ test.describe('테넌트 목록', () => {
 
     await expect(page.getByTestId('tenant-list-empty')).toBeVisible()
     await expect(page.getByTestId('tenant-row')).toHaveCount(0)
+  })
+
+  // (d) 운영 중/삭제됨 탭 — 목록 API 는 모든 상태를 반환하고 콘솔이 탭으로 나눈다(WP-341).
+  test('운영 중/삭제됨 탭으로 나뉘고 건수가 보인다', async ({ authenticatedPage: page }) => {
+    await stubTenantList(page, [
+      tenant({ id: 1, name: 'Acme', status: 'ACTIVE' }),
+      tenant({ id: 2, name: 'Beta', status: 'SUSPENDED' }),
+      tenant({ id: 3, name: 'Gamma', status: 'DELETED', deletedAt: '2026-10-10T01:00:00Z' }),
+      tenant({ id: 4, name: 'Old', status: 'PURGING', deletedAt: '2026-09-28T01:00:00Z' }),
+    ])
+    await page.goto('/')
+    await expect(page.getByTestId('tenant-view-active')).toContainText('운영 중 2')
+    await expect(page.getByTestId('tenant-view-deleted')).toContainText('삭제됨 2')
+    await expect(page.getByTestId('tenant-row')).toHaveCount(2)
+    await page.getByTestId('tenant-view-deleted').click()
+    await expect(page).toHaveURL(/view=deleted/)
+    await expect(page.getByTestId('tenant-row')).toHaveCount(2)
+    await expect(page.getByRole('columnheader', { name: '삭제일' })).toBeVisible()
+    await expect(page.getByText('영구 삭제 중…')).toBeVisible()
+    // 새로고침해도 URL 쿼리로 보던 탭이 유지된다.
+    await page.reload()
+    await expect(page.getByTestId('tenant-view-deleted')).toHaveAttribute('data-state', 'on')
+  })
+
+  // S7: 보기 전환은 aria-pressed 토글 그룹 — tab 역할을 쓰지 않고, 키보드(Tab/Enter)로 전환된다.
+  test('보기 전환은 aria-pressed 토글이고 키보드로 전환된다', async ({ authenticatedPage: page }) => {
+    await stubTenantList(page, [
+      tenant({ id: 1, name: 'Acme', status: 'ACTIVE' }),
+      tenant({ id: 3, name: 'Gamma', status: 'DELETED', deletedAt: '2026-10-10T01:00:00Z' }),
+    ])
+    await page.goto('/')
+    const active = page.getByTestId('tenant-view-active')
+    const deleted = page.getByTestId('tenant-view-deleted')
+    await expect(page.getByRole('tab')).toHaveCount(0)
+    await expect(page.getByRole('group', { name: '테넌트 보기' })).toBeVisible()
+    await expect(active).toHaveAttribute('aria-pressed', 'true')
+    await expect(deleted).toHaveAttribute('aria-pressed', 'false')
+    await deleted.focus()
+    await page.keyboard.press('Enter')
+    await expect(page).toHaveURL(/view=deleted/)
+    await expect(deleted).toHaveAttribute('aria-pressed', 'true')
+    await expect(active).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  // S8: 행은 이름 링크로 키보드 진입 — Tab 으로 포커스, Enter 로 상세 이동(이중 이동 없음).
+  test('행을 키보드로 열 수 있다', async ({ authenticatedPage: page }) => {
+    await page.route('**/api/platform/tenants/3', (route) =>
+      route.fulfill({ status: 404, contentType: 'application/json', body: '{}' }),
+    )
+    await stubTenantList(page, [tenant({ id: 3, name: 'Gamma', status: 'DELETED', deletedAt: '2026-10-10T01:00:00Z' })])
+    await page.goto('/?view=deleted')
+    const link = page.getByTestId('tenant-row-link')
+    await link.focus()
+    await expect(link).toBeFocused()
+    await page.keyboard.press('Enter')
+    await expect(page).toHaveURL(/\/tenants\/3$/)
+    // 뒤로 가면 곧바로 목록 — 링크+행 핸들러로 이력이 두 번 쌓이지 않았다.
+    await page.goBack()
+    await expect(page).toHaveURL(/\/\?view=deleted$/)
+    // 마우스로 행의 다른 칸을 눌러도 기존처럼 열린다.
+    await page.getByTestId('tenant-row').getByText('acme').click()
+    await expect(page).toHaveURL(/\/tenants\/3$/)
+  })
+
+  // (e) 삭제됨 탭 빈 상태 — 생성 버튼 없이 안내 문구만.
+  test('삭제됨 탭 빈 상태', async ({ authenticatedPage: page }) => {
+    await stubTenantList(page, [tenant({ id: 1, status: 'ACTIVE' })])
+    await page.goto('/?view=deleted')
+    await expect(page.getByTestId('tenant-list-empty')).toContainText('삭제된 테넌트가 없습니다.')
   })
 
   // (c) 생성 성공 → 다이얼로그 열기·입력·제출(201)·목록 invalidate 재조회로 새 행 반영·성공 토스트

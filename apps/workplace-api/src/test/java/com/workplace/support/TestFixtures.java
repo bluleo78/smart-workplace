@@ -1,9 +1,12 @@
 package com.workplace.support;
 
+import static com.workplace.jooq.Tables.MEMBERSHIP;
+import static com.workplace.jooq.Tables.TENANT;
 import static com.workplace.jooq.Tables.USER;
 
 import com.workplace.auth.service.AiAgentCredentialService;
 import com.workplace.user.dto.UserKind;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 import org.jooq.DSLContext;
 
@@ -20,6 +23,30 @@ public final class TestFixtures {
   private static final AtomicLong SEQ = new AtomicLong();
 
   private TestFixtures() {}
+
+  /**
+   * 지정 상태의 테넌트를 새로 만든다(slug 는 UUID 접미사로 유일). 영구 삭제 등 테넌트 단위 테스트용.
+   *
+   * @return 생성된 tenant id
+   */
+  public static long createTenant(DSLContext dsl, String status) {
+    return dsl.insertInto(TENANT)
+        .set(TENANT.NAME, "fixture-tenant")
+        .set(TENANT.SLUG, "fixture-" + UUID.randomUUID().toString().substring(0, 8))
+        .set(TENANT.STATUS, status)
+        .returning(TENANT.ID)
+        .fetchOne()
+        .getId();
+  }
+
+  /** 사용자를 테넌트 MEMBER 로 추가한다(membership 직접 INSERT). */
+  public static void addMember(DSLContext dsl, long userId, long tenantId) {
+    dsl.insertInto(MEMBERSHIP)
+        .set(MEMBERSHIP.USER_ID, userId)
+        .set(MEMBERSHIP.TENANT_ID, tenantId)
+        .set(MEMBERSHIP.ROLE, "MEMBER")
+        .execute();
+  }
 
   /**
    * HUMAN 사용자 1명 생성 (password 더미). admin/reporter 등 행위 주체 용도.

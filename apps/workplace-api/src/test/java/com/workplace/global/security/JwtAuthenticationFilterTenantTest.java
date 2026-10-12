@@ -35,6 +35,8 @@ class JwtAuthenticationFilterTenantTest {
   @Mock private JwtTokenProvider jwtTokenProvider;
   @Mock private com.workplace.permission.service.PermissionService permissionService;
   @Mock private MembershipRepository membershipRepository;
+  // JWT 경로의 테넌트 ACTIVE 확인(WP-341) — Bearer 테스트에서만 스텁한다.
+  @Mock private com.workplace.global.tenant.TenantStatusChecker tenantStatusChecker;
 
   private JwtAuthenticationFilter filter;
 
@@ -42,7 +44,11 @@ class JwtAuthenticationFilterTenantTest {
   void setUp() {
     filter =
         new JwtAuthenticationFilter(
-            jwtTokenProvider, permissionService, membershipRepository, INTERNAL_TOKEN);
+            jwtTokenProvider,
+            permissionService,
+            membershipRepository,
+            INTERNAL_TOKEN,
+            tenantStatusChecker);
     // 권한 조회는 빈 Set 반환으로 충분 (테스트 대상은 TenantContext)
     when(permissionService.getUserPermissions(USER_ID)).thenReturn(Set.of());
   }
@@ -127,6 +133,8 @@ class JwtAuthenticationFilterTenantTest {
     when(jwtTokenProvider.validateAccessToken("valid.jwt.token")).thenReturn(true);
     when(jwtTokenProvider.getUserIdFromToken("valid.jwt.token")).thenReturn(USER_ID);
     when(jwtTokenProvider.getTenantIdFromToken("valid.jwt.token")).thenReturn(TENANT_ID);
+    // WP-341: JWT 경로는 테넌트가 ACTIVE 일 때만 인증·TenantContext 를 세운다.
+    when(tenantStatusChecker.isActive(TENANT_ID)).thenReturn(true);
     when(permissionService.getUserPermissions(USER_ID)).thenReturn(Set.of());
 
     AtomicReference<Long> captured = new AtomicReference<>();

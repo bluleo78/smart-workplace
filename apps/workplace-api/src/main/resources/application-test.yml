@@ -45,6 +45,8 @@ app:
 
 # ai-agent 발사: 테스트 기본 off. 통합 테스트는 @TestPropertySource 로 override.
 workplace:
+  # 테넌트 상태 캐시 끔(WP-341) — 트랜잭션 테스트가 상태를 바꿨다 롤백해도 캐시가 다른 테스트로 새지 않게.
+  tenant-status-cache-ttl-ms: 0
   storage:
     # Gradle 테스트 포크(maxParallelForks)마다 별도 저장소 루트를 쓴다(WP-114). 포크는 각자 Testcontainers DB 를 가지므로
     # 루트를 공유하면 한 포크의 메일 orphan 스윕이 다른 포크의 blob(내용 해시 경로라 이름도 겹친다)을 고아로 보고 지울 수 있다.

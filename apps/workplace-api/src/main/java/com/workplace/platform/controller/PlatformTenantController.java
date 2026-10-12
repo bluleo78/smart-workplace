@@ -3,6 +3,7 @@ package com.workplace.platform.controller;
 import com.workplace.platform.dto.AddExistingTenantMemberRequest;
 import com.workplace.platform.dto.AddTenantMemberRequest;
 import com.workplace.platform.dto.CreateTenantRequest;
+import com.workplace.platform.dto.PurgeTenantRequest;
 import com.workplace.platform.dto.TenantDetailResponse;
 import com.workplace.platform.dto.TenantMemberResponse;
 import com.workplace.platform.dto.TenantSummaryResponse;
@@ -73,6 +74,28 @@ public class PlatformTenantController {
   public ResponseEntity<Void> activate(@PathVariable Long id) {
     platformTenantService.activate(id);
     return ResponseEntity.noContent().build();
+  }
+
+  /** 테넌트 삭제(DELETED) — 구성원 접근 차단, 복원 가능. 204. */
+  @PostMapping("/{id}/delete")
+  public ResponseEntity<Void> delete(@PathVariable Long id) {
+    platformTenantService.delete(id);
+    return ResponseEntity.noContent().build();
+  }
+
+  /** 삭제된 테넌트 복원(ACTIVE). 204. */
+  @PostMapping("/{id}/restore")
+  public ResponseEntity<Void> restore(@PathVariable Long id) {
+    platformTenantService.restore(id);
+    return ResponseEntity.noContent().build();
+  }
+
+  /** 영구 삭제 요청 — 202. 실제 삭제는 백그라운드 잡(TenantPurgeJob)이 수행한다. */
+  @PostMapping("/{id}/purge")
+  public ResponseEntity<Void> purge(
+      @PathVariable Long id, @Valid @RequestBody PurgeTenantRequest req) {
+    platformTenantService.requestPurge(id, req.confirmName());
+    return ResponseEntity.accepted().build();
   }
 
   /** 테넌트 멤버 목록. */

@@ -4,6 +4,7 @@ import static com.workplace.jooq.Tables.EMAIL_ACCOUNT;
 import static com.workplace.jooq.Tables.TENANT;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -22,6 +23,8 @@ import java.util.Base64;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -257,5 +260,32 @@ class M365OAuthServiceTest extends IntegrationTestBase {
                 .content("{\"code\":\"CODE\",\"state\":\"bogus-state\"}"))
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.connected").value(false));
+  }
+
+  /**
+   * 정지·삭제·영구 삭제 중인 테넌트에 결속된 state 로는 계정을 연결하지 않는다(WP-341) — 공개 경로라 JWT 필터의 테넌트 상태 검사를 타지 않으므로 컨트롤러가
+   * 직접 막는다. 만료된 state 와 같이 400 invalid_request 로 응답하고 토큰 교환도 시도하지 않는다.
+   */
+  @ParameterizedTest
+  @ValueSource(strings = {"SUSPENDED", "DELETED", "PURGING"})
+  void complete_rejectsInactiveTenant(String tenantStatus) throws Exception {
+    long tid2 = ensureSecondTenant();
+    long userId = TestFixtures.createHuman(dsl);
+    createdUserId = userId;
+    String state = stateStore.issue(userId, tid2);
+    dsl.update(TENANT).set(TENANT.STATUS, tenantStatus).where(TENANT.ID.eq(tid2)).execute();
+    try {
+      mockMvc
+          .perform(
+              post("/api/v1/mail/oauth/m365/complete")
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content("{\"code\":\"CODE\",\"state\":\"" + state + "\"}"))
+          .andExpect(status().isBadRequest())
+          .andExpect(jsonPath("$.connected").value(false))
+          .andExpect(jsonPath("$.error").value("invalid_request"));
+      verifyNoInteractions(graphApiClient);
+    } finally {
+      dsl.update(TENANT).set(TENANT.STATUS, "ACTIVE").where(TENANT.ID.eq(tid2)).execute();
+    }
   }
 }

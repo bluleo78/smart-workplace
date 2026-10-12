@@ -9,6 +9,7 @@ import com.workplace.drive.exception.DriveInvalidTargetException;
 import com.workplace.drive.exception.DriveShareLinkNotFoundException;
 import com.workplace.drive.repository.DriveFileRepository;
 import com.workplace.drive.repository.DriveShareLinkRepository;
+import com.workplace.global.tenant.TenantStatusChecker;
 import com.workplace.user.repository.UserRepository;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
@@ -48,6 +49,9 @@ public class DriveShareLinkService {
 
   /** 사용자명 조회용 — 감사 로그에 username 을 기록한다(#81). */
   private final UserRepository userRepository;
+
+  // WP-341: 정지·삭제된 테넌트의 공유 링크를 "없음"으로 처리하기 위한 테넌트 상태 확인.
+  private final TenantStatusChecker tenantStatusChecker;
 
   /** 링크 생성. 파일의 공간 EDITOR 검증 → 토큰 생성 → 해시 저장 → 평문 1회 반환. */
   @Transactional
@@ -125,6 +129,11 @@ public class DriveShareLinkService {
         links
             .resolve(tokenHash)
             .orElseThrow(com.workplace.drive.exception.DriveShareLinkNotFoundException::new);
+    // WP-341: 정지·삭제·영구 삭제 중인 테넌트의 링크는 "링크 없음"과 같은 404. 만료·비밀번호·잠금 가드보다 먼저 검사해야
+    // 응답 코드(410/401/423)로 링크 존재가 드러나지 않고, 비활성 테넌트에 비밀번호 시도 카운터도 쌓이지 않는다.
+    if (!tenantStatusChecker.isActive(link.tenantId())) {
+      throw new com.workplace.drive.exception.DriveShareLinkNotFoundException();
+    }
 
     if (link.revokedAt() != null
         || (link.expiresAt() != null

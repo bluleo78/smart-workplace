@@ -208,6 +208,15 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
   }
 
+  /** 테넌트 상태 전환 충돌(이미 삭제됨·삭제 상태 아님 등) — 409. */
+  @ExceptionHandler(com.workplace.platform.exception.TenantStateConflictException.class)
+  public ResponseEntity<ErrorResponse> handleTenantStateConflict(
+      com.workplace.platform.exception.TenantStateConflictException ex,
+      HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.CONFLICT, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
+  }
+
   /** 비멤버/정지 테넌트 선택 시도 → 403. */
   @ExceptionHandler(TenantAccessDeniedException.class)
   public ResponseEntity<ErrorResponse> handleTenantAccessDenied(

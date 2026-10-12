@@ -2,10 +2,12 @@ package com.workplace.global.tenant;
 
 import static com.workplace.jooq.Tables.TENANT;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.support.IntegrationTestBase;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -83,5 +85,57 @@ class TenantScopedRunnerTest extends IntegrationTestBase {
     // 모든 활성 테넌트가 호출됨 — 한 테넌트 실패가 순회를 중단시키지 않음.
     long activeCount = dsl.fetchCount(dsl.selectFrom(TENANT).where(TENANT.STATUS.eq("ACTIVE")));
     assertThat(visited).hasSize((int) activeCount);
+  }
+
+  /** 고정 슬러그로 DELETED 상태 테넌트를 find-or-create(커밋 상태)하고 id 반환 — runForTenant 가 상태와 무관한지 확인용. */
+  private long ensureDeletedTenant() {
+    String slug = "runner-test-tenant-deleted";
+    Long existing =
+        dsl.select(TENANT.ID).from(TENANT).where(TENANT.SLUG.eq(slug)).fetchOne(TENANT.ID);
+    if (existing != null) {
+      return existing;
+    }
+    return dsl.insertInto(TENANT)
+        .set(TENANT.SLUG, slug)
+        .set(TENANT.NAME, "Runner Test Deleted Tenant")
+        .set(TENANT.STATUS, "DELETED")
+        .returning(TENANT.ID)
+        .fetchOne()
+        .getId();
+  }
+
+  @Test
+  void runForTenant_runsForNonActiveTenantWithGuc() {
+    long tid = ensureDeletedTenant();
+
+    // ACTIVE 필터 없이 DELETED 테넌트에서도 실행되고, GUC 가 그 테넌트로 주입되어야 한다.
+    AtomicLong guc = new AtomicLong(-1);
+    runner.runForTenant(
+        tid,
+        id ->
+            guc.set(
+                dsl.fetchOne("SELECT current_setting('app.tenant_id', true)::bigint AS v")
+                    .get("v", Long.class)));
+
+    assertThat(guc.get()).isEqualTo(tid);
+    // 실행 후 TenantContext 는 비워져야 한다(스레드 재사용 시 누수 방지).
+    assertThat(TenantContext.get()).isNull();
+  }
+
+  @Test
+  void runForTenant_propagatesExceptionAndClearsContext() {
+    long tid = ensureDeletedTenant();
+
+    // 영구 삭제는 실패를 기록해야 하므로 예외를 삼키지 않고 그대로 전파해야 한다.
+    assertThatThrownBy(
+            () ->
+                runner.runForTenant(
+                    tid,
+                    id -> {
+                      throw new IllegalStateException("의도적 실패");
+                    }))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessage("의도적 실패");
+    assertThat(TenantContext.get()).isNull();
   }
 }
