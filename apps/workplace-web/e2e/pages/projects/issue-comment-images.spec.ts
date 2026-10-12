@@ -159,6 +159,28 @@ test.describe('코멘트 작성창 — 입력창 안 이미지 (WP-362)', () => 
   })
 })
 
+test.describe('코멘트 작성창 — 붙여넣기 예외 (WP-362)', () => {
+  test('웹 페이지 내용을 붙여넣으면 글만 들어가고 외부 이미지는 코멘트에 넣지 않는다', async ({ authenticatedPage: page }) => {
+    const detailRef = { current: createIssueDetail({ comments: [] }) }
+    await setupIssueStubs(page, detailRef)
+    const uploads = trackRequests(page, 'ANY', `/api/v1/projects/${KEY}/issue-images`)
+
+    await page.goto(`/projects/${KEY}/issues/${ISSUE_NUMBER}`)
+    const input = page.getByTestId('issue-comment-input')
+    await input.click()
+    await input.evaluate((el) => {
+      const dt = new DataTransfer()
+      dt.setData('text/html', '<p>참고 화면 <img src="https://example.com/a.png" alt="ext"> 끝</p>')
+      dt.setData('text/plain', '참고 화면 끝')
+      el.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt }))
+    })
+
+    await expect(input).toContainText('참고 화면')
+    await expect(input.getByTestId('rich-image')).toHaveCount(0)
+    expect(uploads.count()).toBe(0)
+  })
+})
+
 test.describe('코멘트 이미지 — 목록·수정·삭제 (WP-362)', () => {
   const withImage = (): IssueCommentResponse =>
     createComment({ id: 40, issueId: ISSUE_ID, authorId: ME_ID, body: `재현 화면\n![bug.png](${IMG_URL})\n확인 부탁` })
@@ -220,7 +242,7 @@ test.describe('코멘트 이미지 — 목록·수정·삭제 (WP-362)', () => {
     await item.getByRole('button', { name: '코멘트 삭제' }).click()
 
     const dialog = page.getByRole('alertdialog')
-    await expect(dialog).toContainText('이미지 1개도 함께 삭제됩니다')
+    await expect(dialog).toContainText('이미지 1개도 본문이나 다른 코멘트에서 쓰지 않으면 함께 삭제됩니다')
     // 미리보기는 이미지 URL 대신 [이미지] 로 줄여 보여 준다.
     await expect(dialog).toContainText('[이미지]')
     await expect(dialog).not.toContainText('issue-images')

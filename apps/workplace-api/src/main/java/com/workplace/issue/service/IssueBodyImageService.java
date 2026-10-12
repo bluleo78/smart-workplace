@@ -64,6 +64,7 @@ public class IssueBodyImageService {
    * @param savedText 방금 저장한 글 — 코멘트 삭제처럼 새 글이 없으면 null
    */
   public void syncIssueImages(ProjectRow project, long issueId, long callerId, String savedText) {
+    repo.lockIssue(issueId);
     Set<Long> added = IssueBodyImageResponse.idsIn(savedText, project.key());
     repo.claim(issueId, repo.lockClaimable(project.id(), issueId, callerId, added));
     Set<Long> referenced = new HashSet<>();

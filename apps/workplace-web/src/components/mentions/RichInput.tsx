@@ -28,7 +28,7 @@ import { isSubmitEnter } from '@/lib/submitEnter';
 import { MentionList, type MentionListHandle } from './MentionList';
 import { bodyToDoc, serializeToBody } from './mentionSerialize';
 import { RichImageButton } from './RichImageButton';
-import { hasImage, hasPendingImage, removePendingImage, resolvePendingImage, RichImage } from './richImageNode';
+import { hasImage, hasPendingImage, RichImage, settlePendingImage } from './richImageNode';
 import type { MentionCandidate, MentionUser } from './types';
 
 interface RichInputProps {
@@ -365,9 +365,9 @@ export function RichInput({
     else editor.commands.splitBlock();
     for (const { file, uploadId } of items) {
       upload(file)
-        .then((res) => resolvePendingImage(editor, uploadId, res.url, res.name))
+        .then((res) => settlePendingImage(editor, uploadId, { src: res.url, alt: res.name }))
         .catch((e) => {
-          removePendingImage(editor, uploadId);
+          settlePendingImage(editor, uploadId, null);
           toast.error(extractApiError(e, '이미지를 올리지 못했습니다'));
         });
     }

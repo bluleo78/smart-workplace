@@ -110,6 +110,16 @@ public class IssueBodyImageRepository {
   }
 
   /**
+   * 이슈 행을 잠가 같은 이슈의 이미지 동기화를 한 줄로 세운다(WP-362).
+   *
+   * <p>왜: 코멘트 삭제(A)와 같은 이미지를 쓰는 코멘트 작성(B)이 동시에 돌면, A 가 B 의 미커밋 코멘트를 못 보고 이미지를 강등할 수 있다. 이슈 행을 먼저
+   * 잡으면 B 는 A 커밋 뒤 claim 으로 강등을 되돌리고, B 가 먼저면 A 는 B 커밋 뒤의 글을 읽는다.
+   */
+  public void lockIssue(long issueId) {
+    dsl.select(ISSUE.ID).from(ISSUE).where(ISSUE.ID.eq(issueId)).forUpdate().fetch();
+  }
+
+  /**
    * 이 이슈에서 이미지 참조가 있을 수 있는 글 — 본문과 삭제되지 않은 코멘트(WP-362).
    *
    * <p>왜: 코멘트 이미지도 같은 이슈에 연결되므로, 본문·코멘트 어느 한쪽만 보고 "빠졌다" 고 판정하면 다른 쪽에 쓰인 이미지를 강등하게 된다. 같은 트랜잭션에서
