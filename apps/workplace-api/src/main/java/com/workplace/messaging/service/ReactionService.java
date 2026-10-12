@@ -1,12 +1,16 @@
 package com.workplace.messaging.service;
 
+import com.workplace.messaging.dto.ReactorPage;
 import com.workplace.messaging.exception.ChannelNotMemberException;
 import com.workplace.messaging.exception.MessageNotFoundException;
 import com.workplace.messaging.outbound.MessagingDomainEvents.ReactionAddedEvent;
 import com.workplace.messaging.outbound.MessagingDomainEvents.ReactionRemovedEvent;
 import com.workplace.messaging.repository.ChannelMemberRepository;
 import com.workplace.messaging.repository.MessageRepository;
+import com.workplace.messaging.repository.MessageRepository.Cursor;
 import com.workplace.messaging.repository.ReactionRepository;
+import com.workplace.messaging.repository.ReactionRepository.ReactorRow;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -47,5 +51,38 @@ public class ReactionService {
     if (!memberRepo.isMember(channelId, callerId))
       throw new ChannelNotMemberException(channelId, callerId);
     return channelId;
+  }
+
+  /** 반응자 목록 limit 상한 — 한 번에 너무 많이 내려주지 않게. */
+  private static final int MAX_REACTOR_LIMIT = 50;
+
+  /**
+   * 메시지의 이모지별 반응자 페이지. 채널 멤버만(목록과 같은 권한). 메시지 목록에는 개수만 싣고, 반응자는 호버·전체 보기 때 이 API 로 필요한 만큼만
+   * 받는다(WP-106 지연 로딩).
+   */
+  @Transactional(readOnly = true)
+  public ReactorPage listReactors(
+      long callerId, long messageId, String emoji, String cursor, int limit) {
+    ensureMessageMember(callerId, messageId);
+    int size = Math.clamp(limit, 1, MAX_REACTOR_LIMIT);
+    List<ReactorRow> rows = reactionRepo.findReactors(messageId, emoji, decodeCursor(cursor), size);
+    boolean hasMore = rows.size() > size;
+    List<ReactorRow> pageRows = hasMore ? rows.subList(0, size) : rows;
+    String next =
+        hasMore
+            ? Cursor.encode(
+                new Cursor(pageRows.getLast().reactedAt(), pageRows.getLast().reactor().userId()))
+            : null;
+    return new ReactorPage(pageRows.stream().map(ReactorRow::reactor).toList(), next, hasMore);
+  }
+
+  /** cursor 문자열 해석. 비었으면 null, 깨졌으면 400(IllegalArgumentException)으로 바꾼다. */
+  private static Cursor decodeCursor(String cursor) {
+    if (cursor == null || cursor.isBlank()) return null;
+    try {
+      return Cursor.decode(cursor);
+    } catch (RuntimeException e) {
+      throw new IllegalArgumentException("잘못된 cursor 입니다");
+    }
   }
 }
