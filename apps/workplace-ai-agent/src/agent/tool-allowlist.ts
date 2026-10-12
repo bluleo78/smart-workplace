@@ -18,6 +18,8 @@ export const BASE_DISALLOWED: string[] = [
 
 // MCP 도구는 항상 허용(서버가 없으면 매칭 0이라 무해). Read/Agent 는 각 플래그가 켜질 때만 추가.
 // allowed 로 푼 도구는 disallowed 에서 제외(둘 다 있으면 disallow 가 이김 → 위임/Read 가 깨짐).
+// WP-351: SDK 0.3.x 는 위임 도구를 'Task' 로도 부른다(init 의 tools 에 Task 로 나오고 'Task' 거부 규칙이 Agent 도구를 숨긴다 — 실측).
+// 그래서 위임을 열 때는 Task 도 거부 목록에서 뺀다. TaskCreate 등 작업 목록 도구는 별개라 그대로 막는다.
 export function computeToolPolicy(opts: {
   allowFileRead?: boolean;
   allowSubagents?: boolean;
@@ -27,7 +29,7 @@ export function computeToolPolicy(opts: {
   if (opts.allowSubagents) extraAllowed.push('Agent');
   const allowed = ['mcp__workplace__*', ...extraAllowed];
   const disallowed = BASE_DISALLOWED.filter(
-    (t) => !(t === 'Read' && opts.allowFileRead) && !(t === 'Agent' && opts.allowSubagents),
+    (t) => !(t === 'Read' && opts.allowFileRead) && !((t === 'Agent' || t === 'Task') && opts.allowSubagents),
   );
   return { allowed, disallowed };
 }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ASSISTANT_SYSTEM_PROMPT, dateContextDirective, delegationLabel } from './assistant-system-prompt.js';
+import { ASSISTANT_ROUTER_TOOLS } from '../mcp/tools.js';
 
 describe('ASSISTANT_SYSTEM_PROMPT', () => {
   // WP-234: 시스템 규칙이 "분석은 위임"이라 첨부 요약이 하위 에이전트(도구·첨부 블록 없음)로 새지 않게, 라우터가 직접 읽게 한다.
@@ -94,9 +95,11 @@ describe('drive-agent 라우팅·라벨 (M3)', () => {
 });
 
 describe('한-턴-다건-제안 가드 (#351)', () => {
-  it('같은 종류 비가역 작업은 한 턴에 여러 건 제안 가능하다는 지침이 포함된다', () => {
+  // WP-351: 라우터에는 propose_* 가 없다 — 같은 종류 여러 건은 한 번에 위임하고 서브에이전트가 항목마다 제안한다.
+  it('같은 종류 비가역 작업 여러 건은 한 번에 위임하고, 서브에이전트가 한 턴에 여러 건 제안할 수 있다는 지침이 포함된다', () => {
     expect(ASSISTANT_SYSTEM_PROMPT).toContain('propose_');
-    expect(ASSISTANT_SYSTEM_PROMPT).toMatch(/같은 종류.*비가역.*여러 건 제안 가능/s);
+    expect(ASSISTANT_SYSTEM_PROMPT).toMatch(/같은 종류.*비가역.*여러 건은 한 번에 위임/s);
+    expect(ASSISTANT_SYSTEM_PROMPT).toMatch(/한 턴에 여러 건 제안/);
   });
   it('의존 관계 작업은 하나씩 확인받으라는 종속성 가드가 유지된다', () => {
     expect(ASSISTANT_SYSTEM_PROMPT).toMatch(/앞 결과에 의존|앞 작업 결과에 의존|의존하는 작업/s);
@@ -223,5 +226,29 @@ describe('#519 NL→필터 매핑 프롬프트', () => {
     // show_* 는 인자명이 달라 변환 규칙이 있어야 한다(예: issueKey → projectKey+number).
     expect(ASSISTANT_SYSTEM_PROMPT).toContain('show_issue_detail(projectKey: "WP", number: 12)');
     expect(ASSISTANT_SYSTEM_PROMPT).toContain('show_drive(folderId)');
+  });
+});
+
+// WP-351: 라우터는 ASSISTANT_ROUTER_TOOLS 만 싣는다 — 프롬프트가 라우터에게 없는 도구를 직접 쓰라고 하면 안 된다.
+describe('라우터 도구 집합과 프롬프트 정합 (WP-351)', () => {
+  // 서브에이전트의 능력을 설명하려고만 언급하는 도구(라우터가 호출하지 않는다).
+  const MENTIONED_FOR_SUBAGENTS = new Set(['add_channel_message']);
+
+  it('프롬프트가 언급하는 도구는 모두 라우터 도구에 있다(서브에이전트 설명용 언급 제외)', () => {
+    const mentioned = new Set(
+      ASSISTANT_SYSTEM_PROMPT.match(/\b(?:show|list|get|search|discover|read|mark|draft|create|update|add|remove|propose|sync|move|restore|rsvp|open|leave|watch|unwatch|rename|submit|unassign)_[a-z_]+/g) ?? [],
+    );
+    const missing = [...mentioned].filter((n) => !ASSISTANT_ROUTER_TOOLS.includes(n) && !MENTIONED_FOR_SUBAGENTS.has(n));
+    expect(missing).toEqual([]);
+  });
+
+  it('쓰기는 위임하고 라우터가 직접 하는 쓰기는 알림 읽음 처리뿐이라고 안내한다', () => {
+    expect(ASSISTANT_SYSTEM_PROMPT).toMatch(/라우터에는 쓰기·확인 카드\(`propose_\*`\) 도구가 없습니다/);
+    expect(ASSISTANT_SYSTEM_PROMPT).toContain('mark_notification_read');
+  });
+
+  it('확인 카드 실패(#842)·승인 실패 재시도(#843)는 서브에이전트에 다시 맡기도록 안내한다', () => {
+    expect(ASSISTANT_SYSTEM_PROMPT).toContain('확인 카드는 서브에이전트가 만든다');
+    expect(ASSISTANT_SYSTEM_PROMPT).toMatch(/실패 사유와 고칠 내용을 위임 prompt 에 적어 담당 서브에이전트에 다시 맡긴다/);
   });
 });

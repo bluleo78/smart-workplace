@@ -64,6 +64,11 @@ describe('buildSdkOptions', () => {
     }
   });
 
+  // WP-351: 위임(Agent)이 백그라운드로 떠 라우터가 결과 전에 턴을 끝내지 않게 동기로 돌린다.
+  it('env: 백그라운드 작업을 끈다(CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1)', () => {
+    expect(buildSdkOptions(baseInput()).env!.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS).toBe('1');
+  });
+
   it('userId 지정 시 ACTING_USER_ID 주입, 미지정 시 미설정', () => {
     expect(buildSdkOptions(baseInput({ userId: 12 })).env!.ACTING_USER_ID).toBe('12');
     expect(buildSdkOptions(baseInput()).env!.ACTING_USER_ID).toBeUndefined();
@@ -86,6 +91,21 @@ describe('buildSdkOptions', () => {
       token: 'tok', agentId: 1, timeoutMs: 1000, logTag: 't', agents,
     });
     expect(opts.agents).toBe(agents);
+  });
+
+  // WP-351: 메인 스레드 에이전트 — Options.agent 로 라우터 도구를 좁히고, 자기 자신에게는 위임하지 못하게 막는다.
+  it('mainAgent 지정 시 Options.agent 로 전달하고 Agent(<이름>) 을 disallowedTools 에 더한다', () => {
+    const o = buildSdkOptions(baseInput({ allowSubagents: true, mainAgent: 'assistant-router' }));
+    expect(o.agent).toBe('assistant-router');
+    expect(o.disallowedTools).toContain('Agent(assistant-router)');
+    expect(o.disallowedTools).toContain('Bash');
+    expect(o.disallowedTools).not.toContain('Agent');
+  });
+
+  it('mainAgent 미지정 시 Options.agent 는 undefined', () => {
+    const o = buildSdkOptions(baseInput({ allowSubagents: true }));
+    expect(o.agent).toBeUndefined();
+    expect(o.disallowedTools!.some((t) => t.startsWith('Agent('))).toBe(false);
   });
 
   it('agents 미지정 시 Options.agents 는 undefined', () => {

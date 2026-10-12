@@ -84,6 +84,7 @@ workplace-mcp 는 이 태그로 `/mcp/x/{apps}`·`X-MCP-Toolsets` 연결을 걸�
 
 - 같은 작업은 실행 경로마다 도구를 하나만 둔다. AI Chat 은 확인 카드(`propose_*`), 외부 MCP 는 직접 실행 도구다. assistant·subagent 에 둘을 함께 싣지 않는다.
 - 공유 도구를 바꾸면 subagent `agent.md`, 라우터 프롬프트, `TOOL_LABELS`(웹 `LEGACY_TOOL_LABELS` 포함), ai-driven-agent-inspector 회귀 점검까지 함께 고친다.
+- AI Chat 라우터는 직접 쓰는 도구(읽기·`show_*`·알림·첨부 읽기)만 싣는다(ai-agent `ASSISTANT_ROUTER_TOOLS`, Claude 경로, WP-351). 쓰기·`propose_*` 는 담당 subagent 에만 둔다. assistant 프로필에 도구를 더하면 라우터 목록이나 담당 subagent frontmatter 중 한 곳에 넣는다 — 어느 쪽에도 없으면 `subagent-loader.test.ts` 가 실패한다.
 
 ### 도구 수
 

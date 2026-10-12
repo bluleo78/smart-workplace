@@ -269,6 +269,52 @@ const showDriveInput = z.object({
 // #333: assistant 프로파일 추가 — 전 앱 도구 union(M1).
 export type McpProfile = 'issue' | 'chat' | 'home' | 'messaging' | 'assistant';
 
+/**
+ * WP-351: AI Chat 라우터(assistant 프로필의 메인 스레드)가 모델에 싣는 도구 — 라우터가 직접 쓰는 것만 둔다.
+ * assistant 프로필 MCP 서버는 서브에이전트와 함께 쓰므로 전 앱 도구 union 을 그대로 등록하고, 라우터만 이 목록으로 좁힌다
+ * (Claude 경로의 메인 스레드 에이전트 tools). 쓰기·확인 카드(propose_*)·답 제출은 담당 서브에이전트에만 있다 —
+ * 매 실행 싣는 도구 정의(토큰)를 줄이고, 라우터가 쓰기를 직접 하지 않고 위임하게 한다.
+ * 포함: 프롬프트 표의 직접 읽기 도구, 표시 위젯(show_*), 알림(조회·읽음 처리 — 담당 서브에이전트가 없다), 첨부 읽기.
+ * 메일 요약·답장/이슈 초안·계정 목록, 드라이브 휴지통은 읽기여도 프롬프트가 mail-agent·drive-agent 로 보내므로 두지 않는다.
+ * subagent-loader.test.ts 가 이 목록 ⊂ assistant 프로필, 라우터 밖 도구는 어느 서브에이전트에든 있음을 고정한다.
+ */
+export const ASSISTANT_ROUTER_TOOLS: readonly string[] = [
+  // 이슈
+  'list_issues', 'get_issue_detail',
+  // 노트
+  'list_wiki_spaces', 'search_wiki', 'get_wiki_page', 'list_wiki_pages', 'list_wiki_backlinks',
+  // 캘린더
+  'list_events', 'get_event',
+  // 메시징
+  'list_channels', 'discover_channels', 'get_channel_messages', 'list_thread_replies',
+  // 메일
+  'list_mail', 'get_mail',
+  // 연락처·사용자 그룹·구성원
+  'list_contacts', 'get_external_contact', 'get_contact_facets', 'list_user_groups', 'get_user_group',
+  'search_members', 'get_member', 'get_member_contact',
+  // 프로젝트
+  'list_projects', 'get_project',
+  // 드라이브
+  'list_drive_spaces', 'list_drive_items', 'search_drive', 'search_drive_content', 'get_drive_file_summary',
+  // 알림 — 읽음 처리도 라우터가 직접 한다
+  'list_notifications', 'mark_notification_read', 'mark_all_notifications_read',
+  // 첨부 읽기 — 이 대화의 첨부(WP-234)·이슈 첨부/드라이브 파일 본문(WP-346)
+  'read_chat_attachment', 'read_attachment',
+  // 표시 위젯
+  'show_my_tasks', 'show_issue_list', 'show_issue_detail', 'show_activity', 'show_mail_list',
+  'show_calendar', 'show_event', 'show_channels', 'show_wiki', 'show_wiki_page',
+  'show_contacts', 'show_contact', 'show_projects', 'show_project', 'show_drive',
+];
+
+/**
+ * WP-351: 서브에이전트에 위임하는 Claude 실행에서 메인 스레드(라우터)가 싣는 도구 이름 — 지금은 assistant 만 좁힌다.
+ * undefined 면 러너는 종전처럼 프로필 도구 전부를 메인 스레드에 싣는다.
+ * opencode 는 쓰지 않는다 — primary 의 위임 도구(task)가 꺼져 있어 쓰기를 직접 해야 한다(opencode-config.ts 참고).
+ */
+export function routerToolsFor(profile: McpProfile | undefined): readonly string[] | undefined {
+  return profile === 'assistant' ? ASSISTANT_ROUTER_TOOLS : undefined;
+}
+
 // #462 슬라이스4: 인-프로세스 호스트 브리지 — propose/submit_response/unassign_self 의
 // 구조화 출력을 파일 사이드카(WORKPLACE_*_PATH) 대신 요청별 콜백으로 호스트에 직접 전달한다.
 // (인-프로세스에선 process.env 가 전역 공유라 동시요청 경쟁 발생 → 콜백 클로저로 격리.)

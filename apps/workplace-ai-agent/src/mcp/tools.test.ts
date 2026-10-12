@@ -11,7 +11,7 @@ import { describe, expect, it, vi, type Mock } from 'vitest';
 import { z } from 'zod';
 
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
-import { buildTools, CARD_ONLY_SHARED_TOOLS, type HostBridge, type McpProfile } from './tools.js';
+import { ASSISTANT_ROUTER_TOOLS, buildTools, CARD_ONLY_SHARED_TOOLS, routerToolsFor, type HostBridge, type McpProfile } from './tools.js';
 
 // #842: 서버가 응답한 검증 실패(4xx)를 흉내 낸다 — 인터셉터가 message 를 서버 사유로 채운 AxiosError 형태.
 function apiError(status: number, message: string): Error {
@@ -291,6 +291,29 @@ describe('프로필 구성', () => {
     // 미구현 경계(search_issues)·제거된 도구(respond_chat, #463)는 없어야 한다.
     expect(names).not.toContain('search_issues');
     expect(names).not.toContain('respond_chat');
+  });
+
+  // WP-351: 라우터(assistant 메인 스레드)는 직접 쓰는 도구만 싣는다 — 쓰기·확인 카드·답 제출은 서브에이전트에만.
+  it('assistant 라우터 도구: 읽기·표시·알림·첨부만 — 쓰기는 알림 읽음 처리뿐, propose_*·submit_response·unassign_self 없음', () => {
+    const tools = buildTools(client(), AGENT_ID, 'assistant');
+    const router = tools.filter((t) => ASSISTANT_ROUTER_TOOLS.includes(t.name));
+    expect(router.map((t) => t.name).sort()).toEqual([...ASSISTANT_ROUTER_TOOLS].sort()); // 전부 프로필에 있다
+    expect(new Set(ASSISTANT_ROUTER_TOOLS).size).toBe(ASSISTANT_ROUTER_TOOLS.length); // 중복 없음
+    // 공유 도구는 kind 에서 계산한 readOnlyHint 를 싣는다(로컬 show_*·read_chat_attachment 는 힌트 없음 — 데이터를 바꾸지 않는다).
+    const writes = router.filter((t) => t.annotations && t.annotations.readOnlyHint !== true).map((t) => t.name);
+    expect(writes.sort()).toEqual(['mark_all_notifications_read', 'mark_notification_read']);
+    for (const n of ASSISTANT_ROUTER_TOOLS) {
+      expect(n.startsWith('propose_'), n).toBe(false);
+      expect(['submit_response', 'unassign_self']).not.toContain(n);
+    }
+    // 표시 위젯은 전부 라우터에 있다
+    for (const t of tools.filter((x) => x.name.startsWith('show_'))) expect(ASSISTANT_ROUTER_TOOLS).toContain(t.name);
+  });
+
+  it('routerToolsFor: assistant 만 라우터 도구로 좁히고 나머지 프로필은 undefined', () => {
+    expect(routerToolsFor('assistant')).toBe(ASSISTANT_ROUTER_TOOLS);
+    for (const p of ['issue', 'chat', 'home', 'messaging'] as const) expect(routerToolsFor(p)).toBeUndefined();
+    expect(routerToolsFor(undefined)).toBeUndefined();
   });
 
   // WP-343: update_status(→ update_issue 의 status)·list_project_members(→ get_project.members)는 폐지 — 어느 프로필에도 없어야 한다.

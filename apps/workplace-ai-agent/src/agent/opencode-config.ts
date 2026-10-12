@@ -141,6 +141,8 @@ export function buildOpencodeConfig(
         // 도구만 허용. 이름은 stdio-entry 서버명 'workplace' 접두 네임스페이스와 일치.
         // 예외(WP-236): allowFileRead(이슈 챗 첨부)면 read 를 연다. 러너가 인스턴스 디렉터리를 실행 첨부 폴더로
         // 지정하므로 read 는 그 안만 닿고, 바깥은 external_directory 로 막는다.
+        // WP-351: assistant 라우터도 여기서는 좁히지 않는다 — '*': false 가 opencode 위임 도구(task)까지 꺼서(opencode debug agent 실측
+        // tools.task=false) opencode 라우터는 위임하지 못하고 쓰기를 직접 한다. 라우터 도구만 열면 쓰기를 전부 잃는다.
         tools: { '*': false, 'workplace*': true, ...(i.allowFileRead ? { read: true } : {}) },
         permission: {
           edit: 'deny',
