@@ -4,6 +4,7 @@ import static com.workplace.jooq.Tables.CYCLE;
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_CYCLE;
 import static com.workplace.jooq.Tables.ISSUE_TYPE_DEF;
+import static com.workplace.jooq.Tables.ISSUE_WATCHER;
 import static com.workplace.jooq.Tables.MILESTONE;
 import static com.workplace.jooq.Tables.PROJECT;
 import static org.jooq.impl.DSL.count;
@@ -172,7 +173,8 @@ public class IssueRepository {
   /**
    * 신규 이슈 INSERT 후 생성된 row 반환. status 는 DB default('TODO') 사용. 담당자는 별도 매핑(issue_assignee) 으로 관리.
    * typeId 는 V10 이후 NOT NULL — 호출자가 결정(typically TASK fallback) 해서 전달. parentIssueId 는 SUBTASK 일 때만
-   * non-null (Phase 4a) — 부모-자식 정합성은 서비스 계층에서 가드.
+   * non-null (Phase 4a) — 부모-자식 정합성은 서비스 계층에서 가드. milestoneId 는 생성 시 지정(WP-356) — 같은 프로젝트 소속은 서비스가
+   * 검증한다.
    */
   public IssueRow insert(
       Long projectId,
@@ -184,7 +186,8 @@ public class IssueRepository {
       Long reporterId,
       Long typeId,
       Long parentIssueId,
-      LocalDate startDate) {
+      LocalDate startDate,
+      Long milestoneId) {
     return dsl.insertInto(ISSUE)
         .set(ISSUE.PROJECT_ID, projectId)
         .set(ISSUE.NUMBER, number)
@@ -196,10 +199,37 @@ public class IssueRepository {
         .set(ISSUE.REPORTER_ID, reporterId)
         .set(ISSUE.TYPE_ID, typeId)
         .set(ISSUE.PARENT_ISSUE_ID, parentIssueId)
+        .set(ISSUE.MILESTONE_ID, milestoneId)
         .returning(ROW_FIELDS)
         .fetchOptional()
         .map(this::mapToRow)
         .orElseThrow(() -> new IllegalStateException("INSERT RETURNING 결과 없음"));
+  }
+
+  /** 10-인자 호환 오버로드 — 마일스톤 없이 생성(WP-356 이전 호출부). */
+  public IssueRow insert(
+      Long projectId,
+      int number,
+      String title,
+      String body,
+      String priority,
+      LocalDate dueDate,
+      Long reporterId,
+      Long typeId,
+      Long parentIssueId,
+      LocalDate startDate) {
+    return insert(
+        projectId,
+        number,
+        title,
+        body,
+        priority,
+        dueDate,
+        reporterId,
+        typeId,
+        parentIssueId,
+        startDate,
+        null);
   }
 
   /**
@@ -426,6 +456,7 @@ public class IssueRepository {
       where = where.and(cond);
     }
     where = where.and(dateRangeCondition(query));
+    where = where.and(watcherCondition(query));
     where = where.and(labelGroupsCondition(query.labelIdGroups()));
     where = where.and(cycleCondition(query));
     if (query.milestoneIds() != null && !query.milestoneIds().isEmpty()) {
@@ -530,6 +561,22 @@ public class IssueRepository {
         .orderBy(ISSUE.UPDATED_AT.desc(), ISSUE.ID.desc())
         .limit(query.size())
         .fetch(this::mapToRow);
+  }
+
+  /**
+   * 워치 필터(WP-356) — 단일/횡단 검색 공용. watcherId 의 issue_watcher 행이 있는 이슈만. 예전엔 /me/watched-issues 만 있어
+   * 다른 필터와 함께 쓸 수 없었고 응답에 담당자·유형이 빠졌다 — 검색 필터로 두면 같은 응답·커서·필터 조합을 그대로 쓴다.
+   */
+  private Condition watcherCondition(IssueSearchQuery query) {
+    if (query.watcherId() == null) return noCondition();
+    return exists(
+        dsl.selectOne()
+            .from(ISSUE_WATCHER)
+            .where(
+                ISSUE_WATCHER
+                    .ISSUE_ID
+                    .eq(ISSUE.ID)
+                    .and(ISSUE_WATCHER.USER_ID.eq(query.watcherId()))));
   }
 
   /** 날짜 범위 필터의 하루 경계 기준 — AI 비서가 "이번 주"를 Asia/Seoul 로 계산하므로 같은 기준으로 자른다(WP-307). */
@@ -684,6 +731,7 @@ public class IssueRepository {
       where = where.and(cond);
     }
     where = where.and(dateRangeCondition(query));
+    where = where.and(watcherCondition(query));
     where = where.and(labelGroupsCondition(query.labelIdGroups()));
     where = where.and(cycleCondition(query));
     if (query.milestoneIds() != null && !query.milestoneIds().isEmpty()) {

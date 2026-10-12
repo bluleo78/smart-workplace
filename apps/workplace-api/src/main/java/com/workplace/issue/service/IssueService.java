@@ -1,5 +1,7 @@
 package com.workplace.issue.service;
 
+import com.workplace.cycle.exception.InvalidCycleForProjectException;
+import com.workplace.cycle.repository.CycleRepository;
 import com.workplace.drive.service.DriveLinkService;
 import com.workplace.global.dto.PageResponse;
 import com.workplace.global.dto.UserSummary;
@@ -34,12 +36,15 @@ import com.workplace.issue.repository.IssueAiSummaryRepository;
 import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueAttachmentRepository;
 import com.workplace.issue.repository.IssueCommentRepository;
+import com.workplace.issue.repository.IssueCycleRepository;
 import com.workplace.issue.repository.IssueDependencyRepository;
 import com.workplace.issue.repository.IssueFieldValueRepository;
 import com.workplace.issue.repository.IssueHistoryRepository;
 import com.workplace.issue.repository.IssueLabelRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.issue.repository.IssueTypeRepository;
+import com.workplace.label.exception.InvalidLabelForProjectException;
+import com.workplace.label.repository.LabelRepository;
 import com.workplace.milestone.service.MilestoneService;
 import com.workplace.project.dto.ProjectRow;
 import com.workplace.project.exception.ProjectAccessDeniedException;
@@ -49,6 +54,7 @@ import com.workplace.project.service.ProjectAccessGuard;
 import com.workplace.user.repository.UserRepository;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
@@ -84,6 +90,12 @@ public class IssueService {
   private final MilestoneService milestoneService;
   private final IssueChangeNotifier changeNotifier;
 
+  /** WP-356: 생성 시 라벨·사이클 소속 검증과 연결. */
+  private final LabelRepository labelRepository;
+
+  private final CycleRepository cycleRepository;
+  private final IssueCycleRepository issueCycleRepository;
+
   /** AI 즉시 컨텍스트: 저장 요약 조회. */
   private final IssueAiSummaryRepository aiSummaryRepository;
 
@@ -103,7 +115,7 @@ public class IssueService {
     Long parentIssueId = plan.parentIssueId();
 
     int number = sequenceRepository.allocateNext(project.id());
-    var row =
+    IssueRow row =
         issueRepository.insert(
             project.id(),
             number,
@@ -114,7 +126,19 @@ public class IssueService {
             callerId,
             typeId,
             parentIssueId,
-            req.startDate());
+            req.startDate(),
+            plan.milestoneId());
+    // INSERT RETURNING 은 마일스톤 이름(서브쿼리 컬럼)을 돌려주지 않는다 — 마일스톤을 지정했을 때만 다시 읽어 응답에 이름을 싣는다(WP-356).
+    if (plan.milestoneId() != null) {
+      row = issueRepository.findById(row.id()).orElseThrow();
+    }
+    // WP-356 라벨·사이클 연결 — 검증(planCreate)을 통과한 id 만 같은 트랜잭션에서 붙인다. 새 이슈라 diff·이력 없이 추가만 한다.
+    for (Long labelId : plan.labelIds()) {
+      issueLabelRepository.add(row.id(), labelId);
+    }
+    for (Long cycleId : plan.cycleIds()) {
+      issueCycleRepository.add(row.id(), cycleId);
+    }
     // WP-199 본문 이미지 연결 — 생성 권한(planCreate)을 통과한 뒤라 별도 가드 없이 같은 트랜잭션에서 연결한다.
     // 이미지 참조가 없는 본문(대부분)은 syncIssueImages 가 쿼리 없이 돌아간다.
     bodyImageService.syncIssueImages(project, row.id(), callerId, null, req.body());
@@ -135,6 +159,8 @@ public class IssueService {
    * @throws ParentNotAllowedException 일반 이슈의 부모가 EPIC 이 아님
    * @throws SubtaskParentRequiredException SUBTASK 인데 parentNumber 누락
    * @throws InvalidIssueDateRangeException 시작일 > 마감일
+   * @throws InvalidLabelForProjectException 라벨이 없거나 다른 프로젝트 소속(WP-356)
+   * @throws InvalidCycleForProjectException 사이클이 없거나 다른 프로젝트 소속(WP-356)
    */
   @Transactional(readOnly = true)
   public void validateCreatable(Long callerId, String projectKey, CreateIssueRequest req) {
@@ -146,7 +172,13 @@ public class IssueService {
    * 사전검증과 실행이 술어를 공유하게 만드는 핵심 (#842).
    */
   record CreateIssuePlan(
-      ProjectRow project, List<Long> assigneeIds, Long typeId, Long parentIssueId) {}
+      ProjectRow project,
+      List<Long> assigneeIds,
+      Long typeId,
+      Long parentIssueId,
+      List<Long> labelIds,
+      Long milestoneId,
+      List<Long> cycleIds) {}
 
   /** 생성 술어 본체 — 쓰기 없이 검증만 수행하고 실행에 필요한 해석값을 반환한다. 예외 종류·순서는 기존 create 와 동일. */
   CreateIssuePlan planCreate(Long callerId, String projectKey, CreateIssueRequest req) {
@@ -220,7 +252,41 @@ public class IssueService {
       throw new InvalidIssueDateRangeException(req.startDate(), req.dueDate());
     }
 
-    return new CreateIssuePlan(project, assigneeIds, typeId, parentIssueId);
+    // 5) 라벨·마일스톤·사이클(WP-356) — 수정 경로와 같은 규칙: 멤버(또는 ADMIN)만 지정할 수 있고 모두 같은 프로젝트 소속이어야 한다.
+    //    OPEN 프로젝트의 비멤버도 이슈는 만들 수 있지만, 생성이 라벨·마일스톤·사이클 변경(멤버 전용)의 우회로가 되면 안 된다.
+    //    사이클은 집합 교체(IssueCycleService.replace)처럼 완료 사이클도 허용한다.
+    List<Long> labelIds = distinct(req.labelIds());
+    List<Long> cycleIds = distinct(req.cycleIds());
+    if ((!labelIds.isEmpty() || !cycleIds.isEmpty() || req.milestoneId() != null)
+        && !accessGuard.isMemberOrAdmin(project, callerId)) {
+      throw new ProjectAccessDeniedException("라벨·마일스톤·사이클은 프로젝트 멤버만 지정할 수 있습니다");
+    }
+    if (!labelIds.isEmpty()) {
+      var labels = labelRepository.findByIds(labelIds);
+      if (labels.size() != labelIds.size()
+          || labels.stream().anyMatch(l -> !l.projectId().equals(project.id()))) {
+        throw new InvalidLabelForProjectException();
+      }
+    }
+    Long milestoneId =
+        req.milestoneId() == null
+            ? null
+            : milestoneService.loadInProject(req.milestoneId(), project.id()).id();
+    if (!cycleIds.isEmpty()) {
+      var cycles = cycleRepository.findByIds(cycleIds);
+      if (cycles.size() != cycleIds.size()
+          || cycles.stream().anyMatch(c -> !c.projectId().equals(project.id()))) {
+        throw new InvalidCycleForProjectException();
+      }
+    }
+
+    return new CreateIssuePlan(
+        project, assigneeIds, typeId, parentIssueId, labelIds, milestoneId, cycleIds);
+  }
+
+  /** null·중복을 걸러 순서를 지킨 목록으로 — 같은 id 를 두 번 주면 소속 검증의 개수 비교가 어긋나므로. */
+  private static List<Long> distinct(List<Long> ids) {
+    return ids == null ? List.of() : List.copyOf(new LinkedHashSet<>(ids));
   }
 
   /** 생성 실행 후속부 — 담당자 매핑·워처 등록·도메인 이벤트 발행. 검증은 planCreate 가 이미 끝냈다. */
@@ -281,15 +347,16 @@ public class IssueService {
               occurredAt));
     }
 
-    // 6) 응답에 유형·담당자·부모를 채운다(#877) — 부분 응답(from)이면 저장은 됐어도 호출자(MCP create_issue 등)가 미반영으로 오판한다.
-    //    새 이슈라 라벨·첨부·자식은 없다.
+    // 6) 응답에 유형·담당자·부모·라벨을 채운다(#877) — 부분 응답(from)이면 저장은 됐어도 호출자(MCP create_issue 등)가 미반영으로 오판한다.
+    //    라벨은 생성 때 붙였을 수 있다(WP-356, 없으면 빈 목록). 새 이슈라 첨부·자식은 없다.
     var type = typeRepository.findByIds(List.of(row.typeId())).get(row.typeId());
     var parentRef =
         row.parentIssueId() == null
             ? null
             : issueRepository.findParentRefsByIssueIds(List.of(row.id())).get(row.id());
+    var labels = issueLabelRepository.findLabelsByIssue(row.id());
     return IssueResponse.fromWithSubtasks(
-        project.key(), row, List.of(), 0, type, assigneeSummaries, parentRef, 0, 0);
+        project.key(), row, labels, 0, type, assigneeSummaries, parentRef, 0, 0);
   }
 
   /** 프로젝트 내 이슈 목록 페이지 조회. */

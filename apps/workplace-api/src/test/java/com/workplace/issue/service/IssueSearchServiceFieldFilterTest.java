@@ -110,6 +110,33 @@ class IssueSearchServiceFieldFilterTest extends IntegrationTestBase {
     assertThat(byNumber.get(2).customFields()).isEmpty();
   }
 
+  /**
+   * WP-356 — 문자열 값(TEXT·SELECT·DATE)은 jsonb 를 텍스트로 캐스트해 비교하므로 JSON 따옴표를 포함한 리터럴로 걸러야 맞는다. MCP
+   * list_issues 의 커스텀 필드 필터가 값을 JSON 으로 직렬화해 보내는 근거다.
+   */
+  @Test
+  void text_field_filter_matches_json_quoted_literal() {
+    Long owner = createUser("d");
+    var p = newProject(owner, "SFD");
+    var d = defService.create(owner, p.key(), new CreateIssueFieldDefRequest("t", "TEXT", null));
+    issueRepository.insert(p.id(), 1, "i1", null, "MID", null, owner);
+    valueService.replace(
+        owner,
+        p.key(),
+        1,
+        new UpdateIssueFieldsRequest(List.of(new FieldValueInput(d.id(), om.valueToTree("v")))));
+
+    var quoted =
+        searchService.search(
+            owner, p.key(), Map.of("fieldId", d.id().toString(), "fieldValue", "\"v\""));
+    var bare =
+        searchService.search(
+            owner, p.key(), Map.of("fieldId", d.id().toString(), "fieldValue", "v"));
+
+    assertThat(quoted.items()).hasSize(1);
+    assertThat(bare.items()).isEmpty();
+  }
+
   @Test
   void filter_other_field_id_does_not_match() {
     Long owner = createUser("c");

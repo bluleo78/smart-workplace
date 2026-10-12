@@ -31,6 +31,9 @@ class MailIssueServiceTest extends IntegrationTestBase {
   @Autowired IssueRepository issueRepository;
   @Autowired ProjectService projectService;
   @Autowired DSLContext dsl;
+  @Autowired com.workplace.issue.service.IssueService issueService;
+  @Autowired com.workplace.issue.repository.IssueTypeRepository typeRepository;
+  @Autowired com.workplace.label.service.LabelService labelService;
 
   /** AfterEach 에서 RLS-safe 정리용 — 생성된 이슈 id 기록. */
   private final java.util.List<Long> createdIssueIds = new java.util.ArrayList<>();
@@ -137,6 +140,30 @@ class MailIssueServiceTest extends IntegrationTestBase {
     assertThat(issueRepository.findSourceIssueKey("MAIL", messageId)).contains(result.issueKey());
 
     mailIssueIds(messageId); // AfterEach 정리 대상으로 등록
+  }
+
+  /** WP-356 — 승격 요청의 유형·라벨이 생성과 같은 경로(IssueService.create)로 함께 저장된다. */
+  @Test
+  void promoteToIssue_withTypeAndLabels_appliesBoth() {
+    long messageId = seedMailMessage(callerId);
+    var projectId = projectService.get(callerId, projectKey).id();
+    var bugType = typeRepository.findByProjectAndName(projectId, "BUG").orElseThrow();
+    var label =
+        labelService.create(
+            callerId, projectKey, new com.workplace.label.dto.CreateLabelRequest("메일", "BLUE"));
+
+    PromotedIssue result =
+        mailIssueService.promoteToIssue(
+            callerId,
+            messageId,
+            new PromoteToIssueRequest(
+                projectKey, "유형 라벨", null, "MID", List.of(), bugType.id(), List.of(label.id())));
+    mailIssueIds(messageId); // AfterEach 정리 대상으로 등록
+
+    int number = Integer.parseInt(result.issueKey().substring(projectKey.length() + 1));
+    var detail = issueService.get(callerId, projectKey, number);
+    assertThat(detail.summary().type().name()).isEqualTo("BUG");
+    assertThat(detail.summary().labels()).extracting(l -> l.name()).containsExactly("메일");
   }
 
   @Test
