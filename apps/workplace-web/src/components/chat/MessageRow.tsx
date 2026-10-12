@@ -56,6 +56,8 @@ interface MessageRowProps {
   onSaveEdit: (body: string) => void
   onDelete: () => void
   onToggleReaction: (emoji: string) => void
+  // 반응자 전체 보기 열기(WP-106) — 호버 카드의 모두 보기. 목록(MessageList)이 오버레이 상태를 가진다.
+  onOpenReactors: (emoji: string) => void
   proposalBusy: boolean
   onConfirmProposal: (proposalId: number, arg: ProposalConfirmArg) => void
   onRejectProposal: (proposalId: number) => void
@@ -77,6 +79,7 @@ export function MessageRow({
   onSaveEdit,
   onDelete,
   onToggleReaction,
+  onOpenReactors,
   proposalBusy,
   onConfirmProposal,
   onRejectProposal,
@@ -257,7 +260,9 @@ export function MessageRow({
     <ReactionBar
       message={m}
       align={isOwn ? 'end' : 'start'}
+      currentUserId={currentUserId}
       onToggle={onToggleReaction}
+      onOpenReactors={onOpenReactors}
     />
   )
 

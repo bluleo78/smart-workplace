@@ -12,6 +12,7 @@ import { DateDivider } from '@/components/chat/DateDivider'
 import { MessageActionSheet } from '@/components/chat/MessageActionSheet'
 import { MessageRow } from '@/components/chat/MessageRow'
 import { buildMessageSheetActions, messagePreview,type MessageSheetHandlers } from '@/components/chat/messageSheetActions'
+import { ReactorsOverlay } from '@/components/chat/ReactorsOverlay'
 import { UnreadDivider } from '@/components/chat/UnreadDivider'
 import type { MentionCandidate } from '@/components/mentions/types'
 import { findChatBundle, teamChatBundle } from '@/components/viewer/viewerItems'
@@ -76,6 +77,14 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
   // 모바일 터치 셸: hover 툴바 대신 길게 누르기 → 작업 시트(목록에 하나).
   const touchShell = useIsTouchShell()
   const sheet = useMessageSheet(ordered)
+  // 반응자 전체 보기(WP-106) — 목록당 하나. 대상은 id 로만 들고 최신 목록에서 찾는다(열린 동안 개수 실시간 반영).
+  // 호버 카드(모두 보기)는 누르는 순간 닫혀 언마운트되므로 상태를 카드가 아니라 목록이 가진다. 닫을 때 대상은 남겨
+  // 닫힘 애니메이션 동안 내용이 비지 않게 한다.
+  const [reactorsTarget, setReactorsTarget] = useState<{ id: number; emoji: string; open: boolean } | null>(null)
+  const openReactors = useCallback((id: number, emoji: string) => setReactorsTarget({ id, emoji, open: true }), [])
+  const reactorsMessage = reactorsTarget ? ordered.find((m) => m.id === reactorsTarget.id) : undefined
+  // 내 이름 — 채널 멤버 목록에서 찾고, 없으면 "나".
+  const meName = members.find((mb) => mb.userId === currentUserId)?.name ?? '나'
 
   // 마지막(최신) 메시지가 viewport 진입하면 읽음 처리(mark-read). 중복 억제는 훅 내부 ref 가 담당.
   const markRead = useMarkMessageRead(channelId)
@@ -164,6 +173,7 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
                 }
                 onDelete={() => startDelete(m)}
                 onToggleReaction={(emoji) => toggle(m, emoji)}
+                onOpenReactors={(emoji) => openReactors(m.id, emoji)}
                 proposalBusy={proposalActions.confirm.isPending || proposalActions.reject.isPending}
                 onConfirmProposal={(proposalId, arg) => proposalActions.confirm.mutate({ proposalId, arg })}
                 onRejectProposal={(proposalId) => proposalActions.reject.mutate(proposalId)}
@@ -180,6 +190,15 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
             preview={target ? messagePreview(target.authorName, target.body, target.mentions) : undefined}
           />
         )}
+        <ReactorsOverlay
+          message={reactorsMessage}
+          initialEmoji={reactorsTarget?.emoji ?? ''}
+          open={!!reactorsTarget?.open}
+          onClose={() => setReactorsTarget((t) => (t ? { ...t, open: false } : t))}
+          touch={touchShell}
+          currentUserId={currentUserId}
+          meName={meName}
+        />
       </div>
     </ChatAttachmentViewerHost>
   )
