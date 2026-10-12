@@ -2,6 +2,7 @@ package com.workplace.issue.service;
 
 import com.workplace.global.dto.UserSummary;
 import com.workplace.issue.dto.CreateCommentRequest;
+import com.workplace.issue.dto.IssueBodyImageResponse;
 import com.workplace.issue.dto.IssueCommentResponse;
 import com.workplace.issue.dto.UpdateCommentRequest;
 import com.workplace.issue.exception.IssueCommentNotFoundException;
@@ -39,6 +40,8 @@ public class IssueCommentService {
   private final IssueAssigneeRepository assigneeRepository;
   private final UserRepository userRepository;
   private final ApplicationEventPublisher publisher;
+  // 코멘트에 넣은 이미지(WP-362)를 본문 이미지와 같은 이슈 단위로 연결·강등한다.
+  private final IssueBodyImageService bodyImageService;
 
   /**
    * 이슈 → 프로젝트 → 조회 가드(readable). OPEN 은 테넌트 전원 조회 허용(RLS 가 테넌트 경계 보장). 프로젝트 row 반환.
@@ -67,6 +70,10 @@ public class IssueCommentService {
 
   private record IssueAndProject(com.workplace.issue.dto.IssueRow issue, ProjectRow project) {}
 
+  /** 수정·삭제 대상 코멘트까지 함께 — 이전 코멘트 글에 이미지가 있었는지 보고 이미지 동기화를 건너뛸지 정한다(WP-362). */
+  private record MutableComment(
+      com.workplace.issue.dto.IssueRow issue, ProjectRow project, IssueCommentResponse comment) {}
+
   private static final String DELETE_DENIED = "코멘트 삭제 권한이 없습니다";
 
   /**
@@ -75,7 +82,7 @@ public class IssueCommentService {
    * <p>#856: 소속 대조가 없으면 A 프로젝트 OWNER 가 자기 이슈 id 에 B 프로젝트 코멘트 id 를 붙여 남의 코멘트를 지울 수 있었다(OWNER 판정이 경로의
    * issueId 기준이므로). 다른 이슈의 코멘트는 없는 코멘트와 같은 404 로 응답한다.
    */
-  private IssueAndProject checkCommentMutable(
+  private MutableComment checkCommentMutable(
       Long callerId, Long issueId, Long commentId, String deniedMessage) {
     var issueAndProject = assertIssueReadableWithIssue(issueId, callerId);
     var existing =
@@ -94,7 +101,7 @@ public class IssueCommentService {
     if (!isAuthor && !isOwner) {
       throw new ProjectAccessDeniedException(deniedMessage);
     }
-    return issueAndProject;
+    return new MutableComment(issueAndProject.issue(), issueAndProject.project(), existing);
   }
 
   /** 코멘트 삭제 사전검증(#856) — 확인 카드 dry-run 이 {@link #delete} 와 같은 {@link #checkCommentMutable} 를 쓴다. */
@@ -127,6 +134,10 @@ public class IssueCommentService {
     // 댓글 작성 자격: 멤버/ADMIN 또는 OPEN 이슈 reporter 본인. 그 외(임의 테넌트 reader)는 403.
     accessGuard.assertContentWritable(project, issue.reporterId(), callerId);
     var resp = commentRepository.insert(issueId, callerId, req.body());
+    // 코멘트 이미지 연결(WP-362) — 이미지 참조가 없는 코멘트(대부분)는 연결할 것이 없으므로 조회·잠금을 건너뛴다.
+    if (IssueBodyImageResponse.mayReferenceImages(req.body())) {
+      bodyImageService.syncIssueImages(project, issueId, callerId, req.body());
+    }
     watcherAutoEnroller.enroll(issueId, callerId, callerId);
 
     // 도메인 이벤트 발행 (AFTER_COMMIT 에서 ai-agent 발사 후보) — issue 는 위에서 이미 로드해 재사용.
@@ -156,11 +167,16 @@ public class IssueCommentService {
   /** 코멘트 수정 (본인 또는 프로젝트 OWNER) — delete 와 동일한 권한 모델. */
   public IssueCommentResponse update(
       Long callerId, Long issueId, Long commentId, UpdateCommentRequest req) {
-    var issueAndProject =
+    var target =
         checkCommentMutable(callerId, issueId, commentId, "본인 코멘트 또는 OWNER 만 수정할 수 있습니다");
-    var issue = issueAndProject.issue();
-    var project = issueAndProject.project();
+    var issue = target.issue();
+    var project = target.project();
     commentRepository.update(commentId, req.body());
+    // 새 글·이전 글 모두 이미지 참조가 없으면 연결할 것도 빠진 것도 없다 — 텍스트만 고치는 수정은 추가 쿼리 없이 지나간다.
+    if (IssueBodyImageResponse.mayReferenceImages(req.body())
+        || IssueBodyImageResponse.mayReferenceImages(target.comment().body())) {
+      bodyImageService.syncIssueImages(project, issueId, callerId, req.body());
+    }
     var updated = commentRepository.findById(commentId).orElseThrow();
 
     // 도메인 이벤트 발행 — create() 와 동일 패턴(#717, SSE 실시간 반영 갭 해소).
@@ -189,10 +205,14 @@ public class IssueCommentService {
 
   /** 코멘트 soft-delete (본인 또는 프로젝트 OWNER). */
   public void delete(Long callerId, Long issueId, Long commentId) {
-    var issueAndProject = checkCommentMutable(callerId, issueId, commentId, DELETE_DENIED);
-    var issue = issueAndProject.issue();
-    var project = issueAndProject.project();
+    var target = checkCommentMutable(callerId, issueId, commentId, DELETE_DENIED);
+    var issue = target.issue();
+    var project = target.project();
     commentRepository.softDelete(commentId);
+    // 지운 코멘트에만 있던 이미지는 강등(유예 후 수거) — 본문·다른 코멘트에 남아 있으면 그대로 둔다(WP-362).
+    if (IssueBodyImageResponse.mayReferenceImages(target.comment().body())) {
+      bodyImageService.syncIssueImages(project, issueId, callerId, null);
+    }
 
     // 도메인 이벤트 발행 — create() 와 동일 패턴(#717, SSE 실시간 반영 갭 해소).
     var assignees = assigneeRepository.findByIssue(issueId);

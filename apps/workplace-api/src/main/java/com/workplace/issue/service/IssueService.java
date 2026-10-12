@@ -119,7 +119,7 @@ public class IssueService {
     // WP-199 본문 이미지 연결 — 생성 권한(planCreate)을 통과한 뒤라 별도 가드 없이 같은 트랜잭션에서 연결한다.
     // 이미지 참조가 없는 본문(대부분)은 연결할 것도 강등할 것도 없으므로 조회·잠금을 건너뛴다.
     if (IssueBodyImageResponse.mayReferenceImages(req.body())) {
-      bodyImageService.syncWithBody(project, row.id(), callerId, req.body());
+      bodyImageService.syncIssueImages(project, row.id(), callerId, req.body());
     }
     return finishCreate(callerId, project, row, number, assigneeIds);
   }
@@ -523,7 +523,7 @@ public class IssueService {
     if (req.body() != null
         && (IssueBodyImageResponse.mayReferenceImages(newBody)
             || IssueBodyImageResponse.mayReferenceImages(before.body()))) {
-      bodyImageService.syncWithBody(project, before.id(), callerId, newBody);
+      bodyImageService.syncIssueImages(project, before.id(), callerId, newBody);
     }
     var after = issueRepository.findById(before.id()).orElseThrow();
 
@@ -687,7 +687,7 @@ public class IssueService {
     // 이슈(부모+자식) 삭제 시 연결된 드라이브 ref 정리 (source_id 는 비-FK 이므로 명시적 purge 필요)
     driveLinkService.purgeSource("ISSUE", row.id());
     driveLinkService.purgeSources("ISSUE", childIds);
-    // 본문 이미지 강등(WP-199) — 삭제 후엔 syncWithBody 가 불리지 않아 만료 해제 상태로 남는다. 부모+자식 모두 대상.
+    // 본문 이미지 강등(WP-199) — 삭제 후엔 syncIssueImages 가 불리지 않아 만료 해제 상태로 남는다. 부모+자식 모두 대상.
     var deletedIds = new java.util.ArrayList<Long>(childIds);
     deletedIds.add(row.id());
     bodyImageService.demoteAllOfIssues(deletedIds);

@@ -9,7 +9,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.issue.dto.CreateCommentRequest;
 import com.workplace.issue.dto.CreateIssueRequest;
+import com.workplace.issue.dto.UpdateCommentRequest;
 import com.workplace.issue.dto.UpdateIssueRequest;
 import com.workplace.issue.exception.AttachmentNotFoundException;
 import com.workplace.issue.exception.IssueBodyImageLimitException;
@@ -48,6 +50,7 @@ class IssueBodyImageServiceTest extends IntegrationTestBase {
   @Autowired IssueAttachmentService attachmentService;
   @Autowired IssueRepository issueRepository;
   @Autowired IssueService issueService;
+  @Autowired IssueCommentService commentService;
 
   /**
    * FilePathBuilder 가 TenantContext.get() 을 사용하므로 테스트 시작 전 테넌트를 설정. connection-init-sql 의
@@ -398,7 +401,7 @@ class IssueBodyImageServiceTest extends IntegrationTestBase {
 
     issueService.softDelete(owner, p.key(), created.number());
 
-    // 삭제 후엔 syncWithBody 가 불리지 않으므로 삭제 시점에 강등돼 유예 후 수거 대상이 된다.
+    // 삭제 후엔 syncIssueImages 가 불리지 않으므로 삭제 시점에 강등돼 유예 후 수거 대상이 된다.
     assertThat(expiresAt(fileId))
         .isAfter(OffsetDateTime.now().plusDays(6))
         .isBefore(OffsetDateTime.now().plusDays(8));
@@ -418,5 +421,85 @@ class IssueBodyImageServiceTest extends IntegrationTestBase {
 
     // 원본 A 가 삭제돼도 B 에 복사된 이미지는 계속 보여야 한다.
     assertThat(service.load(other, p.key(), fileId)).isNotNull();
+  }
+
+  // ---- WP-362: 코멘트 이미지 — 본문 이미지와 같은 이슈 단위 연결·강등 ----
+
+  @Test
+  void comment_claims_own_pending_image() {
+    Long owner = createUser("owner");
+    ProjectResponse p = newProject(owner, "CC");
+    var issue = issueService.create(owner, p.key(), createReq("t", "본문"));
+    long fileId = service.upload(owner, p.key(), image("a.png", PNG)).fileId();
+
+    commentService.create(owner, issue.id(), new CreateCommentRequest("재현 " + ref(p.key(), fileId)));
+
+    assertThat(repo.findMeta(fileId).orElseThrow().issueId()).isEqualTo(issue.id());
+    assertThat(expiresAt(fileId)).isNull();
+  }
+
+  @Test
+  void editing_body_keeps_images_used_in_comments() {
+    Long owner = createUser("owner");
+    ProjectResponse p = newProject(owner, "CB");
+    long bodyImg = service.upload(owner, p.key(), image("b.png", PNG)).fileId();
+    var issue = issueService.create(owner, p.key(), createReq("t", ref(p.key(), bodyImg)));
+    long commentImg = service.upload(owner, p.key(), image("c.png", PNG)).fileId();
+    commentService.create(owner, issue.id(), new CreateCommentRequest(ref(p.key(), commentImg)));
+
+    // 본문에서 본문 이미지를 지워도 코멘트 이미지는 그대로여야 한다.
+    issueService.update(owner, p.key(), issue.number(), bodyOnly("본문 이미지 지움"));
+
+    assertThat(expiresAt(bodyImg)).isAfter(OffsetDateTime.now().plusDays(6));
+    assertThat(expiresAt(commentImg)).isNull();
+  }
+
+  @Test
+  void editing_comment_keeps_body_images_and_demotes_removed_comment_image() {
+    Long owner = createUser("owner");
+    ProjectResponse p = newProject(owner, "CE");
+    long bodyImg = service.upload(owner, p.key(), image("b.png", PNG)).fileId();
+    var issue = issueService.create(owner, p.key(), createReq("t", ref(p.key(), bodyImg)));
+    long commentImg = service.upload(owner, p.key(), image("c.png", PNG)).fileId();
+    var comment =
+        commentService.create(owner, issue.id(), new CreateCommentRequest(ref(p.key(), commentImg)));
+
+    commentService.update(owner, issue.id(), comment.id(), new UpdateCommentRequest("이미지 뺌"));
+
+    assertThat(expiresAt(bodyImg)).isNull();
+    assertThat(expiresAt(commentImg)).isAfter(OffsetDateTime.now().plusDays(6));
+  }
+
+  @Test
+  void deleting_comment_demotes_only_images_not_used_elsewhere() {
+    Long owner = createUser("owner");
+    ProjectResponse p = newProject(owner, "CD");
+    var issue = issueService.create(owner, p.key(), createReq("t", "본문"));
+    long only = service.upload(owner, p.key(), image("o.png", PNG)).fileId();
+    long shared = service.upload(owner, p.key(), image("s.png", PNG)).fileId();
+    var c1 =
+        commentService.create(
+            owner, issue.id(), new CreateCommentRequest(ref(p.key(), only) + ref(p.key(), shared)));
+    commentService.create(owner, issue.id(), new CreateCommentRequest("다시 " + ref(p.key(), shared)));
+
+    commentService.delete(owner, issue.id(), c1.id());
+
+    // 지운 코멘트에만 있던 것은 강등, 다른 코멘트에 남은 것은 유지.
+    assertThat(expiresAt(only)).isAfter(OffsetDateTime.now().plusDays(6));
+    assertThat(expiresAt(shared)).isNull();
+  }
+
+  @Test
+  void comment_cannot_claim_others_pending_image() {
+    Long owner = createUser("owner");
+    Long other = createUser("other");
+    ProjectResponse p = newProject(owner, "CO");
+    projectService.addMember(owner, p.key(), new AddMemberRequest(other, "MEMBER"));
+    var issue = issueService.create(owner, p.key(), createReq("t", "본문"));
+    long othersPending = service.upload(other, p.key(), image("o.png", PNG)).fileId();
+
+    commentService.create(owner, issue.id(), new CreateCommentRequest(ref(p.key(), othersPending)));
+
+    assertThat(repo.findMeta(othersPending).orElseThrow().issueId()).isNull();
   }
 }

@@ -3,6 +3,7 @@ package com.workplace.issue.repository;
 import static com.workplace.jooq.Tables.FILE;
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_BODY_IMAGE;
+import static com.workplace.jooq.Tables.ISSUE_COMMENT;
 
 import com.workplace.issue.dto.IssueBodyImageResponse;
 import java.time.OffsetDateTime;
@@ -108,6 +109,26 @@ public class IssueBodyImageRepository {
         .fetch(ISSUE_BODY_IMAGE.FILE_ID);
   }
 
+  /**
+   * 이 이슈에서 이미지 참조가 있을 수 있는 글 — 본문과 삭제되지 않은 코멘트(WP-362).
+   *
+   * <p>왜: 코멘트 이미지도 같은 이슈에 연결되므로, 본문·코멘트 어느 한쪽만 보고 "빠졌다" 고 판정하면 다른 쪽에 쓰인 이미지를 강등하게 된다. 같은 트랜잭션에서
+   * 방금 저장한 글까지 포함해 읽는다.
+   */
+  public List<String> textsReferencingImages(long issueId) {
+    return dsl.select(ISSUE.BODY)
+        .from(ISSUE)
+        .where(ISSUE.ID.eq(issueId))
+        .and(ISSUE.BODY.like("%/issue-images/%"))
+        .unionAll(
+            dsl.select(ISSUE_COMMENT.BODY)
+                .from(ISSUE_COMMENT)
+                .where(ISSUE_COMMENT.ISSUE_ID.eq(issueId))
+                .and(ISSUE_COMMENT.DELETED_AT.isNull())
+                .and(ISSUE_COMMENT.BODY.like("%/issue-images/%")))
+        .fetch(0, String.class);
+  }
+
   /** 주어진 이슈들에 연결된 이미지 fileId — 이슈 삭제 시 일괄 강등용. */
   public List<Long> fileIdsOfIssues(Collection<Long> issueIds) {
     if (issueIds.isEmpty()) return List.of();
@@ -140,10 +161,10 @@ public class IssueBodyImageRepository {
   }
 
   /**
-   * 주어진 fileId 중 이슈에 연결된(issue_id NOT NULL) 이슈 이미지이면서, 같은 프로젝트의 삭제되지 않은 이슈 본문 어디서든 아직 참조되는 것.
+   * 주어진 fileId 중 이슈에 연결된(issue_id NOT NULL) 이슈 이미지이면서, 같은 프로젝트의 삭제되지 않은 이슈 본문·코멘트 어디서든 아직 참조되는 것.
    *
    * <p>본문을 복사해 다른 이슈에 붙여넣은 이미지는 원본 이슈 매핑으로 서빙되므로, 원본에서 빠졌다고 지우면 사본이 깨진다. 스윕이 FILE 행 잠금을 쥔 채 호출하므로
-   * 파일마다 정규식 스캔을 돌리지 않고 프로젝트별로 한 번만 조회한다: 후보를 프로젝트로 묶고, 프로젝트당 "이미지 URL 을 포함한 비삭제 이슈 본문" 만 한 번 읽어
+   * 파일마다 정규식 스캔을 돌리지 않고 프로젝트별로 한 번만 조회한다: 후보를 프로젝트로 묶고, 프로젝트당 "이미지 URL 을 포함한 비삭제 이슈 본문·코멘트" 만 한 번 읽어
    * 자바에서 참조 id 를 파싱해 후보와 교집합한다.
    */
   public Set<Long> stillReferencedAnywhere(Collection<Long> fileIds) {
@@ -167,7 +188,17 @@ public class IssueBodyImageRepository {
               .where(ISSUE.PROJECT_ID.eq(e.getKey()))
               .and(ISSUE.DELETED_AT.isNull())
               .and(ISSUE.BODY.like("%/issue-images/%"))
-              .fetch(ISSUE.BODY);
+              .unionAll(
+                  // 코멘트에 넣은 이미지(WP-362)도 같은 규칙 — 삭제되지 않은 이슈의 삭제되지 않은 코멘트만 본다.
+                  dsl.select(ISSUE_COMMENT.BODY)
+                      .from(ISSUE_COMMENT)
+                      .join(ISSUE)
+                      .on(ISSUE.ID.eq(ISSUE_COMMENT.ISSUE_ID))
+                      .where(ISSUE.PROJECT_ID.eq(e.getKey()))
+                      .and(ISSUE.DELETED_AT.isNull())
+                      .and(ISSUE_COMMENT.DELETED_AT.isNull())
+                      .and(ISSUE_COMMENT.BODY.like("%/issue-images/%")))
+              .fetch(0, String.class);
       for (String body : bodies) {
         // 참조 파싱은 업로드 URL 형식(urlOf)과 짝인 공용 파서를 쓴다 — 후보가 이미 이 프로젝트로 묶여 있어 키는 가리지 않는다.
         for (long id : IssueBodyImageResponse.idsIn(body)) {
