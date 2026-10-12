@@ -60,7 +60,9 @@ export function MobileAgendaView({ agenda, onSelectEvent, onSelectIssue, onTopDa
   // 날짜 묶음(section) 중 보이는 것의 집합을 관찰해 가장 이른 날 = 맨 위 묶음으로 본다(key 'yyyy-MM-dd' 사전순 = 날짜순).
   // 머리글이 아니라 section 을 본다 — sticky 머리글은 묶음이 끝날 때까지 맨 위에 붙어 있어 위치로 판단할 수 없다.
   useEffect(() => {
-    if (!scrollEl || days.length === 0) return
+    // 로딩 중엔 스켈레톤이라 section 이 없다 — isLoading 을 의존성에 넣어, 일정이 먼저 오고 마감이 [](같은 참조라 days 불변)로
+    // 뒤따라 와도 section 이 실제로 그려진 뒤 다시 관찰을 건다(안 그러면 아무것도 관찰하지 않아 헤더 월 추적이 멈춘다).
+    if (!scrollEl || isLoading || days.length === 0) return
     const dayByKey = new Map(days.map((d) => [d.key, d.day]))
     const visible = new Set<string>()
     const io = new IntersectionObserver(
@@ -82,7 +84,7 @@ export function MobileAgendaView({ agenda, onSelectEvent, onSelectIssue, onTopDa
     )
     scrollEl.querySelectorAll<HTMLElement>('[data-day-key]').forEach((n) => io.observe(n))
     return () => io.disconnect()
-  }, [scrollEl, days])
+  }, [scrollEl, days, isLoading])
 
   // 지금 시각 — 렌더 시점 기준(E2E 는 page.clock.setFixedTime). 오늘 판정·흐림·지금 선에 쓴다.
   const now = new Date()
@@ -151,15 +153,17 @@ function DaySection({
     <section data-day-key={day.key} aria-label={title}>
       {/* 머리글 — sticky 라 불투명 바탕이 필요하다(다크 muted·primary/10 은 반투명): bg-background 위에 안쪽 층으로 색을 얹는다. */}
       <h2 data-testid={`calendar-agenda-day-${day.key}`} className="sticky top-0 z-10 bg-background">
-        <div
+        {/* 제목 안이라 div 대신 span(구문 콘텐츠). sr-only 쉼표로 접근성 이름이 "…(화), 3건" 으로 읽히게 한다. */}
+        <span
           className={cn(
             'flex items-center justify-between border-b px-4 py-1.5 text-xs font-semibold',
             isToday ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground',
           )}
         >
           <span>{title}</span>
+          <Sep text=", " />
           <span className="font-normal text-muted-foreground">{day.items.length}건</span>
-        </div>
+        </span>
       </h2>
       {day.items.map((item, i) => (
         <AgendaRowWithNow
@@ -235,10 +239,12 @@ function EventRow({
         {event.allDay ? '종일' : (
           <>
             {formatLocalClockTime24(event.startsAt)}
+            <Sep text=" ~ " />
             <span className="block text-[11px] font-normal text-muted-foreground">{endLabel(event)}</span>
           </>
         )}
       </span>
+      <Sep text=", " />
       <span aria-hidden="true" className={cn('w-0.75 shrink-0 rounded-full', resolvePalette(event.effectiveColor).dotClass)} />
       <RowBody title={event.title} sub={sub} />
     </button>
@@ -264,6 +270,7 @@ function DueRow({ marker, onSelect }: { marker: IssueDueMarker; onSelect: (m: Is
         <Flag className="mt-0.5 size-3 shrink-0 text-primary" aria-hidden="true" />
         마감
       </span>
+      <Sep text=", " />
       <span aria-hidden="true" className="w-0.75 shrink-0 rounded-full bg-primary" />
       <RowBody title={marker.title} sub={`이슈 마감 · ${marker.projectKey}-${marker.number}`} />
     </button>
@@ -275,9 +282,15 @@ function RowBody({ title, sub }: { title: string; sub: string }) {
   return (
     <span className="min-w-0 flex-1">
       <span className="block break-words text-sm font-medium leading-snug">{title}</span>
+      {sub && <Sep text=", " />}
       {sub && <span className="mt-0.5 block break-words text-xs text-muted-foreground">{sub}</span>}
     </span>
   )
+}
+
+/** 화면엔 안 보이는 구분자 — 버튼·제목의 접근성 이름에서 붙어 읽히는 칸("07:0007:30아침…")을 띄운다. */
+function Sep({ text }: { text: string }) {
+  return <span className="sr-only">{text}</span>
 }
 
 /** 지금 시각 선 — 막대 위치(70px)부터 오른쪽 여백까지, 왼쪽 끝에 점. */
