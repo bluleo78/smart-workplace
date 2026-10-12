@@ -25,7 +25,10 @@ export {
   type EventConflict,
   type ResolvedAttendees,
 } from './calendar-tools.js';
-export { findMemberByUsername } from './member-tools.js';
+export { findMemberByUsername, requireActiveMember, requireMember, type RequiredMember } from './member-tools.js';
+// WP-349: 확인 카드(propose_create_project·add_project_member·add_channel_member)가 직접 실행 도구와 같은 입력 스키마·본문 변환을 쓴다.
+export { addProjectMemberInput, createProjectInput, toCreateProjectBody } from './project-tools.js';
+export { addChannelMemberInput } from './messaging-tools.js';
 export { buildSharedTools, type SharedToolClient, type SharedToolOptions } from './shared-tools.js';
 export { createSharedToolClient, type HttpLike, type HttpRequestConfig } from './rest-client.js';
 export { TOOL_LABELS, isDisplayableTool, stripMcpPrefix, type ToolLabel } from './tool-labels.js';

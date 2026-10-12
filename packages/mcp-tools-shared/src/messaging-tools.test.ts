@@ -17,6 +17,7 @@ function mockClient(): Client {
     createChannel: vi.fn().mockResolvedValue({ id: 12, name: 'new', visibility: 'PUBLIC' }),
     openDm: vi.fn().mockResolvedValue({ id: 20, participants: [] }),
     leaveChannel: vi.fn().mockResolvedValue(undefined),
+    addChannelMember: vi.fn().mockResolvedValue(undefined),
     discoverChannels: vi.fn().mockResolvedValue([]),
   };
 }
@@ -265,5 +266,31 @@ describe('채널·DM 쓰기 (#855)', () => {
     vi.mocked(c.getChannel).mockResolvedValue({ id: 4, name: 'secret', visibility: 'PRIVATE' });
     await expect(tool(c, 'leave_channel').handler({ channelId: 4 })).rejects.toThrow("'secret' 은(는) 공개 채널이 아니어서");
     expect(c.leaveChannel).not.toHaveBeenCalled();
+  });
+});
+
+describe('add_channel_member (WP-349)', () => {
+  const directory = [
+    { userId: 5, username: 'minsu', name: '김민수', active: true },
+    { userId: 9, username: 'retired', name: '퇴사자', active: false },
+  ];
+  function withDirectory() {
+    const c = mockClient();
+    vi.mocked(c.searchMembers).mockImplementation(async ({ search }) => directory.filter((m) => m.username === search));
+    return c;
+  }
+
+  it('username 을 user id 로 해석해 초대하고 username·name 만 돌려준다', async () => {
+    const c = withDirectory();
+    const out = await tool(c, 'add_channel_member').handler({ channelId: 4, username: 'minsu' });
+    expect(c.addChannelMember).toHaveBeenCalledWith(4, 5);
+    expect(JSON.parse(resultText(out))).toEqual({ channelId: 4, member: { username: 'minsu', name: '김민수' } });
+  });
+
+  it('없는 username·비활성 계정은 서버를 부르지 않고 거절한다(서버는 비활성 계정을 막지 않는다)', async () => {
+    const c = withDirectory();
+    await expect(tool(c, 'add_channel_member').handler({ channelId: 4, username: 'ghost' })).rejects.toThrow('찾을 수 없습니다');
+    await expect(tool(c, 'add_channel_member').handler({ channelId: 4, username: 'retired' })).rejects.toThrow('비활성 계정');
+    expect(c.addChannelMember).not.toHaveBeenCalled();
   });
 });

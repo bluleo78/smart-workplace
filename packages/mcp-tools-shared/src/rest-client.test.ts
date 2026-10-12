@@ -296,6 +296,19 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(http.post).toHaveBeenCalledWith('/mail/messages/3/read');
   });
 
+  it('WP-349: 프로젝트 생성·멤버 추가·채널 초대 경로(확인 카드 실행기와 같은 서비스 메서드에 닿는 REST)', async () => {
+    const { http, client } = mockHttp();
+    http.post.mockResolvedValueOnce({ data: { key: 'NEW' } });
+    expect(await client.createProject({ key: 'NEW', name: 'n', type: 'TEAM' })).toEqual({ key: 'NEW' });
+    expect(http.post).toHaveBeenLastCalledWith('/projects', { key: 'NEW', name: 'n', type: 'TEAM' });
+    http.post.mockResolvedValueOnce({ data: { userId: 5, username: 'minsu', role: 'MEMBER' } });
+    expect(await client.addProjectMember('A B', { userId: 5, role: 'MEMBER' })).toEqual({ userId: 5, username: 'minsu', role: 'MEMBER' });
+    // 프로젝트 키는 경로 세그먼트라 인코딩한다(다른 프로젝트 경로와 같은 규칙).
+    expect(http.post).toHaveBeenLastCalledWith('/projects/A%20B/members', { userId: 5, role: 'MEMBER' });
+    await client.addChannelMember(9, 5);
+    expect(http.post).toHaveBeenLastCalledWith('/messaging/channels/9/members', { userId: 5 });
+  });
+
   it('getMailLinkedIssue 는 서버의 { issueKey: null } 을 null 로 바꾼다', async () => {
     const { http, client } = mockHttp();
     http.get.mockResolvedValueOnce({ data: { issueKey: null } });

@@ -52,6 +52,38 @@ export async function findMemberByUsername(
   return (await searchMembersByTerm(client, username, true)).find((m) => m.username === username);
 }
 
+/** 대상 구성원 확정 결과 — 구성원, 또는 에이전트가 바로 교정할 수 있는 오류 문구. */
+export type RequiredMember = { member: MemberRow } | { error: string };
+
+/**
+ * username → 대상 구성원(#833). 확인 카드(propose_*)와 직접 실행 도구(add_project_member·add_channel_member, WP-349)가 같은 판정·문구를
+ * 쓴다 — 카드는 문구를 결과로 돌려주고, 직접 실행 도구는 throw 해 isError 로 전달한다. 도구 표면은 username 만 다루고(숫자 id 미노출)
+ * 여기서 user.id 로 해석한다 — LLM 이 숫자 식별자를 만지지 않으면 "연락처 id 를 userId 로 넣는" 사고가 구조적으로 불가능해진다.
+ */
+export async function requireMember(client: Pick<MemberToolClient, 'searchMembers'>, username: string): Promise<RequiredMember> {
+  const found = await findMemberByUsername(client, username);
+  if (!found) {
+    return {
+      error: `오류: username='${username}' 인 구성원을 찾을 수 없습니다. search_members 로 대상을 다시 찾아 정확한 username 을 확인하세요.`,
+    };
+  }
+  return { member: found };
+}
+
+/**
+ * username → 활성 구성원. 없거나 비활성이면 교정 가능한 오류 문구. 멤버 추가·채널 초대처럼 새로 들이는 작업이 쓴다 —
+ * 서버 채널 초대는 비활성 계정을 막지 않으므로(ChannelMemberService.checkAdd) 두 경로 모두 여기서 거른다.
+ */
+export async function requireActiveMember(
+  client: Pick<MemberToolClient, 'searchMembers'>,
+  username: string,
+): Promise<RequiredMember> {
+  const r = await requireMember(client, username);
+  if ('error' in r) return r;
+  if (r.member.active === false) return { error: `오류: ${r.member.name}(${username}) 은 비활성 계정입니다.` };
+  return r;
+}
+
 /** username 으로 구성원을 못 찾았을 때의 오류 — isError 로 LLM 에 전달돼 search_members 로 자가교정하게 한다(contact-tools 와 같은 방식). */
 function memberNotFound(username: string): Error {
   return new Error(`구성원을 찾을 수 없습니다: ${username}. search_members 로 정확한 username 을 확인하세요.`);

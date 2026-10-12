@@ -1,7 +1,8 @@
 // src/tools/index.ts — 사용자 PAT 컨텍스트 도구 집계.
 // #846: 도구 정의(스키마·설명·핸들러)는 전부 공유 패키지에 있다 — ai-agent 와 같은 정의를 쓰므로 파라미터 이름이 어긋날 수 없다.
 // 에이전트 전용(propose_*, submit_response, unassign_self, show_*)과 되돌릴 수 없는(destructive) 쓰기는 노출하지 않는다 — 직접 실행 의미론만.
-// AI Chat 이 확인 카드로 하는 되돌릴 수 있는 쓰기(예: create_event·update_event, WP-348)는 여기서 직접 실행 도구로 노출한다.
+// AI Chat 이 확인 카드로 하는 되돌릴 수 있는 쓰기(예: create_event·update_event — WP-348, create_project·add_project_member·
+// add_channel_member — WP-349)는 여기서 직접 실행 도구로 노출한다.
 import { buildSharedTools, type SharedTool } from '@smart-workplace/mcp-tools-shared';
 import type { PatApiClient } from '../clients/workplace-api.js';
 

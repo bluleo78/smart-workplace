@@ -72,6 +72,10 @@ const EXPECTED: Record<string, readonly [kind: string, destructive: boolean | nu
   // WP-348: 생성은 추가만(로컬 기본 캘린더) — 다시 부르면 또 생겨 비멱등. 수정은 덮어쓰고 참석자를 빼며, M365 동기화 일정이면 그쪽으로 전송된다.
   create_event: ['write', false, false, false],
   update_event: ['write', true, false, true],
+  // WP-349: 셋 다 추가만 한다. 같은 키 생성·이미 멤버 추가는 409 라 비멱등이고, 채널 초대만 서버가 이미 멤버를 그대로 두고 성공해 멱등이다.
+  create_project: ['write', false, false, false],
+  add_project_member: ['write', false, false, false],
+  add_channel_member: ['write', false, true, false],
   search_drive: ['read', R, R, R],
   search_drive_content: ['read', R, R, R],
   search_members: ['read', R, R, R],

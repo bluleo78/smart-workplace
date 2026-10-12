@@ -2,8 +2,10 @@
 import { z } from 'zod';
 
 import {
+  addChannelMemberInput,
+  addProjectMemberInput,
   buildSharedTools,
-  findMemberByUsername,
+  createProjectInput,
   issueListFilterShape,
   listConflicts as listConflictsShared,
   NO_ATTENDEE_TO_ADD,
@@ -11,11 +13,15 @@ import {
   parseIssueKey,
   READ_ATTACHMENT_DEFAULT_LIMIT,
   readRangeShape,
+  requireActiveMember as requireActiveMemberShared,
+  requireMember,
   resolveAttendees as resolveAttendeesShared,
   resolveAttendeeToRemove,
   resolveRange,
+  toCreateProjectBody,
   toolAnnotations,
   type McpTool,
+  type MemberRow,
 } from '@smart-workplace/mcp-tools-shared';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
 import { buildReadChatAttachmentTool } from './home-attachment-tool.js';
@@ -27,10 +33,14 @@ export type { McpTool };
  * WP-348: AI Chat 에 싣지 않는 공유 도구 → 같은 작업을 하는 확인 카드. 외부 MCP 는 직접 실행 도구를, AI Chat 은 확인 카드를 쓴다
  * (경로마다 도구 하나 — WP-347). 둘은 참석자 해석·시간대 보정·충돌 계산을 공유 헬퍼로 같이 쓴다. sharedTool() 이 이 이름을 거부하고,
  * tools.test.ts 의 "공유 도구 전부 노출" 검사는 이 목록만 빼고 본다.
+ * WP-349: 프로젝트 생성·멤버 추가·채널 초대도 같다 — 입력 스키마와 대상 구성원 판정(requireActiveMember)을 공유한다.
  */
 export const CARD_ONLY_SHARED_TOOLS: Readonly<Record<string, readonly string[]>> = {
   create_event: ['propose_create_event'],
   update_event: ['propose_update_event', 'propose_add_attendees', 'propose_remove_attendee'],
+  create_project: ['propose_create_project'],
+  add_project_member: ['propose_add_project_member'],
+  add_channel_member: ['propose_add_channel_member'],
 };
 
 const issueKey = z.object({ issueKey: z.string().min(1) });
@@ -71,23 +81,12 @@ const proposeDeleteContactInput = z.object({ externalId: z.number().int().positi
 const proposeDeleteUserGroupInput = z.object({ groupId: z.number().int().positive(), summary: z.string().min(1) });
 
 // #333 M3: 프로젝트 제안 입력. #846: 프로젝트는 조회 도구(get_project 등)와 같은 이름 projectKey 로 가리킨다.
-// 실행기(ConfirmActionDispatcher)는 params.key 를 읽으므로 핸들러가 key 로 옮겨 담는다.
-const proposeCreateProjectInput = z.object({
-  projectKey: z.string().regex(/^[A-Z][A-Z0-9]{1,9}$/),
-  name: z.string().min(1).max(120),
-  description: z.string().max(2000).optional(),
-  type: z.string().optional(),
-  summary: z.string().min(1),
-});
+// 실행기(ConfirmActionDispatcher)는 params.key 를 읽으므로 핸들러가 key 로 옮겨 담는다(toCreateProjectBody).
+// WP-349: 필드는 외부 MCP create_project 와 같은 공유 스키마에 summary 만 더한다 — 형식 검사가 두 벌로 갈리지 않게.
+const proposeCreateProjectInput = createProjectInput.extend({ summary: z.string().min(1) });
 const proposeDeleteProjectInput = z.object({ projectKey: z.string().min(1), summary: z.string().min(1) });
-const proposeAddProjectMemberInput = z.object({
-  projectKey: z.string().min(1),
-  // #833: 숫자 id 대신 username 을 받는다. 이슈 도구(create_issue 의 assignees)와 같은 방식이며,
-  // LLM 표면에 숫자 식별자를 노출하지 않으면 "연락처 id 를 userId 로 넣는" 사고 자체가 불가능해진다.
-  username: z.string().min(1),
-  role: z.enum(['OWNER', 'MEMBER']),
-  summary: z.string().min(1),
-});
+// #833: 사람은 숫자 id 대신 username 으로 받는다. WP-349: 외부 MCP add_project_member 와 같은 공유 스키마에 summary 만 더한다.
+const proposeAddProjectMemberInput = addProjectMemberInput.extend({ summary: z.string().min(1) });
 
 // #333 M4: 드라이브 삭제 제안 입력(폴더·파일 쓰기 도구는 공유 패키지 — create_drive_folder 등).
 // #840: 파일 식별자는 driveFileId(= drive_file.id)로 명명한다. 목록 응답의 core fileId 와 혼동되지 않도록 도구 표면 전체에서 하나의 이름만 쓰고, 폴더는 folderId 로 통일한다.
@@ -117,11 +116,8 @@ const proposeRemoveProjectMemberInput = z.object({
   username: z.string().min(1),
   summary: z.string().min(1),
 });
-const proposeAddChannelMemberInput = z.object({
-  channelId: z.number().int().positive(),
-  username: z.string().min(1),
-  summary: z.string().min(1),
-});
+// WP-349: 외부 MCP add_channel_member 와 같은 공유 스키마에 summary 만 더한다.
+const proposeAddChannelMemberInput = addChannelMemberInput.extend({ summary: z.string().min(1) });
 const proposeLeaveChannelInput = z.object({ channelId: z.number().int().positive(), summary: z.string().min(1) });
 const proposeDeleteIssueInput = z.object({ issueKey: z.string().min(1), summary: z.string().min(1) });
 const proposeDeleteCommentInput = z.object({
@@ -733,26 +729,14 @@ export function buildTools(
 
   /**
    * 제안 도구 공용 — 대상 구성원을 확정하거나 에이전트가 바로 교정할 수 있는 오류 문구를 돌려준다(#833).
-   * 도구 표면은 username 만 다루고(숫자 id 미노출) 여기서 user.id 로 해석한다 — LLM 이 숫자 식별자를 만지지 않으면
-   * "연락처 id 를 userId 로 넣는" 사고가 구조적으로 불가능해진다.
+   * 판정·문구는 공유 헬퍼(requireMember·requireActiveMember)라 외부 MCP 직접 실행 도구(add_project_member·add_channel_member)와
+   * 같다(WP-349). 카드는 문구를 결과로 돌려주고, 직접 실행 도구는 같은 문구로 throw 한다.
    */
-  const requireMemberFor = async (username: string) => {
-    const found = await findMemberByUsername(sc, username);
-    if (!found) {
-      return {
-        error: `오류: username='${username}' 인 구성원을 찾을 수 없습니다. search_members 로 대상을 다시 찾아 정확한 username 을 확인하세요.`,
-      };
-    }
-    return { member: found };
-  };
-
+  const requireMemberFor = async (username: string): Promise<{ member?: MemberRow; error?: string }> =>
+    requireMember(sc, username);
   /** username → 활성 구성원. 없거나 비활성이면 에이전트가 고칠 수 있는 오류 문구. */
-  const requireActiveMember = async (username: string) => {
-    const { member, error } = await requireMemberFor(username);
-    if (error) return { error };
-    if (member!.active === false) return { error: `오류: ${member!.name}(${username}) 은 비활성 계정입니다.` };
-    return { member: member! };
-  };
+  const requireActiveMember = async (username: string): Promise<{ member?: MemberRow; error?: string }> =>
+    requireActiveMemberShared(sc, username);
 
   // #333 M3: 외부 연락처 삭제는 제안(생성·수정은 공유 도구 create_external_contact·update_external_contact 로 직접 실행) — assistant 프로파일 전용.
   const proposeDeleteContactTool: McpTool = {
@@ -822,8 +806,9 @@ export function buildTools(
     description: '프로젝트 생성을 제안합니다. 직접 생성하지 않고 확인 카드용 제안만 만듭니다. summary 에 한 줄 요약(이름·key)을 넣으세요. 승인 시 서버가 생성합니다.',
     inputSchema: proposeCreateProjectInput,
     async handler(args) {
-      const { summary, projectKey, ...params } = proposeCreateProjectInput.parse(args);
-      return await writeProposal('project.create_project', summary, { key: projectKey, ...params });
+      const { summary, ...input } = proposeCreateProjectInput.parse(args);
+      // create_project 와 같은 변환(projectKey → key) — 실행기와 POST /projects 가 같은 CreateProjectRequest 로 받는다.
+      return await writeProposal('project.create_project', summary, { ...toCreateProjectBody(input) });
     },
   };
   const proposeDeleteProjectTool: McpTool = {

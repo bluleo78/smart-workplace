@@ -310,6 +310,11 @@ export interface MessagingToolClient {
   openDm(userIds: number[]): Promise<{ id: number; participants?: { name: string; [key: string]: unknown }[] }>;
   /** POST /messaging/channels/{id}/leave — 이미 비멤버면 no-op, OWNER 는 409. */
   leaveChannel(channelId: number): Promise<void>;
+  /**
+   * POST /messaging/channels/{id}/members — MEMBER 로 추가(WP-349). 이미 멤버면 no-op(역할 유지, ON CONFLICT DO NOTHING).
+   * 채널 OWNER·ADMIN 또는 시스템 ADMIN 만, DM 은 거부.
+   */
+  addChannelMember(channelId: number, userId: number): Promise<void>;
   /** GET /messaging/channels/discover — 공개·비아카이브 채널을 이름·키워드로 검색한 배열(비배열 응답은 빈 배열). */
   discoverChannels(q: string): Promise<unknown[]>;
 }
@@ -458,4 +463,19 @@ export interface ProjectToolClient extends ProjectMetaClient {
   ): Promise<unknown>;
   /** GET /me/issues — 응답 래퍼 { items } 를 벗긴 이슈 행 배열(가공은 핸들러). */
   listIssues(query: IssueListQuery): Promise<IssueRow[]>;
+  /** POST /projects — 생성자가 OWNER 가 된다(WP-349). key 중복·지원하지 않는 유형은 409. */
+  createProject(body: CreateProjectBody): Promise<unknown>;
+  /** POST /projects/{key}/members — 프로젝트 OWNER 만(WP-349). 이미 멤버·비활성·개인 프로젝트에 사람 추가는 409. */
+  addProjectMember(
+    projectKey: string,
+    body: { userId: number; role: 'OWNER' | 'MEMBER' },
+  ): Promise<{ userId: number; username: string; name?: string; role?: string; [key: string]: unknown }>;
+}
+
+/** 프로젝트 생성 요청 본문 — 서버 CreateProjectRequest 와 1:1(key 는 PERSONAL 이면 서버가 무시하고 자동 생성). */
+export interface CreateProjectBody {
+  key: string;
+  name: string;
+  description?: string;
+  type?: string;
 }

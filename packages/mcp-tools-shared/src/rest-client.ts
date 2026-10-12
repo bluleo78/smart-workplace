@@ -111,6 +111,12 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     async updateProject(key, body) {
       return (await http.patch(project(key), body)).data;
     },
+    async createProject(body) {
+      return (await http.post('/projects', body)).data;
+    },
+    async addProjectMember(key, body) {
+      return (await http.post(`${project(key)}/members`, body)).data;
+    },
     async listIssues(query) {
       return (await http.get('/me/issues', { params: query })).data?.items ?? [];
     },
@@ -325,6 +331,9 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     },
     async leaveChannel(channelId) {
       await http.post(`/messaging/channels/${channelId}/leave`);
+    },
+    async addChannelMember(channelId, userId) {
+      await http.post(`/messaging/channels/${channelId}/members`, { userId });
     },
     async discoverChannels(q) {
       const data = (await http.get('/messaging/channels/discover', { params: { q } })).data;

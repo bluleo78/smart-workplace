@@ -48,6 +48,8 @@ function sharedMock(): MockedShared {
     getProjectMilestones: vi.fn().mockResolvedValue([]),
     getProjectCycles: vi.fn().mockResolvedValue([]),
     updateProject: vi.fn().mockResolvedValue({}),
+    createProject: vi.fn().mockResolvedValue({}),
+    addProjectMember: vi.fn().mockResolvedValue({ userId: 0, username: '' }),
     listProjects: vi.fn().mockResolvedValue([]),
     getProject: vi.fn().mockResolvedValue({}),
     listIssues: vi.fn().mockResolvedValue([]),
@@ -105,6 +107,7 @@ function sharedMock(): MockedShared {
     createChannel: vi.fn().mockResolvedValue({}),
     openDm: vi.fn().mockResolvedValue({ id: 1, participants: [] }),
     leaveChannel: vi.fn().mockResolvedValue(undefined),
+    addChannelMember: vi.fn().mockResolvedValue(undefined),
     discoverChannels: vi.fn().mockResolvedValue([]),
     // 드라이브
     listDriveSpaces: vi.fn().mockResolvedValue([]),
@@ -1527,5 +1530,75 @@ describe('WP-348 확인 카드 ↔ create_event·update_event 해석 패리티',
     await expect(tool('update_event').handler({ eventId: 1, addAttendees: ['me'] })).rejects.toThrow(addCard as string);
     const removeCard = await card('propose_remove_attendee').handler({ eventId: 1, username: 'me', summary: 's' });
     await expect(tool('update_event').handler({ eventId: 1, removeAttendees: ['me'] })).rejects.toThrow(removeCard as string);
+  });
+});
+
+// WP-349: 프로젝트 생성·멤버 추가·채널 초대의 확인 카드와 외부 MCP 직접 실행 도구가 같은 입력·본문·대상 판정을 쓰는지(공유 헬퍼 패리티)
+describe('WP-349 확인 카드 ↔ create_project·add_project_member·add_channel_member 패리티', () => {
+  const directory = [
+    { userId: 5, username: 'minsu', name: '김민수', active: true },
+    { userId: 9, username: 'retired', name: '퇴사자', active: false },
+  ];
+  function setup() {
+    const c = client();
+    c.sc.searchMembers.mockImplementation(async ({ search }: { search?: string }) => directory.filter((m) => m.username === search));
+    c.sc.addProjectMember.mockResolvedValue({ userId: 5, username: 'minsu', name: '김민수', role: 'MEMBER' });
+    const proposals: { actionType: string; summary: string; params: Record<string, unknown> }[] = [];
+    const cards = buildTools(c, AGENT_ID, 'assistant', undefined, undefined, collectingBridge(proposals));
+    const direct = buildSharedTools(c.sc);
+    const tool = (name: string) => direct.find((t) => t.name === name)!;
+    return { c, proposals, card: (n: string) => find(cards, n), tool };
+  }
+
+  it('카드 입력 스키마는 직접 실행 도구 스키마에 summary 만 더한 것이다', () => {
+    const { card, tool } = setup();
+    for (const [direct, cardName] of [
+      ['create_project', 'propose_create_project'],
+      ['add_project_member', 'propose_add_project_member'],
+      ['add_channel_member', 'propose_add_channel_member'],
+    ]) {
+      const d = z.toJSONSchema(tool(direct).inputSchema) as { properties: Record<string, unknown>; required: string[] };
+      const k = z.toJSONSchema(card(cardName).inputSchema) as { properties: Record<string, unknown>; required: string[] };
+      expect(k.properties, cardName).toEqual({ ...d.properties, summary: { type: 'string', minLength: 1 } });
+      expect(k.required, cardName).toEqual([...d.required, 'summary']);
+    }
+  });
+
+  it('프로젝트 생성: 카드 실행기 params 와 POST /projects 본문이 같다', async () => {
+    const { c, proposals, card, tool } = setup();
+    const input = { projectKey: 'NEW', name: '새 프로젝트', description: '설명', type: 'OPEN' };
+    await card('propose_create_project').handler({ ...input, summary: 's' });
+    await tool('create_project').handler(input);
+    expect(proposals[0].actionType).toBe('project.create_project');
+    expect(c.sc.createProject).toHaveBeenCalledWith(proposals[0].params);
+    expect(proposals[0].params).toEqual({ key: 'NEW', name: '새 프로젝트', description: '설명', type: 'OPEN' });
+  });
+
+  it('멤버 추가·채널 초대: 같은 username 에서 같은 user id 를 고른다', async () => {
+    const { c, proposals, card, tool } = setup();
+    await card('propose_add_project_member').handler({ projectKey: 'WP', username: 'minsu', role: 'OWNER', summary: 's' });
+    await tool('add_project_member').handler({ projectKey: 'WP', username: 'minsu', role: 'OWNER' });
+    await card('propose_add_channel_member').handler({ channelId: 3, username: 'minsu', summary: 's' });
+    await tool('add_channel_member').handler({ channelId: 3, username: 'minsu' });
+
+    expect(proposals.map((p) => [p.actionType, p.params])).toEqual([
+      ['project.add_member', { key: 'WP', userId: 5, role: 'OWNER' }],
+      ['messaging.add_channel_member', { id: 3, userId: 5 }],
+    ]);
+    expect(c.sc.addProjectMember).toHaveBeenCalledWith('WP', { userId: 5, role: 'OWNER' });
+    expect(c.sc.addChannelMember).toHaveBeenCalledWith(3, 5);
+  });
+
+  it('없는 username·비활성 계정은 두 경로가 같은 문구로 멈추고 아무것도 쓰지 않는다', async () => {
+    const { c, proposals, card, tool } = setup();
+    for (const username of ['ghost', 'retired']) {
+      const projectCard = await card('propose_add_project_member').handler({ projectKey: 'WP', username, role: 'MEMBER', summary: 's' });
+      await expect(tool('add_project_member').handler({ projectKey: 'WP', username, role: 'MEMBER' })).rejects.toThrow(projectCard as string);
+      const channelCard = await card('propose_add_channel_member').handler({ channelId: 3, username, summary: 's' });
+      await expect(tool('add_channel_member').handler({ channelId: 3, username })).rejects.toThrow(channelCard as string);
+    }
+    expect(proposals).toHaveLength(0);
+    expect(c.sc.addProjectMember).not.toHaveBeenCalled();
+    expect(c.sc.addChannelMember).not.toHaveBeenCalled();
   });
 });

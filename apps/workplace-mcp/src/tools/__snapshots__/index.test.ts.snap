@@ -2,10 +2,12 @@
 
 exports[`buildUserTools > 노출 도구 이름·kind 스냅샷 1`] = `
 [
+  "add_channel_member:write",
   "add_channel_message:write",
   "add_comment:write",
   "add_contact_favorite:write",
   "add_issue_dependency:write",
+  "add_project_member:write",
   "add_user_group_member:write",
   "create_channel:write",
   "create_drive_folder:write",
@@ -13,6 +15,7 @@ exports[`buildUserTools > 노출 도구 이름·kind 스냅샷 1`] = `
   "create_external_contact:write",
   "create_issue:write",
   "create_issue_from_mail:write",
+  "create_project:write",
   "create_user_group:write",
   "create_wiki_page:write",
   "discover_channels:read",

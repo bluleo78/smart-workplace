@@ -2,10 +2,12 @@
 
 exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
 {
+  "add_channel_member": "write",
   "add_channel_message": "write",
   "add_comment": "write",
   "add_contact_favorite": "write",
   "add_issue_dependency": "write",
+  "add_project_member": "write",
   "add_user_group_member": "write",
   "create_channel": "write",
   "create_drive_folder": "write",
@@ -13,6 +15,7 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "create_external_contact": "write",
   "create_issue": "write",
   "create_issue_from_mail": "write",
+  "create_project": "write",
   "create_user_group": "write",
   "create_wiki_page": "write",
   "discover_channels": "read",
@@ -81,6 +84,29 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
 
 exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
 [
+  {
+    "name": "add_channel_member",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "channelId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "username": {
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "channelId",
+        "username",
+      ],
+      "type": "object",
+    },
+  },
   {
     "name": "add_channel_message",
     "schema": {
@@ -171,6 +197,36 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
         "issueKey",
         "otherIssueKey",
         "direction",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "add_project_member",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "projectKey": {
+          "minLength": 1,
+          "type": "string",
+        },
+        "role": {
+          "enum": [
+            "OWNER",
+            "MEMBER",
+          ],
+          "type": "string",
+        },
+        "username": {
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "projectKey",
+        "username",
+        "role",
       ],
       "type": "object",
     },
@@ -474,6 +530,36 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
         "messageId",
         "projectKey",
         "title",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "create_project",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "maxLength": 2000,
+          "type": "string",
+        },
+        "name": {
+          "maxLength": 120,
+          "minLength": 1,
+          "type": "string",
+        },
+        "projectKey": {
+          "pattern": "^[A-Z][A-Z0-9]{1,9}$",
+          "type": "string",
+        },
+        "type": {
+          "type": "string",
+        },
+      },
+      "required": [
+        "projectKey",
+        "name",
       ],
       "type": "object",
     },
