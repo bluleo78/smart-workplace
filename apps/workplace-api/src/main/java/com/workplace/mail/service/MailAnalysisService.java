@@ -10,9 +10,11 @@ import com.workplace.mail.outbound.MailAiMessages.AnalyzePersonalRequest;
 import com.workplace.mail.outbound.MailAiMessages.AnalyzePersonalResult;
 import com.workplace.mail.outbound.MailAiMessages.Me;
 import com.workplace.mail.outbound.MailAiMessages.Recipient;
+import com.workplace.mail.outbound.MailChangeNotifier;
 import com.workplace.mail.repository.EmailContentRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.mail.repository.EmailMessageRepository.AnalysisContext;
+import com.workplace.mail.repository.EmailMessageRepository.ContentOwner;
 import com.workplace.mail.util.NeedsReplyRules;
 import com.workplace.mail.util.NewContentExtractor;
 import com.workplace.mail.util.SingleFlight;
@@ -59,6 +61,7 @@ public class MailAnalysisService {
   private final PersonalContextLoader contextLoader;
   private final AssistantResolver assistantResolver;
   private final NeedsReplyFinalizer finalizer;
+  private final MailChangeNotifier notifier;
   private final TransactionTemplate txTemplate;
   private final SingleFlight singleFlight = new SingleFlight(SINGLE_FLIGHT_WAIT);
 
@@ -70,6 +73,7 @@ public class MailAnalysisService {
       PersonalContextLoader contextLoader,
       AssistantResolver assistantResolver,
       NeedsReplyFinalizer finalizer,
+      MailChangeNotifier notifier,
       PlatformTransactionManager txManager) {
     this.mailClient = mailClient;
     this.messageRepo = messageRepo;
@@ -78,6 +82,7 @@ public class MailAnalysisService {
     this.contextLoader = contextLoader;
     this.assistantResolver = assistantResolver;
     this.finalizer = finalizer;
+    this.notifier = notifier;
     this.txTemplate = new TransactionTemplate(txManager);
   }
 
@@ -133,6 +138,7 @@ public class MailAnalysisService {
         status -> {
           if (messageRepo.saveContentAnalysis(messageId, category, summary, skipSummary)) {
             finalizer.recomputeForContent(ctx.contentId());
+            notifyContentOwners(ctx.contentId());
           }
         });
     return true;
@@ -192,8 +198,19 @@ public class MailAnalysisService {
           messageRepo.saveForcedContentSummary(messageId, r.summary());
           if (category != null && messageRepo.fillContentCategoryIfEmpty(messageId, category)) {
             finalizer.recomputeForContent(ctx.contentId()); // 늦게 채운 분류를 ⑤ 에 반영
+            notifyContentOwners(ctx.contentId());
           }
         });
+  }
+
+  /**
+   * 공유 원본의 분류가 바뀌었을 때 그 원본을 가진 모든 소유자 화면을 무효화한다(WP-359) — 동기화 직후 받아 간 목록은 분석 전이라 "분류 전"으로 남기 때문이다.
+   * 쓰기 트랜잭션 안에서 불러야 한다(AFTER_COMMIT 리스너라 밖에서 발행하면 유실).
+   */
+  private void notifyContentOwners(long contentId) {
+    for (ContentOwner o : messageRepo.listContentOwners(contentId)) {
+      notifier.mailChanged(o.userId(), o.accountId(), null, null);
+    }
   }
 
   /** ③ 대상: 적재·검증된 사본 + content 연결 + 미시도. */
@@ -338,7 +355,13 @@ public class MailAnalysisService {
     // 커밋 뒤 한 번 더 — ③ 저장(recomputeForContent)과 ④ 저장이 READ COMMITTED 로 겹치면 서로의 결과(분류·raw)를 못 보고 ⑤ 를
     // 계산할 수 있다.
     // 두 저장이 모두 커밋된 뒤 새 트랜잭션에서 다시 계산해 분류가 반영된 최종값으로 수렴시킨다(멱등·LLM 없음).
-    txTemplate.executeWithoutResult(status -> finalizer.recompute(messageId));
+    // 수렴한 최종값을 저장하는 이 트랜잭션에서 소유자 화면을 무효화한다(WP-359) — 앞 트랜잭션에서 보내면 이 재계산이 값을 바꾼 뒤에도 알림은
+    // 이미 나간 뒤다. mailChanged 는 AFTER_COMMIT 리스너라 트랜잭션 안에서 발행해야 한다.
+    txTemplate.executeWithoutResult(
+        status -> {
+          finalizer.recompute(messageId);
+          notifier.mailChanged(userId, ctx.accountId(), messageId, null);
+        });
     return true;
   }
 

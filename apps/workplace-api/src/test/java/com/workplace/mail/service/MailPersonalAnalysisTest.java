@@ -16,6 +16,7 @@ import static org.mockito.Mockito.when;
 
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
+import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.mail.exception.MailAiException;
 import com.workplace.mail.outbound.AiAgentMailClient;
 import com.workplace.mail.outbound.MailAiMessages.AnalyzeContentResult;
@@ -25,6 +26,7 @@ import com.workplace.mail.outbound.MailAiMessages.Me;
 import com.workplace.mail.repository.EmailContentRepository;
 import com.workplace.mail.service.MailAnalysisFixtures.Box;
 import com.workplace.support.IntegrationTestBase;
+import java.util.List;
 import java.util.Optional;
 import org.jooq.DSLContext;
 import org.jooq.Record;
@@ -35,6 +37,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.test.context.event.ApplicationEvents;
+import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -42,6 +46,7 @@ import org.springframework.transaction.annotation.Transactional;
  * 오류, 실패 시 미기록, ③·④ 순서 무관.
  */
 @Transactional
+@RecordApplicationEvents
 @TestPropertySource(properties = "workplace.ai-agent.enabled=true")
 class MailPersonalAnalysisTest extends IntegrationTestBase {
 
@@ -51,6 +56,7 @@ class MailPersonalAnalysisTest extends IntegrationTestBase {
   @Autowired MailAnalysisService analysis;
   @Autowired DSLContext dsl;
   @Autowired EmailContentRepository contentRepo;
+  @Autowired ApplicationEvents events;
 
   @MockitoBean AiAgentMailClient mailClient;
   @MockitoBean AssistantResolver assistantResolver;
@@ -93,6 +99,46 @@ class MailPersonalAnalysisTest extends IntegrationTestBase {
         ArgumentCaptor.forClass(AnalyzePersonalRequest.class);
     verify(mailClient).analyzePersonal(req.capture());
     return req.getValue();
+  }
+
+  /** 이번 테스트에서 발행된 메일 변경 알림(mail 리소스). */
+  private List<ResourceChangedEvent> mailChanges() {
+    return events.stream(ResourceChangedEvent.class)
+        .filter(e -> "mail".equals(e.resource()))
+        .toList();
+  }
+
+  @Test
+  void savedVerdict_notifiesOwnerWithMessageId() {
+    // WP-359: 회신필요 판정이 저장되면 소유자 화면이 새로고침 없이 답장필요 태그를 받아야 한다
+    Box box = MailAnalysisFixtures.mailbox(dsl, true);
+    long content = MailAnalysisFixtures.content(dsl, contentRepo, LONG_BODY, "미리보기");
+    long env =
+        MailAnalysisFixtures.envelope(dsl, box, content, "minsu@acme.com", box.address(), null);
+    when(mailClient.analyzePersonal(any())).thenReturn(reply(true));
+
+    analysis.analyzePersonal(box.userId(), env, analysis.newProfileCache());
+
+    assertThat(mailChanges())
+        .anySatisfy(
+            e -> {
+              assertThat(e.scopeId()).isEqualTo(box.userId());
+              assertThat(e.attrs()).containsEntry("accountId", box.accountId());
+              assertThat(e.ids()).containsExactly(env);
+            });
+  }
+
+  @Test
+  void alreadyAnalyzed_doesNotNotify() {
+    Box box = MailAnalysisFixtures.mailbox(dsl, true);
+    long content = MailAnalysisFixtures.content(dsl, contentRepo, LONG_BODY, "미리보기");
+    long env =
+        MailAnalysisFixtures.envelope(dsl, box, content, "minsu@acme.com", box.address(), null);
+    MailAnalysisFixtures.markPersonallyAnalyzed(dsl, env, true);
+
+    analysis.analyzePersonal(box.userId(), env, analysis.newProfileCache());
+
+    assertThat(mailChanges()).isEmpty();
   }
 
   @Test

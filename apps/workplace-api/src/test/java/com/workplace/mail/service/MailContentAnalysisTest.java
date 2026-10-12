@@ -6,6 +6,7 @@ import static com.workplace.mail.service.MailAnalysisFixtures.LONG_BODY;
 import static com.workplace.mail.service.MailAnalysisFixtures.SHORT_BODY;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -14,6 +15,7 @@ import static org.mockito.Mockito.when;
 
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
+import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.mail.exception.MailAiException;
 import com.workplace.mail.outbound.AiAgentMailClient;
 import com.workplace.mail.outbound.MailAiMessages.AnalyzeContentRequest;
@@ -22,6 +24,7 @@ import com.workplace.mail.repository.EmailContentRepository;
 import com.workplace.mail.service.MailAnalysisFixtures.Box;
 import com.workplace.mail.util.SingleFlight;
 import com.workplace.support.IntegrationTestBase;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -33,12 +36,15 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.event.ApplicationEvents;
+import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.test.util.AopTestUtils;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.annotation.Transactional;
 
 /** WP-149 ③ 원본 분석 통합 테스트 — 원본 1회, 요약 생략 조건, 실패 시 미기록, 늦게 온 분류로 ⑤ 재계산. */
 @Transactional
+@RecordApplicationEvents
 @TestPropertySource(properties = "workplace.ai-agent.enabled=true")
 class MailContentAnalysisTest extends IntegrationTestBase {
 
@@ -48,6 +54,7 @@ class MailContentAnalysisTest extends IntegrationTestBase {
   @Autowired MailAnalysisService analysis;
   @Autowired DSLContext dsl;
   @Autowired EmailContentRepository contentRepo;
+  @Autowired ApplicationEvents events;
 
   @MockitoBean AiAgentMailClient mailClient;
   @MockitoBean AssistantResolver assistantResolver;
@@ -74,6 +81,46 @@ class MailContentAnalysisTest extends IntegrationTestBase {
         .from(EMAIL_MESSAGE)
         .where(EMAIL_MESSAGE.ID.eq(envelopeId))
         .fetchOneInto(Boolean.class);
+  }
+
+  /** 이번 테스트에서 발행된 메일 변경 알림(mail 리소스). */
+  private List<ResourceChangedEvent> mailChanges() {
+    return events.stream(ResourceChangedEvent.class)
+        .filter(e -> "mail".equals(e.resource()))
+        .toList();
+  }
+
+  @Test
+  void savedCategory_notifiesEveryOwnerOfSharedContent() {
+    // WP-359: 분류는 공유 원본에 저장되므로, 아직 분석 안 된 다른 사용자 사본의 "분류 전"도 바로 바뀌어야 한다
+    Box a = MailAnalysisFixtures.mailbox(dsl, false);
+    Box b = MailAnalysisFixtures.mailbox(dsl, true);
+    long content = MailAnalysisFixtures.content(dsl, contentRepo, LONG_BODY, "미리보기");
+    long envA =
+        MailAnalysisFixtures.envelope(dsl, a, content, "boss@corp.com", a.address(), b.address());
+    MailAnalysisFixtures.envelope(dsl, b, content, "boss@corp.com", a.address(), b.address());
+    when(mailClient.analyzeContent(any())).thenReturn(new AnalyzeContentResult("업무", "• 요약"));
+
+    analysis.analyzeContent(a.userId(), envA);
+
+    assertThat(mailChanges())
+        .extracting(ResourceChangedEvent::scopeId, e -> e.attrs().get("accountId"))
+        .containsExactlyInAnyOrder(
+            tuple(a.userId(), a.accountId()), tuple(b.userId(), b.accountId()));
+  }
+
+  @Test
+  void failedAnalysis_doesNotNotify() {
+    Box a = MailAnalysisFixtures.mailbox(dsl, false);
+    long content = MailAnalysisFixtures.content(dsl, contentRepo, LONG_BODY, "미리보기");
+    long env = MailAnalysisFixtures.envelope(dsl, a, content, "boss@corp.com", a.address(), null);
+    when(mailClient.analyzeContent(any()))
+        .thenThrow(new MailAiException("AI 요청에 실패했어요.", new RuntimeException("boom")));
+
+    assertThatThrownBy(() -> analysis.analyzeContent(a.userId(), env))
+        .isInstanceOf(MailAiException.class);
+
+    assertThat(mailChanges()).isEmpty();
   }
 
   @Test

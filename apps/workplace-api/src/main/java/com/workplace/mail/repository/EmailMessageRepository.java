@@ -1665,6 +1665,22 @@ public class EmailMessageRepository {
         .fetch(EMAIL_MESSAGE.ID);
   }
 
+  /**
+   * WP-359: content 를 공유하는 모든 사본의 (소유자, 계정) — 분석 여부와 무관. 분류는 공유 원본에 저장되므로 아직 분석 안 된 사본의 "분류 전" 화면도
+   * 무효화해야 해서 {@link #listAnalyzedSiblingIds} 와 따로 둔다.
+   */
+  public List<ContentOwner> listContentOwners(long contentId) {
+    return dsl.selectDistinct(EMAIL_ACCOUNT.USER_ID, EMAIL_MESSAGE.ACCOUNT_ID)
+        .from(EMAIL_MESSAGE)
+        .join(EMAIL_ACCOUNT)
+        .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))
+        .where(EMAIL_MESSAGE.CONTENT_ID.eq(contentId))
+        .fetch(r -> new ContentOwner(r.value1(), r.value2()));
+  }
+
+  /** content 사본의 소유자·계정 — 메일 변경 알림 수신 단위. */
+  public record ContentOwner(long userId, long accountId) {}
+
   /** WP-149 ⑤ 규칙 입력 행(소유자·보낸 사람·수신자·자동 발송·분류·raw). 형제 사본은 소유자가 달라 userId 를 함께 읽는다. */
   public Optional<RuleRow> findRuleRow(long messageId) {
     return dsl.select(
