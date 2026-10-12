@@ -247,8 +247,9 @@ export function buildCalendarTools(client: CalendarToolsClient): SharedTool[] {
         'description·location·color·reminderMinutes·recurrenceRule 은 null 로 비웁니다(recurrenceRule=null 이면 반복이 풀립니다). ' +
         '반복 일정은 scope 로 범위를 정합니다(THIS=이 회차, THIS_AND_FOLLOWING=이후 전체, ALL=시리즈 전체, 기본 ALL). THIS·THIS_AND_FOLLOWING 은 ' +
         'occurrenceDate(대상 회차 시작시각)가 필요하고, 일정 필드를 바꿀 때는 그 회차의 startsAt·endsAt 도 주세요(생략한 다른 필드는 시리즈 값으로 채워집니다). ' +
-        'addAttendees·removeAttendees 는 구성원 username 목록입니다(외부 이메일 불가, 주최자 본인은 뺄 수 없음). 참석자 변경은 scope 와 상관없이 일정(반복이면 시리즈) 전체에 적용됩니다. notify=false 면 새 참석자에게 초대 알림을 보내지 않습니다. ' +
-        'M365 등에서 동기화된 일정은 그 캘린더에도 반영됩니다. eventId 는 list_events/get_event 결과의 id 입니다. 결과는 단계별 { ok, results } 입니다.',
+        'addAttendees·removeAttendees 는 구성원 username 목록입니다(외부 이메일 불가, 주최자 본인은 뺄 수 없음). 참석자 변경은 scope 와 상관없이 일정(반복이면 시리즈) 전체에 적용됩니다. notify=false 면 새 참석자에게 인앱 초대 알림을 보내지 않습니다(M365 등 외부 동기화 일정이면 그 캘린더가 보내는 초대 메일은 막지 못합니다). ' +
+        'M365 등에서 동기화된 일정은 그 캘린더에도 반영됩니다. eventId 는 list_events/get_event 결과의 id 입니다. ' +
+        '결과는 단계별 { ok, results } 입니다. 단계별로 따로 저장되며 앞 단계는 되돌리지 않습니다. 일정 필드 수정이 실패하면 참석자 변경은 하지 않습니다(skipped).',
       inputSchema: updateEventInput,
       async handler(args) {
         const p = updateEventInput.parse(args);
@@ -324,9 +325,13 @@ export function buildCalendarTools(client: CalendarToolsClient): SharedTool[] {
           const occurrenceDate = p.occurrenceDate != null ? normalizeTimezone(p.occurrenceDate) : undefined;
           await run('fields', () => client.updateEvent(eventId, body, { scope, occurrenceDate }));
         }
-        if (addIds) await run('addAttendees', () => client.addEventAttendees(eventId, addIds, { notify }));
+        // 필드 수정이 실패했으면 참석자 변경을 하지 않는다 — 초대 알림은 되돌릴 수 없어, 시각이 안 바뀐 일정의 초대가 나가면 안 된다.
+        const fieldsFailed = results.fields !== undefined && results.fields !== 'ok';
+        const attendeeStep = (key: string, fn: () => Promise<unknown>) =>
+          fieldsFailed ? ((results[key] = 'skipped: fields failed'), Promise.resolve()) : run(key, fn);
+        if (addIds) await attendeeStep('addAttendees', () => client.addEventAttendees(eventId, addIds, { notify }));
         for (const m of removeMembers) {
-          await run(`removeAttendee:${m.username}`, () => client.removeEventAttendee(eventId, m.userId));
+          await attendeeStep(`removeAttendee:${m.username}`, () => client.removeEventAttendee(eventId, m.userId));
         }
         const ok = Object.values(results).every((v) => v === 'ok');
         return JSON.stringify({ ok, results });

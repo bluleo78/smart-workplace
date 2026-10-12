@@ -302,13 +302,27 @@ describe('update_event (WP-348)', () => {
     }
   });
 
-  it('단계 하나가 실패해도 나머지를 진행하고 단계별 결과를 보고한다', async () => {
+  it('필드 수정이 실패하면 참석자 추가·제거를 하지 않고 skipped 로 보고한다(초대 알림은 되돌릴 수 없다)', async () => {
     const c = withCurrent();
-    vi.mocked(c.updateEvent).mockRejectedValue(Object.assign(new Error('x'), { response: { status: 409, data: { message: '읽기 전용' } } }));
-    const out = JSON.parse(resultText(await tool(c, 'update_event').handler({ eventId: 7, title: '바꿈', addAttendees: ['bob'] })));
+    vi.mocked(c.updateEvent).mockRejectedValue(Object.assign(new Error('x'), { response: { status: 400, data: { message: 'endsAt must be after startsAt' } } }));
+    const out = JSON.parse(
+      resultText(await tool(c, 'update_event').handler({ eventId: 7, title: '바꿈', addAttendees: ['bob'], removeAttendees: ['alice'] })),
+    );
     expect(out.ok).toBe(false);
     expect(out.results.fields).toMatch(/^failed: /);
-    expect(out.results.addAttendees).toBe('ok');
+    expect(out.results.addAttendees).toBe('skipped: fields failed');
+    expect(out.results['removeAttendee:alice']).toBe('skipped: fields failed');
+    expect(c.addEventAttendees).not.toHaveBeenCalled();
+    expect(c.removeEventAttendee).not.toHaveBeenCalled();
+  });
+
+  it('참석자 단계 하나가 실패해도 나머지 참석자 단계는 진행하고 단계별 결과를 보고한다', async () => {
+    const c = withCurrent();
+    vi.mocked(c.addEventAttendees).mockRejectedValue(new Error('down'));
+    const out = JSON.parse(
+      resultText(await tool(c, 'update_event').handler({ eventId: 7, title: '바꿈', addAttendees: ['bob'], removeAttendees: ['alice'] })),
+    );
+    expect(out).toEqual({ ok: false, results: { fields: 'ok', addAttendees: 'failed: down', 'removeAttendee:alice': 'ok' } });
   });
 
   it('필드를 바꿀 때 참석자 id 를 PATCH 에 싣지 않는다(서버가 거절)', async () => {
