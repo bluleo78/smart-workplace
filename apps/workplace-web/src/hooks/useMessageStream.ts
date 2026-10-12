@@ -185,5 +185,7 @@ export function handleMessagingEvent(
     patchReactionEverywhere(qc, channelId, messageId, (rs) =>
       applyReaction(rs, String(d.emoji), delta, isMe),
     );
+    // 반응자 목록(WP-106) 캐시는 무효화만 — 열려 있으면 다시 받고, 닫혀 있으면 다음에 열 때 받는다.
+    qc.invalidateQueries({ queryKey: messagingKeys.reactorsOf(messageId) });
   }
 }

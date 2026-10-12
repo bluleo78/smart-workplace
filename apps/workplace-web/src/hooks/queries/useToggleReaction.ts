@@ -52,6 +52,8 @@ export function useToggleReaction(
     onMutate: ({ messageId, emoji, reacted }) => {
       const delta = reacted ? -1 : (1 as 1 | -1);
       patchReactionEverywhere(qc, channelId, messageId, (rs) => applyReaction(rs, emoji, delta, true));
+      // 반응자 목록(WP-106)은 다음에 열 때 새로 받는다 — 내 토글은 SSE self-echo 가 걸러지므로 여기서 무효화.
+      qc.invalidateQueries({ queryKey: messagingKeys.reactorsOf(messageId) });
     },
 
     onError: (err) => {
