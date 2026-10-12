@@ -6,7 +6,7 @@
 import { FileTooLargeError, IMAGE_MAX_BYTES } from './attachment-read.js';
 import { parseIssueKey } from './parse.js';
 import type { SharedToolClient } from './shared-tools.js';
-import type { FileBytes, TextRange } from './tool-client.js';
+import type { FileBytes, PageResult, TextRange } from './tool-client.js';
 
 /** 요청 설정 — 쿼리 파라미터·DELETE 본문·바이너리 응답만 쓴다(인증 헤더는 HTTP 인스턴스가 붙인다). */
 export interface HttpRequestConfig {
@@ -35,9 +35,23 @@ export interface HttpLike {
   delete(url: string, config?: HttpRequestConfig): Promise<{ data: ResponseBody }>;
 }
 
-/** Spring 페이지 응답({ content })과 bare 배열을 모두 행 배열로 벗긴다. */
+/**
+ * Spring 페이지 응답({ content, page, totalElements, totalPages })과 bare 배열을 PageResult 로 벗긴다(WP-352).
+ * 예전에는 content 만 남겨 전체 건수·다음 페이지 여부를 버렸다 — 잘린 목록을 전부로 오해하게 만든 원인이다.
+ * 서버 PageResponse 에 last 필드가 없어 다음 페이지 여부는 page + 1 < totalPages 로 계산한다. bare 배열은 페이지 정보가 없어 마지막으로 본다.
+ */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const unwrapPage = (data: any) => (Array.isArray(data) ? data : (data?.content ?? []));
+const toPageResult = (data: any): PageResult<any> => {
+  if (Array.isArray(data)) return { items: data, hasMore: false, page: 0 };
+  const page = typeof data?.page === 'number' ? data.page : 0;
+  const totalPages = typeof data?.totalPages === 'number' ? data.totalPages : undefined;
+  return {
+    items: data?.content ?? [],
+    total: typeof data?.totalElements === 'number' ? data.totalElements : undefined,
+    hasMore: totalPages !== undefined && page + 1 < totalPages,
+    page,
+  };
+};
 
 /** 구간 읽기 쿼리 — 생략한 값은 싣지 않아 서버 기본값(offset 0, limit 32000)을 따른다. */
 const rangeParams = (r: TextRange) => ({
@@ -72,6 +86,10 @@ const forceParams = (force?: boolean) => (force ? { params: { force } } : undefi
 export function createSharedToolClient(http: HttpLike): SharedToolClient {
   /** 프로젝트 키는 경로 세그먼트라 인코딩한다. */
   const project = (key: string) => `/projects/${encodeURIComponent(key)}`;
+  // 계정 관리 API(/users, ADMIN 전용)가 아니라 구성원 디렉터리(/members, member:read)를 쓴다 —
+  // 일반 구성원의 PAT 로도 사람을 찾을 수 있어야 하기 때문. searchMembers(행만)와 같은 경로라 한 번만 매핑한다.
+  const searchMembersPage: SharedToolClient['searchMembersPage'] = async (params) =>
+    toPageResult((await http.get('/members', { params })).data);
   /** issueKey(WP-12) → 이슈 경로. */
   const issue = (issueKey: string) => {
     const { projectKey, number } = parseIssueKey(issueKey);
@@ -84,7 +102,7 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
   return {
     // ── 프로젝트·이슈 ──
     async listProjects(page, size) {
-      return unwrapPage((await http.get('/projects', { params: { page, size } })).data);
+      return toPageResult((await http.get('/projects', { params: { page, size } })).data);
     },
     async getProject(key) {
       return (await http.get(project(key))).data;
@@ -118,7 +136,9 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
       return (await http.post(`${project(key)}/members`, body)).data;
     },
     async listIssues(query) {
-      return (await http.get('/me/issues', { params: query })).data?.items ?? [];
+      // 래퍼({ items, nextCursor, hasMore })를 그대로 둔다 — 서버 기본 size 30 에서 잘린 사실을 핸들러가 알려야 한다(WP-352).
+      const data = (await http.get('/me/issues', { params: query })).data;
+      return { items: data?.items ?? [], nextCursor: data?.nextCursor, hasMore: data?.hasMore };
     },
     async getIssueDetail(issueKey) {
       return (await http.get(issue(issueKey))).data;
@@ -254,13 +274,15 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
       // 소유권은 서버가 검증한다(남의 계정이면 404). 본문은 빈 객체 — 서버가 요청 본문을 읽지 않는다.
       return (await http.post(`/mail/accounts/${accountId}/sync`, {})).data;
     },
+    async getMailSyncStatus(accountId) {
+      return (await http.get(`/mail/accounts/${accountId}/sync-status`)).data;
+    },
 
     // ── 구성원·연락처 ──
     async searchMembers(params) {
-      // 계정 관리 API(/users, ADMIN 전용)가 아니라 구성원 디렉터리(/members, member:read)를 쓴다 —
-      // 일반 구성원의 PAT 로도 사람을 찾을 수 있어야 하기 때문.
-      return unwrapPage((await http.get('/members', { params })).data);
+      return (await searchMembersPage(params)).items;
     },
+    searchMembersPage,
     async getMemberContact(userId) {
       return (await http.get(`/contacts/members/${userId}`)).data;
     },
@@ -311,8 +333,10 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     async listChannels() {
       return (await http.get('/messaging/channels')).data ?? [];
     },
-    async getChannelMessages(channelId, limit) {
-      return (await http.get(`/messaging/channels/${channelId}/messages`, { params: { limit } })).data?.items ?? [];
+    async listChannelMessages(channelId, { limit, cursor }) {
+      // MessagePage { items, nextCursor, hasMore } — 커서를 버리면 오래된 메시지로 이어 갈 수 없다(WP-352). cursor 는 생략하면 싣지 않는다.
+      const data = (await http.get(`/messaging/channels/${channelId}/messages`, { params: { limit, ...(cursor && { cursor }) } })).data;
+      return { items: data?.items ?? [], nextCursor: data?.nextCursor, hasMore: data?.hasMore };
     },
     async addChannelMessage(channelId, body, parentMessageId) {
       await http.post(`/messaging/channels/${channelId}/messages`, { body, parentMessageId });
@@ -344,9 +368,10 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     async listDriveSpaces() {
       return (await http.get('/drive/spaces')).data ?? [];
     },
-    async listDriveItems(spaceId, parentId) {
-      return (await http.get(`/drive/spaces/${spaceId}/items`, { params: parentId != null ? { parentId } : undefined }))
-        .data;
+    async listDriveItems(spaceId, parentId, page) {
+      // 파라미터는 있을 때만 싣는다 — 생략하면 서버가 전체를 돌려주는 기존 동작이다.
+      const params = { ...(parentId != null && { parentId }), ...(page && { limit: page.limit, offset: page.offset }) };
+      return (await http.get(`/drive/spaces/${spaceId}/items`, { params: Object.keys(params).length ? params : undefined })).data;
     },
     async searchDrive(spaceId, q) {
       return (await http.get(`/drive/spaces/${spaceId}/search`, { params: { q } })).data;

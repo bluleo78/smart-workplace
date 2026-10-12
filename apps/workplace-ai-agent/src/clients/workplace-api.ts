@@ -66,6 +66,8 @@ export interface ChannelMessageItem {
   body: string;
   createdAt: string;
   deleted: boolean;
+  // 서버 MessageResponse.mentions — 본문의 `<@id>` 토큰을 이름으로 풀 사전(WP-353). 없으면(옛 서버) 토큰은 "알 수 없는 사용자" 로 가려진다.
+  mentions?: { id: number; username?: string | null; name?: string | null; kind?: string }[];
 }
 
 // 6c: 이슈 첨부 메타.

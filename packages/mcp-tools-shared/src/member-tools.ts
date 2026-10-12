@@ -1,10 +1,11 @@
 // src/member-tools.ts — 구성원 디렉터리·연락처 읽기 도구 5종. 두 앱 공유(#833 → #846).
 //
-// 구성원(userId = user.id)과 외부 연락처(externalId = contact_entry.id)는 네임스페이스가 다르다. 이전에는 연락처 id 를
-// userId 로 오용하는 사고가 있었으므로 도구 표면에서 이름을 분리한다. 사람은 username 으로 가리키고 숫자 id 는 노출을 최소화한다.
+// 구성원(user.id)과 외부 연락처(externalId = contact_entry.id)는 네임스페이스가 다르다. 이전에는 연락처 id 를
+// userId 로 오용하는 사고가 있었으므로 도구 표면에서 이름을 분리한다. 사람은 username 으로만 가리키고 숫자 user id 는 내보내지 않는다(WP-353).
 // 외부 연락처 생성·수정·삭제와 구성원 역할·활성 변경은 ai-agent 쪽에만 있다(삭제·구성원 변경은 확인 카드).
 // 즐겨찾기·facets·사용자 그룹(#839)은 contact-tools.ts — 사용자 본인 범위의 되돌릴 수 있는 쓰기라 공유 도구로 둔다.
 import { z } from 'zod';
+import { cursorPageView, numberedPageView } from './compact.js';
 import type { SharedTool } from './mcp-tool.js';
 import type { MemberRow, MemberToolClient } from './tool-client.js';
 
@@ -12,6 +13,8 @@ import type { MemberRow, MemberToolClient } from './tool-client.js';
 export interface ContactRow {
   type: 'MEMBER' | 'EXTERNAL';
   id: number;
+  /** MEMBER 항목의 로그인 아이디(서버 ContactSummary, WP-353). EXTERNAL 은 null. */
+  username?: string | null;
   name: string;
   email?: string | null;
   title?: string | null;
@@ -19,7 +22,18 @@ export interface ContactRow {
   isFavorite?: boolean;
 }
 
-/** 연락처 LLM 뷰 — 공용 `id` 를 없애고 타입별 식별자(userId / externalId)로 나눠 오용을 막는다. */
+/**
+ * 구성원 행 → LLM 뷰. 숫자 userId 는 빼고 사람을 가리키는 username 만 준다(#833, WP-353). 쓰기 도구는 username 을 받아
+ * 서버 쪽 id 로 해석하므로(requireMember 등) LLM 이 userId 를 알 필요가 없다. 나머지 필드(kind·active·email 등)는 그대로 둔다.
+ */
+export function toMemberView({ userId: _userId, ...rest }: MemberRow): Omit<MemberRow, 'userId'> {
+  return rest;
+}
+
+/**
+ * 연락처 LLM 뷰 — 공용 `id` 를 없애고 타입별 식별자로 나눠 오용을 막는다. 구성원은 숫자 user id 가 아니라 username 으로 가리키고(#833, WP-353 —
+ * 서버가 목록 행에 username 을 싣는다), 외부 연락처만 externalId 를 쓴다. 구성원 id 를 외부 연락처 도구에 넣는 혼용은 구성원에게 숫자 식별자가 없어 구조적으로 막힌다.
+ */
 export function toContactView(item: ContactRow) {
   const base = {
     type: item.type,
@@ -29,7 +43,7 @@ export function toContactView(item: ContactRow) {
     organization: item.organization ?? null,
     isFavorite: Boolean(item.isFavorite),
   };
-  return item.type === 'MEMBER' ? { ...base, userId: item.id } : { ...base, externalId: item.id };
+  return item.type === 'MEMBER' ? { ...base, username: item.username ?? null } : { ...base, externalId: item.id };
 }
 
 /**
@@ -121,11 +135,14 @@ export function buildMemberTools(client: MemberToolClient): SharedTool[] {
       kind: 'read',
       description:
         '우리 워크스페이스의 구성원을 검색해 JSON 으로 반환합니다. 사람을 찾을 때 쓰는 표준 도구입니다. ' +
-        '각 항목의 username 을 담당자(assignees)·멤버 추가·get_member 등 사람을 가리키는 도구에 그대로 넘기세요(숫자 userId 가 아님). ' +
-        'search 로 이름·아이디·이메일 검색, kind 로 HUMAN(사람, 기본)/AGENT(AI)/ALL 한정. 기본은 활성 구성원만이며 includeInactive=true 로 비활성까지 봅니다.',
+        '각 항목의 username 을 담당자(assignees)·멤버 추가·get_member 등 사람을 가리키는 도구에 그대로 넘기세요(응답에 숫자 id 는 없습니다). ' +
+        'search 로 이름·아이디·이메일 검색, kind 로 HUMAN(사람, 기본)/AGENT(AI)/ALL 한정. 기본은 활성 구성원만이며 includeInactive=true 로 비활성까지 봅니다. ' +
+        '결과는 JSON({items, total, hasMore?, nextPage?})이고 한 번에 size 명(기본 20, 최대 100)만 담깁니다. hasMore 가 있으면(true) 뒤에 더 있으니 ' +
+        'nextPage 를 page 로 넘겨 이어 조회하거나, search 를 더 좁히거나, 일부만 본 것이라고 밝히세요.',
       inputSchema: searchMembersInput,
       async handler(args) {
-        return JSON.stringify(await client.searchMembers(searchMembersInput.parse(args)));
+        const result = await client.searchMembersPage(searchMembersInput.parse(args));
+        return JSON.stringify(numberedPageView(result.items.map(toMemberView), result));
       },
     },
     {
@@ -139,7 +156,7 @@ export function buildMemberTools(client: MemberToolClient): SharedTool[] {
         const found = await findMemberByUsername(client, username);
         // 성공 문자열로 돌려주면 "없음" 이 정상 결과로 읽힌다 — contact-tools 처럼 throw 해 isError 로 전달되게 한다.
         if (!found) throw memberNotFound(username);
-        return JSON.stringify(found);
+        return JSON.stringify(toMemberView(found));
       },
     },
     {
@@ -154,9 +171,9 @@ export function buildMemberTools(client: MemberToolClient): SharedTool[] {
         const { username } = memberInput.parse(args);
         const found = await findMemberByUsername(client, username);
         if (!found) throw memberNotFound(username);
-        // 응답의 공용 `id` 는 user.id 다 — userId 로 이름을 바꿔 외부 연락처 id 와의 모호함을 없앤다.
-        const { id, groups, ...rest } = (await client.getMemberContact(found.userId)) as { id?: number; groups?: unknown[] };
-        return JSON.stringify({ userId: id, ...rest, groups: groups ?? [] });
+        // 응답의 공용 `id` 는 user.id(숫자 사용자 ID)라 내보내지 않는다 — 사람은 응답에 함께 오는 username 으로 가리킨다(#833, WP-353).
+        const { id: _userId, groups, ...rest } = (await client.getMemberContact(found.userId)) as { id?: number; groups?: unknown[] };
+        return JSON.stringify({ ...rest, groups: groups ?? [] });
       },
     },
     {
@@ -165,17 +182,18 @@ export function buildMemberTools(client: MemberToolClient): SharedTool[] {
       kind: 'read',
       description:
         '연락처 목록을 JSON 으로 반환합니다. type=EXTERNAL 은 외부 연락처(거래처·고객 등), type=MEMBER 는 사내 구성원입니다. ' +
-        '**식별자 주의**: MEMBER 항목은 userId(= 사내 구성원 id), EXTERNAL 항목은 externalId(= 외부 연락처 id)를 가지며 둘은 서로 호환되지 않습니다. ' +
-        'externalId 는 외부 연락처 도구에만 사용하세요. 사내 구성원을 찾는 것이 목적이면 이 도구 대신 search_members 를 사용하세요(username·활성여부 등 더 정확한 정보를 줍니다). ' +
-        'search 로 이름·이메일 검색, organization/title 로 좁히기, favorite=true 로 즐겨찾기만, nextCursor 를 cursor 로 넘겨 다음 페이지.',
+        '**식별자 주의**: MEMBER 항목은 username(사내 구성원 — search_members 등 사람을 가리키는 도구에 그대로 넘김), EXTERNAL 항목은 externalId(= 외부 연락처 id)를 가집니다. ' +
+        'externalId 는 외부 연락처 도구에만 사용하세요(구성원 항목에는 없습니다). 사내 구성원을 찾는 것이 목적이면 이 도구 대신 search_members 를 사용하세요(활성여부 등 더 정확한 정보를 줍니다). ' +
+        'search 로 이름·이메일 검색, organization/title 로 좁히기, favorite=true 로 즐겨찾기만. 결과는 {items, hasMore?, nextCursor?} 이고 다음 페이지가 있을 때만 hasMore:true 와 nextCursor 가 오니, ' +
+        'nextCursor 를 cursor 로 넘겨 이어 조회하거나 이어 조회하지 않고 답한다면 일부만 봤다고 밝히세요(키가 없으면 끝까지 다 담긴 것).',
       inputSchema: listContactsInput,
       async handler(args) {
         // 서버 응답은 { items, nextCursor } 래퍼(ContactPage)다.
-        const { items = [], nextCursor = null } = ((await client.listContacts(listContactsInput.parse(args))) ?? {}) as {
+        const { items = [], nextCursor } = ((await client.listContacts(listContactsInput.parse(args))) ?? {}) as {
           items?: ContactRow[];
           nextCursor?: string | null;
         };
-        return JSON.stringify({ items: items.map(toContactView), nextCursor });
+        return JSON.stringify(cursorPageView(items.map(toContactView), { nextCursor }));
       },
     },
     {
@@ -184,7 +202,7 @@ export function buildMemberTools(client: MemberToolClient): SharedTool[] {
       kind: 'read',
       description:
         '외부 연락처 단건 상세를 JSON 으로 반환합니다. externalId 는 list_contacts 의 EXTERNAL 항목이 주는 값입니다. ' +
-        '구성원(MEMBER)의 userId 를 넣으면 안 됩니다 — 전혀 다른 사람의 연락처가 나옵니다. 구성원 상세는 get_member_contact 를 쓰세요.',
+        '구성원(MEMBER) 항목에는 externalId 가 없습니다 — 구성원 상세는 username 으로 get_member_contact 를 쓰세요.',
       inputSchema: externalContactInput,
       async handler(args) {
         const { externalId } = externalContactInput.parse(args);

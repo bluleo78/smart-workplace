@@ -19,14 +19,15 @@ export const readAttachmentInput = z
     source: z.enum(['issue', 'drive']),
     // 쓰지 않는 source 의 식별자를 모델이 null 로 채워 보내는 경우가 있어 nullish — null 은 "없음"으로 본다(범위 인자와 같은 이유).
     issueKey: z.string().min(1).nullish(),
-    fileId: z.number().int().positive().nullish(),
+    // WP-353: 이슈 첨부의 id. 서버는 core file id 로 가리키지만 도구 표면에서는 드라이브 driveFileId·채팅 첨부 fileId 와 섞이지 않게 attachmentId 로 부른다.
+    attachmentId: z.number().int().positive().nullish(),
     driveFileId: z.number().int().positive().nullish(),
     ...readRangeShape,
   })
   .superRefine((v, ctx) => {
     if (v.source === 'issue') {
-      if (v.issueKey == null || v.fileId == null) {
-        ctx.addIssue({ code: 'custom', message: "source 'issue' 는 issueKey 와 fileId 가 필요합니다(get_issue_detail 의 attachments[].fileId)." });
+      if (v.issueKey == null || v.attachmentId == null) {
+        ctx.addIssue({ code: 'custom', message: "source 'issue' 는 issueKey 와 attachmentId 가 필요합니다(get_issue_detail 의 attachments[].attachmentId)." });
       }
       if (v.driveFileId != null) {
         ctx.addIssue({ code: 'custom', message: "source 'issue' 에는 driveFileId 를 주지 마세요. 드라이브 파일은 source 'drive' 로 읽습니다." });
@@ -35,8 +36,8 @@ export const readAttachmentInput = z
       if (v.driveFileId == null) {
         ctx.addIssue({ code: 'custom', message: "source 'drive' 는 driveFileId 가 필요합니다(list_drive_items·search_drive 결과의 driveFileId)." });
       }
-      if (v.issueKey != null || v.fileId != null) {
-        ctx.addIssue({ code: 'custom', message: "source 'drive' 에는 issueKey·fileId 를 주지 마세요. 이슈 첨부는 source 'issue' 로 읽습니다." });
+      if (v.issueKey != null || v.attachmentId != null) {
+        ctx.addIssue({ code: 'custom', message: "source 'drive' 에는 issueKey·attachmentId 를 주지 마세요. 이슈 첨부는 source 'issue' 로 읽습니다." });
       }
     }
   });
@@ -79,14 +80,15 @@ function imageResult(label: string, bytes: FileBytes): McpToolResult {
 /** 첨부·파일 읽기 도구. kind read — 상태를 바꾸지 않는다(외부 MCP 노출). */
 export function buildAttachmentTools(client: AttachmentToolClient): SharedTool[] {
   /** 이슈 첨부 이미지 — 목록에서 형식·크기를 먼저 보고, 보낼 수 있을 때만 원본을 받는다. */
-  async function issueImage(issueKey: string, fileId: number): Promise<McpToolResult> {
-    const row = (await client.listIssueAttachments(issueKey)).find((a) => a.fileId === fileId);
-    const label = `이슈 ${issueKey} 첨부 이미지 ${JSON.stringify(row?.originalName ?? `fileId ${fileId}`)}`;
+  async function issueImage(issueKey: string, attachmentId: number): Promise<McpToolResult> {
+    // 서버 첨부 행의 fileId 가 곧 attachmentId 다(이슈 첨부는 core file id 로 식별).
+    const row = (await client.listIssueAttachments(issueKey)).find((a) => a.fileId === attachmentId);
+    const label = `이슈 ${issueKey} 첨부 이미지 ${JSON.stringify(row?.originalName ?? `attachmentId ${attachmentId}`)}`;
     if (row) {
       const reasons = imageRejectReasons(row.mimeType, row.sizeBytes);
       if (reasons.length > 0) return imageNotice(label, reasons);
     }
-    return downloadImage(label, () => client.downloadIssueAttachment(issueKey, fileId));
+    return downloadImage(label, () => client.downloadIssueAttachment(issueKey, attachmentId));
   }
 
   /** 드라이브 이미지 — 파일 메타 단건 API 가 없어 현재 버전 크기로 상한을 먼저 보고, 형식은 받은 응답의 Content-Type 으로 본다. */
@@ -103,7 +105,7 @@ export function buildAttachmentTools(client: AttachmentToolClient): SharedTool[]
       app: ['issue', 'drive'],
       kind: 'read',
       description:
-        '이슈 첨부나 드라이브 파일의 내용을 읽습니다. 이슈 첨부는 source:"issue" + issueKey + fileId(get_issue_detail 의 attachments[].fileId), ' +
+        '이슈 첨부나 드라이브 파일의 내용을 읽습니다. 이슈 첨부는 source:"issue" + issueKey + attachmentId(get_issue_detail 의 attachments[].attachmentId), ' +
         '드라이브 파일은 source:"drive" + driveFileId(list_drive_items·search_drive·search_drive_content 결과의 값)로 부릅니다. ' +
         `문서는 업로드 때 추출한 텍스트를 구간 단위로 JSON({status, offset, totalChars, truncated, nextOffset, text, reasonCode, reason})으로 돌려줍니다 — limit 생략 시 ${READ_ATTACHMENT_DEFAULT_LIMIT}자(최대 32000), ` +
         'nextOffset 이 있으면 offset 으로 넘겨 이어 읽고, truncated 가 true 면 추출 상한에서 잘린 것입니다. 위치는 글자(코드포인트) 단위입니다. ' +
@@ -115,10 +117,12 @@ export function buildAttachmentTools(client: AttachmentToolClient): SharedTool[]
         const range = resolveRange(p);
         if (p.source === 'issue') {
           const issueKey = p.issueKey!;
-          const fileId = p.fileId!;
-          const slice = await client.readIssueAttachmentText(issueKey, fileId, range);
-          if (isImageSkip(slice)) return issueImage(issueKey, fileId);
-          return JSON.stringify(slice);
+          const attachmentId = p.attachmentId!;
+          const slice = await client.readIssueAttachmentText(issueKey, attachmentId, range);
+          if (isImageSkip(slice)) return issueImage(issueKey, attachmentId);
+          // 서버 응답의 core fileId 는 입력과 같은 이름 attachmentId 로 돌려준다(입출력 이름 일치, WP-353).
+          const { fileId: _coreFileId, ...rest } = slice;
+          return JSON.stringify({ attachmentId, ...rest });
         }
         const driveFileId = p.driveFileId!;
         const slice = await client.readDriveFileText(driveFileId, range);

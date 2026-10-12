@@ -47,7 +47,19 @@ describe('buildWikiTools', () => {
     vi.mocked(c.searchWikiPages).mockResolvedValue([{ id: 7, spaceName: '팀', title: '릴리스', snippet: '배포' }]);
     const out = await tool(c, 'search_wiki').handler({ query: '배포' });
     expect(c.searchWikiPages).toHaveBeenCalledWith('배포');
-    expect(JSON.parse(resultText(out))[0]).toMatchObject({ id: 7, title: '릴리스' });
+    const parsed = JSON.parse(resultText(out));
+    expect(parsed.items[0]).toMatchObject({ id: 7, title: '릴리스' });
+    expect(parsed).not.toHaveProperty('truncated');
+  });
+
+  it('search_wiki → 서버 상한(50건)에 닿으면 truncated 를 알린다 (WP-352)', async () => {
+    const c = mockClient();
+    vi.mocked(c.searchWikiPages).mockResolvedValue(Array.from({ length: 50 }, (_, i) => ({ id: i + 1, title: `p${i}` })));
+    const parsed = JSON.parse(resultText(await tool(c, 'search_wiki').handler({ query: 'p' })));
+    expect(parsed.items).toHaveLength(50);
+    expect(parsed.truncated).toBe(true);
+    vi.mocked(c.searchWikiPages).mockResolvedValue(Array.from({ length: 49 }, (_, i) => ({ id: i + 1, title: `p${i}` })));
+    expect(JSON.parse(resultText(await tool(c, 'search_wiki').handler({ query: 'p' })))).not.toHaveProperty('truncated');
   });
 
   it('search_wiki 는 query 누락(옛 파라미터 q 포함) 시 zod 파싱을 거부한다', async () => {
@@ -133,14 +145,75 @@ describe('buildWikiTools', () => {
     ]);
     const out = JSON.parse(resultText(await tool(c, 'list_wiki_pages').handler({ spaceId: 9 })));
     expect(c.listWikiPages).toHaveBeenCalledWith(9);
-    expect(out).toEqual([
-      { id: 4, title: '온보딩' },
-      { id: 1, title: '회의록', children: [{ id: 2, title: '회의록 1' }, { id: 3, title: '회의록 2' }] },
-    ]);
+    expect(out).toEqual({
+      items: [
+        { id: 4, title: '온보딩' },
+        { id: 1, title: '회의록', children: [{ id: 2, title: '회의록 1' }, { id: 3, title: '회의록 2' }] },
+      ],
+      total: 4,
+    });
   });
 
   it('toWikiPageTree 는 부모가 목록에 없는 페이지를 잃지 않고 최상위로 올린다', () => {
-    expect(toWikiPageTree([{ id: 7, parentId: 99, title: '고아', position: 0 }])).toEqual([{ id: 7, title: '고아' }]);
+    expect(toWikiPageTree([{ id: 7, parentId: 99, title: '고아', position: 0 }]).items).toEqual([{ id: 7, title: '고아' }]);
+  });
+
+  /** 루트 1·2 와 각각 자식 3개씩(id 10..12 / 20..22)인 8페이지 트리. */
+  const bigRows = () => [
+    { id: 1, parentId: null, title: 'r1', position: 0 },
+    { id: 2, parentId: null, title: 'r2', position: 1 },
+    ...[10, 11, 12].map((id, i) => ({ id, parentId: 1, title: `c${id}`, position: i })),
+    ...[20, 21, 22].map((id, i) => ({ id, parentId: 2, title: `c${id}`, position: i })),
+  ];
+
+  it('toWikiPageTree 는 상한이 있으면 위쪽 계층부터 담고 잘린 노드에 hiddenChildren 을 붙인다 (WP-352)', () => {
+    // 상한 4: 너비 우선이라 r1·r2(1계층)를 먼저 담고 남은 2칸에 2계층 앞쪽(c10·c11)이 든다. 담긴 노드의 부모는 항상 담겨 있어 고아가 없다.
+    const { items, total, truncated } = toWikiPageTree(bigRows(), { maxNodes: 4 });
+    expect(total).toBe(8);
+    expect(truncated).toBe(true);
+    expect(items).toEqual([
+      { id: 1, title: 'r1', children: [{ id: 10, title: 'c10' }, { id: 11, title: 'c11' }], hiddenChildren: 1 },
+      { id: 2, title: 'r2', hiddenChildren: 3 },
+    ]);
+  });
+
+  it('toWikiPageTree 는 rootId 의 하위만 만들고, 상한 안이면 truncated 가 아니다', () => {
+    const { items, total, truncated } = toWikiPageTree(bigRows(), { rootId: 2, maxNodes: 4 });
+    expect(items).toEqual([{ id: 20, title: 'c20' }, { id: 21, title: 'c21' }, { id: 22, title: 'c22' }]);
+    expect(total).toBe(3);
+    expect(truncated).toBe(false);
+  });
+
+  it('list_wiki_pages → 500노드를 넘으면 잘라 truncated·total 을 알리고, parentId 로 하위를 펼친다 (WP-352)', async () => {
+    const c = mockClient();
+    // 루트 1 아래 자식 600개 — 루트 + 자식 499개만 담기고 루트에 hiddenChildren 101.
+    const rows = [
+      { id: 1, parentId: null, title: 'root', position: 0 },
+      ...Array.from({ length: 600 }, (_, i) => ({ id: 100 + i, parentId: 1, title: `c${i}`, position: i })),
+    ];
+    vi.mocked(c.listWikiPages).mockResolvedValue(rows);
+    const out = JSON.parse(resultText(await tool(c, 'list_wiki_pages').handler({ spaceId: 9 })));
+    expect(out.truncated).toBe(true);
+    expect(out.total).toBe(601);
+    expect(out.items[0].children).toHaveLength(499);
+    expect(out.items[0].hiddenChildren).toBe(101);
+    const sub = JSON.parse(resultText(await tool(c, 'list_wiki_pages').handler({ spaceId: 9, parentId: 1 })));
+    expect(sub.items).toHaveLength(500);
+    expect(sub.truncated).toBe(true);
+    expect(sub.total).toBe(600);
+  });
+
+  // WP-352 최종 리뷰: total 은 parentId 를 주면 하위 트리 노드 수고, 한 부모 아래 500 초과 자식은 parentId 로도 못 펼친다.
+  it('list_wiki_pages 설명이 total 의 하위 트리 의미와 한 부모 아래 상한 한계를 밝힌다', () => {
+    const { description } = tool(mockClient(), 'list_wiki_pages');
+    expect(description).toContain('parentId 를 주면 그 아래 하위 트리의 노드 수');
+    expect(description).toContain('한 부모 바로 아래 자식이');
+  });
+
+  it('list_wiki_pages 는 스페이스에 없는 parentId 를 오류로 거절한다', async () => {
+    const c = mockClient();
+    vi.mocked(c.listWikiPages).mockResolvedValue([{ id: 1, parentId: null, title: 'r', position: 0 }]);
+    await expect(tool(c, 'list_wiki_pages').handler({ spaceId: 9, parentId: 77 })).rejects.toThrow('parentId 77');
   });
 
   it('list_wiki_backlinks → client.getWikiBacklinks(pageId)', async () => {

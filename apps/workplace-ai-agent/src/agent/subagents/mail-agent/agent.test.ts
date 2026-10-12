@@ -36,4 +36,13 @@ describe('mail-agent 정의', () => {
     expect(loaded['mail-agent'].maxTurns).toBeGreaterThan(0);
     expect(loaded['mail-agent'].prompt).toMatch(/메일|발송/);
   });
+
+  // WP-353: sync_mail 은 서버 건수를 돌려주고 이미 동기화 중이면 그 사실을 알린다. get_mail 본문은 bodyText 하나다.
+  it('sync_mail 결과(saved·seenChanged·alreadySyncing)와 get_mail 평문 본문을 안내한다', () => {
+    const prompt = loaded['mail-agent'].prompt;
+    expect(prompt).toContain('{fetched, saved, seenChanged}');
+    expect(prompt).toContain('alreadySyncing');
+    expect(prompt).toContain('`bodyText`');
+    expect(prompt).not.toContain('완료 응답만으로');
+  });
 });

@@ -286,7 +286,7 @@ export const ASSISTANT_ROUTER_TOOLS: readonly string[] = [
   // 캘린더
   'list_events', 'get_event',
   // 메시징
-  'list_channels', 'discover_channels', 'get_channel_messages', 'list_thread_replies',
+  'list_channels', 'discover_channels', 'list_channel_messages', 'list_thread_replies',
   // 메일
   'list_mail', 'get_mail',
   // 연락처·사용자 그룹·구성원
@@ -411,7 +411,8 @@ export function buildTools(
         async handler(args) {
           const { threadId } = getChatThreadInput.parse(args);
           assertBoundThread(threadId);
-          return JSON.stringify(await client.getChatMessages(agentId, threadId, 50));
+          // authorId(숫자 사용자 ID)는 내보내지 않는다(#833, WP-353) — "이미 답했나" 검사(run-chat-agent)는 client.getChatMessages 를 직접 읽어 이 출력과 무관하다.
+          return JSON.stringify((await client.getChatMessages(agentId, threadId, 50)).map(({ authorId: _authorId, ...m }) => m));
         },
       },
       {
@@ -454,7 +455,7 @@ export function buildTools(
 
   if (profile === 'messaging') {
     const tools: McpTool[] = [
-      sharedTool('get_channel_messages'),
+      sharedTool('list_channel_messages'),
       sharedTool('list_thread_replies'), // #850: 스레드 답글 조회(스레드 요약)
       sharedTool('add_channel_message'),
       sharedTool('list_channels'),
@@ -793,7 +794,7 @@ export function buildTools(
     name: 'propose_delete_contact',
     description:
       '외부 연락처 삭제를 제안합니다. 직접 삭제하지 않고 확인 카드용 제안만 만듭니다. summary 에 어떤 연락처를 지우는지 한 줄로 넣으세요. 승인 시 서버가 삭제합니다. ' +
-      'externalId 는 list_contacts 의 EXTERNAL 항목이 주는 값입니다 — 구성원의 userId 를 넣으면 엉뚱한 사람의 연락처가 지워집니다.',
+      'externalId 는 list_contacts 의 EXTERNAL 항목이 주는 값입니다 — 구성원(MEMBER) 항목에는 없으며, 추측한 숫자를 넣으면 엉뚱한 사람의 연락처가 지워집니다.',
     inputSchema: proposeDeleteContactInput,
     async handler(args) {
       const { summary, externalId } = proposeDeleteContactInput.parse(args);
@@ -974,7 +975,7 @@ export function buildTools(
     name: 'propose_add_channel_member',
     description:
       '채널에 구성원 초대를 제안합니다. 직접 초대하지 않고 확인 카드용 제안만 만듭니다. 채널 OWNER/ADMIN 만 초대할 수 있고 DM 에는 초대할 수 없습니다. ' +
-      'channelId 는 list_channels 결과의 id, username 은 search_members 결과의 값입니다.',
+      'channelId 는 list_channels 결과의 channelId, username 은 search_members 결과의 값입니다.',
     inputSchema: proposeAddChannelMemberInput,
     async handler(args) {
       const { channelId, username, summary } = proposeAddChannelMemberInput.parse(args);
@@ -988,7 +989,7 @@ export function buildTools(
     name: 'propose_leave_channel',
     description:
       '비공개 채널에서 나가기를 제안합니다. 직접 나가지 않고 확인 카드용 제안만 만듭니다. 비공개 채널은 나가면 다시 초대받아야 돌아올 수 있습니다. ' +
-      '공개 채널은 leave_channel 로 바로 나가세요. 채널 OWNER 는 소유권을 넘기기 전에는 나갈 수 없습니다. channelId 는 list_channels 결과의 id 입니다.',
+      '공개 채널은 leave_channel 로 바로 나가세요. 채널 OWNER 는 소유권을 넘기기 전에는 나갈 수 없습니다. channelId 는 list_channels 결과의 channelId 입니다.',
     inputSchema: proposeLeaveChannelInput,
     async handler(args) {
       const { channelId, summary } = proposeLeaveChannelInput.parse(args);
@@ -1030,7 +1031,7 @@ export function buildTools(
     name: 'propose_delete_comment',
     description:
       '이슈 코멘트 삭제를 제안합니다. 직접 삭제하지 않고 확인 카드용 제안만 만듭니다. 복원 기능이 없습니다. 작성자나 프로젝트 OWNER 만 삭제할 수 있습니다. ' +
-      'commentId 는 get_issue_detail 의 comments 에서 확인하세요.',
+      'commentId 는 get_issue_detail 의 comments 에서 확인하세요(최근 30건만 오므로 대상이 안 보이면 allComments:true, 최근 200건까지).',
     inputSchema: proposeDeleteCommentInput,
     async handler(args) {
       const { issueKey, commentId, summary } = proposeDeleteCommentInput.parse(args);
@@ -1082,7 +1083,7 @@ export function buildTools(
   };
   const proposeDeleteFolderTool: McpTool = {
     name: 'propose_delete_folder',
-    description: '폴더 삭제를 제안합니다. 직접 삭제하지 않고 사용자 확인 카드용 제안만 만듭니다. 삭제는 복구 가능한 soft-delete 이지만 하위 파일·폴더가 포함될 수 있어 확인이 필요합니다. summary 에 어떤 폴더를 지우는지 한 줄로 넣으세요. folderId 는 list_drive_items/search_drive 폴더 항목의 id 입니다. 승인 시 서버가 삭제합니다.',
+    description: '폴더 삭제를 제안합니다. 직접 삭제하지 않고 사용자 확인 카드용 제안만 만듭니다. 삭제는 복구 가능한 soft-delete 이지만 하위 파일·폴더가 포함될 수 있어 확인이 필요합니다. summary 에 어떤 폴더를 지우는지 한 줄로 넣으세요. folderId 는 list_drive_items/search_drive 폴더 항목의 folderId 입니다. 승인 시 서버가 삭제합니다.',
     inputSchema: proposeDeleteFolderInput,
     async handler(args) {
       const { summary, folderId } = proposeDeleteFolderInput.parse(args);
@@ -1143,7 +1144,7 @@ export function buildTools(
       sharedTool('get_event'),              // #333 M2: 캘린더 읽기
       proposeCreateEventTool,    // #333 M2: 일정 생성 제안(사이드카 쓰기)
       proposeUpdateEventTool, proposeDeleteEventTool, // #333 M4: 일정 수정/삭제 제안
-      sharedTool('get_channel_messages'), // #333 M3: 메시징 읽기
+      sharedTool('list_channel_messages'), // #333 M3: 메시징 읽기
       sharedTool('list_thread_replies'),   // #850: 스레드 답글 조회
       sharedTool('add_channel_message'),  // #333 M3: 메시징 쓰기(내부 쓰기 직접 실행)
       sharedTool('list_channels'), sharedTool('discover_channels'), // #350: 채널 목록/탐색(이름→channelId 해석)
@@ -1191,7 +1192,7 @@ export function buildTools(
       { name: 'show_wiki', description: '노트 페이지 목록/검색 결과를 화면에 표시합니다. query 로 검색, spaceId 로 특정 스페이스 트리.', inputSchema: showWikiInput, handler: displayed },
       { name: 'show_wiki_page', description: '단일 노트 페이지 본문(pageId 지정)을 화면에 표시합니다. pageId 를 모르면 먼저 search_wiki 로 확보하세요.', inputSchema: showWikiPageInput, handler: displayed },
       { name: 'show_contacts', description: '연락처 목록을 화면에 표시합니다. search/org/title/type 로 좁힙니다. 단순 조회 전용 — 생성·수정·삭제는 contacts-agent 위임.', inputSchema: showContactsInput, handler: displayed },
-      { name: 'show_contact', description: '외부 연락처 1건의 상세를 화면에 표시합니다. externalId 는 list_contacts 의 EXTERNAL 항목이 주는 값입니다 — 구성원(userId)은 표시할 수 없습니다.', inputSchema: showContactInput, handler: displayed },
+      { name: 'show_contact', description: '외부 연락처 1건의 상세를 화면에 표시합니다. externalId 는 list_contacts 의 EXTERNAL 항목이 주는 값입니다 — 구성원(MEMBER) 항목은 표시할 수 없습니다.', inputSchema: showContactInput, handler: displayed },
       { name: 'show_projects', description: '프로젝트 목록을 화면에 표시합니다. 단순 조회 전용 — 생성·삭제·멤버추가는 project-agent 위임.', inputSchema: showProjectsInput, handler: displayed },
       { name: 'show_project', description: '단일 프로젝트 상세·멤버(projectKey 지정)를 화면에 표시합니다.', inputSchema: showProjectInput, handler: displayed },
       { name: 'show_drive', description: '드라이브 스페이스/폴더의 파일·폴더 목록을 화면에 표시합니다. spaceId/folderId 로 좁힙니다. 단순 조회 전용 — 이동·삭제는 drive-agent 위임.', inputSchema: showDriveInput, handler: displayed },

@@ -67,12 +67,13 @@ export function assistantSystemPrompt(runner: AssistantRunner): string {
 - 사용자가 목록 표시("보여줘/목록/열어줘")를 원하면 → **먼저 대응 읽기 도구(\`list_*\`/\`search_*\`)를 호출해 결과 유무를 확인**합니다. 결과가 **있으면** 해당 \`show_*\` 위젯을 호출(데이터는 프론트가 가져옴)하고, **없으면 \`show_*\` 를 호출하지 말고** "오늘 일정이 없어요" 처럼 한두 문장 prose 로 안내합니다(빈 위젯 카드를 띄우지 않습니다).
 - 사용자가 콕 집은 질문(유무·특정 값)을 하면 → 읽기 도구로 직접 조회 후 자연 한국어 한두 문장 답변.
 - 읽기 결과가 비었으면 되묻지 말고 "해당 조건의 결과가 없습니다." 류로 그대로 안내(빈 위젯 대신 prose).
+- **목록이 잘렸는지 확인**(WP-352): 읽기 결과에 \`hasMore\`(다음 값 \`nextCursor\`·\`nextPage\`·\`nextOffset\`) 또는 \`truncated\` 가 있으면 뒤에 더 있다는 뜻입니다. 다음 값은 \`cursor\`·\`page\`·\`offset\` 으로 넘겨 이어 조회하고(\`list_wiki_pages\` 의 \`hiddenChildren\` 은 그 노드 id 를 \`parentId\` 로, \`search_drive\`·\`search_wiki\` 의 \`truncated\` 는 검색어를 좁혀 다시 검색), 이어 조회하지 않고 답한다면 "일부만 확인했다"고 알립니다 — 받은 만큼을 전체인 양 세거나 요약하지 마세요.
 - **여러 도메인을 한 번에 요청**받으면(예: "일정이랑 메일 보여줘") 도메인별로 **독립 판단**합니다 — 데이터 있는 도메인만 \`show_*\`, 빈 도메인은 prose 로 함께 안내합니다.
 
 | 도메인 | 직접 읽기 도구 | 표시 위젯(목록) | 표시 위젯(상세) |
 |---|---|---|---|
 | 캘린더 | \`list_events\`, \`get_event\` | \`show_calendar\` | \`show_event\` |
-| 메시징 | \`list_channels\`, \`discover_channels\`, \`get_channel_messages\`, \`list_thread_replies\` | \`show_channels\` | (없음) |
+| 메시징 | \`list_channels\`, \`discover_channels\`, \`list_channel_messages\`, \`list_thread_replies\` | \`show_channels\` | (없음) |
 | 노트 | \`search_wiki\`, \`get_wiki_page\`, \`list_wiki_pages\`, \`list_wiki_backlinks\` | \`show_wiki\` | \`show_wiki_page\` |
 | 연락처(사외) | \`list_contacts\`, \`get_external_contact\`, \`get_contact_facets\` | \`show_contacts\` | \`show_contact\` |
 | 사용자 그룹(조직도·개인 그룹) | \`list_user_groups\`, \`get_user_group\` | (없음) | (없음) |
@@ -86,7 +87,7 @@ export function assistantSystemPrompt(runner: AssistantRunner): string {
 - 상세 위젯(\`show_event\`/\`show_wiki_page\`/\`show_contact\`/\`show_project\`)은 **엔티티 ID가 필요**합니다. ID를 모르면 먼저 읽기 도구(예: \`search_wiki\`)로 ID를 확보한 뒤 상세 위젯을 호출합니다.
 - 메시징·드라이브 상세는 위젯이 없으므로, 콕 집은 상세 질문은 읽기 도구 조회 후 자연 prose 로 답합니다.
 - **드라이브 파일 내용**: "이 파일 뭐라고 써 있어?" 는 \`get_drive_file_summary\` 로 답합니다. \`status\` 가 \`DONE\` 이 아니면 내용을 추측하지 말고 요약이 준비 중이거나 만들 수 없다고(\`reason\`) 알립니다. 파일 이름을 모르고 내용으로 찾을 때는 \`search_drive_content\`, 이름으로 찾을 때는 \`search_drive\` 입니다.
-- **이슈 첨부·드라이브 파일 본문**(WP-346): 요약이 아니라 본문 그대로(인용·특정 부분)나 이미지를 봐야 하면 \`read_attachment\` 로 직접 읽습니다 — 이슈 첨부는 \`{source:"issue", issueKey, fileId}\`(fileId 는 \`get_issue_detail\` 의 \`attachments[].fileId\`), 드라이브 파일은 \`{source:"drive", driveFileId}\`. 텍스트는 구간 단위로 오므로 \`nextOffset\` 이 있으면 \`offset\` 으로 이어 읽고, \`status\` 가 \`READY\` 가 아니면 내용을 추측하지 말고 상태와 \`reason\` 을 알립니다. issue-agent·drive-agent 도 이 도구가 있어, 첨부 내용이 필요한 쓰기를 위임할 때 직접 읽을 수 있습니다.
+- **이슈 첨부·드라이브 파일 본문**(WP-346): 요약이 아니라 본문 그대로(인용·특정 부분)나 이미지를 봐야 하면 \`read_attachment\` 로 직접 읽습니다 — 이슈 첨부는 \`{source:"issue", issueKey, attachmentId}\`(attachmentId 는 \`get_issue_detail\` 의 \`attachments[].attachmentId\`), 드라이브 파일은 \`{source:"drive", driveFileId}\`. 텍스트는 구간 단위로 오므로 \`nextOffset\` 이 있으면 \`offset\` 으로 이어 읽고, \`status\` 가 \`READY\` 가 아니면 내용을 추측하지 말고 상태와 \`reason\` 을 알립니다. issue-agent·drive-agent 도 이 도구가 있어, 첨부 내용이 필요한 쓰기를 위임할 때 직접 읽을 수 있습니다.
 - **알림**: "내 알림/새 알림 뭐 있어?" 는 \`list_notifications\` 로 조회해 prose 로 답합니다(안 읽은 것만은 \`unreadOnly:true\`). 사용자가 읽음 처리를 요청하면 위임 없이 \`mark_notification_read\`(한 건) 또는 \`mark_all_notifications_read\`(전체)를 직접 호출합니다.
 - **안 읽은 메일**: 목록 표시는 \`show_mail_list({params:{unreadOnly:true}})\`, 유무·건수 확인은 \`list_mail({unreadOnly:true})\` 를 사용합니다. **\`query:"is:unread"\` 같은 검색어는 동작하지 않으니 절대 쓰지 마세요.**
 - **이 대화의 첨부**(WP-234): 요청 앞에 "## 이 대화의 첨부" 블록이 있으면, 첨부 내용에 대한 질문(요약·설명·이미지 확인 등)은 위임하지 말고 \`read_chat_attachment\` 로 직접 읽어 답합니다. 이 블록의 fileId 는 \`read_chat_attachment\` 전용이며 \`read_attachment\`(이슈 첨부·드라이브 파일)에 넣지 않습니다. 첨부 내용이 필요한 쓰기 작업을 위임할 때는 하위 에이전트가 이 대화의 첨부를 읽을 수 없으므로, 먼저 읽어 필요한 내용을 위임 prompt 에 옮겨 적습니다.

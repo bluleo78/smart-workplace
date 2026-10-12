@@ -38,13 +38,18 @@ public class DriveFolderController {
     return ResponseEntity.ok(folderService.path(callerId, folderId));
   }
 
-  /** 한 폴더(또는 루트, parentId 미지정)의 하위 폴더+파일 목록. */
+  /**
+   * 한 폴더(또는 루트, parentId 미지정)의 하위 폴더+파일 목록. limit 을 주면 폴더 먼저·파일 다음 순서에서 offset 부터 limit 개만(최대 1000)
+   * 돌려준다. limit 이 없으면 전체(웹 브라우즈) — offset 만 줘도 페이지 없이 전체다(WP-352).
+   */
   @GetMapping("/spaces/{id}/items")
   public ResponseEntity<DriveItemListResponse> items(
       @AuthenticationPrincipal Long callerId,
       @PathVariable("id") long spaceId,
-      @RequestParam(value = "parentId", required = false) Long parentId) {
-    return ResponseEntity.ok(folderService.listItems(callerId, spaceId, parentId));
+      @RequestParam(value = "parentId", required = false) Long parentId,
+      @RequestParam(value = "limit", required = false) Integer limit,
+      @RequestParam(value = "offset", required = false) Integer offset) {
+    return ResponseEntity.ok(folderService.listItems(callerId, spaceId, parentId, limit, offset));
   }
 
   @PostMapping("/spaces/{id}/folders")

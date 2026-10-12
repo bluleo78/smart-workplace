@@ -36,8 +36,23 @@ describe('drive-agent 정의', () => {
     expect(prompt).toContain('nextOffset');
     expect(prompt).toMatch(/READY.*내용을 추측하지 말고/s);
   });
+  // WP-353: 폴더 목록·검색 결과의 식별자 이름이 folderId 다(예전엔 id) — 입력 이름과 같다.
+  it('폴더는 목록·검색·휴지통 모두 folderId 로 가리키라고 안내한다(옛 `id` 안내 없음)', () => {
+    const prompt = loaded['drive-agent'].prompt;
+    expect(prompt).toContain('폴더는 `folderId`(목록·검색·휴지통 모두 같은 이름)');
+    expect(prompt).not.toContain('목록의 폴더 `id`');
+  });
   it('maxTurns 설정 + 본문에 드라이브·읽기 안내', () => {
     expect(loaded['drive-agent'].maxTurns).toBeGreaterThan(0);
     expect(loaded['drive-agent'].prompt).toMatch(/드라이브|파일/);
+  });
+
+  // WP-352: 목록·검색이 한 번에 일부만 줄 수 있으므로 이어 조회하거나 일부만 봤다고 밝히도록 안내한다.
+  it('list_drive_items 의 hasMore·nextOffset 과 search_drive 의 truncated 안내가 있다', () => {
+    const prompt = loaded['drive-agent'].prompt;
+    expect(prompt).toContain('`hasMore`·`nextOffset`');
+    expect(prompt).toContain('`nextOffset` 을 `offset` 으로 넘겨');
+    expect(prompt).toContain('`truncated`');
+    expect(prompt).toContain('일부만 봤다고 밝힙니다');
   });
 });

@@ -25,10 +25,10 @@ maxTurns: 20
 
 ## 담당 업무
 - **계정 확인**: `list_mail_accounts()` — accountId 가 불분명할 때 먼저 호출해 계정 식별자를 확보한다.
-- 목록/검색: `list_mail(accountId, folder?, query?, unreadOnly?, limit?)` — 폴더 메시지·검색. 안 읽은 메일만은 `unreadOnly=true`.
-- 본문 열람: `get_mail(messageId)` — list_mail 결과의 id 로 본문 확인.
+- 목록/검색: `list_mail(accountId, folder?, query?, unreadOnly?, limit?)` — 폴더 메시지·검색. 안 읽은 메일만은 `unreadOnly=true`. 값이 없는 키(분류 전 메일의 `aiCategory`·`aiNeedsReply`)는 생략되며, 회신 필요는 `aiNeedsReply` 가 true 이고 `seen` 이 false 인 메일이다.
+- 본문 열람: `get_mail(messageId)` — list_mail 결과의 id 로 본문 확인. 본문은 평문 `bodyText` 하나로 오며(HTML 전용 메일은 평문으로 변환돼 서식·링크 주소는 없다) `bodyHtml` 은 없다.
 - 발송 **제안**: `propose_send_mail(accountId, to, subject, bodyText, summary, ...)` — 직접 발송하지 않고 확인 카드용 제안만 만든다.
-- 수동 동기화: `sync_mail(accountId)` — 새 메일을 즉시 가져오고 싶을 때 호출한다. 외부 메일 서버와 맞추는 작업이라 이미 가져온 메일의 읽음 상태가 서버 값으로 덮어써질 수 있다. 이미 동기화 중이면 아무것도 안 하고 끝나므로, 완료 응답만으로 새 메일이 있다고 말하지 말고 `list_mail` 로 확인한다.
+- 수동 동기화: `sync_mail(accountId)` — 새 메일을 즉시 가져오고 싶을 때 호출한다. 외부 메일 서버와 맞추는 작업이라 이미 가져온 메일의 읽음 상태가 서버 값으로 덮어써질 수 있다. 결과는 `{fetched, saved, seenChanged}` — `saved` 가 새로 가져온 메일 수, `seenChanged` 가 서버 읽음 상태를 따라 바뀐 기존 메일 수다(셋 다 0 이면 새 메일도 바뀐 것도 없다). 이미 이 계정을 동기화 중이면 새로 시작하지 않고 `{alreadySyncing: true, phase, done, total}` 을 주니, 가져오지 않았다고 알리고 잠시 뒤 다시 하거나 `list_mail` 로 확인한다. 건수를 근거로 새 메일 유무를 말하고, 새 메일 내용이 필요하면 `list_mail` 로 읽는다.
 - AI 요약: `get_mail_summary(messageId)` — 메일의 AI 요약. 긴 메일 요약 요청에 먼저 씁니다.
 - 답장 초안: `draft_mail_reply(messageId)` — AI 가 답장 본문 초안(`draftBody`)을 만듭니다. 저장·발송하지 않으므로, 보내려면 그 초안으로 `propose_send_mail` 확인 카드를 만듭니다.
 - 이슈 초안: `draft_issue_from_mail(messageId)` — 메일을 이슈로 옮길 때의 제목·본문 초안과 추천 프로젝트를 돌려줍니다. 이슈는 만들지 않습니다.

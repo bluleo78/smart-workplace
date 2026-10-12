@@ -81,6 +81,32 @@ describe('buildCalendarTools', () => {
     expect(JSON.parse(resultText(out))).toEqual({ id: 1, title: '회의' });
   });
 
+  it('get_event 는 색·캘린더 id·생성 시각·iCalUid·참석자 총원과 값이 없는 키를 뺀다(WP-353)', async () => {
+    const c = mockClient();
+    const raw = {
+      id: 7, title: '회의', description: null, startsAt: '2026-10-20T10:00:00+09:00', endsAt: '2026-10-20T11:00:00+09:00', allDay: false, location: null,
+      color: null, calendarId: 1, calendarName: '내 캘린더', effectiveColor: 'blue', reminderMinutes: null, recurrenceRule: null, masterEventId: null, occurrenceDate: null,
+      createdAt: '2026-10-01T00:00:00+09:00', updatedAt: '2026-10-02T00:00:00+09:00', attendeeCount: 1, myRsvpStatus: 'ACCEPTED',
+      attendees: [{ userId: 1, username: 'me', name: '나', kind: 'HUMAN', role: 'ORGANIZER', rsvpStatus: 'ACCEPTED', invitedByUserId: 1, externalEmail: null }],
+      external: false, myRole: 'ORGANIZER', iCalUid: null,
+    };
+    vi.mocked(c.getEvent).mockResolvedValue(raw);
+    const out = JSON.parse(resultText(await tool(c, 'get_event').handler({ eventId: 7 })));
+    expect(out).toEqual({
+      id: 7, title: '회의', startsAt: '2026-10-20T10:00:00+09:00', endsAt: '2026-10-20T11:00:00+09:00', allDay: false, calendarName: '내 캘린더',
+      updatedAt: '2026-10-02T00:00:00+09:00', myRsvpStatus: 'ACCEPTED', attendees: [{ username: 'me', name: '나', kind: 'HUMAN', role: 'ORGANIZER', rsvpStatus: 'ACCEPTED' }],
+      external: false, myRole: 'ORGANIZER',
+    });
+    expect(JSON.stringify(out).length).toBeLessThan(JSON.stringify(raw).length * 0.75);
+  });
+
+  it('get_event 는 반복 일정 수정에 쓰는 masterEventId·occurrenceDate 를 남긴다', async () => {
+    const c = mockClient();
+    vi.mocked(c.getEvent).mockResolvedValue({ id: 7, title: 'x', masterEventId: 3, occurrenceDate: '2026-10-20T01:00:00Z', recurrenceRule: 'FREQ=WEEKLY', attendees: [] });
+    const out = JSON.parse(resultText(await tool(c, 'get_event').handler({ eventId: 7 })));
+    expect(out).toMatchObject({ masterEventId: 3, occurrenceDate: '2026-10-20T01:00:00Z', recurrenceRule: 'FREQ=WEEKLY' });
+  });
+
   it('get_event 는 옛 파라미터 id 를 거부한다(eventId 만)', async () => {
     const c = mockClient();
     await expect(tool(c, 'get_event').handler({ id: 1 })).rejects.toThrow();

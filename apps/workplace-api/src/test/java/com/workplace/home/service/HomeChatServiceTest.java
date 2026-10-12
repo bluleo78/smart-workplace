@@ -157,8 +157,8 @@ class HomeChatServiceTest extends IntegrationTestBase {
   }
 
   /**
-   * 표시 가능 도구(update_issue)와 숨김 도구(respond_chat, show_issue_list)를 동시에 포함하는 스트림에서 tool_calls 가 표시
-   * 가능 도구만 영속하는지 검증. 숨김 도구는 fanOut 만 되고 tool_calls 에 포함되지 않아야 한다.
+   * 표시 가능 도구(update_issue)와 숨김 도구(respond_chat, show_issue_list)를 동시에 포함하는 스트림에서 tool_calls 가 표시 가능
+   * 도구만 영속하는지 검증. 숨김 도구는 fanOut 만 되고 tool_calls 에 포함되지 않아야 한다.
    */
   @Test
   void 표시가능_도구만_tool_calls_에_영속되고_숨김_도구는_제외() throws Exception {

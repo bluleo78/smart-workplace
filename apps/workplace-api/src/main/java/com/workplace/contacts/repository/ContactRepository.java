@@ -64,6 +64,7 @@ public class ContactRepository {
         dsl.select(
                 DSL.inline("MEMBER").as("type"),
                 USER.ID.as("id"),
+                USER.USERNAME.as("username"),
                 USER.NAME.as("name"),
                 USER.EMAIL.as("email"),
                 USER.TITLE.as("title"),
@@ -89,6 +90,7 @@ public class ContactRepository {
         dsl.select(
                 DSL.inline("EXTERNAL").as("type"),
                 CONTACT_ENTRY.ID.as("id"),
+                DSL.castNull(SQLDataType.VARCHAR).as("username"),
                 CONTACT_ENTRY.NAME.as("name"),
                 CONTACT_ENTRY.EMAIL.as("email"),
                 CONTACT_ENTRY.TITLE.as("title"),
@@ -107,6 +109,7 @@ public class ContactRepository {
     Table<?> d = members.unionAll(external).asTable("d");
     Field<String> dType = d.field("type", String.class);
     Field<Long> dId = d.field("id", Long.class);
+    Field<String> dUsername = d.field("username", String.class);
     Field<String> dName = d.field("name", String.class);
     Field<String> dEmail = d.field("email", String.class);
     Field<String> dTitle = d.field("title", String.class);
@@ -138,7 +141,7 @@ public class ContactRepository {
               DSL.row(dName, dType, dId).gt(DSL.row(cursor.name(), cursor.type(), cursor.id())));
     }
 
-    return dsl.select(dType, dId, dName, dEmail, dTitle, dOrg, dFav)
+    return dsl.select(dType, dId, dUsername, dName, dEmail, dTitle, dOrg, dFav)
         .from(d)
         .where(where)
         .orderBy(dName.asc(), dType.asc(), dId.asc())
@@ -148,6 +151,7 @@ public class ContactRepository {
                 new ContactSummary(
                     r.get(dType),
                     r.get(dId),
+                    r.get(dUsername),
                     r.get(dName),
                     r.get(dEmail),
                     r.get(dTitle),

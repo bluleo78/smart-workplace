@@ -16,6 +16,29 @@ export interface MemberRow {
   [key: string]: unknown;
 }
 
+/**
+ * 번호 페이지(Spring Page) 응답을 벗긴 결과 — GET /projects·/members 가 준다(WP-352).
+ * 서버 PageResponse 는 { content, page, size, totalElements, totalPages } 라 "마지막 페이지 여부" 필드가 없어 totalPages 로 가른다.
+ * 핸들러가 이 값으로 { items, total, hasMore?, nextPage? } 를 만들어 잘림을 LLM 에 알린다.
+ */
+export interface PageResult<T> {
+  items: T[];
+  /** 전체 건수(서버 totalElements). 서버가 안 주는 bare 배열 응답이면 undefined. */
+  total?: number;
+  /** 다음 페이지가 더 있는가 — page + 1 < totalPages. */
+  hasMore: boolean;
+  /** 이 응답의 페이지 번호(0 기준). */
+  page: number;
+}
+
+/** 커서 페이지 응답 — GET /me/issues·/messaging/channels/{id}/messages 가 { items, nextCursor, hasMore } 로 준다(WP-352). */
+export interface CursorPage<T> {
+  items: T[];
+  /** 다음 페이지를 읽을 커서. 더 없으면 서버가 null — 핸들러가 출력에서 생략한다. */
+  nextCursor?: string | null;
+  hasMore?: boolean;
+}
+
 /** 구성원 검색 파라미터 — GET /members 쿼리와 1:1. */
 export interface MemberSearchParams {
   search?: string;
@@ -111,6 +134,7 @@ export interface WikiPageRow {
 
 export interface WikiToolClient {
   listWikiSpaces(): Promise<unknown>;
+  /** GET /wiki/search — 서버가 최근 수정순 최대 50건으로 자른다(상한을 알리는 일은 핸들러). 배열 원형. */
   searchWikiPages(query: string): Promise<unknown>;
   getWikiPage(pageId: number): Promise<unknown>;
   createWikiPage(spaceId: number, body: { parentId: number | null; title: string }): Promise<unknown>;
@@ -189,10 +213,15 @@ export interface MailToolClient {
   markMailRead(messageId: number): Promise<void>;
   /** POST /mail/accounts/{id}/sync — INBOX 증분 동기화(원본 메일 서버에 접속). 소유 계정만(아니면 404), 이미 진행 중이면 서버가 빈 결과. */
   syncMail(accountId: number): Promise<unknown>;
+  /** GET /mail/accounts/{id}/sync-status — 진행 중 여부(phase LIST/BODIES/IDLE). 서버는 이미 진행 중이면 sync 를 빈 결과로 돌려주므로 구분용(WP-353). */
+  getMailSyncStatus(accountId: number): Promise<{ phase: string; total: number; done: number; running: boolean }>;
 }
 
 export interface MemberToolClient {
+  /** 행 배열만 — 담당자·멘션·참석자 해석처럼 한 건을 찾는 내부 용도(페이지 정보가 필요 없다). */
   searchMembers(params: MemberSearchParams): Promise<MemberRow[]>;
+  /** search_members 도구용 — 전체 건수·다음 페이지 여부를 함께 돌려준다(WP-352). */
+  searchMembersPage(params: MemberSearchParams): Promise<PageResult<MemberRow>>;
   getMemberContact(userId: number): Promise<unknown>;
   /** 응답 래퍼 { items, nextCursor } 를 그대로 반환(가공은 핸들러). */
   listContacts(params: ContactListParams): Promise<unknown>;
@@ -293,8 +322,10 @@ export interface ExternalContactBody {
 }
 
 export interface MessagingToolClient {
+  /** GET /messaging/channels — 서버가 내 채널 전체를 한 번에 준다(페이지 없음 — 자르는 일은 핸들러). */
   listChannels(): Promise<unknown>;
-  getChannelMessages(channelId: number, limit: number): Promise<unknown>;
+  /** GET /messaging/channels/{id}/messages — 최신순 커서 페이지. cursor 는 이전 응답의 nextCursor(WP-352). */
+  listChannelMessages(channelId: number, params: { limit: number; cursor?: string }): Promise<CursorPage<unknown>>;
   /** parentMessageId 가 있으면 그 스레드에 답한다. */
   addChannelMessage(channelId: number, body: string, parentMessageId?: number): Promise<unknown>;
   /**
@@ -321,8 +352,12 @@ export interface MessagingToolClient {
 
 export interface DriveToolClient {
   listDriveSpaces(): Promise<unknown>;
-  /** 응답 { folders, files } 원형 — 파일 행 식별자 가공은 toDriveItemsView(핸들러). */
-  listDriveItems(spaceId: number, parentId?: number): Promise<unknown>;
+  /**
+   * 응답 { folders, files } 원형 — 파일 행 식별자 가공은 toDriveItemsView(핸들러). page 를 주면 서버가 폴더 먼저·파일 다음 순서에서
+   * offset 부터 limit 개만 돌려주고(WP-352), 생략하면 전체다.
+   */
+  listDriveItems(spaceId: number, parentId?: number, page?: { limit: number; offset: number }): Promise<unknown>;
+  /** GET /drive/spaces/{id}/search — 서버가 폴더·파일 각각 최대 200건으로 자른다(상한을 알리는 일은 핸들러). */
   searchDrive(spaceId: number, q: string): Promise<unknown>;
   /** GET /drive/files/{id}/summary — { summary, status, reason } 원형(#850). */
   getDriveFileSummary(driveFileId: number): Promise<unknown>;
@@ -454,15 +489,16 @@ export interface NotificationToolClient {
 }
 
 export interface ProjectToolClient extends ProjectMetaClient {
-  listProjects(page: number, size: number): Promise<unknown>;
+  /** GET /projects — Spring 페이지를 PageResult 로 벗긴다(WP-352). */
+  listProjects(page: number, size: number): Promise<PageResult<unknown>>;
   getProject(projectKey: string): Promise<Record<string, unknown>>;
   /** PATCH /projects/{key} — 부분 수정(#858). 생략(undefined) 필드는 유지, 설명 비우기는 clearDescription. */
   updateProject(
     projectKey: string,
     body: { name?: string; description?: string; clearDescription?: boolean },
   ): Promise<unknown>;
-  /** GET /me/issues — 응답 래퍼 { items } 를 벗긴 이슈 행 배열(가공은 핸들러). */
-  listIssues(query: IssueListQuery): Promise<IssueRow[]>;
+  /** GET /me/issues — { items, nextCursor, hasMore } 를 그대로 돌려준다(WP-352, 가공은 핸들러). */
+  listIssues(query: IssueListQuery): Promise<CursorPage<IssueRow>>;
   /** POST /projects — 생성자가 OWNER 가 된다(WP-349). key 중복·지원하지 않는 유형은 409. */
   createProject(body: CreateProjectBody): Promise<unknown>;
   /** POST /projects/{key}/members — 프로젝트 OWNER 만(WP-349). 이미 멤버·비활성·개인 프로젝트에 사람 추가는 409. */

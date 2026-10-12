@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { buildMessagingTools, linkMentions, toThreadReplyView, type MessagingToolOptions } from './messaging-tools.js';
+import { buildMessagingTools, linkMentions, resolveMentionTokens, toChannelView, toMessageView, toThreadReplyView, type MessagingToolOptions } from './messaging-tools.js';
 import type { MemberRow, MemberSearchParams, MemberToolClient, MessagingToolClient } from './tool-client.js';
 import { resultText } from './mcp-content.js';
 
@@ -9,7 +9,7 @@ type Client = MessagingToolClient & Pick<MemberToolClient, 'searchMembers'>;
 function mockClient(): Client {
   return {
     listChannels: vi.fn().mockResolvedValue([]),
-    getChannelMessages: vi.fn().mockResolvedValue([]),
+    listChannelMessages: vi.fn().mockResolvedValue({ items: [], nextCursor: null, hasMore: false }),
     getThreadReplies: vi.fn().mockResolvedValue({ items: [], nextCursor: null, hasMore: false }),
     addChannelMessage: vi.fn().mockResolvedValue(undefined),
     searchMembers: vi.fn().mockResolvedValue([]),
@@ -53,7 +53,8 @@ describe('buildMessagingTools', () => {
     vi.mocked(c.discoverChannels).mockResolvedValue([{ id: 3, name: '공지', kind: 'PUBLIC' }]);
     const out = await tool(c, 'discover_channels').handler({ q: '공지' });
     expect(c.discoverChannels).toHaveBeenCalledWith('공지');
-    expect(JSON.parse(resultText(out))).toEqual([{ id: 3, name: '공지', kind: 'PUBLIC' }]);
+    // 채널은 어디서나 channelId 로 가리킨다(WP-353).
+    expect(JSON.parse(resultText(out))).toEqual([{ channelId: 3, name: '공지', kind: 'PUBLIC' }]);
     await expect(tool(c, 'discover_channels').handler({ q: '' })).rejects.toThrow();
   });
 
@@ -70,8 +71,8 @@ describe('buildMessagingTools', () => {
         { id: 31, authorName: '양동희', authorKind: 'HUMAN', body: '답글 31', createdAt: 't' },
         { id: 32, authorName: '양동희', authorKind: 'HUMAN', body: '답글 32', createdAt: 't' },
       ],
-      truncated: false,
     });
+    expect(out).not.toHaveProperty('truncated'); // 안 잘렸으면 키 자체를 싣지 않는다(빠진 키 = 끝)
   });
 
   it('list_thread_replies 는 500개를 넘으면 멈추고 truncated 를 알린다', async () => {
@@ -88,26 +89,52 @@ describe('buildMessagingTools', () => {
     expect(toThreadReplyView({ ...reply(33), deleted: true })).toMatchObject({ id: 33, deleted: true });
   });
 
-  it('list_channels → client.listChannels()', async () => {
+  it('list_channels → 전부 담기면 { items, total } 만 돌려준다 (WP-352)', async () => {
     const c = mockClient();
     vi.mocked(c.listChannels).mockResolvedValue([{ id: 1, name: '일반' }]);
     const out = await tool(c, 'list_channels').handler({});
     expect(c.listChannels).toHaveBeenCalled();
-    expect(JSON.parse(resultText(out))).toEqual([{ id: 1, name: '일반' }]);
+    expect(JSON.parse(resultText(out))).toEqual({ items: [{ channelId: 1, name: '일반' }], total: 1 });
   });
 
-  it('get_channel_messages → limit 기본값 50 으로 client.getChannelMessages 호출', async () => {
+  it('list_channels → limit 을 넘으면 잘라 hasMore·nextOffset 을 알리고 offset 으로 이어 읽는다 (WP-352)', async () => {
     const c = mockClient();
-    vi.mocked(c.getChannelMessages).mockResolvedValue([{ id: 1, body: 'hi' }]);
-    const out = await tool(c, 'get_channel_messages').handler({ channelId: 7 });
-    expect(c.getChannelMessages).toHaveBeenCalledWith(7, 50);
-    expect(JSON.parse(resultText(out))).toEqual([{ id: 1, body: 'hi' }]);
+    vi.mocked(c.listChannels).mockResolvedValue(Array.from({ length: 5 }, (_, i) => ({ id: i + 1, name: `c${i}` })));
+    const first = JSON.parse(resultText(await tool(c, 'list_channels').handler({ limit: 2 })));
+    expect(first.items.map((x: { channelId: number }) => x.channelId)).toEqual([1, 2]);
+    expect(first).toMatchObject({ total: 5, hasMore: true, nextOffset: 2 });
+    const last = JSON.parse(resultText(await tool(c, 'list_channels').handler({ limit: 2, offset: 4 })));
+    expect(last.items.map((x: { channelId: number }) => x.channelId)).toEqual([5]);
+    expect(last).not.toHaveProperty('hasMore');
+    expect(last).not.toHaveProperty('nextOffset');
   });
 
-  it('get_channel_messages → limit 지정 시 그대로 전달', async () => {
+  it('list_channel_messages → limit 기본값 50 으로 client.listChannelMessages 호출, 다음 페이지가 없으면 { items } 만', async () => {
     const c = mockClient();
-    await tool(c, 'get_channel_messages').handler({ channelId: 7, limit: 5 });
-    expect(c.getChannelMessages).toHaveBeenCalledWith(7, 5);
+    vi.mocked(c.listChannelMessages).mockResolvedValue({ items: [{ id: 1, body: 'hi' }], nextCursor: null, hasMore: false });
+    const out = await tool(c, 'list_channel_messages').handler({ channelId: 7 });
+    expect(c.listChannelMessages).toHaveBeenCalledWith(7, { limit: 50, cursor: undefined });
+    expect(JSON.parse(resultText(out))).toEqual({ items: [{ id: 1, body: 'hi' }] });
+  });
+
+  it('list_channel_messages → limit·cursor 지정 시 그대로 전달', async () => {
+    const c = mockClient();
+    await tool(c, 'list_channel_messages').handler({ channelId: 7, limit: 5, cursor: 'c1' });
+    expect(c.listChannelMessages).toHaveBeenCalledWith(7, { limit: 5, cursor: 'c1' });
+  });
+
+  it('WP-352: list_channel_messages → 더 오래된 메시지가 있으면 hasMore:true 와 nextCursor 를 싣는다', async () => {
+    const c = mockClient();
+    vi.mocked(c.listChannelMessages).mockResolvedValue({ items: [{ id: 9 }], nextCursor: 'next==', hasMore: true });
+    const out = JSON.parse(resultText(await tool(c, 'list_channel_messages').handler({ channelId: 7 })));
+    expect(out).toEqual({ items: [{ id: 9 }], hasMore: true, nextCursor: 'next==' });
+    const d = tool(c, 'list_channel_messages').description;
+    expect(d).toContain('nextCursor');
+    expect(d).toContain('일부만 본 것이라고 밝히세요');
+  });
+
+  it('옛 이름 get_channel_messages 는 더 이상 없다(WP-352)', () => {
+    expect(buildMessagingTools(mockClient()).map((t) => t.name)).not.toContain('get_channel_messages');
   });
 
   it('add_channel_message → 멘션 없는 본문은 그대로, 옵션 없으면 parentMessageId undefined 로 호출 후 ok', async () => {
@@ -294,3 +321,146 @@ describe('add_channel_member (WP-349)', () => {
     expect(c.addChannelMember).not.toHaveBeenCalled();
   });
 });
+
+describe('멘션 토큰 → 이름 (WP-353)', () => {
+  const kim = { id: 3, username: 'minsu', name: '김민수', kind: 'HUMAN' };
+  const lee = { id: 4, username: 'lee', name: '이AI', kind: 'AGENT' };
+
+  it('<@id> 를 @이름(username) 으로 바꾼다(여러 명·같은 사람 반복 포함)', () => {
+    expect(resolveMentionTokens('<@3> 님, <@4> 에게도: <@3> 확인', [kim, lee])).toBe('@김민수(minsu) 님, @이AI(lee) 에게도: @김민수(minsu) 확인');
+  });
+
+  it('mentions 에 없는 id(탈퇴·삭제 사용자)는 숫자를 노출하지 않고 알 수 없는 사용자로 둔다', () => {
+    expect(resolveMentionTokens('<@99> 확인', [kim])).toBe('@(알 수 없는 사용자) 확인');
+    expect(resolveMentionTokens('<@3> <@99>', undefined)).toBe('@(알 수 없는 사용자) @(알 수 없는 사용자)');
+    expect(resolveMentionTokens('<@3>', null)).toBe('@(알 수 없는 사용자)');
+    expect(resolveMentionTokens('<@3>', [])).toBe('@(알 수 없는 사용자)');
+  });
+
+  it('이름이나 username 중 하나만 있으면 있는 쪽만 쓰고, 둘 다 없으면 알 수 없는 사용자', () => {
+    expect(resolveMentionTokens('<@3>', [{ id: 3, username: 'minsu', name: null }])).toBe('@minsu');
+    expect(resolveMentionTokens('<@3>', [{ id: 3, username: '', name: '김민수' }])).toBe('@김민수');
+    expect(resolveMentionTokens('<@3>', [{ id: 3, username: null, name: null }])).toBe('@(알 수 없는 사용자)');
+  });
+
+  it('토큰이 아닌 텍스트·형식이 틀린 토큰은 건드리지 않는다', () => {
+    expect(resolveMentionTokens('메일 a@b.com 과 <@abc> 와 <@ 3> 와 @3', [kim])).toBe('메일 a@b.com 과 <@abc> 와 <@ 3> 와 @3');
+    expect(resolveMentionTokens('', [kim])).toBe('');
+  });
+
+  it('mentions 항목의 id 가 문자열이어도 풀린다', () => {
+    expect(resolveMentionTokens('<@3>', [{ ...kim, id: '3' }])).toBe('@김민수(minsu)');
+  });
+
+  it('list_channel_messages·list_thread_replies 는 본문을 풀고 mentions 에서 id 를 뺀다', async () => {
+    const c = mockClient();
+    const row = { id: 40, channelId: 5, authorId: 9, authorName: '앨리스', authorKind: 'HUMAN', body: '<@3> 확인 부탁, <@77> 도', mentions: [kim], parentMessageId: null, replyCount: 1 };
+    vi.mocked(c.listChannelMessages).mockResolvedValue({ items: [row], nextCursor: null, hasMore: false });
+    vi.mocked(c.getThreadReplies).mockResolvedValue({ items: [{ ...row, id: 41, parentMessageId: 40 }], nextCursor: null, hasMore: false });
+    const page = JSON.parse(resultText(await tool(c, 'list_channel_messages').handler({ channelId: 5 })));
+    expect(page.items[0].body).toBe('@김민수(minsu) 확인 부탁, @(알 수 없는 사용자) 도');
+    expect(page.items[0].mentions).toEqual([{ username: 'minsu', name: '김민수', kind: 'HUMAN' }]);
+    const replies = JSON.parse(resultText(await tool(c, 'list_thread_replies').handler({ messageId: 40 })));
+    expect(replies.items[0].body).toBe('@김민수(minsu) 확인 부탁, @(알 수 없는 사용자) 도');
+    expect(replies.items[0].mentions).toEqual([{ username: 'minsu', name: '김민수', kind: 'HUMAN' }]);
+    expect(resultText(await tool(c, 'list_channel_messages').handler({ channelId: 5 }))).not.toMatch(/<@\d+>/);
+  });
+
+  it('linkMentions 는 출력 표기 @이름(username) 을 따라 써도 같은 멘션 하나로 읽는다', async () => {
+    const c = mockClient();
+    vi.mocked(c.searchMembers).mockResolvedValue([{ userId: 3, username: 'minsu', name: '김민수', active: true } as MemberRow]);
+    expect(await linkMentions(c, '확인 @김민수(minsu) 부탁')).toBe('확인 <@3> 부탁');
+    // username 과 다른 괄호는 원문을 살린다.
+    expect(await linkMentions(c, '확인 @김민수(팀장) 부탁')).toBe('확인 <@3>(팀장) 부탁');
+    // 이미 username 으로 쓴 경우는 그대로 동작한다.
+    expect(await linkMentions(c, '확인 @minsu 부탁')).toBe('확인 <@3> 부탁');
+  });
+
+  // 동명이인 대비(WP-353 최종 리뷰): 이름만으로는 한 명이 안 정해져도 괄호 username 이 가린다.
+  it('linkMentions 는 @이름(username) 이면 괄호 안 username 을 먼저 써서 동명이인을 가린다', async () => {
+    const c = mockClient();
+    const twins = [
+      { userId: 3, username: 'minsu', name: '김민수', active: true },
+      { userId: 4, username: 'minsu2', name: '김민수', active: true },
+    ] as MemberRow[];
+    c.searchMembers = vi.fn(async ({ search }: { search?: string }) => twins.filter((m) => m.username.includes(search ?? '') || (m.name ?? '').includes(search ?? '')));
+    // 이름만 쓰면 동명이인이라 멘션하지 않지만(기존 동작), 괄호 username 이 있으면 그 사람이다.
+    expect(await linkMentions(c, '확인 @김민수 부탁')).toBe('확인 @김민수 부탁');
+    expect(await linkMentions(c, '확인 @김민수(minsu2) 부탁')).toBe('확인 <@4> 부탁');
+    expect(await linkMentions(c, '@김민수(minsu) 와 @김민수(minsu2)')).toBe('<@3> 와 <@4>');
+    // 조사가 붙어도 이름 부분만 멘션으로 바꾸고 조사는 남긴다. 표시 이름과 다른 표기여도 username 이 맞으면 따른다.
+    expect(await linkMentions(c, '@김민수님(minsu2) 확인')).toBe('<@4>님 확인');
+    expect(await linkMentions(c, '@민수씨(minsu) 확인')).toBe('<@3> 확인');
+    // 괄호 username 이 없는 구성원이면 이름 해석으로 되돌아간다(동명이인이면 그대로).
+    expect(await linkMentions(c, '@김민수(nobody) 확인')).toBe('@김민수(nobody) 확인');
+  });
+});
+
+describe('메시지·채널 정리 뷰 (WP-353)', () => {
+  const full = {
+    id: 40, channelId: 5, authorId: 9, authorName: '앨리스', authorKind: 'HUMAN', body: '안녕', mentions: [], parentMessageId: null, replyCount: 0,
+    reactions: [{ emoji: '👍', count: 2, reacted: true }, { emoji: '🎉', count: 1, reacted: false }],
+    attachments: [{ fileId: 70, messageId: 40, originalName: 'a.png', mimeType: 'image/png', sizeBytes: 3, attachedById: 9, attachedByName: '앨리스', attachedAt: 't' }],
+    driveLinks: [{ driveFileId: 8, fileId: 801, name: 'd.pdf', mimeType: 'application/pdf', sizeBytes: 5, hasThumbnail: false, spaceId: 2, spaceName: '팀', availability: 'OK', createdById: 9, createdAt: 't' }],
+    createdAt: '2026-10-01T00:00:00Z', editedAt: null, deleted: false, unreadReplyCount: 0, followed: false, proposal: null,
+  };
+
+  it('최상위 행: 리액션은 { 이모지: 개수 }, 첨부·드라이브 링크는 핵심만, 반복·기본값 키는 뺀다', () => {
+    const v = toMessageView(full);
+    expect(v).toEqual({
+      id: 40, authorName: '앨리스', authorKind: 'HUMAN', body: '안녕', reactions: { '👍': 2, '🎉': 1 },
+      attachments: [{ fileId: 70, originalName: 'a.png', mimeType: 'image/png', sizeBytes: 3 }],
+      driveLinks: [{ driveFileId: 8, name: 'd.pdf', mimeType: 'application/pdf', sizeBytes: 5, spaceId: 2, spaceName: '팀', availability: 'OK' }],
+      createdAt: '2026-10-01T00:00:00Z',
+    });
+    expect(JSON.stringify(v).length).toBeLessThan(JSON.stringify(full).length * 0.6);
+  });
+
+  it('최상위 행은 답글·미읽음 답글·팔로우가 있을 때만 그 값을 남기고, 답글 행(thread)은 항상 뺀다', () => {
+    const top = toMessageView({ ...full, replyCount: 3, unreadReplyCount: 1, followed: true });
+    expect(top).toMatchObject({ replyCount: 3, unreadReplyCount: 1, followed: true });
+    const reply = toMessageView({ ...full, replyCount: 3, unreadReplyCount: 1, followed: true }, true);
+    expect(reply).not.toHaveProperty('replyCount');
+    expect(reply).not.toHaveProperty('unreadReplyCount');
+    expect(reply).not.toHaveProperty('followed');
+  });
+
+  it('삭제된 메시지는 deleted:true 를 남기고, 제안 카드는 id·빈 필드를 뺀다', () => {
+    const v = toMessageView({
+      ...full, body: '(삭제됨)', deleted: true,
+      proposal: { id: 1, proposedByUserId: 9, actionType: 'CREATE_ISSUE', status: 'PENDING', title: '버그', priority: 'HIGH', projectName: null, resultIssueKey: null, projectKey: 'WP', candidates: [], startsAt: null, attendees: null },
+    });
+    expect(v).toMatchObject({ deleted: true, body: '(삭제됨)' });
+    expect(v.proposal).toEqual({ actionType: 'CREATE_ISSUE', status: 'PENDING', title: '버그', priority: 'HIGH', projectKey: 'WP' });
+  });
+
+  it('리액션이 없거나 모양이 이상하면 reactions 키를 생략한다', () => {
+    expect(toMessageView({ ...full, reactions: [] })).not.toHaveProperty('reactions');
+    expect(toMessageView({ ...full, reactions: null })).not.toHaveProperty('reactions');
+    expect(toMessageView({ ...full, reactions: [{ count: 1 }] })).not.toHaveProperty('reactions');
+  });
+
+  it('body 가 없는 행도 던지지 않는다', () => {
+    expect(() => toMessageView({ id: 1 })).not.toThrow();
+  });
+
+  const channel = {
+    id: 5, kind: 'PUBLIC', name: '일반', visibility: 'PUBLIC', member: true, role: 'MEMBER', archived: false, memberCount: 3, unreadCount: 0, createdAt: '2026-01-01T00:00:00Z',
+    hasUnreadThreads: false, lastReadMessageId: 39, lastMessage: { id: 40, authorId: 9, authorName: '앨리스', preview: '안녕', createdAt: 't' },
+  };
+
+  it('채널 행: lastReadMessageId 와 0·false 플래그·값 없는 키를 빼고, 안 읽은 게 있으면 그 값을 남긴다', () => {
+    expect(toChannelView(channel)).toEqual({
+      channelId: 5, kind: 'PUBLIC', name: '일반', visibility: 'PUBLIC', member: true, role: 'MEMBER', memberCount: 3, createdAt: '2026-01-01T00:00:00Z',
+      lastMessage: { id: 40, authorName: '앨리스', preview: '안녕', createdAt: 't' },
+    });
+    expect(toChannelView({ ...channel, unreadCount: 4, hasUnreadThreads: true, archived: true, role: null, lastMessage: null })).toMatchObject({ unreadCount: 4, hasUnreadThreads: true, archived: true });
+    expect(toChannelView({ ...channel, role: null, lastMessage: null })).not.toHaveProperty('role');
+    expect(JSON.stringify(toChannelView(channel)).length).toBeLessThan(JSON.stringify(channel).length * 0.85);
+  });
+
+  it('list_channels 설명은 생략 규칙(unreadCount·hasUnreadThreads)을 안내한다', () => {
+    expect(tool(mockClient(), 'list_channels').description).toMatch(/unreadCount/);
+  });
+});
+

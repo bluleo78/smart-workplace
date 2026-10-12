@@ -1,4 +1,4 @@
-// 채팅 화면 컨텍스트 builder(WP-54). DM 도 channelId(get_channel_messages 인자). 스레드는 루트 메시지 id(list_thread_replies 인자).
+// 채팅 화면 컨텍스트 builder(WP-54). DM 도 channelId(list_channel_messages 인자). 스레드는 루트 메시지 id(list_thread_replies 인자).
 import type { AiScreenContext } from '@/types/aiScreenContext';
 
 import { buildFacts, buildRefs, clip, LIMITS, withListState } from '../common';

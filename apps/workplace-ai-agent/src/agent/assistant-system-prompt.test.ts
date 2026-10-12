@@ -11,7 +11,7 @@ describe('ASSISTANT_SYSTEM_PROMPT', () => {
 
   // WP-346: 이슈 첨부·드라이브 파일 본문은 공유 read_attachment, 세션 첨부는 read_chat_attachment — fileId 를 섞지 않게 안내.
   it('이슈 첨부·드라이브 파일은 read_attachment(source별 식별자), 이 대화의 첨부 fileId 는 read_chat_attachment 전용', () => {
-    expect(ASSISTANT_SYSTEM_PROMPT).toContain('{source:"issue", issueKey, fileId}');
+    expect(ASSISTANT_SYSTEM_PROMPT).toContain('{source:"issue", issueKey, attachmentId}');
     expect(ASSISTANT_SYSTEM_PROMPT).toContain('{source:"drive", driveFileId}');
     expect(ASSISTANT_SYSTEM_PROMPT).toContain('`read_chat_attachment` 전용이며 `read_attachment`(이슈 첨부·드라이브 파일)에 넣지 않습니다');
     // 드라이브 직접 읽기 표에도 read_attachment 가 있다.
@@ -275,6 +275,31 @@ describe('러너별 라우터 규칙 (WP-351)', () => {
       expect(p).toContain('읽기 조회 직접 처리');
       expect(p).toContain('issue-agent');
       expect(p).toContain('## 현재 화면 맥락');
+    }
+  });
+});
+
+// WP-352: 읽기 목록이 페이지에서 잘려 와도 라우터가 직접 읽는 경로에서 전부로 오해하지 않도록 이어 조회하거나 잘렸다고 알리게 한다.
+describe('목록 잘림 안내 (WP-352)', () => {
+  it('두 러너 모두 hasMore·nextCursor 가 있으면 이어 조회하거나 일부만 확인했다고 알리라고 안내한다', () => {
+    for (const p of [ASSISTANT_SYSTEM_PROMPT, assistantSystemPrompt('opencode')]) {
+      expect(p).toContain('목록이 잘렸는지 확인');
+      expect(p).toContain('`hasMore`');
+      expect(p).toContain('`nextCursor`·`nextPage`·`nextOffset`');
+      expect(p).toContain('"일부만 확인했다"고 알립니다');
+    }
+  });
+  it('서버 페이지가 없는 목록의 truncated·hiddenChildren 안내가 두 러너에 있다', () => {
+    for (const p of [ASSISTANT_SYSTEM_PROMPT, assistantSystemPrompt('opencode')]) {
+      expect(p).toContain('또는 `truncated`');
+      expect(p).toContain('`hiddenChildren`');
+      expect(p).toContain('검색어를 좁혀 다시 검색');
+    }
+  });
+  it('메시징 직접 읽기 표는 바뀐 이름 list_channel_messages 를 쓰고 옛 이름은 없다', () => {
+    for (const p of [ASSISTANT_SYSTEM_PROMPT, assistantSystemPrompt('opencode')]) {
+      expect(p).toContain('list_channel_messages');
+      expect(p).not.toContain('get_channel_messages');
     }
   });
 });

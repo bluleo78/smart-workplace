@@ -108,6 +108,32 @@ class ContactRepositoryTest extends IntegrationTestBase {
   }
 
   /**
+   * MEMBER 항목은 로그인 아이디(username)를 싣고 EXTERNAL 은 null 이다(WP-353). MCP 도구가 숫자 사용자 id 대신 username 으로
+   * 사람을 가리키려면 목록 행이 이 값을 줘야 한다(웹은 같은 응답을 쓰며 필드가 늘어도 영향 없다).
+   */
+  @Test
+  void list_memberRowCarriesUsername_externalDoesNot() {
+    String p = "zusr" + tag();
+    long caller = seedUser(p + "_caller", "HUMAN");
+    long m = seedUser(p + "_member", "HUMAN");
+    long e = seedExternal(p + "_ext", "SHARED", caller);
+    String memberUsername =
+        dsl.select(USER.USERNAME).from(USER).where(USER.ID.eq(m)).fetchOne(USER.USERNAME);
+
+    List<ContactSummary> rows =
+        repo.findPage(TENANT_ID, caller, p, "ALL", false, null, null, null, 100);
+
+    assertThat(rows)
+        .filteredOn(r -> r.id() == m && "MEMBER".equals(r.type()))
+        .singleElement()
+        .satisfies(r -> assertThat(r.username()).isEqualTo(memberUsername).startsWith("u_"));
+    assertThat(rows)
+        .filteredOn(r -> r.id() == e && "EXTERNAL".equals(r.type()))
+        .singleElement()
+        .satisfies(r -> assertThat(r.username()).isNull());
+  }
+
+  /**
    * 타 테넌트 HUMAN 은 멤버 목록·상세 어느 쪽에서도 보이지 않는다(#832). user 는 tenant_id/RLS 가 없는 전역 테이블이라 membership 조인이
    * 유일한 격리 수단이다.
    */

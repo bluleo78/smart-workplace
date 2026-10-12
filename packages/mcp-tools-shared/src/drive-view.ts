@@ -13,10 +13,18 @@ export function toDriveContentHitsView<R extends { hits: { fileId: number }[] }>
   return { ...r, hits: r.hits.map(({ fileId: _coreFileId, ...hit }) => hit) };
 }
 
-/** 드라이브 items/search 응답({folders, files}) → LLM 뷰. 폴더 행은 id 하나뿐이라 그대로 둔다. */
-export function toDriveItemsView<F, T extends { id: number; fileId: number }>(r: { folders: F[]; files: T[] }) {
+/**
+ * 폴더 행 → LLM 뷰. 공용 `id` 를 folderId 로 바꾼다(WP-353) — 폴더 쓰기 도구(rename·move·restore)의 입력 이름이자 휴지통 뷰
+ * (toDriveTrashView)가 이미 쓰는 이름이다. 폴더 행에는 core fileId 같은 겹치는 번호가 없어 이름 바꾸기만 하면 된다.
+ */
+export function toDriveFolderView<F extends { id: number }>({ id, ...rest }: F): Omit<F, 'id'> & { folderId: number } {
+  return { folderId: id, ...rest };
+}
+
+/** 드라이브 items/search 응답({folders, files}) → LLM 뷰. 폴더는 folderId, 파일은 driveFileId 로 가리킨다. */
+export function toDriveItemsView<F extends { id: number }, T extends { id: number; fileId: number }>(r: { folders: F[]; files: T[] }) {
   return {
-    folders: r.folders,
+    folders: r.folders.map(toDriveFolderView),
     files: r.files.map(({ id, fileId: _coreFileId, ...rest }): DriveFileView<T> => ({ ...rest, driveFileId: id }) as DriveFileView<T>),
   };
 }

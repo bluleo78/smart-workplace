@@ -39,4 +39,11 @@ describe('member-agent 정의 (#833)', () => {
   it('계정 생성은 도구가 없다는 안내가 있다 — 초기 비밀번호를 에이전트가 정하지 않기 위함', () => {
     expect(loaded['member-agent'].prompt).toMatch(/계정 생성/);
   });
+
+  // WP-352: search_members 가 번호 페이지라 hasMore·nextPage 로 이어 조회하게 한다.
+  it('search_members 의 hasMore·nextPage 안내가 있다', () => {
+    const prompt = loaded['member-agent'].prompt;
+    expect(prompt).toContain('`hasMore`·`nextPage`');
+    expect(prompt).toContain('`nextPage` 를 `page` 로 넘겨');
+  });
 });

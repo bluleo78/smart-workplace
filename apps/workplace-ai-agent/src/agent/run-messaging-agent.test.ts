@@ -12,9 +12,9 @@ import { runMessagingAgent } from './run-messaging-agent.js';
 import type { MessagingEventEnvelope } from '../types/messaging-events.js';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
 
-// 기본 stream 구현 — get_channel_messages tool_use → tool_done → result 순으로 발행.
+// 기본 stream 구현 — list_channel_messages tool_use → tool_done → result 순으로 발행.
 function defaultStreamImpl(_i: unknown, onEvent: (e: RunnerEvent) => void) {
-  onEvent({ type: 'tool_use', name: 'mcp__workplace__get_channel_messages', input: {}, parentToolUseId: null });
+  onEvent({ type: 'tool_use', name: 'mcp__workplace__list_channel_messages', input: {}, parentToolUseId: null });
   onEvent({ type: 'tool_done' });
   onEvent({ type: 'result', ok: true, text: null, usage: null });
   return { done: Promise.resolve(), kill: vi.fn() };
@@ -39,7 +39,7 @@ function deps() {
     client: {
       getProviderCredential: vi.fn(async () => ({ provider: 'anthropic', token: 'TK', model: null })),
       // #846: 최근 메시지 프리페치는 공유 도구용 클라이언트(toolClient) 경유.
-      toolClient: () => ({ getChannelMessages: vi.fn(async () => []) }),
+      toolClient: () => ({ listChannelMessages: vi.fn(async () => ({ items: [] })) }),
       postMessagingProgress: vi.fn().mockResolvedValue(undefined),
     } as unknown as WorkplaceApiClient,
   };
@@ -68,6 +68,20 @@ describe('runMessagingAgent', () => {
       onBehalfOfId: 99,
       delegationContext: expect.objectContaining({ actorId: 7, channelId: 42 }),
     });
+  });
+
+  it('WP-352: 최근 메시지 프리페치는 listChannelMessages(channelId, {limit}) 의 items 로 대화 흐름을 만든다', async () => {
+    const listChannelMessages = vi.fn(async () => ({
+      items: [{ id: 1, authorName: '홍길동', authorKind: 'HUMAN', body: '이전 대화 본문', deleted: false }],
+      nextCursor: 'older==',
+      hasMore: true,
+    }));
+    const d = deps();
+    (d.client as unknown as { toolClient: () => unknown }).toolClient = () => ({ listChannelMessages });
+    await runMessagingAgent(env, d);
+    expect(listChannelMessages).toHaveBeenCalledWith(42, { limit: 20 });
+    const runCall = vi.mocked(streamSpy).mock.calls[0][0] as { prompt?: string; userMessage?: string };
+    expect(JSON.stringify(runCall)).toContain('이전 대화 본문');
   });
 
   it('토큰 fetch 실패 시 spawn 생략', async () => {
@@ -114,7 +128,7 @@ describe('runMessagingAgent 진행 발행', () => {
     const testDeps = {
       client: {
         getProviderCredential: vi.fn().mockResolvedValue({ provider: 'anthropic', token: 't', model: null }),
-        toolClient: () => ({ getChannelMessages: vi.fn().mockResolvedValue([]) }),
+        toolClient: () => ({ listChannelMessages: vi.fn().mockResolvedValue({ items: [] }) }),
         postMessagingProgress,
       },
     } as never;

@@ -1,5 +1,6 @@
 package com.workplace.drive.controller;
 
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -8,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.workplace.auth.repository.AgentApiKeyRepository;
 import com.workplace.auth.repository.UserApiTokenRepository;
 import com.workplace.drive.dto.DriveFolderPathSegment;
+import com.workplace.drive.dto.DriveItemListResponse;
 import com.workplace.drive.exception.DriveFolderNotFoundException;
 import com.workplace.drive.service.DriveFolderService;
 import com.workplace.global.config.SecurityConfig;
@@ -96,5 +98,29 @@ class DriveFolderPathControllerTest {
   @Test
   void path_withoutAuth_returns401() throws Exception {
     mockMvc.perform(get("/api/v1/drive/folders/11/path")).andExpect(status().isUnauthorized());
+  }
+
+  /**
+   * items 목록의 limit·offset 이 서비스로 전달된다(WP-352). 파라미터가 없으면 null 로 가 전체 응답을 유지한다 — 웹 브라우즈는 파라미터 없이
+   * 호출한다.
+   */
+  @Test
+  void items_passesLimitAndOffsetToService_andNullsWhenAbsent() throws Exception {
+    when(folderService.listItems(1L, 5L, null, 11, 20))
+        .thenReturn(new DriveItemListResponse(List.of(), List.of()));
+    when(folderService.listItems(1L, 5L, null, null, null))
+        .thenReturn(new DriveItemListResponse(List.of(), List.of()));
+
+    mockMvc
+        .perform(
+            get("/api/v1/drive/spaces/5/items?limit=11&offset=20")
+                .header("Authorization", "Bearer test-token"))
+        .andExpect(status().isOk());
+    mockMvc
+        .perform(get("/api/v1/drive/spaces/5/items").header("Authorization", "Bearer test-token"))
+        .andExpect(status().isOk());
+
+    verify(folderService).listItems(1L, 5L, null, 11, 20);
+    verify(folderService).listItems(1L, 5L, null, null, null);
   }
 }

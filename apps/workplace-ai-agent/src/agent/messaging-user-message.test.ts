@@ -27,6 +27,36 @@ describe('buildMessagingUserMessage', () => {
     expect(msg).toContain('채널');
   });
 
+  it('WP-352: 더 과거 대화는 list_channel_messages 의 nextCursor 로 이어 읽도록 안내하고 옛 이름·"100건까지만" 은 없다', () => {
+    const msg = buildMessagingUserMessage(payload, recent);
+    expect(msg).toContain('list_channel_messages(42)');
+    expect(msg).toContain('nextCursor 를 cursor 로 넘기면');
+    expect(msg).not.toContain('get_channel_messages');
+    expect(msg).not.toContain('100건까지만');
+  });
+
+  // WP-353: 도구 출력(list_channel_messages)은 멘션을 이름으로 푸는데 prefetch 가 원시 토큰을 넣으면 모델이 숫자 id 를 본다.
+  it('트리거·최근 대화의 <@id> 멘션 토큰을 @이름(username) 으로 풀고 숫자 id 를 노출하지 않는다', () => {
+    const p: MessagingMessagePostedPayload = {
+      ...payload,
+      body: '<@99> 이거 <@7> 와 같이 봐줘 <@555>',
+      mentions: [
+        { id: 99, username: 'ai', name: 'AI', kind: 'AGENT' },
+        { id: 7, username: 'alice', name: 'Alice', kind: 'HUMAN' },
+      ],
+    };
+    const history: ChannelMessageItem[] = [
+      { id: 8, authorName: 'Bob', authorKind: 'HUMAN', body: '<@7> 확인 부탁', createdAt: 't', deleted: false, mentions: [{ id: 7, username: 'alice', name: 'Alice' }] },
+      { id: 9, authorName: 'Bob', authorKind: 'HUMAN', body: '<@123> 도 참고', createdAt: 't', deleted: false },
+      { id: 10, authorName: 'Bob', authorKind: 'HUMAN', body: '<@7> 지움', createdAt: 't', deleted: true },
+    ];
+    const msg = buildMessagingUserMessage(p, history);
+    expect(msg).toContain('메시지: "@AI(ai) 이거 @Alice(alice) 와 같이 봐줘 @(알 수 없는 사용자)"');
+    expect(msg).toContain('- [Bob] @Alice(alice) 확인 부탁');
+    expect(msg).toContain('- [Bob] @(알 수 없는 사용자) 도 참고');
+    expect(msg).not.toMatch(/<@\d+>/);
+  });
+
   it('DM 이면 1:1 DM 표기', () => {
     const dm = { ...payload, channelKind: 'DM' };
     expect(buildMessagingUserMessage(dm, recent)).toContain('1:1 DM');

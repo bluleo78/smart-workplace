@@ -8,7 +8,7 @@ import type { SharedTool } from './mcp-tool.js';
 import { requireActiveMember } from './member-tools.js';
 import { defaultListAssignee, resolveCycleFilter } from './resolve.js';
 import { formatIssueKey } from './parse.js';
-import { dropEmpty } from './compact.js';
+import { cursorPageView, dropEmpty, numberedPageView, omitKeys } from './compact.js';
 import { labelNames, toChildrenView, toParentView, toPeopleView, toSeoulIso, typeName } from './issue-view.js';
 import { listIssuesInput } from './schemas.js';
 import type { CreateProjectBody, IssueListQuery, IssueRow, MemberToolClient, ProjectToolClient } from './tool-client.js';
@@ -80,6 +80,18 @@ export function toIssueListItem(it: IssueRow) {
   };
 }
 
+/**
+ * 프로젝트 응답 → LLM 뷰. 소유자 ownerId 는 숫자 사용자 ID 라 내보내지 않는다(#833, WP-353). 서버 응답에는 소유자 이름이 없지만
+ * 소유자는 get_project 의 members 에 role: OWNER 로 username·name 과 함께 나오므로(이미 함께 조회하는 값) 정보가 사라지지 않는다.
+ * 크기 정리(WP-353): 프로젝트 도구는 모두 projectKey 로 가리키므로 숫자 id 를 빼고(서버 필드 key 는 projectKey 로 이름을 바꾼다), 상위 3명 이름(memberNames — 프론트 아바타용)과
+ * 기본 프로젝트가 아닐 때의 isDefault:false, 값이 없는 키(설명 null 등)를 뺀다. 프로젝트마다 반복되는 필드라 목록에서 효과가 크다.
+ */
+export function toProjectView(project: Record<string, unknown>) {
+  // 서버 필드 key 는 출력에서 projectKey 로 부른다 — 이 값을 받는 입력(get_project·list_issues·create_issue 등)과 같은 이름(README 파라미터 명명 규칙 2).
+  const { isDefault, key, ...rest } = omitKeys(project, 'ownerId', 'id', 'memberNames');
+  return dropEmpty({ ...(key !== undefined && { projectKey: key }), ...rest, ...(isDefault === true && { isDefault: true }) });
+}
+
 /** 프로젝트 멤버 → LLM 뷰. 숫자 userId 는 빼고 사람을 가리키는 username 만 준다(#833). get_project 의 members 에 쓴다. */
 export function toProjectMemberView({ username, name, role }: { username: string; name?: string; role?: string }) {
   return { username, name, role };
@@ -92,11 +104,16 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       name: 'list_projects',
       app: ['project', 'issue'],
       kind: 'read',
-      description: '접근 가능한 프로젝트 목록을 JSON 으로 반환합니다. page/size 로 페이지네이션합니다(기본 0/50).',
+      description:
+        '접근 가능한 프로젝트 목록을 JSON({items, total, hasMore?, nextPage?})으로 반환합니다(항목: projectKey·name·description·type·issueTotal·issueDone·memberCount·viewerIsMember 등, 값이 없는 키는 생략). ' +
+        'total 은 전체 프로젝트 수입니다. ' +
+        'page/size 로 페이지네이션합니다(기본 0/50, size 최대 100). hasMore 가 있으면(true) 뒤에 더 있다는 뜻이니 nextPage 를 page 로 넘겨 이어 조회하거나, ' +
+        '이어 조회하지 않고 답한다면 목록이 일부만 담겼다고 밝히세요.',
       inputSchema: listProjectsInput,
       async handler(args) {
         const { page, size } = listProjectsInput.parse(args);
-        return JSON.stringify(await client.listProjects(page, size));
+        const result = await client.listProjects(page, size);
+        return JSON.stringify(numberedPageView((result.items as Record<string, unknown>[]).map(toProjectView), result));
       },
     },
     {
@@ -104,7 +121,7 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       app: ['project', 'issue'],
       kind: 'read',
       description:
-        '프로젝트 상세(key·name·description·type)와 이 프로젝트에서 쓸 수 있는 이슈 유형(issueTypes)·라벨(labels)·마일스톤(milestones) 이름, ' +
+        '프로젝트 상세(projectKey·name·description·type)와 이 프로젝트에서 쓸 수 있는 이슈 유형(issueTypes)·라벨(labels)·마일스톤(milestones) 이름, ' +
         '사이클(cycles: name·status), 멤버(members: username·name·role)를 JSON 으로 반환합니다. ' +
         'create_issue/update_issue 의 type·labels·milestone·cycles 는 이 목록의 이름만, assignees 는 members 의 username 만 사용하세요.',
       inputSchema: projectKeyInput,
@@ -120,7 +137,7 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
           client.getProjectMembers(projectKey),
         ]);
         return JSON.stringify({
-          ...project,
+          ...toProjectView(project as Record<string, unknown>),
           issueTypes: types.map((t) => t.name),
           labels: labels.map((l) => l.name),
           milestones: milestones.map((m) => m.name),
@@ -134,7 +151,10 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       app: 'issue',
       kind: 'read',
       description:
-        '이슈 목록을 JSON 배열로 반환합니다. assignee·reporter 둘 다 생략 시 내 담당("me")이고, 담당자와 무관하게 보려면 assignee="any". ' +
+        '이슈 목록을 JSON({items, hasMore?, nextCursor?})으로 반환합니다. 한 번에 size 건(기본 30, 최대 100)만 담기므로, 끝이 아니면 hasMore:true 와 nextCursor 가 옵니다 — ' +
+        '그 값을 cursor 로 넘겨(필터·size 는 같게) 이어 조회하거나, 이어 조회하지 않고 답한다면 목록이 일부만 담겼다고 밝히세요(전부로 오해해 집계하지 마세요). ' +
+        'hasMore 가 있어도 다음 페이지가 비어 있을 수 있고, 그러면 끝입니다. 이 키들이 없으면 전부 담긴 것입니다. ' +
+        'assignee·reporter 둘 다 생략 시 내 담당("me")이고, 담당자와 무관하게 보려면 assignee="any". ' +
         'projectKey·status·priority·label·type·cycle·q·dueFrom/dueTo·blocked·topLevel 로 좁힙니다. ' +
         '사람은 username, 라벨·유형은 이름으로 지정하고(get_project 가 목록 제공), 없는 값이면 사용 가능 목록을 담은 오류가 옵니다. ' +
         'closedFrom/closedTo(종료일)·createdFrom/createdTo(생성일)는 Asia/Seoul 날짜(yyyy-MM-dd, 양끝 포함)이며, 종료일 범위는 DONE·CANCELED 모두 걸리니 ' +
@@ -153,9 +173,10 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
         );
         if (priority?.length) query.priority = priority.join(',');
         query.size = size ?? 30;
-        const items = await client.listIssues(query);
+        const page = await client.listIssues(query);
         // #850: 행마다 반복되는 null·빈 배열 키는 빼 토큰을 줄인다(빠진 키 = 값 없음).
-        return JSON.stringify(items.map((it) => dropEmpty(toIssueListItem(it))));
+        // WP-352: size 를 안 줘도 기본 30건에서 잘리므로, 다음 페이지가 있으면 hasMore·nextCursor 로 알린다(없으면 생략).
+        return JSON.stringify(cursorPageView(page.items.map((it) => dropEmpty(toIssueListItem(it))), page));
       },
     },
     {
@@ -169,12 +190,11 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       async handler(args) {
         const { projectKey, name, description } = updateProjectInput.parse(args);
         // 서버 PATCH 는 부분 수정(#858) — 준 필드만 보낸다. 설명 비우기(null)는 clearDescription 플래그로 표현한다.
-        return JSON.stringify(
-          await client.updateProject(
-            projectKey,
-            description === null ? { name, clearDescription: true } : { name, description },
-          ),
+        const updated = await client.updateProject(
+          projectKey,
+          description === null ? { name, clearDescription: true } : { name, description },
         );
+        return JSON.stringify(toProjectView(updated as Record<string, unknown>));
       },
     },
     {
@@ -191,7 +211,7 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
         '다시 부르면 같은 키는 충돌 오류가 나고, PERSONAL 은 프로젝트가 하나 더 생깁니다.',
       inputSchema: createProjectInput,
       async handler(args) {
-        return JSON.stringify(await client.createProject(toCreateProjectBody(createProjectInput.parse(args))));
+        return JSON.stringify(toProjectView((await client.createProject(toCreateProjectBody(createProjectInput.parse(args)))) as Record<string, unknown>));
       },
     },
     {

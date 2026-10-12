@@ -51,7 +51,7 @@ export const TOOL_APP_GUIDES: Record<ToolApp, ToolAppGuide> = {
   wiki: { label: '위키(노트)', read: '페이지 검색·조회·백링크', write: '페이지 생성·수정·이동', entry: ['search_wiki', 'get_wiki_page'] },
   drive: { label: '드라이브', read: '파일 검색·요약·내용 읽기·휴지통 조회', write: '폴더 생성·이름 변경·이동·휴지통 복원', entry: ['list_drive_items', 'search_drive'] },
   mail: { label: '메일', read: '메일 조회·요약·답장·이슈 초안', write: '읽음 처리·동기화·메일로 이슈 생성(발송은 불가)', entry: ['list_mail_accounts', 'list_mail'] },
-  messaging: { label: '채널·DM', read: '채널·메시지·스레드 조회', write: '메시지 작성·채널 생성·초대·DM', entry: ['list_channels', 'get_channel_messages'] },
+  messaging: { label: '채널·DM', read: '채널·메시지·스레드 조회', write: '메시지 작성·채널 생성·초대·DM', entry: ['list_channels', 'list_channel_messages'] },
   calendar: { label: '캘린더', read: '일정 조회', write: '일정 생성·수정·참석자 변경·참석 응답', entry: ['list_events', 'get_event'] },
   contacts: { label: '연락처', read: '연락처·그룹 조회', write: '즐겨찾기·그룹·외부 연락처 관리', entry: ['list_contacts', 'list_user_groups'] },
   notify: { label: '알림', read: '알림 조회', write: '읽음 처리', entry: ['list_notifications'] },

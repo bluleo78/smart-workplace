@@ -7,6 +7,7 @@ import { resultText } from './mcp-content.js';
 function mockClient(): MemberToolClient {
   return {
     searchMembers: vi.fn().mockResolvedValue([]),
+    searchMembersPage: vi.fn().mockResolvedValue({ items: [], hasMore: false, page: 0 }),
     getMemberContact: vi.fn().mockResolvedValue({}),
     listContacts: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
     getExternalContact: vi.fn().mockResolvedValue({}),
@@ -24,12 +25,22 @@ describe('buildMemberTools (#833)', () => {
     expect(names.some((n) => n.startsWith('propose_'))).toBe(false);
   });
 
-  it('search_members → kind 기본값 HUMAN, page 0, size 20 으로 client.searchMembers 호출', async () => {
+  it('search_members → kind 기본값 HUMAN, page 0, size 20 으로 client.searchMembersPage 호출', async () => {
     const c = mockClient();
-    vi.mocked(c.searchMembers).mockResolvedValue([{ userId: 3, username: 'minsu', name: '김민수' }]);
+    vi.mocked(c.searchMembersPage).mockResolvedValue({ items: [{ userId: 3, username: 'minsu', name: '김민수' }], total: 1, hasMore: false, page: 0 });
     const out = await tool(c, 'search_members').handler({ search: '김' });
-    expect(c.searchMembers).toHaveBeenCalledWith({ search: '김', kind: 'HUMAN', page: 0, size: 20 });
-    expect(JSON.parse(resultText(out))).toEqual([{ userId: 3, username: 'minsu', name: '김민수' }]);
+    expect(c.searchMembersPage).toHaveBeenCalledWith({ search: '김', kind: 'HUMAN', page: 0, size: 20 });
+    // 마지막 페이지면 total 만 싣고 hasMore·nextPage 는 생략한다(WP-352).
+    // 숫자 userId 는 내보내지 않는다 — 사람은 username 으로(#833, WP-353).
+    expect(JSON.parse(resultText(out))).toEqual({ items: [{ username: 'minsu', name: '김민수' }], total: 1 });
+  });
+
+  it('WP-352: search_members 는 다음 페이지가 있으면 hasMore:true·nextPage·total 을 싣는다', async () => {
+    const c = mockClient();
+    vi.mocked(c.searchMembersPage).mockResolvedValue({ items: [{ userId: 3, username: 'minsu', name: '김민수' }], total: 45, hasMore: true, page: 0 });
+    const out = JSON.parse(resultText(await tool(c, 'search_members').handler({ search: '김', size: 20 })));
+    expect(out).toEqual({ items: [{ username: 'minsu', name: '김민수' }], total: 45, hasMore: true, nextPage: 1 });
+    expect(tool(c, 'search_members').description).toContain('일부만 본 것이라고 밝히세요');
   });
 
   it('get_member 는 username 정확일치 항목을 돌려준다(비활성 포함·ALL 로 조회)', async () => {
@@ -39,7 +50,8 @@ describe('buildMemberTools (#833)', () => {
       { userId: 3, username: 'minsu', name: '김민수' },
     ]);
     const out = JSON.parse(resultText(await tool(c, 'get_member').handler({ username: 'minsu' })));
-    expect(out).toMatchObject({ userId: 3, username: 'minsu' });
+    expect(out).toMatchObject({ username: 'minsu', name: '김민수' });
+    expect(out).not.toHaveProperty('userId');
     expect(c.searchMembers).toHaveBeenCalledWith({
       search: 'minsu',
       kind: 'ALL',
@@ -55,22 +67,26 @@ describe('buildMemberTools (#833)', () => {
     await expect(tool(c, 'get_member').handler({ username: 'ghost' })).rejects.toThrow(/구성원을 찾을 수 없습니다: ghost/);
   });
 
-  it('get_member_contact 는 응답의 공용 id 를 userId 로 바꿔 모호함을 없앤다', async () => {
+  it('get_member_contact 는 응답의 공용 id(= 숫자 사용자 ID)를 내보내지 않고 username·name 으로 가리킨다 (#833, WP-353)', async () => {
     const c = mockClient();
     vi.mocked(c.searchMembers).mockResolvedValue([{ userId: 3, username: 'minsu', name: '김민수' }]);
-    vi.mocked(c.getMemberContact).mockResolvedValue({ id: 3, title: '팀장', groups: ['팀A'], isFavorite: true });
+    // 서버 MemberDetail 모양 — id 외에 username·name 이 이미 함께 온다.
+    vi.mocked(c.getMemberContact).mockResolvedValue({
+      id: 3, username: 'minsu', name: '김민수', email: 'm@x.com', title: '팀장', kind: 'HUMAN', groups: ['팀A'], isFavorite: true,
+    });
     const out = JSON.parse(resultText(await tool(c, 'get_member_contact').handler({ username: 'minsu' })));
     expect(c.getMemberContact).toHaveBeenCalledWith(3);
-    expect(out).toEqual({ userId: 3, title: '팀장', groups: ['팀A'], isFavorite: true });
+    expect(out).toEqual({ username: 'minsu', name: '김민수', email: 'm@x.com', title: '팀장', kind: 'HUMAN', groups: ['팀A'], isFavorite: true });
     expect(out).not.toHaveProperty('id');
+    expect(out).not.toHaveProperty('userId');
   });
 
   it('get_member_contact 는 groups 가 없으면 [] 로 채운다', async () => {
     const c = mockClient();
     vi.mocked(c.searchMembers).mockResolvedValue([{ userId: 3, username: 'minsu', name: '김민수' }]);
-    vi.mocked(c.getMemberContact).mockResolvedValue({ id: 3 });
+    vi.mocked(c.getMemberContact).mockResolvedValue({ id: 3, username: 'minsu' });
     const out = JSON.parse(resultText(await tool(c, 'get_member_contact').handler({ username: 'minsu' })));
-    expect(out).toEqual({ userId: 3, groups: [] });
+    expect(out).toEqual({ username: 'minsu', groups: [] });
   });
 
   it('get_member_contact 는 없는 username 이면 연락처를 조회하지 않고 오류로 던진다', async () => {
@@ -79,12 +95,12 @@ describe('buildMemberTools (#833)', () => {
     expect(c.getMemberContact).not.toHaveBeenCalled();
   });
 
-  it('list_contacts 는 MEMBER→userId, EXTERNAL→externalId 로 분리하고 공용 id 를 내보내지 않는다', async () => {
+  it('list_contacts 는 MEMBER→username, EXTERNAL→externalId 로 분리하고 공용 id·userId 를 내보내지 않는다', async () => {
     // 두 타입이 같은 숫자 id 를 갖는 상황이 정확히 오용의 원인이었다 — 같은 값으로 검증한다.
     const c = mockClient();
     vi.mocked(c.listContacts).mockResolvedValue({
       items: [
-        { id: 7, type: 'MEMBER', name: '김구성원', email: 'm@x.com', title: null, organization: null, isFavorite: false },
+        { id: 7, type: 'MEMBER', username: 'kim', name: '김구성원', email: 'm@x.com', title: null, organization: null, isFavorite: false },
         { id: 7, type: 'EXTERNAL', name: '김외부', email: 'e@x.com', title: null, organization: 'X사', isFavorite: true },
       ],
       nextCursor: 'c1',
@@ -93,8 +109,9 @@ describe('buildMemberTools (#833)', () => {
       items: Record<string, unknown>[];
       nextCursor: string | null;
     };
-    expect(out.items[0]).toMatchObject({ type: 'MEMBER', userId: 7 });
+    expect(out.items[0]).toMatchObject({ type: 'MEMBER', username: 'kim' });
     expect(out.items[0]).not.toHaveProperty('externalId');
+    expect(out.items[0]).not.toHaveProperty('userId'); // 숫자 사용자 ID 는 내보내지 않는다(WP-353)
     expect(out.items[1]).toMatchObject({ type: 'EXTERNAL', externalId: 7, organization: 'X사', isFavorite: true });
     expect(out.items[1]).not.toHaveProperty('userId');
     expect(out.items[0]).not.toHaveProperty('id');
@@ -111,7 +128,17 @@ describe('buildMemberTools (#833)', () => {
   it('list_contacts 는 null 응답이면 빈 목록을 돌려준다', async () => {
     const c = mockClient();
     vi.mocked(c.listContacts).mockResolvedValue(null);
-    expect(JSON.parse(resultText(await tool(c, 'list_contacts').handler({})))).toEqual({ items: [], nextCursor: null });
+    expect(JSON.parse(resultText(await tool(c, 'list_contacts').handler({})))).toEqual({ items: [] });
+  });
+
+  it('list_contacts → 다음 페이지가 있으면 hasMore·nextCursor, 없으면 생략한다 (WP-352)', async () => {
+    const c = mockClient();
+    vi.mocked(c.listContacts).mockResolvedValue({ items: [{ type: 'MEMBER', name: '김', username: 'kim' }], nextCursor: 'c2' });
+    expect(JSON.parse(resultText(await tool(c, 'list_contacts').handler({})))).toMatchObject({ hasMore: true, nextCursor: 'c2' });
+    vi.mocked(c.listContacts).mockResolvedValue({ items: [], nextCursor: null });
+    const last = JSON.parse(resultText(await tool(c, 'list_contacts').handler({})));
+    expect(last).not.toHaveProperty('nextCursor');
+    expect(last).not.toHaveProperty('hasMore');
   });
 
   it('get_external_contact 는 externalId 를 받는다 — id/userId 키는 스키마 거부', async () => {
@@ -133,7 +160,7 @@ describe('toContactView', () => {
       title: null,
       organization: null,
       isFavorite: false,
-      userId: 1,
+      username: null,
     });
   });
 });

@@ -1,6 +1,8 @@
 // src/mail-tools.ts — 메일 읽기 도구 + 메일 AI(요약·답장 초안·이슈 초안) + 메일→이슈·회신필요 처리. 두 앱 공유(#846, #855).
 // 발송은 ai-agent 의 propose_send_mail(확인 카드)만 — 답장 초안 도구는 본문을 돌려줄 뿐 저장·발송하지 않는다.
 import { z } from 'zod';
+import { dropEmpty, omitKeys } from './compact.js';
+import { htmlToText } from './html-text.js';
 import type { SharedTool } from './mcp-tool.js';
 import { resolveAssigneeIds, type AssigneeResolverClient } from './resolve.js';
 import type { MailToolClient } from './tool-client.js';
@@ -26,6 +28,45 @@ export const createIssueFromMailInput = z.object({
 export const markMailReadInput = z.object({ messageId: z.number().int().positive() });
 export const syncMailInput = z.object({ accountId: z.number().int().positive() });
 
+type Raw = Record<string, unknown>;
+
+/**
+ * 메일 목록 행(EmailMessageSummary) → LLM 뷰(WP-353). 호출자가 이미 아는 accountId 와 쓸 곳 없는 threadId 를 빼고, 값이 없는 키(aiCategory·
+ * aiNeedsReply 가 null 인 미분류 메일)를 지운다. categoryPending 은 "분류 전" 일 때(true)만 싣는다 — 대부분의 행에서 false 라 반복 노이즈다.
+ * 회신 필요 = aiNeedsReply 가 true 이고 seen 이 false(서버 단일 술어).
+ */
+export function toMailListItem(row: Raw): Raw {
+  const { categoryPending, ...rest } = omitKeys(row, 'accountId', 'threadId');
+  return dropEmpty({ ...rest, ...(categoryPending === true && { categoryPending: true }) });
+}
+
+/**
+ * 메일 상세(EmailMessageDetail) → LLM 뷰(WP-353). 본문은 bodyText 하나만 준다 — 서버는 text·html 을 둘 다 보내는데 HTML 은 같은 내용을
+ * 태그·인라인 스타일로 부풀린 것이라 토큰만 먹는다. 평문이 비어 있고 HTML 만 있는 메일(HTML 전용 발송)은 HTML 을 평문으로 바꿔 채운다.
+ * 헤더 메시지 id(messageId)·스레드 id 는 답장 헤더용 내부 값이라 뺀다. 첨부의 인라인 이미지 참조(contentId)도 뺀다.
+ */
+export function toMailDetailView(raw: Raw): Raw {
+  const { bodyText, bodyHtml, attachments, ...rest } = omitKeys(raw, 'threadId', 'messageId');
+  const text = typeof bodyText === 'string' ? bodyText : '';
+  const html = typeof bodyHtml === 'string' ? bodyHtml : '';
+  const body = text.trim() === '' && html.trim() !== '' ? htmlToText(html) : text;
+  return dropEmpty({
+    ...rest,
+    bodyText: body,
+    attachments: Array.isArray(attachments) ? attachments.map((a) => omitKeys(a as Raw, 'contentId')) : attachments,
+  });
+}
+
+/**
+ * sync_mail 결과 → LLM 뷰(WP-353). 서버 MailSyncResult 의 건수(fetched 처리 항목, saved 새로 적재, seenChanged 읽음 상태 반영)를 그대로 준다 —
+ * 예전에는 결과를 버리고 늘 "완료" 만 돌려줘 새 메일이 있었는지 알 수 없었다.
+ */
+export function toSyncResultView(raw: unknown): { fetched: number; saved: number; seenChanged: number } {
+  const r = (raw ?? {}) as Raw;
+  const n = (v: unknown) => (typeof v === 'number' ? v : 0);
+  return { fetched: n(r.fetched), saved: n(r.saved), seenChanged: n(r.seenChanged) };
+}
+
 /**
  * 메일 도구(list_mail_accounts/list_mail/get_mail/get_mail_summary/draft_mail_reply/draft_issue_from_mail/
  * create_issue_from_mail/mark_mail_read/sync_mail). 모두 내 메일만 다룬다(남의 메일이면 서버가 404).
@@ -47,12 +88,15 @@ export function buildMailTools(client: MailToolClient & AssigneeResolverClient):
       app: 'mail',
       kind: 'read',
       description:
-        '메일 계정의 폴더 메시지 목록을 JSON 으로 반환합니다. folder 기본 INBOX, limit 기본 20, query 로 내용 검색(제목/발신/스니펫). ' +
+        '메일 계정의 폴더 메시지 목록을 JSON 배열로 반환합니다(항목: id·fromAddress·fromName·subject·snippet·receivedAt·seen·hasAttachment·aiCategory·aiNeedsReply). ' +
+        'folder 기본 INBOX, limit 기본 20, query 로 내용 검색(제목/발신/스니펫). 값이 없는 키(분류 전 메일의 aiCategory·aiNeedsReply)는 생략되고, ' +
+        '"분류 전" 인 메일만 categoryPending:true 가 붙습니다. 회신 필요는 aiNeedsReply 가 true 이고 seen 이 false 인 메일입니다. ' +
         '안 읽은 메일만 보려면 query 에 "is:unread" 같은 검색어를 쓰지 말고 unreadOnly:true 를 사용하세요. accountId 는 list_mail_accounts 의 id 입니다.',
       inputSchema: listMailInput,
       async handler(args) {
         const { accountId, folder, limit, query, unreadOnly } = listMailInput.parse(args);
-        return JSON.stringify(await client.listMail(accountId, { folder, limit, query, unread: unreadOnly }));
+        const rows = (await client.listMail(accountId, { folder, limit, query, unread: unreadOnly })) as Raw[];
+        return JSON.stringify(Array.isArray(rows) ? rows.map(toMailListItem) : rows);
       },
     },
     {
@@ -60,11 +104,12 @@ export function buildMailTools(client: MailToolClient & AssigneeResolverClient):
       app: 'mail',
       kind: 'read',
       description:
-        '단일 메일 본문(텍스트/HTML)을 JSON 으로 반환합니다. 조회만으로는 읽음 처리되지 않습니다(읽음 처리는 mark_mail_read). messageId 는 list_mail 결과 항목의 id 입니다.',
+        '단일 메일을 JSON 으로 반환합니다. 본문은 평문 bodyText 하나로 옵니다(HTML 전용 메일은 HTML 을 평문으로 바꿔 채우며, 서식·링크 주소·이미지는 없습니다). ' +
+        '조회만으로는 읽음 처리되지 않습니다(읽음 처리는 mark_mail_read). messageId 는 list_mail 결과 항목의 id 입니다.',
       inputSchema: getMailInput,
       async handler(args) {
         const { messageId } = getMailInput.parse(args);
-        return JSON.stringify(await client.getMail(messageId));
+        return JSON.stringify(toMailDetailView((await client.getMail(messageId)) as Raw));
       },
     },
     // AI 세 도구는 메일·사용자 데이터를 바꾸지 않아 read 다(요약은 서버 캐시만 채운다). 단 LLM 호출 비용이 든다.
@@ -159,13 +204,22 @@ export function buildMailTools(client: MailToolClient & AssigneeResolverClient):
       description:
         '지정 메일 계정의 받은편지함을 연결된 외부 메일 서버(M365 Graph/IMAP)와 수동 동기화합니다. 새 메일을 가져올 뿐 아니라 ' +
         '이미 가져온 메일의 읽음 상태를 서버 값으로 덮어쓰고(IMAP 은 최근 14일·500건까지), M365 는 서버에서 지워진 메일을 로컬에서도 지웁니다. ' +
-        '이미 이 계정을 동기화 중이면 아무것도 하지 않고 바로 끝나며, 완료 응답만으로는 새 메일이 들어왔는지 알 수 없으니 list_mail 로 확인하세요. ' +
+        '결과는 JSON({fetched, saved, seenChanged})입니다 — saved 는 새로 가져온 메일 수, seenChanged 는 서버 읽음 상태를 따라 바뀐 기존 메일 수, ' +
+        'fetched 는 처리한 항목 수입니다. 셋 다 0 이면 새로 들어온 것도 바뀐 것도 없다는 뜻입니다. ' +
+        '이미 이 계정을 동기화 중이면 새로 시작하지 않고 { alreadySyncing: true, phase, done, total } 을 돌려주니, 잠시 뒤 다시 호출하거나 list_mail 로 확인하세요. ' +
+        '이 감지는 최선의 노력입니다 — 확인 직후 다른 동기화가 시작되면 셋 다 0 으로 와서 "새것 없음" 처럼 보일 수 있으니, 중요한 판단은 list_mail 로 확인하세요. ' +
         'accountId 는 list_mail_accounts 로 확인하세요.',
       inputSchema: syncMailInput,
       async handler(args) {
         const { accountId } = syncMailInput.parse(args);
-        await client.syncMail(accountId);
-        return '동기화를 완료했습니다.';
+        // 서버는 이미 동기화 중이면 건수 0·0·0 을 돌려줘 "새 메일 없음" 과 구분되지 않는다 — 진행 상태를 먼저 보고 구분해 알린다.
+        // best-effort: 확인과 호출 사이에 다른 동기화가 시작되면 서버가 0·0·0 을 돌려 "새것 없음" 으로 읽힌다. 호출 뒤에 다시 확인하지 않는 이유는
+        // 본문 백필이 BODIES 단계에서 running 을 남겨 우리 자신의 동기화를 "이미 동기화 중" 으로 오판하기 때문이다.
+        const status = await client.getMailSyncStatus(accountId);
+        if (status.running) {
+          return JSON.stringify({ alreadySyncing: true, phase: status.phase, done: status.done, total: status.total });
+        }
+        return JSON.stringify(toSyncResultView(await client.syncMail(accountId)));
       },
     },
   ];

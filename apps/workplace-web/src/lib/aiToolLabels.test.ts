@@ -33,6 +33,8 @@ describe('getToolDisplay — 옛 도구 이름 폴백', () => {
     expect(getToolDisplay('mcp__workplace__get_thread_replies').label).toBe('스레드 답글 조회');
     expect(getToolDisplay('get_wiki_backlinks').label).toBe('노트 백링크 조회');
     expect(getToolDisplay('get_chat_thread').label).toBe('대화 조회');
+    // WP-352: get_channel_messages → list_channel_messages
+    expect(getToolDisplay('mcp__workplace__get_channel_messages')).toEqual({ label: '채널 메시지 조회', icon: '💬' });
     // WP-346: 이슈 챗 첨부 읽기(opencode 형식 접두 포함)
     expect(getToolDisplay('workplace_read_attachment_text')).toEqual({ label: '첨부 읽기', icon: '📎' });
     expect(getToolDisplay('read_chat_thread_attachment').label).toBe('첨부 읽기');
@@ -40,6 +42,7 @@ describe('getToolDisplay — 옛 도구 이름 폴백', () => {
     // 새 이름은 공유 TOOL_LABELS 에서 같은 라벨을 쓴다.
     expect(getToolDisplay('update_comment').label).toBe('코멘트 수정');
     expect(getToolDisplay('list_thread_replies').label).toBe('스레드 답글 조회');
+    expect(getToolDisplay('list_channel_messages')).toEqual(TOOL_LABELS.list_channel_messages);
   });
   it('현재 이름은 공유 TOOL_LABELS 라벨을 그대로 쓴다', () => {
     expect(getToolDisplay('update_issue')).toEqual(TOOL_LABELS.update_issue);
