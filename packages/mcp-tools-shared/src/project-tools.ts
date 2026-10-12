@@ -387,8 +387,9 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
               : await client.getProjectCycles(projectKey)
         ) as ({ id: number; name: string } & Record<string, unknown>)[];
         const current = rowByName(rows, name, META_KIND_LABEL[kind]);
-        // 빈 문자열은 비우기(null) — 서버 본문에서 null 이면 그 값이 지워진다.
+        // 빈 문자열은 비우기(null) — 서버 본문에서 null 이면 그 값이 지워진다. 마일스톤 기한은 서버 필수라 비울 수 없다(쓰기 전에 거부).
         const given: Record<string, unknown> = blankAs(rest, null);
+        if (kind === 'milestone' && given.dueDate === null) throw new Error('마일스톤 dueDate 는 비울 수 없습니다(yyyy-MM-dd 로 바꾸세요).');
         const merged: Record<string, unknown> = { name: newName ?? current.name };
         if (kind === 'label') merged.colorToken = labelColor(color) ?? current.colorToken;
         else for (const k of META_FIELDS[kind]) merged[k] = given[k] === undefined ? current[k] : given[k];

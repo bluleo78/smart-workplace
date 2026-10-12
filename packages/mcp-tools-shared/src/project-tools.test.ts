@@ -601,6 +601,15 @@ describe('create_project_meta·update_project_meta (WP-356)', () => {
     expect(c.createProjectMeta).toHaveBeenCalledWith('WP', 'milestone', expect.objectContaining({ name: 'M1', dueDate: '2026-12-01' }));
   });
 
+  it('마일스톤 dueDate 는 "" 로 비울 수 없다(서버 필수) — 서버를 부르지 않고 거부한다', async () => {
+    const c = mockClient();
+    vi.mocked(c.getProjectMilestones).mockResolvedValue([{ id: 4, name: 'v1', dueDate: '2026-12-01' }]);
+    await expect(tool(c, 'update_project_meta').handler({ projectKey: 'WP', kind: 'milestone', name: 'v1', dueDate: '' })).rejects.toThrow(
+      'dueDate',
+    );
+    expect(c.updateProjectMeta).not.toHaveBeenCalled();
+  });
+
   it('없는 이름은 사용 가능 목록을 담아 서버를 부르지 않고 거부한다', async () => {
     const c = mockClient();
     vi.mocked(c.getProjectLabels).mockResolvedValue([{ id: 3, name: 'bug' }]);
