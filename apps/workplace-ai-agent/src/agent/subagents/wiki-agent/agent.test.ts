@@ -16,7 +16,7 @@ describe('wiki-agent 정의', () => {
       'mcp__workplace__search_wiki',
       'mcp__workplace__get_wiki_page',
       'mcp__workplace__list_wiki_pages', // #850: 페이지 트리
-      'mcp__workplace__get_wiki_backlinks', // #850: 백링크
+      'mcp__workplace__list_wiki_backlinks', // #850: 백링크
       'mcp__workplace__create_wiki_page',
       'mcp__workplace__update_wiki_page',
       'mcp__workplace__move_wiki_page', // #855: 페이지 이동

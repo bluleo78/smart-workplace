@@ -16,7 +16,7 @@ export const TOOL_LABELS: Readonly<Record<string, ToolLabel>> = {
   update_issue: { label: '이슈 수정', icon: '✏️' },
   unassign_self: { label: '담당 해제', icon: '🙅' },
   add_comment: { label: '코멘트 작성', icon: '💬' },
-  edit_comment: { label: '코멘트 수정', icon: '✏️' },
+  update_comment: { label: '코멘트 수정', icon: '✏️' },
   add_issue_dependency: { label: '이슈 의존관계 추가', icon: '🔗' },
   remove_issue_dependency: { label: '이슈 의존관계 제거', icon: '🔗' },
   watch_issue: { label: '이슈 구독', icon: '👀' },
@@ -30,20 +30,20 @@ export const TOOL_LABELS: Readonly<Record<string, ToolLabel>> = {
   list_wiki_spaces: { label: '노트 공간 조회', icon: '📚' },
   list_wiki_pages: { label: '노트 목록', icon: '📚' },
   get_wiki_page: { label: '노트 조회', icon: '📄' },
-  get_wiki_backlinks: { label: '노트 백링크 조회', icon: '🔗' },
+  list_wiki_backlinks: { label: '노트 백링크 조회', icon: '🔗' },
   create_wiki_page: { label: '노트 생성', icon: '📝' },
   update_wiki_page: { label: '노트 수정', icon: '✏️' },
   move_wiki_page: { label: '노트 이동', icon: '📦' },
   // 이슈 컨텍스트 대화
-  get_chat_thread: { label: '대화 조회', icon: '💬' },
-  read_attachment_text: { label: '첨부 읽기', icon: '📎' },
+  list_chat_messages: { label: '대화 조회', icon: '💬' },
+  read_chat_thread_attachment: { label: '첨부 읽기', icon: '📎' }, // WP-346: 이슈 챗 스레드 첨부(옛 read_attachment_text)
   read_chat_attachment: { label: '첨부 읽기', icon: '📎' }, // WP-234: 메인 AI 채팅 첨부
   add_chat_message: { label: '메시지 작성', icon: '💬' },
   // 메시징
   list_channels: { label: '채널 목록', icon: '📋' },
   discover_channels: { label: '채널 탐색', icon: '🔍' },
   get_channel_messages: { label: '채널 메시지 조회', icon: '💬' },
-  get_thread_replies: { label: '스레드 답글 조회', icon: '🧵' },
+  list_thread_replies: { label: '스레드 답글 조회', icon: '🧵' },
   add_channel_message: { label: '채널 메시지 작성', icon: '💬' },
   create_channel: { label: '채널 생성', icon: '➕' },
   leave_channel: { label: '채널 나가기', icon: '🚪' },
@@ -91,6 +91,8 @@ export const TOOL_LABELS: Readonly<Record<string, ToolLabel>> = {
   move_drive_folder: { label: '폴더 이동', icon: '📦' },
   move_drive_file: { label: '파일 이동', icon: '📦' },
   restore_drive_item: { label: '휴지통에서 복원', icon: '♻️' },
+  // 첨부·파일 내용 읽기(WP-346)
+  read_attachment: { label: '첨부·파일 읽기', icon: '📎' },
   // 알림
   list_notifications: { label: '알림 조회', icon: '🔔' },
   mark_notification_read: { label: '알림 읽음 처리', icon: '🔔' },

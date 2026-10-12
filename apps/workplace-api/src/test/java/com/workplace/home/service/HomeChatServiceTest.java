@@ -157,7 +157,7 @@ class HomeChatServiceTest extends IntegrationTestBase {
   }
 
   /**
-   * 표시 가능 도구(update_status)와 숨김 도구(respond_chat, show_issue_list)를 동시에 포함하는 스트림에서 tool_calls 가 표시
+   * 표시 가능 도구(update_issue)와 숨김 도구(respond_chat, show_issue_list)를 동시에 포함하는 스트림에서 tool_calls 가 표시
    * 가능 도구만 영속하는지 검증. 숨김 도구는 fanOut 만 되고 tool_calls 에 포함되지 않아야 한다.
    */
   @Test
@@ -182,14 +182,14 @@ class HomeChatServiceTest extends IntegrationTestBase {
                       "{\"phase\":\"result\",\"seq\":1,\"toolName\":\"respond_chat\","
                           + "\"isError\":false}"));
 
-              // 표시 가능 도구: update_status
+              // 표시 가능 도구: update_issue
               onTool.accept(
                   objectMapper.readTree(
-                      "{\"phase\":\"start\",\"seq\":2,\"toolName\":\"update_status\","
+                      "{\"phase\":\"start\",\"seq\":2,\"toolName\":\"update_issue\","
                           + "\"args\":{\"issueKey\":\"EX-1\",\"status\":\"IN_PROGRESS\"}}"));
               onTool.accept(
                   objectMapper.readTree(
-                      "{\"phase\":\"result\",\"seq\":2,\"toolName\":\"update_status\","
+                      "{\"phase\":\"result\",\"seq\":2,\"toolName\":\"update_issue\","
                           + "\"isError\":false}"));
 
               // 숨김 도구: show_issue_list (위젯으로 표시됨)
@@ -217,11 +217,11 @@ class HomeChatServiceTest extends IntegrationTestBase {
     List<HomeMessageResponse> msgs = sessionService.getMessages(uid, sid);
     HomeMessageResponse assistant = msgs.get(1);
 
-    // tool_calls 에 update_status 만 포함, respond_chat / show_issue_list 는 제외.
+    // tool_calls 에 update_issue 만 포함, respond_chat / show_issue_list 는 제외.
     assertThat(assistant.toolCalls()).isNotNull();
     assertThat(assistant.toolCalls().isArray()).isTrue();
     assertThat(assistant.toolCalls()).hasSize(1);
-    assertThat(assistant.toolCalls().get(0).get("toolName").asText()).isEqualTo("update_status");
+    assertThat(assistant.toolCalls().get(0).get("toolName").asText()).isEqualTo("update_issue");
     assertThat(assistant.toolCalls().get(0).get("status").asText()).isEqualTo("done");
 
     // home.chat.tool fanOut 은 숨김 도구까지 6건 모두 전달되고, 각 payload 에 correlationId 가 병합돼야 한다.
@@ -337,9 +337,9 @@ class HomeChatServiceTest extends IntegrationTestBase {
               tool.emit("result", 1, "get_issue_detail", null);
               delta.accept("확인했어요. ");
               delta.accept("바꿀게요.");
-              tool.emit("start", 2, "update_status", "{\"issueKey\":\"EX-1\"}");
+              tool.emit("start", 2, "update_issue", "{\"issueKey\":\"EX-1\"}");
               tool.emit("start", 3, "respond_chat", "{}"); // 숨김 도구 — 블록을 만들지 않는다
-              tool.emit("result", 2, "update_status", null);
+              tool.emit("result", 2, "update_issue", null);
               delta.accept("변경했어요.");
               return "확인했어요. 바꿀게요.변경했어요.";
             });
@@ -384,7 +384,7 @@ class HomeChatServiceTest extends IntegrationTestBase {
             (delta, progress, tool) -> {
               progress.accept("이슈 전문가에게 위임 중");
               delta.accept("확인해 볼게요. ");
-              tool.emit("start", 1, "update_status", "{\"issueKey\":\"EX-2\"}");
+              tool.emit("start", 1, "update_issue", "{\"issueKey\":\"EX-2\"}");
               delta.accept("상태를 바꿨어요.");
               return "상태를 바꿨어요.";
             });
@@ -402,7 +402,7 @@ class HomeChatServiceTest extends IntegrationTestBase {
     HomeMessageResponse a =
         assistantAfter(
             (delta, progress, tool) -> {
-              tool.emit("start", 1, "update_status", "{}");
+              tool.emit("start", 1, "update_issue", "{}");
               delta.accept("스트리밍 텍스트");
               return "전혀 다른 본문";
             });

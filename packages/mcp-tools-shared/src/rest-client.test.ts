@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { FileTooLargeError } from './attachment-read.js';
 import { createSharedToolClient, type HttpLike } from './rest-client.js';
 
 /** axios 인스턴스를 흉내 내는 HttpLike mock — 기본 응답은 { data: null }. */
@@ -350,5 +351,55 @@ describe('createSharedToolClient WP-343 이동 도구 경로', () => {
     expect(await client.discoverChannels('개발팀')).toEqual([{ id: 2, name: '개발팀' }]);
     expect(http.get).toHaveBeenLastCalledWith('/messaging/channels/discover', { params: { q: '개발팀' } });
     expect(await client.discoverChannels('없음')).toEqual([]);
+  });
+});
+
+describe('createSharedToolClient 첨부·파일 내용 읽기 경로(WP-346)', () => {
+  it('이슈 첨부 텍스트 — issueKey 경로 + offset/limit 쿼리, 생략한 값은 싣지 않는다', async () => {
+    const { http, client } = mockHttp();
+    await client.readIssueAttachmentText('WP-12', 3, { offset: 6, limit: 100 });
+    expect(http.get).toHaveBeenCalledWith('/projects/WP/issues/12/attachments/3/text', { params: { offset: 6, limit: 100 } });
+    await client.readIssueAttachmentText('WP-12', 3, { limit: 12000 });
+    expect(http.get).toHaveBeenLastCalledWith('/projects/WP/issues/12/attachments/3/text', { params: { limit: 12000 } });
+  });
+
+  it('드라이브 파일 텍스트 — /drive/files/{id}/text', async () => {
+    const { http, client } = mockHttp();
+    await client.readDriveFileText(9, { offset: 0, limit: 500 });
+    expect(http.get).toHaveBeenCalledWith('/drive/files/9/text', { params: { offset: 0, limit: 500 } });
+  });
+
+  it('이슈 첨부 목록·드라이브 버전 목록 — 배열이 아니면 빈 배열', async () => {
+    const { http, client } = mockHttp();
+    expect(await client.listIssueAttachments('WP-12')).toEqual([]);
+    expect(http.get).toHaveBeenCalledWith('/projects/WP/issues/12/attachments');
+    expect(await client.listDriveFileVersions(9)).toEqual([]);
+    expect(http.get).toHaveBeenCalledWith('/drive/files/9/versions');
+    http.get.mockResolvedValue({ data: [{ versionNo: 1, sizeBytes: 4, current: true }] });
+    expect(await client.listDriveFileVersions(9)).toEqual([{ versionNo: 1, sizeBytes: 4, current: true }]);
+  });
+
+  it('원본 받기 — arraybuffer 로 요청하고 Content-Type 을 함께 돌려준다(Buffer·ArrayBuffer 모두)', async () => {
+    const { http, client } = mockHttp();
+    http.get.mockResolvedValueOnce({ data: Buffer.from([1, 2]), headers: { 'content-type': 'image/png' } });
+    const a = await client.downloadIssueAttachment('WP-12', 3);
+    expect(http.get).toHaveBeenCalledWith('/projects/WP/issues/12/attachments/3/content', { responseType: 'arraybuffer', maxContentLength: 3_932_160, maxBodyLength: 3_932_160 });
+    expect([...a.data]).toEqual([1, 2]);
+    expect(a.mimeType).toBe('image/png');
+
+    http.get.mockResolvedValueOnce({ data: new Uint8Array([7]).buffer, headers: {} });
+    const b = await client.downloadDriveFile(9);
+    expect(http.get).toHaveBeenLastCalledWith('/drive/files/9/content', { responseType: 'arraybuffer', maxContentLength: 3_932_160, maxBodyLength: 3_932_160 });
+    expect([...b.data]).toEqual([7]);
+    expect(b.mimeType).toBe('application/octet-stream');
+  });
+
+  it('원본 받기 — 다운로드 상한(이미지 3.75MB)을 건다: axios 의 maxContentLength 초과는 FileTooLargeError 로 바뀐다', async () => {
+    const { http, client } = mockHttp();
+    http.get.mockRejectedValueOnce(Object.assign(new Error('maxContentLength size of 3932160 exceeded'), { code: 'ERR_BAD_RESPONSE' }));
+    await expect(client.downloadDriveFile(9)).rejects.toBeInstanceOf(FileTooLargeError);
+    // 상한과 무관한 오류는 그대로 던진다.
+    http.get.mockRejectedValueOnce(new Error('Network Error'));
+    await expect(client.downloadIssueAttachment('WP-12', 3)).rejects.toThrow('Network Error');
   });
 });

@@ -65,7 +65,7 @@ public class HomeChatService {
    */
   private static final int COMPOSE_MIN_MAX_TURNS = 50;
 
-  /** MCP 프리픽스(mcp__workplace__update_status → update_status). 도구 이름 판별 전에 벗겨낸다. */
+  /** MCP 프리픽스(mcp__workplace__update_issue → update_issue). 도구 이름 판별 전에 벗겨낸다. */
   private static final Pattern MCP_PREFIX = Pattern.compile("^mcp__[^_]+__");
 
   /** WP-158: 위젯 도구 이름 → 위젯 타입(show_issue_list → issue_list). 웹 widgetTypeFromToolName 과 같은 규칙. */

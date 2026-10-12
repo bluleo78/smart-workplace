@@ -105,4 +105,49 @@ describe('/mcp', () => {
       expect(JSON.stringify(res.content)).toContain('구성원을 찾을 수 없습니다: ghost');
     }
   });
+
+  // WP-346: 실제 axios(arraybuffer)·MCP 왕복으로 read_attachment 를 확인한다 — 텍스트는 JSON, 이미지는 image 블록, source 별 필수 필드 누락은 isError.
+  describe('read_attachment', () => {
+    it('드라이브 문서는 추출 텍스트 구간을 JSON 으로(core fileId 대신 driveFileId)', async () => {
+      nock(API).get('/auth/me').reply(200, { id: 1, username: 'u', kind: 'HUMAN' });
+      nock(API, { reqheaders: { authorization: 'Bearer swp_valid' } })
+        .get('/drive/files/9/text')
+        .query({ offset: 6, limit: 100 })
+        .reply(200, { fileId: 55, status: 'READY', offset: 6, totalChars: 11, truncated: false, nextOffset: null, text: '바사', reasonCode: null, reason: null });
+      const client = await connect('swp_valid');
+      const res = await client.callTool({ name: 'read_attachment', arguments: { source: 'drive', driveFileId: 9, offset: 6, limit: 100 } });
+      expect(res.isError).toBeFalsy();
+      const [block] = res.content as { type: string; text: string }[];
+      expect(JSON.parse(block.text)).toMatchObject({ driveFileId: 9, status: 'READY', text: '바사' });
+      expect(JSON.parse(block.text)).not.toHaveProperty('fileId');
+    });
+
+    it('이슈 첨부 이미지는 원본을 받아 image 블록으로', async () => {
+      nock(API).get('/auth/me').reply(200, { id: 1, username: 'u', kind: 'HUMAN' });
+      const png = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+      nock(API)
+        .get('/projects/WP/issues/12/attachments/3/text')
+        .query({ limit: 12000 })
+        .reply(200, { fileId: 3, status: 'SKIPPED', offset: 0, totalChars: null, truncated: null, nextOffset: null, text: null, reasonCode: 'IMAGE', reason: '이미지 파일은 글자를 추출하지 않습니다.' })
+        .get('/projects/WP/issues/12/attachments')
+        .reply(200, [{ fileId: 3, originalName: 'a.png', mimeType: 'image/png', sizeBytes: 4 }])
+        .get('/projects/WP/issues/12/attachments/3/content')
+        .reply(200, png, { 'Content-Type': 'image/png' });
+      const client = await connect('swp_valid');
+      const res = await client.callTool({ name: 'read_attachment', arguments: { source: 'issue', issueKey: 'WP-12', fileId: 3 } });
+      expect(res.isError).toBeFalsy();
+      expect(res.content).toEqual([
+        { type: 'text', text: '이슈 WP-12 첨부 이미지 "a.png" (image/png, 4B)' },
+        { type: 'image', data: png.toString('base64'), mimeType: 'image/png' },
+      ]);
+    });
+
+    it('source 에 맞는 식별자가 없으면 API 를 부르지 않고 isError', async () => {
+      nock(API).get('/auth/me').reply(200, { id: 1, username: 'u', kind: 'HUMAN' });
+      const client = await connect('swp_valid');
+      const res = await client.callTool({ name: 'read_attachment', arguments: { source: 'drive' } });
+      expect(res.isError).toBe(true);
+      expect(JSON.stringify(res.content)).toContain('driveFileId 가 필요');
+    });
+  });
 });

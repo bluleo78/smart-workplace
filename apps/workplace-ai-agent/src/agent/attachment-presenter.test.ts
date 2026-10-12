@@ -44,8 +44,8 @@ describe('presentAttachments', () => {
     expect(vi.mocked(downloadAttachments).mock.calls[0][2].map((x) => x.fileId)).toEqual([1, 2]);
     expect(p.section).toContain('/tmp/w/1-shot.png');
     expect(p.section).toContain('/tmp/w/2-spec.pdf');
-    expect(p.section).toContain('read_attachment_text({threadId:5, fileId:2})');
-    expect(p.section).toContain('read_attachment_text({threadId:5, fileId:3})');
+    expect(p.section).toContain('read_chat_thread_attachment({threadId:5, fileId:2})');
+    expect(p.section).toContain('read_chat_thread_attachment({threadId:5, fileId:3})');
     expect(p.section).toContain('[챗 첨부] memo.docx');
     expect(p.guidance).toContain('Read');
   });
@@ -55,7 +55,7 @@ describe('presentAttachments', () => {
     const p = await presentAttachments(OC, ok(list), deps);
     expect(vi.mocked(downloadAttachments).mock.calls[0][2]).toEqual([]); // 로컬로 볼 첨부 없음
     expect(p.section).toContain('이미지를 볼 수 없');
-    expect(p.section).toContain('read_attachment_text({threadId:5, fileId:2})');
+    expect(p.section).toContain('read_chat_thread_attachment({threadId:5, fileId:2})');
     expect(p.section).not.toContain('로컬경로');
     expect(p.guidance).not.toContain('Read');
   });
@@ -68,7 +68,7 @@ describe('presentAttachments', () => {
   ])('상태 %s 안내 문구', async (_n, ex, expected) => {
     const p = await presentAttachments(OC, ok([a(3, 'x.docx', 'application/msword', ex)]), deps);
     expect(p.section).toContain(expected);
-    expect(p.section).not.toContain('read_attachment_text');
+    expect(p.section).not.toContain('read_chat_thread_attachment');
   });
 
   // WP-244: 스캔 PDF 에 "텍스트 PDF 로 다시 올려 달라" 는 제안이 나와 상태 줄·안내문에 금지를 명시한다.
@@ -88,7 +88,7 @@ describe('presentAttachments', () => {
   it('이슈 첨부도 [이슈 첨부] 라벨에 threadId 도구 호출로 안내한다', async () => {
     const p = await presentAttachments(OC, ok([a(7, 'spec.docx', 'application/msword', ready(5))]), deps);
     expect(p.section).toContain('- [이슈 첨부] spec.docx');
-    expect(p.section).toContain('read_attachment_text({threadId:5, fileId:7})');
+    expect(p.section).toContain('read_chat_thread_attachment({threadId:5, fileId:7})');
     expect(p.section).not.toContain('issueKey');
   });
 
@@ -101,7 +101,7 @@ describe('presentAttachments', () => {
     vi.mocked(downloadAttachments).mockResolvedValue(new Map([[2, { skipReason: '파일당 상한(10MB) 초과' }]]));
     const p = await presentAttachments(CLAUDE, ok([a(2, 'big.pdf', 'application/pdf', ready(9))]), deps);
     expect(p.section).toContain('파일당 상한(10MB) 초과');
-    expect(p.section).toContain('read_attachment_text({threadId:5, fileId:2})');
+    expect(p.section).toContain('read_chat_thread_attachment({threadId:5, fileId:2})');
   });
 
   it('이슈 목록 실패 + 다른 첨부 없음 → "첨부 없음" 대신 단정 금지 줄', async () => {
@@ -130,7 +130,7 @@ describe('presentAttachments', () => {
   it('READY 인데 totalChars null → 글자 수 생략, truncated null 은 잘림 아님', async () => {
     const ex: ExtractionInfo = { status: 'READY', totalChars: null, truncated: null, reasonCode: null, reason: null };
     const p = await presentAttachments(OC, ok([a(3, 'x.txt', 'text/plain', ex)]), deps);
-    expect(p.section).toContain('read_attachment_text({threadId:5, fileId:3})');
+    expect(p.section).toContain('read_chat_thread_attachment({threadId:5, fileId:3})');
     expect(p.section).not.toContain('약 ');
     expect(p.section).not.toContain('잘림');
   });
@@ -151,7 +151,7 @@ describe('presentAttachments', () => {
   it('Claude: txt READY 면 로컬경로와 텍스트 도구 줄을 모두 보여 준다', async () => {
     const p = await presentAttachments(CLAUDE, ok([a(4, 'n.txt', 'text/plain', ready(50))]), deps);
     expect(p.section).toContain('로컬경로: /tmp/w/4-n.txt');
-    expect(p.section).toContain('read_attachment_text({threadId:5, fileId:4})');
+    expect(p.section).toContain('read_chat_thread_attachment({threadId:5, fileId:4})');
   });
 
   it('Claude: json(application/json)도 텍스트로 받고, docx 는 받지 않는다', async () => {
@@ -164,7 +164,7 @@ describe('presentAttachments', () => {
     const p = await presentAttachments(OC, ok([a(4, 'n.txt', 'text/plain', ready(50))]), deps);
     expect(vi.mocked(downloadAttachments).mock.calls[0][2]).toEqual([]); // 로컬로 볼 첨부 없음
     expect(p.section).not.toContain('로컬경로');
-    expect(p.section).toContain('read_attachment_text');
+    expect(p.section).toContain('read_chat_thread_attachment');
   });
 
   it('readsLocally: Claude 는 이미지·PDF·텍스트, 비전 opencode 는 이미지만 로컬로 읽는다', () => {
@@ -184,7 +184,7 @@ describe('presentAttachments', () => {
     expect(vi.mocked(downloadAttachments).mock.calls[0][2].map((x) => x.fileId)).toEqual([1]);
     expect(p.section).toContain('로컬경로: /tmp/w/1-shot.png');
     expect(p.section).not.toContain('이미지를 볼 수 없');
-    expect(p.section).toContain('read_attachment_text({threadId:5, fileId:2})');
+    expect(p.section).toContain('read_chat_thread_attachment({threadId:5, fileId:2})');
     expect(p.guidance).toContain('로컬경로(이미지)는 read');
   });
 

@@ -324,7 +324,7 @@ describe('runChatAgent add_chat_message 누락 대체 답변(WP-244)', () => {
       streamWith([
         { type: 'text_delta', text: '첨부를 확인해 ', parentToolUseId: null },
         { type: 'text_delta', text: '보겠습니다.', parentToolUseId: null },
-        { type: 'tool_use', name: 'workplace_read_attachment_text', input: {}, parentToolUseId: null },
+        { type: 'tool_use', name: 'workplace_read_chat_thread_attachment', input: {}, parentToolUseId: null },
         { type: 'tool_done' },
         { type: 'text_delta', text: '요약: ', parentToolUseId: null },
         { type: 'text_delta', text: '핵심 내용', parentToolUseId: null },
@@ -341,7 +341,7 @@ describe('runChatAgent add_chat_message 누락 대체 답변(WP-244)', () => {
     streamSpy.mockImplementation(
       streamWith([
         { type: 'assistant_text', text: '확인해 보겠습니다.' },
-        { type: 'tool_use', name: 'mcp__workplace__read_attachment_text', input: {}, parentToolUseId: null },
+        { type: 'tool_use', name: 'mcp__workplace__read_chat_thread_attachment', input: {}, parentToolUseId: null },
         { type: 'tool_done' },
         { type: 'assistant_text', text: '최종 답변' },
         { type: 'result', ok: true, text: '최종 답변', usage: null },
@@ -356,7 +356,7 @@ describe('runChatAgent add_chat_message 누락 대체 답변(WP-244)', () => {
     streamSpy.mockImplementation(
       streamWith([
         { type: 'text_delta', text: '확인해 보겠습니다.', parentToolUseId: null },
-        { type: 'tool_use', name: 'workplace_read_attachment_text', input: {}, parentToolUseId: null },
+        { type: 'tool_use', name: 'workplace_read_chat_thread_attachment', input: {}, parentToolUseId: null },
         { type: 'tool_done' },
         { type: 'result', ok: true, text: '확인해 보겠습니다.', usage: null },
       ]),

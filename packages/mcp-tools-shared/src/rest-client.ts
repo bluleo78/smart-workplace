@@ -3,14 +3,22 @@
 // 이전에는 workplace-mcp(PAT)와 ai-agent(Internal + X-On-Behalf-Of)가 같은 경로를 각자 매핑했고, 응답 가공도 각자 해서
 // 파라미터 이름·기본값·가공 규칙이 조금씩 어긋났다. 경로 매핑을 여기 한 곳에 두고, 각 앱은 인증이 붙은 HTTP 인스턴스만 준다.
 // 이 클라이언트는 경로 호출과 응답 래퍼 벗기기까지만 하고 LLM 용 가공은 공유 도구 핸들러가 맡는다.
+import { FileTooLargeError, IMAGE_MAX_BYTES } from './attachment-read.js';
 import { parseIssueKey } from './parse.js';
 import type { SharedToolClient } from './shared-tools.js';
+import type { FileBytes, TextRange } from './tool-client.js';
 
-/** 요청 설정 — 쿼리 파라미터와 DELETE 본문만 쓴다(인증 헤더는 HTTP 인스턴스가 붙인다). */
+/** 요청 설정 — 쿼리 파라미터·DELETE 본문·바이너리 응답만 쓴다(인증 헤더는 HTTP 인스턴스가 붙인다). */
 export interface HttpRequestConfig {
   params?: unknown;
   /** DELETE 요청 본문(axios config.data) — 서버가 @RequestBody 로 받는 DELETE(즐겨찾기 해제)에 쓴다(#839). */
   data?: unknown;
+  /** 원본 바이트를 받을 때(axios config.responseType) — read_attachment 의 이미지 원본(WP-346). */
+  responseType?: 'arraybuffer';
+  /** 응답 본문 상한(바이트, axios config.maxContentLength) — 넘으면 받는 도중 중단한다. */
+  maxContentLength?: number;
+  /** 요청 본문 상한(axios config.maxBodyLength) — 리다이렉트 시 같이 적용된다. */
+  maxBodyLength?: number;
 }
 
 /** 응답 본문 — 서버 DTO 마다 모양이 달라 여기서 좁히지 않는다(해석은 도구 핸들러). */
@@ -19,7 +27,8 @@ type ResponseBody = any;
 
 /** axios 인스턴스가 그대로 만족하는 최소 HTTP 인터페이스. 공유 패키지가 axios 에 의존하지 않도록 구조적으로 정의한다. */
 export interface HttpLike {
-  get(url: string, config?: HttpRequestConfig): Promise<{ data: ResponseBody }>;
+  /** headers 는 바이너리 응답의 Content-Type 을 읽을 때만 쓴다(axios 응답이 그대로 만족한다). */
+  get(url: string, config?: HttpRequestConfig): Promise<{ data: ResponseBody; headers?: Record<string, unknown> }>;
   post(url: string, data?: unknown, config?: HttpRequestConfig): Promise<{ data: ResponseBody }>;
   put(url: string, data?: unknown, config?: HttpRequestConfig): Promise<{ data: ResponseBody }>;
   patch(url: string, data?: unknown, config?: HttpRequestConfig): Promise<{ data: ResponseBody }>;
@@ -29,6 +38,32 @@ export interface HttpLike {
 /** Spring 페이지 응답({ content })과 bare 배열을 모두 행 배열로 벗긴다. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const unwrapPage = (data: any) => (Array.isArray(data) ? data : (data?.content ?? []));
+
+/** 구간 읽기 쿼리 — 생략한 값은 싣지 않아 서버 기본값(offset 0, limit 32000)을 따른다. */
+const rangeParams = (r: TextRange) => ({
+  params: { ...(r.offset !== undefined && { offset: r.offset }), ...(r.limit !== undefined && { limit: r.limit }) },
+});
+
+/** axios 가 maxContentLength 초과로 던지는 오류인지 — axios 에 의존하지 않으려고 code·메시지로 구조적으로 본다. */
+const isMaxLengthExceeded = (e: unknown) =>
+  typeof e === 'object' && e !== null && /maxContentLength|maxBodyLength/.test(String((e as { message?: unknown }).message ?? ''));
+
+/**
+ * 바이너리 GET → 원본 바이트 + Content-Type. Node 의 axios 는 arraybuffer 를 Buffer(=Uint8Array)로 준다 — ArrayBuffer 로 오면 감싼다.
+ * 크기 메타 없이 받는 경우(드라이브 파일 등)에도 이미지 상한을 넘는 다운로드를 막으려고 maxContentLength 를 건다 —
+ * 초과하면 FileTooLargeError 로 바꿔 던져 도구가 "크기 초과" 안내로 잇게 한다. 지금 원본 받기는 이미지 전용이다.
+ */
+async function getBytes(http: HttpLike, url: string): Promise<FileBytes> {
+  let r;
+  try {
+    r = await http.get(url, { responseType: 'arraybuffer', maxContentLength: IMAGE_MAX_BYTES, maxBodyLength: IMAGE_MAX_BYTES });
+  } catch (e) {
+    if (isMaxLengthExceeded(e)) throw new FileTooLargeError();
+    throw e;
+  }
+  const data = r.data instanceof Uint8Array ? r.data : new Uint8Array(r.data as ArrayBuffer);
+  return { data, mimeType: String(r.headers?.['content-type'] ?? 'application/octet-stream') };
+}
 
 /** 외부 연락처 force 쿼리 — 서버 기본값이 false 라 true 일 때만 붙인다(미지정과 같은 요청이 되도록). */
 const forceParams = (force?: boolean) => (force ? { params: { force } } : undefined);
@@ -319,6 +354,28 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     },
     async moveDriveFile(driveFileId, targetFolderId) {
       await http.patch(`/drive/files/${driveFileId}/move`, { targetFolderId });
+    },
+
+    // ── 첨부·파일 내용 읽기(WP-346) ── 이슈 첨부는 프로젝트 멤버, 드라이브는 스페이스 VIEWER 를 서버가 확인한다.
+    async readIssueAttachmentText(issueKey, fileId, range) {
+      return (await http.get(`${issue(issueKey)}/attachments/${fileId}/text`, rangeParams(range))).data;
+    },
+    async listIssueAttachments(issueKey) {
+      const data = (await http.get(`${issue(issueKey)}/attachments`)).data;
+      return Array.isArray(data) ? data : [];
+    },
+    async downloadIssueAttachment(issueKey, fileId) {
+      return getBytes(http, `${issue(issueKey)}/attachments/${fileId}/content`);
+    },
+    async readDriveFileText(driveFileId, range) {
+      return (await http.get(`/drive/files/${driveFileId}/text`, rangeParams(range))).data;
+    },
+    async listDriveFileVersions(driveFileId) {
+      const data = (await http.get(`/drive/files/${driveFileId}/versions`)).data;
+      return Array.isArray(data) ? data : [];
+    },
+    async downloadDriveFile(driveFileId) {
+      return getBytes(http, `/drive/files/${driveFileId}/content`);
     },
 
     // ── 알림 ── 서버가 호출자 본인 알림으로 격리한다(recipientId=callerId).

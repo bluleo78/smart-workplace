@@ -17,7 +17,7 @@ describe('isDownscalableType', () => {
   });
 });
 
-/** ai-agent HOME_IMAGE_MAX_BYTES(3.75MiB) — 이보다 큰 원본은 이미지 블록으로 보내지 못하고 재업로드를 안내한다. */
+/** mcp-tools-shared IMAGE_MAX_BYTES(3.75MiB) — 이보다 큰 원본은 이미지 블록으로 보내지 못하고 재업로드를 안내한다. */
 const AGENT_IMAGE_BLOCK_MAX_BYTES = 3_932_160;
 
 describe('downscaleTarget — 긴 변 2048 · 3.5MiB', () => {

@@ -38,7 +38,7 @@ export function buildChatUserMessage(
     `## 첨부파일\n${presented.section}\n\n` +
     `이슈 제목·상태·본문 관련 질문은 위 "현재 이슈 컨텍스트"를 근거로 답하세요(별도 조회 불필요). ` +
     (presented.guidance ? `${presented.guidance} ` : '') +
-    `더 과거 대화가 필요하면 get_chat_thread(${payload.threadId}). ` +
+    `더 과거 대화가 필요하면 list_chat_messages(${payload.threadId}). ` +
     `파악이 끝나면 add_chat_message(${payload.threadId}, 답변) 을 정확히 한 번 호출해 답하세요.`
   );
 }

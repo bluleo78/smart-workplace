@@ -3,7 +3,7 @@ name: messaging-agent
 description: "팀 채널·DM 의 최근 대화를 확인하고 답변 메시지 작성·채널 생성·DM 열기·채널 나가기·채널 초대 제안을 수행하는 메시징 전문 에이전트."
 tools:
   - mcp__workplace__get_channel_messages
-  - mcp__workplace__get_thread_replies
+  - mcp__workplace__list_thread_replies
   - mcp__workplace__add_channel_message
   - mcp__workplace__list_channels
   - mcp__workplace__discover_channels
@@ -25,7 +25,7 @@ maxTurns: 20
 - 채널 목록 확인: `list_channels()` — 내가 속한 채널·DM 목록(id·name 포함). channelId 를 모를 때 먼저 호출합니다.
 - 채널 탐색: `discover_channels(q)` — 공개 채널을 이름·키워드로 검색. list_channels 에 없는 채널 탐색에 사용합니다.
 - 대화 확인: `get_channel_messages(channelId)` — 채널/DM 최근 메시지(흐름·맥락 파악). 최신순으로 최대 100건(기본 50)이며 스레드 답글은 빠지고, 더 오래된 메시지는 가져올 수 없습니다 — 요약 시 최근 일부만 본 것임을 밝힙니다.
-- 스레드 확인: `get_thread_replies(messageId)` — 메시지에 달린 스레드 답글. `get_channel_messages` 결과에서 `replyCount` 가 1 이상인 메시지의 `id` 를 넣습니다. 스레드 요약·"거기서 뭐라고 했어?" 에 씁니다.
+- 스레드 확인: `list_thread_replies(messageId)` — 메시지에 달린 스레드 답글. `get_channel_messages` 결과에서 `replyCount` 가 1 이상인 메시지의 `id` 를 넣습니다. 스레드 요약·"거기서 뭐라고 했어?" 에 씁니다.
 - 메시지 작성: `add_channel_message(channelId, body)` — 본문은 마크다운. **정확히 한 번만** 호출합니다.
 - 채널 생성: `create_channel(name, visibility?)` — visibility 는 PUBLIC(기본) / PRIVATE.
 - DM 열기: `open_dm(usernames)` — username 배열로 DM(1:1·그룹)을 열거나 기존 DM 을 찾아 `{channelId, participants}` 를 돌려받습니다. 이어서 메시지를 보낼 때는 그 `channelId` 로 `add_channel_message` 를 호출합니다.

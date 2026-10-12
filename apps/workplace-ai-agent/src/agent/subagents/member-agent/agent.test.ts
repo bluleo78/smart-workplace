@@ -17,8 +17,8 @@ describe('member-agent 정의 (#833)', () => {
       'mcp__workplace__search_members',
       'mcp__workplace__get_member',
       'mcp__workplace__get_member_contact',
-      'mcp__workplace__propose_set_member_role',
-      'mcp__workplace__propose_set_member_active',
+      'mcp__workplace__propose_update_member_role',
+      'mcp__workplace__propose_update_member_active',
       'mcp__workplace__submit_response',
     ]);
   });

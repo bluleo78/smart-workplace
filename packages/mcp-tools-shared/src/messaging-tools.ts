@@ -114,7 +114,7 @@ export interface MessagingToolOptions {
   parentMessageIdFor?(channelId: number): number | undefined;
 }
 
-/** 메시징 도구(list_channels/get_channel_messages/get_thread_replies/add_channel_message/create_channel/open_dm/leave_channel). */
+/** 메시징 도구(list_channels/get_channel_messages/list_thread_replies/add_channel_message/create_channel/open_dm/leave_channel). */
 export function buildMessagingTools(
   client: MessagingToolClient & Pick<MemberToolClient, 'searchMembers'>,
   opts: MessagingToolOptions = {},
@@ -146,7 +146,7 @@ export function buildMessagingTools(
       kind: 'read',
       description:
         '채널/DM 의 최근 메시지 목록을 최신순(최신 → 오래된 순)으로 JSON 배열로 반환합니다(대화 흐름 확인용). 스레드 답글은 빠지고 최상위 메시지만 담기며, ' +
-        '답글이 있으면 replyCount 로 알 수 있습니다(get_thread_replies 로 조회). limit 기본 50·최대 100 이고, 그보다 오래된 메시지는 ' +
+        '답글이 있으면 replyCount 로 알 수 있습니다(list_thread_replies 로 조회). limit 기본 50·최대 100 이고, 그보다 오래된 메시지는 ' +
         '다음 페이지가 없어 이 도구로 가져올 수 없습니다 — 요약할 때 최근 일부만 본 것이라고 밝히세요. 삭제된 메시지는 본문이 "(삭제됨)" 으로 옵니다.',
       inputSchema: getChannelMessagesInput,
       async handler(args) {
@@ -155,7 +155,7 @@ export function buildMessagingTools(
       },
     },
     {
-      name: 'get_thread_replies',
+      name: 'list_thread_replies',
       kind: 'read',
       description:
         '채널 메시지 하나에 달린 스레드 답글 전체를 오래된 순으로 JSON({items, truncated})으로 반환합니다(스레드 요약·확인용). ' +

@@ -56,12 +56,12 @@ describe('buildMessagingTools', () => {
     await expect(tool(c, 'discover_channels').handler({ q: '' })).rejects.toThrow();
   });
 
-  it('get_thread_replies → nextCursor 를 따라 끝까지 모으고 행의 반복·빈 필드를 지운다 (#850)', async () => {
+  it('list_thread_replies → nextCursor 를 따라 끝까지 모으고 행의 반복·빈 필드를 지운다 (#850)', async () => {
     const c = mockClient();
     vi.mocked(c.getThreadReplies)
       .mockResolvedValueOnce({ items: [reply(31)], nextCursor: 'c1', hasMore: true })
       .mockResolvedValueOnce({ items: [reply(32)], nextCursor: null, hasMore: false });
-    const out = JSON.parse(resultText(await tool(c, 'get_thread_replies').handler({ messageId: 30 })));
+    const out = JSON.parse(resultText(await tool(c, 'list_thread_replies').handler({ messageId: 30 })));
     expect(c.getThreadReplies).toHaveBeenNthCalledWith(1, 30, { limit: 100, cursor: undefined });
     expect(c.getThreadReplies).toHaveBeenNthCalledWith(2, 30, { limit: 100, cursor: 'c1' });
     expect(out).toEqual({
@@ -73,11 +73,11 @@ describe('buildMessagingTools', () => {
     });
   });
 
-  it('get_thread_replies 는 500개를 넘으면 멈추고 truncated 를 알린다', async () => {
+  it('list_thread_replies 는 500개를 넘으면 멈추고 truncated 를 알린다', async () => {
     const c = mockClient();
     const page = { items: Array.from({ length: 100 }, (_, i) => reply(i)), nextCursor: 'c', hasMore: true };
     vi.mocked(c.getThreadReplies).mockResolvedValue(page);
-    const out = JSON.parse(resultText(await tool(c, 'get_thread_replies').handler({ messageId: 30 })));
+    const out = JSON.parse(resultText(await tool(c, 'list_thread_replies').handler({ messageId: 30 })));
     expect(c.getThreadReplies).toHaveBeenCalledTimes(5);
     expect(out.items).toHaveLength(500);
     expect(out.truncated).toBe(true);

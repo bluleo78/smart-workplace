@@ -1,6 +1,5 @@
-import { describe, expect, it } from 'vitest';
-
 import { TOOL_LABELS } from '@smart-workplace/mcp-tools-shared/tool-labels';
+import { describe, expect, it } from 'vitest';
 
 import { getToolDisplay, LEGACY_TOOL_LABELS, widgetTypeFromToolName } from './aiToolLabels';
 
@@ -29,6 +28,18 @@ describe('getToolDisplay — 옛 도구 이름 폴백', () => {
     expect(getToolDisplay('rename_folder').label).toBe('폴더 이름변경');
     expect(getToolDisplay('move_folder').label).toBe('폴더 이동');
     expect(getToolDisplay('move_file').label).toBe('파일 이동');
+    // WP-360: 명명 규칙으로 바뀐 이름
+    expect(getToolDisplay('edit_comment')).toEqual({ label: '코멘트 수정', icon: '✏️' });
+    expect(getToolDisplay('mcp__workplace__get_thread_replies').label).toBe('스레드 답글 조회');
+    expect(getToolDisplay('get_wiki_backlinks').label).toBe('노트 백링크 조회');
+    expect(getToolDisplay('get_chat_thread').label).toBe('대화 조회');
+    // WP-346: 이슈 챗 첨부 읽기(opencode 형식 접두 포함)
+    expect(getToolDisplay('workplace_read_attachment_text')).toEqual({ label: '첨부 읽기', icon: '📎' });
+    expect(getToolDisplay('read_chat_thread_attachment').label).toBe('첨부 읽기');
+    expect(getToolDisplay('mcp__workplace__read_attachment').label).toBe('첨부·파일 읽기');
+    // 새 이름은 공유 TOOL_LABELS 에서 같은 라벨을 쓴다.
+    expect(getToolDisplay('update_comment').label).toBe('코멘트 수정');
+    expect(getToolDisplay('list_thread_replies').label).toBe('스레드 답글 조회');
   });
   it('현재 이름은 공유 TOOL_LABELS 라벨을 그대로 쓴다', () => {
     expect(getToolDisplay('update_issue')).toEqual(TOOL_LABELS.update_issue);

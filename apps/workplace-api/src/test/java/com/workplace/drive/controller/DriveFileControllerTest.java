@@ -17,6 +17,7 @@ import com.workplace.drive.dto.DriveFileResponse;
 import com.workplace.drive.exception.DriveDuplicateNameException;
 import com.workplace.drive.service.DriveFileService;
 import com.workplace.file.service.FileUploadService.FileContentResult;
+import com.workplace.fileai.dto.ExtractedTextSlice;
 import com.workplace.global.config.SecurityConfig;
 import com.workplace.global.security.ApiKeyAuthenticationFilter;
 import com.workplace.global.security.JwtAuthenticationFilter;
@@ -99,6 +100,44 @@ class DriveFileControllerTest {
   @Test
   void thumbnail_withoutAuth_returns401() throws Exception {
     mockMvc.perform(get("/api/v1/drive/files/1/thumbnail")).andExpect(status().isUnauthorized());
+  }
+
+  // ── WP-346: 추출 텍스트 구간 읽기 ──
+
+  /** GET /files/{id}/text — 기본 offset=0·limit=32000 으로 서비스에 넘기고 이슈 첨부 /text 와 같은 JSON 을 돌려준다. */
+  @Test
+  void readText_defaults_returnsSlice() throws Exception {
+    when(fileService.readText(1L, 7L, 0, 32000))
+        .thenReturn(new ExtractedTextSlice(55L, "READY", 0, 3, false, null, "본문입", null, null));
+    mockMvc
+        .perform(get("/api/v1/drive/files/7/text").header("Authorization", "Bearer test-token"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.fileId").value(55))
+        .andExpect(jsonPath("$.status").value("READY"))
+        .andExpect(jsonPath("$.text").value("본문입"))
+        .andExpect(jsonPath("$.totalChars").value(3));
+  }
+
+  /** offset·limit 쿼리 파라미터 전달, 추출 전 상태는 본문 없이 status 만. */
+  @Test
+  void readText_passesRange_andPendingHasNoText() throws Exception {
+    when(fileService.readText(1L, 7L, 100, 50))
+        .thenReturn(
+            new ExtractedTextSlice(55L, "PENDING", 100, null, null, null, null, null, null));
+    mockMvc
+        .perform(
+            get("/api/v1/drive/files/7/text?offset=100&limit=50")
+                .header("Authorization", "Bearer test-token"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("PENDING"))
+        .andExpect(jsonPath("$.offset").value(100))
+        .andExpect(jsonPath("$.text").doesNotExist());
+  }
+
+  /** 인증 없으면 401. */
+  @Test
+  void readText_withoutAuth_returns401() throws Exception {
+    mockMvc.perform(get("/api/v1/drive/files/7/text")).andExpect(status().isUnauthorized());
   }
 
   // ── WP-335: 파일 이름 변경 ──

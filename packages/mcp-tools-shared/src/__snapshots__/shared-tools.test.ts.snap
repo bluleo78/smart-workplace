@@ -17,7 +17,6 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "discover_channels": "read",
   "draft_issue_from_mail": "read",
   "draft_mail_reply": "read",
-  "edit_comment": "write",
   "get_channel_messages": "read",
   "get_contact_facets": "read",
   "get_drive_file_summary": "read",
@@ -29,9 +28,7 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "get_member": "read",
   "get_member_contact": "read",
   "get_project": "read",
-  "get_thread_replies": "read",
   "get_user_group": "read",
-  "get_wiki_backlinks": "read",
   "get_wiki_page": "read",
   "leave_channel": "write",
   "list_channels": "read",
@@ -45,7 +42,9 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "list_mail_accounts": "read",
   "list_notifications": "read",
   "list_projects": "read",
+  "list_thread_replies": "read",
   "list_user_groups": "read",
+  "list_wiki_backlinks": "read",
   "list_wiki_pages": "read",
   "list_wiki_spaces": "read",
   "mark_all_notifications_read": "write",
@@ -55,6 +54,7 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "move_drive_folder": "write",
   "move_wiki_page": "write",
   "open_dm": "write",
+  "read_attachment": "read",
   "remove_contact_favorite": "write",
   "remove_issue_dependency": "write",
   "remove_user_group_member": "write",
@@ -67,6 +67,7 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "search_wiki": "read",
   "sync_mail": "write",
   "unwatch_issue": "write",
+  "update_comment": "write",
   "update_external_contact": "write",
   "update_issue": "write",
   "update_project": "write",
@@ -538,34 +539,6 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
     },
   },
   {
-    "name": "edit_comment",
-    "schema": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "additionalProperties": false,
-      "properties": {
-        "body": {
-          "minLength": 1,
-          "type": "string",
-        },
-        "commentId": {
-          "exclusiveMinimum": 0,
-          "maximum": 9007199254740991,
-          "type": "integer",
-        },
-        "issueKey": {
-          "minLength": 1,
-          "type": "string",
-        },
-      },
-      "required": [
-        "issueKey",
-        "commentId",
-        "body",
-      ],
-      "type": "object",
-    },
-  },
-  {
     "name": "get_channel_messages",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -758,24 +731,6 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
     },
   },
   {
-    "name": "get_thread_replies",
-    "schema": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "additionalProperties": false,
-      "properties": {
-        "messageId": {
-          "exclusiveMinimum": 0,
-          "maximum": 9007199254740991,
-          "type": "integer",
-        },
-      },
-      "required": [
-        "messageId",
-      ],
-      "type": "object",
-    },
-  },
-  {
     "name": "get_user_group",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -789,24 +744,6 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       },
       "required": [
         "groupId",
-      ],
-      "type": "object",
-    },
-  },
-  {
-    "name": "get_wiki_backlinks",
-    "schema": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "additionalProperties": false,
-      "properties": {
-        "pageId": {
-          "exclusiveMinimum": 0,
-          "maximum": 9007199254740991,
-          "type": "integer",
-        },
-      },
-      "required": [
-        "pageId",
       ],
       "type": "object",
     },
@@ -1152,11 +1089,47 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
     },
   },
   {
+    "name": "list_thread_replies",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "messageId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "messageId",
+      ],
+      "type": "object",
+    },
+  },
+  {
     "name": "list_user_groups",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
       "properties": {},
+      "type": "object",
+    },
+  },
+  {
+    "name": "list_wiki_backlinks",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "pageId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "pageId",
+      ],
       "type": "object",
     },
   },
@@ -1346,6 +1319,85 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       },
       "required": [
         "usernames",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "read_attachment",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "driveFileId": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "fileId": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "issueKey": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "limit": {
+          "anyOf": [
+            {
+              "maximum": 32000,
+              "minimum": 1,
+              "type": "integer",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "offset": {
+          "anyOf": [
+            {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "source": {
+          "enum": [
+            "issue",
+            "drive",
+          ],
+          "type": "string",
+        },
+      },
+      "required": [
+        "source",
       ],
       "type": "object",
     },
@@ -1639,6 +1691,34 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       },
       "required": [
         "issueKey",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "update_comment",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "minLength": 1,
+          "type": "string",
+        },
+        "commentId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "issueKey": {
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "issueKey",
+        "commentId",
+        "body",
       ],
       "type": "object",
     },

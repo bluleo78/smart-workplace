@@ -60,7 +60,7 @@ export function readsLocally(reader: AttachmentReader, mime: string): boolean {
  * 이슈 첨부·챗 첨부 모두 스레드 경유로 읽으므로 형태가 같다(WP-244 — 이슈 첨부 API 는 비멤버 에이전트에 403).
  */
 function toolCall(a: AgentAttachment): string {
-  return `read_attachment_text({threadId:${a.origin.threadId}, fileId:${a.fileId}})`;
+  return `read_chat_thread_attachment({threadId:${a.origin.threadId}, fileId:${a.fileId}})`;
 }
 
 /** 추출 상태별 한 줄(공통). READY 만 도구 호출을 안내하고, 나머지는 상태·사유만 — 재업로드 요청을 유도하지 않는다. */
@@ -113,7 +113,7 @@ function detailLines(reader: AttachmentReader, a: AgentAttachment, downloads: Ma
 }
 
 const TEXT_TOOL_HOW =
-  'read_attachment_text(필요한 만큼만 읽고, 더 필요하면 결과의 nextOffset 을 offset 으로 넘겨 이어 읽기)';
+  'read_chat_thread_attachment(필요한 만큼만 읽고, 더 필요하면 결과의 nextOffset 을 offset 으로 넘겨 이어 읽기)';
 // 공통 문장 — 추출 상태가 READY 가 아닐 때의 응대 규칙.
 const GUIDANCE_COMMON =
   '추출 중이거나 읽을 수 없는 첨부는 그 상태와 사유를 알리고, 다시 올려 달라거나 다른 형식(텍스트 PDF 등)으로 올려 달라는 제안도 하지 마세요.';

@@ -55,7 +55,7 @@ export async function runAgent(
   // fire-and-forget — 델타 미소비. collect 가 완료까지 순회하고 timeout/result.is_error 시 throw →
   // event-handler 의 .catch 가 로깅(현행 CLI 와 동일한 실패 처리).
   // 이슈 이벤트는 항상 담당 AGENT 자격으로 실행(#34) — onBehalfOfId = agentId, userId 없음.
-  // 'issue' 프로필 도구 11종(읽기 4[get_issue_detail + 위키 읽기 3] + add_comment/edit_comment/
+  // 'issue' 프로필 도구 11종(읽기 4[get_issue_detail + 위키 읽기 3] + add_comment/update_comment/
   // create_issue/update_issue(상태 변경 포함)/unassign_self/add_issue_dependency/remove_issue_dependency). hostBridge 미전달 시
   // unassign_self 는 API 직접 호출 후 결과 반환(현행 CLI 동작과 동일). MCP 구성은 러너 내부에서.
   await runnerFor(credential).collect({

@@ -20,6 +20,15 @@ describe('TOOL_LABELS', () => {
       expect(TOOL_LABELS[removed]).toBeUndefined();
     }
   });
+
+  // WP-360: 명명 규칙으로 바뀐 옛 이름은 공유 도구·라벨에 남기지 않는다(옛 세션 표시용 폴백은 웹 LEGACY_TOOL_LABELS).
+  it('WP-360 에서 바뀐 옛 이름은 공유 도구 목록과 라벨에 없다', () => {
+    const names = buildSharedTools({} as unknown as SharedToolClient).map((t) => t.name);
+    for (const old of ['edit_comment', 'get_thread_replies', 'get_wiki_backlinks', 'get_chat_thread']) {
+      expect(names).not.toContain(old);
+      expect(TOOL_LABELS[old]).toBeUndefined();
+    }
+  });
 });
 
 describe('stripMcpPrefix / isDisplayableTool', () => {
