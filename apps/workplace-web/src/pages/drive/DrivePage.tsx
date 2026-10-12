@@ -107,6 +107,9 @@ const ROW_INLINE_ACTIONS: Record<RowTarget['kind'], { key: string; label: string
   ],
 }
 
+// WP-364: 끌어 옮기기 완료 토스트 id — 이동마다 같은 자리를 갈아 끼워 되돌리기는 늘 마지막 이동만 가리킨다.
+const DRAG_MOVE_TOAST_ID = 'drive-drag-move'
+
 // WP-63: 폴더 목록 미로드(조회 전·실패) 시 쓰는 빈 목록 — 매 렌더 새 객체를 만들지 않도록 모듈 상수로 둔다.
 const EMPTY_ITEMS: DriveItemList = { folders: [], files: [] }
 
@@ -974,6 +977,9 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     if (await moveItems(body, target.folderId)) {
       // 재조회를 기다리지 않고 바로 알린다 — 느린 재조회 동안 결과·되돌리기가 늦게 뜨지 않게.
       toast.success(moveToastMessage(dragged.length, target.name), {
+        // 고정 id — 새 이동 토스트가 이전 것을 대체한다. 이전 토스트의 되돌리기가 남아 있으면 그 뒤에 다시 옮긴 항목을
+        // 옛 폴더로 되돌려 최신 이동을 조용히 잃는다(에픽 이동의 「이후에 다시 옮겨져 되돌릴 수 없습니다」와 같은 보호).
+        id: DRAG_MOVE_TOAST_ID,
         action: {
           label: '되돌리기',
           onClick: () => {

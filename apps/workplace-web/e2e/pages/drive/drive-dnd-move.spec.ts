@@ -182,6 +182,22 @@ test.describe('드라이브 끌어 옮기기', () => {
     await expect(page.getByTestId(`drive-row-file-${SPEC}`)).toBeVisible()
   })
 
+  test('연달아 옮기면 되돌리기는 마지막 이동만 가리킨다 — 이전 이동의 되돌리기가 남지 않는다', async ({ authenticatedPage: page }) => {
+    const { moves } = await setup(page)
+    await dragTo(page, `drive-row-file-${SPEC}`, `drive-row-folder-${MEETING}`)
+    await expect(page.getByText('1개 항목을 「회의록」으로 옮겼습니다')).toBeVisible()
+    await expect(page.getByTestId(`drive-row-file-${SPEC}`)).toHaveCount(0)
+    await dragTo(page, `drive-row-file-${DESIGN}`, `drive-row-folder-${REFS}`)
+    await moves.waitFor(2)
+    // 새 토스트가 이전 토스트 자리를 대체 — 되돌리기 버튼은 하나뿐이고 두 번째 이동을 되돌린다.
+    await expect(page.getByText('1개 항목을 「참고 자료」로 옮겼습니다')).toBeVisible()
+    await expect(page.getByText('1개 항목을 「회의록」으로 옮겼습니다')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: '되돌리기' })).toHaveCount(1)
+    await page.getByRole('button', { name: '되돌리기' }).click()
+    await moves.waitFor(3)
+    expect(moves.lastBody<MoveBody>()).toEqual({ fileIds: [DESIGN], folderIds: [], targetFolderId: PLAN })
+  })
+
   test('서버가 거부하면 사유를 오류 토스트로 보이고 목록은 그대로다', async ({ authenticatedPage: page }) => {
     const { moves } = await setup(page, { moveStatus: 409 })
     await dragTo(page, `drive-row-file-${SPEC}`, `drive-row-folder-${MEETING}`)
