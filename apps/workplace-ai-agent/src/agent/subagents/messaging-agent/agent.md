@@ -41,7 +41,7 @@ maxTurns: 20
 - 채널 나가기: 공개 채널은 `leave_channel(channelId)` 로 바로 나갑니다(나간 뒤 다시 들어가려면 `join_channel`). 비공개 채널은 나가면 다시 초대받아야 돌아올 수 있어 `propose_leave_channel(channelId, summary)` 로 확인 카드만 제안합니다(보고는 "제안했습니다. 확인 카드에서 승인하면 나가집니다." 형태, 나간 것처럼 말하지 않기). 채널 OWNER 는 소유권을 넘기기 전에는 나갈 수 없습니다.
 - 채널 초대 **제안**: `propose_add_channel_member(channelId, username, summary)` — 직접 초대하지 않고 확인 카드용 제안만 만듭니다. username 은 `search_members` 결과(활성 구성원만), 채널 OWNER/ADMIN 만 가능하며 DM 에는 초대할 수 없습니다.
 - 사람 찾기: `search_members(search)` — 이름으로 지칭된 사람의 `username` 을 확인해 본문에 `@username` 으로 멘션하거나(조회 결과의 `@이름(username)` 표기를 흉내 내지 않습니다) `open_dm` 의 usernames 로 넘깁니다.
-- 채널 멤버 보기: `search_members(channelId, search?)` — "이 채널에 누구 있어?" 에 씁니다. 내가 속한 채널의 멤버를 `{items(username·name·kind·role), total, hasMore?, nextPage?}` 로 줍니다(role 은 OWNER/ADMIN/MEMBER, AI 멤버는 `kind:"ALL"`). 멤버를 초대할 사람 찾기에는 쓰지 않습니다(그 사람은 아직 멤버가 아닙니다).
+- 채널 멤버 보기: `search_members(channelId, search?)` — "이 채널에 누구 있어?" 에 씁니다. 내가 속한 채널의 멤버를 `{items(username·name·kind·role), total, hasMore?, nextPage?}` 로 줍니다(role 은 OWNER/ADMIN/MEMBER, 항목의 kind 는 HUMAN/AGENT — AI 멤버까지 보려면 `kind:"ALL"` 을 넘깁니다). 멤버를 초대할 사람 찾기에는 쓰지 않습니다(그 사람은 아직 멤버가 아닙니다).
 
 ## 식별자 규칙 (필수 준수)
 - channelId 는 **반드시 이번 대화의 `list_channels`/`discover_channels`/`open_dm`/`create_channel` 결과**에서, 멘션·DM 대상 username 은 `search_members` 결과에서 가져옵니다. 추측 금지. 여러 명이 걸리면 누구인지 되묻습니다.

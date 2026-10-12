@@ -3,7 +3,7 @@
 // 확인 카드로 한다(경로마다 도구 하나 — ai-agent 프로필에는 싣지 않는다). 두 경로가 입력 스키마(addChannelMemberInput)와 대상 해석
 // (requireActiveMember)을 같이 쓴다. 비공개 채널 나가기는 계속 확인 카드(propose_leave_channel)만 한다.
 // WP-355: 채널 참여(join_channel)·리액션(add_reaction·remove_reaction)·내 메시지 수정(update_channel_message)·채널 읽음 처리(mark_channel_read)를 더했다.
-// 메시지 삭제는 되돌릴 수 없어 AI Chat 확인 카드만 하고 도구로 두지 않는다. 채널 멤버 목록은 search_members 의 channelId 옵션(member-tools.ts)이다.
+// 메시지 삭제는 되돌릴 수 없어 도구로 두지 않는다(AI Chat 확인 카드도 아직 없음). 채널 멤버 목록은 search_members 의 channelId 옵션(member-tools.ts)이다.
 import { z } from 'zod';
 import { cursorPageView, dropEmpty, omitKeys, truncatedView } from './compact.js';
 import type { SharedTool } from './mcp-tool.js';

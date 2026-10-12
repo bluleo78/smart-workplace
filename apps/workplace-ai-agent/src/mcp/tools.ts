@@ -1176,7 +1176,7 @@ export function buildTools(
       sharedTool('watch_issue'), sharedTool('unwatch_issue'), sharedTool('update_project'), sharedTool('move_wiki_page'),
       sharedTool('list_drive_trash'), sharedTool('restore_drive_item'), sharedTool('rsvp_event'),
       sharedTool('create_channel'), sharedTool('open_dm'), sharedTool('leave_channel'),
-      // WP-355: 채널 참여·리액션·내 메시지 수정·채널 읽음 처리 — 사용자 신원으로 하는 되돌릴 수 있는 쓰기(직접 실행, 확인 카드 없음). 메시지 삭제는 확인 카드 대상이라 도구로 두지 않는다.
+      // WP-355: 채널 참여·리액션·내 메시지 수정·채널 읽음 처리 — 사용자 신원으로 하는 되돌릴 수 있는 쓰기(직접 실행, 확인 카드 없음). 메시지 삭제는 되돌릴 수 없어 도구로 두지 않는다(확인 카드도 아직 없음).
       // 채널에서 멘션된 에이전트 신원의 messaging 프로필에는 싣지 않는다(에이전트가 사람 이름으로 리액션·수정하는 정책은 별도 결정).
       sharedTool('join_channel'), sharedTool('add_reaction'), sharedTool('remove_reaction'), sharedTool('update_channel_message'), sharedTool('mark_channel_read'),
       sharedTool('get_mail_summary'), sharedTool('draft_mail_reply'), sharedTool('draft_issue_from_mail'),
