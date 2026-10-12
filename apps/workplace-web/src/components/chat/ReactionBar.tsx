@@ -1,36 +1,117 @@
 // 메시지 하단 리액션 pill 목록. pill 클릭 = 토글. reacted 면 강조 스타일.
-import type { MessageResponse } from '@/types/messaging'
+// WP-106: 데스크톱은 pill 에 마우스를 올리면 반응자 호버 카드(요약 + 모두 보기)를 띄운다. 터치 셸은 호버 카드를 쓰지 않고
+// 목록의 길게 누르기 위임(useMessageListLongPress)이 data-reaction-emoji 로 칩을 알아보고 반응자 시트를 연다.
+import type { ComponentProps, ReactElement } from 'react'
+import { useState } from 'react'
+
+import { ReactionHoverContent } from '@/components/chat/ReactionHoverContent'
+import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card'
+import type { MessageResponse, ReactionResponse } from '@/types/messaging'
+
+/** 호버 카드 열림 지연 — 칩 위를 스쳐 지나갈 때마다 요청하지 않게. */
+const HOVER_OPEN_DELAY_MS = 300
+/** 닫힘 지연 — 칩에서 카드로 마우스를 옮기는 동안 유지(모두 보기 클릭 가능). */
+const HOVER_CLOSE_DELAY_MS = 150
 
 interface ReactionBarProps {
   message: MessageResponse
   onToggle: (emoji: string) => void
   // 칩 정렬 방향. 본인 메시지(우측 말풍선) 아래에서는 'end' 로 말풍선과 같은 쪽에 붙인다.
   align?: 'start' | 'end'
+  currentUserId: number
+  // 반응자 전체 보기 열기(호버 카드의 모두 보기). 미전달이면 호버 카드를 붙이지 않는다(미전송 메시지·터치 셸 등).
+  onOpenReactors?: (emoji: string) => void
 }
 
-export function ReactionBar({ message, onToggle, align = 'start' }: ReactionBarProps) {
+export function ReactionBar({ message, onToggle, align = 'start', currentUserId, onOpenReactors }: ReactionBarProps) {
   if (message.reactions.length === 0) return null
+  const hover = !!onOpenReactors && message.id >= 0
   return (
     <div
       className={`mt-1 flex flex-wrap gap-1 ${align === 'end' ? 'justify-end' : ''}`}
       data-testid={`reaction-bar-${message.id}`}
     >
-      {message.reactions.map((r) => (
-        <button
-          key={r.emoji}
-          type="button"
-          onClick={() => onToggle(r.emoji)}
-          data-testid={`reaction-pill-${message.id}-${r.emoji}`}
-          aria-pressed={r.reacted}
-          // 터치(coarse)에선 손가락으로 누르기 쉽게 높이 32px·좌우 여백을 키운다(L1). 마우스 환경은 그대로.
-          className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs pointer-coarse:min-h-8 pointer-coarse:px-2.5 ${
-            r.reacted ? 'border-primary bg-primary/10 text-primary' : 'border-muted bg-muted/50'
-          }`}
-        >
-          <span>{r.emoji}</span>
-          <span data-testid={`reaction-count-${message.id}-${r.emoji}`}>{r.count}</span>
-        </button>
-      ))}
+      {message.reactions.map((r) => {
+        const pill = <ReactionPill key={r.emoji} messageId={message.id} reaction={r} onToggle={onToggle} />
+        return hover ? (
+          <ReactionHoverPill
+            key={r.emoji}
+            messageId={message.id}
+            reaction={r}
+            currentUserId={currentUserId}
+            onShowAll={() => onOpenReactors(r.emoji)}
+          >
+            {pill}
+          </ReactionHoverPill>
+        ) : (
+          pill
+        )
+      })}
     </div>
+  )
+}
+
+// onToggle 은 버튼 고유 toggle 이벤트 prop 과 이름이 겹쳐 rest 타입에서 제외한다.
+/** 반응 칩 버튼 — 클릭 = 토글. data-reaction-emoji 는 길게 누르기 위임이 칩을 알아보는 표식. */
+function ReactionPill({
+  messageId,
+  reaction: r,
+  onToggle,
+  ...rest
+}: {
+  messageId: number
+  reaction: ReactionResponse
+  onToggle: (emoji: string) => void
+} & Omit<ComponentProps<'button'>, 'onToggle'>) {
+  return (
+    <button
+      type="button"
+      {...rest}
+      onClick={() => onToggle(r.emoji)}
+      data-testid={`reaction-pill-${messageId}-${r.emoji}`}
+      data-reaction-emoji={r.emoji}
+      aria-pressed={r.reacted}
+      // 터치(coarse)에선 손가락으로 누르기 쉽게 높이 32px·좌우 여백을 키운다(L1). 마우스 환경은 그대로.
+      className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs pointer-coarse:min-h-8 pointer-coarse:px-2.5 ${
+        r.reacted ? 'border-primary bg-primary/10 text-primary' : 'border-muted bg-muted/50'
+      }`}
+    >
+      <span>{r.emoji}</span>
+      <span data-testid={`reaction-count-${messageId}-${r.emoji}`}>{r.count}</span>
+    </button>
+  )
+}
+
+/** 칩 하나를 호버 카드 트리거로 감싼다. 모두 보기를 누르면 카드를 닫고 전체 보기를 연다. */
+function ReactionHoverPill({
+  messageId,
+  reaction,
+  currentUserId,
+  onShowAll,
+  children,
+}: {
+  messageId: number
+  reaction: ReactionResponse
+  currentUserId: number
+  onShowAll: () => void
+  children: ReactElement
+}) {
+  const [open, setOpen] = useState(false)
+  return (
+    <HoverCard open={open} onOpenChange={setOpen} openDelay={HOVER_OPEN_DELAY_MS} closeDelay={HOVER_CLOSE_DELAY_MS}>
+      <HoverCardTrigger asChild>{children}</HoverCardTrigger>
+      {/* 칩 아래로 연다 — 위로 열면 작성자·본문 줄을 가린다. 화면 아래가 모자라면 Radix 충돌 처리가 위로 뒤집는다. */}
+      <HoverCardContent side="bottom" align="start" className="w-60">
+        <ReactionHoverContent
+          messageId={messageId}
+          reaction={reaction}
+          currentUserId={currentUserId}
+          onShowAll={() => {
+            setOpen(false)
+            onShowAll()
+          }}
+        />
+      </HoverCardContent>
+    </HoverCard>
   )
 }

@@ -4,6 +4,7 @@
 // pointer 이벤트를 받아 closest('[data-message-id]') 로 대상 행을 찾으면 타이머·발동 표식이 목록당 한 벌이다.
 // 우클릭·안드로이드 길게 터치(contextmenu)도 같은 시트로 연결하고, 발동 직후의 click 은 캡처 단계에서 삼킨다
 // (멘션 칩·링크·이미지·답글 링크 같은 자식 click 이 함께 실행되는 이중 동작 방지). 짧은 탭은 손대지 않는다.
+// WP-106: 반응 칩(data-reaction-emoji) 위에서 발동하면 작업 시트 대신 반응자 시트(onOpenReactors)를 연다 — 타이머·click 억제는 같은 한 벌.
 import { type MouseEvent, type PointerEvent, type SyntheticEvent, useEffect, useMemo, useRef } from 'react'
 
 import { MOVE_TOLERANCE_SQ } from '@/hooks/useLongPress'
@@ -25,19 +26,21 @@ export interface MessageListLongPressHandlers {
 
 /**
  * @param enabled 터치 셸일 때만 true — 아니면 핸들러를 하나도 달지 않는다.
- * @param canOpen 발동 시점에 이 id 의 시트를 열 수 있는가(목록에 있음·수정 중 아님·작업이 하나라도 있음).
+ * @param canOpen 발동 시점에 이 id 의 작업 시트를 열 수 있는가(목록에 있음·수정 중 아님·작업이 하나라도 있음). 반응 칩 대상은 이 게이트를 거치지 않는다.
  *   false 면 타이머도 걸지 않고 contextmenu 도 막지 않는다 — 수정 중 에디터의 네이티브 붙여넣기 메뉴가 살아 있게(C2).
  * @param onOpen 시트를 연다.
+ * @param onOpenReactors 반응 칩 위에서 발동했을 때 반응자 시트를 연다(WP-106). 없으면 칩 위에서도 작업 시트.
  */
 export function useMessageListLongPress(
   enabled: boolean,
   canOpen: (id: number) => boolean,
   onOpen: (id: number) => void,
+  onOpenReactors?: (id: number, emoji: string) => void,
 ): MessageListLongPressHandlers {
   // 최신 콜백 — 핸들러는 한 번만 만들고 호출 시점의 콜백을 읽는다.
-  const latest = useRef({ canOpen, onOpen })
+  const latest = useRef({ canOpen, onOpen, onOpenReactors })
   useEffect(() => {
-    latest.current = { canOpen, onOpen }
+    latest.current = { canOpen, onOpen, onOpenReactors }
   })
 
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -54,17 +57,28 @@ export function useMessageListLongPress(
     // 이벤트가 이 목록 DOM 안에서 났는가. React 이벤트는 포털을 React 트리 기준으로 거슬러 오르므로,
     // 목록이 렌더한 작업 시트(포털) 안의 탭·클릭도 여기 도착한다 — 그건 목록 행 이벤트가 아니므로 무시한다.
     const inside = (e: SyntheticEvent) => e.target instanceof Node && e.currentTarget.contains(e.target)
-    /** 이벤트 대상의 메시지 행 id. 행이 아니거나·미전송(음수)·열 수 없으면 null. */
-    const targetId = (e: SyntheticEvent): number | null => {
+    // 열 수 있는가 — 반응자 시트(칩, emoji 가 있는 대상)는 작업 시트용 canOpen(수정 중이면 false)을 건너뛴다.
+    // 칩은 에디터 밖이라 수정 중에도 반응자를 볼 수 있어야 하고, 목록에 있는지는 onOpenReactors 쪽이 확인한다.
+    const openable = (t: { id: number; emoji: string | null }) => (t.emoji ? true : latest.current.canOpen(t.id))
+    /** 이벤트 대상 — 메시지 행 id 와, 반응 칩 위라면 그 이모지. 행이 아니거나·미전송(음수)·열 수 없으면 null. */
+    const targetOf = (e: SyntheticEvent): { id: number; emoji: string | null } | null => {
       if (!inside(e)) return null
-      const row = (e.target as Element).closest?.('[data-message-id]')
+      const el = e.target as Element
+      const row = el.closest?.('[data-message-id]')
       if (!row || !e.currentTarget.contains(row)) return null
       const id = Number(row.getAttribute('data-message-id'))
-      return Number.isFinite(id) && id >= 0 && latest.current.canOpen(id) ? id : null
+      if (!(Number.isFinite(id) && id >= 0)) return null
+      // 칩이 그 행 안에 있고 반응자 시트 콜백이 있을 때만 반응자 대상(emoji)으로 본다. 아니면 작업 시트 대상.
+      const chip = latest.current.onOpenReactors ? el.closest?.('[data-reaction-emoji]') : null
+      const emoji = chip && row.contains(chip) ? chip.getAttribute('data-reaction-emoji') : null
+      const t = { id, emoji }
+      return openable(t) ? t : null
     }
-    const fire = (id: number) => {
+    const fire = (t: { id: number; emoji: string | null }) => {
       fired.current = true
-      latest.current.onOpen(id)
+      const { onOpen, onOpenReactors } = latest.current
+      if (t.emoji && onOpenReactors) onOpenReactors(t.id, t.emoji)
+      else onOpen(t.id) // emoji 는 onOpenReactors 가 있을 때만 채워지므로 여기 오는 건 작업 시트 대상.
     }
     return {
       cancel,
@@ -75,13 +89,13 @@ export function useMessageListLongPress(
           if (e.pointerType === 'mouse' && e.button !== 0) return
           fired.current = false
           cancel()
-          const id = targetId(e)
-          if (id === null) return
+          const t = targetOf(e)
+          if (t === null) return
           start.current = { x: e.clientX, y: e.clientY }
           timer.current = setTimeout(() => {
             timer.current = null
             // 누르는 사이 수정이 시작됐거나 메시지가 사라졌을 수 있어 발동 시점에 한 번 더 확인한다.
-            if (latest.current.canOpen(id)) fire(id)
+            if (openable(t)) fire(t)
           }, MESSAGE_LONG_PRESS_MS)
         },
         onPointerMove: (e: PointerEvent) => {
@@ -97,11 +111,11 @@ export function useMessageListLongPress(
         onPointerLeave: cancel,
         // 안드로이드의 길게 터치·우클릭 — 대상 행을 먼저 판정하고, 열 수 있을 때만 네이티브 메뉴를 막는다.
         onContextMenu: (e: MouseEvent) => {
-          const id = targetId(e)
-          if (id === null) return
+          const t = targetOf(e)
+          if (t === null) return
           e.preventDefault()
           cancel()
-          fire(id) // 타이머 발동과 겹쳐도 여는 동작은 멱등.
+          fire(t) // 타이머 발동과 겹쳐도 여는 동작은 멱등.
         },
         // 키보드 활성화(스크린리더용 "메시지 작업" 버튼 등)는 keydown 이 click 보다 먼저 오므로 여기서 표식을 풀어 삼키지 않는다.
         onKeyDown: () => {

@@ -55,6 +55,20 @@ export interface ReactionResponse {
   reacted: boolean;
 }
 
+/** 반응자 1명(WP-106). 호버 카드·전체 보기에서만 지연 조회한다. */
+export interface ReactorResponse {
+  userId: number;
+  name: string;
+  kind: UserKind;
+}
+
+/** 반응자 페이지(keyset). nextCursor 가 null 이면 마지막. 먼저 누른 사람부터. */
+export interface ReactorPage {
+  items: ReactorResponse[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
 /** 메시지에 첨부된 파일 1건. content 는 별도 인증 엔드포인트로 blob 다운로드. */
 export interface MessageAttachment {
   fileId: number;
