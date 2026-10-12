@@ -1,5 +1,6 @@
 package com.workplace.drive.service;
 
+import com.workplace.global.util.SafeFileNames;
 import com.workplace.global.util.UnicodeNames;
 import java.util.Locale;
 import java.util.Set;
@@ -14,9 +15,12 @@ import java.util.regex.Pattern;
 final class DriveNames {
   private DriveNames() {}
 
-  /** 금지 문자 — 경로 구분자, 제어 문자(C0·C1), 줄/문단 구분자, 양방향 제어 문자. */
-  private static final Pattern FORBIDDEN_CHARS =
-      Pattern.compile("[/\\\\\\p{Cc}\\u2028\\u2029\\u202A-\\u202E\\u2066-\\u2069]");
+  /** ZIP 에서 추가로 바꾸는 문자 — Windows 가 파일 이름에 허용하지 않아 압축 풀기에서 항목이 빠지거나 실패한다. */
+  private static final Pattern WINDOWS_FORBIDDEN_CHARS = Pattern.compile("[:*?\"<>|]");
+
+  /** Windows 예약 장치 이름(확장자와 무관하게 예약) — ZIP 에서 앞에 "_" 를 붙인다. */
+  private static final Pattern WINDOWS_RESERVED =
+      Pattern.compile("(?i)(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\\..*)?");
 
   /**
    * 이름 정규화·검사 — 앞뒤 공백(유니코드 공백 포함)을 지우고 NFC 로 맞춘 뒤, 빈 이름·"."·".."·금지 문자는 400. 폴더 ZIP 이 이름을 엔트리 경로로
@@ -26,19 +30,26 @@ final class DriveNames {
    */
   static String valid(String raw, String kind) {
     String name = UnicodeNames.toNfc(raw.strip());
-    if (name.isEmpty() || name.equals(".") || name.equals("..")) {
+    if (SafeFileNames.isReserved(name)) {
       throw new IllegalArgumentException(kind + " 이름을 입력해주세요. \".\" 이나 \"..\" 만으로는 지을 수 없습니다.");
     }
-    if (FORBIDDEN_CHARS.matcher(name).find()) {
+    if (SafeFileNames.FORBIDDEN_CHARS.matcher(name).find()) {
       throw new IllegalArgumentException(kind + " 이름에 / \\ 나 제어 문자는 쓸 수 없습니다.");
     }
     return name;
   }
 
-  /** ZIP 경로 한 조각 — 금지 문자는 "_" 로 바꾸고, 비거나 "."·".." 이면 "_". 압축을 풀 때 구조가 바뀌거나 대상 폴더 밖으로 나가지 않게 한다. */
+  /**
+   * ZIP 경로 한 조각 — 경로·제어 문자와 Windows 금지 문자는 "_" 로, 끝의 점·공백은 지우고, 예약 장치 이름은 앞에 "_" 를 붙인다. 비거나
+   * "."·".." 이면 "_". 압축을 풀 때 구조가 바뀌거나 대상 폴더 밖으로 나가거나 Windows 에서 항목이 빠지지 않게 한다.
+   */
   static String zipSegment(String name) {
-    String s = FORBIDDEN_CHARS.matcher(name).replaceAll("_").strip();
-    return s.isEmpty() || s.equals(".") || s.equals("..") ? "_" : s;
+    String s = WINDOWS_FORBIDDEN_CHARS.matcher(SafeFileNames.sanitize(name, "_")).replaceAll("_");
+    s = s.replaceAll("[. ]+$", "");
+    if (s.isEmpty()) {
+      return "_";
+    }
+    return WINDOWS_RESERVED.matcher(s).matches() ? "_" + s : s;
   }
 
   /**

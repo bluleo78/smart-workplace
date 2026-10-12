@@ -312,14 +312,15 @@ public class WorkerJobRepository {
    * @return {extracted_text, 이름(드라이브 이름 우선), mime_type, tenant_id}
    */
   public SummaryContext findSummaryContext(long fileId) {
-    // 드라이브 파일이면 지금 드라이브 이름(이름 변경 반영), 아니면 업로드 당시 이름(WP-339). 같은 core 파일을 가리키는 드라이브 파일이 여럿이면 최신 것.
+    // 드라이브 파일이면 지금 드라이브 이름(이름 변경 반영), 아니면 업로드 당시 이름(WP-339). 같은 core 파일을 가리키는 드라이브 파일이 여럿이면 휴지통
+    // 밖·최신 것.
     Field<String> name =
         DSL.coalesce(
             DSL.field(
                 DSL.select(DRIVE_FILE.NAME)
                     .from(DRIVE_FILE)
                     .where(DRIVE_FILE.FILE_ID.eq(FILE.ID))
-                    .orderBy(DRIVE_FILE.ID.desc())
+                    .orderBy(DRIVE_FILE.TRASHED_AT.desc().nullsFirst(), DRIVE_FILE.ID.desc())
                     .limit(1)),
             FILE.ORIGINAL_NAME);
     return dsl.select(

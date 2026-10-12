@@ -151,4 +151,17 @@ class DriveZipServiceTest extends IntegrationTestBase {
             "a (1)/docs (1)/in.txt");
     assertThat(docsFile.name()).isEqualTo("docs");
   }
+
+  /** Windows 가 거부하는 문자·끝의 점과 공백·예약 장치 이름도 ZIP 에서 바꿔 담는다 — Windows 압축 풀기에서 항목이 빠지지 않게(WP-339). */
+  @Test
+  void Windows에서_풀리지_않는_이름도_ZIP에서_정리된다() throws Exception {
+    DriveSpaceResponse space = createSpace();
+    DriveFolderResponse box = folderService.create(owner, space.id(), null, "box");
+    upload(space.id(), box.id(), "회의록: 10?.txt");
+    upload(space.id(), box.id(), "con.txt");
+    folderService.create(owner, space.id(), box.id(), "끝점. ");
+
+    assertThat(paths(space.id(), List.of(), List.of(box.id())))
+        .containsExactlyInAnyOrder("box/회의록_ 10_.txt", "box/_con.txt", "box/끝점/");
+  }
 }

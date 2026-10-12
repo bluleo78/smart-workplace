@@ -469,19 +469,24 @@ class DriveFileServiceTest extends IntegrationTestBase {
     assertThat(fileService.rename(u, f.id(), "..a.b.txt").name()).isEqualTo("..a.b.txt");
   }
 
-  /** API·MCP 로 경로가 붙은 파일명이 와도 마지막 조각만 이름으로 저장한다(WP-339). 남는 게 없으면 "file". */
+  /**
+   * API·MCP 로 경로·양방향 문자가 든 파일명이 와도 막지 않고 "_" 로 바꿔 저장한다(WP-339). 잘라 내지 않으므로 같은 폴더의 다른 파일과 겹쳐 새 버전으로
+   * 합쳐지지 않는다.
+   */
   @Test
-  void upload_pathLikeName_keepsBaseNameOnly() throws Exception {
+  void upload_pathLikeName_isSanitized() throws Exception {
     long u = seedUser();
     DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
     String[][] cases = {
-      {"../../evil.txt", "evil.txt"}, {"a\\b\\c.txt", "c.txt"}, {"dir/..", "file"}, {"x/", "file"}
+      {"../../evil.txt", ".._.._evil.txt"},
+      {"a\\b\\c.txt", "a_b_c.txt"},
+      {"invoice\u202Efdp.exe", "invoice_fdp.exe"},
+      {"..", "file"}
     };
     for (String[] c : cases) {
       MockMultipartFile mf = new MockMultipartFile("file", c[0], "text/plain", "x".getBytes());
       DriveFileResponse f = fileService.upload(u, sp.id(), null, mf);
       assertThat(f.name()).as(c[0]).isEqualTo(c[1]);
-      fileService.delete(u, f.id());
     }
   }
 

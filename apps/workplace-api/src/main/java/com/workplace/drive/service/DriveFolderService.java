@@ -15,6 +15,8 @@ import com.workplace.drive.outbound.DriveChangeNotifier;
 import com.workplace.drive.repository.DriveFileRepository;
 import com.workplace.drive.repository.DriveFolderRepository;
 import com.workplace.file.service.FileUploadService;
+import com.workplace.global.util.SafeFileNames;
+import com.workplace.global.util.UnicodeNames;
 import java.io.IOException;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -60,8 +62,9 @@ public class DriveFolderService {
   public DriveFolderResponse resolveOrCreate(
       long callerId, long spaceId, Long parentId, String name) {
     perms.requireRole(spaceId, callerId, "EDITOR");
-    // 폴더명 정규화·검사(merge 키 일관 + 경로 문자 차단, WP-339). 람다 캡처 위해 별도 final 지역변수.
-    String nfcName = DriveNames.valid(name, "폴더");
+    // 폴더명 NFC 정규화(merge 키 일관) + 경로·제어 문자는 "_" 로(WP-339). 업로드하는 폴더 이름은 사용자가 고칠 수 없어, 거절하면 트리가
+    // 반쯤 올라간 채 멈추므로 바꿔 받는다. 람다 캡처 위해 별도 final 지역변수.
+    String nfcName = UnicodeNames.toNfc(SafeFileNames.sanitize(name, "_"));
     return folders
         .findIdInSpace(spaceId, parentId, nfcName)
         .flatMap(folders::findById)

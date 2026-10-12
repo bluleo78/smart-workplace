@@ -9,6 +9,7 @@ import com.workplace.file.exception.FileSizeLimitExceededException;
 import com.workplace.file.storage.FilePathBuilder;
 import com.workplace.file.storage.FileStore;
 import com.workplace.file.storage.StorageDomain;
+import com.workplace.global.util.SafeFileNames;
 import com.workplace.global.util.UnicodeNames;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -132,10 +133,11 @@ public class FileUploadService {
 
     // 파일명은 NFC 로 정규화해 저장한다. macOS 업로드는 NFD(분해형)로 들어와, NFC 검색어와 ILIKE 미스를 유발하기 때문(UnicodeNames 참조).
     // 이 값은 FileUploadResponse → drive_file.name 및 첨부 import 경로까지 흐르므로, 여기 한 곳이 모든 파일명 쓰기 통로다.
+    // 경로 구분자·제어·양방향 문자는 "_" 로 바꿔 받는다(WP-339) — API·MCP 로 온 "../x.txt" 가 경로처럼 쓰이거나, 잘라 낸 이름이 다른 드라이브
+    // 파일과 겹쳐 새 버전으로 합쳐지거나, 확장자를 뒤집어 보이게 하는 이름이 저장되지 않게.
     String originalName =
-        baseName(
-            UnicodeNames.toNfc(
-                file.getOriginalFilename() != null ? file.getOriginalFilename() : "file"));
+        SafeFileNames.sanitize(
+            UnicodeNames.toNfcOrDefault(file.getOriginalFilename(), "file"), "file");
 
     // FilePathBuilder 가 테넌트 prefix + 도메인 세그먼트(files) + 날짜 + UUID 를 조립한다(테넌트 컨텍스트 필수).
     // 경로 예: tenant-1/files/2024-01-15/{uuid}.png
@@ -336,15 +338,5 @@ public class FileUploadService {
             .getId();
     log.info("File copied: src={}, new={}, name={}", srcFileId, newId, record.getOriginalName());
     return newId;
-  }
-
-  /**
-   * 업로드 파일명에서 경로 부분을 떼어 낸 마지막 조각(WP-339). 브라우저는 파일명만 보내지만 API·MCP 로는 "../x.txt"·"a\\b.txt" 같은 이름이 올
-   * 수 있어, 드라이브 ZIP 경로나 다운로드 이름이 폴더를 벗어나지 않게 한다. 업로드 자체는 막지 않으려고 남은 이름이 비거나 "."·".." 이면 "file" 로 둔다.
-   */
-  static String baseName(String name) {
-    String base =
-        name.substring(Math.max(name.lastIndexOf('/'), name.lastIndexOf('\\')) + 1).strip();
-    return base.isEmpty() || base.equals(".") || base.equals("..") ? "file" : base;
   }
 }
