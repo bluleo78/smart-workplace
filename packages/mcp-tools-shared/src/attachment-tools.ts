@@ -4,7 +4,7 @@
 // 이미지가 아닌 원본은 base64 로 돌려주지 않는다 — "텍스트로 읽기"와 "원본 받기"는 다른 도구다(원본 받기는 보류).
 import { z } from 'zod';
 
-import { baseMimeType, IMAGE_MAX_BYTES, imageRejectReasons, READ_ATTACHMENT_DEFAULT_LIMIT, readRangeShape, resolveRange, toBase64 } from './attachment-read.js';
+import { baseMimeType, FileTooLargeError, IMAGE_MAX_BYTES, imageRejectReasons, READ_ATTACHMENT_DEFAULT_LIMIT, readRangeShape, resolveRange, toBase64 } from './attachment-read.js';
 import type { McpToolResult } from './mcp-content.js';
 import type { SharedTool } from './mcp-tool.js';
 import type { AttachmentToolClient, ExtractedTextSlice, FileBytes } from './tool-client.js';
@@ -17,24 +17,25 @@ import type { AttachmentToolClient, ExtractedTextSlice, FileBytes } from './tool
 export const readAttachmentInput = z
   .object({
     source: z.enum(['issue', 'drive']),
-    issueKey: z.string().min(1).optional(),
-    fileId: z.number().int().positive().optional(),
-    driveFileId: z.number().int().positive().optional(),
+    // 쓰지 않는 source 의 식별자를 모델이 null 로 채워 보내는 경우가 있어 nullish — null 은 "없음"으로 본다(범위 인자와 같은 이유).
+    issueKey: z.string().min(1).nullish(),
+    fileId: z.number().int().positive().nullish(),
+    driveFileId: z.number().int().positive().nullish(),
     ...readRangeShape,
   })
   .superRefine((v, ctx) => {
     if (v.source === 'issue') {
-      if (v.issueKey === undefined || v.fileId === undefined) {
+      if (v.issueKey == null || v.fileId == null) {
         ctx.addIssue({ code: 'custom', message: "source 'issue' 는 issueKey 와 fileId 가 필요합니다(get_issue_detail 의 attachments[].fileId)." });
       }
-      if (v.driveFileId !== undefined) {
+      if (v.driveFileId != null) {
         ctx.addIssue({ code: 'custom', message: "source 'issue' 에는 driveFileId 를 주지 마세요. 드라이브 파일은 source 'drive' 로 읽습니다." });
       }
     } else {
-      if (v.driveFileId === undefined) {
+      if (v.driveFileId == null) {
         ctx.addIssue({ code: 'custom', message: "source 'drive' 는 driveFileId 가 필요합니다(list_drive_items·search_drive 결과의 driveFileId)." });
       }
-      if (v.issueKey !== undefined || v.fileId !== undefined) {
+      if (v.issueKey != null || v.fileId != null) {
         ctx.addIssue({ code: 'custom', message: "source 'drive' 에는 issueKey·fileId 를 주지 마세요. 이슈 첨부는 source 'issue' 로 읽습니다." });
       }
     }
@@ -49,6 +50,19 @@ function imageNotice(label: string, reasons: string[]): string {
     `${label}: 이 이미지의 ${reasons.join('과 ')}는 모델에 보낼 수 없습니다(JPEG·PNG·GIF·WebP, ${IMAGE_MAX_BYTES}B 이하만 가능). ` +
     '이미지 내용을 추측하지 말고, 사용자에게 직접 확인해 달라고 안내하세요.'
   );
+}
+
+/**
+ * 원본 받기 — 크기 메타가 없어 사전 검사를 못 한 경우를 위해 클라이언트가 다운로드 상한(IMAGE_MAX_BYTES)을 걸고,
+ * 넘으면 FileTooLargeError 를 던진다. 그때도 사전 검사와 같은 "크기 초과" 안내로 잇는다.
+ */
+async function downloadImage(label: string, download: () => Promise<FileBytes>): Promise<McpToolResult> {
+  try {
+    return imageResult(label, await download());
+  } catch (e) {
+    if (e instanceof FileTooLargeError) return imageNotice(label, [`크기(${IMAGE_MAX_BYTES}B 초과)`]);
+    throw e;
+  }
 }
 
 /** 받은 원본 → [설명 text, image] 블록. 형식은 응답 Content-Type 에서 파라미터를 떼어 쓴다(모델 입력 형식). 받은 뒤에도 형식·크기를 다시 본다. */
@@ -72,7 +86,7 @@ export function buildAttachmentTools(client: AttachmentToolClient): SharedTool[]
       const reasons = imageRejectReasons(row.mimeType, row.sizeBytes);
       if (reasons.length > 0) return imageNotice(label, reasons);
     }
-    return imageResult(label, await client.downloadIssueAttachment(issueKey, fileId));
+    return downloadImage(label, () => client.downloadIssueAttachment(issueKey, fileId));
   }
 
   /** 드라이브 이미지 — 파일 메타 단건 API 가 없어 현재 버전 크기로 상한을 먼저 보고, 형식은 받은 응답의 Content-Type 으로 본다. */
@@ -80,7 +94,7 @@ export function buildAttachmentTools(client: AttachmentToolClient): SharedTool[]
     const label = `드라이브 이미지(driveFileId ${driveFileId})`;
     const current = (await client.listDriveFileVersions(driveFileId)).find((v) => v.current);
     if (current && current.sizeBytes > IMAGE_MAX_BYTES) return imageNotice(label, [`크기(${current.sizeBytes}B)`]);
-    return imageResult(label, await client.downloadDriveFile(driveFileId));
+    return downloadImage(label, () => client.downloadDriveFile(driveFileId));
   }
 
   return [

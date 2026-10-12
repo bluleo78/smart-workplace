@@ -8,7 +8,8 @@ import { z } from 'zod';
 // 더 필요하면 모델이 limit 을 최대 32000 까지 직접 지정하거나 nextOffset 으로 이어 읽는다.
 export const READ_ATTACHMENT_DEFAULT_LIMIT = 12000;
 
-// limit 상한 32000 은 서버 계약(WP-242·WP-346)과 같다 — 드라이브는 넘기면 자르고 이슈 첨부는 400 이라 스키마에서 먼저 막는다.
+// limit 상한 32000 은 서버 계약(WP-242·WP-346)과 같다 — 서버는 넘기면 상한으로 자르지만(ExtractedTextService.read),
+// 모델이 더 달라고 했는데 조용히 잘리는 일이 없도록 스키마에서 먼저 막는다.
 // 선택 인자는 nullish — 모델이 안 쓰는 인자를 null 로 채워 보내는 경우가 있어 null 도 "미지정" 으로 받는다.
 export const readRangeShape = {
   offset: z.number().int().min(0).nullish(),
@@ -25,6 +26,14 @@ export const SENDABLE_IMAGE_MIMES: ReadonlySet<string> = new Set(['image/jpeg', 
 
 /** 이미지 원본 상한 3.75MB — base64(×4/3)로 늘면 모델 이미지 한도 5MB 에 닿는다. */
 export const IMAGE_MAX_BYTES = 3_932_160;
+
+/** 원본 다운로드가 이미지 상한(IMAGE_MAX_BYTES)을 넘어 중단됐음을 알리는 오류 — 도구가 "크기 초과" 안내로 바꾼다. */
+export class FileTooLargeError extends Error {
+  constructor(public readonly maxBytes: number = IMAGE_MAX_BYTES) {
+    super(`원본이 ${maxBytes}B 를 넘어 받지 않았습니다.`);
+    this.name = 'FileTooLargeError';
+  }
+}
 
 /** Content-Type 원문에서 파라미터(charset 등)를 떼고 소문자로 — 모델 입력 형식 비교·전달용. */
 export function baseMimeType(contentType: string): string {

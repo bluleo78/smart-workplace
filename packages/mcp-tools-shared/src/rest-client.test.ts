@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { FileTooLargeError } from './attachment-read.js';
 import { createSharedToolClient, type HttpLike } from './rest-client.js';
 
 /** axios 인스턴스를 흉내 내는 HttpLike mock — 기본 응답은 { data: null }. */
@@ -382,14 +383,23 @@ describe('createSharedToolClient 첨부·파일 내용 읽기 경로(WP-346)', (
     const { http, client } = mockHttp();
     http.get.mockResolvedValueOnce({ data: Buffer.from([1, 2]), headers: { 'content-type': 'image/png' } });
     const a = await client.downloadIssueAttachment('WP-12', 3);
-    expect(http.get).toHaveBeenCalledWith('/projects/WP/issues/12/attachments/3/content', { responseType: 'arraybuffer' });
+    expect(http.get).toHaveBeenCalledWith('/projects/WP/issues/12/attachments/3/content', { responseType: 'arraybuffer', maxContentLength: 3_932_160, maxBodyLength: 3_932_160 });
     expect([...a.data]).toEqual([1, 2]);
     expect(a.mimeType).toBe('image/png');
 
     http.get.mockResolvedValueOnce({ data: new Uint8Array([7]).buffer, headers: {} });
     const b = await client.downloadDriveFile(9);
-    expect(http.get).toHaveBeenLastCalledWith('/drive/files/9/content', { responseType: 'arraybuffer' });
+    expect(http.get).toHaveBeenLastCalledWith('/drive/files/9/content', { responseType: 'arraybuffer', maxContentLength: 3_932_160, maxBodyLength: 3_932_160 });
     expect([...b.data]).toEqual([7]);
     expect(b.mimeType).toBe('application/octet-stream');
+  });
+
+  it('원본 받기 — 다운로드 상한(이미지 3.75MB)을 건다: axios 의 maxContentLength 초과는 FileTooLargeError 로 바뀐다', async () => {
+    const { http, client } = mockHttp();
+    http.get.mockRejectedValueOnce(Object.assign(new Error('maxContentLength size of 3932160 exceeded'), { code: 'ERR_BAD_RESPONSE' }));
+    await expect(client.downloadDriveFile(9)).rejects.toBeInstanceOf(FileTooLargeError);
+    // 상한과 무관한 오류는 그대로 던진다.
+    http.get.mockRejectedValueOnce(new Error('Network Error'));
+    await expect(client.downloadIssueAttachment('WP-12', 3)).rejects.toThrow('Network Error');
   });
 });

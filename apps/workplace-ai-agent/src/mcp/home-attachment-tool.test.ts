@@ -96,6 +96,12 @@ describe('read_chat_attachment', () => {
     ]);
   });
 
+  it('이미지 목록 mimeType 에 파라미터가 붙어도 image 블록은 기본 형식으로 보낸다', async () => {
+    const c = mockClient([att(9, 'image/png; charset=binary', ex('NONE'), 7, '화면.png')]);
+    const out = (await tool(c).handler({ fileId: 9 })) as Array<{ type: string; mimeType?: string }>;
+    expect(out[1]).toMatchObject({ type: 'image', mimeType: 'image/png' });
+  });
+
   it('이미지 크기 경계 — 3,932,160B 는 블록, 1B 초과는 안내(다운로드 없음)', async () => {
     const ok = mockClient([att(9, 'image/jpeg', ex('NONE'), IMAGE_MAX_BYTES)]);
     expect(Array.isArray(await tool(ok).handler({ fileId: 9 }))).toBe(true);
@@ -111,7 +117,7 @@ describe('read_chat_attachment', () => {
     const out = (await tool(c).handler({ fileId: 9 })) as string;
     expect(out).toContain('형식(image/heic)');
     expect(out).not.toContain('크기(');
-    expect(out).toContain('JPEG·PNG');
+    expect(out).toContain('JPEG·PNG·GIF·WebP');
     expect(c.downloadHomeAttachment).not.toHaveBeenCalled();
   });
 

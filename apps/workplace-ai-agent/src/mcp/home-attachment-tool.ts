@@ -7,6 +7,7 @@
 // 세션 첨부는 이슈·드라이브 파일이 아니라 세션에 묶인 파일이라 공유 도구로 읽을 수 없다 — 그래서 이 도구만 ai-agent 전용으로 남는다.
 // opencode 비전 미지원 모델이면 stdio-entry 가 이미지 블록을 안내 문구로 바꾼다(WP-241).
 import {
+  baseMimeType,
   imageRejectReasons,
   READ_ATTACHMENT_DEFAULT_LIMIT,
   readRangeShape,
@@ -68,13 +69,15 @@ export function buildReadChatAttachmentTool(
         // 실제 사유만 말한다 — 형식만 문제인데 크기까지 탓하면 모델이 엉뚱한 안내를 한다.
         const reasons = imageRejectReasons(a.mimeType, a.sizeBytes);
         if (reasons.length > 0) {
-          return `${JSON.stringify(a.originalName)}: 이 이미지의 ${reasons.join('과 ')}는 모델에 보낼 수 없습니다. 사용자에게 JPEG·PNG(3.75MB 이하)로 다시 올려 달라고 안내하세요.`;
+          return `${JSON.stringify(a.originalName)}: 이 이미지의 ${reasons.join('과 ')}는 모델에 보낼 수 없습니다. 사용자에게 JPEG·PNG·GIF·WebP(3.75MB 이하)로 다시 올려 달라고 안내하세요.`;
         }
         const { data } = await client.downloadHomeAttachment(onBehalfOfId, homeSessionId, a.fileId);
         // mimeType 은 목록 값 — 응답 Content-Type 은 파라미터(charset 등)가 붙을 수 있어 모델 입력 형식으로 부적합.
+        // 목록 값에도 파라미터·대문자가 섞일 수 있어 공유 read_attachment 와 같이 baseMimeType 으로 다듬는다.
+        const mimeType = baseMimeType(a.mimeType);
         return [
-          { type: 'text', text: `첨부 이미지 ${JSON.stringify(a.originalName)} (${a.mimeType}, ${a.sizeBytes}B, fileId ${a.fileId})` },
-          { type: 'image', data: toBase64(data), mimeType: a.mimeType },
+          { type: 'text', text: `첨부 이미지 ${JSON.stringify(a.originalName)} (${mimeType}, ${a.sizeBytes}B, fileId ${a.fileId})` },
+          { type: 'image', data: toBase64(data), mimeType },
         ];
       }
       if (a.extraction.status !== 'READY') return nonReadyNotice(a);

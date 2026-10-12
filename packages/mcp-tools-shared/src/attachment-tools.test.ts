@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 
-import { IMAGE_MAX_BYTES, READ_ATTACHMENT_DEFAULT_LIMIT } from './attachment-read.js';
+import { FileTooLargeError, IMAGE_MAX_BYTES, READ_ATTACHMENT_DEFAULT_LIMIT } from './attachment-read.js';
 import { buildAttachmentTools, readAttachmentInput } from './attachment-tools.js';
 import { resultText, type McpContent } from './mcp-content.js';
 import type { AttachmentToolClient, ExtractedTextSlice } from './tool-client.js';
@@ -59,6 +59,15 @@ describe('read_attachment 입력 스키마', () => {
     expect(() => readAttachmentInput.parse({ source: 'issue', issueKey: 'WP-1', fileId: 3, driveFileId: 4 })).toThrow(/driveFileId 를 주지/);
     expect(() => readAttachmentInput.parse({ source: 'drive', driveFileId: 4, fileId: 3 })).toThrow(/issueKey·fileId 를 주지/);
     expect(readAttachmentInput.parse({ source: 'drive', driveFileId: 4 })).toMatchObject({ source: 'drive', driveFileId: 4 });
+  });
+
+  it('쓰지 않는 source 의 식별자를 null 로 채워도 "없음"으로 받는다(실제 값을 섞으면 여전히 거부)', () => {
+    expect(readAttachmentInput.parse({ source: 'drive', driveFileId: 9, issueKey: null, fileId: null })).toMatchObject({ source: 'drive', driveFileId: 9 });
+    expect(readAttachmentInput.parse({ source: 'issue', issueKey: 'WP-1', fileId: 3, driveFileId: null })).toMatchObject({ source: 'issue', fileId: 3 });
+    // null 은 필수 필드도 채우지 못한다.
+    expect(() => readAttachmentInput.parse({ source: 'drive', driveFileId: null })).toThrow(/driveFileId 가 필요/);
+    expect(() => readAttachmentInput.parse({ source: 'issue', issueKey: null, fileId: 3 })).toThrow(/issueKey 와 fileId/);
+    expect(() => readAttachmentInput.parse({ source: 'drive', driveFileId: 9, issueKey: 'WP-1', fileId: null })).toThrow(/issueKey·fileId 를 주지/);
   });
 
   it('limit 은 1..32000, offset 은 0 이상', () => {
@@ -124,6 +133,18 @@ describe('read_attachment — 이슈 첨부', () => {
     expect(out).toContain(`크기(${IMAGE_MAX_BYTES + 1}B)`);
     expect(out).not.toContain('형식(');
     expect(c.downloadIssueAttachment).not.toHaveBeenCalled();
+  });
+
+  it('메타가 없어 사전 검사를 못 해도 다운로드 상한 초과(FileTooLargeError)면 크기 초과 안내로 잇는다', async () => {
+    const c = mockClient();
+    vi.mocked(c.readIssueAttachmentText).mockResolvedValue(IMAGE_SKIP);
+    vi.mocked(c.downloadIssueAttachment).mockRejectedValue(new FileTooLargeError());
+    const out = await readAttachment(c).handler({ source: 'issue', issueKey: 'WP-1', fileId: 55 });
+    expect(typeof out).toBe('string');
+    expect(out).toContain(`크기(${IMAGE_MAX_BYTES}B 초과)`);
+    // 다른 오류는 삼키지 않는다.
+    vi.mocked(c.downloadIssueAttachment).mockRejectedValue(new Error('boom'));
+    await expect(readAttachment(c).handler({ source: 'issue', issueKey: 'WP-1', fileId: 55 })).rejects.toThrow('boom');
   });
 
   it('보낼 수 없는 이미지 형식(예: HEIC): 원본을 받지 않고 형식만 사유로', async () => {
