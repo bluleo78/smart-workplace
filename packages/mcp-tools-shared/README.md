@@ -16,12 +16,13 @@ workplace-mcp(사용자 PAT 원격 MCP)와 workplace-ai-agent(AI 비서 인-프�
 | `shared-tools.ts` | `buildSharedTools(client, opts)` — 공유 도구 전체 |
 | `tool-apps.ts` | `TOOL_APPS`·`ToolApp`·`toolApps()` — 도구를 앱으로 묶는 분류(WP-350, 아래 "앱 분류")와 서버 `instructions` 에 쓰는 앱별 안내(`TOOL_APP_GUIDES`) |
 | `tool-naming.ts` | `toolNameViolations(name)` — 도구 이름 규칙 검사(아래 "도구 명명 규칙"). 두 앱의 테스트가 쓴다 |
+| `tool-definitions.ts` | `toolDefinition(tool)`·`wireInputSchema`·`toolDefinitionsSize`·`estimateTokens`·`nullAsOmitted` — 외부 MCP 가 tools/list 로 내보내는 도구 정의와 그 크기(아래 "도구 수와 정의 크기") |
 
 LLM 에 보여줄 형태로 가공하는 일은 **도구 핸들러**가 맡는다. 식별자 이름 바꾸기나 숫자 id 제거가 여기에 해당한다. 클라이언트에 가공을 두면 앱마다 규칙이 달라진다.
 
 ## 앱에서 쓰는 법
 
-- **workplace-mcp**: `buildSharedTools(createPatApiClient(...))` 에서 `kind: 'destructive'` 를 뺀 나머지를 노출한다. PAT 에는 스코프가 없고 확인 카드도 없어서다.
+- **workplace-mcp**: `buildSharedTools(createPatApiClient(...))` 에서 `kind: 'destructive'` 를 뺀 나머지를 노출한다. PAT 에는 스코프가 없고 확인 카드도 없어서다. tools/list 응답은 SDK 기본 변환이 아니라 `toolDefinition()` 출력이다(WP-340 웨이브 5, `server.ts`) — 호출·입력 검증은 그대로 `registerTool` 의 zod shape 가 한다.
 - **workplace-ai-agent**: 프로필별로 `sharedTool('이름')` 을 골라 쓴다. 에이전트 전용 도구(`propose_*`, `show_*`, `submit_response`, `unassign_self`, chat, 위임)만 앱에서 직접 정의한다.
 - 공유 도구와 **같은 이름의 도구를 앱에서 다시 정의하지 않는다.** 두 앱의 패리티 테스트가 이름과 `z.toJSONSchema(inputSchema)` 의 일치를 강제한다. ai-agent 에서 안내 문구만 덧붙일 때는 공유본을 펼치고 `description` 만 바꾼다(`list_issues` 가 그 예).
 - `inputSchema` 는 반드시 최상위 `z.object(...)` 여야 한다. 서버 레이어가 `.shape` 를 꺼내 등록하기 때문이다. 공유 패키지 소스를 바꾸면 `pnpm --filter @smart-workplace/mcp-tools-shared build` 를 먼저 돌린다(앱은 `dist` 를 import 한다).
@@ -84,7 +85,7 @@ workplace-mcp 는 이 태그로 `/mcp/x/{apps}`·`X-MCP-Toolsets` 연결을 걸�
 - `list_issues`(서버가 `size` 건을 채우면 `hasMore` — 마지막 페이지가 정확히 `size` 건이면 빈 다음 페이지가 올 수 있다)와 `list_notifications`(총 개수를 안 줘 한 페이지가 꽉 차면 `hasMore`)만 `hasMore` 가 true 여도 다음 페이지가 비어 있을 수 있다. 설명이 이를 안내한다. `list_channel_messages`(서버가 limit+1 로 조회)와 번호 페이지 도구(`totalPages` 로 계산)는 정확하다.
 - `list_notifications` 의 `nextOffset` 은 서버 목록 기준 위치다. `unreadOnly` 에서는 마지막으로 담은 행 바로 뒤를 가리킨다.
 - 서버에 페이지가 없는 목록은 위 표 대상이 아니다. 아래 표처럼 도구가 limit 으로 자르고 이어 읽을 수 있으면 `hasMore`+`nextOffset`(`list_drive_items`·`list_channels`), 이어 읽을 수 없고 검색어를 좁혀야 하면 `truncated` 로 알린다. `truncated` 는 **잘렸을 때만 `truncated:true` 를 싣고 아니면 생략**한다(`list_thread_replies` 포함. 헬퍼 `truncatedView`).
-- 설명에는 "`hasMore` 가 있으면 `nextCursor` 로 이어 조회하거나, 이어 조회하지 않고 답한다면 일부만 담겼다고 밝히라"를 적는다. AI Chat 의 subagent `agent.md` 와 라우터 프롬프트에도 같은 안내가 있다.
+- 설명에는 "`hasMore` 가 있으면 `nextCursor` 로 이어 조회하거나, 이어 조회하지 않고 답한다면 일부만 담겼다고 밝히라"를 적는다(영어 문형은 아래 "도구 설명 쓰는 법"). AI Chat 의 subagent `agent.md` 와 라우터 프롬프트에도 같은 안내가 있다.
 
 ### 서버 페이지가 없는 목록 (WP-352)
 
@@ -129,10 +130,27 @@ workplace-mcp 는 이 태그로 `/mcp/x/{apps}`·`X-MCP-Toolsets` 연결을 걸�
 - 공유 도구를 바꾸면 subagent `agent.md`, 라우터 프롬프트, `TOOL_LABELS`(웹 `LEGACY_TOOL_LABELS` 포함), ai-driven-agent-inspector 회귀 점검까지 함께 고친다.
 - AI Chat 라우터는 직접 쓰는 도구(읽기·`show_*`·알림·첨부 읽기)만 싣는다(ai-agent `ASSISTANT_ROUTER_TOOLS`, Claude 경로, WP-351). 쓰기·`propose_*` 는 담당 subagent 에만 둔다. assistant 프로필에 도구를 더하면 라우터 목록이나 담당 subagent frontmatter 중 한 곳에 넣는다 — 어느 쪽에도 없으면 `subagent-loader.test.ts` 가 실패한다.
 
-### 도구 수
+### 도구 수와 정의 크기 (WP-340 웨이브 5)
 
 - 새 도구보다 기존 도구의 파라미터 확장을 먼저 한다. 읽기는 상세 도구의 옵션으로 넣는다. 첨부 읽기는 `read_attachment` 하나로 모은다. 읽기와 쓰기는 한 도구에 섞지 않는다.
-- 외부 MCP 기본 노출은 **85개 이하**다(destructive 제외, `tool-naming.test.ts` 가 강제).
+- 외부 MCP 클라이언트는 연결한 서버의 도구 정의를 매 대화에 전부 싣는다. 그래서 상한을 개수(예전 85개)가 아니라 **크기와 앱 단위**로 둔다(2026-10-13 사용자 결정). `tool-naming.test.ts` 가 강제한다.
+  - 기본 연결(`/mcp`, destructive 제외)의 **도구 정의 크기 ≤ 15,000 토큰**(아래 근사식).
+  - **앱당 도구 15개 이하.** 여러 앱에 속한 도구는 각 앱에서 센다.
+- **측정 대상은 실제로 나가는 tools/list** 다. workplace-mcp 는 tools/list 응답을 `toolDefinition()` 출력으로 바꿔 끼우고, 상한 테스트는 같은 함수로 잰다(`toolDefinitionsSize`). 둘이 같다는 것은 workplace-mcp `integration.test.ts` 왕복 테스트가 고정한다.
+- **토큰 근사식**(`estimateTokens`): 한글(음절·자모) 1자 = 1토큰, 나머지(영문·숫자·JSON 구두점) 3.5자 = 1토큰, 합을 올림. 직렬화는 `JSON.stringify(tools/list 의 tools 배열)` 이다. 토크나이저가 아니라 비교용 고정식이다 — 식을 바꾸면 상한의 뜻도 바뀐다.
+- `toolDefinition()` 이 SDK 기본 변환에서 걷어내는 것(의미 없는 반복):
+  - 도구마다 붙던 `$schema`, `execution`(`taskSupport` 기본값이 스펙상 "forbidden" 이라 같은 뜻), `annotations.title`(최상위 `title` 과 같은 값 — 옛 클라이언트용 중복).
+  - 정보 없는 제약: `.int()` 의 안전 정수 경계(±2^53−1), id 의 `exclusiveMinimum: 0`, 문자열의 `minLength: 1`. 검증은 zod 가 그대로 하므로 어기면 오류가 난다. 일부러 건 범위·길이(`maximum: 100`, `maxLength: 200` 등)는 남는다.
+  - `nullAsOmitted()` 로 만든 입력의 null 갈래(`anyOf:[T,{type:'null'}]` → `T`).
+- **null 허용**: 모델은 쓰지 않는 인자를 null 로 채워 보내기도 한다(WP-346 `read_attachment`). "null = 생략" 인 선택 입력은 `nullAsOmitted(schema)` 로 만든다 — 검증은 `.nullish()` 그대로(SDK 가 shape 로 검증해 null 을 받는다), 정의에서만 null 갈래를 숨긴다. null 에 "비우기" 뜻이 있는 입력(`update_issue` 의 `parent`·`milestone`, `update_event` 의 `description` 등)에는 쓰지 않는다 — 그 null 은 모델이 알아야 한다. 설명(`.describe`)은 표식 전에 붙이는 것을 권한다(뒤에 붙여도 부모를 따라가 찾는다). `tool-definitions.test.ts` 와 workplace-mcp `integration.test.ts` 가 null 왕복을 고정한다.
+- ai-agent 경로(Claude SDK 인-프로세스·opencode stdio)는 SDK 기본 변환을 그대로 쓴다. 상한 대상이 아니다.
+
+### 도구 설명 쓰는 법 (WP-340 웨이브 5)
+
+- 도구 설명과 파라미터 `.describe()` 는 **영어**로 쓴다. 사용자가 쓰는 한국어 제품 용어는 괄호로 함께 적는다: `issue (이슈)`, `wiki page (노트)`, `cycle (사이클)`, `drive (드라이브)`, `inbox (인박스)`. 화면 라벨(`TOOL_LABELS`·`title`)·도구 결과·오류 메시지·코드 주석은 한국어 그대로다. 서버 `instructions`(`TOOL_APP_GUIDES`, workplace-mcp `instructions.ts`)도 영어다.
+- 번역하지 않고 코드(핸들러·`rest-client.ts`·서버 엔드포인트)에서 쓴다: 무엇을 하는지, 입력의 뜻과 출처(어느 도구 출력의 어느 값인지), 출력 모양, 페이지·잘림, 부작용(알림·외부 동기화·AI 담당자 실행), 실패 동작.
+- 스키마가 이미 말하는 것(기본값 `default`, 범위 `maximum` 등)은 설명에 되풀이하지 않는다. 같은 사실은 도구 설명과 파라미터 설명 중 한 곳에만 쓴다.
+- 페이지 안내는 같은 문형을 쓴다: `If hasMore, pass nextCursor as cursor …, or say the list is partial.` / 잘림은 `truncated:true means more may exist and there is no next page: …`.
 
 ## 도구 명명 규칙 (WP-347)
 
