@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { CalendarEvent, IssueDueMarker } from '@/types/calendar'
 
-import { agendaChunkRange, agendaTitle, eventDate, groupAgendaDays, headerMonthLabel } from './calendarAgenda'
+import { agendaChunkRange, type AgendaItem, agendaNowState, agendaTitle, eventDate, groupAgendaDays, headerMonthLabel } from './calendarAgenda'
 
 // 테스트용 일정 — 필요한 필드만 덮어쓴다.
 function ev(over: Partial<CalendarEvent> & Pick<CalendarEvent, 'id' | 'startsAt'>): CalendarEvent {
@@ -179,5 +179,43 @@ describe('headerMonthLabel', () => {
   it('다른 해면 "yyyy년 M월"', () => {
     expect(headerMonthLabel(new Date(2027, 0, 5), today)).toBe('2027년 1월')
     expect(headerMonthLabel(new Date(2025, 11, 31), today)).toBe('2025년 12월')
+  })
+})
+
+describe('agendaNowState', () => {
+  // 오늘 = KST 10/13, 지금 = 10:00 KST(01:00Z)
+  const now = new Date('2026-10-13T01:00:00Z')
+  const evItem = (over: Partial<CalendarEvent> & Pick<CalendarEvent, 'id' | 'startsAt'>): AgendaItem => ({
+    kind: 'event',
+    event: ev(over),
+  })
+  const allDay = evItem({ id: 1, startsAt: '2026-10-13T00:00:00Z', endsAt: '2026-10-14T00:00:00Z', allDay: true })
+  const dueItem: AgendaItem = { kind: 'due', marker: due(9, '2026-10-13') }
+  // 08:00–09:00 KST(끝남), 09:30–10:00 KST(지금 막 끝남), 09:30–10:30 KST(진행 중), 14:00–15:00 KST(예정)
+  const ended = evItem({ id: 2, startsAt: '2026-10-12T23:00:00Z', endsAt: '2026-10-13T00:00:00Z' })
+  const endsNow = evItem({ id: 3, startsAt: '2026-10-13T00:30:00Z', endsAt: '2026-10-13T01:00:00Z' })
+  const ongoing = evItem({ id: 4, startsAt: '2026-10-13T00:30:00Z', endsAt: '2026-10-13T01:30:00Z' })
+  const later = evItem({ id: 5, startsAt: '2026-10-13T05:00:00Z', endsAt: '2026-10-13T06:00:00Z' })
+
+  it('끝난 시간 지정 일정만 흐리게 하고, 선은 아직 안 끝난 첫 시간 지정 일정 앞에 둔다', () => {
+    const r = agendaNowState([allDay, dueItem, ended, endsNow, ongoing, later], now)
+    // 종일·마감은 흐리지 않음, endsAt == now 는 끝난 것으로 본다
+    expect(r.past).toEqual([false, false, true, true, false, false])
+    expect(r.nowIndex).toBe(4)
+  })
+
+  it('지금 이후 일정만 있으면 종일·마감 다음(첫 시간 지정 일정 앞)에 선', () => {
+    const r = agendaNowState([allDay, dueItem, later], now)
+    expect(r.past).toEqual([false, false, false])
+    expect(r.nowIndex).toBe(2)
+  })
+
+  it('시간 지정 일정이 모두 끝났으면 묶음 끝에 선', () => {
+    const r = agendaNowState([allDay, ended, endsNow], now)
+    expect(r.nowIndex).toBe(3)
+  })
+
+  it('시간 지정 일정이 없으면 선을 그리지 않는다(-1)', () => {
+    expect(agendaNowState([allDay, dueItem], now)).toEqual({ nowIndex: -1, past: [false, false] })
   })
 })

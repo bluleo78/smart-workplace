@@ -113,3 +113,19 @@ export function headerMonthLabel(d: Date, today: Date): string {
     ? format(d, 'M월', { locale: ko })
     : format(d, 'yyyy년 M월', { locale: ko })
 }
+
+// 오늘 묶음의 "지금" 표시 — 날짜 묶음 하나(items, 정렬 끝난 상태)와 현재 시각으로 계산한다.
+// - past[i]: 끝난 시간 지정 일정(endsAt <= now)이면 true — 흐리게 그린다. 종일·이슈 마감은 흐리게 하지 않는다.
+// - nowIndex: 빨간 지금 선을 그릴 위치(그 인덱스 행 바로 앞). 아직 안 끝난 첫 시간 지정 일정 앞이고,
+//   시간 지정 일정이 모두 끝났으면 묶음 끝(items.length), 시간 지정 일정이 하나도 없으면 -1(선 없음 — 기준 행이 없어 의미가 없다).
+// 오늘이 아닌 묶음에는 호출하지 않는다(과거·미래 날짜는 흐림·선 없음).
+export function agendaNowState(items: AgendaItem[], now: Date): { nowIndex: number; past: boolean[] } {
+  const nowMs = now.getTime()
+  const past = items.map(
+    (it) => it.kind === 'event' && !it.event.allDay && new Date(it.event.endsAt).getTime() <= nowMs,
+  )
+  const hasTimed = items.some((it) => it.kind === 'event' && !it.event.allDay)
+  if (!hasTimed) return { nowIndex: -1, past }
+  const next = items.findIndex((it, i) => it.kind === 'event' && !it.event.allDay && !past[i])
+  return { nowIndex: next === -1 ? items.length : next, past }
+}

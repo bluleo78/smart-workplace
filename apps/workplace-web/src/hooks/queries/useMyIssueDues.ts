@@ -1,6 +1,6 @@
 // 캘린더 오버레이용 — "내게 할당 + 마감일 보유" 이슈를 가시 범위로 조회.
 // 백엔드 모듈 경계 유지를 위해 캘린더 API 가 아닌 이슈 API(/me/issues)로 조회 후 프론트에서 병합한다.
-import { useQuery } from '@tanstack/react-query'
+import { queryOptions, useQuery } from '@tanstack/react-query'
 import { format } from 'date-fns'
 
 import { fetchMeIssues } from '../../api/meIssues'
@@ -9,13 +9,14 @@ import type { IssueDueMarker } from '../../types/calendar'
 // 6주(월 뷰) 범위라 단일 페이지로 충분 — 희귀하게 초과 시 표시 생략.
 const MAX_DUES = 100
 
-// from/to(ISO, 가시 범위)와 겹치는 내 이슈 마감일 마커를 조회한다.
-export function useMyIssueDues(from: string, to: string, options?: { enabled?: boolean }) {
+// from/to(ISO 범위)와 겹치는 내 이슈 마감일 마커 조회 옵션 — useMyIssueDues 와 모바일 목록 청크 조회(useAgendaChunks)가
+// 같은 키(['my-issue-dues', dueFrom, dueTo])·조회 함수를 공유해 캐시·무효화가 함께 동작한다(WP-136).
+export function myIssueDuesQueryOptions(from: string, to: string) {
   // 백엔드 dueFrom/dueTo 는 LocalDate(yyyy-MM-dd) — ISO 범위를 날짜로 변환.
   const dueFrom = format(new Date(from), 'yyyy-MM-dd')
   const dueTo = format(new Date(to), 'yyyy-MM-dd')
 
-  return useQuery<IssueDueMarker[]>({
+  return queryOptions<IssueDueMarker[]>({
     queryKey: ['my-issue-dues', dueFrom, dueTo],
     queryFn: async () => {
       const res = await fetchMeIssues({ assignee: 'me', dueFrom, dueTo }, null, MAX_DUES)
@@ -31,6 +32,10 @@ export function useMyIssueDues(from: string, to: string, options?: { enabled?: b
     },
     staleTime: 10_000,
     refetchOnWindowFocus: false,
-    enabled: options?.enabled ?? true,
   })
+}
+
+// from/to(ISO, 가시 범위)와 겹치는 내 이슈 마감일 마커를 조회한다.
+export function useMyIssueDues(from: string, to: string, options?: { enabled?: boolean }) {
+  return useQuery({ ...myIssueDuesQueryOptions(from, to), enabled: options?.enabled ?? true })
 }
