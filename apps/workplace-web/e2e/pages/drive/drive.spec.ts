@@ -1,5 +1,5 @@
 // 드라이브 E2E — 폴더 생성 · 파일 업로드 · 다운로드 · 삭제 (백엔드 없이 page.route 모킹).
-import type { Page } from '@playwright/test'
+import type { Locator, Page, Route } from '@playwright/test'
 
 import { createFile, createFolder, createSpace, makeTrashList, personalSpace } from '../../factories/drive.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
@@ -10,18 +10,22 @@ import { dismissByOutsideClick, measureBox } from '../../fixtures/wait'
 const SPACE_ID = 1
 
 // 공간 목록(개인 + 팀) — DriveSidebar 가 마운트 시 페치한다.
-async function stubSpaces(page: Page) {
-  await page.route(
-    (url) => url.pathname === '/api/v1/drive/spaces',
-    (route) =>
-      route.request().method() === 'GET'
-        ? route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify([personalSpace(), createSpace()]),
-          })
-        : route.fallback(),
-  )
+// archived 면 공간 상세(GET /spaces/{id})도 보관 상태로 모킹한다 — 쓰기 작업 비활성은 상세로 판단한다.
+async function stubSpaces(page: Page, { archived = false } = {}) {
+  const team = createSpace({ archived })
+  const fulfillGet = (body: unknown) => (route: Route) =>
+    route.request().method() === 'GET'
+      ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
+      : route.fallback()
+  await page.route((url) => url.pathname === '/api/v1/drive/spaces', fulfillGet([personalSpace(), team]))
+  if (archived) await page.route((url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}`, fulfillGet(team))
+}
+
+/** 행에 마우스를 올려 ⋯ 더보기를 열고 항목을 고른다 — 데스크톱 hover 묶음의 ⋯ 경로(WP-363). */
+async function selectRowMenuItem(page: Page, row: Locator, name: string) {
+  await row.hover()
+  await row.getByRole('button', { name: /더보기/ }).click()
+  await page.getByRole('menuitem', { name }).click()
 }
 
 // 항목 목록 — 가변 상태를 클로저로 흉내(생성/삭제 반영).
@@ -115,9 +119,8 @@ test('폴더 생성·업로드·다운로드·삭제 흐름', { tag: '@smoke' },
   await memoItem.getByRole('button', { name: '다운로드' }).click()
   await downloadPromise
 
-  // 삭제 — AlertDialog(#135: window.confirm 대체), 호버 후 버튼 표시(#292)
-  await memoItem.hover()
-  await memoItem.getByRole('button', { name: '삭제' }).click()
+  // 삭제 — AlertDialog(#135: window.confirm 대체). 호버 후 ⋯ 메뉴 맨 아래 항목으로 연다.
+  await selectRowMenuItem(page, memoItem, '삭제')
   await expect(page.getByTestId('drive-confirm-dialog')).toBeVisible()
   await page.getByTestId('drive-confirm-confirm').click()
   await expect(page.getByText('memo.txt')).toHaveCount(0)
@@ -620,10 +623,9 @@ test('폴더 이름변경 — 이름 지우고 확인 클릭 시 인라인 에�
   await page.goto(`/drive/spaces/${SPACE_ID}`)
   await expect(page.getByRole('button', { name: '문서' })).toBeVisible()
 
-  // 이름변경 Dialog 열기 — 호버 후 버튼 표시(#292 hover-reveal 패턴)
+  // 이름변경 Dialog 열기 — 호버 후 ⋯ 메뉴(#292 hover-reveal 패턴)
   const folderRow = page.getByRole('listitem').filter({ hasText: '문서' })
-  await folderRow.hover()
-  await folderRow.getByRole('button', { name: '이름변경' }).click()
+  await selectRowMenuItem(page, folderRow, '이름 변경')
   await expect(page.getByTestId('folder-name-input')).toHaveValue('문서')
 
   // 이름 지우고 확인 클릭 → 인라인 에러
@@ -916,10 +918,9 @@ test('폴더 이름변경 — Dialog에 현재 이름 사전 입력, 확인 시 
   await page.goto(`/drive/spaces/${SPACE_ID}`)
   await expect(page.getByRole('button', { name: '문서' })).toBeVisible()
 
-  // 이름변경 클릭 → Dialog 가 현재 이름('문서')으로 사전 입력되어야 함. 호버 후 버튼 표시(#292 hover-reveal 패턴)
+  // 이름변경 클릭 → Dialog 가 현재 이름('문서')으로 사전 입력되어야 함. 호버 후 ⋯ 메뉴(#292 hover-reveal 패턴)
   const folderRow = page.getByRole('listitem').filter({ hasText: '문서' })
-  await folderRow.hover()
-  await folderRow.getByRole('button', { name: '이름변경' }).click()
+  await selectRowMenuItem(page, folderRow, '이름 변경')
   await expect(page.getByTestId('folder-name-input')).toHaveValue('문서')
 
   // 이름 교체 후 확인 — 이름변경 모드는 "이름 변경" 라벨을 써야 한다 (#635)
@@ -946,10 +947,9 @@ test('파일 삭제 — AlertDialog 표시 후 취소 시 DELETE 호출 안 함'
   await page.goto(`/drive/spaces/${SPACE_ID}`)
   await expect(page.getByText('memo.txt')).toBeVisible()
 
-  // 삭제 클릭 → window.confirm 아닌 AlertDialog 가 나타나야 한다 (#135). 호버 후 버튼 표시(#292 hover-reveal 패턴)
+  // 삭제 클릭 → window.confirm 아닌 AlertDialog 가 나타나야 한다 (#135). 호버 후 ⋯ 메뉴(#292 hover-reveal 패턴)
   const memoListItem = page.getByRole('listitem').filter({ hasText: 'memo.txt' })
-  await memoListItem.hover()
-  await memoListItem.getByRole('button', { name: '삭제' }).click()
+  await selectRowMenuItem(page, memoListItem, '삭제')
   await expect(page.getByTestId('drive-confirm-dialog')).toBeVisible()
 
   // 취소 → API 호출 없이 파일 그대로
@@ -972,23 +972,82 @@ test('파일/폴더 액션 버튼이 기본 상태에서는 숨겨지고 호버 
   // 기본 상태: 액션 버튼이 숨겨져 있어야 함
   const folderItem = page.getByRole('listitem').filter({ hasText: '문서' })
   const fileItem = page.getByRole('listitem').filter({ hasText: 'memo.txt' })
-  await expect(folderItem.getByRole('button', { name: '이름변경' })).toBeHidden()
-  await expect(folderItem.getByRole('button', { name: '삭제' })).toBeHidden()
+  await expect(folderItem.locator('[data-folder-actions]')).toBeHidden()
   // 파일 행 액션은 group-hover 로만 표시되는 래퍼(display 토글) — 호버 전에는 숨김.
   await expect(fileItem.locator('[data-file-actions]')).toBeHidden()
 
   // 호버 시: 액션 버튼이 표시되어야 함
+  // 폴더 행은 이동만 인라인, 나머지는 ⋯ — 삭제는 인라인에 없다.
   await folderItem.hover()
-  await expect(folderItem.getByRole('button', { name: '이름변경' })).toBeVisible()
   await expect(folderItem.getByRole('button', { name: '이동' })).toBeVisible()
-  await expect(folderItem.getByRole('button', { name: '복사' })).toBeVisible()
-  await expect(folderItem.getByRole('button', { name: '삭제' })).toBeVisible()
+  await expect(folderItem.getByRole('button', { name: /더보기/ })).toBeVisible()
+  await expect(folderItem.getByRole('button', { name: /삭제/ })).toHaveCount(0)
 
-  // 파일 행도 동일하게 검증. 이동·복사·버전 이력은 ⋯ 더보기 메뉴로 이동(파일 행 UI 재편).
+  // 파일 행은 다운로드·공유만 인라인. 이름 변경·이동·복사·버전 이력·삭제는 ⋯ 더보기 메뉴.
   await fileItem.hover()
   await expect(fileItem.getByRole('button', { name: '다운로드' })).toBeVisible()
+  await expect(fileItem.getByRole('button', { name: '공유' })).toBeVisible()
   await expect(fileItem.getByRole('button', { name: /더보기/ })).toBeVisible()
-  await expect(fileItem.getByRole('button', { name: '삭제' })).toBeVisible()
+  await expect(fileItem.getByRole('button', { name: /삭제/ })).toHaveCount(0)
+})
+
+// WP-363: 데스크톱 ⋯ 메뉴 — 모바일 ⋮ 시트와 같은 순서이고, 삭제는 구분선 아래 맨 끝(빨간 글자)에 둔다.
+test('행 ⋯ 메뉴 — 파일·폴더 모두 삭제가 구분선 아래 맨 끝에 있고, 폴더 삭제는 확인 후 DELETE 한다', async ({ authenticatedPage: page }) => {
+  const folder = createFolder({ id: 10, name: '문서' })
+  const file = createFile({ id: 20, name: 'memo.txt' })
+  const state = { folders: [folder] as unknown[], files: [file] as unknown[] }
+  await stubSpaces(page)
+  await stubItems(page, () => state)
+  const deletes = trackRequests(page, 'DELETE', '/api/v1/drive/folders/10')
+  await page.route((u) => u.pathname === '/api/v1/drive/folders/10', (r) => {
+    if (r.request().method() !== 'DELETE') return r.fallback()
+    state.folders = []
+    return r.fulfill({ status: 204, body: '' })
+  })
+
+  await page.goto(`/drive/spaces/${SPACE_ID}`)
+  await expect(page.getByTestId('drive-page')).toBeVisible()
+
+  const menu = page.getByRole('menu')
+  const fileItem = page.getByRole('listitem').filter({ hasText: 'memo.txt' })
+  await fileItem.hover()
+  await fileItem.getByRole('button', { name: /더보기/ }).click()
+  await expect(menu.getByRole('menuitem')).toHaveText(['이름 변경', '이동', '복사', '버전 이력', '삭제'])
+  // 구분선은 하나, 삭제 바로 앞에만 있다.
+  await expect(menu.getByRole('separator')).toHaveCount(1)
+  await expect(menu.locator('[role="separator"] + [role="menuitem"]')).toHaveText('삭제')
+  await expect(menu.getByRole('menuitem', { name: '삭제' })).toHaveAttribute('data-variant', 'destructive')
+  await page.keyboard.press('Escape')
+  await expect(menu).toBeHidden()
+
+  const folderItem = page.getByRole('listitem').filter({ hasText: '문서' })
+  await folderItem.hover()
+  await folderItem.getByRole('button', { name: /더보기/ }).click()
+  await expect(menu.getByRole('menuitem')).toHaveText(['이름 변경', '복사', '삭제'])
+  await expect(menu.locator('[role="separator"] + [role="menuitem"]')).toHaveText('삭제')
+
+  // 폴더 삭제 → 확인 다이얼로그(휴지통 이동 안내) → 확인 시 그 폴더의 DELETE 가 나가고 목록에서 빠진다.
+  await menu.getByRole('menuitem', { name: '삭제' }).click()
+  await expect(page.getByTestId('drive-confirm-dialog')).toContainText('폴더를 휴지통으로 보낼까요?')
+  await page.getByTestId('drive-confirm-confirm').click()
+  await deletes.waitFor()
+  expect(deletes.count()).toBe(1)
+  await expect(page.getByRole('button', { name: '문서', exact: true })).toHaveCount(0)
+})
+
+// WP-363: 보관된 공간에서는 ⋯ 로 옮긴 폴더 쓰기 작업(이름 변경·복사·삭제)과 인라인 이동이 모두 비활성이다.
+test('보관된 공간 — 폴더 행 이동 버튼과 ⋯ 메뉴의 이름 변경·복사·삭제가 비활성', async ({ authenticatedPage: page }) => {
+  await stubSpaces(page, { archived: true })
+  await stubItems(page, () => ({ folders: [createFolder({ id: 10, name: '문서' })], files: [] }))
+
+  await page.goto(`/drive/spaces/${SPACE_ID}`)
+  const folderItem = page.getByRole('listitem').filter({ hasText: '문서' })
+  await folderItem.hover()
+  await expect(folderItem.getByRole('button', { name: '이동' })).toBeDisabled()
+  await folderItem.getByRole('button', { name: /더보기/ }).click()
+  for (const name of ['이름 변경', '복사', '삭제']) {
+    await expect(page.getByRole('menuitem', { name })).toHaveAttribute('data-disabled', '')
+  }
 })
 
 // #148 — DriveSidebar 팀 공간 생성 — window.prompt → Dialog 교체 검증

@@ -53,6 +53,9 @@ test.describe('모바일 드라이브 행 액션', () => {
     for (const key of ['download', 'share', 'rename', 'move', 'copy', 'versions', 'delete']) {
       await expect(sheet.getByTestId(`mobile-action-${key}`)).toBeEnabled()
     }
+    // WP-363: 삭제는 맨 아래, 구분선 하나를 사이에 두고 떨어져 있다(데스크톱·태블릿 ⋯ 와 같은 모양).
+    await expect(sheet.getByRole('separator')).toHaveCount(1)
+    await expect(sheet.locator('[role="separator"] + button')).toHaveAttribute('data-testid', 'mobile-action-delete')
     const req = page.waitForRequest('**/api/v1/drive/files/70/download')
     await sheet.getByTestId('mobile-action-download').tap()
     await req
@@ -255,6 +258,9 @@ test.describe('드라이브 행 액션 — 터치 태블릿(≥1024px)', () => {
     await expect(menu).toBeVisible()
     // 휴대폰 시트와 같은 작업 목록(다운로드·공유·이름 변경·이동·복사·버전·삭제).
     await expect(menu.getByRole('menuitem')).toHaveCount(7)
+    // WP-363: 삭제 앞에만 구분선 — 데스크톱 ⋯·휴대폰 시트와 같은 모양.
+    await expect(menu.getByRole('separator')).toHaveCount(1)
+    await expect(menu.locator('[role="separator"] + [role="menuitem"]')).toHaveAttribute('data-testid', 'drive-row-action-delete')
     const req = page.waitForRequest('**/api/v1/drive/files/70/download')
     await page.getByTestId('drive-row-action-download').click()
     await req

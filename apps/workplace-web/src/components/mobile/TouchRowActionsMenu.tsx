@@ -6,11 +6,11 @@
 import { MoreHorizontal } from 'lucide-react'
 import { type SyntheticEvent, useState } from 'react'
 
+import { ActionMenuItems } from '@/components/ActionMenuItems'
 import { MobileActionSheet, type MobileSheetAction } from '@/components/mobile/MobileActionSheet'
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { useIsMobile } from '@/hooks/useIsMobile'
@@ -94,18 +94,7 @@ export function TouchRowActionsMenu({
         // 터치 기기라 트리거로 포커스를 되돌릴 이유가 없다 — 항목이 연 다이얼로그·인라인 편집기의 포커스를 빼앗지 않게 막는다.
         onCloseAutoFocus={(e) => e.preventDefault()}
       >
-        {actions.map((a) => (
-          <DropdownMenuItem
-            key={a.key}
-            data-testid={itemTestId(a.key)}
-            variant={a.destructive ? 'destructive' : 'default'}
-            disabled={a.disabled}
-            onSelect={a.onSelect}
-          >
-            {a.icon}
-            {a.label}
-          </DropdownMenuItem>
-        ))}
+        <ActionMenuItems actions={actions} itemTestId={itemTestId} />
       </DropdownMenuContent>
     </DropdownMenu>
   )

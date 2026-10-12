@@ -9,6 +9,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { startsDestructiveGroup } from '@/lib/startsDestructiveGroup'
 
 import {
   isTableCommandEnabled,
@@ -76,7 +77,7 @@ export function WikiTableContextMenu({
       <DropdownMenuContent align="start" data-testid="wiki-table-context-menu">
         {WIKI_TABLE_COMMANDS.map((cmd, i) => {
           const Icon = cmd.icon
-          const divider = cmd.destructive && !WIKI_TABLE_COMMANDS[i - 1]?.destructive
+          const divider = startsDestructiveGroup(WIKI_TABLE_COMMANDS, i)
           return (
             <div key={cmd.key}>
               {divider && <DropdownMenuSeparator />}
