@@ -1174,6 +1174,8 @@ export function buildTools(
       proposeDeleteIssueTool, proposeDeleteCommentTool, proposeDeleteWikiPageTool,
       // #854·#855: 되돌릴 수 있는 쓰기(공유) — 이슈 워치·프로젝트 수정·노트 이동·휴지통 복원·RSVP·채널/DM·메일 AI.
       sharedTool('watch_issue'), sharedTool('unwatch_issue'), sharedTool('update_project'), sharedTool('move_wiki_page'),
+      // WP-356: 라벨·마일스톤·사이클 생성·수정 — 대응 확인 카드가 없는 되돌릴 수 있는 쓰기라 직접 실행(project-agent 전용). 삭제는 도구로 두지 않는다.
+      sharedTool('create_project_meta'), sharedTool('update_project_meta'),
       sharedTool('list_drive_trash'), sharedTool('restore_drive_item'), sharedTool('rsvp_event'),
       sharedTool('create_channel'), sharedTool('open_dm'), sharedTool('leave_channel'),
       // WP-355: 채널 참여·리액션·내 메시지 수정·채널 읽음 처리 — 사용자 신원으로 하는 되돌릴 수 있는 쓰기(직접 실행, 확인 카드 없음). 메시지 삭제는 되돌릴 수 없어 도구로 두지 않는다(확인 카드도 아직 없음).

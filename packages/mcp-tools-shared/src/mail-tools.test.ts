@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { buildMailTools } from './mail-tools.js';
-import type { AssigneeResolverClient } from './resolve.js';
+import type { AssigneeResolverClient, ProjectMetaClient } from './resolve.js';
 import type { MailToolClient } from './tool-client.js';
 import { resultText } from './mcp-content.js';
 
-type Client = MailToolClient & AssigneeResolverClient;
+type Client = MailToolClient & AssigneeResolverClient & Pick<ProjectMetaClient, 'getProjectTypes' | 'getProjectLabels'>;
 
 /** 메일 클라이언트 mock(메일→이슈 담당자 해석용 프로젝트 멤버 조회 포함). */
 function mockClient(): Client {
@@ -21,6 +21,8 @@ function mockClient(): Client {
     syncMail: vi.fn().mockResolvedValue({ fetched: 3, saved: 2, seenChanged: 1 }),
     getMailSyncStatus: vi.fn().mockResolvedValue({ phase: 'IDLE', total: 0, done: 0, running: false }),
     getProjectMembers: vi.fn().mockResolvedValue([{ userId: 10, username: 'alice' }]),
+    getProjectTypes: vi.fn().mockResolvedValue([{ id: 2, name: 'BUG' }]),
+    getProjectLabels: vi.fn().mockResolvedValue([{ id: 100, name: '고객' }]),
     getMe: vi.fn().mockResolvedValue({ id: 10, username: 'alice' }),
   };
 }
@@ -146,6 +148,17 @@ describe('메일 AI·처리 (#855)', () => {
     );
     expect(c.promoteMailToIssue).toHaveBeenCalledWith(3, { projectKey: 'WP', title: '견적 회신', assigneeIds: [10] });
     expect(out).toEqual({ issueKey: 'WP-9', created: true });
+  });
+
+  it('WP-356: create_issue_from_mail → 유형·라벨 이름을 id 로 바꿔 승격 요청에 싣고, 모르는 이름이면 만들지 않는다', async () => {
+    const c = mockClient();
+    await tool(c, 'create_issue_from_mail').handler({ messageId: 3, projectKey: 'WP', title: 't', type: 'BUG', labels: ['고객'] });
+    expect(c.promoteMailToIssue).toHaveBeenCalledWith(3, expect.objectContaining({ typeId: 2, labelIds: [100] }));
+    vi.mocked(c.promoteMailToIssue).mockClear();
+    await expect(tool(c, 'create_issue_from_mail').handler({ messageId: 3, projectKey: 'WP', title: 't', labels: ['없음'] })).rejects.toThrow(
+      '사용 가능: 고객',
+    );
+    expect(c.promoteMailToIssue).not.toHaveBeenCalled();
   });
 
   // 중복 판정은 서버(#859)가 한다 — 409 면 새로 만들지 않고 기존 연결 이슈 키를 알린다.

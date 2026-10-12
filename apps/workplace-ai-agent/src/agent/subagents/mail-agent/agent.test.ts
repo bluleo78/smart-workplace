@@ -32,6 +32,11 @@ describe('mail-agent 정의', () => {
       'mcp__workplace__submit_response',
     ]);
   });
+  it('WP-356: create_issue_from_mail 의 유형·라벨(get_project 의 이름)을 안내한다', () => {
+    const prompt = loaded['mail-agent'].prompt;
+    expect(prompt).toContain('type?, labels?');
+    expect(prompt).toContain('`issueTypes`·`labels`');
+  });
   it('maxTurns 설정 + 본문에 메일·발송 확인 안내', () => {
     expect(loaded['mail-agent'].maxTurns).toBeGreaterThan(0);
     expect(loaded['mail-agent'].prompt).toMatch(/메일|발송/);

@@ -15,8 +15,8 @@ export const SYSTEM_PROMPT = `당신은 Gen:iA Works 의 AI 어시스턴트 "AI 
 - mcp__workplace__get_issue_detail({issueKey}): 이슈 본문·코멘트·히스토리 등 전체 컨텍스트 조회
 - mcp__workplace__add_comment({issueKey, body}): 코멘트 작성
 - mcp__workplace__update_comment({issueKey, commentId, body}): 기존 코멘트 수정
-- mcp__workplace__create_issue({projectKey, title, ...}): 지정 프로젝트에 새 이슈 등록
-- mcp__workplace__update_issue({issueKey, ...}): 상태(status: TODO / IN_PROGRESS / DONE / CANCELED)·우선순위·타입·부모·담당자·라벨 등 부분 수정
+- mcp__workplace__create_issue({projectKey, title, ...}): 지정 프로젝트에 새 이슈 등록. 유형·담당자·부모·라벨·마일스톤·사이클도 이 호출 한 번에 함께 저장됩니다(만든 뒤 update_issue 를 다시 부르지 않습니다)
+- mcp__workplace__update_issue({issueKey, ...}): 상태(status: TODO / IN_PROGRESS / DONE / CANCELED)·우선순위·타입·부모·담당자·라벨·마일스톤·사이클·커스텀 필드(fields) 등 부분 수정
 - mcp__workplace__unassign_self({issueKey}): 자기 자신을 담당자에서 제외 (작업 완료·반려 시)
 
 ## 행동 원칙

@@ -1,11 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   defaultListAssignee,
+  fieldDefByName,
   resolveAssigneeIds,
   resolveCycleIds,
   resolveLabelIds,
   resolveMilestoneId,
   resolveTypeId,
+  rowByName,
+  toFieldValue,
   type CurrentUserClient,
   type ProjectMetaClient,
 } from './resolve.js';
@@ -31,6 +34,7 @@ function client(): ProjectMetaClient & CurrentUserClient {
       { id: 30, name: 'Sprint 3', status: 'ACTIVE' },
       { id: 31, name: 'Sprint 4', status: 'PLANNED' },
     ]),
+    getProjectFields: vi.fn().mockResolvedValue([]),
   };
 }
 
@@ -107,6 +111,41 @@ describe('defaultListAssignee', () => {
   });
   it('assignee 가 있으면 그대로', () => {
     expect(defaultListAssignee({ assignee: 'kim', reporter: 'me' })).toBe('kim');
+  });
+  it('WP-356: watching·parent 가 있으면 담당자 기본값을 붙이지 않는다(명시한 assignee 는 유지)', () => {
+    expect(defaultListAssignee({ watching: true })).toBeUndefined();
+    expect(defaultListAssignee({ parent: 'WP-1' })).toBeUndefined();
+    expect(defaultListAssignee({ watching: false })).toBe('me');
+    expect(defaultListAssignee({ watching: true, assignee: 'me' })).toBe('me');
+  });
+});
+
+describe('커스텀 필드 값 (WP-356)', () => {
+  const defs = [
+    { id: 1, name: '메모', type: 'TEXT' },
+    { id: 2, name: '견적', type: 'NUMBER' },
+    { id: 3, name: '기한', type: 'DATE' },
+    { id: 4, name: '단계', type: 'SELECT', options: ['기획', '개발'] },
+    { id: 5, name: '태그', type: 'MULTI_SELECT', options: ['a', 'b'] },
+  ];
+  it('이름으로 정의를 찾고, 없으면 사용 가능 이름을 담아 throw', () => {
+    expect(fieldDefByName(defs, '견적').id).toBe(2);
+    expect(() => fieldDefByName(defs, '없음')).toThrow('사용 가능: 메모, 견적, 기한, 단계, 태그');
+  });
+  it('유형별로 값을 맞추고 어긋나면 throw(숫자 문자열은 숫자로, 단일 값 MULTI_SELECT 는 배열로)', () => {
+    expect(toFieldValue(defs[0], 12)).toBe('12');
+    expect(toFieldValue(defs[1], '3.5')).toBe(3.5);
+    expect(() => toFieldValue(defs[1], 'x')).toThrow('숫자');
+    expect(toFieldValue(defs[2], '2026-10-13')).toBe('2026-10-13');
+    expect(() => toFieldValue(defs[2], '10/13')).toThrow('날짜');
+    expect(toFieldValue(defs[3], '개발')).toBe('개발');
+    expect(() => toFieldValue(defs[3], '운영')).toThrow('사용 가능: 기획, 개발');
+    expect(toFieldValue(defs[4], 'a')).toEqual(['a']);
+    expect(() => toFieldValue(defs[4], ['a', 'z'])).toThrow('사용 가능: a, b');
+  });
+  it('rowByName 은 행 전체를 돌려주고 없으면 같은 문구로 throw', () => {
+    expect(rowByName([{ id: 1, name: 'x', color: 'RED' }], 'x', '라벨')).toEqual({ id: 1, name: 'x', color: 'RED' });
+    expect(() => rowByName([{ id: 1, name: 'x' }], 'y', '라벨')).toThrow("라벨 'y' 을(를) 찾을 수 없습니다. 사용 가능: x");
   });
 });
 

@@ -4,7 +4,13 @@ import { z } from 'zod';
 import { dropEmpty, omitKeys } from './compact.js';
 import { htmlToText } from './html-text.js';
 import type { SharedTool } from './mcp-tool.js';
-import { resolveAssigneeIds, type AssigneeResolverClient } from './resolve.js';
+import {
+  resolveAssigneeIds,
+  resolveLabelIds,
+  resolveTypeId,
+  type AssigneeResolverClient,
+  type ProjectMetaClient,
+} from './resolve.js';
 import type { MailToolClient } from './tool-client.js';
 
 export const listMailInput = z.object({
@@ -23,6 +29,9 @@ export const createIssueFromMailInput = z.object({
   body: z.string().max(10000).optional(),
   priority: z.enum(['LOW', 'MID', 'HIGH']).optional(),
   assignees: z.array(z.string()).optional(), // username[] → assigneeIds
+  // WP-356: 유형·라벨 이름(get_project) → id. 서버 승격 요청이 이슈 생성과 같은 트랜잭션에서 붙인다.
+  type: z.string().min(1).optional(),
+  labels: z.array(z.string()).optional(),
 });
 // WP-146: 처리완료 도구를 대신하는 명시적 읽음 처리 입력
 export const markMailReadInput = z.object({ messageId: z.number().int().positive() });
@@ -71,7 +80,9 @@ export function toSyncResultView(raw: unknown): { fetched: number; saved: number
  * 메일 도구(list_mail_accounts/list_mail/get_mail/get_mail_summary/draft_mail_reply/draft_issue_from_mail/
  * create_issue_from_mail/mark_mail_read/sync_mail). 모두 내 메일만 다룬다(남의 메일이면 서버가 404).
  */
-export function buildMailTools(client: MailToolClient & AssigneeResolverClient): SharedTool[] {
+export function buildMailTools(
+  client: MailToolClient & AssigneeResolverClient & Pick<ProjectMetaClient, 'getProjectTypes' | 'getProjectLabels'>,
+): SharedTool[] {
   return [
     {
       name: 'list_mail_accounts',
@@ -158,14 +169,20 @@ export function buildMailTools(client: MailToolClient & AssigneeResolverClient):
       // 이미 이 메일로 만든 이슈가 있으면 새로 만들지 않고 기존 키를 돌려준다 — 멱등.
       hints: { destructive: false, idempotent: true },
       description:
-        'Creates an issue (이슈) from a mail and links the two. assignees are project member usernames ("me" = caller) and are notified. If the mail ' +
-        'already has an issue, nothing is created and that issueKey returns. Returns {issueKey, created}.',
+        'Creates an issue (이슈) from a mail and links the two. assignees are project member usernames ("me" = caller) and are notified; type and ' +
+        'labels are project names (unknown ones fail, listing the allowed values). If the mail already has an issue, nothing is created and that ' +
+        'issueKey returns. Returns {issueKey, created}.',
       inputSchema: createIssueFromMailInput,
       async handler(args) {
-        const { messageId, assignees, ...rest } = createIssueFromMailInput.parse(args);
-        const assigneeIds = assignees ? await resolveAssigneeIds(client, rest.projectKey, assignees) : undefined;
+        const { messageId, assignees, type, labels, ...rest } = createIssueFromMailInput.parse(args);
+        // 이름 → id 해석을 승격 전에 모두 끝낸다 — 하나라도 실패하면 이슈를 만들지 않는다(서로 독립 조회라 병렬).
+        const [assigneeIds, typeId, labelIds] = await Promise.all([
+          assignees ? resolveAssigneeIds(client, rest.projectKey, assignees) : undefined,
+          type ? resolveTypeId(client, rest.projectKey, type) : undefined,
+          labels?.length ? resolveLabelIds(client, rest.projectKey, labels) : undefined,
+        ]);
         try {
-          const { issueKey } = await client.promoteMailToIssue(messageId, { ...rest, assigneeIds });
+          const { issueKey } = await client.promoteMailToIssue(messageId, { ...rest, assigneeIds, typeId, labelIds });
           return JSON.stringify({ issueKey, created: true });
         } catch (e) {
           // 중복은 서버가 메일 행 잠금으로 원자적으로 막고 409 로 알린다(#859) — 기존 연결 이슈를 찾아 안내한다.

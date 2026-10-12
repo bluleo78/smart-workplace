@@ -121,6 +121,14 @@ export interface IssueToolClient extends ProjectMetaClient, CurrentUserClient {
   /** POST/DELETE .../watch — 멱등(이미 워치 중이면 no-op). */
   watchIssue(issueKey: string): Promise<void>;
   unwatchIssue(issueKey: string): Promise<void>;
+  /** GET .../watchers — 워처 목록(WatcherResponse: userId·username·name). get_issue_detail 동봉용(WP-356). */
+  getIssueWatchers(issueKey: string): Promise<{ username: string; name?: string; [key: string]: unknown }[]>;
+  /** GET .../drive-links — 연결된 드라이브 파일(DriveLinkResponse raw). get_issue_detail 동봉용(WP-356). */
+  getIssueDriveLinks(issueKey: string): Promise<Record<string, unknown>[]>;
+  /** PUT .../fields — 준 필드만 바꾼다(value null = 비우기). 응답은 갱신된 상세(WP-356). */
+  updateIssueFields(issueKey: string, values: { defId: number; value: unknown }[]): Promise<unknown>;
+  /** POST .../drive-links — 이미 연결돼 있으면 서버가 무시한다(멱등). 드라이브 스페이스 VIEWER 이상 필요(WP-356). */
+  addIssueDriveLink(issueKey: string, driveFileId: number): Promise<void>;
 }
 
 /** 노트 페이지 요약 행(GET /wiki/spaces/{id}/pages) — 트리 조립에 쓰는 필드만 고정한다. */
@@ -207,7 +215,16 @@ export interface MailToolClient {
   /** POST .../issue — 메일을 이슈로 만들고 백레퍼런스를 남긴다. 이미 만든 메일이면 서버가 409(#859). */
   promoteMailToIssue(
     messageId: number,
-    body: { projectKey: string; title: string; body?: string; priority?: string; assigneeIds?: number[] },
+    body: {
+      projectKey: string;
+      title: string;
+      body?: string;
+      priority?: string;
+      assigneeIds?: number[];
+      /** WP-356: 유형·라벨(이름은 핸들러가 id 로 해석). 서버가 이슈 생성과 같은 트랜잭션에서 붙인다. */
+      typeId?: number;
+      labelIds?: number[];
+    },
   ): Promise<{ issueKey: string }>;
   /** POST /mail/messages/{id}/read — 명시적 읽음 처리(WP-146). 사용자가 요청할 때만 쓴다. */
   markMailRead(messageId: number): Promise<void>;
@@ -551,7 +568,14 @@ export interface ProjectToolClient extends ProjectMetaClient {
     projectKey: string,
     body: { userId: number; role: 'OWNER' | 'MEMBER' },
   ): Promise<{ userId: number; username: string; name?: string; role?: string; [key: string]: unknown }>;
+  /** POST /projects/{key}/{labels|milestones|cycles} — 라벨·마일스톤·사이클 생성(WP-356). 이름 중복은 409. */
+  createProjectMeta(projectKey: string, kind: ProjectMetaKind, body: Record<string, unknown>): Promise<unknown>;
+  /** PATCH /projects/{key}/{kind}/{id} — 서버는 본문 전체로 덮어쓴다(생략=비움). 병합은 핸들러가 한다(WP-356). */
+  updateProjectMeta(projectKey: string, kind: ProjectMetaKind, id: number, body: Record<string, unknown>): Promise<unknown>;
 }
+
+/** 프로젝트 메타 종류(WP-356) — create_project_meta·update_project_meta 의 kind. */
+export type ProjectMetaKind = 'label' | 'milestone' | 'cycle';
 
 /** 프로젝트 생성 요청 본문 — 서버 CreateProjectRequest 와 1:1(key 는 PERSONAL 이면 서버가 무시하고 자동 생성). */
 export interface CreateProjectBody {

@@ -47,8 +47,8 @@ export interface ToolAppGuide {
 }
 
 export const TOOL_APP_GUIDES: Record<ToolApp, ToolAppGuide> = {
-  issue: { label: 'Issues (이슈)', read: 'find and read issues, read attachments', write: 'create and update issues, comment, link, watch', entry: ['list_issues', 'get_issue_detail'] },
-  project: { label: 'Projects (프로젝트)', read: 'projects, members, issue types, labels, milestones, cycles', write: 'create and rename projects, add members', entry: ['list_projects', 'get_project'] },
+  issue: { label: 'Issues (이슈)', read: 'find and read issues (incl. watched), read attachments', write: 'create and update issues, comment, link, watch', entry: ['list_issues', 'get_issue_detail'] },
+  project: { label: 'Projects (프로젝트)', read: 'projects, members, issue types, labels, milestones, cycles, custom fields', write: 'create and rename projects, add members, create and edit labels, milestones and cycles', entry: ['list_projects', 'get_project'] },
   wiki: { label: 'Wiki (노트)', read: 'search and read pages, backlinks', write: 'create, edit and move pages', entry: ['search_wiki', 'get_wiki_page'] },
   drive: { label: 'Drive (드라이브)', read: 'find, summarize and read files, versions and backlinks, view trash', write: 'create folders, rename, move and copy files and folders, save issue and chat attachments to drive, restore from trash', entry: ['list_drive_items', 'search_drive'] },
   mail: { label: 'Mail (메일)', read: 'read and summarize mail, draft replies and issues', write: 'mark read, sync, create issues from mail (no sending)', entry: ['list_mail_accounts', 'list_mail'] },

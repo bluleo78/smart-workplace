@@ -37,6 +37,16 @@ describe('issue-agent 정의', () => {
     ]);
   });
 
+  // WP-356: create_issue 한 번에 라벨·마일스톤·사이클을 저장하고, 새 list_issues 필터·커스텀 필드·드라이브 링크를 안내한다.
+  it('WP-356: 생성 한 번에 함께 저장, list_issues 의 watching·parent·milestone·field, update_issue 의 fields·driveFileId 를 안내한다', () => {
+    const prompt = loaded['issue-agent'].prompt;
+    expect(prompt).toContain('생성 호출 한 번에');
+    expect(prompt).toContain('`update_issue` 를 다시 부를 필요가 없습니다');
+    for (const k of ['watching: true', '`parent`', '`milestone`', '`field`', '`fields`', '`driveFileId`', '`watchers`', '`driveLinks`']) {
+      expect(prompt, k).toContain(k);
+    }
+  });
+
   // WP-346: 첨부는 get_issue_detail 의 attachments[].attachmentId 로 source "issue" 읽기(WP-353: fileId → attachmentId).
   it('본문이 read_attachment 를 source "issue" + issueKey + attachmentId 로 안내한다', () => {
     const prompt = loaded['issue-agent'].prompt;

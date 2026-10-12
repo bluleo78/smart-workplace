@@ -56,7 +56,7 @@ LLM 에 보여줄 형태로 가공하는 일은 **도구 핸들러**가 맡는�
 | 앱 | 도구 |
 |---|---|
 | `issue` | `list_issues` `get_issue_detail` `create_issue` `update_issue` `add_comment` `update_comment` `add_issue_dependency` `remove_issue_dependency` `watch_issue` `unwatch_issue` + 겹침: `list_projects` `get_project` `read_attachment` |
-| `project` | `list_projects` `get_project` `create_project` `update_project` `add_project_member` + 겹침: `search_members` |
+| `project` | `list_projects` `get_project` `create_project` `update_project` `add_project_member` `create_project_meta` `update_project_meta` + 겹침: `search_members` |
 | `wiki` | `list_wiki_spaces` `list_wiki_pages` `search_wiki` `get_wiki_page` `list_wiki_backlinks` `create_wiki_page` `update_wiki_page` `move_wiki_page` |
 | `drive` | `list_drive_spaces` `list_drive_items` `search_drive` `get_drive_file_summary` `search_drive_content` `list_drive_trash` `restore_drive_item` `create_drive_folder` `rename_drive_folder` `move_drive_folder` `rename_drive_file` `move_drive_file` `copy_drive_item` `import_attachment_to_drive` + 겹침: `read_attachment` (15개 — 앱당 상한에 닿았다) |
 | `mail` | `list_mail_accounts` `list_mail` `get_mail` `get_mail_summary` `draft_mail_reply` `draft_issue_from_mail` `create_issue_from_mail` `mark_mail_read` `sync_mail` |
@@ -131,6 +131,24 @@ workplace-mcp 는 이 태그로 `/mcp/x/{apps}`·`X-MCP-Toolsets` 연결을 걸�
 | 메시지 삭제 | 도구로 두지 않는다 | 되돌릴 수 없다(soft delete 이고 복원 API 없음). AI Chat 에도 확인 카드가 아직 없어 "지원하지 않는다"고 안내한다 |
 
 채널에서 멘션된 에이전트(ai-agent `messaging` 프로필, 에이전트 신원)에는 리액션·수정·읽음 처리를 싣지 않았다 — 에이전트가 자기 이름으로 리액션하거나 자기 글을 고치는 것은 제품 판단이 필요해 후속으로 남겼다. 추가하려면 프로필 목록에 `sharedTool(...)` 만 더하면 된다. 새 도구는 messaging-agent(사용자 신원)에만 있다.
+
+### 이슈·프로젝트 보강 (WP-356)
+
+새 도구는 라벨·마일스톤·사이클 생성·수정 둘뿐이고(project 앱, 6→8개) 나머지는 기존 도구의 파라미터·응답으로 처리했다.
+
+| 기능 | 처리 | 근거 |
+|---|---|---|
+| 생성 때 라벨·마일스톤·사이클 | `create_issue` 의 `labels`·`milestone`·`cycles`(이름, `get_project`) | **서버 `CreateIssueRequest` 에 `labelIds`·`milestoneId`·`cycleIds` 를 더했다** — 생성 후 PUT 을 따로 부르면 중간 실패 시 라벨 없는 이슈만 남는다. 검증은 `planCreate` 라 확인 카드 사전검증도 같이 막는다. OPEN 프로젝트 비멤버는 수정 경로처럼 지정할 수 없다(403). 사이클은 집합 교체와 같이 완료 사이클도 허용한다 |
+| 목록 필터 | `list_issues` 의 `milestone`(이름 CSV)·`parent`(이슈 키)·`field`(`"이름=값"`)·`watching` | 서버는 마일스톤을 id 로만 받고 숫자가 아닌 토큰을 조용히 버려 이름은 도구가 해석한다. `parent` 는 서버가 프로젝트 안의 번호라 키의 프로젝트로 범위를 고정한다(없으면 모든 프로젝트의 같은 번호). 커스텀 필드는 서버가 jsonb 를 텍스트로 캐스트해 같음을 비교하므로 값을 JSON 으로 직렬화한다(문자열은 따옴표 포함, `IssueSearchServiceFieldFilterTest`). 복수 선택은 배열 전체가 같아야 맞아 거부한다. `parent`·`watching` 은 담당자와 무관한 질문이라 기본 `assignee=me` 를 붙이지 않는다 |
+| 워치 중인 이슈 | `list_issues` 의 `watching:true` | `GET /me/watched-issues` 는 다른 필터를 못 받고 응답에 담당자·유형이 없다 — **서버 이슈 검색에 `watching=true` 필터를 더해** 같은 응답·커서·필터 조합으로 쓴다 |
+| 정렬 | 두지 않는다 | 검색이 `(updated_at, id)` 키셋 커서라 정렬을 바꾸려면 커서 형식부터 바꿔야 한다 |
+| 커스텀 필드 값·드라이브 링크 | `update_issue` 의 `fields`(이름 → 값, null=비우기)·`driveFileId` | `PUT .../fields` 는 준 필드만 바꾼다. 이름·모양·선택지는 쓰기 전에 확인한다(`{ok, results}` 계약 — 실패는 아무것도 쓰기 전). 드라이브 링크는 이미 있으면 서버가 무시하고, 드라이브 스페이스 VIEWER 이상이 필요하다. 결과 키는 `fields`·`driveLink` |
+| 상세의 워처·드라이브 링크 | `get_issue_detail` 의 `watchers {username,name}`·`driveLinks {driveFileId,name,spaceName,availability?}` | 워처의 숫자 userId, 링크의 `createdById`·core `fileId`(이슈 첨부 `attachmentId` 와 헷갈린다)는 뺀다. `availability` 는 휴지통·삭제일 때만 싣는다 |
+| 프로젝트 메타 정보 | `get_project` 의 `milestones {name,dueDate}`·`cycles {name,status,startDate,endDate}`·`fields {name,type,options}` | 숫자 id·목표·위치는 뺀다 |
+| 라벨·마일스톤·사이클 생성·수정 | `create_project_meta`·`update_project_meta`(`kind`) | 판별 유니온 대신 평평한 선택 필드(최상위 `z.object`, 정의 크기). kind 에 없는 필드는 쓰기 전에 거부한다. 서버 PATCH 는 본문 전체로 덮어써서(빠진 설명·기간은 비워진다) **수정은 지금 값을 읽어 준 필드만 바꾼 전체 본문을 보낸다**. 비우기는 `""`(null 갈래를 두면 필드마다 정의가 커진다). 라벨 색은 enum 대신 문자열로 받고 핸들러가 허용 12색을 담아 거부한다(정의 ~80토큰 절약). 권한: 라벨·사이클은 프로젝트 OWNER(+`label:manage`·`cycle:manage`), 마일스톤은 멤버(+`milestone:manage` — AGENT 역할에는 없다). 삭제는 도구로 두지 않는다(AI Chat 에도 확인 카드가 없어 미지원 안내) |
+| 메일로 이슈 만들 때 유형·라벨 | `create_issue_from_mail` 의 `type`·`labels` | **서버 `PromoteToIssueRequest` 에 `typeId`·`labelIds` 를 더해** 같은 생성 경로(`IssueService.create`)로 넘긴다 |
+
+AI Chat 에는 라벨·마일스톤·사이클 생성·수정 확인 카드가 없어 `CARD_ONLY_SHARED_TOOLS` 에 넣지 않고 project-agent(사용자 신원)에 직접 실행 도구로 실었다. issue-agent 는 이슈에 붙이기만 한다(없는 이름이면 만들지 않고 알린다).
 
 ### 응답 크기 — 정리 뷰
 

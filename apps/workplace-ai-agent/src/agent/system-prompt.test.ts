@@ -13,6 +13,12 @@ describe('SYSTEM_PROMPT', () => {
     expect(SYSTEM_PROMPT).toContain('이모지 금지');
   });
 
+  // WP-356: create_issue 가 라벨·마일스톤·사이클을 한 번에 저장한다 — 만든 뒤 update_issue 를 다시 부르라는 안내가 없어야 한다.
+  it('create_issue 한 번에 라벨·마일스톤·사이클까지 저장한다고 안내한다', () => {
+    expect(SYSTEM_PROMPT).toContain('라벨·마일스톤·사이클도 이 호출 한 번에 함께 저장');
+    expect(SYSTEM_PROMPT).toContain('만든 뒤 update_issue 를 다시 부르지 않습니다');
+  });
+
   // WP-343: 상태 변경은 update_status 가 아니라 update_issue 의 status 로 지시한다(v1 담당자 루프).
   it('상태 변경 지시는 update_issue 의 status 로 하고 폐지된 update_status 는 언급하지 않는다', () => {
     expect(SYSTEM_PROMPT).not.toContain('update_status');

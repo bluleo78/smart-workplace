@@ -20,6 +20,10 @@ export const createIssueInput = z.object({
   type: z.string().optional(), // 유형 이름(예: BUG) → typeId 리졸브
   assignees: z.array(z.string()).optional(), // username[] → assigneeIds 리졸브
   parent: z.string().min(1).describe('Parent issue key (e.g. WP-12), same project').optional(), // 부모 이슈 키(WP-12, SUBTASK) — 같은 프로젝트의 이슈여야 한다. 핸들러가 서버용 번호로 옮긴다(#833, WP-353)
+  // WP-356: 라벨·마일스톤·사이클 이름 → id. 서버가 생성과 같은 트랜잭션에서 붙인다(생성 후 update_issue 를 따로 부를 필요 없음).
+  labels: z.array(z.string()).optional(),
+  milestone: z.string().min(1).optional(),
+  cycles: z.array(z.string()).optional(),
 });
 
 /** 이슈 부분 수정 입력 — 전달 필드만 변경. */
@@ -39,6 +43,13 @@ export const updateIssueInput = z.object({
   labels: z.array(z.string()).optional(), // 라벨명[] → 집합 교체
   milestone: z.string().min(1).nullable().describe('null clears').optional(), // 마일스톤 이름 → milestoneId, null=해제(#854)
   cycles: z.array(z.string()).optional(), // 사이클명[] → 집합 교체, []=전부 해제(#854)
+  // WP-356: 커스텀 필드 값(필드 이름 → 값, null=비우기). 준 필드만 바뀐다(PUT .../fields 는 incoming 만 처리).
+  fields: z
+    .record(z.string(), z.unknown())
+    .describe('Custom field values by name (string[] for MULTI_SELECT, null clears)')
+    .optional(),
+  // WP-356: 드라이브 파일 연결(POST .../drive-links). 이미 연결돼 있으면 서버가 무시한다.
+  driveFileId: z.number().int().positive().describe('Links this drive (드라이브) file to the issue').optional(),
 });
 
 /** 코멘트 작성 입력. */
@@ -96,12 +107,28 @@ export const issueListFilterShape = {
 export const listIssuesInput = z.object({
   ...issueListFilterShape,
   // WP-352: 이전 호출이 돌려준 nextCursor 를 그대로 넘기면 다음 페이지다. 웹이 params 를 서버에 직접 넘기는 show_issue_list 의 shape 에는 넣지 않는다.
-  cursor: z.string().optional().describe('nextCursor (same filters and size)'),
-  assignee: z.string().optional().describe(assigneeDescription(', or "any" (any assignee)')),
+  // 쓰는 법(같은 필터로 nextCursor 를 넘김)은 도구 설명에 있어 여기서 되풀이하지 않는다(WP-356 크기 정리).
+  cursor: z.string().optional(),
+  // WP-356 크기 정리: 날짜 범위 형식(yyyy-MM-dd·양끝 포함·종료/생성은 KST)은 list_issues 도구 설명에 한 번만 적는다.
+  // 공유 필터(show_issue_list)의 설명은 그대로 두고 여기서만 덮어쓴다 — 그쪽은 크기 상한 대상이 아니다.
+  dueFrom: z.string().optional().describe('Due date range'),
+  closedFrom: z.string().optional().describe('Closed (DONE/CANCELED) date range'),
+  createdFrom: z.string().optional().describe('Created date range'),
+  assignee: z
+    .string()
+    .optional()
+    .describe(
+      'CSV: "me", "null" (unassigned), usernames, or "any". Defaults to "me" unless reporter, watching or parent is given',
+    ),
   cycle: z
     .string()
     .optional()
     .describe(
       'CSV, any match: cycle (사이클) name, "active", "none" (no cycle) or "backlog" (in no active or planned cycle). Names and "active" need projectKey',
     ),
+  // WP-356: 아래 넷은 핸들러가 서버 쿼리로 바꾼다(마일스톤 이름→id, 부모 키→번호+projectKey, 필드 이름→fieldId+JSON 값, 워치=호출자).
+  milestone: z.string().optional().describe('Milestone names CSV, any match; needs projectKey'),
+  parent: z.string().optional().describe("Parent issue key: only its children"),
+  field: z.string().optional().describe('"name=value": custom field equals value (not MULTI_SELECT); needs projectKey'),
+  watching: z.boolean().optional().describe('true: only issues I watch'),
 });

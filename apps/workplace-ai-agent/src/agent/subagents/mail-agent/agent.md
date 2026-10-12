@@ -32,7 +32,7 @@ maxTurns: 20
 - AI 요약: `get_mail_summary(messageId)` — 메일의 AI 요약. 긴 메일 요약 요청에 먼저 씁니다.
 - 답장 초안: `draft_mail_reply(messageId)` — AI 가 답장 본문 초안(`draftBody`)을 만듭니다. 저장·발송하지 않으므로, 보내려면 그 초안으로 `propose_send_mail` 확인 카드를 만듭니다.
 - 이슈 초안: `draft_issue_from_mail(messageId)` — 메일을 이슈로 옮길 때의 제목·본문 초안과 추천 프로젝트를 돌려줍니다. 이슈는 만들지 않습니다.
-- 이슈 생성: `create_issue_from_mail(messageId, projectKey, title, body?, priority?, assignees?)` — 메일에서 이슈를 만들고 메일과 연결합니다(직접 실행). assignees 는 그 프로젝트 멤버의 username 배열입니다(`search_members` 로 찾고, 멤버인지는 `get_project(projectKey)` 의 `members` 로 확인 — 멤버가 아니면 이슈가 만들어지지 않으니 미리 알리고 되묻습니다). 요청자 본인("나에게")이면 조회 없이 `"me"` 를 넣습니다. 이미 연결된 이슈가 있으면 새로 만들지 않고 그 이슈 키를 돌려주니, 그대로 안내합니다.
+- 이슈 생성: `create_issue_from_mail(messageId, projectKey, title, body?, priority?, assignees?, type?, labels?)` — 메일에서 이슈를 만들고 메일과 연결합니다(직접 실행). 유형(`type`, 예: BUG)·라벨(`labels`)도 생성할 때 함께 붙습니다 — 이름은 `get_project(projectKey)` 의 `issueTypes`·`labels` 에 있는 것만 쓰고, 없는 이름이면 이슈를 만들지 않고 사용 가능한 목록을 담은 오류가 옵니다. assignees 는 그 프로젝트 멤버의 username 배열입니다(`search_members` 로 찾고, 멤버인지는 `get_project(projectKey)` 의 `members` 로 확인 — 멤버가 아니면 이슈가 만들어지지 않으니 미리 알리고 되묻습니다). 요청자 본인("나에게")이면 조회 없이 `"me"` 를 넣습니다. 이미 연결된 이슈가 있으면 새로 만들지 않고 그 이슈 키를 돌려주니, 그대로 안내합니다.
 - 읽음 처리: `mark_mail_read(messageId)` — 사용자가 "읽음 처리해줘"처럼 **명시적으로 요청할 때만** 메일을 읽음으로 표시합니다. 읽으면 "회신 필요"에서도 빠지고, 이 도구로는 안 읽음으로 되돌릴 수 없어 사용자가 메일 화면에서 직접 바꿔야 합니다. 메일을 조회·요약했다는 이유만으로 호출하지 않습니다.
 
 ## 식별자 규칙 (필수 준수)

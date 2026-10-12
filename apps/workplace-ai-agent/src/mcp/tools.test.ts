@@ -40,6 +40,11 @@ function sharedMock(): MockedShared {
     getIssueCycles: vi.fn().mockResolvedValue([]),
     watchIssue: vi.fn().mockResolvedValue(undefined),
     unwatchIssue: vi.fn().mockResolvedValue(undefined),
+    // WP-356: 워처·드라이브 링크·커스텀 필드 값·드라이브 링크 추가
+    getIssueWatchers: vi.fn().mockResolvedValue([]),
+    getIssueDriveLinks: vi.fn().mockResolvedValue([]),
+    updateIssueFields: vi.fn().mockResolvedValue({}),
+    addIssueDriveLink: vi.fn().mockResolvedValue(undefined),
     // 프로젝트 메타·목록(ProjectToolClient)
     getProjectTypes: vi.fn().mockResolvedValue([]),
     getProjectMembers: vi.fn().mockResolvedValue([]),
@@ -47,6 +52,9 @@ function sharedMock(): MockedShared {
     getProjectLabels: vi.fn().mockResolvedValue([]),
     getProjectMilestones: vi.fn().mockResolvedValue([]),
     getProjectCycles: vi.fn().mockResolvedValue([]),
+    getProjectFields: vi.fn().mockResolvedValue([]),
+    createProjectMeta: vi.fn().mockResolvedValue({}),
+    updateProjectMeta: vi.fn().mockResolvedValue({}),
     updateProject: vi.fn().mockResolvedValue({}),
     createProject: vi.fn().mockResolvedValue({}),
     addProjectMember: vi.fn().mockResolvedValue({ userId: 0, username: '' }),
@@ -271,6 +279,16 @@ describe('프로필 구성', () => {
     for (const ctx of [undefined, { actorId: 7, channelId: 9 }] as const) {
       const names = buildTools(client(), AGENT_ID, 'messaging', undefined, ctx).map((t) => t.name);
       for (const n of added) expect(names, n).not.toContain(n);
+    }
+  });
+
+  // WP-356: 라벨·마일스톤·사이클 생성·수정은 대응 확인 카드가 없어 직접 실행(project-agent) — 라우터 목록에는 싣지 않는다.
+  it('WP-356: create_project_meta·update_project_meta 는 assistant 에만 있고 라우터 목록·카드 전용 목록에는 없다', () => {
+    const assistant = buildTools(client(), AGENT_ID, 'assistant').map((t) => t.name);
+    for (const n of ['create_project_meta', 'update_project_meta']) {
+      expect(assistant, n).toContain(n);
+      expect(ASSISTANT_ROUTER_TOOLS, n).not.toContain(n);
+      expect(CARD_ONLY_SHARED_TOOLS, n).not.toHaveProperty(n);
     }
   });
 

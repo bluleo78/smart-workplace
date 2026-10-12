@@ -256,6 +256,26 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(http.post).toHaveBeenCalledWith('/notifications/read-all');
   });
 
+  it('WP-356 이슈·프로젝트 보강 경로: 워처·드라이브 링크·커스텀 필드·프로젝트 메타', async () => {
+    const { http, client } = mockHttp();
+    expect(await client.getIssueWatchers('WP-3')).toEqual([]);
+    expect(http.get).toHaveBeenCalledWith('/projects/WP/issues/3/watchers');
+    expect(await client.getIssueDriveLinks('WP-3')).toEqual([]);
+    expect(http.get).toHaveBeenCalledWith('/projects/WP/issues/3/drive-links');
+    expect(await client.getProjectFields('WP')).toEqual([]);
+    expect(http.get).toHaveBeenCalledWith('/projects/WP/fields');
+    await client.updateIssueFields('WP-3', [{ defId: 8, value: 'A' }]);
+    expect(http.put).toHaveBeenCalledWith('/projects/WP/issues/3/fields', { values: [{ defId: 8, value: 'A' }] });
+    await client.addIssueDriveLink('WP-3', 77);
+    expect(http.post).toHaveBeenCalledWith('/projects/WP/issues/3/drive-links', { driveFileId: 77 });
+    await client.createProjectMeta('WP', 'label', { name: 'bug', colorToken: 'RED' });
+    expect(http.post).toHaveBeenCalledWith('/projects/WP/labels', { name: 'bug', colorToken: 'RED' });
+    await client.createProjectMeta('WP', 'milestone', { name: 'M', dueDate: '2026-12-01' });
+    expect(http.post).toHaveBeenCalledWith('/projects/WP/milestones', { name: 'M', dueDate: '2026-12-01' });
+    await client.updateProjectMeta('WP', 'cycle', 5, { name: 'C' });
+    expect(http.patch).toHaveBeenCalledWith('/projects/WP/cycles/5', { name: 'C' });
+  });
+
   it('#854 업무 쓰기 경로: 사이클·워치·마일스톤/사이클 목록·프로젝트 수정·노트 이동·휴지통', async () => {
     const { http, client } = mockHttp();
     await client.replaceIssueCycles('WP-3', [1, 2]);

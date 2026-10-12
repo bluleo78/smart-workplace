@@ -79,6 +79,7 @@ const EXPECTED: Record<string, readonly [kind: string, destructive: boolean | nu
   // WP-349: 셋 다 추가만 한다. 같은 키 생성·이미 멤버 추가는 409 라 비멱등이고, 채널 초대만 서버가 이미 멤버를 그대로 두고 성공해 멱등이다.
   create_project: ['write', false, false, false],
   add_project_member: ['write', false, false, false],
+  create_project_meta: ['write', false, false, false],
   add_channel_member: ['write', false, true, false],
   // WP-355: 참여·리액션 추가는 추가만 하고 서버가 이미 있으면 그대로 둬(ON CONFLICT DO NOTHING·이벤트 없음) 멱등이다. 리액션 제거는 없던 것도 오류 없이 같은 결과,
   // 읽음 처리는 위치가 후퇴하지 않아(GREATEST), 메시지 수정은 같은 본문을 다시 보내도 저장 상태가 같고 알림이 없어(SSE 만) 멱등이다. 제거·읽음·수정은 지우거나 덮어쓴다.
@@ -97,6 +98,7 @@ const EXPECTED: Record<string, readonly [kind: string, destructive: boolean | nu
   update_external_contact: ['write', true, true, false],
   update_issue: ['write', true, true, false],
   update_project: ['write', true, true, false],
+  update_project_meta: ['write', true, true, false],
   update_user_group: ['write', true, true, false],
   update_wiki_page: ['write', true, false, false],
   watch_issue: ['write', false, true, false],

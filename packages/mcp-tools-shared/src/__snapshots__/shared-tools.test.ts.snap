@@ -18,6 +18,7 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "create_issue": "write",
   "create_issue_from_mail": "write",
   "create_project": "write",
+  "create_project_meta": "write",
   "create_user_group": "write",
   "create_wiki_page": "write",
   "discover_channels": "read",
@@ -84,6 +85,7 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "update_external_contact": "write",
   "update_issue": "write",
   "update_project": "write",
+  "update_project_meta": "write",
   "update_user_group": "write",
   "update_wiki_page": "write",
   "watch_issue": "write",
@@ -504,8 +506,24 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "maxLength": 10000,
           "type": "string",
         },
+        "cycles": {
+          "items": {
+            "type": "string",
+          },
+          "type": "array",
+        },
         "dueDate": {
           "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "type": "string",
+        },
+        "labels": {
+          "items": {
+            "type": "string",
+          },
+          "type": "array",
+        },
+        "milestone": {
+          "minLength": 1,
           "type": "string",
         },
         "parent": {
@@ -561,6 +579,12 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "maxLength": 10000,
           "type": "string",
         },
+        "labels": {
+          "items": {
+            "type": "string",
+          },
+          "type": "array",
+        },
         "messageId": {
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991,
@@ -580,6 +604,10 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
         },
         "title": {
           "maxLength": 200,
+          "minLength": 1,
+          "type": "string",
+        },
+        "type": {
           "minLength": 1,
           "type": "string",
         },
@@ -617,6 +645,112 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       },
       "required": [
         "projectKey",
+        "name",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "create_project_meta",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "color": {
+          "anyOf": [
+            {
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "dueDate": {
+          "anyOf": [
+            {
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "endDate": {
+          "anyOf": [
+            {
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "goal": {
+          "anyOf": [
+            {
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "kind": {
+          "enum": [
+            "label",
+            "milestone",
+            "cycle",
+          ],
+          "type": "string",
+        },
+        "name": {
+          "minLength": 1,
+          "type": "string",
+        },
+        "projectKey": {
+          "minLength": 1,
+          "type": "string",
+        },
+        "startDate": {
+          "anyOf": [
+            {
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "status": {
+          "anyOf": [
+            {
+              "enum": [
+                "PLANNED",
+                "ACTIVE",
+                "COMPLETED",
+              ],
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+      },
+      "required": [
+        "projectKey",
+        "kind",
         "name",
       ],
       "type": "object",
@@ -1231,7 +1365,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       "additionalProperties": false,
       "properties": {
         "assignee": {
-          "description": "CSV: "me", "null" (unassigned), usernames, or "any" (any assignee). Defaults to "me" when assignee and reporter are both omitted",
+          "description": "CSV: "me", "null" (unassigned), usernames, or "any". Defaults to "me" unless reporter, watching or parent is given",
           "type": "string",
         },
         "blocked": {
@@ -1239,21 +1373,20 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "boolean",
         },
         "closedFrom": {
-          "description": "Closed (DONE/CANCELED) date range, yyyy-MM-dd KST, inclusive",
+          "description": "Closed (DONE/CANCELED) date range",
           "type": "string",
         },
         "closedTo": {
           "type": "string",
         },
         "createdFrom": {
-          "description": "Created date range, yyyy-MM-dd KST, inclusive",
+          "description": "Created date range",
           "type": "string",
         },
         "createdTo": {
           "type": "string",
         },
         "cursor": {
-          "description": "nextCursor (same filters and size)",
           "type": "string",
         },
         "cycle": {
@@ -1261,14 +1394,26 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "string",
         },
         "dueFrom": {
-          "description": "Due date range, yyyy-MM-dd",
+          "description": "Due date range",
           "type": "string",
         },
         "dueTo": {
           "type": "string",
         },
+        "field": {
+          "description": ""name=value": custom field equals value (not MULTI_SELECT); needs projectKey",
+          "type": "string",
+        },
         "label": {
           "description": "CSV of label names; issue must have all (AND)",
+          "type": "string",
+        },
+        "milestone": {
+          "description": "Milestone names CSV, any match; needs projectKey",
+          "type": "string",
+        },
+        "parent": {
+          "description": "Parent issue key: only its children",
           "type": "string",
         },
         "priority": {
@@ -1310,6 +1455,10 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
         "type": {
           "description": "CSV of type names; any match (OR)",
           "type": "string",
+        },
+        "watching": {
+          "description": "true: only issues I watch",
+          "type": "boolean",
         },
       },
       "type": "object",
@@ -2416,9 +2565,23 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           },
           "type": "array",
         },
+        "driveFileId": {
+          "description": "Links this drive (드라이브) file to the issue",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
         "dueDate": {
           "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
           "type": "string",
+        },
+        "fields": {
+          "additionalProperties": {},
+          "description": "Custom field values by name (string[] for MULTI_SELECT, null clears)",
+          "propertyNames": {
+            "type": "string",
+          },
+          "type": "object",
         },
         "issueKey": {
           "minLength": 1,
@@ -2518,6 +2681,123 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       },
       "required": [
         "projectKey",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "update_project_meta",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "color": {
+          "anyOf": [
+            {
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "dueDate": {
+          "anyOf": [
+            {
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "endDate": {
+          "anyOf": [
+            {
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "goal": {
+          "anyOf": [
+            {
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "kind": {
+          "enum": [
+            "label",
+            "milestone",
+            "cycle",
+          ],
+          "type": "string",
+        },
+        "name": {
+          "minLength": 1,
+          "type": "string",
+        },
+        "newName": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "projectKey": {
+          "minLength": 1,
+          "type": "string",
+        },
+        "startDate": {
+          "anyOf": [
+            {
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "status": {
+          "anyOf": [
+            {
+              "enum": [
+                "PLANNED",
+                "ACTIVE",
+                "COMPLETED",
+              ],
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+      },
+      "required": [
+        "projectKey",
+        "kind",
+        "name",
       ],
       "type": "object",
     },

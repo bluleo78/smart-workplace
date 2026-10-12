@@ -10,7 +10,7 @@ describe('project-agent 정의', () => {
   it('loadSubagents 로 project-agent 가 로드된다', () => {
     expect(loaded['project-agent']).toBeDefined();
   });
-  it('tools 는 read 2 + search_members + update_project + propose 5 + submit_response', () => {
+  it('tools 는 read 2 + search_members + update_project + 메타 생성·수정 2 + propose 5 + submit_response', () => {
     expect(loaded['project-agent'].tools).toEqual([
       'mcp__workplace__list_projects',
       'mcp__workplace__get_project',
@@ -18,6 +18,9 @@ describe('project-agent 정의', () => {
       'mcp__workplace__search_members',
       // #855: 이름·설명 직접 수정(OWNER)
       'mcp__workplace__update_project',
+      // WP-356: 라벨·마일스톤·사이클 생성·수정(직접 실행 — 대응 확인 카드 없음, 삭제는 도구 없음)
+      'mcp__workplace__create_project_meta',
+      'mcp__workplace__update_project_meta',
       'mcp__workplace__propose_create_project',
       'mcp__workplace__propose_delete_project',
       'mcp__workplace__propose_add_project_member',
@@ -33,6 +36,12 @@ describe('project-agent 정의', () => {
     const prompt = loaded['project-agent'].prompt;
     expect(prompt).not.toContain('list_project_members');
     expect(prompt).toContain('`members`');
+  });
+  it('WP-356: 라벨·마일스톤·사이클 생성·수정 안내와 삭제 미지원 안내가 있다', () => {
+    const prompt = loaded['project-agent'].prompt;
+    expect(prompt).toContain('create_project_meta');
+    expect(prompt).toContain('update_project_meta');
+    expect(prompt).toMatch(/삭제는 지원하지 않습니다/);
   });
   it('maxTurns 설정 + 본문에 프로젝트·제안 안내', () => {
     expect(loaded['project-agent'].maxTurns).toBeGreaterThan(0);

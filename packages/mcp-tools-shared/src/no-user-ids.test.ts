@@ -194,9 +194,17 @@ describe('이슈', () => {
     history: [{ eventType: 'STATUS_CHANGED', actorId: 9, actorUsername: 'alice', actorName: '앨리스', actorKind: 'HUMAN', fromValue: 'TODO', toValue: 'DONE', createdAt: '2026-10-01T00:00:00Z' }],
     attachments: [{ fileId: 70, originalName: 'a.png', mimeType: 'image/png', sizeBytes: 3, attachedById: 9, attachedByUsername: 'alice', attachedByName: '앨리스', attachedAt: '2026-10-01T00:00:00Z' }],
   };
+  // WP-356: 워처(WatcherResponse)·드라이브 링크(DriveLinkResponse — 링크를 건 사람 createdById 와 core fileId 를 담는다).
+  const watchers = [{ userId: 9, username: 'alice', name: '앨리스' }];
+  const driveLinks = [
+    { driveFileId: 77, fileId: 70, name: '견적서.pdf', mimeType: 'application/pdf', sizeBytes: 10, hasThumbnail: false, spaceId: 3, spaceName: '영업',
+      availability: 'ACTIVE', createdById: 9, createdAt: '2026-10-01T00:00:00Z' },
+  ];
   const client = {
     getIssueDetail: vi.fn().mockResolvedValue(detail),
     getIssueCycles: vi.fn().mockResolvedValue([]),
+    getIssueWatchers: vi.fn().mockResolvedValue(watchers),
+    getIssueDriveLinks: vi.fn().mockResolvedValue(driveLinks),
     createIssue: vi.fn().mockResolvedValue(summary),
     addIssueDependency: vi.fn().mockResolvedValue(detail),
     getProjectTypes: vi.fn().mockResolvedValue([]),
@@ -216,6 +224,8 @@ describe('이슈', () => {
 
   it('목 점검: 가공 전 원본 이슈 상세에는 숫자 ID 가 실제로 들어 있다', () => {
     expect(userIdLeaks(detail)).toEqual(expect.arrayContaining(['reporter: username+id', 'comments[].authorId', 'attachments[].attachedById']));
+    // WP-356: 워처·드라이브 링크 원본에도 숫자 사용자 ID 가 있다.
+    expect(userIdLeaks({ watchers, driveLinks })).toEqual(expect.arrayContaining(['watchers[].userId', 'driveLinks[].createdById']));
   });
 });
 
@@ -281,10 +291,14 @@ describe('프로젝트', () => {
     getProjectTypes: vi.fn().mockResolvedValue([]),
     getProjectLabels: vi.fn().mockResolvedValue([]),
     getProjectMilestones: vi.fn().mockResolvedValue([]),
-    getProjectCycles: vi.fn().mockResolvedValue([]),
+    getProjectCycles: vi.fn().mockResolvedValue([{ id: 5, projectId: 3, name: 'S1', goal: null, startDate: null, endDate: null, status: 'ACTIVE' }]),
+    // WP-356: 커스텀 필드 정의(IssueFieldDefResponse)·메타 생성/수정 응답(LabelResponse 등)은 사용자 ID 를 담지 않지만, 숫자 id·projectId 는 뺀다.
+    getProjectFields: vi.fn().mockResolvedValue([{ id: 8, projectId: 3, name: '고객사', type: 'SELECT', options: ['A'], position: 0 }]),
     getProjectMembers: vi.fn().mockResolvedValue([{ userId: 9, username: 'alice', name: '앨리스', role: 'OWNER' }]),
     createProject: vi.fn().mockResolvedValue(project),
     updateProject: vi.fn().mockResolvedValue(project),
+    createProjectMeta: vi.fn().mockResolvedValue({ id: 6, projectId: 3, name: 'bug', colorToken: 'RED', createdAt: 't', updatedAt: 't' }),
+    updateProjectMeta: vi.fn().mockResolvedValue({ id: 5, projectId: 3, name: 'S2', goal: null, status: 'ACTIVE', createdAt: 't', updatedAt: 't' }),
     searchMembers: vi.fn(),
   };
   const tools = buildProjectTools(client as never) as never as Parameters<typeof find>[0];
@@ -295,10 +309,16 @@ describe('프로젝트', () => {
       ['get_project', { projectKey: 'WP' }],
       ['create_project', { projectKey: 'WP', name: '워크플레이스' }],
       ['update_project', { projectKey: 'WP', name: '워크플레이스' }],
+      ['create_project_meta', { projectKey: 'WP', kind: 'label', name: 'bug', color: 'RED' }],
+      ['update_project_meta', { projectKey: 'WP', kind: 'cycle', name: 'S1', newName: 'S2' }],
     ] as const) {
       const body = out(await find(tools, name).handler(args));
       expect(userIdLeaks(body), name).toEqual([]);
     }
+    // 커스텀 필드 정의·메타 응답에는 숫자 id·projectId 도 싣지 않는다(이름으로만 가리킨다).
+    const meta = JSON.stringify(out(await find(tools, 'create_project_meta').handler({ projectKey: 'WP', kind: 'label', name: 'bug' })));
+    expect(meta).not.toMatch(/"id"|projectId/);
+    expect(JSON.stringify(out(await find(tools, 'get_project').handler({ projectKey: 'WP' })).fields)).not.toMatch(/"id"|projectId/);
     const detail = out(await find(tools, 'get_project').handler({ projectKey: 'WP' }));
     expect(detail.members).toEqual([{ username: 'alice', name: '앨리스', role: 'OWNER' }]);
     expect(detail).toMatchObject({ projectKey: 'WP', memberCount: 2 });
