@@ -6,7 +6,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { buildSharedTools, isDisplayableTool, toolAnnotations, TOOL_LABELS, type SharedToolClient } from '@smart-workplace/mcp-tools-shared';
+import { buildSharedTools, isDisplayableTool, toolAnnotations, toolNameViolations, TOOL_LABELS, type SharedToolClient } from '@smart-workplace/mcp-tools-shared';
 import { describe, expect, it, vi, type Mock } from 'vitest';
 import { z } from 'zod';
 
@@ -415,6 +415,46 @@ describe('도구 표시 라벨 (#879)', () => {
   // 도구 이름 변경·삭제 후 라벨이 남으면 새 이름은 라벨 없이 노출된다 — 죽은 키로 드러나게 한다.
   it('실존하지 않거나 숨김인 도구의 라벨이 없다', () => {
     const stale = Object.keys(TOOL_LABELS).filter((k) => !allNames.has(k) || !isDisplayableTool(k));
+    expect(stale).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 도구 명명 규칙(WP-347) — ai-agent 전용 도구(propose_*·show_*·chat·위임 등)
+// ---------------------------------------------------------------------------
+describe('ai-agent 전용 도구 명명 규칙 (WP-347)', () => {
+  /**
+   * 명명 규칙(packages/mcp-tools-shared README "도구 명명 규칙")을 아직 따르지 않는 기존 ai-agent 전용 도구 이름.
+   * WP-360 이 새 이름으로 바꾸면서 이 배열을 **비운다**. 공유 도구 쪽 예외는 mcp-tools-shared tool-naming.test.ts.
+   * propose_ 는 유효한 전용 접두이고, 그 뒤의 원 도구명에도 금지 접두(edit_·save_·set_)가 적용된다.
+   */
+  const LOCAL_NAMING_EXCEPTIONS = [
+    'propose_set_member_role', // propose_set_* 금지 → propose_update_member_role (WP-360, 승인 시 실행 actionType user.set_roles 는 서버 계약이라 유지)
+    'propose_set_member_active', // propose_set_* 금지 → propose_update_member_active (WP-360, actionType user.set_active 유지)
+    'get_chat_thread', // get_ 인데 최근 메시지 여러 건 → list_chat_messages (WP-360)
+  ];
+
+  // 모든 프로필 × 선택 인자 전부를 채워 조건부 도구까지 포함한 전체 도구에서 공유 도구를 뺀 ai-agent 전용 이름.
+  const c = client();
+  const bridge: HostBridge = { onProposal: () => {}, onSubmitResponse: () => {}, onUnassignResult: () => {} };
+  const sharedNames = new Set(buildSharedTools(c.sc).map((t) => t.name));
+  const localNames = new Set<string>();
+  for (const p of ['issue', 'chat', 'home', 'messaging', 'assistant'] as McpProfile[]) {
+    const tools = buildTools(c, AGENT_ID, p, { channelId: 9, parentMessageId: 1 }, { actorId: 7, channelId: 9, parentMessageId: 1 }, bridge);
+    for (const t of tools) if (!sharedNames.has(t.name)) localNames.add(t.name);
+  }
+
+  it('예외 목록 밖의 ai-agent 전용 도구 이름은 규칙(snake_case·46자 이하·edit_/save_/set_ 금지)을 지킨다', () => {
+    const violations = [...localNames]
+      .filter((n) => !LOCAL_NAMING_EXCEPTIONS.includes(n))
+      .map((n) => ({ name: n, violations: toolNameViolations(n) }))
+      .filter((v) => v.violations.length > 0);
+    expect(violations).toEqual([]);
+  });
+
+  // 이름을 바꾸고 예외 항목을 지우지 않으면 같은 옛 이름이 다시 생겨도 가려진다.
+  it('예외 목록의 이름은 모두 실제 ai-agent 전용 도구다(바뀐 이름이 남아 있으면 실패)', () => {
+    const stale = LOCAL_NAMING_EXCEPTIONS.filter((n) => !localNames.has(n));
     expect(stale).toEqual([]);
   });
 });

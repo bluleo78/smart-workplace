@@ -13,6 +13,7 @@ workplace-mcp(사용자 PAT 원격 MCP)와 workplace-ai-agent(AI 비서 인-프�
 | `rest-client.ts` | `createSharedToolClient(http)` — 위 인터페이스를 REST 경로로 구현한다. 각 앱은 인증 헤더가 붙은 axios 인스턴스만 넘긴다 |
 | `*-tools.ts` | 도메인별 도구 정의(이슈·프로젝트·노트·캘린더·메일·구성원/연락처·메시징·드라이브·알림) |
 | `shared-tools.ts` | `buildSharedTools(client, opts)` — 공유 도구 전체 |
+| `tool-naming.ts` | `toolNameViolations(name)` — 도구 이름 규칙 검사(아래 "도구 명명 규칙"). 두 앱의 테스트가 쓴다 |
 
 LLM 에 보여줄 형태로 가공하는 일은 **도구 핸들러**가 맡는다. 식별자 이름 바꾸기나 숫자 id 제거가 여기에 해당한다. 클라이언트에 가공을 두면 앱마다 규칙이 달라진다.
 
@@ -35,7 +36,57 @@ LLM 에 보여줄 형태로 가공하는 일은 **도구 핸들러**가 맡는�
 
 `kind` 는 **노출 여부**만 정한다. MCP 클라이언트에 알리는 연산 성격(`destructiveHint`·`idempotentHint`·`openWorldHint`)은 `kind` 가 아니라 write·destructive 도구의 `hints`(`ToolHints`)에서 `toolAnnotations()` 가 만든다(WP-342, read 는 `readOnlyHint` 만). 기준은 `mcp-tool.ts` 의 `ToolHints` 주석이고, 도구별 전체 값은 `tool-annotations.test.ts` 가 고정한다. 그래서 `kind: 'write'` 여도 덮어쓰거나 지우는 도구는 `destructiveHint` 가 true 다.
 
-되돌릴 수 없는 작업이나 대외 발송은 공유 도구보다 ai-agent 의 `propose_*` 확인 카드로 만드는 것이 원칙이다. 등급과 노출 목록은 `shared-tools.test.ts` 와 workplace-mcp `tools/index.test.ts` 의 스냅샷이 고정한다.
+등급과 노출 목록은 `shared-tools.test.ts` 와 workplace-mcp `tools/index.test.ts` 의 스냅샷이 고정한다.
+
+## 노출 기준 (WP-347)
+
+외부 MCP(workplace-mcp)에 어떤 작업을 도구로 내놓을지는 부작용의 등급 R/W/I/N 으로 정한다. 등급은 `kind`·`hints` 로 코드에 드러난다.
+
+| 등급 | 뜻 | 코드 표현 | 외부 MCP |
+|---|---|---|---|
+| R | 읽기 | `kind: 'read'` | 노출 |
+| W | 되돌릴 수 있는 쓰기 | `kind: 'write'` + `hints`. 덮어쓰거나 지우면 `hints.destructive: true` | 노출. 확인은 annotation 을 읽는 클라이언트에 맡긴다 |
+| I | 되돌릴 수 없음(영구 삭제)·워크스페이스 밖으로 나감(메일 발송·외부 공유 링크) | `kind: 'destructive'` | **노출하지 않는다.** AI Chat 에서만 `propose_*` 확인 카드로 한다 |
+| N | 다른 사람에게 알림이 간다 | 별도 필드 없음. R/W 등급 위에 얹는 표시다 | 알림 수준(알림을 보낼지 끌지)을 **입력**으로 받는다. 해당 도구를 만들 때 적용하며, 지금 코드에는 없다 |
+
+- `kind`(노출 여부)와 `hints`(연산 성격)는 별개 축이다(WP-342). I 는 `kind` 로 막고, W 가 덮어쓴다는 사실은 `hints` 로 알린다.
+- **elicitation 에 기대지 않는다.** Claude.ai 지원이 확인되지 않았고 2026-07-28 스펙에서 MRTR 로 바뀐다. 확인은 클라이언트의 annotation 처리와 `propose_*` 확인 카드가 맡는다.
+- **계속 빼 둘 것**: 메일 발송, 영구 삭제, 외부 공유 링크, 구성원 권한 변경.
+
+### AI Chat 과의 관계
+
+- 같은 작업은 실행 경로마다 도구를 하나만 둔다. AI Chat 은 확인 카드(`propose_*`), 외부 MCP 는 직접 실행 도구다. assistant·subagent 에 둘을 함께 싣지 않는다.
+- 공유 도구를 바꾸면 subagent `agent.md`, 라우터 프롬프트, `TOOL_LABELS`(웹 `LEGACY_TOOL_LABELS` 포함), ai-driven-agent-inspector 회귀 점검까지 함께 고친다.
+
+### 도구 수
+
+- 새 도구보다 기존 도구의 파라미터 확장을 먼저 한다. 읽기는 상세 도구의 옵션으로 넣는다. 첨부 읽기는 `read_attachment` 하나로 모은다. 읽기와 쓰기는 한 도구에 섞지 않는다.
+- 외부 MCP 기본 노출은 **85개 이하**다(destructive 제외, `tool-naming.test.ts` 가 강제).
+
+## 도구 명명 규칙 (WP-347)
+
+형식은 `동사_명사[_한정어]` snake_case 이고 **46자 이내**다(Anthropic API 도구 이름 64자 − 외부 MCP 접두 `mcp__genia-works__` 18자). `tool-naming.ts` 의 `toolNameViolations` 가 형식·길이·금지 접두를 검사한다.
+
+| 구분 | 접두 | 쓰임 |
+|---|---|---|
+| 조회 | `list_` | 여러 건 |
+| | `get_` | 한 건 |
+| | `search_` | 검색어로 찾기 |
+| | `read_` | 본문 읽기 |
+| 쓰기 | `create_` / `update_` | 독립 리소스 |
+| | `add_` / `remove_` | 관계·하위 항목 |
+| 상태 짝 | `mark_*_read`, `watch_` / `unwatch_`, `join_` / `leave_` | |
+
+- `edit_`·`save_`·`set_` 은 새로 쓰지 않는다. 여러 건을 돌려주는 도구는 `get_` 이 아니라 `list_` 다.
+- 다른 도메인과 겹치는 명사는 도메인 접두를 붙인다. 예: `drive_file`, `drive_folder`, `channel_message`.
+- ai-agent 전용 접두: 확인 카드는 `propose_<원 도구명>`(원 도구명에도 위 규칙을 적용해 `propose_set_*` 는 위반이다), 화면 표시는 `show_*`.
+- 이름은 바꾸기 어렵다. 외부 사용자는 "항상 허용"을 다시 승인해야 한다. 그래서 기존 이름은 한 번에 정리하고 배포 때 공지한다(WP-360).
+
+### 강제 방식
+
+- 공유 도구는 `tool-naming.test.ts`, ai-agent 전용 도구는 ai-agent `tools.test.ts` 가 모든 이름에 `toolNameViolations` 를 돌린다.
+- 아직 따르지 않는 기존 이름은 두 테스트 파일의 예외 배열(`SHARED_NAMING_EXCEPTIONS`, `LOCAL_NAMING_EXCEPTIONS`)에 적혀 있고, 항목마다 바꿀 이슈가 주석으로 달려 있다. WP-360 이 이름을 바꾸며 배열을 비운다. 예외 이름이 더는 존재하지 않으면 테스트가 실패해 낡은 항목을 지우게 한다.
+- `get_` 이 여러 건을 돌려주는지는 기계로 가릴 수 없어, 알려진 도구를 예외 배열에 직접 적는다. 새 도구는 만들 때 `list_` 를 고른다.
 
 ## 파라미터 명명 규칙
 
