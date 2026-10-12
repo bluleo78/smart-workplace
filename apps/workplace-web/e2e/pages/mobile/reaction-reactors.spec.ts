@@ -59,6 +59,31 @@ test.describe('WP-106 반응자 — 모바일 길게 누르기', () => {
     await expectStays(page, () => toggles.count(), 0, { ms: 300 })
   })
 
+  test('반응자가 많아도 시트가 화면을 넘지 않고, 마지막 행까지 스크롤해 온전히 볼 수 있다', async ({ authenticatedPage: page }) => {
+    await setup(page)
+    // 👍 반응자를 시트 최대 높이를 넘길 만큼 늘린다(내 행 포함 12행) — 목록이 시트 안에서 스크롤돼야 한다.
+    const many = Array.from({ length: 11 }, (_, i) => ({ userId: 100 + i, name: `동료${i + 1}`, kind: 'HUMAN' }))
+    await page.route((u) => u.pathname === `/api/v1/messaging/messages/${MSG}/reactions/users`, (r) =>
+      r.fulfill(json({ items: [{ userId: 1, name: '양동희', kind: 'HUMAN' }, ...many], nextCursor: null, hasMore: false })))
+    await page.goto('/chat/channels/1')
+    await longPress(page, page.getByTestId(`reaction-pill-${MSG}-👍`))
+    const sheet = page.getByTestId('reactors-sheet')
+    await expect(sheet).toBeVisible()
+    const vh = page.viewportSize()!.height
+    const last = sheet.getByTestId('reactor-row-110')
+    await expect(last).toHaveCount(1)
+    // 슬라이드 인 애니메이션(500ms)이 끝나 시트가 제자리에 앉을 때까지 기다린다.
+    await expect.poll(async () => Math.round((await sheet.boundingBox())!.y + (await sheet.boundingBox())!.height)).toBe(vh)
+    const box = (await sheet.boundingBox())!
+    expect(box.height).toBeLessThanOrEqual(vh * 0.8 + 1)
+    await last.scrollIntoViewIfNeeded()
+    const row = (await last.boundingBox())!
+    expect(row.y + row.height).toBeLessThanOrEqual(vh)
+    expect(row.y).toBeGreaterThanOrEqual(box.y)
+    // 마지막 행 아래에 숨 쉴 여백이 있어야 한다(안전영역 0 인 기기에서도 시트 가장자리에 붙어 잘려 보이지 않게).
+    expect(box.y + box.height - (row.y + row.height)).toBeGreaterThanOrEqual(8)
+  })
+
   test('내 메시지를 수정 중이어도 그 메시지의 칩을 길게 누르면 반응자 시트가 열린다', async ({ authenticatedPage: page }) => {
     // 수정 중 행은 작업 시트 대상에서 빠지지만(C2), 에디터 밖의 반응 칩은 반응자 조회 대상이다.
     await setup(page, 1)

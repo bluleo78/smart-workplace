@@ -169,6 +169,10 @@ test.describe('WP-106 반응자 확인 — 데스크톱', () => {
     await expect(page.getByTestId(`reaction-hover-summary-${MSG_ID}`)).toHaveText(
       '나, 이영희, 박지훈 외 2명이 반응했습니다',
     )
+    // 카드는 칩 아래로 열려 작성자·본문 줄을 가리지 않는다.
+    const chip = (await page.getByTestId(`reaction-pill-${MSG_ID}-👍`).boundingBox())!
+    const card = (await stableBox(page.getByTestId(`reaction-hover-${MSG_ID}`).locator('..')))
+    expect(card.y).toBeGreaterThanOrEqual(chip.y + chip.height - 1)
     // 첫 카드가 완전히 닫힌 뒤 다른 칩으로 — 두 카드가 겹치는 구간(같은 testid 둘)을 피한다.
     await page.mouse.move(0, 0)
     await expect(page.getByTestId(`reaction-hover-${MSG_ID}`)).toHaveCount(0)

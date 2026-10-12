@@ -36,7 +36,8 @@ export function ReactorsPanel({
         ))}
       </TabsList>
       {message.reactions.map((r) => (
-        <TabsContent key={r.emoji} value={r.emoji} className="min-h-0">
+        <TabsContent key={r.emoji} value={r.emoji} className="flex min-h-0 flex-col">
+          {/* 목록은 시트(flex 열)에선 남는 높이를 받아 스크롤(min-h-0 flex-1), 다이얼로그에선 max-h-80 상한을 유지한다. */}
           {/* 활성 탭만 마운트(Radix 기본) → 그 이모지만 조회. */}
           <ReactorList messageId={message.id} reaction={r} currentUserId={currentUserId} meName={meName} />
         </TabsContent>
@@ -66,7 +67,7 @@ function ReactorList({
   const showMe = reaction.reacted || !!meItem
   const others = othersOf(allItems, currentUserId)
   return (
-    <div ref={setScrollEl} className="max-h-80 overflow-y-auto py-1">
+    <div ref={setScrollEl} className="max-h-80 min-h-0 flex-1 overflow-y-auto py-1">
       {showMe && (
         <ReactorRow
           testId="reactor-row-me"

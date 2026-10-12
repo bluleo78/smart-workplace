@@ -44,7 +44,9 @@ export function ReactorsOverlay({
           side="bottom"
           showCloseButton={false}
           data-testid="reactors-sheet"
-          className="max-h-[80dvh] gap-2 rounded-t-2xl px-4 pb-[env(safe-area-inset-bottom)]"
+          // 아래 여백은 안전영역과 최소 0.75rem 중 큰 값 — 안전영역이 0 인 기기에서 마지막 행이 시트 가장자리에 붙어 잘려 보이던 문제.
+          // 시트는 flex 열이라 목록(ReactorsPanel)이 남는 높이를 받아 스크롤한다(max-h 를 넘지 않음).
+          className="max-h-[80dvh] gap-2 rounded-t-2xl px-4 pb-[max(env(safe-area-inset-bottom),0.75rem)]"
         >
           <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-muted-foreground/30" />
           <SheetTitle>반응</SheetTitle>

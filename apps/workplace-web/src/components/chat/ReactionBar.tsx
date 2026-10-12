@@ -100,7 +100,8 @@ function ReactionHoverPill({
   return (
     <HoverCard open={open} onOpenChange={setOpen} openDelay={HOVER_OPEN_DELAY_MS} closeDelay={HOVER_CLOSE_DELAY_MS}>
       <HoverCardTrigger asChild>{children}</HoverCardTrigger>
-      <HoverCardContent side="top" align="start" className="w-60">
+      {/* 칩 아래로 연다 — 위로 열면 작성자·본문 줄을 가린다. 화면 아래가 모자라면 Radix 충돌 처리가 위로 뒤집는다. */}
+      <HoverCardContent side="bottom" align="start" className="w-60">
         <ReactionHoverContent
           messageId={messageId}
           reaction={reaction}

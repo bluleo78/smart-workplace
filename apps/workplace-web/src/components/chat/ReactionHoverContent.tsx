@@ -22,7 +22,7 @@ export function ReactionHoverContent({
     <div data-testid={`reaction-hover-${messageId}`}>
       <div className="text-3xl leading-none">{reaction.emoji}</div>
       {first ? (
-        <p className="mt-2 text-sm leading-snug" data-testid={`reaction-hover-summary-${messageId}`}>
+        <p className="mt-2 break-keep text-sm leading-snug" data-testid={`reaction-hover-summary-${messageId}`}>
           {formatReactorSummary({
             count: reaction.count,
             reacted: reaction.reacted,
