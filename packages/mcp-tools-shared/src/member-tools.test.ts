@@ -128,7 +128,17 @@ describe('buildMemberTools (#833)', () => {
   it('list_contacts 는 null 응답이면 빈 목록을 돌려준다', async () => {
     const c = mockClient();
     vi.mocked(c.listContacts).mockResolvedValue(null);
-    expect(JSON.parse(resultText(await tool(c, 'list_contacts').handler({})))).toEqual({ items: [], nextCursor: null });
+    expect(JSON.parse(resultText(await tool(c, 'list_contacts').handler({})))).toEqual({ items: [] });
+  });
+
+  it('list_contacts → 다음 페이지가 있으면 hasMore·nextCursor, 없으면 생략한다 (WP-352)', async () => {
+    const c = mockClient();
+    vi.mocked(c.listContacts).mockResolvedValue({ items: [{ type: 'MEMBER', name: '김', username: 'kim' }], nextCursor: 'c2' });
+    expect(JSON.parse(resultText(await tool(c, 'list_contacts').handler({})))).toMatchObject({ hasMore: true, nextCursor: 'c2' });
+    vi.mocked(c.listContacts).mockResolvedValue({ items: [], nextCursor: null });
+    const last = JSON.parse(resultText(await tool(c, 'list_contacts').handler({})));
+    expect(last).not.toHaveProperty('nextCursor');
+    expect(last).not.toHaveProperty('hasMore');
   });
 
   it('get_external_contact 는 externalId 를 받는다 — id/userId 키는 스키마 거부', async () => {

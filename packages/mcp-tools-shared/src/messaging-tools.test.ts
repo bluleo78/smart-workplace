@@ -71,8 +71,8 @@ describe('buildMessagingTools', () => {
         { id: 31, authorName: '양동희', authorKind: 'HUMAN', body: '답글 31', createdAt: 't' },
         { id: 32, authorName: '양동희', authorKind: 'HUMAN', body: '답글 32', createdAt: 't' },
       ],
-      truncated: false,
     });
+    expect(out).not.toHaveProperty('truncated'); // 안 잘렸으면 키 자체를 싣지 않는다(빠진 키 = 끝)
   });
 
   it('list_thread_replies 는 500개를 넘으면 멈추고 truncated 를 알린다', async () => {
@@ -97,15 +97,15 @@ describe('buildMessagingTools', () => {
     expect(JSON.parse(resultText(out))).toEqual({ items: [{ channelId: 1, name: '일반' }], total: 1 });
   });
 
-  it('list_channels → limit 을 넘으면 잘라 truncated·nextOffset 을 알리고 offset 으로 이어 읽는다 (WP-352)', async () => {
+  it('list_channels → limit 을 넘으면 잘라 hasMore·nextOffset 을 알리고 offset 으로 이어 읽는다 (WP-352)', async () => {
     const c = mockClient();
     vi.mocked(c.listChannels).mockResolvedValue(Array.from({ length: 5 }, (_, i) => ({ id: i + 1, name: `c${i}` })));
     const first = JSON.parse(resultText(await tool(c, 'list_channels').handler({ limit: 2 })));
     expect(first.items.map((x: { channelId: number }) => x.channelId)).toEqual([1, 2]);
-    expect(first).toMatchObject({ total: 5, truncated: true, nextOffset: 2 });
+    expect(first).toMatchObject({ total: 5, hasMore: true, nextOffset: 2 });
     const last = JSON.parse(resultText(await tool(c, 'list_channels').handler({ limit: 2, offset: 4 })));
     expect(last.items.map((x: { channelId: number }) => x.channelId)).toEqual([5]);
-    expect(last).not.toHaveProperty('truncated');
+    expect(last).not.toHaveProperty('hasMore');
     expect(last).not.toHaveProperty('nextOffset');
   });
 
@@ -374,6 +374,25 @@ describe('멘션 토큰 → 이름 (WP-353)', () => {
     expect(await linkMentions(c, '확인 @김민수(팀장) 부탁')).toBe('확인 <@3>(팀장) 부탁');
     // 이미 username 으로 쓴 경우는 그대로 동작한다.
     expect(await linkMentions(c, '확인 @minsu 부탁')).toBe('확인 <@3> 부탁');
+  });
+
+  // 동명이인 대비(WP-353 최종 리뷰): 이름만으로는 한 명이 안 정해져도 괄호 username 이 가린다.
+  it('linkMentions 는 @이름(username) 이면 괄호 안 username 을 먼저 써서 동명이인을 가린다', async () => {
+    const c = mockClient();
+    const twins = [
+      { userId: 3, username: 'minsu', name: '김민수', active: true },
+      { userId: 4, username: 'minsu2', name: '김민수', active: true },
+    ] as MemberRow[];
+    c.searchMembers = vi.fn(async ({ search }: { search?: string }) => twins.filter((m) => m.username.includes(search ?? '') || (m.name ?? '').includes(search ?? '')));
+    // 이름만 쓰면 동명이인이라 멘션하지 않지만(기존 동작), 괄호 username 이 있으면 그 사람이다.
+    expect(await linkMentions(c, '확인 @김민수 부탁')).toBe('확인 @김민수 부탁');
+    expect(await linkMentions(c, '확인 @김민수(minsu2) 부탁')).toBe('확인 <@4> 부탁');
+    expect(await linkMentions(c, '@김민수(minsu) 와 @김민수(minsu2)')).toBe('<@3> 와 <@4>');
+    // 조사가 붙어도 이름 부분만 멘션으로 바꾸고 조사는 남긴다. 표시 이름과 다른 표기여도 username 이 맞으면 따른다.
+    expect(await linkMentions(c, '@김민수님(minsu2) 확인')).toBe('<@4>님 확인');
+    expect(await linkMentions(c, '@민수씨(minsu) 확인')).toBe('<@3> 확인');
+    // 괄호 username 이 없는 구성원이면 이름 해석으로 되돌아간다(동명이인이면 그대로).
+    expect(await linkMentions(c, '@김민수(nobody) 확인')).toBe('@김민수(nobody) 확인');
   });
 });
 

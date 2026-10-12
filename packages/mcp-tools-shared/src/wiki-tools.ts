@@ -125,9 +125,9 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
       description:
         '노트 스페이스의 페이지 트리를 JSON({items, total, truncated?})으로 반환합니다. items 의 각 노드는 id·title 과 하위 페이지 children 을 가지며 사이드바 순서대로 정렬됩니다. ' +
         '스페이스 구성을 파악하거나 제목으로 페이지 위치를 찾을 때 쓰세요. spaceId 는 list_wiki_spaces 결과의 id 입니다. ' +
-        `total 은 전체 페이지 수이고, 페이지가 ${MAX_WIKI_TREE_NODES}개를 넘으면 위쪽 계층부터 ${MAX_WIKI_TREE_NODES}개만 담고 truncated:true 가 옵니다. ` +
+        `total 은 전체 페이지 수(parentId 를 주면 그 아래 하위 트리의 노드 수)이고, 담을 노드가 ${MAX_WIKI_TREE_NODES}개를 넘으면 위쪽 계층부터 ${MAX_WIKI_TREE_NODES}개만 담고 truncated:true 가 옵니다. ` +
         '이때 하위가 다 담기지 못한 노드에는 hiddenChildren(못 담은 직계 자식 수)이 붙으니, 그 노드의 id 를 parentId 로 다시 호출해 하위를 펼치세요. ' +
-        '특정 제목은 search_wiki 가 빠릅니다. 펼치지 않고 답한다면 일부 계층만 본 것이라고 밝히세요(개수 집계·"없다" 단정 금지). truncated 가 없으면 전부 담긴 것입니다.',
+        '한 부모 바로 아래 자식이 한 번에 담을 수 있는 수를 넘으면 parentId 로도 다 펼칠 수 없으니 그때는 search_wiki 로 찾으세요. 특정 제목은 search_wiki 가 빠릅니다. 펼치지 않고 답한다면 일부 계층만 본 것이라고 밝히세요(개수 집계·"없다" 단정 금지). truncated 가 없으면 전부 담긴 것입니다.',
       inputSchema: listWikiPagesInput,
       async handler(args) {
         const { spaceId, parentId } = listWikiPagesInput.parse(args);

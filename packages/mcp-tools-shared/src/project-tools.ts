@@ -83,12 +83,13 @@ export function toIssueListItem(it: IssueRow) {
 /**
  * 프로젝트 응답 → LLM 뷰. 소유자 ownerId 는 숫자 사용자 ID 라 내보내지 않는다(#833, WP-353). 서버 응답에는 소유자 이름이 없지만
  * 소유자는 get_project 의 members 에 role: OWNER 로 username·name 과 함께 나오므로(이미 함께 조회하는 값) 정보가 사라지지 않는다.
- * 크기 정리(WP-353): 프로젝트 도구는 모두 projectKey 로 가리키므로 숫자 id 를 빼고, 상위 3명 이름(memberNames — 프론트 아바타용)과
+ * 크기 정리(WP-353): 프로젝트 도구는 모두 projectKey 로 가리키므로 숫자 id 를 빼고(서버 필드 key 는 projectKey 로 이름을 바꾼다), 상위 3명 이름(memberNames — 프론트 아바타용)과
  * 기본 프로젝트가 아닐 때의 isDefault:false, 값이 없는 키(설명 null 등)를 뺀다. 프로젝트마다 반복되는 필드라 목록에서 효과가 크다.
  */
 export function toProjectView(project: Record<string, unknown>) {
-  const { isDefault, ...rest } = omitKeys(project, 'ownerId', 'id', 'memberNames');
-  return dropEmpty({ ...rest, ...(isDefault === true && { isDefault: true }) });
+  // 서버 필드 key 는 출력에서 projectKey 로 부른다 — 이 값을 받는 입력(get_project·list_issues·create_issue 등)과 같은 이름(README 파라미터 명명 규칙 2).
+  const { isDefault, key, ...rest } = omitKeys(project, 'ownerId', 'id', 'memberNames');
+  return dropEmpty({ ...(key !== undefined && { projectKey: key }), ...rest, ...(isDefault === true && { isDefault: true }) });
 }
 
 /** 프로젝트 멤버 → LLM 뷰. 숫자 userId 는 빼고 사람을 가리키는 username 만 준다(#833). get_project 의 members 에 쓴다. */
@@ -104,7 +105,7 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       app: ['project', 'issue'],
       kind: 'read',
       description:
-        '접근 가능한 프로젝트 목록을 JSON({items, total, hasMore?, nextPage?})으로 반환합니다(항목: key·name·description·type·issueTotal·issueDone·memberCount·viewerIsMember 등, 값이 없는 키는 생략). ' +
+        '접근 가능한 프로젝트 목록을 JSON({items, total, hasMore?, nextPage?})으로 반환합니다(항목: projectKey·name·description·type·issueTotal·issueDone·memberCount·viewerIsMember 등, 값이 없는 키는 생략). ' +
         'total 은 전체 프로젝트 수입니다. ' +
         'page/size 로 페이지네이션합니다(기본 0/50, size 최대 100). hasMore 가 있으면(true) 뒤에 더 있다는 뜻이니 nextPage 를 page 로 넘겨 이어 조회하거나, ' +
         '이어 조회하지 않고 답한다면 목록이 일부만 담겼다고 밝히세요.',
@@ -120,7 +121,7 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       app: ['project', 'issue'],
       kind: 'read',
       description:
-        '프로젝트 상세(key·name·description·type)와 이 프로젝트에서 쓸 수 있는 이슈 유형(issueTypes)·라벨(labels)·마일스톤(milestones) 이름, ' +
+        '프로젝트 상세(projectKey·name·description·type)와 이 프로젝트에서 쓸 수 있는 이슈 유형(issueTypes)·라벨(labels)·마일스톤(milestones) 이름, ' +
         '사이클(cycles: name·status), 멤버(members: username·name·role)를 JSON 으로 반환합니다. ' +
         'create_issue/update_issue 의 type·labels·milestone·cycles 는 이 목록의 이름만, assignees 는 members 의 username 만 사용하세요.',
       inputSchema: projectKeyInput,

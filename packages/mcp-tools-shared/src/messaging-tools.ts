@@ -3,7 +3,7 @@
 // 확인 카드로 한다(경로마다 도구 하나 — ai-agent 프로필에는 싣지 않는다). 두 경로가 입력 스키마(addChannelMemberInput)와 대상 해석
 // (requireActiveMember)을 같이 쓴다. 비공개 채널 나가기는 계속 확인 카드(propose_leave_channel)만 한다.
 import { z } from 'zod';
-import { cursorPageView, dropEmpty, omitKeys } from './compact.js';
+import { cursorPageView, dropEmpty, omitKeys, truncatedView } from './compact.js';
 import type { SharedTool } from './mcp-tool.js';
 import { findMemberByUsername, requireActiveMember, searchMembersByTerm } from './member-tools.js';
 import type { MemberRow, MemberToolClient, MessagingToolClient } from './tool-client.js';
@@ -17,35 +17,54 @@ const MENTION_SUFFIX = /(께서|에게|한테|님|씨|께|이|가|은|는|을|�
 // 본문 하나에서 해석할 멘션 수 상한 — 토큰마다 조회 1회라 @ 가 많은 본문의 요청 폭주를 막는다.
 const MAX_MENTIONS = 20;
 
+/** 토큰 → 후보 이름들. 긴 것부터(토큰 전체 → 조사를 한 겹씩 뗀 형태). */
+function candidateNames(token: string): string[] {
+  const names = [token];
+  let t = token;
+  while ((t = t.replace(MENTION_SUFFIX, '')) && t !== names.at(-1)) names.push(t);
+  return names;
+}
+
 /**
  * 본문의 `@username` 을 멘션 토큰 `<@userId>` 로 바꾼다(#844). 서버 멘션 파서는 숫자 id 토큰만 인식하는데,
  * LLM 표면은 username 만 다루므로(#833) 변환을 도구가 맡는다. 모델이 조회를 건너뛰고 표시 이름(@김철수)을
  * 쓰는 경우도 있어, username 정확일치가 없으면 표시 이름이 정확히 한 명과 일치할 때만 멘션한다(동명이인은 그대로).
+ * 목록 출력의 표기를 따라 `@이름(username)` 으로 쓴 경우에는 괄호 안 username 을 먼저 정확일치로 해석한다(동명이인이어도 username 이 가린다).
  */
 export async function linkMentions(client: Pick<MemberToolClient, 'searchMembers'>, body: string): Promise<string> {
-  const tokens = [...new Set([...body.matchAll(MENTION_CANDIDATE)].map((m) => m[2]))].slice(0, MAX_MENTIONS);
-  if (tokens.length === 0) return body;
-  // 토큰 → 멘션 대상 id + 식별자에 해당하는 앞부분 길이(나머지 조사는 원문 그대로 남긴다).
+  // 같은 (이름, 괄호) 쌍은 한 번만 해석한다 — `@김민수(a)` 와 `@김민수(b)` 는 서로 다른 후보다.
+  const keyOf = (raw: string, paren: string | undefined) => `${raw}\u0000${paren ?? ''}`;
+  const candidates = new Map<string, { raw: string; paren: string | undefined }>();
+  for (const m of body.matchAll(MENTION_CANDIDATE)) candidates.set(keyOf(m[2], m[3]), { raw: m[2], paren: m[3] });
+  if (candidates.size === 0) return body;
+  // 후보 → 멘션 대상 id + 식별자에 해당하는 앞부분 길이(나머지 조사는 원문 그대로 남긴다).
   const entries = await Promise.all(
-    tokens.map(async (token) => {
+    [...candidates].slice(0, MAX_MENTIONS).map(async ([key, { raw: token, paren }]) => {
       // 후보는 긴 것부터(토큰 전체 → 조사를 한 겹씩 뗀 형태). 가장 짧은 후보로 한 번만 검색하면
       // 부분일치라 더 긴 후보도 결과에 포함된다.
-      const names = [token];
-      let t = token;
-      while ((t = t.replace(MENTION_SUFFIX, '')) && t !== names.at(-1)) names.push(t);
+      const names = candidateNames(token);
+      // 괄호 안 username 이 정확히 일치하면 그 구성원이 답이다 — 이름이 같은 사람이 여럿이어도 가려진다.
+      // 이름 부분의 길이는 표시 이름·username 과 맞는 후보를 찾고, 없으면 토큰 전체를 이름으로 본다.
+      if (paren) {
+        const byParen = (await searchMembersByTerm(client, paren, false).catch(() => [])).find((m) => m.username === paren);
+        if (byParen) {
+          const length = names.find((n) => n === byParen.name || n === byParen.username)?.length ?? token.length;
+          return [key, { id: byParen.userId, username: byParen.username, length }] as const;
+        }
+      }
       // 조회 실패는 멘션 없이 원문 게시로 강등 — 메시지 작성 자체를 막지 않는다.
       const rows = await searchMembersByTerm(client, names.at(-1)!, false).catch(() => []);
       for (const name of names) {
         const byName = rows.filter((m) => m.name === name);
         const hit = rows.find((m) => m.username === name) ?? (byName.length === 1 ? byName[0] : undefined);
-        if (hit) return [token, { id: hit.userId, username: hit.username, length: name.length }] as const;
+        if (hit) return [key, { id: hit.userId, username: hit.username, length: name.length }] as const;
       }
       return undefined;
     }),
   );
   const resolved = new Map(entries.filter((e) => e !== undefined));
   return body.replace(MENTION_CANDIDATE, (all, lead: string, raw: string, paren: string | undefined) => {
-    const hit = resolved.get(raw);
+    const hit = resolved.get(keyOf(raw, paren));
     if (!hit) return all;
     // `@김민수(minsu)` 처럼 해석된 username 이 괄호로 따라오면 중복 표기라 지운다(다른 값이면 원문 괄호를 살린다).
     const rest = paren === undefined || paren === hit.username ? '' : `(${paren})`;
@@ -263,10 +282,10 @@ export function buildMessagingTools(
       app: 'messaging',
       kind: 'read',
       description:
-        '내가 속한 채널·DM 목록을 JSON({items, total, truncated?, nextOffset?})으로 반환합니다(items 는 channelId·name·kind·visibility·memberCount·lastMessage 미리보기 포함, 이름순). ' +
+        '내가 속한 채널·DM 목록을 JSON({items, total, hasMore?, nextOffset?})으로 반환합니다(items 는 channelId·name·kind·visibility·memberCount·lastMessage 미리보기 포함, 이름순). ' +
         '안 읽은 메시지가 있는 채널만 unreadCount(안 읽은 수)·hasUnreadThreads 가 오고, 없으면 이 키들이 생략됩니다(0 / false). ' +
         '채널 이름만 알 때 channelId 를 확보한 뒤 list_channel_messages / add_channel_message 에 사용하세요. ' +
-        'total 은 내 채널 전체 수이고 한 번에 limit 개(기본 100, 최대 200)만 담기므로, 더 있으면 truncated:true 와 nextOffset 이 옵니다 — ' +
+        'total 은 내 채널 전체 수이고 한 번에 limit 개(기본 100, 최대 200)만 담기므로, 더 있으면 hasMore:true 와 nextOffset 이 옵니다 — ' +
         'nextOffset 을 offset 으로 넘겨 이어 조회하거나, 이어 조회하지 않고 답한다면 일부만 본 것이라고 밝히세요(목록에 없다는 단정·개수 집계 금지). ' +
         '이 키들이 없으면 전부 담긴 것입니다.',
       inputSchema: listChannelsInput,
@@ -275,7 +294,7 @@ export function buildMessagingTools(
         const all = (await client.listChannels()) as unknown[];
         const items = all.slice(offset, offset + limit).map((c) => toChannelView(c as Raw));
         const next = offset + items.length;
-        return JSON.stringify({ items, total: all.length, ...(next < all.length && { truncated: true, nextOffset: next }) });
+        return JSON.stringify({ items, total: all.length, ...(next < all.length && { hasMore: true, nextOffset: next }) });
       },
     },
     {
@@ -312,14 +331,14 @@ export function buildMessagingTools(
       app: 'messaging',
       kind: 'read',
       description:
-        '채널 메시지 하나에 달린 스레드 답글 전체를 오래된 순으로 JSON({items, truncated})으로 반환합니다(스레드 요약·확인용). ' +
+        '채널 메시지 하나에 달린 스레드 답글 전체를 오래된 순으로 JSON({items, truncated?})으로 반환합니다(스레드 요약·확인용). ' +
         'messageId 는 list_channel_messages 결과에서 replyCount 가 있는 메시지의 id 입니다. 본문의 멘션은 "@이름(username)" 으로 풀려 있습니다. ' +
-        'truncated 가 true 면 답글이 500개를 넘어 앞부분 500개만 담긴 것이니, 요약할 때 뒷부분이 빠졌다고 밝히세요.',
+        'truncated:true 가 있으면 답글이 500개를 넘어 앞부분 500개만 담긴 것이니, 요약할 때 뒷부분이 빠졌다고 밝히세요.',
       inputSchema: getThreadRepliesInput,
       async handler(args) {
         const { messageId } = getThreadRepliesInput.parse(args);
         const { items, truncated } = await collectThreadReplies(client, messageId);
-        return JSON.stringify({ items: items.map(toThreadReplyView), truncated });
+        return JSON.stringify(truncatedView(items.map(toThreadReplyView), truncated));
       },
     },
     {

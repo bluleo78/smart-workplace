@@ -19,7 +19,7 @@ export const createIssueInput = z.object({
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   type: z.string().optional(), // 유형 이름(예: BUG) → typeId 리졸브
   assignees: z.array(z.string()).optional(), // username[] → assigneeIds 리졸브
-  parent: z.string().min(1).optional(), // 부모 이슈 키(WP-12, SUBTASK) — 같은 프로젝트의 이슈여야 한다. 핸들러가 서버용 번호로 옮긴다(#833, WP-353)
+  parent: z.string().min(1).describe('부모 이슈 키(예: WP-12) — 같은 프로젝트만').optional(), // 부모 이슈 키(WP-12, SUBTASK) — 같은 프로젝트의 이슈여야 한다. 핸들러가 서버용 번호로 옮긴다(#833, WP-353)
 });
 
 /** 이슈 부분 수정 입력 — 전달 필드만 변경. */
@@ -34,7 +34,7 @@ export const updateIssueInput = z.object({
   clearDueDate: z.boolean().optional(),
   clearStartDate: z.boolean().optional(),
   type: z.string().optional(), // 유형 이름 → typeId
-  parent: z.string().min(1).nullable().optional(), // 이슈 키(WP-12)=설정, null=해제, 생략=변경없음. 같은 프로젝트만(WP-353)
+  parent: z.string().min(1).nullable().describe('부모 이슈 키(예: WP-12) — 같은 프로젝트만. null 이면 해제').optional(), // 이슈 키(WP-12)=설정, null=해제, 생략=변경없음. 같은 프로젝트만(WP-353)
   assignees: z.array(z.string()).optional(), // username[] → 집합 교체
   labels: z.array(z.string()).optional(), // 라벨명[] → 집합 교체
   milestone: z.string().min(1).nullable().optional(), // 마일스톤 이름 → milestoneId, null=해제(#854)

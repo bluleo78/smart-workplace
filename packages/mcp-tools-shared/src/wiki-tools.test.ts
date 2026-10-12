@@ -203,6 +203,13 @@ describe('buildWikiTools', () => {
     expect(sub.total).toBe(600);
   });
 
+  // WP-352 최종 리뷰: total 은 parentId 를 주면 하위 트리 노드 수고, 한 부모 아래 500 초과 자식은 parentId 로도 못 펼친다.
+  it('list_wiki_pages 설명이 total 의 하위 트리 의미와 한 부모 아래 상한 한계를 밝힌다', () => {
+    const { description } = tool(mockClient(), 'list_wiki_pages');
+    expect(description).toContain('parentId 를 주면 그 아래 하위 트리의 노드 수');
+    expect(description).toContain('한 부모 바로 아래 자식이');
+  });
+
   it('list_wiki_pages 는 스페이스에 없는 parentId 를 오류로 거절한다', async () => {
     const c = mockClient();
     vi.mocked(c.listWikiPages).mockResolvedValue([{ id: 1, parentId: null, title: 'r', position: 0 }]);

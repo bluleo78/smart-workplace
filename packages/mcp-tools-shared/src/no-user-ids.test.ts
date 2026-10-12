@@ -4,6 +4,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { buildCalendarTools } from './calendar-tools.js';
 import { buildDriveTools } from './drive-tools.js';
+import { buildSharedIssueTools } from './issue-tools.js';
 import { resultText } from './mcp-content.js';
 import { buildMemberTools } from './member-tools.js';
 import { buildMessagingTools } from './messaging-tools.js';
@@ -15,12 +16,23 @@ const USER_ID_KEYS = new Set([
   'userId', 'ownerId', 'authorId', 'updatedBy', 'invitedBy', 'invitedByUserId', 'actorId', 'reporterId', 'attachedById', 'createdById', 'proposedByUserId',
 ]);
 
+/** 본문 문자열에 남은 멘션 토큰 `<@123>` — 숫자 사용자 ID 가 문자열 안에 숨은 모양이다. */
+const MENTION_TOKEN = /<@\d+>/;
+
 /**
- * 파싱한 응답을 훑어 숫자 사용자 ID 의 흔적을 모은다: (1) USER_ID_KEYS 에 드는 키, (2) username 과 숫자 id 를 함께 가진 객체(사람 객체에 실린 id).
- * `invitedBy` 는 {username,name} 객체일 때만 허용한다. 허용 목록은 없다(WP-353 에서 모두 정리됨).
+ * 멘션 토큰 검사에서 명시적으로 빼는 문자열 경로(WP-353 최종 리뷰) — 도구별로 이유를 적어 넘긴다. 현재 예외는 후속으로 남긴 두 곳뿐이다:
+ * (1) `get_wiki_page` 의 `body`(노트 본문은 서버가 토큰을 담은 채 준다 — 푸는 데 필요한 멘션 사전이 응답에 없다), (2) ai-agent 의 `list_chat_messages` 본문
+ * (이 패키지 밖이라 여기서는 검사하지 않고 ai-agent 쪽 도구 테스트가 맡는다). 새 예외는 이유 없이 늘리지 않는다.
  */
-function userIdLeaks(value: unknown, path = ''): string[] {
-  if (Array.isArray(value)) return value.flatMap((v) => userIdLeaks(v, `${path}[]`));
+const WIKI_BODY_TOKEN_EXCEPTION: ReadonlySet<string> = new Set(['body']);
+
+/**
+ * 파싱한 응답을 훑어 숫자 사용자 ID 의 흔적을 모은다: (1) USER_ID_KEYS 에 드는 키, (2) username 과 숫자 id 를 함께 가진 객체(사람 객체에 실린 id),
+ * (3) 문자열 안의 멘션 토큰 `<@123>`(tokenOk 에 든 경로만 예외). `invitedBy` 는 {username,name} 객체일 때만 허용한다.
+ */
+function userIdLeaks(value: unknown, path = '', tokenOk: ReadonlySet<string> = new Set()): string[] {
+  if (typeof value === 'string') return MENTION_TOKEN.test(value) && !tokenOk.has(path) ? [`${path || '$'}: <@id> 토큰`] : [];
+  if (Array.isArray(value)) return value.flatMap((v) => userIdLeaks(v, `${path}[]`, tokenOk));
   if (!value || typeof value !== 'object') return [];
   const obj = value as Record<string, unknown>;
   const leaks: string[] = [];
@@ -28,7 +40,7 @@ function userIdLeaks(value: unknown, path = ''): string[] {
   for (const [k, v] of Object.entries(obj)) {
     const p = path ? `${path}.${k}` : k;
     if (USER_ID_KEYS.has(k) && !(k === 'invitedBy' && v && typeof v === 'object')) leaks.push(p);
-    leaks.push(...userIdLeaks(v, p));
+    leaks.push(...userIdLeaks(v, p, tokenOk));
   }
   return leaks;
 }
@@ -41,6 +53,12 @@ describe('userIdLeaks (검사기 자체)', () => {
     expect(userIdLeaks({ a: [{ ownerId: 1 }], p: { username: 'x', id: 3 } }).sort()).toEqual(['a[].ownerId', 'p: username+id'].sort());
     expect(userIdLeaks({ attendees: [{ username: 'a', name: 'A', invitedBy: { username: 'b', name: 'B' } }] })).toEqual([]);
     expect(userIdLeaks({ items: [{ id: 3, name: '채널' }] })).toEqual([]);
+  });
+
+  it('문자열 안의 <@id> 토큰을 찾고, 예외로 적은 경로만 통과시킨다', () => {
+    expect(userIdLeaks({ body: '안녕 <@3>', items: [{ text: '<@12> 님' }] }).sort()).toEqual(['body: <@id> 토큰', 'items[].text: <@id> 토큰'].sort());
+    expect(userIdLeaks({ body: '안녕 <@3>' }, '', new Set(['body']))).toEqual([]);
+    expect(userIdLeaks({ body: '@김민수(minsu) 와 a@b.com <@abc>' })).toEqual([]); // 풀린 멘션·메일 주소·숫자가 아닌 꺾쇠는 아니다
   });
 });
 
@@ -132,6 +150,13 @@ describe('노트', () => {
   };
   const tools = buildWikiTools(client as never) as never as Parameters<typeof find>[0];
 
+  it('get_wiki_page 본문의 <@id> 토큰은 명시적 예외다 — 예외 없이 검사하면 잡히고, 본문 밖에는 없다(후속)', async () => {
+    client.getWikiPage.mockResolvedValueOnce({ id: 5, spaceId: 1, parentId: null, title: 'T', body: '담당 <@9>', version: 3, updatedBy: 9, updatedAt: 't' });
+    const body = out(await find(tools, 'get_wiki_page').handler({ pageId: 5 }));
+    expect(userIdLeaks(body)).toEqual(['body: <@id> 토큰']);
+    expect(userIdLeaks(body, '', WIKI_BODY_TOKEN_EXCEPTION)).toEqual([]);
+  });
+
   it('list_wiki_spaces: ownerId 를 빼고 나머지(역할 등)는 유지한다', async () => {
     const body = out(await find(tools, 'list_wiki_spaces').handler({}));
     expect(userIdLeaks(body)).toEqual([]);
@@ -148,6 +173,44 @@ describe('노트', () => {
       expect(userIdLeaks(body), name).toEqual([]);
       expect(body, name).toMatchObject({ version: expect.any(Number), updatedAt: 't' });
     }
+  });
+});
+
+describe('이슈', () => {
+  // 서버 IssueDetailResponse·IssueResponse — 담당자·작성자·코멘트·이력·첨부자에 숫자 id 를 담는다.
+  const person = { id: 9, username: 'alice', name: '앨리스', kind: 'HUMAN' };
+  const summary = {
+    projectKey: 'WP', number: 12, title: 'T', status: 'TODO', priority: 'MID', type: { id: 2, name: 'BUG' }, assignees: [person], reporterId: 9,
+    labels: [{ id: 100, name: 'urgent' }], blockedBy: [], blocks: [{ number: 13, title: 'x', status: 'TODO' }], blocked: false, createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z',
+  };
+  const detail = {
+    issueKey: 'WP-12', summary, body: '본문', reporter: person,
+    comments: [{ id: 1, body: '확인', authorId: 9, authorUsername: 'alice', authorName: '앨리스', authorKind: 'HUMAN', createdAt: '2026-10-01T00:00:00Z' }],
+    history: [{ eventType: 'STATUS_CHANGED', actorId: 9, actorUsername: 'alice', actorName: '앨리스', actorKind: 'HUMAN', fromValue: 'TODO', toValue: 'DONE', createdAt: '2026-10-01T00:00:00Z' }],
+    attachments: [{ fileId: 70, originalName: 'a.png', mimeType: 'image/png', sizeBytes: 3, attachedById: 9, attachedByUsername: 'alice', attachedByName: '앨리스', attachedAt: '2026-10-01T00:00:00Z' }],
+  };
+  const client = {
+    getIssueDetail: vi.fn().mockResolvedValue(detail),
+    getIssueCycles: vi.fn().mockResolvedValue([]),
+    createIssue: vi.fn().mockResolvedValue(summary),
+    addIssueDependency: vi.fn().mockResolvedValue(detail),
+    getProjectTypes: vi.fn().mockResolvedValue([]),
+    getProjectMembers: vi.fn().mockResolvedValue([]),
+  };
+  const tools = buildSharedIssueTools(client as never) as never as Parameters<typeof find>[0];
+
+  it('get_issue_detail·create_issue·add_issue_dependency 응답에 숫자 사용자 ID 도 <@id> 토큰도 없다', async () => {
+    for (const [name, args] of [
+      ['get_issue_detail', { issueKey: 'WP-12' }],
+      ['create_issue', { projectKey: 'WP', title: 'T' }],
+      ['add_issue_dependency', { issueKey: 'WP-12', otherIssueKey: 'WP-13', direction: 'blocks' }],
+    ] as const) {
+      expect(userIdLeaks(out(await find(tools, name).handler(args))), name).toEqual([]);
+    }
+  });
+
+  it('목 점검: 가공 전 원본 이슈 상세에는 숫자 ID 가 실제로 들어 있다', () => {
+    expect(userIdLeaks(detail)).toEqual(expect.arrayContaining(['reporter: username+id', 'comments[].authorId', 'attachments[].attachedById']));
   });
 });
 
@@ -192,7 +255,7 @@ describe('프로젝트', () => {
     }
     const detail = out(await find(tools, 'get_project').handler({ projectKey: 'WP' }));
     expect(detail.members).toEqual([{ username: 'alice', name: '앨리스', role: 'OWNER' }]);
-    expect(detail).toMatchObject({ key: 'WP', memberCount: 2 });
+    expect(detail).toMatchObject({ projectKey: 'WP', memberCount: 2 });
   });
 });
 

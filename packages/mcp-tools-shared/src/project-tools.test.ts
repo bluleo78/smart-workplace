@@ -39,7 +39,7 @@ describe('list_projects', () => {
     const out = await tool(c, 'list_projects').handler({});
     expect(c.listProjects).toHaveBeenCalledWith(0, 50);
     // 마지막 페이지면 total 만 싣고 hasMore·nextPage 는 생략한다(WP-352).
-    expect(JSON.parse(resultText(out))).toEqual({ items: [{ key: 'WP' }], total: 1 });
+    expect(JSON.parse(resultText(out))).toEqual({ items: [{ projectKey: 'WP' }], total: 1 });
   });
 
   it('page/size 지정 시 그대로 전달', async () => {
@@ -52,7 +52,7 @@ describe('list_projects', () => {
     const c = mockClient();
     vi.mocked(c.listProjects).mockResolvedValue({ items: [{ key: 'WP' }], total: 120, hasMore: true, page: 1 });
     const out = JSON.parse(resultText(await tool(c, 'list_projects').handler({ page: 1, size: 50 })));
-    expect(out).toEqual({ items: [{ key: 'WP' }], total: 120, hasMore: true, nextPage: 2 });
+    expect(out).toEqual({ items: [{ projectKey: 'WP' }], total: 120, hasMore: true, nextPage: 2 });
   });
 
   it('WP-352: 설명이 이어 조회하거나 잘렸다고 알리라고 안내한다', () => {
@@ -67,7 +67,7 @@ describe('get_project', () => {
     const c = mockClient();
     const out = JSON.parse(resultText(await tool(c, 'get_project').handler({ projectKey: 'WP' })));
     expect(c.getProject).toHaveBeenCalledWith('WP');
-    expect(out).toEqual({ key: 'WP', issueTypes: [], labels: [], milestones: [], cycles: [], members: [] });
+    expect(out).toEqual({ projectKey: 'WP', issueTypes: [], labels: [], milestones: [], cycles: [], members: [] });
   });
 
   it('옛 파라미터 key 는 거부한다(projectKey 만)', async () => {
@@ -91,7 +91,7 @@ describe('get_project', () => {
     ]);
     const raw = await tool(c, 'get_project').handler({ projectKey: 'WP' });
     expect(JSON.parse(resultText(raw))).toEqual({
-      key: 'WP',
+      projectKey: 'WP',
       name: '워크플레이스',
       type: 'TEAM', // description:null 은 값이 없는 키라 생략된다(WP-353)
       issueTypes: ['TASK', 'BUG'],
@@ -120,10 +120,33 @@ describe('프로젝트 정리 뷰 (WP-353)', () => {
     vi.mocked(c.listProjects).mockResolvedValue({ items: [row], total: 1, hasMore: false, page: 0 });
     const out = JSON.parse(resultText(await tool(c, 'list_projects').handler({})));
     expect(out.items[0]).toEqual({
-      key: 'WP', name: '워크플레이스', type: 'TEAM', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z',
+      projectKey: 'WP', name: '워크플레이스', type: 'TEAM', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z',
       issueTotal: 10, issueDone: 4, memberCount: 3, viewerIsMember: true,
     });
     expect(JSON.stringify(out.items[0]).length).toBeLessThan(JSON.stringify(row).length * 0.8);
+  });
+
+  // 출력 식별자 이름 = 입력 이름(README 파라미터 명명 규칙 2) — 서버 필드 key 는 어디에도 남지 않고, 같은 값을 입력으로 되돌려 쓸 수 있다.
+  it('서버 필드 key 는 projectKey 로 이름이 바뀌고(조회·쓰기 도구 모두) key 는 남지 않는다', async () => {
+    const c = mockClient();
+    vi.mocked(c.listProjects).mockResolvedValue({ items: [row], total: 1, hasMore: false, page: 0 });
+    vi.mocked(c.getProject).mockResolvedValue(row);
+    vi.mocked(c.createProject).mockResolvedValue(row);
+    vi.mocked(c.updateProject).mockResolvedValue(row);
+    for (const [name, args] of [
+      ['list_projects', {}],
+      ['get_project', { projectKey: 'WP' }],
+      ['create_project', { projectKey: 'WP', name: 'x' }],
+      ['update_project', { projectKey: 'WP', name: 'x' }],
+    ] as const) {
+      const out = JSON.parse(resultText(await tool(c, name).handler(args)));
+      const project = name === 'list_projects' ? out.items[0] : out;
+      expect(project, name).toMatchObject({ projectKey: 'WP' });
+      expect(project, name).not.toHaveProperty('key');
+    }
+    // 키가 없는 응답에는 projectKey 도 만들어 넣지 않는다.
+    vi.mocked(c.getProject).mockResolvedValue({ name: 'x' });
+    expect(JSON.parse(resultText(await tool(c, 'get_project').handler({ projectKey: 'WP' })))).not.toHaveProperty('projectKey');
   });
 
   it('기본 프로젝트(isDefault:true)는 그 표시를 남긴다', async () => {
@@ -408,7 +431,7 @@ describe('create_project (WP-349)', () => {
     const c = mockClient();
     const out = await tool(c, 'create_project').handler({ projectKey: 'NEW', name: '새 프로젝트', type: 'OPEN' });
     expect(c.createProject).toHaveBeenCalledWith({ key: 'NEW', name: '새 프로젝트', type: 'OPEN' });
-    expect(JSON.parse(resultText(out))).toEqual({ key: 'NEW', name: '새 프로젝트' });
+    expect(JSON.parse(resultText(out))).toEqual({ projectKey: 'NEW', name: '새 프로젝트' });
   });
 
   it('서버 key 형식(대문자 시작 대문자·숫자 2~10자)이 아니면 부르지 않는다', async () => {

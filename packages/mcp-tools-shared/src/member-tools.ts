@@ -5,7 +5,7 @@
 // 외부 연락처 생성·수정·삭제와 구성원 역할·활성 변경은 ai-agent 쪽에만 있다(삭제·구성원 변경은 확인 카드).
 // 즐겨찾기·facets·사용자 그룹(#839)은 contact-tools.ts — 사용자 본인 범위의 되돌릴 수 있는 쓰기라 공유 도구로 둔다.
 import { z } from 'zod';
-import { numberedPageView } from './compact.js';
+import { cursorPageView, numberedPageView } from './compact.js';
 import type { SharedTool } from './mcp-tool.js';
 import type { MemberRow, MemberToolClient } from './tool-client.js';
 
@@ -184,15 +184,16 @@ export function buildMemberTools(client: MemberToolClient): SharedTool[] {
         '연락처 목록을 JSON 으로 반환합니다. type=EXTERNAL 은 외부 연락처(거래처·고객 등), type=MEMBER 는 사내 구성원입니다. ' +
         '**식별자 주의**: MEMBER 항목은 username(사내 구성원 — search_members 등 사람을 가리키는 도구에 그대로 넘김), EXTERNAL 항목은 externalId(= 외부 연락처 id)를 가집니다. ' +
         'externalId 는 외부 연락처 도구에만 사용하세요(구성원 항목에는 없습니다). 사내 구성원을 찾는 것이 목적이면 이 도구 대신 search_members 를 사용하세요(활성여부 등 더 정확한 정보를 줍니다). ' +
-        'search 로 이름·이메일 검색, organization/title 로 좁히기, favorite=true 로 즐겨찾기만, nextCursor 를 cursor 로 넘겨 다음 페이지.',
+        'search 로 이름·이메일 검색, organization/title 로 좁히기, favorite=true 로 즐겨찾기만. 결과는 {items, hasMore?, nextCursor?} 이고 다음 페이지가 있을 때만 hasMore:true 와 nextCursor 가 오니, ' +
+        'nextCursor 를 cursor 로 넘겨 이어 조회하거나 이어 조회하지 않고 답한다면 일부만 봤다고 밝히세요(키가 없으면 끝까지 다 담긴 것).',
       inputSchema: listContactsInput,
       async handler(args) {
         // 서버 응답은 { items, nextCursor } 래퍼(ContactPage)다.
-        const { items = [], nextCursor = null } = ((await client.listContacts(listContactsInput.parse(args))) ?? {}) as {
+        const { items = [], nextCursor } = ((await client.listContacts(listContactsInput.parse(args))) ?? {}) as {
           items?: ContactRow[];
           nextCursor?: string | null;
         };
-        return JSON.stringify({ items: items.map(toContactView), nextCursor });
+        return JSON.stringify(cursorPageView(items.map(toContactView), { nextCursor }));
       },
     },
     {

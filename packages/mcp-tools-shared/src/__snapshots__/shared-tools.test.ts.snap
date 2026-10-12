@@ -443,6 +443,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "string",
         },
         "parent": {
+          "description": "부모 이슈 키(예: WP-12) — 같은 프로젝트만",
           "minLength": 1,
           "type": "string",
         },
@@ -2215,6 +2216,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
               "type": "null",
             },
           ],
+          "description": "부모 이슈 키(예: WP-12) — 같은 프로젝트만. null 이면 해제",
         },
         "priority": {
           "enum": [

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
 import { buildSharedIssueTools } from './issue-tools.js';
 import type { IssueToolClient } from './tool-client.js';
 import { resultText } from './mcp-content.js';
@@ -131,6 +132,15 @@ describe('buildSharedIssueTools', () => {
     const t = buildSharedIssueTools(c).find((x) => x.name === 'create_issue')!;
     await t.handler({ projectKey: 'WP', title: '하위', parent: 'WP-7' });
     expect(c.createIssue).toHaveBeenCalledWith('WP', expect.objectContaining({ parentNumber: 7 }));
+  });
+
+  // 옛 클라이언트가 숫자를 보내 검증에 걸렸을 때 스키마 설명이 이슈 키를 안내한다.
+  it('create_issue·update_issue 의 parent 입력 설명이 이슈 키(예: WP-12, 같은 프로젝트)를 안내한다', () => {
+    for (const name of ['create_issue', 'update_issue']) {
+      const schema = z.toJSONSchema(buildSharedIssueTools(mockClient()).find((x) => x.name === name)!.inputSchema as z.ZodType) as unknown as { properties: { parent: { description?: string } } };
+      expect(schema.properties.parent.description, name).toContain('부모 이슈 키(예: WP-12)');
+      expect(schema.properties.parent.description, name).toContain('같은 프로젝트만');
+    }
   });
 
   it('create_issue 는 다른 프로젝트의 부모 키를 이슈를 만들기 전에 거부한다', async () => {
