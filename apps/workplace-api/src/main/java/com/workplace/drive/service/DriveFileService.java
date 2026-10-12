@@ -20,7 +20,9 @@ import com.workplace.file.service.FileUploadService;
 import com.workplace.file.service.FileUploadService.FileContentResult;
 import com.workplace.fileai.ExtractionProfile;
 import com.workplace.fileai.ExtractionReasons;
+import com.workplace.fileai.dto.ExtractedTextSlice;
 import com.workplace.fileai.inbound.FileExtractionRequestedEvent;
+import com.workplace.fileai.service.ExtractedTextService;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.util.SafeFileNames;
 import com.workplace.user.repository.UserRepository;
@@ -62,6 +64,9 @@ public class DriveFileService {
 
   /** 드라이브 변경 resource.changed 발행(WP-63). */
   private final DriveChangeNotifier notifier;
+
+  /** 추출 텍스트 구간 읽기(WP-346) — 상태·사유·자르기는 fileai 공용 서비스가 맡는다. */
+  private final ExtractedTextService extractedText;
 
   /**
    * 업로드 → 쿼터 검사(advisory lock) → file core 저장 → 영구화 → drive_file 바인딩. 동명 활성 파일이 있으면 새 버전으로 흡수(#79),
@@ -161,6 +166,19 @@ public class DriveFileService {
     String reason =
         ExtractionReasons.message(ExtractionReasons.classify(r.status(), r.error(), r.mime()));
     return new FileSummaryResponse(r.summary(), r.status(), reason);
+  }
+
+  /**
+   * 파일 추출 텍스트 구간 읽기(WP-346). 게이트는 download·summary 와 같다 — drive 권한(VIEWER+)으로 인가하고, 없는·휴지통 파일은 404,
+   * 스페이스 비멤버는 존재 은닉. 현재 버전의 file.id 로 읽으며 상태(PENDING·EXTRACTING·FAILED·SKIPPED 등)·사유·자르기는 {@link
+   * ExtractedTextService#read} 가 이슈 첨부 /text 와 같은 형식으로 돌려준다.
+   */
+  @Transactional(readOnly = true)
+  public ExtractedTextSlice readText(long callerId, long driveFileId, int offset, int limit) {
+    DriveFileRepository.DriveFileRow row =
+        files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
+    perms.requireRole(row.spaceId(), callerId, "VIEWER");
+    return extractedText.read(row.fileId(), offset, limit);
   }
 
   /**
