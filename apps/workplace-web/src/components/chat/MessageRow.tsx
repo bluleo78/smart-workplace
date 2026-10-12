@@ -308,8 +308,9 @@ export function MessageRow({
       data-pending={isPending ? 'true' : undefined}
       data-group-start={startsGroup ? 'true' : 'false'}
       data-own={isOwn ? 'true' : 'false'}
-      // 목록 위임 길게 누르기의 대상 표식 — 수정 중인 행은 빼서 에디터 안 길게 누르기가 시트를 열지 않게 한다(C2).
-      data-message-id={isEditing ? undefined : m.id}
+      // 목록 위임 길게 누르기의 대상 표식. 수정 중에도 단다 — 에디터 안 길게 누르기가 작업 시트를 여는 것은 목록의 canOpen(수정 중 false)이
+      // 막고(C2), 에디터 밖 반응 칩은 반응자 시트를 열 수 있어야 하기 때문이다(WP-106).
+      data-message-id={m.id}
       {...rowProps}
       className={`group relative flex gap-2 rounded-md px-2 hover:bg-accent/40 ${startsGroup ? 'mt-2 pt-0.5' : ''} ${
         ownBubble ? 'justify-end' : ''

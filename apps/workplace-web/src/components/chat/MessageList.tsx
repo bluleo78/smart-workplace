@@ -81,7 +81,13 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
   // 호버 카드(모두 보기)는 누르는 순간 닫혀 언마운트되므로 상태를 카드가 아니라 목록이 가진다. 닫을 때 대상은 남겨
   // 닫힘 애니메이션 동안 내용이 비지 않게 한다.
   const [reactorsTarget, setReactorsTarget] = useState<{ id: number; emoji: string; open: boolean } | null>(null)
-  const openReactors = useCallback((id: number, emoji: string) => setReactorsTarget({ id, emoji, open: true }), [])
+  // 길게 누르기는 작업 시트 게이트(수정 중 제외)를 건너뛰므로, 목록에 있는 메시지인지는 여기서 확인한다.
+  const openReactors = useCallback(
+    (id: number, emoji: string) => {
+      if (ordered.some((m) => m.id === id)) setReactorsTarget({ id, emoji, open: true })
+    },
+    [ordered],
+  )
   const reactorsMessage = reactorsTarget ? ordered.find((m) => m.id === reactorsTarget.id) : undefined
   // 반응이 모두 사라지거나 메시지가 목록을 떠나 오버레이가 자동으로 숨겨지면 open 도 같이 내린다 — onOpenChange 가 불리지 않아
   // 그대로 두면 나중에 같은 메시지에 다시 반응이 달릴 때 사용자 조작 없이 저절로 다시 열린다. 대상은 남겨 닫힘 애니메이션을 유지한다.

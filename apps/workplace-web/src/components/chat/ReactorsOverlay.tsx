@@ -1,5 +1,5 @@
 // 반응자 전체 보기 오버레이(WP-106) — 데스크톱은 Dialog, 모바일 터치 셸은 하단 Sheet. 내용은 ReactorsPanel 공용.
-// 열린 대상은 MessageList 가 id 로 들고 최신 목록에서 찾아 넘긴다 — 반응이 모두 사라지면 message.reactions 가 비어 닫는다.
+// 열린 대상은 MessageList 가 id 로 들고 최신 목록에서 찾아 넘긴다 — 반응이 모두 사라지면 MessageList 가 open 을 내려 닫는다.
 import { ReactorsPanel } from '@/components/chat/ReactorsPanel'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet'
@@ -22,7 +22,8 @@ export function ReactorsOverlay({
   currentUserId: number
   meName: string
 }) {
-  const visible = open && !!message && message.reactions.length > 0
+  // 반응이 모두 사라졌을 때 닫는 일은 MessageList 의 render-time 닫기가 맡는다 — 여기선 대상 메시지가 목록에 있는지만 본다.
+  const visible = open && !!message
   const onOpenChange = (next: boolean) => {
     if (!next) onClose()
   }

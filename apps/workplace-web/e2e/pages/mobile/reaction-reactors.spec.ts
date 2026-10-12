@@ -10,13 +10,13 @@ import { expectStays } from '../../fixtures/wait'
 
 const MSG = 10
 
-async function setup(page: Page) {
+async function setup(page: Page, authorId = 20) {
   await stubChat(page)
   const msg = createMessage({
     id: MSG,
     channelId: 1,
-    authorId: 20,
-    authorName: '동료',
+    authorId,
+    authorName: authorId === 1 ? '양동희' : '동료',
     body: '배포 끝났습니다',
     createdAt: '2026-09-30T03:00:00Z',
     reactions: [
@@ -57,6 +57,19 @@ test.describe('WP-106 반응자 — 모바일 길게 누르기', () => {
     // 발동 뒤 click 이 칩 토글로 새지 않는다.
     await expect(page.getByTestId(`reaction-count-${MSG}-👍`)).toHaveText('2')
     await expectStays(page, () => toggles.count(), 0, { ms: 300 })
+  })
+
+  test('내 메시지를 수정 중이어도 그 메시지의 칩을 길게 누르면 반응자 시트가 열린다', async ({ authenticatedPage: page }) => {
+    // 수정 중 행은 작업 시트 대상에서 빠지지만(C2), 에디터 밖의 반응 칩은 반응자 조회 대상이다.
+    await setup(page, 1)
+    await page.goto('/chat/channels/1')
+    await longPress(page, page.getByTestId(`message-body-${MSG}`))
+    await page.getByTestId('message-action-sheet').getByTestId('message-action-edit').tap()
+    await expect(page.getByTestId(`message-editor-input-${MSG}`)).toBeFocused()
+
+    await longPress(page, page.getByTestId(`reaction-pill-${MSG}-👍`))
+    await expect(page.getByTestId('reactors-sheet')).toBeVisible()
+    await expect(page.getByTestId('message-action-sheet')).toHaveCount(0)
   })
 
   test('칩 밖(본문)을 길게 누르면 기존 메시지 작업 시트', async ({ authenticatedPage: page }) => {

@@ -60,10 +60,22 @@ function ReactorList({
   const q = useReactors(messageId, reaction.emoji)
   // 스크롤 컨테이너는 state 로 보관한다(ref 는 첫 렌더에 null) — 다른 무한 스크롤 목록과 같은 방식.
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null)
-  const others = othersOf(q.data?.pages.flatMap((p) => p.items) ?? [], currentUserId)
+  const allItems = q.data?.pages.flatMap((p) => p.items) ?? []
+  // 내 행 — 받은 페이지에 내가 있으면 그 항목(이름·종류)을, 없어도 칩이 reacted 면 meName 으로 맨 앞에 둔다.
+  const meItem = allItems.find((r) => r.userId === currentUserId)
+  const showMe = reaction.reacted || !!meItem
+  const others = othersOf(allItems, currentUserId)
   return (
     <div ref={setScrollEl} className="max-h-80 overflow-y-auto py-1">
-      {reaction.reacted && <ReactorRow testId="reactor-row-me" userId={currentUserId} name={meName} kind="HUMAN" me />}
+      {showMe && (
+        <ReactorRow
+          testId="reactor-row-me"
+          userId={currentUserId}
+          name={meItem?.name ?? meName}
+          kind={meItem?.kind ?? 'HUMAN'}
+          me
+        />
+      )}
       {others.map((r) => (
         <ReactorRow key={r.userId} testId={`reactor-row-${r.userId}`} userId={r.userId} name={r.name} kind={r.kind} />
       ))}

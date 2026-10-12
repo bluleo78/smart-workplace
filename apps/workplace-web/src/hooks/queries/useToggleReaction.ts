@@ -52,7 +52,11 @@ export function useToggleReaction(
     onMutate: ({ messageId, emoji, reacted }) => {
       const delta = reacted ? -1 : (1 as 1 | -1);
       patchReactionEverywhere(qc, channelId, messageId, (rs) => applyReaction(rs, emoji, delta, true));
-      // 반응자 목록(WP-106)은 다음에 열 때 새로 받는다 — 내 토글은 SSE self-echo 가 걸러지므로 여기서 무효화.
+    },
+
+    // 반응자 목록(WP-106) 무효화는 서버 반영 뒤(onSettled)에 한다. onMutate 에서 하면 열려 있는 호버 카드가 POST/DELETE 와
+    // 경합해 반영 전 목록을 재조회하고 그대로 30초 fresh 로 캐시한다. 내 토글은 SSE self-echo 가 걸러지므로 여기서 직접 무효화.
+    onSettled: (_data, _err, { messageId }) => {
       qc.invalidateQueries({ queryKey: messagingKeys.reactorsOf(messageId) });
     },
 

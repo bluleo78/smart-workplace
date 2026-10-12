@@ -34,7 +34,7 @@ export function ReactionBar({ message, onToggle, align = 'start', currentUserId,
       data-testid={`reaction-bar-${message.id}`}
     >
       {message.reactions.map((r) => {
-        const pill = <ReactionPill messageId={message.id} reaction={r} onToggle={onToggle} />
+        const pill = <ReactionPill key={r.emoji} messageId={message.id} reaction={r} onToggle={onToggle} />
         return hover ? (
           <ReactionHoverPill
             key={r.emoji}
@@ -46,7 +46,7 @@ export function ReactionBar({ message, onToggle, align = 'start', currentUserId,
             {pill}
           </ReactionHoverPill>
         ) : (
-          <ReactionPill key={r.emoji} messageId={message.id} reaction={r} onToggle={onToggle} />
+          pill
         )
       })}
     </div>
