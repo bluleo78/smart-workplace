@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { buildContactTools, resolveContactTarget, toUserGroupDetailView } from './contact-tools.js';
 import type { ContactToolClient, MemberToolClient } from './tool-client.js';
+import { resultText } from './mcp-content.js';
 
 type Client = ContactToolClient & Pick<MemberToolClient, 'searchMembers'>;
 
@@ -53,7 +54,7 @@ describe('buildContactTools (#839)', () => {
 
   it('get_contact_facets 는 서버 facets 를 그대로 돌려준다', async () => {
     const c = mockClient();
-    expect(JSON.parse(await tool(c, 'get_contact_facets').handler({}))).toEqual({
+    expect(JSON.parse(resultText(await tool(c, 'get_contact_facets').handler({})))).toEqual({
       organizations: ['Acme'],
       titles: ['대표'],
     });
@@ -104,7 +105,7 @@ describe('buildContactTools (#839)', () => {
       ],
       personal: [{ id: 5, name: '내 그룹', ownerId: 3, visibility: 'PERSONAL' }],
     });
-    const out = JSON.parse(await tool(c, 'list_user_groups').handler({}));
+    const out = JSON.parse(resultText(await tool(c, 'list_user_groups').handler({})));
     expect(out).toEqual({
       shared: [
         {
@@ -170,7 +171,7 @@ describe('buildContactTools (#839)', () => {
     const c = mockClient();
     await tool(c, 'add_user_group_member').handler({ groupId: 10, username: 'minsu' });
     expect(c.addUserGroupMember).toHaveBeenCalledWith(10, { targetType: 'MEMBER', targetId: 3 });
-    const out = JSON.parse(await tool(c, 'remove_user_group_member').handler({ groupId: 10, externalId: 9 }));
+    const out = JSON.parse(resultText(await tool(c, 'remove_user_group_member').handler({ groupId: 10, externalId: 9 })));
     expect(c.removeUserGroupMember).toHaveBeenCalledWith(10, { targetType: 'EXTERNAL', targetId: 9 });
     expect(out).toEqual({ groupId: 10, removed: true });
   });
@@ -188,7 +189,7 @@ describe('외부 연락처 쓰기 (#333 M3, #839, WP-343)', () => {
     const input = { name: '김거래', email: 'k@x.com', visibility: 'SHARED' as const };
     const out = await tool(c, 'create_external_contact').handler(input);
     expect(c.createExternalContact).toHaveBeenLastCalledWith(input, undefined);
-    expect(JSON.parse(out)).toEqual({ id: 3, name: '김거래' });
+    expect(JSON.parse(resultText(out))).toEqual({ id: 3, name: '김거래' });
     await tool(c, 'create_external_contact').handler({ ...input, force: true });
     expect(c.createExternalContact).toHaveBeenLastCalledWith(input, true);
   });

@@ -39,3 +39,14 @@ export function summarizeToolResult(out: McpToolResult): string {
 export function replaceImagesWithNotice(content: McpContent[], notice: string): McpContent[] {
   return content.map((b) => (b.type === 'image' ? { type: 'text', text: `${summarizeToolResult([b])} ${notice}` } : b));
 }
+
+/**
+ * 문자열 결과가 필요한 소비자(JSON.parse 로 파싱하는 래퍼·테스트)용 — 공유 도구 핸들러가 블록 배열을 돌려줄 수 있게 된 뒤(WP-345)
+ * 반환 타입이 `McpToolResult` 라 그대로는 문자열로 못 쓴다. 문자열이면 그대로, 배열이면 text 블록만 이어 붙인다.
+ * 이미지 블록은 문자열로 표현할 수 없어 던진다 — 텍스트를 기대하는 자리에 이미지가 오면 조용히 넘기지 않고 드러낸다.
+ */
+export function resultText(out: McpToolResult): string {
+  if (typeof out === 'string') return out;
+  if (out.some((b) => b.type !== 'text')) throw new Error('텍스트 결과를 기대했지만 이미지 블록이 포함돼 있다');
+  return out.map((b) => (b.type === 'text' ? b.text : '')).join('\n');
+}

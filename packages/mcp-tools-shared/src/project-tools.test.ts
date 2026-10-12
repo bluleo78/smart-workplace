@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { buildProjectTools, toIssueListItem } from './project-tools.js';
 import type { ProjectToolClient } from './tool-client.js';
+import { resultText } from './mcp-content.js';
 
 /** 프로젝트·이슈 목록 클라이언트 mock. */
 function mockClient(): ProjectToolClient {
@@ -26,7 +27,7 @@ describe('list_projects', () => {
     const c = mockClient();
     const out = await tool(c, 'list_projects').handler({});
     expect(c.listProjects).toHaveBeenCalledWith(0, 50);
-    expect(JSON.parse(out)).toEqual([{ key: 'WP' }]);
+    expect(JSON.parse(resultText(out))).toEqual([{ key: 'WP' }]);
   });
 
   it('page/size 지정 시 그대로 전달', async () => {
@@ -39,7 +40,7 @@ describe('list_projects', () => {
 describe('get_project', () => {
   it('projectKey 로 조회하고 빈 메타는 빈 배열로 동봉한다', async () => {
     const c = mockClient();
-    const out = JSON.parse(await tool(c, 'get_project').handler({ projectKey: 'WP' }));
+    const out = JSON.parse(resultText(await tool(c, 'get_project').handler({ projectKey: 'WP' })));
     expect(c.getProject).toHaveBeenCalledWith('WP');
     expect(out).toEqual({ key: 'WP', issueTypes: [], labels: [], milestones: [], cycles: [], members: [] });
   });
@@ -64,7 +65,7 @@ describe('get_project', () => {
       { userId: 1010, username: 'alice', name: 'Alice', role: 'OWNER' } as { userId: number; username: string },
     ]);
     const raw = await tool(c, 'get_project').handler({ projectKey: 'WP' });
-    expect(JSON.parse(raw)).toEqual({
+    expect(JSON.parse(resultText(raw))).toEqual({
       key: 'WP',
       name: '워크플레이스',
       description: null,
@@ -193,7 +194,7 @@ describe('list_issues', () => {
     ]);
     const raw = await tool(c, 'list_issues').handler({ status: 'IN_PROGRESS' });
     // #850: 값이 없는 키(null·빈 배열)는 생략된다.
-    expect(JSON.parse(raw)).toEqual([
+    expect(JSON.parse(resultText(raw))).toEqual([
       {
         issueKey: 'WP-3',
         title: '버그',
@@ -233,7 +234,7 @@ describe('list_issues', () => {
         blocked: false,
       },
     ]);
-    const [item] = JSON.parse(await tool(c, 'list_issues').handler({ projectKey: 'WP', closedFrom: '2026-10-08' }));
+    const [item] = JSON.parse(resultText(await tool(c, 'list_issues').handler({ projectKey: 'WP', closedFrom: '2026-10-08' })));
     expect(item).toEqual({
       issueKey: 'WP-4',
       title: '하위 작업',

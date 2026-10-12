@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { toolAnnotations, type SharedTool } from '@smart-workplace/mcp-tools-shared';
 import { z } from 'zod';
 
 import nock from 'nock';
@@ -248,6 +249,29 @@ describe('registerStdioTool', () => {
       { type: 'text', text: '첨부:' },
       { type: 'text', text: `[image/png 1KB] ${VISION_UNAVAILABLE_NOTICE}` },
     ]);
+  });
+
+  // WP-345: 공유 도구가 이미지를 돌려줘도 opencode 비전 미지원 모델에는 같은 안내 치환이 적용된다(경로는 도구 출처와 무관).
+  it('공유 도구(SharedTool)가 돌려준 이미지도 비전 미지원이면 안내 문구로 바꾼다(WP-345)', async () => {
+    const shared: SharedTool = {
+      name: 't', description: 'd', inputSchema: z.object({}), kind: 'read',
+      handler: async () => [{ type: 'text', text: '첨부:' }, { type: 'image', data: 'iVBORw0KGgo=', mimeType: 'image/png' }],
+    };
+    const server = new McpServer({ name: 'workplace', version: '1.0.0' });
+    registerStdioTool(server, { ...shared, annotations: toolAnnotations(shared) }, { vision: false });
+    const [clientT, serverT] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverT);
+    const client = new Client({ name: 'test', version: '0.0.1' });
+    await client.connect(clientT);
+    try {
+      const res = await client.callTool({ name: 't', arguments: {} });
+      expect(res.content).toEqual([
+        { type: 'text', text: '첨부:' },
+        { type: 'text', text: `[image/png 1KB] ${VISION_UNAVAILABLE_NOTICE}` },
+      ]);
+    } finally {
+      await client.close();
+    }
   });
 
   it('핸들러 throw 는 isError 텍스트', async () => {

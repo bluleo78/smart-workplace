@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { buildNotifyTools, toNotificationView } from './notify-tools.js';
 import type { NotificationRow, NotificationToolClient } from './tool-client.js';
+import { resultText } from './mcp-content.js';
 
 /** 알림 클라이언트 mock. */
 function mockClient(): NotificationToolClient {
@@ -68,7 +69,7 @@ describe('buildNotifyTools', () => {
     const c = mockClient();
     vi.mocked(c.listNotifications).mockResolvedValue([issueRow(11, false), issueRow(10, true)]);
     vi.mocked(c.countUnreadNotifications).mockResolvedValue(5);
-    const out = JSON.parse(await tool(c, 'list_notifications').handler({}));
+    const out = JSON.parse(resultText(await tool(c, 'list_notifications').handler({})));
     expect(c.listNotifications).toHaveBeenCalledWith({ limit: 20, offset: 0 });
     expect(out.unreadCount).toBe(5);
     expect(out.items.map((i: { notificationId: number }) => i.notificationId)).toEqual([11, 10]);
@@ -81,7 +82,7 @@ describe('buildNotifyTools', () => {
     vi.mocked(c.listNotifications)
       .mockResolvedValueOnce(readPage)
       .mockResolvedValueOnce([issueRow(5, false), issueRow(4, true), issueRow(3, false)]);
-    const out = JSON.parse(await tool(c, 'list_notifications').handler({ unreadOnly: true }));
+    const out = JSON.parse(resultText(await tool(c, 'list_notifications').handler({ unreadOnly: true })));
     expect(c.listNotifications).toHaveBeenNthCalledWith(1, { limit: 100, offset: 0 });
     expect(c.listNotifications).toHaveBeenNthCalledWith(2, { limit: 100, offset: 100 });
     expect(out.items.map((i: { notificationId: number }) => i.notificationId)).toEqual([5, 3]);
@@ -91,12 +92,12 @@ describe('buildNotifyTools', () => {
     const c = mockClient();
     vi.mocked(c.countUnreadNotifications).mockResolvedValue(50);
     vi.mocked(c.listNotifications).mockResolvedValue(Array.from({ length: 100 }, (_, i) => issueRow(100 - i, false)));
-    const out = JSON.parse(await tool(c, 'list_notifications').handler({ unreadOnly: true, limit: 2 }));
+    const out = JSON.parse(resultText(await tool(c, 'list_notifications').handler({ unreadOnly: true, limit: 2 })));
     expect(c.listNotifications).toHaveBeenCalledTimes(1);
     expect(out.items).toHaveLength(2);
 
     const empty = mockClient();
-    const none = JSON.parse(await tool(empty, 'list_notifications').handler({ unreadOnly: true }));
+    const none = JSON.parse(resultText(await tool(empty, 'list_notifications').handler({ unreadOnly: true })));
     expect(empty.listNotifications).not.toHaveBeenCalled();
     expect(none).toEqual({ unreadCount: 0, items: [] });
   });

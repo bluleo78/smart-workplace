@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { buildDriveTools } from './drive-tools.js';
 import type { DriveToolClient } from './tool-client.js';
+import { resultText } from './mcp-content.js';
 
 /** 드라이브 클라이언트 mock. */
 function mockClient(): DriveToolClient {
@@ -28,14 +29,14 @@ describe('buildDriveTools', () => {
     vi.mocked(c.listDriveSpaces).mockResolvedValue([{ id: 1, name: '팀 스페이스' }]);
     const out = await tool(c, 'list_drive_spaces').handler({});
     expect(c.listDriveSpaces).toHaveBeenCalled();
-    expect(JSON.parse(out)).toEqual([{ id: 1, name: '팀 스페이스' }]);
+    expect(JSON.parse(resultText(out))).toEqual([{ id: 1, name: '팀 스페이스' }]);
   });
 
   it('list_drive_items → parentId 생략 시 undefined 로 client.listDriveItems 호출', async () => {
     const c = mockClient();
     const out = await tool(c, 'list_drive_items').handler({ spaceId: 3 });
     expect(c.listDriveItems).toHaveBeenCalledWith(3, undefined);
-    expect(JSON.parse(out)).toEqual({ folders: [], files: [] });
+    expect(JSON.parse(resultText(out))).toEqual({ folders: [], files: [] });
   });
 
   it('list_drive_items → parentId 지정 시 그대로 전달', async () => {
@@ -64,7 +65,7 @@ describe('buildDriveTools', () => {
         },
       ],
     });
-    const out = JSON.parse(await tool(c, 'list_drive_items').handler({ spaceId: 1 }));
+    const out = JSON.parse(resultText(await tool(c, 'list_drive_items').handler({ spaceId: 1 })));
     expect(out.folders).toEqual([{ id: 3, parentId: null, name: '폴더', createdAt: 't' }]);
     // fileId 외 필드(원본 유실 available 등)는 그대로 전달돼야 한다.
     expect(out.files[0]).toEqual({
@@ -87,7 +88,7 @@ describe('buildDriveTools', () => {
     vi.mocked(c.searchDrive).mockResolvedValue({ folders: [], files: [{ id: 1, fileId: 99, name: 'a.pdf' }] });
     const out = await tool(c, 'search_drive').handler({ spaceId: 3, q: '보고서' });
     expect(c.searchDrive).toHaveBeenCalledWith(3, '보고서');
-    expect(JSON.parse(out)).toEqual({ folders: [], files: [{ driveFileId: 1, name: 'a.pdf' }] });
+    expect(JSON.parse(resultText(out))).toEqual({ folders: [], files: [{ driveFileId: 1, name: 'a.pdf' }] });
   });
 
   it('search_drive 는 q 누락 시 zod 파싱을 거부한다', async () => {
@@ -101,7 +102,7 @@ describe('buildDriveTools', () => {
     vi.mocked(c.getDriveFileSummary).mockResolvedValue({ summary: null, status: 'FAILED', reason: '암호화된 PDF' });
     const out = await tool(c, 'get_drive_file_summary').handler({ driveFileId: 5 });
     expect(c.getDriveFileSummary).toHaveBeenCalledWith(5);
-    expect(JSON.parse(out)).toEqual({ summary: null, status: 'FAILED', reason: '암호화된 PDF' });
+    expect(JSON.parse(resultText(out))).toEqual({ summary: null, status: 'FAILED', reason: '암호화된 PDF' });
   });
 
   it('search_drive_content → query 를 q 로 옮기고 limit 기본 10, hit 의 core fileId 는 제거 (#840, #850)', async () => {
@@ -110,7 +111,7 @@ describe('buildDriveTools', () => {
       hits: [{ driveFileId: 5, fileId: 812, spaceId: 1, spaceName: '팀', name: 'Q3 보고서.pdf', snippet: '매출', score: 0.9 }],
       semantic: true,
     });
-    const out = JSON.parse(await tool(c, 'search_drive_content').handler({ query: '매출' }));
+    const out = JSON.parse(resultText(await tool(c, 'search_drive_content').handler({ query: '매출' })));
     expect(c.searchDriveContent).toHaveBeenCalledWith({ q: '매출', spaceId: undefined, limit: 10 });
     expect(out).toEqual({
       hits: [{ driveFileId: 5, spaceId: 1, spaceName: '팀', name: 'Q3 보고서.pdf', snippet: '매출', score: 0.9 }],
@@ -134,7 +135,7 @@ describe('휴지통 (#854)', () => {
       { type: 'FILE', id: 5, name: 'a.pdf', originalPath: '/문서' },
       { type: 'FOLDER', id: 5, name: '보관', originalPath: '/' },
     ]);
-    const out = JSON.parse(await tool(c, 'list_drive_trash').handler({ spaceId: 2 }));
+    const out = JSON.parse(resultText(await tool(c, 'list_drive_trash').handler({ spaceId: 2 })));
     expect(c.listDriveTrash).toHaveBeenCalledWith(2);
     expect(out).toEqual([
       { type: 'FILE', driveFileId: 5, name: 'a.pdf', originalPath: '/문서' },
@@ -164,7 +165,7 @@ describe('폴더·파일 정리 (#333 M4, #840, WP-343)', () => {
     const c = mockClient();
     const out = await tool(c, 'create_drive_folder').handler({ spaceId: 1, name: '신규폴더' });
     expect(c.createDriveFolder).toHaveBeenCalledWith(1, null, '신규폴더');
-    expect(JSON.parse(out)).toEqual({ id: 10, name: '신규폴더' });
+    expect(JSON.parse(resultText(out))).toEqual({ id: 10, name: '신규폴더' });
   });
 
   it('create_drive_folder → parentId 지정 시 그대로, 빈 이름·비양수 id 는 거절', async () => {
@@ -179,7 +180,7 @@ describe('폴더·파일 정리 (#333 M4, #840, WP-343)', () => {
     const c = mockClient();
     const out = await tool(c, 'rename_drive_folder').handler({ folderId: 4, name: '새이름' });
     expect(c.renameDriveFolder).toHaveBeenCalledWith(4, '새이름');
-    expect(JSON.parse(out)).toEqual({ id: 4, name: '새이름' });
+    expect(JSON.parse(resultText(out))).toEqual({ id: 4, name: '새이름' });
   });
 
   it('move_drive_folder → targetParentId 생략 시 루트(null)로 이동하고 ok', async () => {

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { WikiToolClient } from './tool-client.js';
 import { buildWikiTools, toWikiPageTree } from './wiki-tools.js';
+import { resultText } from './mcp-content.js';
 
 /** 노트 클라이언트 전 메서드를 vi.fn() 으로 채운 mock. 개별 테스트에서 필요한 것만 재설정한다. */
 function mockClient(): WikiToolClient {
@@ -36,7 +37,7 @@ describe('buildWikiTools', () => {
 
   it('list_wiki_spaces → client.listWikiSpaces() 결과를 그대로 반환', async () => {
     const c = mockClient();
-    const out = JSON.parse(await tool(c, 'list_wiki_spaces').handler({}));
+    const out = JSON.parse(resultText(await tool(c, 'list_wiki_spaces').handler({})));
     expect(c.listWikiSpaces).toHaveBeenCalled();
     expect(out).toEqual([{ id: 1, type: 'PERSONAL', name: '내 노트', role: 'OWNER' }]);
   });
@@ -46,7 +47,7 @@ describe('buildWikiTools', () => {
     vi.mocked(c.searchWikiPages).mockResolvedValue([{ id: 7, spaceName: '팀', title: '릴리스', snippet: '배포' }]);
     const out = await tool(c, 'search_wiki').handler({ query: '배포' });
     expect(c.searchWikiPages).toHaveBeenCalledWith('배포');
-    expect(JSON.parse(out)[0]).toMatchObject({ id: 7, title: '릴리스' });
+    expect(JSON.parse(resultText(out))[0]).toMatchObject({ id: 7, title: '릴리스' });
   });
 
   it('search_wiki 는 query 누락(옛 파라미터 q 포함) 시 zod 파싱을 거부한다', async () => {
@@ -61,7 +62,7 @@ describe('buildWikiTools', () => {
     vi.mocked(c.getWikiPage).mockResolvedValue({ id: 7, title: '릴리스', body: '본문', version: 3 });
     const out = await tool(c, 'get_wiki_page').handler({ pageId: 7 });
     expect(c.getWikiPage).toHaveBeenCalledWith(7);
-    expect(JSON.parse(out)).toMatchObject({ id: 7, body: '본문' });
+    expect(JSON.parse(resultText(out))).toMatchObject({ id: 7, body: '본문' });
   });
 
   it('create_wiki_page → parentId 생략 시 null 로 client.createWikiPage 호출', async () => {
@@ -69,7 +70,7 @@ describe('buildWikiTools', () => {
     vi.mocked(c.createWikiPage).mockResolvedValue({ id: 2, title: '새 페이지' });
     const out = await tool(c, 'create_wiki_page').handler({ spaceId: 5, title: '새 페이지' });
     expect(c.createWikiPage).toHaveBeenCalledWith(5, { parentId: null, title: '새 페이지' });
-    expect(JSON.parse(out)).toMatchObject({ id: 2 });
+    expect(JSON.parse(resultText(out))).toMatchObject({ id: 2 });
   });
 
   it('create_wiki_page → parentId 지정 시 그대로 전달', async () => {
@@ -89,7 +90,7 @@ describe('buildWikiTools', () => {
     vi.mocked(c.updateWikiPage).mockResolvedValue({ id: 1, version: 4 });
     const out = await tool(c, 'update_wiki_page').handler({ pageId: 1, title: '가이드', body: '수정본', version: 3 });
     expect(vi.mocked(c.updateWikiPage).mock.calls[0]).toStrictEqual([1, { version: 3, title: '가이드', body: '수정본' }]);
-    expect(JSON.parse(out)).toMatchObject({ version: 4 });
+    expect(JSON.parse(resultText(out))).toMatchObject({ version: 4 });
   });
 
   it('update_wiki_page 는 부분 수정 — title 만 넘기면 body 키가 클라이언트 인자에 없다', async () => {
@@ -130,7 +131,7 @@ describe('buildWikiTools', () => {
       { id: 2, parentId: 1, title: '회의록 1', position: 1, aiLastUsedAt: null },
       { id: 4, parentId: null, title: '온보딩', position: 0, aiLastUsedAt: null },
     ]);
-    const out = JSON.parse(await tool(c, 'list_wiki_pages').handler({ spaceId: 9 }));
+    const out = JSON.parse(resultText(await tool(c, 'list_wiki_pages').handler({ spaceId: 9 })));
     expect(c.listWikiPages).toHaveBeenCalledWith(9);
     expect(out).toEqual([
       { id: 4, title: '온보딩' },
@@ -147,7 +148,7 @@ describe('buildWikiTools', () => {
     vi.mocked(c.getWikiBacklinks).mockResolvedValue([{ pageId: 5, spaceName: '팀', title: '참조', updatedAt: 't' }]);
     const out = await tool(c, 'get_wiki_backlinks').handler({ pageId: 3 });
     expect(c.getWikiBacklinks).toHaveBeenCalledWith(3);
-    expect(JSON.parse(out)).toEqual([{ pageId: 5, spaceName: '팀', title: '참조', updatedAt: 't' }]);
+    expect(JSON.parse(resultText(out))).toEqual([{ pageId: 5, spaceName: '팀', title: '참조', updatedAt: 't' }]);
   });
 });
 

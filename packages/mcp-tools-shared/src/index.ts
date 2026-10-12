@@ -2,7 +2,7 @@
 export { parseIssueKey, describeApiError } from './parse.js';
 export type { McpTool, McpToolAnnotations, SharedTool, ToolHints, ToolKind } from './mcp-tool.js';
 export { toolAnnotations } from './tool-annotations.js';
-export { toMcpContent, summarizeToolResult, replaceImagesWithNotice, type McpContent, type McpToolResult } from './mcp-content.js';
+export { toMcpContent, summarizeToolResult, resultText, replaceImagesWithNotice, type McpContent, type McpToolResult } from './mcp-content.js';
 export { issueListFilterShape } from './schemas.js';
 export type * from './tool-client.js';
 export { normalizeTimezone } from './calendar-tools.js';

@@ -51,10 +51,8 @@ export interface ToolHints {
   openWorld?: boolean;
 }
 
-type SharedToolBase = Omit<McpTool, 'handler' | 'annotations'> & {
-  // 공유 도구는 모두 REST 결과를 문자열(JSON)로 반환한다 — 이미지 등 블록 반환은 에이전트 전용 도구만(WP-240).
-  handler: (args: unknown) => Promise<string>;
-};
+// 공유 도구도 문자열(JSON) 또는 content 블록 배열(이미지 등)을 반환할 수 있다(WP-345) — McpTool.handler 와 같은 반환 타입을 그대로 쓴다.
+type SharedToolBase = Omit<McpTool, 'annotations'>;
 
 /**
  * 공유 패키지 도구 — kind 가 **필수**라 태그를 빠뜨리면 타입 오류가 난다(fail-closed).

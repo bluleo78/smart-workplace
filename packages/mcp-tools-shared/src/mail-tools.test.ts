@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { buildMailTools } from './mail-tools.js';
 import type { AssigneeResolverClient } from './resolve.js';
 import type { MailToolClient } from './tool-client.js';
+import { resultText } from './mcp-content.js';
 
 type Client = MailToolClient & AssigneeResolverClient;
 
@@ -33,7 +34,7 @@ describe('buildMailTools', () => {
     ]);
     const out = await tool(c, 'list_mail_accounts').handler({});
     expect(c.listMailAccounts).toHaveBeenCalled();
-    expect(JSON.parse(out)[0].id).toBe(3);
+    expect(JSON.parse(resultText(out))[0].id).toBe(3);
   });
 
   it('list_mail → folder 기본값 INBOX, limit 기본값 20 으로 client.listMail 호출', async () => {
@@ -41,7 +42,7 @@ describe('buildMailTools', () => {
     vi.mocked(c.listMail).mockResolvedValue([{ id: 1, subject: '메일' }]);
     const out = await tool(c, 'list_mail').handler({ accountId: 2 });
     expect(c.listMail).toHaveBeenCalledWith(2, { folder: 'INBOX', limit: 20 });
-    expect(JSON.parse(out)).toEqual([{ id: 1, subject: '메일' }]);
+    expect(JSON.parse(resultText(out))).toEqual([{ id: 1, subject: '메일' }]);
   });
 
   it('list_mail → folder/limit/query 지정 시 그대로 전달', async () => {
@@ -68,7 +69,7 @@ describe('buildMailTools', () => {
     vi.mocked(c.getMail).mockResolvedValue({ id: 9, body: '본문' });
     const out = await tool(c, 'get_mail').handler({ messageId: 9 });
     expect(c.getMail).toHaveBeenCalledWith(9);
-    expect(JSON.parse(out)).toEqual({ id: 9, body: '본문' });
+    expect(JSON.parse(resultText(out))).toEqual({ id: 9, body: '본문' });
   });
 
   it('get_mail 은 messageId 누락 시 zod 파싱을 거부한다', async () => {
@@ -81,16 +82,16 @@ describe('buildMailTools', () => {
 describe('메일 AI·처리 (#855)', () => {
   it('get_mail_summary / draft_mail_reply / draft_issue_from_mail 은 messageId 로 서버 결과를 그대로 준다', async () => {
     const c = mockClient();
-    expect(JSON.parse(await tool(c, 'get_mail_summary').handler({ messageId: 3 }))).toEqual({ summary: '요약' });
-    expect(JSON.parse(await tool(c, 'draft_mail_reply').handler({ messageId: 3 }))).toEqual({ draftBody: '초안' });
-    expect(JSON.parse(await tool(c, 'draft_issue_from_mail').handler({ messageId: 3 }))).toEqual({ title: 't' });
+    expect(JSON.parse(resultText(await tool(c, 'get_mail_summary').handler({ messageId: 3 })))).toEqual({ summary: '요약' });
+    expect(JSON.parse(resultText(await tool(c, 'draft_mail_reply').handler({ messageId: 3 })))).toEqual({ draftBody: '초안' });
+    expect(JSON.parse(resultText(await tool(c, 'draft_issue_from_mail').handler({ messageId: 3 })))).toEqual({ title: 't' });
     for (const fn of [c.getMailSummary, c.draftMailReply, c.draftIssueFromMail]) expect(fn).toHaveBeenCalledWith(3);
   });
 
   it('create_issue_from_mail → 담당자 username 을 해석해 이슈를 만든다', async () => {
     const c = mockClient();
     const out = JSON.parse(
-      await tool(c, 'create_issue_from_mail').handler({ messageId: 3, projectKey: 'WP', title: '견적 회신', assignees: ['alice'] }),
+      resultText(await tool(c, 'create_issue_from_mail').handler({ messageId: 3, projectKey: 'WP', title: '견적 회신', assignees: ['alice'] })),
     );
     expect(c.promoteMailToIssue).toHaveBeenCalledWith(3, { projectKey: 'WP', title: '견적 회신', assigneeIds: [10] });
     expect(out).toEqual({ issueKey: 'WP-9', created: true });
@@ -101,7 +102,7 @@ describe('메일 AI·처리 (#855)', () => {
     const c = mockClient();
     vi.mocked(c.promoteMailToIssue).mockRejectedValue({ response: { status: 409 } });
     vi.mocked(c.getMailLinkedIssue).mockResolvedValue({ issueKey: 'WP-2' });
-    const out = JSON.parse(await tool(c, 'create_issue_from_mail').handler({ messageId: 3, projectKey: 'WP', title: 't' }));
+    const out = JSON.parse(resultText(await tool(c, 'create_issue_from_mail').handler({ messageId: 3, projectKey: 'WP', title: 't' })));
     expect(out).toEqual({ issueKey: 'WP-2', created: false });
   });
 

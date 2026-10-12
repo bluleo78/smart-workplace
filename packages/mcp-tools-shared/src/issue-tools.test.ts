@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { buildSharedIssueTools } from './issue-tools.js';
 import type { IssueToolClient } from './tool-client.js';
+import { resultText } from './mcp-content.js';
 
 /** 전 메서드 vi.fn() 인 mock. 개별 테스트에서 필요한 것만 재설정. */
 function mockClient(): IssueToolClient {
@@ -55,7 +56,7 @@ describe('buildSharedIssueTools', () => {
       body: 'b',
       comments: [],
     });
-    const out = JSON.parse(await buildSharedIssueTools(c).find((t) => t.name === 'get_issue_detail')!.handler({ issueKey: 'WP-12' }));
+    const out = JSON.parse(resultText(await buildSharedIssueTools(c).find((t) => t.name === 'get_issue_detail')!.handler({ issueKey: 'WP-12' })));
     expect(out).toMatchObject({ issueKey: 'WP-12', title: 'T', blocked: true, blockedBy: [{ number: 5, title: 'x', status: 'TODO' }] });
     expect(c.getIssueDetail).toHaveBeenCalledWith('WP-12');
   });
@@ -72,7 +73,7 @@ describe('buildSharedIssueTools', () => {
       { id: 3002, name: 'Sprint 3', status: 'ACTIVE' },
     ]);
     const raw = await buildSharedIssueTools(c).find((t) => t.name === 'get_issue_detail')!.handler({ issueKey: 'WP-12' });
-    expect(JSON.parse(raw).cycles).toEqual([
+    expect(JSON.parse(resultText(raw)).cycles).toEqual([
       { name: 'Sprint 2', status: 'COMPLETED' },
       { name: 'Sprint 3', status: 'ACTIVE' },
     ]);
@@ -87,7 +88,7 @@ describe('buildSharedIssueTools', () => {
       summary: { title: 'T', status: 'TODO', priority: 'MID', assignees: [], milestoneId: 7, milestoneName: 'v1.0' },
       comments: [{ id: 1, body: 'b', authorId: 10, authorName: 'Alice', authorKind: 'HUMAN', authorUsername: 'alice', createdAt: '2026-10-01T00:00:00Z' }],
     });
-    const out = JSON.parse(await buildSharedIssueTools(c).find((t) => t.name === 'get_issue_detail')!.handler({ issueKey: 'WP-12' }));
+    const out = JSON.parse(resultText(await buildSharedIssueTools(c).find((t) => t.name === 'get_issue_detail')!.handler({ issueKey: 'WP-12' })));
     expect(out.milestone).toBe('v1.0');
     expect(out.comments[0].author).toEqual({ username: 'alice', name: 'Alice', kind: 'HUMAN' });
     expect(c.getProjectMilestones).not.toHaveBeenCalled();
@@ -111,7 +112,7 @@ describe('buildSharedIssueTools', () => {
   it('update_issue 는 fan-out 후 {ok,results}', async () => {
     const c = mockClient();
     const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
-    const out = JSON.parse(await t.handler({ issueKey: 'WP-12', title: '수정', assignees: ['alice'] }));
+    const out = JSON.parse(resultText(await t.handler({ issueKey: 'WP-12', title: '수정', assignees: ['alice'] })));
     expect(out.ok).toBe(true);
     expect(out.results).toEqual({ content: 'ok', assignees: 'ok' });
     expect(c.updateIssueContent).toHaveBeenCalledWith('WP-12', { title: '수정' });
@@ -122,7 +123,7 @@ describe('buildSharedIssueTools', () => {
   it("update_issue 는 assignees 'me' 를 호출자 userId 로 교체한다", async () => {
     const c = mockClient();
     const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
-    const out = JSON.parse(await t.handler({ issueKey: 'WP-12', assignees: ['me'] }));
+    const out = JSON.parse(resultText(await t.handler({ issueKey: 'WP-12', assignees: ['me'] })));
     expect(out.results).toEqual({ assignees: 'ok' });
     expect(c.replaceIssueAssignees).toHaveBeenCalledWith('WP-12', [10]);
   });
@@ -137,7 +138,7 @@ describe('buildSharedIssueTools', () => {
   it('update_issue 는 milestone 이름을 milestoneId 로, cycles 이름을 집합 교체로 보낸다 (#854)', async () => {
     const c = mockClient();
     const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
-    const out = JSON.parse(await t.handler({ issueKey: 'WP-12', milestone: 'v1.0', cycles: ['Sprint 3'] }));
+    const out = JSON.parse(resultText(await t.handler({ issueKey: 'WP-12', milestone: 'v1.0', cycles: ['Sprint 3'] })));
     expect(out.results).toEqual({ content: 'ok', cycles: 'ok' });
     expect(c.updateIssueContent).toHaveBeenCalledWith('WP-12', { milestoneId: 7 });
     expect(c.replaceIssueCycles).toHaveBeenCalledWith('WP-12', [30]);
