@@ -22,6 +22,7 @@ import com.workplace.fileai.ExtractionProfile;
 import com.workplace.fileai.ExtractionReasons;
 import com.workplace.fileai.inbound.FileExtractionRequestedEvent;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.global.util.SafeFileNames;
 import com.workplace.user.repository.UserRepository;
 import java.io.IOException;
 import java.util.List;
@@ -329,7 +330,7 @@ public class DriveFileService {
     DriveFileRepository.DriveFileRow row =
         files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
     perms.requireRole(row.spaceId(), callerId, "EDITOR");
-    String newName = DriveNames.valid(name, "파일");
+    String newName = SafeFileNames.validate(name, "파일");
     if (!newName.equals(row.name())) {
       requireNameFree(row.spaceId(), row.folderId(), newName);
       files.rename(driveFileId, newName);
