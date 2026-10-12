@@ -362,7 +362,8 @@ class DriveFileServiceTest extends IntegrationTestBase {
     assertThat(renamed.name()).isEqualTo("회의록.txt");
     assertThat(fileService.download(u, f.id()).originalName()).isEqualTo("회의록.txt");
     assertThat(fileService.downloadViaShareLink(f.id()).originalName()).isEqualTo("회의록.txt");
-    assertThat(fileService.downloadVersion(u, f.id(), 1).originalName()).isEqualTo("회의록.txt");
+    // 지난 버전은 올릴 때 이름 그대로(확장자를 바꿔도 옛 형식 버전이 새 확장자로 내려가지 않게).
+    assertThat(fileService.downloadVersion(u, f.id(), 1).originalName()).isEqualTo("memo.txt");
     assertThat(
             dsl.fetchCount(
                 com.workplace.jooq.Tables.AUDIT_LOG,
@@ -434,6 +435,36 @@ class DriveFileServiceTest extends IntegrationTestBase {
 
     assertThat(again.id()).isEqualTo(f.id());
     assertThat(again.versionCount()).isEqualTo(2);
+  }
+
+  /**
+   * 앞뒤 공백(유니코드 공백 포함)을 지운 뒤 빈 이름·"."·".."·경로 구분자·제어 문자·줄 구분자·양방향 제어 문자는
+   * 400(IllegalArgumentException).
+   */
+  @Test
+  void rename_invalidNames_areRejected() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    DriveFileResponse f = fileService.upload(u, sp.id(), null, txt());
+
+    for (String bad :
+        new String[] {
+          "\u3000",
+          "\u3000..\u3000",
+          " . ",
+          "a/b.txt",
+          "a\\b.txt",
+          "a\u0000b.txt",
+          "a\nb.txt",
+          "a\u0085b.txt",
+          "a\u2028b.txt",
+          "invoice\u202Efdp.exe"
+        }) {
+      assertThatThrownBy(() -> fileService.rename(u, f.id(), bad))
+          .as(bad)
+          .isInstanceOf(IllegalArgumentException.class);
+    }
+    assertThat(fileService.rename(u, f.id(), "..a.b.txt").name()).isEqualTo("..a.b.txt");
   }
 
   /** VIEWER 는 이름을 바꿀 수 없다. */

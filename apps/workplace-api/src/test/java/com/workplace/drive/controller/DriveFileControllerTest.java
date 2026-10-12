@@ -131,27 +131,16 @@ class DriveFileControllerTest {
         .andExpect(status().isConflict());
   }
 
-  /** 빈 이름·경로 구분자·"."/".."·제어 문자(NUL·개행) → 400, 서비스 미호출. */
+  /** 빈 이름 → 400, 서비스 미호출(금지 문자 검사는 서비스 몫 — DriveFileServiceTest). */
   @Test
-  void rename_invalidName_returns400() throws Exception {
-    for (String body :
-        new String[] {
-          "{\"name\":\"  \"}",
-          "{\"name\":\"a/b.txt\"}",
-          "{\"name\":\"a\\\\b.txt\"}",
-          "{\"name\":\"..\"}",
-          "{\"name\":\" . \"}",
-          "{\"name\":\"a\\u0000b.txt\"}",
-          "{\"name\":\"a\\nb.txt\"}"
-        }) {
-      mockMvc
-          .perform(
-              patch("/api/v1/drive/files/7")
-                  .header("Authorization", "Bearer test-token")
-                  .contentType(MediaType.APPLICATION_JSON)
-                  .content(body))
-          .andExpect(status().isBadRequest());
-    }
+  void rename_blankName_returns400() throws Exception {
+    mockMvc
+        .perform(
+            patch("/api/v1/drive/files/7")
+                .header("Authorization", "Bearer test-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"  \"}"))
+        .andExpect(status().isBadRequest());
     verify(fileService, never())
         .rename(anyLong(), anyLong(), org.mockito.ArgumentMatchers.anyString());
   }

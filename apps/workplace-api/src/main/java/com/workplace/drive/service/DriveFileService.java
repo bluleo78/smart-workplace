@@ -267,7 +267,8 @@ public class DriveFileService {
         versions
             .findVersion(driveFileId, versionNo)
             .orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
-    return fileUpload.getFileContentTrusted(v.fileId()).withName(row.name());
+    // 지난 버전은 올릴 때 이름 그대로 — 확장자를 바꿔 이름을 고친 뒤에도 옛 형식 버전이 새 확장자로 내려가지 않게.
+    return fileUpload.getFileContentTrusted(v.fileId());
   }
 
   /** 롤백(#79) — 대상 버전 blob 을 물리 클론해 새 버전으로 append(비파괴). EDITOR. */
@@ -329,7 +330,7 @@ public class DriveFileService {
     DriveFileRepository.DriveFileRow row =
         files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
     perms.requireRole(row.spaceId(), callerId, "EDITOR");
-    String newName = UnicodeNames.toNfc(name.strip());
+    String newName = validFileName(name);
     if (!newName.equals(row.name())) {
       requireNameFree(row.spaceId(), row.folderId(), newName);
       files.rename(driveFileId, newName);
@@ -429,6 +430,26 @@ public class DriveFileService {
         .map(com.workplace.user.dto.UserResponse::username)
         .orElse(String.valueOf(userId));
   }
+
+  /**
+   * 파일 이름 정규화·검사(WP-335) — 앞뒤 공백(유니코드 공백 포함)을 지우고 NFC 로 맞춘 뒤, 빈 이름·"."·".."·경로 구분자(/, \\)·제어 문자와
+   * 줄/문단 구분자·양방향 제어 문자는 400. 폴더 ZIP 이 이름을 엔트리 경로로 이어 붙여 구조가 깨지거나 경로를 벗어나지 않게 하고, 확장자를 뒤집어 보이게 하는
+   * 이름(예: "invoice\u202Efdp.exe")을 막는다.
+   */
+  private static String validFileName(String raw) {
+    String name = UnicodeNames.toNfc(raw.strip());
+    if (name.isEmpty() || name.equals(".") || name.equals("..")) {
+      throw new IllegalArgumentException("파일 이름을 입력해주세요. \".\" 이나 \"..\" 만으로는 지을 수 없습니다.");
+    }
+    if (FORBIDDEN_FILE_NAME_CHARS.matcher(name).find()) {
+      throw new IllegalArgumentException("파일 이름에 / \\ 나 제어 문자는 쓸 수 없습니다.");
+    }
+    return name;
+  }
+
+  /** 파일 이름 금지 문자 — 경로 구분자, 제어 문자(C0·C1), 줄/문단 구분자, 양방향 제어 문자. */
+  private static final java.util.regex.Pattern FORBIDDEN_FILE_NAME_CHARS =
+      java.util.regex.Pattern.compile("[/\\\\\\p{Cc}\\u2028\\u2029\\u202A-\\u202E\\u2066-\\u2069]");
 
   /** 폴더에 같은 이름의 활성 파일이 있으면 409(#79 부분 유니크 인덱스 대응) — 이름 변경·이동·복사 공용. */
   private void requireNameFree(long spaceId, Long folderId, String name) {

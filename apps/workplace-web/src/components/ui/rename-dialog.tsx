@@ -70,7 +70,12 @@ export function RenameDialog({
       setError(null);
       setSubmitting(false);
       // 렌더 후 포커스 — setTimeout 으로 DOM 안정화 대기
-      setTimeout(() => inputRef.current?.focus(), 50);
+      setTimeout(() => {
+        const el = inputRef.current;
+        if (!el) return;
+        el.focus();
+        if (initialSelection) el.setSelectionRange(...initialSelection(el.value));
+      }, 50);
     }
   }, [open, initialValue]);
 
@@ -103,11 +108,16 @@ export function RenameDialog({
           value={value}
           onChange={(e) => { setValue(e.target.value); setError(null); }}
           onFocus={(e) => {
-            // 고치기 전이면 포커스를 받을 때마다 처음 선택 범위를 건다. ⋯ 메뉴에서 열면 닫히는 메뉴가 포커스를 잠깐 가져가고,
-            // 포커스 트랩이 되찾으며 같은 태스크에서 select()(전체 선택)를 부르므로 다음 프레임에 건다.
+            // 고치기 전, 전체 선택으로 포커스를 받았을 때만 처음 선택 범위로 좁힌다. ⋯ 메뉴에서 열면 닫히는 메뉴가 포커스를 잠깐
+            // 가져가고, 포커스 트랩이 되찾으며 같은 태스크에서 select()(전체 선택)를 부르므로 다음 프레임에 본다.
+            // 클릭으로 옮긴 커서는 전체 선택이 아니라 그대로 둔다.
             const el = e.currentTarget;
             if (!initialSelection || el.value !== initialValue) return;
-            requestAnimationFrame(() => el.setSelectionRange(...initialSelection(el.value)));
+            requestAnimationFrame(() => {
+              if (el.selectionStart === 0 && el.selectionEnd === el.value.length) {
+                el.setSelectionRange(...initialSelection(el.value));
+              }
+            });
           }}
           onCompositionEnd={enterKey.onCompositionEnd}
           onKeyDown={(e) => enterKey.handleEnter(e, () => void handleConfirm())}
