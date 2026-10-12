@@ -12,6 +12,7 @@ import {
 } from './ui/alert-dialog'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
+import { PendingLabel } from './ui/pending-label'
 
 /**
  * 영구 삭제 확인 다이얼로그 — 테넌트 이름을 정확히(앞뒤 공백 제외, 대소문자 구분) 입력해야 실행 버튼이 켜진다.
@@ -23,6 +24,7 @@ export function PurgeTenantDialog({
   onOpenChange,
   tenantName,
   pending,
+  busy,
   onConfirm,
   onCloseAutoFocus,
 }: {
@@ -30,6 +32,8 @@ export function PurgeTenantDialog({
   onOpenChange: (open: boolean) => void
   tenantName: string
   pending: boolean
+  // 부모의 공용 busy(상태 변경·영구 삭제 중 하나라도 진행) — 확인을 막는다(F1). pending 은 이 버튼 자체의 라벨용.
+  busy: boolean
   onConfirm: (confirmName: string) => void
   // 닫힐 때 포커스 복원(트리거 버튼으로) — 부모가 트리거를 알고 있다.
   onCloseAutoFocus?: (e: Event) => void
@@ -47,7 +51,7 @@ export function PurgeTenantDialog({
   // 폼 제출(입력란 Enter·확인 버튼) — 이름이 일치하고 요청 중이 아닐 때만 실행한다(버튼 disabled 와 같은 규칙).
   const submit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (matches && !pending) onConfirm(value.trim())
+    if (matches && !pending && !busy) onConfirm(value.trim())
   }
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
@@ -61,7 +65,7 @@ export function PurgeTenantDialog({
         onCloseAutoFocus={onCloseAutoFocus}
       >
         <AlertDialogHeader>
-          <AlertDialogTitle>{tenantName}{eulReul(tenantName)} 영구 삭제할까요?</AlertDialogTitle>
+          <AlertDialogTitle>{tenantName}{eulReul(tenantName)} 영구 삭제하시겠습니까?</AlertDialogTitle>
           <AlertDialogDescription>
             이슈·메일·드라이브·위키 등 이 테넌트의 모든 데이터와 파일, 이 테넌트 전용 AI 에이전트가 삭제됩니다. 사용자
             계정은 유지되고 이 테넌트 소속만 해제됩니다. <strong>되돌릴 수 없습니다.</strong>
@@ -86,10 +90,10 @@ export function PurgeTenantDialog({
             <Button
               variant="destructive"
               data-testid="purge-confirm"
-              disabled={!matches || pending}
+              disabled={!matches || pending || busy}
               type="submit"
             >
-              영구 삭제
+              <PendingLabel pending={pending} label="영구 삭제" pendingLabel="영구 삭제 중…" />
             </Button>
           </AlertDialogFooter>
         </form>

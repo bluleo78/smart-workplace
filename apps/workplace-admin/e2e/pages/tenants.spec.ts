@@ -115,7 +115,7 @@ test.describe('테넌트 목록', () => {
     await stubTenantList(page, [])
     await page.goto('/')
 
-    await expect(page.getByTestId('tenant-list-empty')).toBeVisible()
+    await expect(page.getByText('아직 테넌트가 없습니다.')).toBeVisible()
     await expect(page.getByTestId('tenant-row')).toHaveCount(0)
   })
 
@@ -181,11 +181,20 @@ test.describe('테넌트 목록', () => {
     await expect(page).toHaveURL(/\/tenants\/3$/)
   })
 
+  // (f) 삭제일이 없으면(null) 생성일로 대체하지 않고 '-' 를 보여준다(N8).
+  test('삭제됨 탭에서 deletedAt 이 없으면 삭제일 칸은 - 이다', async ({ authenticatedPage: page }) => {
+    await stubTenantList(page, [tenant({ id: 3, name: 'Gamma', status: 'DELETED', deletedAt: null, createdAt: '2026-01-02T00:00:00Z' })])
+    await page.goto('/?view=deleted')
+    const cells = page.getByTestId('tenant-row').getByRole('cell')
+    await expect(cells.last()).toHaveText('-')
+  })
+
   // (e) 삭제됨 탭 빈 상태 — 생성 버튼 없이 안내 문구만.
   test('삭제됨 탭 빈 상태', async ({ authenticatedPage: page }) => {
     await stubTenantList(page, [tenant({ id: 1, status: 'ACTIVE' })])
     await page.goto('/?view=deleted')
-    await expect(page.getByTestId('tenant-list-empty')).toContainText('삭제된 테넌트가 없습니다.')
+    await expect(page.getByText('삭제된 테넌트가 없습니다.')).toBeVisible()
+    await expect(page.getByRole('button', { name: '첫 테넌트 생성' })).toHaveCount(0)
   })
 
   // (c) 생성 성공 → 다이얼로그 열기·입력·제출(201)·목록 invalidate 재조회로 새 행 반영·성공 토스트

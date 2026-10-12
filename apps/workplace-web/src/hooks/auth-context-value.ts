@@ -16,6 +16,11 @@ export interface AuthContextValue {
    * null 이면 선택 대기 아님. LoginPage 가 이 값으로 선택 카드를 렌더한다.
    */
   tenantOptions: Membership[] | null;
+  /**
+   * 로그인/선택 화면에 띄울 세션 안내(WP-341 후속) — 쓰던 워크스페이스를 잃어 선택이 필요하거나, 남은 워크스페이스가 없어 로그아웃된 경우.
+   * null 이면 안내 없음.
+   */
+  authNotice: string | null;
   login: (data: LoginFormData) => Promise<void>;
   signup: (data: SignupFormData) => Promise<void>;
   logout: () => Promise<void>;

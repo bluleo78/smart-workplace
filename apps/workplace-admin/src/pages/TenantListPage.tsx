@@ -14,6 +14,7 @@ import {
   TableHeader,
   TableRow,
 } from '../components/ui/table'
+import { TableEmptyRow } from '../components/ui/table-empty'
 import { TableSkeletonRows } from '../components/ui/table-skeleton'
 import { formatDate } from '../lib/utils'
 import type { TenantSummary } from '../types/platform'
@@ -138,33 +139,28 @@ export default function TenantListPage() {
                     </TableCell>
                     <TableCell className="text-right">{tenant.memberCount}</TableCell>
                     <TableCell className="text-muted-foreground">
-                      {formatDate(
-                        view === 'deleted' ? (tenant.deletedAt ?? tenant.createdAt) : tenant.createdAt,
-                      )}
+                      {/* 삭제일이 없으면 생성일로 대체하지 않고 '-' — 다른 날짜를 삭제일로 오해하지 않게(N8). */}
+                      {view === 'deleted'
+                        ? tenant.deletedAt
+                          ? formatDate(tenant.deletedAt)
+                          : '-'
+                        : formatDate(tenant.createdAt)}
                     </TableCell>
                   </TableRow>
                 ))
+              ) : view === 'deleted' ? (
+                // 삭제됨 탭 빈 상태 — 생성 유도 없이 안내만(공용 빈 상태 행, N8).
+                <TableEmptyRow colSpan={COLUMN_COUNT} message="삭제된 테넌트가 없습니다." />
               ) : (
-                <TableRow>
-                  <TableCell colSpan={COLUMN_COUNT} className="py-12 text-center">
-                    <div
-                      className="flex flex-col items-center gap-3"
-                      data-testid="tenant-list-empty"
-                    >
-                      {view === 'deleted' ? (
-                        // 삭제됨 탭 빈 상태 — 생성 유도 버튼 없이 안내만.
-                        <p className="text-sm text-muted-foreground">삭제된 테넌트가 없습니다.</p>
-                      ) : (
-                        <>
-                          <p className="text-sm text-muted-foreground">아직 테넌트가 없습니다.</p>
-                          <Button size="sm" onClick={() => setCreateOpen(true)}>
-                            첫 테넌트 생성
-                          </Button>
-                        </>
-                      )}
-                    </div>
-                  </TableCell>
-                </TableRow>
+                <TableEmptyRow
+                  colSpan={COLUMN_COUNT}
+                  message="아직 테넌트가 없습니다."
+                  emptyAction={
+                    <Button size="sm" onClick={() => setCreateOpen(true)}>
+                      첫 테넌트 생성
+                    </Button>
+                  }
+                />
               )}
             </TableBody>
           </Table>

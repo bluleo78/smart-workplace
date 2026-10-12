@@ -2,14 +2,12 @@ package com.workplace.auth.sso;
 
 import static com.workplace.jooq.Tables.TENANT;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.workplace.auth.exception.InvalidTokenException;
 import com.workplace.auth.service.AuthService;
 import com.workplace.global.security.AuthDetails;
 import com.workplace.global.security.JwtTokenProvider;
@@ -118,15 +116,76 @@ class SsoSessionConstraintTest extends SsoIntegrationTestBase {
     assertThat(jwt.getAuthMethodFromToken(token.refreshToken())).isEqualTo("sso");
   }
 
+  /**
+   * 쓰던 워크스페이스(ssoA)가 SSO 를 끄면 SSO 세션은 그곳을 더 쓸 수 없다 — 로그아웃 대신 SSO 켜진 남은 워크스페이스(ssoB)로 이어 간다(amr 유지).
+   * 비밀번호 세션은 영향 없이 ssoA 그대로.
+   */
   @Test
-  void refresh_afterSsoDisabled_rejectsOnlySsoSession() {
+  void refresh_afterSsoDisabled_ssoSessionMovesToRemainingSsoTenant() {
     var sso = authService.selectTenant(userId, ssoA, AuthDetails.SSO);
     var pw = authService.selectTenant(userId, ssoA, null);
     dsl.update(TENANT).set(TENANT.SSO_ENABLED, false).where(TENANT.ID.eq(ssoA)).execute();
 
-    assertThatThrownBy(() -> authService.refresh(sso.refreshToken()))
-        .isInstanceOf(InvalidTokenException.class);
-    assertThat(authService.refresh(pw.refreshToken()).accessToken()).isNotBlank();
+    var ssoRotated = authService.refresh(sso.refreshToken());
+    assertThat(jwt.getTenantIdFromToken(ssoRotated.accessToken())).isEqualTo(ssoB);
+    assertThat(jwt.getTenantIdFromToken(ssoRotated.refreshToken())).isEqualTo(ssoB);
+    assertThat(jwt.getAuthMethodFromToken(ssoRotated.refreshToken())).isEqualTo("sso");
+
+    var pwRotated = authService.refresh(pw.refreshToken());
+    assertThat(jwt.getTenantIdFromToken(pwRotated.accessToken())).isEqualTo(ssoA);
+  }
+
+  /** SSO 켜진 워크스페이스가 하나도 남지 않으면 SSO 세션은 tenant-less 로 발급된다(예외로 끊지 않는다). */
+  @Test
+  void refresh_afterSsoDisabledEverywhere_ssoSessionGoesTenantless() {
+    var sso = authService.selectTenant(userId, ssoA, AuthDetails.SSO);
+    dsl.update(TENANT).set(TENANT.SSO_ENABLED, false).where(TENANT.ID.in(ssoA, ssoB)).execute();
+
+    var ssoRotated = authService.refresh(sso.refreshToken());
+    assertThat(jwt.getTenantIdFromToken(ssoRotated.accessToken())).isNull();
+    assertThat(jwt.getTenantIdFromToken(ssoRotated.refreshToken())).isNull();
+    assertThat(jwt.getAuthMethodFromToken(ssoRotated.refreshToken())).isEqualTo("sso");
+  }
+
+  /**
+   * WP-341 후속: 쓰던 워크스페이스가 삭제되면 refresh 는 로그인과 같은 규칙으로 대체 테넌트를 고른다 — SSO 세션은 SSO 켜진 곳만 후보라 남은 SSO
+   * 워크스페이스(ssoB) 하나로 이어 가고 amr 도 유지한다. 같은 상황의 비밀번호 세션은 후보가 2개(ssoB·plain)라 tenant-less.
+   */
+  @Test
+  void refresh_afterTenantDeleted_ssoSessionFallsBackToRemainingSsoTenant() {
+    var sso = authService.selectTenant(userId, ssoA, AuthDetails.SSO);
+    var pw = authService.selectTenant(userId, ssoA, null);
+    dsl.update(TENANT).set(TENANT.STATUS, "DELETED").where(TENANT.ID.eq(ssoA)).execute();
+
+    var ssoRotated = authService.refresh(sso.refreshToken());
+    assertThat(jwt.getTenantIdFromToken(ssoRotated.accessToken())).isEqualTo(ssoB);
+    assertThat(jwt.getTenantIdFromToken(ssoRotated.refreshToken())).isEqualTo(ssoB);
+    assertThat(jwt.getAuthMethodFromToken(ssoRotated.refreshToken())).isEqualTo("sso");
+
+    var pwRotated = authService.refresh(pw.refreshToken());
+    assertThat(jwt.getTenantIdFromToken(pwRotated.accessToken())).isNull();
+    assertThat(jwt.getTenantIdFromToken(pwRotated.refreshToken())).isNull();
+  }
+
+  /**
+   * 남은 후보가 SSO 꺼진 워크스페이스(plain) 하나뿐이면 SSO 세션은 그곳으로 넘어가지 않고 tenant-less 가 된다 — 대체 선택이 SSO 세션에
+   * findActiveSsoEnabledByUser 를 쓴다는 것을 직접 고정한다(findActiveByUser 로 바뀌는 회귀 방지). 같은 상황의 비밀번호 세션은
+   * plain 으로 이어 간다.
+   */
+  @Test
+  void refresh_afterTenantDeleted_ssoSessionGoesTenantlessWhenOnlySsoDisabledTenantRemains() {
+    var sso = authService.selectTenant(userId, ssoA, AuthDetails.SSO);
+    var pw = authService.selectTenant(userId, ssoA, null);
+    dsl.update(TENANT).set(TENANT.STATUS, "DELETED").where(TENANT.ID.in(ssoA, ssoB)).execute();
+
+    var ssoRotated = authService.refresh(sso.refreshToken());
+    assertThat(jwt.getTenantIdFromToken(ssoRotated.accessToken())).isNull();
+    assertThat(jwt.getTenantIdFromToken(ssoRotated.refreshToken())).isNull();
+    assertThat(jwt.getAuthMethodFromToken(ssoRotated.refreshToken())).isEqualTo("sso");
+
+    var pwRotated = authService.refresh(pw.refreshToken());
+    assertThat(jwt.getTenantIdFromToken(pwRotated.accessToken())).isEqualTo(plain);
+    assertThat(jwt.getTenantIdFromToken(pwRotated.refreshToken())).isEqualTo(plain);
   }
 
   @Test

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import axios from 'axios'
-import { ArrowLeft, Pencil } from 'lucide-react'
+import { ArrowLeft, Loader2, Pencil } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -25,6 +25,7 @@ import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Input } from '../components/ui/input'
+import { PendingLabel } from '../components/ui/pending-label'
 import { Separator } from '../components/ui/separator'
 import { Skeleton } from '../components/ui/skeleton'
 import {
@@ -100,7 +101,7 @@ const ACTIONS: Record<
     call: platformTenants.remove,
     // 삭제는 대상 이름을 제목·본문에 넣어 어떤 테넌트를 지우는지 다이얼로그만 보고 확인할 수 있게 한다(S6).
     confirm: {
-      title: (name) => `${name}${eulReul(name)} 삭제할까요?`,
+      title: (name) => `${name}${eulReul(name)} 삭제하시겠습니까?`,
       description: () => '구성원의 로그인이 즉시 차단됩니다. 영구 삭제 전까지 복원할 수 있습니다.',
     },
   },
@@ -125,7 +126,18 @@ export default function TenantDetailPage() {
   // 확인 다이얼로그를 연 트리거 버튼 — 닫힐 때 포커스를 되돌린다(S5). controlled AlertDialog 는 Trigger 가 없어
   // Radix 가 복귀 대상을 몰라 포커스가 body 로 사라진다. 성공으로 버튼이 사라졌으면(isConnected 아님) 기본 동작에 맡긴다.
   const triggerRef = useRef<HTMLElement | null>(null)
+  // 상태 전이 뒤 포커스를 보낼 곳(S1·S2) — 성공한 동작이 정한다. 대상 버튼이 전이로 사라지거나(삭제→복원 버튼) 다이얼로그가 닫히며
+  // 포커스를 잃는(복원·영구 삭제 시작) 경우, 재조회로 status 가 바뀐 뒤 아래 effect 가 옮긴다.
+  const focusIntentRef = useRef<'restore' | 'title' | 'purging' | null>(null)
+  const restoreButtonRef = useRef<HTMLButtonElement | null>(null)
+  const titleRef = useRef<HTMLDivElement | null>(null)
+  const purgingBannerRef = useRef<HTMLDivElement | null>(null)
   const restoreFocus = (e: Event) => {
+    // 포커스 이동 예약이 있으면 Radix 의 트리거 복귀를 막는다 — 트리거가 아직 붙어 있어도 곧 사라질 버튼이라 status 전이 effect 에 맡긴다.
+    if (focusIntentRef.current) {
+      e.preventDefault()
+      return
+    }
     const el = triggerRef.current
     if (el?.isConnected) {
       e.preventDefault()
@@ -178,6 +190,29 @@ export default function TenantDetailPage() {
     navigate('/?view=deleted', { replace: true })
   }, [goneAfterData, wasPurging, queryClient, navigate])
 
+  // status 전이 감지 — (1) 예약된 포커스 이동 실행(S1·S2), (2) 영구 삭제 실패 복귀(PURGING→DELETED+purgeError) 토스트(S3).
+  const status = tenant?.status
+  const purgeError = tenant?.purgeError
+  const prevStatusRef = useRef<typeof status>(undefined)
+  useEffect(() => {
+    const prev = prevStatusRef.current
+    prevStatusRef.current = status
+    if (prev === 'PURGING' && status === 'DELETED' && purgeError) {
+      toast.error('영구 삭제에 실패했습니다. 사유를 확인한 뒤 다시 시도하세요.')
+    }
+    if (prev === undefined || prev === status) return
+    const intent = focusIntentRef.current
+    if (!intent) return
+    focusIntentRef.current = null
+    // 닫히는 다이얼로그의 포커스 트랩이 풀린 뒤 옮기도록 한 틱 미룬다.
+    const t = setTimeout(() => {
+      const target =
+        intent === 'restore' ? restoreButtonRef.current : intent === 'purging' ? purgingBannerRef.current : titleRef.current
+      ;(target ?? titleRef.current)?.focus()
+    }, 50)
+    return () => clearTimeout(t)
+  }, [status, purgeError])
+
   // 멤버 목록 — 테넌트가 정상 조회된 뒤에만 가져온다(404 아래에 테이블이 깔리지 않게).
   const {
     data: members,
@@ -214,6 +249,8 @@ export default function TenantDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['tenant', id] })
       queryClient.invalidateQueries({ queryKey: ['tenants'] })
       toast.success(`테넌트를 ${ACTIONS[action].verb}했습니다.`)
+      // 삭제 → 되돌리기 행동인 [복원], 복원 → 이름 제목으로 포커스를 보낸다(S1·S2). 정지/활성화는 트리거가 남아 기본 복귀.
+      focusIntentRef.current = action === 'remove' ? 'restore' : action === 'restore' ? 'title' : null
       setConfirmAction(null)
     },
     onError: (err, action) => {
@@ -227,6 +264,7 @@ export default function TenantDetailPage() {
     mutationFn: (confirmName: string) => platformTenants.purge(Number(id), confirmName),
     onSuccess: () => {
       purgeRequestedRef.current = true
+      focusIntentRef.current = 'purging'
       setPurgeOpen(false)
       queryClient.invalidateQueries({ queryKey: ['tenant', id] })
       queryClient.invalidateQueries({ queryKey: ['tenants'] })
@@ -269,6 +307,8 @@ export default function TenantDetailPage() {
   const isLive = tenant?.status === 'ACTIVE' || tenant?.status === 'SUSPENDED'
   const isDeleted = tenant?.status === 'DELETED'
   const isPurging = tenant?.status === 'PURGING'
+  // 상태 변경(복원 등)·영구 삭제 요청 중 하나라도 진행 중이면 상충 동작(복원↔영구 삭제)을 서로 막는다(F1).
+  const busy = statusMutation.isPending || purgeMutation.isPending
 
   return (
     <div className="space-y-6">
@@ -282,27 +322,73 @@ export default function TenantDetailPage() {
         목록으로
       </Link>
 
-      {/* 삭제됨 배너 — 지난 영구 삭제가 실패했으면 사유를 함께 보여준다. */}
+      {/* 상태 안내 라이브 영역(S3) — 항상 마운트돼 있고 문구만 바뀐다. 내용이 채워진 채 삽입된 live region 은 스크린리더가
+          읽지 않으므로, 배너가 바뀌어도 이 노드의 텍스트 변화로 전이를 알린다. 시각 배너는 role 없이 표시만 한다. */}
+      <div role="status" aria-live="polite" className="sr-only" data-testid="tenant-status-announcer">
+        {isDeleted
+          ? `삭제된 테넌트입니다. 복원할 수 있습니다.${tenant?.purgeError ? ` 지난 영구 삭제 실패: ${tenant.purgeError}` : ''}`
+          : isPurging
+            ? '영구 삭제를 진행하고 있습니다. 되돌릴 수 없습니다.'
+            : ''}
+      </div>
+
+      {/* 삭제됨 배너 — 다음 행동인 [복원]을 배너 오른쪽에 둔다(N3). 지난 영구 삭제가 실패했으면 사유를 별도 줄로 보여준다(N9). */}
       {isDeleted && tenant && (
         <div
-          role="status"
           data-testid="tenant-deleted-banner"
           className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive-text"
         >
-          {tenant.deletedAt ? `${formatDate(tenant.deletedAt)}에 ` : ''}삭제된 테넌트입니다. 구성원은 접근할 수 없습니다.
-          {tenant.purgeError && <> 지난 영구 삭제가 실패했습니다: {tenant.purgeError}. 다시 시도할 수 있습니다.</>}
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              {tenant.deletedAt ? `${formatDate(tenant.deletedAt)}에 ` : ''}삭제된 테넌트입니다. 구성원은 접근할 수 없고, 복원 전에는
+              정보를 바꿀 수 없습니다.
+              {tenant.purgeError && (
+                <p className="mt-1" data-testid="purge-error-line">
+                  지난 영구 삭제 실패: <code className="text-xs">{tenant.purgeError}</code>
+                </p>
+              )}
+            </div>
+            {/* disabled 대신 aria-disabled — 요청 중에도 포커스를 유지한다(S2). 글자는 배너 빨강을 상속하지 않고 중립(S4). */}
+            <Button
+              ref={restoreButtonRef}
+              variant="outline"
+              size="sm"
+              className="shrink-0 text-foreground aria-disabled:pointer-events-none aria-disabled:opacity-50"
+              data-testid="restore-button"
+              aria-disabled={busy}
+              onClick={() => {
+                if (busy) return
+                statusMutation.mutate('restore')
+              }}
+            >
+              <PendingLabel
+                pending={statusMutation.isPending && statusMutation.variables === 'restore'}
+                label="복원"
+                pendingLabel="복원 중…"
+              />
+            </Button>
+          </div>
         </div>
       )}
 
-      {/* 영구 삭제 중 배너 — 단계 재시도 중이면 마지막 오류를 덧붙인다. */}
+      {/* 영구 삭제 중 배너 — 복원은 불가라 버튼 없이 안내만. 스피너로 진행 중임을 색 외 신호로도 전한다(N6). 재시도 오류는 별도 줄(N9).
+          영구 삭제 시작 직후 포커스를 받을 수 있게 tabIndex=-1(S2). */}
       {isPurging && tenant && (
         <div
-          role="status"
+          ref={purgingBannerRef}
+          tabIndex={-1}
           data-testid="tenant-purging-banner"
-          className="rounded-md border border-info/30 bg-info/10 px-3 py-2 text-sm text-info-text"
+          className="rounded-md border border-info/30 bg-info/10 px-3 py-2 text-sm text-info-text outline-none"
         >
-          영구 삭제를 진행하고 있습니다. 완료되면 목록에서 사라집니다.
-          {tenant.purgeError && <> 마지막 시도 오류: {tenant.purgeError}. 자동으로 다시 시도합니다.</>}
+          <div className="flex items-center gap-2">
+            <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />
+            <span>영구 삭제를 진행하고 있습니다. 시작된 영구 삭제는 되돌릴 수 없으며, 완료되면 목록에서 사라집니다.</span>
+          </div>
+          {tenant.purgeError && (
+            <p className="mt-1" data-testid="purge-error-line">
+              마지막 시도 오류: <code className="text-xs">{tenant.purgeError}</code>
+            </p>
+          )}
         </div>
       )}
 
@@ -313,7 +399,12 @@ export default function TenantDetailPage() {
             <Skeleton className="h-6 w-48" />
           ) : (
             <div className="flex items-start justify-between gap-4">
-              <CardTitle className="min-w-0 text-xl break-words" data-testid="tenant-detail-name">
+              <CardTitle
+                ref={titleRef}
+                tabIndex={-1}
+                className="min-w-0 text-xl break-words outline-none"
+                data-testid="tenant-detail-name"
+              >
                 {tenant?.name}
               </CardTitle>
               {tenant && (
@@ -330,12 +421,14 @@ export default function TenantDetailPage() {
                       편집
                     </Button>
                   )}
-                  {/* 상태 액션 — ACTIVE 면 정지(destructive), SUSPENDED 면 활성화, 삭제됨·영구 삭제 중이면 복원. */}
-                  {isLive ? (
-                    isActive ? (
+                  {/* 상태 액션 — ACTIVE 면 정지(위험 구역 [삭제]와 같은 outline+빨간 글자 톤, N2), SUSPENDED 면 활성화.
+                      삭제됨·영구 삭제 중의 복원은 배너로 옮겼다(N3). */}
+                  {isLive &&
+                    (isActive ? (
                       <Button
-                        variant="destructive"
+                        variant="outline"
                         size="sm"
+                        className="border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
                         data-testid="suspend-button"
                         onClick={(e) => openConfirm('suspend', e.currentTarget)}
                       >
@@ -350,19 +443,7 @@ export default function TenantDetailPage() {
                       >
                         활성화
                       </Button>
-                    )
-                  ) : (
-                    // 영구 삭제가 시작되면 복원할 수 없다 — 버튼은 남겨 상태를 알리되 비활성.
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      data-testid="restore-button"
-                      disabled={isPurging || statusMutation.isPending}
-                      onClick={() => statusMutation.mutate('restore')}
-                    >
-                      복원
-                    </Button>
-                  )}
+                    ))}
                 </div>
               )}
             </div>
@@ -483,10 +564,13 @@ export default function TenantDetailPage() {
         </div>
       </section>
 
-      {/* 위험 구역(WP-341) — 서버가 삭제 불가로 알린 테넌트(기본 테넌트)는 숨긴다. 영구 삭제 중 숨김은 컴포넌트가 status 로 판단한다. */}
-      {tenant?.deletable && (
+      {/* 위험 구역(WP-341) — 삭제 불가 테넌트(기본 테넌트)도 숨기지 않고 이유와 비활성 버튼을 보여준다(N5). 영구 삭제 중 숨김은 컴포넌트가 status 로 판단한다. */}
+      {tenant && (
         <TenantDangerZone
           status={tenant.status}
+          deletable={tenant.deletable}
+          purgePending={purgeMutation.isPending}
+          busy={busy}
           hasPurgeError={!!tenant.purgeError}
           onDelete={(trigger) => openConfirm('remove', trigger)}
           onPurge={(trigger) => {
@@ -503,6 +587,7 @@ export default function TenantDetailPage() {
           onOpenChange={setPurgeOpen}
           tenantName={tenant.name}
           pending={purgeMutation.isPending}
+          busy={busy}
           onConfirm={(confirmName) => purgeMutation.mutate(confirmName)}
           onCloseAutoFocus={restoreFocus}
         />
@@ -540,7 +625,11 @@ export default function TenantDetailPage() {
                     statusMutation.mutate(confirmAction)
                   }}
                 >
-                  {ACTIONS[confirmAction].verb}
+                  <PendingLabel
+                    pending={statusMutation.isPending}
+                    label={ACTIONS[confirmAction].verb}
+                    pendingLabel={`${ACTIONS[confirmAction].verb} 중…`}
+                  />
                 </AlertDialogAction>
               </AlertDialogFooter>
             </>

@@ -291,21 +291,14 @@ public class AuthService {
       throw new UserDeactivatedException("비활성화된 계정입니다.");
     }
 
-    // refresh 토큰에 active-tenant 가 있으면 동일 테넌트로 재발급하되, 멤버십/테넌트가 여전히 ACTIVE
-    // 인지 재검증한다(정지/탈퇴 시 즉시 차단 → 클라이언트는 테넌트 선택으로 복귀). 없으면 tenant-less 재발급.
+    // refresh 토큰에 active-tenant 가 있으면 동일 테넌트로 재발급하되, 이 세션이 그 테넌트를 여전히 쓸 수 있는지 재검증한다.
+    // 더는 쓸 수 없으면(탈퇴·정지·삭제·영구 삭제 중, 또는 WP-48 SSO 세션인데 그 워크스페이스가 SSO 를 껐을 때) 로그아웃시키지 않고
+    // 로그인과 같은 규칙으로 테넌트를 다시 고른다 — 새로 로그인한 것과 같은 권한이라 권한 상승이 아니다. 없으면 tenant-less 재발급.
+    // 대체 후보는 SSO 세션이면 SSO 켜진 곳만이라(membershipsOf) 다시 고른 테넌트는 항상 이 세션의 인증 수단을 허용한다.
     Long tenantId = jwtTokenProvider.getTenantIdFromToken(rawRefreshToken);
-    if (tenantId != null
-        && (!membershipRepository.hasActiveMembership(userId, tenantId)
-            || !tenantRepository.isActive(tenantId))) {
-      throw new InvalidTokenException("테넌트 접근이 만료되었습니다. 테넌트를 다시 선택해 주세요.");
-    }
-
-    // WP-48: SSO 세션은 해당 워크스페이스의 SSO 가 여전히 켜져 있어야 갱신된다(관리자가 끄면 다음 갱신 때 차단).
     String amr = jwtTokenProvider.getAuthMethodFromToken(rawRefreshToken);
-    if (AuthDetails.SSO.equals(amr)
-        && tenantId != null
-        && !tenantRepository.isSsoEnabled(tenantId)) {
-      throw new InvalidTokenException("이 워크스페이스는 SSO 로그인을 허용하지 않습니다. 다시 로그인해 주세요.");
+    if (tenantId != null && !isTenantUsable(userId, tenantId, amr)) {
+      tenantId = reselectTenant(userId, amr);
     }
 
     String accessToken =
@@ -316,6 +309,29 @@ public class AuthService {
 
     return new TokenResponse(
         accessToken, newRefreshToken, "Bearer", jwtProperties.accessExpiration() / 1000);
+  }
+
+  /**
+   * 이 세션(인증 수단 amr)이 해당 테넌트를 계속 쓸 수 있는가 — 멤버십 ACTIVE({@code hasActiveMembership})·테넌트 ACTIVE({@code
+   * isActive}), SSO 세션이면 SSO 도 켜져 있어야 한다({@code isSsoEnabled}). selectTenant 가 거절하는 경우(예외)와 같은 술어를
+   * 불리언으로 판정하며, 통과하는 테넌트는 membershipsOf 목록에도 들어 있다.
+   */
+  private boolean isTenantUsable(Long userId, Long tenantId, String authMethod) {
+    if (!membershipRepository.hasActiveMembership(userId, tenantId)
+        || !tenantRepository.isActive(tenantId)) {
+      return false;
+    }
+    return !AuthDetails.SSO.equals(authMethod) || tenantRepository.isSsoEnabled(tenantId);
+  }
+
+  /**
+   * refresh 토큰의 테넌트를 더는 쓸 수 없을 때 대체 테넌트를 고른다 — 로그인(1단계)·SSO 세션 발급과 같은 규칙: 선택 가능한 멤버십(테넌트 ACTIVE 만,
+   * SSO 세션이면 SSO 켜진 곳만)이 정확히 1개면 그 테넌트, 0개·여러 개면 null(tenant-less → 웹이 선택 화면/안내로 보낸다). 같은 조회({@link
+   * #membershipsOf})를 써서 로그인 목록과 판정이 어긋나지 않게 한다.
+   */
+  private Long reselectTenant(Long userId, String authMethod) {
+    List<MembershipResponse> remaining = membershipsOf(userId, authMethod);
+    return remaining.size() == 1 ? remaining.get(0).tenantId() : null;
   }
 
   /**

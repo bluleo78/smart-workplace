@@ -229,6 +229,13 @@ class PurgeTenantFunctionTest extends IntegrationTestBase {
     assertThat(dsl.fetchExists(TENANT, TENANT.ID.eq(tenantId))).isFalse();
     assertThat(dsl.fetchExists(USER, USER.ID.eq(blocked))).isTrue();
     assertThat(dsl.fetchExists(USER, USER.ID.eq(free))).isFalse();
+    // 남은 계정은 비활성화돼(is_active=false) 어떤 인증 경로로도 쓸 수 없다.
+    assertThat(
+            dsl.select(USER.IS_ACTIVE)
+                .from(USER)
+                .where(USER.ID.eq(blocked))
+                .fetchOne(0, Boolean.class))
+        .isFalse();
     // 남은 계정은 인증 수단(API 키·OAuth 자격)이 모두 제거돼 고아 계정으로 로그인할 수 없다.
     assertThat(dsl.fetchExists(AGENT_API_KEY, AGENT_API_KEY.USER_ID.eq(blocked))).isFalse();
     assertThat(

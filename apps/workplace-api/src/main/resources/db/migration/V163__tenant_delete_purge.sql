@@ -48,14 +48,17 @@ BEGIN
     BEGIN
       DELETE FROM "user" WHERE id = v_agent;
     EXCEPTION WHEN foreign_key_violation THEN
-      RAISE WARNING 'purge_tenant(%): AGENT % 계정 삭제 건너뜀 — %', p_tenant_id, v_agent, SQLERRM;
-      -- 계정이 전역 고아로 남더라도 더는 인증할 수 없게 이 AGENT 의 API 키·OAuth 자격을 지운다.
+      RAISE WARNING 'purge_tenant(%): AGENT % 계정 삭제 건너뜀(계정 비활성화) — %', p_tenant_id, v_agent, SQLERRM;
+      -- 계정이 전역 고아로 남더라도 어떤 경로로도 인증할 수 없게 이 AGENT 의 API 키·OAuth 자격을 지우고
+      -- 계정 자체를 비활성화(is_active=false)한다 — 비밀번호 로그인·refresh 는 비활성 계정을 거절하고, 남은 계정은 멤버십·자격 증명도
+      -- 없어 다른 경로에서도 테넌트 컨텍스트를 얻지 못한다(이중 방어).
       -- 이 정리의 실패가 영구 삭제 전체를 막지 않도록 별도 서브트랜잭션으로 감싼다.
       BEGIN
         DELETE FROM agent_api_key WHERE user_id = v_agent;
         DELETE FROM ai_agent_credential WHERE user_id = v_agent;
+        UPDATE "user" SET is_active = false WHERE id = v_agent;
       EXCEPTION WHEN OTHERS THEN
-        RAISE WARNING 'purge_tenant(%): AGENT % 인증 수단 정리 실패 — %', p_tenant_id, v_agent, SQLERRM;
+        RAISE WARNING 'purge_tenant(%): AGENT % 인증 수단 정리·비활성화 실패 — %', p_tenant_id, v_agent, SQLERRM;
       END;
     END;
   END LOOP;

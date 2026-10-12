@@ -631,8 +631,12 @@ test.describe('테넌트 상세', () => {
     await page.goto('/tenants/7')
     await page.getByTestId('danger-zone').getByTestId('delete-button').click()
     await page.getByTestId('confirm-delete').click()
-    await expect(page.getByTestId('tenant-deleted-banner')).toContainText('2026-10-12에 삭제된 테넌트입니다')
-    await expect(page.getByTestId('restore-button')).toBeVisible()
+    const banner = page.getByTestId('tenant-deleted-banner')
+    await expect(banner).toContainText(
+      '2026-10-12에 삭제된 테넌트입니다. 구성원은 접근할 수 없고, 복원 전에는 정보를 바꿀 수 없습니다.',
+    )
+    // N3: 복원 버튼은 이름 옆이 아니라 배너 안에 있다.
+    await expect(banner.getByTestId('restore-button')).toBeVisible()
     await expect(page.getByTestId('purge-button')).toBeVisible()
     await expect(page.getByTestId('suspend-button')).toHaveCount(0)
     // 삭제된 테넌트는 이름·slug 편집 불가(서버 409) — 편집 버튼 자체를 숨긴다.
@@ -641,8 +645,8 @@ test.describe('테넌트 상세', () => {
     await expect(page.getByTestId('quota-save')).toBeDisabled()
   })
 
-  // WP-341: 기본 테넌트(id=1)는 회원가입 귀속 대상이라 삭제할 수 없다 — 위험 구역(삭제 버튼)을 렌더하지 않는다.
-  test('기본 테넌트(id=1)는 위험 구역과 삭제 버튼을 보여주지 않는다', async ({ authenticatedPage: page }) => {
+  // WP-341(N5): 기본 테넌트(id=1)는 삭제할 수 없다 — 위험 구역은 남기되 이유와 비활성 삭제 버튼을 보여준다.
+  test('기본 테넌트(id=1)는 위험 구역에 비활성 삭제 버튼과 이유를 보여준다', async ({ authenticatedPage: page }) => {
     await page.route('**/api/platform/tenants/1', (route) =>
       route.fulfill({
         status: 200,
@@ -655,10 +659,168 @@ test.describe('테넌트 상세', () => {
     )
     await page.goto('/tenants/1')
     await expect(page.getByTestId('tenant-status')).toHaveText('활성')
-    // 정지 등 다른 운영 액션은 그대로 노출된다.
     await expect(page.getByTestId('suspend-button')).toBeVisible()
-    await expect(page.getByTestId('danger-zone')).toHaveCount(0)
-    await expect(page.getByTestId('delete-button')).toHaveCount(0)
+    const zone = page.getByTestId('danger-zone')
+    await expect(zone).toBeVisible()
+    await expect(zone).toContainText('기본 테넌트는 신규 가입자가 들어가는 곳이라 삭제할 수 없습니다.')
+    await expect(zone.getByTestId('delete-button')).toBeDisabled()
+  })
+
+  // N2: 헤더 [정지] 는 채움 destructive 가 아니라 위험 구역 [삭제]와 같은 outline+빨간 글자 톤이다.
+  test('헤더 정지 버튼은 위험 구역 삭제 버튼과 같은 outline 톤이다', async ({ authenticatedPage: page }) => {
+    await stubTenantDetail(page, tenantDetail())
+    await stubMembers(page, [member()])
+    await page.goto('/tenants/7')
+    const suspend = page.getByTestId('suspend-button')
+    const del = page.getByTestId('delete-button')
+    await expect(suspend).toBeVisible()
+    await expect(suspend).not.toHaveClass(/bg-destructive(?!\/)/)
+    await expect(suspend).toHaveClass(/border-destructive\/40/)
+    await expect(suspend).toHaveClass(/text-destructive/)
+    const colorOf = (l: typeof suspend) => l.evaluate((el) => getComputedStyle(el).color)
+    expect(await colorOf(suspend)).toBe(await colorOf(del))
+  })
+
+  // N9: 삭제됨 배너의 지난 영구 삭제 실패 사유는 별도 줄(code)이다.
+  test('삭제됨 배너의 지난 영구 삭제 실패 사유는 별도 줄로 보인다', async ({ authenticatedPage: page }) => {
+    await stubTenantDetail(page, tenantDetail({ status: 'DELETED', deletedAt: '2026-10-12T01:00:00Z',
+      purgeError: 'drive: S3 객체 삭제 실패' }))
+    await stubMembers(page, [])
+    await page.goto('/tenants/7')
+    const line = page.getByTestId('purge-error-line')
+    await expect(line).toHaveText('지난 영구 삭제 실패: drive: S3 객체 삭제 실패')
+    await expect(line.locator('code')).toHaveText('drive: S3 객체 삭제 실패')
+  })
+
+  // M5: 라이브 영역(role=status)은 안내 문구만 — [복원] 버튼은 그 밖의 형제. 복원 요청 중엔 "복원 중…"+스피너.
+  test('삭제됨 배너: 복원 버튼은 라이브 영역 밖이고 요청 중 복원 중… 을 보여준다', async ({ authenticatedPage: page }) => {
+    const state = await stubTenantDetail(page, tenantDetail({ status: 'DELETED', deletedAt: '2026-10-12T01:00:00Z' }))
+    await stubMembers(page, [member()])
+    await page.route('**/api/platform/tenants/7/restore', async (route) => {
+      await new Promise((r) => setTimeout(r, 1500))
+      state.tenant = { ...state.tenant, status: 'ACTIVE', deletedAt: null }
+      return route.fulfill({ status: 204 })
+    })
+    await page.goto('/tenants/7')
+    const live = page.getByRole('status').filter({ hasText: '삭제된 테넌트입니다' })
+    await expect(live).toBeVisible()
+    await expect(live.getByTestId('restore-button')).toHaveCount(0)
+    const restore = page.getByTestId('restore-button')
+    await restore.click()
+    await expect(restore).toBeDisabled()
+    await expect(restore).toHaveText('복원 중…')
+    await expect(restore.locator('svg.animate-spin')).toHaveCount(1)
+    await expect(page.getByTestId('tenant-status')).toHaveText('활성')
+  })
+
+  // M6(N6): 삭제 확인·영구 삭제 요청 중 버튼 라벨이 "삭제 중…"/"영구 삭제 중…" + 스피너로 바뀐다.
+  test('삭제 확인 다이얼로그는 요청 중 "삭제 중…" 과 스피너를 보여준다', async ({ authenticatedPage: page }) => {
+    const state = await stubTenantDetail(page, tenantDetail())
+    await stubMembers(page, [member()])
+    await page.route('**/api/platform/tenants/7/delete', async (route) => {
+      await new Promise((r) => setTimeout(r, 1500))
+      state.tenant = { ...state.tenant, status: 'DELETED', deletedAt: '2026-10-12T01:00:00Z' }
+      return route.fulfill({ status: 204 })
+    })
+    await page.goto('/tenants/7')
+    await page.getByTestId('delete-button').click()
+    const confirm = page.getByTestId('confirm-delete')
+    await confirm.click()
+    await expect(confirm).toHaveText('삭제 중…')
+    await expect(confirm).toBeDisabled()
+    await expect(confirm.locator('svg.animate-spin')).toHaveCount(1)
+    await expect(page.getByTestId('tenant-deleted-banner')).toBeVisible()
+  })
+
+  test('영구 삭제 다이얼로그는 요청 중 "영구 삭제 중…" 과 스피너를 보여준다', async ({ authenticatedPage: page }) => {
+    const state = await stubTenantDetail(page, tenantDetail({ status: 'DELETED', deletedAt: '2026-10-12T01:00:00Z' }))
+    await stubMembers(page, [member()])
+    await page.route('**/api/platform/tenants/7/purge', async (route) => {
+      await new Promise((r) => setTimeout(r, 1500))
+      state.tenant = { ...state.tenant, status: 'PURGING' }
+      return route.fulfill({ status: 202 })
+    })
+    await page.goto('/tenants/7')
+    await page.getByTestId('purge-button').click()
+    const dialog = page.getByTestId('purge-dialog')
+    await dialog.getByTestId('purge-confirm-input').fill('Acme Corp')
+    const confirm = dialog.getByTestId('purge-confirm')
+    await confirm.click()
+    await expect(confirm).toHaveText('영구 삭제 중…')
+    await expect(confirm).toBeDisabled()
+    await expect(confirm.locator('svg.animate-spin')).toHaveCount(1)
+    await expect(page.getByTestId('tenant-purging-banner')).toBeVisible()
+  })
+
+  // F1: 영구 삭제 요청이 진행 중이면 배너의 [복원]도 잠겨 두 동작을 동시에 걸 수 없다.
+  test('영구 삭제 요청 중에는 복원 버튼이 비활성이다', async ({ authenticatedPage: page }) => {
+    const state = await stubTenantDetail(page, tenantDetail({ status: 'DELETED', deletedAt: '2026-10-12T01:00:00Z' }))
+    await stubMembers(page, [member()])
+    await page.route('**/api/platform/tenants/7/purge', async (route) => {
+      await new Promise((r) => setTimeout(r, 1500))
+      state.tenant = { ...state.tenant, status: 'PURGING' }
+      return route.fulfill({ status: 202 })
+    })
+    await page.goto('/tenants/7')
+    await page.getByTestId('purge-button').click()
+    const dialog = page.getByTestId('purge-dialog')
+    await dialog.getByTestId('purge-confirm-input').fill('Acme Corp')
+    await dialog.getByTestId('purge-confirm').click()
+    await expect(dialog.getByTestId('purge-confirm')).toHaveText('영구 삭제 중…')
+    await expect(page.getByTestId('restore-button')).toBeDisabled()
+  })
+
+  // S1: 삭제 성공 후 포커스는 [영구 삭제]가 아니라 되돌리기 행동인 배너 [복원]이다.
+  test('삭제 성공 후 포커스가 복원 버튼으로 간다(영구 삭제 아님)', async ({ authenticatedPage: page }) => {
+    const state = await stubTenantDetail(page, tenantDetail())
+    await stubMembers(page, [member()])
+    await page.route('**/api/platform/tenants/7/delete', (route) => {
+      state.tenant = { ...state.tenant, status: 'DELETED', deletedAt: '2026-10-12T01:00:00Z' }
+      return route.fulfill({ status: 204 })
+    })
+    await page.goto('/tenants/7')
+    await page.getByTestId('delete-button').click()
+    await page.getByTestId('confirm-delete').click()
+    await expect(page.getByTestId('tenant-deleted-banner')).toBeVisible()
+    await expect(page.getByTestId('restore-button')).toBeFocused()
+    await expect(page.getByTestId('purge-button')).not.toBeFocused()
+  })
+
+  // S2: 복원 요청 중에도 포커스를 유지하고(aria-disabled), 성공 후엔 이름 제목으로 옮긴다. S4: 글자는 중립색.
+  test('복원 중 포커스가 유지되고 성공 후 이름 제목으로 간다', async ({ authenticatedPage: page }) => {
+    const state = await stubTenantDetail(page, tenantDetail({ status: 'DELETED', deletedAt: '2026-10-12T01:00:00Z' }))
+    await stubMembers(page, [member()])
+    await page.route('**/api/platform/tenants/7/restore', async (route) => {
+      await new Promise((r) => setTimeout(r, 1000))
+      state.tenant = { ...state.tenant, status: 'ACTIVE', deletedAt: null }
+      return route.fulfill({ status: 204 })
+    })
+    await page.goto('/tenants/7')
+    const restore = page.getByTestId('restore-button')
+    // S4: 배너 빨강을 상속하지 않고 본문 글자색과 같다.
+    const colorOf = (l: typeof restore) => l.evaluate((el) => getComputedStyle(el).color)
+    expect(await colorOf(restore)).toBe(await colorOf(page.getByTestId('tenant-back').locator('..')))
+    await restore.focus()
+    await page.keyboard.press('Enter')
+    await expect(restore).toHaveAttribute('aria-disabled', 'true')
+    await expect(restore).toBeFocused()
+    await expect(page.getByTestId('tenant-status')).toHaveText('활성')
+    await expect(page.getByTestId('tenant-detail-name')).toBeFocused()
+  })
+
+  // S3: 영구 삭제 실패로 PURGING→DELETED 가 되면 토스트를 띄우고, 항상 마운트된 상태 안내 노드의 문구가 바뀐다.
+  test('영구 삭제가 실패해 삭제됨으로 돌아오면 토스트와 상태 안내가 나온다', async ({ authenticatedPage: page }) => {
+    const state = await stubTenantDetail(page, tenantDetail({ status: 'PURGING', deletedAt: '2026-10-12T01:00:00Z' }))
+    await stubMembers(page, [member()])
+    await page.goto('/tenants/7')
+    const announcer = page.getByTestId('tenant-status-announcer')
+    await expect(announcer).toContainText('영구 삭제를 진행하고 있습니다')
+    const handle = await announcer.elementHandle()
+    state.tenant = { ...state.tenant, status: 'DELETED', purgeError: 'drive: S3 객체 삭제 실패' }
+    await expect(page.getByText('영구 삭제에 실패했습니다. 사유를 확인한 뒤 다시 시도하세요.')).toBeVisible({ timeout: 10_000 })
+    await expect(announcer).toContainText('지난 영구 삭제 실패: drive: S3 객체 삭제 실패')
+    // 같은 DOM 노드가 유지된 채 텍스트만 바뀌었다(삽입된 live region 이 아님).
+    expect(await handle!.evaluate((el) => el.isConnected)).toBe(true)
   })
 
   // WP-341: 삭제 실패 시 서버 메시지를 토스트로 보여준다.
@@ -717,8 +879,13 @@ test.describe('테넌트 상세', () => {
     await dialog.getByTestId('purge-confirm').click()
     await expect(page.getByTestId('tenant-purging-banner')).toBeVisible()
     expect(body).toEqual({ confirmName: 'Acme Corp' })
-    await expect(page.getByTestId('restore-button')).toBeDisabled()
+    // PURGING: 복원 버튼은 숨기고(N3) 위험 구역도 없으며, 배너에 되돌릴 수 없다는 안내와 스피너가 있다.
+    await expect(page.getByTestId('restore-button')).toHaveCount(0)
     await expect(page.getByTestId('danger-zone')).toHaveCount(0)
+    await expect(page.getByTestId('tenant-purging-banner')).toContainText(
+      '영구 삭제를 진행하고 있습니다. 시작된 영구 삭제는 되돌릴 수 없으며, 완료되면 목록에서 사라집니다.',
+    )
+    await expect(page.getByTestId('tenant-purging-banner').locator('svg.animate-spin')).toHaveCount(1)
   })
 
   test('저장된 이름에 앞뒤 공백이 있어도 trim 한 이름으로 영구 삭제 확인이 된다', async ({ authenticatedPage: page }) => {
@@ -736,9 +903,10 @@ test.describe('테넌트 상세', () => {
       purgeError: '파일 삭제 실패' }))
     await stubMembers(page, [])
     await page.goto('/tenants/7')
-    await expect(page.getByTestId('tenant-purging-banner')).toContainText(
-      '마지막 시도 오류: 파일 삭제 실패. 자동으로 다시 시도합니다.',
-    )
+    // N9: 사유는 배너 문장에 이어 붙이지 않고 별도 줄(code)로 보여준다.
+    const line = page.getByTestId('purge-error-line')
+    await expect(line).toHaveText('마지막 시도 오류: 파일 삭제 실패')
+    await expect(line.locator('code')).toHaveText('파일 삭제 실패')
   })
 
   test('영구 삭제 중 → 404 가 되면 완료 토스트 후 삭제됨 탭으로 이동', async ({ authenticatedPage: page }) => {
@@ -797,7 +965,7 @@ test.describe('테넌트 상세', () => {
     await page.goto('/tenants/7')
     await page.getByTestId('purge-button').click()
     const dialog = page.getByTestId('purge-dialog')
-    await expect(dialog.getByRole('heading')).toHaveText('그린랩 코리아를 영구 삭제할까요?')
+    await expect(dialog.getByRole('heading')).toHaveText('그린랩 코리아를 영구 삭제하시겠습니까?')
     await expect(dialog.locator('label')).toHaveText('확인을 위해 그린랩 코리아를 입력하세요')
   })
 
@@ -859,7 +1027,7 @@ test.describe('테넌트 상세', () => {
     await stubMembers(page, [])
     await page.goto('/tenants/7')
     await page.getByTestId('delete-button').click()
-    await expect(page.getByRole('alertdialog').getByRole('heading')).toHaveText('그린랩 코리아를 삭제할까요?')
+    await expect(page.getByRole('alertdialog').getByRole('heading')).toHaveText('그린랩 코리아를 삭제하시겠습니까?')
   })
 
   // M1: 삭제됨·영구 삭제 중 배너와 "영구 삭제 중…" 배지 글자 대비가 라이트·다크 모두 AA(4.5:1) 이상.
