@@ -50,4 +50,12 @@ describe('contacts-agent 정의', () => {
     // create 는 신규 생성 전용(기존 수정에 금지) 명시
     expect(prompt).toMatch(/create_external_contact.*금지|금지.*create_external_contact/s);
   });
+
+  // WP-353: list_contacts 의 MEMBER 항목은 숫자 userId 대신 username 을 준다.
+  it('MEMBER 항목은 username, EXTERNAL 항목은 externalId 로 안내하고 userId 는 더 이상 말하지 않는다', () => {
+    const prompt = loaded['contacts-agent'].prompt;
+    expect(prompt).toContain('`type: "MEMBER"` → `username`');
+    expect(prompt).toContain('`type: "EXTERNAL"` → `externalId`');
+    expect(prompt).not.toContain('userId');
+  });
 });

@@ -188,6 +188,15 @@ describe('buildOpencodeConfig', () => {
     expect(cfg.agent?.['issue-agent']).toMatchObject({ mode: 'subagent', prompt: 'p' });
   });
 
+  // WP-351: opencode primary 는 '*': false 로 위임 도구(task)가 꺼져 쓰기를 직접 하므로, assistant 라우터여도 도구를 좁히지 않는다.
+  it('assistant + allowSubagents 여도 primary 는 workplace 전체를 연다(라우터 축소는 Claude 경로만)', () => {
+    const client = { getOAuthToken: vi.fn() } as unknown as WorkplaceApiClient;
+    const cfg = buildOpencodeConfig(
+      baseInput({ allowSubagents: true, mcp: { client, profile: 'assistant', onBehalfOfId: 1 } }), 'run-1', ['cmd'], VISION_ON,
+    );
+    expect(cfg.agent?.primary?.tools).toEqual({ '*': false, 'workplace*': true });
+  });
+
   it('allowSubagents 미지정 시 서브에이전트 미포함', () => {
     const cfg = buildOpencodeConfig(baseInput(), 'run-1', ['cmd'], VISION_ON);
     expect(loadSubagents).not.toHaveBeenCalled();

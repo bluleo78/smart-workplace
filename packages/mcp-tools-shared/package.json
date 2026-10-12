@@ -14,6 +14,10 @@
     "./tool-labels": {
       "types": "./src/tool-labels.ts",
       "default": "./src/tool-labels.ts"
+    },
+    "./tool-apps": {
+      "types": "./src/tool-apps.ts",
+      "default": "./src/tool-apps.ts"
     }
   },
   "scripts": {

@@ -37,11 +37,11 @@ describe('issue-agent 정의', () => {
     ]);
   });
 
-  // WP-346: 첨부는 get_issue_detail 의 attachments[].fileId 로 source "issue" 읽기.
-  it('본문이 read_attachment 를 source "issue" + issueKey + fileId 로 안내한다', () => {
+  // WP-346: 첨부는 get_issue_detail 의 attachments[].attachmentId 로 source "issue" 읽기(WP-353: fileId → attachmentId).
+  it('본문이 read_attachment 를 source "issue" + issueKey + attachmentId 로 안내한다', () => {
     const prompt = loaded['issue-agent'].prompt;
-    expect(prompt).toContain('read_attachment(source="issue", issueKey, fileId, offset?, limit?)');
-    expect(prompt).toContain('attachments[].fileId');
+    expect(prompt).toContain('read_attachment(source="issue", issueKey, attachmentId, offset?, limit?)');
+    expect(prompt).toContain('attachments[].attachmentId');
   });
 
   // WP-343: update_status 폐지 — 상태 변경은 update_issue 의 status 로 지시한다.
@@ -70,5 +70,21 @@ describe('issue-agent 정의', () => {
     const prompt = loaded['issue-agent'].prompt;
     expect(prompt).toContain('나에게 할당해줘');
     expect(prompt).toContain('assignees 에 `"me"`');
+  });
+
+  // WP-352: size 를 안 줘도 기본 30건에서 잘리므로, 잘렸는지 보고 이어 조회하거나 일부만이라고 밝히게 한다.
+  it('list_issues 가 잘리면(hasMore·nextCursor) 이어 조회하거나 일부만이라고 밝히도록 안내한다', () => {
+    const prompt = loaded['issue-agent'].prompt;
+    expect(prompt).toContain('`hasMore`·`nextCursor`');
+    expect(prompt).toContain('`cursor` 로 넘겨');
+    expect(prompt).toContain('일부만이라고 밝히세요');
+  });
+
+  // WP-353: get_issue_detail 의 코멘트는 최근 30건만 온다 — 수정·삭제할 오래된 코멘트는 allComments 로 찾게 한다.
+  it('코멘트 상한(commentsOmitted)과 allComments 로 더 읽는 방법을 안내한다', () => {
+    const prompt = loaded['issue-agent'].prompt;
+    expect(prompt).toContain('commentsOmitted');
+    expect(prompt).toContain('allComments=true');
+    expect(prompt).toContain('최근 200건');
   });
 });

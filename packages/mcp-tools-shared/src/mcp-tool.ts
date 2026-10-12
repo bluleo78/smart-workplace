@@ -5,6 +5,7 @@
 import type { z } from 'zod';
 
 import type { McpToolResult } from './mcp-content.js';
+import type { ToolAppTag } from './tool-apps.js';
 
 export interface McpTool {
   name: string;
@@ -29,7 +30,7 @@ export interface McpToolAnnotations {
 
 /**
  * 도구가 일으키는 부작용의 등급(#853). 노출 범위 결정의 근거다. README "노출 기준"의 등급 R/W/I 에 대응한다(read=R, write=W, destructive=I).
- * 다른 사람에게 알림이 가는 N 은 kind 가 아니라 R/W 위에 얹는 표시다 — 알림 수준 입력은 해당 도구를 만들 때 적용하며 지금은 필드가 없다.
+ * 다른 사람에게 알림이 가는 N 은 kind 가 아니라 R/W 위에 얹는 표시다 — 알림 여부는 해당 도구의 입력으로 받는다(예: create_event 의 notify, WP-348).
  * - read: 상태를 바꾸지 않는다.
  * - write: 상태를 바꾸지만 되돌릴 수 있다(다시 쓰기·재추가·복원 API 가 있다). 워크스페이스 안의 알림·메시지
  *   (멘션·RSVP 알림·DM 생성)는 사용자가 앱에서 직접 해도 생기는 정상 부작용이라 write 다.
@@ -53,11 +54,13 @@ export interface ToolHints {
 }
 
 // 공유 도구도 문자열(JSON) 또는 content 블록 배열(이미지 등)을 반환할 수 있다(WP-345) — McpTool.handler 와 같은 반환 타입을 그대로 쓴다.
-type SharedToolBase = Omit<McpTool, 'annotations'>;
+// app 은 필수 — 외부 MCP 가 앱별로 도구를 고르게 하는 분류(WP-350)라, 빠뜨리면 어느 앱을 골라도 그 도구가 보이지 않는다.
+type SharedToolBase = Omit<McpTool, 'annotations'> & { app: ToolAppTag };
 
 /**
  * 공유 패키지 도구 — kind 가 **필수**라 태그를 빠뜨리면 타입 오류가 난다(fail-closed).
  * PAT 에는 스코프가 없어 사용자 RBAC 를 그대로 가지므로, 등급 없이 공유 도구가 추가되면 PAT 로 조용히 새어 나간다.
+ * `app` 도 필수다(WP-350) — 앱 태그가 없으면 앱 선택 연결에서 그 도구가 어디에도 안 나오므로 타입 오류로 막는다.
  * write·destructive 는 `hints` 도 필수다(WP-342) — 연산 성격을 빠뜨리면 typecheck 가 실패한다. read 는 힌트가 필요 없다.
  */
 export type SharedTool = SharedToolBase &

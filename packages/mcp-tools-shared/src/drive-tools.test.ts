@@ -26,23 +26,63 @@ const tool = (c: DriveToolClient, name: string) => buildDriveTools(c).find((x) =
 describe('buildDriveTools', () => {
   it('list_drive_spaces → client.listDriveSpaces()', async () => {
     const c = mockClient();
-    vi.mocked(c.listDriveSpaces).mockResolvedValue([{ id: 1, name: '팀 스페이스' }]);
+    // 서버 DriveSpaceResponse 모양 — ownerId(숫자 사용자 ID)는 내보내지 않는다(WP-353).
+    vi.mocked(c.listDriveSpaces).mockResolvedValue([
+      { id: 1, type: 'TEAM', name: '팀 스페이스', ownerId: 7, role: 'OWNER', archived: false, createdAt: 't' },
+    ]);
     const out = await tool(c, 'list_drive_spaces').handler({});
     expect(c.listDriveSpaces).toHaveBeenCalled();
-    expect(JSON.parse(resultText(out))).toEqual([{ id: 1, name: '팀 스페이스' }]);
+    expect(JSON.parse(resultText(out))).toEqual([{ id: 1, type: 'TEAM', name: '팀 스페이스', role: 'OWNER', archived: false, createdAt: 't' }]);
   });
 
-  it('list_drive_items → parentId 생략 시 undefined 로 client.listDriveItems 호출', async () => {
+  it('list_drive_items → 기본 limit 200 에 다음 페이지 확인용 +1 을 얹어 서버에 요청하고, 끝이면 { folders, files } 만 돌려준다 (WP-352)', async () => {
     const c = mockClient();
     const out = await tool(c, 'list_drive_items').handler({ spaceId: 3 });
-    expect(c.listDriveItems).toHaveBeenCalledWith(3, undefined);
+    expect(c.listDriveItems).toHaveBeenCalledWith(3, undefined, { limit: 201, offset: 0 });
     expect(JSON.parse(resultText(out))).toEqual({ folders: [], files: [] });
   });
 
-  it('list_drive_items → parentId 지정 시 그대로 전달', async () => {
+  // WP-353: 폴더 행은 자기 folderId 와 상위 폴더 parentId 를 함께 가진다 — 하위로 내려갈 때 어느 값을 넘기는지 설명이 못 박는다.
+  it('폴더를 입력으로 받는 도구 설명이 그 폴더의 folderId 를 쓰라고 안내한다', () => {
     const c = mockClient();
-    await tool(c, 'list_drive_items').handler({ spaceId: 3, parentId: 8 });
-    expect(c.listDriveItems).toHaveBeenCalledWith(3, 8);
+    expect(tool(c, 'list_drive_items').description).toContain('parentId 는 폴더 행의 folderId');
+    expect(tool(c, 'create_drive_folder').description).toContain('상위 폴더의 folderId');
+    expect(tool(c, 'move_drive_folder').description).toContain('상위 폴더의 folderId');
+    expect(tool(c, 'move_drive_file').description).toContain('대상 폴더의 folderId');
+  });
+
+  it('list_drive_items → parentId·offset 지정 시 그대로 전달', async () => {
+    const c = mockClient();
+    await tool(c, 'list_drive_items').handler({ spaceId: 3, parentId: 8, limit: 10, offset: 20 });
+    expect(c.listDriveItems).toHaveBeenCalledWith(3, 8, { limit: 11, offset: 20 });
+  });
+
+  it('list_drive_items → 한 건이 더 오면 limit 까지만 담고 hasMore·nextOffset 을 알린다 (WP-352)', async () => {
+    const c = mockClient();
+    const file = (id: number) => ({ id, fileId: 900 + id, name: `f${id}` });
+    // limit 3: 폴더 2 + 파일 2(= 4건, 한 건 초과) → 폴더 2 + 파일 1 만 담고 nextOffset = offset(5) + 3.
+    vi.mocked(c.listDriveItems).mockResolvedValue({
+      folders: [{ id: 1, name: 'a' }, { id: 2, name: 'b' }],
+      files: [file(1), file(2)],
+    });
+    const out = JSON.parse(resultText(await tool(c, 'list_drive_items').handler({ spaceId: 3, limit: 3, offset: 5 })));
+    expect(out.folders).toHaveLength(2);
+    expect(out.files).toEqual([{ driveFileId: 1, name: 'f1' }]);
+    expect(out.hasMore).toBe(true);
+    expect(out.nextOffset).toBe(8);
+  });
+
+  it('list_drive_items → 폴더만으로 limit 을 넘으면 파일 없이 폴더를 limit 개로 자른다', async () => {
+    const c = mockClient();
+    vi.mocked(c.listDriveItems).mockResolvedValue({ folders: [{ id: 1 }, { id: 2 }, { id: 3 }], files: [] });
+    const out = JSON.parse(resultText(await tool(c, 'list_drive_items').handler({ spaceId: 3, limit: 2 })));
+    expect(out).toEqual({ folders: [{ folderId: 1 }, { folderId: 2 }], files: [], hasMore: true, nextOffset: 2 });
+  });
+
+  it('list_drive_items 는 limit 상한(500)을 넘으면 거부하고 설명에 이어 읽기 안내를 둔다', async () => {
+    const c = mockClient();
+    await expect(tool(c, 'list_drive_items').handler({ spaceId: 3, limit: 501 })).rejects.toThrow();
+    expect(tool(c, 'list_drive_items').description).toContain('nextOffset');
   });
 
   it('list_drive_items 는 파일 행에서 core fileId 를 제거하고 drive_file.id 를 driveFileId 로 노출한다 (#840)', async () => {
@@ -66,7 +106,7 @@ describe('buildDriveTools', () => {
       ],
     });
     const out = JSON.parse(resultText(await tool(c, 'list_drive_items').handler({ spaceId: 1 })));
-    expect(out.folders).toEqual([{ id: 3, parentId: null, name: '폴더', createdAt: 't' }]);
+    expect(out.folders).toEqual([{ folderId: 3, parentId: null, name: '폴더', createdAt: 't' }]);
     // fileId 외 필드(원본 유실 available 등)는 그대로 전달돼야 한다.
     expect(out.files[0]).toEqual({
       driveFileId: 5,
@@ -89,6 +129,35 @@ describe('buildDriveTools', () => {
     const out = await tool(c, 'search_drive').handler({ spaceId: 3, q: '보고서' });
     expect(c.searchDrive).toHaveBeenCalledWith(3, '보고서');
     expect(JSON.parse(resultText(out))).toEqual({ folders: [], files: [{ driveFileId: 1, name: 'a.pdf' }] });
+  });
+
+  it('search_drive → 도구 limit(기본 50)을 넘으면 각각 limit 개로 자르고 truncated 를 알린다 (WP-352)', async () => {
+    const c = mockClient();
+    const files = Array.from({ length: 60 }, (_, i) => ({ id: i + 1, fileId: 900 + i, name: `f${i}` }));
+    vi.mocked(c.searchDrive).mockResolvedValue({ folders: [{ id: 1, name: 'd' }], files });
+    const out = JSON.parse(resultText(await tool(c, 'search_drive').handler({ spaceId: 3, q: 'f' })));
+    expect(out.files).toHaveLength(50);
+    expect(out.folders).toHaveLength(1);
+    expect(out.truncated).toBe(true);
+  });
+
+  it('search_drive → 서버 상한(200)에 닿으면 limit 을 최대로 줘도 truncated 를 알린다 (WP-352)', async () => {
+    const c = mockClient();
+    const folders = Array.from({ length: 200 }, (_, i) => ({ id: i + 1, name: `d${i}` }));
+    vi.mocked(c.searchDrive).mockResolvedValue({ folders, files: [] });
+    const out = JSON.parse(resultText(await tool(c, 'search_drive').handler({ spaceId: 3, q: 'd', limit: 200 })));
+    expect(out.folders).toHaveLength(200);
+    expect(out.truncated).toBe(true);
+  });
+
+  it('search_drive → 상한 안이면 truncated 키가 없다 (WP-352)', async () => {
+    const c = mockClient();
+    vi.mocked(c.searchDrive).mockResolvedValue({ folders: [{ id: 1, name: 'd' }], files: [{ id: 2, fileId: 9, name: 'a' }] });
+    const out = JSON.parse(resultText(await tool(c, 'search_drive').handler({ spaceId: 3, q: 'a' })));
+    expect(out).not.toHaveProperty('truncated');
+    // 폴더는 folderId, 파일은 driveFileId 로만 가리킨다(WP-353).
+    expect(out.folders).toEqual([{ folderId: 1, name: 'd' }]);
+    expect(out.files).toEqual([{ driveFileId: 2, name: 'a' }]);
   });
 
   it('search_drive 는 q 누락 시 zod 파싱을 거부한다', async () => {
@@ -165,7 +234,7 @@ describe('폴더·파일 정리 (#333 M4, #840, WP-343)', () => {
     const c = mockClient();
     const out = await tool(c, 'create_drive_folder').handler({ spaceId: 1, name: '신규폴더' });
     expect(c.createDriveFolder).toHaveBeenCalledWith(1, null, '신규폴더');
-    expect(JSON.parse(resultText(out))).toEqual({ id: 10, name: '신규폴더' });
+    expect(JSON.parse(resultText(out))).toEqual({ folderId: 10, name: '신규폴더' });
   });
 
   it('create_drive_folder → parentId 지정 시 그대로, 빈 이름·비양수 id 는 거절', async () => {
@@ -180,7 +249,7 @@ describe('폴더·파일 정리 (#333 M4, #840, WP-343)', () => {
     const c = mockClient();
     const out = await tool(c, 'rename_drive_folder').handler({ folderId: 4, name: '새이름' });
     expect(c.renameDriveFolder).toHaveBeenCalledWith(4, '새이름');
-    expect(JSON.parse(resultText(out))).toEqual({ id: 4, name: '새이름' });
+    expect(JSON.parse(resultText(out))).toEqual({ folderId: 4, name: '새이름' });
   });
 
   it('move_drive_folder → targetParentId 생략 시 루트(null)로 이동하고 ok', async () => {

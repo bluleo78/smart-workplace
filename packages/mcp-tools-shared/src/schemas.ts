@@ -4,6 +4,11 @@ import { z } from 'zod';
 /** issueKey 만 받는 최소 입력. */
 export const issueKeyInput = z.object({ issueKey: z.string().min(1) });
 
+/** get_issue_detail 입력 — issueKey 에 코멘트 전체 읽기(allComments)를 더했다(WP-353: 기본은 최근 30건, allComments 는 최근 200건까지). */
+export const getIssueDetailInput = issueKeyInput.extend({
+  allComments: z.boolean().optional().describe('true 면 코멘트를 최근 200건까지 반환(기본은 최근 30건)'),
+});
+
 /** 이슈 생성 입력 — projectKey 필수(위임 컨텍스트 없이 대상 프로젝트 명시). */
 export const createIssueInput = z.object({
   projectKey: z.string().min(1),
@@ -14,7 +19,7 @@ export const createIssueInput = z.object({
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   type: z.string().optional(), // 유형 이름(예: BUG) → typeId 리졸브
   assignees: z.array(z.string()).optional(), // username[] → assigneeIds 리졸브
-  parent: z.number().int().positive().optional(), // 부모 이슈 번호(SUBTASK)
+  parent: z.string().min(1).describe('부모 이슈 키(예: WP-12) — 같은 프로젝트만').optional(), // 부모 이슈 키(WP-12, SUBTASK) — 같은 프로젝트의 이슈여야 한다. 핸들러가 서버용 번호로 옮긴다(#833, WP-353)
 });
 
 /** 이슈 부분 수정 입력 — 전달 필드만 변경. */
@@ -29,7 +34,7 @@ export const updateIssueInput = z.object({
   clearDueDate: z.boolean().optional(),
   clearStartDate: z.boolean().optional(),
   type: z.string().optional(), // 유형 이름 → typeId
-  parent: z.number().int().positive().nullable().optional(), // 번호=설정, null=해제, 생략=변경없음
+  parent: z.string().min(1).nullable().describe('부모 이슈 키(예: WP-12) — 같은 프로젝트만. null 이면 해제').optional(), // 이슈 키(WP-12)=설정, null=해제, 생략=변경없음. 같은 프로젝트만(WP-353)
   assignees: z.array(z.string()).optional(), // username[] → 집합 교체
   labels: z.array(z.string()).optional(), // 라벨명[] → 집합 교체
   milestone: z.string().min(1).nullable().optional(), // 마일스톤 이름 → milestoneId, null=해제(#854)
@@ -90,6 +95,8 @@ export const issueListFilterShape = {
  */
 export const listIssuesInput = z.object({
   ...issueListFilterShape,
+  // WP-352: 이전 호출이 돌려준 nextCursor 를 그대로 넘기면 다음 페이지다. 웹이 params 를 서버에 직접 넘기는 show_issue_list 의 shape 에는 넣지 않는다.
+  cursor: z.string().optional().describe('다음 페이지 커서 — 이전 호출 결과의 nextCursor 를 그대로(필터·size 는 같게)'),
   assignee: z.string().optional().describe(assigneeDescription(' | "any"(담당자 무관 — 프로젝트 전체 이슈)')),
   cycle: z
     .string()

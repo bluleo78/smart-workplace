@@ -25,7 +25,6 @@ const EXPECTED: Record<string, readonly [kind: string, destructive: boolean | nu
   discover_channels: ['read', R, R, R],
   draft_issue_from_mail: ['read', R, R, R],
   draft_mail_reply: ['read', R, R, R],
-  get_channel_messages: ['read', R, R, R],
   get_contact_facets: ['read', R, R, R],
   get_drive_file_summary: ['read', R, R, R],
   get_event: ['read', R, R, R],
@@ -39,6 +38,7 @@ const EXPECTED: Record<string, readonly [kind: string, destructive: boolean | nu
   get_user_group: ['read', R, R, R],
   get_wiki_page: ['read', R, R, R],
   leave_channel: ['write', true, true, false],
+  list_channel_messages: ['read', R, R, R],
   list_channels: ['read', R, R, R],
   list_contacts: ['read', R, R, R],
   list_drive_items: ['read', R, R, R],
@@ -69,6 +69,13 @@ const EXPECTED: Record<string, readonly [kind: string, destructive: boolean | nu
   rename_drive_folder: ['write', true, true, false],
   restore_drive_item: ['write', false, false, false],
   rsvp_event: ['write', true, false, false],
+  // WP-348: 생성은 추가만(로컬 기본 캘린더) — 다시 부르면 또 생겨 비멱등. 수정은 덮어쓰고 참석자를 빼며, M365 동기화 일정이면 그쪽으로 전송된다.
+  create_event: ['write', false, false, false],
+  update_event: ['write', true, false, true],
+  // WP-349: 셋 다 추가만 한다. 같은 키 생성·이미 멤버 추가는 409 라 비멱등이고, 채널 초대만 서버가 이미 멤버를 그대로 두고 성공해 멱등이다.
+  create_project: ['write', false, false, false],
+  add_project_member: ['write', false, false, false],
+  add_channel_member: ['write', false, true, false],
   search_drive: ['read', R, R, R],
   search_drive_content: ['read', R, R, R],
   search_members: ['read', R, R, R],
@@ -131,9 +138,9 @@ describe('toolAnnotations', () => {
     });
   });
 
-  it('원본 메일 서버에 닿는 mark_mail_read·sync_mail 만 openWorld=true 다', () => {
+  it('워크스페이스 밖에 닿는 mark_mail_read·sync_mail(원본 메일 서버)·update_event(M365 동기화 일정)만 openWorld=true 다', () => {
     const open = tools.filter((t) => toolAnnotations(t).openWorldHint).map((t) => t.name);
-    expect(open.sort()).toEqual(['mark_mail_read', 'sync_mail']);
+    expect(open.sort()).toEqual(['mark_mail_read', 'sync_mail', 'update_event']);
   });
 
   it('모든 공유 도구가 title 을 가진다', () => {
@@ -144,7 +151,7 @@ describe('toolAnnotations', () => {
 // 타입 강제 — write·destructive 가 hints 를 빠뜨리면 typecheck 가 실패해야 한다(tsc 가 이 파일도 검사한다).
 describe('SharedTool 타입', () => {
   it('hints 없는 write/destructive 와 hints 가 붙은 read 는 컴파일되지 않는다', () => {
-    const base = { name: 'x', description: 'x', inputSchema: tools[0].inputSchema, handler: async () => 'ok' };
+    const base = { name: 'x', description: 'x', app: 'issue' as const, inputSchema: tools[0].inputSchema, handler: async () => 'ok' };
     // @ts-expect-error write 는 hints 필수
     const noHints: SharedTool = { ...base, kind: 'write' };
     // @ts-expect-error destructive 도 hints 필수
@@ -152,6 +159,8 @@ describe('SharedTool 타입', () => {
     // @ts-expect-error read 는 hints 를 가질 수 없다
     const readWithHints: SharedTool = { ...base, kind: 'read', hints: { destructive: false, idempotent: true } };
     const ok: SharedTool = { ...base, kind: 'write', hints: { destructive: false, idempotent: true } };
-    expect([noHints, noHints2, readWithHints, ok]).toHaveLength(4);
+    // @ts-expect-error app 태그도 필수(WP-350) — 빠뜨리면 앱 선택 연결에서 도구가 어디에도 안 나온다
+    const noApp: SharedTool = { name: 'x', description: 'x', inputSchema: tools[0].inputSchema, handler: async () => 'ok', kind: 'read' };
+    expect([noHints, noHints2, readWithHints, ok, noApp]).toHaveLength(5);
   });
 });

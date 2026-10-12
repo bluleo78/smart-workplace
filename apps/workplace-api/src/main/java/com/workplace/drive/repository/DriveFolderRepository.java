@@ -152,20 +152,28 @@ public class DriveFolderRepository {
   }
 
   public List<DriveFolderResponse> listChildFolders(long spaceId, Long parentId) {
-    Condition parentCond =
-        parentId == null ? DRIVE_FOLDER.PARENT_ID.isNull() : DRIVE_FOLDER.PARENT_ID.eq(parentId);
-    return dsl.select(
-            DRIVE_FOLDER.ID,
-            DRIVE_FOLDER.PARENT_ID,
-            DRIVE_FOLDER.NAME,
-            DRIVE_FOLDER.CREATED_AT,
-            DRIVE_FOLDER.UPDATED_AT)
-        .from(DRIVE_FOLDER)
-        .where(DRIVE_FOLDER.SPACE_ID.eq(spaceId))
-        .and(parentCond)
-        .and(DRIVE_FOLDER.TRASHED_AT.isNull())
-        .orderBy(DRIVE_FOLDER.NAME.asc())
-        .fetch(
+    return listChildFolders(spaceId, parentId, null, 0);
+  }
+
+  /**
+   * 하위 폴더 한 페이지(이름순). limit 이 null 이면 전체(offset 무시) — 페이지 파라미터가 없는 기존 호출이 같은 결과를 받도록 한다(WP-352).
+   */
+  public List<DriveFolderResponse> listChildFolders(
+      long spaceId, Long parentId, Integer limit, int offset) {
+    var query =
+        dsl.select(
+                DRIVE_FOLDER.ID,
+                DRIVE_FOLDER.PARENT_ID,
+                DRIVE_FOLDER.NAME,
+                DRIVE_FOLDER.CREATED_AT,
+                DRIVE_FOLDER.UPDATED_AT)
+            .from(DRIVE_FOLDER)
+            .where(DRIVE_FOLDER.SPACE_ID.eq(spaceId))
+            .and(childCond(parentId))
+            .and(DRIVE_FOLDER.TRASHED_AT.isNull())
+            .orderBy(DRIVE_FOLDER.NAME.asc(), DRIVE_FOLDER.ID.asc());
+    return (limit == null ? query.fetch() : query.limit(limit).offset(offset).fetch())
+        .map(
             r ->
                 new DriveFolderResponse(
                     r.get(DRIVE_FOLDER.ID),
@@ -173,6 +181,21 @@ public class DriveFolderRepository {
                     r.get(DRIVE_FOLDER.NAME),
                     r.get(DRIVE_FOLDER.CREATED_AT),
                     r.get(DRIVE_FOLDER.UPDATED_AT)));
+  }
+
+  /** 하위 폴더 수 — 폴더+파일 합본 페이지에서 폴더 구간과 파일 구간의 경계를 계산하는 데 쓴다(WP-352). */
+  public int countChildFolders(long spaceId, Long parentId) {
+    return dsl.fetchCount(
+        DRIVE_FOLDER,
+        DRIVE_FOLDER
+            .SPACE_ID
+            .eq(spaceId)
+            .and(childCond(parentId))
+            .and(DRIVE_FOLDER.TRASHED_AT.isNull()));
+  }
+
+  private static Condition childCond(Long parentId) {
+    return parentId == null ? DRIVE_FOLDER.PARENT_ID.isNull() : DRIVE_FOLDER.PARENT_ID.eq(parentId);
   }
 
   /** 공간 전체에서 이름에 q 를 포함(대소문자 무시)하는 폴더 — LIKE 와일드카드(%, _)는 리터럴로 이스케이프. */

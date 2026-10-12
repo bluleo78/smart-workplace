@@ -16,6 +16,8 @@ const MAX_PAGES = 10;
 export const listNotificationsInput = z.object({
   unreadOnly: z.boolean().default(false),
   limit: z.number().int().min(1).max(PAGE_SIZE).default(20),
+  // WP-352: 서버 GET /notifications 의 offset(NotificationController). 이전 호출이 돌려준 nextOffset 을 그대로 넘긴다.
+  offset: z.number().int().min(0).default(0).describe('이어 읽을 위치 — 이전 호출 결과의 nextOffset 을 그대로(직접 계산하지 마세요)'),
 });
 export const markNotificationReadInput = z.object({ notificationId: z.number().int().positive() });
 
@@ -37,18 +39,33 @@ export function toNotificationView({
 }
 
 /**
- * 안 읽은 알림을 최신순으로 limit 건까지 모은다. 서버에 안 읽음 필터가 없어 페이지를 넘겨 가며 거른다.
- * 전체 안 읽음 수(unreadCount)만큼 모였거나 마지막 페이지면 멈춘다 — 대부분 첫 페이지에서 끝난다.
+ * 안 읽은 알림을 최신순으로 limit 건까지 모은다. 서버에 안 읽음 필터가 없어 offset 에서부터 페이지를 넘겨 가며 거른다.
+ * 처음부터(offset 0) 읽을 때는 전체 안 읽음 수(unreadCount)만큼 모였거나 마지막 페이지면 멈춘다 — 대부분 첫 페이지에서 끝난다.
+ * offset > 0 이면 앞쪽 안 읽음이 몇 건인지 몰라 unreadCount 로 목표를 줄일 수 없어 끝이나 limit 까지 읽는다.
+ *
+ * nextOffset 은 **서버 목록 기준** 이어 읽을 위치다(WP-352) — 마지막으로 담은 행 바로 뒤. 페이지 끝으로 잡으면 그 사이의 안 읽음이 빠진다.
+ * 더 읽을 게 없으면 undefined. limit 을 채운 경우는 뒤에 안 읽음이 더 남았는지 확실하지 않을 수 있어(offset > 0) 빈 페이지가 올 수 있다.
  */
-async function collectUnread(client: NotificationToolClient, limit: number, unreadCount: number) {
-  const target = Math.min(limit, unreadCount);
+async function collectUnread(client: NotificationToolClient, limit: number, unreadCount: number, offset: number) {
+  const target = offset === 0 ? Math.min(limit, unreadCount) : limit;
   const items: NotificationRow[] = [];
-  for (let page = 0; page < MAX_PAGES && items.length < target; page++) {
-    const rows = await client.listNotifications({ limit: PAGE_SIZE, offset: page * PAGE_SIZE });
-    items.push(...rows.filter((r) => !r.read));
-    if (rows.length < PAGE_SIZE) break;
+  if (target === 0) return { items, nextOffset: undefined };
+  let pos = offset;
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const rows = await client.listNotifications({ limit: PAGE_SIZE, offset: pos });
+    for (const [i, row] of rows.entries()) {
+      if (row.read) continue;
+      items.push(row);
+      if (items.length === target) {
+        const more = offset > 0 || unreadCount > items.length;
+        return { items, nextOffset: more ? pos + i + 1 : undefined };
+      }
+    }
+    pos += rows.length;
+    if (rows.length < PAGE_SIZE) return { items, nextOffset: undefined };
   }
-  return items.slice(0, limit);
+  // 최대 페이지만큼 훑고도 목표를 못 채웠다 — 오래된 쪽에 더 있을 수 있어 여기서부터 이어 읽게 한다.
+  return { items, nextOffset: pos };
 }
 
 /** 알림 도구(list_notifications/mark_notification_read/mark_all_notifications_read). */
@@ -56,31 +73,42 @@ export function buildNotifyTools(client: NotificationToolClient): SharedTool[] {
   return [
     {
       name: 'list_notifications',
+      app: 'notify',
       kind: 'read',
       description:
-        '내 알림 인박스를 최신순으로 JSON({unreadCount, items})으로 반환합니다. unreadCount 는 전체 안 읽은 알림 수입니다. ' +
+        '내 알림 인박스를 최신순으로 JSON({unreadCount, items, hasMore?, nextOffset?})으로 반환합니다. unreadCount 는 전체 안 읽은 알림 수입니다. ' +
         'type: ASSIGNED(담당 지정)·COMMENTED(코멘트)·STATUS_CHANGED·PRIORITY_CHANGED·REMINDER(일정 알림)·CALENDAR_INVITED(일정 초대)·CALENDAR_RSVP_CHANGED(참석 응답 변경). ' +
-        '이슈 알림은 issueKey, 일정 알림은 eventId 를 담습니다. unreadOnly=true 면 안 읽은 알림만 돌려줍니다. limit 기본 20(최대 100).',
+        '이슈 알림은 issueKey, 일정 알림은 eventId 를 담습니다. unreadOnly=true 면 안 읽은 알림만 돌려줍니다. limit 기본 20(최대 100). ' +
+        '더 오래된 알림이 있을 수 있으면 hasMore:true 와 nextOffset 이 오니, nextOffset 을 offset 으로 넘겨 이어 조회하거나(같은 unreadOnly·limit 으로), ' +
+        '이어 조회하지 않고 답한다면 일부만 본 것이라고 밝히세요. 서버가 총 개수를 주지 않아 마지막 페이지가 꽉 차면 다음 페이지가 비어 있을 수 있고, 그러면 끝입니다.',
       inputSchema: listNotificationsInput,
       async handler(args) {
-        const { unreadOnly, limit } = listNotificationsInput.parse(args);
+        const { unreadOnly, limit, offset } = listNotificationsInput.parse(args);
         // unreadOnly 는 모을 목표치(unreadCount)가 먼저 필요하고, 아니면 두 조회가 독립이라 병렬로 부른다.
         let unreadCount: number;
         let rows: NotificationRow[];
+        let nextOffset: number | undefined;
         if (unreadOnly) {
           unreadCount = await client.countUnreadNotifications();
-          rows = await collectUnread(client, limit, unreadCount);
+          ({ items: rows, nextOffset } = await collectUnread(client, limit, unreadCount, offset));
         } else {
           [unreadCount, rows] = await Promise.all([
             client.countUnreadNotifications(),
-            client.listNotifications({ limit, offset: 0 }),
+            client.listNotifications({ limit, offset }),
           ]);
+          // 서버는 총 개수·마지막 페이지 여부를 주지 않는다 — 한 페이지가 꽉 찼으면 더 있을 수 있다고 본다.
+          if (rows.length >= limit) nextOffset = offset + rows.length;
         }
-        return JSON.stringify({ unreadCount, items: rows.map(toNotificationView) });
+        return JSON.stringify({
+          unreadCount,
+          items: rows.map(toNotificationView),
+          ...(nextOffset !== undefined && { hasMore: true, nextOffset }),
+        });
       },
     },
     {
       name: 'mark_notification_read',
+      app: 'notify',
       kind: 'write',
       hints: { destructive: true, idempotent: true },
       description: '알림 하나를 읽음 처리합니다. notificationId 는 list_notifications 결과의 값입니다. 이미 읽은 알림이어도 오류 없이 성공합니다.',
@@ -93,6 +121,7 @@ export function buildNotifyTools(client: NotificationToolClient): SharedTool[] {
     },
     {
       name: 'mark_all_notifications_read',
+      app: 'notify',
       kind: 'write',
       hints: { destructive: true, idempotent: true },
       description: '내 알림을 모두 읽음 처리합니다. 사용자가 "알림 다 읽음으로" 처럼 전체 처리를 요청했을 때만 호출하세요.',

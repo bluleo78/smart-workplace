@@ -41,12 +41,17 @@ public class CalendarEventController {
     return ResponseEntity.ok(service.get(callerId, id));
   }
 
-  /** 일정 생성. */
+  /**
+   * 일정 생성. notify=false 면 초대 참석자에게 인박스 알림을 보내지 않는다(WP-348, 외부 MCP create_event 의 알림 입력). 생략하면 알림을
+   * 보낸다(기존 동작).
+   */
   @PostMapping
   @RequirePermission("calendar:write")
   public ResponseEntity<CalendarEventResponse> create(
-      @AuthenticationPrincipal Long callerId, @Valid @RequestBody CalendarEventRequest req) {
-    return ResponseEntity.status(HttpStatus.CREATED).body(service.create(callerId, req));
+      @AuthenticationPrincipal Long callerId,
+      @Valid @RequestBody CalendarEventRequest req,
+      @RequestParam(defaultValue = "true") boolean notify) {
+    return ResponseEntity.status(HttpStatus.CREATED).body(service.create(callerId, req, notify));
   }
 
   /**
@@ -75,14 +80,15 @@ public class CalendarEventController {
     return ResponseEntity.noContent().build();
   }
 
-  /** 참석자 추가. 주최자만 가능. */
+  /** 참석자 추가. 주최자만 가능. notify=false 면 새 참석자에게 인박스 알림을 보내지 않는다(WP-348). 생략하면 알림을 보낸다. */
   @PostMapping("/{id}/attendees")
   @RequirePermission("calendar:write")
   public ResponseEntity<Void> invite(
       @AuthenticationPrincipal Long callerId,
       @PathVariable long id,
-      @Valid @RequestBody InviteAttendeesRequest req) {
-    service.inviteAttendees(callerId, id, req.userIds());
+      @Valid @RequestBody InviteAttendeesRequest req,
+      @RequestParam(defaultValue = "true") boolean notify) {
+    service.inviteAttendees(callerId, id, req.userIds(), notify);
     return ResponseEntity.noContent().build();
   }
 

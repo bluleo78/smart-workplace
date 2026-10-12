@@ -25,6 +25,8 @@ export const TOOL_LABELS: Readonly<Record<string, ToolLabel>> = {
   list_projects: { label: '프로젝트 목록', icon: '🗂️' },
   get_project: { label: '프로젝트 조회', icon: '🗂️' },
   update_project: { label: '프로젝트 수정', icon: '✏️' },
+  create_project: { label: '프로젝트 생성', icon: '🗂️' },
+  add_project_member: { label: '프로젝트 멤버 추가', icon: '👥' },
   // 노트
   search_wiki: { label: '노트 검색', icon: '🔍' },
   list_wiki_spaces: { label: '노트 공간 조회', icon: '📚' },
@@ -42,16 +44,19 @@ export const TOOL_LABELS: Readonly<Record<string, ToolLabel>> = {
   // 메시징
   list_channels: { label: '채널 목록', icon: '📋' },
   discover_channels: { label: '채널 탐색', icon: '🔍' },
-  get_channel_messages: { label: '채널 메시지 조회', icon: '💬' },
+  list_channel_messages: { label: '채널 메시지 조회', icon: '💬' },
   list_thread_replies: { label: '스레드 답글 조회', icon: '🧵' },
   add_channel_message: { label: '채널 메시지 작성', icon: '💬' },
   create_channel: { label: '채널 생성', icon: '➕' },
   leave_channel: { label: '채널 나가기', icon: '🚪' },
+  add_channel_member: { label: '채널 초대', icon: '👥' },
   open_dm: { label: 'DM 열기', icon: '✉️' },
   // 캘린더
   list_events: { label: '일정 조회', icon: '📅' },
   get_event: { label: '일정 상세', icon: '📅' },
   rsvp_event: { label: '일정 참석 응답', icon: '📅' },
+  create_event: { label: '일정 생성', icon: '📅' },
+  update_event: { label: '일정 수정', icon: '📅' },
   // 메일
   list_mail_accounts: { label: '메일 계정 조회', icon: '📧' },
   list_mail: { label: '메일 목록', icon: '📧' },

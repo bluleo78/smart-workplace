@@ -10,7 +10,9 @@ const MCP_SENTINEL = { __sentinel: 'workplace-mcp' };
 vi.mock('./sdk-mcp-server.js', () => ({
   buildInProcessWorkplaceMcpServer: vi.fn(() => MCP_SENTINEL),
 }));
-vi.mock('./subagent-loader.js', () => ({
+// WP-351: 라우터 정의(ROUTER_AGENT_NAME·toRouterAgentDefinition)는 실제 구현을 쓴다.
+vi.mock('./subagent-loader.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./subagent-loader.js')>()),
   loadSubagents: vi.fn(() => ({ 'issue-agent': { description: 'd', tools: [], prompt: 'p' } })),
   toAgentDefinitions: vi.fn((defs: Record<string, unknown>) => ({
     ...Object.fromEntries(Object.keys(defs).map((k) => [k, { __agentDef: k }])),
@@ -20,7 +22,8 @@ vi.mock('./subagent-loader.js', () => ({
 import { ClaudeSdkRunner } from './claude-sdk-runner.js';
 import { runSdkCollect, runSdkStream } from './sdk-runner.js';
 import { buildInProcessWorkplaceMcpServer } from './sdk-mcp-server.js';
-import { loadSubagents, toAgentDefinitions } from './subagent-loader.js';
+import { loadSubagents, ROUTER_AGENT_NAME, toAgentDefinitions } from './subagent-loader.js';
+import { ASSISTANT_ROUTER_TOOLS } from '../mcp/tools.js';
 import type { RunnerInput } from './agent-runner.js';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
 
@@ -143,6 +146,37 @@ describe('ClaudeSdkRunner.collect', () => {
     expect(toAgentDefinitions).toHaveBeenCalled();
     const arg = vi.mocked(runSdkCollect).mock.calls[0][0];
     expect(arg.agents).toEqual({ 'issue-agent': { __agentDef: 'issue-agent' } });
+  });
+
+  // WP-351: assistant 위임 실행은 메인 스레드를 라우터 에이전트로 돌린다 — 라우터 도구 + Agent 만 싣고, 서브에이전트 정의는 그대로.
+  it('assistant + allowSubagents 면 라우터 메인 스레드 에이전트를 agents 에 더하고 mainAgent 로 지정', async () => {
+    vi.mocked(runSdkCollect).mockResolvedValue([]);
+    const client = { getOAuthToken: vi.fn() } as unknown as WorkplaceApiClient;
+    await new ClaudeSdkRunner().collect(
+      baseInput({ allowSubagents: true, mcp: { client, profile: 'assistant', onBehalfOfId: 9 } }),
+    );
+    const arg = vi.mocked(runSdkCollect).mock.calls[0][0];
+    expect(arg.mainAgent).toBe(ROUTER_AGENT_NAME);
+    expect(arg.agents?.['issue-agent']).toEqual({ __agentDef: 'issue-agent' });
+    expect(arg.agents?.[ROUTER_AGENT_NAME]).toEqual({
+      description: expect.any(String),
+      prompt: 'sys',
+      model: 'claude-sonnet-4-6',
+      tools: [...ASSISTANT_ROUTER_TOOLS.map((n) => `mcp__workplace__${n}`), 'Agent(issue-agent)'],
+    });
+  });
+
+  it('assistant 가 아니거나 위임하지 않으면 라우터 에이전트·mainAgent 없음', async () => {
+    vi.mocked(runSdkCollect).mockResolvedValue([]);
+    const client = { getOAuthToken: vi.fn() } as unknown as WorkplaceApiClient;
+    await new ClaudeSdkRunner().collect(
+      baseInput({ allowSubagents: true, mcp: { client, profile: 'messaging', onBehalfOfId: 9 } }),
+    );
+    await new ClaudeSdkRunner().collect(baseInput({ mcp: { client, profile: 'assistant', onBehalfOfId: 9 } }));
+    for (const [arg] of vi.mocked(runSdkCollect).mock.calls) {
+      expect(arg.mainAgent).toBeUndefined();
+      expect(arg.agents?.[ROUTER_AGENT_NAME]).toBeUndefined();
+    }
   });
 
   it('allowSubagents 미지정 시 agents 미전달', async () => {

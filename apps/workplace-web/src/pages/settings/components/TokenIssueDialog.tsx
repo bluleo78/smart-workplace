@@ -2,6 +2,8 @@
 // 닫으면 다시 표시되지 않으므로 destructive 톤 경고 + 복사 버튼을 제공하고,
 // 외부 도구(Claude Code) 연결을 바로 할 수 있도록 MCP 연결 명령도 함께 안내한다.
 
+// WP-350: 앱 목록은 공유 패키지 소스(순수 모듈 — 번들에 zod·도구 핸들러가 들어오지 않는다)에서 가져와 하드코딩이 어긋나지 않게 한다.
+import { TOOL_APPS } from '@smart-workplace/mcp-tools-shared/tool-apps';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
@@ -93,6 +95,24 @@ export function TokenIssueDialog({
             >
               명령 복사
             </Button>
+            {/* WP-350: 기본 주소는 전체 도구를 싣는다 — Claude·ChatGPT 는 도구 정의를 전부 읽으므로 필요한 앱만, 또는 읽기 전용으로 좁히는 방법을 알린다. */}
+            <div className="space-y-1 pt-2 text-xs text-muted-foreground" data-testid="token-connect-scope-guide">
+              <p>
+                기본 주소(<code className="font-mono">/mcp</code>)는 모든 앱의 도구를 연결합니다. 주소 끝을 바꾸면 범위를 좁힐 수 있습니다.
+              </p>
+              <ul className="list-disc space-y-0.5 pl-4">
+                <li>
+                  <code className="font-mono">/mcp/x/issue,wiki</code> — 이슈·노트 도구만
+                </li>
+                <li>
+                  <code className="font-mono">/mcp/readonly</code> — 조회 도구만(읽기 전용)
+                </li>
+                <li>
+                  <code className="font-mono">/mcp/x/issue,wiki/readonly</code> — 앱 선택 + 읽기 전용
+                </li>
+              </ul>
+              <p>앱: {TOOL_APPS.join(', ')}</p>
+            </div>
           </div>
 
           <DialogFooter>

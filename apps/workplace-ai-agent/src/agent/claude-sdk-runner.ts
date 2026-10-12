@@ -5,7 +5,8 @@ import type { AgentRunner, ProviderCredential, RunnerInput, RunnerStreamHandle }
 import type { SdkRunInput } from './sdk-runner.js';
 import { runSdkCollect, runSdkStream } from './sdk-runner.js';
 import { buildInProcessWorkplaceMcpServer } from './sdk-mcp-server.js';
-import { loadSubagents, toAgentDefinitions } from './subagent-loader.js';
+import { loadSubagents, ROUTER_AGENT_NAME, toAgentDefinitions, toRouterAgentDefinition } from './subagent-loader.js';
+import { routerToolsFor } from '../mcp/tools.js';
 import { mapSdkMessage, type RunnerEvent } from './runner-events.js';
 
 // credential 이 anthropic 이 아니면 이 러너를 쓸 수 없음(팩토리가 보장하지만 방어적으로 재확인).
@@ -36,8 +37,22 @@ function toSdkRunInput(i: RunnerInput): SdkRunInput {
   }
 
   let agents: Record<string, AgentDefinition> | undefined;
+  let mainAgent: string | undefined;
   if (i.allowSubagents) {
-    agents = toAgentDefinitions(loadSubagents());
+    const subagents = loadSubagents();
+    agents = toAgentDefinitions(subagents);
+    // WP-351: 라우터 도구가 정해진 프로필(assistant)이면 메인 스레드를 라우터 에이전트로 돌려 라우터가 싣는 도구를 좁힌다.
+    // MCP 서버는 전 도구 그대로라 서브에이전트는 자기 도구를 계속 쓴다.
+    const routerTools = routerToolsFor(i.mcp?.profile);
+    if (routerTools) {
+      agents[ROUTER_AGENT_NAME] = toRouterAgentDefinition(routerTools, {
+        prompt: i.systemPrompt,
+        model: i.model,
+        subagents: Object.keys(subagents), // 우리 서브에이전트만 위임 대상(내장 에이전트 제외)
+        allowFileRead: i.allowFileRead,
+      });
+      mainAgent = ROUTER_AGENT_NAME;
+    }
   }
 
   return {
@@ -57,6 +72,7 @@ function toSdkRunInput(i: RunnerInput): SdkRunInput {
     cwd: i.cwd,
     mcpServers,
     agents,
+    mainAgent,
   };
 }
 

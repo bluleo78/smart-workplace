@@ -187,4 +187,54 @@ class CalendarAttendeeNotifyTest extends IntegrationTestBase {
     // 주최자 == actor → self-notify 없음
     assertThat(notifCount(org, eventId, "CALENDAR_RSVP_CHANGED")).isEqualTo(0);
   }
+
+  /** 참석자 행 존재 여부 — 알림을 꺼도 초대(참석자 행)는 그대로 생겨야 한다. */
+  private boolean isAttendee(long eventId, long userId) {
+    return service.get(userId, eventId).myRsvpStatus() != null;
+  }
+
+  @Test
+  @DisplayName("WP-348: notify=false 로 만들면 초대는 되지만 CALENDAR_INVITED 알림은 생기지 않는다")
+  void create_notifyFalse_invitesWithoutNotification() throws Exception {
+    long org = seedUser("org");
+    long guest = seedUser("g");
+    long eventId =
+        service.create(org, newReq("미팅", NOW, NOW.plusHours(1), List.of(guest)), false).id();
+    createdEventIds.add(eventId);
+
+    // 비동기 처리 시간 충분히 대기 후 알림 없음 확인
+    Thread.sleep(500);
+    assertThat(notifCount(guest, eventId, "CALENDAR_INVITED")).isEqualTo(0);
+    assertThat(isAttendee(eventId, guest)).isTrue();
+  }
+
+  @Test
+  @DisplayName("WP-348: create(.., true) 는 기존과 같이 CALENDAR_INVITED 알림을 만든다")
+  void create_notifyTrue_createsInvitedNotification() {
+    long org = seedUser("org");
+    long guest = seedUser("g");
+    long eventId =
+        service.create(org, newReq("미팅", NOW, NOW.plusHours(1), List.of(guest)), true).id();
+    createdEventIds.add(eventId);
+
+    await()
+        .atMost(Duration.ofSeconds(3))
+        .untilAsserted(
+            () -> assertThat(notifCount(guest, eventId, "CALENDAR_INVITED")).isEqualTo(1));
+  }
+
+  @Test
+  @DisplayName("WP-348: inviteAttendees(.., false) 는 참석자만 추가하고 알림은 만들지 않는다")
+  void inviteAttendees_notifyFalse_addsWithoutNotification() throws Exception {
+    long org = seedUser("org");
+    long guest = seedUser("g");
+    long eventId = service.create(org, newReq("미팅", NOW, NOW.plusHours(1), List.of())).id();
+    createdEventIds.add(eventId);
+
+    service.inviteAttendees(org, eventId, List.of(guest), false);
+
+    Thread.sleep(500);
+    assertThat(notifCount(guest, eventId, "CALENDAR_INVITED")).isEqualTo(0);
+    assertThat(isAttendee(eventId, guest)).isTrue();
+  }
 }

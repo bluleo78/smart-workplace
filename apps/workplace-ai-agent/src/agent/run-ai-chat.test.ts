@@ -1476,6 +1476,28 @@ describe('runAiChatStream — 메인 AI 채팅 첨부 (WP-234)', () => {
     expect(runnerInput().userMessage).toContain('이미지·문서 모두 read_chat_attachment');
   });
 
+  // WP-351: 라우터 규칙은 러너별 — opencode primary 는 위임 도구가 꺼져 쓰기·propose_* 를 직접 하므로 직접 제안 규칙을 받는다.
+  it('opencode: 시스템 프롬프트는 쓰기 도구가 없다고 하지 않고 #842 직접 재제안 규칙을 담는다', async () => {
+    (fakeClient as { getProviderCredential: ReturnType<typeof vi.fn> }).getProviderCredential =
+      vi.fn().mockResolvedValue(opencodeCred);
+    opencodeVisionFor.mockResolvedValue({ value: true });
+    await run({ model: 'custom/x' });
+    const sys = runnerInput().systemPrompt;
+    expect(sys).not.toContain('라우터에는 쓰기·확인 카드');
+    expect(sys).toContain('오류 문구에 담긴 사유를 읽고 파라미터를 고쳐 다시 제안');
+    expect(sys).toContain('사유를 반영해 파라미터를 고친 뒤 새로 제안한다');
+  });
+
+  it('anthropic: 시스템 프롬프트는 위임 전용 라우터 규칙을 담는다', async () => {
+    (fakeClient as { getProviderCredential: ReturnType<typeof vi.fn> }).getProviderCredential =
+      vi.fn().mockResolvedValue({ provider: 'anthropic', token: 't', model: null });
+    await run({});
+    const sys = runnerInput().systemPrompt;
+    expect(sys).toContain('라우터에는 쓰기·확인 카드');
+    expect(sys).toContain('확인 카드는 서브에이전트가 만든다');
+    expect(sys).not.toContain('오류 문구에 담긴 사유를 읽고 파라미터를 고쳐 다시 제안');
+  });
+
   it('빈 query(첨부만 전송) → 현재 요청은 기본 문구', async () => {
     await run({ query: '', sessionId: SID, attachments: [pdf] });
     expect(runnerInput().userMessage.endsWith('현재 요청: 첨부한 파일을 확인해 주세요.')).toBe(true);

@@ -85,24 +85,33 @@ describe('createSharedToolClient 경로 매핑', () => {
     });
   });
 
-  it('listIssues 는 /me/issues 에 쿼리를 그대로 싣고 items 를 벗긴다', async () => {
+  it('listIssues 는 /me/issues 에 쿼리(cursor 포함)를 그대로 싣고 { items, nextCursor, hasMore } 를 돌려준다(WP-352)', async () => {
     const { http, client } = mockHttp();
-    http.get.mockResolvedValue({ data: { items: [{ issueKey: 'WP-1' }] } });
-    expect(await client.listIssues({ assignee: 'me', size: 30 })).toEqual([{ issueKey: 'WP-1' }]);
-    expect(http.get).toHaveBeenCalledWith('/me/issues', { params: { assignee: 'me', size: 30 } });
+    http.get.mockResolvedValue({ data: { items: [{ issueKey: 'WP-1' }], nextCursor: 'c2', hasMore: true } });
+    expect(await client.listIssues({ assignee: 'me', size: 30, cursor: 'c1' })).toEqual({
+      items: [{ issueKey: 'WP-1' }],
+      nextCursor: 'c2',
+      hasMore: true,
+    });
+    expect(http.get).toHaveBeenCalledWith('/me/issues', { params: { assignee: 'me', size: 30, cursor: 'c1' } });
+    http.get.mockResolvedValue({ data: { items: [{ issueKey: 'WP-2' }], nextCursor: null, hasMore: false } });
+    expect(await client.listIssues({})).toEqual({ items: [{ issueKey: 'WP-2' }], nextCursor: null, hasMore: false });
     http.get.mockResolvedValue({ data: null });
-    expect(await client.listIssues({})).toEqual([]);
+    expect(await client.listIssues({})).toEqual({ items: [], nextCursor: undefined, hasMore: undefined });
   });
 
-  it('listProjects 는 {content} 래퍼와 bare 배열을 모두 처리한다', async () => {
+  it('listProjects 는 Spring 페이지의 total·다음 페이지 여부(page+1<totalPages)를 보존하고 bare 배열도 처리한다(WP-352)', async () => {
     const { http, client } = mockHttp();
-    http.get.mockResolvedValueOnce({ data: { content: [{ key: 'WP' }] } });
-    expect(await client.listProjects(0, 50)).toEqual([{ key: 'WP' }]);
+    http.get.mockResolvedValueOnce({ data: { content: [{ key: 'WP' }], page: 0, size: 50, totalElements: 120, totalPages: 3 } });
+    expect(await client.listProjects(0, 50)).toEqual({ items: [{ key: 'WP' }], total: 120, hasMore: true, page: 0 });
     expect(http.get).toHaveBeenCalledWith('/projects', { params: { page: 0, size: 50 } });
+    // 마지막 페이지
+    http.get.mockResolvedValueOnce({ data: { content: [{ key: 'ZZ' }], page: 2, size: 50, totalElements: 120, totalPages: 3 } });
+    expect(await client.listProjects(2, 50)).toEqual({ items: [{ key: 'ZZ' }], total: 120, hasMore: false, page: 2 });
     http.get.mockResolvedValueOnce({ data: [{ key: 'AB' }] });
-    expect(await client.listProjects(0, 50)).toEqual([{ key: 'AB' }]);
+    expect(await client.listProjects(0, 50)).toEqual({ items: [{ key: 'AB' }], hasMore: false, page: 0 });
     http.get.mockResolvedValueOnce({ data: null });
-    expect(await client.listProjects(0, 50)).toEqual([]);
+    expect(await client.listProjects(0, 50)).toEqual({ items: [], total: undefined, hasMore: false, page: 0 });
   });
 
   it('searchWikiPages(query) 는 /wiki/search 에 params {q} 로 보낸다', async () => {
@@ -157,6 +166,16 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(await client.searchMembers(params)).toEqual([]);
   });
 
+  it('searchMembersPage 는 같은 /members 경로에서 total·다음 페이지 여부를 함께 돌려준다(WP-352)', async () => {
+    const { http, client } = mockHttp();
+    const params = { search: 'kim', kind: 'ALL' as const, page: 1, size: 20 };
+    http.get.mockResolvedValueOnce({
+      data: { content: [{ userId: 1, username: 'kim', name: '김' }], page: 1, size: 20, totalElements: 45, totalPages: 3 },
+    });
+    expect(await client.searchMembersPage(params)).toEqual({ items: [{ userId: 1, username: 'kim', name: '김' }], total: 45, hasMore: true, page: 1 });
+    expect(http.get).toHaveBeenCalledWith('/members', { params });
+  });
+
   it('연락처 경로 — 구성원은 /contacts/members/{userId}, 외부는 /contacts/external/{id}', async () => {
     const { http, client } = mockHttp();
     await client.getMemberContact(3);
@@ -167,13 +186,17 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(http.get).toHaveBeenNthCalledWith(3, '/contacts', { params: { limit: 20 } });
   });
 
-  it('getChannelMessages 는 limit 을 params 로 보내고 items 를 추출한다', async () => {
+  it('listChannelMessages 는 limit·cursor 를 params 로 보내고 { items, nextCursor, hasMore } 를 돌려준다(WP-352)', async () => {
     const { http, client } = mockHttp();
-    http.get.mockResolvedValueOnce({ data: { items: [{ id: 1 }], nextCursor: null } });
-    expect(await client.getChannelMessages(7, 50)).toEqual([{ id: 1 }]);
-    expect(http.get).toHaveBeenCalledWith('/messaging/channels/7/messages', { params: { limit: 50 } });
+    http.get.mockResolvedValueOnce({ data: { items: [{ id: 1 }], nextCursor: 'n1', hasMore: true } });
+    expect(await client.listChannelMessages(7, { limit: 50 })).toEqual({ items: [{ id: 1 }], nextCursor: 'n1', hasMore: true });
+    // cursor 를 안 주면 params 에 싣지 않는다.
+    expect(http.get).toHaveBeenLastCalledWith('/messaging/channels/7/messages', { params: { limit: 50 } });
+    http.get.mockResolvedValueOnce({ data: { items: [], nextCursor: null, hasMore: false } });
+    await client.listChannelMessages(7, { limit: 50, cursor: 'n1' });
+    expect(http.get).toHaveBeenLastCalledWith('/messaging/channels/7/messages', { params: { limit: 50, cursor: 'n1' } });
     http.get.mockResolvedValueOnce({ data: null });
-    expect(await client.getChannelMessages(7, 50)).toEqual([]);
+    expect(await client.listChannelMessages(7, { limit: 50 })).toEqual({ items: [], nextCursor: undefined, hasMore: undefined });
   });
 
   it('addChannelMessage 는 parentMessageId 를 본문에 실어 POST', async () => {
@@ -188,6 +211,14 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(http.get).toHaveBeenNthCalledWith(1, '/drive/spaces/3/items', { params: undefined });
     await client.listDriveItems(3, 8);
     expect(http.get).toHaveBeenNthCalledWith(2, '/drive/spaces/3/items', { params: { parentId: 8 } });
+  });
+
+  it('listDriveItems 는 page 를 주면 limit·offset 을 params 로 싣고(WP-352), 안 주면 싣지 않는다', async () => {
+    const { http, client } = mockHttp();
+    await client.listDriveItems(3, undefined, { limit: 201, offset: 0 });
+    expect(http.get).toHaveBeenNthCalledWith(1, '/drive/spaces/3/items', { params: { limit: 201, offset: 0 } });
+    await client.listDriveItems(3, 8, { limit: 11, offset: 20 });
+    expect(http.get).toHaveBeenNthCalledWith(2, '/drive/spaces/3/items', { params: { parentId: 8, limit: 11, offset: 20 } });
   });
 
   it('searchDrive 는 q 를 params 로 보낸다', async () => {
@@ -264,6 +295,18 @@ describe('createSharedToolClient 경로 매핑', () => {
     const { http, client } = mockHttp();
     await client.rsvpEvent(7, 'TENTATIVE');
     expect(http.patch).toHaveBeenCalledWith('/calendar/events/7/rsvp', { status: 'TENTATIVE' });
+    // WP-348: 일정 생성·수정·참석자 — 알림 여부는 쿼리(notify), 반복 범위는 쿼리(scope·occurrenceDate)로 보낸다.
+    const body = { title: 't', startsAt: 'a', endsAt: 'b', allDay: false };
+    await client.createEvent({ ...body, attendeeUserIds: [2] }, { notify: false });
+    expect(http.post).toHaveBeenCalledWith('/calendar/events', { ...body, attendeeUserIds: [2] }, { params: { notify: false } });
+    await client.updateEvent(7, body, { scope: 'ALL' });
+    expect(http.patch).toHaveBeenCalledWith('/calendar/events/7', body, { params: { scope: 'ALL' } });
+    await client.updateEvent(7, body, { scope: 'THIS', occurrenceDate: 'o' });
+    expect(http.patch).toHaveBeenCalledWith('/calendar/events/7', body, { params: { scope: 'THIS', occurrenceDate: 'o' } });
+    await client.addEventAttendees(7, [2, 3], { notify: true });
+    expect(http.post).toHaveBeenCalledWith('/calendar/events/7/attendees', { userIds: [2, 3] }, { params: { notify: true } });
+    await client.removeEventAttendee(7, 3);
+    expect(http.delete).toHaveBeenCalledWith('/calendar/events/7/attendees/3');
     await client.getChannel(9);
     expect(http.get).toHaveBeenCalledWith('/messaging/channels/9');
     await client.createChannel({ name: 'c', visibility: 'PRIVATE' });
@@ -282,6 +325,19 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(http.post).toHaveBeenCalledWith('/mail/messages/3/issue', { projectKey: 'WP', title: 't' });
     await client.markMailRead(3);
     expect(http.post).toHaveBeenCalledWith('/mail/messages/3/read');
+  });
+
+  it('WP-349: 프로젝트 생성·멤버 추가·채널 초대 경로(확인 카드 실행기와 같은 서비스 메서드에 닿는 REST)', async () => {
+    const { http, client } = mockHttp();
+    http.post.mockResolvedValueOnce({ data: { key: 'NEW' } });
+    expect(await client.createProject({ key: 'NEW', name: 'n', type: 'TEAM' })).toEqual({ key: 'NEW' });
+    expect(http.post).toHaveBeenLastCalledWith('/projects', { key: 'NEW', name: 'n', type: 'TEAM' });
+    http.post.mockResolvedValueOnce({ data: { userId: 5, username: 'minsu', role: 'MEMBER' } });
+    expect(await client.addProjectMember('A B', { userId: 5, role: 'MEMBER' })).toEqual({ userId: 5, username: 'minsu', role: 'MEMBER' });
+    // 프로젝트 키는 경로 세그먼트라 인코딩한다(다른 프로젝트 경로와 같은 규칙).
+    expect(http.post).toHaveBeenLastCalledWith('/projects/A%20B/members', { userId: 5, role: 'MEMBER' });
+    await client.addChannelMember(9, 5);
+    expect(http.post).toHaveBeenLastCalledWith('/messaging/channels/9/members', { userId: 5 });
   });
 
   it('getMailLinkedIssue 는 서버의 { issueKey: null } 을 null 로 바꾼다', async () => {
@@ -343,6 +399,13 @@ describe('createSharedToolClient WP-343 이동 도구 경로', () => {
     http.post.mockResolvedValueOnce({ data: { saved: 5 } });
     expect(await client.syncMail(3)).toEqual({ saved: 5 });
     expect(http.post).toHaveBeenCalledWith('/mail/accounts/3/sync', {});
+  });
+
+  it('메일 동기화 진행 상태는 GET /mail/accounts/{id}/sync-status 의 응답을 그대로 돌려준다(WP-353)', async () => {
+    const { http, client } = mockHttp();
+    http.get.mockResolvedValueOnce({ data: { phase: 'LIST', total: 0, done: 0, running: true } });
+    expect(await client.getMailSyncStatus(3)).toEqual({ phase: 'LIST', total: 0, done: 0, running: true });
+    expect(http.get).toHaveBeenCalledWith('/mail/accounts/3/sync-status');
   });
 
   it('채널 탐색은 q 를 쿼리로 보내고 비배열 응답은 빈 배열로 대체한다', async () => {

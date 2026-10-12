@@ -2,22 +2,46 @@
 import { z } from 'zod';
 
 import {
+  addChannelMemberInput,
+  addProjectMemberInput,
   buildSharedTools,
-  findMemberByUsername,
+  createProjectInput,
   issueListFilterShape,
+  listConflicts as listConflictsShared,
+  NO_ATTENDEE_TO_ADD,
   normalizeTimezone,
   parseIssueKey,
   READ_ATTACHMENT_DEFAULT_LIMIT,
   readRangeShape,
+  requireActiveMember as requireActiveMemberShared,
+  requireMember,
+  resolveAttendees as resolveAttendeesShared,
+  resolveAttendeeToRemove,
   resolveRange,
+  toCreateProjectBody,
   toolAnnotations,
   type McpTool,
+  type MemberRow,
 } from '@smart-workplace/mcp-tools-shared';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
 import { buildReadChatAttachmentTool } from './home-attachment-tool.js';
 
 // sdk-mcp-server.ts / stdio-entry.ts 가 './tools.js' 에서 McpTool 을 계속 import 하므로 재-export 유지.
 export type { McpTool };
+
+/**
+ * WP-348: AI Chat 에 싣지 않는 공유 도구 → 같은 작업을 하는 확인 카드. 외부 MCP 는 직접 실행 도구를, AI Chat 은 확인 카드를 쓴다
+ * (경로마다 도구 하나 — WP-347). 둘은 참석자 해석·시간대 보정·충돌 계산을 공유 헬퍼로 같이 쓴다. sharedTool() 이 이 이름을 거부하고,
+ * tools.test.ts 의 "공유 도구 전부 노출" 검사는 이 목록만 빼고 본다.
+ * WP-349: 프로젝트 생성·멤버 추가·채널 초대도 같다 — 입력 스키마와 대상 구성원 판정(requireActiveMember)을 공유한다.
+ */
+export const CARD_ONLY_SHARED_TOOLS: Readonly<Record<string, readonly string[]>> = {
+  create_event: ['propose_create_event'],
+  update_event: ['propose_update_event', 'propose_add_attendees', 'propose_remove_attendee'],
+  create_project: ['propose_create_project'],
+  add_project_member: ['propose_add_project_member'],
+  add_channel_member: ['propose_add_channel_member'],
+};
 
 const issueKey = z.object({ issueKey: z.string().min(1) });
 // 6c: chat 프로필 도구 입력.
@@ -57,20 +81,13 @@ const proposeDeleteContactInput = z.object({ externalId: z.number().int().positi
 const proposeDeleteUserGroupInput = z.object({ groupId: z.number().int().positive(), summary: z.string().min(1) });
 
 // #333 M3: 프로젝트 제안 입력. #846: 프로젝트는 조회 도구(get_project 등)와 같은 이름 projectKey 로 가리킨다.
-// 실행기(ConfirmActionDispatcher)는 params.key 를 읽으므로 핸들러가 key 로 옮겨 담는다.
-const proposeCreateProjectInput = z.object({
-  projectKey: z.string().regex(/^[A-Z][A-Z0-9]{1,9}$/),
-  name: z.string().min(1).max(120),
-  description: z.string().max(2000).optional(),
-  type: z.string().optional(),
-  summary: z.string().min(1),
-});
+// 실행기(ConfirmActionDispatcher)는 params.key 를 읽으므로 핸들러가 key 로 옮겨 담는다(toCreateProjectBody).
+// WP-349: 필드는 외부 MCP create_project 와 같은 공유 스키마에 summary 만 더한다 — 형식 검사가 두 벌로 갈리지 않게.
+const proposeCreateProjectInput = createProjectInput.extend({ summary: z.string().min(1) });
 const proposeDeleteProjectInput = z.object({ projectKey: z.string().min(1), summary: z.string().min(1) });
-const proposeAddProjectMemberInput = z.object({
-  projectKey: z.string().min(1),
-  // #833: 숫자 id 대신 username 을 받는다. 이슈 도구(create_issue 의 assignees)와 같은 방식이며,
-  // LLM 표면에 숫자 식별자를 노출하지 않으면 "연락처 id 를 userId 로 넣는" 사고 자체가 불가능해진다.
-  username: z.string().min(1),
+// #833: 사람은 숫자 id 대신 username 으로 받는다. WP-349: 외부 MCP add_project_member 와 같은 공유 기반에 role·summary 를 더한다.
+// role(OWNER 포함)은 카드에만 있다 — OWNER 부여는 권한 변경이라 확인 없는 직접 실행 도구는 MEMBER 로만 추가한다.
+const proposeAddProjectMemberInput = addProjectMemberInput.extend({
   role: z.enum(['OWNER', 'MEMBER']),
   summary: z.string().min(1),
 });
@@ -103,11 +120,8 @@ const proposeRemoveProjectMemberInput = z.object({
   username: z.string().min(1),
   summary: z.string().min(1),
 });
-const proposeAddChannelMemberInput = z.object({
-  channelId: z.number().int().positive(),
-  username: z.string().min(1),
-  summary: z.string().min(1),
-});
+// WP-349: 외부 MCP add_channel_member 와 같은 공유 스키마에 summary 만 더한다.
+const proposeAddChannelMemberInput = addChannelMemberInput.extend({ summary: z.string().min(1) });
 const proposeLeaveChannelInput = z.object({ channelId: z.number().int().positive(), summary: z.string().min(1) });
 const proposeDeleteIssueInput = z.object({ issueKey: z.string().min(1), summary: z.string().min(1) });
 const proposeDeleteCommentInput = z.object({
@@ -255,6 +269,52 @@ const showDriveInput = z.object({
 // #333: assistant 프로파일 추가 — 전 앱 도구 union(M1).
 export type McpProfile = 'issue' | 'chat' | 'home' | 'messaging' | 'assistant';
 
+/**
+ * WP-351: AI Chat 라우터(assistant 프로필의 메인 스레드)가 모델에 싣는 도구 — 라우터가 직접 쓰는 것만 둔다.
+ * assistant 프로필 MCP 서버는 서브에이전트와 함께 쓰므로 전 앱 도구 union 을 그대로 등록하고, 라우터만 이 목록으로 좁힌다
+ * (Claude 경로의 메인 스레드 에이전트 tools). 쓰기·확인 카드(propose_*)·답 제출은 담당 서브에이전트에만 있다 —
+ * 매 실행 싣는 도구 정의(토큰)를 줄이고, 라우터가 쓰기를 직접 하지 않고 위임하게 한다.
+ * 포함: 프롬프트 표의 직접 읽기 도구, 표시 위젯(show_*), 알림(조회·읽음 처리 — 담당 서브에이전트가 없다), 첨부 읽기.
+ * 메일 요약·답장/이슈 초안·계정 목록, 드라이브 휴지통은 읽기여도 프롬프트가 mail-agent·drive-agent 로 보내므로 두지 않는다.
+ * subagent-loader.test.ts 가 이 목록 ⊂ assistant 프로필, 라우터 밖 도구는 어느 서브에이전트에든 있음을 고정한다.
+ */
+export const ASSISTANT_ROUTER_TOOLS: readonly string[] = [
+  // 이슈
+  'list_issues', 'get_issue_detail',
+  // 노트
+  'list_wiki_spaces', 'search_wiki', 'get_wiki_page', 'list_wiki_pages', 'list_wiki_backlinks',
+  // 캘린더
+  'list_events', 'get_event',
+  // 메시징
+  'list_channels', 'discover_channels', 'list_channel_messages', 'list_thread_replies',
+  // 메일
+  'list_mail', 'get_mail',
+  // 연락처·사용자 그룹·구성원
+  'list_contacts', 'get_external_contact', 'get_contact_facets', 'list_user_groups', 'get_user_group',
+  'search_members', 'get_member', 'get_member_contact',
+  // 프로젝트
+  'list_projects', 'get_project',
+  // 드라이브
+  'list_drive_spaces', 'list_drive_items', 'search_drive', 'search_drive_content', 'get_drive_file_summary',
+  // 알림 — 읽음 처리도 라우터가 직접 한다
+  'list_notifications', 'mark_notification_read', 'mark_all_notifications_read',
+  // 첨부 읽기 — 이 대화의 첨부(WP-234)·이슈 첨부/드라이브 파일 본문(WP-346)
+  'read_chat_attachment', 'read_attachment',
+  // 표시 위젯
+  'show_my_tasks', 'show_issue_list', 'show_issue_detail', 'show_activity', 'show_mail_list',
+  'show_calendar', 'show_event', 'show_channels', 'show_wiki', 'show_wiki_page',
+  'show_contacts', 'show_contact', 'show_projects', 'show_project', 'show_drive',
+];
+
+/**
+ * WP-351: 서브에이전트에 위임하는 Claude 실행에서 메인 스레드(라우터)가 싣는 도구 이름 — 지금은 assistant 만 좁힌다.
+ * undefined 면 러너는 종전처럼 프로필 도구 전부를 메인 스레드에 싣는다.
+ * opencode 는 쓰지 않는다 — primary 의 위임 도구(task)가 꺼져 있어 쓰기를 직접 해야 한다(opencode-config.ts 참고).
+ */
+export function routerToolsFor(profile: McpProfile | undefined): readonly string[] | undefined {
+  return profile === 'assistant' ? ASSISTANT_ROUTER_TOOLS : undefined;
+}
+
 // #462 슬라이스4: 인-프로세스 호스트 브리지 — propose/submit_response/unassign_self 의
 // 구조화 출력을 파일 사이드카(WORKPLACE_*_PATH) 대신 요청별 콜백으로 호스트에 직접 전달한다.
 // (인-프로세스에선 process.env 가 전역 공유라 동시요청 경쟁 발생 → 콜백 클로저로 격리.)
@@ -306,44 +366,17 @@ export function buildTools(
     if (!t) throw new Error(`공유 도구 없음: ${name}`);
     // #853: 되돌릴 수 없는 공유 도구를 직접 실행으로 노출하지 않는다 — 그런 작업은 propose_* 확인 카드로만 한다.
     if (t.kind === 'destructive') throw new Error(`destructive 공유 도구는 직접 노출할 수 없습니다: ${name}`);
+    // WP-348: 확인 카드가 있는 작업의 직접 실행 도구는 AI Chat 에 싣지 않는다.
+    if (name in CARD_ONLY_SHARED_TOOLS) throw new Error(`확인 카드로만 하는 공유 도구는 직접 노출할 수 없습니다: ${name}`);
     // WP-342: 연산 성격 힌트를 실어 보낸다 — Claude Code 가 readOnlyHint 로 읽기 도구를 병렬 실행한다. 로컬 전용 도구는 힌트가 없다.
     return { ...t, annotations: toolAnnotations(t) };
   };
 
-  /**
-   * 일정 초대 참석자 username → user id(#852). messaging 위임·assistant 공용. 구성원 조회는 테넌트 스코프라 찾히면 곧 초대 가능한
-   * 구성원이다. 못 찾거나 비활성인 이름은 한 번에 모아 돌려준다 — 하나씩 고치며 여러 번 재호출하지 않게.
-   * organizerId(요청자=주최자)는 서버가 주최자로 자동 포함하고 초대 목록에선 건너뛰므로 여기서도 뺀다 — 안 빼면 카드에만 초대로 보인다.
-   */
-  const resolveAttendees = async (
-    usernames: string[] | undefined,
-    organizerId: number,
-  ): Promise<{ ids?: number[]; names: string[] } | { error: string }> => {
-    const unique = [...new Set(usernames ?? [])];
-    const found = await Promise.all(unique.map((u) => findMemberByUsername(sc, u)));
-    const missing: string[] = [];
-    const inactive: string[] = [];
-    const members: { userId: number; label: string }[] = [];
-    found.forEach((m, i) => {
-      if (!m) missing.push(unique[i]);
-      else if (m.active === false) inactive.push(m.username);
-      else if (m.userId !== organizerId) members.push({ userId: m.userId, label: `${m.name}(${m.username})` });
-    });
-    if (missing.length > 0 || inactive.length > 0) {
-      const parts = [];
-      if (missing.length > 0) parts.push(`찾을 수 없는 username: ${missing.join(', ')}`);
-      if (inactive.length > 0) parts.push(`비활성 계정: ${inactive.join(', ')}`);
-      return {
-        error: `오류: 참석자를 확정하지 못했습니다(${parts.join(' / ')}). search_members 로 정확한 username 을 확인하세요. 외부 이메일 참석자는 지원하지 않습니다.`,
-      };
-    }
-    // 초대할 사람이 없으면 ids 를 비워(undefined) 호출부가 조건 없이 그대로 싣게 한다.
-    return { ids: members.length > 0 ? members.map((m) => m.userId) : undefined, names: members.map((m) => m.label) };
-  };
-
-  /** 겹치는 일정을 제안 카드 충돌 표시 형태로 조회한다(messaging 위임·assistant 공용이라 프로필 분기보다 먼저 선언). */
-  const listConflicts = async (from: string, to: string) =>
-    (await sc.listEvents(from, to)).map(({ id, title, startsAt, endsAt }) => ({ id, title, startsAt, endsAt }));
+  // 일정 참석자 해석·충돌 조회 — 직접 실행 도구(create_event·update_event)와 같은 공유 헬퍼를 쓴다(WP-348, 두 경로 결과가 같다).
+  // messaging 위임·assistant 공용이라 프로필 분기보다 먼저 이 실행의 클라이언트(sc)로 묶어 둔다.
+  const resolveAttendees = (usernames: string[] | undefined, organizerId: number) =>
+    resolveAttendeesShared(sc, usernames, organizerId);
+  const listConflicts = (from: string, to: string) => listConflictsShared(sc, from, to);
 
   // #371: 이슈 목록 데이터 조회(공유본). ai-agent 에는 화면 표시 위젯(show_issue_list)이 있어 둘 중 고르는 기준을 덧붙인다.
   const listIssuesTool: McpTool = {
@@ -378,7 +411,8 @@ export function buildTools(
         async handler(args) {
           const { threadId } = getChatThreadInput.parse(args);
           assertBoundThread(threadId);
-          return JSON.stringify(await client.getChatMessages(agentId, threadId, 50));
+          // authorId(숫자 사용자 ID)는 내보내지 않는다(#833, WP-353) — "이미 답했나" 검사(run-chat-agent)는 client.getChatMessages 를 직접 읽어 이 출력과 무관하다.
+          return JSON.stringify((await client.getChatMessages(agentId, threadId, 50)).map(({ authorId: _authorId, ...m }) => m));
         },
       },
       {
@@ -421,7 +455,7 @@ export function buildTools(
 
   if (profile === 'messaging') {
     const tools: McpTool[] = [
-      sharedTool('get_channel_messages'),
+      sharedTool('list_channel_messages'),
       sharedTool('list_thread_replies'), // #850: 스레드 답글 조회(스레드 요약)
       sharedTool('add_channel_message'),
       sharedTool('list_channels'),
@@ -746,33 +780,21 @@ export function buildTools(
 
   /**
    * 제안 도구 공용 — 대상 구성원을 확정하거나 에이전트가 바로 교정할 수 있는 오류 문구를 돌려준다(#833).
-   * 도구 표면은 username 만 다루고(숫자 id 미노출) 여기서 user.id 로 해석한다 — LLM 이 숫자 식별자를 만지지 않으면
-   * "연락처 id 를 userId 로 넣는" 사고가 구조적으로 불가능해진다.
+   * 판정·문구는 공유 헬퍼(requireMember·requireActiveMember)라 외부 MCP 직접 실행 도구(add_project_member·add_channel_member)와
+   * 같다(WP-349). 카드는 문구를 결과로 돌려주고, 직접 실행 도구는 같은 문구로 throw 한다.
    */
-  const requireMemberFor = async (username: string) => {
-    const found = await findMemberByUsername(sc, username);
-    if (!found) {
-      return {
-        error: `오류: username='${username}' 인 구성원을 찾을 수 없습니다. search_members 로 대상을 다시 찾아 정확한 username 을 확인하세요.`,
-      };
-    }
-    return { member: found };
-  };
-
+  const requireMemberFor = async (username: string): Promise<{ member?: MemberRow; error?: string }> =>
+    requireMember(sc, username);
   /** username → 활성 구성원. 없거나 비활성이면 에이전트가 고칠 수 있는 오류 문구. */
-  const requireActiveMember = async (username: string) => {
-    const { member, error } = await requireMemberFor(username);
-    if (error) return { error };
-    if (member!.active === false) return { error: `오류: ${member!.name}(${username}) 은 비활성 계정입니다.` };
-    return { member: member! };
-  };
+  const requireActiveMember = async (username: string): Promise<{ member?: MemberRow; error?: string }> =>
+    requireActiveMemberShared(sc, username);
 
   // #333 M3: 외부 연락처 삭제는 제안(생성·수정은 공유 도구 create_external_contact·update_external_contact 로 직접 실행) — assistant 프로파일 전용.
   const proposeDeleteContactTool: McpTool = {
     name: 'propose_delete_contact',
     description:
       '외부 연락처 삭제를 제안합니다. 직접 삭제하지 않고 확인 카드용 제안만 만듭니다. summary 에 어떤 연락처를 지우는지 한 줄로 넣으세요. 승인 시 서버가 삭제합니다. ' +
-      'externalId 는 list_contacts 의 EXTERNAL 항목이 주는 값입니다 — 구성원의 userId 를 넣으면 엉뚱한 사람의 연락처가 지워집니다.',
+      'externalId 는 list_contacts 의 EXTERNAL 항목이 주는 값입니다 — 구성원(MEMBER) 항목에는 없으며, 추측한 숫자를 넣으면 엉뚱한 사람의 연락처가 지워집니다.',
     inputSchema: proposeDeleteContactInput,
     async handler(args) {
       const { summary, externalId } = proposeDeleteContactInput.parse(args);
@@ -835,8 +857,9 @@ export function buildTools(
     description: '프로젝트 생성을 제안합니다. 직접 생성하지 않고 확인 카드용 제안만 만듭니다. summary 에 한 줄 요약(이름·key)을 넣으세요. 승인 시 서버가 생성합니다.',
     inputSchema: proposeCreateProjectInput,
     async handler(args) {
-      const { summary, projectKey, ...params } = proposeCreateProjectInput.parse(args);
-      return await writeProposal('project.create_project', summary, { key: projectKey, ...params });
+      const { summary, ...input } = proposeCreateProjectInput.parse(args);
+      // create_project 와 같은 변환(projectKey → key) — 실행기와 POST /projects 가 같은 CreateProjectRequest 로 받는다.
+      return await writeProposal('project.create_project', summary, { ...toCreateProjectBody(input) });
     },
   };
   const proposeDeleteProjectTool: McpTool = {
@@ -886,7 +909,7 @@ export function buildTools(
       // 요청자(=주최자)는 이미 참석자라 뺀다 — #852 와 같은 해석(없거나 비활성인 이름은 모아서 알린다).
       const resolved = await resolveAttendees(attendees, agentId);
       if ('error' in resolved) return resolved.error;
-      if (!resolved.ids) return '오류: 초대할 참석자가 없습니다(주최자 본인은 이미 참석자입니다).';
+      if (!resolved.ids) return NO_ATTENDEE_TO_ADD;
       return await writeProposal('calendar.add_attendees', `${summary}\n초대: ${resolved.names.join(', ')}`, {
         id: eventId,
         userIds: resolved.ids,
@@ -902,13 +925,12 @@ export function buildTools(
     inputSchema: proposeRemoveAttendeeInput,
     async handler(args) {
       const { eventId, username, summary } = proposeRemoveAttendeeInput.parse(args);
-      const { member, error } = await requireMemberFor(username);
-      if (error) return error;
-      // 서버는 주최자 본인 제거를 조용히 무시한다 — 아무 효과 없는 카드를 만들지 않게 여기서 막는다.
-      if (member!.userId === agentId) return '오류: 주최자 본인은 참석자에서 제거할 수 없습니다.';
-      return await writeProposal('calendar.remove_attendee', `${summary}\n제거: ${member!.name}(${username})`, {
+      // 없는 이름·주최자 본인(서버가 조용히 무시)은 카드를 만들지 않는다 — update_event 의 removeAttendees 와 같은 공유 판정(WP-348).
+      const r = await resolveAttendeeToRemove(sc, username, agentId);
+      if ('error' in r) return r.error;
+      return await writeProposal('calendar.remove_attendee', `${summary}\n제거: ${r.member.name}(${username})`, {
         id: eventId,
-        userId: member!.userId,
+        userId: r.member.userId,
       });
     },
   };
@@ -953,7 +975,7 @@ export function buildTools(
     name: 'propose_add_channel_member',
     description:
       '채널에 구성원 초대를 제안합니다. 직접 초대하지 않고 확인 카드용 제안만 만듭니다. 채널 OWNER/ADMIN 만 초대할 수 있고 DM 에는 초대할 수 없습니다. ' +
-      'channelId 는 list_channels 결과의 id, username 은 search_members 결과의 값입니다.',
+      'channelId 는 list_channels 결과의 channelId, username 은 search_members 결과의 값입니다.',
     inputSchema: proposeAddChannelMemberInput,
     async handler(args) {
       const { channelId, username, summary } = proposeAddChannelMemberInput.parse(args);
@@ -967,7 +989,7 @@ export function buildTools(
     name: 'propose_leave_channel',
     description:
       '비공개 채널에서 나가기를 제안합니다. 직접 나가지 않고 확인 카드용 제안만 만듭니다. 비공개 채널은 나가면 다시 초대받아야 돌아올 수 있습니다. ' +
-      '공개 채널은 leave_channel 로 바로 나가세요. 채널 OWNER 는 소유권을 넘기기 전에는 나갈 수 없습니다. channelId 는 list_channels 결과의 id 입니다.',
+      '공개 채널은 leave_channel 로 바로 나가세요. 채널 OWNER 는 소유권을 넘기기 전에는 나갈 수 없습니다. channelId 는 list_channels 결과의 channelId 입니다.',
     inputSchema: proposeLeaveChannelInput,
     async handler(args) {
       const { channelId, summary } = proposeLeaveChannelInput.parse(args);
@@ -1009,7 +1031,7 @@ export function buildTools(
     name: 'propose_delete_comment',
     description:
       '이슈 코멘트 삭제를 제안합니다. 직접 삭제하지 않고 확인 카드용 제안만 만듭니다. 복원 기능이 없습니다. 작성자나 프로젝트 OWNER 만 삭제할 수 있습니다. ' +
-      'commentId 는 get_issue_detail 의 comments 에서 확인하세요.',
+      'commentId 는 get_issue_detail 의 comments 에서 확인하세요(최근 30건만 오므로 대상이 안 보이면 allComments:true, 최근 200건까지).',
     inputSchema: proposeDeleteCommentInput,
     async handler(args) {
       const { issueKey, commentId, summary } = proposeDeleteCommentInput.parse(args);
@@ -1061,7 +1083,7 @@ export function buildTools(
   };
   const proposeDeleteFolderTool: McpTool = {
     name: 'propose_delete_folder',
-    description: '폴더 삭제를 제안합니다. 직접 삭제하지 않고 사용자 확인 카드용 제안만 만듭니다. 삭제는 복구 가능한 soft-delete 이지만 하위 파일·폴더가 포함될 수 있어 확인이 필요합니다. summary 에 어떤 폴더를 지우는지 한 줄로 넣으세요. folderId 는 list_drive_items/search_drive 폴더 항목의 id 입니다. 승인 시 서버가 삭제합니다.',
+    description: '폴더 삭제를 제안합니다. 직접 삭제하지 않고 사용자 확인 카드용 제안만 만듭니다. 삭제는 복구 가능한 soft-delete 이지만 하위 파일·폴더가 포함될 수 있어 확인이 필요합니다. summary 에 어떤 폴더를 지우는지 한 줄로 넣으세요. folderId 는 list_drive_items/search_drive 폴더 항목의 folderId 입니다. 승인 시 서버가 삭제합니다.',
     inputSchema: proposeDeleteFolderInput,
     async handler(args) {
       const { summary, folderId } = proposeDeleteFolderInput.parse(args);
@@ -1122,7 +1144,7 @@ export function buildTools(
       sharedTool('get_event'),              // #333 M2: 캘린더 읽기
       proposeCreateEventTool,    // #333 M2: 일정 생성 제안(사이드카 쓰기)
       proposeUpdateEventTool, proposeDeleteEventTool, // #333 M4: 일정 수정/삭제 제안
-      sharedTool('get_channel_messages'), // #333 M3: 메시징 읽기
+      sharedTool('list_channel_messages'), // #333 M3: 메시징 읽기
       sharedTool('list_thread_replies'),   // #850: 스레드 답글 조회
       sharedTool('add_channel_message'),  // #333 M3: 메시징 쓰기(내부 쓰기 직접 실행)
       sharedTool('list_channels'), sharedTool('discover_channels'), // #350: 채널 목록/탐색(이름→channelId 해석)
@@ -1170,7 +1192,7 @@ export function buildTools(
       { name: 'show_wiki', description: '노트 페이지 목록/검색 결과를 화면에 표시합니다. query 로 검색, spaceId 로 특정 스페이스 트리.', inputSchema: showWikiInput, handler: displayed },
       { name: 'show_wiki_page', description: '단일 노트 페이지 본문(pageId 지정)을 화면에 표시합니다. pageId 를 모르면 먼저 search_wiki 로 확보하세요.', inputSchema: showWikiPageInput, handler: displayed },
       { name: 'show_contacts', description: '연락처 목록을 화면에 표시합니다. search/org/title/type 로 좁힙니다. 단순 조회 전용 — 생성·수정·삭제는 contacts-agent 위임.', inputSchema: showContactsInput, handler: displayed },
-      { name: 'show_contact', description: '외부 연락처 1건의 상세를 화면에 표시합니다. externalId 는 list_contacts 의 EXTERNAL 항목이 주는 값입니다 — 구성원(userId)은 표시할 수 없습니다.', inputSchema: showContactInput, handler: displayed },
+      { name: 'show_contact', description: '외부 연락처 1건의 상세를 화면에 표시합니다. externalId 는 list_contacts 의 EXTERNAL 항목이 주는 값입니다 — 구성원(MEMBER) 항목은 표시할 수 없습니다.', inputSchema: showContactInput, handler: displayed },
       { name: 'show_projects', description: '프로젝트 목록을 화면에 표시합니다. 단순 조회 전용 — 생성·삭제·멤버추가는 project-agent 위임.', inputSchema: showProjectsInput, handler: displayed },
       { name: 'show_project', description: '단일 프로젝트 상세·멤버(projectKey 지정)를 화면에 표시합니다.', inputSchema: showProjectInput, handler: displayed },
       { name: 'show_drive', description: '드라이브 스페이스/폴더의 파일·폴더 목록을 화면에 표시합니다. spaceId/folderId 로 좁힙니다. 단순 조회 전용 — 이동·삭제는 drive-agent 위임.', inputSchema: showDriveInput, handler: displayed },

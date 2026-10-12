@@ -91,7 +91,7 @@ class CalendarEventControllerTest {
 
   @Test
   void create_valid_returns201() throws Exception {
-    when(service.create(eq(1L), any())).thenReturn(sample());
+    when(service.create(eq(1L), any(), eq(true))).thenReturn(sample());
 
     CalendarEventRequest req =
         new CalendarEventRequest(
@@ -232,5 +232,53 @@ class CalendarEventControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(req)))
         .andExpect(status().isUnauthorized());
+  }
+
+  @Test
+  void create_notifyFalse_delegatesWithoutAttendeeNotification() throws Exception {
+    // WP-348: 외부 MCP create_event 의 notify=false 가 쿼리로 와 서비스에 그대로 전달된다.
+    when(service.create(eq(1L), any(), eq(false))).thenReturn(sample());
+    CalendarEventRequest req =
+        new CalendarEventRequest(
+            "회의", null, STARTS, ENDS, false, null, null, null, null, List.of(2L), null);
+
+    mockMvc
+        .perform(
+            post("/api/v1/calendar/events")
+                .header("Authorization", "Bearer v")
+                .param("notify", "false")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(req)))
+        .andExpect(status().isCreated());
+
+    verify(service).create(eq(1L), any(), eq(false));
+  }
+
+  @Test
+  void invite_withoutNotifyParam_defaultsToNotify() throws Exception {
+    // 기존 호출(웹)은 notify 를 보내지 않는다 — 알림을 보내는 기존 동작이 기본이다.
+    mockMvc
+        .perform(
+            post("/api/v1/calendar/events/1/attendees")
+                .header("Authorization", "Bearer v")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"userIds\":[2,3]}"))
+        .andExpect(status().isNoContent());
+
+    verify(service).inviteAttendees(1L, 1L, List.of(2L, 3L), true);
+  }
+
+  @Test
+  void invite_notifyFalse_delegatesWithoutNotification() throws Exception {
+    mockMvc
+        .perform(
+            post("/api/v1/calendar/events/1/attendees")
+                .header("Authorization", "Bearer v")
+                .param("notify", "false")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"userIds\":[2]}"))
+        .andExpect(status().isNoContent());
+
+    verify(service).inviteAttendees(1L, 1L, List.of(2L), false);
   }
 }

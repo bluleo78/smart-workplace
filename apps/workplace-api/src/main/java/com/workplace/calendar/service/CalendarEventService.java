@@ -123,6 +123,16 @@ public class CalendarEventService {
    * 행이 남지 않는다.
    */
   public CalendarEventResponse create(long callerId, CalendarEventRequest req) {
+    return create(callerId, req, true);
+  }
+
+  /**
+   * 일정 생성 — 초대 알림 여부 지정(WP-348). notifyAttendees=false 면 초대 참석자에게 인박스 알림(CALENDAR_INVITED)을 보내지
+   * 않는다. 외부 MCP create_event 의 notify 입력이 이 값이다(노출 기준 N: 알림 여부를 입력으로 받는다). 참석자 행·화면 갱신
+   * 신호(resource.changed)는 그대로다 — 알림이 아니라 UI 동기화라서다. 외부 쓰기 캘린더라면 공급자(M365)가 보내는 초대 메일은 막지 못한다.
+   */
+  public CalendarEventResponse create(
+      long callerId, CalendarEventRequest req, boolean notifyAttendees) {
     // ① resolve — 사전검증(validateCreatable) + 대상 캘린더 분류. 검증도 tx 안에서 수행한다 —
     // requireWritableCalendar 는 RLS 읽기라 txTemplate 밖에서 부르면 GUC 부재로 거짓 404 가 난다(#492).
     WriteTarget target =
@@ -157,12 +167,17 @@ public class CalendarEventService {
 
     // ③ persist — 로컬 저장(+최종 조회). external_id 동반이면 prune 안전.
     final String extId = externalId;
-    return txTemplate.execute(s -> doCreateLocal(callerId, target.calendarId(), req, extId));
+    return txTemplate.execute(
+        s -> doCreateLocal(callerId, target.calendarId(), req, extId, notifyAttendees));
   }
 
   /** create 의 로컬 저장 단계 — 기존 create 본문 + external_id 동반 insert 분기. txTemplate 안에서만 호출. */
   private CalendarEventResponse doCreateLocal(
-      long callerId, long calendarId, CalendarEventRequest req, String externalId) {
+      long callerId,
+      long calendarId,
+      CalendarEventRequest req,
+      String externalId,
+      boolean notifyAttendees) {
     long id =
         (externalId == null)
             ? repo.insert(callerId, calendarId, req)
@@ -181,8 +196,8 @@ public class CalendarEventService {
       String status = isAgent(uid) ? "ACCEPTED" : "NEEDS_ACTION";
       attendeeRepo.insert(id, uid, callerId, "ATTENDEE", status);
       attendeeUserIds.add(uid);
-      // AGENT 는 인박스 알림 제외 — HUMAN 초대자에게만 발행.
-      if (!isAgent(uid)) {
+      // AGENT 는 인박스 알림 제외 — HUMAN 초대자에게만 발행. 호출자가 알림을 끄면(WP-348) 발행하지 않는다.
+      if (notifyAttendees && !isAgent(uid)) {
         eventPublisher.publishEvent(new CalendarAttendeeInvitedEvent(id, uid, callerId));
       }
     }
@@ -737,6 +752,15 @@ public class CalendarEventService {
    * <p>비-@Transactional: Graph HTTP 는 txTemplate 밖에서 실행(#232/#492 회피).
    */
   public void inviteAttendees(long callerId, long eventId, List<Long> userIds) {
+    inviteAttendees(callerId, eventId, userIds, true);
+  }
+
+  /**
+   * 참석자 추가 — 초대 알림 여부 지정(WP-348). notifyAttendees=false 면 새 참석자에게 인박스 알림을 보내지 않는다(외부 MCP
+   * update_event 의 notify 입력). 외부(M365) 동기화 일정이면 공급자가 보내는 초대 메일은 막지 못한다.
+   */
+  public void inviteAttendees(
+      long callerId, long eventId, List<Long> userIds, boolean notifyAttendees) {
     // ① resolve(tx): owner·RO 검증 + 외부참조 + (외부면) 조직자 판정 + Graph 전송 목록 사전 계산.
     InviteCtx ctx = txTemplate.execute(s -> resolveInvite(callerId, eventId, userIds));
 
@@ -756,8 +780,8 @@ public class CalendarEventService {
             if (uid == null || uid == callerId) continue;
             String status = isAgent(uid) ? "ACCEPTED" : "NEEDS_ACTION";
             attendeeRepo.insert(eventId, uid, callerId, "ATTENDEE", status);
-            // AGENT 는 인박스 알림 제외 — HUMAN 초대자에게만 발행.
-            if (!isAgent(uid)) {
+            // AGENT 는 인박스 알림 제외 — HUMAN 초대자에게만 발행. 호출자가 알림을 끄면(WP-348) 발행하지 않는다.
+            if (notifyAttendees && !isAgent(uid)) {
               eventPublisher.publishEvent(new CalendarAttendeeInvitedEvent(eventId, uid, callerId));
             }
           }

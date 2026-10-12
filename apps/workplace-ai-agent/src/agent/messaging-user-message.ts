@@ -1,5 +1,6 @@
 // 7: messaging.message.posted → Claude CLI user message. trigger + 최근 대화 흐름.
 // L3 위임 Task 4: 위임 가능 프로젝트 후보 목록 섹션 추가.
+import { resolveMentionTokens } from '@smart-workplace/mcp-tools-shared';
 import type { MessagingMessagePostedPayload } from '../types/messaging-events.js';
 import type { ChannelMessageItem } from '../clients/workplace-api.js';
 
@@ -14,12 +15,14 @@ export function buildMessagingUserMessage(
   const thread = ordered
     .map(
       (m) =>
-        `- [${m.authorName}${m.authorKind === 'AGENT' ? '/AI' : ''}] ${m.deleted ? '(삭제됨)' : m.body}`,
+        `- [${m.authorName}${m.authorKind === 'AGENT' ? '/AI' : ''}] ${m.deleted ? '(삭제됨)' : resolveMentionTokens(m.body, m.mentions)}`,
     )
     .join('\n');
 
   const where = payload.channelKind === 'DM' ? '1:1 DM' : '채널';
   const actorName = payload.actor.name ?? '사용자';
+  // 본문의 `<@123>` 멘션 토큰은 도구 출력(list_channel_messages)과 같은 `@이름(username)` 으로 푼다 — 모델이 숫자 id 를 보지 않게(#833, WP-353).
+  const triggerBody = resolveMentionTokens(payload.body, payload.mentions);
 
   // 후보가 있으면 각 항목을 "- 이름 (KEY)" 형태로, 없으면 멤버 추가 요청 안내.
   // AI 가 멤버로 등록된 프로젝트가 없으면 propose_create_issue 호출 금지 — 개인 폴백 없음.
@@ -31,9 +34,9 @@ export function buildMessagingUserMessage(
     `[이벤트: messaging.message.posted]\n` +
     `${where}(channelId=${payload.channelId})에서 당신(AI)에게 메시지가 왔습니다.\n` +
     `보낸 사람: ${actorName}\n` +
-    `메시지: "${payload.body}"\n\n` +
+    `메시지: "${triggerBody}"\n\n` +
     `## 최근 대화 흐름 (오래된→최신)\n${thread || '(이전 메시지 없음)'}\n\n` +
-    `더 과거 대화가 필요하면 get_channel_messages(${payload.channelId}) — 최신순 최근 100건까지만 가져올 수 있습니다. ` +
+    `더 과거 대화가 필요하면 list_channel_messages(${payload.channelId}) — 최신순이고, 결과의 nextCursor 를 cursor 로 넘기면 더 오래된 메시지를 이어 읽습니다(한 번에 최대 100건). ` +
     `파악이 끝나면 add_channel_message(${payload.channelId}, 답변) 을 정확히 한 번 호출해 답하세요.\n\n` +
     `## 위임 가능 프로젝트\n${projectList}\n` +
     `사용자가 일을 이슈로 만들어 당신에게 맡기려 하면 위 목록에서 projectKey 를 골라 propose_create_issue 를 호출하세요. ` +

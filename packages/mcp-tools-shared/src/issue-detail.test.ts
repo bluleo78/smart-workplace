@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ISSUE_DETAIL_HISTORY_LIMIT, normalizeIssueDetail } from './issue-detail.js';
+import { ISSUE_DETAIL_COMMENT_HARD_LIMIT, ISSUE_DETAIL_COMMENT_LIMIT, ISSUE_DETAIL_HISTORY_LIMIT, normalizeIssueDetail } from './issue-detail.js';
 
 // 백엔드 IssueDetailResponse 형태(요약은 summary 중첩, comment 는 flat author 필드).
 const raw = {
@@ -37,8 +37,9 @@ describe('normalizeIssueDetail', () => {
   it('의존성 필드를 summary 에서 top-level 로 lift', () => {
     const d = normalizeIssueDetail(raw);
     expect(d.blocked).toBe(true);
-    expect(d.blockedBy).toEqual([{ number: 11, title: '선행작업', status: 'TODO' }]);
-    expect(d.blocks).toEqual([{ number: 13, title: '후속작업', status: 'TODO' }]);
+    // 이슈는 어디서나 issueKey 로 가리킨다 — 링크의 number 가 아니라(WP-353).
+    expect(d.blockedBy).toEqual([{ issueKey: 'WP-11', title: '선행작업', status: 'TODO' }]);
+    expect(d.blocks).toEqual([{ issueKey: 'WP-13', title: '후속작업', status: 'TODO' }]);
   });
 
   it('comment 의 flat author 필드를 nested author 로 변환 — username 은 authorUsername, 없으면 null', () => {
@@ -104,7 +105,7 @@ describe('normalizeIssueDetail', () => {
       children: null,
       reporter: { username: 'bob', name: 'Bob', kind: 'AGENT' },
       customFields: [{ name: '고객사', type: 'TEXT', value: 'ACME' }],
-      attachments: [{ fileId: 11, name: 'a.pdf', mimeType: 'application/pdf', sizeBytes: 100, attachedBy: { username: 'bob', name: 'Bob', kind: null }, attachedAt: '2026-10-01T09:00:00+09:00' }],
+      attachments: [{ attachmentId: 11, name: 'a.pdf', mimeType: 'application/pdf', sizeBytes: 100, attachedBy: { username: 'bob', name: 'Bob', kind: null }, attachedAt: '2026-10-01T09:00:00+09:00' }],
       history: [
         { at: '2026-10-08T00:30:00+09:00', actor: { username: 'bob', name: 'Bob', kind: 'AGENT' }, event: 'STATUS_CHANGED', from: 'TODO', to: 'CANCELED' },
         { at: '2026-10-08T00:31:00+09:00', actor: { username: 'bob', name: 'Bob', kind: 'AGENT' }, event: 'LABELS_CHANGED', from: null, to: { added: [{ name: '긴급' }], removed: [] } },
@@ -133,6 +134,48 @@ describe('normalizeIssueDetail', () => {
     const d = normalizeIssueDetail({ summary: { title: 't' }, history });
     expect(d.history).toHaveLength(ISSUE_DETAIL_HISTORY_LIMIT);
     expect(d.history.at(-1)!.event).toBe(`E${ISSUE_DETAIL_HISTORY_LIMIT + 4}`);
+  });
+
+  it('이력이 잘리면 빠진 개수를 historyOmitted 로 알리고, 안 잘리면 키가 없다 (WP-353)', () => {
+    const history = Array.from({ length: ISSUE_DETAIL_HISTORY_LIMIT + 5 }, (_, i) => ({ eventType: `E${i}`, actorName: 'x' }));
+    expect(normalizeIssueDetail({ summary: { title: 't' }, history }).historyOmitted).toBe(5);
+    expect(normalizeIssueDetail({ summary: { title: 't' }, history: history.slice(0, ISSUE_DETAIL_HISTORY_LIMIT) })).not.toHaveProperty('historyOmitted');
+  });
+
+  const manyComments = (n: number) => Array.from({ length: n }, (_, i) => ({ id: i + 1, body: `코멘트 ${i + 1}`, authorName: 'x', authorKind: 'HUMAN', createdAt: '2026-07-10T00:00:00Z' }));
+
+  it('코멘트는 최근 것만 싣고(오래된→최신 순서 유지) 빠진 개수를 commentsOmitted 로 알린다 (WP-353)', () => {
+    const d = normalizeIssueDetail({ summary: { title: 't' }, comments: manyComments(ISSUE_DETAIL_COMMENT_LIMIT + 7) });
+    expect(d.comments).toHaveLength(ISSUE_DETAIL_COMMENT_LIMIT);
+    expect(d.comments[0].id).toBe(8); // 가장 오래된 7건이 빠짐
+    expect(d.comments.at(-1)!.id).toBe(ISSUE_DETAIL_COMMENT_LIMIT + 7);
+    expect(d.commentsOmitted).toBe(7);
+  });
+
+  it('코멘트가 상한 이하이면 전부 싣고 commentsOmitted 키가 없다(경계값 포함)', () => {
+    for (const n of [0, 3, ISSUE_DETAIL_COMMENT_LIMIT]) {
+      const d = normalizeIssueDetail({ summary: { title: 't' }, comments: manyComments(n) });
+      expect(d.comments).toHaveLength(n);
+      expect(d).not.toHaveProperty('commentsOmitted');
+    }
+  });
+
+  it('allComments 로도 하드 상한(200)을 넘으면 최근 것만 싣고 commentsOmitted 로 알린다', () => {
+    const d = normalizeIssueDetail({ summary: { title: 't' }, comments: manyComments(ISSUE_DETAIL_COMMENT_HARD_LIMIT + 25) }, { allComments: true });
+    expect(d.comments).toHaveLength(ISSUE_DETAIL_COMMENT_HARD_LIMIT);
+    expect(d.comments[0].id).toBe(26);
+    expect(d.comments.at(-1)!.id).toBe(ISSUE_DETAIL_COMMENT_HARD_LIMIT + 25);
+    expect(d.commentsOmitted).toBe(25);
+    // 하드 상한 이하는 전부 싣는다.
+    expect(normalizeIssueDetail({ summary: { title: 't' }, comments: manyComments(ISSUE_DETAIL_COMMENT_HARD_LIMIT) }, { allComments: true })).not.toHaveProperty('commentsOmitted');
+  });
+
+  it('allComments 면 코멘트 상한을 30 에서 풀어 더 싣는다(이력 상한은 그대로)', () => {
+    const history = Array.from({ length: ISSUE_DETAIL_HISTORY_LIMIT + 2 }, (_, i) => ({ eventType: `E${i}`, actorName: 'x' }));
+    const d = normalizeIssueDetail({ summary: { title: 't' }, comments: manyComments(ISSUE_DETAIL_COMMENT_LIMIT + 20), history }, { allComments: true });
+    expect(d.comments).toHaveLength(ISSUE_DETAIL_COMMENT_LIMIT + 20);
+    expect(d).not.toHaveProperty('commentsOmitted');
+    expect(d.history).toHaveLength(ISSUE_DETAIL_HISTORY_LIMIT);
   });
 
   it('의존성/코멘트 누락 시 기본값(빈 배열/false)', () => {
