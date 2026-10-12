@@ -210,7 +210,7 @@ export function buildContactTools(client: ContactToolClient & Pick<MemberToolCli
       hints: { destructive: true, idempotent: true },
       description:
         'Updates a user group: name, parent, code, sort order; omitted fields stay. moveToRoot:true moves it to the top and clearCode:true clears the ' +
-        'code (not together with parentGroupId or code). visibility cannot change. Personal groups: owner only; shared: org-chart managers only.',
+        'code (not together with parentGroupId or code). visibility cannot change. Personal groups: owner only; shared: org-chart managers (ADMIN: any).',
       inputSchema: updateUserGroupInput,
       async handler(args) {
         const { groupId, parentGroupId, ...rest } = updateUserGroupInput.parse(args);
