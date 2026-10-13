@@ -158,14 +158,15 @@ final class HomeChatTurn {
    */
   private Long persistPartial(String status) {
     String text = blocks.streamedText();
+    boolean blank = text.isBlank();
     // WP-55: 텍스트가 없어도 메모리 결과 줄이 있으면 저장한다 — 메모리 변경은 이미 반영됐으므로 messageId 가 있어야 그 줄의 되돌리기가
     // 켜지고 다시 열어도 남는다(빈 본문 + memory 블록 — 웹은 결과 줄만 그린다).
-    if (text.isBlank() && !blocks.hasMemory()) return null;
+    if (blank && !blocks.hasMemory()) return null;
     List<Map<String, Object>> settled = steps.stream().map(HomeChatTurn::settleRunning).toList();
     // 공백뿐인 본문("\n"·"\t" 등)은 빈 문자열로 정규화해 저장한다 — 맥락 필터(빈 본문 STOPPED·FAILED 제외)와 웹의 content === ''
     // 판정이 모두 "빈 답" 으로 일관되게 보게. 블록도 정규화한 본문으로 만든다 — 원문을 넘기면 공백 text 블록이 남아 웹 복원이 빈 답이 아닌
     // 것으로 보고 자리 문구 없이 "중단됨" 만 그린다. 본문이 "" 이면 finish 가 모든 text 블록을 앞부분(버릴 구간)으로 보아 뺀다.
-    String content = text.isBlank() ? "" : text;
+    String content = blank ? "" : text;
     return persist(
         content,
         null,
