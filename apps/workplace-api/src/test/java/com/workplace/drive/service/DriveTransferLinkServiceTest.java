@@ -446,6 +446,14 @@ class DriveTransferLinkServiceTest extends IntegrationTestBase {
             e -> assertThat(e.status()).isEqualTo(HttpStatus.UNSUPPORTED_MEDIA_TYPE));
     assertThatThrownBy(() -> transfers.consumeUpload(token, "multipart/form-data; boundary=x", 3))
         .isInstanceOf(DriveTransferUploadRejectedException.class);
+    // 형식이 깨졌거나 와일드카드인 Content-Type 도 415(최종 리뷰 M1) — 저장되면 이후 다운로드가 500 이 된다.
+    for (String malformed : new String[] {"text", "*/*", "text/*", "a/b/c"}) {
+      assertThatThrownBy(() -> transfers.consumeUpload(token, malformed, 3))
+          .as(malformed)
+          .isInstanceOfSatisfying(
+              DriveTransferUploadRejectedException.class,
+              e -> assertThat(e.status()).isEqualTo(HttpStatus.UNSUPPORTED_MEDIA_TYPE));
+    }
     assertThatThrownBy(() -> transfers.consumeUpload(token, null, 10 * MB + 1))
         .isInstanceOfSatisfying(
             DriveTransferUploadRejectedException.class,

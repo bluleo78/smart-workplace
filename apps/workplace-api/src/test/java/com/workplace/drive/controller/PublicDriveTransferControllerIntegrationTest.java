@@ -581,6 +581,28 @@ class PublicDriveTransferControllerIntegrationTest extends IntegrationTestBase {
         .andExpect(jsonPath("$.mimeType").value("text/plain"));
   }
 
+  /**
+   * 형식이 깨진 Content-Type("text")·와일드카드("*&#47;*")는 415 — 저장되면 이후 다운로드가 모두 500 이 되므로 소비 전에 막는다(최종 리뷰
+   * M1). 링크는 그대로라 Content-Type 없이 다시 보내면 저장된다.
+   */
+  @Test
+  void put_malformedContentType_isUnsupported_andLinkStillUsable() throws Exception {
+    String path = issueUploadPath(owner, "{\"name\":\"형식.txt\"}");
+    for (String contentType : new String[] {"text", "*/*", "text/*"}) {
+      mockMvc
+          .perform(
+              put(path)
+                  .header("Content-Type", contentType)
+                  .content("x".getBytes(StandardCharsets.UTF_8)))
+          .andExpect(status().isUnsupportedMediaType())
+          .andExpect(jsonPath("$.message").value(containsString("Content-Type")));
+    }
+    mockMvc
+        .perform(put(path).content("원시".getBytes(StandardCharsets.UTF_8)))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.mimeType").value("text/plain"));
+  }
+
   /** 선언 크기(Content-Length)가 범주 상한을 넘으면 본문을 받기 전에 400 — 소비하지 않는다. */
   @Test
   void put_declaredSizeOverCap_isRejectedBeforeConsume() throws Exception {

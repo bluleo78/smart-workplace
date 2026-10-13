@@ -43,6 +43,8 @@ import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.InvalidMediaTypeException;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.unit.DataSize;
@@ -408,12 +410,31 @@ public class DriveTransferLinkService {
           HttpStatus.UNSUPPORTED_MEDIA_TYPE,
           "파일을 원시 바이트로 보내세요(curl -T 파일 URL). 폼·멀티파트 본문은 받지 않습니다");
     }
+    if (contentType != null && !contentType.isBlank() && !isServableMediaType(contentType)) {
+      throw new DriveTransferUploadRejectedException(
+          HttpStatus.UNSUPPORTED_MEDIA_TYPE,
+          "Content-Type 형식이 올바르지 않습니다. Content-Type 없이 원시 바이트로 보내세요(curl -T 파일 URL)");
+    }
     long cap = uploadCapFor(pending.fileName(), mime);
     if (contentLength > cap) {
       throw new DriveTransferUploadRejectedException(
           HttpStatus.BAD_REQUEST, "파일이 너무 큽니다 (최대 " + toMb(cap) + "MB)");
     }
     return consume(token, KIND_UPLOAD);
+  }
+
+  /**
+   * 저장해도 내려받을 수 있는 Content-Type 인지(최종 리뷰 M1) — 이 값이 FILE.mime_type 으로 저장되고 다운로드·{@code /content} 가
+   * {@link MediaType#parseMediaType} 로 응답 헤더를 만든다. 형식이 깨졌거나("text") 와일드카드(모든 형식·모든 하위 형식)면 그때마다 500
+   * 이 나므로 소비 전에 막는다(링크는 그대로 쓸 수 있다).
+   */
+  private static boolean isServableMediaType(String contentType) {
+    try {
+      MediaType type = MediaType.parseMediaType(contentType);
+      return !type.isWildcardType() && !type.isWildcardSubtype();
+    } catch (InvalidMediaTypeException e) {
+      return false;
+    }
   }
 
   /** 토큰 접두사가 종류와 맞는지 보고 해시를 돌려준다. 다르거나 없으면 404(DB 를 건드리지 않는다). */
