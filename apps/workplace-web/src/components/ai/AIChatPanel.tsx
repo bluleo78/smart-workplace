@@ -9,6 +9,7 @@ import { AiLabel } from '@/components/ai/AiLabel';
 import { AISessionItems } from '@/components/ai/AISessionList';
 import { AiStatusDot } from '@/components/ai/AiStatusDot';
 import { DeleteSessionDialog } from '@/components/ai/DeleteSessionDialog';
+import { FollowupChips } from '@/components/ai/FollowupChips';
 import { HomeMessageImage } from '@/components/ai/HomeMessageImage';
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage';
 import { useAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext';
@@ -122,7 +123,9 @@ export function AIChatPanel({
   const last = turns[turns.length - 1];
   // #843: 카드가 실패로 바뀌면 사유 줄만큼 높이가 늘어나므로 phase 도 depKey 에 포함한다.
   const cardDep = pendingActions.map((c) => c.phase).join(',');
-  const scrollDep = `${turns.length}:${last?.content.length ?? 0}:${last?.role === 'action' ? 0 : (last?.steps?.length ?? 0)}:${cardDep}`;
+  // WP-139: 후속 질문 칩이 생기면 바닥 근처일 때만 따라 내려간다(같은 depKey 규칙).
+  const followupCount = last?.role === 'assistant' ? (last.followups?.length ?? 0) : 0;
+  const scrollDep = `${turns.length}:${last?.content.length ?? 0}:${last?.role === 'action' ? 0 : (last?.steps?.length ?? 0)}:${cardDep}:${followupCount}`;
   // #843: 한 카드라도 전송 중이면 카드 전체 버튼을 잠근다(중복 클릭·"모두 승인" 동시 실행 방지).
   const cardsBusy = pendingActions.some((c) => c.phase === 'submitting');
   const pendingCount = pendingActions.filter((c) => c.phase === 'pending').length;
@@ -419,6 +422,12 @@ export function AIChatPanel({
                       {INTERRUPTED_LABEL[t.interrupted]}
                     </li>
                   )}
+                  {/* WP-139: 후속 질문(시안 A) — 마지막 턴이고 답변 중·확인 카드가 아니며 추천을 끄지 않았을 때만. 새 질문을 보내면 마지막 턴이 아니게 되어 사라진다. */}
+                  {i === turns.length - 1 && t.role === 'assistant' && !pending && pendingActions.length === 0 && suggestionsOn && t.followups?.length ? (
+                    <li data-testid="chat-followups-row" className="flex justify-start">
+                      <FollowupChips items={t.followups} disabled={sendBlocked} onPick={sendChip} />
+                    </li>
+                  ) : null}
                 </Fragment>
               ))}
               {/* #351: 일괄 확인 카드 — 항목별 승인/거부.

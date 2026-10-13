@@ -48,6 +48,11 @@ export interface StreamEntry {
   historyLoaded: boolean;
   /** WP-265: 생성 도중 SSE 가 다시 이어졌다 — 끊긴 사이 조각을 놓쳤을 수 있어 더 붙이지 않고, 끝나면 서버 이력으로 바꾼다. */
   reconnected: boolean;
+  /**
+   * WP-139: 이 칸에서 마지막으로 끝난(done) 생성의 correlationId — done 뒤에 오는 home.chat.followups 를 그 답에만 붙인다.
+   * 새 질문을 시작하면 비운다(그 뒤 도착한 후속 질문은 버리고, 다시 열면 이력으로 보인다).
+   */
+  lastDoneCid: string | null;
 }
 
 /** 구독자에게 주는 불변 스냅샷 — 변경이 있을 때만 새 참조. */
@@ -94,6 +99,7 @@ const blank = (): StreamEntry => ({
   correlationId: null,
   historyLoaded: false,
   reconnected: false,
+  lastDoneCid: null,
 });
 
 const sessionOf = (key: string | null): string | null => (key && !key.startsWith(DRAFT_PREFIX) ? key : null);
@@ -253,6 +259,25 @@ export function createChatStreams(opts: { storage?: () => KeyValueStore | null }
   }
 
   /**
+   * WP-139: 후속 질문 — done 으로 이미 은퇴한 생성의 이벤트라 라우팅 표가 아닌 sessionId 로 칸을 찾는다.
+   * 그 칸의 마지막 종결 생성이 이 correlationId 이고, 답변 중이 아니며, 마지막 턴이 어시스턴트일 때만 붙인다.
+   */
+  function applyFollowups(data: Record<string, unknown>) {
+    const cid = str(data.correlationId);
+    const sid = str(data.sessionId);
+    const items = Array.isArray(data.items) ? data.items.filter((x): x is string => typeof x === 'string') : [];
+    if (!cid || !sid || items.length === 0) return;
+    const e = entries.get(sid);
+    if (!e || e.pending || e.lastDoneCid !== cid) return;
+    const last = e.turns[e.turns.length - 1];
+    if (!last || last.role !== 'assistant') return;
+    const turns = e.turns.slice();
+    turns[turns.length - 1] = { ...last, followups: items };
+    entries.set(sid, { ...e, turns });
+    commit();
+  }
+
+  /**
    * 라우팅 표에 없는 생성의 이벤트 — 이 창이 보낸 질문은 보낼 때 등록하므로(WP-267) 다른 창이나 새로고침 전에 시작한 생성이다.
    * 종결이면 끝난 것으로 기억해 늦게 온 재동기화 응답이 되살리지 못하게 한다(WP-264). 진행 중이면 이 저장소가 아는 대화일 때만
    * 자리표시로 이어받고 이력을 다시 읽어 그 질문과 "답변 중" 을 보인다(WP-266) — SSE 는 워크스페이스 구분 없이 오므로 모르는 대화는
@@ -278,6 +303,11 @@ export function createChatStreams(opts: { storage?: () => KeyValueStore | null }
   /** home.chat.* 이벤트 1건 반영. */
   function applyEvent(name: string, raw: unknown) {
     const data = (raw ?? {}) as Record<string, unknown>;
+    // WP-139: followups 는 done 뒤에 오므로 끝난 생성 차단(finished)보다 먼저 처리한다.
+    if (name === `${CHAT_EVENT_PREFIX}followups`) {
+      applyFollowups(data);
+      return;
+    }
     const cid = str(data.correlationId);
     if (!cid || finished.has(cid)) return;
     const sid = str(data.sessionId);
@@ -324,7 +354,15 @@ export function createChatStreams(opts: { storage?: () => KeyValueStore | null }
         // 서버 시간 초과 취소는 사용자가 멈춘 것과 구분해 "시간 초과로 중단됨"(라이브만 — 저장은 STOPPED).
         else turns = markInterrupted(turns, kind === 'error' ? 'failed' : data.reason === 'timeout' ? 'timeout' : 'stopped');
       }
-      entries.set(key, { ...e, turns, pending: false, correlationId: null, reconnected: false });
+      entries.set(key, {
+        ...e,
+        turns,
+        pending: false,
+        correlationId: null,
+        reconnected: false,
+        // WP-139: 정상 완료만 후속 질문을 받는다(오류·취소 답에는 생성하지 않는다).
+        lastDoneCid: kind === 'done' ? cid : null,
+      });
       if (route.placeholder && sessionOf(key)) effects.refetch(key);
     }
     finish(cid, sessionOf(key) ?? sid);
@@ -468,6 +506,7 @@ export function createChatStreams(opts: { storage?: () => KeyValueStore | null }
         gen,
         correlationId,
         reconnected: false,
+        lastDoneCid: null,
       });
       corrIndex.set(correlationId, { key, gen, placeholder: false, attached: false });
       touchRecent(key);
@@ -655,7 +694,7 @@ export type ChatStreams = ReturnType<typeof createChatStreams>;
 /** 앱 전역 기본 인스턴스. */
 export const chatStreams = createChatStreams();
 
-const CHAT_EVENTS = ['delta', 'progress', 'tool', 'pending_action', 'done', 'error', 'cancelled'].map((e) => CHAT_EVENT_PREFIX + e);
+const CHAT_EVENTS = ['delta', 'progress', 'tool', 'pending_action', 'done', 'error', 'cancelled', 'followups'].map((e) => CHAT_EVENT_PREFIX + e);
 
 /** home.chat.* 를 한 곳에서 구독해 저장소로 넘긴다(요청마다 붙였다 떼지 않는다). 반환값으로 해제. */
 export function connectChatEvents(store: ChatStreams, on: typeof onAiStreamEvent = onAiStreamEvent): () => void {

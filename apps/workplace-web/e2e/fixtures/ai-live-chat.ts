@@ -20,7 +20,7 @@ declare global {
   }
 }
 
-export type LiveEvent = 'delta' | 'progress' | 'tool' | 'pending_action' | 'done' | 'error' | 'cancelled'
+export type LiveEvent = 'delta' | 'progress' | 'tool' | 'pending_action' | 'done' | 'error' | 'cancelled' | 'followups'
 export type StartReply = { correlationId: string; sessionId: string } | { status: 409 | 429 }
 
 export interface LiveChat {

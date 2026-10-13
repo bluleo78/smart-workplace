@@ -654,3 +654,74 @@ describe('첨부(WP-234)', () => {
     revoke.mockRestore();
   });
 });
+
+describe('후속 질문 followups (WP-139)', () => {
+  const items = ['내일 회의 준비할 것 정리해줘', '참석자 일정 알려줘', 'WP-12 상태 알려줘'];
+  const last = (s: ReturnType<typeof createChatStreams>, key: string) => turnsOf(s, key)?.at(-1);
+
+  it('done 뒤에 온 followups 는 그 대화의 마지막 답에 붙는다(끝난 생성 차단보다 먼저 처리)', () => {
+    const { s } = setup();
+    ask(s, 'A', 'corr-a', 's-a');
+    ev(s, 'delta', { correlationId: 'corr-a', sessionId: 's-a', text: '답' });
+    ev(s, 'done', { correlationId: 'corr-a', sessionId: 's-a', widgets: null });
+    ev(s, 'followups', { correlationId: 'corr-a', sessionId: 's-a', messageId: 2, items });
+    expect(last(s, 's-a')).toMatchObject({ role: 'assistant', content: '답', followups: items });
+  });
+
+  it('새 질문이 시작된 뒤 도착하면 버린다 (Review Focus 1)', () => {
+    const { s } = setup();
+    ask(s, 'A', 'corr-a', 's-a');
+    ev(s, 'done', { correlationId: 'corr-a', sessionId: 's-a', widgets: null });
+    s.startTurn('B'); // 같은 대화에서 다음 질문
+    ev(s, 'followups', { correlationId: 'corr-a', sessionId: 's-a', messageId: 2, items });
+    expect(turnsOf(s, 's-a')?.some((t) => 'followups' in t && t.followups)).toBe(false);
+  });
+
+  it('새 질문을 ■ 로 멈춘 뒤 도착한 이전 답의 followups 도 버린다(새 질문이 lastDoneCid 를 비운다)', () => {
+    const { s } = setup();
+    ask(s, 'A', 'corr-a', 's-a');
+    ev(s, 'done', { correlationId: 'corr-a', sessionId: 's-a', widgets: null });
+    s.startTurn('B');
+    s.stopLocal('s-a'); // 답변 중이 아니고 마지막 턴은 B 의 "중단됨" 어시스턴트 턴 — pending 판정만으로는 막히지 않는다
+    ev(s, 'followups', { correlationId: 'corr-a', sessionId: 's-a', messageId: 2, items });
+    expect(turnsOf(s, 's-a')?.some((t) => 'followups' in t && t.followups)).toBe(false);
+  });
+
+  it('오류·취소로 끝난 생성에는 followups 를 붙이지 않는다', () => {
+    const { s } = setup();
+    ask(s, 'A', 'corr-a', 's-a');
+    ev(s, 'error', { correlationId: 'corr-a', sessionId: 's-a', message: 'x' });
+    ev(s, 'followups', { correlationId: 'corr-a', sessionId: 's-a', messageId: 2, items });
+    expect(last(s, 's-a')).not.toHaveProperty('followups');
+    ask(s, 'B', 'corr-b', 's-b');
+    ev(s, 'cancelled', { correlationId: 'corr-b', sessionId: 's-b' });
+    ev(s, 'followups', { correlationId: 'corr-b', sessionId: 's-b', messageId: 4, items });
+    expect(last(s, 's-b')).not.toHaveProperty('followups');
+  });
+
+  it('다른 생성(correlationId)의 followups 는 버린다', () => {
+    const { s } = setup();
+    ask(s, 'A', 'corr-a', 's-a');
+    ev(s, 'done', { correlationId: 'corr-a', sessionId: 's-a', widgets: null });
+    ev(s, 'followups', { correlationId: 'corr-x', sessionId: 's-a', messageId: 2, items });
+    expect(last(s, 's-a')).not.toHaveProperty('followups');
+  });
+
+  it('done 뒤 서버 이력으로 다시 읽은 대화에도 붙는다(자리표시 종결 재조회)', () => {
+    const { s } = setup();
+    ask(s, 'A', 'corr-a', 's-a');
+    ev(s, 'done', { correlationId: 'corr-a', sessionId: 's-a', widgets: null });
+    s.load('s-a', [{ role: 'user', content: 'A' }, { role: 'assistant', content: '서버 답' }], []);
+    ev(s, 'followups', { correlationId: 'corr-a', sessionId: 's-a', messageId: 2, items });
+    expect(last(s, 's-a')).toMatchObject({ content: '서버 답', followups: items });
+  });
+
+  it('모르는 대화·잘못된 항목은 무시한다', () => {
+    const { s } = setup();
+    expect(() => ev(s, 'followups', { correlationId: 'c', sessionId: 'nope', items })).not.toThrow();
+    ask(s, 'A', 'corr-a', 's-a');
+    ev(s, 'done', { correlationId: 'corr-a', sessionId: 's-a', widgets: null });
+    ev(s, 'followups', { correlationId: 'corr-a', sessionId: 's-a', items: [1, 2] });
+    expect(last(s, 's-a')).not.toHaveProperty('followups');
+  });
+});
