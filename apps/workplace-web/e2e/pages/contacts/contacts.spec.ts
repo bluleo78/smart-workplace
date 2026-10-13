@@ -3,6 +3,7 @@ import type { Page } from '@playwright/test'
 
 import { external, member, memberDetail, page as makePage } from '../../factories/contacts.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { expectCurrent, expectSelectedRow } from '../../fixtures/selection'
 
 // /api/v1/contacts 목록 — search·type·favorite 쿼리에 따라 분기.
 async function stubList(page: Page) {
@@ -88,6 +89,28 @@ test('통합 목록·검색·타입필터·상세', { tag: '@smoke' }, async ({ 
   await page.getByTestId('contact-row-MEMBER-1').click()
   await expect(page.getByTestId('contact-detail-member')).toContainText('김멤버')
   await expect(page.getByTestId('contact-detail-member')).toContainText('개발팀')
+})
+
+// WP-368 — 고른 연락처 행만 선택 표시(막대 + bg-selected), 다른 행·고르기 전엔 없다. 사이드바 타입 필터도 활성 항목이 표시된다.
+test('연락처 행·타입 필터 선택 표시 (WP-368)', async ({ authenticatedPage: page }) => {
+  await stubList(page)
+  await stubMemberDetail(page)
+  await page.goto('/contacts')
+  const picked = page.getByTestId('contact-row-MEMBER-1')
+  const other = page.getByTestId('contact-row-EXTERNAL-100')
+  await expect(picked).toBeVisible()
+  await expect(picked).not.toHaveClass(/bg-selected/)
+  await picked.click()
+  await expect(page.getByTestId('contact-detail-member')).toBeVisible()
+  await expectSelectedRow(picked, other)
+  // 보조기기용 선택 정보는 행 안의 고르기 버튼(포커스가 가는 곳)이 갖는다.
+  await expectCurrent(picked.getByRole('button').first(), other.getByRole('button').first(), 'true')
+  // 사이드바 타입 필터 — 활성(전체)만 선택 표시, 나머지는 없다. 바꾸면 따라 옮겨 간다.
+  const all = page.getByTestId('contact-filter-ALL')
+  const ext = page.getByTestId('contact-filter-EXTERNAL')
+  await expectSelectedRow(all, ext)
+  await ext.click()
+  await expectSelectedRow(ext, all)
 })
 
 // #113 전폭 PageHeader + 좁은 화면 뒤로가기

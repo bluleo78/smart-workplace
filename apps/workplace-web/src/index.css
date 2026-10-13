@@ -28,6 +28,7 @@
   --color-muted-foreground: var(--muted-foreground);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
+  --color-selected: var(--selected);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
   --color-border: var(--border);
@@ -103,6 +104,9 @@
   --muted-foreground: oklch(0.5 0 0);
   --accent: oklch(0.955 0.01 264);
   --accent-foreground: oklch(0.25 0 0);
+  /* WP-368: 선택(현재 고른 항목) 전용 배경 — accent(hover)보다 한 단계 진하고 primary 색조를 머금는다.
+     hover(accent/50·muted/50)와 확실히 구분되게 따로 둔다. 대비는 actionTokens.test 가 고정(리터럴 oklch 필수). */
+  --selected: oklch(0.915 0.02 264);
   /* WP-322: 흰 글자(삭제 버튼) 4.5:1 — 평소 4.93:1, hover(bg-destructive/90 을 배경 위에 합성) 4.63:1.
      이전 0.637 은 3.6:1, 0.577 은 hover 에서 4.32:1 로 AA 미달. 대비는 actionTokens.test 가 고정. */
   --destructive: oklch(0.55 0.245 27.325);
@@ -197,6 +201,8 @@
   --muted-foreground: oklch(0.6 0 0);
   --accent: oklch(1 0 0 / 7%);
   --accent-foreground: oklch(0.93 0 0);
+  /* WP-368: 다크 선택 배경 — 흰 알파 대신 솔리드(배경 위 흰 ~11% 상당). 떠 있는 패널(popover 0.18) 위에서도 구분된다. */
+  --selected: oklch(0.28 0.02 275);
   /* --destructive-text 가 이 값을 리터럴로 되풀이한다(대비 테스트가 var() 를 못 읽음) — 바꾸면 함께 바꾼다. */
   --destructive: oklch(0.704 0.191 22.216);
   /* WP-322: 밝은 다크 빨강 위 흰 글자는 2.77:1 — primary 와 같이 어두운 글자(6.5:1, hover /90 합성 5.38:1). */
@@ -353,13 +359,14 @@
 
 /* ===== OCEAN THEME ===== */
 .theme-ocean {
-  --primary: oklch(0.52 0.14 195);
-  --ring: oklch(0.52 0.14 195);
-  --sidebar-primary: oklch(0.52 0.14 195);
-  --sidebar-ring: oklch(0.52 0.14 195);
-  --chart-1: oklch(0.52 0.14 195);
+  --primary: oklch(0.47 0.14 195);
+  --ring: oklch(0.47 0.14 195);
+  --sidebar-primary: oklch(0.47 0.14 195);
+  --sidebar-ring: oklch(0.47 0.14 195);
+  --chart-1: oklch(0.47 0.14 195);
   --accent: oklch(0.96 0.01 195);
   --sidebar-accent: oklch(0.96 0.01 195);
+  --selected: oklch(0.915 0.02 195);
 }
 .theme-ocean.dark, .dark .theme-ocean {
   --primary: oklch(0.75 0.12 195);
@@ -373,17 +380,19 @@
   --sidebar-accent: oklch(0.75 0.12 195 / 7%);
   --chart-1: oklch(0.75 0.12 195);
   --accent: oklch(0.75 0.12 195 / 7%);
+  --selected: oklch(0.28 0.025 195);
 }
 
 /* ===== SUNSET THEME ===== */
 .theme-sunset {
-  --primary: oklch(0.55 0.18 50);
-  --ring: oklch(0.55 0.18 50);
-  --sidebar-primary: oklch(0.55 0.18 50);
-  --sidebar-ring: oklch(0.55 0.18 50);
-  --chart-1: oklch(0.55 0.18 50);
+  --primary: oklch(0.53 0.18 50);
+  --ring: oklch(0.53 0.18 50);
+  --sidebar-primary: oklch(0.53 0.18 50);
+  --sidebar-ring: oklch(0.53 0.18 50);
+  --chart-1: oklch(0.53 0.18 50);
   --accent: oklch(0.96 0.01 50);
   --sidebar-accent: oklch(0.96 0.01 50);
+  --selected: oklch(0.915 0.02 50);
 }
 .theme-sunset.dark, .dark .theme-sunset {
   --primary: oklch(0.72 0.15 50);
@@ -397,6 +406,7 @@
   --sidebar-accent: oklch(0.72 0.15 50 / 7%);
   --chart-1: oklch(0.72 0.15 50);
   --accent: oklch(0.72 0.15 50 / 7%);
+  --selected: oklch(0.28 0.025 50);
 }
 
 /* Background gradient */
@@ -471,8 +481,8 @@
 }
 
 @keyframes logo-pulse-ocean {
-  0%, 100% { box-shadow: 0 3px 10px oklch(0.52 0.14 195 / 30%); }
-  50% { box-shadow: 0 3px 20px oklch(0.52 0.14 195 / 50%); }
+  0%, 100% { box-shadow: 0 3px 10px oklch(0.47 0.14 195 / 30%); }
+  50% { box-shadow: 0 3px 20px oklch(0.47 0.14 195 / 50%); }
 }
 @keyframes logo-pulse-ocean-dark {
   0%, 100% { box-shadow: 0 3px 12px oklch(0.75 0.12 195 / 30%); }
@@ -482,8 +492,8 @@
 .dark .theme-ocean .logo-pulse, .theme-ocean.dark .logo-pulse { animation: logo-pulse-ocean-dark 3s ease-in-out infinite; }
 
 @keyframes logo-pulse-sunset {
-  0%, 100% { box-shadow: 0 3px 10px oklch(0.55 0.18 50 / 30%); }
-  50% { box-shadow: 0 3px 20px oklch(0.55 0.18 50 / 50%); }
+  0%, 100% { box-shadow: 0 3px 10px oklch(0.53 0.18 50 / 30%); }
+  50% { box-shadow: 0 3px 20px oklch(0.53 0.18 50 / 50%); }
 }
 @keyframes logo-pulse-sunset-dark {
   0%, 100% { box-shadow: 0 3px 12px oklch(0.72 0.15 50 / 30%); }
@@ -497,23 +507,32 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Active sidebar indicator */
-.nav-active-indicator {
+/* WP-368: 목록 선택 행의 왼쪽 primary 막대 — 선택 표시 규칙(디자인 시스템 01 §선택 상태)의 일부.
+   utilities 레이어라 다른 position 유틸과 같은 규칙으로 겹친다. 막대는 테마 primary 를 그대로 따른다(브랜드 테마 대응).
+   모양 변형은 CSS 변수로 받는다 — 위아래 인셋·배경(그라데이션 가능)·그림자. 앱 레일(.nav-active-indicator)이 변수만 바꿔 쓴다. */
+@utility selection-bar {
   position: relative;
+  &::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: var(--selection-bar-inset, 22%);
+    bottom: var(--selection-bar-inset, 22%);
+    width: 3px;
+    border-radius: 0 3px 3px 0;
+    background: var(--selection-bar-bg, var(--primary));
+    box-shadow: var(--selection-bar-shadow, none);
+  }
 }
-.nav-active-indicator::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 25%;
-  bottom: 25%;
-  width: 3px;
-  border-radius: 0 3px 3px 0;
-  background: var(--primary);
+
+/* Active sidebar indicator — 앱 레일 전용. AppRail 은 `selection-bar nav-active-indicator` 를 함께 쓰고,
+   여기서는 selection-bar 의 변수만 바꾼다(위아래 25% 인셋, 다크 그라데이션·glow). */
+.nav-active-indicator {
+  --selection-bar-inset: 25%;
 }
-.dark .nav-active-indicator::before {
-  background: linear-gradient(180deg, oklch(0.65 0.2 264), oklch(0.6 0.2 300));
-  box-shadow: 0 0 8px oklch(0.65 0.2 264 / 40%);
+.dark .nav-active-indicator {
+  --selection-bar-bg: linear-gradient(180deg, oklch(0.65 0.2 264), oklch(0.6 0.2 300));
+  --selection-bar-shadow: 0 0 8px oklch(0.65 0.2 264 / 40%);
 }
 
 /* Online status dot */

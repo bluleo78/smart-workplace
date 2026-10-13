@@ -2,6 +2,7 @@ import { expect, test } from '../../fixtures/auth.fixture'
 import { boxOf, DESKTOP_WIDTHS, expectBelowHeader, expectHeaderBottomAt56, expectStartAligned } from '../../fixtures/layout'
 import { trackRequests } from '../../fixtures/requests'
 import { measureBox } from '../../fixtures/wait'
+import { expectToggle } from '../../fixtures/selection'
 
 function page2() {
   return {
@@ -111,10 +112,18 @@ test('1440x900 데스크톱에서 AI 어시스턴트 칩이 출처 필터 버튼
   // AI 어시스턴트 칩이 실제로 렌더되어 있어야 회귀 조건을 재현한 것.
   await expect(page.getByTestId('chat-launcher')).toBeVisible()
 
+  // WP-368 — 출처 필터는 aria-pressed 토글: 고른 칩만 TOGGLE_ON(primary 테두리·글자), 나머지는 없다.
+  const all = page.getByTestId('drive-attachment-filter-all')
+  const issue = page.getByTestId('drive-attachment-filter-issue')
+  await expectToggle(all, true)
+  await expectToggle(issue, false)
+
   // force 없이 클릭 — subtree가 다른 요소에 가로채이면 이 클릭은 timeout 으로 실패한다.
-  await page.getByTestId('drive-attachment-filter-issue').click()
+  await issue.click()
   await expect.poll(() => lists.lastUrl()?.searchParams.get('source')).toBe('ISSUE')
-  await expect(page.getByTestId('drive-attachment-filter-issue')).toHaveClass(/border-primary/)
+  await expect(issue).toHaveClass(/border-primary/)
+  await expectToggle(issue, true)
+  await expectToggle(all, false)
 })
 
 // 페이지 레이아웃 통합(Page) — 첨부 모아보기도 56px 헤더 바(제목)를 갖고, 출처 필터칩·검색은 헤더 아래 본문 첫 줄에 선다.

@@ -15,6 +15,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { previewLine } from '@/lib/conversationPreview'
 import { dmDisplayName, isSelfDm } from '@/lib/dm'
+import { SELECTED_NAV_CLASS, SELECTED_ROW_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
 
 import { ChannelBrowser } from './ChannelBrowser'
@@ -48,6 +49,11 @@ export function ChannelSidebar() {
   const isMobile = useIsMobile()
   // 셀프 DM(참여자가 나뿐) — 모바일 행 미리보기용
   const selfDm = dms?.find((dm) => isSelfDm(dm, myId))
+  // 행별 "지금 열린 대화" 판정 — 선택 표시(className)와 보조기기 aria-current 가 같은 값을 쓰게 한 곳에 둔다(WP-368).
+  // 셀프 DM 은 /chat/dms/self 가 실제 DM id 로 리다이렉트하므로 그 id 로 열려 있어도 활성이다.
+  const channelActive = (cid: number) => !isDmRoute && activeId === cid
+  const dmActive = (dmId: number) => isDmRoute && activeId === dmId
+  const selfActive = location.pathname === '/chat/dms/self' || (selfDm != null && dmActive(selfDm.id))
   const [createOpen, setCreateOpen] = useState(false)
   const [browseOpen, setBrowseOpen] = useState(false)
 
@@ -67,9 +73,10 @@ export function ChannelSidebar() {
         <Link
           to="/chat/threads/inbox"
           data-testid="sidebar-threads-link"
+          aria-current={isThreadsRoute ? 'page' : undefined}
           className={cn(
             'flex items-center gap-2 rounded-md px-3 py-1.5 text-sm',
-            isThreadsRoute ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/50',
+            isThreadsRoute ? SELECTED_NAV_CLASS : 'text-muted-foreground hover:bg-accent/50',
           )}
         >
           <Inbox className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -123,7 +130,7 @@ export function ChannelSidebar() {
                 to={`/chat/channels/${c.id}`}
                 testId={`channel-link-${c.id}`}
                 testKey={String(c.id)}
-                active={!isDmRoute && activeId === c.id}
+                active={channelActive(c.id)}
                 icon={
                   <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted text-muted-foreground">
                     {c.visibility === 'PRIVATE' ? (
@@ -155,10 +162,11 @@ export function ChannelSidebar() {
               key={c.id}
               to={`/chat/channels/${c.id}`}
               data-testid={`channel-link-${c.id}`}
+              aria-current={channelActive(c.id) ? 'page' : undefined}
               className={cn(
                 'flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors',
-                !isDmRoute && activeId === c.id
-                  ? 'bg-accent text-accent-foreground'
+                channelActive(c.id)
+                  ? SELECTED_NAV_CLASS
                   : 'text-muted-foreground hover:bg-accent/50',
               )}
             >
@@ -207,7 +215,7 @@ export function ChannelSidebar() {
               to="/chat/dms/self"
               testId="dm-self-link"
               testKey="self"
-              active={location.pathname === '/chat/dms/self'}
+              active={selfActive}
               icon={<UserAvatar user={{ id: myId, username: user?.username ?? '', name: user?.name ?? '나' }} size="lg" />}
               name={user?.name ? `${user.name} (나)` : '나'}
               preview={previewLine(selfDm?.lastMessage, { meId: myId, isOneToOneDm: true })}
@@ -219,10 +227,11 @@ export function ChannelSidebar() {
           <Link
             to="/chat/dms/self"
             data-testid="dm-self-link"
+            aria-current={selfActive ? 'page' : undefined}
             className={cn(
               'flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors',
-              location.pathname === '/chat/dms/self'
-                ? 'bg-accent text-accent-foreground'
+              selfActive
+                ? SELECTED_ROW_CLASS
                 : 'text-muted-foreground hover:bg-accent/50',
             )}
           >
@@ -246,7 +255,7 @@ export function ChannelSidebar() {
                     to={`/chat/dms/${dm.id}`}
                     testId={`dm-link-${dm.id}`}
                     testKey={String(dm.id)}
-                    active={isDmRoute && activeId === dm.id}
+                    active={dmActive(dm.id)}
                     icon={
                       other ? (
                         <UserAvatar user={{ id: other.userId, username: '', name: other.name }} size="lg" />
@@ -274,10 +283,11 @@ export function ChannelSidebar() {
                 key={dm.id}
                 to={`/chat/dms/${dm.id}`}
                 data-testid={`dm-link-${dm.id}`}
+                aria-current={dmActive(dm.id) ? 'page' : undefined}
                 className={cn(
                   'flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors',
-                  isDmRoute && activeId === dm.id
-                    ? 'bg-accent text-accent-foreground'
+                  dmActive(dm.id)
+                    ? SELECTED_ROW_CLASS
                     : 'text-muted-foreground hover:bg-accent/50',
                 )}
               >

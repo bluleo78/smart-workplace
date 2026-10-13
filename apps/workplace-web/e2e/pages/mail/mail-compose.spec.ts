@@ -4,6 +4,7 @@ import { createPageResponse, mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { commitImeThenEnterInSameTask } from '../../fixtures/ime'
 import { trackRequests } from '../../fixtures/requests'
+import { expectToggle } from '../../fixtures/selection'
 
 test.describe('메일 작성·발송', () => {
   test.beforeEach(async ({ authenticatedPage: page }) => {
@@ -57,6 +58,21 @@ test.describe('메일 작성·발송', () => {
 
     // 발송 성공 시 도크 닫힘.
     await expect(page.getByTestId('mail-compose-dock')).toBeHidden()
+  })
+
+  // WP-368 — 서식 토글이 켜지면 TOGGLE_ON(primary 테두리·글자)이 붙고, 다른 서식 버튼엔 없다. 끄면 사라진다.
+  test('서식 토글 — 굵게를 켜면 aria-pressed·TOGGLE_ON 표시, 기울임은 그대로 (WP-368)', async ({ authenticatedPage: page }) => {
+    await page.goto('/mail/1')
+    await page.getByTestId('mail-compose-new').click()
+    await page.getByTestId('mail-composer-body').click()
+    const bold = page.getByRole('button', { name: '굵게' })
+    const italic = page.getByRole('button', { name: '기울임' })
+    await expectToggle(bold, false)
+    await bold.click()
+    await expectToggle(bold, true)
+    await expectToggle(italic, false)
+    await bold.click()
+    await expectToggle(bold, false)
   })
 
   // WP-333 — macOS Chrome 에서 한글 마지막 글자 조합 중 Enter 를 쳐도 그 글자가 남고 다음 문단으로 넘어간다(수정 뒤 동작 회귀 방지 —

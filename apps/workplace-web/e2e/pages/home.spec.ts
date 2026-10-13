@@ -2,6 +2,7 @@ import type { Page } from '@playwright/test'
 
 import { expect, test } from '../fixtures/auth.fixture'
 import { mockApi } from '../fixtures/api-mock'
+import { expectSelectedRow } from '../fixtures/selection'
 import { dropDnd, expectStays, measureBox, resizeAndSettle } from '../fixtures/wait'
 import { trackRequests } from '../fixtures/requests'
 import { createIssue, createIssueSearchResponse } from '../factories/issue.factory'
@@ -1347,6 +1348,28 @@ test('위젯 추가 모달에서 카테고리를 바꾸면 목록 첫 카드가 
   const firstCard = modal.locator('[data-testid="add-widget-card"][data-widget-type="calendar"]')
   await expect(firstCard).toHaveAttribute('aria-pressed', 'true')
   await expect(modal.getByTestId('add-widget-preview')).toContainText('캘린더')
+})
+
+// WP-368 — 현재 고른 카테고리 탭만 선택 표시(막대 + bg-selected), 다른 탭엔 없다. 바꾸면 따라 옮겨 간다.
+test('위젯 추가 모달 — 현재 카테고리 탭만 bg-selected·selection-bar 를 갖는다 (WP-368)', async ({
+  authenticatedPage: page,
+}) => {
+  await mockWidgets(page)
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['my_tasks']))
+  await page.goto('/')
+  await openAddWidgetModal(page)
+
+  const modal = page.getByTestId('add-widget-modal')
+  const cal = modal.locator('[data-testid="add-widget-category"][data-category="캘린더"]')
+  const currentTab = modal.locator('[data-testid="add-widget-category"][aria-pressed="true"]')
+  await expect(currentTab).toHaveCount(1)
+  // 고정 로커 — aria-pressed 로 찾은 로커는 선택이 옮겨 가면 다른 탭을 가리킨다.
+  const current = modal.locator(`[data-testid="add-widget-category"][data-category="${await currentTab.getAttribute('data-category')}"]`)
+  await expectSelectedRow(current, cal)
+  await cal.click()
+  await expect(cal).toHaveAttribute('aria-pressed', 'true')
+  await expectSelectedRow(cal, current)
+  await expect(modal.locator('[data-testid="add-widget-category"].bg-selected')).toHaveCount(1)
 })
 
 test('위젯 추가 모달은 좁은 뷰포트에서 프리뷰 패널이 카드 목록 아래로 스택된다', { tag: '@smoke' }, async ({

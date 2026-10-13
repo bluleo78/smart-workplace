@@ -23,6 +23,7 @@ import {
   touchTap,
 } from '../../fixtures/touch'
 import { nextFrame } from '../../fixtures/wait'
+import { expectToggle } from '../../fixtures/selection'
 
 const SPACE_ID = 1
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -194,7 +195,13 @@ test.describe('AI 요약 시트', () => {
     await openViewer(page, 'plan.md')
     // 모바일은 저장된 패널 상태와 무관하게 닫힌 채 연다(판정 R10).
     await expect(page.getByTestId('viewer-summary-sheet')).toHaveCount(0)
-    await page.getByTestId('viewer-slot-summary').tap()
+    // WP-368 — ✨ 요약 토글이 켜진 동안은 글자가 primary 로 보이고(TOGGLE_ON_TEXT), 닫으면 원래 색으로 돌아온다.
+    const slot = page.getByTestId('viewer-slot-summary')
+    await expectToggle(slot, false, { textOnly: true })
+    const offColor = await slot.evaluate((el) => getComputedStyle(el).color)
+    await slot.tap()
+    await expectToggle(slot, true, { textOnly: true })
+    expect(await slot.evaluate((el) => getComputedStyle(el).color)).not.toBe(offColor)
     const sheet = page.getByTestId('viewer-summary-sheet')
     await expect(sheet.getByTestId('drive-summary-card')).toContainText('핵심 요약입니다.')
     // 보이는 "AI 요약" 제목은 카드 머리글 하나뿐(시트 자체 제목 없음) — 시트 접근 이름은 그대로 "AI 요약".
@@ -213,6 +220,7 @@ test.describe('AI 요약 시트', () => {
     expect(await sheet.evaluate((el) => el.closest('.dark') != null)).toBe(true)
     await sheet.getByRole('button', { name: '요약 닫기' }).tap()
     await expect(sheet).toHaveCount(0)
+    await expectToggle(slot, false, { textOnly: true })
   })
 
   test('시트를 열면 포커스가 시트로 가고 아래 액션 바는 inert, 닫으면 ✨ 칸으로 돌아온다', async ({ authenticatedPage: page }) => {

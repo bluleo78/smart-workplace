@@ -19,6 +19,7 @@ import { useDeleteUserGroup } from '@/hooks/queries/useUserGroupMutations'
 import { useUserGroups } from '@/hooks/queries/useUserGroups'
 import { useAuth } from '@/hooks/useAuth'
 import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer'
+import { SELECTED_ROW_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
 import type { UserGroupDetail, UserGroupNode, UserGroupVisibility } from '@/types/userGroup'
 
@@ -48,7 +49,8 @@ function TreeNode({ node, depth, selectedId, onSelect, editable, onEdit, onDelet
           // coarse 에서 편집 가능한 행은 44px 로 키워 ⋯ 탭 영역이 이웃 행과 겹치지 않게 한다.
           'group flex items-center gap-1 rounded-md px-2 py-1.5 text-sm',
           editable && 'pointer-coarse:min-h-11 pointer-coarse:py-0',
-          selectedId === node.id ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/50',
+          // 앞에 접기 chevron 버튼만 있고 항목 아이콘이 없어 행용(SELECTED_ROW_CLASS).
+          selectedId === node.id ? SELECTED_ROW_CLASS : 'hover:bg-accent/50',
         )}
         style={{ paddingLeft: `${depth * 12 + 8}px` }}
       >
@@ -71,6 +73,8 @@ function TreeNode({ node, depth, selectedId, onSelect, editable, onEdit, onDelet
         <button
           type="button"
           data-testid={`group-node-${node.id}`}
+          // 다시 누르면 해제되는 필터라 aria-current 가 아닌 aria-pressed(그룹 멤버 행과 같은 규칙).
+          aria-pressed={selectedId === node.id}
           onClick={() => onSelect(node.id)}
           className="min-w-0 flex-1 truncate text-left"
         >

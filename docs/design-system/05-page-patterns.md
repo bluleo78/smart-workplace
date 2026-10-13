@@ -291,7 +291,7 @@ export function XxxModuleLayout() {
 
 - 사이드바 폭은 `w-56`(설정) — `shrink-0 border-r bg-sidebar/40` 로 고정.
 - 사이드바 최상단 타이틀 헤더는 `sidebarTitleClass`(= `h-14 border-b ...`)로 **레일 앱 마크/홈 헤더와 가로 정렬**한다. 신규 모듈 사이드바도 이 높이를 맞춘다.
-- 네비 링크는 반드시 `sidebarLinkClass`(활성=`bg-accent font-medium`)와 `NavLink` 사용. 직접 스타일링하지 말 것.
+- 네비 링크는 반드시 `sidebarLinkClass`(활성=`SELECTED_NAV_CLASS` — [01 §1-8](./01-design-tokens.md#1-8-선택-상태-표시-규칙))와 `NavLink` 사용. 직접 스타일링하지 말 것.
 - `flex h-full min-h-0` 가 핵심: 셸의 고정 높이를 이어받아 사이드바와 콘텐츠가 각자 스크롤한다.
 - `MailModuleLayout` 처럼 모듈 전역 상태(작성 도크 Provider, `MailComposeDock`)가 필요하면 레이아웃에서 Provider 로 감싼다.
 

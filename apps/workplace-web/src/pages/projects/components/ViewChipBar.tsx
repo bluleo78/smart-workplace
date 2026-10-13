@@ -19,6 +19,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { TOGGLE_ON_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
 
 import { useDeleteSavedView, usePinSavedView } from '../../../hooks/queries/useSavedViews'
@@ -56,7 +57,7 @@ export function ViewChipBar({
         onClick={s.applyAll}
         className={cn(
           'rounded-full border px-3 py-1 text-sm',
-          s.isAllActive ? 'border-foreground bg-accent font-medium' : 'text-muted-foreground hover:bg-accent/50',
+          s.isAllActive ? cn(TOGGLE_ON_CLASS, 'font-medium') : 'text-muted-foreground hover:bg-accent/50',
         )}
       >
         전체
@@ -73,7 +74,7 @@ export function ViewChipBar({
               onClick={() => s.apply(v.query)}
               className={cn(
                 'flex items-center gap-1 rounded-full border py-1 pl-3 pr-2 text-sm',
-                active ? 'border-foreground bg-accent font-medium' : 'text-muted-foreground hover:bg-accent/50',
+                active ? cn(TOGGLE_ON_CLASS, 'font-medium') : 'text-muted-foreground hover:bg-accent/50',
               )}
             >
               {v.visibility === 'SHARED' && <Users className="h-3.5 w-3.5" aria-label="공유" />}
@@ -177,7 +178,7 @@ export function ViewChipBar({
         data-testid="epic-panel-toggle"
         aria-pressed={epicPanelOpen}
         onClick={onToggleEpicPanel}
-        className={cn('ml-auto rounded-full transition-colors', epicPanelOpen && 'bg-accent')}
+        className={cn('ml-auto rounded-full transition-colors', epicPanelOpen && TOGGLE_ON_CLASS)}
       >
         <PanelLeft aria-hidden="true" /> 에픽
       </Button>

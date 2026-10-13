@@ -13,6 +13,7 @@ import { useHistoryParam } from '@/hooks/useHistoryParam'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { buildContactsContext } from '@/lib/aiScreenContext/builders/contacts'
 import { decodeContactParam, encodeContactParam } from '@/lib/contactParam'
+import { SELECTED_SURFACE_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
 
 import { ContactDetailPanel } from '../../components/contacts/ContactDetailPanel'
@@ -43,10 +44,16 @@ function ContactRow({
       data-testid={`contact-row-${c.type}-${c.id}`}
       className={cn(
         'group flex w-full items-center gap-3 border-b px-4 py-3 text-left transition-colors',
-        active ? 'bg-accent' : 'hover:bg-accent/50',
+        // 목록 안 보조 줄(이메일 등)까지 굵어지지 않게 막대+배경만 쓴다(이름은 이미 font-medium).
+        active ? SELECTED_SURFACE_CLASS : 'hover:bg-accent/50',
       )}
     >
-      <button type="button" onClick={onSelect} className="flex min-w-0 flex-1 items-center gap-3 text-left">
+      <button
+        type="button"
+        onClick={onSelect}
+        aria-current={active ? 'true' : undefined}
+        className="flex min-w-0 flex-1 items-center gap-3 text-left"
+      >
         <span
           className={cn(
             'shrink-0 rounded px-1.5 py-0.5 text-xs font-medium',

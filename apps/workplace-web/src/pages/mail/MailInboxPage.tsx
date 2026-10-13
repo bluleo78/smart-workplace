@@ -30,6 +30,7 @@ import { markSeenInKept, mergeKeptRows, withOpenRow } from '@/lib/mailKeepRows'
 import { isNeedsReply } from '@/lib/mailNeedsReply'
 import { buildQuote, escapeHtml } from '@/lib/mailQuote'
 import { mailViewHref, resolveMailView, unreadCountForView } from '@/lib/mailView'
+import { SELECTED_BG_CLASS, TOGGLE_ON_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
 
 import { getMessage, getViewUnreadCount, type MailViewScope } from '../../api/mailMessages'
@@ -78,14 +79,18 @@ function formatReceivedAt(iso: string | null): string {
 // 목록 한 행 — 안 읽음은 굵게, 첨부 클립 표시.
 function MessageRow({
   m,
-  active,
+  open,
+  sheetTarget,
   onSelect,
   pendingVisible,
   showToggle,
   onToggleRead,
 }: {
   m: EmailMessageSummary
-  active: boolean
+  /** 읽기 창에 열린 메일인가 — 선택 배경 + aria-current. */
+  open: boolean
+  /** 길게 누르기 시트의 대상인가 — 어느 메일에 대한 작업인지 선택 배경으로 강조만 하고, 열린 것으로 알리지는 않는다(M4). */
+  sheetTarget: boolean
   onSelect: () => void
   /** "분류 전" 배지 노출 여부 — 받은편지함 계열이고 AI 분류가 켜진 계정일 때만. */
   pendingVisible: boolean
@@ -110,6 +115,7 @@ function MessageRow({
       // 자식 텍스트가 섞이면 장문화되어 SR 청취성 저하(WCAG 1.3.1/4.1.2). 날짜는
       // 식별에 필수가 아니므로 간결함 우선으로 제외.
       aria-label={`${m.fromName || m.fromAddress || '(보낸사람 없음)'} ${m.subject || '(제목 없음)'}`}
+      aria-current={open ? 'true' : undefined}
       onClick={onSelect}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -120,7 +126,8 @@ function MessageRow({
       className={cn(
         // group — 안의 읽음 전환 버튼을 행 hover 에 맞춰 드러낸다(WP-187).
         'group relative flex w-full cursor-pointer flex-col gap-0.5 border-b px-4 py-3 text-left transition-colors',
-        active ? 'bg-accent' : 'hover:bg-accent/50',
+        // 선택은 배경만 — 막대는 안 읽음 표시(아래, 같은 자리·같은 색)와 겹치고, 굵기도 안 읽음 표시라 둘 다 쓰지 않는다.
+        open || sheetTarget ? SELECTED_BG_CLASS : 'hover:bg-accent/50',
       )}
     >
       {/* WP-155: 안 읽음은 굵기만으로는 훑어볼 때 잘 안 보여 왼쪽 primary 막대로 보강.
@@ -1039,7 +1046,7 @@ export function MailInboxPage() {
                     // 모바일: 시각 h-9 + after 히트 영역 확장으로 터치 44px 확보. 포커스 링은 디자인 시스템 규칙.
                     'relative inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-xs outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/40',
                     "max-lg:h-9 max-lg:px-4 max-lg:text-sm max-lg:after:absolute max-lg:after:-inset-y-1 max-lg:after:inset-x-0 max-lg:after:content-['']",
-                    view.unreadOnly ? 'border-primary/40 bg-primary/10 font-semibold text-primary' : 'text-foreground hover:bg-accent/50',
+                    view.unreadOnly ? cn(TOGGLE_ON_CLASS, 'font-semibold') : 'text-foreground hover:bg-accent/50',
                   )}
                 >
                   {/* 켜짐을 색에만 의존하지 않도록 점 표시(목업). */}
@@ -1136,8 +1143,8 @@ export function MailInboxPage() {
                 <MessageRow
                   key={m.id}
                   m={m}
-                  // 길게 누르기 시트의 대상 행도 강조한다 — 촘촘한 목록에서 어느 메일에 대한 작업인지 보이게(M4).
-                  active={selectedId === m.id || (sheet.open && sheet.target?.id === m.id)}
+                  open={selectedId === m.id}
+                  sheetTarget={sheet.open && sheet.target?.id === m.id}
                   onSelect={() => mailParam.open(String(m.id))}
                   pendingVisible={view.kind !== 'sent' && classificationActive}
                   showToggle={!touchShell}

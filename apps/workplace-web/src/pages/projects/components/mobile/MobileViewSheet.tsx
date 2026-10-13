@@ -5,6 +5,7 @@ import { type ReactNode, useState } from 'react';
 
 import { MOBILE_SHEET_ROW as ROW, MobileSheetShell } from '@/components/mobile/MobileSheetShell';
 import { Switch } from '@/components/ui/switch';
+import { SELECTED_ROW_CLASS } from '@/lib/selectionStyles';
 import { cn } from '@/lib/utils';
 
 import type { IssueFilterControls } from '../../hooks/useIssueFilterControls';
@@ -50,7 +51,7 @@ export function MobileViewSheet({
       data-testid={testId}
       aria-current={active || undefined}
       onClick={onClick}
-      className={cn(ROW, active && 'bg-accent font-medium')}
+      className={cn(ROW, active && SELECTED_ROW_CLASS)}
     >
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {extra}

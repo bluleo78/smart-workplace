@@ -5,6 +5,7 @@ import { AiLabel } from '@/components/ai/AiLabel'
 import { subPaneHeaderClass } from '@/components/layout/Page'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { SELECTED_ROW_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
 
 import type { WikiRevisionItem, WikiRevisionList as WikiRevisionListData } from '../../types/wiki'
@@ -130,8 +131,8 @@ function RevisionWho({ item }: { item: WikiRevisionItem }) {
 }
 
 /**
- * 목록 한 줄 버튼 — 선택은 메일 목록과 같은 bg-accent + aria-current 에, 왼쪽 primary 막대(시안의 선택 표시)를 더한다.
- * 다크에선 accent(흰 7%)와 패널 card(흰 3%) 차이가 작아 바탕만으론 선택 줄이 잘 안 보인다. 막대 자리는 모든 줄이 투명 테두리로 비워 둔다(선택 때 글자가 밀리지 않게).
+ * 목록 한 줄 버튼 — 선택은 공용 선택 스타일(SELECTED_ROW_CLASS: 왼쪽 primary 막대 + bg-selected, WP-368) + aria-current.
+ * 막대는 버튼 안쪽 왼쪽 가장자리에 그려지는 가상 요소라 레이아웃을 밀지 않는다(예전엔 모든 줄이 투명 border-l-2 로 자리를 비워 뒀다).
  */
 function RevisionRow({
   testId,
@@ -158,9 +159,9 @@ function RevisionRow({
       aria-description={blockedReason}
       onClick={onClick}
       className={cn(
-        'flex w-full min-w-0 flex-col items-start gap-0.5 border-l-2 py-2 pr-4 pl-3.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset pointer-coarse:min-h-11',
+        'flex w-full min-w-0 flex-col items-start gap-0.5 px-4 py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset pointer-coarse:min-h-11',
         'disabled:cursor-not-allowed disabled:opacity-50',
-        selected ? 'border-primary bg-accent text-accent-foreground' : 'border-transparent enabled:hover:bg-accent/50',
+        selected ? SELECTED_ROW_CLASS : 'enabled:hover:bg-accent/50',
       )}
     >
       <span className="text-sm font-medium leading-5">{primary}</span>

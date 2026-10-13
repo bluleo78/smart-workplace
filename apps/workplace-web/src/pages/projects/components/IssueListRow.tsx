@@ -17,6 +17,7 @@ import { UserAvatar } from '../../../components/users/UserAvatar';
 import type { CycleSectionRef, IssueDragData } from '../../../lib/epicDnd';
 import { formatDateKorean } from '../../../lib/formatters';
 import { isEpicParent } from '../../../lib/issueGrouping';
+import { MULTI_SELECTED_ROW_CLASS } from '../../../lib/selectionStyles';
 import { cn } from '../../../lib/utils';
 import type { IssueResponse } from '../../../types/issue';
 import { type OpenRowMenu, openRowMenuAtPointer } from '../hooks/useIssueRowActions';
@@ -117,7 +118,7 @@ export const IssueRow = memo(function IssueRow({
         menuOpen && 'bg-accent',
         isDragging && 'opacity-40',
         isMobile && 'select-none [-webkit-touch-callout:none]',
-        isMobile && selected && 'bg-primary/10',
+        isMobile && selected && MULTI_SELECTED_ROW_CLASS,
       )}
       aria-selected={isMobile && selectionMode ? selected : undefined}
       data-testid={`issue-row-${it.number}`}

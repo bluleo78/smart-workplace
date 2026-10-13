@@ -19,6 +19,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { ghostToggleClass } from '@/lib/selectionStyles';
 import { cn } from '@/lib/utils';
 
 import type { IssueGroupBy } from '../../../types/issue';
@@ -60,7 +61,7 @@ export function IssueFilterBar({
             onClick={c.toggleShowAllClosed}
             className={cn(
               'transition-colors',
-              (c.filters.showAllClosed || c.closedHidingOverridden) && 'bg-accent',
+              ghostToggleClass(c.filters.showAllClosed || c.closedHidingOverridden),
             )}
           >
             <CircleCheckBig aria-hidden="true" /> 완료 모두 보기

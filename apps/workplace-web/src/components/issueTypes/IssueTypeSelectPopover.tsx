@@ -4,6 +4,8 @@
 import { useState } from 'react';
 
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { SELECTED_ROW_CLASS } from '@/lib/selectionStyles';
+import { cn } from '@/lib/utils';
 
 import { useIssueTypes } from '../../hooks/queries/useIssueTypes';
 import { useUpdateIssueType } from '../../hooks/queries/useUpdateIssueType';
@@ -49,9 +51,10 @@ export function IssueTypeSelectPopover({
                   type="button"
                   role="radio"
                   aria-checked={checked}
-                  className={`w-full text-left flex items-center gap-2 px-2 py-1 rounded hover:bg-accent ${
-                    checked ? 'bg-accent/50' : ''
-                  }`}
+                  className={cn(
+                    'w-full text-left flex items-center gap-2 px-2 py-1 rounded hover:bg-accent',
+                    checked && SELECTED_ROW_CLASS,
+                  )}
                   data-testid={`issue-type-option-${t.id}`}
                   onClick={() => {
                     if (!checked) update.mutate(t.id);

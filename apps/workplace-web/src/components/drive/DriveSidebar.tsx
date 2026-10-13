@@ -34,6 +34,7 @@ import { RenameDialog } from '@/components/ui/rename-dialog'
 import { extractApiError } from '@/lib/api-error'
 import { partitionSpaces } from '@/lib/driveSpaces'
 import { formatFileSize } from '@/lib/formatters'
+import { SELECTED_NAV_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
 
 import { driveApi } from '../../api/drive'
@@ -246,9 +247,7 @@ export function DriveSidebar() {
           className={({ isActive }) =>
             cn(
               'flex items-center gap-2 rounded-md px-2 py-1 text-xs transition-colors',
-              isActive
-                ? 'bg-accent font-medium text-accent-foreground'
-                : 'text-muted-foreground hover:bg-accent/50',
+              isActive ? SELECTED_NAV_CLASS : 'text-muted-foreground hover:bg-accent/50',
             )
           }
         >

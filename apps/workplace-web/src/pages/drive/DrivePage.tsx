@@ -56,6 +56,7 @@ import { dragItemsFor, type DriveDragItem, driveDragItem, type DriveDropData, mo
 import { fileStemLength } from '@/lib/fileName'
 import { formatDateOnly, formatDateShort, formatFileSize } from '@/lib/formatters'
 import { parseId } from '@/lib/historyParam'
+import { MULTI_SELECTED_ROW_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
 
 import { type DriveContentHit,searchDriveContent } from '../../api/contentSearch'
@@ -377,11 +378,11 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     )
   }
 
-  // 모바일 행 공통 클래스 — 길게 누를 때 iOS 텍스트 선택·콜아웃 억제, 선택 모드에서 선택된 행 강조.
+  // 모바일 행 공통 클래스 — 길게 누를 때 iOS 텍스트 선택·콜아웃 억제, 선택 모드에서 선택된 행 강조(이슈 목록 선택 모드와 같은 MULTI_SELECTED_ROW_CLASS).
   function rowSelectedClass(kind: 'file' | 'folder', id: number) {
     if (!isMobile) return undefined
     const selected = (kind === 'file' ? visibleSelFiles : visibleSelFolders).has(id)
-    return cn('select-none [-webkit-touch-callout:none]', mobileSelecting && selected && 'bg-accent/60')
+    return cn('select-none [-webkit-touch-callout:none]', mobileSelecting && selected && MULTI_SELECTED_ROW_CLASS)
   }
 
   // 모바일 행 둘째 줄 — 고정폭 크기·수정일 열 대신 이름 아래에 둔다. 보조 정보라 버튼의 접근 이름(=항목 이름)에서 뺀다.

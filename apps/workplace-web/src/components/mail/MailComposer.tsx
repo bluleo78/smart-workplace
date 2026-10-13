@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { ImeCommitFlush } from '@/lib/imeCommitFlush';
+import { ghostToggleClass } from '@/lib/selectionStyles';
 import { cn } from '@/lib/utils';
 
 interface MailComposerProps {
@@ -50,7 +51,7 @@ function ToolbarButton({
       onClick={onClick}
       className={cn(
         'rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground',
-        active && 'bg-accent text-foreground',
+        ghostToggleClass(!!active),
       )}
     >
       {children}

@@ -5,6 +5,7 @@
 import { Check, ChevronRight } from 'lucide-react';
 
 import { MOBILE_SHEET_ROW } from '@/components/mobile/MobileSheetShell';
+import { SELECTED_ROW_CLASS } from '@/lib/selectionStyles';
 import { cn } from '@/lib/utils';
 
 import { ClosedStatusBadge } from '../../../../components/issues/ClosedStatusBadge';
@@ -46,7 +47,7 @@ export function MobileClosedEpicsFooter({
         epics.map((ep) => {
           const selected = selectedNumber === ep.number;
           return (
-            <div key={ep.number} className={cn('flex items-stretch', selected && 'bg-accent')}>
+            <div key={ep.number} className={cn('flex items-stretch', selected && SELECTED_ROW_CLASS)}>
               <button
                 type="button"
                 role="option"
@@ -57,7 +58,7 @@ export function MobileClosedEpicsFooter({
                   // 이미 선택된 에픽 재탭은 해제하지 않는다(시트의 진행 중 옵션과 같은 규칙).
                   if (!selected) onSelect(ep.number);
                 }}
-                className={cn(MOBILE_SHEET_ROW, 'min-w-0 flex-1', selected && 'font-medium')}
+                className={cn(MOBILE_SHEET_ROW, 'min-w-0 flex-1')}
               >
                 <span className={cn('min-w-0 flex-1 truncate', selected ? 'text-foreground' : 'text-muted-foreground', ep.status === 'CANCELED' && 'line-through')}>
                   {ep.title}

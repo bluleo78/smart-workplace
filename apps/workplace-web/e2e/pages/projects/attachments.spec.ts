@@ -15,6 +15,7 @@ import { createFile, createFolder, createSpace } from '../../factories/drive.fac
 import { createIssue, createIssueDetail } from '../../factories/issue.factory';
 import { createProject } from '../../factories/project.factory';
 import type { IssueAttachment } from '../../../src/types/attachment';
+import { expectToggle } from '../../fixtures/selection';
 
 const PROJECT_KEY = 'WP';
 // ESM 컨텍스트: __dirname 대신 이 스펙 파일 기준 디렉토리. 실제 PDF 바이트는 공용 픽스처를 쓴다(pdf.js 가 그려야 하므로).
@@ -737,7 +738,11 @@ test.describe('이슈 첨부 뷰어 묶음 (WP-277)', () => {
     // 이슈에서 열면 기본 접힘(defaultPanelOpen 없음).
     await expect(page.getByTestId('preview-body')).toContainText('LINKED-BODY');
     await expect(page.getByTestId('viewer-side-panel')).toHaveCount(0);
-    await page.getByRole('button', { name: 'AI 요약' }).click();
+    // WP-368 — ✨ 요약 토글(ghost)은 패널이 열리면 aria-pressed·TOGGLE_ON 표시가 붙는다.
+    const summaryToggle = page.getByRole('button', { name: 'AI 요약' });
+    await expectToggle(summaryToggle, false);
+    await summaryToggle.click();
+    await expectToggle(summaryToggle, true);
     await expect(page.getByTestId('viewer-side-panel').getByTestId('drive-summary-card')).toContainText('링크 요약');
     await page.getByRole('button', { name: '더 보기' }).click();
     await expect(page.getByRole('menuitem', { name: '드라이브에서 열기' })).toBeVisible();
