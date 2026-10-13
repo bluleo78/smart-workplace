@@ -872,19 +872,17 @@ class DriveFileServiceTest extends IntegrationTestBase {
 
   /**
    * mimeType 없이 갱신하면 지금 MIME 을 유지한다 — yaml 은 application/x-yaml, md 는 text/markdown(매개변수는 뗀다),
-   * text/javascript 도 그대로. html·xml 계열은 문서로 렌더링되지 않게 text/plain 이 된다.
+   * text/javascript 도 그대로. xml 계열은 문서로 렌더링되지 않게 text/plain 이 된다(워커가 xml 을 원문 그대로 읽어 고쳐 쓸 수 있다).
    */
   @Test
-  void updateTextFile_keepsCurrentMime_butHtmlAndXmlBecomePlainText() throws Exception {
+  void updateTextFile_keepsCurrentMime_butXmlBecomesPlainText() throws Exception {
     long u = seedUser();
     DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
     DriveFileResponse yaml = uploadAs(u, sp.id(), "설정.yaml", "application/x-yaml", "a: 1");
     DriveFileResponse md = uploadAs(u, sp.id(), "노트.md", "text/markdown; charset=utf-8", "# a");
     DriveFileResponse js = uploadAs(u, sp.id(), "app.js", "text/javascript", "let a");
-    DriveFileResponse html = uploadAs(u, sp.id(), "page.html", "text/html", "<p>a</p>");
     DriveFileResponse xml = uploadAs(u, sp.id(), "data.xml", "application/xml", "<a/>");
     DriveFileResponse textXml = uploadAs(u, sp.id(), "feed.xml", "text/xml", "<a/>");
-    DriveFileResponse xhtml = uploadAs(u, sp.id(), "doc.xhtml", "application/xhtml+xml", "<a/>");
 
     assertThat(fileService.updateTextFile(u, yaml.id(), "a: 2", null).mimeType())
         .isEqualTo("application/x-yaml");
@@ -892,10 +890,32 @@ class DriveFileServiceTest extends IntegrationTestBase {
         .isEqualTo("text/markdown");
     assertThat(fileService.updateTextFile(u, js.id(), "let b", null).mimeType())
         .isEqualTo("text/javascript");
-    for (DriveFileResponse f : new DriveFileResponse[] {html, xml, textXml, xhtml}) {
+    for (DriveFileResponse f : new DriveFileResponse[] {xml, textXml}) {
       DriveFileResponse v2 = fileService.updateTextFile(u, f.id(), "<script>x</script>", null);
       assertThat(v2.mimeType()).as(f.name()).isEqualTo("text/plain");
       assertThat(v2.versionCount()).isEqualTo(2);
+    }
+  }
+
+  /**
+   * html 계열(text/html·application/xhtml+xml)은 내용으로 고쳐 쓰지 못한다(409, 최종 리뷰 I3) — 워커 추출이 마크업을 걷어내므로 AI
+   * 가 읽은 "전문"으로 덮으면 태그가 모두 사라진다. 사유와 업로드 링크 안내를 알리고 버전은 늘지 않는다.
+   */
+  @Test
+  void updateTextFile_htmlFamily_conflicts_withUploadLinkHint() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    DriveFileResponse html =
+        uploadAs(u, sp.id(), "page.html", "text/html; charset=utf-8", "<p>a</p>");
+    DriveFileResponse xhtml = uploadAs(u, sp.id(), "doc.xhtml", "application/xhtml+xml", "<a/>");
+
+    for (DriveFileResponse f : new DriveFileResponse[] {html, xhtml}) {
+      assertThatThrownBy(() -> fileService.updateTextFile(u, f.id(), "a", null))
+          .as(f.name())
+          .isInstanceOf(com.workplace.drive.exception.DriveNotTextFileException.class)
+          .hasMessageContaining("HTML")
+          .hasMessageEndingWith("업로드 링크로 파일을 올리세요");
+      assertThat(versionsRepo.listForDriveFile(f.id())).hasSize(1);
     }
   }
 
@@ -1004,5 +1024,112 @@ class DriveFileServiceTest extends IntegrationTestBase {
                     .eq(sp.id())
                     .and(com.workplace.jooq.Tables.DRIVE_FILE.NAME.eq("원래.md"))))
         .isFalse();
+  }
+
+  // ── 최종 리뷰 I3·I4·M2: 추출 텍스트가 원문과 다른 파일은 내용으로 고쳐 쓰지 않는다 ──────────────
+
+  /** 원시 바이트 그대로 올린 파일(멀티파트) — UTF-8 이 아닌 원문 시험용. */
+  private DriveFileResponse uploadBytes(long u, long spaceId, String name, String mime, byte[] body)
+      throws Exception {
+    return fileService.upload(u, spaceId, null, new MockMultipartFile("file", name, mime, body));
+  }
+
+  /**
+   * UTF-8 이 아닌 원문(CP949 "가나")은 409 — 워커가 대체 문자로 읽어 한글이 깨진 채 굳는다. 끝이 잘린 UTF-8 바이트열("가"의 앞 두 바이트)도
+   * 같다. 버전은 늘지 않는다.
+   */
+  @Test
+  void updateTextFile_nonUtf8Original_conflicts() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    byte[] cp949 = {(byte) 0xB0, (byte) 0xA1, (byte) 0xB3, (byte) 0xAA, '\n'};
+    byte[] cutUtf8 = {'a', ',', 'b', '\n', (byte) 0xEA, (byte) 0xB0};
+    DriveFileResponse csv = uploadBytes(u, sp.id(), "표.csv", "text/csv", cp949);
+    DriveFileResponse txt = uploadBytes(u, sp.id(), "끝.txt", "text/plain", cutUtf8);
+
+    for (DriveFileResponse f : new DriveFileResponse[] {csv, txt}) {
+      assertThatThrownBy(() -> fileService.updateTextFile(u, f.id(), "a,b", null))
+          .as(f.name())
+          .isInstanceOf(com.workplace.drive.exception.DriveNotTextFileException.class)
+          .hasMessageContaining("UTF-8")
+          .hasMessageEndingWith("업로드 링크로 파일을 올리세요");
+      assertThat(versionsRepo.listForDriveFile(f.id())).hasSize(1);
+    }
+    // 올바른 UTF-8(한글·이모지·BOM 없음)은 그대로 고쳐 쓸 수 있다.
+    DriveFileResponse ok =
+        uploadBytes(
+            u,
+            sp.id(),
+            "좋음.csv",
+            "text/csv",
+            "가,😀\n".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    assertThat(fileService.updateTextFile(u, ok.id(), "나,😀", null).versionCount()).isEqualTo(2);
+  }
+
+  /**
+   * 추출이 잘린 파일(워커 MAX_CHARS 초과, file_extraction.truncated)은 409 — AI 가 앞부분만 읽고 덮으면 뒷부분이 사라진다. 추출이 아직
+   * PENDING 이면 잘림을 알 수 없어 UTF-8 검사만으로 판단한다(갱신된다).
+   */
+  @Test
+  void updateTextFile_truncatedExtraction_conflicts_pendingAllowed() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    DriveFileResponse big = fileService.createTextFile(u, sp.id(), null, "큰.md", "앞부분", null);
+    DriveFileResponse pending = fileService.createTextFile(u, sp.id(), null, "대기.md", "x", null);
+    dsl.update(FILE_EXTRACTION)
+        .set(FILE_EXTRACTION.STATUS, "DONE")
+        .set(FILE_EXTRACTION.EXTRACTED_TEXT, "앞부분")
+        .set(FILE_EXTRACTION.TRUNCATED, true)
+        .where(FILE_EXTRACTION.FILE_ID.eq(big.fileId()))
+        .execute();
+
+    assertThatThrownBy(() -> fileService.updateTextFile(u, big.id(), "앞부분만 고침", null))
+        .isInstanceOf(com.workplace.drive.exception.DriveNotTextFileException.class)
+        .hasMessageContaining("앞부분만")
+        .hasMessageEndingWith("업로드 링크로 파일을 올리세요");
+    assertThat(versionsRepo.listForDriveFile(big.id())).hasSize(1);
+    assertThat(
+            dsl.select(FILE_EXTRACTION.STATUS)
+                .from(FILE_EXTRACTION)
+                .where(FILE_EXTRACTION.FILE_ID.eq(pending.fileId()))
+                .fetchOne(FILE_EXTRACTION.STATUS))
+        .isEqualTo("PENDING");
+    assertThat(fileService.updateTextFile(u, pending.id(), "y", null).versionCount()).isEqualTo(2);
+  }
+
+  /**
+   * 이름으로 만든 텍스트가 같은 이름의 기존 파일에 흡수될 때도 갱신과 같은 규칙(최종 리뷰 M2) — docx 는 409 이고 버전·FILE 행이 늘지 않는다(blob 저장
+   * 전에 거절), html 은 409, yaml 은 지금 MIME(application/x-yaml)을 유지한다.
+   */
+  @Test
+  void createTextFile_sameNameExisting_followsUpdateRules() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    DriveFileResponse doc =
+        uploadBytes(
+            u,
+            sp.id(),
+            "보고서.docx",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            new byte[] {1, 2, 3});
+    DriveFileResponse html = uploadAs(u, sp.id(), "page.html", "text/html", "<p>a</p>");
+    DriveFileResponse yaml = uploadAs(u, sp.id(), "설정.yaml", "application/x-yaml", "a: 1");
+    int filesBefore = dsl.fetchCount(FILE, FILE.UPLOADED_BY.eq(u));
+
+    assertThatThrownBy(() -> fileService.createTextFile(u, sp.id(), null, "보고서.docx", "본문", null))
+        .isInstanceOf(com.workplace.drive.exception.DriveNotTextFileException.class)
+        .hasMessage("텍스트 파일만 내용으로 갱신할 수 있습니다");
+    assertThatThrownBy(() -> fileService.createTextFile(u, sp.id(), null, "page.html", "a", null))
+        .isInstanceOf(com.workplace.drive.exception.DriveNotTextFileException.class)
+        .hasMessageContaining("HTML");
+    assertThat(versionsRepo.listForDriveFile(doc.id())).hasSize(1);
+    assertThat(versionsRepo.listForDriveFile(html.id())).hasSize(1);
+    assertThat(dsl.fetchCount(FILE, FILE.UPLOADED_BY.eq(u))).isEqualTo(filesBefore);
+
+    DriveFileResponse yamlV2 =
+        fileService.createTextFile(u, sp.id(), null, "설정.yaml", "a: 2", null);
+    assertThat(yamlV2.id()).isEqualTo(yaml.id());
+    assertThat(yamlV2.versionCount()).isEqualTo(2);
+    assertThat(yamlV2.mimeType()).isEqualTo("application/x-yaml");
   }
 }

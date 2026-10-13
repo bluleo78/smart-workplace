@@ -17,6 +17,7 @@ import com.workplace.drive.repository.DriveFileRepository;
 import com.workplace.drive.repository.DriveFolderRepository;
 import com.workplace.drive.repository.DriveQuotaRepository;
 import com.workplace.file.dto.FileUploadResponse;
+import com.workplace.file.exception.FileBlobMissingException;
 import com.workplace.file.exception.FileSizeLimitExceededException;
 import com.workplace.file.service.FileUploadService;
 import com.workplace.file.service.FileUploadService.FileContentResult;
@@ -25,16 +26,23 @@ import com.workplace.file.storage.FilePathBuilder;
 import com.workplace.fileai.ExtractionProfile;
 import com.workplace.fileai.ExtractionReasons;
 import com.workplace.fileai.dto.ExtractedTextSlice;
+import com.workplace.fileai.dto.ExtractionInfo;
 import com.workplace.fileai.inbound.FileExtractionRequestedEvent;
 import com.workplace.fileai.service.ExtractedTextService;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.util.SafeFileNames;
 import com.workplace.user.repository.UserRepository;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.Reader;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CharsetDecoder;
+import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
@@ -120,8 +128,13 @@ public class DriveFileService {
    * <p>MIME 은 {@code mimeType} 이 있으면 허용 목록(text/markdown·text/plain·text/csv·application/json) 안에서만
    * 쓰고, 없으면 확장자(md·txt·csv·json, 그 밖은 text/plain)로 정한다. 크기 상한은 TEXT 상한(10MB).
    *
+   * <p>같은 폴더에 같은 이름의 활성 파일이 있어 그 파일의 새 버전이 될 때는 {@link #updateTextFile} 과 같은 규칙을 탄다(최종 리뷰 M2) — 텍스트
+   * 계열이 아니면 409, 추출 텍스트가 원문과 다르면({@link #requireRewritable}) 409, MIME 은 {@link
+   * #updatedTextMimeOf}(지금 MIME 유지). 이 판정은 저장 핵심이 잠근 그 행으로 한다.
+   *
    * @throws IllegalArgumentException 허용하지 않는 mimeType(400)
    * @throws FileSizeLimitExceededException UTF-8 로 10MB 초과(400)
+   * @throws DriveNotTextFileException 같은 이름의 기존 파일을 내용으로 고쳐 쓸 수 없음(409)
    */
   @Transactional
   public DriveFileResponse createTextFile(
@@ -132,7 +145,12 @@ public class DriveFileService {
     if (bytes.length > TEXT_FILE_MAX_BYTES) {
       throw new FileSizeLimitExceededException("TEXT", TEXT_FILE_MAX_BYTES);
     }
-    return upload(callerId, spaceId, folderId, UploadSource.ofBytes(name, mime, bytes));
+    return uploadInto(
+        callerId,
+        spaceId,
+        folderId,
+        UploadSource.ofBytes(name, mime, bytes),
+        new TextRewrite(mimeType));
   }
 
   /** 텍스트 파일 MIME 결정(R4) — 명시값은 허용 목록만(매개변수 제거·소문자), 없으면 확장자, 모르면 text/plain. */
@@ -154,14 +172,15 @@ public class DriveFileService {
    * 기존 파일을 텍스트 내용으로 갱신(WP-369) — 그 파일에 새 버전을 더한다. 이름·폴더는 바꾸지 않는다. 의미는 {@link #addVersion} 과 같다.
    *
    * <p>검사 순서가 존재 은닉을 지킨다: 없는·휴지통 파일 404 → 공간 비멤버 404 · EDITOR 미만 403 → 텍스트 계열이 아니면 409 → MIME(400)
-   * → 크기(400). 역할 검사를 409 보다 먼저 해야 비멤버가 파일 형식을 알아내지 못한다.
+   * → 크기(400) → (저장 핵심이 행을 잠근 뒤) 추출 텍스트가 원문과 다르면 409({@link #requireRewritable}). 역할 검사를 409 보다 먼저
+   * 해야 비멤버가 파일 형식을 알아내지 못한다. 원문 판정은 blob 을 읽으므로 싼 검사를 모두 마친 뒤, 새 버전을 붙일 그 행을 잠근 상태에서 한다.
    *
    * <p>MIME 은 {@link #updatedTextMimeOf} 로 정한다 — 명시값은 R4 허용 목록만, 없으면 지금 MIME 을 유지한다(yaml·md·js 가
-   * 버전마다 text/plain 으로 바뀌지 않게). 단 html·xml 계열과 확장자로만 텍스트로 본 octet-stream 은 파일 이름 확장자로 정해 html·xml 은
-   * text/plain 이 된다.
+   * 버전마다 text/plain 으로 바뀌지 않게). 단 xml 계열과 확장자로만 텍스트로 본 octet-stream 은 파일 이름 확장자로 정해 xml 은
+   * text/plain 이 된다(html 은 원문 판정에서 이미 409).
    *
    * @throws DriveFileNotFoundException 없거나 휴지통 파일(404)
-   * @throws DriveNotTextFileException 현재 버전이 텍스트 계열({@link #isTextLike})이 아님(409)
+   * @throws DriveNotTextFileException 현재 버전이 텍스트 계열({@link #isTextLike})이 아니거나 추출 텍스트가 원문과 다름(409)
    * @throws IllegalArgumentException 허용하지 않는 mimeType(400)
    * @throws FileSizeLimitExceededException UTF-8 로 10MB 초과(400)
    */
@@ -180,7 +199,97 @@ public class DriveFileService {
     if (bytes.length > TEXT_FILE_MAX_BYTES) {
       throw new FileSizeLimitExceededException("TEXT", TEXT_FILE_MAX_BYTES);
     }
-    return bindVersion(callerId, row, UploadSource.ofBytes(row.name(), mime, bytes));
+    // 위 판정은 빠른 거절용이다 — 저장 핵심이 행을 잠근 뒤 그 행의 현재 버전으로 텍스트 계열·원문 판정·MIME 을 다시 정한다.
+    return store(
+        callerId,
+        row.spaceId(),
+        row.folderId(),
+        UploadSource.ofBytes(row.name(), mime, bytes),
+        row.id(),
+        new TextRewrite(mimeType));
+  }
+
+  /**
+   * 내용 모드(텍스트로 만들기·갱신, WP-369)가 기존 파일에 새 버전으로 들어갈 때의 표시 — 저장 핵심이 잠근 행으로 고쳐 쓰기 판정과 MIME 결정을 한다. 바이트
+   * 업로드(멀티파트·업로드 링크)는 null 이다: 올린 파일이 원문 그대로라 추출과 무관하다.
+   *
+   * @param requestedMime 호출자가 명시한 mimeType(없으면 null — 지금 MIME 을 유지)
+   */
+  private record TextRewrite(String requestedMime) {}
+
+  /** html 계열 — 워커 추출이 마크업을 걷어내 추출 텍스트가 원문이 아니다(최종 리뷰 I3). xml 은 워커가 원문 그대로 읽어 넣지 않는다. */
+  private static final Set<String> MARKUP_STRIPPED_MIMES =
+      Set.of("text/html", "application/xhtml+xml");
+
+  private static final String UPLOAD_LINK_HINT = ". 업로드 링크로 파일을 올리세요";
+
+  /**
+   * 잠근 기존 파일에 내용 모드 새 버전을 붙일 때의 MIME(WP-369) — 텍스트 계열이 아니면 409, 추출 텍스트가 원문과 다르면 409, 그 밖은 {@link
+   * #updatedTextMimeOf}.
+   */
+  private String rewriteMimeOf(DriveFileRepository.DriveFileRow locked, String requestedMime)
+      throws IOException {
+    String currentMime = files.findCurrentMime(locked.fileId());
+    if (!isTextLike(currentMime, locked.name())) {
+      throw new DriveNotTextFileException();
+    }
+    requireRewritable(locked.fileId(), currentMime);
+    return updatedTextMimeOf(locked.name(), currentMime, requestedMime);
+  }
+
+  /**
+   * 내용으로 고쳐 써도 원문을 잃지 않는지(최종 리뷰 I3·I4) — AI 는 추출 텍스트를 읽고 고친 전문을 저장하므로, 추출 텍스트가 원문과 같은 파일만 허용한다. 아니면
+   * 409 와 사유, 그리고 "업로드 링크로 파일을 올리세요".
+   *
+   * <ol>
+   *   <li>html 계열(text/html·application/xhtml+xml) — 워커가 마크업을 걷어낸다(xhtml 은 추출하지 않는다).
+   *   <li>추출이 잘림(file_extraction.truncated) — 워커 MAX_CHARS 초과로 앞부분만 있다. 추출 행이 없거나 아직 PENDING 이면 알 수
+   *       없어 다음 검사만으로 판단한다.
+   *   <li>현재 버전 blob 이 올바른 UTF-8 이 아님(예: CP949 CSV) — 워커가 대체 문자(U+FFFD)로 읽어 한글이 깨진다. 스트림으로 읽어 메모리에
+   *       다 올리지 않는다(csv 는 DATA 범주라 256MB 까지 있다). 잘림 검사를 먼저 해 큰 파일 대부분은 읽지 않고 거절한다.
+   * </ol>
+   *
+   * <p>blob 이 유실됐으면(행은 있고 바이트가 없음) 잃을 원문이 없으므로 UTF-8 검사를 건너뛴다 — 추출 텍스트로 되살리는 것이 유일한 복구 길이다.
+   */
+  private void requireRewritable(long fileId, String currentMime) throws IOException {
+    String bare = bareMime(currentMime);
+    if (bare != null && MARKUP_STRIPPED_MIMES.contains(bare)) {
+      throw new DriveNotTextFileException(
+          "HTML 파일은 읽은 텍스트가 마크업을 뺀 것이라 내용으로 고쳐 쓸 수 없습니다" + UPLOAD_LINK_HINT);
+    }
+    ExtractionInfo info = extractedText.info(List.of(fileId)).get(fileId);
+    if (info != null && Boolean.TRUE.equals(info.truncated())) {
+      throw new DriveNotTextFileException(
+          "파일이 커서 읽은 텍스트가 앞부분만이라 내용으로 고쳐 쓸 수 없습니다" + UPLOAD_LINK_HINT);
+    }
+    if (!isUtf8(fileId)) {
+      throw new DriveNotTextFileException(
+          "UTF-8 이 아닌 파일(예: CP949)이라 읽은 텍스트가 원문과 달라 내용으로 고쳐 쓸 수 없습니다" + UPLOAD_LINK_HINT);
+    }
+  }
+
+  /** 현재 버전 blob 이 처음부터 끝까지 올바른 UTF-8 인지 — 엄격한 디코더(REPORT)로 스트림을 끝까지 읽는다. 끝의 잘린 바이트열도 거절된다. */
+  private boolean isUtf8(long fileId) throws IOException {
+    FileContentResult content;
+    try {
+      content = fileUpload.getFileContentTrusted(fileId);
+    } catch (FileBlobMissingException e) {
+      return true;
+    }
+    CharsetDecoder decoder =
+        StandardCharsets.UTF_8
+            .newDecoder()
+            .onMalformedInput(CodingErrorAction.REPORT)
+            .onUnmappableCharacter(CodingErrorAction.REPORT);
+    try (Reader reader = new InputStreamReader(content.resource().getInputStream(), decoder)) {
+      char[] buffer = new char[8192];
+      while (reader.read(buffer) != -1) {
+        // 디코딩만 확인한다 — 글자는 버린다.
+      }
+      return true;
+    } catch (CharacterCodingException e) {
+      return false;
+    }
   }
 
   /**
@@ -267,7 +376,7 @@ public class DriveFileService {
         files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
     perms.requireRole(row.spaceId(), callerId, "EDITOR");
     // 저장 이름은 store 가 행 잠금 아래에서 읽은 지금 이름으로 바꾼다.
-    return bindVersion(callerId, row, source);
+    return store(callerId, row.spaceId(), row.folderId(), source, row.id(), null);
   }
 
   /**
@@ -312,44 +421,66 @@ public class DriveFileService {
   @Transactional
   public DriveFileResponse upload(long callerId, long spaceId, Long folderId, UploadSource source)
       throws IOException {
+    return uploadInto(callerId, spaceId, folderId, source, null);
+  }
+
+  /** 이름으로 넣는 업로드 — 권한(EDITOR)·폴더 소속 검증 뒤 공유 핵심. {@code text} 는 내용 모드일 때만(동명 흡수 판정용). */
+  private DriveFileResponse uploadInto(
+      long callerId, long spaceId, Long folderId, UploadSource source, TextRewrite text)
+      throws IOException {
     perms.requireRole(spaceId, callerId, "EDITOR");
     // 폴더가 이 공간 소속인지(WP-369 이전에는 검사하지 않아 다른 공간 폴더 id 로 올릴 수 있었다).
     validateTargetSameSpace(spaceId, folderId, UPLOAD_OTHER_SPACE_MESSAGE);
-    return store(callerId, spaceId, folderId, source, null);
-  }
-
-  /** 지정 파일에 새 버전 — 권한 검사를 마친 호출부(텍스트 갱신·{@link #addVersion})가 부른다. 파일의 공간·폴더로 공유 핵심을 탄다. */
-  private DriveFileResponse bindVersion(
-      long callerId, DriveFileRepository.DriveFileRow row, UploadSource source) throws IOException {
-    return store(callerId, row.spaceId(), row.folderId(), source, row.id());
+    return store(callerId, spaceId, folderId, source, null, text);
   }
 
   /**
-   * 업로드 공유 핵심(권한 검사 뒤) — 할당량 검사(advisory lock) → (지정 파일이면 행 잠금) → file core 저장 → 영구화 → drive_file
+   * 업로드 공유 핵심(권한 검사 뒤) — 할당량 검사(advisory lock) → 새 버전을 붙일 행 잠금 → file core 저장 → 영구화 → drive_file
    * 바인딩 → 감사 → 추출 이벤트 → 변경 알림.
    *
    * @param targetDriveFileId 새 버전을 더할 파일(WP-369, ID 지정 갱신). null 이면 같은 폴더의 동명 활성 파일을 찾아 있으면 새 버전,
-   *     없으면 새 파일 + v1(#79). 지정하면 그 행을 잠가 살아 있는지 다시 보고, 저장 이름은 잠금 아래에서 읽은 지금 이름이다
+   *     없으면 새 파일 + v1(#79). 어느 쪽이든 붙일 행을 잠가 살아 있는지 다시 보고, 저장 이름은 잠금 아래에서 읽은 지금 이름이다
+   * @param text 내용 모드(텍스트로 만들기·갱신)면 그 표시, 바이트 업로드면 null — 기존 파일에 붙을 때 잠근 행으로 고쳐 쓰기 판정·MIME 을 정한다
    */
   private DriveFileResponse store(
-      long callerId, long spaceId, Long folderId, UploadSource source, Long targetDriveFileId)
+      long callerId,
+      long spaceId,
+      Long folderId,
+      UploadSource source,
+      Long targetDriveFileId,
+      TextRewrite text)
       throws IOException {
     // 쿼터 강제: 테넌트 단위 직렬화 잠금 후 사용량 검사(동시 업로드 레이스 방지, #81).
     Long tenantId = TenantContext.get();
     if (tenantId != null) {
       quotaRepo.advisoryLockTenant(tenantId);
     }
-    UploadSource toStore = source;
+    // 휴지통·이름 변경·이동 경합(WP-369): 찾은 뒤 휴지통 이동이 커밋되면 휴지통 파일에 버전이 붙는다. 그래서 advisory lock 다음·blob
+    // 저장 전에 붙일 행을 잠그고(FOR UPDATE) trashed_at 을 다시 본다. 순서는 반드시 advisory → 행(롤백과 같은 순서) — 반대로 잡으면 교착할
+    // 수 있다. blob 저장 전이라 거절돼도 고아 blob 이 남지 않는다.
+    DriveFileRepository.DriveFileRow locked;
     if (targetDriveFileId != null) {
-      // 휴지통·이름 변경 경합(WP-369): 호출부의 findRow 뒤에 휴지통 이동이 커밋되면 휴지통 파일에 버전이 붙는다. 그래서 advisory lock
-      // 다음·blob 저장 전에 행을 잠그고(FOR UPDATE) trashed_at 을 다시 본다. 순서는 반드시 advisory → 행(동명 업로드·롤백과 같은
-      // 순서) — findRow 에서 잠그면 순서가 뒤집혀 교착할 수 있다. blob 저장 전이라 거절돼도 고아 blob 이 남지 않는다.
-      DriveFileRepository.DriveFileRow locked =
+      locked =
           files
               .lockActiveRow(targetDriveFileId)
               .orElseThrow(() -> new DriveFileNotFoundException(targetDriveFileId));
-      toStore =
-          new UploadSource(locked.name(), source.contentType(), source.size(), source.writer());
+    } else {
+      // 이름 경로(최종 리뷰 I1): file core 와 같은 정리로 이름을 먼저 정해 동명 행을 찾고 잠근다. 잠그는 사이 휴지통으로 갔거나 이름·폴더가
+      // 바뀌었으면 동명 파일이 없는 것이므로 새 파일 + v1 로 간다(거절이 아니다).
+      String name = SafeFileNames.sanitize(source.originalName(), "file");
+      locked =
+          files
+              .findActiveByName(spaceId, folderId, name)
+              .flatMap(files::lockActiveRow)
+              .filter(r -> r.name().equals(name) && Objects.equals(r.folderId(), folderId))
+              .orElse(null);
+    }
+    UploadSource toStore = source;
+    if (locked != null) {
+      // 내용 모드가 기존 파일에 붙으면 잠근 행의 현재 버전으로 고쳐 쓰기 판정·MIME 을 정한다(I3·M2). 바이트 업로드는 올린 형식 그대로.
+      String contentType =
+          text == null ? source.contentType() : rewriteMimeOf(locked, text.requestedMime());
+      toStore = new UploadSource(locked.name(), contentType, source.size(), source.writer());
     }
     quota.assertWithinQuota(toStore.size());
     FileUploadResponse uploaded = fileUpload.upload(toStore, callerId);
@@ -359,13 +490,9 @@ public class DriveFileService {
     long driveFileId;
     String actionType;
     int versionNo;
-    // 지정 파일이 있으면 그 파일, 아니면 동명 활성 파일을 새 버전으로 흡수. 둘 다 없으면 새 파일 + v1 (#79)
-    var existing =
-        targetDriveFileId != null
-            ? Optional.of(targetDriveFileId)
-            : files.findActiveByName(spaceId, folderId, name);
-    if (existing.isPresent()) {
-      driveFileId = existing.get();
+    // 잠근 행(지정 파일 또는 동명 활성 파일)이 있으면 새 버전으로 흡수, 없으면 새 파일 + v1 (#79)
+    if (locked != null) {
+      driveFileId = locked.id();
       versionNo = versions.nextVersionNo(driveFileId);
       versions.insert(driveFileId, versionNo, uploaded.id(), uploaded.fileSize(), callerId, null);
       files.setCurrentVersion(driveFileId, uploaded.id(), versionNo);
@@ -574,6 +701,12 @@ public class DriveFileService {
     if (tenantId != null) {
       quotaRepo.advisoryLockTenant(tenantId);
     }
+    // 휴지통 경합(최종 리뷰 I1): findRow 뒤에 휴지통 이동이 커밋되면 휴지통 파일에 버전이 붙고 복제 blob 이 남는다. advisory 다음·복제 전에
+    // 행을 잠가(FOR UPDATE) 살아 있는지 다시 본다 — 업로드 핵심과 같은 advisory → 행 순서. 감사 이름도 잠근 행(지금 이름)에서 읽는다.
+    DriveFileRepository.DriveFileRow locked =
+        files
+            .lockActiveRow(driveFileId)
+            .orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
     quota.assertWithinQuota(target.sizeBytes());
     long newFileId = fileUpload.copyFile(target.fileId(), callerId);
     int newVersionNo = versions.nextVersionNo(driveFileId);
@@ -585,7 +718,7 @@ public class DriveFileService {
         callerId,
         "v" + targetVersionNo + "에서 복원");
     files.setCurrentVersion(driveFileId, newFileId, newVersionNo);
-    notifier.itemsChanged(OP_UPDATED, row.spaceId(), List.of(driveFileId), callerId);
+    notifier.itemsChanged(OP_UPDATED, locked.spaceId(), List.of(driveFileId), callerId);
 
     auditLogService.log(
         callerId,
@@ -593,7 +726,7 @@ public class DriveFileService {
         "FILE_ROLLBACK",
         "drive",
         String.valueOf(driveFileId),
-        "드라이브 파일 롤백: " + row.name() + " (v" + targetVersionNo + " → v" + newVersionNo + ")",
+        "드라이브 파일 롤백: " + locked.name() + " (v" + targetVersionNo + " → v" + newVersionNo + ")",
         null,
         null,
         "SUCCESS",
@@ -601,7 +734,7 @@ public class DriveFileService {
         Map.of(
             "fromVersionNo", targetVersionNo,
             "toVersionNo", newVersionNo,
-            "fileName", row.name()));
+            "fileName", locked.name()));
 
     return files
         .findResponse(driveFileId)
