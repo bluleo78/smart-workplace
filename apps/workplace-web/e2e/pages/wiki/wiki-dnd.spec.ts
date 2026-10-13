@@ -5,6 +5,7 @@
 import type { WikiPageSummary, WikiSpace } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { bodyOf, trackRequests } from '../../fixtures/requests'
+import { dropDnd } from '../../fixtures/wait'
 
 const SPACE_ID = 1
 
@@ -53,7 +54,7 @@ async function dragRowTo(
   // 들여쓰기 깊이가 예측 가능하다(대상 행 중앙 기준으로 잡으면 행마다 다른 들여쓰기가 섞인다).
   // 세로는 대상 행 상단 근처(약간 위)로 — 그 행 위치에 드롭되도록.
   await page.mouse.move(sourceBox.x + sourceBox.width / 2 + dx, box.y + 2, { steps: 12 })
-  await page.mouse.up()
+  await dropDnd(page)
 }
 
 test(

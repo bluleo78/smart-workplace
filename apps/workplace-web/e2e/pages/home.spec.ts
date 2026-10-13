@@ -2,7 +2,7 @@ import type { Page } from '@playwright/test'
 
 import { expect, test } from '../fixtures/auth.fixture'
 import { mockApi } from '../fixtures/api-mock'
-import { expectStays, measureBox, resizeAndSettle } from '../fixtures/wait'
+import { dropDnd, expectStays, measureBox, resizeAndSettle } from '../fixtures/wait'
 import { trackRequests } from '../fixtures/requests'
 import { createIssue, createIssueSearchResponse } from '../factories/issue.factory'
 import { detail as mailDetail, mailAccount, summary as mailRow } from '../factories/mail.factory'
@@ -767,7 +767,7 @@ test('편집 — 드래그로 위젯 순서 변경 → 저장 시 PUT payload �
   await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + targetBox.height / 2, {
     steps: 12,
   })
-  await page.mouse.up()
+  await dropDnd(page)
 
   // 드래그 직후 DOM 순서에 실시간 재배치가 반영될 때까지 대기.
   const cardsAfterDrag = page.getByTestId('dashboard-widget')
@@ -843,7 +843,7 @@ test('편집 — wide(col-span-3) 위젯을 좁은 위젯 바로 다음으로 �
   await page.mouse.down()
   await page.mouse.move(0, 0)
   await page.mouse.move(targetX, targetY, { steps: 12 })
-  await page.mouse.up()
+  await dropDnd(page)
 
   // 드래그 직후 DOM 순서 — quick_actions 가 my_tasks 바로 다음 자리로 이동(다른 카드를 건너뛰지 않음).
   const cardsAfterDrag = page.getByTestId('dashboard-widget')

@@ -6,7 +6,7 @@ import type { DriveFile, DriveFolder } from '../../../src/types/drive'
 import { createFile, createFolder, createSpace, personalSpace } from '../../factories/drive.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { trackRequests } from '../../fixtures/requests'
-import { stableBox } from '../../fixtures/wait'
+import { dropDnd, stableBox } from '../../fixtures/wait'
 
 const SPACE_ID = 1
 // 화면: 드라이브 / 문서(7) / 기획(8) — 기획 폴더 안에서 끈다.
@@ -95,10 +95,25 @@ async function moveOver(page: Page, targetTestId: string) {
 async function dragTo(page: Page, sourceTestId: string, targetTestId: string) {
   await startDrag(page, sourceTestId)
   await moveOver(page, targetTestId)
-  await page.mouse.up()
+  await dropDnd(page)
 }
 
 test.describe('드라이브 끌어 옮기기', () => {
+  // dnd-kit 은 놓은 뒤 50ms 타이머로 click 막음을 푼다 — 부하로 그 타이머가 늦어도 놓은 직후의 「되돌리기」가 삼켜지지 않아야 한다.
+  // 그 해제 타이머(document 리스너를 모두 떼는 50ms 타이머)만 800ms 로 늦춰 순서를 고정한다(dropDnd 가 해제를 기다리는지 확인).
+  test('놓은 뒤 클릭 막음이 늦게 풀려도 되돌리기가 원래 폴더로 옮긴다', async ({ authenticatedPage: page }) => {
+    await page.addInitScript(() => {
+      const orig = window.setTimeout
+      const isDndRelease = (fn: TimerHandler, ms?: number) => ms === 50 && typeof fn === 'function' && String(fn).includes('removeEventListener')
+      window.setTimeout = ((fn: TimerHandler, ms?: number, ...a: unknown[]) => orig(fn, isDndRelease(fn, ms) ? 800 : ms, ...a)) as typeof setTimeout
+    })
+    const { moves } = await setup(page)
+    await dragTo(page, `drive-row-file-${SPEC}`, `drive-row-folder-${MEETING}`)
+    await page.getByRole('button', { name: '되돌리기' }).click()
+    await moves.waitFor(2)
+    expect(moves.lastBody<MoveBody>()).toEqual({ fileIds: [SPEC], folderIds: [], targetFolderId: PLAN })
+  })
+
   test('파일을 폴더 행에 놓으면 그 폴더로 옮기고 되돌리기 토스트를 보인다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
     const { moves } = await setup(page)
     await dragTo(page, `drive-row-file-${SPEC}`, `drive-row-folder-${MEETING}`)
@@ -127,7 +142,7 @@ test.describe('드라이브 끌어 옮기기', () => {
     await expect(page.getByTestId(`drive-row-folder-${REFS}`)).toHaveAttribute('data-drop-state', 'over')
     await page.keyboard.press('Escape')
     await expect(page.getByTestId('drive-drag-overlay')).toHaveCount(0)
-    await page.mouse.up()
+    await dropDnd(page)
     // 드래그가 끝나면 표시가 사라진다.
     await expect(page.getByTestId(`drive-row-folder-${REFS}`)).not.toHaveAttribute('data-drop-state')
   })
@@ -143,7 +158,7 @@ test.describe('드라이브 끌어 옮기기', () => {
     // 함께 끌리는 폴더는 대상이 될 수 없다.
     await expect(page.getByTestId(`drive-row-folder-${REFS}`)).not.toHaveAttribute('data-drop-state', 'allowed')
     await moveOver(page, 'drive-root')
-    await page.mouse.up()
+    await dropDnd(page)
 
     await moves.waitFor(1)
     expect(moves.lastBody<MoveBody>()).toEqual({ fileIds: [DESIGN], folderIds: [REFS], targetFolderId: null })
