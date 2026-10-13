@@ -171,14 +171,19 @@ public class OutboundConfig {
 
   /**
    * 후속 질문 전용 executor(WP-139). ai-agent 호출(최대 read 25s)이 채팅 펌프 스레드를 붙잡지 않게 분리한다. 후속 질문은 없어도 되는 부가
-   * 기능이라 소형 풀 + 짧은 큐(core 1·max 2·queue 32)이고 넘치면 버린다(호출부가 TaskRejectedException 을 삼킨다).
-   * TenantContext 를 전파해 저장 트랜잭션이 RLS GUC 를 받게 한다. 테스트(HomeFollowupTest)가 스파이로 제출을 세고 풀의 누적 완료 작업
+   * 기능이라 소형 풀 + 짧은 큐(core 2·max 2·queue 32)이고 넘치면 버린다(호출부가 TaskRejectedException 을 삼킨다).
+   *
+   * <p>core 와 max 를 같게 두는 이유: ThreadPoolExecutor 는 큐가 가득 찬 뒤에야 core 를 넘는 스레드를 만든다. core 1·max 2 였을
+   * 땐 큐(32)가 차기 전까지 스레드 1개만 돌아 모든 사용자의 후속 질문(건당 수 초~20초)이 한 줄로 직렬화됐다. 2개면 한 사람의 느린 생성이 다른 사람을 막지
+   * 않으면서, ai-agent 의 동시 실행(Claude 프로세스)을 부가 기능이 과하게 점유하지 않는다.
+   *
+   * <p>TenantContext 를 전파해 저장 트랜잭션이 RLS GUC 를 받게 한다. 테스트(HomeFollowupTest)가 스파이로 제출을 세고 풀의 누적 완료 작업
    * 수(getThreadPoolExecutor)로 끝남을 기다리므로 구체 타입으로 노출한다.
    */
   @Bean(name = "homeSuggestionExecutor")
   public ThreadPoolTaskExecutor homeSuggestionExecutor() {
     ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-    executor.setCorePoolSize(1);
+    executor.setCorePoolSize(2);
     executor.setMaxPoolSize(2);
     executor.setQueueCapacity(32);
     executor.setThreadNamePrefix("home-suggest-");

@@ -1,6 +1,7 @@
 package com.workplace.home.service;
 
 import com.workplace.auth.service.AssistantSpec;
+import com.workplace.global.util.Texts;
 import com.workplace.home.dto.AiScreenContext;
 import com.workplace.home.exception.HomeSessionNotFoundException;
 import com.workplace.home.outbound.AiAgentSuggestionClient;
@@ -64,9 +65,12 @@ public class HomeFollowupService {
   }
 
   /**
-   * 후속 질문 판단 재료 — 이번 턴 하나.
+   * 후속 질문 판단 재료 — 이번 턴 하나. 질문·답은 만들 때 앞부분만 남긴다: 이 레코드는 실행기 큐(최대 32건)에서 기다리는 동안 살아 있으므로 긴 답 전체를 붙잡지
+   * 않게 하고, ai-agent 로 보낼 크기도 여기서 확정한다.
    *
    * @param messageId 저장된 ASSISTANT id(영속 실패면 null)
+   * @param question 이번 질문 — 앞 {@link #QUESTION_MAX_CHARS} 자(첨부만 보낸 턴은 null)
+   * @param answer 이번 답 — 앞 {@link #ANSWER_MAX_CHARS} 자
    * @param source ai-agent 답 출처(구 ai-agent 면 null — 대상에서 빼지 않는다)
    * @param proposed 이번 턴에 확인 카드가 나왔는가
    */
@@ -79,7 +83,13 @@ public class HomeFollowupService {
       String source,
       boolean proposed,
       AiScreenContext screenContext,
-      AssistantSpec spec) {}
+      AssistantSpec spec) {
+
+    public FollowupInput {
+      question = Texts.headUtf16(question, QUESTION_MAX_CHARS);
+      answer = Texts.headUtf16(answer, ANSWER_MAX_CHARS);
+    }
+  }
 
   /** 대상 조건(스펙 §5.1): 추천 켜짐, 저장 성공, 답 텍스트 있음, fallback 아님, 확인 카드 없음. */
   static boolean eligible(FollowupInput in, boolean enabled) {
@@ -91,11 +101,14 @@ public class HomeFollowupService {
         && !in.proposed();
   }
 
-  /** 대상이면 실행기에 제출 — 펌프 스레드를 붙잡지 않는다. 판단·제출 실패는 삼킨다(답 완료 흐름에 영향 없음). */
-  void scheduleIfEligible(HomeChatTurn turn, FollowupInput in) {
+  /**
+   * 대상이면 실행기에 제출 — 펌프 스레드를 붙잡지 않는다. 판단·제출 실패는 삼킨다(답 완료 흐름에 영향 없음). 작업은 턴 전체가 아니라 발행 좌표(봉투)만 잡는다 —
+   * 큐에서 기다리는 동안 도구 단계·블록 기록을 붙잡지 않게.
+   */
+  void scheduleIfEligible(HomeChatEnvelope envelope, FollowupInput in) {
     try {
       if (!eligible(in, preferences.suggestionsEnabled(in.callerId()))) return;
-      executor.execute(() -> generate(turn, in));
+      executor.execute(() -> generate(envelope, in));
     } catch (TaskRejectedException e) {
       // 큐 포화 — 부가 기능이라 기다리지 않고 버린다(채팅 스트림을 절대 막지 않는다).
       log.debug("후속 질문 큐 포화 — 버림: session={}", in.sessionId());
@@ -105,9 +118,8 @@ public class HomeFollowupService {
   }
 
   /** 실행기 스레드 — 생성 → (그사이 끄지 않았으면) 저장 → 발행. */
-  private void generate(HomeChatTurn turn, FollowupInput in) {
+  private void generate(HomeChatEnvelope envelope, FollowupInput in) {
     try {
-      String answer = head(in.answer(), ANSWER_MAX_CHARS);
       List<String> items =
           client.suggest(
               new SuggestionRequest(
@@ -116,8 +128,8 @@ public class HomeFollowupService {
                   in.spec().suggestionModel(), // 해석 완료된 요청 모델(Task 2)
                   in.screenContext(),
                   null,
-                  head(in.question(), QUESTION_MAX_CHARS), // 첨부만 보낸 턴은 null
-                  answer,
+                  in.question(), // 앞 1000자(첨부만 보낸 턴은 null)
+                  in.answer(), // 앞 4000자
                   FOLLOWUP_COUNT,
                   FOLLOWUP_TIMEOUT_MS));
       if (items.isEmpty()) return;
@@ -128,7 +140,7 @@ public class HomeFollowupService {
         log.info("후속 질문 저장 0행 — 발행 생략: session={} message={}", in.sessionId(), in.messageId());
         return;
       }
-      turn.emit("home.chat.followups", Map.of("messageId", in.messageId(), "items", items));
+      envelope.emit("home.chat.followups", Map.of("messageId", in.messageId(), "items", items));
     } catch (HomeSessionNotFoundException e) {
       // 생성 중 대화 삭제(ensureOwner 404) — 정상 흐름이라 조용히 버린다.
       log.debug("후속 질문 저장 생략 — 대화 없음: session={}", in.sessionId());
@@ -136,15 +148,5 @@ public class HomeFollowupService {
       // 그 밖의 실패(DB 오류 등)는 부가 기능이라 버리되, 원인을 볼 수 있게 경고로 남긴다.
       log.warn("후속 질문 생성·저장 실패: session={} message={}", in.sessionId(), in.messageId(), e);
     }
-  }
-
-  /**
-   * 앞 max 글자(UTF-16 단위). null 은 그대로. 경계가 서로게이트 쌍 가운데면 한 글자 덜 잘라, 짝 잃은 서로게이트가 JSON 직렬화를 깨지 않게
-   * 한다(이모지가 잘리는 경우).
-   */
-  static String head(String s, int max) {
-    if (s == null || s.length() <= max) return s;
-    int end = Character.isHighSurrogate(s.charAt(max - 1)) ? max - 1 : max;
-    return s.substring(0, end);
   }
 }

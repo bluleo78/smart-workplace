@@ -322,9 +322,28 @@ class HomeFollowupTest extends IntegrationTestBase {
   }
 
   @Test
-  void 앞부분_자르기는_서로게이트_쌍을_가르지_않고_null_은_그대로() {
-    assertThat(HomeFollowupService.head("ab😀", 3)).isEqualTo("ab"); // 😀 은 UTF-16 두 단위
-    assertThat(HomeFollowupService.head("abc", 3)).isEqualTo("abc");
-    assertThat(HomeFollowupService.head(null, 3)).isNull();
+  void 판단_재료는_만들_때_질문_답을_앞부분만_남긴다() {
+    // 큐에서 기다리는 동안 긴 답 전체를 붙잡지 않게 — 레코드를 만드는 순간 잘린다(경계 규칙은 TextsTest).
+    var in =
+        new HomeFollowupService.FollowupInput(
+            1L,
+            UUID.randomUUID(),
+            2L,
+            "질".repeat(1500),
+            "가".repeat(5000),
+            "subagent",
+            false,
+            null,
+            null);
+    assertThat(in.question()).hasSize(1000);
+    assertThat(in.answer()).hasSize(4000);
+  }
+
+  @Test
+  void 후속_질문_실행기는_스레드_2개를_바로_쓰고_큐_32개를_넘으면_버린다() {
+    // core 1·max 2 는 큐(32)가 차기 전엔 스레드 1개만 써서 모든 사용자의 후속 질문이 한 줄로 직렬화됐다(/code-review).
+    assertThat(suggestionExecutor.getCorePoolSize()).isEqualTo(2);
+    assertThat(suggestionExecutor.getMaxPoolSize()).isEqualTo(2);
+    assertThat(suggestionExecutor.getQueueCapacity()).isEqualTo(32);
   }
 }

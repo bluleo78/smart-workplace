@@ -338,7 +338,7 @@ public class HomeChatService {
                   messageId -> {
                     contextService.scheduleIfNeeded(callerId, sid);
                     followupService.scheduleIfEligible(
-                        turn,
+                        turn.envelope(),
                         new HomeFollowupService.FollowupInput(
                             callerId,
                             sid,

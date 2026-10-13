@@ -9,7 +9,6 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -34,8 +33,11 @@ final class HomeChatTurn {
   private final UUID sessionId;
   private final StreamingGenerationRegistry.Reservation reservation;
   private final HomeSessionService sessionService;
-  private final SseRegistry sseRegistry;
   private final ObjectMapper objectMapper;
+
+  /** 이벤트 봉투(사용자·대화·correlationId) — 후속 질문처럼 턴이 끝난 뒤 발행하는 작업은 턴 대신 이것만 잡는다(WP-139). */
+  private final HomeChatEnvelope envelope;
+
   private final AtomicBoolean finished = new AtomicBoolean(false);
 
   /** 위임 라벨 + 표시 가능 도구 호출(도착순) — 영속 시 home_message.tool_calls. 펌프 스레드에서 쓰고 종결 때 읽는다. */
@@ -62,16 +64,20 @@ final class HomeChatTurn {
     this.sessionId = sessionId;
     this.reservation = reservation;
     this.sessionService = sessionService;
-    this.sseRegistry = sseRegistry;
     this.objectMapper = objectMapper;
+    // correlationId 는 예약 시점에 발급돼 바뀌지 않으므로 봉투에 한 번 옮겨 둔다.
+    this.envelope =
+        new HomeChatEnvelope(callerId, sessionId, reservation.correlationId(), sseRegistry);
   }
 
   /** 이벤트 발행 — 봉투 공통 필드(correlationId·sessionId)를 덧붙인다. data 는 null 값을 가질 수 있다(done 의 widgets). */
   void emit(String event, Map<String, ?> data) {
-    Map<String, Object> payload = new LinkedHashMap<>(data);
-    payload.put("correlationId", reservation.correlationId());
-    payload.put("sessionId", sessionId.toString());
-    sseRegistry.fanOut(Set.of(callerId), event, payload);
+    envelope.emit(event, data);
+  }
+
+  /** 이벤트 봉투 — 턴이 끝난 뒤에도 같은 대화로 발행해야 하는 작업(후속 질문)에 넘긴다(WP-139). */
+  HomeChatEnvelope envelope() {
+    return envelope;
   }
 
   /** 확인 카드 발행 표시(WP-139). */
