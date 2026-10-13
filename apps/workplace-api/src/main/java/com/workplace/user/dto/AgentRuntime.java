@@ -1,7 +1,5 @@
 package com.workplace.user.dto;
 
-import java.util.Set;
-
 /**
  * AI 에이전트(kind=AGENT)의 실행 방식 (WP-371).
  *
@@ -14,5 +12,7 @@ public final class AgentRuntime {
 
   public static final String INTERNAL = "INTERNAL";
   public static final String EXTERNAL = "EXTERNAL";
-  public static final Set<String> ALL = Set.of(INTERNAL, EXTERNAL);
+
+  /** 요청 검증(@Pattern)용 허용값 정규식 — 상수에서 만들어 값 목록이 갈라지지 않게 한다(컴파일 타임 상수라 애너테이션에 쓸 수 있다). */
+  public static final String PATTERN = INTERNAL + "|" + EXTERNAL;
 }

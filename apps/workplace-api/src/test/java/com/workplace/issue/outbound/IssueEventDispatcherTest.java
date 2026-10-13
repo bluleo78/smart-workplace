@@ -1,9 +1,12 @@
 package com.workplace.issue.outbound;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.workplace.global.dto.UserSummary;
 import com.workplace.global.outbound.AiAgentEventClient;
@@ -12,6 +15,7 @@ import com.workplace.global.outbound.EventEnvelope;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueAssignedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueStatusChangedEvent;
+import com.workplace.user.service.ServerAgentResolver;
 import java.time.Instant;
 import java.util.List;
 import java.util.Set;
@@ -30,16 +34,38 @@ class IssueEventDispatcherTest {
   private static final UserSummary HUMAN_ASSIGNEE = new UserSummary(2L, "bob", "Bob", "HUMAN");
 
   private AiAgentEventClient client;
+  private ServerAgentResolver resolver;
   private IssueEventDispatcher dispatcher;
 
   @BeforeEach
   void setUp() {
     client = Mockito.mock(AiAgentEventClient.class);
+    resolver = Mockito.mock(ServerAgentResolver.class);
+    // 기본: 모든 AGENT 담당자를 내부(INTERNAL) 실행으로 취급 — 외부 케이스는 internalAgents(...) 로 따로 지정.
+    internalAgents(AGENT_ASSIGNEE.id());
+  }
+
+  /**
+   * resolver 를 "주어진 id 만 INTERNAL" 로 스텁한다 — 실제 규칙(후보 순서상 첫 INTERNAL AGENT)과 같은 모양. DB 규칙 자체는
+   * ServerAgentResolverTest 가 검증한다.
+   */
+  private void internalAgents(Long... ids) {
+    var internal = Set.of(ids);
+    // doAnswer 형태로 스텁한다 — when(...) 재스텁은 이전 Answer 를 null 인자로 한 번 호출해 NPE 가 난다.
+    doAnswer(
+            inv ->
+                inv.<List<UserSummary>>getArgument(0).stream()
+                    .filter(u -> "AGENT".equals(u.kind()) && internal.contains(u.id()))
+                    .map(UserSummary::id)
+                    .findFirst()
+                    .orElse(null))
+        .when(resolver)
+        .pickActingAgent(any());
   }
 
   private IssueEventDispatcher build(boolean enabled) {
     var props = new AiAgentProperties("http://ai-agent", "tok", enabled);
-    return new IssueEventDispatcher(client, props);
+    return new IssueEventDispatcher(client, props, resolver);
   }
 
   @Test
@@ -55,8 +81,7 @@ class IssueEventDispatcherTest {
             List.of(HUMAN_ASSIGNEE),
             List.of(HUMAN_ASSIGNEE),
             List.of(),
-            Instant.now(),
-            Set.of());
+            Instant.now());
 
     dispatcher.onIssueAssigned(event);
 
@@ -76,8 +101,7 @@ class IssueEventDispatcherTest {
             List.of(AGENT_ASSIGNEE),
             List.of(AGENT_ASSIGNEE),
             List.of(),
-            Instant.parse("2026-05-25T12:00:00Z"),
-            Set.of(201L));
+            Instant.parse("2026-05-25T12:00:00Z"));
 
     dispatcher.onIssueAssigned(event);
 
@@ -105,8 +129,7 @@ class IssueEventDispatcherTest {
             List.of(AGENT_ASSIGNEE),
             99L,
             "스스로 단 코멘트",
-            Instant.now(),
-            Set.of(201L));
+            Instant.now());
 
     dispatcher.onIssueCommented(event);
 
@@ -126,8 +149,7 @@ class IssueEventDispatcherTest {
             List.of(AGENT_ASSIGNEE),
             List.of(AGENT_ASSIGNEE),
             List.of(),
-            Instant.now(),
-            Set.of(201L));
+            Instant.now());
 
     dispatcher.onIssueAssigned(event);
 
@@ -142,20 +164,35 @@ class IssueEventDispatcherTest {
     var now = Instant.now();
 
     dispatcher.onIssueAssigned(
-        new IssueAssignedEvent(
-            1L, "WP", "WP-1", "t", HUMAN_ACTOR, common, common, List.of(), now, Set.of(201L)));
+        new IssueAssignedEvent(1L, "WP", "WP-1", "t", HUMAN_ACTOR, common, common, List.of(), now));
     dispatcher.onIssueCommented(
-        new IssueCommentedEvent(
-            1L, "WP", "WP-1", 1, "t", HUMAN_ACTOR, common, 9L, "hi", now, Set.of(201L)));
+        new IssueCommentedEvent(1L, "WP", "WP-1", 1, "t", HUMAN_ACTOR, common, 9L, "hi", now));
     dispatcher.onIssueStatusChanged(
         new IssueStatusChangedEvent(
-            1L, "WP", "WP-1", "t", HUMAN_ACTOR, common, "TODO", "IN_PROGRESS", now, Set.of(201L)));
+            1L, "WP", "WP-1", "t", HUMAN_ACTOR, common, "TODO", "IN_PROGRESS", now));
 
     var captor = ArgumentCaptor.forClass(EventEnvelope.class);
     verify(client, times(3)).publish(captor.capture());
     assertThat(captor.getAllValues())
         .extracting(EventEnvelope::type)
         .containsExactly("issue.assigned", "issue.commented", "issue.status_changed");
+  }
+
+  /** 비활성·self-loop 은 대행 에이전트 조회(DB) 없이 거른다. */
+  @Test
+  void 비활성이나_self_loop_이면_resolver_를_부르지_않는다() {
+    var as = List.of(AGENT_ASSIGNEE);
+    var now = Instant.now();
+
+    build(false)
+        .onIssueAssigned(
+            new IssueAssignedEvent(1L, "WP", "WP-1", "t", HUMAN_ACTOR, as, as, List.of(), now));
+    build(true)
+        .onIssueCommented(
+            new IssueCommentedEvent(1L, "WP", "WP-1", 1, "t", AGENT_ACTOR, as, 9L, "hi", now));
+
+    verifyNoInteractions(resolver);
+    verify(client, never()).publish(Mockito.any());
   }
 
   // ---- WP-371: 외부(EXTERNAL) 에이전트는 서버 이벤트 대상에서 제외 ----
@@ -167,19 +204,16 @@ class IssueEventDispatcherTest {
   @Test
   void EXTERNAL_AGENT_만_담당이면_3종_모두_skip() {
     dispatcher = build(true);
+    internalAgents(); // 내부 에이전트 없음
     var as = List.of(EXTERNAL_AGENT);
-    var internal = java.util.Set.<Long>of(); // 내부 에이전트 없음
     var now = Instant.now();
 
     dispatcher.onIssueAssigned(
-        new IssueAssignedEvent(
-            1L, "WP", "WP-1", "t", HUMAN_ACTOR, as, as, List.of(), now, internal));
+        new IssueAssignedEvent(1L, "WP", "WP-1", "t", HUMAN_ACTOR, as, as, List.of(), now));
     dispatcher.onIssueCommented(
-        new IssueCommentedEvent(
-            1L, "WP", "WP-1", 1, "t", HUMAN_ACTOR, as, 9L, "hi", now, internal));
+        new IssueCommentedEvent(1L, "WP", "WP-1", 1, "t", HUMAN_ACTOR, as, 9L, "hi", now));
     dispatcher.onIssueStatusChanged(
-        new IssueStatusChangedEvent(
-            1L, "WP", "WP-1", "t", HUMAN_ACTOR, as, "TODO", "DONE", now, internal));
+        new IssueStatusChangedEvent(1L, "WP", "WP-1", "t", HUMAN_ACTOR, as, "TODO", "DONE", now));
 
     verify(client, never()).publish(Mockito.any());
   }
@@ -190,18 +224,7 @@ class IssueEventDispatcherTest {
     dispatcher = build(true);
     var as = List.of(EXTERNAL_AGENT, AGENT_ASSIGNEE, HUMAN_ASSIGNEE);
     var event =
-        new IssueCommentedEvent(
-            1L,
-            "WP",
-            "WP-1",
-            1,
-            "t",
-            HUMAN_ACTOR,
-            as,
-            9L,
-            "hi",
-            Instant.now(),
-            java.util.Set.of(AGENT_ASSIGNEE.id()));
+        new IssueCommentedEvent(1L, "WP", "WP-1", 1, "t", HUMAN_ACTOR, as, 9L, "hi", Instant.now());
 
     dispatcher.onIssueCommented(event);
 

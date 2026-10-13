@@ -7,6 +7,10 @@ import static org.jooq.impl.DSL.trueCondition;
 import static org.jooq.impl.DSL.val;
 
 import com.workplace.global.util.LikePatternUtils;
+import com.workplace.user.dto.AgentResponse;
+import com.workplace.user.dto.AgentRuntime;
+import com.workplace.user.dto.AgentUsernames;
+import com.workplace.user.dto.UserKind;
 import com.workplace.user.dto.UserResponse;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
@@ -20,7 +24,6 @@ import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.jooq.Field;
 import org.jooq.Record;
-import org.jooq.Table;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
@@ -142,30 +145,22 @@ public class UserRepository {
    * `__assistant_u`)를 제외한다 — 개인 비서는 사용자별 비공개이며 각자 /settings/assistant 에서 관리하므로 워크스페이스 에이전트 관리 목록의
    * 기본 노출 대상이 아니다. (접두어는 PersonalAssistantService.ensurePersonalAgent 의 생성 규칙과 일치.)
    */
-  public List<com.workplace.user.dto.AgentResponse> findAgents(
-      Long tenantId, boolean includePersonal) {
+  public List<AgentResponse> findAgents(Long tenantId, boolean includePersonal) {
     // 개인 비서 소유자(사람) 이름을 얻기 위한 self-join: owner.personal_assistant_agent_id = agent.id.
     com.workplace.jooq.tables.User owner = USER.as("owner");
-    Condition where =
-        MEMBERSHIP.TENANT_ID.eq(tenantId).and(USER.KIND.eq(com.workplace.user.dto.UserKind.AGENT));
+    Condition where = MEMBERSHIP.TENANT_ID.eq(tenantId).and(USER.KIND.eq(UserKind.AGENT));
     if (!includePersonal) {
       // startsWith 는 LIKE 와일드카드를 이스케이프하므로 `__` 가 임의문자로 해석되지 않는다.
-      where =
-          where.and(
-              USER.USERNAME
-                  .startsWith(com.workplace.user.dto.AgentUsernames.PERSONAL_ASSISTANT_PREFIX)
-                  .not());
+      where = where.and(USER.USERNAME.startsWith(AgentUsernames.PERSONAL_ASSISTANT_PREFIX).not());
     }
-    // WP-371: 에이전트별 "마지막 키 사용 시각" = 폐기되지 않은 키의 last_used_at 최댓값. 목록 N+1 을 피하려고
-    // user_id 로 집계한 파생 테이블을 한 번 left join 한다(키 없으면 null).
-    Table<?> keyUsage =
-        dsl.select(AGENT_API_KEY.USER_ID, DSL.max(AGENT_API_KEY.LAST_USED_AT).as("last_used"))
+    // WP-371: 에이전트별 "마지막 키 사용 시각" = 폐기되지 않은 키의 last_used_at 최댓값(키 없으면 null). 목록에 나온 에이전트 행마다
+    // 상관 서브쿼리로 계산한다 — 전 테넌트 키를 집계하는 파생 테이블과 달리 대상 에이전트 키만 idx_agent_api_key_user(V14)로 읽는다.
+    Field<OffsetDateTime> keyLastUsed =
+        DSL.select(DSL.max(AGENT_API_KEY.LAST_USED_AT))
             .from(AGENT_API_KEY)
-            .where(AGENT_API_KEY.REVOKED_AT.isNull())
-            .groupBy(AGENT_API_KEY.USER_ID)
-            .asTable("key_usage");
-    Field<Long> keyUserId = keyUsage.field(AGENT_API_KEY.USER_ID.getName(), Long.class);
-    Field<OffsetDateTime> keyLastUsed = keyUsage.field("last_used", OffsetDateTime.class);
+            .where(AGENT_API_KEY.USER_ID.eq(USER.ID))
+            .and(AGENT_API_KEY.REVOKED_AT.isNull())
+            .asField("last_key_used_at");
     return dsl.select(
             USER.ID,
             USER.USERNAME,
@@ -186,8 +181,6 @@ public class UserRepository {
         // 이 테넌트의 공통 비서로 지정됐는지(RLS 로 현재 테넌트 행만 보임).
         .leftJoin(WORKSPACE_ASSISTANT)
         .on(WORKSPACE_ASSISTANT.AGENT_USER_ID.eq(USER.ID))
-        .leftJoin(keyUsage)
-        .on(keyUserId.eq(USER.ID))
         .where(where)
         .orderBy(USER.NAME.asc(), USER.ID.asc())
         .fetch(
@@ -196,15 +189,14 @@ public class UserRepository {
               String ownerName = r.get(owner.NAME);
               Long wsAgentId = r.get(WORKSPACE_ASSISTANT.AGENT_USER_ID);
               // 유형 우선순위: 개인(__assistant_u 접두어) > 공통(지정) > 일반.
-              boolean isPersonal =
-                  com.workplace.user.dto.AgentUsernames.isPersonalAssistant(username);
+              boolean isPersonal = AgentUsernames.isPersonalAssistant(username);
               String type =
                   isPersonal
-                      ? com.workplace.user.dto.AgentResponse.TYPE_PERSONAL
+                      ? AgentResponse.TYPE_PERSONAL
                       : (wsAgentId != null
-                          ? com.workplace.user.dto.AgentResponse.TYPE_WORKSPACE
-                          : com.workplace.user.dto.AgentResponse.TYPE_REGULAR);
-              return new com.workplace.user.dto.AgentResponse(
+                          ? AgentResponse.TYPE_WORKSPACE
+                          : AgentResponse.TYPE_REGULAR);
+              return new AgentResponse(
                   r.get(USER.ID),
                   username,
                   r.get(USER.EMAIL),
@@ -290,55 +282,58 @@ public class UserRepository {
         dsl.selectOne()
             .from(USER)
             .where(USER.ID.eq(id))
-            .and(USER.KIND.eq(com.workplace.user.dto.UserKind.AGENT))
-            .and(USER.AGENT_RUNTIME.eq(com.workplace.user.dto.AgentRuntime.EXTERNAL)));
+            .and(USER.KIND.eq(UserKind.AGENT))
+            .and(USER.AGENT_RUNTIME.eq(AgentRuntime.EXTERNAL)));
   }
 
   /**
-   * 해당 에이전트가 서버 실행(AI Chat)이 필요한 비서인지 — 어떤 테넌트의 공통 비서이거나 누군가의 개인 비서이면 true (WP-371). 이런 에이전트는
-   * EXTERNAL 로 둘 수 없다.
+   * 해당 에이전트가 서버 실행(AI Chat)이 필요한 비서인지 — 어떤 테넌트의 공통 비서이거나 개인 비서이면 true (WP-371). 이런 에이전트는 EXTERNAL 로
+   * 둘 수 없다. 한 번의 쿼리로 세 조건을 OR 로 본다.
    *
-   * <p>workspace_assistant 는 RLS 라 일반 쿼리로는 현재 테넌트 행만 보인다. 에이전트는 여러 테넌트에 속할 수 있으므로 RLS 를 우회하는
-   * SECURITY DEFINER 함수(V168 is_workspace_assistant_agent)로 전 테넌트를 확인한다. 개인 비서 포인터는 전역 테이블 user 의
-   * 컬럼이라 직접 조회한다.
+   * <ul>
+   *   <li>공통 비서: workspace_assistant 는 RLS 라 일반 쿼리로는 현재 테넌트 행만 보인다. 에이전트는 여러 테넌트에 속할 수 있으므로 RLS 를
+   *       우회하는 SECURITY DEFINER 함수(V168 is_workspace_assistant_agent)로 전 테넌트를 확인한다.
+   *   <li>개인 비서(연결됨): 누군가의 user.personal_assistant_agent_id 가 이 에이전트를 가리킨다.
+   *   <li>개인 비서(해제됨): 개인 비서 해제(PersonalAssistantService.disable)는 포인터만 끊고 행(username 접두어 {@code
+   *       __assistant_u})은 남긴다. 재등록 시 같은 행을 username 으로 찾아 다시 연결하므로, 포인터만 보면 해제 중에 EXTERNAL 로 바뀐 뒤
+   *       외부 실행 개인 비서로 되살아날 수 있다 — 그래서 접두어도 함께 본다.
+   * </ul>
    */
   public boolean isAssistantAgent(Long id) {
-    Boolean common = (Boolean) dsl.fetchValue("SELECT is_workspace_assistant_agent(?)", id);
-    return Boolean.TRUE.equals(common)
-        || dsl.fetchExists(
-            dsl.selectOne().from(USER).where(USER.PERSONAL_ASSISTANT_AGENT_ID.eq(id)));
+    Condition workspaceAssistant = DSL.condition("is_workspace_assistant_agent({0})", val(id));
+    Condition linkedPersonal =
+        DSL.exists(dsl.selectOne().from(USER).where(USER.PERSONAL_ASSISTANT_AGENT_ID.eq(id)));
+    // startsWith 는 LIKE 와일드카드를 이스케이프하므로 `__` 가 임의문자로 해석되지 않는다.
+    Condition personalByUsername =
+        DSL.exists(
+            dsl.selectOne()
+                .from(USER)
+                .where(USER.ID.eq(id))
+                .and(USER.USERNAME.startsWith(AgentUsernames.PERSONAL_ASSISTANT_PREFIX)));
+    return Boolean.TRUE.equals(
+        dsl.fetchValue(DSL.field(workspaceAssistant.or(linkedPersonal).or(personalByUsername))));
   }
 
   /**
-   * 에이전트 user 행을 {@code SELECT ... FOR UPDATE} 로 잠근다(WP-371). "공통 비서 지정"과 "실행 방식 변경"이 각자 검사 후 변경하는
-   * 사이에 서로 끼어들어(둘 다 통과 → 외부 에이전트가 공통 비서가 되는) 불변식이 깨지는 경합을 막으려고, 두 경로가 검사 전에 같은 행을 잠가 직렬화한다. 반드시
-   * 트랜잭션 안에서 호출해야 하며 락은 커밋/롤백까지 유지된다.
+   * 에이전트 user 행을 {@code SELECT ... FOR UPDATE} 로 잠근다(WP-371) — {@code AgentRuntimePolicy.lock} 이 실행
+   * 방식 변경과 공통 비서 지정을 직렬화하는 데 쓴다. 반드시 트랜잭션 안에서 호출해야 하며 락은 커밋/롤백까지 유지된다.
    */
   public void lockForUpdate(Long id) {
     dsl.select(USER.ID).from(USER).where(USER.ID.eq(id)).forUpdate().fetch();
   }
 
   /**
-   * UserSummary 목록에서 서버가 실행하는(INTERNAL) 에이전트 id 집합 — 이벤트 발행부용 편의 메서드 (WP-371). AGENT 가 없으면 쿼리 없이 빈
-   * 집합을 돌려준다(이슈·채팅 이벤트의 대부분은 사람끼리라 추가 쿼리 비용을 피한다).
-   */
-  public Set<Long> findInternalAgentIdsAmong(List<com.workplace.global.dto.UserSummary> users) {
-    return findInternalAgentIds(
-        users.stream().filter(u -> "AGENT".equals(u.kind())).map(u -> u.id()).toList());
-  }
-
-  /**
-   * 주어진 id 들 중 "서버(ai-agent)가 대신 실행하는" 에이전트(kind=AGENT, runtime=INTERNAL)의 id 집합 (WP-371). 도메인 이벤트
-   * 발행 시점에 호출되어, AFTER_COMMIT 비동기 dispatcher 가 DB 없이 외부 에이전트를 걸러낼 수 있게 한다.
+   * 주어진 id 들 중 서버(ai-agent)가 대신 실행하는 에이전트(kind=AGENT, runtime=INTERNAL)의 id 집합 (WP-371). 순서 판단은 호출자
+   * ({@code ServerAgentResolver}) 몫이라 집합으로 돌려준다.
    */
   public Set<Long> findInternalAgentIds(Collection<Long> ids) {
-    if (ids == null || ids.isEmpty()) return Set.of();
-    return new java.util.LinkedHashSet<>(
+    if (ids.isEmpty()) return Set.of();
+    return Set.copyOf(
         dsl.select(USER.ID)
             .from(USER)
             .where(USER.ID.in(ids))
-            .and(USER.KIND.eq(com.workplace.user.dto.UserKind.AGENT))
-            .and(USER.AGENT_RUNTIME.eq(com.workplace.user.dto.AgentRuntime.INTERNAL))
+            .and(USER.KIND.eq(UserKind.AGENT))
+            .and(USER.AGENT_RUNTIME.eq(AgentRuntime.INTERNAL))
             .fetch(USER.ID));
   }
 
@@ -391,7 +386,7 @@ public class UserRepository {
         .set(USER.USERNAME, username)
         .set(USER.EMAIL, email)
         .set(USER.NAME, name)
-        .set(USER.KIND, com.workplace.user.dto.UserKind.AGENT)
+        .set(USER.KIND, UserKind.AGENT)
         .setNull(USER.PASSWORD)
         .returning(
             USER.ID,
@@ -410,7 +405,7 @@ public class UserRepository {
         .set(USER.USERNAME, username)
         .set(USER.EMAIL, email)
         .set(USER.NAME, "개인 비서")
-        .set(USER.KIND, com.workplace.user.dto.UserKind.AGENT)
+        .set(USER.KIND, UserKind.AGENT)
         .setNull(USER.PASSWORD)
         .returning(USER.ID)
         .fetchOne(USER.ID);
@@ -463,8 +458,8 @@ public class UserRepository {
    */
   private Condition tenantSearchCondition(Long tenantId, String search, String kind) {
     Condition condition = MEMBERSHIP.TENANT_ID.eq(tenantId);
-    if (!com.workplace.user.dto.UserKind.ALL_FILTER.equals(kind)) {
-      String effectiveKind = kind != null ? kind : com.workplace.user.dto.UserKind.HUMAN;
+    if (!UserKind.ALL_FILTER.equals(kind)) {
+      String effectiveKind = kind != null ? kind : UserKind.HUMAN;
       condition = condition.and(USER.KIND.eq(effectiveKind));
     }
     if (search != null && !search.isBlank()) {

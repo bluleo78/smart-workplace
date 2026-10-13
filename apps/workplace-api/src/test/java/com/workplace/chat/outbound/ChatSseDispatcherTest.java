@@ -13,7 +13,6 @@ import com.workplace.global.dto.UserSummary;
 import com.workplace.global.realtime.SseRegistry;
 import java.time.Instant;
 import java.util.List;
-import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -51,8 +50,7 @@ class ChatSseDispatcherTest {
             List.of(),
             List.of(),
             List.of(),
-            Instant.now(),
-            Set.of()));
+            Instant.now()));
     verify(registry).fanOut(eq(List.of(1L, 2L)), eq("chat.message.created"), any());
   }
 

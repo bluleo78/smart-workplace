@@ -207,6 +207,22 @@ class AdminAgentRuntimeControllerTest extends IntegrationTestBase {
     assertThat(runtimeOf(agent)).isEqualTo("INTERNAL");
   }
 
+  /**
+   * 개인 비서를 해제하면 포인터(personal_assistant_agent_id)만 끊기고 행은 남는다. 재등록 시 같은 행이 username 으로 다시 연결되므로, 해제
+   * 중에도 개인 비서 접두어 행은 EXTERNAL 로 못 바꾼다.
+   */
+  @Test
+  void 해제된_개인_비서도_EXTERNAL_로_못_바꾼다_409() throws Exception {
+    Long admin = createUser("admin", "HUMAN");
+    Long agent = createUser("ai", "AGENT");
+    dsl.update(USER).set(USER.USERNAME, "__assistant_u" + agent).where(USER.ID.eq(agent)).execute();
+
+    putRuntime(admin, agent, "{\"runtime\":\"EXTERNAL\"}", "user:write")
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("개인 비서")));
+    assertThat(runtimeOf(agent)).isEqualTo("INTERNAL");
+  }
+
   @Test
   void EXTERNAL_에이전트를_공통_비서로_지정하면_409() throws Exception {
     Long admin = createUser("admin", "HUMAN");

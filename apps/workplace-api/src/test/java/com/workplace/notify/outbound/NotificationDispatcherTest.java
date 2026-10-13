@@ -16,7 +16,6 @@ import com.workplace.notify.dto.NotificationType;
 import com.workplace.notify.service.NotificationService;
 import java.time.Instant;
 import java.util.List;
-import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -52,8 +51,7 @@ class NotificationDispatcherTest {
             List.of(ASSIGNEE_A, ASSIGNEE_B),
             List.of(ASSIGNEE_A),
             List.of(),
-            Instant.now(),
-            Set.of());
+            Instant.now());
 
     dispatcher.onIssueAssigned(e);
 
@@ -81,8 +79,7 @@ class NotificationDispatcherTest {
             List.of(ASSIGNEE_A),
             55L,
             "hi",
-            Instant.now(),
-            Set.of());
+            Instant.now());
 
     dispatcher.onIssueCommented(e);
 
@@ -106,8 +103,7 @@ class NotificationDispatcherTest {
             List.of(ASSIGNEE_A, ASSIGNEE_B),
             "TODO",
             "IN_PROGRESS",
-            Instant.now(),
-            Set.of());
+            Instant.now());
 
     dispatcher.onIssueStatusChanged(e);
 
@@ -180,8 +176,7 @@ class NotificationDispatcherTest {
             List.of(ASSIGNEE_A),
             List.of(ASSIGNEE_A),
             List.of(),
-            Instant.now(),
-            Set.of());
+            Instant.now());
 
     dispatcher.onIssueAssigned(e);
 
@@ -204,8 +199,7 @@ class NotificationDispatcherTest {
             List.of(ASSIGNEE_A),
             List.of(ASSIGNEE_A),
             List.of(),
-            Instant.now(),
-            Set.of());
+            Instant.now());
 
     dispatcher.onIssueAssigned(e); // 예외가 전파되지 않아야 한다
     verify(service, never()).markAllRead(Mockito.anyLong());

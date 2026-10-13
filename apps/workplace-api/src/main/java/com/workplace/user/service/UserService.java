@@ -20,7 +20,6 @@ import com.workplace.user.dto.RenameAgentRequest;
 import com.workplace.user.dto.UserDetailResponse;
 import com.workplace.user.dto.UserKind;
 import com.workplace.user.dto.UserResponse;
-import com.workplace.user.exception.AgentRuntimeConflictException;
 import com.workplace.user.exception.PersonalAssistantRenameForbiddenException;
 import com.workplace.user.exception.UserNotFoundException;
 import com.workplace.user.repository.UserRepository;
@@ -39,6 +38,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class UserService {
 
   private final UserRepository userRepository;
+  private final AgentRuntimePolicy agentRuntimePolicy;
   private final RoleRepository roleRepository;
   private final PasswordEncoder passwordEncoder;
   private final AuditLogService auditLogService;
@@ -147,6 +147,31 @@ public class UserService {
   }
 
   /**
+   * AGENT 관리 행위(생성·삭제·이름 변경·실행 방식 변경)의 성공 감사 로그 — resource=user, resource_id=대상 AGENT id 로 형식을 맞춘다.
+   * callerUsername 은 호출자가 넘긴다: 삭제처럼 대상 행이 사라지기 전에 미리 읽어 둬야 하는 경로가 있어서다.
+   */
+  private void auditAgent(
+      Long callerId,
+      String callerUsername,
+      String actionType,
+      Long agentId,
+      String description,
+      Map<String, String> metadata) {
+    auditLogService.log(
+        callerId,
+        callerUsername,
+        actionType,
+        "user",
+        String.valueOf(agentId),
+        description,
+        null,
+        null,
+        "SUCCESS",
+        null,
+        metadata);
+  }
+
+  /**
    * Phase 5a — AGENT 유저 생성. ADMIN 권한은 컨트롤러의 @RequirePermission 으로 가드한다. password=NULL, kind='AGENT'
    * 로 저장되며, 기본 AGENT 역할을 부여한다(WP-252) — 역할 0개면 project:read/issue:write 등 권한이 전무해 담당 이슈 조회·처리가 403
    * 으로 막히기 때문. 개인 비서 생성 경로(PersonalAssistantService)와 동일한 방식이며, 추가 역할은 ADMIN 이 개별 설정한다.
@@ -174,18 +199,13 @@ public class UserService {
         .ifPresent(role -> userRepository.addRole(created.id(), role.id()));
     String callerUsername = resolveUsername(callerId);
     // 감사 로그 — AGENT_CREATED (action_type, resource=user, resource_id=신규 user id)
-    auditLogService.log(
+    auditAgent(
         callerId,
         callerUsername,
         "AGENT_CREATED",
-        "user",
-        String.valueOf(created.id()),
+        created.id(),
         "AGENT 유저 생성: " + created.username(),
-        null,
-        null,
-        "SUCCESS",
-        null,
-        java.util.Map.of("username", created.username(), "name", created.name()));
+        Map.of("username", created.username(), "name", created.name()));
     return created;
   }
 
@@ -278,18 +298,8 @@ public class UserService {
     }
     String callerUsername = resolveUsername(callerId);
     userRepository.deleteById(userId);
-    auditLogService.log(
-        callerId,
-        callerUsername,
-        "AGENT_DELETED",
-        "user",
-        String.valueOf(userId),
-        "AGENT 유저 삭제: " + user.username(),
-        null,
-        null,
-        "SUCCESS",
-        null,
-        null);
+    auditAgent(
+        callerId, callerUsername, "AGENT_DELETED", userId, "AGENT 유저 삭제: " + user.username(), null);
   }
 
   /**
@@ -340,18 +350,13 @@ public class UserService {
     if (!usernameChanged && !nameChanged) {
       renameDesc.append("변경 없음");
     }
-    auditLogService.log(
+    auditAgent(
         callerId,
         resolveUsername(callerId),
         "AGENT_RENAMED",
-        "user",
-        String.valueOf(userId),
+        userId,
         renameDesc.toString(),
-        null,
-        null,
-        "SUCCESS",
-        null,
-        java.util.Map.of(
+        Map.of(
             "oldUsername", user.username(),
             "newUsername", req.username(),
             "oldName", user.name(),
@@ -362,39 +367,32 @@ public class UserService {
    * WP-371 — AGENT 실행 방식(INTERNAL|EXTERNAL) 변경.
    *
    * <p>가드: 현재 테넌트 멤버가 아니거나 AGENT 가 아니면 404(사람은 대상이 아님). EXTERNAL 로 바꾸려는데 공통 비서이거나 누군가의 개인 비서이면 409
-   * — 둘 다 AI Chat 을 서버(ai-agent)가 실행해야 하기 때문. INTERNAL 로의 변경은 항상 허용. 변경 시 감사 로그
-   * AGENT_RUNTIME_CHANGED 를 남긴다.
+   * — 둘 다 AI Chat 을 서버(ai-agent)가 실행해야 하기 때문(판정·락은 {@link AgentRuntimePolicy}). INTERNAL 로의 변경은 항상
+   * 허용. 변경 시 감사 로그 AGENT_RUNTIME_CHANGED 를 남긴다.
    */
   @Transactional
   public void setAgentRuntime(Long callerId, Long userId, String runtime) {
     // user 는 전역 테이블 — 현재 테넌트 멤버가 아닌 에이전트는 존재 자체를 숨겨 404.
     requireMember(userId);
     // 공통 비서 지정(WorkspaceAssistantService.setAgent)과 같은 에이전트 행 락으로 직렬화 — 검사와 변경 사이 경합 방지.
-    userRepository.lockForUpdate(userId);
+    agentRuntimePolicy.lock(userId);
     UserResponse user =
         userRepository.findById(userId).orElseThrow(() -> UserNotFoundException.ofId(userId));
     if (!UserKind.isAgent(user.kind())) {
       throw UserNotFoundException.ofId(userId);
     }
-    if (AgentRuntime.EXTERNAL.equals(runtime)
-        && (userRepository.isAssistantAgent(userId)
-            || AgentUsernames.isPersonalAssistant(user.username()))) {
-      throw new AgentRuntimeConflictException(
-          "공통 비서 또는 개인 비서로 쓰이는 에이전트는 외부 실행으로 바꿀 수 없습니다. 비서 지정을 먼저 해제하세요.");
+    // INTERNAL 로의 변경은 불변식을 깨지 않으므로 항상 허용한다.
+    if (AgentRuntime.EXTERNAL.equals(runtime)) {
+      agentRuntimePolicy.requireMayBeExternal(userId);
     }
     userRepository.updateAgentRuntime(userId, runtime);
-    auditLogService.log(
+    auditAgent(
         callerId,
         resolveUsername(callerId),
         "AGENT_RUNTIME_CHANGED",
-        "user",
-        String.valueOf(userId),
+        userId,
         "AGENT 실행 방식 변경: " + user.username() + " → " + runtime,
-        null,
-        null,
-        "SUCCESS",
-        null,
-        java.util.Map.of("username", user.username(), "runtime", runtime));
+        Map.of("username", user.username(), "runtime", runtime));
   }
 
   @Transactional

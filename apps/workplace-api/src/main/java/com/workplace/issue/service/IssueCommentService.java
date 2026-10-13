@@ -155,9 +155,7 @@ public class IssueCommentService {
             assignees,
             resp.id(),
             req.body(),
-            Instant.now(),
-            // WP-371: 외부 실행 에이전트를 dispatcher 가 거를 수 있게 발행 시점에 내부 에이전트 id 를 채운다.
-            userRepository.findInternalAgentIdsAmong(assignees)));
+            Instant.now()));
 
     return resp;
   }

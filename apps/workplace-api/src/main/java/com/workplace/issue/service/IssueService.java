@@ -344,9 +344,7 @@ public class IssueService {
               assigneeSummaries,
               assigneeSummaries,
               List.of(),
-              occurredAt,
-              // WP-371: 외부 실행 에이전트를 dispatcher 가 거를 수 있게 발행 시점에 내부 에이전트 id 를 채운다.
-              userRepository.findInternalAgentIdsAmong(assigneeSummaries)));
+              occurredAt));
     }
 
     // 6) 응답에 유형·담당자·부모·라벨을 채운다(#877) — 부분 응답(from)이면 저장은 됐어도 호출자(MCP create_issue 등)가 미반영으로 오판한다.
@@ -613,8 +611,7 @@ public class IssueService {
                 currentAssignees,
                 before.status(),
                 after.status(),
-                Instant.now(),
-                userRepository.findInternalAgentIdsAmong(currentAssignees)));
+                Instant.now()));
       }
 
       if (!before.priority().equals(after.priority())) {

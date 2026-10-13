@@ -13,7 +13,6 @@ import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentedEvent;
 import com.workplace.watcher.repository.IssueWatcherRepository;
 import java.time.Instant;
 import java.util.List;
-import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -48,8 +47,7 @@ class IssueSseDispatcherTest {
             List.of(),
             100L,
             "재현 조건 확인했습니다",
-            Instant.now(),
-            Set.of()));
+            Instant.now()));
 
     verify(registry).fanOut(eq(List.of(1L, 2L, 3L)), eq("issue.commented"), any());
   }
@@ -67,8 +65,7 @@ class IssueSseDispatcherTest {
             List.of(),
             100L,
             "재현 조건 확인했습니다",
-            Instant.now(),
-            Set.of()));
+            Instant.now()));
 
     Mockito.verify(registry)
         .fanOut(
