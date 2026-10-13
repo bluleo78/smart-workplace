@@ -21,6 +21,8 @@ import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
+import com.workplace.user.dto.AgentRuntime;
+import com.workplace.user.outbound.AgentRuntimeChanged;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -208,8 +210,8 @@ class AgentWorkServiceTest extends IntegrationTestBase {
   @Test
   void end_는_진행중이면_true_없으면_false() {
     service.startOrUpdate(issueId, humanId, "claude-code", AgentWorkPatch.empty());
-    assertThat(service.end(issueId, humanId, "FAILED")).isTrue();
-    assertThat(service.end(issueId, humanId, "FAILED")).isFalse();
+    assertThat(service.end(issueId, humanId, "FAILED", null)).isTrue();
+    assertThat(service.end(issueId, humanId, "FAILED", null)).isFalse();
     assertThat(
             dsl.select(AGENT_WORK.STATE)
                 .from(AGENT_WORK)
@@ -312,6 +314,72 @@ class AgentWorkServiceTest extends IntegrationTestBase {
             .fetchMap(AGENT_WORK.WORKER_ID, AGENT_WORK.STATE);
     assertThat(states.get(agentId)).isEqualTo("CANCELED");
     assertThat(states.get(humanId)).isEqualTo("COMPLETED");
+  }
+
+  /**
+   * 터치가 SUBMITTED 생성과의 삽입 경합에서 졌을 때(처음 조회는 비었는데 그 사이 다른 트랜잭션이 행을 만든 상황 — 첫 findActive 만 비게 스텁해 재현)
+   * 충돌로 돌려받은 행에 같은 터치 규칙을 적용한다: 같은 행이 WORKING 으로 착수되고 tool 이 채워지며 새 행은 없다.
+   */
+  @Test
+  void 터치가_삽입_경합에서_져도_기존_행을_착수시키고_tool을_채움() {
+    assigneeRepository.add(issueId, agentId, humanId);
+    var submitted = repo.insertIfAbsent(issueId, agentId, null, "SUBMITTED").orElseThrow();
+    doReturn(Optional.empty()).doCallRealMethod().when(repo).findActive(issueId, agentId);
+    service.onAgentToolWrite(new AgentToolWriteEvent(issueId, agentId, "claude-code", true));
+    var row = repo.findActive(issueId, agentId).orElseThrow();
+    assertThat(row.id()).isEqualTo(submitted.id());
+    assertThat(row.state()).isEqualTo("WORKING");
+    assertThat(row.tool()).isEqualTo("claude-code");
+    assertThat(dsl.fetchCount(AGENT_WORK, AGENT_WORK.ISSUE_ID.eq(issueId))).isEqualTo(1);
+    assertThat(
+            dsl.select(AGENT_WORK_EVENT.STATE)
+                .from(AGENT_WORK_EVENT)
+                .where(AGENT_WORK_EVENT.WORK_ID.eq(row.id()))
+                .orderBy(AGENT_WORK_EVENT.ID.asc())
+                .fetch(AGENT_WORK_EVENT.STATE))
+        .containsExactly("SUBMITTED", "WORKING");
+  }
+
+  /** 외부→내부 전환 신호는 그 구성원의 SUBMITTED 만 CANCELED 로 닫고(이벤트 포함), 일하던 작업·다른 구성원 작업은 건드리지 않는다. */
+  @Test
+  void 내부로_전환되면_SUBMITTED_만_CANCELED() {
+    long otherAgent = TestFixtures.createAgentNoToken(dsl);
+    long submittedId = repo.insertIfAbsent(issueId, agentId, null, "SUBMITTED").orElseThrow().id();
+    repo.insertIfAbsent(issueId, otherAgent, null, "SUBMITTED");
+    service.onAgentRuntimeChanged(new AgentRuntimeChanged(agentId, AgentRuntime.INTERNAL));
+    assertThat(
+            dsl.select(AGENT_WORK.STATE)
+                .from(AGENT_WORK)
+                .where(AGENT_WORK.ID.eq(submittedId))
+                .fetchOne(AGENT_WORK.STATE))
+        .isEqualTo("CANCELED");
+    assertThat(repo.findActive(issueId, otherAgent).orElseThrow().state()).isEqualTo("SUBMITTED");
+    assertThat(eventCount(submittedId)).isEqualTo(2);
+
+    // 일하던 작업은 그대로 — 외부로의 전환 신호도 아무것도 하지 않는다.
+    repo.insertIfAbsent(issueId, agentId, "claude-code", "WORKING");
+    service.onAgentRuntimeChanged(new AgentRuntimeChanged(agentId, AgentRuntime.INTERNAL));
+    service.onAgentRuntimeChanged(new AgentRuntimeChanged(otherAgent, AgentRuntime.EXTERNAL));
+    assertThat(repo.findActive(issueId, agentId).orElseThrow().state()).isEqualTo("WORKING");
+    assertThat(repo.findActive(issueId, otherAgent).orElseThrow().state()).isEqualTo("SUBMITTED");
+  }
+
+  /** 이벤트의 tenant_id 는 GUC 기본값이 아니라 작업 행의 tenant_id 를 그대로 옮긴 값이다. */
+  @Test
+  void 이벤트는_작업_행의_tenant_id_를_가진다() {
+    service.startOrUpdate(issueId, agentId, "claude-code", AgentWorkPatch.empty());
+    var work = repo.findActive(issueId, agentId).orElseThrow();
+    long workTenant =
+        dsl.select(AGENT_WORK.TENANT_ID)
+            .from(AGENT_WORK)
+            .where(AGENT_WORK.ID.eq(work.id()))
+            .fetchOne(AGENT_WORK.TENANT_ID);
+    assertThat(
+            dsl.select(AGENT_WORK_EVENT.TENANT_ID)
+                .from(AGENT_WORK_EVENT)
+                .where(AGENT_WORK_EVENT.WORK_ID.eq(work.id()))
+                .fetch(AGENT_WORK_EVENT.TENANT_ID))
+        .containsOnly(workTenant);
   }
 
   /** 보고 한 번 = 이벤트 한 번: 첫 보고 1건, 같은 보고 반복 0건, note 변경 1건. */

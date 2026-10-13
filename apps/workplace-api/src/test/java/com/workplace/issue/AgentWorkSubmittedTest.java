@@ -1,9 +1,11 @@
 package com.workplace.issue;
 
+import static com.workplace.jooq.Tables.AGENT_WORK;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.workplace.issue.service.AgentWorkService;
+import com.workplace.user.service.UserService;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
@@ -19,6 +21,7 @@ import org.springframework.http.HttpMethod;
 class AgentWorkSubmittedTest extends AgentWorkTestSupport {
 
   @Autowired private AgentWorkService agentWorkService;
+  @Autowired private UserService userService;
 
   /** 시드 이슈는 사람·AI 가 이미 담당자 — 담당자 교체의 "추가" 를 만들려고 AI 를 빼 둔다(작업이 없어 종료할 것도 없다). */
   @BeforeEach
@@ -136,6 +139,55 @@ class AgentWorkSubmittedTest extends AgentWorkTestSupport {
     assertThat(allStates(issueId, agentId)).containsExactly("WORKING");
     assertThat(activeWork(issueId, agentId).orElseThrow().tool()).isEqualTo(TOOL);
     assertThat(eventStates(issueId, agentId)).containsExactly("SUBMITTED", "WORKING");
+  }
+
+  /** 착수 전(SUBMITTED)에서 곧바로 종료 보고해도 행의 tool 이 요청 도구로 채워지고, 종료 이벤트는 한 건뿐이다. */
+  @Test
+  void SUBMITTED_에서_곧바로_종료_보고하면_tool_을_채우고_이벤트는_하나() {
+    makeExternal(agentId);
+    addAgentAsAssignee();
+    assertOk(putReport(akToken, TOOL, Map.of("state", "REJECTED")));
+    assertThat(allStates(issueId, agentId)).containsExactly("REJECTED");
+    assertThat(eventStates(issueId, agentId)).containsExactly("SUBMITTED", "REJECTED");
+    String tool =
+        inTenant(
+            () ->
+                dsl.select(AGENT_WORK.TOOL)
+                    .from(AGENT_WORK)
+                    .where(AGENT_WORK.ISSUE_ID.eq(issueId))
+                    .and(AGENT_WORK.WORKER_ID.eq(agentId))
+                    .fetchOne(AGENT_WORK.TOOL));
+    assertThat(tool).isEqualTo(TOOL);
+  }
+
+  /** 사람이 도구 헤더로 자기를 담당자로 이슈를 만들면(허용된 동작) 사람 몫 WORKING 행이 정확히 하나, 도구가 채워진다. */
+  @Test
+  void 사람이_도구_헤더로_자기를_담당자로_이슈를_만들면_WORKING_행_하나() {
+    long created = createIssue(patToken, TOOL, List.of(humanId));
+    assertThat(allStates(created, humanId)).containsExactly("WORKING");
+    assertThat(activeWork(created, humanId).orElseThrow().tool()).isEqualTo(TOOL);
+    assertThat(eventStates(created, humanId)).containsExactly("WORKING");
+  }
+
+  // ---------------------------------------------------------------- 실행 방식 전환
+
+  /** 외부→내부로 바꾸면 영영 착수하지 않을 SUBMITTED 는 CANCELED(이벤트 포함), 일하던 WORKING 은 그대로. */
+  @Test
+  void 실행_방식을_내부로_바꾸면_SUBMITTED_만_CANCELED() {
+    makeExternal(agentId);
+    addAgentAsAssignee();
+    long working = createIssue(akToken, TOOL, List.of(agentId));
+    assertThat(activeWork(issueId, agentId).orElseThrow().state()).isEqualTo("SUBMITTED");
+
+    inTenant(
+        () -> {
+          userService.setAgentRuntime(humanId, agentId, "INTERNAL");
+          return null;
+        });
+
+    assertThat(allStates(issueId, agentId)).containsExactly("CANCELED");
+    assertThat(eventStates(issueId, agentId)).containsExactly("SUBMITTED", "CANCELED");
+    assertThat(activeWork(working, agentId).orElseThrow().state()).isEqualTo("WORKING");
   }
 
   /** (b) 완료 보고 뒤 이슈를 DONE 으로 바꿔도 행은 하나(COMPLETED) — DONE 쓰기 터치가 새 작업 중 행·이벤트를 만들지 않는다. */

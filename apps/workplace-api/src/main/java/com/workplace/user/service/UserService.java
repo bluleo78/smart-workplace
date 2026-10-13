@@ -22,6 +22,7 @@ import com.workplace.user.dto.UserKind;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.exception.PersonalAssistantRenameForbiddenException;
 import com.workplace.user.exception.UserNotFoundException;
+import com.workplace.user.outbound.AgentRuntimeChanged;
 import com.workplace.user.repository.UserRepository;
 import java.util.List;
 import java.util.Locale;
@@ -29,6 +30,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -47,6 +49,8 @@ public class UserService {
   private final TenantRepository tenantRepository;
   // AI 가용성 해석 — 개인/공통 비서 중 active token 보유 여부를 판단. /users/me 응답에 aiAvailable 노출.
   private final AssistantResolver assistantResolver;
+  // 실행 방식 변경 이벤트 발행(AgentRuntimeChanged) — issue 모듈이 AI 작업 기록을 정리한다.
+  private final ApplicationEventPublisher publisher;
 
   /** kind 미지정 호출부(설정 > 사용자 관리 등 기존 호출) — HUMAN 만 노출하는 기존 동작 유지. */
   @Transactional(readOnly = true)
@@ -368,7 +372,7 @@ public class UserService {
    *
    * <p>가드: 현재 테넌트 멤버가 아니거나 AGENT 가 아니면 404(사람은 대상이 아님). EXTERNAL 로 바꾸려는데 공통 비서이거나 누군가의 개인 비서이면 409
    * — 둘 다 AI Chat 을 서버(ai-agent)가 실행해야 하기 때문(판정·락은 {@link AgentRuntimePolicy}). INTERNAL 로의 변경은 항상
-   * 허용. 변경 시 감사 로그 AGENT_RUNTIME_CHANGED 를 남긴다.
+   * 허용. 변경 시 AgentRuntimeChanged 이벤트를 발행하고 감사 로그 AGENT_RUNTIME_CHANGED 를 남긴다.
    */
   @Transactional
   public void setAgentRuntime(Long callerId, Long userId, String runtime) {
@@ -386,6 +390,8 @@ public class UserService {
       agentRuntimePolicy.requireMayBeExternal(userId);
     }
     userRepository.updateAgentRuntime(userId, runtime);
+    // 같은 트랜잭션 안에서 동기 처리되는 리스너가 이 에이전트의 AI 작업 기록을 실행 방식에 맞게 정리한다(EXTERNAL→INTERNAL 이면 "시작 전" 취소).
+    publisher.publishEvent(new AgentRuntimeChanged(userId, runtime));
     auditAgent(
         callerId,
         resolveUsername(callerId),

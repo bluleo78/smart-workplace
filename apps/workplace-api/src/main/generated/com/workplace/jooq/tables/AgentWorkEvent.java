@@ -16,6 +16,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 
+import org.jooq.Check;
 import org.jooq.Condition;
 import org.jooq.Field;
 import org.jooq.ForeignKey;
@@ -36,6 +37,7 @@ import org.jooq.TableField;
 import org.jooq.TableOptions;
 import org.jooq.UniqueKey;
 import org.jooq.impl.DSL;
+import org.jooq.impl.Internal;
 import org.jooq.impl.SQLDataType;
 import org.jooq.impl.TableImpl;
 
@@ -215,6 +217,13 @@ public class AgentWorkEvent extends TableImpl<AgentWorkEventRecord> {
             _agentWork = new AgentWorkPath(this, Keys.AGENT_WORK_EVENT__AGENT_WORK_EVENT_WORK_ID_FKEY, null);
 
         return _agentWork;
+    }
+
+    @Override
+    public List<Check<AgentWorkEventRecord>> getChecks() {
+        return Arrays.asList(
+            Internal.createCheck(this, DSL.name("agent_work_event_state_check"), "(((state)::text = ANY ((ARRAY['SUBMITTED'::character varying, 'WORKING'::character varying, 'INPUT_REQUIRED'::character varying, 'AUTH_REQUIRED'::character varying, 'REVIEW'::character varying, 'BLOCKED'::character varying, 'PAUSED'::character varying, 'COMPLETED'::character varying, 'FAILED'::character varying, 'CANCELED'::character varying, 'REJECTED'::character varying])::text[])))", true)
+        );
     }
 
     @Override

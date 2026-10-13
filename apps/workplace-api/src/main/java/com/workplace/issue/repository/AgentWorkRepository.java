@@ -130,7 +130,6 @@ public class AgentWorkRepository {
    * 반환.
    */
   public int update(long id, AgentWorkPatch patch) {
-    var before = AGENT_WORK.as("before");
     var step = dsl.update(AGENT_WORK).set(AGENT_WORK.UPDATED_AT, DSL.currentOffsetDateTime());
     if (patch.tool() != null) step = step.set(AGENT_WORK.TOOL, patch.tool());
     if (patch.state() != null) step = step.set(AGENT_WORK.STATE, patch.state());
@@ -145,24 +144,22 @@ public class AgentWorkRepository {
       step = step.set(AGENT_WORK.STEPS_DONE, patch.stepsDone().shortValue());
     if (patch.stepsTotal() != null)
       step = step.set(AGENT_WORK.STEPS_TOTAL, patch.stepsTotal().shortValue());
-    // UPDATE … FROM 의 자기 조인은 문장 시작 시점의 행(갱신 전)을 보여준다 — RETURNING 에서 갱신 후 값과 비교해 변경 여부를 얻는다.
+    // PostgreSQL 18 의 RETURNING OLD/NEW — 이 문장이 실제로 덮어쓴 갱신 전 행(old)과 갱신 후 행(수식 없는 컬럼 = new)을 비교한다.
+    // 자기 조인으로 읽은
+    // 사본은 동시 갱신 시 오래된 버전일 수 있어(이벤트 누락·중복) 쓰지 않는다.
     Field<Boolean> changed =
         DSL.field(
             AGENT_WORK
                 .STATE
-                .isDistinctFrom(before.STATE)
-                .or(AGENT_WORK.NOTE.isDistinctFrom(before.NOTE))
-                .or(AGENT_WORK.PROGRESS.isDistinctFrom(before.PROGRESS))
-                .or(AGENT_WORK.STEPS_DONE.isDistinctFrom(before.STEPS_DONE))
-                .or(AGENT_WORK.STEPS_TOTAL.isDistinctFrom(before.STEPS_TOTAL)));
+                .isDistinctFrom(old(AGENT_WORK.STATE))
+                .or(AGENT_WORK.NOTE.isDistinctFrom(old(AGENT_WORK.NOTE)))
+                .or(AGENT_WORK.PROGRESS.isDistinctFrom(old(AGENT_WORK.PROGRESS)))
+                .or(AGENT_WORK.STEPS_DONE.isDistinctFrom(old(AGENT_WORK.STEPS_DONE)))
+                .or(AGENT_WORK.STEPS_TOTAL.isDistinctFrom(old(AGENT_WORK.STEPS_TOTAL))));
     List<Field<?>> returning = new ArrayList<>(EVENT_SOURCE_FIELDS);
     returning.add(changed.as(CHANGED_COLUMN));
     return recordEvents(
-        step.from(before)
-            .where(before.ID.eq(AGENT_WORK.ID))
-            .and(AGENT_WORK.ID.eq(id))
-            .and(AGENT_WORK.ENDED_AT.isNull())
-            .returning(returning),
+        step.where(AGENT_WORK.ID.eq(id)).and(AGENT_WORK.ENDED_AT.isNull()).returning(returning),
         true);
   }
 
@@ -171,7 +168,7 @@ public class AgentWorkRepository {
    */
   public int endActive(Collection<Long> issueIds, String terminalState) {
     if (issueIds == null || issueIds.isEmpty()) return 0;
-    return end(terminalState, AGENT_WORK.ISSUE_ID.in(issueIds));
+    return end(terminalState, null, AGENT_WORK.ISSUE_ID.in(issueIds));
   }
 
   /** 이슈들의 진행 중 작업 중 지정한 상태의 것만 종료한다 — 이슈 완료 시 아직 착수 전(SUBMITTED)인 작업만 따로 취소 처리하는 데 쓴다. */
@@ -179,20 +176,44 @@ public class AgentWorkRepository {
       Collection<Long> issueIds, Collection<String> fromStates, String terminalState) {
     if (issueIds == null || issueIds.isEmpty()) return 0;
     return end(
-        terminalState, AGENT_WORK.ISSUE_ID.in(issueIds).and(AGENT_WORK.STATE.in(fromStates)));
+        terminalState, null, AGENT_WORK.ISSUE_ID.in(issueIds).and(AGENT_WORK.STATE.in(fromStates)));
   }
 
   /** 이슈에서 지정한 작업자들의 진행 중 작업만 종료한다(담당자에서 빠진 경우, 작업자 본인의 종료 보고 등). */
   public int endActiveForWorkers(long issueId, Collection<Long> workerIds, String terminalState) {
     if (workerIds == null || workerIds.isEmpty()) return 0;
     return end(
-        terminalState, AGENT_WORK.ISSUE_ID.eq(issueId).and(AGENT_WORK.WORKER_ID.in(workerIds)));
+        terminalState,
+        null,
+        AGENT_WORK.ISSUE_ID.eq(issueId).and(AGENT_WORK.WORKER_ID.in(workerIds)));
+  }
+
+  /**
+   * 작업자 본인의 종료 보고용 — 종료와 같은 문장에서 행의 tool 이 비어 있으면(착수 전 SUBMITTED 에서 곧바로 종료 보고) 요청의 도구 값을 채운다. 이벤트는
+   * 한 번만 남는다.
+   */
+  public int endActiveForWorker(
+      long issueId, long workerId, String terminalState, String fillTool) {
+    return end(
+        terminalState,
+        fillTool,
+        AGENT_WORK.ISSUE_ID.eq(issueId).and(AGENT_WORK.WORKER_ID.eq(workerId)));
+  }
+
+  /** 작업자의 모든 이슈에서 지정한 상태의 진행 중 작업만 종료한다(외부→내부 실행 방식 전환 시 영영 착수하지 않을 "시작 전" 정리). */
+  public int endActiveForWorkerInStates(
+      long workerId, Collection<String> fromStates, String terminalState) {
+    return end(
+        terminalState,
+        null,
+        AGENT_WORK.WORKER_ID.eq(workerId).and(AGENT_WORK.STATE.in(fromStates)));
   }
 
   /** 프로젝트의 모든 이슈에서 지정 작업자의 진행 중 작업을 종료한다(프로젝트 멤버 제거 시 — 담당 매핑이 함께 지워지므로). */
   public int endActiveForWorkerInProject(long projectId, long workerId, String terminalState) {
     return end(
         terminalState,
+        null,
         AGENT_WORK
             .WORKER_ID
             .eq(workerId)
@@ -201,28 +222,39 @@ public class AgentWorkRepository {
                     dsl.select(ISSUE.ID).from(ISSUE).where(ISSUE.PROJECT_ID.eq(projectId)))));
   }
 
-  /** 진행 중 행(조건 + ended_at IS NULL)을 종료 상태로 닫고 이벤트를 남긴다. 종료 상태가 아니면 DB 정합 CHECK 가 막기 전에 여기서 거절한다. */
-  private int end(String terminalState, Condition where) {
+  /**
+   * 진행 중 행(조건 + ended_at IS NULL)을 종료 상태로 닫고 이벤트를 남긴다(fillTool 이 있으면 빈 tool 을 채운다). 종료 상태가 아니면 DB
+   * 정합 CHECK 가 막기 전에 여기서 거절한다.
+   */
+  private int end(String terminalState, String fillTool, Condition where) {
     if (!AgentWorkState.isTerminal(terminalState)) {
       throw new IllegalArgumentException("종료 상태가 아님: " + terminalState);
     }
-    return recordEvents(
+    var step =
         dsl.update(AGENT_WORK)
             .set(AGENT_WORK.STATE, terminalState)
-            .set(AGENT_WORK.ENDED_AT, DSL.currentOffsetDateTime())
-            .where(where)
-            .and(AGENT_WORK.ENDED_AT.isNull())
-            .returning(EVENT_SOURCE_FIELDS),
-        false);
+            .set(AGENT_WORK.ENDED_AT, DSL.currentOffsetDateTime());
+    // 도구를 모르는 행(SUBMITTED)에 요청의 도구를 채운다 — 이미 값이 있으면 유지.
+    if (fillTool != null) {
+      step = step.set(AGENT_WORK.TOOL, DSL.coalesce(AGENT_WORK.TOOL, DSL.val(fillTool)));
+    }
+    return recordEvents(
+        step.where(where).and(AGENT_WORK.ENDED_AT.isNull()).returning(EVENT_SOURCE_FIELDS), false);
+  }
+
+  /** RETURNING 안에서 갱신 전 행의 컬럼({@code old.<col>}, PostgreSQL 18). */
+  private static <T> Field<T> old(Field<T> column) {
+    return DSL.field(DSL.name("old", column.getName()), column.getDataType());
   }
 
   /**
    * 이벤트로 옮길 변경 후 스냅샷 컬럼. RETURNING 목록과 CTE 의 SELECT 가 이 목록 하나에서 만들어지고, 이벤트 INSERT 의 대상 컬럼({@link
-   * #EVENT_TARGET_FIELDS})과 같은 순서여야 한다.
+   * #EVENT_TARGET_FIELDS})과 같은 순서여야 한다. 테넌트는 GUC 기본값에 기대지 않고 작업 행의 tenant_id 를 이벤트에 그대로 옮긴다.
    */
   private static final List<Field<?>> EVENT_SOURCE_FIELDS =
       List.of(
           AGENT_WORK.ID,
+          AGENT_WORK.TENANT_ID,
           AGENT_WORK.STATE,
           AGENT_WORK.NOTE,
           AGENT_WORK.PROGRESS,
@@ -233,6 +265,7 @@ public class AgentWorkRepository {
   private static final List<Field<?>> EVENT_TARGET_FIELDS =
       List.of(
           AGENT_WORK_EVENT.WORK_ID,
+          AGENT_WORK_EVENT.TENANT_ID,
           AGENT_WORK_EVENT.STATE,
           AGENT_WORK_EVENT.NOTE,
           AGENT_WORK_EVENT.PROGRESS,

@@ -49,7 +49,9 @@ CREATE TABLE agent_work_event (
                  DEFAULT NULLIF(current_setting('app.tenant_id', true), '')::bigint
                  REFERENCES tenant(id),
   work_id      BIGINT      NOT NULL REFERENCES agent_work(id) ON DELETE CASCADE,
-  state        VARCHAR(16) NOT NULL,
+  state        VARCHAR(16) NOT NULL
+                 CHECK (state IN ('SUBMITTED','WORKING','INPUT_REQUIRED','AUTH_REQUIRED','REVIEW','BLOCKED','PAUSED',
+                                  'COMPLETED','FAILED','CANCELED','REJECTED')),
   note         VARCHAR(120),
   progress     SMALLINT,
   steps_done   SMALLINT,

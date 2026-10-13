@@ -14,6 +14,7 @@ import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.project.repository.ProjectRepository;
 import com.workplace.user.dto.AgentRuntime;
+import com.workplace.user.outbound.AgentRuntimeChanged;
 import com.workplace.user.repository.UserRepository;
 import java.util.Collection;
 import java.util.Comparator;
@@ -136,9 +137,12 @@ public class AgentWorkService {
     }
   }
 
-  /** 종료 — 진행 중이면 지정한 종료 상태(COMPLETED·FAILED·CANCELED·REJECTED)로 끝내고 알림, 없으면 false. */
-  public boolean end(long issueId, long workerId, String terminalState) {
-    if (repository.endActiveForWorkers(issueId, List.of(workerId), terminalState) == 0) {
+  /**
+   * 종료 — 진행 중이면 지정한 종료 상태(COMPLETED·FAILED·CANCELED·REJECTED)로 끝내고 알림, 없으면 false. 행의 tool 이 비어
+   * 있으면(시작 전 SUBMITTED 에서 곧바로 종료 보고) 요청의 도구 값을 같은 문장에서 채운다.
+   */
+  public boolean end(long issueId, long workerId, String terminalState, String tool) {
+    if (repository.endActiveForWorker(issueId, workerId, terminalState, tool) == 0) {
       return false;
     }
     notifyChanged(issueId, workerId);
@@ -169,6 +173,17 @@ public class AgentWorkService {
     repository.endActiveForWorkers(issueId, workerIds, AgentWorkState.CANCELED);
   }
 
+  /**
+   * AI 구성원이 외부→내부 실행 방식으로 바뀌면 그 구성원의 "시작 전"(SUBMITTED) 작업을 취소한다 — 내부 AI 는 보고·터치를 하지 않아 그대로 두면 영영
+   * "시작 전" 으로 남는다. 일하던(WORKING 등) 작업은 건드리지 않는다. 사용자 모듈 쪽 변경과 같은 트랜잭션의 동기 리스너.
+   */
+  @EventListener
+  public void onAgentRuntimeChanged(AgentRuntimeChanged e) {
+    if (!AgentRuntime.INTERNAL.equals(e.runtime())) return;
+    repository.endActiveForWorkerInStates(
+        e.agentUserId(), List.of(AgentWorkState.SUBMITTED), AgentWorkState.CANCELED);
+  }
+
   /** 사람이 챗 글·댓글로 응답하면 답변 필요(INPUT_REQUIRED)로 멈춘 AI 구성원 작업을 작업 중으로 되돌리고, 바뀐 게 있으면 알린다. */
   @EventListener
   public void onHumanReply(IssueHumanReplyPosted e) {
@@ -189,8 +204,14 @@ public class AgentWorkService {
     if (!assigneeRepository.findUserIdsByIssue(e.issueId()).contains(e.actorId())) return;
     var existing = repository.findActive(e.issueId(), e.actorId());
     if (existing.isEmpty()) {
-      repository.insertIfAbsent(e.issueId(), e.actorId(), e.tool(), AgentWorkState.WORKING);
-    } else {
+      // 동시에 다른 트랜잭션(담당자 추가의 SUBMITTED 생성 등)이 먼저 행을 만들었으면 insert 는 충돌로 아무것도 넣지 않고 그 진행 중 행을 돌려준다 —
+      // 돌려받은 행에
+      // 아래 갱신 규칙(시작 전 → 작업 중 + tool 채움)을 똑같이 적용한다. 그 사이 종료돼 행이 없으면(빈 결과) 아무것도 하지 않는다.
+      // 새로 넣은 경우에도 같은 경로를 타지만 값이 같아 갱신은 updated_at 터치뿐이고 이력은 남지 않는다.
+      existing =
+          repository.insertIfAbsent(e.issueId(), e.actorId(), e.tool(), AgentWorkState.WORKING);
+    }
+    if (existing.isPresent()) {
       String state = existing.get().state();
       // 답변 필요·인증 필요·막힘·일시 중지·시작 전(SUBMITTED)에서 다시 쓰기 시작했으면 움직인 것으로 보고 작업 중으로 되돌린다. 검토 필요는 검토 대기 중
       // PR 링크 코멘트 등이 흔해 유지하고, 작업 중은 그대로 — 둘 다 tool 갱신과 updated_at 터치(무소식 해소)만 한다.

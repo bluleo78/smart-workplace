@@ -67,7 +67,8 @@ public class AgentWorkReportService {
       if (hasMessage) {
         chatPoster.post(callerId, projectKey, number, req.message());
       }
-      agentWorkService.end(issue.id(), callerId, req.state());
+      // 착수 전(SUBMITTED)에서 곧바로 종료 보고하면 행의 tool 이 비어 있으므로 요청의 도구를 종료와 함께 채운다.
+      agentWorkService.end(issue.id(), callerId, req.state(), tool);
       return new AgentWorkReportResponse(null, true);
     }
 
