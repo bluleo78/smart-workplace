@@ -153,6 +153,17 @@ describe('ClaudeSdkRunner.collect', () => {
     expect(arg.agents).toEqual({ 'issue-agent': { __agentDef: 'issue-agent' } });
   });
 
+  it('WP-55: subagentPromptSuffix 를 toAgentDefinitions 로 넘긴다(라우터 정의에는 붙이지 않는다)', async () => {
+    vi.mocked(runSdkCollect).mockResolvedValue([]);
+    const client = { getOAuthToken: vi.fn() } as unknown as WorkplaceApiClient;
+    await new ClaudeSdkRunner().collect(
+      baseInput({ allowSubagents: true, subagentPromptSuffix: '\n\n## 사용자 메모리', mcp: { client, profile: 'assistant', onBehalfOfId: 1 } }),
+    );
+    expect(toAgentDefinitions).toHaveBeenCalledWith(expect.anything(), '\n\n## 사용자 메모리');
+    const agents = vi.mocked(runSdkCollect).mock.calls[0][0].agents!;
+    expect((agents[ROUTER_AGENT_NAME] as { prompt: string }).prompt).toBe('sys');
+  });
+
   // WP-351: assistant 위임 실행은 메인 스레드를 라우터 에이전트로 돌린다 — 라우터 도구 + Agent 만 싣고, 서브에이전트 정의는 그대로.
   it('assistant + allowSubagents 면 라우터 메인 스레드 에이전트를 agents 에 더하고 mainAgent 로 지정', async () => {
     vi.mocked(runSdkCollect).mockResolvedValue([]);

@@ -1,5 +1,6 @@
 // 7c: 홈 AI chat/위젯 계약. 백엔드 HomeComposeResponse·ActivityEntryResponse 와 1:1.
 
+import type { AiMemoryKind, AiMemorySource } from './aiMemory';
 import type { AiScreenContext } from './aiScreenContext';
 
 // 위젯 타입(WidgetLayout/WidgetType/WidgetSpec)은 AI 비서 응답(show_* 도구)이 지시하는
@@ -51,6 +52,37 @@ export interface ToolEventDto {
   toolName: string;
   args?: Record<string, unknown>;
   isError?: boolean;
+  /** WP-55: 메모리 도구 성공 결과(phase=result) — 결과 줄(되돌리기)의 근거. API 가 거른 것은 오지 않는다. */
+  memory?: MemoryEventDto;
+}
+
+/** WP-55: tool 이벤트의 memory 필드(ai-agent memoryEventSchema 와 같은 모양). */
+export interface MemoryEventDto {
+  action: 'saved' | 'updated' | 'forgotten';
+  memoryId: number;
+  kind: AiMemoryKind;
+  content: string;
+  previousContent?: string;
+  /** 고치기 전 종류(updated) — 서버 되돌리기가 종류도 돌려놓는 근거. 구 ai-agent 결과엔 없다. */
+  previousKind?: AiMemoryKind;
+  source?: AiMemorySource;
+}
+
+/**
+ * WP-55: 메모리 결과 줄 블록 — API ChatBlockRecorder.Memory 와 같은 모양. 판별자 kind 와 겹치지 않게 메모리 종류는 memoryKind.
+ * 표시 블록(ContentBlock)이 아니다 — 턴의 memoryBlocks 에 도착순으로 따로 모이고(배열 순번 = 되돌리기 blockIndex), 답변 말풍선들 아래·후속
+ * 질문 위에 따로 그린다. undone 은 되돌린 뒤 true.
+ */
+export interface MemoryBlock {
+  kind: 'memory';
+  action: MemoryEventDto['action'];
+  memoryId: number;
+  memoryKind: AiMemoryKind;
+  content: string;
+  previousContent?: string;
+  previousKind?: AiMemoryKind;
+  source: AiMemorySource;
+  undone: boolean;
 }
 
 /**
@@ -92,6 +124,10 @@ export interface MessageTurn {
   contentBlocks?: ContentBlock[];
   /** WP-234: 사용자 턴 첨부 — 보낸 직후(낙관적)엔 로컬 미리보기 포함, 복원 시엔 서버 첨부. */
   attachments?: TurnAttachment[];
+  /** WP-55: 저장된 ASSISTANT 메시지 id — 라이브는 종결 이벤트, 복원은 이력에서. 없으면(답변 중·저장 안 됨) 결과 줄 되돌리기를 끈다. */
+  messageId?: number;
+  /** WP-55: 메모리 결과 줄(도착순 — 순번이 서버 되돌리기 blockIndex). 라이브는 tool result 의 memory, 복원은 이력의 memoryBlocks. */
+  memoryBlocks?: MemoryBlock[];
   /** WP-139: 답 뒤 후속 질문(ASSISTANT) — 마지막 턴이고 답변 중·확인 카드가 아닐 때만 칩으로 보인다. */
   followups?: string[];
   /**
@@ -126,6 +162,11 @@ export interface HomeMessage {
   toolCalls: ToolStep[] | null;
   /** WP-158: 표시 블록 순서(ASSISTANT 전용). 없으면(이전 메시지·순서 재현 불가) 폴백 렌더. */
   contentBlocks?: ContentBlock[] | null;
+  /**
+   * WP-55: 메모리 결과 줄 블록(ASSISTANT 전용) — 서버가 구 웹 보호를 위해 contentBlocks 에서 떼어 따로 싣는다(영속 순서 그대로).
+   * messageToTurn 이 턴의 memoryBlocks 로 그대로 옮긴다. 없으면 null/없음.
+   */
+  memoryBlocks?: MemoryBlock[] | null;
   /** WP-234: 이 메시지에 붙은 첨부(USER). 서버는 없으면 빈 배열 — 구버전 응답·E2E 픽스처 호환을 위해 선택 필드. */
   attachments?: HomeAttachment[];
   /** WP-139: 후속 질문(ASSISTANT). 추천을 끈 사용자·구 API 는 null/없음. */

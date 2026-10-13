@@ -706,6 +706,49 @@ describe('opencode 서버 정리', () => {
 });
 
 describe('OpencodeRunner 웜 캐시 통합', () => {
+  // WP-55: 하위 에이전트 프롬프트(=opencode config)에 사용자 메모리가 실리므로, 재사용 서버면 다른 사용자에게 섞인다 — 매번 새로 스폰해야 한다.
+  it("profile='assistant' + subagentPromptSuffix(hostBridge·homeSessionId 없음)도 풀을 거치지 않는다", async () => {
+    const es = makeEventStream();
+    eventSubscribe.mockResolvedValue({ stream: es.stream });
+    es.push({ type: 'session.idle', properties: { sessionID: 'sess-1' } });
+    await new OpencodeRunner()
+      .stream(
+        baseInput({
+          subagentPromptSuffix: '\n\n## 사용자 메모리',
+          mcp: { client: {} as unknown as WorkplaceApiClient, profile: 'assistant', onBehalfOfId: 1 },
+        }),
+        () => {},
+      )
+      .done;
+    expect(acquireServer).not.toHaveBeenCalled();
+    expect(serverClose).toHaveBeenCalledOnce();
+  });
+
+  // WP-55: 홈 채팅 실행 모양(hostBridge + homeSessionId + 메모리 접미사) 그대로 — 웜 풀 제외 전제를 고정한다(스펙 §4).
+  it('홈 채팅 실행(hostBridge·homeSessionId·메모리 접미사)은 풀을 거치지 않는다', async () => {
+    const es = makeEventStream();
+    eventSubscribe.mockResolvedValue({ stream: es.stream });
+    es.push({ type: 'session.idle', properties: { sessionID: 'sess-1' } });
+    const hostBridge = { onProposal: vi.fn(), onSubmitResponse: vi.fn(), onUnassignResult: vi.fn() };
+    await new OpencodeRunner()
+      .stream(
+        baseInput({
+          allowSubagents: true,
+          subagentPromptSuffix: '\n\n## 사용자 메모리',
+          mcp: {
+            client: {} as unknown as WorkplaceApiClient,
+            profile: 'assistant',
+            onBehalfOfId: 1,
+            hostBridge,
+            homeSessionId: '3f1c2a4e-8b7d-4c1e-9f2a-6d5b4c3a2e1f',
+          },
+        }),
+        () => {},
+      )
+      .done;
+    expect(acquireServer).not.toHaveBeenCalled();
+  });
+
   it("profile='issue' 는 acquireServer 를 agentId:profile:onBehalfOfId:model 키로 호출하고, 종료 시 releaseServer 를 같은 키로 호출한다", async () => {
     const es = makeEventStream();
     eventSubscribe.mockResolvedValue({ stream: es.stream });

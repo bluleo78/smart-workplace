@@ -4,16 +4,19 @@
 // 연결 종료(req close) 시 AbortController 로 하위 CLI child 를 kill 해 자원 누수를 막는다.
 import { randomUUID } from 'node:crypto';
 
+import { isMemoryTool } from '@smart-workplace/mcp-tools-shared';
 import { Router } from 'express';
 import { z } from 'zod';
 
 import { homeChatAttachmentSchema } from '../agent/home-attachments.js';
+import { memoryItemSchema } from '../agent/memory-block.js';
 import { type RunAgentDeps } from '../agent/run-agent.js';
 import { runAiChatStream } from '../agent/run-ai-chat.js';
 import { homeContextSummaryInput, runHomeContextSummary } from '../agent/run-home-context-summary.js';
 import { runHomePriorityClassify } from '../agent/run-home-priority-classify.js';
 import { runSuggestions, suggestionsInput } from '../agent/run-suggestions.js';
 import { log } from '../logger.js';
+import { parseMemoryToolResult } from '../mcp/memory-tools.js';
 import { screenContextSchema } from '../agent/screen-context.js';
 
 // 홈 우선순위 분류 요청 바디 검증 — workplace-api AiAgentPriorityClient 가 보내는 계약과 필드명이 정확히 일치해야 한다.
@@ -62,6 +65,22 @@ export const chatSchema = z
       .array(homeChatAttachmentSchema)
       .nullish()
       .transform((v) => v ?? []),
+    // WP-55: 사용자 메모리(API 가 매 턴 최신순 ≤50개). 구 API 는 생략 → 빈 배열(ai-agent 를 먼저 재기동한다).
+    // 항목은 하나씩 검증해 틀린 것만 버린다 — 나중에 API 가 새 kind 를 더해도(ai-agent 가 먼저 배포된다) 채팅 전체가 400 이 되지 않게.
+    // 버린 개수(dropped)를 함께 돌려 라우트가 로그로 남긴다(요청 본문을 다시 읽지 않는다).
+    memories: z
+      .array(z.unknown())
+      .nullish()
+      .transform((v) => {
+        const raw = v ?? [];
+        const items = raw.flatMap((item) => {
+          const r = memoryItemSchema.safeParse(item);
+          return r.success ? [r.data] : [];
+        });
+        return { items, dropped: raw.length - items.length };
+      }),
+    // WP-55: 메모리 사용 여부. 구 API(필드 없음)는 null/undefined → 러너가 꺼짐으로 다룬다(메모리 엔드포인트가 없을 수 있다).
+    memoryEnabled: z.boolean().nullish(),
   })
   .refine((d) => d.query.length > 0 || d.attachments.some((a) => a.current), {
     message: 'query 가 비어 있으면 이번 메시지 첨부가 있어야 합니다',
@@ -88,7 +107,9 @@ export function createHomeRouter(deps: RunAgentDeps): Router {
     // 요청별 고유 ID 생성 — 시작/완료/오류 로그를 end-to-end 로 추적하기 위해 사용한다.
     const requestId = randomUUID();
     const startedAt = Date.now();
-    const d = parsed.data;
+    const { memories: { items: memories, dropped }, ...d } = parsed.data;
+    // WP-55: 모양이 틀린 메모리 항목은 스키마가 버린다 — 버린 개수만 남긴다(내용은 로그에 싣지 않는다 — 사용자 메모리).
+    if (dropped > 0) log.warn('ai-chat', 'memories_dropped', { requestId, dropped });
     log.info('ai-chat', 'start', {
       requestId,
       agentId: d.assistantAgentId,
@@ -112,7 +133,7 @@ export function createHomeRouter(deps: RunAgentDeps): Router {
 
     try {
       const result = await runAiChatStream(
-        { ...parsed.data, requestId },
+        { ...d, memories, requestId },
         deps,
         (text) => {
           if (aborted) return;
@@ -130,7 +151,14 @@ export function createHomeRouter(deps: RunAgentDeps): Router {
           const phase = line.event === 'tool_use_start' ? 'start' : 'result';
           const payload: Record<string, unknown> = { seq: line.seq, phase, toolName: line.toolName };
           if (line.args) payload.args = line.args;
-          if (line.event === 'tool_result') payload.isError = line.isError ?? false;
+          if (line.event === 'tool_result') {
+            payload.isError = line.isError ?? false;
+            // WP-55: 메모리 도구(허용 목록)의 성공 결과만 파싱해 싣는다 — API 되돌리기 블록·웹 결과 줄의 근거. 다른 도구 결과는 계속 버린다.
+            if (!line.isError && isMemoryTool(line.toolName)) {
+              const memory = parseMemoryToolResult(line.result);
+              if (memory) payload.memory = memory;
+            }
+          }
           res.write(`event: tool\ndata: ${JSON.stringify(payload)}\n\n`);
         },
         (text) => {

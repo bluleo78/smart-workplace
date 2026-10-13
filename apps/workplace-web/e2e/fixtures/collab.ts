@@ -4,7 +4,7 @@
 import path from 'node:path'
 
 import { HocuspocusProvider } from '@hocuspocus/provider'
-import type { BrowserContext, Page, WebSocketRoute } from '@playwright/test'
+import type { BrowserContext, Locator, Page, WebSocketRoute } from '@playwright/test'
 import { test } from '@playwright/test'
 import {
   COLLAB_AI_APPLY_ACK_TYPE,
@@ -301,6 +301,46 @@ export async function typeAtEnd(page: Page, paragraph: string, text: string): Pr
   })
   await page.mouse.click(point.x, point.y)
   await page.keyboard.type(text)
+}
+
+/**
+ * 노트 본문에서 paragraph 를 담은 문단의 offset 번째 글자 앞에 캐럿을 둔다 — 그 글자 사각형의 왼쪽 가장자리를 누른다(회귀 안정화, WP-55).
+ * 끝을 누른 뒤 방향키로 옮기면 부하에서 한 번이 사라졌다: 방향키는 브라우저가 캐럿을 옮기고 ProseMirror 는 뒤이은 selectionchange 에서야
+ * 읽는데, 그 사이에 원격 awareness·동기화로 뷰가 갱신되면 ProseMirror 가 옛 선택을 DOM 에 다시 써 방향키 하나가 없던 일이 된다.
+ * 누르는 동안은 ProseMirror 가 DOM 선택을 덮어쓰지 않는다. 자리가 맞았는지는 호출부가 상대 화면의 커서 위치 등으로 확인한다.
+ */
+export async function clickBeforeChar(page: Page, paragraph: string, offset: number): Promise<void> {
+  const para = page.locator('.ProseMirror p', { hasText: paragraph }).first()
+  await para.scrollIntoViewIfNeeded()
+  const point = await para.evaluate((el, at) => {
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT)
+    let left = at
+    while (walker.nextNode()) {
+      const node = walker.currentNode as Text
+      if (left < node.length) {
+        const range = document.createRange()
+        range.setStart(node, left)
+        range.setEnd(node, left + 1)
+        const r = range.getClientRects()[0]
+        return { x: r.left + 1, y: r.top + r.height / 2 }
+      }
+      left -= node.length
+    }
+    throw new Error(`문단에 ${at} 번째 글자가 없다`)
+  }, offset)
+  await page.mouse.click(point.x, point.y)
+}
+
+/** 원격 커서 위젯 앞까지의 문단 글자 — 상대 화면에서 그 사람 캐럿이 어느 글자 뒤에 있는지 본다(위젯은 글자 노드가 없다). */
+export function textBeforeWidget(widget: Locator): Promise<string> {
+  return widget.evaluate((el) => {
+    const p = el.closest('p')
+    if (!p) return ''
+    const range = document.createRange()
+    range.setStart(p, 0)
+    range.setEndBefore(el)
+    return range.toString()
+  })
 }
 
 /**

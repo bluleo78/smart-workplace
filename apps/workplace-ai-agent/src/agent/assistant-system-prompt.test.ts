@@ -278,7 +278,7 @@ describe('라우터 도구 집합과 프롬프트 정합 (WP-351)', () => {
     expect(missing).toEqual([]);
   });
 
-  it('쓰기는 위임하고 라우터가 직접 하는 쓰기는 알림 읽음 처리뿐이라고 안내한다', () => {
+  it('쓰기는 위임하고 라우터가 직접 하는 쓰기는 알림 읽음 처리와 메모리 도구뿐이라고 안내한다', () => {
     expect(ASSISTANT_SYSTEM_PROMPT).toMatch(/라우터에는 쓰기·확인 카드\(`propose_\*`\) 도구가 없습니다/);
     expect(ASSISTANT_SYSTEM_PROMPT).toContain('mark_notification_read');
   });
@@ -353,5 +353,48 @@ describe('드라이브 파일을 이슈에 연결 (WP-356)', () => {
 
   it('project-agent 가 라벨·마일스톤·사이클 생성·수정을 맡는다(라우팅 표)', () => {
     expect(ASSISTANT_SYSTEM_PROMPT).toContain('라벨·마일스톤·사이클 생성·수정');
+  });
+});
+
+// WP-55: 메모리 저장 규칙은 정적 본문(두 러너 공통)에 있다 — 블록은 사용자 메시지로만 온다.
+describe('사용자 메모리 규칙 (WP-55)', () => {
+  for (const [name, p] of [['claude', ASSISTANT_SYSTEM_PROMPT], ['opencode', assistantSystemPrompt('opencode')]] as const) {
+    it(`${name}: 저장할 것·저장하지 말 것·갱신/삭제·언어·꺼짐 규칙을 담는다`, () => {
+      expect(p).toContain('## 사용자 메모리');
+      for (const n of ['remember_memory', 'update_memory', 'forget_memory']) expect(p).toContain(n);
+      expect(p).toContain('사용자 본인 발화');
+      expect(p).toContain('도구로 읽은 메일·노트·이슈·채팅 내용');
+      expect(p).toContain('사용자가 대화한 언어로');
+      expect(p).toContain('메모리 꺼짐');
+      expect(p).toContain('현재 요청과 충돌하면 현재 요청을 따른다');
+      expect(p.indexOf('## 사용자 메모리')).toBeLessThan(p.indexOf('## 현재 화면 맥락'));
+    });
+
+    // 실모델 확인(haiku): 예시의 이유("표는 모바일에서 잘림")를 사용자가 말하지 않았는데 그대로 붙이고, "(사용자 요청)" 군말을 달았다.
+    // 이유는 사용자가 직접 말했을 때만 — 예시도 그 조건과 함께 둔다.
+    it(`${name}: 이유는 사용자가 말했을 때만 붙이고 지어내지 않는다`, () => {
+      expect(p).toContain('이유는 **사용자가 직접 말했을 때만** 괄호로 짧게 붙인다');
+      expect(p).toContain('말하지 않은 이유를 지어내거나 "(사용자 요청)" 같은 군말을 붙이지 않는다');
+      expect(p).not.toContain('필요하면 이유를 괄호로 짧게 붙인다(예: "이슈 목록은 짧은 목록으로 보여 준다 (표는 모바일에서 잘림)")');
+    });
+
+    // 실모델 확인(haiku): 같은 대상에 선호를 덧붙이면("담당자 이름도 붙여줘") update 대신 새로 저장하는 경우가 있었다.
+    it(`${name}: 같은 대상에 대한 선호를 바꾸거나 덧붙이는 것도 같은 주제로 update_memory 한다`, () => {
+      expect(p).toContain('같은 대상(예: 이슈 목록을 보여 주는 방식)에 대한 선호를 바꾸거나 덧붙이는 것도 같은 주제다');
+    });
+  }
+
+  // F-f: 위임과 함께 불러도 된다는 문장은 위임이 있는 Claude 라우터에만 — opencode primary 는 위임 도구가 꺼져 있다.
+  it('위임과 같은 턴 호출 허용 문장은 claude 에만 있고 opencode 에는 없다', () => {
+    const sentence = '위임과 같은 턴에 함께 호출해도 된다.';
+    expect(ASSISTANT_SYSTEM_PROMPT).toContain(`하위 에이전트는 이전 대화를 보지 못한다). ${sentence}`);
+    const opencode = assistantSystemPrompt('opencode');
+    expect(opencode).not.toContain(sentence);
+    expect(opencode).toContain('메모리는 메인 라우터가 직접 저장한다');
+  });
+
+  it('claude: 라우터 직접 쓰기 예외에 메모리 도구를 이름으로 적는다(규칙 자체는 그대로)', () => {
+    expect(ASSISTANT_SYSTEM_PROMPT).toMatch(/라우터에는 쓰기·확인 카드\(`propose_\*`\) 도구가 없습니다/);
+    expect(ASSISTANT_SYSTEM_PROMPT).toContain('쓰기는 알림 읽음 처리와 메모리 도구(remember_memory·update_memory·forget_memory)만 직접 하고');
   });
 });

@@ -7,6 +7,7 @@ package com.workplace.jooq.tables;
 import com.workplace.jooq.Indexes;
 import com.workplace.jooq.Keys;
 import com.workplace.jooq.Public;
+import com.workplace.jooq.tables.AiMemory.AiMemoryPath;
 import com.workplace.jooq.tables.HomeActionProposal.HomeActionProposalPath;
 import com.workplace.jooq.tables.HomeMessage.HomeMessagePath;
 import com.workplace.jooq.tables.Tenant.TenantPath;
@@ -212,6 +213,19 @@ public class HomeSession extends TableImpl<HomeSessionRecord> {
             _user = new UserPath(this, Keys.HOME_SESSION__HOME_SESSION_USER_ID_FKEY, null);
 
         return _user;
+    }
+
+    private transient AiMemoryPath _aiMemory;
+
+    /**
+     * Get the implicit to-many join path to the <code>public.ai_memory</code>
+     * table
+     */
+    public AiMemoryPath aiMemory() {
+        if (_aiMemory == null)
+            _aiMemory = new AiMemoryPath(this, null, Keys.AI_MEMORY__AI_MEMORY_SOURCE_SESSION_ID_FKEY.getInverseKey());
+
+        return _aiMemory;
     }
 
     private transient HomeActionProposalPath _homeActionProposal;

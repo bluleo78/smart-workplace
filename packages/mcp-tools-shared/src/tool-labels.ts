@@ -126,10 +126,27 @@ export function stripMcpPrefix(name: string): string {
 }
 
 /**
+ * WP-55 메모리 도구 이름 — ai-agent 로컬 라우터 도구(memory-tools.ts 가 satisfies 로 이 목록에 묶고, 라우터 목록이 펼쳐 쓴다). 공유 도구는
+ * 아니지만 표시 규칙(isDisplayableTool)·결과 허용 목록(isMemoryTool)과 같은 곳에 두어 이름이 한 곳에만 있게 한다.
+ */
+export const MEMORY_TOOL_NAMES = ['remember_memory', 'update_memory', 'forget_memory'] as const;
+
+const MEMORY_TOOLS: ReadonlySet<string> = new Set(MEMORY_TOOL_NAMES);
+
+/**
+ * 메모리 도구인지(WP-55). ai-agent 는 이 도구의 성공 결과만 `tool` SSE 의 memory 필드로 싣는다(허용 목록).
+ */
+export function isMemoryTool(toolName: string): boolean {
+  return MEMORY_TOOLS.has(stripMcpPrefix(toolName));
+}
+
+/**
  * AI 채팅 도구 목록에 표시할 도구인지. 위젯(show_*)·제안(propose_* → 확인 카드와 중복)·내부 응답 배관
- * (respond_chat/submit_response)은 숨긴다 — 숨김 도구에는 라벨을 두지 않는다.
+ * (respond_chat/submit_response)·메모리 도구(WP-55 — 결과 줄로 따로 보인다)는 숨긴다 — 숨김 도구에는 라벨을 두지 않는다.
+ * API HomeChatService.isDisplayableTool 이 같은 규칙으로 영속 도구 단계를 거른다.
  */
 export function isDisplayableTool(toolName: string): boolean {
+  if (isMemoryTool(toolName)) return false;
   const n = stripMcpPrefix(toolName);
   if (n.startsWith('show_') || n.startsWith('propose_')) return false;
   return n !== 'respond_chat' && n !== 'submit_response';

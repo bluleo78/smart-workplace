@@ -12,6 +12,7 @@ import { DeleteSessionDialog } from '@/components/ai/DeleteSessionDialog';
 import { FollowupChips } from '@/components/ai/FollowupChips';
 import { HomeMessageImage } from '@/components/ai/HomeMessageImage';
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage';
+import { MemoryResultLine } from '@/components/ai/MemoryResultLine';
 import { useAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext';
 import { ScreenContextChip } from '@/components/ai/ScreenContextChip';
 import { StarterSuggestionList } from '@/components/ai/StarterSuggestionList';
@@ -31,6 +32,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
 import { findHomeChatBundle, homeChatBundle } from '@/components/viewer/viewerItems';
+import { useUndoAiMemory } from '@/hooks/queries/useAiMemories';
 import { useAiPreferences } from '@/hooks/queries/useAiPreferences';
 import type { AssistantChat } from '@/hooks/useAssistantChat';
 import { useComposerFileDrop } from '@/hooks/useComposerFileDrop';
@@ -163,6 +165,8 @@ export function AIChatPanel({
 
   // WP-139: 추천 켜짐 — 설정 응답이 true 일 때만(로딩 중·실패 포함 그 밖에는 숨김). 끈 사용자에게 한 번도 보이지 않게(스펙 §10.6).
   // 빈 대화 목록과 후속 질문 칩이 같이 쓴다. 설정은 5분 캐시라 두 번째 열기부터는 바로 보인다.
+  // WP-55: 메모리 결과 줄 되돌리기 — 줄마다 훅(뮤테이션 관찰자·navigate)을 두지 않고 패널이 하나를 공유한다. 진행 중 표시는 줄마다 따로.
+  const memoryUndo = useUndoAiMemory();
   const aiPrefs = useAiPreferences();
   const suggestionsOn = aiPrefs.data?.suggestionsEnabled === true;
   // 빈 새 대화(세션 없음·턴 없음)에만 — 기존 대화를 고르면 currentSessionId 가 먼저 정해져 이력 로딩 중에도 거짓이다.
@@ -440,6 +444,24 @@ export function AIChatPanel({
                       {INTERRUPTED_LABEL[t.interrupted]}
                     </li>
                   )}
+                  {/* WP-55: 메모리 결과 줄(시안 A) — 답변 말풍선들 아래·후속 질문 위. 줄마다 따로 되돌린다. 첫 토큰 전(3-dot 중)엔 미룬다.
+                      터치 기기는 줄 간격을 넓히고 아래에 8px 를 더 둔다 — 되돌리기의 위아래 터치 확장(8px)이 이웃 줄·바로 아래 후속 질문 칩의 위쪽 확장과
+                      겹치지 않게(겹치면 뒤 형제인 칩이 이긴다). */}
+                  {t.role === 'assistant' && (t.memoryBlocks?.length ?? 0) > 0 && !(i === turns.length - 1 && pending && t.content === '') ? (
+                    <li data-testid="chat-memory-results" className="flex flex-col gap-1 pb-0 pointer-coarse:gap-4 pointer-coarse:pb-2">
+                      {t.memoryBlocks?.map((b, mi) => (
+                        <MemoryResultLine
+                          key={`${mi}-${b.memoryId}`}
+                          block={b}
+                          // 되돌리기는 저장된 메시지 id 가 있어야 한다(답변 중엔 없다 — 회색·클릭 불가).
+                          messageId={t.messageId}
+                          blockIndex={mi}
+                          onUndo={memoryUndo.undo}
+                          pending={memoryUndo.isUndoing(t.messageId, mi)}
+                        />
+                      ))}
+                    </li>
+                  ) : null}
                   {/* WP-139: 후속 질문(시안 A) — 마지막 턴이고 답변 중·확인 카드가 아니며 추천을 끄지 않았을 때만. 새 질문을 보내면 마지막 턴이 아니게 되어 사라진다. */}
                   {i === turns.length - 1 && t.role === 'assistant' && !pending && pendingActions.length === 0 && suggestionsOn && t.followups?.length ? (
                     <li data-testid="chat-followups-row" className="flex justify-start">

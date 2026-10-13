@@ -67,6 +67,7 @@ class HomeChatServiceForwardTest extends IntegrationTestBase {
   @Autowired AiAgentProperties aiAgentProperties;
   @Autowired HomeChatProperties chatProperties;
   @Autowired HomeFollowupService followupService;
+  @Autowired AiMemoryService memoryService;
   @Autowired ObjectMapper objectMapper;
 
   @Autowired
@@ -137,7 +138,8 @@ class HomeChatServiceForwardTest extends IntegrationTestBase {
         registry,
         capturingSseRegistry,
         chatProperties,
-        followupService);
+        followupService,
+        memoryService);
   }
 
   private void stubAssistant() {

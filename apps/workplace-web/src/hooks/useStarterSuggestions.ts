@@ -93,7 +93,8 @@ export function useStarterSuggestions({
         .run(owner, key, async () => {
           const r = await fetchStarterSuggestions(ctxNow ? { screenContext: ctxNow } : {});
           // 서버가 꺼짐을 알려 주면(다른 기기에서 끔) 설정 캐시를 바꿔 목록을 숨기고 이후 호출하지 않는다(설정 화면에서 켜면 다시 받는다).
-          if (!r.enabled) qc.setQueryData<AiPreferences>(aiPreferenceKeys.me(userId), { suggestionsEnabled: false });
+          // 부분 갱신 — 캐시 전체를 덮으면 memoryEnabled 가 사라져 메모리 스위치가 켜짐으로 되돌아 그려진다(WP-55).
+          if (!r.enabled) qc.setQueryData<AiPreferences>(aiPreferenceKeys.me(userId), (old) => (old ? { ...old, suggestionsEnabled: false } : old));
           return r.enabled ? r.items : [];
         })
         .then((items) => {

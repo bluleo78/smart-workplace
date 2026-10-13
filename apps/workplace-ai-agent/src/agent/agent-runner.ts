@@ -63,6 +63,8 @@ export interface RunnerInput {
   opencodeVision?: { value: OpencodeVision };
   // WP-139: 추론 노력 — 짧은 단발 생성(추천 질문)의 지연·비용을 줄인다. Claude 러너만 반영하고 opencode 는 무시한다(대응 옵션 없음).
   effort?: 'low' | 'medium' | 'high';
+  // WP-55: 모든 하위 에이전트 프롬프트 끝에 덧붙일 요청별 블록(사용자 메모리). 요청·사용자마다 다르므로 opencode 러너는 이 값이 있으면 웜 풀을 쓰지 않는다.
+  subagentPromptSuffix?: string;
 }
 
 export interface RunnerStreamHandle {

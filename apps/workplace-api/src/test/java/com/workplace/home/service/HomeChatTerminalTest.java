@@ -172,10 +172,13 @@ class HomeChatTerminalTest extends IntegrationTestBase {
     awaitTrue(() -> !payloads("home.chat.error").isEmpty());
 
     assertThat(payloads("home.chat.error").get(0)).containsEntry("message", "AI 구성 요청에 실패했어요.");
-    assertThat(sessionService.getMessages(uid, r.sessionId()))
+    List<HomeMessageResponse> messages = sessionService.getMessages(uid, r.sessionId());
+    assertThat(messages)
         .extracting(
             HomeMessageResponse::role, HomeMessageResponse::content, HomeMessageResponse::status)
         .containsExactly(tuple("USER", "보고서", "COMPLETE"), tuple("ASSISTANT", "반쯤 쓴 답", "FAILED"));
+    // WP-55 CR3: 저장한 부분 답변 id — 웹이 다시 열지 않아도 이 턴의 메모리 결과 줄 되돌리기를 켠다.
+    assertThat(payloads("home.chat.error").get(0)).containsEntry("messageId", messages.get(1).id());
   }
 
   /** 인터럽트로 줄 루프를 빠져나온 composeStream 은 콜백 없이 조용히 return 한다(R8) — 그 경로도 취소로 마감해야 한다. */
@@ -208,9 +211,13 @@ class HomeChatTerminalTest extends IntegrationTestBase {
         .containsEntry("sessionId", r.sessionId().toString());
     // 취소는 cancelled 로만 알린다 — error 는 보내지 않는다.
     assertThat(payloads("home.chat.error")).isEmpty();
-    assertThat(sessionService.getMessages(uid, r.sessionId()))
+    List<HomeMessageResponse> messages = sessionService.getMessages(uid, r.sessionId());
+    assertThat(messages)
         .extracting(HomeMessageResponse::content, HomeMessageResponse::status)
         .containsExactly(tuple("길게 써줘", "COMPLETE"), tuple("멈출 답 ", "STOPPED"));
+    // WP-55 CR3: 취소 종결에도 저장한 부분 답변 id 를 싣는다.
+    assertThat(payloads("home.chat.cancelled").get(0))
+        .containsEntry("messageId", messages.get(1).id());
   }
 
   @Test
@@ -238,6 +245,10 @@ class HomeChatTerminalTest extends IntegrationTestBase {
     assertThat(sessionService.getMessages(uid, r.sessionId()))
         .extracting(HomeMessageResponse::role)
         .containsExactly("USER");
+    // WP-55 CR3: 저장하지 않은 턴은 messageId 키가 null 로 온다(Map.of 였다면 NPE 로 종결 이벤트가 사라졌다).
+    assertThat(payloads("home.chat.cancelled").get(0))
+        .containsKey("messageId")
+        .containsEntry("messageId", null);
   }
 
   /** R3: done 을 내보낼 때는 이미 슬롯이 비어 있어야 한다 — done 핸들러 안에서 같은 대화로 곧바로 다시 물어 결정적으로 검증한다. */
