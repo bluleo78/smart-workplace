@@ -149,6 +149,13 @@ function sharedMock(): MockedShared {
     copyDriveFolder: vi.fn().mockResolvedValue({ id: 11, name: '자료' }),
     listDriveFileBacklinks: vi.fn().mockResolvedValue([]),
     importAttachmentToDrive: vi.fn().mockResolvedValue({ id: 7, fileId: 900, name: 'a.png' }),
+    // WP-369: 전송 링크·텍스트로 만들기
+    createDriveDownloadLink: vi.fn().mockResolvedValue({ url: 'https://w.example/dl', expiresAt: 't', name: 'a.pdf', sizeBytes: 5, mimeType: 'application/pdf', singleUse: true }),
+    createDriveUploadLink: vi.fn().mockResolvedValue({ url: 'https://w.example/ul', method: 'PUT', expiresAt: 't', maxBytes: 10485760, name: 'a.md', singleUse: true }),
+    createDriveTextFile: vi.fn().mockResolvedValue({ id: 8, fileId: 901, folderId: null, name: 'a.md' }),
+    // WP-369 Task 3: 기존 파일의 새 버전(텍스트 갱신·파일에 묶인 업로드 링크)
+    updateDriveTextFile: vi.fn().mockResolvedValue({ id: 8, fileId: 902, folderId: null, name: 'a.md', versionCount: 2 }),
+    createDriveVersionUploadLink: vi.fn().mockResolvedValue({ url: 'https://w.example/ul2', method: 'PUT', expiresAt: 't', maxBytes: 10485760, name: 'a.md', singleUse: true }),
     // 알림
     listNotifications: vi.fn().mockResolvedValue([]),
     countUnreadNotifications: vi.fn().mockResolvedValue(0),
@@ -358,10 +365,12 @@ describe('프로필 구성', () => {
       // 알림(#850)
       'list_notifications', 'mark_notification_read', 'mark_all_notifications_read',
       // 메인 AI 채팅 첨부(WP-234) + 이슈 첨부·드라이브 파일 읽기(WP-346)
-      'read_chat_attachment', 'read_attachment',
-      'create_drive_folder', 'rename_drive_folder', 'move_drive_folder', 'move_drive_file', 'propose_delete_file', 'propose_delete_folder',
+      'read_chat_attachment', 'read_file',
+      'create_drive_folder', 'rename_drive_item', 'move_drive_item', 'propose_delete_file', 'propose_delete_folder', // WP-369: 이름변경·이동 통합
       // WP-354
-      'rename_drive_file', 'copy_drive_item', 'import_attachment_to_drive',
+      'copy_drive_item', 'import_attachment_to_drive',
+      // WP-369: 다운로드 링크·파일 올리기
+      'create_drive_download_link', 'create_drive_file',
       // #856 확인카드 제안
       'propose_add_attendees', 'propose_remove_attendee', 'propose_update_project_member_role', 'propose_remove_project_member',
       'propose_add_channel_member', 'propose_leave_channel', 'propose_delete_issue', 'propose_delete_comment', 'propose_delete_wiki_page',
@@ -643,12 +652,12 @@ describe('read_chat_attachment 프로필·바인딩 (WP-234)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// WP-346: 공유 read_attachment — assistant(요청자 신원)에만. 이슈 챗(chat)은 AGENT 가 프로젝트 비멤버라 스레드 경유 전용 도구를 쓴다.
+// WP-346: 공유 read_file — assistant(요청자 신원)에만. 이슈 챗(chat)은 AGENT 가 프로젝트 비멤버라 스레드 경유 전용 도구를 쓴다.
 // ---------------------------------------------------------------------------
-describe('read_attachment 프로필 (WP-346)', () => {
-  it('assistant 의 read_attachment 는 공유 정의를 요청자 신원 클라이언트(toolClient)로 실행한다', async () => {
+describe('read_file 프로필 (WP-346)', () => {
+  it('assistant 의 read_file 은 공유 정의를 요청자 신원 클라이언트(toolClient)로 실행한다', async () => {
     const c = client();
-    const t = find(buildTools(c, AGENT_ID, 'assistant'), 'read_attachment');
+    const t = find(buildTools(c, AGENT_ID, 'assistant'), 'read_file');
     expect(t.annotations).toMatchObject({ readOnlyHint: true });
     await t.handler({ source: 'drive', driveFileId: 9 });
     expect(c.toolClient).toHaveBeenCalledWith(AGENT_ID);
@@ -656,7 +665,7 @@ describe('read_attachment 프로필 (WP-346)', () => {
   });
 
   it.each(['issue', 'chat', 'home', 'messaging'] as McpProfile[])('%s 프로필에는 없다', (p) => {
-    expect(buildTools(client(), AGENT_ID, p).map((t) => t.name)).not.toContain('read_attachment');
+    expect(buildTools(client(), AGENT_ID, p).map((t) => t.name)).not.toContain('read_file');
   });
 
   it('옛 이름 read_attachment_text 는 어느 프로필에도 없다(read_chat_thread_attachment 로 바뀜)', () => {
@@ -1454,38 +1463,73 @@ describe('공유로 옮긴 쓰기 도구는 에이전트 신원(toolClient(agent
     expect(JSON.parse(out as string)).toMatchObject({ folderId: 10, name: '신규폴더' });
   });
 
-  it('rename_drive_folder → sc.renameDriveFolder(folderId, name)', async () => {
+  // WP-369: 파일·폴더 이름변경·이동은 한 도구씩 — driveFileId·folderId 로 갈라 요청자 신원의 공유 클라이언트(sc)로 보낸다.
+  it('rename_drive_item → folderId 면 sc.renameDriveFolder, driveFileId 면 sc.renameDriveFile', async () => {
     const c = client();
-    await find(buildTools(c, 7, 'assistant'), 'rename_drive_folder').handler({ folderId: 4, name: '새이름' });
+    await find(buildTools(c, 7, 'assistant'), 'rename_drive_item').handler({ folderId: 4, name: '새이름' });
     expect(c.sc.renameDriveFolder).toHaveBeenCalledWith(4, '새이름');
-  });
-
-  it('move_drive_folder — targetParentId 생략 시 루트(null)로 이동', async () => {
-    const c = client();
-    expect(await find(buildTools(c, 7, 'assistant'), 'move_drive_folder').handler({ folderId: 4 })).toBe('ok');
-    expect(c.sc.moveDriveFolder).toHaveBeenCalledWith(4, null);
-  });
-
-  // WP-354: 공유 도구를 그대로 쓴다 — 파일 이름변경·복사·첨부 가져오기가 요청자 신원의 클라이언트(sc)로 나간다.
-  it('rename_drive_file·copy_drive_item·import_attachment_to_drive 는 공유 클라이언트(sc)로 호출된다', async () => {
-    const c = client();
-    await find(buildTools(c, 7, 'assistant'), 'rename_drive_file').handler({ driveFileId: 5, name: '새이름.pdf' });
+    await find(buildTools(c, 7, 'assistant'), 'rename_drive_item').handler({ driveFileId: 5, name: '새이름.pdf' });
     expect(c.sc.renameDriveFile).toHaveBeenCalledWith(5, '새이름.pdf');
+  });
+
+  it('move_drive_item — 폴더는 대상 생략 시 루트(null)로, 파일은 driveFileId 를 sc.moveDriveFile 에 넘기고 옛 fileId 파라미터는 거부한다', async () => {
+    const c = client();
+    expect(await find(buildTools(c, 7, 'assistant'), 'move_drive_item').handler({ folderId: 4 })).toBe('ok');
+    expect(c.sc.moveDriveFolder).toHaveBeenCalledWith(4, null);
+    await find(buildTools(c, 7, 'assistant'), 'move_drive_item').handler({ driveFileId: 5, targetFolderId: 3 });
+    expect(c.sc.moveDriveFile).toHaveBeenCalledWith(5, 3);
+    await expect(find(buildTools(c, 7, 'assistant'), 'move_drive_item').handler({ fileId: 812, targetFolderId: 3 })).rejects.toThrow();
+  });
+
+  // WP-354: 공유 도구를 그대로 쓴다 — 복사·첨부 가져오기가 요청자 신원의 클라이언트(sc)로 나간다.
+  it('copy_drive_item·import_attachment_to_drive 는 공유 클라이언트(sc)로 호출된다', async () => {
+    const c = client();
     await find(buildTools(c, 7, 'assistant'), 'copy_drive_item').handler({ folderId: 8, targetFolderId: 3 });
     expect(c.sc.copyDriveFolder).toHaveBeenCalledWith(8, 3);
     await find(buildTools(c, 7, 'assistant'), 'import_attachment_to_drive').handler({ spaceId: 2, attachmentId: 900 });
     expect(c.sc.importAttachmentToDrive).toHaveBeenCalledWith(2, null, 900);
   });
 
-  it('move_drive_file 은 driveFileId 를 sc.moveDriveFile 에 넘기고, 옛 fileId 파라미터는 거부한다', async () => {
+  // WP-369 R6: AI Chat 의 create_drive_file 은 content 모드만 — 업로드 링크는 API 를 부르지 않고 오류로 안내한다. 스키마는 공유본 그대로(패리티).
+  it('create_drive_file(assistant) — content 가 있으면 공유 핸들러로 텍스트 파일을 만들고, 없거나 null 이면 업로드 링크를 만들지 않는다', async () => {
     const c = client();
-    await find(buildTools(c, 7, 'assistant'), 'move_drive_file').handler({ driveFileId: 5, targetFolderId: 3 });
-    expect(c.sc.moveDriveFile).toHaveBeenCalledWith(5, 3);
-    await expect(find(buildTools(c, 7, 'assistant'), 'move_drive_file').handler({ fileId: 812, targetFolderId: 3 })).rejects.toThrow();
+    const t = find(buildTools(c, 7, 'assistant'), 'create_drive_file');
+    const out = await t.handler({ spaceId: 2, name: '요약.md', content: '# 요약' });
+    expect(c.sc.createDriveTextFile).toHaveBeenCalledWith(2, null, '요약.md', '# 요약');
+    expect(JSON.parse(out as string)).toMatchObject({ driveFileId: 8, name: 'a.md' });
+    await t.handler({ spaceId: 2, name: '빈.txt', content: '' });
+    expect(c.sc.createDriveTextFile).toHaveBeenLastCalledWith(2, null, '빈.txt', '');
+    await expect(t.handler({ spaceId: 2, name: '보고서.pdf' })).rejects.toThrow(/웹 드라이브 화면에서 직접 올리라고/);
+    await expect(t.handler({ spaceId: 2, name: '보고서.pdf', content: null })).rejects.toThrow(/업로드 링크를 만들 수 없습니다/);
+    // 기존 파일 갱신(driveFileId)도 content 가 있을 때만 — 없으면 파일에 묶인 업로드 링크도 만들지 않는다.
+    const updated = await t.handler({ driveFileId: 8, content: '# 고친 요약' });
+    expect(c.sc.updateDriveTextFile).toHaveBeenCalledWith(8, '# 고친 요약');
+    expect(JSON.parse(updated as string)).toMatchObject({ driveFileId: 8, versionCount: 2 });
+    await expect(t.handler({ driveFileId: 8 })).rejects.toThrow(/업로드 링크를 만들 수 없습니다/);
+    await expect(t.handler({ driveFileId: 8, content: null })).rejects.toThrow(/업로드 링크를 만들 수 없습니다/);
+    expect(c.sc.createDriveUploadLink).not.toHaveBeenCalled();
+    expect(c.sc.createDriveVersionUploadLink).not.toHaveBeenCalled();
+    // 설명은 AI Chat 이 쓸 수 있는 content 모드만 말한다 — 공유본의 업로드 링크·curl 안내는 싣지 않는다(쓸 수 없는 안내와 토큰 낭비).
+    expect(t.description).toMatch(/^AI Chat 에서는 content/);
+    expect(t.description).toContain('driveFileId+content');
+    // 공유 설명의 content 모드 부분을 그대로 붙인다 — 공유 설명이 바뀌면 AI Chat 판도 따라온다.
+    expect(t.description).toContain('driveFileId must be a text file');
+    expect(t.description).not.toMatch(/curl|uploadUrl|one-time upload link|maxBytes/);
   });
 
-  it('옛 이름(create_folder·rename_folder·move_folder·move_file)은 어떤 프로필에도 없다', () => {
-    const old = ['create_folder', 'rename_folder', 'move_folder', 'move_file'];
+  it('create_drive_download_link(assistant) — 요청자 신원의 공유 클라이언트로 링크를 만든다', async () => {
+    const c = client();
+    const out = await find(buildTools(c, 7, 'assistant'), 'create_drive_download_link').handler({ driveFileId: 5 });
+    expect(c.toolClient).toHaveBeenCalledWith(7);
+    expect(c.sc.createDriveDownloadLink).toHaveBeenCalledWith(5);
+    expect(JSON.parse(out as string)).toMatchObject({ url: 'https://w.example/dl', singleUse: true });
+  });
+
+  it('옛 이름(create_folder·rename_folder·move_folder·move_file, WP-369 의 rename/move_drive_file·folder·read_attachment)은 어떤 프로필에도 없다', () => {
+    const old = [
+      'create_folder', 'rename_folder', 'move_folder', 'move_file',
+      'rename_drive_file', 'rename_drive_folder', 'move_drive_file', 'move_drive_folder', 'read_attachment',
+    ];
     for (const p of ['issue', 'chat', 'home', 'messaging', 'assistant'] as McpProfile[]) {
       const names = buildTools(client(), AGENT_ID, p).map((t) => t.name);
       expect(names.filter((n) => old.includes(n)), p).toEqual([]);

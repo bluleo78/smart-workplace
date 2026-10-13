@@ -68,7 +68,7 @@ export function toMailDetailView(raw: Raw): Raw {
   return dropEmpty({
     ...rest,
     bodyText: body,
-    // 첨부 식별자는 이슈 첨부와 같은 이름 attachmentId 로 준다(read_attachment 입력, WP-358).
+    // 첨부 식별자는 이슈 첨부와 같은 이름 attachmentId 로 준다(read_file 입력, WP-358).
     attachments: Array.isArray(attachments)
       ? attachments.map((a) => {
           const { id, ...row } = omitKeys(a as Raw, 'contentId');

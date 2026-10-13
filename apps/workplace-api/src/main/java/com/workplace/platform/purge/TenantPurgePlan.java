@@ -110,6 +110,7 @@ public final class TenantPurgePlan {
           MAIL_ATTACHMENT_BLOB,
           // 드라이브 → 파일 (drive_file·drive_file_version.file_id NO ACTION)
           DRIVE_SHARE_LINK,
+          DRIVE_TRANSFER_LINK,
           DRIVE_FILE_REF,
           DRIVE_FILE_VERSION,
           FILE_EXTRACTION,

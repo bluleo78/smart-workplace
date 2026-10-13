@@ -17,6 +17,9 @@ const common = {
   actor: userSummary,
   assignees: z.array(userSummary),
   occurredAt: z.string(),
+  // WP-371: API 가 서버 실행(INTERNAL) 에이전트 중 이벤트 원인에 맞춰 골라 보내는 대행 AI id.
+  // 필수 — 없으면(구버전 API·잘못된 이벤트) 스키마 검증에서 400 으로 거절한다(fail-closed, 폴백 없음).
+  actingAgentId: z.number().int().positive(),
 };
 
 export const issueCreatedPayload = z.object({

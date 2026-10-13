@@ -9,6 +9,7 @@ import { createIssue, createIssueSearchResponse } from '../../factories/issue.fa
 import { makeEpicType, systemTypes } from '../../factories/issueType.factory';
 import { createProject } from '../../factories/project.factory';
 import type { IssueResponse, IssueStatus } from '../../../src/types/issue';
+import { expectSelectedRow, expectToggle, selectionBarStyle } from '../../fixtures/selection';
 
 const PROJECT_KEY = 'WP';
 const ISSUES_PATH = `/api/v1/projects/${PROJECT_KEY}/issues`;
@@ -673,5 +674,64 @@ test.describe('에픽 상세 진입 ↗ — 터치 태블릿(≥1024px)', () => 
     expect(count.x + count.width).toBeLessThanOrEqual(link.x);
     await page.getByTestId('epic-open-10').tap();
     await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_KEY}/issues/10$`));
+  });
+});
+
+// 선택·켜짐 표시(WP-368) — 선택을 bg-accent(hover 와 같은 토큰)로 그려 구분이 안 되던 문제의 회귀 방지.
+// 클래스 존재뿐 아니라 계산된 배경색이 실제로 달라지는지까지 확인한다(보이는가).
+test.describe('선택·켜짐 표시 (WP-368)', () => {
+  // 에픽 2건 + 본문 이슈 1건 스텁 후 목록으로 진입한다.
+  async function setup(page: Page) {
+    await stubProjectMeta(page);
+    await mockApi(page, 'GET', `/api/v1/projects/${PROJECT_KEY}/types`, systemTypes());
+    const epics = [epic(10, '결제 리뉴얼', 6, 10), epic(11, '알림 개편', 8, 10)];
+    await routeIssueSearch(page, (route, url) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(
+          createIssueSearchResponse(
+            url.searchParams.get('type') === String(makeEpicType().id) ? epics : [createIssue({ id: 1, number: 7 })],
+          ),
+        ),
+      }),
+    );
+    await page.goto(`/projects/${PROJECT_KEY}`);
+  }
+
+  test('선택된 에픽 행은 bg-selected·selection-bar 를 갖고 배경색이 비선택 행과 다르다', async ({ authenticatedPage: page }) => {
+    await setup(page);
+    await openEpicPanel(page);
+    const selected = page.getByTestId('epic-filter-10');
+    const other = page.getByTestId('epic-filter-11');
+
+    await selected.click();
+    await expect(selected).toHaveAttribute('aria-pressed', 'true');
+    await expect(other).toHaveAttribute('aria-pressed', 'false');
+    await expectSelectedRow(selected, other);
+    // 왼쪽 막대(::before) — 폭 3px 의 가상 요소가 실제로 그려진다.
+    const bar = await selectionBarStyle(selected);
+    expect(bar.width).toBe('3px');
+    expect(bar.content).not.toBe('none');
+
+    // 「전체 이슈」 로 돌아가면 선택 표시가 그쪽으로 옮겨 간다.
+    await page.getByTestId('epic-filter-all').click();
+    await expectSelectedRow(page.getByTestId('epic-filter-all'), selected);
+  });
+
+  // 「에픽」(outline)·「완료 모두 보기」(ghost) 토글: 꺼짐엔 켜짐 표시가 없고 켜면 TOGGLE_ON. 폭은 ghost 만 꺼짐에도 투명 테두리로 고정된다.
+  test('패널·완료 토글 — 꺼짐엔 켜짐 표시가 없고, 켜면 TOGGLE_ON 이 붙는다', async ({ authenticatedPage: page }) => {
+    await setup(page);
+    for (const { testId, ghost } of [
+      { testId: 'epic-panel-toggle', ghost: false },
+      { testId: 'show-all-closed-toggle', ghost: true },
+    ]) {
+      const toggle = page.getByTestId(testId);
+      await expectToggle(toggle, false);
+      const before = await measureBox(toggle);
+      await toggle.click();
+      await expectToggle(toggle, true);
+      if (ghost) expect((await measureBox(toggle)).width).toBeCloseTo(before.width, 1);
+    }
   });
 });

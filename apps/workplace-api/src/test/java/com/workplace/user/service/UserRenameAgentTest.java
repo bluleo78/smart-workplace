@@ -9,6 +9,7 @@ import com.workplace.audit.service.AuditLogService;
 import com.workplace.auth.exception.UsernameAlreadyExistsException;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.TestFixtures;
 import com.workplace.user.dto.CreateAgentRequest;
 import com.workplace.user.dto.RenameAgentRequest;
 import com.workplace.user.dto.UserResponse;
@@ -46,6 +47,8 @@ class UserRenameAgentTest extends IntegrationTestBase {
             .returning(USER.ID)
             .fetchOne()
             .getId();
+    // 대상 가드(현재 테넌트 멤버만)를 통과하도록 caller 도 tenant#1 멤버로 둔다.
+    TestFixtures.addMember(dsl, callerId, TENANT_ID);
   }
 
   @AfterEach
@@ -99,6 +102,7 @@ class UserRenameAgentTest extends IntegrationTestBase {
             .returning(USER.ID)
             .fetchOne()
             .getId();
+    TestFixtures.addMember(dsl, personalAgentId, TENANT_ID);
 
     assertThatThrownBy(
             () ->

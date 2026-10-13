@@ -44,6 +44,7 @@ const validCreatedPayload = {
   actor: { id: 7, username: 'alice', kind: 'HUMAN' },
   assignees: [{ id: 201, username: 'ai-bot', kind: 'AGENT' }],
   occurredAt: '2026-05-25T12:00:00Z',
+  actingAgentId: 201,
   status: 'TODO',
   priority: 'MID',
 };
@@ -154,6 +155,7 @@ describe('POST /events', () => {
     body: '@AI 요약해줘',
     mentions: [{ id: 99, username: 'ai', name: 'AI', kind: 'AGENT' }],
     occurredAt: '2026-05-30T12:00:00Z',
+    actingAgentId: 201,
   };
 
   it('chat.message.posted 정상 → 202 + handleChatEvent 호출', async () => {
@@ -164,6 +166,17 @@ describe('POST /events', () => {
     expect(res.status).toBe(202);
     expect(handleChatEvent).toHaveBeenCalledOnce();
     expect(runAgent).not.toHaveBeenCalled();
+  });
+
+  it('chat.message.posted actingAgentId 누락 → 400 invalid_payload (fail-closed, WP-371)', async () => {
+    const { actingAgentId: _omit, ...noActing } = validChatPayload;
+    const res = await request(buildApp())
+      .post('/events')
+      .set('Authorization', AUTH)
+      .send({ type: 'chat.message.posted', payload: noActing });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('invalid_payload');
+    expect(handleChatEvent).not.toHaveBeenCalled();
   });
 
   it('chat.message.posted 잘못된 payload → 400 invalid_payload', async () => {

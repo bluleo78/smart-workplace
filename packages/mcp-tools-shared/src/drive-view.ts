@@ -4,7 +4,9 @@
 // 이동·삭제는 drive_file.id 를 받으므로, 같은 이름의 fileId 가 보이면 LLM 이 그것을 넘겨 엉뚱한 파일을 건드린다.
 // 그래서 core fileId 는 제거하고 drive_file.id 는 driveFileId 로만 노출한다. 나머지 필드는 그대로 넘긴다 —
 // 허용 목록으로 고르면 서버에 새 필드(예: available)가 생길 때 조용히 누락된다.
+// 예외: 전송 링크 뷰(toDriveDownloadLinkView·toDriveUploadLinkView)는 로그인 없이 쓰는 링크라 허용 목록으로 고른다(WP-369, fail-closed).
 import { dropEmpty } from './compact.js';
+import type { DriveDownloadLink, DriveUploadLink } from './tool-client.js';
 
 /** 드라이브 파일 행 → LLM 뷰. core fileId 를 버리고 id 를 driveFileId 로 옮긴다. */
 export type DriveFileView<T extends { id: number; fileId: number }> = Omit<T, 'id' | 'fileId'> & { driveFileId: number };
@@ -56,4 +58,43 @@ export function toDriveVersionsView(rows: { versionNo: number; sizeBytes: number
 /** 파일 백링크(BacklinkResponse[]) → LLM 뷰(WP-354). sourceId 는 이슈·메시지의 내부 번호라 모델이 쓸 곳이 없어 뺀다 — label 과 deepLink 로 가리킨다. */
 export function toDriveBacklinksView(rows: { sourceType: string; label: string; deepLink: string; [key: string]: unknown }[]) {
   return rows.map(({ sourceId: _sourceId, ...rest }) => rest);
+}
+
+/**
+ * 다운로드 링크 발급 응답 → LLM 뷰(WP-369). 파일 행과 달리 **허용 목록**으로 고른다 — 로그인 없이 워크스페이스 밖으로 나가는 링크라,
+ * 서버에 나중에 생길 필드(발급자 id 등)가 외부 클라이언트로 그대로 새지 않게 닫힌 쪽(fail-closed)을 택했다.
+ */
+export function toDriveDownloadLinkView({ url, expiresAt, name, sizeBytes, mimeType, singleUse }: DriveDownloadLink) {
+  return { url, expiresAt, name, sizeBytes, mimeType, singleUse };
+}
+
+/** 업로드 링크 note 의 공통 앞부분 — 한 번만·원시 바이트·Content-Type 금지(이유는 toDriveUploadLinkView 주석). */
+const UPLOAD_LINK_NOTE_COMMON =
+  '링크는 만료(expiresAt) 전에 한 번만 쓸 수 있습니다. 위 명령 그대로 원시 바이트로 보내고 -H Content-Type·--data-binary·폼은 쓰지 마세요. ';
+
+/**
+ * 업로드 링크 발급 응답 → LLM 뷰(WP-369). 서버 url 을 uploadUrl 로 바꿔 다운로드 링크(url)와 헷갈리지 않게 하고, 그대로 붙여 쓸
+ * curl 명령(howTo)과 실패 시 행동(note)을 싣는다 — 응답 글은 정의 크기에 들지 않아, 설명에 다 못 쓴 절차를 여기서 알린다.
+ * Content-Type 을 붙이지 말라는 이유: 서버가 PUT 의 Content-Type 으로 범주 상한을 다시 정해 maxBytes 와 달라질 수 있다.
+ * driveFileId 를 주면 그 파일에 묶인 링크(WP-369 Task 3)다 — 이름 검색 없이 그 파일의 새 버전이 되므로 note 의 재발급·결과 안내가 다르고,
+ * 서버가 PUT 의 형식을 막지 않아(메모.md 에 png 를 올리면 png 버전이 된다) 같은 종류의 파일을 올리라고 알린다.
+ * 다운로드 링크 뷰와 같이 **허용 목록**으로 고른다(최종 리뷰 M4) — 로그인 없이 쓸 수 있는 링크라 서버에 나중에 생길 필드가 그대로 새지 않게 한다.
+ */
+export function toDriveUploadLinkView({ url, method, expiresAt, maxBytes, name, singleUse }: DriveUploadLink, driveFileId?: number) {
+  return {
+    uploadUrl: url,
+    method,
+    expiresAt,
+    maxBytes,
+    name,
+    singleUse,
+    howTo: `curl -T <local file> "${url}"`,
+    note:
+      driveFileId == null
+        ? UPLOAD_LINK_NOTE_COMMON +
+          '전송이 실패하면 이 링크는 다시 쓸 수 없으니 create_drive_file 로 새 링크를 만드세요. 같은 이름의 파일이 있으면 새 버전이 됩니다.'
+        : UPLOAD_LINK_NOTE_COMMON +
+          `올린 파일은 이름·폴더 그대로 이 파일(driveFileId ${driveFileId})의 새 버전이 되니 같은 종류의 파일을 올리세요. ` +
+          `전송이 실패하면 이 링크는 다시 쓸 수 없으니 create_drive_file 에 같은 driveFileId 로 새 링크를 만드세요.`,
+  };
 }

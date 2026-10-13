@@ -12,7 +12,7 @@ import { toolAnnotations } from './tool-annotations.js';
 const SAFE_INT = Number.MAX_SAFE_INTEGER;
 
 /**
- * "null = 생략" 으로 받는 선택 입력의 표식. 모델은 쓰지 않는 인자를 null 로 채워 보내기도 해서(WP-346 read_attachment 사례) 이런 입력은
+ * "null = 생략" 으로 받는 선택 입력의 표식. 모델은 쓰지 않는 인자를 null 로 채워 보내기도 해서(WP-346 read_attachment 사례 — 지금 read_file) 이런 입력은
  * `.nullish()` 로 받는다. 그런데 JSON Schema 에는 `anyOf:[T,{type:'null'}]` 로 두 겹이 돼 토큰만 늘고, 모델에게 null 을 보내라는 신호도 된다.
  * 이 표식이 붙은 입력은 내보낼 때 null 갈래를 지워 평범한 선택 입력으로 보여 준다(검증은 nullish 그대로 — null 이 와도 통과한다).
  * null 에 뜻이 있는 입력(update_issue 의 parent=null 해제처럼 "비우기")에는 붙이지 않는다 — 그 null 갈래는 모델이 알아야 한다.

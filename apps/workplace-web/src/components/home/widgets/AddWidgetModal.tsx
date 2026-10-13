@@ -6,6 +6,8 @@ import { createElement, Suspense, useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Skeleton } from '@/components/ui/skeleton'
+import { SELECTED_ROW_CLASS } from '@/lib/selectionStyles'
+import { cn } from '@/lib/utils'
 
 import { CATALOG_CATEGORIES, type CatalogWidget } from './catalogRegistry'
 import { getChatWidget } from './chatWidgetRegistry'
@@ -96,11 +98,10 @@ export function AddWidgetModal({
               <button
                 key={c}
                 type="button"
-                className={`shrink-0 rounded-md px-2 py-1.5 text-left text-sm ${
-                  category === c
-                    ? 'bg-accent font-medium text-accent-foreground'
-                    : 'text-muted-foreground hover:bg-accent/50'
-                }`}
+                className={cn(
+                  'shrink-0 rounded-md px-2 py-1.5 text-left text-sm',
+                  category === c ? SELECTED_ROW_CLASS : 'text-muted-foreground hover:bg-accent/50',
+                )}
                 data-testid="add-widget-category"
                 data-category={c}
                 aria-pressed={category === c}

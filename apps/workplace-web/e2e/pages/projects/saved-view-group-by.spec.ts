@@ -11,6 +11,7 @@ import {
   createIssueSearchResponse,
 } from '../../factories/issue.factory';
 import { createProject } from '../../factories/project.factory';
+import { expectToggleLook } from '../../fixtures/selection';
 
 const KEY = 'WP';
 const ISSUES_PATH = `/api/v1/projects/${KEY}/issues`;
@@ -168,13 +169,13 @@ test.describe('Saved View group-by', () => {
     await routeIssueSearch(page, (route) => fulfillIssues(route, []));
 
     await page.goto(`/projects/${KEY}`);
-    await expect(page.getByTestId('view-chip-all')).toHaveClass(/border-foreground/)
+    await expectToggleLook(page.getByTestId('view-chip-all'), true)
 
     await page.getByTestId('group-by-trigger').click();
     await page.getByTestId('group-by-status').click();
     await expect(page).toHaveURL(/group=status/);
 
     // 필터는 여전히 없으므로 "전체"는 그룹 변경과 무관하게 활성 상태를 유지해야 한다.
-    await expect(page.getByTestId('view-chip-all')).toHaveClass(/border-foreground/)
+    await expectToggleLook(page.getByTestId('view-chip-all'), true)
   });
 });

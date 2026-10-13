@@ -1,7 +1,7 @@
 // 모바일 UI/UX 마감 U3(WP-121) — 코드 리뷰(C1–C3)·UI/UX 재검토(R1–R14) 반영을 고정한다.
 // 노트 AI 표식·AI 작성 메뉴, ⋯ 메뉴(포털 키 이벤트·한 항목 인라인·menuitem·포커스), 뒤로가기 바 규격, 탭 루트 헤더 구분선,
 // AI 탭 루트 헤더, 이슈 ⋯ 문구·색, 📌 터치 영역, 탭 편집 저장 조건, 캘린더 도구 줄, 빈 상태 규격, 메일 ☰, 연락처 구분선, 목록 머리말.
-import type { Page } from '@playwright/test'
+import type { Locator, Page } from '@playwright/test'
 
 import type { WikiPageDetail, WikiRole, WikiSpace } from '../../../src/types/wiki'
 import { member, page as makeContactPage } from '../../factories/contacts.factory'
@@ -14,6 +14,10 @@ import { expect, expectNoHorizontalOverflow, stubChat, test, toCalendarMonthView
 
 const KEY = 'WP'
 const NUM = 2
+
+/** 글자 모양(색·굵기)을 한 번에 읽는다 — ⋯ 메뉴 켜진 토글 표시 확인용. */
+const textLook = (l: Locator) =>
+  l.evaluate((el) => ({ color: getComputedStyle(el).color, fontWeight: getComputedStyle(el).fontWeight }))
 
 /** 이슈 상세 최소 스텁(headers-nav.spec 과 같다). */
 async function stubIssueDetail(page: Page, watchers: { userId: number }[] = []) {
@@ -195,6 +199,10 @@ test('R6 이슈 ⋯: 삭제는 빨간 글자, 구독 항목은 "구독하기" / 
   // 토글 항목은 체크 메뉴 항목으로 알린다.
   await expect(watch).toHaveAttribute('role', 'menuitemcheckbox')
   await expect(watch).toHaveAttribute('aria-checked', 'false')
+  // 꺼진 토글은 다른 항목과 같은 전경색·보통 굵기(켜짐 표시 없음, WP-368).
+  const [look, fg] = await Promise.all([textLook(watch), tokenColor(page, '--foreground')])
+  expect(look.color).toBe(fg)
+  expect(look.fontWeight).not.toBe('600')
 })
 
 test('R6 이슈 ⋯(구독 중): "구독 중 · n명"', async ({ authenticatedPage: page }) => {
@@ -205,6 +213,9 @@ test('R6 이슈 ⋯(구독 중): "구독 중 · n명"', async ({ authenticatedPa
   const watch = page.getByTestId('mobile-header-more-menu').getByTestId('watch-toggle')
   await expect(watch).toHaveText('구독 중 · 2명')
   await expect(watch).toHaveAttribute('aria-checked', 'true')
+  // 켜진 토글은 메뉴가 버튼 배경·테두리를 걷어내도 primary 글자 + 굵게로 보인다(WP-368 — 예전엔 꺼짐과 똑같았다).
+  const [look, primary] = await Promise.all([textLook(watch), tokenColor(page, '--primary')])
+  expect(look).toEqual({ color: primary, fontWeight: '600' })
 })
 
 test('R7 ⋯ 에 담길 항목이 하나뿐이면 ⋯ 없이 헤더에 바로 둔다(메일 설정 "계정 추가")', async ({ authenticatedPage: page }) => {

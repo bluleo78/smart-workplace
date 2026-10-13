@@ -6,6 +6,7 @@ import { makeEpicType, makeTaskType, systemTypes } from '../../factories/issueTy
 import { createProject } from '../../factories/project.factory';
 import { expect, expectNoHorizontalOverflow, historyMarks, stubChat, test } from '../../fixtures/mobile.fixture';
 import { trackRequests } from '../../fixtures/requests';
+import { expectSelectedRow } from '../../fixtures/selection';
 
 const KEY = 'WP';
 const ISSUES = `/api/v1/projects/${KEY}/issues`;
@@ -347,6 +348,8 @@ test.describe('모바일 에픽 시트', () => {
       [30, 12, 31].map(async (n) => (await sheet.getByTestId(`picker-option-epic-${n}`).getByRole('progressbar').boundingBox())!),
     );
     for (const b of boxes.slice(1)) expect(b.x).toBeCloseTo(boxes[0].x, 0);
+    // WP-368 — 시트에서 현재 고른 에픽 행만 선택 전용 표시(막대 + bg-selected). 상세(›) 버튼이 붙는 행은 바깥 래퍼(행 버튼의 부모)가 맡는다.
+    await expectSelectedRow(sheet.getByTestId('picker-option-epic-30').locator('..'), sheet.getByTestId('picker-option-epic-12').locator('..'));
   });
 
   test('에픽 칩 ✕ 터치 영역은 32×32 이상, 툴바 높이는 그대로', async ({ authenticatedPage: page }) => {

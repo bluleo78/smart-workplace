@@ -26,6 +26,7 @@ import com.workplace.jooq.tables.DriveFileVersion.DriveFileVersionPath;
 import com.workplace.jooq.tables.DriveShareLink.DriveShareLinkPath;
 import com.workplace.jooq.tables.DriveSpace.DriveSpacePath;
 import com.workplace.jooq.tables.DriveSpaceMember.DriveSpaceMemberPath;
+import com.workplace.jooq.tables.DriveTransferLink.DriveTransferLinkPath;
 import com.workplace.jooq.tables.EmailAccount.EmailAccountPath;
 import com.workplace.jooq.tables.EventAttendee.EventAttendeePath;
 import com.workplace.jooq.tables.File.FilePath;
@@ -174,6 +175,11 @@ public class User extends TableImpl<UserRecord> {
      * The column <code>public.user.title</code>.
      */
     public final TableField<UserRecord, String> TITLE = createField(DSL.name("title"), SQLDataType.VARCHAR(100), this, "");
+
+    /**
+     * The column <code>public.user.agent_runtime</code>.
+     */
+    public final TableField<UserRecord, String> AGENT_RUNTIME = createField(DSL.name("agent_runtime"), SQLDataType.VARCHAR(16).nullable(false).defaultValue(DSL.field(DSL.raw("'INTERNAL'::character varying"), SQLDataType.VARCHAR)), this, "");
 
     /**
      * The column <code>public.user.ai_suggestions_enabled</code>.
@@ -546,6 +552,19 @@ public class User extends TableImpl<UserRecord> {
             _driveSpace = new DriveSpacePath(this, null, Keys.DRIVE_SPACE__DRIVE_SPACE_OWNER_ID_FKEY.getInverseKey());
 
         return _driveSpace;
+    }
+
+    private transient DriveTransferLinkPath _driveTransferLink;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.drive_transfer_link</code> table
+     */
+    public DriveTransferLinkPath driveTransferLink() {
+        if (_driveTransferLink == null)
+            _driveTransferLink = new DriveTransferLinkPath(this, null, Keys.DRIVE_TRANSFER_LINK__DRIVE_TRANSFER_LINK_USER_ID_FKEY.getInverseKey());
+
+        return _driveTransferLink;
     }
 
     private transient EmailAccountPath _emailAccount;
@@ -1125,6 +1144,7 @@ public class User extends TableImpl<UserRecord> {
     @Override
     public List<Check<UserRecord>> getChecks() {
         return Arrays.asList(
+            Internal.createCheck(this, DSL.name("chk_user_agent_runtime"), "(((agent_runtime)::text = ANY ((ARRAY['INTERNAL'::character varying, 'EXTERNAL'::character varying])::text[])))", true),
             Internal.createCheck(this, DSL.name("user_kind_check"), "(((kind)::text = ANY ((ARRAY['HUMAN'::character varying, 'AGENT'::character varying])::text[])))", true)
         );
     }

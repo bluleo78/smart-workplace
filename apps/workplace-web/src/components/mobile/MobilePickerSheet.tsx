@@ -5,6 +5,7 @@
 import { Check, ChevronRight } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 
+import { SELECTED_ROW_CLASS } from '@/lib/selectionStyles';
 import { cn } from '@/lib/utils';
 
 import { MOBILE_SHEET_ROW, MobileSheetShell } from './MobileSheetShell';
@@ -87,11 +88,12 @@ export function MobilePickerSheet({
                 close();
                 onSelect(o.value);
               }}
-              className={cn(MOBILE_SHEET_ROW, hasDetail && 'min-w-0 flex-1', selected && 'bg-accent font-medium')}
+              // 상세 버튼이 붙는 행은 선택 막대·배경을 바깥 래퍼가 맡고(아래), 굵기는 상속받는다.
+              className={cn(MOBILE_SHEET_ROW, hasDetail && 'min-w-0 flex-1', selected && !hasDetail && SELECTED_ROW_CLASS)}
             >
               {o.icon}
               <span className="min-w-0 flex-1 truncate">{o.label}</span>
-              {/* hint 는 선택 줄(font-medium)에서도 보통 굵기 — 굵기가 바뀌면 ch 폭이 달라져 줄마다 위치가 어긋난다. */}
+              {/* hint 는 선택 줄(font-semibold)에서도 보통 굵기 — 굵기가 바뀌면 ch 폭이 달라져 줄마다 위치가 어긋난다. */}
               {o.hint && <span className="shrink-0 text-xs font-normal text-muted-foreground">{o.hint}</span>}
               {selected ? <Check className="text-primary" aria-hidden /> : reserveCheck && <span className="size-5 shrink-0" aria-hidden />}
             </button>
@@ -99,7 +101,7 @@ export function MobilePickerSheet({
           if (!hasDetail) return optionButton;
           const { detail } = o;
           return (
-            <div key={o.value} className={cn('flex items-stretch', selected && 'bg-accent')}>
+            <div key={o.value} className={cn('flex items-stretch', selected && SELECTED_ROW_CLASS)}>
               {optionButton}
               {detail ? (
                 <button

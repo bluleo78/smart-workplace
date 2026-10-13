@@ -40,7 +40,16 @@ describe('getToolDisplay — 옛 도구 이름 폴백', () => {
     // WP-346: 이슈 챗 첨부 읽기(opencode 형식 접두 포함)
     expect(getToolDisplay('workplace_read_attachment_text')).toEqual({ label: '첨부 읽기', icon: '📎' });
     expect(getToolDisplay('read_chat_thread_attachment').label).toBe('첨부 읽기');
+    // WP-369: read_attachment → read_file, 드라이브 이름변경·이동 통합 — 옛 이름은 LEGACY 폴백, 새 이름은 공유 TOOL_LABELS.
     expect(getToolDisplay('mcp__workplace__read_attachment').label).toBe('첨부·파일 읽기');
+    expect(getToolDisplay('mcp__workplace__read_file')).toEqual(TOOL_LABELS.read_file);
+    expect(getToolDisplay('read_file').label).toBe('파일 읽기');
+    expect(getToolDisplay('rename_drive_folder').label).toBe('폴더 이름변경');
+    expect(getToolDisplay('mcp__workplace__rename_drive_file').label).toBe('파일 이름변경');
+    expect(getToolDisplay('move_drive_folder').label).toBe('폴더 이동');
+    expect(getToolDisplay('workplace_move_drive_file').label).toBe('파일 이동');
+    expect(getToolDisplay('rename_drive_item')).toEqual(TOOL_LABELS.rename_drive_item);
+    expect(getToolDisplay('move_drive_item')).toEqual(TOOL_LABELS.move_drive_item);
     // 새 이름은 공유 TOOL_LABELS 에서 같은 라벨을 쓴다.
     expect(getToolDisplay('update_comment').label).toBe('코멘트 수정');
     expect(getToolDisplay('list_thread_replies').label).toBe('스레드 답글 조회');

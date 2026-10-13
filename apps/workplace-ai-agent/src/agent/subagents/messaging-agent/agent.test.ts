@@ -16,7 +16,7 @@ describe('messaging-agent 정의', () => {
       'mcp__workplace__list_thread_replies', // #850: 스레드 답글
       'mcp__workplace__add_channel_message',
       'mcp__workplace__list_channels', // WP-355: q 로 공개 채널 탐색(옛 discover_channels)
-      'mcp__workplace__read_attachment', // WP-358: 메시지 첨부 읽기
+      'mcp__workplace__read_file', // WP-358: 메시지 첨부 읽기
       // #855: 채널 생성·DM 열기·공개 채널 나가기
       'mcp__workplace__create_channel',
       'mcp__workplace__open_dm',
@@ -87,10 +87,10 @@ describe('messaging-agent 정의', () => {
     expect(prompt).not.toContain('discover_channels');
   });
 
-  // WP-358: 메시지 첨부는 read_attachment(source="message") — id 의 출처를 읽기 도구 출력으로 안내하고 비-READY 상태 추측을 금한다.
-  it('read_attachment 를 source "message" + channelId·messageId·attachmentId 로 안내하고 비-READY 상태 추측을 금한다 (WP-358)', () => {
+  // WP-358: 메시지 첨부는 read_file(source="message") — id 의 출처를 읽기 도구 출력으로 안내하고 비-READY 상태 추측을 금한다.
+  it('read_file 을 source "message" + channelId·messageId·attachmentId 로 안내하고 비-READY 상태 추측을 금한다 (WP-358)', () => {
     const prompt = loaded['messaging-agent'].prompt;
-    expect(prompt).toContain('read_attachment(source="message", channelId, messageId, attachmentId, offset?, limit?)');
+    expect(prompt).toContain('read_file(source="message", channelId, messageId, attachmentId, offset?, limit?)');
     expect(prompt).toContain('`attachments[].fileId`');
     expect(prompt).toMatch(/READY.*내용을 추측하지 말고/s);
   });

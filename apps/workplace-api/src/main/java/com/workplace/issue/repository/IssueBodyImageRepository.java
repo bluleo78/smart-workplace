@@ -123,16 +123,16 @@ public class IssueBodyImageRepository {
   /**
    * 이 이슈에서 이미지 참조가 있을 수 있는 글 — 본문과 삭제되지 않은 코멘트(WP-362).
    *
-   * <p>왜: 코멘트 이미지도 같은 이슈에 연결되므로, 본문·코멘트 어느 한쪽만 보고 "빠졌다" 고 판정하면 다른 쪽에 쓰인 이미지를 강등하게 된다. 같은 트랜잭션에서
-   * 방금 저장한 글까지 포함해 읽는다.
+   * <p>왜: 코멘트 이미지도 같은 이슈에 연결되므로, 본문·코멘트 어느 한쪽만 보고 "빠졌다" 고 판정하면 다른 쪽에 쓰인 이미지를 강등하게 된다. 같은 트랜잭션에서 방금
+   * 저장한 글까지 포함해 읽는다.
    */
   public List<String> textsReferencingImages(long issueId) {
     return imageTextsOf(ISSUE.ID.eq(issueId));
   }
 
   /**
-   * 조건에 맞는 이슈들의 본문과 삭제되지 않은 코멘트 중 이슈 이미지 URL 을 포함할 수 있는 글 — 연결 동기화(이슈 하나)와 만료 스윕 보존
-   * 판정(프로젝트 전체)이 "어떤 글이 이미지를 참조하는가" 를 같은 규칙으로 보게 한 곳에 둔다.
+   * 조건에 맞는 이슈들의 본문과 삭제되지 않은 코멘트 중 이슈 이미지 URL 을 포함할 수 있는 글 — 연결 동기화(이슈 하나)와 만료 스윕 보존 판정(프로젝트 전체)이
+   * "어떤 글이 이미지를 참조하는가" 를 같은 규칙으로 보게 한 곳에 둔다.
    */
   private List<String> imageTextsOf(Condition issues) {
     return dsl.select(ISSUE.BODY)
@@ -185,8 +185,8 @@ public class IssueBodyImageRepository {
    * 주어진 fileId 중 이슈에 연결된(issue_id NOT NULL) 이슈 이미지이면서, 같은 프로젝트의 삭제되지 않은 이슈 본문·코멘트 어디서든 아직 참조되는 것.
    *
    * <p>본문을 복사해 다른 이슈에 붙여넣은 이미지는 원본 이슈 매핑으로 서빙되므로, 원본에서 빠졌다고 지우면 사본이 깨진다. 스윕이 FILE 행 잠금을 쥔 채 호출하므로
-   * 파일마다 정규식 스캔을 돌리지 않고 프로젝트별로 한 번만 조회한다: 후보를 프로젝트로 묶고, 프로젝트당 "이미지 URL 을 포함한 비삭제 이슈 본문·코멘트" 만 한 번 읽어
-   * 자바에서 참조 id 를 파싱해 후보와 교집합한다.
+   * 파일마다 정규식 스캔을 돌리지 않고 프로젝트별로 한 번만 조회한다: 후보를 프로젝트로 묶고, 프로젝트당 "이미지 URL 을 포함한 비삭제 이슈 본문·코멘트" 만 한 번
+   * 읽어 자바에서 참조 id 를 파싱해 후보와 교집합한다.
    */
   public Set<Long> stillReferencedAnywhere(Collection<Long> fileIds) {
     if (fileIds.isEmpty()) return Set.of();

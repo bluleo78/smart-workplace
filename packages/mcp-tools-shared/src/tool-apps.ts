@@ -21,7 +21,7 @@ export type ToolApp = (typeof TOOL_APPS)[number];
 
 /**
  * 도구가 속한 앱. 대부분 하나지만 **여러 앱에 걸쳐 쓰이는 도구는 배열**로 적는다 — 그 앱 중 하나만 골라도 도구가 보여야
- * 그 앱 안에서 일이 끊기지 않기 때문이다(예: read_attachment 는 이슈·노트·메시지·메일 첨부와 드라이브 파일을 모두 읽으므로 issue·wiki·messaging·mail·drive 어느 쪽만 골라도 필요하다).
+ * 그 앱 안에서 일이 끊기지 않기 때문이다(예: read_file 은 이슈·노트·메시지·메일 첨부와 드라이브 파일을 모두 읽으므로 issue·wiki·messaging·mail·drive 어느 쪽만 골라도 필요하다).
  * 같은 이유로 이슈 작업의 출발점인 list_projects·get_project 는 project 와 issue 에 모두 둔다(projectKey·담당자·라벨 목록을 거기서 얻는다).
  * 도구를 "있으면 편하다" 수준으로 여러 앱에 퍼뜨리지 않는다 — 꼭 필요한 선행 조회만 겹친다(분류 표는 README).
  */
@@ -50,7 +50,7 @@ export const TOOL_APP_GUIDES: Record<ToolApp, ToolAppGuide> = {
   issue: { label: 'Issues (이슈)', read: 'find and read issues (incl. watched), read attachments', write: 'create and update issues, comment, link, watch', entry: ['list_issues', 'get_issue_detail'] },
   project: { label: 'Projects (프로젝트)', read: 'projects, members, issue types, labels, milestones, cycles, custom fields', write: 'create and rename projects, add members, create and edit labels, milestones and cycles', entry: ['list_projects', 'get_project'] },
   wiki: { label: 'Wiki (노트)', read: 'search and read pages, summaries, revision history, backlinks', write: 'create, edit, move pages and restore earlier revisions', entry: ['search_wiki', 'get_wiki_page'] },
-  drive: { label: 'Drive (드라이브)', read: 'find, summarize and read files, versions and backlinks, view trash', write: 'create folders, rename, move and copy files and folders, save issue and chat attachments to drive, restore from trash', entry: ['list_drive_items', 'search_drive'] },
+  drive: { label: 'Drive (드라이브)', read: 'find, summarize and read files, versions and backlinks, view trash', write: 'create folders; rename, move, copy; upload files or text; download links; import issue and chat attachments; restore from trash', entry: ['list_drive_items', 'search_drive'] },
   mail: { label: 'Mail (메일)', read: 'read and summarize mail and attachments, draft replies and issues', write: 'mark read or unread, sync, create issues from mail (no sending)', entry: ['list_mail_accounts', 'list_mail'] },
   messaging: { label: 'Channels and DMs (채널·DM)', read: 'channels, messages, threads', write: 'post and edit own messages, react, mark read, create/join/leave channels, invite, open DMs', entry: ['list_channels', 'list_channel_messages'] },
   calendar: { label: 'Calendar (캘린더)', read: 'events', write: 'create and update events and attendees, RSVP', entry: ['list_events', 'get_event'] },

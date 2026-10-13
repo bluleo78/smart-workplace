@@ -11,6 +11,7 @@ import { type RefObject, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { Skeleton } from '@/components/ui/skeleton';
+import { SELECTED_ROW_CLASS } from '@/lib/selectionStyles';
 import { cn } from '@/lib/utils';
 
 import { useProjectEpics } from '../../../hooks/queries/useProjectEpics';
@@ -103,7 +104,7 @@ export function EpicSidePanel({
         data-testid="epic-filter-all"
         className={cn(
           ITEM_BASE,
-          choice.kind === 'all' ? 'bg-accent font-medium' : 'hover:bg-muted/50',
+          choice.kind === 'all' ? SELECTED_ROW_CLASS : 'hover:bg-muted/50',
           // 드롭 대상이 아님 — 드래그 중에는 흐려 놓을 수 있는 항목과 구분한다.
           activeIssue && 'opacity-50',
         )}
@@ -221,7 +222,7 @@ const DROP_CLASS: Record<EpicDropState | 'over', string> = {
 
 // 드롭 대상 항목(미할당·에픽) 공통 클래스 — 드래그 중에는 선택 배경보다 드롭 상태 표시가 우선.
 function dropItemClass(selected: boolean, activeIssue: IssueResponse | null, dropClass: string) {
-  return cn(ITEM_BASE, !activeIssue && (selected ? 'bg-accent font-medium' : 'hover:bg-muted/50'), dropClass);
+  return cn(ITEM_BASE, !activeIssue && (selected ? SELECTED_ROW_CLASS : 'hover:bg-muted/50'), dropClass);
 }
 
 // 「에픽 미할당」 버튼 — 클릭은 미할당 필터 토글, 드래그 중에는 부모 해제 드롭 대상.

@@ -6,6 +6,7 @@ import { createChannel, createMessage } from '../../factories/messaging.factory'
 import { commitImeThenEnterInSameTask } from '../../fixtures/ime';
 import { trackRequests } from '../../fixtures/requests';
 import { expectStays } from '../../fixtures/wait';
+import { expectSelectedRow } from '../../fixtures/selection';
 
 const CHANNEL_ID = 1;
 // auth.fixture.ts 의 createUser() 기본 id = 1
@@ -111,6 +112,27 @@ test.describe('messaging 채팅 E2E', () => {
       await expect(page.getByTestId(`message-body-10`)).toHaveText('기존 메시지');
     },
   );
+
+  // WP-368 — 열린 채널 행만 선택 표시(막대 + bg-selected + 앞 아이콘 primary), 다른 채널 행엔 없다.
+  test('사이드바 — 열린 채널 행만 bg-selected·selection-bar 를 갖는다 (WP-368)', async ({ authenticatedPage: page }) => {
+    const open = createChannel({ id: CHANNEL_ID, name: 'general', member: true });
+    const other = createChannel({ id: 2, name: 'random', member: true });
+    await setupChannelStubs(page, [open, other], `:\n\n`);
+    await page.route(
+      (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}/messages`,
+      (route) =>
+        route.request().method() === 'GET'
+          ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [], nextCursor: null, hasMore: false }) })
+          : route.fallback(),
+    );
+    await page.goto(`/chat/channels/${CHANNEL_ID}`);
+    const openLink = page.getByTestId(`channel-link-${CHANNEL_ID}`);
+    const otherLink = page.getByTestId('channel-link-2');
+    await expectSelectedRow(openLink, otherLink, { current: 'page' });
+    // 앞 아이콘(# 또는 잠금)만 primary — 다른 행의 아이콘은 기본 색 그대로.
+    const iconColor = (l: typeof openLink) => l.locator('svg').first().evaluate((el) => getComputedStyle(el).color);
+    expect(await iconColor(openLink)).not.toBe(await iconColor(otherLink));
+  });
 
   test('SSE 로 도착한 메시지가 POST 없이 렌더된다', async ({ authenticatedPage: page }) => {
     const channel = createChannel({ id: CHANNEL_ID, member: true });

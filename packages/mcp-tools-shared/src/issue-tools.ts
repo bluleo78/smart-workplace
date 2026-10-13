@@ -59,7 +59,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       kind: 'read',
       description:
         'Returns one issue (이슈) by issueKey (e.g. WP-12): Markdown body, all fields (dates +09:00), cycles, parent, children, blockedBy/blocks, ' +
-        `custom fields, watchers, driveLinks {driveFileId, name}, attachments (attachmentId for read_attachment), the latest ${ISSUE_DETAIL_COMMENT_LIMIT} comments and ` +
+        `custom fields, watchers, driveLinks {driveFileId, name}, attachments (attachmentId for read_file), the latest ${ISSUE_DETAIL_COMMENT_LIMIT} comments and ` +
         `${ISSUE_DETAIL_HISTORY_LIMIT} history entries. commentsOmitted/historyOmitted count older ones left out (absent = complete); ` +
         `allComments:true returns up to ${ISSUE_DETAIL_COMMENT_HARD_LIMIT} comments. closedAt: when DONE or CANCELED. People ` +
         '{username, name, kind}, watchers lack kind; username null if unknown.',

@@ -17,6 +17,7 @@ const payload: ChatMessagePostedPayload = {
   body: '@AI 첨부 요약해줘',
   mentions: [{ id: 99, username: 'ai', name: 'AI', kind: 'AGENT' }],
   occurredAt: '2026-05-30T12:00:00Z',
+  actingAgentId: 99,
 };
 const recent: ChatMessageItem[] = [
   { id: 8, authorName: 'Alice', authorKind: 'HUMAN', body: '이전 메시지', createdAt: 't', deleted: false },

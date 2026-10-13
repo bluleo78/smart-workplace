@@ -6,6 +6,8 @@ import { useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { SELECTED_ROW_CLASS } from '@/lib/selectionStyles';
+import { cn } from '@/lib/utils';
 
 import { useMilestones } from '../../../hooks/queries/useMilestones';
 
@@ -65,7 +67,7 @@ export function MilestonePickerPopover({
               <button
                 key={m.id}
                 type="button"
-                className="flex w-full cursor-pointer items-center gap-2 rounded p-1 text-left hover:bg-accent"
+                className={cn('flex w-full cursor-pointer items-center gap-2 rounded p-1 text-left hover:bg-accent', m.id === value && SELECTED_ROW_CLASS)}
                 onClick={() => handleSelect(m.id)}
                 data-testid={`milestone-option-${m.id}`}
                 aria-pressed={m.id === value}

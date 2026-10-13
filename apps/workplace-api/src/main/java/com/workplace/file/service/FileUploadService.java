@@ -114,20 +114,39 @@ public class FileUploadService {
 
     List<FileUploadResponse> results = new java.util.ArrayList<>();
     for (MultipartFile file : files) {
-      results.add(uploadSingleFile(file, userId));
+      results.add(uploadSingleFile(UploadSource.of(file), userId));
     }
     return results;
   }
 
-  private FileUploadResponse uploadSingleFile(MultipartFile file, Long userId) throws IOException {
+  /**
+   * 바이트 출처와 무관한 단건 업로드(WP-369) — 텍스트로 파일 만들기(바이트 배열)·업로드 링크(임시 파일)가 멀티파트와 같은 규칙(이름 정리·MIME 정규화·카테고리
+   * 크기 상한·24시간 만료 FILE 행)으로 저장한다. 트랜잭션·테넌트 컨텍스트 요건은 {@link #uploadFiles} 와 같다.
+   */
+  @Transactional
+  public FileUploadResponse upload(UploadSource source, Long userId) throws IOException {
+    return uploadSingleFile(source, userId);
+  }
+
+  /** MIME → 카테고리. 미분류 유형은 OTHER(저장 게이트 없음, #725). */
+  public static String categoryOf(String mimeType) {
+    return MIME_TO_CATEGORY.getOrDefault(mimeType, "OTHER");
+  }
+
+  /** 카테고리별 크기 상한(바이트). 업로드 링크가 본문을 받기 전에 같은 상한을 세려고 쓴다(WP-369). */
+  public static long sizeLimitOf(String category) {
+    return CATEGORY_SIZE_LIMITS.get(category);
+  }
+
+  private FileUploadResponse uploadSingleFile(UploadSource file, Long userId) throws IOException {
     // #735: mime 정규화를 MimeNormalizer 단일 지점으로 통일한다(추출 판정·프리뷰가 같은 값을 보게 함).
-    String mimeType = MimeNormalizer.normalize(file.getOriginalFilename(), file.getContentType());
+    String mimeType = MimeNormalizer.normalize(file.originalName(), file.contentType());
 
     // 저장 게이트 없음(allow-all): 유형은 저장을 막지 않는다. 미분류 유형은 OTHER 카테고리로 폴백해
     // 크기 한도 조회/저장이 NPE·null 없이 동작하게 한다. 유형별 정책 제어는 별도 이슈(#725)에서 도입.
-    String category = MIME_TO_CATEGORY.getOrDefault(mimeType, "OTHER");
-    long sizeLimit = CATEGORY_SIZE_LIMITS.get(category);
-    if (file.getSize() > sizeLimit) {
+    String category = categoryOf(mimeType);
+    long sizeLimit = sizeLimitOf(category);
+    if (file.size() > sizeLimit) {
       throw new FileSizeLimitExceededException(category, sizeLimit);
     }
 
@@ -136,14 +155,14 @@ public class FileUploadService {
     // DriveLinkService 에서 정리).
     // 경로 구분자·제어·양방향 문자는 "_" 로 바꿔 받는다(WP-339) — API·MCP 로 온 "../x.txt" 가 경로처럼 쓰이거나, 잘라 낸 이름이 다른 드라이브
     // 파일과 겹쳐 새 버전으로 합쳐지거나, 확장자를 뒤집어 보이게 하는 이름이 저장되지 않게.
-    String originalName = SafeFileNames.sanitize(file.getOriginalFilename(), "file");
+    String originalName = SafeFileNames.sanitize(file.originalName(), "file");
 
     // FilePathBuilder 가 테넌트 prefix + 도메인 세그먼트(files) + 날짜 + UUID 를 조립한다(테넌트 컨텍스트 필수).
     // 경로 예: tenant-1/files/2024-01-15/{uuid}.png
     String relativePath = pathBuilder.build(StorageDomain.FILES, originalName);
 
     // FileStore 에 위임하여 루트-기준 상대경로로 저장(디스크 직접 접근 제거).
-    fileStore.store(relativePath, file);
+    file.writer().writeTo(fileStore, relativePath);
 
     // stored_name = 경로의 마지막 세그먼트(uuid.ext) — DB 인바리언트 유지.
     String storedName = relativePath.substring(relativePath.lastIndexOf('/') + 1);
@@ -168,7 +187,7 @@ public class FileUploadService {
             .set(FILE.ORIGINAL_NAME, originalName)
             .set(FILE.STORED_NAME, storedName)
             .set(FILE.MIME_TYPE, mimeType)
-            .set(FILE.SIZE_BYTES, file.getSize())
+            .set(FILE.SIZE_BYTES, file.size())
             .set(FILE.CATEGORY, category)
             .set(FILE.STORAGE_PATH, relativePath) // 상대경로 저장
             .set(FILE.UPLOADED_BY, userId)
@@ -184,9 +203,9 @@ public class FileUploadService {
         fileId,
         originalName,
         category,
-        file.getSize());
+        file.size());
 
-    return new FileUploadResponse(fileId, originalName, mimeType, file.getSize(), category, now);
+    return new FileUploadResponse(fileId, originalName, mimeType, file.size(), category, now);
   }
 
   // RLS GUC 주입 위해 @Transactional 필요 — 없으면 app_tenant 런타임에서 SELECT 가 빈 결과 → 거짓 404(local/prod

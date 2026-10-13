@@ -86,7 +86,11 @@ pnpm test --coverage                   # 커버리지 (./coverage)
 | `WORKPLACE_AI_MODEL` / `WORKPLACE_AI_MAX_TURNS` / `WORKPLACE_AI_TIMEOUT_MS` | 선택 override | 아님 |
 | `SHUTDOWN_DRAIN_MS` | 종료 시 진행 중 HTTP·에이전트 실행 대기 상한(기본 330000). 운영 차트 `terminationGracePeriodSeconds` 는 preStop + 이 값보다 커야 함(WP-167) | 아님 |
 
-**대행 AGENT 식별**: ai-agent 는 이벤트 envelope 의 assignees 중 첫 AGENT 를 대행 (#34).
+**대행 AGENT 식별**: 대행할 AGENT 는 workplace-api 가 정한다(WP-371). API 는 서버 실행(INTERNAL) 에이전트가 있을 때만
+이벤트를 보내고 payload 의 `actingAgentId` 에 그 id 를 싣는다. ai-agent 는 직접 고르지 않으며 assignees/mentions 폴백도 없다 —
+`actingAgentId` 는 이슈 이벤트·`chat.message.posted` 모두 필수(양의 정수)이고, 없으면 zod 검증에서 400 `invalid_payload` 로 거절(fail-closed).
+배포 순서: ai-agent 를 먼저 올려도 안전하다(구버전 API 이벤트는 거절될 뿐 오실행되지 않음). 다만 ai-agent 새 버전~API 새 버전 사이의
+짧은 구간에는 구버전 API 의 이슈·chat 이벤트가 400 으로 거절되어 AI 실행이 일시 누락된다.
 workplace-api 호출 시 `Authorization: Internal <token>` + `X-On-Behalf-Of: <agentId>` 헤더로
 그 AGENT 자격을 부여받는다. 5a 의 AGENT API key 는 ai-agent 부트스트랩과 무관 — 외부 서비스가
 AGENT 자격으로 workplace-api 를 직접 호출할 때만 사용.
@@ -108,6 +112,7 @@ AGENT 자격으로 workplace-api 를 직접 호출할 때만 사용.
 - 요청: `chatSchema` 의 `sessionId`(UUID, 선택)·`attachments`(세션 전체 첨부 + `current`, 생략 시 `[]`). 빈 `query` 는 이번 메시지 첨부가 있을 때만 허용하고 `DEFAULT_ATTACHMENT_QUERY` 로 대체. ai-agent 를 먼저 재기동하므로 구 API 요청(필드 없음)도 받는다.
 - 프롬프트: `formatHomeAttachmentsBlock`(`agent/home-attachments.ts`)이 매 턴 `## 이 대화의 첨부` 를 현재 요청 앞에 고정 주입(요약 후에도 연속성 유지). 문구는 비전 판단(`opencodeVisionFor`, 실행당 1회 → `RunnerInput.opencodeVision` 과 같은 값)에 따라 다르다.
 - 도구: assistant 프로필 `read_chat_attachment({fileId, offset?, limit?})`(`mcp/home-attachment-tool.ts`). 세션은 실행 단위 바인딩 — Claude 는 `RunnerMcpConfig.homeSessionId`, opencode 는 env `MCP_HOME_SESSION_ID`(이 실행은 웜 풀 제외). 바인딩이 없으면 오류. 문서는 추출 텍스트 구간, 이미지(jpeg/png/gif/webp, ≤3.75MB)는 이미지 블록, 그 외는 사유 안내. 하위 에이전트는 이 도구가 없으므로 라우터가 읽어 위임 prompt 에 옮겨 적는다.
-- 이슈 첨부·드라이브 파일 본문(WP-346): 공유 도구 `read_attachment({source:'issue', issueKey, attachmentId} | {source:'drive', driveFileId}, offset?, limit?)` 를 assistant·issue-agent·drive-agent 가 쓴다(요청자 신원). 범위·기본 길이·이미지 형식/크기 기준은 `@smart-workplace/mcp-tools-shared` 의 `attachment-read` 를 세 첨부 도구(read_attachment·read_chat_attachment·read_chat_thread_attachment)가 함께 쓴다.
+- 이슈 첨부·드라이브 파일 본문(WP-346): 공유 도구 `read_file({source:'issue', issueKey, attachmentId} | {source:'drive', driveFileId}, offset?, limit?)` 를 assistant·issue-agent·drive-agent 가 쓴다(요청자 신원). 범위·기본 길이·이미지 형식/크기 기준은 `@smart-workplace/mcp-tools-shared` 의 `attachment-read` 를 세 첨부 도구(read_file·read_chat_attachment·read_chat_thread_attachment)가 함께 쓴다.
+- 드라이브 전송(WP-369): drive-agent 는 공유 `create_drive_file` 을 **content 모드만** 쓴다 — 웹 AI Chat 사용자에게는 셸이 없어 업로드 링크(`curl -T`)를 쓸 수 없으므로, `mcp/tools.ts` 가 공유본을 펼쳐 content 없는 호출(새 파일·`driveFileId` 모두)을 API 없이 오류로 막는다(스키마는 공유본 그대로라 패리티 유지, 설명은 한국어 머리말 + 공유 `CREATE_DRIVE_FILE_CONTENT_DESCRIPTION` — 링크 안내를 뺀 content 모드 부분). 드라이브의 기존 텍스트 파일은 `read_file` 로 읽고 `create_drive_file(driveFileId, content)` 로 새 버전을 저장한다(이름·폴더 그대로, 텍스트가 아닌 파일은 서버 409). 로컬·첨부 파일 업로드는 웹 드라이브로 안내한다. `create_drive_download_link` 는 다운로드 요청에 10분·한 번만 쓰는 링크를 보여 줄 때 쓴다. 둘 다 write 라 라우터가 아니라 drive-agent 에만 있다. 이름변경·이동은 `rename_drive_item`·`move_drive_item`(파일·폴더 통합), 첨부·파일 읽기는 `read_file`(옛 `read_attachment`).
 - 추출 대기: 이번 메시지 문서가 PENDING 이면 실행 전 최대 20초(2초×10회) 세션 목록을 재조회(`awaitHomeExtraction`), 대기 중 progress 라벨 1회.
 - 테넌트: Claude 는 `withOnBehalfOfTenant` 로 스코프한 client 를 쓰고, opencode stdio MCP 는 `RunnerMcpConfig.onBehalfOfTenantId` → env `MCP_ON_BEHALF_OF_TENANT` 로 받아 같은 `X-On-Behalf-Of-Tenant` 를 싣는다(웜 풀 키에도 포함, WP-259).

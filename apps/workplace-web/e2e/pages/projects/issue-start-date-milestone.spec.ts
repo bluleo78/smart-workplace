@@ -10,6 +10,7 @@ import { createIssue, createIssueDetail, createIssueSearchResponse } from '../..
 import { systemTypes } from '../../factories/issueType.factory';
 import { createProject } from '../../factories/project.factory';
 import type { MilestoneResponse } from '../../../src/types/milestone';
+import { expectSelectedRow } from '../../fixtures/selection';
 
 const PROJECT_KEY = 'WP';
 const ISSUE_NUMBER = 1;
@@ -152,6 +153,8 @@ test.describe('이슈 상세 시작일/마일스톤 피커 (#620)', () => {
 
     await page.getByTestId('milestone-picker-trigger').click();
     await expect(page.getByTestId('milestone-picker-popover')).toBeVisible();
+    // WP-368 — 현재 연결된 마일스톤(1)만 선택 전용 표시(막대 + bg-selected).
+    await expectSelectedRow(page.getByTestId('milestone-option-1'), page.getByTestId('milestone-option-2'));
     await page.getByTestId('milestone-option-clear').click();
 
     await patches.waitFor();

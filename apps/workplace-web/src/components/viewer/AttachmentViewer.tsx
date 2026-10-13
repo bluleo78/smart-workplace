@@ -10,6 +10,7 @@ import { elementBackgroundRgb, useThemeColor } from '../../hooks/useThemeColor'
 import { formatFileSize } from '../../lib/formatters'
 import { isIOSStandalone } from '../../lib/platform'
 import { resolvePreviewKind } from '../../lib/previewKind'
+import { ghostToggleClass } from '../../lib/selectionStyles'
 import { cn } from '../../lib/utils'
 import { isInAiPanelDom } from '../ai/aiPanelSurface'
 import { useAiPanelAwareDialog } from '../ai/useAiPanelAwareDialog'
@@ -563,7 +564,7 @@ export function AttachmentViewer({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="pointer-coarse:size-11"
+                  className={cn('pointer-coarse:size-11', ghostToggleClass(panelOpen))}
                   aria-label="AI 요약"
                   aria-pressed={panelOpen}
                   onClick={() => togglePanel(!panelOpen)}

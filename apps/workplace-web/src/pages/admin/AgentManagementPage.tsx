@@ -17,7 +17,6 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
   Sheet,
@@ -35,23 +34,34 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { formatDateOnly, formatDateTimeLocale } from '@/lib/formatters';
+import { formatDateOnly } from '@/lib/formatters';
 import { parseId } from '@/lib/historyParam';
 
 import { AgentBadge } from '../../components/users/AgentBadge';
-import {
-  useAgentKeys,
-  useIssueAgentKey,
-  useRevokeAgentKey,
-} from '../../hooks/queries/useAgentKeys';
+import { useRevokeAgentKey } from '../../hooks/queries/useAgentKeys';
 import { useAgents, useDeleteAgent } from '../../hooks/queries/useAgents';
 import { useWorkspaceAssistant } from '../../hooks/queries/useAssistant';
 import { useHistoryParam } from '../../hooks/useHistoryParam';
+import {
+  buildAgentLaunchCommand,
+  buildMcpSetupCommand,
+  externalKeyStatusText,
+  runtimeBadgeLabel,
+  TOKEN_ENV,
+} from '../../lib/agentRuntime';
 import { clickableRowProps } from '../../lib/clickableRowProps';
 import { AgentConnectionSection } from './components/AgentConnectionSection';
 import { AgentIdentitySection } from './components/AgentIdentitySection';
 import { AgentKeyIssueDialog } from './components/AgentKeyIssueDialog';
+import { AgentKeysSection } from './components/AgentKeysSection';
+import { AgentRuntimeSection } from './components/AgentRuntimeSection';
+import { CopyableCommand } from './components/CopyableCommand';
 import { NewAgentDialog } from './components/NewAgentDialog';
+
+// 외부 연결 안내 명령 — 입력(접속 origin·플레이스홀더)이 렌더마다 바뀌지 않아 모듈 로드 시 한 번만 만든다.
+// 실행 명령의 키 평문은 발급 직후 1회만 알 수 있어 드로어에서는 플레이스홀더로 둔다.
+const setupCommand = buildMcpSetupCommand();
+const launchCommand = buildAgentLaunchCommand();
 
 export default function AgentManagementPage() {
   // 개인 비서(자동 생성 AGENT) 포함 여부 토글. 기본 표시 — 토글로 숨김 가능.
@@ -63,11 +73,8 @@ export default function AgentManagementPage() {
   // 열린 에이전트 = URL ?agent(상세 시트 열림의 단일 원천, WP-209). 행 클릭은 push → 시스템 뒤로가기가 시트만 닫는다.
   const agentParam = useHistoryParam('agent');
   const selectedId = parseId(agentParam.value);
-  const keys = useAgentKeys(selectedId);
-  // selectedId 가 null 인 경우 0 으로 두지만, enabled=false 이므로 호출은 안 됨.
-  const issue = useIssueAgentKey(selectedId ?? 0);
+  // selectedId 가 null 인 경우 0 으로 두지만, mutate 는 키 행이 있을 때(선택됨)만 호출된다.
   const revoke = useRevokeAgentKey(selectedId ?? 0);
-  const [label, setLabel] = useState('');
   const [showNew, setShowNew] = useState(false);
   const [plaintext, setPlaintext] = useState<string | null>(null);
 
@@ -78,17 +85,6 @@ export default function AgentManagementPage() {
     actionLabel: string;
     action: () => void;
   } | null>(null);
-
-  const onIssue = async () => {
-    if (selectedId == null) return;
-    try {
-      const res = await issue.mutateAsync({ label: label.trim() || null });
-      setLabel('');
-      setPlaintext(res.plaintextKey);
-    } catch {
-      /* 토스트는 mutation onError 가 처리 */
-    }
-  };
 
   // API 키 회수 — AlertDialog 로 확인 후 실행.
   const onRevoke = (keyId: number) => {
@@ -116,6 +112,18 @@ export default function AgentManagementPage() {
   };
 
   const selected = agents.data?.find((a) => a.id === selectedId) ?? null;
+  const external = selected?.runtime === 'EXTERNAL';
+  // 키 발급 폼 + 키 목록 — 내부(API 키 블록)·외부(① 키 발급) 두 레이아웃이 공유한다. key 로 행 전환 시 label 입력 리셋.
+  const keysSection =
+    selected != null ? (
+      <AgentKeysSection
+        key={selected.id}
+        agentId={selected.id}
+        external={external}
+        onIssued={setPlaintext}
+        onRevoke={onRevoke}
+      />
+    ) : null;
   const isEmpty =
     !agents.isLoading && !agents.isError && (agents.data ?? []).length === 0;
 
@@ -171,25 +179,26 @@ export default function AgentManagementPage() {
               <TableHead>에이전트</TableHead>
               <TableHead>아이디</TableHead>
               <TableHead>유형</TableHead>
+              <TableHead>실행</TableHead>
               <TableHead>생성일</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {agents.isLoading ? (
               <TableRow>
-                <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
+                <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
                   로딩 중…
                 </TableCell>
               </TableRow>
             ) : agents.isError ? (
               <TableRow>
-                <TableCell colSpan={4} className="py-8 text-center text-destructive">
+                <TableCell colSpan={5} className="py-8 text-center text-destructive">
                   목록을 불러오지 못했습니다
                 </TableCell>
               </TableRow>
             ) : isEmpty ? (
               <TableRow>
-                <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
+                <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
                   에이전트가 없습니다
                 </TableCell>
               </TableRow>
@@ -233,6 +242,22 @@ export default function AgentManagementPage() {
                       <Badge variant="outline">일반</Badge>
                     )}
                   </TableCell>
+                  <TableCell data-testid={`agent-runtime-cell-${a.id}`}>
+                    {/* 실행 방식 배지 — 외부는 info 토큰. 외부는 키 사용 시각을 함께 보여 연결 여부를 가늠하게 한다. */}
+                    <div className="flex flex-col items-start gap-0.5">
+                      <Badge variant={a.runtime === 'EXTERNAL' ? 'info' : 'secondary'}>
+                        {runtimeBadgeLabel(a.runtime)}
+                      </Badge>
+                      {a.runtime === 'EXTERNAL' && (
+                        <span
+                          className="text-xs text-muted-foreground"
+                          data-testid={`agent-key-status-${a.id}`}
+                        >
+                          {externalKeyStatusText(a.lastKeyUsedAt)}
+                        </span>
+                      )}
+                    </div>
+                  </TableCell>
                   <TableCell className="text-xs text-muted-foreground">
                     {formatDateOnly(a.createdAt)}
                   </TableCell>
@@ -275,90 +300,45 @@ export default function AgentManagementPage() {
                 {/* 에이전트 정보(이름/아이디) 편집 — 개인 비서는 컴포넌트 내부에서 숨김. key 로 행 전환 시 입력 리셋. */}
                 <AgentIdentitySection key={selected.id} agent={selected} />
 
-                {/* AI 연결 및 모델 — 연결 상태/재발급/회수 + 공통 비서 지정 + 모델/생각의 깊이. */}
-                <AgentConnectionSection agentUserId={selected.id} />
+                {/* 실행 방식 — 내부(서버 실행)/외부(사용자 컴퓨터 등) 선택. */}
+                <AgentRuntimeSection key={`rt-${selected.id}`} agent={selected} />
 
-                {/* 인증 — API 키. */}
-                <div className="space-y-2">
-                  <h3 className="text-sm font-medium">API 키</h3>
-                  <form
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      void onIssue();
-                    }}
-                    className="flex gap-2"
-                    data-testid="key-issue-form"
-                  >
-                    <Input
-                      value={label}
-                      onChange={(e) => setLabel(e.target.value)}
-                      placeholder="label (선택)"
-                      maxLength={80}
-                      aria-label="키 label"
-                    />
-                    <Button type="submit" disabled={issue.isPending}>
-                      키 발급
-                    </Button>
-                  </form>
+                {external ? (
+                  /* 외부 에이전트 연결 — AI 연결·모델은 숨기고 키 발급 + MCP 연결 안내만 보인다. */
+                  <section className="space-y-3 rounded-md border p-4" data-testid="external-connect-card">
+                    <h3 className="text-sm font-medium">외부 에이전트 연결</h3>
+                    <div className="space-y-2">
+                      <h4 className="text-xs font-medium text-muted-foreground">① 키 발급</h4>
+                      {keysSection}
+                    </div>
+                    <div className="space-y-2">
+                      <h4 className="text-xs font-medium text-muted-foreground">
+                        ② Claude Code 연결 설정 (한 번만)
+                      </h4>
+                      <CopyableCommand command={setupCommand} testId="mcp-setup-command" />
+                      <p className="text-xs text-muted-foreground">
+                        기존 genia-works 연결을 {TOKEN_ENV} 환경변수가 있으면 그 키로, 없으면 내 API 토큰으로
+                        접속하게 바꿔요. &lt;내 API 토큰&gt;은 설정 › API 토큰에서 발급한 값으로 바꿔 넣으세요.
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <h4 className="text-xs font-medium text-muted-foreground">③ 이 AI로 Claude Code 실행</h4>
+                      <CopyableCommand command={launchCommand} testId="agent-launch-command" />
+                      <p className="text-xs text-muted-foreground">
+                        이 명령으로 띄운 세션만 이 AI로 연결되고, 평소 Claude Code는 내 계정 그대로예요. 다른
+                        플러그인도 함께 쓸 수 있어요. 키는 발급 직후 한 번만 보이니 &lt;발급한 키&gt;를 바꿔 넣으세요.
+                      </p>
+                    </div>
+                  </section>
+                ) : (
+                  <>
+                    {/* AI 연결 및 모델 — 연결 상태/재발급/회수 + 공통 비서 지정 + 모델/생각의 깊이. */}
+                    <AgentConnectionSection agentUserId={selected.id} />
 
-                  <div className="rounded-md border overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="text-left text-muted-foreground border-b">
-                          <th className="py-2 px-3">prefix</th>
-                          <th className="px-3">label</th>
-                          <th className="px-3">발급</th>
-                          <th className="px-3">마지막 사용</th>
-                          <th className="px-3">회수</th>
-                          <th className="px-3"></th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {keys.isLoading ? (
-                          <tr>
-                            <td colSpan={6} className="py-4 text-muted-foreground text-center">
-                              로딩 중…
-                            </td>
-                          </tr>
-                        ) : (keys.data ?? []).length === 0 ? (
-                          <tr>
-                            <td colSpan={6} className="py-4 text-muted-foreground text-center">
-                              키가 없습니다
-                            </td>
-                          </tr>
-                        ) : (
-                          (keys.data ?? []).map((k) => (
-                            <tr key={k.id} className="border-b" data-testid={`key-row-${k.id}`}>
-                              <td className="py-2 px-3 font-mono">{k.keyPrefix}…</td>
-                              <td className="px-3">{k.label ?? '-'}</td>
-                              <td className="px-3 text-xs text-muted-foreground">
-                                {formatDateTimeLocale(k.createdAt)}
-                              </td>
-                              <td className="px-3 text-xs text-muted-foreground">
-                                {formatDateTimeLocale(k.lastUsedAt)}
-                              </td>
-                              <td className="px-3 text-xs text-muted-foreground">
-                                {formatDateTimeLocale(k.revokedAt)}
-                              </td>
-                              <td className="px-3">
-                                {k.revokedAt == null && (
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => onRevoke(k.id)}
-                                    data-testid={`key-revoke-${k.id}`}
-                                  >
-                                    회수
-                                  </Button>
-                                )}
-                              </td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
+                    {/* 인증 — API 키. */}
+                    {keysSection}
+                  </>
+                )}
               </div>
 
               {/* 위험 영역 — 에이전트 삭제. */}
@@ -393,6 +373,7 @@ export default function AgentManagementPage() {
       <NewAgentDialog open={showNew} onOpenChange={setShowNew} />
       <AgentKeyIssueDialog
         plaintextKey={plaintext}
+        launchCommand={external && plaintext ? buildAgentLaunchCommand(plaintext) : null}
         open={plaintext != null}
         onOpenChange={(v) => {
           if (!v) setPlaintext(null);

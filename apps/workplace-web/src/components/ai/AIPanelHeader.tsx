@@ -6,6 +6,7 @@ import { Monitor, PanelRight, Sparkles, X } from 'lucide-react';
 
 import { type AIMode, useAssistant } from '@/components/ai/AIAssistantContext';
 import { PanelHeader } from '@/components/layout/PanelHeader';
+import { ghostToggleClass } from '@/lib/selectionStyles';
 import { cn } from '@/lib/utils';
 
 const iconBtn = 'rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground';
@@ -18,6 +19,7 @@ export function AIPanelControls() {
   const { mode, open, close } = useAssistant();
 
   // 모드 버튼 — 현재 모드는 눌린 상태(aria-pressed)로 강조하고, 다른 모드를 누르면 그 모드로 전환한다.
+  // 켜짐은 공용 토글 표시 — 예전 bg-muted 는 hover 와 같은 색이라 구분되지 않았다(WP-368).
   const modeButton = (target: Exclude<AIMode, 'closed'>, label: string, Icon: typeof Monitor) => (
     <button
       type="button"
@@ -26,7 +28,7 @@ export function AIPanelControls() {
       aria-pressed={mode === target}
       data-testid={`ai-mode-${target}`}
       onClick={() => open(target)}
-      className={cn(iconBtn, mode === target && 'bg-muted text-foreground')}
+      className={cn(iconBtn, ghostToggleClass(mode === target))}
     >
       <Icon className="h-4 w-4" />
     </button>

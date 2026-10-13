@@ -4,6 +4,7 @@ import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 
 import { formatListTime } from '@/lib/formatters'
+import { SELECTED_NAV_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
 
 interface Props {
@@ -35,9 +36,11 @@ export function MobileConversationRow({
     <Link
       to={to}
       data-testid={testId}
+      aria-current={active ? 'page' : undefined}
       className={cn(
         'flex min-h-14 items-center gap-3 rounded-md px-3 py-2.5 transition-colors',
-        active ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/50',
+        // 데스크톱 ChannelSidebar 와 같은 NAV 규칙(아이콘이 칸 span 에 싸인 구조도 SELECTED_NAV_CLASS 가 처리).
+        active ? SELECTED_NAV_CLASS : 'hover:bg-accent/50',
       )}
     >
       <span className="flex h-9 w-9 shrink-0 items-center justify-center">{icon}</span>

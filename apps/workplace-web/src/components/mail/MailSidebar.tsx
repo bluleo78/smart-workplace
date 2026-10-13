@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { hasOpenMark } from '@/lib/historyParam'
 import { mailViewHref, resolveMailView } from '@/lib/mailView'
+import { SELECTED_NAV_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
 import { MAIL_CATEGORIES } from '@/types/mailMessage'
 
@@ -58,7 +59,7 @@ export function MailSidebar() {
         aria-label={label}
         className={cn(
           'ml-auto rounded-full px-2 py-0.5 text-xs',
-          // 활성 행(bg-accent) 위에서도 pill 형태가 보이도록 활성 pill 은 background 로.
+          // 활성 행(bg-selected) 위에서도 pill 형태가 보이도록 활성 pill 은 background 로.
           strong ? 'bg-background font-semibold text-primary' : 'bg-muted text-muted-foreground',
         )}
       >
@@ -70,7 +71,7 @@ export function MailSidebar() {
   const folderClass = (active: boolean) =>
     cn(
       'flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/40',
-      active ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/50',
+      active ? SELECTED_NAV_CLASS : 'text-muted-foreground hover:bg-accent/50',
     )
 
   return (

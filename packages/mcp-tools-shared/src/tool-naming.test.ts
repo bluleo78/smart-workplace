@@ -62,7 +62,7 @@ describe('외부 MCP 노출 상한 (WP-340 웨이브 5)', () => {
 
 describe('toolNameViolations', () => {
   it('규칙을 지키는 이름은 위반이 없다', () => {
-    for (const n of ['list_issues', 'get_issue_detail', 'mark_all_notifications_read', 'move_drive_file', 'propose_delete_event', 'show_my_tasks']) {
+    for (const n of ['list_issues', 'get_issue_detail', 'mark_all_notifications_read', 'move_drive_item', 'propose_delete_event', 'show_my_tasks']) {
       expect(toolNameViolations(n), n).toEqual([]);
     }
   });

@@ -26,7 +26,9 @@ export function selectTools(tools: SharedTool[], scope: McpScope): SharedTool[] 
   return tools.filter((t) => (apps === null || toolApps(t).some((a) => apps.includes(a))) && (!readOnly || t.kind === 'read'));
 }
 
-/** 사용자 PAT 컨텍스트에서 노출할 도구 목록(공유 도구 중 destructive 제외 → 연결 범위로 추림). 범위를 안 주면 전체. */
+/**
+ * 노출할 도구 목록(공유 도구 중 destructive 제외 → 연결 범위로 추림). 범위를 안 주면 전체.
+ */
 export function buildUserTools(client: PatApiClient, scope: McpScope = FULL_SCOPE): SharedTool[] {
   return selectTools(exposableTools(buildSharedTools(client)), scope);
 }

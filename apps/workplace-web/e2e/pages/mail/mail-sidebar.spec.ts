@@ -6,6 +6,7 @@ import { detail, mailAccount, summary } from '../../factories/mail.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { trackRequests } from '../../fixtures/requests'
+import { expectSelectedRow } from '../../fixtures/selection'
 
 test.describe('메일 사이드바', () => {
   test('계정 스위처 → 다른 계정 선택 시 /mail/:id 이동 + 폴더 INBOX 초기화', async ({
@@ -49,6 +50,8 @@ test.describe('메일 사이드바', () => {
     await page.goto('/mail/1?folder=sent')
     await expect(page.getByTestId('mail-folder-sent')).toHaveAttribute('aria-current', 'page')
     await expect(page.getByTestId('mail-folder-inbox')).not.toHaveAttribute('aria-current', 'page')
+    // WP-368 — 선택 폴더는 hover 와 구분되는 선택 전용 표시(막대 + bg-selected), 비선택은 없다.
+    await expectSelectedRow(page.getByTestId('mail-folder-sent'), page.getByTestId('mail-folder-inbox'))
   })
 })
 

@@ -11,6 +11,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer'
+import { SELECTED_ROW_CLASS } from '@/lib/selectionStyles'
+import { cn } from '@/lib/utils'
 
 // 들여쓰기 1단계 폭(px) — 사이드바와 동일 값.
 const INDENT = 16
@@ -90,9 +92,11 @@ export function WikiTreeRow({
         <button
           type="button"
           onClick={() => onOpen(id)}
-          className={`flex min-w-0 flex-1 items-center gap-1 rounded px-2 py-1 text-left text-sm hover:bg-accent ${
-            selected ? 'bg-accent font-medium' : ''
-          }`}
+          aria-current={selected ? 'page' : undefined}
+          className={cn(
+            'flex min-w-0 flex-1 items-center gap-1 rounded px-2 py-1 text-left text-sm hover:bg-accent',
+            selected && SELECTED_ROW_CLASS,
+          )}
         >
           <span className="truncate">{label}</span>
           {aiAttributed && (

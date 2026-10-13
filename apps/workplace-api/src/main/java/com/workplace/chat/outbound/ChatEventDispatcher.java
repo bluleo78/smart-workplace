@@ -5,6 +5,8 @@ import com.workplace.global.dto.UserSummary;
 import com.workplace.global.outbound.AiAgentEventClient;
 import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.global.outbound.EventEnvelope;
+import com.workplace.user.dto.UserKind;
+import com.workplace.user.service.ServerAgentResolver;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
@@ -20,7 +22,7 @@ import org.springframework.transaction.event.TransactionalEventListener;
  * <ul>
  *   <li>props.enabled() == true
  *   <li>actor.kind() != "AGENT" (self-loop 차단)
- *   <li>mentions 에 kind == "AGENT" 가 1명 이상
+ *   <li>mentions 에 서버가 실행하는(kind == "AGENT" 이면서 runtime == INTERNAL) 에이전트가 1명 이상 (WP-371)
  * </ul>
  *
  * 다른 모든 조건은 skip — 일반 사람간 메시지나 mention 안 한 메시지는 ai-agent 로 가지 않는다.
@@ -32,19 +34,22 @@ public class ChatEventDispatcher {
 
   private final AiAgentEventClient client;
   private final AiAgentProperties props;
+  private final ServerAgentResolver agentResolver;
 
-  // ChatSseDispatcher 와 달리 @Transactional(REQUIRES_NEW) 가 필요 없다 — 이 핸들러는 DB 를 읽지 않고
-  // 이벤트 payload 만 읽어 outbound HTTP 발사하므로 RLS 보호 테이블 조회가 없어 GUC/트랜잭션이 불필요하다.
+  // ChatSseDispatcher 와 달리 @Transactional(REQUIRES_NEW) 가 필요 없다 — 이 핸들러가 읽는 DB 는 대행 에이전트 선택 시의
+  // 전역(RLS 비대상) "user" 테이블뿐이라 GUC/트랜잭션 없이도 올바르게 읽힌다. 나머지는 이벤트 payload 만으로 outbound HTTP 발사.
   @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
   @Async("aiAgentEventExecutor")
   public void onChatMessageCreated(ChatMessageCreatedEvent e) {
     if (!props.enabled()) return;
-    if ("AGENT".equals(e.actor().kind())) return;
-    if (e.mentions().stream().noneMatch(m -> "AGENT".equals(m.kind()))) return;
-    client.publish(new EventEnvelope("chat.message.posted", buildPayload(e)));
+    if (UserKind.isAgent(e.actor().kind())) return;
+    // WP-371: 서버가 실행할 (INTERNAL) 에이전트 멘션이 하나도 없으면 발사하지 않는다 — 외부 에이전트는 자기 API 키로 직접 일한다.
+    Long acting = agentResolver.pickActingAgent(e.mentions());
+    if (acting == null) return;
+    client.publish(new EventEnvelope("chat.message.posted", buildPayload(e, acting)));
   }
 
-  private Map<String, Object> buildPayload(ChatMessageCreatedEvent e) {
+  private Map<String, Object> buildPayload(ChatMessageCreatedEvent e, Long actingAgentId) {
     Map<String, Object> p = new LinkedHashMap<>();
     p.put("projectKey", e.projectKey());
     p.put("issueKey", e.issueKey());
@@ -59,6 +64,7 @@ public class ChatEventDispatcher {
     p.put("body", e.body());
     p.put("mentions", e.mentions().stream().map(this::toMap).toList());
     p.put("occurredAt", e.occurredAt().toString());
+    p.put("actingAgentId", actingAgentId);
     return p;
   }
 

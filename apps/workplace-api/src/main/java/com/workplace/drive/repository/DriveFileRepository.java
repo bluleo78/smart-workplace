@@ -17,6 +17,8 @@ import lombok.RequiredArgsConstructor;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.jooq.Record;
+import org.jooq.Record5;
+import org.jooq.SelectConditionStep;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
@@ -98,17 +100,35 @@ public class DriveFileRepository {
   }
 
   public Optional<DriveFileRow> findRow(long driveFileId) {
-    var r =
-        dsl.select(
-                DRIVE_FILE.ID,
-                DRIVE_FILE.SPACE_ID,
-                DRIVE_FILE.FILE_ID,
-                DRIVE_FILE.NAME,
-                DRIVE_FILE.FOLDER_ID)
-            .from(DRIVE_FILE)
-            .where(DRIVE_FILE.ID.eq(driveFileId))
-            .and(DRIVE_FILE.TRASHED_AT.isNull())
-            .fetchOne();
+    return toRow(activeRowQuery(driveFileId).fetchOne());
+  }
+
+  /**
+   * 살아 있는 파일 행을 잠가 읽는다(SELECT … FOR UPDATE, WP-369) — 지정 파일에 새 버전을 더하기 직전, 휴지통·이름 변경과의 경합을 막는다. 잠금을
+   * 기다린 뒤 READ COMMITTED 가 {@code trashed_at IS NULL} 을 다시 평가하므로, 먼저 커밋된 휴지통 이동이면 빈 값이다.
+   *
+   * <p>잠금 순서는 테넌트 advisory lock → 이 행이어야 한다(동명 업로드·롤백이 같은 순서로 drive_file 행을 갱신한다). advisory lock 전에
+   * 부르면 교착 위험이 있다.
+   */
+  public Optional<DriveFileRow> lockActiveRow(long driveFileId) {
+    return toRow(activeRowQuery(driveFileId).forUpdate().fetchOne());
+  }
+
+  /** findRow·lockActiveRow 가 같이 쓰는 "살아 있는 파일 한 행" 조회. */
+  private SelectConditionStep<Record5<Long, Long, Long, String, Long>> activeRowQuery(
+      long driveFileId) {
+    return dsl.select(
+            DRIVE_FILE.ID,
+            DRIVE_FILE.SPACE_ID,
+            DRIVE_FILE.FILE_ID,
+            DRIVE_FILE.NAME,
+            DRIVE_FILE.FOLDER_ID)
+        .from(DRIVE_FILE)
+        .where(DRIVE_FILE.ID.eq(driveFileId))
+        .and(DRIVE_FILE.TRASHED_AT.isNull());
+  }
+
+  private static Optional<DriveFileRow> toRow(Record r) {
     return r == null
         ? Optional.empty()
         : Optional.of(
@@ -346,6 +366,11 @@ public class DriveFileRepository {
 
   /** 복원 메타. */
   public record TrashRootMeta(long spaceId, Long folderId, long opId, String name) {}
+
+  /** 현재 버전 blob 의 MIME(file.mime_type) — 텍스트 갱신이 텍스트 계열인지·유지할 MIME 을 판정한다(WP-369). 없으면 null. */
+  public String findCurrentMime(long fileId) {
+    return dsl.select(FILE.MIME_TYPE).from(FILE).where(FILE.ID.eq(fileId)).fetchOne(FILE.MIME_TYPE);
+  }
 
   /** import 시 drive_file 이름으로 사용할 FILE.ORIGINAL_NAME 조회. */
   public String findFileOriginalName(long fileId) {

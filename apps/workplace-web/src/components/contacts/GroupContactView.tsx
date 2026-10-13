@@ -17,6 +17,7 @@ import { useUserGroupDetail } from '@/hooks/queries/useUserGroupDetail'
 import { useDeleteUserGroup } from '@/hooks/queries/useUserGroupMutations'
 import { useUserGroups } from '@/hooks/queries/useUserGroups'
 import { useAuth } from '@/hooks/useAuth'
+import { SELECTED_SURFACE_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
 import type { UserGroupDetail, UserGroupNode } from '@/types/userGroup'
 
@@ -125,7 +126,8 @@ export function GroupContactView({ groupId, selected, onSelect, onGroupDeleted }
                   onClick={() => onSelect({ type: m.targetType, id: m.targetId })}
                   className={cn(
                     'flex w-full items-center gap-3 px-4 py-3 text-left',
-                    active ? 'bg-accent' : 'hover:bg-accent/50',
+                    // ContactsPage 연락처 행과 같은 규칙 — 보조 줄이 굵어지지 않게 막대+배경만.
+                    active ? SELECTED_SURFACE_CLASS : 'hover:bg-accent/50',
                   )}
                 >
                   <span

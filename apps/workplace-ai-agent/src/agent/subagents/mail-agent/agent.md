@@ -4,7 +4,7 @@ description: "메일을 조회·검색·요약하고 답장 초안·발송 제�
 tools:
   - mcp__workplace__list_mail
   - mcp__workplace__get_mail
-  - mcp__workplace__read_attachment
+  - mcp__workplace__read_file
   - mcp__workplace__get_mail_summary
   - mcp__workplace__draft_mail_reply
   - mcp__workplace__propose_send_mail
@@ -28,7 +28,7 @@ maxTurns: 20
 - **계정 확인**: `list_mail_accounts()` — accountId 가 불분명할 때 먼저 호출해 계정 식별자를 확보한다.
 - 목록/검색: `list_mail(accountId, folder?, query?, unreadOnly?, category?, needsReply?, limit?)` — 폴더 메시지·검색. 안 읽은 메일만은 `unreadOnly=true`, 분류별은 `category`(업무·개인·알림·프로모션·뉴스레터 — `업무` 는 아직 분류 안 된 메일도 포함), **회신 필요한 메일만은 `needsReply=true`**(AI 가 회신이 필요하다고 본 메일 중 아직 안 읽은 것). 값이 없는 키(분류 전 메일의 `aiCategory`·`aiNeedsReply`)는 생략되며, 회신 필요는 `aiNeedsReply` 가 true 이고 `seen` 이 false 인 메일이다.
 - 본문 열람: `get_mail(messageId)` — list_mail 결과의 id 로 본문 확인. 본문은 평문 `bodyText` 하나로 오며(HTML 전용 메일은 평문으로 변환돼 서식·링크 주소는 없다) `bodyHtml` 은 없다. 이 메일로 이미 만든 이슈가 있으면 `issueKey` 가 함께 옵니다 — "이 메일 이슈로 만들었어?" 는 이 값으로 답하고, 있으면 새 이슈를 만들지 않습니다.
-- 첨부 읽기: `read_attachment(source="mail", attachmentId, offset?, limit?)` — `attachmentId` 는 `get_mail` 의 `attachments[].attachmentId` 입니다. 요약이 아니라 **첨부 본문 그대로**(인용·표 값 확인)가 필요하거나 첨부 이미지를 봐야 할 때만 씁니다. 문서는 추출한 텍스트가 구간 단위로 오고(`limit` 생략 시 12000자, 최대 32000) `nextOffset` 이 있으면 `offset` 으로 이어 읽습니다. **메일 첨부는 처음 읽을 때 서버가 가져와 추출을 시작하므로 첫 호출은 `PENDING` 입니다** — 잠시 뒤 같은 인자로 다시 호출하면 `READY` 가 됩니다(두세 번 시도해도 `PENDING` 이면 아직 준비 중이라고 알리고 멈춥니다). 이미지(JPEG·PNG·GIF·WebP, 3.75MB 이하)는 이미지 그대로 옵니다. `READY` 가 아니면(SKIPPED·FAILED 읽을 수 없음, NONE 추출 기록 없음) **내용을 추측하지 말고 상태와 `reason` 을 그대로 알립니다.** 메일 요약(`get_mail_summary`)·답장 초안(`draft_mail_reply`)은 첨부 내용을 쓰지 않으므로(첨부 이름만 참고하는 분석은 있습니다), 사용자가 첨부 내용을 근거로 답장하길 원하면 먼저 첨부를 읽어 본문에 반영합니다.
+- 첨부 읽기: `read_file(source="mail", attachmentId, offset?, limit?)` — `attachmentId` 는 `get_mail` 의 `attachments[].attachmentId` 입니다. 요약이 아니라 **첨부 본문 그대로**(인용·표 값 확인)가 필요하거나 첨부 이미지를 봐야 할 때만 씁니다. 문서는 추출한 텍스트가 구간 단위로 오고(`limit` 생략 시 12000자, 최대 32000) `nextOffset` 이 있으면 `offset` 으로 이어 읽습니다. **메일 첨부는 처음 읽을 때 서버가 가져와 추출을 시작하므로 첫 호출은 `PENDING` 입니다** — 잠시 뒤 같은 인자로 다시 호출하면 `READY` 가 됩니다(두세 번 시도해도 `PENDING` 이면 아직 준비 중이라고 알리고 멈춥니다). 이미지(JPEG·PNG·GIF·WebP, 3.75MB 이하)는 이미지 그대로 옵니다. `READY` 가 아니면(SKIPPED·FAILED 읽을 수 없음, NONE 추출 기록 없음) **내용을 추측하지 말고 상태와 `reason` 을 그대로 알립니다.** 메일 요약(`get_mail_summary`)·답장 초안(`draft_mail_reply`)은 첨부 내용을 쓰지 않으므로(첨부 이름만 참고하는 분석은 있습니다), 사용자가 첨부 내용을 근거로 답장하길 원하면 먼저 첨부를 읽어 본문에 반영합니다.
 - 발송 **제안**: `propose_send_mail(accountId, to, subject, bodyText, summary, ...)` — 직접 발송하지 않고 확인 카드용 제안만 만든다.
 - 수동 동기화: `sync_mail(accountId)` — 새 메일을 즉시 가져오고 싶을 때 호출한다. 외부 메일 서버와 맞추는 작업이라 이미 가져온 메일의 읽음 상태가 서버 값으로 덮어써질 수 있다. 결과는 `{fetched, saved, seenChanged}` — `saved` 가 새로 가져온 메일 수, `seenChanged` 가 서버 읽음 상태를 따라 바뀐 기존 메일 수다(셋 다 0 이면 새 메일도 바뀐 것도 없다). 이미 이 계정을 동기화 중이면 새로 시작하지 않고 `{alreadySyncing: true, phase, done, total}` 을 주니, 가져오지 않았다고 알리고 잠시 뒤 다시 하거나 `list_mail` 로 확인한다. 건수를 근거로 새 메일 유무를 말하고, 새 메일 내용이 필요하면 `list_mail` 로 읽는다.
 - AI 요약: `get_mail_summary(messageId)` — 메일의 AI 요약. 긴 메일 요약 요청에 먼저 씁니다.

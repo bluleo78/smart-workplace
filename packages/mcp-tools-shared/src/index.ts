@@ -41,6 +41,8 @@ export { findMemberByUsername, requireActiveMember, requireMember, type Required
 export { addProjectMemberInput, createProjectInput, toCreateProjectBody } from './project-tools.js';
 // WP-352·353: ai-agent 의 메시징 prefetch 가 이벤트 본문·최근 메시지의 `<@id>` 토큰을 도구 출력과 같은 `@이름(username)` 으로 푼다.
 export { addChannelMemberInput, resolveMentionTokens } from './messaging-tools.js';
+// WP-369: AI Chat 의 create_drive_file 판이 업로드 링크 안내를 뺀 content 모드 설명만 쓴다(ai-agent mcp/tools.ts).
+export { CREATE_DRIVE_FILE_CONTENT_DESCRIPTION } from './drive-tools.js';
 export { buildSharedTools, type SharedToolClient, type SharedToolOptions } from './shared-tools.js';
 export { createSharedToolClient, type HttpLike, type HttpRequestConfig } from './rest-client.js';
 export { TOOL_LABELS, isDisplayableTool, stripMcpPrefix, type ToolLabel } from './tool-labels.js';

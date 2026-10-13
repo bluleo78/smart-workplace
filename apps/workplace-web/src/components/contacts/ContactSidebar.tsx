@@ -11,6 +11,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useContactFacets } from '@/hooks/queries/useContactFacets'
+import { SELECTED_NAV_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
 
 import type { ContactTypeFilter } from '../../types/contact'
@@ -103,7 +104,7 @@ export function ContactSidebar() {
             className={cn(
               'flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-medium transition-colors disabled:opacity-50',
               type === f.value
-                ? 'bg-accent text-accent-foreground'
+                ? SELECTED_NAV_CLASS
                 : 'text-muted-foreground hover:bg-accent/50',
             )}
           >

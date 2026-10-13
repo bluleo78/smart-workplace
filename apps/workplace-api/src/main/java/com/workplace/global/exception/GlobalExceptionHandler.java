@@ -73,6 +73,7 @@ import com.workplace.project.exception.ProjectNotFoundException;
 import com.workplace.role.exception.RoleAssignedException;
 import com.workplace.role.exception.RoleNotFoundException;
 import com.workplace.role.exception.SystemRoleModificationException;
+import com.workplace.user.exception.AgentRuntimeConflictException;
 import com.workplace.user.exception.UserDeactivatedException;
 import com.workplace.user.exception.UserNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -314,6 +315,14 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
   }
 
+  // 에이전트 실행 방식 규칙 위반(비서 에이전트를 EXTERNAL 로 등) — 409 (WP-371).
+  @ExceptionHandler(AgentRuntimeConflictException.class)
+  public ResponseEntity<ErrorResponse> handleAgentRuntimeConflict(
+      AgentRuntimeConflictException ex, HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.CONFLICT, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
+  }
+
   @ExceptionHandler(ChannelNotFoundException.class)
   public ResponseEntity<ErrorResponse> handleChannelNotFound(
       ChannelNotFoundException ex, HttpServletRequest request) {
@@ -409,6 +418,39 @@ public class GlobalExceptionHandler {
     ErrorResponse response =
         buildError(HttpStatus.TOO_MANY_REQUESTS, ex.getMessage(), null, request);
     return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(response);
+  }
+
+  /** 전송 링크(WP-369) 없음·잘못된 토큰·비활성 테넌트·대상 파일 사라짐 — 404. 문구가 새 링크 발급을 안내한다. */
+  @ExceptionHandler(com.workplace.drive.exception.DriveTransferLinkNotFoundException.class)
+  public ResponseEntity<ErrorResponse> handleTransferLinkNotFound(
+      RuntimeException ex, HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.NOT_FOUND, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
+  }
+
+  /** 전송 링크(WP-369) 만료·이미 사용(일회용) — 410. */
+  @ExceptionHandler(com.workplace.drive.exception.DriveTransferLinkGoneException.class)
+  public ResponseEntity<ErrorResponse> handleTransferLinkGone(
+      RuntimeException ex, HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.GONE, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.GONE).body(response);
+  }
+
+  /** 전송 링크(WP-369) 발급자의 권한 상실 — 403. */
+  @ExceptionHandler(com.workplace.drive.exception.DriveTransferLinkForbiddenException.class)
+  public ResponseEntity<ErrorResponse> handleTransferLinkForbidden(
+      RuntimeException ex, HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.FORBIDDEN, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
+  }
+
+  /** 업로드 링크 PUT 거부(WP-369) — 상태(400·409·415)는 예외가 정한다. 문구에 내부 id 없음. */
+  @ExceptionHandler(com.workplace.drive.exception.DriveTransferUploadRejectedException.class)
+  public ResponseEntity<ErrorResponse> handleTransferUploadRejected(
+      com.workplace.drive.exception.DriveTransferUploadRejectedException ex,
+      HttpServletRequest request) {
+    ErrorResponse response = buildError(ex.status(), ex.getMessage(), null, request);
+    return ResponseEntity.status(ex.status()).body(response);
   }
 
   // 위키 도메인 — 미존재(404) / 권한미달(403) / 잘못된 입력(400) / 낙관적 충돌(409)
@@ -708,7 +750,8 @@ public class GlobalExceptionHandler {
     com.workplace.drive.exception.DriveDuplicateNameException.class,
     com.workplace.drive.exception.DriveSpaceNameDuplicatedException.class,
     com.workplace.drive.exception.DriveQuotaExceededException.class,
-    com.workplace.drive.exception.DriveSpaceTypeNotEditableException.class
+    com.workplace.drive.exception.DriveSpaceTypeNotEditableException.class,
+    com.workplace.drive.exception.DriveNotTextFileException.class
   })
   public ResponseEntity<ErrorResponse> handleDriveConflict(
       RuntimeException ex, HttpServletRequest request) {

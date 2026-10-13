@@ -1,10 +1,10 @@
-// src/attachment-tools.ts — 이슈·노트·메시지·메일 첨부와 드라이브 파일 내용 읽기 도구 read_attachment(WP-346, WP-358). 두 앱 공유.
+// src/attachment-tools.ts — 이슈·노트·메시지·메일 첨부와 드라이브 파일 내용 읽기 도구 read_file(WP-346, WP-358, WP-369 에서 read_attachment 를 바꿈). 두 앱 공유.
 // 텍스트는 서버가 업로드 때 추출해 둔 텍스트를 구간으로 읽는다(원본을 받지 않는다). 이미지는 추출 대상이 아니라 서버가
 // SKIPPED(reasonCode IMAGE)로 표시하므로, 그때만 원본을 받아 MCP image 블록으로 돌려준다(WP-345 McpToolResult).
 // 이미지가 아닌 원본은 base64 로 돌려주지 않는다 — "텍스트로 읽기"와 "원본 받기"는 다른 도구다(원본 받기는 보류).
 import { z } from 'zod';
 
-import { baseMimeType, FileTooLargeError, IMAGE_MAX_BYTES, imageRejectReasons, READ_ATTACHMENT_DEFAULT_LIMIT, readRangeShape, resolveRange, toBase64 } from './attachment-read.js';
+import { baseMimeType, FileTooLargeError, IMAGE_MAX_BYTES, imageRejectReasons, readRangeShape, resolveRange, toBase64 } from './attachment-read.js';
 import type { McpToolResult } from './mcp-content.js';
 import type { SharedTool } from './mcp-tool.js';
 import { nullAsOmitted } from './tool-definitions.js';
@@ -27,7 +27,7 @@ const IDENTIFIER_FIELDS = ['issueKey', 'attachmentId', 'driveFileId', 'pageId', 
  * WP-358: source 가 5개(issue·drive·wiki·message·mail)로 늘었다. 정의 크기(도구 설명·입력 설명)를 아끼려고 첨부 id 는 attachmentId 하나를
  * 이슈·노트·메시지·메일이 같이 쓰고, 새 식별자는 pageId·channelId·messageId 뿐이다(이름은 다른 도구의 입력 이름과 같다).
  */
-export const readAttachmentInput = z
+export const readFileInput = z
   .object({
     source: z.enum(['issue', 'drive', 'wiki', 'message', 'mail']),
     // 쓰지 않는 source 의 식별자를 모델이 null 로 채워 보내는 경우가 있어 nullish — null 은 "없음"으로 본다(범위 인자와 같은 이유).
@@ -88,7 +88,20 @@ function imageResult(label: string, bytes: FileBytes): McpToolResult {
   ];
 }
 
-/** 첨부·파일 읽기 도구. kind read — 상태를 바꾸지 않는다(외부 MCP 노출). */
+/**
+ * 드라이브 read_file 응답의 고쳐 쓰기 안내(WP-369 최종 리뷰 I4) — 외부 MCP 클라이언트가 일부만 읽고 create_drive_file(driveFileId, content)
+ * 로 덮어 뒷부분을 잃지 않게 한다. 응답 글은 도구 정의 크기에 들지 않아(메일 PENDING note 와 같은 길) 설명 대신 여기서 알린다.
+ * 추출이 잘렸으면(truncated) 끝까지 읽어도 전문이 아니므로 그 안내가 우선이다 — 서버도 그 파일의 내용 갱신을 409 로 막는다.
+ */
+function driveRewriteNote(slice: ExtractedTextSlice): string | undefined {
+  if (slice.truncated) return 'Extraction is capped: do not rewrite via content; use the upload link (create_drive_file without content).';
+  if (slice.nextOffset != null) {
+    return `Partial text: continue with offset=${slice.nextOffset}; read to the end before rewriting with create_drive_file(driveFileId).`;
+  }
+  return undefined;
+}
+
+/** 파일·첨부 읽기 도구(read_file). kind read — 상태를 바꾸지 않는다(외부 MCP 노출). */
 export function buildAttachmentTools(client: AttachmentToolClient): SharedTool[] {
   /** 이슈 첨부 이미지 — 목록에서 형식·크기를 먼저 보고, 보낼 수 있을 때만 원본을 받는다. */
   async function issueImage(issueKey: string, attachmentId: number): Promise<McpToolResult> {
@@ -112,21 +125,22 @@ export function buildAttachmentTools(client: AttachmentToolClient): SharedTool[]
 
   return [
     {
-      name: 'read_attachment',
+      name: 'read_file',
       app: ['issue', 'drive', 'wiki', 'mail', 'messaging'],
       kind: 'read',
+      // WP-369 R7: 전송 도구 두 개를 정의 크기 상한 안에 넣으려고 압축했다 — 드라이브 id 출처(드라이브 앱의 목록·검색이 다 준다)·기본 길이·
+      // 메일 첫 호출 안내(응답 note 가 알린다)·출력 필드 나열(응답에 그대로 보인다)·"원본은 주지 않음"(원본은 create_drive_download_link) 문장을 뺐다.
       description:
-        'Reads an attachment, by source: issue (이슈) {issueKey, attachmentId from get_issue_detail}; drive (드라이브) {driveFileId from ' +
-        'list_drive_items, search_drive or search_drive_content}; wiki page (노트) image {pageId, attachmentId = id in a body image URL ' +
-        '.../attachments/{id}/content}; chat message (메시지) {channelId, messageId, attachmentId = attachments[].fileId from list_channel_messages ' +
-        'or list_thread_replies}; mail (메일) {attachmentId from get_mail}. Documents: a slice of the extracted text, {status, text, ' +
-        `totalChars, nextOffset, truncated, reason} (limit default ${READ_ATTACHMENT_DEFAULT_LIMIT} code points); pass nextOffset as offset to ` +
-        'continue; truncated:true = extraction was capped. Only READY has text: PENDING = extracting (retry soon; mail: first call), ' +
-        `SKIPPED/FAILED = unreadable (relay reason), NONE = never extracted; never guess content. JPEG/PNG/GIF/WebP images up to ${IMAGE_MAX_BYTES} bytes ` +
-        'return as images, others only a reason. Never the original file.',
-      inputSchema: readAttachmentInput,
+        'Reads a drive (드라이브) file or an issue (이슈), wiki page (노트), chat message (메시지) or mail (메일) attachment, by ' +
+        'source: drive {driveFileId}; issue {issueKey, attachmentId from get_issue_detail}; wiki image {pageId, attachmentId in a body image ' +
+        'URL .../attachments/{id}/content}; message {channelId, messageId, attachmentId = attachments[].fileId from list_channel_messages/' +
+        'list_thread_replies}; mail {attachmentId from get_mail}. Text comes in slices (pass nextOffset as offset); ' +
+        'truncated:true = extraction capped. Only READY has text: ' +
+        'PENDING = extracting (retry soon), SKIPPED/FAILED = unreadable (relay reason), NONE = never extracted; never guess. JPEG/PNG/GIF/WebP ' +
+        `up to ${IMAGE_MAX_BYTES / 1024 / 1024} MB return as images.`,
+      inputSchema: readFileInput,
       async handler(args) {
-        const p = readAttachmentInput.parse(args);
+        const p = readFileInput.parse(args);
         const range = resolveRange(p);
         // superRefine 이 source 별 필수 식별자를 확인했으므로 단정(!)해도 된다.
         switch (p.source) {
@@ -145,7 +159,8 @@ export function buildAttachmentTools(client: AttachmentToolClient): SharedTool[]
             if (isImageSkip(slice)) return driveImage(driveFileId);
             // #840: 드라이브 표면에는 core fileId 를 내보내지 않는다 — 다른 드라이브 도구와 같이 driveFileId 로만 가리킨다.
             const { fileId: _coreFileId, ...rest } = slice;
-            return JSON.stringify({ driveFileId, ...rest });
+            const note = driveRewriteNote(slice);
+            return JSON.stringify({ driveFileId, ...rest, ...(note && { note }) });
           }
           case 'wiki': {
             const pageId = p.pageId!;
