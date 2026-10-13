@@ -8,9 +8,8 @@ import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.boot.context.properties.source.MapConfigurationPropertySource;
 
 /**
- * WP-139 추천 기본 모델 설정 — env WORKPLACE_AI_SUGGESTION_MODEL 이 정의만 되고 비어 있으면(Helm values 빈 값 등)
- * `${…:claude-haiku-5-5}` 가 기본값이 아니라 빈 문자열로 풀린다. 그래도 기본 모델을 쓰는지 본다(최종 리뷰 M2). 스프링 컨텍스트 없이 바인딩만
- * 확인한다.
+ * WP-139 추천 기본 모델 설정 — application.yml 은 env WORKPLACE_AI_SUGGESTION_MODEL 을 기본값 없이 넘기므로(미설정·Helm
+ * values 빈 값이면 빈 문자열) 키 누락·빈 값·공백이 모두 기본 모델로 정규화되는지 본다. 스프링 컨텍스트 없이 바인딩만 확인한다.
  */
 class AiSuggestionPropertiesTest {
 

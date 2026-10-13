@@ -76,7 +76,7 @@ public class AiAgentCredentialService {
 
     // 회수 전에 이전 active 의 provider 를 읽어 둔다(아래 추천 모델 초기화 판단용).
     Optional<String> previousProvider =
-        repo.findActive(agentUserId).map(r -> normalizeProvider(r.provider()));
+        repo.findActive(agentUserId).map(r -> AgentProviders.normalize(r.provider()));
     repo.revokeActive(agentUserId); // 기존 active 가 있으면 회수 (없으면 noop)
 
     String encrypted = encryptionService.encrypt(plaintextSecret);
@@ -90,7 +90,7 @@ public class AiAgentCredentialService {
     String effectiveModel =
         (model != null && !model.isBlank())
             ? model
-            : ("anthropic".equals(provider) ? AssistantDefaults.MODEL : null);
+            : (AgentProviders.isAnthropic(provider) ? AssistantDefaults.MODEL : null);
     if (effectiveModel != null) {
       ConfigRow cur = configRepo.find(agentUserId).orElse(new ConfigRow(null, null, null, null));
       configRepo.upsert(
@@ -210,7 +210,7 @@ public class AiAgentCredentialService {
    */
   private boolean suggestionModelUsable(
       Long agentUserId, Optional<String> previousProvider, String provider, String providerId) {
-    if (!previousProvider.equals(Optional.of(normalizeProvider(provider)))) return false;
+    if (!previousProvider.equals(Optional.of(AgentProviders.normalize(provider)))) return false;
     if (!"opencode".equals(provider)) return true;
     String saved = configRepo.find(agentUserId).map(ConfigRow::suggestionModel).orElse(null);
     return saved == null || saved.startsWith(providerId + "/");
@@ -259,14 +259,6 @@ public class AiAgentCredentialService {
     } catch (Exception e) {
       return null; // 메타 조회는 best-effort — 파싱 실패로 전체 응답을 깨뜨리지 않는다.
     }
-  }
-
-  /**
-   * provider 비교용 정규화 — 미기록(V119 이전 레거시)은 anthropic(SuggestionModelPolicy·ProviderCredentialSecrets
-   * 와 같은 규칙).
-   */
-  private static String normalizeProvider(String provider) {
-    return SuggestionModelPolicy.isAnthropic(provider) ? "anthropic" : provider;
   }
 
   private UserResponse assertAgent(Long userId) {

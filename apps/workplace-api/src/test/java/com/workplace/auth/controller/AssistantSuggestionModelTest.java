@@ -240,7 +240,7 @@ class AssistantSuggestionModelTest extends IntegrationTestBase {
 
   @Test
   void 다른_제공자로_재등록하면_추천_모델이_자동으로_돌아간다() throws Exception {
-    // 실측 위험(최종 리뷰 I1): Anthropic 용 추천 모델이 opencode 연결에 그대로 실리면 추천·후속이 조용히 전부 실패한다.
+    // 실측 위험: Anthropic 용 추천 모델이 opencode 연결에 그대로 실리면 추천·후속이 조용히 전부 실패한다.
     long human = humanWithAssistant();
     putSettings(human, "{\"suggestionModel\":\"claude-haiku-5-5\"}")
         .andExpect(status().isNoContent());
