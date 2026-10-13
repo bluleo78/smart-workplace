@@ -4,7 +4,7 @@ import type { Page } from '@playwright/test'
 import { personalDetail, sharedDetail, sharedNode, tree } from '../../factories/userGroups.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { trackRequests } from '../../fixtures/requests'
-import { expectCurrent, expectSelectedRow } from '../../fixtures/selection'
+import { expectSelectedRow } from '../../fixtures/selection'
 
 // GET /api/v1/user-groups → 기본 트리(공유 1개 + 개인 1개)
 async function stubTree(page: Page) {
@@ -79,11 +79,14 @@ test('그룹 트리·그룹 멤버 행 선택 표시 (WP-368)', async ({ authent
   await page.getByTestId('group-node-10').click()
   await expect(page.getByTestId('org-chart-view')).toBeVisible()
   await expectSelectedRow(row10, row20)
-  await expectCurrent(page.getByTestId('group-node-10'), page.getByTestId('group-node-20'), 'true')
+  // 다시 누르면 해제되는 필터 토글이라 aria-pressed 로 알린다(멤버 행과 같은 규칙).
+  await expect(page.getByTestId('group-node-10')).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByTestId('group-node-20')).toHaveAttribute('aria-pressed', 'false')
   // 개인 그룹으로 옮기면 선택 표시가 따라가고, 멤버 행은 고르기 전엔 선택 표시가 없다.
   await page.getByTestId('group-node-20').click()
   await expectSelectedRow(row20, row10)
-  await expectCurrent(page.getByTestId('group-node-20'), page.getByTestId('group-node-10'), 'true')
+  await expect(page.getByTestId('group-node-20')).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByTestId('group-node-10')).toHaveAttribute('aria-pressed', 'false')
   const member = page.getByTestId('group-member-MEMBER-1')
   await expect(member).toHaveAttribute('aria-pressed', 'false')
   await expect(member).not.toHaveClass(/bg-selected/)

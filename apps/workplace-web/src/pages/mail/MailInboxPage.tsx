@@ -80,13 +80,17 @@ function formatReceivedAt(iso: string | null): string {
 function MessageRow({
   m,
   active,
+  open,
   onSelect,
   pendingVisible,
   showToggle,
   onToggleRead,
 }: {
   m: EmailMessageSummary
+  /** 선택 배경 — 읽기 창에 열린 메일 + 길게 누르기 시트 대상. */
   active: boolean
+  /** 읽기 창에 열린 메일인가(보조기기 aria-current) — 시트 대상은 강조만 하고 열린 것으로 알리지 않는다. */
+  open: boolean
   onSelect: () => void
   /** "분류 전" 배지 노출 여부 — 받은편지함 계열이고 AI 분류가 켜진 계정일 때만. */
   pendingVisible: boolean
@@ -112,7 +116,7 @@ function MessageRow({
       // 식별에 필수가 아니므로 간결함 우선으로 제외.
       aria-label={`${m.fromName || m.fromAddress || '(보낸사람 없음)'} ${m.subject || '(제목 없음)'}`}
       // 지금 읽기 창에 열린 메일을 보조기기에도 알린다(WP-368 — 선택 배경이 눈으로만 보이던 것).
-      aria-current={active ? 'true' : undefined}
+      aria-current={open ? 'true' : undefined}
       onClick={onSelect}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -1142,6 +1146,7 @@ export function MailInboxPage() {
                   m={m}
                   // 길게 누르기 시트의 대상 행도 강조한다 — 촘촘한 목록에서 어느 메일에 대한 작업인지 보이게(M4).
                   active={selectedId === m.id || (sheet.open && sheet.target?.id === m.id)}
+                  open={selectedId === m.id}
                   onSelect={() => mailParam.open(String(m.id))}
                   pendingVisible={view.kind !== 'sent' && classificationActive}
                   showToggle={!touchShell}

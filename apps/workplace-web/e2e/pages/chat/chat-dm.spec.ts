@@ -335,6 +335,22 @@ test.describe('messaging DM', () => {
     await expect(page.getByTestId('dm-self-link')).not.toHaveAttribute('aria-current')
   })
 
+  // /chat/dms/self 는 실제 DM id 로 리다이렉트한다 — 그 id 로 열린 셀프 DM 도 「나」 행이 선택·현재 항목이어야 한다(WP-368).
+  test('사이드바 — 셀프 DM 을 실제 id 로 열어도 「나」 행이 선택·aria-current (WP-368)', async ({ authenticatedPage: page }) => {
+    const dms = [
+      createDm({ id: 101, participants: [createDmParticipant({ userId: 1, name: '테스트 사용자' })] }),
+      createDm({ id: 102, participants: [createDmParticipant({ userId: 1, name: '테스트 사용자' }), createDmParticipant({ userId: 2, name: '밥' })] }),
+    ]
+    await stubLists(page, dms)
+    await stubMessages(page, 101, [])
+    await stubMarkRead(page, 101)
+    await page.goto('/chat/dms/101')
+    const self = page.getByTestId('dm-self-link')
+    const other = page.getByTestId('dm-link-102')
+    await expectSelectedRow(self, other)
+    await expectCurrent(self, other, 'page')
+  })
+
   test('비참여자 직접 진입 → 대화 없음', async ({ authenticatedPage: page }) => {
     await stubLists(page, []) // 내 DM 목록에 없음
     await stubMessages(page, 999, [])
