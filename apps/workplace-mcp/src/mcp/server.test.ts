@@ -21,7 +21,7 @@ vi.mock('../tools/index.js', () => {
   };
 });
 
-import { buildMcpServer, principalKindOf } from './server.js';
+import { buildMcpServer } from './server.js';
 
 async function call(name: string) {
   const server = buildMcpServer('http://api.test', 'swp_t');
@@ -49,18 +49,3 @@ describe('buildMcpServer — 공유 도구 반환 타입 (WP-345)', () => {
   });
 });
 
-describe('접속 주체 종류 (WP-372)', () => {
-  it('토큰 접두사로 판별한다 — ak_ 는 AGENT, swp_ 는 HUMAN', () => {
-    expect(principalKindOf('ak_abc')).toBe('AGENT');
-    expect(principalKindOf('swp_abc')).toBe('HUMAN');
-  });
-
-  it('도구 등록(buildUserTools)에 principalKind 를 넘긴다', () => {
-    buildUserToolsSpy.mockClear();
-    buildMcpServer('http://api.test', 'ak_k');
-    expect(buildUserToolsSpy.mock.calls[0][2]).toEqual({ principalKind: 'AGENT' });
-    buildUserToolsSpy.mockClear();
-    buildMcpServer('http://api.test', 'swp_k');
-    expect(buildUserToolsSpy.mock.calls[0][2]).toEqual({ principalKind: 'HUMAN' });
-  });
-});

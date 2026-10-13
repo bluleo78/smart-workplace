@@ -36,9 +36,8 @@ workplace-mcp 자신은 토큰을 저장·검증하지 않고 그대로 전달(�
   요청별 `McpServer` 구성.
 - `src/clients/workplace-api.ts`: `createPatApiClient({ baseURL, token })` — 토큰을 헤더로 단 axios 인스턴스를
   공유 `createSharedToolClient` 에 넘긴 클라이언트. 도구 핸들러는 이 클라이언트만 통해 workplace-api 를 호출한다.
-- AI 키(`ak_`) 접속: 토큰 접두사로 접속 주체(`principalKind`: `ak_` → AGENT, 그 외 HUMAN)를 정해
-  `buildUserTools(client, scope, { principalKind })` 에 넘긴다. 지금은 두 종류가 같은 도구를 보지만, AI 신원 전용
-  도구 묶음을 나중에 이 값으로 가려 등록할 수 있다. 요청 헤더 `X-On-Behalf-Of-Tenant` 는 **`ak_` 일 때만**
+- AI 키(`ak_`) 접속: `swp_`(사람 PAT)와 같은 도구를 같은 방식으로 쓰고, `ak_` 로 접속하면 호출이 그 AI 신원으로 실행된다.
+  요청 헤더 `X-On-Behalf-Of-Tenant` 는 **`ak_` 일 때만**
   `/auth/me` 조기 검증과 모든 도구 호출에 그대로 전달한다(AI 키엔 테넌트가 없어 다중 멤버십 AI 는 이 헤더로 고르고,
   서버가 멤버십을 검증한다. 사람 PAT 의 테넌트는 토큰이 정한다). `/auth/me` 는 AGENT 키도 통과한다.
 - 401 은 그대로 클라이언트에 요약 전달(`summarizeError`) — "토큰 만료·폐기" 를 사용자가 바로 알 수

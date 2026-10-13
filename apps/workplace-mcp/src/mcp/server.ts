@@ -8,18 +8,12 @@ import { describeApiError, toMcpContent, toolAnnotations, toolDefinition } from 
 import type { z } from 'zod';
 
 import { createPatApiClient } from '../clients/workplace-api.js';
-import { buildUserTools, type PrincipalKind } from '../tools/index.js';
+import { buildUserTools } from '../tools/index.js';
 import { buildInstructions } from './instructions.js';
 import { FULL_SCOPE, InvalidScopeError, resolveScope, type McpRoute, type McpScope } from './scope.js';
 
-/** 토큰 접두사로 접속 주체 종류를 정한다 — ak_ 는 AI(AGENT) 키, 그 외(swp_)는 사람 PAT. */
-export function principalKindOf(token: string): PrincipalKind {
-  return token.startsWith('ak_') ? 'AGENT' : 'HUMAN';
-}
-
-/** 접속 옵션 — principalKind 는 도구 등록에, tenantId(X-On-Behalf-Of-Tenant)는 workplace-api 호출 헤더에 쓴다. */
+/** 접속 옵션 — tenantId(X-On-Behalf-Of-Tenant, ak_ 전용)는 workplace-api 호출 헤더에 쓴다. */
 export interface McpConnectionOptions {
-  principalKind?: PrincipalKind;
   tenantId?: string;
 }
 
@@ -28,13 +22,13 @@ export function buildMcpServer(
   apiBaseUrl: string,
   token: string,
   scope: McpScope = FULL_SCOPE,
-  { principalKind = principalKindOf(token), tenantId }: McpConnectionOptions = {},
+  { tenantId }: McpConnectionOptions = {},
 ): McpServer {
   const client = createPatApiClient({ baseURL: apiBaseUrl, token, tenantId });
   // serverInfo — name 은 설정 키가 없을 때 도구 이름 접두사로 쓰는 클라이언트가 있어 영문·숫자·-·_ 만 쓰고,
   // 브랜드 표기(콜론·공백 포함)는 표시용 title 로 둔다(WP-334).
   // WP-350: 연결 범위에 맞춰 도구를 추리고, instructions 도 로드된 도구만 설명하도록 같은 목록으로 만든다.
-  const tools = buildUserTools(client, scope, { principalKind });
+  const tools = buildUserTools(client, scope);
   const server = new McpServer(
     { name: 'genia-works', title: 'Gen:iA Works', version: '0.1.0' },
     { instructions: buildInstructions(tools, scope) },
@@ -110,10 +104,9 @@ export async function handleMcpPost(
     return;
   }
   const token = auth.slice('Bearer '.length);
-  const principalKind = principalKindOf(token);
   // 테넌트 선택 헤더는 AI 키에서만 전달한다 — 사람 PAT 의 테넌트는 토큰이 정한다. 배열(헤더 중복)이면 첫 값.
   const tenantHeader = req.headers['x-on-behalf-of-tenant'];
-  const tenantId = principalKind === 'AGENT' ? (Array.isArray(tenantHeader) ? tenantHeader[0] : tenantHeader) || undefined : undefined;
+  const tenantId = token.startsWith('ak_') ? (Array.isArray(tenantHeader) ? tenantHeader[0] : tenantHeader) || undefined : undefined;
 
   // 앱 이름이 틀리면 도구를 일부만 싣지 않고 400 + 사용 가능한 목록으로 거절한다. 인증 뒤·/auth/me 앞에서 해 불필요한 API 호출을 피한다.
   // 본문은 이 서버의 다른 사전 거절(401)과 같은 JSON-RPC 오류 모양이다 — Streamable HTTP 클라이언트는 비 2xx 본문을 오류 메시지로 보여 준다.
@@ -144,7 +137,7 @@ export async function handleMcpPost(
     }
   }
 
-  const server = buildMcpServer(apiBaseUrl, token, scope, { principalKind, tenantId });
+  const server = buildMcpServer(apiBaseUrl, token, scope, { tenantId });
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
   res.on('close', () => {
     void transport.close();
