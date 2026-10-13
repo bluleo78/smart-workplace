@@ -675,6 +675,8 @@ class PublicDriveTransferControllerIntegrationTest extends IntegrationTestBase {
   @Test
   void put_issuerMembershipSuspended_isForbidden() throws Exception {
     String path = issueUploadPath(owner, "{\"name\":\"정지.txt\"}");
+    // 리터럴 대신 원래 상태를 읽어 두고 그대로 되돌린다(시드가 바뀌어도 다른 상태로 덮지 않게).
+    String original = membershipStatus(owner);
     setMembership(owner, "SUSPENDED");
     try {
       mockMvc
@@ -682,7 +684,7 @@ class PublicDriveTransferControllerIntegrationTest extends IntegrationTestBase {
           .andExpect(status().isForbidden())
           .andExpect(jsonPath("$.message").value(containsString("새 링크를 발급받으세요")));
     } finally {
-      setMembership(owner, "ACTIVE");
+      setMembership(owner, original);
     }
   }
 
@@ -719,6 +721,21 @@ class PublicDriveTransferControllerIntegrationTest extends IntegrationTestBase {
     assertThat(tempPartFiles()).isEqualTo(before);
   }
 
+  /** 워크스페이스(tenant#1) 멤버십 상태 조회 — 바꾼 뒤 원래 값으로 되돌리기 위함. */
+  private String membershipStatus(long userId) {
+    String[] status = new String[1];
+    cleanupInTenant(
+        1L,
+        () ->
+            status[0] =
+                dsl.select(MEMBERSHIP.STATUS)
+                    .from(MEMBERSHIP)
+                    .where(MEMBERSHIP.USER_ID.eq(userId))
+                    .and(MEMBERSHIP.TENANT_ID.eq(1L))
+                    .fetchOne(MEMBERSHIP.STATUS));
+    return status[0];
+  }
+
   private void setMembership(long userId, String status) {
     cleanupInTenant(
         1L,
@@ -742,5 +759,275 @@ class PublicDriveTransferControllerIntegrationTest extends IntegrationTestBase {
           .filter(n -> n.startsWith("drive-transfer-") && n.endsWith(".part"))
           .count();
     }
+  }
+
+  // ── Task 3: 기존 파일을 ID 로 지정해 새 버전 ──────────────────────────────────────
+
+  /** 파일 지정 업로드 링크 발급 → 공개 경로(호스트 제외). */
+  private String issueFileUploadPath(long issuer, long targetId) throws Exception {
+    String body =
+        mockMvc
+            .perform(
+                post("/api/v1/drive/files/" + targetId + "/upload-link")
+                    .header("Authorization", bearer(issuer)))
+            .andExpect(status().isCreated())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+    String url = objectMapper.readTree(body).get("url").asText();
+    return url.substring("http://localhost:6173".length());
+  }
+
+  /** 인증 다운로드로 현재 버전 바이트를 읽는다. */
+  private byte[] currentBytes(long targetId) throws Exception {
+    return mockMvc
+        .perform(
+            get("/api/v1/drive/files/" + targetId + "/download")
+                .header("Authorization", bearer(owner)))
+        .andExpect(status().isOk())
+        .andReturn()
+        .getResponse()
+        .getContentAsByteArray();
+  }
+
+  /**
+   * 파일 지정 업로드 링크 발급 — 응답 형식은 이름 기반 링크와 같고(maxBytes 는 파일 이름 기준), 행에 drive_file_id 가 묶이며 발급 감사의
+   * resource_id 는 그 파일이다. VIEWER 403, 익명 401, 없는 파일·휴지통 파일 404.
+   */
+  @Test
+  void fileUploadLink_issue_contractAndRefusals() throws Exception {
+    String body =
+        mockMvc
+            .perform(
+                post("/api/v1/drive/files/" + driveFileId + "/upload-link")
+                    .header("Authorization", bearer(owner)))
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.url").value(containsString("/api/v1/public/drive/transfer/ul_")))
+            .andExpect(jsonPath("$.method").value("PUT"))
+            .andExpect(jsonPath("$.expiresAt").isNotEmpty())
+            .andExpect(jsonPath("$.maxBytes").value(10 * 1024 * 1024))
+            .andExpect(jsonPath("$.name").value("회의 메모.md"))
+            .andExpect(jsonPath("$.singleUse").value(true))
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+    String token = objectMapper.readTree(body).get("url").asText().replaceAll(".*/", "");
+    String hash = com.workplace.drive.service.DriveShareLinkService.sha256Hex(token);
+    cleanupInTenant(
+        1L,
+        () -> {
+          var row =
+              dsl.selectFrom(DRIVE_TRANSFER_LINK)
+                  .where(DRIVE_TRANSFER_LINK.TOKEN_HASH.eq(hash))
+                  .fetchOne();
+          assertThat(row.getKind()).isEqualTo("UPLOAD");
+          assertThat(row.getDriveFileId()).isEqualTo(driveFileId);
+          assertThat(row.getFolderId()).isNull();
+          assertThat(row.getFileName()).isEqualTo("회의 메모.md");
+          var audit =
+              dsl.selectFrom(AUDIT_LOG)
+                  .where(AUDIT_LOG.ACTION_TYPE.eq("TRANSFER_LINK_CREATE"))
+                  .and(AUDIT_LOG.RESOURCE_ID.eq(String.valueOf(driveFileId)))
+                  .and(AUDIT_LOG.USER_ID.eq(owner))
+                  .fetchOne();
+          assertThat(audit).isNotNull();
+          assertThat(audit.getMetadata().data()).doesNotContain(token).doesNotContain(hash);
+        });
+
+    mockMvc
+        .perform(
+            post("/api/v1/drive/files/" + driveFileId + "/upload-link")
+                .header("Authorization", bearer(viewer)))
+        .andExpect(status().isForbidden());
+    mockMvc
+        .perform(post("/api/v1/drive/files/" + driveFileId + "/upload-link"))
+        .andExpect(status().isUnauthorized());
+    mockMvc
+        .perform(
+            post("/api/v1/drive/files/" + Long.MAX_VALUE + "/upload-link")
+                .header("Authorization", bearer(owner)))
+        .andExpect(status().isNotFound());
+    cleanupInTenant(1L, () -> fileService.delete(owner, driveFileId));
+    mockMvc
+        .perform(
+            post("/api/v1/drive/files/" + driveFileId + "/upload-link")
+                .header("Authorization", bearer(owner)))
+        .andExpect(status().isNotFound());
+  }
+
+  /**
+   * 파일 지정 링크로 익명 PUT → 그 파일에 새 버전(같은 id·이름, versionCount 2, 내용은 PUT 바이트). 감사 FILE_VERSION_CREATED·
+   * TRANSFER_LINK_USE 의 actor 는 발급자. 두 번째 PUT 은 410.
+   */
+  @Test
+  void filePut_addsVersionToThatFile_auditedAsIssuer_thenGone() throws Exception {
+    String path = issueFileUploadPath(owner, driveFileId);
+    byte[] content = "# 외부에서 고친 메모".getBytes(StandardCharsets.UTF_8);
+
+    mockMvc
+        .perform(put(path).content(content).header("X-Forwarded-For", "203.0.113.7"))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.id").value(driveFileId))
+        .andExpect(jsonPath("$.name").value("회의 메모.md"))
+        .andExpect(jsonPath("$.mimeType").value("text/markdown"))
+        .andExpect(jsonPath("$.sizeBytes").value(content.length))
+        .andExpect(jsonPath("$.versionCount").value(2));
+    assertThat(currentBytes(driveFileId)).isEqualTo(content);
+
+    mockMvc
+        .perform(put(path).content(content))
+        .andExpect(status().isGone())
+        .andExpect(jsonPath("$.message").value(containsString("새 링크를 발급받으세요")));
+
+    cleanupInTenant(
+        1L,
+        () -> {
+          var version =
+              dsl.selectFrom(AUDIT_LOG)
+                  .where(AUDIT_LOG.ACTION_TYPE.eq("FILE_VERSION_CREATED"))
+                  .and(AUDIT_LOG.RESOURCE_ID.eq(String.valueOf(driveFileId)))
+                  .fetchOne();
+          assertThat(version.getUserId()).isEqualTo(owner);
+          var use =
+              dsl.selectFrom(AUDIT_LOG)
+                  .where(AUDIT_LOG.ACTION_TYPE.eq("TRANSFER_LINK_USE"))
+                  .and(AUDIT_LOG.RESOURCE_ID.eq(String.valueOf(driveFileId)))
+                  .fetchOne();
+          assertThat(use.getUserId()).isEqualTo(owner);
+          assertThat(use.getIpAddress()).isEqualTo("203.0.113.7");
+          // 같은 공간에 새 파일이 생기지 않았다
+          assertThat(dsl.fetchCount(DRIVE_FILE, DRIVE_FILE.SPACE_ID.eq(spaceId))).isEqualTo(1);
+        });
+  }
+
+  /** 발급 뒤 파일 이름을 바꿔도 같은 파일에 새 버전이 들어간다 — 옛 이름으로 새 파일이 생기지 않는다. */
+  @Test
+  void filePut_afterRename_goesToSameFile() throws Exception {
+    String path = issueFileUploadPath(owner, driveFileId);
+    cleanupInTenant(1L, () -> fileService.rename(owner, driveFileId, "바뀐 메모.md"));
+
+    mockMvc
+        .perform(put(path).content("새 내용".getBytes(StandardCharsets.UTF_8)))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.id").value(driveFileId))
+        .andExpect(jsonPath("$.name").value("바뀐 메모.md"))
+        .andExpect(jsonPath("$.versionCount").value(2));
+    cleanupInTenant(
+        1L,
+        () -> {
+          assertThat(
+                  dsl.fetchExists(
+                      DRIVE_FILE,
+                      DRIVE_FILE.SPACE_ID.eq(spaceId).and(DRIVE_FILE.NAME.eq("회의 메모.md"))))
+              .isFalse();
+          assertThat(dsl.fetchCount(DRIVE_FILE, DRIVE_FILE.SPACE_ID.eq(spaceId))).isEqualTo(1);
+        });
+  }
+
+  /** 발급 뒤 파일을 휴지통으로 보내면 PUT 은 404("새 링크", 내부 id 없음) — 링크는 소비돼 다시 쓰면 410. */
+  @Test
+  void filePut_afterTrash_isNotFound_andLinkStaysBurned() throws Exception {
+    String path = issueFileUploadPath(owner, driveFileId);
+    cleanupInTenant(1L, () -> fileService.delete(owner, driveFileId));
+
+    String message =
+        objectMapper
+            .readTree(
+                mockMvc
+                    .perform(put(path).content("x".getBytes(StandardCharsets.UTF_8)))
+                    .andExpect(status().isNotFound())
+                    .andReturn()
+                    .getResponse()
+                    .getContentAsString())
+            .get("message")
+            .asText();
+    assertThat(message).isEqualTo("올릴 파일을 찾을 수 없습니다. 새 링크를 발급받으세요");
+    assertThat(message).doesNotContainPattern("[0-9]");
+    mockMvc
+        .perform(put(path).content("x".getBytes(StandardCharsets.UTF_8)))
+        .andExpect(status().isGone());
+  }
+
+  /** 발급 뒤 발급자가 그 파일 공간의 VIEWER 로 내려가면 PUT 은 403. */
+  @Test
+  void filePut_issuerDemoted_isForbidden() throws Exception {
+    String path = issueFileUploadPath(owner, driveFileId);
+    setRole(owner, "VIEWER");
+    try {
+      mockMvc
+          .perform(put(path).content("x".getBytes(StandardCharsets.UTF_8)))
+          .andExpect(status().isForbidden())
+          .andExpect(jsonPath("$.message").value(containsString("새 링크를 발급받으세요")));
+    } finally {
+      setRole(owner, "OWNER");
+    }
+  }
+
+  /**
+   * 텍스트 갱신 HTTP 계약 — 200 + versionCount 2(같은 id·이름), VIEWER 403, 비텍스트 파일 409(정해진 문구), content 누락
+   * 400, 휴지통 404.
+   */
+  @Test
+  void textUpdate_http_contractAndRefusals() throws Exception {
+    mockMvc
+        .perform(
+            post("/api/v1/drive/files/" + driveFileId + "/text")
+                .header("Authorization", bearer(owner))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"content\":\"# 고침\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.id").value(driveFileId))
+        .andExpect(jsonPath("$.name").value("회의 메모.md"))
+        .andExpect(jsonPath("$.mimeType").value("text/markdown"))
+        .andExpect(jsonPath("$.versionCount").value(2));
+    assertThat(currentBytes(driveFileId)).isEqualTo("# 고침".getBytes(StandardCharsets.UTF_8));
+
+    mockMvc
+        .perform(
+            post("/api/v1/drive/files/" + driveFileId + "/text")
+                .header("Authorization", bearer(viewer))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"content\":\"x\"}"))
+        .andExpect(status().isForbidden());
+    mockMvc
+        .perform(
+            post("/api/v1/drive/files/" + driveFileId + "/text")
+                .header("Authorization", bearer(owner))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+        .andExpect(status().isBadRequest());
+
+    long pdfId;
+    TenantContext.set(1L);
+    try {
+      pdfId =
+          fileService
+              .upload(
+                  owner,
+                  spaceId,
+                  null,
+                  new MockMultipartFile(
+                      "file", "계약서.pdf", "application/pdf", "%PDF-1.4".getBytes()))
+              .id();
+    } finally {
+      TenantContext.clear();
+    }
+    mockMvc
+        .perform(
+            post("/api/v1/drive/files/" + pdfId + "/text")
+                .header("Authorization", bearer(owner))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"content\":\"x\"}"))
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.message").value("텍스트 파일만 내용으로 갱신할 수 있습니다"));
+
+    cleanupInTenant(1L, () -> fileService.delete(owner, driveFileId));
+    mockMvc
+        .perform(
+            post("/api/v1/drive/files/" + driveFileId + "/text")
+                .header("Authorization", bearer(owner))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"content\":\"x\"}"))
+        .andExpect(status().isNotFound());
   }
 }

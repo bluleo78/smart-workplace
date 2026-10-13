@@ -44,4 +44,15 @@ public class DriveTransferLinkController {
     return ResponseEntity.status(HttpStatus.CREATED)
         .body(service.issueUploadLink(callerId, spaceId, req));
   }
+
+  /**
+   * 기존 파일 지정 업로드 링크 발급(EDITOR 이상, 본문 없음) → 201 + 업로드 링크와 같은 응답. PUT 하면 이름으로 찾지 않고 이 파일에 새 버전을
+   * 더한다(발급 뒤 이름이 바뀌어도 같은 파일). {@code maxBytes} 는 그 파일 이름 기준 범주 상한.
+   */
+  @PostMapping("/files/{id}/upload-link")
+  public ResponseEntity<DriveUploadLinkResponse> createFileUploadLink(
+      @AuthenticationPrincipal Long callerId, @PathVariable("id") long driveFileId) {
+    return ResponseEntity.status(HttpStatus.CREATED)
+        .body(service.issueFileUploadLink(callerId, driveFileId));
+  }
 }

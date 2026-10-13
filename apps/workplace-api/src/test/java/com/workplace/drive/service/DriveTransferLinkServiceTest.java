@@ -700,6 +700,135 @@ class DriveTransferLinkServiceTest extends IntegrationTestBase {
             });
   }
 
+  // --- Task 3: 기존 파일 지정 업로드 링크 · 임시 디렉터리 ---
+
+  /** 파일 지정 업로드 링크의 토큰만(컨텍스트는 테넌트 1 유지). */
+  private String fileUploadToken(long issuer, long targetId) {
+    DriveUploadLinkResponse r = transfers.issueFileUploadLink(issuer, targetId);
+    return r.url().substring(r.url().lastIndexOf('/') + 1);
+  }
+
+  /** 파일 지정 링크 발급 — 응답은 이름 기반과 같고 이름은 파일 이름. VIEWER 403, 비멤버 404(은닉), 휴지통 404, 거부 시 행이 생기지 않는다. */
+  @Test
+  void issueFileUpload_contract_andRefusals() {
+    long outsider = withMembership(TestFixtures.createHuman(dsl));
+    DriveUploadLinkResponse r = transfers.issueFileUploadLink(owner, driveFileId);
+    assertThat(r.url()).startsWith("http://localhost:6173/api/v1/public/drive/transfer/ul_");
+    assertThat(r.method()).isEqualTo("PUT");
+    assertThat(r.name()).isEqualTo("보고서.txt");
+    assertThat(r.maxBytes()).isEqualTo(10 * MB);
+    assertThat(r.singleUse()).isTrue();
+    int before = dsl.fetchCount(DRIVE_TRANSFER_LINK);
+
+    assertThatThrownBy(() -> transfers.issueFileUploadLink(viewer, driveFileId))
+        .isInstanceOf(DriveForbiddenException.class);
+    assertThatThrownBy(() -> transfers.issueFileUploadLink(outsider, driveFileId))
+        .isInstanceOf(DriveSpaceNotFoundException.class);
+    fileService.delete(owner, driveFileId);
+    assertThatThrownBy(() -> transfers.issueFileUploadLink(owner, driveFileId))
+        .isInstanceOf(DriveFileNotFoundException.class);
+    assertThat(dsl.fetchCount(DRIVE_TRANSFER_LINK)).isEqualTo(before);
+  }
+
+  /**
+   * 파일 지정 링크 PUT(서비스 단계) — 그 파일에 새 버전, 이름으로 찾지 않는다. 감사 FILE_VERSION_CREATED·TRANSFER_LINK_USE actor
+   * 는 발급자.
+   */
+  @Test
+  void filePut_viaService_addsVersion_auditedAsIssuer() throws Exception {
+    String token = fileUploadToken(owner, driveFileId);
+    DriveFileResponse saved = putViaService(token, "새 버전".getBytes(StandardCharsets.UTF_8));
+
+    assertThat(saved.id()).isEqualTo(driveFileId);
+    assertThat(saved.name()).isEqualTo("보고서.txt");
+    assertThat(saved.versionCount()).isEqualTo(2);
+    assertThat(auditRow("FILE_VERSION_CREATED", owner).getResourceId())
+        .isEqualTo(String.valueOf(driveFileId));
+    var use = auditRow(DriveTransferLinkService.AUDIT_LINK_USE, owner);
+    assertThat(use.getResourceId()).isEqualTo(String.valueOf(driveFileId));
+    assertThat(use.getMetadata().data()).contains("UPLOAD").doesNotContain(token);
+  }
+
+  /** 재확인은 그 파일의 공간 기준 — 발급자가 공간에서 빠지면 403, 파일이 휴지통이면 404(새 링크 안내, 내부 id 없음). */
+  @Test
+  void requireIssuerCanUpload_fileBound_checksFileAndItsSpace() throws Exception {
+    String trashedToken = fileUploadToken(owner, driveFileId);
+    TenantContext.clear();
+    TransferLinkRow trashedLink = transfers.consumeUpload(trashedToken, null, 1);
+    TenantContext.set(1L);
+    fileService.delete(owner, driveFileId);
+    assertThatThrownBy(() -> transfers.requireIssuerCanUpload(trashedLink))
+        .isInstanceOf(DriveTransferLinkNotFoundException.class)
+        .hasMessage("올릴 파일을 찾을 수 없습니다. 새 링크를 발급받으세요");
+
+    long other =
+        fileService
+            .upload(
+                owner,
+                spaceId,
+                null,
+                new MockMultipartFile("file", "다른.txt", "text/plain", "x".getBytes()))
+            .id();
+    String token = fileUploadToken(owner, other);
+    TenantContext.clear();
+    TransferLinkRow link = transfers.consumeUpload(token, null, 1);
+    TenantContext.set(1L);
+    dsl.deleteFrom(DRIVE_SPACE_MEMBER)
+        .where(DRIVE_SPACE_MEMBER.SPACE_ID.eq(spaceId))
+        .and(DRIVE_SPACE_MEMBER.USER_ID.eq(owner))
+        .execute();
+    assertThatThrownBy(() -> transfers.requireIssuerCanUpload(link))
+        .isInstanceOf(DriveTransferLinkForbiddenException.class)
+        .hasMessageContaining("새 링크를 발급받으세요");
+  }
+
+  /** 재확인 뒤·핵심 전에 파일이 휴지통으로 가도(경합) 404 새 링크 안내 — 핵심 예외의 내부 id 가 새지 않는다. 임시 파일도 남지 않는다. */
+  @Test
+  void completeUpload_fileTrashedAfterRecheck_isNotFoundWithoutIds() throws Exception {
+    String token = fileUploadToken(owner, driveFileId);
+    TenantContext.clear();
+    TransferLinkRow link = transfers.consumeUpload(token, null, 1);
+    TenantContext.set(1L);
+    transfers.requireIssuerCanUpload(link);
+    long before = tempPartFiles();
+    try (ReceivedBody body =
+        transfers.receiveBody(link, new ByteArrayInputStream(new byte[] {'x'}), null)) {
+      fileService.delete(owner, driveFileId);
+      assertThatThrownBy(() -> transfers.completeUpload(link, body, null, null))
+          .isInstanceOf(DriveTransferLinkNotFoundException.class)
+          .hasMessage("올릴 파일을 찾을 수 없습니다. 새 링크를 발급받으세요");
+    }
+    assertThat(tempPartFiles()).isEqualTo(before);
+  }
+
+  /** 임시 디렉터리 — 없는 경로는 만들고, 공백이면 java.io.tmpdir, 만들 수 없으면(경로가 파일 아래) 기동 시 IllegalStateException. */
+  @Test
+  void prepareTempDir_createsFallsBackAndFailsClearly() throws Exception {
+    java.nio.file.Path base = Files.createTempDirectory("drive-transfer-dir-test-");
+    try {
+      java.nio.file.Path nested = base.resolve("a/b");
+      assertThat(DriveTransferLinkService.prepareTempDir(nested.toString()))
+          .isEqualTo(nested.toAbsolutePath().normalize());
+      assertThat(Files.isDirectory(nested)).isTrue();
+
+      assertThat(DriveTransferLinkService.prepareTempDir("  "))
+          .isEqualTo(
+              java.nio.file.Path.of(System.getProperty("java.io.tmpdir"))
+                  .toAbsolutePath()
+                  .normalize());
+
+      java.nio.file.Path file = Files.createFile(base.resolve("not-a-dir"));
+      assertThatThrownBy(
+              () -> DriveTransferLinkService.prepareTempDir(file.resolve("sub").toString()))
+          .isInstanceOf(IllegalStateException.class)
+          .hasMessageContaining("workplace.drive.transfer-temp-dir");
+    } finally {
+      try (var walk = Files.walk(base)) {
+        walk.sorted(java.util.Comparator.reverseOrder()).forEach(p -> p.toFile().delete());
+      }
+    }
+  }
+
   // --- 헬퍼 ---
 
   /** 업로드 임시 파일 디렉터리에 남은 drive-transfer-*.part 수(테스트는 워커별 디렉터리라 다른 포크가 섞이지 않는다). */

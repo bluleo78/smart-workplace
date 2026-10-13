@@ -741,7 +741,8 @@ public class GlobalExceptionHandler {
     com.workplace.drive.exception.DriveDuplicateNameException.class,
     com.workplace.drive.exception.DriveSpaceNameDuplicatedException.class,
     com.workplace.drive.exception.DriveQuotaExceededException.class,
-    com.workplace.drive.exception.DriveSpaceTypeNotEditableException.class
+    com.workplace.drive.exception.DriveSpaceTypeNotEditableException.class,
+    com.workplace.drive.exception.DriveNotTextFileException.class
   })
   public ResponseEntity<ErrorResponse> handleDriveConflict(
       RuntimeException ex, HttpServletRequest request) {

@@ -678,4 +678,179 @@ class DriveFileServiceTest extends IntegrationTestBase {
     assertThatThrownBy(() -> fileService.createTextFile(u, sp.id(), null, "a.txt", "x", null))
         .isInstanceOf(com.workplace.drive.exception.DriveQuotaExceededException.class);
   }
+
+  // ── WP-369 Task 3: 기존 파일을 ID 로 지정해 텍스트로 갱신 ─────────────────────────────
+
+  /**
+   * 텍스트 갱신 — 같은 파일에 새 버전(versionCount+1)이 생기고 이름·폴더는 그대로다. 감사 FILE_VERSION_CREATED 의 actor 는
+   * 호출자(발행자가 아닌 EDITOR)다.
+   */
+  @Test
+  void updateTextFile_addsVersion_keepsNameAndFolder_auditsCaller() throws Exception {
+    long owner = seedUser();
+    long editor = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(owner, "팀");
+    spaceService.addMember(owner, sp.id(), editor, "EDITOR");
+    var folder = folderService.create(owner, sp.id(), null, "노트함");
+    DriveFileResponse v1 =
+        fileService.createTextFile(owner, sp.id(), folder.id(), "회의록.md", "# 처음", null);
+    String content = "# 고친 회의록\n- 결정: 출시";
+
+    DriveFileResponse v2 = fileService.updateTextFile(editor, v1.id(), content, null);
+
+    assertThat(v2.id()).isEqualTo(v1.id());
+    assertThat(v2.versionCount()).isEqualTo(2);
+    assertThat(v2.name()).isEqualTo("회의록.md");
+    assertThat(v2.folderId()).isEqualTo(folder.id());
+    assertThat(v2.mimeType()).isEqualTo("text/markdown");
+    assertThat(v2.fileId()).isNotEqualTo(v1.fileId());
+    byte[] bytes = content.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    assertThat(v2.sizeBytes()).isEqualTo(bytes.length);
+    assertThat(fileService.download(owner, v1.id()).resource().getContentAsByteArray())
+        .isEqualTo(bytes);
+    // 공간에 그 이름의 파일은 하나뿐이다(새 파일이 생기지 않았다)
+    assertThat(
+            dsl.fetchCount(
+                com.workplace.jooq.Tables.DRIVE_FILE,
+                com.workplace.jooq.Tables.DRIVE_FILE
+                    .SPACE_ID
+                    .eq(sp.id())
+                    .and(com.workplace.jooq.Tables.DRIVE_FILE.NAME.eq("회의록.md"))))
+        .isEqualTo(1);
+    var audit =
+        dsl.selectFrom(com.workplace.jooq.Tables.AUDIT_LOG)
+            .where(com.workplace.jooq.Tables.AUDIT_LOG.ACTION_TYPE.eq("FILE_VERSION_CREATED"))
+            .and(com.workplace.jooq.Tables.AUDIT_LOG.RESOURCE_ID.eq(String.valueOf(v1.id())))
+            .fetchOne();
+    assertThat(audit.getUserId()).isEqualTo(editor);
+    // 새 버전도 업로드와 같이 영구 파일이고 추출 행이 생긴다
+    assertThat(
+            dsl.select(FILE.EXPIRES_AT)
+                .from(FILE)
+                .where(FILE.ID.eq(v2.fileId()))
+                .fetchOne(FILE.EXPIRES_AT))
+        .isNull();
+    assertThat(dsl.fetchExists(FILE_EXTRACTION, FILE_EXTRACTION.FILE_ID.eq(v2.fileId()))).isTrue();
+  }
+
+  /** mimeType 이 없으면 파일 이름의 확장자로 정한다(json), 명시값은 허용 목록만. csv(DATA 범주)도 텍스트 계열이라 갱신할 수 있다. */
+  @Test
+  void updateTextFile_mimeFromFileName_andCsvAllowed() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    DriveFileResponse json = fileService.createTextFile(u, sp.id(), null, "설정.json", "{}", null);
+    DriveFileResponse csv = fileService.createTextFile(u, sp.id(), null, "표.csv", "a,b", null);
+
+    assertThat(fileService.updateTextFile(u, json.id(), "{\"a\":1}", null).mimeType())
+        .isEqualTo("application/json");
+    assertThat(fileService.updateTextFile(u, csv.id(), "a,b\n1,2", "").mimeType())
+        .isEqualTo("text/csv");
+    assertThatThrownBy(() -> fileService.updateTextFile(u, json.id(), "x", "text/html"))
+        .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  /** 텍스트 계열이 아닌 파일(png·docx)은 409 — 문서를 텍스트로 덮어 서식을 잃지 않게. 버전은 늘지 않는다. */
+  @Test
+  void updateTextFile_nonTextFile_conflicts() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    DriveFileResponse image = fileService.upload(u, sp.id(), null, png());
+    DriveFileResponse doc =
+        fileService.upload(
+            u,
+            sp.id(),
+            null,
+            new MockMultipartFile(
+                "file",
+                "보고서.docx",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                new byte[] {1, 2, 3}));
+
+    assertThatThrownBy(() -> fileService.updateTextFile(u, image.id(), "x", null))
+        .isInstanceOf(com.workplace.drive.exception.DriveNotTextFileException.class)
+        .hasMessage("텍스트 파일만 내용으로 갱신할 수 있습니다");
+    assertThatThrownBy(() -> fileService.updateTextFile(u, doc.id(), "x", "text/plain"))
+        .isInstanceOf(com.workplace.drive.exception.DriveNotTextFileException.class);
+    assertThat(versionsRepo.listForDriveFile(doc.id())).hasSize(1);
+  }
+
+  /** VIEWER 는 403, 비멤버는 404(존재 은닉) — 비텍스트 파일이어도 409 보다 권한 검사가 먼저라 형식이 새지 않는다. */
+  @Test
+  void updateTextFile_viewerForbidden_nonMemberHidden() throws Exception {
+    long owner = seedUser();
+    long viewer = seedUser();
+    long outsider = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(owner, "팀");
+    spaceService.addMember(owner, sp.id(), viewer, "VIEWER");
+    DriveFileResponse text = fileService.createTextFile(owner, sp.id(), null, "a.md", "x", null);
+    DriveFileResponse image = fileService.upload(owner, sp.id(), null, png());
+
+    assertThatThrownBy(() -> fileService.updateTextFile(viewer, text.id(), "y", null))
+        .isInstanceOf(com.workplace.drive.exception.DriveForbiddenException.class);
+    assertThatThrownBy(() -> fileService.updateTextFile(viewer, image.id(), "y", null))
+        .isInstanceOf(com.workplace.drive.exception.DriveForbiddenException.class);
+    assertThatThrownBy(() -> fileService.updateTextFile(outsider, image.id(), "y", null))
+        .isInstanceOf(com.workplace.drive.exception.DriveSpaceNotFoundException.class);
+  }
+
+  /** 휴지통 파일은 404. */
+  @Test
+  void updateTextFile_trashedFile_isNotFound() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    DriveFileResponse f = fileService.createTextFile(u, sp.id(), null, "a.md", "x", null);
+    fileService.delete(u, f.id());
+
+    assertThatThrownBy(() -> fileService.updateTextFile(u, f.id(), "y", null))
+        .isInstanceOf(DriveFileNotFoundException.class);
+  }
+
+  /** 텍스트 계열 판정 — TEXT 범주(md·txt·json·html·yaml)·csv 는 허용, pdf·docx·이미지·모름은 거부. 매개변수는 뗀다. */
+  @Test
+  void isTextLike_coversTextCategoryAndCsv() {
+    assertThat(DriveFileService.isTextLike("text/markdown")).isTrue();
+    assertThat(DriveFileService.isTextLike("text/plain; charset=utf-8")).isTrue();
+    assertThat(DriveFileService.isTextLike("application/json")).isTrue();
+    assertThat(DriveFileService.isTextLike("text/csv")).isTrue();
+    assertThat(DriveFileService.isTextLike("application/csv")).isTrue();
+    assertThat(DriveFileService.isTextLike("application/pdf")).isFalse();
+    assertThat(DriveFileService.isTextLike("image/png")).isFalse();
+    assertThat(DriveFileService.isTextLike("application/octet-stream")).isFalse();
+    assertThat(DriveFileService.isTextLike(null)).isFalse();
+  }
+
+  /** ID 지정 새 버전 — 이름으로 찾지 않아 소스 이름이 달라도 그 파일에 들어가고, 저장 이름은 파일의 지금 이름이다. */
+  @Test
+  void addVersion_bindsById_usesCurrentName() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    DriveFileResponse f = fileService.createTextFile(u, sp.id(), null, "원래.md", "x", null);
+    fileService.rename(u, f.id(), "바뀐.md");
+
+    DriveFileResponse v2 =
+        fileService.addVersion(
+            u,
+            f.id(),
+            com.workplace.file.service.UploadSource.ofBytes(
+                "원래.md", null, "y".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+
+    assertThat(v2.id()).isEqualTo(f.id());
+    assertThat(v2.name()).isEqualTo("바뀐.md");
+    assertThat(v2.versionCount()).isEqualTo(2);
+    assertThat(
+            dsl.select(FILE.ORIGINAL_NAME)
+                .from(FILE)
+                .where(FILE.ID.eq(v2.fileId()))
+                .fetchOne(FILE.ORIGINAL_NAME))
+        .isEqualTo("바뀐.md");
+    // 옛 이름으로 새 파일이 생기지 않았다
+    assertThat(
+            dsl.fetchExists(
+                com.workplace.jooq.Tables.DRIVE_FILE,
+                com.workplace.jooq.Tables.DRIVE_FILE
+                    .SPACE_ID
+                    .eq(sp.id())
+                    .and(com.workplace.jooq.Tables.DRIVE_FILE.NAME.eq("원래.md"))))
+        .isFalse();
+  }
 }

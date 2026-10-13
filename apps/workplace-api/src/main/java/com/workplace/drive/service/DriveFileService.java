@@ -11,6 +11,7 @@ import com.workplace.drive.exception.DriveDuplicateNameException;
 import com.workplace.drive.exception.DriveFileNotFoundException;
 import com.workplace.drive.exception.DriveFolderNotFoundException;
 import com.workplace.drive.exception.DriveInvalidTargetException;
+import com.workplace.drive.exception.DriveNotTextFileException;
 import com.workplace.drive.outbound.DriveChangeNotifier;
 import com.workplace.drive.repository.DriveFileRepository;
 import com.workplace.drive.repository.DriveFolderRepository;
@@ -130,6 +131,92 @@ public class DriveFileService {
   }
 
   /**
+   * 기존 파일을 텍스트 내용으로 갱신(WP-369) — 그 파일에 새 버전을 더한다. 이름·폴더는 바꾸지 않는다. 의미는 {@link #addVersion} 과 같다.
+   *
+   * <p>검사 순서가 존재 은닉을 지킨다: 없는·휴지통 파일 404 → 공간 비멤버 404 · EDITOR 미만 403 → 텍스트 계열이 아니면 409 → MIME(400)
+   * → 크기(400). 역할 검사를 409 보다 먼저 해야 비멤버가 파일 형식을 알아내지 못한다.
+   *
+   * <p>MIME 은 R4 규칙({@link #textMimeOf})으로 정하되 이름은 <b>파일의 지금 이름</b>을 쓴다(mimeType 이 없으면 그 확장자). 텍스트
+   * 계열이라도 html·yaml·xml 처럼 허용 목록 밖 확장자면 새 버전은 text/plain 으로 저장된다.
+   *
+   * @throws DriveFileNotFoundException 없거나 휴지통 파일(404)
+   * @throws DriveNotTextFileException 현재 버전이 텍스트 계열(TEXT 범주·csv·json)이 아님(409)
+   * @throws IllegalArgumentException 허용하지 않는 mimeType(400)
+   * @throws FileSizeLimitExceededException UTF-8 로 10MB 초과(400)
+   */
+  @Transactional
+  public DriveFileResponse updateTextFile(
+      long callerId, long driveFileId, String content, String mimeType) throws IOException {
+    DriveFileRepository.DriveFileRow row =
+        files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
+    perms.requireRole(row.spaceId(), callerId, "EDITOR");
+    String currentMime =
+        dsl.select(com.workplace.jooq.Tables.FILE.MIME_TYPE)
+            .from(com.workplace.jooq.Tables.FILE)
+            .where(com.workplace.jooq.Tables.FILE.ID.eq(row.fileId()))
+            .fetchOne(com.workplace.jooq.Tables.FILE.MIME_TYPE);
+    if (!isTextLike(currentMime)) {
+      throw new DriveNotTextFileException();
+    }
+    String mime = textMimeOf(row.name(), mimeType);
+    byte[] bytes = content.getBytes(StandardCharsets.UTF_8);
+    if (bytes.length > TEXT_FILE_MAX_BYTES) {
+      throw new FileSizeLimitExceededException("TEXT", TEXT_FILE_MAX_BYTES);
+    }
+    return bindVersion(callerId, row, UploadSource.ofBytes(row.name(), mime, bytes));
+  }
+
+  /**
+   * 내용으로 갱신해도 되는 파일인지 — 현재 버전 MIME 이 TEXT 범주(md·txt·json·html·yaml 등)이거나 csv. pdf·docx·이미지는 아니다.
+   */
+  static boolean isTextLike(String mime) {
+    if (mime == null) {
+      return false;
+    }
+    String bare = mime.split(";", 2)[0].strip().toLowerCase(Locale.ROOT);
+    return "TEXT".equals(FileUploadService.categoryOf(bare))
+        || bare.equals("text/csv")
+        || bare.equals("application/csv");
+  }
+
+  /**
+   * ID 로 지정한 파일에 새 버전 추가(WP-369) — 이름으로 찾지 않는다. 파일 지정 업로드 링크 PUT 이 쓴다. 이름·폴더는 그대로이고, 저장 이름(FILE 원본
+   * 이름·확장자로 정하는 MIME)은 파일의 <b>지금 이름</b>이다 — 링크 발급 뒤 이름이 바뀌어도 같은 파일에 들어간다.
+   *
+   * @throws DriveFileNotFoundException 없거나 휴지통 파일(404)
+   * @throws com.workplace.drive.exception.DriveSpaceNotFoundException 공간 비멤버(존재 은닉)
+   * @throws com.workplace.drive.exception.DriveForbiddenException EDITOR 미만 · 보관된 공간
+   */
+  @Transactional
+  public DriveFileResponse addVersion(long callerId, long driveFileId, UploadSource source)
+      throws IOException {
+    DriveFileRepository.DriveFileRow row =
+        files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
+    perms.requireRole(row.spaceId(), callerId, "EDITOR");
+    return bindVersion(
+        callerId,
+        row,
+        new UploadSource(row.name(), source.contentType(), source.size(), source.writer()));
+  }
+
+  /**
+   * 파일 지정 버전 추가 사전 검사(쓰기 없음) — 파일이 살아 있고 호출자가 그 파일 공간의 EDITOR 이상인지. 파일 지정 업로드 링크 발급과 PUT 의 발급자 재확인이
+   * 쓴다(WP-369).
+   *
+   * @return 대상 파일 행(이름·공간)
+   * @throws DriveFileNotFoundException 없거나 휴지통 파일(404)
+   * @throws com.workplace.drive.exception.DriveSpaceNotFoundException 공간 비멤버(존재 은닉)
+   * @throws com.workplace.drive.exception.DriveForbiddenException EDITOR 미만 · 보관된 공간
+   */
+  @Transactional(readOnly = true)
+  public DriveFileRepository.DriveFileRow validateVersionTarget(long callerId, long driveFileId) {
+    DriveFileRepository.DriveFileRow row =
+        files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
+    perms.requireRole(row.spaceId(), callerId, "EDITOR");
+    return row;
+  }
+
+  /**
    * 업로드 대상 사전 검사(쓰기 없음) — EDITOR 이상이고 폴더(있으면)가 그 공간의 활성 폴더인지. 업로드 링크 발급이 쓴다(WP-369).
    *
    * @throws com.workplace.drive.exception.DriveSpaceNotFoundException 공간 비멤버(존재 은닉)
@@ -157,6 +244,25 @@ public class DriveFileService {
     perms.requireRole(spaceId, callerId, "EDITOR");
     // 폴더가 이 공간 소속인지(WP-369 이전에는 검사하지 않아 다른 공간 폴더 id 로 올릴 수 있었다).
     validateTargetSameSpace(spaceId, folderId, UPLOAD_OTHER_SPACE_MESSAGE);
+    return store(callerId, spaceId, folderId, source, null);
+  }
+
+  /** 지정 파일에 새 버전 — 권한 검사를 마친 호출부(텍스트 갱신·{@link #addVersion})가 부른다. 파일의 공간·폴더로 공유 핵심을 탄다. */
+  private DriveFileResponse bindVersion(
+      long callerId, DriveFileRepository.DriveFileRow row, UploadSource source) throws IOException {
+    return store(callerId, row.spaceId(), row.folderId(), source, row.id());
+  }
+
+  /**
+   * 업로드 공유 핵심(권한 검사 뒤) — 할당량 검사(advisory lock) → file core 저장 → 영구화 → drive_file 바인딩 → 감사 → 추출 이벤트
+   * → 변경 알림.
+   *
+   * @param targetDriveFileId 새 버전을 더할 파일(WP-369, ID 지정 갱신). null 이면 같은 폴더의 동명 활성 파일을 찾아 있으면 새 버전,
+   *     없으면 새 파일 + v1(#79)
+   */
+  private DriveFileResponse store(
+      long callerId, long spaceId, Long folderId, UploadSource source, Long targetDriveFileId)
+      throws IOException {
     // 쿼터 강제: 테넌트 단위 직렬화 잠금 후 사용량 검사(동시 업로드 레이스 방지, #81).
     Long tenantId = TenantContext.get();
     if (tenantId != null) {
@@ -170,8 +276,11 @@ public class DriveFileService {
     long driveFileId;
     String actionType;
     int versionNo;
-    // 동명 활성 파일이 있으면 새 버전으로 흡수, 없으면 새 파일 + v1 (#79)
-    var existing = files.findActiveByName(spaceId, folderId, name);
+    // 지정 파일이 있으면 그 파일, 아니면 동명 활성 파일을 새 버전으로 흡수. 둘 다 없으면 새 파일 + v1 (#79)
+    var existing =
+        targetDriveFileId != null
+            ? java.util.Optional.of(targetDriveFileId)
+            : files.findActiveByName(spaceId, folderId, name);
     if (existing.isPresent()) {
       driveFileId = existing.get();
       versionNo = versions.nextVersionNo(driveFileId);
@@ -218,10 +327,7 @@ public class DriveFileService {
     // 새 버전 흡수도 created 로 둔다(프론트는 op 구분 없이 목록을 갱신).
     notifier.itemsChanged(OP_CREATED, spaceId, List.of(driveFileId), callerId);
     final long fid = driveFileId;
-    return files.listInFolder(spaceId, folderId).stream()
-        .filter(f -> f.id() == fid)
-        .findFirst()
-        .orElseThrow(() -> new DriveFileNotFoundException(fid));
+    return files.findResponse(fid).orElseThrow(() -> new DriveFileNotFoundException(fid));
   }
 
   /** 다운로드. drive 권한(VIEWER+)으로 인가한 뒤 file core 신뢰 read. */

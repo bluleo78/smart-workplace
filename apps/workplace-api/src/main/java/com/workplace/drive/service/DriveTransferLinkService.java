@@ -104,7 +104,10 @@ public class DriveTransferLinkService {
   private final AuditLogService auditLogService;
   private final SecureRandom secureRandom = new SecureRandom();
 
-  /** PUT 본문 임시 파일 디렉터리(기본 java.io.tmpdir). 테스트는 Gradle 워커별로 나눠 남은 임시 파일을 결정적으로 센다. */
+  /**
+   * PUT 본문 임시 파일 디렉터리(기본·공백이면 java.io.tmpdir). 생성자에서 한 번 만들어 두고 요청마다 만들지 않는다. 테스트는 Gradle 워커별로 나눠
+   * 남은 임시 파일을 결정적으로 센다.
+   */
   private final Path tempDir;
 
   /** 멀티파트 파일 상한(spring.servlet.multipart.max-file-size, 25MB) — 업로드 링크도 같은 상한을 넘지 않는다. */
@@ -133,9 +136,30 @@ public class DriveTransferLinkService {
     this.tenantStatusChecker = tenantStatusChecker;
     this.fileService = fileService;
     this.auditLogService = auditLogService;
-    this.tempDir = Path.of(tempDir).toAbsolutePath().normalize();
+    this.tempDir = prepareTempDir(tempDir);
     this.publicBaseUrl = stripTrailingSlash(publicBaseUrl);
     this.multipartMaxBytes = DataSize.parse(multipartMaxFileSize).toBytes();
+  }
+
+  /**
+   * 임시 디렉터리를 정하고 만든다. 값이 비면 java.io.tmpdir 로 대신한다. 만들 수 없으면 기동을 멈춘다 — 첫 업로드에서야 500 이 나는 것보다 설정 오류를
+   * 바로 드러낸다.
+   *
+   * @throws IllegalStateException 디렉터리를 만들 수 없음(경로가 파일이거나 권한 없음 등)
+   */
+  static Path prepareTempDir(String configured) {
+    String value =
+        configured == null || configured.isBlank()
+            ? System.getProperty("java.io.tmpdir")
+            : configured.strip();
+    Path dir = Path.of(value).toAbsolutePath().normalize();
+    try {
+      Files.createDirectories(dir);
+    } catch (IOException e) {
+      throw new IllegalStateException(
+          "workplace.drive.transfer-temp-dir 디렉터리를 만들 수 없습니다: " + dir, e);
+    }
+    return dir;
   }
 
   /**
@@ -239,6 +263,59 @@ public class DriveTransferLinkService {
         meta);
     return new DriveUploadLinkResponse(
         publicUrl(token), "PUT", expiresAt, uploadCapFor(name, null), name, true);
+  }
+
+  /**
+   * 기존 파일 지정 업로드 링크 발급(WP-369) — 그 파일 공간의 EDITOR 이상. 링크 행에 {@code drive_file_id} 를 묶어 PUT 이 이름으로 찾지
+   * 않고 그 파일에 새 버전을 더하게 한다(발급 뒤 이름이 바뀌어도 같은 파일). 없는·휴지통 파일 404, 공간 비멤버 404(은닉), 역할 미달 403.
+   *
+   * <p>행의 {@code file_name} 에는 발급 시점 이름을 넣는다(종류 CHECK 가 업로드 행에 이름을 요구하고, PUT 본문 전 상한 계산에 쓴다).
+   * {@code folder_id} 는 비운다 — 파일이 다른 폴더로 옮겨져도 링크가 살아 있게.
+   */
+  @Transactional
+  public DriveUploadLinkResponse issueFileUploadLink(long callerId, long driveFileId) {
+    DriveFileRepository.DriveFileRow row = fileService.validateVersionTarget(callerId, driveFileId);
+
+    links.deleteExpiredByUser(callerId);
+    String token = generateToken("ul_");
+    OffsetDateTime expiresAt = OffsetDateTime.now(ZoneOffset.UTC).plus(TTL);
+    long linkId =
+        links.insert(
+            KIND_UPLOAD,
+            DriveShareLinkService.sha256Hex(token),
+            callerId,
+            row.spaceId(),
+            null,
+            driveFileId,
+            row.name(),
+            expiresAt);
+    // 발급 감사(R11) — 대상 파일이 있어 resource_id 에 넣는다. 토큰·해시는 남기지 않는다.
+    auditLogService.log(
+        callerId,
+        fileService.usernameOf(callerId),
+        AUDIT_LINK_CREATE,
+        "drive",
+        String.valueOf(driveFileId),
+        "드라이브 업로드 링크 발급(새 버전): " + row.name(),
+        null,
+        null,
+        "SUCCESS",
+        null,
+        Map.of(
+            "kind",
+            KIND_UPLOAD,
+            "transferLinkId",
+            linkId,
+            "spaceId",
+            row.spaceId(),
+            "fileName",
+            row.name(),
+            "driveFileId",
+            driveFileId,
+            "expiresAt",
+            expiresAt.toString()));
+    return new DriveUploadLinkResponse(
+        publicUrl(token), "PUT", expiresAt, uploadCapFor(row.name(), null), row.name(), true);
   }
 
   /**
@@ -369,8 +446,10 @@ public class DriveTransferLinkService {
    * 공개 업로드 3단계(R2) — 소비된 업로드 링크의 발급자가 지금도 워크스페이스 ACTIVE 멤버이고 공간 EDITOR 이상이며, 대상 폴더가 그대로인지 다시 확인한다.
    * 본문을 받기 전에 부른다. 호출부가 TenantContext 를 링크의 테넌트로 설정한다.
    *
+   * <p>파일 지정 링크({@code drive_file_id} 있음)는 폴더 대신 그 파일이 살아 있는지, 발급자가 <b>그 파일 공간</b>의 EDITOR 인지 본다.
+   *
    * @throws DriveTransferLinkForbiddenException 권한 상실(403)
-   * @throws DriveTransferLinkNotFoundException 폴더가 휴지통·삭제됨(404)
+   * @throws DriveTransferLinkNotFoundException 폴더 또는 대상 파일이 휴지통·삭제됨(404)
    */
   @Transactional(readOnly = true)
   public void requireIssuerCanUpload(TransferLinkRow link) {
@@ -378,7 +457,14 @@ public class DriveTransferLinkService {
       throw lostUploadPermission();
     }
     try {
-      fileService.validateUploadTarget(link.userId(), link.spaceId(), link.folderId());
+      if (link.driveFileId() != null) {
+        // 파일 지정 링크 — 그 파일이 살아 있고 발급자가 파일 공간의 EDITOR 인지(이름·폴더는 보지 않는다).
+        fileService.validateVersionTarget(link.userId(), link.driveFileId());
+      } else {
+        fileService.validateUploadTarget(link.userId(), link.spaceId(), link.folderId());
+      }
+    } catch (DriveFileNotFoundException e) {
+      throw uploadFileGone();
     } catch (DriveSpaceNotFoundException | DriveForbiddenException e) {
       throw lostUploadPermission();
     } catch (DriveFolderNotFoundException | DriveInvalidTargetException e) {
@@ -399,13 +485,12 @@ public class DriveTransferLinkService {
     long cap = uploadCapFor(link.fileName(), mime);
     Path temp;
     try {
-      Files.createDirectories(tempDir);
       temp = Files.createTempFile(tempDir, "drive-transfer-", ".part");
     } catch (IOException e) {
-      throw storageFailed(e);
+      throw storageFailed(link.id(), e);
     }
     try {
-      long size = copyWithCap(body, temp, cap);
+      long size = copyWithCap(link.id(), body, temp, cap);
       return new ReceivedBody(temp, size, mime);
     } catch (RuntimeException e) {
       deleteQuietly(temp);
@@ -413,8 +498,8 @@ public class DriveTransferLinkService {
     }
   }
 
-  /** 본문을 상한까지 복사한다. 읽기 실패(클라이언트 중단)는 400, 쓰기 실패(서버 디스크)는 500. */
-  private static long copyWithCap(InputStream in, Path target, long cap) {
+  /** 본문을 상한까지 복사한다. 읽기 실패(클라이언트 중단)는 400, 쓰기 실패(서버 디스크)는 500(로그엔 링크 id). */
+  private static long copyWithCap(long linkId, InputStream in, Path target, long cap) {
     byte[] buf = new byte[64 * 1024];
     long total = 0;
     try (OutputStream out = Files.newOutputStream(target)) {
@@ -437,16 +522,16 @@ public class DriveTransferLinkService {
         out.write(buf, 0, n);
       }
     } catch (IOException e) {
-      throw storageFailed(e);
+      throw storageFailed(linkId, e);
     }
   }
 
   /**
    * 소비 뒤 서버 쪽 입출력 실패(임시 파일 생성·쓰기, 저장소 복사) — 500 은 그대로 두되 일반 500 문구 대신 새 링크 발급을 안내한다. 원인은 서버 로그에만
-   * 남긴다(예외 문구의 경로에는 토큰이 없다).
+   * 남긴다. 어떤 링크인지 추적할 수 있게 링크 행 id 를 남긴다(토큰은 남기지 않는다 — 예외 문구의 경로에도 토큰이 없다).
    */
-  private static DriveTransferUploadRejectedException storageFailed(Exception cause) {
-    log.error("업로드 링크 본문 저장 실패", cause);
+  private static DriveTransferUploadRejectedException storageFailed(long linkId, Exception cause) {
+    log.error("업로드 링크 본문 저장 실패 transferLinkId={}", linkId, cause);
     return new DriveTransferUploadRejectedException(
         HttpStatus.INTERNAL_SERVER_ERROR, "업로드한 파일을 저장하지 못했습니다. 새 링크를 발급받으세요");
   }
@@ -454,7 +539,8 @@ public class DriveTransferLinkService {
   /**
    * 공개 업로드 5단계(R2) — 받아 둔 본문을 업로드 공통 핵심({@link DriveFileService#upload(long, long, Long,
    * UploadSource)})에 발급자 이름으로 넘긴다: lock → 할당량 → 같은 이름이면 새 버전·아니면 새 파일 → 감사(actor = 발급자) → 추출 이벤트 →
-   * 알림. 이어 사용 감사(R11)를 같은 트랜잭션에 남긴다.
+   * 알림. 이어 사용 감사(R11)를 같은 트랜잭션에 남긴다. 파일 지정 링크는 {@link DriveFileService#addVersion} 으로 그 파일 ID 에 새
+   * 버전을 더한다(감사 FILE_VERSION_CREATED).
    *
    * <p>핵심의 예외는 내부 id 가 없는 전송 링크 예외로 바꾼다(문구는 "새 링크를 발급받으세요" — 링크는 이미 소비됐다).
    */
@@ -463,12 +549,16 @@ public class DriveTransferLinkService {
       TransferLinkRow link, ReceivedBody body, String clientIp, String userAgent) {
     DriveFileResponse saved;
     try {
+      UploadSource source =
+          UploadSource.ofFile(link.fileName(), body.mimeType(), body.path(), body.size());
       saved =
-          fileService.upload(
-              link.userId(),
-              link.spaceId(),
-              link.folderId(),
-              UploadSource.ofFile(link.fileName(), body.mimeType(), body.path(), body.size()));
+          link.driveFileId() != null
+              // 파일 지정 링크 — 이름으로 찾지 않고 그 파일에 새 버전(저장 이름은 파일의 지금 이름)
+              ? fileService.addVersion(link.userId(), link.driveFileId(), source)
+              : fileService.upload(link.userId(), link.spaceId(), link.folderId(), source);
+    } catch (DriveFileNotFoundException e) {
+      // 재확인과 이 트랜잭션 사이에 대상 파일이 휴지통으로 갔다(예외 문구의 내부 id 를 드러내지 않는다).
+      throw uploadFileGone();
     } catch (DriveSpaceNotFoundException | DriveForbiddenException e) {
       throw lostUploadPermission();
     } catch (DriveFolderNotFoundException | DriveInvalidTargetException e) {
@@ -482,7 +572,7 @@ public class DriveTransferLinkService {
           HttpStatus.BAD_REQUEST, e.getMessage() + ". 새 링크를 발급받으세요");
     } catch (IOException | UncheckedIOException e) {
       // 저장소 복사(FileStore.storeFrom) 등 서버 쪽 입출력 실패
-      throw storageFailed(e);
+      throw storageFailed(link.id(), e);
     }
     auditUse(link, saved.id(), saved.name(), saved.sizeBytes(), clientIp, userAgent);
     return saved;
@@ -543,6 +633,11 @@ public class DriveTransferLinkService {
   private static DriveTransferLinkForbiddenException lostUploadPermission() {
     return new DriveTransferLinkForbiddenException(
         "링크를 발급한 사용자에게 더 이상 이 공간에 파일을 올릴 권한이 없습니다. 새 링크를 발급받으세요");
+  }
+
+  /** 파일 지정 업로드 링크의 대상 파일이 휴지통·삭제됨 — 그 파일에는 더 올릴 수 없다. */
+  private static DriveTransferLinkNotFoundException uploadFileGone() {
+    return new DriveTransferLinkNotFoundException("올릴 파일을 찾을 수 없습니다. 새 링크를 발급받으세요");
   }
 
   private static DriveTransferLinkNotFoundException uploadFolderGone() {
