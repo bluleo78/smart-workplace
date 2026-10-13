@@ -286,7 +286,7 @@ export const ASSISTANT_ROUTER_TOOLS: readonly string[] = [
   // 캘린더
   'list_events', 'get_event',
   // 메시징
-  'list_channels', 'discover_channels', 'list_channel_messages', 'list_thread_replies',
+  'list_channels', 'list_channel_messages', 'list_thread_replies',
   // 메일
   'list_mail', 'get_mail',
   // 연락처·사용자 그룹·구성원
@@ -460,8 +460,7 @@ export function buildTools(
       sharedTool('list_channel_messages'),
       sharedTool('list_thread_replies'), // #850: 스레드 답글 조회(스레드 요약)
       sharedTool('add_channel_message'),
-      sharedTool('list_channels'),
-      sharedTool('discover_channels'), // #350: 공개 채널 탐색(이름 → channelId)
+      sharedTool('list_channels'), // #350: 채널 목록·탐색(q — 이름 → channelId)
     ];
     // L3 위임: 위임 컨텍스트가 있을 때만 노출. channelId·위임자·parent 는 코드가 스탬프(AI 입력 아님).
     if (delegationContext) {
@@ -1150,7 +1149,7 @@ export function buildTools(
       sharedTool('list_channel_messages'), // #333 M3: 메시징 읽기
       sharedTool('list_thread_replies'),   // #850: 스레드 답글 조회
       sharedTool('add_channel_message'),  // #333 M3: 메시징 쓰기(내부 쓰기 직접 실행)
-      sharedTool('list_channels'), sharedTool('discover_channels'), // #350: 채널 목록/탐색(이름→channelId 해석)
+      sharedTool('list_channels'), // #350: 채널 목록/탐색(q — 이름→channelId 해석)
       sharedTool('list_mail'), sharedTool('get_mail'), proposeSendMailTool, // #333 M3: 메일 읽기 + 발송 제안
       sharedTool('list_mail_accounts'), sharedTool('sync_mail'), // #333 M4: 메일 계정 목록 + 수동 동기화
       sharedTool('list_contacts'), sharedTool('get_external_contact'), sharedTool('create_external_contact'), sharedTool('update_external_contact'), proposeDeleteContactTool, // #333 M3: 연락처

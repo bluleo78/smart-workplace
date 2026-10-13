@@ -37,6 +37,12 @@ function mockClient(): AttachmentToolClient {
     readDriveFileText: vi.fn().mockResolvedValue(READY),
     listDriveFileVersions: vi.fn().mockResolvedValue([]),
     downloadDriveFile: vi.fn().mockResolvedValue({ data: PNG, mimeType: 'image/png' }),
+    readWikiAttachmentText: vi.fn().mockResolvedValue(READY),
+    downloadWikiAttachment: vi.fn().mockResolvedValue({ data: PNG, mimeType: 'image/png' }),
+    readMessageAttachmentText: vi.fn().mockResolvedValue(READY),
+    downloadMessageAttachment: vi.fn().mockResolvedValue({ data: PNG, mimeType: 'image/png' }),
+    readMailAttachmentText: vi.fn().mockResolvedValue(READY),
+    downloadMailAttachment: vi.fn().mockResolvedValue({ data: PNG, mimeType: 'image/png' }),
   };
 }
 
@@ -46,21 +52,21 @@ describe('read_attachment 입력 스키마', () => {
   // 서버 레이어가 inputSchema.shape 를 registerTool 에 넘기므로 superRefine 뒤에도 z.object 여야 한다.
   it('최상위는 z.object 이고 shape 에 source·식별자·범위가 있다', () => {
     expect(readAttachmentInput).toBeInstanceOf(z.ZodObject);
-    expect(Object.keys(readAttachmentInput.shape).sort()).toEqual(['attachmentId', 'driveFileId', 'issueKey', 'limit', 'offset', 'source']);
+    expect(Object.keys(readAttachmentInput.shape).sort()).toEqual(['attachmentId', 'channelId', 'driveFileId', 'issueKey', 'limit', 'messageId', 'offset', 'pageId', 'source']);
   });
 
   it('JSON 스키마로 직렬화된다(MCP 클라이언트가 받는 형식) — 최상위 type object, source 만 필수', () => {
     const js = z.toJSONSchema(readAttachmentInput) as { type: string; required: string[]; properties: Record<string, unknown> };
     expect(js.type).toBe('object');
     expect(js.required).toEqual(['source']);
-    expect(js.properties.source).toMatchObject({ enum: ['issue', 'drive'] });
+    expect(js.properties.source).toMatchObject({ enum: ['issue', 'drive', 'wiki', 'message', 'mail'] });
   });
 
   it('source 별 필수 필드를 확인하고, 다른 source 의 식별자를 섞으면 거부한다', () => {
-    expect(() => readAttachmentInput.parse({ source: 'issue', issueKey: 'WP-1' })).toThrow(/issueKey 와 attachmentId/);
+    expect(() => readAttachmentInput.parse({ source: 'issue', issueKey: 'WP-1' })).toThrow(/issueKey·attachmentId 가 필요/);
     expect(() => readAttachmentInput.parse({ source: 'drive' })).toThrow(/driveFileId 가 필요/);
     expect(() => readAttachmentInput.parse({ source: 'issue', issueKey: 'WP-1', attachmentId: 3, driveFileId: 4 })).toThrow(/driveFileId 를 주지/);
-    expect(() => readAttachmentInput.parse({ source: 'drive', driveFileId: 4, attachmentId: 3 })).toThrow(/issueKey·attachmentId 를 주지/);
+    expect(() => readAttachmentInput.parse({ source: 'drive', driveFileId: 4, attachmentId: 3 })).toThrow(/attachmentId 를 주지/);
     expect(readAttachmentInput.parse({ source: 'drive', driveFileId: 4 })).toMatchObject({ source: 'drive', driveFileId: 4 });
   });
 
@@ -69,8 +75,20 @@ describe('read_attachment 입력 스키마', () => {
     expect(readAttachmentInput.parse({ source: 'issue', issueKey: 'WP-1', attachmentId: 3, driveFileId: null })).toMatchObject({ source: 'issue', attachmentId: 3 });
     // null 은 필수 필드도 채우지 못한다.
     expect(() => readAttachmentInput.parse({ source: 'drive', driveFileId: null })).toThrow(/driveFileId 가 필요/);
-    expect(() => readAttachmentInput.parse({ source: 'issue', issueKey: null, attachmentId: 3 })).toThrow(/issueKey 와 attachmentId/);
-    expect(() => readAttachmentInput.parse({ source: 'drive', driveFileId: 9, issueKey: 'WP-1', attachmentId: null })).toThrow(/issueKey·attachmentId 를 주지/);
+    expect(() => readAttachmentInput.parse({ source: 'issue', issueKey: null, attachmentId: 3 })).toThrow(/issueKey·attachmentId 가 필요/);
+    expect(() => readAttachmentInput.parse({ source: 'drive', driveFileId: 9, issueKey: 'WP-1', attachmentId: null })).toThrow(/issueKey 를 주지/);
+  });
+
+  // WP-358: 노트·메시지·메일 첨부는 attachmentId 를 재사용하고 pageId·channelId·messageId 만 더한다.
+  it('wiki·message·mail 의 필수 식별자를 확인하고 남는 식별자는 거부한다 (WP-358)', () => {
+    expect(() => readAttachmentInput.parse({ source: 'wiki', attachmentId: 3 })).toThrow(/pageId·attachmentId 가 필요/);
+    expect(() => readAttachmentInput.parse({ source: 'message', channelId: 1, attachmentId: 3 })).toThrow(/channelId·messageId·attachmentId 가 필요/);
+    expect(() => readAttachmentInput.parse({ source: 'mail' })).toThrow(/attachmentId 가 필요/);
+    expect(() => readAttachmentInput.parse({ source: 'mail', attachmentId: 3, messageId: 9 })).toThrow(/messageId 를 주지/);
+    expect(() => readAttachmentInput.parse({ source: 'wiki', pageId: 1, attachmentId: 3, channelId: 2 })).toThrow(/channelId 를 주지/);
+    expect(readAttachmentInput.parse({ source: 'wiki', pageId: 1, attachmentId: 3, messageId: null })).toMatchObject({ pageId: 1, attachmentId: 3 });
+    expect(readAttachmentInput.parse({ source: 'message', channelId: 1, messageId: 2, attachmentId: 3 })).toMatchObject({ channelId: 1, messageId: 2 });
+    expect(readAttachmentInput.parse({ source: 'mail', attachmentId: 3 })).toMatchObject({ source: 'mail', attachmentId: 3 });
   });
 
   it('limit 은 1..32000, offset 은 0 이상', () => {
@@ -215,5 +233,120 @@ describe('read_attachment — 드라이브 파일', () => {
     const out = await readAttachment(c).handler({ source: 'drive', driveFileId: 9 });
     expect(typeof out).toBe('string');
     expect(out).toContain('형식(image/svg+xml)');
+  });
+});
+
+/** 노트·메시지·메일 — 추출 슬라이스와 이미지 처리가 같은 모양이라 같은 시나리오를 소스별로 돌린다(WP-358). */
+const NEW_SOURCES = [
+  {
+    name: '노트(wiki)',
+    args: { source: 'wiki', pageId: 7, attachmentId: 55 },
+    readText: (c: AttachmentToolClient) => c.readWikiAttachmentText,
+    download: (c: AttachmentToolClient) => c.downloadWikiAttachment,
+    textArgs: [7, 55],
+  },
+  {
+    name: '메시지(message)',
+    args: { source: 'message', channelId: 3, messageId: 40, attachmentId: 55 },
+    readText: (c: AttachmentToolClient) => c.readMessageAttachmentText,
+    download: (c: AttachmentToolClient) => c.downloadMessageAttachment,
+    textArgs: [3, 40, 55],
+  },
+  {
+    name: '메일(mail)',
+    args: { source: 'mail', attachmentId: 55 },
+    readText: (c: AttachmentToolClient) => c.readMailAttachmentText,
+    download: (c: AttachmentToolClient) => c.downloadMailAttachment,
+    textArgs: [55],
+  },
+] as const;
+
+describe.each(NEW_SOURCES)('read_attachment — $name (WP-358)', ({ args, readText, download, textArgs }) => {
+  it('READY: 구간을 읽고 서버 fileId 를 attachmentId 로 바꿔 돌려준다. limit 기본 12000', async () => {
+    const c = mockClient();
+    const out = await readAttachment(c).handler({ ...args, offset: 6 });
+    expect(readText(c)).toHaveBeenCalledWith(...textArgs, { offset: 6, limit: READ_ATTACHMENT_DEFAULT_LIMIT });
+    expect(JSON.parse(resultText(out))).toEqual(issueView(READY));
+    expect(download(c)).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['FAILED', slice('FAILED', { reasonCode: 'SUMMARY_FAILED', reason: '요약에 실패했습니다.' })],
+    ['SKIPPED(이미지 아님)', slice('SKIPPED', { reasonCode: 'UNSUPPORTED_TYPE', reason: '이 형식은 텍스트 추출을 지원하지 않습니다.' })],
+  ])('%s: 상태·사유만, 원본은 받지 않는다', async (_label, s) => {
+    const c = mockClient();
+    vi.mocked(readText(c)).mockResolvedValue(s);
+    const out = JSON.parse(resultText(await readAttachment(c).handler(args)));
+    expect(out).toMatchObject({ attachmentId: 55, status: s.status, text: null, reasonCode: s.reasonCode, reason: s.reason });
+    expect(out).not.toHaveProperty('fileId');
+    expect(download(c)).not.toHaveBeenCalled();
+  });
+
+  it('이미지(SKIPPED·IMAGE): 원본을 받아 [설명, image] 블록으로 — 형식은 Content-Type 파라미터를 뗀 값', async () => {
+    const c = mockClient();
+    vi.mocked(readText(c)).mockResolvedValue(IMAGE_SKIP);
+    vi.mocked(download(c)).mockResolvedValue({ data: PNG, mimeType: 'image/png;charset=UTF-8' });
+    const out = (await readAttachment(c).handler(args)) as McpContent[];
+    expect(download(c)).toHaveBeenCalledWith(...textArgs);
+    expect(out[0]).toMatchObject({ type: 'text' });
+    expect(out[0]).toEqual({ type: 'text', text: expect.stringContaining('attachmentId 55') });
+    expect(out[1]).toEqual({ type: 'image', data: Buffer.from(PNG).toString('base64'), mimeType: 'image/png' });
+  });
+
+  it('이미지 크기 초과(FileTooLargeError)·형식 불가(HEIC)는 안내 문구만, 다른 오류는 삼키지 않는다', async () => {
+    const c = mockClient();
+    vi.mocked(readText(c)).mockResolvedValue(IMAGE_SKIP);
+    vi.mocked(download(c)).mockRejectedValue(new FileTooLargeError());
+    expect(await readAttachment(c).handler(args)).toContain(`크기(${IMAGE_MAX_BYTES}B 초과)`);
+    vi.mocked(download(c)).mockResolvedValue({ data: PNG, mimeType: 'image/heic' });
+    expect(await readAttachment(c).handler(args)).toContain('형식(image/heic)');
+    vi.mocked(download(c)).mockRejectedValue(new Error('boom'));
+    await expect(readAttachment(c).handler(args)).rejects.toThrow('boom');
+  });
+});
+
+describe('read_attachment — 노트 NONE (WP-358)', () => {
+  // 노트는 이미지만 올라가고 백필하지 않으므로 배포 전 첨부는 NONE 이다 — 그래도 이미지로 읽혀야 한다.
+  it('NONE(배포 전 노트 첨부)도 원본을 받아 이미지 블록으로 준다', async () => {
+    const c = mockClient();
+    vi.mocked(c.readWikiAttachmentText).mockResolvedValue(slice('NONE'));
+    const out = (await readAttachment(c).handler({ source: 'wiki', pageId: 7, attachmentId: 55 })) as McpContent[];
+    expect(c.downloadWikiAttachment).toHaveBeenCalledWith(7, 55);
+    expect(out[1]).toEqual({ type: 'image', data: Buffer.from(PNG).toString('base64'), mimeType: 'image/png' });
+  });
+
+  it('NONE 인데 이미지가 아니면 형식 사유 안내만 준다', async () => {
+    const c = mockClient();
+    vi.mocked(c.readWikiAttachmentText).mockResolvedValue(slice('NONE'));
+    vi.mocked(c.downloadWikiAttachment).mockResolvedValue({ data: PNG, mimeType: 'application/pdf' });
+    expect(await readAttachment(c).handler({ source: 'wiki', pageId: 7, attachmentId: 55 })).toContain('형식(application/pdf)');
+  });
+
+  it('메시지·메일의 NONE 은 이미지로 가정하지 않는다(상태만)', async () => {
+    const c = mockClient();
+    vi.mocked(c.readMessageAttachmentText).mockResolvedValue(slice('NONE'));
+    vi.mocked(c.readMailAttachmentText).mockResolvedValue(slice('NONE'));
+    await readAttachment(c).handler({ source: 'message', channelId: 3, messageId: 40, attachmentId: 55 });
+    await readAttachment(c).handler({ source: 'mail', attachmentId: 55 });
+    expect(c.downloadMessageAttachment).not.toHaveBeenCalled();
+    expect(c.downloadMailAttachment).not.toHaveBeenCalled();
+  });
+});
+
+describe('read_attachment — 메일 PENDING (WP-358)', () => {
+  it('첫 호출은 PENDING 이라 잠시 뒤 다시 호출하라는 안내를 붙인다', async () => {
+    const c = mockClient();
+    vi.mocked(c.readMailAttachmentText).mockResolvedValue(slice('PENDING'));
+    const out = JSON.parse(resultText(await readAttachment(c).handler({ source: 'mail', attachmentId: 55 })));
+    expect(out).toMatchObject({ attachmentId: 55, status: 'PENDING', text: null });
+    expect(out.note).toContain('다시 호출');
+    expect(c.downloadMailAttachment).not.toHaveBeenCalled();
+  });
+
+  it('노트·메시지의 PENDING 은 상태만(안내 없음)', async () => {
+    const c = mockClient();
+    vi.mocked(c.readWikiAttachmentText).mockResolvedValue(slice('PENDING'));
+    const out = JSON.parse(resultText(await readAttachment(c).handler({ source: 'wiki', pageId: 7, attachmentId: 55 })));
+    expect(out).toEqual(issueView(slice('PENDING')));
   });
 });

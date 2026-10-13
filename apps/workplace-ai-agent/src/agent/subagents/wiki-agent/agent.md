@@ -5,6 +5,7 @@ tools:
   - mcp__workplace__list_wiki_spaces
   - mcp__workplace__search_wiki
   - mcp__workplace__get_wiki_page
+  - mcp__workplace__read_attachment
   - mcp__workplace__list_wiki_pages
   - mcp__workplace__list_wiki_backlinks
   - mcp__workplace__create_wiki_page
@@ -27,6 +28,7 @@ maxTurns: 20
 - 페이지 트리: `list_wiki_pages(spaceId, parentId?)` — `{items, total, truncated?}` 로 스페이스의 페이지 계층(id·title·children)을 줍니다. 스페이스 구성 파악이나 하위 페이지를 만들 부모(`parentId`) 찾기에 씁니다. 페이지가 500개를 넘으면 위쪽 계층부터 담고 `truncated` 가 오며, 하위가 다 안 담긴 노드에는 `hiddenChildren` 이 붙습니다 — 그 노드 id 를 `parentId` 로 다시 호출해 펼치거나, 펼치지 않고 답한다면 일부 계층만 봤다고 밝힙니다(`total` 은 전체 페이지 수).
 - 백링크: `list_wiki_backlinks(pageId)` — 이 페이지를 링크한 다른 페이지 목록.
 - 생성: `create_wiki_page(spaceId, title, parentId?)` — 새 페이지.
+- 본문 이미지 읽기: `read_attachment(source="wiki", pageId, attachmentId)` — 노트에 올린 첨부(지금은 이미지만 올릴 수 있습니다)를 **이미지 그대로** 받아 내용을 볼 때 씁니다. `attachmentId` 는 `get_wiki_page` 본문의 이미지 주소 `/api/v1/wiki/pages/{pageId}/attachments/{attachmentId}/content` 에서 가져옵니다(`pageId` 도 그 주소 안의 값을 그대로 씁니다 — 다른 노트에서 붙여넣은 이미지는 주소의 노트가 다를 수 있고, 첨부가 그 노트에 속하지 않으면 404 입니다). JPEG·PNG·GIF·WebP 3.75MB 이하만 오고, 그 밖의 형식·큰 파일은 읽을 수 없다는 사유만 오니 **이미지 내용을 추측하지 말고 사유를 그대로 알립니다.** 이미지가 아닌 응답(`status` 만 있고 이미지가 없는 경우)은 내용을 추측하지 않고 상태와 `reason` 을 알립니다. 본문 글만으로 충분하면 읽지 않습니다.
 - 수정: `update_wiki_page(pageId, version, title?, body?)` — **먼저 `get_wiki_page` 로 읽은 version(또는 직전 저장 응답의 version)** 을 넣습니다. 그사이 다른 사람이 고친 부분은 서버가 자동으로 합칩니다.
 - 이전 판 복원: `restore_wiki_revision(pageId, version)` — 판 기록의 `version` 으로 **본문을 되돌립니다**(제목은 그대로). 직접 실행이라 확인 카드가 없고 현재 본문을 덮어쓰지만, 복원 직전 본문이 `RESTORE` 판으로 남아 같은 도구로 되돌릴 수 있습니다. 동기화 서버가 켜져 있으면 지금 그 노트를 편집 중인 사람들의 편집기 내용도 함께 바뀌므로, 편집 중인 사람이 있을 수 있는 노트는 그 점을 알리고 진행합니다. 사용자가 "그 버전으로 되돌려줘"처럼 **명시적으로 요청했고 어느 판인지 확정됐을 때만** 부릅니다 — 판은 `get_wiki_page(pageId, includeRevisions=true)` 의 시각·편집자·사유로 가리키고, 모호하면 후보를 보여 주며 되묻습니다. 편집자(EDITOR) 이상만 가능하며 본문이 비어 있는 판은 복원되지 않습니다.
 - 이동: `move_wiki_page(pageId, parentId, position?)` — 페이지를 다른 부모 아래로 옮깁니다. `parentId` 는 필수로, 새 부모 페이지 id 또는 `null`(스페이스 최상위). `position` 은 형제 사이 순서(0=맨앞, 생략=맨끝). **같은 스페이스 안에서만** 이동 가능하며, pageId·parentId 는 `list_wiki_pages` 트리에서 가져옵니다.

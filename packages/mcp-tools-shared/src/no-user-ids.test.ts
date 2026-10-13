@@ -2,6 +2,7 @@
 // 목은 서버 Java record(AttendeeResponse·WikiPageDetail·DriveSpaceResponse·ProjectResponse·MessageResponse·ChannelResponse 등)의
 // 실제 필드를 그대로 따른다 — 필드가 빠진 목은 "userId 없음" 단언이 아무것도 검증하지 못하기 때문이다.
 import { describe, expect, it, vi } from 'vitest';
+import { buildAttachmentTools } from './attachment-tools.js';
 import { buildCalendarTools } from './calendar-tools.js';
 import { buildDriveTools } from './drive-tools.js';
 import { buildHomeTools } from './home-tools.js';
@@ -420,15 +421,15 @@ describe('메시징', () => {
   };
   const tools = buildMessagingTools(client as never) as never as Parameters<typeof find>[0];
 
-  it('채널 도구 3종은 id 를 channelId 로 바꾸고 마지막 메시지 미리보기의 authorId 를 뺀다', async () => {
+  it('채널 도구는 id 를 channelId 로 바꾸고 마지막 메시지 미리보기의 authorId 를 뺀다', async () => {
     const list = out(await find(tools, 'list_channels').handler({}));
     expect(userIdLeaks(list)).toEqual([]);
     expect(list.items[0]).toMatchObject({ channelId: 5, name: '일반', lastMessage: { id: 40, authorName: '앨리스', preview: '안녕' } });
     expect(list.items[0]).not.toHaveProperty('id');
-    const discovered = out(await find(tools, 'discover_channels').handler({ q: '일' }));
+    const discovered = out(await find(tools, 'list_channels').handler({ q: '일' }));
     expect(userIdLeaks(discovered)).toEqual([]);
-    expect(discovered[0]).toMatchObject({ channelId: 5 });
-    expect(discovered[0]).not.toHaveProperty('lastMessage'); // 값이 없는 키는 생략
+    expect(discovered.items[0]).toMatchObject({ channelId: 5 });
+    expect(discovered.items[0]).not.toHaveProperty('lastMessage'); // 값이 없는 키는 생략
     const created = out(await find(tools, 'create_channel').handler({ name: '일반' }));
     expect(created).toMatchObject({ channelId: 5 });
     expect(created).not.toHaveProperty('id');
@@ -466,5 +467,29 @@ describe('메시징', () => {
     const replies = out(await find(tools, 'list_thread_replies').handler({ messageId: 40 }));
     expect(replies.items[0].body).toBe('안녕 @김민수(minsu)');
     expect(replies.items[0].mentions).toEqual([{ username: 'minsu', name: '김민수', kind: 'HUMAN' }]);
+  });
+});
+
+// WP-358: read_attachment 의 노트·메시지·메일 갈래 — 서버 구간 응답(ExtractedTextSlice)에는 사용자 ID 가 없고, 내부 file id 는 attachmentId 로만 나간다.
+describe('첨부 읽기 (WP-358)', () => {
+  const sliceRow = { fileId: 70, status: 'READY', offset: 0, totalChars: 3, truncated: false, nextOffset: null, text: '안녕 <@3>', reasonCode: null, reason: null };
+  const client = {
+    readWikiAttachmentText: vi.fn().mockResolvedValue(sliceRow),
+    readMessageAttachmentText: vi.fn().mockResolvedValue(sliceRow),
+    readMailAttachmentText: vi.fn().mockResolvedValue({ ...sliceRow, fileId: 9 }),
+  };
+  const [tool] = buildAttachmentTools(client as never);
+  const tools = [tool] as never as Parameters<typeof find>[0];
+
+  it.each([
+    [{ source: 'wiki', pageId: 7, attachmentId: 70 }],
+    [{ source: 'message', channelId: 5, messageId: 40, attachmentId: 70 }],
+    [{ source: 'mail', attachmentId: 9 }],
+  ])('%j: 응답에 서버 fileId 가 없고 attachmentId 로 나간다', async (args) => {
+    const res = out(await find(tools, 'read_attachment').handler(args));
+    expect(res).not.toHaveProperty('fileId');
+    expect(res.attachmentId).toBe(args.attachmentId);
+    // 본문 텍스트는 첨부 원문이라 그대로 둔다 — 멘션 토큰 검사는 여기서 제외한다.
+    expect(userIdLeaks({ ...res, text: undefined })).toEqual([]);
   });
 });

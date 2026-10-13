@@ -167,6 +167,13 @@ function sharedMock(): MockedShared {
     readDriveFileText: vi.fn().mockResolvedValue({ fileId: 1, status: 'NONE' }),
     listDriveFileVersions: vi.fn().mockResolvedValue([]),
     downloadDriveFile: vi.fn().mockResolvedValue({ data: new Uint8Array(), mimeType: 'application/octet-stream' }),
+    // WP-358: 노트·메시지·메일 첨부 읽기
+    readWikiAttachmentText: vi.fn(),
+    downloadWikiAttachment: vi.fn(),
+    readMessageAttachmentText: vi.fn(),
+    downloadMessageAttachment: vi.fn(),
+    readMailAttachmentText: vi.fn(),
+    downloadMailAttachment: vi.fn(),
   };
 }
 
@@ -268,15 +275,15 @@ describe('프로필 구성', () => {
     expect(names).toEqual(['show_activity', 'show_issue_detail', 'show_issue_list', 'show_mail_list', 'show_my_tasks']);
   });
 
-  it('messaging 프로필: 위임 컨텍스트가 없으면 채널 도구 5종만', () => {
+  it('messaging 프로필: 위임 컨텍스트가 없으면 채널 도구 4종만', () => {
     const names = buildTools(client(), AGENT_ID, 'messaging').map((t) => t.name).sort();
-    expect(names).toEqual(['add_channel_message', 'discover_channels', 'list_channel_messages', 'list_channels', 'list_thread_replies']);
+    expect(names).toEqual(['add_channel_message', 'list_channel_messages', 'list_channels', 'list_thread_replies']);
   });
 
   it('messaging 프로필 + delegationContext: propose_create_issue/propose_create_event + 참석자 조회용 search_members 추가', () => {
     const names = buildTools(client(), AGENT_ID, 'messaging', undefined, { actorId: 7, channelId: 9 }).map((t) => t.name);
     expect(names).toEqual(expect.arrayContaining(['propose_create_issue', 'propose_create_event', 'search_members']));
-    expect(names).toHaveLength(8);
+    expect(names).toHaveLength(7);
   });
 
   // WP-355: 리액션·메시지 수정·읽음 처리·채널 참여는 사용자 신원(assistant)에만 싣는다 — 채널에서 멘션된 에이전트 신원(messaging)에는 주지 않는다(정책 보류).
@@ -333,7 +340,7 @@ describe('프로필 구성', () => {
       // 캘린더
       'list_events', 'get_event', 'propose_create_event', 'propose_update_event', 'propose_delete_event',
       // 메시징
-      'list_channel_messages', 'list_thread_replies', 'add_channel_message', 'list_channels', 'discover_channels',
+      'list_channel_messages', 'list_thread_replies', 'add_channel_message', 'list_channels',
       // 메일
       'list_mail', 'get_mail', 'propose_send_mail', 'list_mail_accounts', 'sync_mail',
       // 연락처·구성원(#833)
@@ -816,16 +823,22 @@ describe('threadBinding — add_channel_message 스레드 mirror', () => {
   });
 });
 
-describe('discover_channels (#350)', () => {
+describe('list_channels q — 공개 채널 탐색 (#350, WP-355)', () => {
   // WP-343: 공유 도구로 이동 — 핸들러 동작은 공유 패키지 테스트가, 여기서는 에이전트 신원(toolClient(agentId))으로 실행되는지만 본다.
-  it('공유 도구로 에이전트 신원(toolClient(agentId))의 discoverChannels 를 호출하고 결과를 JSON 으로 반환한다', async () => {
+  // WP-355: 옛 discover_channels 는 list_channels 의 q 옵션으로 접혔다.
+  it('공유 도구로 에이전트 신원(toolClient(agentId))의 discoverChannels 를 호출하고 같은 {items,total} 형태로 반환한다', async () => {
     const c = client();
     vi.mocked(c.sc.discoverChannels).mockResolvedValue([{ id: 3, name: '공지', kind: 'PUBLIC' }]);
-    const out = await find(buildTools(c, AGENT_ID, 'messaging'), 'discover_channels').handler({ q: '공지' });
+    const out = await find(buildTools(c, AGENT_ID, 'messaging'), 'list_channels').handler({ q: '공지' });
     expect(c.toolClient).toHaveBeenCalledWith(AGENT_ID);
     expect(c.sc.discoverChannels).toHaveBeenCalledWith('공지');
     // WP-353: 채널은 어디서나 channelId 로 가리킨다.
-    expect(JSON.parse(out as string)).toEqual([{ channelId: 3, name: '공지', kind: 'PUBLIC' }]);
+    expect(JSON.parse(out as string)).toEqual({ items: [{ channelId: 3, name: '공지', kind: 'PUBLIC' }], total: 1 });
+  });
+  it('discover_channels 는 더 이상 도구가 아니다', () => {
+    for (const p of ['messaging', 'assistant'] as const) {
+      expect(buildTools(client(), AGENT_ID, p).map((t) => t.name)).not.toContain('discover_channels');
+    }
   });
 });
 

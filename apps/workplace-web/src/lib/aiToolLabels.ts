@@ -27,6 +27,8 @@ export const LEGACY_TOOL_LABELS: Record<string, ToolLabel> = {
   get_channel_messages: { label: '채널 메시지 조회', icon: '💬' },
   // WP-346: 이슈 챗 첨부 읽기 — 공유 read_attachment 와 헷갈리지 않게 read_chat_thread_attachment 로 바뀜.
   read_attachment_text: { label: '첨부 읽기', icon: '📎' },
+  // WP-355: 앱당 도구 15개 상한 때문에 list_channels 의 q 옵션으로 접힌 채널 탐색(옛 라벨 값 그대로).
+  discover_channels: { label: '채널 탐색', icon: '🔍' },
 };
 
 export function getToolDisplay(toolName: string): ToolLabel {

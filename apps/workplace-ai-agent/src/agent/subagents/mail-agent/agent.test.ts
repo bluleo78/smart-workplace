@@ -14,6 +14,7 @@ describe('mail-agent 정의', () => {
     expect(loaded['mail-agent'].tools).toEqual([
       'mcp__workplace__list_mail',
       'mcp__workplace__get_mail',
+      'mcp__workplace__read_attachment', // WP-358: 메일 첨부 읽기(첫 호출 PENDING)
       // #855: AI 요약·답장 초안(저장·발송 없음)
       'mcp__workplace__get_mail_summary',
       'mcp__workplace__draft_mail_reply',
@@ -60,5 +61,14 @@ describe('mail-agent 정의', () => {
     expect(prompt).toContain('alreadySyncing');
     expect(prompt).toContain('`bodyText`');
     expect(prompt).not.toContain('완료 응답만으로');
+  });
+
+  // WP-358: 메일 첨부는 첫 호출이 PENDING 이라 다시 부르라고 안내한다. 요약·답장 초안은 첨부를 읽지 않는다.
+  it('read_attachment 를 source "mail" + attachmentId(get_mail)로 안내하고 PENDING 재호출·추측 금지를 밝힌다 (WP-358)', () => {
+    const prompt = loaded['mail-agent'].prompt;
+    expect(prompt).toContain('read_attachment(source="mail", attachmentId, offset?, limit?)');
+    expect(prompt).toContain('`attachments[].attachmentId`');
+    expect(prompt).toContain('첫 호출은 `PENDING`');
+    expect(prompt).toContain('내용을 추측하지 말고');
   });
 });

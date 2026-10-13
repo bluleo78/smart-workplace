@@ -22,7 +22,6 @@ const EXPECTED: Record<string, readonly [kind: string, destructive: boolean | nu
   create_issue_from_mail: ['write', false, true, false],
   create_user_group: ['write', false, false, false],
   create_wiki_page: ['write', false, false, false],
-  discover_channels: ['read', R, R, R],
   draft_issue_from_mail: ['read', R, R, R],
   draft_mail_reply: ['read', R, R, R],
   get_contact_facets: ['read', R, R, R],

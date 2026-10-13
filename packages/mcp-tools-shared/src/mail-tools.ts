@@ -58,7 +58,7 @@ export function toMailListItem(row: Raw): Raw {
 /**
  * 메일 상세(EmailMessageDetail) → LLM 뷰(WP-353). 본문은 bodyText 하나만 준다 — 서버는 text·html 을 둘 다 보내는데 HTML 은 같은 내용을
  * 태그·인라인 스타일로 부풀린 것이라 토큰만 먹는다. 평문이 비어 있고 HTML 만 있는 메일(HTML 전용 발송)은 HTML 을 평문으로 바꿔 채운다.
- * 헤더 메시지 id(messageId)·스레드 id 는 답장 헤더용 내부 값이라 뺀다. 첨부의 인라인 이미지 참조(contentId)도 뺀다.
+ * 헤더 메시지 id(messageId)·스레드 id 는 답장 헤더용 내부 값이라 뺀다. 첨부의 인라인 이미지 참조(contentId)도 빼고, 첨부 id 는 attachmentId 로 이름을 바꾼다(WP-358).
  */
 export function toMailDetailView(raw: Raw): Raw {
   const { bodyText, bodyHtml, attachments, ...rest } = omitKeys(raw, 'threadId', 'messageId');
@@ -68,7 +68,13 @@ export function toMailDetailView(raw: Raw): Raw {
   return dropEmpty({
     ...rest,
     bodyText: body,
-    attachments: Array.isArray(attachments) ? attachments.map((a) => omitKeys(a as Raw, 'contentId')) : attachments,
+    // 첨부 식별자는 이슈 첨부와 같은 이름 attachmentId 로 준다(read_attachment 입력, WP-358).
+    attachments: Array.isArray(attachments)
+      ? attachments.map((a) => {
+          const { id, ...row } = omitKeys(a as Raw, 'contentId');
+          return { attachmentId: id, ...row };
+        })
+      : attachments,
   });
 }
 

@@ -35,6 +35,8 @@ describe('getToolDisplay — 옛 도구 이름 폴백', () => {
     expect(getToolDisplay('get_chat_thread').label).toBe('대화 조회');
     // WP-352: get_channel_messages → list_channel_messages
     expect(getToolDisplay('mcp__workplace__get_channel_messages')).toEqual({ label: '채널 메시지 조회', icon: '💬' });
+    // WP-355: discover_channels 는 list_channels 의 q 옵션으로 접혀 옛 이름이 LEGACY 에 남았다(기록 표시용)
+    expect(getToolDisplay('mcp__workplace__discover_channels')).toEqual({ label: '채널 탐색', icon: '🔍' });
     // WP-346: 이슈 챗 첨부 읽기(opencode 형식 접두 포함)
     expect(getToolDisplay('workplace_read_attachment_text')).toEqual({ label: '첨부 읽기', icon: '📎' });
     expect(getToolDisplay('read_chat_thread_attachment').label).toBe('첨부 읽기');

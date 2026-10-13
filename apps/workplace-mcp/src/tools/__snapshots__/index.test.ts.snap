@@ -21,7 +21,6 @@ exports[`buildUserTools > 노출 도구 이름·kind 스냅샷 1`] = `
   "create_project_meta:write",
   "create_user_group:write",
   "create_wiki_page:write",
-  "discover_channels:read",
   "draft_issue_from_mail:read",
   "draft_mail_reply:read",
   "get_contact_facets:read",

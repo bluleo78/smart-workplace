@@ -122,7 +122,7 @@ describe('buildMailTools', () => {
     expect(out).not.toHaveProperty('messageId');
     expect(out).not.toHaveProperty('ccAddresses');
     expect(out.bodyText).toBe('안녕하세요\n견적 보냅니다.');
-    expect(out.attachments).toEqual([{ id: 1, filename: 'a.pdf', contentType: 'application/pdf', sizeBytes: 10 }]);
+    expect(out.attachments).toEqual([{ attachmentId: 1, filename: 'a.pdf', contentType: 'application/pdf', sizeBytes: 10 }]);
     expect(out).toMatchObject({ id: 9, subject: '견적', fromAddress: 'a@x.com', seen: false });
     expect(JSON.stringify(out).length).toBeLessThan(JSON.stringify(detail).length * 0.75);
   });

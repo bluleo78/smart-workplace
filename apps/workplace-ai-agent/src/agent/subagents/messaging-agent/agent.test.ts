@@ -15,8 +15,8 @@ describe('messaging-agent 정의', () => {
       'mcp__workplace__list_channel_messages',
       'mcp__workplace__list_thread_replies', // #850: 스레드 답글
       'mcp__workplace__add_channel_message',
-      'mcp__workplace__list_channels',
-      'mcp__workplace__discover_channels',
+      'mcp__workplace__list_channels', // WP-355: q 로 공개 채널 탐색(옛 discover_channels)
+      'mcp__workplace__read_attachment', // WP-358: 메시지 첨부 읽기
       // #855: 채널 생성·DM 열기·공개 채널 나가기
       'mcp__workplace__create_channel',
       'mcp__workplace__open_dm',
@@ -50,7 +50,7 @@ describe('messaging-agent 정의', () => {
   // WP-352: 채널 목록이 잘리면 nextOffset 으로 이어 찾고, 목록에 없다고 단정하지 않게 한다.
   it('list_channels 의 hasMore·nextOffset 안내가 있다', () => {
     const prompt = loaded['messaging-agent'].prompt;
-    expect(prompt).toContain('list_channels(limit?, offset?)');
+    expect(prompt).toContain('list_channels(q?, limit?, offset?)');
     expect(prompt).toContain('`nextOffset` 을 `offset` 으로 넘겨 이어 조회하세요');
     expect(prompt).toContain('목록에 없다고 단정하기 전에');
   });
@@ -78,5 +78,20 @@ describe('messaging-agent 정의', () => {
     expect(prompt).toContain('`hasUnreadThreads`');
     expect(prompt).toContain('search_members(channelId, search?)');
     expect(prompt).not.toContain('다시 참여시키는 도구는 없어');
+  });
+
+  // WP-355: discover_channels 는 list_channels 의 q 옵션으로 접혔다.
+  it('채널 탐색은 list_channels(q) 로 안내하고 옛 discover_channels 는 없다 (WP-355)', () => {
+    const prompt = loaded['messaging-agent'].prompt;
+    expect(prompt).toContain('`list_channels(q)`');
+    expect(prompt).not.toContain('discover_channels');
+  });
+
+  // WP-358: 메시지 첨부는 read_attachment(source="message") — id 의 출처를 읽기 도구 출력으로 안내하고 비-READY 상태 추측을 금한다.
+  it('read_attachment 를 source "message" + channelId·messageId·attachmentId 로 안내하고 비-READY 상태 추측을 금한다 (WP-358)', () => {
+    const prompt = loaded['messaging-agent'].prompt;
+    expect(prompt).toContain('read_attachment(source="message", channelId, messageId, attachmentId, offset?, limit?)');
+    expect(prompt).toContain('`attachments[].fileId`');
+    expect(prompt).toMatch(/READY.*내용을 추측하지 말고/s);
   });
 });

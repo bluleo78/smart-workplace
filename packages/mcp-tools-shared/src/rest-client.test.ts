@@ -539,6 +539,31 @@ describe('createSharedToolClient 첨부·파일 내용 읽기 경로(WP-346)', (
     expect(http.get).toHaveBeenCalledWith('/drive/files/9/text', { params: { offset: 0, limit: 500 } });
   });
 
+  // WP-358: 노트·메시지·메일 첨부 — /text 구간 읽기와 이미지 원본(/content, 같은 다운로드 상한)
+  it('노트·메시지·메일 첨부 텍스트 — 소스별 경로 + offset/limit 쿼리', async () => {
+    const { http, client } = mockHttp();
+    await client.readWikiAttachmentText(7, 55, { offset: 6, limit: 100 });
+    expect(http.get).toHaveBeenLastCalledWith('/wiki/pages/7/attachments/55/text', { params: { offset: 6, limit: 100 } });
+    await client.readMessageAttachmentText(3, 40, 55, { limit: 12000 });
+    expect(http.get).toHaveBeenLastCalledWith('/messaging/channels/3/messages/40/attachments/55/text', { params: { limit: 12000 } });
+    await client.readMailAttachmentText(55, { offset: 0, limit: 500 });
+    expect(http.get).toHaveBeenLastCalledWith('/mail/attachments/55/text', { params: { offset: 0, limit: 500 } });
+  });
+
+  it('노트·메시지·메일 첨부 원본 — /content 를 이미지 상한을 걸어 받는다', async () => {
+    const { http, client } = mockHttp();
+    const opts = { responseType: 'arraybuffer', maxContentLength: 3_932_160, maxBodyLength: 3_932_160 };
+    for (const [call, url] of [
+      [() => client.downloadWikiAttachment(7, 55), '/wiki/pages/7/attachments/55/content'],
+      [() => client.downloadMessageAttachment(3, 40, 55), '/messaging/channels/3/messages/40/attachments/55/content'],
+      [() => client.downloadMailAttachment(55), '/mail/attachments/55/content'],
+    ] as const) {
+      http.get.mockResolvedValueOnce({ data: new Uint8Array([7]).buffer, headers: { 'content-type': 'image/png' } });
+      expect((await call()).mimeType).toBe('image/png');
+      expect(http.get).toHaveBeenLastCalledWith(url, opts);
+    }
+  });
+
   it('이슈 첨부 목록·드라이브 버전 목록 — 배열이 아니면 빈 배열', async () => {
     const { http, client } = mockHttp();
     expect(await client.listIssueAttachments('WP-12')).toEqual([]);

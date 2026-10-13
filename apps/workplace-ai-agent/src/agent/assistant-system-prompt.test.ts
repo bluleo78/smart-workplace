@@ -13,6 +13,10 @@ describe('ASSISTANT_SYSTEM_PROMPT', () => {
   it('이슈 첨부·드라이브 파일은 read_attachment(source별 식별자), 이 대화의 첨부 fileId 는 read_chat_attachment 전용', () => {
     expect(ASSISTANT_SYSTEM_PROMPT).toContain('{source:"issue", issueKey, attachmentId}');
     expect(ASSISTANT_SYSTEM_PROMPT).toContain('{source:"drive", driveFileId}');
+    // WP-358: 노트 이미지·채널 메시지 첨부·메일 첨부
+    expect(ASSISTANT_SYSTEM_PROMPT).toContain('{source:"wiki", pageId, attachmentId}');
+    expect(ASSISTANT_SYSTEM_PROMPT).toContain('{source:"message", channelId, messageId, attachmentId}');
+    expect(ASSISTANT_SYSTEM_PROMPT).toContain('{source:"mail", attachmentId}');
     expect(ASSISTANT_SYSTEM_PROMPT).toContain('`read_chat_attachment` 전용이며 `read_attachment`(이슈 첨부·드라이브 파일)에 넣지 않습니다');
     // 드라이브 직접 읽기 표에도 read_attachment 가 있다.
     expect(ASSISTANT_SYSTEM_PROMPT).toMatch(/\| 드라이브 \|[^\n]*read_attachment/);

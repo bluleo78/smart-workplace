@@ -76,7 +76,7 @@ unassign: get_issue_detail → (propose?) → unassign_self
 ### messaging-agent
 ```
 채널 메시지: list_channels (채널 확인) → add_channel_message
-채널 탐색: discover_channels → list_channel_messages
+채널 탐색: list_channels(q) → list_channel_messages
 ```
 
 ### wiki-agent

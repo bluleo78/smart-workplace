@@ -46,7 +46,6 @@ export const TOOL_LABELS: Readonly<Record<string, ToolLabel>> = {
   add_chat_message: { label: '메시지 작성', icon: '💬' },
   // 메시징
   list_channels: { label: '채널 목록', icon: '📋' },
-  discover_channels: { label: '채널 탐색', icon: '🔍' },
   list_channel_messages: { label: '채널 메시지 조회', icon: '💬' },
   list_thread_replies: { label: '스레드 답글 조회', icon: '🧵' },
   add_channel_message: { label: '채널 메시지 작성', icon: '💬' },

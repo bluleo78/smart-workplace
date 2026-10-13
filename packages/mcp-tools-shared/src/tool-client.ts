@@ -514,6 +514,18 @@ export interface AttachmentToolClient {
   listDriveFileVersions(driveFileId: number): Promise<DriveFileVersionRow[]>;
   /** GET /drive/files/{id}/content — 원본 바이트(인라인 미리보기와 같은 게이트). */
   downloadDriveFile(driveFileId: number): Promise<FileBytes>;
+  /** GET /wiki/pages/{pageId}/attachments/{fileId}/text(WP-358) — 공간 VIEWER 이상, 비멤버는 404. */
+  readWikiAttachmentText(pageId: number, fileId: number, range: TextRange): Promise<ExtractedTextSlice>;
+  /** GET /wiki/pages/{pageId}/attachments/{fileId}/content — 원본 바이트(노트 첨부는 이미지만 올라간다). */
+  downloadWikiAttachment(pageId: number, fileId: number): Promise<FileBytes>;
+  /** GET /messaging/channels/{id}/messages/{msgId}/attachments/{fileId}/text(WP-358) — 채널 멤버만(비멤버 403). */
+  readMessageAttachmentText(channelId: number, messageId: number, fileId: number, range: TextRange): Promise<ExtractedTextSlice>;
+  /** GET /messaging/channels/{id}/messages/{msgId}/attachments/{fileId}/content — 원본 바이트. */
+  downloadMessageAttachment(channelId: number, messageId: number, fileId: number): Promise<FileBytes>;
+  /** GET /mail/attachments/{attachmentId}/text(WP-358) — 본인 소유 첨부만(아니면 404). 응답 fileId 는 요청한 attachmentId 다. 첫 호출은 PENDING. */
+  readMailAttachmentText(attachmentId: number, range: TextRange): Promise<ExtractedTextSlice>;
+  /** GET /mail/attachments/{attachmentId}/content — 원본 바이트(IMAP·Graph 에서 가져온다). */
+  downloadMailAttachment(attachmentId: number): Promise<FileBytes>;
 }
 
 /** 휴지통 항목 — type 에 따라 id 가 drive_file.id(FILE) 또는 폴더 id(FOLDER)다. 뷰가 이름을 나눠 붙이므로 그 필드를 고정한다. */

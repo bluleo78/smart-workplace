@@ -53,14 +53,29 @@ describe('buildMessagingTools', () => {
     proposal: null,
   });
 
-  it('discover_channels → client.discoverChannels(q) 결과를 JSON 으로 반환하고 빈 q 는 거절한다 (#350)', async () => {
+  it('list_channels q → client.discoverChannels(q) 결과를 같은 {items,total} 형태로 반환하고 빈 q 는 거절한다 (#350, WP-355)', async () => {
     const c = mockClient();
-    vi.mocked(c.discoverChannels).mockResolvedValue([{ id: 3, name: '공지', kind: 'PUBLIC' }]);
-    const out = await tool(c, 'discover_channels').handler({ q: '공지' });
+    vi.mocked(c.discoverChannels).mockResolvedValue([{ id: 3, name: '공지', kind: 'PUBLIC', member: false }]);
+    const out = await tool(c, 'list_channels').handler({ q: '공지' });
     expect(c.discoverChannels).toHaveBeenCalledWith('공지');
-    // 채널은 어디서나 channelId 로 가리킨다(WP-353).
-    expect(JSON.parse(resultText(out))).toEqual([{ channelId: 3, name: '공지', kind: 'PUBLIC' }]);
-    await expect(tool(c, 'discover_channels').handler({ q: '' })).rejects.toThrow();
+    expect(c.listChannels).not.toHaveBeenCalled();
+    // 채널은 어디서나 channelId 로 가리킨다(WP-353). member 는 가입 여부라 그대로 둔다.
+    expect(JSON.parse(resultText(out))).toEqual({ items: [{ channelId: 3, name: '공지', kind: 'PUBLIC', member: false }], total: 1 });
+    await expect(tool(c, 'list_channels').handler({ q: '' })).rejects.toThrow();
+    // 모델이 쓰지 않는 q 를 null 로 보내도 내 채널 목록으로 본다.
+    await tool(c, 'list_channels').handler({ q: null });
+    expect(c.listChannels).toHaveBeenCalledTimes(1);
+  });
+
+  it('list_channels q → limit·offset 으로 잘라 hasMore·nextOffset 으로 이어 읽는다 (WP-355)', async () => {
+    const c = mockClient();
+    vi.mocked(c.discoverChannels).mockResolvedValue([1, 2, 3].map((id) => ({ id, name: `c${id}`, kind: 'PUBLIC', member: false })));
+    const first = JSON.parse(resultText(await tool(c, 'list_channels').handler({ q: 'c', limit: 2 })));
+    expect(first).toMatchObject({ total: 3, hasMore: true, nextOffset: 2 });
+    expect(first.items).toHaveLength(2);
+    const rest = JSON.parse(resultText(await tool(c, 'list_channels').handler({ q: 'c', limit: 2, offset: 2 })));
+    expect(rest.items).toHaveLength(1);
+    expect(rest).not.toHaveProperty('hasMore');
   });
 
   it('list_thread_replies → nextCursor 를 따라 끝까지 모으고 행의 반복·빈 필드를 지운다 (#850)', async () => {
@@ -328,13 +343,13 @@ describe('add_channel_member (WP-349)', () => {
 });
 
 describe('메시징 보강 (WP-355)', () => {
-  it('join_channel → 채널 id 로 참여하고 discover_channels·leave_channel 설명이 이 도구를 가리킨다', async () => {
+  it('join_channel → 채널 id 로 참여하고 list_channels·leave_channel 설명이 이 도구를 가리킨다', async () => {
     const c = mockClient();
     expect(resultText(await tool(c, 'join_channel').handler({ channelId: 4 }))).toBe('ok');
     expect(c.joinChannel).toHaveBeenCalledWith(4);
     // 예전 문구("참여 도구가 없다 — 앱에서 사용자가 한다")가 남으면 모델이 도구가 있는데도 사용자에게 떠넘긴다.
-    expect(tool(c, 'discover_channels').description).toContain('join_channel');
-    expect(tool(c, 'discover_channels').description).not.toContain('ask the user');
+    expect(tool(c, 'list_channels').description).toContain('join_channel');
+    expect(tool(c, 'list_channels').description).not.toContain('ask the user');
     expect(tool(c, 'leave_channel').description).toContain('join_channel');
     expect(tool(c, 'leave_channel').description).not.toContain('no tool here rejoins');
   });

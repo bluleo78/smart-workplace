@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { cursorPageView, dropEmpty, omitKeys, truncatedView } from './compact.js';
 import type { SharedTool } from './mcp-tool.js';
 import { findMemberByUsername, requireActiveMember, searchMembersByTerm } from './member-tools.js';
+import { nullAsOmitted } from './tool-definitions.js';
 import type { MemberRow, MemberToolClient, MessagingToolClient } from './tool-client.js';
 
 // 줄 시작·공백·여는 괄호 뒤의 @ 만 후보로 보므로 메일 주소(a@b.com)의 @ 는 건드리지 않고,
@@ -86,11 +87,12 @@ export const listChannelMessagesInput = z.object({
  * 정하고, offset 으로 이어 읽는다(이름순이라 두 호출 사이에 채널이 늘지 않는 한 안정적).
  */
 export const listChannelsInput = z.object({
+  // WP-355: discover_channels 를 접었다(메시징 앱 15개 상한) — q 가 있으면 공개 채널 탐색(가입 여부 무관), 없으면 내 채널·DM.
+  q: nullAsOmitted(z.string().min(1)),
   limit: z.number().int().min(1).max(200).default(100),
   offset: z.number().int().min(0).default(0),
 });
 export const getThreadRepliesInput = z.object({ messageId: z.number().int().positive() });
-export const discoverChannelsInput = z.object({ q: z.string().min(1) });
 
 /** 서버 스레드 페이지 상한(MessageRepository.MAX_LIMIT). */
 const THREAD_PAGE_SIZE = 100;
@@ -290,7 +292,7 @@ export interface MessagingToolOptions {
   parentMessageIdFor?(channelId: number): number | undefined;
 }
 
-/** 메시징 도구(list_channels/discover_channels/list_channel_messages/list_thread_replies/add_channel_message/create_channel/open_dm/leave_channel/join_channel/add_reaction/remove_reaction/update_channel_message/mark_channel_read/add_channel_member). */
+/** 메시징 도구(list_channels/list_channel_messages/list_thread_replies/add_channel_message/create_channel/open_dm/leave_channel/join_channel/add_reaction/remove_reaction/update_channel_message/mark_channel_read/add_channel_member). */
 export function buildMessagingTools(
   client: MessagingToolClient & Pick<MemberToolClient, 'searchMembers'>,
   opts: MessagingToolOptions = {},
@@ -302,27 +304,16 @@ export function buildMessagingTools(
       kind: 'read',
       description:
         'Lists my channels and DMs (채널·DM) by name as {items, total, hasMore?, nextOffset?}: channelId, kind, lastMessage, memberCount; unreadCount ' +
-        'and hasUnreadThreads only when set. If hasMore, pass nextOffset as offset, or say the list is partial.',
+        'and hasUnreadThreads only when set. q: search public channels by name substring instead, joined or not (member); join_channel to read or ' +
+        'post. If hasMore, pass nextOffset as offset, or say the list is partial.',
       inputSchema: listChannelsInput,
       async handler(args) {
-        const { limit, offset } = listChannelsInput.parse(args);
-        const all = (await client.listChannels()) as unknown[];
+        const { q, limit, offset } = listChannelsInput.parse(args);
+        // q 가 있으면 공개 채널 탐색(구 discover_channels), 없으면 내 채널 — 둘 다 서버가 전체를 주므로 같은 방식으로 잘라 이어 읽는다.
+        const all = q != null ? await client.discoverChannels(q) : ((await client.listChannels()) as unknown[]);
         const items = all.slice(offset, offset + limit).map((c) => toChannelView(c as Raw));
         const next = offset + items.length;
         return JSON.stringify({ items, total: all.length, ...(next < all.length && { hasMore: true, nextOffset: next }) });
-      },
-    },
-    {
-      name: 'discover_channels',
-      app: 'messaging',
-      kind: 'read',
-      description:
-        'Searches public channels by name substring, joined or not (member tells which). Messages can only be read or posted in joined channels: ' +
-        'use join_channel.',
-      inputSchema: discoverChannelsInput,
-      async handler(args) {
-        const { q } = discoverChannelsInput.parse(args);
-        return JSON.stringify((await client.discoverChannels(q)).map((c) => toChannelView(c as Raw)));
       },
     },
     {
@@ -437,7 +428,7 @@ export function buildMessagingTools(
       // 이미 멤버면 아무것도 바꾸지 않고 성공한다(ChannelMemberRepository.add 의 ON CONFLICT DO NOTHING) — 멱등. 알림은 없고 목록 갱신 신호뿐이다.
       hints: { destructive: false, idempotent: true },
       description:
-        'Joins a public channel (채널) as MEMBER (channelId from discover_channels); DMs and non-public channels are refused. Earlier messages do not ' +
+        'Joins a public channel (채널) as MEMBER (channelId from list_channels with q); DMs and non-public channels are refused. Earlier messages do not ' +
         'count as unread.',
       inputSchema: joinChannelInput,
       async handler(args) {

@@ -21,7 +21,6 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "create_project_meta": "write",
   "create_user_group": "write",
   "create_wiki_page": "write",
-  "discover_channels": "read",
   "draft_issue_from_mail": "read",
   "draft_mail_reply": "read",
   "get_contact_facets": "read",
@@ -829,23 +828,6 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
     },
   },
   {
-    "name": "discover_channels",
-    "schema": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "additionalProperties": false,
-      "properties": {
-        "q": {
-          "minLength": 1,
-          "type": "string",
-        },
-      },
-      "required": [
-        "q",
-      ],
-      "type": "object",
-    },
-  },
-  {
     "name": "draft_issue_from_mail",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1256,6 +1238,17 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "maximum": 9007199254740991,
           "minimum": 0,
           "type": "integer",
+        },
+        "q": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
         },
       },
       "required": [
@@ -1895,6 +1888,18 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
             },
           ],
         },
+        "channelId": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
         "driveFileId": {
           "anyOf": [
             {
@@ -1930,6 +1935,18 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
             },
           ],
         },
+        "messageId": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
         "offset": {
           "anyOf": [
             {
@@ -1942,10 +1959,25 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
             },
           ],
         },
+        "pageId": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
         "source": {
           "enum": [
             "issue",
             "drive",
+            "wiki",
+            "message",
+            "mail",
           ],
           "type": "string",
         },
