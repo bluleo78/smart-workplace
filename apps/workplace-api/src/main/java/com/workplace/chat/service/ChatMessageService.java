@@ -22,6 +22,7 @@ import com.workplace.drive.service.DriveLinkService;
 import com.workplace.global.dto.UserSummary;
 import com.workplace.global.service.UserMentionHydrator;
 import com.workplace.global.util.MentionParser;
+import com.workplace.issue.outbound.IssueChatHumanMessagePosted;
 import java.time.Instant;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -96,8 +97,12 @@ public class ChatMessageService {
 
     // 첨부·드라이브 링크 하이드레이트 포함 응답 생성(같은 트랜잭션 내 — RLS 안전).
     ChatMessageResponse saved = findOne(messageId);
-    publisher.publishEvent(
-        buildEvent(threadId, messageId, callerId, req.body(), mentionUserIds, saved));
+    var created = buildEvent(threadId, messageId, callerId, req.body(), mentionUserIds, saved);
+    publisher.publishEvent(created);
+    // WP-377: 사람이 올린 글이면 답변 필요로 멈춘 AI 구성원 작업을 작업 중으로 되돌리도록 알린다.
+    if ("HUMAN".equals(created.actor().kind())) {
+      publisher.publishEvent(new IssueChatHumanMessagePosted(created.issueId()));
+    }
     return saved;
   }
 

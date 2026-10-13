@@ -3,6 +3,8 @@ package com.workplace.issue;
 import static com.workplace.jooq.Tables.AGENT_API_KEY;
 import static com.workplace.jooq.Tables.AGENT_WORK;
 import static com.workplace.jooq.Tables.AUDIT_LOG;
+import static com.workplace.jooq.Tables.CHAT_MESSAGE;
+import static com.workplace.jooq.Tables.CHAT_THREAD;
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.PROJECT;
@@ -261,6 +263,66 @@ public abstract class AgentWorkTestSupport extends IntegrationTestBase {
   protected ResponseEntity<String> putAssignees(String token, List<Long> userIds, String tool) {
     return call(
         HttpMethod.PUT, issuePath() + "/assignees", token, Map.of("userIds", userIds), tool);
+  }
+
+  /** AI 작업 명시 보고 PUT. */
+  protected ResponseEntity<String> putReport(String token, String tool, Map<String, ?> body) {
+    return call(HttpMethod.PUT, issuePath() + "/agent-work", token, body, tool);
+  }
+
+  /** 이슈 챗 스레드를 만들고(없으면) id 를 돌려준다 — 사람 JWT 로 GET. */
+  protected long chatThreadId() {
+    var res = call(HttpMethod.GET, issuePath() + "/chat/thread", jwtToken, null, null);
+    try {
+      return new com.fasterxml.jackson.databind.ObjectMapper()
+          .readTree(res.getBody())
+          .get("threadId")
+          .asLong();
+    } catch (Exception e) {
+      throw new IllegalStateException(res.getBody(), e);
+    }
+  }
+
+  /** 이슈 챗 글 작성(사람 JWT 등 지정 토큰). */
+  protected ResponseEntity<String> postChat(String token, String text) {
+    return call(
+        HttpMethod.POST,
+        "/api/v1/chat/threads/" + chatThreadId() + "/messages",
+        token,
+        Map.of("body", text),
+        null);
+  }
+
+  /** 이슈 챗 마지막 글(작성자 id·질문 표시). 없으면 null. */
+  protected ChatRow lastChatMessage(long issueId) {
+    return inTenant(
+        () ->
+            dsl.select(CHAT_MESSAGE.AUTHOR_ID, CHAT_MESSAGE.IS_QUESTION, CHAT_MESSAGE.BODY)
+                .from(CHAT_MESSAGE)
+                .join(CHAT_THREAD)
+                .on(CHAT_THREAD.ID.eq(CHAT_MESSAGE.THREAD_ID))
+                .where(CHAT_THREAD.ISSUE_ID.eq(issueId))
+                .orderBy(CHAT_MESSAGE.ID.desc())
+                .limit(1)
+                .fetchOne(
+                    r ->
+                        new ChatRow(
+                            r.get(CHAT_MESSAGE.AUTHOR_ID),
+                            r.get(CHAT_MESSAGE.IS_QUESTION),
+                            r.get(CHAT_MESSAGE.BODY))));
+  }
+
+  /** 챗 글 조회 결과. */
+  protected record ChatRow(long authorId, boolean isQuestion, String body) {}
+
+  /** 이슈 상태. */
+  protected String issueStatus() {
+    return inTenant(
+        () ->
+            dsl.select(ISSUE.STATUS)
+                .from(ISSUE)
+                .where(ISSUE.ID.eq(issueId))
+                .fetchOne(ISSUE.STATUS));
   }
 
   // ---------------------------------------------------------------- DB
