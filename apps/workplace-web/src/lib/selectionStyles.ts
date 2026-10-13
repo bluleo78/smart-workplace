@@ -38,10 +38,11 @@ export const SELECTED_NAV_CLASS = `${SELECTED_ROW_CLASS} [&>svg:first-child]:tex
 /**
  * 켜고 끄는 버튼(aria-pressed)의 켜짐 상태 — 메일 「안 읽음만」과 같은 primary 테두리·연한 primary 배경·primary 글자.
  * 테두리 없는 ghost 버튼은 ghostToggleClass 를 쓴다. outline 버튼은 자기 테두리가 있어 이 상수만 붙인다.
- * hover 도 켜짐 색을 유지한다(버튼 기본 hover:bg-accent·hover:text-accent-foreground 를 덮는다).
+ * hover 는 채움을 진하게 하지 않고 테두리만 진하게 한다 — 채움이 진해지면 primary 글자 대비가 4.5:1 아래로 떨어진다
+ * (sunset 라이트·기본 다크, actionTokens.test 가 이 상수의 채움 투명도를 모두 잰다). 버튼 기본 hover 배경·글자색도 덮는다.
  */
 export const TOGGLE_ON_CLASS =
-  'border-primary/50 bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary dark:border-primary/50 dark:bg-primary/15 dark:hover:bg-primary/20'
+  'border-primary/50 bg-primary/10 text-primary hover:border-primary hover:bg-primary/10 hover:text-primary dark:border-primary/50 dark:bg-primary/15 dark:hover:border-primary dark:hover:bg-primary/15'
 
 /**
  * 테두리 상자를 못 쓰는 바 버튼(하단 액션 바의 아이콘+라벨 칸 등)의 켜짐 상태 — 아이콘·글자만 primary 로, 굵게.

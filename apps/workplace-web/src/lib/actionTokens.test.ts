@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { TOGGLE_ON_CLASS } from './selectionStyles'
 import { BRAND_THEMES, compositeLuminance, contrast, luminance, oklchOf, tokenContrast } from './test/cssContrast'
 
 // 채움 버튼·배지 글자 대비(WP-322)를 index.css 원본 값으로 고정한다 — 기본(primary)·사이드바 선택·삭제(destructive) 채움 위 글자 4.5:1(WCAG AA).
@@ -17,8 +18,7 @@ describe.each(Object.entries(BRAND_THEMES))('filled action tokens (%s)', (_theme
     expect(tokenContrast(body, text, bg)).toBeGreaterThanOrEqual(4.5)
   })
 
-  // 채움 버튼 hover(hover:bg-x/90). 예전 브랜드 라이트 primary 는 hover 에서 ocean 3.89·sunset 4.24:1 로 미달이었다 —
-  // primary 명도를 내려(ocean 0.52→0.47·sunset 0.55→0.53) 6조합 모두 4.5:1 을 지킨다(WP-368).
+  // primary·삭제 채움 버튼 hover(hover:bg-x/90) — 반투명이라 바탕 위에 합성해 잰다.
   it.each([
     ['destructive-foreground', 'destructive', 'background'],
     ['destructive-foreground', 'destructive', 'popover'],
@@ -36,7 +36,14 @@ describe.each(Object.entries(BRAND_THEMES))('filled action tokens (%s)', (_theme
 })
 
 // 선택 상태 표시(WP-368) — 선택 배경(--selected) 위 글자 4.5:1, 왼쪽 primary 막대는 비텍스트 3:1(WCAG 1.4.11),
-// 선택 배경은 hover(accent 반투명)보다 확실히 진해야 하므로 바탕 대비도 잰다. 켜진 토글은 primary/10(라이트)·/15(다크) 위 primary 글자.
+// 선택 배경은 hover(accent 반투명)보다 확실히 진해야 하므로 바탕 대비도 잰다. 켜진 토글은 TOGGLE_ON_CLASS 의 채움(평소·hover) 위 primary 글자.
+
+/** TOGGLE_ON_CLASS 의 bg-primary/N 채움 투명도 — 라이트(변형 없음·hover:)와 다크(dark:·dark:hover:)로 나눈다. 상수를 바꾸면 테스트가 따라간다. */
+const toggleFillAlphas = (dark: boolean) =>
+  TOGGLE_ON_CLASS.split(' ').flatMap((t) => {
+    const m = /^(dark:)?(?:hover:)?bg-primary\/(\d+)$/.exec(t)
+    return m && Boolean(m[1]) === dark ? [Number(m[2]) / 100] : []
+  })
 describe.each(Object.entries(BRAND_THEMES))('selection tokens (%s)', (theme, body) => {
   const dark = theme.endsWith('dark')
   it('foreground on selected keeps 4.5:1', () => {
@@ -49,8 +56,12 @@ describe.each(Object.entries(BRAND_THEMES))('selection tokens (%s)', (theme, bod
   it.each(['background', 'popover'])('selected stands out from %s (≥1.2:1)', (under) => {
     expect(tokenContrast(body, 'selected', under)).toBeGreaterThanOrEqual(1.2)
   })
-  it.each(['background', 'popover'])('primary text on toggle-on fill over %s keeps 4.5:1', (under) => {
-    const fill = compositeLuminance(body, 'primary', dark ? 0.15 : 0.1, under)
-    expect(contrast(luminance(oklchOf(body, 'primary')), fill)).toBeGreaterThanOrEqual(4.5)
+  it.each(['background', 'popover'])('primary text on every toggle-on fill over %s keeps 4.5:1', (under) => {
+    const alphas = toggleFillAlphas(dark)
+    expect(alphas.length).toBeGreaterThan(0)
+    for (const alpha of alphas) {
+      const fill = compositeLuminance(body, 'primary', alpha, under)
+      expect(contrast(luminance(oklchOf(body, 'primary')), fill), `bg-primary/${alpha * 100}`).toBeGreaterThanOrEqual(4.5)
+    }
   })
 })

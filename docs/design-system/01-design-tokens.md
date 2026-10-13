@@ -340,7 +340,7 @@ orange 계열 주의 색상. warning(amber)보다 강한 주의를 표현하기 
 - **그대로 두는 켜짐 표시**: 켜짐이 이미 꺼짐·hover 와 뚜렷이 다른 패턴은 `TOGGLE_ON_CLASS` 로 바꾸지 않는다 — 여럿 중 하나를 고르는 채움 버튼(`variant="default"` ↔ `ghost`/`outline`: 캘린더 일/주/월, 이슈 목록/보드, 위젯 항목 수·테두리 없음), 채움 칩(사용자 정의 필드 다중 선택), 아이콘·라벨이 바뀌는 토글(숨김 👁, 즐겨찾기 ★, 구독 — 모바일 ⋯ 메뉴 안에선 아래 규칙), 링·흐림으로 고르는 아바타(타임라인 담당자 필터), 색·아이콘 견본 선택.
 - **모바일 헤더 ⋯ 메뉴**: 메뉴가 항목 버튼의 배경·테두리를 걷어내므로, 켜진 토글(`aria-pressed=true` → `menuitemcheckbox` 체크)은 메뉴가 `TOGGLE_ON_TEXT_CLASS` 와 같은 primary 글자 + 굵게로 표시한다(`MobileHeaderMore`).
 - **적용하지 않는 곳**: 멘션·`/` 메뉴의 키보드 하이라이트(`aria-selected` 콤보박스 — hover 와 같은 성격), 누름(`active:bg-accent`) 피드백, 값 칩(받는 사람·멘션·필터 값), 드래그 드롭 표시. (토글형 칩은 위 `TOGGLE_ON_CLASS`.)
-- 대비는 `actionTokens.test` 가 6조합(기본·ocean·sunset × 라이트·다크)으로 고정한다 — 선택 배경 위 글자 4.5:1, 막대 3:1, 토글 채움 위 primary 글자 4.5:1, 채움 버튼 hover(`/90`) 위 흰 글자 4.5:1.
+- 대비는 `actionTokens.test` 가 6조합(기본·ocean·sunset × 라이트·다크)으로 고정한다 — 선택 배경 위 글자 4.5:1, 막대 3:1, 토글 채움(평소·hover — 상수의 투명도를 그대로 읽는다) 위 primary 글자 4.5:1, primary·삭제 채움 버튼 hover(`/90`) 위 흰 글자 4.5:1. 켜진 토글의 hover 는 채움을 진하게 하지 않고 테두리만 진하게 한다(채움이 진해지면 글자 대비가 떨어진다).
 - 막대 모양은 `selection-bar` 유틸이 `--selection-bar-inset`·`--selection-bar-bg`·`--selection-bar-shadow` 변수로 받는다. 앱 레일은 `selection-bar nav-active-indicator` 를 함께 쓰며, `.nav-active-indicator` 는 변수만 바꾼다(위아래 25% 인셋, 다크 그라데이션·glow) — 모양은 기존과 같다.
 
 ---
