@@ -15,7 +15,7 @@ import { AiMarkerBoard } from './aiMarkers'
 import type { CollabConfig } from './config'
 import { FRAGMENT, normalizeMarkdown, yDocToMarkdown } from './markdownCodec'
 import type { MergeRunner } from './mergeRunner'
-import { apiAuthenticator, createCollabServer, type CollabDeps, type CollabServer } from './server'
+import { APPLY_STORE_MIN_MS, apiAuthenticator, createCollabServer, type CollabDeps, type CollabServer } from './server'
 import { ApiClient } from './apiClient'
 import { connectClient, replaceTextAt, typeAt, type TestClient } from './testing/clients'
 import { startFakeApi, type FakeApi } from './testing/fakeApi'
@@ -64,9 +64,16 @@ describe('internal routes', () => {
   /** 지금 테스트가 공용 실행기에 건 붙잡기·고장(테스트마다 비운다). */
   let sharedHooks: Pick<TestMergeRunnerOptions, 'testHold' | 'testFault'> = {}
   const sharedMergerView = (): MergeRunner => ({ ...sharedMerger, destroy: async () => {} })
+  /**
+   * 지금 서버의 시계(CollabDeps.clock) — apply-markdown 기한·적용 저장 상한을 잰다. 서버마다 새로 만든 손 시계라, 기한을 보는 테스트만
+   * advance 로 흘리고 나머지는 워커·저장이 아무리 느려도 기한에 걸리지 않는다(실제 20초 기한이면 붙잡은 병합 동안 10초 대기가 두 번 들어가
+   * 기한과 겨뤘다). 실행기 시계(sharedClock)와 따로 둔다 — 같은 시계면 실행기 기한을 흘릴 때 같은 시각의 요청 기한이 먼저 불려 503 사유가 바뀐다.
+   */
+  let serverClock: ManualClock
   /** 서버를 띄운다 — 병합 실행기는 늘 공용(데운) 실행기다(느린 병합·고장은 새 워커 대신 sharedHooks 로 건다). */
-  const startApp = async (config: CollabConfig, deps: Omit<CollabDeps, 'merger'> = {}) => {
-    app = createCollabServer(config, { ...deps, merger: sharedMergerView() })
+  const startApp = async (config: CollabConfig, deps: Omit<CollabDeps, 'merger' | 'clock'> = {}) => {
+    serverClock = manualClock()
+    app = createCollabServer(config, { ...deps, merger: sharedMergerView(), clock: serverClock })
     await app.listen()
   }
   const httpUrl = () => `http://127.0.0.1:${app.address.port}`
@@ -584,7 +591,10 @@ describe('internal routes', () => {
       await synced(b)
       typeAt(b.doc, 900, '사람 ')
       await expect.poll(() => yDocToMarkdown(serverDoc(DOC4)!), ARRIVAL).toContain('사람 문단 900 내용')
-      // 짝짓기 복잡도(O(n²) 퇴화)는 시계 대신 wiki-editor-schema 블록 병합 테스트의 작업량 상한이 결정적으로 지킨다 — 여기선 결과만 본다.
+      // 여기선 결과만 본다(시간을 재지 않는다). 병합 계산(mergeMarkdown3)의 복잡도는 wiki-editor-schema 블록 병합 테스트의 작업량 상한이
+      // 결정적으로 지킨다 — 짝짓기·선형 단계(블록 나누기·잇기·다음 짝 찾기 등)의 호출 횟수·입력 크기와 파싱 횟수까지다. 지키지 않는 것:
+      // 그 단계들 안쪽 반복문을 다시 쓴 퇴화와, 이 서버 쪽 정규화(normalizeMarkdown)·keepLive 계획(planKeepLive)의 비용 — 그쪽은 멈춤
+      // 감시(테스트 시간 제한)만 잡는다.
       const res = await merge(big, big.replace('문단 10 내용', '문단 10 AI 내용'), {}, 4)
       expect(res.status).toBe(200)
       const md = yDocToMarkdown(serverDoc(DOC4)!)
@@ -651,7 +661,11 @@ describe('internal routes', () => {
       let release!: () => void
       const mutex = serverDoc()!.saveMutex
       const held = mutex.runExclusive(() => new Promise<void>((r) => (release = r)))
-      const res = await merge(BODY, '# 제목\n\n첫 문단 AI\n\n둘째 문단')
+      const pending = merge(BODY, '# 제목\n\n첫 문단 AI\n\n둘째 문단')
+      // 요청 기한 타이머가 걸린 뒤에(요청이 서버에 닿음) 서버 시계를 기한만큼 흘린다 — 먼저 흘리면 아무 일도 없고 요청이 잠금을 영영 기다린다.
+      await expect.poll(() => serverClock.pendingCount(), ARRIVAL).toBe(1)
+      serverClock.advance(400)
+      const res = await pending
       expect(res.status).toBe(503)
       expect(((await res.json()) as { error: string }).error).toMatch(/apply deadline exceeded/)
       // 잠금이 아직 잡혀 있는데 답이 왔다 — 잠금 해제를 기다리지 않고 기한으로 답했다(벽시계 단언 없이 판정).
@@ -668,15 +682,20 @@ describe('internal routes', () => {
       await expect.poll(() => api.stores.length, ARRIVAL).toBe(2)
       expect(api.stores[1].body).toBe('# 제목\n\n첫 문단\n\n사람 둘째 문단')
       // 기한으로 끝난 요청이 문서에 붙인 직접 연결도 풀었다 — 남으면 문서가 내려가지 않고 다음 적용이 낡은 연결 위에서 돈다.
-      // (예전엔 "다음 병합이 400ms 기한 안에 끝난다"로 봤는데, 정규화·병합 왕복이 실제 기한을 다퉈 부하에서 흔들렸다.)
       await expect.poll(() => serverDoc()!.directConnectionsCount, ARRIVAL).toBe(0)
+      // 버려진 요청 뒤에 온 병합은 평소대로 적용된다(사람 입력 위에 합쳐짐). 서버 시계를 더 흘리지 않으므로 정규화·병합 왕복이 아무리
+      // 느려도 400ms 기한과 겨루지 않는다.
+      const next = await merge(BODY, '# 제목\n\n첫 문단 AI\n\n둘째 문단')
+      expect(next.status).toBe(200)
+      expect(((await next.json()) as { body: string }).body).toBe('# 제목\n\n첫 문단 AI\n\n사람 둘째 문단')
+      await expect.poll(() => yDocToMarkdown(a.doc), ARRIVAL).toBe('# 제목\n\n첫 문단 AI\n\n사람 둘째 문단')
     })
 
     it('answers 200 with persisted:false when the apply store hangs past the deadline, and applies once', async () => {
       await app.destroy()
-      // 기한은 적용 전 단계(정규화·병합 — 데운 공용 워커)가 부하에서도 넉넉히 끝나게 잡는다 — 이 테스트가 보려는 "적용 뒤 저장이 기한을
-      // 넘김"만 기한에 걸리게. 저장은 관문으로 붙잡아(시간 지연 대신) 기한이 얼마든 기한 안에 끝나지 않는다.
-      await startApp({ ...cfg(), applyDeadlineMs: 10_000 })
+      // 기한은 서버 시계로 잰다 — 시계를 흘리기 전에는 적용 전 단계(정규화·병합)가 아무리 느려도 기한에 걸리지 않는다. 저장은 관문으로
+      // 붙잡아(시간 지연 대신) 기한이 얼마든 기한 안에 끝나지 않고, 저장 시간 상한(남은 기한, 최소 APPLY_STORE_MIN_MS)도 서버 시계로 흘린다.
+      await startApp({ ...cfg(), applyDeadlineMs: 400 })
       const a = connect('editor-token')
       await synced(a)
       await expect.poll(() => api.stores.length, ARRIVAL).toBe(1)
@@ -688,9 +707,12 @@ describe('internal routes', () => {
       )
       // 적용 뒤 즉시 저장이 풀어 줄 때까지 끝나지 않는다.
       api.holdStores()
-      const res = await merge(BODY, '# 제목\n\n첫 문단 AI\n\n둘째 문단')
-      // 저장 대기는 남은 기한(최소 3초)으로 끊긴다 — 저장이 아직 API 에 붙잡혀 있는데 답이 왔다(API read 타임아웃 전에 답한다).
-      expect(api.storeAttempts).toBeGreaterThanOrEqual(2)
+      const pending = merge(BODY, '# 제목\n\n첫 문단 AI\n\n둘째 문단')
+      // 적용 저장이 API 에 닿아 붙잡혔다(첫 저장은 로드 때의 이관 상태 저장) — 그 뒤 저장 시간 상한(최소 3초)을 서버 시계로 넘긴다.
+      await expect.poll(() => api.storeAttempts, ARRIVAL).toBe(2)
+      serverClock.advance(APPLY_STORE_MIN_MS)
+      const res = await pending
+      // 저장 대기는 상한에서 끊긴다 — 저장이 아직 API 에 붙잡혀 있는데 답이 왔다(API read 타임아웃 전에 답한다).
       expect(api.stores).toHaveLength(1)
       // 문서는 이미 바뀌었다 — 503 이 아니라 적용됨(저장은 재시도로 이어진다).
       expect(res.status).toBe(200)
@@ -698,7 +720,7 @@ describe('internal routes', () => {
       await expect.poll(() => yDocToMarkdown(a.doc), ARRIVAL).toBe('# 제목\n\n첫 문단 AI\n\n둘째 문단')
       api.releaseStores()
       // 재시도 저장이 같은 본문을 한 번 담는다(두 번 적용되지 않음).
-      await expect.poll(() => api.stores.some((st) => st.body === '# 제목\n\n첫 문단 AI\n\n둘째 문단'), { timeout: 15000 }).toBe(true)
+      await expect.poll(() => api.stores.some((st) => st.body === '# 제목\n\n첫 문단 AI\n\n둘째 문단'), ARRIVAL).toBe(true)
       expect(yDocToMarkdown(serverDoc()!).match(/첫 문단 AI/g)).toHaveLength(1)
       // 저장되지 않은 적용엔 ✦ 표식을 올리지 않는다.
       const b = connect('editor2-token')

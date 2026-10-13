@@ -1,6 +1,6 @@
 import type { Document } from '@hocuspocus/server'
 
-import { realClock, type RunnerClock } from './mergeRunner'
+import { realClock, type Clock } from './clock'
 
 /** 에디터 안 AI 적용 태그 — 요청자(actorId)·요청(requestId)과 만료 시각(epoch ms). */
 export interface AiTag {
@@ -47,7 +47,7 @@ export class AiTagBoard {
    */
   constructor(
     private readonly ttlMs: number,
-    private readonly clock: RunnerClock = realClock,
+    private readonly clock: Clock = realClock,
   ) {}
 
   /** ai-apply 의 flush 를 시작한다 — 끝날 때 settle 로 꺼낸다(그사이 온 취소를 잃지 않게). */

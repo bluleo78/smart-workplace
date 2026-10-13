@@ -1,6 +1,7 @@
 import { Worker, type WorkerOptions } from 'node:worker_threads'
 
-import { createMergeRunner, type MergeJobMessage, type MergeRunner, type RunnerClock } from '../mergeRunner'
+import type { Clock } from '../clock'
+import { createMergeRunner, type MergeJobMessage, type MergeRunner } from '../mergeRunner'
 
 /**
  * 테스트 워커가 받는 메시지 — 운영 규약 + 작업마다 정한 붙잡기·고장.
@@ -14,7 +15,7 @@ export type TestJobMessage = MergeJobMessage & { holdUntil?: number; fault?: 'th
  */
 export interface TestMergeRunnerOptions {
   timeoutMs?: number
-  clock?: RunnerClock
+  clock?: Clock
   testHold?: (job: MergeJobMessage) => boolean
   testFault?: (job: MergeJobMessage) => 'throw' | 'exit' | undefined
 }

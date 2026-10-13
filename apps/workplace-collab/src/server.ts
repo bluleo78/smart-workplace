@@ -24,6 +24,7 @@ import {
 import { AiMarkerBoard } from './aiMarkers'
 import { AiTagBoard } from './aiTagBoard'
 import { ApiClient, DocGoneError, TokenRejectedError } from './apiClient'
+import { realClock, type Clock } from './clock'
 import type { CollabConfig } from './config'
 import { DocRegistry, pageIdOf, type DocMeta } from './docRegistry'
 import {
@@ -69,12 +70,13 @@ export type SnapshotReason = 'AI' | 'RESTORE'
 /**
  * 파생 저장 옵션 — snapshotReason: 있으면 저장 직전 판을 그 사유(AI 적용 / 버전 복원, WP-297)의 리비전으로 남긴다(스펙 §6.1 —
  * API 저장 요청엔 snapshot:true 와 함께 싣는다). aiActorId: AI 적용을 요청한 사람(✦ 귀속) — AI 적용일 때만.
- * timeoutMs: 저장 호출 시간 상한(넘으면 실패로 끝나 재시도가 예약된다) — apply-markdown 의 적용 저장이 API read 타임아웃 안에 답하게.
+ * signal: 저장 호출을 끊는 신호(끊기면 실패로 끝나 재시도가 예약된다) — apply-markdown 의 적용 저장이 API read 타임아웃 안에 답하게
+ * 서버가 자기 시계(CollabDeps.clock)로 시간 상한을 잰 뒤 끊는다.
  */
 export interface StoreOptions {
   snapshotReason?: SnapshotReason
   aiActorId?: number
-  timeoutMs?: number
+  signal?: AbortSignal
 }
 
 /** 문서 상태 저장소 — 운영은 API, E2E 테스트 모드는 메모리(testMode.ts). */
@@ -182,7 +184,7 @@ export function apiDocStore(api: ApiClient): DocStore {
           ...(opts?.snapshotReason ? { snapshot: true, snapshotReason: opts.snapshotReason } : {}),
           ...(opts?.aiActorId != null ? { aiActorId: opts.aiActorId } : {}),
         },
-        { timeoutMs: opts?.timeoutMs },
+        { signal: opts?.signal },
       )
     },
     storeState({ tenantId, pageId }, state, bodyVersion) {
@@ -230,6 +232,13 @@ export interface CollabDeps {
   /** 에디터 안 AI 적용 태그판 — 테스트가 손으로 돌리는 시계의 태그판을 넣어 만료를 사건으로 만든다. 기본은 cfg.aiTagTtlMs 의 태그판. */
   aiTags?: AiTagBoard
   /**
+   * 시계(clock.ts) — apply-markdown 기한(요청 기한 타이머·단계마다의 기한 확인·워커 계산 기한)·적용 저장 시간 상한·토큰 만료(인증 때 확인과
+   * 연결별 만료 타이머)를 잰다. 기본은 실제 시계. 테스트는 손으로 돌리는 시계를 넣어 기한·만료를 테스트가 정한 사건으로 만든다.
+   * 이 시계를 쓰지 않는 것: 지연 저장 디바운스(Hocuspocus)·저장 재시도 백오프·종료 상한(shutdownTimeoutMs)·closeDocument 대기·
+   * 스키마 불일치 로그 간격 — 모두 실제 시계다(손 시계면 테스트 정리의 종료가 advance 없이 끝나지 않는다).
+   */
+  clock?: Clock
+  /**
    * 문서별로 받아들일 스키마 판(WP-313) — 기본은 이 서버가 빌드된 WIKI_SCHEMA_VERSION. cfg.testMode 일 때만 쓴다.
    * 테스트 모드가 문서별로 바꿔 '동기화 서버만 새 스키마로 배포됨'을 E2E 에서 실제 거부 경로로 재현한다.
    */
@@ -266,7 +275,9 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
   const store = deps.store ?? apiDocStore(api)
   const auth = deps.auth ?? apiAuthenticator(api)
   const registry = new DocRegistry()
-  const expiryTimers = new Set<NodeJS.Timeout>()
+  // 앱 기한·만료를 재는 시계(CollabDeps.clock) — 이 시계로 건 타이머는 반드시 이 시계로 지운다(손잡이가 시계마다 다르다).
+  const clock = deps.clock ?? realClock
+  const expiryTimers = new Set<unknown>()
   const unloadWaiters = new Map<string, Array<() => void>>()
   // 워커 스레드는 첫 병합 때 뜬다(replace 만 쓰거나 병합이 없으면 띄우지 않음).
   const merger = deps.merger ?? createMergeRunner()
@@ -378,7 +389,7 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
   async function shutdown(): Promise<void> {
     shuttingDown = true
     markers.destroy()
-    for (const t of expiryTimers) clearTimeout(t)
+    for (const t of expiryTimers) clock.clearTimeout(t)
     expiryTimers.clear()
     for (const t of retryTimers) clearTimeout(t)
     retryTimers.clear()
@@ -502,13 +513,13 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
    *   변경은 실시간 문서에 들어갔고 재시도가 저장한다(API 가 503 을 보고 같은 변경을 다시 보내지 않게). ✦ 표식은 올리지 않는다.
    */
   async function applyMarkdown(req: ApplyRequest): Promise<ApplyResult> {
-    const deadline = Date.now() + applyDeadlineMs
+    const deadline = clock.now() + applyDeadlineMs
     // committed: 실시간 문서를 바꾸기 시작했다(이후엔 끝까지 간다). abandoned: 기한이 먼저 와 이미 503 으로 답했다(적용 금지).
     // 둘 다 같은 이벤트 루프에서만 바뀌므로 "기한 확인 → committed" 사이에 타이머가 끼어들 수 없다.
     const state = { committed: false, abandoned: false }
-    let timer: NodeJS.Timeout | undefined
+    let timer: unknown
     const expired = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => {
+      timer = clock.setTimeout(() => {
         if (state.committed) return
         state.abandoned = true
         reject(new HttpError(503, `apply deadline exceeded (${applyDeadlineMs}ms)`))
@@ -520,7 +531,7 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
     try {
       return await Promise.race([work, expired])
     } finally {
-      clearTimeout(timer)
+      clock.clearTimeout(timer)
     }
   }
 
@@ -534,7 +545,7 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
     const { tenantId, pageId, actor } = req
     /** 적용 전 단계마다 — 기한이 지났으면 아무것도 적용하지 않고 끝낸다. */
     const checkDeadline = () => {
-      if (state.abandoned || Date.now() >= deadline) throw new HttpError(503, 'apply deadline exceeded')
+      if (state.abandoned || clock.now() >= deadline) throw new HttpError(503, 'apply deadline exceeded')
     }
     let conn
     try {
@@ -583,10 +594,10 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
           let changed: number | null
           if (req.mode === 'merge') {
             // 워커 계산 기한 — 요청 기한과 워커 한 번의 상한 중 이른 쪽.
-            const workerDeadline = Math.min(deadline, Date.now() + merger.timeoutMs)
+            const workerDeadline = Math.min(deadline, clock.now() + merger.timeoutMs)
             // ⓪ 정규화 + 빈 본문·파싱 실패 거부(아무것도 저장·적용하기 전에).
             const bases = [req.baseBody ?? '', ...(req.altBaseBody == null ? [] : [req.altBaseBody])]
-            const p = await merger.prepare({ body: req.body, bases }, workerDeadline - Date.now())
+            const p = await merger.prepare({ body: req.body, bases }, workerDeadline - clock.now())
             if ('rejected' in p) throw new HttpError(400, p.rejected, p.code)
             // 빈 AI본이 워커를 통과했으면 기준본도 모두 비었다 — 현재본에 보이는 내용이 있으면 같은 이유·코드로 거부한다(WP-330).
             // 현재본을 워커로 보내지 않는 이유: 이 판정에 현재본이 필요한 건 AI본·기준본이 모두 빈 드문 경우뿐인데, 보내려면 매 요청
@@ -610,6 +621,13 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
           //    적용은 이미 됐다 — 저장이 남은 기한(최소 APPLY_STORE_MIN_MS) 안에 끝나지 않거나 실패해도 503 이 아니라 persisted:false 로
           //    답한다(503 이면 호출자가 적용된 변경을 다시 보낸다). persist 가 재시도를 예약해 결국 저장한다. 페이지 삭제(404)만 예외.
           let saved: { version: number; body: string }
+          // 저장 시간 상한 — 서버 시계로 재다가 끊는다(fetch 를 중단해 persist 가 실패·재시도 예약으로 끝난다).
+          const storeLimitMs = Math.max(APPLY_STORE_MIN_MS, deadline - clock.now())
+          const storeAbort = new AbortController()
+          const storeTimer = clock.setTimeout(
+            () => storeAbort.abort(new Error(`apply store timed out after ${storeLimitMs}ms`)),
+            storeLimitMs,
+          )
           try {
             saved = await persist(
               doc,
@@ -621,7 +639,7 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
                 // 사유가 정해진 적용만 스냅샷을 싣는다(사유 없는 snapshot 은 API 가 AI 로 오인한다, R7).
                 snapshotReason,
                 aiActorId: snapshotReason === 'AI' ? actor.userId : undefined,
-                timeoutMs: Math.max(APPLY_STORE_MIN_MS, deadline - Date.now()),
+                signal: storeAbort.signal,
               },
             )
           } catch (e) {
@@ -629,6 +647,8 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
             console.warn(`[collab] apply store did not finish for ${docName} — applied, answering persisted:false (retry scheduled)`)
             unpersisted = true
             return { version: meta.version ?? 0, body: yDocToMarkdown(doc), persisted: false }
+          } finally {
+            clock.clearTimeout(storeTimer)
           }
           // AI 적용이 실제로 바꾼 자리에 "✦ 요청한 사람" 표식 — 저장이 성공한 뒤에만(구버전 웹 = 사람 저장은 표식 없음, 스펙 Q3·§5.1-5).
           // 위치는 commit 에서 잡아 둔 상대 위치 — 저장을 기다리는 동안 들어온 편집을 따라간다.
@@ -669,7 +689,7 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
   ): Promise<number | null> {
     for (let round = 0; round < MAX_MERGE_ROUNDS; round++) {
       await flush()
-      const left = deadline - Date.now()
+      const left = deadline - clock.now()
       if (left <= 0) break
       const seq = meta.seq
       const r = await merger.merge({ bases, live: Y.encodeStateAsUpdate(doc), ai: target }, left)
@@ -862,7 +882,7 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
         throw e
       }
       if (!who) throw deny('forbidden')
-      if (who.expiresAt != null && who.expiresAt <= Date.now()) throw deny('token-expired')
+      if (who.expiresAt != null && who.expiresAt <= clock.now()) throw deny('token-expired')
       // VIEWER 는 서버가 수정 메시지를 버린다(조작된 클라이언트 대비 — UI 의 editable:false 만 믿지 않음).
       connectionConfig.readOnly = !isCollabEditRole(who.role)
       return { ...who, pageId, token }
@@ -874,20 +894,20 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
     async connected({ connection, context }) {
       const expiresAt = context.expiresAt
       if (expiresAt == null) return
-      let timer: NodeJS.Timeout
+      let timer: unknown
       const arm = () => {
-        const left = expiresAt - Date.now()
+        const left = expiresAt - clock.now()
         expiryTimers.delete(timer)
         if (left <= 0) {
           connection.webSocket.close(CLOSE_TOKEN_EXPIRED.code, CLOSE_TOKEN_EXPIRED.reason)
           return
         }
-        timer = setTimeout(arm, Math.min(left, MAX_TIMER_MS))
+        timer = clock.setTimeout(arm, Math.min(left, MAX_TIMER_MS))
         expiryTimers.add(timer)
       }
       arm()
       connection.onClose(() => {
-        clearTimeout(timer)
+        clock.clearTimeout(timer)
         expiryTimers.delete(timer)
       })
     },

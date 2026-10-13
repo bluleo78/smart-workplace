@@ -11,6 +11,7 @@ import { apiAuthenticator, createCollabServer, SCHEMA_MISMATCH_LOG_MS, type Coll
 import { ApiClient } from './apiClient'
 import { connectClient, typeAt, type TestClient as Client } from './testing/clients'
 import { startFakeApi, type FakeApi } from './testing/fakeApi'
+import { manualClock } from './testing/manualClock'
 import { ARRIVAL, expectStays } from './testing/wait'
 
 // 실제 Hocuspocus 서버(포트 0) + Node 클라이언트(전역 WebSocket)로 인증·이관·저장·읽기 전용·만료를 검증한다.
@@ -136,9 +137,14 @@ describe('collab server', () => {
 
     it('still derives an edit made while the slow migration store is in flight', async () => {
       // 이관 저장은 로드 안에서 끝나야 동기화가 시작된다 — 그동안 편집이 끼어들 수 없고, 첫 편집은 일반 파생 저장으로 간다.
+      // 이관 저장을 API 에 붙잡아(시간 지연 대신) "저장이 진행 중"을 부하와 무관하게 만든다.
       api.page(1, { tenantId: TENANT, body: RAW, version: 4 })
-      api.storeDelayMs = 300
+      api.holdStores()
       const a = connect('editor-token')
+      await expect.poll(() => api.storeAttempts, ARRIVAL).toBe(1)
+      // 이관 저장이 끝나지 않았으니 로드도 끝나지 않아 동기화 전이다(동기화가 먼저 끝나면 이관 상태 저장 전에 편집이 끼어든다).
+      await expectStays(() => a.provider.isSynced, false)
+      api.releaseStores()
       await synced(a)
       typeAt(a.doc, 1, '곧바로 ')
       a.provider.destroy()
@@ -409,9 +415,9 @@ describe('collab server', () => {
       await expect.poll(() => api.storeFailures, ARRIVAL).toBeGreaterThan(0)
       const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
       try {
-        const t0 = Date.now()
+        // 시계로 "2초 안에 끝남"을 재지 않는다(부하에서 흔들린다). API 가 계속 실패하므로 종료가 상한(300ms)을 지키지 않으면 끝나지
+        // 않고 테스트 시간 제한(15초)에 걸려 실패한다 — 상한을 지켰다는 증거는 아래 UNSAVED 경고(상한에 걸렸을 때만 남긴다)다.
         await bounded.destroy()
-        expect(Date.now() - t0).toBeLessThan(2000)
         const logged = errors.mock.calls.map((c) => c.map(String).join(' ')).join('\n')
         expect(logged).toMatch(/UNSAVED.*wiki-page:1/)
       } finally {
@@ -530,16 +536,30 @@ describe('collab server', () => {
   })
 
   it('closes the connection when the access token expires, and the expired token cannot reconnect', async () => {
+    // 만료는 손 시계로 넘긴다 — 서버(만료 확인·타이머)와 가짜 API(만료 토큰 401)가 같은 시계를 본다. 실제 시계 1~2초 창이면 부하로
+    // 접속·동기화가 늦을 때 연결 전에 이미 만료돼 "동기화된 뒤 끊김"을 보지 못했다.
+    const START = Date.UTC(2026, 0, 1) // 정각 초 — 토큰 만료는 epoch 초로 온다
+    const TTL_MS = 3_600_000
+    const clock = manualClock(START)
+    api.now = clock.now
+    const timed = createCollabServer(cfg(), { clock })
+    extraApps.push(timed)
+    await timed.listen()
     api.token('short-token', {
       userId: 5,
       name: '양동희',
       role: 'EDITOR',
       tenantId: TENANT,
-      tokenExp: Math.floor(Date.now() / 1000) + 2,
+      tokenExp: (START + TTL_MS) / 1000,
     })
-    const a = connect('short-token')
+    const a = connect('short-token', { target: timed })
     await synced(a)
     expect(a.disconnects).toEqual([])
+    // 만료 1ms 전 — 만료 타이머가 아직 기다린다(일찍 불렸다면 소켓을 닫고 다시 걸지 않아 0 이다).
+    clock.advance(TTL_MS - 1)
+    expect(clock.pendingCount()).toBe(1)
+    clock.advance(1)
+    expect(clock.pendingCount()).toBe(0)
     await expect.poll(() => a.disconnects.map((d) => d.code), ARRIVAL).toContain(4401)
     expect(a.disconnects.find((d) => d.code === 4401)?.reason).toBe('token expired')
     // provider 는 자동 재접속한다 — 만료 토큰 그대로면 API 가 401 → 인증 실패(웹은 이때 토큰을 갱신해 다시 붙는다).

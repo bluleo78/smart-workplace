@@ -1,7 +1,7 @@
-import type { RunnerClock } from '../mergeRunner'
+import type { Clock } from '../clock'
 
 /** 손으로 돌리는 시계 — advance 를 부를 때만 시간이 흐른다. */
-export interface ManualClock extends RunnerClock {
+export interface ManualClock extends Clock {
   /** 시간을 ms 만큼 흘린다 — 그 안에 오는 타이머를 시각 순(같으면 건 순)으로 부른다. */
   advance(ms: number): void
   /** 아직 오지 않은(취소되지 않은) 타이머 수 — 정리 확인용. */
@@ -9,12 +9,13 @@ export interface ManualClock extends RunnerClock {
 }
 
 /**
- * 병합 실행기 테스트용 시계(RunnerClock) — 실제 시간은 흐르지 않고 테스트가 advance 로 정한 만큼만 흐른다.
+ * 동기화 서버 테스트용 시계(Clock — 실행기·서버·태그판·표식판에 넣는다) — 실제 시간은 흐르지 않고 테스트가 advance 로 정한 만큼만 흐른다.
  * 왜: 실행기의 기한은 워커 기동 시간까지 포함한다. 실제 시계로 재면 기계 부하로 기동이 수 초 걸릴 때 기한을 다루지 않는 테스트까지
  * 시간 초과로 깨진다. 이 시계를 쓰면 "기한이 왔다"는 테스트가 advance 를 부른 순간에만 일어난다(워커가 얼마나 느리든).
+ * start — 처음 시각(epoch ms). 기본 0. 토큰 만료처럼 epoch 초로 오는 값을 다루는 테스트가 정한다.
  */
-export function manualClock(): ManualClock {
-  let now = 0
+export function manualClock(start = 0): ManualClock {
+  let now = start
   let nextId = 1
   const timers = new Map<number, { at: number; fn: () => void }>()
   return {

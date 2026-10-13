@@ -4,6 +4,7 @@ import { Worker } from 'node:worker_threads'
 
 import type { MergeResult } from '@smart-workplace/wiki-editor-schema/merge'
 
+import { realClock, type Clock } from './clock'
 import type { HttpErrorCode } from './internalRoutes'
 import type { KeepLivePlan } from './markdownCodec'
 
@@ -74,28 +75,13 @@ export interface MergeRunner {
 }
 
 /**
- * 실행기가 기한을 재는 시계 — 지금 시각과 타이머. 운영은 실제 시계(realClock)다.
- * 왜 바꿔 끼우나: 기한은 대기열에 넣은 순간부터 재므로 워커 기동 시간도 들어간다. 테스트가 실제 시계로 기한을 재면 기계 부하(워커 기동이
- * 수 초로 늘어남)에 따라 결과가 달라진다 — 테스트는 손으로 돌리는 시계(testing/manualClock)로 "기한이 왔다"를 사건으로 만든다.
+ * 실행기 옵션 — spawnWorker 는 워커를 띄우는 방법(기본 = mergeWorker, execArgv = 소스 실행이면 tsx 로더), clock 은 기한 시계(기본 실제).
+ * 기한은 대기열에 넣은 순간부터 재므로 워커 기동 시간도 들어간다 — 테스트는 손으로 돌리는 시계로 "기한이 왔다"를 사건으로 만든다(clock.ts).
  */
-export interface RunnerClock {
-  now(): number
-  setTimeout(fn: () => void, ms: number): unknown
-  clearTimeout(handle: unknown): void
-}
-
-/** 실제 시계(Date.now·setTimeout) — 실행기·AI 태그판의 기본 시계. */
-export const realClock: RunnerClock = {
-  now: () => Date.now(),
-  setTimeout: (fn, ms) => setTimeout(fn, ms),
-  clearTimeout: (handle) => clearTimeout(handle as NodeJS.Timeout | undefined),
-}
-
-/** 실행기 옵션 — spawnWorker 는 워커를 띄우는 방법(기본 = mergeWorker, execArgv = 소스 실행이면 tsx 로더), clock 은 기한 시계(기본 실제). */
 export interface MergeRunnerOptions {
   timeoutMs?: number
   spawnWorker?: (execArgv: string[] | undefined) => Worker
-  clock?: RunnerClock
+  clock?: Clock
 }
 
 /** 소스 실행(vitest·tsx)인가 — 그러면 워커 진입점도 .ts 소스이고 tsx 로더가 필요하다. */

@@ -3,13 +3,13 @@ import { COLLAB_AI_MARKERS_FIELD, type CollabAiMarker } from '@smart-workplace/w
 import * as Y from 'yjs'
 
 import { FRAGMENT } from './markdownCodec'
-import type { RunnerClock } from './mergeRunner'
+import type { Clock } from './clock'
 
 /**
  * 표식 만료 타이머를 거는 시계 — 기본은 실제 타이머(unref). 동기화 서버 테스트는 손으로 돌리는 시계(testing/manualClock)를 넣어
  * "표식이 내려갈 때"를 실제 시간이 아니라 테스트가 정한 사건으로 만든다(부하로 메시지가 늦게 와도 표식이 먼저 내려가지 않게).
  */
-export type MarkerClock = Pick<RunnerClock, 'setTimeout' | 'clearTimeout'>
+export type MarkerClock = Pick<Clock, 'setTimeout' | 'clearTimeout'>
 
 /** 실제 타이머 — unref 라 남은 표식이 프로세스 종료를 막지 않는다. */
 const realTimers: MarkerClock = {
