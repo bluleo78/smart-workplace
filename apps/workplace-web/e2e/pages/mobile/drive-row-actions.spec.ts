@@ -1,6 +1,6 @@
 // 모바일 드라이브 행 액션(WP-216) — 2줄 행, 행마다 ⋮ → 액션 시트, 길게 누르기 → 다중 선택 모드 + 하단 일괄 작업 바.
 // 데스크톱 호버 액션은 터치로 열 수 없어(WP-207/208) 모바일에선 이 경로가 유일한 진입점이다.
-import type { Page } from '@playwright/test'
+import type { Locator, Page } from '@playwright/test'
 
 import { createFile, createFolder, createSpace, personalSpace } from '../../factories/drive.factory'
 import { json, longPress, stubChannelMessages } from '../../fixtures/mobile-chat'
@@ -111,6 +111,10 @@ test.describe('모바일 드라이브 행 액션', () => {
     await expect(sheet.getByTestId('mobile-action-delete')).toBeEnabled()
   })
 
+  // 이름 변경 칸의 선택 범위 — 파일 이름은 확장자(.pdf) 앞까지 선택된 채 열려야 한다.
+  const STEM_SELECTION = [0, LONG_FILE.length - '.pdf'.length]
+  const selectionOf = (input: Locator) => input.evaluate((el: HTMLInputElement) => [el.selectionStart, el.selectionEnd])
+
   test('파일 ⋮ → 이름 변경 — 확장자 앞까지 선택된 다이얼로그에서 바꾸면 PATCH 가 나간다(WP-335)', async ({ authenticatedPage: page }) => {
     await stubDrive(page)
     const patches = trackRequests(page, 'PATCH', '/api/v1/drive/files/70')
@@ -122,7 +126,7 @@ test.describe('모바일 드라이브 행 액션', () => {
     await page.getByTestId('mobile-action-rename').tap()
     const input = page.getByTestId('rename-dialog-input')
     await expect(input).toHaveValue(LONG_FILE)
-    expect(await input.evaluate((el: HTMLInputElement) => [el.selectionStart, el.selectionEnd])).toEqual([0, LONG_FILE.length - '.pdf'.length])
+    expect(await selectionOf(input)).toEqual(STEM_SELECTION)
     await page.keyboard.type('도입제안서')
     await page.getByTestId('rename-dialog-confirm').tap()
     await patches.waitFor()
@@ -130,7 +134,8 @@ test.describe('모바일 드라이브 행 액션', () => {
     await expect(input).toBeHidden()
   })
 
-  // 다이얼로그의 50ms 포커스 타이머를 멈춰 두고 연다 — 부하가 걸린 전체 스위트에서만 드물게 나던 "타이머보다 먼저 손대는" 순서를 고정한다.
+  // 페이지 시계(타이머·rAF)를 멈춘 채 연다 — 처음 선택이 타이머·다음 프레임에 기대면 부하에서 사용자 입력보다 늦게 돈다.
+  // 시계가 멈춰 있어도 열리자마자 확장자 앞까지 선택돼 있어야 한다.
   async function openRenameWithPausedClock(page: Page) {
     await stubDrive(page)
     await page.goto(`/drive/spaces/${SPACE_ID}`)
@@ -139,25 +144,39 @@ test.describe('모바일 드라이브 행 액션', () => {
     await page.getByTestId('mobile-action-rename').tap()
     const input = page.getByTestId('rename-dialog-input')
     await expect(input).toHaveValue(LONG_FILE)
-    await page.clock.runFor(20) // 포커스 때 거는 확장자 앞 선택(requestAnimationFrame)만 지나간다
-    await expect.poll(() => input.evaluate((el: HTMLInputElement) => [el.selectionStart, el.selectionEnd])).toEqual([0, LONG_FILE.length - '.pdf'.length])
+    await expect(input).toBeFocused()
+    expect(await selectionOf(input)).toEqual(STEM_SELECTION)
     return input
   }
 
-  test('이름 변경 — 열자마자 치기 시작해도 뒤늦은 포커스 타이머가 친 글자를 다시 선택해 덮어쓰지 않는다', async ({ authenticatedPage: page }) => {
+  test('이름 변경 — 열자마자 치기 시작해도 뒤늦게 다시 거는 선택이 친 글자를 덮어쓰지 않는다', async ({ authenticatedPage: page }) => {
     const input = await openRenameWithPausedClock(page)
     await page.keyboard.type('도')
-    await page.clock.runFor(100) // 이제 포커스 타이머가 돈다
+    await page.clock.runFor(1000) // 멈췄던 타이머·프레임이 한꺼번에 돌아도
+    await expect(page.getByTestId('drive-row-sheet')).toBeHidden() // 시트가 닫히며 포커스가 오간 뒤에도
     await page.keyboard.type('입제안서')
     await expect(input).toHaveValue('도입제안서.pdf')
   })
 
-  test('이름 변경 — 열자마자 옮긴 커서도 뒤늦은 포커스 타이머가 처음 선택으로 되돌리지 않는다', async ({ authenticatedPage: page }) => {
+  test('이름 변경 — 열자마자 옮긴 커서도 뒤늦게 처음 선택으로 되돌아가지 않는다', async ({ authenticatedPage: page }) => {
     const input = await openRenameWithPausedClock(page)
     await page.keyboard.press('End')
-    await page.clock.runFor(100)
+    await page.clock.runFor(1000)
+    await expect(page.getByTestId('drive-row-sheet')).toBeHidden()
     await page.keyboard.type('x')
     await expect(input).toHaveValue(`${LONG_FILE}x`)
+  })
+
+  test('이름 변경 — 고치다 취소하고 다시 열면 원래 이름이 확장자 앞까지 선택된 채로 돌아온다', async ({ authenticatedPage: page }) => {
+    const input = await openRenameWithPausedClock(page)
+    await page.keyboard.type('도입')
+    await page.getByRole('button', { name: '취소' }).tap()
+    await expect(input).toBeHidden()
+    await page.getByTestId('drive-row-more-file-70').tap()
+    await page.getByTestId('mobile-action-rename').tap()
+    await expect(input).toHaveValue(LONG_FILE)
+    await expect(input).toBeFocused()
+    expect(await selectionOf(input)).toEqual(STEM_SELECTION)
   })
 
   test('보관된 공간 — 폴더 시트의 쓰기 작업이 모두 비활성', async ({ authenticatedPage: page }) => {

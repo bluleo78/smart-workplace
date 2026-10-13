@@ -287,8 +287,13 @@ test.describe('라벨', () => {
       await expect(dialog).toBeVisible();
       await expect(dialog).toContainText('라벨 이름 변경');
 
-      // 새 이름 입력 후 확인 — PATCH payload 검증.
+      // 열리면 현재 이름에 포커스, 선택 없이 커서는 끝 — 이어서 치면 이름 뒤에 붙는다.
       const input = page.getByTestId('rename-dialog-input');
+      await expect(input).toHaveValue('원래이름');
+      await expect(input).toBeFocused();
+      expect(await input.evaluate((el: HTMLInputElement) => [el.selectionStart, el.selectionEnd])).toEqual([4, 4]);
+
+      // 새 이름 입력 후 확인 — PATCH payload 검증.
       await input.clear();
       await input.fill('새이름');
       await page.getByTestId('rename-dialog-confirm').click();

@@ -6,6 +6,7 @@ import { createFile, createFolder, createSpace, personalSpace } from '../../fact
 import { expect, test } from '../../fixtures/auth.fixture'
 import { pressEnterAfterComposition, pressMacChromeImeEnter } from '../../fixtures/ime'
 import { trackRequests } from '../../fixtures/requests'
+import { pausePageClock } from '../../fixtures/touch'
 import { expectStays } from '../../fixtures/wait'
 import type { DriveFile } from '../../../src/types/drive'
 
@@ -37,14 +38,14 @@ async function stubRename(page: Page, state: { files: DriveFile[] }, id: number,
   })
 }
 
-/** 파일 행 ⋯ → "이름 변경" 으로 다이얼로그를 연다. */
-async function openRename(page: Page, fileName: string) {
+/** 파일 행 ⋯ → "이름 변경" 으로 다이얼로그를 연다. beforeRename 은 메뉴가 열린 뒤·이름 변경을 누르기 직전에 불린다. */
+async function openRename(page: Page, fileName: string, beforeRename?: () => Promise<void>) {
   const row = page.getByRole('listitem').filter({ hasText: fileName })
   await row.hover()
   await row.getByRole('button', { name: /더보기/ }).click()
+  await beforeRename?.()
   await page.getByRole('menuitem', { name: '이름 변경' }).click()
-  // 다이얼로그가 포커스 직후 다음 프레임에 「확장자 앞까지」로 선택을 좁힌다 — 그 전에 fill 하면 fill 의 전체 선택과 입력 사이에
-  // 좁히기가 끼어 확장자가 한 번 더 붙는다(notes.txt.txt). 초기 선택이 자리 잡은 뒤에 입력한다.
+  // 다이얼로그는 열리며 포커스와 같은 태스크 안에서 「확장자 앞까지」로 선택을 좁힌다 — 포커스·선택이 자리 잡은 뒤에 입력한다.
   const input = page.getByTestId('rename-dialog-input')
   await expect(input).toBeFocused()
   await expect
@@ -74,6 +75,42 @@ test('⋯ → 이름 변경 — 확장자 앞까지 선택된 채 열리고, 타
   expect(patches.lastBody<{ name: string }>()).toEqual({ name: '사업계획서_v2.pdf' })
   await expect(page.getByRole('dialog')).toBeHidden()
   await expect(page.getByTestId('drive-row-file-70')).toContainText('사업계획서_v2.pdf')
+})
+
+test('⋯ 메뉴가 닫히며 포커스를 되돌리는 타이머가 늦게 돌아도, 열자마자 친 글자를 다시 선택해 덮어쓰지 않는다', async ({ authenticatedPage: page }) => {
+  const state = { files: [createFile({ id: 70, name: '2026 사업계획서_최종.pdf', mimeType: 'application/pdf', category: 'PDF' })] }
+  await stubDrive(page, state)
+  await stubRename(page, state, 70)
+  const patches = trackRequests(page, 'PATCH', '/api/v1/drive/files/70')
+  await page.goto(`/drive/spaces/${SPACE_ID}`)
+
+  // 페이지 시계(타이머·rAF)를 멈춰 부하로 늦게 도는 상황을 고정한다 — 그래도 열리자마자 확장자 앞까지 선택돼 있어야 한다(openRename 이 확인).
+  await openRename(page, '2026 사업계획서_최종.pdf', () => pausePageClock(page))
+  const input = page.getByTestId('rename-dialog-input')
+
+  await page.keyboard.type('사업')
+  await page.clock.runFor(1000) // 멈췄던 타이머·프레임이 이제 돈다
+  await page.keyboard.type('계획서_v2')
+  await expect(input).toHaveValue('사업계획서_v2.pdf')
+  await page.getByTestId('rename-dialog-confirm').click()
+  await patches.waitFor()
+  expect(patches.lastBody<{ name: string }>()).toEqual({ name: '사업계획서_v2.pdf' })
+})
+
+test('고치기 전 Tab 으로 나갔다 Shift+Tab 으로 돌아와도 확장자 앞까지 다시 선택된다', async ({ authenticatedPage: page }) => {
+  const state = { files: [createFile({ id: 70, name: 'notes.txt' })] }
+  await stubDrive(page, state)
+  await page.goto(`/drive/spaces/${SPACE_ID}`)
+
+  await openRename(page, 'notes.txt')
+  const input = page.getByTestId('rename-dialog-input')
+  await page.keyboard.press('Tab')
+  await expect(input).not.toBeFocused()
+  await page.keyboard.press('Shift+Tab')
+  await expect(input).toBeFocused()
+  await expect.poll(() => input.evaluate((el: HTMLInputElement) => [el.selectionStart, el.selectionEnd])).toEqual([0, 'notes'.length])
+  await page.keyboard.type('memo')
+  await expect(input).toHaveValue('memo.txt')
 })
 
 test('같은 이름이 있으면(409) 다이얼로그를 유지한 채 인라인으로 알리고, 고쳐서 다시 저장할 수 있다', async ({ authenticatedPage: page }) => {
