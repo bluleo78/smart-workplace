@@ -39,6 +39,7 @@ import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 import org.jooq.DSLContext;
+import org.jooq.impl.DSL;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -216,13 +217,11 @@ class DriveTransferLinkServiceTest extends IntegrationTestBase {
     assertThat(transfers.consume(token, DriveTransferLinkService.KIND_DOWNLOAD)).isNotNull();
   }
 
+  /** 만료된 링크는 410. 만료 시각은 DB 시계로 쓴다({@link #expireByDbClock}) — 소비 함수가 DB now() 로 판정한다. */
   @Test
   void consume_expired_isGone() throws Exception {
     String token = tokenOf(transfers.issueDownloadLink(viewer, driveFileId));
-    dsl.update(DRIVE_TRANSFER_LINK)
-        .set(DRIVE_TRANSFER_LINK.EXPIRES_AT, OffsetDateTime.now().minusSeconds(1))
-        .where(DRIVE_TRANSFER_LINK.TOKEN_HASH.eq(DriveShareLinkService.sha256Hex(token)))
-        .execute();
+    expireByDbClock(token);
     TenantContext.clear();
     assertThatThrownBy(() -> transfers.consume(token, DriveTransferLinkService.KIND_DOWNLOAD))
         .isInstanceOf(DriveTransferLinkGoneException.class);
@@ -636,16 +635,27 @@ class DriveTransferLinkServiceTest extends IntegrationTestBase {
     assertThat(exists(live)).isTrue();
   }
 
+  /**
+   * 링크를 "한 시간 전에 만료"로 바꾼다 — DB 시계 기준(최종 리뷰 I2). 이 클래스는 {@code @Transactional} 이라 소비 함수의 {@code
+   * now()} 가 테스트 트랜잭션 시작 시각(= {@code @BeforeEach} 시드보다 앞)으로 고정된다. Java 시계로 "방금 만료"를 쓰면 시드가 오래 걸리거나
+   * VM 시계가 어긋날 때 DB 쪽에서는 아직 유효해 흔들린다. 한 시간은 퍼지 유예(하루)보다 짧아 "막 만료된" 행으로 남는다.
+   */
+  private void expireByDbClock(String token) {
+    dsl.update(DRIVE_TRANSFER_LINK)
+        .set(
+            DRIVE_TRANSFER_LINK.EXPIRES_AT,
+            DSL.field("now() - interval '1 hour'", OffsetDateTime.class))
+        .where(DRIVE_TRANSFER_LINK.TOKEN_HASH.eq(DriveShareLinkService.sha256Hex(token)))
+        .execute();
+  }
+
   // ── Fix round 1 ──────────────────────────────────────────────────────
 
   /** 막 만료된 링크는 같은 사용자가 새 링크를 발급해도 지워지지 않아, 그 링크를 다시 쓰면 404 가 아니라 410 이다. */
   @Test
   void justExpiredLink_survivesReissue_andStaysGone() throws Exception {
     String token = tokenOf(transfers.issueDownloadLink(viewer, driveFileId));
-    dsl.update(DRIVE_TRANSFER_LINK)
-        .set(DRIVE_TRANSFER_LINK.EXPIRES_AT, OffsetDateTime.now().minusMinutes(1))
-        .where(DRIVE_TRANSFER_LINK.TOKEN_HASH.eq(DriveShareLinkService.sha256Hex(token)))
-        .execute();
+    expireByDbClock(token);
     transfers.issueDownloadLink(viewer, driveFileId); // 발급 시 정리
     TenantContext.clear();
     assertThatThrownBy(() -> transfers.consume(token, DriveTransferLinkService.KIND_DOWNLOAD))
