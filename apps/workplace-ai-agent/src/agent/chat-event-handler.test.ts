@@ -15,6 +15,7 @@ const base = {
   body: '@AI',
   mentions: [{ id: 99, username: 'ai', name: 'AI', kind: 'AGENT' as const }],
   occurredAt: '2026-05-30T12:00:00Z',
+  actingAgentId: 99,
 };
 const env = (actorKind: 'HUMAN' | 'AGENT'): ChatEventEnvelope => ({
   type: 'chat.message.posted',

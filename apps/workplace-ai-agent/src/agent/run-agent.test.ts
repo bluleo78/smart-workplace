@@ -56,6 +56,7 @@ const baseCommon = {
   issueTitle: 't',
   actor: { id: 7, username: 'a', kind: 'HUMAN' as const },
   occurredAt: '2026-05-26T00:00:00Z',
+  actingAgentId: 201,
 };
 
 function envWithAgent(): IssueEventEnvelope {
@@ -64,18 +65,6 @@ function envWithAgent(): IssueEventEnvelope {
     payload: {
       ...baseCommon,
       assignees: [{ id: 201, username: 'ai', kind: 'AGENT' }],
-      status: 'TODO',
-      priority: 'MID',
-    },
-  };
-}
-
-function envHumanOnly(): IssueEventEnvelope {
-  return {
-    type: 'issue.created',
-    payload: {
-      ...baseCommon,
-      assignees: [{ id: 7, username: 'alice', kind: 'HUMAN' }],
       status: 'TODO',
       priority: 'MID',
     },
@@ -128,14 +117,6 @@ describe('runAgent (인-프로세스 SDK)', () => {
     expect(arg.hostBridge).toBeUndefined();
     expect(arg.onTool).toBeUndefined();
     expect(arg.client).toBe(c);
-  });
-
-  it('AGENT 없는 envelope → 실행 생략', async () => {
-    const c = client('tk-X');
-    await runAgent(envHumanOnly(), { client: c });
-    expect(c.getProviderCredential).not.toHaveBeenCalled();
-    expect(runSdkCollect).not.toHaveBeenCalled();
-    expect(buildInProcessWorkplaceMcpServer).not.toHaveBeenCalled();
   });
 
   it('token fetch 실패 → 실행 생략', async () => {

@@ -17,9 +17,9 @@ const common = {
   actor: userSummary,
   assignees: z.array(userSummary),
   occurredAt: z.string(),
-  // WP-371: API 가 이벤트 원인에 맞춰 골라 보내는 대행 AI id. 구버전 API 는 안 보내므로 optional —
-  // 없으면 resolver 가 assignees 의 첫 AGENT 로 폴백한다(배포 순서 무관).
-  actingAgentId: z.number().int().positive().optional(),
+  // WP-371: API 가 서버 실행(INTERNAL) 에이전트 중 이벤트 원인에 맞춰 골라 보내는 대행 AI id.
+  // 필수 — 없으면(구버전 API·잘못된 이벤트) 스키마 검증에서 400 으로 거절한다(fail-closed, 폴백 없음).
+  actingAgentId: z.number().int().positive(),
 };
 
 export const issueCreatedPayload = z.object({

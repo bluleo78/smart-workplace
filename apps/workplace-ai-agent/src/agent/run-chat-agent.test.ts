@@ -50,6 +50,7 @@ const env: ChatEventEnvelope = {
     body: '@AI',
     mentions: [{ id: 99, username: 'ai', name: 'AI', kind: 'AGENT' }],
     occurredAt: 't',
+    actingAgentId: 99,
   },
 };
 
@@ -95,18 +96,6 @@ describe('runChatAgent', () => {
     expect(runCall.mcp).toMatchObject({ profile: 'chat', onBehalfOfId: 99 });
     // WP-244: chat 도구는 이 실행의 스레드(5)에 묶인다.
     expect(runCall.mcp).toMatchObject({ chatThreadId: 5 });
-  });
-
-  it('mentions 에 AGENT 없으면 spawn 생략', async () => {
-    const noAgent: ChatEventEnvelope = {
-      ...env,
-      payload: {
-        ...env.payload,
-        mentions: [{ id: 7, username: 'a', name: 'A', kind: 'HUMAN' }],
-      },
-    };
-    await runChatAgent(noAgent, deps());
-    expect(streamSpy).not.toHaveBeenCalled();
   });
 
   it('모델 결정 이원화 해소: credential.model(redeem 응답)이 env/기본값보다 우선한다', async () => {
@@ -181,6 +170,7 @@ describe('runChatAgent 진행 발행', () => {
         actor: { id: 1, username: 'u', name: 'U', kind: 'HUMAN' },
         body: '@AI 도와줘', mentions: [{ id: 9, username: 'ai', name: 'AI', kind: 'AGENT' }],
         occurredAt: '2026-06-18T00:00:00Z',
+        actingAgentId: 99,
       },
     } as never;
     await runChatAgent(envelope, testDeps);

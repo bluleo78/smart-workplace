@@ -134,10 +134,6 @@ export async function runChatAgent(
 ): Promise<void> {
   const p = envelope.payload;
   const agentId = pickMentionedAgentId(p);
-  if (agentId == null) {
-    console.warn('[run-chat-agent] mentions 에 AGENT 없음 — spawn 생략', { threadId: p.threadId });
-    return;
-  }
 
   let credential: ProviderCredential;
   try {

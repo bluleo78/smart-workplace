@@ -3,6 +3,8 @@ import { pickActingAgentId } from './agent-resolver.js';
 import {
   issueAssignedPayload,
   issueCommentedPayload,
+  issueCreatedPayload,
+  issueEventEnvelope,
   issueStatusChangedPayload,
   type IssueEventEnvelope,
 } from '../types/issue-events.js';
@@ -16,58 +18,45 @@ const baseCommon = {
   occurredAt: '2026-05-26T12:00:00Z',
 };
 
-function env(assignees: { id: number; username: string; kind: 'HUMAN' | 'AGENT' }[]): IssueEventEnvelope {
-  return {
-    type: 'issue.created',
-    payload: { ...baseCommon, assignees, status: 'TODO', priority: 'MID' },
-  };
-}
-
 describe('pickActingAgentId', () => {
-  it('1 AGENT → 그 id', () => {
-    expect(pickActingAgentId(env([{ id: 201, username: 'ai', kind: 'AGENT' }]))).toBe(201);
-  });
-
-  it('AGENT 없음 (HUMAN only) → null', () => {
-    expect(pickActingAgentId(env([{ id: 7, username: 'alice', kind: 'HUMAN' }]))).toBeNull();
-  });
-
-  it('빈 assignees → null', () => {
-    expect(pickActingAgentId(env([]))).toBeNull();
-  });
-
-  it('여러 AGENT → 첫 번째 id', () => {
-    expect(
-      pickActingAgentId(
-        env([
-          { id: 7, username: 'alice', kind: 'HUMAN' },
+  it('API 가 지정한 actingAgentId 를 그대로 쓴다 — assignees 와 무관 (WP-371)', () => {
+    const e: IssueEventEnvelope = {
+      type: 'issue.created',
+      payload: {
+        ...baseCommon,
+        assignees: [
           { id: 201, username: 'ai-a', kind: 'AGENT' },
           { id: 202, username: 'ai-b', kind: 'AGENT' },
-        ]),
-      ),
-    ).toBe(201);
-  });
-
-  it('actingAgentId 가 있으면 assignees 순서와 무관하게 그 id (WP-371)', () => {
-    const e = env([
-      { id: 201, username: 'ai-a', kind: 'AGENT' },
-      { id: 202, username: 'ai-b', kind: 'AGENT' },
-    ]);
-    e.payload = { ...e.payload, actingAgentId: 202 };
+        ],
+        actingAgentId: 202,
+        status: 'TODO',
+        priority: 'MID',
+      },
+    };
     expect(pickActingAgentId(e)).toBe(202);
   });
 
-  it('actingAgentId 가 있으면 assignees 에 AGENT 가 없어도 그 id', () => {
-    const e = env([{ id: 7, username: 'alice', kind: 'HUMAN' }]);
-    e.payload = { ...e.payload, actingAgentId: 303 };
+  it('assignees 에 AGENT 가 없어도 actingAgentId 를 그대로 쓴다', () => {
+    const e: IssueEventEnvelope = {
+      type: 'issue.created',
+      payload: {
+        ...baseCommon,
+        assignees: [{ id: 7, username: 'alice', kind: 'HUMAN' }],
+        actingAgentId: 303,
+        status: 'TODO',
+        priority: 'MID',
+      },
+    };
     expect(pickActingAgentId(e)).toBe(303);
   });
 });
 
-describe('issue 이벤트 스키마 actingAgentId (WP-371)', () => {
+describe('issue 이벤트 스키마 actingAgentId (WP-371, fail-closed)', () => {
   const base = {
     ...baseCommon,
     assignees: [],
+    status: 'TODO',
+    priority: 'MID',
     added: [],
     removed: [],
     commentId: 1,
@@ -76,12 +65,20 @@ describe('issue 이벤트 스키마 actingAgentId (WP-371)', () => {
     newStatus: 'DONE',
   };
   it.each([
+    ['issue.created', issueCreatedPayload],
     ['issue.assigned', issueAssignedPayload],
     ['issue.commented', issueCommentedPayload],
     ['issue.status_changed', issueStatusChangedPayload],
-  ])('%s 는 actingAgentId 선택적 양의 정수', (_t, schema) => {
-    expect(schema.safeParse(base).success).toBe(true);
+  ])('%s 는 actingAgentId 필수 양의 정수', (_t, schema) => {
+    expect(schema.safeParse(base).success).toBe(false);
     expect(schema.safeParse({ ...base, actingAgentId: 9 }).success).toBe(true);
     expect(schema.safeParse({ ...base, actingAgentId: -1 }).success).toBe(false);
+    expect(schema.safeParse({ ...base, actingAgentId: 1.5 }).success).toBe(false);
+  });
+
+  it('envelope 도 actingAgentId 없으면 거절', () => {
+    expect(
+      issueEventEnvelope.safeParse({ type: 'issue.commented', payload: base }).success,
+    ).toBe(false);
   });
 });

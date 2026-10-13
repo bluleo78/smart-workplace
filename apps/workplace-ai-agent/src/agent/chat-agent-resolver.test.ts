@@ -15,27 +15,11 @@ const payload = (
   body: '@AI',
   mentions,
   occurredAt: '2026-05-30T12:00:00Z',
+  actingAgentId: 99,
 });
 
 describe('pickMentionedAgentId', () => {
-  it('mentions 중 첫 AGENT id', () => {
-    expect(
-      pickMentionedAgentId(
-        payload([
-          { id: 7, username: 'a', name: 'A', kind: 'HUMAN' },
-          { id: 99, username: 'ai', name: 'AI', kind: 'AGENT' },
-        ]),
-      ),
-    ).toBe(99);
-  });
-
-  it('AGENT 없으면 null', () => {
-    expect(
-      pickMentionedAgentId(payload([{ id: 7, username: 'a', name: 'A', kind: 'HUMAN' }])),
-    ).toBeNull();
-  });
-
-  it('actingAgentId 가 있으면 mentions 순서와 무관하게 그 id (WP-371)', () => {
+  it('API 가 지정한 actingAgentId 를 mentions 순서와 무관하게 그대로 쓴다 (WP-371)', () => {
     const p = payload([
       { id: 98, username: 'ai-a', name: 'A', kind: 'AGENT' },
       { id: 99, username: 'ai-b', name: 'B', kind: 'AGENT' },
@@ -44,10 +28,10 @@ describe('pickMentionedAgentId', () => {
   });
 });
 
-describe('chatMessagePostedPayload.actingAgentId (WP-371)', () => {
-  const raw = { ...payload([]) };
-  it('없어도 통과(구버전 API 호환)', () => {
-    expect(chatMessagePostedPayload.safeParse(raw).success).toBe(true);
+describe('chatMessagePostedPayload.actingAgentId (WP-371, fail-closed)', () => {
+  const { actingAgentId: _omit, ...raw } = payload([]);
+  it('없으면 거절(폴백 없음)', () => {
+    expect(chatMessagePostedPayload.safeParse(raw).success).toBe(false);
   });
   it('양의 정수는 통과, 0·소수는 거절', () => {
     expect(chatMessagePostedPayload.safeParse({ ...raw, actingAgentId: 5 }).success).toBe(true);

@@ -23,8 +23,8 @@ export const chatMessagePostedPayload = z.object({
   body: z.string(),
   mentions: z.array(userSummary),
   occurredAt: z.string(),
-  // WP-371: API 가 멘션된 AI 중 골라 보내는 대행 AI id. 구버전 호환 위해 optional(없으면 mentions 첫 AGENT).
-  actingAgentId: z.number().int().positive().optional(),
+  // WP-371: API 가 멘션된 서버 실행(INTERNAL) AI 중 골라 보내는 대행 AI id. 필수 — 없으면 400 거절(fail-closed).
+  actingAgentId: z.number().int().positive(),
 });
 
 export const chatEventEnvelope = z.object({

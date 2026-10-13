@@ -86,8 +86,11 @@ pnpm test --coverage                   # 커버리지 (./coverage)
 | `WORKPLACE_AI_MODEL` / `WORKPLACE_AI_MAX_TURNS` / `WORKPLACE_AI_TIMEOUT_MS` | 선택 override | 아님 |
 | `SHUTDOWN_DRAIN_MS` | 종료 시 진행 중 HTTP·에이전트 실행 대기 상한(기본 330000). 운영 차트 `terminationGracePeriodSeconds` 는 preStop + 이 값보다 커야 함(WP-167) | 아님 |
 
-**대행 AGENT 식별**: ai-agent 는 이벤트 payload 의 `actingAgentId`(API 가 원인에 맞춰 지정, WP-371)를 대행한다.
-없으면(구버전 API) 이슈 이벤트는 assignees, chat 은 mentions 의 첫 AGENT 로 폴백 (#34).
+**대행 AGENT 식별**: 대행할 AGENT 는 workplace-api 가 정한다(WP-371). API 는 서버 실행(INTERNAL) 에이전트가 있을 때만
+이벤트를 보내고 payload 의 `actingAgentId` 에 그 id 를 싣는다. ai-agent 는 직접 고르지 않으며 assignees/mentions 폴백도 없다 —
+`actingAgentId` 는 이슈 이벤트·`chat.message.posted` 모두 필수(양의 정수)이고, 없으면 zod 검증에서 400 `invalid_payload` 로 거절(fail-closed).
+배포 순서: ai-agent 를 먼저 올려도 안전하다(구버전 API 이벤트는 거절될 뿐 오실행되지 않음). 다만 ai-agent 새 버전~API 새 버전 사이의
+짧은 구간에는 구버전 API 의 이슈·chat 이벤트가 400 으로 거절되어 AI 실행이 일시 누락된다.
 workplace-api 호출 시 `Authorization: Internal <token>` + `X-On-Behalf-Of: <agentId>` 헤더로
 그 AGENT 자격을 부여받는다. 5a 의 AGENT API key 는 ai-agent 부트스트랩과 무관 — 외부 서비스가
 AGENT 자격으로 workplace-api 를 직접 호출할 때만 사용.
