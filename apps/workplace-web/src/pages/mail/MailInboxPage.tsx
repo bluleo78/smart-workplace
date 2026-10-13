@@ -111,6 +111,8 @@ function MessageRow({
       // 자식 텍스트가 섞이면 장문화되어 SR 청취성 저하(WCAG 1.3.1/4.1.2). 날짜는
       // 식별에 필수가 아니므로 간결함 우선으로 제외.
       aria-label={`${m.fromName || m.fromAddress || '(보낸사람 없음)'} ${m.subject || '(제목 없음)'}`}
+      // 지금 읽기 창에 열린 메일을 보조기기에도 알린다(WP-368 — 선택 배경이 눈으로만 보이던 것).
+      aria-current={active ? 'true' : undefined}
       onClick={onSelect}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {

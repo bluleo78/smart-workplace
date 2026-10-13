@@ -92,6 +92,8 @@ export function WikiTreeRow({
         <button
           type="button"
           onClick={() => onOpen(id)}
+          // 지금 열린 페이지를 보조기기에도 알린다 — 포커스가 가는 이 버튼에 둔다(WP-368).
+          aria-current={selected ? 'page' : undefined}
           className={cn(
             'flex min-w-0 flex-1 items-center gap-1 rounded px-2 py-1 text-left text-sm hover:bg-accent',
             selected && SELECTED_ROW_CLASS,

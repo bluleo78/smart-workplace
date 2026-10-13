@@ -73,6 +73,8 @@ function TreeNode({ node, depth, selectedId, onSelect, editable, onEdit, onDelet
         <button
           type="button"
           data-testid={`group-node-${node.id}`}
+          // 고른 그룹을 보조기기에도 알린다 — 화면 이동이 아니라 목록 필터 선택이라 'page' 가 아닌 'true'(WP-368).
+          aria-current={selectedId === node.id ? 'true' : undefined}
           onClick={() => onSelect(node.id)}
           className="min-w-0 flex-1 truncate text-left"
         >

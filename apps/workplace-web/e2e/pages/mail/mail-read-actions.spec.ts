@@ -7,7 +7,7 @@ import { expect, test } from '../../fixtures/auth.fixture'
 import { trackRequests } from '../../fixtures/requests'
 import { expectStays } from '../../fixtures/wait'
 import { mockGatedEvents, resourceChangedFrame } from '../../fixtures/gatedEvents'
-import { expectSelectedRow } from '../../fixtures/selection'
+import { expectCurrent, expectSelectedRow } from '../../fixtures/selection'
 
 /** 계정·안 읽은 수·목록(10=안읽음, 11=읽음)을 모킹한다. 안 읽은 수 요청은 캡처해 갱신 여부를 본다(F25). */
 async function stub(page: Page) {
@@ -95,6 +95,7 @@ test.describe('메일 읽음 조작 — 데스크톱(WP-187)', () => {
     // WP-368 — 선택 행은 배경(bg-selected)만 쓰고 막대는 쓰지 않는다: 왼쪽 막대는 안 읽음 표시(같은 자리·같은 색)라 겹치면 선택이 묻히거나
     // 읽은 메일이 안 읽음처럼 보인다. 굵기도 안 읽음 표시라 바꾸지 않는다.
     await expectSelectedRow(page.getByTestId('mail-row-11'), page.getByTestId('mail-row-10'), { bar: false })
+    await expectCurrent(page.getByTestId('mail-row-11'), page.getByTestId('mail-row-10'), 'true')
     await expect(page.getByTestId('mail-row-11')).not.toHaveClass(/font-semibold/)
     await expect(page.getByTestId('mail-unread-bar-11')).toHaveCount(0)
     await expect(page.getByTestId('mail-unread-bar-10')).toBeVisible()

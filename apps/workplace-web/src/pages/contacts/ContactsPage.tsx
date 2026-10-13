@@ -48,7 +48,13 @@ function ContactRow({
         active ? SELECTED_SURFACE_CLASS : 'hover:bg-accent/50',
       )}
     >
-      <button type="button" onClick={onSelect} className="flex min-w-0 flex-1 items-center gap-3 text-left">
+      {/* 고른 연락처를 보조기기에도 알린다 — 오른쪽 상세에 열린 항목(WP-368). */}
+      <button
+        type="button"
+        onClick={onSelect}
+        aria-current={active ? 'true' : undefined}
+        className="flex min-w-0 flex-1 items-center gap-3 text-left"
+      >
         <span
           className={cn(
             'shrink-0 rounded px-1.5 py-0.5 text-xs font-medium',

@@ -51,6 +51,15 @@ export async function expectSelectedRow(
   expect(selectedBg, '선택 행 배경이 투명이면 안 된다').not.toBe('rgba(0, 0, 0, 0)')
 }
 
+/**
+ * 선택을 보조기기에도 알리는지 — selected 만 aria-current(value), other 엔 aria-current 가 없다.
+ * 화면 이동 링크는 'page', 같은 화면 안에서 고른 항목(필터·상세에 연 행)은 'true'.
+ */
+export async function expectCurrent(selected: Locator, other: Locator, value: 'page' | 'true') {
+  await expect(selected).toHaveAttribute('aria-current', value)
+  await expect(other).not.toHaveAttribute('aria-current')
+}
+
 // 클래스 문자열 안에서 `dark:`·`hover:` 같은 변형 접두가 붙은 토큰은 제외하고 맨 토큰만 본다.
 const bare = (token: string) => new RegExp(`(?<![:\\w-])${token}`)
 

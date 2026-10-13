@@ -68,6 +68,8 @@ export function ChannelSidebar() {
         <Link
           to="/chat/threads/inbox"
           data-testid="sidebar-threads-link"
+          // 선택 표시(SELECTED_NAV_CLASS)를 보조기기에도 — 지금 열린 화면(WP-368).
+          aria-current={isThreadsRoute ? 'page' : undefined}
           className={cn(
             'flex items-center gap-2 rounded-md px-3 py-1.5 text-sm',
             isThreadsRoute ? SELECTED_NAV_CLASS : 'text-muted-foreground hover:bg-accent/50',
@@ -156,6 +158,7 @@ export function ChannelSidebar() {
               key={c.id}
               to={`/chat/channels/${c.id}`}
               data-testid={`channel-link-${c.id}`}
+              aria-current={!isDmRoute && activeId === c.id ? 'page' : undefined}
               className={cn(
                 'flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors',
                 !isDmRoute && activeId === c.id
@@ -220,6 +223,7 @@ export function ChannelSidebar() {
           <Link
             to="/chat/dms/self"
             data-testid="dm-self-link"
+            aria-current={location.pathname === '/chat/dms/self' ? 'page' : undefined}
             className={cn(
               'flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors',
               location.pathname === '/chat/dms/self'
@@ -275,6 +279,7 @@ export function ChannelSidebar() {
                 key={dm.id}
                 to={`/chat/dms/${dm.id}`}
                 data-testid={`dm-link-${dm.id}`}
+                aria-current={isDmRoute && activeId === dm.id ? 'page' : undefined}
                 className={cn(
                   'flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors',
                   isDmRoute && activeId === dm.id
