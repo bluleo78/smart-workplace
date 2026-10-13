@@ -6,7 +6,7 @@
 //   runClaudeCliStream → runSdkStream, MCP stdio child → buildInProcessWorkplaceMcpServer,
 //   사이드카 파일 읽기 → HostBridge 인메모리 콜백.
 import { log } from '../logger.js';
-import { assistantSystemPrompt, dateContextDirective, delegationLabel } from './assistant-system-prompt.js';
+import { assistantSystemPrompt, dateContextDirective, delegationLabel, seoulToday } from './assistant-system-prompt.js';
 import type { ToolUseLine } from './sdk-mcp-server.js';
 import { transcriptRequest, transcriptStreamLine, transcriptResult } from './ai-transcript-log.js';
 import { runnerFor } from './agent-runner.js';
@@ -216,9 +216,8 @@ export async function runAiChatStream(
 
   // 우선순위: 요청 body(input.model) > redeem 응답(credential.model) > env/기본값.
   const model = input.model ?? credential.model ?? process.env.WORKPLACE_AI_MODEL ?? DEFAULT_MODEL;
-  // 요청 시점 Seoul 기준 오늘 날짜를 계산해 상대 날짜 필터 앵커로 주입한다.
-  const seoulToday = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date());
-  const dateDirective = dateContextDirective(seoulToday);
+  // 요청 시점 Seoul 기준 오늘 날짜를 상대 날짜 필터 앵커로 주입한다.
+  const dateDirective = dateContextDirective(seoulToday());
   // WP-351: Claude 라우터는 쓰기 도구 없이 위임만 하고, opencode primary 는 위임 도구가 꺼져 직접 쓰기·제안하므로 규칙이 다르다.
   const runnerKind = credential.provider === 'anthropic' ? 'claude' : 'opencode';
   const systemPrompt = assistantSystemPrompt(runnerKind) + dateDirective + thinkingDirective(input.thinkingDepth);

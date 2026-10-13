@@ -209,6 +209,14 @@ status 미언급이면 생략(전체).
 // Claude 라우터 프롬프트(위임 전용 규칙). opencode 는 assistantSystemPrompt('opencode') 를 쓴다.
 export const ASSISTANT_SYSTEM_PROMPT = assistantSystemPrompt('claude');
 
+// 서울 기준 날짜 포매터 — en-CA 는 yyyy-MM-dd 로 찍는다. 매 요청 새로 만들지 않게 모듈 수준에 하나 둔다.
+const SEOUL_DATE = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' });
+
+// 서울 기준 오늘 날짜(yyyy-MM-dd) — dateContextDirective 의 앵커. 메인 AI 채팅·추천 질문이 같이 쓴다.
+export function seoulToday(now: Date = new Date()): string {
+  return SEOUL_DATE.format(now);
+}
+
 // 요청별 오늘 날짜를 시스템 프롬프트에 주입하는 헬퍼.
 // 상대 날짜("이번 주", "다음 주", "이번 달") 계산 기준을 LLM에 명시한다.
 export function dateContextDirective(today: string): string {
