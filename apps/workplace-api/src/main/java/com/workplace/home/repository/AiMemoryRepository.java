@@ -11,6 +11,7 @@ import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
+import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
 /**
@@ -29,6 +30,9 @@ public class AiMemoryRepository {
    * 쓴다(81·358·625·758 은 다른 잠금이 사용 중). 상한(50) 검사와 insert 사이에 다른 요청이 끼지 못하게 한다.
    */
   private static final int LOCK_CLASS = 55;
+
+  /** ai_memory.id 시퀀스(BIGSERIAL 기본 이름) — 되살리기가 발급 전 id 를 쓰지 않게 확인한다. */
+  private static final String ID_SEQUENCE = "ai_memory_id_seq";
 
   private final DSLContext dsl;
 
@@ -88,9 +92,7 @@ public class AiMemoryRepository {
    */
   public Optional<Row> insertWithId(
       long id, long userId, String kind, String content, String source, UUID sourceSessionId) {
-    Long issued =
-        dsl.resultQuery("SELECT last_value FROM ai_memory_id_seq").fetchOne(0, Long.class);
-    if (issued == null || id <= 0 || id > issued) return Optional.empty();
+    if (id <= 0 || id > lastIssued(dsl, ID_SEQUENCE)) return Optional.empty();
     AiMemoryRecord r = newRecord(userId, kind, content, source, sourceSessionId);
     r.setId(id);
     return dsl.insertInto(AI_MEMORY)
@@ -100,6 +102,19 @@ public class AiMemoryRepository {
         .returning()
         .fetchOptional()
         .map(AiMemoryRepository::toRow);
+  }
+
+  /**
+   * 시퀀스가 지금까지 발급한 가장 큰 값(아직 하나도 발급하지 않았으면 last_value - 1). nextval 전의 새 시퀀스는 last_value 가 시작값(1)이지만
+   * is_called 가 false 라 1 은 아직 발급되지 않았다 — last_value 만 보면 1 을 발급된 값으로 오인해 되살리기가 다음 일반 저장과 충돌한다.
+   */
+  static long lastIssued(DSLContext dsl, String sequence) {
+    Long v =
+        dsl.resultQuery(
+                "SELECT CASE WHEN is_called THEN last_value ELSE last_value - 1 END FROM {0}",
+                DSL.name(sequence))
+            .fetchOne(0, Long.class);
+    return v == null ? 0 : v;
   }
 
   /**

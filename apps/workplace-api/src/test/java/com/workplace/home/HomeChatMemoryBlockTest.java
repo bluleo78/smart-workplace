@@ -60,11 +60,21 @@ class HomeChatMemoryBlockTest extends HomeAttachmentTestSupport {
 
   /** 시나리오를 돌려 영속된 ASSISTANT 메시지를 돌려준다(onDone 이 동기로 영속을 마친 뒤 latch 가 풀린다). */
   private HomeMessageResponse assistantAfter(long uid, Script script) throws Exception {
+    return assistantAfter(uid, script, false);
+  }
+
+  /**
+   * 시나리오를 돌린 뒤 정상 완료(onDone, 시나리오가 돌려준 본문) 또는 오류(onError — 본문은 버린다)로 끝내고 영속된 ASSISTANT 메시지를 돌려준다.
+   * 종결 콜백이 동기로 영속을 마친 뒤 latch 가 풀린다.
+   */
+  private HomeMessageResponse assistantAfter(long uid, Script script, boolean fail)
+      throws Exception {
     CountDownLatch done = new CountDownLatch(1);
     doAnswer(
             inv -> {
               Consumer<String> onDelta = inv.getArgument(1);
               BiConsumer<String, JsonNode> onDone = inv.getArgument(2);
+              Consumer<String> onError = inv.getArgument(3);
               Consumer<String> onProgress = inv.getArgument(4);
               Consumer<JsonNode> onTool = inv.getArgument(6);
               Consumer<String> tool =
@@ -75,7 +85,9 @@ class HomeChatMemoryBlockTest extends HomeAttachmentTestSupport {
                       throw new IllegalStateException(e);
                     }
                   };
-              onDone.accept(script.run(onDelta, onProgress, tool), null);
+              String fullText = script.run(onDelta, onProgress, tool);
+              if (fail) onError.accept("AI 구성 요청에 실패했어요.");
+              else onDone.accept(fullText, null);
               done.countDown();
               return null;
             })
@@ -281,6 +293,33 @@ class HomeChatMemoryBlockTest extends HomeAttachmentTestSupport {
             om.readTree(
                 "[{\"kind\":\"widget\",\"widget\":{\"type\":\"issue_list\",\"params\":{}}},"
                     + "{\"kind\":\"text\",\"textStart\":0}]"));
+  }
+
+  /**
+   * 텍스트 전에 오류로 끝나도 메모리 결과 줄이 있으면 답을 저장한다 — 메모리 변경은 이미 반영됐으므로 error 의 messageId 로 되돌리기가 켜지고 다시 열어도
+   * 줄이 남는다(빈 본문 + memory 블록).
+   */
+  @Test
+  void 텍스트_없이_오류로_끝나도_메모리_결과가_있으면_답을_저장하고_error_에_messageId_를_싣는다() throws Exception {
+    long uid = user();
+    HomeMessageResponse a =
+        assistantAfter(
+            uid,
+            (delta, progress, tool) -> {
+              tool.accept(start(1, "remember_memory"));
+              tool.accept(result(1, "remember_memory", false, SAVED));
+              return "";
+            },
+            true);
+
+    assertThat(a.role()).isEqualTo("ASSISTANT");
+    assertThat(a.content()).isEmpty();
+    assertThat(a.status()).isEqualTo("FAILED");
+    assertThat(a.contentBlocks()).isNull();
+    assertThat(a.memoryBlocks()).isEqualTo(om.readTree("[" + SAVED_BLOCK + "]"));
+    assertThat(emitted("home.chat.error"))
+        .singleElement()
+        .satisfies(p -> assertThat(p.get("messageId")).isEqualTo(a.id()));
   }
 
   @Test

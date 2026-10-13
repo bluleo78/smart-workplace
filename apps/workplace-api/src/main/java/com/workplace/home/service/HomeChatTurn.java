@@ -152,15 +152,15 @@ final class HomeChatTurn {
   }
 
   /**
-   * 부분 답변 저장 — 누적 텍스트가 비면 질문만 남긴다(현행 유지). 끝나지 않은 도구 단계는 error 로 닫는다(R10).
+   * 부분 답변 저장 — 누적 텍스트도 메모리 결과 줄도 없으면 질문만 남긴다(현행 유지). 끝나지 않은 도구 단계는 error 로 닫는다(R10).
    *
    * @return 저장한 메시지 id — 저장하지 않았거나 실패하면 null
    */
   private Long persistPartial(String status) {
     String text = blocks.streamedText();
-    // 알려진 한계(WP-55): 텍스트가 없는 중단·오류 턴은 저장하지 않으므로(messageId 없음) 그 턴에 기록된 memory 블록도 함께 사라진다 —
-    // 메모리 변경 자체는 이미 반영됐지만 되돌리기 줄은 남지 않는다. 의도적으로 영속을 더하지 않는다.
-    if (text.isBlank()) return null;
+    // WP-55: 텍스트가 없어도 메모리 결과 줄이 있으면 저장한다 — 메모리 변경은 이미 반영됐으므로 messageId 가 있어야 그 줄의 되돌리기가
+    // 켜지고 다시 열어도 남는다(빈 본문 + memory 블록 — 웹은 결과 줄만 그린다).
+    if (text.isBlank() && !blocks.hasMemory()) return null;
     List<Map<String, Object>> settled = steps.stream().map(HomeChatTurn::settleRunning).toList();
     return persist(
         text,

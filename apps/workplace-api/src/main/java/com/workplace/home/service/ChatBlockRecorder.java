@@ -145,6 +145,11 @@ class ChatBlockRecorder {
     memories.add(memory);
   }
 
+  /** 메모리 결과 줄이 하나라도 있는가 — 텍스트 없이 끝난 턴도 결과 줄 때문에 저장할지 가른다(WP-55). */
+  synchronized boolean hasMemory() {
+    return !memories.isEmpty();
+  }
+
   /**
    * 영속할 블록 목록 — 표시 블록(displayBlocks) 뒤에 메모리 블록을 도착순으로 붙인다. 표시 블록을 신뢰할 수 없어 null 이어도 메모리 블록은 돌려준다 —
    * 되돌리기의 순번(blockIndex)이 이 목록의 memory 순번이다(판정 4·5).
