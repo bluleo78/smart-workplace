@@ -26,11 +26,14 @@ public class AiPreferenceController {
     return new AiPreferencesResponse(service.suggestionsEnabled(callerId));
   }
 
-  /** 저장 후 저장된 값을 돌려준다 — 웹이 그대로 캐시에 넣는다. */
+  /**
+   * 저장 후 저장한 값을 돌려준다 — 웹이 그대로 캐시에 넣는다. 저장이 실패하면 예외로 끝나므로 다시 읽지 않고 요청 값을 그대로 응답한다(인증된 본인 행이라 갱신 대상은
+   * 항상 있다).
+   */
   @PutMapping
   public AiPreferencesResponse update(
       @AuthenticationPrincipal Long callerId, @Valid @RequestBody UpdateAiPreferencesRequest req) {
     service.update(callerId, req.suggestionsEnabled());
-    return new AiPreferencesResponse(service.suggestionsEnabled(callerId));
+    return new AiPreferencesResponse(req.suggestionsEnabled());
   }
 }

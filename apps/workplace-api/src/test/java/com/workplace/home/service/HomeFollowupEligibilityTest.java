@@ -2,9 +2,7 @@ package com.workplace.home.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.workplace.auth.service.AssistantSpec;
 import com.workplace.home.service.HomeFollowupService.FollowupInput;
-import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -13,50 +11,66 @@ import org.junit.jupiter.api.Test;
  */
 class HomeFollowupEligibilityTest {
 
-  private static final AssistantSpec SPEC =
-      new AssistantSpec(5L, "claude-sonnet-5-5", "NORMAL", 8, 60000, null);
-
   /** 기본은 대상인 입력 — 각 테스트가 한 필드만 바꾼다. */
   private static FollowupInput input(
       Long messageId, String answer, String source, boolean proposed) {
-    return new FollowupInput(
-        1L, UUID.randomUUID(), messageId, "질문", answer, source, proposed, null, SPEC);
+    return new FollowupInput(messageId, "질문", answer, source, proposed, null, 5L, null);
   }
 
   @Test
   void 출처가_없으면_구_ai_agent_로_보고_대상이다() {
-    assertThat(HomeFollowupService.eligible(input(10L, "답", null, false), true)).isTrue();
+    assertThat(HomeFollowupService.eligible(input(10L, "답", null, false), () -> true)).isTrue();
   }
 
   @Test
   void 일반_출처는_대상이다() {
-    assertThat(HomeFollowupService.eligible(input(10L, "답", "subagent", false), true)).isTrue();
+    assertThat(HomeFollowupService.eligible(input(10L, "답", "subagent", false), () -> true))
+        .isTrue();
   }
 
   @Test
   void fallback_출처는_대상이_아니다() {
-    assertThat(HomeFollowupService.eligible(input(10L, "답", "fallback", false), true)).isFalse();
+    assertThat(HomeFollowupService.eligible(input(10L, "답", "fallback", false), () -> true))
+        .isFalse();
   }
 
   @Test
   void 확인_카드가_나온_턴은_대상이_아니다() {
-    assertThat(HomeFollowupService.eligible(input(10L, "답", "subagent", true), true)).isFalse();
+    assertThat(HomeFollowupService.eligible(input(10L, "답", "subagent", true), () -> true))
+        .isFalse();
   }
 
   @Test
   void 빈_답이나_공백뿐인_답은_대상이_아니다() {
-    assertThat(HomeFollowupService.eligible(input(10L, "", "subagent", false), true)).isFalse();
-    assertThat(HomeFollowupService.eligible(input(10L, "  \n", "subagent", false), true)).isFalse();
-    assertThat(HomeFollowupService.eligible(input(10L, null, "subagent", false), true)).isFalse();
+    assertThat(HomeFollowupService.eligible(input(10L, "", "subagent", false), () -> true))
+        .isFalse();
+    assertThat(HomeFollowupService.eligible(input(10L, "  \n", "subagent", false), () -> true))
+        .isFalse();
+    assertThat(HomeFollowupService.eligible(input(10L, null, "subagent", false), () -> true))
+        .isFalse();
   }
 
   @Test
   void 영속에_실패해_메시지_id_가_없으면_대상이_아니다() {
-    assertThat(HomeFollowupService.eligible(input(null, "답", "subagent", false), true)).isFalse();
+    assertThat(HomeFollowupService.eligible(input(null, "답", "subagent", false), () -> true))
+        .isFalse();
   }
 
   @Test
   void 추천을_끈_사용자는_대상이_아니다() {
-    assertThat(HomeFollowupService.eligible(input(10L, "답", "subagent", false), false)).isFalse();
+    assertThat(HomeFollowupService.eligible(input(10L, "답", "subagent", false), () -> false))
+        .isFalse();
+  }
+
+  @Test
+  void 값싼_조건에서_걸러지면_추천_설정을_조회하지_않는다() {
+    // 추천 켜짐은 DB 조회라 마지막에 본다 — 확인 카드가 나온 턴이면 조회 자체가 일어나지 않아야 한다.
+    assertThat(
+            HomeFollowupService.eligible(
+                input(10L, "답", "subagent", true),
+                () -> {
+                  throw new AssertionError("조회되면 안 된다");
+                }))
+        .isFalse();
   }
 }

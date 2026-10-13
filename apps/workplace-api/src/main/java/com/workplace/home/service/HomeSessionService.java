@@ -1,6 +1,5 @@
 package com.workplace.home.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -74,13 +73,16 @@ public class HomeSessionService {
   @Transactional(readOnly = true)
   public List<HomeMessageResponse> getMessages(long callerId, UUID sessionId) {
     ensureOwner(callerId, sessionId);
-    // WP-139: 추천을 끈 사용자에게는 저장된 후속 질문도 보이지 않는다.
-    boolean showFollowups = aiPreferences.suggestionsEnabled(callerId);
+    List<HomeMessageRepository.Row> rows = messageRepo.findBySession(sessionId);
+    // WP-139: 추천을 끈 사용자에게는 저장된 후속 질문도 보이지 않는다. 설정 조회는 후속 질문이 저장된 행이 있을 때만 한다.
+    boolean showFollowups =
+        rows.stream().anyMatch(m -> m.followupsJson() != null)
+            && aiPreferences.suggestionsEnabled(callerId);
     // WP-234: 세션 첨부를 한 번에 읽어 메시지별로 나눈다(N+1 회피). 순서는 findBySession 순서 유지.
     Map<Long, List<HomeAttachment>> byMessage =
         loadAttachments(sessionId).stream()
             .collect(Collectors.groupingBy(HomeAttachment::messageId));
-    return messageRepo.findBySession(sessionId).stream()
+    return rows.stream()
         .map(m -> toResponse(m, byMessage.getOrDefault(m.id(), List.of()), showFollowups))
         .toList();
   }
@@ -308,17 +310,15 @@ public class HomeSessionService {
 
   /**
    * 후속 질문 저장(WP-139) — 소유자 검증 후 ASSISTANT 메시지에. 후속 질문 실행기 스레드에서 부르며, 그 실행기가 TenantContext 를 전파하므로 이
-   * 트랜잭션이 RLS GUC 를 받는다. 갱신 행 수(0 = 반영 안 됨 — 직렬화 실패 포함).
+   * 트랜잭션이 RLS GUC 를 받는다. 갱신 행 수(0 = 반영 안 됨).
    */
   @Transactional
+  @SneakyThrows
   public int saveFollowups(long callerId, UUID sessionId, long messageId, List<String> items) {
     ensureOwner(callerId, sessionId);
-    try {
-      return messageRepo.updateFollowups(
-          sessionId, messageId, objectMapper.writeValueAsString(items));
-    } catch (JsonProcessingException e) {
-      return 0;
-    }
+    // 문자열 목록 직렬화는 실패하지 않는다 — 파일의 parse 와 같이 검사 예외를 감싸지 않는다.
+    return messageRepo.updateFollowups(
+        sessionId, messageId, objectMapper.writeValueAsString(items));
   }
 
   @SneakyThrows

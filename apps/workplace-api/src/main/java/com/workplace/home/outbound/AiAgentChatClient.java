@@ -2,6 +2,7 @@ package com.workplace.home.outbound;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.MissingNode;
 import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.global.outbound.InternalHttp;
 import com.workplace.home.outbound.ChatMessages.ChatRequest;
@@ -178,10 +179,17 @@ public class AiAgentChatClient {
                 onDelta.accept(t);
               }
             } else if ("done".equals(event)) {
-              // done 이벤트: {fullText, widgets, source?} 를 파싱해 콜백. source 는 WP-139 추가 필드(없으면 null).
-              String fullText = parseDoneFullText(data);
-              JsonNode widgets = parseDoneWidgets(data);
-              onDone.accept(fullText != null ? fullText : "", widgets, parseDoneSource(data));
+              // done 이벤트: {fullText, widgets, source?} 를 한 번만 파싱해 콜백. source 는 WP-139 추가 필드(없으면
+              // null).
+              // 파싱 실패면 빈 노드 — fullText "", widgets·source null.
+              JsonNode done = readTreeOrMissing(data);
+              JsonNode fullText = done.path("fullText");
+              JsonNode widgets = done.path("widgets");
+              JsonNode source = done.path("source");
+              onDone.accept(
+                  fullText.isTextual() ? fullText.asText() : "",
+                  widgets.isMissingNode() || widgets.isNull() ? null : widgets,
+                  source.isTextual() ? source.asText() : null);
               return;
             } else if ("error".equals(event)) {
               log.error("ai-agent home chat stream error: {}", data);
@@ -242,35 +250,13 @@ public class AiAgentChatClient {
     }
   }
 
-  /** {@code {"fullText":"..."}} 에서 fullText 추출. 형식이 다르면 null. */
-  private String parseDoneFullText(String data) {
+  /** JSON 파싱 — 비JSON·빈 값·파싱 실패는 MissingNode(어떤 필드를 path 로 물어도 비어 있다). */
+  private JsonNode readTreeOrMissing(String data) {
     try {
       JsonNode node = mapper.readTree(data);
-      JsonNode ft = node.get("fullText");
-      return (ft != null && ft.isTextual()) ? ft.asText() : null;
+      return node != null ? node : MissingNode.getInstance();
     } catch (Exception e) {
-      return null;
-    }
-  }
-
-  /** {@code {"widgets":[...]}} 에서 widgets 추출. 없거나 파싱 실패 시 null. */
-  private JsonNode parseDoneWidgets(String data) {
-    try {
-      JsonNode node = mapper.readTree(data);
-      JsonNode w = node.get("widgets");
-      return (w != null && !w.isNull()) ? w : null;
-    } catch (Exception e) {
-      return null;
-    }
-  }
-
-  /** {@code {"source":"..."}} 에서 답 출처 추출(WP-139). 없거나 형식이 다르면 null. */
-  private String parseDoneSource(String data) {
-    try {
-      JsonNode s = mapper.readTree(data).get("source");
-      return (s != null && s.isTextual()) ? s.asText() : null;
-    } catch (Exception e) {
-      return null;
+      return MissingNode.getInstance();
     }
   }
 

@@ -56,7 +56,6 @@ public class AiSuggestionService {
         new SuggestionRequest(
             "starter",
             spec.get().agentUserId(),
-            // Task 2 에서 해석 완료: 설정값 → Anthropic 자동이면 API 기본값 → opencode 자동이면 null(ai-agent 가 연결 모델).
             spec.get().suggestionModel(),
             ctx,
             titles,

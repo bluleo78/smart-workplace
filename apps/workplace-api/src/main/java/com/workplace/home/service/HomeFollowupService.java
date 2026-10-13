@@ -1,6 +1,5 @@
 package com.workplace.home.service;
 
-import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.util.Texts;
 import com.workplace.home.dto.AiScreenContext;
 import com.workplace.home.exception.HomeSessionNotFoundException;
@@ -9,7 +8,7 @@ import com.workplace.home.outbound.ChatMessages.SuggestionRequest;
 import com.workplace.user.service.AiPreferenceService;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
+import java.util.function.BooleanSupplier;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.task.AsyncTaskExecutor;
@@ -40,8 +39,7 @@ public class HomeFollowupService {
 
   /**
    * 질문 앞부분만 보낸다 — HomeChatRequest.query 에는 길이 상한이 없는데 ai-agent zod 는 question 을 2만 자로 묶어, 넘으면 요청
-   * 전체가 400 이 되어 후속 질문이 조용히 빠진다(최종 리뷰 M1). 다음 질문을 고르는 데는 앞부분이면 충분하다. ai-agent 프롬프트 빌더도 같은 값으로
-   * 자른다(방어).
+   * 전체가 400 이 되어 후속 질문이 조용히 빠진다. 다음 질문을 고르는 데는 앞부분이면 충분하다. ai-agent 프롬프트 빌더도 같은 값으로 자른다(방어).
    */
   static final int QUESTION_MAX_CHARS = 1_000;
 
@@ -66,24 +64,26 @@ public class HomeFollowupService {
 
   /**
    * 후속 질문 판단 재료 — 이번 턴 하나. 질문·답은 만들 때 앞부분만 남긴다: 이 레코드는 실행기 큐(최대 32건)에서 기다리는 동안 살아 있으므로 긴 답 전체를 붙잡지
-   * 않게 하고, ai-agent 로 보낼 크기도 여기서 확정한다.
+   * 않게 하고, ai-agent 로 보낼 크기도 여기서 확정한다. 사용자·대화 좌표는 봉투({@link HomeChatEnvelope})가 들고, 비서 설정은 실행에 필요한
+   * 두 값만 옮긴다.
    *
    * @param messageId 저장된 ASSISTANT id(영속 실패면 null)
    * @param question 이번 질문 — 앞 {@link #QUESTION_MAX_CHARS} 자(첨부만 보낸 턴은 null)
    * @param answer 이번 답 — 앞 {@link #ANSWER_MAX_CHARS} 자
    * @param source ai-agent 답 출처(구 ai-agent 면 null — 대상에서 빼지 않는다)
    * @param proposed 이번 턴에 확인 카드가 나왔는가
+   * @param agentUserId 답한 비서 에이전트 사용자 id
+   * @param suggestionModel 해석 완료된 추천 질문 모델
    */
   public record FollowupInput(
-      long callerId,
-      UUID sessionId,
       Long messageId,
       String question,
       String answer,
       String source,
       boolean proposed,
       AiScreenContext screenContext,
-      AssistantSpec spec) {
+      long agentUserId,
+      String suggestionModel) {
 
     public FollowupInput {
       question = Texts.headUtf16(question, QUESTION_MAX_CHARS);
@@ -91,14 +91,17 @@ public class HomeFollowupService {
     }
   }
 
-  /** 대상 조건(스펙 §5.1): 추천 켜짐, 저장 성공, 답 텍스트 있음, fallback 아님, 확인 카드 없음. */
-  static boolean eligible(FollowupInput in, boolean enabled) {
-    return enabled
-        && in.messageId() != null
+  /**
+   * 대상 조건(스펙 §5.1): 저장 성공, 답 텍스트 있음, fallback 아님, 확인 카드 없음, 추천 켜짐. 추천 켜짐은 DB 조회라 값싼 조건이 모두 통과했을 때만
+   * 묻는다.
+   */
+  static boolean eligible(FollowupInput in, BooleanSupplier enabled) {
+    return in.messageId() != null
         && in.answer() != null
         && !in.answer().isBlank()
         && !SOURCE_FALLBACK.equals(in.source())
-        && !in.proposed();
+        && !in.proposed()
+        && enabled.getAsBoolean();
   }
 
   /**
@@ -107,13 +110,13 @@ public class HomeFollowupService {
    */
   void scheduleIfEligible(HomeChatEnvelope envelope, FollowupInput in) {
     try {
-      if (!eligible(in, preferences.suggestionsEnabled(in.callerId()))) return;
+      if (!eligible(in, () -> preferences.suggestionsEnabled(envelope.callerId()))) return;
       executor.execute(() -> generate(envelope, in));
     } catch (TaskRejectedException e) {
       // 큐 포화 — 부가 기능이라 기다리지 않고 버린다(채팅 스트림을 절대 막지 않는다).
-      log.debug("후속 질문 큐 포화 — 버림: session={}", in.sessionId());
+      log.debug("후속 질문 큐 포화 — 버림: session={}", envelope.sessionId());
     } catch (RuntimeException e) {
-      log.warn("후속 질문 예약 실패: session={} {}", in.sessionId(), e.getMessage());
+      log.warn("후속 질문 예약 실패: session={} {}", envelope.sessionId(), e.getMessage());
     }
   }
 
@@ -124,8 +127,8 @@ public class HomeFollowupService {
           client.suggest(
               new SuggestionRequest(
                   "followup",
-                  in.spec().agentUserId(),
-                  in.spec().suggestionModel(), // 해석 완료된 요청 모델(Task 2)
+                  in.agentUserId(),
+                  in.suggestionModel(),
                   in.screenContext(),
                   null,
                   in.question(), // 앞 1000자(첨부만 보낸 턴은 null)
@@ -134,19 +137,22 @@ public class HomeFollowupService {
                   FOLLOWUP_TIMEOUT_MS));
       if (items.isEmpty()) return;
       // 생성 중(최대 20초)에 사용자가 추천을 껐으면 저장·발행하지 않는다.
-      if (!preferences.suggestionsEnabled(in.callerId())) return;
-      if (sessionService.saveFollowups(in.callerId(), in.sessionId(), in.messageId(), items) == 0) {
+      if (!preferences.suggestionsEnabled(envelope.callerId())) return;
+      if (sessionService.saveFollowups(
+              envelope.callerId(), envelope.sessionId(), in.messageId(), items)
+          == 0) {
         // 소유는 확인됐는데 갱신 0행 — 메시지가 그사이 지워졌거나 id·세션이 어긋났다. 드문 경우라 추적할 수 있게 남긴다.
-        log.info("후속 질문 저장 0행 — 발행 생략: session={} message={}", in.sessionId(), in.messageId());
+        log.info(
+            "후속 질문 저장 0행 — 발행 생략: session={} message={}", envelope.sessionId(), in.messageId());
         return;
       }
       envelope.emit("home.chat.followups", Map.of("messageId", in.messageId(), "items", items));
     } catch (HomeSessionNotFoundException e) {
       // 생성 중 대화 삭제(ensureOwner 404) — 정상 흐름이라 조용히 버린다.
-      log.debug("후속 질문 저장 생략 — 대화 없음: session={}", in.sessionId());
-    } catch (RuntimeException e) {
-      // 그 밖의 실패(DB 오류 등)는 부가 기능이라 버리되, 원인을 볼 수 있게 경고로 남긴다.
-      log.warn("후속 질문 생성·저장 실패: session={} message={}", in.sessionId(), in.messageId(), e);
+      log.debug("후속 질문 저장 생략 — 대화 없음: session={}", envelope.sessionId());
+    } catch (Exception e) {
+      // 그 밖의 실패(DB 오류 등, saveFollowups 의 SneakyThrows 검사 예외 포함)는 부가 기능이라 버리되, 원인을 볼 수 있게 경고로 남긴다.
+      log.warn("후속 질문 생성·저장 실패: session={} message={}", envelope.sessionId(), in.messageId(), e);
     }
   }
 }

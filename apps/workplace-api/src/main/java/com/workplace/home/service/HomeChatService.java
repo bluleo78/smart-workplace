@@ -340,15 +340,14 @@ public class HomeChatService {
                     followupService.scheduleIfEligible(
                         turn.envelope(),
                         new HomeFollowupService.FollowupInput(
-                            callerId,
-                            sid,
                             messageId,
                             query,
                             fullText,
                             source,
                             turn.proposed(),
                             screenContext,
-                            spec));
+                            spec.agentUserId(),
+                            spec.suggestionModel()));
                   }),
           // error(진짜 오류만 — 취소는 아래 마감·catch 로 별도 처리): 누적분 FAILED 저장 → 반납 → home.chat.error.
           turn::fail,
