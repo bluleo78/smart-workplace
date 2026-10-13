@@ -801,6 +801,28 @@ class DriveTransferLinkServiceTest extends IntegrationTestBase {
     assertThat(tempPartFiles()).isEqualTo(before);
   }
 
+  /**
+   * 디렉터리가 있어도 쓸 수 없으면(읽기 전용) 기동 시 IllegalStateException — 기동은 되고 매 PUT 이 링크를 태운 뒤 500 이 되는 대신. root
+   * 처럼 권한을 무시하는 환경에서는 재현할 수 없어 건너뛴다.
+   */
+  @Test
+  void prepareTempDir_readOnlyDir_failsClearly() throws Exception {
+    java.nio.file.Path base = Files.createTempDirectory("drive-transfer-ro-test-");
+    try {
+      Files.setPosixFilePermissions(
+          base, java.nio.file.attribute.PosixFilePermissions.fromString("r-xr-xr-x"));
+      org.junit.jupiter.api.Assumptions.assumeFalse(Files.isWritable(base), "권한을 무시하는 환경(root 등)");
+      assertThatThrownBy(() -> DriveTransferLinkService.prepareTempDir(base.toString()))
+          .isInstanceOf(IllegalStateException.class)
+          .hasMessageContaining("workplace.drive.transfer-temp-dir")
+          .hasMessageContaining("쓸 수 없습니다");
+    } finally {
+      Files.setPosixFilePermissions(
+          base, java.nio.file.attribute.PosixFilePermissions.fromString("rwx------"));
+      Files.deleteIfExists(base);
+    }
+  }
+
   /** 임시 디렉터리 — 없는 경로는 만들고, 공백이면 java.io.tmpdir, 만들 수 없으면(경로가 파일 아래) 기동 시 IllegalStateException. */
   @Test
   void prepareTempDir_createsFallsBackAndFailsClearly() throws Exception {

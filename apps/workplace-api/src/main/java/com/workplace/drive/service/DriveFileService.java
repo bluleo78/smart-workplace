@@ -35,6 +35,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -88,6 +90,23 @@ public class DriveFileService {
           "csv", "text/csv",
           "json", "application/json");
 
+  /** 텍스트로 읽는 application MIME(WP-369 텍스트 갱신 판정) — csv·json·xml·yaml·javascript·셸. */
+  private static final Set<String> TEXT_APPLICATION_MIMES =
+      Set.of(
+          "application/csv",
+          "application/json",
+          "application/xml",
+          "application/x-yaml",
+          "application/yaml",
+          "application/javascript",
+          "application/x-sh");
+
+  /** octet-stream 으로 저장됐어도 텍스트로 보는 확장자(WP-369) — 브라우저가 MIME 을 모르는 코드·설정 파일. */
+  private static final Set<String> TEXT_EXTENSIONS =
+      Set.of(
+          "md", "txt", "csv", "tsv", "json", "yaml", "yml", "xml", "js", "ts", "py", "java", "sh",
+          "sql", "css", "log");
+
   /** 멀티파트 업로드(웹 드라이브). 의미는 {@link #upload(long, long, Long, UploadSource)} 와 같다. */
   @Transactional
   public DriveFileResponse upload(long callerId, long spaceId, Long folderId, MultipartFile file)
@@ -119,8 +138,9 @@ public class DriveFileService {
   /** 텍스트 파일 MIME 결정(R4) — 명시값은 허용 목록만(매개변수 제거·소문자), 없으면 확장자, 모르면 text/plain. */
   static String textMimeOf(String name, String requested) {
     if (requested != null && !requested.isBlank()) {
-      String mime = requested.split(";", 2)[0].strip().toLowerCase(Locale.ROOT);
-      if (!TEXT_MIME_BY_EXTENSION.containsValue(mime)) {
+      String mime = bareMime(requested);
+      // ";x" 처럼 본체가 빈 값은 null — Map.of 의 containsValue(null) 은 NPE 라 먼저 거른다(400 유지).
+      if (mime == null || !TEXT_MIME_BY_EXTENSION.containsValue(mime)) {
         throw new IllegalArgumentException(
             "mimeType 은 text/markdown, text/plain, text/csv, application/json 중 하나여야 합니다.");
       }
@@ -136,11 +156,12 @@ public class DriveFileService {
    * <p>검사 순서가 존재 은닉을 지킨다: 없는·휴지통 파일 404 → 공간 비멤버 404 · EDITOR 미만 403 → 텍스트 계열이 아니면 409 → MIME(400)
    * → 크기(400). 역할 검사를 409 보다 먼저 해야 비멤버가 파일 형식을 알아내지 못한다.
    *
-   * <p>MIME 은 R4 규칙({@link #textMimeOf})으로 정하되 이름은 <b>파일의 지금 이름</b>을 쓴다(mimeType 이 없으면 그 확장자). 텍스트
-   * 계열이라도 html·yaml·xml 처럼 허용 목록 밖 확장자면 새 버전은 text/plain 으로 저장된다.
+   * <p>MIME 은 {@link #updatedTextMimeOf} 로 정한다 — 명시값은 R4 허용 목록만, 없으면 지금 MIME 을 유지한다(yaml·md·js 가
+   * 버전마다 text/plain 으로 바뀌지 않게). 단 html·xml 계열과 확장자로만 텍스트로 본 octet-stream 은 파일 이름 확장자로 정해 html·xml 은
+   * text/plain 이 된다.
    *
    * @throws DriveFileNotFoundException 없거나 휴지통 파일(404)
-   * @throws DriveNotTextFileException 현재 버전이 텍스트 계열(TEXT 범주·csv·json)이 아님(409)
+   * @throws DriveNotTextFileException 현재 버전이 텍스트 계열({@link #isTextLike})이 아님(409)
    * @throws IllegalArgumentException 허용하지 않는 mimeType(400)
    * @throws FileSizeLimitExceededException UTF-8 로 10MB 초과(400)
    */
@@ -150,15 +171,11 @@ public class DriveFileService {
     DriveFileRepository.DriveFileRow row =
         files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
     perms.requireRole(row.spaceId(), callerId, "EDITOR");
-    String currentMime =
-        dsl.select(com.workplace.jooq.Tables.FILE.MIME_TYPE)
-            .from(com.workplace.jooq.Tables.FILE)
-            .where(com.workplace.jooq.Tables.FILE.ID.eq(row.fileId()))
-            .fetchOne(com.workplace.jooq.Tables.FILE.MIME_TYPE);
-    if (!isTextLike(currentMime)) {
+    String currentMime = files.findCurrentMime(row.fileId());
+    if (!isTextLike(currentMime, row.name())) {
       throw new DriveNotTextFileException();
     }
-    String mime = textMimeOf(row.name(), mimeType);
+    String mime = updatedTextMimeOf(row.name(), currentMime, mimeType);
     byte[] bytes = content.getBytes(StandardCharsets.UTF_8);
     if (bytes.length > TEXT_FILE_MAX_BYTES) {
       throw new FileSizeLimitExceededException("TEXT", TEXT_FILE_MAX_BYTES);
@@ -167,16 +184,72 @@ public class DriveFileService {
   }
 
   /**
-   * 내용으로 갱신해도 되는 파일인지 — 현재 버전 MIME 이 TEXT 범주(md·txt·json·html·yaml 등)이거나 csv. pdf·docx·이미지는 아니다.
+   * 텍스트 갱신 새 버전의 MIME(WP-369).
+   *
+   * <ul>
+   *   <li>{@code requested} 가 있으면 R4 허용 목록만({@link #textMimeOf}, 아니면 400).
+   *   <li>없고 지금 MIME 이 텍스트 MIME 이며 html·xml 계열이 아니면 그대로 둔다(매개변수는 뗀다 — 내용을 UTF-8 로 다시 쓰므로 옛 charset
+   *       을 남기지 않는다).
+   *   <li>그 밖(html·xml 계열, 확장자로만 텍스트로 본 octet-stream)은 파일 이름 확장자로 정한다 — html·xml 은 text/plain 이 된다.
+   *       {@code /content} 가 저장 MIME 으로 인라인 서빙하므로 AI 가 쓴 내용이 문서로 렌더링·실행되지 않게 한다.
+   * </ul>
    */
-  static boolean isTextLike(String mime) {
-    if (mime == null) {
+  static String updatedTextMimeOf(String name, String currentMime, String requested) {
+    if (requested != null && !requested.isBlank()) {
+      return textMimeOf(name, requested);
+    }
+    String current = bareMime(currentMime);
+    if (current != null && isTextMime(current) && !isHtmlLike(current)) {
+      return current;
+    }
+    return textMimeOf(name, null);
+  }
+
+  /**
+   * 내용으로 갱신해도 되는 파일인지(WP-369) — 현재 버전 MIME 이 텍스트 MIME({@link #isTextMime})이거나, octet-stream 으로
+   * 저장됐지만 이름이 알려진 텍스트 확장자({@link #TEXT_EXTENSIONS})다. 브라우저는 .py·.js 를 octet-stream 으로 보내는 일이 많다.
+   * pdf·docx·이미지·모르는 바이너리는 아니다.
+   */
+  static boolean isTextLike(String mime, String name) {
+    String bare = bareMime(mime);
+    if (bare == null) {
       return false;
     }
-    String bare = mime.split(";", 2)[0].strip().toLowerCase(Locale.ROOT);
-    return "TEXT".equals(FileUploadService.categoryOf(bare))
-        || bare.equals("text/csv")
-        || bare.equals("application/csv");
+    if (isTextMime(bare)) {
+      return true;
+    }
+    String ext = FilePathBuilder.extensionOf(name == null ? "" : name).toLowerCase(Locale.ROOT);
+    return bare.equals("application/octet-stream") && TEXT_EXTENSIONS.contains(ext);
+  }
+
+  /**
+   * 텍스트 MIME 인지(매개변수를 뗀 소문자 값) — text/* 전부, 텍스트로 읽는 application 형식들, application/*+json·*+xml.
+   * image/svg+xml 은 이미지라 넣지 않는다.
+   */
+  static boolean isTextMime(String bare) {
+    return bare.startsWith("text/")
+        || TEXT_APPLICATION_MIMES.contains(bare)
+        || (bare.startsWith("application/") && (bare.endsWith("+json") || bare.endsWith("+xml")));
+  }
+
+  /** html·xml 계열인지 — 브라우저가 문서로 렌더링해 스크립트를 실행할 수 있는 형식(XHTML 네임스페이스 스크립트 포함). */
+  static boolean isHtmlLike(String bare) {
+    return bare.equals("text/html")
+        || bare.equals("text/xml")
+        || bare.equals("application/xml")
+        || bare.endsWith("+xml");
+  }
+
+  /**
+   * Content-Type·MIME 에서 매개변수(charset 등)를 떼고 소문자로 — "text/plain; charset=utf-8" 이 범주표·허용 목록에서 빠지지
+   * 않게. 없거나 본체가 비면 null. 업로드 링크(Content-Type)와 텍스트 갱신(저장 MIME)이 같이 쓴다.
+   */
+  static String bareMime(String contentType) {
+    if (contentType == null || contentType.isBlank()) {
+      return null;
+    }
+    String mime = contentType.split(";", 2)[0].strip().toLowerCase(Locale.ROOT);
+    return mime.isEmpty() ? null : mime;
   }
 
   /**
@@ -193,10 +266,8 @@ public class DriveFileService {
     DriveFileRepository.DriveFileRow row =
         files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
     perms.requireRole(row.spaceId(), callerId, "EDITOR");
-    return bindVersion(
-        callerId,
-        row,
-        new UploadSource(row.name(), source.contentType(), source.size(), source.writer()));
+    // 저장 이름은 store 가 행 잠금 아래에서 읽은 지금 이름으로 바꾼다.
+    return bindVersion(callerId, row, source);
   }
 
   /**
@@ -254,11 +325,11 @@ public class DriveFileService {
   }
 
   /**
-   * 업로드 공유 핵심(권한 검사 뒤) — 할당량 검사(advisory lock) → file core 저장 → 영구화 → drive_file 바인딩 → 감사 → 추출 이벤트
-   * → 변경 알림.
+   * 업로드 공유 핵심(권한 검사 뒤) — 할당량 검사(advisory lock) → (지정 파일이면 행 잠금) → file core 저장 → 영구화 → drive_file
+   * 바인딩 → 감사 → 추출 이벤트 → 변경 알림.
    *
    * @param targetDriveFileId 새 버전을 더할 파일(WP-369, ID 지정 갱신). null 이면 같은 폴더의 동명 활성 파일을 찾아 있으면 새 버전,
-   *     없으면 새 파일 + v1(#79)
+   *     없으면 새 파일 + v1(#79). 지정하면 그 행을 잠가 살아 있는지 다시 보고, 저장 이름은 잠금 아래에서 읽은 지금 이름이다
    */
   private DriveFileResponse store(
       long callerId, long spaceId, Long folderId, UploadSource source, Long targetDriveFileId)
@@ -268,8 +339,20 @@ public class DriveFileService {
     if (tenantId != null) {
       quotaRepo.advisoryLockTenant(tenantId);
     }
-    quota.assertWithinQuota(source.size());
-    FileUploadResponse uploaded = fileUpload.upload(source, callerId);
+    UploadSource toStore = source;
+    if (targetDriveFileId != null) {
+      // 휴지통·이름 변경 경합(WP-369): 호출부의 findRow 뒤에 휴지통 이동이 커밋되면 휴지통 파일에 버전이 붙는다. 그래서 advisory lock
+      // 다음·blob 저장 전에 행을 잠그고(FOR UPDATE) trashed_at 을 다시 본다. 순서는 반드시 advisory → 행(동명 업로드·롤백과 같은
+      // 순서) — findRow 에서 잠그면 순서가 뒤집혀 교착할 수 있다. blob 저장 전이라 거절돼도 고아 blob 이 남지 않는다.
+      DriveFileRepository.DriveFileRow locked =
+          files
+              .lockActiveRow(targetDriveFileId)
+              .orElseThrow(() -> new DriveFileNotFoundException(targetDriveFileId));
+      toStore =
+          new UploadSource(locked.name(), source.contentType(), source.size(), source.writer());
+    }
+    quota.assertWithinQuota(toStore.size());
+    FileUploadResponse uploaded = fileUpload.upload(toStore, callerId);
     files.promoteFile(uploaded.id());
 
     String name = uploaded.originalName();
@@ -279,7 +362,7 @@ public class DriveFileService {
     // 지정 파일이 있으면 그 파일, 아니면 동명 활성 파일을 새 버전으로 흡수. 둘 다 없으면 새 파일 + v1 (#79)
     var existing =
         targetDriveFileId != null
-            ? java.util.Optional.of(targetDriveFileId)
+            ? Optional.of(targetDriveFileId)
             : files.findActiveByName(spaceId, folderId, name);
     if (existing.isPresent()) {
       driveFileId = existing.get();
@@ -381,8 +464,7 @@ public class DriveFileService {
 
   /** 썸네일. drive 권한(VIEWER+)으로 인가한 뒤 file core 신뢰 read. 없으면 빈 Optional → 컨트롤러 404. */
   @Transactional(readOnly = true)
-  public java.util.Optional<FileContentResult> thumbnail(long callerId, long driveFileId)
-      throws IOException {
+  public Optional<FileContentResult> thumbnail(long callerId, long driveFileId) throws IOException {
     DriveFileRepository.DriveFileRow row =
         files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
     perms.requireRole(row.spaceId(), callerId, "VIEWER");

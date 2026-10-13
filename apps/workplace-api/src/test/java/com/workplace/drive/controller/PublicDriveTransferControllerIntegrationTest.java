@@ -598,6 +598,8 @@ class PublicDriveTransferControllerIntegrationTest extends IntegrationTestBase {
   @Test
   void put_issuerDemoted_isForbidden_andLinkStaysBurned() throws Exception {
     String path = issueUploadPath(owner, "{\"name\":\"권한.txt\"}");
+    // 리터럴 대신 원래 역할을 읽어 두고 그대로 되돌린다(시드가 바뀌어도 다른 역할로 덮지 않게).
+    String originalRole = spaceRole(owner);
     setRole(owner, "VIEWER");
     try {
       mockMvc
@@ -605,7 +607,7 @@ class PublicDriveTransferControllerIntegrationTest extends IntegrationTestBase {
           .andExpect(status().isForbidden())
           .andExpect(jsonPath("$.message").value(containsString("새 링크를 발급받으세요")));
     } finally {
-      setRole(owner, "OWNER");
+      setRole(owner, originalRole);
     }
     mockMvc
         .perform(put(path).content("x".getBytes(StandardCharsets.UTF_8)))
@@ -623,6 +625,21 @@ class PublicDriveTransferControllerIntegrationTest extends IntegrationTestBase {
     mockMvc.perform(put(dlPath).content(new byte[] {1})).andExpect(status().isNotFound());
     // 다운로드 링크는 PUT 으로 소비되지 않는다
     mockMvc.perform(get(dlPath)).andExpect(status().isOk());
+  }
+
+  /** 시드 공간에서 사용자의 역할 조회 — 바꾼 뒤 원래 값으로 되돌리기 위함. */
+  private String spaceRole(long userId) {
+    String[] role = new String[1];
+    cleanupInTenant(
+        1L,
+        () ->
+            role[0] =
+                dsl.select(DRIVE_SPACE_MEMBER.ROLE)
+                    .from(DRIVE_SPACE_MEMBER)
+                    .where(DRIVE_SPACE_MEMBER.SPACE_ID.eq(spaceId))
+                    .and(DRIVE_SPACE_MEMBER.USER_ID.eq(userId))
+                    .fetchOne(DRIVE_SPACE_MEMBER.ROLE));
+    return role[0];
   }
 
   private void setRole(long userId, String role) {
@@ -952,6 +969,7 @@ class PublicDriveTransferControllerIntegrationTest extends IntegrationTestBase {
   @Test
   void filePut_issuerDemoted_isForbidden() throws Exception {
     String path = issueFileUploadPath(owner, driveFileId);
+    String originalRole = spaceRole(owner);
     setRole(owner, "VIEWER");
     try {
       mockMvc
@@ -959,8 +977,36 @@ class PublicDriveTransferControllerIntegrationTest extends IntegrationTestBase {
           .andExpect(status().isForbidden())
           .andExpect(jsonPath("$.message").value(containsString("새 링크를 발급받으세요")));
     } finally {
-      setRole(owner, "OWNER");
+      setRole(owner, originalRole);
     }
+  }
+
+  /**
+   * 발급 뒤 파일을 다른 폴더로 옮겨도 같은 파일에 새 버전이 들어간다 — 파일 지정 링크는 folder_id 를 묶지 않고 파일 id 로만 찾는다(이동이 링크를 깨지
+   * 않는다).
+   */
+  @Test
+  void filePut_afterMoveToOtherFolder_goesToSameFile() throws Exception {
+    String path = issueFileUploadPath(owner, driveFileId);
+    long[] folderId = new long[1];
+    cleanupInTenant(
+        1L,
+        () -> {
+          folderId[0] = folderService.create(owner, spaceId, null, "옮긴 곳").id();
+          fileService.move(owner, driveFileId, folderId[0]);
+        });
+
+    mockMvc
+        .perform(put(path).content("옮긴 뒤 내용".getBytes(StandardCharsets.UTF_8)))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.id").value(driveFileId))
+        .andExpect(jsonPath("$.folderId").value(folderId[0]))
+        .andExpect(jsonPath("$.name").value("회의 메모.md"))
+        .andExpect(jsonPath("$.versionCount").value(2));
+    assertThat(currentBytes(driveFileId)).isEqualTo("옮긴 뒤 내용".getBytes(StandardCharsets.UTF_8));
+    cleanupInTenant(
+        1L,
+        () -> assertThat(dsl.fetchCount(DRIVE_FILE, DRIVE_FILE.SPACE_ID.eq(spaceId))).isEqualTo(1));
   }
 
   /**

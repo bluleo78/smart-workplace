@@ -39,7 +39,6 @@ import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.HashMap;
-import java.util.Locale;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -142,10 +141,10 @@ public class DriveTransferLinkService {
   }
 
   /**
-   * 임시 디렉터리를 정하고 만든다. 값이 비면 java.io.tmpdir 로 대신한다. 만들 수 없으면 기동을 멈춘다 — 첫 업로드에서야 500 이 나는 것보다 설정 오류를
-   * 바로 드러낸다.
+   * 임시 디렉터리를 정하고 만든다. 값이 비면 java.io.tmpdir 로 대신한다. 만들 수 없거나 쓸 수 없으면 기동을 멈춘다 — 첫 업로드에서야 500 이 나는 것보다
+   * 설정 오류를 바로 드러낸다. 읽기 전용 디렉터리면 기동은 되지만 모든 PUT 이 링크를 태우고 500 이 되므로 쓰기 가능 여부도 본다.
    *
-   * @throws IllegalStateException 디렉터리를 만들 수 없음(경로가 파일이거나 권한 없음 등)
+   * @throws IllegalStateException 디렉터리를 만들 수 없음(경로가 파일이거나 권한 없음 등) · 쓸 수 없음
    */
   static Path prepareTempDir(String configured) {
     String value =
@@ -158,6 +157,9 @@ public class DriveTransferLinkService {
     } catch (IOException e) {
       throw new IllegalStateException(
           "workplace.drive.transfer-temp-dir 디렉터리를 만들 수 없습니다: " + dir, e);
+    }
+    if (!Files.isWritable(dir)) {
+      throw new IllegalStateException("workplace.drive.transfer-temp-dir 디렉터리에 쓸 수 없습니다: " + dir);
     }
     return dir;
   }
@@ -399,7 +401,7 @@ public class DriveTransferLinkService {
    */
   public TransferLinkRow consumeUpload(String token, String contentType, long contentLength) {
     TransferLinkRow pending = requireUsable(tokenHashFor(token, KIND_UPLOAD), KIND_UPLOAD);
-    String mime = bareMime(contentType);
+    String mime = DriveFileService.bareMime(contentType);
     if (mime != null
         && (mime.equals("application/x-www-form-urlencoded") || mime.startsWith("multipart/"))) {
       throw new DriveTransferUploadRejectedException(
@@ -481,7 +483,7 @@ public class DriveTransferLinkService {
    * @throws DriveTransferUploadRejectedException 크기 초과·본문 중단(400), 임시 파일 생성·쓰기 실패(500). 링크는 이미 소비됐다
    */
   public ReceivedBody receiveBody(TransferLinkRow link, InputStream body, String contentType) {
-    String mime = bareMime(contentType);
+    String mime = DriveFileService.bareMime(contentType);
     long cap = uploadCapFor(link.fileName(), mime);
     Path temp;
     try {
@@ -587,18 +589,6 @@ public class DriveTransferLinkService {
     String mime = MimeNormalizer.normalize(fileName, bareMime);
     return Math.min(
         FileUploadService.sizeLimitOf(FileUploadService.categoryOf(mime)), multipartMaxBytes);
-  }
-
-  /**
-   * Content-Type 에서 매개변수(charset 등)를 떼고 소문자로 — "text/plain; charset=utf-8" 이 범주표에서 빠지지 않게. 없으면
-   * null.
-   */
-  static String bareMime(String contentType) {
-    if (contentType == null || contentType.isBlank()) {
-      return null;
-    }
-    String mime = contentType.split(";", 2)[0].strip().toLowerCase(Locale.ROOT);
-    return mime.isEmpty() ? null : mime;
   }
 
   /** 링크 사용 성공 감사(R11) — actor 는 발급자, 실제 요청자는 익명이라 IP·User-Agent 를 남긴다. 토큰·해시는 남기지 않는다. */

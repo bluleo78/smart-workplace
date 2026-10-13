@@ -733,9 +733,9 @@ class DriveFileServiceTest extends IntegrationTestBase {
     assertThat(dsl.fetchExists(FILE_EXTRACTION, FILE_EXTRACTION.FILE_ID.eq(v2.fileId()))).isTrue();
   }
 
-  /** mimeType 이 없으면 파일 이름의 확장자로 정한다(json), 명시값은 허용 목록만. csv(DATA 범주)도 텍스트 계열이라 갱신할 수 있다. */
+  /** mimeType 이 없으면 지금 MIME 을 유지한다(json), 명시값은 허용 목록만. csv(DATA 범주)도 텍스트 계열이라 갱신할 수 있다. */
   @Test
-  void updateTextFile_mimeFromFileName_andCsvAllowed() throws Exception {
+  void updateTextFile_keepsJsonMime_andCsvAllowed() throws Exception {
     long u = seedUser();
     DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
     DriveFileResponse json = fileService.createTextFile(u, sp.id(), null, "설정.json", "{}", null);
@@ -805,18 +805,170 @@ class DriveFileServiceTest extends IntegrationTestBase {
         .isInstanceOf(DriveFileNotFoundException.class);
   }
 
-  /** 텍스트 계열 판정 — TEXT 범주(md·txt·json·html·yaml)·csv 는 허용, pdf·docx·이미지·모름은 거부. 매개변수는 뗀다. */
+  /**
+   * 텍스트 계열 판정 — text/* 전부·텍스트 application 형식·*+json·*+xml 은 허용, octet-stream 은 알려진 텍스트 확장자일 때만.
+   * pdf·docx· 이미지(svg 포함)·모름은 거부. 매개변수는 뗀다.
+   */
   @Test
-  void isTextLike_coversTextCategoryAndCsv() {
-    assertThat(DriveFileService.isTextLike("text/markdown")).isTrue();
-    assertThat(DriveFileService.isTextLike("text/plain; charset=utf-8")).isTrue();
-    assertThat(DriveFileService.isTextLike("application/json")).isTrue();
-    assertThat(DriveFileService.isTextLike("text/csv")).isTrue();
-    assertThat(DriveFileService.isTextLike("application/csv")).isTrue();
-    assertThat(DriveFileService.isTextLike("application/pdf")).isFalse();
-    assertThat(DriveFileService.isTextLike("image/png")).isFalse();
-    assertThat(DriveFileService.isTextLike("application/octet-stream")).isFalse();
-    assertThat(DriveFileService.isTextLike(null)).isFalse();
+  void isTextLike_coversTextFamily_andOctetStreamByExtension() {
+    for (String mime :
+        new String[] {
+          "text/markdown",
+          "text/plain; charset=utf-8",
+          "text/csv",
+          "text/tab-separated-values",
+          "text/javascript",
+          "text/css",
+          "text/x-python",
+          "text/html",
+          "application/json",
+          "application/ld+json",
+          "application/csv",
+          "application/xml",
+          "application/atom+xml",
+          "application/x-yaml",
+          "application/yaml",
+          "application/javascript",
+          "application/x-sh"
+        }) {
+      assertThat(DriveFileService.isTextLike(mime, "a.bin")).as(mime).isTrue();
+    }
+    for (String name : new String[] {"a.py", "a.js", "a.ts", "a.tsv", "A.SQL", "a.log"}) {
+      assertThat(DriveFileService.isTextLike("application/octet-stream", name)).as(name).isTrue();
+    }
+    assertThat(DriveFileService.isTextLike("application/octet-stream", "a.bin")).isFalse();
+    assertThat(DriveFileService.isTextLike("application/octet-stream", null)).isFalse();
+    assertThat(DriveFileService.isTextLike("application/pdf", "a.txt")).isFalse();
+    assertThat(
+            DriveFileService.isTextLike(
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "a.docx"))
+        .isFalse();
+    assertThat(DriveFileService.isTextLike("image/png", "a.png")).isFalse();
+    assertThat(DriveFileService.isTextLike("image/svg+xml", "a.svg")).isFalse();
+    assertThat(DriveFileService.isTextLike(null, "a.txt")).isFalse();
+  }
+
+  /** 공용 bareMime — 매개변수를 떼고 소문자, 비거나 본체가 없으면 null. 명시 mimeType 이 ";x" 여도 NPE 가 아니라 400(IAE). */
+  @Test
+  void bareMime_andTextMimeOf_handleEmptyBody() {
+    assertThat(DriveFileService.bareMime("Text/Plain; charset=UTF-8")).isEqualTo("text/plain");
+    assertThat(DriveFileService.bareMime("  ")).isNull();
+    assertThat(DriveFileService.bareMime("; charset=utf-8")).isNull();
+    assertThatThrownBy(() -> DriveFileService.textMimeOf("a.md", "; charset=utf-8"))
+        .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  /** 멀티파트로 올린 파일(실제 Content-Type 유지) — 텍스트 갱신 MIME 판정용. */
+  private DriveFileResponse uploadAs(long u, long spaceId, String name, String mime, String body)
+      throws Exception {
+    return fileService.upload(
+        u,
+        spaceId,
+        null,
+        new MockMultipartFile(
+            "file", name, mime, body.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+  }
+
+  /**
+   * mimeType 없이 갱신하면 지금 MIME 을 유지한다 — yaml 은 application/x-yaml, md 는 text/markdown(매개변수는 뗀다),
+   * text/javascript 도 그대로. html·xml 계열은 문서로 렌더링되지 않게 text/plain 이 된다.
+   */
+  @Test
+  void updateTextFile_keepsCurrentMime_butHtmlAndXmlBecomePlainText() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    DriveFileResponse yaml = uploadAs(u, sp.id(), "설정.yaml", "application/x-yaml", "a: 1");
+    DriveFileResponse md = uploadAs(u, sp.id(), "노트.md", "text/markdown; charset=utf-8", "# a");
+    DriveFileResponse js = uploadAs(u, sp.id(), "app.js", "text/javascript", "let a");
+    DriveFileResponse html = uploadAs(u, sp.id(), "page.html", "text/html", "<p>a</p>");
+    DriveFileResponse xml = uploadAs(u, sp.id(), "data.xml", "application/xml", "<a/>");
+    DriveFileResponse textXml = uploadAs(u, sp.id(), "feed.xml", "text/xml", "<a/>");
+    DriveFileResponse xhtml = uploadAs(u, sp.id(), "doc.xhtml", "application/xhtml+xml", "<a/>");
+
+    assertThat(fileService.updateTextFile(u, yaml.id(), "a: 2", null).mimeType())
+        .isEqualTo("application/x-yaml");
+    assertThat(fileService.updateTextFile(u, md.id(), "# b", null).mimeType())
+        .isEqualTo("text/markdown");
+    assertThat(fileService.updateTextFile(u, js.id(), "let b", null).mimeType())
+        .isEqualTo("text/javascript");
+    for (DriveFileResponse f : new DriveFileResponse[] {html, xml, textXml, xhtml}) {
+      DriveFileResponse v2 = fileService.updateTextFile(u, f.id(), "<script>x</script>", null);
+      assertThat(v2.mimeType()).as(f.name()).isEqualTo("text/plain");
+      assertThat(v2.versionCount()).isEqualTo(2);
+    }
+  }
+
+  /**
+   * 명시 mimeType 은 R4 허용 목록 안이면 지금 MIME 과 달라도 받는다(md 파일에 text/csv), 목록 밖(application/x-yaml)은 400.
+   */
+  @Test
+  void updateTextFile_explicitMime_usesAllowList() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    DriveFileResponse md = fileService.createTextFile(u, sp.id(), null, "표.md", "x", null);
+    DriveFileResponse yaml = uploadAs(u, sp.id(), "설정.yaml", "application/x-yaml", "a: 1");
+
+    assertThat(fileService.updateTextFile(u, md.id(), "a,b", "text/csv").mimeType())
+        .isEqualTo("text/csv");
+    assertThatThrownBy(() -> fileService.updateTextFile(u, yaml.id(), "a: 2", "application/x-yaml"))
+        .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  /**
+   * 브라우저가 octet-stream 으로 올린 .js·.py 도 텍스트 파일로 보고 갱신한다 — 새 버전은 이름 확장자로(text/plain). 모르는 확장자의
+   * octet-stream·pdf 는 계속 409.
+   */
+  @Test
+  void updateTextFile_octetStreamCodeFiles_allowed_binaryStillConflicts() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    DriveFileResponse js = uploadAs(u, sp.id(), "app.js", "application/octet-stream", "let a");
+    DriveFileResponse py = uploadAs(u, sp.id(), "run.py", "application/octet-stream", "print(1)");
+    DriveFileResponse bin = uploadAs(u, sp.id(), "blob.bin", "application/octet-stream", "x");
+    DriveFileResponse pdf = uploadAs(u, sp.id(), "문서.pdf", "application/pdf", "%PDF-1.4");
+    assertThat(js.mimeType()).isEqualTo("application/octet-stream");
+
+    DriveFileResponse jsV2 = fileService.updateTextFile(u, js.id(), "let b", null);
+    assertThat(jsV2.versionCount()).isEqualTo(2);
+    assertThat(jsV2.mimeType()).isEqualTo("text/plain");
+    assertThat(fileService.updateTextFile(u, py.id(), "print(2)", null).mimeType())
+        .isEqualTo("text/plain");
+    assertThatThrownBy(() -> fileService.updateTextFile(u, bin.id(), "x", null))
+        .isInstanceOf(com.workplace.drive.exception.DriveNotTextFileException.class);
+    assertThatThrownBy(() -> fileService.updateTextFile(u, pdf.id(), "x", null))
+        .isInstanceOf(com.workplace.drive.exception.DriveNotTextFileException.class);
+    assertThat(versionsRepo.listForDriveFile(pdf.id())).hasSize(1);
+  }
+
+  /** 갱신 경로의 크기 상한은 UTF-8 바이트 기준 10MB — 글자 수는 상한 아래여도 3바이트 한글이면 거부한다. 버전은 늘지 않는다. */
+  @Test
+  void updateTextFile_over10MBInUtf8_isRejected() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    DriveFileResponse f = fileService.createTextFile(u, sp.id(), null, "긴글.md", "x", null);
+    String big = "가".repeat((int) (DriveFileService.TEXT_FILE_MAX_BYTES / 3) + 1);
+    assertThat((long) big.length()).isLessThan(DriveFileService.TEXT_FILE_MAX_BYTES);
+
+    assertThatThrownBy(() -> fileService.updateTextFile(u, f.id(), big, null))
+        .isInstanceOf(com.workplace.file.exception.FileSizeLimitExceededException.class);
+    assertThat(versionsRepo.listForDriveFile(f.id())).hasSize(1);
+  }
+
+  /** 갱신 경로도 할당량을 넘으면 409(DriveQuotaExceededException) — 버전은 늘지 않는다. */
+  @Test
+  void updateTextFile_overQuota_isRejected() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    DriveFileResponse f = fileService.createTextFile(u, sp.id(), null, "a.md", "x", null);
+    dsl.update(com.workplace.jooq.Tables.TENANT)
+        .set(com.workplace.jooq.Tables.TENANT.QUOTA_BYTES, 0L)
+        .where(com.workplace.jooq.Tables.TENANT.ID.eq(1L))
+        .execute();
+
+    assertThatThrownBy(() -> fileService.updateTextFile(u, f.id(), "y", null))
+        .isInstanceOf(com.workplace.drive.exception.DriveQuotaExceededException.class);
+    assertThat(versionsRepo.listForDriveFile(f.id())).hasSize(1);
   }
 
   /** ID 지정 새 버전 — 이름으로 찾지 않아 소스 이름이 달라도 그 파일에 들어가고, 저장 이름은 파일의 지금 이름이다. */
