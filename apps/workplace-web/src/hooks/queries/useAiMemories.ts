@@ -10,6 +10,9 @@ import { handleApiError } from '../../lib/api-error';
 import type { UndoAiMemoryRequest } from '../../types/aiMemory';
 import { useAuth } from '../useAuth';
 
+/** 가득 참 토스트 지속 시간(ms) — action(설정 열기)을 누를 여유. */
+const UNDO_FULL_TOAST_MS = 10_000;
+
 /** 키에 사용자 id — 로그아웃이 캐시를 비우지 않아 같은 탭의 다른 계정에 이전 목록이 보이지 않게(useAiPreferences 와 같은 이유). */
 export const aiMemoryKeys = {
   all: ['aiMemories'] as const,
@@ -33,7 +36,11 @@ export function useUndoAiMemory() {
     onError: (e) => {
       const code = memoryErrorCode(e);
       if (code === 'AI_MEMORY_FULL') {
-        toast.error(UNDO_FULL_MESSAGE, { action: { label: '설정 열기', onClick: () => navigate(MEMORY_SETTINGS_PATH) } });
+        // 설정으로 이동하는 action 토스트라 기본(약 4초)보다 오래 둔다 — 읽고 누를 시간을 준다.
+        toast.error(UNDO_FULL_MESSAGE, {
+          duration: UNDO_FULL_TOAST_MS,
+          action: { label: '설정 열기', onClick: () => navigate(MEMORY_SETTINGS_PATH) },
+        });
       } else if (code === 'AI_MEMORY_GONE' || code === 'AI_MEMORY_NOT_FOUND') {
         toast.error(UNDO_GONE_MESSAGE);
       } else {

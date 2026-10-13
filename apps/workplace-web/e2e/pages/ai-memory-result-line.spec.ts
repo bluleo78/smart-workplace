@@ -125,6 +125,8 @@ test('이력의 결과 줄은 저장된 되돌림 상태로 보이고, 이력의
   await lines(page).nth(1).getByTestId('chat-memory-undo').click()
   await undo.waitFor()
   expect(undo.lastBody()).toEqual({ messageId: 2, blockIndex: 1 })
+  await expect(lines(page).nth(1)).toHaveAttribute('data-undone', 'true') // 이력 줄도 되돌림으로 바뀐다
+  await expect(lines(page).nth(0)).toHaveAttribute('data-undone', 'true') // 이미 되돌린 줄은 그대로
 })
 
 // Review Focus 5: 추천을 끈 사용자(followups 없음)도 done 의 messageId 로 되돌리기가 켜지고, 위임 답(안내 문장이 버려지는 턴)에서도 순번 0 이다.

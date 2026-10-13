@@ -444,9 +444,10 @@ export function AIChatPanel({
                     </li>
                   )}
                   {/* WP-55: 메모리 결과 줄(시안 A) — 답변 말풍선들 아래·후속 질문 위. 줄마다 따로 되돌린다. 첫 토큰 전(3-dot 중)엔 미룬다.
-                      터치 기기는 줄 간격을 넓혀 되돌리기의 위아래 터치 확장이 이웃 줄과 겹치지 않게 한다(후속 질문 칩과 같은 이유). */}
+                      터치 기기는 줄 간격을 넓히고 아래에 8px 를 더 둔다 — 되돌리기의 위아래 터치 확장(8px)이 이웃 줄·바로 아래 후속 질문 칩의 위쪽 확장과
+                      겹치지 않게(겹치면 뒤 형제인 칩이 이긴다). */}
                   {t.role === 'assistant' && memoryBlocks(t.contentBlocks).length > 0 && !(i === turns.length - 1 && pending && t.content === '') ? (
-                    <li data-testid="chat-memory-results" className="flex flex-col gap-1 pointer-coarse:gap-4">
+                    <li data-testid="chat-memory-results" className="flex flex-col gap-1 pb-0 pointer-coarse:gap-4 pointer-coarse:pb-2">
                       {memoryBlocks(t.contentBlocks).map((b, mi) => (
                         <MemoryResultLine key={`${mi}-${b.memoryId}`} block={b} blockIndex={mi} messageId={t.messageId} />
                       ))}

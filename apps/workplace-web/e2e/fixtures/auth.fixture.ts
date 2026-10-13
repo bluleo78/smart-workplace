@@ -28,7 +28,8 @@ export async function setupAuthMocks(page: Page, user: UserResponse, roles: Role
   // 에러 토스트는 포인터 이벤트를 통과시킨다(WP-82). 모킹하지 않은 부가 API(503)가 띄운 에러 토스트가
   // 우하단 버튼을 덮으면 Playwright click 이 "intercepts pointer events" 로 토스트가 사라질 때(약 4초)까지
   // 재시도했다 — 39개 테스트에서 3~21초씩, 전체 합계 약 16% 가 이 대기였다. 토스트 표시·문구 단언은 그대로
-  // 동작하고 클릭만 아래 요소로 전달된다(에러 토스트 안의 버튼을 누르는 테스트는 없다).
+  // 동작하고 클릭만 아래 요소로 전달된다. 에러 토스트 안의 버튼을 누르는 테스트(WP-55 ai-memory-result-line 의
+  // "설정 열기")는 먼저 style[data-test-toast-passthrough] 를 제거한다.
   // 단, 이 규칙이 있으면 elementFromPoint 히트테스트에서 에러 토스트가 빠지므로 "토스트가 X 를 가리지 않는다"를
   // 히트테스트로 단언하는 spec 은 먼저 style[data-test-toast-passthrough] 를 제거해야 한다.
   await page.addInitScript(() => {
