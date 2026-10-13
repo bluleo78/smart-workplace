@@ -51,6 +51,9 @@ export function messageToTurn(m: HomeMessage): ChatTurn {
   const outcome = OUTCOME_BY_ROLE[m.role];
   if (outcome) return { role: 'action', outcome, content };
   const interrupted = m.status ? INTERRUPTED_BY_STATUS[m.status] : undefined;
+  // WP-55: 서버는 memory 블록을 memoryBlocks 로 따로 보낸다(구 웹 보호) — 영속 순서대로 끝에 다시 붙인다(되돌리기 순번 유지).
+  // 표시 블록이 없고(null) memory 만 있으면 [memory…] 가 되어 기존처럼 폴백 렌더 + 결과 줄로 그려진다.
+  const blocks = [...(m.contentBlocks ?? []), ...(m.memoryBlocks ?? [])];
   return {
     role: m.role === 'ASSISTANT' ? 'assistant' : 'user',
     content,
@@ -58,7 +61,7 @@ export function messageToTurn(m: HomeMessage): ChatTurn {
     attachments: toTurnAttachments(m),
     widgets: m.widgets ?? undefined,
     steps: m.toolCalls ?? undefined,
-    contentBlocks: m.contentBlocks ? reconcileBlocks(m.contentBlocks, m.widgets ?? []) : undefined,
+    contentBlocks: m.contentBlocks != null || blocks.length > 0 ? reconcileBlocks(blocks, m.widgets ?? []) : undefined,
     ...(interrupted ? { interrupted } : {}),
     // WP-139: 다시 열어도 마지막 답의 후속 질문이 보이게(표시 조건은 패널이 판단).
     ...(m.role === 'ASSISTANT' && m.followups?.length ? { followups: m.followups } : {}),

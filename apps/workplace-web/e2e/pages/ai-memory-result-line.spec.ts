@@ -109,8 +109,9 @@ test('이력의 결과 줄은 저장된 되돌림 상태로 보이고, 이력의
     msg(1, 'USER', TITLE_A),
     {
       ...msg(2, 'ASSISTANT', '정리했어요.'),
-      contentBlocks: [
-        { kind: 'text', textStart: 0 },
+      // 서버는 memory 블록을 contentBlocks 에서 떼어 memoryBlocks 로 따로 싣는다(배포 중 구 웹 보호) — 웹이 끝에 다시 붙인다.
+      contentBlocks: [{ kind: 'text', textStart: 0 }],
+      memoryBlocks: [
         { kind: 'memory', action: 'saved', memoryId: 12, memoryKind: 'PREFERENCE', content: '짧은 목록', source: 'AI', undone: true },
         { kind: 'memory', action: 'forgotten', memoryId: 7, memoryKind: 'PREFERENCE', content: '표로 보여 준다', source: 'USER', undone: false },
       ],

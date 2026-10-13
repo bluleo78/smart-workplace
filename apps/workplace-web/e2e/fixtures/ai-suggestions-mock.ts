@@ -30,13 +30,23 @@ export async function mockStarterSuggestions(
   return calls
 }
 
-/** 사용자 AI 설정 모킹 — PUT 은 보낸 필드만 바꾸고(WP-55 부분 갱신) 두 값을 돌려준다. 저장 요청 tracker 를 돌려준다. */
-export async function mockAiPreferences(page: Page, enabled: boolean, opts: { memoryEnabled?: boolean } = {}): Promise<RequestTracker> {
+/**
+ * 사용자 AI 설정 모킹 — PUT 은 보낸 필드만 바꾸고(WP-55 부분 갱신) 두 값을 돌려준다. 저장 요청 tracker 를 돌려준다.
+ * holdFirstPut 을 주면 첫 PUT 의 응답을 **도착 시점 값으로 찍어 둔 채** 그 프라미스가 풀릴 때까지 붙잡는다(늦게 온 응답이 옛 값을 싣는 상황 재현).
+ */
+export async function mockAiPreferences(
+  page: Page,
+  enabled: boolean,
+  opts: { memoryEnabled?: boolean; holdFirstPut?: Promise<void> } = {},
+): Promise<RequestTracker> {
   const puts = trackRequests(page, 'PUT', '/api/v1/users/me/ai-preferences')
   let current: AiPreferences = { suggestionsEnabled: enabled, memoryEnabled: opts.memoryEnabled ?? true }
-  await page.route((u) => u.pathname === '/api/v1/users/me/ai-preferences', (route) => {
+  let putCount = 0
+  await page.route((u) => u.pathname === '/api/v1/users/me/ai-preferences', async (route) => {
     if (route.request().method() === 'PUT') current = { ...current, ...(route.request().postDataJSON() as Partial<AiPreferences>) }
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(current) })
+    const body = JSON.stringify(current)
+    if (route.request().method() === 'PUT' && putCount++ === 0 && opts.holdFirstPut) await opts.holdFirstPut
+    return route.fulfill({ status: 200, contentType: 'application/json', body })
   })
   return puts
 }

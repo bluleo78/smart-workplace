@@ -99,6 +99,26 @@ describe('메모리 결과 줄 (WP-55)', () => {
     ]);
   });
 
+  // I1: 서버는 memory 블록을 memoryBlocks 로 따로 보낸다(구 웹 보호) — 이력 턴에서 contentBlocks 끝에 영속 순서대로 다시 붙인다.
+  it('이력의 memoryBlocks 를 contentBlocks 끝에 순서대로 다시 붙인다', () => {
+    const saved = { kind: 'memory' as const, action: 'saved' as const, memoryId: 12, memoryKind: 'PREFERENCE' as const, content: '짧은 목록', source: 'AI' as const, undone: true };
+    const forgotten = { ...saved, action: 'forgotten' as const, memoryId: 7, content: '표로', source: 'USER' as const, undone: false };
+    const t = messageToTurn(msg({ contentBlocks: [{ kind: 'text', textStart: 0 }], memoryBlocks: [saved, forgotten] })) as MessageTurn;
+    expect(t.contentBlocks).toEqual([{ kind: 'text', textStart: 0 }, saved, forgotten]);
+  });
+
+  it('표시 블록 없이(null) memoryBlocks 만 오면 memory 블록만 남겨 폴백 렌더 + 결과 줄로 그린다', () => {
+    const saved = { kind: 'memory' as const, action: 'saved' as const, memoryId: 12, memoryKind: 'PREFERENCE' as const, content: '짧은 목록', source: 'AI' as const, undone: false };
+    const t = messageToTurn(msg({ contentBlocks: null, memoryBlocks: [saved] })) as MessageTurn;
+    expect(t.contentBlocks).toEqual([saved]);
+  });
+
+  it('memoryBlocks 가 없으면 기존과 같다(contentBlocks 없음 → undefined)', () => {
+    expect((messageToTurn(msg({ contentBlocks: null, memoryBlocks: null })) as MessageTurn).contentBlocks).toBeUndefined();
+    expect((messageToTurn(msg({})) as MessageTurn).contentBlocks).toBeUndefined();
+    expect((messageToTurn(msg({ contentBlocks: [{ kind: 'text', textStart: 0 }] })) as MessageTurn).contentBlocks).toEqual([{ kind: 'text', textStart: 0 }]);
+  });
+
   it('메시지 id 는 이력(ASSISTANT)과 done 에서 채운다', () => {
     expect(messageToTurn(msg({ id: 7 }))).toMatchObject({ messageId: 7 });
     expect(messageToTurn(msg({ id: 7, role: 'USER' }))).not.toHaveProperty('messageId');

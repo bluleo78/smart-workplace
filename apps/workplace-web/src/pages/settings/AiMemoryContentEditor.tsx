@@ -16,17 +16,19 @@ interface Props {
   pending: boolean;
   rows: number;
   placeholder?: string;
+  /** 입력란 접근성 이름 — 추가 폼과 행 고치기가 함께 열려도 구분되게 화면마다 다르게 준다. */
+  ariaLabel: string;
   /** 화면별 테스트 식별자(입력·카운트·제출). */
   testIds: { input: string; count: string; submit: string };
 }
 
-export function AiMemoryContentEditor({ value, onChange, onCancel, onSubmit, submitLabel, pending, rows, placeholder, testIds }: Props) {
+export function AiMemoryContentEditor({ value, onChange, onCancel, onSubmit, submitLabel, pending, rows, placeholder, ariaLabel, testIds }: Props) {
   const len = memoryLength(value);
   return (
     <>
       <Textarea
         data-testid={testIds.input}
-        aria-label="기억할 내용"
+        aria-label={ariaLabel}
         rows={rows}
         autoFocus
         placeholder={placeholder}

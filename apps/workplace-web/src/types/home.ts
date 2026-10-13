@@ -158,6 +158,11 @@ export interface HomeMessage {
   toolCalls: ToolStep[] | null;
   /** WP-158: 표시 블록 순서(ASSISTANT 전용). 없으면(이전 메시지·순서 재현 불가) 폴백 렌더. */
   contentBlocks?: ContentBlock[] | null;
+  /**
+   * WP-55: 메모리 결과 줄 블록(ASSISTANT 전용) — 서버가 구 웹 보호를 위해 contentBlocks 에서 떼어 따로 싣는다(영속 순서 그대로).
+   * messageToTurn 이 contentBlocks 끝에 다시 붙인다. 없으면 null/없음.
+   */
+  memoryBlocks?: MemoryBlock[] | null;
   /** WP-234: 이 메시지에 붙은 첨부(USER). 서버는 없으면 빈 배열 — 구버전 응답·E2E 픽스처 호환을 위해 선택 필드. */
   attachments?: HomeAttachment[];
   /** WP-139: 후속 질문(ASSISTANT). 추천을 끈 사용자·구 API 는 null/없음. */

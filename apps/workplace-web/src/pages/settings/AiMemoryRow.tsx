@@ -48,6 +48,7 @@ export function AiMemoryRow({ item }: { item: AiMemoryItem }) {
             submitLabel="저장"
             pending={update.isPending}
             rows={2}
+            ariaLabel="메모리 내용"
             testIds={{ input: 'ai-memory-edit-input', count: 'ai-memory-edit-count', submit: 'ai-memory-edit-save' }}
           />
         </div>

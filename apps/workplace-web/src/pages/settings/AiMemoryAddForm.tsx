@@ -45,6 +45,7 @@ export function AiMemoryAddForm({ onClose }: { onClose: () => void }) {
         pending={create.isPending}
         rows={3}
         placeholder="예: 이슈 목록은 담당자만 붙인 짧은 목록으로 보여 준다"
+        ariaLabel="기억할 내용"
         testIds={{ input: 'ai-memory-add-input', count: 'ai-memory-add-count', submit: 'ai-memory-add-submit' }}
       />
     </div>
