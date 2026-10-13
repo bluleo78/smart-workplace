@@ -4,6 +4,7 @@
 // 연결 종료(req close) 시 AbortController 로 하위 CLI child 를 kill 해 자원 누수를 막는다.
 import { randomUUID } from 'node:crypto';
 
+import { isMemoryTool } from '@smart-workplace/mcp-tools-shared';
 import { Router } from 'express';
 import { z } from 'zod';
 
@@ -15,6 +16,7 @@ import { homeContextSummaryInput, runHomeContextSummary } from '../agent/run-hom
 import { runHomePriorityClassify } from '../agent/run-home-priority-classify.js';
 import { runSuggestions, suggestionsInput } from '../agent/run-suggestions.js';
 import { log } from '../logger.js';
+import { parseMemoryToolResult } from '../mcp/memory-tools.js';
 import { screenContextSchema } from '../agent/screen-context.js';
 
 // 홈 우선순위 분류 요청 바디 검증 — workplace-api AiAgentPriorityClient 가 보내는 계약과 필드명이 정확히 일치해야 한다.
@@ -138,7 +140,14 @@ export function createHomeRouter(deps: RunAgentDeps): Router {
           const phase = line.event === 'tool_use_start' ? 'start' : 'result';
           const payload: Record<string, unknown> = { seq: line.seq, phase, toolName: line.toolName };
           if (line.args) payload.args = line.args;
-          if (line.event === 'tool_result') payload.isError = line.isError ?? false;
+          if (line.event === 'tool_result') {
+            payload.isError = line.isError ?? false;
+            // WP-55: 메모리 도구(허용 목록)의 성공 결과만 파싱해 싣는다 — API 되돌리기 블록·웹 결과 줄의 근거. 다른 도구 결과는 계속 버린다.
+            if (!line.isError && isMemoryTool(line.toolName)) {
+              const memory = parseMemoryToolResult(line.result);
+              if (memory) payload.memory = memory;
+            }
+          }
           res.write(`event: tool\ndata: ${JSON.stringify(payload)}\n\n`);
         },
         (text) => {

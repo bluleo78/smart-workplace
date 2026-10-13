@@ -173,6 +173,29 @@ describe('POST /ai/chat', () => {
     );
   });
 
+  // WP-55: tool SSE 는 결과 원문을 계속 버리고, 메모리 도구(허용 목록)의 성공 결과만 파싱해 memory 필드로 싣는다.
+  it('WP-55: 메모리 도구 성공 결과만 memory 필드로 싣는다(오류·다른 도구·깨진 JSON 제외)', async () => {
+    const saved = { action: 'saved', memoryId: 12, kind: 'PREFERENCE', content: '짧은 목록', source: 'AI' };
+    const forgotten = { action: 'forgotten', memoryId: 9, kind: 'CONTEXT', content: '백엔드 팀', source: 'USER' };
+    vi.mocked(runAiChatStream).mockImplementation(async (_i, _d, _t, _s, _p, onTool) => {
+      onTool?.({ seq: 1, event: 'tool_use_start', toolName: 'remember_memory', args: { kind: 'PREFERENCE', content: '짧은 목록' } });
+      onTool?.({ seq: 1, event: 'tool_result', toolName: 'remember_memory', isError: false, result: JSON.stringify(saved) });
+      onTool?.({ seq: 2, event: 'tool_result', toolName: 'workplace_forget_memory', isError: false, result: JSON.stringify(forgotten) });
+      onTool?.({ seq: 3, event: 'tool_result', toolName: 'update_memory', isError: true, result: 'API 오류 409: 메모리가 가득 찼어요' });
+      onTool?.({ seq: 4, event: 'tool_result', toolName: 'list_issues', isError: false, result: JSON.stringify(saved) });
+      onTool?.({ seq: 5, event: 'tool_result', toolName: 'update_memory', isError: false, result: '{깨짐' });
+      return { fullText: '기억할게요.', widgets: null, pendingActions: [], source: 'router_prose', usage: null };
+    });
+    const res = await request(buildApp()).post('/ai/chat').send(validBody());
+    const tools = [...res.text.matchAll(/event: tool\ndata: (.*)\n/g)].map((m) => JSON.parse(m[1]) as Record<string, unknown>);
+    expect(tools).toHaveLength(6);
+    expect(tools[0].memory).toBeUndefined(); // start
+    expect(tools[1].memory).toEqual(saved);
+    expect(tools[2].memory).toEqual(forgotten); // opencode 접두(workplace_)도 같은 도구
+    for (const t of tools.slice(3)) expect(t.memory).toBeUndefined();
+    for (const t of tools) expect(t).not.toHaveProperty('result');
+  });
+
   it('델타 2개 → event: delta 2개 + event: done 발행', async () => {
     // 러너가 onText 를 2회 호출(점진 write) 후 정상 종료. done에 fullText + widgets 포함.
     vi.mocked(runAiChatStream).mockImplementation(async (_i, _d, onText) => {

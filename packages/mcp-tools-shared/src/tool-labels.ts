@@ -114,6 +114,10 @@ export const TOOL_LABELS: Readonly<Record<string, ToolLabel>> = {
   mark_all_notifications_read: { label: '알림 모두 읽음', icon: '🔔' },
   // 홈 개요(WP-357)
   get_home_overview: { label: '홈 현황 조회', icon: '🏠' },
+  // 메모리(WP-55) — ai-agent 로컬 라우터 도구. 웹 단계 목록에서는 isMemoryTool 로 숨기고 결과 줄(🧠)로 보여 준다.
+  remember_memory: { label: '메모리 저장', icon: '🧠' },
+  update_memory: { label: '메모리 고치기', icon: '🧠' },
+  forget_memory: { label: '메모리 지우기', icon: '🧠' },
 };
 
 /**
@@ -133,4 +137,15 @@ export function isDisplayableTool(toolName: string): boolean {
   const n = stripMcpPrefix(toolName);
   if (n.startsWith('show_') || n.startsWith('propose_')) return false;
   return n !== 'respond_chat' && n !== 'submit_response';
+}
+
+/** WP-55 메모리 도구 이름 — ai-agent memory-tools.ts 의 MEMORY_TOOL_NAMES 와 같다(그쪽 테스트가 대조한다). */
+const MEMORY_TOOLS: ReadonlySet<string> = new Set(['remember_memory', 'update_memory', 'forget_memory']);
+
+/**
+ * 메모리 도구인지(WP-55). 결과가 채팅 결과 줄(되돌리기)로 따로 보이므로 도구 단계 목록에서는 숨기고,
+ * ai-agent 는 이 도구의 성공 결과만 `tool` SSE 의 memory 필드로 싣는다(허용 목록).
+ */
+export function isMemoryTool(toolName: string): boolean {
+  return MEMORY_TOOLS.has(stripMcpPrefix(toolName));
 }

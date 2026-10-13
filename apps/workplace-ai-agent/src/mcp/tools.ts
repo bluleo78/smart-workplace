@@ -26,6 +26,7 @@ import {
 } from '@smart-workplace/mcp-tools-shared';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
 import { buildReadChatAttachmentTool } from './home-attachment-tool.js';
+import { buildMemoryTools, MEMORY_TOOL_NAMES } from './memory-tools.js';
 
 // sdk-mcp-server.ts / stdio-entry.ts 가 './tools.js' 에서 McpTool 을 계속 import 하므로 재-export 유지.
 export type { McpTool };
@@ -303,6 +304,9 @@ export const ASSISTANT_ROUTER_TOOLS: readonly string[] = [
   'get_home_overview',
   // 첨부 읽기 — 이 대화의 첨부(WP-234)·이슈 첨부/드라이브 파일 본문(WP-346)
   'read_chat_attachment', 'read_file',
+  // WP-55: 메모리 저장·고치기·지우기 — "라우터는 쓰기 도구 없음" 규칙의 이름 붙은 예외(라우터가 직접 저장한다: 하위 에이전트는 이전 대화를 못 본다).
+  // 하위 에이전트 frontmatter 에는 두지 않는다(subagent-loader.test.ts 가 고정).
+  ...MEMORY_TOOL_NAMES,
   // 표시 위젯
   'show_my_tasks', 'show_issue_list', 'show_issue_detail', 'show_activity', 'show_mail_list',
   'show_calendar', 'show_event', 'show_channels', 'show_wiki', 'show_wiki_page',
@@ -1213,6 +1217,7 @@ export function buildTools(
       sharedTool('get_mail_summary'), sharedTool('draft_mail_reply'), sharedTool('draft_issue_from_mail'),
       sharedTool('create_issue_from_mail'), sharedTool('mark_mail_read'),
       buildReadChatAttachmentTool(client, agentId, homeSessionId), // WP-234: 메인 AI 채팅 첨부 읽기(세션 바인딩)
+      ...buildMemoryTools(client, agentId, homeSessionId), // WP-55: 메모리 도구(라우터 전용 쓰기 예외) — 요청자 신원·이 대화 세션
       // WP-346: 이슈 첨부·드라이브 파일 내용 읽기(공유) — AI Chat 은 요청자 신원이라 사람의 권한으로 읽는다(위의 세션 첨부와 다른 대상).
       sharedTool('read_file'),
       submitResponseTool,        // #381: 서브에이전트 전용 — 최종 답변 구조화 제출(사이드카 기록)

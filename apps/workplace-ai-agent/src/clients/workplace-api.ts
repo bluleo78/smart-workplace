@@ -44,6 +44,17 @@ export interface HomeAttachmentMeta {
   extraction: ExtractionInfo;
 }
 
+// WP-55: 사용자 메모리 항목(API AiMemoryItem). previousContent 는 PATCH 응답에만 온다.
+export interface AiMemoryDto {
+  id: number;
+  kind: 'PREFERENCE' | 'CONTEXT';
+  content: string;
+  source: 'AI' | 'USER';
+  createdAt: string;
+  updatedAt: string;
+  previousContent?: string;
+}
+
 // 6c: chat thread 메시지 (LLM 노출용 경량 형태).
 export interface ChatMessageItem {
   id: number;
@@ -151,6 +162,13 @@ export interface WorkplaceApiClient {
   listHomeSessionAttachments(onBehalfOfId: number, sessionId: string): Promise<HomeAttachmentMeta[]>;
   readHomeAttachmentText(onBehalfOfId: number, sessionId: string, fileId: number, offset?: number, limit?: number): Promise<ExtractedTextSlice>;
   downloadHomeAttachment(onBehalfOfId: number, sessionId: string, fileId: number): Promise<{ data: Buffer; mimeType: string }>;
+  // WP-55: 메모리 도구(라우터 전용) — 요청자(onBehalfOfId=userId) 대행. Internal 대행만 source:'AI'·sessionId 를 받고, 꺼짐이면 409 AI_MEMORY_DISABLED.
+  createAiMemory(
+    onBehalfOfId: number,
+    body: { kind: 'PREFERENCE' | 'CONTEXT'; content: string; source: 'AI'; sessionId?: string },
+  ): Promise<AiMemoryDto>;
+  updateAiMemory(onBehalfOfId: number, memoryId: number, body: { content: string; kind?: 'PREFERENCE' | 'CONTEXT' }): Promise<AiMemoryDto>;
+  deleteAiMemory(onBehalfOfId: number, memoryId: number): Promise<AiMemoryDto>;
   // #719: 요청자의 active-tenant 를 X-On-Behalf-Of-Tenant 로 싣는 스코프 클라이언트를 반환한다.
   // 인-프로세스 MCP 서버는 이 인스턴스를 서브에이전트까지 공유하므로, run 당 1회 스코프하면
   // 위임 도구 호출까지 전부 동일하게 적용된다(다중/무 멤버십 요청자의 AgentTenantResolver
@@ -353,6 +371,21 @@ export function createWorkplaceApiClient(opts: {
       });
       const mimeType = String(r.headers['content-type'] ?? 'application/octet-stream');
       return { data: Buffer.from(r.data as ArrayBuffer), mimeType };
+    },
+
+    async createAiMemory(onBehalfOfId, body) {
+      const r = await http.post('/users/me/ai-memories', body, onBehalfOf(onBehalfOfId));
+      return r.data as AiMemoryDto;
+    },
+
+    async updateAiMemory(onBehalfOfId, memoryId, body) {
+      const r = await http.patch(`/users/me/ai-memories/${memoryId}`, body, onBehalfOf(onBehalfOfId));
+      return r.data as AiMemoryDto;
+    },
+
+    async deleteAiMemory(onBehalfOfId, memoryId) {
+      const r = await http.delete(`/users/me/ai-memories/${memoryId}`, onBehalfOf(onBehalfOfId));
+      return r.data as AiMemoryDto;
     },
   };
 }

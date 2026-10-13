@@ -5,6 +5,7 @@ import path from 'node:path';
 import {
   serializeSubagent, writeSubagentDefinitions, loadSubagents, toAgentDefinitions, toRouterAgentDefinition, type SubagentDefinition,
 } from './subagent-loader.js';
+import { MEMORY_TOOL_NAMES } from '../mcp/memory-tools.js';
 import { ASSISTANT_ROUTER_TOOLS, buildTools } from '../mcp/tools.js';
 
 const issueDef: SubagentDefinition = {
@@ -201,5 +202,13 @@ describe('실제 서브에이전트 allowlist (#844)', () => {
     const router = new Set(ASSISTANT_ROUTER_TOOLS);
     const unreachable = assistantNames.filter((n) => !router.has(n) && !subagentTools.has(`mcp__workplace__${n}`));
     expect(unreachable).toEqual([]);
+  });
+
+  // WP-55: 메모리는 라우터가 직접 저장한다(하위 에이전트는 이전 대화를 못 본다) — 어느 서브에이전트 frontmatter 에도 두지 않는다.
+  it('WP-55: 메모리 도구는 라우터에만 있고 어느 서브에이전트에도 없다', () => {
+    for (const n of MEMORY_TOOL_NAMES) {
+      expect(ASSISTANT_ROUTER_TOOLS, n).toContain(n);
+      expect(subagentTools.has(`mcp__workplace__${n}`), n).toBe(false);
+    }
   });
 });

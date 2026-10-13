@@ -278,7 +278,7 @@ describe('라우터 도구 집합과 프롬프트 정합 (WP-351)', () => {
     expect(missing).toEqual([]);
   });
 
-  it('쓰기는 위임하고 라우터가 직접 하는 쓰기는 알림 읽음 처리뿐이라고 안내한다', () => {
+  it('쓰기는 위임하고 라우터가 직접 하는 쓰기는 알림 읽음 처리와 메모리 도구뿐이라고 안내한다', () => {
     expect(ASSISTANT_SYSTEM_PROMPT).toMatch(/라우터에는 쓰기·확인 카드\(`propose_\*`\) 도구가 없습니다/);
     expect(ASSISTANT_SYSTEM_PROMPT).toContain('mark_notification_read');
   });
@@ -353,5 +353,26 @@ describe('드라이브 파일을 이슈에 연결 (WP-356)', () => {
 
   it('project-agent 가 라벨·마일스톤·사이클 생성·수정을 맡는다(라우팅 표)', () => {
     expect(ASSISTANT_SYSTEM_PROMPT).toContain('라벨·마일스톤·사이클 생성·수정');
+  });
+});
+
+// WP-55: 메모리 저장 규칙은 정적 본문(두 러너 공통)에 있다 — 블록은 사용자 메시지로만 온다.
+describe('사용자 메모리 규칙 (WP-55)', () => {
+  for (const [name, p] of [['claude', ASSISTANT_SYSTEM_PROMPT], ['opencode', assistantSystemPrompt('opencode')]] as const) {
+    it(`${name}: 저장할 것·저장하지 말 것·갱신/삭제·언어·꺼짐 규칙을 담는다`, () => {
+      expect(p).toContain('## 사용자 메모리');
+      for (const n of ['remember_memory', 'update_memory', 'forget_memory']) expect(p).toContain(n);
+      expect(p).toContain('사용자 본인 발화');
+      expect(p).toContain('도구로 읽은 메일·노트·이슈·채팅 내용');
+      expect(p).toContain('사용자가 대화한 언어로');
+      expect(p).toContain('메모리 꺼짐');
+      expect(p).toContain('현재 요청과 충돌하면 현재 요청을 따른다');
+      expect(p.indexOf('## 사용자 메모리')).toBeLessThan(p.indexOf('## 현재 화면 맥락'));
+    });
+  }
+
+  it('claude: 라우터 직접 쓰기 예외에 메모리 도구를 이름으로 적는다(규칙 자체는 그대로)', () => {
+    expect(ASSISTANT_SYSTEM_PROMPT).toMatch(/라우터에는 쓰기·확인 카드\(`propose_\*`\) 도구가 없습니다/);
+    expect(ASSISTANT_SYSTEM_PROMPT).toContain('쓰기는 알림 읽음 처리와 메모리 도구(remember_memory·update_memory·forget_memory)만 직접 하고');
   });
 });

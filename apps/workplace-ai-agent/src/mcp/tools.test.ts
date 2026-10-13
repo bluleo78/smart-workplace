@@ -11,6 +11,7 @@ import { describe, expect, it, vi, type Mock } from 'vitest';
 import { z } from 'zod';
 
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
+import { MEMORY_TOOL_NAMES } from './memory-tools.js';
 import { ASSISTANT_ROUTER_TOOLS, buildTools, CARD_ONLY_SHARED_TOOLS, routerToolsFor, type HostBridge, type McpProfile } from './tools.js';
 
 // #842: 서버가 응답한 검증 실패(4xx)를 흉내 낸다 — 인터셉터가 message 를 서버 사유로 채운 AxiosError 형태.
@@ -212,6 +213,10 @@ function client(): TestClient {
     listHomeSessionAttachments: vi.fn().mockResolvedValue([]),
     readHomeAttachmentText: vi.fn(),
     downloadHomeAttachment: vi.fn(),
+    // WP-55: 메모리 도구
+    createAiMemory: vi.fn(),
+    updateAiMemory: vi.fn(),
+    deleteAiMemory: vi.fn(),
   };
   return Object.assign(c, { sc });
 }
@@ -388,7 +393,7 @@ describe('프로필 구성', () => {
   });
 
   // WP-351: 라우터(assistant 메인 스레드)는 직접 쓰는 도구만 싣는다 — 쓰기·확인 카드·답 제출은 서브에이전트에만.
-  it('assistant 라우터 도구: 읽기·표시·알림·첨부만 — 쓰기는 알림 읽음 처리뿐, propose_*·submit_response·unassign_self 없음', () => {
+  it('assistant 라우터 도구: 읽기·표시·알림·첨부·메모리만 — 쓰기는 알림 읽음 처리와 메모리 도구뿐, propose_*·submit_response·unassign_self 없음', () => {
     const tools = buildTools(client(), AGENT_ID, 'assistant');
     const router = tools.filter((t) => ASSISTANT_ROUTER_TOOLS.includes(t.name));
     expect(router.map((t) => t.name).sort()).toEqual([...ASSISTANT_ROUTER_TOOLS].sort()); // 전부 프로필에 있다
@@ -396,12 +401,35 @@ describe('프로필 구성', () => {
     // 공유 도구는 kind 에서 계산한 readOnlyHint 를 싣는다(로컬 show_*·read_chat_attachment 는 힌트 없음 — 데이터를 바꾸지 않는다).
     const writes = router.filter((t) => t.annotations && t.annotations.readOnlyHint !== true).map((t) => t.name);
     expect(writes.sort()).toEqual(['mark_all_notifications_read', 'mark_notification_read']);
+    // 힌트 없는 로컬 도구는 정확히 표시 위젯(show_*)·세션 첨부 읽기·WP-55 메모리 도구(이름 붙은 쓰기 예외)다 — 다른 쓰기 도구가 힌트 없이 끼어들면 여기서 잡힌다.
+    const unannotated = router.filter((t) => !t.annotations).map((t) => t.name);
+    expect(unannotated.filter((n) => !n.startsWith('show_')).sort()).toEqual(['read_chat_attachment', ...MEMORY_TOOL_NAMES].sort());
     for (const n of ASSISTANT_ROUTER_TOOLS) {
       expect(n.startsWith('propose_'), n).toBe(false);
       expect(['submit_response', 'unassign_self']).not.toContain(n);
     }
     // 표시 위젯은 전부 라우터에 있다
     for (const t of tools.filter((x) => x.name.startsWith('show_'))) expect(ASSISTANT_ROUTER_TOOLS).toContain(t.name);
+  });
+
+  // WP-55: 메모리 도구는 "라우터는 쓰기 도구 없음" 규칙의 이름 붙은 예외 — assistant 프로필·라우터 목록에만 있고(로컬 도구라 힌트 없음),
+  // 이 대화 세션과 요청자 신원에 묶인다.
+  it('메모리 도구 3종은 assistant 프로필과 라우터 목록에만 있고 요청자·세션으로 호출한다', async () => {
+    const c = client();
+    const tools = buildTools(c, AGENT_ID, 'assistant', undefined, undefined, undefined, undefined, 'sid-1');
+    for (const n of MEMORY_TOOL_NAMES) {
+      expect(tools.map((t) => t.name)).toContain(n);
+      expect(ASSISTANT_ROUTER_TOOLS).toContain(n);
+    }
+    for (const p of ['issue', 'chat', 'home', 'messaging'] as McpProfile[]) {
+      const names = buildTools(c, AGENT_ID, p).map((t) => t.name);
+      for (const n of MEMORY_TOOL_NAMES) expect(names, `${p}:${n}`).not.toContain(n);
+    }
+    vi.mocked(c.createAiMemory).mockResolvedValue({
+      id: 1, kind: 'CONTEXT', content: 'c', source: 'AI', createdAt: 't', updatedAt: 't',
+    });
+    await tools.find((t) => t.name === 'remember_memory')!.handler({ kind: 'CONTEXT', content: 'c' });
+    expect(c.createAiMemory).toHaveBeenCalledWith(AGENT_ID, { kind: 'CONTEXT', content: 'c', source: 'AI', sessionId: 'sid-1' });
   });
 
   it('routerToolsFor: assistant 만 라우터 도구로 좁히고 나머지 프로필은 undefined', () => {

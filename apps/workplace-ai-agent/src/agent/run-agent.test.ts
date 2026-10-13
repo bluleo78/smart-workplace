@@ -42,6 +42,10 @@ function client(token: string | Error): WorkplaceApiClient {
     listHomeSessionAttachments: vi.fn().mockResolvedValue([]),
     readHomeAttachmentText: vi.fn(),
     downloadHomeAttachment: vi.fn(),
+    // WP-55: 메모리 도구
+    createAiMemory: vi.fn(),
+    updateAiMemory: vi.fn(),
+    deleteAiMemory: vi.fn(),
     proposeCreateIssue: vi.fn().mockResolvedValue(undefined),
     proposeCreateEvent: vi.fn().mockResolvedValue(undefined),
     listDelegationCandidates: vi.fn().mockResolvedValue([]),
