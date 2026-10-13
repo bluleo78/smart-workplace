@@ -128,9 +128,11 @@ public class DriveTransferLinkRepository {
    * 전송 링크 행(RLS 우회 함수로 읽은 값).
    *
    * @param userId 발급자 — 쓸 때 이 사용자의 권한을 다시 확인한다
-   * @param folderId 업로드 대상 폴더(NULL = 루트), 다운로드는 NULL
-   * @param driveFileId 다운로드 대상, 업로드는 NULL
-   * @param fileName 업로드할 파일 이름, 다운로드는 NULL
+   * @param folderId 이름 기반 업로드 링크의 대상 폴더(NULL = 루트). 다운로드·파일 지정 업로드 링크는 쓰지 않는다(NULL)
+   * @param driveFileId 다운로드 대상, 또는 파일 지정 업로드 링크의 새 버전 대상(WP-369 Task 3). 이름 기반 업로드 링크는 NULL — PUT 은
+   *     이 값이 있으면 이름으로 찾지 않고 이 파일에 새 버전을 더한다
+   * @param fileName 이름 기반 업로드 링크가 저장할 이름. 파일 지정 업로드 링크는 발급 시점 이름으로, 본문 전 상한 계산에만 쓴다(저장 이름은 파일의 지금
+   *     이름). 다운로드는 NULL
    */
   public record TransferLinkRow(
       long id,

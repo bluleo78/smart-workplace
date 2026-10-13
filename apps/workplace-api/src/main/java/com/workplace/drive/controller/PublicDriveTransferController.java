@@ -77,7 +77,8 @@ public class PublicDriveTransferController {
   }
 
   /**
-   * 업로드 — 원시 바이트 본문({@code curl -T 파일 URL})을 링크에 묶인 이름·폴더로 저장한다. 201 + DriveFileResponse.
+   * 업로드 — 원시 바이트 본문({@code curl -T 파일 URL})을 링크에 묶인 이름·폴더로 저장한다(같은 이름이면 새 버전). 파일 지정 링크(발급 때 {@code
+   * drive_file_id} 를 묶은 링크)는 이름으로 찾지 않고 그 파일 ID 에 새 버전을 더한다. 201 + DriveFileResponse.
    *
    * <p>순서(R2): 토큰·만료·본문 형식·선언 크기 확인 → 원자적 소비(트랜잭션 밖) → TenantContext 설정 → 발급자 EDITOR 재확인 → 본문을 세는
    * 상한으로 임시 파일에 받기(DB 연결·테넌트 lock 없음) → 업로드 공통 핵심(lock → 할당량 → 새 버전 또는 새 파일 → 감사 → 추출 → 알림) →
