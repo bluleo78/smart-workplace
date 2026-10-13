@@ -60,6 +60,13 @@ export function useStarterSuggestions({
     ctxRef.current = ctx;
   });
 
+  // 목록이 사라지면(칩 전송·기존 대화 열기·추천 끔) 보류 표시를 비운다 — 사라진 목록은 pointerleave·blur 를 내지 못해
+  // 그대로 두면 다음에 목록이 다시 떠도 도착한 결과가 영원히 미뤄진다. 렌더 중 조정이라 한 프레임도 남지 않는다.
+  if (!visible && (pointerIn || focusIn)) {
+    setPointerIn(false);
+    setFocusIn(false);
+  }
+
   if (view.key !== viewKey) {
     // 대상이 바뀌면 렌더 중 조정 — 그 대상의 저장 결과 또는 고정 문구를 한 프레임도 늦지 않게 보인다(AIChatPanel 의 prevIdentity 패턴).
     setView(initial());
@@ -75,7 +82,6 @@ export function useStarterSuggestions({
     // 오늘 받은 결과가 있거나 오늘 이미 실패했으면 부르지 않는다 — 타이머 안에서 다시 본다(그 300ms 사이 다른 마운트의 요청이 끝났을 수 있다).
     const settledToday = () => !!starterStore.peek(owner, key)?.fresh || starterStore.failedToday(owner, key);
     if (settledToday()) return;
-    let cancelled = false;
     const timer = setTimeout(() => {
       if (settledToday()) return;
       const ctxNow = ctxRef.current;
@@ -87,14 +93,13 @@ export function useStarterSuggestions({
           return r.enabled ? r.items : [];
         })
         .then((items) => {
-          // 컴포넌트가 사라져도 결과는 run 이 이미 저장했다 — 화면 반영만 건너뛴다.
-          if (!cancelled && items.length) setView((v) => ({ ...v, incoming: { key: `${owner}|${key}`, items } }));
+          // 효과가 정리된 뒤(목록이 사라짐·대상이 바뀜)에 도착해도 반영한다 — 같은 대상으로 목록이 다시 뜨면 저장 결과가 있어
+          // 다시 부르지 않으므로, 여기서 버리면 고정 문구가 남는다. incoming 은 대상 키를 달고 있어 다른 대상이면 settleStarterView 가 버린다.
+          // (언마운트 뒤 setState 는 무시된다 — 다음 마운트는 저장소를 읽는다.)
+          if (items.length) setView((v) => ({ ...v, incoming: { key: `${owner}|${key}`, items } }));
         });
     }, DEBOUNCE_MS);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
+    return () => clearTimeout(timer);
   }, [visible, owner, key, qc]);
 
   return {

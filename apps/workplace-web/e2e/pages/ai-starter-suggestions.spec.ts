@@ -43,7 +43,12 @@ test('다시 열면 저장된 AI 결과가 즉시 보이고, 오늘 것이면 �
 
 test('저장 날짜가 지났으면 저장 결과를 먼저 보이고 뒤에서 새로 받아 바꾼다', async ({ authenticatedPage: page }) => {
   const NEXT = ['새로 만든 추천 하나 알려줘', '새로 만든 추천 둘 알려줘', '새로 만든 추천 셋 알려줘', '새로 만든 추천 넷 알려줘']
-  const calls = await mockStarterSuggestions(page, { replies: [{ items: AI, enabled: true }, { items: NEXT, enabled: true }] })
+  // 둘째 응답은 붙잡아 두었다가 "저장 결과가 먼저 보인다"를 확인한 뒤 푼다 — 부하로 응답이 일찍 반영돼도 첫 단언이 NEXT 를 읽지 않게.
+  const second = gate()
+  const calls = await mockStarterSuggestions(page, {
+    replies: [{ items: AI, enabled: true }, { items: NEXT, enabled: true }],
+    gates: [undefined, second.p],
+  })
   await openChatPanel(page)
   await expect.poll(() => texts(page)).toEqual(AI)
   // 저장된 모든 항목의 날짜를 과거로 돌린다(키를 몰라도 접두로 찾는다).
@@ -61,6 +66,7 @@ test('저장 날짜가 지났으면 저장 결과를 먼저 보이고 뒤에서 
   await expect(page.getByTestId('starter-suggestions')).toBeVisible()
   expect(await texts(page)).toEqual(AI)
   await calls.waitFor(2)
+  second.release()
   await expect.poll(() => texts(page)).toEqual(NEXT)
 })
 
@@ -160,7 +166,10 @@ test('추천을 끈 사용자에게는 목록(저장·고정 문구 포함)이 �
   const calls = await mockStarterSuggestions(page, { replies: [{ items: AI, enabled: true }] })
   // 켜져 있을 때 저장된 결과가 있어도 보이지 않아야 한다 — 먼저 저장소를 채운다(위 양성 테스트가 같은 키가 읽힘을 보인다).
   await seedStoredStarter(page)
+  // 설정 응답(꺼짐)이 반영된 뒤에 부재를 지켜본다 — 응답 전에 재면 "아직 안 그려졌을 뿐"인 거짓 통과가 된다.
+  const prefsResponse = page.waitForResponse((r) => r.url().endsWith('/users/me/ai-preferences') && r.request().method() === 'GET')
   await openChatPanel(page)
+  await prefsResponse
   await expect(page.getByTestId('chat-panel')).toContainText('AI 어시스턴트에게 물어보세요')
   await expectStays(page, () => page.getByTestId('starter-suggestions').count(), 0, { ms: 800 })
   expect(calls.count()).toBe(0)
@@ -178,6 +187,55 @@ test('서버가 enabled:false 를 돌려주면 이후 다시 부르지 않는다
   await page.getByTestId('chat-context-remove').click() // 다른 키(일반)로 바뀌어도
   await expectStays(page, calls.count, 1, { ms: 800 })
   await expect(page.getByTestId('starter-suggestions')).toHaveCount(0)
+})
+
+test('키보드 포커스가 목록 안에 있으면 교체를 미루고, 벗어나면 바꾼다', async ({ authenticatedPage: page }) => {
+  const g = gate()
+  const calls = await mockStarterSuggestions(page, { replies: [{ items: AI, enabled: true }], gate: g.p })
+  await openChatPanel(page)
+  await calls.waitFor(1)
+  await rows(page).first().focus()
+  const response = page.waitForResponse((r) => r.url().endsWith('/api/v1/ai/suggestions'))
+  g.release()
+  await response
+  await expectStays(page, () => texts(page), GENERAL, { ms: 500 })
+  await page.getByTestId('chat-input').focus()
+  await expect.poll(() => texts(page)).toEqual(AI)
+})
+
+test('칩을 눌러 목록이 사라진 뒤에도 보류가 남지 않아, 새 대화에서 받은 추천이 바로 바뀐다', async ({ authenticatedPage: page }) => {
+  // 이슈 상세(화면 맞춤) → 칩 클릭(포인터가 목록 위) → 새 대화 → × 로 일반 키(추천을 새로 받아야 하는 키)로 바꾼다.
+  const calls = await mockStarterSuggestions(page, { replies: [{ items: [], enabled: true }, { items: AI, enabled: true }] })
+  await mockHomeChatGeneration(page, { frames: [{ event: 'done', data: { sessionId: 's-h' } }] })
+  await mockIssueDetail(page)
+  await page.goto('/projects/WP/issues/12')
+  await page.getByTestId('chat-launcher').click()
+  await calls.waitFor(1)
+  await rows(page).first().click()
+  await expect(page.getByTestId('starter-suggestions')).toHaveCount(0)
+  await page.getByTestId('chat-new-session').click()
+  await expect(page.getByTestId('starter-suggestions')).toBeVisible()
+  await page.getByTestId('chat-context-remove').click()
+  await page.getByTestId('chat-input').hover() // 포인터를 목록 밖으로 — 남은 보류가 있으면 풀 이벤트가 없다
+  await calls.waitFor(2)
+  await expect.poll(() => texts(page)).toEqual(AI)
+})
+
+test('응답을 기다리는 중 다른 질문을 보내 목록이 사라져도, 새 대화에서는 그 저장 결과가 보인다', async ({ authenticatedPage: page }) => {
+  const g = gate()
+  const calls = await mockStarterSuggestions(page, { replies: [{ items: AI, enabled: true }], gate: g.p })
+  await mockHomeChatGeneration(page, { frames: [{ event: 'done', data: { sessionId: 's-r' } }] })
+  await openChatPanel(page)
+  await calls.waitFor(1)
+  await page.getByTestId('chat-input').fill('직접 쓴 질문')
+  await page.getByTestId('chat-panel').getByRole('button', { name: '보내기' }).click()
+  await expect(page.getByTestId('starter-suggestions')).toHaveCount(0)
+  const response = page.waitForResponse((r) => r.url().endsWith('/api/v1/ai/suggestions'))
+  g.release()
+  await response
+  await page.getByTestId('chat-new-session').click()
+  await expect(page.getByTestId('starter-suggestions')).toBeVisible()
+  await expect.poll(() => texts(page)).toEqual(AI) // 오늘 받은 저장 결과 — 고정 문구로 되돌아가지 않는다
 })
 
 test('기존 대화를 여는 동안에는 추천이 보이지 않는다', async ({ authenticatedPage: page }) => {

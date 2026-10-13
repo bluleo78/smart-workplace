@@ -5,17 +5,23 @@ import type { Page } from '@playwright/test'
 import type { AiPreferences, StarterSuggestionsResponse } from '../../src/types/aiSuggestions'
 import { type RequestTracker, trackRequests } from './requests'
 
-/** 추천 응답 모킹 — reply 를 순서대로 소비(마지막 것을 반복). gate 를 주면 그 프라미스가 풀릴 때까지 응답을 보류한다. */
+/**
+ * 추천 응답 모킹 — reply 를 순서대로 소비(마지막 것을 반복). gate 를 주면 모든 응답을, gates[i] 를 주면 i 번째 응답만
+ * 그 프라미스가 풀릴 때까지 보류한다(부하에서도 "둘째 응답이 아직 안 왔다"를 결정적으로 관측하려는 용도).
+ */
 export async function mockStarterSuggestions(
   page: Page,
-  opts: { replies: Array<StarterSuggestionsResponse | { status: number }>; gate?: Promise<void> },
+  opts: { replies: Array<StarterSuggestionsResponse | { status: number }>; gate?: Promise<void>; gates?: Array<Promise<void> | undefined> },
 ): Promise<RequestTracker> {
   const calls = trackRequests(page, 'POST', '/api/v1/ai/suggestions')
   let i = 0
   await page.route((u) => u.pathname === '/api/v1/ai/suggestions', async (route) => {
     if (route.request().method() !== 'POST') return route.fallback()
-    const reply = opts.replies[Math.min(i++, opts.replies.length - 1)]
+    const n = i++
+    const reply = opts.replies[Math.min(n, opts.replies.length - 1)]
     if (opts.gate) await opts.gate
+    const own = opts.gates?.[n]
+    if (own) await own
     if ('status' in reply) {
       return route.fulfill({ status: reply.status, contentType: 'application/json', body: JSON.stringify({ message: '오류' }) })
     }
