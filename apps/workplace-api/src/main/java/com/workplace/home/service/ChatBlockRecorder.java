@@ -63,7 +63,8 @@ class ChatBlockRecorder {
 
   /**
    * 메모리 결과 줄 1개(WP-55) — 웹 MemoryBlock. 블록 판별자 kind 와 겹치지 않게 메모리 종류는 memoryKind(판정 6). undone 은
-   * 되돌리기가 같은 트랜잭션에서 true 로 바꾼다(AiMemoryUndoService — 레코드가 아니라 JSON 트리로 고친다).
+   * 되돌리기가 같은 트랜잭션에서 true 로 바꾼다(AiMemoryUndoService — 레코드가 아니라 JSON 트리로 고친다). previousKind 는 updated
+   * 의 고치기 전 종류 — 있으면 되돌리기가 종류도 돌려놓는다(없으면 JSON 에서 빠지고 지금 종류를 유지한다).
    */
   record Memory(
       String action,
@@ -71,6 +72,7 @@ class ChatBlockRecorder {
       String memoryKind,
       String content,
       @JsonInclude(JsonInclude.Include.NON_NULL) String previousContent,
+      @JsonInclude(JsonInclude.Include.NON_NULL) String previousKind,
       String source,
       boolean undone)
       implements Block {
@@ -84,7 +86,7 @@ class ChatBlockRecorder {
 
     /**
      * tool 이벤트의 memory 필드 → 블록. 모양이 틀리면 null(결과 줄을 만들지 않는다). updated 는 되돌릴 이전 내용(공백만은 안 됨)이 있어야 하고,
-     * source 가 없으면 AI(판정 7).
+     * source 가 없으면 AI(판정 7). previousKind 는 updated 이고 알려진 종류일 때만 남긴다(모르는 값은 버리고 줄은 만든다).
      */
     static Memory from(JsonNode m) {
       if (m == null || !m.isObject()) return null;
@@ -98,12 +100,14 @@ class ChatBlockRecorder {
       // 빈 이전 내용은 되돌릴 수 없다(복원이 1~300자 검증에 걸린다) — 되돌리기 버튼만 남는 줄을 만들지 않는다.
       if ("updated".equals(action) && (!prev.isTextual() || prev.asText().isBlank())) return null;
       String source = "USER".equals(m.path("source").asText()) ? "USER" : "AI";
+      String prevKind = m.path("previousKind").asText("");
       return new Memory(
           action,
           id.asLong(),
           kind,
           content,
           prev.isTextual() ? prev.asText() : null,
+          "updated".equals(action) && KINDS.contains(prevKind) ? prevKind : null,
           source,
           false);
     }

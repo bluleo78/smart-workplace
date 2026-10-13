@@ -375,6 +375,23 @@ public class UserRepository {
     return v == null || v;
   }
 
+  /**
+   * AI 사용 설정 두 값(추천 질문·메모리)을 한 번에 읽는다(WP-55) — 설정 조회·저장 응답이 같은 행을 두 번 읽지 않게. 규칙은 각각의 is* 와 같다(NULL·
+   * 없는 사용자 = 켜짐).
+   */
+  public AiFlags findAiFlags(long id) {
+    var r =
+        dsl.select(USER.AI_SUGGESTIONS_ENABLED, USER.AI_MEMORY_ENABLED)
+            .from(USER)
+            .where(USER.ID.eq(id))
+            .fetchOne();
+    if (r == null) return new AiFlags(true, true);
+    return new AiFlags(r.value1() == null || r.value1(), r.value2() == null || r.value2());
+  }
+
+  /** AI 사용 설정 두 값 — 추천 질문(WP-139)·메모리(WP-55). */
+  public record AiFlags(boolean suggestionsEnabled, boolean memoryEnabled) {}
+
   /** AI 메모리 사용 여부 저장(WP-55). */
   public void updateAiMemoryEnabled(long id, boolean enabled) {
     dsl.update(USER)

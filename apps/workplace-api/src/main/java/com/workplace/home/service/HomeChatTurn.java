@@ -112,41 +112,57 @@ final class HomeChatTurn {
     reservation.release();
     Map<String, Object> data = new HashMap<>();
     data.put("widgets", widgets);
-    // WP-55: 웹이 라이브 답의 결과 줄 되돌리기(messageId)를 done 직후 켤 수 있게 — 영속 실패면 null(판정 8). 텍스트 없이 끝난 중단·오류 턴은
-    // 애초에 영속하지 않아 done 도 없다(persistPartial 의 알려진 한계).
+    // WP-55: 웹이 라이브 답의 결과 줄 되돌리기(messageId)를 done 직후 켤 수 있게 — 영속 실패면 null(판정 8). 중단·오류 종결도 같은 키를
+    // 싣는다(fail·cancel).
     data.put("messageId", messageId);
     emit("home.chat.done", data);
     afterDone.accept(messageId);
   }
 
-  /** 오류 종결 — 누적분을 FAILED 로 남기고 반납 → home.chat.error{message}. */
+  /**
+   * 오류 종결 — 누적분을 FAILED 로 남기고 반납 → home.chat.error{message, messageId}. messageId 는 저장한 부분 답변
+   * id(저장하지 않았으면 null) — 그 턴의 메모리 결과 줄 되돌리기를 다시 열지 않아도 켜기 위해서다(WP-55).
+   */
   void fail(String message) {
     if (!finished.compareAndSet(false, true)) return;
-    persistPartial(STATUS_FAILED);
+    Long messageId = persistPartial(STATUS_FAILED);
     reservation.release();
-    emit("home.chat.error", Map.of("message", message));
+    Map<String, Object> data = new HashMap<>();
+    data.put("message", message);
+    data.put("messageId", messageId); // null 가능 — Map.of 는 null 값을 받지 않는다
+    emit("home.chat.error", data);
   }
 
-  /** 취소 종결(사용자 ■·타임아웃) — 누적분을 STOPPED 로 남기고 반납 → home.chat.cancelled{reason}. */
+  /**
+   * 취소 종결(사용자 ■·타임아웃) — 누적분을 STOPPED 로 남기고 반납 → home.chat.cancelled{reason, messageId}(fail 과 같은
+   * 이유).
+   */
   void cancel() {
     if (!finished.compareAndSet(false, true)) return;
-    persistPartial(STATUS_STOPPED);
+    Long messageId = persistPartial(STATUS_STOPPED);
     reservation.release();
     String reason =
         reservation.cancelReason() == StreamingGenerationRegistry.CancelReason.TIMEOUT
             ? "timeout"
             : "user";
-    emit("home.chat.cancelled", Map.of("reason", reason));
+    Map<String, Object> data = new HashMap<>();
+    data.put("reason", reason);
+    data.put("messageId", messageId);
+    emit("home.chat.cancelled", data);
   }
 
-  /** 부분 답변 저장 — 누적 텍스트가 비면 질문만 남긴다(현행 유지). 끝나지 않은 도구 단계는 error 로 닫는다(R10). */
-  private void persistPartial(String status) {
+  /**
+   * 부분 답변 저장 — 누적 텍스트가 비면 질문만 남긴다(현행 유지). 끝나지 않은 도구 단계는 error 로 닫는다(R10).
+   *
+   * @return 저장한 메시지 id — 저장하지 않았거나 실패하면 null
+   */
+  private Long persistPartial(String status) {
     String text = blocks.streamedText();
     // 알려진 한계(WP-55): 텍스트가 없는 중단·오류 턴은 저장하지 않으므로(messageId 없음) 그 턴에 기록된 memory 블록도 함께 사라진다 —
     // 메모리 변경 자체는 이미 반영됐지만 되돌리기 줄은 남지 않는다. 의도적으로 영속을 더하지 않는다.
-    if (text.isBlank()) return;
+    if (text.isBlank()) return null;
     List<Map<String, Object>> settled = steps.stream().map(HomeChatTurn::settleRunning).toList();
-    persist(
+    return persist(
         text,
         null,
         toJsonList(settled, "tool_calls"),

@@ -13,6 +13,7 @@ public class AiMemoryException extends RuntimeException {
   public static final String FULL = "AI_MEMORY_FULL";
   public static final String DISABLED = "AI_MEMORY_DISABLED";
   public static final String GONE = "AI_MEMORY_GONE";
+  public static final String CHANGED = "AI_MEMORY_CHANGED";
 
   private final HttpStatus status;
   private final String code;
@@ -47,6 +48,11 @@ public class AiMemoryException extends RuntimeException {
   /** 되돌릴 대상(고친 메모리)이 이미 지워졌다(404). */
   public static AiMemoryException gone() {
     return new AiMemoryException(HttpStatus.NOT_FOUND, GONE, "이미 지워진 메모리예요");
+  }
+
+  /** 되돌릴 고침 뒤에 메모리가 다시 바뀌었다(409) — 되돌리면 그 뒤의 수정을 조용히 덮으므로 거절한다. */
+  public static AiMemoryException changed() {
+    return new AiMemoryException(HttpStatus.CONFLICT, CHANGED, "그 뒤에 바뀐 메모리라 되돌리지 않았어요");
   }
 
   /** 응답에 쓸 HTTP 상태. */

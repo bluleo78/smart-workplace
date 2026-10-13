@@ -67,7 +67,8 @@ class AiMemoryControllerTest extends IntegrationTestBase {
         .andExpect(jsonPath("$.content").value("짧은 목록으로 보여 준다"))
         .andExpect(jsonPath("$.kind").value("PREFERENCE"))
         .andExpect(jsonPath("$.source").value("USER"))
-        .andExpect(jsonPath("$.previousContent").doesNotExist());
+        .andExpect(jsonPath("$.previousContent").doesNotExist())
+        .andExpect(jsonPath("$.previousKind").doesNotExist());
     call(uid, post(BASE).content(body("CONTEXT", "백엔드 팀이다"))).andExpect(status().isCreated());
     call(uid, get(BASE))
         .andExpect(jsonPath("$.items[0].content").value("백엔드 팀이다"))
@@ -103,7 +104,9 @@ class AiMemoryControllerTest extends IntegrationTestBase {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.content").value("짧은 목록으로 보여 준다"))
         .andExpect(jsonPath("$.kind").value("CONTEXT"))
-        .andExpect(jsonPath("$.previousContent").value("표로 보여 준다"));
+        .andExpect(jsonPath("$.previousContent").value("표로 보여 준다"))
+        // CR1: 이전 종류도 싣는다 — update_memory 결과·채팅 되돌리기가 종류까지 돌려놓는 근거.
+        .andExpect(jsonPath("$.previousKind").value("PREFERENCE"));
     call(uid, get(BASE)).andExpect(jsonPath("$.items[0].id").value(a));
     call(uid, patch(BASE + "/" + a).content("{}"))
         .andExpect(status().isBadRequest())

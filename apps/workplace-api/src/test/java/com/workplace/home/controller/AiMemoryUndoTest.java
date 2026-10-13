@@ -217,9 +217,11 @@ class AiMemoryUndoTest extends IntegrationTestBase {
     assertThat(repo.find(uid, m.id()).orElseThrow().content()).isEqualTo("짧은 목록");
   }
 
-  /** 판정 15: 고침 되돌리기는 내용만 되돌린다 — 그 사이 바뀐 종류(블록엔 이전 종류가 없다)는 지금 값으로 남는다. */
+  /**
+   * 판정 15(수정): 이전 종류(previousKind)를 싣기 전에 영속된 줄은 내용만 되돌린다 — 이전 종류를 모르므로 고친 뒤 종류가 지금 값으로 남는다(하위 호환).
+   */
   @Test
-  void 고침_되돌리기는_내용만_되돌리고_지금_종류를_유지한다() throws Exception {
+  void 이전_종류가_없는_고침_줄은_내용만_되돌리고_지금_종류를_유지한다() throws Exception {
     long uid = TestFixtures.createHuman(dsl);
     AiMemoryItem m = memories.create(uid, "PREFERENCE", "짧은 목록");
     memories.update(uid, m.id(), "백엔드 팀이다", "CONTEXT");
@@ -276,5 +278,112 @@ class AiMemoryUndoTest extends IntegrationTestBase {
     }
     undo(uid, null, 0).andExpect(status().isBadRequest());
     undo(uid, mid, null).andExpect(status().isBadRequest());
+  }
+
+  /** 판정 15(수정): 이전 종류가 기록된 고침 줄은 내용과 종류를 함께 되돌린다(AI 가 종류까지 바꾼 고침). */
+  @Test
+  void 고침_되돌리기는_이전_종류가_있으면_종류도_돌려놓는다() throws Exception {
+    long uid = TestFixtures.createHuman(dsl);
+    AiMemoryItem m = memories.create(uid, "PREFERENCE", "짧은 목록");
+    memories.update(uid, m.id(), "백엔드 팀이다", "CONTEXT");
+    long mid =
+        message(
+            uid,
+            block("updated", m.id(), "CONTEXT", "백엔드 팀이다", "짧은 목록", "AI")
+                .put("previousKind", "PREFERENCE"));
+
+    undo(uid, mid, 0)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.memory.content").value("짧은 목록"))
+        .andExpect(jsonPath("$.memory.kind").value("PREFERENCE"));
+    AiMemoryRepository.Row row = repo.find(uid, m.id()).orElseThrow();
+    assertThat(row.content()).isEqualTo("짧은 목록");
+    assertThat(row.kind()).isEqualTo("PREFERENCE");
+  }
+
+  /** CR4: 고친 뒤 다시 바뀐 메모리(설정에서 또 고침)는 되돌리지 않는다 — 409 CHANGED, 내용·블록 그대로. */
+  @Test
+  void 고친_뒤_또_바뀐_메모리는_409_CHANGED_이고_덮지_않는다() throws Exception {
+    long uid = TestFixtures.createHuman(dsl);
+    AiMemoryItem m = memories.create(uid, "PREFERENCE", "표 대신 목록");
+    long mid = message(uid, block("updated", m.id(), "PREFERENCE", "표 대신 목록", "짧은 목록", "AI"));
+    memories.update(uid, m.id(), "사용자가 나중에 고친 내용", null);
+
+    undo(uid, mid, 0)
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.errors.code").value("AI_MEMORY_CHANGED"));
+    assertThat(repo.find(uid, m.id()).orElseThrow().content()).isEqualTo("사용자가 나중에 고친 내용");
+    assertThat(memoryBlocks(mid).get(0).path("undone").asBoolean()).isFalse();
+  }
+
+  /** CR4: 이전 종류가 기록된 줄은 종류만 다시 바뀐 경우도 바뀐 것으로 본다. */
+  @Test
+  void 이전_종류가_있는_줄은_종류만_또_바뀌어도_409_CHANGED() throws Exception {
+    long uid = TestFixtures.createHuman(dsl);
+    AiMemoryItem m = memories.create(uid, "CONTEXT", "백엔드 팀이다");
+    long mid =
+        message(
+            uid,
+            block("updated", m.id(), "CONTEXT", "백엔드 팀이다", "짧은 목록", "AI")
+                .put("previousKind", "PREFERENCE"));
+    memories.update(uid, m.id(), null, "PREFERENCE");
+
+    undo(uid, mid, 0)
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.errors.code").value("AI_MEMORY_CHANGED"));
+    AiMemoryRepository.Row row = repo.find(uid, m.id()).orElseThrow();
+    assertThat(row.content()).isEqualTo("백엔드 팀이다");
+    assertThat(row.kind()).isEqualTo("PREFERENCE");
+    assertThat(memoryBlocks(mid).get(0).path("undone").asBoolean()).isFalse();
+  }
+
+  /**
+   * CR2: 지움 되돌리기는 원래 id 로 되살린다 — 그래야 앞선 저장 줄의 되돌리기가 되살린 메모리를 지운다(새 id 면 "이미 없음"으로 끝나고 메모리가 남았다).
+   */
+  @Test
+  void 지움_되돌리기는_원래_id_로_되살려_앞선_저장_되돌리기가_그것을_지운다() throws Exception {
+    long uid = TestFixtures.createHuman(dsl);
+    AiMemoryItem m = memories.create(uid, "PREFERENCE", "짧은 목록");
+    memories.delete(uid, m.id());
+    long mid =
+        message(
+            uid,
+            block("saved", m.id(), "PREFERENCE", "짧은 목록", null, "AI"),
+            block("forgotten", m.id(), "PREFERENCE", "짧은 목록", null, "AI"));
+
+    undo(uid, mid, 1).andExpect(status().isOk()).andExpect(jsonPath("$.memory.id").value(m.id()));
+    assertThat(repo.find(uid, m.id())).isPresent();
+
+    undo(uid, mid, 0).andExpect(status().isOk());
+    assertThat(repo.find(uid, m.id())).isEmpty();
+    assertThat(repo.count(uid)).isZero();
+  }
+
+  /** CR2: 원래 id 가 이미 쓰이고 있으면(같은 메모리를 다른 줄로 이미 되살림) 새 id 로 되살린다 — 키 충돌로 실패하지 않는다. */
+  @Test
+  void 원래_id_가_이미_있으면_새_id_로_되살린다() throws Exception {
+    long uid = TestFixtures.createHuman(dsl);
+    AiMemoryItem m = memories.create(uid, "PREFERENCE", "짧은 목록");
+    long mid = message(uid, block("forgotten", m.id(), "PREFERENCE", "짧은 목록", null, "AI"));
+
+    undo(uid, mid, 0)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.memory.content").value("짧은 목록"));
+    assertThat(repo.count(uid)).isEqualTo(2);
+    assertThat(repo.find(uid, m.id())).isPresent();
+  }
+
+  /** CR2: 시퀀스가 아직 발급하지 않은 id 는 쓰지 않는다 — 나중에 일반 저장이 그 값에서 키 충돌하지 않게 새 id 로 만든다. */
+  @Test
+  void 발급되지_않은_id_는_쓰지_않고_새_id_로_되살린다() throws Exception {
+    long uid = TestFixtures.createHuman(dsl);
+    long unissued =
+        dsl.resultQuery("SELECT last_value FROM ai_memory_id_seq").fetchOne(0, Long.class)
+            + 1_000_000L;
+    long mid = message(uid, block("forgotten", unissued, "CONTEXT", "백엔드 팀이다", null, "AI"));
+
+    undo(uid, mid, 0).andExpect(status().isOk());
+    assertThat(repo.find(uid, unissued)).isEmpty();
+    assertThat(repo.count(uid)).isEqualTo(1);
   }
 }

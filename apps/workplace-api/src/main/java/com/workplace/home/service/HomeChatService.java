@@ -464,12 +464,20 @@ public class HomeChatService {
     turn.emit("home.chat.tool", toolPayload);
   }
 
-  /** WP-55: 메모리 조회 실패는 채팅을 막지 않는다(스펙 §3 채팅 주입 5) — 꺼짐 + 빈 목록으로 진행하고 WARN. 꺼짐으로 보내는 이유는 판정 10. */
+  /**
+   * WP-55: 메모리 조회 실패는 채팅을 막지 않는다(스펙 §3 채팅 주입 5) — 꺼짐 + 빈 목록으로 진행하고 WARN. 꺼짐으로 보내는 이유는 판정 10. 단 사용자
+   * 취소(■ → 펌프 인터럽트)는 조회 실패가 아니다 — 삼키면 취소된 턴이 compose 까지 이어지므로 인터럽트 플래그를 되살려 그대로 던진다(fitToBudget 과
+   * 같은 판별, 펌프 catch 가 cancelled 로 마감한다).
+   */
   static AiMemoryService.ChatMemories memoriesOrUnavailable(
       Supplier<AiMemoryService.ChatMemories> loader, long userId) {
     try {
       return loader.get();
     } catch (RuntimeException e) {
+      if (HomeInterruptions.isUserCancel(e)) {
+        Thread.currentThread().interrupt();
+        throw e;
+      }
       log.warn("홈 채팅 메모리 조회 실패 — 메모리 없이 진행: user={} {}", userId, e.getMessage());
       return AiMemoryService.ChatMemories.UNAVAILABLE;
     }

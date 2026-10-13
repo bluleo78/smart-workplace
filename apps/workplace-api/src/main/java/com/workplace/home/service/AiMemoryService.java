@@ -11,6 +11,7 @@ import com.workplace.home.repository.AiMemoryRepository.Row;
 import com.workplace.home.repository.HomeSessionRepository;
 import com.workplace.user.service.AiPreferenceService;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -55,7 +56,7 @@ public class AiMemoryService {
   @Transactional(readOnly = true)
   public AiMemoryListResponse list(long userId) {
     return new AiMemoryListResponse(
-        repo.listNewest(userId, LIMIT).stream().map(r -> toItem(r, null)).toList(), LIMIT);
+        repo.listNewest(userId, LIMIT).stream().map(AiMemoryService::toItem).toList(), LIMIT);
   }
 
   /** 직접 추가(설정 화면) — 항상 USER 출처. 테스트·내부 호출용 축약. */
@@ -75,8 +76,8 @@ public class AiMemoryService {
     boolean ai = internal && SOURCE_AI.equals(req.source());
     UUID session = ai ? ownedSession(userId, req.sessionId()) : null;
     return toItem(
-        insertChecked(userId, req.kind(), req.content(), ai ? SOURCE_AI : SOURCE_USER, session),
-        null);
+        insertChecked(
+            userId, req.kind(), req.content(), ai ? SOURCE_AI : SOURCE_USER, session, null));
   }
 
   /** 고치기(설정 화면) — 축약. */
@@ -86,7 +87,8 @@ public class AiMemoryService {
   }
 
   /**
-   * 고치기 — 생략한 필드는 그대로. 대행이면 꺼짐 409. 응답에 이전 내용(previousContent)을 싣는다(update_memory 결과·채팅 되돌리기 근거).
+   * 고치기 — 생략한 필드는 그대로. 대행이면 꺼짐 409. 응답에 이전 내용·종류(previousContent·previousKind)를 싣는다(update_memory
+   * 결과·채팅 되돌리기 근거 — AI 가 종류까지 바꿨으면 되돌리기가 종류도 돌려놓는다).
    *
    * @throws AiMemoryException 400(둘 다 없음·검증 실패), 404(없음·남의 것), 409(대행 + 꺼짐)
    */
@@ -98,7 +100,7 @@ public class AiMemoryService {
     String c = content == null ? cur.content() : normalizeContent(content);
     String k = kind == null ? cur.kind() : requireKind(kind);
     Row saved = repo.update(userId, id, k, c).orElseThrow(AiMemoryException::notFound);
-    return toItem(saved, cur.content());
+    return toItem(saved, cur.content(), cur.kind());
   }
 
   /** 지우기(설정 화면) — 축약. */
@@ -111,14 +113,19 @@ public class AiMemoryService {
   @Transactional
   public AiMemoryItem delete(long userId, long id, boolean internal) {
     if (internal) requireEnabled(userId);
-    return toItem(repo.delete(userId, id).orElseThrow(AiMemoryException::notFound), null);
+    return toItem(repo.delete(userId, id).orElseThrow(AiMemoryException::notFound));
   }
 
-  /** 되돌리기용 재생성(WP-55 §6 forgotten) — 꺼짐과 무관(사용자가 직접 하는 정리), 상한만 검사, 같은 source. */
+  /**
+   * 되돌리기용 재생성(WP-55 §6 forgotten) — 꺼짐과 무관(사용자가 직접 하는 정리), 상한만 검사, 같은 source. <b>원래 id 로</b> 다시 만든다
+   * — 새 id 면 같은 메모리를 가리키던 앞선 결과 줄(saved·updated)의 되돌리기가 엉뚱하게 "이미 없음"으로 끝나고 되살린 메모리는 남는다. id 는 단조 증가
+   * 시퀀스에서 나오고 그 행은 지워졌으므로 대개 비어 있다 — 이미 쓰였으면(같은 메모리를 다른 줄로 이미 되살림 등) 새 id 로 만든다.
+   */
   @Transactional
-  public AiMemoryItem restore(long userId, String kind, String content, String source) {
+  public AiMemoryItem restore(
+      long userId, long memoryId, String kind, String content, String source) {
     String s = SOURCE_AI.equals(source) ? SOURCE_AI : SOURCE_USER;
-    return toItem(insertChecked(userId, kind, content, s, null), null);
+    return toItem(insertChecked(userId, kind, content, s, null, memoryId));
   }
 
   /** 되돌리기용 삭제(saved) — 이미 없으면 false(그대로 진행). */
@@ -127,14 +134,31 @@ public class AiMemoryService {
     return repo.delete(userId, id).isPresent();
   }
 
-  /** 되돌리기용 내용 복원(updated) — 이미 없으면 404 AI_MEMORY_GONE. */
+  /**
+   * 되돌리기용 고침 복원(updated). 이미 없으면 404 AI_MEMORY_GONE. 그 고침 뒤에 다시 바뀌었으면(지금 내용 ≠ 고친 내용, 이전 종류가 기록된 줄이면
+   * 지금 종류 ≠ 고친 종류도) 409 AI_MEMORY_CHANGED — 되돌리면 그 뒤의 수정을 조용히 덮는다. 이전 종류(previousKind)가 있으면 종류도
+   * 돌려놓고, 없으면(이전 종류를 싣기 전에 영속된 줄) 지금 종류를 유지한다.
+   *
+   * @param updatedContent 고친 뒤 내용(결과 줄의 content)
+   * @param updatedKind 고친 뒤 종류(결과 줄의 memoryKind)
+   * @param previousKind 고치기 전 종류 — 없으면 null
+   */
   @Transactional
-  public AiMemoryItem restoreContent(long userId, long id, String previousContent) {
+  public AiMemoryItem restoreContent(
+      long userId,
+      long id,
+      String updatedContent,
+      String updatedKind,
+      String previousContent,
+      String previousKind) {
     Row cur = repo.lock(userId, id).orElseThrow(AiMemoryException::gone);
+    boolean kindChanged = previousKind != null && !cur.kind().equals(updatedKind);
+    if (!cur.content().equals(updatedContent) || kindChanged) throw AiMemoryException.changed();
+    String k = previousKind == null ? cur.kind() : requireKind(previousKind);
     Row saved =
-        repo.update(userId, id, cur.kind(), normalizeContent(previousContent))
+        repo.update(userId, id, k, normalizeContent(previousContent))
             .orElseThrow(AiMemoryException::gone);
-    return toItem(saved, cur.content());
+    return toItem(saved, cur.content(), cur.kind());
   }
 
   /** 모두 지우기 — 본인 것만. */
@@ -159,14 +183,20 @@ public class AiMemoryService {
   }
 
   /**
-   * 검증 → 사용자 잠금 → 상한 확인 → 저장. 잠금을 먼저 잡아야 동시 요청 두 건이 모두 49개를 보고 51개가 되는 일을 막는다(READ COMMITTED 에서 잠금
-   * 뒤 count 는 앞 요청의 커밋을 본다).
+   * 검증 → 사용자 잠금 → 상한 확인 → 저장(preferredId 가 있으면 그 id 를 먼저 시도). 잠금을 먼저 잡아야 동시 요청 두 건이 모두 49개를 보고 51개가
+   * 되는 일을 막는다(READ COMMITTED 에서 잠금 뒤 count 는 앞 요청의 커밋을 본다).
    */
-  Row insertChecked(long userId, String kind, String content, String source, UUID sessionId) {
+  Row insertChecked(
+      long userId, String kind, String content, String source, UUID sessionId, Long preferredId) {
     String k = requireKind(kind);
     String c = normalizeContent(content);
     repo.lockUser(userId);
     if (repo.count(userId) >= LIMIT) throw AiMemoryException.full();
+    // 되살리기(preferredId)는 원래 id 를 먼저 시도하고, 쓸 수 없으면 새 id 로 만든다.
+    if (preferredId != null) {
+      Optional<Row> same = repo.insertWithId(preferredId, userId, k, c, source, sessionId);
+      if (same.isPresent()) return same.get();
+    }
     return repo.insert(userId, k, c, source, sessionId);
   }
 
@@ -188,10 +218,22 @@ public class AiMemoryService {
     return kind;
   }
 
-  /** 저장 행 → 응답 항목. previousContent 는 고치기 응답에만 싣는다(그 외 null — JSON 에서 빠진다). */
-  static AiMemoryItem toItem(Row r, String previousContent) {
+  /** 저장 행 → 응답 항목(이전 값 없음 — JSON 에서 빠진다). */
+  static AiMemoryItem toItem(Row r) {
+    return toItem(r, null, null);
+  }
+
+  /** 저장 행 → 응답 항목. previousContent·previousKind 는 고치기 응답에만 싣는다(그 외 null — JSON 에서 빠진다). */
+  static AiMemoryItem toItem(Row r, String previousContent, String previousKind) {
     return new AiMemoryItem(
-        r.id(), r.kind(), r.content(), r.source(), r.createdAt(), r.updatedAt(), previousContent);
+        r.id(),
+        r.kind(),
+        r.content(),
+        r.source(),
+        r.createdAt(),
+        r.updatedAt(),
+        previousContent,
+        previousKind);
   }
 
   /** 채팅 주입용 메모리 묶음(WP-55). */

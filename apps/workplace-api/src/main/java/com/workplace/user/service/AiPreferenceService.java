@@ -1,5 +1,6 @@
 package com.workplace.user.service;
 
+import com.workplace.user.dto.AiPreferencesResponse;
 import com.workplace.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -26,6 +27,13 @@ public class AiPreferenceService {
   @Transactional(readOnly = true)
   public boolean memoryEnabled(long userId) {
     return userRepository.isAiMemoryEnabled(userId);
+  }
+
+  /** 두 설정을 한 번에(설정 화면 조회·저장 응답) — 같은 행을 한 번만 읽는다. */
+  @Transactional(readOnly = true)
+  public AiPreferencesResponse current(long userId) {
+    UserRepository.AiFlags f = userRepository.findAiFlags(userId);
+    return new AiPreferencesResponse(f.suggestionsEnabled(), f.memoryEnabled());
   }
 
   /** 부분 저장 — null 인 값은 건드리지 않는다(present-flag, 판정 3). */

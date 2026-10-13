@@ -1,6 +1,7 @@
 package com.workplace.home.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.home.outbound.ChatMessages.ChatMemory;
@@ -21,6 +22,26 @@ class HomeChatMemoryFallbackTest {
             7L);
     assertThat(r.enabled()).isFalse();
     assertThat(r.items()).isEmpty();
+  }
+
+  /** CR5: 사용자 취소(인터럽트)는 조회 실패가 아니다 — 삼키지 않고 플래그를 되살려 던진다(펌프 catch 가 cancelled 로 마감). */
+  @Test
+  void 사용자_취소로_실패하면_삼키지_않고_인터럽트를_되살려_던진다() {
+    RuntimeException cancel =
+        new IllegalStateException("cancelled", new InterruptedException("user cancel"));
+    try {
+      assertThatThrownBy(
+              () ->
+                  HomeChatService.memoriesOrUnavailable(
+                      () -> {
+                        throw cancel;
+                      },
+                      7L))
+          .isSameAs(cancel);
+      assertThat(Thread.currentThread().isInterrupted()).isTrue();
+    } finally {
+      Thread.interrupted(); // JUnit 작업 스레드에 플래그를 남기지 않는다 — 다음 테스트의 JDBC 가 거부되지 않게
+    }
   }
 
   @Test

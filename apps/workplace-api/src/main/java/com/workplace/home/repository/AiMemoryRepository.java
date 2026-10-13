@@ -96,6 +96,33 @@ public class AiMemoryRepository {
             .fetchOne());
   }
 
+  /**
+   * 지정한 id 로 1건 저장(되돌리기의 되살리기 — 원래 id 유지). 그 id 가 이미 있거나(ON CONFLICT DO NOTHING — 예외로 트랜잭션을 깨지 않는다)
+   * 시퀀스가 아직 발급하지 않은 값이면 empty 를 돌려 호출자가 새 id 로 만들게 한다. 발급 전 값을 넣으면 나중에 시퀀스가 그 값에 닿을 때 일반 저장이 키 충돌로
+   * 실패하므로 막는다.
+   */
+  public Optional<Row> insertWithId(
+      long id, long userId, String kind, String content, String source, UUID sourceSessionId) {
+    Long issued =
+        dsl.resultQuery("SELECT last_value FROM ai_memory_id_seq").fetchOne(0, Long.class);
+    if (issued == null || id <= 0 || id > issued) return Optional.empty();
+    OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+    return dsl.insertInto(AI_MEMORY)
+        .set(AI_MEMORY.ID, id)
+        .set(AI_MEMORY.USER_ID, userId)
+        .set(AI_MEMORY.KIND, kind)
+        .set(AI_MEMORY.CONTENT, content)
+        .set(AI_MEMORY.SOURCE, source)
+        .set(AI_MEMORY.SOURCE_SESSION_ID, sourceSessionId)
+        .set(AI_MEMORY.CREATED_AT, now)
+        .set(AI_MEMORY.UPDATED_AT, now)
+        .onConflict(AI_MEMORY.ID)
+        .doNothing()
+        .returning()
+        .fetchOptional()
+        .map(AiMemoryRepository::toRow);
+  }
+
   /** 종류·내용을 바꾸고 맨 위로 올린다(updated_at 갱신) — 없거나 남의 것이면 empty. */
   public Optional<Row> update(long userId, long id, String kind, String content) {
     return dsl.update(AI_MEMORY)

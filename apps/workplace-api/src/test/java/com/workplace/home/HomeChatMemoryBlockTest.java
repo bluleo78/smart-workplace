@@ -298,4 +298,39 @@ class HomeChatMemoryBlockTest extends HomeAttachmentTestSupport {
         .singleElement()
         .satisfies(p -> assertThat(p.get("messageId")).isEqualTo(a.id()));
   }
+
+  /** CR1: 고침 결과의 이전 종류는 블록에 남고(되돌리기가 종류도 돌려놓는다) 재발행에도 실린다. 모르는 종류는 버리되 줄은 만든다. */
+  @Test
+  void 고침_결과의_이전_종류를_블록에_남기고_모르는_종류는_버린다() throws Exception {
+    long uid = user();
+    String known =
+        "{\"action\":\"updated\",\"memoryId\":12,\"kind\":\"CONTEXT\",\"content\":\"백엔드 팀이다\","
+            + "\"previousContent\":\"짧은 목록\",\"previousKind\":\"PREFERENCE\",\"source\":\"AI\"}";
+    String unknown =
+        "{\"action\":\"updated\",\"memoryId\":13,\"kind\":\"CONTEXT\",\"content\":\"프론트 팀이다\","
+            + "\"previousContent\":\"짧은 목록\",\"previousKind\":\"GOAL\",\"source\":\"AI\"}";
+    HomeMessageResponse a =
+        assistantAfter(
+            uid,
+            (delta, progress, tool) -> {
+              tool.accept(start(1, "update_memory"));
+              tool.accept(result(1, "update_memory", false, known));
+              tool.accept(start(2, "update_memory"));
+              tool.accept(result(2, "update_memory", false, unknown));
+              delta.accept("고쳤어요.");
+              return "고쳤어요.";
+            });
+
+    assertThat(a.memoryBlocks())
+        .isEqualTo(
+            om.readTree(
+                "[{\"kind\":\"memory\",\"action\":\"updated\",\"memoryId\":12,\"memoryKind\":\"CONTEXT\","
+                    + "\"content\":\"백엔드 팀이다\",\"previousContent\":\"짧은 목록\",\"previousKind\":\"PREFERENCE\","
+                    + "\"source\":\"AI\",\"undone\":false},"
+                    + "{\"kind\":\"memory\",\"action\":\"updated\",\"memoryId\":13,\"memoryKind\":\"CONTEXT\","
+                    + "\"content\":\"프론트 팀이다\",\"previousContent\":\"짧은 목록\",\"source\":\"AI\",\"undone\":false}]"));
+    Map<?, ?> knownMap = om.readValue(known, Map.class);
+    assertThat(emitted("home.chat.tool"))
+        .anySatisfy(p -> assertThat(p.get("memory")).isEqualTo(knownMap));
+  }
 }

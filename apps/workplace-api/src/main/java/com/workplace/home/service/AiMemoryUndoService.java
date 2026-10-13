@@ -16,7 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 채팅 결과 줄 되돌리기(WP-55 §6). 메시지를 행 잠금으로 읽고 → memory 블록(순번)의 반대 동작 → 같은 트랜잭션에서 그 블록 undone=true. 반대
- * 동작이 실패(GONE·FULL)하면 트랜잭션이 롤백돼 블록도 그대로다. 꺼짐이어도 허용(사용자가 직접 하는 정리).
+ * 동작이 실패(GONE·FULL·CHANGED)하면 트랜잭션이 롤백돼 블록도 그대로다. 꺼짐이어도 허용(사용자가 직접 하는 정리).
  */
 @Service
 @RequiredArgsConstructor
@@ -30,7 +30,7 @@ public class AiMemoryUndoService {
    * 되돌리기.
    *
    * @throws AiMemoryException 404 NOT_FOUND(남의·없는·USER 메시지), 400 INVALID(순번 밖·필드 누락), 404 GONE, 409
-   *     FULL
+   *     FULL, 409 CHANGED(고친 뒤 또 바뀜)
    */
   @Transactional
   public UndoAiMemoryResponse undo(long userId, UndoAiMemoryRequest req) {
@@ -58,8 +58,9 @@ public class AiMemoryUndoService {
   }
 
   /**
-   * 반대 동작. saved → 지움(이미 없으면 그대로), updated → 이전 내용으로(없으면 GONE), forgotten → 같은 종류·내용·출처로 재생성(상한이면
-   * FULL). saved 는 그 사이 사용자가 고쳤어도 같은 항목이므로 지운다(스펙 §6).
+   * 반대 동작. saved → 지움(이미 없으면 그대로), updated → 이전 내용(이전 종류가 기록돼 있으면 종류도)으로(없으면 GONE, 그 뒤에 또 바뀌었으면
+   * CHANGED), forgotten → 같은 id·종류·내용·출처로 재생성(상한이면 FULL — id 를 유지해야 앞선 줄의 되돌리기가 같은 메모리를 가리킨다).
+   * saved 는 그 사이 사용자가 고쳤어도 같은 항목이므로 지운다(스펙 §6).
    */
   private AiMemoryItem reverse(long userId, ObjectNode b) {
     long memoryId = b.path("memoryId").asLong();
@@ -69,10 +70,17 @@ public class AiMemoryUndoService {
         yield null;
       }
       case "updated" ->
-          memoryService.restoreContent(userId, memoryId, requiredText(b, "previousContent"));
+          memoryService.restoreContent(
+              userId,
+              memoryId,
+              requiredText(b, "content"),
+              requiredText(b, "memoryKind"),
+              requiredText(b, "previousContent"),
+              b.path("previousKind").isTextual() ? b.path("previousKind").asText() : null);
       case "forgotten" ->
           memoryService.restore(
               userId,
+              memoryId,
               requiredText(b, "memoryKind"),
               requiredText(b, "content"),
               b.path("source").asText("AI"));
