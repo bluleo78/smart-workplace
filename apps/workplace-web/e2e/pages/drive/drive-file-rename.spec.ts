@@ -113,6 +113,19 @@ test('고치기 전 Tab 으로 나갔다 Shift+Tab 으로 돌아와도 확장자
   await expect(input).toHaveValue('memo.txt')
 })
 
+// ⋯ 는 hover·키보드 포커스 때만 보여 닫힐 무렵엔 숨어 있다 — 그래도 포커스는 페이지 맨 위로 빠지지 않고 그 행에 머문다.
+test('⋯ → 이름 변경을 취소하면 포커스는 그 행에 머문다', async ({ authenticatedPage: page }) => {
+  const state = { files: [createFile({ id: 70, name: 'notes.txt' }), createFile({ id: 71, name: 'memo.txt' })] }
+  await stubDrive(page, state)
+  await page.goto(`/drive/spaces/${SPACE_ID}`)
+
+  await openRename(page, 'notes.txt')
+  await page.getByRole('button', { name: '취소' }).click()
+  await expect(page.getByTestId('rename-dialog-input')).toBeHidden()
+  const row = page.getByRole('listitem').filter({ hasText: 'notes.txt' })
+  await expect.poll(() => row.evaluate((el) => el.contains(document.activeElement))).toBe(true)
+})
+
 test('같은 이름이 있으면(409) 다이얼로그를 유지한 채 인라인으로 알리고, 고쳐서 다시 저장할 수 있다', async ({ authenticatedPage: page }) => {
   const state = { files: [createFile({ id: 70, name: 'memo.txt' }), createFile({ id: 71, name: 'notes.txt' })] }
   await stubDrive(page, state)
