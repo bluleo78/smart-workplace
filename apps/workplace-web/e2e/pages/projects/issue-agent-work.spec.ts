@@ -1,5 +1,5 @@
 // 이슈 상세 AI 진행(WP-377) — 레일 「AI 진행」 섹션 · 답변 필요 질문 카드 · 「채팅에서 답하기」로 채팅 드로워 열기.
-// 전 구간 page.route 모킹(백엔드 무관). agentWork 는 서버 순서(작업 생성순)로 내려오고, 화면은 급한 순으로 보인다.
+// 전 구간 page.route 모킹(백엔드 무관). agentWork 는 서버가 급한 순(상태 순위 → 마지막 보고 최근순)으로 내려주고, 화면은 그 순서를 그대로 지킨다.
 import { createAgentWork, minutesAgo } from '../../factories/agentWork.factory'
 import { mockAgentWorkDetail } from '../../fixtures/issue-detail-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
@@ -10,14 +10,14 @@ const URL = '/projects/WP/issues/12'
 const human: UserSummary = { id: 1, username: 'dh.yang@iacloud.kr', name: '양동희', kind: 'HUMAN' }
 const aki: UserSummary = { id: 9, username: 'aki', name: '아키', kind: 'AGENT' }
 
-// 사람이 Claude Code 로 작업 중(3/5) + AI 구성원이 질문을 남기고 답변 대기 — 서버 순서는 사람 먼저.
+// AI 구성원이 질문을 남기고 답변 대기 + 사람이 Claude Code 로 작업 중(3/5) — 실제 서버 순서(답변 필요 먼저).
 // 상대 시각이 테스트 시작 시점 기준이 되도록 테스트 안에서 만든다(모듈 로드 시각이면 늦게 도는 테스트에서 분이 밀린다).
 const twoWorks = () => [
-  createAgentWork({ worker: human, state: 'WORKING', note: 'MCP 헤더 처리 중', stepsDone: 3, stepsTotal: 5, updatedAt: minutesAgo(5) }),
   createAgentWork({ worker: aki, state: 'WAITING', note: 'A안/B안 중 어느 쪽으로 진행할까요?', updatedAt: minutesAgo(62) }),
+  createAgentWork({ worker: human, state: 'WORKING', note: 'MCP 헤더 처리 중', stepsDone: 3, stepsTotal: 5, updatedAt: minutesAgo(5) }),
 ]
 
-test('레일 AI 진행은 담당자 아래에 작업자별 상태·최근 보고·에이전트 유형·진행률·마지막 보고를 급한 순으로 보여 준다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
+test('레일 AI 진행은 담당자 아래에 작업자별 상태·최근 보고·에이전트 유형·진행률·마지막 보고를 서버 순서대로 보여 준다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
   // 1440 — 레일이 본문 옆(280px)으로 서는 폭. 좁은 레일에서도 마지막 보고가 줄바꿈되지 않아야 한다.
   await page.setViewportSize({ width: 1440, height: 900 })
   await mockAgentWorkDetail(page, twoWorks(), { assignees: [human, aki] })
@@ -35,7 +35,7 @@ test('레일 AI 진행은 담당자 아래에 작업자별 상태·최근 보고
   expect(railBox.y).toBeGreaterThan(assigneeLabel.y)
   expect(railBox.y + railBox.height).toBeLessThanOrEqual(reporterBox.y)
 
-  // 급한 순 — 답변 필요(아키)가 작업 중(양동희)보다 먼저.
+  // 서버 순서 그대로 — 답변 필요(아키) 다음 작업 중(양동희).
   const rows = rail.locator('li[data-testid^="agent-work-rail-"]')
   await expect(rows).toHaveCount(2)
   await expect(rows.nth(0)).toHaveAttribute('data-testid', 'agent-work-rail-9')

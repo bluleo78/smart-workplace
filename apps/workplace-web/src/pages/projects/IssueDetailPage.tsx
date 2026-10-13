@@ -50,7 +50,7 @@ import { useIsMobile } from '../../hooks/useIsMobile';
 import { useIssueImageUpload } from '../../hooks/useIssueImageUpload';
 import { useReturnOnEscape, useReturnToIssueOrigin } from '../../hooks/useIssueOrigin';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
-import { questionWork as findQuestionWork } from '../../lib/agentWork';
+import { questionWork } from '../../lib/agentWork';
 import { buildIssueDetailContext } from '../../lib/aiScreenContext/builders/issue';
 import { isNotFoundError } from '../../lib/api-error';
 import type { UpdateIssueRequest } from '../../types/issue';
@@ -497,7 +497,7 @@ export default function IssueDetailPage() {
   // EPIC 여부 — 부모 슬롯 숨김(EPIC 은 부모를 가질 수 없음) 분기에 사용 (EPIC 계층 확장).
   const isEpic = summary.type?.name === 'EPIC';
   // 질문 카드에 올릴 작업(WP-377) — AI 구성원의 답변 필요 첫 건. 사람의 답변 필요는 레일 배지만.
-  const questionWork = findQuestionWork(summary.agentWork);
+  const question = questionWork(summary.agentWork);
   // 실시간 갱신으로 진행 중 작업이 모두 끝나면 「AI 진행」 시트를 닫는다(렌더 중 상태 조정) — open 만 가리면 상태가 남아
   // 다음 보고 때 탭 없이 시트가 다시 열린다.
   if (agentSheetOpen && !summary.agentWork?.length) setAgentSheetOpen(false);
@@ -749,7 +749,7 @@ export default function IssueDetailPage() {
               {/* 모바일 AI 진행 칩(WP-377) — 속성 칩 아래 작업자별 칩, 탭하면 「AI 진행」 시트. 데스크톱은 레일이 보여 준다. */}
               {isMobile && <AgentWorkMobileChips list={summary.agentWork} onOpen={() => setAgentSheetOpen(true)} />}
               {/* 질문 카드(WP-377) — AI 구성원이 답변을 기다릴 때만. AI 현황 요약 위, 비서 가용성과 무관(질문은 구성원이 보냈다). */}
-              {questionWork && <AgentQuestionCard work={questionWork} onReply={openChat} />}
+              {question && <AgentQuestionCard work={question} onReply={openChat} />}
               {/* AI 즉각 컨텍스트 카드 — 비서 있을 때만 렌더(#517). 자체 아우라 박스라 바 없이 분리. */}
               {aiAvailable && (
                 <IssueInstantContextCard
@@ -878,7 +878,7 @@ export default function IssueDetailPage() {
           testId="agent-work-sheet"
         >
           <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
-            <AgentWorkRailSection list={summary.agentWork} hideLabel />
+            <AgentWorkRailSection list={summary.agentWork} hideLabel fullNote />
           </div>
         </MobileSheetShell>
       )}

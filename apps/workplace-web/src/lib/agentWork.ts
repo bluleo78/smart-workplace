@@ -24,15 +24,10 @@ export function agentToolLabel(tool: string): string {
   return TOOL_LABEL[tool] ?? tool
 }
 
-/** 급한 순으로 정렬한 사본 — 같은 상태는 입력(서버: 작업 생성) 순서 유지. 상세 레일·모바일 칩이 이 순서로 보인다. */
-export function byUrgency(list: AgentWorkView[]): AgentWorkView[] {
-  return [...list].sort((a, b) => AGENT_STATE_ORDER.indexOf(a.state) - AGENT_STATE_ORDER.indexOf(b.state))
-}
-
 /** 이슈의 대표 작업 — 가장 급한 상태(동순위는 입력 순서 유지). 없으면 null. */
 export function primaryWork(list?: AgentWorkView[]): AgentWorkView | null {
   if (!list || list.length === 0) return null
-  return byUrgency(list)[0]
+  return [...list].sort((a, b) => AGENT_STATE_ORDER.indexOf(a.state) - AGENT_STATE_ORDER.indexOf(b.state))[0]
 }
 
 /** 이슈 상세 질문 카드에 올릴 작업 — AI 구성원(AGENT)이 답변을 기다리는 첫 건. 사람의 답변 필요는 터미널에서 답하므로 제외. */
