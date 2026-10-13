@@ -94,7 +94,10 @@ describe('buildMemoryTools (WP-55)', () => {
     const { c, tool } = setup();
     await expect(tool('remember_memory').handler({ kind: 'OTHER', content: 'x' })).rejects.toThrow();
     await expect(tool('forget_memory').handler({ memoryId: 0 })).rejects.toThrow();
+    await expect(tool('update_memory').handler({ memoryId: 12, content: '' })).rejects.toThrow();
+    await expect(tool('update_memory').handler({ memoryId: 0, content: '표 대신 목록' })).rejects.toThrow();
     expect(c.createAiMemory).not.toHaveBeenCalled();
+    expect(c.updateAiMemory).not.toHaveBeenCalled();
     expect(c.deleteAiMemory).not.toHaveBeenCalled();
   });
 });

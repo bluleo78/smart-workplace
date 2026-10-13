@@ -66,10 +66,14 @@ export const chatSchema = z
       .nullish()
       .transform((v) => v ?? []),
     // WP-55: 사용자 메모리(API 가 매 턴 최신순 ≤50개). 구 API 는 생략 → 빈 배열(ai-agent 를 먼저 재기동한다).
+    // 항목은 하나씩 검증해 틀린 것만 버린다 — 나중에 API 가 새 kind 를 더해도(ai-agent 가 먼저 배포된다) 채팅 전체가 400 이 되지 않게.
     memories: z
-      .array(memoryItemSchema)
+      .array(z.unknown())
       .nullish()
-      .transform((v) => v ?? []),
+      .transform((v) => (v ?? []).flatMap((item) => {
+        const r = memoryItemSchema.safeParse(item);
+        return r.success ? [r.data] : [];
+      })),
     // WP-55: 메모리 사용 여부. 구 API(필드 없음)는 null/undefined → 러너가 꺼짐으로 다룬다(메모리 엔드포인트가 없을 수 있다).
     memoryEnabled: z.boolean().nullish(),
   })

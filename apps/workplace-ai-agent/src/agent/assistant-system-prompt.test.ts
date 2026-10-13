@@ -371,6 +371,15 @@ describe('사용자 메모리 규칙 (WP-55)', () => {
     });
   }
 
+  // F-f: 위임과 함께 불러도 된다는 문장은 위임이 있는 Claude 라우터에만 — opencode primary 는 위임 도구가 꺼져 있다.
+  it('위임과 같은 턴 호출 허용 문장은 claude 에만 있고 opencode 에는 없다', () => {
+    const sentence = '위임과 같은 턴에 함께 호출해도 된다.';
+    expect(ASSISTANT_SYSTEM_PROMPT).toContain(`하위 에이전트는 이전 대화를 보지 못한다). ${sentence}`);
+    const opencode = assistantSystemPrompt('opencode');
+    expect(opencode).not.toContain(sentence);
+    expect(opencode).toContain('메모리는 메인 라우터가 직접 저장한다');
+  });
+
   it('claude: 라우터 직접 쓰기 예외에 메모리 도구를 이름으로 적는다(규칙 자체는 그대로)', () => {
     expect(ASSISTANT_SYSTEM_PROMPT).toMatch(/라우터에는 쓰기·확인 카드\(`propose_\*`\) 도구가 없습니다/);
     expect(ASSISTANT_SYSTEM_PROMPT).toContain('쓰기는 알림 읽음 처리와 메모리 도구(remember_memory·update_memory·forget_memory)만 직접 하고');

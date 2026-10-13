@@ -62,12 +62,23 @@ describe('chatSchema', () => {
     expect(parsed.memoryEnabled).toBeUndefined();
     expect(chatSchema.parse(validBody({ memories: null, memoryEnabled: null })).memories).toEqual([]);
   });
-  it('memories·memoryEnabled 가 보존되고 kind 가 enum 밖이면 파싱 실패', () => {
+  it('memories·memoryEnabled 가 보존된다', () => {
     const memories = [{ id: 12, kind: 'PREFERENCE', content: '짧은 목록으로 보여 준다' }];
     const parsed = chatSchema.parse(validBody({ memories, memoryEnabled: true }));
     expect(parsed.memories).toEqual(memories);
     expect(parsed.memoryEnabled).toBe(true);
-    expect(chatSchema.safeParse(validBody({ memories: [{ id: 1, kind: 'X', content: 'y' }] })).success).toBe(false);
+  });
+  // F-k: 모르는(미래의) kind·모양이 틀린 항목은 그 항목만 버린다 — 채팅 요청 전체를 400 으로 막지 않는다.
+  it('kind 가 enum 밖이거나 모양이 틀린 메모리는 그 항목만 버리고 요청은 통과한다', () => {
+    const ok = { id: 12, kind: 'CONTEXT', content: '백엔드 팀이다' };
+    const parsed = chatSchema.safeParse(
+      validBody({ memories: [{ id: 1, kind: 'GOAL', content: 'y' }, ok, { id: 0, kind: 'PREFERENCE', content: 'z' }, 'x'], memoryEnabled: true }),
+    );
+    expect(parsed.success).toBe(true);
+    expect(parsed.data?.memories).toEqual([ok]);
+  });
+  it('memories 가 배열이 아니면 파싱 실패', () => {
+    expect(chatSchema.safeParse(validBody({ memories: 'x' })).success).toBe(false);
   });
 
   it('유효 페이로드는 파싱 성공', () => {
