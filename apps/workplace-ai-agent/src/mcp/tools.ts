@@ -5,6 +5,7 @@ import {
   addChannelMemberInput,
   addProjectMemberInput,
   buildSharedTools,
+  CREATE_DRIVE_FILE_CONTENT_DESCRIPTION,
   createProjectInput,
   issueListFilterShape,
   listConflicts as listConflictsShared,
@@ -392,15 +393,14 @@ export function buildTools(
   // WP-369 R6: 파일 올리기(공유본)의 AI Chat 판 — content 모드만 허용한다. 웹 AI Chat 사용자에게는 셸이 없어 업로드 링크(curl -T)를
   // 쓸 수 없고, 쓸 수 없는 로그인 없는 링크를 대화에 남길 이유도 없다. 입력 스키마는 공유본 그대로(패리티 테스트는 스키마만 비교한다),
   // content 가 없으면 새 파일(spaceId+name)이든 기존 파일의 새 버전(driveFileId)이든 API 를 부르지 않고 오류로 안내한다.
-  // 설명은 공유본을 붙이지 않고 content 모드만 한국어로 쓴다 — 공유본의 링크·curl 안내는 여기서 쓸 수 없는 지시라 모델을 헷갈리게 하고 토큰만 든다.
+  // 설명은 한국어 머리말 + 공유 설명의 content 모드 부분만 쓴다 — 공유본의 링크·curl 안내는 여기서 쓸 수 없는 지시라 모델을 헷갈리게 하고 토큰만 든다.
   const sharedCreateDriveFile = sharedTool('create_drive_file');
   const createDriveFileTool: McpTool = {
     ...sharedCreateDriveFile,
     description:
-      'AI Chat 에서는 content(직접 쓴 텍스트)로 드라이브 파일을 쓸 때만 쓰세요. 새 파일은 spaceId+name(folderId 생략 시 루트, 같은 이름이 있으면 ' +
-      '새 버전), 기존 파일 고치기는 driveFileId+content 로 그 파일의 새 버전을 만듭니다(이름·폴더 그대로, spaceId·folderId·name 은 빼기, 텍스트 ' +
-      '파일만 — pdf·docx 등은 오류). md·txt·csv·json 은 이름의 확장자로 형식이 정해지고 그 밖은 일반 텍스트입니다. EDITOR 이상이 필요합니다. ' +
-      '업로드 링크(content 생략)는 만들 수 없습니다 — 사용자의 로컬 파일은 웹 드라이브 화면에서 직접 올리라고 안내하세요.',
+      'AI Chat 에서는 content(직접 쓴 텍스트)로 새 파일을 만들거나 기존 텍스트 파일을 driveFileId+content 로 고칠 때만 쓰세요. 업로드 링크(content 생략)는 ' +
+      '만들 수 없습니다 — 사용자의 로컬 파일은 웹 드라이브 화면에서 직접 올리라고 안내하세요. ' +
+      CREATE_DRIVE_FILE_CONTENT_DESCRIPTION,
     async handler(args) {
       const content = (args as { content?: unknown } | null)?.content;
       if (content == null) {

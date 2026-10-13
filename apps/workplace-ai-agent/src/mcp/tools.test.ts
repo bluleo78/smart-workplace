@@ -1511,7 +1511,9 @@ describe('공유로 옮긴 쓰기 도구는 에이전트 신원(toolClient(agent
     expect(c.sc.createDriveVersionUploadLink).not.toHaveBeenCalled();
     // 설명은 AI Chat 이 쓸 수 있는 content 모드만 말한다 — 공유본의 업로드 링크·curl 안내는 싣지 않는다(쓸 수 없는 안내와 토큰 낭비).
     expect(t.description).toMatch(/^AI Chat 에서는 content/);
-    expect(t.description).toContain('driveFileId');
+    expect(t.description).toContain('driveFileId+content');
+    // 공유 설명의 content 모드 부분을 그대로 붙인다 — 공유 설명이 바뀌면 AI Chat 판도 따라온다.
+    expect(t.description).toContain('driveFileId must be a text file');
     expect(t.description).not.toMatch(/curl|uploadUrl|one-time upload link|maxBytes/);
   });
 

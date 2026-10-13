@@ -123,12 +123,20 @@ export const restoreDriveItemInput = z
 const DOWNLOAD_LINK_DESCRIPTION =
   'Creates a download link for a drive file, valid 10 minutes with no login: show it only to the user. Works once; a failed or ' +
   'interrupted download needs a new link. Shell: curl -o "<name>" "<url>". To read content, use read_file.';
-const CREATE_FILE_DESCRIPTION =
+/**
+ * create_drive_file 설명의 content 모드 부분(대상 고르기·텍스트 쓰기). AI Chat 판(ai-agent)은 업로드 링크를 쓸 수 없어 이 부분만 한국어 머리말 뒤에
+ * 붙인다 — 문장을 나눠 두어야 공유 설명이 바뀌어도 AI Chat 판이 따라오고, 링크 안내만 정확히 빠진다.
+ */
+export const CREATE_DRIVE_FILE_CONTENT_DESCRIPTION =
   'Uploads a drive file: new at spaceId+name (folderId or root; a taken name becomes a new version), or a new version of driveFileId ' +
   '(same name and folder); needs EDITOR. With content: writes text (md, txt, csv, json; up to a few MB); driveFileId must be a text ' +
-  'file. Without: returns a one-time upload link valid 10 minutes, up to maxBytes: curl -T <file> "<uploadUrl>", no -H Content-Type; ' +
+  'file.';
+/** create_drive_file 설명의 업로드 링크 부분 — 셸이 있는 외부 클라이언트용. */
+const CREATE_FILE_LINK_DESCRIPTION =
+  'Without: returns a one-time upload link valid 10 minutes, up to maxBytes: curl -T <file> "<uploadUrl>", no -H Content-Type; ' +
   'for driveFileId, the same file type; a failure needs a new link. Chat-attached files can\'t use it: ask the user to upload in the web ' +
   'drive.';
+const CREATE_FILE_DESCRIPTION = `${CREATE_DRIVE_FILE_CONTENT_DESCRIPTION} ${CREATE_FILE_LINK_DESCRIPTION}`;
 
 /** 드라이브 도구(읽기 + 폴더 생성 + 파일·폴더 이름변경·이동·복사 + 첨부 가져오기 + 휴지통 목록·복원 + 전송 링크·텍스트로 만들기). 영구 삭제·휴지통 비우기는 되돌릴 수 없어 두지 않는다(삭제는 propose_* 확인 카드). */
 export function buildDriveTools(client: DriveToolClient): SharedTool[] {
