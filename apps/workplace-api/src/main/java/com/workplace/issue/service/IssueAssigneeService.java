@@ -40,6 +40,7 @@ public class IssueAssigneeService {
   private final UserRepository userRepository;
   private final ApplicationEventPublisher publisher;
   private final IssueChangeNotifier changeNotifier;
+  private final AgentWorkService agentWorkService;
 
   /**
    * 이슈 담당자 집합을 통째로 교체한다.
@@ -112,6 +113,10 @@ public class IssueAssigneeService {
 
     for (Long uid : toAdd) repo.add(issue.id(), uid, callerId);
     for (Long uid : toRemove) repo.remove(issue.id(), uid);
+    // 담당에서 빠진 사람의 AI 작업은 끝낸다(WP-377 §4.3) — 변경 알림 전에 닫아 화면 갱신이 최신 상태를 보게 한다.
+    if (!toRemove.isEmpty()) {
+      agentWorkService.endForWorkers(issue.id(), toRemove);
+    }
 
     // 4) history — diff 0 이면 미기록
     List<UserSummary> addedSummaries = List.of();

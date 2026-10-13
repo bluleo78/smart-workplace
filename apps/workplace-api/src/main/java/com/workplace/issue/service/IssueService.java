@@ -585,6 +585,11 @@ public class IssueService {
         newStart,
         newMilestoneId,
         newClosedAt);
+    // 종료 상태(DONE/CANCELED)로 진입하면 그 이슈의 진행 중 AI 작업을 전부 끝낸다(WP-377 §4.3). 재오픈은 되살리지 않는다.
+    // 알림은 아래 changeNotifier.updated 가 이미 보내므로 여기서는 기록만 닫는다.
+    if (nowClosed && !wasClosed) {
+      agentWorkService.endAllForIssue(before.id());
+    }
     // WP-199 본문이 바뀐 요청만 이미지 연결 상태를 맞춘다 — 상태·담당자만 바꾸는 PATCH 에서 불필요한 잠금을 잡지 않는다.
     // 새 본문·이전 본문 모두 이미지 참조가 없으면 syncIssueImages 가 추가 쿼리 없이 돌아간다.
     if (req.body() != null) {
