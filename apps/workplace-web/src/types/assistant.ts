@@ -16,6 +16,10 @@ export interface AssistantStatus {
   // 활성 자격증명의 프로바이더 메타 — 미등록이면 둘 다 null, anthropic 이면 baseUrl=null.
   provider: CredentialProvider | null;
   baseUrl: string | null;
+  /** WP-139: 추천 질문 전용 모델(원시값) — null 이면 자동. 구 API 응답·E2E 픽스처 호환을 위해 선택. */
+  suggestionModel?: string | null;
+  /** WP-139: 자동일 때 실제로 쓸 모델(API 가 정함 — Anthropic 은 설정 기본값, opencode 는 비서 모델). 연결 없음은 null. */
+  suggestionModelAuto?: string | null;
 }
 
 // 공통 비서(admin) 상태. agentUserId 가 null 이면 미지정 상태.
@@ -25,10 +29,16 @@ export interface WorkspaceAssistant {
   hasActiveToken: boolean;
   model: string | null;
   thinkingDepth: ThinkingDepth | null;
+  /** WP-139: 추천 질문 전용 모델(원시값) — null 이면 자동. 구 API 응답·E2E 픽스처 호환을 위해 선택. */
+  suggestionModel?: string | null;
+  /** WP-139: 자동일 때 실제로 쓸 모델(API 가 정함 — Anthropic 은 설정 기본값, opencode 는 비서 모델). 연결 없음은 null. */
+  suggestionModelAuto?: string | null;
 }
 
 // 비서 설정 변경 요청 — 개인/공용 공통. 미지정 필드는 변경 없음.
 export interface UpdateAssistantSettings {
   model?: string | null;
   thinkingDepth?: ThinkingDepth | null;
+  /** WP-139: 추천 질문 모델 — null 이면 자동으로 되돌린다. 키를 빼면 변경 없음(서버가 보낸 필드만 바꾼다). */
+  suggestionModel?: string | null;
 }

@@ -12,7 +12,7 @@ import { type RequestTracker, trackRequests } from './requests'
 
 /** home.chat.* 프레임 1개 — event 이름은 'home.chat.' 프리픽스를 뺀 부분만 지정한다. */
 export interface HomeChatFrame {
-  event: 'delta' | 'progress' | 'pending_action' | 'tool' | 'done' | 'error' | 'cancelled'
+  event: 'delta' | 'progress' | 'pending_action' | 'tool' | 'done' | 'error' | 'cancelled' | 'followups'
   data: Record<string, unknown>
 }
 

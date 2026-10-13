@@ -158,3 +158,13 @@ export async function dropDnd(page: Page): Promise<void> {
     )
     .toBe(true);
 }
+
+/**
+ * 테스트가 풀 때까지 목 응답을 붙잡는 게이트 — route 핸들러에서 `await g.p` 로 보류하고 테스트가 `g.release()` 로 푼다.
+ * 부하에서도 "응답이 아직 안 왔다"를 시간이 아니라 상태로 관측하려는 용도.
+ */
+export function gate(): { p: Promise<void>; release: () => void } {
+  let release!: () => void;
+  const p = new Promise<void>((r) => (release = r));
+  return { p, release };
+}

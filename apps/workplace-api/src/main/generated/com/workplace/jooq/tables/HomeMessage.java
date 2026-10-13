@@ -114,6 +114,11 @@ public class HomeMessage extends TableImpl<HomeMessageRecord> {
      */
     public final TableField<HomeMessageRecord, String> STATUS = createField(DSL.name("status"), SQLDataType.VARCHAR(16).nullable(false).defaultValue(DSL.field(DSL.raw("'COMPLETE'::character varying"), SQLDataType.VARCHAR)), this, "");
 
+    /**
+     * The column <code>public.home_message.followups</code>.
+     */
+    public final TableField<HomeMessageRecord, JSONB> FOLLOWUPS = createField(DSL.name("followups"), SQLDataType.JSONB, this, "");
+
     private HomeMessage(Name alias, Table<HomeMessageRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

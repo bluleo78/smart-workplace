@@ -1612,3 +1612,26 @@ describe('runAiChatStream — 한도 도달 마무리', () => {
     expect(collectSpy).not.toHaveBeenCalled();
   });
 });
+
+describe('runAiChatStream — 답 출처 source (WP-139)', () => {
+  it('위임 답이면 subagent', async () => {
+    streamSpy.mockImplementation(makeRunnerImpl([agentDelegation('issue-agent'), result('')], { subagent: '처리했어요' }));
+    expect((await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal)).source).toBe('subagent');
+  });
+  it('라우터 prose 면 router_prose', async () => {
+    streamSpy.mockImplementation(makeRunnerImpl([textDelta('안녕하세요'), result('')]));
+    expect((await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal)).source).toBe('router_prose');
+  });
+  it('위젯만이면 widget', async () => {
+    streamSpy.mockImplementation(makeRunnerImpl([toolUse('show_my_tasks', {}), result('')]));
+    expect((await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal)).source).toBe('widget');
+  });
+  it('결정적 고정 문구면 fallback', async () => {
+    streamSpy.mockImplementation(makeRunnerImpl([result('')]));
+    expect((await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal)).source).toBe('fallback');
+  });
+  it('unassign 실패 고정 문구도 fallback', async () => {
+    streamSpy.mockImplementation(makeRunnerImpl([result('')], { unassignError: { canonical: '담당자 해제를 못 했어요.' } }));
+    expect((await runAiChatStream(baseInput(), { client: fakeClient }, () => {}, new AbortController().signal)).source).toBe('fallback');
+  });
+});

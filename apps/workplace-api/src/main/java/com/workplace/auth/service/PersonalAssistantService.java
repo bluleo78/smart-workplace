@@ -2,6 +2,7 @@ package com.workplace.auth.service;
 
 import com.workplace.auth.dto.AssistantStatusResponse;
 import com.workplace.auth.dto.OAuthTokenMetaResponse;
+import com.workplace.auth.dto.UpdateAssistantSettingsRequest;
 import com.workplace.auth.repository.AssistantConfigRepository;
 import com.workplace.auth.repository.AssistantConfigRepository.ConfigRow;
 import com.workplace.auth.repository.PersonalAssistantRepository;
@@ -29,6 +30,8 @@ public class PersonalAssistantService {
   private final UserRepository userRepository;
   private final MembershipRepository membershipRepository;
   private final RoleRepository roleRepository;
+  private final AssistantSettingsWriter settingsWriter;
+  private final SuggestionModelPolicy suggestionModelPolicy;
 
   /**
    * 자격증명 등록/교체 — 개인 AGENT 가 없으면 자동 생성한 뒤 active 자격증명을 등록(기존 active 는 자동 revoke).
@@ -41,14 +44,13 @@ public class PersonalAssistantService {
     credentialService.register(callerId, agentId, provider, plaintextSecret, label, model);
   }
 
-  /** 모델/생각 깊이 변경 — maxTurns/timeoutMs 는 기존 값을 보존한다. 비서 미설정이면 예외. */
-  public void updateSettings(long callerId, String model, String thinkingDepth) {
+  /** 부분 설정 변경(WP-139) — 요청에 있는 필드만 바꾼다. 비서 미설정이면 예외. */
+  public void updateSettings(long callerId, UpdateAssistantSettingsRequest req) {
     long agentId =
         personalRepo
             .findAgentId(callerId)
             .orElseThrow(() -> new IllegalStateException("개인 비서가 설정되지 않았어요."));
-    ConfigRow cur = configRepo.find(agentId).orElse(new ConfigRow(null, null, null, null));
-    configRepo.upsert(agentId, model, thinkingDepth, cur.maxTurns(), cur.timeoutMs());
+    settingsWriter.apply(agentId, req);
   }
 
   /** 개인 비서 표시 이름 변경 — 본인(callerId)의 비서만. 비서 미설정이면 예외. email/username 은 보존. */
@@ -76,7 +78,8 @@ public class PersonalAssistantService {
   public AssistantStatusResponse getStatus(long callerId) {
     var agentOpt = personalRepo.findAgentId(callerId);
     if (agentOpt.isEmpty()) {
-      return new AssistantStatusResponse(false, null, null, null, null, null, null, null);
+      return new AssistantStatusResponse(
+          false, null, null, null, null, null, null, null, null, null);
     }
     long agentId = agentOpt.get();
 
@@ -94,8 +97,20 @@ public class PersonalAssistantService {
     // 비서 표시 이름 — 프로필 화면 프리필/표시용.
     String name = userRepository.findById(agentId).map(u -> u.name()).orElse(null);
 
+    // WP-139: 자동일 때 실제로 쓸 모델 — 토큰 메타가 있을 때만(연결 없음이면 null).
+    String suggestionModelAuto =
+        suggestionModelPolicy.autoModel(metaOpt.isPresent(), provider, model);
     return new AssistantStatusResponse(
-        true, label, lastUsedAt, model, depth, name, provider, baseUrl);
+        true,
+        label,
+        lastUsedAt,
+        model,
+        depth,
+        name,
+        provider,
+        baseUrl,
+        c.suggestionModel(),
+        suggestionModelAuto);
   }
 
   /**

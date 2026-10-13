@@ -22,6 +22,7 @@ import com.workplace.global.util.TokenEstimates;
 import com.workplace.home.exception.HomeContextSummaryException;
 import com.workplace.home.outbound.AiAgentChatClient;
 import com.workplace.home.outbound.AiAgentContextSummaryClient;
+import com.workplace.home.outbound.AiAgentSuggestionClient;
 import com.workplace.home.outbound.ChatMessages.ChatRequest;
 import com.workplace.home.outbound.ChatMessages.ContextMessage;
 import com.workplace.home.outbound.ChatMessages.ContextSummaryRequest;
@@ -63,6 +64,10 @@ class HomeChatContextBudgetTest extends IntegrationTestBase {
   @Autowired HomeSessionService sessionService;
   @Autowired DSLContext dsl;
   @MockitoBean AiAgentChatClient chatClient;
+
+  /** WP-139: 완료 턴마다 나가는 후속 질문 호출을 막는다 — 실제 ai-agent 가 없어 연결 거부 WARN 이 쌓이지 않게(기본 빈 목록). */
+  @MockitoBean AiAgentSuggestionClient suggestionClient;
+
   @MockitoBean AiAgentContextSummaryClient summaryClient;
   @MockitoBean AssistantResolver assistantResolver;
   @MockitoBean SseRegistry sseRegistry;

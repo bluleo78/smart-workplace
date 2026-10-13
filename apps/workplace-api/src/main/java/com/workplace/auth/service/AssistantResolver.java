@@ -1,5 +1,6 @@
 package com.workplace.auth.service;
 
+import com.workplace.auth.dto.AiAgentCredentialRow;
 import com.workplace.auth.exception.HomeAssistantNotConfiguredException;
 import com.workplace.auth.repository.AiAgentCredentialRepository;
 import com.workplace.auth.repository.AssistantConfigRepository;
@@ -23,15 +24,16 @@ public class AssistantResolver {
   private final WorkspaceAssistantRepository workspaceRepo;
   private final AssistantConfigRepository configRepo;
   private final AiAgentCredentialRepository credentialRepo;
+  private final SuggestionModelPolicy suggestionModelPolicy;
 
   @Transactional(readOnly = true)
   public AssistantSpec resolve(long callerId) {
-    long agentId =
+    AiAgentCredentialRow active =
         pickWithActiveToken(personalRepo.findAgentId(callerId))
             .or(() -> pickWithActiveToken(workspaceRepo.findAgentId()))
             .orElseThrow(
                 () -> new HomeAssistantNotConfiguredException("홈 비서가 아직 설정되지 않았어요. 관리자에게 문의해주세요."));
-    return buildSpec(agentId);
+    return buildSpec(active);
   }
 
   /**
@@ -67,19 +69,27 @@ public class AssistantResolver {
     return pickWithActiveToken(workspaceRepo.findAgentId()).map(this::buildSpec);
   }
 
-  /** 후보 AGENT 에 active OAuth 토큰이 있을 때만 통과. */
-  private Optional<Long> pickWithActiveToken(Optional<Long> candidate) {
-    return candidate.filter(id -> credentialRepo.findActive(id).isPresent());
+  /**
+   * 후보 AGENT 에 active 자격증명이 있을 때만 통과 — 그 활성 행을 돌려줘 buildSpec 이 provider 를 다시 조회하지 않게 한다(행의 userId 가
+   * 곧 AGENT id).
+   */
+  private Optional<AiAgentCredentialRow> pickWithActiveToken(Optional<Long> candidate) {
+    return candidate.flatMap(credentialRepo::findActive);
   }
 
-  /** config 를 디폴트와 병합. */
-  private AssistantSpec buildSpec(long agentId) {
+  /**
+   * config 를 디폴트와 병합. WP-139: 추천 모델은 연결 제공자(활성 자격증명의 provider)로 해석해 싣는다(호출부는 그대로 ai-agent 에 넘긴다).
+   */
+  private AssistantSpec buildSpec(AiAgentCredentialRow active) {
+    long agentId = active.userId();
     ConfigRow c = configRepo.find(agentId).orElse(new ConfigRow(null, null, null, null));
+    String provider = active.provider();
     return new AssistantSpec(
         agentId,
         c.model() != null ? c.model() : AssistantDefaults.MODEL,
         c.thinkingDepth() != null ? c.thinkingDepth() : AssistantDefaults.THINKING_DEPTH,
         c.maxTurns() != null ? c.maxTurns() : AssistantDefaults.MAX_TURNS,
-        c.timeoutMs() != null ? c.timeoutMs() : AssistantDefaults.TIMEOUT_MS);
+        c.timeoutMs() != null ? c.timeoutMs() : AssistantDefaults.TIMEOUT_MS,
+        suggestionModelPolicy.requestModel(c.suggestionModel(), provider));
   }
 }

@@ -30,4 +30,15 @@ public class HomeChatConfig {
         InternalHttp.restClient(props.baseUrl(), Duration.ofSeconds(5), Duration.ofSeconds(90));
     return new AiAgentContextSummaryClient(builder, props.internalToken());
   }
+
+  /**
+   * 추천 질문 클라이언트(WP-139) — connect 5s / read 25s. ai-agent 상한(starter 15s·followup 20s)에 5초 여유 — 한
+   * 클라이언트를 두 용도가 같이 쓰므로 긴 쪽(followup)에 맞춘다. 무재시도.
+   */
+  @Bean
+  public AiAgentSuggestionClient aiAgentSuggestionClient(AiAgentProperties props) {
+    var builder =
+        InternalHttp.restClient(props.baseUrl(), Duration.ofSeconds(5), Duration.ofSeconds(25));
+    return new AiAgentSuggestionClient(builder, props.internalToken());
+  }
 }

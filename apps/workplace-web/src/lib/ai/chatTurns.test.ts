@@ -36,6 +36,11 @@ describe('messageToTurn', () => {
   it('ACTION_* 는 결과 줄', () => {
     expect(messageToTurn(msg({ role: 'ACTION_DONE', content: '승인 완료' }))).toEqual({ role: 'action', outcome: 'done', content: '승인 완료' });
   });
+  it('WP-139: ASSISTANT 의 후속 질문을 턴에 싣고, 없으면 키를 두지 않는다', () => {
+    expect(messageToTurn(msg({ followups: ['a 알려줘'] }))).toMatchObject({ role: 'assistant', followups: ['a 알려줘'] });
+    expect(messageToTurn(msg({ followups: null }))).not.toHaveProperty('followups');
+    expect(messageToTurn(msg({ role: 'USER', followups: ['x'] }))).not.toHaveProperty('followups');
+  });
 });
 
 describe('스트림 누적', () => {

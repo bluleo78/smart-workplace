@@ -96,7 +96,7 @@ class HomeChatStreamClientTest {
     client.composeStream(
         dummyReq(),
         deltas::add,
-        (ft, widgets) -> {
+        (ft, widgets, src) -> {
           fullText.set(ft);
           done.set(true);
         },
@@ -156,7 +156,7 @@ class HomeChatStreamClientTest {
           }
           deltas.add(t);
         },
-        (ft, w) -> done.set(true),
+        (ft, w, src) -> done.set(true),
         msg -> {
           throw new AssertionError("예상치 못한 오류: " + msg);
         },
@@ -178,7 +178,13 @@ class HomeChatStreamClientTest {
 
     AtomicReference<String> errorMsg = new AtomicReference<>();
     client.composeStream(
-        dummyReq(), delta -> {}, (ft, w) -> {}, errorMsg::set, label -> {}, node -> {}, tn -> {});
+        dummyReq(),
+        delta -> {},
+        (ft, w, src) -> {},
+        errorMsg::set,
+        label -> {},
+        node -> {},
+        tn -> {});
 
     assertThat(errorMsg.get()).isNotNull();
   }
@@ -190,7 +196,13 @@ class HomeChatStreamClientTest {
 
     AtomicReference<String> errorMsg = new AtomicReference<>();
     client.composeStream(
-        dummyReq(), delta -> {}, (ft, w) -> {}, errorMsg::set, label -> {}, node -> {}, tn -> {});
+        dummyReq(),
+        delta -> {},
+        (ft, w, src) -> {},
+        errorMsg::set,
+        label -> {},
+        node -> {},
+        tn -> {});
 
     assertThat(errorMsg.get()).contains("설정되지 않");
   }

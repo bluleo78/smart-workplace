@@ -63,8 +63,10 @@ public class AiAgentCredentialService {
     if (!PROVIDERS.contains(provider)) {
       throw new InvalidProviderCredentialException("지원하지 않는 provider 입니다: " + provider);
     }
+    // opencode 연결의 providerId — 추천 모델("providerId/model") 유지 판단에 쓴다. anthropic 은 null.
+    String providerId = null;
     if ("opencode".equals(provider)) {
-      validateOpencodePayload(plaintextSecret);
+      providerId = validateOpencodePayload(plaintextSecret);
       if (model == null || model.isBlank()) {
         throw new InvalidProviderCredentialException("opencode 등록에는 model 이 필수입니다");
       }
@@ -72,6 +74,9 @@ public class AiAgentCredentialService {
       throw new InvalidProviderCredentialException("anthropic 등록에는 token 이 필수입니다");
     }
 
+    // 회수 전에 이전 active 의 provider 를 읽어 둔다(아래 추천 모델 초기화 판단용).
+    Optional<String> previousProvider =
+        repo.findActive(agentUserId).map(r -> AgentProviders.normalize(r.provider()));
     repo.revokeActive(agentUserId); // 기존 active 가 있으면 회수 (없으면 noop)
 
     String encrypted = encryptionService.encrypt(plaintextSecret);
@@ -85,11 +90,16 @@ public class AiAgentCredentialService {
     String effectiveModel =
         (model != null && !model.isBlank())
             ? model
-            : ("anthropic".equals(provider) ? AssistantDefaults.MODEL : null);
+            : (AgentProviders.isAnthropic(provider) ? AssistantDefaults.MODEL : null);
     if (effectiveModel != null) {
       ConfigRow cur = configRepo.find(agentUserId).orElse(new ConfigRow(null, null, null, null));
       configRepo.upsert(
           agentUserId, effectiveModel, cur.thinkingDepth(), cur.maxTurns(), cur.timeoutMs());
+    }
+    // WP-139: 추천 질문 모델은 새 연결에서 쓸 수 있을 때만 남기고 아니면 자동(null)으로 되돌린다 — 남겨 두면 새 러너가 모르는 모델로
+    // 실행돼 추천·후속 질문이 오류 표시 없이 전부 빠진다.
+    if (!suggestionModelUsable(agentUserId, previousProvider, provider, providerId)) {
+      configRepo.updateSuggestionModel(agentUserId, null);
     }
 
     auditLogService.log(
@@ -185,11 +195,35 @@ public class AiAgentCredentialService {
   }
 
   /**
+   * 저장된 추천 모델을 새 연결에서도 쓸 수 있는가(WP-139). 추천 모델은 provider 형식에 묶인다(Anthropic id ↔ opencode
+   * "providerId/model").
+   *
+   * <ul>
+   *   <li>provider 계열이 바뀌었거나 이전 연결이 없으면(회수 뒤 재등록 등 — 저장값이 어느 연결용인지 모름) 쓸 수 없다.
+   *   <li>anthropic → anthropic(토큰 갱신)은 모델 id 공간이 같아 그대로 쓴다.
+   *   <li>opencode → opencode 는 저장값의 "providerId/" 접두가 새 연결의 providerId 와 같을 때만 쓴다(API 키 교체 등). 접두가
+   *       없거나 다르면 새 연결의 provider 가 모르는 모델이다.
+   * </ul>
+   *
+   * <p>한계: 같은 providerId 로 baseURL 만 바꾼 경우 새 서버에 그 모델이 없을 수도 있지만 등록 시점엔 알 수 없다(비서 모델도 같은 조건) — 이
+   * 경우는 사용자 선택을 지킨다.
+   */
+  private boolean suggestionModelUsable(
+      Long agentUserId, Optional<String> previousProvider, String provider, String providerId) {
+    if (!previousProvider.equals(Optional.of(AgentProviders.normalize(provider)))) return false;
+    if (!"opencode".equals(provider)) return true;
+    String saved = configRepo.find(agentUserId).map(ConfigRow::suggestionModel).orElse(null);
+    return saved == null || saved.startsWith(providerId + "/");
+  }
+
+  /**
    * provider config JSON 검증 — providerId·options.baseURL·options.apiKey 필수. baseURL 은 등록 후 GET
    * .../models 프로브에서 적용되는 것과 동일한 ProbeUrlValidator(https-only 또는 사설망 http) 를 등록 시점에도 통과해야 한다 — 그렇지
    * 않으면 등록은 성공하나 모델 목록 조회가 매번 400 으로 실패하는 비일관 상태가 된다. 실패 시 400.
+   *
+   * @return 검증된 providerId(추천 모델 유지 판단용)
    */
-  private void validateOpencodePayload(String plaintextSecret) {
+  private String validateOpencodePayload(String plaintextSecret) {
     JsonNode node;
     try {
       node = objectMapper.readTree(plaintextSecret);
@@ -205,6 +239,7 @@ public class AiAgentCredentialService {
           "opencode provider config 에 options.baseURL/options.apiKey 가 필요합니다");
     }
     ProbeUrlValidator.validate(options.get("baseURL").asText());
+    return node.get("providerId").asText();
   }
 
   /** row → 메타 응답. opencode 는 복호화 후 payload 에서 options.baseURL 을 추출(실패 시 null), anthropic 은 null. */

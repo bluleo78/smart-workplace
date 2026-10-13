@@ -1,5 +1,6 @@
 package com.workplace.home.service;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.fileai.service.ExtractedTextService;
@@ -12,6 +13,7 @@ import com.workplace.home.repository.CursorCodec;
 import com.workplace.home.repository.HomeAttachmentRepository;
 import com.workplace.home.repository.HomeMessageRepository;
 import com.workplace.home.repository.HomeSessionRepository;
+import com.workplace.user.service.AiPreferenceService;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -33,6 +35,9 @@ public class HomeSessionService {
   private final ObjectMapper objectMapper;
   private final HomeAttachmentRepository attachmentRepo;
   private final ExtractedTextService extractedText;
+
+  /** WP-139: 추천을 끈 사용자에게는 저장된 후속 질문을 내려주지 않는다. */
+  private final AiPreferenceService aiPreferences;
 
   @Transactional
   public HomeSessionResponse create(long callerId) {
@@ -68,12 +73,17 @@ public class HomeSessionService {
   @Transactional(readOnly = true)
   public List<HomeMessageResponse> getMessages(long callerId, UUID sessionId) {
     ensureOwner(callerId, sessionId);
+    List<HomeMessageRepository.Row> rows = messageRepo.findBySession(sessionId);
+    // WP-139: 추천을 끈 사용자에게는 저장된 후속 질문도 보이지 않는다. 설정 조회는 후속 질문이 저장된 행이 있을 때만 한다.
+    boolean showFollowups =
+        rows.stream().anyMatch(m -> m.followupsJson() != null)
+            && aiPreferences.suggestionsEnabled(callerId);
     // WP-234: 세션 첨부를 한 번에 읽어 메시지별로 나눈다(N+1 회피). 순서는 findBySession 순서 유지.
     Map<Long, List<HomeAttachment>> byMessage =
         loadAttachments(sessionId).stream()
             .collect(Collectors.groupingBy(HomeAttachment::messageId));
-    return messageRepo.findBySession(sessionId).stream()
-        .map(m -> toResponse(m, byMessage.getOrDefault(m.id(), List.of())))
+    return rows.stream()
+        .map(m -> toResponse(m, byMessage.getOrDefault(m.id(), List.of()), showFollowups))
         .toList();
   }
 
@@ -99,6 +109,12 @@ public class HomeSessionService {
                         null))
             .toList();
     return extractedText.attach(items, HomeAttachment::fileId, HomeAttachment::withExtraction);
+  }
+
+  /** 최근 대화 제목(WP-139) — 추천 생성 HTTP 는 트랜잭션 밖에서 하도록 제목만 먼저 읽는다. */
+  @Transactional(readOnly = true)
+  public List<String> recentTitles(long callerId, int limit) {
+    return sessionRepo.recentTitles(callerId, limit);
   }
 
   /** 세션 누적 요약 상태(WP-232). 소유자 검증 후 반환, 요약이 없으면 (null, null). */
@@ -157,7 +173,7 @@ public class HomeSessionService {
     long id = appendMessage(callerId, sessionId, role, content, null, null, null);
     // 결과 줄은 위젯·도구단계가 없고 화면은 createdAt 을 쓰지 않으므로 재조회 없이 응답을 만든다.
     return new HomeMessageResponse(
-        id, role, content, null, null, null, "COMPLETE", Instant.now(), List.of());
+        id, role, content, null, null, null, "COMPLETE", Instant.now(), List.of(), null);
   }
 
   /** 7b(compose)가 호출. 정상 완료(COMPLETE)로 저장한다 — 부분 답변은 status 오버로드 사용(WP-190). */
@@ -268,7 +284,7 @@ public class HomeSessionService {
   }
 
   private HomeMessageResponse toResponse(
-      HomeMessageRepository.Row m, List<HomeAttachment> attachments) {
+      HomeMessageRepository.Row m, List<HomeAttachment> attachments, boolean showFollowups) {
     return new HomeMessageResponse(
         m.id(),
         m.role(),
@@ -278,7 +294,31 @@ public class HomeSessionService {
         parse(m.contentBlocksJson()),
         m.status(),
         m.createdAt(),
-        attachments);
+        attachments,
+        showFollowups ? parseFollowups(m.followupsJson()) : null);
+  }
+
+  /** 후속 질문 JSON → 문자열 목록. 깨진 값은 표시하지 않는다(null) — 복원 화면을 막을 만큼 중요하지 않다. */
+  private List<String> parseFollowups(String json) {
+    if (json == null) return null;
+    try {
+      return objectMapper.readValue(json, new TypeReference<List<String>>() {});
+    } catch (Exception e) {
+      return null;
+    }
+  }
+
+  /**
+   * 후속 질문 저장(WP-139) — 소유자 검증 후 ASSISTANT 메시지에. 후속 질문 실행기 스레드에서 부르며, 그 실행기가 TenantContext 를 전파하므로 이
+   * 트랜잭션이 RLS GUC 를 받는다. 갱신 행 수(0 = 반영 안 됨).
+   */
+  @Transactional
+  @SneakyThrows
+  public int saveFollowups(long callerId, UUID sessionId, long messageId, List<String> items) {
+    ensureOwner(callerId, sessionId);
+    // 문자열 목록 직렬화는 실패하지 않는다 — 파일의 parse 와 같이 검사 예외를 감싸지 않는다.
+    return messageRepo.updateFollowups(
+        sessionId, messageId, objectMapper.writeValueAsString(items));
   }
 
   @SneakyThrows

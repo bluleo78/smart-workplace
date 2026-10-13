@@ -14,6 +14,7 @@ import {
   tenantClaimOf,
   writeActiveTenant,
 } from '../lib/activeTenant';
+import { clearStarterStorage } from '../lib/ai/starterStorage';
 import { clearPushOnLogout } from '../lib/push/subscription';
 import type { LoginFormData, SignupFormData } from '../lib/validations/auth';
 import type { Membership, UserResponse } from '../types/auth';
@@ -230,6 +231,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setAccessToken(null);
       localStorage.removeItem(AUTH_FLAG_KEY);
+      // WP-139: 빈 AI 대화 추천 저장(사용자별)을 지운다 — 같은 기기의 다음 사용자에게 보이지 않게.
+      clearStarterStorage();
       writeActiveTenant(null);
       setActiveTenant(null);
       setTenantOptions(null);

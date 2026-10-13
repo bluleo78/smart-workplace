@@ -31,6 +31,7 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { useRegisterAgentProviderCredential } from '@/hooks/queries/useAgentProviderCredential';
+import { withProviderPrefix } from '@/lib/ai/suggestionModel';
 import { handleApiError } from '@/lib/api-error';
 import { OPENCODE_PRESETS, type OpencodePresetKey } from '@/lib/opencode-presets';
 import type { CredentialProvider, ModelOption } from '@/types/providerCredential';
@@ -115,9 +116,7 @@ export function ProviderCredentialDialog({
   // 수동 입력 모델 id 에 providerId/ 접두어가 없으면 자동으로 붙인다 — 실측 함정(접두 없이 저장 →
   // splitOpencodeModel 실행 시점 실패) 방지. presetKey 는 제출과 함께 전송되는
   // providerConfig.providerId 와 항상 동일하므로 추측이 아니라 정확한 값이다.
-  const rawManualModel = manualModel.trim();
-  const normalizedManualModel =
-    rawManualModel && !rawManualModel.includes('/') ? `${presetKey}/${rawManualModel}` : rawManualModel;
+  const normalizedManualModel = withProviderPrefix(manualModel, presetKey);
   const resolvedModel = selectedModel || normalizedManualModel;
 
   const submit = async () => {

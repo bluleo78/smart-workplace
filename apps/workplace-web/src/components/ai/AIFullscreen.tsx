@@ -74,7 +74,7 @@ export function AIFullscreen() {
         </div>
         {/* 헤더 아래 영역에 채팅 패널 배치 — 첫 turn 이 헤더 영역 아래로 내려가 occlusion 해소. */}
         <div className="min-h-0 flex-1">
-          <AIChatPanel {...chat} showSessionSwitcher={false} autoFocus />
+          <AIChatPanel {...chat} showSessionSwitcher={false} autoFocus fullscreen />
         </div>
       </div>
     </div>

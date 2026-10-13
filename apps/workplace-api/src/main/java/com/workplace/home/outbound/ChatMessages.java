@@ -78,4 +78,23 @@ public final class ChatMessages {
 
   /** 누적 요약 응답(WP-232). */
   public record ContextSummaryResult(String summary) {}
+
+  /**
+   * 추천 질문 요청(WP-139) — ai-agent /home/suggestions. mode: starter(빈 대화)·followup(답 뒤). model 은 비서 설정
+   * 추천 모델(null = 자동). starter 는 screenContext 또는 recentTitles, followup 은 question·answer 를 싣는다.
+   * null 필드는 ai-agent 가 nullish 로 받는다.
+   */
+  public record SuggestionRequest(
+      String mode,
+      long agentId,
+      String model,
+      AiScreenContext screenContext,
+      List<String> recentTitles,
+      String question,
+      String answer,
+      int count,
+      int timeoutMs) {}
+
+  /** 추천 질문 응답(WP-139). */
+  public record SuggestionResult(List<String> items) {}
 }

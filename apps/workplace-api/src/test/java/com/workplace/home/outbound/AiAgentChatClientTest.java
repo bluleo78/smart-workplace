@@ -100,7 +100,7 @@ class AiAgentChatClientTest {
     client.composeStream(
         dummyReq(),
         deltas::add,
-        (ft, widgets) -> {
+        (ft, widgets, src) -> {
           fullText.set(ft);
           done.set(true);
         },
@@ -123,7 +123,13 @@ class AiAgentChatClientTest {
 
     AtomicReference<String> errorMsg = new AtomicReference<>();
     client.composeStream(
-        dummyReq(), delta -> {}, (ft, w) -> {}, errorMsg::set, label -> {}, node -> {}, tn -> {});
+        dummyReq(),
+        delta -> {},
+        (ft, w, src) -> {},
+        errorMsg::set,
+        label -> {},
+        node -> {},
+        tn -> {});
 
     assertThat(errorMsg.get()).contains("실패");
   }
@@ -143,7 +149,7 @@ class AiAgentChatClientTest {
     client.composeStream(
         dummyReq(),
         deltas::add,
-        (ft, w) -> done.set(true),
+        (ft, w, src) -> done.set(true),
         errorMsg::set,
         label -> {},
         node -> {},
@@ -161,7 +167,13 @@ class AiAgentChatClientTest {
 
     AtomicReference<String> errorMsg = new AtomicReference<>();
     client.composeStream(
-        dummyReq(), delta -> {}, (ft, w) -> {}, errorMsg::set, label -> {}, node -> {}, tn -> {});
+        dummyReq(),
+        delta -> {},
+        (ft, w, src) -> {},
+        errorMsg::set,
+        label -> {},
+        node -> {},
+        tn -> {});
 
     assertThat(errorMsg.get()).contains("설정되지 않");
   }
@@ -172,7 +184,13 @@ class AiAgentChatClientTest {
 
     AtomicReference<String> errorMsg = new AtomicReference<>();
     client.composeStream(
-        dummyReq(), delta -> {}, (ft, w) -> {}, errorMsg::set, label -> {}, node -> {}, tn -> {});
+        dummyReq(),
+        delta -> {},
+        (ft, w, src) -> {},
+        errorMsg::set,
+        label -> {},
+        node -> {},
+        tn -> {});
 
     assertThat(errorMsg.get()).isNotNull();
   }
@@ -191,7 +209,7 @@ class AiAgentChatClientTest {
     client.composeStream(
         dummyReq(),
         deltas::add,
-        (ft, w) -> done.set(true),
+        (ft, w, src) -> done.set(true),
         msg -> {
           throw new AssertionError("예상치 못한 오류: " + msg);
         },
@@ -217,7 +235,7 @@ class AiAgentChatClientTest {
 
     AtomicReference<com.fasterxml.jackson.databind.JsonNode> pending = new AtomicReference<>();
     client.composeStream(
-        dummyReq(), d -> {}, (ft, w) -> {}, msg -> {}, label -> {}, pending::set, tn -> {});
+        dummyReq(), d -> {}, (ft, w, src) -> {}, msg -> {}, label -> {}, pending::set, tn -> {});
 
     assertThat(pending.get()).isNotNull();
     // 단일 객체는 길이 1 배열로 래핑됨.
@@ -238,7 +256,7 @@ class AiAgentChatClientTest {
 
     AtomicReference<com.fasterxml.jackson.databind.JsonNode> pending = new AtomicReference<>();
     client.composeStream(
-        dummyReq(), d -> {}, (ft, w) -> {}, msg -> {}, label -> {}, pending::set, tn -> {});
+        dummyReq(), d -> {}, (ft, w, src) -> {}, msg -> {}, label -> {}, pending::set, tn -> {});
 
     assertThat(pending.get()).isNotNull();
     assertThat(pending.get().isArray()).isTrue();
@@ -261,7 +279,7 @@ class AiAgentChatClientTest {
     client.composeStream(
         dummyReq(),
         d -> {},
-        (ft, w) -> done.set(true),
+        (ft, w, src) -> done.set(true),
         msg -> {
           throw new AssertionError("예상치 못한 오류: " + msg);
         },
@@ -300,9 +318,47 @@ class AiAgentChatClientTest {
     assertThatThrownBy(
             () ->
                 interruptClient.composeStream(
-                    dummyReq(), d -> {}, (ft, w) -> {}, onError, label -> {}, node -> {}, tn -> {}))
+                    dummyReq(),
+                    d -> {},
+                    (ft, w, src) -> {},
+                    onError,
+                    label -> {},
+                    node -> {},
+                    tn -> {}))
         .isInstanceOf(UncheckedIOException.class);
 
     verify(onError, never()).accept(any());
+  }
+
+  @Test
+  void done_의_source_를_DoneHandler_로_넘긴다() throws Exception {
+    boot(
+        "event: done\ndata: {\"fullText\":\"a\",\"widgets\":null,\"source\":\"fallback\"}\n\n",
+        200);
+    AtomicReference<String> source = new AtomicReference<>("unset");
+    client.composeStream(
+        dummyReq(), d -> {}, (ft, w, src) -> source.set(src), msg -> {}, l -> {}, n -> {}, t -> {});
+    assertThat(source.get()).isEqualTo("fallback");
+  }
+
+  /** 구 ai-agent(롤링 배포 중)는 done 에 source 를 싣지 않는다 — null 로 넘겨 후속 질문 대상에서 빠지지 않게(WP-139). */
+  @Test
+  void done_에_source_가_없으면_null_로_넘긴다() throws Exception {
+    boot("event: done\ndata: {\"fullText\":\"a\",\"widgets\":null}\n\n", 200);
+    AtomicReference<String> source = new AtomicReference<>("unset");
+    AtomicReference<String> text = new AtomicReference<>();
+    client.composeStream(
+        dummyReq(),
+        d -> {},
+        (ft, w, src) -> {
+          text.set(ft);
+          source.set(src);
+        },
+        msg -> {},
+        l -> {},
+        n -> {},
+        t -> {});
+    assertThat(text.get()).isEqualTo("a");
+    assertThat(source.get()).isNull();
   }
 }

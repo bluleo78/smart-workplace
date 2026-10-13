@@ -12,6 +12,7 @@ import { type RunAgentDeps } from '../agent/run-agent.js';
 import { runAiChatStream } from '../agent/run-ai-chat.js';
 import { homeContextSummaryInput, runHomeContextSummary } from '../agent/run-home-context-summary.js';
 import { runHomePriorityClassify } from '../agent/run-home-priority-classify.js';
+import { runSuggestions, suggestionsInput } from '../agent/run-suggestions.js';
 import { log } from '../logger.js';
 import { screenContextSchema } from '../agent/screen-context.js';
 
@@ -144,7 +145,8 @@ export function createHomeRouter(deps: RunAgentDeps): Router {
           res.write(`event: pending_action\ndata: ${JSON.stringify(result.pendingActions)}\n\n`);
         }
         // #432: done 이벤트에 토큰 사용량(usage) 포함 — 없으면 null.
-        res.write(`event: done\ndata: ${JSON.stringify({ fullText: result.fullText, widgets: result.widgets, usage: result.usage })}\n\n`);
+        // WP-139: 답 출처(source)를 추가 필드로 — 구 API 는 무시한다.
+        res.write(`event: done\ndata: ${JSON.stringify({ fullText: result.fullText, widgets: result.widgets, usage: result.usage, source: result.source })}\n\n`);
         res.end();
         log.info('ai-chat', 'done', {
           requestId,
@@ -199,6 +201,25 @@ export function createHomeRouter(deps: RunAgentDeps): Router {
     } catch (e) {
       console.error('[home-context-summary] 실패:', e instanceof Error ? e.message : String(e));
       res.status(502).json({ error: 'home_context_summary_failed' });
+    }
+  });
+
+  // WP-139: 빈 대화 추천·답 뒤 후속 질문 — workplace-api 가 동기 호출. 400(스키마)/200/502(실행 실패 → API 는 빈 결과).
+  router.post('/home/suggestions', async (req, res) => {
+    const parsed = suggestionsInput.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'invalid_payload', issues: parsed.error.issues });
+      return;
+    }
+    try {
+      res.status(200).json(await runSuggestions(parsed.data, deps));
+    } catch (e) {
+      log.error('suggestions', 'error', {
+        mode: parsed.data.mode,
+        agentId: parsed.data.agentId,
+        error: e instanceof Error ? e.message : String(e),
+      });
+      res.status(502).json({ error: 'home_suggestions_failed' });
     }
   });
 

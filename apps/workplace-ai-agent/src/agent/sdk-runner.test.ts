@@ -21,6 +21,10 @@ function baseInput(over: Partial<SdkRunInput> = {}): SdkRunInput {
 }
 
 describe('buildSdkOptions', () => {
+  it('effort 지정 시 Options.effort 로, 미지정이면 키 없음 (WP-139)', () => {
+    expect(buildSdkOptions(baseInput({ effort: 'low' })).effort).toBe('low');
+    expect(buildSdkOptions(baseInput())).not.toHaveProperty('effort');
+  });
   it('hermetic 3종 + bypassPermissions 고정', () => {
     const o = buildSdkOptions(baseInput());
     expect(o.settingSources).toEqual([]);

@@ -5,6 +5,7 @@ import { type AiActivity, aiActivity } from '@/lib/ai/aiActivity';
 import { appendDelta, appendProgress, applyDoneWidgets, applyTool, markInterrupted, toCards } from '@/lib/ai/chatTurns';
 import { onAiStreamEvent } from '@/lib/aiEventBus';
 import { revokeTurnPreviews, withoutTurnAttachments } from '@/lib/homeChatAttachments';
+import { safeLocalStorage } from '@/lib/safeLocalStorage';
 import type {
   ActiveChatItem,
   ChatTurn,
@@ -48,6 +49,11 @@ export interface StreamEntry {
   historyLoaded: boolean;
   /** WP-265: 생성 도중 SSE 가 다시 이어졌다 — 끊긴 사이 조각을 놓쳤을 수 있어 더 붙이지 않고, 끝나면 서버 이력으로 바꾼다. */
   reconnected: boolean;
+  /**
+   * WP-139: 이 칸에서 마지막으로 끝난(done) 생성의 correlationId — done 뒤에 오는 home.chat.followups 를 그 답에만 붙인다.
+   * 새 질문을 시작하면 비운다(그 뒤 도착한 후속 질문은 버리고, 다시 열면 이력으로 보인다).
+   */
+  lastDoneCid: string | null;
 }
 
 /** 구독자에게 주는 불변 스냅샷 — 변경이 있을 때만 새 참조. */
@@ -94,6 +100,7 @@ const blank = (): StreamEntry => ({
   correlationId: null,
   historyLoaded: false,
   reconnected: false,
+  lastDoneCid: null,
 });
 
 const sessionOf = (key: string | null): string | null => (key && !key.startsWith(DRAFT_PREFIX) ? key : null);
@@ -101,15 +108,7 @@ const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
 
 /** 저장소 생성 — 테스트는 storage 를 주입해 격리한다. 기본은 window.localStorage(접근이 막히면 null). */
 export function createChatStreams(opts: { storage?: () => KeyValueStore | null } = {}) {
-  const readStorage =
-    opts.storage ??
-    (() => {
-      try {
-        return typeof window === 'undefined' ? null : window.localStorage;
-      } catch {
-        return null;
-      }
-    });
+  const readStorage = opts.storage ?? safeLocalStorage;
 
   let entries = new Map<string, StreamEntry>();
   let currentKey: string | null = null;
@@ -243,7 +242,11 @@ export function createChatStreams(opts: { storage?: () => KeyValueStore | null }
     markFinished(sessionId);
   }
 
-  /** 서버가 받지 않은 질문(409·429)의 낙관적 두 턴을 걷는다 — 남은 게 없는 draft 칸은 지운다(R17). */
+  /**
+   * 서버가 받지 않은 질문(409·429)의 낙관적 두 턴을 걷는다 — 남은 게 없는 draft 칸은 지운다(R17).
+   * WP-139 알려진 한계: startTurn 이 lastDoneCid 를 비웠으므로, 이전 답의 후속 질문이 그 사이(전송~거절)에 왔다면 버려진 채다
+   * — 다시 열면 이력으로 보인다. 그 전에 이미 붙은 후속 질문은 이전 답 턴에 그대로 남아 다시 보인다.
+   */
   function removeOptimistic(key: string, e: StreamEntry) {
     const turns = e.turns.slice(0, -2);
     if (key.startsWith(DRAFT_PREFIX) && turns.length === 0) {
@@ -253,13 +256,49 @@ export function createChatStreams(opts: { storage?: () => KeyValueStore | null }
   }
 
   /**
+   * WP-139: 이 칸이 마지막 완료 답 뒤의 다른 생성(다른 창·새로고침 전 것)을 알게 됐다 — 이전 답의 후속 질문이 늦게 와도
+   * 그 생성의 답(이력 재조회로 마지막 턴이 된다)에 잘못 붙지 않게 lastDoneCid 를 비운다.
+   */
+  function forgetDone(sid: string, cid: string): void {
+    const e = entries.get(sid);
+    if (!e || e.lastDoneCid === null || e.lastDoneCid === cid) return;
+    entries.set(sid, { ...e, lastDoneCid: null });
+  }
+
+  /**
+   * WP-139: 후속 질문 — done 으로 이미 은퇴한 생성의 이벤트라 라우팅 표가 아닌 sessionId 로 칸을 찾는다.
+   * 그 칸의 마지막 종결 생성이 이 correlationId 이고, 답변 중이 아니며, 마지막 턴이 어시스턴트일 때만 붙인다.
+   * 알려진 한계: 자리표시 생성의 done 은 이력을 다시 읽는데(refetch), 그 응답보다 먼저 붙은 후속 질문은 load 가 턴을 갈아끼우며
+   * 사라질 수 있다 — API 가 저장한 뒤 발행하므로 대개 재조회 이력에 들어 있고, 아니어도 다시 열면 이력으로 보인다.
+   */
+  function applyFollowups(data: Record<string, unknown>) {
+    const cid = str(data.correlationId);
+    const sid = str(data.sessionId);
+    // 중복 제거는 ai-agent 가 이미 한다 — 여기서는 문자열만 남긴다.
+    const items = Array.isArray(data.items) ? data.items.filter((x): x is string => typeof x === 'string') : [];
+    if (!cid || !sid || items.length === 0) return;
+    const e = entries.get(sid);
+    if (!e || e.pending || e.lastDoneCid !== cid) return;
+    const last = e.turns[e.turns.length - 1];
+    if (!last || last.role !== 'assistant') return;
+    const turns = e.turns.slice();
+    turns[turns.length - 1] = { ...last, followups: items };
+    entries.set(sid, { ...e, turns });
+    commit();
+  }
+
+  /**
    * 라우팅 표에 없는 생성의 이벤트 — 이 창이 보낸 질문은 보낼 때 등록하므로(WP-267) 다른 창이나 새로고침 전에 시작한 생성이다.
    * 종결이면 끝난 것으로 기억해 늦게 온 재동기화 응답이 되살리지 못하게 한다(WP-264). 진행 중이면 이 저장소가 아는 대화일 때만
    * 자리표시로 이어받고 이력을 다시 읽어 그 질문과 "답변 중" 을 보인다(WP-266) — SSE 는 워크스페이스 구분 없이 오므로 모르는 대화는
    * 상한·목록에 넣지 않는다(다음 재동기화가 이 워크스페이스 것만 알려 준다).
+   * WP-139 알려진 한계: 다른 탭에서 시작한 생성을 종결 이벤트로 처음 알게 되면(재연결 틈에 끝났거나 이 창에 없던 대화) 여기서는
+   * lastDoneCid 를 정하지 않으므로, 그 답의 후속 질문은 이 탭에 라이브로 붙지 않는다 — 대화를 다시 열면 이력으로 보인다.
+   * (진행 중에 자리표시로 이어받은 생성은 정상 done 경로가 lastDoneCid 를 정한다.)
    */
   function adopt(cid: string, sid: string | null, terminal: boolean) {
     if (!sid) return;
+    forgetDone(sid, cid); // WP-139: 이 대화의 다른 생성 — 종결·진행 중 모두
     const e = entries.get(sid);
     if (terminal) {
       retire(cid);
@@ -278,6 +317,11 @@ export function createChatStreams(opts: { storage?: () => KeyValueStore | null }
   /** home.chat.* 이벤트 1건 반영. */
   function applyEvent(name: string, raw: unknown) {
     const data = (raw ?? {}) as Record<string, unknown>;
+    // WP-139: followups 는 done 뒤에 오므로 끝난 생성 차단(finished)보다 먼저 처리한다.
+    if (name === `${CHAT_EVENT_PREFIX}followups`) {
+      applyFollowups(data);
+      return;
+    }
     const cid = str(data.correlationId);
     if (!cid || finished.has(cid)) return;
     const sid = str(data.sessionId);
@@ -324,7 +368,15 @@ export function createChatStreams(opts: { storage?: () => KeyValueStore | null }
         // 서버 시간 초과 취소는 사용자가 멈춘 것과 구분해 "시간 초과로 중단됨"(라이브만 — 저장은 STOPPED).
         else turns = markInterrupted(turns, kind === 'error' ? 'failed' : data.reason === 'timeout' ? 'timeout' : 'stopped');
       }
-      entries.set(key, { ...e, turns, pending: false, correlationId: null, reconnected: false });
+      entries.set(key, {
+        ...e,
+        turns,
+        pending: false,
+        correlationId: null,
+        reconnected: false,
+        // WP-139: 정상 완료만 후속 질문을 받는다(오류·취소 답에는 생성하지 않는다).
+        lastDoneCid: kind === 'done' ? cid : null,
+      });
       if (route.placeholder && sessionOf(key)) effects.refetch(key);
     }
     finish(cid, sessionOf(key) ?? sid);
@@ -468,6 +520,7 @@ export function createChatStreams(opts: { storage?: () => KeyValueStore | null }
         gen,
         correlationId,
         reconnected: false,
+        lastDoneCid: null,
       });
       corrIndex.set(correlationId, { key, gen, placeholder: false, attached: false });
       touchRecent(key);
@@ -630,6 +683,7 @@ export function createChatStreams(opts: { storage?: () => KeyValueStore | null }
       const server = new Map(items.map((i) => [i.sessionId, i.correlationId]));
       for (const [sid, cid] of [...active]) {
         if (server.has(sid) || (activeAddedAt.get(sid) ?? 0) > token) continue;
+        forgetDone(sid, cid); // WP-139: 놓친 종결로 마감하는 다른 생성 — 이전 답의 후속 질문을 받지 않는다
         const e = entries.get(sid);
         if (e?.correlationId === cid) entries.set(sid, { ...e, pending: false, correlationId: null, reconnected: false });
         finish(cid, sid);
@@ -639,6 +693,7 @@ export function createChatStreams(opts: { storage?: () => KeyValueStore | null }
         if (finished.has(cid)) continue;
         active.set(sid, cid);
         if (corrIndex.has(cid)) continue;
+        forgetDone(sid, cid); // WP-139: 이 창이 모르는 생성이 답변 중 — 이전 답의 후속 질문을 받지 않는다
         const e = entries.get(sid);
         corrIndex.set(cid, { key: sid, gen: e?.gen ?? 0, placeholder: true, attached: true });
         if (e && !e.correlationId) effects.refetch(sid);
@@ -655,7 +710,7 @@ export type ChatStreams = ReturnType<typeof createChatStreams>;
 /** 앱 전역 기본 인스턴스. */
 export const chatStreams = createChatStreams();
 
-const CHAT_EVENTS = ['delta', 'progress', 'tool', 'pending_action', 'done', 'error', 'cancelled'].map((e) => CHAT_EVENT_PREFIX + e);
+const CHAT_EVENTS = ['delta', 'progress', 'tool', 'pending_action', 'done', 'error', 'cancelled', 'followups'].map((e) => CHAT_EVENT_PREFIX + e);
 
 /** home.chat.* 를 한 곳에서 구독해 저장소로 넘긴다(요청마다 붙였다 떼지 않는다). 반환값으로 해제. */
 export function connectChatEvents(store: ChatStreams, on: typeof onAiStreamEvent = onAiStreamEvent): () => void {

@@ -1,6 +1,7 @@
 import type { Route } from '@playwright/test'
 
 import { expect, test } from '../fixtures/auth.fixture'
+import { mockMyAssistantModels, mockMyAssistantStatus } from '../fixtures/my-assistant-mock'
 import { trackRequests } from '../fixtures/requests'
 
 // 프로필 개인 비서 섹션 E2E — Task 13: 등록 폼이 admin ProviderCredentialDialog(Task 12)와 동일한
@@ -47,18 +48,8 @@ function configuredStatus(overrides: Partial<AssistantStatusFixture> = {}): Assi
   }
 }
 
-function mockStatus(page: import('@playwright/test').Page, get: () => AssistantStatusFixture) {
-  return page.route('**/api/v1/users/me/assistant', (route) => {
-    if (route.request().method() === 'GET') {
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(get()),
-      })
-    }
-    return route.fallback()
-  })
-}
+// GET 상태 — 공용 목(my-assistant-mock)에 이 spec 의 상태 타입을 붙인다.
+const mockStatus = (page: import('@playwright/test').Page, get: () => AssistantStatusFixture) => mockMyAssistantStatus(page, get)
 
 // PUT /users/me/assistant/credential — 성공 응답. 등록 요청 tracker 를 돌려준다.
 function mockCredentialRegister(
@@ -76,23 +67,8 @@ function mockCredentialRegister(
   return requests
 }
 
-// GET /users/me/assistant/models — 설정된 비서의 서버 모델 목록.
-function mockModels(
-  page: import('@playwright/test').Page,
-  models: Array<{ id: string; label: string }>,
-  provider = 'anthropic',
-) {
-  return page.route('**/api/v1/users/me/assistant/models', (route) => {
-    if (route.request().method() === 'GET') {
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ provider, models }),
-      })
-    }
-    return route.fallback()
-  })
-}
+// GET /users/me/assistant/models — 설정된 비서의 서버 모델 목록(공용 목).
+const mockModels = mockMyAssistantModels
 
 // POST /users/me/assistant/models/probe — 성공/실패 응답. 프로브 요청 tracker 를 돌려준다.
 function mockProbe(
@@ -304,7 +280,7 @@ test.describe('프로필 개인 비서', () => {
     // native <select> 요소가 없어야 한다 — shadcn SelectTrigger(role="combobox")로 대체됨.
     await expect(page.locator('select')).toHaveCount(0)
 
-    await expect(page.getByRole('combobox', { name: '모델' })).toBeVisible()
+    await expect(page.getByRole('combobox', { name: '모델', exact: true })).toBeVisible()
     await expect(page.getByRole('combobox', { name: '생각의 깊이' })).toBeVisible()
   })
 
@@ -336,9 +312,9 @@ test.describe('프로필 개인 비서', () => {
     await expect(page.getByTestId('assistant-configured')).toBeVisible()
     await modelGets.waitFor()
 
-    await expect(page.getByRole('combobox', { name: '모델' })).toContainText('Claude Sonnet 5')
+    await expect(page.getByRole('combobox', { name: '모델', exact: true })).toContainText('Claude Sonnet 5')
 
-    await page.getByRole('combobox', { name: '모델' }).click()
+    await page.getByRole('combobox', { name: '모델', exact: true }).click()
     await expect(page.getByRole('option', { name: 'Claude Sonnet 5' })).toBeVisible()
     await expect(page.getByRole('option', { name: 'Claude Opus 4.8' })).toBeVisible()
     await expect(page.getByRole('option', { name: 'Claude Haiku 4.5' })).toBeVisible()
@@ -375,12 +351,12 @@ test.describe('프로필 개인 비서', () => {
 
     // 응답이 오기 전: 로딩 스켈레톤이 보이고, Select/폴백 텍스트는 아직 없어야 한다.
     await expect(page.getByTestId('assistant-model-loading')).toBeVisible()
-    await expect(page.getByRole('combobox', { name: '모델' })).not.toBeVisible()
+    await expect(page.getByRole('combobox', { name: '모델', exact: true })).not.toBeVisible()
 
     // 응답 도착 후: 스켈레톤은 사라지고 Select 가 나타난다.
     resolveModels?.()
     await expect(page.getByTestId('assistant-model-loading')).not.toBeVisible()
-    await expect(page.getByRole('combobox', { name: '모델' })).toBeVisible()
+    await expect(page.getByRole('combobox', { name: '모델', exact: true })).toBeVisible()
   })
 
   // 모델 목록이 비어 있으면(프로바이더가 목록 조회 미지원) Select 대신 현재값 표시 + 직접 입력 폴백 노출.
@@ -492,7 +468,7 @@ test.describe('프로필 개인 비서', () => {
 
     await page.goto('/settings/assistant')
     await expect(page.getByTestId('assistant-configured')).toBeVisible()
-    await page.getByRole('combobox', { name: '모델' }).click()
+    await page.getByRole('combobox', { name: '모델', exact: true }).click()
     await page.getByRole('option', { name: 'Claude Opus 4.8' }).click()
 
     await expect(page.getByText('서버 오류가 발생했습니다.')).toBeVisible()
@@ -516,7 +492,7 @@ test.describe('프로필 개인 비서', () => {
 
     await page.goto('/settings/assistant')
     await expect(page.getByTestId('assistant-configured')).toBeVisible()
-    await page.getByRole('combobox', { name: '모델' }).click()
+    await page.getByRole('combobox', { name: '모델', exact: true }).click()
     await page.getByRole('option', { name: 'Claude Opus 4.8' }).click()
 
     await expect(page.getByText('비서 설정을 변경했습니다.')).toBeVisible()

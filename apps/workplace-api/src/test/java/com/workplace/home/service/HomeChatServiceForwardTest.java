@@ -21,6 +21,7 @@ import com.workplace.home.dto.AiScreenContext;
 import com.workplace.home.dto.HomeMessageResponse;
 import com.workplace.home.dto.HomeProposalResponse;
 import com.workplace.home.outbound.AiAgentChatClient;
+import com.workplace.home.outbound.AiAgentSuggestionClient;
 import com.workplace.home.outbound.ChatMessages.ChatRequest;
 import com.workplace.support.IntegrationTestBase;
 import java.util.ArrayList;
@@ -53,6 +54,10 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 class HomeChatServiceForwardTest extends IntegrationTestBase {
 
   @MockitoBean AiAgentChatClient chatClient;
+
+  /** WP-139: 완료 턴마다 나가는 후속 질문 호출을 막는다 — 실제 ai-agent 가 없어 연결 거부 WARN 이 쌓이지 않게(기본 빈 목록). */
+  @MockitoBean AiAgentSuggestionClient suggestionClient;
+
   @MockitoBean AssistantResolver assistantResolver;
   @MockitoBean TenantScopedRunner tenantScopedRunner;
   @Autowired HomeSessionService sessionService;
@@ -61,6 +66,7 @@ class HomeChatServiceForwardTest extends IntegrationTestBase {
   @Autowired HomeAttachmentService attachmentService;
   @Autowired AiAgentProperties aiAgentProperties;
   @Autowired HomeChatProperties chatProperties;
+  @Autowired HomeFollowupService followupService;
   @Autowired ObjectMapper objectMapper;
 
   @Autowired
@@ -130,7 +136,8 @@ class HomeChatServiceForwardTest extends IntegrationTestBase {
         aiChatStreamExecutor,
         registry,
         capturingSseRegistry,
-        chatProperties);
+        chatProperties,
+        followupService);
   }
 
   private void stubAssistant() {

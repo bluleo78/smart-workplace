@@ -2,6 +2,7 @@ package com.workplace.home.outbound;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.MissingNode;
 import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.global.outbound.InternalHttp;
 import com.workplace.home.outbound.ChatMessages.ChatRequest;
@@ -32,6 +33,22 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 public class AiAgentChatClient {
+
+  /**
+   * done 콜백(WP-139) — fullText·widgets 에 답 출처(source, nullable: 구 ai-agent 는 보내지 않는다)를 더한다.
+   * BiConsumer 를 확장해 2인자로 부르는 기존 호출부·테스트 목(inv.getArgument(2) 를 BiConsumer 로 쓰는 곳)이 그대로 동작한다(그때
+   * source=null).
+   */
+  @FunctionalInterface
+  public interface DoneHandler extends BiConsumer<String, JsonNode> {
+    /** 완료 — source 는 subagent·limit_finalize·router_prose·widget·fallback 또는 null. */
+    void accept(String fullText, JsonNode widgets, String source);
+
+    @Override
+    default void accept(String fullText, JsonNode widgets) {
+      accept(fullText, widgets, null);
+    }
+  }
 
   /** 요청 전체 타임아웃 — SseEmitter 타임아웃(300s)과 정렬. */
   private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(300);
@@ -70,7 +87,7 @@ public class AiAgentChatClient {
    *
    * @param request 직렬화될 에이전트 요청 본문
    * @param onDelta delta 텍스트 토큰 콜백
-   * @param onDone done 이벤트 콜백 — fullText, widgets(nullable JsonNode)
+   * @param onDone done 이벤트 콜백 — fullText, widgets(nullable), source(nullable, WP-139)
    * @param onError 오류 메시지 콜백
    * @param onProgress 위임 진행 라벨 콜백 (#333 M2)
    * @param onPendingAction 확인 카드 제안 객체 콜백, raw JsonNode (#333 M2)
@@ -79,7 +96,7 @@ public class AiAgentChatClient {
   public void composeStream(
       ChatRequest request,
       Consumer<String> onDelta,
-      BiConsumer<String, JsonNode> onDone,
+      DoneHandler onDone,
       Consumer<String> onError,
       Consumer<String> onProgress,
       Consumer<JsonNode> onPendingAction,
@@ -162,10 +179,17 @@ public class AiAgentChatClient {
                 onDelta.accept(t);
               }
             } else if ("done".equals(event)) {
-              // done 이벤트: {fullText, widgets} 를 파싱해 콜백.
-              String fullText = parseDoneFullText(data);
-              JsonNode widgets = parseDoneWidgets(data);
-              onDone.accept(fullText != null ? fullText : "", widgets);
+              // done 이벤트: {fullText, widgets, source?} 를 한 번만 파싱해 콜백. source 는 WP-139 추가 필드(없으면
+              // null).
+              // 파싱 실패면 빈 노드 — fullText "", widgets·source null.
+              JsonNode done = readTreeOrMissing(data);
+              JsonNode fullText = done.path("fullText");
+              JsonNode widgets = done.path("widgets");
+              JsonNode source = done.path("source");
+              onDone.accept(
+                  fullText.isTextual() ? fullText.asText() : "",
+                  widgets.isMissingNode() || widgets.isNull() ? null : widgets,
+                  source.isTextual() ? source.asText() : null);
               return;
             } else if ("error".equals(event)) {
               log.error("ai-agent home chat stream error: {}", data);
@@ -226,25 +250,13 @@ public class AiAgentChatClient {
     }
   }
 
-  /** {@code {"fullText":"..."}} 에서 fullText 추출. 형식이 다르면 null. */
-  private String parseDoneFullText(String data) {
+  /** JSON 파싱 — 비JSON·빈 값·파싱 실패는 MissingNode(어떤 필드를 path 로 물어도 비어 있다). */
+  private JsonNode readTreeOrMissing(String data) {
     try {
       JsonNode node = mapper.readTree(data);
-      JsonNode ft = node.get("fullText");
-      return (ft != null && ft.isTextual()) ? ft.asText() : null;
+      return node != null ? node : MissingNode.getInstance();
     } catch (Exception e) {
-      return null;
-    }
-  }
-
-  /** {@code {"widgets":[...]}} 에서 widgets 추출. 없거나 파싱 실패 시 null. */
-  private JsonNode parseDoneWidgets(String data) {
-    try {
-      JsonNode node = mapper.readTree(data);
-      JsonNode w = node.get("widgets");
-      return (w != null && !w.isNull()) ? w : null;
-    } catch (Exception e) {
-      return null;
+      return MissingNode.getInstance();
     }
   }
 

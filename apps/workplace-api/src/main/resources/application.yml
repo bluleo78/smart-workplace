@@ -81,6 +81,10 @@ workplace:
     timeout: ${WORKPLACE_PUSH_TIMEOUT:5s}
     vapid-public-key: ${WORKPLACE_PUSH_VAPID_PUBLIC:}
     vapid-private-key: ${WORKPLACE_PUSH_VAPID_PRIVATE:}
+  # WP-139: 추천·후속 질문 자동 모델(Anthropic 비서) — 비서 설정의 추천 모델이 비어 있으면 API 가 이 값을 ai-agent 에 실어 보낸다.
+  # 자동 모델은 API 한 곳에서만 정한다(ai-agent 는 기본값 없음). 상태 응답의 suggestionModelAuto 도 이 값을 쓴다.
+  ai:
+    suggestion-default-model: ${WORKPLACE_AI_SUGGESTION_MODEL:}  # 비면 AiSuggestionProperties.DEFAULT_MODEL
   ai-agent:
     base-url: ${WORKPLACE_AI_AGENT_URL:http://localhost:7070}
     internal-token: ${WORKPLACE_AI_AGENT_TOKEN}  # 기본값 없음 — 미설정 시 앱 기동 실패 (보안)

@@ -181,6 +181,11 @@ public class User extends TableImpl<UserRecord> {
      */
     public final TableField<UserRecord, String> AGENT_RUNTIME = createField(DSL.name("agent_runtime"), SQLDataType.VARCHAR(16).nullable(false).defaultValue(DSL.field(DSL.raw("'INTERNAL'::character varying"), SQLDataType.VARCHAR)), this, "");
 
+    /**
+     * The column <code>public.user.ai_suggestions_enabled</code>.
+     */
+    public final TableField<UserRecord, Boolean> AI_SUGGESTIONS_ENABLED = createField(DSL.name("ai_suggestions_enabled"), SQLDataType.BOOLEAN, this, "");
+
     private User(Name alias, Table<UserRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

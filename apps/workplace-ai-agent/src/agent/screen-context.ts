@@ -35,7 +35,8 @@ export type ScreenContext = z.infer<typeof screenContextSchema>;
 
 // 한 줄 평탄화 + 대괄호 중화 — 줄바꿈·연속 공백을 단일 공백으로, '['→'(' · ']'→')'.
 // 외부 텍스트(메일 제목 등)가 블록 구조나 식별자 표기를 위조하지 못하게 모든 표시 문자열에 적용한다.
-const oneLine = (s: string) => s.replace(/\s+/g, ' ').replace(/\[/g, '(').replace(/\]/g, ')').trim();
+// WP-139: 추천 생성기(run-suggestions)의 최근 대화 제목·질문도 같은 규칙으로 평탄화한다.
+export const oneLine = (s: string) => s.replace(/\s+/g, ' ').replace(/\[/g, '(').replace(/\]/g, ')').trim();
 
 // refs → '  · 식별자: k=v, k2=v2' 한 줄(없으면 null). 조회 도구 인자로 그대로 쓰라는 표식이며,
 // 라벨과 다른 줄에 두어 라벨 텍스트로 식별자를 위조할 수 없게 한다.

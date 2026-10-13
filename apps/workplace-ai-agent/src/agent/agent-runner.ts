@@ -61,6 +61,8 @@ export interface RunnerInput {
   // opencode 전용: 호출자가 이미 판단한 비전 지원 여부 — 있으면 러너가 다시 판단하지 않고 그대로 써서
   // 프롬프트(첨부 표현)와 config(modalities)가 같은 값을 보게 한다. 없으면 러너가 판단. value undefined = 알 수 없음.
   opencodeVision?: { value: OpencodeVision };
+  // WP-139: 추론 노력 — 짧은 단발 생성(추천 질문)의 지연·비용을 줄인다. Claude 러너만 반영하고 opencode 는 무시한다(대응 옵션 없음).
+  effort?: 'low' | 'medium' | 'high';
 }
 
 export interface RunnerStreamHandle {

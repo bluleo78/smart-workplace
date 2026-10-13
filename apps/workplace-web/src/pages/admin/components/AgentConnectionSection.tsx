@@ -7,6 +7,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import { SuggestionModelField } from '@/components/ai/SuggestionModelField';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -43,6 +44,7 @@ import {
   useWorkspaceAssistant,
 } from '../../../hooks/queries/useAssistant';
 import { useAuth } from '../../../hooks/useAuth';
+import { providerIdOf } from '../../../lib/ai/suggestionModel';
 import { handleApiError } from '../../../lib/api-error';
 import { formatDateTimeLocale } from '../../../lib/formatters';
 import { presetLabelFor } from '../../../lib/opencode-presets';
@@ -185,6 +187,16 @@ export function AgentConnectionSection({ agentUserId }: Props) {
     }
   };
 
+  // WP-139: 공통 비서 추천 질문 모델 — 이 필드만 보낸다. null = 자동.
+  const onSuggestionModel = async (suggestionModel: string | null) => {
+    try {
+      await updateSettings.mutateAsync({ suggestionModel });
+      toast.success('설정을 변경했습니다.');
+    } catch (e) {
+      handleApiError(e, '설정 변경에 실패했습니다.');
+    }
+  };
+
   return (
     <section className="border-t pt-4 mt-4 space-y-3" data-testid="agent-connection-section">
       <h3 className="text-sm font-medium">AI 연결 및 모델</h3>
@@ -303,6 +315,17 @@ export function AgentConnectionSection({ agentUserId }: Props) {
                   </SelectContent>
                 </Select>
               </div>
+              {/* WP-139: 추천 질문 모델 — 공통 비서일 때만(같은 그리드 규칙). 직접 입력 접두는 비서 모델에서 따온다. */}
+              <SuggestionModelField
+                id="workspace-assistant-suggestion-model"
+                autoModel={ws?.suggestionModelAuto}
+                value={ws?.suggestionModel}
+                options={modelOptions}
+                loading={modelsLoading}
+                saving={updateSettings.isPending}
+                providerId={providerIdOf(ws?.model)}
+                onChange={(v) => void onSuggestionModel(v)}
+              />
             </div>
           ) : null}
 

@@ -2,6 +2,7 @@ package com.workplace.wiki.service;
 
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
+import com.workplace.global.util.Texts;
 import com.workplace.wiki.dto.WikiPageDetail;
 import com.workplace.wiki.dto.WikiPageSummaryState;
 import com.workplace.wiki.dto.WikiSummaryStatus;
@@ -171,17 +172,10 @@ public class WikiSummaryService {
 
   /**
    * 본문을 {@link #MAX_INPUT_CHARS} 까지 자른다. 자르는 지점이 서로게이트 쌍(이모지 등) 한가운데면 한 글자 덜 잘라 홀로 남은 high
-   * surrogate 가 깨진 문자로 전송되지 않게 한다.
+   * surrogate 가 깨진 문자로 전송되지 않게 한다(공용 {@link Texts#headUtf16}).
    */
   static String capInput(String body) {
-    if (body.length() <= MAX_INPUT_CHARS) {
-      return body;
-    }
-    int end = MAX_INPUT_CHARS;
-    if (Character.isHighSurrogate(body.charAt(end - 1))) {
-      end--;
-    }
-    return body.substring(0, end);
+    return Texts.headUtf16(body, MAX_INPUT_CHARS);
   }
 
   /** 진행 중 생성 결과를 기다린다. 리더의 예외(실패 등)는 원래 타입 그대로 다시 던져 웹이 같은 실패 UI 를 보이게 한다. */

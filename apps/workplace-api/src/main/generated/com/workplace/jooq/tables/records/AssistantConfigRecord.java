@@ -118,6 +118,20 @@ public class AssistantConfigRecord extends UpdatableRecordImpl<AssistantConfigRe
         return (Long) get(6);
     }
 
+    /**
+     * Setter for <code>public.assistant_config.suggestion_model</code>.
+     */
+    public void setSuggestionModel(String value) {
+        set(7, value);
+    }
+
+    /**
+     * Getter for <code>public.assistant_config.suggestion_model</code>.
+     */
+    public String getSuggestionModel() {
+        return (String) get(7);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -141,7 +155,7 @@ public class AssistantConfigRecord extends UpdatableRecordImpl<AssistantConfigRe
     /**
      * Create a detached, initialised AssistantConfigRecord
      */
-    public AssistantConfigRecord(Long agentUserId, String model, String thinkingDepth, Integer maxTurns, Integer timeoutMs, OffsetDateTime updatedAt, Long tenantId) {
+    public AssistantConfigRecord(Long agentUserId, String model, String thinkingDepth, Integer maxTurns, Integer timeoutMs, OffsetDateTime updatedAt, Long tenantId, String suggestionModel) {
         super(AssistantConfig.ASSISTANT_CONFIG);
 
         setAgentUserId(agentUserId);
@@ -151,6 +165,7 @@ public class AssistantConfigRecord extends UpdatableRecordImpl<AssistantConfigRe
         setTimeoutMs(timeoutMs);
         setUpdatedAt(updatedAt);
         setTenantId(tenantId);
+        setSuggestionModel(suggestionModel);
         resetChangedOnNotNull();
     }
 }

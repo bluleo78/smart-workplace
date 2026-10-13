@@ -123,6 +123,18 @@ public class HomeSessionRepository {
     step.where(HOME_SESSION.ID.eq(id)).execute();
   }
 
+  /** 최근 활동 순 세션 제목(WP-139) — 빈 대화 일반 추천이 사용자가 자주 하는 일을 참고한다. 제목 없는 세션은 뺀다. */
+  public List<String> recentTitles(long userId, int limit) {
+    return dsl.select(HOME_SESSION.TITLE)
+        .from(HOME_SESSION)
+        .where(HOME_SESSION.USER_ID.eq(userId))
+        .and(HOME_SESSION.TITLE.isNotNull())
+        .and(HOME_SESSION.TITLE.ne(""))
+        .orderBy(HOME_SESSION.LAST_MESSAGE_AT.desc(), HOME_SESSION.ID.desc())
+        .limit(limit)
+        .fetch(HOME_SESSION.TITLE);
+  }
+
   /** 세션 삭제 (cascade 로 메시지도 삭제됨). 삭제된 row 수 반환. */
   public int delete(UUID id) {
     return dsl.deleteFrom(HOME_SESSION).where(HOME_SESSION.ID.eq(id)).execute();
