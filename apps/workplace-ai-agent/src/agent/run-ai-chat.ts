@@ -20,6 +20,7 @@ import type { ProviderCredential } from './agent-runner.js';
 import type { HostBridge } from '../mcp/tools.js';
 import { formatScreenContext, type ScreenContext } from './screen-context.js';
 import { opencodeVisionFor } from './opencode-vision.js';
+import { formatMemoryBlock, subagentMemorySuffix, type MemoryItem } from './memory-block.js';
 import { FINALIZE_PROGRESS_LABEL, FINALIZE_TIMEOUT_MS, finalizeAfterLimit, ToolResultCollector } from './ai-chat-finalize.js';
 import { RunnerLimitError } from './runner-limit.js';
 import { awaitHomeExtraction, DEFAULT_ATTACHMENT_QUERY, EXTRACTION_WAIT_LABEL, formatHomeAttachmentsBlock, type HomeChatAttachment } from './home-attachments.js';
@@ -67,6 +68,9 @@ export interface ChatInput {
   sessionId?: string | null;
   // WP-234: 세션 전체 첨부(요약 경계 이전 포함, current=이번 메시지). 매 턴 "## 이 대화의 첨부" 블록으로 싣는다.
   attachments?: HomeChatAttachment[];
+  // WP-55: 사용자 메모리(최신순 ≤50)와 사용 여부. memoryEnabled 가 없으면(구 API) 꺼짐으로 다룬다.
+  memories?: MemoryItem[];
+  memoryEnabled?: boolean | null;
 }
 
 // #404: show_issue_detail 위젯에서 존재하지 않는 이슈 번호를 결정론적으로 차단한다.
@@ -121,18 +125,21 @@ export function contextLabel(m: ContextMessage): string {
 }
 
 // recentContext·화면 컨텍스트·첨부를 단발 프롬프트에 임베드(CLI 는 멀티턴 배열을 받지 않음).
-// 순서: 이전 대화 요약(WP-232) → 이전 대화 → 현재 화면 → 이 대화의 첨부(WP-234) → (미확인 승인 결과) → 현재 요청.
+// 순서: (사용자 메모리, WP-55) → 이전 대화 요약(WP-232) → 이전 대화 → 현재 화면 → 이 대화의 첨부(WP-234) → (미확인 승인 결과) → 현재 요청.
+// 메모리는 맨 앞에만 붙인다 — 자주 안 바뀌는 것이 앞이어야 한 턴 안 도구 왕복에서 앞부분 캐시가 재사용된다. 기존 순서는 바꾸지 않는다.
 // 모두 없으면 query 원문. imageVision 은 실행당 1회 판단한 값(러너 config 와 같은 값)이다.
 function buildChatUserMessage(input: ChatInput, imageVision: boolean): string {
   const ctx = input.recentContext ?? [];
+  const memory = formatMemoryBlock(input.memories ?? [], input.memoryEnabled);
+  const memoryPrefix = memory ? `${memory}\n\n` : '';
   const summary = input.contextSummary ? `이전 대화 요약:\n${input.contextSummary}\n\n` : '';
   const screen = input.screenContext ? `${formatScreenContext(input.screenContext)}\n\n` : '';
   const attachments = formatHomeAttachmentsBlock(input.attachments ?? [], imageVision);
   // WP-234: 첨부만 보낸 메시지(빈 query)는 기본 문구로 — 스키마가 이번 메시지 첨부가 있을 때만 빈 query 를 허용한다.
   const query = input.query.trim() ? input.query : DEFAULT_ATTACHMENT_QUERY;
-  if (ctx.length === 0 && !screen && !summary && !attachments) return query;
+  if (ctx.length === 0 && !screen && !summary && !attachments && !memoryPrefix) return query;
   const history = ctx.length ? `이전 대화:\n${ctx.map((m) => `${contextLabel(m)}: ${m.content}`).join('\n')}\n\n` : '';
-  return `${summary}${history}${screen}${attachments}${unseenResultsBlock(ctx)}현재 요청: ${query}`;
+  return `${memoryPrefix}${summary}${history}${screen}${attachments}${unseenResultsBlock(ctx)}현재 요청: ${query}`;
 }
 
 // #849: AI 가 아직 언급하지 않은 승인 결과(마지막 AI 답 이후의 ACTION_* 행)를 현재 요청 바로 앞에 다시 둔다.
@@ -298,6 +305,8 @@ export async function runAiChatStream(
       allowSubagents: true, // #333: Agent 도구 허용(라우터 위임에 필요) — 러너가 subagent 정의를 구성
       allowFileRead: false, // 홈 컴포즈는 파일 읽기 불필요 — 보안 최소권한
       opencodeVision, // WP-234: 첨부 블록 문구에 쓴 판단을 러너 config 에도 그대로
+      // WP-55: 하위 에이전트 프롬프트 끝에 같은 메모리 블록(켜짐 + 1개 이상일 때만). 한 턴 안에서는 다시 만들지 않는다.
+      subagentPromptSuffix: subagentMemorySuffix(input.memories ?? [], input.memoryEnabled),
       mcp: {
         client: mcpClient,
         onBehalfOfId: input.userId ?? agentId,

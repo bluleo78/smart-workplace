@@ -140,6 +140,14 @@ describe('toAgentDefinitions (#462 슬라이스4)', () => {
     });
   });
 
+  it('WP-55: promptSuffix 를 모든 서브에이전트 prompt 끝에 덧붙인다(생략 시 그대로)', () => {
+    const defs = { a: { description: 'd', tools: [], prompt: 'p' }, b: { description: 'e', tools: [], prompt: 'q' } };
+    const out = toAgentDefinitions(defs, '\n\n## 사용자 메모리\n- x');
+    expect(out.a.prompt).toBe('p\n\n## 사용자 메모리\n- x');
+    expect(out.b.prompt).toBe('q\n\n## 사용자 메모리\n- x');
+    expect(toAgentDefinitions(defs).a.prompt).toBe('p');
+  });
+
   it('model 미지정 시 model 키 생략', () => {
     const out = toAgentDefinitions({ 'a': { description: 'd', tools: [], prompt: 'p' } });
     expect(out['a']).toEqual({ description: 'd', prompt: 'p', tools: [], mcpServers: ['workplace'] });

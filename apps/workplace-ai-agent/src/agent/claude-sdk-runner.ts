@@ -40,7 +40,8 @@ function toSdkRunInput(i: RunnerInput): SdkRunInput {
   let mainAgent: string | undefined;
   if (i.allowSubagents) {
     const subagents = loadSubagents();
-    agents = toAgentDefinitions(subagents);
+    // WP-55: 요청별 사용자 메모리 블록을 서브에이전트 prompt 끝에(라우터 정의는 systemPrompt 그대로 — 블록은 사용자 메시지에 있다).
+    agents = toAgentDefinitions(subagents, i.subagentPromptSuffix);
     // WP-351: 라우터 도구가 정해진 프로필(assistant)이면 메인 스레드를 라우터 에이전트로 돌려 라우터가 싣는 도구를 좁힌다.
     // MCP 서버는 전 도구 그대로라 서브에이전트는 자기 도구를 계속 쓴다.
     const routerTools = routerToolsFor(i.mcp?.profile);

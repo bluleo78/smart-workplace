@@ -55,6 +55,21 @@ function buildApp() {
 beforeEach(() => vi.clearAllMocks());
 
 describe('chatSchema', () => {
+  // WP-55: 구 API(필드 없음)도 받는다 — memories 는 빈 배열, memoryEnabled 는 없음(러너가 꺼짐으로 다룬다).
+  it('memories·memoryEnabled 생략·null 도 파싱 성공(memories 는 빈 배열)', () => {
+    const parsed = chatSchema.parse(validBody());
+    expect(parsed.memories).toEqual([]);
+    expect(parsed.memoryEnabled).toBeUndefined();
+    expect(chatSchema.parse(validBody({ memories: null, memoryEnabled: null })).memories).toEqual([]);
+  });
+  it('memories·memoryEnabled 가 보존되고 kind 가 enum 밖이면 파싱 실패', () => {
+    const memories = [{ id: 12, kind: 'PREFERENCE', content: '짧은 목록으로 보여 준다' }];
+    const parsed = chatSchema.parse(validBody({ memories, memoryEnabled: true }));
+    expect(parsed.memories).toEqual(memories);
+    expect(parsed.memoryEnabled).toBe(true);
+    expect(chatSchema.safeParse(validBody({ memories: [{ id: 1, kind: 'X', content: 'y' }] })).success).toBe(false);
+  });
+
   it('유효 페이로드는 파싱 성공', () => {
     expect(chatSchema.safeParse(validBody()).success).toBe(true);
   });
@@ -143,6 +158,21 @@ describe('chatSchema', () => {
 });
 
 describe('POST /ai/chat', () => {
+  it('WP-55: memories·memoryEnabled 를 runAiChatStream 입력으로 전달', async () => {
+    vi.mocked(runAiChatStream).mockResolvedValue({ fullText: 'ok', widgets: null, pendingActions: [], source: 'router_prose', usage: null });
+    const memories = [{ id: 12, kind: 'PREFERENCE', content: '짧은 목록으로 보여 준다' }];
+    await request(buildApp()).post('/ai/chat').send(validBody({ memories, memoryEnabled: true }));
+    expect(runAiChatStream).toHaveBeenCalledWith(
+      expect.objectContaining({ memories, memoryEnabled: true }),
+      expect.anything(),
+      expect.any(Function),
+      expect.any(AbortSignal),
+      expect.any(Function),
+      expect.any(Function),
+      expect.any(Function),
+    );
+  });
+
   it('델타 2개 → event: delta 2개 + event: done 발행', async () => {
     // 러너가 onText 를 2회 호출(점진 write) 후 정상 종료. done에 fullText + widgets 포함.
     vi.mocked(runAiChatStream).mockImplementation(async (_i, _d, onText) => {

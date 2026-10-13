@@ -150,14 +150,16 @@ export function loadSubagents(subagentsDir: string = path.resolve(here, 'subagen
 // #462 슬라이스4: SubagentDefinition → SDK AgentDefinition 매핑.
 // .claude/agents/*.md 파일 자동발견(CLI) 대신 Options.agents 로 코드 전달한다.
 // mcpServers:['workplace'] 문자열 참조 → top-level 인-프로세스 workplace 서버 공유(런타임 검증됨).
+// WP-55: promptSuffix(요청별 사용자 메모리 블록)를 모든 서브에이전트 prompt 끝에 붙인다 — 위임 답도 사용자 선호를 따르게.
 export function toAgentDefinitions(
   defs: Record<string, SubagentDefinition>,
+  promptSuffix = '',
 ): Record<string, AgentDefinition> {
   const out: Record<string, AgentDefinition> = {};
   for (const [name, d] of Object.entries(defs)) {
     const def: AgentDefinition = {
       description: d.description,
-      prompt: d.prompt,
+      prompt: d.prompt + promptSuffix,
       tools: d.tools,
       mcpServers: ['workplace'],
     };

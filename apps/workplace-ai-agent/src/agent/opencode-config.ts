@@ -151,7 +151,8 @@ export function buildOpencodeConfig(
           ...(i.allowFileRead ? { external_directory: 'deny' as const } : {}),
         },
       },
-      ...(i.allowSubagents ? toOpencodeSubagents(loadSubagents(), promptSuffix) : {}),
+      // WP-55: 서브에이전트에는 비전 규칙 뒤에 요청별 메모리 블록을 붙인다(primary 는 블록이 사용자 메시지에 있다).
+      ...(i.allowSubagents ? toOpencodeSubagents(loadSubagents(), promptSuffix + (i.subagentPromptSuffix ?? '')) : {}),
     },
     mcp: i.mcp
       ? {
