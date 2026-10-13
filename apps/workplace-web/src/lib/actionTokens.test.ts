@@ -38,12 +38,15 @@ describe.each(Object.entries(BRAND_THEMES))('filled action tokens (%s)', (_theme
 // 선택 상태 표시(WP-368) — 선택 배경(--selected) 위 글자 4.5:1, 왼쪽 primary 막대는 비텍스트 3:1(WCAG 1.4.11),
 // 선택 배경은 hover(accent 반투명)보다 확실히 진해야 하므로 바탕 대비도 잰다. 켜진 토글은 TOGGLE_ON_CLASS 의 채움(평소·hover) 위 primary 글자.
 
-/** TOGGLE_ON_CLASS 의 bg-primary/N 채움 투명도 — 라이트(변형 없음·hover:)와 다크(dark:·dark:hover:)로 나눈다. 상수를 바꾸면 테스트가 따라간다. */
-const toggleFillAlphas = (dark: boolean) =>
-  TOGGLE_ON_CLASS.split(' ').flatMap((t) => {
-    const m = /^(dark:)?(?:hover:)?bg-primary\/(\d+)$/.exec(t)
-    return m && Boolean(m[1]) === dark ? [Number(m[2]) / 100] : []
-  })
+/** TOGGLE_ON_CLASS 의 bg-primary/N 채움 투명도(중복 제거) — 라이트(변형 없음·hover:)와 다크(dark:·dark:hover:)로 나눈다. 상수를 바꾸면 테스트가 따라간다. */
+const toggleFillAlphas = (dark: boolean) => [
+  ...new Set(
+    TOGGLE_ON_CLASS.split(' ').flatMap((t) => {
+      const m = /^(dark:)?(?:hover:)?bg-primary\/(\d+)$/.exec(t)
+      return m && Boolean(m[1]) === dark ? [Number(m[2]) / 100] : []
+    }),
+  ),
+]
 describe.each(Object.entries(BRAND_THEMES))('selection tokens (%s)', (theme, body) => {
   const dark = theme.endsWith('dark')
   it('foreground on selected keeps 4.5:1', () => {
@@ -60,8 +63,7 @@ describe.each(Object.entries(BRAND_THEMES))('selection tokens (%s)', (theme, bod
     const alphas = toggleFillAlphas(dark)
     expect(alphas.length).toBeGreaterThan(0)
     for (const alpha of alphas) {
-      const fill = compositeLuminance(body, 'primary', alpha, under)
-      expect(contrast(luminance(oklchOf(body, 'primary')), fill), `bg-primary/${alpha * 100}`).toBeGreaterThanOrEqual(4.5)
+      expect(fgOn(body, 'primary', 'primary', alpha, under), `bg-primary/${alpha * 100}`).toBeGreaterThanOrEqual(4.5)
     }
   })
 })

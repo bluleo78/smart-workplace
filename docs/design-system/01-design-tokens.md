@@ -355,7 +355,7 @@ orange 계열 주의 색상. warning(amber)보다 강한 주의를 표현하기 
 | `.theme-ocean` | 195 (틸/시안) | `oklch(0.47 0.14 195)` | `oklch(0.75 0.12 195)` |
 | `.theme-sunset` | 50 (오렌지) | `oklch(0.53 0.18 50)` | `oklch(0.72 0.15 50)` |
 
-> 라이트 primary 명도는 대비로 정했다 — 예전 ocean 0.52·sunset 0.55 는 켜진 토글(연한 primary 채움 위 primary 글자)이 4.0·4.3:1, 채움 버튼 hover(`/90`) 흰 글자가 3.9·4.2:1 로 AA(4.5:1) 미달이라 0.47·0.53 으로 내렸다(WP-368). 값은 `actionTokens.test` 가 고정한다.
+> 라이트 primary 명도는 켜진 토글 글자·채움 버튼 hover 가 AA(4.5:1)를 지키도록 정했고 `actionTokens.test` 가 고정한다(변경 기록 v1.3).
 
 각 테마는 `.bg-gradient-main` 배경 그라데이션과 `logo-pulse` 애니메이션의 색상도 함께 오버라이드한다([08-animation-motion.md](./08-animation-motion.md) 참조).
 
