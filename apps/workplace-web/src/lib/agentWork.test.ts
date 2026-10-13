@@ -9,7 +9,7 @@ const w = (state: AgentWorkView['state'], extra: Partial<AgentWorkView> = {}): A
 })
 
 describe('primaryWork', () => {
-  it('가장 급한 상태', () => expect(primaryWork([w('WORKING'), w('REVIEW'), w('WAITING')])?.state).toBe('WAITING'))
+  it('서버가 급한 순으로 준 첫 건', () => expect(primaryWork([w('WAITING'), w('WORKING')])?.state).toBe('WAITING'))
   it('없으면 null', () => expect(primaryWork(undefined)).toBeNull())
 })
 describe('progressView', () => {

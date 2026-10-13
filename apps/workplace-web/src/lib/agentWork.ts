@@ -11,9 +11,6 @@ export const AGENT_STATE_LABEL: Record<AgentWorkState | 'NOT_STARTED', string> =
   NOT_STARTED: '시작 전',
 }
 
-/** 급한 순서 — 여러 작업자일 때 대표 상태를 고르는 기준(서버 정렬과 동일). */
-export const AGENT_STATE_ORDER: AgentWorkState[] = ['WAITING', 'REVIEW', 'BLOCKED', 'WORKING', 'PAUSED']
-
 /** 2시간 넘게 보고가 없을 때(stale) 툴팁. */
 export const STALE_TOOLTIP = '2시간 넘게 보고가 없어요'
 
@@ -24,10 +21,9 @@ export function agentToolLabel(tool: string): string {
   return TOOL_LABEL[tool] ?? tool
 }
 
-/** 이슈의 대표 작업 — 가장 급한 상태(동순위는 입력 순서 유지). 없으면 null. */
+/** 이슈의 대표 작업 — 서버가 급한 순(상태 순위 → 최근 보고)으로 내려주므로 첫 건. 없으면 null. */
 export function primaryWork(list?: AgentWorkView[]): AgentWorkView | null {
-  if (!list || list.length === 0) return null
-  return [...list].sort((a, b) => AGENT_STATE_ORDER.indexOf(a.state) - AGENT_STATE_ORDER.indexOf(b.state))[0]
+  return list?.[0] ?? null
 }
 
 /** 이슈 상세 질문 카드에 올릴 작업 — AI 구성원(AGENT)이 답변을 기다리는 첫 건. 사람의 답변 필요는 터미널에서 답하므로 제외. */

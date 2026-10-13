@@ -4,14 +4,13 @@ import type { Page } from '@playwright/test'
 
 import { expect, test } from '../../fixtures/auth.fixture'
 import { mockApi } from '../../fixtures/api-mock'
-import { createAgentWork, createAiTaskCounts, minutesAgo } from '../../factories/agentWork.factory'
+import { agentWorker as agent, createAgentWork, createAiTaskCounts, minutesAgo } from '../../factories/agentWork.factory'
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory'
 import { DESKTOP_WIDTHS, expectHeaderBottomAt56, expectStartAligned } from '../../fixtures/layout'
 import type { IssueResponse } from '../../../src/types/issue'
 import type { UserSummary } from '../../../src/types/user'
 
 const human: UserSummary = { id: 1, username: 'kim', name: '김사람', kind: 'HUMAN' }
-const agent: UserSummary = { id: 9, username: 'aki', name: '아키', kind: 'AGENT' }
 
 const LIST = '/api/v1/me/ai-tasks'
 const COUNTS = '/api/v1/me/ai-tasks/counts'

@@ -44,28 +44,26 @@ export function AgentToolChip({
   )
 }
 
-/** 진행률 막대 + 글자 — 진행 정보가 없으면 hideEmpty 일 때 숨기고 아니면 —. textOnly 면 막대 없이 글자만(좁은 모바일 메타 줄). */
+/** 진행률 막대 + 글자 — 진행 정보가 없으면 hideEmpty 일 때 숨기고 아니면 —. variant 'text' 면 막대 없이 글자만(좁은 모바일 메타 줄). */
 export function AgentProgress({
   w,
   className,
-  compact,
+  variant = 'bar',
   hideEmpty,
-  textOnly,
   'data-testid': testId,
 }: {
   w: Pick<AgentWorkView, 'progress' | 'stepsDone' | 'stepsTotal'>
   className?: string
-  compact?: boolean
+  variant?: 'bar' | 'text'
   hideEmpty?: boolean
-  textOnly?: boolean
   'data-testid'?: string
 }) {
   const v = progressView(w)
   if (!v) return hideEmpty ? null : <span className="text-muted-foreground" data-testid={testId}>—</span>
   return (
     <span className={cn('inline-flex items-center gap-2', className)} data-testid={testId}>
-      {!textOnly && (
-        <span className={cn('h-1.5 overflow-hidden rounded-full bg-muted', compact ? 'w-8' : 'w-12')} aria-hidden>
+      {variant === 'bar' && (
+        <span className="h-1.5 w-8 overflow-hidden rounded-full bg-muted" aria-hidden>
           <span className="block h-full rounded-full bg-primary" style={{ width: `${v.pct}%` }} />
         </span>
       )}

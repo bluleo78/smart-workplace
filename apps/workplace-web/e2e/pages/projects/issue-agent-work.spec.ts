@@ -1,26 +1,17 @@
 // 이슈 상세 AI 진행(WP-377) — 레일 「AI 진행」 섹션 · 답변 필요 질문 카드 · 「채팅에서 답하기」로 채팅 드로워 열기.
 // 전 구간 page.route 모킹(백엔드 무관). agentWork 는 서버가 급한 순(상태 순위 → 마지막 보고 최근순)으로 내려주고, 화면은 그 순서를 그대로 지킨다.
-import { createAgentWork, minutesAgo } from '../../factories/agentWork.factory'
+import { agentWorker as aki, createAgentWork, humanWorker as human, minutesAgo, twoWorks } from '../../factories/agentWork.factory'
 import { mockAgentWorkDetail } from '../../fixtures/issue-detail-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { boxOf } from '../../fixtures/layout'
-import type { UserSummary } from '../../../src/types/user'
 
 const URL = '/projects/WP/issues/12'
-const human: UserSummary = { id: 1, username: 'dh.yang@iacloud.kr', name: '양동희', kind: 'HUMAN' }
-const aki: UserSummary = { id: 9, username: 'aki', name: '아키', kind: 'AGENT' }
 
-// AI 구성원이 질문을 남기고 답변 대기 + 사람이 Claude Code 로 작업 중(3/5) — 실제 서버 순서(답변 필요 먼저).
-// 상대 시각이 테스트 시작 시점 기준이 되도록 테스트 안에서 만든다(모듈 로드 시각이면 늦게 도는 테스트에서 분이 밀린다).
-const twoWorks = () => [
-  createAgentWork({ worker: aki, state: 'WAITING', note: 'A안/B안 중 어느 쪽으로 진행할까요?', updatedAt: minutesAgo(62) }),
-  createAgentWork({ worker: human, state: 'WORKING', note: 'MCP 헤더 처리 중', stepsDone: 3, stepsTotal: 5, updatedAt: minutesAgo(5) }),
-]
 
 test('레일 AI 진행은 담당자 아래에 작업자별 상태·최근 보고·에이전트 유형·진행률·마지막 보고를 서버 순서대로 보여 준다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
   // 1440 — 레일이 본문 옆(280px)으로 서는 폭. 좁은 레일에서도 마지막 보고가 줄바꿈되지 않아야 한다.
   await page.setViewportSize({ width: 1440, height: 900 })
-  await mockAgentWorkDetail(page, twoWorks(), { assignees: [human, aki] })
+  await mockAgentWorkDetail(page, twoWorks('A안/B안 중 어느 쪽으로 진행할까요?'), { assignees: [human, aki] })
   await page.goto(URL)
 
   const rail = page.getByTestId('agent-work-rail')
@@ -69,7 +60,7 @@ test('레일 AI 진행은 담당자 아래에 작업자별 상태·최근 보고
 })
 
 test('AI 구성원이 답변 필요면 제목 아래·AI 현황 요약 위에 질문 카드가 보이고, 채팅에서 답하기는 채팅 드로워를 연다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
-  await mockAgentWorkDetail(page, twoWorks(), { assignees: [human, aki] })
+  await mockAgentWorkDetail(page, twoWorks('A안/B안 중 어느 쪽으로 진행할까요?'), { assignees: [human, aki] })
   await page.goto(URL)
 
   const card = page.getByTestId('agent-question-card')

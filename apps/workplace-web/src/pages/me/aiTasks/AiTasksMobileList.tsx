@@ -43,7 +43,7 @@ export function AiTasksMobileList({ items }: { items: IssueResponse[] }) {
                     <span className="shrink-0 font-mono">{it.projectKey}-{it.number}</span>
                     {state && <AgentStateBadge state={state} data-testid={`${tid}-state`} />}
                     {w && <AgentToolChip tool={w.tool} data-testid={`${tid}-tool`} />}
-                    {w && <AgentProgress w={w} textOnly hideEmpty className="shrink-0" data-testid={`${tid}-progress`} />}
+                    {w && <AgentProgress w={w} variant="text" hideEmpty className="shrink-0" data-testid={`${tid}-progress`} />}
                     {w && <AgentLastReport w={w} className="shrink-0" data-testid={`${tid}-last`} />}
                   </div>
                   <AiTaskAssignee issue={it} work={w} />

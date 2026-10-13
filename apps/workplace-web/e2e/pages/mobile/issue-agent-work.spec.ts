@@ -1,5 +1,5 @@
 // 모바일 이슈 상세 AI 진행(WP-377) — 속성 칩 아래 작업자별 칩 → 「AI 진행」 바텀시트, 질문 카드(좁은 폭에서 버튼 줄바꿈).
-import { createAgentWork, minutesAgo } from '../../factories/agentWork.factory'
+import { agentWorker as aki, createAgentWork, humanWorker as human, minutesAgo, twoWorks } from '../../factories/agentWork.factory'
 import { createIssue, createIssueDetail } from '../../factories/issue.factory'
 import { pushHeldEvents, resourceChangedFrame } from '../../fixtures/gatedEvents'
 import { mockAgentWorkDetail } from '../../fixtures/issue-detail-mock'
@@ -7,20 +7,12 @@ import { boxOf } from '../../fixtures/layout'
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture'
 import { expectStays } from '../../fixtures/wait'
 import type { AgentWorkView } from '../../../src/types/issue'
-import type { UserSummary } from '../../../src/types/user'
 
-const human: UserSummary = { id: 1, username: 'dh.yang@iacloud.kr', name: '양동희', kind: 'HUMAN' }
-const aki: UserSummary = { id: 9, username: 'aki', name: '아키', kind: 'AGENT' }
 
-// 실제 서버 순서(급한 순: 답변 필요 → 작업 중) — 화면은 그 순서를 그대로 지킨다.
-const twoWorks = () => [
-  createAgentWork({ worker: aki, state: 'WAITING', note: '테스트 DB 를 공용으로 쓸까요, 이슈별로 따로 띄울까요?', updatedAt: minutesAgo(62) }),
-  createAgentWork({ worker: human, state: 'WORKING', note: 'MCP 헤더 처리 중', stepsDone: 3, stepsTotal: 5, updatedAt: minutesAgo(5) }),
-]
 
 test('속성 칩 아래 작업자별 칩을 탭하면 AI 진행 시트가 레일과 같은 내용을 보여 준다', async ({ authenticatedPage: page }) => {
   await stubChat(page)
-  await mockAgentWorkDetail(page, twoWorks(), { assignees: [human, aki] })
+  await mockAgentWorkDetail(page, twoWorks('테스트 DB 를 공용으로 쓸까요, 이슈별로 따로 띄울까요?'), { assignees: [human, aki] })
   await page.goto('/projects/WP/issues/12')
 
   const akiChip = page.getByTestId('agent-work-chip-9')
@@ -50,7 +42,7 @@ test('속성 칩 아래 작업자별 칩을 탭하면 AI 진행 시트가 레일
 
 test('질문 카드는 좁은 폭에서 버튼을 줄바꿈해 보이고 탭하면 채팅을 연다', async ({ authenticatedPage: page }) => {
   await stubChat(page)
-  await mockAgentWorkDetail(page, twoWorks(), { assignees: [human, aki] })
+  await mockAgentWorkDetail(page, twoWorks('테스트 DB 를 공용으로 쓸까요, 이슈별로 따로 띄울까요?'), { assignees: [human, aki] })
   await page.goto('/projects/WP/issues/12')
 
   const card = page.getByTestId('agent-question-card')

@@ -49,7 +49,7 @@ export function AgentWorkRailSection({
               {/* 메타 줄 — 유형 칩이 먼저 줄어들고 진행률·마지막 보고는 한 줄을 지킨다(시제품에서 "5분 전"이 세로로 쪼개지던 문제). */}
               <div className="flex min-w-0 items-center gap-2 pl-6">
                 <AgentToolChip tool={w.tool} className="min-w-0 shrink" />
-                <AgentProgress w={w} compact hideEmpty className="shrink-0" data-testid={`${id}-progress`} />
+                <AgentProgress w={w} hideEmpty className="shrink-0" data-testid={`${id}-progress`} />
                 <AgentLastReport w={w} className="ml-auto shrink-0 whitespace-nowrap" data-testid={`${id}-last`} />
               </div>
             </li>

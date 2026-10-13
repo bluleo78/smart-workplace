@@ -12,8 +12,8 @@ const work = (state: AgentWorkView['state']): AgentWorkView => ({
 
 // 체크리스트 행 배지 — 진행 중 작업이 있으면 대표 상태, 없고 AI 담당이면 AI 위임(TODO 는 시작 전), 그 외 없음.
 describe('delegationState', () => {
-  it('진행 중 작업이 있으면 대표 상태', () =>
-    expect(delegationState({ assignees: [agent], status: 'IN_PROGRESS', agentWork: [work('WORKING'), work('BLOCKED')] })).toBe('BLOCKED'))
+  it('진행 중 작업이 있으면 서버가 급한 순으로 준 첫 건의 상태', () =>
+    expect(delegationState({ assignees: [agent], status: 'IN_PROGRESS', agentWork: [work('BLOCKED'), work('WORKING')] })).toBe('BLOCKED'))
   it('사람만 담당이어도 작업이 있으면 대표 상태', () =>
     expect(delegationState({ assignees: [human], status: 'IN_PROGRESS', agentWork: [work('WAITING')] })).toBe('WAITING'))
   it('작업 없고 AI 담당 TODO 면 시작 전', () =>

@@ -3,13 +3,11 @@
 // 메타 줄은 자르거나 말줄임하지 않는다 — 진행률은 글자만, 폭이 모자라면 뒤쪽 항목이 다음 줄로 넘어간다.
 import type { Page } from '@playwright/test'
 
-import { createAgentWork, createAiTaskCounts, minutesAgo } from '../../factories/agentWork.factory'
+import { agentWorker as agent, createAgentWork, createAiTaskCounts, minutesAgo } from '../../factories/agentWork.factory'
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture'
-import type { UserSummary } from '../../../src/types/user'
 
-const agent: UserSummary = { id: 9, username: 'aki', name: '아키', kind: 'AGENT' }
 
 const ROWS = [
   createIssue({

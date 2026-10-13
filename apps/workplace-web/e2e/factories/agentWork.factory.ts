@@ -6,6 +6,9 @@ import type { UserSummary } from '../../src/types/user'
 /** 기본 작업자 — AI 구성원(아바타에 에이전트 표식이 붙는다). */
 export const agentWorker: UserSummary = { id: 9, username: 'aki', name: '아키', kind: 'AGENT' }
 
+/** 사람 작업자 — 이슈 상세 AI 진행 spec 공용(담당자·작업자 모두 이 사용자). */
+export const humanWorker: UserSummary = { id: 1, username: 'dh.yang@iacloud.kr', name: '양동희', kind: 'HUMAN' }
+
 /** 지금으로부터 min 분 전 ISO 시각 — 마지막 보고 상대 시각(relTime) 검증용. 버킷 경계를 피하는 값을 넘긴다. */
 export const minutesAgo = (min: number) => new Date(Date.now() - min * 60_000).toISOString()
 
@@ -30,3 +33,12 @@ export function createAgentWork(overrides: Partial<AgentWorkView> = {}): AgentWo
 export function createAiTaskCounts(overrides: Partial<AiTaskCounts> = {}): AiTaskCounts {
   return { all: 0, waiting: 0, review: 0, blocked: 0, working: 0, ...overrides }
 }
+
+/**
+ * 서버 순서(급한 순) 그대로의 두 작업 — AI 구성원이 질문을 남기고 답변 대기(62분 전) + 사람이 Claude Code 로 작업 중(3/5, 5분 전).
+ * 상대 시각이 테스트 시작 시점 기준이 되도록 호출 시점에 만든다(모듈 로드 시각이면 늦게 도는 테스트에서 분이 밀린다).
+ */
+export const twoWorks = (akiNote: string): AgentWorkView[] => [
+  createAgentWork({ worker: agentWorker, state: 'WAITING', note: akiNote, updatedAt: minutesAgo(62) }),
+  createAgentWork({ worker: humanWorker, state: 'WORKING', note: 'MCP 헤더 처리 중', stepsDone: 3, stepsTotal: 5, updatedAt: minutesAgo(5) }),
+]
