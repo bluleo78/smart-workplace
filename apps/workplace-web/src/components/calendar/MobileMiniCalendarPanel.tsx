@@ -1,8 +1,14 @@
 // 모바일 캘린더 헤더 미니 달력(WP-136) — 헤더 제목 버튼(「10월 ▾」)을 누르면 헤더 바로 아래에 펼쳐져 본문을 밀어 내린다(시안 ③).
 // 데스크톱 사이드바 미니 캘린더와 같은 ui/calendar·점 모양을 쓰되, 표시 월(month)은 본문 anchor 와 따로 둔다 —
 // 패널 안에서 ‹ › 로 달을 넘겨 보는 동안 본문은 움직이지 않고, 날짜를 골랐을 때만 그 날로 이동한다.
+import { getDefaultClassNames } from 'react-day-picker'
+
 import { miniCalendarDotClass } from '@/components/calendar/miniCalendarClass'
 import { Calendar } from '@/components/ui/calendar'
+
+// ui/calendar 기본 root 는 w-fit(그리드 = 칸 7개 폭)이라 화면 가운데 280px 에만 그려진다 — 패널 폭 전체로 편다.
+// classNames 는 키 단위로 덮어쓰므로 react-day-picker 기본 클래스(rdp-root)는 다시 붙인다.
+const ROOT_CLASS = `w-full ${getDefaultClassNames().root}`
 
 interface MobileMiniCalendarPanelProps {
   /** 헤더 제목 버튼의 aria-controls 대상. */
@@ -48,10 +54,12 @@ export function MobileMiniCalendarPanel({
         month={month}
         onMonthChange={onMonthChange}
         onSelect={onSelect}
-        // 칸 40px — 손가락으로 누를 만한 크기를 지키면서 패널 높이(≈ 6주)를 줄여 아래 목록이 보이게 한다. 주 사이 간격도 좁힌다.
-        // 고른 날은 둥근 사각형 대신 채운 원(시안).
-        className="mx-auto px-2 pt-1 pb-2 [--cell-size:2.5rem] [&_[data-selected-single=true]]:rounded-full"
+        // 터치 44px — ‹ ›·캡션 줄은 --cell-size 로, 날짜 버튼은 칸(폭 ≈ 화면/7)의 aspect-square·w-full 을 풀어 44px 원으로 가운데 둔다
+        // (ui/calendar 는 수동 편집 금지라 사용처 선택자로 덮는다 — 날짜 버튼만 data-slot=button 이다). 칸도 정사각형을 풀어 주 높이를 44px 로.
+        // 고른 날은 둥근 사각형 대신 채운 원(시안). 주 사이 간격은 좁힌다.
+        className="px-2 pt-1 pb-2 [--cell-size:2.75rem] [&_[data-selected-single=true]]:rounded-full [&_td]:aspect-auto [&_[data-slot=button]]:mx-auto [&_[data-slot=button]]:size-11 [&_[data-slot=button]]:aspect-auto"
         classNames={{
+          root: ROOT_CLASS,
           month: 'flex w-full flex-col gap-2',
           week: 'mt-0.5 flex w-full',
           // 오늘 = 배경 없이 primary 굵은 글자(시안 ③) — 채운 원은 고른 날 전용.

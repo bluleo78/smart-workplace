@@ -105,20 +105,24 @@ export function CalendarSidebar({
             <div
               key={c.id}
               data-testid={`calendar-list-item-${c.id}`}
-              className="group mb-1 flex cursor-pointer items-center gap-2 text-sm"
+              className="group mb-1 flex items-center gap-2 text-sm"
             >
-              <Checkbox
-                data-testid={`calendar-toggle-${c.id}`}
-                checked={visible}
-                onCheckedChange={() => onToggleCalendar(c.id)}
-                aria-label={`캘린더 표시: ${c.name}`}
-              />
-              {/* 캘린더 색 점 */}
-              <span
-                className={`size-2.5 shrink-0 rounded-sm ${palette.dotClass}`}
-                aria-hidden="true"
-              />
-              <span className="min-w-0 flex-1 truncate">{c.name}</span>
+              {/* 체크박스·색 점·이름을 label 로 묶어 이름을 눌러도 토글된다(기타 그룹 행과 같은 구조) — 전엔 16px 체크박스만 눌렸다.
+                  세로로 행을 채워(self-stretch) 모바일 ☰ 시트의 44px 행 전체가 탭 영역이 된다. 케밥·배지는 label 밖(중첩 상호작용 방지). */}
+              <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 self-stretch">
+                <Checkbox
+                  data-testid={`calendar-toggle-${c.id}`}
+                  checked={visible}
+                  onCheckedChange={() => onToggleCalendar(c.id)}
+                  aria-label={`캘린더 표시: ${c.name}`}
+                />
+                {/* 캘린더 색 점 */}
+                <span
+                  className={`size-2.5 shrink-0 rounded-sm ${palette.dotClass}`}
+                  aria-hidden="true"
+                />
+                <span className="min-w-0 flex-1 truncate">{c.name}</span>
+              </label>
               {/* 외부 동기화 캘린더: 읽기전용 배지 표시, 케밥 메뉴 숨김 (이슈 #501) */}
               {c.isReadOnly ? (
                 <Badge

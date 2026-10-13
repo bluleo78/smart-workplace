@@ -1,4 +1,4 @@
-import { addDays, addMonths, format, startOfDay } from 'date-fns'
+import { addDays, addMonths, format, isSameMonth, startOfDay, startOfMonth } from 'date-fns'
 import { ChevronDown } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
@@ -39,6 +39,7 @@ import { useMyIssueDues } from '@/hooks/queries/useMyIssueDues'
 import { useHistoryParam } from '@/hooks/useHistoryParam'
 import { useHorizontalSwipe } from '@/hooks/useHorizontalSwipe'
 import { getIsMobile, useIsMobile } from '@/hooks/useIsMobile'
+import { useMinuteNow } from '@/hooks/useMinuteNow'
 import { buildCalendarContext } from '@/lib/aiScreenContext/builders/calendar'
 import {
   CALENDAR_VIEWS,
@@ -89,6 +90,16 @@ export function CalendarPage() {
   const [anchor, setAnchor] = useState(() => startOfDay(new Date()))
   // 모바일 목록 보기 = 일정 목록(MobileAgendaView, 무한 불러오기). 데스크톱 목록은 기존 AgendaView 그대로.
   const mobileAgenda = isMobile && view === 'agenda'
+  // 목록의 지금 시각 — 열어 둔 채 시간이 흘러도 지금 선·흐림이 따라가게 1분마다·화면 복귀 시 갱신(목록 보기에서만).
+  const now = useMinuteNow(mobileAgenda)
+  // 자정을 넘겨 오늘이 바뀌면, 목록이 (지난) 오늘부터 보고 있던 경우에만 새 오늘로 따라간다 — 미니 달력으로 고른
+  // 다른 날은 그대로 둔다(렌더 중 조정). anchor 가 바뀌면 useAgendaChunks 가 청크를 새 시작일로 되돌린다.
+  const todayKey = startOfDay(now).getTime()
+  const [seenTodayKey, setSeenTodayKey] = useState(todayKey)
+  if (seenTodayKey !== todayKey) {
+    setSeenTodayKey(todayKey)
+    if (anchor.getTime() === seenTodayKey) setAnchor(new Date(todayKey))
+  }
   // 모바일 헤더 미니 달력(WP-136) — 펼침 여부와 패널이 보여 주는 달(패널 안 ‹ › 는 본문 anchor 를 움직이지 않는다).
   const [miniOpen, setMiniOpen] = useState(false)
   const [panelMonth, setPanelMonth] = useState(anchor)
@@ -251,22 +262,30 @@ export function CalendarPage() {
   // 모바일 월·주·일 본문 좌우 스와이프(WP-136) — 왼쪽으로 밀면 다음 기간, 오른쪽이면 이전 기간. 목록 보기에는 걸지 않는다(무한 스크롤).
   const swipe = useHorizontalSwipe((dir) => step(dir === 'next' ? 1 : -1))
 
-  // [오늘] — anchor 를 오늘로. 모바일 목록은 청크를 1개로 되돌리고 맨 위로(이미 오늘부터 보고 있었어도 — anchor 가 같으면 훅이 스스로 되돌리지 않는다),
-  // 헤더 월도 목록이 새 맨 위 날을 알려 올 때까지 오늘의 달로 둔다.
+  // 모바일 목록을 첫 청크·맨 위로 되돌린다(anchor 가 같으면 훅이 스스로 되돌리지 않는다). 헤더 월도 목록이
+  // 새 맨 위 날을 알려 올 때까지 anchor 의 달로 둔다. [오늘]·보기 전환·미니 달력 날짜 선택이 함께 쓴다.
+  const resetAgenda = () => {
+    agenda.reset()
+    setListTop(null)
+  }
+
+  // [오늘] — anchor 를 오늘로. 모바일 목록은 이미 오늘부터 보고 있었어도 첫 청크·맨 위로.
   const goToday = () => {
     setAnchor(startOfDay(new Date()))
-    if (mobileAgenda) {
-      agenda.reset()
-      setListTop(null)
-    }
+    if (mobileAgenda) resetAgenda()
   }
 
   // 보기 전환(모바일 select). 목록으로 다시 들어오면 청크를 1개로 되돌린다 — 예전에 불러 둔 뒤 청크를 전부 다시 받지 않게.
+  // 월 보기에서 들어오면 목록 시작을 그 달 기준으로 잡는다 — anchor 그대로면 12월로 넘긴 뒤 12/13 부터 시작해 12/1~12/12 가 숨는다.
+  // 이번 달이면 오늘, 아니면 그 달 1일. 주·일 보기에서 들어오면 보던 날(anchor) 그대로.
   const changeView = (next: CalendarViewType) => {
     setView(next)
     if (isMobile && next === 'agenda') {
-      agenda.reset()
-      setListTop(null)
+      if (view === 'month') {
+        const today = startOfDay(new Date())
+        setAnchor(isSameMonth(anchor, today) ? today : startOfMonth(anchor))
+      }
+      resetAgenda()
     }
   }
 
@@ -286,10 +305,7 @@ export function CalendarPage() {
   const pickMiniDate = (d: Date) => {
     setAnchor(startOfDay(d))
     closeMini()
-    if (mobileAgenda) {
-      agenda.reset()
-      setListTop(null)
-    }
+    if (mobileAgenda) resetAgenda()
   }
 
   // 새 일정 다이얼로그 열기 (시작 시각 선택 시 전달)
@@ -513,7 +529,7 @@ export function CalendarPage() {
   // ▾ 는 글자가 아닌 아이콘(aria-hidden) — 제목 텍스트(calendar-title·h1)에 섞이지 않게. 데스크톱 제목은 'yyyy년 M월' 그대로.
   // 접근성 이름 = 보이는 달("10월") 그대로 — h1 이름도 "10월"로 남는다. 동작(날짜 선택 달력)은 aria-expanded 와
   // 헤더 밖의 숨긴 설명(aria-describedby)으로 알린다. aria-controls 는 패널이 그려져 있을 때만 건다.
-  const headerLabel = headerMonthLabel(headerMonth, new Date())
+  const headerLabel = headerMonthLabel(headerMonth, now)
   const title = isMobile ? (
     <button
       ref={titleToggleRef}
@@ -526,7 +542,8 @@ export function CalendarPage() {
       onKeyDown={(e) => {
         if (e.key === 'Escape' && miniOpen) closeMini()
       }}
-      className="inline-flex max-w-full items-center gap-1"
+      // 터치 높이 44px(헤더 56px 안) — 모바일 핵심 진입점. 좌우 -mx-1·px-1 로 글자 시작 위치는 그대로 두고 눌림 배경만 준다.
+      className="-mx-1 inline-flex min-h-11 max-w-full items-center gap-1 rounded-md px-1 active:bg-accent"
     >
       <span data-testid="calendar-title" className="truncate">{headerLabel}</span>
       <ChevronDown
@@ -605,7 +622,9 @@ export function CalendarPage() {
               markedDates={markedDates}
             />
           )}
-          {isMobile && (
+          {/* 미니 달력을 펼친 동안엔 도구 줄을 숨겨 패널 바로 아래 목록이 이어지게 한다(시안 ③) — 펼친 동안 [오늘]은 날짜 탭으로,
+              보기 전환은 패널과 무관해 잃는 기능이 없고, 열린 상태는 헤더 ▲ 가 알린다. */}
+          {isMobile && !miniOpen && (
             <div data-testid="calendar-mobile-toolbar" className="flex h-12 shrink-0 items-center gap-1 border-b px-2">
               {navControls}
               <div className="flex-1" />
@@ -636,6 +655,7 @@ export function CalendarPage() {
             {mobileAgenda && (
               <MobileAgendaView
                 agenda={agenda}
+                now={now}
                 onSelectEvent={openEdit}
                 onSelectIssue={openIssue}
                 onTopDayChange={(day) => setListTop({ anchorKey: anchor.getTime(), day })}

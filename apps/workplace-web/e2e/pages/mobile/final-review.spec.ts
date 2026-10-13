@@ -78,8 +78,7 @@ test('캘린더 헤더: 390px 에서 제목이 읽히고 뷰 전환이 가능하
   // 제목이 잘리지 않는다(스크롤 폭 ≤ 표시 폭) — h1 과 그 안 제목 버튼의 달 글자(truncate) 모두.
   expect(await h1.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(false)
   expect(await title.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(false)
-  // 선택 → 실제 뷰가 바뀐다(상태만이 아니라 화면 반영).
-  await select.selectOption('month')
+  // 선택 → 실제 뷰가 바뀐다(상태만이 아니라 화면 반영) — 위에서 고른 월 보기가 그려져 있고, 목록으로 바꾸면 목록만 남는다.
   await expect(page.getByTestId('calendar-view-month')).toBeVisible()
   await expect(page.getByTestId('calendar-view-agenda')).toHaveCount(0)
   await select.selectOption('agenda')

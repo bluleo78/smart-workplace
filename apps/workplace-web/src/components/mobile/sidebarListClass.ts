@@ -13,7 +13,10 @@ export const mobileSidebarListClass = cn(
   '[&>aside]:min-h-full',
   '[&>aside>:first-child]:hidden',
   // 행(링크·버튼) 터치 영역 최소 44px(모바일 관례) — 섹션 머리말 안의 아이콘 버튼은 아래에서 되돌린다.
-  '[&_a]:min-h-11 [&_button]:min-h-11',
+  // 체크박스(Radix Checkbox = button[role=checkbox])는 빼고, 대신 체크박스를 직접 품은 행(label·div)을 44px 로 —
+  // 버튼 규칙이 체크박스에 걸리면 16×44 세로 막대로 그려졌다(캘린더 ☰ 시트). 사이드바 중 체크박스는 캘린더뿐.
+  '[&_a]:min-h-11 [&_button:not([role=checkbox])]:min-h-11',
+  '[&_:has(>[role=checkbox])]:min-h-11',
   // 행 글자는 본문색(데스크톱 사이드바의 흐린 muted 대신) — 목록이 화면의 주 콘텐츠이므로. 보조 글자·아이콘은 자체 클래스 유지.
   '[&_nav_a]:text-foreground [&_a.rounded-md]:text-foreground',
   // 미읽음 배지(bg-destructive)가 붙은 행은 굵게 — 사이드바가 이미 노출하는 미읽음 상태만 사용(새 데이터 없음).

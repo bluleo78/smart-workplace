@@ -59,9 +59,11 @@ const DUE_ISSUE = createIssue({ id: 7, projectKey: 'WP', number: 136, title: 'WP
  */
 async function stubCalendar(
   page: Page,
-  opts: { events?: CalendarEvent[]; issues?: IssueResponse[]; issuesDelayMs?: number } = {},
+  opts: { events?: CalendarEvent[]; issues?: IssueResponse[]; issuesDelayMs?: number; runningClock?: boolean } = {},
 ) {
-  await page.clock.setFixedTime(NOW)
+  // runningClock — 시간이 흐르는 가짜 시계(page.clock.fastForward 로 앱 타이머까지 경과). 기본은 고정 시각.
+  if (opts.runningClock) await page.clock.install({ time: NOW })
+  else await page.clock.setFixedTime(NOW)
   const events = opts.events ?? baseEvents()
   const issues = opts.issues ?? [DUE_ISSUE]
   const requests: { from: string; to: string }[] = []
@@ -201,11 +203,28 @@ test('④ 헤더 제목 탭 → 미니 달력(점·달 넘김) → 날짜 선택
   await expect(list.getByTestId('calendar-agenda-day-2026-10-13')).toBeVisible()
 
   const toggle = page.getByTestId('calendar-title-toggle')
+  const toolbar = page.getByTestId('calendar-mobile-toolbar')
+  await expect(toolbar).toBeVisible()
   await toggle.click()
   await expect(toggle).toHaveAttribute('aria-expanded', 'true')
   const mini = page.getByTestId('calendar-mobile-mini')
   await expect(mini).toBeVisible()
   await expect(mini).toContainText('2026년 10월')
+  // 펼친 동안 도구 줄을 숨겨 패널 바로 아래 목록이 이어진다(시안 ③) — 목록 윗변 = 패널 아랫변.
+  await expect(toolbar).toHaveCount(0)
+  const panelBox = (await mini.boundingBox())!
+  expect(Math.round((await list.boundingBox())!.y)).toBe(Math.round(panelBox.y + panelBox.height))
+  // 패널 폭 전체 7열(가운데 280px 가 아니라) · 날짜 버튼과 ‹ › 는 44×44 터치 영역.
+  expect((await mini.locator('table').boundingBox())!.width).toBeGreaterThan(340)
+  for (const btn of [
+    mini.getByRole('button', { name: '2026년 10월 14일 수요일' }),
+    mini.getByRole('button', { name: '다음 달' }),
+    mini.getByRole('button', { name: '이전 달' }),
+  ]) {
+    const b = (await btn.boundingBox())!
+    expect(b.width).toBeGreaterThanOrEqual(44)
+    expect(b.height).toBeGreaterThanOrEqual(44)
+  }
   // 패널이 열리면 그 달(6주 그리드) 범위를 조회해 일정 있는 날에 점을 찍는다.
   await expect.poll(() => requests.map((r) => r.from)).toContain(OCT_GRID_FROM)
   await expect(mini.locator('td[data-day="2026-10-14"]')).toHaveClass(/day-has-items/)
@@ -213,6 +232,15 @@ test('④ 헤더 제목 탭 → 미니 달력(점·달 넘김) → 날짜 선택
   await expect(mini.locator('td[data-day="2026-10-18"]')).not.toHaveClass(/day-has-items/)
   // 선택일 = 오늘(anchor).
   await expect(mini.locator('td[data-day="2026-10-13"]')).toHaveAttribute('aria-selected', 'true')
+  // 고른 날(채운 primary 원)의 점은 원 안 글자색이라 보인다 — 고르지 않은 날 점(primary)과 색이 달라야 한다.
+  const dotColor = (day: string) =>
+    mini.locator(`td[data-day="${day}"]`).evaluate((el) => getComputedStyle(el, '::after').backgroundColor)
+  await expect(mini.locator('td[data-day="2026-10-13"]')).toHaveClass(/day-has-items/)
+  const selectedBtnBg = await mini
+    .getByRole('button', { name: '2026년 10월 13일 화요일' })
+    .evaluate((el) => getComputedStyle(el).backgroundColor)
+  expect(await dotColor('2026-10-13')).not.toBe(selectedBtnBg)
+  expect(await dotColor('2026-10-14')).toBe(selectedBtnBg)
 
   // 패널 안 › — 패널 달만 넘어가고(11월 그리드 조회·점) 본문 목록은 그대로.
   const chunkCount = requests.filter((r) => r.from === CHUNK1.from).length
@@ -229,6 +257,7 @@ test('④ 헤더 제목 탭 → 미니 달력(점·달 넘김) → 날짜 선택
   await mini.getByRole('button', { name: '2026년 10월 16일 금요일' }).click()
   await expect(mini).toHaveCount(0)
   await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  await expect(toolbar).toBeVisible()
   await expect.poll(() => requests).toContainEqual({ from: '2026-10-15T15:00:00.000Z', to: '2026-11-14T15:00:00.000Z' })
   await expect(list.getByTestId('calendar-agenda-day-2026-10-16')).toContainText('10월 16일 (금)')
   await expect(list.getByTestId('calendar-agenda-day-2026-10-13')).toHaveCount(0)
@@ -320,6 +349,9 @@ test('미니 달력 접근성 — 제목 이름은 달 그대로, 펼침 상태�
   await expect(toggle).toHaveAccessibleName('10월')
   await expect(toggle).toHaveAccessibleDescription('날짜를 골라 이동하는 달력')
   await expect(toggle).not.toHaveAttribute('aria-controls')
+  // 제목 버튼 터치 높이 44px 이상 — 헤더(56px)는 그대로.
+  expect((await toggle.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+  expect((await page.getByTestId('page-header').boundingBox())!.height).toBe(56)
 
   // 펼침 → aria-controls 가 패널을 가리킨다. 날짜 선택으로 접히면 포커스가 제목 버튼으로 돌아온다.
   await toggle.click()
@@ -343,15 +375,16 @@ test('미니 달력 접근성 — 제목 이름은 달 그대로, 펼침 상태�
   await page.keyboard.press('Escape')
   await expect(mini).toHaveCount(0)
 
-  // 펼친 채 본문 달이 바뀌면(월 보기 › / [오늘]) 패널 달도 따라간다.
+  // 펼친 채 본문 달이 바뀌면 패널 달도 따라간다. 펼친 동안엔 도구 줄(‹ ›·[오늘])이 숨으므로 월 본문 스와이프로 넘긴다.
   await page.getByTestId('calendar-view-select').selectOption('month')
   await toggle.click()
   await expect(mini).toContainText('2026년 10월')
-  await page.getByTestId('calendar-next').click()
+  await swipe(page, -150, 0.8)
   await expect(page.getByTestId('calendar-title')).toHaveText('11월')
   await expect(mini).toContainText('2026년 11월')
   await expect(mini.locator('td[data-day="2026-11-20"]')).toHaveClass(/day-has-items/)
-  await page.getByTestId('calendar-today').click()
+  await swipe(page, 150, 0.8)
+  await expect(page.getByTestId('calendar-title')).toHaveText('10월')
   await expect(mini).toContainText('2026년 10월')
 })
 
@@ -391,9 +424,17 @@ test('⑥ ☰ 시트 — 미니 달력 없이 [새 일정]과 캘린더 토글, 
   await expect(sheet.getByTestId('calendar-list-item-2')).toContainText('팀 일정')
   await expect(sheet.getByTestId('calendar-layer-issue-dues')).toBeVisible()
   await expectNoHorizontalOverflow(page)
+  // 체크박스는 정사각형(행 높이 규칙이 체크박스에 걸려 16×44 막대가 되던 회귀), 체크박스를 품은 행은 44px 터치 높이.
+  for (const id of ['calendar-toggle-2', 'calendar-layer-issue-dues']) {
+    const cb = (await sheet.getByTestId(id).boundingBox())!
+    expect(cb.width).toBe(cb.height)
+    expect((await sheet.getByTestId(id).locator('..').boundingBox())!.height).toBeGreaterThanOrEqual(44)
+  }
+  expect((await sheet.getByTestId('calendar-list-item-2').boundingBox())!.height).toBeGreaterThanOrEqual(44)
 
-  // 팀 일정 끄기 → 목록에서 팀 일정(1·2·4) 행이 빠지고 오늘 건수가 1건이 된다.
-  await sheet.getByTestId('calendar-toggle-2').click()
+  // 팀 일정 끄기 — 체크박스가 아니라 이름을 탭해도 토글된다 → 목록에서 팀 일정(1·2·4) 행이 빠지고 오늘 건수가 1건이 된다.
+  await sheet.getByTestId('calendar-list-item-2').getByText('팀 일정', { exact: true }).tap()
+  await expect(sheet.getByTestId('calendar-toggle-2')).toHaveAttribute('aria-checked', 'false')
   await page.keyboard.press('Escape')
   await expect(sheet).toBeHidden()
   await expect(list.getByTestId('calendar-event-1')).toHaveCount(0)
@@ -423,11 +464,15 @@ test('⑦ [오늘] — 멀리 스크롤했거나 다른 날로 옮겼어도 오�
   await expect.poll(() => list.evaluate((el) => el.scrollTop)).toBe(0)
   await expect(page.getByTestId('calendar-title')).toHaveText('10월')
   await expect(list.getByTestId('calendar-agenda-day-2026-10-13')).toContainText('오늘 · 10월 13일 (화)')
-  // (청크가 1개로 돌아가는 것은 '목록 재진입' 테스트가 본다 — 여기서는 청크가 줄며 스크롤이 끝으로 눌린 한 프레임에
-  //  끝 센티널이 보여 둘째 청크를 다시 부를 수 있어(맨 위 이동 effect 가 그 뒤에 돈다) 행 부재로 단언하지 않는다.)
+  // 청크가 1개로 돌아가 둘째 청크 일정(11/20)이 사라진다 — 줄어든 목록이 맨 위로 가기 전 한 프레임에 끝 센티널이 보이거나,
+  // 클릭 전에 쌓인 센티널 콜백이 reset 뒤에 불려 둘째 청크를 다시 붙이던 경합의 회귀 방지. (page.clock 고정이라 요청 수는 캐시
+  // 히트로 무의미 — DOM 으로 본다.) 뒤이은 동작(미니 달력 열기)을 기다린 뒤에도 여전히 없어야 한다.
+  await expect(list.getByTestId('calendar-event-300')).toHaveCount(0)
 
   // 다른 날(10/20)로 옮긴 뒤 [오늘] → 다시 오늘부터.
   await page.getByTestId('calendar-title-toggle').click()
+  await expect(page.getByTestId('calendar-mobile-mini')).toBeVisible()
+  await expect(list.getByTestId('calendar-event-300')).toHaveCount(0)
   await page.getByTestId('calendar-mobile-mini').getByRole('button', { name: '2026년 10월 20일 화요일' }).click()
   await expect(list.locator('[data-day-key]').first()).toHaveAttribute('data-day-key', '2026-10-20')
   await today.click()
@@ -478,4 +523,105 @@ test('회귀 — 불러온 범위 끝 다음 날(dueTo 포함일) 마감은 숨�
   await list.evaluate((el) => el.scrollTo({ top: el.scrollHeight }))
   await expect(list.getByTestId('calendar-issue-due-12')).toHaveCount(1)
   await expect(list.locator('[data-day-key="2026-11-12"]')).toContainText('경계 마감')
+})
+
+// 시작일 전에 시작해 이어지는 일정(WP-136 A1) — 10/11~10/16 종일 학회(동기화 UTC 자정, 끝 배타 10/17)·어제 밤부터 오늘 09:00 까지의 점검.
+// 끝이 정확히 오늘 자정인 일정(시간·종일)은 오늘 묶음에 들어오지 않는다.
+function ongoingEvents(): CalendarEvent[] {
+  return [
+    calendarEvent({ id: 400, title: '추계 학회', allDay: true, startsAt: '2026-10-11T00:00:00Z', endsAt: '2026-10-17T00:00:00Z' }),
+    calendarEvent({ id: 401, title: '야간 배포 점검', startsAt: kst('2026-10-12', '22:00'), endsAt: kst('2026-10-13', '09:00') }),
+    calendarEvent({ id: 402, title: '어제 밤 끝난 회의', startsAt: kst('2026-10-12', '22:00'), endsAt: kst('2026-10-13', '00:00') }),
+    calendarEvent({ id: 403, title: '어제 종일', allDay: true, startsAt: '2026-10-12T00:00:00Z', endsAt: '2026-10-13T00:00:00Z' }),
+  ]
+}
+
+test('진행 중 일정 — 어제 시작한 여러 날 일정이 오늘(시작일) 묶음 맨 앞에 끝 날짜와 함께 보이고, 미니 달력으로 고른 날에도 보인다', async ({ authenticatedPage: page }) => {
+  await stubCalendar(page, { events: [...baseEvents(), ...ongoingEvents()] })
+  await page.goto('/calendar')
+  const list = agendaList(page)
+  const today = list.locator('[data-day-key="2026-10-13"]')
+
+  // 오늘 묶음 = 이어지는 일정 2건 + 오늘 일정 3건. 끝이 정확히 오늘 자정인 일정은 없다. 어제 묶음은 만들지 않는다.
+  await expect(list.getByTestId('calendar-agenda-day-2026-10-13')).toContainText('5건')
+  await expect(list.getByTestId('calendar-event-402')).toHaveCount(0)
+  await expect(list.getByTestId('calendar-event-403')).toHaveCount(0)
+  await expect(list.locator('[data-day-key]').first()).toHaveAttribute('data-day-key', '2026-10-13')
+  // 순서 — 이어지는 일정이 종일 그룹 자리(맨 앞, 제목순) → 그 날 시간 일정.
+  const order = await today.locator('[data-testid^="calendar-event-"]').evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.testid))
+  expect(order).toEqual(['calendar-event-401', 'calendar-event-400', 'calendar-event-1', 'calendar-event-2', 'calendar-event-3'])
+  // 시간 칸 — 종일은 "종일 / ~10/16"(마지막 날), 시간 일정은 "시작 날짜 / ~끝 시각(오늘 안에 끝남)".
+  await expect(list.getByRole('button', { name: /^종일\s+~10\/16\s*,\s*추계 학회/ })).toBeVisible()
+  await expect(list.getByRole('button', { name: /^10\/12\s+~09:00\s*,\s*야간 배포 점검/ })).toBeVisible()
+  // 지금 선은 여전히 오늘 시간 일정 사이(끝난 07:00 다음, 09:30 앞) — 이어지는 일정이 선을 맨 위로 끌어올리지 않는다.
+  const afterNow = await list.getByTestId('calendar-agenda-now').evaluate((el) => (el.nextElementSibling as HTMLElement).dataset.testid)
+  expect(afterNow).toBe('calendar-event-2')
+
+  // 미니 달력으로 학회 기간 중 날(10/16)을 고르면 그 날 묶음 맨 앞에 학회가 보인다(시간 일정 점검은 이미 끝나 없다).
+  await page.getByTestId('calendar-title-toggle').click()
+  await page.getByTestId('calendar-mobile-mini').getByRole('button', { name: '2026년 10월 16일 금요일' }).click()
+  await expect(list.locator('[data-day-key]').first()).toHaveAttribute('data-day-key', '2026-10-16')
+  const oct16 = list.locator('[data-day-key="2026-10-16"]')
+  await expect(oct16.locator('[data-testid^="calendar-event-"]').first()).toHaveAttribute('data-testid', 'calendar-event-400')
+  await expect(oct16.getByTestId('calendar-event-400')).toContainText('~10/16')
+  await expect(list.getByTestId('calendar-event-401')).toHaveCount(0)
+  // 다른 날 묶음엔 다시 나오지 않는다(시작일 묶음 한 번만).
+  await expect(list.getByTestId('calendar-event-400')).toHaveCount(1)
+})
+
+test('월 보기에서 다른 달로 넘긴 뒤 목록으로 바꾸면 그 달 1일부터, 이번 달이면 오늘부터 보인다', async ({ authenticatedPage: page }) => {
+  const requests = await stubCalendar(page)
+  await page.goto('/calendar')
+  const list = agendaList(page)
+  await expect(list.getByTestId('calendar-agenda-day-2026-10-13')).toBeVisible()
+  const select = page.getByTestId('calendar-view-select')
+
+  // 월 보기 › › → 12월(anchor 12/13). 목록으로 → 12/1 부터 조회해 12/5 일정이 첫 묶음(12/13 부터면 숨는다).
+  await select.selectOption('month')
+  await page.getByTestId('calendar-next').click()
+  await page.getByTestId('calendar-next').click()
+  await expect(page.getByTestId('calendar-title')).toHaveText('12월')
+  await select.selectOption('agenda')
+  await expect.poll(() => requests).toContainEqual({ from: '2026-11-30T15:00:00.000Z', to: '2026-12-30T15:00:00.000Z' })
+  await expect(list.getByTestId('calendar-event-301')).toContainText('12월 초 점검')
+  await expect(list.locator('[data-day-key]').first()).toHaveAttribute('data-day-key', '2026-12-05')
+  await expect(page.getByTestId('calendar-title')).toHaveText('12월')
+
+  // 다시 월 보기에서 이번 달(10월)로 돌아와 목록 → 10/1 이 아니라 오늘부터.
+  await select.selectOption('month')
+  await page.getByTestId('calendar-prev').click()
+  await page.getByTestId('calendar-prev').click()
+  await expect(page.getByTestId('calendar-title')).toHaveText('10월')
+  await select.selectOption('agenda')
+  await expect(list.locator('[data-day-key]').first()).toHaveAttribute('data-day-key', '2026-10-13')
+  await expect(list.getByTestId('calendar-agenda-day-2026-10-13')).toContainText('오늘 · 10월 13일 (화)')
+})
+
+test('열어 둔 채 시간이 흐르면 지금 선이 따라가고, 자정을 넘기면 목록이 새 오늘부터 다시 시작한다', async ({ authenticatedPage: page }) => {
+  const requests = await stubCalendar(page, { runningClock: true })
+  await page.goto('/calendar')
+  const list = agendaList(page)
+  const nextAfterNow = () =>
+    list.getByTestId('calendar-agenda-now').evaluate((el) => (el.nextElementSibling as HTMLElement | null)?.dataset.testid ?? null)
+  // 끝난 일정은 행 투명도 대신 제목을 보조 줄과 같은 흐린 글자색으로 — 제목·보조 줄 색이 같아지면 흐림.
+  const row2 = list.getByTestId('calendar-event-2')
+  const color = (text: string) => row2.getByText(text, { exact: true }).evaluate((el) => getComputedStyle(el).color)
+  // 08:40 — 지금 선은 09:30 회의 앞, 그 회의는 아직 흐리지 않다.
+  await expect(list.getByTestId('calendar-agenda-day-2026-10-13')).toContainText('오늘 · 10월 13일 (화)')
+  await expect.poll(nextAfterNow).toBe('calendar-event-2')
+  expect(await color('주간 스프린트 회의')).not.toBe(await color('팀 일정'))
+  expect(await row2.evaluate((el) => getComputedStyle(el).opacity)).toBe('1')
+
+  // 10:41 로 — 09:30~10:30 회의가 끝나 선이 14:00 앞으로 옮겨 가고, 끝난 회의 제목은 흐린 글자색.
+  await page.clock.fastForward('02:01:00')
+  await expect.poll(nextAfterNow).toBe('calendar-event-3')
+  expect(await color('주간 스프린트 회의')).toBe(await color('팀 일정'))
+  expect(await row2.evaluate((el) => getComputedStyle(el).opacity)).toBe('1')
+
+  // 다음 날 00:01 로 — 오늘부터 보던 목록은 새 오늘(10/14)부터 다시 조회해 그 날이 '오늘' 묶음이 된다.
+  await page.clock.fastForward('13:20:00')
+  await expect.poll(() => requests).toContainEqual({ from: '2026-10-13T15:00:00.000Z', to: '2026-11-12T15:00:00.000Z' })
+  await expect(list.locator('[data-day-key]').first()).toHaveAttribute('data-day-key', '2026-10-14')
+  await expect(list.getByTestId('calendar-agenda-day-2026-10-14')).toContainText('오늘 · 10월 14일 (수)')
+  await expect(list.getByTestId('calendar-agenda-day-2026-10-13')).toHaveCount(0)
 })

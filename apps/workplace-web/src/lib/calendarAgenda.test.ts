@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { CalendarEvent, IssueDueMarker } from '@/types/calendar'
 
-import { agendaChunkRange, type AgendaItem, agendaNowState, agendaTitle, eventDate, groupAgendaDays, headerMonthLabel } from './calendarAgenda'
+import { agendaChunkRange, type AgendaItem, agendaNowState, agendaTitle, continuedEndLabel, eventDate, groupAgendaDays, headerMonthLabel } from './calendarAgenda'
 
 // 테스트용 일정 — 필요한 필드만 덮어쓴다.
 function ev(over: Partial<CalendarEvent> & Pick<CalendarEvent, 'id' | 'startsAt'>): CalendarEvent {
@@ -152,6 +152,58 @@ describe('groupAgendaDays', () => {
 
   it('입력이 비면 빈 배열', () => {
     expect(groupAgendaDays([], [])).toEqual([])
+  })
+
+  // 진행 중 일정(WP-136 A1) — from 은 KST 10/13. 시작이 그 전이어도 10/13 까지 이어지면 10/13 묶음 맨 앞에 continued 로 넣는다.
+  describe('opts.from 전에 시작해 from 날짜까지 이어지는 일정', () => {
+    const from = new Date('2026-10-13T06:30:00Z') // KST 10/13 15:30 — 날짜 기준
+    // 어제 22:00 KST 시작 → 오늘 09:00 KST 끝(진행 중 시간 일정)
+    const overnight = ev({ id: 1, title: '야간 점검', startsAt: '2026-10-12T13:00:00Z', endsAt: '2026-10-13T00:00:00Z' })
+    // 10/11~10/15 종일(동기화 UTC 자정, 끝 배타 10/16)
+    const conf = ev({ id: 2, title: '학회', allDay: true, startsAt: '2026-10-11T00:00:00Z', endsAt: '2026-10-16T00:00:00Z' })
+    // 끝이 정확히 from 자정 — 시간 일정(어제 22:00 → 오늘 00:00 KST)·종일(10/12 하루, 끝 배타 10/13)
+    const endsAtMidnight = ev({ id: 3, startsAt: '2026-10-12T13:00:00Z', endsAt: '2026-10-12T15:00:00Z' })
+    const allDayYesterday = ev({ id: 4, allDay: true, startsAt: '2026-10-12T00:00:00Z', endsAt: '2026-10-13T00:00:00Z' })
+    // 로컬 생성 종일(현지 자정 instant, KST 10/12~10/13, 끝 배타 10/14 00:00 KST = 10/13 15:00Z)
+    const localAllDay = ev({ id: 5, title: '휴가', allDay: true, startsAt: '2026-10-11T15:00:00Z', endsAt: '2026-10-13T15:00:00Z' })
+    const todayTimed = ev({ id: 6, startsAt: '2026-10-13T01:00:00Z', endsAt: '2026-10-13T02:00:00Z' })
+    const todayAllDay = ev({ id: 7, title: '가을 행사', allDay: true, startsAt: '2026-10-13T00:00:00Z', endsAt: '2026-10-14T00:00:00Z' })
+
+    it('시간 일정·여러 날 종일은 from 묶음에 continued 로 들어가고, 끝이 정확히 from 자정이면 빠진다', () => {
+      const days = groupAgendaDays([todayTimed, overnight, conf, endsAtMidnight, allDayYesterday, localAllDay, todayAllDay], [], { from })
+      expect(days.map((d) => d.key)).toEqual(['2026-10-13'])
+      const items = days[0].items as Extract<AgendaItem, { kind: 'event' }>[]
+      // 종일 그룹과 같은 순위(맨 앞, 제목순) → 그다음 그 날 시간 일정
+      expect(items.map((it) => it.event.id)).toEqual([7, 1, 2, 5, 6])
+      expect(items.map((it) => it.continued ?? false)).toEqual([false, true, true, true, false])
+    })
+
+    it('두 번째 청크처럼 from 이후 묶음은 그대로 시작일에만 나온다(중복 없이)', () => {
+      const later = ev({ id: 8, allDay: true, startsAt: '2026-10-20T00:00:00Z', endsAt: '2026-10-23T00:00:00Z' })
+      const days = groupAgendaDays([conf, later, { ...conf }], [], { from })
+      expect(days.map((d) => d.key)).toEqual(['2026-10-13', '2026-10-20'])
+      expect(days[0].items).toHaveLength(1)
+      expect(days[1].items).toEqual([{ kind: 'event', event: later }])
+    })
+
+    it('끝 표시 — 종일은 실제 마지막 날, 시간 일정은 그 날 끝나면 시각·아니면 날짜', () => {
+      const day = new Date(2026, 9, 13)
+      expect(continuedEndLabel(conf, day)).toBe('~10/15')
+      expect(continuedEndLabel(localAllDay, day)).toBe('~10/13')
+      expect(continuedEndLabel(overnight, day)).toBe('~09:00')
+      const multi = ev({ id: 9, startsAt: '2026-10-12T13:00:00Z', endsAt: '2026-10-15T09:00:00Z' }) // ~10/15 18:00 KST
+      expect(continuedEndLabel(multi, day)).toBe('~10/15')
+    })
+
+    it('지금 선·흐림 계산에서 빠진다 — 끝난 이어지는 일정도 흐리지 않고 선은 그 날 시간 일정 앞', () => {
+      const days = groupAgendaDays([overnight, todayTimed], [], { from })
+      // 지금 = 10:30 KST — overnight(09:00 끝)은 끝났지만 continued 라 흐리지 않는다. todayTimed(10:00~11:00)는 진행 중.
+      const r = agendaNowState(days[0].items, new Date('2026-10-13T01:30:00Z'))
+      expect(r.past).toEqual([false, false])
+      expect(r.nowIndex).toBe(1)
+      // 그 날 시간 일정이 없으면 선을 긋지 않는다(이어지는 일정만으로는 기준 행이 없다).
+      expect(agendaNowState(groupAgendaDays([overnight], [], { from })[0].items, new Date('2026-10-13T01:30:00Z')).nowIndex).toBe(-1)
+    })
   })
 })
 

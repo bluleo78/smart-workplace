@@ -44,7 +44,7 @@ export interface AgendaChunks {
   isError: boolean
   /** 더 불러올 청크가 있는지(최대 청크 수 미만). */
   hasMore: boolean
-  /** 다음 청크 하나를 더한다(센티널이 호출). 참조 고정. */
+  /** 다음 청크 하나를 더한다(센티널이 호출). 초기화 세대(epoch)마다 새 참조 — 앞 세대에서 큐잉된 호출은 무시된다. */
   loadMore: () => void
   /** 실패한 청크만 다시 조회한다. */
   retry: () => void
@@ -74,18 +74,24 @@ function summarizeChunks<T>(rs: UseQueryResult<T[], Error>[]) {
 /** 모바일 목록 보기의 청크 조회. start 가 바뀌면(날짜 기준) 청크 수를 1로 되돌린다. */
 export function useAgendaChunks(start: Date, { enabled, filter, showIssueDues }: AgendaChunksOptions): AgendaChunks {
   const startKey = startOfDay(start).getTime()
-  // 청크 수 + 스크롤 초기화 세대(epoch). startKey 를 함께 들고 있다가 시작일이 바뀌면 렌더 중에 1로 되돌린다
+  // 청크 수 + 초기화 세대(epoch). startKey 를 함께 들고 있다가 시작일이 바뀌면 렌더 중에 1로 되돌린다
   // (effect 로 되돌리면 한 번은 이전 청크 수로 새 시작일을 조회한다 — CalendarPage 의 suspendedId 와 같은 렌더 중 조정).
+  // 시작일 변경·reset 모두 epoch 를 올린다 — 맨 위 스크롤 키이자 loadMore 의 세대 확인 값.
   const [chunks, setChunks] = useState({ startKey, count: 1, epoch: 0 })
-  let count = chunks.count
+  let { count, epoch } = chunks
   if (chunks.startKey !== startKey) {
-    setChunks((s) => ({ startKey, count: 1, epoch: s.epoch }))
+    setChunks((s) => ({ startKey, count: 1, epoch: s.epoch + 1 }))
     count = 1
+    epoch = chunks.epoch + 1
   }
 
+  // 세대가 같을 때만 청크를 늘린다. [오늘]·날짜 선택 직전에 이미 큐잉된 센티널 콜백(이전 세대 loadMore)이
+  // 초기화 뒤에 불려 방금 버린 둘째 청크를 다시 붙이던 경합을 막는다(WP-136 A2). 세대가 바뀌면 참조도 바뀌어
+  // 센티널 observer 가 새 loadMore 로 다시 붙는다.
   const loadMore = useCallback(
-    () => setChunks((s) => ({ ...s, count: Math.min(s.count + 1, AGENDA_MAX_CHUNKS) })),
-    [],
+    () =>
+      setChunks((s) => (s.epoch === epoch ? { ...s, count: Math.min(s.count + 1, AGENDA_MAX_CHUNKS) } : s)),
+    [epoch],
   )
   const reset = useCallback(() => setChunks((s) => ({ ...s, count: 1, epoch: s.epoch + 1 })), [])
 
@@ -148,6 +154,6 @@ export function useAgendaChunks(start: Date, { enabled, filter, showIssueDues }:
     loadMore,
     retry,
     reset,
-    scrollKey: `${startKey}:${chunks.epoch}`,
+    scrollKey: `${startKey}:${epoch}`,
   }
 }
