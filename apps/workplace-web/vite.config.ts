@@ -52,15 +52,10 @@ function waitForApi(timeoutMs: number): Promise<boolean> {
 // Vite 설정.
 // - tailwindcss 플러그인으로 CSS 변환
 // - "@/..." → "src/..." 별칭
-// - 개발 서버 /api → workplace-api(6060), /mcp → workplace-mcp(6090) 프록시
+// - 개발 서버 /api → workplace-api(6060) 프록시
 // 노트 동시 편집 동기화 서버(workplace-collab). E2E 는 테스트가 띄운 서버 포트(E2E_COLLAB_PORT)를 쓰고,
 // 없으면 /api 와 같은 이유로 닫힌 포트(9)로 보내 즉시 실패시킨다.
 const COLLAB_TARGET = `ws://localhost:${IS_E2E ? (process.env.E2E_COLLAB_PORT ?? 9) : 6095}`
-
-// 원격 MCP 게이트웨이(workplace-mcp). 운영은 Ingress(mcpPathOnWeb)가 웹 origin 의 /mcp 를 여기로 보내므로,
-// 로컬 개발에서도 설정 화면이 안내하는 `${origin}/mcp` 가 동작하도록 Vite 가 같은 경로를 프록시한다.
-// E2E 는 /api 와 같은 이유로 닫힌 포트(9)로 보낸다.
-const MCP_TARGET = `http://localhost:${IS_E2E ? 9 : 6090}`
 
 export default defineConfig({
   // 빌드 상수 — E2E 빌드에서만 동기화 문서 이름에 테스트 네임스페이스를 붙인다(collabSession.docNameFor).
@@ -116,20 +111,6 @@ export default defineConfig({
       '/collab': {
         target: COLLAB_TARGET,
         ws: true,
-      },
-      // MCP Streamable HTTP — Authorization 헤더는 그대로 전달되고, 응답이 SSE 면 버퍼링되지 않게 헤더를 단다.
-      '/mcp': {
-        target: MCP_TARGET,
-        changeOrigin: true,
-        configure: (proxy) => {
-          proxy.on('proxyRes', (proxyRes, _req, res) => {
-            if (proxyRes.headers['content-type']?.includes('text/event-stream')) {
-              res.setHeader('Cache-Control', 'no-cache')
-              res.setHeader('Connection', 'keep-alive')
-              res.setHeader('X-Accel-Buffering', 'no')
-            }
-          })
-        },
       },
       '/api': {
         target: API_TARGET,

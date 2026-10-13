@@ -119,6 +119,8 @@ test.describe('/settings/agents 실행 방식', () => {
     await expect(page.getByTestId('agent-connection-section')).toHaveCount(0);
     // ② 연결 설정 — 사용자 범위 genia-works 를 환경변수 우선 헤더로 다시 등록. ③ 실행 — 환경변수로 AI 키 주입.
     await expect(page.getByTestId('mcp-setup-command')).toContainText('claude mcp remove genia-works -s user');
+    // 주소는 설정 › 토큰 발급과 같은 MCP_ENDPOINT(VITE_MCP_URL, dev 기본 6090) — api-tokens.spec 과 같은 기준.
+    await expect(page.getByTestId('mcp-setup-command')).toContainText('genia-works http://localhost:6090/mcp');
     await expect(page.getByTestId('mcp-setup-command')).toContainText(
       "--header 'Authorization: Bearer ${GENIA_WORKS_TOKEN:-<내 API 토큰>}'",
     );

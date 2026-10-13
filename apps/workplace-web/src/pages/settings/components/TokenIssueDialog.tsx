@@ -16,6 +16,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { formatDateShort } from '@/lib/formatters';
+import { MCP_ENDPOINT } from '@/lib/mcpEndpoint';
 
 interface TokenIssueDialogProps {
   plaintextToken: string | null;
@@ -23,9 +24,6 @@ interface TokenIssueDialogProps {
   open: boolean;
   onOpenChange: (next: boolean) => void;
 }
-
-// dev 기본값은 로컬 workplace-mcp 포트(6090). 배포 환경에서는 VITE_MCP_URL 로 재정의.
-const MCP_BASE_URL = (import.meta.env['VITE_MCP_URL'] as string | undefined) ?? 'http://localhost:6090';
 
 export function TokenIssueDialog({
   plaintextToken,
@@ -35,7 +33,7 @@ export function TokenIssueDialog({
 }: TokenIssueDialogProps) {
   // Claude Code 에서 바로 실행 가능한 MCP 연결 명령 — 평문 토큰을 Bearer 헤더로 전달한다.
   // -s user: 실행한 폴더에만 묶이지 않고 모든 프로젝트에서 쓰이게 한다. 서버 이름은 workplace-mcp serverInfo.name 과 같게(WP-334).
-  const command = `claude mcp add -s user --transport http genia-works "${MCP_BASE_URL}/mcp" --header "Authorization: Bearer ${plaintextToken ?? '<토큰>'}"`;
+  const command = `claude mcp add -s user --transport http genia-works "${MCP_ENDPOINT}" --header "Authorization: Bearer ${plaintextToken ?? '<토큰>'}"`;
 
   // 클립보드 복사 공통 — 실패 시 사용자에게 알린다.
   const copy = async (text: string, message: string) => {

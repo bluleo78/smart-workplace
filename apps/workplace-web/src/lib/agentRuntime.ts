@@ -3,6 +3,7 @@
 
 import type { AgentResponse, AgentRuntime } from '../types/agent';
 import { formatRelativeTime } from './formatters';
+import { MCP_ENDPOINT } from './mcpEndpoint';
 
 /** 실행 방식 한국어 라벨(목록 배지용 짧은 형). */
 export function runtimeBadgeLabel(runtime: AgentRuntime): string {
@@ -39,12 +40,8 @@ export const TOKEN_ENV = 'GENIA_WORKS_TOKEN';
  * Claude Code 는 ~/.claude.json 에 `${...}` 를 글자 그대로 저장하고 세션 시작 때 띄운 셸의 환경변수로 치환한다(실측).
  * 작은따옴표로 감싸 등록 시점 셸이 `${...}` 를 먼저 풀어 버리지 않게 한다.
  */
-export function buildMcpSetupCommand(origin: string = window.location.origin): string {
-  // MCP 엔드포인트는 현재 접속 origin 의 /mcp — 웹 앱에 별도 env(VITE_MCP_URL)를 두지 않는다.
-  // 운영은 Ingress(mcpPathOnWeb)가, 로컬 개발은 Vite 개발 서버 프록시(vite.config.ts 의 /mcp → 6090)가 MCP 서버로 보낸다.
-  // 설정 › 토큰 발급 다이얼로그(TokenIssueDialog)는 VITE_MCP_URL 기반이라 주소 산출이 다르다 —
-  // 둘의 통일은 제품 결정 대기 중이라 의도적으로 따로 둔다.
-  const mcpUrl = `${origin}/mcp`;
+export function buildMcpSetupCommand(mcpUrl: string = MCP_ENDPOINT): string {
+  // 주소는 설정 › 토큰 발급 다이얼로그와 같은 MCP_ENDPOINT(VITE_MCP_URL 기반)를 쓴다.
   return [
     'claude mcp remove genia-works -s user',
     `claude mcp add -s user --transport http genia-works ${mcpUrl} --header 'Authorization: Bearer \${${TOKEN_ENV}:-<내 API 토큰>}'`,
