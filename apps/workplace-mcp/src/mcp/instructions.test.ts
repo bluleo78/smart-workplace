@@ -13,6 +13,7 @@ describe('buildInstructions (WP-350)', () => {
   it('전체 연결의 instructions 는 2,048자 이내이고 모든 앱 안내가 들어 있다', () => {
     const text = make(FULL_SCOPE);
     expect(text.length).toBeLessThanOrEqual(INSTRUCTIONS_MAX_LENGTH);
+    expect(text).toContain('report work'); // WP-377: AI 작업 보고 안내
     for (const app of TOOL_APPS) expect(text, app).toContain(`- ${TOOL_APP_GUIDES[app].label}:`);
   });
 
@@ -39,6 +40,7 @@ describe('buildInstructions (WP-350)', () => {
     expect(text).toContain('Read-only connection');
     expect(text).not.toContain(TOOL_APP_GUIDES.issue.write);
     expect(text).not.toContain(TOOL_APP_GUIDES.messaging.write);
+    expect(text).not.toContain('report'); // 읽기 전용에는 작업 보고 안내 없음
     for (const t of all.filter((x) => x.kind !== 'read')) expect(text, t.name).not.toContain(t.name);
   });
 

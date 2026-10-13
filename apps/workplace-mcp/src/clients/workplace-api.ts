@@ -11,10 +11,11 @@ export type PatApiClient = SharedToolClient;
 
 /**
  * 토큰(PAT 또는 AGENT API 키)을 Authorization: Bearer 헤더로 부착하는 axios 기반 REST 클라이언트를 생성한다.
+ * agentTool 은 X-Agent-Tool 헤더 값(수행 도구 이름, WP-377) — 생략하면 'mcp' 라 헤더는 항상 실린다.
  * tenantId 는 AI 키(ak_) 전용 X-On-Behalf-Of-Tenant 값 — 키에는 테넌트가 없어 다중 멤버십 AI 는 이 헤더로 고른다(서버가 멤버십 검증).
  */
-export function createPatApiClient(opts: { baseURL: string; token: string; tenantId?: string }): PatApiClient {
-  const headers: Record<string, string> = { Authorization: `Bearer ${opts.token}` };
+export function createPatApiClient(opts: { baseURL: string; token: string; tenantId?: string; agentTool?: string }): PatApiClient {
+  const headers: Record<string, string> = { Authorization: `Bearer ${opts.token}`, 'X-Agent-Tool': opts.agentTool ?? 'mcp' };
   if (opts.tenantId) headers['X-On-Behalf-Of-Tenant'] = opts.tenantId;
   const http = axios.create({ baseURL: opts.baseURL, headers });
   return createSharedToolClient(http);
