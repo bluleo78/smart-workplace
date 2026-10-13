@@ -188,6 +188,21 @@ test('비어 있으면 안내 문구, 빠른 필터 중이면 조건 문구', as
   await expect(empty).not.toContainText('AI에게 맡긴 작업이 아직 없어요')
 })
 
+test('첫 페이지 실패는 빈 상태가 아니라 오류 + 다시 시도', async ({ authenticatedPage: page }) => {
+  await mockApi(page, 'GET', LIST, { message: 'boom' }, { status: 500 })
+  await mockApi(page, 'GET', COUNTS, createAiTaskCounts())
+  await page.goto('/me/ai-tasks')
+  const error = page.getByTestId('ai-tasks-error')
+  await expect(error).toContainText('AI 위임 작업을 불러오지 못했습니다')
+  await expect(page.getByTestId('ai-row-empty')).toHaveCount(0)
+
+  // 다시 시도 — 이번엔 성공(나중 등록 라우트가 우선).
+  await mockApi(page, 'GET', LIST, createIssueSearchResponse(ROWS))
+  await error.getByRole('button', { name: '다시 시도' }).click()
+  await expect(page.getByTestId('ai-row-412')).toBeVisible()
+  await expect(error).toHaveCount(0)
+})
+
 // 페이지 레이아웃 — 헤더 바 안 h1·하단 56px·툴바와 같은 시작선, 표가 가로로 넘치지 않음(1280 포함 넓은 화면).
 for (const width of [1280, ...DESKTOP_WIDTHS]) {
   test.describe(`AI 위임 작업 레이아웃 @${width}px`, () => {

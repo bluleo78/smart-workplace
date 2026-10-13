@@ -8,6 +8,7 @@ import { useSearchParams } from 'react-router-dom'
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
 import { Page } from '@/components/layout/Page'
 import { pageTitleClass } from '@/components/layout/sidebar-link'
+import { Button } from '@/components/ui/button'
 import { LoadMoreFooter } from '@/components/ui/load-more-footer'
 import { useAiTaskCounts, useAiTasks } from '@/hooks/queries/useAiTasks'
 import { useIsMobile } from '@/hooks/useIsMobile'
@@ -45,6 +46,15 @@ export default function AiDelegatedTasksPage() {
         <AiTasksToolbar scope={scope} state={state} counts={countsQuery.data} />
         {query.isLoading ? (
           <p className="text-muted-foreground">로딩 중…</p>
+        ) : query.isLoadingError ? (
+          // 첫 페이지 실패만 오류 화면 — 다음 페이지 실패는 받은 행을 두고 LoadMoreFooter 가 다시 시도를 보인다.
+          // (이 분기가 없으면 실패가 "맡긴 작업 없음" 빈 상태로 보인다.)
+          <div className="flex items-center gap-2 py-3 text-sm" data-testid="ai-tasks-error">
+            <span className="text-destructive">AI 위임 작업을 불러오지 못했습니다.</span>
+            <Button variant="outline" size="sm" onClick={() => void query.refetch()}>
+              다시 시도
+            </Button>
+          </div>
         ) : empty ? (
           // 빈 상태 — 아이콘+제목(+설명) 3요소(DS §2.5). 빠른 필터 중이면 "조건" 문구로 구분한다.
           <div className="flex flex-col items-center gap-2 px-4 py-8 text-center" data-testid="ai-row-empty">

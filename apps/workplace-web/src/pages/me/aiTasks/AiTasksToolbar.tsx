@@ -69,8 +69,9 @@ export function AiTasksToolbar({
         <MeTaskFilterBar />
       </div>
       {/* 빠른 필터 — 메일 「안 읽은 메일만」과 같은 둥근 토글. 모바일은 줄바꿈 대신 가로 스크롤. */}
+      {/* 모바일은 py-2 로 칩 터치 영역(::after)이 스크롤 영역에 잘리지 않게 하고 -my-2 로 레이아웃 높이는 그대로 둔다. */}
       <div
-        className={cn('flex items-center gap-2 overflow-x-auto', HIDE_SCROLLBAR)}
+        className={cn('flex items-center gap-2 overflow-x-auto max-lg:-my-2 max-lg:py-2', HIDE_SCROLLBAR)}
         role="group"
         aria-label="AI 진행 빠른 필터"
         data-testid="ai-quick-chips"
@@ -85,9 +86,9 @@ export function AiTasksToolbar({
               data-testid={`ai-quick-${c.key}`}
               onClick={() => setParam('state', c.state)}
               className={cn(
-                // 모바일: 시각 h-9 + after 히트 영역 확장으로 터치 44px 확보(메일 토글과 동일).
+                // 보이는 높이는 시안대로 h-7(28px) — 모바일은 보이지 않는 ::after 를 위아래 8px 넓혀 터치 44px(디자인 시스템 I).
                 'relative inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border px-3 text-xs outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/40',
-                "max-lg:h-9 max-lg:px-4 max-lg:text-sm max-lg:after:absolute max-lg:after:-inset-y-1 max-lg:after:inset-x-0 max-lg:after:content-['']",
+                "max-lg:after:absolute max-lg:after:inset-x-0 max-lg:after:-inset-y-2 max-lg:after:content-['']",
                 on ? cn(TOGGLE_ON_CLASS, 'font-medium') : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
               )}
             >
