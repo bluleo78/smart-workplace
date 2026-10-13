@@ -46,6 +46,11 @@ beforeEach(() => {
 });
 
 describe('ClaudeSdkRunner.collect', () => {
+  it('effort 를 SdkRunInput 으로 넘긴다 (WP-139)', async () => {
+    vi.mocked(runSdkCollect).mockResolvedValue([]);
+    await new ClaudeSdkRunner().collect(baseInput({ effort: 'low' }));
+    expect(vi.mocked(runSdkCollect).mock.calls[0][0].effort).toBe('low');
+  });
   it('runSdkCollect 라인을 mapSdkMessage 로 변환한 RunnerEvent[] 반환', async () => {
     vi.mocked(runSdkCollect).mockResolvedValue([
       JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: '중간' }] } }),

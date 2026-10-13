@@ -1,7 +1,7 @@
 // Agent SDK query() 러너 — cli-runner 의 SDK 대체(#462). 파서 계약(onLine(line:string)) 보존을 위해
 // 각 SDKMessage 를 JSON.stringify 로 다시 문자열화해 흘린다(CLI stream-json = 직렬화된 SDKMessage).
 import os from 'node:os';
-import type { AgentDefinition, McpServerConfig, Options } from '@anthropic-ai/claude-agent-sdk';
+import type { AgentDefinition, EffortLevel, McpServerConfig, Options } from '@anthropic-ai/claude-agent-sdk';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { log } from '../logger.js';
 import { computeToolPolicy } from './tool-allowlist.js';
@@ -28,6 +28,8 @@ export interface SdkRunInput {
   agents?: Record<string, AgentDefinition>;
   // WP-351: 메인 스레드로 돌릴 agents 의 이름(Options.agent). 그 정의의 tools 가 메인 스레드 도구를 좁힌다.
   mainAgent?: string;
+  // WP-139: Options.effort 로 그대로 전달(미지정이면 SDK 기본).
+  effort?: EffortLevel;
 }
 
 // CLI 플래그 → query Options. 스파이크 1급 규칙 4종(allowedTools 화이트리스트/hermetic 3종/토큰 주입)을 고정.
@@ -65,6 +67,8 @@ export function buildSdkOptions(i: SdkRunInput): Options {
   if (i.mcpServers) options.mcpServers = i.mcpServers;
   // 코드정의 서브에이전트(슬라이스 4) — 지정된 경우에만 주입.
   if (i.agents) options.agents = i.agents;
+  // WP-139: 추론 노력 — 지정된 경우에만(기존 실행의 옵션 불변).
+  if (i.effort) options.effort = i.effort;
   // WP-351: 메인 스레드 에이전트. agents 목록에 같이 있어 위임 대상으로도 보이므로 자기 자신에게 위임하지 못하게 막는다
   // (Agent(<이름>) 거부 규칙 — 실측으로 해당 타입만 막히고 다른 서브에이전트 위임은 그대로 된다).
   if (i.mainAgent) {

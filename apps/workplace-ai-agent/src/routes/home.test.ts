@@ -15,6 +15,11 @@ vi.mock('../agent/run-home-context-summary.js', async (orig) => ({
   runHomeContextSummary: vi.fn(),
 }));
 
+vi.mock('../agent/run-suggestions.js', async (orig) => ({
+  ...(await orig<typeof import('../agent/run-suggestions.js')>()),
+  runSuggestions: vi.fn(),
+}));
+
 const logMock = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() }));
 vi.mock('../logger.js', () => ({ log: logMock }));
 
@@ -23,6 +28,7 @@ import { JSON_BODY_LIMIT } from '../index-config.js';
 import { runAiChatStream } from '../agent/run-ai-chat.js';
 import { runHomePriorityClassify } from '../agent/run-home-priority-classify.js';
 import { runHomeContextSummary } from '../agent/run-home-context-summary.js';
+import { runSuggestions } from '../agent/run-suggestions.js';
 
 // 비서 필드를 포함한 유효 페이로드(요청 본문 계약).
 function validBody(over: Record<string, unknown> = {}) {
@@ -371,5 +377,27 @@ describe('POST /home/context-summary (WP-232)', () => {
     const res = await request(buildApp()).post('/home/context-summary').send(body);
     expect(res.status).toBe(502);
     expect(res.body).toEqual({ error: 'home_context_summary_failed' });
+  });
+});
+
+describe('POST /home/suggestions (WP-139)', () => {
+  const body = { mode: 'starter', agentId: 7, model: null, screenContext: null, recentTitles: ['a'], count: 4, timeoutMs: 15_000 };
+  it('성공 → 200 { items }', async () => {
+    vi.mocked(runSuggestions).mockResolvedValue({ items: ['오늘 일정 요약해줘'] });
+    const res = await request(buildApp()).post('/home/suggestions').send(body);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ items: ['오늘 일정 요약해줘'] });
+    expect(vi.mocked(runSuggestions).mock.calls[0][0]).toMatchObject({ mode: 'starter', agentId: 7, count: 4 });
+  });
+  it('스키마 위반 → 400 (실행 안 함)', async () => {
+    const res = await request(buildApp()).post('/home/suggestions').send({ ...body, count: 9 });
+    expect(res.status).toBe(400);
+    expect(runSuggestions).not.toHaveBeenCalled();
+  });
+  it('실행 실패 → 502', async () => {
+    vi.mocked(runSuggestions).mockRejectedValue(new Error('timeout'));
+    const res = await request(buildApp()).post('/home/suggestions').send(body);
+    expect(res.status).toBe(502);
+    expect(res.body).toEqual({ error: 'home_suggestions_failed' });
   });
 });

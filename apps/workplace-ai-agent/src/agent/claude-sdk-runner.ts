@@ -73,6 +73,7 @@ function toSdkRunInput(i: RunnerInput): SdkRunInput {
     mcpServers,
     agents,
     mainAgent,
+    effort: i.effort,
   };
 }
 
