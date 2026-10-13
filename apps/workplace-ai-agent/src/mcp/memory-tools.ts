@@ -17,7 +17,7 @@ const memoryIdSchema = z.number().int().positive().describe('"## 사용자 메�
 const contentSchema = z
   .string()
   .min(1)
-  .describe('사용자가 대화한 언어로 한 문장, 3인칭 규칙형("…로 보여 준다"), 300자 이내. 필요하면 이유를 괄호로 짧게.');
+  .describe('사용자가 대화한 언어로 한 문장, 3인칭 규칙형("…로 보여 준다"), 300자 이내. 이유는 사용자가 직접 말했을 때만 괄호로 짧게(지어내지 않는다).');
 
 export const rememberMemoryInput = z.object({
   kind: kindSchema.describe('PREFERENCE: 사용자 교정·선호 / CONTEXT: 오래 유지될 업무 맥락(팀·역할·주로 보는 프로젝트)'),

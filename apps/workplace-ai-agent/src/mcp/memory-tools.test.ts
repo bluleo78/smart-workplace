@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
-import { buildMemoryTools, parseMemoryToolResult } from './memory-tools.js';
+import { buildMemoryTools, parseMemoryToolResult, rememberMemoryInput, updateMemoryInput } from './memory-tools.js';
 
 const USER = 42;
 const SID = '3f1c2a4e-8b7d-4c1e-9f2a-6d5b4c3a2e1f';
@@ -19,6 +19,12 @@ function setup(homeSessionId: string | null = SID) {
 }
 
 describe('buildMemoryTools (WP-55)', () => {
+  // 실모델 확인: 이유를 지어내 붙였다 — 입력 설명도 "사용자가 말했을 때만" 으로 시스템 프롬프트 규칙과 맞춘다.
+  it('content 입력 설명은 이유를 사용자가 직접 말했을 때만 붙이라고 한다', () => {
+    expect(rememberMemoryInput.shape.content.description).toContain('이유는 사용자가 직접 말했을 때만');
+    expect(updateMemoryInput.shape.content.description).toContain('지어내지 않는다');
+  });
+
   it('remember_memory → 대행 POST(source AI + 이 대화 세션) → saved 결과', async () => {
     const { c, tool } = setup();
     c.createAiMemory.mockResolvedValue(item());
