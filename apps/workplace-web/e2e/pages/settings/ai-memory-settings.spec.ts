@@ -104,6 +104,21 @@ test('지우면 바로 사라지고 토스트의 되돌리기로 같은 종류·
   await expect(rows(page).first().getByTestId('ai-memory-meta')).toContainText('직접 추가')
 })
 
+// CR9: 되돌리기는 직접 추가 경로를 그대로 쓴다 — 지운 행이 사라진(언마운트된) 뒤에도 실패 토스트(서버 문구)가 뜨고 목록은 그대로다.
+test('삭제 토스트의 되돌리기가 실패하면 서버 문구 토스트를 띄우고 목록은 그대로다', async ({ authenticatedPage: page }) => {
+  const mock = await mockAiMemories(page, [memoryItem(3, { content: '백엔드 팀이다' }), memoryItem(2, { content: '둘째' })])
+  await openSettings(page)
+  await rows(page).first().getByTestId('ai-memory-delete').click()
+  await mock.deletes.waitFor()
+  await expect(rows(page)).toHaveCount(1)
+  mock.failNext(409, 'AI_MEMORY_FULL', '메모리가 가득 찼어요(최대 50개). 필요 없는 항목을 지워 주세요')
+  await page.getByRole('button', { name: '되돌리기' }).click()
+  await mock.creates.waitFor()
+  await expect(page.getByText('메모리가 가득 찼어요(최대 50개). 필요 없는 항목을 지워 주세요')).toBeVisible()
+  await expect(rows(page)).toHaveCount(1)
+  await expect(rows(page).first().getByTestId('ai-memory-content')).toHaveText('둘째')
+})
+
 test('직접 추가 폼은 목록 맨 위에 열리고, 빈 값·초과면 막히며, 고른 종류로 추가한다', async ({ authenticatedPage: page }) => {
   const mock = await mockAiMemories(page, [memoryItem(3, { content: '첫째' })])
   await openSettings(page)

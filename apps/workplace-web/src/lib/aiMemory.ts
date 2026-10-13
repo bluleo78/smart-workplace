@@ -7,6 +7,8 @@ import type { ErrorResponse } from '@/types/auth';
 
 /** 되돌릴 대상이 이미 없을 때(GONE·NOT_FOUND). */
 export const UNDO_GONE_MESSAGE = '이미 지워진 메모리예요';
+/** 고침 되돌리기 — 그 고침 뒤에 메모리가 또 바뀌어 서버가 덮지 않고 거절했을 때(AI_MEMORY_CHANGED). */
+export const UNDO_CHANGED_MESSAGE = '그 뒤에 바뀐 메모리라 되돌리지 않았어요';
 /** 지움 되돌리기가 상한(50)에 걸렸을 때 — 토스트 action "설정 열기". */
 export const UNDO_FULL_MESSAGE = '메모리가 가득 찼어요. 설정에서 정리해 주세요';
 /** 가득 참 토스트의 이동 경로. */

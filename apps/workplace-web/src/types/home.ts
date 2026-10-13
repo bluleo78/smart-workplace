@@ -63,6 +63,8 @@ export interface MemoryEventDto {
   kind: AiMemoryKind;
   content: string;
   previousContent?: string;
+  /** 고치기 전 종류(updated) — 서버 되돌리기가 종류도 돌려놓는 근거. 구 ai-agent 결과엔 없다. */
+  previousKind?: AiMemoryKind;
   source?: AiMemorySource;
 }
 
@@ -77,6 +79,7 @@ export interface MemoryBlock {
   memoryKind: AiMemoryKind;
   content: string;
   previousContent?: string;
+  previousKind?: AiMemoryKind;
   source: AiMemorySource;
   undone: boolean;
 }

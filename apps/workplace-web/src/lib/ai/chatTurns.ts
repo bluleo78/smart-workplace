@@ -1,7 +1,7 @@
 // 챗 transcript 순수 변환(WP-190) — 라이브 스트림 이벤트와 복원 메시지를 ChatTurn[] 으로 바꾼다.
 // 원래 useChatSession 안의 setTurns 콜백이었다. 대화별 스트림 저장소(chatStreams)가 칸마다 같은 규칙을 적용하도록 분리했다.
 import { isVisibleStep, widgetTypeFromToolName } from '@/lib/aiToolLabels';
-import { displayBlocks, memoryBlocks, pushMemoryBlock, pushTextBlock, pushToolsBlock, pushWidgetBlock, reconcileBlocks } from '@/lib/chatBlocks';
+import { pushMemoryBlock, pushTextBlock, pushToolsBlock, pushWidgetBlock, reconcileBlocks, splitBlocks } from '@/lib/chatBlocks';
 import { toTurnAttachments } from '@/lib/homeChatAttachments';
 import type {
   ActionOutcome,
@@ -140,7 +140,7 @@ export function applyDoneWidgets(turns: ChatTurn[], widgets?: WidgetSpec[] | nul
   }));
 }
 
-/** WP-55: done 의 저장 메시지 id — 결과 줄 되돌리기를 켠다. 숫자가 아니면(영속 실패·구 API) 그대로. */
+/** WP-55: 종결(done·error·cancelled)의 저장 메시지 id — 결과 줄 되돌리기를 켠다. 숫자가 아니면(저장 안 함·영속 실패·구 API) 그대로. */
 export function applyDoneMessageId(turns: ChatTurn[], messageId: unknown): ChatTurn[] {
   if (typeof messageId !== 'number') return turns;
   return updateLastAssistant(turns, (last) => ({ ...last, messageId }));
@@ -178,9 +178,9 @@ const EMPTY_BY_KIND: Record<NonNullable<MessageTurn['interrupted']>, string> = {
 export function markInterrupted(turns: ChatTurn[], kind: NonNullable<MessageTurn['interrupted']>): ChatTurn[] {
   return updateLastAssistant(turns, (last) => {
     // WP-55: memory 블록은 표시 블록이 아니다 — 빈 턴 판단에서 빼고, 안내 문구로 바꿀 때도 결과 줄은 남긴다.
-    const empty = last.content === '' && !last.widgets?.length && !displayBlocks(last.contentBlocks).length;
+    const { display, memory } = splitBlocks(last.contentBlocks);
+    const empty = last.content === '' && !last.widgets?.length && !display.length;
     if (empty) {
-      const memory = memoryBlocks(last.contentBlocks);
       return { role: 'assistant', content: EMPTY_BY_KIND[kind], ...(memory.length ? { contentBlocks: memory } : {}) };
     }
     return { ...last, interrupted: kind };

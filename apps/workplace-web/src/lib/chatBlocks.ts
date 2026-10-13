@@ -3,14 +3,23 @@ import type { ContentBlock, MemoryBlock, MemoryEventDto, WidgetSpec } from '@/ty
 /** WP-55: memory 블록인가. */
 export const isMemoryBlock = (b: ContentBlock): b is MemoryBlock => b.kind === 'memory';
 
-/** WP-55: 표시 블록(text·tools·widget)만 — 렌더·빈 턴 판단은 memory 를 세지 않는다. */
-export function displayBlocks(blocks: ContentBlock[] | null | undefined): ContentBlock[] {
-  return (blocks ?? []).filter((b) => !isMemoryBlock(b));
+/** WP-55: 블록을 표시 블록(text·tools·widget)과 memory 블록으로 나눈 결과. */
+export interface SplitBlocks {
+  /** 렌더·빈 턴 판단용 — memory 를 세지 않는다. */
+  display: Exclude<ContentBlock, MemoryBlock>[];
+  /** 결과 줄 — 순번 = 되돌리기 blockIndex. */
+  memory: MemoryBlock[];
 }
 
-/** WP-55: memory 블록만(순번 = 되돌리기 blockIndex). */
-export function memoryBlocks(blocks: ContentBlock[] | null | undefined): MemoryBlock[] {
-  return (blocks ?? []).filter(isMemoryBlock);
+/** WP-55: 한 번 훑어 표시 블록과 memory 블록으로 나눈다(null·undefined 는 둘 다 빈 배열) — 렌더마다 여러 번 거르지 않게. */
+export function splitBlocks(blocks: ContentBlock[] | null | undefined): SplitBlocks {
+  const display: Exclude<ContentBlock, MemoryBlock>[] = [];
+  const memory: MemoryBlock[] = [];
+  for (const b of blocks ?? []) {
+    if (isMemoryBlock(b)) memory.push(b);
+    else display.push(b);
+  }
+  return { display, memory };
 }
 
 /** 마지막 표시 블록(memory 꼬리 제외). */
@@ -38,6 +47,7 @@ export function pushMemoryBlock(blocks: ContentBlock[], m: MemoryEventDto): Cont
     memoryKind: m.kind,
     content: m.content,
     ...(m.previousContent !== undefined ? { previousContent: m.previousContent } : {}),
+    ...(m.previousKind !== undefined ? { previousKind: m.previousKind } : {}),
     source: m.source ?? 'AI',
     undone: false,
   };

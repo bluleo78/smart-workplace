@@ -5,7 +5,7 @@ export type AiMemoryKind = 'PREFERENCE' | 'CONTEXT';
 /** AI 가 저장(AI) / 설정에서 직접 추가(USER). */
 export type AiMemorySource = 'AI' | 'USER';
 
-/** 메모리 1건. previousContent 는 고치기(PATCH) 응답에만 온다. */
+/** 메모리 1건. previousContent·previousKind 는 고치기(PATCH) 응답에만 온다. */
 export interface AiMemoryItem {
   id: number;
   kind: AiMemoryKind;
@@ -14,6 +14,7 @@ export interface AiMemoryItem {
   createdAt: string; // ISO 8601
   updatedAt: string; // ISO 8601
   previousContent?: string;
+  previousKind?: AiMemoryKind;
 }
 
 /** GET /users/me/ai-memories — updatedAt 최신순 + 상한(50). */

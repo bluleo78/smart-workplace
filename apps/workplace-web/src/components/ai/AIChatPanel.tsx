@@ -42,7 +42,7 @@ import { useStickToBottom } from '@/hooks/useStickToBottom';
 import { sessionListLabel } from '@/lib/ai/aiActivity';
 import { contextIdentity } from '@/lib/aiScreenContext/common';
 import { visibleSteps } from '@/lib/aiToolLabels';
-import { displayBlocks, memoryBlocks, sliceRange } from '@/lib/chatBlocks';
+import { sliceRange, type SplitBlocks, splitBlocks } from '@/lib/chatBlocks';
 import { filesFromPaste } from '@/lib/clipboardFiles';
 import { countSessionAttachments } from '@/lib/homeChatAttachments';
 import { keepFocusProps } from '@/lib/keepFocus';
@@ -72,6 +72,8 @@ const INTERRUPTED_LABEL: Record<NonNullable<MessageTurn['interrupted']>, string>
   timeout: '시간 초과로 중단됨',
 };
 
+/** WP-55: 어시스턴트가 아닌 턴의 빈 분할 — 렌더마다 새 객체를 만들지 않게 공유한다. */
+const NO_BLOCKS: SplitBlocks = { display: [], memory: [] };
 const BUSY_NOTICE_ID = 'chat-busy-notice';
 const LIMIT_NOTICE_ID = 'chat-limit-notice';
 /** 메인 AI 채팅 첨부 뷰어 열림 router state 키(WP-279) — AI 채팅은 모든 화면 위에 떠 있어 ?preview(드라이브·이슈·메일 호스트 쿼리)를 쓰지 않는다. */
@@ -323,7 +325,10 @@ export function AIChatPanel({
             </div>
           ) : (
             <ul className="space-y-2">
-              {turns.map((t, i) => (
+              {turns.map((t, i) => {
+                // WP-55: 표시 블록·메모리 결과 줄을 턴마다 한 번만 나눠 아래 판단·렌더가 함께 쓴다.
+                const parts = t.role === 'assistant' ? splitBlocks(t.contentBlocks) : NO_BLOCKS;
+                return (
                 <Fragment key={i}>
                   {/* #843: 확인카드 처리 결과 — 말풍선이 아닌 한 줄 시스템 기록. */}
                   {t.role === 'action' ? (
@@ -333,18 +338,17 @@ export function AIChatPanel({
                   ) :
                   // 빈 어시스턴트 턴은 아직 첫 토큰을 받지 않은 상태 — 3-dot 이 대신 렌더되므로 skip.
                   // 단, 위젯이 있으면(show_* 단독 응답) content 가 비어도 위젯을 렌더해야 하므로 skip 안 함(#431).
-                  t.role === 'assistant' && t.content === '' && !t.widgets?.length && !displayBlocks(t.contentBlocks).length && !visibleSteps(t.steps ?? []).length ? null : (
+                  t.role === 'assistant' && t.content === '' && !t.widgets?.length && !parts.display.length && !visibleSteps(t.steps ?? []).length ? null : (
                   <li
                     data-testid="chat-turn"
                     className={cn('flex', t.role === 'assistant' ? 'justify-start' : 'justify-end')}
                   >
                     {t.role === 'assistant' ? (
-                      displayBlocks(t.contentBlocks).length ? (
+                      parts.display.length ? (
                         // #463: 라이브 인터리브 — 블록 도착순으로 text↔widget↔도구 그룹(WP-157) 렌더.
                         <div className="flex w-full max-w-[92%] flex-col gap-2" data-testid="chat-widgets">
-                          {t.contentBlocks!.map((b, bi, blocks) => {
-                            // WP-55: 메모리 결과 줄은 말풍선 사이가 아니라 답변 아래에 따로 모아 그린다.
-                            if (b.kind === 'memory') return null;
+                          {/* WP-55: 메모리 결과 줄은 말풍선 사이가 아니라 답변 아래에 따로 모아 그린다(parts.memory). */}
+                          {parts.display.map((b, bi, blocks) => {
                             if (b.kind === 'tools') {
                               // WP-157: 도구 그룹 = steps[stepStart ~ 다음 tools 블록의 stepStart). result 이벤트는 steps 만
                               // 갱신하므로 상태 전이(실행 중→✓)가 그대로 반영된다. 표시할 단계가 없으면 ToolStepList 가 null.
@@ -446,9 +450,9 @@ export function AIChatPanel({
                   {/* WP-55: 메모리 결과 줄(시안 A) — 답변 말풍선들 아래·후속 질문 위. 줄마다 따로 되돌린다. 첫 토큰 전(3-dot 중)엔 미룬다.
                       터치 기기는 줄 간격을 넓히고 아래에 8px 를 더 둔다 — 되돌리기의 위아래 터치 확장(8px)이 이웃 줄·바로 아래 후속 질문 칩의 위쪽 확장과
                       겹치지 않게(겹치면 뒤 형제인 칩이 이긴다). */}
-                  {t.role === 'assistant' && memoryBlocks(t.contentBlocks).length > 0 && !(i === turns.length - 1 && pending && t.content === '') ? (
+                  {t.role === 'assistant' && parts.memory.length > 0 && !(i === turns.length - 1 && pending && t.content === '') ? (
                     <li data-testid="chat-memory-results" className="flex flex-col gap-1 pb-0 pointer-coarse:gap-4 pointer-coarse:pb-2">
-                      {memoryBlocks(t.contentBlocks).map((b, mi) => (
+                      {parts.memory.map((b, mi) => (
                         <MemoryResultLine key={`${mi}-${b.memoryId}`} block={b} blockIndex={mi} messageId={t.messageId} />
                       ))}
                     </li>
@@ -460,7 +464,8 @@ export function AIChatPanel({
                     </li>
                   ) : null}
                 </Fragment>
-              ))}
+                );
+              })}
               {/* #351: 일괄 확인 카드 — 항목별 승인/거부.
                   #843: 항목은 제자리에서 상태만 바뀐다 — 전송 중(스피너·잠금) / 실패(사유 인라인 + AI에게 수정 요청·닫기).
                   성공한 항목은 사라지고 결과는 위 대화 이력에 결과 줄로 남는다. 좁은 패널(≈380px)에서 긴 요약·사유와 버튼이

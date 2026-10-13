@@ -5,7 +5,14 @@ import { toast } from 'sonner';
 
 import { clearAiMemories, createAiMemory, deleteAiMemory, listAiMemories, undoAiMemory, updateAiMemory } from '../../api/aiMemories';
 import { chatStreams } from '../../lib/ai/chatStreams';
-import { MEMORY_SETTINGS_PATH, memoryErrorCode, memoryErrorMessage, UNDO_FULL_MESSAGE, UNDO_GONE_MESSAGE } from '../../lib/aiMemory';
+import {
+  MEMORY_SETTINGS_PATH,
+  memoryErrorCode,
+  memoryErrorMessage,
+  UNDO_CHANGED_MESSAGE,
+  UNDO_FULL_MESSAGE,
+  UNDO_GONE_MESSAGE,
+} from '../../lib/aiMemory';
 import { handleApiError } from '../../lib/api-error';
 import type { AiMemoryItem, AiMemoryKind, UndoAiMemoryRequest } from '../../types/aiMemory';
 import { useAuth } from '../useAuth';
@@ -28,7 +35,8 @@ function useInvalidateMemories() {
 
 /**
  * 채팅 결과 줄 되돌리기. 성공하면 그 줄을 되돌림으로 바꾸고 설정 목록을 다시 읽는다.
- * 실패: 이미 지워짐(GONE·NOT_FOUND) → "이미 지워진 메모리예요", 가득 참 → "…설정에서 정리해 주세요" + "설정 열기".
+ * 실패: 이미 지워짐(GONE·NOT_FOUND) → "이미 지워진 메모리예요", 가득 참 → "…설정에서 정리해 주세요" + "설정 열기",
+ * 고친 뒤 또 바뀜(CHANGED) → "그 뒤에 바뀐 메모리라 되돌리지 않았어요"(줄은 되돌리지 않은 채 남는다).
  */
 export function useUndoAiMemory() {
   const invalidate = useInvalidateMemories();
@@ -49,6 +57,8 @@ export function useUndoAiMemory() {
         });
       } else if (code === 'AI_MEMORY_GONE' || code === 'AI_MEMORY_NOT_FOUND') {
         toast.error(UNDO_GONE_MESSAGE);
+      } else if (code === 'AI_MEMORY_CHANGED') {
+        toast.error(UNDO_CHANGED_MESSAGE);
       } else {
         handleApiError(e, '메모리를 되돌리지 못했어요');
       }
@@ -62,14 +72,17 @@ export function useAiMemories() {
   return useQuery({ queryKey: aiMemoryKeys.list(user?.id), queryFn: listAiMemories, enabled: user != null });
 }
 
-/** 직접 추가. */
-export function useCreateAiMemory() {
+/**
+ * 직접 추가 — 설정 삭제 토스트의 되돌리기도 이 경로로 다시 만든다(목록 갱신·오류 토스트를 한 곳에 둔다). failMessage 는 서버 문구가 없을 때의 토스트.
+ * 오류 처리를 훅 옵션에 두므로 부른 행이 지워져 언마운트된 뒤(삭제 토스트)에도 실패 토스트가 뜬다.
+ */
+export function useCreateAiMemory(failMessage = '메모리를 추가하지 못했어요') {
   const invalidate = useInvalidateMemories();
   return useMutation({
     mutationFn: (body: { kind: AiMemoryKind; content: string }) => createAiMemory(body),
     // 목록을 다시 읽을 때까지 pending 유지 — 폼이 닫히고 새 목록이 바로 보이게(옛 내용이 한 번 보이지 않게).
     onSuccess: () => invalidate(),
-    onError: (e) => toast.error(memoryErrorMessage(e, '메모리를 추가하지 못했어요')),
+    onError: (e) => toast.error(memoryErrorMessage(e, failMessage)),
   });
 }
 
@@ -89,18 +102,12 @@ export function useUpdateAiMemory() {
  */
 export function useDeleteAiMemory() {
   const invalidate = useInvalidateMemories();
+  const restore = useCreateAiMemory('메모리를 되돌리지 못했어요');
   return useMutation({
     mutationFn: (item: AiMemoryItem) => deleteAiMemory(item.id),
     onSuccess: (deleted) => {
       toast.success('메모리를 삭제했어요', {
-        action: {
-          label: '되돌리기',
-          onClick: () => {
-            createAiMemory({ kind: deleted.kind, content: deleted.content })
-              .then(() => invalidate())
-              .catch((e: unknown) => toast.error(memoryErrorMessage(e, '메모리를 되돌리지 못했어요')));
-          },
-        },
+        action: { label: '되돌리기', onClick: () => restore.mutate({ kind: deleted.kind, content: deleted.content }) },
       });
       // 목록을 다시 읽을 때까지 pending 유지 — 지운 줄이 남아 삭제 버튼이 다시 켜져 두 번째 DELETE(404)가 나가지 않게.
       return invalidate();

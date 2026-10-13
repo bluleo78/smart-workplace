@@ -47,7 +47,7 @@ export interface MemoryMock {
 
 /**
  * 설정 카드용 상태 있는 목 — 목록은 배열 순서(맨 앞 = 최신)로 돌려준다. 추가·고치기는 맨 앞으로, 지우기는 지운 항목을 돌려준다.
- * 서버 규칙 중 화면이 기대는 것만 흉내 낸다(직접 추가는 USER, 고치기 응답의 previousContent).
+ * 서버 규칙 중 화면이 기대는 것만 흉내 낸다(직접 추가는 USER, 고치기 응답의 previousContent·previousKind).
  */
 export async function mockAiMemories(page: Page, initial: AiMemoryItem[]): Promise<MemoryMock> {
   let items = [...initial]
@@ -87,7 +87,7 @@ export async function mockAiMemories(page: Page, initial: AiMemoryItem[]): Promi
       const body = req.postDataJSON() as { content?: string }
       const next = { ...cur, content: body.content?.trim() ?? cur.content, updatedAt: new Date().toISOString() }
       items = [next, ...items.filter((m) => m.id !== id)]
-      return route.fulfill(json(200, { ...next, previousContent: cur.content }))
+      return route.fulfill(json(200, { ...next, previousContent: cur.content, previousKind: cur.kind }))
     }
     if (method === 'DELETE' && Number.isNaN(id)) {
       items = []

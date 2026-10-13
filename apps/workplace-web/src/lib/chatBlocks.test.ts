@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { ContentBlock } from '@/types/home';
 
-import { displayBlocks, memoryBlocks, pushMemoryBlock, pushTextBlock, pushToolsBlock, pushWidgetBlock, reconcileBlocks, sliceRange } from './chatBlocks';
+import { pushMemoryBlock, pushTextBlock, pushToolsBlock, pushWidgetBlock, reconcileBlocks, sliceRange, splitBlocks } from './chatBlocks';
 
 // #463: ContentBlock 인터리브 누적 로직 — delta·tool 이벤트 시퀀스 검증.
 describe('pushTextBlock', () => {
@@ -183,12 +183,19 @@ describe('memory 블록 (WP-55)', () => {
     expect(sliceRange(b, 0)).toEqual([0, 5]);
   });
 
-  it('displayBlocks·memoryBlocks 로 나눈다(null·undefined 는 빈 배열)', () => {
+  it('splitBlocks 는 한 번에 표시 블록과 memory 블록으로 나눈다(순서 유지, null·undefined 는 빈 배열)', () => {
     const b = pushMemoryBlock(pushMemoryBlock([{ kind: 'text', textStart: 0 }], saved), { ...saved, memoryId: 13 });
-    expect(displayBlocks(b)).toEqual([{ kind: 'text', textStart: 0 }]);
-    expect(memoryBlocks(b).map((m) => m.memoryId)).toEqual([12, 13]);
-    expect(displayBlocks(undefined)).toEqual([]);
-    expect(memoryBlocks(null)).toEqual([]);
+    const { display, memory } = splitBlocks([...b, { kind: 'widget', widget: { type: 'issue_list', params: {} } }]);
+    expect(display.map((x) => x.kind)).toEqual(['text', 'widget']);
+    expect(memory.map((m) => m.memoryId)).toEqual([12, 13]);
+    expect(splitBlocks(undefined)).toEqual({ display: [], memory: [] });
+    expect(splitBlocks(null)).toEqual({ display: [], memory: [] });
+  });
+
+  it('고침 결과의 previousKind 를 블록에 옮긴다(없으면 키 없음)', () => {
+    const updated = { action: 'updated' as const, memoryId: 9, kind: 'CONTEXT' as const, content: '백엔드 팀', previousContent: '짧은 목록', previousKind: 'PREFERENCE' as const };
+    expect(pushMemoryBlock([], updated)[0]).toMatchObject({ memoryKind: 'CONTEXT', previousContent: '짧은 목록', previousKind: 'PREFERENCE' });
+    expect(pushMemoryBlock([], saved)[0]).not.toHaveProperty('previousKind');
   });
 
   it('reconcileBlocks 는 memory 블록을 지우지 않는다', () => {

@@ -364,7 +364,9 @@ export function createChatStreams(opts: { storage?: () => KeyValueStore | null }
       retire(cid);
       const stoppedSid = sessionOf(key) ?? sid;
       if (stoppedSid && active.get(stoppedSid) === cid) untrackActive(stoppedSid);
-      if (e.correlationId === cid) entries.set(key, { ...e, correlationId: null });
+      // WP-55: 아직 새 질문을 보내지 않았다면(이 칸의 마지막 생성이 이 cid) 멈춘 답이 마지막 턴이다 — 서버가 저장한 부분 답변 id 를 실어
+      // 그 턴의 메모리 결과 줄 되돌리기를 켠다. 새 질문 뒤면 마지막 턴이 다른 답이라 싣지 않는다.
+      if (e.correlationId === cid) entries.set(key, { ...e, correlationId: null, turns: applyDoneMessageId(e.turns, data.messageId) });
       if (route.placeholder && sessionOf(key)) effects.refetch(key);
       effects.sessionsChanged();
       commit();
@@ -373,13 +375,11 @@ export function createChatStreams(opts: { storage?: () => KeyValueStore | null }
     if (e) {
       let turns = e.turns;
       if (live) {
-        if (kind === 'done') {
-          turns = applyDoneWidgets(turns, data.widgets as WidgetSpec[] | null | undefined);
-          // WP-55: 저장된 메시지 id — 결과 줄 되돌리기를 done 직후 켠다(추천 꺼짐·위임 답과 무관).
-          turns = applyDoneMessageId(turns, data.messageId);
-        }
+        if (kind === 'done') turns = applyDoneWidgets(turns, data.widgets as WidgetSpec[] | null | undefined);
         // 서버 시간 초과 취소는 사용자가 멈춘 것과 구분해 "시간 초과로 중단됨"(라이브만 — 저장은 STOPPED).
         else turns = markInterrupted(turns, kind === 'error' ? 'failed' : data.reason === 'timeout' ? 'timeout' : 'stopped');
+        // WP-55: 저장된 메시지 id — 결과 줄 되돌리기를 종결 직후 켠다(추천 꺼짐·위임 답과 무관). 오류·취소도 부분 답변을 저장하면 id 가 온다.
+        turns = applyDoneMessageId(turns, data.messageId);
       }
       entries.set(key, {
         ...e,
