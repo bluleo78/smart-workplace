@@ -6,9 +6,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 사용자 AI 사용 설정(WP-139) — 추천 질문 켜기/끄기. 홈 채팅(빈 대화 추천·후속 질문 생성·이력 표시)이 이 값을 본다.
+ * 사용자 AI 사용 설정 — 추천 질문(WP-139)과 메모리(WP-55) 켜기/끄기. 홈 채팅(추천·후속 질문·메모리 주입)과 메모리 대행 쓰기가 이 값을 본다.
  *
- * <p>"user" 는 RLS 비대상이라 어느 스레드(후속 질문 실행기 포함)에서 불러도 같은 결과다.
+ * <p>"user" 는 RLS 비대상이라 어느 스레드(후속 질문 실행기·채팅 펌프 포함)에서 불러도 같은 결과다.
  */
 @Service
 @RequiredArgsConstructor
@@ -22,9 +22,18 @@ public class AiPreferenceService {
     return userRepository.isAiSuggestionsEnabled(userId);
   }
 
-  /** 추천 질문 켜기/끄기 저장. */
+  /** 메모리를 쓸지(WP-55) — 미설정이면 켜짐. 끄면 주입하지 않고 AI 대행 쓰기를 409 로 막는다. */
+  @Transactional(readOnly = true)
+  public boolean memoryEnabled(long userId) {
+    return userRepository.isAiMemoryEnabled(userId);
+  }
+
+  /** 부분 저장 — null 인 값은 건드리지 않는다(present-flag, 판정 3). */
   @Transactional
-  public void update(long userId, boolean enabled) {
-    userRepository.updateAiSuggestionsEnabled(userId, enabled);
+  public void update(long userId, Boolean suggestionsEnabled, Boolean memoryEnabled) {
+    if (suggestionsEnabled != null) {
+      userRepository.updateAiSuggestionsEnabled(userId, suggestionsEnabled);
+    }
+    if (memoryEnabled != null) userRepository.updateAiMemoryEnabled(userId, memoryEnabled);
   }
 }

@@ -1,5 +1,6 @@
 package com.workplace.home.controller;
 
+import com.workplace.global.security.InternalOnBehalfOf;
 import com.workplace.home.dto.AiMemoryItem;
 import com.workplace.home.dto.AiMemoryListResponse;
 import com.workplace.home.dto.CreateAiMemoryRequest;
@@ -7,6 +8,7 @@ import com.workplace.home.dto.UpdateAiMemoryRequest;
 import com.workplace.home.service.AiMemoryService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -35,27 +37,34 @@ public class AiMemoryController {
     return service.list(callerId);
   }
 
-  /** 직접 추가 — 201 + 항목. */
+  /** 생성 — 201 + 항목. ai-agent 대행(Internal)이면 source:'AI'·세션을 받고 꺼짐이면 409(판정 2). */
   @PostMapping
   @ResponseStatus(HttpStatus.CREATED)
   public AiMemoryItem create(
-      @AuthenticationPrincipal Long callerId, @RequestBody CreateAiMemoryRequest req) {
-    return service.create(callerId, req.kind(), req.content());
+      @AuthenticationPrincipal Long callerId,
+      @RequestBody CreateAiMemoryRequest req,
+      Authentication authentication) {
+    return service.create(callerId, req, InternalOnBehalfOf.isInternal(authentication));
   }
 
-  /** 고치기 — 이전 내용 포함. */
+  /** 고치기 — 이전 내용 포함. 대행 + 꺼짐이면 409. */
   @PatchMapping("/{id}")
   public AiMemoryItem update(
       @AuthenticationPrincipal Long callerId,
       @PathVariable("id") long id,
-      @RequestBody UpdateAiMemoryRequest req) {
-    return service.update(callerId, id, req.content(), req.kind());
+      @RequestBody UpdateAiMemoryRequest req,
+      Authentication authentication) {
+    return service.update(
+        callerId, id, req.content(), req.kind(), InternalOnBehalfOf.isInternal(authentication));
   }
 
-  /** 지우기 — 지운 항목(판정 12). */
+  /** 지우기 — 지운 항목(판정 12). 대행 + 꺼짐이면 409. */
   @DeleteMapping("/{id}")
-  public AiMemoryItem delete(@AuthenticationPrincipal Long callerId, @PathVariable("id") long id) {
-    return service.delete(callerId, id);
+  public AiMemoryItem delete(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable("id") long id,
+      Authentication authentication) {
+    return service.delete(callerId, id, InternalOnBehalfOf.isInternal(authentication));
   }
 
   /** 모두 지우기 — 204. */

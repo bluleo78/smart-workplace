@@ -104,7 +104,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
       // select-tenant/memberships 는 details 가 없는 PAT·API 키·Internal 인증을 거부하고, SSO 세션은 SSO 켜진
       // 워크스페이스로 제한한다.
       String amr = jwtTokenProvider.getAuthMethodFromToken(token);
-      setSecurityContext(userId, amr != null ? amr : AuthDetails.PASSWORD);
+      setSecurityContext(userId, new AuthDetails(amr != null ? amr : AuthDetails.PASSWORD));
     }
   }
 
@@ -142,20 +142,25 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
       if (resolved != null) {
         TenantContext.set(resolved);
       }
-      setSecurityContext(userId, null);
+      // WP-55: Internal 대행 표식 — AuthDetails 가 아니므로 브라우저 세션으로 오인되지 않는다(InternalOnBehalfOf 참고).
+      setSecurityContext(userId, InternalOnBehalfOf.INSTANCE);
     } catch (NumberFormatException ignored) {
       // Invalid userId, skip authentication
     }
   }
 
-  private void setSecurityContext(Long userId, String authMethod) {
+  /**
+   * 인증 컨텍스트 설정 — details 는 인증 수단 표식(브라우저 JWT=AuthDetails, Internal 대행=InternalOnBehalfOf, 그 외
+   * null).
+   */
+  private void setSecurityContext(Long userId, Object details) {
     Set<String> permissions = permissionService.getUserPermissions(userId);
     List<SimpleGrantedAuthority> authorities =
         permissions.stream().map(SimpleGrantedAuthority::new).toList();
     UsernamePasswordAuthenticationToken authentication =
         new UsernamePasswordAuthenticationToken(userId, null, authorities);
-    if (authMethod != null) {
-      authentication.setDetails(new AuthDetails(authMethod));
+    if (details != null) {
+      authentication.setDetails(details);
     }
     SecurityContextHolder.getContext().setAuthentication(authentication);
   }

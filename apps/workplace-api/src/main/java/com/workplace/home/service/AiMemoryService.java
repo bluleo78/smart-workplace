@@ -2,9 +2,12 @@ package com.workplace.home.service;
 
 import com.workplace.home.dto.AiMemoryItem;
 import com.workplace.home.dto.AiMemoryListResponse;
+import com.workplace.home.dto.CreateAiMemoryRequest;
 import com.workplace.home.exception.AiMemoryException;
 import com.workplace.home.repository.AiMemoryRepository;
 import com.workplace.home.repository.AiMemoryRepository.Row;
+import com.workplace.home.repository.HomeSessionRepository;
+import com.workplace.user.service.AiPreferenceService;
 import java.util.Set;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -35,6 +38,8 @@ public class AiMemoryService {
   private static final Set<String> KINDS = Set.of(KIND_PREFERENCE, KIND_CONTEXT);
 
   private final AiMemoryRepository repo;
+  private final AiPreferenceService preferences;
+  private final HomeSessionRepository sessionRepo;
 
   /** 본인 메모리 목록(최신순, 최대 50). */
   @Transactional(readOnly = true)
@@ -43,19 +48,41 @@ public class AiMemoryService {
         repo.listNewest(userId, LIMIT).stream().map(r -> toItem(r, null)).toList(), LIMIT);
   }
 
-  /** 직접 추가(설정 화면) — 항상 USER 출처. */
+  /** 직접 추가(설정 화면) — 항상 USER 출처. 테스트·내부 호출용 축약. */
   @Transactional
   public AiMemoryItem create(long userId, String kind, String content) {
-    return toItem(insertChecked(userId, kind, content, SOURCE_USER, null), null);
+    return create(userId, new CreateAiMemoryRequest(kind, content, null, null), false);
   }
 
   /**
-   * 고치기 — 생략한 필드는 그대로. 응답에 이전 내용(previousContent)을 싣는다(update_memory 결과·채팅 되돌리기 근거).
+   * 생성 — internal(ai-agent 대행)일 때만 source:'AI' 와 세션을 받는다. 세션은 호출자 소유일 때만 기록한다(남의 세션 id 를 실어도 null).
    *
-   * @throws AiMemoryException 400(둘 다 없음·검증 실패), 404(없음·남의 것)
+   * @throws AiMemoryException 409 DISABLED(대행 + 꺼짐), 409 FULL, 400
    */
   @Transactional
+  public AiMemoryItem create(long userId, CreateAiMemoryRequest req, boolean internal) {
+    if (internal) requireEnabled(userId);
+    boolean ai = internal && SOURCE_AI.equals(req.source());
+    UUID session = ai ? ownedSession(userId, req.sessionId()) : null;
+    return toItem(
+        insertChecked(userId, req.kind(), req.content(), ai ? SOURCE_AI : SOURCE_USER, session),
+        null);
+  }
+
+  /** 고치기(설정 화면) — 축약. */
+  @Transactional
   public AiMemoryItem update(long userId, long id, String content, String kind) {
+    return update(userId, id, content, kind, false);
+  }
+
+  /**
+   * 고치기 — 생략한 필드는 그대로. 대행이면 꺼짐 409. 응답에 이전 내용(previousContent)을 싣는다(update_memory 결과·채팅 되돌리기 근거).
+   *
+   * @throws AiMemoryException 400(둘 다 없음·검증 실패), 404(없음·남의 것), 409(대행 + 꺼짐)
+   */
+  @Transactional
+  public AiMemoryItem update(long userId, long id, String content, String kind, boolean internal) {
+    if (internal) requireEnabled(userId);
     if (content == null && kind == null) throw AiMemoryException.invalid("바꿀 내용이 없어요");
     Row cur = repo.lock(userId, id).orElseThrow(AiMemoryException::notFound);
     String c = content == null ? cur.content() : normalizeContent(content);
@@ -64,16 +91,61 @@ public class AiMemoryService {
     return toItem(saved, cur.content());
   }
 
-  /** 지우기 — 지운 항목을 돌려준다(forget_memory 결과·설정 "되돌리기" 토스트 근거). */
+  /** 지우기(설정 화면) — 축약. */
   @Transactional
   public AiMemoryItem delete(long userId, long id) {
+    return delete(userId, id, false);
+  }
+
+  /** 지우기 — 대행이면 꺼짐 409. 지운 항목을 돌려준다(forget_memory 결과·설정 "되돌리기" 토스트 근거). */
+  @Transactional
+  public AiMemoryItem delete(long userId, long id, boolean internal) {
+    if (internal) requireEnabled(userId);
     return toItem(repo.delete(userId, id).orElseThrow(AiMemoryException::notFound), null);
+  }
+
+  /** 되돌리기용 재생성(WP-55 §6 forgotten) — 꺼짐과 무관(사용자가 직접 하는 정리), 상한만 검사, 같은 source. */
+  @Transactional
+  public AiMemoryItem restore(long userId, String kind, String content, String source) {
+    String s = SOURCE_AI.equals(source) ? SOURCE_AI : SOURCE_USER;
+    return toItem(insertChecked(userId, kind, content, s, null), null);
+  }
+
+  /** 되돌리기용 삭제(saved) — 이미 없으면 false(그대로 진행). */
+  @Transactional
+  public boolean deleteIfExists(long userId, long id) {
+    return repo.delete(userId, id).isPresent();
+  }
+
+  /** 되돌리기용 내용 복원(updated) — 이미 없으면 404 AI_MEMORY_GONE. */
+  @Transactional
+  public AiMemoryItem restoreContent(long userId, long id, String previousContent) {
+    Row cur = repo.lock(userId, id).orElseThrow(AiMemoryException::gone);
+    Row saved =
+        repo.update(userId, id, cur.kind(), normalizeContent(previousContent))
+            .orElseThrow(AiMemoryException::gone);
+    return toItem(saved, cur.content());
   }
 
   /** 모두 지우기 — 본인 것만. */
   @Transactional
   public void clear(long userId) {
     repo.deleteAll(userId);
+  }
+
+  /** 대행 쓰기 전 꺼짐 확인 — 꺼져 있으면 409 AI_MEMORY_DISABLED. */
+  private void requireEnabled(long userId) {
+    if (!preferences.memoryEnabled(userId)) throw AiMemoryException.disabled();
+  }
+
+  /** 호출자 소유 대화 세션이면 그 id, 아니면 null — 남의 세션을 출처로 남기지 않는다. */
+  private UUID ownedSession(long userId, UUID sessionId) {
+    if (sessionId == null) return null;
+    return sessionRepo
+        .findById(sessionId)
+        .filter(r -> r.userId() == userId)
+        .map(r -> sessionId)
+        .orElse(null);
   }
 
   /**

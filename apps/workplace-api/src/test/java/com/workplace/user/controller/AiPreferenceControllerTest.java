@@ -68,4 +68,38 @@ class AiPreferenceControllerTest extends IntegrationTestBase {
                 .content("{}"))
         .andExpect(status().isBadRequest());
   }
+
+  /** WP-55: 메모리는 기본 켜짐, 한 필드만 보내면 다른 필드는 그대로 남는다(present-flag 부분 갱신). */
+  @Test
+  void 메모리는_기본_켜짐이고_부분_저장은_다른_값을_유지한다() throws Exception {
+    long uid = TestFixtures.createHuman(dsl);
+    mvc.perform(get("/api/v1/users/me/ai-preferences").with(authentication(auth(uid))))
+        .andExpect(jsonPath("$.memoryEnabled").value(true));
+    mvc.perform(
+            put("/api/v1/users/me/ai-preferences")
+                .with(authentication(auth(uid)))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"memoryEnabled\":false}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.memoryEnabled").value(false))
+        .andExpect(jsonPath("$.suggestionsEnabled").value(true));
+    mvc.perform(
+            put("/api/v1/users/me/ai-preferences")
+                .with(authentication(auth(uid)))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"suggestionsEnabled\":false}"))
+        .andExpect(jsonPath("$.suggestionsEnabled").value(false))
+        .andExpect(jsonPath("$.memoryEnabled").value(false));
+  }
+
+  @Test
+  void 둘_다_null_이어도_400() throws Exception {
+    long uid = TestFixtures.createHuman(dsl);
+    mvc.perform(
+            put("/api/v1/users/me/ai-preferences")
+                .with(authentication(auth(uid)))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"suggestionsEnabled\":null,\"memoryEnabled\":null}"))
+        .andExpect(status().isBadRequest());
+  }
 }

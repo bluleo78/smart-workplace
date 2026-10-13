@@ -237,7 +237,7 @@ class HomeFollowupTest extends IntegrationTestBase {
     awaitTrue(() -> payloads("home.chat.followups").size() == 1);
     assertThat(sessionService.getMessages(uid, sid).get(1).followups()).isEqualTo(ITEMS);
 
-    preferences.update(uid, false);
+    preferences.update(uid, false, null);
     assertThat(sessionService.getMessages(uid, sid).get(1).followups()).isNull();
 
     CountDownLatch second = stream("답 2", "router_prose", false);
@@ -256,7 +256,7 @@ class HomeFollowupTest extends IntegrationTestBase {
     when(suggestionClient.suggest(any()))
         .thenAnswer(
             inv -> {
-              preferences.update(uid, false);
+              preferences.update(uid, false, null);
               return ITEMS;
             });
     CountDownLatch streamed = stream("답", "subagent", false);
@@ -265,7 +265,7 @@ class HomeFollowupTest extends IntegrationTestBase {
     awaitTrue(() -> !mockingDetails(suggestionClient).getInvocations().isEmpty());
     awaitSuggestionIdle();
     assertThat(payloads("home.chat.followups")).isEmpty();
-    preferences.update(uid, true);
+    preferences.update(uid, true, null);
     assertThat(sessionService.getMessages(uid, sid).get(1).followups()).isNull();
   }
 

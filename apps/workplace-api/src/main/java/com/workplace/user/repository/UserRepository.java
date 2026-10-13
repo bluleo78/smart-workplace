@@ -365,6 +365,25 @@ public class UserRepository {
         .execute();
   }
 
+  /** AI 메모리 사용 여부(WP-55). NULL(미설정)·없는 사용자는 켜짐 — ai_suggestions_enabled 와 같은 규칙. */
+  public boolean isAiMemoryEnabled(long id) {
+    Boolean v =
+        dsl.select(USER.AI_MEMORY_ENABLED)
+            .from(USER)
+            .where(USER.ID.eq(id))
+            .fetchOne(USER.AI_MEMORY_ENABLED);
+    return v == null || v;
+  }
+
+  /** AI 메모리 사용 여부 저장(WP-55). */
+  public void updateAiMemoryEnabled(long id, boolean enabled) {
+    dsl.update(USER)
+        .set(USER.AI_MEMORY_ENABLED, enabled)
+        .set(USER.UPDATED_AT, LocalDateTime.now())
+        .where(USER.ID.eq(id))
+        .execute();
+  }
+
   public boolean existsById(Long id) {
     return dsl.fetchExists(dsl.selectOne().from(USER).where(USER.ID.eq(id)));
   }
