@@ -5,6 +5,7 @@ import static com.workplace.jooq.Tables.CONTENT_ATTACHMENT;
 import com.workplace.mail.dto.ParsedAttachment;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
@@ -134,6 +135,44 @@ public class ContentAttachmentRepository {
         .set(CONTENT_ATTACHMENT.MIME_CONTENT_ID, mimeContentId)
         .where(CONTENT_ATTACHMENT.ID.eq(contentAttachmentId))
         .and(empty)
+        .execute();
+  }
+
+  /**
+   * 메일 첨부 텍스트 추출 잠금 전용 classId(WP-358) — 2-인자 pg_advisory_xact_lock(classId, contentAttachmentId).
+   * 1-인자 잠금과 네임스페이스가 분리된다(IssueAttachmentRepository 와 같은 패턴, 이슈 번호를 classId 로 사용).
+   */
+  private static final int EXTRACT_LOCK_CLASS = 358;
+
+  /** 추출 사본 생성 판단에 필요한 manifest 값 — 현재 링크된 추출 file id(없으면 null)와 원본 크기(모르면 null). */
+  public record ExtractTarget(Long extractFileId, Long sizeBytes) {}
+
+  /** manifest 의 추출 사본 링크·크기 조회(WP-358). 행이 없으면 empty. */
+  public Optional<ExtractTarget> findExtractTarget(long contentAttachmentId) {
+    return dsl.select(CONTENT_ATTACHMENT.EXTRACT_FILE_ID, CONTENT_ATTACHMENT.SIZE_BYTES)
+        .from(CONTENT_ATTACHMENT)
+        .where(CONTENT_ATTACHMENT.ID.eq(contentAttachmentId))
+        .fetchOptional(
+            r ->
+                new ExtractTarget(
+                    r.get(CONTENT_ATTACHMENT.EXTRACT_FILE_ID),
+                    r.get(CONTENT_ATTACHMENT.SIZE_BYTES)));
+  }
+
+  /**
+   * 같은 첨부의 추출 사본 생성을 직렬화한다(트랜잭션 종료 시 자동 해제, WP-358). 동시에 첫 /text 요청이 두 번 와도 provider fetch·사본 저장·추출
+   * 요청이 한 번만 일어나게 "잠금 → 링크 재확인 → 생성" 순서로 쓴다.
+   */
+  public void lockForExtract(long contentAttachmentId) {
+    dsl.execute(
+        "SELECT pg_advisory_xact_lock(?, ?)", EXTRACT_LOCK_CLASS, (int) contentAttachmentId);
+  }
+
+  /** manifest 에 추출 사본 file id 를 기록한다(WP-358). 사본 file 이 지워지면 FK ON DELETE SET NULL 로 링크가 풀린다. */
+  public void linkExtractFile(long contentAttachmentId, long fileId) {
+    dsl.update(CONTENT_ATTACHMENT)
+        .set(CONTENT_ATTACHMENT.EXTRACT_FILE_ID, fileId)
+        .where(CONTENT_ATTACHMENT.ID.eq(contentAttachmentId))
         .execute();
   }
 }

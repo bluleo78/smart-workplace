@@ -7,6 +7,7 @@ import static com.workplace.jooq.Tables.FILE_EXTRACTION;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.fileai.event.FileExtractionDoneEvent;
+import com.workplace.fileai.event.FileExtractionSettledEvent;
 import com.workplace.fileai.exception.FileAiException;
 import com.workplace.fileai.outbound.AiAgentDriveClient;
 import com.workplace.fileai.outbound.WorkerClient;
@@ -243,6 +244,8 @@ public class FileExtractionPipeline {
         log.debug("TEXT_READY 전이 CAS 실패 — 스테일 콜백 무시: jobId={} fileId={}", jobId, fileId);
         return;
       }
+      // 결과 확정 알림(WP-358) — 추출 전용 사본을 가진 도메인이 원본 바이너리를 정리한다(커밋 후 발화).
+      publishSettled(fileId);
       if ("DONE".equals(advanced.get())) {
         return; // TEXT_ONLY(첨부): 요약 nudge·DONE 이벤트(임베딩) 없음 — 에이전트는 글자만 읽는다
       }
@@ -281,7 +284,17 @@ public class FileExtractionPipeline {
       boolean advanced = jobs.advanceToSkipped(fileId, error);
       if (!advanced) {
         log.debug("SKIPPED 전이 CAS 실패 — 스테일 콜백 무시: jobId={} fileId={}", jobId, fileId);
+      } else {
+        publishSettled(fileId);
       }
+    }
+  }
+
+  /** 추출 결과 확정 이벤트 발행(WP-358). 콜백 컨트롤러가 워커 에코 tenantId 로 TenantContext 를 세팅해 둔 상태에서 호출된다. */
+  private void publishSettled(long fileId) {
+    Long tenantId = TenantContext.get();
+    if (tenantId != null) {
+      events.publishEvent(new FileExtractionSettledEvent(fileId, tenantId));
     }
   }
 

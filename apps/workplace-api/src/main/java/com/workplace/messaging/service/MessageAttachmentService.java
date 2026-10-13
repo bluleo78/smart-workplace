@@ -1,6 +1,10 @@
 package com.workplace.messaging.service;
 
 import com.workplace.file.storage.FileStore;
+import com.workplace.fileai.ExtractionProfile;
+import com.workplace.fileai.dto.ExtractedTextSlice;
+import com.workplace.fileai.inbound.FileExtractionRequestedEvent;
+import com.workplace.fileai.service.ExtractedTextService;
 import com.workplace.messaging.exception.ChannelNotMemberException;
 import com.workplace.messaging.exception.InvalidMessageAttachmentException;
 import com.workplace.messaging.exception.MessageAttachmentLimitExceededException;
@@ -13,6 +17,7 @@ import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -30,6 +35,12 @@ public class MessageAttachmentService {
   /** 상대경로→절대경로 복원용 코어 파일 저장소. 다운로드 시 FileSystemResource 에 전달하기 전에 resolve() 호출. */
   private final FileStore fileStore;
 
+  /** WP-358: 바인딩(영구 승격) 시 텍스트 추출 요청 발행. */
+  private final ApplicationEventPublisher eventPublisher;
+
+  /** WP-358: 추출 텍스트 구간 읽기(공용 fileai). */
+  private final ExtractedTextService extractedText;
+
   @Value("${workplace.storage.attachment.max-file-size-bytes:26214400}")
   private long maxFileSize;
 
@@ -41,12 +52,16 @@ public class MessageAttachmentService {
       MessageAttachmentRepository repo,
       ChannelMemberRepository memberRepo,
       MessageRepository messageRepo,
-      FileStore fileStore) {
+      FileStore fileStore,
+      ApplicationEventPublisher eventPublisher,
+      ExtractedTextService extractedText) {
     this.storage = storage;
     this.repo = repo;
     this.memberRepo = memberRepo;
     this.messageRepo = messageRepo;
     this.fileStore = fileStore;
+    this.eventPublisher = eventPublisher;
+    this.extractedText = extractedText;
   }
 
   /** 선업로드: 채널 멤버 검증 + 크기/개수 게이트 후 임시 저장. fileId 메타 반환. */
@@ -66,10 +81,8 @@ public class MessageAttachmentService {
     List<UploadedFile> out = new ArrayList<>();
     for (MultipartFile mf : files) {
       Long id = storage.storeTemporary(mf, callerId);
-      String mime =
-          mf.getContentType() != null && !mf.getContentType().isBlank()
-              ? mf.getContentType()
-              : "application/octet-stream";
+      // 저장소가 file 행에 쓴 것과 같은 정규화 mime 을 응답에 싣는다(WP-358).
+      String mime = MessageAttachmentStorage.normalizedMime(mf);
       out.add(
           new UploadedFile(
               id,
@@ -91,6 +104,8 @@ public class MessageAttachmentService {
       throw new MessageAttachmentLimitExceededException(fileIds.size(), maxPerMessage);
     }
     OffsetDateTime now = OffsetDateTime.now();
+    // 1차 패스: 전부 유효한지 검증. 추출 요청 발행용으로 후보(mime 포함)를 모아 둔다.
+    List<MessageAttachmentRepository.Bindable> bindables = new ArrayList<>();
     for (Long fileId : fileIds) {
       var b =
           repo.findBindable(fileId)
@@ -101,11 +116,18 @@ public class MessageAttachmentService {
       if (!ownedByCaller || b.bound() || expired) {
         throw new InvalidMessageAttachmentException(fileId);
       }
+      bindables.add(b);
     }
     for (Long fileId : fileIds) {
       repo.bind(fileId, messageId, callerId);
     }
     repo.promoteToPermanent(fileIds);
+    // WP-358: 메시지에 붙어 영구 파일이 된 시점에 텍스트 추출을 요청한다(이슈 챗 첨부와 같은 시점). 선업로드만 하고 버려진 임시 파일은
+    // 여기 오지 않아 추출 비용을 쓰지 않는다. 메시지 생성과 같은 트랜잭션이라 추출 행도 함께 커밋·롤백된다.
+    for (var b : bindables) {
+      eventPublisher.publishEvent(
+          FileExtractionRequestedEvent.of(b.fileId(), b.mimeType(), ExtractionProfile.TEXT_ONLY));
+    }
   }
 
   /**
@@ -132,6 +154,22 @@ public class MessageAttachmentService {
         row.originalName(),
         row.mimeType(),
         row.sizeBytes());
+  }
+
+  /**
+   * 첨부 추출 텍스트 구간 읽기(WP-358). 권한·소속 판정은 {@link #download} 와 같다 — 채널 비멤버는
+   * 403(ChannelNotMemberException), 다른 채널의 메시지·그 메시지에 붙지 않은 fileId 는
+   * 400(InvalidMessageAttachmentException). 상태·사유·자르기는 fileai 공용 서비스가 맡는다.
+   */
+  @Transactional(readOnly = true)
+  public ExtractedTextSlice readText(
+      long callerId, long channelId, long messageId, long fileId, int offset, int limit) {
+    ensureMember(channelId, callerId);
+    if (!messageRepo.belongsToChannel(messageId, channelId)
+        || repo.findStoredFile(fileId, messageId).isEmpty()) {
+      throw new InvalidMessageAttachmentException(fileId);
+    }
+    return extractedText.read(fileId, offset, limit);
   }
 
   /** 채널 멤버 여부 확인. 비멤버면 ChannelNotMemberException 발생. */

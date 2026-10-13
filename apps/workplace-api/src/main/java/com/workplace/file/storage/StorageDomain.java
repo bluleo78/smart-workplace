@@ -7,6 +7,9 @@ public enum StorageDomain {
   CHAT("chat"),
   MESSAGING("messaging"),
   MAIL("mail"),
+  // WP-358 메일 첨부 텍스트 추출용 평문 사본(만료 TTL). "mail" 세그먼트와 반드시 분리 — MailAttachmentBlobGcSweeper 의 고아 파일
+  // 백스톱이 tenant-{id}/mail 아래에서 mail_attachment_blob 에 없는 파일을 1시간 뒤 지운다.
+  MAIL_EXTRACT("mail-extract"),
   WIKI("wiki"), // 노트 본문 이미지 첨부
   HOME("home"); // 메인 AI 채팅 첨부(WP-234)
 

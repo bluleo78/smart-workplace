@@ -2,6 +2,10 @@ package com.workplace.wiki.service;
 
 import com.workplace.drive.service.DriveQuotaService;
 import com.workplace.file.api.ImageSniffer;
+import com.workplace.fileai.ExtractionProfile;
+import com.workplace.fileai.dto.ExtractedTextSlice;
+import com.workplace.fileai.inbound.FileExtractionRequestedEvent;
+import com.workplace.fileai.service.ExtractedTextService;
 import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.global.util.UnicodeNames;
 import com.workplace.wiki.dto.WikiAttachmentResponse;
@@ -24,6 +28,7 @@ import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -55,6 +60,9 @@ public class WikiAttachmentService {
   private final DriveQuotaService quota;
   // WP-64: 첨부 변경 resource.changed 발행기.
   private final WikiChangeNotifier notifier;
+  // WP-358: 업로드 시 텍스트 추출 요청 발행 + 추출 텍스트 구간 읽기(공용 fileai).
+  private final ApplicationEventPublisher eventPublisher;
+  private final ExtractedTextService extractedText;
 
   @Value("${workplace.storage.wiki.max-image-size-bytes:10485760}")
   private long maxImageSizeBytes;
@@ -122,6 +130,11 @@ public class WikiAttachmentService {
 
     Long fileId = storage.storeTemporary(file, callerId, detectedMime);
     attachments.bind(fileId, pageId, callerId);
+    // WP-358: 다른 첨부(이슈·챗·드라이브)와 같은 공용 추출 파이프라인에 태운다 — 같은 트랜잭션에서 추출 행이 생긴다.
+    // 지금 업로드는 매직바이트로 이미지만 받으므로 실제로는 SKIPPED(IMAGE) 행이 되고 워커로 디스패치되지 않는다. 형식이 넓어지면
+    // 그대로 PENDING → 추출로 이어진다. 임시 파일이 만료 수거되면 file_extraction 도 FK CASCADE 로 함께 지워진다.
+    eventPublisher.publishEvent(
+        FileExtractionRequestedEvent.of(fileId, detectedMime, ExtractionProfile.TEXT_ONLY));
     notifier.attachmentChanged(ResourceChangedEvent.OP_CREATED, spaceId, pageId, callerId);
 
     String originalName =
@@ -144,6 +157,20 @@ public class WikiAttachmentService {
     perms.requireRole(spaceId, callerId, "VIEWER");
     requireBound(pageId, fileId);
     return storage.load(fileId);
+  }
+
+  /**
+   * 첨부 추출 텍스트 구간 읽기(WP-358). 권한·소속 판정은 {@link #download} 와 같다 — 공간 VIEWER 이상(비멤버는 공간 존재 은닉 404), 이
+   * 페이지에 바인딩되지 않은 fileId·없는 fileId 는 404. 상태·사유·자르기는 fileai 공용 서비스가 맡는다.
+   */
+  @Transactional(readOnly = true)
+  public ExtractedTextSlice readText(
+      long callerId, long pageId, long fileId, int offset, int limit) {
+    long spaceId =
+        pages.findSpaceId(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
+    perms.requireRole(spaceId, callerId, "VIEWER");
+    requireBound(pageId, fileId);
+    return extractedText.read(fileId, offset, limit);
   }
 
   /**
