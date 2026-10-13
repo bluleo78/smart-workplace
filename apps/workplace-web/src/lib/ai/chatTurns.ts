@@ -1,12 +1,14 @@
 // 챗 transcript 순수 변환(WP-190) — 라이브 스트림 이벤트와 복원 메시지를 ChatTurn[] 으로 바꾼다.
 // 원래 useChatSession 안의 setTurns 콜백이었다. 대화별 스트림 저장소(chatStreams)가 칸마다 같은 규칙을 적용하도록 분리했다.
 import { isVisibleStep, widgetTypeFromToolName } from '@/lib/aiToolLabels';
-import { pushMemoryBlock, pushTextBlock, pushToolsBlock, pushWidgetBlock, reconcileBlocks, splitBlocks } from '@/lib/chatBlocks';
+import { pushTextBlock, pushToolsBlock, pushWidgetBlock, reconcileBlocks } from '@/lib/chatBlocks';
 import { toTurnAttachments } from '@/lib/homeChatAttachments';
 import type {
   ActionOutcome,
   ChatTurn,
   HomeMessage,
+  MemoryBlock,
+  MemoryEventDto,
   MessageTurn,
   PendingAction,
   ProposalCard,
@@ -51,18 +53,19 @@ export function messageToTurn(m: HomeMessage): ChatTurn {
   const outcome = OUTCOME_BY_ROLE[m.role];
   if (outcome) return { role: 'action', outcome, content };
   const interrupted = m.status ? INTERRUPTED_BY_STATUS[m.status] : undefined;
-  // WP-55: 서버는 memory 블록을 memoryBlocks 로 따로 보낸다(구 웹 보호) — 영속 순서대로 끝에 다시 붙인다(되돌리기 순번 유지).
-  // 표시 블록이 없고(null) memory 만 있으면 [memory…] 가 되어 기존처럼 폴백 렌더 + 결과 줄로 그려진다.
-  const blocks = [...(m.contentBlocks ?? []), ...(m.memoryBlocks ?? [])];
+  // WP-55: 텍스트 전에 끝났지만 메모리 결과 줄 때문에 저장된 답(빈 본문)은 라이브 markInterrupted 처럼 빈 말풍선·라벨 대신 안내 문구로 보인다.
+  const emptyInterrupted = interrupted && content === '' && !m.widgets?.length && !m.contentBlocks?.length ? interrupted : undefined;
   return {
     role: m.role === 'ASSISTANT' ? 'assistant' : 'user',
-    content,
+    content: emptyInterrupted ? EMPTY_BY_KIND[emptyInterrupted] : content,
     // WP-234: 새로고침·대화 복원 후에도 말풍선에 첨부를 다시 그린다.
     attachments: toTurnAttachments(m),
     widgets: m.widgets ?? undefined,
     steps: m.toolCalls ?? undefined,
-    contentBlocks: m.contentBlocks != null || blocks.length > 0 ? reconcileBlocks(blocks, m.widgets ?? []) : undefined,
-    ...(interrupted ? { interrupted } : {}),
+    contentBlocks: m.contentBlocks ? reconcileBlocks(m.contentBlocks, m.widgets ?? []) : undefined,
+    // WP-55: 메모리 결과 줄 — 서버가 영속 순서대로 따로 보낸다(순번 = 되돌리기 blockIndex).
+    ...(m.memoryBlocks?.length ? { memoryBlocks: m.memoryBlocks } : {}),
+    ...(interrupted && !emptyInterrupted ? { interrupted } : {}),
     // WP-139: 다시 열어도 마지막 답의 후속 질문이 보이게(표시 조건은 패널이 판단).
     ...(m.role === 'ASSISTANT' && m.followups?.length ? { followups: m.followups } : {}),
     // WP-55: 결과 줄 되돌리기가 이 id 로 서버 블록을 찾는다.
@@ -104,6 +107,7 @@ export function applyTool(turns: ChatTurn[], evt: ToolEventDto): ChatTurn[] {
     const steps = [...(last.steps ?? [])];
     let widgets = last.widgets;
     let contentBlocks = last.contentBlocks ?? [];
+    let memoryBlocks = last.memoryBlocks;
     if (evt.phase === 'start') {
       const step: ToolStep = { kind: 'tool', seq: evt.seq, toolName: evt.toolName, args: evt.args, status: 'running' };
       // WP-157: 표시되는 단계만 그룹 블록을 연다 — 숨김 도구가 빈 풍선을 만들거나 텍스트를 끊지 않게.
@@ -120,10 +124,10 @@ export function applyTool(turns: ChatTurn[], evt: ToolEventDto): ChatTurn[] {
     } else {
       const idx = steps.findIndex((s) => s.kind === 'tool' && s.seq === evt.seq && s.status === 'running');
       if (idx !== -1) steps[idx] = { ...steps[idx], status: evt.isError ? 'error' : 'done' };
-      // WP-55: 메모리 도구 성공 결과 → 결과 줄(끝에 모인다). 오류 결과는 줄을 만들지 않는다(AI 가 말로 안내).
-      if (evt.memory && !evt.isError) contentBlocks = pushMemoryBlock(contentBlocks, evt.memory);
+      // WP-55: 메모리 도구 성공 결과 → 결과 줄(도착순). 오류 결과는 줄을 만들지 않는다(AI 가 말로 안내).
+      if (evt.memory && !evt.isError) memoryBlocks = [...(memoryBlocks ?? []), toMemoryBlock(evt.memory)];
     }
-    return { ...last, steps, widgets, contentBlocks };
+    return { ...last, steps, widgets, contentBlocks, ...(memoryBlocks ? { memoryBlocks } : {}) };
   });
 }
 
@@ -146,24 +150,36 @@ export function applyDoneMessageId(turns: ChatTurn[], messageId: unknown): ChatT
   return updateLastAssistant(turns, (last) => ({ ...last, messageId }));
 }
 
+/** WP-55: tool result 의 memory → 결과 줄 블록(API ChatBlockRecorder.Memory 와 같은 모양). source 가 없으면 AI(서버와 같은 기본값). */
+export function toMemoryBlock(m: MemoryEventDto): MemoryBlock {
+  return {
+    kind: 'memory',
+    action: m.action,
+    memoryId: m.memoryId,
+    memoryKind: m.kind,
+    content: m.content,
+    ...(m.previousContent !== undefined ? { previousContent: m.previousContent } : {}),
+    ...(m.previousKind !== undefined ? { previousKind: m.previousKind } : {}),
+    source: m.source ?? 'AI',
+    undone: false,
+  };
+}
+
 /**
- * WP-55: 되돌리기 성공 — messageId 턴의 blockIndex 번째 memory 블록을 되돌림으로. 다른 블록은 세지 않는다(서버 순번 규칙).
+ * WP-55: 되돌리기 성공 — messageId 턴의 blockIndex 번째 결과 줄을 되돌림으로(memoryBlocks 순번 = 서버 순번).
  * 못 찾거나 이미 되돌렸으면 원본을 그대로 돌려준다(구독자 통지 생략용).
  */
 export function markMemoryUndone(turns: ChatTurn[], messageId: number, blockIndex: number): ChatTurn[] {
   const ti = turns.findIndex((t) => t.role === 'assistant' && t.messageId === messageId);
   if (ti === -1) return turns;
   const turn = turns[ti] as MessageTurn;
-  const blocks = turn.contentBlocks ?? [];
-  let ordinal = -1;
-  const bi = blocks.findIndex((b) => b.kind === 'memory' && ++ordinal === blockIndex);
-  if (bi === -1) return turns;
-  const target = blocks[bi];
-  if (target.kind !== 'memory' || target.undone) return turns;
-  const nextBlocks = blocks.slice();
-  nextBlocks[bi] = { ...target, undone: true };
+  const blocks = turn.memoryBlocks ?? [];
+  const target = blocks[blockIndex];
+  if (!target || target.undone) return turns;
+  const memoryBlocks = blocks.slice();
+  memoryBlocks[blockIndex] = { ...target, undone: true };
   const next = turns.slice();
-  next[ti] = { ...turn, contentBlocks: nextBlocks };
+  next[ti] = { ...turn, memoryBlocks };
   return next;
 }
 
@@ -177,12 +193,9 @@ const EMPTY_BY_KIND: Record<NonNullable<MessageTurn['interrupted']>, string> = {
 /** WP-190: 정지·오류·시간 초과 종결 — 본문이 있으면 "중단됨" 류 표시, 첫 토큰 전이면 빈 말풍선 대신 안내 문구(문구가 이미 상태를 말하므로 라벨 없음). */
 export function markInterrupted(turns: ChatTurn[], kind: NonNullable<MessageTurn['interrupted']>): ChatTurn[] {
   return updateLastAssistant(turns, (last) => {
-    // WP-55: memory 블록은 표시 블록이 아니다 — 빈 턴 판단에서 빼고, 안내 문구로 바꿀 때도 결과 줄은 남긴다.
-    const { display, memory } = splitBlocks(last.contentBlocks);
-    const empty = last.content === '' && !last.widgets?.length && !display.length;
-    if (empty) {
-      return { role: 'assistant', content: EMPTY_BY_KIND[kind], ...(memory.length ? { contentBlocks: memory } : {}) };
-    }
+    const empty = last.content === '' && !last.widgets?.length && !last.contentBlocks?.length;
+    // WP-55: 안내 문구로 바꿀 때도 메모리 결과 줄은 남긴다(변경은 이미 반영됐다 — 되돌릴 수 있어야 한다).
+    if (empty) return { role: 'assistant', content: EMPTY_BY_KIND[kind], ...(last.memoryBlocks ? { memoryBlocks: last.memoryBlocks } : {}) };
     return { ...last, interrupted: kind };
   });
 }

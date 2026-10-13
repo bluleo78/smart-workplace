@@ -2,7 +2,6 @@
 // #879: 라벨 맵·표시 여부 규칙은 도구 정의와 같은 공유 패키지에 둔다 — 도구 추가 시 라벨 누락을 그쪽 테스트가 잡는다.
 import {
   isDisplayableTool,
-  isMemoryTool,
   stripMcpPrefix as strip,
   TOOL_LABELS,
   type ToolLabel,
@@ -69,9 +68,8 @@ export function getToolDetail(_toolName: string, args?: Record<string, unknown>)
 }
 
 // 단계 표시 여부 — 표시 불가 tool 은 숨김(delegation 은 유지). 렌더 필터·도구 그룹 블록 생성(WP-157)이 같은 규칙을 쓴다.
-// WP-55: 메모리 도구는 결과 줄로 따로 보이므로 숨긴다(API HomeChatService.isDisplayableTool 과 같은 규칙).
 export function isVisibleStep(s: ToolStep): boolean {
-  return s.kind === 'delegation' || (s.toolName ? isDisplayableTool(s.toolName) && !isMemoryTool(s.toolName) : true);
+  return s.kind === 'delegation' || (s.toolName ? isDisplayableTool(s.toolName) : true);
 }
 
 // 필터 적용한 steps.

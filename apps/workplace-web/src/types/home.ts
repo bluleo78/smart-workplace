@@ -70,7 +70,8 @@ export interface MemoryEventDto {
 
 /**
  * WP-55: 메모리 결과 줄 블록 — API ChatBlockRecorder.Memory 와 같은 모양. 판별자 kind 와 겹치지 않게 메모리 종류는 memoryKind.
- * 항상 블록 목록 끝에 모이고(서버 영속 순서), 답변 말풍선들 아래·후속 질문 위에 따로 그린다. undone 은 되돌린 뒤 true.
+ * 표시 블록(ContentBlock)이 아니다 — 턴의 memoryBlocks 에 도착순으로 따로 모이고(배열 순번 = 되돌리기 blockIndex), 답변 말풍선들 아래·후속
+ * 질문 위에 따로 그린다. undone 은 되돌린 뒤 true.
  */
 export interface MemoryBlock {
   kind: 'memory';
@@ -93,9 +94,7 @@ export type ContentBlock =
   | { kind: 'text'; textStart: number }
   | { kind: 'widget'; widget: WidgetSpec }
   // WP-157: 연속 도구 호출/위임 그룹 — steps[stepStart ~ 다음 tools 블록의 stepStart) 구간을 한 풍선으로 렌더.
-  | { kind: 'tools'; stepStart: number }
-  // WP-55: 메모리 결과 줄 — 오프셋이 없고 sliceRange 계산에서 빠진다.
-  | MemoryBlock;
+  | { kind: 'tools'; stepStart: number };
 
 /** #843: 확인카드 처리 결과 종류 — 대화 이력의 ACTION_* 메시지와 1:1. */
 export type ActionOutcome = 'done' | 'failed' | 'rejected';
@@ -125,8 +124,10 @@ export interface MessageTurn {
   contentBlocks?: ContentBlock[];
   /** WP-234: 사용자 턴 첨부 — 보낸 직후(낙관적)엔 로컬 미리보기 포함, 복원 시엔 서버 첨부. */
   attachments?: TurnAttachment[];
-  /** WP-55: 저장된 ASSISTANT 메시지 id — 라이브는 done, 복원은 이력에서. 없으면(답변 중·중단 직후) 결과 줄 되돌리기를 끈다. */
+  /** WP-55: 저장된 ASSISTANT 메시지 id — 라이브는 종결 이벤트, 복원은 이력에서. 없으면(답변 중·저장 안 됨) 결과 줄 되돌리기를 끈다. */
   messageId?: number;
+  /** WP-55: 메모리 결과 줄(도착순 — 순번이 서버 되돌리기 blockIndex). 라이브는 tool result 의 memory, 복원은 이력의 memoryBlocks. */
+  memoryBlocks?: MemoryBlock[];
   /** WP-139: 답 뒤 후속 질문(ASSISTANT) — 마지막 턴이고 답변 중·확인 카드가 아닐 때만 칩으로 보인다. */
   followups?: string[];
   /**
@@ -163,7 +164,7 @@ export interface HomeMessage {
   contentBlocks?: ContentBlock[] | null;
   /**
    * WP-55: 메모리 결과 줄 블록(ASSISTANT 전용) — 서버가 구 웹 보호를 위해 contentBlocks 에서 떼어 따로 싣는다(영속 순서 그대로).
-   * messageToTurn 이 contentBlocks 끝에 다시 붙인다. 없으면 null/없음.
+   * messageToTurn 이 턴의 memoryBlocks 로 그대로 옮긴다. 없으면 null/없음.
    */
   memoryBlocks?: MemoryBlock[] | null;
   /** WP-234: 이 메시지에 붙은 첨부(USER). 서버는 없으면 빈 배열 — 구버전 응답·E2E 픽스처 호환을 위해 선택 필드. */

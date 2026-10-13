@@ -2,8 +2,8 @@
 // 오류·■ 정지로 끝난 턴의 되돌리기(종결 이벤트의 messageId), 긴 문구 줄바꿈.
 import type { Page } from '@playwright/test'
 
-import { ask, type LiveChat, msg, openChatPanel, sessionItem, setupLiveChat, summary, TITLE_A } from '../fixtures/ai-live-chat'
-import { memoryError, mockMemoryUndo } from '../fixtures/ai-memory-mock'
+import { ask, msg, openChatPanel, sessionItem, setupLiveChat, summary, TITLE_A } from '../fixtures/ai-live-chat'
+import { memoryError, memoryTool, mockMemoryUndo } from '../fixtures/ai-memory-mock'
 import { mockAiPreferences } from '../fixtures/ai-suggestions-mock'
 import { expect, test } from '../fixtures/auth.fixture'
 import { stableBox } from '../fixtures/wait'
@@ -15,12 +15,6 @@ const undoLinks = (page: Page) => page.getByTestId('chat-memory-undo')
 const saved = { action: 'saved', memoryId: 12, kind: 'PREFERENCE', content: '이슈 목록은 짧은 목록으로 보여 준다', source: 'AI' }
 const updated = { action: 'updated', memoryId: 9, kind: 'CONTEXT', content: '백엔드 팀이다', previousContent: '프론트 팀이다', source: 'AI' }
 const forgotten = { action: 'forgotten', memoryId: 7, kind: 'PREFERENCE', content: '표로 보여 준다', source: 'USER' }
-
-/** 메모리 도구 start·result 한 쌍. */
-async function memoryTool(live: LiveChat, seq: number, toolName: string, memory: Record<string, unknown>) {
-  await live.push('tool', { ...C, seq, phase: 'start', toolName, args: {} })
-  await live.push('tool', { ...C, seq, phase: 'result', toolName, isError: false, memory })
-}
 
 test('저장 결과 줄이 답 아래·후속 질문 위에 보이고, done 전엔 되돌리기가 꺼져 있다가 누르면 되돌림으로 바뀐다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
   const undo = await mockMemoryUndo(page)
@@ -139,6 +133,25 @@ test('오류로 끝난 턴도 error 의 messageId 로 되돌리기가 켜진다'
   await expect(lines(page).first()).toHaveAttribute('data-undone', 'true')
 })
 
+// S13: 텍스트 전에 오류로 끝나도 서버가 결과 줄 때문에 답을 저장해 messageId 를 준다 — 안내 문구 아래 결과 줄이 남고 되돌릴 수 있다.
+test('텍스트 전에 오류로 끝나도 결과 줄이 남고 error 의 messageId 로 되돌린다', async ({ authenticatedPage: page }) => {
+  const undo = await mockMemoryUndo(page)
+  const live = await setupLiveChat(page)
+  live.queueStart({ correlationId: 'corr-a', sessionId: 's-a' })
+  await openChatPanel(page)
+  await ask(page, live, '앞으로는 짧게 답해줘')
+  await memoryTool(live, 1, 'remember_memory', saved)
+  await live.push('error', { ...C, message: 'AI 구성 요청에 실패했어요.', messageId: 9 })
+
+  await expect(page.getByTestId('chat-panel')).toContainText('응답 생성에 실패했습니다. 다시 시도해 주세요.')
+  await expect(lines(page)).toHaveCount(1)
+  await expect(undoLinks(page)).toBeEnabled()
+  await undoLinks(page).click()
+  await undo.waitFor()
+  expect(undo.lastBody()).toEqual({ messageId: 9, blockIndex: 0 })
+  await expect(lines(page).first()).toHaveAttribute('data-undone', 'true')
+})
+
 // CR3: ■ 로 멈춘 뒤 서버 cancelled 가 저장한 부분 답변 id 를 실어 오면 멈춘 답의 되돌리기가 켜진다.
 test('■ 로 멈춘 턴도 cancelled 의 messageId 로 되돌리기가 켜진다', async ({ authenticatedPage: page }) => {
   const undo = await mockMemoryUndo(page)
@@ -168,7 +181,7 @@ test('이력의 결과 줄은 저장된 되돌림 상태로 보이고, 이력의
     msg(1, 'USER', TITLE_A),
     {
       ...msg(2, 'ASSISTANT', '정리했어요.'),
-      // 서버는 memory 블록을 contentBlocks 에서 떼어 memoryBlocks 로 따로 싣는다(배포 중 구 웹 보호) — 웹이 끝에 다시 붙인다.
+      // 서버는 memory 블록을 contentBlocks 에서 떼어 memoryBlocks 로 따로 싣는다(배포 중 구 웹 보호) — 웹은 그대로 결과 줄로 쓴다.
       contentBlocks: [{ kind: 'text', textStart: 0 }],
       memoryBlocks: [
         { kind: 'memory', action: 'saved', memoryId: 12, memoryKind: 'PREFERENCE', content: '짧은 목록', source: 'AI', undone: true },

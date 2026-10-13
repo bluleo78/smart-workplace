@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { ContentBlock } from '@/types/home';
 
-import { pushMemoryBlock, pushTextBlock, pushToolsBlock, pushWidgetBlock, reconcileBlocks, sliceRange, splitBlocks } from './chatBlocks';
+import { pushTextBlock, pushToolsBlock, pushWidgetBlock, reconcileBlocks, sliceRange } from './chatBlocks';
 
 // #463: ContentBlock 인터리브 누적 로직 — delta·tool 이벤트 시퀀스 검증.
 describe('pushTextBlock', () => {
@@ -153,53 +153,5 @@ describe('tool→delta→tool→delta 인터리브 시퀀스 (WP-157)', () => {
       { kind: 'tools', stepStart: 1 },
       { kind: 'text', textStart: 8 },
     ]);
-  });
-});
-
-// WP-55: memory 블록은 항상 끝에 모인다(서버 ChatBlockRecorder 가 끝에 붙이는 순서와 같게) — 텍스트·도구·위젯은 그 앞에 쌓이고,
-// memory 가 끼어도 텍스트 풍선이 끊기지 않는다.
-describe('memory 블록 (WP-55)', () => {
-  const saved = { action: 'saved' as const, memoryId: 12, kind: 'PREFERENCE' as const, content: '짧은 목록', source: 'AI' as const };
-
-  it('pushMemoryBlock 은 끝에 붙이고 종류는 memoryKind, source 없으면 AI', () => {
-    const b = pushMemoryBlock([{ kind: 'text', textStart: 0 }], { ...saved, source: undefined });
-    expect(b).toEqual([
-      { kind: 'text', textStart: 0 },
-      { kind: 'memory', action: 'saved', memoryId: 12, memoryKind: 'PREFERENCE', content: '짧은 목록', source: 'AI', undone: false },
-    ]);
-  });
-
-  it('memory 뒤에 온 텍스트는 직전 표시 블록이 text 면 새 블록을 만들지 않는다', () => {
-    const b = pushMemoryBlock([{ kind: 'text', textStart: 0 }], saved);
-    expect(pushTextBlock(b, 5)).toBe(b);
-  });
-
-  it('새 표시 블록은 memory 꼬리 앞에 들어간다', () => {
-    let b = pushMemoryBlock([{ kind: 'text', textStart: 0 }], saved);
-    b = pushToolsBlock(b, 0);
-    b = pushTextBlock(b, 5);
-    b = pushWidgetBlock(b, { type: 'issue_list', params: {} });
-    expect(b.map((x) => x.kind)).toEqual(['text', 'tools', 'text', 'widget', 'memory']);
-    expect(sliceRange(b, 0)).toEqual([0, 5]);
-  });
-
-  it('splitBlocks 는 한 번에 표시 블록과 memory 블록으로 나눈다(순서 유지, null·undefined 는 빈 배열)', () => {
-    const b = pushMemoryBlock(pushMemoryBlock([{ kind: 'text', textStart: 0 }], saved), { ...saved, memoryId: 13 });
-    const { display, memory } = splitBlocks([...b, { kind: 'widget', widget: { type: 'issue_list', params: {} } }]);
-    expect(display.map((x) => x.kind)).toEqual(['text', 'widget']);
-    expect(memory.map((m) => m.memoryId)).toEqual([12, 13]);
-    expect(splitBlocks(undefined)).toEqual({ display: [], memory: [] });
-    expect(splitBlocks(null)).toEqual({ display: [], memory: [] });
-  });
-
-  it('고침 결과의 previousKind 를 블록에 옮긴다(없으면 키 없음)', () => {
-    const updated = { action: 'updated' as const, memoryId: 9, kind: 'CONTEXT' as const, content: '백엔드 팀', previousContent: '짧은 목록', previousKind: 'PREFERENCE' as const };
-    expect(pushMemoryBlock([], updated)[0]).toMatchObject({ memoryKind: 'CONTEXT', previousContent: '짧은 목록', previousKind: 'PREFERENCE' });
-    expect(pushMemoryBlock([], saved)[0]).not.toHaveProperty('previousKind');
-  });
-
-  it('reconcileBlocks 는 memory 블록을 지우지 않는다', () => {
-    const b = pushMemoryBlock([{ kind: 'widget', widget: { type: 'issue_list', params: {} } }], saved);
-    expect(reconcileBlocks(b, []).map((x) => x.kind)).toEqual(['memory']);
   });
 });

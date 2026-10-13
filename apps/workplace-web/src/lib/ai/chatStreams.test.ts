@@ -783,7 +783,7 @@ describe('메모리 결과 줄 (WP-55)', () => {
     const before = s.getSnapshot();
     s.markMemoryUndone(42, 0);
     expect(s.getSnapshot()).not.toBe(before);
-    expect(turnsOf(s, 's-a')?.[1]).toMatchObject({ contentBlocks: [{ kind: 'text' }, { kind: 'memory', undone: true }] });
+    expect(turnsOf(s, 's-a')?.[1]).toMatchObject({ contentBlocks: [{ kind: 'text' }], memoryBlocks: [{ kind: 'memory', undone: true }] });
 
     const after = s.getSnapshot();
     s.markMemoryUndone(999, 0); // 없는 메시지 — 바뀐 게 없으면 통지하지 않는다

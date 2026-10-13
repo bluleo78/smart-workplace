@@ -32,6 +32,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
 import { findHomeChatBundle, homeChatBundle } from '@/components/viewer/viewerItems';
+import { useUndoAiMemory } from '@/hooks/queries/useAiMemories';
 import { useAiPreferences } from '@/hooks/queries/useAiPreferences';
 import type { AssistantChat } from '@/hooks/useAssistantChat';
 import { useComposerFileDrop } from '@/hooks/useComposerFileDrop';
@@ -42,7 +43,7 @@ import { useStickToBottom } from '@/hooks/useStickToBottom';
 import { sessionListLabel } from '@/lib/ai/aiActivity';
 import { contextIdentity } from '@/lib/aiScreenContext/common';
 import { visibleSteps } from '@/lib/aiToolLabels';
-import { sliceRange, type SplitBlocks, splitBlocks } from '@/lib/chatBlocks';
+import { sliceRange } from '@/lib/chatBlocks';
 import { filesFromPaste } from '@/lib/clipboardFiles';
 import { countSessionAttachments } from '@/lib/homeChatAttachments';
 import { keepFocusProps } from '@/lib/keepFocus';
@@ -72,8 +73,6 @@ const INTERRUPTED_LABEL: Record<NonNullable<MessageTurn['interrupted']>, string>
   timeout: '시간 초과로 중단됨',
 };
 
-/** WP-55: 어시스턴트가 아닌 턴의 빈 분할 — 렌더마다 새 객체를 만들지 않게 공유한다. */
-const NO_BLOCKS: SplitBlocks = { display: [], memory: [] };
 const BUSY_NOTICE_ID = 'chat-busy-notice';
 const LIMIT_NOTICE_ID = 'chat-limit-notice';
 /** 메인 AI 채팅 첨부 뷰어 열림 router state 키(WP-279) — AI 채팅은 모든 화면 위에 떠 있어 ?preview(드라이브·이슈·메일 호스트 쿼리)를 쓰지 않는다. */
@@ -166,6 +165,10 @@ export function AIChatPanel({
 
   // WP-139: 추천 켜짐 — 설정 응답이 true 일 때만(로딩 중·실패 포함 그 밖에는 숨김). 끈 사용자에게 한 번도 보이지 않게(스펙 §10.6).
   // 빈 대화 목록과 후속 질문 칩이 같이 쓴다. 설정은 5분 캐시라 두 번째 열기부터는 바로 보인다.
+  // WP-55: 메모리 결과 줄 되돌리기 — 줄마다 훅(뮤테이션 관찰자·navigate)을 두지 않고 패널이 하나를 공유한다.
+  const memoryUndo = useUndoAiMemory();
+  // 진행 중인 되돌리기 대상 — 그 줄만 막고 다른 줄은 따로 누를 수 있게 한다.
+  const undoing = memoryUndo.isPending ? memoryUndo.variables : undefined;
   const aiPrefs = useAiPreferences();
   const suggestionsOn = aiPrefs.data?.suggestionsEnabled === true;
   // 빈 새 대화(세션 없음·턴 없음)에만 — 기존 대화를 고르면 currentSessionId 가 먼저 정해져 이력 로딩 중에도 거짓이다.
@@ -325,10 +328,7 @@ export function AIChatPanel({
             </div>
           ) : (
             <ul className="space-y-2">
-              {turns.map((t, i) => {
-                // WP-55: 표시 블록·메모리 결과 줄을 턴마다 한 번만 나눠 아래 판단·렌더가 함께 쓴다.
-                const parts = t.role === 'assistant' ? splitBlocks(t.contentBlocks) : NO_BLOCKS;
-                return (
+              {turns.map((t, i) => (
                 <Fragment key={i}>
                   {/* #843: 확인카드 처리 결과 — 말풍선이 아닌 한 줄 시스템 기록. */}
                   {t.role === 'action' ? (
@@ -338,17 +338,16 @@ export function AIChatPanel({
                   ) :
                   // 빈 어시스턴트 턴은 아직 첫 토큰을 받지 않은 상태 — 3-dot 이 대신 렌더되므로 skip.
                   // 단, 위젯이 있으면(show_* 단독 응답) content 가 비어도 위젯을 렌더해야 하므로 skip 안 함(#431).
-                  t.role === 'assistant' && t.content === '' && !t.widgets?.length && !parts.display.length && !visibleSteps(t.steps ?? []).length ? null : (
+                  t.role === 'assistant' && t.content === '' && !t.widgets?.length && !t.contentBlocks?.length && !visibleSteps(t.steps ?? []).length ? null : (
                   <li
                     data-testid="chat-turn"
                     className={cn('flex', t.role === 'assistant' ? 'justify-start' : 'justify-end')}
                   >
                     {t.role === 'assistant' ? (
-                      parts.display.length ? (
+                      t.contentBlocks?.length ? (
                         // #463: 라이브 인터리브 — 블록 도착순으로 text↔widget↔도구 그룹(WP-157) 렌더.
                         <div className="flex w-full max-w-[92%] flex-col gap-2" data-testid="chat-widgets">
-                          {/* WP-55: 메모리 결과 줄은 말풍선 사이가 아니라 답변 아래에 따로 모아 그린다(parts.memory). */}
-                          {parts.display.map((b, bi, blocks) => {
+                          {t.contentBlocks.map((b, bi, blocks) => {
                             if (b.kind === 'tools') {
                               // WP-157: 도구 그룹 = steps[stepStart ~ 다음 tools 블록의 stepStart). result 이벤트는 steps 만
                               // 갱신하므로 상태 전이(실행 중→✓)가 그대로 반영된다. 표시할 단계가 없으면 ToolStepList 가 null.
@@ -450,10 +449,18 @@ export function AIChatPanel({
                   {/* WP-55: 메모리 결과 줄(시안 A) — 답변 말풍선들 아래·후속 질문 위. 줄마다 따로 되돌린다. 첫 토큰 전(3-dot 중)엔 미룬다.
                       터치 기기는 줄 간격을 넓히고 아래에 8px 를 더 둔다 — 되돌리기의 위아래 터치 확장(8px)이 이웃 줄·바로 아래 후속 질문 칩의 위쪽 확장과
                       겹치지 않게(겹치면 뒤 형제인 칩이 이긴다). */}
-                  {t.role === 'assistant' && parts.memory.length > 0 && !(i === turns.length - 1 && pending && t.content === '') ? (
+                  {t.role === 'assistant' && (t.memoryBlocks?.length ?? 0) > 0 && !(i === turns.length - 1 && pending && t.content === '') ? (
                     <li data-testid="chat-memory-results" className="flex flex-col gap-1 pb-0 pointer-coarse:gap-4 pointer-coarse:pb-2">
-                      {parts.memory.map((b, mi) => (
-                        <MemoryResultLine key={`${mi}-${b.memoryId}`} block={b} blockIndex={mi} messageId={t.messageId} />
+                      {t.memoryBlocks?.map((b, mi) => (
+                        <MemoryResultLine
+                          key={`${mi}-${b.memoryId}`}
+                          block={b}
+                          // 되돌리기는 저장된 메시지 id 가 있어야 한다(답변 중엔 없다 — 회색·클릭 불가).
+                          messageId={t.messageId}
+                          blockIndex={mi}
+                          onUndo={memoryUndo.mutate}
+                          pending={undoing != null && undoing.messageId === t.messageId && undoing.blockIndex === mi}
+                        />
                       ))}
                     </li>
                   ) : null}
@@ -464,8 +471,7 @@ export function AIChatPanel({
                     </li>
                   ) : null}
                 </Fragment>
-                );
-              })}
+              ))}
               {/* #351: 일괄 확인 카드 — 항목별 승인/거부.
                   #843: 항목은 제자리에서 상태만 바뀐다 — 전송 중(스피너·잠금) / 실패(사유 인라인 + AI에게 수정 요청·닫기).
                   성공한 항목은 사라지고 결과는 위 대화 이력에 결과 줄로 남는다. 좁은 패널(≈380px)에서 긴 요약·사유와 버튼이

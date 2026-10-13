@@ -1,6 +1,6 @@
 // WP-55 모바일 메모리 결과 줄 — 넘침 없음, 되돌리기 바로 아래 6px 를 탭해도 그 줄을 되돌린다(터치 확장), 줄 간격이 확장보다 넓어 이웃 줄을 가로채지 않는다.
 import { ask, setupLiveChat } from '../../fixtures/ai-live-chat'
-import { mockMemoryUndo } from '../../fixtures/ai-memory-mock'
+import { memoryTool, mockMemoryUndo } from '../../fixtures/ai-memory-mock'
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture'
 import { stableBox } from '../../fixtures/wait'
 
@@ -15,11 +15,7 @@ test('되돌리기 바로 아래 6px 를 탭해도 그 줄을 되돌리고 가�
   await page.getByTestId('mobile-tab-ai').click()
   await ask(page, live, '앞으로는 짧게 답해줘')
   for (const [seq, content] of [[1, '답은 짧게 한다'], [2, '이슈 목록은 담당자만 붙여 보여 준다']] as const) {
-    await live.push('tool', { ...C, seq, phase: 'start', toolName: 'remember_memory', args: {} })
-    await live.push('tool', {
-      ...C, seq, phase: 'result', toolName: 'remember_memory', isError: false,
-      memory: { action: 'saved', memoryId: 10 + seq, kind: 'PREFERENCE', content, source: 'AI' },
-    })
+    await memoryTool(live, seq, 'remember_memory', { action: 'saved', memoryId: 10 + seq, kind: 'PREFERENCE', content, source: 'AI' })
   }
   await live.push('delta', { ...C, text: '알겠어요.' })
   await live.push('done', { ...C, widgets: null, messageId: 2 })
@@ -45,11 +41,7 @@ test('후속 질문이 아래 있어도 마지막 되돌리기 바로 아래 6px
   await page.getByTestId('mobile-tab-ai').click()
   await ask(page, live, '앞으로는 짧게 답해줘')
   for (const seq of [1, 2]) {
-    await live.push('tool', { ...C, seq, phase: 'start', toolName: 'remember_memory', args: {} })
-    await live.push('tool', {
-      ...C, seq, phase: 'result', toolName: 'remember_memory', isError: false,
-      memory: { action: 'saved', memoryId: 10 + seq, kind: 'PREFERENCE', content: `선호 ${seq}`, source: 'AI' },
-    })
+    await memoryTool(live, seq, 'remember_memory', { action: 'saved', memoryId: 10 + seq, kind: 'PREFERENCE', content: `선호 ${seq}`, source: 'AI' })
   }
   await live.push('delta', { ...C, text: '알겠어요.' })
   await live.push('done', { ...C, widgets: null, messageId: 2 })

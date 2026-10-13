@@ -1,8 +1,33 @@
-// WP-55 AI 메모리 E2E 모킹 — 채팅 결과 줄 되돌리기(POST /users/me/ai-memories/undo)와 설정 카드의 상태 있는 목록 목.
-import type { Page } from '@playwright/test'
+// WP-55 AI 메모리 E2E 모킹 — 채팅 결과 줄 되돌리기(POST /users/me/ai-memories/undo)와 설정 카드의 상태 있는 목록 목,
+// 메모리 도구 이벤트 push·설정 화면 진입 도우미(데스크톱·모바일 스펙 공용).
+import { expect, type Page } from '@playwright/test'
 
 import type { AiMemoryItem, UndoAiMemoryRequest } from '../../src/types/aiMemory'
+import type { LiveChat } from './ai-live-chat'
+import { mockMyAssistantStatus } from './my-assistant-mock'
 import { type RequestTracker, trackRequests } from './requests'
+
+/** 서버 ErrorResponse 본문(errors.code 에 도메인 오류 코드). */
+const errorBody = (status: number, code: string, message: string) => ({ status, error: '', message, errors: { code } })
+
+/** 메모리 도구 start·result 한 쌍을 흘린다 — result 에 memory(결과 줄 근거)를 싣는다. ids 기본값은 스펙들이 쓰는 첫 대화. */
+export async function memoryTool(
+  live: LiveChat,
+  seq: number,
+  toolName: string,
+  memory: Record<string, unknown>,
+  ids = { correlationId: 'corr-a', sessionId: 's-a' },
+) {
+  await live.push('tool', { ...ids, seq, phase: 'start', toolName, args: {} })
+  await live.push('tool', { ...ids, seq, phase: 'result', toolName, isError: false, memory })
+}
+
+/** 개인 비서 없음 + 설정 > AI 비서 진입 — 메모리 카드가 보일 때까지 기다린다. */
+export async function openMemorySettings(page: Page) {
+  await mockMyAssistantStatus(page, () => ({ configured: false, provider: null, model: null, suggestionModelAuto: null }))
+  await page.goto('/settings/assistant')
+  await expect(page.getByTestId('ai-memory-card')).toBeVisible()
+}
 
 /** 되돌리기 응답을 순서대로 소비 — 비면 받은 값으로 성공({...body, undone:true}). */
 export async function mockMemoryUndo(page: Page, replies: Array<{ status: number; body: unknown }> = []): Promise<RequestTracker> {
@@ -16,10 +41,7 @@ export async function mockMemoryUndo(page: Page, replies: Array<{ status: number
 }
 
 /** 서버 오류 응답(ErrorResponse + errors.code). */
-export const memoryError = (status: number, code: string, message = '오류') => ({
-  status,
-  body: { status, error: '', message, errors: { code } },
-})
+export const memoryError = (status: number, code: string, message = '오류') => ({ status, body: errorBody(status, code, message) })
 
 /** 메모리 항목 팩토리 — updatedAt 은 id 가 클수록 최근. */
 export const memoryItem = (id: number, over: Partial<AiMemoryItem> = {}): AiMemoryItem => ({
@@ -67,7 +89,7 @@ export async function mockAiMemories(page: Page, initial: AiMemoryItem[]): Promi
     if (method !== 'GET' && failure) {
       const f = failure
       failure = null
-      return route.fulfill(json(f.status, { status: f.status, error: '', message: f.message, errors: { code: f.code } }))
+      return route.fulfill(json(f.status, errorBody(f.status, f.code, f.message)))
     }
     if (method === 'GET') {
       const hold = listHold
@@ -83,7 +105,7 @@ export async function mockAiMemories(page: Page, initial: AiMemoryItem[]): Promi
     }
     if (method === 'PATCH') {
       const cur = items.find((m) => m.id === id)
-      if (!cur) return route.fulfill(json(404, { status: 404, message: '메모리를 찾을 수 없어요', errors: { code: 'AI_MEMORY_NOT_FOUND' } }))
+      if (!cur) return route.fulfill(json(404, errorBody(404, 'AI_MEMORY_NOT_FOUND', '메모리를 찾을 수 없어요')))
       const body = req.postDataJSON() as { content?: string }
       const next = { ...cur, content: body.content?.trim() ?? cur.content, updatedAt: new Date().toISOString() }
       items = [next, ...items.filter((m) => m.id !== id)]
@@ -96,7 +118,7 @@ export async function mockAiMemories(page: Page, initial: AiMemoryItem[]): Promi
     if (method === 'DELETE') {
       const cur = items.find((m) => m.id === id)
       items = items.filter((m) => m.id !== id)
-      return cur ? route.fulfill(json(200, cur)) : route.fulfill(json(404, { status: 404, message: '없음', errors: { code: 'AI_MEMORY_NOT_FOUND' } }))
+      return cur ? route.fulfill(json(200, cur)) : route.fulfill(json(404, errorBody(404, 'AI_MEMORY_NOT_FOUND', '없음')))
     }
     return route.fallback()
   })

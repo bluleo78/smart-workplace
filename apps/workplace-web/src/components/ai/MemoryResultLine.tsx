@@ -1,9 +1,10 @@
 // WP-55 채팅 메모리 결과 줄(시안 A) — 답변 말풍선들 아래·후속 질문 위에 한 줄씩. ActionResultLine 과 같은 작은 muted 시스템 기록이고
 // 🧠 + 문구 + " · 되돌리기". 되돌린 뒤엔 문구 취소선 + " · 되돌림"(흐리게). 메시지 id 가 없거나(답변 중) 요청 중이면 되돌리기는 회색·클릭 불가.
 // 긴 문구는 좁은 패널(≈380px)에서 넘치지 않게 강제 줄바꿈하고, 터치 기기에선 되돌리기의 위아래 터치 영역을 넓힌다.
-import { useUndoAiMemory } from '@/hooks/queries/useAiMemories';
+// 되돌리기 요청(뮤테이션)은 패널(AIChatPanel)이 하나를 두고 줄마다 넘긴다 — 줄 수만큼 관찰자를 만들지 않게.
 import { HIT_AREA_Y_COARSE } from '@/lib/hitArea';
 import { cn } from '@/lib/utils';
+import type { UndoAiMemoryRequest } from '@/types/aiMemory';
 import type { MemoryBlock } from '@/types/home';
 
 const PREFIX: Record<MemoryBlock['action'], string> = {
@@ -18,12 +19,15 @@ interface Props {
   blockIndex: number;
   /** 저장된 메시지 id — 없으면 되돌리기 비활성(done 전). */
   messageId?: number;
+  /** 되돌리기 요청(패널 공용 뮤테이션). */
+  onUndo: (req: UndoAiMemoryRequest) => void;
+  /** 이 줄의 되돌리기 요청이 진행 중인가 — 진행 중이면 비활성. */
+  pending: boolean;
 }
 
 /** 메모리 결과 한 줄 — 동작 문구 + 되돌리기(또는 되돌림 표시). */
-export function MemoryResultLine({ block, blockIndex, messageId }: Props) {
-  const undo = useUndoAiMemory();
-  const ready = messageId != null && !undo.isPending;
+export function MemoryResultLine({ block, blockIndex, messageId, onUndo, pending }: Props) {
+  const ready = messageId != null && !pending;
   return (
     <div
       className="flex w-full items-start gap-1.5 px-1 text-xs text-muted-foreground"
@@ -45,7 +49,7 @@ export function MemoryResultLine({ block, blockIndex, messageId }: Props) {
               type="button"
               data-testid="chat-memory-undo"
               disabled={!ready}
-              onClick={() => messageId != null && undo.mutate({ messageId, blockIndex })}
+              onClick={() => messageId != null && onUndo({ messageId, blockIndex })}
               className={cn(
                 HIT_AREA_Y_COARSE,
                 'rounded-sm text-foreground/80 underline-offset-2 hover:underline',
