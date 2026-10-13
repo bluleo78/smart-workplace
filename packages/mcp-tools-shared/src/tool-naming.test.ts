@@ -4,8 +4,11 @@ import { TOOL_APPS, toolApps } from './tool-apps.js';
 import { toolDefinitionsSize } from './tool-definitions.js';
 import { TOOL_NAME_MAX_LENGTH, toolNameViolations } from './tool-naming.js';
 
-/** 기본 연결 도구 정의 크기 상한(근사 토큰, 근사식은 tool-definitions.ts estimateTokens·README). 사용자 결정(2026-10-13). */
-const DEFINITION_TOKEN_CAP = 15_000;
+/**
+ * 기본 연결 도구 정의 크기 상한(근사 토큰, 근사식은 tool-definitions.ts estimateTokens·README). 사용자 결정(2026-10-13).
+ * 15,000 → 16,000: WP-377 A2A 상태 정렬로 report_agent_work 상태 10종(enum·설명)이 늘어 상향했다(2026-10-14 사용자 승인).
+ */
+const DEFINITION_TOKEN_CAP = 16_000;
 /** 앱당 도구 수 상한. 사용자 결정(2026-10-13). */
 const APP_TOOL_CAP = 15;
 

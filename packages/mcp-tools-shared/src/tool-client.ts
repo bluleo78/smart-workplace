@@ -99,8 +99,21 @@ export interface IssueRow {
 /** 이슈 목록 쿼리 — GET /me/issues 에 그대로 실리는 문자열화 가능한 값만. */
 export type IssueListQuery = Record<string, string | number | boolean>;
 
-/** AI 작업 보고 입력 상태(WP-377). ENDED 는 보고 입력에만 있다 — 작업 기록을 끝낸다. */
-export type AgentWorkStateInput = 'WORKING' | 'WAITING' | 'REVIEW' | 'BLOCKED' | 'PAUSED' | 'ENDED';
+/**
+ * AI 작업 보고 입력 상태(WP-377, A2A 1.0 어휘). 뒤 네 값(COMPLETED·FAILED·CANCELED·REJECTED)은 종료 상태라 보고하면 작업 기록이 끝난다.
+ * 조회 뷰에는 진행 중 상태 7종(여기 입력의 앞 6종 + SUBMITTED=시작 전)만 나온다.
+ */
+export type AgentWorkStateInput =
+  | 'WORKING'
+  | 'INPUT_REQUIRED'
+  | 'AUTH_REQUIRED'
+  | 'BLOCKED'
+  | 'PAUSED'
+  | 'REVIEW'
+  | 'COMPLETED'
+  | 'FAILED'
+  | 'CANCELED'
+  | 'REJECTED';
 
 /** PUT .../agent-work 본문 — 준 필드만 서버로 간다. */
 export interface ReportAgentWorkBody {

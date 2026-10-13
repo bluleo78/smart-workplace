@@ -93,7 +93,8 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       hints: { destructive: false, idempotent: false },
       description:
         'Creates an issue (이슈) in projectKey and returns it. type, labels, milestone, cycles and assignees (usernames, "me" = caller) are names ' +
-        'from get_project; unknown names fail before creating. New assignees are notified; an assigned AI agent starts working.',
+        'from get_project; unknown names fail before creating, listing allowed values. New assignees are notified; an assigned AI agent ' +
+        'starts working.',
       inputSchema: createIssueInput,
       async handler(args) {
         const { projectKey, type, assignees, parent, labels, milestone, cycles, ...rest } = createIssueInput.parse(args);
@@ -188,8 +189,9 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       kind: 'write',
       hints: { destructive: false, idempotent: false },
       description:
-        'Reports work on your assigned issue (이슈) at start/on change: WAITING before asking the user, REVIEW awaiting review, ' +
-        'BLOCKED + why, PAUSED if told to pause, ENDED stops tracking. message posts to issue chat.',
+        'Reports work on your assigned issue (이슈) at start/on change: INPUT_REQUIRED before asking the user, AUTH_REQUIRED if you need ' +
+        'credentials/permission, REVIEW done awaiting review, BLOCKED + why, PAUSED if told to stop; COMPLETED/FAILED/CANCELED/REJECTED end the ' +
+        'work. message posts to issue chat.',
       inputSchema: reportAgentWorkInput,
       async handler(args) {
         const { issueKey, ...body } = reportAgentWorkInput.parse(args);

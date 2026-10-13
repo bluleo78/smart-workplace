@@ -136,19 +136,32 @@ describe('buildSharedIssueTools', () => {
     it('issueKey 를 뺀 본문을 reportAgentWork 로 넘기고 work.state 를 돌려준다', async () => {
       const c = mockClient();
       vi.mocked(c.reportAgentWork).mockResolvedValue({
-        work: { worker: { id: 7, username: 'claude', name: 'Claude', kind: 'AI' }, tool: 'mcp', state: 'WAITING', updatedAt: '2026-10-14T00:00:00Z' },
+        work: { worker: { id: 7, username: 'claude', name: 'Claude', kind: 'AI' }, tool: 'mcp', state: 'INPUT_REQUIRED', updatedAt: '2026-10-14T00:00:00Z' },
         ended: false,
       });
-      const out = JSON.parse(resultText(await reportTool(c).handler({ issueKey: 'WP-12', state: 'WAITING', message: '질문' })));
-      expect(c.reportAgentWork).toHaveBeenCalledWith('WP-12', { state: 'WAITING', message: '질문' });
-      expect(out.work.state).toBe('WAITING');
+      const out = JSON.parse(resultText(await reportTool(c).handler({ issueKey: 'WP-12', state: 'INPUT_REQUIRED', message: '질문' })));
+      expect(c.reportAgentWork).toHaveBeenCalledWith('WP-12', { state: 'INPUT_REQUIRED', message: '질문' });
+      expect(out.work.state).toBe('INPUT_REQUIRED');
       expect(out.work.worker).toEqual({ username: 'claude', name: 'Claude', kind: 'AI' });
     });
 
-    it('ENDED 보고는 work 없이 ended:true 만 돌려준다', async () => {
+    it.each(['COMPLETED', 'FAILED', 'CANCELED', 'REJECTED'])('%s 보고는 work 없이 ended:true 만 돌려준다', async (state) => {
       const c = mockClient();
-      const out = JSON.parse(resultText(await reportTool(c).handler({ issueKey: 'WP-12', state: 'ENDED' })));
+      const out = JSON.parse(resultText(await reportTool(c).handler({ issueKey: 'WP-12', state })));
+      expect(c.reportAgentWork).toHaveBeenCalledWith('WP-12', { state });
       expect(out).toEqual({ ended: true });
+    });
+
+    it('A2A 상태 10종을 받고 옛 WAITING·ENDED 는 거절한다', async () => {
+      const c = mockClient();
+      for (const state of ['WORKING', 'INPUT_REQUIRED', 'AUTH_REQUIRED', 'BLOCKED', 'PAUSED', 'REVIEW', 'COMPLETED', 'FAILED', 'CANCELED', 'REJECTED']) {
+        await reportTool(c).handler({ issueKey: 'WP-12', state });
+      }
+      expect(c.reportAgentWork).toHaveBeenCalledTimes(10);
+      for (const state of ['WAITING', 'ENDED']) {
+        await expect(reportTool(c).handler({ issueKey: 'WP-12', state })).rejects.toThrow();
+      }
+      expect(c.reportAgentWork).toHaveBeenCalledTimes(10);
     });
 
     it.each([

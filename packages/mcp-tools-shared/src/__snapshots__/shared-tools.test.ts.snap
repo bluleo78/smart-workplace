@@ -2235,7 +2235,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "string",
         },
         "note": {
-          "description": """ clears",
+          "description": "one-line status; "" clears",
           "maxLength": 120,
           "type": "string",
         },
@@ -2247,11 +2247,15 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
         "state": {
           "enum": [
             "WORKING",
-            "WAITING",
-            "REVIEW",
+            "INPUT_REQUIRED",
+            "AUTH_REQUIRED",
             "BLOCKED",
             "PAUSED",
-            "ENDED",
+            "REVIEW",
+            "COMPLETED",
+            "FAILED",
+            "CANCELED",
+            "REJECTED",
           ],
           "type": "string",
         },

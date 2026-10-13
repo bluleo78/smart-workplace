@@ -250,8 +250,8 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       description:
         'Lists issues (이슈) as {items, hasMore?, nextCursor?} (size default 30). If hasMore, pass nextCursor as cursor with the same filters, or say ' +
         'the list is partial; a next page may be empty. due/closed/created From-To: yyyy-MM-dd, inclusive, closed/created in KST; for finished ' +
-        'work add status=DONE (closed ranges also match CANCELED). Items: issueKey, main fields, parent, children, blocked, agentWork ' +
-        '(dates +09:00, empty keys omitted); body/comments: get_issue_detail.',
+        'work add status=DONE (closed ranges also match CANCELED). Unknown names fail, listing allowed values. Items: issueKey, main fields, parent, children, blocked, ' +
+        'agentWork (dates +09:00, empty keys omitted); body/comments: get_issue_detail.',
       inputSchema: listIssuesInput,
       async handler(args) {
         const { priority, size, cycle: cycleCsv, milestone: milestoneCsv, parent, field, watching, ...p } = listIssuesInput.parse(args);
@@ -322,7 +322,8 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       hints: { destructive: false, idempotent: false },
       description:
         'Creates a project (프로젝트) with me as OWNER (needs project write permission). projectKey is the issue key prefix. ' +
-        'type: TEAM (default), OPEN (visible to all, for intake) or PERSONAL (only me; key auto-assigned, so each call creates another).',
+        'type: TEAM (default), OPEN (visible to all, for intake) or PERSONAL (only me; key auto-assigned, so each call creates another). ' +
+        'Nobody is notified.',
       inputSchema: createProjectInput,
       async handler(args) {
         return JSON.stringify(toProjectView((await client.createProject(toCreateProjectBody(createProjectInput.parse(args)))) as Record<string, unknown>));

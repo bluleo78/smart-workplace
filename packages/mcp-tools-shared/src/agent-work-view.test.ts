@@ -37,4 +37,10 @@ describe('toAgentWorkView', () => {
     expect(v).not.toHaveProperty('stepsDone');
     expect(v.stale).toBe(true);
   });
+
+  it('tool 이 null(시작 전 행)이면 키째 빠진다', () => {
+    const v = toAgentWorkView({ ...raw, tool: null, state: 'SUBMITTED' });
+    expect(v).not.toHaveProperty('tool');
+    expect(v.state).toBe('SUBMITTED');
+  });
 });
