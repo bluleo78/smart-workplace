@@ -145,7 +145,8 @@ export function createHomeRouter(deps: RunAgentDeps): Router {
           res.write(`event: pending_action\ndata: ${JSON.stringify(result.pendingActions)}\n\n`);
         }
         // #432: done 이벤트에 토큰 사용량(usage) 포함 — 없으면 null.
-        res.write(`event: done\ndata: ${JSON.stringify({ fullText: result.fullText, widgets: result.widgets, usage: result.usage })}\n\n`);
+        // WP-139: 답 출처(source)를 추가 필드로 — 구 API 는 무시한다.
+        res.write(`event: done\ndata: ${JSON.stringify({ fullText: result.fullText, widgets: result.widgets, usage: result.usage, source: result.source })}\n\n`);
         res.end();
         log.info('ai-chat', 'done', {
           requestId,

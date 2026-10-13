@@ -27,6 +27,12 @@ import { awaitHomeExtraction, DEFAULT_ATTACHMENT_QUERY, EXTRACTION_WAIT_LABEL, f
 /** runAiChatStream 의존성 — sleep 은 추출 대기 테스트에서 실제로 기다리지 않게 주입한다(RunChatAgentDeps 와 같은 방식). */
 export type RunAiChatDeps = RunAgentDeps & { sleep?: (ms: number) => Promise<void> };
 
+/**
+ * WP-139: 답 출처 — 트랜스크립트에 남기던 값을 done 이벤트로도 내보낸다. API 는 fallback(결정적 고정 문구)이면 후속 질문을 만들지 않는다.
+ * 확인 카드만 있고 위젯이 없는 답(제안 안내 문구)도 fallback 이다 — API 는 확인 카드 턴을 따로 걸러낸다.
+ */
+export type AnswerSource = 'subagent' | 'limit_finalize' | 'router_prose' | 'widget' | 'fallback';
+
 export interface ContextMessage {
   // 'USER' | 'ASSISTANT' | 'ACTION_DONE' | 'ACTION_FAILED' | 'ACTION_REJECTED'(#843 확인카드 처리 결과)
   role: string;
@@ -163,7 +169,7 @@ export async function runAiChatStream(
   onProgress?: (label: string) => void, // #333: Agent 위임 시작 시 호출('이슈 전문가에게 위임 중')
   onTool?: (line: ToolUseLine) => void, // 도구 호출 라이브 발행(인-프로세스 어댑터에서 직접 emit)
   onDelta?: (text: string) => void, // #463: 라우터 자유 prose 라이브 스트리밍(text_delta 단위)
-): Promise<{ fullText: string; widgets: unknown; pendingActions: unknown[]; usage: import('./chat-parser.js').Usage | null }> {
+): Promise<{ fullText: string; widgets: unknown; pendingActions: unknown[]; source: AnswerSource; usage: import('./chat-parser.js').Usage | null }> {
   const agentId = input.assistantAgentId;
   // 요청 시작 시각 — 토큰 fetch 소요와 한도 도달 마무리의 남은 예산 계산에 함께 쓴다.
   const requestStartedAt = Date.now();
@@ -348,7 +354,7 @@ export async function runAiChatStream(
       requestId: input.requestId,
       reason: 'unassign_error',
     });
-    return { fullText: unassign.canonical, widgets: null, pendingActions: [], usage: null };
+    return { fullText: unassign.canonical, widgets: null, pendingActions: [], source: 'fallback', usage: null };
   }
   // #463: parseChatEvents 로 위젯(tool_use 이벤트)만 산출. 텍스트는 아래 우선순위로 결정한다.
   const parsed = parseChatEvents(events);
@@ -415,6 +421,9 @@ export async function runAiChatStream(
     onText(answerText);
     log.warn('ai-chat', 'fallback', { requestId: input.requestId, reason: 'no_output' });
   }
+  // WP-139: 답 출처 — 트랜스크립트와 done 이벤트가 같은 값을 쓴다.
+  const source: AnswerSource =
+    subagentTexts.length > 0 ? 'subagent' : finalizeText ? 'limit_finalize' : streamedText.trim() ? 'router_prose' : widgets ? 'widget' : 'fallback';
   // #432: 라우터 result 이벤트의 토큰 사용량을 done 이벤트로 전달(LLM 인증 비용 가시화).
   log.info('ai-chat', 'cli_done', {
     requestId: input.requestId,
@@ -429,7 +438,7 @@ export async function runAiChatStream(
     widgetCount: widgets ? widgets.length : 0,
     pendingActionCount: pendingActions.length,
     usage: parsed.usage,
-    source: subagentTexts.length > 0 ? 'subagent' : finalizeText ? 'limit_finalize' : streamedText.trim() ? 'router_prose' : widgets ? 'widget' : 'fallback',
+    source,
   });
-  return { fullText: answerText, widgets, pendingActions, usage: addUsage(parsed.usage, finalizeUsage) };
+  return { fullText: answerText, widgets, pendingActions, source, usage: addUsage(parsed.usage, finalizeUsage) };
 }

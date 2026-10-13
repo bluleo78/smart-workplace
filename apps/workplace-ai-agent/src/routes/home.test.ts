@@ -148,7 +148,7 @@ describe('POST /ai/chat', () => {
     vi.mocked(runAiChatStream).mockImplementation(async (_i, _d, onText) => {
       onText('안');
       onText('녕');
-      return { fullText: '안녕', widgets: null, pendingActions: [], usage: { inputTokens: 100, outputTokens: 20 } };
+      return { fullText: '안녕', widgets: null, pendingActions: [], source: 'router_prose', usage: { inputTokens: 100, outputTokens: 20 } };
     });
     const res = await request(buildApp()).post('/ai/chat').send(validBody());
     expect(res.status).toBe(200);
@@ -186,9 +186,15 @@ describe('POST /ai/chat', () => {
     expect(runAiChatStream).not.toHaveBeenCalled();
   });
 
+  it('done 이벤트에 답 출처 source 를 싣는다 (WP-139)', async () => {
+    vi.mocked(runAiChatStream).mockResolvedValue({ fullText: 'ok', widgets: null, pendingActions: [], source: 'subagent', usage: null });
+    const res = await request(buildApp()).post('/ai/chat').send(validBody());
+    expect(res.text).toContain('"source":"subagent"');
+  });
+
   // WP-234: 첨부 필드가 러너 입력까지 전달된다(plain z.object 는 미정의 키를 버리므로 스키마 명시 필요).
   it('sessionId·attachments 를 runAiChatStream 입력으로 전달', async () => {
-    vi.mocked(runAiChatStream).mockResolvedValue({ fullText: 'ok', widgets: null, pendingActions: [], usage: null });
+    vi.mocked(runAiChatStream).mockResolvedValue({ fullText: 'ok', widgets: null, pendingActions: [], source: 'router_prose', usage: null });
     const sid = '3f1c2a4e-8b7d-4c1e-9f2a-6d5b4c3a2e1f';
     const attachment = {
       fileId: 8, messageId: 3, originalName: 'a.pdf', mimeType: 'application/pdf', sizeBytes: 10, current: true,
@@ -217,7 +223,7 @@ describe('POST /ai/chat', () => {
 
   it('pendingActions 가 있으면 event: pending_action 을 done 앞에 배열로 발행', async () => {
     // #351: propose 도구가 사이드카에 제안을 쓴 경우 — 라우트가 done 앞에 pending_action(배열) 발행.
-    vi.mocked(runAiChatStream).mockResolvedValue({ fullText: '제안했어요', widgets: null, pendingActions: [{ actionType: 'calendar.create_event', summary: 's', params: {} }], usage: null });
+    vi.mocked(runAiChatStream).mockResolvedValue({ fullText: '제안했어요', widgets: null, pendingActions: [{ actionType: 'calendar.create_event', summary: 's', params: {} }], source: 'fallback', usage: null });
     const res = await request(buildApp()).post('/ai/chat').send(validBody());
     expect(res.text).toContain('event: pending_action');
     expect(res.text).toContain('"actionType":"calendar.create_event"');
@@ -230,7 +236,7 @@ describe('POST /ai/chat', () => {
     // 라우트가 5번째 인자로 onProgress 콜백을 전달하고 event: progress 로 직렬화하는지 검증.
     vi.mocked(runAiChatStream).mockImplementation(async (_i, _d, _onText, _signal, onProgress) => {
       onProgress?.('이슈 전문가에게 위임 중');
-      return { fullText: '처리했어요.', widgets: null, pendingActions: [], usage: null };
+      return { fullText: '처리했어요.', widgets: null, pendingActions: [], source: 'router_prose', usage: null };
     });
     const res = await request(buildApp()).post('/ai/chat').send(validBody());
     expect(res.status).toBe(200);
@@ -253,7 +259,7 @@ describe('POST /ai/chat', () => {
     vi.mocked(runAiChatStream).mockImplementation(async (_i, _d, _onText, _sig, _onProg, _onTool, onDelta) => {
       onDelta?.('오늘 일정은 ');
       onDelta?.('2건입니다.');
-      return { fullText: '오늘 일정은 2건입니다.', widgets: null, pendingActions: [], usage: null };
+      return { fullText: '오늘 일정은 2건입니다.', widgets: null, pendingActions: [], source: 'router_prose', usage: null };
     });
     const res = await request(buildApp()).post('/ai/chat').send(validBody());
     expect(res.status).toBe(200);
@@ -268,7 +274,7 @@ describe('POST /ai/chat', () => {
   it('위임 답은 최종 delta 1건으로 발행', async () => {
     vi.mocked(runAiChatStream).mockImplementation(async (_i, _d, onText) => {
       onText('연락처 3건을 정리했어요.');
-      return { fullText: '연락처 3건을 정리했어요.', widgets: null, pendingActions: [], usage: null };
+      return { fullText: '연락처 3건을 정리했어요.', widgets: null, pendingActions: [], source: 'router_prose', usage: null };
     });
     const res = await request(buildApp()).post('/ai/chat').send(validBody());
     expect(res.status).toBe(200);
@@ -323,7 +329,7 @@ describe('/ai/chat 로그', () => {
   it('요청 시작 시 start 로그를 requestId·query 와 함께 발행한다', async () => {
     vi.mocked(runAiChatStream).mockImplementation(async (_input, _deps, onText) => {
       onText('답변');
-      return { fullText: '답변', widgets: null, pendingActions: [], usage: null };
+      return { fullText: '답변', widgets: null, pendingActions: [], source: 'router_prose', usage: null };
     });
     await request(buildApp()).post('/ai/chat').send(validBody({ query: '내 현황' }));
     const startCall = logMock.info.mock.calls.find((c) => c[1] === 'start');
@@ -335,7 +341,7 @@ describe('/ai/chat 로그', () => {
   it('동일 requestId 가 start 와 done 에 함께 찍힌다', async () => {
     vi.mocked(runAiChatStream).mockImplementation(async (_input, _deps, onText) => {
       onText('답변');
-      return { fullText: '답변', widgets: null, pendingActions: [], usage: null };
+      return { fullText: '답변', widgets: null, pendingActions: [], source: 'router_prose', usage: null };
     });
     await request(buildApp()).post('/ai/chat').send(validBody());
     const start = logMock.info.mock.calls.find((c) => c[1] === 'start');
