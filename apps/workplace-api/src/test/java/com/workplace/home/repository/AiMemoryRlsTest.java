@@ -10,8 +10,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * WP-55 ai_memory 테넌트 RLS 증명(ChatDomainRlsTest 와 같은 방식). 테스트 GUC 가 tenant#1 로 고정돼 있어 tenant#1 만 쓰면
- * 거짓 통과하므로, 롤백 트랜잭션 안에서 tenant#2 를 만들고 트랜잭션-로컬 GUC 를 바꿔 가며 본다.
+ * WP-55 ai_memory 저장소 — 테넌트 RLS 증명(ChatDomainRlsTest 와 같은 방식). 테스트 GUC 가 tenant#1 로 고정돼 있어 tenant#1
+ * 만 쓰면 거짓 통과하므로, 롤백 트랜잭션 안에서 tenant#2 를 만들고 트랜잭션-로컬 GUC 를 바꿔 가며 본다.
  */
 class AiMemoryRlsTest extends IntegrationTestBase {
 
@@ -32,7 +32,7 @@ class AiMemoryRlsTest extends IntegrationTestBase {
               setGuc(1L);
               assertThat(repo.listNewest(uid, 50)).isEmpty();
               assertThat(repo.count(uid)).isZero();
-              assertThat(repo.find(uid, id)).isEmpty();
+              assertThat(repo.lock(uid, id)).isEmpty();
               assertThat(repo.delete(uid, id)).isEmpty();
 
               status.setRollbackOnly();

@@ -110,12 +110,7 @@ final class HomeChatTurn {
             toJsonList(blocks.finish(fullText), "content_blocks"),
             STATUS_COMPLETE);
     reservation.release();
-    Map<String, Object> data = new HashMap<>();
-    data.put("widgets", widgets);
-    // WP-55: 웹이 라이브 답의 결과 줄 되돌리기(messageId)를 done 직후 켤 수 있게 — 영속 실패면 null(판정 8). 중단·오류 종결도 같은 키를
-    // 싣는다(fail·cancel).
-    data.put("messageId", messageId);
-    emit("home.chat.done", data);
+    emitTerminal("home.chat.done", "widgets", widgets, messageId);
     afterDone.accept(messageId);
   }
 
@@ -127,10 +122,7 @@ final class HomeChatTurn {
     if (!finished.compareAndSet(false, true)) return;
     Long messageId = persistPartial(STATUS_FAILED);
     reservation.release();
-    Map<String, Object> data = new HashMap<>();
-    data.put("message", message);
-    data.put("messageId", messageId); // null 가능 — Map.of 는 null 값을 받지 않는다
-    emit("home.chat.error", data);
+    emitTerminal("home.chat.error", "message", message, messageId);
   }
 
   /**
@@ -145,10 +137,18 @@ final class HomeChatTurn {
         reservation.cancelReason() == StreamingGenerationRegistry.CancelReason.TIMEOUT
             ? "timeout"
             : "user";
+    emitTerminal("home.chat.cancelled", "reason", reason, messageId);
+  }
+
+  /**
+   * 종결 이벤트 발행 — 종류별 필드 하나(widgets·message·reason)와 저장한 메시지 id(WP-55). messageId 는 웹이 라이브 답의 결과 줄
+   * 되돌리기를 종결 직후 켜는 근거다(판정 8) — 저장하지 않았거나 영속에 실패하면 null 이라 Map.of(null 불가) 대신 HashMap 을 쓴다.
+   */
+  private void emitTerminal(String event, String key, Object value, Long messageId) {
     Map<String, Object> data = new HashMap<>();
-    data.put("reason", reason);
+    data.put(key, value);
     data.put("messageId", messageId);
-    emit("home.chat.cancelled", data);
+    emit(event, data);
   }
 
   /**

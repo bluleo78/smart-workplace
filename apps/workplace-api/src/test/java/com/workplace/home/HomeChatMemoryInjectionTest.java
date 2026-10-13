@@ -54,8 +54,8 @@ class HomeChatMemoryInjectionTest extends HomeAttachmentTestSupport {
   @Test
   void 켜져_있으면_최신순_메모리와_사용_여부를_보낸다() throws Exception {
     long uid = user();
-    memoryService.create(uid, "PREFERENCE", "짧은 목록으로 보여 준다");
-    memoryService.create(uid, "CONTEXT", "백엔드 팀이다");
+    AiMemoryTestFixtures.createMemory(memoryService, uid, "PREFERENCE", "짧은 목록으로 보여 준다");
+    AiMemoryTestFixtures.createMemory(memoryService, uid, "CONTEXT", "백엔드 팀이다");
     CountDownLatch latch = stubDone("네");
 
     chatService.startChat(uid, null, "이슈 보여줘");
@@ -73,7 +73,7 @@ class HomeChatMemoryInjectionTest extends HomeAttachmentTestSupport {
   @Test
   void 꺼져_있으면_빈_목록과_꺼짐을_보낸다() throws Exception {
     long uid = user();
-    memoryService.create(uid, "PREFERENCE", "짧은 목록으로 보여 준다");
+    AiMemoryTestFixtures.createMemory(memoryService, uid, "PREFERENCE", "짧은 목록으로 보여 준다");
     preferences.update(uid, null, false);
     CountDownLatch latch = stubDone("네");
 
@@ -108,7 +108,7 @@ class HomeChatMemoryInjectionTest extends HomeAttachmentTestSupport {
   void 메모리_블록_추정만큼_이전_대화_몫이_줄어든다() throws Exception {
     long uid = user();
     UUID sid = seedHistory(uid);
-    memoryService.create(uid, "CONTEXT", "가".repeat(200));
+    AiMemoryTestFixtures.createMemory(memoryService, uid, "CONTEXT", "가".repeat(200));
     CountDownLatch latch = stubDone("네");
 
     chatService.startChat(uid, sid, "다음");

@@ -2,6 +2,7 @@ package com.workplace.home.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.workplace.home.AiMemoryTestFixtures;
 import com.workplace.home.exception.AiMemoryException;
 import com.workplace.home.repository.AiMemoryRepository;
 import com.workplace.support.TestFixtures;
@@ -28,7 +29,8 @@ class AiMemoryConcurrencyTest extends AiMemoryRaceTestSupport {
         raceTwice(
             () -> {
               try {
-                service.create(uid, "PREFERENCE", "동시 " + Thread.currentThread().threadId());
+                AiMemoryTestFixtures.createMemory(
+                    service, uid, "PREFERENCE", "동시 " + Thread.currentThread().threadId());
                 return "ok";
               } catch (AiMemoryException e) {
                 return e.code();

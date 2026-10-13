@@ -29,24 +29,25 @@ import org.springframework.transaction.annotation.Transactional;
 public class AiMemoryService {
 
   /** 사용자(테넌트 안)당 상한 — 매 턴 전부 주입해도 예산에 부담이 없는 크기(스펙 §1 비목표: 의미 검색 대신 전체 주입). */
-  public static final int LIMIT = 50;
+  static final int LIMIT = 50;
 
   /** 내용 최대 길이(코드포인트). DB VARCHAR(300) 과 같다. */
-  public static final int MAX_CHARS = 300;
+  static final int MAX_CHARS = 300;
 
   /** 종류: 사용자가 알려 준 선호·교정(블록 라벨 "선호"). */
-  public static final String KIND_PREFERENCE = "PREFERENCE";
+  static final String KIND_PREFERENCE = "PREFERENCE";
 
   /** 종류: 오래 유지될 업무 맥락 — 팀·역할·주로 보는 프로젝트(블록 라벨 "맥락"). */
-  public static final String KIND_CONTEXT = "CONTEXT";
+  static final String KIND_CONTEXT = "CONTEXT";
 
   /** 출처: AI 가 대화 중 대행으로 저장(Internal on-behalf-of 경로만 이 값을 받는다). */
-  public static final String SOURCE_AI = "AI";
+  static final String SOURCE_AI = "AI";
 
   /** 출처: 사용자가 설정 화면에서 직접 추가 — 브라우저·PAT·API 키 요청은 항상 이 값으로 저장한다. */
-  public static final String SOURCE_USER = "USER";
+  static final String SOURCE_USER = "USER";
 
-  private static final Set<String> KINDS = Set.of(KIND_PREFERENCE, KIND_CONTEXT);
+  /** 허용 종류 — 영속 블록 검증(ChatBlockRecorder.Memory)도 같은 집합을 쓴다. */
+  static final Set<String> KINDS = Set.of(KIND_PREFERENCE, KIND_CONTEXT);
 
   private final AiMemoryRepository repo;
   private final AiPreferenceService preferences;
@@ -57,12 +58,6 @@ public class AiMemoryService {
   public AiMemoryListResponse list(long userId) {
     return new AiMemoryListResponse(
         repo.listNewest(userId, LIMIT).stream().map(AiMemoryService::toItem).toList(), LIMIT);
-  }
-
-  /** 직접 추가(설정 화면) — 항상 USER 출처. 테스트·내부 호출용 축약. */
-  @Transactional
-  public AiMemoryItem create(long userId, String kind, String content) {
-    return create(userId, new CreateAiMemoryRequest(kind, content, null, null), false);
   }
 
   /**
@@ -80,12 +75,6 @@ public class AiMemoryService {
             userId, req.kind(), req.content(), ai ? SOURCE_AI : SOURCE_USER, session, null));
   }
 
-  /** 고치기(설정 화면) — 축약. */
-  @Transactional
-  public AiMemoryItem update(long userId, long id, String content, String kind) {
-    return update(userId, id, content, kind, false);
-  }
-
   /**
    * 고치기 — 생략한 필드는 그대로. 대행이면 꺼짐 409. 응답에 이전 내용·종류(previousContent·previousKind)를 싣는다(update_memory
    * 결과·채팅 되돌리기 근거 — AI 가 종류까지 바꿨으면 되돌리기가 종류도 돌려놓는다).
@@ -101,12 +90,6 @@ public class AiMemoryService {
     String k = kind == null ? cur.kind() : requireKind(kind);
     Row saved = repo.update(userId, id, k, c).orElseThrow(AiMemoryException::notFound);
     return toItem(saved, cur.content(), cur.kind());
-  }
-
-  /** 지우기(설정 화면) — 축약. */
-  @Transactional
-  public AiMemoryItem delete(long userId, long id) {
-    return delete(userId, id, false);
   }
 
   /** 지우기 — 대행이면 꺼짐 409. 지운 항목을 돌려준다(forget_memory 결과·설정 "되돌리기" 토스트 근거). */
@@ -238,8 +221,8 @@ public class AiMemoryService {
 
   /** 채팅 주입용 메모리 묶음(WP-55). */
   public record ChatMemories(boolean enabled, List<ChatMemory> items) {
-    /** 조회 실패 — 꺼짐으로 보낸다(켜짐 + 빈 목록이면 AI 가 있는 메모리를 모른 채 중복 저장한다, 판정 10). */
-    public static final ChatMemories UNAVAILABLE = new ChatMemories(false, List.of());
+    /** 꺼짐(빈 목록) — 사용자가 끈 경우와 조회 실패(판정 10 — 켜짐 + 빈 목록이면 AI 가 있는 메모리를 모른 채 중복 저장한다)가 함께 쓴다. */
+    public static final ChatMemories DISABLED = new ChatMemories(false, List.of());
   }
 
   /** 블록 머리(제목 + 안내 문장, 한글 약 90자) 근사 토큰 + 여유. ai-agent memory-block.ts 의 문구가 바뀌면 함께 본다. */
@@ -254,7 +237,7 @@ public class AiMemoryService {
    */
   @Transactional(readOnly = true)
   public ChatMemories loadForChat(long userId) {
-    if (!preferences.memoryEnabled(userId)) return new ChatMemories(false, List.of());
+    if (!preferences.memoryEnabled(userId)) return ChatMemories.DISABLED;
     return new ChatMemories(
         true,
         repo.listNewest(userId, LIMIT).stream()

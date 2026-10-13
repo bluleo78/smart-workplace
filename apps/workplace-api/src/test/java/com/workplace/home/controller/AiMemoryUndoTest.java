@@ -9,8 +9,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.workplace.home.AiMemoryTestFixtures;
 import com.workplace.home.dto.AiMemoryItem;
 import com.workplace.home.repository.AiMemoryRepository;
 import com.workplace.home.service.AiMemoryService;
@@ -21,6 +21,7 @@ import com.workplace.user.service.AiPreferenceService;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
@@ -56,26 +57,25 @@ class AiMemoryUndoTest extends IntegrationTestBase {
             .content(om.writeValueAsString(body)));
   }
 
-  /** 영속 memory 블록(판정 6). */
-  private ObjectNode block(
+  /** 영속 memory 블록(판정 6) — 공용 픽스처. */
+  private static ObjectNode block(
       String action, long memoryId, String kind, String content, String previous, String source) {
-    ObjectNode b = om.createObjectNode();
-    b.put("kind", "memory").put("action", action).put("memoryId", memoryId).put("memoryKind", kind);
-    b.put("content", content);
-    if (previous != null) b.put("previousContent", previous);
-    b.put("source", source).put("undone", false);
-    return b;
+    return AiMemoryTestFixtures.memoryBlock(action, memoryId, kind, content, previous, source);
   }
 
-  /** 사용자 세션에 ASSISTANT 메시지를 만든다 — 앞에 text 블록을 둬 memory 순번 ≠ 배열 인덱스를 함께 확인한다. */
-  private long message(long uid, ObjectNode... memoryBlocks) throws Exception {
-    UUID sid = sessions.create(uid).id();
-    sessions.appendMessage(uid, sid, "USER", "질문", null, null, null);
-    ArrayNode arr = om.createArrayNode();
-    arr.addObject().put("kind", "text").put("textStart", 0);
-    for (ObjectNode b : memoryBlocks) arr.add(b);
-    return sessions.appendMessage(
-        uid, sid, "ASSISTANT", "기억할게요.", null, null, om.writeValueAsString(arr));
+  /** 사용자 세션에 memory 블록을 단 ASSISTANT 메시지를 만든다(앞에 text 블록 — 순번 ≠ 배열 인덱스, 공용 픽스처). */
+  private long message(long uid, ObjectNode... memoryBlocks) {
+    return AiMemoryTestFixtures.assistantMessageWithMemory(sessions, uid, memoryBlocks);
+  }
+
+  /** 설정 화면 직접 추가와 같은 경로로 메모리를 만든다. */
+  private AiMemoryItem create(long uid, String kind, String content) {
+    return AiMemoryTestFixtures.createMemory(memories, uid, kind, content);
+  }
+
+  /** 본인 메모리 1건(없으면 empty). */
+  private Optional<AiMemoryRepository.Row> find(long uid, long id) {
+    return repo.listNewest(uid, 50).stream().filter(r -> r.id() == id).findFirst();
   }
 
   /** 메시지의 memory 블록들(순번 순). */
@@ -95,7 +95,7 @@ class AiMemoryUndoTest extends IntegrationTestBase {
   @Test
   void 저장_되돌리기는_그_메모리를_지우고_블록을_되돌림으로_남긴다() throws Exception {
     long uid = TestFixtures.createHuman(dsl);
-    AiMemoryItem m = memories.create(uid, "PREFERENCE", "짧은 목록");
+    AiMemoryItem m = create(uid, "PREFERENCE", "짧은 목록");
     long mid = message(uid, block("saved", m.id(), "PREFERENCE", "짧은 목록", null, "AI"));
 
     undo(uid, mid, 0)
@@ -104,7 +104,7 @@ class AiMemoryUndoTest extends IntegrationTestBase {
         .andExpect(jsonPath("$.blockIndex").value(0))
         .andExpect(jsonPath("$.undone").value(true))
         .andExpect(jsonPath("$.memory").doesNotExist());
-    assertThat(repo.find(uid, m.id())).isEmpty();
+    assertThat(find(uid, m.id())).isEmpty();
     assertThat(memoryBlocks(mid).get(0).path("undone").asBoolean()).isTrue();
   }
 
@@ -118,14 +118,14 @@ class AiMemoryUndoTest extends IntegrationTestBase {
   @Test
   void 고침_되돌리기는_이전_내용으로_복원한다() throws Exception {
     long uid = TestFixtures.createHuman(dsl);
-    AiMemoryItem m = memories.create(uid, "PREFERENCE", "표 대신 목록");
+    AiMemoryItem m = create(uid, "PREFERENCE", "표 대신 목록");
     long mid = message(uid, block("updated", m.id(), "PREFERENCE", "표 대신 목록", "짧은 목록", "AI"));
 
     undo(uid, mid, 0)
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.memory.id").value(m.id()))
         .andExpect(jsonPath("$.memory.content").value("짧은 목록"));
-    assertThat(repo.find(uid, m.id()).orElseThrow().content()).isEqualTo("짧은 목록");
+    assertThat(find(uid, m.id()).orElseThrow().content()).isEqualTo("짧은 목록");
   }
 
   @Test
@@ -182,12 +182,12 @@ class AiMemoryUndoTest extends IntegrationTestBase {
   @Test
   void 메모리를_꺼도_되돌리기는_허용한다() throws Exception {
     long uid = TestFixtures.createHuman(dsl);
-    AiMemoryItem m = memories.create(uid, "PREFERENCE", "짧은 목록");
+    AiMemoryItem m = create(uid, "PREFERENCE", "짧은 목록");
     preferences.update(uid, null, false);
     long mid = message(uid, block("saved", m.id(), "PREFERENCE", "짧은 목록", null, "AI"));
 
     undo(uid, mid, 0).andExpect(status().isOk());
-    assertThat(repo.find(uid, m.id())).isEmpty();
+    assertThat(find(uid, m.id())).isEmpty();
   }
 
   /** 꺼짐은 AI 대행 쓰기만 막는다 — 지움 되돌리기(재생성)도 허용하고 블록의 출처로 다시 만든다. */
@@ -209,12 +209,12 @@ class AiMemoryUndoTest extends IntegrationTestBase {
   @Test
   void 메모리를_꺼도_고침_되돌리기는_허용한다() throws Exception {
     long uid = TestFixtures.createHuman(dsl);
-    AiMemoryItem m = memories.create(uid, "PREFERENCE", "표 대신 목록");
+    AiMemoryItem m = create(uid, "PREFERENCE", "표 대신 목록");
     preferences.update(uid, null, false);
     long mid = message(uid, block("updated", m.id(), "PREFERENCE", "표 대신 목록", "짧은 목록", "AI"));
 
     undo(uid, mid, 0).andExpect(status().isOk());
-    assertThat(repo.find(uid, m.id()).orElseThrow().content()).isEqualTo("짧은 목록");
+    assertThat(find(uid, m.id()).orElseThrow().content()).isEqualTo("짧은 목록");
   }
 
   /**
@@ -223,15 +223,15 @@ class AiMemoryUndoTest extends IntegrationTestBase {
   @Test
   void 이전_종류가_없는_고침_줄은_내용만_되돌리고_지금_종류를_유지한다() throws Exception {
     long uid = TestFixtures.createHuman(dsl);
-    AiMemoryItem m = memories.create(uid, "PREFERENCE", "짧은 목록");
-    memories.update(uid, m.id(), "백엔드 팀이다", "CONTEXT");
+    AiMemoryItem m = create(uid, "PREFERENCE", "짧은 목록");
+    memories.update(uid, m.id(), "백엔드 팀이다", "CONTEXT", false);
     long mid = message(uid, block("updated", m.id(), "CONTEXT", "백엔드 팀이다", "짧은 목록", "AI"));
 
     undo(uid, mid, 0)
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.memory.content").value("짧은 목록"))
         .andExpect(jsonPath("$.memory.kind").value("CONTEXT"));
-    AiMemoryRepository.Row row = repo.find(uid, m.id()).orElseThrow();
+    AiMemoryRepository.Row row = find(uid, m.id()).orElseThrow();
     assertThat(row.content()).isEqualTo("짧은 목록");
     assertThat(row.kind()).isEqualTo("CONTEXT");
   }
@@ -256,8 +256,8 @@ class AiMemoryUndoTest extends IntegrationTestBase {
   @Test
   void blockIndex_는_memory_블록_순번이다() throws Exception {
     long uid = TestFixtures.createHuman(dsl);
-    AiMemoryItem a = memories.create(uid, "PREFERENCE", "첫째");
-    AiMemoryItem b = memories.create(uid, "PREFERENCE", "둘째");
+    AiMemoryItem a = create(uid, "PREFERENCE", "첫째");
+    AiMemoryItem b = create(uid, "PREFERENCE", "둘째");
     long mid =
         message(
             uid,
@@ -265,8 +265,8 @@ class AiMemoryUndoTest extends IntegrationTestBase {
             block("saved", b.id(), "PREFERENCE", "둘째", null, "AI"));
 
     undo(uid, mid, 1).andExpect(status().isOk());
-    assertThat(repo.find(uid, b.id())).isEmpty();
-    assertThat(repo.find(uid, a.id())).isPresent();
+    assertThat(find(uid, b.id())).isEmpty();
+    assertThat(find(uid, a.id())).isPresent();
     assertThat(memoryBlocks(mid))
         .extracting(n -> n.path("undone").asBoolean())
         .containsExactly(false, true);
@@ -284,8 +284,8 @@ class AiMemoryUndoTest extends IntegrationTestBase {
   @Test
   void 고침_되돌리기는_이전_종류가_있으면_종류도_돌려놓는다() throws Exception {
     long uid = TestFixtures.createHuman(dsl);
-    AiMemoryItem m = memories.create(uid, "PREFERENCE", "짧은 목록");
-    memories.update(uid, m.id(), "백엔드 팀이다", "CONTEXT");
+    AiMemoryItem m = create(uid, "PREFERENCE", "짧은 목록");
+    memories.update(uid, m.id(), "백엔드 팀이다", "CONTEXT", false);
     long mid =
         message(
             uid,
@@ -296,7 +296,7 @@ class AiMemoryUndoTest extends IntegrationTestBase {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.memory.content").value("짧은 목록"))
         .andExpect(jsonPath("$.memory.kind").value("PREFERENCE"));
-    AiMemoryRepository.Row row = repo.find(uid, m.id()).orElseThrow();
+    AiMemoryRepository.Row row = find(uid, m.id()).orElseThrow();
     assertThat(row.content()).isEqualTo("짧은 목록");
     assertThat(row.kind()).isEqualTo("PREFERENCE");
   }
@@ -305,14 +305,14 @@ class AiMemoryUndoTest extends IntegrationTestBase {
   @Test
   void 고친_뒤_또_바뀐_메모리는_409_CHANGED_이고_덮지_않는다() throws Exception {
     long uid = TestFixtures.createHuman(dsl);
-    AiMemoryItem m = memories.create(uid, "PREFERENCE", "표 대신 목록");
+    AiMemoryItem m = create(uid, "PREFERENCE", "표 대신 목록");
     long mid = message(uid, block("updated", m.id(), "PREFERENCE", "표 대신 목록", "짧은 목록", "AI"));
-    memories.update(uid, m.id(), "사용자가 나중에 고친 내용", null);
+    memories.update(uid, m.id(), "사용자가 나중에 고친 내용", null, false);
 
     undo(uid, mid, 0)
         .andExpect(status().isConflict())
         .andExpect(jsonPath("$.errors.code").value("AI_MEMORY_CHANGED"));
-    assertThat(repo.find(uid, m.id()).orElseThrow().content()).isEqualTo("사용자가 나중에 고친 내용");
+    assertThat(find(uid, m.id()).orElseThrow().content()).isEqualTo("사용자가 나중에 고친 내용");
     assertThat(memoryBlocks(mid).get(0).path("undone").asBoolean()).isFalse();
   }
 
@@ -320,18 +320,18 @@ class AiMemoryUndoTest extends IntegrationTestBase {
   @Test
   void 이전_종류가_있는_줄은_종류만_또_바뀌어도_409_CHANGED() throws Exception {
     long uid = TestFixtures.createHuman(dsl);
-    AiMemoryItem m = memories.create(uid, "CONTEXT", "백엔드 팀이다");
+    AiMemoryItem m = create(uid, "CONTEXT", "백엔드 팀이다");
     long mid =
         message(
             uid,
             block("updated", m.id(), "CONTEXT", "백엔드 팀이다", "짧은 목록", "AI")
                 .put("previousKind", "PREFERENCE"));
-    memories.update(uid, m.id(), null, "PREFERENCE");
+    memories.update(uid, m.id(), null, "PREFERENCE", false);
 
     undo(uid, mid, 0)
         .andExpect(status().isConflict())
         .andExpect(jsonPath("$.errors.code").value("AI_MEMORY_CHANGED"));
-    AiMemoryRepository.Row row = repo.find(uid, m.id()).orElseThrow();
+    AiMemoryRepository.Row row = find(uid, m.id()).orElseThrow();
     assertThat(row.content()).isEqualTo("백엔드 팀이다");
     assertThat(row.kind()).isEqualTo("PREFERENCE");
     assertThat(memoryBlocks(mid).get(0).path("undone").asBoolean()).isFalse();
@@ -343,8 +343,8 @@ class AiMemoryUndoTest extends IntegrationTestBase {
   @Test
   void 지움_되돌리기는_원래_id_로_되살려_앞선_저장_되돌리기가_그것을_지운다() throws Exception {
     long uid = TestFixtures.createHuman(dsl);
-    AiMemoryItem m = memories.create(uid, "PREFERENCE", "짧은 목록");
-    memories.delete(uid, m.id());
+    AiMemoryItem m = create(uid, "PREFERENCE", "짧은 목록");
+    memories.delete(uid, m.id(), false);
     long mid =
         message(
             uid,
@@ -352,10 +352,10 @@ class AiMemoryUndoTest extends IntegrationTestBase {
             block("forgotten", m.id(), "PREFERENCE", "짧은 목록", null, "AI"));
 
     undo(uid, mid, 1).andExpect(status().isOk()).andExpect(jsonPath("$.memory.id").value(m.id()));
-    assertThat(repo.find(uid, m.id())).isPresent();
+    assertThat(find(uid, m.id())).isPresent();
 
     undo(uid, mid, 0).andExpect(status().isOk());
-    assertThat(repo.find(uid, m.id())).isEmpty();
+    assertThat(find(uid, m.id())).isEmpty();
     assertThat(repo.count(uid)).isZero();
   }
 
@@ -363,14 +363,14 @@ class AiMemoryUndoTest extends IntegrationTestBase {
   @Test
   void 원래_id_가_이미_있으면_새_id_로_되살린다() throws Exception {
     long uid = TestFixtures.createHuman(dsl);
-    AiMemoryItem m = memories.create(uid, "PREFERENCE", "짧은 목록");
+    AiMemoryItem m = create(uid, "PREFERENCE", "짧은 목록");
     long mid = message(uid, block("forgotten", m.id(), "PREFERENCE", "짧은 목록", null, "AI"));
 
     undo(uid, mid, 0)
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.memory.content").value("짧은 목록"));
     assertThat(repo.count(uid)).isEqualTo(2);
-    assertThat(repo.find(uid, m.id())).isPresent();
+    assertThat(find(uid, m.id())).isPresent();
   }
 
   /** CR2: 시퀀스가 아직 발급하지 않은 id 는 쓰지 않는다 — 나중에 일반 저장이 그 값에서 키 충돌하지 않게 새 id 로 만든다. */
@@ -383,7 +383,7 @@ class AiMemoryUndoTest extends IntegrationTestBase {
     long mid = message(uid, block("forgotten", unissued, "CONTEXT", "백엔드 팀이다", null, "AI"));
 
     undo(uid, mid, 0).andExpect(status().isOk());
-    assertThat(repo.find(uid, unissued)).isEmpty();
+    assertThat(find(uid, unissued)).isEmpty();
     assertThat(repo.count(uid)).isEqualTo(1);
   }
 }

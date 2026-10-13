@@ -314,14 +314,24 @@ public class HomeSessionService {
    */
   static SplitBlocks splitMemoryBlocks(JsonNode blocks) {
     if (blocks == null || !blocks.isArray()) return new SplitBlocks(blocks, null);
+    // 대부분의 메시지는 memory 블록이 없다 — 복사 없이 원본을 그대로 쓴다.
+    if (!hasMemoryBlock(blocks)) return new SplitBlocks(blocks, null);
     ArrayNode display = JsonNodeFactory.instance.arrayNode();
     ArrayNode memory = JsonNodeFactory.instance.arrayNode();
     for (JsonNode b : blocks) {
-      if ("memory".equals(b.path("kind").asText())) memory.add(b);
+      if (isMemoryBlock(b)) memory.add(b);
       else display.add(b);
     }
-    if (memory.isEmpty()) return new SplitBlocks(blocks, null);
     return new SplitBlocks(display.isEmpty() ? null : display, memory);
+  }
+
+  private static boolean hasMemoryBlock(JsonNode blocks) {
+    for (JsonNode b : blocks) if (isMemoryBlock(b)) return true;
+    return false;
+  }
+
+  private static boolean isMemoryBlock(JsonNode b) {
+    return "memory".equals(b.path("kind").asText());
   }
 
   /** 후속 질문 JSON → 문자열 목록. 깨진 값은 표시하지 않는다(null) — 복원 화면을 막을 만큼 중요하지 않다. */

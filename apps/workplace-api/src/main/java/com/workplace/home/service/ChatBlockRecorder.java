@@ -77,7 +77,6 @@ class ChatBlockRecorder {
       boolean undone)
       implements Block {
     private static final Set<String> ACTIONS = Set.of("saved", "updated", "forgotten");
-    private static final Set<String> KINDS = Set.of("PREFERENCE", "CONTEXT");
 
     @Override
     public String kind() {
@@ -95,11 +94,15 @@ class ChatBlockRecorder {
       String content = m.path("content").asText("");
       JsonNode id = m.path("memoryId");
       JsonNode prev = m.path("previousContent");
-      if (!ACTIONS.contains(action) || !KINDS.contains(kind) || content.isBlank()) return null;
+      if (!ACTIONS.contains(action) || !AiMemoryService.KINDS.contains(kind) || content.isBlank())
+        return null;
       if (!id.isIntegralNumber() || !id.canConvertToLong() || id.asLong() <= 0) return null;
       // 빈 이전 내용은 되돌릴 수 없다(복원이 1~300자 검증에 걸린다) — 되돌리기 버튼만 남는 줄을 만들지 않는다.
       if ("updated".equals(action) && (!prev.isTextual() || prev.asText().isBlank())) return null;
-      String source = "USER".equals(m.path("source").asText()) ? "USER" : "AI";
+      String source =
+          AiMemoryService.SOURCE_USER.equals(m.path("source").asText())
+              ? AiMemoryService.SOURCE_USER
+              : AiMemoryService.SOURCE_AI;
       String prevKind = m.path("previousKind").asText("");
       return new Memory(
           action,
@@ -107,7 +110,7 @@ class ChatBlockRecorder {
           kind,
           content,
           prev.isTextual() ? prev.asText() : null,
-          "updated".equals(action) && KINDS.contains(prevKind) ? prevKind : null,
+          "updated".equals(action) && AiMemoryService.KINDS.contains(prevKind) ? prevKind : null,
           source,
           false);
     }

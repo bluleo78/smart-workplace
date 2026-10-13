@@ -51,14 +51,6 @@ public class AiMemoryRepository {
         .fetch(AiMemoryRepository::toRow);
   }
 
-  /** 본인 메모리 1건 조회 — 없거나 남의 것이면 empty. */
-  public Optional<Row> find(long userId, long id) {
-    return dsl.selectFrom(AI_MEMORY)
-        .where(AI_MEMORY.ID.eq(id))
-        .and(AI_MEMORY.USER_ID.eq(userId))
-        .fetchOptional(AiMemoryRepository::toRow);
-  }
-
   /** 행 잠금 조회 — 고치기 전 이전 내용을 정확히 돌려주기 위해(동시 고치기 직렬화). */
   public Optional<Row> lock(long userId, long id) {
     return dsl.selectFrom(AI_MEMORY)
@@ -82,16 +74,9 @@ public class AiMemoryRepository {
 
   /** 메모리 1건 저장 후 저장된 행을 돌려준다(상한 검사는 호출자가 잠금 안에서 한다). */
   public Row insert(long userId, String kind, String content, String source, UUID sourceSessionId) {
-    OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
     return toRow(
         dsl.insertInto(AI_MEMORY)
-            .set(AI_MEMORY.USER_ID, userId)
-            .set(AI_MEMORY.KIND, kind)
-            .set(AI_MEMORY.CONTENT, content)
-            .set(AI_MEMORY.SOURCE, source)
-            .set(AI_MEMORY.SOURCE_SESSION_ID, sourceSessionId)
-            .set(AI_MEMORY.CREATED_AT, now)
-            .set(AI_MEMORY.UPDATED_AT, now)
+            .set(newRecord(userId, kind, content, source, sourceSessionId))
             .returning()
             .fetchOne());
   }
@@ -106,21 +91,33 @@ public class AiMemoryRepository {
     Long issued =
         dsl.resultQuery("SELECT last_value FROM ai_memory_id_seq").fetchOne(0, Long.class);
     if (issued == null || id <= 0 || id > issued) return Optional.empty();
-    OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+    AiMemoryRecord r = newRecord(userId, kind, content, source, sourceSessionId);
+    r.setId(id);
     return dsl.insertInto(AI_MEMORY)
-        .set(AI_MEMORY.ID, id)
-        .set(AI_MEMORY.USER_ID, userId)
-        .set(AI_MEMORY.KIND, kind)
-        .set(AI_MEMORY.CONTENT, content)
-        .set(AI_MEMORY.SOURCE, source)
-        .set(AI_MEMORY.SOURCE_SESSION_ID, sourceSessionId)
-        .set(AI_MEMORY.CREATED_AT, now)
-        .set(AI_MEMORY.UPDATED_AT, now)
+        .set(r)
         .onConflict(AI_MEMORY.ID)
         .doNothing()
         .returning()
         .fetchOptional()
         .map(AiMemoryRepository::toRow);
+  }
+
+  /**
+   * 저장할 값만 채운 레코드 — insert·insertWithId 공용. 채운 필드만 INSERT 에 실리므로(changed 플래그) tenant_id 는 컬럼
+   * DEFAULT(GUC)가 채운다.
+   */
+  private AiMemoryRecord newRecord(
+      long userId, String kind, String content, String source, UUID sourceSessionId) {
+    OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+    AiMemoryRecord r = dsl.newRecord(AI_MEMORY);
+    r.setUserId(userId);
+    r.setKind(kind);
+    r.setContent(content);
+    r.setSource(source);
+    r.setSourceSessionId(sourceSessionId);
+    r.setCreatedAt(now);
+    r.setUpdatedAt(now);
+    return r;
   }
 
   /** 종류·내용을 바꾸고 맨 위로 올린다(updated_at 갱신) — 없거나 남의 것이면 empty. */

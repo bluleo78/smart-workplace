@@ -415,8 +415,8 @@ public class HomeChatService {
 
   /** tool 이벤트 — 표시 가능 도구는 영속 단계에 추가(숨김 도구는 발행만), show_* 는 위젯 블록, result 는 단계 상태 갱신. */
   private void onTool(HomeChatTurn turn, JsonNode toolNode) {
-    boolean acceptedMemory = true;
     String phase = toolNode.path("phase").asText();
+    boolean isError = toolNode.path("isError").asBoolean(false); // result 에만 실린다(없으면 false)
     int seq = toolNode.path("seq").asInt();
     if ("start".equals(phase)) {
       String toolName = toolNode.path("toolName").asText();
@@ -435,10 +435,7 @@ public class HomeChatService {
         Map<String, Object> widget = widgetOf(toolName, toolNode.path("args"));
         if (widget != null) turn.blocks.onWidget(widget);
       }
-      // 계약 밖: start 에는 memory 가 실리지 않는다 — 실려 와도 그대로 내보내지 않는다.
-      if (toolNode.has("memory")) acceptedMemory = false;
     } else {
-      boolean isError = toolNode.path("isError").asBoolean(false);
       for (Map<String, Object> s : turn.steps) {
         if ("tool".equals(s.get("kind"))
             && Integer.valueOf(seq).equals(s.get("seq"))
@@ -447,20 +444,19 @@ public class HomeChatService {
           break;
         }
       }
-      // WP-55: 메모리 도구 성공 결과 → 결과 줄 블록(되돌리기 근거). ai-agent 가 이미 거르지만 API 도 다시 거른다.
-      if (toolNode.has("memory")) {
-        ChatBlockRecorder.Memory memory =
-            !isError && isMemoryTool(toolNode.path("toolName").asText())
-                ? ChatBlockRecorder.Memory.from(toolNode.get("memory"))
-                : null;
-        if (memory != null) turn.blocks.onMemory(memory);
-        else acceptedMemory = false;
-      }
     }
+    // WP-55: 메모리 도구 성공 결과(result) → 결과 줄 블록(되돌리기 근거). ai-agent 가 이미 거르지만 API 도 다시 거른다 — start·오류
+    // 결과·
+    // 다른 도구·모양이 틀린 memory 는 블록을 만들지 않는다.
+    ChatBlockRecorder.Memory memory =
+        !"start".equals(phase) && !isError && isMemoryTool(toolNode.path("toolName").asText())
+            ? ChatBlockRecorder.Memory.from(toolNode.get("memory"))
+            : null;
     @SuppressWarnings("unchecked")
     Map<String, Object> toolPayload = objectMapper.convertValue(toolNode, Map.class);
     // 거른 memory 는 재발행하지 않는다 — 웹 라이브 순번이 영속 순번과 어긋나지 않게(판정 4).
-    if (!acceptedMemory) toolPayload.remove("memory");
+    if (memory != null) turn.blocks.onMemory(memory);
+    else toolPayload.remove("memory");
     turn.emit("home.chat.tool", toolPayload);
   }
 
@@ -479,7 +475,7 @@ public class HomeChatService {
         throw e;
       }
       log.warn("홈 채팅 메모리 조회 실패 — 메모리 없이 진행: user={} {}", userId, e.getMessage());
-      return AiMemoryService.ChatMemories.UNAVAILABLE;
+      return AiMemoryService.ChatMemories.DISABLED;
     }
   }
 
@@ -507,7 +503,7 @@ public class HomeChatService {
    * submit_response 는 내부 응답 배관으로 사용자에게 의미 없는 반복 정보다. 메모리 도구(WP-55)도 결과 줄로 따로 보여 숨긴다.
    */
   private boolean isDisplayableTool(String toolName) {
-    // WP-55: 메모리 도구는 결과 줄로 보이므로 도구 단계(영속 tool_calls)에 넣지 않는다 — 웹 isVisibleStep 과 같은 규칙.
+    // WP-55: 메모리 도구는 결과 줄로 보이므로 도구 단계(영속 tool_calls)에 넣지 않는다 — 공유 isDisplayableTool 과 같은 규칙.
     if (isMemoryTool(toolName)) return false;
     String n = stripMcpPrefix(toolName);
     if (n.startsWith("show_") || n.startsWith("propose_")) return false;

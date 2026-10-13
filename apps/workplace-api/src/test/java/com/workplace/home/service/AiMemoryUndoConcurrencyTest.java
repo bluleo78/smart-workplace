@@ -2,10 +2,10 @@ package com.workplace.home.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.workplace.home.AiMemoryTestFixtures;
 import com.workplace.home.dto.UndoAiMemoryRequest;
 import com.workplace.home.repository.AiMemoryRepository;
 import com.workplace.support.TestFixtures;
-import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
@@ -26,19 +26,12 @@ class AiMemoryUndoConcurrencyTest extends AiMemoryRaceTestSupport {
     users.add(uid);
     long mid =
         inTenant(
-            () -> {
-              UUID sid = sessions.create(uid).id();
-              sessions.appendMessage(uid, sid, "USER", "질문", null, null, null);
-              return sessions.appendMessage(
-                  uid,
-                  sid,
-                  "ASSISTANT",
-                  "잊을게요.",
-                  null,
-                  null,
-                  "[{\"kind\":\"memory\",\"action\":\"forgotten\",\"memoryId\":987654,\"memoryKind\":\"CONTEXT\","
-                      + "\"content\":\"백엔드 팀이다\",\"source\":\"USER\",\"undone\":false}]");
-            });
+            () ->
+                AiMemoryTestFixtures.assistantMessageWithMemory(
+                    sessions,
+                    uid,
+                    AiMemoryTestFixtures.memoryBlock(
+                        "forgotten", 987654L, "CONTEXT", "백엔드 팀이다", null, "USER")));
 
     var results =
         raceTwice(
