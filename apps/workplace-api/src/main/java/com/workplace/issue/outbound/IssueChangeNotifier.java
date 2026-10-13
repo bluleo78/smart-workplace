@@ -43,7 +43,7 @@ public class IssueChangeNotifier {
   public void updated(ProjectRow project, int issueNumber, long issueId, Long actorId) {
     changed(project, issueNumber, issueId, ResourceChangedEvent.OP_UPDATED, actorId);
     // 위에서 이슈 이벤트를 이미 냈으므로 터치 리스너는 알림을 다시 내지 않는다(issueNotified=true).
-    AgentToolWriteEvent.publishIfAgentTool(publisher, issueId, actorId, true);
+    AgentToolWriteEvent.publishIfAgentTool(publisher, issueId, actorId, true, false);
   }
 
   /**

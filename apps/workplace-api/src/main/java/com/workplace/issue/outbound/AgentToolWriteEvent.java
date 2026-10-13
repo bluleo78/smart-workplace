@@ -13,17 +13,9 @@ public record AgentToolWriteEvent(
     long issueId, long actorId, String tool, boolean issueNotified, boolean promoteOnly) {
 
   /**
-   * 현재 요청이 수행 도구 헤더를 실은 PAT·AI 키 요청이고 자동 터치가 억제되지 않았으며 행위자가 있으면 이벤트를 발행한다. 이슈 쓰기 지점(이슈 updated
-   * 알림·코멘트 작성)이 같은 조건을 한 곳에서 쓰도록 모은 헬퍼 — 브라우저(JWT)·Internal·시스템 쓰기는 조건에서 걸러진다.
-   */
-  public static void publishIfAgentTool(
-      ApplicationEventPublisher publisher, long issueId, Long actorId, boolean issueNotified) {
-    publishIfAgentTool(publisher, issueId, actorId, issueNotified, false);
-  }
-
-  /**
-   * {@link #publishIfAgentTool(ApplicationEventPublisher, long, Long, boolean)} 와 같되 promoteOnly 를
-   * 지정한다.
+   * 현재 요청이 수행 도구 헤더를 실은 PAT·AI 키 요청이고 자동 터치가 억제되지 않았으며 행위자가 있으면 이벤트를 발행한다. 이슈 쓰기 지점(이슈
+   * created·updated 알림·코멘트 작성)이 같은 조건을 한 곳에서 쓰도록 모은 헬퍼 — 브라우저(JWT)·Internal·시스템 쓰기는 조건에서 걸러진다.
+   * promoteOnly 는 이벤트 필드와 같은 뜻이다.
    */
   public static void publishIfAgentTool(
       ApplicationEventPublisher publisher,

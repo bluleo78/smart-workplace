@@ -32,6 +32,16 @@ public final class AgentWorkState {
   /** 종료 상태 집합 — 보고로 작업을 끝낼 때 쓰는 값. */
   public static final Set<String> TERMINAL = Set.of(COMPLETED, FAILED, CANCELED, REJECTED);
 
+  /**
+   * 이슈 쓰기(MCP 수행 도구 헤더)로 다시 움직이기 시작했을 때 작업 중으로 되돌아가는 진행 상태. 검토 필요(REVIEW)는 검토 대기 중 PR 링크 코멘트 등이 흔해
+   * 유지하고, 작업 중(WORKING)은 이미 그 상태라 제외한다.
+   */
+  public static final Set<String> RESUMES_TO_WORKING =
+      Set.of(INPUT_REQUIRED, AUTH_REQUIRED, BLOCKED, PAUSED, SUBMITTED);
+
+  /** 사람의 입력·권한을 기다리며 멈춘 상태(A2A interrupted) — 이 상태의 note 는 질문·요청이라 벗어나면 낡는다. */
+  public static final Set<String> INTERRUPT = Set.of(INPUT_REQUIRED, AUTH_REQUIRED);
+
   /** 작업이 없는 이슈의 순위 — 목록 맨 뒤. */
   public static final int NO_WORK_RANK = 9;
 
@@ -46,6 +56,19 @@ public final class AgentWorkState {
   /** 진행 중 상태인지. 종료 상태·null·모르는 값은 false. */
   public static boolean isActive(String state) {
     return state != null && ACTIVE.contains(state);
+  }
+
+  /** 사람의 입력·권한을 기다리는 중단 상태인지. 그 외·null·모르는 값은 false. */
+  public static boolean isInterrupt(String state) {
+    return state != null && INTERRUPT.contains(state);
+  }
+
+  /**
+   * 명시 보고로 보낼 수 있는 상태인지 — 진행 상태에서 SUBMITTED(담당자 추가가 만드는 "시작 전" 이라 보고할 수 없다)를 뺀 것 + 종료 상태. 보고 요청 검증이
+   * 이 목록 하나에서 나온다.
+   */
+  public static boolean isReportable(String state) {
+    return isActive(state) && !SUBMITTED.equals(state) || isTerminal(state);
   }
 
   /** 종료 상태인지. 진행 상태·null·모르는 값은 false. */

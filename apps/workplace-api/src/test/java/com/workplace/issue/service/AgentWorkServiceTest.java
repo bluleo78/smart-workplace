@@ -16,6 +16,8 @@ import com.workplace.issue.exception.AgentWorkIssueClosedException;
 import com.workplace.issue.outbound.AgentToolWriteEvent;
 import com.workplace.issue.outbound.IssueHumanReplyPosted;
 import com.workplace.issue.repository.AgentWorkRepository;
+import com.workplace.issue.repository.AgentWorkRepository.AgentWorkRow;
+import com.workplace.issue.repository.AgentWorkRepository.InsertOutcome;
 import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.project.dto.CreateProjectRequest;
@@ -64,6 +66,11 @@ class AgentWorkServiceTest extends IntegrationTestBase {
     var project =
         projectService.create(humanId, new CreateProjectRequest("W" + suffix, "PW-" + suffix, "x"));
     issueId = issueRepository.insert(project.id(), 1, "i1", null, "MID", null, humanId).id();
+  }
+
+  /** 진행 중 작업을 만들고 행만 돌려준다(충돌이면 기존 행). */
+  private Optional<AgentWorkRow> insert(long issue, long worker, String tool, String state) {
+    return repo.insertOutcome(issue, worker, tool, state).map(InsertOutcome::row);
   }
 
   @Test
@@ -252,7 +259,7 @@ class AgentWorkServiceTest extends IntegrationTestBase {
   @Test
   void 터치_SUBMITTED_는_같은_행을_WORKING_으로() {
     assigneeRepository.add(issueId, agentId, humanId);
-    var submitted = repo.insertIfAbsent(issueId, agentId, null, "SUBMITTED").orElseThrow();
+    var submitted = insert(issueId, agentId, null, "SUBMITTED").orElseThrow();
     service.onAgentToolWrite(new AgentToolWriteEvent(issueId, agentId, "claude-code", true, false));
     var row = repo.findActive(issueId, agentId).orElseThrow();
     assertThat(row.id()).isEqualTo(submitted.id());
@@ -294,7 +301,7 @@ class AgentWorkServiceTest extends IntegrationTestBase {
   /** tool 이 null 인 SUBMITTED 작업도 이슈 응답용 뷰로 문제없이 만들어진다(tool 은 null). */
   @Test
   void viewsByIssueIds_tool_이_null_이어도_뷰를_만듦() {
-    repo.insertIfAbsent(issueId, agentId, null, "SUBMITTED");
+    insert(issueId, agentId, null, "SUBMITTED");
     var list = service.viewsByIssueIds(List.of(issueId)).get(issueId);
     assertThat(list)
         .singleElement()
@@ -309,8 +316,8 @@ class AgentWorkServiceTest extends IntegrationTestBase {
   /** 이슈 완료 처리 — 일하던 작업은 COMPLETED, 착수 전 SUBMITTED 는 CANCELED. */
   @Test
   void endAllOnIssueDone_은_SUBMITTED_만_CANCELED() {
-    repo.insertIfAbsent(issueId, agentId, null, "SUBMITTED");
-    repo.insertIfAbsent(issueId, humanId, "claude-code", "REVIEW");
+    insert(issueId, agentId, null, "SUBMITTED");
+    insert(issueId, humanId, "claude-code", "REVIEW");
     service.endAllOnIssueDone(List.of(issueId));
     var states =
         dsl.select(AGENT_WORK.WORKER_ID, AGENT_WORK.STATE)
@@ -328,7 +335,7 @@ class AgentWorkServiceTest extends IntegrationTestBase {
   @Test
   void 터치가_삽입_경합에서_져도_기존_행을_착수시키고_tool을_채움() {
     assigneeRepository.add(issueId, agentId, humanId);
-    var submitted = repo.insertIfAbsent(issueId, agentId, null, "SUBMITTED").orElseThrow();
+    var submitted = insert(issueId, agentId, null, "SUBMITTED").orElseThrow();
     doReturn(Optional.empty()).doCallRealMethod().when(repo).findActive(issueId, agentId);
     service.onAgentToolWrite(new AgentToolWriteEvent(issueId, agentId, "claude-code", true, false));
     var row = repo.findActive(issueId, agentId).orElseThrow();
@@ -349,8 +356,8 @@ class AgentWorkServiceTest extends IntegrationTestBase {
   @Test
   void 내부로_전환되면_SUBMITTED_만_CANCELED() {
     long otherAgent = TestFixtures.createAgentNoToken(dsl);
-    long submittedId = repo.insertIfAbsent(issueId, agentId, null, "SUBMITTED").orElseThrow().id();
-    repo.insertIfAbsent(issueId, otherAgent, null, "SUBMITTED");
+    long submittedId = insert(issueId, agentId, null, "SUBMITTED").orElseThrow().id();
+    insert(issueId, otherAgent, null, "SUBMITTED");
     service.onAgentRuntimeChanged(new AgentRuntimeChanged(agentId, AgentRuntime.INTERNAL));
     // 취소된 작업의 이슈마다 화면 갱신 알림이 한 번 나간다(열린 레일·AI 작업 목록이 "시작 전" 을 계속 보이지 않게).
     assertThat(issueChangeCount()).isEqualTo(1);
@@ -364,7 +371,7 @@ class AgentWorkServiceTest extends IntegrationTestBase {
     assertThat(eventCount(submittedId)).isEqualTo(2);
 
     // 일하던 작업은 그대로 — 외부로의 전환 신호도 아무것도 하지 않는다.
-    repo.insertIfAbsent(issueId, agentId, "claude-code", "WORKING");
+    insert(issueId, agentId, "claude-code", "WORKING");
     service.onAgentRuntimeChanged(new AgentRuntimeChanged(agentId, AgentRuntime.INTERNAL));
     service.onAgentRuntimeChanged(new AgentRuntimeChanged(otherAgent, AgentRuntime.EXTERNAL));
     assertThat(repo.findActive(issueId, agentId).orElseThrow().state()).isEqualTo("WORKING");

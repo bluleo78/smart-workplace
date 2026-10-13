@@ -19,7 +19,6 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
-import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
@@ -265,24 +264,17 @@ public class UserRepository {
   }
 
   /**
-   * 에이전트 실행 방식(INTERNAL|EXTERNAL) 변경 (WP-371). 호출 전 AGENT 여부·보호 대상(비서) 검증은 서비스가 한다. 변경된 행이 없으면 (대상
-   * 없음) false.
+   * 에이전트 실행 방식(INTERNAL|EXTERNAL) 변경 (WP-371). 호출 전 AGENT 여부·보호 대상(비서) 검증은 서비스가 한다. 값이 실제로 바뀐 경우에만
+   * true — 대상이 없거나 이미 같은 값이면 false(별도 선조회 없이 한 문장으로 변경 여부를 판단한다).
    */
   public boolean updateAgentRuntime(Long id, String runtime) {
     return dsl.update(USER)
             .set(USER.AGENT_RUNTIME, runtime)
             .set(USER.UPDATED_AT, LocalDateTime.now())
             .where(USER.ID.eq(id))
+            .and(USER.AGENT_RUNTIME.isDistinctFrom(runtime))
             .execute()
         > 0;
-  }
-
-  /** 현재 실행 방식(INTERNAL|EXTERNAL) — 대상이 없으면 null. 변경 여부 판단용. */
-  public String findAgentRuntime(Long id) {
-    return dsl.select(USER.AGENT_RUNTIME)
-        .from(USER)
-        .where(USER.ID.eq(id))
-        .fetchOne(USER.AGENT_RUNTIME);
   }
 
   /** 해당 유저가 EXTERNAL 실행 방식의 AGENT 인지 (공통 비서 지정 가드용). 대상이 없으면 false. */
@@ -329,23 +321,6 @@ public class UserRepository {
    */
   public void lockForUpdate(Long id) {
     dsl.select(USER.ID).from(USER).where(USER.ID.eq(id)).forUpdate().fetch();
-  }
-
-  /**
-   * 주어진 id 들 중 지정한 실행 방식({@link AgentRuntime#INTERNAL}·{@link AgentRuntime#EXTERNAL})의
-   * 에이전트(kind=AGENT) id 집합 (WP-371·WP-377). INTERNAL 은 서버(ai-agent)가 대신 실행하는 에이전트(순서 판단은 호출자 {@code
-   * ServerAgentResolver} 몫), EXTERNAL 은 외부 에이전트가 직접 일하는 에이전트(담당자로 지정될 때 "시작 전" AI 작업을 만들 대상). 한 번의
-   * 쿼리로 가려 집합으로 돌려준다.
-   */
-  public Set<Long> findAgentIdsByRuntime(Collection<Long> ids, String runtime) {
-    if (ids == null || ids.isEmpty()) return Set.of();
-    return Set.copyOf(
-        dsl.select(USER.ID)
-            .from(USER)
-            .where(USER.ID.in(ids))
-            .and(USER.KIND.eq(UserKind.AGENT))
-            .and(USER.AGENT_RUNTIME.eq(runtime))
-            .fetch(USER.ID));
   }
 
   /** 담당자 지정 처리용 사용자 정보를 한 번에 조회(활성 여부·AI 실행 방식 포함). 없는 id 는 빠진다. */

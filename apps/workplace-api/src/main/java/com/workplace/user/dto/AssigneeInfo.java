@@ -16,6 +16,11 @@ public record AssigneeInfo(
     return UserKind.isAgent(kind) && AgentRuntime.EXTERNAL.equals(agentRuntime);
   }
 
+  /** 서버(ai-agent)가 대신 실행하는 내부 실행 AI 구성원인지 — 서버 실행 에이전트 선택 대상. */
+  public boolean isInternalAgent() {
+    return UserKind.isAgent(kind) && AgentRuntime.INTERNAL.equals(agentRuntime);
+  }
+
   /** 응답·이력용 사용자 요약. */
   public UserSummary toSummary() {
     return new UserSummary(id, username, name, kind);

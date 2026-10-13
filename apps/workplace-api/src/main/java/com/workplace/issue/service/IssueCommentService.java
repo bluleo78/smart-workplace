@@ -160,7 +160,7 @@ public class IssueCommentService {
             req.body(),
             Instant.now()));
     // MCP(수행 도구 헤더) 경유 코멘트면 AI 작업 자동 시작·터치(WP-377). 코멘트 작성은 이슈 updated 알림을 거치지 않아 여기서 직접 낸다.
-    AgentToolWriteEvent.publishIfAgentTool(publisher, issueId, callerId, false);
+    AgentToolWriteEvent.publishIfAgentTool(publisher, issueId, callerId, false, false);
     // 사람이 댓글로 답하면 답변 필요로 멈춘 AI 구성원 작업을 작업 중으로 되돌린다(챗 글과 같은 신호, WP-377 §4.3).
     if (actor != null && UserKind.HUMAN.equals(actor.kind())) {
       publisher.publishEvent(new IssueHumanReplyPosted(issueId));

@@ -389,9 +389,8 @@ public class UserService {
     if (AgentRuntime.EXTERNAL.equals(runtime)) {
       agentRuntimePolicy.requireMayBeExternal(userId);
     }
-    // 에이전트 행 락을 쥔 채 읽은 이전 값 — 같은 값으로의 호출(재시도·중복 클릭)이면 변경 이벤트를 내지 않는다(리스너의 작업 기록 정리·생성이 헛돌지 않게).
-    boolean changed = !runtime.equals(userRepository.findAgentRuntime(userId));
-    userRepository.updateAgentRuntime(userId, runtime);
+    // 값이 실제로 바뀐 경우에만 true — 같은 값으로의 호출(재시도·중복 클릭)이면 변경 이벤트를 내지 않는다(리스너의 작업 기록 정리·생성이 헛돌지 않게).
+    boolean changed = userRepository.updateAgentRuntime(userId, runtime);
     // 같은 트랜잭션 안에서 동기 처리되는 리스너가 이 에이전트의 AI 작업 기록을 실행 방식에 맞게 정리한다(EXTERNAL→INTERNAL 이면 "시작 전" 취소, 반대면
     // 담당 이슈마다 생성).
     if (changed) publisher.publishEvent(new AgentRuntimeChanged(userId, runtime));

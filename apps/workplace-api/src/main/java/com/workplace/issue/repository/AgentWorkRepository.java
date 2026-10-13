@@ -24,8 +24,10 @@ import lombok.RequiredArgsConstructor;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.jooq.Field;
+import org.jooq.InsertOnDuplicateStep;
 import org.jooq.Name;
 import org.jooq.Record;
+import org.jooq.Result;
 import org.jooq.ResultQuery;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
@@ -95,12 +97,6 @@ public class AgentWorkRepository {
   public record InsertOutcome(AgentWorkRow row, boolean inserted) {}
 
   /** 상태만 정해 진행 중 작업을 만든다 — note·진행률·단계 없이 시작하는 경우(터치 자동 시작·시드 등). */
-  public Optional<AgentWorkRow> insertIfAbsent(
-      long issueId, long workerId, String tool, String state) {
-    return insertIfAbsent(issueId, workerId, tool, state, null, null, null, null);
-  }
-
-  /** {@link #insertIfAbsent(long, long, String, String)} 와 같되 실제로 넣었는지도 함께 돌려준다. */
   public Optional<InsertOutcome> insertOutcome(
       long issueId, long workerId, String tool, String state) {
     return insertOutcome(issueId, workerId, tool, state, null, null, null, null);
@@ -109,22 +105,9 @@ public class AgentWorkRepository {
   /**
    * 진행 중 작업이 없으면 만든다. 부분 유니크(agent_work_active_uq)와 충돌하면 아무것도 넣지 않고 기존 진행 중 행을 돌려준다 — 동시 첫 보고가 멱등이
    * 되도록(예외 대신 재조회). 첫 보고의 상태·note·진행률·단계를 처음부터 함께 넣어 이력이 보고당 한 번만 남게 한다. 새로 들어간 경우에만 이벤트를 남기고, 충돌이면
-   * RETURNING 이 비어 이벤트도 없다. tool 은 SUBMITTED 처럼 아직 모르면 null.
+   * RETURNING 이 비어 이벤트도 없다. tool 은 SUBMITTED 처럼 아직 모르면 null. 실제로 넣었으면 INSERT 의 RETURNING 스냅샷을 그대로
+   * 돌려주고(재조회 없음), 충돌일 때만 기존 진행 중 행을 조회한다 — 그 사이 종료돼 행이 없으면 빈 결과.
    */
-  public Optional<AgentWorkRow> insertIfAbsent(
-      long issueId,
-      long workerId,
-      String tool,
-      String state,
-      String note,
-      Integer progress,
-      Integer stepsDone,
-      Integer stepsTotal) {
-    return insertOutcome(issueId, workerId, tool, state, note, progress, stepsDone, stepsTotal)
-        .map(InsertOutcome::row);
-  }
-
-  /** {@link #insertIfAbsent} 의 본체 — 진행 중 행과 실제 삽입 여부를 돌려준다(진행 중 행이 없으면 빈 결과). */
   public Optional<InsertOutcome> insertOutcome(
       long issueId,
       long workerId,
@@ -134,8 +117,8 @@ public class AgentWorkRepository {
       Integer progress,
       Integer stepsDone,
       Integer stepsTotal) {
-    int inserted =
-        recordEvents(
+    var inserted =
+        recordEventRows(
             dsl.insertInto(AGENT_WORK)
                 .set(AGENT_WORK.ISSUE_ID, issueId)
                 .set(AGENT_WORK.WORKER_ID, workerId)
@@ -146,10 +129,12 @@ public class AgentWorkRepository {
                 .set(AGENT_WORK.STEPS_DONE, stepsDone == null ? null : stepsDone.shortValue())
                 .set(AGENT_WORK.STEPS_TOTAL, stepsTotal == null ? null : stepsTotal.shortValue())
                 .onConflictDoNothing()
-                .returning(EVENT_SOURCE_FIELDS),
-            false);
-    // RETURNING 이 한 행이라도 돌려줬으면 이번 문장이 넣은 것 — 충돌이면 0행.
-    return findActive(issueId, workerId).map(row -> new InsertOutcome(row, inserted > 0));
+                .returning(AGENT_WORK.fields()),
+            false,
+            List.of(AGENT_WORK.fields()));
+    // RETURNING 이 한 행을 돌려줬으면 이번 문장이 넣은 것 — 충돌이면 0행이라 기존 행을 읽는다.
+    if (!inserted.isEmpty()) return Optional.of(new InsertOutcome(toRow(inserted.get(0)), true));
+    return findActive(issueId, workerId).map(row -> new InsertOutcome(row, false));
   }
 
   /**
@@ -159,22 +144,48 @@ public class AgentWorkRepository {
   public List<Long> insertSubmittedForAssignedOpenIssues(long workerId) {
     var openAssigned =
         dsl.select(
-                ISSUE_ASSIGNEE.ISSUE_ID, DSL.inline(workerId), DSL.inline(AgentWorkState.SUBMITTED))
+                ISSUE_ASSIGNEE.ISSUE_ID,
+                DSL.inline(workerId),
+                DSL.inline(AgentWorkState.SUBMITTED),
+                ISSUE.TENANT_ID)
             .from(ISSUE_ASSIGNEE)
             .join(ISSUE)
             .on(ISSUE.ID.eq(ISSUE_ASSIGNEE.ISSUE_ID))
             .where(ISSUE_ASSIGNEE.USER_ID.eq(workerId))
             .and(ISSUE.DELETED_AT.isNull())
             .and(ISSUE.STATUS.notIn(IssueStatuses.CLOSED));
+    // 테넌트는 GUC 기본값에 기대지 않고 이슈의 tenant_id 를 그대로 옮긴다.
+    return insertSubmittedReturningIssueIds(
+        dsl.insertInto(
+                AGENT_WORK,
+                AGENT_WORK.ISSUE_ID,
+                AGENT_WORK.WORKER_ID,
+                AGENT_WORK.STATE,
+                AGENT_WORK.TENANT_ID)
+            .select(openAssigned));
+  }
+
+  /**
+   * 한 이슈에 담당자로 들어온 AI 구성원들의 "시작 전"(SUBMITTED) 작업을 한 문장으로 만든다. 이미 진행 중 작업이 있는 (이슈, 작업자)는 충돌로 건너뛰어
+   * 멱등이고 이벤트도 남지 않는다. tool 은 아직 모르므로 null. 테넌트는 단일 행 삽입({@link #insertOutcome})과 같이 컬럼 기본값(GUC)을
+   * 따른다.
+   */
+  public void insertSubmitted(long issueId, Collection<Long> workerIds) {
+    if (workerIds == null || workerIds.isEmpty()) return;
+    var insert =
+        dsl.insertInto(AGENT_WORK, AGENT_WORK.ISSUE_ID, AGENT_WORK.WORKER_ID, AGENT_WORK.STATE);
+    for (Long workerId : workerIds) {
+      insert = insert.values(issueId, workerId, AgentWorkState.SUBMITTED);
+    }
+    insertSubmittedReturningIssueIds(insert);
+  }
+
+  /** 충돌은 건너뛰고(ON CONFLICT DO NOTHING) 새로 만든 SUBMITTED 행마다 이벤트를 남기며, 새 행의 이슈 id 를 돌려준다. */
+  private List<Long> insertSubmittedReturningIssueIds(InsertOnDuplicateStep<?> insert) {
     List<Field<?>> returning = new ArrayList<>(EVENT_SOURCE_FIELDS);
     returning.add(AGENT_WORK.ISSUE_ID);
     return recordEvents(
-        dsl.insertInto(AGENT_WORK, AGENT_WORK.ISSUE_ID, AGENT_WORK.WORKER_ID, AGENT_WORK.STATE)
-            .select(openAssigned)
-            .onConflictDoNothing()
-            .returning(returning),
-        false,
-        AGENT_WORK.ISSUE_ID);
+        insert.onConflictDoNothing().returning(returning), false, AGENT_WORK.ISSUE_ID);
   }
 
   /**
@@ -370,6 +381,15 @@ public class AgentWorkRepository {
    * 있어야 한다). 이벤트로 옮기는 컬럼은 project 와 무관하게 {@link #EVENT_SOURCE_FIELDS} 뿐이다.
    */
   private <T> List<T> recordEvents(ResultQuery<?> changed, boolean onlyChanged, Field<T> project) {
+    return recordEventRows(changed, onlyChanged, List.of(project)).getValues(0, project.getType());
+  }
+
+  /**
+   * {@link #recordEvents(ResultQuery, boolean, Field)} 의 본체 — 바뀐 행마다 project 컬럼들을 레코드로
+   * 돌려준다(RETURNING 에 그 컬럼들이 들어 있어야 한다). 값 하나가 아니라 행 전체가 필요한 호출자(삽입 직후 행 반환)가 쓴다.
+   */
+  private Result<Record> recordEventRows(
+      ResultQuery<?> changed, boolean onlyChanged, List<? extends Field<?>> project) {
     Name u = DSL.name("u");
     Name e = DSL.name("e");
     var snapshot = DSL.table(u);
@@ -385,10 +405,11 @@ public class AgentWorkRepository {
                     ? source.where(DSL.field(DSL.name("u", CHANGED_COLUMN), Boolean.class))
                     : source)
             .returning(AGENT_WORK_EVENT.ID);
-    return dsl.with(u.as(changed), e.as(events))
-        .select(DSL.field(DSL.name("u", project.getName()), project.getType()))
-        .from(snapshot)
-        .fetch(0, project.getType());
+    List<Field<?>> projected = new ArrayList<>();
+    for (Field<?> f : project) {
+      projected.add(DSL.field(DSL.name("u", f.getName()), f.getDataType()));
+    }
+    return dsl.with(u.as(changed), e.as(events)).select(projected).from(snapshot).fetch();
   }
 
   /**

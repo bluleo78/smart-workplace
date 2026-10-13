@@ -23,6 +23,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.event.EventListener;
@@ -90,7 +91,7 @@ public class AgentWorkService {
     if (!outcome.inserted()) {
       // 답변 필요·인증 필요에서 다른 상태로 바뀌는데 새 note 가 없으면 질문·요청 note 를 지운다 — 남기면 "작업 중 · 질문" 으로 아직 묻는 것처럼 보인다.
       boolean leavingInterrupt =
-          isInterrupt(row.state())
+          AgentWorkState.isInterrupt(row.state())
               && patch.state() != null
               && !row.state().equals(patch.state())
               && patch.note() == null;
@@ -114,18 +115,17 @@ public class AgentWorkService {
   /**
    * 담당자로 새로 들어간 구성원 중 외부 실행 AI 에이전트에게 "시작 전"(SUBMITTED) 작업을 미리 만든다(A2A submitted). 이슈가 이미
    * 종료(DONE·CANCELED) 상태면 만들지 않는다. 내부 AI·사람은 대상이 아니다. 호출자가 이미 읽어 둔 사용자 정보로 실행 방식을 메모리에서 가려 추가 사용자
-   * 쿼리가 없다. 이미 진행 중 작업이 있으면 insertIfAbsent 가 아무것도 넣지 않아 멱등이다(이벤트도 없다). tool 은 아직 모르므로 null — 첫
-   * 보고·터치가 채운다. 알림은 호출자(이슈 생성·담당자 변경 알림)가 이미 낸다.
+   * 쿼리가 없다. 이미 진행 중 작업이 있으면 삽입이 충돌로 아무것도 넣지 않아 멱등이다(이벤트도 없다). tool 은 아직 모르므로 null — 첫 보고·터치가 채운다.
+   * 알림은 호출자(이슈 생성·담당자 변경 알림)가 이미 낸다.
    */
   public void submitForAssignees(
       long issueId, String issueStatus, Collection<AssigneeInfo> addedUsers) {
     if (addedUsers == null || addedUsers.isEmpty()) return;
     if (IssueStatuses.CLOSED.contains(issueStatus)) return;
-    for (var user : addedUsers) {
-      if (user.isExternalAgent()) {
-        repository.insertIfAbsent(issueId, user.id(), null, AgentWorkState.SUBMITTED);
-      }
-    }
+    // 대상 전원을 한 문장으로 만든다(담당자 여럿이어도 쿼리 1회).
+    repository.insertSubmitted(
+        issueId,
+        addedUsers.stream().filter(AssigneeInfo::isExternalAgent).map(AssigneeInfo::id).toList());
   }
 
   /**
@@ -186,13 +186,7 @@ public class AgentWorkService {
       return;
     }
     if (changedIssueIds.isEmpty()) return;
-    Map<Long, ProjectRow> projects = new HashMap<>();
-    for (var issue : issueRepository.findByIds(changedIssueIds)) {
-      var project =
-          projects.computeIfAbsent(
-              issue.projectId(), id -> projectRepository.findById(id).orElse(null));
-      if (project != null) notifier.updatedWithoutTouch(project, issue.number(), issue.id(), null);
-    }
+    notifyChanged(issueRepository.findByIds(changedIssueIds), null);
   }
 
   /** 사람이 챗 글·댓글로 응답하면 답변 필요(INPUT_REQUIRED)로 멈춘 AI 구성원 작업을 작업 중으로 되돌리고, 바뀐 게 있으면 알린다. */
@@ -225,14 +219,13 @@ public class AgentWorkService {
     }
     if (existing.isPresent() && !valuesWritten) {
       String state = existing.get().state();
-      // 답변 필요·인증 필요·막힘·일시 중지·시작 전(SUBMITTED)에서 다시 쓰기 시작했으면 움직인 것으로 보고 작업 중으로 되돌린다. 검토 필요는 검토 대기 중
-      // PR 링크 코멘트 등이 흔해 유지하고, 작업 중은 그대로 — 둘 다 tool 갱신과 updated_at 터치(무소식 해소)만 한다.
+      // 답변 필요·인증 필요·막힘·일시 중지·시작 전(SUBMITTED)에서 다시 쓰기 시작했으면 움직인 것으로 보고 작업 중으로 되돌린다. 검토 필요·작업 중은 그대로
+      // —
+      // tool 갱신과 updated_at 터치(무소식 해소)만 한다.
       String next =
-          AgentWorkState.REVIEW.equals(state) || AgentWorkState.WORKING.equals(state)
-              ? null
-              : AgentWorkState.WORKING;
+          AgentWorkState.RESUMES_TO_WORKING.contains(state) ? AgentWorkState.WORKING : null;
       // 답변 필요·인증 필요에서 복귀하면 질문·요청 note 는 낡았으므로 지운다(막힘·일시 중지의 사유 note 는 유지).
-      boolean clearNote = isInterrupt(state);
+      boolean clearNote = AgentWorkState.isInterrupt(state);
       repository.update(
           existing.get().id(),
           new AgentWorkPatch(e.tool(), next, null, clearNote, null, null, null));
@@ -241,22 +234,28 @@ public class AgentWorkService {
     if (!e.issueNotified()) notifyChanged(issue, e.actorId());
   }
 
-  /** 사람의 입력·권한을 기다리며 멈춘 상태(A2A interrupted)인지 — 이 상태의 note 는 질문·요청이라 벗어나면 낡는다. */
-  private static boolean isInterrupt(String state) {
-    return AgentWorkState.INPUT_REQUIRED.equals(state)
-        || AgentWorkState.AUTH_REQUIRED.equals(state);
-  }
-
   /** 이슈 행을 찾아 변경 알림을 낸다. 이슈가 이미 없으면 조용히 건너뛴다. */
   private void notifyChanged(long issueId, Long actorId) {
     issueRepository.findById(issueId).ifPresent(issue -> notifyChanged(issue, actorId));
   }
 
-  /** 이미 읽은 이슈 행으로 프로젝트만 찾아 변경 알림을 낸다. 터치 알림이므로 AI 작업 터치는 재발행하지 않는다(재귀 방지). */
+  /** 이미 읽은 이슈 행 하나의 변경 알림. */
   private void notifyChanged(IssueRow issue, Long actorId) {
-    projectRepository
-        .findById(issue.projectId())
-        .ifPresent(
-            project -> notifier.updatedWithoutTouch(project, issue.number(), issue.id(), actorId));
+    notifyChanged(List.of(issue), actorId);
+  }
+
+  /**
+   * 이미 읽은 이슈 행들로 프로젝트만 찾아(프로젝트별 한 번만 조회) 변경 알림을 낸다. 프로젝트가 이미 없으면 그 이슈는 건너뛴다. 터치 알림이므로 AI 작업 터치는
+   * 재발행하지 않는다(재귀 방지).
+   */
+  private void notifyChanged(Collection<IssueRow> issues, Long actorId) {
+    Map<Long, Optional<ProjectRow>> projects = new HashMap<>();
+    for (var issue : issues) {
+      projects
+          .computeIfAbsent(issue.projectId(), projectRepository::findById)
+          .ifPresent(
+              project ->
+                  notifier.updatedWithoutTouch(project, issue.number(), issue.id(), actorId));
+    }
   }
 }

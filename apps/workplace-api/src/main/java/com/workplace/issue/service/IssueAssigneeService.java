@@ -11,6 +11,7 @@ import com.workplace.issue.repository.IssueRepository;
 import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.service.ProjectAccessGuard;
 import com.workplace.user.dto.AssigneeInfo;
+import com.workplace.user.dto.UserResponse;
 import com.workplace.user.repository.UserRepository;
 import com.workplace.watcher.service.WatcherAutoEnroller;
 import java.time.Instant;
@@ -106,7 +107,7 @@ public class IssueAssigneeService {
     if (!toRemove.isEmpty()) {
       removedSummaries =
           userRepository.findByIds(new ArrayList<>(toRemove)).stream()
-              .map(u -> new UserSummary(u.id(), u.username(), u.name(), u.kind()))
+              .map(UserResponse::toSummary)
               .toList();
     }
 
@@ -134,11 +135,7 @@ public class IssueAssigneeService {
 
     // 6) 변경이 있을 때만 도메인 이벤트 발행 (AFTER_COMMIT 에서 ai-agent 발사 후보)
     if (!toAdd.isEmpty() || !toRemove.isEmpty()) {
-      var actor =
-          userRepository
-              .findById(callerId)
-              .map(u -> new UserSummary(u.id(), u.username(), u.name(), u.kind()))
-              .orElse(null);
+      var actor = userRepository.findById(callerId).map(UserResponse::toSummary).orElse(null);
       var currentAssignees = repo.findByIssue(issue.id());
       String issueKey = project.key() + "-" + issue.number();
       publisher.publishEvent(

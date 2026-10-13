@@ -7,11 +7,14 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.issue.dto.AgentWorkPatch;
 import com.workplace.issue.dto.AgentWorkState;
+import com.workplace.issue.repository.AgentWorkRepository.AgentWorkRow;
+import com.workplace.issue.repository.AgentWorkRepository.InsertOutcome;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
@@ -50,29 +53,44 @@ class AgentWorkRepositoryTest extends IntegrationTestBase {
     otherIssueId = issueRepository.insert(project.id(), 2, "i2", null, "MID", null, humanId).id();
   }
 
+  /** 진행 중 작업을 만들고 행만 돌려준다(충돌이면 기존 행). 대부분의 테스트는 삽입 여부를 보지 않는다. */
+  private Optional<AgentWorkRow> insert(long issue, long worker, String tool, String state) {
+    return repo.insertOutcome(issue, worker, tool, state).map(InsertOutcome::row);
+  }
+
+  private Optional<AgentWorkRow> insert(
+      long issue,
+      long worker,
+      String tool,
+      String state,
+      String note,
+      Integer progress,
+      Integer stepsDone,
+      Integer stepsTotal) {
+    return repo.insertOutcome(issue, worker, tool, state, note, progress, stepsDone, stepsTotal)
+        .map(InsertOutcome::row);
+  }
+
   @Test
-  void insertIfAbsent_같은_이슈_작업자는_진행중_한건만() {
-    var a =
-        repo.insertIfAbsent(issueId, humanId, "claude-code", AgentWorkState.WORKING).orElseThrow();
-    var b =
-        repo.insertIfAbsent(issueId, humanId, "cursor", AgentWorkState.INPUT_REQUIRED)
-            .orElseThrow();
+  void insertOutcome_같은_이슈_작업자는_진행중_한건만() {
+    var a = insert(issueId, humanId, "claude-code", AgentWorkState.WORKING).orElseThrow();
+    var b = insert(issueId, humanId, "cursor", AgentWorkState.INPUT_REQUIRED).orElseThrow();
     assertThat(b.id()).isEqualTo(a.id());
     assertThat(b.tool()).isEqualTo("claude-code"); // 경합 시 기존 행 그대로
   }
 
   @Test
   void endActive_후_다시_만들면_새_행() {
-    var a = repo.insertIfAbsent(issueId, humanId, "claude-code", "WORKING").orElseThrow();
+    var a = insert(issueId, humanId, "claude-code", "WORKING").orElseThrow();
     assertThat(repo.endActive(List.of(issueId), AgentWorkState.CANCELED)).isEqualTo(1);
     assertThat(repo.findActive(issueId, humanId)).isEmpty();
-    var b = repo.insertIfAbsent(issueId, humanId, "claude-code", "WORKING").orElseThrow();
+    var b = insert(issueId, humanId, "claude-code", "WORKING").orElseThrow();
     assertThat(b.id()).isNotEqualTo(a.id());
   }
 
   @Test
   void update_null_은_유지_clearNote_는_지움() {
-    var a = repo.insertIfAbsent(issueId, humanId, "claude-code", "WORKING").orElseThrow();
+    var a = insert(issueId, humanId, "claude-code", "WORKING").orElseThrow();
     repo.update(a.id(), new AgentWorkPatch(null, null, "헤더 처리 중", false, 40, null, null));
     repo.update(a.id(), new AgentWorkPatch(null, "REVIEW", null, false, null, 3, 5));
     var r = repo.findActive(issueId, humanId).orElseThrow();
@@ -86,9 +104,9 @@ class AgentWorkRepositoryTest extends IntegrationTestBase {
 
   @Test
   void findActiveByIssueIds_한번에_작업자_포함() {
-    repo.insertIfAbsent(issueId, humanId, "claude-code", "WORKING");
-    repo.insertIfAbsent(issueId, agentId, "claude-code", "INPUT_REQUIRED");
-    repo.insertIfAbsent(otherIssueId, humanId, "cursor", "PAUSED");
+    insert(issueId, humanId, "claude-code", "WORKING");
+    insert(issueId, agentId, "claude-code", "INPUT_REQUIRED");
+    insert(otherIssueId, humanId, "cursor", "PAUSED");
     var m = repo.findActiveByIssueIds(List.of(issueId, otherIssueId));
     assertThat(m.get(issueId)).hasSize(2);
     assertThat(m.get(issueId))
@@ -102,8 +120,8 @@ class AgentWorkRepositoryTest extends IntegrationTestBase {
 
   @Test
   void resumeInputRequiredAgents_는_AI_구성원의_답변필요만_되돌림() {
-    repo.insertIfAbsent(issueId, humanId, "claude-code", "INPUT_REQUIRED");
-    repo.insertIfAbsent(issueId, agentId, "claude-code", "INPUT_REQUIRED");
+    insert(issueId, humanId, "claude-code", "INPUT_REQUIRED");
+    insert(issueId, agentId, "claude-code", "INPUT_REQUIRED");
     assertThat(repo.resumeInputRequiredAgents(issueId)).isEqualTo(1);
     assertThat(repo.findActive(issueId, agentId).orElseThrow().state()).isEqualTo("WORKING");
     assertThat(repo.findActive(issueId, humanId).orElseThrow().state()).isEqualTo("INPUT_REQUIRED");
@@ -111,7 +129,7 @@ class AgentWorkRepositoryTest extends IntegrationTestBase {
 
   @Test
   void 단계_제약_위반은_DB_가_거절() {
-    var a = repo.insertIfAbsent(issueId, humanId, "claude-code", "WORKING").orElseThrow();
+    var a = insert(issueId, humanId, "claude-code", "WORKING").orElseThrow();
     assertThatThrownBy(
             () -> repo.update(a.id(), new AgentWorkPatch(null, null, null, false, null, 6, 5)))
         .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
@@ -122,7 +140,7 @@ class AgentWorkRepositoryTest extends IntegrationTestBase {
   /** SUBMITTED 는 도구를 모른 채(tool NULL) 만들 수 있고, 진행 상태라 ended_at 이 없다. */
   @Test
   void SUBMITTED_는_tool_없이_생성() {
-    var r = repo.insertIfAbsent(issueId, agentId, null, AgentWorkState.SUBMITTED).orElseThrow();
+    var r = insert(issueId, agentId, null, AgentWorkState.SUBMITTED).orElseThrow();
     assertThat(r.tool()).isNull();
     assertThat(r.state()).isEqualTo("SUBMITTED");
   }
@@ -130,7 +148,7 @@ class AgentWorkRepositoryTest extends IntegrationTestBase {
   /** 정합 CHECK — 진행 상태에 ended_at 이 있거나 종료 상태에 ended_at 이 없는 행은 DB 가 거절한다. */
   @Test
   void 상태와_ended_at_불일치는_DB_가_거절() {
-    var a = repo.insertIfAbsent(issueId, humanId, "claude-code", "WORKING").orElseThrow();
+    var a = insert(issueId, humanId, "claude-code", "WORKING").orElseThrow();
     assertThatThrownBy(
             () ->
                 dsl.update(AGENT_WORK)
@@ -142,13 +160,13 @@ class AgentWorkRepositoryTest extends IntegrationTestBase {
 
   @Test
   void 알_수_없는_상태는_DB_가_거절() {
-    assertThatThrownBy(() -> repo.insertIfAbsent(issueId, humanId, "claude-code", "WAITING"))
+    assertThatThrownBy(() -> insert(issueId, humanId, "claude-code", "WAITING"))
         .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
   }
 
   @Test
   void 종료_상태가_아니면_종료_메서드가_거절() {
-    repo.insertIfAbsent(issueId, humanId, "claude-code", "WORKING");
+    insert(issueId, humanId, "claude-code", "WORKING");
     assertThatThrownBy(() -> repo.endActive(List.of(issueId), "WORKING"))
         .isInstanceOf(IllegalArgumentException.class);
   }
@@ -165,18 +183,18 @@ class AgentWorkRepositoryTest extends IntegrationTestBase {
   }
 
   @Test
-  void 이벤트_insertIfAbsent_는_생성_이벤트_충돌이면_없음() {
-    var a = repo.insertIfAbsent(issueId, humanId, "claude-code", "WORKING").orElseThrow();
+  void 이벤트_insertOutcome_는_생성_이벤트_충돌이면_없음() {
+    var a = insert(issueId, humanId, "claude-code", "WORKING").orElseThrow();
     assertThat(eventStates(a.id())).containsExactly("WORKING");
     // 충돌로 아무것도 안 들어가면(기존 진행 중 행 반환) 이벤트도 추가되지 않는다.
-    var b = repo.insertIfAbsent(issueId, humanId, "cursor", "INPUT_REQUIRED").orElseThrow();
+    var b = insert(issueId, humanId, "cursor", "INPUT_REQUIRED").orElseThrow();
     assertThat(b.id()).isEqualTo(a.id());
     assertThat(eventStates(a.id())).containsExactly("WORKING");
   }
 
   @Test
   void 이벤트_update_는_변경_후_스냅샷을_남김() {
-    var a = repo.insertIfAbsent(issueId, humanId, "claude-code", "WORKING").orElseThrow();
+    var a = insert(issueId, humanId, "claude-code", "WORKING").orElseThrow();
     repo.update(a.id(), new AgentWorkPatch(null, "REVIEW", "PR 올림", false, 80, 3, 5));
     var e =
         dsl.selectFrom(AGENT_WORK_EVENT)
@@ -197,7 +215,7 @@ class AgentWorkRepositoryTest extends IntegrationTestBase {
   /** 도구 값 갱신·터치만 하는 update 는 이력을 부풀리지 않는다. */
   @Test
   void 이벤트_터치만_하는_update_는_이벤트_없음() {
-    var a = repo.insertIfAbsent(issueId, humanId, "claude-code", "WORKING").orElseThrow();
+    var a = insert(issueId, humanId, "claude-code", "WORKING").orElseThrow();
     repo.update(a.id(), AgentWorkPatch.empty());
     repo.update(a.id(), AgentWorkPatch.empty().withTool("cursor"));
     assertThat(eventStates(a.id())).containsExactly("WORKING");
@@ -205,8 +223,8 @@ class AgentWorkRepositoryTest extends IntegrationTestBase {
 
   @Test
   void 이벤트_endActive_는_종료_상태로_남김() {
-    var a = repo.insertIfAbsent(issueId, humanId, "claude-code", "WORKING").orElseThrow();
-    var b = repo.insertIfAbsent(issueId, agentId, "claude-code", "INPUT_REQUIRED").orElseThrow();
+    var a = insert(issueId, humanId, "claude-code", "WORKING").orElseThrow();
+    var b = insert(issueId, agentId, "claude-code", "INPUT_REQUIRED").orElseThrow();
     assertThat(repo.endActive(List.of(issueId), AgentWorkState.COMPLETED)).isEqualTo(2);
     assertThat(eventStates(a.id())).containsExactly("WORKING", "COMPLETED");
     assertThat(eventStates(b.id())).containsExactly("INPUT_REQUIRED", "COMPLETED");
@@ -217,8 +235,8 @@ class AgentWorkRepositoryTest extends IntegrationTestBase {
 
   @Test
   void 이벤트_endActiveOnIssueDone_은_한_문장으로_SUBMITTED_는_CANCELED_나머지는_COMPLETED() {
-    var submitted = repo.insertIfAbsent(issueId, agentId, null, "SUBMITTED").orElseThrow();
-    var working = repo.insertIfAbsent(issueId, humanId, "claude-code", "WORKING").orElseThrow();
+    var submitted = insert(issueId, agentId, null, "SUBMITTED").orElseThrow();
+    var working = insert(issueId, humanId, "claude-code", "WORKING").orElseThrow();
     assertThat(repo.endActiveOnIssueDone(List.of(issueId))).isEqualTo(2);
     // 행마다 실제로 들어간 종료 상태가 이벤트에 남는다.
     assertThat(eventStates(submitted.id())).containsExactly("SUBMITTED", "CANCELED");
@@ -234,12 +252,26 @@ class AgentWorkRepositoryTest extends IntegrationTestBase {
     assertThat(first.inserted()).isTrue();
     assertThat(second.inserted()).isFalse();
     assertThat(second.row().id()).isEqualTo(first.row().id());
+    // 삽입 결과 행은 재조회 없이 INSERT 의 RETURNING 스냅샷으로 만든다 — 저장된 행과 같아야 한다.
+    assertThat(first.row()).isEqualTo(repo.findActive(issueId, humanId).orElseThrow());
+  }
+
+  /** 여러 작업자의 시작 전 작업을 한 문장으로 만들고 되풀이해도 행·이벤트가 늘지 않는다. */
+  @Test
+  void insertSubmitted_는_한_문장으로_여럿을_만들고_멱등() {
+    repo.insertSubmitted(issueId, List.of(humanId, agentId));
+    repo.insertSubmitted(issueId, List.of(humanId, agentId));
+    var rows = repo.findActiveByIssueIds(List.of(issueId)).get(issueId);
+    assertThat(rows).hasSize(2);
+    assertThat(rows).allSatisfy(r -> assertThat(r.work().state()).isEqualTo("SUBMITTED"));
+    assertThat(eventStates(rows.get(0).work().id())).containsExactly("SUBMITTED");
+    assertThat(eventStates(rows.get(1).work().id())).containsExactly("SUBMITTED");
   }
 
   @Test
   void 이벤트_endActiveForWorkers_는_지정_작업자만() {
-    var a = repo.insertIfAbsent(issueId, humanId, "claude-code", "WORKING").orElseThrow();
-    var b = repo.insertIfAbsent(issueId, agentId, "claude-code", "WORKING").orElseThrow();
+    var a = insert(issueId, humanId, "claude-code", "WORKING").orElseThrow();
+    var b = insert(issueId, agentId, "claude-code", "WORKING").orElseThrow();
     assertThat(repo.endActiveForWorkers(issueId, List.of(humanId), "REJECTED")).isEqualTo(1);
     assertThat(eventStates(a.id())).containsExactly("WORKING", "REJECTED");
     assertThat(eventStates(b.id())).containsExactly("WORKING");
@@ -247,9 +279,9 @@ class AgentWorkRepositoryTest extends IntegrationTestBase {
 
   @Test
   void 이벤트_endActiveForWorkerInProject_는_프로젝트_이슈의_작업() {
-    var a = repo.insertIfAbsent(issueId, agentId, "claude-code", "WORKING").orElseThrow();
-    var b = repo.insertIfAbsent(otherIssueId, agentId, "claude-code", "REVIEW").orElseThrow();
-    var keep = repo.insertIfAbsent(issueId, humanId, "claude-code", "WORKING").orElseThrow();
+    var a = insert(issueId, agentId, "claude-code", "WORKING").orElseThrow();
+    var b = insert(otherIssueId, agentId, "claude-code", "REVIEW").orElseThrow();
+    var keep = insert(issueId, humanId, "claude-code", "WORKING").orElseThrow();
     assertThat(repo.endActiveForWorkerInProject(projectId, agentId, "CANCELED")).isEqualTo(2);
     assertThat(eventStates(a.id())).containsExactly("WORKING", "CANCELED");
     assertThat(eventStates(b.id())).containsExactly("REVIEW", "CANCELED");
@@ -258,8 +290,8 @@ class AgentWorkRepositoryTest extends IntegrationTestBase {
 
   @Test
   void 이벤트_resumeInputRequiredAgents_는_WORKING_이벤트를_남김() {
-    var a = repo.insertIfAbsent(issueId, agentId, "claude-code", "INPUT_REQUIRED").orElseThrow();
-    var auth = repo.insertIfAbsent(otherIssueId, agentId, "claude-code", "AUTH_REQUIRED");
+    var a = insert(issueId, agentId, "claude-code", "INPUT_REQUIRED").orElseThrow();
+    var auth = insert(otherIssueId, agentId, "claude-code", "AUTH_REQUIRED");
     assertThat(repo.resumeInputRequiredAgents(issueId)).isEqualTo(1);
     assertThat(eventStates(a.id())).containsExactly("INPUT_REQUIRED", "WORKING");
     // AUTH_REQUIRED 는 사람 답으로 재개하지 않는다.
@@ -270,7 +302,7 @@ class AgentWorkRepositoryTest extends IntegrationTestBase {
   /** 종료된 행에는 update 가 아무것도 쓰지 않는다(0행) — 진행 상태 값이 종료 행에 써져 정합 CHECK 가 깨지거나 이력이 늘지 않는다. */
   @Test
   void update_는_종료된_행에_0행_이벤트_없음() {
-    var a = repo.insertIfAbsent(issueId, humanId, "claude-code", "WORKING").orElseThrow();
+    var a = insert(issueId, humanId, "claude-code", "WORKING").orElseThrow();
     repo.endActive(List.of(issueId), AgentWorkState.COMPLETED);
     assertThat(eventStates(a.id())).containsExactly("WORKING", "COMPLETED");
 
@@ -286,10 +318,8 @@ class AgentWorkRepositoryTest extends IntegrationTestBase {
 
   /** 첫 보고 값을 insert 에 함께 담으면 이벤트는 그 값 하나다. */
   @Test
-  void insertIfAbsent_보고_값을_담아_이벤트_하나() {
-    var a =
-        repo.insertIfAbsent(issueId, humanId, "claude-code", "REVIEW", "PR 올림", 90, 4, 5)
-            .orElseThrow();
+  void insertOutcome_보고_값을_담아_이벤트_하나() {
+    var a = insert(issueId, humanId, "claude-code", "REVIEW", "PR 올림", 90, 4, 5).orElseThrow();
     var events =
         dsl.selectFrom(AGENT_WORK_EVENT).where(AGENT_WORK_EVENT.WORK_ID.eq(a.id())).fetch();
     assertThat(events)
@@ -307,9 +337,7 @@ class AgentWorkRepositoryTest extends IntegrationTestBase {
   /** 갱신 전과 값이 같은 update 는 행은 갱신해도(1행) 이벤트를 남기지 않고, 값이 달라지면 하나만 남긴다. */
   @Test
   void update_는_값이_달라졌을_때만_이벤트() {
-    var a =
-        repo.insertIfAbsent(issueId, humanId, "claude-code", "WORKING", "시작", 10, null, null)
-            .orElseThrow();
+    var a = insert(issueId, humanId, "claude-code", "WORKING", "시작", 10, null, null).orElseThrow();
     assertThat(eventStates(a.id())).hasSize(1);
 
     // 같은 상태·note·진행률 재보고 — 행은 갱신(1)되지만 이벤트는 그대로.
