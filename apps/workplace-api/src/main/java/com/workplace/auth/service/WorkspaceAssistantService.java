@@ -8,6 +8,7 @@ import com.workplace.auth.repository.AssistantConfigRepository.ConfigRow;
 import com.workplace.auth.repository.WorkspaceAssistantRepository;
 import com.workplace.user.dto.UserKind;
 import com.workplace.user.dto.UserResponse;
+import com.workplace.user.exception.AgentRuntimeConflictException;
 import com.workplace.user.exception.UserNotFoundException;
 import com.workplace.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -37,6 +38,10 @@ public class WorkspaceAssistantService {
     // HUMAN 은 공용 비서가 될 수 없다 — AGENT 검증 재사용(400).
     if (!UserKind.isAgent(user.kind())) {
       throw new KeyTargetMustBeAgentException();
+    }
+    // WP-371: 외부 실행(EXTERNAL) 에이전트는 서버가 AI Chat 을 실행하지 않으므로 공용 비서로 지정할 수 없다(409).
+    if (userRepository.isExternalAgent(agentUserId)) {
+      throw new AgentRuntimeConflictException("외부 실행 에이전트는 공통 비서로 지정할 수 없습니다. 먼저 실행 방식을 내부로 바꾸세요.");
     }
     workspaceRepo.upsert(agentUserId, adminId);
   }

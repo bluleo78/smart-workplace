@@ -98,4 +98,46 @@ class ChatEventDispatcherTest {
     dispatcher.onChatMessageCreated(event(HUMAN, List.of(AGENT)));
     verify(client, never()).publish(any());
   }
+
+  // ---- WP-371: 외부(EXTERNAL) 에이전트 멘션은 서버 이벤트 대상에서 제외 ----
+
+  private static final UserSummary EXTERNAL_AGENT =
+      new UserSummary(77L, "ext-bot", "External Bot", "AGENT");
+
+  private ChatMessageCreatedEvent eventWithInternal(
+      List<UserSummary> mentions, java.util.Set<Long> internalAgentIds) {
+    return new ChatMessageCreatedEvent(
+        1L,
+        10L,
+        100L,
+        "WP",
+        "WP-1",
+        "t",
+        "TODO",
+        "b",
+        HUMAN,
+        "@x",
+        mentions,
+        List.of(),
+        List.of(),
+        Instant.now(),
+        internalAgentIds);
+  }
+
+  @Test
+  void externalOnlyMention_skipped() {
+    dispatcher.onChatMessageCreated(eventWithInternal(List.of(EXTERNAL_AGENT), java.util.Set.of()));
+    verify(client, never()).publish(any());
+  }
+
+  @Test
+  void mixedMention_publishesWithInternalActingAgentId() {
+    dispatcher.onChatMessageCreated(
+        eventWithInternal(List.of(EXTERNAL_AGENT, AGENT), java.util.Set.of(AGENT.id())));
+    ArgumentCaptor<EventEnvelope> captor = ArgumentCaptor.forClass(EventEnvelope.class);
+    verify(client, times(1)).publish(captor.capture());
+    var payload = captor.getValue().payload();
+    assertThat(payload.get("actingAgentId")).isEqualTo(AGENT.id());
+    assertThat((List<?>) payload.get("mentions")).hasSize(2);
+  }
 }

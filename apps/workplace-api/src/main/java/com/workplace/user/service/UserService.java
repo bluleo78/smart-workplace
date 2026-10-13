@@ -11,6 +11,7 @@ import com.workplace.role.dto.RoleResponse;
 import com.workplace.role.repository.RoleRepository;
 import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.tenant.repository.TenantRepository;
+import com.workplace.user.dto.AgentRuntime;
 import com.workplace.user.dto.AgentUsernames;
 import com.workplace.user.dto.CreateAgentRequest;
 import com.workplace.user.dto.CreateMemberRequest;
@@ -19,6 +20,7 @@ import com.workplace.user.dto.RenameAgentRequest;
 import com.workplace.user.dto.UserDetailResponse;
 import com.workplace.user.dto.UserKind;
 import com.workplace.user.dto.UserResponse;
+import com.workplace.user.exception.AgentRuntimeConflictException;
 import com.workplace.user.exception.PersonalAssistantRenameForbiddenException;
 import com.workplace.user.exception.UserNotFoundException;
 import com.workplace.user.repository.UserRepository;
@@ -350,6 +352,40 @@ public class UserService {
             "newUsername", req.username(),
             "oldName", user.name(),
             "newName", req.name()));
+  }
+
+  /**
+   * WP-371 — AGENT 실행 방식(INTERNAL|EXTERNAL) 변경.
+   *
+   * <p>가드: AGENT 가 아니면 404(사람은 대상이 아님). EXTERNAL 로 바꾸려는데 공통 비서이거나 누군가의 개인 비서이면 409 — 둘 다 AI Chat 을
+   * 서버(ai-agent)가 실행해야 하기 때문. INTERNAL 로의 변경은 항상 허용. 변경 시 감사 로그 AGENT_RUNTIME_CHANGED 를 남긴다.
+   */
+  @Transactional
+  public void setAgentRuntime(Long callerId, Long userId, String runtime) {
+    UserResponse user =
+        userRepository.findById(userId).orElseThrow(() -> UserNotFoundException.ofId(userId));
+    if (!UserKind.isAgent(user.kind())) {
+      throw UserNotFoundException.ofId(userId);
+    }
+    if (AgentRuntime.EXTERNAL.equals(runtime)
+        && (userRepository.isAssistantAgent(userId)
+            || AgentUsernames.isPersonalAssistant(user.username()))) {
+      throw new AgentRuntimeConflictException(
+          "공통 비서 또는 개인 비서로 쓰이는 에이전트는 외부 실행으로 바꿀 수 없습니다. 비서 지정을 먼저 해제하세요.");
+    }
+    userRepository.updateAgentRuntime(userId, runtime);
+    auditLogService.log(
+        callerId,
+        resolveUsername(callerId),
+        "AGENT_RUNTIME_CHANGED",
+        "user",
+        String.valueOf(userId),
+        "AGENT 실행 방식 변경: " + user.username() + " → " + runtime,
+        null,
+        null,
+        "SUCCESS",
+        null,
+        java.util.Map.of("username", user.username(), "runtime", runtime));
   }
 
   @Transactional

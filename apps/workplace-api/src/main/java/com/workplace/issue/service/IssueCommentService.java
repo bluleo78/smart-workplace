@@ -155,7 +155,9 @@ public class IssueCommentService {
             assignees,
             resp.id(),
             req.body(),
-            Instant.now()));
+            Instant.now(),
+            // WP-371: 외부 실행 에이전트를 dispatcher 가 거를 수 있게 발행 시점에 내부 에이전트 id 를 채운다.
+            userRepository.findInternalAgentIdsAmong(assignees)));
 
     return resp;
   }
@@ -163,8 +165,7 @@ public class IssueCommentService {
   /** 코멘트 수정 (본인 또는 프로젝트 OWNER) — delete 와 동일한 권한 모델. */
   public IssueCommentResponse update(
       Long callerId, Long issueId, Long commentId, UpdateCommentRequest req) {
-    var mutable =
-        checkCommentMutable(callerId, issueId, commentId, "본인 코멘트 또는 OWNER 만 수정할 수 있습니다");
+    var mutable = checkCommentMutable(callerId, issueId, commentId, "본인 코멘트 또는 OWNER 만 수정할 수 있습니다");
     var issue = mutable.target().issue();
     var project = mutable.target().project();
     commentRepository.update(commentId, req.body());

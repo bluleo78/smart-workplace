@@ -20,7 +20,7 @@ import org.springframework.transaction.event.TransactionalEventListener;
  * <ul>
  *   <li>props.enabled() == true
  *   <li>actor.kind() != "AGENT" (self-loop 차단)
- *   <li>mentions 에 kind == "AGENT" 가 1명 이상
+ *   <li>mentions 에 서버가 실행하는(kind == "AGENT" 이면서 runtime == INTERNAL) 에이전트가 1명 이상 (WP-371)
  * </ul>
  *
  * 다른 모든 조건은 skip — 일반 사람간 메시지나 mention 안 한 메시지는 ai-agent 로 가지 않는다.
@@ -40,11 +40,26 @@ public class ChatEventDispatcher {
   public void onChatMessageCreated(ChatMessageCreatedEvent e) {
     if (!props.enabled()) return;
     if ("AGENT".equals(e.actor().kind())) return;
-    if (e.mentions().stream().noneMatch(m -> "AGENT".equals(m.kind()))) return;
-    client.publish(new EventEnvelope("chat.message.posted", buildPayload(e)));
+    // WP-371: 서버가 실행할 (INTERNAL) 에이전트 멘션이 하나도 없으면 발사하지 않는다 — 외부 에이전트는 자기 API 키로 직접 일한다.
+    Long acting = actingAgentId(e);
+    if (acting == null) return;
+    client.publish(new EventEnvelope("chat.message.posted", buildPayload(e, acting)));
   }
 
-  private Map<String, Object> buildPayload(ChatMessageCreatedEvent e) {
+  /**
+   * 멘션된 사용자 중 첫 번째 내부 실행 AGENT 의 id (없으면 null). internalAgentIds 가 null 이면 구 이벤트 호환으로 모든 AGENT 멘션을
+   * 내부로 간주한다.
+   */
+  private static Long actingAgentId(ChatMessageCreatedEvent e) {
+    return e.mentions().stream()
+        .filter(m -> "AGENT".equals(m.kind()))
+        .filter(m -> e.internalAgentIds() == null || e.internalAgentIds().contains(m.id()))
+        .map(UserSummary::id)
+        .findFirst()
+        .orElse(null);
+  }
+
+  private Map<String, Object> buildPayload(ChatMessageCreatedEvent e, Long actingAgentId) {
     Map<String, Object> p = new LinkedHashMap<>();
     p.put("projectKey", e.projectKey());
     p.put("issueKey", e.issueKey());
@@ -59,6 +74,7 @@ public class ChatEventDispatcher {
     p.put("body", e.body());
     p.put("mentions", e.mentions().stream().map(this::toMap).toList());
     p.put("occurredAt", e.occurredAt().toString());
+    p.put("actingAgentId", actingAgentId);
     return p;
   }
 

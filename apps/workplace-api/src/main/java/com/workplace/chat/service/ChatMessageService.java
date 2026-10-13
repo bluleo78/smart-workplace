@@ -239,6 +239,8 @@ public class ChatMessageService {
         mentions,
         saved.attachments(),
         saved.driveLinks(),
-        Instant.now());
+        Instant.now(),
+        // WP-371: dispatcher 는 DB 를 읽지 않으므로 외부 실행 에이전트 판별 근거를 발행 시점에 채운다.
+        hydrator.internalAgentIdsAmong(mentions));
   }
 }

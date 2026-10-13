@@ -4,6 +4,7 @@ import com.workplace.global.security.RequirePermission;
 import com.workplace.user.dto.AgentResponse;
 import com.workplace.user.dto.CreateAgentRequest;
 import com.workplace.user.dto.RenameAgentRequest;
+import com.workplace.user.dto.SetAgentRuntimeRequest;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.service.UserService;
 import jakarta.validation.Valid;
@@ -62,6 +63,21 @@ public class AdminAgentController {
   public ResponseEntity<Void> delete(Authentication auth, @PathVariable Long userId) {
     Long callerId = (Long) auth.getPrincipal();
     userService.deleteAgent(callerId, userId);
+    return ResponseEntity.noContent().build();
+  }
+
+  /**
+   * AGENT 실행 방식 변경 (WP-371). INTERNAL=서버 ai-agent 가 실행, EXTERNAL=외부 에이전트가 API 키로 직접 일함. 공통/개인 비서를
+   * EXTERNAL 로 바꾸면 409, 사람·없는 유저면 404.
+   */
+  @PutMapping("/{userId}/runtime")
+  @RequirePermission("user:write")
+  public ResponseEntity<Void> setRuntime(
+      Authentication auth,
+      @PathVariable Long userId,
+      @Valid @RequestBody SetAgentRuntimeRequest req) {
+    Long callerId = (Long) auth.getPrincipal();
+    userService.setAgentRuntime(callerId, userId, req.runtime());
     return ResponseEntity.noContent().build();
   }
 }

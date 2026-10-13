@@ -5,6 +5,7 @@ import com.workplace.drive.dto.DriveLinkResponse;
 import com.workplace.global.dto.UserSummary;
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 
 /** chat 도메인 이벤트. AFTER_COMMIT 단계에서 dispatcher 가 수신해 ai-agent 로 발사한다. */
 public final class ChatDomainEvents {
@@ -32,7 +33,45 @@ public final class ChatDomainEvents {
       // #358: 첨부 및 드라이브 링크를 이벤트에 동봉 — SSE fan-out 시 클라이언트가 추가 조회 없이 렌더링 가능.
       List<ChatMessageAttachmentResponse> attachments,
       List<DriveLinkResponse> driveLinks,
-      Instant occurredAt) {}
+      Instant occurredAt,
+      // WP-371: mentions 중 서버(ai-agent)가 대신 실행하는(kind=AGENT, runtime=INTERNAL) 에이전트 id. dispatcher
+      // 는
+      // DB 를 읽지 않으므로 발행 시점에 채운다. null 이면(구 호출부·테스트) 모든 AGENT 멘션을 내부로 간주.
+      Set<Long> internalAgentIds) {
+    /** 하위 호환 생성자 — internalAgentIds 없음(null). */
+    public ChatMessageCreatedEvent(
+        long threadId,
+        long messageId,
+        long issueId,
+        String projectKey,
+        String issueKey,
+        String issueTitle,
+        String issueStatus,
+        String issueBody,
+        UserSummary actor,
+        String body,
+        List<UserSummary> mentions,
+        List<ChatMessageAttachmentResponse> attachments,
+        List<DriveLinkResponse> driveLinks,
+        Instant occurredAt) {
+      this(
+          threadId,
+          messageId,
+          issueId,
+          projectKey,
+          issueKey,
+          issueTitle,
+          issueStatus,
+          issueBody,
+          actor,
+          body,
+          mentions,
+          attachments,
+          driveLinks,
+          occurredAt,
+          null);
+    }
+  }
 
   /** chat 메시지 수정 직후 (본인 수정). SSE fan-out 용. */
   public record ChatMessageUpdatedEvent(

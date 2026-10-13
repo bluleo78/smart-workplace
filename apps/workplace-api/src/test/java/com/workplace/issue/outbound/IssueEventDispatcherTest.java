@@ -150,4 +150,58 @@ class IssueEventDispatcherTest {
         .extracting(EventEnvelope::type)
         .containsExactly("issue.assigned", "issue.commented", "issue.status_changed");
   }
+
+  // ---- WP-371: 외부(EXTERNAL) 에이전트는 서버 이벤트 대상에서 제외 ----
+
+  private static final UserSummary EXTERNAL_AGENT =
+      new UserSummary(301L, "ext-bot", "External Bot", "AGENT");
+
+  /** EXTERNAL AGENT 만 담당자면 3종 이벤트 모두 ai-agent 로 보내지 않는다. */
+  @Test
+  void EXTERNAL_AGENT_만_담당이면_3종_모두_skip() {
+    dispatcher = build(true);
+    var as = List.of(EXTERNAL_AGENT);
+    var internal = java.util.Set.<Long>of(); // 내부 에이전트 없음
+    var now = Instant.now();
+
+    dispatcher.onIssueAssigned(
+        new IssueAssignedEvent(
+            1L, "WP", "WP-1", "t", HUMAN_ACTOR, as, as, List.of(), now, internal));
+    dispatcher.onIssueCommented(
+        new IssueCommentedEvent(
+            1L, "WP", "WP-1", 1, "t", HUMAN_ACTOR, as, 9L, "hi", now, internal));
+    dispatcher.onIssueStatusChanged(
+        new IssueStatusChangedEvent(
+            1L, "WP", "WP-1", "t", HUMAN_ACTOR, as, "TODO", "DONE", now, internal));
+
+    verify(client, never()).publish(Mockito.any());
+  }
+
+  /** INTERNAL+EXTERNAL 혼합이면 발사하고 actingAgentId 는 첫 INTERNAL AGENT, assignees 는 전원 유지. */
+  @Test
+  void 혼합_담당이면_발사하고_actingAgentId_는_내부_에이전트() {
+    dispatcher = build(true);
+    var as = List.of(EXTERNAL_AGENT, AGENT_ASSIGNEE, HUMAN_ASSIGNEE);
+    var event =
+        new IssueCommentedEvent(
+            1L,
+            "WP",
+            "WP-1",
+            1,
+            "t",
+            HUMAN_ACTOR,
+            as,
+            9L,
+            "hi",
+            Instant.now(),
+            java.util.Set.of(AGENT_ASSIGNEE.id()));
+
+    dispatcher.onIssueCommented(event);
+
+    var captor = ArgumentCaptor.forClass(EventEnvelope.class);
+    verify(client, times(1)).publish(captor.capture());
+    var payload = captor.getValue().payload();
+    assertThat(payload).containsEntry("actingAgentId", AGENT_ASSIGNEE.id());
+    assertThat((List<?>) payload.get("assignees")).hasSize(3);
+  }
 }

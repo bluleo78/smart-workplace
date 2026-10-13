@@ -9,13 +9,19 @@ import static org.jooq.impl.DSL.val;
 import com.workplace.global.util.LikePatternUtils;
 import com.workplace.user.dto.UserResponse;
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
+import org.jooq.Field;
 import org.jooq.Record;
+import org.jooq.Table;
+import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
 @Repository
@@ -150,6 +156,16 @@ public class UserRepository {
                   .startsWith(com.workplace.user.dto.AgentUsernames.PERSONAL_ASSISTANT_PREFIX)
                   .not());
     }
+    // WP-371: 에이전트별 "마지막 키 사용 시각" = 폐기되지 않은 키의 last_used_at 최댓값. 목록 N+1 을 피하려고
+    // user_id 로 집계한 파생 테이블을 한 번 left join 한다(키 없으면 null).
+    Table<?> keyUsage =
+        dsl.select(AGENT_API_KEY.USER_ID, DSL.max(AGENT_API_KEY.LAST_USED_AT).as("last_used"))
+            .from(AGENT_API_KEY)
+            .where(AGENT_API_KEY.REVOKED_AT.isNull())
+            .groupBy(AGENT_API_KEY.USER_ID)
+            .asTable("key_usage");
+    Field<Long> keyUserId = keyUsage.field(AGENT_API_KEY.USER_ID.getName(), Long.class);
+    Field<OffsetDateTime> keyLastUsed = keyUsage.field("last_used", OffsetDateTime.class);
     return dsl.select(
             USER.ID,
             USER.USERNAME,
@@ -157,6 +173,8 @@ public class UserRepository {
             USER.NAME,
             USER.IS_ACTIVE,
             USER.CREATED_AT,
+            USER.AGENT_RUNTIME,
+            keyLastUsed,
             owner.NAME,
             WORKSPACE_ASSISTANT.AGENT_USER_ID)
         .from(USER)
@@ -168,6 +186,8 @@ public class UserRepository {
         // 이 테넌트의 공통 비서로 지정됐는지(RLS 로 현재 테넌트 행만 보임).
         .leftJoin(WORKSPACE_ASSISTANT)
         .on(WORKSPACE_ASSISTANT.AGENT_USER_ID.eq(USER.ID))
+        .leftJoin(keyUsage)
+        .on(keyUserId.eq(USER.ID))
         .where(where)
         .orderBy(USER.NAME.asc(), USER.ID.asc())
         .fetch(
@@ -192,7 +212,9 @@ public class UserRepository {
                   Boolean.TRUE.equals(r.get(USER.IS_ACTIVE)),
                   r.get(USER.CREATED_AT),
                   type,
-                  isPersonal ? ownerName : null);
+                  isPersonal ? ownerName : null,
+                  r.get(USER.AGENT_RUNTIME),
+                  r.get(keyLastUsed) != null ? r.get(keyLastUsed).toInstant() : null);
             });
   }
 
@@ -247,6 +269,66 @@ public class UserRepository {
         .set(USER.UPDATED_AT, LocalDateTime.now())
         .where(USER.ID.eq(id))
         .execute();
+  }
+
+  /**
+   * 에이전트 실행 방식(INTERNAL|EXTERNAL) 변경 (WP-371). 호출 전 AGENT 여부·보호 대상(비서) 검증은 서비스가 한다. 변경된 행이 없으면 (대상
+   * 없음) false.
+   */
+  public boolean updateAgentRuntime(Long id, String runtime) {
+    return dsl.update(USER)
+            .set(USER.AGENT_RUNTIME, runtime)
+            .set(USER.UPDATED_AT, LocalDateTime.now())
+            .where(USER.ID.eq(id))
+            .execute()
+        > 0;
+  }
+
+  /** 해당 유저가 EXTERNAL 실행 방식의 AGENT 인지 (공통 비서 지정 가드용). 대상이 없으면 false. */
+  public boolean isExternalAgent(Long id) {
+    return dsl.fetchExists(
+        dsl.selectOne()
+            .from(USER)
+            .where(USER.ID.eq(id))
+            .and(USER.KIND.eq(com.workplace.user.dto.UserKind.AGENT))
+            .and(USER.AGENT_RUNTIME.eq(com.workplace.user.dto.AgentRuntime.EXTERNAL)));
+  }
+
+  /**
+   * 해당 에이전트가 서버 실행(AI Chat)이 필요한 비서인지 — 어떤 테넌트의 공통 비서이거나 누군가의 개인 비서이면 true (WP-371). 이런 에이전트는
+   * EXTERNAL 로 둘 수 없다. 테넌트 RLS 와 무관하게 전역으로 확인하려고 두 테이블을 id 로 직접 조회한다.
+   */
+  public boolean isAssistantAgent(Long id) {
+    return dsl.fetchExists(
+            dsl.selectOne()
+                .from(WORKSPACE_ASSISTANT)
+                .where(WORKSPACE_ASSISTANT.AGENT_USER_ID.eq(id)))
+        || dsl.fetchExists(
+            dsl.selectOne().from(USER).where(USER.PERSONAL_ASSISTANT_AGENT_ID.eq(id)));
+  }
+
+  /**
+   * UserSummary 목록에서 서버가 실행하는(INTERNAL) 에이전트 id 집합 — 이벤트 발행부용 편의 메서드 (WP-371). AGENT 가 없으면 쿼리 없이 빈
+   * 집합을 돌려준다(이슈·채팅 이벤트의 대부분은 사람끼리라 추가 쿼리 비용을 피한다).
+   */
+  public Set<Long> findInternalAgentIdsAmong(List<com.workplace.global.dto.UserSummary> users) {
+    return findInternalAgentIds(
+        users.stream().filter(u -> "AGENT".equals(u.kind())).map(u -> u.id()).toList());
+  }
+
+  /**
+   * 주어진 id 들 중 "서버(ai-agent)가 대신 실행하는" 에이전트(kind=AGENT, runtime=INTERNAL)의 id 집합 (WP-371). 도메인 이벤트
+   * 발행 시점에 호출되어, AFTER_COMMIT 비동기 dispatcher 가 DB 없이 외부 에이전트를 걸러낼 수 있게 한다.
+   */
+  public Set<Long> findInternalAgentIds(Collection<Long> ids) {
+    if (ids == null || ids.isEmpty()) return Set.of();
+    return new java.util.LinkedHashSet<>(
+        dsl.select(USER.ID)
+            .from(USER)
+            .where(USER.ID.in(ids))
+            .and(USER.KIND.eq(com.workplace.user.dto.UserKind.AGENT))
+            .and(USER.AGENT_RUNTIME.eq(com.workplace.user.dto.AgentRuntime.INTERNAL))
+            .fetch(USER.ID));
   }
 
   /** 표시 이름(name)만 변경한다 — 개인 비서 이름 변경 등. email/username 은 보존. */

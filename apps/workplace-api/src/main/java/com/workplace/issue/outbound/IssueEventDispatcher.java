@@ -10,6 +10,7 @@ import com.workplace.issue.outbound.IssueDomainEvents.IssueStatusChangedEvent;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
@@ -36,7 +37,7 @@ public class IssueEventDispatcher {
   @Async("aiAgentEventExecutor")
   @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
   public void onIssueAssigned(IssueAssignedEvent e) {
-    if (skip(e.actor(), e.assignees())) return;
+    if (skip(e.actor(), e.assignees(), e.internalAgentIds())) return;
     Map<String, Object> p =
         baseFields(
             e.issueId(),
@@ -45,7 +46,8 @@ public class IssueEventDispatcher {
             e.title(),
             e.actor(),
             e.assignees(),
-            e.occurredAt());
+            e.occurredAt(),
+            e.internalAgentIds());
     p.put("added", e.added().stream().map(IssueEventDispatcher::summary).toList());
     p.put("removed", e.removed().stream().map(IssueEventDispatcher::summary).toList());
     dispatch("issue.assigned", p, e.issueKey());
@@ -54,7 +56,7 @@ public class IssueEventDispatcher {
   @Async("aiAgentEventExecutor")
   @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
   public void onIssueCommented(IssueCommentedEvent e) {
-    if (skip(e.actor(), e.assignees())) return;
+    if (skip(e.actor(), e.assignees(), e.internalAgentIds())) return;
     Map<String, Object> p =
         baseFields(
             e.issueId(),
@@ -63,7 +65,8 @@ public class IssueEventDispatcher {
             e.title(),
             e.actor(),
             e.assignees(),
-            e.occurredAt());
+            e.occurredAt(),
+            e.internalAgentIds());
     p.put("commentId", e.commentId());
     p.put("commentBody", e.commentBody());
     dispatch("issue.commented", p, e.issueKey());
@@ -72,7 +75,7 @@ public class IssueEventDispatcher {
   @Async("aiAgentEventExecutor")
   @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
   public void onIssueStatusChanged(IssueStatusChangedEvent e) {
-    if (skip(e.actor(), e.assignees())) return;
+    if (skip(e.actor(), e.assignees(), e.internalAgentIds())) return;
     Map<String, Object> p =
         baseFields(
             e.issueId(),
@@ -81,17 +84,34 @@ public class IssueEventDispatcher {
             e.title(),
             e.actor(),
             e.assignees(),
-            e.occurredAt());
+            e.occurredAt(),
+            e.internalAgentIds());
     p.put("previousStatus", e.previousStatus());
     p.put("newStatus", e.newStatus());
     dispatch("issue.status_changed", p, e.issueKey());
   }
 
-  /** 공통 필터 — true 면 발사 skip. */
-  private boolean skip(UserSummary actor, List<UserSummary> assignees) {
+  /**
+   * 이슈 담당자 중 서버(ai-agent)가 실행할 첫 에이전트 id (WP-371) — assignees 순서상 첫 번째 (kind=AGENT 이면서
+   * internalAgentIds 에 포함된) 사용자. 없으면(담당 에이전트가 없거나 전부 외부 실행) null. internalAgentIds 가 null 이면 구 이벤트
+   * 호환으로 모든 AGENT 를 내부로 본다.
+   */
+  static Long actingAgentId(List<UserSummary> assignees, Set<Long> internalAgentIds) {
+    return assignees.stream()
+        .filter(u -> "AGENT".equals(u.kind()))
+        .filter(u -> internalAgentIds == null || internalAgentIds.contains(u.id()))
+        .map(UserSummary::id)
+        .findFirst()
+        .orElse(null);
+  }
+
+  /**
+   * 공통 필터 — true 면 발사 skip. 내부 실행 AGENT 담당자가 한 명도 없으면(사람만이거나 외부 실행 에이전트뿐) 서버가 할 일이 없으므로 발사하지
+   * 않는다(WP-371).
+   */
+  private boolean skip(UserSummary actor, List<UserSummary> assignees, Set<Long> internalAgentIds) {
     if (!props.enabled()) return true;
-    boolean hasAgent = assignees.stream().anyMatch(u -> "AGENT".equals(u.kind()));
-    if (!hasAgent) return true;
+    if (actingAgentId(assignees, internalAgentIds) == null) return true;
     if (actor != null && "AGENT".equals(actor.kind())) return true; // self-loop 차단
     return false;
   }
@@ -104,7 +124,8 @@ public class IssueEventDispatcher {
       String title,
       UserSummary actor,
       List<UserSummary> assignees,
-      java.time.Instant occurredAt) {
+      java.time.Instant occurredAt,
+      Set<Long> internalAgentIds) {
     Map<String, Object> p = new HashMap<>();
     p.put("projectKey", projectKey);
     p.put("issueKey", issueKey);
@@ -113,6 +134,8 @@ public class IssueEventDispatcher {
     p.put("actor", summary(actor));
     p.put("assignees", assignees.stream().map(IssueEventDispatcher::summary).toList());
     p.put("occurredAt", occurredAt.toString());
+    // WP-371: 서버가 실행할 에이전트(첫 INTERNAL AGENT 담당자). ai-agent 는 이 id 로 실행 주체를 정한다.
+    p.put("actingAgentId", actingAgentId(assignees, internalAgentIds));
     return p;
   }
 
