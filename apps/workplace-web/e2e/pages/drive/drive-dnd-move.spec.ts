@@ -6,7 +6,7 @@ import type { DriveFile, DriveFolder } from '../../../src/types/drive'
 import { createFile, createFolder, createSpace, personalSpace } from '../../factories/drive.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { trackRequests } from '../../fixtures/requests'
-import { dropDnd, stableBox } from '../../fixtures/wait'
+import { dropDnd, stableBox, startKeyboardDrag } from '../../fixtures/wait'
 
 const SPACE_ID = 1
 // 화면: 드라이브 / 문서(7) / 기획(8) — 기획 폴더 안에서 끈다.
@@ -233,9 +233,11 @@ test.describe('드라이브 끌어 옮기기', () => {
     const { moves } = await setup(page)
     const row = page.getByTestId(`drive-row-file-${SPEC}`)
     await expect(row).toHaveAttribute('aria-roledescription', '드래그 가능한 항목')
-    await row.focus()
-    await page.keyboard.press('Space')
-    await expect(page.getByTestId('drive-drag-overlay')).toBeVisible()
+    // 집은 뒤 폴더 행이 놓을 수 있는 대상이 되고 센서가 방향키를 받을 준비가 될 때까지 기다린다.
+    await startKeyboardDrag(row, async () => {
+      await expect(page.getByTestId('drive-drag-overlay')).toBeVisible()
+      await expect(page.getByTestId(`drive-row-folder-${MEETING}`)).toHaveAttribute('data-drop-state', 'allowed')
+    })
     // 처음 ↓ 는 첫 폴더 행(회의록), 한 번 더 ↓ 는 참고 자료.
     await page.keyboard.press('ArrowDown')
     await expect(page.getByTestId(`drive-row-folder-${MEETING}`)).toHaveAttribute('data-drop-state', 'over')
@@ -248,8 +250,10 @@ test.describe('드라이브 끌어 옮기기', () => {
 
   test('키보드로 위 경로로 꺼낼 수 있다', async ({ authenticatedPage: page }) => {
     const { moves } = await setup(page)
-    await page.getByTestId(`drive-row-file-${DESIGN}`).focus()
-    await page.keyboard.press('Space')
+    // 집은 뒤 상위 경로가 놓을 수 있는 대상이 되고 센서가 방향키를 받을 준비가 될 때까지 기다린다.
+    await startKeyboardDrag(page.getByTestId(`drive-row-file-${DESIGN}`), async () => {
+      await expect(page.getByTestId(`drive-crumb-${DOCS}`)).toHaveAttribute('data-drop-state', 'allowed')
+    })
     // 처음 ↑ 는 가장 가까운 상위 경로(문서), 한 번 더 ↑ 는 루트.
     await page.keyboard.press('ArrowUp')
     await expect(page.getByTestId(`drive-crumb-${DOCS}`)).toHaveAttribute('data-drop-state', 'over')
