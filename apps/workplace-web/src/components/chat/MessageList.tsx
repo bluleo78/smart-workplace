@@ -12,6 +12,7 @@ import { DateDivider } from '@/components/chat/DateDivider'
 import { MessageActionSheet } from '@/components/chat/MessageActionSheet'
 import { MessageRow } from '@/components/chat/MessageRow'
 import { buildMessageSheetActions, messagePreview,type MessageSheetHandlers } from '@/components/chat/messageSheetActions'
+import { ReactorsOverlay } from '@/components/chat/ReactorsOverlay'
 import { UnreadDivider } from '@/components/chat/UnreadDivider'
 import type { MentionCandidate } from '@/components/mentions/types'
 import { findChatBundle, teamChatBundle } from '@/components/viewer/viewerItems'
@@ -76,6 +77,26 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
   // 모바일 터치 셸: hover 툴바 대신 길게 누르기 → 작업 시트(목록에 하나).
   const touchShell = useIsTouchShell()
   const sheet = useMessageSheet(ordered)
+  // 반응자 전체 보기(WP-106) — 목록당 하나. 대상은 id 로만 들고 최신 목록에서 찾는다(열린 동안 개수 실시간 반영).
+  // 호버 카드(모두 보기)는 누르는 순간 닫혀 언마운트되므로 상태를 카드가 아니라 목록이 가진다. 닫을 때 대상은 남겨
+  // 닫힘 애니메이션 동안 내용이 비지 않게 한다.
+  const [reactorsTarget, setReactorsTarget] = useState<{ id: number; emoji: string; open: boolean } | null>(null)
+  // 길게 누르기는 작업 시트 게이트(수정 중 제외)를 건너뛰므로, 목록에 있는 메시지인지는 여기서 확인한다.
+  const openReactors = useCallback(
+    (id: number, emoji: string) => {
+      if (ordered.some((m) => m.id === id)) setReactorsTarget({ id, emoji, open: true })
+    },
+    [ordered],
+  )
+  const reactorsMessage = reactorsTarget ? ordered.find((m) => m.id === reactorsTarget.id) : undefined
+  // 반응이 모두 사라지거나 메시지가 목록을 떠나 오버레이가 자동으로 숨겨지면 open 도 같이 내린다 — onOpenChange 가 불리지 않아
+  // 그대로 두면 나중에 같은 메시지에 다시 반응이 달릴 때 사용자 조작 없이 저절로 다시 열린다. 대상은 남겨 닫힘 애니메이션을 유지한다.
+  // 렌더 중 상태 조정(React 권장 패턴) — 효과로 미루면 한 프레임 동안 다시 열린 상태가 그려질 수 있다.
+  if (reactorsTarget?.open && !reactorsMessage?.reactions.length) {
+    setReactorsTarget({ ...reactorsTarget, open: false })
+  }
+  // 내 이름 — 채널 멤버 목록에서 찾고, 없으면 "나".
+  const meName = members.find((mb) => mb.userId === currentUserId)?.name ?? '나'
 
   // 마지막(최신) 메시지가 viewport 진입하면 읽음 처리(mark-read). 중복 억제는 훅 내부 ref 가 담당.
   const markRead = useMarkMessageRead(channelId)
@@ -112,6 +133,7 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
     touchShell,
     (id) => ordered.some((m) => m.id === id && sheetOpenable(m)),
     sheet.show,
+    openReactors,
   )
   const target = sheet.target
 
@@ -164,6 +186,7 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
                 }
                 onDelete={() => startDelete(m)}
                 onToggleReaction={(emoji) => toggle(m, emoji)}
+                onOpenReactors={(emoji) => openReactors(m.id, emoji)}
                 proposalBusy={proposalActions.confirm.isPending || proposalActions.reject.isPending}
                 onConfirmProposal={(proposalId, arg) => proposalActions.confirm.mutate({ proposalId, arg })}
                 onRejectProposal={(proposalId) => proposalActions.reject.mutate(proposalId)}
@@ -180,6 +203,15 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
             preview={target ? messagePreview(target.authorName, target.body, target.mentions) : undefined}
           />
         )}
+        <ReactorsOverlay
+          message={reactorsMessage}
+          initialEmoji={reactorsTarget?.emoji ?? ''}
+          open={!!reactorsTarget?.open}
+          onClose={() => setReactorsTarget((t) => (t ? { ...t, open: false } : t))}
+          touch={touchShell}
+          currentUserId={currentUserId}
+          meName={meName}
+        />
       </div>
     </ChatAttachmentViewerHost>
   )

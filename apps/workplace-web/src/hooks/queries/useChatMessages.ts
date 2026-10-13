@@ -12,9 +12,15 @@ interface UseChatMessagesOptions {
   threadId: number | undefined;
   // 초기 시드. 첫 페이지를 thread 응답의 recentMessages 로 채울 때 사용.
   initialFirstPage?: ChatMessagePage;
+  // 시드를 받아 온 시각 — 미리 받아 둔 오래된 스레드 응답이면 바로 다시 읽게 한다(WP-365).
+  initialDataUpdatedAt?: number;
 }
 
-export function useChatMessages({ threadId, initialFirstPage }: UseChatMessagesOptions) {
+export function useChatMessages({
+  threadId,
+  initialFirstPage,
+  initialDataUpdatedAt,
+}: UseChatMessagesOptions) {
   return useInfiniteQuery<ChatMessagePage>({
     queryKey: threadId ? chatKeys.messages(threadId) : ['chat', 'messages', 'idle'],
     enabled: !!threadId,
@@ -28,5 +34,6 @@ export function useChatMessages({ threadId, initialFirstPage }: UseChatMessagesO
     initialData: initialFirstPage
       ? { pages: [initialFirstPage], pageParams: [undefined] }
       : undefined,
+    initialDataUpdatedAt,
   });
 }

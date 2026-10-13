@@ -1,6 +1,7 @@
 package com.workplace.messaging.repository;
 
 import static com.workplace.jooq.tables.File.FILE;
+import static com.workplace.jooq.tables.Message.MESSAGE;
 import static com.workplace.jooq.tables.MessageAttachment.MESSAGE_ATTACHMENT;
 import static com.workplace.jooq.tables.User.USER;
 
@@ -124,7 +125,7 @@ public class MessageAttachmentRepository {
   }
 
   /**
-   * 다운로드용 저장 파일 정보 조회(채널 멤버십은 서비스에서 검증).
+   * 다운로드용 저장 파일 정보 조회(채널 멤버십은 서비스에서 검증). 삭제된 메시지의 첨부는 찾지 않는다 — 소프트 삭제라 첨부 행이 남아 있다(WP-366).
    *
    * @param fileId 파일 ID
    * @param messageId 해당 파일이 첨부된 메시지 ID (보안: 잘못된 조합 차단)
@@ -135,8 +136,11 @@ public class MessageAttachmentRepository {
             .from(MESSAGE_ATTACHMENT)
             .join(FILE)
             .on(FILE.ID.eq(MESSAGE_ATTACHMENT.FILE_ID))
+            .join(MESSAGE)
+            .on(MESSAGE.ID.eq(MESSAGE_ATTACHMENT.MESSAGE_ID))
             .where(MESSAGE_ATTACHMENT.FILE_ID.eq(fileId))
             .and(MESSAGE_ATTACHMENT.MESSAGE_ID.eq(messageId))
+            .and(MESSAGE.DELETED_AT.isNull())
             .fetchOne();
     if (r == null) return Optional.empty();
     return Optional.of(

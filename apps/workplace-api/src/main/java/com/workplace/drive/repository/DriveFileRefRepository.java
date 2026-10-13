@@ -111,6 +111,8 @@ public class DriveFileRefRepository {
         .from(DRIVE_FILE_REF)
         .where(DRIVE_FILE_REF.SOURCE_TYPE.eq(sourceType))
         .and(DRIVE_FILE_REF.SOURCE_ID.in(sourceIds))
+        // 단건 조회(findBySource)와 같은 순서 — 같은 메시지의 링크 칩이 경로마다 다르게 정렬되지 않게(WP-102).
+        .orderBy(DRIVE_FILE_REF.CREATED_AT.asc())
         .fetchGroups(
             DRIVE_FILE_REF.SOURCE_ID,
             r ->

@@ -34,13 +34,24 @@ function DropdownMenuTrigger({
 function DropdownMenuContent({
   className,
   sideOffset = 4,
+  onCloseAutoFocus,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Content>) {
+  // 닫힐 때 트리거로 포커스를 되돌리되, 항목이 연 다이얼로그·인라인 편집기가 이미 포커스를 가져갔으면 되돌리지 않는다.
+  // 복원은 닫힘 애니메이션 뒤 타이머로 늦게 돌아, 그 사이 다이얼로그 입력에 친 글자를 포커스 트랩이 되찾으며 전체 선택해
+  // 다음 입력이 덮어썼다(부하에서). 메뉴가 닫히며 포커스를 잃은 경우(Esc·일반 항목)엔 activeElement 가 body 라 그대로 되돌린다.
+  const handleCloseAutoFocus = (event: Event) => {
+    onCloseAutoFocus?.(event)
+    const active = document.activeElement
+    if (active && active !== document.body) event.preventDefault()
+  }
+
   return (
     <DropdownMenuPrimitive.Portal>
       <DropdownMenuPrimitive.Content
         data-slot="dropdown-menu-content"
         sideOffset={sideOffset}
+        onCloseAutoFocus={handleCloseAutoFocus}
         className={cn(
           "bg-popover text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-50 max-h-(--radix-dropdown-menu-content-available-height) min-w-[8rem] origin-(--radix-dropdown-menu-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-md border p-1 shadow-md",
           className

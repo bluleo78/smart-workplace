@@ -1,14 +1,20 @@
 package com.workplace.messaging.repository;
 
 import static com.workplace.jooq.Tables.MESSAGE_REACTION;
+import static com.workplace.jooq.Tables.USER;
 
 import com.workplace.messaging.dto.ReactionResponse;
+import com.workplace.messaging.repository.MessageRepository.Cursor;
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
+import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
@@ -72,4 +78,35 @@ public class ReactionRepository {
                             Boolean.TRUE.equals(r.get("reacted", Boolean.class)))));
     return out;
   }
+
+  /**
+   * 메시지의 특정 이모지 반응자를 먼저 누른 순(created_at, user_id)으로 limit+1 건 조회한다. 호출자는 limit+1 번째 존재로 hasMore 를
+   * 판정한다. after 가 있으면 그 (created_at, user_id) 다음부터(키셋). user 를 조인해 이름·종류를 함께 준다.
+   */
+  public List<ReactorRow> findReactors(long messageId, String emoji, Cursor after, int limit) {
+    Condition cond =
+        MESSAGE_REACTION.MESSAGE_ID.eq(messageId).and(MESSAGE_REACTION.EMOJI.eq(emoji));
+    if (after != null)
+      cond =
+          cond.and(
+              DSL.row(MESSAGE_REACTION.CREATED_AT, MESSAGE_REACTION.USER_ID)
+                  .gt(OffsetDateTime.ofInstant(after.createdAt(), ZoneOffset.UTC), after.id()));
+    return dsl.select(MESSAGE_REACTION.USER_ID, MESSAGE_REACTION.CREATED_AT, USER.NAME, USER.KIND)
+        .from(MESSAGE_REACTION)
+        .join(USER)
+        .on(USER.ID.eq(MESSAGE_REACTION.USER_ID))
+        .where(cond)
+        .orderBy(MESSAGE_REACTION.CREATED_AT, MESSAGE_REACTION.USER_ID)
+        .limit(limit + 1)
+        .fetch(
+            r ->
+                new ReactorRow(
+                    r.get(MESSAGE_REACTION.USER_ID),
+                    r.get(USER.NAME),
+                    r.get(USER.KIND),
+                    r.get(MESSAGE_REACTION.CREATED_AT).toInstant()));
+  }
+
+  /** 반응자 1행 + 키셋 커서용 반응 시각. */
+  public record ReactorRow(long userId, String name, String kind, Instant reactedAt) {}
 }

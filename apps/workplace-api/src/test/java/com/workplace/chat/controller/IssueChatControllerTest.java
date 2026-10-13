@@ -59,7 +59,8 @@ class IssueChatControllerTest {
     when(jwt.getUserIdFromToken("v")).thenReturn(1L);
     when(permissionService.getUserPermissions(1L)).thenReturn(Set.of("project:read"));
     when(threadService.getOrCreate(eq(1L), eq("WP"), eq(1)))
-        .thenReturn(new ChatThreadResponse(11L, 100L, null, List.of(), List.of(), true));
+        .thenReturn(
+            new ChatThreadResponse(11L, 100L, null, List.of(), List.of(), null, false, true));
 
     mockMvc
         .perform(

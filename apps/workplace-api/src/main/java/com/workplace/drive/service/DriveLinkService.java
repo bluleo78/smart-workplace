@@ -16,7 +16,9 @@ import com.workplace.drive.exception.DriveForbiddenException;
 import com.workplace.drive.exception.DriveInvalidTargetException;
 import com.workplace.drive.outbound.DriveChangeNotifier;
 import com.workplace.drive.repository.DriveFileRefRepository;
+import com.workplace.drive.repository.DriveFileRefRepository.RefRow;
 import com.workplace.drive.repository.DriveFileRepository;
+import com.workplace.drive.repository.DriveFileRepository.LinkMeta;
 import com.workplace.drive.repository.DriveFolderRepository;
 import com.workplace.file.service.FileUploadService;
 import com.workplace.global.util.SafeFileNames;
@@ -108,14 +110,41 @@ public class DriveLinkService {
   /** 소스(이슈/메시지)에 걸린 링크 목록 + 가용성(ACTIVE|TRASHED). */
   @Transactional(readOnly = true)
   public List<DriveLinkResponse> listLinks(String sourceType, long sourceId) {
+    return toResponses(refRepo.findBySource(sourceType, sourceId));
+  }
+
+  /**
+   * 여러 소스에 연결된 드라이브 링크를 배치 조회(N+1 방지). sourceId → DriveLinkResponse 목록 맵 반환. ref 와 drive_file 메타를
+   * 각각 한 번에 읽는다.
+   */
+  @Transactional(readOnly = true)
+  public Map<Long, List<DriveLinkResponse>> listLinksBatch(
+      String sourceType, List<Long> sourceIds) {
+    if (sourceIds.isEmpty()) return Map.of();
+    var refsBySource = refRepo.findBySourceIds(sourceType, sourceIds);
+    var metas =
+        fileRepo.findLinkMetas(
+            refsBySource.values().stream()
+                .flatMap(List::stream)
+                .map(RefRow::driveFileId)
+                .collect(Collectors.toSet()));
+    Map<Long, List<DriveLinkResponse>> result = new HashMap<>();
+    refsBySource.forEach((sid, refs) -> result.put(sid, toResponses(refs, metas)));
+    return result;
+  }
+
+  /** ref 목록을 응답으로 바꾼다 — 메타는 한 번에 읽는다. */
+  private List<DriveLinkResponse> toResponses(List<RefRow> refs) {
+    return toResponses(
+        refs, fileRepo.findLinkMetas(refs.stream().map(RefRow::driveFileId).toList()));
+  }
+
+  /** ref 순서를 유지해 응답으로 바꾼다. 메타가 없는 ref(drive_file 삭제됨, CASCADE 전 레이스)는 방어적으로 건너뛴다. */
+  private static List<DriveLinkResponse> toResponses(List<RefRow> refs, Map<Long, LinkMeta> metas) {
     List<DriveLinkResponse> out = new ArrayList<>();
-    for (var ref : refRepo.findBySource(sourceType, sourceId)) {
-      var metaOpt = fileRepo.findLinkMeta(ref.driveFileId());
-      if (metaOpt.isEmpty()) {
-        // drive_file 삭제됨(CASCADE 전 레이스) — 방어적 스킵
-        continue;
-      }
-      var m = metaOpt.get();
+    for (var ref : refs) {
+      var m = metas.get(ref.driveFileId());
+      if (m == null) continue;
       out.add(
           new DriveLinkResponse(
               m.driveFileId(),
@@ -131,42 +160,6 @@ public class DriveLinkService {
               ref.createdAt().toInstant()));
     }
     return out;
-  }
-
-  /**
-   * 여러 소스에 연결된 드라이브 링크를 배치 조회(N+1 방지). sourceId → DriveLinkResponse 목록 맵 반환. ref 배치 조회 후 drive_file
-   * 메타는 개별 조회(드라이브 파일 수가 ref 수보다 적을 수 있어 중복 제거 효과는 제한적 — 추가 최적화는 별도 epic).
-   */
-  @Transactional(readOnly = true)
-  public Map<Long, List<DriveLinkResponse>> listLinksBatch(
-      String sourceType, List<Long> sourceIds) {
-    if (sourceIds.isEmpty()) return Map.of();
-    var refsBySource = refRepo.findBySourceIds(sourceType, sourceIds);
-    Map<Long, List<DriveLinkResponse>> result = new HashMap<>();
-    for (var entry : refsBySource.entrySet()) {
-      long sid = entry.getKey();
-      List<DriveLinkResponse> links = new ArrayList<>();
-      for (var ref : entry.getValue()) {
-        var metaOpt = fileRepo.findLinkMeta(ref.driveFileId());
-        if (metaOpt.isEmpty()) continue; // drive_file 삭제됨 — 방어적 스킵
-        var m = metaOpt.get();
-        links.add(
-            new DriveLinkResponse(
-                m.driveFileId(),
-                m.fileId(),
-                m.name(),
-                m.mimeType(),
-                m.sizeBytes(),
-                m.hasThumbnail(),
-                m.spaceId(),
-                m.spaceName(),
-                m.trashed() ? "TRASHED" : "ACTIVE",
-                ref.createdBy(),
-                ref.createdAt().toInstant()));
-      }
-      result.put(sid, links);
-    }
-    return result;
   }
 
   /** 링크된 파일 바이트. ref 존재(=이 소스에 실제 링크됨)를 검증해 임의 파일 접근 차단. */

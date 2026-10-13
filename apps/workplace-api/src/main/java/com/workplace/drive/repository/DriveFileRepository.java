@@ -11,6 +11,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.Condition;
@@ -389,6 +390,16 @@ public class DriveFileRepository {
 
   /** 상태 무관(trashed 포함) 링크 렌더 메타 조회. DRIVE_FILE ⨝ DRIVE_SPACE ⨝ FILE 조인. */
   public Optional<LinkMeta> findLinkMeta(long driveFileId) {
+    return Optional.ofNullable(findLinkMetas(List.of(driveFileId)).get(driveFileId));
+  }
+
+  /**
+   * 여러 드라이브 파일의 링크 렌더 메타를 한 번에 조회한다(상태 무관). driveFileId → LinkMeta, 없는 id 는 빠진다.
+   *
+   * <p>왜: 이슈 챗 스레드 응답이 최근 메시지의 드라이브 링크를 채우면서 이슈 상세를 열 때마다 불리게 됐다 — 링크마다 조회하면 N+1 이다(WP-102).
+   */
+  public Map<Long, LinkMeta> findLinkMetas(Collection<Long> driveFileIds) {
+    if (driveFileIds.isEmpty()) return Map.of();
     return dsl.select(
             DRIVE_FILE.ID,
             DRIVE_FILE.SPACE_ID,
@@ -404,8 +415,9 @@ public class DriveFileRepository {
         .on(DRIVE_SPACE.ID.eq(DRIVE_FILE.SPACE_ID))
         .join(FILE)
         .on(FILE.ID.eq(DRIVE_FILE.FILE_ID))
-        .where(DRIVE_FILE.ID.eq(driveFileId))
-        .fetchOptional(
+        .where(DRIVE_FILE.ID.in(driveFileIds))
+        .fetchMap(
+            r -> r.get(DRIVE_FILE.ID),
             r ->
                 new LinkMeta(
                     r.get(DRIVE_FILE.ID),

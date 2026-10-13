@@ -10,6 +10,7 @@ import type {
   DmResponse,
   MessagePage,
   MessageResponse,
+  ReactorPage,
   ThreadInboxPage,
 } from '../types/messaging';
 import { client } from './client';
@@ -130,6 +131,13 @@ export const messagingApi = {
     client
       .delete(`/messaging/messages/${messageId}/reactions?emoji=${encodeURIComponent(emoji)}`)
       .then(() => undefined),
+
+  // 이모지별 반응자 페이지(WP-106) — 호버·전체 보기 때만 부른다.
+  listReactors: (messageId: number, emoji: string, cursor?: string, limit = 20) => {
+    const params = new URLSearchParams({ emoji, limit: String(limit) });
+    if (cursor) params.set('cursor', cursor);
+    return client.get<ReactorPage>(`/messaging/messages/${messageId}/reactions/users?${params.toString()}`);
+  },
 
   // 첨부 사전 업로드 — multipart/form-data, 필드명 `files`. 응답 fileId 로 메시지 작성 시 연결.
   uploadAttachments: (channelId: number, files: File[]) => {

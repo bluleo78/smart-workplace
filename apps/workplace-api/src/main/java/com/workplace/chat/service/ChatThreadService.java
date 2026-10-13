@@ -1,7 +1,7 @@
 package com.workplace.chat.service;
 
 import com.workplace.chat.dto.ChatMemberResponse;
-import com.workplace.chat.dto.ChatMessageResponse;
+import com.workplace.chat.dto.ChatMessagePage;
 import com.workplace.chat.dto.ChatThreadResponse;
 import com.workplace.chat.repository.ChatMessageRepository;
 import com.workplace.chat.repository.ChatMessageRepository.MentionResolver;
@@ -30,6 +30,7 @@ public class ChatThreadService {
   private final ChatUserHydrator hydrator;
   private final UserMentionHydrator userMentionHydrator;
   private final ChatThreadAccess threadAccess;
+  private final ChatMessageHydrator messageHydrator;
 
   /** 이슈에 연결된 thread 를 반환. 없으면 생성 + initial 멤버(reporter/assignees/watchers) 채움. */
   @Transactional
@@ -51,14 +52,23 @@ public class ChatThreadService {
 
     List<ChatMemberResponse> members = memberRepo.findMembers(threadId);
     MentionResolver resolver = userMentionHydrator::asMentionResponses;
-    List<ChatMessageResponse> recent = messageRepo.findRecent(threadId, RECENT_LIMIT, resolver);
+    // 화면이 메시지 목록의 첫 페이지로 쓰므로 목록 API 와 같은 조회·하이드레이션을 거친다(WP-102·365).
+    ChatMessagePage recent =
+        messageHydrator.hydrate(messageRepo.findPage(threadId, null, RECENT_LIMIT, resolver));
     var threadRow = threadRepo.findByIssueId(issue.id()).orElseThrow();
     // 이미 로드한 멤버 목록·이슈 정보로 판정 — 멤버면 그대로, 아니면 댓글과 같은 쓰기 권한(보내면 자동 참여).
     boolean canPost =
         members.stream().anyMatch(m -> m.userId() == callerId)
             || threadAccess.canWriteContent(issue.projectId(), issue.reporterId(), callerId);
     return new ChatThreadResponse(
-        threadId, issue.id(), threadRow.archivedAt(), members, recent, canPost);
+        threadId,
+        issue.id(),
+        threadRow.archivedAt(),
+        members,
+        recent.items(),
+        recent.nextCursor(),
+        recent.hasMore(),
+        canPost);
   }
 
   /** thread row + 초기 멤버 INSERT. ON CONFLICT DO NOTHING 으로 race-safe. */

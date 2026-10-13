@@ -64,6 +64,9 @@ async function setupCommonStubs(
 interface ChatStubs {
   thread: ReturnType<typeof createChatThread>;
   messages: ChatMessageResponse[];
+  /** 첫 페이지 뒤 커서 — 주면 그 커서로 olderPages 의 페이지를 이어 응답한다. */
+  nextCursor?: string;
+  olderPages?: Record<string, ChatMessageResponse[]>;
 }
 
 const MESSAGE_PATH = /\/api\/v1\/chat\/messages\/\d+$/;
@@ -92,10 +95,14 @@ async function setupChatStubs(page: import('@playwright/test').Page, stubs: Chat
     (url) => url.pathname === `/api/v1/chat/threads/${THREAD_ID}/messages`,
     (route) => {
       if (route.request().method() !== 'GET') return route.fallback();
+      const cursor = new URL(route.request().url()).searchParams.get('cursor');
+      const page = cursor
+        ? createChatMessagePage(stubs.olderPages?.[cursor] ?? [])
+        : createChatMessagePage(stubs.messages, stubs.nextCursor ?? null);
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify(createChatMessagePage(stubs.messages)),
+        body: JSON.stringify(page),
       });
     },
   );
@@ -811,6 +818,57 @@ test.describe('이슈 chat panel', () => {
         }),
       )
       .toBeLessThan(4);
+  });
+
+  test('최근 메시지보다 오래된 대화가 있으면 이전 메시지 더 보기로 불러온다 (WP-365)', async ({
+    authenticatedPage: page,
+  }) => {
+    const detailRef = {
+      current: createIssueDetail({
+        summary: createIssue({ id: 1, number: ISSUE_NUMBER, title: 'older' }),
+      }),
+    };
+    await setupCommonStubs(page, detailRef);
+    const stubs = freshStubs();
+    const at = (i: number) => new Date(Date.now() - (30 - i) * 60_000).toISOString();
+    const recent = Array.from({ length: 20 }, (_, i) =>
+      createChatMessage({
+        id: i + 2,
+        threadId: THREAD_ID,
+        body: `최근 ${i + 2}`,
+        createdAt: at(i + 2),
+      }),
+    );
+    const oldest = createChatMessage({
+      id: 1,
+      threadId: THREAD_ID,
+      body: '가장 오래된 메시지',
+      createdAt: at(1),
+    });
+    stubs.thread = {
+      ...stubs.thread,
+      recentMessages: recent,
+      recentNextCursor: 'cursor-1',
+      recentHasMore: true,
+    };
+    // 목록 API 도 같은 페이지로 응답해, 첫 페이지를 다시 읽어도 시드와 같다.
+    stubs.messages = recent;
+    stubs.nextCursor = 'cursor-1';
+    stubs.olderPages = { 'cursor-1': [oldest] };
+    await setupChatStubs(page, stubs);
+    const pageRequests = trackRequests(page, 'GET', `/api/v1/chat/threads/${THREAD_ID}/messages`);
+
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    await page.getByTestId('issue-chat-open').click();
+    await expect(page.getByTestId('chat-message-21')).toBeVisible();
+    await expect(page.getByTestId('chat-message-1')).toHaveCount(0);
+
+    await page.getByTestId('chat-load-more').click();
+
+    await expect(page.getByTestId('chat-message-1')).toContainText('가장 오래된 메시지');
+    expect(pageRequests.urls().map((u) => u.searchParams.get('cursor'))).toContain('cursor-1');
+    // 마지막 페이지(hasMore=false)를 받으면 더 보기 버튼이 사라진다.
+    await expect(page.getByTestId('chat-load-more')).toHaveCount(0);
   });
 
   // 전송 후에도 입력창에 포커스가 남아 마우스 클릭 없이 연속 입력 가능 (ProseMirror).
