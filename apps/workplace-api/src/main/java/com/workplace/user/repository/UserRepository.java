@@ -10,6 +10,7 @@ import com.workplace.global.util.LikePatternUtils;
 import com.workplace.user.dto.AgentResponse;
 import com.workplace.user.dto.AgentRuntime;
 import com.workplace.user.dto.AgentUsernames;
+import com.workplace.user.dto.AssigneeInfo;
 import com.workplace.user.dto.UserKind;
 import com.workplace.user.dto.UserResponse;
 import java.time.LocalDateTime;
@@ -276,6 +277,14 @@ public class UserRepository {
         > 0;
   }
 
+  /** 현재 실행 방식(INTERNAL|EXTERNAL) — 대상이 없으면 null. 변경 여부 판단용. */
+  public String findAgentRuntime(Long id) {
+    return dsl.select(USER.AGENT_RUNTIME)
+        .from(USER)
+        .where(USER.ID.eq(id))
+        .fetchOne(USER.AGENT_RUNTIME);
+  }
+
   /** 해당 유저가 EXTERNAL 실행 방식의 AGENT 인지 (공통 비서 지정 가드용). 대상이 없으면 false. */
   public boolean isExternalAgent(Long id) {
     return dsl.fetchExists(
@@ -337,6 +346,24 @@ public class UserRepository {
             .and(USER.KIND.eq(UserKind.AGENT))
             .and(USER.AGENT_RUNTIME.eq(runtime))
             .fetch(USER.ID));
+  }
+
+  /** 담당자 지정 처리용 사용자 정보를 한 번에 조회(활성 여부·AI 실행 방식 포함). 없는 id 는 빠진다. */
+  public List<AssigneeInfo> findAssigneeInfos(Collection<Long> ids) {
+    if (ids == null || ids.isEmpty()) return List.of();
+    return dsl.select(
+            USER.ID, USER.USERNAME, USER.NAME, USER.KIND, USER.IS_ACTIVE, USER.AGENT_RUNTIME)
+        .from(USER)
+        .where(USER.ID.in(ids))
+        .fetch(
+            r ->
+                new AssigneeInfo(
+                    r.get(USER.ID),
+                    r.get(USER.USERNAME),
+                    r.get(USER.NAME),
+                    r.get(USER.KIND),
+                    Boolean.TRUE.equals(r.get(USER.IS_ACTIVE)),
+                    r.get(USER.AGENT_RUNTIME)));
   }
 
   /** 표시 이름(name)만 변경한다 — 개인 비서 이름 변경 등. email/username 은 보존. */

@@ -51,6 +51,7 @@ import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.repository.ProjectIssueSequenceRepository;
 import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.service.ProjectAccessGuard;
+import com.workplace.user.dto.AssigneeInfo;
 import com.workplace.user.repository.UserRepository;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -298,8 +299,10 @@ public class IssueService {
     for (Long uid : assigneeIds) {
       assigneeRepository.add(row.id(), uid, callerId);
     }
+    // 담당자 사용자 정보는 한 번만 읽어 시작 전 작업 판별과 이벤트용 요약에 함께 쓴다.
+    List<AssigneeInfo> assignees = userRepository.findAssigneeInfos(assigneeIds);
     // 외부 실행 AI 구성원이 담당자로 들어오면 "시작 전" 작업을 만든다(WP-377). 종료 상태로 만든 이슈에는 만들지 않는다.
-    agentWorkService.submitForAssignees(row.id(), row.status(), assigneeIds);
+    agentWorkService.submitForAssignees(row.id(), row.status(), assignees);
 
     // 4) watcher 자동 등록: reporter + 각 assignee (caller 와 다를 때만)
     watcherAutoEnroller.enroll(row.id(), callerId, callerId);
@@ -317,12 +320,7 @@ public class IssueService {
             .findById(callerId)
             .map(u -> new UserSummary(u.id(), u.username(), u.name(), u.kind()))
             .orElse(null);
-    List<UserSummary> assigneeSummaries =
-        assigneeIds.isEmpty()
-            ? List.of()
-            : userRepository.findByIds(assigneeIds).stream()
-                .map(u -> new UserSummary(u.id(), u.username(), u.name(), u.kind()))
-                .toList();
+    List<UserSummary> assigneeSummaries = assignees.stream().map(AssigneeInfo::toSummary).toList();
     String issueKey = project.key() + "-" + number;
     Instant occurredAt = Instant.now();
     publisher.publishEvent(

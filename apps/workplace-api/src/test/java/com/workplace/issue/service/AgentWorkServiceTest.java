@@ -43,7 +43,7 @@ import org.springframework.transaction.annotation.Transactional;
 class AgentWorkServiceTest extends IntegrationTestBase {
 
   @Autowired AgentWorkService service;
-  // 스파이 — 평소엔 실제 저장소로 위임하고, 충돌 직후 종료 경합 테스트에서만 insertIfAbsent 결과를 바꾼다.
+  // 스파이 — 평소엔 실제 저장소로 위임하고, 충돌 직후 종료 경합 테스트에서만 insertOutcome 결과를 바꾼다.
   @MockitoSpyBean AgentWorkRepository repo;
   @Autowired DSLContext dsl;
   @Autowired ApplicationEvents events;
@@ -168,7 +168,7 @@ class AgentWorkServiceTest extends IntegrationTestBase {
         humanId,
         "claude-code",
         new AgentWorkPatch(null, "INPUT_REQUIRED", "질문", false, null, null, null));
-    service.onAgentToolWrite(new AgentToolWriteEvent(issueId, humanId, "claude-code", true));
+    service.onAgentToolWrite(new AgentToolWriteEvent(issueId, humanId, "claude-code", true, false));
     var row = repo.findActive(issueId, humanId).orElseThrow();
     assertThat(row.state()).isEqualTo("WORKING");
     assertThat(row.note()).isNull();
@@ -183,7 +183,7 @@ class AgentWorkServiceTest extends IntegrationTestBase {
         humanId,
         "claude-code",
         new AgentWorkPatch(null, "BLOCKED", "권한 없음", false, null, null, null));
-    service.onAgentToolWrite(new AgentToolWriteEvent(issueId, humanId, "claude-code", true));
+    service.onAgentToolWrite(new AgentToolWriteEvent(issueId, humanId, "claude-code", true, false));
     var row = repo.findActive(issueId, humanId).orElseThrow();
     assertThat(row.state()).isEqualTo("WORKING");
     assertThat(row.note()).isEqualTo("권한 없음");
@@ -200,13 +200,13 @@ class AgentWorkServiceTest extends IntegrationTestBase {
 
   /**
    * insert 가 진행 중 행과 충돌했는데 돌려받기 전에 그 행이 종료돼 조회가 비는 경합 — 500(IllegalStateException)이 아니라 409 로 답한다.
-   * 경합은 저장소의 insertIfAbsent 가 빈 결과를 돌려주는 것으로 재현한다.
+   * 경합은 저장소의 insertOutcome 이 빈 결과를 돌려주는 것으로 재현한다.
    */
   @Test
   void startOrUpdate_충돌한_행이_그사이_종료되면_409_AgentWorkIssueClosedException() {
     doReturn(Optional.empty())
         .when(repo)
-        .insertIfAbsent(anyLong(), anyLong(), any(), any(), any(), any(), any(), any());
+        .insertOutcome(anyLong(), anyLong(), any(), any(), any(), any(), any(), any());
     assertThatThrownBy(
             () -> service.startOrUpdate(issueId, humanId, "claude-code", AgentWorkPatch.empty()))
         .isInstanceOf(AgentWorkIssueClosedException.class);
@@ -242,7 +242,7 @@ class AgentWorkServiceTest extends IntegrationTestBase {
         humanId,
         "claude-code",
         new AgentWorkPatch(null, "AUTH_REQUIRED", "토큰 필요", false, null, null, null));
-    service.onAgentToolWrite(new AgentToolWriteEvent(issueId, humanId, "claude-code", true));
+    service.onAgentToolWrite(new AgentToolWriteEvent(issueId, humanId, "claude-code", true, false));
     var row = repo.findActive(issueId, humanId).orElseThrow();
     assertThat(row.state()).isEqualTo("WORKING");
     assertThat(row.note()).isNull();
@@ -253,7 +253,7 @@ class AgentWorkServiceTest extends IntegrationTestBase {
   void 터치_SUBMITTED_는_같은_행을_WORKING_으로() {
     assigneeRepository.add(issueId, agentId, humanId);
     var submitted = repo.insertIfAbsent(issueId, agentId, null, "SUBMITTED").orElseThrow();
-    service.onAgentToolWrite(new AgentToolWriteEvent(issueId, agentId, "claude-code", true));
+    service.onAgentToolWrite(new AgentToolWriteEvent(issueId, agentId, "claude-code", true, false));
     var row = repo.findActive(issueId, agentId).orElseThrow();
     assertThat(row.id()).isEqualTo(submitted.id());
     assertThat(row.state()).isEqualTo("WORKING");
@@ -330,7 +330,7 @@ class AgentWorkServiceTest extends IntegrationTestBase {
     assigneeRepository.add(issueId, agentId, humanId);
     var submitted = repo.insertIfAbsent(issueId, agentId, null, "SUBMITTED").orElseThrow();
     doReturn(Optional.empty()).doCallRealMethod().when(repo).findActive(issueId, agentId);
-    service.onAgentToolWrite(new AgentToolWriteEvent(issueId, agentId, "claude-code", true));
+    service.onAgentToolWrite(new AgentToolWriteEvent(issueId, agentId, "claude-code", true, false));
     var row = repo.findActive(issueId, agentId).orElseThrow();
     assertThat(row.id()).isEqualTo(submitted.id());
     assertThat(row.state()).isEqualTo("WORKING");

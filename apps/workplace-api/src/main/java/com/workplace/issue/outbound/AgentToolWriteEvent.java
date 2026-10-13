@@ -6,9 +6,11 @@ import org.springframework.context.ApplicationEventPublisher;
 /**
  * PAT·AI 키 요청이 이슈에 쓰기를 했을 때 발행하는 서비스 이벤트(WP-377). actorId 는 쓰기를 한 사용자, tool 은 요청 헤더로 받은 수행 도구.
  * AgentWorkService 가 같은 트랜잭션에서 받아 작업 기록을 시작·터치한다. issueNotified 는 발행 쪽이 이미 이슈 변경 알림을 냈는지 — true 면
- * 리스너가 같은 알림을 중복해서 내지 않는다.
+ * 리스너가 같은 알림을 중복해서 내지 않는다. promoteOnly 는 "이미 있는 진행 중 작업만 이어 쓰고 새로 만들지 않는다" — 이슈 생성 알림이 쓴다(생성은 담당자
+ * 추가가 미리 만든 시작 전 작업을 착수로 잇는 것까지만 하고, 사람이든 AI 든 자기를 담당자로 둔 새 이슈에 아직 시작도 안 한 작업 행을 만들면 안 된다).
  */
-public record AgentToolWriteEvent(long issueId, long actorId, String tool, boolean issueNotified) {
+public record AgentToolWriteEvent(
+    long issueId, long actorId, String tool, boolean issueNotified, boolean promoteOnly) {
 
   /**
    * 현재 요청이 수행 도구 헤더를 실은 PAT·AI 키 요청이고 자동 터치가 억제되지 않았으며 행위자가 있으면 이벤트를 발행한다. 이슈 쓰기 지점(이슈 updated
@@ -16,8 +18,22 @@ public record AgentToolWriteEvent(long issueId, long actorId, String tool, boole
    */
   public static void publishIfAgentTool(
       ApplicationEventPublisher publisher, long issueId, Long actorId, boolean issueNotified) {
+    publishIfAgentTool(publisher, issueId, actorId, issueNotified, false);
+  }
+
+  /**
+   * {@link #publishIfAgentTool(ApplicationEventPublisher, long, Long, boolean)} 와 같되 promoteOnly 를
+   * 지정한다.
+   */
+  public static void publishIfAgentTool(
+      ApplicationEventPublisher publisher,
+      long issueId,
+      Long actorId,
+      boolean issueNotified,
+      boolean promoteOnly) {
     String tool = AgentToolContext.current();
     if (tool == null || actorId == null || AgentToolContext.touchSuppressed()) return;
-    publisher.publishEvent(new AgentToolWriteEvent(issueId, actorId, tool, issueNotified));
+    publisher.publishEvent(
+        new AgentToolWriteEvent(issueId, actorId, tool, issueNotified, promoteOnly));
   }
 }

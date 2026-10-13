@@ -216,14 +216,24 @@ class AgentWorkRepositoryTest extends IntegrationTestBase {
   }
 
   @Test
-  void 이벤트_endActiveInStates_는_해당_상태만_닫음() {
+  void 이벤트_endActiveOnIssueDone_은_한_문장으로_SUBMITTED_는_CANCELED_나머지는_COMPLETED() {
     var submitted = repo.insertIfAbsent(issueId, agentId, null, "SUBMITTED").orElseThrow();
     var working = repo.insertIfAbsent(issueId, humanId, "claude-code", "WORKING").orElseThrow();
-    assertThat(repo.endActiveInStates(List.of(issueId), List.of("SUBMITTED"), "CANCELED"))
-        .isEqualTo(1);
+    assertThat(repo.endActiveOnIssueDone(List.of(issueId))).isEqualTo(2);
+    // 행마다 실제로 들어간 종료 상태가 이벤트에 남는다.
     assertThat(eventStates(submitted.id())).containsExactly("SUBMITTED", "CANCELED");
-    assertThat(eventStates(working.id())).containsExactly("WORKING");
-    assertThat(repo.findActive(issueId, humanId)).isPresent();
+    assertThat(eventStates(working.id())).containsExactly("WORKING", "COMPLETED");
+    assertThat(repo.findActive(issueId, humanId)).isEmpty();
+    assertThat(repo.findActive(issueId, agentId)).isEmpty();
+  }
+
+  @Test
+  void insertOutcome_은_실제로_넣었는지_알려줌() {
+    var first = repo.insertOutcome(issueId, humanId, "claude-code", "WORKING").orElseThrow();
+    var second = repo.insertOutcome(issueId, humanId, "cursor", "REVIEW").orElseThrow();
+    assertThat(first.inserted()).isTrue();
+    assertThat(second.inserted()).isFalse();
+    assertThat(second.row().id()).isEqualTo(first.row().id());
   }
 
   @Test

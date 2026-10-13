@@ -23,6 +23,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -139,6 +140,15 @@ public class IssueRepository {
         .from(ISSUE)
         .where(ISSUE.ID.eq(id).and(ISSUE.DELETED_AT.isNull()))
         .fetchOptional(this::mapToRow);
+  }
+
+  /** id 들로 활성(삭제 아님) 이슈를 한 번에 조회 — N+1 회피. 없는 id 는 결과에서 빠진다. */
+  public List<IssueRow> findByIds(Collection<Long> ids) {
+    if (ids == null || ids.isEmpty()) return List.of();
+    return dsl.select(ROW_FIELDS)
+        .from(ISSUE)
+        .where(ISSUE.ID.in(ids).and(ISSUE.DELETED_AT.isNull()))
+        .fetch(this::mapToRow);
   }
 
   /** projectId + number 로 활성 이슈 조회. */
