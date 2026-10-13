@@ -1,6 +1,7 @@
 package com.workplace.drive.controller;
 
 import static com.workplace.jooq.Tables.AUDIT_LOG;
+import static com.workplace.jooq.Tables.DRIVE_FILE;
 import static com.workplace.jooq.Tables.DRIVE_SPACE;
 import static com.workplace.jooq.Tables.DRIVE_SPACE_MEMBER;
 import static com.workplace.jooq.Tables.FILE;
@@ -10,6 +11,7 @@ import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.head;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -17,6 +19,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.drive.service.DriveFileService;
+import com.workplace.drive.service.DriveFolderService;
 import com.workplace.drive.service.DriveSpaceService;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
@@ -36,6 +39,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -53,6 +57,7 @@ class PublicDriveTransferControllerIntegrationTest extends IntegrationTestBase {
   @Autowired JwtTokenProvider jwtTokenProvider;
   @Autowired DriveFileService fileService;
   @Autowired DriveSpaceService spaceService;
+  @Autowired DriveFolderService folderService;
   @Autowired ObjectMapper objectMapper;
 
   private static final byte[] CONTENT = "전송 링크 본문".getBytes(StandardCharsets.UTF_8);
@@ -62,6 +67,7 @@ class PublicDriveTransferControllerIntegrationTest extends IntegrationTestBase {
   private long viewer;
   private long spaceId;
   private long driveFileId;
+  private Long otherSpaceId;
 
   @BeforeEach
   void seed() throws Exception {
@@ -106,6 +112,10 @@ class PublicDriveTransferControllerIntegrationTest extends IntegrationTestBase {
         () -> {
           // 공간 삭제가 멤버·파일·전송 링크를 FK CASCADE 로 함께 지운다.
           dsl.deleteFrom(DRIVE_SPACE).where(DRIVE_SPACE.ID.eq(spaceId)).execute();
+          if (otherSpaceId != null) {
+            dsl.deleteFrom(DRIVE_SPACE).where(DRIVE_SPACE.ID.eq(otherSpaceId)).execute();
+            otherSpaceId = null;
+          }
           dsl.deleteFrom(AUDIT_LOG).where(AUDIT_LOG.USER_ID.in(userIds)).execute();
           dsl.deleteFrom(FILE).where(FILE.UPLOADED_BY.in(userIds)).execute();
           dsl.deleteFrom(USER).where(USER.ID.in(userIds)).execute();
@@ -202,7 +212,7 @@ class PublicDriveTransferControllerIntegrationTest extends IntegrationTestBase {
     mockMvc
         .perform(head(path))
         .andExpect(status().isMethodNotAllowed())
-        .andExpect(header().string("Allow", "GET"));
+        .andExpect(header().string("Allow", "GET, PUT"));
     mockMvc.perform(get(path)).andExpect(status().isOk());
   }
 
@@ -305,5 +315,307 @@ class PublicDriveTransferControllerIntegrationTest extends IntegrationTestBase {
         .andExpect(status().isNotFound())
         .andExpect(jsonPath("$.message").value(containsString("새 링크를 발급받으세요")));
     mockMvc.perform(get("/api/v1/public/drive/transfer/sl_other")).andExpect(status().isNotFound());
+  }
+
+  // ── 1b: 업로드 링크 발급 · 텍스트로 만들기 · 공개 PUT ─────────────────────────
+
+  /** 업로드 링크 발급(EDITOR 이상) → 201 + PUT 계약. 공개 PUT(익명)으로 그 링크에 쓸 수 있는 경로를 돌려준다. */
+  private String issueUploadPath(long issuer, String json) throws Exception {
+    String body =
+        mockMvc
+            .perform(
+                post("/api/v1/drive/spaces/" + spaceId + "/upload-link")
+                    .header("Authorization", bearer(issuer))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(json))
+            .andExpect(status().isCreated())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+    String url = objectMapper.readTree(body).get("url").asText();
+    assertThat(url).startsWith("http://localhost:6173/api/v1/public/drive/transfer/ul_");
+    return url.substring("http://localhost:6173".length());
+  }
+
+  /** 다른 공간과 그 안의 폴더를 만든다(정리는 cleanup). */
+  private long foreignFolder() {
+    TenantContext.set(1L);
+    try {
+      otherSpaceId =
+          spaceService
+              .createTeamSpace(owner, "남_" + UUID.randomUUID().toString().substring(0, 8))
+              .id();
+      return folderService.create(owner, otherSpaceId, null, "남의폴더").id();
+    } finally {
+      TenantContext.clear();
+    }
+  }
+
+  @Test
+  void uploadLink_issue_contractAndRefusals() throws Exception {
+    mockMvc
+        .perform(
+            post("/api/v1/drive/spaces/" + spaceId + "/upload-link")
+                .header("Authorization", bearer(owner))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"결과.md\"}"))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.url").value(containsString("/api/v1/public/drive/transfer/ul_")))
+        .andExpect(jsonPath("$.method").value("PUT"))
+        .andExpect(jsonPath("$.expiresAt").isNotEmpty())
+        .andExpect(jsonPath("$.maxBytes").value(10 * 1024 * 1024))
+        .andExpect(jsonPath("$.name").value("결과.md"))
+        .andExpect(jsonPath("$.singleUse").value(true));
+
+    // VIEWER 는 403, 익명은 401, 이름 없음 400, 다른 공간의 폴더 400
+    mockMvc
+        .perform(
+            post("/api/v1/drive/spaces/" + spaceId + "/upload-link")
+                .header("Authorization", bearer(viewer))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"a.md\"}"))
+        .andExpect(status().isForbidden());
+    mockMvc
+        .perform(
+            post("/api/v1/drive/spaces/" + spaceId + "/upload-link")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"a.md\"}"))
+        .andExpect(status().isUnauthorized());
+    mockMvc
+        .perform(
+            post("/api/v1/drive/spaces/" + spaceId + "/upload-link")
+                .header("Authorization", bearer(owner))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\" \"}"))
+        .andExpect(status().isBadRequest());
+    long foreign = foreignFolder();
+    mockMvc
+        .perform(
+            post("/api/v1/drive/spaces/" + spaceId + "/upload-link")
+                .header("Authorization", bearer(owner))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"folderId\":" + foreign + ",\"name\":\"a.md\"}"))
+        .andExpect(status().isBadRequest());
+  }
+
+  @Test
+  void textCreate_http_contractAndRefusals() throws Exception {
+    mockMvc
+        .perform(
+            post("/api/v1/drive/spaces/" + spaceId + "/files/text")
+                .header("Authorization", bearer(owner))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"정리.csv\",\"content\":\"a,b\\n1,2\"}"))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.name").value("정리.csv"))
+        .andExpect(jsonPath("$.mimeType").value("text/csv"))
+        .andExpect(jsonPath("$.sizeBytes").value(7))
+        .andExpect(jsonPath("$.versionCount").value(1));
+
+    // html MIME 은 허용하지 않는다(R4), VIEWER 403, 다른 공간 폴더 400, content 누락 400
+    mockMvc
+        .perform(
+            post("/api/v1/drive/spaces/" + spaceId + "/files/text")
+                .header("Authorization", bearer(owner))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"name\":\"p.html\",\"content\":\"<b>x</b>\",\"mimeType\":\"text/html\"}"))
+        .andExpect(status().isBadRequest());
+    mockMvc
+        .perform(
+            post("/api/v1/drive/spaces/" + spaceId + "/files/text")
+                .header("Authorization", bearer(viewer))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"a.md\",\"content\":\"x\"}"))
+        .andExpect(status().isForbidden());
+    mockMvc
+        .perform(
+            post("/api/v1/drive/spaces/" + spaceId + "/files/text")
+                .header("Authorization", bearer(owner))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"a.md\"}"))
+        .andExpect(status().isBadRequest());
+    long foreign = foreignFolder();
+    mockMvc
+        .perform(
+            post("/api/v1/drive/spaces/" + spaceId + "/files/text")
+                .header("Authorization", bearer(owner))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"folderId\":" + foreign + ",\"name\":\"a.md\",\"content\":\"x\"}"))
+        .andExpect(status().isBadRequest());
+  }
+
+  /**
+   * 익명 PUT 1회로 새 파일이 생기고(201 + DriveFileResponse), 두 번째 PUT 은 410. 감사 actor 는 발급자(R3)이고 사용 기록엔 요청
+   * IP 가 남는다(R11).
+   */
+  @Test
+  void anonymousPut_createsFile_thenGone_auditedAsIssuer() throws Exception {
+    String path = issueUploadPath(owner, "{\"name\":\"외부 결과.md\"}");
+    byte[] content = "# 외부에서 올림".getBytes(StandardCharsets.UTF_8);
+
+    String body =
+        mockMvc
+            .perform(put(path).content(content).header("X-Forwarded-For", "203.0.113.9"))
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.name").value("외부 결과.md"))
+            .andExpect(jsonPath("$.mimeType").value("text/markdown"))
+            .andExpect(jsonPath("$.sizeBytes").value(content.length))
+            .andExpect(jsonPath("$.versionCount").value(1))
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+    long newId = objectMapper.readTree(body).get("id").asLong();
+
+    mockMvc
+        .perform(put(path).content(content))
+        .andExpect(status().isGone())
+        .andExpect(jsonPath("$.message").value(containsString("새 링크를 발급받으세요")));
+
+    cleanupInTenant(
+        1L,
+        () -> {
+          var upload =
+              dsl.selectFrom(AUDIT_LOG)
+                  .where(AUDIT_LOG.ACTION_TYPE.eq("FILE_UPLOAD"))
+                  .and(AUDIT_LOG.RESOURCE_ID.eq(String.valueOf(newId)))
+                  .fetchOne();
+          assertThat(upload.getUserId()).isEqualTo(owner);
+          var use =
+              dsl.selectFrom(AUDIT_LOG)
+                  .where(AUDIT_LOG.ACTION_TYPE.eq("TRANSFER_LINK_USE"))
+                  .and(AUDIT_LOG.RESOURCE_ID.eq(String.valueOf(newId)))
+                  .fetchOne();
+          assertThat(use.getUserId()).isEqualTo(owner);
+          assertThat(use.getIpAddress()).isEqualTo("203.0.113.9");
+          assertThat(
+                  dsl.select(DRIVE_FILE.SPACE_ID)
+                      .from(DRIVE_FILE)
+                      .where(DRIVE_FILE.ID.eq(newId))
+                      .fetchOne(DRIVE_FILE.SPACE_ID))
+              .isEqualTo(spaceId);
+        });
+    // 공개 요청 뒤 테넌트 컨텍스트가 남지 않는다
+    assertThat(TenantContext.get()).isNull();
+  }
+
+  /** 같은 이름의 파일이 있으면 새 버전으로 흡수(업로드와 같은 의미). */
+  @Test
+  void put_sameName_becomesNewVersion() throws Exception {
+    String path = issueUploadPath(owner, "{\"name\":\"회의 메모.md\"}");
+    mockMvc
+        .perform(put(path).content("새 버전".getBytes(StandardCharsets.UTF_8)))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.id").value(driveFileId))
+        .andExpect(jsonPath("$.versionCount").value(2));
+  }
+
+  /** 동시 PUT 중 정확히 하나만 201, 나머지는 410(원자적 소비). */
+  @Test
+  void concurrentPuts_exactlyOneSucceeds() throws Exception {
+    String path = issueUploadPath(owner, "{\"name\":\"동시.txt\"}");
+    int n = 6;
+    ExecutorService pool = Executors.newFixedThreadPool(n);
+    CountDownLatch start = new CountDownLatch(1);
+    try {
+      List<Future<Integer>> results = new ArrayList<>();
+      for (int i = 0; i < n; i++) {
+        final byte[] b = ("본문" + i).getBytes(StandardCharsets.UTF_8);
+        results.add(
+            pool.submit(
+                () -> {
+                  start.await();
+                  return mockMvc
+                      .perform(put(path).content(b))
+                      .andReturn()
+                      .getResponse()
+                      .getStatus();
+                }));
+      }
+      start.countDown();
+      List<Integer> statuses = new ArrayList<>();
+      for (Future<Integer> f : results) {
+        statuses.add(f.get(60, TimeUnit.SECONDS));
+      }
+      assertThat(statuses).containsOnly(201, 410);
+      assertThat(statuses.stream().filter(s -> s == 201).count()).isEqualTo(1);
+    } finally {
+      pool.shutdownNow();
+    }
+  }
+
+  /** 폼 본문(curl --data-binary 기본값)은 415 — 소비하지 않아 같은 링크로 원시 바이트를 다시 보낼 수 있다. */
+  @Test
+  void put_formBody_isUnsupported_andLinkStillUsable() throws Exception {
+    String path = issueUploadPath(owner, "{\"name\":\"폼.txt\"}");
+    mockMvc
+        .perform(
+            put(path)
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .content("a=1".getBytes(StandardCharsets.UTF_8)))
+        .andExpect(status().isUnsupportedMediaType())
+        .andExpect(jsonPath("$.message").value(containsString("curl -T")));
+    mockMvc
+        .perform(
+            put(path)
+                .contentType(MediaType.TEXT_PLAIN)
+                .content("원시".getBytes(StandardCharsets.UTF_8)))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.mimeType").value("text/plain"));
+  }
+
+  /** 선언 크기(Content-Length)가 범주 상한을 넘으면 본문을 받기 전에 400 — 소비하지 않는다. */
+  @Test
+  void put_declaredSizeOverCap_isRejectedBeforeConsume() throws Exception {
+    String path = issueUploadPath(owner, "{\"name\":\"큰.md\"}");
+    mockMvc
+        .perform(put(path).content(new byte[10 * 1024 * 1024 + 1]))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message").value(containsString("10MB")));
+    mockMvc
+        .perform(put(path).content("작음".getBytes(StandardCharsets.UTF_8)))
+        .andExpect(status().isCreated());
+  }
+
+  /** 발급 뒤 발급자 역할이 VIEWER 로 내려가면 403, 링크는 이미 소비돼 역할을 되찾아도 410. */
+  @Test
+  void put_issuerDemoted_isForbidden_andLinkStaysBurned() throws Exception {
+    String path = issueUploadPath(owner, "{\"name\":\"권한.txt\"}");
+    setRole(owner, "VIEWER");
+    try {
+      mockMvc
+          .perform(put(path).content("x".getBytes(StandardCharsets.UTF_8)))
+          .andExpect(status().isForbidden())
+          .andExpect(jsonPath("$.message").value(containsString("새 링크를 발급받으세요")));
+    } finally {
+      setRole(owner, "OWNER");
+    }
+    mockMvc
+        .perform(put(path).content("x".getBytes(StandardCharsets.UTF_8)))
+        .andExpect(status().isGone());
+  }
+
+  /** 모르는 업로드 토큰은 인증 없이도 401 이 아니라 404(permitAll 이 PUT 에도 적용). 다운로드 토큰으로 PUT 해도 404. */
+  @Test
+  void put_unknownToken_isNotFound_notUnauthorized() throws Exception {
+    mockMvc
+        .perform(put("/api/v1/public/drive/transfer/ul_unknown").content(new byte[] {1}))
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.message").value(containsString("새 링크를 발급받으세요")));
+    String dlPath = issuePath(viewer);
+    mockMvc.perform(put(dlPath).content(new byte[] {1})).andExpect(status().isNotFound());
+    // 다운로드 링크는 PUT 으로 소비되지 않는다
+    mockMvc.perform(get(dlPath)).andExpect(status().isOk());
+  }
+
+  private void setRole(long userId, String role) {
+    cleanupInTenant(
+        1L,
+        () ->
+            dsl.update(DRIVE_SPACE_MEMBER)
+                .set(DRIVE_SPACE_MEMBER.ROLE, role)
+                .where(DRIVE_SPACE_MEMBER.SPACE_ID.eq(spaceId))
+                .and(DRIVE_SPACE_MEMBER.USER_ID.eq(userId))
+                .execute());
   }
 }

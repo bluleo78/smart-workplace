@@ -435,6 +435,15 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
   }
 
+  /** 업로드 링크 PUT 거부(WP-369) — 상태(400·409·415)는 예외가 정한다. 문구에 내부 id 없음. */
+  @ExceptionHandler(com.workplace.drive.exception.DriveTransferUploadRejectedException.class)
+  public ResponseEntity<ErrorResponse> handleTransferUploadRejected(
+      com.workplace.drive.exception.DriveTransferUploadRejectedException ex,
+      HttpServletRequest request) {
+    ErrorResponse response = buildError(ex.status(), ex.getMessage(), null, request);
+    return ResponseEntity.status(ex.status()).body(response);
+  }
+
   // 위키 도메인 — 미존재(404) / 권한미달(403) / 잘못된 입력(400) / 낙관적 충돌(409)
   @ExceptionHandler({
     com.workplace.wiki.exception.WikiSpaceNotFoundException.class,
