@@ -3,6 +3,8 @@ package com.workplace.issue.service;
 import com.workplace.issue.dto.AgentWorkPatch;
 import com.workplace.issue.dto.AgentWorkState;
 import com.workplace.issue.dto.AgentWorkView;
+import com.workplace.issue.dto.IssueStatuses;
+import com.workplace.issue.outbound.AgentToolWriteEvent;
 import com.workplace.issue.outbound.IssueChangeNotifier;
 import com.workplace.issue.outbound.IssueChatHumanMessagePosted;
 import com.workplace.issue.repository.AgentWorkRepository;
@@ -35,7 +37,7 @@ public class AgentWorkService {
           .thenComparing(AgentWorkView::updatedAt, Comparator.reverseOrder());
 
   private final AgentWorkRepository repository;
-  // 터치 처리(담당자 여부 재확인)에서 쓴다 — 후속 작업에서 사용.
+  // 터치 처리에서 담당자 여부를 재확인한다(담당 해제 직후 되살아나지 않게).
   private final IssueAssigneeRepository assigneeRepository;
   private final IssueRepository issueRepository;
   private final ProjectRepository projectRepository;
@@ -109,6 +111,33 @@ public class AgentWorkService {
     if (repository.resumeWaitingAgents(e.issueId()) > 0) {
       notifyChanged(e.issueId(), null);
     }
+  }
+
+  /**
+   * MCP(수행 도구 헤더) 경유 이슈 쓰기 → 담당자 본인이면 AI 작업 자동 시작, 이미 있으면 상태 복귀 규칙(스펙 §4.2). 동기 리스너라 쓰기와 같은 트랜잭션에서
+   * 돈다. 삭제·종료된 이슈와 담당자가 아닌 쓰기는 무시한다 — 완료 처리·담당 해제 직후 작업이 되살아나지 않게.
+   */
+  @EventListener
+  public void onAgentToolWrite(AgentToolWriteEvent e) {
+    // findById 는 삭제(deleted_at) 이슈를 돌려주지 않는다 — 비어 있으면 삭제된 이슈.
+    var issue = issueRepository.findById(e.issueId()).orElse(null);
+    if (issue == null || IssueStatuses.CLOSED.contains(issue.status())) return;
+    if (!assigneeRepository.findUserIdsByIssue(e.issueId()).contains(e.actorId())) return;
+    var existing = repository.findActive(e.issueId(), e.actorId());
+    if (existing.isEmpty()) {
+      repository.insertIfAbsent(e.issueId(), e.actorId(), e.tool(), AgentWorkState.WORKING);
+    } else {
+      String state = existing.get().state();
+      // 답변 필요·막힘·일시 중지에서 다시 쓰기 시작했으면 움직인 것으로 보고 작업 중으로 되돌린다. 검토 필요는 검토 대기 중 PR 링크 코멘트 등이
+      // 흔해 유지하고, 작업 중은 그대로 — 둘 다 tool 갱신과 updated_at 터치(무소식 해소)만 한다.
+      String next =
+          AgentWorkState.REVIEW.equals(state) || AgentWorkState.WORKING.equals(state)
+              ? null
+              : AgentWorkState.WORKING;
+      repository.update(
+          existing.get().id(), new AgentWorkPatch(e.tool(), next, null, false, null, null, null));
+    }
+    notifyChanged(e.issueId(), e.actorId());
   }
 
   /** 이슈·프로젝트 행을 찾아 변경 알림을 낸다. 이슈가 이미 없으면 조용히 건너뛴다. */

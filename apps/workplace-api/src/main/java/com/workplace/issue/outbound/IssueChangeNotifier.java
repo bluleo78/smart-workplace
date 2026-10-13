@@ -28,14 +28,19 @@ public class IssueChangeNotifier {
     changed(project, issueNumber, issueId, ResourceChangedEvent.OP_CREATED, actorId);
   }
 
-  /** 이슈 수정(본문·담당자·라벨 등 부속 변경 포함) 알림. */
+  /**
+   * 이슈 수정(본문·담당자·라벨 등 부속 변경 포함) 알림. MCP(수행 도구 헤더) 경유 쓰기면 AI 작업 자동 시작·터치 이벤트도 함께 낸다(WP-377) — 이슈 부속
+   * 쓰기 서비스가 모두 이 메서드를 거치므로 쓰기 지점마다 따로 넣지 않는다.
+   */
   public void updated(ProjectRow project, int issueNumber, long issueId, Long actorId) {
     changed(project, issueNumber, issueId, ResourceChangedEvent.OP_UPDATED, actorId);
+    AgentToolWriteEvent.publishIfAgentTool(publisher, issueId, actorId);
   }
 
   /**
    * AI 작업 기록(agent_work) 변경 알림(WP-377). {@link #updated} 와 같은 이벤트를 내보내 화면이 이슈를 다시 읽게 한다. 이슈 쓰기가
-   * 아니므로 수행 도구 터치 이벤트는 따로 발행하지 않는다.
+   * 아니므로 수행 도구 터치 이벤트({@link AgentToolWriteEvent})는 발행하지 않는다 — 터치 리스너가 이 메서드로 변경을 알리므로, 여기서 발행하면 터치
+   * → 알림 → 터치로 무한 재귀한다.
    */
   public void agentWorkChanged(ProjectRow project, int issueNumber, long issueId, Long actorId) {
     changed(project, issueNumber, issueId, ResourceChangedEvent.OP_UPDATED, actorId);

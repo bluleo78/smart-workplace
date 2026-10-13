@@ -6,6 +6,7 @@ import com.workplace.issue.dto.IssueCommentResponse;
 import com.workplace.issue.dto.UpdateCommentRequest;
 import com.workplace.issue.exception.IssueCommentNotFoundException;
 import com.workplace.issue.exception.IssueNotFoundException;
+import com.workplace.issue.outbound.AgentToolWriteEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentDeletedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentUpdatedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentedEvent;
@@ -156,6 +157,8 @@ public class IssueCommentService {
             resp.id(),
             req.body(),
             Instant.now()));
+    // MCP(수행 도구 헤더) 경유 코멘트면 AI 작업 자동 시작·터치(WP-377). 코멘트 작성은 이슈 updated 알림을 거치지 않아 여기서 직접 낸다.
+    AgentToolWriteEvent.publishIfAgentTool(publisher, issueId, callerId);
 
     return resp;
   }
