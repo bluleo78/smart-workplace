@@ -1,9 +1,6 @@
 // WP-55 AI 메모리 공용 규칙 — 서버 오류 코드(ErrorResponse.errors.code) 해석과 사용자 문구.
 // handleApiError 는 errors 의 첫 값(코드 문자열)을 토스트로 띄우므로 메모리 오류는 이 코드로 문구를 고른다.
-import axios from 'axios';
-
-import { extractApiError } from '@/lib/api-error';
-import type { ErrorResponse } from '@/types/auth';
+import { apiErrorResponse, extractApiError, extractApiErrorCode } from '@/lib/api-error';
 
 /** 되돌릴 대상이 이미 없을 때(GONE·NOT_FOUND). */
 export const UNDO_GONE_MESSAGE = '이미 지워진 메모리예요';
@@ -13,13 +10,6 @@ export const UNDO_CHANGED_MESSAGE = '그 뒤에 바뀐 메모리라 되돌리지
 export const UNDO_FULL_MESSAGE = '메모리가 가득 찼어요. 설정에서 정리해 주세요';
 /** 가득 참 토스트의 이동 경로. */
 export const MEMORY_SETTINGS_PATH = '/settings/assistant';
-
-/** 서버 메모리 오류 코드(AI_MEMORY_*) — 없으면 null. */
-export function memoryErrorCode(error: unknown): string | null {
-  if (!axios.isAxiosError(error)) return null;
-  const code = (error.response?.data as ErrorResponse | undefined)?.errors?.code;
-  return typeof code === 'string' ? code : null;
-}
 
 /** 사용자당 상한(서버 AiMemoryService.LIMIT 과 같다). */
 export const MEMORY_LIMIT = 50;
@@ -51,9 +41,7 @@ export function listCountTone(count: number): string {
 
 /** 저장 실패 문구 — 메모리 오류 코드가 있으면 서버 문구(errors 의 코드 문자열 대신), 아니면 공용 추출 규칙. */
 export function memoryErrorMessage(error: unknown, fallback: string): string {
-  if (memoryErrorCode(error) && axios.isAxiosError(error)) {
-    const message = (error.response?.data as ErrorResponse | undefined)?.message;
-    if (message) return message;
-  }
+  const message = apiErrorResponse(error)?.message;
+  if (message && extractApiErrorCode(error)) return message;
   return extractApiError(error, fallback);
 }

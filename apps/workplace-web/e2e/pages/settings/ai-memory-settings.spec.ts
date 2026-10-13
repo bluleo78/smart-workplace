@@ -2,27 +2,19 @@
 // 모두 지우기 확인, 스위치 꺼짐(흐림 + 편집 가능), 빈 상태, 45개 주황·50개 가득 참, 저장 실패 토스트.
 import type { Page } from '@playwright/test'
 
-import { memoryItem, mockAiMemories } from '../../fixtures/ai-memory-mock'
+import { memoryItem, mockAiMemories, openMemorySettings } from '../../fixtures/ai-memory-mock'
 import { mockAiPreferences } from '../../fixtures/ai-suggestions-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
-import { mockMyAssistantStatus } from '../../fixtures/my-assistant-mock'
 import { gate, stableBox } from '../../fixtures/wait'
 
 const rows = (page: Page) => page.getByTestId('ai-memory-row')
-
-/** 개인 비서 없음 + 설정 화면 진입. */
-async function openSettings(page: Page) {
-  await mockMyAssistantStatus(page, () => ({ configured: false, provider: null, model: null, suggestionModelAuto: null }))
-  await page.goto('/settings/assistant')
-  await expect(page.getByTestId('ai-memory-card')).toBeVisible()
-}
 
 test('추천 질문 카드 아래·개인 비서 위에 최신순 목록과 배지·메타·카운트가 보인다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
   await mockAiMemories(page, [
     memoryItem(3, { kind: 'CONTEXT', content: '백엔드 팀이고 주로 WP 프로젝트를 본다', source: 'USER', updatedAt: '2026-10-13T12:00:00Z' }),
     memoryItem(2, { content: '이슈 목록은 짧은 목록으로 보여 준다', updatedAt: '2026-10-12T12:00:00Z' }),
   ])
-  await openSettings(page)
+  await openMemorySettings(page)
   const card = page.getByTestId('ai-memory-card')
   await expect(card).toContainText('대화에서 알려 준 선호·교정과 업무 맥락을 기억해 다음 대화에 반영해요. 나만 볼 수 있어요.')
   const suggestion = await stableBox(page.getByTestId('ai-suggestions-card'))
@@ -44,13 +36,13 @@ test('추천 질문 카드 아래·개인 비서 위에 최신순 목록과 배�
 
 test('제자리에서 고치면 PATCH 를 보내고 맨 위로 올라간다 — 취소하면 원래대로', async ({ authenticatedPage: page }) => {
   const mock = await mockAiMemories(page, [memoryItem(3, { content: '첫째' }), memoryItem(2, { content: '둘째' })])
-  await openSettings(page)
+  await openMemorySettings(page)
   const second = rows(page).nth(1)
   await second.getByTestId('ai-memory-edit').click()
   await expect(page.getByTestId('ai-memory-edit-input')).toHaveValue('둘째')
   await page.getByTestId('ai-memory-edit-input').fill('둘째를 고침')
   await expect(page.getByTestId('ai-memory-edit-count')).toHaveText('6 / 300')
-  await page.getByTestId('ai-memory-edit-save').click()
+  await page.getByTestId('ai-memory-edit-submit').click()
   await mock.updates.waitFor()
   expect(mock.updates.lastBody()).toEqual({ content: '둘째를 고침' })
   expect(mock.updates.lastUrl()?.pathname).toBe('/api/v1/users/me/ai-memories/2')
@@ -67,7 +59,7 @@ test('제자리에서 고치면 PATCH 를 보내고 맨 위로 올라간다 — 
 // F-j: 추가 폼과 행 고치기를 함께 열어도 두 입력란의 접근성 이름이 다르다.
 test('추가 폼과 제자리 고치기 입력란은 서로 다른 이름으로 읽힌다', async ({ authenticatedPage: page }) => {
   await mockAiMemories(page, [memoryItem(3, { content: '첫째' })])
-  await openSettings(page)
+  await openMemorySettings(page)
   await page.getByTestId('ai-memory-add').click()
   await rows(page).first().getByTestId('ai-memory-edit').click()
   await expect(page.getByRole('textbox', { name: '기억할 내용', exact: true })).toHaveCount(1)
@@ -76,22 +68,22 @@ test('추가 폼과 제자리 고치기 입력란은 서로 다른 이름으로 
 
 test('300자를 넘기면 카운트가 빨갛고 저장이 막히며 내용을 자르지 않는다', async ({ authenticatedPage: page }) => {
   await mockAiMemories(page, [memoryItem(3, { content: '첫째' })])
-  await openSettings(page)
+  await openMemorySettings(page)
   await rows(page).first().getByTestId('ai-memory-edit').click()
   const input = page.getByTestId('ai-memory-edit-input')
   await input.fill('😀'.repeat(300))
   await expect(page.getByTestId('ai-memory-edit-count')).toHaveText('300 / 300')
-  await expect(page.getByTestId('ai-memory-edit-save')).toBeEnabled()
+  await expect(page.getByTestId('ai-memory-edit-submit')).toBeEnabled()
   await input.fill('😀'.repeat(301))
   await expect(page.getByTestId('ai-memory-edit-count')).toHaveText('301 / 300')
   await expect(page.getByTestId('ai-memory-edit-count')).toHaveClass(/text-destructive/)
-  await expect(page.getByTestId('ai-memory-edit-save')).toBeDisabled()
+  await expect(page.getByTestId('ai-memory-edit-submit')).toBeDisabled()
   expect([...(await input.inputValue())].length).toBe(301)
 })
 
 test('지우면 바로 사라지고 토스트의 되돌리기로 같은 종류·내용을 다시 만든다', async ({ authenticatedPage: page }) => {
   const mock = await mockAiMemories(page, [memoryItem(3, { kind: 'CONTEXT', content: '백엔드 팀이다' }), memoryItem(2, { content: '둘째' })])
-  await openSettings(page)
+  await openMemorySettings(page)
   await rows(page).first().getByTestId('ai-memory-delete').click()
   await mock.deletes.waitFor()
   expect(mock.deletes.lastUrl()?.pathname).toBe('/api/v1/users/me/ai-memories/3')
@@ -107,7 +99,7 @@ test('지우면 바로 사라지고 토스트의 되돌리기로 같은 종류·
 // CR9: 되돌리기는 직접 추가 경로를 그대로 쓴다 — 지운 행이 사라진(언마운트된) 뒤에도 실패 토스트(서버 문구)가 뜨고 목록은 그대로다.
 test('삭제 토스트의 되돌리기가 실패하면 서버 문구 토스트를 띄우고 목록은 그대로다', async ({ authenticatedPage: page }) => {
   const mock = await mockAiMemories(page, [memoryItem(3, { content: '백엔드 팀이다' }), memoryItem(2, { content: '둘째' })])
-  await openSettings(page)
+  await openMemorySettings(page)
   await rows(page).first().getByTestId('ai-memory-delete').click()
   await mock.deletes.waitFor()
   await expect(rows(page)).toHaveCount(1)
@@ -121,7 +113,7 @@ test('삭제 토스트의 되돌리기가 실패하면 서버 문구 토스트�
 
 test('직접 추가 폼은 목록 맨 위에 열리고, 빈 값·초과면 막히며, 고른 종류로 추가한다', async ({ authenticatedPage: page }) => {
   const mock = await mockAiMemories(page, [memoryItem(3, { content: '첫째' })])
-  await openSettings(page)
+  await openMemorySettings(page)
   await page.getByTestId('ai-memory-add').click()
   const form = page.getByTestId('ai-memory-add-form')
   const formBox = await stableBox(form)
@@ -149,7 +141,7 @@ test('직접 추가 폼은 목록 맨 위에 열리고, 빈 값·초과면 막�
 
 test('모두 지우기는 개수를 알려 주는 확인 뒤에만 지우고, 지우면 빈 상태가 된다', async ({ authenticatedPage: page }) => {
   const mock = await mockAiMemories(page, [memoryItem(3), memoryItem(2), memoryItem(1)])
-  await openSettings(page)
+  await openMemorySettings(page)
   await page.getByTestId('ai-memory-clear').click()
   const dialog = page.getByTestId('ai-memory-clear-dialog')
   await expect(dialog).toContainText('메모리를 모두 지울까요?')
@@ -169,7 +161,7 @@ test('모두 지우기는 개수를 알려 주는 확인 뒤에만 지우고, �
 test('스위치를 끄면 false 를 저장하고 목록이 흐려지지만 편집은 그대로 된다', async ({ authenticatedPage: page }) => {
   const puts = await mockAiPreferences(page, true)
   await mockAiMemories(page, [memoryItem(3, { content: '첫째' })])
-  await openSettings(page)
+  await openMemorySettings(page)
   await page.getByTestId('ai-memory-toggle').click()
   await puts.waitFor()
   expect(puts.lastBody()).toEqual({ memoryEnabled: false })
@@ -187,7 +179,7 @@ test('두 스위치를 연달아 바꿔도 늦게 온 응답이 다른 스위치
   const hold = gate()
   const puts = await mockAiPreferences(page, true, { holdFirstPut: hold.p })
   await mockAiMemories(page, [])
-  await openSettings(page)
+  await openMemorySettings(page)
   await page.getByTestId('ai-suggestions-toggle').click()
   await puts.waitFor(1)
   await page.getByTestId('ai-memory-toggle').click()
@@ -203,7 +195,7 @@ test('두 스위치를 연달아 바꿔도 늦게 온 응답이 다른 스위치
 
 test('비어 있으면 안내 문구와 0 / 50 을 보이고 모두 지우기는 없다', async ({ authenticatedPage: page }) => {
   await mockAiMemories(page, [])
-  await openSettings(page)
+  await openMemorySettings(page)
   await expect(page.getByTestId('ai-memory-empty')).toHaveText(
     "아직 기억한 내용이 없어요. 대화에서 '앞으로는 ~해줘'라고 말하거나 직접 추가해 보세요.",
   )
@@ -215,7 +207,7 @@ const many = (n: number) => Array.from({ length: n }, (_, i) => memoryItem(n - i
 
 test('45개면 카운트가 주황이고 추가는 된다', async ({ authenticatedPage: page }) => {
   await mockAiMemories(page, many(45))
-  await openSettings(page)
+  await openMemorySettings(page)
   await expect(page.getByTestId('ai-memory-count')).toHaveText('45 / 50')
   await expect(page.getByTestId('ai-memory-count')).toHaveClass(/text-warning-text/)
   await expect(page.getByTestId('ai-memory-add')).toBeEnabled()
@@ -224,7 +216,7 @@ test('45개면 카운트가 주황이고 추가는 된다', async ({ authenticat
 
 test('50개면 추가가 막히고 가득 참 경고가 보인다', async ({ authenticatedPage: page }) => {
   await mockAiMemories(page, many(50))
-  await openSettings(page)
+  await openMemorySettings(page)
   await expect(page.getByTestId('ai-memory-count')).toHaveText('50 / 50')
   await expect(page.getByTestId('ai-memory-add')).toBeDisabled()
   await expect(page.getByTestId('ai-memory-full')).toHaveText(
@@ -234,7 +226,7 @@ test('50개면 추가가 막히고 가득 참 경고가 보인다', async ({ aut
 
 test('저장이 거절되면 서버 사유를 토스트로 보이고 폼을 닫지 않는다', async ({ authenticatedPage: page }) => {
   const mock = await mockAiMemories(page, [memoryItem(3)])
-  await openSettings(page)
+  await openMemorySettings(page)
   mock.failNext(409, 'AI_MEMORY_FULL', '메모리가 가득 찼어요(최대 50개). 필요 없는 항목을 지워 주세요')
   await page.getByTestId('ai-memory-add').click()
   await page.getByTestId('ai-memory-add-input').fill('새 메모리')
@@ -246,7 +238,7 @@ test('저장이 거절되면 서버 사유를 토스트로 보이고 폼을 닫�
 // 쓰기가 끝나도 목록을 다시 읽기 전에는 지운 줄이 남아 있다 — 그 사이 삭제 버튼이 잠겨 두 번째 DELETE(404)가 나가지 않는다.
 test('삭제 뒤 목록이 갱신되기 전에는 삭제 버튼이 잠겨 두 번째 요청이 나가지 않는다', async ({ authenticatedPage: page }) => {
   const mock = await mockAiMemories(page, [memoryItem(3, { content: '첫째' }), memoryItem(2, { content: '둘째' })])
-  await openSettings(page)
+  await openMemorySettings(page)
   const list = gate()
   mock.holdNextList(list.p)
   const del = rows(page).first().getByTestId('ai-memory-delete')
@@ -264,14 +256,14 @@ test('삭제 뒤 목록이 갱신되기 전에는 삭제 버튼이 잠겨 두 �
 // 고치기·추가도 목록을 다시 읽은 뒤에 닫힌다 — 닫힌 순간 옛 내용·옛 자리가 보이지 않는다.
 test('고치기는 목록이 갱신될 때까지 편집기를 열어 두고 저장 버튼을 잠근다', async ({ authenticatedPage: page }) => {
   const mock = await mockAiMemories(page, [memoryItem(3, { content: '첫째' }), memoryItem(2, { content: '둘째' })])
-  await openSettings(page)
+  await openMemorySettings(page)
   const list = gate()
   await rows(page).nth(1).getByTestId('ai-memory-edit').click()
   await page.getByTestId('ai-memory-edit-input').fill('둘째를 고침')
   mock.holdNextList(list.p)
-  await page.getByTestId('ai-memory-edit-save').click()
+  await page.getByTestId('ai-memory-edit-submit').click()
   await mock.updates.waitFor()
-  await expect(page.getByTestId('ai-memory-edit-save')).toBeDisabled()
+  await expect(page.getByTestId('ai-memory-edit-submit')).toBeDisabled()
   await expect(page.getByTestId('ai-memory-edit-input')).toBeVisible()
   list.release()
   await expect(page.getByTestId('ai-memory-edit-input')).toHaveCount(0)
@@ -280,7 +272,7 @@ test('고치기는 목록이 갱신될 때까지 편집기를 열어 두고 저�
 
 test('모두 지우기 확인 버튼은 요청 중 잠긴다', async ({ authenticatedPage: page }) => {
   const mock = await mockAiMemories(page, [memoryItem(3), memoryItem(2)])
-  await openSettings(page)
+  await openMemorySettings(page)
   const list = gate()
   await page.getByTestId('ai-memory-clear').click()
   mock.holdNextList(list.p)

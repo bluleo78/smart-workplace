@@ -1,7 +1,7 @@
 import { AxiosError, AxiosHeaders } from 'axios';
 import { describe, expect, it } from 'vitest';
 
-import { canSubmitContent, contentCountTone, listCountTone, memoryErrorCode, memoryErrorMessage, memoryLength } from './aiMemory';
+import { canSubmitContent, contentCountTone, listCountTone, memoryErrorMessage, memoryLength } from './aiMemory';
 
 /** 서버 ErrorResponse 를 실은 axios 오류. */
 function apiError(status: number, data: unknown): AxiosError {
@@ -10,17 +10,6 @@ function apiError(status: number, data: unknown): AxiosError {
     status, statusText: '', headers, config: { headers }, data,
   });
 }
-
-describe('memoryErrorCode (WP-55)', () => {
-  it('ErrorResponse.errors.code 를 꺼낸다', () => {
-    expect(memoryErrorCode(apiError(409, { message: 'x', errors: { code: 'AI_MEMORY_FULL' } }))).toBe('AI_MEMORY_FULL');
-    expect(memoryErrorCode(apiError(404, { message: 'x', errors: { code: 'AI_MEMORY_GONE' } }))).toBe('AI_MEMORY_GONE');
-  });
-  it('코드가 없거나 axios 오류가 아니면 null', () => {
-    expect(memoryErrorCode(apiError(500, { message: 'x' }))).toBeNull();
-    expect(memoryErrorCode(new Error('x'))).toBeNull();
-  });
-});
 
 // Review Focus 3: 서버(코드포인트 300)와 같은 기준 — 이모지 한 개는 한 글자, 자르지 않고 막기만 한다.
 describe('메모리 길이·카운트 (WP-55)', () => {

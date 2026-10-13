@@ -18,16 +18,16 @@ interface Props {
   placeholder?: string;
   /** 입력란 접근성 이름 — 추가 폼과 행 고치기가 함께 열려도 구분되게 화면마다 다르게 준다. */
   ariaLabel: string;
-  /** 화면별 테스트 식별자(입력·카운트·제출). */
-  testIds: { input: string; count: string; submit: string };
+  /** 화면별 테스트 식별자 접두 — `{접두}-input`·`-count`·`-submit`. */
+  testIdPrefix: string;
 }
 
-export function AiMemoryContentEditor({ value, onChange, onCancel, onSubmit, submitLabel, pending, rows, placeholder, ariaLabel, testIds }: Props) {
+export function AiMemoryContentEditor({ value, onChange, onCancel, onSubmit, submitLabel, pending, rows, placeholder, ariaLabel, testIdPrefix }: Props) {
   const len = memoryLength(value);
   return (
     <>
       <Textarea
-        data-testid={testIds.input}
+        data-testid={`${testIdPrefix}-input`}
         aria-label={ariaLabel}
         rows={rows}
         autoFocus
@@ -36,13 +36,13 @@ export function AiMemoryContentEditor({ value, onChange, onCancel, onSubmit, sub
         onChange={(e) => onChange(e.target.value)}
       />
       <div className="flex items-center gap-2">
-        <span data-testid={testIds.count} className={cn('text-xs tabular-nums', contentCountTone(len))}>
+        <span data-testid={`${testIdPrefix}-count`} className={cn('text-xs tabular-nums', contentCountTone(len))}>
           {len} / {MEMORY_MAX_CHARS}
         </span>
         <Button variant="ghost" size="sm" className="ml-auto pointer-coarse:min-h-11" onClick={onCancel}>
           취소
         </Button>
-        <Button size="sm" className="pointer-coarse:min-h-11" data-testid={testIds.submit} disabled={!canSubmitContent(value) || pending} onClick={onSubmit}>
+        <Button size="sm" className="pointer-coarse:min-h-11" data-testid={`${testIdPrefix}-submit`} disabled={!canSubmitContent(value) || pending} onClick={onSubmit}>
           {submitLabel}
         </Button>
       </div>

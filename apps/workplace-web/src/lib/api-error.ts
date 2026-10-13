@@ -18,22 +18,32 @@ function pickBestMessage(errData: ErrorResponse, fallback: string): string {
 }
 
 /**
+ * Axios 에러의 백엔드 ErrorResponse 본문 — Axios 에러가 아니거나 본문이 없으면 null.
+ * responseType: 'blob' 요청의 에러 응답은 Blob 형태로 오는데, 동기 콘텍스트에서는 읽을 수 없어 null 이다(비동기 변환은 extractApiErrorAsync).
+ */
+export function apiErrorResponse(error: unknown): ErrorResponse | null {
+  if (!axios.isAxiosError(error) || !error.response?.data) return null;
+  const data = error.response.data;
+  return data instanceof Blob ? null : (data as ErrorResponse);
+}
+
+/**
  * Axios 에러에서 백엔드 ErrorResponse.message를 추출한다.
  * responseType: 'blob' 요청에서 서버가 에러를 반환하면 error.response.data가
  * Blob 형태로 오므로, 이를 텍스트로 읽어 JSON 파싱을 시도한다.
  */
 export function extractApiError(error: unknown, fallback: string): string {
-  if (axios.isAxiosError(error) && error.response?.data) {
-    const data = error.response.data;
-    // responseType: 'blob' 요청의 에러 응답은 Blob 형태로 전달된다
-    if (data instanceof Blob) {
-      // 동기 콘텍스트에서는 fallback 반환 — 비동기 변환은 extractApiErrorAsync 사용
-      return fallback;
-    }
-    const errData = data as ErrorResponse;
-    return pickBestMessage(errData, fallback);
-  }
-  return fallback;
+  const errData = apiErrorResponse(error);
+  return errData ? pickBestMessage(errData, fallback) : fallback;
+}
+
+/**
+ * 백엔드 도메인 오류 코드(ErrorResponse.errors.code — 예: AI_MEMORY_FULL) — 없으면 null.
+ * 문구 대신 코드로 분기해야 하는 화면(메모리 되돌리기 토스트 등)이 쓴다.
+ */
+export function extractApiErrorCode(error: unknown): string | null {
+  const code = apiErrorResponse(error)?.errors?.code;
+  return typeof code === 'string' ? code : null;
 }
 
 /**

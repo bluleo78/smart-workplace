@@ -49,7 +49,7 @@ export function AiMemoryRow({ item }: { item: AiMemoryItem }) {
             pending={update.isPending}
             rows={2}
             ariaLabel="메모리 내용"
-            testIds={{ input: 'ai-memory-edit-input', count: 'ai-memory-edit-count', submit: 'ai-memory-edit-save' }}
+            testIdPrefix="ai-memory-edit"
           />
         </div>
       ) : (

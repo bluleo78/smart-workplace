@@ -7,13 +7,12 @@ import { clearAiMemories, createAiMemory, deleteAiMemory, listAiMemories, undoAi
 import { chatStreams } from '../../lib/ai/chatStreams';
 import {
   MEMORY_SETTINGS_PATH,
-  memoryErrorCode,
   memoryErrorMessage,
   UNDO_CHANGED_MESSAGE,
   UNDO_FULL_MESSAGE,
   UNDO_GONE_MESSAGE,
 } from '../../lib/aiMemory';
-import { handleApiError } from '../../lib/api-error';
+import { extractApiErrorCode, handleApiError } from '../../lib/api-error';
 import type { AiMemoryItem, AiMemoryKind, UndoAiMemoryRequest } from '../../types/aiMemory';
 import { useAuth } from '../useAuth';
 
@@ -48,7 +47,7 @@ export function useUndoAiMemory() {
       void invalidate();
     },
     onError: (e) => {
-      const code = memoryErrorCode(e);
+      const code = extractApiErrorCode(e);
       if (code === 'AI_MEMORY_FULL') {
         // 설정으로 이동하는 action 토스트라 기본(약 4초)보다 오래 둔다 — 읽고 누를 시간을 준다.
         toast.error(UNDO_FULL_MESSAGE, {
