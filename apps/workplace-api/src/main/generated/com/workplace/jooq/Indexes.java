@@ -30,6 +30,7 @@ import com.workplace.jooq.tables.DriveShareLink;
 import com.workplace.jooq.tables.DriveShareLinkAttempts;
 import com.workplace.jooq.tables.DriveSpace;
 import com.workplace.jooq.tables.DriveSpaceMember;
+import com.workplace.jooq.tables.DriveTransferLink;
 import com.workplace.jooq.tables.EmailAccount;
 import com.workplace.jooq.tables.EmailAttachment;
 import com.workplace.jooq.tables.EmailContent;
@@ -170,6 +171,8 @@ public class Indexes {
     public static final Index IDX_DRIVE_SHARE_LINK_TENANT = Internal.createIndex(DSL.name("idx_drive_share_link_tenant"), DriveShareLink.DRIVE_SHARE_LINK, new OrderField[] { DriveShareLink.DRIVE_SHARE_LINK.TENANT_ID }, false);
     public static final Index IDX_DRIVE_SPACE_MEMBER_TENANT = Internal.createIndex(DSL.name("idx_drive_space_member_tenant"), DriveSpaceMember.DRIVE_SPACE_MEMBER, new OrderField[] { DriveSpaceMember.DRIVE_SPACE_MEMBER.TENANT_ID }, false);
     public static final Index IDX_DRIVE_SPACE_TENANT = Internal.createIndex(DSL.name("idx_drive_space_tenant"), DriveSpace.DRIVE_SPACE, new OrderField[] { DriveSpace.DRIVE_SPACE.TENANT_ID }, false);
+    public static final Index IDX_DRIVE_TRANSFER_LINK_TENANT = Internal.createIndex(DSL.name("idx_drive_transfer_link_tenant"), DriveTransferLink.DRIVE_TRANSFER_LINK, new OrderField[] { DriveTransferLink.DRIVE_TRANSFER_LINK.TENANT_ID }, false);
+    public static final Index IDX_DRIVE_TRANSFER_LINK_USER_EXPIRES = Internal.createIndex(DSL.name("idx_drive_transfer_link_user_expires"), DriveTransferLink.DRIVE_TRANSFER_LINK, new OrderField[] { DriveTransferLink.DRIVE_TRANSFER_LINK.USER_ID, DriveTransferLink.DRIVE_TRANSFER_LINK.EXPIRES_AT }, false);
     public static final Index IDX_EMAIL_ACCOUNT_TENANT = Internal.createIndex(DSL.name("idx_email_account_tenant"), EmailAccount.EMAIL_ACCOUNT, new OrderField[] { EmailAccount.EMAIL_ACCOUNT.TENANT_ID }, false);
     public static final Index IDX_EMAIL_ACCOUNT_USER = Internal.createIndex(DSL.name("idx_email_account_user"), EmailAccount.EMAIL_ACCOUNT, new OrderField[] { EmailAccount.EMAIL_ACCOUNT.USER_ID }, false);
     public static final Index IDX_EMAIL_ATTACHMENT_CONTENT_ATT = Internal.createIndex(DSL.name("idx_email_attachment_content_att"), EmailAttachment.EMAIL_ATTACHMENT, new OrderField[] { EmailAttachment.EMAIL_ATTACHMENT.CONTENT_ATTACHMENT_ID }, false);
@@ -309,6 +312,7 @@ public class Indexes {
     public static final Index UQ_DRIVE_SHARE_LINK_TOKEN = Internal.createIndex(DSL.name("uq_drive_share_link_token"), DriveShareLink.DRIVE_SHARE_LINK, new OrderField[] { DriveShareLink.DRIVE_SHARE_LINK.TOKEN_HASH }, true);
     public static final Index UQ_DRIVE_SPACE_CHANNEL = Internal.createIndex(DSL.name("uq_drive_space_channel"), DriveSpace.DRIVE_SPACE, new OrderField[] { DriveSpace.DRIVE_SPACE.LINKED_CHANNEL_ID }, true);
     public static final Index UQ_DRIVE_SPACE_PERSONAL_OWNER = Internal.createIndex(DSL.name("uq_drive_space_personal_owner"), DriveSpace.DRIVE_SPACE, new OrderField[] { DriveSpace.DRIVE_SPACE.TENANT_ID, DriveSpace.DRIVE_SPACE.OWNER_ID }, true);
+    public static final Index UQ_DRIVE_TRANSFER_LINK_TOKEN = Internal.createIndex(DSL.name("uq_drive_transfer_link_token"), DriveTransferLink.DRIVE_TRANSFER_LINK, new OrderField[] { DriveTransferLink.DRIVE_TRANSFER_LINK.TOKEN_HASH }, true);
     public static final Index UQ_EMAIL_ACCOUNT_USER_ADDR = Internal.createIndex(DSL.name("uq_email_account_user_addr"), EmailAccount.EMAIL_ACCOUNT, new OrderField[] { EmailAccount.EMAIL_ACCOUNT.TENANT_ID, EmailAccount.EMAIL_ACCOUNT.USER_ID, EmailAccount.EMAIL_ACCOUNT.EMAIL_ADDRESS }, true);
     public static final Index UQ_EVENT_EXTERNAL = Internal.createIndex(DSL.name("uq_event_external"), CalendarEvent.CALENDAR_EVENT, new OrderField[] { CalendarEvent.CALENDAR_EVENT.CALENDAR_ID, CalendarEvent.CALENDAR_EVENT.EXTERNAL_ID }, true);
     public static final Index UQ_PROJECT_DEFAULT_PERSONAL = Internal.createIndex(DSL.name("uq_project_default_personal"), Project.PROJECT, new OrderField[] { Project.PROJECT.OWNER_ID }, true);

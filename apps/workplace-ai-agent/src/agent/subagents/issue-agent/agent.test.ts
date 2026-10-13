@@ -16,7 +16,7 @@ describe('issue-agent 정의', () => {
     expect(loaded['issue-agent'].tools).toEqual([
       'mcp__workplace__list_issues',
       'mcp__workplace__get_issue_detail',
-      'mcp__workplace__read_attachment', // WP-346: 이슈 첨부 본문(추출 텍스트 구간)·이미지 읽기
+      'mcp__workplace__read_file', // WP-346: 이슈 첨부 본문(추출 텍스트 구간)·이미지 읽기
       'mcp__workplace__add_comment',
       'mcp__workplace__update_comment',
       'mcp__workplace__create_issue',
@@ -50,9 +50,9 @@ describe('issue-agent 정의', () => {
   });
 
   // WP-346: 첨부는 get_issue_detail 의 attachments[].attachmentId 로 source "issue" 읽기(WP-353: fileId → attachmentId).
-  it('본문이 read_attachment 를 source "issue" + issueKey + attachmentId 로 안내한다', () => {
+  it('본문이 read_file 을 source "issue" + issueKey + attachmentId 로 안내한다', () => {
     const prompt = loaded['issue-agent'].prompt;
-    expect(prompt).toContain('read_attachment(source="issue", issueKey, attachmentId, offset?, limit?)');
+    expect(prompt).toContain('read_file(source="issue", issueKey, attachmentId, offset?, limit?)');
     expect(prompt).toContain('attachments[].attachmentId');
   });
 

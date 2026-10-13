@@ -25,6 +25,9 @@ app:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:}
 
 workplace:
+  # 공개 웹 주소(WP-369 전송 링크). 기본값 없음 — 비었거나 localhost 면 PublicBaseUrlCheck 가 기동을 막는다.
+  # k8s 는 ConfigMap WEB_BASE_URL 을 envFrom 으로 주입한다.
+  public-base-url: ${WEB_BASE_URL:}
   ai-agent:
     # 내부망 서비스명으로 ai-agent 호출. internal-token 은 base 에서 ${WORKPLACE_AI_AGENT_TOKEN}.
     base-url: ${WORKPLACE_AI_AGENT_URL:http://ai-agent:7070}

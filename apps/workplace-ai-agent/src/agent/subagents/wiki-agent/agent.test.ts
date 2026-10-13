@@ -15,7 +15,7 @@ describe('wiki-agent 정의', () => {
       'mcp__workplace__list_wiki_spaces',
       'mcp__workplace__search_wiki',
       'mcp__workplace__get_wiki_page',
-      'mcp__workplace__read_attachment', // WP-358: 본문 이미지 읽기
+      'mcp__workplace__read_file', // WP-358: 본문 이미지 읽기
       'mcp__workplace__list_wiki_pages', // #850: 페이지 트리
       'mcp__workplace__list_wiki_backlinks', // #850: 백링크
       'mcp__workplace__create_wiki_page',
@@ -59,10 +59,10 @@ describe('wiki-agent 정의', () => {
     expect(prompt).toContain('일부만 봤다고 밝힙니다');
   });
 
-  // WP-358: 노트 첨부는 지금 이미지뿐이라 read_attachment(source="wiki")가 이미지를 돌려준다. id 는 본문의 이미지 주소에서 얻는다.
-  it('read_attachment 를 source "wiki" + pageId·attachmentId(본문 이미지 주소)로 안내하고 추측을 금한다 (WP-358)', () => {
+  // WP-358: 노트 첨부는 지금 이미지뿐이라 read_file(source="wiki")가 이미지를 돌려준다. id 는 본문의 이미지 주소에서 얻는다.
+  it('read_file 을 source "wiki" + pageId·attachmentId(본문 이미지 주소)로 안내하고 추측을 금한다 (WP-358)', () => {
     const prompt = loaded['wiki-agent'].prompt;
-    expect(prompt).toContain('read_attachment(source="wiki", pageId, attachmentId)');
+    expect(prompt).toContain('read_file(source="wiki", pageId, attachmentId)');
     expect(prompt).toContain('/api/v1/wiki/pages/{pageId}/attachments/{attachmentId}/content');
     expect(prompt).toContain('추측하지 말고');
   });

@@ -5,6 +5,7 @@ import {
   addChannelMemberInput,
   addProjectMemberInput,
   buildSharedTools,
+  CREATE_DRIVE_FILE_CONTENT_DESCRIPTION,
   createProjectInput,
   issueListFilterShape,
   listConflicts as listConflictsShared,
@@ -55,8 +56,8 @@ const getChatThreadInput = z.object({
 
 // WP-244: 이슈 챗 첨부 추출 텍스트 구간 읽기 입력 — 이슈 첨부·챗 메시지 첨부 모두 스레드 경유(threadId + fileId)로 읽는다.
 // (예전 issueKey 분기는 실행 스레드에 묶을 수 없고 프롬프트도 더는 쓰지 않아 제거했다.)
-// WP-346: offset/limit 범위·기본 길이는 공유 read_attachment·메인 채팅 read_chat_attachment 와 같은 정의(공유 attachment-read).
-// 공유 read_attachment(source:'issue')로 대체하지 않는 이유: 이슈 챗에 멘션된 AGENT 는 프로젝트 비멤버라 이슈 첨부 API 가 403 이고,
+// WP-346: offset/limit 범위·기본 길이는 공유 read_file·메인 채팅 read_chat_attachment 와 같은 정의(공유 attachment-read).
+// 공유 read_file(source:'issue')로 대체하지 않는 이유: 이슈 챗에 멘션된 AGENT 는 프로젝트 비멤버라 이슈 첨부 API 가 403 이고,
 // 챗 메시지 첨부는 이슈 첨부도 드라이브 파일도 아니다 — 스레드 경유만 둘 다 읽는다.
 const readChatThreadAttachmentInput = z.object({
   fileId: z.number().int().positive(),
@@ -301,7 +302,7 @@ export const ASSISTANT_ROUTER_TOOLS: readonly string[] = [
   // 홈 현황(WP-357) — 우선순위·메일/메시징 요약·활동·스레드 인박스. 도메인 하나로 정해지지 않는 "오늘 뭐부터?" 질문을 라우터가 직접 읽는다(show_activity·show_my_tasks 는 화면 표시 전용)
   'get_home_overview',
   // 첨부 읽기 — 이 대화의 첨부(WP-234)·이슈 첨부/드라이브 파일 본문(WP-346)
-  'read_chat_attachment', 'read_attachment',
+  'read_chat_attachment', 'read_file',
   // 표시 위젯
   'show_my_tasks', 'show_issue_list', 'show_issue_detail', 'show_activity', 'show_mail_list',
   'show_calendar', 'show_event', 'show_channels', 'show_wiki', 'show_wiki_page',
@@ -389,6 +390,28 @@ export function buildTools(
       sharedTool('list_issues').description,
   };
 
+  // WP-369 R6: 파일 올리기(공유본)의 AI Chat 판 — content 모드만 허용한다. 웹 AI Chat 사용자에게는 셸이 없어 업로드 링크(curl -T)를
+  // 쓸 수 없고, 쓸 수 없는 로그인 없는 링크를 대화에 남길 이유도 없다. 입력 스키마는 공유본 그대로(패리티 테스트는 스키마만 비교한다),
+  // content 가 없으면 새 파일(spaceId+name)이든 기존 파일의 새 버전(driveFileId)이든 API 를 부르지 않고 오류로 안내한다.
+  // 설명은 한국어 머리말 + 공유 설명의 content 모드 부분만 쓴다 — 공유본의 링크·curl 안내는 여기서 쓸 수 없는 지시라 모델을 헷갈리게 하고 토큰만 든다.
+  const sharedCreateDriveFile = sharedTool('create_drive_file');
+  const createDriveFileTool: McpTool = {
+    ...sharedCreateDriveFile,
+    description:
+      'AI Chat 에서는 content(직접 쓴 텍스트)로 새 파일을 만들거나 기존 텍스트 파일을 driveFileId+content 로 고칠 때만 쓰세요. 업로드 링크(content 생략)는 ' +
+      '만들 수 없습니다 — 사용자의 로컬 파일은 웹 드라이브 화면에서 직접 올리라고 안내하세요. ' +
+      CREATE_DRIVE_FILE_CONTENT_DESCRIPTION,
+    async handler(args) {
+      const content = (args as { content?: unknown } | null)?.content;
+      if (content == null) {
+        throw new Error(
+          'AI Chat 에서는 업로드 링크를 만들 수 없습니다. 저장할 내용을 content 로 넘겨 파일을 만들거나 고치고, 로컬 파일은 웹 드라이브 화면에서 직접 올리라고 안내하세요.',
+        );
+      }
+      return sharedCreateDriveFile.handler(args);
+    },
+  };
+
   if (profile === 'chat') {
     // #433: 단일 이벤트 처리 중 add_chat_message 중복 호출 방지.
     // buildTools 클로저가 run 단위로 격리돼야 성립한다 — Claude 는 실행마다 인-프로세스 서버를 새로 만들고,
@@ -418,7 +441,7 @@ export function buildTools(
         },
       },
       {
-        // WP-346: 옛 이름 read_attachment_text — 공유 read_attachment 와 헷갈리지 않게 범위(이슈 챗 스레드)를 이름에 드러냈다.
+        // WP-346: 옛 이름 read_attachment_text — 공유 read_file 과 헷갈리지 않게 범위(이슈 챗 스레드)를 이름에 드러냈다.
         name: 'read_chat_thread_attachment',
         description:
           '이 이슈 챗 스레드의 첨부파일 추출 텍스트를 구간 단위로 읽습니다. 프롬프트 첨부 섹션에 적힌 그대로 threadId 와 fileId 로 호출하세요(이슈 첨부·챗 첨부 공통). ' +
@@ -1167,9 +1190,12 @@ export function buildTools(
       // #850: 알림 인박스 — AI Chat 은 요청자(userId) 신원으로 호출하므로 사람의 알림을 본다(에이전트 신원 프로필엔 두지 않는다).
       sharedTool('list_notifications'), sharedTool('mark_notification_read'), sharedTool('mark_all_notifications_read'),
       sharedTool('get_home_overview'), // WP-357: 홈 현황 읽기 — 라우터 직접 도구(ASSISTANT_ROUTER_TOOLS)
-      sharedTool('create_drive_folder'), sharedTool('rename_drive_folder'), sharedTool('move_drive_folder'), sharedTool('move_drive_file'), // #333 M4: 드라이브 쓰기(직접 실행)
-      // WP-354: 파일 이름변경·복사·첨부 가져오기 — 확인 카드가 없는 되돌릴 수 있는 쓰기라 직접 실행(공유). 롤백은 확인 카드 대상이라 도구로 두지 않는다.
-      sharedTool('rename_drive_file'), sharedTool('copy_drive_item'), sharedTool('import_attachment_to_drive'),
+      // #333 M4: 드라이브 쓰기(직접 실행). WP-369: 파일·폴더 이름변경·이동은 rename_drive_item·move_drive_item 하나씩으로 합쳐졌다.
+      sharedTool('create_drive_folder'), sharedTool('rename_drive_item'), sharedTool('move_drive_item'),
+      // WP-354: 복사·첨부 가져오기 — 확인 카드가 없는 되돌릴 수 있는 쓰기라 직접 실행(공유). 롤백은 확인 카드 대상이라 도구로 두지 않는다.
+      sharedTool('copy_drive_item'), sharedTool('import_attachment_to_drive'),
+      // WP-369: 다운로드 링크·파일 올리기(공유) — 확인 카드가 없는 되돌릴 수 있는 쓰기라 직접 실행. write 라 라우터에 두지 않고 drive-agent 에만 둔다.
+      sharedTool('create_drive_download_link'), createDriveFileTool, // create_drive_file 은 content 모드만(R6)
       proposeDeleteFileTool, proposeDeleteFolderTool, // #333 M4: 드라이브 삭제 제안(confirm 필요)
       // #856: 참석자·프로젝트 멤버·채널 초대·이슈/코멘트/노트 삭제 제안(confirm 필요)
       proposeAddAttendeesTool, proposeRemoveAttendeeTool,
@@ -1188,7 +1214,7 @@ export function buildTools(
       sharedTool('create_issue_from_mail'), sharedTool('mark_mail_read'),
       buildReadChatAttachmentTool(client, agentId, homeSessionId), // WP-234: 메인 AI 채팅 첨부 읽기(세션 바인딩)
       // WP-346: 이슈 첨부·드라이브 파일 내용 읽기(공유) — AI Chat 은 요청자 신원이라 사람의 권한으로 읽는다(위의 세션 첨부와 다른 대상).
-      sharedTool('read_attachment'),
+      sharedTool('read_file'),
       submitResponseTool,        // #381: 서브에이전트 전용 — 최종 답변 구조화 제출(사이드카 기록)
       ...buildShowTools(),
       // #460 Layer2: 도메인 단순 조회 표시 위젯 — 위임(서브에이전트 nested loop, 느림) 대신 직접 표시.

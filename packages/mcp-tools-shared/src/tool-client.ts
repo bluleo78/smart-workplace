@@ -432,12 +432,59 @@ export interface DriveToolClient {
   copyDriveFile(driveFileId: number, targetFolderId: number | null): Promise<unknown>;
   /** POST /drive/folders/{id}/copy — 폴더와 하위 전부를 같은 스페이스의 targetParentId(null=루트) 밑으로 복사. 새 폴더 행 반환. */
   copyDriveFolder(folderId: number, targetParentId: number | null): Promise<unknown>;
-  /** GET /drive/files/{id}/versions — 최신 버전이 먼저 온다(version_no DESC). read_attachment 의 이미지 크기 확인과 같은 호출. */
+  /** GET /drive/files/{id}/versions — 최신 버전이 먼저 온다(version_no DESC). read_file 의 이미지 크기 확인과 같은 호출. */
   listDriveFileVersions(driveFileId: number): Promise<DriveFileVersionRow[]>;
   /** GET /drive/files/{id}/backlinks — 파일을 링크한 이슈·메시지 중 호출자가 볼 수 있는 것만. */
   listDriveFileBacklinks(driveFileId: number): Promise<DriveBacklinkRow[]>;
   /** POST /drive/spaces/{id}[/folders/{folderId}]/import-attachment — 이슈·채팅 첨부(core file id)를 드라이브 파일로 가져온다. 생성된 파일 행 반환. */
   importAttachmentToDrive(spaceId: number, folderId: number | null, fileId: number): Promise<unknown>;
+  /**
+   * POST /drive/files/{id}/download-link — VIEWER 이상. 로그인 없이 한 번만 받을 수 있는 10분짜리 서명 링크를 만든다(WP-369).
+   * 공개 GET 은 전송 전에 링크를 소비하고 Range 를 무시한다 — 끊기면 새 링크가 필요하다.
+   */
+  createDriveDownloadLink(driveFileId: number): Promise<DriveDownloadLink>;
+  /**
+   * POST /drive/spaces/{id}/upload-link — EDITOR 이상, folderId null=루트(폴더는 같은 공간). 한 번만 쓸 수 있는 10분짜리 PUT 링크(WP-369).
+   * name 은 서버가 정리해 링크에 묶는다(응답 name 이 실제 저장 이름). 같은 이름이 있으면 PUT 이 새 버전을 만든다.
+   */
+  createDriveUploadLink(spaceId: number, folderId: number | null, name: string): Promise<DriveUploadLink>;
+  /**
+   * POST /drive/spaces/{id}/files/text — EDITOR 이상. content(UTF-8, 10MB 이하)로 텍스트 파일을 만든다(WP-369).
+   * MIME 은 서버가 이름으로 정한다(md·txt·csv·json, 그 밖은 text/plain). 같은 이름이 있으면 새 버전 — 그때는 updateDriveTextFile 과 같은 규칙(텍스트가
+   * 아니거나 읽은 텍스트가 원문과 다르면 409, MIME 은 지금 형식 유지)이다. DriveFileResponse 원형 반환.
+   */
+  createDriveTextFile(spaceId: number, folderId: number | null, name: string, content: string): Promise<unknown>;
+  /**
+   * POST /drive/files/{id}/text — EDITOR 이상. 기존 드라이브 파일에 content 로 새 버전을 올린다(WP-369 Task 3). 200, DriveFileResponse 원형
+   * (id·이름·폴더 그대로, versionCount+1). 현재 버전이 텍스트가 아니면(pdf·docx 등), 또는 읽은 텍스트가 원문과 다르면(html 계열·UTF-8 아님·추출 잘림)
+   * 서버가 409(업로드 링크로 올리라는 안내). mimeType 은 보내지 않는다 — 서버가 지금 형식을 유지한다(xml 계열과 octet-stream 만 이름의 확장자로 다시 정한다).
+   */
+  updateDriveTextFile(driveFileId: number, content: string): Promise<unknown>;
+  /**
+   * POST /drive/files/{id}/upload-link — EDITOR 이상, 본문 없음. 그 파일에 묶인 일회용 10분 PUT 링크(201, 업로드 링크와 같은 모양).
+   * PUT 은 이름 검색 없이 그 파일의 새 버전이 되고, 이름·폴더는 그대로다(발급 뒤 이름이 바뀌어도 같은 파일).
+   */
+  createDriveVersionUploadLink(driveFileId: number): Promise<DriveUploadLink>;
+}
+
+/** 다운로드 링크 발급 응답(WP-369 서버 계약). 사용자 id 는 없다. */
+export interface DriveDownloadLink {
+  url: string;
+  expiresAt: string;
+  name: string;
+  sizeBytes: number;
+  mimeType: string;
+  singleUse: boolean;
+}
+
+/** 업로드 링크 발급 응답(WP-369 서버 계약). maxBytes 는 이름의 범주 상한과 25MB 중 작은 값, name 은 서버가 정리한 실제 저장 이름. */
+export interface DriveUploadLink {
+  url: string;
+  method: 'PUT';
+  expiresAt: string;
+  maxBytes: number;
+  name: string;
+  singleUse: boolean;
 }
 
 /**
@@ -498,7 +545,7 @@ export interface DriveBacklinkRow {
 }
 
 /**
- * 첨부·파일 내용 읽기(WP-346) — read_attachment 가 쓴다. 텍스트는 서버가 추출해 둔 구간을 읽고, 이미지만 원본을 받는다
+ * 첨부·파일 내용 읽기(WP-346) — read_file 이 쓴다. 텍스트는 서버가 추출해 둔 구간을 읽고, 이미지만 원본을 받는다
  * (이미지 블록으로 모델에 넘기려고). 권한은 서버가 강제한다(이슈: 프로젝트 멤버, 드라이브: 스페이스 VIEWER).
  */
 export interface AttachmentToolClient {

@@ -12,7 +12,7 @@ workplace-mcp(사용자 PAT 원격 MCP)와 workplace-ai-agent(AI 비서 인-프�
 | `tool-client.ts` | 도메인별 구조적 클라이언트 인터페이스. 클라이언트는 raw 를 그대로 반환한다 |
 | `rest-client.ts` | `createSharedToolClient(http)` — 위 인터페이스를 REST 경로로 구현한다. 각 앱은 인증 헤더가 붙은 axios 인스턴스만 넘긴다 |
 | `*-tools.ts` | 도메인별 도구 정의(이슈·프로젝트·노트·캘린더·메일·구성원/연락처·메시징·드라이브·알림·첨부(`attachment-tools.ts`)) |
-| `attachment-read.ts` | 첨부·파일 내용 읽기의 공통 계약 — 구간 범위(`readRangeShape`)·기본 길이·이미지 형식/크기 판정. 공유 `read_attachment` 와 ai-agent 전용 채팅 첨부 읽기 도구가 같이 쓴다 |
+| `attachment-read.ts` | 첨부·파일 내용 읽기의 공통 계약 — 구간 범위(`readRangeShape`)·기본 길이·이미지 형식/크기 판정. 공유 `read_file` 과 ai-agent 전용 채팅 첨부 읽기 도구가 같이 쓴다 |
 | `shared-tools.ts` | `buildSharedTools(client, opts)` — 공유 도구 전체 |
 | `tool-apps.ts` | `TOOL_APPS`·`ToolApp`·`toolApps()` — 도구를 앱으로 묶는 분류(WP-350, 아래 "앱 분류")와 서버 `instructions` 에 쓰는 앱별 안내(`TOOL_APP_GUIDES`) |
 | `tool-naming.ts` | `toolNameViolations(name)` — 도구 이름 규칙 검사(아래 "도구 명명 규칙"). 두 앱의 테스트가 쓴다 |
@@ -37,6 +37,8 @@ LLM 에 보여줄 형태로 가공하는 일은 **도구 핸들러**가 맡는�
 | `write` | 바꾸지만 되돌릴 수 있다. 워크스페이스 안의 알림·메시지는 앱에서 직접 해도 생기는 정상 부작용이라 여기에 든다 | `update_issue`, `rsvp_event`, `open_dm` | 노출 |
 | `destructive` | 되돌릴 수 없거나(영구 삭제) 워크스페이스 밖으로 나간다(메일 발송·외부 공개 링크) | (없음) | **비노출** |
 
+"외부 공개 링크"는 누구나 오래 쓰는 **공유 링크**를 말한다. 드라이브 **전송 링크**(`create_drive_download_link`·`create_drive_file` 의 업로드 링크, WP-369)는 10분 안에 한 번만 쓰이고 발급자에 묶여 쓸 때 권한을 다시 확인하므로 `write` 다 — `read` 로 두면 읽기 전용을 자동 승인하는 클라이언트가 묻지 않고 로그인 없는 링크를 만든다.
+
 `kind` 는 **노출 여부**만 정한다. MCP 클라이언트에 알리는 연산 성격(`destructiveHint`·`idempotentHint`·`openWorldHint`)은 `kind` 가 아니라 write·destructive 도구의 `hints`(`ToolHints`)에서 `toolAnnotations()` 가 만든다(WP-342, read 는 `readOnlyHint` 만). 기준은 `mcp-tool.ts` 의 `ToolHints` 주석이고, 도구별 전체 값은 `tool-annotations.test.ts` 가 고정한다. 그래서 `kind: 'write'` 여도 덮어쓰거나 지우는 도구는 `destructiveHint` 가 true 다.
 
 등급과 노출 목록은 `shared-tools.test.ts` 와 workplace-mcp `tools/index.test.ts` 의 스냅샷이 고정한다.
@@ -48,19 +50,19 @@ LLM 에 보여줄 형태로 가공하는 일은 **도구 핸들러**가 맡는�
 - 앱 이름은 URL·헤더에 쓰는 값이라 소문자 영문이다: `issue`·`project`·`wiki`·`drive`·`mail`·`messaging`·`calendar`·`contacts`·`notify`·`member`. 새 앱은 `TOOL_APPS` 와 `TOOL_APP_GUIDES` 에 함께 추가한다.
 - 분류는 파일이 아니라 **도구 단위**다. `list_issues` 는 `project-tools.ts` 에 있지만 `issue`, `list_contacts`·`get_external_contact` 는 `member-tools.ts` 에 있지만 `contacts` 다.
 - **한 도구가 여러 앱에 속할 수 있다**(`app: ['issue', 'drive']`). 그 앱 중 하나만 골라도 도구가 보여야 그 앱 안에서 일이 끊기기 때문이다. 꼭 필요한 선행 조회만 겹치고, "있으면 편한" 수준으로는 퍼뜨리지 않는다.
-  - `read_attachment`: 이슈·노트·메시지·메일 첨부와 드라이브 파일을 모두 읽는다(WP-358) → `issue`, `drive`, `wiki`, `mail`, `messaging`.
+  - `read_file`: 이슈·노트·메시지·메일 첨부와 드라이브 파일을 모두 읽는다(WP-358) → `issue`, `drive`, `wiki`, `mail`, `messaging`.
   - `list_projects`·`get_project`: 이슈 작업의 출발점(projectKey·담당자·라벨·마일스톤 목록)이다 → `project`, `issue`.
   - `search_members`: username 을 받는 도구(일정 참석자·프로젝트/채널 멤버·DM·멘션·그룹 멤버)가 설명에서 이 도구로 확인하라고 한다 → `member`, `calendar`, `project`, `messaging`, `contacts`. `mail`·`issue` 에는 싣지 않는다 — `create_issue`(`_from_mail`)의 assignees 는 선택 입력이고("me" 가능) 안내가 `get_project` 의 members 를 가리키며, 어느 설명도 `search_members` 를 가리키지 않는다.
   - 재발 방지: `tool-apps.test.ts` 가 도구 설명·입력 필드 설명에 나온 다른 공유 도구가 같은 앱 범위에도 있는지 대조한다. 대비·대안 언급처럼 선행 조회가 아닌 경우만 그 테스트의 `CROSS_REF_ALLOWED` 에 이유와 함께 올린다.
 
 | 앱 | 도구 |
 |---|---|
-| `issue` | `list_issues` `get_issue_detail` `create_issue` `update_issue` `add_comment` `update_comment` `add_issue_dependency` `remove_issue_dependency` `watch_issue` `unwatch_issue` + 겹침: `list_projects` `get_project` `read_attachment` |
+| `issue` | `list_issues` `get_issue_detail` `create_issue` `update_issue` `add_comment` `update_comment` `add_issue_dependency` `remove_issue_dependency` `watch_issue` `unwatch_issue` + 겹침: `list_projects` `get_project` `read_file` |
 | `project` | `list_projects` `get_project` `create_project` `update_project` `add_project_member` `create_project_meta` `update_project_meta` + 겹침: `search_members` |
-| `wiki` | `list_wiki_spaces` `list_wiki_pages` `search_wiki` `get_wiki_page` `list_wiki_backlinks` `create_wiki_page` `update_wiki_page` `move_wiki_page` `restore_wiki_revision` + 겹침: `read_attachment` |
-| `drive` | `list_drive_spaces` `list_drive_items` `search_drive` `get_drive_file_summary` `search_drive_content` `list_drive_trash` `restore_drive_item` `create_drive_folder` `rename_drive_folder` `move_drive_folder` `rename_drive_file` `move_drive_file` `copy_drive_item` `import_attachment_to_drive` + 겹침: `read_attachment` (15개 — 앱당 상한에 닿았다) |
-| `mail` | `list_mail_accounts` `list_mail` `get_mail` `get_mail_summary` `draft_mail_reply` `draft_issue_from_mail` `create_issue_from_mail` `mark_mail_read` `sync_mail` + 겹침: `read_attachment` |
-| `messaging` | `list_channels` `list_channel_messages` `list_thread_replies` `add_channel_message` `create_channel` `open_dm` `leave_channel` `join_channel` `add_reaction` `remove_reaction` `update_channel_message` `mark_channel_read` `add_channel_member` + 겹침: `search_members` `read_attachment` (15개 — 앱당 상한에 닿았다) |
+| `wiki` | `list_wiki_spaces` `list_wiki_pages` `search_wiki` `get_wiki_page` `list_wiki_backlinks` `create_wiki_page` `update_wiki_page` `move_wiki_page` `restore_wiki_revision` + 겹침: `read_file` |
+| `drive` | `list_drive_spaces` `list_drive_items` `search_drive` `get_drive_file_summary` `search_drive_content` `list_drive_trash` `restore_drive_item` `create_drive_folder` `rename_drive_item` `move_drive_item` `copy_drive_item` `import_attachment_to_drive` `create_drive_download_link` `create_drive_file` + 겹침: `read_file` (15개 — 앱당 상한에 닿았다) |
+| `mail` | `list_mail_accounts` `list_mail` `get_mail` `get_mail_summary` `draft_mail_reply` `draft_issue_from_mail` `create_issue_from_mail` `mark_mail_read` `sync_mail` + 겹침: `read_file` |
+| `messaging` | `list_channels` `list_channel_messages` `list_thread_replies` `add_channel_message` `create_channel` `open_dm` `leave_channel` `join_channel` `add_reaction` `remove_reaction` `update_channel_message` `mark_channel_read` `add_channel_member` + 겹침: `search_members` `read_file` (15개 — 앱당 상한에 닿았다) |
 | `calendar` | `list_events` `get_event` `rsvp_event` `create_event` `update_event` + 겹침: `search_members` |
 | `contacts` | `list_contacts` `get_external_contact` `get_contact_facets` `add_contact_favorite` `remove_contact_favorite` `list_user_groups` `get_user_group` `create_user_group` `update_user_group` `add_user_group_member` `remove_user_group_member` `create_external_contact` `update_external_contact` + 겹침: `search_members` |
 | `notify` | `list_notifications` `mark_notification_read` `mark_all_notifications_read` `get_home_overview` |
@@ -106,14 +108,14 @@ workplace-mcp 는 이 태그로 `/mcp/x/{apps}`·`X-MCP-Toolsets` 연결을 걸�
 
 | 기능 | 처리 | 근거 |
 |---|---|---|
-| 파일 이름 변경 | `rename_drive_file`(`PATCH /drive/files/{id}`, WP-335 의 UI 와 같은 API). `hints` 는 `rename_drive_folder` 와 같다(덮어씀·멱등) | 같은 폴더에 같은 이름의 활성 파일이 있으면 서버가 409 |
+| 파일 이름 변경 | `rename_drive_file`(`PATCH /drive/files/{id}`, WP-335 의 UI 와 같은 API). `hints` 는 `rename_drive_folder` 와 같다(덮어씀·멱등). WP-369 에서 폴더 이름변경과 함께 `rename_drive_item` 으로 합쳤다 | 같은 폴더에 같은 이름의 활성 파일이 있으면 서버가 409 |
 | 파일·폴더 복사 | `copy_drive_item`(`driveFileId` 또는 `folderId` 중 하나, `restore_drive_item` 과 같은 이유). 새 항목을 만들고 같은 이름이 있으면 409 라 비멱등이다 | 서버가 같은 스페이스 안으로만 복사하고 이름을 그대로 둔다 — 같은 폴더로 복사하면 항상 충돌이라 다른 폴더를 지정해야 한다 |
 | 이슈·채팅 첨부를 드라이브로 | `import_attachment_to_drive`(`POST /drive/spaces/{id}[/folders/{folderId}]/import-attachment`). `attachmentId` 는 `get_issue_detail` 의 `attachments[].attachmentId` 또는 `list_channel_messages` 의 `attachments[].fileId`(둘 다 core file id) | 같은 바이트를 공유해 쿼터를 쓰지 않는다. 서버는 대상 폴더가 같은 스페이스인지와 같은 이름이 없는지 확인한다(409) |
 | 버전 목록·백링크 | 별도 도구 없이 `get_drive_file_summary` 의 `includeVersions`·`includeBacklinks` 옵션 | 옵션이 꺼져 있으면 추가 요청이 없다. 버전 뷰는 업로더 숫자 ID(`uploadedBy`)와 blob 의 core `fileId` 를, 백링크 뷰는 내부 `sourceId` 를 뺀다 |
 | 롤백 | 도구로 두지 않는다 | 새 버전을 만드는 변경이라 확인 카드 대상이다(AI Chat 에서도 미지원 안내) |
 | 폴더 경로 | 두지 않는다 | `/folders/{id}/path` 는 폴더 하나의 breadcrumb 이다. 목록·검색 응답에 넣으면 행마다 요청이 필요하고(검색은 최대 400행), 목록은 모델이 이미 그 폴더 id 를 알고 있다. 휴지통은 서버가 `originalPath` 를 준다 |
 
-이슈 첨부와 채팅 첨부 두 갈래 중 한쪽 출처만 있어도 쓸 수 있어, `import_attachment_to_drive` 설명이 가리키는 `get_issue_detail`·`list_channel_messages` 는 `tool-apps.test.ts` 의 `CROSS_REF_ALLOWED` 에 이유와 함께 올렸다(`read_attachment` 와 같은 구조). 도구는 drive 에만 태그했다.
+이슈 첨부와 채팅 첨부 두 갈래 중 한쪽 출처만 있어도 쓸 수 있어, `import_attachment_to_drive` 설명이 가리키는 `get_issue_detail`·`list_channel_messages` 는 `tool-apps.test.ts` 의 `CROSS_REF_ALLOWED` 에 이유와 함께 올렸다(`read_file` 과 같은 구조). 도구는 drive 에만 태그했다.
 
 ### 메시징 보강 (WP-355)
 
@@ -184,7 +186,9 @@ AI Chat 에는 라벨·마일스톤·사이클 생성·수정 확인 카드가 �
 
 ### 첨부 읽기 확장 (WP-358)
 
-`read_attachment` 의 source 가 `issue`·`drive` 에서 `wiki`(노트)·`message`(메시징)·`mail`(메일)까지 늘었다. 백엔드는 노트·메시지·메일에 이슈 첨부와 같은 `/text` 구간 API 를 더했고(응답은 같은 `ExtractedTextSlice`), 도구는 같은 상태(`READY`·`PENDING`·`SKIPPED`·`FAILED`·`NONE`)·구간(`offset`·`limit`·`nextOffset`)·출력 모양(`{attachmentId, status, text, totalChars, nextOffset, truncated, reason…}`)으로 돌려준다.
+(당시 이름은 `read_attachment` 였고 WP-369 에서 `read_file` 로 바뀌었다 — 아래 "드라이브 전송·도구 이름 정리" 참조.)
+
+`read_file` 의 source 가 `issue`·`drive` 에서 `wiki`(노트)·`message`(메시징)·`mail`(메일)까지 늘었다. 백엔드는 노트·메시지·메일에 이슈 첨부와 같은 `/text` 구간 API 를 더했고(응답은 같은 `ExtractedTextSlice`), 도구는 같은 상태(`READY`·`PENDING`·`SKIPPED`·`FAILED`·`NONE`)·구간(`offset`·`limit`·`nextOffset`)·출력 모양(`{attachmentId, status, text, totalChars, nextOffset, truncated, reason…}`)으로 돌려준다.
 
 | source | 입력 | id 가 나오는 곳 | 서버 |
 |---|---|---|---|
@@ -197,9 +201,23 @@ AI Chat 에는 라벨·마일스톤·사이클 생성·수정 확인 카드가 �
 - **식별자 재사용**: 정의 크기 때문에 첨부 id 는 `attachmentId` 하나를 이슈·노트·메시지·메일이 같이 쓴다. 새 입력은 `pageId`·`channelId`·`messageId` 뿐이고, 이름은 다른 도구의 입력과 같다. 출력에서도 서버 `fileId` 는 `attachmentId` 로 바꿔 내보낸다. 메일의 `get_mail` 첨부 행은 서버의 `id` 를 `attachmentId` 로 바꿔 준다(이슈 첨부와 같은 이름, 입출력 이름 일치).
 - **메일 첫 호출은 `PENDING`**: 서버가 첫 `/text` 요청에서 바이트를 가져와(IMAP·Graph, 첨부 캐시) 추출용 사본을 만들고 추출을 시작한다. 도구는 `PENDING` 응답에 "잠시 뒤 같은 인자로 다시 호출" 안내(`note`)를 붙인다. 사본의 file 행은 생성 후 고정 7일(`workplace.storage.mail.extract-ttl-days`, 읽어도 늘지 않는다)이고, 평문 사본 바이너리는 추출이 확정되는 즉시 지운다(추출 텍스트는 file 행에 남아 계속 읽힌다). 원본 메일이 사라지면 사본은 곧 만료된다.
 - **이미지**: 이슈·드라이브와 같은 규칙(JPEG·PNG·GIF·WebP, 3.75MB 이하만 이미지 블록, 그 밖에는 사유). `/text` 가 `SKIPPED·IMAGE` 를 주면 `/content` 로 원본을 받는다(권한이 `/text` 와 같다). 노트·메시지·메일에는 첨부 목록이나 크기 메타가 없어 크기는 다운로드 상한(`maxContentLength`)으로, 형식은 응답 Content-Type 으로 판단한다. **노트 업로드는 이미지만 받으므로 `wiki` 갈래는 사실상 이미지 읽기**다. 새 첨부는 `SKIPPED·IMAGE`, 배포 전에 올린 첨부는 추출 행이 없어(노트는 백필하지 않는다) `NONE` 인데, `wiki` 갈래는 `NONE` 도 `/content` 로 받아 이미지로 돌려준다(이미지가 아니면 Content-Type 검사가 형식 사유로 막는다). 메시지·메일의 `NONE` 은 상태만 돌려준다.
-- **크기**: 정의 14,942 → 14,989 토큰(상한 15,000). `read_attachment` 설명에 source 별 id 출처를 더하면서 그 설명과 `list_channels` 설명(`discover_channels` 접기)을 압축해 맞췄다. `tool-apps.test.ts` 의 `CROSS_REF_ALLOWED` 는 `read_attachment` 분을 source 갈래별 출처 도구 표에서 만든다.
-- **messaging 15개 유지**: `read_attachment` 가 messaging 앱에 들어와 `discover_channels` 를 `list_channels` 의 `q` 로 접었다(WP-355 표 참조). 앱별 개수는 issue 13·wiki 10·mail 10·messaging 15·drive 15.
-- 메일 요약·답장 초안(`get_mail_summary`·`draft_mail_reply`)은 서버가 본문(개인 요약·회신 필요 분석은 첨부 이름까지)만 보고 만든다 — 첨부 내용은 쓰지 않는다. 첨부를 반영하려면 에이전트가 먼저 `read_attachment` 로 읽어 본문에 옮긴다(mail-agent `agent.md` 에 안내).
+- **크기**: 정의 14,942 → 14,989 토큰(상한 15,000). `read_file` 설명에 source 별 id 출처를 더하면서 그 설명과 `list_channels` 설명(`discover_channels` 접기)을 압축해 맞췄다. `tool-apps.test.ts` 의 `CROSS_REF_ALLOWED` 는 `read_file` 분을 source 갈래별 출처 도구 표에서 만든다.
+- **messaging 15개 유지**: `read_file` 이 messaging 앱에 들어와 `discover_channels` 를 `list_channels` 의 `q` 로 접었다(WP-355 표 참조). 앱별 개수는 issue 13·wiki 10·mail 10·messaging 15·drive 15.
+- 메일 요약·답장 초안(`get_mail_summary`·`draft_mail_reply`)은 서버가 본문(개인 요약·회신 필요 분석은 첨부 이름까지)만 보고 만든다 — 첨부 내용은 쓰지 않는다. 첨부를 반영하려면 에이전트가 먼저 `read_file` 로 읽어 본문에 옮긴다(mail-agent `agent.md` 에 안내).
+
+### 드라이브 전송·도구 이름 정리 (WP-369)
+
+외부 MCP 클라이언트가 드라이브 파일을 내려받고 올리게 한다. 바이트는 MCP 를 거치지 않는다 — API 가 발급한 서명 링크를 받은 쪽(셸의 `curl`·사람의 브라우저)이 공개 경로(`/api/v1/public/drive/transfer/{token}`)로 직접 주고받는다(MCP 는 secretless 이고 JSON 본문 상한이 4MB 다).
+
+| 도구 | 하는 일 | 서버 |
+|---|---|---|
+| `create_drive_download_link` | `{driveFileId}` → `{url, expiresAt, name, sizeBytes, mimeType, singleUse}`(`toDriveDownloadLinkView` 가 이 여섯 필드만 고른다 — 로그인 없이 밖으로 나가는 링크라 서버에 새 필드가 생겨도 새지 않게 허용 목록). 10분, 로그인 없이 **한 번만** 받는다(공개 GET 이 전송 전에 소비하고 Range 를 무시 — 끊기면 새 링크). 셸은 `curl -o "<name>" "<url>"`(이름에 공백이 있을 수 있어 따옴표) | `POST /drive/files/{id}/download-link`(VIEWER) |
+| `create_drive_file` | 대상은 둘 중 하나 — **새 파일** `{spaceId, folderId?, name}`(같은 이름이면 새 버전) 또는 **기존 파일의 새 버전** `{driveFileId}`(이름·폴더 그대로, 이때 `spaceId`·`folderId`·`name` 은 주면 거절). 모든 입력은 null = 생략. `content` 가 있으면(빈 문자열 포함) 텍스트로 써서 파일 뷰(`driveFileId`)를, 없으면 일회용 업로드 링크를 `{uploadUrl, method:"PUT", expiresAt, maxBytes, name, singleUse, howTo, note}` 로 준다(`howTo` 는 `curl -T <local file> "<uploadUrl>"`). 파일에 묶인 링크의 `note` 는 "이 파일의 새 버전·같은 종류의 파일·같은 driveFileId 로 재발급" 을 말한다 | 새 파일: `POST /drive/spaces/{id}/files/text`(EDITOR, md·txt·csv·json 외는 text/plain, 10MB) · `POST /drive/spaces/{id}/upload-link`(EDITOR). 기존 파일: `POST /drive/files/{id}/text`(EDITOR, 200, 본문 `{content}` — 현재 버전이 텍스트가 아니면 409) · `POST /drive/files/{id}/upload-link`(EDITOR, 본문 없음) |
+
+- **이름 정리**: 드라이브가 앱당 15개 상한에 닿아 있어 두 자리를 만들었다 — `rename_drive_file`+`rename_drive_folder` → `rename_drive_item`, `move_drive_file`+`move_drive_folder` → `move_drive_item`. `restore_drive_item`·`copy_drive_item` 과 같이 `driveFileId`·`folderId` 중 정확히 하나를 받고(네 도구 모두 두 id 가 `nullAsOmitted` — 쓰지 않는 쪽이 null 로 와도 생략으로 보고, 핸들러도 `!= null` 로 가른다), 이동 대상은 파일·폴더 모두 `targetFolderId`(생략·null 은 루트 — 폴더 이동 API 의 `targetParentId` 로 핸들러가 옮긴다). hints 는 그대로 덮어씀·멱등. 첨부 읽기는 드라이브 파일까지 읽으므로 `read_attachment` → `read_file`(화면 이름 "파일 읽기"). 다섯 이름은 외부 배포 전이라 깨지는 외부 사용자는 없고, 웹 AI Chat 기록용으로 `LEGACY_TOOL_LABELS` 에 옛 이름을 뒀다.
+- **업로드 링크 사용법**(설명·응답 note 에 적음): `curl -T <file> "<uploadUrl>"` 그대로 원시 바이트로 PUT 한다. `--data-binary`·폼은 415 이고, `-H Content-Type` 을 주면 서버가 그 MIME 으로 범주 상한을 다시 정해 `maxBytes` 와 달라질 수 있어 주지 않는다. 링크는 한 번 쓰면 끝이라 전송이 시작된 뒤 실패하면 새 링크가 필요하다. 채팅 클라이언트(Claude.ai 등)는 사용자가 대화에 첨부한 파일을 링크로 보낼 수 없으니 웹 드라이브에서 올리라고 안내한다.
+- **AI Chat**: 웹 사용자에게는 셸이 없어 drive-agent 는 `create_drive_file` 의 content 모드만 쓴다(ai-agent 가 공유본을 펼쳐 content 없는 호출을 — 새 파일이든 `driveFileId` 든 — API 없이 오류로 막는다, 스키마는 공유본 그대로이고 설명은 한국어 머리말 + 공유 설명의 content 모드 부분 `CREATE_DRIVE_FILE_CONTENT_DESCRIPTION` — 링크·curl 안내는 뺀다). 드라이브의 텍스트 파일을 고칠 때는 `read_file` 로 읽고 `driveFileId`+`content` 로 새 버전을 저장한다. 다운로드 요청에는 링크를 10분·한 번·전달 금지 안내와 함께 보여 준다(웹 채팅의 링크는 새 탭으로 열려 바로 내려받는다). 두 도구 모두 write 라 라우터(`ASSISTANT_ROUTER_TOOLS`)가 아니라 drive-agent 에만 둔다.
+- **크기**: 정의 14,989 → 이름 정리 뒤 14,805 → 새 도구 뒤 14,997 토큰(상한 15,000). 리뷰 수정 라운드(기존 파일 새 버전 `driveFileId` 모드, 따옴표 친 `curl -o`, 요약 상태 구분 되살림)는 +43 이었고, `read_file`(380 → 365)·`list_drive_items`·`list_drive_trash`·`search_drive_content`·`restore_drive_item`·`copy_drive_item` 설명을 줄여 다시 14,997 에 맞췄다(XOR 네 도구의 null 수용은 직렬화가 null 갈래를 접어 0). 새 두 도구(약 354)를 넣으려고 `read_file`(450 → 380, 드라이브 id 출처·기본 길이·출력 필드 나열·"원본은 주지 않음" 삭제)과 드라이브 설명(`get_drive_file_summary`·`copy_drive_item`·`import_attachment_to_drive`·`list_drive_trash` 등)을 압축했다. 실패·재시도 절차처럼 설명에 다 못 쓴 것은 응답의 `note`·`howTo` 로 알린다. 앱별 개수는 issue 13·project 8·wiki 10·drive 15·mail 10·messaging 15·calendar 6·contacts 14·notify 4·member 3.
 
 ### 응답 크기 — 정리 뷰
 
@@ -233,10 +251,11 @@ AI Chat 에는 라벨·마일스톤·사이클 생성·수정 확인 카드가 �
 
 ### 도구 수와 정의 크기 (WP-340 웨이브 5)
 
-- 새 도구보다 기존 도구의 파라미터 확장을 먼저 한다. 읽기는 상세 도구의 옵션으로 넣는다. 첨부 읽기는 `read_attachment` 하나로 모은다. 읽기와 쓰기는 한 도구에 섞지 않는다.
+- 새 도구보다 기존 도구의 파라미터 확장을 먼저 한다. 읽기는 상세 도구의 옵션으로 넣는다. 첨부 읽기는 `read_file` 하나로 모은다. 읽기와 쓰기는 한 도구에 섞지 않는다.
 - 외부 MCP 클라이언트는 연결한 서버의 도구 정의를 매 대화에 전부 싣는다. 그래서 상한을 개수(예전 85개)가 아니라 **크기와 앱 단위**로 둔다(2026-10-13 사용자 결정). `tool-naming.test.ts` 가 강제한다.
   - 기본 연결(`/mcp`, destructive 제외)의 **도구 정의 크기 ≤ 15,000 토큰**(아래 근사식).
   - **앱당 도구 15개 이하.** 여러 앱에 속한 도구는 각 앱에서 센다.
+  - 지금(WP-369) 기본 연결은 88개·14,997 토큰이라 여유가 3 토큰뿐이고, drive·messaging 은 15개로 꽉 찼다. 새 도구는 같은 앱 도구를 합치거나 기존 설명을 그만큼 압축해야 들어간다(WP-369 는 이름변경·이동을 합치고 `read_file`·드라이브 설명을 줄였다).
 - **측정 대상은 실제로 나가는 tools/list** 다. workplace-mcp 는 tools/list 응답을 `toolDefinition()` 출력으로 바꿔 끼우고, 상한 테스트는 같은 함수로 잰다(`toolDefinitionsSize`). 둘이 같다는 것은 workplace-mcp `integration.test.ts` 왕복 테스트가 고정한다.
 - **토큰 근사식**(`estimateTokens`): 한글(음절·자모) 1자 = 1토큰, 나머지(영문·숫자·JSON 구두점) 3.5자 = 1토큰, 합을 올림. 직렬화는 `JSON.stringify(tools/list 의 tools 배열)` 이다. 토크나이저가 아니라 비교용 고정식이다 — 식을 바꾸면 상한의 뜻도 바뀐다.
 - `toolDefinition()` 이 SDK 기본 변환에서 걷어내는 것(의미 없는 반복):
@@ -245,7 +264,7 @@ AI Chat 에는 라벨·마일스톤·사이클 생성·수정 확인 카드가 �
   - 날짜 정규식 `pattern: "^\d{4}-\d{2}-\d{2}$"` 는 같은 뜻의 `format: "date"`(JSON Schema 의 RFC 3339 full-date = yyyy-MM-dd)로 바꿔 내보낸다. 검증은 zod 정규식 그대로다.
   - `nullAsOmitted()` 로 만든 입력의 null 갈래(`anyOf:[T,{type:'null'}]` → `T`).
   - **스펙 기본값과 같은 힌트**: MCP 스펙의 annotations 기본값은 `readOnlyHint:false`·`destructiveHint:true`·`idempotentHint:false`·`openWorldHint:true` 다. 정의에서는 쓰기 도구의 `readOnlyHint:false`·`idempotentHint:false`·`destructiveHint:true` 를 뺀다(destructiveHint:true 생략은 웨이브 5 크기 여유 확보 결정). 빠진 힌트는 스펙상 기본값과 같고, 힌트를 못 받은 클라이언트는 도구를 "파괴적일 수 있음"으로 다룬다(보수적인 쪽) — 그래서 어떤 도구도 덜 보호되지 않는다. 기본값과 다른 값(`destructiveHint:false`, `openWorldHint:false`, `readOnlyHint:true`, `idempotentHint:true`)은 남는다 — 파괴적이지 않은 쓰기에는 `destructiveHint:false` 가 반드시 실린다. 의미 원본은 그대로 `toolAnnotations()`(ai-agent 경로·`tool-annotations.test.ts` 표)이고, 생략은 직렬화 단계에서만 한다 — 정의의 annotations 를 스펙 기본값으로 채우면 `toolAnnotations()` 와 같다는 것을 `tool-definitions.test.ts` 가 모든 도구에서 확인한다.
-- **null 허용**: 모델은 쓰지 않는 인자를 null 로 채워 보내기도 한다(WP-346 `read_attachment`). "null = 생략" 인 선택 입력은 `nullAsOmitted(schema)` 로 만든다 — 검증은 `.nullish()` 그대로(SDK 가 shape 로 검증해 null 을 받는다), 정의에서만 null 갈래를 숨긴다. null 에 "비우기" 뜻이 있는 입력(`update_issue` 의 `parent`·`milestone`, `update_event` 의 `description` 등)에는 쓰지 않는다 — 그 null 은 모델이 알아야 한다. 설명(`.describe`)은 표식 전에 붙이는 것을 권한다(뒤에 붙여도 부모를 따라가 찾는다). `tool-definitions.test.ts` 와 workplace-mcp `integration.test.ts` 가 null 왕복을 고정한다.
+- **null 허용**: 모델은 쓰지 않는 인자를 null 로 채워 보내기도 한다(WP-346 `read_file`). "null = 생략" 인 선택 입력은 `nullAsOmitted(schema)` 로 만든다 — 검증은 `.nullish()` 그대로(SDK 가 shape 로 검증해 null 을 받는다), 정의에서만 null 갈래를 숨긴다. null 에 "비우기" 뜻이 있는 입력(`update_issue` 의 `parent`·`milestone`, `update_event` 의 `description` 등)에는 쓰지 않는다 — 그 null 은 모델이 알아야 한다. 설명(`.describe`)은 표식 전에 붙이는 것을 권한다(뒤에 붙여도 부모를 따라가 찾는다). `tool-definitions.test.ts` 와 workplace-mcp `integration.test.ts` 가 null 왕복을 고정한다.
 - ai-agent 경로(Claude SDK 인-프로세스·opencode stdio)는 SDK 기본 변환을 그대로 쓴다. 상한 대상이 아니다.
 
 ### 도구 설명 쓰는 법 (WP-340 웨이브 5)
@@ -284,7 +303,7 @@ AI Chat 에는 라벨·마일스톤·사이클 생성·수정 확인 카드가 �
 
 1. **도메인 접두 id**: 숫자 식별자는 무엇의 id 인지 이름에 드러낸다.
    - 예: `eventId`, `pageId`, `spaceId`, `channelId`, `accountId`, `messageId`, `folderId`, `driveFileId`, `attachmentId`, `externalId`, `commentId`, `notificationId`
-   - **출력도 같은 이름**이다(WP-353): 채널 목록·검색·생성은 `channelId`, 드라이브 폴더 목록·검색·생성·이름변경·휴지통은 `folderId`, 이슈·노트·메시지·메일 첨부는 `attachmentId`(서버의 core file id(메일은 첨부 행 id) — 드라이브 `driveFileId`·채팅 첨부 `fileId` 와 섞이지 않게 이름을 달리했다. 이슈 챗 전용 `read_chat_thread_attachment` 의 `fileId` 는 같은 이슈 첨부를 가리키므로 `read_attachment` 의 `attachmentId` 와 같은 값이다). 입력 이름과 출력 이름이 어긋나면 모델이 `id` 를 아무 데나 넣는다.
+   - **출력도 같은 이름**이다(WP-353): 채널 목록·검색·생성은 `channelId`, 드라이브 폴더 목록·검색·생성·이름변경·휴지통은 `folderId`, 이슈·노트·메시지·메일 첨부는 `attachmentId`(서버의 core file id(메일은 첨부 행 id) — 드라이브 `driveFileId`·채팅 첨부 `fileId` 와 섞이지 않게 이름을 달리했다. 이슈 챗 전용 `read_chat_thread_attachment` 의 `fileId` 는 같은 이슈 첨부를 가리키므로 `read_file` 의 `attachmentId` 와 같은 값이다). 입력 이름과 출력 이름이 어긋나면 모델이 `id` 를 아무 데나 넣는다.
    - `messageId` 는 메일(`get_mail`)과 채팅 메시지(`list_thread_replies`)에서 같이 쓴다. 도구 이름이 도메인을 정하므로 설명에 어느 결과의 id 인지 적는다.
    - 맨 이름 `id` 는 입력 파라미터로 쓰지 않는다. 실행기나 서버가 `id` 를 읽는다면 핸들러가 옮겨 담는다. 예: `propose_update_event` 는 `{ id: eventId }` 로 옮긴다.
 2. **같은 것은 같은 이름**: 조회 도구와 쓰기 도구, 표시 위젯이 같은 대상을 같은 이름으로 가리킨다.

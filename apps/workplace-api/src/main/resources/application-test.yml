@@ -52,6 +52,9 @@ workplace:
     # 루트를 공유하면 한 포크의 메일 orphan 스윕이 다른 포크의 blob(내용 해시 경로라 이름도 겹친다)을 고아로 보고 지울 수 있다.
     # org.gradle.test.worker 는 Gradle 이 각 테스트 JVM 에 주입하는 워커 번호(IDE 단독 실행 시 0).
     root-dir: ./build/test-storage/worker-${org.gradle.test.worker:0}
+  drive:
+    # 업로드 링크 PUT 본문 임시 파일(WP-369)도 워커별로 나눈다 — 테스트가 남은 임시 파일 수를 셀 때 다른 포크의 파일이 섞이지 않게.
+    transfer-temp-dir: ./build/test-transfer-tmp/worker-${org.gradle.test.worker:0}
   # @Scheduled 작업 비활성 — 캐시된 테스트 컨텍스트마다 스케줄러가 돌며 외부 API 호출·데이터 경합을 일으킨다(SchedulingConfig, WP-80).
   scheduling:
     enabled: false

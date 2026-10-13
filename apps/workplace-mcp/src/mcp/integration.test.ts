@@ -74,7 +74,7 @@ describe('/mcp', { timeout: ROUNDTRIP_TEST_TIMEOUT_MS }, () => {
 
   // 정의에서 null 갈래를 숨겼어도 SDK 입력 검증(registerTool 의 zod shape)은 null 을 받는다 — 모델이 안 쓰는 인자를 null 로 채워 보내는 경우(WP-346).
   describe('null 인자 허용 (WP-340 웨이브 5)', () => {
-    it('read_attachment 의 다른 source 식별자·범위가 null 이어도 실행된다', async () => {
+    it('read_file 의 다른 source 식별자·범위가 null 이어도 실행된다', async () => {
       nock(API).get('/auth/me').reply(200, { id: 1, username: 'u', kind: 'HUMAN' });
       nock(API)
         .get('/drive/files/9/text')
@@ -82,20 +82,68 @@ describe('/mcp', { timeout: ROUNDTRIP_TEST_TIMEOUT_MS }, () => {
         .reply(200, { fileId: 55, status: 'READY', offset: 0, totalChars: 2, truncated: false, nextOffset: null, text: '가나', reasonCode: null, reason: null });
       const client = await connect('swp_valid');
       const res = await client.callTool({
-        name: 'read_attachment',
+        name: 'read_file',
         arguments: { source: 'drive', driveFileId: 9, issueKey: null, attachmentId: null, offset: null, limit: null },
       });
       expect(res.isError).toBeFalsy();
       expect(JSON.parse((res.content as { text: string }[])[0].text)).toMatchObject({ driveFileId: 9, text: '가나' });
     });
 
-    it('move_drive_file 의 targetFolderId:null 은 루트로 옮긴다', async () => {
+    it('move_drive_item 의 targetFolderId:null 은 루트로 옮긴다', async () => {
       nock(API).get('/auth/me').reply(200, { id: 1, username: 'u', kind: 'HUMAN' });
       const scope = nock(API).patch('/drive/files/3/move', { targetFolderId: null }).reply(204);
       const client = await connect('swp_valid');
-      const res = await client.callTool({ name: 'move_drive_file', arguments: { driveFileId: 3, targetFolderId: null } });
+      const res = await client.callTool({ name: 'move_drive_item', arguments: { driveFileId: 3, targetFolderId: null } });
       expect(res.isError).toBeFalsy();
       expect(scope.isDone()).toBe(true);
+    });
+
+    // WP-369: 파일·폴더 중 하나를 받는 도구는 쓰지 않는 id 의 null 을 생략으로 본다 — 예전 .optional() 은 SDK 검증에서 거절했고,
+    // 핸들러가 !== undefined 로 갈랐다면 /drive/files/null 로 갔다.
+    it('move_drive_item 의 driveFileId:null 은 생략으로 보고 folderId 의 폴더 이동 API 로 보낸다', async () => {
+      nock(API).get('/auth/me').reply(200, { id: 1, username: 'u', kind: 'HUMAN' });
+      const scope = nock(API).patch('/drive/folders/4/move', { targetParentId: 9 }).reply(204);
+      const client = await connect('swp_valid');
+      const res = await client.callTool({ name: 'move_drive_item', arguments: { driveFileId: null, folderId: 4, targetFolderId: 9 } });
+      expect(res.isError).toBeFalsy();
+      expect(scope.isDone()).toBe(true);
+    });
+
+    // WP-369: create_drive_file 은 모든 입력이 null = 생략이다. content:null 은 업로드 링크 모드로 간다(SDK 검증 경로 고정, Task 2 리뷰 Minor 7).
+    it('create_drive_file 의 content:null 은 업로드 링크를 발급해 uploadUrl·howTo 뷰로 돌려준다', async () => {
+      nock(API).get('/auth/me').reply(200, { id: 1, username: 'u', kind: 'HUMAN' });
+      const url = 'https://w.example/api/v1/public/drive/transfer/ul_abc';
+      const scope = nock(API)
+        .post('/drive/spaces/2/upload-link', { folderId: null, name: '결과.md' })
+        .reply(201, { url, method: 'PUT', expiresAt: '2026-10-13T06:10:00Z', maxBytes: 10485760, name: '결과.md', singleUse: true });
+      const client = await connect('swp_valid');
+      const res = await client.callTool({
+        name: 'create_drive_file',
+        arguments: { spaceId: 2, name: '결과.md', folderId: null, content: null, driveFileId: null },
+      });
+      expect(res.isError).toBeFalsy();
+      expect(scope.isDone()).toBe(true);
+      const body = JSON.parse((res.content as { text: string }[])[0].text);
+      expect(body).toMatchObject({ uploadUrl: url, method: 'PUT', maxBytes: 10485760, howTo: `curl -T <local file> "${url}"` });
+      expect(body).not.toHaveProperty('url');
+    });
+
+    // WP-369 Task 3: driveFileId+content 는 그 파일의 새 버전(POST /drive/files/{id}/text, 본문은 content 만) — 새 파일 경로는 부르지 않는다.
+    it('create_drive_file 의 driveFileId+content 는 기존 파일에 텍스트 새 버전을 올린다(spaceId·name null 은 생략)', async () => {
+      nock(API).get('/auth/me').reply(200, { id: 1, username: 'u', kind: 'HUMAN' });
+      const scope = nock(API)
+        .post('/drive/files/8/text', { content: '# 고친 회의록' })
+        .reply(200, { id: 8, folderId: 3, fileId: 902, name: '회의록.md', mimeType: 'text/markdown', sizeBytes: 19, versionCount: 2 });
+      const client = await connect('swp_valid');
+      const res = await client.callTool({
+        name: 'create_drive_file',
+        arguments: { driveFileId: 8, content: '# 고친 회의록', spaceId: null, name: null },
+      });
+      expect(res.isError).toBeFalsy();
+      expect(scope.isDone()).toBe(true);
+      const body = JSON.parse((res.content as { text: string }[])[0].text);
+      expect(body).toMatchObject({ driveFileId: 8, name: '회의록.md', versionCount: 2 });
+      expect(body).not.toHaveProperty('fileId');
     });
 
     it('update_event 의 "유지" 입력(title·시각·참석자)이 null 이면 현재 값을 유지한다', async () => {
@@ -162,8 +210,8 @@ describe('/mcp', { timeout: ROUNDTRIP_TEST_TIMEOUT_MS }, () => {
     }
   });
 
-  // WP-346: 실제 axios(arraybuffer)·MCP 왕복으로 read_attachment 를 확인한다 — 텍스트는 JSON, 이미지는 image 블록, source 별 필수 필드 누락은 isError.
-  describe('read_attachment', () => {
+  // WP-346: 실제 axios(arraybuffer)·MCP 왕복으로 read_file 을 확인한다 — 텍스트는 JSON, 이미지는 image 블록, source 별 필수 필드 누락은 isError.
+  describe('read_file', () => {
     it('드라이브 문서는 추출 텍스트 구간을 JSON 으로(core fileId 대신 driveFileId)', async () => {
       nock(API).get('/auth/me').reply(200, { id: 1, username: 'u', kind: 'HUMAN' });
       nock(API, { reqheaders: { authorization: 'Bearer swp_valid' } })
@@ -171,7 +219,7 @@ describe('/mcp', { timeout: ROUNDTRIP_TEST_TIMEOUT_MS }, () => {
         .query({ offset: 6, limit: 100 })
         .reply(200, { fileId: 55, status: 'READY', offset: 6, totalChars: 11, truncated: false, nextOffset: null, text: '바사', reasonCode: null, reason: null });
       const client = await connect('swp_valid');
-      const res = await client.callTool({ name: 'read_attachment', arguments: { source: 'drive', driveFileId: 9, offset: 6, limit: 100 } });
+      const res = await client.callTool({ name: 'read_file', arguments: { source: 'drive', driveFileId: 9, offset: 6, limit: 100 } });
       expect(res.isError).toBeFalsy();
       const [block] = res.content as { type: string; text: string }[];
       expect(JSON.parse(block.text)).toMatchObject({ driveFileId: 9, status: 'READY', text: '바사' });
@@ -190,7 +238,7 @@ describe('/mcp', { timeout: ROUNDTRIP_TEST_TIMEOUT_MS }, () => {
         .get('/projects/WP/issues/12/attachments/3/content')
         .reply(200, png, { 'Content-Type': 'image/png' });
       const client = await connect('swp_valid');
-      const res = await client.callTool({ name: 'read_attachment', arguments: { source: 'issue', issueKey: 'WP-12', attachmentId: 3 } });
+      const res = await client.callTool({ name: 'read_file', arguments: { source: 'issue', issueKey: 'WP-12', attachmentId: 3 } });
       expect(res.isError).toBeFalsy();
       expect(res.content).toEqual([
         { type: 'text', text: '이슈 WP-12 첨부 이미지 "a.png" (image/png, 4B)' },
@@ -201,7 +249,7 @@ describe('/mcp', { timeout: ROUNDTRIP_TEST_TIMEOUT_MS }, () => {
     it('source 에 맞는 식별자가 없으면 API 를 부르지 않고 isError', async () => {
       nock(API).get('/auth/me').reply(200, { id: 1, username: 'u', kind: 'HUMAN' });
       const client = await connect('swp_valid');
-      const res = await client.callTool({ name: 'read_attachment', arguments: { source: 'drive' } });
+      const res = await client.callTool({ name: 'read_file', arguments: { source: 'drive' } });
       expect(res.isError).toBe(true);
       expect(JSON.stringify(res.content)).toContain('driveFileId 가 필요');
     });
@@ -237,7 +285,7 @@ describe('/mcp 연결 범위 (WP-350)', { timeout: ROUNDTRIP_TEST_TIMEOUT_MS }, 
 
   it('/mcp/x/issue,wiki 는 두 앱 도구만 싣고 instructions 도 두 앱만 설명한다', async () => {
     const r = await open('/mcp/x/issue,wiki');
-    expect(r.names).toEqual(expect.arrayContaining(['create_issue', 'update_wiki_page', 'read_attachment']));
+    expect(r.names).toEqual(expect.arrayContaining(['create_issue', 'update_wiki_page', 'read_file']));
     expect(r.names).not.toContain('list_mail');
     expect(r.names).not.toContain('list_events');
     expect(r.instructions).toContain(`- ${TOOL_APP_GUIDES.issue.label}:`);

@@ -62,6 +62,11 @@ describe('selectTools (WP-350)', () => {
     expect(ro.every((t) => t.kind === 'read')).toBe(true);
     expect(names(ro)).toContain('list_issues');
     expect(names(ro)).not.toContain('create_issue');
+    // WP-369 R1: 로그인 없이 쓰는 전송 링크는 읽기 전용 연결이 묻지 않고 만들지 못하게 write 다 — 읽기 전용에서는 빠지고 기본 연결에만 있다.
+    expect(names(ro)).not.toContain('create_drive_download_link');
+    expect(names(ro)).not.toContain('create_drive_file');
+    expect(names(ro)).toContain('read_file');
+    expect(names(selectTools(all, { apps: ['drive'], readOnly: false }))).toEqual(expect.arrayContaining(['create_drive_download_link', 'create_drive_file']));
   });
 
   it('앱을 고르면 그 앱 도구만 남는다 — 여러 앱이면 합집합', () => {
@@ -80,10 +85,10 @@ describe('selectTools (WP-350)', () => {
   // 여러 앱에 걸친 도구는 고른 앱 중 하나만 속해도 남아야 그 앱 안에서 일이 끊기지 않는다(README 앱 표).
   it('여러 앱에 걸친 도구는 한쪽만 골라도 남고, 고르지 않은 앱 도구는 같이 오지 않는다', () => {
     const issueOnly = names(selectTools(all, { apps: ['issue'], readOnly: false }));
-    expect(issueOnly).toEqual(expect.arrayContaining(['read_attachment', 'list_projects', 'get_project']));
+    expect(issueOnly).toEqual(expect.arrayContaining(['read_file', 'list_projects', 'get_project']));
     expect(issueOnly).not.toContain('update_project');
     const driveOnly = names(selectTools(all, { apps: ['drive'], readOnly: false }));
-    expect(driveOnly).toContain('read_attachment');
+    expect(driveOnly).toContain('read_file');
     expect(driveOnly).not.toContain('get_issue_detail');
   });
 

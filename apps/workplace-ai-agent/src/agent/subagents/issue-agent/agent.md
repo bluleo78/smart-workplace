@@ -4,7 +4,7 @@ description: "이슈 조회·검색·상태변경·코멘트·삭제 제안·내
 tools:
   - mcp__workplace__list_issues
   - mcp__workplace__get_issue_detail
-  - mcp__workplace__read_attachment
+  - mcp__workplace__read_file
   - mcp__workplace__add_comment
   - mcp__workplace__update_comment
   - mcp__workplace__create_issue
@@ -31,7 +31,7 @@ maxTurns: 20
   - 사이클 필터 `cycle`: 사이클 이름 | `active`(진행 중) | `none`(사이클이 하나도 할당되지 않은 이슈) | `backlog`(진행 중·예정 사이클 밖 — 완료 사이클에만 남은 이슈 포함). "사이클 미할당"은 `none` 이지 `backlog` 가 아닙니다. 이름·`active` 는 projectKey 와 함께 씁니다. 사람은 username(`me`·`null` 리터럴 포함), 라벨·유형은 이름으로 지정하며 없는 값이면 사용 가능 목록을 담은 오류가 옵니다.
   - 마일스톤 `milestone`(마일스톤 이름 CSV, projectKey 필요), 하위 이슈 `parent`(부모 이슈 키, 예: `WP-12` — 그 이슈의 하위 이슈만), 커스텀 필드 `field`(`"필드이름=값"`, projectKey 필요, 복수 선택 필드는 불가), 내가 워치 중인 이슈 `watching: true`. `parent`·`watching` 을 주면 담당자 기본값(me)이 붙지 않습니다(담당자와 무관하게 조회).
 - 이슈 상세 조회: `get_issue_detail(issueKey)` — 본문·상태·담당자·작성자·날짜(마감·시작·생성·수정·종료)·라벨·마일스톤·부모·하위 진행률·사이클(`cycles`)·커스텀 필드·워처(`watchers`)·연결된 드라이브 파일(`driveLinks`, `driveFileId`·이름)·첨부·최근 코멘트(`comments`, 최대 30건)·최근 변경 이력(`history` — 상태가 언제 바뀌었는지 등) 전체 컨텍스트 확인. 코멘트·이력이 상한을 넘어 오래된 것이 빠졌으면 `commentsOmitted`·`historyOmitted`(빠진 개수)가 오며, 오래된 코멘트가 필요하면(특히 수정·삭제할 대상이 목록에 없을 때) `get_issue_detail(issueKey, allComments=true)` 로 다시 읽습니다(최근 200건까지 — 그보다 오래된 코멘트는 `commentsOmitted` 로만 알려 주므로, 못 본 것이 있다고 밝히세요).
-- 첨부 읽기: `read_attachment(source="issue", issueKey, attachmentId, offset?, limit?)` — attachmentId 는 `get_issue_detail` 의 `attachments[].attachmentId` 입니다(이슈 챗 도구 `read_chat_thread_attachment` 의 `fileId` 와 같은 이슈 첨부를 가리키는 같은 값). 문서는 업로드 때 추출한 텍스트가 구간 단위로 오고(`limit` 생략 시 12000자, 최대 32000), `nextOffset` 이 있으면 `offset` 으로 넘겨 필요한 만큼만 이어 읽습니다. 이미지(JPEG·PNG·GIF·WebP, 3.75MB 이하)는 이미지 그대로 옵니다. `status` 가 `READY` 가 아니면(PENDING 추출 중, SKIPPED·FAILED 읽을 수 없음, NONE 추출 기록 없음) **내용을 추측하지 말고 그 상태와 `reason` 을 그대로 알립니다.** 첨부 내용을 근거로 코멘트·이슈를 쓸 때는 먼저 읽고 씁니다.
+- 첨부 읽기: `read_file(source="issue", issueKey, attachmentId, offset?, limit?)` — attachmentId 는 `get_issue_detail` 의 `attachments[].attachmentId` 입니다(이슈 챗 도구 `read_chat_thread_attachment` 의 `fileId` 와 같은 이슈 첨부를 가리키는 같은 값). 문서는 업로드 때 추출한 텍스트가 구간 단위로 오고(`limit` 생략 시 12000자, 최대 32000), `nextOffset` 이 있으면 `offset` 으로 넘겨 필요한 만큼만 이어 읽습니다. 이미지(JPEG·PNG·GIF·WebP, 3.75MB 이하)는 이미지 그대로 옵니다. `status` 가 `READY` 가 아니면(PENDING 추출 중, SKIPPED·FAILED 읽을 수 없음, NONE 추출 기록 없음) **내용을 추측하지 말고 그 상태와 `reason` 을 그대로 알립니다.** 첨부 내용을 근거로 코멘트·이슈를 쓸 때는 먼저 읽고 씁니다.
 - 상태 변경: `update_issue(issueKey, status=...)` — 허용값 TODO / IN_PROGRESS / DONE / CANCELED. 상태만 바꿀 때는 `status` 만 넘깁니다. 결과의 `ok` 가 false 이거나 `results.content` 가 `failed` 로 시작하면 상태가 **바뀌지 않은 것**입니다 — 바뀌었다고 보고하지 말고 실패 사유를 그대로 알립니다(아래 "update_issue 부분 실패 처리" 참조).
 - 코멘트 작성: `add_comment(issueKey, body)` — 마크다운 지원.
 - 코멘트 수정: `update_comment(issueKey, commentId, body)` — commentId 는 `get_issue_detail` 의 comments 에서 확인(대상이 안 보이면 `allComments=true`).

@@ -25,10 +25,17 @@ export const LEGACY_TOOL_LABELS: Record<string, ToolLabel> = {
   get_chat_thread: { label: '대화 조회', icon: '💬' },
   // WP-352: 목록인데 get_ 이던 이름을 list_channel_messages 로 바꿈(옛 라벨 값 그대로).
   get_channel_messages: { label: '채널 메시지 조회', icon: '💬' },
-  // WP-346: 이슈 챗 첨부 읽기 — 공유 read_attachment 와 헷갈리지 않게 read_chat_thread_attachment 로 바뀜.
+  // WP-346: 이슈 챗 첨부 읽기 — 공유 첨부 읽기 도구(당시 이름 read_attachment, WP-369 에서 read_file)와 헷갈리지 않게 read_chat_thread_attachment 로 바뀜.
   read_attachment_text: { label: '첨부 읽기', icon: '📎' },
   // WP-355: 앱당 도구 15개 상한 때문에 list_channels 의 q 옵션으로 접힌 채널 탐색(옛 라벨 값 그대로).
   discover_channels: { label: '채널 탐색', icon: '🔍' },
+  // WP-369: 드라이브 앱 도구 15개 상한 안에 전송 도구 자리를 만들려고 파일·폴더 이름변경·이동을 하나씩으로 합치고,
+  // 첨부 읽기는 드라이브 파일까지 읽는 이름 read_file 로 바꿈(옛 라벨 값 그대로).
+  rename_drive_folder: { label: '폴더 이름변경', icon: '✏️' },
+  rename_drive_file: { label: '파일 이름변경', icon: '✏️' },
+  move_drive_folder: { label: '폴더 이동', icon: '📦' },
+  move_drive_file: { label: '파일 이동', icon: '📦' },
+  read_attachment: { label: '첨부·파일 읽기', icon: '📎' },
 };
 
 export function getToolDisplay(toolName: string): ToolLabel {

@@ -30,6 +30,7 @@ import com.workplace.jooq.tables.DriveShareLink;
 import com.workplace.jooq.tables.DriveShareLinkAttempts;
 import com.workplace.jooq.tables.DriveSpace;
 import com.workplace.jooq.tables.DriveSpaceMember;
+import com.workplace.jooq.tables.DriveTransferLink;
 import com.workplace.jooq.tables.EmailAccount;
 import com.workplace.jooq.tables.EmailAttachment;
 import com.workplace.jooq.tables.EmailContent;
@@ -242,6 +243,11 @@ public class Tables {
      * The table <code>public.drive_space_member</code>.
      */
     public static final DriveSpaceMember DRIVE_SPACE_MEMBER = DriveSpaceMember.DRIVE_SPACE_MEMBER;
+
+    /**
+     * The table <code>public.drive_transfer_link</code>.
+     */
+    public static final DriveTransferLink DRIVE_TRANSFER_LINK = DriveTransferLink.DRIVE_TRANSFER_LINK;
 
     /**
      * The table <code>public.email_account</code>.

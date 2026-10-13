@@ -325,7 +325,7 @@ describe('드라이브', () => {
     expect(body.backlinks[0]).not.toHaveProperty('sourceId');
   });
 
-  it('rename_drive_file·copy_drive_item·import_attachment_to_drive: 파일·폴더 행에 core fileId·사용자 ID 가 없다', async () => {
+  it('rename_drive_item·copy_drive_item·import_attachment_to_drive: 파일·폴더 행에 core fileId·사용자 ID 가 없다', async () => {
     // 서버 DriveFileResponse / DriveFolderResponse 필드 그대로.
     const fileRow = { id: 5, folderId: 3, fileId: 812, name: 'a.pdf', mimeType: 'application/pdf', sizeBytes: 5, category: 'DOCUMENT', createdAt: 't', updatedAt: 't', versionCount: 1, available: true };
     const client = {
@@ -336,7 +336,7 @@ describe('드라이브', () => {
     };
     const tools = buildDriveTools(client as never) as never;
     const outs = [
-      out(await find(tools, 'rename_drive_file').handler({ driveFileId: 5, name: 'a.pdf' })),
+      out(await find(tools, 'rename_drive_item').handler({ driveFileId: 5, name: 'a.pdf' })),
       out(await find(tools, 'copy_drive_item').handler({ driveFileId: 5, targetFolderId: 3 })),
       out(await find(tools, 'copy_drive_item').handler({ folderId: 8 })),
       out(await find(tools, 'import_attachment_to_drive').handler({ spaceId: 2, attachmentId: 812 })),
@@ -347,6 +347,35 @@ describe('드라이브', () => {
       expect(body).not.toHaveProperty('fileId');
     }
     expect(outs[2]).toMatchObject({ folderId: 11 });
+  });
+
+  // WP-369: 전송 링크·텍스트로 만들기 응답 — 서버 계약 그대로의 목(DriveDownloadLink·DriveUploadLink·DriveFileResponse).
+  // 다운로드 링크 목에는 서버에 나중에 생길 수 있는 발급자 id(createdById)를 일부러 얹었다 — 뷰가 허용 목록으로 고르지 않으면 이 검사가 잡는다.
+  // driveFileId 모드(Task 3: 기존 파일의 새 버전 — 텍스트 갱신·파일에 묶인 업로드 링크)도 같은 뷰를 거친다.
+  it('create_drive_download_link·create_drive_file(내용·링크·기존 파일): 링크·파일 행에 사용자 ID·core fileId 가 없다', async () => {
+    const fileRow = { id: 5, folderId: null, fileId: 812, name: '회의록.md', mimeType: 'text/markdown', sizeBytes: 9, category: 'TEXT', createdAt: 't', updatedAt: 't', versionCount: 1, available: true };
+    const uploadLink = { url: 'https://w.example/api/v1/public/drive/transfer/ul_x', method: 'PUT', expiresAt: 't', maxBytes: 10485760, name: '결과.md', singleUse: true };
+    const client = {
+      createDriveDownloadLink: vi.fn().mockResolvedValue({ url: 'https://w.example/api/v1/public/drive/transfer/dl_x', expiresAt: 't', name: 'a.pdf', sizeBytes: 5, mimeType: 'application/pdf', singleUse: true, createdById: 9 }),
+      createDriveUploadLink: vi.fn().mockResolvedValue(uploadLink),
+      createDriveTextFile: vi.fn().mockResolvedValue(fileRow),
+      updateDriveTextFile: vi.fn().mockResolvedValue({ ...fileRow, fileId: 813, versionCount: 2 }),
+      createDriveVersionUploadLink: vi.fn().mockResolvedValue(uploadLink),
+    };
+    const tools = buildDriveTools(client as never) as never;
+    const outs = [
+      out(await find(tools, 'create_drive_download_link').handler({ driveFileId: 5 })),
+      out(await find(tools, 'create_drive_file').handler({ spaceId: 2, name: '결과.md' })),
+      out(await find(tools, 'create_drive_file').handler({ spaceId: 2, name: '회의록.md', content: '# 회의록' })),
+      out(await find(tools, 'create_drive_file').handler({ driveFileId: 5, content: '# 고친 회의록' })),
+      out(await find(tools, 'create_drive_file').handler({ driveFileId: 5 })),
+    ];
+    for (const body of outs) expect(userIdLeaks(body)).toEqual([]);
+    expect(outs[0]).toEqual({ url: 'https://w.example/api/v1/public/drive/transfer/dl_x', expiresAt: 't', name: 'a.pdf', sizeBytes: 5, mimeType: 'application/pdf', singleUse: true });
+    for (const body of [outs[2], outs[3]]) {
+      expect(body).toMatchObject({ driveFileId: 5 });
+      expect(body).not.toHaveProperty('fileId');
+    }
   });
 });
 
@@ -470,7 +499,7 @@ describe('메시징', () => {
   });
 });
 
-// WP-358: read_attachment 의 노트·메시지·메일 갈래 — 서버 구간 응답(ExtractedTextSlice)에는 사용자 ID 가 없고, 내부 file id 는 attachmentId 로만 나간다.
+// WP-358: read_file 의 노트·메시지·메일 갈래 — 서버 구간 응답(ExtractedTextSlice)에는 사용자 ID 가 없고, 내부 file id 는 attachmentId 로만 나간다.
 describe('첨부 읽기 (WP-358)', () => {
   const sliceRow = { fileId: 70, status: 'READY', offset: 0, totalChars: 3, truncated: false, nextOffset: null, text: '안녕 <@3>', reasonCode: null, reason: null };
   const client = {
@@ -486,7 +515,7 @@ describe('첨부 읽기 (WP-358)', () => {
     [{ source: 'message', channelId: 5, messageId: 40, attachmentId: 70 }],
     [{ source: 'mail', attachmentId: 9 }],
   ])('%j: 응답에 서버 fileId 가 없고 attachmentId 로 나간다', async (args) => {
-    const res = out(await find(tools, 'read_attachment').handler(args));
+    const res = out(await find(tools, 'read_file').handler(args));
     expect(res).not.toHaveProperty('fileId');
     expect(res.attachmentId).toBe(args.attachmentId);
     // 본문 텍스트는 첨부 원문이라 그대로 둔다 — 멘션 토큰 검사는 여기서 제외한다.

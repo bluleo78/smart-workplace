@@ -1,5 +1,5 @@
 // src/attachment-read.ts — 첨부·파일 내용 읽기의 공통 계약(WP-346).
-// 공유 read_attachment(이슈 첨부·드라이브 파일)와 ai-agent 전용 read_chat_attachment(메인 AI 채팅 세션 첨부)·
+// 공유 read_file(이슈 첨부·드라이브 파일)와 ai-agent 전용 read_chat_attachment(메인 AI 채팅 세션 첨부)·
 // read_chat_thread_attachment(이슈 챗 스레드 첨부)가 같은 구간 범위·기본 길이·이미지 판정 규칙을 쓰도록 여기 한 곳에 둔다.
 // (예전에는 ai-agent 의 attachment-read-schema.ts·home-attachment-tool.ts 에 있었다 — 공유 도구가 생기며 옮겼다.)
 import { z } from 'zod';
