@@ -84,8 +84,8 @@ export interface RunnerClock {
   clearTimeout(handle: unknown): void
 }
 
-/** 실제 시계(Date.now·setTimeout). */
-const realClock: RunnerClock = {
+/** 실제 시계(Date.now·setTimeout) — 실행기·AI 태그판의 기본 시계. */
+export const realClock: RunnerClock = {
   now: () => Date.now(),
   setTimeout: (fn, ms) => setTimeout(fn, ms),
   clearTimeout: (handle) => clearTimeout(handle as NodeJS.Timeout | undefined),

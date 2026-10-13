@@ -92,7 +92,7 @@ describe('AiMarkerBoard', () => {
     show(board, newDoc(), A, 0)
     const timers = board.pendingTimers()
     expect(timers).toHaveLength(1)
-    expect(timers[0].hasRef()).toBe(false)
+    expect((timers[0] as NodeJS.Timeout).hasRef()).toBe(false)
     board.destroy()
   })
 

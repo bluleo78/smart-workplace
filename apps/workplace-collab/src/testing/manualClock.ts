@@ -4,6 +4,8 @@ import type { RunnerClock } from '../mergeRunner'
 export interface ManualClock extends RunnerClock {
   /** 시간을 ms 만큼 흘린다 — 그 안에 오는 타이머를 시각 순(같으면 건 순)으로 부른다. */
   advance(ms: number): void
+  /** 아직 오지 않은(취소되지 않은) 타이머 수 — 정리 확인용. */
+  pendingCount(): number
 }
 
 /**
@@ -25,6 +27,7 @@ export function manualClock(): ManualClock {
     clearTimeout(handle) {
       timers.delete(handle as number)
     },
+    pendingCount: () => timers.size,
     advance(ms) {
       const target = now + ms
       for (;;) {

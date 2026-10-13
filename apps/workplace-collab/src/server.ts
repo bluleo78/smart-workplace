@@ -227,6 +227,8 @@ export interface CollabDeps {
   merger?: MergeRunner
   /** AI 적용 위치 ✦ 표식판 — 테스트가 넣어 남은 타이머·문서를 들여다본다. 기본은 cfg.aiMarkerMs 의 표식판. */
   markers?: AiMarkerBoard
+  /** 에디터 안 AI 적용 태그판 — 테스트가 손으로 돌리는 시계의 태그판을 넣어 만료를 사건으로 만든다. 기본은 cfg.aiTagTtlMs 의 태그판. */
+  aiTags?: AiTagBoard
   /**
    * 문서별로 받아들일 스키마 판(WP-313) — 기본은 이 서버가 빌드된 WIKI_SCHEMA_VERSION. cfg.testMode 일 때만 쓴다.
    * 테스트 모드가 문서별로 바꿔 '동기화 서버만 새 스키마로 배포됨'을 E2E 에서 실제 거부 경로로 재현한다.
@@ -305,7 +307,7 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
   const retryTimers = new Set<NodeJS.Timeout>()
   let shuttingDown = false
   // 에디터 안 AI 적용 태그(WP-323) — 수명·한계는 aiTagBoard.ts 머리말.
-  const aiTags = new AiTagBoard(cfg.aiTagTtlMs ?? AI_TAG_TTL_MS)
+  const aiTags = deps.aiTags ?? new AiTagBoard(cfg.aiTagTtlMs ?? AI_TAG_TTL_MS)
 
   /** 문서를 지금 저장한다(Hocuspocus 저장 경로 — 저장 뮤텍스·성공 후 언로드 판단을 그대로 탄다). */
   function storeNow(doc: Document): Promise<unknown> {
