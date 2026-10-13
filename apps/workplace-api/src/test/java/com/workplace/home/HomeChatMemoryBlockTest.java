@@ -322,6 +322,35 @@ class HomeChatMemoryBlockTest extends HomeAttachmentTestSupport {
         .satisfies(p -> assertThat(p.get("messageId")).isEqualTo(a.id()));
   }
 
+  /**
+   * 공백뿐인 본문("\n")으로 오류 종료해도 메모리 결과 줄이 있으면 답을 저장하되 본문은 ""로 정규화한다 — 웹의 content === '' 판정과 AI 맥락 필터(빈
+   * 본문 중단·오류 답 제외)가 모두 "빈 답" 으로 보게. 같은 필터는 탭·개행만 남은 기존 행도 뺀다.
+   */
+  @Test
+  void 공백뿐인_본문으로_오류_종료하면_본문을_빈_문자열로_저장하고_맥락에서_뺀다() throws Exception {
+    long uid = user();
+    HomeMessageResponse a =
+        assistantAfter(
+            uid,
+            (delta, progress, tool) -> {
+              delta.accept("\n");
+              tool.accept(start(1, "remember_memory"));
+              tool.accept(result(1, "remember_memory", false, SAVED));
+              return "";
+            },
+            true);
+
+    assertThat(a.status()).isEqualTo("FAILED");
+    assertThat(a.content()).isEmpty();
+    assertThat(a.memoryBlocks()).isEqualTo(om.readTree("[" + SAVED_BLOCK + "]"));
+    UUID sid = onlySession(uid);
+    // 기존 행(정규화 이전에 저장된 탭·개행 본문)도 맥락에서 빠지는지 — 정규화 없이 직접 저장해 필터만 검증한다.
+    sessionService.appendMessage(uid, sid, "ASSISTANT", "\t\n", null, null, null, "STOPPED");
+    assertThat(sessionService.getContextSource(uid, sid).rows())
+        .extracting(r -> r.role())
+        .containsExactly("USER");
+  }
+
   @Test
   void done_이벤트에_저장한_messageId_가_실린다() throws Exception {
     long uid = user();

@@ -138,13 +138,14 @@ public class HomeMessageRepository {
     if (uptoId != null) cond = cond.and(HOME_MESSAGE.ID.gt(uptoId));
     // WP-55: 텍스트 전에 중단·오류로 끝났지만 메모리 결과 줄 때문에 저장된 빈 답(STOPPED·FAILED + 빈 본문)은 맥락에서 뺀다 — 빈 "AI:" 줄이
     // 실리거나, ai-agent 가 그 빈 답을 "마지막 AI 답" 으로 보아 앞선 미확인 승인 결과를 본 것으로 치지 않게. 채팅 이력·요약 입력이 모두
-    // 이 조회를 거치므로 한 곳에서 거른다(COMPLETE 빈 답은 기존대로 둔다).
+    // 이 조회를 거치므로 한 곳에서 거른다(COMPLETE 빈 답은 기존대로 둔다). 공백뿐인 본문도 빈 답으로 본다 — DSL.trim 은 스페이스만
+    // 벗기므로 탭·개행까지 btrim 한다(저장 시점에도 정규화하지만 기존 행 대비 이중 방어).
     cond =
         cond.andNot(
             HOME_MESSAGE
                 .ROLE
                 .eq("ASSISTANT")
-                .and(DSL.trim(HOME_MESSAGE.CONTENT).eq(""))
+                .and(DSL.condition("btrim({0}, E' \\t\\r\\n') = ''", HOME_MESSAGE.CONTENT))
                 .and(HOME_MESSAGE.STATUS.ne("COMPLETE")));
     return dsl.select(HOME_MESSAGE.ID, HOME_MESSAGE.ROLE, HOME_MESSAGE.CONTENT)
         .from(HOME_MESSAGE)

@@ -445,9 +445,8 @@ public class HomeChatService {
         }
       }
     }
-    // WP-55: 메모리 도구 성공 결과(result) → 결과 줄 블록(되돌리기 근거). ai-agent 가 이미 거르지만 API 도 다시 거른다 — start·오류
-    // 결과·
-    // 다른 도구·모양이 틀린 memory 는 블록을 만들지 않는다.
+    // WP-55: 메모리 도구 성공 결과(result) → 결과 줄 블록(되돌리기 근거). ai-agent 가 이미 거르지만 API 도 다시 거른다.
+    // start 단계, 오류 결과, 메모리가 아닌 도구, 모양이 틀린 memory 는 블록을 만들지 않는다.
     ChatBlockRecorder.Memory memory =
         !"start".equals(phase) && !isError && isMemoryTool(toolNode.path("toolName").asText())
             ? ChatBlockRecorder.Memory.from(toolNode.get("memory"))
