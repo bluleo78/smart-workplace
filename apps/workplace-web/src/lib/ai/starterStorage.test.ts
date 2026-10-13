@@ -112,6 +112,44 @@ describe('run — 진행 중 공유·실패 기록', () => {
     setNow('2026-10-14T00:30:00Z');
     expect(store.failedToday(OWNER, 'a')).toBe(false);
   });
+  it('로그아웃(clearAll) 전에 시작한 요청이 뒤늦게 끝나도 저장소를 다시 채우지 않는다', async () => {
+    const { store, storage } = setup();
+    let resolve!: (v: string[]) => void;
+    const p = store.run(OWNER, 'k', () => new Promise<string[]>((r) => (resolve = r)));
+    store.clearAll();
+    resolve(['AI']);
+    expect(await p).toEqual(['AI']); // 호출자에게는 결과를 돌려준다
+    expect(store.peek(OWNER, 'k')).toBeNull();
+    expect(storage.raw.size).toBe(0);
+  });
+  it('로그아웃 전 요청이 실패해도 실패 기록을 남기지 않는다', async () => {
+    const { store } = setup();
+    let reject!: (e: Error) => void;
+    const p = store.run(OWNER, 'k', () => new Promise<string[]>((_, r) => (reject = r)));
+    store.clearAll();
+    reject(new Error('500'));
+    expect(await p).toEqual([]);
+    expect(store.failedToday(OWNER, 'k')).toBe(false);
+  });
+  it('clearAll 뒤 새로 시작한 요청은 옛 요청이 끝나도 계속 공유된다', async () => {
+    const { store } = setup();
+    let resolveOld!: (v: string[]) => void;
+    let resolveNew!: (v: string[]) => void;
+    const oldP = store.run(OWNER, 'k', () => new Promise<string[]>((r) => (resolveOld = r)));
+    store.clearAll();
+    const newFetcher = vi.fn(() => new Promise<string[]>((r) => (resolveNew = r)));
+    const newP = store.run(OWNER, 'k', newFetcher);
+    resolveOld(['old']);
+    await oldP;
+    const sharedFetcher = vi.fn(async () => ['third']);
+    const sharedP = store.run(OWNER, 'k', sharedFetcher); // 옛 요청의 finally 가 새 진행 중 표시를 지웠다면 여기서 새로 부른다
+    expect(sharedFetcher).not.toHaveBeenCalled();
+    resolveNew(['new']);
+    expect(await sharedP).toEqual(['new']);
+    expect(await newP).toEqual(['new']);
+    expect(newFetcher).toHaveBeenCalledTimes(1);
+    expect(store.peek(OWNER, 'k')?.items).toEqual(['new']);
+  });
   it('resetFailures 는 실패 기록만 지운다(설정을 다시 켰을 때)', async () => {
     const { store } = setup();
     await store.run(OWNER, 'a', async () => []);
@@ -130,5 +168,20 @@ describe('clearAll — 로그아웃', () => {
     store.clearAll();
     expect([...storage.raw.keys()]).toEqual(['other']);
     expect(store.peek('1:1', 'k')).toBeNull();
+  });
+  it('removeItem 이 던져도 예외 없이 메모리는 비운다', () => {
+    const storage = memStorage();
+    const { store } = setup(storage);
+    store.save(OWNER, 'k', ['a']);
+    storage.removeItem = () => { throw new Error('blocked'); };
+    expect(() => store.clearAll()).not.toThrow();
+    expect(store.peek(OWNER, 'k')?.items).toEqual(['a']); // 메모리는 비었지만 localStorage 에서 다시 읽힌다(지우지 못한 경우)
+  });
+  it('key 가 던져도 예외 없이 메모리는 비운다', () => {
+    const storage = memStorage();
+    const { store } = setup(storage);
+    store.save(OWNER, 'k', ['a']);
+    storage.key = () => { throw new Error('blocked'); };
+    expect(() => store.clearAll()).not.toThrow();
   });
 });

@@ -48,6 +48,15 @@ describe('머리말·화면 맞춤 판정·키', () => {
     expect(starterHeading(focus('이슈', { issueKey: 'WP-1' }))).toBe('이 이슈에 대해');
     expect(starterHeading(null)).toBe('추천 질문');
   });
+  it('머리말은 고정 문구와 일치 — 일반 문구로 떨어지면 "추천 질문"', () => {
+    // 표에 없는 대상 종류(식별자는 있음)
+    expect(starterHeading(focus('프로젝트', { projectKey: 'WP' }))).toBe('추천 질문');
+    // 구성원·외부 식별자가 모두 없는 연락처
+    expect(starterHeading(focus('연락처', { other: 'x' }))).toBe('추천 질문');
+    expect(fixedStarters(focus('연락처', { other: 'x' }))).toEqual(GENERAL_STARTERS);
+    // 표에 있으면 맞춤 머리말
+    expect(starterHeading(focus('연락처', { username: 'kim' }))).toBe('이 연락처에 대해');
+  });
   it('키 — 화면 참고가 없으면 general, 있으면 화면 정체성(건수·facts 무시)', () => {
     expect(starterContextKey(null)).toBe('general');
     const a = { ...focus('이슈', { issueKey: 'WP-1' }), scope: { label: 'P', count: 1 } };

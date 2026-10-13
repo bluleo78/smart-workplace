@@ -29,21 +29,22 @@ export function isTailoredContext(ctx: AiScreenContext | null): boolean {
   return !!ctx?.focus && Object.keys(ctx.focus.refs ?? {}).length > 0;
 }
 
-/** 즉시 보일 고정 문구. ctx 는 화면 참고 칩이 켜졌을 때만 넘긴다. */
-export function fixedStarters(ctx: AiScreenContext | null): string[] {
-  if (!isTailoredContext(ctx) || !ctx?.focus) return [...GENERAL_STARTERS];
+/** 표에 있는 화면 맞춤 고정 문구 — 없으면 null(일반 문구를 쓴다). fixedStarters·starterHeading 이 같은 판정을 쓰게 한 곳에 둔다. */
+function tailoredStarters(ctx: AiScreenContext | null): readonly string[] | null {
+  if (!isTailoredContext(ctx) || !ctx?.focus) return null;
   const { type, refs } = ctx.focus;
-  if (type === '연락처') {
-    if (refs.username) return [...CONTACT_MEMBER];
-    if (refs.externalId) return [...CONTACT_EXTERNAL];
-    return [...GENERAL_STARTERS];
-  }
-  return [...(BY_FOCUS_TYPE[type] ?? GENERAL_STARTERS)];
+  if (type === '연락처') return refs.username ? CONTACT_MEMBER : refs.externalId ? CONTACT_EXTERNAL : null;
+  return BY_FOCUS_TYPE[type] ?? null;
 }
 
-/** 목록 머리말 — 화면 맞춤이면 "이 {대상 종류}에 대해". */
+/** 즉시 보일 고정 문구. ctx 는 화면 참고 칩이 켜졌을 때만 넘긴다. */
+export function fixedStarters(ctx: AiScreenContext | null): string[] {
+  return [...(tailoredStarters(ctx) ?? GENERAL_STARTERS)];
+}
+
+/** 목록 머리말 — 맞춤 문구를 보일 때만 "이 {대상 종류}에 대해", 일반 문구면 '추천 질문'(문구와 머리말이 어긋나지 않게). */
 export function starterHeading(ctx: AiScreenContext | null): string {
-  return isTailoredContext(ctx) && ctx?.focus ? `이 ${ctx.focus.type}에 대해` : '추천 질문';
+  return tailoredStarters(ctx) && ctx?.focus ? `이 ${ctx.focus.type}에 대해` : '추천 질문';
 }
 
 /** 저장·조회 키 — 화면 참고가 없으면 'general', 있으면 화면 정체성(건수·facts 같은 휘발 값 제외). */

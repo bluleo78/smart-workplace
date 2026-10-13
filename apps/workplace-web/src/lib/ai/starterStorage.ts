@@ -41,6 +41,8 @@ export function createStarterStore(opts: { storage?: () => KeyValueStore | null;
   const memory = new Map<string, StoredEntry>();
   const failures = new Map<string, string>(); // 키 → 실패한 서울 날짜
   const inflight = new Map<string, Promise<string[]>>();
+  /** clearAll(로그아웃) 마다 올린다 — 로그아웃 전에 시작한 요청이 뒤늦게 끝나 지운 저장소를 다시 채우지 않게 한다. */
+  let epoch = 0;
   const mk = (owner: string, key: string) => `${owner}|${key}`;
 
   function readAll(owner: string): Record<string, StoredEntry> {
@@ -102,25 +104,33 @@ export function createStarterStore(opts: { storage?: () => KeyValueStore | null;
     const k = mk(owner, key);
     const cur = inflight.get(k);
     if (cur) return cur;
+    const startedAt = epoch;
     const p = fetcher()
       .then(
         (items) => {
-          if (items.length) save(owner, key, items);
-          else markFailed(owner, key);
+          // 시작 이후 clearAll 이 있었으면(로그아웃) 저장·실패 기록을 건너뛴다 — 결과는 호출자에게만 돌려준다.
+          if (epoch === startedAt) {
+            if (items.length) save(owner, key, items);
+            else markFailed(owner, key);
+          }
           return items;
         },
         () => {
-          markFailed(owner, key);
+          if (epoch === startedAt) markFailed(owner, key);
           return [] as string[];
         },
       )
-      .finally(() => inflight.delete(k));
+      // clearAll 뒤 같은 키로 새로 시작한 요청의 진행 중 표시를 옛 요청이 지우지 않게 자기 것일 때만 지운다.
+      .finally(() => {
+        if (inflight.get(k) === p) inflight.delete(k);
+      });
     inflight.set(k, p);
     return p;
   }
 
   /** 로그아웃 — 메모리와 이 접두의 localStorage 키를 모두 지운다(다른 계정에 이전 결과가 보이지 않게). */
   function clearAll() {
+    epoch++;
     memory.clear();
     failures.clear();
     inflight.clear();
