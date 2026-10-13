@@ -27,6 +27,12 @@ describe('calendar-agent 정의', () => {
       'mcp__workplace__submit_response',
     ]);
   });
+  // WP-357: 캘린더 목록 도구는 두지 않았다(calendarId 를 받는 도구가 없다) — 모델이 없는 도구를 지어 부르지 않게 알린다.
+  it('캘린더 목록 도구가 없고 일정은 기본 캘린더에 만들어진다고 안내한다 (WP-357)', () => {
+    const prompt = loaded['calendar-agent'].prompt;
+    expect(prompt).toContain('별도 조회 도구는 없습니다');
+    expect(prompt).toContain('`calendarName`');
+  });
   it('본문에 일정·확인 안내가 있고 maxTurns 가 설정됨', () => {
     expect(loaded['calendar-agent'].maxTurns).toBeGreaterThan(0);
     expect(loaded['calendar-agent'].prompt).toContain('일정');

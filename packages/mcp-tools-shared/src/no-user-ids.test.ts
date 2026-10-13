@@ -4,6 +4,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { buildCalendarTools } from './calendar-tools.js';
 import { buildDriveTools } from './drive-tools.js';
+import { buildHomeTools } from './home-tools.js';
 import { buildSharedIssueTools } from './issue-tools.js';
 import { resultText } from './mcp-content.js';
 import { buildMemberTools } from './member-tools.js';
@@ -178,6 +179,75 @@ describe('노트', () => {
       expect(userIdLeaks(body), name).toEqual([]);
       expect(body, name).toMatchObject({ version: expect.any(Number), updatedAt: 't' });
     }
+  });
+});
+
+describe('노트 요약·판 기록·복원 (WP-357)', () => {
+  const wikiClient = {
+    // WP-357: 요약·판 기록·복원 — 서버 WikiPageSummaryState·WikiRevisionListResponse(Person 은 숫자 사용자 id 와 name).
+    getWikiPage: vi.fn().mockResolvedValue({ id: 5, spaceId: 1, parentId: null, title: 'T', body: 'b', version: 3, updatedBy: 9, updatedAt: 't' }),
+    getWikiPageSummary: vi.fn().mockResolvedValue({ summary: '요약', status: 'READY', summaryVersion: 3, pageVersion: 3, summarizedAt: 't' }),
+    listWikiRevisions: vi.fn().mockResolvedValue({
+      current: { version: 3, editedAt: 't', editors: [{ id: 9, name: '앨리스' }] },
+      items: [{ version: 2, title: 'T', editedAt: 't', createdAt: 't', reason: 'AI', editors: [{ id: 9, name: '앨리스' }, { id: 10, name: '밥' }], aiActor: { id: 11, name: '캐럴' } }],
+    }),
+    restoreWikiRevision: vi.fn().mockResolvedValue({ id: 5, spaceId: 1, parentId: null, title: 'T', body: 'c', version: 5, updatedBy: 9, updatedAt: 't' }),
+  };
+  const tools = () => buildWikiTools(wikiClient as never) as never as Parameters<typeof find>[0];
+
+  it('get_wiki_page includeRevisions: 편집자·AI 적용자는 이름으로만 두고 숫자 사용자 ID 를 내보내지 않는다', async () => {
+    const body = out(await find(tools(), 'get_wiki_page').handler({ pageId: 5, includeRevisions: true, includeSummary: true }));
+    expect(userIdLeaks(body, '', WIKI_BODY_TOKEN_EXCEPTION)).toEqual([]);
+    expect(body.revisions[0]).toMatchObject({ editors: ['앨리스', '밥'], aiActor: '캐럴' });
+    expect(JSON.stringify(body.revisions)).not.toMatch(/"id"|\b(9|10|11)\b/);
+  });
+
+  it('restore_wiki_revision: 저장과 같은 페이지 뷰라 updatedBy 가 없다', async () => {
+    const body = out(await find(tools(), 'restore_wiki_revision').handler({ pageId: 5, version: 2 }));
+    expect(userIdLeaks(body)).toEqual([]);
+    expect(body).toMatchObject({ version: 5, updatedAt: 't' });
+  });
+});
+
+describe('홈 개요 (WP-357)', () => {
+  // 서버 ActivityEntryResponse·PriorityItemResponse·MailSummaryResponse·MessagingSummaryResponse·ThreadInboxPage 모양.
+  const client = {
+    getHomeActivity: vi.fn().mockResolvedValue({
+      items: [{ id: 5001, issueId: 412, projectKey: 'WP', issueNumber: 12, issueTitle: 'T', actorId: 9, actorName: '앨리스', actorKind: 'HUMAN', eventType: 'COMMENTED', createdAt: 't' }],
+      nextCursor: null,
+    }),
+    getPriorityItems: vi.fn().mockResolvedValue([{ sourceType: 'ISSUE_DUE', sourceId: '412', title: 'T', deepLink: '/projects/WP/issues/12', importanceScore: 1, urgencyScore: 1, reason: '마감' }]),
+    getHomeMailSummary: vi.fn().mockResolvedValue({ unreadCount: 1, needsReplyCount: 0, classificationActive: true, recent: [{ id: 1, accountId: 3, threadId: 't', sender: 'a', subject: 's', seen: false }] }),
+    getMessagingSummary: vi.fn().mockResolvedValue({
+      unreadConversationCount: 1, needsReplyCount: 0, aiAttentionCount: 0, attentionCount: 0,
+      recent: [{ kind: 'CHANNEL', conversationId: 5, label: '일반', lastAuthorName: '앨리스', lastMessagePreview: 'hi', lastMessageAt: 't', unreadCount: 1, mentioned: true, needsReply: false, newThreadReplyCount: 0, aiReason: null }],
+    }),
+    getThreadInbox: vi.fn().mockResolvedValue({
+      items: [{
+        rootMessage: { id: 40, channelId: 5, authorId: 9, authorName: '앨리스', authorKind: 'HUMAN', body: '안녕 <@3>', mentions: [{ id: 3, username: 'minsu', name: '김민수', kind: 'HUMAN' }], parentMessageId: null, replyCount: 1, unreadReplyCount: 1, followed: true, deleted: false, reactions: [], attachments: [{ fileId: 70, messageId: 40, originalName: 'a.png', mimeType: 'image/png', sizeBytes: 3, attachedById: 9, attachedByName: '앨리스', attachedAt: 't' }], driveLinks: [], createdAt: 't' },
+        channelName: '일반', lastReplyAt: 't',
+      }],
+      nextCursor: null, hasMore: false,
+    }),
+  };
+  const tools = buildHomeTools(client as never) as never as Parameters<typeof find>[0];
+
+  it('우선순위·메일·메시징·활동·스레드 다섯 섹션 모두에 숫자 사용자 ID 도 <@id> 토큰도 없다', async () => {
+    const body = out(await find(tools, 'get_home_overview').handler({ sections: ['priority', 'mail', 'messaging', 'activity', 'threads'] }));
+    expect(Object.keys(body)).toEqual(['priority', 'mail', 'messaging', 'activity', 'threads']);
+    expect(userIdLeaks(body)).toEqual([]);
+    expect(JSON.stringify(body)).not.toMatch(/<@\d+>/);
+  });
+
+  it('목 점검: 가공 전 활동·스레드 원본에는 숫자 ID 가 실제로 들어 있다', async () => {
+    expect(userIdLeaks(await client.getHomeActivity())).not.toEqual([]);
+    expect(userIdLeaks(await client.getThreadInbox())).not.toEqual([]);
+  });
+
+  it('이어 읽기에 쓰는 식별자(channelId·issueKey·id)는 남는다', async () => {
+    const body = out(await find(tools, 'get_home_overview').handler({ sections: ['messaging', 'threads'] }));
+    expect(body.messaging.recent[0].channelId).toBe(5);
+    expect(body.threads.items[0]).toMatchObject({ channelId: 5, id: 40 });
   });
 });
 

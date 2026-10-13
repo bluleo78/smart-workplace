@@ -298,6 +298,8 @@ export const ASSISTANT_ROUTER_TOOLS: readonly string[] = [
   'list_drive_spaces', 'list_drive_items', 'search_drive', 'search_drive_content', 'get_drive_file_summary',
   // 알림 — 읽음 처리도 라우터가 직접 한다
   'list_notifications', 'mark_notification_read', 'mark_all_notifications_read',
+  // 홈 현황(WP-357) — 우선순위·메일/메시징 요약·활동·스레드 인박스. 도메인 하나로 정해지지 않는 "오늘 뭐부터?" 질문을 라우터가 직접 읽는다(show_activity·show_my_tasks 는 화면 표시 전용)
+  'get_home_overview',
   // 첨부 읽기 — 이 대화의 첨부(WP-234)·이슈 첨부/드라이브 파일 본문(WP-346)
   'read_chat_attachment', 'read_attachment',
   // 표시 위젯
@@ -1133,6 +1135,7 @@ export function buildTools(
       sharedTool('list_wiki_pages'), sharedTool('list_wiki_backlinks'), // #850: 페이지 트리·백링크
       sharedTool('create_wiki_page'),        // #333 M3: 위키 쓰기(내부)
       sharedTool('update_wiki_page'),        // #333 M3: 위키 쓰기(내부)
+      sharedTool('restore_wiki_revision'),   // WP-357: 이전 판 복원 — 확인 카드가 없어 직접 실행(wiki-agent)
       sharedTool('add_comment'),
       sharedTool('update_comment'),
       sharedTool('create_issue'),
@@ -1164,6 +1167,7 @@ export function buildTools(
       sharedTool('get_drive_file_summary'), sharedTool('search_drive_content'), // #850: 파일 요약·내용 검색
       // #850: 알림 인박스 — AI Chat 은 요청자(userId) 신원으로 호출하므로 사람의 알림을 본다(에이전트 신원 프로필엔 두지 않는다).
       sharedTool('list_notifications'), sharedTool('mark_notification_read'), sharedTool('mark_all_notifications_read'),
+      sharedTool('get_home_overview'), // WP-357: 홈 현황 읽기 — 라우터 직접 도구(ASSISTANT_ROUTER_TOOLS)
       sharedTool('create_drive_folder'), sharedTool('rename_drive_folder'), sharedTool('move_drive_folder'), sharedTool('move_drive_file'), // #333 M4: 드라이브 쓰기(직접 실행)
       // WP-354: 파일 이름변경·복사·첨부 가져오기 — 확인 카드가 없는 되돌릴 수 있는 쓰기라 직접 실행(공유). 롤백은 확인 카드 대상이라 도구로 두지 않는다.
       sharedTool('rename_drive_file'), sharedTool('copy_drive_item'), sharedTool('import_attachment_to_drive'),

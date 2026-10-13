@@ -214,11 +214,20 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     async listWikiSpaces() {
       return (await http.get('/wiki/spaces')).data ?? [];
     },
-    async searchWikiPages(query) {
-      return (await http.get('/wiki/search', { params: { q: query } })).data ?? [];
+    async searchWikiPages(query, spaceId) {
+      return (await http.get('/wiki/search', { params: { q: query, ...(spaceId !== undefined && { spaceId }) } })).data ?? [];
     },
     async getWikiPage(pageId) {
       return (await http.get(`/wiki/pages/${pageId}`)).data;
+    },
+    async getWikiPageSummary(pageId) {
+      return (await http.get(`/wiki/pages/${pageId}/summary`)).data;
+    },
+    async listWikiRevisions(pageId) {
+      return (await http.get(`/wiki/pages/${pageId}/revisions`)).data;
+    },
+    async restoreWikiRevision(pageId, version) {
+      return (await http.post(`/wiki/pages/${pageId}/revisions/${version}/restore`)).data;
     },
     async createWikiPage(spaceId, body) {
       return (await http.post(`/wiki/spaces/${spaceId}/pages`, body)).data;
@@ -262,12 +271,36 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
       await http.delete(`/calendar/events/${eventId}/attendees/${userId}`);
     },
 
+    // ── 홈 개요(WP-357) ──
+    async getHomeActivity({ cursor, size }) {
+      return (await http.get('/me/activity', { params: { size, ...(cursor && { cursor }) } })).data;
+    },
+    async getPriorityItems() {
+      return (await http.get('/me/priority-items')).data?.items ?? [];
+    },
+    async getHomeMailSummary() {
+      return (await http.get('/me/mail-summary')).data;
+    },
+    async getMessagingSummary() {
+      return (await http.get('/me/messaging-summary')).data;
+    },
+    async getThreadInbox({ cursor, limit }) {
+      return (await http.get('/messaging/threads/inbox', { params: { limit, ...(cursor && { cursor }) } })).data;
+    },
+
     // ── 메일 ──
     async listMailAccounts() {
       return (await http.get('/mail/accounts')).data ?? [];
     },
-    async listMail(accountId, { folder, limit, query, unread }) {
-      const params = { folder, limit, ...(query ? { query } : {}), ...(unread ? { unread: true } : {}) };
+    async listMail(accountId, { folder, limit, query, unread, category, needsReply }) {
+      const params = {
+        folder,
+        limit,
+        ...(query ? { query } : {}),
+        ...(unread ? { unread: true } : {}),
+        ...(category ? { category } : {}),
+        ...(needsReply ? { needsReply: true } : {}),
+      };
       return (await http.get(`/mail/accounts/${accountId}/messages`, { params })).data ?? [];
     },
     async getMail(messageId) {
@@ -293,6 +326,9 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     },
     async markMailRead(messageId) {
       await http.post(`/mail/messages/${messageId}/read`);
+    },
+    async markMailUnread(messageId) {
+      await http.post(`/mail/messages/${messageId}/unread`);
     },
     async syncMail(accountId) {
       // 소유권은 서버가 검증한다(남의 계정이면 404). 본문은 빈 객체 — 서버가 요청 본문을 읽지 않는다.

@@ -74,7 +74,7 @@ export function assistantSystemPrompt(runner: AssistantRunner): string {
 |---|---|---|---|
 | 캘린더 | \`list_events\`, \`get_event\` | \`show_calendar\` | \`show_event\` |
 | 메시징 | \`list_channels\`, \`discover_channels\`, \`list_channel_messages\`, \`list_thread_replies\` | \`show_channels\` | (없음) |
-| 노트 | \`search_wiki\`, \`get_wiki_page\`, \`list_wiki_pages\`, \`list_wiki_backlinks\` | \`show_wiki\` | \`show_wiki_page\` |
+| 노트 | \`search_wiki\`, \`get_wiki_page\`(저장된 AI 요약·판 기록은 \`includeSummary\`·\`includeRevisions\` 옵션), \`list_wiki_pages\`, \`list_wiki_backlinks\` | \`show_wiki\` | \`show_wiki_page\` |
 | 연락처(사외) | \`list_contacts\`, \`get_external_contact\`, \`get_contact_facets\` | \`show_contacts\` | \`show_contact\` |
 | 사용자 그룹(조직도·개인 그룹) | \`list_user_groups\`, \`get_user_group\` | (없음) | (없음) |
 | 구성원(사내) | \`search_members\`, \`get_member\`, \`get_member_contact\` | (없음) | (없음) |
@@ -83,12 +83,14 @@ export function assistantSystemPrompt(runner: AssistantRunner): string {
 | 이슈 | \`list_issues\`, \`get_issue_detail\`, \`read_attachment\`(첨부) | \`show_issue_list\` | \`show_issue_detail\` |
 | 메일 | \`list_mail\`, \`get_mail\` | \`show_mail_list\` | (없음) |
 | 알림 | \`list_notifications\` | (없음) | (없음) |
+| 홈 현황 | \`get_home_overview\` | \`show_activity\`, \`show_my_tasks\` | (없음) |
 
 - 상세 위젯(\`show_event\`/\`show_wiki_page\`/\`show_contact\`/\`show_project\`)은 **엔티티 ID가 필요**합니다. ID를 모르면 먼저 읽기 도구(예: \`search_wiki\`)로 ID를 확보한 뒤 상세 위젯을 호출합니다.
 - 메시징·드라이브 상세는 위젯이 없으므로, 콕 집은 상세 질문은 읽기 도구 조회 후 자연 prose 로 답합니다.
 - **채널 멤버**: "이 채널에 누구 있어?" 는 \`search_members({channelId})\` 로 직접 조회합니다(\`channelId\` 는 \`list_channels\` 결과, 내가 속한 채널만 — 각 항목에 \`role\` 이 옵니다).
 - **드라이브 파일 내용**: "이 파일 뭐라고 써 있어?" 는 \`get_drive_file_summary\` 로 답합니다. \`status\` 가 \`DONE\` 이 아니면 내용을 추측하지 말고 요약이 준비 중이거나 만들 수 없다고(\`reason\`) 알립니다. 파일 이름을 모르고 내용으로 찾을 때는 \`search_drive_content\`, 이름으로 찾을 때는 \`search_drive\` 입니다.
 - **이슈 첨부·드라이브 파일 본문**(WP-346): 요약이 아니라 본문 그대로(인용·특정 부분)나 이미지를 봐야 하면 \`read_attachment\` 로 직접 읽습니다 — 이슈 첨부는 \`{source:"issue", issueKey, attachmentId}\`(attachmentId 는 \`get_issue_detail\` 의 \`attachments[].attachmentId\`), 드라이브 파일은 \`{source:"drive", driveFileId}\`. 텍스트는 구간 단위로 오므로 \`nextOffset\` 이 있으면 \`offset\` 으로 이어 읽고, \`status\` 가 \`READY\` 가 아니면 내용을 추측하지 말고 상태와 \`reason\` 을 알립니다. issue-agent·drive-agent 도 이 도구가 있어, 첨부 내용이 필요한 쓰기를 위임할 때 직접 읽을 수 있습니다.
+- **홈 현황**(WP-357): "오늘 뭐부터 해야 해?", "내가 놓친 거 있어?" 처럼 도메인 하나로 정해지지 않는 현황 질문은 \`get_home_overview\` 로 직접 읽고 prose 로 종합합니다. 기본은 우선순위(\`priority\`)·메일(\`mail\`)·메시징(\`messaging\`) 요약이고, \`sections\` 로 최근 활동(\`activity\`)·안 읽은 스레드(\`threads\`)를 더합니다(둘만 \`nextCursor\` 로 이어 읽으며, 이때는 그 섹션 하나만 요청). 항목의 \`issueKey\`·\`messageId\`·\`channelId\` 로 이슈·메일·채널 도구를 이어 부르고, 우선순위는 주기적으로 갱신돼 늦을 수 있음을 염두에 둡니다. 활동 항목에는 \`actorKind\`(AGENT = AI)가 있지만 걸러 주는 옵션은 없으므로, AI 가 한 일만 보여 달라는 요청은 \`show_activity({actorKind:"AGENT"})\` 로 표시합니다. \`show_activity\`·\`show_my_tasks\` 는 화면에 띄워 달라는 요청에만 씁니다 — 내용을 읽고 판단해야 하면 이 도구를 씁니다.
 - **알림**: "내 알림/새 알림 뭐 있어?" 는 \`list_notifications\` 로 조회해 prose 로 답합니다(안 읽은 것만은 \`unreadOnly:true\`). 사용자가 읽음 처리를 요청하면 위임 없이 \`mark_notification_read\`(한 건) 또는 \`mark_all_notifications_read\`(전체)를 직접 호출합니다.
 - **안 읽은 메일**: 목록 표시는 \`show_mail_list({params:{unreadOnly:true}})\`, 유무·건수 확인은 \`list_mail({unreadOnly:true})\` 를 사용합니다. **\`query:"is:unread"\` 같은 검색어는 동작하지 않으니 절대 쓰지 마세요.**
 - **이 대화의 첨부**(WP-234): 요청 앞에 "## 이 대화의 첨부" 블록이 있으면, 첨부 내용에 대한 질문(요약·설명·이미지 확인 등)은 위임하지 말고 \`read_chat_attachment\` 로 직접 읽어 답합니다. 이 블록의 fileId 는 \`read_chat_attachment\` 전용이며 \`read_attachment\`(이슈 첨부·드라이브 파일)에 넣지 않습니다. 첨부 내용이 필요한 쓰기 작업을 위임할 때는 하위 에이전트가 이 대화의 첨부를 읽을 수 없으므로, 먼저 읽어 필요한 내용을 위임 prompt 에 옮겨 적습니다.
@@ -101,8 +103,8 @@ export function assistantSystemPrompt(runner: AssistantRunner): string {
 | 이슈 상태변경·코멘트·이슈의 마일스톤/사이클 지정·워치·분석·검색, 이슈·코멘트 삭제(제안) | **issue-agent** | "이 이슈 진행중으로", "코멘트 남겨줘", "이 이슈 워치해줘", "이 이슈 삭제해줘" |
 | 일정 생성·수정·삭제(제안), 기존 일정 참석자 추가·제거(제안), 충돌 검사, 참석 응답(RSVP) | **calendar-agent** | "다음주 팀미팅 잡아줘", "이 일정 옮겨줘", "그 회의에 김민수 추가해줘", "그 회의 참석한다고 해줘" |
 | 메시지 작성·공지·대화 요약/정리, 내 메시지 수정, 리액션, 채널 읽음 처리, 채널 생성·참여·DM 열기·채널 나가기, 채널 초대(제안) | **messaging-agent** | "팀 채널에 공지", "이 채널 요약", "김민수한테 DM 보내줘", "방금 쓴 글 이렇게 고쳐줘", "그 메시지에 👍 달아줘", "이 채널 다 읽음 처리해줘", "공지 채널에 참여해줘", "김민수를 이 채널에 초대해줘" |
-| 노트 페이지 생성·수정·이동·삭제(제안), 내용 종합 | **wiki-agent** | "회의록 노트로 정리", "이 페이지에 추가", "이 페이지를 기획 아래로 옮겨줘", "이 노트 지워줘" |
-| 메일 요약·정리·검색·발송·답장(초안)·특정 메일 읽기·계정 확인·이슈로 전환·읽음 처리 | **mail-agent** | "안 읽은 메일 요약", "이 메일에 답장", "이 메일 이슈로 만들어줘" |
+| 노트 페이지 생성·수정·이동·삭제(제안), 이전 판으로 복원, 내용 종합 | **wiki-agent** | "회의록 노트로 정리", "이 페이지에 추가", "이 페이지를 기획 아래로 옮겨줘", "이 노트 지워줘", "어제 버전으로 되돌려줘" |
+| 메일 요약·정리·검색·발송·답장(초안)·특정 메일 읽기·계정 확인·이슈로 전환·읽음/안 읽음 처리 | **mail-agent** | "안 읽은 메일 요약", "이 메일에 답장", "이 메일 이슈로 만들어줘" |
 | **외부** 연락처 생성·수정·삭제(제안), 연락처 즐겨찾기, 사용자 그룹(조직도·개인 그룹) 생성·수정·멤버 편입/제외·삭제(제안) | **contacts-agent** | "거래처 연락처 추가", "이 연락처 지워줘", "김민수 즐겨찾기 해줘", "영업팀 그룹에 거래처 넣어줘" |
 | **사내 구성원** 역할변경·활성화(제안) | **member-agent** | "김민수 관리자로", "퇴사자 계정 비활성화" |
 | 프로젝트 이름·설명 수정, 라벨·마일스톤·사이클 생성·수정, 생성·삭제·멤버 추가·역할 변경·제거(제안) | **project-agent** | "새 프로젝트 만들어줘", "멤버 추가", "김민수를 OWNER로", "이 프로젝트에서 김민수 빼줘", "프로젝트 설명 바꿔줘", "v2.0 마일스톤 만들어줘", "스프린트 5 사이클 기간 늘려줘" |

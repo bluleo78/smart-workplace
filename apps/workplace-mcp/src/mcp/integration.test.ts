@@ -254,11 +254,12 @@ describe('/mcp 연결 범위 (WP-350)', () => {
 
   it('X-MCP-Toolsets 헤더는 경로에 앱 선택이 없을 때 앱 선택으로 쓰이고, /readonly 와도 합쳐진다', async () => {
     expect([...(await open('/mcp', { 'X-MCP-Toolsets': 'notify' })).names].sort()).toEqual([
+      'get_home_overview',
       'list_notifications',
       'mark_all_notifications_read',
       'mark_notification_read',
     ]);
-    expect((await open('/mcp/readonly', { 'X-MCP-Toolsets': 'notify' })).names).toEqual(['list_notifications']);
+    expect([...(await open('/mcp/readonly', { 'X-MCP-Toolsets': 'notify' })).names].sort()).toEqual(['get_home_overview', 'list_notifications']);
   });
 
   it('경로에 앱 선택이 있으면 헤더는 무시한다', async () => {

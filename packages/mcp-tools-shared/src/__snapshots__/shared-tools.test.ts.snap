@@ -28,6 +28,7 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "get_drive_file_summary": "read",
   "get_event": "read",
   "get_external_contact": "read",
+  "get_home_overview": "read",
   "get_issue_detail": "read",
   "get_mail": "read",
   "get_mail_summary": "read",
@@ -72,6 +73,7 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "rename_drive_file": "write",
   "rename_drive_folder": "write",
   "restore_drive_item": "write",
+  "restore_wiki_revision": "write",
   "rsvp_event": "write",
   "search_drive": "read",
   "search_drive_content": "read",
@@ -963,6 +965,32 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
     },
   },
   {
+    "name": "get_home_overview",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "type": "string",
+        },
+        "sections": {
+          "items": {
+            "enum": [
+              "priority",
+              "mail",
+              "messaging",
+              "activity",
+              "threads",
+            ],
+            "type": "string",
+          },
+          "type": "array",
+        },
+      },
+      "type": "object",
+    },
+  },
+  {
     "name": "get_issue_detail",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1093,6 +1121,12 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
       "properties": {
+        "includeRevisions": {
+          "type": "boolean",
+        },
+        "includeSummary": {
+          "type": "boolean",
+        },
         "pageId": {
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991,
@@ -1472,6 +1506,17 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "maximum": 9007199254740991,
           "type": "integer",
         },
+        "category": {
+          "description": "업무 includes unclassified",
+          "enum": [
+            "업무",
+            "개인",
+            "알림",
+            "프로모션",
+            "뉴스레터",
+          ],
+          "type": "string",
+        },
         "folder": {
           "default": "INBOX",
           "description": "INBOX or SENT",
@@ -1482,6 +1527,10 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "maximum": 100,
           "minimum": 1,
           "type": "integer",
+        },
+        "needsReply": {
+          "description": "AI-flagged, still unread",
+          "type": "boolean",
         },
         "query": {
           "type": "string",
@@ -1617,7 +1666,6 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       "additionalProperties": false,
       "properties": {
         "parentId": {
-          "description": "Subtree root page (to expand hiddenChildren)",
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991,
           "type": "integer",
@@ -1681,9 +1729,14 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "maximum": 9007199254740991,
           "type": "integer",
         },
+        "read": {
+          "default": true,
+          "type": "boolean",
+        },
       },
       "required": [
         "messageId",
+        "read",
       ],
       "type": "object",
     },
@@ -2074,6 +2127,30 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
     },
   },
   {
+    "name": "restore_wiki_revision",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "pageId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "version": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "pageId",
+        "version",
+      ],
+      "type": "object",
+    },
+  },
+  {
     "name": "rsvp_event",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -2215,6 +2292,11 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
         "query": {
           "minLength": 1,
           "type": "string",
+        },
+        "spaceId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
         },
       },
       "required": [

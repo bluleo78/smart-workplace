@@ -57,13 +57,13 @@ LLM 에 보여줄 형태로 가공하는 일은 **도구 핸들러**가 맡는�
 |---|---|
 | `issue` | `list_issues` `get_issue_detail` `create_issue` `update_issue` `add_comment` `update_comment` `add_issue_dependency` `remove_issue_dependency` `watch_issue` `unwatch_issue` + 겹침: `list_projects` `get_project` `read_attachment` |
 | `project` | `list_projects` `get_project` `create_project` `update_project` `add_project_member` `create_project_meta` `update_project_meta` + 겹침: `search_members` |
-| `wiki` | `list_wiki_spaces` `list_wiki_pages` `search_wiki` `get_wiki_page` `list_wiki_backlinks` `create_wiki_page` `update_wiki_page` `move_wiki_page` |
+| `wiki` | `list_wiki_spaces` `list_wiki_pages` `search_wiki` `get_wiki_page` `list_wiki_backlinks` `create_wiki_page` `update_wiki_page` `move_wiki_page` `restore_wiki_revision` |
 | `drive` | `list_drive_spaces` `list_drive_items` `search_drive` `get_drive_file_summary` `search_drive_content` `list_drive_trash` `restore_drive_item` `create_drive_folder` `rename_drive_folder` `move_drive_folder` `rename_drive_file` `move_drive_file` `copy_drive_item` `import_attachment_to_drive` + 겹침: `read_attachment` (15개 — 앱당 상한에 닿았다) |
 | `mail` | `list_mail_accounts` `list_mail` `get_mail` `get_mail_summary` `draft_mail_reply` `draft_issue_from_mail` `create_issue_from_mail` `mark_mail_read` `sync_mail` |
 | `messaging` | `list_channels` `discover_channels` `list_channel_messages` `list_thread_replies` `add_channel_message` `create_channel` `open_dm` `leave_channel` `join_channel` `add_reaction` `remove_reaction` `update_channel_message` `mark_channel_read` `add_channel_member` + 겹침: `search_members` (15개 — 앱당 상한에 닿았다) |
 | `calendar` | `list_events` `get_event` `rsvp_event` `create_event` `update_event` + 겹침: `search_members` |
 | `contacts` | `list_contacts` `get_external_contact` `get_contact_facets` `add_contact_favorite` `remove_contact_favorite` `list_user_groups` `get_user_group` `create_user_group` `update_user_group` `add_user_group_member` `remove_user_group_member` `create_external_contact` `update_external_contact` + 겹침: `search_members` |
-| `notify` | `list_notifications` `mark_notification_read` `mark_all_notifications_read` |
+| `notify` | `list_notifications` `mark_notification_read` `mark_all_notifications_read` `get_home_overview` |
 | `member` | `search_members` `get_member` `get_member_contact` |
 
 workplace-mcp 는 이 태그로 `/mcp/x/{apps}`·`X-MCP-Toolsets` 연결을 걸러낸다(`apps/workplace-mcp/CLAUDE.md` "연결 범위"). 앱 선택은 노출 기준(`kind`)과 별개다 — destructive 는 어느 연결에서도 노출하지 않는다. AI Chat(ai-agent)은 `app` 을 쓰지 않는다.
@@ -95,7 +95,7 @@ workplace-mcp 는 이 태그로 `/mcp/x/{apps}`·`X-MCP-Toolsets` 연결을 걸�
 | `list_wiki_pages` | `parentId?` | `{ items(트리), total, truncated? }` | 도구 상한 500노드(너비 우선). 평면 목록을 잘라 트리를 만들면 고아가 최상위로 올라 계층이 거짓이 되므로 서버 페이지는 두지 않았다. 잘린 노드의 `hiddenChildren` + `parentId` 로 하위를 펼친다 |
 | `list_channels` | `limit`(기본 100·최대 200), `offset` | `{ items, total, hasMore?, nextOffset? }` | 도구 상한(서버 페이지는 없지만 이어 읽을 수 있어 `list_drive_items`·`list_notifications` 와 같은 `hasMore`+`nextOffset`). 내 채널 수라 유계이고 웹 사이드바(`useMyChannels`)가 전체를 쓰므로 서버는 그대로. 이름순 offset 으로 이어 읽는다 |
 | `search_drive` | `limit`(기본 50·최대 200, 폴더·파일 각각) | `{ folders, files, truncated? }` | 서버가 각각 200건에서 조용히 자른다(`searchByName` `.limit(200)`) — 도구 limit 을 넘거나 서버 상한 200 에 닿으면 `truncated` |
-| `search_wiki` | — | `{ items, truncated? }` | 서버가 최근 수정순 50건에서 조용히 자른다(`WikiPageService.search`) — 50건에 닿으면 `truncated` |
+| `search_wiki` | `spaceId`(WP-357, 한 스페이스만) | `{ items, truncated? }` | 서버가 최근 수정순 50건에서 조용히 자른다(`WikiPageService.search`) — 50건에 닿으면 `truncated` |
 
 서버가 상한을 조용히 거는 검색은 "상한에 닿음 = 잘렸을 수 있음" 으로 본다(정확히 상한만큼이 전부일 수도 있다). 이어 조회할 수단이 없어 검색어를 좁히라고 안내한다. 서버 상한을 바꾸면 도구 상수(`SEARCH_SERVER_CAP`)도 맞춘다.
 
@@ -149,6 +149,38 @@ workplace-mcp 는 이 태그로 `/mcp/x/{apps}`·`X-MCP-Toolsets` 연결을 걸�
 | 메일로 이슈 만들 때 유형·라벨 | `create_issue_from_mail` 의 `type`·`labels` | **서버 `PromoteToIssueRequest` 에 `typeId`·`labelIds` 를 더해** 같은 생성 경로(`IssueService.create`)로 넘긴다 |
 
 AI Chat 에는 라벨·마일스톤·사이클 생성·수정 확인 카드가 없어 `CARD_ONLY_SHARED_TOOLS` 에 넣지 않고 project-agent(사용자 신원)에 직접 실행 도구로 실었다. issue-agent 는 이슈에 붙이기만 한다(없는 이름이면 만들지 않고 알린다).
+
+### 노트·메일·캘린더·홈 보강 (WP-357)
+
+새 도구는 둘(`restore_wiki_revision`·`get_home_overview`)이고 나머지는 기존 도구의 옵션·파라미터·필드다. 정의 크기는 +395 토큰(14,541 → 14,936)이라 `list_wiki_pages`·`update_wiki_page`·`update_event`·`get_event`·`create_issue_from_mail` 등 기존 설명을 압축해 맞췄다.
+
+| 기능 | 처리 | 근거 |
+|---|---|---|
+| 노트 요약 | `get_wiki_page` 의 `includeSummary` — `summary`(요약이 있을 때)·`summaryStatus`(READY 가 아닐 때: STALE·MISSING·TOO_SHORT·UNAVAILABLE) | `GET /wiki/pages/{id}/summary` 는 저장된 값과 상태만 계산한다 — **AI 를 부르지 않는다**(생성은 `POST` 라 도구가 쓰지 않는다). 그래서 요약이 아직 없는 노트(MISSING)는 만들어 주지 못하고 알리기만 한다. 요약은 공용 비서가 만든다 |
+| 판 기록 | `get_wiki_page` 의 `includeRevisions` — `revisions[{version, editedAt, reason?, editors[이름], aiActor?}]` 최신 30건, 넘치면 `revisionsOmitted` | 서버 `WikiRevisionListResponse` 는 최대 200건이고 `Person{id,name}` 의 숫자 사용자 ID 를 싣는다 — 이름만 남긴다. 현재 판(`current`)은 페이지의 `version` 과 같아 싣지 않는다. 판 제목(복원은 제목을 건드리지 않는다)·스냅샷 적재 시각도 뺀다 |
+| 판 복원 | `restore_wiki_revision(pageId, version)` — `POST /wiki/pages/{id}/revisions/{version}/restore`. `kind: write`, `destructive: true`, 멱등 아님 | 본문을 그 판으로 덮어쓰지만(제목 유지) 복원 직전 본문이 `RESTORE` 사유의 판으로 남아 되돌릴 수 있다 → 쓰기(노출). EDITOR 이상, 본문이 빈 판은 400. 동기화 서버 경로는 호출마다 판이 남을 수 있어 멱등으로 보지 않는다. AI Chat 에는 복원 확인 카드가 없어 wiki-agent 에 직접 실행 도구로 실었다 |
+| 노트 검색 범위 | `search_wiki` 의 `spaceId` | `WikiSearchController` 가 이미 받던 파라미터 |
+| 메일 필터 | `list_mail` 의 `category`(업무·개인·알림·프로모션·뉴스레터)·`needsReply` | 서버는 분류 값을 검증하지 않아 오타가 조용히 빈 목록이 된다 — enum 으로 막는다. `업무` 는 미분류·미적재 메일을 포함한다(서버 `workViewCondition`) |
+| 안 읽음 표시 | `mark_mail_read` 의 `read:false`(`POST /mail/messages/{id}/unread`) | 짝 도구 대신 파라미터. 읽음과 같이 원본 메일 서버로 역동기화되므로 `hints` 는 그대로(destructive·멱등·openWorld). AI 가 회신 필요로 본 메일을 안 읽음으로 되돌리면 회신 필요 목록에 다시 든다 |
+| 메일에 연결된 이슈 | `get_mail` 의 `issueKey` | 기존 `getMailLinkedIssue` 를 병렬로 부른다. 부가 정보라 조회 실패가 메일 읽기를 막지 않는다(키 생략) |
+| 캘린더 목록 | **두지 않는다** | `GET /calendars` 의 id 를 받는 도구가 없다 — `create_event` 는 기본 캘린더에만 만들고(`calendarId` 없음), `update_event` 는 소속을 유지하며, `list_events` 에 캘린더 필터가 없다. 일정 뷰는 `calendarName` 으로 소속을 이미 알려 준다. id 없는 목록은 "어떤 캘린더가 있나" 에만 답해 정의 크기(~100토큰)만큼의 가치가 없다고 보았다. 캘린더를 고르는 입력이 생기면 그때 `list_calendars` 를 둔다 |
+| 홈 개요 | `get_home_overview(sections?, cursor?)` — **notify 앱**(새 앱 이름을 만들지 않고, 15/15 인 messaging 에 싣지 않는다) | 아래 표 |
+
+#### `get_home_overview` 섹션
+
+모든 엔드포인트가 읽기 전용이고 **AI 를 새로 호출하지 않는다**(저장된 우선순위 배치·집계·키셋 목록). 기본 섹션을 크기가 작고 상한이 있는 셋으로 둔 것은 AI 비용이 아니라 출력 크기 때문이다. 한 섹션이 실패해도(예: 한 엔드포인트만 403) 나머지는 돌려주고 그 섹션에 `{error}` 를 둔다. 모두 실패하면 오류로 던진다.
+
+| 섹션(기본 ●) | 서버 | 출력 |
+|---|---|---|
+| `priority` ● | `GET /me/priority-items` | `{items, truncated?}` 위쪽 20건. `{type, title, reason, issueKey?, notificationId?, messageId?, channelId?}` — 서버 `sourceId` 는 종류마다 뜻이 달라(ISSUE_DUE=이슈 내부 id, MENTION=알림 id, MAIL_NEEDS_REPLY=메일 id, MESSAGE_ATTENTION=채널 id) 후속 도구가 받는 이름으로 풀고, 이슈 키는 딥링크 `/projects/{key}/issues/{n}` 에서 얻는다. 점수·딥링크는 뺀다. 배치는 주기적으로 갱신돼 늦을 수 있다 |
+| `mail` ● | `GET /me/mail-summary` | `{unreadCount, needsReplyCount, aiClassification?:false, recent[]}` — `recent` 는 `list_mail` 과 같은 행 뷰(최대 5건). 분류가 꺼져 있으면 회신 필요 수가 뜻이 없어 알린다 |
+| `messaging` ● | `GET /me/messaging-summary` | 카운트 넷 + `recent[]`(최대 5건) `{channelId, kind, label, lastAuthorName?, lastMessagePreview, lastMessageAt, unreadCount?, mentioned?, needsReply?, newThreadReplyCount?, aiReason?}` — 서버 `conversationId` 는 채널 id 라 `channelId` 로 바꾼다. 신호 배지는 참일 때만 싣는다 |
+| `activity` | `GET /me/activity` | `cursorPageView` — `{items[{issueKey, issueTitle, actorName, actorKind, eventType, createdAt}], hasMore?, nextCursor?}`. 이력 id·이슈 id·행위자 숫자 id 는 뺀다. 서버는 페이지가 꽉 차면 `nextCursor` 를 주므로 다음 페이지가 비어 있을 수 있다. 한 번에 10건 |
+| `threads` | `GET /messaging/threads/inbox` | `cursorPageView` — 미읽음 스레드(내가 팔로우). `{channelId, channelName, lastReplyAt, id(스레드 루트 messageId), authorName, body(200자까지), replyCount, unreadReplyCount, …}`. `toMessageView` 가 지우는 `channelId` 를 되살려 `list_thread_replies`(messageId=`id`)·`list_channel_messages` 로 이어 읽게 한다. 한 번에 10건 |
+
+- `cursor` 는 `activity` 또는 `threads` **하나만** 요청할 때만 받는다(섹션마다 커서가 달라 섞이면 어느 것인지 모호하다). 다른 조합이면 오류.
+- 설명에는 다른 도구 이름을 적지 않는다 — notify 앱만 고른 연결에는 메일·메시징 도구가 없어서 `tool-apps.test.ts` 의 교차 참조 검사에 걸린다. 대신 후속 도구가 받는 식별자 이름(`issueKey`·`messageId`·`channelId`)을 출력에 둔다.
+- AI Chat: assistant 라우터가 직접 쓰는 읽기 도구다(`ASSISTANT_ROUTER_TOOLS`) — "오늘 뭐부터 하지?" 같은 질문은 담당 도메인이 하나가 아니라 라우터가 한 번에 읽고 답한다. 화면에 띄우는 `show_activity`·`show_my_tasks` 는 그대로다.
 
 ### 응답 크기 — 정리 뷰
 

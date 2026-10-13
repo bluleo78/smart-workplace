@@ -142,9 +142,15 @@ export interface WikiPageRow {
 
 export interface WikiToolClient {
   listWikiSpaces(): Promise<unknown>;
-  /** GET /wiki/search — 서버가 최근 수정순 최대 50건으로 자른다(상한을 알리는 일은 핸들러). 배열 원형. */
-  searchWikiPages(query: string): Promise<unknown>;
+  /** GET /wiki/search — 서버가 최근 수정순 최대 50건으로 자른다(상한을 알리는 일은 핸들러). 배열 원형. spaceId 가 있으면 그 스페이스만(WP-357). */
+  searchWikiPages(query: string, spaceId?: number): Promise<unknown>;
   getWikiPage(pageId: number): Promise<unknown>;
+  /** GET /wiki/pages/{id}/summary — 저장된 AI 요약과 상태만 읽는다(WP-357). 생성은 POST 라 부르지 않는다(AI 호출 없음). */
+  getWikiPageSummary(pageId: number): Promise<unknown>;
+  /** GET /wiki/pages/{id}/revisions — 현재 판 + 저장된 판 최신순(서버 상한 200). 원형 그대로(가공은 핸들러, WP-357). */
+  listWikiRevisions(pageId: number): Promise<unknown>;
+  /** POST /wiki/pages/{id}/revisions/{version}/restore — 그 판의 본문으로 복원(제목 유지). 응답은 저장과 같은 페이지 상세(WP-357). */
+  restoreWikiRevision(pageId: number, version: number): Promise<unknown>;
   createWikiPage(spaceId: number, body: { parentId: number | null; title: string }): Promise<unknown>;
   /** 부분 수정 — title/body 생략 시 서버가 현재 값을 유지한다(version 만 필수, 불일치면 409). */
   updateWikiPage(pageId: number, body: { version: number; title?: string; body?: string }): Promise<unknown>;
@@ -201,7 +207,7 @@ export interface MailToolClient {
   listMailAccounts(): Promise<unknown>;
   listMail(
     accountId: number,
-    params: { folder: string; limit: number; query?: string; unread?: boolean },
+    params: { folder: string; limit: number; query?: string; unread?: boolean; category?: string; needsReply?: boolean },
   ): Promise<unknown>;
   getMail(messageId: number): Promise<unknown>;
   /** GET .../summary — 없으면 생성해 캐시한다(메일 원문은 바꾸지 않음). */
@@ -228,6 +234,8 @@ export interface MailToolClient {
   ): Promise<{ issueKey: string }>;
   /** POST /mail/messages/{id}/read — 명시적 읽음 처리(WP-146). 사용자가 요청할 때만 쓴다. */
   markMailRead(messageId: number): Promise<void>;
+  /** POST /mail/messages/{id}/unread — 안 읽음으로 되돌린다(WP-187 서버 API, WP-357). 읽음 처리와 같이 원본 메일 서버로 역동기화된다. */
+  markMailUnread(messageId: number): Promise<void>;
   /** POST /mail/accounts/{id}/sync — INBOX 증분 동기화(원본 메일 서버에 접속). 소유 계정만(아니면 404), 이미 진행 중이면 서버가 빈 결과. */
   syncMail(accountId: number): Promise<unknown>;
   /** GET /mail/accounts/{id}/sync-status — 진행 중 여부(phase LIST/BODIES/IDLE). 서버는 이미 진행 중이면 sync 를 빈 결과로 돌려주므로 구분용(WP-353). */
@@ -548,6 +556,23 @@ export interface NotificationToolClient {
   /** 멱등 — 이미 읽었거나 남의 알림이면 서버가 0행 처리한다. */
   markNotificationRead(notificationId: number): Promise<void>;
   markAllNotificationsRead(): Promise<void>;
+}
+
+/**
+ * 홈 개요(get_home_overview, WP-357)가 읽는 서버 엔드포인트 — 모두 읽기 전용이고 AI 를 새로 호출하지 않는다(저장된 값·집계).
+ * 원형을 그대로 돌려주고 뷰 가공(숫자 ID 제거·이름 바꾸기)은 핸들러가 한다.
+ */
+export interface HomeToolClient {
+  /** GET /me/activity — { items, nextCursor }. 내가 담당·워치하는 이슈의 최근 이력. size 는 서버가 1..50 으로 자른다. */
+  getHomeActivity(params: { cursor?: string; size: number }): Promise<unknown>;
+  /** GET /me/priority-items — 저장된 AI 우선순위 배치 결과(점수 내림차순) 의 items 배열. */
+  getPriorityItems(): Promise<unknown>;
+  /** GET /me/mail-summary — { unreadCount, needsReplyCount, classificationActive, recent }. recent 는 안 읽은 메일 최대 5건. */
+  getHomeMailSummary(): Promise<unknown>;
+  /** GET /me/messaging-summary — { unreadConversationCount, needsReplyCount, aiAttentionCount, attentionCount, recent }. recent 는 최대 5건. */
+  getMessagingSummary(): Promise<unknown>;
+  /** GET /messaging/threads/inbox — { items:[{rootMessage, channelName, lastReplyAt}], nextCursor, hasMore }(keyset). */
+  getThreadInbox(params: { cursor?: string; limit: number }): Promise<unknown>;
 }
 
 export interface ProjectToolClient extends ProjectMetaClient {

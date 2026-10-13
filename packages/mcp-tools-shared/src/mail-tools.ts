@@ -19,6 +19,9 @@ export const listMailInput = z.object({
   query: z.string().optional(),
   // #466: 안 읽은 메일만. 검색어("is:unread")로 흉내 내면 서버가 본문 검색으로 처리해 결과가 틀린다.
   unreadOnly: z.boolean().optional(),
+  // WP-357: 서버 category 는 값을 검증하지 않아 오타가 조용히 빈 목록이 된다 — enum 으로 막는다(값은 서버 EmailMessageRepository.CATEGORIES).
+  category: z.enum(['업무', '개인', '알림', '프로모션', '뉴스레터']).optional().describe('업무 includes unclassified'),
+  needsReply: z.boolean().optional().describe('AI-flagged, still unread'),
   limit: z.number().int().min(1).max(100).default(20),
 });
 export const getMailInput = z.object({ messageId: z.number().int().positive() });
@@ -33,8 +36,11 @@ export const createIssueFromMailInput = z.object({
   type: z.string().min(1).optional(),
   labels: z.array(z.string()).optional(),
 });
-// WP-146: 처리완료 도구를 대신하는 명시적 읽음 처리 입력
-export const markMailReadInput = z.object({ messageId: z.number().int().positive() });
+// WP-146: 처리완료 도구를 대신하는 명시적 읽음 처리 입력. WP-357: read:false 면 안 읽음으로 되돌린다(짝 도구를 따로 두지 않는다).
+export const markMailReadInput = z.object({
+  messageId: z.number().int().positive(),
+  read: z.boolean().default(true),
+});
 export const syncMailInput = z.object({ accountId: z.number().int().positive() });
 
 type Raw = Record<string, unknown>;
@@ -100,14 +106,13 @@ export function buildMailTools(
       app: 'mail',
       kind: 'read',
       description:
-        'Lists mail in an account folder (accountId from list_mail_accounts), newest first, up to limit, no further pages. Items: id ' +
-        '(messageId), sender, subject, snippet, receivedAt, seen, hasAttachment, aiCategory, aiNeedsReply (categoryPending:true while ' +
-        'unclassified). query matches sender (substring) and subject/body words; for unread mail use unreadOnly, not "is:unread". Needs reply = ' +
-        'aiNeedsReply and not seen.',
+        'Lists mail in an account folder (accountId from list_mail_accounts), newest first, up to limit, no further pages. Item id = messageId; ' +
+        'categoryPending:true while unclassified. query matches sender (substring) and subject/body words; for unread mail use unreadOnly, ' +
+        'not "is:unread".',
       inputSchema: listMailInput,
       async handler(args) {
-        const { accountId, folder, limit, query, unreadOnly } = listMailInput.parse(args);
-        const rows = (await client.listMail(accountId, { folder, limit, query, unread: unreadOnly })) as Raw[];
+        const { accountId, folder, limit, query, unreadOnly, category, needsReply } = listMailInput.parse(args);
+        const rows = (await client.listMail(accountId, { folder, limit, query, unread: unreadOnly, category, needsReply })) as Raw[];
         return JSON.stringify(Array.isArray(rows) ? rows.map(toMailListItem) : rows);
       },
     },
@@ -117,11 +122,13 @@ export function buildMailTools(
       kind: 'read',
       description:
         'Returns one mail by messageId (id from list_mail): plain-text bodyText (HTML-only mail converted, without formatting, link URLs or ' +
-        'images) and attachments. Does not mark it read.',
+        'images) and attachments. issueKey: the issue created from this mail, if any. Does not mark it read.',
       inputSchema: getMailInput,
       async handler(args) {
         const { messageId } = getMailInput.parse(args);
-        return JSON.stringify(toMailDetailView((await client.getMail(messageId)) as Raw));
+        // 연결 이슈는 부가 정보라 조회 실패가 메일 읽기를 막지 않는다(없으면 issueKey 를 생략).
+        const [mail, linked] = await Promise.all([client.getMail(messageId), client.getMailLinkedIssue(messageId).catch(() => null)]);
+        return JSON.stringify({ ...toMailDetailView(mail as Raw), ...(linked && { issueKey: linked.issueKey }) });
       },
     },
     // AI 세 도구는 메일·사용자 데이터를 바꾸지 않아 read 다(요약은 서버 캐시만 채운다). 단 LLM 호출 비용이 든다.
@@ -130,7 +137,7 @@ export function buildMailTools(
       app: 'mail',
       kind: 'read',
       description:
-        'Returns an AI summary of one mail as {summary}; quicker than get_mail for long mail. Errors if AI is not configured.',
+        'Returns an AI summary of one mail; quicker than get_mail for long mail. Errors if AI is not configured.',
       inputSchema: getMailInput,
       async handler(args) {
         const { messageId } = getMailInput.parse(args);
@@ -169,8 +176,8 @@ export function buildMailTools(
       // 이미 이 메일로 만든 이슈가 있으면 새로 만들지 않고 기존 키를 돌려준다 — 멱등.
       hints: { destructive: false, idempotent: true },
       description:
-        'Creates an issue (이슈) from a mail and links the two. assignees are project member usernames ("me" = caller) and are notified; type and ' +
-        'labels are project names (unknown ones fail, listing allowed values). If the mail already has an issue, that issueKey returns: ' +
+        'Creates an issue (이슈) from a mail. assignees are project member usernames ("me" = caller) and are notified; type and labels are ' +
+        'project names (unknown ones fail). If the mail already has an issue, that issueKey returns: ' +
         '{issueKey, created}.',
       inputSchema: createIssueFromMailInput,
       async handler(args) {
@@ -200,11 +207,12 @@ export function buildMailTools(
       // 읽음 상태가 원본 메일 서버(Graph/IMAP)로 역동기화된다 — 워크스페이스 밖에 닿으므로 openWorld.
       hints: { destructive: true, idempotent: true, openWorld: true },
       description:
-        'Marks a mail read, also on the mail server; only when the user asks. It leaves the needs-reply list, and no tool here marks it unread again.',
+        'Marks a mail read, or unread with read:false, also on the mail server; only when the user asks. Read mail leaves the needs-reply list; ' +
+        'unread mail the AI flagged joins it.',
       inputSchema: markMailReadInput,
       async handler(args) {
-        const { messageId } = markMailReadInput.parse(args);
-        await client.markMailRead(messageId);
+        const { messageId, read } = markMailReadInput.parse(args);
+        await (read ? client.markMailRead(messageId) : client.markMailUnread(messageId));
         return 'ok';
       },
     },

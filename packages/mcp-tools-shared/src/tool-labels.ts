@@ -38,6 +38,7 @@ export const TOOL_LABELS: Readonly<Record<string, ToolLabel>> = {
   create_wiki_page: { label: '노트 생성', icon: '📝' },
   update_wiki_page: { label: '노트 수정', icon: '✏️' },
   move_wiki_page: { label: '노트 이동', icon: '📦' },
+  restore_wiki_revision: { label: '노트 이전 버전 복원', icon: '♻️' }, // WP-357
   // 이슈 컨텍스트 대화
   list_chat_messages: { label: '대화 조회', icon: '💬' },
   read_chat_thread_attachment: { label: '첨부 읽기', icon: '📎' }, // WP-346: 이슈 챗 스레드 첨부(옛 read_attachment_text)
@@ -112,6 +113,8 @@ export const TOOL_LABELS: Readonly<Record<string, ToolLabel>> = {
   list_notifications: { label: '알림 조회', icon: '🔔' },
   mark_notification_read: { label: '알림 읽음 처리', icon: '🔔' },
   mark_all_notifications_read: { label: '알림 모두 읽음', icon: '🔔' },
+  // 홈 개요(WP-357)
+  get_home_overview: { label: '홈 현황 조회', icon: '🏠' },
 };
 
 /**

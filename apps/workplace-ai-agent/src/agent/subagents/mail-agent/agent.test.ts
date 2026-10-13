@@ -37,6 +37,17 @@ describe('mail-agent 정의', () => {
     expect(prompt).toContain('type?, labels?');
     expect(prompt).toContain('`issueTypes`·`labels`');
   });
+  // WP-357: 분류·회신 필요 필터, 안 읽음 되돌리기(read=false), 메일에 연결된 이슈(issueKey).
+  it('list_mail 의 category·needsReply, mark_mail_read 의 read=false(안 읽음), get_mail 의 issueKey 를 안내한다 (WP-357)', () => {
+    const prompt = loaded['mail-agent'].prompt;
+    expect(prompt).toContain('unreadOnly?, category?, needsReply?, limit?');
+    expect(prompt).toContain('`needsReply=true`');
+    expect(prompt).toContain('mark_mail_read(messageId, read?)');
+    expect(prompt).toContain('`read=false`');
+    expect(prompt).toContain('`issueKey`');
+    // 예전의 "안 읽음으로 되돌릴 수 없다" 안내가 남아 있으면 모델이 도구가 있어도 거절한다.
+    expect(prompt).not.toContain('되돌릴 수 없어');
+  });
   it('maxTurns 설정 + 본문에 메일·발송 확인 안내', () => {
     expect(loaded['mail-agent'].maxTurns).toBeGreaterThan(0);
     expect(loaded['mail-agent'].prompt).toMatch(/메일|발송/);

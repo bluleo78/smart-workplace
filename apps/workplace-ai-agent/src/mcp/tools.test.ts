@@ -69,6 +69,10 @@ function sharedMock(): MockedShared {
     updateWikiPage: vi.fn().mockResolvedValue({}),
     listWikiPages: vi.fn().mockResolvedValue([]),
     getWikiBacklinks: vi.fn().mockResolvedValue([]),
+    // WP-357: 노트 요약·판 기록·복원
+    getWikiPageSummary: vi.fn().mockResolvedValue({}),
+    listWikiRevisions: vi.fn().mockResolvedValue({ current: {}, items: [] }),
+    restoreWikiRevision: vi.fn().mockResolvedValue({}),
     moveWikiPage: vi.fn().mockResolvedValue(undefined),
     // 캘린더
     listEvents: vi.fn().mockResolvedValue([]),
@@ -88,6 +92,7 @@ function sharedMock(): MockedShared {
     getMailLinkedIssue: vi.fn().mockResolvedValue(null),
     promoteMailToIssue: vi.fn().mockResolvedValue({ issueKey: 'WP-1' }),
     markMailRead: vi.fn().mockResolvedValue(undefined),
+    markMailUnread: vi.fn().mockResolvedValue(undefined),
     syncMail: vi.fn().mockResolvedValue({ fetched: 3, saved: 2, seenChanged: 1 }),
     getMailSyncStatus: vi.fn().mockResolvedValue({ phase: 'IDLE', total: 0, done: 0, running: false }),
     // 구성원·연락처
@@ -147,6 +152,12 @@ function sharedMock(): MockedShared {
     // 알림
     listNotifications: vi.fn().mockResolvedValue([]),
     countUnreadNotifications: vi.fn().mockResolvedValue(0),
+    // WP-357: 홈 개요
+    getHomeActivity: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
+    getPriorityItems: vi.fn().mockResolvedValue([]),
+    getHomeMailSummary: vi.fn().mockResolvedValue({ unreadCount: 0, needsReplyCount: 0, classificationActive: true, recent: [] }),
+    getMessagingSummary: vi.fn().mockResolvedValue({ unreadConversationCount: 0, needsReplyCount: 0, aiAttentionCount: 0, attentionCount: 0, recent: [] }),
+    getThreadInbox: vi.fn().mockResolvedValue({ items: [], nextCursor: null, hasMore: false }),
     markNotificationRead: vi.fn().mockResolvedValue(undefined),
     markAllNotificationsRead: vi.fn().mockResolvedValue(undefined),
     // 첨부·파일 내용 읽기(WP-346)
@@ -279,6 +290,24 @@ describe('프로필 구성', () => {
     for (const ctx of [undefined, { actorId: 7, channelId: 9 }] as const) {
       const names = buildTools(client(), AGENT_ID, 'messaging', undefined, ctx).map((t) => t.name);
       for (const n of added) expect(names, n).not.toContain(n);
+    }
+  });
+
+  // WP-357: 홈 현황 읽기는 라우터가 직접 읽는 도구(읽기라 라우터 목록에 둔다). 판 복원은 확인 카드가 없는 쓰기라 wiki-agent 에만(라우터에 싣지 않는다).
+  it('WP-357: get_home_overview 는 라우터 목록(읽기 전용 힌트)에 있고, restore_wiki_revision 은 assistant 에만 있고 라우터·카드 전용 목록에는 없다', () => {
+    const tools = buildTools(client(), AGENT_ID, 'assistant');
+    const home = tools.find((t) => t.name === 'get_home_overview')!;
+    expect(home).toBeDefined();
+    expect(ASSISTANT_ROUTER_TOOLS).toContain('get_home_overview');
+    expect(home.annotations?.readOnlyHint).toBe(true);
+    expect(tools.map((t) => t.name)).toContain('restore_wiki_revision');
+    expect(ASSISTANT_ROUTER_TOOLS).not.toContain('restore_wiki_revision');
+    expect(CARD_ONLY_SHARED_TOOLS).not.toHaveProperty('restore_wiki_revision');
+    // 에이전트 신원으로 도는 프로필에는 사람의 홈 현황·노트 복원을 싣지 않는다.
+    for (const profile of ['issue', 'chat', 'home', 'messaging'] as const) {
+      const names = buildTools(client(), AGENT_ID, profile).map((t) => t.name);
+      expect(names, profile).not.toContain('get_home_overview');
+      expect(names, profile).not.toContain('restore_wiki_revision');
     }
   });
 

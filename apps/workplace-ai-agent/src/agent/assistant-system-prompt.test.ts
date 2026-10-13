@@ -165,6 +165,18 @@ describe('ASSISTANT_SYSTEM_PROMPT — 동사 기반 라우팅(#460)', () => {
     expect(ASSISTANT_ROUTER_TOOLS).not.toContain('add_reaction');
   });
 
+  // WP-357: "오늘 뭐부터?" 같은 현황 질문은 라우터가 get_home_overview 로 직접 읽고, 화면 표시 위젯(show_activity·show_my_tasks)과 구분한다.
+  it('WP-357: 홈 현황 질문은 get_home_overview 로 직접 읽게 안내하고 show_* 는 표시 요청에만 쓰게 한다', () => {
+    expect(p).toContain('get_home_overview');
+    expect(p).toContain('`sections`');
+    expect(p).toContain('`show_activity`·`show_my_tasks` 는 화면에 띄워 달라는 요청에만');
+    expect(ASSISTANT_ROUTER_TOOLS).toContain('get_home_overview');
+    // 노트 판 복원·메일 안 읽음 처리는 담당 subagent 에 위임한다.
+    expect(p).toContain('이전 판으로 복원');
+    expect(p).toContain('읽음/안 읽음 처리');
+    expect(p).toContain('includeSummary');
+  });
+
   it('메일 요약·이슈 분석 위임 규칙은 유지(회귀 방지)', () => {
     expect(p).toContain('mail-agent');
     expect(p).toContain('show_mail_list');

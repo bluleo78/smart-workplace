@@ -120,6 +120,52 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(http.get).toHaveBeenCalledWith('/wiki/search', { params: { q: '배포' } });
   });
 
+  it('WP-357: searchWikiPages(query, spaceId) 는 spaceId 가 있을 때만 params 에 싣는다', async () => {
+    const { http, client } = mockHttp();
+    await client.searchWikiPages('배포', 4);
+    expect(http.get).toHaveBeenCalledWith('/wiki/search', { params: { q: '배포', spaceId: 4 } });
+  });
+
+  it('WP-357: 노트 요약은 GET(AI 생성 POST 가 아니다), 판 기록 목록·복원 경로', async () => {
+    const { http, client } = mockHttp();
+    await client.getWikiPageSummary(5);
+    expect(http.get).toHaveBeenCalledWith('/wiki/pages/5/summary');
+    expect(http.post).not.toHaveBeenCalled();
+    await client.listWikiRevisions(5);
+    expect(http.get).toHaveBeenCalledWith('/wiki/pages/5/revisions');
+    await client.restoreWikiRevision(5, 3);
+    expect(http.post).toHaveBeenCalledWith('/wiki/pages/5/revisions/3/restore');
+  });
+
+  it('WP-357: listMail 은 category·needsReply 를 있을 때만 params 에 싣고, markMailUnread 는 /unread 로 POST', async () => {
+    const { http, client } = mockHttp();
+    await client.listMail(2, { folder: 'INBOX', limit: 20 });
+    expect(http.get).toHaveBeenLastCalledWith('/mail/accounts/2/messages', { params: { folder: 'INBOX', limit: 20 } });
+    await client.listMail(2, { folder: 'INBOX', limit: 20, category: '업무', needsReply: true });
+    expect(http.get).toHaveBeenLastCalledWith('/mail/accounts/2/messages', { params: { folder: 'INBOX', limit: 20, category: '업무', needsReply: true } });
+    await client.markMailUnread(9);
+    expect(http.post).toHaveBeenCalledWith('/mail/messages/9/unread');
+  });
+
+  it('WP-357: 홈 개요 경로 — 활동·우선순위·메일 요약·메시징 요약·스레드 인박스', async () => {
+    const { http, client } = mockHttp();
+    await client.getHomeActivity({ size: 10 });
+    expect(http.get).toHaveBeenLastCalledWith('/me/activity', { params: { size: 10 } });
+    await client.getHomeActivity({ size: 10, cursor: 'C' });
+    expect(http.get).toHaveBeenLastCalledWith('/me/activity', { params: { size: 10, cursor: 'C' } });
+    http.get.mockResolvedValueOnce({ data: { items: [{ sourceType: 'ISSUE_DUE' }] } });
+    expect(await client.getPriorityItems()).toEqual([{ sourceType: 'ISSUE_DUE' }]); // 래퍼 { items } 를 벗긴다
+    expect(await client.getPriorityItems()).toEqual([]);
+    await client.getHomeMailSummary();
+    expect(http.get).toHaveBeenLastCalledWith('/me/mail-summary');
+    await client.getMessagingSummary();
+    expect(http.get).toHaveBeenLastCalledWith('/me/messaging-summary');
+    await client.getThreadInbox({ limit: 10 });
+    expect(http.get).toHaveBeenLastCalledWith('/messaging/threads/inbox', { params: { limit: 10 } });
+    await client.getThreadInbox({ limit: 10, cursor: 'C2' });
+    expect(http.get).toHaveBeenLastCalledWith('/messaging/threads/inbox', { params: { limit: 10, cursor: 'C2' } });
+  });
+
   it('updateWikiPage 는 snapshot:false 를 동봉해 PUT', async () => {
     const { http, client } = mockHttp();
     await client.updateWikiPage(5, { version: 3, title: 't' });

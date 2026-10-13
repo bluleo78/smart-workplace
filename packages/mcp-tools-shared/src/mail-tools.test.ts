@@ -18,6 +18,7 @@ function mockClient(): Client {
     getMailLinkedIssue: vi.fn().mockResolvedValue(null),
     promoteMailToIssue: vi.fn().mockResolvedValue({ issueKey: 'WP-9' }),
     markMailRead: vi.fn().mockResolvedValue(undefined),
+    markMailUnread: vi.fn().mockResolvedValue(undefined),
     syncMail: vi.fn().mockResolvedValue({ fetched: 3, saved: 2, seenChanged: 1 }),
     getMailSyncStatus: vi.fn().mockResolvedValue({ phase: 'IDLE', total: 0, done: 0, running: false }),
     getProjectMembers: vi.fn().mockResolvedValue([{ userId: 10, username: 'alice' }]),
@@ -60,6 +61,18 @@ describe('buildMailTools', () => {
     expect(c.listMail).toHaveBeenCalledWith(1, { folder: 'INBOX', limit: 20, unread: true });
   });
 
+  it('WP-357: list_mail → category·needsReply 를 클라이언트로 관통한다', async () => {
+    const c = mockClient();
+    await tool(c, 'list_mail').handler({ accountId: 1, category: '업무', needsReply: true });
+    expect(c.listMail).toHaveBeenCalledWith(1, { folder: 'INBOX', limit: 20, category: '업무', needsReply: true });
+  });
+
+  it('WP-357: list_mail 은 분류 enum 밖의 값을 거부한다(서버는 검증하지 않아 오타가 조용히 빈 목록이 된다)', async () => {
+    const c = mockClient();
+    await expect(tool(c, 'list_mail').handler({ accountId: 1, category: '업무용' })).rejects.toThrow();
+    expect(c.listMail).not.toHaveBeenCalled();
+  });
+
   it('list_mail 은 옛 파라미터 unread 를 인식하지 않는다(unreadOnly 만)', async () => {
     // 모르는 키는 zod 가 버린다 — 옛 이름으로 보내면 안 읽은 필터가 걸리지 않는다는 점을 고정한다.
     const c = mockClient();
@@ -73,6 +86,23 @@ describe('buildMailTools', () => {
     const out = await tool(c, 'get_mail').handler({ messageId: 9 });
     expect(c.getMail).toHaveBeenCalledWith(9);
     expect(JSON.parse(resultText(out))).toEqual({ id: 9, bodyText: '본문' });
+  });
+
+  it('WP-357: get_mail 은 이 메일로 만든 이슈가 있으면 issueKey 를 싣고, 없으면 키를 생략한다', async () => {
+    const c = mockClient();
+    vi.mocked(c.getMail).mockResolvedValue({ id: 9, bodyText: '본문' });
+    expect(JSON.parse(resultText(await tool(c, 'get_mail').handler({ messageId: 9 })))).not.toHaveProperty('issueKey');
+    vi.mocked(c.getMailLinkedIssue).mockResolvedValue({ issueKey: 'WP-12' });
+    const out = JSON.parse(resultText(await tool(c, 'get_mail').handler({ messageId: 9 })));
+    expect(c.getMailLinkedIssue).toHaveBeenCalledWith(9);
+    expect(out).toMatchObject({ id: 9, issueKey: 'WP-12' });
+  });
+
+  it('WP-357: 연결 이슈 조회가 실패해도 메일 읽기는 막지 않는다(부가 정보)', async () => {
+    const c = mockClient();
+    vi.mocked(c.getMail).mockResolvedValue({ id: 9, bodyText: '본문' });
+    vi.mocked(c.getMailLinkedIssue).mockRejectedValue(new Error('boom'));
+    expect(JSON.parse(resultText(await tool(c, 'get_mail').handler({ messageId: 9 })))).toEqual({ id: 9, bodyText: '본문' });
   });
 
   // 서버 EmailMessageDetail 형태.
@@ -192,6 +222,14 @@ describe('메일 AI·처리 (#855)', () => {
     const out = await tool(c, 'mark_mail_read').handler({ messageId: 3 });
     expect(out).toBe('ok');
     expect(c.markMailRead).toHaveBeenCalledWith(3);
+    expect(c.markMailUnread).not.toHaveBeenCalled();
+  });
+
+  it('WP-357: mark_mail_read read:false → client.markMailUnread(messageId), 읽음 처리는 부르지 않는다', async () => {
+    const c = mockClient();
+    expect(await tool(c, 'mark_mail_read').handler({ messageId: 3, read: false })).toBe('ok');
+    expect(c.markMailUnread).toHaveBeenCalledWith(3);
+    expect(c.markMailRead).not.toHaveBeenCalled();
   });
 
   it('sync_mail → 서버 MailSyncResult 의 건수(fetched·saved·seenChanged)를 JSON 으로 돌려준다 (WP-353)', async () => {
