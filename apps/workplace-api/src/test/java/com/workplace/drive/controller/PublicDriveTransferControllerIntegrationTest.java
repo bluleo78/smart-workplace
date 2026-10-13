@@ -206,6 +206,24 @@ class PublicDriveTransferControllerIntegrationTest extends IntegrationTestBase {
     mockMvc.perform(get(path)).andExpect(status().isOk());
   }
 
+  /**
+   * Range 요청에도 일부(206)가 아니라 전체를 보낸다 — 일회용 링크라 첫 GET 이 소비하므로, 다운로드 관리자·이어받기(curl -C, wget -c)의 범위
+   * 탐색이 1바이트만 받고 링크를 태우면 나머지를 받을 길이 없다. 범위 지원 광고(Accept-Ranges)도 하지 않는다.
+   */
+  @Test
+  void rangeRequest_getsWholeFile_notPartial() throws Exception {
+    String path = issuePath(viewer);
+    var res =
+        mockMvc
+            .perform(get(path).header("Range", "bytes=0-0"))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse();
+    assertThat(res.getContentAsByteArray()).isEqualTo(CONTENT);
+    assertThat(res.getHeader("Accept-Ranges")).isNull();
+    assertThat(res.getHeader("Content-Range")).isNull();
+  }
+
   /** 동시 GET 중 정확히 하나만 200, 나머지는 410(원자적 소비). */
   @Test
   void concurrentGets_exactlyOneSucceeds() throws Exception {

@@ -7,6 +7,7 @@ import com.workplace.global.tenant.TenantContext;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import lombok.RequiredArgsConstructor;
+import org.springframework.core.io.InputStreamResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.CacheControl;
 import org.springframework.http.ContentDisposition;
@@ -43,7 +44,7 @@ public class PublicDriveTransferController {
   public ResponseEntity<Resource> download(@PathVariable("token") String token) throws IOException {
     TransferLinkRow link = transfers.consume(token, DriveTransferLinkService.KIND_DOWNLOAD);
     // 소비는 이미 커밋됐다. 대상 테넌트 컨텍스트에서 별도 트랜잭션으로 권한 재확인·읽기 → finally 정리.
-    // Resource(FileSystemResource) 는 반환 뒤 스트리밍되지만 디스크 read 라 DB 컨텍스트가 필요 없다.
+    // 본문 스트림은 반환 뒤 흘려보내지만 디스크 read 라 DB 컨텍스트가 필요 없다.
     try {
       TenantContext.set(link.tenantId());
       FileContentResult c = transfers.openDownloadAsIssuer(link);
@@ -56,7 +57,12 @@ public class PublicDriveTransferController {
       headers.setContentLength(c.size());
       headers.set("X-Content-Type-Options", "nosniff");
       headers.setCacheControl(CacheControl.noStore());
-      return ResponseEntity.ok().headers(headers).body(c.resource());
+      // 범위 요청(Range)을 무시하고 늘 전체를 보낸다 — Spring 은 Resource 본문에 Accept-Ranges 를 광고하고 Range 가 오면 206
+      // 일부만 보내는데, 일회용 링크는 첫 GET 이 소비하므로 다운로드 관리자·이어받기의 범위 탐색(bytes=0-0)이 1바이트만 받고 링크를
+      // 태운다. InputStreamResource 는 Spring 의 범위 처리 대상에서 빠진다(Content-Length 는 위에서 명시).
+      return ResponseEntity.ok()
+          .headers(headers)
+          .body(new InputStreamResource(c.resource().getInputStream()));
     } finally {
       TenantContext.clear();
     }
