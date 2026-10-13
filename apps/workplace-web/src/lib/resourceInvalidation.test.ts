@@ -22,6 +22,7 @@ describe('invalidationTargets', () => {
         ['issues', 'search', 'EX'],
         ['issues', 'EX'],
         ['me-issues'],
+        ['ai-tasks'],
         ['watched-issues'],
         ['my-issue-dues'],
         ['home', 'myIssues'],

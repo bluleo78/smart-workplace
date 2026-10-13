@@ -43,6 +43,7 @@ export function issueTargets(pk: string): InvalidationTarget[] {
     { queryKey: ['issues', 'search', pk] }, // 목록·보드·타임라인·하위 이슈
     { queryKey: ['issues', pk] }, // 상세(detail) 전체
     { queryKey: ['me-issues'] },
+    { queryKey: ['ai-tasks'] }, // AI 작업 목록·건수(WP-377)
     { queryKey: ['watched-issues'] },
     { queryKey: ['my-issue-dues'] },
     { queryKey: ['home', 'myIssues'] },
