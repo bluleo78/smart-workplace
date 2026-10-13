@@ -85,6 +85,9 @@ describe('drive-agent 정의', () => {
     // WP-369 Task 3: 기존 텍스트 파일은 read_file 로 읽고 driveFileId+content 로 새 버전 저장(이름·폴더 그대로).
     expect(prompt).toContain('`read_file(source="drive", driveFileId)` 로 먼저 읽고');
     expect(prompt).toContain('`create_drive_file(driveFileId, content)` 로 저장합니다');
+    // 잘린 덮어쓰기 방지: 끝까지 읽고(nextOffset) READY·truncated 아님일 때만 저장한다.
+    expect(prompt).toContain('**전문을 다 읽은 뒤에만 저장합니다**');
+    expect(prompt).toMatch(/`nextOffset` 이 있으면 없어질 때까지.*`truncated:true`.*저장하지 말고/);
     expect(prompt).toMatch(/이름·폴더는 그대로.*`spaceId`·`folderId`·`name` 은 넘기지 않습니다/);
     // 예전 "업로드는 미지원" 안내는 남기지 않는다.
     expect(prompt).not.toMatch(/업로드·멤버 변경·파일 버전 롤백\(되돌리기\)은 미지원/);
