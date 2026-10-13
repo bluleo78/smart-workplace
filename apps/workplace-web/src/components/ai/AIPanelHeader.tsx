@@ -6,11 +6,10 @@ import { Monitor, PanelRight, Sparkles, X } from 'lucide-react';
 
 import { type AIMode, useAssistant } from '@/components/ai/AIAssistantContext';
 import { PanelHeader } from '@/components/layout/PanelHeader';
-import { TOGGLE_ON_CLASS } from '@/lib/selectionStyles';
+import { ghostToggleClass } from '@/lib/selectionStyles';
 import { cn } from '@/lib/utils';
 
-// 투명 테두리 — 모드 버튼이 켜질 때(TOGGLE_ON_CLASS 의 primary 테두리) 크기가 밀리지 않고, 닫기 버튼과 높이도 같게 둔다.
-const iconBtn = 'rounded border border-transparent p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground';
+const iconBtn = 'rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground';
 
 /**
  * 표시 모드 전환 + 닫기 버튼 묶음. 사이드 패널 헤더와 풀스크린 상단 바에서 공용.
@@ -20,7 +19,8 @@ export function AIPanelControls() {
   const { mode, open, close } = useAssistant();
 
   // 모드 버튼 — 현재 모드는 눌린 상태(aria-pressed)로 강조하고, 다른 모드를 누르면 그 모드로 전환한다.
-  // 켜짐은 공용 토글 표시(TOGGLE_ON_CLASS) — 예전 bg-muted 는 hover 와 같은 색이라 구분되지 않았다(WP-368).
+  // 켜짐은 공용 토글 표시(ghostToggleClass — 꺼짐에도 투명 테두리라 켜질 때 크기가 밀리지 않는다).
+  // 예전 bg-muted 는 hover 와 같은 색이라 구분되지 않았다(WP-368).
   const modeButton = (target: Exclude<AIMode, 'closed'>, label: string, Icon: typeof Monitor) => (
     <button
       type="button"
@@ -29,7 +29,7 @@ export function AIPanelControls() {
       aria-pressed={mode === target}
       data-testid={`ai-mode-${target}`}
       onClick={() => open(target)}
-      className={cn(iconBtn, mode === target && TOGGLE_ON_CLASS)}
+      className={cn(iconBtn, ghostToggleClass(mode === target))}
     >
       <Icon className="h-4 w-4" />
     </button>

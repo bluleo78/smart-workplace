@@ -333,10 +333,13 @@ test('사이드 패널 헤더 닫기 버튼으로 패널이 닫히고 본문이 
   await expectToggle(fullBtn, false)
   const [onBg, offBg] = await computedBgs(sideBtn, fullBtn)
   expect(onBg, '켜진 모드 버튼 배경이 꺼진 버튼과 달라야 한다').not.toBe(offBg)
-  // 투명 테두리로 켜짐·꺼짐·닫기 버튼 크기가 같다(켜질 때 2px 밀리지 않음).
-  const [sideBox, fullBox, closeBox] = await Promise.all([sideBtn, fullBtn, header.getByTestId('ai-panel-close')].map((l) => l.boundingBox()))
-  expect(sideBox!.height).toBe(fullBox!.height)
-  expect(closeBox!.height).toBe(fullBox!.height)
+  // 꺼진 버튼도 1px 투명 테두리를 가져 켜질 때 크기가 밀리지 않고, 켜진 버튼의 테두리는 보인다(primary).
+  const border = (l: Locator) => l.evaluate((el) => ({ w: getComputedStyle(el).borderTopWidth, c: getComputedStyle(el).borderTopColor }))
+  const [onBorder, offBorder] = await Promise.all([border(sideBtn), border(fullBtn)])
+  expect(onBorder.w).toBe('1px')
+  expect(offBorder.w).toBe('1px')
+  expect(offBorder.c).toBe('rgba(0, 0, 0, 0)')
+  expect(onBorder.c).not.toBe('rgba(0, 0, 0, 0)')
   // 패널 헤더가 대화 선택 스위처 위 레이어에 위치한다.
   // 패널이 자리 잡는 중 옛 배치를 잴 수 있어 측정+단언을 한 단위로 재시도한다 (WP-225).
   await expect(async () => {
