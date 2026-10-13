@@ -9,6 +9,7 @@ import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import org.jooq.JSONB;
+import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
 /** home_message 접근. widgets 는 raw JSON 문자열로 입출력(상위에서 직렬화). */
@@ -135,6 +136,16 @@ public class HomeMessageRepository {
   public List<ContextRow> findContextAfter(UUID sessionId, Long uptoId) {
     var cond = HOME_MESSAGE.SESSION_ID.eq(sessionId);
     if (uptoId != null) cond = cond.and(HOME_MESSAGE.ID.gt(uptoId));
+    // WP-55: 텍스트 전에 중단·오류로 끝났지만 메모리 결과 줄 때문에 저장된 빈 답(STOPPED·FAILED + 빈 본문)은 맥락에서 뺀다 — 빈 "AI:" 줄이
+    // 실리거나, ai-agent 가 그 빈 답을 "마지막 AI 답" 으로 보아 앞선 미확인 승인 결과를 본 것으로 치지 않게. 채팅 이력·요약 입력이 모두
+    // 이 조회를 거치므로 한 곳에서 거른다(COMPLETE 빈 답은 기존대로 둔다).
+    cond =
+        cond.andNot(
+            HOME_MESSAGE
+                .ROLE
+                .eq("ASSISTANT")
+                .and(DSL.trim(HOME_MESSAGE.CONTENT).eq(""))
+                .and(HOME_MESSAGE.STATUS.ne("COMPLETE")));
     return dsl.select(HOME_MESSAGE.ID, HOME_MESSAGE.ROLE, HOME_MESSAGE.CONTENT)
         .from(HOME_MESSAGE)
         .where(cond)

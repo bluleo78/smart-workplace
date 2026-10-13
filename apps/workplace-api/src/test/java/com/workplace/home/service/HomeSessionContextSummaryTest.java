@@ -87,4 +87,34 @@ class HomeSessionContextSummaryTest extends IntegrationTestBase {
     assertThat(after.state()).isEqualTo(new SummaryState("요약", m2));
     assertThat(after.rows()).extracting(r -> r.content()).containsExactly("q2");
   }
+
+  /**
+   * WP-55(S13 부수 효과): 메모리 결과 줄 때문에 저장된 빈 중단·오류 답은 맥락에 싣지 않는다 — 빈 "AI:" 줄이 생기지 않고, 그 앞의 승인 결과는 여전히
+   * 마지막 AI 답 뒤(미확인)에 남는다. 본문이 있는 중단 답과 COMPLETE 답은 그대로 싣는다.
+   */
+  @Test
+  void 메모리_결과만_남긴_빈_중단_답은_맥락에서_빠져_승인_결과가_미확인으로_남는다() {
+    long uid = user();
+    UUID sid = sessionService.create(uid).id();
+    sessionService.appendMessage(uid, sid, "USER", "q1", null, null, null);
+    sessionService.appendMessage(uid, sid, "ASSISTANT", "a1", null, null, null);
+    sessionService.appendMessage(uid, sid, "ACTION_DONE", "[승인 결과] WP-1 닫음", null, null, null);
+    sessionService.appendMessage(uid, sid, "USER", "q2", null, null, null);
+    String memoryOnly = "[{\"kind\":\"memory\",\"action\":\"saved\",\"memoryId\":1}]";
+    sessionService.appendMessage(uid, sid, "ASSISTANT", "", null, null, memoryOnly, "FAILED");
+    sessionService.appendMessage(uid, sid, "ASSISTANT", " ", null, null, memoryOnly, "STOPPED");
+    sessionService.appendMessage(uid, sid, "USER", "q3", null, null, null);
+
+    List<String> roles =
+        sessionService.getContextSource(uid, sid).rows().stream().map(r -> r.role()).toList();
+    assertThat(roles).containsExactly("USER", "ASSISTANT", "ACTION_DONE", "USER", "USER");
+    // 마지막 AI 답(a1) 뒤에 승인 결과가 있다 — ai-agent unseenResultsBlock 이 미확인으로 다시 앞세운다.
+    assertThat(roles.lastIndexOf("ASSISTANT")).isLessThan(roles.indexOf("ACTION_DONE"));
+
+    // 본문이 있는 중단 답은 그대로 싣는다.
+    sessionService.appendMessage(uid, sid, "ASSISTANT", "반쯤 쓴 답", null, null, null, "FAILED");
+    assertThat(sessionService.getContextSource(uid, sid).rows())
+        .extracting(r -> r.content())
+        .endsWith("반쯤 쓴 답");
+  }
 }
