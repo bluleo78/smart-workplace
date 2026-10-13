@@ -27,13 +27,31 @@ const INSERT = 1
 /**
  * 글자 diff 한 번(diff_main 최상위 호출 하나 = 블록 하나)의 작업 예산 — 단위는 bisect 의 k 단계 1 + 뱀이 비교한 글자 수 + 탐색 배열 칸 수.
  *
- * 값의 근거(개발 기계, 부하 없음 — 단위당 30~55ns 로 입력 모양과 상관없이 거의 일정해 시계를 대신할 수 있다):
- * - 예전 0.2초 시계 상한의 경계는 약 600만~700만 단위다(무작위 글자 2500자 대 2500자 ≈ 600만 단위 ≈ 0.17초에 끝남, 3000자 ≈ 840만 단위는
- *   0.2초에 끊김).
- * - 1,000만으로 둬서, 부하 없는 기계에서 예전에 끝나던 diff 는 여유 있게 이 예산 안에서 끝난다(결과 동일 — charDiff.test.ts 대조).
- * - 최악(통째 재작성된 큰 블록)은 블록 하나에 약 0.3~0.5초에서 끊긴다. 넘으면 예전 시간 초과와 같은 거친 diff 다.
+ * 값의 근거 — 단위당 비용은 입력 모양과 상관없이 거의 일정해 시계를 대신할 수 있다:
+ * - 단위당 약 22~55ns(부하 없는 개발 기계). 이 포트를 2026-10-13 에 다시 재면 22~26ns(무작위 글자 2500자 대 2500자 = 약 730만 단위 = 0.17초),
+ *   d4357f9d 때는 30~55ns 였다.
+ * - 예전 0.2초 시계 상한(부하 없음)의 경계에 맞춰 700만으로 둔다 — 블록 하나가 부하 없이 약 0.15~0.4초에서 끊긴다. 넘는 부분은 예전 시간
+ *   초과와 같은 거친 diff 다(보통 문단은 수만~수십만 단위라 닿지 않는다 — 통째 다시 쓴 수천 자 블록만 닿는다).
+ * - 병합 한 번 전체의 상한은 따로 있다(MERGE_DIFF_WORK_BUDGET) — 블록마다 이 예산을 새로 받으면 큰 블록이 여럿일 때 합이 끝없이 커진다.
  */
-export const DIFF_WORK_BUDGET = 10_000_000
+export const DIFF_WORK_BUDGET = 7_000_000
+
+/**
+ * 병합 한 번(mergeWithSide 한 호출 = 워커 병합 작업 하나)이 글자 diff 에 쓸 수 있는 작업 합 — 블록마다 min(DIFF_WORK_BUDGET, 남은 몫)을 받고,
+ * 다 쓰면 뒤 블록의 diff 는 라이브러리가 기한을 넘겼을 때와 같은 거친 결과가 된다(그 블록은 정확 문맥 패치가 보통 실패해 AI 쪽).
+ *
+ * 왜: 블록 상한만 있으면 사람·AI 가 둘 다 고친 큰 블록 수만큼 비용이 늘어, 바쁜 워커에서 병합 한 번이 워커 시간 상한
+ * (MERGE_TIMEOUT_MS 10초, collab mergeRunner.ts)을 넘겨 503 이 될 수 있었다(예전 시계 상한은 블록마다 0.2초 벽시계라 부하로 늘지 않았다).
+ *
+ * 값의 근거(1,000만 단위):
+ * - 부하 없음: 단위당 22~55ns → 0.22~0.55초.
+ * - 설계 부하 5배(CPU 를 나눠 쓰는 운영 워커): 1.1~2.75초 — 10초 상한의 3분의 1 이하라, 나머지(파싱·짝짓기·정규화·keepLive 계획, 실측 최악
+ *   4.8초)가 들어갈 자리가 남는다.
+ * - 테스트 부하 하네스(13~15배 느려짐, CPU 버너 8개 + 병렬 테스트): 3.3~8.3초 — 그래도 10초 아래다.
+ * - 통째 다시 쓴 최악 블록 하나(DIFF_WORK_BUDGET)를 다 받고도 남는 몫(300만)으로, 통째 고친 500자 문단(하나 약 18만 단위)도 열 개 넘게
+ *   정확히 diff 한다. 둘 다 고친 블록은 보통 몇 개뿐이라(사람이 AI 작업 도중 고친 곳) 대개 이 상한에 닿지 않는다.
+ */
+export const MERGE_DIFF_WORK_BUDGET = 10_000_000
 
 /**
  * diff_main 에 넘기는 기한 — 라이브러리가 "제한 없음"으로 쓰는 값. 기한을 직접 넘기면 diff_main 이 시계를 읽어 기한을 만들지 않고,
@@ -48,6 +66,12 @@ dmp.Diff_Timeout = 1
 
 /** 지금 diff(charDiff 한 번)에 남은 작업 단위 — 단일 스레드 동기 계산이라 모듈 변수 하나로 충분하다(charDiff 가 매번 채운다). */
 let workLeft = 0
+
+/**
+ * 지금 병합(withMergeDiffBudget 안)에 남은 글자 diff 작업 — 병합 밖(단독 applyExactPatch 등)이면 null 이고 블록 상한만 걸린다.
+ * 마지막 diff 의 넘침(뱀 하나)만큼 음수가 될 수 있다 — 그 뒤 diff 는 0 을 받아 곧바로 거친 결과다.
+ */
+let mergeLeft: number | null = null
 
 /**
  * diff_bisect_(Myers 가운데 뱀 찾기) — diff-match-patch 1.0.5 의 같은 이름 함수를 옮긴 것(Apache-2.0, Google). 바꾼 것은 끊는 조건뿐이다:
@@ -144,7 +168,7 @@ function boundedBisect(this: DiffMatchPatch, text1: string, text2: string, deadl
 /** 쓴 작업을 예산·계량에 반영한다(예산은 음수가 될 수 있다 — 마지막 k 단계의 넘침, 뱀 하나 이하). */
 function spend(units: number): void {
   workLeft -= units
-  countWork(units) // 작업량 계량(workMeter — 테스트가 상한을 확인한다)
+  countWork('diff', units) // 작업량 계량(workMeter — 테스트가 상한을 확인한다)
 }
 
 /** 이 부분 문제를 통째 삭제+삽입으로 — 라이브러리가 기한에 걸리거나 공통 글자가 없을 때 돌려주는 것과 같다. */
@@ -167,12 +191,32 @@ dmp.diff_bisect_ = boundedBisect
 
 /**
  * base → other 글자 diff(정리 전). 같은 입력이면 기계 부하와 상관없이 늘 같은 결과다.
- * 작업량이 budget 을 넘는 부분은 거친 diff(통째 삭제+삽입)가 된다 — 예전 시간 초과와 같은 모양.
+ * 작업량이 받은 몫 — min(budget, 병합에 남은 몫) — 을 넘는 부분은 거친 diff(통째 삭제+삽입)가 된다 — 예전 시간 초과와 같은 모양.
  * budget 은 운영에서 늘 기본값이다(테스트가 작은 예산으로 끊기는 경로를 싸게 보려고 받는다).
  */
 export function charDiff(base: string, other: string, budget = DIFF_WORK_BUDGET): Diff[] {
-  workLeft = budget
-  return dmp.diff_main(base, other, true, NO_DEADLINE)
+  const granted = mergeLeft == null ? budget : Math.min(budget, Math.max(0, mergeLeft))
+  workLeft = granted
+  try {
+    return dmp.diff_main(base, other, true, NO_DEADLINE)
+  } finally {
+    // 실제로 쓴 만큼(넘침 포함) 병합 몫에서 뺀다 — 병합 밖이면 granted 가 Infinity 일 수 있어 빼지 않는다.
+    if (mergeLeft != null) mergeLeft -= granted - workLeft
+  }
+}
+
+/**
+ * fn(병합 한 번) 동안의 글자 diff 를 모두 합쳐 MERGE_DIFF_WORK_BUDGET 안으로 묶는다 — 블록마다의 charDiff 가 남은 몫을 나눠 쓴다.
+ * 이미 병합 안이면 바깥 몫을 그대로 이어 쓴다(안쪽 호출이 몫을 다시 채우면 상한이 풀린다). 예외가 나도 몫을 걷어 다음 병합에 남지 않게 한다.
+ */
+export function withMergeDiffBudget<T>(fn: () => T): T {
+  if (mergeLeft != null) return fn()
+  mergeLeft = MERGE_DIFF_WORK_BUDGET
+  try {
+    return fn()
+  } finally {
+    mergeLeft = null
+  }
 }
 
 /** 같은 인스턴스에 정리 단계(diff_cleanupSemantic)를 건다 — 호출자가 같은 설정의 dmp 를 따로 만들지 않게. */

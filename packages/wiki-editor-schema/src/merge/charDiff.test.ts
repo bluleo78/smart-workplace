@@ -82,8 +82,8 @@ describe('charDiff — 예산 안에서는 라이브러리(시간 제한 없음)
       for (let i = 0; i < 25; i++) {
         const base = sentence(pick([3, 20, 60, 150]))
         const ai = mutate(base, pick([0.01, 0.1, 0.5, 1]))
-        const { result, units } = measureWork(() => charDiff(base, ai))
-        expect(units).toBeLessThanOrEqual(DIFF_WORK_BUDGET) // 예산 안(끊기지 않은) 경우만 대조한다
+        const { result, work } = measureWork(() => charDiff(base, ai))
+        expect(work.diff).toBeLessThanOrEqual(DIFF_WORK_BUDGET) // 예산 안(끊기지 않은) 경우만 대조한다
         expect(result).toEqual(unbounded.diff_main(base, ai))
       }
       for (let i = 0; i < 5; i++) {
@@ -97,7 +97,7 @@ describe('charDiff — 예산 안에서는 라이브러리(시간 제한 없음)
 
 describe('charDiff — 큰 입력은 예산에서 결정적으로 끊긴다', () => {
   // 통째로 다시 쓴 문단(공통 낱말이 흩어져 있어 가속이 못 나누고 bisect 가 끝까지 가야 하는 최악 모양). 끊기는 경로를 싸게 보려고
-  // 작은 예산(SMALL)을 넘긴다 — 끊는 방식은 예산 크기와 무관하다(운영 예산으로는 같은 모양이 블록당 1,000만 단위에서 끊긴다).
+  // 작은 예산(SMALL)을 넘긴다 — 끊는 방식은 예산 크기와 무관하다(운영 예산으로는 같은 모양이 블록당 DIFF_WORK_BUDGET 에서 끊긴다).
   // 상한은 "예산 + 마지막 k 단계의 뱀 하나(짧은 쪽 길이 이하)"다.
   const SMALL = 200_000
   const rand = rng(42)
@@ -107,9 +107,9 @@ describe('charDiff — 큰 입력은 예산에서 결정적으로 끊긴다', ()
 
   it('caps the work at the budget and returns the same coarse result every time, on any clock', () => {
     // 예산이 없으면 이 입력은 SMALL 의 몇 배를 쓴다 — 끊기는 경로를 실제로 보는지 확인.
-    expect(measureWork(() => charDiff(BASE, AI, Infinity)).units).toBeGreaterThan(3 * SMALL)
+    expect(measureWork(() => charDiff(BASE, AI, Infinity)).work.diff).toBeGreaterThan(3 * SMALL)
     const first = measureWork(() => charDiff(BASE, AI, SMALL))
-    expect(first.units).toBeLessThanOrEqual(SMALL + Math.min(BASE.length, AI.length))
+    expect(first.work.diff).toBeLessThanOrEqual(SMALL + Math.min(BASE.length, AI.length))
     expect(measureWork(() => charDiff(BASE, AI, SMALL))).toEqual(first)
     slowMachine()
     expect(measureWork(() => charDiff(BASE, AI, SMALL))).toEqual(first)

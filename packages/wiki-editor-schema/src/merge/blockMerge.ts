@@ -1,6 +1,6 @@
 import MarkdownIt from 'markdown-it'
 
-import { charDiff, cleanupSemantic } from './charDiff'
+import { charDiff, cleanupSemantic, withMergeDiffBudget } from './charDiff'
 import { countWork } from './workMeter'
 
 /**
@@ -85,6 +85,7 @@ interface SplitBlock {
  * 병합은 실시간 문서 잠금 안에서 돈다). 최상위(splitBlocks)는 from 0·level 0·offset 0.
  */
 function collectBlocks(lines: string[], tokens: Token[], from: number, to: number, level: number, offset: number): SplitBlock[] {
+  countWork('scan', to - from + lines.length) // 훑는 토큰·줄 수(작업량 계량 — workMeter)
   const out: SplitBlock[] = []
   const slice = (map: [number, number]) =>
     lines
@@ -136,6 +137,7 @@ function listKind(block: string): string | null {
 
 /** 블록 → 마크다운. 같은 종류 목록 항목끼리는 줄바꿈 하나(한 목록), 나머지는 빈 줄. */
 export function joinBlocks(blocks: string[]): string {
+  countWork('scan', blocks.length) // 잇는 블록 수(작업량 계량 — workMeter)
   let out = ''
   blocks.forEach((b, i) => {
     if (i > 0) {
@@ -197,7 +199,7 @@ function lcsPairs(a: string[], a0: number, a1: number, b: string[], b0: number, 
   const n = a1 - a0
   const m = b1 - b0
   if (n === 0 || m === 0 || n * m > MAX_LCS_CELLS) return []
-  countWork(n * m) // 표 칸 수(작업량 계량 — workMeter)
+  countWork('pairing', n * m) // 표 칸 수(작업량 계량 — workMeter)
   const w = m + 1
   const dp = new Uint32Array((n + 1) * w)
   for (let i = n - 1; i >= 0; i--) {
@@ -233,7 +235,7 @@ export function trimmedLcsPairs(a: string[], b: string[]): Array<[number, number
   const n = a.length - p - s
   const m = b.length - p - s
   if (n > 0 && m > 0 && n * m <= MAX_LCS_CELLS) {
-    countWork(n * m) // 표 칸 수(작업량 계량 — workMeter)
+    countWork('pairing', n * m) // 표 칸 수(작업량 계량 — workMeter)
     // dp[i][j] = a[p+i..] 와 b[p+j..] 의 LCS 길이(뒤에서부터).
     const dp = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1))
     for (let i = n - 1; i >= 0; i--) {
@@ -319,7 +321,7 @@ function uniqueAnchors(base: string[], bs: number, be: number, other: string[], 
 function pairSmallGap(P: Profile[], Q: Profile[], bs: number, os: number, match: number[]): void {
   const n = P.length
   const m = Q.length
-  countWork(n * m) // 유사도를 재는 칸 수(작업량 계량 — workMeter)
+  countWork('pairing', n * m) // 유사도를 재는 칸 수(작업량 계량 — workMeter)
   const w = m + 1
   // 문턱 미만은 -1, 이상이면 위치 감점을 뺀 가중치(항상 0 이상).
   const sim = new Float64Array(n * m)
@@ -358,7 +360,7 @@ function contentChain(P: Profile[], Q: Profile[], useI: (i: number) => boolean, 
   const postings = new Map<string, number[]>()
   Q.forEach((q, j) => {
     if (!useJ(j)) return
-    countWork(q.grams.size) // 역색인에 넣는 항목 수(작업량 계량 — workMeter)
+    countWork('pairing', q.grams.size) // 역색인에 넣는 항목 수(작업량 계량 — workMeter)
     for (const g of q.grams.keys()) {
       const list = postings.get(g)
       if (list) list.push(j)
@@ -400,7 +402,7 @@ function contentChain(P: Profile[], Q: Profile[], useI: (i: number) => boolean, 
     }
     for (const j of touched) hits[j] = 0
     // 이 블록이 한 일 — 2-gram 목록 수 + 훑은 역색인 항목 + 실제 유사도 계산 수(작업량 계량 — workMeter).
-    countWork(lists.length + scanned + top.length)
+    countWork('pairing', lists.length + scanned + top.length)
     for (const j of top) {
       const s = dice(p, Q[j])
       if (s >= MIN_SIMILARITY) {
@@ -411,7 +413,7 @@ function contentChain(P: Profile[], Q: Profile[], useI: (i: number) => boolean, 
       }
     }
   })
-  countWork(pi.length) // 사슬 DP 가 도는 후보 쌍 수(작업량 계량 — workMeter)
+  countWork('pairing', pi.length) // 사슬 DP 가 도는 후보 쌍 수(작업량 계량 — workMeter)
   // i 오름차순, 같은 i 안에서는 j 내림차순 — 같은 기준 블록의 두 후보가 한 사슬에 같이 들어가지 못하게.
   const order = pi.map((_, k) => k).sort((a, b) => pi[a] - pi[b] || pj[b] - pj[a])
   const treeVal = new Float64Array(m + 1)
@@ -472,7 +474,7 @@ export function alignBlocks(base: string[], other: string[]): number[] {
     const [bs, be, os, oe] = stack.pop()!
     if (bs === be || os === oe) continue
     // 범위마다 양쪽 블록을 한 번 이상 훑는다(같은지·앵커·프로필) — 범위를 되풀이해 훑는 퇴화도 잡히게 센다(작업량 계량 — workMeter).
-    countWork(be - bs + (oe - os))
+    countWork('pairing', be - bs + (oe - os))
     if (sameRange(base, bs, be, other, os, oe)) {
       for (let k = 0; k < be - bs; k++) match[bs + k] = os + k
       continue
@@ -746,6 +748,7 @@ interface MergeCtx {
 
 /** 나눈 블록 중 목록 항목·인용의 자리를 map 에 넣는다(돌려주는 것도 그 map). */
 function seedOf(split: { blocks: SplitBlock[]; tokens: Token[] }, map: Map<string, Parsed>, fenceFree = false): Map<string, Parsed> {
+  countWork('scan', split.blocks.length) // 훑는 블록 수(작업량 계량 — workMeter)
   const { tokens } = split
   for (const b of split.blocks) {
     const t = b.open >= 0 ? tokens[b.open] : null
@@ -933,6 +936,7 @@ function mergeContainer(base: string, cur: string, ai: string, prev: string | nu
 
 /** to[j] 가 j 이후 처음으로 짝지어진 other 인덱스(없으면 len) — 새로 넣은 블록을 어느 기준 블록 앞에 둘지 정한다. */
 function nextMatched(to: number[], len: number): number[] {
+  countWork('scan', to.length) // 훑는 짝 수(작업량 계량 — workMeter)
   const next = new Array<number>(to.length + 1)
   next[to.length] = len
   for (let j = to.length - 1; j >= 0; j--) next[j] = to[j] >= 0 ? to[j] : next[j + 1]
@@ -947,6 +951,7 @@ function nextMatched(to: number[], len: number): number[] {
  * 일반 블록 규칙으로 처리된다. AI 만 넣은 블록은 다음 짝 앞에 두어 AI 쪽 순서를 지킨다.
  */
 function mergeInserts(curIns: string[], aiIns: string[]): string[] {
+  countWork('scan', curIns.length + aiIns.length) // 합치는 삽입 블록 수(작업량 계량 — workMeter)
   if (aiIns.length === 0) return curIns
   if (curIns.length === 0) return aiIns
   const pairOf = new Map<number, number>(lcsPairs(curIns, 0, curIns.length, aiIns, 0, aiIns.length))
@@ -968,6 +973,7 @@ function mergeInserts(curIns: string[], aiIns: string[]): string[] {
 
 /** 블록 다중집합 대칭 차이 크기 — 두 본문이 블록 몇 개만큼 다른가. */
 function blockDistance(a: string[], b: string[]): number {
+  countWork('scan', a.length + b.length) // 훑는 블록 수(작업량 계량 — workMeter)
   const counts = new Map<string, number>()
   for (const x of a) counts.set(x, (counts.get(x) ?? 0) + 1)
   let common = 0
@@ -1043,6 +1049,12 @@ export function prepareMergeSide(base: string, ai: string): MergeSide {
  */
 export function mergeWithSide(side: MergeSide, current: string): MergeResult {
   if (current === side.ai) return { markdown: current, conflicts: 0 }
+  // 이 병합의 글자 diff 를 모두 합쳐 한 예산 안으로 묶는다 — 둘 다 고친 큰 블록이 여럿이어도 병합 한 번의 비용이 정해진 상한을 넘지 않는다(charDiff).
+  return withMergeDiffBudget(() => mergeCurrent(side, current))
+}
+
+/** mergeWithSide 의 본체 — 글자 diff 예산(withMergeDiffBudget) 안에서 돈다. */
+function mergeCurrent(side: MergeSide, current: string): MergeResult {
   const c = splitParsed(current)
   // 병합 한 번 동안 사는 컨테이너 문맥 — 현재본 최상위 컨테이너 자리로 시작한다(기준본·AI본 것은 side.seed).
   const ctx: MergeCtx = { seed: side.seed, cache: seedOf(c, new Map()), depth: 0 }
@@ -1068,6 +1080,7 @@ function mergeSequence(
   toA = alignBlocks(B, A),
 ): { blocks: string[]; conflicts: number } {
   const toC = alignBlocks(B, C)
+  countWork('scan', B.length + C.length + A.length) // 이 열 병합이 훑는 블록 수(작업량 계량 — workMeter)
   const cTaken = new Array<boolean>(C.length).fill(false)
   const aTaken = new Array<boolean>(A.length).fill(false)
   toC.forEach((i) => i >= 0 && (cTaken[i] = true))

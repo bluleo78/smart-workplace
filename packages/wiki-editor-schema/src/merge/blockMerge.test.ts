@@ -2,7 +2,8 @@ import MarkdownIt from 'markdown-it'
 import { describe, expect, it, vi } from 'vitest'
 
 import { alignBlocks, applyExactPatch, closestBase, joinBlocks, mergeMarkdown3, similarity, splitBlocks } from './blockMerge'
-import { measureWork } from './workMeter'
+import { DIFF_WORK_BUDGET, MERGE_DIFF_WORK_BUDGET } from './charDiff'
+import { measureWork, type WorkTotals } from './workMeter'
 import { docToMarkdown, markdownToDoc } from '../markdown'
 
 // 3-way 블록 병합(WP-289, 스펙 §5.1-3) — 입력은 모두 공용 스키마로 정규화된 마크다운이라고 가정한다(정규화는 collab 이 한다).
@@ -16,6 +17,24 @@ const BASE = doc(P(1), P(2), P(5))
  * 같은 입력이면 작업량이 늘 같아 기계 부하와 무관하다.
  */
 const PAIRING_UNITS_PER_BLOCK = 2_100
+/**
+ * 선형 단계 작업량 상한(블록당) — 블록 나누기(토큰·줄)·잇기·다음 짝 찾기·열 병합·삽입 합치기가 블록 열을 한 번씩 훑는 몫(workMeter 'scan').
+ * 측정 ≈ 블록당 24(5000·10000 블록 모두). 이런 단계 하나가 블록마다 다시 불리면(예: 다음 짝 표를 블록마다 새로 만듦) 블록 수의 제곱이 되어
+ * 이 상한을 넘는다 — 예전 벽시계 단언은 이런 퇴화(10000 블록에서 1억 번의 가벼운 반복, 1초 미만)를 잡지 못했다. 단계 안쪽 반복문을
+ * 다시 쓴 퇴화는 호출 지점의 입력 크기로는 보이지 않는다(그건 멈춤 감시 SCALE_TEST_TIMEOUT_MS 만 잡는다).
+ */
+const SCAN_UNITS_PER_BLOCK = 30
+
+/** 병합 한 번의 작업량(종류별)과 markdown-it 파싱 횟수 — 모듈의 파서 인스턴스도 원형 메서드를 쓰므로 원형을 엿본다. */
+function measureMerge(fn: () => ReturnType<typeof mergeMarkdown3>) {
+  const parse = vi.spyOn(MarkdownIt.prototype, 'parse')
+  try {
+    const { result, work } = measureWork(fn)
+    return { result, work, parses: parse.mock.calls.length }
+  } finally {
+    parse.mockRestore()
+  }
+}
 /**
  * 큰 노트 병합 묶음(describe)의 테스트 시간 제한 — 성능 단언이 아니라 멈춤(끝나지 않는 계산) 감시다.
  * 이 묶음의 테스트는 나눌 수 없는 결정적 CPU 계산(혼자 돌면 0.1~0.7초)이라, 전체 테스트를 병렬로 돌리면 10배 넘게 느려져 기본 5초를
@@ -62,9 +81,9 @@ describe('similarity / alignBlocks', () => {
     const base = Array.from({ length: 5000 }, (_, i) => `문단 ${i} 내용`)
     const other = [...base]
     other[4000] = '문단 4000 내용 바뀜'
-    const { result: match, units } = measureWork(() => alignBlocks(base, other))
+    const { result: match, work } = measureWork(() => alignBlocks(base, other))
     // 고유 블록 앵커로 나누면 남는 틈은 1:1 하나 — 양쪽 블록을 각각 한 번씩 훑는 만큼(2n 남짓)이면 된다. 짝 표(n² = 2,500만)로 퇴화하면 넘는다.
-    expect(units).toBeLessThanOrEqual(2 * (base.length + other.length))
+    expect(work.pairing).toBeLessThanOrEqual(2 * (base.length + other.length))
     expect(match[4000]).toBe(4000)
     expect(match[4999]).toBe(4999)
   })
@@ -197,11 +216,14 @@ describe('mergeMarkdown3 — 큰 틈(리뷰 fix)', { timeout: SCALE_TEST_TIMEOUT
     expect(mergeMarkdown3(base, cur, ai)).toEqual({ markdown: expected, conflicts: 0 })
   })
 
-  it('does the same on a 5000-block note with pairing work linear in the block count', () => {
+  it('does the same on a 5000-block note with pairing and linear-pass work linear in the block count', () => {
     const { base, cur, ai, expected } = polishAll(5000, 4000)
-    const { result, units } = measureWork(() => mergeMarkdown3(base, cur, ai))
+    const { result, work, parses } = measureMerge(() => mergeMarkdown3(base, cur, ai))
     // 측정 ≈ 590만 단위(블록당 ≈ 1,200). 큰 틈을 짝 표 전체로 계산하면 2,500만 단위를 넘는다.
-    expect(units).toBeLessThanOrEqual(PAIRING_UNITS_PER_BLOCK * 5000)
+    expect(work.pairing).toBeLessThanOrEqual(PAIRING_UNITS_PER_BLOCK * 5000)
+    // 선형 단계(측정 ≈ 12만 — 블록당 24)도 블록 수에 비례하고, 문서마다 한 번만 파싱한다.
+    expect(work.scan).toBeLessThanOrEqual(SCAN_UNITS_PER_BLOCK * 5000)
+    expect(parses).toBeLessThanOrEqual(3)
     expect(result).toEqual({ markdown: expected, conflicts: 0 })
   })
 
@@ -219,6 +241,56 @@ describe('mergeMarkdown3 — 큰 틈(리뷰 fix)', { timeout: SCALE_TEST_TIMEOUT
     const base = Array.from({ length: 30 }, (_, i) => `문단 ${i} 내용 텍스트`)
     const other = Array.from({ length: 31 }, (_, i) => `zz${i} qq${i} 무관한 다른 블록 ${'x'.repeat(i)}`)
     expect(alignBlocks(base, other)).toEqual(base.map(() => -1))
+  })
+})
+
+describe('mergeMarkdown3 — 병합 한 번의 글자 diff 예산', { timeout: SCALE_TEST_TIMEOUT_MS }, () => {
+  // 사람·AI 가 둘 다 고친 큰 블록이 여럿이어도 병합 한 번의 글자 diff 작업 합은 MERGE_DIFF_WORK_BUDGET(+ 마지막 diff 의 넘침)을 넘지 않는다.
+  // 블록마다 상한(DIFF_WORK_BUDGET)만 있으면 큰 블록 수만큼 비용이 늘어 바쁜 워커에서 워커 시간 상한(10초)을 넘길 수 있었다.
+  // 블록 넷은 각각 블록 상한 안에서 끝나는 크기(약 410만 단위)라 블록 상한으로는 끊기지 않는다 — 앞의 둘이 몫(1,000만)을 쓰면 뒤의 둘은
+  // 몫이 모자라 거친 diff 가 되고(예전 시간 초과와 같은 모양), 사람 수정 자리의 문맥을 못 찾아 AI 쪽으로 정해진다(결정적 — 입력만으로 정해짐).
+  // 결정적 의사난수(mulberry32) — 아래 큰 틈 묶음과 같은 것.
+  const rng = (seed: number) => () => {
+    seed = (seed + 0x6d2b79f5) | 0
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed)
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+  const WORDS = '회의 결정 사항 다음 주 일정 고객 요청 반영 배포 계획 검토 문서 작성 담당 확인 이슈 처리 the of and design review merge note'.split(' ')
+  const r = rng(11)
+  const words = (n: number) => Array.from({ length: n }, () => WORDS[Math.floor(r() * WORDS.length)]).join(' ')
+  // 블록마다 가운데 문장(keep)만 그대로 두고 AI 가 앞뒤를 통째 다시 쓴다. 사람은 keep 한가운데를 고친다 — 정확한 diff 면 keep 이 같음 구간이라
+  // 문맥(최대 256자)이 keep 안에서 잡혀 사람 수정이 남고, 거친 diff(블록 통째 교체)면 사람 수정 때문에 기준 블록 전체를 못 찾는다.
+  const blocks = Array.from({ length: 4 }, () => {
+    const keep = words(150)
+    const mid = keep.length >> 1
+    const edited = `${keep.slice(0, mid)}사람끝${keep.slice(mid)}`
+    const [left, right] = [words(360), words(360)]
+    const ai = `${words(360)} ${keep} ${words(360)}`
+    return { base: `${left} ${keep} ${right}`, cur: `${left} ${edited} ${right}`, ai, merged: ai.replace(keep, edited) }
+  })
+  const side = (k: 'base' | 'cur' | 'ai' | 'merged') => doc(...blocks.map((b) => b[k]))
+
+  it('caps the total char-diff work of one merge and resolves the blocks past the cap to the AI side', () => {
+    const { result, work } = measureMerge(() => mergeMarkdown3(side('base'), side('cur'), side('ai')))
+    // 상한 = 병합 몫 + 몫을 넘긴 diff 의 넘침(뱀 하나 — 블록 길이 이하). 블록 상한에 걸린 diff 마다 넘칠 수 있어 블록 수만큼 잡는다.
+    const longest = Math.max(...blocks.map((b) => Math.max(b.base.length, b.ai.length)))
+    expect(work.diff).toBeLessThanOrEqual(MERGE_DIFF_WORK_BUDGET + blocks.length * longest)
+    // 몫 안에서 끝난 앞의 두 블록은 사람·AI 수정이 모두 남고, 뒤의 두 블록은 AI 쪽(충돌 2)이다 — 올바른 병합 결과다(거칠 뿐 틀리지 않음).
+    expect(splitBlocks(result.markdown)).toEqual([blocks[0].merged, blocks[1].merged, blocks[2].ai, blocks[3].ai])
+    expect(result.conflicts).toBe(2)
+  })
+
+  it('uses blocks that each fit the per-block budget, so only the merge-wide budget cuts them', () => {
+    // 위 테스트의 전제 — 블록 하나씩은 블록 상한 안에서 정확히 끝나고(사람 수정이 남음), 넷을 합치면 병합 몫을 넘는다.
+    let total = 0
+    for (const b of blocks) {
+      const one = measureMerge(() => mergeMarkdown3(b.base, b.cur, b.ai))
+      expect(one.work.diff).toBeLessThanOrEqual(DIFF_WORK_BUDGET)
+      expect(one.result).toEqual({ markdown: b.merged, conflicts: 0 })
+      total += one.work.diff
+    }
+    expect(total).toBeGreaterThan(MERGE_DIFF_WORK_BUDGET)
   })
 })
 
@@ -290,15 +362,18 @@ describe('mergeMarkdown3 — 위치와 무관한 큰 틈 짝짓기(리뷰 fix 2)
     },
   )
 
-  it('merges a 10000-block note with a bulk insert and a bulk delete, with pairing work linear in the block count', () => {
+  it('merges a 10000-block note with a bulk insert and a bulk delete, with pairing and linear-pass work linear in the block count', () => {
     const r = rng(3)
     const base = Array.from({ length: 10000 }, () => para(r))
     const cur = base.map((b, i) => (i === 7000 ? b + MARK : b))
     const polished = base.map((b) => reword(r, b))
     const ai = [...polished.slice(0, 2000), ...Array.from({ length: 300 }, () => para(r)), ...polished.slice(2000, 5000), ...polished.slice(5300)]
-    const { result, units } = measureWork(() => mergeMarkdown3(doc(...base), doc(...cur), doc(...ai)))
+    const { result, work, parses } = measureMerge(() => mergeMarkdown3(doc(...base), doc(...cur), doc(...ai)))
     // 측정 ≈ 330만 단위(블록당 ≈ 330). 짝 표 전체면 1억 단위.
-    expect(units).toBeLessThanOrEqual(PAIRING_UNITS_PER_BLOCK * 10000)
+    expect(work.pairing).toBeLessThanOrEqual(PAIRING_UNITS_PER_BLOCK * 10000)
+    // 선형 단계(측정 ≈ 24만 — 블록당 24)도 블록 수에 비례하고, 문서마다 한 번만 파싱한다.
+    expect(work.scan).toBeLessThanOrEqual(SCAN_UNITS_PER_BLOCK * 10000)
+    expect(parses).toBeLessThanOrEqual(3)
     expect(result.markdown).toContain(polished[7000] + MARK)
   })
 })
@@ -874,9 +949,9 @@ describe('mergeMarkdown3 — 목록 항목·인용 안 자식 단위 병합(WP-3
     const parse = vi.spyOn(MarkdownIt.prototype, 'parse')
     let out: ReturnType<typeof mergeMarkdown3>
     let calls: string[]
-    let units: number
+    let work: WorkTotals
     try {
-      ;({ result: out, units } = measureWork(() => mergeMarkdown3(base, cur, ai)))
+      ;({ result: out, work } = measureWork(() => mergeMarkdown3(base, cur, ai)))
       calls = parse.mock.calls.map(([src]) => String(src))
     } finally {
       parse.mockRestore() // 기록도 지워지므로 위에서 먼저 옮겨 둔다
@@ -888,7 +963,7 @@ describe('mergeMarkdown3 — 목록 항목·인용 안 자식 단위 병합(WP-3
     expect(lines).toBeLessThanOrEqual(15 * 3000)
     // 단계마다 자식을 짝짓는 작업도 깊이에 따라 불어나지 않는다(측정 ≈ 1,700 — 줄 수 3,000 이하). 예전의 시계 안전망(세 번 더 병합해
     // 1.5초 미만)은 병렬 부하에서 흔들려 작업량 단언으로 바꿨다.
-    expect(units).toBeLessThanOrEqual(3000)
+    expect(work.pairing).toBeLessThanOrEqual(3000)
   })
 
   it('preserves a tight item with a sub-list and a loose item with two paragraphs', () => {
