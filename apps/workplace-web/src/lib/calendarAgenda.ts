@@ -1,6 +1,6 @@
 // 모바일 캘린더 일정 목록(WP-136)용 순수 로직 — 30일 청크 범위, 날짜별 묶음, 머리글 문자열.
 // 컴포넌트(MobileAgendaView)·무한 로딩 훅과 분리해 vitest 로 단위 검증한다.
-import { addDays, format, isSameDay, startOfDay } from 'date-fns'
+import { addDays, differenceInCalendarDays, format, isSameDay, startOfDay } from 'date-fns'
 import { ko } from 'date-fns/locale'
 
 import type { CalendarEvent, IssueDueMarker } from '@/types/calendar'
@@ -58,12 +58,35 @@ function continuesInto(event: CalendarEvent, day: Date): boolean {
   return end.getTime() > day.getTime()
 }
 
-// 이어지는 일정 행의 끝 표시 — "~10/15"(끝나는 날짜) 또는 그 날 안에 끝나면 "~09:00".
-// 종일 끝은 배타적(다음 날 자정)이라 하루를 빼 실제 마지막 날을 보인다.
-export function continuedEndLabel(event: CalendarEvent, day: Date): string {
-  if (event.allDay) return `~${format(addDays(allDayLocalDate(event.endsAt), -1), 'M/d')}`
+// 시간 일정의 실제 마지막 날 — 끝이 정확히 로컬 자정(00:00)이면 그 자정은 "다음 날의 시작"이 아니라 "그 전날의 끝"이라
+// 전날로 본다(22:00~다음 날 00:00 을 여러 날 일정처럼 보이지 않게, WP-136 CR8). 길이 0 일정(시작 == 끝)은 그대로 둔다.
+function timedLastDay(event: CalendarEvent): { day: Date; endsAtMidnight: boolean } {
   const end = new Date(event.endsAt)
-  return isSameDay(end, day) ? `~${formatLocalClockTime24(event.endsAt)}` : `~${format(end, 'M/d')}`
+  const endDay = startOfDay(end)
+  const endsAtMidnight = end.getTime() === endDay.getTime() && end.getTime() > new Date(event.startsAt).getTime()
+  return { day: endsAtMidnight ? addDays(endDay, -1) : endDay, endsAtMidnight }
+}
+
+// 일정 행 시간 칸 두 줄(시작·끝) — 목록 시작 행과 이어지는(continued) 행이 같은 규칙으로 끝을 보이게 한 곳에 모은다(WP-136 CR9).
+// - 종일: 첫 줄 "종일". 하루짜리는 끝 줄 없음, 여러 날이면 "~M/d"(배타적 끝 −1일 = 실제 마지막 날, CR1).
+// - 시간 일정: 첫 줄은 시작 시각(이어지는 행이면 시작 날짜 M/d). 끝 줄은 마지막 날이 기준일(시작일 또는 이어지는 날)과 같으면
+//   시각(자정에 끝나면 "24:00" — 00:00 은 시작보다 이른 시각처럼 읽힌다), 다르면 "~M/d"(시각만 쓰면 시작보다 이르게 읽힌다).
+//   이어지는 행은 날짜가 아닌 끝 시각에도 "~" 를 붙인다("~09:00" — 첫 줄이 날짜라 "~" 없이는 범위로 읽히지 않는다).
+// 끝 줄이 "~" 로 시작하면 화면에 범위 기호가 이미 있는 것이라, 호출부는 접근성용 숨김 구분자를 공백만 둔다.
+export function agendaTimeLabels(event: CalendarEvent, continuedOn: Date | null): { start: string; end: string | null } {
+  if (event.allDay) {
+    const startDay = allDayLocalDate(event.startsAt)
+    const lastDay = addDays(allDayLocalDate(event.endsAt), -1)
+    const multiDay = lastDay.getTime() > startDay.getTime()
+    // 이어지는 종일 행은 시작일 전에 시작했으니 언제나 여러 날이다.
+    return { start: '종일', end: multiDay ? `~${format(lastDay, 'M/d')}` : null }
+  }
+  const { day: lastDay, endsAtMidnight } = timedLastDay(event)
+  const refDay = continuedOn ?? new Date(event.startsAt)
+  const start = continuedOn ? format(new Date(event.startsAt), 'M/d') : formatLocalClockTime24(event.startsAt)
+  if (!isSameDay(lastDay, refDay)) return { start, end: `~${format(lastDay, 'M/d')}` }
+  const time = endsAtMidnight ? '24:00' : formatLocalClockTime24(event.endsAt)
+  return { start, end: continuedOn ? `~${time}` : time }
 }
 
 // 같은 날 안의 정렬: 종일·마감 먼저, 시간 지정은 시작 시각 오름차순. 동률은 제목 → id 로 안정화한다.
@@ -132,6 +155,33 @@ export function groupAgendaDays(
   return [...byKey.values()]
     .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
     .map((d) => ({ ...d, items: [...d.items].sort(compareItems) }))
+}
+
+// 청크별 불러오기 진행 요약(WP-136 CR5·CR7) — 날짜 묶음을 청크(시작일부터 30일씩)에 나눠 담아 센다.
+// - loaded[i]: 일정 청크 i 조회 성공. 앞에서부터 연속으로 성공한 청크 수(loadedChunks)까지만 AI 컨텍스트 범위·일정 수에 넣는다 —
+//   뒤 청크가 성공해도 앞 청크가 로딩 중·실패면 그 사이가 비어 "불러오지 않은 기간"을 0건으로 알리게 된다.
+// - settled[i]: 일정·(켜져 있으면) 마감 청크 i 모두 성공 — 행이 더 늘지 않는 확정 상태.
+// - trailingEmpty: 끝에서부터 연속된 "확정됐는데 행이 하나도 없는" 청크 수. 일정이 드문 사용자의 자동 연쇄 불러오기를 끊는 기준이다.
+//   묶음(days)으로 세므로 캘린더 필터·중복 제거·이어지는 일정(시작일 묶음 = 첫 청크) 결과가 그대로 반영된다.
+export function agendaProgress(
+  days: AgendaDay[],
+  start: Date,
+  loaded: boolean[],
+  settled: boolean[],
+): { loadedChunks: number; eventCount: number; trailingEmpty: number } {
+  const firstMissing = loaded.indexOf(false)
+  const loadedChunks = firstMissing === -1 ? loaded.length : firstMissing
+  const rowsPerChunk = settled.map(() => 0)
+  let eventCount = 0
+  const startDay = startOfDay(start)
+  for (const d of days) {
+    const i = Math.floor(differenceInCalendarDays(d.day, startDay) / AGENDA_CHUNK_DAYS)
+    if (i < rowsPerChunk.length) rowsPerChunk[i] += d.items.length
+    if (i < loadedChunks) eventCount += d.items.filter((it) => it.kind === 'event').length
+  }
+  let trailingEmpty = 0
+  for (let i = settled.length - 1; i >= 0 && settled[i] && rowsPerChunk[i] === 0; i--) trailingEmpty++
+  return { loadedChunks, eventCount, trailingEmpty }
 }
 
 // 날짜 머리글 — 오늘이면 "오늘 · 10월 13일 (화)", 아니면 "10월 14일 (수)".

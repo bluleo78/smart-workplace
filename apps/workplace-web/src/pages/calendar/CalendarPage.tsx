@@ -90,16 +90,25 @@ export function CalendarPage() {
   const [anchor, setAnchor] = useState(() => startOfDay(new Date()))
   // 모바일 목록 보기 = 일정 목록(MobileAgendaView, 무한 불러오기). 데스크톱 목록은 기존 AgendaView 그대로.
   const mobileAgenda = isMobile && view === 'agenda'
-  // 목록의 지금 시각 — 열어 둔 채 시간이 흘러도 지금 선·흐림이 따라가게 1분마다·화면 복귀 시 갱신(목록 보기에서만).
-  const now = useMinuteNow(mobileAgenda)
-  // 자정을 넘겨 오늘이 바뀌면, 목록이 (지난) 오늘부터 보고 있던 경우에만 새 오늘로 따라간다 — 미니 달력으로 고른
-  // 다른 날은 그대로 둔다(렌더 중 조정). anchor 가 바뀌면 useAgendaChunks 가 청크를 새 시작일로 되돌린다.
+  // 모바일의 지금 시각 — 열어 둔 채 시간이 흘러도 목록의 지금 선·흐림·오늘 판정, 그리고 모든 모바일 보기 헤더의 연도 표시
+  // (같은 해면 'M월')가 따라가게 1분마다·화면 복귀 시 갱신한다. 데스크톱은 쓰지 않아 끈다.
+  const now = useMinuteNow(isMobile)
   const todayKey = startOfDay(now).getTime()
+  // 자정 따라가기(아래, useAgendaChunks 뒤의 렌더 중 조정)용 — 마지막으로 확인한 오늘과, 스크롤 중이라 따라가지 않고 남긴 (지난) 오늘.
   const [seenTodayKey, setSeenTodayKey] = useState(todayKey)
-  if (seenTodayKey !== todayKey) {
-    setSeenTodayKey(todayKey)
-    if (anchor.getTime() === seenTodayKey) setAnchor(new Date(todayKey))
-  }
+  const [staleTodayKey, setStaleTodayKey] = useState<number | null>(null)
+  // 화면 복귀(숨김 → 보임) 횟수 — 복귀했을 때는 스크롤 중이었어도 새 오늘로 따라간다(CR2). 이벤트 리스너에서 바로 anchor 를
+  // 옮기지 않고 횟수만 올려 렌더 중 판정에 넘긴다 — useMinuteNow 의 setNow 와 같은 이벤트에서 함께 반영되어 순서 경합이 없다.
+  const [resumes, setResumes] = useState(0)
+  const [seenResumes, setSeenResumes] = useState(0)
+  useEffect(() => {
+    if (!mobileAgenda) return
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') setResumes((n) => n + 1)
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [mobileAgenda])
   // 모바일 헤더 미니 달력(WP-136) — 펼침 여부와 패널이 보여 주는 달(패널 안 ‹ › 는 본문 anchor 를 움직이지 않는다).
   const [miniOpen, setMiniOpen] = useState(false)
   const [panelMonth, setPanelMonth] = useState(anchor)
@@ -188,6 +197,28 @@ export function CalendarPage() {
     filter: filterByCalendar,
     showIssueDues: layers.issueDues,
   })
+
+  // 자정 따라가기(CR2) — 목록 보기에서 오늘이 바뀌었을 때(또는 화면 복귀 때), 목록이 (지난) 오늘부터 보고 있었다면 새 오늘로 옮긴다.
+  // 단 사용자가 목록을 첫 묶음 아래로 스크롤해 읽는 중이면 따라가지 않는다(청크가 1개로 되돌아가며 맨 위로 튀지 않게) —
+  // 그 날은 staleTodayKey 로 남겨 두었다가 화면 복귀 때 따라간다. 따라가지 않아도 "오늘" 머리글 강조는 now 기준이라 새 오늘로 옮겨 간다.
+  // 미니 달력으로 고른 다른 날은 그대로 둔다. 목록 밖(월·주·일)에선 판정하지 않는다 — 목록에 들어올 때 한 번 판정한다(이전 동작 유지).
+  // "스크롤하지 않음" = 맨 위 날짜를 아직 못 받았거나(빈 목록 포함) 낡았거나, 맨 위 묶음이 첫 묶음 — 지난 오늘에 일정이 없으면 첫 묶음이
+  // 뒤 날짜라 "맨 위 = 지난 오늘" 로는 판정할 수 없다.
+  if (mobileAgenda && (seenTodayKey !== todayKey || seenResumes !== resumes)) {
+    const resumed = seenResumes !== resumes
+    setSeenTodayKey(todayKey)
+    setSeenResumes(resumes)
+    const anchorKey = anchor.getTime()
+    const following = anchorKey !== todayKey && (anchorKey === seenTodayKey || anchorKey === staleTodayKey)
+    const atListStart =
+      listTop?.anchorKey !== anchorKey || agenda.days.length === 0 || listTop.day.getTime() === agenda.days[0].day.getTime()
+    if (following && (atListStart || resumed)) {
+      setAnchor(new Date(todayKey))
+      setStaleTodayKey(null)
+    } else if (following) {
+      setStaleTodayKey(anchorKey)
+    }
+  }
 
   // WP-54: 캘린더 화면 컨텍스트 — 보기·기간·일정 수 + 열린 일정(다이얼로그).
   // 일정 수는 조회 성공 후에만 싣는다(로딩 중 0건으로 오인 방지). 다이얼로그가 닫히면 editing 이 남아 있어도 focus 를 뺀다.
@@ -280,6 +311,9 @@ export function CalendarPage() {
   // 이번 달이면 오늘, 아니면 그 달 1일. 주·일 보기에서 들어오면 보던 날(anchor) 그대로.
   const changeView = (next: CalendarViewType) => {
     setView(next)
+    // 목록에서 다른 보기로 — 헤더가 보여 주던 날(맨 위 묶음, 없으면 anchor)을 기준으로 삼는다. 목록 시작(anchor)을 쓰면
+    // 12월까지 스크롤해 헤더가 「12월」인데 월 보기가 10월로 뜬다(CR3).
+    if (mobileAgenda && next !== 'agenda') setAnchor(startOfDay(headerMonth))
     if (isMobile && next === 'agenda') {
       if (view === 'month') {
         const today = startOfDay(new Date())

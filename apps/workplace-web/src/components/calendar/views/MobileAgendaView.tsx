@@ -4,15 +4,21 @@
 // 데이터는 CalendarPage 가 useAgendaChunks 로 조회해 넘긴다(AI 화면 컨텍스트에 같은 범위·건수를 싣기 위해). 데스크톱은 AgendaView 그대로.
 import { format, isSameDay } from 'date-fns'
 import { CalendarDays, Flag } from 'lucide-react'
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { MobileEmptyState } from '@/components/mobile/MobileEmptyState'
+import { LoadMoreFooter } from '@/components/ui/load-more-footer'
 import { Skeleton } from '@/components/ui/skeleton'
 import type { AgendaChunks } from '@/hooks/queries/useAgendaChunks'
-import { useLoadMoreSentinel } from '@/hooks/useLoadMoreSentinel'
-import { type AgendaDay, type AgendaItem, agendaNowState, agendaTitle, continuedEndLabel } from '@/lib/calendarAgenda'
+import {
+  AGENDA_CHUNK_DAYS,
+  type AgendaDay,
+  type AgendaItem,
+  agendaNowState,
+  agendaTimeLabels,
+  agendaTitle,
+} from '@/lib/calendarAgenda'
 import { resolvePalette } from '@/lib/calendarPalette'
-import { formatLocalClockTime24 } from '@/lib/formatters'
 import { cn } from '@/lib/utils'
 import type { CalendarEvent, IssueDueMarker } from '@/types/calendar'
 
@@ -34,15 +40,35 @@ const ROW_CLASS = 'flex min-h-11 w-full items-stretch gap-2.5 border-b px-4 py-2
 export function MobileAgendaView({ agenda, now, onSelectEvent, onSelectIssue, onTopDayChange }: MobileAgendaViewProps) {
   // 스크롤 컨테이너 — 센티널 rootMargin 이 이 요소 기준으로 동작하도록 state 로 들고 observer 들에 root 로 넘긴다(WP-94).
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null)
-  const { days, isLoading, isLoadingMore, isFetching, isError, hasMore, loadMore, retry, scrollKey } = agenda
+  const { start, days, isLoading, isLoadingMore, isFetching, isError, hasMore, autoPaused, loadedChunks, loadMore, retry, scrollKey } =
+    agenda
 
-  // 목록 끝 센티널 — 화면에 들어오면 다음 청크. 조회가 끝날 때마다 observer 를 다시 붙여, 빈 청크가 이어져도
-  // 센티널이 보이는 동안 계속 불러온다(일정 드문 달에서 막히지 않게). 실패하면 멈추고 다시 시도 버튼.
-  const sentinelRef = useLoadMoreSentinel(
-    { hasNextPage: hasMore, isFetching, isFetchNextPageError: isError, fetchNextPage: loadMore },
-    scrollEl,
-    !isLoading,
+  // 행 선택 콜백 — 호출부(CalendarPage)가 렌더마다 새 함수를 넘겨도 날짜 묶음(memo)이 다시 그려지지 않게 최신 참조만 ref 로 들고
+  // 고정 래퍼를 내려 준다(React Compiler 미사용 — 맨 위 날짜가 바뀔 때마다 페이지가 다시 그려져도 행 전체를 다시 그리지 않게, CR6).
+  const selectRef = useRef({ onSelectEvent, onSelectIssue })
+  useEffect(() => {
+    selectRef.current = { onSelectEvent, onSelectIssue }
+  })
+  const select = useMemo(
+    () => ({
+      event: (e: CalendarEvent) => selectRef.current.onSelectEvent(e),
+      issue: (m: IssueDueMarker) => selectRef.current.onSelectIssue(m),
+    }),
+    [],
   )
+
+  // 목록 끝 푸터(공용 LoadMoreFooter) 어댑터 — 센티널이 화면에 들어오면 다음 청크, 조회가 끝날 때마다 observer 를 다시 붙여
+  // 빈 청크가 이어져도 센티널이 보이는 동안 계속 불러온다. 실패하면 자동 불러오기를 멈추고 다시 시도 버튼(실패한 청크만 재요청).
+  // - fetchNextPage: 실패 중엔 버튼이 retry, 평소엔 센티널이 loadMore.
+  // - isFetchingNextPage: 뒤 청크 첫 조회 중 또는 다시 시도 중(실패 상태는 성공 전까지 남아 있다) — "불러오는 중…".
+  // - hasNextPage: 상한에 닿았어도 실패한 청크가 있으면 다시 시도 줄은 남겨야 한다.
+  const footerQuery = {
+    hasNextPage: hasMore || isError,
+    isFetching,
+    isFetchNextPageError: isError,
+    isFetchingNextPage: isLoadingMore || (isError && isFetching),
+    fetchNextPage: isError ? retry : loadMore,
+  }
 
   // 시작일 변경·[오늘](reset) → 맨 위로. 같은 컨테이너를 재사용하므로 이전 스크롤 위치가 남지 않게 한다.
   // 레이아웃 effect 로 페인트 전에 올린다 — 일반 effect 면 청크가 줄어 스크롤이 끝으로 눌린 한 프레임에
@@ -100,33 +126,42 @@ export function MobileAgendaView({ agenda, now, onSelectEvent, onSelectIssue, on
         <AgendaSkeleton />
       ) : (
         <>
-          {days.length === 0 && !isError && (
-            // 불러온 범위 전체가 비었을 때만 — 아래 센티널이 보이는 동안 다음 기간을 계속 불러온다.
+          {days.length === 0 && !isError && (autoPaused || !hasMore) && (
+            // 불러온 범위 전체가 비었고 자동 불러오기도 멈췄을 때만 — 그 전엔 아래 푸터가 "불러오는 중…"으로 다음 기간을 잇는다.
+            // 문구는 실제로 확인한 기간 그대로(CR5): 오늘부터면 "앞으로 N일간", 고른 날부터면 "M월 d일부터 N일간".
             <MobileEmptyState
               icon={CalendarDays}
-              title="이 기간에 일정이 없습니다"
+              title={`${isSameDay(start, now) ? '앞으로' : `${format(start, 'M월 d일')}부터`} ${loadedChunks * AGENDA_CHUNK_DAYS}일간 일정이 없습니다`}
               className="pt-16"
               data-testid="calendar-agenda-empty"
             />
           )}
           {days.map((d) => (
-            <DaySection
-              key={d.key}
-              day={d}
-              now={now}
-              onSelectEvent={onSelectEvent}
-              onSelectIssue={onSelectIssue}
-            />
+            <DaySection key={d.key} day={d} now={now} onSelectEvent={select.event} onSelectIssue={select.issue} />
           ))}
-          {isError ? (
-            <RetryFooter retrying={isFetching} onRetry={retry} />
+          {autoPaused && !isError ? (
+            // 빈 청크가 이어져 자동 연쇄를 멈춘 상태 — 누를 때마다 30일씩. 일정이 있는 청크를 받으면 자동 불러오기로 돌아간다.
+            // LoadMoreFooter 에는 "자동 대신 수동 버튼" 칸이 없어 이 상태만 따로 그린다(공용 푸터를 바꾸면 이슈 보드 등 다른 목록에 영향).
+            <div className="py-1 text-center">
+              <button
+                type="button"
+                data-testid="calendar-agenda-load-next"
+                onClick={loadMore}
+                className="min-h-11 px-4 text-sm font-medium text-primary active:bg-accent"
+              >
+                다음 {AGENDA_CHUNK_DAYS}일 더 보기
+              </button>
+            </div>
           ) : (
-            hasMore && (
-              // 센티널 — 높이가 있어야 보임 판정이 안정적이다. 뒤 청크 첫 조회 중엔 스켈레톤 한 줄.
-              <div ref={sentinelRef} data-testid="calendar-agenda-more" className="min-h-11">
-                {isLoadingMore && <SkeletonRow />}
-              </div>
-            )
+            // 센티널 — 높이가 있어야 보임 판정이 안정적이다(min-h-11).
+            <LoadMoreFooter
+              query={footerQuery}
+              root={scrollEl}
+              enabled={!isLoading}
+              errorLabel="일부 일정을 불러오지 못했습니다 — 다시 시도"
+              className="min-h-11"
+              data-testid="calendar-agenda-more"
+            />
           )}
         </>
       )}
@@ -134,8 +169,10 @@ export function MobileAgendaView({ agenda, now, onSelectEvent, onSelectIssue, on
   )
 }
 
-/** 하루치 묶음 — sticky 머리글 + 행. 오늘이면 끝난 일정 흐림 + 지금 선. */
-function DaySection({
+/** 하루치 묶음 — sticky 머리글 + 행. 오늘이면 끝난 일정 흐림 + 지금 선.
+ *  memo — 묶음(day)은 useAgendaChunks 의 useMemo 결과라 같은 데이터면 참조가 같고, 콜백은 고정 래퍼라 맨 위 날짜 변경 등
+ *  페이지 재렌더에 다시 그리지 않는다(now 는 분 단위로만 바뀐다, CR6). */
+const DaySection = memo(function DaySection({
   day,
   now,
   onSelectEvent,
@@ -182,7 +219,7 @@ function DaySection({
       {nowState && nowState.nowIndex === day.items.length && <NowLine />}
     </section>
   )
-}
+})
 
 // 행 key — 반복 회차는 id 를 공유하므로 occurrenceDate 까지 붙인다(AgendaView 와 같은 규칙).
 function itemKey(item: AgendaItem): string {
@@ -227,8 +264,8 @@ function AgendaRowWithNow({
 
 /**
  * 일정 행 — 시간(종일/시작·끝) · 캘린더 색 막대 · 제목 · 캘린더명 · 장소.
- * continuedOn: 목록 시작일 전에 시작해 그 날(continuedOn)까지 이어지는 일정 — 시간 칸 첫 줄은 종일이면 "종일",
- * 시간 일정이면 시작 날짜(M/d), 둘째 줄은 끝("~10/15" 또는 그 날 안에 끝나면 "~09:00"). 두 줄 규격은 같다.
+ * continuedOn: 목록 시작일 전에 시작해 그 날(continuedOn)까지 이어지는 일정. 시간 칸 두 줄 문구는 agendaTimeLabels 가
+ * 시작일 행·이어지는 행 모두 같은 규칙으로 만든다(여러 날 종일 "종일 / ~10/16", 자정 끝 "24:00" 등).
  */
 function EventRow({
   event,
@@ -244,9 +281,8 @@ function EventRow({
   onSelect: (e: CalendarEvent) => void
 }) {
   const sub = [event.calendarName, event.location].filter(Boolean).join(' · ')
-  // 시간 칸 첫 줄(시작)과 둘째 줄(끝). 둘째 줄이 없으면 한 줄(당일 종일).
-  const start = event.allDay ? '종일' : continuedOn ? format(new Date(event.startsAt), 'M/d') : formatLocalClockTime24(event.startsAt)
-  const end = continuedOn ? continuedEndLabel(event, continuedOn) : event.allDay ? null : endLabel(event)
+  // 시간 칸 첫 줄(시작)과 둘째 줄(끝). 둘째 줄이 없으면 한 줄(하루짜리 종일).
+  const { start, end } = agendaTimeLabels(event, continuedOn)
   return (
     <button
       type="button"
@@ -266,8 +302,8 @@ function EventRow({
         {start}
         {end && (
           <>
-            {/* 이어지는 일정은 끝 앞에 보이는 "~" 가 있어 구분자는 공백만. */}
-            <Sep text={continuedOn ? ' ' : ' ~ '} />
+            {/* 끝 줄에 보이는 "~" 가 있으면(날짜 끝·이어지는 일정) 구분자는 공백만. */}
+            <Sep text={end.startsWith('~') ? ' ' : ' ~ '} />
             <span className="block text-[11px] font-normal text-muted-foreground">{end}</span>
           </>
         )}
@@ -280,12 +316,6 @@ function EventRow({
       <RowBody title={event.title} sub={sub} muted={past} />
     </button>
   )
-}
-
-// 끝 표시 — 같은 날이면 HH:mm, 다음 날 이후에 끝나면 날짜(M/d)로 — 시각만 쓰면 시작보다 이른 시각처럼 읽힌다.
-function endLabel(event: CalendarEvent): string {
-  const end = new Date(event.endsAt)
-  return isSameDay(end, new Date(event.startsAt)) ? formatLocalClockTime24(event.endsAt) : format(end, 'M/d')
 }
 
 /** 이슈 마감 행 — ⚑ 마감 · primary 막대 · 이슈 제목 · "이슈 마감 · KEY-N". */
@@ -334,18 +364,6 @@ function NowLine() {
       className="relative mr-4 ml-[70px] border-t-2 border-destructive"
     >
       <span className="absolute -top-[5px] -left-1 size-2 rounded-full bg-destructive" aria-hidden="true" />
-    </div>
-  )
-}
-
-/** 일정 청크 실패 푸터 — 다시 시도 중이면 버튼 대신 스켈레톤(실패 상태는 성공 전까지 남아 그대로면 버튼이 계속 보인다 — LoadMoreFooter 와 같은 순서). */
-function RetryFooter({ retrying, onRetry }: { retrying: boolean; onRetry: () => void }) {
-  if (retrying) return <SkeletonRow />
-  return (
-    <div className="py-3 text-center text-xs">
-      <button type="button" data-testid="calendar-agenda-retry" className="text-destructive underline" onClick={onRetry}>
-        불러오지 못했습니다 — 다시 시도
-      </button>
     </div>
   )
 }

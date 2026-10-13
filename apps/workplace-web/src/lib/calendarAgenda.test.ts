@@ -4,7 +4,17 @@ import { describe, expect, it } from 'vitest'
 
 import type { CalendarEvent, IssueDueMarker } from '@/types/calendar'
 
-import { agendaChunkRange, type AgendaItem, agendaNowState, agendaTitle, continuedEndLabel, eventDate, groupAgendaDays, headerMonthLabel } from './calendarAgenda'
+import {
+  agendaChunkRange,
+  type AgendaItem,
+  agendaNowState,
+  agendaProgress,
+  agendaTimeLabels,
+  agendaTitle,
+  eventDate,
+  groupAgendaDays,
+  headerMonthLabel,
+} from './calendarAgenda'
 
 // 테스트용 일정 — 필요한 필드만 덮어쓴다.
 function ev(over: Partial<CalendarEvent> & Pick<CalendarEvent, 'id' | 'startsAt'>): CalendarEvent {
@@ -186,13 +196,16 @@ describe('groupAgendaDays', () => {
       expect(days[1].items).toEqual([{ kind: 'event', event: later }])
     })
 
-    it('끝 표시 — 종일은 실제 마지막 날, 시간 일정은 그 날 끝나면 시각·아니면 날짜', () => {
+    it('이어지는 행의 시간 칸 — 종일은 실제 마지막 날, 시간 일정은 그 날 끝나면 "~시각"·아니면 "~날짜"', () => {
       const day = new Date(2026, 9, 13)
-      expect(continuedEndLabel(conf, day)).toBe('~10/15')
-      expect(continuedEndLabel(localAllDay, day)).toBe('~10/13')
-      expect(continuedEndLabel(overnight, day)).toBe('~09:00')
+      expect(agendaTimeLabels(conf, day)).toEqual({ start: '종일', end: '~10/15' })
+      expect(agendaTimeLabels(localAllDay, day)).toEqual({ start: '종일', end: '~10/13' })
+      expect(agendaTimeLabels(overnight, day)).toEqual({ start: '10/12', end: '~09:00' })
       const multi = ev({ id: 9, startsAt: '2026-10-12T13:00:00Z', endsAt: '2026-10-15T09:00:00Z' }) // ~10/15 18:00 KST
-      expect(continuedEndLabel(multi, day)).toBe('~10/15')
+      expect(agendaTimeLabels(multi, day)).toEqual({ start: '10/12', end: '~10/15' })
+      // 어제 22:00 → 내일 00:00 KST — 자정 끝은 오늘의 끝이라 "~24:00"(날짜 "~10/14" 아님)
+      const toMidnight = ev({ id: 10, startsAt: '2026-10-12T13:00:00Z', endsAt: '2026-10-13T15:00:00Z' })
+      expect(agendaTimeLabels(toMidnight, day)).toEqual({ start: '10/12', end: '~24:00' })
     })
 
     it('지금 선·흐림 계산에서 빠진다 — 끝난 이어지는 일정도 흐리지 않고 선은 그 날 시간 일정 앞', () => {
@@ -204,6 +217,68 @@ describe('groupAgendaDays', () => {
       // 그 날 시간 일정이 없으면 선을 긋지 않는다(이어지는 일정만으로는 기준 행이 없다).
       expect(agendaNowState(groupAgendaDays([overnight], [], { from })[0].items, new Date('2026-10-13T01:30:00Z')).nowIndex).toBe(-1)
     })
+  })
+})
+
+// 시작일 행의 시간 칸(WP-136 CR1·CR8·CR9) — 끝 표시 규칙이 이어지는 행과 같은 헬퍼 하나에서 나온다.
+describe('agendaTimeLabels(시작일 행)', () => {
+  it('하루짜리 종일은 "종일"만, 여러 날 종일은 시작일 행에도 "~마지막 날"', () => {
+    const one = ev({ id: 1, allDay: true, startsAt: '2026-10-14T00:00:00Z', endsAt: '2026-10-15T00:00:00Z' })
+    expect(agendaTimeLabels(one, null)).toEqual({ start: '종일', end: null })
+    const three = ev({ id: 2, allDay: true, startsAt: '2026-10-14T00:00:00Z', endsAt: '2026-10-17T00:00:00Z' })
+    expect(agendaTimeLabels(three, null)).toEqual({ start: '종일', end: '~10/16' })
+    // 로컬 생성 종일(현지 자정 instant) — KST 10/14~10/15
+    const local = ev({ id: 3, allDay: true, startsAt: '2026-10-13T15:00:00Z', endsAt: '2026-10-15T15:00:00Z' })
+    expect(agendaTimeLabels(local, null)).toEqual({ start: '종일', end: '~10/15' })
+  })
+
+  it('같은 날 끝나는 시간 일정은 끝 시각(범위 기호 없이)', () => {
+    const e = ev({ id: 4, startsAt: '2026-10-13T05:00:00Z', endsAt: '2026-10-13T06:30:00Z' }) // 14:00~15:30 KST
+    expect(agendaTimeLabels(e, null)).toEqual({ start: '14:00', end: '15:30' })
+  })
+
+  it('정확히 다음 날 00:00 에 끝나면 같은 날 일정으로 보고 "24:00"', () => {
+    const e = ev({ id: 5, startsAt: '2026-10-13T13:00:00Z', endsAt: '2026-10-13T15:00:00Z' }) // 22:00 → 10/14 00:00 KST
+    expect(agendaTimeLabels(e, null)).toEqual({ start: '22:00', end: '24:00' })
+  })
+
+  it('다음 날 이후에 끝나면 "~M/d" — 자정 끝은 그 전날이 마지막 날', () => {
+    const overnight = ev({ id: 6, startsAt: '2026-10-13T13:00:00Z', endsAt: '2026-10-13T17:00:00Z' }) // 22:00 → 10/14 02:00
+    expect(agendaTimeLabels(overnight, null)).toEqual({ start: '22:00', end: '~10/14' })
+    const twoNights = ev({ id: 7, startsAt: '2026-10-13T13:00:00Z', endsAt: '2026-10-14T15:00:00Z' }) // 22:00 → 10/15 00:00
+    expect(agendaTimeLabels(twoNights, null)).toEqual({ start: '22:00', end: '~10/14' })
+  })
+
+  it('길이 0 자정 일정은 전날로 당기지 않는다', () => {
+    const zero = ev({ id: 8, startsAt: '2026-10-13T15:00:00Z', endsAt: '2026-10-13T15:00:00Z' }) // 10/14 00:00 KST
+    expect(agendaTimeLabels(zero, null)).toEqual({ start: '00:00', end: '00:00' })
+  })
+})
+
+// 청크 진행 요약(WP-136 CR5·CR7) — 시작일 KST 10/13, 청크 0 = 10/13~11/11, 1 = 11/12~12/11, 2 = 12/12~1/10.
+describe('agendaProgress', () => {
+  const start = new Date(2026, 9, 13)
+  const days = groupAgendaDays(
+    [
+      ev({ id: 1, startsAt: '2026-10-14T01:00:00Z' }), // 청크 0
+      ev({ id: 2, startsAt: '2026-11-20T01:00:00Z' }), // 청크 1
+    ],
+    [due(9, '2026-11-21')], // 청크 1 — 마감 행은 일정 수에서 뺀다
+    { from: start },
+  )
+
+  it('앞에서부터 연속 성공한 청크까지만 일정 수에 넣는다(뒤 청크가 성공해도 앞이 비면 거기서 멈춤)', () => {
+    expect(agendaProgress(days, start, [true, true], [true, true])).toMatchObject({ loadedChunks: 2, eventCount: 2 })
+    expect(agendaProgress(days, start, [true, false], [true, false])).toMatchObject({ loadedChunks: 1, eventCount: 1 })
+    expect(agendaProgress(days, start, [false, true], [false, true])).toMatchObject({ loadedChunks: 0, eventCount: 0 })
+  })
+
+  it('끝에서 연속된 확정·빈 청크 수 — 행이 있는 청크(마감만 있어도)에서 끊기고, 확정 전 청크는 세지 않는다', () => {
+    expect(agendaProgress(days, start, [true, true, true, true], [true, true, true, true]).trailingEmpty).toBe(2)
+    expect(agendaProgress(days, start, [true, true, true, true], [true, true, true, false]).trailingEmpty).toBe(0)
+    expect(agendaProgress([], start, [true, true, true], [true, true, true]).trailingEmpty).toBe(3)
+    const duesOnly = groupAgendaDays([], [due(9, '2026-11-21')], { from: start })
+    expect(agendaProgress(duesOnly, start, [true, true, true], [true, true, true]).trailingEmpty).toBe(1)
   })
 })
 

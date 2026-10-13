@@ -7,7 +7,7 @@ import { useQueries, type UseQueryResult } from '@tanstack/react-query'
 import { format, startOfDay } from 'date-fns'
 import { useCallback, useMemo, useState } from 'react'
 
-import { agendaChunkRange, type AgendaDay, groupAgendaDays } from '@/lib/calendarAgenda'
+import { agendaChunkRange, type AgendaDay, agendaProgress, groupAgendaDays } from '@/lib/calendarAgenda'
 import type { CalendarEvent, IssueDueMarker } from '@/types/calendar'
 
 import { calendarEventsQueryOptions } from './useCalendarEvents'
@@ -15,6 +15,9 @@ import { myIssueDuesQueryOptions } from './useMyIssueDues'
 
 // 최대 청크 수(30일 × 12 ≈ 1년). 넘으면 안내 없이 더 불러오지 않는다.
 export const AGENDA_MAX_CHUNKS = 12
+// 끝에서 연속으로 이만큼(90일) 빈 청크가 이어지면 자동 연쇄 불러오기를 멈추고 "다음 30일 더 보기" 버튼으로 넘긴다(WP-136 CR5).
+// 일정이 없거나 드문 사용자가 목록을 열 때마다(그리고 실시간 무효화 때마다) 12청크·마감 포함 24요청을 쏘지 않게.
+export const AGENDA_EMPTY_CHUNKS_TO_PAUSE = 3
 
 export interface AgendaChunksOptions {
   /** false 면 조회하지 않는다 — 목록 보기(모바일)가 아닐 때. */
@@ -30,21 +33,26 @@ export interface AgendaChunks {
   start: Date
   /** 불러온 청크 전체의 날짜별 묶음(필터·레이어 적용, 중복 제거 끝). */
   days: AgendaDay[]
-  /** 불러온 범위의 표시 일정 수(묶음의 event 행 수 — 청크 경계 중복 제외). 일정 청크가 모두 성공하기 전엔 undefined(로딩 중 0건 오인 방지). */
+  /** loadedRange 안의 표시 일정 수(묶음의 event 행 수 — 청크 경계 중복 제외). 성공한 청크가 없으면 undefined(로딩 중 0건 오인 방지). */
   count: number | undefined
-  /** 실제로 조회한 범위(ISO) — 첫 청크 시작 ~ 마지막 청크 끝. AI 화면 컨텍스트용. */
+  /** 실제로 불러온 범위(ISO) — 첫 청크 시작 ~ 앞에서부터 연속 성공한 마지막 청크 끝(로딩 중·실패 청크는 넣지 않는다, CR7).
+   *  아직 성공한 청크가 없으면 첫 청크 범위(count 는 undefined) — 다른 보기가 로딩 중에 보이는 범위를 싣는 것과 같다. AI 화면 컨텍스트용. */
   loadedRange: { from: string; to: string }
+  /** 앞에서부터 연속 성공한 일정 청크 수 — 빈 상태 문구("앞으로 N일간")용. */
+  loadedChunks: number
   /** 첫 청크 데이터가 아직 없음 — 전체 스켈레톤. */
   isLoading: boolean
   /** 아직 데이터가 없는 청크가 있음(뒤 청크 첫 조회) — 목록 끝 스켈레톤 한 줄. */
   isLoadingMore: boolean
   /** 어느 청크든 조회 중이거나 데이터 없음(백그라운드 갱신 포함) — 센티널이 이 동안 다음 청크를 요청하지 않는다. */
   isFetching: boolean
-  /** 일정 청크 실패 — 자동 불러오기를 멈추고 다시 시도 버튼을 보인다(마감 청크 실패는 무시 — 마감 행만 빠진다). */
+  /** 일정 또는 (켜져 있으면) 마감 청크 실패 — 자동 불러오기를 멈추고 다시 시도 줄을 보인다. 이미 받은 행은 그대로 보인다(CR4). */
   isError: boolean
   /** 더 불러올 청크가 있는지(최대 청크 수 미만). */
   hasMore: boolean
-  /** 다음 청크 하나를 더한다(센티널이 호출). 초기화 세대(epoch)마다 새 참조 — 앞 세대에서 큐잉된 호출은 무시된다. */
+  /** 끝에서 빈 청크가 AGENDA_EMPTY_CHUNKS_TO_PAUSE 개 이어져 자동 연쇄를 멈춘 상태 — 센티널 대신 "다음 30일 더 보기" 버튼(CR5). */
+  autoPaused: boolean
+  /** 다음 청크 하나를 더한다(센티널·"다음 30일 더 보기" 버튼이 호출). 초기화 세대(epoch)마다 새 참조 — 앞 세대에서 큐잉된 호출은 무시된다. */
   loadMore: () => void
   /** 실패한 청크만 다시 조회한다. */
   retry: () => void
@@ -66,7 +74,7 @@ function summarizeChunks<T>(rs: UseQueryResult<T[], Error>[]) {
     anyPending: rs.some((r) => r.isPending),
     busy: rs.some((r) => r.isFetching || r.isPending),
     error: rs.some((r) => r.isError),
-    allSuccess: rs.every((r) => r.isSuccess),
+    success: rs.map((r) => r.isSuccess),
     erroredRefetch: rs.filter((r) => r.isError).map((r) => r.refetch),
   }
 }
@@ -126,11 +134,15 @@ export function useAgendaChunks(start: Date, { enabled, filter, showIssueDues }:
     [events.data, dues.data, filter, showIssueDues, startDate, endKey],
   )
 
-  // AI 화면 컨텍스트용 일정 수 — 마감 행은 일정이 아니므로 뺀다.
-  const eventCount = useMemo(
-    () => days.reduce((n, d) => n + d.items.filter((it) => it.kind === 'event').length, 0),
-    [days],
+  // 청크별 진행 — AI 컨텍스트 범위·일정 수(앞에서부터 연속 성공한 청크까지)와 끝의 빈 청크 수(자동 연쇄 멈춤 기준).
+  // 확정(settled) = 일정·마감(켜져 있으면) 모두 성공 — 마감이 아직 오는 중인 청크를 "빈 청크"로 세지 않게.
+  const { success: eventsOk } = events
+  const { success: duesOk } = dues
+  const { loadedChunks, eventCount, trailingEmpty } = useMemo(
+    () => agendaProgress(days, startDate, eventsOk, eventsOk.map((ok, i) => ok && (!showIssueDues || duesOk[i]))),
+    [days, startDate, eventsOk, duesOk, showIssueDues],
   )
+  const hasMore = count < AGENDA_MAX_CHUNKS
 
   const { erroredRefetch: eventsRetry } = events
   const { erroredRefetch: duesRetry } = dues
@@ -141,16 +153,18 @@ export function useAgendaChunks(start: Date, { enabled, filter, showIssueDues }:
   return {
     start: startDate,
     days,
-    count: events.allSuccess ? eventCount : undefined,
-    loadedRange: { from: ranges[0].from, to: ranges[ranges.length - 1].to },
+    count: loadedChunks > 0 ? eventCount : undefined,
+    loadedRange: { from: ranges[0].from, to: ranges[Math.max(loadedChunks, 1) - 1].to },
+    loadedChunks,
     // 마감 레이어가 꺼지면 마감 쿼리는 비활성(영원히 pending)이라 판정에서 뺀다.
     isLoading: enabled && (events.firstPending || (showIssueDues && dues.firstPending)),
     isLoadingMore: enabled && (events.anyPending || (showIssueDues && dues.anyPending)),
     isFetching: events.busy || (showIssueDues && dues.busy),
-    // 일정 청크 실패만 멈춤 사유로 본다 — 이슈 마감은 다른 보기처럼 최선 노력 오버레이라, 마감 조회 실패로 일정 목록이 막히면 안 된다.
-    // (실패한 마감 청크도 retry 가 함께 다시 받는다.)
-    isError: events.error,
-    hasMore: count < AGENDA_MAX_CHUNKS,
+    // 마감 청크 실패도 멈춤·다시 시도 사유 — 숨기면 마감 행이 말없이 빠지고 되살릴 방법이 없다(CR4). 받은 일정 행은 막지 않는다.
+    // retry 는 실패한 일정·마감 청크를 모두 다시 받는다.
+    isError: events.error || (showIssueDues && dues.error),
+    hasMore,
+    autoPaused: hasMore && trailingEmpty >= AGENDA_EMPTY_CHUNKS_TO_PAUSE,
     loadMore,
     retry,
     reset,

@@ -59,7 +59,14 @@ const DUE_ISSUE = createIssue({ id: 7, projectKey: 'WP', number: 136, title: 'WP
  */
 async function stubCalendar(
   page: Page,
-  opts: { events?: CalendarEvent[]; issues?: IssueResponse[]; issuesDelayMs?: number; runningClock?: boolean } = {},
+  opts: {
+    events?: CalendarEvent[]
+    issues?: IssueResponse[]
+    issuesDelayMs?: number
+    runningClock?: boolean
+    // true 를 돌려주는 동안 이슈 마감 조회를 500 으로 실패시킨다(자동 재시도까지 실패 — 다시 시도 줄 검증용).
+    failDues?: () => boolean
+  } = {},
 ) {
   // runningClock — 시간이 흐르는 가짜 시계(page.clock.fastForward 로 앱 타이머까지 경과). 기본은 고정 시각.
   if (opts.runningClock) await page.clock.install({ time: NOW })
@@ -86,6 +93,7 @@ async function stubCalendar(
     const dueTo = q.get('dueTo') ?? ''
     // 마감이 일정보다 늦게 오는 상황 재현용 — 서버 응답 지연(테스트 쪽 고정 대기가 아니다).
     if (opts.issuesDelayMs) await new Promise((res) => setTimeout(res, opts.issuesDelayMs))
+    if (opts.failDues?.()) return r.fulfill({ status: 500, json: { message: 'boom' } })
     await r.fulfill({ json: createIssueSearchResponse(issues.filter((i) => i.dueDate && i.dueDate >= dueFrom && i.dueDate <= dueTo)) })
   })
   return requests
@@ -395,6 +403,9 @@ test('목록 재진입 — 월 보기에 갔다 오면 불러 둔 뒤 청크 없
   await expect(list.getByTestId('calendar-agenda-day-2026-10-13')).toBeVisible()
   await list.evaluate((el) => el.scrollTo({ top: el.scrollHeight }))
   await expect(list.getByTestId('calendar-event-300')).toBeVisible()
+  // 맨 위로 되돌린 뒤 바꾼다 — 목록에서 다른 보기로 가면 헤더가 보여 주던 달(맨 위 묶음)이 기준이라(CR3), 끝에 둔 채면 11월 월 보기가 된다.
+  await list.evaluate((el) => el.scrollTo({ top: 0 }))
+  await expect(page.getByTestId('calendar-title')).toHaveText('10월')
 
   const select = page.getByTestId('calendar-view-select')
   await select.selectOption('month')
@@ -624,4 +635,106 @@ test('열어 둔 채 시간이 흐르면 지금 선이 따라가고, 자정을 �
   await expect(list.locator('[data-day-key]').first()).toHaveAttribute('data-day-key', '2026-10-14')
   await expect(list.getByTestId('calendar-agenda-day-2026-10-14')).toContainText('오늘 · 10월 14일 (수)')
   await expect(list.getByTestId('calendar-agenda-day-2026-10-13')).toHaveCount(0)
+})
+
+test('시간 칸 끝 표시 — 여러 날 종일은 시작일 행에도 "~마지막 날", 하루 종일은 "종일"만, 다음 날 00:00 끝은 "24:00"', async ({ authenticatedPage: page }) => {
+  await stubCalendar(page, {
+    events: [
+      ...baseEvents(),
+      // 10/21~10/23 종일(동기화 UTC 자정, 끝 배타 10/24) — 목록 범위 안에서 시작
+      calendarEvent({ id: 500, title: '가을 워크숍', allDay: true, startsAt: '2026-10-21T00:00:00Z', endsAt: '2026-10-24T00:00:00Z' }),
+      calendarEvent({ id: 501, title: '야간 작업', startsAt: kst('2026-10-22', '22:00'), endsAt: kst('2026-10-23', '00:00') }),
+      calendarEvent({ id: 502, title: '밤샘 배포', startsAt: kst('2026-10-22', '23:00'), endsAt: kst('2026-10-23', '02:00') }),
+    ],
+  })
+  await page.goto('/calendar')
+  const list = agendaList(page)
+  await expect(list.getByTestId('calendar-agenda-day-2026-10-13')).toBeVisible()
+  await expect(list.getByRole('button', { name: /^종일\s+~10\/23\s*,\s*가을 워크숍/ })).toBeAttached()
+  await expect(list.getByRole('button', { name: /^종일\s*,\s*모바일 에픽 마감 주간/ })).toBeAttached()
+  await expect(list.getByRole('button', { name: /^22:00\s*~\s*24:00\s*,\s*야간 작업/ })).toBeAttached()
+  await expect(list.getByRole('button', { name: /^23:00\s+~10\/23\s*,\s*밤샘 배포/ })).toBeAttached()
+  // 여러 날 일정은 시작일 묶음에만 나온다.
+  await expect(list.getByTestId('calendar-event-500')).toHaveCount(1)
+})
+
+test('자정을 넘길 때 목록을 아래로 읽는 중이면 그대로 두고(오늘 강조만 옮김), 화면에 돌아오면 새 오늘부터 다시', async ({ authenticatedPage: page }) => {
+  const requests = await stubCalendar(page, { runningClock: true })
+  await page.goto('/calendar')
+  const list = agendaList(page)
+  await expect(list.getByTestId('calendar-agenda-day-2026-10-13')).toContainText('오늘 · 10월 13일 (화)')
+  // 첫 묶음 아래(11/1 묶음이 맨 위)까지 내려 읽는 중 — 헤더가 11월로 바뀐 것으로 맨 위 날짜가 반영됐음을 확인.
+  await scrollToDay(page, '2026-11-01')
+  await expect(page.getByTestId('calendar-title')).toHaveText('11월')
+  const scrolled = await list.evaluate((el) => el.scrollTop)
+
+  // 다음 날 00:01 — 새 오늘(10/14) 머리글이 "오늘" 로 강조되는 같은 렌더에서 따라가기 판정이 끝난다. 따라갔다면 새 청크를 받는 동안
+  // 스켈레톤이라 10/13 묶음이 남아 있을 수 없다.
+  await page.clock.fastForward('15:21:00')
+  await expect(list.getByTestId('calendar-agenda-day-2026-10-14')).toContainText('오늘 · 10월 14일 (수)')
+  await expect(list.getByTestId('calendar-agenda-day-2026-10-13')).toHaveCount(1)
+  await expect(list.getByTestId('calendar-agenda-day-2026-10-13')).not.toContainText('오늘')
+  // 스크롤 위치 유지 — 10/13 이 더는 오늘이 아니라 그 묶음의 지금 선(2px)이 빠진 만큼만 브라우저 스크롤 고정이 보정한다(맨 위로 튀지 않음).
+  expect(Math.abs((await list.evaluate((el) => el.scrollTop)) - scrolled)).toBeLessThan(10)
+  await expect(page.getByTestId('calendar-title')).toHaveText('11월')
+  const newChunk = { from: '2026-10-13T15:00:00.000Z', to: '2026-11-12T15:00:00.000Z' }
+  expect(requests).not.toContainEqual(newChunk)
+
+  // 앱으로 돌아오면(visibilitychange → visible) 스크롤 중이었어도 새 오늘부터 다시.
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')))
+  await expect.poll(() => requests).toContainEqual(newChunk)
+  await expect(list.locator('[data-day-key]').first()).toHaveAttribute('data-day-key', '2026-10-14')
+  await expect(list.getByTestId('calendar-agenda-day-2026-10-13')).toHaveCount(0)
+})
+
+test('목록에서 다음 달까지 내린 뒤 월 보기로 바꾸면 헤더가 보여 주던 달(목록 시작 달이 아니라)이 열린다', async ({ authenticatedPage: page }) => {
+  const requests = await stubCalendar(page)
+  await page.goto('/calendar')
+  const list = agendaList(page)
+  await expect(list.getByTestId('calendar-agenda-day-2026-10-13')).toBeVisible()
+  await list.evaluate((el) => el.scrollTo({ top: el.scrollHeight }))
+  await expect(list.getByTestId('calendar-event-300')).toBeVisible()
+  await scrollToDay(page, '2026-11-20')
+  await expect(page.getByTestId('calendar-title')).toHaveText('11월')
+
+  // 목록 시작(10/13)을 쓰면 10월 월 보기로 튄다 — 헤더가 보여 주던 11월 그대로.
+  await page.getByTestId('calendar-view-select').selectOption('month')
+  await expect(page.getByTestId('calendar-view-month')).toBeVisible()
+  await expect(page.getByTestId('calendar-title')).toHaveText('11월')
+  await expect.poll(() => requests.map((r) => r.from)).toContain(NOV_GRID_FROM)
+  await expect(page.getByTestId('calendar-view-month').getByText('11월 하순 회고')).toBeVisible()
+})
+
+test('이슈 마감 조회가 실패해도 일정은 보이고, 하단 다시 시도 줄로 마감까지 되살린다', async ({ authenticatedPage: page }) => {
+  let failDues = true
+  await stubCalendar(page, { failDues: () => failDues })
+  await page.goto('/calendar')
+  const list = agendaList(page)
+  const retry = list.getByRole('button', { name: '일부 일정을 불러오지 못했습니다 — 다시 시도' })
+  await expect(retry).toBeVisible()
+  // 일정 행은 그대로, 마감 행만 빠져 있다.
+  await expect(list.getByTestId('calendar-event-2')).toBeVisible()
+  await expect(list.getByTestId('calendar-issue-due-7')).toHaveCount(0)
+
+  failDues = false
+  await retry.click()
+  await expect(list.getByTestId('calendar-issue-due-7')).toBeVisible()
+  await expect(retry).toHaveCount(0)
+})
+
+test('일정이 없으면 90일(빈 청크 3개)에서 자동 불러오기를 멈추고 "다음 30일 더 보기" 로 한 청크씩', async ({ authenticatedPage: page }) => {
+  const requests = await stubCalendar(page, { events: [], issues: [] })
+  await page.goto('/calendar')
+  const list = agendaList(page)
+  const more = list.getByRole('button', { name: '다음 30일 더 보기' })
+  await expect(more).toBeVisible()
+  await expect(list.getByTestId('calendar-agenda-empty')).toHaveText('앞으로 90일간 일정이 없습니다')
+  // 첫 조회라 캐시가 없다 — 요청 기록이 곧 청크 수. 12청크까지 이어 부르지 않고 3개에서 멈춘다.
+  const CHUNK3 = { from: '2026-12-11T15:00:00.000Z', to: '2027-01-10T15:00:00.000Z' }
+  expect(requests).toEqual([CHUNK1, CHUNK2, CHUNK3])
+
+  await more.tap()
+  await expect(list.getByTestId('calendar-agenda-empty')).toHaveText('앞으로 120일간 일정이 없습니다')
+  await expect(more).toBeVisible()
+  expect(requests).toEqual([CHUNK1, CHUNK2, CHUNK3, { from: '2027-01-10T15:00:00.000Z', to: '2027-02-09T15:00:00.000Z' }])
 })
