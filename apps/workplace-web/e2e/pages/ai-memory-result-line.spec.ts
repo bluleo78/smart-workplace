@@ -33,6 +33,9 @@ test('저장 결과 줄이 답 아래·후속 질문 위에 보이고, done 전�
   await live.push('done', { ...C, widgets: null, messageId: 2 })
   await live.push('followups', { ...C, messageId: 2, items: ['내 이슈 보여줘'] })
   await expect(undoLinks(page)).toBeEnabled()
+  // 되돌리기는 평소에도 링크로 보인다(밑줄 + primary 색, hover 아님) — 터치엔 hover 가 없다. " · 되돌리기" 는 한 덩어리(nowrap)라 "·" 가 줄 끝에 남지 않는다.
+  await expect(undoLinks(page)).toHaveCSS('text-decoration-line', 'underline')
+  await expect(undoLinks(page).locator('..')).toHaveCSS('white-space', 'nowrap')
   const bubble = await stableBox(page.getByTestId('chat-block').last())
   const line = await stableBox(lines(page).first())
   const chips = await stableBox(page.getByTestId('chat-followups'))

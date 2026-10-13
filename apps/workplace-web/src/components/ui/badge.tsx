@@ -26,6 +26,9 @@ const badgeVariants = cva(
           "bg-warning/10 text-warning-text border-warning/20 [a&]:hover:bg-warning/15",
         info:
           "bg-info/10 text-info border-info/20 [a&]:hover:bg-info/15",
+        // AI 가 만든·AI 와 관련된 표식(ai-accent 보라) — 라이트/다크는 토큰이 갈라 준다.
+        ai:
+          "bg-ai-accent/10 text-ai-accent border-ai-accent/20 [a&]:hover:bg-ai-accent/15",
       },
     },
     defaultVariants: {

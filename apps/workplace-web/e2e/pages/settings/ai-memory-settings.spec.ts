@@ -28,6 +28,9 @@ test('추천 질문 카드 아래·개인 비서 위에 최신순 목록과 배�
     '이슈 목록은 짧은 목록으로 보여 준다',
   ])
   await expect(rows(page).getByTestId('ai-memory-kind')).toHaveText(['맥락', '선호'])
+  // 시안 배지 색 — 선호는 AI 보라(ai), 맥락은 info.
+  await expect(rows(page).nth(0).getByTestId('ai-memory-kind')).toHaveAttribute('data-variant', 'info')
+  await expect(rows(page).nth(1).getByTestId('ai-memory-kind')).toHaveAttribute('data-variant', 'ai')
   await expect(rows(page).nth(0).getByTestId('ai-memory-meta')).toHaveText('직접 추가 · 2026-10-13')
   await expect(rows(page).nth(1).getByTestId('ai-memory-meta')).toHaveText('AI가 저장 · 2026-10-12')
   await expect(page.getByTestId('ai-memory-count')).toHaveText('2 / 50')
