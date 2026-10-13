@@ -12,9 +12,23 @@ import { buildUserTools } from '../tools/index.js';
 import { buildInstructions } from './instructions.js';
 import { FULL_SCOPE, InvalidScopeError, resolveScope, type McpRoute, type McpScope } from './scope.js';
 
-/** 접속 옵션 — tenantId(X-On-Behalf-Of-Tenant, ak_ 전용)는 workplace-api 호출 헤더에 쓴다. */
-export interface McpConnectionOptions {
-  tenantId?: string;
+/** 접속 토큰 형식 — 사람 PAT(swp_) 또는 AI 키(ak_). 인증 헤더 검사는 이 정규식 한 번으로 한다. */
+const BEARER_TOKEN = /^Bearer (swp_|ak_)/;
+const AGENT_KEY_PREFIX = 'ak_';
+
+/** AI(에이전트) 키인지 — 테넌트 선택 헤더 전달 등 AI 키 전용 동작의 판별 기준. */
+function isAgentKey(token: string): boolean {
+  return token.startsWith(AGENT_KEY_PREFIX);
+}
+
+/**
+ * X-On-Behalf-Of-Tenant 헤더 값 — AI 키에서만 전달한다(사람 PAT 의 테넌트는 토큰이 정한다).
+ * 헤더가 중복돼 배열이면 첫 값, 비어 있으면 undefined.
+ */
+function readTenantHeader(req: Request, token: string): string | undefined {
+  if (!isAgentKey(token)) return undefined;
+  const raw = req.headers['x-on-behalf-of-tenant'];
+  return (Array.isArray(raw) ? raw[0] : raw) || undefined;
 }
 
 /** 도구 배열을 McpServer 에 등록. 핸들러 반환 → content(문자열은 text 블록, 블록 배열은 그대로 — WP-240), 예외 → isError. */
@@ -22,7 +36,8 @@ export function buildMcpServer(
   apiBaseUrl: string,
   token: string,
   scope: McpScope = FULL_SCOPE,
-  { tenantId }: McpConnectionOptions = {},
+  /** X-On-Behalf-Of-Tenant(ak_ 전용) — workplace-api 호출 헤더에 쓴다. */
+  tenantId?: string,
 ): McpServer {
   const client = createPatApiClient({ baseURL: apiBaseUrl, token, tenantId });
   // serverInfo — name 은 설정 키가 없을 때 도구 이름 접두사로 쓰는 클라이언트가 있어 영문·숫자·-·_ 만 쓰고,
@@ -95,7 +110,7 @@ export async function handleMcpPost(
   route: McpRoute = { readOnly: false },
 ): Promise<void> {
   const auth = req.headers.authorization;
-  if (!auth?.startsWith('Bearer swp_') && !auth?.startsWith('Bearer ak_')) {
+  if (!auth || !BEARER_TOKEN.test(auth)) {
     res.status(401).json({
       jsonrpc: '2.0',
       error: { code: -32001, message: 'PAT(Bearer swp_...) 또는 AI 키(Bearer ak_...) 가 필요합니다' },
@@ -104,9 +119,7 @@ export async function handleMcpPost(
     return;
   }
   const token = auth.slice('Bearer '.length);
-  // 테넌트 선택 헤더는 AI 키에서만 전달한다 — 사람 PAT 의 테넌트는 토큰이 정한다. 배열(헤더 중복)이면 첫 값.
-  const tenantHeader = req.headers['x-on-behalf-of-tenant'];
-  const tenantId = token.startsWith('ak_') ? (Array.isArray(tenantHeader) ? tenantHeader[0] : tenantHeader) || undefined : undefined;
+  const tenantId = readTenantHeader(req, token);
 
   // 앱 이름이 틀리면 도구를 일부만 싣지 않고 400 + 사용 가능한 목록으로 거절한다. 인증 뒤·/auth/me 앞에서 해 불필요한 API 호출을 피한다.
   // 본문은 이 서버의 다른 사전 거절(401)과 같은 JSON-RPC 오류 모양이다 — Streamable HTTP 클라이언트는 비 2xx 본문을 오류 메시지로 보여 준다.
@@ -137,7 +150,7 @@ export async function handleMcpPost(
     }
   }
 
-  const server = buildMcpServer(apiBaseUrl, token, scope, { tenantId });
+  const server = buildMcpServer(apiBaseUrl, token, scope, tenantId);
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
   res.on('close', () => {
     void transport.close();
