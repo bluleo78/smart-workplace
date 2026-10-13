@@ -80,7 +80,9 @@ export function createStarterStore(opts: { storage?: () => KeyValueStore | null;
   function save(owner: string, key: string, items: string[]) {
     const entry: StoredEntry = { items, date: kstDateKey(now()), at: now().getTime() };
     failures.delete(mk(owner, key));
-    const map = entriesOf(owner);
+    // 저장은 드물어(생성 1회당 1번) 여기서만 localStorage 를 다시 읽는다 — 다른 탭이 그 사이 저장한 항목을 덮어쓰지 않게 병합한다.
+    const map = { ...entriesOf(owner), ...readAll(owner) };
+    owners.set(owner, map);
     map[key] = entry;
     const keys = Object.keys(map);
     if (keys.length > MAX_ENTRIES) {

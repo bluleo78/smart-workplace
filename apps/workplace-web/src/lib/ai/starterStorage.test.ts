@@ -45,15 +45,27 @@ describe('저장·만료', () => {
     setup(storage).store.save(OWNER, 'k', ['x']);
     expect(setup(storage).store.peek(OWNER, 'k')).toEqual({ items: ['x'], fresh: true });
   });
-  it('localStorage 는 소유자마다 한 번만 읽고, 없는 키도 메모리로 판정한다', () => {
+  it('조회는 소유자마다 localStorage 를 한 번만 읽고, 없는 키도 메모리로 판정한다(저장 때만 다시 읽음)', () => {
     const storage = memStorage();
     const getItem = vi.spyOn(storage, 'getItem');
     const { store } = setup(storage);
     expect(store.peek(OWNER, 'a')).toBeNull();
     expect(store.peek(OWNER, 'b')).toBeNull();
+    expect(getItem).toHaveBeenCalledTimes(1);
     store.save(OWNER, 'a', ['x']);
     expect(store.peek(OWNER, 'a')?.items).toEqual(['x']);
-    expect(getItem).toHaveBeenCalledTimes(1);
+    expect(getItem).toHaveBeenCalledTimes(2);
+  });
+  it('저장할 때 다른 탭이 그 사이 저장한 항목을 덮어쓰지 않는다', () => {
+    const storage = memStorage();
+    const tabA = setup(storage).store;
+    const tabB = setup(storage).store;
+    expect(tabA.peek(OWNER, 'a')).toBeNull(); // A 가 먼저 빈 상태를 메모리에 올림
+    tabB.save(OWNER, 'b', ['from-b']);
+    tabA.save(OWNER, 'a', ['from-a']);
+    const fresh = setup(storage).store;
+    expect(fresh.peek(OWNER, 'a')?.items).toEqual(['from-a']);
+    expect(fresh.peek(OWNER, 'b')?.items).toEqual(['from-b']);
   });
   it('사용자·워크스페이스별로 나뉜다', () => {
     const { store } = setup();
