@@ -73,16 +73,17 @@ export function AgentProgress({
   )
 }
 
-/** 마지막 보고 시각 — 작업 중인데 2시간 넘게 소식 없으면 경고색 + 아이콘. */
+/** 마지막 보고 시각 — 작업 중인데 2시간 넘게 소식 없으면 경고색 + 아이콘. 시작 전(SUBMITTED)은 아직 아무 보고가 없으므로 그리지 않는다(updatedAt 은 행 생성 시각일 뿐). */
 export function AgentLastReport({
   w,
   className,
   'data-testid': testId,
 }: {
-  w: Pick<AgentWorkView, 'updatedAt' | 'stale'>
+  w: Pick<AgentWorkView, 'updatedAt' | 'stale' | 'state'>
   className?: string
   'data-testid'?: string
 }) {
+  if (w.state === 'SUBMITTED') return null
   if (w.stale)
     return (
       <span

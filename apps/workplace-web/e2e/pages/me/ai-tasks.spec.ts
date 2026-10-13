@@ -109,6 +109,9 @@ test('행에 AI 진행·최근 보고·진행률·담당자·에이전트 유형
   await expect(page.getByTestId('ai-row-420-tool')).toHaveCount(0)
   await expect(page.getByTestId('ai-row-420').locator('td').nth(8)).toHaveText('—')
   await expect(page.getByTestId('ai-row-420')).not.toContainText('null')
+  // 시작 전은 보고가 없어 마지막 보고 칸도 —(10번째 칸). 시각 표기가 없다.
+  await expect(page.getByTestId('ai-row-420-last')).toHaveCount(0)
+  await expect(page.getByTestId('ai-row-420').locator('td').nth(9)).toHaveText('—')
 
   // 마지막 보고 — 상대 시각(90분 전 → 1시간 전).
   await expect(page.getByTestId('ai-row-412-last')).toHaveText('1시간 전')

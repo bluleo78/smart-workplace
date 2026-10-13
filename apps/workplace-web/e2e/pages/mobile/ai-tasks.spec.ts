@@ -66,10 +66,10 @@ test('인증 필요 배지와, 도구를 모르는 시작 전 행(유형 칩·nu
   await setup(page)
   await expect(page.getByTestId('ai-row-416-state')).toContainText('인증 필요')
   await expect(page.getByTestId('ai-row-420-state')).toHaveText('시작 전')
-  // 도구가 null 이면 에이전트 유형 칩을 그리지 않고 "null" 글자도 없다. 마지막 보고는 그대로.
+  // 도구가 null 이면 에이전트 유형 칩을 그리지 않고 "null" 글자도 없다. 시작 전은 보고가 없으니 마지막 보고도 없다.
   await expect(page.getByTestId('ai-row-420-tool')).toHaveCount(0)
   await expect(page.getByTestId('ai-row-420')).not.toContainText('null')
-  await expect(page.getByTestId('ai-row-420-last')).toHaveText('15분 전')
+  await expect(page.getByTestId('ai-row-420-last')).toHaveCount(0)
   await expectNoHorizontalOverflow(page)
 })
 

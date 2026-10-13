@@ -123,5 +123,7 @@ test('시작 전(도구 없음) 작업은 레일에 시작 전 배지만 보이�
   await expect(row.getByTitle('Claude Code')).toHaveCount(0)
   await expect(row).not.toContainText('null')
   await expect(row).not.toContainText('—')
+  // 아직 아무 보고도 없으니 마지막 보고 시각을 보이지 않는다.
+  await expect(page.getByTestId('agent-work-rail-9-last')).toHaveCount(0)
   await expect(page.getByTestId('agent-question-card')).toHaveCount(0)
 })
