@@ -8,8 +8,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.workplace.issue.dto.AgentWorkPatch;
 import com.workplace.issue.dto.AgentWorkView;
 import com.workplace.issue.exception.AgentWorkIssueClosedException;
+import com.workplace.issue.outbound.AgentToolWriteEvent;
 import com.workplace.issue.outbound.IssueHumanReplyPosted;
 import com.workplace.issue.repository.AgentWorkRepository;
+import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.service.ProjectService;
@@ -33,6 +35,7 @@ class AgentWorkServiceTest extends IntegrationTestBase {
   @Autowired DSLContext dsl;
   @Autowired IssueRepository issueRepository;
   @Autowired ProjectService projectService;
+  @Autowired IssueAssigneeRepository assigneeRepository;
 
   long humanId;
   long agentId;
@@ -92,6 +95,84 @@ class AgentWorkServiceTest extends IntegrationTestBase {
         new AgentWorkPatch(null, "WAITING", null, false, null, null, null));
     service.onHumanReply(new IssueHumanReplyPosted(issueId));
     assertThat(repo.findActive(issueId, agentId).orElseThrow().state()).isEqualTo("WORKING");
+  }
+
+  /** WAITING 에서 새 note 없이 다른 상태로 보고하면 질문 note 를 지운다. */
+  @Test
+  void 보고_WAITING에서_note없이_WORKING이면_note_지움() {
+    service.startOrUpdate(
+        issueId,
+        agentId,
+        "claude-code",
+        new AgentWorkPatch(null, "WAITING", "A안/B안 중 무엇으로 할까요?", false, null, null, null));
+    var v =
+        service.startOrUpdate(
+            issueId,
+            agentId,
+            "claude-code",
+            new AgentWorkPatch(null, "WORKING", null, false, null, null, null));
+    assertThat(v.state()).isEqualTo("WORKING");
+    assertThat(v.note()).isNull();
+  }
+
+  /** WAITING 에서 새 note 와 함께 보고하면 새 note 를 쓴다. */
+  @Test
+  void 보고_WAITING에서_새_note면_새_note() {
+    service.startOrUpdate(
+        issueId,
+        agentId,
+        "claude-code",
+        new AgentWorkPatch(null, "WAITING", "질문", false, null, null, null));
+    var v =
+        service.startOrUpdate(
+            issueId,
+            agentId,
+            "claude-code",
+            new AgentWorkPatch(null, "WORKING", "A안으로 진행", false, null, null, null));
+    assertThat(v.note()).isEqualTo("A안으로 진행");
+  }
+
+  @Test
+  void onHumanReply_는_질문_note_를_지움() {
+    service.startOrUpdate(
+        issueId,
+        agentId,
+        "claude-code",
+        new AgentWorkPatch(null, "WAITING", "질문", false, null, null, null));
+    service.onHumanReply(new IssueHumanReplyPosted(issueId));
+    var row = repo.findActive(issueId, agentId).orElseThrow();
+    assertThat(row.state()).isEqualTo("WORKING");
+    assertThat(row.note()).isNull();
+  }
+
+  /** MCP 쓰기 터치로 WAITING → WORKING 복귀 시 note 를 지운다. */
+  @Test
+  void 터치_WAITING_복귀시_note_지움() {
+    assigneeRepository.add(issueId, humanId, humanId);
+    service.startOrUpdate(
+        issueId,
+        humanId,
+        "claude-code",
+        new AgentWorkPatch(null, "WAITING", "질문", false, null, null, null));
+    service.onAgentToolWrite(new AgentToolWriteEvent(issueId, humanId, "claude-code", true));
+    var row = repo.findActive(issueId, humanId).orElseThrow();
+    assertThat(row.state()).isEqualTo("WORKING");
+    assertThat(row.note()).isNull();
+  }
+
+  /** BLOCKED 는 복귀해도 사유 note 를 유지한다. */
+  @Test
+  void 터치_BLOCKED_복귀시_note_유지() {
+    assigneeRepository.add(issueId, humanId, humanId);
+    service.startOrUpdate(
+        issueId,
+        humanId,
+        "claude-code",
+        new AgentWorkPatch(null, "BLOCKED", "권한 없음", false, null, null, null));
+    service.onAgentToolWrite(new AgentToolWriteEvent(issueId, humanId, "claude-code", true));
+    var row = repo.findActive(issueId, humanId).orElseThrow();
+    assertThat(row.state()).isEqualTo("WORKING");
+    assertThat(row.note()).isEqualTo("권한 없음");
   }
 
   @Test

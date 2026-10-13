@@ -68,7 +68,25 @@ public class AgentWorkService {
         repository
             .insertIfAbsent(issueId, workerId, tool, initial)
             .orElseThrow(() -> new IllegalStateException("agent_work 생성 후 조회 실패"));
-    repository.update(row.id(), patch.withTool(tool));
+    // 답변 필요(WAITING)에서 벗어나는데 새 note 가 없으면 질문 note 를 지운다 — 남기면 "작업 중 · 질문" 으로 아직 묻는 것처럼 보인다.
+    boolean leavingWaiting =
+        AgentWorkState.WAITING.equals(row.state())
+            && patch.state() != null
+            && !AgentWorkState.WAITING.equals(patch.state())
+            && patch.note() == null;
+    var effective = patch.withTool(tool);
+    if (leavingWaiting) {
+      effective =
+          new AgentWorkPatch(
+              effective.tool(),
+              effective.state(),
+              null,
+              true,
+              effective.progress(),
+              effective.stepsDone(),
+              effective.stepsTotal());
+    }
+    repository.update(row.id(), effective);
     notifyChanged(issueId, workerId);
     // 동시 종료로 조회에서 이슈가 빠지면(종료 이슈 제외) NPE 대신 409 로 답한다.
     return viewsByIssueIds(List.of(issueId)).getOrDefault(issueId, List.of()).stream()
@@ -126,8 +144,11 @@ public class AgentWorkService {
           AgentWorkState.REVIEW.equals(state) || AgentWorkState.WORKING.equals(state)
               ? null
               : AgentWorkState.WORKING;
+      // 답변 필요에서 복귀하면 질문 note 는 낡았으므로 지운다(막힘·일시 중지의 사유 note 는 유지).
+      boolean clearNote = AgentWorkState.WAITING.equals(state);
       repository.update(
-          existing.get().id(), new AgentWorkPatch(e.tool(), next, null, false, null, null, null));
+          existing.get().id(),
+          new AgentWorkPatch(e.tool(), next, null, clearNote, null, null, null));
     }
     // 발행 쪽이 이슈 변경 알림을 이미 냈으면(이슈 updated 경유) 같은 알림을 다시 내지 않는다.
     if (!e.issueNotified()) notifyChanged(issue, e.actorId());

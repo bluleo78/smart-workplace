@@ -199,6 +199,8 @@ public class AgentWorkRepository {
   public int resumeWaitingAgents(long issueId) {
     return dsl.update(AGENT_WORK)
         .set(AGENT_WORK.STATE, AgentWorkState.WORKING)
+        // 응답으로 질문이 해소됐으니 질문 note 를 지운다(남으면 "작업 중 · 질문" 으로 보인다).
+        .setNull(AGENT_WORK.NOTE)
         .set(AGENT_WORK.UPDATED_AT, DSL.currentOffsetDateTime())
         .where(AGENT_WORK.ISSUE_ID.eq(issueId))
         .and(AGENT_WORK.ENDED_AT.isNull())
