@@ -9,6 +9,7 @@ import com.workplace.jooq.Keys;
 import com.workplace.jooq.Public;
 import com.workplace.jooq.tables.AgentApiKey.AgentApiKeyPath;
 import com.workplace.jooq.tables.AiAgentCredential.AiAgentCredentialPath;
+import com.workplace.jooq.tables.AiMemory.AiMemoryPath;
 import com.workplace.jooq.tables.AssistantConfig.AssistantConfigPath;
 import com.workplace.jooq.tables.AuditLog.AuditLogPath;
 import com.workplace.jooq.tables.Calendar.CalendarPath;
@@ -186,6 +187,11 @@ public class User extends TableImpl<UserRecord> {
      */
     public final TableField<UserRecord, Boolean> AI_SUGGESTIONS_ENABLED = createField(DSL.name("ai_suggestions_enabled"), SQLDataType.BOOLEAN, this, "");
 
+    /**
+     * The column <code>public.user.ai_memory_enabled</code>.
+     */
+    public final TableField<UserRecord, Boolean> AI_MEMORY_ENABLED = createField(DSL.name("ai_memory_enabled"), SQLDataType.BOOLEAN, this, "");
+
     private User(Name alias, Table<UserRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }
@@ -344,6 +350,19 @@ public class User extends TableImpl<UserRecord> {
             _aiAgentCredentialUserIdFkey = new AiAgentCredentialPath(this, null, Keys.AI_AGENT_CREDENTIAL__AI_AGENT_CREDENTIAL_USER_ID_FKEY.getInverseKey());
 
         return _aiAgentCredentialUserIdFkey;
+    }
+
+    private transient AiMemoryPath _aiMemory;
+
+    /**
+     * Get the implicit to-many join path to the <code>public.ai_memory</code>
+     * table
+     */
+    public AiMemoryPath aiMemory() {
+        if (_aiMemory == null)
+            _aiMemory = new AiMemoryPath(this, null, Keys.AI_MEMORY__AI_MEMORY_USER_ID_FKEY.getInverseKey());
+
+        return _aiMemory;
     }
 
     private transient AssistantConfigPath _assistantConfig;

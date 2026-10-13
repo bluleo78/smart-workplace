@@ -1,0 +1,112 @@
+package com.workplace.home.service;
+
+import com.workplace.home.dto.AiMemoryItem;
+import com.workplace.home.dto.AiMemoryListResponse;
+import com.workplace.home.exception.AiMemoryException;
+import com.workplace.home.repository.AiMemoryRepository;
+import com.workplace.home.repository.AiMemoryRepository.Row;
+import java.util.Set;
+import java.util.UUID;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+/**
+ * AI 메모리(WP-55) — 사용자가 대화에서 알려 준 교정·선호(PREFERENCE)와 업무 맥락(CONTEXT). 설정 화면 직접 관리와 AI 대행 도구가 같은
+ * 규칙(1~300자 코드포인트, 사용자당 50개, 본인 것만)을 쓴다.
+ *
+ * <p>서버가 강제하는 것은 길이·상한·소유자·꺼짐까지다 — "사용자 본인 발화에서만 저장"은 ai-agent 시스템 프롬프트 규칙이다.
+ */
+@Service
+@RequiredArgsConstructor
+public class AiMemoryService {
+
+  /** 사용자(테넌트 안)당 상한 — 매 턴 전부 주입해도 예산에 부담이 없는 크기(스펙 §1 비목표: 의미 검색 대신 전체 주입). */
+  public static final int LIMIT = 50;
+
+  /** 내용 최대 길이(코드포인트). DB VARCHAR(300) 과 같다. */
+  public static final int MAX_CHARS = 300;
+
+  public static final String KIND_PREFERENCE = "PREFERENCE";
+  public static final String KIND_CONTEXT = "CONTEXT";
+  public static final String SOURCE_AI = "AI";
+  public static final String SOURCE_USER = "USER";
+
+  private static final Set<String> KINDS = Set.of(KIND_PREFERENCE, KIND_CONTEXT);
+
+  private final AiMemoryRepository repo;
+
+  /** 본인 메모리 목록(최신순, 최대 50). */
+  @Transactional(readOnly = true)
+  public AiMemoryListResponse list(long userId) {
+    return new AiMemoryListResponse(
+        repo.listNewest(userId, LIMIT).stream().map(r -> toItem(r, null)).toList(), LIMIT);
+  }
+
+  /** 직접 추가(설정 화면) — 항상 USER 출처. */
+  @Transactional
+  public AiMemoryItem create(long userId, String kind, String content) {
+    return toItem(insertChecked(userId, kind, content, SOURCE_USER, null), null);
+  }
+
+  /**
+   * 고치기 — 생략한 필드는 그대로. 응답에 이전 내용(previousContent)을 싣는다(update_memory 결과·채팅 되돌리기 근거).
+   *
+   * @throws AiMemoryException 400(둘 다 없음·검증 실패), 404(없음·남의 것)
+   */
+  @Transactional
+  public AiMemoryItem update(long userId, long id, String content, String kind) {
+    if (content == null && kind == null) throw AiMemoryException.invalid("바꿀 내용이 없어요");
+    Row cur = repo.lock(userId, id).orElseThrow(AiMemoryException::notFound);
+    String c = content == null ? cur.content() : normalizeContent(content);
+    String k = kind == null ? cur.kind() : requireKind(kind);
+    Row saved = repo.update(userId, id, k, c).orElseThrow(AiMemoryException::notFound);
+    return toItem(saved, cur.content());
+  }
+
+  /** 지우기 — 지운 항목을 돌려준다(forget_memory 결과·설정 "되돌리기" 토스트 근거). */
+  @Transactional
+  public AiMemoryItem delete(long userId, long id) {
+    return toItem(repo.delete(userId, id).orElseThrow(AiMemoryException::notFound), null);
+  }
+
+  /** 모두 지우기 — 본인 것만. */
+  @Transactional
+  public void clear(long userId) {
+    repo.deleteAll(userId);
+  }
+
+  /**
+   * 검증 → 사용자 잠금 → 상한 확인 → 저장. 잠금을 먼저 잡아야 동시 요청 두 건이 모두 49개를 보고 51개가 되는 일을 막는다(READ COMMITTED 에서 잠금
+   * 뒤 count 는 앞 요청의 커밋을 본다).
+   */
+  Row insertChecked(long userId, String kind, String content, String source, UUID sessionId) {
+    String k = requireKind(kind);
+    String c = normalizeContent(content);
+    repo.lockUser(userId);
+    if (repo.count(userId) >= LIMIT) throw AiMemoryException.full();
+    return repo.insert(userId, k, c, source, sessionId);
+  }
+
+  /** 앞뒤 공백 제거 후 1~300 코드포인트인지 — 넘으면 자르지 않고 400(뜻이 바뀌므로). */
+  static String normalizeContent(String raw) {
+    String c = raw == null ? "" : raw.strip();
+    int n = c.codePointCount(0, c.length());
+    if (n == 0 || n > MAX_CHARS) {
+      throw AiMemoryException.invalid("메모리 내용은 1~" + MAX_CHARS + "자여야 해요");
+    }
+    return c;
+  }
+
+  static String requireKind(String kind) {
+    if (kind == null || !KINDS.contains(kind)) {
+      throw AiMemoryException.invalid("메모리 종류는 PREFERENCE 또는 CONTEXT 여야 해요");
+    }
+    return kind;
+  }
+
+  static AiMemoryItem toItem(Row r, String previousContent) {
+    return new AiMemoryItem(
+        r.id(), r.kind(), r.content(), r.source(), r.createdAt(), r.updatedAt(), previousContent);
+  }
+}

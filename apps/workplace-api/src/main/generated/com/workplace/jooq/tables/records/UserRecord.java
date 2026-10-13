@@ -202,6 +202,20 @@ public class UserRecord extends UpdatableRecordImpl<UserRecord> {
         return (Boolean) get(12);
     }
 
+    /**
+     * Setter for <code>public.user.ai_memory_enabled</code>.
+     */
+    public void setAiMemoryEnabled(Boolean value) {
+        set(13, value);
+    }
+
+    /**
+     * Getter for <code>public.user.ai_memory_enabled</code>.
+     */
+    public Boolean getAiMemoryEnabled() {
+        return (Boolean) get(13);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -225,7 +239,7 @@ public class UserRecord extends UpdatableRecordImpl<UserRecord> {
     /**
      * Create a detached, initialised UserRecord
      */
-    public UserRecord(Long id, String username, String email, String password, String name, Boolean isActive, LocalDateTime createdAt, LocalDateTime updatedAt, String kind, Long personalAssistantAgentId, String title, String agentRuntime, Boolean aiSuggestionsEnabled) {
+    public UserRecord(Long id, String username, String email, String password, String name, Boolean isActive, LocalDateTime createdAt, LocalDateTime updatedAt, String kind, Long personalAssistantAgentId, String title, String agentRuntime, Boolean aiSuggestionsEnabled, Boolean aiMemoryEnabled) {
         super(User.USER);
 
         setId(id);
@@ -241,6 +255,7 @@ public class UserRecord extends UpdatableRecordImpl<UserRecord> {
         setTitle(title);
         setAgentRuntime(agentRuntime);
         setAiSuggestionsEnabled(aiSuggestionsEnabled);
+        setAiMemoryEnabled(aiMemoryEnabled);
         resetChangedOnNotNull();
     }
 }
