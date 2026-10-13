@@ -16,8 +16,11 @@ import com.workplace.drive.repository.DriveFileRepository;
 import com.workplace.drive.repository.DriveFolderRepository;
 import com.workplace.drive.repository.DriveQuotaRepository;
 import com.workplace.file.dto.FileUploadResponse;
+import com.workplace.file.exception.FileSizeLimitExceededException;
 import com.workplace.file.service.FileUploadService;
 import com.workplace.file.service.FileUploadService.FileContentResult;
+import com.workplace.file.service.UploadSource;
+import com.workplace.file.storage.FilePathBuilder;
 import com.workplace.fileai.ExtractionProfile;
 import com.workplace.fileai.ExtractionReasons;
 import com.workplace.fileai.dto.ExtractedTextSlice;
@@ -27,7 +30,9 @@ import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.util.SafeFileNames;
 import com.workplace.user.repository.UserRepository;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
@@ -68,21 +73,97 @@ public class DriveFileService {
   /** 추출 텍스트 구간 읽기(WP-346) — 상태·사유·자르기는 fileai 공용 서비스가 맡는다. */
   private final ExtractedTextService extractedText;
 
+  /** 텍스트로 만드는 파일의 크기 상한 — TEXT 카테고리 상한(10MB)과 같다. csv 는 DATA(256MB) 카테고리라 따로 막는다(WP-369). */
+  public static final long TEXT_FILE_MAX_BYTES = FileUploadService.sizeLimitOf("TEXT");
+
   /**
-   * 업로드 → 쿼터 검사(advisory lock) → file core 저장 → 영구화 → drive_file 바인딩. 동명 활성 파일이 있으면 새 버전으로 흡수(#79),
-   * 없으면 새 파일 + v1.
+   * 텍스트로 만들 때 확장자 → MIME(WP-369, R4). 이 넷만 허용하고 나머지 확장자는 text/plain 이다 — AI 가 쓴(주입됐을 수도 있는) HTML 이
+   * {@code /content} 로 text/html 그대로 서빙되지 않게 html 은 넣지 않는다.
    */
+  private static final Map<String, String> TEXT_MIME_BY_EXTENSION =
+      Map.of(
+          "md", "text/markdown",
+          "txt", "text/plain",
+          "csv", "text/csv",
+          "json", "application/json");
+
+  /** 멀티파트 업로드(웹 드라이브). 의미는 {@link #upload(long, long, Long, UploadSource)} 와 같다. */
   @Transactional
   public DriveFileResponse upload(long callerId, long spaceId, Long folderId, MultipartFile file)
       throws IOException {
+    return upload(callerId, spaceId, folderId, UploadSource.of(file));
+  }
+
+  /**
+   * 텍스트로 파일 만들기(WP-369) — AI·MCP 가 쓴 내용을 UTF-8 로 저장한다. 업로드와 같은 의미(권한·폴더 검증·할당량·동명 새 버전·감사·추출·알림)다.
+   *
+   * <p>MIME 은 {@code mimeType} 이 있으면 허용 목록(text/markdown·text/plain·text/csv·application/json) 안에서만
+   * 쓰고, 없으면 확장자(md·txt·csv·json, 그 밖은 text/plain)로 정한다. 크기 상한은 TEXT 상한(10MB).
+   *
+   * @throws IllegalArgumentException 허용하지 않는 mimeType(400)
+   * @throws FileSizeLimitExceededException UTF-8 로 10MB 초과(400)
+   */
+  @Transactional
+  public DriveFileResponse createTextFile(
+      long callerId, long spaceId, Long folderId, String name, String content, String mimeType)
+      throws IOException {
+    String mime = textMimeOf(name, mimeType);
+    byte[] bytes = content.getBytes(StandardCharsets.UTF_8);
+    if (bytes.length > TEXT_FILE_MAX_BYTES) {
+      throw new FileSizeLimitExceededException("TEXT", TEXT_FILE_MAX_BYTES);
+    }
+    return upload(callerId, spaceId, folderId, UploadSource.ofBytes(name, mime, bytes));
+  }
+
+  /** 텍스트 파일 MIME 결정(R4) — 명시값은 허용 목록만(매개변수 제거·소문자), 없으면 확장자, 모르면 text/plain. */
+  static String textMimeOf(String name, String requested) {
+    if (requested != null && !requested.isBlank()) {
+      String mime = requested.split(";", 2)[0].strip().toLowerCase(Locale.ROOT);
+      if (!TEXT_MIME_BY_EXTENSION.containsValue(mime)) {
+        throw new IllegalArgumentException(
+            "mimeType 은 text/markdown, text/plain, text/csv, application/json 중 하나여야 합니다.");
+      }
+      return mime;
+    }
+    String ext = FilePathBuilder.extensionOf(name == null ? "" : name).toLowerCase(Locale.ROOT);
+    return TEXT_MIME_BY_EXTENSION.getOrDefault(ext, "text/plain");
+  }
+
+  /**
+   * 업로드 대상 사전 검사(쓰기 없음) — EDITOR 이상이고 폴더(있으면)가 그 공간의 활성 폴더인지. 업로드 링크 발급이 쓴다(WP-369).
+   *
+   * @throws com.workplace.drive.exception.DriveSpaceNotFoundException 공간 비멤버(존재 은닉)
+   * @throws com.workplace.drive.exception.DriveForbiddenException EDITOR 미만 · 보관된 공간
+   * @throws DriveFolderNotFoundException 없거나 휴지통 폴더
+   * @throws DriveInvalidTargetException 다른 공간의 폴더
+   */
+  @Transactional(readOnly = true)
+  public void validateUploadTarget(long callerId, long spaceId, Long folderId) {
     perms.requireRole(spaceId, callerId, "EDITOR");
+    validateTargetSameSpace(spaceId, folderId, UPLOAD_OTHER_SPACE_MESSAGE);
+  }
+
+  /**
+   * 업로드 공통 핵심(WP-369 에서 바이트 출처와 분리) — 멀티파트·텍스트로 만들기·업로드 링크가 모두 이 순서를 탄다: 권한(EDITOR) → 폴더 소속 검증 →
+   * 할당량 검사(advisory lock) → file core 저장 → 영구화 → drive_file 바인딩 → 감사 → 추출 이벤트 → 변경 알림. 동명 활성 파일이
+   * 있으면 새 버전으로 흡수(#79), 없으면 새 파일 + v1.
+   *
+   * <p>행위자는 {@code callerId} 로만 받는다 — 아래(감사·알림·추출·file core) 어디도 SecurityContext 를 읽지 않아, 인증 주체가 없는
+   * 공개 업로드 링크 경로도 발급자를 그대로 넘기면 된다(R3).
+   */
+  @Transactional
+  public DriveFileResponse upload(long callerId, long spaceId, Long folderId, UploadSource source)
+      throws IOException {
+    perms.requireRole(spaceId, callerId, "EDITOR");
+    // 폴더가 이 공간 소속인지(WP-369 이전에는 검사하지 않아 다른 공간 폴더 id 로 올릴 수 있었다).
+    validateTargetSameSpace(spaceId, folderId, UPLOAD_OTHER_SPACE_MESSAGE);
     // 쿼터 강제: 테넌트 단위 직렬화 잠금 후 사용량 검사(동시 업로드 레이스 방지, #81).
     Long tenantId = TenantContext.get();
     if (tenantId != null) {
       quotaRepo.advisoryLockTenant(tenantId);
     }
-    quota.assertWithinQuota(file.getSize());
-    FileUploadResponse uploaded = fileUpload.uploadFiles(List.of(file), callerId).get(0);
+    quota.assertWithinQuota(source.size());
+    FileUploadResponse uploaded = fileUpload.upload(source, callerId);
     files.promoteFile(uploaded.id());
 
     String name = uploaded.originalName();
@@ -94,14 +175,14 @@ public class DriveFileService {
     if (existing.isPresent()) {
       driveFileId = existing.get();
       versionNo = versions.nextVersionNo(driveFileId);
-      versions.insert(driveFileId, versionNo, uploaded.id(), file.getSize(), callerId, null);
+      versions.insert(driveFileId, versionNo, uploaded.id(), uploaded.fileSize(), callerId, null);
       files.setCurrentVersion(driveFileId, uploaded.id(), versionNo);
       actionType = "FILE_VERSION_CREATED";
     } else {
       // insertWithInitialVersion 이 drive_file + v1 버전 행을 원자적으로 생성(#79 불변식 강제)
       driveFileId =
           files.insertWithInitialVersion(
-              spaceId, folderId, uploaded.id(), name, file.getSize(), callerId);
+              spaceId, folderId, uploaded.id(), name, uploaded.fileSize(), callerId);
       versionNo = 1;
       actionType = "FILE_UPLOAD";
     }
@@ -125,7 +206,7 @@ public class DriveFileService {
         Map.of(
             "spaceId", spaceId,
             "fileName", name,
-            "sizeBytes", file.getSize(),
+            "sizeBytes", uploaded.fileSize(),
             "versionNo", versionNo));
 
     // 추출 파이프라인 트리거(WP-242) — 같은 트랜잭션에서 file_extraction 행이 생기고, 커밋 후 워커로 디스패치된다.
@@ -456,8 +537,17 @@ public class DriveFileService {
     }
   }
 
-  /** 대상 폴더(있으면)가 같은 공간인지 검증. null = 공간 루트(항상 같은 공간). */
+  /** 업로드 대상 폴더가 다른 공간일 때 문구(WP-369) — 이동·복사 문구와 구분한다. */
+  private static final String UPLOAD_OTHER_SPACE_MESSAGE = "다른 공간의 폴더에는 파일을 올릴 수 없습니다.";
+
+  /** 이동·복사 대상 폴더(있으면)가 같은 공간인지 검증. */
   private void validateTargetSameSpace(long spaceId, Long targetFolderId) {
+    validateTargetSameSpace(spaceId, targetFolderId, "다른 공간으로는 이동/복사할 수 없습니다.");
+  }
+
+  /** 대상 폴더(있으면)가 같은 공간의 활성 폴더인지 검증. null = 공간 루트(항상 같은 공간). 없거나 휴지통이면 404, 다른 공간이면 400. */
+  private void validateTargetSameSpace(
+      long spaceId, Long targetFolderId, String otherSpaceMessage) {
     if (targetFolderId == null) {
       return;
     }
@@ -466,7 +556,7 @@ public class DriveFileService {
             .findSpaceId(targetFolderId)
             .orElseThrow(() -> new DriveFolderNotFoundException(targetFolderId));
     if (targetSpace != spaceId) {
-      throw new DriveInvalidTargetException("다른 공간으로는 이동/복사할 수 없습니다.");
+      throw new DriveInvalidTargetException(otherSpaceMessage);
     }
   }
 }

@@ -1,5 +1,6 @@
 package com.workplace.drive.controller;
 
+import com.workplace.drive.dto.CreateTextFileRequest;
 import com.workplace.drive.dto.DriveFileResponse;
 import com.workplace.drive.dto.DriveFileVersionResponse;
 import com.workplace.drive.dto.FileSummaryResponse;
@@ -47,6 +48,22 @@ public class DriveFileController {
       throws IOException {
     return ResponseEntity.status(HttpStatus.CREATED)
         .body(fileService.upload(callerId, spaceId, folderId, file));
+  }
+
+  /**
+   * 텍스트로 파일 만들기(WP-369) — 본문의 content 를 UTF-8 파일로 저장한다(EDITOR 이상). 같은 이름이 있으면 새 버전. 201 + 업로드와 같은
+   * DriveFileResponse.
+   */
+  @PostMapping("/spaces/{id}/files/text")
+  public ResponseEntity<DriveFileResponse> createText(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable("id") long spaceId,
+      @Valid @RequestBody CreateTextFileRequest req)
+      throws IOException {
+    return ResponseEntity.status(HttpStatus.CREATED)
+        .body(
+            fileService.createTextFile(
+                callerId, spaceId, req.folderId(), req.name(), req.content(), req.mimeType()));
   }
 
   @GetMapping("/files/{id}/download")

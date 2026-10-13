@@ -532,4 +532,150 @@ class DriveFileServiceTest extends IntegrationTestBase {
     assertThatThrownBy(() -> fileService.rename(u, f.id(), "x.txt"))
         .isInstanceOf(DriveFileNotFoundException.class);
   }
+
+  // ── WP-369: 업로드 폴더 검증 · 텍스트로 파일 만들기 ──────────────────────────────
+
+  /** 멀티파트 업로드도 폴더가 그 공간 소속인지 본다 — 다른 공간 폴더 id 로는 올릴 수 없다(400). */
+  @Test
+  void upload_toFolderInAnotherSpace_isRejected() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp1 = spaceService.createTeamSpace(u, "팀1");
+    DriveSpaceResponse sp2 = spaceService.createTeamSpace(u, "팀2");
+    var otherFolder = folderService.create(u, sp2.id(), null, "남의공간");
+
+    assertThatThrownBy(() -> fileService.upload(u, sp1.id(), otherFolder.id(), txt()))
+        .isInstanceOf(com.workplace.drive.exception.DriveInvalidTargetException.class)
+        .hasMessageContaining("다른 공간의 폴더");
+  }
+
+  /** 휴지통 폴더·없는 폴더로는 올릴 수 없다(404). */
+  @Test
+  void upload_toTrashedOrMissingFolder_isNotFound() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    var folder = folderService.create(u, sp.id(), null, "지울폴더");
+    folderService.delete(u, folder.id());
+
+    assertThatThrownBy(() -> fileService.upload(u, sp.id(), folder.id(), txt()))
+        .isInstanceOf(com.workplace.drive.exception.DriveFolderNotFoundException.class);
+    assertThatThrownBy(() -> fileService.upload(u, sp.id(), Long.MAX_VALUE, txt()))
+        .isInstanceOf(com.workplace.drive.exception.DriveFolderNotFoundException.class);
+  }
+
+  /** 같은 공간 폴더로는 그대로 올라간다. */
+  @Test
+  void upload_toFolderInSameSpace_succeeds() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    var folder = folderService.create(u, sp.id(), null, "내폴더");
+
+    DriveFileResponse f = fileService.upload(u, sp.id(), folder.id(), txt());
+    assertThat(f.folderId()).isEqualTo(folder.id());
+  }
+
+  /** 텍스트로 만들기 — UTF-8 로 저장되고 확장자로 MIME 이 정해지며, 업로드처럼 영구 파일·v1 이 된다. */
+  @Test
+  void createTextFile_storesUtf8_andPicksMimeByExtension() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    String content = "# 회의록\n- 결정: 출시 연기";
+
+    DriveFileResponse f = fileService.createTextFile(u, sp.id(), null, "회의록.md", content, null);
+
+    assertThat(f.name()).isEqualTo("회의록.md");
+    assertThat(f.mimeType()).isEqualTo("text/markdown");
+    assertThat(f.sizeBytes())
+        .isEqualTo(content.getBytes(java.nio.charset.StandardCharsets.UTF_8).length);
+    assertThat(f.versionCount()).isEqualTo(1);
+    FileContentResult c = fileService.download(u, f.id());
+    assertThat(c.resource().getContentAsByteArray())
+        .isEqualTo(content.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    assertThat(
+            dsl.select(FILE.EXPIRES_AT)
+                .from(FILE)
+                .where(FILE.ID.eq(f.fileId()))
+                .fetchOne(FILE.EXPIRES_AT))
+        .isNull();
+  }
+
+  /** 텍스트로 만들기 MIME 규칙(R4) — md·txt·csv·json 만 그 MIME, 나머지는 text/plain(html 도). 명시값은 허용 목록만. */
+  @Test
+  void textMimeOf_allowsOnlyFourTypes() {
+    assertThat(DriveFileService.textMimeOf("a.md", null)).isEqualTo("text/markdown");
+    assertThat(DriveFileService.textMimeOf("a.TXT", null)).isEqualTo("text/plain");
+    assertThat(DriveFileService.textMimeOf("a.csv", null)).isEqualTo("text/csv");
+    assertThat(DriveFileService.textMimeOf("a.json", "")).isEqualTo("application/json");
+    assertThat(DriveFileService.textMimeOf("a.html", null)).isEqualTo("text/plain");
+    assertThat(DriveFileService.textMimeOf("noext", null)).isEqualTo("text/plain");
+    assertThat(DriveFileService.textMimeOf("a.txt", "Text/Markdown; charset=utf-8"))
+        .isEqualTo("text/markdown");
+    assertThatThrownBy(() -> DriveFileService.textMimeOf("a.html", "text/html"))
+        .isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> DriveFileService.textMimeOf("a.bin", "application/octet-stream"))
+        .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  /** html 이름이어도 text/plain 으로 저장된다 — 주입됐을 수 있는 HTML 이 /content 로 렌더링되지 않게. */
+  @Test
+  void createTextFile_htmlName_isStoredAsPlainText() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    DriveFileResponse f =
+        fileService.createTextFile(u, sp.id(), null, "page.html", "<script>x</script>", null);
+    assertThat(f.mimeType()).isEqualTo("text/plain");
+  }
+
+  /** 같은 이름으로 다시 만들면 새 버전으로 흡수된다(업로드와 같은 의미). */
+  @Test
+  void createTextFile_sameName_becomesNewVersion() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    DriveFileResponse v1 = fileService.createTextFile(u, sp.id(), null, "노트.txt", "하나", null);
+    DriveFileResponse v2 = fileService.createTextFile(u, sp.id(), null, "노트.txt", "둘", null);
+
+    assertThat(v2.id()).isEqualTo(v1.id());
+    assertThat(v2.versionCount()).isEqualTo(2);
+  }
+
+  /** 다른 공간 폴더·VIEWER 는 거부. */
+  @Test
+  void createTextFile_rejectsOtherSpaceFolderAndViewer() throws Exception {
+    long owner = seedUser();
+    long viewer = seedUser();
+    DriveSpaceResponse sp1 = spaceService.createTeamSpace(owner, "팀1");
+    DriveSpaceResponse sp2 = spaceService.createTeamSpace(owner, "팀2");
+    spaceService.addMember(owner, sp1.id(), viewer, "VIEWER");
+    var otherFolder = folderService.create(owner, sp2.id(), null, "남의공간");
+
+    assertThatThrownBy(
+            () -> fileService.createTextFile(owner, sp1.id(), otherFolder.id(), "a.md", "x", null))
+        .isInstanceOf(com.workplace.drive.exception.DriveInvalidTargetException.class);
+    assertThatThrownBy(() -> fileService.createTextFile(viewer, sp1.id(), null, "a.md", "x", null))
+        .isInstanceOf(com.workplace.drive.exception.DriveForbiddenException.class);
+  }
+
+  /** 크기 상한은 TEXT 상한(10MB) — csv(DATA 범주 256MB)도 10MB 를 넘으면 거부. */
+  @Test
+  void createTextFile_over10MB_isRejected_evenForCsv() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    String big = "a".repeat((int) DriveFileService.TEXT_FILE_MAX_BYTES + 1);
+
+    assertThatThrownBy(() -> fileService.createTextFile(u, sp.id(), null, "big.csv", big, null))
+        .isInstanceOf(com.workplace.file.exception.FileSizeLimitExceededException.class);
+  }
+
+  /** 할당량을 넘으면 거부(업로드와 같은 advisory lock + 할당량 검사). */
+  @Test
+  void createTextFile_overQuota_isRejected() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    dsl.update(com.workplace.jooq.Tables.TENANT)
+        .set(com.workplace.jooq.Tables.TENANT.QUOTA_BYTES, 0L)
+        .where(com.workplace.jooq.Tables.TENANT.ID.eq(1L))
+        .execute();
+
+    assertThatThrownBy(() -> fileService.createTextFile(u, sp.id(), null, "a.txt", "x", null))
+        .isInstanceOf(com.workplace.drive.exception.DriveQuotaExceededException.class);
+  }
 }

@@ -51,6 +51,17 @@ public class FileStore {
     }
   }
 
+  /** 디스크의 다른 파일(임시 파일 등)을 저장 경로로 복사한다(WP-369 — 업로드 링크 PUT 본문을 임시 파일로 받은 뒤 저장). 원본 정리는 호출부 몫이다. */
+  public void storeFrom(String relativePath, Path source) {
+    try {
+      Path target = resolve(relativePath);
+      Files.createDirectories(target.getParent());
+      Files.copy(source, target);
+    } catch (IOException e) {
+      throw new UncheckedIOException("파일 저장 실패: " + relativePath, e);
+    }
+  }
+
   public void storeBytes(String relativePath, byte[] bytes) {
     try {
       Path target = resolve(relativePath);
