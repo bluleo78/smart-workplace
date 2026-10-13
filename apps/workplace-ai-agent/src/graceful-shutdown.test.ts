@@ -1,7 +1,7 @@
 // 무중단 종료(WP-167) — 진행 중 HTTP 요청·백그라운드 실행을 기다린 뒤 정리·종료하는지, 상한에 걸리면 버리고 종료하는지.
 import { createServer, request, type RequestListener, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi, type Mock } from 'vitest';
 
 import { gracefulShutdown, inflightCount, trackInflight } from './graceful-shutdown.js';
 
@@ -12,8 +12,19 @@ function deferred() {
   return { promise, resolve };
 }
 
-/** 이벤트 루프를 잠깐 넘겨 "아직 종료하지 않음"을 확인할 여유를 준다. */
-const tick = () => new Promise((r) => setTimeout(r, 30));
+/** 부재 확인 창(ms) — expectNotCalledYet 만 쓴다. */
+const ABSENCE_WINDOW_MS = 30;
+
+/**
+ * 부재 확인 — 창(ABSENCE_WINDOW_MS) 동안 fns 가 한 번도 불리지 않는지 창의 처음과 끝에서 본다. "아직 정리·종료하지 않았다"는 일정 시간
+ * 아무 일도 없음을 봐야 해 고정 창이 불가피하다 — 그 창을 이 한 곳에 모은다. 기다리는 대상(실행·응답)이 끝나지 않은 채라 올바른 종료
+ * 절차는 이 창이 아무리 길어도 부르지 않는다: 부하로 절차가 늦으면 거짓 통과할 수는 있어도 거짓 실패는 없다.
+ */
+async function expectNotCalledYet(...fns: Mock[]): Promise<void> {
+  for (const f of fns) expect(f).not.toHaveBeenCalled();
+  await new Promise((r) => setTimeout(r, ABSENCE_WINDOW_MS));
+  for (const f of fns) expect(f).not.toHaveBeenCalled();
+}
 
 describe('gracefulShutdown', () => {
   const servers: Server[] = [];
@@ -37,10 +48,8 @@ describe('gracefulShutdown', () => {
     const exit = vi.fn();
 
     const done = gracefulShutdown({ server, drainTimeoutMs: 5_000, cleanup, exit, log: () => {} });
-    await tick();
     // 실행이 남아 있는 동안은 정리(opencode 종료)도 종료도 하지 않는다
-    expect(cleanup).not.toHaveBeenCalled();
-    expect(exit).not.toHaveBeenCalled();
+    await expectNotCalledYet(cleanup, exit);
 
     job.resolve();
     await done;
@@ -77,8 +86,7 @@ describe('gracefulShutdown', () => {
     const done = gracefulShutdown({ server, drainTimeoutMs: 5_000, cleanup: () => {}, exit, log: () => {} });
     // 응답을 끝내기 전에는 종료하지 않는다 — 아직 끝나지 않은 응답이라 부하와 무관하게 성립한다(종료가 응답을 기다리지 않는 결함이면
     // 리스너를 닫은 직후 몇 틱 안에 exit 가 불린다).
-    await tick();
-    expect(exit).not.toHaveBeenCalled();
+    await expectNotCalledYet(exit);
 
     finish();
     await done;

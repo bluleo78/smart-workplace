@@ -63,6 +63,8 @@ describe('mergeRunner', { timeout: WORKER_BOOT_LIMIT_MS }, () => {
     // 첫 작업이 워커 안에서 계산 중(스레드를 쥐고 끝나지 않음)이 된 뒤에 기한을 흘린다.
     await expect.poll(() => t.held(), { timeout: WORKER_BOOT_LIMIT_MS }).toBe(1)
     clock.advance(299)
+    // 기한 전 — 실행기는 시간 초과 때 그 자리에서(동기로) 워커를 버린다(terminate). 일찍 불렸다면 여기서 이미 버려졌다.
+    expect(t.workers[0].terminated).toBeUndefined()
     expect(first.settled).toBe(false)
     clock.advance(1)
     // 기한에 바로 시간 초과 — 끝나지 않는 계산을 기다리지 않는다.

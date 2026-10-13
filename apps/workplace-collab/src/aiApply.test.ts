@@ -206,8 +206,11 @@ describe('in-editor AI apply (stateless ai-apply)', () => {
     const a = await openEditor('editor-token')
     await applyAcked(a, 'r1')
     // 만료 직전까지는 태그가 살아 있고, 만료 시각에 내려간다(만료 타이머가 태그·즉시 저장 예약을 지운다).
+    // 태그판의 만료 타이머는 태그가 달려 있는 동안에만 걸려 있다(소비·취소·만료가 태그와 함께 지운다) — 태그판 시계에 남은 타이머 수로 본다.
     tagClock.advance(149)
+    expect(tagClock.pendingCount()).toBe(1)
     tagClock.advance(1)
+    expect(tagClock.pendingCount()).toBe(0)
     typeAt(a.doc, 1, '사람 ')
     await reached('사람 ')
     // 만료로 즉시 저장 예약도 풀렸다 — 디바운스(60초) 동안 저장되지 않는다.
