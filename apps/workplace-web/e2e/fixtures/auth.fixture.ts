@@ -140,6 +140,10 @@ export async function setupAuthMocks(page: Page, user: UserResponse, roles: Role
   await mockApi(page, 'GET', '/api/v1/home/sessions', { items: [], nextCursor: null })
   // WP-190: 앱 시작·SSE 재연결 때 생성 중 대화를 재동기화한다 — 미스텁이면 dev 프록시로 누수된다. 스펙이 나중에 등록한 route 가 우선(LIFO).
   await mockApi(page, 'GET', '/api/v1/ai/chat/active', { limit: 3, items: [] })
+  // WP-139: 빈 AI 대화가 보이면 추천 설정·추천 질문을 부른다 — 미스텁이면 dev 프록시로 누수된다. 기본은 켜짐 + 빈 결과(고정 문구 유지).
+  // 추천을 검증하는 spec 은 ai-suggestions-mock 으로 나중에 등록(LIFO 우선).
+  await mockApi(page, 'GET', '/api/v1/users/me/ai-preferences', { suggestionsEnabled: true })
+  await mockApi(page, 'POST', '/api/v1/ai/suggestions', { items: [], enabled: true })
   // #843: 세션 복원 시 미처리 확인카드(/home/sessions/:id/proposals)도 함께 페치한다 — 빈 기본 스텁.
   // 카드 복원을 검증하는 spec 은 더 구체적 응답을 나중에 등록 → LIFO 로 그쪽이 우선한다.
   await page.route(

@@ -13,6 +13,7 @@ import { HomeMessageImage } from '@/components/ai/HomeMessageImage';
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage';
 import { useAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext';
 import { ScreenContextChip } from '@/components/ai/ScreenContextChip';
+import { StarterSuggestionList } from '@/components/ai/StarterSuggestionList';
 import { ToolStepList } from '@/components/ai/ToolStepList';
 import { ChatAttachmentViewerHost } from '@/components/chat/ChatAttachmentViewer';
 import { ComposerAttachmentChips } from '@/components/chat/ComposerAttachmentChips';
@@ -29,10 +30,12 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
 import { findHomeChatBundle, homeChatBundle } from '@/components/viewer/viewerItems';
+import { useAiPreferences } from '@/hooks/queries/useAiPreferences';
 import type { AssistantChat } from '@/hooks/useAssistantChat';
 import { useComposerFileDrop } from '@/hooks/useComposerFileDrop';
 import { useHomeChatAttachments } from '@/hooks/useHomeChatAttachments';
 import { useIsMobile } from '@/hooks/useIsMobile';
+import { useStarterSuggestions } from '@/hooks/useStarterSuggestions';
 import { useStickToBottom } from '@/hooks/useStickToBottom';
 import { sessionListLabel } from '@/lib/ai/aiActivity';
 import { contextIdentity } from '@/lib/aiScreenContext/common';
@@ -152,6 +155,14 @@ export function AIChatPanel({
   }
   const contextActive = screenContext != null && suppressedIdentity !== screenIdentity;
 
+  // WP-139: 추천 켜짐 — 설정 응답이 true 일 때만(로딩 중·실패 포함 그 밖에는 숨김). 끈 사용자에게 한 번도 보이지 않게(스펙 §10.6).
+  // 빈 대화 목록과 후속 질문 칩이 같이 쓴다. 설정은 5분 캐시라 두 번째 열기부터는 바로 보인다.
+  const aiPrefs = useAiPreferences();
+  const suggestionsOn = aiPrefs.data?.suggestionsEnabled === true;
+  // 빈 새 대화(세션 없음·턴 없음)에만 — 기존 대화를 고르면 currentSessionId 가 먼저 정해져 이력 로딩 중에도 거짓이다.
+  const showStarters = suggestionsOn && turns.length === 0 && currentSessionId == null;
+  const starters = useStarterSuggestions({ ctx: contextActive ? screenContext : null, visible: showStarters });
+
   // WP-234: 첨부 초안 — 개수 상한(메시지 10·세션 30)·이미지 축소·25MB·로컬 미리보기는 훅이 맡는다.
   const sessionAttachmentCount = useMemo(() => countSessionAttachments(turns), [turns]);
   // WP-279: 열린 첨부 키(home:{fileId}) → 그 파일이 든 사용자 턴의 묶음. 앞으로가기·패널 전환 뒤에도 키만으로 다시 연다.
@@ -181,13 +192,20 @@ export function AIChatPanel({
       ? { id: LIMIT_NOTICE_ID, testId: 'chat-limit-notice', text: `다른 대화 ${limit}개가 답변 중이에요. 하나가 끝나면 보낼 수 있어요.` }
       : null;
 
-  const submit = () => {
-    const query = input.trim();
+  /**
+   * 질문 전송 공통(WP-139: 추천·후속 칩과 입력창이 같이 쓴다). 화면 참고가 켜져 있으면 함께 싣는다.
+   * fromDraft=false(칩): 입력창 초안·첨부 초안은 건드리지 않고 그 문구만 보낸다 — 거절돼도 초안을 덮지 않는다.
+   */
+  const sendQuery = (query: string, fromDraft: boolean) => {
     // Enter 는 버튼 disabled 를 거치지 않으므로 같은 판정을 여기서도 한다. WP-190: 상한·응답 전 ■ 대기면 전송만 막는다.
-    if (pending || !canSend || sendBlocked) return;
+    if (pending || sendBlocked || (fromDraft && !canSend)) return;
     const ctx = contextActive ? screenContext : undefined;
-    const attachments = attach.snapshot();
     setSuppressedIdentity(null); // 1회 제외는 이번 전송으로 소진 — 다음 전송부터 다시 포함.
+    if (!fromDraft) {
+      void onSubmit(query, ctx);
+      return;
+    }
+    const attachments = attach.snapshot();
     setInput('');
     void onSubmit(query, ctx, attachments).then((accepted) => {
       // 서버가 받아들였을 때만 보낸 파일을 초안에서 뺀다(WP-234) — 거절(400)이면 칩을 남겨 사유 토스트를 보고 고칠 수 있게.
@@ -201,6 +219,9 @@ export function AIChatPanel({
       setInput((prev) => prev || query);
     });
   };
+  const submit = () => sendQuery(input.trim(), true);
+  /** WP-139: 추천·후속 칩 — 문구 그대로 보낸다. */
+  const sendChip = (query: string) => sendQuery(query, false);
 
   return (
     <div data-testid="chat-panel" className="flex h-full min-h-0 flex-col">
@@ -508,7 +529,8 @@ export function AIChatPanel({
           submit();
         }}
         // WP-234: 입력창 영역 전체가 파일 드롭 영역 — 오버레이 기준점이 되도록 relative.
-        className="relative border-t p-2"
+        // WP-139: flex-col + min-h-0 — 키보드가 열려 시트가 낮아지면 추천 목록만 줄어 안에서 스크롤하고 입력창은 밀려나지 않는다.
+        className="relative flex min-h-0 flex-col border-t p-2"
         data-testid="ai-composer"
         {...dropProps}
       >
@@ -537,6 +559,15 @@ export function AIChatPanel({
             </div>
           )}
         </div>
+        {/* WP-139: 빈 새 대화 추천(시안 C) — 화면 참고 칩 바로 위. 전송이 막히면 비활성. 꺼짐이면 목록 자체가 없다(스펙 §10.6). */}
+        {showStarters && (
+          <StarterSuggestionList
+            {...starters}
+            disabled={pending || sendBlocked}
+            isMobile={isMobile}
+            onPick={sendChip}
+          />
+        )}
         {/* WP-54: 현재 화면 컨텍스트 칩 — 포함/제외(이번 1회) 상태 + 되돌리기. 상세는 ScreenContextChip. */}
         <ScreenContextChip
           context={screenContext}

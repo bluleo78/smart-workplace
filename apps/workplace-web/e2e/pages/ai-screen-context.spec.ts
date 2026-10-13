@@ -4,6 +4,7 @@ import { dismissByOutsideClick } from '../fixtures/wait'
 import { trackRequests } from '../fixtures/requests'
 import { expect, test } from '../fixtures/auth.fixture'
 import { type HomeChatStartBody, mockHomeChatGeneration } from '../fixtures/home-chat-mock'
+import { mockIssueDetail } from '../fixtures/issue-detail-mock'
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../factories/issue.factory'
 import { createChatMessagePage, createChatThread } from '../factories/chat.factory'
 import { createProject } from '../factories/project.factory'
@@ -28,15 +29,6 @@ async function captureChat(page: Page) {
   return mockHomeChatGeneration(page, {
     frames: [{ event: 'done', data: { sessionId: 's-ctx' } }],
   })
-}
-
-// 이슈 상세 화면 목 — projects.spec.ts 의 이슈 상세 단계와 같은 목 집합.
-async function mockIssueDetail(page: Page) {
-  await mockApi(page, 'GET', '/api/v1/projects/WP', createProject())
-  await mockApi(
-    page, 'GET', '/api/v1/projects/WP/issues/12',
-    createIssueDetail({ summary: createIssue({ number: 12, title: '로그인 버그 수정', status: 'IN_PROGRESS', priority: 'HIGH' }) }),
-  )
 }
 
 test.describe('AI 채팅 화면 컨텍스트 — 공통', () => {
