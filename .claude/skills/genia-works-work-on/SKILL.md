@@ -15,7 +15,7 @@ description: Use when the user asks you to work on a genia-works issue (e.g. "WP
    - 할 일 목록을 세우거나 바뀌면 `stepsDone`/`stepsTotal` 갱신, 큰 단계마다 note 갱신. `stepsDone` 은 항상 `stepsTotal` 과 함께 보낸다(`stepsDone` 만 보내면 서버가 거부한다).
    - 막히면 `state: 'BLOCKED'` + note 에 이유.
    - 사용자가 멈추라고 하면 `state: 'PAUSED'`.
-   - 사용자가 답하면 바로 `report_agent_work({ issueKey, state: 'WORKING', note: '<답에 따른 진행 한 줄, 예: A안으로 진행>' })` 로 작업 중으로 되돌린다(답한 뒤 이슈를 쓰지 않으면 "답변 필요" 로 남기 때문). 새 note 를 함께 보내야 한다 — 없으면 질문 note 가 지워져 빈 채로 남는다.
+   - 사용자가 답하거나 필요한 인증·권한을 받아 다시 진행할 수 있게 되면 바로 `report_agent_work({ issueKey, state: 'WORKING', note: '<이어서 할 일 한 줄, 예: A안으로 진행>' })` 로 작업 중으로 되돌린다(이슈를 쓰기 전까지는 "답변 필요"·"인증 필요" 로 남고, 특히 인증 필요는 사용자 답 글로도 풀리지 않는다). 새 note 를 함께 보내야 한다 — 없으면 앞의 note 가 지워져 빈 채로 남는다.
 4. 마무리: 사용자에게 "완료 처리 / 검토 대기" 를 묻는다.
    - 완료면: (선택) 먼저 `report_agent_work({ issueKey, state: 'COMPLETED', message: '<최종 요약>' })` 로 작업을 완료로 끝내며 요약을 이슈 채팅에 남긴 뒤, `update_issue({ issueKey, status: 'DONE' })` 를 호출한다. 순서가 반대면 안 된다 — 완료·취소된 이슈에는 보고할 수 없다(409).
    - 검토 대기면: `report_agent_work({ issueKey, state: 'REVIEW', note: '<PR·커밋 링크 요약>' })`.
