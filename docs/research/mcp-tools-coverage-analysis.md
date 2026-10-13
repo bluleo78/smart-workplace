@@ -174,7 +174,7 @@
 
 1. **새 도구보다 기존 도구 파라미터 확장을 먼저 검토한다.** 예: `create_issue` 에 라벨·마일스톤·사이클, `update_issue` 에 커스텀 필드 값, 목록 도구에 필터, `get_project` 에 필드 정의·날짜, `mark_mail_read` 에 `read: true/false`.
 2. **읽기는 상세 도구에 옵션으로 합친다**(GitHub `issue_read(method=…)` 방식). 예: `get_issue_detail` 에 워처·드라이브 링크, `get_wiki_page` 에 판 기록.
-3. **첨부 읽기는 도구 하나로 통일한다**: `read_attachment(source, …)` — 이슈·노트·메일·메시징 첨부와 드라이브 파일을 같은 도구로 읽는다.
+3. **첨부 읽기는 도구 하나로 통일한다**: `read_file(source, …)`(WP-346 당시 이름 `read_attachment`, WP-369 에서 바꿈) — 이슈·노트·메일·메시징 첨부와 드라이브 파일을 같은 도구로 읽는다.
 4. **비슷한 쓰기는 묶되 읽기와 쓰기는 섞지 않는다.** 예: 라벨·마일스톤·사이클 생성·수정 → `create_project_meta`·`update_project_meta`(kind 로 구분 — `save_` 같은 새 동사는 쓰지 않는다, §6). 읽기·쓰기를 한 도구에 섞으면 Claude 커넥터 심사에서 반려된다.
 5. **외부 MCP 기본 노출은 85개 이하**로 유지한다. 앱별 도구 선택(2-5)을 필수로 둬 사용자가 필요한 앱만 켜게 한다.
    - 2026-10-13 변경(WP-340 웨이브 5, 사용자 결정): 개수 대신 **기본 연결(`/mcp`, destructive 제외)의 도구 정의 크기 ≤ 1.5만 토큰(근사)** + **앱당 15개 이하**로 바꿨다. 클라이언트가 싣는 비용은 개수보다 정의 크기가 정하고, 앱 선택 연결이 실을 양은 앱당 개수가 정하기 때문이다. 근사식·측정 방법은 `packages/mcp-tools-shared/README.md` "도구 수와 정의 크기", 강제는 `tool-naming.test.ts`.
@@ -198,7 +198,7 @@
 
 | # | 개선안 | 위험 | 규모 |
 |---|---|---|---|
-| 1-1 | 드라이브 폴더·파일 쓰기 4종 공유 이동 + 이름 변경(`create_drive_folder`·`rename_drive_folder`·`move_drive_folder`·`move_drive_file`), rest-client 메서드 추가 | W | S |
+| 1-1 | 드라이브 폴더·파일 쓰기 4종 공유 이동 + 이름 변경(`create_drive_folder`·`rename_drive_folder`·`move_drive_folder`·`move_drive_file` — WP-369 에서 `rename_drive_item`·`move_drive_item` 으로 합침), rest-client 메서드 추가 | W | S |
 | 1-2 | `create_external_contact`·`update_external_contact`, `discover_channels`, `sync_mail` 공유 이동 | W / R | S |
 | 1-3 | `update_status`·`list_project_members` 폐지, 프롬프트·agent.md·테스트 수정 | 중간(v1 담당자 루프 회귀 확인) | M |
 
@@ -221,9 +221,9 @@
 
 | # | 개선안 | 근거 | 선례 | 위험 | 규모 |
 |---|---|---|---|---|---|
-| 3-1 | 통합 `read_attachment(source, …, offset, limit)` 도구 — 1차로 이슈 첨부(`source=issue`, 기존 `/text` API)와 드라이브 파일(`source=drive`, 이슈·메시지에 연결된 드라이브 파일 포함). 이미지는 이미지 블록(0-2) | `IssueAttachmentController.java:72` | Jira 첨부, Google `read_file_content`, Dropbox `GetMarkdown` | R | M |
+| 3-1 | 통합 `read_file(source, …, offset, limit)` 도구 — 1차로 이슈 첨부(`source=issue`, 기존 `/text` API)와 드라이브 파일(`source=drive`, 이슈·메시지에 연결된 드라이브 파일 포함). 이미지는 이미지 블록(0-2) | `IssueAttachmentController.java:72` | Jira 첨부, Google `read_file_content`, Dropbox `GetMarkdown` | R | M |
 | 3-2 | 드라이브 추출 텍스트 구간 API(`/drive/files/{id}/text`) — `ExtractedTextService.read` 위에 엔드포인트만. 추출 상태 그대로 반환. 3-1 의 `source=drive` 가 사용 | 드라이브는 업로드 시 이미 추출됨 | 같음 | R | S |
-| 3-3 | 노트·메시징 첨부: 업로드 시 추출을 걸고 텍스트 API 추가. 메일 첨부: 저장 파일이 없어(IMAP 재수신) 요청 시 추출 또는 첨부 캐시 연계부터 결정. 이후 `read_attachment` source 확장 | 추출은 4곳만, 메일은 `MailInboxController:153` | Notion 첨부 다운로드(텍스트), Gmail 첨부 메타 | R | L+ |
+| 3-3 | 노트·메시징 첨부: 업로드 시 추출을 걸고 텍스트 API 추가. 메일 첨부: 저장 파일이 없어(IMAP 재수신) 요청 시 추출 또는 첨부 캐시 연계부터 결정. 이후 `read_file` source 확장 | 추출은 4곳만, 메일은 `MailInboxController:153` | Notion 첨부 다운로드(텍스트), Gmail 첨부 메타 | R | L+ |
 | 3-4 | (선택) 단기 서명 **다운로드 링크** — 원본이 필요한 경우(코드 실행 가능한 에이전트) | 공개 공유 다운로드 경로 존재 | Atlassian·Box·Dropbox 일회용 URL | R(링크 유출 시 노출 — 만료·1회용 필수) | M |
 
 원칙: "텍스트로 읽기"와 "원본 받기"를 다른 도구로 둔다(Google·Dropbox 와 같은 구성). base64 원본 반환은 하지 않는다(클라이언트 토큰 상한).
@@ -232,7 +232,7 @@
 
 | 앱 | 개선안 | 위험 | 규모 |
 |---|---|---|---|
-| 드라이브 | `rename_drive_file`, `copy_drive_file`·`copy_drive_folder`, `list_drive_file_backlinks`, `list_drive_file_versions`, 첨부를 드라이브로 가져오기, 폴더 경로(응답 포함 검토) | W / R | M |
+| 드라이브 | `rename_drive_file`(WP-369 에서 `rename_drive_item` 으로 합침), `copy_drive_file`·`copy_drive_folder`, `list_drive_file_backlinks`, `list_drive_file_versions`, 첨부를 드라이브로 가져오기, 폴더 경로(응답 포함 검토) | W / R | M |
 | 메시징 | `join_channel`, `add_reaction`·`remove_reaction`, `update_channel_message`(destructiveHint:true), 읽음 처리, `list_channel_members`, 캐치업 요약·스레드 인박스 | W / R | M |
 | 이슈 | `create_issue` 에 labels·milestone·cycles(백엔드 `CreateIssueRequest` 변경 또는 후속 호출), `list_issues` 에 milestone·parent(sort 는 백엔드 필요), 워치 중인 이슈(`/me/watched-issues`), `update_issue` 에 커스텀 필드 값, `get_issue_detail` 에 워처·드라이브 링크, 이슈에 드라이브 파일 연결 | W / R | M |
 | 프로젝트 | `get_project` 에 커스텀 필드 정의·마일스톤 기한·사이클 기간, 라벨·마일스톤·사이클 생성·수정은 `create_project_meta`·`update_project_meta` | W / R | M |
@@ -255,7 +255,7 @@
 
 - **경로마다 도구 하나**: 같은 작업에 확인 카드(`propose_create_event`)와 직접 실행(`create_event`)이 함께 실리면 모델이 헷갈린다. AI Chat 은 확인 카드를 유지하고, 직접 실행 도구는 외부 MCP 전용으로 두어 assistant·subagent 에 싣지 않는다.
 - **검증 로직 공유**: `propose_create_event` 의 참석자 해석(`resolveAttendees`)·시간대 보정(`normalizeTimezone`)·충돌 계산이 `tools.ts` 안에 있다. 외부 MCP 쓰기 도구가 같은 검증을 하려면 공유 패키지(또는 서버)로 옮긴다.
-- **첨부 읽기 정리**: AI Chat 에는 이슈 챗 `read_attachment_text`, 홈 `read_chat_attachment`, 원본 사전 다운로드가 따로 있다. `read_attachment` 와 이름·입력을 맞추고 세션·스레드 바인딩이 꼭 필요한 것만 전용으로 남긴다. opencode 비전 미지원 모델의 이미지 대체(`replaceImagesWithNotice`)가 공유 도구에도 적용되는지 확인한다.
+- **첨부 읽기 정리**: AI Chat 에는 이슈 챗 `read_attachment_text`, 홈 `read_chat_attachment`, 원본 사전 다운로드가 따로 있다. `read_file` 와 이름·입력을 맞추고 세션·스레드 바인딩이 꼭 필요한 것만 전용으로 남긴다. opencode 비전 미지원 모델의 이미지 대체(`replaceImagesWithNotice`)가 공유 도구에도 적용되는지 확인한다.
 - **subagent 는 도구를 나열한다**: 공유 도구를 추가해도 `agent.md` 의 tools 목록과 라우터 프롬프트에 넣지 않으면 AI Chat 은 못 쓴다. 이슈마다 `agent.md`·프롬프트·라벨(`tool-labels.ts`, 웹 `aiToolLabels`)·`tools.test.ts`·회귀 점검(ai-driven-agent-inspector)을 함께 처리한다.
 - **응답 형식 변경**: 필드 이름 통일·페이지 정보 추가는 subagent 식별자 규칙과 이어 조회 안내에 반영한다.
 - **annotation**: ai-agent 는 annotation 을 보내지 않는다. 외부 MCP 와 같은 hint 를 실을지 함께 정한다.
@@ -306,7 +306,7 @@
 | 1 공유 이동·폐지 | WP-343 |
 | 0-5 설명·오류 | WP-344 |
 | 0-2 반환 형식 | WP-345 |
-| 3-1·3-2 `read_attachment` | WP-346 |
+| 3-1·3-2 `read_file`(옛 `read_attachment`) | WP-346, WP-369 |
 | 2-1 노출 기준·명명 규칙 | WP-347 |
 | 2-2 캘린더 쓰기 | WP-348 |
 | 2-3 프로젝트·초대 | WP-349 |

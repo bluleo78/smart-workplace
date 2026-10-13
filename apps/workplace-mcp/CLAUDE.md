@@ -50,7 +50,7 @@ workplace-mcp 자신은 PAT 를 저장·검증하지 않고 그대로 전달(패
 | `POST /mcp/x/{apps}` | 쉼표로 고른 앱의 도구 — 예: `/mcp/x/issue,wiki` |
 | `POST /mcp/x/{apps}/readonly` | 앱 선택 ∩ 읽기 전용 |
 
-- 앱 이름과 앱별 도구는 공유 패키지 README "앱 분류" 표가 기준이다: `issue` `project` `wiki` `drive` `mail` `messaging` `calendar` `contacts` `notify` `member`. 여러 앱에 걸친 도구(`read_attachment`, `list_projects`, `get_project`, `search_members`)는 고른 앱 중 하나만 속해도 실린다.
+- 앱 이름과 앱별 도구는 공유 패키지 README "앱 분류" 표가 기준이다: `issue` `project` `wiki` `drive` `mail` `messaging` `calendar` `contacts` `notify` `member`. 여러 앱에 걸친 도구(`read_file`, `list_projects`, `get_project`, `search_members`)는 고른 앱 중 하나만 속해도 실린다.
 - 헤더 `X-MCP-Toolsets: issue,wiki` 는 경로에 앱 선택이 **없을 때** 같은 의미다. 경로에 앱 선택(`/x/…`)이 있으면 헤더는 무시한다(합치지 않음). `/mcp/readonly` + 헤더는 헤더 앱 선택 + 읽기 전용이다. 빈 헤더는 없는 것으로 본다.
 - 모르는 앱 이름은 HTTP 400 + JSON-RPC 오류 본문(`error.message` 에 사용 가능한 앱 목록, `error.data.availableApps`). 일부만 싣지 않고 전부 거절한다. 인증(401)이 먼저, `/auth/me` 호출 전에 거절한다.
 - GET·DELETE 는 모든 경로에서 405(stateless). 인증·initialize 조기 검증은 모든 경로가 같다.

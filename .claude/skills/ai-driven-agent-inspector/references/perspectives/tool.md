@@ -40,7 +40,7 @@
 상태 변경: get_issue_detail → update_issue(status)
 댓글 추가: get_issue_detail → add_comment
 unassign: get_issue_detail → (propose?) → unassign_self
-첨부 읽기: get_issue_detail(attachments[].fileId) → read_attachment(source="issue", issueKey, fileId) → (nextOffset 있으면 offset 이어 읽기)
+첨부 읽기: get_issue_detail(attachments[].fileId) → read_file(source="issue", issueKey, attachmentId) → (nextOffset 있으면 offset 이어 읽기)
 ```
 
 ### calendar-agent
@@ -55,10 +55,12 @@ unassign: get_issue_detail → (propose?) → unassign_self
 폴더 생성: list_drive_spaces → create_drive_folder (propose 불필요인지 agent.md 확인)
 파일 삭제: list_drive_items → propose_delete_drive_item → [pending_action]
 폴더 이동: list_drive_items → propose_move_folder → [pending_action]
-본문 읽기: list_drive_items/search_drive → read_attachment(source="drive", driveFileId) (요약이면 get_drive_file_summary)
-파일 이름 변경·복사(WP-354): list_drive_items/search_drive → rename_drive_file / copy_drive_item (같은 폴더로 복사하면 이름 충돌 오류가 정상, 다른 폴더를 지정해야 함)
+본문 읽기: list_drive_items/search_drive → read_file(source="drive", driveFileId) (요약이면 get_drive_file_summary)
+파일·폴더 이름 변경·이동·복사(WP-354, WP-369): list_drive_items/search_drive → rename_drive_item / move_drive_item(driveFileId 또는 folderId 하나) / copy_drive_item (같은 폴더로 복사하면 이름 충돌 오류가 정상, 다른 폴더를 지정해야 함)
 첨부 가져오기(WP-354): 라우터가 get_issue_detail·list_channel_messages 로 첨부 id 확보 → drive-agent 위임 → list_drive_spaces → import_attachment_to_drive
 버전·연결된 곳(WP-354): get_drive_file_summary(includeVersions·includeBacklinks) — 롤백은 미지원
+내용 저장(WP-369): 라우터가 텍스트 전문·파일 이름을 prompt 에 담아 위임 → list_drive_spaces → create_drive_file(spaceId, name, content) — content 없이 부르면 결함(AI Chat 은 업로드 링크 불가, 도구가 오류로 막음)
+다운로드(WP-369): search_drive/list_drive_items → create_drive_download_link(driveFileId) → 링크와 "10분·한 번만·전달 금지" 안내. 내용 읽기·요약 요청에 링크를 만들면 결함(read_file·get_drive_file_summary)
 ```
 
 ### mail-agent

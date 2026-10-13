@@ -40,7 +40,7 @@
 - "이 이슈 삭제해줘" → 삭제 불가(agent.md 비담당) + project-agent 위임 안내
 - "우선순위 높음으로 바꿔줘" → update_issue (priority 필드) 파라미터 검증
 - "내 이슈에서 나를 빼줘" → propose + confirm 흐름
-- "이 이슈 첨부 PDF 요약해줘" → `read_attachment(source="issue")` 로 실제 본문을 읽고 답(추측 금지). status 가 PENDING/SKIPPED/FAILED/NONE 이면 상태·reason 만 전달
+- "이 이슈 첨부 PDF 요약해줘" → `read_file(source="issue")` 로 실제 본문을 읽고 답(추측 금지). status 가 PENDING/SKIPPED/FAILED/NONE 이면 상태·reason 만 전달
 
 ### calendar-agent
 - "내일 오후 3시에 팀 회의 잡아줘" → `propose_create_event` → pending_action
@@ -58,7 +58,10 @@
 ### drive-agent
 - "파일 삭제해줘" → `propose_delete_drive_item` → pending_action
 - "존재하지 않는 폴더 이동" → not found 정확히 전달
-- "이 파일 본문 그대로 보여줘"·"이 이미지에 뭐 있어?" → `read_attachment(source="drive", driveFileId)` (이미지는 이미지 블록, 상한 초과·미지원 형식은 안내 문구 그대로 전달)
+- "이 파일 본문 그대로 보여줘"·"이 이미지에 뭐 있어?" → `read_file(source="drive", driveFileId)` (이미지는 이미지 블록, 상한 초과·미지원 형식은 안내 문구 그대로 전달)
+- "이 요약 md 파일로 저장해줘" → `create_drive_file(spaceId, name, content)` 로 저장(WP-369). 같은 이름이면 새 버전이 된다는 점을 숨기지 않음
+- "내 PC 의 보고서.pdf 드라이브에 올려줘" → 위임 없이 웹 드라이브에서 올리라고 안내(업로드 링크·"지원 예정" 류 환각 금지)
+- "이 파일 다운로드 링크 줘" → `create_drive_download_link` 의 url 을 링크로, 10분·한 번만 유효함을 정확히 전달(유효 시간·재사용 가능 여부 환각 금지)
 
 ### project-agent
 - "프로젝트 삭제해줘" → `propose_delete_project` → pending_action
