@@ -61,7 +61,7 @@ export function messageToTurn(m: HomeMessage): ChatTurn {
     contentBlocks: m.contentBlocks ? reconcileBlocks(m.contentBlocks, m.widgets ?? []) : undefined,
     ...(interrupted ? { interrupted } : {}),
     // WP-139: 다시 열어도 마지막 답의 후속 질문이 보이게(표시 조건은 패널이 판단).
-    ...(m.role === 'ASSISTANT' && m.followups?.length ? { followups: m.followups } : {}),
+    ...(m.role === 'ASSISTANT' && m.followups?.length ? { followups: [...new Set(m.followups)] } : {}),
   };
 }
 

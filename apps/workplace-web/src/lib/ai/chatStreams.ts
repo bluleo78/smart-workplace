@@ -249,7 +249,11 @@ export function createChatStreams(opts: { storage?: () => KeyValueStore | null }
     markFinished(sessionId);
   }
 
-  /** 서버가 받지 않은 질문(409·429)의 낙관적 두 턴을 걷는다 — 남은 게 없는 draft 칸은 지운다(R17). */
+  /**
+   * 서버가 받지 않은 질문(409·429)의 낙관적 두 턴을 걷는다 — 남은 게 없는 draft 칸은 지운다(R17).
+   * WP-139 알려진 한계: startTurn 이 lastDoneCid 를 비웠으므로, 이전 답의 후속 질문이 그 사이(전송~거절)에 왔다면 버려진 채다
+   * — 다시 열면 이력으로 보인다. 그 전에 이미 붙은 후속 질문은 이전 답 턴에 그대로 남아 다시 보인다.
+   */
   function removeOptimistic(key: string, e: StreamEntry) {
     const turns = e.turns.slice(0, -2);
     if (key.startsWith(DRAFT_PREFIX) && turns.length === 0) {
@@ -259,13 +263,27 @@ export function createChatStreams(opts: { storage?: () => KeyValueStore | null }
   }
 
   /**
+   * WP-139: 이 칸이 마지막 완료 답 뒤의 다른 생성(다른 창·새로고침 전 것)을 알게 됐다 — 이전 답의 후속 질문이 늦게 와도
+   * 그 생성의 답(이력 재조회로 마지막 턴이 된다)에 잘못 붙지 않게 lastDoneCid 를 비운다. 바뀌었으면 true.
+   */
+  function forgetDone(sid: string, cid: string): boolean {
+    const e = entries.get(sid);
+    if (!e || e.lastDoneCid === null || e.lastDoneCid === cid) return false;
+    entries.set(sid, { ...e, lastDoneCid: null });
+    return true;
+  }
+
+  /**
    * WP-139: 후속 질문 — done 으로 이미 은퇴한 생성의 이벤트라 라우팅 표가 아닌 sessionId 로 칸을 찾는다.
    * 그 칸의 마지막 종결 생성이 이 correlationId 이고, 답변 중이 아니며, 마지막 턴이 어시스턴트일 때만 붙인다.
+   * 알려진 한계: 자리표시 생성의 done 은 이력을 다시 읽는데(refetch), 그 응답보다 먼저 붙은 후속 질문은 load 가 턴을 갈아끼우며
+   * 사라질 수 있다 — API 가 저장한 뒤 발행하므로 대개 재조회 이력에 들어 있고, 아니어도 다시 열면 이력으로 보인다.
    */
   function applyFollowups(data: Record<string, unknown>) {
     const cid = str(data.correlationId);
     const sid = str(data.sessionId);
-    const items = Array.isArray(data.items) ? data.items.filter((x): x is string => typeof x === 'string') : [];
+    // 중복 문구는 한 번만 — 칩 key 를 문구로 쓴다.
+    const items = Array.isArray(data.items) ? [...new Set(data.items.filter((x): x is string => typeof x === 'string'))] : [];
     if (!cid || !sid || items.length === 0) return;
     const e = entries.get(sid);
     if (!e || e.pending || e.lastDoneCid !== cid) return;
@@ -285,6 +303,7 @@ export function createChatStreams(opts: { storage?: () => KeyValueStore | null }
    */
   function adopt(cid: string, sid: string | null, terminal: boolean) {
     if (!sid) return;
+    forgetDone(sid, cid); // WP-139: 이 대화의 다른 생성 — 종결·진행 중 모두
     const e = entries.get(sid);
     if (terminal) {
       retire(cid);
@@ -669,6 +688,7 @@ export function createChatStreams(opts: { storage?: () => KeyValueStore | null }
       const server = new Map(items.map((i) => [i.sessionId, i.correlationId]));
       for (const [sid, cid] of [...active]) {
         if (server.has(sid) || (activeAddedAt.get(sid) ?? 0) > token) continue;
+        forgetDone(sid, cid); // WP-139: 놓친 종결로 마감하는 다른 생성 — 이전 답의 후속 질문을 받지 않는다
         const e = entries.get(sid);
         if (e?.correlationId === cid) entries.set(sid, { ...e, pending: false, correlationId: null, reconnected: false });
         finish(cid, sid);
@@ -678,6 +698,7 @@ export function createChatStreams(opts: { storage?: () => KeyValueStore | null }
         if (finished.has(cid)) continue;
         active.set(sid, cid);
         if (corrIndex.has(cid)) continue;
+        forgetDone(sid, cid); // WP-139: 이 창이 모르는 생성이 답변 중 — 이전 답의 후속 질문을 받지 않는다
         const e = entries.get(sid);
         corrIndex.set(cid, { key: sid, gen: e?.gen ?? 0, placeholder: true, attached: true });
         if (e && !e.correlationId) effects.refetch(sid);

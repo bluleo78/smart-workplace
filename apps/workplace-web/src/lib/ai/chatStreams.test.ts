@@ -699,6 +699,48 @@ describe('후속 질문 followups (WP-139)', () => {
     expect(last(s, 's-b')).not.toHaveProperty('followups');
   });
 
+  it('다른 창의 생성(라우팅 표에 없는 종결)을 알게 된 뒤 도착한 이전 답의 followups 는 버린다', () => {
+    const { s } = setup();
+    ask(s, 'A', 'corr-a', 's-a');
+    ev(s, 'delta', { correlationId: 'corr-a', sessionId: 's-a', text: 'A 답' });
+    ev(s, 'done', { correlationId: 'corr-a', sessionId: 's-a', widgets: null });
+    ev(s, 'cancelled', { correlationId: 'corr-b', sessionId: 's-a' }); // 다른 창이 같은 대화에서 보낸 B 의 종결
+    s.load('s-a', [{ role: 'user', content: 'A' }, { role: 'assistant', content: 'A 답' }, { role: 'user', content: 'B' }, { role: 'assistant', content: 'B 답' }], []);
+    ev(s, 'followups', { correlationId: 'corr-a', sessionId: 's-a', messageId: 2, items });
+    expect(turnsOf(s, 's-a')?.some((t) => 'followups' in t && t.followups)).toBe(false);
+  });
+
+  it('다른 창의 진행 중 생성을 이어받은 뒤 도착한 이전 답의 followups 는 버린다', () => {
+    const { s } = setup();
+    ask(s, 'A', 'corr-a', 's-a');
+    ev(s, 'done', { correlationId: 'corr-a', sessionId: 's-a', widgets: null });
+    ev(s, 'delta', { correlationId: 'corr-b', sessionId: 's-a', text: 'B 조각' }); // 이어받기(자리표시)
+    ev(s, 'followups', { correlationId: 'corr-a', sessionId: 's-a', messageId: 2, items });
+    expect(turnsOf(s, 's-a')?.some((t) => 'followups' in t && t.followups)).toBe(false);
+  });
+
+  it('재동기화가 놓친 종결을 마감한 다른 생성이 있으면 이전 답의 followups 는 버린다', () => {
+    const { s } = setup();
+    ask(s, 'A', 'corr-a', 's-a');
+    ev(s, 'done', { correlationId: 'corr-a', sessionId: 's-a', widgets: null });
+    // 서버 목록이 다른 창의 B 를 생성 중으로 알려 주고(자리표시), 다음 재동기화에서 빠져 놓친 종결로 마감된다.
+    s.setActive([{ sessionId: 's-a', correlationId: 'corr-b', startedAt: '2026-10-13T00:00:00Z' }], 3, s.beginResync());
+    ev(s, 'followups', { correlationId: 'corr-a', sessionId: 's-a', messageId: 2, items }); // B 답변 중(이력 재조회 전)에 도착
+    expect(last(s, 's-a')).not.toHaveProperty('followups');
+    s.setActive([], 3, s.beginResync());
+    s.load('s-a', [{ role: 'user', content: 'A' }, { role: 'assistant', content: 'A 답' }, { role: 'user', content: 'B' }, { role: 'assistant', content: 'B 답' }], []);
+    ev(s, 'followups', { correlationId: 'corr-a', sessionId: 's-a', messageId: 2, items });
+    expect(turnsOf(s, 's-a')?.some((t) => 'followups' in t && t.followups)).toBe(false);
+  });
+
+  it('중복된 항목은 한 번만 싣는다', () => {
+    const { s } = setup();
+    ask(s, 'A', 'corr-a', 's-a');
+    ev(s, 'done', { correlationId: 'corr-a', sessionId: 's-a', widgets: null });
+    ev(s, 'followups', { correlationId: 'corr-a', sessionId: 's-a', messageId: 2, items: ['x 알려줘', 'x 알려줘', 'y 알려줘'] });
+    expect(last(s, 's-a')).toMatchObject({ followups: ['x 알려줘', 'y 알려줘'] });
+  });
+
   it('다른 생성(correlationId)의 followups 는 버린다', () => {
     const { s } = setup();
     ask(s, 'A', 'corr-a', 's-a');
