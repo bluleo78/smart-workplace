@@ -2,6 +2,7 @@ package com.workplace.home.service;
 
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.home.dto.AiScreenContext;
+import com.workplace.home.exception.HomeSessionNotFoundException;
 import com.workplace.home.outbound.AiAgentSuggestionClient;
 import com.workplace.home.outbound.ChatMessages.SuggestionRequest;
 import com.workplace.user.service.AiPreferenceService;
@@ -119,12 +120,17 @@ public class HomeFollowupService {
       // 생성 중(최대 20초)에 사용자가 추천을 껐으면 저장·발행하지 않는다.
       if (!preferences.suggestionsEnabled(in.callerId())) return;
       if (sessionService.saveFollowups(in.callerId(), in.sessionId(), in.messageId(), items) == 0) {
+        // 소유는 확인됐는데 갱신 0행 — 메시지가 그사이 지워졌거나 id·세션이 어긋났다. 드문 경우라 추적할 수 있게 남긴다.
+        log.info("후속 질문 저장 0행 — 발행 생략: session={} message={}", in.sessionId(), in.messageId());
         return;
       }
       turn.emit("home.chat.followups", Map.of("messageId", in.messageId(), "items", items));
+    } catch (HomeSessionNotFoundException e) {
+      // 생성 중 대화 삭제(ensureOwner 404) — 정상 흐름이라 조용히 버린다.
+      log.debug("후속 질문 저장 생략 — 대화 없음: session={}", in.sessionId());
     } catch (RuntimeException e) {
-      // 그사이 대화 삭제(ensureOwner 404) 등 — 부가 기능이라 조용히 버린다.
-      log.debug("후속 질문 생성·저장 실패: session={} {}", in.sessionId(), e.getMessage());
+      // 그 밖의 실패(DB 오류 등)는 부가 기능이라 버리되, 원인을 볼 수 있게 경고로 남긴다.
+      log.warn("후속 질문 생성·저장 실패: session={} message={}", in.sessionId(), in.messageId(), e);
     }
   }
 }

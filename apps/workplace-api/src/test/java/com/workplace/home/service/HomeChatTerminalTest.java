@@ -18,6 +18,7 @@ import com.workplace.global.tenant.TenantScopedRunner;
 import com.workplace.home.dto.HomeChatStartedResponse;
 import com.workplace.home.dto.HomeMessageResponse;
 import com.workplace.home.outbound.AiAgentChatClient;
+import com.workplace.home.outbound.AiAgentSuggestionClient;
 import com.workplace.support.IntegrationTestBase;
 import java.util.ArrayList;
 import java.util.List;
@@ -53,6 +54,10 @@ class HomeChatTerminalTest extends IntegrationTestBase {
   @Autowired DSLContext dsl;
   @Autowired ObjectMapper om;
   @MockitoBean AiAgentChatClient chatClient;
+
+  /** WP-139: 완료 턴마다 나가는 후속 질문 호출을 막는다 — 실제 ai-agent 가 없어 연결 거부 WARN 이 쌓이지 않게(기본 빈 목록). */
+  @MockitoBean AiAgentSuggestionClient suggestionClient;
+
   @MockitoBean AssistantResolver assistantResolver;
   @MockitoBean SseRegistry sseRegistry;
   @MockitoBean TenantScopedRunner tenantScopedRunner;

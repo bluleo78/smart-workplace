@@ -331,7 +331,7 @@ class AiAgentChatClientTest {
   }
 
   @Test
-  void done_의_source_를_DoneHandler_로_넘기고_없으면_null() throws Exception {
+  void done_의_source_를_DoneHandler_로_넘긴다() throws Exception {
     boot(
         "event: done\ndata: {\"fullText\":\"a\",\"widgets\":null,\"source\":\"fallback\"}\n\n",
         200);
@@ -339,5 +339,26 @@ class AiAgentChatClientTest {
     client.composeStream(
         dummyReq(), d -> {}, (ft, w, src) -> source.set(src), msg -> {}, l -> {}, n -> {}, t -> {});
     assertThat(source.get()).isEqualTo("fallback");
+  }
+
+  /** 구 ai-agent(롤링 배포 중)는 done 에 source 를 싣지 않는다 — null 로 넘겨 후속 질문 대상에서 빠지지 않게(WP-139). */
+  @Test
+  void done_에_source_가_없으면_null_로_넘긴다() throws Exception {
+    boot("event: done\ndata: {\"fullText\":\"a\",\"widgets\":null}\n\n", 200);
+    AtomicReference<String> source = new AtomicReference<>("unset");
+    AtomicReference<String> text = new AtomicReference<>();
+    client.composeStream(
+        dummyReq(),
+        d -> {},
+        (ft, w, src) -> {
+          text.set(ft);
+          source.set(src);
+        },
+        msg -> {},
+        l -> {},
+        n -> {},
+        t -> {});
+    assertThat(text.get()).isEqualTo("a");
+    assertThat(source.get()).isNull();
   }
 }

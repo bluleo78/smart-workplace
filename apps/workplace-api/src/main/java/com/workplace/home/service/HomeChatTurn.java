@@ -45,10 +45,11 @@ final class HomeChatTurn {
   final ChatBlockRecorder blocks = new ChatBlockRecorder();
 
   /**
-   * 이번 턴에 확인 카드(pending_action)가 나왔는가 — 후속 질문 대상에서 빼는 근거(WP-139). 펌프 스레드가 쓰고 같은 스레드의 afterDone 이
-   * 읽는다.
+   * 이번 턴에 확인 카드(pending_action)가 나왔는가 — 후속 질문 대상에서 빼는 근거(WP-139). AiAgentChatClient.composeStream 이
+   * 동기 send 후 줄 루프에서 콜백을 호출 스레드(펌프)로 부르므로, pending_action 콜백이 쓰고 같은 펌프 스레드의 afterDone 이 읽는다 — 스레드 간
+   * 공유가 없어 volatile 이 필요 없다.
    */
-  private volatile boolean proposed;
+  private boolean proposed;
 
   HomeChatTurn(
       long callerId,

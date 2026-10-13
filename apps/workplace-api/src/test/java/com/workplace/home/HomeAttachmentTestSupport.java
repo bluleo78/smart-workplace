@@ -23,6 +23,7 @@ import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.tenant.TenantScopedRunner;
 import com.workplace.home.outbound.AiAgentChatClient;
 import com.workplace.home.outbound.AiAgentContextSummaryClient;
+import com.workplace.home.outbound.AiAgentSuggestionClient;
 import com.workplace.home.outbound.ChatMessages.ChatRequest;
 import com.workplace.home.service.HomeAttachmentService;
 import com.workplace.home.service.HomeChatService;
@@ -64,6 +65,10 @@ import org.springframework.web.multipart.MultipartFile;
 public abstract class HomeAttachmentTestSupport extends IntegrationTestBase {
 
   @MockitoBean protected AiAgentChatClient chatClient;
+
+  /** WP-139: 완료 턴마다 나가는 후속 질문 호출을 막는다 — 실제 ai-agent 가 없어 연결 거부 WARN 이 쌓이지 않게(기본 빈 목록). */
+  @MockitoBean protected AiAgentSuggestionClient suggestionClient;
+
   @MockitoBean protected AiAgentContextSummaryClient summaryClient;
   @MockitoBean protected AssistantResolver assistantResolver;
   @MockitoBean protected SseRegistry sseRegistry;
