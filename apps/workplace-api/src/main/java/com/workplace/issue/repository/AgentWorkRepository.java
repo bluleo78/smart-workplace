@@ -87,29 +87,50 @@ public class AgentWorkRepository {
         .map(AgentWorkRepository::toRow);
   }
 
-  /**
-   * 진행 중 작업이 없으면 만든다. 부분 유니크(agent_work_active_uq)와 충돌하면 아무것도 넣지 않고 기존 진행 중 행을 돌려준다 — 동시 첫 보고가 멱등이
-   * 되도록(예외 대신 재조회). 새로 들어간 경우에만 이벤트를 남기고, 충돌이면 RETURNING 이 비어 이벤트도 없다. tool 은 SUBMITTED 처럼 아직 모르면
-   * null.
-   */
+  /** 상태만 정해 진행 중 작업을 만든다 — note·진행률·단계 없이 시작하는 경우(터치 자동 시작·시드 등). */
   public Optional<AgentWorkRow> insertIfAbsent(
       long issueId, long workerId, String tool, String state) {
+    return insertIfAbsent(issueId, workerId, tool, state, null, null, null, null);
+  }
+
+  /**
+   * 진행 중 작업이 없으면 만든다. 부분 유니크(agent_work_active_uq)와 충돌하면 아무것도 넣지 않고 기존 진행 중 행을 돌려준다 — 동시 첫 보고가 멱등이
+   * 되도록(예외 대신 재조회). 첫 보고의 상태·note·진행률·단계를 처음부터 함께 넣어 이력이 보고당 한 번만 남게 한다. 새로 들어간 경우에만 이벤트를 남기고, 충돌이면
+   * RETURNING 이 비어 이벤트도 없다. tool 은 SUBMITTED 처럼 아직 모르면 null.
+   */
+  public Optional<AgentWorkRow> insertIfAbsent(
+      long issueId,
+      long workerId,
+      String tool,
+      String state,
+      String note,
+      Integer progress,
+      Integer stepsDone,
+      Integer stepsTotal) {
     recordEvents(
         dsl.insertInto(AGENT_WORK)
             .set(AGENT_WORK.ISSUE_ID, issueId)
             .set(AGENT_WORK.WORKER_ID, workerId)
             .set(AGENT_WORK.TOOL, tool)
             .set(AGENT_WORK.STATE, state)
+            .set(AGENT_WORK.NOTE, note)
+            .set(AGENT_WORK.PROGRESS, progress == null ? null : progress.shortValue())
+            .set(AGENT_WORK.STEPS_DONE, stepsDone == null ? null : stepsDone.shortValue())
+            .set(AGENT_WORK.STEPS_TOTAL, stepsTotal == null ? null : stepsTotal.shortValue())
             .onConflictDoNothing()
-            .returning(EVENT_SOURCE_FIELDS));
+            .returning(EVENT_SOURCE_FIELDS),
+        false);
     return findActive(issueId, workerId);
   }
 
   /**
-   * 부분 갱신 — null 필드는 유지, clearNote 면 note 를 NULL 로. 항상 updated_at 을 now() 로 올린다(터치 겸용).
-   * 상태·note·진행률·단계 중 하나라도 보낸 경우에만 이벤트를 남긴다 — 도구 값 갱신·터치만 하는 쓰기는 이력을 부풀리지 않는다.
+   * 진행 중 행의 부분 갱신 — null 필드는 유지, clearNote 면 note 를 NULL 로. 항상 updated_at 을 now() 로 올린다(터치 겸용). 대상은
+   * 진행 중 행(ended_at IS NULL)뿐이라, 동시에 종료된 행에는 아무것도 쓰지 않는다(0행 — 진행 상태 값이 종료 행에 써져 정합 CHECK 가 깨지는 것
+   * 방지). 상태·note·진행률·단계가 갱신 전 행과 실제로 달라졌을 때만 이벤트를 남긴다 — 같은 값 재보고·터치·도구 값 갱신은 이력을 부풀리지 않는다. 갱신한 행 수
+   * 반환.
    */
-  public void update(long id, AgentWorkPatch patch) {
+  public int update(long id, AgentWorkPatch patch) {
+    var before = AGENT_WORK.as("before");
     var step = dsl.update(AGENT_WORK).set(AGENT_WORK.UPDATED_AT, DSL.currentOffsetDateTime());
     if (patch.tool() != null) step = step.set(AGENT_WORK.TOOL, patch.tool());
     if (patch.state() != null) step = step.set(AGENT_WORK.STATE, patch.state());
@@ -124,22 +145,25 @@ public class AgentWorkRepository {
       step = step.set(AGENT_WORK.STEPS_DONE, patch.stepsDone().shortValue());
     if (patch.stepsTotal() != null)
       step = step.set(AGENT_WORK.STEPS_TOTAL, patch.stepsTotal().shortValue());
-    var where = step.where(AGENT_WORK.ID.eq(id));
-    if (isEventWorthy(patch)) {
-      recordEvents(where.returning(EVENT_SOURCE_FIELDS));
-    } else {
-      where.execute();
-    }
-  }
-
-  /** 이력에 남길 변화(상태·note·진행률·단계)가 패치에 있는지. */
-  private static boolean isEventWorthy(AgentWorkPatch p) {
-    return p.state() != null
-        || p.note() != null
-        || p.clearNote()
-        || p.progress() != null
-        || p.stepsDone() != null
-        || p.stepsTotal() != null;
+    // UPDATE … FROM 의 자기 조인은 문장 시작 시점의 행(갱신 전)을 보여준다 — RETURNING 에서 갱신 후 값과 비교해 변경 여부를 얻는다.
+    Field<Boolean> changed =
+        DSL.field(
+            AGENT_WORK
+                .STATE
+                .isDistinctFrom(before.STATE)
+                .or(AGENT_WORK.NOTE.isDistinctFrom(before.NOTE))
+                .or(AGENT_WORK.PROGRESS.isDistinctFrom(before.PROGRESS))
+                .or(AGENT_WORK.STEPS_DONE.isDistinctFrom(before.STEPS_DONE))
+                .or(AGENT_WORK.STEPS_TOTAL.isDistinctFrom(before.STEPS_TOTAL)));
+    List<Field<?>> returning = new ArrayList<>(EVENT_SOURCE_FIELDS);
+    returning.add(changed.as(CHANGED_COLUMN));
+    return recordEvents(
+        step.from(before)
+            .where(before.ID.eq(AGENT_WORK.ID))
+            .and(AGENT_WORK.ID.eq(id))
+            .and(AGENT_WORK.ENDED_AT.isNull())
+            .returning(returning),
+        true);
   }
 
   /**
@@ -188,10 +212,14 @@ public class AgentWorkRepository {
             .set(AGENT_WORK.ENDED_AT, DSL.currentOffsetDateTime())
             .where(where)
             .and(AGENT_WORK.ENDED_AT.isNull())
-            .returning(EVENT_SOURCE_FIELDS));
+            .returning(EVENT_SOURCE_FIELDS),
+        false);
   }
 
-  /** 이벤트로 옮길 변경 후 스냅샷 컬럼 — RETURNING 목록과 이벤트 INSERT 의 SELECT 가 같은 순서를 쓴다. */
+  /**
+   * 이벤트로 옮길 변경 후 스냅샷 컬럼. RETURNING 목록과 CTE 의 SELECT 가 이 목록 하나에서 만들어지고, 이벤트 INSERT 의 대상 컬럼({@link
+   * #EVENT_TARGET_FIELDS})과 같은 순서여야 한다.
+   */
   private static final List<Field<?>> EVENT_SOURCE_FIELDS =
       List.of(
           AGENT_WORK.ID,
@@ -201,34 +229,45 @@ public class AgentWorkRepository {
           AGENT_WORK.STEPS_DONE,
           AGENT_WORK.STEPS_TOTAL);
 
+  /** {@link #EVENT_SOURCE_FIELDS} 와 같은 순서로 대응하는 agent_work_event 컬럼. */
+  private static final List<Field<?>> EVENT_TARGET_FIELDS =
+      List.of(
+          AGENT_WORK_EVENT.WORK_ID,
+          AGENT_WORK_EVENT.STATE,
+          AGENT_WORK_EVENT.NOTE,
+          AGENT_WORK_EVENT.PROGRESS,
+          AGENT_WORK_EVENT.STEPS_DONE,
+          AGENT_WORK_EVENT.STEPS_TOTAL);
+
+  /** update 의 RETURNING 에 덧붙이는 "갱신 전과 달라졌는가" 컬럼 이름. */
+  private static final String CHANGED_COLUMN = "changed";
+
   /**
    * 행을 바꾸는 RETURNING 문을 CTE 로 감싸 그 결과를 agent_work_event 로 옮긴다({@code WITH u AS (UPDATE/INSERT …
-   * RETURNING …) INSERT INTO agent_work_event SELECT … FROM u}). 바뀐 행이 없으면 이벤트도 없다. 바뀐(=이벤트가 남은) 행
-   * 수를 돌려준다.
+   * RETURNING …), e AS (INSERT INTO agent_work_event SELECT … FROM u) SELECT count(*) FROM u}). 문장
+   * 하나라 행 변경과 이벤트가 함께 성공·실패한다. onlyChanged 면 RETURNING 의 changed 컬럼이 참인 행만 이벤트로 남긴다. 바뀐 행 수(이벤트 수가
+   * 아님)를 돌려준다.
    */
-  private int recordEvents(ResultQuery<?> changed) {
+  private int recordEvents(ResultQuery<?> changed, boolean onlyChanged) {
     Name u = DSL.name("u");
+    Name e = DSL.name("e");
     var snapshot = DSL.table(u);
-    return dsl.with(u)
-        .as(changed)
-        .insertInto(
-            AGENT_WORK_EVENT,
-            AGENT_WORK_EVENT.WORK_ID,
-            AGENT_WORK_EVENT.STATE,
-            AGENT_WORK_EVENT.NOTE,
-            AGENT_WORK_EVENT.PROGRESS,
-            AGENT_WORK_EVENT.STEPS_DONE,
-            AGENT_WORK_EVENT.STEPS_TOTAL)
-        .select(
-            DSL.select(
-                    DSL.field(DSL.name("u", "id"), Long.class),
-                    DSL.field(DSL.name("u", "state"), String.class),
-                    DSL.field(DSL.name("u", "note"), String.class),
-                    DSL.field(DSL.name("u", "progress"), Short.class),
-                    DSL.field(DSL.name("u", "steps_done"), Short.class),
-                    DSL.field(DSL.name("u", "steps_total"), Short.class))
-                .from(snapshot))
-        .execute();
+    List<Field<?>> columns = new ArrayList<>();
+    for (Field<?> f : EVENT_SOURCE_FIELDS) {
+      columns.add(DSL.field(DSL.name("u", f.getName()), f.getType()));
+    }
+    var source = dsl.select(columns).from(snapshot);
+    var events =
+        dsl.insertInto(AGENT_WORK_EVENT, EVENT_TARGET_FIELDS)
+            .select(
+                onlyChanged
+                    ? source.where(DSL.field(DSL.name("u", CHANGED_COLUMN), Boolean.class))
+                    : source)
+            .returning(AGENT_WORK_EVENT.ID);
+    return dsl.with(u.as(changed), e.as(events))
+        .select(DSL.count())
+        .from(snapshot)
+        .fetchOne(0, int.class);
   }
 
   /**
@@ -294,7 +333,8 @@ public class AgentWorkRepository {
             .and(
                 AGENT_WORK.WORKER_ID.in(
                     dsl.select(USER.ID).from(USER).where(USER.KIND.eq(UserKind.AGENT))))
-            .returning(EVENT_SOURCE_FIELDS));
+            .returning(EVENT_SOURCE_FIELDS),
+        false);
   }
 
   /** AGENT_WORK 컬럼을 가진 Record → AgentWorkRow (OffsetDateTime → Instant). */

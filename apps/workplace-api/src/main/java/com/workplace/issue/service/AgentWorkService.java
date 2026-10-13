@@ -66,7 +66,15 @@ public class AgentWorkService {
         AgentWorkState.isActive(patch.state()) ? patch.state() : AgentWorkState.WORKING;
     var row =
         repository
-            .insertIfAbsent(issueId, workerId, tool, initial)
+            .insertIfAbsent(
+                issueId,
+                workerId,
+                tool,
+                initial,
+                patch.clearNote() ? null : patch.note(),
+                patch.progress(),
+                patch.stepsDone(),
+                patch.stepsTotal())
             .orElseThrow(() -> new IllegalStateException("agent_work 생성 후 조회 실패"));
     // 답변 필요·인증 필요에서 다른 상태로 바뀌는데 새 note 가 없으면 질문·요청 note 를 지운다 — 남기면 "작업 중 · 질문" 으로 아직 묻는 것처럼 보인다.
     boolean leavingInterrupt =
@@ -86,7 +94,9 @@ public class AgentWorkService {
               effective.stepsDone(),
               effective.stepsTotal());
     }
-    repository.update(row.id(), effective);
+    // 첫 보고는 위 insert 가 값을 이미 담았으므로 이 update 는 updated_at 만 올리고 이력은 남기지 않는다(같은 값).
+    // 읽은 뒤 다른 트랜잭션이 행을 종료했다면 update 는 0행 — 종료 행에 진행 값을 쓰지 않고 409 로 답한다.
+    if (repository.update(row.id(), effective) == 0) throw new AgentWorkIssueClosedException();
     notifyChanged(issueId, workerId);
     // 동시 종료로 조회에서 이슈가 빠지면(종료 이슈 제외) NPE 대신 409 로 답한다.
     return viewsByIssueIds(List.of(issueId)).getOrDefault(issueId, List.of()).stream()

@@ -256,4 +256,60 @@ class AgentWorkRepositoryTest extends IntegrationTestBase {
     assertThat(repo.resumeInputRequiredAgents(otherIssueId)).isZero();
     assertThat(eventStates(auth.orElseThrow().id())).containsExactly("AUTH_REQUIRED");
   }
+
+  /** 종료된 행에는 update 가 아무것도 쓰지 않는다(0행) — 진행 상태 값이 종료 행에 써져 정합 CHECK 가 깨지거나 이력이 늘지 않는다. */
+  @Test
+  void update_는_종료된_행에_0행_이벤트_없음() {
+    var a = repo.insertIfAbsent(issueId, humanId, "claude-code", "WORKING").orElseThrow();
+    repo.endActive(List.of(issueId), AgentWorkState.COMPLETED);
+    assertThat(eventStates(a.id())).containsExactly("WORKING", "COMPLETED");
+
+    int changed =
+        repo.update(a.id(), new AgentWorkPatch(null, "WORKING", "되살림", false, 10, null, null));
+
+    assertThat(changed).isZero();
+    var row = dsl.selectFrom(AGENT_WORK).where(AGENT_WORK.ID.eq(a.id())).fetchOne();
+    assertThat(row.getState()).isEqualTo("COMPLETED");
+    assertThat(row.getNote()).isNull();
+    assertThat(eventStates(a.id())).containsExactly("WORKING", "COMPLETED");
+  }
+
+  /** 첫 보고 값을 insert 에 함께 담으면 이벤트는 그 값 하나다. */
+  @Test
+  void insertIfAbsent_보고_값을_담아_이벤트_하나() {
+    var a =
+        repo.insertIfAbsent(issueId, humanId, "claude-code", "REVIEW", "PR 올림", 90, 4, 5)
+            .orElseThrow();
+    var events =
+        dsl.selectFrom(AGENT_WORK_EVENT).where(AGENT_WORK_EVENT.WORK_ID.eq(a.id())).fetch();
+    assertThat(events)
+        .singleElement()
+        .satisfies(
+            e -> {
+              assertThat(e.getState()).isEqualTo("REVIEW");
+              assertThat(e.getNote()).isEqualTo("PR 올림");
+              assertThat(e.getProgress()).isEqualTo((short) 90);
+              assertThat(e.getStepsDone()).isEqualTo((short) 4);
+              assertThat(e.getStepsTotal()).isEqualTo((short) 5);
+            });
+  }
+
+  /** 갱신 전과 값이 같은 update 는 행은 갱신해도(1행) 이벤트를 남기지 않고, 값이 달라지면 하나만 남긴다. */
+  @Test
+  void update_는_값이_달라졌을_때만_이벤트() {
+    var a =
+        repo.insertIfAbsent(issueId, humanId, "claude-code", "WORKING", "시작", 10, null, null)
+            .orElseThrow();
+    assertThat(eventStates(a.id())).hasSize(1);
+
+    // 같은 상태·note·진행률 재보고 — 행은 갱신(1)되지만 이벤트는 그대로.
+    assertThat(
+            repo.update(a.id(), new AgentWorkPatch(null, "WORKING", "시작", false, 10, null, null)))
+        .isEqualTo(1);
+    assertThat(eventStates(a.id())).hasSize(1);
+
+    // note 만 바뀜 — 이벤트 1건 추가.
+    repo.update(a.id(), new AgentWorkPatch(null, null, "진행 중", false, null, null, null));
+    assertThat(eventStates(a.id())).hasSize(2);
+  }
 }

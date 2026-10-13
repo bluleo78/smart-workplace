@@ -60,9 +60,8 @@ public class AgentWorkReportService {
 
     boolean hasMessage = req.message() != null && !req.message().isBlank();
 
-    // 종료 상태(COMPLETED·FAILED·CANCELED·REJECTED)는 진행 상태 갱신이 아니라 작업 행을 닫는 신호 — startOrUpdate 에 넘기지
-    // 않고, TODO 이슈도
-    // IN_PROGRESS 로 올리지 않으며 이슈 상태는 건드리지 않는다.
+    // 종료 상태(COMPLETED·FAILED·CANCELED·REJECTED)는 진행 상태 갱신이 아니라 작업 행을 닫는 신호다.
+    // startOrUpdate 에 넘기지 않고, TODO 이슈도 IN_PROGRESS 로 올리지 않으며 이슈 상태는 건드리지 않는다.
     if (AgentWorkState.isTerminal(req.state())) {
       // message 는 상태와 무관한 챗 글(스펙 §4.1) — 종료 보고여도 먼저 올린다(질문 표시 없음). note·progress 는 종료라 무시.
       if (hasMessage) {

@@ -1,6 +1,7 @@
 package com.workplace.issue.service;
 
 import static com.workplace.jooq.Tables.AGENT_WORK;
+import static com.workplace.jooq.Tables.AGENT_WORK_EVENT;
 import static com.workplace.jooq.Tables.ISSUE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -291,5 +292,47 @@ class AgentWorkServiceTest extends IntegrationTestBase {
             .fetchMap(AGENT_WORK.WORKER_ID, AGENT_WORK.STATE);
     assertThat(states.get(agentId)).isEqualTo("CANCELED");
     assertThat(states.get(humanId)).isEqualTo("COMPLETED");
+  }
+
+  /** 보고 한 번 = 이벤트 한 번: 첫 보고 1건, 같은 보고 반복 0건, note 변경 1건. */
+  @Test
+  void startOrUpdate_보고당_이벤트는_한번() {
+    var first =
+        service.startOrUpdate(
+            issueId,
+            agentId,
+            "claude-code",
+            new AgentWorkPatch(null, "REVIEW", "PR 올림", false, 100, null, null));
+    long workId = repo.findActive(issueId, agentId).orElseThrow().id();
+    assertThat(first.state()).isEqualTo("REVIEW");
+    assertThat(eventCount(workId)).isEqualTo(1);
+
+    // 같은 내용 재보고 — 이력 변화 없음.
+    service.startOrUpdate(
+        issueId,
+        agentId,
+        "claude-code",
+        new AgentWorkPatch(null, "REVIEW", "PR 올림", false, 100, null, null));
+    assertThat(eventCount(workId)).isEqualTo(1);
+
+    // 상태만 같은 값으로 재보고해도 변화 없음.
+    service.startOrUpdate(
+        issueId,
+        agentId,
+        "claude-code",
+        new AgentWorkPatch(null, "REVIEW", null, false, null, null, null));
+    assertThat(eventCount(workId)).isEqualTo(1);
+
+    // note 변경 — 1건 추가.
+    service.startOrUpdate(
+        issueId,
+        agentId,
+        "claude-code",
+        new AgentWorkPatch(null, null, "리뷰 반영", false, null, null, null));
+    assertThat(eventCount(workId)).isEqualTo(2);
+  }
+
+  private int eventCount(long workId) {
+    return dsl.fetchCount(AGENT_WORK_EVENT, AGENT_WORK_EVENT.WORK_ID.eq(workId));
   }
 }

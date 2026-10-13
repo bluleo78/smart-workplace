@@ -585,9 +585,8 @@ public class IssueService {
         newStart,
         newMilestoneId,
         newClosedAt);
-    // 종료 상태(DONE/CANCELED)로 진입하면 그 이슈의 진행 중 AI 작업을 전부 끝낸다(WP-377 §4.3) — DONE 은 COMPLETED(착수 전
-    // SUBMITTED 만
-    // CANCELED), CANCELED 는 CANCELED. 재오픈은 되살리지 않는다.
+    // 종료 상태(DONE/CANCELED)로 진입하면 그 이슈의 진행 중 AI 작업을 전부 끝낸다(WP-377 §4.3).
+    // DONE 은 COMPLETED(착수 전 SUBMITTED 만 CANCELED), CANCELED 는 CANCELED 로 닫고, 재오픈은 되살리지 않는다.
     // 알림은 아래 changeNotifier.updated 가 이미 보내므로 여기서는 기록만 닫는다.
     if (nowClosed && !wasClosed) {
       if ("DONE".equals(newStatus)) {
