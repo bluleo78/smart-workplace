@@ -74,7 +74,8 @@ test('체크리스트는 작업 행과 AI 진행·AI 위임 배지를 렌더한�
     createIssue({ projectKey: KEY, number: 3, title: '주간 회고', status: 'TODO', assignees: [agent] }),
     createIssue({
       projectKey: KEY, number: 4, title: '여행 예약', status: 'IN_PROGRESS', assignees: [agent],
-      agentWork: [createAgentWork({ worker: agent, state: 'WORKING' }), createAgentWork({ worker: agent, state: 'BLOCKED' })],
+      // 서버는 급한 순으로 내려준다(BLOCKED 가 WORKING 보다 앞).
+      agentWork: [createAgentWork({ worker: agent, state: 'BLOCKED' }), createAgentWork({ worker: agent, state: 'WORKING' })],
     }),
   ]);
   await page.goto(`/projects/${KEY}`);
@@ -87,7 +88,7 @@ test('체크리스트는 작업 행과 AI 진행·AI 위임 배지를 렌더한�
   await expect(page.getByTestId('ai-delegation-badge-2')).toHaveCount(0);
   // AGENT 담당 + TODO + 작업 없음 → AI 진행 "시작 전".
   await expect(page.getByTestId('ai-delegation-badge-3')).toHaveText('시작 전');
-  // 진행 중 작업이 있으면 가장 급한 상태(막힘 > 작업 중).
+  // 진행 중 작업이 있으면 가장 급한 상태(막힘 > 작업 중). 서버가 급한 순으로 내려주므로 화면은 첫 항목을 쓴다.
   await expect(page.getByTestId('ai-delegation-badge-4')).toHaveText('막힘');
   await expect(page.getByTestId('personal-checklist')).not.toContainText('처리중');
 });
