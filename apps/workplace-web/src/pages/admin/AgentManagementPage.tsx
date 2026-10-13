@@ -47,10 +47,13 @@ import {
 import { useAgents, useDeleteAgent } from '../../hooks/queries/useAgents';
 import { useWorkspaceAssistant } from '../../hooks/queries/useAssistant';
 import { useHistoryParam } from '../../hooks/useHistoryParam';
+import { buildMcpAddCommand, externalKeyStatusText, resolveMcpUrl, runtimeBadgeLabel } from '../../lib/agentRuntime';
 import { clickableRowProps } from '../../lib/clickableRowProps';
 import { AgentConnectionSection } from './components/AgentConnectionSection';
 import { AgentIdentitySection } from './components/AgentIdentitySection';
 import { AgentKeyIssueDialog } from './components/AgentKeyIssueDialog';
+import { AgentRuntimeSection } from './components/AgentRuntimeSection';
+import { CopyableCommand } from './components/CopyableCommand';
 import { NewAgentDialog } from './components/NewAgentDialog';
 
 export default function AgentManagementPage() {
@@ -116,171 +119,16 @@ export default function AgentManagementPage() {
   };
 
   const selected = agents.data?.find((a) => a.id === selectedId) ?? null;
+  const external = selected?.runtime === 'EXTERNAL';
+  // MCP 연결 명령 — 키 평문은 발급 직후 1회만 알 수 있어 목록에서는 플레이스홀더로 둔다.
+  const mcpCommand = buildMcpAddCommand(resolveMcpUrl());
   const isEmpty =
     !agents.isLoading && !agents.isError && (agents.data ?? []).length === 0;
 
-  return (
-    <SettingsPage
-      title="에이전트"
-      actions={
-        /* 헤더 주 액션 — size 미지정(default). 04-components §E 규정(#744/#747). */
-        <Button onClick={() => setShowNew(true)} data-testid="new-agent-trigger">
-          + 새 에이전트
-        </Button>
-      }
-    >
-      {/* 진입 시 안내 배너 — 두 상태를 구분한다.
-          ① 에이전트가 하나도 없으면 먼저 추가하도록 안내(지정할 대상이 없음).
-          ② 에이전트는 있으나 공통 비서가 미지정이면 지정하도록 안내. */}
-      {isEmpty ? (
-        <div
-          data-testid="agent-roster-empty"
-          className="rounded-md border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning-foreground"
-        >
-          아직 에이전트가 없어요 — 위 ‘+ 새 에이전트’로 에이전트를 추가한 뒤 공통 비서로
-          지정하세요. 공통 비서가 없으면 개인 비서를 지정하지 않은 구성원은 AI를 쓸 수 없습니다.
-        </div>
-      ) : ws.data && ws.data.agentUserId == null ? (
-        <div
-          data-testid="workspace-assistant-empty"
-          className="rounded-md border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning-foreground"
-        >
-          아직 공통 비서가 없어요 — 개인 비서를 지정하지 않은 구성원은 AI를 쓸 수 없습니다.
-          아래 표에서 토큰이 등록된 에이전트를 골라 공통 비서로 지정하세요.
-        </div>
-      ) : null}
-
-      {/* 개인 비서 포함 토글 — 기본 숨김. 켜면 자동 생성된 개인 비서까지 목록에 표시. */}
-      <div className="flex items-center justify-end gap-2">
-        <Switch
-          id="include-personal"
-          checked={includePersonal}
-          onCheckedChange={setIncludePersonal}
-          data-testid="include-personal-toggle"
-        />
-        <Label htmlFor="include-personal" className="text-sm text-muted-foreground">
-          개인 비서 표시
-        </Label>
-      </div>
-
-      {/* 에이전트 목록 — 테이블. 행 클릭 시 우측 Drawer 로 상세를 연다. */}
-      <div className="rounded-md border">
-        <Table aria-label="에이전트 목록">
-          <TableHeader>
-            <TableRow>
-              <TableHead>에이전트</TableHead>
-              <TableHead>아이디</TableHead>
-              <TableHead>유형</TableHead>
-              <TableHead>생성일</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {agents.isLoading ? (
-              <TableRow>
-                <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
-                  로딩 중…
-                </TableCell>
-              </TableRow>
-            ) : agents.isError ? (
-              <TableRow>
-                <TableCell colSpan={4} className="py-8 text-center text-destructive">
-                  목록을 불러오지 못했습니다
-                </TableCell>
-              </TableRow>
-            ) : isEmpty ? (
-              <TableRow>
-                <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
-                  에이전트가 없습니다
-                </TableCell>
-              </TableRow>
-            ) : (
-              (agents.data ?? []).map((a) => (
-                <TableRow
-                  key={a.id}
-                  className="cursor-pointer focus-visible:ring-2 focus-visible:ring-ring"
-                  data-testid={`agent-row-${a.id}`}
-                  {...clickableRowProps(() => agentParam.open(String(a.id)), `${a.name} 상세 보기`)}
-                >
-                  <TableCell>
-                    <div className="flex items-center gap-2.5">
-                      {/* 아바타 — 이름 첫 글자. AGENT 정체성 색(ai-accent). */}
-                      <span
-                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-ai-accent-subtle text-xs font-semibold text-ai-accent"
-                        aria-hidden
-                      >
-                        {a.name.slice(0, 1)}
-                      </span>
-                      <span className="font-medium">{a.name}</span>
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {a.username}
-                  </TableCell>
-                  <TableCell data-testid={`agent-type-${a.id}`}>
-                    {a.type === 'WORKSPACE' ? (
-                      // 공통 비서 = 이 페이지의 초점이므로 채워진 primary 배지로 강조.
-                      <Badge variant="default">공통</Badge>
-                    ) : a.type === 'PERSONAL' ? (
-                      // 개인 비서 = secondary 배지 + 소유자 이름(누구의 비서인지). 줄바꿈 방지.
-                      <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
-                        <Badge variant="secondary">개인</Badge>
-                        <span className="text-xs text-muted-foreground">
-                          {a.ownerName ?? '소유자 미상'}
-                        </span>
-                      </span>
-                    ) : (
-                      // 일반 에이전트 = 가장 낮은 강조의 outline 배지.
-                      <Badge variant="outline">일반</Badge>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-xs text-muted-foreground">
-                    {formatDateOnly(a.createdAt)}
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </div>
-
-      {/* 상세 Drawer — 행 클릭 시 우측에서 슬라이드. 열림 = ?agent 존재(없는 id 면 찾을 수 없음 안내, WP-209). */}
-      <Sheet
-        open={agentParam.value != null}
-        onOpenChange={(open) => {
-          if (!open) agentParam.close();
-        }}
-      >
-        <SheetContent
-          side="right"
-          className="flex w-full flex-col gap-0 overflow-y-auto p-0 sm:max-w-xl"
-          data-testid="agent-detail-drawer"
-        >
-          {selected != null ? (
-            <>
-              <SheetHeader className="shrink-0 space-y-0 border-b px-6 py-4">
-                <SheetTitle className="flex items-center gap-2">
-                  <span
-                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-ai-accent-subtle text-xs font-semibold text-ai-accent"
-                    aria-hidden
-                  >
-                    {selected.name.slice(0, 1)}
-                  </span>
-                  {selected.name}
-                  <AgentBadge size="xs" />
-                </SheetTitle>
-                <SheetDescription>{selected.username}</SheetDescription>
-              </SheetHeader>
-
-              <div className="flex-1 space-y-4 px-6 py-4">
-                {/* 에이전트 정보(이름/아이디) 편집 — 개인 비서는 컴포넌트 내부에서 숨김. key 로 행 전환 시 입력 리셋. */}
-                <AgentIdentitySection key={selected.id} agent={selected} />
-
-                {/* AI 연결 및 모델 — 연결 상태/재발급/회수 + 공통 비서 지정 + 모델/생각의 깊이. */}
-                <AgentConnectionSection agentUserId={selected.id} />
-
-                {/* 인증 — API 키. */}
-                <div className="space-y-2">
-                  <h3 className="text-sm font-medium">API 키</h3>
+  // 키 발급 폼 + 키 목록 — 내부(API 키 블록)·외부(① 키 발급) 두 레이아웃이 공유한다.
+  const keyBlock = (
+                <div className="space-y-2" data-testid="agent-keys-block">
+                  {!external && <h3 className="text-sm font-medium">API 키</h3>}
                   <form
                     onSubmit={(e) => {
                       e.preventDefault();
@@ -292,7 +140,7 @@ export default function AgentManagementPage() {
                     <Input
                       value={label}
                       onChange={(e) => setLabel(e.target.value)}
-                      placeholder="label (선택)"
+                      placeholder={external ? 'label (예: 맥북)' : 'label (선택)'}
                       maxLength={80}
                       aria-label="키 label"
                     />
@@ -359,6 +207,209 @@ export default function AgentManagementPage() {
                     </table>
                   </div>
                 </div>
+  );
+
+  return (
+    <SettingsPage
+      title="에이전트"
+      actions={
+        /* 헤더 주 액션 — size 미지정(default). 04-components §E 규정(#744/#747). */
+        <Button onClick={() => setShowNew(true)} data-testid="new-agent-trigger">
+          + 새 에이전트
+        </Button>
+      }
+    >
+      {/* 진입 시 안내 배너 — 두 상태를 구분한다.
+          ① 에이전트가 하나도 없으면 먼저 추가하도록 안내(지정할 대상이 없음).
+          ② 에이전트는 있으나 공통 비서가 미지정이면 지정하도록 안내. */}
+      {isEmpty ? (
+        <div
+          data-testid="agent-roster-empty"
+          className="rounded-md border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning-foreground"
+        >
+          아직 에이전트가 없어요 — 위 ‘+ 새 에이전트’로 에이전트를 추가한 뒤 공통 비서로
+          지정하세요. 공통 비서가 없으면 개인 비서를 지정하지 않은 구성원은 AI를 쓸 수 없습니다.
+        </div>
+      ) : ws.data && ws.data.agentUserId == null ? (
+        <div
+          data-testid="workspace-assistant-empty"
+          className="rounded-md border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning-foreground"
+        >
+          아직 공통 비서가 없어요 — 개인 비서를 지정하지 않은 구성원은 AI를 쓸 수 없습니다.
+          아래 표에서 토큰이 등록된 에이전트를 골라 공통 비서로 지정하세요.
+        </div>
+      ) : null}
+
+      {/* 개인 비서 포함 토글 — 기본 숨김. 켜면 자동 생성된 개인 비서까지 목록에 표시. */}
+      <div className="flex items-center justify-end gap-2">
+        <Switch
+          id="include-personal"
+          checked={includePersonal}
+          onCheckedChange={setIncludePersonal}
+          data-testid="include-personal-toggle"
+        />
+        <Label htmlFor="include-personal" className="text-sm text-muted-foreground">
+          개인 비서 표시
+        </Label>
+      </div>
+
+      {/* 에이전트 목록 — 테이블. 행 클릭 시 우측 Drawer 로 상세를 연다. */}
+      <div className="rounded-md border">
+        <Table aria-label="에이전트 목록">
+          <TableHeader>
+            <TableRow>
+              <TableHead>에이전트</TableHead>
+              <TableHead>아이디</TableHead>
+              <TableHead>유형</TableHead>
+              <TableHead>실행</TableHead>
+              <TableHead>생성일</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {agents.isLoading ? (
+              <TableRow>
+                <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
+                  로딩 중…
+                </TableCell>
+              </TableRow>
+            ) : agents.isError ? (
+              <TableRow>
+                <TableCell colSpan={5} className="py-8 text-center text-destructive">
+                  목록을 불러오지 못했습니다
+                </TableCell>
+              </TableRow>
+            ) : isEmpty ? (
+              <TableRow>
+                <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
+                  에이전트가 없습니다
+                </TableCell>
+              </TableRow>
+            ) : (
+              (agents.data ?? []).map((a) => (
+                <TableRow
+                  key={a.id}
+                  className="cursor-pointer focus-visible:ring-2 focus-visible:ring-ring"
+                  data-testid={`agent-row-${a.id}`}
+                  {...clickableRowProps(() => agentParam.open(String(a.id)), `${a.name} 상세 보기`)}
+                >
+                  <TableCell>
+                    <div className="flex items-center gap-2.5">
+                      {/* 아바타 — 이름 첫 글자. AGENT 정체성 색(ai-accent). */}
+                      <span
+                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-ai-accent-subtle text-xs font-semibold text-ai-accent"
+                        aria-hidden
+                      >
+                        {a.name.slice(0, 1)}
+                      </span>
+                      <span className="font-medium">{a.name}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {a.username}
+                  </TableCell>
+                  <TableCell data-testid={`agent-type-${a.id}`}>
+                    {a.type === 'WORKSPACE' ? (
+                      // 공통 비서 = 이 페이지의 초점이므로 채워진 primary 배지로 강조.
+                      <Badge variant="default">공통</Badge>
+                    ) : a.type === 'PERSONAL' ? (
+                      // 개인 비서 = secondary 배지 + 소유자 이름(누구의 비서인지). 줄바꿈 방지.
+                      <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                        <Badge variant="secondary">개인</Badge>
+                        <span className="text-xs text-muted-foreground">
+                          {a.ownerName ?? '소유자 미상'}
+                        </span>
+                      </span>
+                    ) : (
+                      // 일반 에이전트 = 가장 낮은 강조의 outline 배지.
+                      <Badge variant="outline">일반</Badge>
+                    )}
+                  </TableCell>
+                  <TableCell data-testid={`agent-runtime-cell-${a.id}`}>
+                    {/* 실행 방식 배지 — 외부는 info 토큰. 외부는 키 사용 시각을 함께 보여 연결 여부를 가늠하게 한다. */}
+                    <div className="flex flex-col items-start gap-0.5">
+                      <Badge variant={a.runtime === 'EXTERNAL' ? 'info' : 'secondary'}>
+                        {runtimeBadgeLabel(a.runtime)}
+                      </Badge>
+                      {a.runtime === 'EXTERNAL' && (
+                        <span
+                          className="text-xs text-muted-foreground"
+                          data-testid={`agent-key-status-${a.id}`}
+                        >
+                          {externalKeyStatusText(a.lastKeyUsedAt)}
+                        </span>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground">
+                    {formatDateOnly(a.createdAt)}
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
+
+      {/* 상세 Drawer — 행 클릭 시 우측에서 슬라이드. 열림 = ?agent 존재(없는 id 면 찾을 수 없음 안내, WP-209). */}
+      <Sheet
+        open={agentParam.value != null}
+        onOpenChange={(open) => {
+          if (!open) agentParam.close();
+        }}
+      >
+        <SheetContent
+          side="right"
+          className="flex w-full flex-col gap-0 overflow-y-auto p-0 sm:max-w-xl"
+          data-testid="agent-detail-drawer"
+        >
+          {selected != null ? (
+            <>
+              <SheetHeader className="shrink-0 space-y-0 border-b px-6 py-4">
+                <SheetTitle className="flex items-center gap-2">
+                  <span
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-ai-accent-subtle text-xs font-semibold text-ai-accent"
+                    aria-hidden
+                  >
+                    {selected.name.slice(0, 1)}
+                  </span>
+                  {selected.name}
+                  <AgentBadge size="xs" />
+                </SheetTitle>
+                <SheetDescription>{selected.username}</SheetDescription>
+              </SheetHeader>
+
+              <div className="flex-1 space-y-4 px-6 py-4">
+                {/* 에이전트 정보(이름/아이디) 편집 — 개인 비서는 컴포넌트 내부에서 숨김. key 로 행 전환 시 입력 리셋. */}
+                <AgentIdentitySection key={selected.id} agent={selected} />
+
+                {/* 실행 방식 — 내부(서버 실행)/외부(사용자 컴퓨터 등) 선택. */}
+                <AgentRuntimeSection key={`rt-${selected.id}`} agent={selected} />
+
+                {external ? (
+                  /* 외부 에이전트 연결 — AI 연결·모델은 숨기고 키 발급 + MCP 연결 안내만 보인다. */
+                  <section className="space-y-3 rounded-md border p-4" data-testid="external-connect-card">
+                    <h3 className="text-sm font-medium">외부 에이전트 연결</h3>
+                    <div className="space-y-2">
+                      <h4 className="text-xs font-medium text-muted-foreground">① 키 발급</h4>
+                                    {keyBlock}
+                    </div>
+                    <div className="space-y-2">
+                      <h4 className="text-xs font-medium text-muted-foreground">② Claude Code에 MCP 연결</h4>
+                      <CopyableCommand command={mcpCommand} testId="mcp-command" />
+                      <p className="text-xs text-muted-foreground">
+                        키는 발급 직후 한 번만 보여요. 위 명령의 &lt;발급한 키&gt;를 바꿔 넣으세요.
+                      </p>
+                    </div>
+                  </section>
+                ) : (
+                  <>
+                    {/* AI 연결 및 모델 — 연결 상태/재발급/회수 + 공통 비서 지정 + 모델/생각의 깊이. */}
+                    <AgentConnectionSection agentUserId={selected.id} />
+
+                    {/* 인증 — API 키. */}
+                                    {keyBlock}
+                  </>
+                )}
               </div>
 
               {/* 위험 영역 — 에이전트 삭제. */}
@@ -393,6 +444,7 @@ export default function AgentManagementPage() {
       <NewAgentDialog open={showNew} onOpenChange={setShowNew} />
       <AgentKeyIssueDialog
         plaintextKey={plaintext}
+        mcpCommand={external && plaintext ? buildMcpAddCommand(resolveMcpUrl(), plaintext) : null}
         open={plaintext != null}
         onOpenChange={(v) => {
           if (!v) setPlaintext(null);

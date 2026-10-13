@@ -1,7 +1,7 @@
 // AGENT 유저 + API 키 ADMIN 엔드포인트 — 권한 `user:manage` 필요.
 // baseURL `/api/v1` 가 client 에 포함되어 있어 경로는 상대로 작성.
 
-import type { AgentResponse } from '../types/agent';
+import type { AgentResponse, AgentRuntime } from '../types/agent';
 import type { AgentApiKey, AgentApiKeyIssueResponse } from '../types/agentKey';
 import type { UserResponse } from '../types/auth';
 import type {
@@ -35,6 +35,11 @@ export async function renameAgent(
   body: { username: string; name: string },
 ): Promise<void> {
   await client.put<void>(`/admin/agents/${userId}`, body);
+}
+
+// 실행 방식 변경 — 공통·개인 비서는 서버가 409(한국어 message)로 거부한다.
+export async function setAgentRuntime(userId: number, runtime: AgentRuntime): Promise<void> {
+  await client.put<void>(`/admin/agents/${userId}/runtime`, { runtime });
 }
 
 // AGENT 유저 삭제 — cascade 로 키도 함께 제거.

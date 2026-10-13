@@ -13,14 +13,19 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 
+import { CopyableCommand } from './CopyableCommand';
+
 interface AgentKeyIssueDialogProps {
   plaintextKey: string | null;
+  // 외부 에이전트면 실제 키가 채워진 `claude mcp add` 명령(복사용). 없으면 미표시.
+  mcpCommand?: string | null;
   open: boolean;
   onOpenChange: (next: boolean) => void;
 }
 
 export function AgentKeyIssueDialog({
   plaintextKey,
+  mcpCommand,
   open,
   onOpenChange,
 }: AgentKeyIssueDialogProps) {
@@ -52,6 +57,12 @@ export function AgentKeyIssueDialog({
           >
             {plaintextKey ?? ''}
           </code>
+          {mcpCommand && (
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground">Claude Code에서 바로 연결하려면</p>
+              <CopyableCommand command={mcpCommand} testId="agent-key-mcp-command" />
+            </div>
+          )}
           <DialogFooter>
             <Button onClick={onCopy} disabled={!plaintextKey}>
               복사

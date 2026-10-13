@@ -3,8 +3,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
-import { createAgent, deleteAgent, listAgents, renameAgent } from '../../api/agents';
+import { createAgent, deleteAgent, listAgents, renameAgent, setAgentRuntime } from '../../api/agents';
 import { handleApiError } from '../../lib/api-error';
+import type { AgentRuntime } from '../../types/agent';
 
 export const agentKeys = {
   all: ['agents'] as const,
@@ -61,5 +62,19 @@ export function useDeleteAgent() {
       toast.success('에이전트를 삭제했습니다');
     },
     onError: (e) => handleApiError(e, '에이전트 삭제에 실패했습니다'),
+  });
+}
+
+// 실행 방식(내부·외부) 변경. 409(비서 지정 등) 사유는 서버 message 를 handleApiError 가 토스트로 보여준다.
+export function useSetAgentRuntime() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ userId, runtime }: { userId: number; runtime: AgentRuntime }) =>
+      setAgentRuntime(userId, runtime),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: agentKeys.all });
+      toast.success('실행 방식을 변경했습니다');
+    },
+    onError: (e) => handleApiError(e, '실행 방식 변경에 실패했습니다'),
   });
 }
