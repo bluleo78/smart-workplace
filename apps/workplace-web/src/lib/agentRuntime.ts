@@ -39,9 +39,25 @@ export function resolveMcpUrl(origin: string = window.location.origin): string {
   return `${origin}/mcp`;
 }
 
-/** Claude Code 에 MCP 를 연결하는 명령. key 가 없으면 플레이스홀더를 둔다. */
-export function buildMcpAddCommand(mcpUrl: string, key?: string | null): string {
-  return `claude mcp add --transport http genia-works ${mcpUrl} --header "Authorization: Bearer ${key ?? '<발급한 키>'}"`;
+/** 세션마다 genia-works 접속 토큰을 바꿔 끼우는 환경변수 이름. */
+export const TOKEN_ENV = 'GENIA_WORKS_TOKEN';
+
+/**
+ * Claude Code 의 사용자 범위 genia-works 연결을 "환경변수 우선, 없으면 내 토큰" 헤더로 다시 등록하는 명령(한 번만).
+ * 연결은 하나로 유지하면서(다른 플러그인·MCP 그대로) 세션을 띄울 때 환경변수만 주면 AI 로 접속하게 하려는 것.
+ * Claude Code 는 ~/.claude.json 에 `${...}` 를 글자 그대로 저장하고 세션 시작 때 띄운 셸의 환경변수로 치환한다(실측).
+ * 작은따옴표로 감싸 등록 시점 셸이 `${...}` 를 먼저 풀어 버리지 않게 한다.
+ */
+export function buildMcpSetupCommand(mcpUrl: string): string {
+  return [
+    'claude mcp remove genia-works -s user',
+    `claude mcp add -s user --transport http genia-works ${mcpUrl} --header 'Authorization: Bearer \${${TOKEN_ENV}:-<내 API 토큰>}'`,
+  ].join('\n');
+}
+
+/** 이 AI 로 접속하는 Claude Code 세션을 띄우는 명령. key 가 없으면 플레이스홀더를 둔다. */
+export function buildAgentLaunchCommand(key?: string | null): string {
+  return `${TOKEN_ENV}=${key ?? '<발급한 키>'} claude`;
 }
 
 /** 목록의 외부 에이전트 키 사용 상태 텍스트. */

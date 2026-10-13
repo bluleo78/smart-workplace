@@ -117,14 +117,20 @@ test.describe('/settings/agents 실행 방식', () => {
     await page.getByTestId('agent-runtime-EXTERNAL').click();
     await expect(page.getByTestId('external-connect-card')).toBeVisible();
     await expect(page.getByTestId('agent-connection-section')).toHaveCount(0);
-    await expect(page.getByTestId('mcp-command')).toContainText('claude mcp add --transport http genia-works');
-    await expect(page.getByTestId('mcp-command')).toContainText('Bearer <발급한 키>');
+    // ② 연결 설정 — 사용자 범위 genia-works 를 환경변수 우선 헤더로 다시 등록. ③ 실행 — 환경변수로 AI 키 주입.
+    await expect(page.getByTestId('mcp-setup-command')).toContainText('claude mcp remove genia-works -s user');
+    await expect(page.getByTestId('mcp-setup-command')).toContainText(
+      "--header 'Authorization: Bearer ${GENIA_WORKS_TOKEN:-<내 API 토큰>}'",
+    );
+    await expect(page.getByTestId('agent-launch-command')).toHaveText('GENIA_WORKS_TOKEN=<발급한 키> claude');
     await expect(page.getByPlaceholder('label (예: 맥북)')).toBeVisible();
     await shot(page, 'drawer-external-desktop');
+    // 드로어는 내부 스크롤이라 뷰포트 캡처로는 ②·③ 이 잘린다 — 연결 카드만 따로 저장해 UI 리뷰에 쓴다.
+    await page.getByTestId('external-connect-card').screenshot({ path: path.join(SHOT_DIR, 'external-connect-card-desktop.png') });
 
     // 키 발급 다이얼로그에 실제 키가 채워진 명령이 나온다.
     await page.getByTestId('key-issue-form').getByRole('button', { name: '키 발급' }).click();
-    await expect(page.getByTestId('agent-key-mcp-command')).toContainText('Bearer ak_new_SECRET');
+    await expect(page.getByTestId('agent-key-launch-command')).toHaveText('GENIA_WORKS_TOKEN=ak_new_SECRET claude');
   });
 
   test('409 사유를 서버 메시지로 보여준다', async ({ adminPage: page }) => {
@@ -167,6 +173,12 @@ test.describe('/settings/agents 실행 방식', () => {
         const drawerOverflow = await drawer.evaluate((el) => el.scrollWidth - el.clientWidth);
         expect(drawerOverflow).toBeLessThanOrEqual(0);
         await shot(page, `drawer-${name}-mobile`);
+        if (name === 'external') {
+          // 연결 카드(②·③ 명령 포함)는 드로어 아래쪽이라 따로 저장한다.
+          await drawer
+            .getByTestId('external-connect-card')
+            .screenshot({ path: path.join(SHOT_DIR, 'external-connect-card-mobile.png') });
+        }
         await page.keyboard.press('Escape');
         await expect(drawer).toHaveCount(0);
       }

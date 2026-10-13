@@ -47,7 +47,14 @@ import {
 import { useAgents, useDeleteAgent } from '../../hooks/queries/useAgents';
 import { useWorkspaceAssistant } from '../../hooks/queries/useAssistant';
 import { useHistoryParam } from '../../hooks/useHistoryParam';
-import { buildMcpAddCommand, externalKeyStatusText, resolveMcpUrl, runtimeBadgeLabel } from '../../lib/agentRuntime';
+import {
+  buildAgentLaunchCommand,
+  buildMcpSetupCommand,
+  externalKeyStatusText,
+  resolveMcpUrl,
+  runtimeBadgeLabel,
+  TOKEN_ENV,
+} from '../../lib/agentRuntime';
 import { clickableRowProps } from '../../lib/clickableRowProps';
 import { AgentConnectionSection } from './components/AgentConnectionSection';
 import { AgentIdentitySection } from './components/AgentIdentitySection';
@@ -120,8 +127,9 @@ export default function AgentManagementPage() {
 
   const selected = agents.data?.find((a) => a.id === selectedId) ?? null;
   const external = selected?.runtime === 'EXTERNAL';
-  // MCP 연결 명령 — 키 평문은 발급 직후 1회만 알 수 있어 목록에서는 플레이스홀더로 둔다.
-  const mcpCommand = buildMcpAddCommand(resolveMcpUrl());
+  // 외부 연결 안내 명령 — 등록은 한 번만, 실행 명령의 키 평문은 발급 직후 1회만 알 수 있어 드로어에서는 플레이스홀더로 둔다.
+  const setupCommand = buildMcpSetupCommand(resolveMcpUrl());
+  const launchCommand = buildAgentLaunchCommand();
   const isEmpty =
     !agents.isLoading && !agents.isError && (agents.data ?? []).length === 0;
 
@@ -396,10 +404,21 @@ export default function AgentManagementPage() {
                                     {keyBlock}
                     </div>
                     <div className="space-y-2">
-                      <h4 className="text-xs font-medium text-muted-foreground">② Claude Code에 MCP 연결</h4>
-                      <CopyableCommand command={mcpCommand} testId="mcp-command" />
+                      <h4 className="text-xs font-medium text-muted-foreground">
+                        ② Claude Code 연결 설정 (한 번만)
+                      </h4>
+                      <CopyableCommand command={setupCommand} testId="mcp-setup-command" />
                       <p className="text-xs text-muted-foreground">
-                        키는 발급 직후 한 번만 보여요. 위 명령의 &lt;발급한 키&gt;를 바꿔 넣으세요.
+                        기존 genia-works 연결을 {TOKEN_ENV} 환경변수가 있으면 그 키로, 없으면 내 API 토큰으로
+                        접속하게 바꿔요. &lt;내 API 토큰&gt;은 설정 › API 토큰에서 발급한 값으로 바꿔 넣으세요.
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <h4 className="text-xs font-medium text-muted-foreground">③ 이 AI로 Claude Code 실행</h4>
+                      <CopyableCommand command={launchCommand} testId="agent-launch-command" />
+                      <p className="text-xs text-muted-foreground">
+                        이 명령으로 띄운 세션만 이 AI로 연결되고, 평소 Claude Code는 내 계정 그대로예요. 다른
+                        플러그인도 함께 쓸 수 있어요. 키는 발급 직후 한 번만 보이니 &lt;발급한 키&gt;를 바꿔 넣으세요.
                       </p>
                     </div>
                   </section>
@@ -446,7 +465,7 @@ export default function AgentManagementPage() {
       <NewAgentDialog open={showNew} onOpenChange={setShowNew} />
       <AgentKeyIssueDialog
         plaintextKey={plaintext}
-        mcpCommand={external && plaintext ? buildMcpAddCommand(resolveMcpUrl(), plaintext) : null}
+        launchCommand={external && plaintext ? buildAgentLaunchCommand(plaintext) : null}
         open={plaintext != null}
         onOpenChange={(v) => {
           if (!v) setPlaintext(null);

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  buildMcpAddCommand,
+  buildAgentLaunchCommand,
+  buildMcpSetupCommand,
   externalKeyStatusText,
   isRuntimeLocked,
   resolveMcpUrl,
@@ -26,11 +27,17 @@ describe('agentRuntime', () => {
   it('MCP URL 은 origin + /mcp', () => {
     expect(resolveMcpUrl('https://x.example')).toBe('https://x.example/mcp');
   });
-  it('명령 — 키 없으면 플레이스홀더, 있으면 실제 키', () => {
-    expect(buildMcpAddCommand('https://x/mcp')).toBe(
-      'claude mcp add --transport http genia-works https://x/mcp --header "Authorization: Bearer <발급한 키>"',
+  it('연결 설정 — 사용자 범위를 다시 등록하고 헤더는 환경변수 우선·내 토큰 기본값(작은따옴표로 셸 치환 방지)', () => {
+    expect(buildMcpSetupCommand('https://x/mcp')).toBe(
+      [
+        'claude mcp remove genia-works -s user',
+        "claude mcp add -s user --transport http genia-works https://x/mcp --header 'Authorization: Bearer ${GENIA_WORKS_TOKEN:-<내 API 토큰>}'",
+      ].join('\n'),
     );
-    expect(buildMcpAddCommand('https://x/mcp', 'ak_abc')).toContain('Bearer ak_abc"');
+  });
+  it('실행 명령 — 키 없으면 플레이스홀더, 있으면 실제 키', () => {
+    expect(buildAgentLaunchCommand()).toBe('GENIA_WORKS_TOKEN=<발급한 키> claude');
+    expect(buildAgentLaunchCommand('ak_abc')).toBe('GENIA_WORKS_TOKEN=ak_abc claude');
   });
   it('키 사용 상태', () => {
     expect(externalKeyStatusText(null)).toBe('키 미사용');
