@@ -57,6 +57,53 @@ test('조직도(공유) 선택 시 트리+직속 멤버 렌더', { tag: '@smoke'
   await expect(page.getByTestId('contact-empty')).toBeVisible()
 })
 
+// WP-368 — 선택한 그룹 노드 행만 선택 표시(막대 + bg-selected), 다른 노드·선택 해제 후엔 없다.
+test('그룹 트리 선택 표시 (WP-368)', async ({ authenticatedPage: page }) => {
+  await stubContacts(page)
+  await stubTree(page)
+  await stubDetail(page)
+  await page.goto('/contacts')
+  // 행 컨테이너 = 이름 버튼의 부모 div.
+  const row10 = page.getByTestId('group-node-10').locator('..')
+  const row20 = page.getByTestId('group-node-20').locator('..')
+  await expect(row10).not.toHaveClass(/bg-selected/)
+  await page.getByTestId('group-node-10').click()
+  await expect(page.getByTestId('org-chart-view')).toBeVisible()
+  await expect(row10).toHaveClass(/bg-selected/)
+  await expect(row10).toHaveClass(/selection-bar/)
+  await expect(row20).not.toHaveClass(/bg-selected/)
+  const bg = (l: typeof row10) => l.evaluate((el) => getComputedStyle(el).backgroundColor)
+  expect(await bg(row10)).not.toBe(await bg(row20))
+  await page.getByTestId('group-node-10').click()
+  await expect(row10).not.toHaveClass(/bg-selected/)
+})
+
+// WP-368 — 그룹 멤버 목록에서 고른 멤버 행만 선택 표시(연락처 목록 행과 같은 규칙).
+test('그룹 멤버 행 선택 표시 (WP-368)', async ({ authenticatedPage: page }) => {
+  await stubContacts(page)
+  await stubTree(page)
+  await stubDetail(page)
+  await page.route(
+    (url) => url.pathname === '/api/v1/contacts/members/1',
+    (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ id: 1, username: 'kim', name: '김멤버', email: 'kim@example.com', title: '팀장', kind: 'HUMAN', groups: [], isFavorite: false }),
+      }),
+  )
+  await page.goto('/contacts')
+  await page.getByTestId('group-node-20').click()
+  const member = page.getByTestId('group-member-MEMBER-1')
+  await expect(member).toBeVisible()
+  await expect(member).toHaveAttribute('aria-pressed', 'false')
+  await expect(member).not.toHaveClass(/bg-selected/)
+  await member.click()
+  await expect(member).toHaveAttribute('aria-pressed', 'true')
+  await expect(member).toHaveClass(/bg-selected/)
+  await expect(member).toHaveClass(/selection-bar/)
+})
+
 test('개인 그룹 생성 + 멤버 편입', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
   const creates = trackRequests(page, 'POST', '/api/v1/user-groups')
   const memberAdds = trackRequests(page, 'POST', '/api/v1/user-groups/99/members')

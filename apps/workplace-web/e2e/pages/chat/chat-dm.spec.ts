@@ -317,6 +317,26 @@ test.describe('messaging DM', () => {
     await expect(page.getByTestId('message-body-5')).toHaveText('안녕 밥')
   })
 
+  // WP-368 — 열린 DM 행만 선택 표시(막대 + bg-selected), 다른 DM·셀프 DM 행엔 없다. 색 차이는 계산된 배경으로 확인.
+  test('사이드바 — 열린 DM 행만 bg-selected·selection-bar 를 갖는다 (WP-368)', async ({ authenticatedPage: page }) => {
+    const dms = [
+      createDm({ id: 102, participants: [createDmParticipant({ userId: 1, name: '테스트 사용자' }), createDmParticipant({ userId: 2, name: '밥' })] }),
+      createDm({ id: 103, participants: [createDmParticipant({ userId: 1, name: '테스트 사용자' }), createDmParticipant({ userId: 3, name: '캐럴' })] }),
+    ]
+    await stubLists(page, dms)
+    await stubMessages(page, 102, [])
+    await stubMarkRead(page, 102)
+    await page.goto('/chat/dms/102')
+    const open = page.getByTestId('dm-link-102')
+    const other = page.getByTestId('dm-link-103')
+    await expect(open).toHaveClass(/bg-selected/)
+    await expect(open).toHaveClass(/selection-bar/)
+    await expect(other).not.toHaveClass(/bg-selected/)
+    await expect(other).not.toHaveClass(/selection-bar/)
+    const bg = (l: typeof open) => l.evaluate((el) => getComputedStyle(el).backgroundColor)
+    expect(await bg(open)).not.toBe(await bg(other))
+  })
+
   test('비참여자 직접 진입 → 대화 없음', async ({ authenticatedPage: page }) => {
     await stubLists(page, []) // 내 DM 목록에 없음
     await stubMessages(page, 999, [])

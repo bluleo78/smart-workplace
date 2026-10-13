@@ -59,6 +59,25 @@ test.describe('메일 작성·발송', () => {
     await expect(page.getByTestId('mail-compose-dock')).toBeHidden()
   })
 
+  // WP-368 — 서식 토글이 켜지면 TOGGLE_ON(primary 테두리·글자)이 붙고, 다른 서식 버튼엔 없다. 끄면 사라진다.
+  test('서식 토글 — 굵게를 켜면 aria-pressed·TOGGLE_ON 표시, 기울임은 그대로 (WP-368)', async ({ authenticatedPage: page }) => {
+    await page.goto('/mail/1')
+    await page.getByTestId('mail-compose-new').click()
+    await page.getByTestId('mail-composer-body').click()
+    const bold = page.getByRole('button', { name: '굵게' })
+    const italic = page.getByRole('button', { name: '기울임' })
+    const on = /(?<![:\w-])text-primary/
+    await expect(bold).toHaveAttribute('aria-pressed', 'false')
+    await expect(bold).not.toHaveClass(on)
+    await bold.click()
+    await expect(bold).toHaveAttribute('aria-pressed', 'true')
+    await expect(bold).toHaveClass(on)
+    await expect(bold).toHaveClass(/(?<![:\w-])border-primary\/50/)
+    await expect(italic).not.toHaveClass(on)
+    await bold.click()
+    await expect(bold).not.toHaveClass(on)
+  })
+
   // WP-333 — macOS Chrome 에서 한글 마지막 글자 조합 중 Enter 를 쳐도 그 글자가 남고 다음 문단으로 넘어간다(수정 뒤 동작 회귀 방지 —
   // 실제 입력기의 글자 소실은 합성 이벤트로 재현되지 않는다. wiki-ime-enter.spec.ts 참고).
   test('본문에서 마지막 글자 조합 중 Enter — 글자가 남고 문단이 나뉘어 발송된다 (Mac Chrome 순서)', async ({

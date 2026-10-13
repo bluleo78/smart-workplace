@@ -60,6 +60,17 @@ test.describe('노트 버전 기록', () => {
     await expect(revItem(a, 3)).toContainText('17:48')
     await expect(revItem(a, 2)).toContainText('09:12')
 
+    // WP-368 — 선택 줄(aria-current)만 선택 표시(막대 + bg-selected), 다른 줄엔 없다. 판을 고르면 표시가 옮겨 간다.
+    await expect(revItem(a, 'current')).toHaveClass(/bg-selected/)
+    await expect(revItem(a, 'current')).toHaveClass(/selection-bar/)
+    await expect(revItem(a, 5)).not.toHaveClass(/bg-selected/)
+    const bg = (l: ReturnType<typeof revItem>) => l.evaluate((el) => getComputedStyle(el).backgroundColor)
+    expect(await bg(revItem(a, 'current'))).not.toBe(await bg(revItem(a, 5)))
+    await revItem(a, 5).click()
+    await expect(revItem(a, 5)).toHaveAttribute('aria-current', 'true')
+    await expect(revItem(a, 5)).toHaveClass(/bg-selected/)
+    await expect(revItem(a, 'current')).not.toHaveClass(/bg-selected/)
+
     // ✕ 로 닫으면 패널·쿼리가 사라진다.
     await a.getByTestId('wiki-revision-panel-close').click()
     await expect(panel(a)).toHaveCount(0)

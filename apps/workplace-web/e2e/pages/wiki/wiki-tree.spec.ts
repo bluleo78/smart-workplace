@@ -118,6 +118,32 @@ test('새 페이지 생성 직후 제목 입력 — placeholder 위에 이어붙
   await expect(titleInput).toHaveValue('탐색 테스트 문서')
 })
 
+// WP-368 — 열린 페이지의 트리 노드만 선택 표시(막대 + bg-selected), 다른 노드엔 없다.
+test('트리 — 열린 페이지 노드만 bg-selected·selection-bar 를 갖는다 (WP-368)', async ({ authenticatedPage: page }) => {
+  await routeCommon(page)
+  const tree: WikiPageSummary[] = [
+    { id: 1, parentId: null, title: '제품 문서', position: 0, aiLastUsedAt: null },
+    { id: 2, parentId: 1, title: '기획', position: 0, aiLastUsedAt: null },
+  ]
+  await page.route(`**/api/v1/wiki/spaces/${SPACE_ID}/pages`, (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(tree) }),
+  )
+  await page.route('**/api/v1/wiki/pages/*', (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(detail(1, '제품 문서', null)) }),
+  )
+
+  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/1`)
+  // 선택 표시는 행 안의 제목 버튼이 갖는다.
+  const picked = page.getByTestId('wiki-tree-row-1').getByRole('button', { name: '제품 문서' })
+  const other = page.getByTestId('wiki-tree-row-2').getByRole('button', { name: '기획' })
+  await expect(picked).toHaveClass(/bg-selected/)
+  await expect(picked).toHaveClass(/selection-bar/)
+  await expect(other).not.toHaveClass(/bg-selected/)
+  await expect(other).not.toHaveClass(/selection-bar/)
+  const bg = (l: typeof picked) => l.evaluate((el) => getComputedStyle(el).backgroundColor)
+  expect(await bg(picked)).not.toBe(await bg(other))
+})
+
 test('접기/펼치기 — 부모 토글 시 자손 숨김/노출', async ({ authenticatedPage: page }) => {
   await routeCommon(page)
   const tree: WikiPageSummary[] = [

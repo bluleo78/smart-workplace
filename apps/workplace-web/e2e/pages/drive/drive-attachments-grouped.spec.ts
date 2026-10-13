@@ -117,6 +117,26 @@ test('1440x900 데스크톱에서 AI 어시스턴트 칩이 출처 필터 버튼
   await expect(page.getByTestId('drive-attachment-filter-issue')).toHaveClass(/border-primary/)
 })
 
+// WP-368 — 출처 필터는 aria-pressed 토글: 고른 것만 TOGGLE_ON(primary 테두리·글자), 나머지는 없다. 바꾸면 옮겨 간다.
+test('출처 필터 — 고른 칩만 aria-pressed·TOGGLE_ON 표시 (WP-368)', async ({ authenticatedPage: page }) => {
+  await stubAttachments(page)
+  await page.goto('/drive/attachments')
+  const all = page.getByTestId('drive-attachment-filter-all')
+  const issue = page.getByTestId('drive-attachment-filter-issue')
+  const on = /(?<![:\w-])text-primary/
+  await expect(all).toHaveAttribute('aria-pressed', 'true')
+  await expect(all).toHaveClass(on)
+  await expect(issue).toHaveAttribute('aria-pressed', 'false')
+  await expect(issue).not.toHaveClass(on)
+  await expect(issue).not.toHaveClass(/(?<![:\w-])bg-primary\/10/)
+  await issue.click()
+  await expect(issue).toHaveAttribute('aria-pressed', 'true')
+  await expect(issue).toHaveClass(on)
+  await expect(issue).toHaveClass(/(?<![:\w-])border-primary\/50/)
+  await expect(all).toHaveAttribute('aria-pressed', 'false')
+  await expect(all).not.toHaveClass(on)
+})
+
 // 페이지 레이아웃 통합(Page) — 첨부 모아보기도 56px 헤더 바(제목)를 갖고, 출처 필터칩·검색은 헤더 아래 본문 첫 줄에 선다.
 // 예전엔 AI 칩을 피하려 필터 바에 lg:pt-12 를 더해 헤더가 ~93px 로 두꺼웠다(#576) — 이제 헤더 좌측 클램프가 칩 충돌을 막는다.
 for (const width of DESKTOP_WIDTHS) {

@@ -4,6 +4,7 @@ import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 
 import { formatListTime } from '@/lib/formatters'
+import { SELECTED_ROW_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
 
 interface Props {
@@ -37,7 +38,9 @@ export function MobileConversationRow({
       data-testid={testId}
       className={cn(
         'flex min-h-14 items-center gap-3 rounded-md px-3 py-2.5 transition-colors',
-        active ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/50',
+        // 데스크톱 ChannelSidebar 와 같은 규칙. 아이콘이 36px 칸(span)에 감싸여 NAV 의 직계 svg 선택자가 닿지 않아,
+        // 칸 안(아이콘 상자가 한 겹 더 있을 수 있어 자손 선택자)의 svg(채널 #·잠금·스레드 아이콘)만 primary 로 직접 지정한다(DM 아바타는 svg 가 아니라 그대로).
+        active ? cn(SELECTED_ROW_CLASS, '[&>span:first-child_svg]:text-primary') : 'hover:bg-accent/50',
       )}
     >
       <span className="flex h-9 w-9 shrink-0 items-center justify-center">{icon}</span>

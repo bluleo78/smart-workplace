@@ -90,6 +90,32 @@ test('통합 목록·검색·타입필터·상세', { tag: '@smoke' }, async ({ 
   await expect(page.getByTestId('contact-detail-member')).toContainText('개발팀')
 })
 
+// WP-368 — 고른 연락처 행만 선택 표시(막대 + bg-selected), 다른 행·고르기 전엔 없다. 사이드바 타입 필터도 활성 항목이 표시된다.
+test('연락처 행·타입 필터 선택 표시 (WP-368)', async ({ authenticatedPage: page }) => {
+  await stubList(page)
+  await stubMemberDetail(page)
+  await page.goto('/contacts')
+  const picked = page.getByTestId('contact-row-MEMBER-1')
+  const other = page.getByTestId('contact-row-EXTERNAL-100')
+  await expect(picked).toBeVisible()
+  await expect(picked).not.toHaveClass(/bg-selected/)
+  await picked.click()
+  await expect(page.getByTestId('contact-detail-member')).toBeVisible()
+  await expect(picked).toHaveClass(/bg-selected/)
+  await expect(picked).toHaveClass(/selection-bar/)
+  await expect(other).not.toHaveClass(/bg-selected/)
+  const bg = (l: typeof picked) => l.evaluate((el) => getComputedStyle(el).backgroundColor)
+  expect(await bg(picked)).not.toBe(await bg(other))
+  // 사이드바 타입 필터 — 활성(전체)만 선택 표시, 나머지는 없다. 바꾸면 따라 옮겨 간다.
+  const all = page.getByTestId('contact-filter-ALL')
+  const ext = page.getByTestId('contact-filter-EXTERNAL')
+  await expect(all).toHaveClass(/bg-selected/)
+  await expect(ext).not.toHaveClass(/bg-selected/)
+  await ext.click()
+  await expect(ext).toHaveClass(/bg-selected/)
+  await expect(all).not.toHaveClass(/bg-selected/)
+})
+
 // #113 전폭 PageHeader + 좁은 화면 뒤로가기
 test('연락처 전폭 헤더 + 좁은 화면 뒤로가기', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
   await stubList(page)

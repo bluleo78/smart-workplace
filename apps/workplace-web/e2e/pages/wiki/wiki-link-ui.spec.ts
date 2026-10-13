@@ -45,6 +45,23 @@ async function placeCaretInLink(page: Page, linkText: string) {
   await page.locator('.ProseMirror a', { hasText: linkText }).click()
 }
 
+// WP-368 — 선택 툴바의 서식 토글이 켜지면 TOGGLE_ON(primary 테두리·글자)이 붙고, 다른 서식 버튼엔 없다.
+test('선택 툴바 서식 토글 — 굵게를 켜면 aria-pressed·TOGGLE_ON 표시, 기울임은 그대로 (WP-368)', async ({ authenticatedPage: page }) => {
+  await open(page, '굵게 처리할 문장.')
+  await selectText(page, '굵게 처리')
+  const bold = page.getByTestId('wiki-format-tb-bold')
+  const italic = page.getByTestId('wiki-format-tb-italic')
+  const on = /(?<![:\w-])text-primary/
+  await expect(bold).toHaveAttribute('aria-pressed', 'false')
+  await expect(bold).not.toHaveClass(on)
+  await bold.click()
+  await expect(page.locator('.ProseMirror strong', { hasText: '굵게 처리' })).toBeVisible()
+  await expect(bold).toHaveAttribute('aria-pressed', 'true')
+  await expect(bold).toHaveClass(on)
+  await expect(bold).toHaveClass(/(?<![:\w-])border-primary\/50/)
+  await expect(italic).not.toHaveClass(on)
+})
+
 test('선택 툴바 🔗 로 선택한 글자에 링크를 건다 — 맨 도메인은 https:// 가 붙어 저장된다', async ({ authenticatedPage: page }) => {
   await open(page, '자세한 내용은 설계 문서 참고.')
   await selectText(page, '설계 문서')

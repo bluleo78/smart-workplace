@@ -152,7 +152,13 @@ test.describe('이슈 유형', () => {
       await page.goto(`/projects/${KEY}/issues/1`);
       await page.getByTestId('issue-type-trigger').click();
       const designId = types.find((t) => t.name === '디자인')!.id;
-      await page.getByTestId(`issue-type-option-${designId}`).click();
+      // WP-368 — 현재 유형(TASK)만 선택 표시(bg-selected + 막대), 고르려는 유형엔 없다.
+      const currentOpt = page.getByTestId(`issue-type-option-${issue.type.id}`);
+      const otherOpt = page.getByTestId(`issue-type-option-${designId}`);
+      await expect(currentOpt).toHaveClass(/bg-selected/);
+      await expect(currentOpt).toHaveClass(/selection-bar/);
+      await expect(otherOpt).not.toHaveClass(/bg-selected/);
+      await otherOpt.click();
 
       await expect.poll(() => typePatches.lastBody()).toEqual({ typeId: designId });
       await expect(page.getByTestId(`issue-type-badge-${designId}`)).toBeVisible();

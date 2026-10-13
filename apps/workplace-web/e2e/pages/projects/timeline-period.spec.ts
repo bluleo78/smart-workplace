@@ -88,6 +88,26 @@ test.describe('타임라인 조회 기간 (WP-247)', () => {
     await expect(gridRow(page, '지난 에픽')).toHaveCount(0);
   });
 
+  // WP-368 — 현재 기간 행은 선택 전용 표시(막대 + bg-selected), 다른 행은 없다. popover 위에서도 배경이 구분된다.
+  test('기간 드롭다운 — 현재 기간 행만 bg-selected·selection-bar 를 갖고 배경색이 다르다 (WP-368)', async ({ authenticatedPage: page }) => {
+    await setupStubs(page);
+    await page.goto(`/projects/${KEY}/timeline`);
+    await page.getByTestId('timeline-period-trigger').click();
+    const pop = page.getByTestId('timeline-period-popover');
+    const current = pop.getByTestId('timeline-period-option-active');
+    const other = pop.getByTestId('timeline-period-option-cycle-1');
+    await expect(current).toHaveClass(/bg-selected/);
+    await expect(current).toHaveClass(/selection-bar/);
+    await expect(other).not.toHaveClass(/bg-selected/);
+    await expect(other).not.toHaveClass(/selection-bar/);
+    const bg = (l: typeof current) => l.evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(await bg(current)).not.toBe(await bg(other));
+    await other.click();
+    await page.getByTestId('timeline-period-trigger').click();
+    await expect(pop.getByTestId('timeline-period-option-cycle-1')).toHaveClass(/bg-selected/);
+    await expect(pop.getByTestId('timeline-period-option-active')).not.toHaveClass(/bg-selected/);
+  });
+
   test('드롭다운 — 라벨이 늘 보이고, 다른 사이클·이번 분기·전체를 고르면 URL·목록이 바뀐다', async ({ authenticatedPage: page }) => {
     await setupStubs(page);
     await page.goto(`/projects/${KEY}/timeline`);

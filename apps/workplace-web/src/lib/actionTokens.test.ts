@@ -39,14 +39,15 @@ describe.each(Object.entries(BRAND_THEMES))('selection tokens (%s)', (theme, bod
   it('primary bar on selected keeps 3:1', () => {
     expect(tokenContrast(body, 'primary', 'selected')).toBeGreaterThanOrEqual(3)
   })
-  it('selected stands out from background (≥1.2:1)', () => {
-    expect(tokenContrast(body, 'selected', 'background')).toBeGreaterThanOrEqual(1.2)
+  // 페이지 바탕뿐 아니라 떠 있는 패널(popover — 이슈 유형·기간 선택 등) 위에서도 선택 행이 구분돼야 한다.
+  it.each(['background', 'popover'])('selected stands out from %s (≥1.2:1)', (under) => {
+    expect(tokenContrast(body, 'selected', under)).toBeGreaterThanOrEqual(1.2)
   })
   // 브랜드 라이트(ocean·sunset)는 primary 자체가 바탕 위 4.58·4.95:1 로 여유가 없어 연한 채움 위에선 4.0·4.3:1 — 위 primary hover 와 같은
   // 기존 브랜드 primary 명도 문제라 하한만 고정하고(회귀 방지) 기본 라이트·다크는 AA 4.5:1 을 지킨다.
   const brandLight = theme === 'ocean-light' || theme === 'sunset-light'
-  it(`primary text on toggle-on fill keeps ${brandLight ? '4:1' : '4.5:1'}`, () => {
-    const fill = compositeLuminance(body, 'primary', dark ? 0.15 : 0.1, 'background')
+  it.each(['background', 'popover'])(`primary text on toggle-on fill over %s keeps ${brandLight ? '4:1' : '4.5:1'}`, (under) => {
+    const fill = compositeLuminance(body, 'primary', dark ? 0.15 : 0.1, under)
     expect(contrast(luminance(oklchOf(body, 'primary')), fill)).toBeGreaterThanOrEqual(brandLight ? 4 : 4.5)
   })
 })

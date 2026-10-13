@@ -30,7 +30,7 @@ import { markSeenInKept, mergeKeptRows, withOpenRow } from '@/lib/mailKeepRows'
 import { isNeedsReply } from '@/lib/mailNeedsReply'
 import { buildQuote, escapeHtml } from '@/lib/mailQuote'
 import { mailViewHref, resolveMailView, unreadCountForView } from '@/lib/mailView'
-import { SELECTED_SURFACE_CLASS, TOGGLE_ON_CLASS } from '@/lib/selectionStyles'
+import { SELECTED_BG_CLASS, TOGGLE_ON_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
 
 import { getMessage, getViewUnreadCount, type MailViewScope } from '../../api/mailMessages'
@@ -121,8 +121,8 @@ function MessageRow({
       className={cn(
         // group — 안의 읽음 전환 버튼을 행 hover 에 맞춰 드러낸다(WP-187).
         'group relative flex w-full cursor-pointer flex-col gap-0.5 border-b px-4 py-3 text-left transition-colors',
-        // 선택은 막대+배경만 — 이 목록은 글자 굵기가 안 읽음 표시라 굵게 하지 않는다. 안 읽음 막대(아래)와 같은 자리를 공유한다.
-        active ? SELECTED_SURFACE_CLASS : 'hover:bg-accent/50',
+        // 선택은 배경만 — 막대는 안 읽음 표시(아래, 같은 자리·같은 색)와 겹치고, 굵기도 안 읽음 표시라 둘 다 쓰지 않는다.
+        active ? SELECTED_BG_CLASS : 'hover:bg-accent/50',
       )}
     >
       {/* WP-155: 안 읽음은 굵기만으로는 훑어볼 때 잘 안 보여 왼쪽 primary 막대로 보강.

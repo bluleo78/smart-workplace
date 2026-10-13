@@ -380,7 +380,7 @@
   --sidebar-accent: oklch(0.75 0.12 195 / 7%);
   --chart-1: oklch(0.75 0.12 195);
   --accent: oklch(0.75 0.12 195 / 7%);
-  --selected: oklch(0.28 0.025 205);
+  --selected: oklch(0.28 0.025 195);
 }
 
 /* ===== SUNSET THEME ===== */
@@ -406,7 +406,7 @@
   --sidebar-accent: oklch(0.72 0.15 50 / 7%);
   --chart-1: oklch(0.72 0.15 50);
   --accent: oklch(0.72 0.15 50 / 7%);
-  --selected: oklch(0.28 0.025 45);
+  --selected: oklch(0.28 0.025 50);
 }
 
 /* Background gradient */
@@ -523,19 +523,12 @@
   }
 }
 
-/* Active sidebar indicator */
-.nav-active-indicator {
-  position: relative;
-}
+/* Active sidebar indicator — 앱 레일 전용. 막대 기본 모양(위치·폭·둥근 모서리·primary 색)은 selection-bar 유틸이 그리고,
+   AppRail 은 `selection-bar nav-active-indicator` 를 함께 쓴다. 여기서는 차이(위아래 25% 인셋, 다크 그라데이션·glow)만 덮는다.
+   이 규칙은 @layer 밖이라 utilities 레이어의 selection-bar 보다 항상 이긴다(레이어 밖 규칙 > 레이어 안 규칙). */
 .nav-active-indicator::before {
-  content: '';
-  position: absolute;
-  left: 0;
   top: 25%;
   bottom: 25%;
-  width: 3px;
-  border-radius: 0 3px 3px 0;
-  background: var(--primary);
 }
 .dark .nav-active-indicator::before {
   background: linear-gradient(180deg, oklch(0.65 0.2 264), oklch(0.6 0.2 300));

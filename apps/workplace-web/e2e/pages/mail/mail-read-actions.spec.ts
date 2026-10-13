@@ -39,6 +39,29 @@ test.describe('메일 읽음 조작 — 데스크톱(WP-187)', () => {
     await expect.poll(() => counts.requests.length).toBeGreaterThan(before)
   })
 
+  // WP-368 — 선택 행은 배경(bg-selected)만 쓰고 막대는 쓰지 않는다: 왼쪽 막대는 안 읽음 표시(같은 자리·같은 색)라 겹치면
+  // 선택이 묻히거나 읽은 메일이 안 읽음처럼 보인다. 굵기도 안 읽음 표시라 바꾸지 않는다.
+  test('선택한 메일 행은 bg-selected 배경만 갖고 막대·굵기 변화는 없다 (WP-368)', async ({ authenticatedPage: page }) => {
+    await stub(page)
+    await mockApi(page, 'GET', '/api/v1/mail/messages/11', detail({ id: 11, seen: true }))
+    await page.goto('/mail/1')
+    const read = page.getByTestId('mail-row-11')
+    const unread = page.getByTestId('mail-row-10')
+    await expect(read).toBeVisible()
+    await expect(read).not.toHaveClass(/bg-selected/)
+    await read.click()
+    await expect(read).toHaveClass(/bg-selected/)
+    await expect(read).not.toHaveClass(/selection-bar/)
+    await expect(read).not.toHaveClass(/font-semibold/)
+    // 읽은 메일엔 안 읽음 막대도 없다 — 선택이 안 읽음처럼 보이지 않는다.
+    await expect(page.getByTestId('mail-unread-bar-11')).toHaveCount(0)
+    // 안 읽음 행의 안 읽음 막대는 그대로.
+    await expect(page.getByTestId('mail-unread-bar-10')).toBeVisible()
+    await expect(unread).not.toHaveClass(/bg-selected/)
+    const bg = (l: typeof read) => l.evaluate((el) => getComputedStyle(el).backgroundColor)
+    expect(await bg(read)).not.toBe(await bg(unread))
+  })
+
   test('읽은 행 토글 → 안읽음 API', async ({ authenticatedPage: page }) => {
     await stub(page)
     const unread = await mockApi(page, 'POST', '/api/v1/mail/messages/11/unread', null, { capture: true })
