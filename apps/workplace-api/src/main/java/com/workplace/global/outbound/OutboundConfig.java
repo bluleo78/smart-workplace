@@ -170,6 +170,23 @@ public class OutboundConfig {
   }
 
   /**
+   * 후속 질문 전용 executor(WP-139). ai-agent 호출(최대 read 25s)이 채팅 펌프 스레드를 붙잡지 않게 분리한다. 후속 질문은 없어도 되는 부가
+   * 기능이라 소형 풀 + 짧은 큐(core 1·max 2·queue 32)이고 넘치면 버린다(호출부가 TaskRejectedException 을 삼킨다).
+   * TenantContext 를 전파해 저장 트랜잭션이 RLS GUC 를 받게 한다. 테스트가 큐·활성 수로 유휴를 판정하므로 구체 타입으로 노출한다.
+   */
+  @Bean(name = "homeSuggestionExecutor")
+  public ThreadPoolTaskExecutor homeSuggestionExecutor() {
+    ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+    executor.setCorePoolSize(1);
+    executor.setMaxPoolSize(2);
+    executor.setQueueCapacity(32);
+    executor.setThreadNamePrefix("home-suggest-");
+    executor.setTaskDecorator(new TenantContextTaskDecorator());
+    executor.initialize();
+    return executor;
+  }
+
+  /**
    * Drive Overview SSE 펌프 전용 executor. ai-agent SSE 로 스레드를 10–300s 점유하므로 wiki/chat 스트림과 분리해 경합을
    * 회피한다. core/max 4/8, queue 는 작게(동시 스트림 수 제한) — 초과 요청은 호출 스레드에서 reject 되어 빠르게 오류로 떨어지게 둔다.
    */

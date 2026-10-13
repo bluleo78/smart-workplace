@@ -13,6 +13,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -43,6 +44,12 @@ final class HomeChatTurn {
   /** 텍스트·도구 그룹·위젯의 도착 순서(WP-158) — 영속 시 home_message.content_blocks. */
   final ChatBlockRecorder blocks = new ChatBlockRecorder();
 
+  /**
+   * 이번 턴에 확인 카드(pending_action)가 나왔는가 — 후속 질문 대상에서 빼는 근거(WP-139). 펌프 스레드가 쓰고 같은 스레드의 afterDone 이
+   * 읽는다.
+   */
+  private volatile boolean proposed;
+
   HomeChatTurn(
       long callerId,
       UUID sessionId,
@@ -66,26 +73,40 @@ final class HomeChatTurn {
     sseRegistry.fanOut(Set.of(callerId), event, payload);
   }
 
+  /** 확인 카드 발행 표시(WP-139). */
+  void markProposed() {
+    proposed = true;
+  }
+
+  /** 이번 턴에 확인 카드가 나왔는가(WP-139). */
+  boolean proposed() {
+    return proposed;
+  }
+
   /** 종결 이벤트가 이미 나갔는가 — 펌프가 "콜백 없이 끝난" 경우를 가려 마감할 때 쓴다(R8). */
   boolean isFinished() {
     return finished.get();
   }
 
-  /** 정상 완료 — ASSISTANT(COMPLETE) 영속 → 반납 → home.chat.done → afterDone(누적 요약 예약 등). */
-  void complete(String fullText, JsonNode widgets, Runnable afterDone) {
+  /**
+   * 정상 완료 — ASSISTANT(COMPLETE) 영속 → 반납 → home.chat.done → afterDone(누적 요약·후속 질문 예약). afterDone 에는
+   * 저장한 메시지 id(영속 실패면 null)를 넘긴다(WP-139).
+   */
+  void complete(String fullText, JsonNode widgets, Consumer<Long> afterDone) {
     if (!finished.compareAndSet(false, true)) return;
     String widgetsJson = widgets == null || widgets.isNull() ? null : toJson(widgets, "widgets");
-    persist(
-        fullText,
-        widgetsJson,
-        toJsonList(steps, "tool_calls"),
-        toJsonList(blocks.finish(fullText), "content_blocks"),
-        STATUS_COMPLETE);
+    Long messageId =
+        persist(
+            fullText,
+            widgetsJson,
+            toJsonList(steps, "tool_calls"),
+            toJsonList(blocks.finish(fullText), "content_blocks"),
+            STATUS_COMPLETE);
     reservation.release();
     Map<String, Object> data = new HashMap<>();
     data.put("widgets", widgets);
     emit("home.chat.done", data);
-    afterDone.run();
+    afterDone.accept(messageId);
   }
 
   /** 오류 종결 — 누적분을 FAILED 로 남기고 반납 → home.chat.error{message}. */
@@ -132,12 +153,14 @@ final class HomeChatTurn {
   /**
    * ASSISTANT 영속. 취소는 스레드 인터럽트로 오므로 플래그가 선 채 JDBC 를 타면 드라이버가 소켓 작업을 거부할 수 있다 — 플래그를 잠시 내리고 저장한 뒤
    * 되돌린다. 펌프 스레드엔 바깥 트랜잭션이 없어 appendMessage(@Transactional)가 곧 독립 트랜잭션이다(R7).
+   *
+   * @return 저장한 메시지 id — 영속 실패면 null(WP-139 후속 질문이 저장 대상 id 로 쓴다)
    */
-  private void persist(
+  private Long persist(
       String content, String widgetsJson, String toolCallsJson, String blocksJson, String status) {
     boolean interrupted = Thread.interrupted();
     try {
-      sessionService.appendMessage(
+      return sessionService.appendMessage(
           callerId,
           sessionId,
           "ASSISTANT",
@@ -149,6 +172,7 @@ final class HomeChatTurn {
     } catch (Exception e) {
       // 영속 실패(예: 생성 중 대화 삭제)는 종결 이벤트를 막지 않는다 — 웹이 멈춘 채 남지 않게.
       log.error("ASSISTANT 메시지 영속 실패({}): {}", status, e.getMessage(), e);
+      return null;
     } finally {
       if (interrupted) Thread.currentThread().interrupt();
     }

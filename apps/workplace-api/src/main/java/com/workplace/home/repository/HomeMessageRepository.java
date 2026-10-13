@@ -57,7 +57,8 @@ public class HomeMessageRepository {
             HOME_MESSAGE.TOOL_CALLS,
             HOME_MESSAGE.CONTENT_BLOCKS,
             HOME_MESSAGE.STATUS,
-            HOME_MESSAGE.CREATED_AT)
+            HOME_MESSAGE.CREATED_AT,
+            HOME_MESSAGE.FOLLOWUPS)
         .from(HOME_MESSAGE)
         .where(HOME_MESSAGE.SESSION_ID.eq(sessionId))
         .orderBy(HOME_MESSAGE.CREATED_AT.asc(), HOME_MESSAGE.ID.asc())
@@ -75,7 +76,24 @@ public class HomeMessageRepository {
                         ? null
                         : r.get(HOME_MESSAGE.CONTENT_BLOCKS).data(),
                     r.get(HOME_MESSAGE.STATUS),
-                    r.get(HOME_MESSAGE.CREATED_AT).toInstant()));
+                    r.get(HOME_MESSAGE.CREATED_AT).toInstant(),
+                    r.get(HOME_MESSAGE.FOLLOWUPS) == null
+                        ? null
+                        : r.get(HOME_MESSAGE.FOLLOWUPS).data()));
+  }
+
+  /**
+   * 후속 질문 저장(WP-139) — 그 세션의 ASSISTANT 메시지에만. 갱신 행 수 반환(0 = 그사이 대화가 지워졌거나 다른 세션의 id).
+   *
+   * @param followupsJson JSON 문자열 배열
+   */
+  public int updateFollowups(UUID sessionId, long messageId, String followupsJson) {
+    return dsl.update(HOME_MESSAGE)
+        .set(HOME_MESSAGE.FOLLOWUPS, JSONB.valueOf(followupsJson))
+        .where(HOME_MESSAGE.ID.eq(messageId))
+        .and(HOME_MESSAGE.SESSION_ID.eq(sessionId))
+        .and(HOME_MESSAGE.ROLE.eq("ASSISTANT"))
+        .execute();
   }
 
   /**
@@ -106,6 +124,7 @@ public class HomeMessageRepository {
    * @param toolCallsJson null 이거나 JSON 배열 문자열(AI 도구 호출/위임 단계)
    * @param contentBlocksJson null 이거나 JSON 배열 문자열(표시 블록 순서, WP-158)
    * @param status 답변 종결 상태 — COMPLETE·STOPPED·FAILED(WP-190)
+   * @param followupsJson null 이거나 JSON 문자열 배열(후속 질문, WP-139)
    */
   public record Row(
       long id,
@@ -115,5 +134,6 @@ public class HomeMessageRepository {
       String toolCallsJson,
       String contentBlocksJson,
       String status,
-      java.time.Instant createdAt) {}
+      java.time.Instant createdAt,
+      String followupsJson) {}
 }

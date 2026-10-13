@@ -18,4 +18,6 @@ public record HomeMessageResponse(
     String status,
     Instant createdAt,
     /** 이 메시지에 붙은 첨부(WP-234, USER 전용). 없으면 빈 배열 — 새로고침 후 말풍선 복원. */
-    List<HomeAttachment> attachments) {}
+    List<HomeAttachment> attachments,
+    /** 답 뒤 후속 질문(WP-139, ASSISTANT 전용). 없거나 사용자가 추천을 껐으면 null. */
+    List<String> followups) {}

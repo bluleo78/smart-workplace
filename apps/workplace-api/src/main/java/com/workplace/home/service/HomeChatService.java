@@ -90,6 +90,9 @@ public class HomeChatService {
   private final SseRegistry sseRegistry;
   private final HomeChatProperties chatProperties;
 
+  /** WP-139: 답 완료 뒤 후속 질문 생성·저장·발행(전용 실행기). */
+  private final HomeFollowupService followupService;
+
   public HomeChatService(
       HomeSessionService sessionService,
       HomeProposalService proposalService,
@@ -102,7 +105,8 @@ public class HomeChatService {
       @Qualifier("aiChatStreamExecutor") AsyncTaskExecutor executor,
       StreamingGenerationRegistry registry,
       SseRegistry sseRegistry,
-      HomeChatProperties chatProperties) {
+      HomeChatProperties chatProperties,
+      HomeFollowupService followupService) {
     this.sessionService = sessionService;
     this.proposalService = proposalService;
     this.contextService = contextService;
@@ -115,6 +119,7 @@ public class HomeChatService {
     this.registry = registry;
     this.sseRegistry = sseRegistry;
     this.chatProperties = chatProperties;
+    this.followupService = followupService;
   }
 
   /** 홈 채팅 레지스트리 scope 접두 — 대화(sessionId) 단위로 동시 생성을 추적한다(WP-190). */
@@ -324,10 +329,27 @@ public class HomeChatService {
             turn.blocks.onDelta(delta);
             turn.emit("home.chat.delta", Map.of("text", delta));
           },
-          // done: 영속 → 반납 → home.chat.done → WP-232 비동기 요약 예약(예외 없음, 응답 지연 없음).
-          (fullText, widgets) ->
+          // done: 영속 → 반납 → home.chat.done → WP-232 비동기 요약 예약 + WP-139 후속 질문 예약(둘 다 예외 없음, 응답 지연
+          // 없음).
+          (fullText, widgets, source) ->
               turn.complete(
-                  fullText, widgets, () -> contextService.scheduleIfNeeded(callerId, sid)),
+                  fullText,
+                  widgets,
+                  messageId -> {
+                    contextService.scheduleIfNeeded(callerId, sid);
+                    followupService.scheduleIfEligible(
+                        turn,
+                        new HomeFollowupService.FollowupInput(
+                            callerId,
+                            sid,
+                            messageId,
+                            query,
+                            fullText,
+                            source,
+                            turn.proposed(),
+                            screenContext,
+                            spec));
+                  }),
           // error(진짜 오류만 — 취소는 아래 마감·catch 로 별도 처리): 누적분 FAILED 저장 → 반납 → home.chat.error.
           turn::fail,
           // progress: 위임 라벨 누적 + 발행.
@@ -337,10 +359,13 @@ public class HomeChatService {
             turn.emit("home.chat.progress", Map.of("label", label));
           },
           // pending_action: 제안을 먼저 영속(#843)해 id 를 붙인 뒤 발행 — 봉투의 sessionId 로 새 대화도 done 전에 세션을 안다.
-          node ->
-              turn.emit(
-                  "home.chat.pending_action",
-                  Map.of("actions", proposalService.record(callerId, sid, node))),
+          // WP-139: 확인 카드가 나온 턴은 후속 질문 대상이 아니다.
+          node -> {
+            turn.markProposed();
+            turn.emit(
+                "home.chat.pending_action",
+                Map.of("actions", proposalService.record(callerId, sid, node)));
+          },
           toolNode -> onTool(turn, toolNode));
       // R8: composeStream 은 인터럽트로 줄 루프를 빠져나오면 콜백 없이 조용히 return 한다 — 종결 없이 끝났으면 여기서 마감.
       if (!turn.isFinished()) {
