@@ -74,16 +74,16 @@ class AgentWorkServiceTest extends IntegrationTestBase {
         issueId,
         agentId,
         "claude-code",
-        new AgentWorkPatch(null, "WAITING", "질문", false, null, null, null));
+        new AgentWorkPatch(null, "INPUT_REQUIRED", "질문", false, null, null, null));
     // 사람 작업을 3시간 전으로 — 무소식
     dsl.update(AGENT_WORK)
         .set(AGENT_WORK.UPDATED_AT, OffsetDateTime.now().minusHours(3))
         .where(AGENT_WORK.WORKER_ID.eq(humanId))
         .execute();
     var list = service.viewsByIssueIds(List.of(issueId)).get(issueId);
-    assertThat(list).extracting(AgentWorkView::state).containsExactly("WAITING", "WORKING");
+    assertThat(list).extracting(AgentWorkView::state).containsExactly("INPUT_REQUIRED", "WORKING");
     assertThat(list.get(1).stale()).isTrue();
-    assertThat(list.get(0).stale()).isFalse(); // WAITING 은 무소식 경고 없음
+    assertThat(list.get(0).stale()).isFalse(); // INPUT_REQUIRED 은 무소식 경고 없음
   }
 
   @Test
@@ -92,19 +92,19 @@ class AgentWorkServiceTest extends IntegrationTestBase {
         issueId,
         agentId,
         "claude-code",
-        new AgentWorkPatch(null, "WAITING", null, false, null, null, null));
+        new AgentWorkPatch(null, "INPUT_REQUIRED", null, false, null, null, null));
     service.onHumanReply(new IssueHumanReplyPosted(issueId));
     assertThat(repo.findActive(issueId, agentId).orElseThrow().state()).isEqualTo("WORKING");
   }
 
-  /** WAITING 에서 새 note 없이 다른 상태로 보고하면 질문 note 를 지운다. */
+  /** INPUT_REQUIRED 에서 새 note 없이 다른 상태로 보고하면 질문 note 를 지운다. */
   @Test
-  void 보고_WAITING에서_note없이_WORKING이면_note_지움() {
+  void 보고_INPUT_REQUIRED에서_note없이_WORKING이면_note_지움() {
     service.startOrUpdate(
         issueId,
         agentId,
         "claude-code",
-        new AgentWorkPatch(null, "WAITING", "A안/B안 중 무엇으로 할까요?", false, null, null, null));
+        new AgentWorkPatch(null, "INPUT_REQUIRED", "A안/B안 중 무엇으로 할까요?", false, null, null, null));
     var v =
         service.startOrUpdate(
             issueId,
@@ -115,14 +115,14 @@ class AgentWorkServiceTest extends IntegrationTestBase {
     assertThat(v.note()).isNull();
   }
 
-  /** WAITING 에서 새 note 와 함께 보고하면 새 note 를 쓴다. */
+  /** INPUT_REQUIRED 에서 새 note 와 함께 보고하면 새 note 를 쓴다. */
   @Test
-  void 보고_WAITING에서_새_note면_새_note() {
+  void 보고_INPUT_REQUIRED에서_새_note면_새_note() {
     service.startOrUpdate(
         issueId,
         agentId,
         "claude-code",
-        new AgentWorkPatch(null, "WAITING", "질문", false, null, null, null));
+        new AgentWorkPatch(null, "INPUT_REQUIRED", "질문", false, null, null, null));
     var v =
         service.startOrUpdate(
             issueId,
@@ -138,22 +138,22 @@ class AgentWorkServiceTest extends IntegrationTestBase {
         issueId,
         agentId,
         "claude-code",
-        new AgentWorkPatch(null, "WAITING", "질문", false, null, null, null));
+        new AgentWorkPatch(null, "INPUT_REQUIRED", "질문", false, null, null, null));
     service.onHumanReply(new IssueHumanReplyPosted(issueId));
     var row = repo.findActive(issueId, agentId).orElseThrow();
     assertThat(row.state()).isEqualTo("WORKING");
     assertThat(row.note()).isNull();
   }
 
-  /** MCP 쓰기 터치로 WAITING → WORKING 복귀 시 note 를 지운다. */
+  /** MCP 쓰기 터치로 INPUT_REQUIRED → WORKING 복귀 시 note 를 지운다. */
   @Test
-  void 터치_WAITING_복귀시_note_지움() {
+  void 터치_INPUT_REQUIRED_복귀시_note_지움() {
     assigneeRepository.add(issueId, humanId, humanId);
     service.startOrUpdate(
         issueId,
         humanId,
         "claude-code",
-        new AgentWorkPatch(null, "WAITING", "질문", false, null, null, null));
+        new AgentWorkPatch(null, "INPUT_REQUIRED", "질문", false, null, null, null));
     service.onAgentToolWrite(new AgentToolWriteEvent(issueId, humanId, "claude-code", true));
     var row = repo.findActive(issueId, humanId).orElseThrow();
     assertThat(row.state()).isEqualTo("WORKING");
@@ -187,15 +187,109 @@ class AgentWorkServiceTest extends IntegrationTestBase {
   @Test
   void end_는_진행중이면_true_없으면_false() {
     service.startOrUpdate(issueId, humanId, "claude-code", AgentWorkPatch.empty());
-    assertThat(service.end(issueId, humanId)).isTrue();
-    assertThat(service.end(issueId, humanId)).isFalse();
+    assertThat(service.end(issueId, humanId, "FAILED")).isTrue();
+    assertThat(service.end(issueId, humanId, "FAILED")).isFalse();
+    assertThat(
+            dsl.select(AGENT_WORK.STATE)
+                .from(AGENT_WORK)
+                .where(AGENT_WORK.ISSUE_ID.eq(issueId))
+                .fetchOne(AGENT_WORK.STATE))
+        .isEqualTo("FAILED");
   }
 
   @Test
-  void endAllForIssue_진행중_전부_종료() {
+  void cancelAllForIssues_진행중_전부_CANCELED_종료() {
     service.startOrUpdate(issueId, humanId, "claude-code", AgentWorkPatch.empty());
     service.startOrUpdate(issueId, agentId, "claude-code", AgentWorkPatch.empty());
-    service.endAllForIssues(List.of(issueId));
+    service.cancelAllForIssues(List.of(issueId));
     assertThat(service.viewsByIssueIds(List.of(issueId))).doesNotContainKey(issueId);
+  }
+
+  /** AUTH_REQUIRED 도 터치로 WORKING 에 복귀하며 요청 note 를 지운다. */
+  @Test
+  void 터치_AUTH_REQUIRED_복귀시_note_지움() {
+    assigneeRepository.add(issueId, humanId, humanId);
+    service.startOrUpdate(
+        issueId,
+        humanId,
+        "claude-code",
+        new AgentWorkPatch(null, "AUTH_REQUIRED", "토큰 필요", false, null, null, null));
+    service.onAgentToolWrite(new AgentToolWriteEvent(issueId, humanId, "claude-code", true));
+    var row = repo.findActive(issueId, humanId).orElseThrow();
+    assertThat(row.state()).isEqualTo("WORKING");
+    assertThat(row.note()).isNull();
+  }
+
+  /** 시작 전(SUBMITTED) 작업은 MCP 쓰기 터치로 같은 행이 WORKING 으로 착수된다(새 행 아님). */
+  @Test
+  void 터치_SUBMITTED_는_같은_행을_WORKING_으로() {
+    assigneeRepository.add(issueId, agentId, humanId);
+    var submitted = repo.insertIfAbsent(issueId, agentId, null, "SUBMITTED").orElseThrow();
+    service.onAgentToolWrite(new AgentToolWriteEvent(issueId, agentId, "claude-code", true));
+    var row = repo.findActive(issueId, agentId).orElseThrow();
+    assertThat(row.id()).isEqualTo(submitted.id());
+    assertThat(row.state()).isEqualTo("WORKING");
+  }
+
+  /** 인증 필요 → 답변 필요처럼 중단 상태끼리 바뀔 때도 앞 상태의 note 는 낡으므로 새 note 가 없으면 지운다. */
+  @Test
+  void 보고_AUTH_REQUIRED에서_INPUT_REQUIRED_로_note없이_바뀌면_note_지움() {
+    service.startOrUpdate(
+        issueId,
+        agentId,
+        "claude-code",
+        new AgentWorkPatch(null, "AUTH_REQUIRED", "토큰 필요", false, null, null, null));
+    var v =
+        service.startOrUpdate(
+            issueId,
+            agentId,
+            "claude-code",
+            new AgentWorkPatch(null, "INPUT_REQUIRED", null, false, null, null, null));
+    assertThat(v.state()).isEqualTo("INPUT_REQUIRED");
+    assertThat(v.note()).isNull();
+  }
+
+  /** 사람이 응답해도 AUTH_REQUIRED 는 건드리지 않는다. */
+  @Test
+  void onHumanReply_는_AUTH_REQUIRED_를_건드리지_않음() {
+    service.startOrUpdate(
+        issueId,
+        agentId,
+        "claude-code",
+        new AgentWorkPatch(null, "AUTH_REQUIRED", "토큰 필요", false, null, null, null));
+    service.onHumanReply(new IssueHumanReplyPosted(issueId));
+    var row = repo.findActive(issueId, agentId).orElseThrow();
+    assertThat(row.state()).isEqualTo("AUTH_REQUIRED");
+    assertThat(row.note()).isEqualTo("토큰 필요");
+  }
+
+  /** tool 이 null 인 SUBMITTED 작업도 이슈 응답용 뷰로 문제없이 만들어진다(tool 은 null). */
+  @Test
+  void viewsByIssueIds_tool_이_null_이어도_뷰를_만듦() {
+    repo.insertIfAbsent(issueId, agentId, null, "SUBMITTED");
+    var list = service.viewsByIssueIds(List.of(issueId)).get(issueId);
+    assertThat(list)
+        .singleElement()
+        .satisfies(
+            v -> {
+              assertThat(v.state()).isEqualTo("SUBMITTED");
+              assertThat(v.tool()).isNull();
+              assertThat(v.stale()).isFalse();
+            });
+  }
+
+  /** 이슈 완료 처리 — 일하던 작업은 COMPLETED, 착수 전 SUBMITTED 는 CANCELED. */
+  @Test
+  void endAllOnIssueDone_은_SUBMITTED_만_CANCELED() {
+    repo.insertIfAbsent(issueId, agentId, null, "SUBMITTED");
+    repo.insertIfAbsent(issueId, humanId, "claude-code", "REVIEW");
+    service.endAllOnIssueDone(List.of(issueId));
+    var states =
+        dsl.select(AGENT_WORK.WORKER_ID, AGENT_WORK.STATE)
+            .from(AGENT_WORK)
+            .where(AGENT_WORK.ISSUE_ID.eq(issueId))
+            .fetchMap(AGENT_WORK.WORKER_ID, AGENT_WORK.STATE);
+    assertThat(states.get(agentId)).isEqualTo("CANCELED");
+    assertThat(states.get(humanId)).isEqualTo("COMPLETED");
   }
 }

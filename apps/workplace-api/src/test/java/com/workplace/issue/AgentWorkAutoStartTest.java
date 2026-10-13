@@ -81,8 +81,9 @@ class AgentWorkAutoStartTest extends AgentWorkTestSupport {
   }
 
   @Test
-  void 상태복귀_WAITING_BLOCKED_PAUSED_는_WORKING_REVIEW_는_유지() {
-    for (String s : List.of("WAITING", "BLOCKED", "PAUSED", "REVIEW")) {
+  void 상태복귀_답변인증필요_막힘_일시중지_시작전은_WORKING_REVIEW_는_유지() {
+    for (String s :
+        List.of("INPUT_REQUIRED", "AUTH_REQUIRED", "BLOCKED", "PAUSED", "SUBMITTED", "REVIEW")) {
       seedActive(issueId, humanId, s);
       assertOk(patch(patToken, Map.of("priority", "HIGH"), "cursor"));
       var w = activeWork(issueId, humanId).orElseThrow();
@@ -151,12 +152,12 @@ class AgentWorkAutoStartTest extends AgentWorkTestSupport {
   }
 
   /**
-   * 명시 보고 처리 중 부수 쓰기(상태 변경 등)는 suppressTouch 로 감싸 터치하지 않는다 — 보고한 WAITING 이 되돌려지지 않게. 리스너가 동기라 요청 밖
-   * 서비스 호출로 검증하고, 같은 호출을 억제 없이 한 번 더 해 경로가 실제로 터치함을 대조한다.
+   * 명시 보고 처리 중 부수 쓰기(상태 변경 등)는 suppressTouch 로 감싸 터치하지 않는다 — 보고한 INPUT_REQUIRED 이 되돌려지지 않게. 리스너가
+   * 동기라 요청 밖 서비스 호출로 검증하고, 같은 호출을 억제 없이 한 번 더 해 경로가 실제로 터치함을 대조한다.
    */
   @Test
   void 터치_억제_중_쓰기는_상태를_되돌리지_않음() {
-    seedActive(issueId, humanId, "WAITING");
+    seedActive(issueId, humanId, "INPUT_REQUIRED");
     var req =
         new UpdateIssueRequest(null, null, null, "HIGH", null, null, null, null, null, null, null);
     AgentToolContext.set(TOOL);
@@ -165,7 +166,7 @@ class AgentWorkAutoStartTest extends AgentWorkTestSupport {
           () ->
               AgentToolContext.suppressTouch(
                   () -> issueService.update(humanId, projectKey, issueNumber, req)));
-      assertThat(activeWork(issueId, humanId).orElseThrow().state()).isEqualTo("WAITING");
+      assertThat(activeWork(issueId, humanId).orElseThrow().state()).isEqualTo("INPUT_REQUIRED");
 
       inTenant(() -> issueService.update(humanId, projectKey, issueNumber, req));
       assertThat(activeWork(issueId, humanId).orElseThrow().state()).isEqualTo("WORKING");

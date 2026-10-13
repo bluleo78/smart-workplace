@@ -7,6 +7,7 @@ import static com.workplace.global.realtime.ResourceChangedEvent.OP_UPDATED;
 import com.workplace.global.dto.PageResponse;
 import com.workplace.global.security.PermissionChecker;
 import com.workplace.global.tenant.MembershipGuard;
+import com.workplace.issue.dto.AgentWorkState;
 import com.workplace.issue.repository.AgentWorkRepository;
 import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueRepository;
@@ -343,7 +344,8 @@ public class ProjectService {
     memberRepository.delete(project.id(), memberUserId);
     issueAssigneeRepository.removeByProjectAndUser(project.id(), memberUserId);
     // 담당 매핑이 사라진 이슈에 진행 중 AI 작업이 고아로 남지 않게 함께 끝낸다(WP-377).
-    agentWorkRepository.endActiveForWorkerInProject(project.id(), memberUserId);
+    agentWorkRepository.endActiveForWorkerInProject(
+        project.id(), memberUserId, AgentWorkState.CANCELED);
     // 담당자가 빠진 이슈별 issue 이벤트는 발행하지 않는다 — 웹의 project-member 규칙이 이미 issueTargets(pk)
     // (목록·me-issues·홈 포함)를 무효화하므로 이슈 수만큼 fan-out 하는 것은 중복이다.
     // 제거된 멤버는 커밋 후 명단에서 빠지므로 extra 로 직접 받게 한다.

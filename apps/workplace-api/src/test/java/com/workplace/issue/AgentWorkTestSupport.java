@@ -2,6 +2,7 @@ package com.workplace.issue;
 
 import static com.workplace.jooq.Tables.AGENT_API_KEY;
 import static com.workplace.jooq.Tables.AGENT_WORK;
+import static com.workplace.jooq.Tables.AGENT_WORK_EVENT;
 import static com.workplace.jooq.Tables.AUDIT_LOG;
 import static com.workplace.jooq.Tables.CHAT_MESSAGE;
 import static com.workplace.jooq.Tables.CHAT_THREAD;
@@ -363,6 +364,37 @@ public abstract class AgentWorkTestSupport extends IntegrationTestBase {
     return inTenant(() -> agentWorkRepository.findActive(issueId, workerId));
   }
 
+  /** (이슈, 작업자)의 모든 작업 행(진행·종료 포함) 상태를 id 순으로. */
+  protected List<String> allStates(long issueId, long workerId) {
+    return inTenant(
+        () ->
+            dsl.select(AGENT_WORK.STATE)
+                .from(AGENT_WORK)
+                .where(AGENT_WORK.ISSUE_ID.eq(issueId))
+                .and(AGENT_WORK.WORKER_ID.eq(workerId))
+                .orderBy(AGENT_WORK.ID.asc())
+                .fetch(AGENT_WORK.STATE));
+  }
+
+  /** (이슈, 작업자)의 작업 행들이 남긴 이벤트 상태를 시간순으로. */
+  protected List<String> eventStates(long issueId, long workerId) {
+    return inTenant(
+        () ->
+            dsl.select(AGENT_WORK_EVENT.STATE)
+                .from(AGENT_WORK_EVENT)
+                .join(AGENT_WORK)
+                .on(AGENT_WORK.ID.eq(AGENT_WORK_EVENT.WORK_ID))
+                .where(AGENT_WORK.ISSUE_ID.eq(issueId))
+                .and(AGENT_WORK.WORKER_ID.eq(workerId))
+                .orderBy(AGENT_WORK_EVENT.ID.asc())
+                .fetch(AGENT_WORK_EVENT.STATE));
+  }
+
+  /** 도구를 모르는 SUBMITTED 작업을 저장소로 직접 만든다(자동 생성은 A2 범위라 시드로 대신). */
+  protected void seedSubmitted(long issueId, long workerId) {
+    inTenant(() -> agentWorkRepository.insertIfAbsent(issueId, workerId, null, "SUBMITTED"));
+  }
+
   /** 이슈의 진행 중 작업 수. */
   protected int activeCount(long issueId) {
     return inTenant(
@@ -381,6 +413,7 @@ public abstract class AgentWorkTestSupport extends IntegrationTestBase {
     inTenant(
         () -> {
           dsl.update(AGENT_WORK)
+              .set(AGENT_WORK.STATE, "CANCELED")
               .set(AGENT_WORK.ENDED_AT, OffsetDateTime.now())
               .where(AGENT_WORK.ISSUE_ID.eq(issueId))
               .and(AGENT_WORK.WORKER_ID.eq(workerId))

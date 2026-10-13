@@ -49,7 +49,7 @@ public class ChatMessageRepository {
         .getId();
   }
 
-  /** 글을 "답변 필요 질문"으로 표시한다(WP-377 — AI 구성원이 WAITING 으로 멈추며 남긴 글). */
+  /** 글을 "답변 필요 질문"으로 표시한다(WP-377 — AI 구성원이 INPUT_REQUIRED 로 멈추며 남긴 글). */
   public void markQuestion(long messageId) {
     dsl.update(CHAT_MESSAGE)
         .set(CHAT_MESSAGE.IS_QUESTION, true)

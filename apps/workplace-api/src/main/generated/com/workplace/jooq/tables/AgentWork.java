@@ -7,6 +7,7 @@ package com.workplace.jooq.tables;
 import com.workplace.jooq.Indexes;
 import com.workplace.jooq.Keys;
 import com.workplace.jooq.Public;
+import com.workplace.jooq.tables.AgentWorkEvent.AgentWorkEventPath;
 import com.workplace.jooq.tables.Issue.IssuePath;
 import com.workplace.jooq.tables.Tenant.TenantPath;
 import com.workplace.jooq.tables.User.UserPath;
@@ -87,7 +88,7 @@ public class AgentWork extends TableImpl<AgentWorkRecord> {
     /**
      * The column <code>public.agent_work.tool</code>.
      */
-    public final TableField<AgentWorkRecord, String> TOOL = createField(DSL.name("tool"), SQLDataType.VARCHAR(40).nullable(false), this, "");
+    public final TableField<AgentWorkRecord, String> TOOL = createField(DSL.name("tool"), SQLDataType.VARCHAR(40), this, "");
 
     /**
      * The column <code>public.agent_work.state</code>.
@@ -252,13 +253,27 @@ public class AgentWork extends TableImpl<AgentWorkRecord> {
         return _user;
     }
 
+    private transient AgentWorkEventPath _agentWorkEvent;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.agent_work_event</code> table
+     */
+    public AgentWorkEventPath agentWorkEvent() {
+        if (_agentWorkEvent == null)
+            _agentWorkEvent = new AgentWorkEventPath(this, null, Keys.AGENT_WORK_EVENT__AGENT_WORK_EVENT_WORK_ID_FKEY.getInverseKey());
+
+        return _agentWorkEvent;
+    }
+
     @Override
     public List<Check<AgentWorkRecord>> getChecks() {
         return Arrays.asList(
             Internal.createCheck(this, DSL.name("agent_work_check"), "(((steps_done IS NULL) = (steps_total IS NULL)))", true),
             Internal.createCheck(this, DSL.name("agent_work_check1"), "(((steps_total IS NULL) OR ((steps_total > 0) AND ((steps_done >= 0) AND (steps_done <= steps_total)))))", true),
+            Internal.createCheck(this, DSL.name("agent_work_check2"), "(((ended_at IS NULL) = ((state)::text = ANY ((ARRAY['SUBMITTED'::character varying, 'WORKING'::character varying, 'INPUT_REQUIRED'::character varying, 'AUTH_REQUIRED'::character varying, 'REVIEW'::character varying, 'BLOCKED'::character varying, 'PAUSED'::character varying])::text[]))))", true),
             Internal.createCheck(this, DSL.name("agent_work_progress_check"), "(((progress >= 0) AND (progress <= 100)))", true),
-            Internal.createCheck(this, DSL.name("agent_work_state_check"), "(((state)::text = ANY ((ARRAY['WORKING'::character varying, 'WAITING'::character varying, 'REVIEW'::character varying, 'BLOCKED'::character varying, 'PAUSED'::character varying])::text[])))", true)
+            Internal.createCheck(this, DSL.name("agent_work_state_check"), "(((state)::text = ANY ((ARRAY['SUBMITTED'::character varying, 'WORKING'::character varying, 'INPUT_REQUIRED'::character varying, 'AUTH_REQUIRED'::character varying, 'REVIEW'::character varying, 'BLOCKED'::character varying, 'PAUSED'::character varying, 'COMPLETED'::character varying, 'FAILED'::character varying, 'CANCELED'::character varying, 'REJECTED'::character varying])::text[])))", true)
         );
     }
 

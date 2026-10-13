@@ -6,6 +6,7 @@ package com.workplace.jooq;
 
 import com.workplace.jooq.tables.AgentApiKey;
 import com.workplace.jooq.tables.AgentWork;
+import com.workplace.jooq.tables.AgentWorkEvent;
 import com.workplace.jooq.tables.AiAgentCredential;
 import com.workplace.jooq.tables.AssistantConfig;
 import com.workplace.jooq.tables.AuditLog;
@@ -139,6 +140,11 @@ public class Public extends SchemaImpl {
      * The table <code>public.agent_work</code>.
      */
     public final AgentWork AGENT_WORK = AgentWork.AGENT_WORK;
+
+    /**
+     * The table <code>public.agent_work_event</code>.
+     */
+    public final AgentWorkEvent AGENT_WORK_EVENT = AgentWorkEvent.AGENT_WORK_EVENT;
 
     /**
      * The table <code>public.ai_agent_credential</code>.
@@ -671,6 +677,7 @@ public class Public extends SchemaImpl {
         return Arrays.asList(
             AgentApiKey.AGENT_API_KEY,
             AgentWork.AGENT_WORK,
+            AgentWorkEvent.AGENT_WORK_EVENT,
             AiAgentCredential.AI_AGENT_CREDENTIAL,
             AssistantConfig.ASSISTANT_CONFIG,
             AuditLog.AUDIT_LOG,

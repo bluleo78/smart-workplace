@@ -7,11 +7,14 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 /**
- * AI 작업 명시 보고 요청(WP-377 §4.1). 모든 필드가 선택이며 보낸 필드만 갱신한다. note 빈 문자열은 "지우기", ENDED 는 작업 종료. message 는
- * 이슈 챗에 호출자 이름으로 올라가는 글(최대 4000자).
+ * AI 작업 명시 보고 요청(WP-377 §4.1). 모든 필드가 선택이며 보낸 필드만 갱신한다. note 빈 문자열은 "지우기", 종료
+ * 상태(COMPLETED·FAILED·CANCELED·REJECTED)는 작업 종료. message 는 이슈 챗에 호출자 이름으로 올라가는 글(최대 4000자).
  */
 public record ReportAgentWorkRequest(
-    @Pattern(regexp = "WORKING|WAITING|REVIEW|BLOCKED|PAUSED|ENDED") String state,
+    @Pattern(
+            regexp =
+                "WORKING|INPUT_REQUIRED|AUTH_REQUIRED|BLOCKED|PAUSED|REVIEW|COMPLETED|FAILED|CANCELED|REJECTED")
+        String state,
     @Size(max = 120) String note,
     @Min(0) @Max(100) Integer progress,
     @Min(0) Integer stepsDone,

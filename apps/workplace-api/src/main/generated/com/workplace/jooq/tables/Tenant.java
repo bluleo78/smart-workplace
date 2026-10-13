@@ -7,6 +7,7 @@ package com.workplace.jooq.tables;
 import com.workplace.jooq.Keys;
 import com.workplace.jooq.Public;
 import com.workplace.jooq.tables.AgentWork.AgentWorkPath;
+import com.workplace.jooq.tables.AgentWorkEvent.AgentWorkEventPath;
 import com.workplace.jooq.tables.AssistantConfig.AssistantConfigPath;
 import com.workplace.jooq.tables.AuditLog.AuditLogPath;
 import com.workplace.jooq.tables.Calendar.CalendarPath;
@@ -268,6 +269,19 @@ public class Tenant extends TableImpl<TenantRecord> {
     @Override
     public List<UniqueKey<TenantRecord>> getUniqueKeys() {
         return Arrays.asList(Keys.TENANT_SLUG_KEY);
+    }
+
+    private transient AgentWorkEventPath _agentWorkEvent;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.agent_work_event</code> table
+     */
+    public AgentWorkEventPath agentWorkEvent() {
+        if (_agentWorkEvent == null)
+            _agentWorkEvent = new AgentWorkEventPath(this, null, Keys.AGENT_WORK_EVENT__AGENT_WORK_EVENT_TENANT_ID_FKEY.getInverseKey());
+
+        return _agentWorkEvent;
     }
 
     private transient AgentWorkPath _agentWork;

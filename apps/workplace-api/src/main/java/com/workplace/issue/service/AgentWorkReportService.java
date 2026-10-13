@@ -60,13 +60,15 @@ public class AgentWorkReportService {
 
     boolean hasMessage = req.message() != null && !req.message().isBlank();
 
-    // ENDED 는 저장 상태가 아니라 종료 신호 — startOrUpdate 에 넘기면 state 컬럼에 "ENDED" 가 써진다. 이슈 상태는 건드리지 않는다.
-    if (AgentWorkState.ENDED.equals(req.state())) {
-      // message 는 상태와 무관한 챗 글(스펙 §4.1) — 종료 보고여도 올린다(질문 표시 없음). note·progress 는 종료라 무시.
+    // 종료 상태(COMPLETED·FAILED·CANCELED·REJECTED)는 진행 상태 갱신이 아니라 작업 행을 닫는 신호 — startOrUpdate 에 넘기지
+    // 않고, TODO 이슈도
+    // IN_PROGRESS 로 올리지 않으며 이슈 상태는 건드리지 않는다.
+    if (AgentWorkState.isTerminal(req.state())) {
+      // message 는 상태와 무관한 챗 글(스펙 §4.1) — 종료 보고여도 먼저 올린다(질문 표시 없음). note·progress 는 종료라 무시.
       if (hasMessage) {
         chatPoster.post(callerId, projectKey, number, req.message());
       }
-      agentWorkService.end(issue.id(), callerId);
+      agentWorkService.end(issue.id(), callerId, req.state());
       return new AgentWorkReportResponse(null, true);
     }
 
@@ -99,9 +101,9 @@ public class AgentWorkReportService {
                 req.stepsDone(),
                 req.stepsTotal()));
 
-    // AI 구성원이 답변 필요로 멈추며 남긴 글만 질문으로 표시한다(사람 글은 일반 글).
+    // AI 구성원이 답변 필요(INPUT_REQUIRED)로 멈추며 남긴 글만 질문으로 표시한다(사람 글·인증 필요 글은 일반 글).
     if (messageId != null
-        && AgentWorkState.WAITING.equals(view.state())
+        && AgentWorkState.INPUT_REQUIRED.equals(view.state())
         && UserKind.isAgent(view.worker().kind())) {
       chatPoster.markQuestion(messageId);
     }

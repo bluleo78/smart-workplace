@@ -1,6 +1,7 @@
 package com.workplace.tenant;
 
 import static com.workplace.jooq.Tables.AGENT_WORK;
+import static com.workplace.jooq.Tables.AGENT_WORK_EVENT;
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_TYPE_DEF;
 import static com.workplace.jooq.Tables.PROJECT;
@@ -235,8 +236,22 @@ class IssueDomainRlsTest extends IntegrationTestBase {
                       .returning(AGENT_WORK.ID)
                       .fetchOne()
                       .getId();
+              // 상태 변경 이력(agent_work_event)도 같은 방식으로 격리된다.
+              Long evId =
+                  dsl.insertInto(AGENT_WORK_EVENT)
+                      .set(AGENT_WORK_EVENT.WORK_ID, awId)
+                      .set(AGENT_WORK_EVENT.STATE, "WORKING")
+                      .returning(AGENT_WORK_EVENT.ID)
+                      .fetchOne()
+                      .getId();
 
               // tid2 컨텍스트에서는 가시 + tenant_id 가 GUC 로 채워짐
+              assertThat(
+                      dsl.select(AGENT_WORK_EVENT.TENANT_ID)
+                          .from(AGENT_WORK_EVENT)
+                          .where(AGENT_WORK_EVENT.ID.eq(evId))
+                          .fetchOne(AGENT_WORK_EVENT.TENANT_ID))
+                  .isEqualTo(tid2);
               assertThat(
                       dsl.select(AGENT_WORK.TENANT_ID)
                           .from(AGENT_WORK)
@@ -252,6 +267,16 @@ class IssueDomainRlsTest extends IntegrationTestBase {
                       dsl.update(AGENT_WORK)
                           .set(AGENT_WORK.STATE, "PAUSED")
                           .where(AGENT_WORK.ID.eq(awId))
+                          .execute())
+                  .isZero();
+              assertThat(
+                      dsl.fetchCount(
+                          dsl.selectFrom(AGENT_WORK_EVENT).where(AGENT_WORK_EVENT.ID.eq(evId))))
+                  .isZero();
+              assertThat(
+                      dsl.update(AGENT_WORK_EVENT)
+                          .set(AGENT_WORK_EVENT.STATE, "PAUSED")
+                          .where(AGENT_WORK_EVENT.ID.eq(evId))
                           .execute())
                   .isZero();
 

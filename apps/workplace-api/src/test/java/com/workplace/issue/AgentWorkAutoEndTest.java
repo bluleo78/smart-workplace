@@ -18,9 +18,25 @@ class AgentWorkAutoEndTest extends AgentWorkTestSupport {
   @Test
   void 웹에서_DONE_으로_바꾸면_그_이슈_작업_전부_종료() {
     seedActive(issueId, humanId, "WORKING");
-    seedActive(issueId, agentId, "WAITING");
+    seedActive(issueId, agentId, "INPUT_REQUIRED");
     assertOk(patch(jwtToken, Map.of("status", "DONE"), null));
     assertThat(activeCount(issueId)).isZero();
+    // 일하던 작업은 전부 COMPLETED 로 닫힌다.
+    assertThat(allStates(issueId, humanId)).containsExactly("COMPLETED");
+    assertThat(allStates(issueId, agentId)).containsExactly("COMPLETED");
+  }
+
+  /** 아직 착수 전(SUBMITTED)이던 작업은 이슈가 완료돼도 한 번도 일하지 않았으니 COMPLETED 가 아니라 CANCELED. */
+  @Test
+  void DONE_이면_SUBMITTED_는_CANCELED_나머지는_COMPLETED() {
+    seedSubmitted(issueId, agentId);
+    seedActive(issueId, humanId, "WORKING");
+    assertOk(patch(jwtToken, Map.of("status", "DONE"), null));
+    assertThat(activeCount(issueId)).isZero();
+    assertThat(allStates(issueId, agentId)).containsExactly("CANCELED");
+    assertThat(allStates(issueId, humanId)).containsExactly("COMPLETED");
+    // 종료 이벤트도 같은 상태로 남는다.
+    assertThat(eventStates(issueId, agentId)).containsExactly("SUBMITTED", "CANCELED");
   }
 
   @Test
@@ -28,6 +44,7 @@ class AgentWorkAutoEndTest extends AgentWorkTestSupport {
     seedActive(issueId, humanId, "WORKING");
     assertOk(patch(jwtToken, Map.of("status", "CANCELED"), null));
     assertThat(activeCount(issueId)).isZero();
+    assertThat(allStates(issueId, humanId)).containsExactly("CANCELED");
   }
 
   @Test
@@ -44,6 +61,7 @@ class AgentWorkAutoEndTest extends AgentWorkTestSupport {
     assertOk(putAssignees(jwtToken, List.of(agentId), null));
     assertThat(activeWork(issueId, humanId)).isEmpty();
     assertThat(activeWork(issueId, agentId)).isPresent();
+    assertThat(allStates(issueId, humanId)).containsExactly("CANCELED");
   }
 
   @Test
@@ -80,6 +98,7 @@ class AgentWorkAutoEndTest extends AgentWorkTestSupport {
             null));
     assertThat(activeWork(issueId, agentId)).isEmpty();
     assertThat(activeWork(issueId, humanId)).isPresent();
+    assertThat(allStates(issueId, agentId)).containsExactly("CANCELED");
   }
 
   /** 이슈를 지우면(소프트 삭제) 그 이슈와 함께 지워진 자식 이슈의 진행 중 작업도 끝난다 — AI 위임 목록에 유령 작업이 남지 않게. */
@@ -101,9 +120,11 @@ class AgentWorkAutoEndTest extends AgentWorkTestSupport {
               return c.id();
             });
     seedActive(issueId, humanId, "WORKING");
-    seedActive(childId, agentId, "WAITING");
+    seedActive(childId, agentId, "INPUT_REQUIRED");
     assertOk(call(HttpMethod.DELETE, issuePath(), jwtToken, null, null));
     assertThat(activeCount(issueId)).isZero();
     assertThat(activeCount(childId)).isZero();
+    assertThat(allStates(issueId, humanId)).containsExactly("CANCELED");
+    assertThat(allStates(childId, agentId)).containsExactly("CANCELED");
   }
 }

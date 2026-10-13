@@ -129,9 +129,13 @@ public class AiTaskRepository {
     var r =
         dsl.select(
                 count(),
-                count().filterWhere(hasActiveWorkIn(List.of(AgentWorkState.WAITING))),
+                count().filterWhere(hasActiveWorkIn(List.of(AgentWorkState.INPUT_REQUIRED))),
                 count().filterWhere(hasActiveWorkIn(List.of(AgentWorkState.REVIEW))),
-                count().filterWhere(hasActiveWorkIn(List.of(AgentWorkState.BLOCKED))),
+                // 막힘 칩은 BLOCKED 와 AUTH_REQUIRED(인증 필요) 를 함께 센다 — 둘 다 사람이 풀어 줘야 진행되는 멈춤.
+                count()
+                    .filterWhere(
+                        hasActiveWorkIn(
+                            List.of(AgentWorkState.BLOCKED, AgentWorkState.AUTH_REQUIRED))),
                 count().filterWhere(hasActiveWorkIn(List.of(AgentWorkState.WORKING))))
             .from(ISSUE)
             .where(baseCondition(callerId, q))

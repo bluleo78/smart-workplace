@@ -112,7 +112,7 @@ class AiTasksControllerTest extends IntegrationTestBase {
     var x = issueRepository.insert(priv.id(), 1, "priv-x", null, "MID", null, other);
     assign(x.id(), agent);
     var y = issueRepository.insert(priv.id(), 2, "priv-y", null, "MID", null, other);
-    work(y.id(), other, "WAITING");
+    work(y.id(), other, "INPUT_REQUIRED");
 
     assertThat(titles(getJson("/api/v1/me/ai-tasks?scope=all")))
         .containsExactlyInAnyOrder("a", "b", "c", "e");
@@ -129,13 +129,14 @@ class AiTasksControllerTest extends IntegrationTestBase {
     work(issue("working", other), me, "WORKING");
     work(issue("blocked", other), me, "BLOCKED");
     work(issue("review", other), me, "REVIEW");
-    work(issue("waiting", other), me, "WAITING");
+    work(issue("inputRequired", other), me, "INPUT_REQUIRED");
 
     var items = getJson("/api/v1/me/ai-tasks").get("items");
     List<String> states = new ArrayList<>();
     items.forEach(
         it -> states.add(it.has("agentWork") ? it.at("/agentWork/0/state").asText() : null));
-    assertThat(states).containsExactly("WAITING", "REVIEW", "BLOCKED", "WORKING", "PAUSED", null);
+    assertThat(states)
+        .containsExactly("INPUT_REQUIRED", "REVIEW", "BLOCKED", "WORKING", "PAUSED", null);
   }
 
   @Test
@@ -144,11 +145,11 @@ class AiTasksControllerTest extends IntegrationTestBase {
     work(older, me, "WORKING", Instant.parse("2026-10-01T00:00:00Z"));
     long newer = issue("newer", other);
     work(newer, me, "WORKING", Instant.parse("2026-10-02T00:00:00Z"));
-    // 한 이슈에 여러 작업이면 가장 급한 상태가 순위 — AI 구성원 WAITING 이 사람 WORKING 보다 앞선다.
+    // 한 이슈에 여러 작업이면 가장 급한 상태가 순위 — AI 구성원 INPUT_REQUIRED 가 사람 WORKING 보다 앞선다.
     long mixed = issue("mixed", me);
     assign(mixed, agent);
     work(mixed, me, "WORKING");
-    work(mixed, agent, "WAITING");
+    work(mixed, agent, "INPUT_REQUIRED");
     long idleOld = issue("idle-old", me);
     assign(idleOld, agent);
     long idleNew = issue("idle-new", me);
@@ -162,16 +163,16 @@ class AiTasksControllerTest extends IntegrationTestBase {
 
   @Test
   void agentState_필터는_진행중_작업_상태로_거르고_모르는_값은_무시() throws Exception {
-    work(issue("waiting", other), me, "WAITING");
+    work(issue("inputRequired", other), me, "INPUT_REQUIRED");
     work(issue("review", other), me, "REVIEW");
     work(issue("working", other), me, "WORKING");
     long none = issue("none", me);
     assign(none, agent);
 
-    assertThat(titles(getJson("/api/v1/me/ai-tasks?agentState=WAITING, REVIEW")))
-        .containsExactlyInAnyOrder("waiting", "review");
+    assertThat(titles(getJson("/api/v1/me/ai-tasks?agentState=INPUT_REQUIRED, REVIEW")))
+        .containsExactlyInAnyOrder("inputRequired", "review");
     assertThat(titles(getJson("/api/v1/me/ai-tasks?agentState=NOPE")))
-        .containsExactlyInAnyOrder("waiting", "review", "working", "none");
+        .containsExactlyInAnyOrder("inputRequired", "review", "working", "none");
   }
 
   @Test
@@ -192,7 +193,7 @@ class AiTasksControllerTest extends IntegrationTestBase {
   @Test
   void 페이지_경계에서_중복_누락_없음() throws Exception {
     // 앞쪽 3행: 진행 중 작업이 있어 순위가 앞선다(첫 경계에서 rank > r 분기를 탄다).
-    work(issue("w1", other), me, "WAITING");
+    work(issue("w1", other), me, "INPUT_REQUIRED");
     work(issue("r1", other), me, "REVIEW");
     work(issue("k1", other), me, "WORKING");
     // 뒤쪽 5행: 작업 없는 AI 담당 — 같은 순위·같은 정렬 시각(마이크로초 포함). 두 번째 경계가 이들 사이를 자른다(id 동률 깨기).
@@ -237,29 +238,59 @@ class AiTasksControllerTest extends IntegrationTestBase {
 
   @Test
   void counts_는_범위와_이슈상태_필터를_따르고_agentState_는_무시() throws Exception {
-    work(issue("waiting", other), me, "WAITING");
+    work(issue("inputRequired", other), me, "INPUT_REQUIRED");
     work(issue("review", other), me, "REVIEW");
     work(issue("blocked", other), me, "BLOCKED");
     long working = issue("working", other);
     work(working, me, "WORKING");
     setStatus(working, "IN_PROGRESS");
     // 남의 작업 — MINE 건수에서는 빠지고 ALL 에서는 잡힌다.
-    work(issue("others", other), other, "WAITING");
+    work(issue("others", other), other, "INPUT_REQUIRED");
 
-    assertThat(counts("/api/v1/me/ai-tasks/counts?agentState=WAITING"))
-        .isEqualTo(Map.of("all", 4, "waiting", 1, "review", 1, "blocked", 1, "working", 1));
+    assertThat(counts("/api/v1/me/ai-tasks/counts?agentState=INPUT_REQUIRED"))
+        .isEqualTo(Map.of("all", 4, "inputRequired", 1, "review", 1, "blocked", 1, "working", 1));
     assertThat(counts("/api/v1/me/ai-tasks/counts?scope=ALL"))
-        .isEqualTo(Map.of("all", 5, "waiting", 2, "review", 1, "blocked", 1, "working", 1));
+        .isEqualTo(Map.of("all", 5, "inputRequired", 2, "review", 1, "blocked", 1, "working", 1));
     assertThat(counts("/api/v1/me/ai-tasks/counts?status=IN_PROGRESS"))
-        .isEqualTo(Map.of("all", 1, "waiting", 0, "review", 0, "blocked", 0, "working", 1));
+        .isEqualTo(Map.of("all", 1, "inputRequired", 0, "review", 0, "blocked", 0, "working", 1));
+  }
+
+  /** 막힘 칩은 BLOCKED + AUTH_REQUIRED 합. SUBMITTED·PAUSED 는 칩이 없고 전체(all)에만 든다. */
+  @Test
+  void counts_의_blocked_는_AUTH_REQUIRED_를_포함하고_SUBMITTED_PAUSED_는_칩없음() throws Exception {
+    work(issue("blocked", other), me, "BLOCKED");
+    work(issue("auth", other), me, "AUTH_REQUIRED");
+    work(issue("paused", other), me, "PAUSED");
+    work(issue("submitted", other), me, "SUBMITTED");
+
+    assertThat(counts("/api/v1/me/ai-tasks/counts"))
+        .isEqualTo(Map.of("all", 4, "inputRequired", 0, "review", 0, "blocked", 2, "working", 0));
+    // 목록 필터는 값 하나하나로 거른다 — 칩(막힘)은 클라이언트가 두 값을 함께 보낸다.
+    assertThat(titles(getJson("/api/v1/me/ai-tasks?agentState=BLOCKED,AUTH_REQUIRED")))
+        .containsExactlyInAnyOrder("blocked", "auth");
+    assertThat(titles(getJson("/api/v1/me/ai-tasks?agentState=SUBMITTED")))
+        .containsExactly("submitted");
+  }
+
+  /** 급한 순: 인증 필요(1)는 답변 필요(0) 다음, 검토 필요(2) 앞. 시작 전(SUBMITTED)은 일시 중지 다음. */
+  @Test
+  void 급한순_인증필요와_시작전_위치() throws Exception {
+    work(issue("submitted", other), me, "SUBMITTED");
+    work(issue("review", other), me, "REVIEW");
+    work(issue("auth", other), me, "AUTH_REQUIRED");
+    work(issue("paused", other), me, "PAUSED");
+    work(issue("input", other), me, "INPUT_REQUIRED");
+
+    assertThat(titles(getJson("/api/v1/me/ai-tasks")))
+        .containsExactly("input", "auth", "review", "paused", "submitted");
   }
 
   @Test
   void 종료된_이슈에_남은_진행중_행은_순위_건수_범위에_반영되지_않는다() throws Exception {
-    // AI 담당 + 고아 WAITING 행이 남은 DONE 이슈 — 목록에는 남되 작업 기반 순위·건수는 0.
+    // AI 담당 + 고아 INPUT_REQUIRED 행이 남은 DONE 이슈 — 목록에는 남되 작업 기반 순위·건수는 0.
     long closed = issue("closed", me);
     assign(closed, agent);
-    work(closed, agent, "WAITING");
+    work(closed, agent, "INPUT_REQUIRED");
     setStatus(closed, "DONE");
     setIssueUpdatedAt(closed, Instant.parse("2026-09-01T00:00:00Z"));
     long open = issue("open", me);
@@ -270,11 +301,11 @@ class AiTasksControllerTest extends IntegrationTestBase {
     work(humanOrphan, me, "WORKING");
     setStatus(humanOrphan, "DONE");
 
-    // 고아 WAITING 이 순위 0 이면 closed 가 앞서지만, 작업 없음으로 취급되어 최근 수정순(open 먼저).
+    // 고아 INPUT_REQUIRED 이 순위 0 이면 closed 가 앞서지만, 작업 없음으로 취급되어 최근 수정순(open 먼저).
     assertThat(titles(getJson("/api/v1/me/ai-tasks"))).containsExactly("open", "closed");
-    assertThat(titles(getJson("/api/v1/me/ai-tasks?agentState=WAITING"))).isEmpty();
+    assertThat(titles(getJson("/api/v1/me/ai-tasks?agentState=INPUT_REQUIRED"))).isEmpty();
     assertThat(counts("/api/v1/me/ai-tasks/counts"))
-        .isEqualTo(Map.of("all", 2, "waiting", 0, "review", 0, "blocked", 0, "working", 0));
+        .isEqualTo(Map.of("all", 2, "inputRequired", 0, "review", 0, "blocked", 0, "working", 0));
   }
 
   @Test
@@ -342,6 +373,7 @@ class AiTasksControllerTest extends IntegrationTestBase {
 
   private void endWork(long issueId) {
     dsl.update(AGENT_WORK)
+        .set(AGENT_WORK.STATE, "COMPLETED")
         .set(AGENT_WORK.ENDED_AT, OffsetDateTime.now())
         .where(AGENT_WORK.ISSUE_ID.eq(issueId))
         .execute();

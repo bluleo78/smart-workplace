@@ -585,10 +585,16 @@ public class IssueService {
         newStart,
         newMilestoneId,
         newClosedAt);
-    // 종료 상태(DONE/CANCELED)로 진입하면 그 이슈의 진행 중 AI 작업을 전부 끝낸다(WP-377 §4.3). 재오픈은 되살리지 않는다.
+    // 종료 상태(DONE/CANCELED)로 진입하면 그 이슈의 진행 중 AI 작업을 전부 끝낸다(WP-377 §4.3) — DONE 은 COMPLETED(착수 전
+    // SUBMITTED 만
+    // CANCELED), CANCELED 는 CANCELED. 재오픈은 되살리지 않는다.
     // 알림은 아래 changeNotifier.updated 가 이미 보내므로 여기서는 기록만 닫는다.
     if (nowClosed && !wasClosed) {
-      agentWorkService.endAllForIssues(List.of(before.id()));
+      if ("DONE".equals(newStatus)) {
+        agentWorkService.endAllOnIssueDone(List.of(before.id()));
+      } else {
+        agentWorkService.cancelAllForIssues(List.of(before.id()));
+      }
     }
     // WP-199 본문이 바뀐 요청만 이미지 연결 상태를 맞춘다 — 상태·담당자만 바꾸는 PATCH 에서 불필요한 잠금을 잡지 않는다.
     // 새 본문·이전 본문 모두 이미지 참조가 없으면 syncIssueImages 가 추가 쿼리 없이 돌아간다.
@@ -762,7 +768,7 @@ public class IssueService {
     deletedIds.add(row.id());
     bodyImageService.demoteAllOfIssues(deletedIds);
     // 삭제된 이슈(부모+자식)의 진행 중 AI 작업 종료(WP-377) — 남겨 두면 AI 위임 작업 건수·담당 작업 흐름에 유령 작업으로 남는다.
-    agentWorkService.endAllForIssues(deletedIds);
+    agentWorkService.cancelAllForIssues(deletedIds);
     // 실시간 무효화 — checkDeletable 이 이미 resolve 한 project 를 재사용(중복 조회 방지)
     changeNotifier.deleted(target.project(), number, row.id(), callerId);
   }
