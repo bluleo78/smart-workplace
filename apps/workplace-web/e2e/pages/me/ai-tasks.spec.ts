@@ -183,9 +183,29 @@ test('비어 있으면 안내 문구, 빠른 필터 중이면 조건 문구', as
   await expect(empty).toContainText('AI에게 맡긴 작업이 아직 없어요')
   await expect(empty).toContainText('이슈를 만들 때 담당자를 AI로 지정하면 여기에 표시됩니다.')
 
+  await expect(page.getByTestId('ai-empty-reset')).toHaveCount(0)
+
   await page.getByTestId('ai-quick-blocked').click()
   await expect(empty).toContainText('조건에 맞는 AI 작업이 없어요')
   await expect(empty).not.toContainText('AI에게 맡긴 작업이 아직 없어요')
+  await expect(page.getByTestId('ai-empty-reset')).toBeVisible()
+})
+
+test('facet 만 걸려도 조건 문구 — 필터 초기화는 빠른 필터·facet 을 지우고 범위는 남긴다', async ({ authenticatedPage: page }) => {
+  await setup(page, [], createAiTaskCounts())
+  await page.goto('/me/ai-tasks?status=DONE')
+  const empty = page.getByTestId('ai-row-empty')
+  await expect(empty).toContainText('조건에 맞는 AI 작업이 없어요')
+  await expect(page.getByTestId('ai-empty-reset')).toBeVisible()
+
+  await page.goto('/me/ai-tasks?scope=all&state=BLOCKED&status=DONE&priority=HIGH')
+  await expect(empty).toContainText('조건에 맞는 AI 작업이 없어요')
+  await page.getByTestId('ai-empty-reset').click()
+  await expect.poll(() => [...new URL(page.url()).searchParams.keys()]).toEqual(['scope'])
+  expect(new URL(page.url()).searchParams.get('scope')).toBe('all')
+  await expect(empty).toContainText('AI에게 맡긴 작업이 아직 없어요')
+  await expect(page.getByTestId('ai-quick-all')).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByTestId('ai-scope-all')).toHaveAttribute('aria-pressed', 'true')
 })
 
 test('첫 페이지 실패는 빈 상태가 아니라 오류 + 다시 시도', async ({ authenticatedPage: page }) => {
