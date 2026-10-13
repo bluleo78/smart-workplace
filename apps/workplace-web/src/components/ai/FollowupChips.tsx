@@ -14,9 +14,9 @@ interface Props {
 export function FollowupChips({ items, disabled, onPick }: Props) {
   return (
     <div data-testid="chat-followups" className="flex flex-wrap gap-x-1.5 gap-y-4 pl-1 animate-in fade-in-0 duration-200 motion-reduce:animate-none">
-      {items.map((q) => (
+      {items.map((q, i) => (
         <button
-          key={q} // 문구는 저장소·이력 변환에서 중복을 걸러 고유하다
+          key={`${i}-${q}`} // 문구 중복 제거는 ai-agent 가 한다 — 혹시 겹쳐도 key 가 충돌하지 않게 위치를 붙인다
           type="button"
           data-testid="chat-followup"
           disabled={disabled}

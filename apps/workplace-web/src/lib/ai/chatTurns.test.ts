@@ -40,7 +40,6 @@ describe('messageToTurn', () => {
     expect(messageToTurn(msg({ followups: ['a 알려줘'] }))).toMatchObject({ role: 'assistant', followups: ['a 알려줘'] });
     expect(messageToTurn(msg({ followups: null }))).not.toHaveProperty('followups');
     expect(messageToTurn(msg({ role: 'USER', followups: ['x'] }))).not.toHaveProperty('followups');
-    expect(messageToTurn(msg({ followups: ['a 알려줘', 'a 알려줘'] }))).toMatchObject({ followups: ['a 알려줘'] });
   });
 });
 

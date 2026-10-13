@@ -9,7 +9,7 @@ import { useAuth } from '../useAuth';
 
 /**
  * 키에 사용자 id 를 넣는다 — 로그아웃은 react-query 캐시를 비우지 않아, 같은 탭에서 다른 계정으로 들어오면 이전 사용자의 켜기/끄기로
- * 최대 5분간 그려질 수 있었다(최종 리뷰 M7). 사용자가 없으면 null 칸(쿼리는 꺼 둔다).
+ * 최대 5분간 그려질 수 있다. 사용자가 없으면 null 칸(쿼리는 꺼 둔다).
  */
 export const aiPreferenceKeys = {
   all: ['aiPreferences'] as const,

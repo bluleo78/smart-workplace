@@ -195,19 +195,19 @@ export function AIChatPanel({
       ? { id: LIMIT_NOTICE_ID, testId: 'chat-limit-notice', text: `다른 대화 ${limit}개가 답변 중이에요. 하나가 끝나면 보낼 수 있어요.` }
       : null;
 
-  /**
-   * 질문 전송 공통(WP-139: 추천·후속 칩과 입력창이 같이 쓴다). 화면 참고가 켜져 있으면 함께 싣는다.
-   * fromDraft=false(칩): 입력창 초안·첨부 초안은 건드리지 않고 그 문구만 보낸다 — 거절돼도 초안을 덮지 않는다.
-   */
-  const sendQuery = (query: string, fromDraft: boolean) => {
-    // Enter 는 버튼 disabled 를 거치지 않으므로 같은 판정을 여기서도 한다. WP-190: 상한·응답 전 ■ 대기면 전송만 막는다.
-    if (pending || sendBlocked || (fromDraft && !canSend)) return;
-    const ctx = contextActive ? screenContext : undefined;
-    setSuppressedIdentity(null); // 1회 제외는 이번 전송으로 소진 — 다음 전송부터 다시 포함.
-    if (!fromDraft) {
-      void onSubmit(query, ctx);
-      return;
-    }
+  // 전송 공통 가드 — Enter 는 버튼 disabled 를 거치지 않으므로 같은 판정을 여기서도 한다. WP-190: 상한·응답 전 ■ 대기면 전송만 막는다.
+  const sendOpen = () => !pending && !sendBlocked;
+  // 이번 전송에 실을 화면 참고 — 1회 제외는 이번 전송으로 소진하고 다음 전송부터 다시 포함한다.
+  const takeScreenContext = () => {
+    setSuppressedIdentity(null);
+    return contextActive ? screenContext : undefined;
+  };
+
+  /** 입력창 전송 — 초안 글·첨부를 보내고, 거절되면 초안으로 돌려놓는다. */
+  const submit = () => {
+    if (!sendOpen() || !canSend) return;
+    const query = input.trim();
+    const ctx = takeScreenContext();
     const attachments = attach.snapshot();
     setInput('');
     void onSubmit(query, ctx, attachments).then((accepted) => {
@@ -222,9 +222,11 @@ export function AIChatPanel({
       setInput((prev) => prev || query);
     });
   };
-  const submit = () => sendQuery(input.trim(), true);
-  /** WP-139: 추천·후속 칩 — 문구 그대로 보낸다. */
-  const sendChip = (query: string) => sendQuery(query, false);
+  /** WP-139: 추천·후속 칩 — 문구 그대로 보낸다. 입력창 초안·첨부 초안은 건드리지 않아 거절돼도 초안을 덮지 않는다. */
+  const sendChip = (query: string) => {
+    if (!sendOpen()) return;
+    void onSubmit(query, takeScreenContext());
+  };
 
   return (
     <div data-testid="chat-panel" className="flex h-full min-h-0 flex-col">

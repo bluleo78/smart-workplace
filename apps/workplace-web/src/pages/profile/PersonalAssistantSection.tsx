@@ -143,9 +143,7 @@ export function PersonalAssistantSection() {
   // 수동 입력 모델 id 에 providerId/ 접두어가 없으면 자동으로 붙인다 — 사용자가 실측으로
   // 두 번 겪은 함정(접두 없이 저장 → splitOpencodeModel 실행 시점 실패) 방지. presetKey 는 이
   // 제출과 함께 전송되는 providerConfig.providerId 와 항상 동일하므로 추측이 아니라 정확한 값이다.
-  const rawManualModel = manualModel.trim();
-  const normalizedManualModel =
-    rawManualModel && !rawManualModel.includes('/') ? `${presetKey}/${rawManualModel}` : rawManualModel;
+  const normalizedManualModel = withProviderPrefix(manualModel, presetKey);
   const resolvedModel = selectedModel || normalizedManualModel;
 
   // 자격증명 등록 — anthropic(토큰 최소 32자)/opencode(모델 필수) 공통 진입점.

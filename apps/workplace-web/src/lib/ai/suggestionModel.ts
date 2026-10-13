@@ -28,7 +28,7 @@ export function providerIdOf(model: string | null | undefined): string | undefin
 
 /**
  * 직접 입력한 모델 id 에 `providerId/` 접두가 없으면 붙인다 — 접두 없이 저장하면 opencode 실행 시점에 조용히 실패하는
- * 함정을 막는다(비서 모델 직접 입력과 같은 규칙). providerId 를 모르면 입력 그대로.
+ * 함정을 막는다. 추천 모델·비서 모델 직접 입력·opencode 자격증명 등록 폼(개인·관리자)이 같이 쓴다. providerId 를 모르면 입력 그대로.
  */
 export function withProviderPrefix(raw: string, providerId: string | undefined): string {
   const t = raw.trim();

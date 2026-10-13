@@ -22,7 +22,7 @@ describe('suggestionModelChoices — 자동 라벨은 API 의 suggestionModelAut
   });
 });
 
-describe('providerIdOf / withProviderPrefix — opencode 모델 id 는 providerId/ 접두가 필수(M2)', () => {
+describe('providerIdOf / withProviderPrefix — opencode 모델 id 는 providerId/ 접두가 필수', () => {
   it('providerIdOf — 접두가 있는 모델에서만 providerId 를 뽑는다', () => {
     expect(providerIdOf('amazon-bedrock-openai/gpt-oss')).toBe('amazon-bedrock-openai');
     expect(providerIdOf('claude-sonnet-5-5')).toBeUndefined();

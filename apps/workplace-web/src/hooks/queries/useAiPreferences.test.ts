@@ -1,4 +1,4 @@
-// WP-139 설정 쿼리 키 — 로그아웃 뒤 같은 탭에서 다른 계정으로 들어와도 이전 사용자의 켜기/끄기 캐시를 쓰지 않도록 사용자별로 나뉘는지 본다(최종 리뷰 M7).
+// WP-139 설정 쿼리 키 — 로그아웃 뒤 같은 탭에서 다른 계정으로 들어와도 이전 사용자의 켜기/끄기 캐시를 쓰지 않도록 사용자별로 나뉘는지 본다.
 import { describe, expect, it } from 'vitest';
 
 import { aiPreferenceKeys } from './useAiPreferences';
