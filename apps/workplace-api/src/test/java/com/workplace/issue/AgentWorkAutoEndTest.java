@@ -63,4 +63,25 @@ class AgentWorkAutoEndTest extends AgentWorkTestSupport {
     assertOk(patch(jwtToken, Map.of("status", "IN_PROGRESS"), null));
     assertThat(activeWork(issueId, humanId)).isEmpty();
   }
+
+  @Test
+  void MCP_DONE_은_이전_작업이_없어도_작업을_만들지_않음() {
+    assertOk(patch(patToken, Map.of("status", "DONE"), TOOL));
+    assertThat(activeCount(issueId)).isZero();
+  }
+
+  @Test
+  void 프로젝트_멤버를_제거하면_그_사람_작업만_종료() {
+    seedActive(issueId, humanId, "WORKING");
+    seedActive(issueId, agentId, "WORKING");
+    assertOk(
+        call(
+            org.springframework.http.HttpMethod.DELETE,
+            "/api/v1/projects/" + projectKey + "/members/" + agentId,
+            jwtToken,
+            null,
+            null));
+    assertThat(activeWork(issueId, agentId)).isEmpty();
+    assertThat(activeWork(issueId, humanId)).isPresent();
+  }
 }

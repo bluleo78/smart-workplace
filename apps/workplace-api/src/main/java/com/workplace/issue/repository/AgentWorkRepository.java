@@ -1,6 +1,7 @@
 package com.workplace.issue.repository;
 
 import static com.workplace.jooq.Tables.AGENT_WORK;
+import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.USER;
 
 import com.workplace.global.dto.UserSummary;
@@ -105,6 +106,18 @@ public class AgentWorkRepository {
         .where(AGENT_WORK.ISSUE_ID.eq(issueId))
         .and(AGENT_WORK.WORKER_ID.in(workerIds))
         .and(AGENT_WORK.ENDED_AT.isNull())
+        .execute();
+  }
+
+  /** 프로젝트의 모든 이슈에서 지정 작업자의 진행 중 작업을 종료한다(프로젝트 멤버 제거 시 — 담당 매핑이 함께 지워지므로). */
+  public int endActiveForWorkerInProject(long projectId, long workerId) {
+    return dsl.update(AGENT_WORK)
+        .set(AGENT_WORK.ENDED_AT, OffsetDateTime.now())
+        .where(AGENT_WORK.WORKER_ID.eq(workerId))
+        .and(AGENT_WORK.ENDED_AT.isNull())
+        .and(
+            AGENT_WORK.ISSUE_ID.in(
+                dsl.select(ISSUE.ID).from(ISSUE).where(ISSUE.PROJECT_ID.eq(projectId))))
         .execute();
   }
 
