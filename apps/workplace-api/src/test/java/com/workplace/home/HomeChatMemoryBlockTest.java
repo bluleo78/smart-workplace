@@ -1,13 +1,16 @@
 package com.workplace.home;
 
+import static com.workplace.jooq.Tables.HOME_MESSAGE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.workplace.home.dto.HomeChatStartedResponse;
 import com.workplace.home.dto.HomeMessageResponse;
 import java.util.List;
 import java.util.Map;
@@ -324,7 +327,8 @@ class HomeChatMemoryBlockTest extends HomeAttachmentTestSupport {
 
   /**
    * 공백뿐인 본문("\n")으로 오류 종료해도 메모리 결과 줄이 있으면 답을 저장하되 본문은 ""로 정규화한다 — 웹의 content === '' 판정과 AI 맥락 필터(빈
-   * 본문 중단·오류 답 제외)가 모두 "빈 답" 으로 보게. 같은 필터는 탭·개행만 남은 기존 행도 뺀다.
+   * 본문 중단·오류 답 제외)가 모두 "빈 답" 으로 보게. 블록도 정규화한 본문 기준이라 공백 text 블록이 남지 않는다(남으면 웹 복원이 빈 답으로 보지 않아 자리 문구
+   * 없이 "중단됨" 만 그린다).
    */
   @Test
   void 공백뿐인_본문으로_오류_종료하면_본문을_빈_문자열로_저장하고_맥락에서_뺀다() throws Exception {
@@ -342,13 +346,61 @@ class HomeChatMemoryBlockTest extends HomeAttachmentTestSupport {
 
     assertThat(a.status()).isEqualTo("FAILED");
     assertThat(a.content()).isEmpty();
+    assertThat(a.contentBlocks()).isNull();
     assertThat(a.memoryBlocks()).isEqualTo(om.readTree("[" + SAVED_BLOCK + "]"));
+    // 영속 JSON 자체에도 text 블록 없이 memory 블록만 있다.
+    assertThat(om.readTree(storedBlocks(a.id()))).isEqualTo(om.readTree("[" + SAVED_BLOCK + "]"));
     UUID sid = onlySession(uid);
-    // 기존 행(정규화 이전에 저장된 탭·개행 본문)도 맥락에서 빠지는지 — 정규화 없이 직접 저장해 필터만 검증한다.
-    sessionService.appendMessage(uid, sid, "ASSISTANT", "\t\n", null, null, null, "STOPPED");
     assertThat(sessionService.getContextSource(uid, sid).rows())
         .extracting(r -> r.role())
         .containsExactly("USER");
+  }
+
+  /** R1: 정지로 끝난 공백뿐인 답도 같은 규칙 — 본문 "" + memory 블록만 저장하고 맥락에서 뺀다. */
+  @Test
+  void 공백뿐인_본문으로_정지하면_본문을_빈_문자열로_저장하고_text_블록을_남기지_않는다() throws Exception {
+    long uid = user();
+    CountDownLatch started = new CountDownLatch(1);
+    doAnswer(
+            inv -> {
+              Consumer<String> onDelta = inv.getArgument(1);
+              Consumer<JsonNode> onTool = inv.getArgument(6);
+              onDelta.accept("\n");
+              onTool.accept(om.readTree(start(1, "remember_memory")));
+              onTool.accept(om.readTree(result(1, "remember_memory", false, SAVED)));
+              started.countDown();
+              try {
+                new CountDownLatch(1).await(5, TimeUnit.SECONDS); // 취소 인터럽트까지 붙잡는다
+              } catch (InterruptedException e) {
+                Thread.currentThread().interrupt(); // 실제 클라이언트처럼 플래그만 세우고 조용히 return
+              }
+              return null;
+            })
+        .when(chatClient)
+        .composeStream(any(), any(), any(), any(), any(), any(), any());
+    HomeChatStartedResponse r = chatService.startChat(uid, null, "질문");
+    assertThat(started.await(5, TimeUnit.SECONDS)).isTrue();
+    chatService.cancelChat(r.correlationId(), uid);
+    verify(sseRegistry, timeout(5000)).fanOut(any(), eq("home.chat.cancelled"), any());
+    UUID sid = r.sessionId();
+    HomeMessageResponse a = sessionService.getMessages(uid, sid).get(1);
+
+    assertThat(a.status()).isEqualTo("STOPPED");
+    assertThat(a.content()).isEmpty();
+    assertThat(a.contentBlocks()).isNull();
+    assertThat(a.memoryBlocks()).isEqualTo(om.readTree("[" + SAVED_BLOCK + "]"));
+    assertThat(om.readTree(storedBlocks(a.id()))).isEqualTo(om.readTree("[" + SAVED_BLOCK + "]"));
+    assertThat(sessionService.getContextSource(uid, sid).rows())
+        .extracting(row -> row.role())
+        .containsExactly("USER");
+  }
+
+  /** 영속된 content_blocks 원문 JSON. */
+  private String storedBlocks(long messageId) {
+    return dsl.select(HOME_MESSAGE.CONTENT_BLOCKS)
+        .from(HOME_MESSAGE)
+        .where(HOME_MESSAGE.ID.eq(messageId))
+        .fetchOne(r -> r.value1().data());
   }
 
   @Test

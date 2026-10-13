@@ -102,7 +102,7 @@ class HomeSessionContextSummaryTest extends IntegrationTestBase {
     sessionService.appendMessage(uid, sid, "USER", "q2", null, null, null);
     String memoryOnly = "[{\"kind\":\"memory\",\"action\":\"saved\",\"memoryId\":1}]";
     sessionService.appendMessage(uid, sid, "ASSISTANT", "", null, null, memoryOnly, "FAILED");
-    sessionService.appendMessage(uid, sid, "ASSISTANT", " ", null, null, memoryOnly, "STOPPED");
+    sessionService.appendMessage(uid, sid, "ASSISTANT", "", null, null, memoryOnly, "STOPPED");
     sessionService.appendMessage(uid, sid, "USER", "q3", null, null, null);
 
     List<String> roles =

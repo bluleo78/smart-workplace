@@ -163,13 +163,14 @@ final class HomeChatTurn {
     if (text.isBlank() && !blocks.hasMemory()) return null;
     List<Map<String, Object>> settled = steps.stream().map(HomeChatTurn::settleRunning).toList();
     // 공백뿐인 본문("\n"·"\t" 등)은 빈 문자열로 정규화해 저장한다 — 맥락 필터(빈 본문 STOPPED·FAILED 제외)와 웹의 content === ''
-    // 판정이 모두 "빈 답" 으로 일관되게 보게. 표시 블록 오프셋은 스트리밍 원문(text) 기준이라 finish 에는 원문을 그대로 넘긴다.
+    // 판정이 모두 "빈 답" 으로 일관되게 보게. 블록도 정규화한 본문으로 만든다 — 원문을 넘기면 공백 text 블록이 남아 웹 복원이 빈 답이 아닌
+    // 것으로 보고 자리 문구 없이 "중단됨" 만 그린다. 본문이 "" 이면 finish 가 모든 text 블록을 앞부분(버릴 구간)으로 보아 뺀다.
     String content = text.isBlank() ? "" : text;
     return persist(
         content,
         null,
         toJsonList(settled, "tool_calls"),
-        toJsonList(blocks.finish(text), "content_blocks"),
+        toJsonList(blocks.finish(content), "content_blocks"),
         status);
   }
 
