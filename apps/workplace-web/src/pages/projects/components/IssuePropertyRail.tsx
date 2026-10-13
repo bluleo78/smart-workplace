@@ -4,11 +4,19 @@
 // 첨부 섹션은 Task 2 에서, 활동 섹션은 Task 3 에서 본문 탭으로 이동 완료.
 
 import { CyclePickerPopover } from '../../../components/cycle/CyclePickerPopover';
+import { AgentWorkRailSection } from '../../../components/issue/agentWork/AgentWorkRailSection';
 import { AiClassifyButton } from '../../../components/issue/AiClassifyButton';
 import { LabelChip } from '../../../components/labels/LabelChip';
 import { LabelPickerPopover } from '../../../components/labels/LabelPickerPopover';
 import type { IssueFieldEntry } from '../../../types/customField';
-import type { IssueLinkSummary, IssuePriority, IssueStatus, ParentRef, UpdateIssueRequest } from '../../../types/issue';
+import type {
+  AgentWorkView,
+  IssueLinkSummary,
+  IssuePriority,
+  IssueStatus,
+  ParentRef,
+  UpdateIssueRequest,
+} from '../../../types/issue';
 import type { LabelSummary } from '../../../types/label';
 import type { UserSummary } from '../../../types/user';
 import { AssigneePickerPopover } from './AssigneePickerPopover';
@@ -50,6 +58,8 @@ interface IssuePropertyRailProps {
   onAiClassify?: () => void;
   isAiClassifying?: boolean;
   aiClassifyReason?: string | null;
+  /** 진행 중 AI 작업(WP-377) — rail 에서만 담당자 아래 「AI 진행」 섹션으로 보인다(모바일은 칩 + 시트). */
+  agentWork?: AgentWorkView[];
   /** sheet = 모바일 ＋ 속성 시트(WP-196): 칩과 겹치는 상태·우선순위·담당자·마감을 숨기고, 부모 슬롯은 SUBTASK 만 노출. 기본 rail(데스크톱). */
   variant?: 'rail' | 'sheet';
 }
@@ -78,6 +88,7 @@ export function IssuePropertyRail({
   onAiClassify,
   isAiClassifying,
   aiClassifyReason,
+  agentWork,
   variant = 'rail',
 }: IssuePropertyRailProps) {
   // AI 분류 제안 버튼 — 레일(상태·담당 그룹 맨 아래, 구분선 뒤)과 시트(단독) 두 위치가 같은 버튼을 쓴다. 핸들러가 없으면 렌더하지 않는다.
@@ -159,6 +170,8 @@ export function IssuePropertyRail({
               disabled={updatePending || !canEditWorkflow}
             />
           </div>
+          {/* AI 진행(WP-377) — 담당자 바로 아래. 진행 중 작업이 없으면 섹션이 스스로 숨는다. */}
+          <AgentWorkRailSection list={agentWork} />
           {/* 보고자 — 읽기 전용(WP-272). 구버전 서버 응답(reporter 없음)이면 필드가 스스로 숨는다. */}
           <IssueReporterField reporter={reporter} createdAt={createdAt} layout="rail" />
           {/* AI 분류 제안 — 섹션 가장 아래(목업 배치). 구분선 후 full-width. */}

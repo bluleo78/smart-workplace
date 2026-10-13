@@ -1,0 +1,70 @@
+// 모바일 이슈 상세 AI 진행(WP-377) — 속성 칩 아래 작업자별 칩 → 「AI 진행」 바텀시트, 질문 카드(좁은 폭에서 버튼 줄바꿈).
+import { createAgentWork, minutesAgo } from '../../factories/agentWork.factory'
+import { boxOf } from '../../fixtures/layout'
+import { mockAgentWorkDetail } from '../../fixtures/issue-detail-mock'
+import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture'
+import type { UserSummary } from '../../../src/types/user'
+
+const human: UserSummary = { id: 1, username: 'dh.yang@iacloud.kr', name: '양동희', kind: 'HUMAN' }
+const aki: UserSummary = { id: 9, username: 'aki', name: '아키', kind: 'AGENT' }
+
+// 서버 순서는 사람 먼저 — 화면은 급한 순(답변 필요 → 작업 중).
+const twoWorks = () => [
+  createAgentWork({ worker: human, state: 'WORKING', note: 'MCP 헤더 처리 중', stepsDone: 3, stepsTotal: 5, updatedAt: minutesAgo(5) }),
+  createAgentWork({ worker: aki, state: 'WAITING', note: '테스트 DB 를 공용으로 쓸까요, 이슈별로 따로 띄울까요?', updatedAt: minutesAgo(62) }),
+]
+
+test('속성 칩 아래 작업자별 칩을 탭하면 AI 진행 시트가 레일과 같은 내용을 보여 준다', async ({ authenticatedPage: page }) => {
+  await stubChat(page)
+  await mockAgentWorkDetail(page, twoWorks(), { assignees: [human, aki] })
+  await page.goto('/projects/WP/issues/12')
+
+  const akiChip = page.getByTestId('agent-work-chip-9')
+  const meChip = page.getByTestId('agent-work-chip-1')
+  await expect(akiChip).toContainText('답변 필요')
+  await expect(meChip).toContainText('작업 중')
+  // 급한 순(아키 먼저) + 속성 칩 줄 아래.
+  const props = await boxOf(page.getByTestId('mobile-prop-chips'))
+  const akiBox = await boxOf(akiChip)
+  expect(akiBox.y).toBeGreaterThanOrEqual(props.y + props.height)
+  expect(akiBox.x).toBeLessThan((await boxOf(meChip)).x)
+  // 데스크톱 레일은 모바일에 없다.
+  await expect(page.getByTestId('property-rail')).toHaveCount(0)
+  await expectNoHorizontalOverflow(page)
+
+  await meChip.click()
+  const sheet = page.getByTestId('agent-work-sheet')
+  await expect(sheet).toBeVisible()
+  await expect(sheet.getByRole('heading', { name: 'AI 진행' })).toBeVisible()
+  await expect(sheet.getByTestId('agent-work-rail-9-state')).toContainText('답변 필요')
+  await expect(sheet.getByTestId('agent-work-rail-9')).toContainText('테스트 DB 를 공용으로 쓸까요, 이슈별로 따로 띄울까요?')
+  await expect(sheet.getByTestId('agent-work-rail-1-progress')).toHaveText('3/5')
+  await expect(sheet.getByTestId('agent-work-rail-1-last')).toHaveText('5분 전')
+  await expect(sheet.getByTestId('agent-work-rail-1')).toContainText('Claude Code')
+  await expectNoHorizontalOverflow(page)
+})
+
+test('질문 카드는 좁은 폭에서 버튼을 줄바꿈해 보이고 탭하면 채팅을 연다', async ({ authenticatedPage: page }) => {
+  await stubChat(page)
+  await mockAgentWorkDetail(page, twoWorks(), { assignees: [human, aki] })
+  await page.goto('/projects/WP/issues/12')
+
+  const card = page.getByTestId('agent-question-card')
+  await expect(card).toContainText('아키의 질문 · 답변 필요')
+  const reply = card.getByTestId('agent-question-reply')
+  await expect(reply).toBeVisible()
+  // 버튼이 카드 안에 다 들어온다(잘리지 않음) + 본문 아래 줄로 내려간다.
+  const cardBox = await boxOf(card)
+  const replyBox = await boxOf(reply)
+  expect(replyBox.x + replyBox.width).toBeLessThanOrEqual(cardBox.x + cardBox.width)
+  const note = await boxOf(card.getByText('테스트 DB 를 공용으로 쓸까요, 이슈별로 따로 띄울까요?'))
+  expect(replyBox.y).toBeGreaterThanOrEqual(note.y + note.height)
+  // 위치 — 작업자 칩 아래.
+  const chip = await boxOf(page.getByTestId('agent-work-chip-9'))
+  expect(cardBox.y).toBeGreaterThan(chip.y + chip.height)
+  await expectNoHorizontalOverflow(page)
+
+  await reply.click()
+  await expect(page).toHaveURL(/[?&]chat=1/)
+  await expect(page.getByTestId('issue-chat-drawer')).toBeVisible()
+})
