@@ -32,9 +32,9 @@ afterEach(() => {
   nock.cleanAll();
 });
 
-function connect(token: string) {
+function connect(token: string, extraHeaders: Record<string, string> = {}) {
   const transport = new StreamableHTTPClientTransport(new URL(baseUrl), {
-    requestInit: { headers: { Authorization: `Bearer ${token}` } },
+    requestInit: { headers: { Authorization: `Bearer ${token}`, ...extraHeaders } },
   });
   const client = new Client({ name: 'test', version: '0.0.0' });
   return client.connect(transport).then(() => client);
@@ -182,6 +182,51 @@ describe('/mcp', { timeout: ROUNDTRIP_TEST_TIMEOUT_MS }, () => {
   it('api 401 이면 initialize 가 401 로 거부된다', async () => {
     nock(API).get('/auth/me').reply(401);
     await expect(connect('swp_revoked')).rejects.toThrow();
+  });
+
+  // WP-372: AI 키(ak_)로도 접속 — 그 AI 신원으로 workplace-api 를 호출한다.
+  describe('AI 키(ak_) 접속 (WP-372)', () => {
+    it('ak_ 토큰을 받아들이고 같은 Bearer 로 /auth/me 와 도구 호출을 한다', async () => {
+      nock(API, { reqheaders: { authorization: 'Bearer ak_valid' } }).get('/auth/me').reply(200, { id: 9, username: 'ai', kind: 'AGENT' });
+      const scope = nock(API, { reqheaders: { authorization: 'Bearer ak_valid' } })
+        .post('/projects/WP/issues')
+        .reply(200, { issueKey: 'WP-1', number: 1, title: 't', status: 'TODO' });
+      const client = await connect('ak_valid');
+      const res = await client.callTool({ name: 'create_issue', arguments: { projectKey: 'WP', title: 't' } });
+      expect(res.isError).toBeFalsy();
+      expect(scope.isDone()).toBe(true);
+    });
+
+    it('swp_·ak_ 어느 접두사도 아니면 401 이고 안내 문구가 둘 다 언급한다', async () => {
+      const res = await fetch(baseUrl, {
+        method: 'POST',
+        headers: { Authorization: 'Bearer xyz_nope', 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }),
+      });
+      expect(res.status).toBe(401);
+      const body = (await res.json()) as { error: { message: string } };
+      expect(body.error.message).toContain('swp_');
+      expect(body.error.message).toContain('ak_');
+    });
+
+    it('X-On-Behalf-Of-Tenant 를 /auth/me 와 도구 호출 모두에 전달한다', async () => {
+      nock(API, { reqheaders: { authorization: 'Bearer ak_valid', 'x-on-behalf-of-tenant': '7' } })
+        .get('/auth/me')
+        .reply(200, { id: 9, username: 'ai', kind: 'AGENT' });
+      const scope = nock(API, { reqheaders: { authorization: 'Bearer ak_valid', 'x-on-behalf-of-tenant': '7' } })
+        .post('/projects/WP/issues')
+        .reply(200, { issueKey: 'WP-1', number: 1, title: 't', status: 'TODO' });
+      const client = await connect('ak_valid', { 'X-On-Behalf-Of-Tenant': '7' });
+      await client.callTool({ name: 'create_issue', arguments: { projectKey: 'WP', title: 't' } });
+      expect(scope.isDone()).toBe(true);
+    });
+
+    it('사람 PAT(swp_) 요청에는 X-On-Behalf-Of-Tenant 를 전달하지 않는다', async () => {
+      nock(API, { badheaders: ['x-on-behalf-of-tenant'] }).get('/auth/me').reply(200, { id: 1, username: 'u', kind: 'HUMAN' });
+      const client = await connect('swp_valid', { 'X-On-Behalf-Of-Tenant': '7' });
+      expect(client.getServerVersion()).toMatchObject({ name: 'genia-works' });
+      expect(nock.isDone()).toBe(true);
+    });
   });
 
   it('Authorization 헤더 없으면 401', async () => {

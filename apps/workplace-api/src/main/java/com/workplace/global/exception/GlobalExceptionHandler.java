@@ -73,6 +73,7 @@ import com.workplace.project.exception.ProjectNotFoundException;
 import com.workplace.role.exception.RoleAssignedException;
 import com.workplace.role.exception.RoleNotFoundException;
 import com.workplace.role.exception.SystemRoleModificationException;
+import com.workplace.user.exception.AgentRuntimeConflictException;
 import com.workplace.user.exception.UserDeactivatedException;
 import com.workplace.user.exception.UserNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -312,6 +313,14 @@ public class GlobalExceptionHandler {
       HttpServletRequest request) {
     ErrorResponse response = buildError(HttpStatus.FORBIDDEN, ex.getMessage(), null, request);
     return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
+  }
+
+  // 에이전트 실행 방식 규칙 위반(비서 에이전트를 EXTERNAL 로 등) — 409 (WP-371).
+  @ExceptionHandler(AgentRuntimeConflictException.class)
+  public ResponseEntity<ErrorResponse> handleAgentRuntimeConflict(
+      AgentRuntimeConflictException ex, HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.CONFLICT, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
   }
 
   @ExceptionHandler(ChannelNotFoundException.class)

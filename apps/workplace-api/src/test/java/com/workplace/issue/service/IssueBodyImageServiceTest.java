@@ -432,7 +432,8 @@ class IssueBodyImageServiceTest extends IntegrationTestBase {
     var issue = issueService.create(owner, p.key(), createReq("t", "본문"));
     long fileId = service.upload(owner, p.key(), image("a.png", PNG)).fileId();
 
-    commentService.create(owner, issue.id(), new CreateCommentRequest("재현 " + ref(p.key(), fileId)));
+    commentService.create(
+        owner, issue.id(), new CreateCommentRequest("재현 " + ref(p.key(), fileId)));
 
     assertThat(repo.findMeta(fileId).orElseThrow().issueId()).isEqualTo(issue.id());
     assertThat(expiresAt(fileId)).isNull();
@@ -462,7 +463,8 @@ class IssueBodyImageServiceTest extends IntegrationTestBase {
     var issue = issueService.create(owner, p.key(), createReq("t", ref(p.key(), bodyImg)));
     long commentImg = service.upload(owner, p.key(), image("c.png", PNG)).fileId();
     var comment =
-        commentService.create(owner, issue.id(), new CreateCommentRequest(ref(p.key(), commentImg)));
+        commentService.create(
+            owner, issue.id(), new CreateCommentRequest(ref(p.key(), commentImg)));
 
     commentService.update(owner, issue.id(), comment.id(), new UpdateCommentRequest("이미지 뺌"));
 
@@ -480,7 +482,8 @@ class IssueBodyImageServiceTest extends IntegrationTestBase {
     var c1 =
         commentService.create(
             owner, issue.id(), new CreateCommentRequest(ref(p.key(), only) + ref(p.key(), shared)));
-    commentService.create(owner, issue.id(), new CreateCommentRequest("다시 " + ref(p.key(), shared)));
+    commentService.create(
+        owner, issue.id(), new CreateCommentRequest("다시 " + ref(p.key(), shared)));
 
     commentService.delete(owner, issue.id(), c1.id());
 

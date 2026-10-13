@@ -21,13 +21,6 @@ export async function runAgent(
   deps: RunAgentDeps,
 ): Promise<void> {
   const agentId = pickActingAgentId(envelope);
-  if (agentId == null) {
-    console.warn('[run-agent] assignees 에 AGENT 없음 — 실행 생략', {
-      type: envelope.type,
-      issueKey: envelope.payload.issueKey,
-    });
-    return;
-  }
 
   let credential: ProviderCredential;
   try {

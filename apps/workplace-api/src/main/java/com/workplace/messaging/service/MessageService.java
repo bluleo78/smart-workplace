@@ -39,6 +39,8 @@ import com.workplace.messaging.repository.MessageRepository.MessageRef;
 import com.workplace.messaging.repository.ReactionRepository;
 import com.workplace.messaging.repository.ThreadReadStateRepository;
 import com.workplace.tenant.repository.MembershipRepository;
+import com.workplace.user.dto.UserKind;
+import com.workplace.user.service.ServerAgentResolver;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -63,6 +65,8 @@ public class MessageService {
   private final MessageAttachmentRepository attachmentRepo;
   private final AiAgentProperties aiAgentProps;
   private final MembershipRepository membershipRepo;
+  // WP-371: 응답자 후보에서 외부(EXTERNAL) 에이전트를 거르는 단일 규칙(이슈·이슈 채팅 dispatcher 와 공유).
+  private final ServerAgentResolver agentResolver;
   private final ThreadReadStateRepository threadReadRepo;
   private final DriveLinkService driveLinkService;
   // L3 위임 제안 enrich 용 의존성
@@ -174,12 +178,13 @@ public class MessageService {
       java.util.List<ChannelMemberResponse> members = memberRepo.listMembers(channelId);
       if (members.size() == 2) {
         // 1:1 DM: caller 제외 상대가 AGENT 면 멘션 없이도 응답.
+        // 상대가 외부(EXTERNAL) 에이전트면 서버가 응답하지 않는다(외부 AI 가 API 키로 직접 응답).
         respondAsAgentId =
-            members.stream()
-                .filter(m -> m.userId() != callerId && "AGENT".equals(m.kind()))
-                .map(ChannelMemberResponse::userId)
-                .findFirst()
-                .orElse(null);
+            agentResolver.pickActingAgentId(
+                members.stream()
+                    .filter(m -> m.userId() != callerId && UserKind.isAgent(m.kind()))
+                    .map(ChannelMemberResponse::userId)
+                    .toList());
       } else {
         // 그룹 DM: 멤버가 고정 — 멘션된 AGENT 가 이미 멤버일 때만.
         java.util.Set<Long> memberIds =
@@ -187,11 +192,11 @@ public class MessageService {
                 .map(ChannelMemberResponse::userId)
                 .collect(java.util.stream.Collectors.toSet());
         respondAsAgentId =
-            saved.mentions().stream()
-                .filter(m -> "AGENT".equals(m.kind()) && memberIds.contains(m.id()))
-                .map(MentionResponse::id)
-                .findFirst()
-                .orElse(null);
+            agentResolver.pickActingAgentId(
+                saved.mentions().stream()
+                    .filter(m -> UserKind.isAgent(m.kind()) && memberIds.contains(m.id()))
+                    .map(MentionResponse::id)
+                    .toList());
       }
     } else {
       // 채널: 멘션된 AGENT 를 add-only 멤버추가 후 첫 AGENT 를 응답자로.
@@ -208,7 +213,8 @@ public class MessageService {
               .filter(aid -> tenantId != null && membershipRepo.hasActiveMembership(aid, tenantId))
               .toList();
       for (Long agentId : eligibleAgentIds) memberRepo.add(channelId, agentId, "MEMBER");
-      respondAsAgentId = eligibleAgentIds.isEmpty() ? null : eligibleAgentIds.get(0);
+      // 외부(EXTERNAL) 에이전트도 채널 멤버로는 추가하되(외부 AI 가 API 로 읽고 답하도록), 서버 응답자는 내부(INTERNAL) 에이전트만 고른다.
+      respondAsAgentId = agentResolver.pickActingAgentId(eligibleAgentIds);
     }
     if (respondAsAgentId == null) return;
     publisher.publishEvent(

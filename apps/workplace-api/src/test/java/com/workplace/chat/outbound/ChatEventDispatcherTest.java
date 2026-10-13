@@ -2,6 +2,7 @@ package com.workplace.chat.outbound;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -12,8 +13,10 @@ import com.workplace.global.dto.UserSummary;
 import com.workplace.global.outbound.AiAgentEventClient;
 import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.global.outbound.EventEnvelope;
+import com.workplace.user.service.ServerAgentResolver;
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -23,6 +26,7 @@ class ChatEventDispatcherTest {
 
   private AiAgentEventClient client;
   private AiAgentProperties props;
+  private ServerAgentResolver resolver;
   private ChatEventDispatcher dispatcher;
 
   @BeforeEach
@@ -30,7 +34,28 @@ class ChatEventDispatcherTest {
     client = Mockito.mock(AiAgentEventClient.class);
     props = Mockito.mock(AiAgentProperties.class);
     when(props.enabled()).thenReturn(true);
-    dispatcher = new ChatEventDispatcher(client, props);
+    resolver = Mockito.mock(ServerAgentResolver.class);
+    // 기본: 멘션된 AGENT 는 내부(INTERNAL) 실행으로 취급 — 외부 케이스는 internalAgents(...) 로 따로 지정.
+    internalAgents(AGENT.id());
+    dispatcher = new ChatEventDispatcher(client, props, resolver);
+  }
+
+  /**
+   * resolver 를 "주어진 id 만 INTERNAL" 로 스텁한다 — 실제 규칙(후보 순서상 첫 INTERNAL AGENT)과 같은 모양. DB 규칙 자체는
+   * ServerAgentResolverTest 가 검증한다.
+   */
+  private void internalAgents(Long... ids) {
+    var internal = Set.of(ids);
+    // doAnswer 형태로 스텁한다 — when(...) 재스텁은 이전 Answer 를 null 인자로 한 번 호출해 NPE 가 난다.
+    doAnswer(
+            inv ->
+                inv.<List<UserSummary>>getArgument(0).stream()
+                    .filter(u -> "AGENT".equals(u.kind()) && internal.contains(u.id()))
+                    .map(UserSummary::id)
+                    .findFirst()
+                    .orElse(null))
+        .when(resolver)
+        .pickActingAgent(any());
   }
 
   private static final UserSummary HUMAN = new UserSummary(1L, "alice", "Alice", "HUMAN");
@@ -97,5 +122,26 @@ class ChatEventDispatcherTest {
     when(props.enabled()).thenReturn(false);
     dispatcher.onChatMessageCreated(event(HUMAN, List.of(AGENT)));
     verify(client, never()).publish(any());
+  }
+
+  // ---- WP-371: 외부(EXTERNAL) 에이전트 멘션은 서버 이벤트 대상에서 제외 ----
+
+  private static final UserSummary EXTERNAL_AGENT =
+      new UserSummary(77L, "ext-bot", "External Bot", "AGENT");
+
+  @Test
+  void externalOnlyMention_skipped() {
+    dispatcher.onChatMessageCreated(event(HUMAN, List.of(EXTERNAL_AGENT)));
+    verify(client, never()).publish(any());
+  }
+
+  @Test
+  void mixedMention_publishesWithInternalActingAgentId() {
+    dispatcher.onChatMessageCreated(event(HUMAN, List.of(EXTERNAL_AGENT, AGENT)));
+    ArgumentCaptor<EventEnvelope> captor = ArgumentCaptor.forClass(EventEnvelope.class);
+    verify(client, times(1)).publish(captor.capture());
+    var payload = captor.getValue().payload();
+    assertThat(payload.get("actingAgentId")).isEqualTo(AGENT.id());
+    assertThat((List<?>) payload.get("mentions")).hasSize(2);
   }
 }

@@ -163,8 +163,7 @@ public class IssueCommentService {
   /** 코멘트 수정 (본인 또는 프로젝트 OWNER) — delete 와 동일한 권한 모델. */
   public IssueCommentResponse update(
       Long callerId, Long issueId, Long commentId, UpdateCommentRequest req) {
-    var mutable =
-        checkCommentMutable(callerId, issueId, commentId, "본인 코멘트 또는 OWNER 만 수정할 수 있습니다");
+    var mutable = checkCommentMutable(callerId, issueId, commentId, "본인 코멘트 또는 OWNER 만 수정할 수 있습니다");
     var issue = mutable.target().issue();
     var project = mutable.target().project();
     commentRepository.update(commentId, req.body());

@@ -248,4 +248,72 @@ class MessagingToAiAgentDispatchTest extends IntegrationTestBase {
     verify(client, timeout(2000).times(1)).publish(captor.capture());
     assertThat(captor.getValue().payload().get("triggerParentMessageId")).isNull();
   }
+
+  /** AGENT 를 외부(EXTERNAL) 실행 방식으로 바꾼다 — 서버 ai-agent 의 응답 대상에서 빠져야 한다 (WP-371). */
+  private void makeExternal(long agentId) {
+    dsl.update(USER).set(USER.AGENT_RUNTIME, "EXTERNAL").where(USER.ID.eq(agentId)).execute();
+  }
+
+  /** 1:1 DM 상대가 외부(EXTERNAL) 에이전트면 서버가 응답하지 않는다 — ai-agent 로 발사되지 않는다. */
+  @Test
+  void dm1to1_externalAgent_doesNotPublish() throws InterruptedException {
+    long human = seedUser("HUMAN");
+    long agent = seedUser("AGENT");
+    makeExternal(agent);
+    long dmId = seedDm(human, agent);
+
+    messageService.create(human, dmId, new CreateMessageRequest("안녕 외부 AI"));
+
+    Thread.sleep(800);
+    verify(client, never()).publish(any());
+  }
+
+  /** 그룹 DM 에서 멘션된 에이전트가 외부(EXTERNAL)면 발사되지 않는다. */
+  @Test
+  void groupDm_mentionedExternalAgent_doesNotPublish() throws InterruptedException {
+    long human = seedUser("HUMAN");
+    long other = seedUser("HUMAN");
+    long agent = seedUser("AGENT");
+    makeExternal(agent);
+    long dmId = seedDm(human, other, agent);
+
+    messageService.create(human, dmId, new CreateMessageRequest("<@" + agent + "> 봐줘"));
+
+    Thread.sleep(800);
+    verify(client, never()).publish(any());
+  }
+
+  /** 채널에서 외부 에이전트만 멘션하면 멤버로는 추가되되 서버 이벤트는 발사되지 않는다. */
+  @Test
+  void channel_onlyExternalMentioned_joinsButDoesNotPublish() throws InterruptedException {
+    long human = seedUser("HUMAN");
+    long external = seedUser("AGENT");
+    makeExternal(external);
+    long channelId = channelRepo.insertPublic("c7e", human);
+    channelService.join(human, channelId);
+
+    messageService.create(human, channelId, new CreateMessageRequest("<@" + external + "> 처리"));
+
+    Thread.sleep(800);
+    assertThat(memberRepo.isMember(channelId, external)).isTrue();
+    verify(client, never()).publish(any());
+  }
+
+  /** 채널에서 외부+내부 에이전트를 함께 멘션하면(외부가 먼저여도) 내부 에이전트가 응답자로 뽑힌다. */
+  @Test
+  void channel_externalAndInternalMentioned_picksInternal() {
+    long human = seedUser("HUMAN");
+    long external = seedUser("AGENT");
+    long internal = seedUser("AGENT");
+    makeExternal(external);
+    long channelId = channelRepo.insertPublic("c7ei", human);
+    channelService.join(human, channelId);
+
+    messageService.create(
+        human, channelId, new CreateMessageRequest("<@" + external + "> <@" + internal + "> 처리"));
+
+    ArgumentCaptor<EventEnvelope> captor = ArgumentCaptor.forClass(EventEnvelope.class);
+    verify(client, timeout(2000).times(1)).publish(captor.capture());
+    assertThat(captor.getValue().payload().get("respondAsAgentId")).isEqualTo(internal);
+  }
 }

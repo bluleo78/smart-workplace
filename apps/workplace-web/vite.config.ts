@@ -95,6 +95,11 @@ export default defineConfig({
       devOptions: { enabled: process.env.E2E === '1', type: 'module' },
     }),
   ],
+  // dev SW(src/sw.ts)는 index.html 에서 정적으로 닿지 않아 Vite 의존성 스캔에서 빠진다. 캐시가 빈 상태에서 SW 를 처음
+  // 불러올 때 workbox 를 새로 발견해 의존성을 다시 묶고 페이지를 통째로 새로고침해, 그 순간 진행 중이던 E2E(푸시 켜기 등)의
+  // 화면 상태가 날아갔다. SW 도 스캔 진입점에 넣어 처음부터 함께 묶는다(패키지 목록을 손으로 적지 않아 sw.ts 가 바뀌어도 맞음).
+  // entries 를 지정하면 기본 스캔(index.html)을 대체하므로 index.html 도 함께 둔다.
+  optimizeDeps: { entries: ['index.html', 'src/sw.ts'] },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),

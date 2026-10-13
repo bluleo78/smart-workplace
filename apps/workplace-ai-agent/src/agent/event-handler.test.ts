@@ -23,6 +23,7 @@ const common = {
   actor: { id: 7, username: 'alice', kind: 'HUMAN' as const },
   assignees: [{ id: 201, username: 'ai-bot', kind: 'AGENT' as const }],
   occurredAt: '2026-05-25T12:00:00Z',
+  actingAgentId: 201,
 };
 
 describe('handleEvent', () => {

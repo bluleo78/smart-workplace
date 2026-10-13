@@ -176,6 +176,11 @@ public class User extends TableImpl<UserRecord> {
      */
     public final TableField<UserRecord, String> TITLE = createField(DSL.name("title"), SQLDataType.VARCHAR(100), this, "");
 
+    /**
+     * The column <code>public.user.agent_runtime</code>.
+     */
+    public final TableField<UserRecord, String> AGENT_RUNTIME = createField(DSL.name("agent_runtime"), SQLDataType.VARCHAR(16).nullable(false).defaultValue(DSL.field(DSL.raw("'INTERNAL'::character varying"), SQLDataType.VARCHAR)), this, "");
+
     private User(Name alias, Table<UserRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }
@@ -1134,6 +1139,7 @@ public class User extends TableImpl<UserRecord> {
     @Override
     public List<Check<UserRecord>> getChecks() {
         return Arrays.asList(
+            Internal.createCheck(this, DSL.name("chk_user_agent_runtime"), "(((agent_runtime)::text = ANY ((ARRAY['INTERNAL'::character varying, 'EXTERNAL'::character varying])::text[])))", true),
             Internal.createCheck(this, DSL.name("user_kind_check"), "(((kind)::text = ANY ((ARRAY['HUMAN'::character varying, 'AGENT'::character varying])::text[])))", true)
         );
     }

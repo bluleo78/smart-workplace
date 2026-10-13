@@ -4,16 +4,16 @@
 
 ## 이 앱의 목적
 
-Smart Workplace 의 **원격 MCP 게이트웨이**. Claude Code 등 외부 MCP 클라이언트가 사용자 PAT(`swp_...`)
-로 `POST /mcp` 를 호출하면, 사용자 컨텍스트 도구(이슈/위키/메시징/캘린더/드라이브/메일/알림)를 workplace-api
+Smart Workplace 의 **원격 MCP 게이트웨이**. Claude Code 등 외부 MCP 클라이언트가 사용자 PAT(`swp_...`, 사람)
+또는 AGENT API 키(`ak_...`, 그 AI 로 동작)로 `POST /mcp` 를 호출하면, 사용자 컨텍스트 도구(이슈/위키/메시징/캘린더/드라이브/메일/알림)를 workplace-api
 로 그대로 패스스루한다. Streamable HTTP, stateless(세션 미유지 — 매 요청 새 `McpServer` + `Transport`).
 
 ## ⚠️ 무비밀(secretless) 게이트웨이 원칙 — 절대 규칙
 
 이 앱은 **시크릿 환경변수를 갖지 않는다.** `INTERNAL_SERVICE_TOKEN` 류의 서비스 간 공용 시크릿을
-**이 앱에 절대 추가하지 않는다.** 인증은 매 호출마다 클라이언트가 보낸 사용자 PAT 를
-workplace-api 가 검증한다(`Authorization: Bearer swp_...` → workplace-api 의 PAT 인증 필터).
-workplace-mcp 자신은 PAT 를 저장·검증하지 않고 그대로 전달(패스스루)만 한다.
+**이 앱에 절대 추가하지 않는다.** 인증은 매 호출마다 클라이언트가 보낸 PAT 또는 AI 키를
+workplace-api 가 검증한다(`Authorization: Bearer swp_...|ak_...` → workplace-api 의 PAT·API 키 인증 필터).
+workplace-mcp 자신은 토큰을 저장·검증하지 않고 그대로 전달(패스스루)만 한다.
 
 - 필요 env 는 `PORT`, `WORKPLACE_API_BASE_URL` 뿐 (`.env.example` 참고).
 - 새 기능이 "서비스 간 신뢰"를 요구하는 것처럼 보이면, workplace-mcp 에 시크릿을 추가하지 말고
@@ -31,11 +31,15 @@ workplace-mcp 자신은 PAT 를 저장·검증하지 않고 그대로 전달(패
                           workplace-api (매 호출 PAT 검증 + 테넌트 바인딩)
 ```
 
-- `src/mcp/server.ts`: `handleMcpPost` 가 `Authorization: Bearer swp_...` 를 파싱 → `initialize`
+- `src/mcp/server.ts`: `handleMcpPost` 가 `Authorization: Bearer swp_...|ak_...` 를 파싱 → `initialize`
   요청이면 `GET /auth/me` 로 조기 검증(연결 시점 401 UX) → `buildMcpServer(apiBaseUrl, token)` 로
   요청별 `McpServer` 구성.
 - `src/clients/workplace-api.ts`: `createPatApiClient({ baseURL, token })` — 토큰을 헤더로 단 axios 인스턴스를
   공유 `createSharedToolClient` 에 넘긴 클라이언트. 도구 핸들러는 이 클라이언트만 통해 workplace-api 를 호출한다.
+- AI 키(`ak_`) 접속: `swp_`(사람 PAT)와 같은 도구를 같은 방식으로 쓰고, `ak_` 로 접속하면 호출이 그 AI 신원으로 실행된다.
+  요청 헤더 `X-On-Behalf-Of-Tenant` 는 **`ak_` 일 때만**
+  `/auth/me` 조기 검증과 모든 도구 호출에 그대로 전달한다(AI 키엔 테넌트가 없어 다중 멤버십 AI 는 이 헤더로 고르고,
+  서버가 멤버십을 검증한다. 사람 PAT 의 테넌트는 토큰이 정한다). `/auth/me` 는 AGENT 키도 통과한다.
 - 401 은 그대로 클라이언트에 요약 전달(`summarizeError`) — "토큰 만료·폐기" 를 사용자가 바로 알 수
   있게 한다.
 
@@ -69,7 +73,8 @@ workplace-mcp 자신은 PAT 를 저장·검증하지 않고 그대로 전달(패
 
 ## 에이전트 전용 도구 노출 금지
 
-이 게이트웨이는 **사람이 자기 권한으로 직접 실행하는 도구만** 노출한다. workplace-ai-agent 의
+AI 키로 접속하면 그 AI 신원으로 동작하며, 그 AI 신원 전용 도구도 노출할 수 있다(서버 AI 실행 전용 도구는 계속 ai-agent).
+이 게이트웨이는 그 밖에 **접속 주체가 자기 권한으로 직접 실행하는 도구만** 노출한다. workplace-ai-agent 의
 인-프로세스 MCP 서버(`apps/workplace-ai-agent/src/agent/sdk-mcp-server.ts`)에 존재하는
 에이전트 전용/위임 흐름 도구는 여기서 **절대 등록하지 않는다**:
 

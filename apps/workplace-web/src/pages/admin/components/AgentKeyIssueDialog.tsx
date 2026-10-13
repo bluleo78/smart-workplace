@@ -13,14 +13,19 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 
+import { CopyableCommand } from './CopyableCommand';
+
 interface AgentKeyIssueDialogProps {
   plaintextKey: string | null;
+  // 외부 에이전트면 실제 키가 채워진 "이 AI로 Claude Code 실행" 명령(복사용). 없으면 미표시.
+  launchCommand?: string | null;
   open: boolean;
   onOpenChange: (next: boolean) => void;
 }
 
 export function AgentKeyIssueDialog({
   plaintextKey,
+  launchCommand,
   open,
   onOpenChange,
 }: AgentKeyIssueDialogProps) {
@@ -52,6 +57,14 @@ export function AgentKeyIssueDialog({
           >
             {plaintextKey ?? ''}
           </code>
+          {launchCommand && (
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground">
+                이 AI로 Claude Code 실행 (연결 설정은 에이전트 상세의 ② 를 한 번 해 두세요)
+              </p>
+              <CopyableCommand command={launchCommand} testId="agent-key-launch-command" />
+            </div>
+          )}
           <DialogFooter>
             <Button onClick={onCopy} disabled={!plaintextKey}>
               복사

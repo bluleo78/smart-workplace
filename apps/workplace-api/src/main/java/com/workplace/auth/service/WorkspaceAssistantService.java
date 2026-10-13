@@ -10,6 +10,7 @@ import com.workplace.user.dto.UserKind;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.exception.UserNotFoundException;
 import com.workplace.user.repository.UserRepository;
+import com.workplace.user.service.AgentRuntimePolicy;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,9 +28,13 @@ public class WorkspaceAssistantService {
   private final AssistantConfigRepository configRepo;
   private final AiAgentCredentialRepository credentialRepo;
   private final UserRepository userRepository;
+  private final AgentRuntimePolicy agentRuntimePolicy;
 
   /** 공용 비서로 지정. 대상이 없으면 404, AGENT 가 아니면 400(HUMAN 거부). */
   public void setAgent(long adminId, long agentUserId) {
+    // WP-371: 실행 방식 변경(UserService.setAgentRuntime)과 같은 에이전트 행 락으로 직렬화 — 아래 EXTERNAL 검사와 upsert 사이에
+    // runtime 이 EXTERNAL 로 바뀌는 경합을 막는다. 대상이 없으면 0행이 잠기고 아래에서 404 로 처리된다.
+    agentRuntimePolicy.lock(agentUserId);
     UserResponse user =
         userRepository
             .findById(agentUserId)
@@ -38,6 +43,8 @@ public class WorkspaceAssistantService {
     if (!UserKind.isAgent(user.kind())) {
       throw new KeyTargetMustBeAgentException();
     }
+    // WP-371: 외부 실행(EXTERNAL) 에이전트는 서버가 AI Chat 을 실행하지 않으므로 공용 비서로 지정할 수 없다(409).
+    agentRuntimePolicy.requireMayBeAssistant(agentUserId);
     workspaceRepo.upsert(agentUserId, adminId);
   }
 
