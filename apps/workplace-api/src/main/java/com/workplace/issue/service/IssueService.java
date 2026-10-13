@@ -761,6 +761,8 @@ public class IssueService {
     var deletedIds = new java.util.ArrayList<Long>(childIds);
     deletedIds.add(row.id());
     bodyImageService.demoteAllOfIssues(deletedIds);
+    // 삭제된 이슈(부모+자식)의 진행 중 AI 작업 종료(WP-377) — 남겨 두면 AI 위임 작업 건수·담당 작업 흐름에 유령 작업으로 남는다.
+    agentWorkService.endAllForIssues(deletedIds);
     // 실시간 무효화 — checkDeletable 이 이미 resolve 한 project 를 재사용(중복 조회 방지)
     changeNotifier.deleted(target.project(), number, row.id(), callerId);
   }

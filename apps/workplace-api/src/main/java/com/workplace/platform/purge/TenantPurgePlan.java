@@ -57,6 +57,7 @@ public final class TenantPurgePlan {
           ISSUE_ATTACHMENT,
           ISSUE_BODY_IMAGE,
           ISSUE_AI_SUMMARY,
+          AGENT_WORK,
           ISSUE,
           MILESTONE,
           CYCLE,

@@ -3,13 +3,16 @@ package com.workplace.issue;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.global.security.AgentToolContext;
+import com.workplace.issue.dto.AgentWorkView;
+import com.workplace.issue.dto.CreateIssueRequest;
 import com.workplace.issue.dto.UpdateIssueRequest;
-import java.time.Instant;
+import com.workplace.issue.service.AgentWorkService;
 import java.time.OffsetDateTime;
-import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 
 /**
@@ -17,6 +20,8 @@ import org.springframework.http.ResponseEntity;
  * 헤더를 채택하는 경로까지 검증한다. "안 만듦" 단언은 요청 자체가 성공(2xx)했는지 먼저 확인해 거절로 인한 거짓 통과를 막는다.
  */
 class AgentWorkAutoStartTest extends AgentWorkTestSupport {
+
+  @Autowired private AgentWorkService agentWorkService;
 
   /** 요청이 성공했는지 — 실패 응답이면 본문을 메시지로 보여준다. */
   private static void assertOk(ResponseEntity<String> res) {
@@ -96,12 +101,59 @@ class AgentWorkAutoStartTest extends AgentWorkTestSupport {
 
   @Test
   void 경고없는_쓰기는_updated_at_갱신() {
-    seedActive(issueId, humanId, "WORKING", OffsetDateTime.now().minusHours(3));
+    var seeded = OffsetDateTime.now().minusHours(3);
+    seedActive(issueId, humanId, "WORKING", seeded);
     assertOk(patch(patToken, Map.of("priority", "HIGH"), TOOL));
-    var w = activeWork(issueId, humanId).orElseThrow();
-    // 무소식(2시간) 기준 밖으로 — 방금 갱신됐다.
-    assertThat(w.updatedAt()).isAfter(Instant.now().minus(1, ChronoUnit.MINUTES));
+    // 실시간 데드라인 대신 "시드 시각보다 뒤로 움직였고, 무소식이 풀렸다" 로만 본다(부하에서도 결정적).
+    var w = activeView(issueId, humanId);
+    assertThat(w.updatedAt()).isAfter(seeded.toInstant());
+    assertThat(w.stale()).isFalse();
     assertThat(activeCount(issueId)).isEqualTo(1);
+  }
+
+  /** 워치 등록·해제는 이슈 작업이 아니다 — MCP(수행 도구 헤더) 경유라도 담당자의 AI 작업을 만들지 않는다. */
+  @Test
+  void 워치_등록_해제는_작업을_만들지_않음() {
+    // 사람 담당자는 이슈 작성자라 이미 워처일 수 있어(등록이 no-op) 해제 → 등록 순으로 두 경로를 모두 지난다.
+    assertOk(call(HttpMethod.DELETE, issuePath() + "/watch", patToken, null, TOOL));
+    assertOk(call(HttpMethod.POST, issuePath() + "/watch", patToken, null, TOOL));
+    assertThat(activeWork(issueId, humanId)).isEmpty();
+  }
+
+  /** 의존성 추가는 호출자가 쓴 이슈(A)만 터치한다 — 상대 이슈(B)는 링크로 화면만 바뀐 것이라 담당자여도 작업을 만들지 않는다. */
+  @Test
+  void 의존성_추가는_호출한_이슈에만_작업을_만듦() {
+    var other =
+        inTenant(
+            () -> {
+              var b =
+                  issueService.create(
+                      humanId,
+                      projectKey,
+                      new CreateIssueRequest(
+                          "차단 대상", "본문", "MID", null, List.of(), null, null, null));
+              issueAssigneeRepository.add(b.id(), humanId, humanId);
+              return b;
+            });
+    assertOk(
+        call(
+            HttpMethod.POST,
+            issuePath() + "/dependencies",
+            patToken,
+            Map.of("otherNumber", other.number(), "direction", "blocks"),
+            TOOL));
+    assertThat(activeWork(issueId, humanId)).isPresent();
+    assertThat(activeWork(other.id(), humanId)).isEmpty();
+  }
+
+  /** (이슈, 작업자)의 진행 중 작업 뷰(무소식 판정 포함). */
+  private AgentWorkView activeView(long issueId, long workerId) {
+    return inTenant(() -> agentWorkService.viewsByIssueIds(List.of(issueId)))
+        .getOrDefault(issueId, List.of())
+        .stream()
+        .filter(v -> v.worker().id() == workerId)
+        .findFirst()
+        .orElseThrow();
   }
 
   /**

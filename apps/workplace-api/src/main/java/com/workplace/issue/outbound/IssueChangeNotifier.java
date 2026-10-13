@@ -43,6 +43,14 @@ public class IssueChangeNotifier {
    * → 알림 → 터치로 무한 재귀한다.
    */
   public void agentWorkChanged(ProjectRow project, int issueNumber, long issueId, Long actorId) {
+    updatedWithoutTouch(project, issueNumber, issueId, actorId);
+  }
+
+  /**
+   * 화면 갱신용 수정 알림만 내고 AI 작업 터치({@link AgentToolWriteEvent})는 내지 않는다(WP-377). 이슈 자체를 쓰지 않은 변경 — 워치
+   * 등록·해제, 의존성 추가·제거에서 호출자가 직접 쓰지 않은 상대 이슈 — 에 쓴다. 이런 쓰기로 그 이슈의 AI 작업이 시작·재개되면 안 되기 때문.
+   */
+  public void updatedWithoutTouch(ProjectRow project, int issueNumber, long issueId, Long actorId) {
     changed(project, issueNumber, issueId, ResourceChangedEvent.OP_UPDATED, actorId);
   }
 

@@ -1,10 +1,13 @@
 package com.workplace.issue;
 
+import static com.workplace.jooq.Tables.ISSUE;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.workplace.issue.dto.CreateIssueRequest;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 
 /**
@@ -83,5 +86,30 @@ class AgentWorkAutoEndTest extends AgentWorkTestSupport {
             null));
     assertThat(activeWork(issueId, agentId)).isEmpty();
     assertThat(activeWork(issueId, humanId)).isPresent();
+  }
+
+  /** 이슈를 지우면(소프트 삭제) 그 이슈와 함께 지워진 자식 이슈의 진행 중 작업도 끝난다 — AI 위임 목록에 유령 작업이 남지 않게. */
+  @Test
+  void 이슈를_삭제하면_자식까지_작업_종료() {
+    long childId =
+        inTenant(
+            () -> {
+              var c =
+                  issueService.create(
+                      humanId,
+                      projectKey,
+                      new CreateIssueRequest("자식", "본문", "MID", null, List.of(), null, null, null));
+              // 자식 관계만 필요하므로 SUBTASK 유형 절차 없이 parent_issue_id 를 직접 잇는다.
+              dsl.update(ISSUE)
+                  .set(ISSUE.PARENT_ISSUE_ID, issueId)
+                  .where(ISSUE.ID.eq(c.id()))
+                  .execute();
+              return c.id();
+            });
+    seedActive(issueId, humanId, "WORKING");
+    seedActive(childId, agentId, "WAITING");
+    assertOk(call(HttpMethod.DELETE, issuePath(), jwtToken, null, null));
+    assertThat(activeCount(issueId)).isZero();
+    assertThat(activeCount(childId)).isZero();
   }
 }

@@ -14,6 +14,7 @@ import com.workplace.issue.outbound.IssueChatPoster;
 import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.project.service.ProjectAccessGuard;
+import com.workplace.user.dto.UserKind;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -99,7 +100,7 @@ public class AgentWorkReportService {
     // AI 구성원이 답변 필요로 멈추며 남긴 글만 질문으로 표시한다(사람 글은 일반 글).
     if (messageId != null
         && AgentWorkState.WAITING.equals(view.state())
-        && "AGENT".equals(view.worker().kind())) {
+        && UserKind.isAgent(view.worker().kind())) {
       chatPoster.markQuestion(messageId);
     }
     return new AgentWorkReportResponse(view, false);

@@ -100,6 +100,11 @@ public class AgentWorkService {
     repository.endActive(issueId);
   }
 
+  /** 여러 이슈의 진행 중 작업을 모두 종료한다(이슈 삭제 — 부모와 함께 지워진 자식 포함). 알림은 호출자(이슈 deleted 알림)가 낸다. */
+  public void endAllForIssues(Collection<Long> issueIds) {
+    repository.endActive(issueIds);
+  }
+
   /** 이슈에서 지정한 작업자들의 진행 중 작업만 종료한다. 알림은 호출자가 이미 낸다. */
   public void endForWorkers(long issueId, Collection<Long> workerIds) {
     repository.endActiveForWorkers(issueId, workerIds);

@@ -1,5 +1,6 @@
 package com.workplace.issue.controller;
 
+import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
@@ -78,5 +79,26 @@ class IssueAgentWorkResponseTest extends IntegrationTestBase {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.items[?(@.number == 1)].agentWork[0].tool").value("claude-code"))
         .andExpect(jsonPath("$.items[?(@.number == 2)].agentWork").isEmpty());
+  }
+
+  /**
+   * 종료(DONE)된 이슈에 진행 중 행이 남아 있어도(롤링 배포 중 자동 종료를 못 거친 경우 등) 응답에는 싣지 않는다. 서비스 경로로 DONE 을 만들면 자동 종료가
+   * 먼저 일어나 방어선을 검증하지 못하므로 상태를 DB 에 직접 쓴다.
+   */
+  @Test
+  void 종료된_이슈의_남은_작업은_응답에서_빠진다() throws Exception {
+    long userId = createUser();
+    String key =
+        "AW" + UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 6);
+    var proj = projectService.create(userId, new CreateProjectRequest(key, "P", "x"));
+    var done = issueRepository.insert(proj.id(), 1, "끝남", null, "MID", null, userId);
+    agentWorkService.startOrUpdate(done.id(), userId, "claude-code", AgentWorkPatch.empty());
+    dsl.update(ISSUE).set(ISSUE.STATUS, "DONE").where(ISSUE.ID.eq(done.id())).execute();
+
+    mvc.perform(
+            get("/api/v1/projects/" + key + "/issues/1").header("Authorization", bearer(userId)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.summary.status").value("DONE"))
+        .andExpect(jsonPath("$.summary.agentWork").doesNotExist());
   }
 }

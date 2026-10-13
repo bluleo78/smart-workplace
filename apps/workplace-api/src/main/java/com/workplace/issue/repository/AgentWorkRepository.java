@@ -7,6 +7,8 @@ import static com.workplace.jooq.Tables.USER;
 import com.workplace.global.dto.UserSummary;
 import com.workplace.issue.dto.AgentWorkPatch;
 import com.workplace.issue.dto.AgentWorkState;
+import com.workplace.issue.dto.IssueStatuses;
+import com.workplace.user.dto.UserKind;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -18,9 +20,15 @@ import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import org.jooq.Record;
+import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
-/** AI 작업 기록 저장소(WP-377). 진행 중 = ended_at IS NULL. 모든 갱신은 updated_at 을 now() 로 올린다. */
+/**
+ * AI 작업 기록 저장소(WP-377). 진행 중 = ended_at IS NULL. 모든 갱신은 updated_at 을 now() 로 올린다.
+ *
+ * <p>시각(updated_at·ended_at)은 JVM 시계가 아니라 DB 시계(current_timestamp)로 찍는다 — insert 의 DEFAULT now() 와
+ * 같은 시계를 써야 무소식(2시간) 판정·급한 순 정렬이 앱 서버 간 시계 차이에 흔들리지 않는다.
+ */
 @Repository
 @RequiredArgsConstructor
 public class AgentWorkRepository {
@@ -72,7 +80,7 @@ public class AgentWorkRepository {
 
   /** 부분 갱신 — null 필드는 유지, clearNote 면 note 를 NULL 로. 항상 updated_at 을 now() 로 올린다(터치 겸용). */
   public void update(long id, AgentWorkPatch patch) {
-    var step = dsl.update(AGENT_WORK).set(AGENT_WORK.UPDATED_AT, OffsetDateTime.now());
+    var step = dsl.update(AGENT_WORK).set(AGENT_WORK.UPDATED_AT, DSL.currentOffsetDateTime());
     if (patch.tool() != null) step = step.set(AGENT_WORK.TOOL, patch.tool());
     if (patch.state() != null) step = step.set(AGENT_WORK.STATE, patch.state());
     if (patch.clearNote()) {
@@ -91,9 +99,15 @@ public class AgentWorkRepository {
 
   /** 이슈의 진행 중 작업을 모두 종료한다. 종료한 행 수 반환. */
   public int endActive(long issueId) {
+    return endActive(List.of(issueId));
+  }
+
+  /** 여러 이슈의 진행 중 작업을 한 번에 종료한다(이슈 삭제 시 부모+자식 등). 종료한 행 수 반환. */
+  public int endActive(Collection<Long> issueIds) {
+    if (issueIds == null || issueIds.isEmpty()) return 0;
     return dsl.update(AGENT_WORK)
-        .set(AGENT_WORK.ENDED_AT, OffsetDateTime.now())
-        .where(AGENT_WORK.ISSUE_ID.eq(issueId))
+        .set(AGENT_WORK.ENDED_AT, DSL.currentOffsetDateTime())
+        .where(AGENT_WORK.ISSUE_ID.in(issueIds))
         .and(AGENT_WORK.ENDED_AT.isNull())
         .execute();
   }
@@ -102,7 +116,7 @@ public class AgentWorkRepository {
   public int endActiveForWorkers(long issueId, Collection<Long> workerIds) {
     if (workerIds == null || workerIds.isEmpty()) return 0;
     return dsl.update(AGENT_WORK)
-        .set(AGENT_WORK.ENDED_AT, OffsetDateTime.now())
+        .set(AGENT_WORK.ENDED_AT, DSL.currentOffsetDateTime())
         .where(AGENT_WORK.ISSUE_ID.eq(issueId))
         .and(AGENT_WORK.WORKER_ID.in(workerIds))
         .and(AGENT_WORK.ENDED_AT.isNull())
@@ -112,7 +126,7 @@ public class AgentWorkRepository {
   /** 프로젝트의 모든 이슈에서 지정 작업자의 진행 중 작업을 종료한다(프로젝트 멤버 제거 시 — 담당 매핑이 함께 지워지므로). */
   public int endActiveForWorkerInProject(long projectId, long workerId) {
     return dsl.update(AGENT_WORK)
-        .set(AGENT_WORK.ENDED_AT, OffsetDateTime.now())
+        .set(AGENT_WORK.ENDED_AT, DSL.currentOffsetDateTime())
         .where(AGENT_WORK.WORKER_ID.eq(workerId))
         .and(AGENT_WORK.ENDED_AT.isNull())
         .and(
@@ -124,14 +138,19 @@ public class AgentWorkRepository {
   /** id 로 진행 중 작업 1건을 종료한다. 이미 끝났거나 없으면 false. */
   public boolean endById(long id) {
     return dsl.update(AGENT_WORK)
-            .set(AGENT_WORK.ENDED_AT, OffsetDateTime.now())
+            .set(AGENT_WORK.ENDED_AT, DSL.currentOffsetDateTime())
             .where(AGENT_WORK.ID.eq(id))
             .and(AGENT_WORK.ENDED_AT.isNull())
             .execute()
         > 0;
   }
 
-  /** 이슈들의 진행 중 작업을 작업자 요약과 함께 한 번에 조회(N+1 회피). 이슈별 id 오름차순. 작업 없는 이슈는 키가 없다. */
+  /**
+   * 이슈들의 진행 중 작업을 작업자 요약과 함께 한 번에 조회(N+1 회피). 이슈별 id 오름차순. 작업 없는 이슈는 키가 없다.
+   *
+   * <p>종료(DONE·CANCELED)된 이슈의 작업은 진행 중 행이 남아 있어도 돌려주지 않는다 — 종료 처리와 자동 종료 사이 롤링 배포 등으로 남은 행이 화면에 "작업
+   * 중" 으로 보이지 않게 하는 방어선.
+   */
   public Map<Long, List<AgentWorkWithWorker>> findActiveByIssueIds(Collection<Long> issueIds) {
     if (issueIds == null || issueIds.isEmpty()) return Map.of();
     var rows =
@@ -140,8 +159,11 @@ public class AgentWorkRepository {
             .from(AGENT_WORK)
             .join(USER)
             .on(USER.ID.eq(AGENT_WORK.WORKER_ID))
+            .join(ISSUE)
+            .on(ISSUE.ID.eq(AGENT_WORK.ISSUE_ID))
             .where(AGENT_WORK.ISSUE_ID.in(issueIds))
             .and(AGENT_WORK.ENDED_AT.isNull())
+            .and(ISSUE.STATUS.notIn(IssueStatuses.CLOSED))
             .orderBy(AGENT_WORK.ID.asc())
             .fetch();
     Map<Long, List<AgentWorkWithWorker>> result = new LinkedHashMap<>();
@@ -162,11 +184,13 @@ public class AgentWorkRepository {
   public int resumeWaitingAgents(long issueId) {
     return dsl.update(AGENT_WORK)
         .set(AGENT_WORK.STATE, AgentWorkState.WORKING)
-        .set(AGENT_WORK.UPDATED_AT, OffsetDateTime.now())
+        .set(AGENT_WORK.UPDATED_AT, DSL.currentOffsetDateTime())
         .where(AGENT_WORK.ISSUE_ID.eq(issueId))
         .and(AGENT_WORK.ENDED_AT.isNull())
         .and(AGENT_WORK.STATE.eq(AgentWorkState.WAITING))
-        .and(AGENT_WORK.WORKER_ID.in(dsl.select(USER.ID).from(USER).where(USER.KIND.eq("AGENT"))))
+        .and(
+            AGENT_WORK.WORKER_ID.in(
+                dsl.select(USER.ID).from(USER).where(USER.KIND.eq(UserKind.AGENT))))
         .execute();
   }
 
