@@ -195,6 +195,9 @@ test('R6 이슈 ⋯: 삭제는 빨간 글자, 구독 항목은 "구독하기" / 
   // 토글 항목은 체크 메뉴 항목으로 알린다.
   await expect(watch).toHaveAttribute('role', 'menuitemcheckbox')
   await expect(watch).toHaveAttribute('aria-checked', 'false')
+  // 꺼진 토글은 다른 항목과 같은 전경색·보통 굵기(켜짐 표시 없음, WP-368).
+  expect(await watch.evaluate((el) => getComputedStyle(el).color)).toBe(await tokenColor(page, '--foreground'))
+  expect(await watch.evaluate((el) => getComputedStyle(el).fontWeight)).not.toBe('600')
 })
 
 test('R6 이슈 ⋯(구독 중): "구독 중 · n명"', async ({ authenticatedPage: page }) => {
@@ -205,6 +208,9 @@ test('R6 이슈 ⋯(구독 중): "구독 중 · n명"', async ({ authenticatedPa
   const watch = page.getByTestId('mobile-header-more-menu').getByTestId('watch-toggle')
   await expect(watch).toHaveText('구독 중 · 2명')
   await expect(watch).toHaveAttribute('aria-checked', 'true')
+  // 켜진 토글은 메뉴가 버튼 배경·테두리를 걷어내도 primary 글자 + 굵게로 보인다(WP-368 — 예전엔 꺼짐과 똑같았다).
+  expect(await watch.evaluate((el) => getComputedStyle(el).color)).toBe(await tokenColor(page, '--primary'))
+  expect(await watch.evaluate((el) => getComputedStyle(el).fontWeight)).toBe('600')
 })
 
 test('R7 ⋯ 에 담길 항목이 하나뿐이면 ⋯ 없이 헤더에 바로 둔다(메일 설정 "계정 추가")', async ({ authenticatedPage: page }) => {

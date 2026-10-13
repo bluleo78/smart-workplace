@@ -2,6 +2,7 @@ import type { Locator, Page } from '@playwright/test'
 import { expect, test } from '../fixtures/auth.fixture'
 import { mockApi } from '../fixtures/api-mock'
 import { measureBox, stableBox } from '../fixtures/wait'
+import { computedBgs, expectToggle } from '../fixtures/selection'
 import { expectHeaderBottomAt56 } from '../fixtures/layout'
 import { createUser } from '../factories/auth.factory'
 import { type HomeChatStartBody, mockHomeChatGeneration, mockHomeProposals, mockStreamingHomeChat, proposal } from '../fixtures/home-chat-mock'
@@ -325,9 +326,17 @@ test('사이드 패널 헤더 닫기 버튼으로 패널이 닫히고 본문이 
   await expect(panel).toBeVisible()
   const header = panel.getByTestId('ai-panel-header')
   await expect(header).toContainText('AI 어시스턴트')
-  // 현재 모드(side) 버튼이 눌린 상태로 표시된다.
-  await expect(header.getByTestId('ai-mode-side')).toHaveAttribute('aria-pressed', 'true')
-  await expect(header.getByTestId('ai-mode-fullscreen')).toHaveAttribute('aria-pressed', 'false')
+  // 현재 모드(side) 버튼이 눌린 상태 + 공용 토글 켜짐 표시로 보인다(WP-368).
+  const sideBtn = header.getByTestId('ai-mode-side')
+  const fullBtn = header.getByTestId('ai-mode-fullscreen')
+  await expectToggle(sideBtn, true)
+  await expectToggle(fullBtn, false)
+  const [onBg, offBg] = await computedBgs(sideBtn, fullBtn)
+  expect(onBg, '켜진 모드 버튼 배경이 꺼진 버튼과 달라야 한다').not.toBe(offBg)
+  // 투명 테두리로 켜짐·꺼짐·닫기 버튼 크기가 같다(켜질 때 2px 밀리지 않음).
+  const [sideBox, fullBox, closeBox] = await Promise.all([sideBtn, fullBtn, header.getByTestId('ai-panel-close')].map((l) => l.boundingBox()))
+  expect(sideBox!.height).toBe(fullBox!.height)
+  expect(closeBox!.height).toBe(fullBox!.height)
   // 패널 헤더가 대화 선택 스위처 위 레이어에 위치한다.
   // 패널이 자리 잡는 중 옛 배치를 잴 수 있어 측정+단언을 한 단위로 재시도한다 (WP-225).
   await expect(async () => {
