@@ -1,13 +1,16 @@
 package com.workplace.home.service;
 
+import com.workplace.global.util.TokenEstimates;
 import com.workplace.home.dto.AiMemoryItem;
 import com.workplace.home.dto.AiMemoryListResponse;
 import com.workplace.home.dto.CreateAiMemoryRequest;
 import com.workplace.home.exception.AiMemoryException;
+import com.workplace.home.outbound.ChatMessages.ChatMemory;
 import com.workplace.home.repository.AiMemoryRepository;
 import com.workplace.home.repository.AiMemoryRepository.Row;
 import com.workplace.home.repository.HomeSessionRepository;
 import com.workplace.user.service.AiPreferenceService;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -180,5 +183,39 @@ public class AiMemoryService {
   static AiMemoryItem toItem(Row r, String previousContent) {
     return new AiMemoryItem(
         r.id(), r.kind(), r.content(), r.source(), r.createdAt(), r.updatedAt(), previousContent);
+  }
+
+  /** 채팅 주입용 메모리 묶음(WP-55). */
+  public record ChatMemories(boolean enabled, List<ChatMemory> items) {
+    /** 조회 실패 — 꺼짐으로 보낸다(켜짐 + 빈 목록이면 AI 가 있는 메모리를 모른 채 중복 저장한다, 판정 10). */
+    public static final ChatMemories UNAVAILABLE = new ChatMemories(false, List.of());
+  }
+
+  /** 블록 머리(제목 + 안내 문장, 한글 약 90자) 근사 토큰 + 여유. ai-agent memory-block.ts 의 문구가 바뀌면 함께 본다. */
+  static final int BLOCK_HEADER_TOKENS = 120;
+
+  /** 줄마다 붙는 "- [#123 선호] " 접두 근사 토큰. */
+  static final int LINE_OVERHEAD_TOKENS = 12;
+
+  /**
+   * 매 채팅 턴 주입할 메모리 — 꺼져 있으면 빈 목록 + enabled=false, 켜져 있으면 최신순 최대 50개(인덱스 1회). 펌프 스레드에서 불리며 테넌트는
+   * TenantContextTaskDecorator 가 전파한다.
+   */
+  @Transactional(readOnly = true)
+  public ChatMemories loadForChat(long userId) {
+    if (!preferences.memoryEnabled(userId)) return new ChatMemories(false, List.of());
+    return new ChatMemories(
+        true,
+        repo.listNewest(userId, LIMIT).stream()
+            .map(r -> new ChatMemory(r.id(), r.kind(), r.content()))
+            .toList());
+  }
+
+  /** 메모리 블록 근사 토큰 — 문맥 예산에서 이전 대화 몫을 그만큼 줄인다(스펙 §3 채팅 주입 4). 비어 있으면 0(블록이 실리지 않는다). */
+  public static int estimateBlockTokens(List<ChatMemory> items) {
+    if (items.isEmpty()) return 0;
+    int sum = BLOCK_HEADER_TOKENS;
+    for (ChatMemory m : items) sum += TokenEstimates.estimate(m.content()) + LINE_OVERHEAD_TOKENS;
+    return sum;
   }
 }

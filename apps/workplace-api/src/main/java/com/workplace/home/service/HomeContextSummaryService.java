@@ -119,9 +119,21 @@ public class HomeContextSummaryService {
     return new ContextSnapshot(state.summary(), state.uptoMessageId(), raw);
   }
 
+  /** 예약 토큰 없는 호출(기존 호출부·테스트 호환). */
+  public ContextSnapshot fitToBudget(
+      long callerId,
+      UUID sessionId,
+      ContextSnapshot snap,
+      AssistantSpec spec,
+      Runnable onCompacting) {
+    return fitToBudget(callerId, sessionId, snap, spec, 0, onCompacting);
+  }
+
   /**
    * 하드 상한(예산) 이내면 그대로, 넘으면 동기 요약(onCompacting 으로 진행 표시 후). 요약이 실패하면 오래된 원문부터 버려 예산에 맞춘다 — 채팅은 계속
    * 진행.
+   *
+   * <p>reservedTokens — 같은 요청에 실릴 다른 블록(WP-55 메모리)의 추정 토큰. 문맥 예산에서 그만큼 이전 대화 몫을 줄인다.
    *
    * <p>단, 요약 중 사용자 취소(인터럽트)면 폴백하지 않고 예외를 그대로 던진다(HomeChatService 가 cancelled 로 처리).
    */
@@ -130,8 +142,9 @@ public class HomeContextSummaryService {
       UUID sessionId,
       ContextSnapshot snap,
       AssistantSpec spec,
+      int reservedTokens,
       Runnable onCompacting) {
-    int budget = props.contextTokenBudget();
+    int budget = Math.max(0, props.contextTokenBudget() - Math.max(0, reservedTokens));
     if (HomeContextPolicy.total(snap.summary(), snap.raw()) <= budget) return snap;
     // 최근 요약 실패 쿨다운 중이면 요약을 시도하지 않고(진행 라벨도 없이) 바로 폴백한다.
     if (coolingDown(sessionId)) return dropOldestToFit(snap, budget);

@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import lombok.extern.slf4j.Slf4j;
@@ -93,6 +94,9 @@ public class HomeChatService {
   /** WP-139: 답 완료 뒤 후속 질문 생성·저장·발행(전용 실행기). */
   private final HomeFollowupService followupService;
 
+  /** WP-55: 매 턴 메모리 조회(꺼짐·실패 처리 포함). */
+  private final AiMemoryService memoryService;
+
   public HomeChatService(
       HomeSessionService sessionService,
       HomeProposalService proposalService,
@@ -106,7 +110,8 @@ public class HomeChatService {
       StreamingGenerationRegistry registry,
       SseRegistry sseRegistry,
       HomeChatProperties chatProperties,
-      HomeFollowupService followupService) {
+      HomeFollowupService followupService,
+      AiMemoryService memoryService) {
     this.sessionService = sessionService;
     this.proposalService = proposalService;
     this.contextService = contextService;
@@ -120,6 +125,7 @@ public class HomeChatService {
     this.sseRegistry = sseRegistry;
     this.chatProperties = chatProperties;
     this.followupService = followupService;
+    this.memoryService = memoryService;
   }
 
   /** 홈 채팅 레지스트리 scope 접두 — 대화(sessionId) 단위로 동시 생성을 추적한다(WP-190). */
@@ -290,6 +296,9 @@ public class HomeChatService {
       AssistantSpec spec,
       Long tenantId) {
     try {
+      // WP-55: 메모리는 매 턴 읽는다(턴 중 저장·수정은 다음 턴부터 반영). 예산 맞춤 전에 읽어야 블록 몫을 뺄 수 있다.
+      AiMemoryService.ChatMemories memories =
+          memoriesOrUnavailable(() -> memoryService.loadForChat(callerId), callerId);
       // WP-232: 예산 초과 시 이 턴에서 동기 요약(진행 라벨 표시) — 요청 스레드를 막지 않도록 pump 에서 수행.
       HomeContextSummaryService.ContextSnapshot ctx =
           contextService.fitToBudget(
@@ -297,6 +306,7 @@ public class HomeChatService {
               sid,
               snapshot,
               spec,
+              AiMemoryService.estimateBlockTokens(memories.items()),
               () -> turn.emit("home.chat.progress", Map.of("label", COMPACTING_LABEL)));
       // userId: 요청 사용자 ID — ai-agent 의 MCP 도구가 assistantAgentId 아닌 실제 요청자 컨텍스트로
       // 드라이브·캘린더 등 사용자 귀속 리소스를 조회·수정하게 한다(refs #376).
@@ -321,7 +331,10 @@ public class HomeChatService {
               ctx.summary(),
               // WP-234: 첨부 읽기 도구 세션 바인딩 + 세션 첨부 목록.
               sid.toString(),
-              attachments);
+              attachments,
+              // WP-55: 사용자 메모리 + 사용 여부(꺼짐·조회 실패면 빈 목록 + false).
+              memories.items(),
+              memories.enabled());
       chatClient.composeStream(
           req,
           // delta: 블록 순서 기록 + 즉시 발행(done 본문은 ai-agent 가 준 fullText, 부분 저장은 누적 텍스트).
@@ -427,6 +440,17 @@ public class HomeChatService {
     @SuppressWarnings("unchecked")
     Map<String, Object> toolPayload = objectMapper.convertValue(toolNode, Map.class);
     turn.emit("home.chat.tool", toolPayload);
+  }
+
+  /** WP-55: 메모리 조회 실패는 채팅을 막지 않는다(스펙 §3 채팅 주입 5) — 꺼짐 + 빈 목록으로 진행하고 WARN. 꺼짐으로 보내는 이유는 판정 10. */
+  static AiMemoryService.ChatMemories memoriesOrUnavailable(
+      Supplier<AiMemoryService.ChatMemories> loader, long userId) {
+    try {
+      return loader.get();
+    } catch (RuntimeException e) {
+      log.warn("홈 채팅 메모리 조회 실패 — 메모리 없이 진행: user={} {}", userId, e.getMessage());
+      return AiMemoryService.ChatMemories.UNAVAILABLE;
+    }
   }
 
   /** WP-190: 호출자의 생성 중 대화 + 상한(GET /ai/chat/active). */
