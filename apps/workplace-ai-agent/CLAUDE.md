@@ -86,7 +86,8 @@ pnpm test --coverage                   # 커버리지 (./coverage)
 | `WORKPLACE_AI_MODEL` / `WORKPLACE_AI_MAX_TURNS` / `WORKPLACE_AI_TIMEOUT_MS` | 선택 override | 아님 |
 | `SHUTDOWN_DRAIN_MS` | 종료 시 진행 중 HTTP·에이전트 실행 대기 상한(기본 330000). 운영 차트 `terminationGracePeriodSeconds` 는 preStop + 이 값보다 커야 함(WP-167) | 아님 |
 
-**대행 AGENT 식별**: ai-agent 는 이벤트 envelope 의 assignees 중 첫 AGENT 를 대행 (#34).
+**대행 AGENT 식별**: ai-agent 는 이벤트 payload 의 `actingAgentId`(API 가 원인에 맞춰 지정, WP-371)를 대행한다.
+없으면(구버전 API) 이슈 이벤트는 assignees, chat 은 mentions 의 첫 AGENT 로 폴백 (#34).
 workplace-api 호출 시 `Authorization: Internal <token>` + `X-On-Behalf-Of: <agentId>` 헤더로
 그 AGENT 자격을 부여받는다. 5a 의 AGENT API key 는 ai-agent 부트스트랩과 무관 — 외부 서비스가
 AGENT 자격으로 workplace-api 를 직접 호출할 때만 사용.

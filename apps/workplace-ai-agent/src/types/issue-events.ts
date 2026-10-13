@@ -17,6 +17,9 @@ const common = {
   actor: userSummary,
   assignees: z.array(userSummary),
   occurredAt: z.string(),
+  // WP-371: API 가 이벤트 원인에 맞춰 골라 보내는 대행 AI id. 구버전 API 는 안 보내므로 optional —
+  // 없으면 resolver 가 assignees 의 첫 AGENT 로 폴백한다(배포 순서 무관).
+  actingAgentId: z.number().int().positive().optional(),
 };
 
 export const issueCreatedPayload = z.object({
