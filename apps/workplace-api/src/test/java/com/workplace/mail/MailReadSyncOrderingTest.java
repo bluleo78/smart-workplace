@@ -43,6 +43,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.jooq.DSLContext;
+import org.jooq.Field;
 import org.jooq.impl.DSL;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -110,6 +111,21 @@ class MailReadSyncOrderingTest extends IntegrationTestBase {
     when(graphTokenService.getAccessToken(seededUser, seededAccount)).thenReturn("FAKE_TOKEN");
     TenantContext.set(1L);
     return id;
+  }
+
+  /**
+   * DB 시계 기준 시각 — 리스·다음 시도 시각은 앱이 DB now() 로 찍고 비교하므로 테스트도 DB 시계로 넣고 비교한다. JVM 시계를 쓰면 Docker VM 시계가
+   * 호스트보다 앞설 때(부하에서 수 초) "1초 전"이 DB 에겐 아직 미래라 재시도 대상에서 빠진다.
+   */
+  private OffsetDateTime dbNow() {
+    return dsl.select(DSL.currentOffsetDateTime()).fetchOne().value1();
+  }
+
+  /** DB now() + d 를 SQL 식으로 — 저장 순간의 DB 시계를 쓴다(EmailAccountRepository.nowPlus 와 같은 꼴, 음수면 과거). */
+  private static Field<OffsetDateTime> dbNowPlus(Duration d) {
+    return DSL.field(
+        "now() + make_interval(secs => {0})",
+        OffsetDateTime.class, DSL.val((double) d.toSeconds()));
   }
 
   /** 메일 행 조회(RLS — tenant 1 트랜잭션). */
@@ -264,7 +280,7 @@ class MailReadSyncOrderingTest extends IntegrationTestBase {
         () ->
             dsl.update(EMAIL_ACCOUNT)
                 .set(EMAIL_ACCOUNT.SEEN_PUSH_LEASE_OWNER, "dead-instance")
-                .set(EMAIL_ACCOUNT.SEEN_PUSH_LEASE_UNTIL, OffsetDateTime.now().plusMinutes(5))
+                .set(EMAIL_ACCOUNT.SEEN_PUSH_LEASE_UNTIL, dbNowPlus(Duration.ofMinutes(5)))
                 .where(EMAIL_ACCOUNT.ID.eq(seededAccount))
                 .execute());
 
@@ -277,7 +293,7 @@ class MailReadSyncOrderingTest extends IntegrationTestBase {
     update(
         () ->
             dsl.update(EMAIL_ACCOUNT)
-                .set(EMAIL_ACCOUNT.SEEN_PUSH_LEASE_UNTIL, OffsetDateTime.now().minusMinutes(1))
+                .set(EMAIL_ACCOUNT.SEEN_PUSH_LEASE_UNTIL, dbNowPlus(Duration.ofMinutes(-1)))
                 .where(EMAIL_ACCOUNT.ID.eq(seededAccount))
                 .execute());
     dispatcher.dispatchAccount(seededUser, seededAccount);
@@ -306,7 +322,7 @@ class MailReadSyncOrderingTest extends IntegrationTestBase {
     EmailMessageRecord failed = row(id);
     assertThat(failed.getSeenPushPending()).isTrue();
     assertThat(failed.getSeenPushAttempts()).isEqualTo(1);
-    assertThat(failed.getSeenPushNextAt()).isAfter(OffsetDateTime.now());
+    assertThat(failed.getSeenPushNextAt()).isAfter(dbNow());
     // 백오프 중 — 배치 대상 아님, 다시 불러도 원격 호출 없음
     assertThat(inTx(() -> messageRepo.findAccountsWithDueSeenPush()))
         .extracting(DueSeenPushAccount::accountId)
@@ -318,7 +334,7 @@ class MailReadSyncOrderingTest extends IntegrationTestBase {
     update(
         () ->
             dsl.update(EMAIL_MESSAGE)
-                .set(EMAIL_MESSAGE.SEEN_PUSH_NEXT_AT, OffsetDateTime.now().minusSeconds(1))
+                .set(EMAIL_MESSAGE.SEEN_PUSH_NEXT_AT, dbNowPlus(Duration.ofSeconds(-1)))
                 .where(EMAIL_MESSAGE.ID.eq(id))
                 .execute());
     assertThat(inTx(() -> messageRepo.findAccountsWithDueSeenPush()))
@@ -371,10 +387,7 @@ class MailReadSyncOrderingTest extends IntegrationTestBase {
 
     EmailMessageRecord r = row(id);
     assertThat(r.getSeenPushAttempts()).isZero();
-    // 다음 시도 시각은 DB 시계(current_timestamp)로 찍히므로 DB 시각과 비교한다 — JVM 시계와 비교하면
-    // Docker VM 시계가 호스트보다 앞설 때(수 초) 실패한다.
-    OffsetDateTime dbNow = dsl.select(DSL.currentOffsetDateTime()).fetchOne().value1();
-    assertThat(r.getSeenPushNextAt()).isBeforeOrEqualTo(dbNow);
+    assertThat(r.getSeenPushNextAt()).isBeforeOrEqualTo(dbNow());
     assertThat(inTx(() -> messageRepo.findAccountsWithDueSeenPush()))
         .contains(new DueSeenPushAccount(seededAccount, seededUser));
   }

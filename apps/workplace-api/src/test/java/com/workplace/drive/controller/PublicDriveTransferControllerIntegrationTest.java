@@ -691,7 +691,11 @@ class PublicDriveTransferControllerIntegrationTest extends IntegrationTestBase {
         1L,
         () ->
             dsl.update(DRIVE_TRANSFER_LINK)
-                .set(DRIVE_TRANSFER_LINK.EXPIRES_AT, java.time.OffsetDateTime.now().minusSeconds(1))
+                // 소비 판정은 DB now() 라 만료 시각도 DB 시계로 쓴다 — JVM 시계의 "1초 전"은 VM 시계가 앞서면 아직 유효다.
+                .set(
+                    DRIVE_TRANSFER_LINK.EXPIRES_AT,
+                    org.jooq.impl.DSL.field(
+                        "now() - interval '1 hour'", java.time.OffsetDateTime.class))
                 .where(DRIVE_TRANSFER_LINK.TOKEN_HASH.eq(hash))
                 .execute());
 
