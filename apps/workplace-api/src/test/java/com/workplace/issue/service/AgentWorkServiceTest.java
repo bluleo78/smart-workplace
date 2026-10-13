@@ -9,6 +9,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doReturn;
 
+import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.issue.dto.AgentWorkPatch;
 import com.workplace.issue.dto.AgentWorkView;
 import com.workplace.issue.exception.AgentWorkIssueClosedException;
@@ -32,16 +33,20 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.test.context.event.ApplicationEvents;
+import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.transaction.annotation.Transactional;
 
 /** AgentWorkService 통합 테스트(WP-377) — 보고 생성/갱신·급한 순 정렬과 무소식·사람 응답 복귀·일괄 종료. */
 @Transactional
+@RecordApplicationEvents
 class AgentWorkServiceTest extends IntegrationTestBase {
 
   @Autowired AgentWorkService service;
   // 스파이 — 평소엔 실제 저장소로 위임하고, 충돌 직후 종료 경합 테스트에서만 insertIfAbsent 결과를 바꾼다.
   @MockitoSpyBean AgentWorkRepository repo;
   @Autowired DSLContext dsl;
+  @Autowired ApplicationEvents events;
   @Autowired IssueRepository issueRepository;
   @Autowired ProjectService projectService;
   @Autowired IssueAssigneeRepository assigneeRepository;
@@ -347,6 +352,8 @@ class AgentWorkServiceTest extends IntegrationTestBase {
     long submittedId = repo.insertIfAbsent(issueId, agentId, null, "SUBMITTED").orElseThrow().id();
     repo.insertIfAbsent(issueId, otherAgent, null, "SUBMITTED");
     service.onAgentRuntimeChanged(new AgentRuntimeChanged(agentId, AgentRuntime.INTERNAL));
+    // 취소된 작업의 이슈마다 화면 갱신 알림이 한 번 나간다(열린 레일·AI 작업 목록이 "시작 전" 을 계속 보이지 않게).
+    assertThat(issueChangeCount()).isEqualTo(1);
     assertThat(
             dsl.select(AGENT_WORK.STATE)
                 .from(AGENT_WORK)
@@ -362,6 +369,15 @@ class AgentWorkServiceTest extends IntegrationTestBase {
     service.onAgentRuntimeChanged(new AgentRuntimeChanged(otherAgent, AgentRuntime.EXTERNAL));
     assertThat(repo.findActive(issueId, agentId).orElseThrow().state()).isEqualTo("WORKING");
     assertThat(repo.findActive(issueId, otherAgent).orElseThrow().state()).isEqualTo("SUBMITTED");
+    // 취소할 작업이 없던 전환 신호는 알림도 내지 않는다.
+    assertThat(issueChangeCount()).isEqualTo(1);
+  }
+
+  /** 이 테스트 이슈에 대해 발행된 이슈 변경 알림 수. */
+  private long issueChangeCount() {
+    return events.stream(ResourceChangedEvent.class)
+        .filter(e -> "issue".equals(e.resource()) && e.ids().contains(issueId))
+        .count();
   }
 
   /** 이벤트의 tenant_id 는 GUC 기본값이 아니라 작업 행의 tenant_id 를 그대로 옮긴 값이다. */

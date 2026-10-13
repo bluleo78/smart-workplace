@@ -2,6 +2,7 @@
 // 작업자별 한 덩어리: [아바타 · 이름 · AI 진행 배지] / 최근 보고 / [에이전트 유형 · 진행률(있을 때만) · 마지막 보고].
 import { AgentLastReport, AgentProgress, AgentStateBadge, AgentToolChip } from '@/components/ai/agentWork/AgentWorkBits';
 import { UserAvatar } from '@/components/users/UserAvatar';
+import { progressView } from '@/lib/agentWork';
 import { cn } from '@/lib/utils';
 import type { AgentWorkView } from '@/types/issue';
 
@@ -47,11 +48,14 @@ export function AgentWorkRailSection({
                 </p>
               )}
               {/* 메타 줄 — 유형 칩이 먼저 줄어들고 진행률·마지막 보고는 한 줄을 지킨다(시제품에서 "5분 전"이 세로로 쪼개지던 문제). */}
-              <div className="flex min-w-0 items-center gap-2 pl-6">
-                <AgentToolChip tool={w.tool} className="min-w-0 shrink" />
-                <AgentProgress w={w} hideEmpty className="shrink-0" data-testid={`${id}-progress`} />
-                <AgentLastReport w={w} className="ml-auto shrink-0 whitespace-nowrap" data-testid={`${id}-last`} />
-              </div>
+              {/* 시작 전(SUBMITTED)은 도구도 진행률도 보고도 없어 줄이 비므로 그리지 않는다 — space-y 간격만 남는 빈 줄 방지. */}
+              {(w.tool || progressView(w) || w.state !== 'SUBMITTED') && (
+                <div className="flex min-w-0 items-center gap-2 pl-6">
+                  <AgentToolChip tool={w.tool} className="min-w-0 shrink" />
+                  <AgentProgress w={w} hideEmpty className="shrink-0" data-testid={`${id}-progress`} />
+                  <AgentLastReport w={w} className="ml-auto shrink-0 whitespace-nowrap" data-testid={`${id}-last`} />
+                </div>
+              )}
             </li>
           );
         })}

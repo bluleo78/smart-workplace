@@ -125,5 +125,7 @@ test('시작 전(도구 없음) 작업은 레일에 시작 전 배지만 보이�
   await expect(row).not.toContainText('—')
   // 아직 아무 보고도 없으니 마지막 보고 시각을 보이지 않는다.
   await expect(page.getByTestId('agent-work-rail-9-last')).toHaveCount(0)
+  // 보일 게 없는 메타 줄은 빈 줄로도 남지 않는다 — 한 덩어리의 직계 자식은 아바타·이름·배지 줄 하나뿐.
+  await expect(row.locator(':scope > div')).toHaveCount(1)
   await expect(page.getByTestId('agent-question-card')).toHaveCount(0)
 })

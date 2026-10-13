@@ -180,8 +180,13 @@ public class AgentWorkService {
   @EventListener
   public void onAgentRuntimeChanged(AgentRuntimeChanged e) {
     if (!AgentRuntime.INTERNAL.equals(e.runtime())) return;
-    repository.endActiveForWorkerInStates(
-        e.agentUserId(), List.of(AgentWorkState.SUBMITTED), AgentWorkState.CANCELED);
+    var issueIds =
+        repository.endActiveForWorkerInStates(
+            e.agentUserId(), List.of(AgentWorkState.SUBMITTED), AgentWorkState.CANCELED);
+    // 열려 있는 레일·AI 작업 목록이 "시작 전" 을 계속 보이지 않도록 취소된 작업의 이슈마다 변경 알림을 낸다(터치는 재발행하지 않는다).
+    for (long issueId : issueIds) {
+      notifyChanged(issueId, null);
+    }
   }
 
   /** 사람이 챗 글·댓글로 응답하면 답변 필요(INPUT_REQUIRED)로 멈춘 AI 구성원 작업을 작업 중으로 되돌리고, 바뀐 게 있으면 알린다. */
@@ -204,9 +209,9 @@ public class AgentWorkService {
     if (!assigneeRepository.findUserIdsByIssue(e.issueId()).contains(e.actorId())) return;
     var existing = repository.findActive(e.issueId(), e.actorId());
     if (existing.isEmpty()) {
-      // 동시에 다른 트랜잭션(담당자 추가의 SUBMITTED 생성 등)이 먼저 행을 만들었으면 insert 는 충돌로 아무것도 넣지 않고 그 진행 중 행을 돌려준다 —
-      // 돌려받은 행에
-      // 아래 갱신 규칙(시작 전 → 작업 중 + tool 채움)을 똑같이 적용한다. 그 사이 종료돼 행이 없으면(빈 결과) 아무것도 하지 않는다.
+      // 동시에 다른 트랜잭션(담당자 추가의 SUBMITTED 생성 등)이 먼저 행을 만들었으면 insert 는 충돌로 아무것도 넣지 않고 그 진행 중 행을 돌려준다.
+      // 돌려받은 행에 아래 갱신 규칙(시작 전 → 작업 중 + tool 채움)을 똑같이 적용한다.
+      // 그 사이 종료돼 행이 없으면(빈 결과) 아무것도 하지 않는다.
       // 새로 넣은 경우에도 같은 경로를 타지만 값이 같아 갱신은 updated_at 터치뿐이고 이력은 남지 않는다.
       existing =
           repository.insertIfAbsent(e.issueId(), e.actorId(), e.tool(), AgentWorkState.WORKING);

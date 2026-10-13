@@ -145,8 +145,7 @@ public class AgentWorkRepository {
     if (patch.stepsTotal() != null)
       step = step.set(AGENT_WORK.STEPS_TOTAL, patch.stepsTotal().shortValue());
     // PostgreSQL 18 의 RETURNING OLD/NEW — 이 문장이 실제로 덮어쓴 갱신 전 행(old)과 갱신 후 행(수식 없는 컬럼 = new)을 비교한다.
-    // 자기 조인으로 읽은
-    // 사본은 동시 갱신 시 오래된 버전일 수 있어(이벤트 누락·중복) 쓰지 않는다.
+    // 자기 조인으로 읽은 사본은 동시 갱신 시 오래된 버전일 수 있어(이벤트 누락·중복) 쓰지 않는다.
     Field<Boolean> changed =
         DSL.field(
             AGENT_WORK
@@ -200,13 +199,14 @@ public class AgentWorkRepository {
         AGENT_WORK.ISSUE_ID.eq(issueId).and(AGENT_WORK.WORKER_ID.eq(workerId)));
   }
 
-  /** 작업자의 모든 이슈에서 지정한 상태의 진행 중 작업만 종료한다(외부→내부 실행 방식 전환 시 영영 착수하지 않을 "시작 전" 정리). */
-  public int endActiveForWorkerInStates(
+  /**
+   * 작업자의 모든 이슈에서 지정한 상태의 진행 중 작업만 종료한다(외부→내부 실행 방식 전환 시 영영 착수하지 않을 "시작 전" 정리). 종료한 행의 이슈 id 를 돌려준다
+   * — 호출자가 그 이슈들의 화면 갱신 알림을 낸다.
+   */
+  public List<Long> endActiveForWorkerInStates(
       long workerId, Collection<String> fromStates, String terminalState) {
-    return end(
-        terminalState,
-        null,
-        AGENT_WORK.WORKER_ID.eq(workerId).and(AGENT_WORK.STATE.in(fromStates)));
+    return endReturningIssueIds(
+        terminalState, AGENT_WORK.WORKER_ID.eq(workerId).and(AGENT_WORK.STATE.in(fromStates)));
   }
 
   /** 프로젝트의 모든 이슈에서 지정 작업자의 진행 중 작업을 종료한다(프로젝트 멤버 제거 시 — 담당 매핑이 함께 지워지므로). */
@@ -227,6 +227,20 @@ public class AgentWorkRepository {
    * 정합 CHECK 가 막기 전에 여기서 거절한다.
    */
   private int end(String terminalState, String fillTool, Condition where) {
+    return recordEvents(endStatement(terminalState, fillTool, where, EVENT_SOURCE_FIELDS), false);
+  }
+
+  /** {@link #end} 와 같되 종료한 행의 이슈 id 를 돌려준다(RETURNING 에 issue_id 를 덧붙여 CTE 에서 고른다). */
+  private List<Long> endReturningIssueIds(String terminalState, Condition where) {
+    List<Field<?>> returning = new ArrayList<>(EVENT_SOURCE_FIELDS);
+    returning.add(AGENT_WORK.ISSUE_ID);
+    return recordEvents(
+        endStatement(terminalState, null, where, returning), false, AGENT_WORK.ISSUE_ID);
+  }
+
+  /** 진행 중 행을 종료 상태로 닫는 UPDATE … RETURNING. 종료 상태가 아니면 DB 정합 CHECK 가 막기 전에 여기서 거절한다. */
+  private ResultQuery<?> endStatement(
+      String terminalState, String fillTool, Condition where, List<Field<?>> returning) {
     if (!AgentWorkState.isTerminal(terminalState)) {
       throw new IllegalArgumentException("종료 상태가 아님: " + terminalState);
     }
@@ -238,8 +252,7 @@ public class AgentWorkRepository {
     if (fillTool != null) {
       step = step.set(AGENT_WORK.TOOL, DSL.coalesce(AGENT_WORK.TOOL, DSL.val(fillTool)));
     }
-    return recordEvents(
-        step.where(where).and(AGENT_WORK.ENDED_AT.isNull()).returning(EVENT_SOURCE_FIELDS), false);
+    return step.where(where).and(AGENT_WORK.ENDED_AT.isNull()).returning(returning);
   }
 
   /** RETURNING 안에서 갱신 전 행의 컬럼({@code old.<col>}, PostgreSQL 18). */
@@ -282,6 +295,14 @@ public class AgentWorkRepository {
    * 아님)를 돌려준다.
    */
   private int recordEvents(ResultQuery<?> changed, boolean onlyChanged) {
+    return recordEvents(changed, onlyChanged, AGENT_WORK.ID).size();
+  }
+
+  /**
+   * {@link #recordEvents(ResultQuery, boolean)} 와 같되 바뀐 행마다 project 컬럼 값을 돌려준다(RETURNING 에 그 컬럼이 들어
+   * 있어야 한다). 이벤트로 옮기는 컬럼은 project 와 무관하게 {@link #EVENT_SOURCE_FIELDS} 뿐이다.
+   */
+  private <T> List<T> recordEvents(ResultQuery<?> changed, boolean onlyChanged, Field<T> project) {
     Name u = DSL.name("u");
     Name e = DSL.name("e");
     var snapshot = DSL.table(u);
@@ -298,9 +319,9 @@ public class AgentWorkRepository {
                     : source)
             .returning(AGENT_WORK_EVENT.ID);
     return dsl.with(u.as(changed), e.as(events))
-        .select(DSL.count())
+        .select(DSL.field(DSL.name("u", project.getName()), project.getType()))
         .from(snapshot)
-        .fetchOne(0, int.class);
+        .fetch(0, project.getType());
   }
 
   /**
