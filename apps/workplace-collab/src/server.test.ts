@@ -1,6 +1,8 @@
 import './dom-install'
 
+import { OutgoingMessage } from '@hocuspocus/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { Awareness } from 'y-protocols/awareness'
 import * as Y from 'yjs'
 
 import type { CollabConfig } from './config'
@@ -325,6 +327,35 @@ describe('collab server', () => {
     await unloaded()
     expect(api.stores.at(-1)).toMatchObject({ body: '# 제목\n\n정상 본문', editorIds: [5] })
     expect(api.stores.every((s) => !(s.body ?? '').includes('해킹'))).toBe(true)
+  })
+
+  // 회귀 안정화(WP-55): 노트 E2E(wiki-presence)가 부하에서 "떠난 사람이 상대 화면에 남는" 유령을 냈다 — 서버 로그로
+  // 종료(접속자 제거) 직후 같은 연결의 awareness 가 적용돼 상태가 되살아난 것을 확인했다.
+  it('ignores awareness a connection sent right before it closed, so no ghost presence remains', async () => {
+    const leaving = connect('editor-token')
+    const observer = connect('viewer-token')
+    await synced(leaving)
+    await synced(observer)
+    const doc = serverDoc()!
+    leaving.provider.setAwarenessField('user', { id: 5, name: '양동희' })
+    // 떠날 연결의 접속자 상태가 서버에 묶인 뒤(그 연결이 올린 awareness 가 도착한 뒤)에 그 연결을 고른다.
+    const connOf = () => doc.getConnections().find((c) => doc.getClients(c).has(leaving.doc.clientID))
+    await expect.poll(() => connOf() !== undefined, ARRIVAL).toBe(true)
+    const conn = connOf()!
+    // 그 연결에 실린 새 접속자 상태 — 소켓이 끊길 때 아직 처리되지 않고 남아 있던 awareness 프레임 흉내.
+    const ghostDoc = new Y.Doc()
+    const ghost = new Awareness(ghostDoc)
+    ghost.setLocalState({ user: { id: 99, name: '유령' } })
+    const frame = new OutgoingMessage(DOC).createAwarenessUpdateMessage(ghost, [ghostDoc.clientID]).toUint8Array()
+    // 남은 프레임과 종료가 같은 틱에 온다 — 프레임은 훅을 기다리는 동안 종료가 먼저 끝난다(실제 소켓 종료 때 ws 가 이렇게 낸다).
+    conn.handleMessage(frame)
+    conn.close()
+    // 프레임 처리(훅 체인)는 마이크로태스크라 다음 매크로태스크엔 끝나 있다.
+    await new Promise((r) => setImmediate(r))
+    expect(doc.awareness.getStates().has(ghostDoc.clientID)).toBe(false)
+    expect(doc.awareness.getStates().has(leaving.doc.clientID)).toBe(false)
+    ghost.destroy()
+    ghostDoc.destroy()
   })
 
   it('stores after last client disconnects with the doc tenant and editor ids', async () => {
