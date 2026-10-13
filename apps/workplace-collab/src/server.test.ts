@@ -555,6 +555,8 @@ describe('collab server', () => {
     const a = connect('short-token', { target: timed })
     await synced(a)
     expect(a.disconnects).toEqual([])
+    // 만료 타이머가 걸린 뒤에 시계를 넘긴다 — 동기화 완료가 connected 훅(타이머 거는 곳)보다 먼저 올 수도 있어 순서에 기대지 않는다.
+    await expect.poll(() => clock.pendingCount(), ARRIVAL).toBe(1)
     // 만료 1ms 전 — 만료 타이머가 아직 기다린다(일찍 불렸다면 소켓을 닫고 다시 걸지 않아 0 이다).
     clock.advance(TTL_MS - 1)
     expect(clock.pendingCount()).toBe(1)

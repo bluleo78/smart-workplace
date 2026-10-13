@@ -622,6 +622,8 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
           //    답한다(503 이면 호출자가 적용된 변경을 다시 보낸다). persist 가 재시도를 예약해 결국 저장한다. 페이지 삭제(404)만 예외.
           let saved: { version: number; body: string }
           // 저장 시간 상한 — 서버 시계로 재다가 끊는다(fetch 를 중단해 persist 가 실패·재시도 예약으로 끝난다).
+          //   persist 를 부르기 전에 걸므로 직렬화(markdown·Y 인코딩) 시간도 상한에 든다 — 답이 API read 타임아웃 안에 와야 하는 것은
+          //   직렬화를 포함한 전체라 이쪽이 맞다(큰 노트가 바쁠 때 persisted:false 가 조금 더 잦을 수 있으나 재시도가 결국 저장한다).
           const storeLimitMs = Math.max(APPLY_STORE_MIN_MS, deadline - clock.now())
           const storeAbort = new AbortController()
           const storeTimer = clock.setTimeout(
