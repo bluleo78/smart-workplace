@@ -323,32 +323,19 @@ public class UserRepository {
   }
 
   /**
-   * 주어진 id 들 중 서버(ai-agent)가 대신 실행하는 에이전트(kind=AGENT, runtime=INTERNAL)의 id 집합 (WP-371). 순서 판단은 호출자
-   * ({@code ServerAgentResolver}) 몫이라 집합으로 돌려준다.
+   * 주어진 id 들 중 지정한 실행 방식({@link AgentRuntime#INTERNAL}·{@link AgentRuntime#EXTERNAL})의
+   * 에이전트(kind=AGENT) id 집합 (WP-371·WP-377). INTERNAL 은 서버(ai-agent)가 대신 실행하는 에이전트(순서 판단은 호출자 {@code
+   * ServerAgentResolver} 몫), EXTERNAL 은 외부 에이전트가 직접 일하는 에이전트(담당자로 지정될 때 "시작 전" AI 작업을 만들 대상). 한 번의
+   * 쿼리로 가려 집합으로 돌려준다.
    */
-  public Set<Long> findInternalAgentIds(Collection<Long> ids) {
-    if (ids.isEmpty()) return Set.of();
-    return Set.copyOf(
-        dsl.select(USER.ID)
-            .from(USER)
-            .where(USER.ID.in(ids))
-            .and(USER.KIND.eq(UserKind.AGENT))
-            .and(USER.AGENT_RUNTIME.eq(AgentRuntime.INTERNAL))
-            .fetch(USER.ID));
-  }
-
-  /**
-   * 주어진 id 들 중 외부 에이전트가 직접 일하는 에이전트(kind=AGENT, runtime=EXTERNAL)의 id 집합 (WP-377). 담당자로 지정될 때 "시작
-   * 전" AI 작업을 미리 만들 대상을 한 번의 쿼리로 가려낸다.
-   */
-  public Set<Long> findExternalAgentIds(Collection<Long> ids) {
+  public Set<Long> findAgentIdsByRuntime(Collection<Long> ids, String runtime) {
     if (ids == null || ids.isEmpty()) return Set.of();
     return Set.copyOf(
         dsl.select(USER.ID)
             .from(USER)
             .where(USER.ID.in(ids))
             .and(USER.KIND.eq(UserKind.AGENT))
-            .and(USER.AGENT_RUNTIME.eq(AgentRuntime.EXTERNAL))
+            .and(USER.AGENT_RUNTIME.eq(runtime))
             .fetch(USER.ID));
   }
 

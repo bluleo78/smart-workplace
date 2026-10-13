@@ -13,6 +13,7 @@ import com.workplace.issue.repository.AgentWorkRepository;
 import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.project.repository.ProjectRepository;
+import com.workplace.user.dto.AgentRuntime;
 import com.workplace.user.repository.UserRepository;
 import java.util.Collection;
 import java.util.Comparator;
@@ -130,7 +131,7 @@ public class AgentWorkService {
   public void submitForAssignees(long issueId, String issueStatus, Collection<Long> addedUserIds) {
     if (addedUserIds == null || addedUserIds.isEmpty()) return;
     if (IssueStatuses.CLOSED.contains(issueStatus)) return;
-    for (long agentId : userRepository.findExternalAgentIds(addedUserIds)) {
+    for (long agentId : userRepository.findAgentIdsByRuntime(addedUserIds, AgentRuntime.EXTERNAL)) {
       repository.insertIfAbsent(issueId, agentId, null, AgentWorkState.SUBMITTED);
     }
   }

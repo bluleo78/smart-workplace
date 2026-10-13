@@ -1,6 +1,7 @@
 package com.workplace.user.service;
 
 import com.workplace.global.dto.UserSummary;
+import com.workplace.user.dto.AgentRuntime;
 import com.workplace.user.dto.UserKind;
 import com.workplace.user.repository.UserRepository;
 import java.util.List;
@@ -38,7 +39,8 @@ public class ServerAgentResolver {
    */
   public Long pickActingAgentId(List<Long> agentCandidateIds) {
     if (agentCandidateIds.isEmpty()) return null;
-    Set<Long> internal = userRepository.findInternalAgentIds(agentCandidateIds);
+    Set<Long> internal =
+        userRepository.findAgentIdsByRuntime(agentCandidateIds, AgentRuntime.INTERNAL);
     return agentCandidateIds.stream().filter(internal::contains).findFirst().orElse(null);
   }
 }

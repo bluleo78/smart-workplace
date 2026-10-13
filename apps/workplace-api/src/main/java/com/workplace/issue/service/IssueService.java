@@ -27,7 +27,6 @@ import com.workplace.issue.exception.ParentCannotBeSubtaskException;
 import com.workplace.issue.exception.ParentNotAllowedException;
 import com.workplace.issue.exception.SubtaskParentCannotBeEpicException;
 import com.workplace.issue.exception.SubtaskParentRequiredException;
-import com.workplace.issue.outbound.AgentToolWriteEvent;
 import com.workplace.issue.outbound.IssueChangeNotifier;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueAssignedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCreatedEvent;
@@ -338,10 +337,6 @@ public class IssueService {
             assigneeSummaries,
             occurredAt));
     changeNotifier.created(project, number, row.id(), callerId);
-    // MCP(수행 도구 헤더)로 자기를 담당자로 이슈를 만든 것도 이슈 쓰기다 — 위 SUBMITTED 행을 같은 트랜잭션에서 작업 중으로 이어 쓰고 도구를 채운다(행은
-    // 하나).
-    // 담당자가 아니면 리스너가 무시한다. 생성 알림을 이미 냈으므로 리스너가 알림을 중복하지 않게 issueNotified=true.
-    AgentToolWriteEvent.publishIfAgentTool(publisher, row.id(), callerId, true);
     if (!assigneeSummaries.isEmpty()) {
       publisher.publishEvent(
           new IssueAssignedEvent(

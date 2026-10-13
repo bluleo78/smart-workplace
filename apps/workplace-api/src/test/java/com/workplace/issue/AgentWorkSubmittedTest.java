@@ -2,6 +2,7 @@ package com.workplace.issue;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.workplace.issue.service.AgentWorkService;
 import java.util.List;
 import java.util.Map;
@@ -74,6 +75,8 @@ class AgentWorkSubmittedTest extends AgentWorkTestSupport {
     var w = activeWork(created, agentId).orElseThrow();
     assertThat(w.state()).isEqualTo("WORKING");
     assertThat(w.tool()).isEqualTo(TOOL);
+    // 만들어진 시작 전 행이 이력을 남기고 터치가 같은 행을 작업 중으로 이어 쓴 것 — 이력은 둘뿐.
+    assertThat(eventStates(created, agentId)).containsExactly("SUBMITTED", "WORKING");
   }
 
   /** (c) 내부 AI·사람은 담당자로 들어와도 작업을 만들지 않는다. */
@@ -173,7 +176,7 @@ class AgentWorkSubmittedTest extends AgentWorkTestSupport {
   @Test
   void ai_tasks_목록에_시작전이_마지막_순위로_보이고_stale_아님() {
     makeExternal(agentId);
-    long before = allCount();
+    var before = counts();
     // 작업 중인 이슈(시드 이슈의 사람 담당자)와 시작 전 이슈(외부 AI 담당)를 만든다.
     seedActive(issueId, humanId, "WORKING");
     long submitted = createIssue(jwtToken, null, List.of(agentId));
@@ -193,14 +196,17 @@ class AgentWorkSubmittedTest extends AgentWorkTestSupport {
     }
     assertThat(workingAt).isGreaterThanOrEqualTo(0);
     assertThat(submittedAt).isGreaterThan(workingAt);
-    // 시작 전은 전체에만 든다 — 전체는 작업 중 시드와 시작 전 둘만큼 늘고 칩(작업 중 외)은 시작 전을 세지 않는다.
-    assertThat(allCount()).isEqualTo(before + 2);
+    // 시작 전은 전체에만 든다 — 전체는 작업 중 시드와 시작 전 둘만큼 늘고, 칩은 작업 중 시드 하나만 세며 시작 전 이슈는 어느 칩도 올리지 않는다.
+    var after = counts();
+    assertThat(after.get("all").asLong()).isEqualTo(before.get("all").asLong() + 2);
+    assertThat(after.get("working").asLong()).isEqualTo(before.get("working").asLong() + 1);
+    for (String chip : List.of("inputRequired", "review", "blocked")) {
+      assertThat(after.get(chip).asLong()).as(chip).isEqualTo(before.get(chip).asLong());
+    }
   }
 
-  /** AI 작업 전체 건수(scope=ALL). */
-  private long allCount() {
-    return json(call(HttpMethod.GET, "/api/v1/me/ai-tasks/counts?scope=ALL", jwtToken, null, null))
-        .get("all")
-        .asLong();
+  /** AI 작업 건수(scope=ALL) — all·inputRequired·review·blocked·working. */
+  private JsonNode counts() {
+    return json(call(HttpMethod.GET, "/api/v1/me/ai-tasks/counts?scope=ALL", jwtToken, null, null));
   }
 }
