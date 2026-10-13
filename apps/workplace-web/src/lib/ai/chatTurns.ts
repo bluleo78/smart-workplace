@@ -55,10 +55,9 @@ export function messageToTurn(m: HomeMessage): ChatTurn {
   const interrupted = m.status ? INTERRUPTED_BY_STATUS[m.status] : undefined;
   // WP-55: 텍스트 전에 끝났지만 메모리 결과 줄 때문에 저장된 답(빈 본문)은 라이브 markInterrupted 처럼 빈 말풍선·라벨 대신 안내 문구로 보인다.
   // 보이는 도구 단계가 있으면 빈 답이 아니다(패널이 단계 목록을 그린다) — 표시 블록이 없어도(null 폴백) 중단됨·실패 라벨을 그대로 둔다.
-  const emptyInterrupted =
-    interrupted && content === '' && !m.widgets?.length && !m.contentBlocks?.length && !visibleSteps(m.toolCalls ?? []).length
-      ? interrupted
-      : undefined;
+  const hasVisibleBody =
+    content !== '' || !!m.widgets?.length || !!m.contentBlocks?.length || visibleSteps(m.toolCalls ?? []).length > 0;
+  const emptyInterrupted = interrupted && !hasVisibleBody ? interrupted : undefined;
   return {
     role: m.role === 'ASSISTANT' ? 'assistant' : 'user',
     content: emptyInterrupted ? EMPTY_BY_KIND[emptyInterrupted] : content,

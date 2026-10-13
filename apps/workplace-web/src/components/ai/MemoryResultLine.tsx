@@ -42,11 +42,11 @@ export function MemoryResultLine({ block, blockIndex, messageId, onUndo, pending
           {PREFIX[block.action]}: "{block.content}"
         </span>
         {/* 구분점과 동작을 한 nowrap 덩어리로 — 좁은 줄에서 덩어리째 다음 줄로 내려가 "·" 가 줄 끝에 매달리지 않는다. */}
-        {block.undone ? (
-          <span className="whitespace-nowrap opacity-60"> · 되돌림</span>
-        ) : (
-          <span className="whitespace-nowrap">
-            {' · '}
+        <span className={cn('whitespace-nowrap', block.undone && 'opacity-60')}>
+          {' · '}
+          {block.undone ? (
+            '되돌림'
+          ) : (
             <button
               type="button"
               data-testid="chat-memory-undo"
@@ -61,8 +61,8 @@ export function MemoryResultLine({ block, blockIndex, messageId, onUndo, pending
             >
               되돌리기
             </button>
-          </span>
-        )}
+          )}
+        </span>
       </span>
     </div>
   );
