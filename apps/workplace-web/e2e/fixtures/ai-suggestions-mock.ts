@@ -30,12 +30,12 @@ export async function mockStarterSuggestions(
   return calls
 }
 
-/** 사용자 추천 설정 모킹 — PUT 은 받은 값을 돌려준다. 저장 요청 tracker 를 돌려준다. */
-export async function mockAiPreferences(page: Page, enabled: boolean): Promise<RequestTracker> {
+/** 사용자 AI 설정 모킹 — PUT 은 보낸 필드만 바꾸고(WP-55 부분 갱신) 두 값을 돌려준다. 저장 요청 tracker 를 돌려준다. */
+export async function mockAiPreferences(page: Page, enabled: boolean, opts: { memoryEnabled?: boolean } = {}): Promise<RequestTracker> {
   const puts = trackRequests(page, 'PUT', '/api/v1/users/me/ai-preferences')
-  let current: AiPreferences = { suggestionsEnabled: enabled }
+  let current: AiPreferences = { suggestionsEnabled: enabled, memoryEnabled: opts.memoryEnabled ?? true }
   await page.route((u) => u.pathname === '/api/v1/users/me/ai-preferences', (route) => {
-    if (route.request().method() === 'PUT') current = route.request().postDataJSON() as AiPreferences
+    if (route.request().method() === 'PUT') current = { ...current, ...(route.request().postDataJSON() as Partial<AiPreferences>) }
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(current) })
   })
   return puts

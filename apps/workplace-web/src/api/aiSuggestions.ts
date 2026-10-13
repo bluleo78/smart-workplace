@@ -14,8 +14,8 @@ export async function getAiPreferences(): Promise<AiPreferences> {
   return data;
 }
 
-/** 본인 AI 사용 설정 저장 — 저장된 값을 돌려받는다. */
-export async function updateAiPreferences(body: AiPreferences): Promise<AiPreferences> {
+/** 본인 AI 사용 설정 저장 — 보낸 필드만 바뀌고(WP-55), 서버가 다시 읽은 두 값을 돌려받는다. */
+export async function updateAiPreferences(body: Partial<AiPreferences>): Promise<AiPreferences> {
   const { data } = await client.put<AiPreferences>('/users/me/ai-preferences', body);
   return data;
 }

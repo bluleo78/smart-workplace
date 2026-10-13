@@ -1,4 +1,4 @@
-// WP-139 사용자 AI 사용 설정 쿼리 — 빈 대화 추천·후속 질문 표시와 설정 화면 스위치가 같은 캐시를 본다.
+// WP-139 사용자 AI 사용 설정 쿼리 — 빈 대화 추천·후속 질문 표시와 설정 화면 스위치가 같은 캐시를 본다. WP-55: 메모리 켜기/끄기도 같은 캐시.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { getAiPreferences, updateAiPreferences } from '../../api/aiSuggestions';
@@ -32,11 +32,13 @@ export function useUpdateAiPreferences() {
   const qc = useQueryClient();
   const { user } = useAuth();
   return useMutation({
-    mutationFn: (body: AiPreferences) => updateAiPreferences(body),
+    mutationFn: (body: Partial<AiPreferences>) => updateAiPreferences(body),
     onSuccess: (data) => {
       qc.setQueryData(aiPreferenceKeys.me(user?.id), data);
       starterStore.resetFailures();
     },
-    onError: (e) => handleApiError(e, '추천 질문 설정 저장에 실패했습니다'),
+    // WP-55: 메모리 스위치도 같은 저장을 쓴다 — 무엇을 바꾸다 실패했는지 문구로 구분한다.
+    onError: (e, body) =>
+      handleApiError(e, body.memoryEnabled !== undefined ? '메모리 설정 저장에 실패했습니다' : '추천 질문 설정 저장에 실패했습니다'),
   });
 }
