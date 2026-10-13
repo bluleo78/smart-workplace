@@ -64,7 +64,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
         `custom fields, watchers, driveLinks, attachments (attachmentId for read_file), the latest ${ISSUE_DETAIL_COMMENT_LIMIT} comments and ` +
         `${ISSUE_DETAIL_HISTORY_LIMIT} history entries. commentsOmitted/historyOmitted count older ones left out (absent = complete); ` +
         `allComments:true returns up to ${ISSUE_DETAIL_COMMENT_HARD_LIMIT} comments. closedAt: DONE or CANCELED time. People ` +
-        '{username, name, kind}; username null if unknown.',
+        '{username, name, kind}, watchers lack kind; username null if unknown.',
       inputSchema: getIssueDetailInput,
       async handler(args) {
         const { issueKey, allComments } = getIssueDetailInput.parse(args);
@@ -188,9 +188,8 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       kind: 'write',
       hints: { destructive: false, idempotent: false },
       description:
-        'Reports your work on an issue (이슈) assigned to you; call at start and on each state change: WAITING before asking the user, ' +
-        'REVIEW when awaiting review, BLOCKED with the reason, PAUSED when told to stop; ENDED stops tracking. message also posts to the ' +
-        'issue chat.',
+        'Reports work on your assigned issue (이슈) at start/on change: WAITING before asking the user, REVIEW when done, ' +
+        'BLOCKED + why, PAUSED if told to stop, ENDED to stop. message posts to issue chat.',
       inputSchema: reportAgentWorkInput,
       async handler(args) {
         const { issueKey, ...body } = reportAgentWorkInput.parse(args);

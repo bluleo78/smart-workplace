@@ -8,12 +8,35 @@ const TOOL_NAME = /^[a-z0-9-]{1,40}$/;
 const DEFAULT_AGENT_TOOL = 'mcp';
 
 /**
+ * 수행 도구가 아니라 HTTP 라이브러리·브라우저를 가리키는 제품 토큰. 이런 UA 는 어떤 에이전트인지 알려 주지 않으므로
+ * 화면에 "node"·"axios" 같은 라이브러리 이름이 에이전트 유형으로 뜨지 않게 기본값('mcp')으로 바꾼다.
+ */
+const GENERIC_CLIENT_TOKENS = new Set([
+  'node',
+  'undici',
+  'axios',
+  'python-httpx',
+  'python-requests',
+  'python-urllib',
+  'httpx',
+  'curl',
+  'wget',
+  'go-http-client',
+  'okhttp',
+  'java',
+  'mozilla',
+  'got',
+  'node-fetch',
+]);
+
+/**
  * User-Agent 의 첫 제품 토큰(`/` 또는 공백 앞)을 소문자로 돌려준다.
- * 배열이면 첫 값을 쓰고, 없거나 형식이 맞지 않으면 'mcp'.
+ * 배열이면 첫 값을 쓰고, 없거나 형식이 맞지 않거나 범용 HTTP 라이브러리·브라우저 토큰이면 'mcp'.
  */
 export function agentToolFromUserAgent(ua: string | string[] | undefined): string {
   const raw = Array.isArray(ua) ? ua[0] : ua;
   if (!raw) return DEFAULT_AGENT_TOOL;
   const token = raw.trim().split(/[\s/]/, 1)[0].toLowerCase();
+  if (GENERIC_CLIENT_TOKENS.has(token)) return DEFAULT_AGENT_TOOL;
   return TOOL_NAME.test(token) ? token : DEFAULT_AGENT_TOOL;
 }
