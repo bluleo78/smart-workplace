@@ -4,10 +4,12 @@
 import type { InfiniteData, UseInfiniteQueryResult } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 
+// fetchNextPage 는 반환값을 쓰지 않으므로 () => unknown 으로 넓힌다 — 무한 쿼리가 아닌 목록(캘린더 목록의 청크 늘리기, WP-136)도
+// 같은 sentinel 을 쓸 수 있게. 무한 쿼리의 fetchNextPage 는 그대로 대입된다.
 export type LoadMoreQuery = Pick<
   UseInfiniteQueryResult<InfiniteData<unknown>, Error>,
-  'hasNextPage' | 'isFetching' | 'isFetchNextPageError' | 'fetchNextPage'
->;
+  'hasNextPage' | 'isFetching' | 'isFetchNextPageError'
+> & { fetchNextPage: () => unknown };
 
 // root: sentinel 을 감싼 스크롤 컨테이너(목록/보드가 자체 스크롤할 때). 생략·null 이면 뷰포트.
 // 왜 명시적으로 받나: 뷰포트를 root 로 두면 rootMargin(선행 로드 여유)이 컨테이너 클리핑에 먹혀

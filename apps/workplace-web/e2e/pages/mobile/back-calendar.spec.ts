@@ -5,7 +5,7 @@ import type { Page } from '@playwright/test'
 import type { CalendarEvent } from '../../../src/types/calendar'
 import { calendar, calendarEvent, recurringCalendarEvent } from '../../factories/calendar.factory'
 import { mockApi } from '../../fixtures/api-mock'
-import { expect, test } from '../../fixtures/mobile.fixture'
+import { expect, test, toCalendarMonthView } from '../../fixtures/mobile.fixture'
 
 // 실데이터 폭 검증용 긴 제목.
 const LONG_TITLE = '분기 경영 실적 리뷰 및 2027년 상반기 신규 사업 투자 우선순위 결정 회의(임원 전원 참석)'
@@ -26,15 +26,13 @@ async function stubCalendar(page: Page, events: CalendarEvent[]) {
   })
 }
 
-async function toAgenda(page: Page) {
-  await page.getByTestId('calendar-view-select').selectOption('agenda')
-  await expect(page.getByTestId('calendar-view-agenda')).toBeVisible()
-}
+// 모바일 기본 보기(목록, WP-136)가 아닌 월 보기로 바꿔 둔다(toCalendarMonthView) — 다이얼로그를 닫은 뒤에도 그 보기가 남아 있는지로
+// "리마운트 없이 캘린더에 남았다"를 확인한다(기본 보기를 쓰면 리마운트돼도 같은 화면이라 구분되지 않는다).
 
 test('일정 클릭 → goBack 은 다이얼로그만 닫고 캘린더에 남는다 — 취소도 같은 결과', async ({ authenticatedPage: page }) => {
   await stubCalendar(page, [calendarEvent({ id: 42, title: LONG_TITLE, startsAt: '2026-06-11T01:00:00Z', endsAt: '2026-06-11T02:00:00Z' })])
   await page.goto('/calendar')
-  await toAgenda(page)
+  await toCalendarMonthView(page)
   await page.getByTestId('calendar-event-42').tap()
   const dialog = page.getByTestId('calendar-event-dialog')
   await expect(dialog).toBeVisible()
@@ -43,8 +41,8 @@ test('일정 클릭 → goBack 은 다이얼로그만 닫고 캘린더에 남는
   await page.goBack()
   await expect(page).toHaveURL(/\/calendar$/)
   await expect(dialog).toBeHidden()
-  // 같은 라우트라 리마운트가 없어 보기(agenda)가 유지된다.
-  await expect(page.getByTestId('calendar-view-agenda')).toBeVisible()
+  // 같은 라우트라 리마운트가 없어 고른 보기(월)가 유지된다.
+  await expect(page.getByTestId('calendar-view-month')).toBeVisible()
 
   await page.getByTestId('calendar-event-42').tap()
   await expect(dialog).toBeVisible()
@@ -68,7 +66,7 @@ test('반복 회차: 범위 선택은 클릭 스냅숏의 회차 날짜로 PATCH
   const occ = recurringCalendarEvent(5, ['2026-06-15T01:00:00Z', '2026-06-22T01:00:00Z'], { title: '주간 스탠드업' })
   await stubCalendar(page, occ)
   await page.goto('/calendar')
-  await toAgenda(page)
+  await toCalendarMonthView(page)
   await page.getByTestId('calendar-event-5-2026-06-15T01:00:00Z').tap()
   await expect(page).toHaveURL(/\/calendar\?eventId=5$/)
   await page.getByTestId('calendar-form-title').fill('주간 스탠드업(변경)')
@@ -81,7 +79,7 @@ test('반복 회차: 범위 선택은 클릭 스냅숏의 회차 날짜로 PATCH
   await page.getByTestId('calendar-recurrence-scope-this').tap()
   expect(decodeURIComponent((await patch).url())).toContain('2026-06-15')
   await expect(page).toHaveURL(/\/calendar$/)
-  await expect(page.getByTestId('calendar-view-agenda')).toBeVisible()
+  await expect(page.getByTestId('calendar-view-month')).toBeVisible()
 })
 
 test('저장 응답 전에 뒤로 갔으면 늦게 온 저장 완료 닫기가 캘린더를 떠나지 않는다', async ({ authenticatedPage: page }) => {
@@ -99,7 +97,7 @@ test('저장 응답 전에 뒤로 갔으면 늦게 온 저장 완료 닫기가 �
   await page.goto('/apps')
   await page.getByTestId('apps-app-calendar').tap()
   await expect(page).toHaveURL(/\/calendar$/)
-  await toAgenda(page)
+  await toCalendarMonthView(page)
   await page.getByTestId('calendar-event-42').tap()
   await page.getByTestId('calendar-form-title').fill('제목 변경')
   await page.getByTestId('calendar-form-submit').tap()
@@ -110,7 +108,7 @@ test('저장 응답 전에 뒤로 갔으면 늦게 온 저장 완료 닫기가 �
   // 늦게 온 onSuccess → closeDialog() — 캡처한 위치 key 가 지금과 달라 무동작이어야 한다.
   await patched
   await expect(page).toHaveURL(/\/calendar$/)
-  await expect(page.getByTestId('calendar-view-agenda')).toBeVisible()
+  await expect(page.getByTestId('calendar-view-month')).toBeVisible()
 })
 
 test('없는 일정 딥링크(앱 안 push) → 토스트 후 eventId 제거 → 일정 탭 후 goBack·취소 모두 캘린더에 남는다', async ({ authenticatedPage: page }) => {
@@ -128,7 +126,7 @@ test('없는 일정 딥링크(앱 안 push) → 토스트 후 eventId 제거 →
   const dialog = page.getByTestId('calendar-event-dialog')
   await expect(dialog).toBeHidden()
 
-  await toAgenda(page)
+  await toCalendarMonthView(page)
   await page.getByTestId('calendar-event-42').tap()
   await expect(dialog).toBeVisible()
   await expect(page).toHaveURL(/\/calendar\?eventId=42$/)
@@ -142,7 +140,7 @@ test('없는 일정 딥링크(앱 안 push) → 토스트 후 eventId 제거 →
   await dialog.getByRole('button', { name: '취소' }).tap()
   await expect(page).toHaveURL(/\/calendar$/)
   await expect(dialog).toBeHidden()
-  await expect(page.getByTestId('calendar-view-agenda')).toBeVisible()
+  await expect(page.getByTestId('calendar-view-month')).toBeVisible()
 })
 
 // 바깥 화면(/apps)에서 일정 딥링크를 앱 안 push 로 연다 — 알림·홈 위젯 링크 클릭과 같은 기록(마크 없음, idx+1).

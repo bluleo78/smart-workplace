@@ -1,6 +1,7 @@
 // 캘린더 2차 사이드바 — 미니 캘린더 + 개인 캘린더별 토글 + 기타(이슈 마감/초대 일정) 토글.
 import { CalendarDays, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react'
 
+import { miniCalendarDotClass } from '@/components/calendar/miniCalendarClass'
 import { sidebarTitleClass } from '@/components/layout/sidebar-link'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -43,6 +44,11 @@ interface CalendarSidebarProps {
   onResetCalendar: (c: CalendarType) => void
   /** 일정/마감이 있어 점(dot)을 찍을 날짜들. */
   markedDates: Date[]
+  /**
+   * 미니 캘린더 숨김 — 모바일 ☰ 시트 전용(WP-136). 모바일은 날짜 이동을 헤더 제목 버튼의 미니 달력이 맡아,
+   * 시트에는 [새 일정]과 캘린더 토글만 남겨 스크롤 없이 한 번에 보이게 한다. 데스크톱 사이드바는 기본값(표시) 그대로.
+   */
+  hideMiniCalendar?: boolean
 }
 
 /** 캘린더 2차 사이드바 — 타이틀 + 새 일정 + 미니 캘린더 + 캘린더별 토글 + 기타 토글. */
@@ -58,6 +64,7 @@ export function CalendarSidebar({
   onEditCalendar,
   onResetCalendar,
   markedDates,
+  hideMiniCalendar = false,
 }: CalendarSidebarProps) {
   return (
     <aside className="flex w-56 shrink-0 flex-col overflow-y-auto border-r bg-sidebar/40">
@@ -71,22 +78,21 @@ export function CalendarSidebar({
         </Button>
       </div>
 
-      {/* 미니 월 캘린더 — 선택일=anchor, 날짜/월 선택 시 본문 날짜 이동(양방향). */}
-      <div data-testid="calendar-mini">
-        <Calendar
-          mode="single"
-          selected={anchor}
-          month={anchor}
-          onSelect={(d) => d && onSelectDate(d)}
-          onMonthChange={onSelectDate}
-          className="w-full px-2 pb-2 [--cell-size:1.75rem]"
-          modifiers={{ hasItems: markedDates }}
-          modifiersClassNames={{
-            hasItems:
-              'day-has-items relative after:absolute after:bottom-0.5 after:left-1/2 after:size-1 after:-translate-x-1/2 after:rounded-full after:bg-primary',
-          }}
-        />
-      </div>
+      {/* 미니 월 캘린더 — 선택일=anchor, 날짜/월 선택 시 본문 날짜 이동(양방향). 모바일 시트에선 숨김(헤더 미니 달력이 대신). */}
+      {!hideMiniCalendar && (
+        <div data-testid="calendar-mini">
+          <Calendar
+            mode="single"
+            selected={anchor}
+            month={anchor}
+            onSelect={(d) => d && onSelectDate(d)}
+            onMonthChange={onSelectDate}
+            className="w-full px-2 pb-2 [--cell-size:1.75rem]"
+            modifiers={{ hasItems: markedDates }}
+            modifiersClassNames={{ hasItems: miniCalendarDotClass }}
+          />
+        </div>
+      )}
 
       {/* 캘린더 목록 — 로컬("내 캘린더") + 계정별 연동 섹션으로 그룹핑 */}
       {(() => {
@@ -99,20 +105,24 @@ export function CalendarSidebar({
             <div
               key={c.id}
               data-testid={`calendar-list-item-${c.id}`}
-              className="group mb-1 flex cursor-pointer items-center gap-2 text-sm"
+              className="group mb-1 flex items-center gap-2 text-sm"
             >
-              <Checkbox
-                data-testid={`calendar-toggle-${c.id}`}
-                checked={visible}
-                onCheckedChange={() => onToggleCalendar(c.id)}
-                aria-label={`캘린더 표시: ${c.name}`}
-              />
-              {/* 캘린더 색 점 */}
-              <span
-                className={`size-2.5 shrink-0 rounded-sm ${palette.dotClass}`}
-                aria-hidden="true"
-              />
-              <span className="min-w-0 flex-1 truncate">{c.name}</span>
+              {/* 체크박스·색 점·이름을 label 로 묶어 이름을 눌러도 토글된다(기타 그룹 행과 같은 구조) — 전엔 16px 체크박스만 눌렸다.
+                  세로로 행을 채워(self-stretch) 모바일 ☰ 시트의 44px 행 전체가 탭 영역이 된다. 케밥·배지는 label 밖(중첩 상호작용 방지). */}
+              <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 self-stretch">
+                <Checkbox
+                  data-testid={`calendar-toggle-${c.id}`}
+                  checked={visible}
+                  onCheckedChange={() => onToggleCalendar(c.id)}
+                  aria-label={`캘린더 표시: ${c.name}`}
+                />
+                {/* 캘린더 색 점 */}
+                <span
+                  className={`size-2.5 shrink-0 rounded-sm ${palette.dotClass}`}
+                  aria-hidden="true"
+                />
+                <span className="min-w-0 flex-1 truncate">{c.name}</span>
+              </label>
               {/* 외부 동기화 캘린더: 읽기전용 배지 표시, 케밥 메뉴 숨김 (이슈 #501) */}
               {c.isReadOnly ? (
                 <Badge

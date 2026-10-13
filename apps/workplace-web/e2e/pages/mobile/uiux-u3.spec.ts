@@ -10,7 +10,7 @@ import { mailAccount, summary } from '../../factories/mail.factory'
 import { createProject } from '../../factories/project.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { tokenColor } from '../../fixtures/contrast'
-import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture'
+import { expect, expectNoHorizontalOverflow, stubChat, test, toCalendarMonthView } from '../../fixtures/mobile.fixture'
 
 const KEY = 'WP'
 const NUM = 2
@@ -291,6 +291,8 @@ test('R10 캘린더 도구 줄: ‹ › 도 [오늘]·보기 선택과 같은 �
   await page.goto('/calendar')
   const toolbar = page.getByTestId('calendar-mobile-toolbar')
   await expect(toolbar).toBeVisible()
+  // 모바일 첫 보기(일정 목록)엔 ‹ › 가 없다(WP-136) — ‹ › 가 있는 월 보기에서 비교한다.
+  await toCalendarMonthView(page, toolbar)
   const border = (id: string) => toolbar.getByTestId(id).evaluate((el) => getComputedStyle(el).borderTopWidth)
   const today = await border('calendar-today')
   expect(today).not.toBe('0px')

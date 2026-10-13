@@ -6,7 +6,7 @@ import type { WikiPageDetail, WikiSpace } from '../../../src/types/wiki'
 import { member, page as makeContactPage } from '../../factories/contacts.factory'
 import { createProject } from '../../factories/project.factory'
 import { mockApi } from '../../fixtures/api-mock'
-import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture'
+import { expect, expectNoHorizontalOverflow, stubChat, test, toCalendarMonthView } from '../../fixtures/mobile.fixture'
 import { dismissByOutsideClick } from '../../fixtures/wait'
 
 /** 실제 마우스로 길게 누른다 — 메뉴가 뜰 때까지 누른 채 기다렸다가 뗀다(떼는 click 이 이동을 일으키지 않는지도 함께). */
@@ -225,29 +225,35 @@ test('목록 밀도(/tasks·/settings): 행 44~56px, 설정 행만 끝에 › �
 })
 
 test('캘린더: 헤더엔 제목만(잘림 없음), 도구 줄의 오늘·‹·› 는 44×44 이상이고 뷰 전환 select 가 동작', async ({ authenticatedPage: page }) => {
-  await page.clock.setFixedTime(new Date('2026-12-15T10:00:00'))
+  // 오늘 = 2027-01 — 월 보기에서 지난해 12월로 가면 가장 긴 제목('2026년 12월' + ▾, WP-136: 다른 해면 'yyyy년 M월')이 된다.
+  await page.clock.setFixedTime(new Date('2027-01-15T10:00:00'))
   await mockApi(page, 'GET', '/api/v1/calendars', [])
   await mockApi(page, 'GET', '/api/v1/calendar/events', [])
   await page.goto('/calendar')
   const header = page.getByTestId('page-header')
   const h1 = header.locator('h1')
-  await expect(h1).toHaveText('2026년 12월')
-  expect(await h1.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(false)
-  expect(Math.round((await h1.boundingBox())!.x)).toBe(16)
+  // 같은 해면 'M월'(제목이 미니 달력 버튼「1월 ▾」, ▾ 는 아이콘).
+  await expect(h1).toHaveText('1월')
   // 헤더엔 이동 버튼·⋯ 가 없다(도구 줄로 이동).
   await expect(header.getByTestId('calendar-today')).toHaveCount(0)
   await expect(header.getByTestId('mobile-header-more')).toHaveCount(0)
   const toolbar = page.getByTestId('calendar-mobile-toolbar')
+  // 모바일 첫 보기(일정 목록)는 ‹ › 를 숨긴다 — 이동 버튼이 있는 월 보기에서 크기·동작을 본다.
+  const select = toolbar.getByTestId('calendar-view-select')
+  await toCalendarMonthView(page, toolbar)
   for (const id of ['calendar-today', 'calendar-prev', 'calendar-next']) {
     const b = (await toolbar.getByTestId(id).boundingBox())!
     expect(b.width, id).toBeGreaterThanOrEqual(44)
     expect(b.height, id).toBeGreaterThanOrEqual(44)
   }
-  await toolbar.getByTestId('calendar-next').click()
-  await expect(h1).toHaveText('2027년 1월')
-  await toolbar.getByTestId('calendar-today').click()
+  await toolbar.getByTestId('calendar-prev').click()
+  // 다른 해로 넘어가면 'yyyy년 M월' — 가장 긴 제목도 잘리지 않고 좌측 16px 에서 시작한다.
   await expect(h1).toHaveText('2026년 12월')
-  const select = toolbar.getByTestId('calendar-view-select')
+  expect(await h1.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(false)
+  expect(await page.getByTestId('calendar-title').evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(false)
+  expect(Math.round((await h1.boundingBox())!.x)).toBe(16)
+  await toolbar.getByTestId('calendar-today').click()
+  await expect(h1).toHaveText('1월')
   await select.selectOption('agenda')
   await expect(page.getByTestId('calendar-view-agenda')).toBeVisible()
   await expectNoHorizontalOverflow(page)

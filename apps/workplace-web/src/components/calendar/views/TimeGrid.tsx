@@ -114,8 +114,9 @@ export function TimeGrid({
         })}
       </div>
 
-      {/* ── 시간 그리드 ── */}
-      <div className="flex flex-1 overflow-auto">
+      {/* ── 시간 그리드 ── 모바일(max-lg)은 본문 좌우 스와이프(WP-136)가 이 자체 스크롤 요소에서 pointercancel 로 끊기지 않게
+          세로 패닝만 브라우저에 맡긴다(useIsMobile 과 같은 lg 기준). */}
+      <div className="flex flex-1 overflow-auto max-lg:touch-pan-y">
         {/* 시간 거터 */}
         <div className="w-12 shrink-0">
           {HOURS.map((h) => (

@@ -15,6 +15,7 @@ export function LoadMoreFooter({
   query,
   root = null,
   enabled = true,
+  errorLabel = '불러오지 못했습니다 — 다시 시도',
   className,
   'data-testid': testId,
 }: {
@@ -23,6 +24,8 @@ export function LoadMoreFooter({
   root?: Element | null;
   // false 면 자동 로드 observer 를 끈다(useLoadMoreSentinel enabled 참조).
   enabled?: boolean;
+  // 다음 페이지 실패 시 다시 시도 버튼 문구 — 일부만 실패해 받은 목록은 남는 경우(캘린더 일정 목록, WP-136) 사실에 맞게 바꾼다.
+  errorLabel?: string;
   className?: string;
   'data-testid'?: string;
 }) {
@@ -35,7 +38,7 @@ export function LoadMoreFooter({
         '불러오는 중…'
       ) : query.isFetchNextPageError ? (
         <button type="button" className="text-destructive underline" onClick={() => void query.fetchNextPage()}>
-          불러오지 못했습니다 — 다시 시도
+          {errorLabel}
         </button>
       ) : null}
     </div>
