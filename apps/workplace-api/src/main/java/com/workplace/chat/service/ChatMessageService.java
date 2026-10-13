@@ -22,7 +22,7 @@ import com.workplace.drive.service.DriveLinkService;
 import com.workplace.global.dto.UserSummary;
 import com.workplace.global.service.UserMentionHydrator;
 import com.workplace.global.util.MentionParser;
-import com.workplace.issue.outbound.IssueChatHumanMessagePosted;
+import com.workplace.issue.outbound.IssueHumanReplyPosted;
 import com.workplace.user.dto.UserKind;
 import java.time.Instant;
 import java.util.List;
@@ -102,7 +102,7 @@ public class ChatMessageService {
     publisher.publishEvent(created);
     // WP-377: 사람이 올린 글이면 답변 필요로 멈춘 AI 구성원 작업을 작업 중으로 되돌리도록 알린다.
     if (UserKind.HUMAN.equals(created.actor().kind())) {
-      publisher.publishEvent(new IssueChatHumanMessagePosted(created.issueId()));
+      publisher.publishEvent(new IssueHumanReplyPosted(created.issueId()));
     }
     return saved;
   }

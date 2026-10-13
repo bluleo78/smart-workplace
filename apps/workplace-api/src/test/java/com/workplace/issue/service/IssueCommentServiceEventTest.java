@@ -1,5 +1,6 @@
 package com.workplace.issue.service;
 
+import static com.workplace.jooq.Tables.AGENT_WORK;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.global.tenant.TenantContext;
@@ -10,6 +11,7 @@ import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentUpdatedEvent;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.project.repository.ProjectIssueSequenceRepository;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.TestFixtures;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -78,5 +80,28 @@ class IssueCommentServiceEventTest extends IntegrationTestBase {
     assertThat(deleted.get(0).commentId()).isEqualTo(comment.id());
     assertThat(deleted.get(0).projectKey()).isEqualTo(s.projectKey());
     assertThat(deleted.get(0).issueNumber()).isEqualTo(s.issueNumber());
+  }
+
+  /** 사람이 댓글로 답하면 답변 필요로 멈춘 AI 구성원 작업이 작업 중으로 돌아온다(WP-377 §4.3). */
+  @Test
+  void create_사람댓글은_AI구성원_WAITING_작업을_WORKING으로() {
+    var s = openScenario();
+    long agentId = TestFixtures.createAgentNoToken(dsl);
+    dsl.insertInto(AGENT_WORK)
+        .set(AGENT_WORK.ISSUE_ID, s.issueId())
+        .set(AGENT_WORK.WORKER_ID, agentId)
+        .set(AGENT_WORK.TOOL, "claude-code")
+        .set(AGENT_WORK.STATE, "WAITING")
+        .execute();
+
+    commentService.create(s.reporterId(), s.issueId(), new CreateCommentRequest("이렇게 해주세요"));
+
+    var state =
+        dsl.select(AGENT_WORK.STATE)
+            .from(AGENT_WORK)
+            .where(AGENT_WORK.ISSUE_ID.eq(s.issueId()))
+            .and(AGENT_WORK.WORKER_ID.eq(agentId))
+            .fetchOne(AGENT_WORK.STATE);
+    assertThat(state).isEqualTo("WORKING");
   }
 }

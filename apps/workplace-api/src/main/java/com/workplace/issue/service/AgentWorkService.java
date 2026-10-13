@@ -4,14 +4,14 @@ import com.workplace.issue.dto.AgentWorkPatch;
 import com.workplace.issue.dto.AgentWorkState;
 import com.workplace.issue.dto.AgentWorkView;
 import com.workplace.issue.dto.IssueStatuses;
+import com.workplace.issue.exception.AgentWorkIssueClosedException;
 import com.workplace.issue.outbound.AgentToolWriteEvent;
 import com.workplace.issue.outbound.IssueChangeNotifier;
-import com.workplace.issue.outbound.IssueChatHumanMessagePosted;
+import com.workplace.issue.outbound.IssueHumanReplyPosted;
 import com.workplace.issue.repository.AgentWorkRepository;
 import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.project.repository.ProjectRepository;
-import java.time.Instant;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -48,13 +48,12 @@ public class AgentWorkService {
   public Map<Long, List<AgentWorkView>> viewsByIssueIds(Collection<Long> issueIds) {
     var found = repository.findActiveByIssueIds(issueIds);
     if (found.isEmpty()) return Map.of();
-    Instant now = Instant.now();
     Map<Long, List<AgentWorkView>> result = new HashMap<>();
     found.forEach(
         (issueId, list) ->
             result.put(
                 issueId,
-                list.stream().map(w -> AgentWorkView.of(w, now)).sorted(URGENCY_ORDER).toList()));
+                list.stream().map(w -> AgentWorkView.of(w)).sorted(URGENCY_ORDER).toList()));
     return result;
   }
 
@@ -81,10 +80,11 @@ public class AgentWorkService {
             patch.stepsDone(),
             patch.stepsTotal()));
     notifyChanged(issueId, workerId);
-    return viewsByIssueIds(List.of(issueId)).get(issueId).stream()
+    // 동시 종료로 조회에서 이슈가 빠지면(종료 이슈 제외) NPE 대신 409 로 답한다.
+    return viewsByIssueIds(List.of(issueId)).getOrDefault(issueId, List.of()).stream()
         .filter(v -> v.worker().id() == workerId)
         .findFirst()
-        .orElseThrow();
+        .orElseThrow(AgentWorkIssueClosedException::new);
   }
 
   /** 종료 — 진행 중이면 끝내고 알림, 없으면 false. */
@@ -110,9 +110,9 @@ public class AgentWorkService {
     repository.endActiveForWorkers(issueId, workerIds);
   }
 
-  /** 사람이 챗에 글을 올리면 답변 필요로 멈춘 AI 구성원 작업을 작업 중으로 되돌리고, 바뀐 게 있으면 알린다. */
+  /** 사람이 챗 글·댓글로 응답하면 답변 필요로 멈춘 AI 구성원 작업을 작업 중으로 되돌리고, 바뀐 게 있으면 알린다. */
   @EventListener
-  public void onHumanChatMessage(IssueChatHumanMessagePosted e) {
+  public void onHumanReply(IssueHumanReplyPosted e) {
     if (repository.resumeWaitingAgents(e.issueId()) > 0) {
       notifyChanged(e.issueId(), null);
     }

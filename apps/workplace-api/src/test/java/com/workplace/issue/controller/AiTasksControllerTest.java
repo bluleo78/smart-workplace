@@ -255,6 +255,29 @@ class AiTasksControllerTest extends IntegrationTestBase {
   }
 
   @Test
+  void 종료된_이슈에_남은_진행중_행은_순위_건수_범위에_반영되지_않는다() throws Exception {
+    // AI 담당 + 고아 WAITING 행이 남은 DONE 이슈 — 목록에는 남되 작업 기반 순위·건수는 0.
+    long closed = issue("closed", me);
+    assign(closed, agent);
+    work(closed, agent, "WAITING");
+    setStatus(closed, "DONE");
+    setIssueUpdatedAt(closed, Instant.parse("2026-09-01T00:00:00Z"));
+    long open = issue("open", me);
+    assign(open, agent);
+    setIssueUpdatedAt(open, Instant.parse("2026-09-02T00:00:00Z"));
+    // 사람 고아 행만 있는 DONE 이슈 — 내 작업(ASSISTED)으로 MINE 에 들어오면 안 된다.
+    long humanOrphan = issue("human-orphan", other);
+    work(humanOrphan, me, "WORKING");
+    setStatus(humanOrphan, "DONE");
+
+    // 고아 WAITING 이 순위 0 이면 closed 가 앞서지만, 작업 없음으로 취급되어 최근 수정순(open 먼저).
+    assertThat(titles(getJson("/api/v1/me/ai-tasks"))).containsExactly("open", "closed");
+    assertThat(titles(getJson("/api/v1/me/ai-tasks?agentState=WAITING"))).isEmpty();
+    assertThat(counts("/api/v1/me/ai-tasks/counts"))
+        .isEqualTo(Map.of("all", 2, "waiting", 0, "review", 0, "blocked", 0, "working", 0));
+  }
+
+  @Test
   void 응답_항목에_agentWork_와_projectKey_포함() throws Exception {
     long b = issue("b", other);
     work(b, me, "REVIEW");

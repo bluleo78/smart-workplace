@@ -10,6 +10,7 @@ import com.workplace.issue.outbound.AgentToolWriteEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentDeletedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentUpdatedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentedEvent;
+import com.workplace.issue.outbound.IssueHumanReplyPosted;
 import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueCommentRepository;
 import com.workplace.issue.repository.IssueRepository;
@@ -18,6 +19,7 @@ import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.exception.ProjectNotFoundException;
 import com.workplace.project.repository.ProjectRepository;
 import com.workplace.project.service.ProjectAccessGuard;
+import com.workplace.user.dto.UserKind;
 import com.workplace.user.repository.UserRepository;
 import java.time.Instant;
 import java.util.List;
@@ -159,6 +161,10 @@ public class IssueCommentService {
             Instant.now()));
     // MCP(수행 도구 헤더) 경유 코멘트면 AI 작업 자동 시작·터치(WP-377). 코멘트 작성은 이슈 updated 알림을 거치지 않아 여기서 직접 낸다.
     AgentToolWriteEvent.publishIfAgentTool(publisher, issueId, callerId);
+    // 사람이 댓글로 답하면 답변 필요로 멈춘 AI 구성원 작업을 작업 중으로 되돌린다(챗 글과 같은 신호, WP-377 §4.3).
+    if (actor != null && UserKind.HUMAN.equals(actor.kind())) {
+      publisher.publishEvent(new IssueHumanReplyPosted(issueId));
+    }
 
     return resp;
   }

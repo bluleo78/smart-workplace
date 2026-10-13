@@ -7,6 +7,7 @@ import static com.workplace.jooq.Tables.USER;
 import com.workplace.global.dto.UserSummary;
 import com.workplace.issue.dto.AgentWorkPatch;
 import com.workplace.issue.dto.AgentWorkState;
+import com.workplace.issue.dto.AgentWorkView;
 import com.workplace.issue.dto.IssueStatuses;
 import com.workplace.user.dto.UserKind;
 import java.time.Instant;
@@ -19,6 +20,7 @@ import java.util.Map;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
+import org.jooq.Field;
 import org.jooq.Record;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
@@ -49,8 +51,8 @@ public class AgentWorkRepository {
       Instant startedAt,
       Instant updatedAt) {}
 
-  /** 작업 행 + 작업자 요약(목록·상세 표시용). */
-  public record AgentWorkWithWorker(AgentWorkRow work, UserSummary worker) {}
+  /** 작업 행 + 작업자 요약(목록·상세 표시용). stale 은 DB 시계로 계산한 무소식 여부. */
+  public record AgentWorkWithWorker(AgentWorkRow work, UserSummary worker, boolean stale) {}
 
   /** (이슈, 작업자)의 진행 중 작업 1건. */
   public Optional<AgentWorkRow> findActive(long issueId, long workerId) {
@@ -153,9 +155,22 @@ public class AgentWorkRepository {
    */
   public Map<Long, List<AgentWorkWithWorker>> findActiveByIssueIds(Collection<Long> issueIds) {
     if (issueIds == null || issueIds.isEmpty()) return Map.of();
+    // 무소식(stale) 은 JVM 이 아니라 DB 시계로 판정 — updated_at 을 찍는 시계와 같아야 서버 간 시계 차이에 흔들리지 않는다.
+    Field<Boolean> staleField =
+        DSL.field(
+                AGENT_WORK
+                    .STATE
+                    .eq(AgentWorkState.WORKING)
+                    .and(
+                        AGENT_WORK.UPDATED_AT.le(
+                            DSL.field(
+                                "now() - make_interval(secs => {0})",
+                                OffsetDateTime.class, AgentWorkView.STALE_AFTER.toSeconds()))))
+            .as("is_stale");
     var rows =
         dsl.select(AGENT_WORK.fields())
             .select(USER.USERNAME, USER.NAME, USER.KIND)
+            .select(staleField)
             .from(AGENT_WORK)
             .join(USER)
             .on(USER.ID.eq(AGENT_WORK.WORKER_ID))
@@ -173,7 +188,7 @@ public class AgentWorkRepository {
           new UserSummary(row.workerId(), r.get(USER.USERNAME), r.get(USER.NAME), r.get(USER.KIND));
       result
           .computeIfAbsent(row.issueId(), k -> new ArrayList<>())
-          .add(new AgentWorkWithWorker(row, worker));
+          .add(new AgentWorkWithWorker(row, worker, Boolean.TRUE.equals(r.get(staleField))));
     }
     return result;
   }

@@ -1,11 +1,14 @@
 package com.workplace.issue.service;
 
 import static com.workplace.jooq.Tables.AGENT_WORK;
+import static com.workplace.jooq.Tables.ISSUE;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.issue.dto.AgentWorkPatch;
 import com.workplace.issue.dto.AgentWorkView;
-import com.workplace.issue.outbound.IssueChatHumanMessagePosted;
+import com.workplace.issue.exception.AgentWorkIssueClosedException;
+import com.workplace.issue.outbound.IssueHumanReplyPosted;
 import com.workplace.issue.repository.AgentWorkRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.project.dto.CreateProjectRequest;
@@ -81,14 +84,23 @@ class AgentWorkServiceTest extends IntegrationTestBase {
   }
 
   @Test
-  void onHumanChatMessage_는_AI구성원_답변필요를_작업중으로() {
+  void onHumanReply_는_AI구성원_답변필요를_작업중으로() {
     service.startOrUpdate(
         issueId,
         agentId,
         "claude-code",
         new AgentWorkPatch(null, "WAITING", null, false, null, null, null));
-    service.onHumanChatMessage(new IssueChatHumanMessagePosted(issueId));
+    service.onHumanReply(new IssueHumanReplyPosted(issueId));
     assertThat(repo.findActive(issueId, agentId).orElseThrow().state()).isEqualTo("WORKING");
+  }
+
+  @Test
+  void startOrUpdate_종료된_이슈면_NPE_대신_AgentWorkIssueClosedException() {
+    // 보고 검증을 우회해 서비스를 직접 호출 — 동시 종료로 조회에서 이슈가 빠지는 경합과 같은 상황.
+    dsl.update(ISSUE).set(ISSUE.STATUS, "DONE").where(ISSUE.ID.eq(issueId)).execute();
+    assertThatThrownBy(
+            () -> service.startOrUpdate(issueId, humanId, "claude-code", AgentWorkPatch.empty()))
+        .isInstanceOf(AgentWorkIssueClosedException.class);
   }
 
   @Test
