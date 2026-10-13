@@ -3,6 +3,8 @@ package com.workplace.home.service;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.workplace.fileai.service.ExtractedTextService;
 import com.workplace.home.dto.HomeAttachment;
 import com.workplace.home.dto.HomeMessageResponse;
@@ -173,7 +175,7 @@ public class HomeSessionService {
     long id = appendMessage(callerId, sessionId, role, content, null, null, null);
     // 결과 줄은 위젯·도구단계가 없고 화면은 createdAt 을 쓰지 않으므로 재조회 없이 응답을 만든다.
     return new HomeMessageResponse(
-        id, role, content, null, null, null, "COMPLETE", Instant.now(), List.of(), null);
+        id, role, content, null, null, null, "COMPLETE", Instant.now(), List.of(), null, null);
   }
 
   /** 7b(compose)가 호출. 정상 완료(COMPLETE)로 저장한다 — 부분 답변은 status 오버로드 사용(WP-190). */
@@ -285,17 +287,41 @@ public class HomeSessionService {
 
   private HomeMessageResponse toResponse(
       HomeMessageRepository.Row m, List<HomeAttachment> attachments, boolean showFollowups) {
+    SplitBlocks blocks = splitMemoryBlocks(parse(m.contentBlocksJson()));
     return new HomeMessageResponse(
         m.id(),
         m.role(),
         m.content(),
         parse(m.widgetsJson()),
         parse(m.toolCallsJson()),
-        parse(m.contentBlocksJson()),
+        blocks.display(),
         m.status(),
         m.createdAt(),
         attachments,
-        showFollowups ? parseFollowups(m.followupsJson()) : null);
+        showFollowups ? parseFollowups(m.followupsJson()) : null,
+        blocks.memory());
+  }
+
+  /** 응답용으로 나눈 블록 — 표시 블록(contentBlocks)과 메모리 결과 줄 블록(memoryBlocks). 각각 없으면 null. */
+  record SplitBlocks(JsonNode display, JsonNode memory) {}
+
+  /**
+   * WP-55: 영속 content_blocks 에서 memory 블록을 떼어 낸다(응답 DTO 전용 — 영속 형식·되돌리기 순번·라이브 경로는 그대로).
+   *
+   * <p>배포 중 열려 있는 구 웹은 text·tools 가 아닌 블록을 위젯으로 그리려다 memory 블록에서 깨진다. 그래서 이력 응답의 contentBlocks 에는
+   * memory 블록을 싣지 않고 memoryBlocks 로 같은 순서·모양을 따로 보낸다. memory 블록만 있던 메시지(판정 5 — 표시 블록을 버린 턴)는
+   * contentBlocks 를 null 로 둬 구 웹이 기존 폴백 렌더를 하게 한다(빈 배열이면 구 웹이 본문을 그리지 않는다).
+   */
+  static SplitBlocks splitMemoryBlocks(JsonNode blocks) {
+    if (blocks == null || !blocks.isArray()) return new SplitBlocks(blocks, null);
+    ArrayNode display = JsonNodeFactory.instance.arrayNode();
+    ArrayNode memory = JsonNodeFactory.instance.arrayNode();
+    for (JsonNode b : blocks) {
+      if ("memory".equals(b.path("kind").asText())) memory.add(b);
+      else display.add(b);
+    }
+    if (memory.isEmpty()) return new SplitBlocks(blocks, null);
+    return new SplitBlocks(display.isEmpty() ? null : display, memory);
   }
 
   /** 후속 질문 JSON → 문자열 목록. 깨진 값은 표시하지 않는다(null) — 복원 화면을 막을 만큼 중요하지 않다. */

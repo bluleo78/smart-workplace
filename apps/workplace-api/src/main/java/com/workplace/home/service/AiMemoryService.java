@@ -33,9 +33,16 @@ public class AiMemoryService {
   /** 내용 최대 길이(코드포인트). DB VARCHAR(300) 과 같다. */
   public static final int MAX_CHARS = 300;
 
+  /** 종류: 사용자가 알려 준 선호·교정(블록 라벨 "선호"). */
   public static final String KIND_PREFERENCE = "PREFERENCE";
+
+  /** 종류: 오래 유지될 업무 맥락 — 팀·역할·주로 보는 프로젝트(블록 라벨 "맥락"). */
   public static final String KIND_CONTEXT = "CONTEXT";
+
+  /** 출처: AI 가 대화 중 대행으로 저장(Internal on-behalf-of 경로만 이 값을 받는다). */
   public static final String SOURCE_AI = "AI";
+
+  /** 출처: 사용자가 설정 화면에서 직접 추가 — 브라우저·PAT·API 키 요청은 항상 이 값으로 저장한다. */
   public static final String SOURCE_USER = "USER";
 
   private static final Set<String> KINDS = Set.of(KIND_PREFERENCE, KIND_CONTEXT);
@@ -173,6 +180,7 @@ public class AiMemoryService {
     return c;
   }
 
+  /** 종류 검증 — PREFERENCE·CONTEXT 가 아니면 400 AI_MEMORY_INVALID. 되돌리기 복원도 같은 규칙을 쓰므로 패키지 공개. */
   static String requireKind(String kind) {
     if (kind == null || !KINDS.contains(kind)) {
       throw AiMemoryException.invalid("메모리 종류는 PREFERENCE 또는 CONTEXT 여야 해요");
@@ -180,6 +188,7 @@ public class AiMemoryService {
     return kind;
   }
 
+  /** 저장 행 → 응답 항목. previousContent 는 고치기 응답에만 싣는다(그 외 null — JSON 에서 빠진다). */
   static AiMemoryItem toItem(Row r, String previousContent) {
     return new AiMemoryItem(
         r.id(), r.kind(), r.content(), r.source(), r.createdAt(), r.updatedAt(), previousContent);

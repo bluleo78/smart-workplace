@@ -190,6 +190,50 @@ class AiMemoryUndoTest extends IntegrationTestBase {
     assertThat(repo.find(uid, m.id())).isEmpty();
   }
 
+  /** 꺼짐은 AI 대행 쓰기만 막는다 — 지움 되돌리기(재생성)도 허용하고 블록의 출처로 다시 만든다. */
+  @Test
+  void 메모리를_꺼도_지움_되돌리기는_허용한다() throws Exception {
+    long uid = TestFixtures.createHuman(dsl);
+    preferences.update(uid, null, false);
+    long mid = message(uid, block("forgotten", 987654L, "CONTEXT", "백엔드 팀이다", null, "AI"));
+
+    undo(uid, mid, 0)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.memory.content").value("백엔드 팀이다"))
+        .andExpect(jsonPath("$.memory.source").value("AI"));
+    assertThat(repo.count(uid)).isEqualTo(1);
+    assertThat(memoryBlocks(mid).get(0).path("undone").asBoolean()).isTrue();
+  }
+
+  /** 꺼짐에서도 고침 되돌리기(이전 내용 복원)는 허용한다. */
+  @Test
+  void 메모리를_꺼도_고침_되돌리기는_허용한다() throws Exception {
+    long uid = TestFixtures.createHuman(dsl);
+    AiMemoryItem m = memories.create(uid, "PREFERENCE", "표 대신 목록");
+    preferences.update(uid, null, false);
+    long mid = message(uid, block("updated", m.id(), "PREFERENCE", "표 대신 목록", "짧은 목록", "AI"));
+
+    undo(uid, mid, 0).andExpect(status().isOk());
+    assertThat(repo.find(uid, m.id()).orElseThrow().content()).isEqualTo("짧은 목록");
+  }
+
+  /** 판정 15: 고침 되돌리기는 내용만 되돌린다 — 그 사이 바뀐 종류(블록엔 이전 종류가 없다)는 지금 값으로 남는다. */
+  @Test
+  void 고침_되돌리기는_내용만_되돌리고_지금_종류를_유지한다() throws Exception {
+    long uid = TestFixtures.createHuman(dsl);
+    AiMemoryItem m = memories.create(uid, "PREFERENCE", "짧은 목록");
+    memories.update(uid, m.id(), "백엔드 팀이다", "CONTEXT");
+    long mid = message(uid, block("updated", m.id(), "CONTEXT", "백엔드 팀이다", "짧은 목록", "AI"));
+
+    undo(uid, mid, 0)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.memory.content").value("짧은 목록"))
+        .andExpect(jsonPath("$.memory.kind").value("CONTEXT"));
+    AiMemoryRepository.Row row = repo.find(uid, m.id()).orElseThrow();
+    assertThat(row.content()).isEqualTo("짧은 목록");
+    assertThat(row.kind()).isEqualTo("CONTEXT");
+  }
+
   @Test
   void 남의_메시지_없는_id_사용자_메시지는_404() throws Exception {
     long owner = TestFixtures.createHuman(dsl);

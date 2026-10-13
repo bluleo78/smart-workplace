@@ -108,8 +108,9 @@ class HomeChatMemoryBlockTest extends HomeAttachmentTestSupport {
               return "기억할게요.";
             });
 
-    assertThat(a.contentBlocks())
-        .isEqualTo(om.readTree("[{\"kind\":\"text\",\"textStart\":0}," + SAVED_BLOCK + "]"));
+    // 이력 응답은 memory 블록을 contentBlocks 에서 떼어 memoryBlocks 로 따로 싣는다(구 웹 보호 — 영속은 끝에 붙인 그대로).
+    assertThat(a.contentBlocks()).isEqualTo(om.readTree("[{\"kind\":\"text\",\"textStart\":0}]"));
+    assertThat(a.memoryBlocks()).isEqualTo(om.readTree("[" + SAVED_BLOCK + "]"));
     assertThat(a.toolCalls()).isNull(); // 메모리 도구는 도구 단계 목록에 없다(결과 줄과 중복)
     Map<?, ?> saved = om.readValue(SAVED, Map.class);
     assertThat(emitted("home.chat.tool"))
@@ -131,7 +132,8 @@ class HomeChatMemoryBlockTest extends HomeAttachmentTestSupport {
               return "고쳤어요.";
             });
 
-    assertThat(a.contentBlocks().get(1))
+    assertThat(a.toolCalls()).isNull(); // 접두가 붙은 메모리 도구도 도구 단계에 없다
+    assertThat(a.memoryBlocks().get(0))
         .isEqualTo(
             om.readTree(
                 "{\"kind\":\"memory\",\"action\":\"updated\",\"memoryId\":12,\"memoryKind\":\"PREFERENCE\","
@@ -161,11 +163,9 @@ class HomeChatMemoryBlockTest extends HomeAttachmentTestSupport {
     assertThat(a.contentBlocks())
         .isEqualTo(
             om.readTree(
-                "[{\"kind\":\"tools\",\"stepStart\":0},{\"kind\":\"text\",\"textStart\":0},"
-                    + SAVED_BLOCK
-                    + ","
-                    + FORGOTTEN_BLOCK
-                    + "]"));
+                "[{\"kind\":\"tools\",\"stepStart\":0},{\"kind\":\"text\",\"textStart\":0}]"));
+    assertThat(a.memoryBlocks())
+        .isEqualTo(om.readTree("[" + SAVED_BLOCK + "," + FORGOTTEN_BLOCK + "]"));
   }
 
   /** 판정 5: 오프셋을 못 믿어 표시 블록을 버리는 턴에도 memory 블록은 남는다 — 되돌리기가 동작해야 한다. */
@@ -182,7 +182,9 @@ class HomeChatMemoryBlockTest extends HomeAttachmentTestSupport {
               return "전혀 다른 본문";
             });
 
-    assertThat(a.contentBlocks()).isEqualTo(om.readTree("[" + SAVED_BLOCK + "]"));
+    // 표시 블록이 없으면 contentBlocks 는 null(구 웹 폴백 렌더 — 빈 배열이면 본문을 그리지 않는다).
+    assertThat(a.contentBlocks()).isNull();
+    assertThat(a.memoryBlocks()).isEqualTo(om.readTree("[" + SAVED_BLOCK + "]"));
   }
 
   @Test
@@ -211,9 +213,74 @@ class HomeChatMemoryBlockTest extends HomeAttachmentTestSupport {
             });
 
     assertThat(a.contentBlocks()).isEqualTo(om.readTree("[{\"kind\":\"text\",\"textStart\":0}]"));
+    assertThat(a.memoryBlocks()).isNull();
     assertThat(emitted("home.chat.tool"))
         .hasSize(4)
         .allSatisfy(p -> assertThat(p).doesNotContainKey("memory"));
+  }
+
+  /** F-b: updated 의 이전 내용이 공백뿐이면 되돌릴 수 없으므로 결과 줄을 만들지 않고 재발행에서도 뺀다. */
+  @Test
+  void 고침_결과의_이전_내용이_공백이면_블록을_만들지_않는다() throws Exception {
+    long uid = user();
+    HomeMessageResponse a =
+        assistantAfter(
+            uid,
+            (delta, progress, tool) -> {
+              tool.accept(
+                  result(
+                      1,
+                      "update_memory",
+                      false,
+                      "{\"action\":\"updated\",\"memoryId\":12,\"kind\":\"PREFERENCE\",\"content\":\"x\",\"previousContent\":\"  \"}"));
+              delta.accept("고쳤어요.");
+              return "고쳤어요.";
+            });
+
+    assertThat(a.memoryBlocks()).isNull();
+    assertThat(emitted("home.chat.tool"))
+        .singleElement()
+        .satisfies(p -> assertThat(p).doesNotContainKey("memory"));
+  }
+
+  /** 이력 응답 JSON — contentBlocks 에 memory 종류가 없고 memoryBlocks 필드 이름으로 따로 실린다(새 웹이 이 이름을 읽는다). */
+  @Test
+  void 이력_응답_JSON_은_memoryBlocks_로_따로_싣는다() throws Exception {
+    long uid = user();
+    HomeMessageResponse a =
+        assistantAfter(
+            uid,
+            (delta, progress, tool) -> {
+              delta.accept("기억할게요.");
+              tool.accept(result(1, "remember_memory", false, SAVED));
+              return "기억할게요.";
+            });
+
+    JsonNode json = om.valueToTree(a);
+    assertThat(json.path("contentBlocks").findValuesAsText("kind")).doesNotContain("memory");
+    assertThat(json.path("memoryBlocks")).isEqualTo(om.readTree("[" + SAVED_BLOCK + "]"));
+  }
+
+  /** F-g: opencode 접두(workplace_)도 벗긴다 — show_* 는 위젯 블록, propose_* 는 숨김이라 도구 단계가 없다. */
+  @Test
+  void opencode_접두의_show_는_위젯_블록이고_propose_와_함께_도구_단계에_없다() throws Exception {
+    long uid = user();
+    HomeMessageResponse a =
+        assistantAfter(
+            uid,
+            (delta, progress, tool) -> {
+              tool.accept(start(1, "workplace_show_issue_list"));
+              tool.accept(start(2, "workplace_propose_create_issue"));
+              delta.accept("보여 드릴게요.");
+              return "보여 드릴게요.";
+            });
+
+    assertThat(a.toolCalls()).isNull();
+    assertThat(a.contentBlocks())
+        .isEqualTo(
+            om.readTree(
+                "[{\"kind\":\"widget\",\"widget\":{\"type\":\"issue_list\",\"params\":{}}},"
+                    + "{\"kind\":\"text\",\"textStart\":0}]"));
   }
 
   @Test

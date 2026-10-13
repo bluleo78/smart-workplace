@@ -75,6 +75,8 @@ public class AiMemoryRepository {
 
   /** 이 사용자의 생성·복원을 트랜잭션 끝까지 직렬화한다(자동 해제). */
   public void lockUser(long userId) {
+    // 2-int 잠금 키라 user id 를 int 로 접는다 — 21억을 넘는 id 가 다른 사용자와 겹쳐도 같은 잠금을 잠깐 나눠 쓸 뿐(직렬화가 넓어질 뿐 정합성은
+    // 같다).
     dsl.execute("SELECT pg_advisory_xact_lock(?, ?)", LOCK_CLASS, (int) userId);
   }
 

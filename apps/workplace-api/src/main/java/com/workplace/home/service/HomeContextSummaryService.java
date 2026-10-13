@@ -119,16 +119,6 @@ public class HomeContextSummaryService {
     return new ContextSnapshot(state.summary(), state.uptoMessageId(), raw);
   }
 
-  /** 예약 토큰 없는 호출(기존 호출부·테스트 호환). */
-  public ContextSnapshot fitToBudget(
-      long callerId,
-      UUID sessionId,
-      ContextSnapshot snap,
-      AssistantSpec spec,
-      Runnable onCompacting) {
-    return fitToBudget(callerId, sessionId, snap, spec, 0, onCompacting);
-  }
-
   /**
    * 하드 상한(예산) 이내면 그대로, 넘으면 동기 요약(onCompacting 으로 진행 표시 후). 요약이 실패하면 오래된 원문부터 버려 예산에 맞춘다 — 채팅은 계속
    * 진행.

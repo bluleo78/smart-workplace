@@ -83,8 +83,8 @@ class ChatBlockRecorder {
     }
 
     /**
-     * tool 이벤트의 memory 필드 → 블록. 모양이 틀리면 null(결과 줄을 만들지 않는다). updated 는 되돌릴 이전 내용이 있어야 하고, source 가
-     * 없으면 AI(판정 7).
+     * tool 이벤트의 memory 필드 → 블록. 모양이 틀리면 null(결과 줄을 만들지 않는다). updated 는 되돌릴 이전 내용(공백만은 안 됨)이 있어야 하고,
+     * source 가 없으면 AI(판정 7).
      */
     static Memory from(JsonNode m) {
       if (m == null || !m.isObject()) return null;
@@ -95,7 +95,8 @@ class ChatBlockRecorder {
       JsonNode prev = m.path("previousContent");
       if (!ACTIONS.contains(action) || !KINDS.contains(kind) || content.isBlank()) return null;
       if (!id.isIntegralNumber() || !id.canConvertToLong() || id.asLong() <= 0) return null;
-      if ("updated".equals(action) && !prev.isTextual()) return null;
+      // 빈 이전 내용은 되돌릴 수 없다(복원이 1~300자 검증에 걸린다) — 되돌리기 버튼만 남는 줄을 만들지 않는다.
+      if ("updated".equals(action) && (!prev.isTextual() || prev.asText().isBlank())) return null;
       String source = "USER".equals(m.path("source").asText()) ? "USER" : "AI";
       return new Memory(
           action,
