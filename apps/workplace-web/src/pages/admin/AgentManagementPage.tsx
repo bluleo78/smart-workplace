@@ -17,7 +17,6 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
   Sheet,
@@ -35,15 +34,11 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { formatDateOnly, formatDateTimeLocale } from '@/lib/formatters';
+import { formatDateOnly } from '@/lib/formatters';
 import { parseId } from '@/lib/historyParam';
 
 import { AgentBadge } from '../../components/users/AgentBadge';
-import {
-  useAgentKeys,
-  useIssueAgentKey,
-  useRevokeAgentKey,
-} from '../../hooks/queries/useAgentKeys';
+import { useRevokeAgentKey } from '../../hooks/queries/useAgentKeys';
 import { useAgents, useDeleteAgent } from '../../hooks/queries/useAgents';
 import { useWorkspaceAssistant } from '../../hooks/queries/useAssistant';
 import { useHistoryParam } from '../../hooks/useHistoryParam';
@@ -51,7 +46,6 @@ import {
   buildAgentLaunchCommand,
   buildMcpSetupCommand,
   externalKeyStatusText,
-  resolveMcpUrl,
   runtimeBadgeLabel,
   TOKEN_ENV,
 } from '../../lib/agentRuntime';
@@ -59,9 +53,15 @@ import { clickableRowProps } from '../../lib/clickableRowProps';
 import { AgentConnectionSection } from './components/AgentConnectionSection';
 import { AgentIdentitySection } from './components/AgentIdentitySection';
 import { AgentKeyIssueDialog } from './components/AgentKeyIssueDialog';
+import { AgentKeysSection } from './components/AgentKeysSection';
 import { AgentRuntimeSection } from './components/AgentRuntimeSection';
 import { CopyableCommand } from './components/CopyableCommand';
 import { NewAgentDialog } from './components/NewAgentDialog';
+
+// 외부 연결 안내 명령 — 입력(접속 origin·플레이스홀더)이 렌더마다 바뀌지 않아 모듈 로드 시 한 번만 만든다.
+// 실행 명령의 키 평문은 발급 직후 1회만 알 수 있어 드로어에서는 플레이스홀더로 둔다.
+const setupCommand = buildMcpSetupCommand();
+const launchCommand = buildAgentLaunchCommand();
 
 export default function AgentManagementPage() {
   // 개인 비서(자동 생성 AGENT) 포함 여부 토글. 기본 표시 — 토글로 숨김 가능.
@@ -73,11 +73,8 @@ export default function AgentManagementPage() {
   // 열린 에이전트 = URL ?agent(상세 시트 열림의 단일 원천, WP-209). 행 클릭은 push → 시스템 뒤로가기가 시트만 닫는다.
   const agentParam = useHistoryParam('agent');
   const selectedId = parseId(agentParam.value);
-  const keys = useAgentKeys(selectedId);
-  // selectedId 가 null 인 경우 0 으로 두지만, enabled=false 이므로 호출은 안 됨.
-  const issue = useIssueAgentKey(selectedId ?? 0);
+  // selectedId 가 null 인 경우 0 으로 두지만, mutate 는 키 행이 있을 때(선택됨)만 호출된다.
   const revoke = useRevokeAgentKey(selectedId ?? 0);
-  const [label, setLabel] = useState('');
   const [showNew, setShowNew] = useState(false);
   const [plaintext, setPlaintext] = useState<string | null>(null);
 
@@ -88,17 +85,6 @@ export default function AgentManagementPage() {
     actionLabel: string;
     action: () => void;
   } | null>(null);
-
-  const onIssue = async () => {
-    if (selectedId == null) return;
-    try {
-      const res = await issue.mutateAsync({ label: label.trim() || null });
-      setLabel('');
-      setPlaintext(res.plaintextKey);
-    } catch {
-      /* 토스트는 mutation onError 가 처리 */
-    }
-  };
 
   // API 키 회수 — AlertDialog 로 확인 후 실행.
   const onRevoke = (keyId: number) => {
@@ -127,97 +113,19 @@ export default function AgentManagementPage() {
 
   const selected = agents.data?.find((a) => a.id === selectedId) ?? null;
   const external = selected?.runtime === 'EXTERNAL';
-  // 외부 연결 안내 명령 — 등록은 한 번만, 실행 명령의 키 평문은 발급 직후 1회만 알 수 있어 드로어에서는 플레이스홀더로 둔다.
-  const setupCommand = buildMcpSetupCommand(resolveMcpUrl());
-  const launchCommand = buildAgentLaunchCommand();
+  // 키 발급 폼 + 키 목록 — 내부(API 키 블록)·외부(① 키 발급) 두 레이아웃이 공유한다. key 로 행 전환 시 label 입력 리셋.
+  const keysSection =
+    selected != null ? (
+      <AgentKeysSection
+        key={selected.id}
+        agentId={selected.id}
+        external={external}
+        onIssued={setPlaintext}
+        onRevoke={onRevoke}
+      />
+    ) : null;
   const isEmpty =
     !agents.isLoading && !agents.isError && (agents.data ?? []).length === 0;
-
-  // 키 발급 폼 + 키 목록 — 내부(API 키 블록)·외부(① 키 발급) 두 레이아웃이 공유한다.
-  const keyBlock = (
-                <div className="space-y-2" data-testid="agent-keys-block">
-                  {!external && <h3 className="text-sm font-medium">API 키</h3>}
-                  <form
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      void onIssue();
-                    }}
-                    className="flex gap-2"
-                    data-testid="key-issue-form"
-                  >
-                    <Input
-                      value={label}
-                      onChange={(e) => setLabel(e.target.value)}
-                      placeholder={external ? 'label (예: 맥북)' : 'label (선택)'}
-                      maxLength={80}
-                      aria-label="키 label"
-                    />
-                    <Button type="submit" disabled={issue.isPending}>
-                      키 발급
-                    </Button>
-                  </form>
-
-                  <div className="rounded-md border overflow-x-auto">
-                    {/* 좁은 화면(모바일 시트·외부 연결 카드 안)에서 열 제목이 글자 단위로 꺾이지 않게 줄바꿈을 막고,
-                        넘치는 폭은 바깥 div 의 가로 스크롤로 받는다. */}
-                    <table className="w-full whitespace-nowrap text-sm">
-                      <thead>
-                        <tr className="text-left text-muted-foreground border-b">
-                          <th className="py-2 px-3">prefix</th>
-                          <th className="px-3">label</th>
-                          <th className="px-3">발급</th>
-                          <th className="px-3">마지막 사용</th>
-                          <th className="px-3">회수</th>
-                          <th className="px-3"></th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {keys.isLoading ? (
-                          <tr>
-                            <td colSpan={6} className="py-4 text-muted-foreground text-center">
-                              로딩 중…
-                            </td>
-                          </tr>
-                        ) : (keys.data ?? []).length === 0 ? (
-                          <tr>
-                            <td colSpan={6} className="py-4 text-muted-foreground text-center">
-                              키가 없습니다
-                            </td>
-                          </tr>
-                        ) : (
-                          (keys.data ?? []).map((k) => (
-                            <tr key={k.id} className="border-b" data-testid={`key-row-${k.id}`}>
-                              <td className="py-2 px-3 font-mono">{k.keyPrefix}…</td>
-                              <td className="px-3">{k.label ?? '-'}</td>
-                              <td className="px-3 text-xs text-muted-foreground">
-                                {formatDateTimeLocale(k.createdAt)}
-                              </td>
-                              <td className="px-3 text-xs text-muted-foreground">
-                                {formatDateTimeLocale(k.lastUsedAt)}
-                              </td>
-                              <td className="px-3 text-xs text-muted-foreground">
-                                {formatDateTimeLocale(k.revokedAt)}
-                              </td>
-                              <td className="px-3">
-                                {k.revokedAt == null && (
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => onRevoke(k.id)}
-                                    data-testid={`key-revoke-${k.id}`}
-                                  >
-                                    회수
-                                  </Button>
-                                )}
-                              </td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-  );
 
   return (
     <SettingsPage
@@ -401,7 +309,7 @@ export default function AgentManagementPage() {
                     <h3 className="text-sm font-medium">외부 에이전트 연결</h3>
                     <div className="space-y-2">
                       <h4 className="text-xs font-medium text-muted-foreground">① 키 발급</h4>
-                                    {keyBlock}
+                      {keysSection}
                     </div>
                     <div className="space-y-2">
                       <h4 className="text-xs font-medium text-muted-foreground">
@@ -428,7 +336,7 @@ export default function AgentManagementPage() {
                     <AgentConnectionSection agentUserId={selected.id} />
 
                     {/* 인증 — API 키. */}
-                                    {keyBlock}
+                    {keysSection}
                   </>
                 )}
               </div>

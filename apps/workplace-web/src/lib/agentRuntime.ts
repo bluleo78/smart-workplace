@@ -30,15 +30,6 @@ export function isRuntimeLocked(type: AgentResponse['type']): boolean {
 export const RUNTIME_LOCKED_REASON =
   '공통 비서·개인 비서로 지정된 AI는 AI Chat을 서버에서 실행해야 해서 외부로 바꿀 수 없어요. 비서 지정을 먼저 해제하세요.';
 
-/**
- * 외부 에이전트가 접속할 공개 MCP 엔드포인트.
- * 웹 앱에 별도 env(VITE_*)가 없고, 같은 origin 의 /mcp 로 라우팅되므로 현재 접속 origin 에서 유도한다.
- * 운영은 Ingress(mcpPathOnWeb)가, 로컬 개발은 Vite 개발 서버 프록시(vite.config.ts 의 /mcp → 6090)가 MCP 서버로 보낸다.
- */
-export function resolveMcpUrl(origin: string = window.location.origin): string {
-  return `${origin}/mcp`;
-}
-
 /** 세션마다 genia-works 접속 토큰을 바꿔 끼우는 환경변수 이름. */
 export const TOKEN_ENV = 'GENIA_WORKS_TOKEN';
 
@@ -48,7 +39,12 @@ export const TOKEN_ENV = 'GENIA_WORKS_TOKEN';
  * Claude Code 는 ~/.claude.json 에 `${...}` 를 글자 그대로 저장하고 세션 시작 때 띄운 셸의 환경변수로 치환한다(실측).
  * 작은따옴표로 감싸 등록 시점 셸이 `${...}` 를 먼저 풀어 버리지 않게 한다.
  */
-export function buildMcpSetupCommand(mcpUrl: string): string {
+export function buildMcpSetupCommand(origin: string = window.location.origin): string {
+  // MCP 엔드포인트는 현재 접속 origin 의 /mcp — 웹 앱에 별도 env(VITE_MCP_URL)를 두지 않는다.
+  // 운영은 Ingress(mcpPathOnWeb)가, 로컬 개발은 Vite 개발 서버 프록시(vite.config.ts 의 /mcp → 6090)가 MCP 서버로 보낸다.
+  // 설정 › 토큰 발급 다이얼로그(TokenIssueDialog)는 VITE_MCP_URL 기반이라 주소 산출이 다르다 —
+  // 둘의 통일은 제품 결정 대기 중이라 의도적으로 따로 둔다.
+  const mcpUrl = `${origin}/mcp`;
   return [
     'claude mcp remove genia-works -s user',
     `claude mcp add -s user --transport http genia-works ${mcpUrl} --header 'Authorization: Bearer \${${TOKEN_ENV}:-<내 API 토큰>}'`,
