@@ -20,7 +20,7 @@ import type { ProviderCredential } from './agent-runner.js';
 import type { HostBridge } from '../mcp/tools.js';
 import { formatScreenContext, type ScreenContext } from './screen-context.js';
 import { opencodeVisionFor } from './opencode-vision.js';
-import { formatMemoryBlock, type MemoryItem } from './memory-block.js';
+import { formatMemoryBlock, type MemoryItem, subagentMemorySuffix } from './memory-block.js';
 import { FINALIZE_PROGRESS_LABEL, FINALIZE_TIMEOUT_MS, finalizeAfterLimit, ToolResultCollector } from './ai-chat-finalize.js';
 import { RunnerLimitError } from './runner-limit.js';
 import { awaitHomeExtraction, DEFAULT_ATTACHMENT_QUERY, EXTRACTION_WAIT_LABEL, formatHomeAttachmentsBlock, type HomeChatAttachment } from './home-attachments.js';
@@ -309,7 +309,7 @@ export async function runAiChatStream(
       opencodeVision, // WP-234: 첨부 블록 문구에 쓴 판단을 러너 config 에도 그대로
       // WP-55: 하위 에이전트 프롬프트 끝에 같은 메모리 블록 — 켜짐 + 1개 이상일 때만(하위 에이전트엔 메모리 도구가 없어 꺼짐 줄은 붙이지 않는다,
       // 판정 13). 요청마다 다르므로 opencode 러너는 이 값이 있으면 웜 풀을 쓰지 않는다(opencode-runner poolKeyFor).
-      subagentPromptSuffix: input.memoryEnabled === true && input.memories?.length ? `\n\n${memoryBlock}` : '',
+      subagentPromptSuffix: subagentMemorySuffix(memoryBlock, input.memoryEnabled),
       mcp: {
         client: mcpClient,
         onBehalfOfId: input.userId ?? agentId,

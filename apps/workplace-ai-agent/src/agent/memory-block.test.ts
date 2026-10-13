@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { formatMemoryBlock, MEMORY_OFF_LINE, memoryItemSchema } from './memory-block.js';
+import { formatMemoryBlock, MEMORY_OFF_LINE, memoryItemSchema, subagentMemorySuffix } from './memory-block.js';
 
 const M = [
   { id: 12, kind: 'PREFERENCE' as const, content: '이슈 목록은 표 대신 담당자만 붙인 짧은 목록으로 보여 준다' },
@@ -45,5 +45,22 @@ describe('memoryItemSchema', () => {
     expect(memoryItemSchema.safeParse({ id: 1, kind: 'CONTEXT', content: 'x' }).success).toBe(true);
     expect(memoryItemSchema.safeParse({ id: 1, kind: 'OTHER', content: 'x' }).success).toBe(false);
     expect(memoryItemSchema.safeParse({ id: 0, kind: 'CONTEXT', content: 'x' }).success).toBe(false);
+  });
+});
+
+describe('subagentMemorySuffix (WP-55 판정 13)', () => {
+  it('꺼짐·구 API → 빈 문자열(하위 에이전트엔 꺼짐 줄을 붙이지 않는다)', () => {
+    expect(subagentMemorySuffix(formatMemoryBlock(M, false), false)).toBe('');
+    expect(subagentMemorySuffix(formatMemoryBlock(M, null), null)).toBe('');
+    expect(subagentMemorySuffix(formatMemoryBlock([], undefined), undefined)).toBe('');
+  });
+
+  it('켜짐 + 0개 → 빈 문자열', () => {
+    expect(subagentMemorySuffix(formatMemoryBlock([], true), true)).toBe('');
+  });
+
+  it('켜짐 + N개 → 빈 줄 하나 뒤에 같은 블록', () => {
+    const block = formatMemoryBlock(M, true);
+    expect(subagentMemorySuffix(block, true)).toBe(`\n\n${block}`);
   });
 });

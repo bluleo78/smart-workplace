@@ -39,3 +39,11 @@ export function formatMemoryBlock(memories: readonly MemoryItem[], enabled: bool
   const lines = memories.map((m) => `- [#${m.id} ${KIND_LABEL[m.kind]}] ${oneLine(m.content)}`);
   return [MEMORY_BLOCK_HEADER, MEMORY_BLOCK_INTRO, ...lines].join('\n');
 }
+
+/**
+ * 하위 에이전트 프롬프트 끝에 붙일 접미사 — formatMemoryBlock 이 만든 블록(턴마다 한 번)을 그대로 받아 켜짐 + 1개 이상일 때만 싣는다(판정 13).
+ * 하위 에이전트엔 메모리 도구가 없으므로 꺼짐 줄은 붙이지 않는다. 켜짐 + 0개면 블록이 '' 라 접미사도 없다 — 켜짐·빈 규칙을 formatMemoryBlock 에서만 정한다.
+ */
+export function subagentMemorySuffix(block: string, enabled: boolean | null | undefined): string {
+  return enabled === true && block ? `\n\n${block}` : '';
+}
