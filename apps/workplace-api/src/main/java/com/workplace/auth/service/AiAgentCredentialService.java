@@ -72,6 +72,9 @@ public class AiAgentCredentialService {
       throw new InvalidProviderCredentialException("anthropic 등록에는 token 이 필수입니다");
     }
 
+    // 회수 전에 이전 active 의 provider 를 읽어 둔다(아래 추천 모델 초기화 판단용).
+    Optional<String> previousProvider =
+        repo.findActive(agentUserId).map(r -> normalizeProvider(r.provider()));
     repo.revokeActive(agentUserId); // 기존 active 가 있으면 회수 (없으면 noop)
 
     String encrypted = encryptionService.encrypt(plaintextSecret);
@@ -90,6 +93,13 @@ public class AiAgentCredentialService {
       ConfigRow cur = configRepo.find(agentUserId).orElse(new ConfigRow(null, null, null, null));
       configRepo.upsert(
           agentUserId, effectiveModel, cur.thinkingDepth(), cur.maxTurns(), cur.timeoutMs());
+    }
+    // WP-139: 추천 질문 모델도 provider 형식에 묶인다(Anthropic id ↔ opencode "providerId/model"). provider 가
+    // 바뀌었거나
+    // 이전 연결이 없어(회수 뒤 재등록 등) 저장값이 어느 provider 용인지 모르면 자동(null)으로 되돌린다 — 남겨 두면 새 러너가
+    // 모르는 모델로 실행돼 추천·후속 질문이 오류 표시 없이 전부 빠진다. 같은 provider 로 토큰만 갱신하면 사용자 선택을 지킨다.
+    if (!previousProvider.equals(Optional.of(normalizeProvider(provider)))) {
+      configRepo.updateSuggestionModel(agentUserId, null);
     }
 
     auditLogService.log(
@@ -224,6 +234,14 @@ public class AiAgentCredentialService {
     } catch (Exception e) {
       return null; // 메타 조회는 best-effort — 파싱 실패로 전체 응답을 깨뜨리지 않는다.
     }
+  }
+
+  /**
+   * provider 비교용 정규화 — 미기록(V119 이전 레거시)은 anthropic(SuggestionModelPolicy·ProviderCredentialSecrets
+   * 와 같은 규칙).
+   */
+  private static String normalizeProvider(String provider) {
+    return SuggestionModelPolicy.isAnthropic(provider) ? "anthropic" : provider;
   }
 
   private UserResponse assertAgent(Long userId) {

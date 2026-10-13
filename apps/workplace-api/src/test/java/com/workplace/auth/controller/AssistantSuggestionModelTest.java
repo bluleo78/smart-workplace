@@ -80,18 +80,30 @@ class AssistantSuggestionModelTest extends IntegrationTestBase {
   /** opencode(모델 gpt-4.1) 로 개인 비서를 등록한 사용자 — MyAssistantControllerTest 의 opencode 등록과 같은 본문. */
   private long humanWithOpencodeAssistant() throws Exception {
     long human = TestFixtures.createHuman(dsl);
-    var config =
-        new ProviderConfig(
-            "openai", null, Map.of("baseURL", "https://api.example.com/v1", "apiKey", "sk-xxxx"));
-    var req =
-        new RegisterAssistantCredentialRequest("opencode", null, config, "gpt-4.1", "opencode");
+    registerCredential(human, "opencode");
+    return human;
+  }
+
+  /** 기존 사용자의 개인 비서 자격증명을 (재)등록 — provider 는 "anthropic" 또는 "opencode"(모델 gpt-4.1). */
+  private void registerCredential(long human, String provider) throws Exception {
+    String body;
+    if ("opencode".equals(provider)) {
+      var config =
+          new ProviderConfig(
+              "openai", null, Map.of("baseURL", "https://api.example.com/v1", "apiKey", "sk-xxxx"));
+      body =
+          om.writeValueAsString(
+              new RegisterAssistantCredentialRequest(
+                  "opencode", null, config, "gpt-4.1", "opencode"));
+    } else {
+      body = "{\"token\":\"" + "Y".repeat(64) + "\",\"label\":\"t2\"}";
+    }
     mvc.perform(
             put("/api/v1/users/me/assistant/credential")
                 .with(authentication(auth(human)))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(om.writeValueAsString(req)))
+                .content(body))
         .andExpect(status().isNoContent());
-    return human;
   }
 
   private ResultActions putSettings(long human, String json) throws Exception {
@@ -203,6 +215,58 @@ class AssistantSuggestionModelTest extends IntegrationTestBase {
     // null — ai-agent 가 credential.model(비서 모델)을 쓴다.
     assertThat(resolver.resolve(human).suggestionModel()).isNull();
     statusOf(human).andExpect(jsonPath("$.suggestionModelAuto").value("gpt-4.1"));
+  }
+
+  @Test
+  void 추천_모델의_앞뒤_공백은_걷고_공백뿐이면_자동으로_돌아간다() throws Exception {
+    long human = humanWithAssistant();
+    putSettings(human, "{\"suggestionModel\":\"  claude-haiku-5-5  \"}")
+        .andExpect(status().isNoContent());
+    statusOf(human).andExpect(jsonPath("$.suggestionModel").value("claude-haiku-5-5"));
+
+    putSettings(human, "{\"suggestionModel\":\"   \"}").andExpect(status().isNoContent());
+    statusOf(human).andExpect(jsonPath("$.suggestionModel").doesNotExist());
+  }
+
+  @Test
+  void 다른_제공자로_재등록하면_추천_모델이_자동으로_돌아간다() throws Exception {
+    // 실측 위험(최종 리뷰 I1): Anthropic 용 추천 모델이 opencode 연결에 그대로 실리면 추천·후속이 조용히 전부 실패한다.
+    long human = humanWithAssistant();
+    putSettings(human, "{\"suggestionModel\":\"claude-haiku-5-5\"}")
+        .andExpect(status().isNoContent());
+
+    registerCredential(human, "opencode");
+
+    statusOf(human)
+        .andExpect(jsonPath("$.suggestionModel").doesNotExist())
+        .andExpect(jsonPath("$.suggestionModelAuto").value("gpt-4.1"));
+    // opencode 자동 — 모델을 싣지 않아 ai-agent 가 연결 모델을 쓴다.
+    assertThat(resolver.resolve(human).suggestionModel()).isNull();
+  }
+
+  @Test
+  void opencode_에서_Anthropic_으로_재등록해도_추천_모델이_자동으로_돌아간다() throws Exception {
+    long human = humanWithOpencodeAssistant();
+    putSettings(human, "{\"suggestionModel\":\"openai/gpt-4.1-mini\"}")
+        .andExpect(status().isNoContent());
+
+    registerCredential(human, "anthropic");
+
+    statusOf(human)
+        .andExpect(jsonPath("$.suggestionModel").doesNotExist())
+        .andExpect(jsonPath("$.suggestionModelAuto").value("claude-haiku-test"));
+    assertThat(resolver.resolve(human).suggestionModel()).isEqualTo("claude-haiku-test");
+  }
+
+  @Test
+  void 같은_제공자로_토큰만_갱신하면_추천_모델을_지킨다() throws Exception {
+    long human = humanWithAssistant();
+    putSettings(human, "{\"suggestionModel\":\"claude-opus-5-5\"}")
+        .andExpect(status().isNoContent());
+
+    registerCredential(human, "anthropic");
+
+    statusOf(human).andExpect(jsonPath("$.suggestionModel").value("claude-opus-5-5"));
   }
 
   @Test
