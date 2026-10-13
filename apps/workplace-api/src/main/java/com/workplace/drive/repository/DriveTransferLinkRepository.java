@@ -53,8 +53,8 @@ public class DriveTransferLinkRepository {
   }
 
   /**
-   * 발급자의 만료된 링크 행을 지운다(발급 시 정리 — 이 테이블을 훑는 정리 스케줄러는 없다). 만료 전 사용된 행은 남겨 재사용 요청이 404 가 아니라 410 을 받게
-   * 한다.
+   * 발급자의 만료된 링크 행을 지운다(발급 시 정리 — 주기 정리는 {@link #purgeExpired}). 만료 전 사용된 행은 남겨 재사용 요청이 404 가 아니라
+   * 410 을 받게 한다.
    *
    * @return 지운 행 수
    */
@@ -63,6 +63,18 @@ public class DriveTransferLinkRepository {
         .where(DRIVE_TRANSFER_LINK.USER_ID.eq(userId))
         .and(DRIVE_TRANSFER_LINK.EXPIRES_AT.lt(DSL.currentOffsetDateTime()))
         .execute();
+  }
+
+  /**
+   * 만료 뒤 하루가 지난 행을 모든 테넌트에서 지운다(정리 스케줄러용) — SECURITY DEFINER 함수라 테넌트 컨텍스트 없이 RLS 를 우회한다. 하루를 남겨 막
+   * 만료·사용된 링크의 재사용 요청이 404 가 아니라 410 을 받게 한다.
+   *
+   * @return 지운 행 수
+   */
+  public int purgeExpired() {
+    Integer deleted =
+        dsl.resultQuery("SELECT drive_transfer_link_purge_expired()").fetchOne(0, Integer.class);
+    return deleted == null ? 0 : deleted;
   }
 
   /** 공개 조회 — SECURITY DEFINER 함수(테넌트 컨텍스트·RLS 무관). 사용·만료 여부와 상관없이 행을 돌려준다. */

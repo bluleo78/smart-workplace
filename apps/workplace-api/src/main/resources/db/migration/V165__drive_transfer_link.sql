@@ -43,10 +43,12 @@ CREATE FUNCTION drive_transfer_link_resolve(p_token_hash VARCHAR)
 RETURNS TABLE(id BIGINT, tenant_id BIGINT, kind VARCHAR, user_id BIGINT, space_id BIGINT,
               folder_id BIGINT, drive_file_id BIGINT, file_name VARCHAR,
               expires_at TIMESTAMPTZ, used_at TIMESTAMPTZ)
-LANGUAGE sql SECURITY DEFINER SET search_path = public AS $$
+LANGUAGE sql SECURITY DEFINER SET search_path = public, pg_temp AS $$
   SELECT t.id, t.tenant_id, t.kind, t.user_id, t.space_id, t.folder_id, t.drive_file_id,
          t.file_name, t.expires_at, t.used_at
   FROM drive_transfer_link t WHERE t.token_hash = p_token_hash $$;
+-- 함수는 기본으로 PUBLIC 에 EXECUTE 가 열린다 — 쓰는 롤(app_tenant)에만 준다(V163 관례).
+REVOKE ALL ON FUNCTION drive_transfer_link_resolve(VARCHAR) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION drive_transfer_link_resolve(VARCHAR) TO app_tenant;
 
 -- 공개 원자적 소비(테넌트 컨텍스트 없음): 미사용·만료 전·종류 일치일 때만 used_at 을 채우고 그 행을 돌려준다.
@@ -55,10 +57,22 @@ CREATE FUNCTION drive_transfer_link_consume(p_token_hash VARCHAR, p_kind VARCHAR
 RETURNS TABLE(id BIGINT, tenant_id BIGINT, kind VARCHAR, user_id BIGINT, space_id BIGINT,
               folder_id BIGINT, drive_file_id BIGINT, file_name VARCHAR,
               expires_at TIMESTAMPTZ, used_at TIMESTAMPTZ)
-LANGUAGE sql SECURITY DEFINER SET search_path = public AS $$
+LANGUAGE sql SECURITY DEFINER SET search_path = public, pg_temp AS $$
   UPDATE drive_transfer_link t SET used_at = now()
   WHERE t.token_hash = p_token_hash AND t.kind = p_kind
     AND t.used_at IS NULL AND t.expires_at > now()
   RETURNING t.id, t.tenant_id, t.kind, t.user_id, t.space_id, t.folder_id, t.drive_file_id,
             t.file_name, t.expires_at, t.used_at $$;
+REVOKE ALL ON FUNCTION drive_transfer_link_consume(VARCHAR, VARCHAR) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION drive_transfer_link_consume(VARCHAR, VARCHAR) TO app_tenant;
+
+-- 만료 행 주기 정리(테넌트 컨텍스트 없음 — 정리 스케줄러가 부른다): 만료 뒤 하루가 지난 행을 모든 테넌트에서 지운다.
+-- 하루를 남기는 것은 막 만료·사용된 링크를 다시 쓰려는 요청이 404(없음)가 아니라 410(만료·사용됨)을 받게 하려는 것이다.
+CREATE FUNCTION drive_transfer_link_purge_expired()
+RETURNS INTEGER
+LANGUAGE sql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+  WITH d AS (
+    DELETE FROM drive_transfer_link t WHERE t.expires_at < now() - interval '1 day' RETURNING 1)
+  SELECT count(*)::int FROM d $$;
+REVOKE ALL ON FUNCTION drive_transfer_link_purge_expired() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION drive_transfer_link_purge_expired() TO app_tenant;
