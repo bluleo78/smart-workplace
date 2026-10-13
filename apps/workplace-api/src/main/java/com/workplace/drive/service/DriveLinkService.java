@@ -295,7 +295,9 @@ public class DriveLinkService {
     // DB 부분 유니크 인덱스(uq_drive_file_active_name) 위반이 500 으로 번지기 전에 409 로 알린다(WP-354).
     if (folderId != null) {
       long folderSpace =
-          folderRepo.findSpaceId(folderId).orElseThrow(() -> new DriveFolderNotFoundException(folderId));
+          folderRepo
+              .findSpaceId(folderId)
+              .orElseThrow(() -> new DriveFolderNotFoundException(folderId));
       if (folderSpace != spaceId) {
         throw new DriveInvalidTargetException("다른 공간의 폴더에는 가져올 수 없습니다.");
       }

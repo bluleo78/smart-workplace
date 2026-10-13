@@ -157,7 +157,7 @@ export function stripMessageUserIds({ authorId: _authorId, ...rest }: Raw): Raw 
   return out;
 }
 
-/** 리액션 집계 [{emoji,count,reacted}] → { "👍": 2 }. 누른 사람 목록은 서버에도 없고, reacted(내가 눌렀나)는 읽기 맥락에서 쓸모가 적다. */
+/** 리액션 집계 [{emoji,count,reacted}] → { "👍": 2 }. 누른 사람 목록은 서버에 GET /api/v1/messaging/messages/{id}/reactions/users(WP-106)로 따로 있지만 메시지 목록 응답에는 없고 도구 뷰도 개수만 둔다. reacted(내가 눌렀나)는 읽기 맥락에서 쓸모가 적다. */
 function reactionSummary(reactions: unknown): Record<string, number> | undefined {
   if (!Array.isArray(reactions) || reactions.length === 0) return undefined;
   const entries = (reactions as Raw[]).filter((r) => typeof r.emoji === 'string').map((r) => [r.emoji as string, Number(r.count ?? 0)] as const);

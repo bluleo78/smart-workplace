@@ -1212,8 +1212,10 @@ export function buildTools(
   }
 
   // issue 프로파일(기본) — 이슈 읽기/쓰기 + 위키 읽기 그라운딩.
+  // get_project: create_issue/update_issue 의 유형·라벨·마일스톤·사이클·담당자 이름이 이 도구의 결과(프로젝트 설정·members)에서 오므로 함께 둔다.
   return [
     sharedTool('get_issue_detail'),
+    sharedTool('get_project'),
     sharedTool('list_wiki_spaces'),
     sharedTool('search_wiki'),
     sharedTool('get_wiki_page'),

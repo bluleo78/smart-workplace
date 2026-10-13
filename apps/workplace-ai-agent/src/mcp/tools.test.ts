@@ -240,13 +240,14 @@ const readLines = (p: string) => readFileSync(p, 'utf8').trim().split('\n').map(
 // 프로필 구성(멤버십)
 // ---------------------------------------------------------------------------
 describe('프로필 구성', () => {
-  it('issue 프로필(기본): 이슈 읽기/쓰기 + 위키 읽기 도구', () => {
+  it('issue 프로필(기본): 이슈 읽기/쓰기 + 프로젝트 조회(get_project) + 위키 읽기 도구', () => {
     const names = buildTools(client(), AGENT_ID).map((t) => t.name).sort();
     expect(names).toEqual([
       'add_comment',
       'add_issue_dependency',
       'create_issue',
       'get_issue_detail',
+      'get_project',
       'get_wiki_page',
       'list_wiki_spaces',
       'remove_issue_dependency',
