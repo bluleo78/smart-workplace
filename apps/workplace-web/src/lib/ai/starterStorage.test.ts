@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { createStarterStore, seoulDate, STARTER_STORAGE_PREFIX } from './starterStorage';
+import { kstDateKey } from '@/lib/formatters';
+
+import { createStarterStore, STARTER_STORAGE_PREFIX } from './starterStorage';
 
 /** 메모리 Storage — 실패 주입 가능(chatStreams.test 와 같은 방식). */
 function memStorage(opts: { failGet?: boolean; failSet?: Error } = {}) {
@@ -22,10 +24,10 @@ function setup(storage = memStorage(), at = '2026-10-13T00:30:00Z') {
   return { store, storage, setNow: (iso: string) => void (now = new Date(iso)) };
 }
 
-describe('seoulDate', () => {
+describe('만료 판정 날짜(kstDateKey)', () => {
   it('UTC 15:30 은 서울 다음 날', () => {
-    expect(seoulDate(new Date('2026-10-13T15:30:00Z'))).toBe('2026-10-14');
-    expect(seoulDate(new Date('2026-10-13T14:59:00Z'))).toBe('2026-10-13');
+    expect(kstDateKey(new Date('2026-10-13T15:30:00Z'))).toBe('2026-10-14');
+    expect(kstDateKey(new Date('2026-10-13T14:59:00Z'))).toBe('2026-10-13');
   });
 });
 
@@ -42,6 +44,16 @@ describe('저장·만료', () => {
     const storage = memStorage();
     setup(storage).store.save(OWNER, 'k', ['x']);
     expect(setup(storage).store.peek(OWNER, 'k')).toEqual({ items: ['x'], fresh: true });
+  });
+  it('localStorage 는 소유자마다 한 번만 읽고, 없는 키도 메모리로 판정한다', () => {
+    const storage = memStorage();
+    const getItem = vi.spyOn(storage, 'getItem');
+    const { store } = setup(storage);
+    expect(store.peek(OWNER, 'a')).toBeNull();
+    expect(store.peek(OWNER, 'b')).toBeNull();
+    store.save(OWNER, 'a', ['x']);
+    expect(store.peek(OWNER, 'a')?.items).toEqual(['x']);
+    expect(getItem).toHaveBeenCalledTimes(1);
   });
   it('사용자·워크스페이스별로 나뉜다', () => {
     const { store } = setup();

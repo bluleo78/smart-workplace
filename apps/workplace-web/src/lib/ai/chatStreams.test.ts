@@ -733,11 +733,11 @@ describe('후속 질문 followups (WP-139)', () => {
     expect(turnsOf(s, 's-a')?.some((t) => 'followups' in t && t.followups)).toBe(false);
   });
 
-  it('중복된 항목은 한 번만 싣는다', () => {
+  it('문자열이 아닌 항목은 버린다(중복 제거는 ai-agent 몫)', () => {
     const { s } = setup();
     ask(s, 'A', 'corr-a', 's-a');
     ev(s, 'done', { correlationId: 'corr-a', sessionId: 's-a', widgets: null });
-    ev(s, 'followups', { correlationId: 'corr-a', sessionId: 's-a', messageId: 2, items: ['x 알려줘', 'x 알려줘', 'y 알려줘'] });
+    ev(s, 'followups', { correlationId: 'corr-a', sessionId: 's-a', messageId: 2, items: ['x 알려줘', 3, null, 'y 알려줘'] });
     expect(last(s, 's-a')).toMatchObject({ followups: ['x 알려줘', 'y 알려줘'] });
   });
 

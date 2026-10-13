@@ -1,6 +1,10 @@
 // 빈 AI 대화 추천 결과 저장소(WP-139) — 같은 대상의 이전 AI 결과를 즉시 보여 주고(stale-while-revalidate), 서울 날짜가 같으면 다시 부르지 않는다.
-// 앞단 메모리 Map(같은 탭의 결과·진행 중 요청·실패 공유) + 뒷단 localStorage(키 `ai-starter:v1:<userId>:<tenantId>`, 최근 저장 50개).
+// 앞단 메모리(소유자별로 localStorage 를 한 번만 읽어 올린 결과·진행 중 요청·실패 공유) + 뒷단 localStorage(키 `ai-starter:v1:<userId>:<tenantId>`,
+// 최근 저장 50개). 한 번 올린 뒤 없는 키도 메모리로 판정한다 — 다른 탭이 그 뒤에 쓴 결과는 새로고침 전까지 보지 않는다(캐시라 충분하다).
 // localStorage 접근은 전부 try/catch — 사생활 보호 모드·용량 초과·깨진 JSON 이어도 메모리만으로 동작한다. 실패는 메모리에만, 10분 동안만 기록한다.
+import { kstDateKey } from '@/lib/formatters';
+import { safeLocalStorage } from '@/lib/safeLocalStorage';
+
 
 /** localStorage 키 접두 — 로그아웃 때 이 접두의 키를 모두 지운다. */
 export const STARTER_STORAGE_PREFIX = 'ai-starter:v1:';
@@ -10,7 +14,7 @@ const MAX_ENTRIES = 50;
  * 실패(빈 결과·오류)를 기억하는 시간 — 그사이엔 다시 부르지 않는다. 하루 내내 막으면 비서를 막 연결했거나 일시 장애였을 때 그날 고정 문구만 남는다.
  * 타이머로 다시 부르지는 않는다 — 10분 뒤 패널을 다시 열거나 대상이 바뀔 때(훅 효과가 다시 돌 때) 부른다.
  */
-export const FAILURE_COOLDOWN_MS = 10 * 60 * 1000;
+const FAILURE_COOLDOWN_MS = 10 * 60 * 1000;
 
 type KeyValueStore = Pick<Storage, 'getItem' | 'setItem' | 'removeItem' | 'key'> & { readonly length: number };
 
@@ -22,10 +26,6 @@ interface StoredEntry {
   at: number;
 }
 
-const SEOUL_DATE = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' });
-/** 서울 날짜 yyyy-MM-dd — 표시용이 아니라 만료 판정 키라 formatters 를 쓰지 않는다. */
-export const seoulDate = (d: Date): string => SEOUL_DATE.format(d);
-
 const isEntry = (v: unknown): v is StoredEntry => {
   const e = v as StoredEntry | null;
   return !!e && Array.isArray(e.items) && e.items.every((x) => typeof x === 'string') && typeof e.date === 'string' && typeof e.at === 'number';
@@ -33,23 +33,25 @@ const isEntry = (v: unknown): v is StoredEntry => {
 
 /** 저장소 생성 — 테스트는 storage·now 를 주입한다. 기본은 window.localStorage(접근이 막히면 null). */
 export function createStarterStore(opts: { storage?: () => KeyValueStore | null; now?: () => Date } = {}) {
-  const readStorage =
-    opts.storage ??
-    (() => {
-      try {
-        return typeof window === 'undefined' ? null : window.localStorage;
-      } catch {
-        return null;
-      }
-    });
+  const readStorage = opts.storage ?? safeLocalStorage;
   const now = opts.now ?? (() => new Date());
-  const memory = new Map<string, StoredEntry>();
+  /** 소유자 → 저장 결과(대상 키 → 항목). localStorage 는 소유자마다 처음 한 번만 파싱해 올린다. */
+  const owners = new Map<string, Record<string, StoredEntry>>();
   const failures = new Map<string, number>(); // 키 → 실패 시각(ms)
   const inflight = new Map<string, Promise<string[]>>();
   /** clearAll(로그아웃) 마다 올린다 — 로그아웃 전에 시작한 요청이 뒤늦게 끝나 지운 저장소를 다시 채우지 않게 한다. */
   let epoch = 0;
   const mk = (owner: string, key: string) => `${owner}|${key}`;
 
+  /** 소유자의 저장 결과 — 메모리에 없을 때만 localStorage 를 읽어 올린다. */
+  function entriesOf(owner: string): Record<string, StoredEntry> {
+    let map = owners.get(owner);
+    if (!map) {
+      map = readAll(owner);
+      owners.set(owner, map);
+    }
+    return map;
+  }
   function readAll(owner: string): Record<string, StoredEntry> {
     try {
       const raw = readStorage()?.getItem(STARTER_STORAGE_PREFIX + owner);
@@ -70,23 +72,15 @@ export function createStarterStore(opts: { storage?: () => KeyValueStore | null;
 
   /** 저장된 결과 — fresh 는 저장 날짜가 오늘(서울)인지. 없으면 null. */
   function peek(owner: string, key: string): { items: string[]; fresh: boolean } | null {
-    let e = memory.get(mk(owner, key));
-    if (!e) {
-      const stored = readAll(owner)[key];
-      if (stored) {
-        e = stored;
-        memory.set(mk(owner, key), stored);
-      }
-    }
-    return e ? { items: e.items, fresh: e.date === seoulDate(now()) } : null;
+    const e = entriesOf(owner)[key];
+    return e ? { items: e.items, fresh: e.date === kstDateKey(now()) } : null;
   }
 
   /** AI 결과 저장 — 메모리 + localStorage(최근 50개). 같은 키의 실패 기록은 지운다. */
   function save(owner: string, key: string, items: string[]) {
-    const entry: StoredEntry = { items, date: seoulDate(now()), at: now().getTime() };
-    memory.set(mk(owner, key), entry);
+    const entry: StoredEntry = { items, date: kstDateKey(now()), at: now().getTime() };
     failures.delete(mk(owner, key));
-    const map = readAll(owner);
+    const map = entriesOf(owner);
     map[key] = entry;
     const keys = Object.keys(map);
     if (keys.length > MAX_ENTRIES) {
@@ -140,7 +134,7 @@ export function createStarterStore(opts: { storage?: () => KeyValueStore | null;
   /** 로그아웃 — 메모리와 이 접두의 localStorage 키를 모두 지운다(다른 계정에 이전 결과가 보이지 않게). */
   function clearAll() {
     epoch++;
-    memory.clear();
+    owners.clear();
     failures.clear();
     inflight.clear();
     try {
@@ -159,8 +153,6 @@ export function createStarterStore(opts: { storage?: () => KeyValueStore | null;
 
   return { peek, save, markFailed, recentlyFailed, resetFailures: () => failures.clear(), run, clearAll };
 }
-
-export type StarterStore = ReturnType<typeof createStarterStore>;
 
 /** 앱 전역 기본 인스턴스. */
 export const starterStore = createStarterStore();

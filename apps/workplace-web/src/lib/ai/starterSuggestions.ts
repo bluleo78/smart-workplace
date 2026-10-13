@@ -24,14 +24,16 @@ const BY_FOCUS_TYPE: Record<string, readonly string[]> = {
 const CONTACT_MEMBER: readonly string[] = ['이 사람과 최근 주고받은 메일 보여줘', '이 사람이 담당한 진행 중 이슈 보여줘', '이 사람과 다음 회의 일정 알려줘'];
 const CONTACT_EXTERNAL: readonly string[] = ['이 사람과 최근 주고받은 메일 보여줘', '이 사람과 다음 회의 일정 알려줘'];
 
-/** 화면 맞춤인가 — 보고 있는 대상이 있고 식별자가 1개 이상(새 일정 작성 중처럼 refs 가 비면 일반). */
-export function isTailoredContext(ctx: AiScreenContext | null): boolean {
+/** 화면 맞춤인가 — 보고 있는 대상이 있고 식별자가 1개 이상(새 일정 작성 중처럼 refs 가 비면 일반). 참이면 focus 가 있다. */
+export function isTailoredContext(
+  ctx: AiScreenContext | null,
+): ctx is AiScreenContext & { focus: NonNullable<AiScreenContext['focus']> } {
   return !!ctx?.focus && Object.keys(ctx.focus.refs ?? {}).length > 0;
 }
 
 /** 표에 있는 화면 맞춤 고정 문구 — 없으면 null(일반 문구를 쓴다). fixedStarters·starterHeading 이 같은 판정을 쓰게 한 곳에 둔다. */
 function tailoredStarters(ctx: AiScreenContext | null): readonly string[] | null {
-  if (!isTailoredContext(ctx) || !ctx?.focus) return null;
+  if (!isTailoredContext(ctx)) return null;
   const { type, refs } = ctx.focus;
   if (type === '연락처') return refs.username ? CONTACT_MEMBER : refs.externalId ? CONTACT_EXTERNAL : null;
   return BY_FOCUS_TYPE[type] ?? null;

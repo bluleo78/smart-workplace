@@ -5,6 +5,7 @@ import { type AiActivity, aiActivity } from '@/lib/ai/aiActivity';
 import { appendDelta, appendProgress, applyDoneWidgets, applyTool, markInterrupted, toCards } from '@/lib/ai/chatTurns';
 import { onAiStreamEvent } from '@/lib/aiEventBus';
 import { revokeTurnPreviews, withoutTurnAttachments } from '@/lib/homeChatAttachments';
+import { safeLocalStorage } from '@/lib/safeLocalStorage';
 import type {
   ActiveChatItem,
   ChatTurn,
@@ -107,15 +108,7 @@ const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
 
 /** 저장소 생성 — 테스트는 storage 를 주입해 격리한다. 기본은 window.localStorage(접근이 막히면 null). */
 export function createChatStreams(opts: { storage?: () => KeyValueStore | null } = {}) {
-  const readStorage =
-    opts.storage ??
-    (() => {
-      try {
-        return typeof window === 'undefined' ? null : window.localStorage;
-      } catch {
-        return null;
-      }
-    });
+  const readStorage = opts.storage ?? safeLocalStorage;
 
   let entries = new Map<string, StreamEntry>();
   let currentKey: string | null = null;
@@ -281,8 +274,8 @@ export function createChatStreams(opts: { storage?: () => KeyValueStore | null }
   function applyFollowups(data: Record<string, unknown>) {
     const cid = str(data.correlationId);
     const sid = str(data.sessionId);
-    // 중복 문구는 한 번만 — 칩 key 를 문구로 쓴다.
-    const items = Array.isArray(data.items) ? [...new Set(data.items.filter((x): x is string => typeof x === 'string'))] : [];
+    // 중복 제거는 ai-agent 가 이미 한다 — 여기서는 문자열만 남긴다.
+    const items = Array.isArray(data.items) ? data.items.filter((x): x is string => typeof x === 'string') : [];
     if (!cid || !sid || items.length === 0) return;
     const e = entries.get(sid);
     if (!e || e.pending || e.lastDoneCid !== cid) return;

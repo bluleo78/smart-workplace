@@ -257,14 +257,20 @@ export function formatCellValue(value: unknown, dataType?: string): string {
   return str;
 }
 
+// en-CA 로케일은 YYYY-MM-DD 형식을 안정적으로 반환 — 매 호출 새로 만들지 않게 모듈 수준에 하나 둔다.
+const KST_DATE_KEY = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' });
+
+/** Date → KST 기준 날짜 키(YYYY-MM-DD). 날짜 비교·만료 판정용(표시용 아님). */
+export function kstDateKey(d: Date): string {
+  return KST_DATE_KEY.format(d);
+}
+
 /**
  * KST 기준 날짜 키를 반환한다 (YYYY-MM-DD 형식).
  * 채팅 날짜 구분선 삽입 시 인접 메시지의 날짜 비교에 사용된다(이슈 #338).
  */
 export function getDateKey(dateStr: string): string {
-  const d = parseUtcDate(dateStr);
-  // en-CA 로케일은 YYYY-MM-DD 형식을 안정적으로 반환
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(d);
+  return kstDateKey(parseUtcDate(dateStr));
 }
 
 export function formatFileSize(bytes: number): string {

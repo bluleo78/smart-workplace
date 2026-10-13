@@ -15,6 +15,9 @@ import type { AiPreferences } from '@/types/aiSuggestions';
 /** 화면 이동·칩 전환이 이어질 때 마지막 대상만 부른다. */
 const DEBOUNCE_MS = 300;
 
+/** 목록 상태(StarterView)의 대상 키 — 소유자와 저장 키를 묶는다. 화면 상태와 도착한 결과(incoming)가 같은 규칙을 쓴다. */
+const viewKeyOf = (owner: string | null, key: string) => `${owner ?? '-'}|${key}`;
+
 export interface StarterSuggestions {
   heading: string;
   items: string[];
@@ -44,7 +47,7 @@ export function useStarterSuggestions({
   const owner = user ? `${user.id}:${activeTenant?.tenantId ?? 0}` : null;
   const userId = user?.id;
   const key = starterContextKey(ctx);
-  const viewKey = `${owner ?? '-'}|${key}`;
+  const viewKey = viewKeyOf(owner, key);
 
   const initial = (): StarterView => ({
     key: viewKey,
@@ -97,7 +100,7 @@ export function useStarterSuggestions({
           // 효과가 정리된 뒤(목록이 사라짐·대상이 바뀜)에 도착해도 반영한다 — 같은 대상으로 목록이 다시 뜨면 저장 결과가 있어
           // 다시 부르지 않으므로, 여기서 버리면 고정 문구가 남는다. incoming 은 대상 키를 달고 있어 다른 대상이면 settleStarterView 가 버린다.
           // (언마운트 뒤 setState 는 무시된다 — 다음 마운트는 저장소를 읽는다.)
-          if (items.length) setView((v) => ({ ...v, incoming: { key: `${owner}|${key}`, items } }));
+          if (items.length) setView((v) => ({ ...v, incoming: { key: viewKeyOf(owner, key), items } }));
         });
     }, DEBOUNCE_MS);
     return () => clearTimeout(timer);
