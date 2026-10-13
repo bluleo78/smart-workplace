@@ -3,11 +3,13 @@ import type { AgentWorkState, AgentWorkView, IssueResponse } from '../types/issu
 
 /** 사용자 관점 라벨 — "내가 할 일"이 드러나게(답변 필요·검토 필요), 메일의 "회신 필요"와 같은 어휘. */
 export const AGENT_STATE_LABEL: Record<AgentWorkState | 'NOT_STARTED', string> = {
-  WAITING: '답변 필요',
+  INPUT_REQUIRED: '답변 필요',
+  AUTH_REQUIRED: '인증 필요',
   REVIEW: '검토 필요',
   BLOCKED: '막힘',
   WORKING: '작업 중',
   PAUSED: '일시 중지',
+  SUBMITTED: '시작 전',
   NOT_STARTED: '시작 전',
 }
 
@@ -28,7 +30,7 @@ export function primaryWork(list?: AgentWorkView[]): AgentWorkView | null {
 
 /** 이슈 상세 질문 카드에 올릴 작업 — AI 구성원(AGENT)이 답변을 기다리는 첫 건. 사람의 답변 필요는 터미널에서 답하므로 제외. */
 export function questionWork(list?: AgentWorkView[]): AgentWorkView | null {
-  return list?.find((w) => w.state === 'WAITING' && w.worker.kind === 'AGENT') ?? null
+  return list?.find((w) => w.state === 'INPUT_REQUIRED' && w.worker.kind === 'AGENT') ?? null
 }
 
 /** 진행률 — 막대는 progress 우선(없으면 단계 비율), 글자는 단계가 있으면 단계(3/5) 아니면 퍼센트. 둘 다 없으면 null. */

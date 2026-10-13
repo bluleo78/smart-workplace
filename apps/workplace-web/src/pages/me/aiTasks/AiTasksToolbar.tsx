@@ -10,20 +10,20 @@ import { cn } from '@/lib/utils'
 import { HIDE_SCROLLBAR } from '@/pages/projects/components/mobile/chipStyles'
 
 import { MeTaskFilterBar } from '../MeTaskFilterBar'
-import { QUICK_STATES, type QuickState } from './aiTaskParams'
+import { QUICK_STATE_META, QUICK_STATES, type QuickState } from './aiTaskParams'
 
 /** 칩 키 — testid·건수 키로 함께 쓴다(counts 응답 필드명과 같다). */
-type ChipKey = 'all' | 'waiting' | 'review' | 'blocked' | 'working'
+type ChipKey = 'all' | 'inputRequired' | 'review' | 'blocked' | 'working'
 
 const SCOPES = [
   { key: 'mine', label: '나와 관련' },
   { key: 'all', label: '전체' },
 ] as const
 
-// 전체 칩 + 상태 칩 — 상태 칩의 키는 counts 필드명(소문자)과 같다.
+// 전체 칩 + 상태 칩 — 상태 칩의 키는 counts 필드명과 같다.
 const CHIPS: { key: ChipKey; label: string; state: QuickState | null }[] = [
   { key: 'all', label: '전체', state: null },
-  ...QUICK_STATES.map((s) => ({ key: s.toLowerCase() as ChipKey, label: AGENT_STATE_LABEL[s], state: s })),
+  ...QUICK_STATES.map((s) => ({ key: QUICK_STATE_META[s].countKey, label: AGENT_STATE_LABEL[s], state: s })),
 ]
 
 export function AiTasksToolbar({

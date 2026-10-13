@@ -308,10 +308,10 @@ test.describe('AI 채팅 화면 컨텍스트 — 내 작업 · AI 위임', () =>
     const chat = await captureChat(page)
     const agent = { id: 9, username: 'claude', name: 'Claude', kind: 'AGENT' as const }
     await mockApi(page, 'GET', '/api/v1/me/ai-tasks', createIssueSearchResponse([createIssue({ id: 31, assignees: [agent] })]))
-    await mockApi(page, 'GET', '/api/v1/me/ai-tasks/counts', createAiTaskCounts({ all: 12, waiting: 7 }))
-    await page.goto('/me/ai-tasks?scope=all&state=WAITING&blocked=true')
+    await mockApi(page, 'GET', '/api/v1/me/ai-tasks/counts', createAiTaskCounts({ all: 12, inputRequired: 7 }))
+    await page.goto('/me/ai-tasks?scope=all&state=INPUT_REQUIRED&blocked=true')
     await expect(page.getByTestId('ai-row-31')).toBeVisible()
-    await expect(page.getByTestId('ai-quick-count-waiting')).toHaveText('7')
+    await expect(page.getByTestId('ai-quick-count-inputRequired')).toHaveText('7')
     await page.getByTestId('chat-launcher').click()
     await page.getByTestId('chat-input').fill('답변할 것 알려줘')
     await page.getByRole('button', { name: '보내기' }).click()

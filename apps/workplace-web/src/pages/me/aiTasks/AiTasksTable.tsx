@@ -79,7 +79,7 @@ export function AiTasksTable({ items }: { items: IssueResponse[] }) {
                 </td>
                 <td>{w ? <AgentProgress w={w} data-testid={`${tid}-progress`} /> : DASH}</td>
                 <td className="pr-2"><AiTaskAssignee issue={it} work={w} /></td>
-                <td>{w ? <AgentToolChip tool={w.tool} className="max-w-full" data-testid={`${tid}-tool`} /> : DASH}</td>
+                <td>{w?.tool ? <AgentToolChip tool={w.tool} className="max-w-full" data-testid={`${tid}-tool`} /> : DASH}</td>
                 <td>{w ? <AgentLastReport w={w} data-testid={`${tid}-last`} /> : DASH}</td>
               </tr>
             )

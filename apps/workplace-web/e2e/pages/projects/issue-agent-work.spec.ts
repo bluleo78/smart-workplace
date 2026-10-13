@@ -94,10 +94,34 @@ test('진행 중 AI 작업이 없으면 레일 AI 진행과 질문 카드를 그
 })
 
 test('사람의 답변 필요는 질문 카드 없이 레일 배지만 보여 준다', async ({ authenticatedPage: page }) => {
-  await mockAgentWorkDetail(page, [createAgentWork({ worker: human, state: 'WAITING', note: '터미널에서 확인 필요' })], { assignees: [human] })
+  await mockAgentWorkDetail(page, [createAgentWork({ worker: human, state: 'INPUT_REQUIRED', note: '터미널에서 확인 필요' })], { assignees: [human] })
   await page.goto(URL)
 
   await expect(page.getByTestId('agent-work-rail-1-state')).toContainText('답변 필요')
   await expect(page.getByTestId('agent-work-rail-1')).toContainText('터미널에서 확인 필요')
+  await expect(page.getByTestId('agent-question-card')).toHaveCount(0)
+})
+
+test('인증 필요는 레일에 인증 필요 배지로 보이고 질문 카드는 없다', async ({ authenticatedPage: page }) => {
+  await mockAgentWorkDetail(page, [createAgentWork({ worker: aki, state: 'AUTH_REQUIRED', note: 'GitHub 권한이 필요해요' })], { assignees: [aki] })
+  await page.goto(URL)
+
+  const badge = page.getByTestId('agent-work-rail-9-state')
+  await expect(badge).toContainText('인증 필요')
+  // 답변이 아니라 사용자가 권한을 줘야 하는 상태 — 툴팁 없이 배지만, 질문 카드도 없다.
+  await expect(badge).not.toHaveAttribute('title', /.+/)
+  await expect(page.getByTestId('agent-work-rail-9')).toContainText('GitHub 권한이 필요해요')
+  await expect(page.getByTestId('agent-question-card')).toHaveCount(0)
+})
+
+test('시작 전(도구 없음) 작업은 레일에 시작 전 배지만 보이고 에이전트 유형·null 은 없다', async ({ authenticatedPage: page }) => {
+  await mockAgentWorkDetail(page, [createAgentWork({ worker: aki, state: 'SUBMITTED', tool: null })], { assignees: [aki] })
+  await page.goto(URL)
+
+  const row = page.getByTestId('agent-work-rail-9')
+  await expect(page.getByTestId('agent-work-rail-9-state')).toHaveText('시작 전')
+  await expect(row.getByTitle('Claude Code')).toHaveCount(0)
+  await expect(row).not.toContainText('null')
+  await expect(row).not.toContainText('—')
   await expect(page.getByTestId('agent-question-card')).toHaveCount(0)
 })

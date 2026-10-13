@@ -29,9 +29,9 @@ export function createAgentWork(overrides: Partial<AgentWorkView> = {}): AgentWo
   }
 }
 
-/** 상태별 건수 응답 — 기본 모두 0. */
+/** 상태별 건수 응답 — 기본 모두 0(blocked 는 막힘 + 인증 필요 합). */
 export function createAiTaskCounts(overrides: Partial<AiTaskCounts> = {}): AiTaskCounts {
-  return { all: 0, waiting: 0, review: 0, blocked: 0, working: 0, ...overrides }
+  return { all: 0, inputRequired: 0, review: 0, blocked: 0, working: 0, ...overrides }
 }
 
 /**
@@ -39,6 +39,6 @@ export function createAiTaskCounts(overrides: Partial<AiTaskCounts> = {}): AiTas
  * 상대 시각이 테스트 시작 시점 기준이 되도록 호출 시점에 만든다(모듈 로드 시각이면 늦게 도는 테스트에서 분이 밀린다).
  */
 export const twoWorks = (akiNote: string): AgentWorkView[] => [
-  createAgentWork({ worker: agentWorker, state: 'WAITING', note: akiNote, updatedAt: minutesAgo(62) }),
+  createAgentWork({ worker: agentWorker, state: 'INPUT_REQUIRED', note: akiNote, updatedAt: minutesAgo(62) }),
   createAgentWork({ worker: humanWorker, state: 'WORKING', note: 'MCP 헤더 처리 중', stepsDone: 3, stepsTotal: 5, updatedAt: minutesAgo(5) }),
 ]

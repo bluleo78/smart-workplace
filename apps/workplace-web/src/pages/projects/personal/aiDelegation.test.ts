@@ -15,7 +15,9 @@ describe('delegationState', () => {
   it('진행 중 작업이 있으면 서버가 급한 순으로 준 첫 건의 상태', () =>
     expect(delegationState({ assignees: [agent], status: 'IN_PROGRESS', agentWork: [work('BLOCKED'), work('WORKING')] })).toBe('BLOCKED'))
   it('사람만 담당이어도 작업이 있으면 대표 상태', () =>
-    expect(delegationState({ assignees: [human], status: 'IN_PROGRESS', agentWork: [work('WAITING')] })).toBe('WAITING'))
+    expect(delegationState({ assignees: [human], status: 'IN_PROGRESS', agentWork: [work('INPUT_REQUIRED')] })).toBe('INPUT_REQUIRED'))
+  it('시작 전(SUBMITTED) 작업이 있으면 그 상태', () =>
+    expect(delegationState({ assignees: [agent], status: 'TODO', agentWork: [{ ...work('SUBMITTED'), tool: null }] })).toBe('SUBMITTED'))
   it('작업 없고 AI 담당 TODO 면 시작 전', () =>
     expect(delegationState({ assignees: [agent], status: 'TODO' })).toBe('NOT_STARTED'))
   it('작업 없고 AI 담당 진행 중이면 AI 위임', () =>

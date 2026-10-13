@@ -12,7 +12,7 @@ import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtur
 const ROWS = [
   createIssue({
     id: 412, number: 412, title: '로그인 실패 시 재시도 제한', status: 'IN_PROGRESS', assignees: [agent],
-    agentWork: [createAgentWork({ state: 'WAITING', note: '잠금 시간을 5분/30분 중 어느 쪽으로 할까요?', updatedAt: minutesAgo(90) })],
+    agentWork: [createAgentWork({ state: 'INPUT_REQUIRED', note: '잠금 시간을 5분/30분 중 어느 쪽으로 할까요?', updatedAt: minutesAgo(90) })],
   }),
   // 메타 줄이 가장 긴 행들 — 진행률이 있고(검토 필요 100%, 작업 중 3/5 + 무소식) 마지막 보고까지 붙는다.
   createIssue({
@@ -24,12 +24,21 @@ const ROWS = [
     agentWork: [createAgentWork({ state: 'WORKING', note: 'MCP 헤더 처리 중', stepsDone: 3, stepsTotal: 5, updatedAt: minutesAgo(190), stale: true })],
   }),
   createIssue({ id: 418, number: 418, title: '위키 내보내기 PDF 여백', status: 'TODO', assignees: [agent] }),
+  // 인증 필요 · 시작 전(도구 null) — 새 상태 어휘
+  createIssue({
+    id: 416, number: 416, title: 'GitHub 연동 권한 확인', status: 'IN_PROGRESS', assignees: [agent],
+    agentWork: [createAgentWork({ state: 'AUTH_REQUIRED', note: 'GitHub 토큰 권한이 필요해요', updatedAt: minutesAgo(40) })],
+  }),
+  createIssue({
+    id: 420, number: 420, title: '검색 인덱스 재생성', status: 'TODO', assignees: [agent],
+    agentWork: [createAgentWork({ state: 'SUBMITTED', tool: null, updatedAt: minutesAgo(15) })],
+  }),
 ]
 
 async function setup(page: Page) {
   await stubChat(page)
   await mockApi(page, 'GET', '/api/v1/me/ai-tasks', createIssueSearchResponse(ROWS))
-  await mockApi(page, 'GET', '/api/v1/me/ai-tasks/counts', createAiTaskCounts({ all: 4, waiting: 1, review: 1, working: 1 }))
+  await mockApi(page, 'GET', '/api/v1/me/ai-tasks/counts', createAiTaskCounts({ all: 6, inputRequired: 1, review: 1, blocked: 1, working: 1 }))
   await page.goto('/me/ai-tasks')
   await expect(page.getByTestId('ai-row-412')).toBeVisible()
 }
@@ -50,6 +59,17 @@ test('행 구조 — 상태 아이콘·제목·메타 줄·최근 보고, 가로
   await expect(page.getByTestId('ai-row-418-state')).toContainText('시작 전')
   await expect(page.getByTestId('ai-row-418-last')).toHaveCount(0)
   await expect(page.getByTestId('ai-row-418-note')).toHaveCount(0)
+  await expectNoHorizontalOverflow(page)
+})
+
+test('인증 필요 배지와, 도구를 모르는 시작 전 행(유형 칩·null 없음)', async ({ authenticatedPage: page }) => {
+  await setup(page)
+  await expect(page.getByTestId('ai-row-416-state')).toContainText('인증 필요')
+  await expect(page.getByTestId('ai-row-420-state')).toHaveText('시작 전')
+  // 도구가 null 이면 에이전트 유형 칩을 그리지 않고 "null" 글자도 없다. 마지막 보고는 그대로.
+  await expect(page.getByTestId('ai-row-420-tool')).toHaveCount(0)
+  await expect(page.getByTestId('ai-row-420')).not.toContainText('null')
+  await expect(page.getByTestId('ai-row-420-last')).toHaveText('15분 전')
   await expectNoHorizontalOverflow(page)
 })
 

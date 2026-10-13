@@ -8,7 +8,7 @@ import { AGENT_STATE_LABEL, agentToolLabel, progressView, STALE_TOOLTIP } from '
 import { cn } from '@/lib/utils'
 import type { AgentWorkState, AgentWorkView } from '@/types/issue'
 
-/** AI 진행 배지 — 사용자 행동이 필요한 상태는 AI 판단신호 action(채움), 진행 정보는 info, 막힘은 경고, 그 외는 흐린 윤곽. */
+/** AI 진행 배지 — 사용자 행동이 필요한 상태(답변·인증·검토)는 AI 판단신호 action(채움), 진행 정보는 info, 막힘은 경고, 그 외(일시 중지·시작 전)는 흐린 윤곽. */
 export function AgentStateBadge({
   state,
   'data-testid': testId,
@@ -17,14 +17,14 @@ export function AgentStateBadge({
   'data-testid'?: string
 }) {
   const label = AGENT_STATE_LABEL[state]
-  if (state === 'WAITING' || state === 'REVIEW')
+  if (state === 'INPUT_REQUIRED' || state === 'AUTH_REQUIRED' || state === 'REVIEW')
     return <AiSignalBadge variant="action" data-testid={testId}>{label}</AiSignalBadge>
   if (state === 'WORKING') return <AiSignalBadge variant="info" data-testid={testId}>{label}</AiSignalBadge>
   if (state === 'BLOCKED') return <Badge variant="warning" data-testid={testId}>{label}</Badge>
   return <Badge variant="outline" className="text-muted-foreground" data-testid={testId}>{label}</Badge>
 }
 
-/** 에이전트 유형 칩 — Claude Code·Cursor 등 실제로 일하는 AI 도구.
+/** 에이전트 유형 칩 — Claude Code·Cursor 등 실제로 일하는 AI 도구. 도구를 아직 모르면(시작 전) 아무것도 그리지 않는다.
  *  좁은 줄에서 먼저 줄어들 수 있게 className(min-w-0 shrink 등)을 받고, 글자는 안쪽 span 이 말줄임한다
  *  (flex 컨테이너 자신의 글자에는 말줄임이 걸리지 않는다). */
 export function AgentToolChip({
@@ -32,10 +32,11 @@ export function AgentToolChip({
   className,
   'data-testid': testId,
 }: {
-  tool: string
+  tool: string | null
   className?: string
   'data-testid'?: string
 }) {
+  if (!tool) return null
   const label = agentToolLabel(tool)
   return (
     <Badge variant="secondary" className={cn('font-normal', className)} title={label} data-testid={testId}>

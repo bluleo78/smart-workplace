@@ -68,7 +68,7 @@ test('질문 카드는 좁은 폭에서 버튼을 줄바꿈해 보이고 탭하�
 test('시트는 최근 보고를 자르지 않고, 진행 중 작업이 모두 끝나면 닫히며 다음 보고 때 저절로 다시 열리지 않는다', async ({ authenticatedPage: page }) => {
   // 터치에는 마우스 올리기(title)가 없으므로 시트는 긴 최근 보고도 전부 보여야 한다(레일은 두 줄 말줄임).
   const longNote = '테스트 DB 를 공용으로 쓸지 이슈별로 따로 띄울지 정해야 해요. 공용이면 마이그레이션 충돌을 조심해야 하고, 이슈별이면 기동 시간이 늘어나요. 어느 쪽으로 할까요?'
-  const state: { works: AgentWorkView[] } = { works: [createAgentWork({ worker: aki, state: 'WAITING', note: longNote })] }
+  const state: { works: AgentWorkView[] } = { works: [createAgentWork({ worker: aki, state: 'INPUT_REQUIRED', note: longNote })] }
   await stubChat(page)
   await mockAgentWorkDetail(page, state.works, { assignees: [aki] })
   // 상세 GET 을 바꿀 수 있는 상태로 덮어쓴다(나중 등록 route 우선) — resource.changed 로 재조회될 때 state.works 를 내려준다.
@@ -98,4 +98,27 @@ test('시트는 최근 보고를 자르지 않고, 진행 중 작업이 모두 �
   await pushHeldEvents(page, changed)
   await expect(page.getByTestId('agent-work-chip-9')).toBeVisible()
   await expectStays(page, () => sheet.isVisible(), false)
+})
+
+test('시작 전(도구 없음)·인증 필요 칩과 시트 — 에이전트 유형·null 을 그리지 않는다', async ({ authenticatedPage: page }) => {
+  await stubChat(page)
+  await mockAgentWorkDetail(
+    page,
+    [createAgentWork({ worker: aki, state: 'AUTH_REQUIRED', note: 'GitHub 권한이 필요해요' }), createAgentWork({ worker: human, state: 'SUBMITTED', tool: null })],
+    { assignees: [human, aki] },
+  )
+  await page.goto('/projects/WP/issues/12')
+
+  await expect(page.getByTestId('agent-work-chip-9')).toContainText('인증 필요')
+  await expect(page.getByTestId('agent-work-chip-1')).toContainText('시작 전')
+  await expect(page.getByTestId('agent-question-card')).toHaveCount(0)
+
+  await page.getByTestId('agent-work-chip-1').click()
+  const sheet = page.getByTestId('agent-work-sheet')
+  await expect(sheet.getByTestId('agent-work-rail-1-state')).toHaveText('시작 전')
+  await expect(sheet.getByTestId('agent-work-rail-9-state')).toContainText('인증 필요')
+  await expect(sheet.getByTestId('agent-work-rail-1')).not.toContainText('null')
+  await expect(sheet.getByTestId('agent-work-rail-1').getByTitle('Claude Code')).toHaveCount(0)
+  await expect(sheet.getByTestId('agent-work-rail-9')).toContainText('Claude Code')
+  await expectNoHorizontalOverflow(page)
 })

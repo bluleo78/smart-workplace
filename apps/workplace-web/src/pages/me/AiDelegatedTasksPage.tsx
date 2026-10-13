@@ -15,7 +15,7 @@ import { AGENT_STATE_LABEL } from '@/lib/agentWork'
 import { buildAiTasksContext } from '@/lib/aiScreenContext/builders/issue'
 import { cn } from '@/lib/utils'
 
-import { aiTaskParams } from './aiTasks/aiTaskParams'
+import { aiTaskParams, QUICK_STATE_META } from './aiTasks/aiTaskParams'
 import { AiTasksEmptyState } from './aiTasks/AiTasksEmptyState'
 import { AiTasksMobileList } from './aiTasks/AiTasksMobileList'
 import { AiTasksTable } from './aiTasks/AiTasksTable'
@@ -33,7 +33,7 @@ export default function AiDelegatedTasksPage() {
   // 건수를 받기 전·이전 조건의 자리채움(keepPreviousData) 값일 땐 생략(현재 조건으로 로드 안 된 값은 보내지 않는다).
   const visibleCount = countsQuery.data && !countsQuery.isPlaceholderData
     ? state
-      ? countsQuery.data[state.toLowerCase() as Lowercase<typeof state>]
+      ? countsQuery.data[QUICK_STATE_META[state].countKey]
       : countsQuery.data.all
     : undefined
   const stateLabel = state ? AGENT_STATE_LABEL[state] : null

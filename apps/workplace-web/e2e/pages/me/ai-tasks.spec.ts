@@ -22,9 +22,14 @@ const ROWS: IssueResponse[] = [
   createIssue({
     id: 412, number: 412, title: '로그인 실패 시 재시도 제한', status: 'IN_PROGRESS', priority: 'HIGH', assignees: [agent, human],
     agentWork: [
-      createAgentWork({ worker: agent, state: 'WAITING', note: '잠금 시간을 5분/30분 중 어느 쪽으로 할까요?', updatedAt: minutesAgo(90) }),
+      createAgentWork({ worker: agent, state: 'INPUT_REQUIRED', note: '잠금 시간을 5분/30분 중 어느 쪽으로 할까요?', updatedAt: minutesAgo(90) }),
       createAgentWork({ worker: human, state: 'WORKING', updatedAt: minutesAgo(10) }),
     ],
+  }),
+  // 인증 필요 — 답변 필요 다음(서버 순서: 답변 → 인증 → 검토)
+  createIssue({
+    id: 416, number: 416, title: 'GitHub 연동 권한 확인', status: 'IN_PROGRESS', assignees: [agent],
+    agentWork: [createAgentWork({ state: 'AUTH_REQUIRED', note: 'GitHub 토큰 권한이 필요해요', updatedAt: minutesAgo(40) })],
   }),
   createIssue({
     id: 415, number: 415, title: '이슈 목록 CSV 내보내기', status: 'IN_PROGRESS', assignees: [agent],
@@ -38,12 +43,17 @@ const ROWS: IssueResponse[] = [
     id: 380, number: 380, title: '알림 설정 화면 다크모드 대비', status: 'IN_PROGRESS', assignees: [human],
     agentWork: [createAgentWork({ worker: human, state: 'WORKING', updatedAt: minutesAgo(190), stale: true })],
   }),
+  // 시작 전 — 외부 AI 가 담당자로 들어왔지만 아직 도구를 모르는 행(tool null)
+  createIssue({
+    id: 420, number: 420, title: '검색 인덱스 재생성', status: 'TODO', assignees: [agent],
+    agentWork: [createAgentWork({ state: 'SUBMITTED', tool: null, updatedAt: minutesAgo(15) })],
+  }),
   // 진행 중 작업 없음 + AI 담당 + 할 일 → 시작 전
   createIssue({ id: 418, number: 418, title: '위키 내보내기 PDF 여백', status: 'TODO', assignees: [agent] }),
 ]
 
 /** 목록·건수를 모킹하고 두 요청을 캡처한다. */
-async function setup(page: Page, items: IssueResponse[] = ROWS, counts = createAiTaskCounts({ all: 5, waiting: 7, review: 1, working: 2 })) {
+async function setup(page: Page, items: IssueResponse[] = ROWS, counts = createAiTaskCounts({ all: 6, inputRequired: 7, review: 1, blocked: 3, working: 2 })) {
   const list = await mockApi(page, 'GET', LIST, createIssueSearchResponse(items), { capture: true })
   const cnt = await mockApi(page, 'GET', COUNTS, counts, { capture: true })
   return { list, cnt }
@@ -67,17 +77,19 @@ test('행에 AI 진행·최근 보고·진행률·담당자·에이전트 유형
   await setup(page)
   await page.goto('/me/ai-tasks')
 
-  // 서버 순서 그대로 — 작업 중(377)이 시작 전(418)보다, 답변 필요(412)가 맨 앞.
+  // 서버 순서 그대로 — 답변 필요(412) → 인증 필요(416) → 검토 필요(415) → 작업 중 → 시작 전(420 → 418).
   await expect(page.getByTestId('ai-row-418')).toBeVisible()
   const ids = await page.locator('[data-testid^="ai-row-"]').evaluateAll(
     (els) => els.map((e) => e.getAttribute('data-testid')).filter((t) => /^ai-row-\d+$/.test(t ?? '')),
   )
-  expect(ids).toEqual(['ai-row-412', 'ai-row-415', 'ai-row-377', 'ai-row-380', 'ai-row-418'])
+  expect(ids).toEqual(['ai-row-412', 'ai-row-416', 'ai-row-415', 'ai-row-377', 'ai-row-380', 'ai-row-420', 'ai-row-418'])
 
   await expect(page.getByTestId('ai-row-412-state')).toContainText('답변 필요')
+  await expect(page.getByTestId('ai-row-416-state')).toContainText('인증 필요')
   await expect(page.getByTestId('ai-row-415-state')).toContainText('검토 필요')
   await expect(page.getByTestId('ai-row-377-state')).toContainText('작업 중')
   await expect(page.getByTestId('ai-row-418-state')).toContainText('시작 전')
+  await expect(page.getByTestId('ai-row-420-state')).toHaveText('시작 전')
 
   // 최근 보고 — 한 줄 말줄임 + 마우스 올리면 전체(title).
   const note = page.getByTestId('ai-row-412-note')
@@ -93,6 +105,10 @@ test('행에 AI 진행·최근 보고·진행률·담당자·에이전트 유형
   // 에이전트 유형 — claude-code → Claude Code. 작업이 없는 행은 —.
   await expect(page.getByTestId('ai-row-412-tool')).toHaveText('Claude Code')
   await expect(page.getByTestId('ai-row-418').getByTestId('ai-row-418-tool')).toHaveCount(0)
+  // 시작 전(SUBMITTED, 도구 null) 행은 에이전트 유형 칸이 — 이고 null 글자는 없다. 열 순서상 에이전트 유형은 9번째 칸.
+  await expect(page.getByTestId('ai-row-420-tool')).toHaveCount(0)
+  await expect(page.getByTestId('ai-row-420').locator('td').nth(8)).toHaveText('—')
+  await expect(page.getByTestId('ai-row-420')).not.toContainText('null')
 
   // 마지막 보고 — 상대 시각(90분 전 → 1시간 전).
   await expect(page.getByTestId('ai-row-412-last')).toHaveText('1시간 전')
@@ -126,12 +142,12 @@ test('전체 범위·빠른 필터 칩이 URL 과 요청에 반영되고, 칩 �
   await list.waitForRequest()
 
   // 칩 건수는 목록 행 수가 아니라 counts 응답 값(답변 필요 7 ≠ 행 1).
-  await expect(page.getByTestId('ai-quick-count-all')).toHaveText('5')
-  await expect(page.getByTestId('ai-quick-count-waiting')).toHaveText('7')
+  await expect(page.getByTestId('ai-quick-count-all')).toHaveText('6')
+  await expect(page.getByTestId('ai-quick-count-inputRequired')).toHaveText('7')
   await expect(page.getByTestId('ai-quick-count-review')).toHaveText('1')
-  await expect(page.getByTestId('ai-quick-count-blocked')).toHaveText('0')
+  await expect(page.getByTestId('ai-quick-count-blocked')).toHaveText('3')
   await expect(page.getByTestId('ai-quick-count-working')).toHaveText('2')
-  await expect(page.getByTestId('ai-quick-waiting')).toContainText('답변 필요')
+  await expect(page.getByTestId('ai-quick-inputRequired')).toContainText('답변 필요')
 
   await page.getByTestId('ai-scope-all').click()
   await expect(page).toHaveURL(/[?&]scope=all/)
@@ -139,11 +155,11 @@ test('전체 범위·빠른 필터 칩이 URL 과 요청에 반영되고, 칩 �
   await expect.poll(() => list.lastRequest()?.searchParams.get('scope')).toBe('ALL')
   await expect.poll(() => cnt.lastRequest()?.searchParams.get('scope')).toBe('ALL')
 
-  await page.getByTestId('ai-quick-waiting').click()
-  await expect(page).toHaveURL(/[?&]state=WAITING/)
-  await expect(page.getByTestId('ai-quick-waiting')).toHaveAttribute('aria-pressed', 'true')
+  await page.getByTestId('ai-quick-inputRequired').click()
+  await expect(page).toHaveURL(/[?&]state=INPUT_REQUIRED/)
+  await expect(page.getByTestId('ai-quick-inputRequired')).toHaveAttribute('aria-pressed', 'true')
   await expect(page.getByTestId('ai-quick-all')).toHaveAttribute('aria-pressed', 'false')
-  await expect.poll(() => list.lastRequest()?.searchParams.get('agentState')).toBe('WAITING')
+  await expect.poll(() => list.lastRequest()?.searchParams.get('agentState')).toBe('INPUT_REQUIRED')
   // 범위는 유지, 건수 요청엔 빠른 필터를 싣지 않는다(칩마다 자기 건수).
   expect(list.lastRequest()?.searchParams.get('scope')).toBe('ALL')
   expect(cnt.requests.every((r) => !r.searchParams.has('agentState'))).toBe(true)
@@ -155,6 +171,28 @@ test('전체 범위·빠른 필터 칩이 URL 과 요청에 반영되고, 칩 �
   await page.getByTestId('ai-scope-mine').click()
   await expect(page.getByTestId('ai-scope-mine')).toHaveAttribute('aria-pressed', 'true')
   await expect.poll(() => new URL(page.url()).searchParams.has('scope')).toBe(false)
+})
+
+// 막힘 칩은 막힘(BLOCKED)과 인증 필요(AUTH_REQUIRED)를 함께 본다 — 요청은 쉼표 목록, 건수는 서버가 준 합(blocked).
+test('막힘 칩은 agentState=BLOCKED,AUTH_REQUIRED 로 요청하고 blocked 건수를 보여 준다', async ({ authenticatedPage: page }) => {
+  const { list } = await setup(page)
+  await page.goto('/me/ai-tasks')
+  await list.waitForRequest()
+  await expect(page.getByTestId('ai-quick-count-blocked')).toHaveText('3')
+
+  await page.getByTestId('ai-quick-blocked').click()
+  await expect(page).toHaveURL(/[?&]state=BLOCKED/)
+  await expect(page.getByTestId('ai-quick-blocked')).toHaveAttribute('aria-pressed', 'true')
+  await expect.poll(() => list.lastRequest()?.searchParams.get('agentState')).toBe('BLOCKED,AUTH_REQUIRED')
+})
+
+test('옛 링크의 state=WAITING 은 무시하고 전체로 보여 준다', async ({ authenticatedPage: page }) => {
+  const { list } = await setup(page)
+  await page.goto('/me/ai-tasks?state=WAITING')
+  const req = await list.waitForRequest()
+  expect(req.searchParams.has('agentState')).toBe(false)
+  await expect(page.getByTestId('ai-quick-all')).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByTestId('ai-quick-inputRequired')).toHaveAttribute('aria-pressed', 'false')
 })
 
 test('상태 facet 이 목록·건수 요청 모두에 status 로 합쳐진다', async ({ authenticatedPage: page }) => {

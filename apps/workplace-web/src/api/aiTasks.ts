@@ -5,8 +5,9 @@ import { client } from './client'
 /** 상태별 건수 — 탭 배지용. */
 export interface AiTaskCounts {
   all: number
-  waiting: number
+  inputRequired: number
   review: number
+  // 막힘 + 인증 필요 합.
   blocked: number
   working: number
 }
