@@ -1,6 +1,6 @@
 // 모바일 캘린더 일정 목록(WP-136)용 순수 로직 — 30일 청크 범위, 날짜별 묶음, 머리글 문자열.
 // 컴포넌트(MobileAgendaView)·무한 로딩 훅과 분리해 vitest 로 단위 검증한다.
-import { addDays, differenceInCalendarDays, format, isSameDay, startOfDay } from 'date-fns'
+import { addDays, differenceInCalendarDays, format, isSameDay, parseISO, startOfDay } from 'date-fns'
 import { ko } from 'date-fns/locale'
 
 import type { CalendarEvent, IssueDueMarker } from '@/types/calendar'
@@ -13,7 +13,7 @@ export const AGENDA_CHUNK_DAYS = 30
 
 // 날짜 묶음 안의 한 행 — 일정(event) 또는 이슈 마감(due). 컴포넌트가 kind 로 분기해 렌더한다.
 // continued: 목록 시작일 전에 시작해 시작일까지 이어지는 일정(어제 시작한 3일 컨퍼런스 등)을 시작일 묶음에 넣은 행 —
-// 종일 그룹과 함께 맨 앞에 두고, 시간 칸에 끝("~10/15")을 보이며, 흐림·지금 선 계산에서는 뺀다(WP-136 A1).
+// 종일 그룹과 함께 맨 앞에 두고, 시간 칸에 끝("~10/15")을 보이며, 흐림·지금 선 계산에서는 뺀다.
 export type AgendaItem =
   | { kind: 'event'; event: CalendarEvent; continued?: boolean }
   | { kind: 'due'; marker: IssueDueMarker }
@@ -59,7 +59,7 @@ function continuesInto(event: CalendarEvent, day: Date): boolean {
 }
 
 // 시간 일정의 실제 마지막 날 — 끝이 정확히 로컬 자정(00:00)이면 그 자정은 "다음 날의 시작"이 아니라 "그 전날의 끝"이라
-// 전날로 본다(22:00~다음 날 00:00 을 여러 날 일정처럼 보이지 않게, WP-136 CR8). 길이 0 일정(시작 == 끝)은 그대로 둔다.
+// 전날로 본다(22:00~다음 날 00:00 을 여러 날 일정처럼 보이지 않게). 길이 0 일정(시작 == 끝)은 그대로 둔다.
 function timedLastDay(event: CalendarEvent): { day: Date; endsAtMidnight: boolean } {
   const end = new Date(event.endsAt)
   const endDay = startOfDay(end)
@@ -67,8 +67,8 @@ function timedLastDay(event: CalendarEvent): { day: Date; endsAtMidnight: boolea
   return { day: endsAtMidnight ? addDays(endDay, -1) : endDay, endsAtMidnight }
 }
 
-// 일정 행 시간 칸 두 줄(시작·끝) — 목록 시작 행과 이어지는(continued) 행이 같은 규칙으로 끝을 보이게 한 곳에 모은다(WP-136 CR9).
-// - 종일: 첫 줄 "종일". 하루짜리는 끝 줄 없음, 여러 날이면 "~M/d"(배타적 끝 −1일 = 실제 마지막 날, CR1).
+// 일정 행 시간 칸 두 줄(시작·끝) — 목록 시작 행과 이어지는(continued) 행이 같은 규칙으로 끝을 보이게 한 곳에 모은다.
+// - 종일: 첫 줄 "종일". 하루짜리는 끝 줄 없음, 여러 날이면 "~M/d"(배타적 끝 −1일 = 실제 마지막 날).
 // - 시간 일정: 첫 줄은 시작 시각(이어지는 행이면 시작 날짜 M/d). 끝 줄은 마지막 날이 기준일(시작일 또는 이어지는 날)과 같으면
 //   시각(자정에 끝나면 "24:00" — 00:00 은 시작보다 이른 시각처럼 읽힌다), 다르면 "~M/d"(시각만 쓰면 시작보다 이르게 읽힌다).
 //   이어지는 행은 날짜가 아닌 끝 시각에도 "~" 를 붙인다("~09:00" — 첫 줄이 날짜라 "~" 없이는 범위로 읽히지 않는다).
@@ -148,16 +148,16 @@ export function groupAgendaDays(
     seen.add(id)
     const key = marker.dueDate.slice(0, 10)
     if (minKey && key < minKey) continue
-    push(key, new Date(`${key}T00:00:00`), { kind: 'due', marker })
+    push(key, parseISO(key), { kind: 'due', marker })
   }
 
   // yyyy-MM-dd 는 사전순 = 날짜순.
   return [...byKey.values()]
-    .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
+    .sort((a, b) => a.key.localeCompare(b.key))
     .map((d) => ({ ...d, items: [...d.items].sort(compareItems) }))
 }
 
-// 청크별 불러오기 진행 요약(WP-136 CR5·CR7) — 날짜 묶음을 청크(시작일부터 30일씩)에 나눠 담아 센다.
+// 청크별 불러오기 진행 요약 — 날짜 묶음을 청크(시작일부터 30일씩)에 나눠 담아 센다.
 // - loaded[i]: 일정 청크 i 조회 성공. 앞에서부터 연속으로 성공한 청크 수(loadedChunks)까지만 AI 컨텍스트 범위·일정 수에 넣는다 —
 //   뒤 청크가 성공해도 앞 청크가 로딩 중·실패면 그 사이가 비어 "불러오지 않은 기간"을 0건으로 알리게 된다.
 // - settled[i]: 일정·(켜져 있으면) 마감 청크 i 모두 성공 — 행이 더 늘지 않는 확정 상태.

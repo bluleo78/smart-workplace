@@ -1,10 +1,9 @@
 // 모바일 캘린더 일정 목록(WP-136) — 시작일부터 날짜별로 묶어 보여 주고, 아래로 스크롤하면 다음 30일을 이어 불러온다.
-// 날짜 머리글(sticky, 오늘 강조·건수) · 44px 시간 칸(시작/끝 두 줄) · 캘린더 색 3px 막대 · 줄바꿈되는 제목 · 보조 줄,
 // 오늘 묶음은 끝난 일정을 흐리게 하고 지금 시각 위치에 빨간 선을 긋는다.
 // 데이터는 CalendarPage 가 useAgendaChunks 로 조회해 넘긴다(AI 화면 컨텍스트에 같은 범위·건수를 싣기 위해). 데스크톱은 AgendaView 그대로.
-import { format, isSameDay } from 'date-fns'
+import { format, isSameDay, startOfDay } from 'date-fns'
 import { CalendarDays, Flag } from 'lucide-react'
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { MobileEmptyState } from '@/components/mobile/MobileEmptyState'
 import { LoadMoreFooter } from '@/components/ui/load-more-footer'
@@ -23,28 +22,27 @@ import { cn } from '@/lib/utils'
 import type { CalendarEvent, IssueDueMarker } from '@/types/calendar'
 
 export interface MobileAgendaViewProps {
-  /** useAgendaChunks 결과 — 묶음·불러오기 상태·loadMore/retry·scrollKey. */
+  /** useAgendaChunks 결과 — 묶음·불러오기 상태·loadMore/retry·scrollKey, 맨 위 날짜는 agenda.setTopDay 로 알린다. */
   agenda: AgendaChunks
-  /** 지금 시각 — 호출부(useMinuteNow)가 1분마다·화면 복귀 시 갱신한다. 오늘 판정·흐림·지금 선에 쓴다. */
+  /** 지금 시각(호출부 useMinuteNow, 분 단위) — 오늘 판정·흐림·지금 선. */
   now: Date
   onSelectEvent: (e: CalendarEvent) => void
   onSelectIssue: (marker: IssueDueMarker) => void
-  /** 화면 맨 위에 보이는 날짜 묶음이 바뀔 때 — 헤더 월 표시용. 묶음이 없으면 호출되지 않는다(호출부는 anchor 로 폴백). */
-  onTopDayChange?: (day: Date) => void
 }
 
 // 행 공통 — 좌우 여백 16 · 시간 칸 44 · 간격 10. 지금 선(NowLine)의 왼쪽 시작점 70px 이 이 합(막대 위치)이다.
 const ROW_CLASS = 'flex min-h-11 w-full items-stretch gap-2.5 border-b px-4 py-2 text-left active:bg-accent'
 
 /** 모바일 일정 목록 뷰 — 자체 스크롤 컨테이너(센티널·맨 위 날짜 관찰의 root). */
-export function MobileAgendaView({ agenda, now, onSelectEvent, onSelectIssue, onTopDayChange }: MobileAgendaViewProps) {
+export function MobileAgendaView({ agenda, now, onSelectEvent, onSelectIssue }: MobileAgendaViewProps) {
   // 스크롤 컨테이너 — 센티널 rootMargin 이 이 요소 기준으로 동작하도록 state 로 들고 observer 들에 root 로 넘긴다(WP-94).
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null)
   const { start, days, isLoading, isLoadingMore, isFetching, isError, hasMore, autoPaused, loadedChunks, loadMore, retry, scrollKey } =
     agenda
+  // 날짜 단위 오늘 — 오늘이 아닌 묶음엔 이것만 넘겨 분 단위 now 가 바뀌어도 다시 그리지 않는다(memo).
+  const todayKey = startOfDay(now).getTime()
 
-  // 행 선택 콜백 — 호출부(CalendarPage)가 렌더마다 새 함수를 넘겨도 날짜 묶음(memo)이 다시 그려지지 않게 최신 참조만 ref 로 들고
-  // 고정 래퍼를 내려 준다(React Compiler 미사용 — 맨 위 날짜가 바뀔 때마다 페이지가 다시 그려져도 행 전체를 다시 그리지 않게, CR6).
+  // 행 선택 콜백은 최신 참조만 ref 로 들고 고정 래퍼를 내려 준다 — 페이지 재렌더(맨 위 날짜 변경 등)에 묶음 memo 가 깨지지 않게.
   const selectRef = useRef({ onSelectEvent, onSelectIssue })
   useEffect(() => {
     selectRef.current = { onSelectEvent, onSelectIssue }
@@ -57,11 +55,8 @@ export function MobileAgendaView({ agenda, now, onSelectEvent, onSelectIssue, on
     [],
   )
 
-  // 목록 끝 푸터(공용 LoadMoreFooter) 어댑터 — 센티널이 화면에 들어오면 다음 청크, 조회가 끝날 때마다 observer 를 다시 붙여
-  // 빈 청크가 이어져도 센티널이 보이는 동안 계속 불러온다. 실패하면 자동 불러오기를 멈추고 다시 시도 버튼(실패한 청크만 재요청).
-  // - fetchNextPage: 실패 중엔 버튼이 retry, 평소엔 센티널이 loadMore.
-  // - isFetchingNextPage: 뒤 청크 첫 조회 중 또는 다시 시도 중(실패 상태는 성공 전까지 남아 있다) — "불러오는 중…".
-  // - hasNextPage: 상한에 닿았어도 실패한 청크가 있으면 다시 시도 줄은 남겨야 한다.
+  // 목록 끝 푸터(공용 LoadMoreFooter) 어댑터 — 평소엔 센티널이 loadMore, 실패 중엔 버튼이 retry(실패한 청크만).
+  // 상한에 닿았어도 실패한 청크가 있으면 다시 시도 줄은 남긴다. 다시 시도 중(실패 상태는 성공 전까지 남는다)도 "불러오는 중…".
   const footerQuery = {
     hasNextPage: hasMore || isError,
     isFetching,
@@ -70,31 +65,37 @@ export function MobileAgendaView({ agenda, now, onSelectEvent, onSelectIssue, on
     fetchNextPage: isError ? retry : loadMore,
   }
 
-  // 시작일 변경·[오늘](reset) → 맨 위로. 같은 컨테이너를 재사용하므로 이전 스크롤 위치가 남지 않게 한다.
-  // 레이아웃 effect 로 페인트 전에 올린다 — 일반 effect 면 청크가 줄어 스크롤이 끝으로 눌린 한 프레임에
-  // 끝 센티널이 보여 방금 버린 둘째 청크를 다시 불렀다(WP-136 A2).
+  // 세대 변경(시작일·reset) → 맨 위로. 레이아웃 effect 인 이유: 청크가 줄어 끝으로 눌린 한 프레임에 센티널이 보여
+  // 방금 버린 둘째 청크를 다시 부르지 않게 페인트 전에 올린다.
   useLayoutEffect(() => {
     scrollEl?.scrollTo({ top: 0 })
   }, [scrollEl, scrollKey])
 
-  // 맨 위 날짜 알림 — 콜백은 최신 참조만 쓰고(인라인 함수여도 observer 를 다시 만들지 않게), 같은 날은 다시 알리지 않는다.
-  const topCbRef = useRef(onTopDayChange)
-  useEffect(() => {
-    topCbRef.current = onTopDayChange
-  })
-  const lastTopKeyRef = useRef<string | null>(null)
-  // 맨 위로 되돌린 뒤엔 같은 날이라도 다시 알린다(호출부가 헤더를 anchor 로 바꿨을 수 있다).
-  useEffect(() => {
-    lastTopKeyRef.current = null
-  }, [scrollKey])
-  // 날짜 묶음(section) 중 보이는 것의 집합을 관찰해 가장 이른 날 = 맨 위 묶음으로 본다(key 'yyyy-MM-dd' 사전순 = 날짜순).
+  // ── 맨 위 날짜 관찰 — observer 는 scrollEl·세대(scrollKey)마다 하나. 묶음(section)은 ref 콜백으로 등록·해제한다. ──
   // 머리글이 아니라 section 을 본다 — sticky 머리글은 묶음이 끝날 때까지 맨 위에 붙어 있어 위치로 판단할 수 없다.
+  // setTopDay·묶음 목록은 최신 값을 ref 로 읽는다 — 묶음이 바뀔 때마다 observer 를 다시 만들지 않게.
+  const latestRef = useRef({ setTopDay: agenda.setTopDay, days })
   useEffect(() => {
-    // 로딩 중엔 스켈레톤이라 section 이 없다 — isLoading 을 의존성에 넣어, 일정이 먼저 오고 마감이 [](같은 참조라 days 불변)로
-    // 뒤따라 와도 section 이 실제로 그려진 뒤 다시 관찰을 건다(안 그러면 아무것도 관찰하지 않아 헤더 월 추적이 멈춘다).
-    if (!scrollEl || isLoading || days.length === 0) return
-    const dayByKey = new Map(days.map((d) => [d.key, d.day]))
-    const visible = new Set<string>()
+    latestRef.current = { setTopDay: agenda.setTopDay, days }
+  })
+  const ioRef = useRef<IntersectionObserver | null>(null)
+  const sectionsRef = useRef(new Set<HTMLElement>())
+  const visibleRef = useRef(new Set<string>())
+  const lastTopKeyRef = useRef<string | null>(null)
+  // 보이는 묶음 중 가장 이른 날(key 'yyyy-MM-dd' 사전순 = 날짜순)이 바뀌었으면 알린다.
+  const reportTop = useCallback(() => {
+    let top: string | null = null
+    for (const k of visibleRef.current) if (top === null || k < top) top = k
+    if (top === null || top === lastTopKeyRef.current) return
+    lastTopKeyRef.current = top
+    const day = latestRef.current.days.find((d) => d.key === top)?.day
+    if (day) latestRef.current.setTopDay(day)
+  }, [])
+  // 세대가 바뀌면(맨 위 날짜가 null 로 돌아간다) 다시 만들어, 맨 위로 올린 뒤 보이는 묶음의 첫 알림으로 같은 날이라도 다시 알린다.
+  useEffect(() => {
+    if (!scrollEl) return
+    lastTopKeyRef.current = null
+    const visible = visibleRef.current
     const io = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
@@ -103,18 +104,33 @@ export function MobileAgendaView({ agenda, now, onSelectEvent, onSelectIssue, on
           if (entry.isIntersecting) visible.add(key)
           else visible.delete(key)
         }
-        let top: string | null = null
-        for (const k of visible) if (top === null || k < top) top = k
-        if (top === null || top === lastTopKeyRef.current) return
-        lastTopKeyRef.current = top
-        const day = dayByKey.get(top)
-        if (day) topCbRef.current?.(day)
+        reportTop()
       },
       { root: scrollEl },
     )
-    scrollEl.querySelectorAll<HTMLElement>('[data-day-key]').forEach((n) => io.observe(n))
-    return () => io.disconnect()
-  }, [scrollEl, days, isLoading])
+    ioRef.current = io
+    // observer 보다 먼저 그려진 묶음(자식 ref 가 먼저 붙는다)도 관찰한다.
+    sectionsRef.current.forEach((n) => io.observe(n))
+    return () => {
+      io.disconnect()
+      ioRef.current = null
+      visible.clear()
+    }
+  }, [scrollEl, scrollKey, reportTop])
+  // 묶음 ref 콜백(참조 고정 — 묶음 memo 유지). 늦게 그려진 묶음도 그 즉시 관찰하고, 사라진 묶음은 보임 집합에서 빼고 다시 판정한다
+  // (unobserve 한 노드엔 "안 보임" 알림이 오지 않아 지운 날이 맨 위로 남는다).
+  const registerSection = useCallback(
+    (el: HTMLElement) => {
+      sectionsRef.current.add(el)
+      ioRef.current?.observe(el)
+      return () => {
+        sectionsRef.current.delete(el)
+        ioRef.current?.unobserve(el)
+        if (el.dataset.dayKey && visibleRef.current.delete(el.dataset.dayKey)) reportTop()
+      }
+    },
+    [reportTop],
+  )
 
   return (
     <div
@@ -127,8 +143,7 @@ export function MobileAgendaView({ agenda, now, onSelectEvent, onSelectIssue, on
       ) : (
         <>
           {days.length === 0 && !isError && (autoPaused || !hasMore) && (
-            // 불러온 범위 전체가 비었고 자동 불러오기도 멈췄을 때만 — 그 전엔 아래 푸터가 "불러오는 중…"으로 다음 기간을 잇는다.
-            // 문구는 실제로 확인한 기간 그대로(CR5): 오늘부터면 "앞으로 N일간", 고른 날부터면 "M월 d일부터 N일간".
+            // 불러온 범위 전체가 비었고 자동 불러오기도 멈췄을 때만 — 문구는 실제로 확인한 기간 그대로.
             <MobileEmptyState
               icon={CalendarDays}
               title={`${isSameDay(start, now) ? '앞으로' : `${format(start, 'M월 d일')}부터`} ${loadedChunks * AGENDA_CHUNK_DAYS}일간 일정이 없습니다`}
@@ -137,11 +152,18 @@ export function MobileAgendaView({ agenda, now, onSelectEvent, onSelectIssue, on
             />
           )}
           {days.map((d) => (
-            <DaySection key={d.key} day={d} now={now} onSelectEvent={select.event} onSelectIssue={select.issue} />
+            <DaySection
+              key={d.key}
+              day={d}
+              todayKey={todayKey}
+              now={d.day.getTime() === todayKey ? now : null}
+              sectionRef={registerSection}
+              onSelectEvent={select.event}
+              onSelectIssue={select.issue}
+            />
           ))}
           {autoPaused && !isError ? (
-            // 빈 청크가 이어져 자동 연쇄를 멈춘 상태 — 누를 때마다 30일씩. 일정이 있는 청크를 받으면 자동 불러오기로 돌아간다.
-            // LoadMoreFooter 에는 "자동 대신 수동 버튼" 칸이 없어 이 상태만 따로 그린다(공용 푸터를 바꾸면 이슈 보드 등 다른 목록에 영향).
+            // 빈 청크가 이어져 자동 연쇄를 멈춘 상태 — 누를 때마다 30일씩. 공용 LoadMoreFooter 엔 "수동 버튼" 칸이 없어 따로 그린다.
             <div className="py-1 text-center">
               <button
                 type="button"
@@ -170,26 +192,31 @@ export function MobileAgendaView({ agenda, now, onSelectEvent, onSelectIssue, on
 }
 
 /** 하루치 묶음 — sticky 머리글 + 행. 오늘이면 끝난 일정 흐림 + 지금 선.
- *  memo — 묶음(day)은 useAgendaChunks 의 useMemo 결과라 같은 데이터면 참조가 같고, 콜백은 고정 래퍼라 맨 위 날짜 변경 등
- *  페이지 재렌더에 다시 그리지 않는다(now 는 분 단위로만 바뀐다, CR6). */
+ *  memo — 묶음·콜백 참조가 고정이고, 분 단위 now 는 오늘 묶음에만 넘어와(그 밖은 null) 나머지는 날짜가 바뀔 때만 다시 그린다. */
 const DaySection = memo(function DaySection({
   day,
+  todayKey,
   now,
+  sectionRef,
   onSelectEvent,
   onSelectIssue,
 }: {
   day: AgendaDay
-  now: Date
+  /** 오늘 로컬 자정(ms) — 머리글 "오늘 ·" 판정. */
+  todayKey: number
+  /** 오늘 묶음일 때만 지금 시각, 아니면 null. */
+  now: Date | null
+  sectionRef: (el: HTMLElement) => () => void
   onSelectEvent: (e: CalendarEvent) => void
   onSelectIssue: (marker: IssueDueMarker) => void
 }) {
-  const isToday = isSameDay(day.day, now)
-  const nowState = isToday ? agendaNowState(day.items, now) : null
-  const title = agendaTitle(day.day, now)
+  const isToday = now != null
+  const nowState = now ? agendaNowState(day.items, now) : null
+  const title = agendaTitle(day.day, new Date(todayKey))
 
   return (
     // aria-label 을 달지 않는다 — 이름 있는 section 은 날짜마다 region 랜드마크가 되어 랜드마크 목록을 덮는다. 묶음 이름은 h2 가 맡는다.
-    <section data-day-key={day.key}>
+    <section ref={sectionRef} data-day-key={day.key}>
       {/* 머리글 — sticky 라 불투명 바탕이 필요하다(다크 muted·primary/10 은 반투명): bg-background 위에 안쪽 층으로 색을 얹는다. */}
       <h2 data-testid={`calendar-agenda-day-${day.key}`} className="sticky top-0 z-10 bg-background">
         {/* 제목 안이라 div 대신 span(구문 콘텐츠). sr-only 쉼표로 접근성 이름이 "…(화), 3건" 으로 읽히게 한다. */}

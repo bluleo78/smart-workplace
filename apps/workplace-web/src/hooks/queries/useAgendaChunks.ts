@@ -7,6 +7,7 @@ import { useQueries, type UseQueryResult } from '@tanstack/react-query'
 import { format, startOfDay } from 'date-fns'
 import { useCallback, useMemo, useState } from 'react'
 
+import { useResetOnChange } from '@/hooks/useResetOnChange'
 import { agendaChunkRange, type AgendaDay, agendaProgress, groupAgendaDays } from '@/lib/calendarAgenda'
 import type { CalendarEvent, IssueDueMarker } from '@/types/calendar'
 
@@ -15,7 +16,7 @@ import { myIssueDuesQueryOptions } from './useMyIssueDues'
 
 // 최대 청크 수(30일 × 12 ≈ 1년). 넘으면 안내 없이 더 불러오지 않는다.
 export const AGENDA_MAX_CHUNKS = 12
-// 끝에서 연속으로 이만큼(90일) 빈 청크가 이어지면 자동 연쇄 불러오기를 멈추고 "다음 30일 더 보기" 버튼으로 넘긴다(WP-136 CR5).
+// 끝에서 연속으로 이만큼(90일) 빈 청크가 이어지면 자동 연쇄 불러오기를 멈추고 "다음 30일 더 보기" 버튼으로 넘긴다(WP-136).
 // 일정이 없거나 드문 사용자가 목록을 열 때마다(그리고 실시간 무효화 때마다) 12청크·마감 포함 24요청을 쏘지 않게.
 export const AGENDA_EMPTY_CHUNKS_TO_PAUSE = 3
 
@@ -33,33 +34,36 @@ export interface AgendaChunks {
   start: Date
   /** 불러온 청크 전체의 날짜별 묶음(필터·레이어 적용, 중복 제거 끝). */
   days: AgendaDay[]
-  /** loadedRange 안의 표시 일정 수(묶음의 event 행 수 — 청크 경계 중복 제외). 성공한 청크가 없으면 undefined(로딩 중 0건 오인 방지). */
+  /** loadedRange 안의 표시 일정 수 — 성공한 청크가 없으면 undefined(로딩 중 0건 오인 방지). */
   count: number | undefined
-  /** 실제로 불러온 범위(ISO) — 첫 청크 시작 ~ 앞에서부터 연속 성공한 마지막 청크 끝(로딩 중·실패 청크는 넣지 않는다, CR7).
-   *  아직 성공한 청크가 없으면 첫 청크 범위(count 는 undefined) — 다른 보기가 로딩 중에 보이는 범위를 싣는 것과 같다. AI 화면 컨텍스트용. */
+  /** AI 화면 컨텍스트용 범위(ISO) — 첫 청크 시작 ~ 앞에서부터 연속 성공한 마지막 청크 끝(없으면 첫 청크). */
   loadedRange: { from: string; to: string }
   /** 앞에서부터 연속 성공한 일정 청크 수 — 빈 상태 문구("앞으로 N일간")용. */
   loadedChunks: number
   /** 첫 청크 데이터가 아직 없음 — 전체 스켈레톤. */
   isLoading: boolean
-  /** 아직 데이터가 없는 청크가 있음(뒤 청크 첫 조회) — 목록 끝 스켈레톤 한 줄. */
+  /** 뒤 청크 첫 조회 중 — 목록 끝 "불러오는 중…". */
   isLoadingMore: boolean
-  /** 어느 청크든 조회 중이거나 데이터 없음(백그라운드 갱신 포함) — 센티널이 이 동안 다음 청크를 요청하지 않는다. */
+  /** 어느 청크든 조회 중이거나 데이터 없음 — 센티널이 이 동안 다음 청크를 요청하지 않는다. */
   isFetching: boolean
-  /** 일정 또는 (켜져 있으면) 마감 청크 실패 — 자동 불러오기를 멈추고 다시 시도 줄을 보인다. 이미 받은 행은 그대로 보인다(CR4). */
+  /** 일정 또는 (켜져 있으면) 마감 청크 실패 — 자동 불러오기를 멈추고 다시 시도 줄(받은 행은 그대로). */
   isError: boolean
   /** 더 불러올 청크가 있는지(최대 청크 수 미만). */
   hasMore: boolean
-  /** 끝에서 빈 청크가 AGENDA_EMPTY_CHUNKS_TO_PAUSE 개 이어져 자동 연쇄를 멈춘 상태 — 센티널 대신 "다음 30일 더 보기" 버튼(CR5). */
+  /** 끝에서 빈 청크가 이어져 자동 연쇄를 멈춘 상태 — 센티널 대신 "다음 30일 더 보기" 버튼. */
   autoPaused: boolean
-  /** 다음 청크 하나를 더한다(센티널·"다음 30일 더 보기" 버튼이 호출). 초기화 세대(epoch)마다 새 참조 — 앞 세대에서 큐잉된 호출은 무시된다. */
+  /** 다음 청크 하나를 더한다 — 세대(scrollKey)에 묶여, 앞 세대에서 큐잉된 호출은 버려진다. */
   loadMore: () => void
   /** 실패한 청크만 다시 조회한다. */
   retry: () => void
-  /** 청크를 1개로 되돌리고 맨 위로 스크롤하게 한다 — 시작일이 이미 오늘일 때 [오늘] 버튼용. 참조 고정. */
+  /** 청크를 1개로 되돌리고 맨 위로 스크롤하게 한다(시작일이 그대로일 때 [오늘]·보기 전환용). 참조 고정. */
   reset: () => void
-  /** 바뀌면 목록이 맨 위로 스크롤한다(시작일 변경 또는 reset). */
+  /** 세대 키 — 시작일 변경·reset 마다 바뀌고, 바뀌면 목록이 맨 위로 스크롤한다. */
   scrollKey: string
+  /** 목록 맨 위에 보이는 날짜(헤더 월·자정 따라가기 판정용). 세대가 바뀌면 새 목록이 알려 올 때까지 null. */
+  topDay: Date | null
+  /** MobileAgendaView 가 맨 위 날짜를 알린다 — 앞 세대에 묶인 늦은 호출은 버려진다. */
+  setTopDay: (day: Date | null) => void
 }
 
 // useQueries combine — 청크 결과를 하나로 요약한다. 모듈 스코프에 둬 참조가 고정되고,
@@ -79,29 +83,18 @@ function summarizeChunks<T>(rs: UseQueryResult<T[], Error>[]) {
   }
 }
 
-/** 모바일 목록 보기의 청크 조회. start 가 바뀌면(날짜 기준) 청크 수를 1로 되돌린다. */
+/** 모바일 목록 보기의 청크 조회. start 가 바뀌면(날짜 기준)·reset 하면 청크 수를 1로 되돌린다. */
 export function useAgendaChunks(start: Date, { enabled, filter, showIssueDues }: AgendaChunksOptions): AgendaChunks {
   const startKey = startOfDay(start).getTime()
-  // 청크 수 + 초기화 세대(epoch). startKey 를 함께 들고 있다가 시작일이 바뀌면 렌더 중에 1로 되돌린다
-  // (effect 로 되돌리면 한 번은 이전 청크 수로 새 시작일을 조회한다 — CalendarPage 의 suspendedId 와 같은 렌더 중 조정).
-  // 시작일 변경·reset 모두 epoch 를 올린다 — 맨 위 스크롤 키이자 loadMore 의 세대 확인 값.
-  const [chunks, setChunks] = useState({ startKey, count: 1, epoch: 0 })
-  let { count, epoch } = chunks
-  if (chunks.startKey !== startKey) {
-    setChunks((s) => ({ startKey, count: 1, epoch: s.epoch + 1 }))
-    count = 1
-    epoch = chunks.epoch + 1
-  }
-
-  // 세대가 같을 때만 청크를 늘린다. [오늘]·날짜 선택 직전에 이미 큐잉된 센티널 콜백(이전 세대 loadMore)이
-  // 초기화 뒤에 불려 방금 버린 둘째 청크를 다시 붙이던 경합을 막는다(WP-136 A2). 세대가 바뀌면 참조도 바뀌어
-  // 센티널 observer 가 새 loadMore 로 다시 붙는다.
-  const loadMore = useCallback(
-    () =>
-      setChunks((s) => (s.epoch === epoch ? { ...s, count: Math.min(s.count + 1, AGENDA_MAX_CHUNKS) } : s)),
-    [epoch],
-  )
-  const reset = useCallback(() => setChunks((s) => ({ ...s, count: 1, epoch: s.epoch + 1 })), [])
+  // 세대 = 시작일 + reset 횟수. 청크 수·맨 위 날짜는 세대에 묶여 바뀌는 렌더에서 곧바로 1·null 로 돌아가고(useResetOnChange),
+  // 앞 세대 setter 로 늦게 온 쓰기(초기화 직전에 큐잉된 센티널 loadMore 등)는 버려진다 — 초기화 뒤 방금 버린 둘째 청크가 되살아나지 않게.
+  const [epoch, setEpoch] = useState(0)
+  const scrollKey = `${startKey}:${epoch}`
+  const [count, setCount] = useResetOnChange(scrollKey, 1)
+  const [topDay, setTopDay] = useResetOnChange<Date | null>(scrollKey, null)
+  // 렌더 시점 count 로 쓴다 — 센티널은 렌더마다 새 loadMore 로 다시 붙으므로 늦어도 한 렌더 차이라 줄어드는 쓰기는 없다.
+  const loadMore = useCallback(() => setCount(Math.min(count + 1, AGENDA_MAX_CHUNKS)), [count, setCount])
+  const reset = useCallback(() => setEpoch((e) => e + 1), [])
 
   // 시작일 Date — startKey(숫자)로 고정해 같은 날이면 참조가 유지된다.
   const startDate = useMemo(() => new Date(startKey), [startKey])
@@ -134,21 +127,17 @@ export function useAgendaChunks(start: Date, { enabled, filter, showIssueDues }:
     [events.data, dues.data, filter, showIssueDues, startDate, endKey],
   )
 
-  // 청크별 진행 — AI 컨텍스트 범위·일정 수(앞에서부터 연속 성공한 청크까지)와 끝의 빈 청크 수(자동 연쇄 멈춤 기준).
-  // 확정(settled) = 일정·마감(켜져 있으면) 모두 성공 — 마감이 아직 오는 중인 청크를 "빈 청크"로 세지 않게.
-  const { success: eventsOk } = events
-  const { success: duesOk } = dues
+  // 청크별 진행 — 확정(settled) = 일정·마감(켜져 있으면) 모두 성공. 마감이 아직 오는 중인 청크를 "빈 청크"로 세지 않게.
   const { loadedChunks, eventCount, trailingEmpty } = useMemo(
-    () => agendaProgress(days, startDate, eventsOk, eventsOk.map((ok, i) => ok && (!showIssueDues || duesOk[i]))),
-    [days, startDate, eventsOk, duesOk, showIssueDues],
+    () =>
+      agendaProgress(days, startDate, events.success, events.success.map((ok, i) => ok && (!showIssueDues || dues.success[i]))),
+    [days, startDate, events.success, dues.success, showIssueDues],
   )
   const hasMore = count < AGENDA_MAX_CHUNKS
 
-  const { erroredRefetch: eventsRetry } = events
-  const { erroredRefetch: duesRetry } = dues
   const retry = useCallback(() => {
-    for (const refetch of [...eventsRetry, ...duesRetry]) void refetch()
-  }, [eventsRetry, duesRetry])
+    for (const refetch of [...events.erroredRefetch, ...dues.erroredRefetch]) void refetch()
+  }, [events.erroredRefetch, dues.erroredRefetch])
 
   return {
     start: startDate,
@@ -160,7 +149,7 @@ export function useAgendaChunks(start: Date, { enabled, filter, showIssueDues }:
     isLoading: enabled && (events.firstPending || (showIssueDues && dues.firstPending)),
     isLoadingMore: enabled && (events.anyPending || (showIssueDues && dues.anyPending)),
     isFetching: events.busy || (showIssueDues && dues.busy),
-    // 마감 청크 실패도 멈춤·다시 시도 사유 — 숨기면 마감 행이 말없이 빠지고 되살릴 방법이 없다(CR4). 받은 일정 행은 막지 않는다.
+    // 마감 청크 실패도 멈춤·다시 시도 사유 — 숨기면 마감 행이 말없이 빠지고 되살릴 방법이 없다. 받은 일정 행은 막지 않는다.
     // retry 는 실패한 일정·마감 청크를 모두 다시 받는다.
     isError: events.error || (showIssueDues && dues.error),
     hasMore,
@@ -168,6 +157,8 @@ export function useAgendaChunks(start: Date, { enabled, filter, showIssueDues }:
     loadMore,
     retry,
     reset,
-    scrollKey: `${startKey}:${epoch}`,
+    scrollKey,
+    topDay,
+    setTopDay,
   }
 }
