@@ -48,7 +48,8 @@ const TABLE_CELLS = new Set(['tableCell', 'tableHeader'])
 const MAX_TEXT_DIFF_CHARS = 10_000
 
 const dmp = new DiffMatchPatch()
-// 미리보기는 사용자를 기다리게 하므로 아주 큰 블록은 거친 diff 로 끊는다(병합과 같은 값).
+// 미리보기는 사용자를 기다리게 하므로 아주 큰 블록은 거친 diff 로 끊는다 — 실제 시계라 부하에 따라 표시 굵기만 달라질 수 있다(표시 전용).
+// 노트 병합은 결과가 달라지면 안 돼 시계 대신 작업량 예산으로 끊는다(wiki-editor-schema merge/charDiff.ts).
 dmp.Diff_Timeout = 0.2
 // diff-match-patch 연산 코드(라이브러리 문서 값).
 const EQUAL = 0

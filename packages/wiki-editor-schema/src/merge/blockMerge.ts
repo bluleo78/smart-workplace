@@ -1,6 +1,6 @@
-import DiffMatchPatch from 'diff-match-patch'
 import MarkdownIt from 'markdown-it'
 
+import { charDiff, cleanupSemantic } from './charDiff'
 import { countWork } from './workMeter'
 
 /**
@@ -19,9 +19,6 @@ import { countWork } from './workMeter'
 
 // 블록 경계만 쓴다 — tiptap-markdown 과 같은 html 허용(원문 HTML 블록이 한 블록으로 잡히게). 표는 기본 preset 에 포함.
 const md = new MarkdownIt({ html: true })
-const dmp = new DiffMatchPatch()
-// 블록 하나의 글자 diff 가 오래 걸리면 거친 diff 로 끊는다(병합은 실시간 문서 잠금 안에서 돈다).
-dmp.Diff_Timeout = 0.2
 
 // diff-match-patch 연산 코드(라이브러리 문서 값).
 const EQUAL = 0
@@ -530,8 +527,9 @@ interface Hunk {
 
 /** 기준→AI 글자 diff 를 덩어리로 묶는다(같음 구간이 덩어리를 나눈다). */
 function hunksOf(base: string, ai: string): Hunk[] {
-  const diffs = dmp.diff_main(base, ai)
-  dmp.diff_cleanupSemantic(diffs)
+  // 글자 diff 비용 상한은 시계가 아니라 작업량이다 — 같은 입력이면 기계 부하와 상관없이 같은 덩어리가 나온다(charDiff).
+  const diffs = charDiff(base, ai)
+  cleanupSemantic(diffs)
   const out: Hunk[] = []
   let pos = 0
   let open: Hunk | null = null
