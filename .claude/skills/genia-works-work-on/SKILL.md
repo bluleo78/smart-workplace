@@ -15,6 +15,8 @@ description: Use when the user asks you to work on a genia-works issue (e.g. "WP
    - 막히면 `state: 'BLOCKED'` + note 에 이유.
    - 사용자가 멈추라고 하면 `state: 'PAUSED'`.
    - 사용자가 답해 다시 움직이면 다음 MCP 쓰기에서 서버가 작업 중으로 되돌린다(따로 보고하지 않아도 됨).
-4. 마무리: 사용자에게 "완료 처리 / 검토 대기" 를 묻는다 → 완료면 `update_issue({ issueKey, status: 'DONE' })`(작업 기록은 자동 종료). 마무리 요약을 이슈 채팅에 남기려면 `report_agent_work({ issueKey, state: 'ENDED', message: '<최종 요약>' })` 를 쓴다 — `message` 는 이슈 채팅에 게시된다. 검토 대기면 `report_agent_work({ issueKey, state: 'REVIEW', note: '<PR·커밋 링크 요약>' })`.
+4. 마무리: 사용자에게 "완료 처리 / 검토 대기" 를 묻는다.
+   - 완료면: (선택) 먼저 `report_agent_work({ issueKey, state: 'ENDED', message: '<최종 요약>' })` 로 요약을 이슈 채팅에 남긴 뒤, `update_issue({ issueKey, status: 'DONE' })` 를 호출한다. 순서가 반대면 안 된다 — 완료·취소된 이슈에는 보고할 수 없다(409).
+   - 검토 대기면: `report_agent_work({ issueKey, state: 'REVIEW', note: '<PR·커밋 링크 요약>' })`.
    - `message` 를 붙인 호출은 호출할 때마다 이슈 채팅에 새 메시지를 남긴다. 재시도할 때 같은 `message` 를 반복해 보내지 않는다.
 5. 이 이슈 작업을 그만두면 `report_agent_work({ issueKey, state: 'ENDED' })`.
