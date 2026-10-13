@@ -519,11 +519,11 @@ public class DriveFileService {
   }
 
   /**
-   * 감사 로그용 사용자명 조회. 없으면 userId 문자열로 대체(#81).
+   * 감사 로그용 사용자명 조회. 없으면 userId 문자열로 대체(#81). 전송 링크 감사(WP-369)도 같은 규칙을 쓰도록 공개한다.
    *
    * <p>AuthService 와 동일하게 UserRepository.findById 를 통해 username 을 얻는다.
    */
-  private String usernameOf(long userId) {
+  public String usernameOf(long userId) {
     return userRepository
         .findById(userId)
         .map(com.workplace.user.dto.UserResponse::username)

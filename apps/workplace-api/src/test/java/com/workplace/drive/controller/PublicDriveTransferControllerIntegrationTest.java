@@ -4,7 +4,11 @@ import static com.workplace.jooq.Tables.AUDIT_LOG;
 import static com.workplace.jooq.Tables.DRIVE_FILE;
 import static com.workplace.jooq.Tables.DRIVE_SPACE;
 import static com.workplace.jooq.Tables.DRIVE_SPACE_MEMBER;
+import static com.workplace.jooq.Tables.DRIVE_TRANSFER_LINK;
 import static com.workplace.jooq.Tables.FILE;
+import static com.workplace.jooq.Tables.FILE_EXTRACTION;
+import static com.workplace.jooq.Tables.MEMBERSHIP;
+import static com.workplace.jooq.Tables.TENANT;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
@@ -494,6 +498,19 @@ class PublicDriveTransferControllerIntegrationTest extends IntegrationTestBase {
                       .where(DRIVE_FILE.ID.eq(newId))
                       .fetchOne(DRIVE_FILE.SPACE_ID))
               .isEqualTo(spaceId);
+          // 멀티파트 업로드와 같은 의미: 영구 파일(expires_at NULL)로 승격되고 추출 행이 생긴다
+          long fileId =
+              dsl.select(DRIVE_FILE.FILE_ID)
+                  .from(DRIVE_FILE)
+                  .where(DRIVE_FILE.ID.eq(newId))
+                  .fetchOne(DRIVE_FILE.FILE_ID);
+          assertThat(
+                  dsl.select(FILE.EXPIRES_AT)
+                      .from(FILE)
+                      .where(FILE.ID.eq(fileId))
+                      .fetchOne(FILE.EXPIRES_AT))
+              .isNull();
+          assertThat(dsl.fetchExists(FILE_EXTRACTION, FILE_EXTRACTION.FILE_ID.eq(fileId))).isTrue();
         });
     // 공개 요청 뒤 테넌트 컨텍스트가 남지 않는다
     assertThat(TenantContext.get()).isNull();
@@ -617,5 +634,113 @@ class PublicDriveTransferControllerIntegrationTest extends IntegrationTestBase {
                 .where(DRIVE_SPACE_MEMBER.SPACE_ID.eq(spaceId))
                 .and(DRIVE_SPACE_MEMBER.USER_ID.eq(userId))
                 .execute());
+  }
+
+  // ── Fix round 1 ──────────────────────────────────────────────────────
+
+  @org.springframework.beans.factory.annotation.Value("${workplace.drive.transfer-temp-dir}")
+  String tempDir;
+
+  /** 만료된 업로드 링크는 410 이고 소비되지 않는다(본문 전 확인). */
+  @Test
+  void put_expiredToken_isGone_andNotConsumed() throws Exception {
+    String path = issueUploadPath(owner, "{\"name\":\"만료.txt\"}");
+    String hash =
+        com.workplace.drive.service.DriveShareLinkService.sha256Hex(
+            path.substring(path.lastIndexOf('/') + 1));
+    cleanupInTenant(
+        1L,
+        () ->
+            dsl.update(DRIVE_TRANSFER_LINK)
+                .set(DRIVE_TRANSFER_LINK.EXPIRES_AT, java.time.OffsetDateTime.now().minusSeconds(1))
+                .where(DRIVE_TRANSFER_LINK.TOKEN_HASH.eq(hash))
+                .execute());
+
+    mockMvc
+        .perform(put(path).content("x".getBytes(StandardCharsets.UTF_8)))
+        .andExpect(status().isGone())
+        .andExpect(jsonPath("$.message").value(containsString("새 링크를 발급받으세요")));
+    cleanupInTenant(
+        1L,
+        () ->
+            assertThat(
+                    dsl.select(DRIVE_TRANSFER_LINK.USED_AT)
+                        .from(DRIVE_TRANSFER_LINK)
+                        .where(DRIVE_TRANSFER_LINK.TOKEN_HASH.eq(hash))
+                        .fetchOne(DRIVE_TRANSFER_LINK.USED_AT))
+                .isNull());
+  }
+
+  /** 발급 뒤 발급자의 워크스페이스 멤버십이 정지되면(공간 멤버 행이 남아 있어도) PUT 은 403. */
+  @Test
+  void put_issuerMembershipSuspended_isForbidden() throws Exception {
+    String path = issueUploadPath(owner, "{\"name\":\"정지.txt\"}");
+    setMembership(owner, "SUSPENDED");
+    try {
+      mockMvc
+          .perform(put(path).content("x".getBytes(StandardCharsets.UTF_8)))
+          .andExpect(status().isForbidden())
+          .andExpect(jsonPath("$.message").value(containsString("새 링크를 발급받으세요")));
+    } finally {
+      setMembership(owner, "ACTIVE");
+    }
+  }
+
+  /** 소비 뒤 핵심에서 실패(할당량 초과)해도 임시 파일이 남지 않는다. 409 문구는 사용량·한도를 드러내지 않는다. */
+  @Test
+  void put_quotaExceeded_isConflict_genericMessage_andTempFileRemoved() throws Exception {
+    String path = issueUploadPath(owner, "{\"name\":\"할당량.txt\"}");
+    Long[] original = new Long[1];
+    cleanupInTenant(
+        1L,
+        () -> {
+          original[0] =
+              dsl.select(TENANT.QUOTA_BYTES)
+                  .from(TENANT)
+                  .where(TENANT.ID.eq(1L))
+                  .fetchOne(TENANT.QUOTA_BYTES);
+          dsl.update(TENANT).set(TENANT.QUOTA_BYTES, 0L).where(TENANT.ID.eq(1L)).execute();
+        });
+    long before = tempPartFiles();
+    try {
+      mockMvc
+          .perform(put(path).content("내용".getBytes(StandardCharsets.UTF_8)))
+          .andExpect(status().isConflict())
+          .andExpect(jsonPath("$.message").value("저장 용량이 부족합니다. 공간을 비운 뒤 새 링크를 발급받으세요"));
+    } finally {
+      cleanupInTenant(
+          1L,
+          () ->
+              dsl.update(TENANT)
+                  .set(TENANT.QUOTA_BYTES, original[0])
+                  .where(TENANT.ID.eq(1L))
+                  .execute());
+    }
+    assertThat(tempPartFiles()).isEqualTo(before);
+  }
+
+  private void setMembership(long userId, String status) {
+    cleanupInTenant(
+        1L,
+        () ->
+            dsl.update(MEMBERSHIP)
+                .set(MEMBERSHIP.STATUS, status)
+                .where(MEMBERSHIP.USER_ID.eq(userId))
+                .and(MEMBERSHIP.TENANT_ID.eq(1L))
+                .execute());
+  }
+
+  /** 업로드 임시 파일 디렉터리에 남은 drive-transfer-*.part 수(테스트는 워커별 디렉터리라 다른 포크가 섞이지 않는다). */
+  private long tempPartFiles() throws java.io.IOException {
+    java.nio.file.Path dir = java.nio.file.Path.of(tempDir);
+    if (!java.nio.file.Files.isDirectory(dir)) {
+      return 0;
+    }
+    try (var files = java.nio.file.Files.list(dir)) {
+      return files
+          .map(f -> f.getFileName().toString())
+          .filter(n -> n.startsWith("drive-transfer-") && n.endsWith(".part"))
+          .count();
+    }
   }
 }

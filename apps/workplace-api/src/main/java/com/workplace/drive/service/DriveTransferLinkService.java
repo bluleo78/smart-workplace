@@ -27,7 +27,6 @@ import com.workplace.file.service.UploadSource;
 import com.workplace.global.tenant.MembershipGuard;
 import com.workplace.global.tenant.TenantStatusChecker;
 import com.workplace.global.util.SafeFileNames;
-import com.workplace.user.repository.UserRepository;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -39,8 +38,10 @@ import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -66,6 +67,7 @@ import org.springframework.util.unit.DataSize;
  * <p>공개 경로에는 인증 주체(SecurityContext)가 없다. 업로드 핵심과 그 아래(감사·알림·file core·추출 이벤트)는 행위자를 인자로만 받으므로 발급자
  * id 를 명시적으로 넘긴다(R3) — 감사 actor 는 발급자다.
  */
+@Slf4j
 @Service
 public class DriveTransferLinkService {
   /** 다운로드 링크 종류. 토큰 접두사는 {@code dl_}. */
@@ -100,8 +102,10 @@ public class DriveTransferLinkService {
   private final TenantStatusChecker tenantStatusChecker;
   private final DriveFileService fileService;
   private final AuditLogService auditLogService;
-  private final UserRepository userRepository;
   private final SecureRandom secureRandom = new SecureRandom();
+
+  /** PUT 본문 임시 파일 디렉터리(기본 java.io.tmpdir). 테스트는 Gradle 워커별로 나눠 남은 임시 파일을 결정적으로 센다. */
+  private final Path tempDir;
 
   /** 멀티파트 파일 상한(spring.servlet.multipart.max-file-size, 25MB) — 업로드 링크도 같은 상한을 넘지 않는다. */
   private final long multipartMaxBytes;
@@ -118,9 +122,9 @@ public class DriveTransferLinkService {
       TenantStatusChecker tenantStatusChecker,
       DriveFileService fileService,
       AuditLogService auditLogService,
-      UserRepository userRepository,
       @Value("${workplace.public-base-url}") String publicBaseUrl,
-      @Value("${spring.servlet.multipart.max-file-size:25MB}") String multipartMaxFileSize) {
+      @Value("${spring.servlet.multipart.max-file-size:25MB}") String multipartMaxFileSize,
+      @Value("${workplace.drive.transfer-temp-dir:${java.io.tmpdir}}") String tempDir) {
     this.links = links;
     this.files = files;
     this.perms = perms;
@@ -129,7 +133,7 @@ public class DriveTransferLinkService {
     this.tenantStatusChecker = tenantStatusChecker;
     this.fileService = fileService;
     this.auditLogService = auditLogService;
-    this.userRepository = userRepository;
+    this.tempDir = Path.of(tempDir).toAbsolutePath().normalize();
     this.publicBaseUrl = stripTrailingSlash(publicBaseUrl);
     this.multipartMaxBytes = DataSize.parse(multipartMaxFileSize).toBytes();
   }
@@ -163,7 +167,7 @@ public class DriveTransferLinkService {
     // 발급 감사(R11) — 토큰·해시는 남기지 않는다.
     auditLogService.log(
         callerId,
-        usernameOf(callerId),
+        fileService.usernameOf(callerId),
         AUDIT_LINK_CREATE,
         "drive",
         String.valueOf(driveFileId),
@@ -212,7 +216,7 @@ public class DriveTransferLinkService {
             name,
             expiresAt);
     // 발급 감사(R11) — 아직 파일이 없어 resource_id 는 비운다. 토큰·해시는 남기지 않는다.
-    Map<String, Object> meta = new java.util.HashMap<>();
+    Map<String, Object> meta = new HashMap<>();
     meta.put("kind", KIND_UPLOAD);
     meta.put("transferLinkId", linkId);
     meta.put("spaceId", spaceId);
@@ -223,7 +227,7 @@ public class DriveTransferLinkService {
     }
     auditLogService.log(
         callerId,
-        usernameOf(callerId),
+        fileService.usernameOf(callerId),
         AUDIT_LINK_CREATE,
         "drive",
         null,
@@ -250,22 +254,12 @@ public class DriveTransferLinkService {
    * @return 소비된 행(발급자·테넌트·대상)
    */
   public TransferLinkRow consume(String token, String kind) {
-    String prefix = KIND_UPLOAD.equals(kind) ? "ul_" : "dl_";
-    if (token == null || !token.startsWith(prefix)) {
-      throw new DriveTransferLinkNotFoundException();
-    }
-    String tokenHash = DriveShareLinkService.sha256Hex(token);
+    String tokenHash = tokenHashFor(token, kind);
     TransferLinkRow link = links.consume(tokenHash, kind).orElse(null);
     if (link == null) {
-      // 0행 — 없는 토큰(404)인지 사용·만료(410)인지 가른다. 비활성 테넌트는 존재를 숨겨 404.
-      TransferLinkRow existing =
-          links
-              .resolve(tokenHash)
-              .filter(r -> kind.equals(r.kind()))
-              .orElseThrow(DriveTransferLinkNotFoundException::new);
-      if (!tenantStatusChecker.isActive(existing.tenantId())) {
-        throw new DriveTransferLinkNotFoundException();
-      }
+      // 0행 — 없는 토큰(404)인지 사용·만료(410)인지 본문 전 확인과 같은 판정으로 가른다. 판정이 "쓸 수 있음"이면 그 사이 다른 요청이 소비한
+      // 것이므로 410.
+      requireUsable(tokenHash, kind);
       throw new DriveTransferLinkGoneException();
     }
     if (!tenantStatusChecker.isActive(link.tenantId())) {
@@ -327,7 +321,7 @@ public class DriveTransferLinkService {
    * @return 소비된 행
    */
   public TransferLinkRow consumeUpload(String token, String contentType, long contentLength) {
-    TransferLinkRow pending = resolveUsable(token, KIND_UPLOAD);
+    TransferLinkRow pending = requireUsable(tokenHashFor(token, KIND_UPLOAD), KIND_UPLOAD);
     String mime = bareMime(contentType);
     if (mime != null
         && (mime.equals("application/x-www-form-urlencoded") || mime.startsWith("multipart/"))) {
@@ -343,15 +337,23 @@ public class DriveTransferLinkService {
     return consume(token, KIND_UPLOAD);
   }
 
-  /** 소비 없이 링크 상태 확인 — {@link #consume} 와 같은 판정(없음·종류 다름·비활성 테넌트 404, 사용·만료 410). */
-  private TransferLinkRow resolveUsable(String token, String kind) {
+  /** 토큰 접두사가 종류와 맞는지 보고 해시를 돌려준다. 다르거나 없으면 404(DB 를 건드리지 않는다). */
+  private static String tokenHashFor(String token, String kind) {
     String prefix = KIND_UPLOAD.equals(kind) ? "ul_" : "dl_";
     if (token == null || !token.startsWith(prefix)) {
       throw new DriveTransferLinkNotFoundException();
     }
+    return DriveShareLinkService.sha256Hex(token);
+  }
+
+  /**
+   * 소비 없이 링크 상태를 판정한다 — {@link #consume}(소비 실패 분류)와 {@link #consumeUpload}(본문 전 확인)가 같이 써서 판정이 갈라지지
+   * 않게 한다: 없음·종류 다름·비활성 테넌트는 404(존재 은닉), 사용·만료는 410, 쓸 수 있으면 그 행.
+   */
+  private TransferLinkRow requireUsable(String tokenHash, String kind) {
     TransferLinkRow link =
         links
-            .resolve(DriveShareLinkService.sha256Hex(token))
+            .resolve(tokenHash)
             .filter(r -> kind.equals(r.kind()))
             .orElseThrow(DriveTransferLinkNotFoundException::new);
     if (!tenantStatusChecker.isActive(link.tenantId())) {
@@ -390,16 +392,17 @@ public class DriveTransferLinkService {
    * 제한이다. 넘으면 그 자리에서 끊는다.
    *
    * @return 받은 본문(닫으면 임시 파일을 지운다)
-   * @throws DriveTransferUploadRejectedException 크기 초과·본문 중단(400). 링크는 이미 소비됐다
+   * @throws DriveTransferUploadRejectedException 크기 초과·본문 중단(400), 임시 파일 생성·쓰기 실패(500). 링크는 이미 소비됐다
    */
   public ReceivedBody receiveBody(TransferLinkRow link, InputStream body, String contentType) {
     String mime = bareMime(contentType);
     long cap = uploadCapFor(link.fileName(), mime);
     Path temp;
     try {
-      temp = Files.createTempFile("drive-transfer-", ".part");
+      Files.createDirectories(tempDir);
+      temp = Files.createTempFile(tempDir, "drive-transfer-", ".part");
     } catch (IOException e) {
-      throw new UncheckedIOException("업로드 임시 파일 생성 실패", e);
+      throw storageFailed(e);
     }
     try {
       long size = copyWithCap(body, temp, cap);
@@ -434,8 +437,18 @@ public class DriveTransferLinkService {
         out.write(buf, 0, n);
       }
     } catch (IOException e) {
-      throw new UncheckedIOException("업로드 임시 파일 쓰기 실패", e);
+      throw storageFailed(e);
     }
+  }
+
+  /**
+   * 소비 뒤 서버 쪽 입출력 실패(임시 파일 생성·쓰기, 저장소 복사) — 500 은 그대로 두되 일반 500 문구 대신 새 링크 발급을 안내한다. 원인은 서버 로그에만
+   * 남긴다(예외 문구의 경로에는 토큰이 없다).
+   */
+  private static DriveTransferUploadRejectedException storageFailed(Exception cause) {
+    log.error("업로드 링크 본문 저장 실패", cause);
+    return new DriveTransferUploadRejectedException(
+        HttpStatus.INTERNAL_SERVER_ERROR, "업로드한 파일을 저장하지 못했습니다. 새 링크를 발급받으세요");
   }
 
   /**
@@ -447,8 +460,7 @@ public class DriveTransferLinkService {
    */
   @Transactional
   public DriveFileResponse completeUpload(
-      TransferLinkRow link, ReceivedBody body, String clientIp, String userAgent)
-      throws IOException {
+      TransferLinkRow link, ReceivedBody body, String clientIp, String userAgent) {
     DriveFileResponse saved;
     try {
       saved =
@@ -462,11 +474,15 @@ public class DriveTransferLinkService {
     } catch (DriveFolderNotFoundException | DriveInvalidTargetException e) {
       throw uploadFolderGone();
     } catch (DriveQuotaExceededException e) {
+      // 익명 링크 소지자에게 테넌트 사용량·한도를 드러내지 않는다.
       throw new DriveTransferUploadRejectedException(
-          HttpStatus.CONFLICT, e.getMessage() + " 공간을 비운 뒤 새 링크를 발급받으세요");
+          HttpStatus.CONFLICT, "저장 용량이 부족합니다. 공간을 비운 뒤 새 링크를 발급받으세요");
     } catch (FileSizeLimitExceededException e) {
       throw new DriveTransferUploadRejectedException(
           HttpStatus.BAD_REQUEST, e.getMessage() + ". 새 링크를 발급받으세요");
+    } catch (IOException | UncheckedIOException e) {
+      // 저장소 복사(FileStore.storeFrom) 등 서버 쪽 입출력 실패
+      throw storageFailed(e);
     }
     auditUse(link, saved.id(), saved.name(), saved.sizeBytes(), clientIp, userAgent);
     return saved;
@@ -506,7 +522,7 @@ public class DriveTransferLinkService {
     boolean upload = KIND_UPLOAD.equals(link.kind());
     auditLogService.log(
         link.userId(),
-        usernameOf(link.userId()),
+        fileService.usernameOf(link.userId()),
         AUDIT_LINK_USE,
         "drive",
         String.valueOf(driveFileId),
@@ -543,14 +559,6 @@ public class DriveTransferLinkService {
     } catch (IOException ignored) {
       // 임시 파일 정리 실패는 응답을 바꾸지 않는다(OS 임시 디렉터리 정리에 맡긴다).
     }
-  }
-
-  /** 감사 로그용 사용자명. 없으면 userId 문자열(DriveFileService 와 같은 규칙). */
-  private String usernameOf(long userId) {
-    return userRepository
-        .findById(userId)
-        .map(com.workplace.user.dto.UserResponse::username)
-        .orElse(String.valueOf(userId));
   }
 
   /**

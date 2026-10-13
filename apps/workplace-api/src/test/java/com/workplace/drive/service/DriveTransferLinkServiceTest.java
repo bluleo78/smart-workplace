@@ -62,6 +62,9 @@ class DriveTransferLinkServiceTest extends IntegrationTestBase {
   @Autowired DriveTransferLinkCleanupScheduler cleanupScheduler;
   @Autowired FileStore fileStore;
 
+  @org.springframework.beans.factory.annotation.Value("${workplace.drive.transfer-temp-dir}")
+  String tempDir;
+
   private static final long MB = 1024L * 1024;
 
   private long owner;
@@ -146,13 +149,25 @@ class DriveTransferLinkServiceTest extends IntegrationTestBase {
         .isInstanceOf(DriveFileNotFoundException.class);
   }
 
-  /** 발급 시 발급자의 만료 행만 지운다 — 만료 전 사용된 행·다른 사용자 행은 남는다(재사용 410 유지). */
+  /**
+   * 발급 시 발급자의 "만료 뒤 하루가 지난" 행만 지운다(주기 정리와 같은 기준) — 막 만료된 행·만료 전 사용된 행·다른 사용자 행은 남는다(재사용 410 유지).
+   */
   @Test
   void issue_cleansOnlyIssuersExpiredRows() throws Exception {
-    OffsetDateTime past = OffsetDateTime.now().minusMinutes(1);
+    OffsetDateTime past = OffsetDateTime.now().minusDays(2);
     OffsetDateTime future = OffsetDateTime.now().plusMinutes(5);
     long expiredMine =
         links.insert("DOWNLOAD", hash(), viewer, spaceId, null, driveFileId, null, past);
+    long justExpiredMine =
+        links.insert(
+            "DOWNLOAD",
+            hash(),
+            viewer,
+            spaceId,
+            null,
+            driveFileId,
+            null,
+            OffsetDateTime.now().minusMinutes(1));
     long usedMine =
         links.insert("DOWNLOAD", hash(), viewer, spaceId, null, driveFileId, null, future);
     dsl.update(DRIVE_TRANSFER_LINK)
@@ -165,6 +180,7 @@ class DriveTransferLinkServiceTest extends IntegrationTestBase {
     transfers.issueDownloadLink(viewer, driveFileId);
 
     assertThat(exists(expiredMine)).isFalse();
+    assertThat(exists(justExpiredMine)).isTrue();
     assertThat(exists(usedMine)).isTrue();
     assertThat(exists(expiredOthers)).isTrue();
   }
@@ -456,6 +472,7 @@ class DriveTransferLinkServiceTest extends IntegrationTestBase {
     String token = uploadToken("big.md", null);
     TenantContext.clear();
     TransferLinkRow link = transfers.consumeUpload(token, null, -1);
+    long before = tempPartFiles();
 
     InputStream endless =
         new InputStream() {
@@ -484,6 +501,8 @@ class DriveTransferLinkServiceTest extends IntegrationTestBase {
               assertThat(e.status()).isEqualTo(HttpStatus.BAD_REQUEST);
               assertThat(e.getMessage()).contains("10MB").contains("새 링크를 발급받으세요");
             });
+    // 상한을 넘겨 끊긴 본문의 임시 파일은 바로 지운다
+    assertThat(tempPartFiles()).isEqualTo(before);
 
     byte[] small = "작은 본문".getBytes(StandardCharsets.UTF_8);
     ReceivedBody body =
@@ -617,7 +636,85 @@ class DriveTransferLinkServiceTest extends IntegrationTestBase {
     assertThat(exists(live)).isTrue();
   }
 
+  // ── Fix round 1 ──────────────────────────────────────────────────────
+
+  /** 막 만료된 링크는 같은 사용자가 새 링크를 발급해도 지워지지 않아, 그 링크를 다시 쓰면 404 가 아니라 410 이다. */
+  @Test
+  void justExpiredLink_survivesReissue_andStaysGone() throws Exception {
+    String token = tokenOf(transfers.issueDownloadLink(viewer, driveFileId));
+    dsl.update(DRIVE_TRANSFER_LINK)
+        .set(DRIVE_TRANSFER_LINK.EXPIRES_AT, OffsetDateTime.now().minusMinutes(1))
+        .where(DRIVE_TRANSFER_LINK.TOKEN_HASH.eq(DriveShareLinkService.sha256Hex(token)))
+        .execute();
+    transfers.issueDownloadLink(viewer, driveFileId); // 발급 시 정리
+    TenantContext.clear();
+    assertThatThrownBy(() -> transfers.consume(token, DriveTransferLinkService.KIND_DOWNLOAD))
+        .isInstanceOf(DriveTransferLinkGoneException.class);
+  }
+
+  /** 정지된 테넌트의 업로드 링크는 본문 전 확인에서 404(존재 은닉)이고 소비되지 않는다. (상태 변경은 테스트 롤백으로 원복, 캐시 TTL=0) */
+  @Test
+  void consumeUpload_inactiveTenant_isNotFound_andNotConsumed() {
+    String token = uploadToken("t.md", null);
+    dsl.update(TENANT).set(TENANT.STATUS, "SUSPENDED").where(TENANT.ID.eq(1L)).execute();
+    TenantContext.clear();
+    assertThatThrownBy(() -> transfers.consumeUpload(token, null, 1))
+        .isInstanceOf(DriveTransferLinkNotFoundException.class);
+    assertThat(
+            dsl.select(DRIVE_TRANSFER_LINK.USED_AT)
+                .from(DRIVE_TRANSFER_LINK)
+                .where(DRIVE_TRANSFER_LINK.TOKEN_HASH.eq(DriveShareLinkService.sha256Hex(token)))
+                .fetchOne(DRIVE_TRANSFER_LINK.USED_AT))
+        .isNull();
+  }
+
+  /** 할당량 초과 문구는 익명 링크 소지자에게 사용량·한도를 드러내지 않는다. */
+  @Test
+  void completeUpload_overQuota_messageHidesUsageAndLimit() throws Exception {
+    String token = uploadToken("q2.txt", null);
+    dsl.update(TENANT).set(TENANT.QUOTA_BYTES, 0L).where(TENANT.ID.eq(1L)).execute();
+    assertThatThrownBy(() -> putViaService(token, "x".getBytes()))
+        .isInstanceOf(DriveTransferUploadRejectedException.class)
+        .hasMessage("저장 용량이 부족합니다. 공간을 비운 뒤 새 링크를 발급받으세요");
+  }
+
+  /** 소비 뒤 서버 쪽 입출력 실패(저장소 복사)는 일반 500 대신 새 링크 안내가 붙은 500 이다. */
+  @Test
+  void completeUpload_storageIoFailure_is500WithNewLinkHint() {
+    String token = uploadToken("io.txt", null);
+    TenantContext.clear();
+    TransferLinkRow link = transfers.consumeUpload(token, null, 3);
+    TenantContext.set(1L);
+    // 받아 둔 임시 파일이 사라진 상황 — FileStore.storeFrom 의 복사가 실패한다
+    ReceivedBody gone =
+        new ReceivedBody(
+            java.nio.file.Path.of(tempDir, "drive-transfer-missing-" + UUID.randomUUID() + ".part"),
+            3,
+            null);
+    assertThatThrownBy(() -> transfers.completeUpload(link, gone, null, null))
+        .isInstanceOfSatisfying(
+            DriveTransferUploadRejectedException.class,
+            e -> {
+              assertThat(e.status()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
+              assertThat(e.getMessage()).contains("새 링크를 발급받으세요");
+            });
+  }
+
   // --- 헬퍼 ---
+
+  /** 업로드 임시 파일 디렉터리에 남은 drive-transfer-*.part 수(테스트는 워커별 디렉터리라 다른 포크가 섞이지 않는다). */
+  private long tempPartFiles() throws java.io.IOException {
+    java.nio.file.Path dir = java.nio.file.Path.of(tempDir);
+    if (!Files.isDirectory(dir)) {
+      return 0;
+    }
+    try (var files = Files.list(dir)) {
+      return files
+          .map(f -> f.getFileName().toString())
+          .filter(n -> n.startsWith("drive-transfer-") && n.endsWith(".part"))
+          .count();
+    }
+  }
 
   /** 업로드 링크를 발급하고 토큰만 돌려준다(컨텍스트는 테넌트 1 유지). */
   private String uploadToken(String name, Long folderId) {

@@ -6,6 +6,7 @@ import java.time.OffsetDateTime;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
+import org.jooq.Field;
 import org.jooq.Record;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
@@ -52,16 +53,20 @@ public class DriveTransferLinkRepository {
         .getId();
   }
 
+  /** 만료 행을 지우는 기준 — 만료 뒤 하루. 주기 정리 함수({@code drive_transfer_link_purge_expired})와 같은 값이다. */
+  private static final Field<OffsetDateTime> PURGE_CUTOFF =
+      DSL.field("now() - interval '1 day'", OffsetDateTime.class);
+
   /**
-   * 발급자의 만료된 링크 행을 지운다(발급 시 정리 — 주기 정리는 {@link #purgeExpired}). 만료 전 사용된 행은 남겨 재사용 요청이 404 가 아니라
-   * 410 을 받게 한다.
+   * 발급자의 만료 뒤 하루가 지난 링크 행을 지운다(발급 시 정리 — 주기 정리는 {@link #purgeExpired}). 막 만료·사용된 행은 남겨 그 링크를 다시 쓰려는
+   * 요청이 404 가 아니라 410 을 받게 한다.
    *
    * @return 지운 행 수
    */
   public int deleteExpiredByUser(long userId) {
     return dsl.deleteFrom(DRIVE_TRANSFER_LINK)
         .where(DRIVE_TRANSFER_LINK.USER_ID.eq(userId))
-        .and(DRIVE_TRANSFER_LINK.EXPIRES_AT.lt(DSL.currentOffsetDateTime()))
+        .and(DRIVE_TRANSFER_LINK.EXPIRES_AT.lt(PURGE_CUTOFF))
         .execute();
   }
 
