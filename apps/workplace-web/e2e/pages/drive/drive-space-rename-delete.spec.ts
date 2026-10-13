@@ -3,6 +3,7 @@ import type { Page } from '@playwright/test'
 
 import { expect, test } from '../../fixtures/auth.fixture'
 import { trackRequests } from '../../fixtures/requests'
+import { pausePageClock } from '../../fixtures/touch'
 import type { DriveSpace } from '../../../src/types/drive'
 
 // 개인 공간 + 팀 공간(OWNER) — DriveSidebar 가 마운트 시 페치한다.
@@ -72,6 +73,33 @@ test.describe('드라이브 TEAM 공간 이름 변경/삭제', () => {
     await input.fill('제품팀')
     await page.getByTestId('rename-dialog-confirm').click()
     await expect.poll(() => patches.lastBody()).toEqual({ name: '제품팀' })
+  })
+
+  // 메뉴는 닫힘 애니메이션 뒤 타이머로 트리거에 포커스를 되돌린다 — 부하로 그게 늦으면 다이얼로그에 이미 친 글자를 포커스 트랩이
+  // 되찾으며 전체 선택해 다음 글자가 덮어썼다. 페이지 시계를 멈춰 그 순서를 고정한다.
+  test('⋯ 메뉴의 포커스 되돌리기가 늦게 돌아도 이름 변경 칸에 친 글자가 덮어써지지 않는다', async ({ authenticatedPage: page }) => {
+    await mockBaseRoutes(page)
+    await page.goto('/drive')
+    await page.getByTestId('drive-space-menu-2').click()
+    await pausePageClock(page)
+    await page.getByTestId('drive-space-rename-2').click()
+    const input = page.getByTestId('rename-dialog-input')
+    await expect(input).toBeFocused()
+    await page.keyboard.type('제품')
+    await page.clock.runFor(1000) // 멈췄던 메뉴의 포커스 되돌리기 타이머가 이제 돈다
+    await expect(input).toBeFocused()
+    await page.keyboard.type('팀')
+    await expect(input).toHaveValue('기획팀제품팀')
+  })
+
+  test('⋯ 메뉴를 Esc 로 닫으면 포커스는 트리거로 돌아온다', async ({ authenticatedPage: page }) => {
+    await mockBaseRoutes(page)
+    await page.goto('/drive')
+    const trigger = page.getByTestId('drive-space-menu-2')
+    await trigger.click()
+    await expect(page.getByTestId('drive-space-rename-2')).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(trigger).toBeFocused()
   })
 
   // #696 — 다른 TEAM 공간과 이름이 겹치면 409 → 다이얼로그 유지 + 인라인 에러(컨테이너류 이름 하드 차단 정책).
