@@ -1,5 +1,6 @@
 // src/schemas.ts — 이슈 도구 입력 zod 스키마. 두 앱 공유(기존 중복 제거).
 import { z } from 'zod';
+import { AGENT_WORK_STATE_INPUTS } from './tool-client.js';
 
 /** issueKey 만 받는 최소 입력. */
 export const issueKeyInput = z.object({ issueKey: z.string().min(1) });
@@ -62,7 +63,7 @@ export const addCommentInput = z.object({ issueKey: z.string().min(1), body: z.s
 export const reportAgentWorkInput = z
   .object({
     issueKey: z.string().min(1),
-    state: z.enum(['WORKING', 'INPUT_REQUIRED', 'AUTH_REQUIRED', 'BLOCKED', 'PAUSED', 'REVIEW', 'COMPLETED', 'FAILED', 'CANCELED', 'REJECTED']).optional(),
+    state: z.enum(AGENT_WORK_STATE_INPUTS).optional(),
     note: z.string().max(120).optional().describe('one-line status; "" clears'), // 한 줄 상태(최대 120자는 스키마가 알린다). 빈 문자열이면 지운다
     progress: z.number().int().min(0).max(100).optional(),
     stepsDone: z.number().int().min(0).optional(),

@@ -100,20 +100,25 @@ export interface IssueRow {
 export type IssueListQuery = Record<string, string | number | boolean>;
 
 /**
- * AI 작업 보고 입력 상태(WP-377, A2A 1.0 어휘). 뒤 네 값(COMPLETED·FAILED·CANCELED·REJECTED)은 종료 상태라 보고하면 작업 기록이 끝난다.
+ * AI 작업 보고 입력 상태 목록(WP-377, A2A 1.0 어휘) — 단일 정의. zod 스키마(`schemas.ts`)와 아래 타입이 모두 여기서 나온다.
+ * 뒤 네 값(COMPLETED·FAILED·CANCELED·REJECTED)은 종료 상태라 보고하면 작업 기록이 끝난다.
  * 조회 뷰에는 진행 중 상태 7종(여기 입력의 앞 6종 + SUBMITTED=시작 전)만 나온다.
  */
-export type AgentWorkStateInput =
-  | 'WORKING'
-  | 'INPUT_REQUIRED'
-  | 'AUTH_REQUIRED'
-  | 'BLOCKED'
-  | 'PAUSED'
-  | 'REVIEW'
-  | 'COMPLETED'
-  | 'FAILED'
-  | 'CANCELED'
-  | 'REJECTED';
+export const AGENT_WORK_STATE_INPUTS = [
+  'WORKING',
+  'INPUT_REQUIRED',
+  'AUTH_REQUIRED',
+  'BLOCKED',
+  'PAUSED',
+  'REVIEW',
+  'COMPLETED',
+  'FAILED',
+  'CANCELED',
+  'REJECTED',
+] as const;
+
+/** AI 작업 보고 입력 상태 — {@link AGENT_WORK_STATE_INPUTS} 의 원소. */
+export type AgentWorkStateInput = (typeof AGENT_WORK_STATE_INPUTS)[number];
 
 /** PUT .../agent-work 본문 — 준 필드만 서버로 간다. */
 export interface ReportAgentWorkBody {
