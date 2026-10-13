@@ -115,3 +115,28 @@ export async function expectStays<T>(
 export function nextFrame(page: Page): Promise<void> {
   return page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))));
 }
+
+/**
+ * dnd-kit 끌기를 놓는다 — mouse.up() 뒤 dnd-kit 의 click 막음이 풀릴 때까지 기다려, 이어지는 클릭이 삼켜지지 않게 한다.
+ * dnd-kit 은 놓은 뒤 setTimeout(50ms) 동안 document 캡처 단계에서 click 전파를 막는데, 부하로 그 타이머가 늦으면 놓은 직후의
+ * 클릭(토스트 「되돌리기」·구간 펼치기 등)이 조용히 삼켜진다. 탐침 click 이 제 대상까지 닿는지로 직접 확인한다
+ * (버블은 없지만 window·document 의 캡처 리스너에는 닿는다 — 앱은 click 캡처로 바깥 클릭을 판정하지 않는다).
+ */
+export async function dropDnd(page: Page): Promise<void> {
+  await page.mouse.up();
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() => {
+          const probe = document.createElement('div');
+          let reached = false;
+          probe.addEventListener('click', () => (reached = true));
+          document.body.appendChild(probe);
+          probe.dispatchEvent(new MouseEvent('click', { bubbles: false }));
+          probe.remove();
+          return reached;
+        }),
+      { message: 'dnd-kit 놓은 뒤 click 막음 해제', intervals: [10, 20, 50, 100] },
+    )
+    .toBe(true);
+}

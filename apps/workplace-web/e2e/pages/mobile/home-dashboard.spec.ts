@@ -18,7 +18,7 @@ import { createProject } from '../../factories/project.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, expectNoHorizontalOverflow, test } from '../../fixtures/mobile.fixture'
 import { bodyOf, trackRequests } from '../../fixtures/requests'
-import { expectStays, resizeAndSettle } from '../../fixtures/wait'
+import { dropDnd, expectStays, resizeAndSettle } from '../../fixtures/wait'
 
 type Device = 'mobile' | 'desktop'
 
@@ -361,7 +361,7 @@ test('모바일 편집 — 오른쪽 드래그 핸들로 순서를 바꾸면 dev
   await page.mouse.down()
   await page.mouse.move(0, 0)
   await page.mouse.move(target.x + target.width / 2, target.y + target.height * 0.75, { steps: 12 })
-  await page.mouse.up()
+  await dropDnd(page)
   const cards = page.getByTestId('dashboard-widget')
   await expect(cards.nth(0)).toHaveAttribute('data-widget', 'unread_mail')
   await expect(cards.nth(1)).toHaveAttribute('data-widget', 'my_tasks')

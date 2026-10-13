@@ -92,6 +92,32 @@ test.describe('드라이브 TEAM 공간 이름 변경/삭제', () => {
     await expect(input).toHaveValue('기획팀제품팀')
   })
 
+  // 메뉴 항목에서 연 다이얼로그는 닫힐 때 그 항목이 이미 사라져 있다 — 메뉴를 연 ⋯ 로 포커스가 돌아와야 키보드 사용자가 자리를 잃지 않는다.
+  test('⋯ 메뉴로 연 이름 변경 다이얼로그를 닫으면 포커스는 그 ⋯ 로 돌아온다', async ({ authenticatedPage: page }) => {
+    await mockBaseRoutes(page)
+    await page.goto('/drive')
+    const trigger = page.getByTestId('drive-space-menu-2')
+    await trigger.click()
+    await page.getByTestId('drive-space-rename-2').click()
+    await expect(page.getByTestId('rename-dialog-input')).toBeFocused()
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('rename-dialog-input')).toBeHidden()
+    await expect(trigger).toBeFocused()
+  })
+
+  test('⋯ 메뉴로 연 삭제 확인을 취소하면 포커스는 그 ⋯ 로 돌아온다', async ({ authenticatedPage: page }) => {
+    await mockBaseRoutes(page)
+    await page.goto('/drive')
+    const trigger = page.getByTestId('drive-space-menu-2')
+    await trigger.click()
+    await page.getByTestId('drive-space-delete-2').click()
+    const dialog = page.getByTestId('drive-space-delete-dialog')
+    await expect(dialog).toBeVisible()
+    await dialog.getByRole('button', { name: '취소' }).click()
+    await expect(dialog).toBeHidden()
+    await expect(trigger).toBeFocused()
+  })
+
   test('⋯ 메뉴를 Esc 로 닫으면 포커스는 트리거로 돌아온다', async ({ authenticatedPage: page }) => {
     await mockBaseRoutes(page)
     await page.goto('/drive')

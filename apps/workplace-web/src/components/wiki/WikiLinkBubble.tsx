@@ -81,11 +81,11 @@ export function WikiLinkBubble({
           if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocusWithin(false)
         }}
         onKeyDown={(e) => {
-          // Esc — 버블에서 본문(링크 안 커서)으로 돌아간다.
+          // Esc — 버블에서 본문(링크 안 커서)으로 돌아간다. 다음 프레임(commands.focus)이 아니라 바로 — 늦으면 이어 친 글자가 사라진다.
           if (e.key === 'Escape') {
             e.preventDefault()
             e.stopPropagation()
-            editor.commands.focus()
+            editor.view.focus()
           }
         }}
       >

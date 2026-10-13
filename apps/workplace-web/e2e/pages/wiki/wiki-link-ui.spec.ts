@@ -63,6 +63,48 @@ test('선택 툴바 🔗 로 선택한 글자에 링크를 건다 — 맨 도메
   await expect.poll(() => savedMarkdown(page, PAGE_ID)).toBe(`자세한 내용은 [설계 문서](${LINK_URL}) 참고.`)
 })
 
+// 부하로 프레임(rAF)이 늦게 돌아도 링크 적용 직후의 입력이 제자리에 들어가야 한다 — 포커스·선택을 다음 프레임에 돌리면
+// 그 사이 친 글자는 사라지고 그 사이 옮긴 커서는 옛 선택으로 덮인다. 적용~입력 동안만 rAF 를 늦춰 그 순서를 고정한다.
+test('프레임이 늦게 돌아도 링크를 건 직후 친 글자·옮긴 커서가 제자리에 들어간다', async ({ authenticatedPage: page }) => {
+  await page.addInitScript(() => {
+    const raf = window.requestAnimationFrame.bind(window)
+    const caf = window.cancelAnimationFrame.bind(window)
+    const w = window as typeof window & { __slowRaf?: boolean }
+    // 늦춘 프레임은 따로 id 를 매겨 cancelAnimationFrame 으로도 취소되게 한다(취소된 일이 늦게 도는 일 없게).
+    const delayed = new Map<number, ReturnType<typeof setTimeout>>()
+    let seq = 0
+    window.requestAnimationFrame = (cb) => {
+      if (!w.__slowRaf) return raf(cb)
+      const id = 1e9 + ++seq
+      delayed.set(id, setTimeout(() => (delayed.delete(id), raf(cb)), 300))
+      return id
+    }
+    window.cancelAnimationFrame = (id) => {
+      const t = delayed.get(id)
+      if (t === undefined) return caf(id)
+      clearTimeout(t)
+      delayed.delete(id)
+    }
+  })
+  const slowFrames = (on: boolean) => page.evaluate((v) => ((window as typeof window & { __slowRaf?: boolean }).__slowRaf = v), on)
+  await open(page, '첫 문단 링크대상\n\n둘째 문단')
+  await selectText(page, '링크대상')
+  await page.keyboard.press('ControlOrMeta+k')
+  await page.getByTestId('wiki-link-input').fill('https://a.example.com')
+  await slowFrames(true)
+  await page.keyboard.press('Enter')
+  // 바로 이어 친 글자는 링크 뒤에 붙는다(링크 글자가 아니다).
+  await page.keyboard.type('!')
+  // 바로 다른 문단으로 옮긴 커서는 뒤늦은 포커스에 덮이지 않는다.
+  await page.locator('.ProseMirror p', { hasText: '둘째 문단' }).click()
+  await page.keyboard.press('End')
+  await page.keyboard.type(' 뒤')
+  await slowFrames(false)
+  await expect
+    .poll(() => savedMarkdown(page, PAGE_ID))
+    .toBe('첫 문단 [링크대상](https://a.example.com)!\n\n둘째 문단 뒤')
+})
+
 test('⌘K/Ctrl+K — 선택이 있으면 그 글자에, 커서만 있으면 친 주소를 링크 글자로 넣고 AI 패널은 열지 않는다', async ({
   authenticatedPage: page,
 }) => {

@@ -6,7 +6,7 @@ import type { Route } from '@playwright/test';
 import { mockApi } from '../../fixtures/api-mock';
 import { expect, test } from '../../fixtures/auth.fixture';
 import { trackRequests } from '../../fixtures/requests';
-import { expectStays } from '../../fixtures/wait';
+import { dropDnd, expectStays } from '../../fixtures/wait';
 import {
   createIssue,
   createIssueDetail,
@@ -55,7 +55,7 @@ async function dragCardTo(
   const box = await target.boundingBox();
   if (!box) throw new Error(`${columnTestId} bounding box 없음`);
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 10 });
-  await page.mouse.up();
+  await dropDnd(page);
 }
 
 test.describe('태스크 보드/검색', () => {
@@ -544,7 +544,7 @@ test.describe('태스크 보드/검색', () => {
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.down();
     await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2, { steps: 8 });
-    await page.mouse.up();
+    await dropDnd(page);
     await expect(page).toHaveURL(/\/projects\/WP\?view=board$/);
   });
 
@@ -1020,6 +1020,6 @@ test('담당자 그룹 보드에서 카드를 다른 그룹 카드 위에 놓아
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 10 });
   await expect(card).toHaveCSS('opacity', '0.4');
   await expect(page.getByTestId('issue-card-drag-overlay')).toBeVisible();
-  await page.mouse.up();
+  await dropDnd(page);
   await expectStays(page, statusPatches.count, 0);
 });
