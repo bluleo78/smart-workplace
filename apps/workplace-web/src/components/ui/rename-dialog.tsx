@@ -1,7 +1,7 @@
 // 이름 변경 Dialog — window.prompt() 대체용 재사용 컴포넌트 (#160).
 // trigger 없이 open/onClose prop 으로 제어하는 제어 컴포넌트 방식.
 
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -39,11 +39,14 @@ interface RenameDialogProps {
   /** 입력 최대 길이 — 기본 40 */
   maxLength?: number;
   /**
-   * 열릴 때 처음 선택할 범위 [시작, 끝] — 미지정 시 커서만 둔다. 파일 이름에서 확장자 앞까지만 선택할 때 쓴다(WP-335).
+   * 열릴 때 처음 선택할 범위 [시작, 끝] — 미지정 시 선택 없이 커서를 끝에 둔다. 파일 이름에서 확장자 앞까지만 선택할 때 쓴다(WP-335).
    * 고치기 전이면 포커스를 받을 때마다 다시 건다.
    */
   initialSelection?: (value: string) => [number, number];
 }
+
+/** initialSelection 미지정 시 — 선택 없이 커서를 끝에 둔다. */
+const caretAtEnd = (value: string): [number, number] => [value.length, value.length];
 
 export function RenameDialog({
   open,
@@ -54,36 +57,28 @@ export function RenameDialog({
   extractError,
   confirmLabel = '확인',
   maxLength = 40,
-  initialSelection,
+  initialSelection = caretAtEnd,
 }: RenameDialogProps) {
   const [value, setValue] = useState(initialValue);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
+  // 열린 뒤 고쳤는지 — 고친 뒤엔 포커스를 되찾아도 처음 선택을 다시 걸지 않는다.
+  const [dirty, setDirty] = useState(false);
   // Enter 확인 — 한글 조합 Enter·macOS Chrome 확정 직후 꼬리 Enter 는 확인으로 보지 않는다(WP-331).
   const enterKey = useSingleLineEnter();
 
-  // 열린 뒤 사용자가 입력·키·포인터로 손댔는지 — 손댄 뒤엔 처음 선택을 다시 걸지 않는다(아래 타이머·onFocus 공통 판정).
-  // 열자마자 친 글자나 옮긴 커서에 늦게 도는 타이머가 처음 선택을 다시 걸면 다음 글자가 그것을 덮어쓴다.
-  const touchedRef = useRef(false);
-  const markTouched = () => { touchedRef.current = true; };
-
-  // 다이얼로그가 열릴 때마다 초기값 동기화 + 포커스 + 이전 에러 초기화
-  useEffect(() => {
-    if (!open) return;
-    setValue(initialValue);
-    setError(null);
-    setSubmitting(false);
-    touchedRef.current = false;
-    // 렌더 후 포커스 — setTimeout 으로 DOM 안정화 대기. 닫히거나 다시 열리면 이전 타이머는 버린다.
-    const timer = setTimeout(() => {
-      const el = inputRef.current;
-      if (!el || touchedRef.current) return;
-      el.focus();
-      if (initialSelection) el.setSelectionRange(...initialSelection(el.value));
-    }, 50);
-    return () => clearTimeout(timer);
-  }, [open, initialValue]);
+  // 열리는 렌더에서 바로 초기값을 맞춘다 — 효과로 맞추면 Radix 자동 포커스(자식 효과)가 빈 값을 보고, 그걸 고치려 두었던 늦은
+  // 포커스 타이머가 부하에서 사용자가 친 글자를 덮어썼다. 열린 동안 initialValue 가 바뀌어도 고치던 값은 그대로 둔다.
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (open) {
+      setValue(initialValue);
+      setDirty(false);
+      setError(null);
+      setSubmitting(false);
+    }
+  }
 
   async function handleConfirm() {
     const trimmed = value.trim();
@@ -110,24 +105,21 @@ export function RenameDialog({
           <DialogDescription className="sr-only">{title}</DialogDescription>
         </DialogHeader>
         <Input
-          ref={inputRef}
           value={value}
-          onChange={(e) => { markTouched(); setValue(e.target.value); setError(null); }}
+          onChange={(e) => { setValue(e.target.value); setDirty(true); setError(null); }}
           onFocus={(e) => {
-            // 고치기 전, 전체 선택으로 포커스를 받았을 때만 처음 선택 범위로 좁힌다. ⋯ 메뉴에서 열면 닫히는 메뉴가 포커스를 잠깐
-            // 가져가고, 포커스 트랩이 되찾으며 같은 태스크에서 select()(전체 선택)를 부르므로 다음 프레임에 본다.
-            // 클릭으로 옮긴 커서는 전체 선택이 아니라 그대로 둔다.
+            // 고치기 전, 전체 선택으로 포커스를 받았을 때만 처음 선택 범위로 좁힌다. Radix 포커스 트랩은 열 때와 (⋯ 메뉴가 잠깐 가져간)
+            // 포커스를 되찾을 때 focus() 직후 같은 호출에서 select() 하므로, 그 뒤·사용자 입력 전에 도는 마이크로태스크에서 본다.
             const el = e.currentTarget;
-            if (!initialSelection || touchedRef.current) return;
-            requestAnimationFrame(() => {
+            if (dirty) return;
+            queueMicrotask(() => {
               if (el.selectionStart === 0 && el.selectionEnd === el.value.length) {
                 el.setSelectionRange(...initialSelection(el.value));
               }
             });
           }}
           onCompositionEnd={enterKey.onCompositionEnd}
-          onKeyDown={(e) => { markTouched(); enterKey.handleEnter(e, () => void handleConfirm()); }}
-          onPointerDown={markTouched}
+          onKeyDown={(e) => enterKey.handleEnter(e, () => void handleConfirm())}
           maxLength={maxLength}
           aria-invalid={!!error}
           data-testid="rename-dialog-input"
