@@ -35,41 +35,12 @@ public final class ChatDomainEvents {
       List<DriveLinkResponse> driveLinks,
       Instant occurredAt,
       // WP-371: mentions 중 서버(ai-agent)가 대신 실행하는(kind=AGENT, runtime=INTERNAL) 에이전트 id. dispatcher
-      // 는
-      // DB 를 읽지 않으므로 발행 시점에 채운다. null 이면(구 호출부·테스트) 모든 AGENT 멘션을 내부로 간주.
+      // 는 DB 를
+      // 읽지 않으므로 발행 시점에 채운다. 필수 non-null(빈 집합 = 내부 에이전트 없음) — null 이면 fail-open 이라 호환 생성자를 두지 않는다.
       Set<Long> internalAgentIds) {
-    /** 하위 호환 생성자 — internalAgentIds 없음(null). */
-    public ChatMessageCreatedEvent(
-        long threadId,
-        long messageId,
-        long issueId,
-        String projectKey,
-        String issueKey,
-        String issueTitle,
-        String issueStatus,
-        String issueBody,
-        UserSummary actor,
-        String body,
-        List<UserSummary> mentions,
-        List<ChatMessageAttachmentResponse> attachments,
-        List<DriveLinkResponse> driveLinks,
-        Instant occurredAt) {
-      this(
-          threadId,
-          messageId,
-          issueId,
-          projectKey,
-          issueKey,
-          issueTitle,
-          issueStatus,
-          issueBody,
-          actor,
-          body,
-          mentions,
-          attachments,
-          driveLinks,
-          occurredAt,
-          null);
+    // fail-open 방지: null 은 허용하지 않는다(내부 에이전트가 없으면 빈 집합).
+    public ChatMessageCreatedEvent {
+      java.util.Objects.requireNonNull(internalAgentIds, "internalAgentIds");
     }
   }
 

@@ -269,6 +269,8 @@ public class UserService {
    */
   @Transactional
   public void deleteAgent(Long callerId, Long userId) {
+    // user 는 전역 테이블 — 다른 테넌트 에이전트를 건드리지 못하도록 현재 테넌트 멤버만 허용(비멤버는 404).
+    requireMember(userId);
     UserResponse user =
         userRepository.findById(userId).orElseThrow(() -> UserNotFoundException.ofId(userId));
     if (!UserKind.isAgent(user.kind())) {
@@ -298,6 +300,8 @@ public class UserService {
    */
   @Transactional
   public void renameAgent(Long callerId, Long userId, RenameAgentRequest req) {
+    // user 는 전역 테이블 — 다른 테넌트 에이전트를 건드리지 못하도록 현재 테넌트 멤버만 허용(비멤버는 404).
+    requireMember(userId);
     UserResponse user =
         userRepository.findById(userId).orElseThrow(() -> UserNotFoundException.ofId(userId));
     if (!UserKind.isAgent(user.kind())) {
@@ -357,11 +361,16 @@ public class UserService {
   /**
    * WP-371 — AGENT 실행 방식(INTERNAL|EXTERNAL) 변경.
    *
-   * <p>가드: AGENT 가 아니면 404(사람은 대상이 아님). EXTERNAL 로 바꾸려는데 공통 비서이거나 누군가의 개인 비서이면 409 — 둘 다 AI Chat 을
-   * 서버(ai-agent)가 실행해야 하기 때문. INTERNAL 로의 변경은 항상 허용. 변경 시 감사 로그 AGENT_RUNTIME_CHANGED 를 남긴다.
+   * <p>가드: 현재 테넌트 멤버가 아니거나 AGENT 가 아니면 404(사람은 대상이 아님). EXTERNAL 로 바꾸려는데 공통 비서이거나 누군가의 개인 비서이면 409
+   * — 둘 다 AI Chat 을 서버(ai-agent)가 실행해야 하기 때문. INTERNAL 로의 변경은 항상 허용. 변경 시 감사 로그
+   * AGENT_RUNTIME_CHANGED 를 남긴다.
    */
   @Transactional
   public void setAgentRuntime(Long callerId, Long userId, String runtime) {
+    // user 는 전역 테이블 — 현재 테넌트 멤버가 아닌 에이전트는 존재 자체를 숨겨 404.
+    requireMember(userId);
+    // 공통 비서 지정(WorkspaceAssistantService.setAgent)과 같은 에이전트 행 락으로 직렬화 — 검사와 변경 사이 경합 방지.
+    userRepository.lockForUpdate(userId);
     UserResponse user =
         userRepository.findById(userId).orElseThrow(() -> UserNotFoundException.ofId(userId));
     if (!UserKind.isAgent(user.kind())) {

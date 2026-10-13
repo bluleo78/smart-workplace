@@ -46,14 +46,11 @@ public class ChatEventDispatcher {
     client.publish(new EventEnvelope("chat.message.posted", buildPayload(e, acting)));
   }
 
-  /**
-   * 멘션된 사용자 중 첫 번째 내부 실행 AGENT 의 id (없으면 null). internalAgentIds 가 null 이면 구 이벤트 호환으로 모든 AGENT 멘션을
-   * 내부로 간주한다.
-   */
+  /** 멘션된 사용자 중 첫 번째 내부 실행 AGENT 의 id (없으면 null). internalAgentIds 는 발행 시점에 확정된 권위 있는 값이다. */
   private static Long actingAgentId(ChatMessageCreatedEvent e) {
     return e.mentions().stream()
         .filter(m -> "AGENT".equals(m.kind()))
-        .filter(m -> e.internalAgentIds() == null || e.internalAgentIds().contains(m.id()))
+        .filter(m -> e.internalAgentIds().contains(m.id()))
         .map(UserSummary::id)
         .findFirst()
         .orElse(null);

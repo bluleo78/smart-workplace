@@ -31,6 +31,10 @@ public class WorkspaceAssistantService {
 
   /** 공용 비서로 지정. 대상이 없으면 404, AGENT 가 아니면 400(HUMAN 거부). */
   public void setAgent(long adminId, long agentUserId) {
+    // 실행 방식 변경(UserService.setAgentRuntime)과 같은 에이전트 행 락으로 직렬화 — 아래 EXTERNAL 검사와 upsert 사이에 runtime
+    // 이
+    // EXTERNAL 로 바뀌는 경합을 막는다. 대상이 없으면 0행이 잠기고 아래에서 404 로 처리된다.
+    userRepository.lockForUpdate(agentUserId);
     UserResponse user =
         userRepository
             .findById(agentUserId)

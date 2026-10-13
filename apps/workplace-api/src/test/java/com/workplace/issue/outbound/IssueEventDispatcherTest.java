@@ -14,6 +14,7 @@ import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueStatusChangedEvent;
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -54,7 +55,8 @@ class IssueEventDispatcherTest {
             List.of(HUMAN_ASSIGNEE),
             List.of(HUMAN_ASSIGNEE),
             List.of(),
-            Instant.now());
+            Instant.now(),
+            Set.of());
 
     dispatcher.onIssueAssigned(event);
 
@@ -74,7 +76,8 @@ class IssueEventDispatcherTest {
             List.of(AGENT_ASSIGNEE),
             List.of(AGENT_ASSIGNEE),
             List.of(),
-            Instant.parse("2026-05-25T12:00:00Z"));
+            Instant.parse("2026-05-25T12:00:00Z"),
+            Set.of(201L));
 
     dispatcher.onIssueAssigned(event);
 
@@ -102,7 +105,8 @@ class IssueEventDispatcherTest {
             List.of(AGENT_ASSIGNEE),
             99L,
             "스스로 단 코멘트",
-            Instant.now());
+            Instant.now(),
+            Set.of(201L));
 
     dispatcher.onIssueCommented(event);
 
@@ -122,7 +126,8 @@ class IssueEventDispatcherTest {
             List.of(AGENT_ASSIGNEE),
             List.of(AGENT_ASSIGNEE),
             List.of(),
-            Instant.now());
+            Instant.now(),
+            Set.of(201L));
 
     dispatcher.onIssueAssigned(event);
 
@@ -137,12 +142,14 @@ class IssueEventDispatcherTest {
     var now = Instant.now();
 
     dispatcher.onIssueAssigned(
-        new IssueAssignedEvent(1L, "WP", "WP-1", "t", HUMAN_ACTOR, common, common, List.of(), now));
+        new IssueAssignedEvent(
+            1L, "WP", "WP-1", "t", HUMAN_ACTOR, common, common, List.of(), now, Set.of(201L)));
     dispatcher.onIssueCommented(
-        new IssueCommentedEvent(1L, "WP", "WP-1", 1, "t", HUMAN_ACTOR, common, 9L, "hi", now));
+        new IssueCommentedEvent(
+            1L, "WP", "WP-1", 1, "t", HUMAN_ACTOR, common, 9L, "hi", now, Set.of(201L)));
     dispatcher.onIssueStatusChanged(
         new IssueStatusChangedEvent(
-            1L, "WP", "WP-1", "t", HUMAN_ACTOR, common, "TODO", "IN_PROGRESS", now));
+            1L, "WP", "WP-1", "t", HUMAN_ACTOR, common, "TODO", "IN_PROGRESS", now, Set.of(201L)));
 
     var captor = ArgumentCaptor.forClass(EventEnvelope.class);
     verify(client, times(3)).publish(captor.capture());

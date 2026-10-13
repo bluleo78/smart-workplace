@@ -11,8 +11,8 @@ import java.util.Set;
  *
  * <p>WP-371: 담당 지정·코멘트·상태 전이 이벤트는 {@code internalAgentIds} 를 함께 싣는다 — assignees 중 서버(ai-agent)가 대신
  * 실행하는 (kind=AGENT, runtime=INTERNAL) 에이전트의 id 집합. dispatcher 는 AFTER_COMMIT @Async 로 DB 를 읽지 않으므로,
- * 외부(EXTERNAL) 에이전트를 거르는 근거를 원 트랜잭션 안에서 발행 시점에 미리 채워 둔다. null 이면(구 호출부·테스트) 판단 정보 없음으로 보고 모든 AGENT
- * 를 내부로 간주한다(기존 동작).
+ * 외부(EXTERNAL) 에이전트를 거르는 근거를 원 트랜잭션 안에서 발행 시점에 미리 채워 둔다. 필수 non-null 이며 dispatcher 는 이를 권위 있는 값으로
+ * 쓴다(빈 집합 = 내부 에이전트 없음). null 로 두면 fail-open 이 되므로 호환 생성자를 두지 않는다.
  */
 public final class IssueDomainEvents {
   private IssueDomainEvents() {}
@@ -41,19 +41,9 @@ public final class IssueDomainEvents {
       List<UserSummary> removed,
       Instant occurredAt,
       Set<Long> internalAgentIds) {
-    /** 하위 호환 생성자 — internalAgentIds 없음(null)으로 만든다. */
-    public IssueAssignedEvent(
-        long issueId,
-        String projectKey,
-        String issueKey,
-        String title,
-        UserSummary actor,
-        List<UserSummary> assignees,
-        List<UserSummary> added,
-        List<UserSummary> removed,
-        Instant occurredAt) {
-      this(
-          issueId, projectKey, issueKey, title, actor, assignees, added, removed, occurredAt, null);
+    // fail-open 방지: null 은 허용하지 않는다(내부 에이전트가 없으면 빈 집합).
+    public IssueAssignedEvent {
+      java.util.Objects.requireNonNull(internalAgentIds, "internalAgentIds");
     }
   }
 
@@ -73,30 +63,9 @@ public final class IssueDomainEvents {
       String commentBody,
       Instant occurredAt,
       Set<Long> internalAgentIds) {
-    /** 하위 호환 생성자 — internalAgentIds 없음(null)으로 만든다. */
-    public IssueCommentedEvent(
-        long issueId,
-        String projectKey,
-        String issueKey,
-        int issueNumber,
-        String title,
-        UserSummary actor,
-        List<UserSummary> assignees,
-        long commentId,
-        String commentBody,
-        Instant occurredAt) {
-      this(
-          issueId,
-          projectKey,
-          issueKey,
-          issueNumber,
-          title,
-          actor,
-          assignees,
-          commentId,
-          commentBody,
-          occurredAt,
-          null);
+    // fail-open 방지: null 은 허용하지 않는다(내부 에이전트가 없으면 빈 집합).
+    public IssueCommentedEvent {
+      java.util.Objects.requireNonNull(internalAgentIds, "internalAgentIds");
     }
   }
 
@@ -137,28 +106,9 @@ public final class IssueDomainEvents {
       String newStatus,
       Instant occurredAt,
       Set<Long> internalAgentIds) {
-    /** 하위 호환 생성자 — internalAgentIds 없음(null)으로 만든다. */
-    public IssueStatusChangedEvent(
-        long issueId,
-        String projectKey,
-        String issueKey,
-        String title,
-        UserSummary actor,
-        List<UserSummary> assignees,
-        String previousStatus,
-        String newStatus,
-        Instant occurredAt) {
-      this(
-          issueId,
-          projectKey,
-          issueKey,
-          title,
-          actor,
-          assignees,
-          previousStatus,
-          newStatus,
-          occurredAt,
-          null);
+    // fail-open 방지: null 은 허용하지 않는다(내부 에이전트가 없으면 빈 집합).
+    public IssueStatusChangedEvent {
+      java.util.Objects.requireNonNull(internalAgentIds, "internalAgentIds");
     }
   }
 

@@ -6,7 +6,11 @@ import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.verify;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -15,6 +19,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.workplace.auth.service.WorkspaceAssistantService;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.TestFixtures;
+import com.workplace.user.repository.UserRepository;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 import org.jooq.DSLContext;
@@ -26,6 +32,7 @@ import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -40,6 +47,8 @@ class AdminAgentRuntimeControllerTest extends IntegrationTestBase {
   @Autowired MockMvc mvc;
   @Autowired DSLContext dsl;
   @Autowired WorkspaceAssistantService workspaceAssistantService;
+  // 락 호출 검증용 — 실제 동작은 그대로 두고 호출만 관찰한다.
+  @MockitoSpyBean UserRepository userRepository;
 
   @BeforeEach
   void setTenant() {
@@ -58,6 +67,10 @@ class AdminAgentRuntimeControllerTest extends IntegrationTestBase {
 
   /** 테넌트#1 ACTIVE 멤버십을 가진 사용자(HUMAN/AGENT)를 만든다 — 목록 쿼리가 멤버십 join 이라 필요. */
   private Long createUser(String prefix, String kind) {
+    return createUser(prefix, kind, 1L);
+  }
+
+  private Long createUser(String prefix, String kind, long tenantId) {
     String suffix = UUID.randomUUID().toString().substring(0, 8);
     Long id =
         dsl.insertInto(USER)
@@ -75,7 +88,7 @@ class AdminAgentRuntimeControllerTest extends IntegrationTestBase {
     dsl.insertInto(USER_ROLE).set(USER_ROLE.USER_ID, id).set(USER_ROLE.ROLE_ID, roleId).execute();
     dsl.insertInto(MEMBERSHIP)
         .set(MEMBERSHIP.USER_ID, id)
-        .set(MEMBERSHIP.TENANT_ID, 1L)
+        .set(MEMBERSHIP.TENANT_ID, tenantId)
         .set(MEMBERSHIP.STATUS, "ACTIVE")
         .execute();
     return id;
@@ -90,6 +103,8 @@ class AdminAgentRuntimeControllerTest extends IntegrationTestBase {
 
   private org.springframework.test.web.servlet.ResultActions putRuntime(
       Long admin, Long target, String body, String... perms) throws Exception {
+    // 요청 필터 체인이 끝나면 TenantContext 가 비워지므로, 한 테스트에서 여러 번 호출해도 tenant#1 로 다시 맞춘다.
+    TenantContext.set(1L);
     return mvc.perform(
         put("/api/v1/admin/agents/" + target + "/runtime")
             .with(authentication(auth(admin, perms)))
@@ -256,5 +271,83 @@ class AdminAgentRuntimeControllerTest extends IntegrationTestBase {
         .set(AGENT_API_KEY.LAST_USED_AT, lastUsed)
         .set(AGENT_API_KEY.REVOKED_AT, revoked)
         .execute();
+  }
+
+  /** 트랜잭션-로컬 RLS GUC 를 바꾼다 — 다른 테넌트 행을 시드할 때만 잠깐 쓰고 곧바로 1 로 되돌린다. */
+  private void setGuc(long tenantId) {
+    dsl.execute("SELECT set_config('app.tenant_id', '" + tenantId + "', true)");
+  }
+
+  @Test
+  void 다른_테넌트의_공통_비서인_에이전트도_EXTERNAL_로_못_바꾼다_409() throws Exception {
+    // 에이전트가 T1·T2 모두의 멤버이고, T2 의 공통 비서다. T1 관리자는 RLS 때문에 T2 의 workspace_assistant 행이 안 보인다.
+    Long admin = createUser("admin", "HUMAN");
+    Long agent = createUser("ai", "AGENT");
+    long t2 = TestFixtures.createTenant(dsl, "ACTIVE");
+    TestFixtures.addMember(dsl, agent, t2);
+    setGuc(t2);
+    dsl.execute(
+        "INSERT INTO workspace_assistant (agent_user_id, updated_by) VALUES (?, ?)", agent, admin);
+    setGuc(1L);
+
+    putRuntime(admin, agent, "{\"runtime\":\"EXTERNAL\"}", "user:write")
+        .andExpect(status().isConflict());
+    assertThat(runtimeOf(agent)).isEqualTo("INTERNAL");
+  }
+
+  /** 현재 테넌트(T1)의 멤버가 아닌 에이전트(다른 테넌트 소속)를 만든다. */
+  private Long createForeignAgent() {
+    long t2 = TestFixtures.createTenant(dsl, "ACTIVE");
+    return createUser("foreign-ai", "AGENT", t2);
+  }
+
+  @Test
+  void 다른_테넌트_에이전트의_runtime_변경은_404() throws Exception {
+    Long admin = createUser("admin", "HUMAN");
+    Long agent = createForeignAgent();
+    putRuntime(admin, agent, "{\"runtime\":\"EXTERNAL\"}", "user:write")
+        .andExpect(status().isNotFound());
+    assertThat(runtimeOf(agent)).isEqualTo("INTERNAL");
+  }
+
+  @Test
+  void 다른_테넌트_에이전트의_이름_변경은_404() throws Exception {
+    Long admin = createUser("admin", "HUMAN");
+    Long agent = createForeignAgent();
+    TenantContext.set(1L);
+    mvc.perform(
+            put("/api/v1/admin/agents/" + agent)
+                .with(authentication(auth(admin, "user:write")))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"username\":\"hijack-bot\",\"name\":\"Hijack\"}"))
+        .andExpect(status().isNotFound());
+    assertThat(dsl.select(USER.NAME).from(USER).where(USER.ID.eq(agent)).fetchOne(USER.NAME))
+        .isEqualTo("foreign-ai");
+  }
+
+  @Test
+  void 다른_테넌트_에이전트의_삭제는_404() throws Exception {
+    Long admin = createUser("admin", "HUMAN");
+    Long agent = createForeignAgent();
+    TenantContext.set(1L);
+    mvc.perform(
+            delete("/api/v1/admin/agents/" + agent).with(authentication(auth(admin, "user:write"))))
+        .andExpect(status().isNotFound());
+    assertThat(dsl.fetchExists(dsl.selectOne().from(USER).where(USER.ID.eq(agent)))).isTrue();
+  }
+
+  /** 공통 비서 지정과 runtime 변경은 같은 user 행 락을 먼저 잡아 직렬화된다(동시 실행 시 검사-후-변경 경합 방지). */
+  @Test
+  void 공통_비서_지정과_runtime_변경은_둘_다_에이전트_행_락을_잡는다() throws Exception {
+    Long admin = createUser("admin", "HUMAN");
+    Long agent = createUser("ai", "AGENT");
+
+    workspaceAssistantService.setAgent(admin, agent);
+    verify(userRepository, atLeastOnce()).lockForUpdate(eq(agent));
+
+    Long agent2 = createUser("ai2", "AGENT");
+    putRuntime(admin, agent2, "{\"runtime\":\"EXTERNAL\"}", "user:write")
+        .andExpect(status().isNoContent());
+    verify(userRepository, atLeastOnce()).lockForUpdate(eq(agent2));
   }
 }

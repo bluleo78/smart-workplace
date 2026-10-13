@@ -51,7 +51,12 @@ class ChatEventDispatcherTest {
         mentions,
         List.of(),
         List.of(),
-        Instant.now());
+        Instant.now(),
+        // 기본 헬퍼: 멘션된 AGENT 는 전부 내부 실행으로 취급(외부 케이스는 별도 테스트가 명시 전달).
+        mentions.stream()
+            .filter(m -> "AGENT".equals(m.kind()))
+            .map(UserSummary::id)
+            .collect(java.util.stream.Collectors.toSet()));
   }
 
   @Test

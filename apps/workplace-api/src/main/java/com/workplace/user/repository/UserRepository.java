@@ -296,15 +296,26 @@ public class UserRepository {
 
   /**
    * 해당 에이전트가 서버 실행(AI Chat)이 필요한 비서인지 — 어떤 테넌트의 공통 비서이거나 누군가의 개인 비서이면 true (WP-371). 이런 에이전트는
-   * EXTERNAL 로 둘 수 없다. 테넌트 RLS 와 무관하게 전역으로 확인하려고 두 테이블을 id 로 직접 조회한다.
+   * EXTERNAL 로 둘 수 없다.
+   *
+   * <p>workspace_assistant 는 RLS 라 일반 쿼리로는 현재 테넌트 행만 보인다. 에이전트는 여러 테넌트에 속할 수 있으므로 RLS 를 우회하는
+   * SECURITY DEFINER 함수(V168 is_workspace_assistant_agent)로 전 테넌트를 확인한다. 개인 비서 포인터는 전역 테이블 user 의
+   * 컬럼이라 직접 조회한다.
    */
   public boolean isAssistantAgent(Long id) {
-    return dsl.fetchExists(
-            dsl.selectOne()
-                .from(WORKSPACE_ASSISTANT)
-                .where(WORKSPACE_ASSISTANT.AGENT_USER_ID.eq(id)))
+    Boolean common = (Boolean) dsl.fetchValue("SELECT is_workspace_assistant_agent(?)", id);
+    return Boolean.TRUE.equals(common)
         || dsl.fetchExists(
             dsl.selectOne().from(USER).where(USER.PERSONAL_ASSISTANT_AGENT_ID.eq(id)));
+  }
+
+  /**
+   * 에이전트 user 행을 {@code SELECT ... FOR UPDATE} 로 잠근다(WP-371). "공통 비서 지정"과 "실행 방식 변경"이 각자 검사 후 변경하는
+   * 사이에 서로 끼어들어(둘 다 통과 → 외부 에이전트가 공통 비서가 되는) 불변식이 깨지는 경합을 막으려고, 두 경로가 검사 전에 같은 행을 잠가 직렬화한다. 반드시
+   * 트랜잭션 안에서 호출해야 하며 락은 커밋/롤백까지 유지된다.
+   */
+  public void lockForUpdate(Long id) {
+    dsl.select(USER.ID).from(USER).where(USER.ID.eq(id)).forUpdate().fetch();
   }
 
   /**

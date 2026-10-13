@@ -37,6 +37,8 @@ public class ChatMessageService {
   private final ChatMessageRepository messageRepo;
   private final ChatThreadMemberRepository memberRepo;
   private final ChatUserHydrator hydrator;
+  // WP-371: 외부 AI 를 거르는 규칙은 UserRepository.findInternalAgentIdsAmong 한 곳만 쓴다.
+  private final com.workplace.user.repository.UserRepository userRepository;
   private final UserMentionHydrator userMentionHydrator;
   private final ChatThreadContextResolver contextResolver;
   private final ApplicationEventPublisher publisher;
@@ -241,6 +243,6 @@ public class ChatMessageService {
         saved.driveLinks(),
         Instant.now(),
         // WP-371: dispatcher 는 DB 를 읽지 않으므로 외부 실행 에이전트 판별 근거를 발행 시점에 채운다.
-        hydrator.internalAgentIdsAmong(mentions));
+        userRepository.findInternalAgentIdsAmong(mentions));
   }
 }
