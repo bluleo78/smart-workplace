@@ -1,4 +1,4 @@
-// WP-139 모바일 후속 질문 — 칩 아래 여백(터치 영역 확장)을 탭해도 그 칩이 눌리고, 가로 넘침이 없다.
+// WP-139 모바일 후속 질문 — 칩은 36px·14px(터치 기기), 칩 아래 여백(터치 영역 확장)을 탭해도 그 칩이 눌리고, 가로 넘침이 없다.
 import { ask, setupLiveChat } from '../../fixtures/ai-live-chat'
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture'
 import { stableBox } from '../../fixtures/wait'
@@ -20,6 +20,9 @@ test('칩 바로 아래 6px 를 탭해도 그 칩으로 보낸다(터치 영역 
   await expect(chip).toBeVisible()
   await expectNoHorizontalOverflow(page)
   const box = await stableBox(chip)
+  // UI 리뷰 #4 — 터치 기기의 칩은 시안 휴대폰 칩 크기(36px·14px 글자), 데스크톱(26px·12px)보다 크다.
+  expect(Math.round(box.height)).toBe(36)
+  expect(await chip.evaluate((el) => getComputedStyle(el).fontSize)).toBe('14px')
   await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height + 6)
   await live.starts.waitFor(2)
   expect(live.starts.lastBody()).toMatchObject({ query: ITEMS[2] })
