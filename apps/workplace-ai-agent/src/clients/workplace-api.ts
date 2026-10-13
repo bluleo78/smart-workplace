@@ -5,6 +5,7 @@ import axios, { AxiosInstance } from 'axios';
 
 import { DEFAULT_API_BASE_URL } from '../constants.js';
 import type { ProviderCredential } from '../agent/agent-runner.js';
+import type { MemoryKind } from '../agent/memory-block.js';
 import {
   createSharedToolClient,
   describeApiError,
@@ -47,13 +48,13 @@ export interface HomeAttachmentMeta {
 // WP-55: 사용자 메모리 항목(API AiMemoryItem). previousContent·previousKind 는 PATCH 응답에만 온다(구 API 는 previousKind 없음).
 export interface AiMemoryDto {
   id: number;
-  kind: 'PREFERENCE' | 'CONTEXT';
+  kind: MemoryKind;
   content: string;
   source: 'AI' | 'USER';
   createdAt: string;
   updatedAt: string;
   previousContent?: string;
-  previousKind?: 'PREFERENCE' | 'CONTEXT';
+  previousKind?: MemoryKind;
 }
 
 // 6c: chat thread 메시지 (LLM 노출용 경량 형태).
@@ -166,9 +167,9 @@ export interface WorkplaceApiClient {
   // WP-55: 메모리 도구(라우터 전용) — 요청자(onBehalfOfId=userId) 대행. Internal 대행만 source:'AI'·sessionId 를 받고, 꺼짐이면 409 AI_MEMORY_DISABLED.
   createAiMemory(
     onBehalfOfId: number,
-    body: { kind: 'PREFERENCE' | 'CONTEXT'; content: string; source: 'AI'; sessionId?: string },
+    body: { kind: MemoryKind; content: string; source: 'AI'; sessionId?: string },
   ): Promise<AiMemoryDto>;
-  updateAiMemory(onBehalfOfId: number, memoryId: number, body: { content: string; kind?: 'PREFERENCE' | 'CONTEXT' }): Promise<AiMemoryDto>;
+  updateAiMemory(onBehalfOfId: number, memoryId: number, body: { content: string; kind?: MemoryKind }): Promise<AiMemoryDto>;
   deleteAiMemory(onBehalfOfId: number, memoryId: number): Promise<AiMemoryDto>;
   // #719: 요청자의 active-tenant 를 X-On-Behalf-Of-Tenant 로 싣는 스코프 클라이언트를 반환한다.
   // 인-프로세스 MCP 서버는 이 인스턴스를 서브에이전트까지 공유하므로, run 당 1회 스코프하면

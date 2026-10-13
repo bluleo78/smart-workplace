@@ -6,12 +6,11 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { buildSharedTools, isDisplayableTool, toolAnnotations, toolNameViolations, TOOL_LABELS, type SharedToolClient } from '@smart-workplace/mcp-tools-shared';
+import { buildSharedTools, isDisplayableTool, MEMORY_TOOL_NAMES, toolAnnotations, toolNameViolations, TOOL_LABELS, type SharedToolClient } from '@smart-workplace/mcp-tools-shared';
 import { describe, expect, it, vi, type Mock } from 'vitest';
 import { z } from 'zod';
 
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
-import { MEMORY_TOOL_NAMES } from './memory-tools.js';
 import { ASSISTANT_ROUTER_TOOLS, buildTools, CARD_ONLY_SHARED_TOOLS, routerToolsFor, type HostBridge, type McpProfile } from './tools.js';
 
 // #842: 서버가 응답한 검증 실패(4xx)를 흉내 낸다 — 인터셉터가 message 를 서버 사유로 채운 AxiosError 형태.

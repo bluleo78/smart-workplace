@@ -67,13 +67,18 @@ export const chatSchema = z
       .transform((v) => v ?? []),
     // WP-55: 사용자 메모리(API 가 매 턴 최신순 ≤50개). 구 API 는 생략 → 빈 배열(ai-agent 를 먼저 재기동한다).
     // 항목은 하나씩 검증해 틀린 것만 버린다 — 나중에 API 가 새 kind 를 더해도(ai-agent 가 먼저 배포된다) 채팅 전체가 400 이 되지 않게.
+    // 버린 개수(dropped)를 함께 돌려 라우트가 로그로 남긴다(요청 본문을 다시 읽지 않는다).
     memories: z
       .array(z.unknown())
       .nullish()
-      .transform((v) => (v ?? []).flatMap((item) => {
-        const r = memoryItemSchema.safeParse(item);
-        return r.success ? [r.data] : [];
-      })),
+      .transform((v) => {
+        const raw = v ?? [];
+        const items = raw.flatMap((item) => {
+          const r = memoryItemSchema.safeParse(item);
+          return r.success ? [r.data] : [];
+        });
+        return { items, dropped: raw.length - items.length };
+      }),
     // WP-55: 메모리 사용 여부. 구 API(필드 없음)는 null/undefined → 러너가 꺼짐으로 다룬다(메모리 엔드포인트가 없을 수 있다).
     memoryEnabled: z.boolean().nullish(),
   })
@@ -102,11 +107,9 @@ export function createHomeRouter(deps: RunAgentDeps): Router {
     // 요청별 고유 ID 생성 — 시작/완료/오류 로그를 end-to-end 로 추적하기 위해 사용한다.
     const requestId = randomUUID();
     const startedAt = Date.now();
-    const d = parsed.data;
-    // WP-55: 모양이 틀린 메모리 항목은 스키마가 조용히 버린다 — 버린 개수만 남긴다(내용은 로그에 싣지 않는다 — 사용자 메모리).
-    const rawMemories: unknown = (req.body as { memories?: unknown } | undefined)?.memories;
-    const droppedMemories = Array.isArray(rawMemories) ? rawMemories.length - d.memories.length : 0;
-    if (droppedMemories > 0) log.warn('ai-chat', 'memories_dropped', { requestId, dropped: droppedMemories });
+    const { memories: { items: memories, dropped }, ...d } = parsed.data;
+    // WP-55: 모양이 틀린 메모리 항목은 스키마가 버린다 — 버린 개수만 남긴다(내용은 로그에 싣지 않는다 — 사용자 메모리).
+    if (dropped > 0) log.warn('ai-chat', 'memories_dropped', { requestId, dropped });
     log.info('ai-chat', 'start', {
       requestId,
       agentId: d.assistantAgentId,
@@ -130,7 +133,7 @@ export function createHomeRouter(deps: RunAgentDeps): Router {
 
     try {
       const result = await runAiChatStream(
-        { ...parsed.data, requestId },
+        { ...d, memories, requestId },
         deps,
         (text) => {
           if (aborted) return;

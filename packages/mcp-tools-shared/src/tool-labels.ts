@@ -114,10 +114,6 @@ export const TOOL_LABELS: Readonly<Record<string, ToolLabel>> = {
   mark_all_notifications_read: { label: '알림 모두 읽음', icon: '🔔' },
   // 홈 개요(WP-357)
   get_home_overview: { label: '홈 현황 조회', icon: '🏠' },
-  // 메모리(WP-55) — ai-agent 로컬 라우터 도구. 웹 단계 목록에서는 isMemoryTool 로 숨기고 결과 줄(🧠)로 보여 준다.
-  remember_memory: { label: '메모리 저장', icon: '🧠' },
-  update_memory: { label: '메모리 고치기', icon: '🧠' },
-  forget_memory: { label: '메모리 지우기', icon: '🧠' },
 };
 
 /**
@@ -130,22 +126,28 @@ export function stripMcpPrefix(name: string): string {
 }
 
 /**
- * AI 채팅 도구 목록에 표시할 도구인지. 위젯(show_*)·제안(propose_* → 확인 카드와 중복)·내부 응답 배관
- * (respond_chat/submit_response)은 숨긴다 — 숨김 도구에는 라벨을 두지 않는다.
+ * WP-55 메모리 도구 이름 — ai-agent 로컬 라우터 도구(memory-tools.ts)가 이 목록으로 도구를 만든다. 공유 도구는 아니지만
+ * 표시 규칙(isDisplayableTool)·결과 허용 목록(isMemoryTool)과 같은 곳에 두어 이름이 한 곳에만 있게 한다.
  */
-export function isDisplayableTool(toolName: string): boolean {
-  const n = stripMcpPrefix(toolName);
-  if (n.startsWith('show_') || n.startsWith('propose_')) return false;
-  return n !== 'respond_chat' && n !== 'submit_response';
-}
+export const MEMORY_TOOL_NAMES = ['remember_memory', 'update_memory', 'forget_memory'] as const;
 
-/** WP-55 메모리 도구 이름 — ai-agent memory-tools.ts 의 MEMORY_TOOL_NAMES 와 같다(그쪽 테스트가 대조한다). */
-const MEMORY_TOOLS: ReadonlySet<string> = new Set(['remember_memory', 'update_memory', 'forget_memory']);
+const MEMORY_TOOLS: ReadonlySet<string> = new Set(MEMORY_TOOL_NAMES);
 
 /**
- * 메모리 도구인지(WP-55). 결과가 채팅 결과 줄(되돌리기)로 따로 보이므로 도구 단계 목록에서는 숨기고,
- * ai-agent 는 이 도구의 성공 결과만 `tool` SSE 의 memory 필드로 싣는다(허용 목록).
+ * 메모리 도구인지(WP-55). ai-agent 는 이 도구의 성공 결과만 `tool` SSE 의 memory 필드로 싣는다(허용 목록).
  */
 export function isMemoryTool(toolName: string): boolean {
   return MEMORY_TOOLS.has(stripMcpPrefix(toolName));
+}
+
+/**
+ * AI 채팅 도구 목록에 표시할 도구인지. 위젯(show_*)·제안(propose_* → 확인 카드와 중복)·내부 응답 배관
+ * (respond_chat/submit_response)·메모리 도구(WP-55 — 결과 줄로 따로 보인다)는 숨긴다 — 숨김 도구에는 라벨을 두지 않는다.
+ * API HomeChatService.isDisplayableTool 이 같은 규칙으로 영속 도구 단계를 거른다.
+ */
+export function isDisplayableTool(toolName: string): boolean {
+  if (isMemoryTool(toolName)) return false;
+  const n = stripMcpPrefix(toolName);
+  if (n.startsWith('show_') || n.startsWith('propose_')) return false;
+  return n !== 'respond_chat' && n !== 'submit_response';
 }

@@ -9,6 +9,7 @@ import {
   createProjectInput,
   issueListFilterShape,
   listConflicts as listConflictsShared,
+  MEMORY_TOOL_NAMES,
   NO_ATTENDEE_TO_ADD,
   normalizeTimezone,
   parseIssueKey,
@@ -26,7 +27,7 @@ import {
 } from '@smart-workplace/mcp-tools-shared';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
 import { buildReadChatAttachmentTool } from './home-attachment-tool.js';
-import { buildMemoryTools, MEMORY_TOOL_NAMES } from './memory-tools.js';
+import { buildMemoryTools } from './memory-tools.js';
 
 // sdk-mcp-server.ts / stdio-entry.ts 가 './tools.js' 에서 McpTool 을 계속 import 하므로 재-export 유지.
 export type { McpTool };

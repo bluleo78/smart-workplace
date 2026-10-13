@@ -1,8 +1,7 @@
-import { isMemoryTool, TOOL_LABELS } from '@smart-workplace/mcp-tools-shared';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
-import { buildMemoryTools, MEMORY_TOOL_NAMES, parseMemoryToolResult } from './memory-tools.js';
+import { buildMemoryTools, parseMemoryToolResult } from './memory-tools.js';
 
 const USER = 42;
 const SID = '3f1c2a4e-8b7d-4c1e-9f2a-6d5b4c3a2e1f';
@@ -20,15 +19,6 @@ function setup(homeSessionId: string | null = SID) {
 }
 
 describe('buildMemoryTools (WP-55)', () => {
-  it('이름은 세 도구이고 공유 isMemoryTool·라벨과 일치한다', () => {
-    const { tools } = setup();
-    expect(tools.map((t) => t.name)).toEqual([...MEMORY_TOOL_NAMES]);
-    for (const n of MEMORY_TOOL_NAMES) {
-      expect(isMemoryTool(n)).toBe(true);
-      expect(TOOL_LABELS[n]).toBeDefined();
-    }
-  });
-
   it('remember_memory → 대행 POST(source AI + 이 대화 세션) → saved 결과', async () => {
     const { c, tool } = setup();
     c.createAiMemory.mockResolvedValue(item());

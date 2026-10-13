@@ -5,7 +5,7 @@ import path from 'node:path';
 import {
   serializeSubagent, writeSubagentDefinitions, loadSubagents, toAgentDefinitions, toRouterAgentDefinition, type SubagentDefinition,
 } from './subagent-loader.js';
-import { MEMORY_TOOL_NAMES } from '../mcp/memory-tools.js';
+import { MEMORY_TOOL_NAMES } from '@smart-workplace/mcp-tools-shared';
 import { ASSISTANT_ROUTER_TOOLS, buildTools } from '../mcp/tools.js';
 
 const issueDef: SubagentDefinition = {

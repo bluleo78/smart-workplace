@@ -45,5 +45,5 @@ export { addChannelMemberInput, resolveMentionTokens } from './messaging-tools.j
 export { CREATE_DRIVE_FILE_CONTENT_DESCRIPTION } from './drive-tools.js';
 export { buildSharedTools, type SharedToolClient, type SharedToolOptions } from './shared-tools.js';
 export { createSharedToolClient, type HttpLike, type HttpRequestConfig } from './rest-client.js';
-export { TOOL_LABELS, isDisplayableTool, isMemoryTool, stripMcpPrefix, type ToolLabel } from './tool-labels.js';
+export { MEMORY_TOOL_NAMES, TOOL_LABELS, isDisplayableTool, isMemoryTool, stripMcpPrefix, type ToolLabel } from './tool-labels.js';
 export { TOOL_NAME_MAX_LENGTH, toolNameViolations } from './tool-naming.js';

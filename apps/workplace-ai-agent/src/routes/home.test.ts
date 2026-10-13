@@ -58,14 +58,14 @@ describe('chatSchema', () => {
   // WP-55: 구 API(필드 없음)도 받는다 — memories 는 빈 배열, memoryEnabled 는 없음(러너가 꺼짐으로 다룬다).
   it('memories·memoryEnabled 생략·null 도 파싱 성공(memories 는 빈 배열)', () => {
     const parsed = chatSchema.parse(validBody());
-    expect(parsed.memories).toEqual([]);
+    expect(parsed.memories).toEqual({ items: [], dropped: 0 });
     expect(parsed.memoryEnabled).toBeUndefined();
-    expect(chatSchema.parse(validBody({ memories: null, memoryEnabled: null })).memories).toEqual([]);
+    expect(chatSchema.parse(validBody({ memories: null, memoryEnabled: null })).memories).toEqual({ items: [], dropped: 0 });
   });
   it('memories·memoryEnabled 가 보존된다', () => {
     const memories = [{ id: 12, kind: 'PREFERENCE', content: '짧은 목록으로 보여 준다' }];
     const parsed = chatSchema.parse(validBody({ memories, memoryEnabled: true }));
-    expect(parsed.memories).toEqual(memories);
+    expect(parsed.memories).toEqual({ items: memories, dropped: 0 });
     expect(parsed.memoryEnabled).toBe(true);
   });
   // F-k: 모르는(미래의) kind·모양이 틀린 항목은 그 항목만 버린다 — 채팅 요청 전체를 400 으로 막지 않는다.
@@ -75,7 +75,7 @@ describe('chatSchema', () => {
       validBody({ memories: [{ id: 1, kind: 'GOAL', content: 'y' }, ok, { id: 0, kind: 'PREFERENCE', content: 'z' }, 'x'], memoryEnabled: true }),
     );
     expect(parsed.success).toBe(true);
-    expect(parsed.data?.memories).toEqual([ok]);
+    expect(parsed.data?.memories).toEqual({ items: [ok], dropped: 3 });
   });
   it('memories 가 배열이 아니면 파싱 실패', () => {
     expect(chatSchema.safeParse(validBody({ memories: 'x' })).success).toBe(false);

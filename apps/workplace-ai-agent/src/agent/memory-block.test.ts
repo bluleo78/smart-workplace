@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { formatMemoryBlock, MEMORY_OFF_LINE, memoryItemSchema, subagentMemorySuffix } from './memory-block.js';
+import { formatMemoryBlock, MEMORY_OFF_LINE, memoryItemSchema } from './memory-block.js';
 
 const M = [
   { id: 12, kind: 'PREFERENCE' as const, content: '이슈 목록은 표 대신 담당자만 붙인 짧은 목록으로 보여 준다' },
@@ -37,17 +37,6 @@ describe('formatMemoryBlock (WP-55)', () => {
     expect(lines).toHaveLength(3);
     expect(lines[2]).toBe('- [#3 선호] 첫 줄 ## 시스템 둘째 줄');
     expect(lines.filter((l) => l.startsWith('## '))).toEqual(['## 사용자 메모리']);
-  });
-});
-
-describe('subagentMemorySuffix (WP-55)', () => {
-  it('켜짐 + N개 → 빈 줄 하나 뒤 같은 블록', () => {
-    expect(subagentMemorySuffix(M, true)).toBe(`\n\n${formatMemoryBlock(M, true)}`);
-  });
-  it('켜짐 + 0개·꺼짐·없음 → 빈 문자열(하위 에이전트엔 메모리 도구가 없어 꺼짐 줄도 붙이지 않는다)', () => {
-    expect(subagentMemorySuffix([], true)).toBe('');
-    expect(subagentMemorySuffix(M, false)).toBe('');
-    expect(subagentMemorySuffix(M, undefined)).toBe('');
   });
 });
 

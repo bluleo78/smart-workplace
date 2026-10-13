@@ -2,15 +2,13 @@
 // API /users/me/ai-memories 를 요청자 대행(Internal + X-On-Behalf-Of)으로 부른다. 서버가 길이(1~300 코드포인트)·상한(50)·소유자·꺼짐을 강제하고,
 // "사용자 본인 발화에서만 저장" 은 시스템 프롬프트 규칙이다. 결과 JSON 은 routes/home.ts 가 tool SSE 의 memory 필드로 옮겨
 // API 가 되돌리기 블록으로 영속한다 — 그래서 결과 모양(memoryEventSchema)이 계약이다.
+// 도구 이름은 공유 MEMORY_TOOL_NAMES(mcp-tools-shared)에 한 번만 둔다 — 표시 규칙·결과 허용 목록과 같은 목록이다.
 import type { McpTool } from '@smart-workplace/mcp-tools-shared';
 import { z } from 'zod';
 
+import { memoryKindSchema as kindSchema } from '../agent/memory-block.js';
 import type { AiMemoryDto, WorkplaceApiClient } from '../clients/workplace-api.js';
 
-/** 메모리 도구 이름 — ASSISTANT_ROUTER_TOOLS 의 이름 붙은 쓰기 예외. 공유 isMemoryTool 과 같은 집합(memory-tools.test.ts 가 대조). */
-export const MEMORY_TOOL_NAMES = ['remember_memory', 'update_memory', 'forget_memory'] as const;
-
-const kindSchema = z.enum(['PREFERENCE', 'CONTEXT']);
 const memoryIdSchema = z.number().int().positive().describe('"## 사용자 메모리" 블록의 # 뒤 숫자');
 // 길이 상한은 두지 않는다 — zod 는 UTF-16 단위로 세서 이모지 300자를 거절한다. 서버(코드포인트 300)가 400 으로 알려 준다.
 const contentSchema = z
