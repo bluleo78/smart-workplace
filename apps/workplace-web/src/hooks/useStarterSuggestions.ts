@@ -1,4 +1,4 @@
-// 빈 AI 대화 추천 훅(WP-139) — 저장된 AI 결과(없으면 고정 문구)를 즉시 돌려주고, 필요할 때만(오늘 것이 없고 그날 실패하지 않음) 300ms 뒤
+// 빈 AI 대화 추천 훅(WP-139) — 저장된 AI 결과(없으면 고정 문구)를 즉시 돌려주고, 필요할 때만(오늘 것이 없고 최근 10분 안에 실패하지 않음) 300ms 뒤
 // 추천을 요청해 한 번 교체한다. 포인터·포커스가 목록에 있으면 교체를 미룬다(settleStarterView). 패널이 열려 빈 새 대화가 보일 때만 부른다
 // — AIChatPanel 은 패널이 열린 동안만 마운트되므로 visible 이 곧 그 조건이다.
 import { useQueryClient } from '@tanstack/react-query';
@@ -80,11 +80,11 @@ export function useStarterSuggestions({
 
   useEffect(() => {
     if (!visible || !owner) return;
-    // 오늘 받은 결과가 있거나 오늘 이미 실패했으면 부르지 않는다 — 타이머 안에서 다시 본다(그 300ms 사이 다른 마운트의 요청이 끝났을 수 있다).
-    const settledToday = () => !!starterStore.peek(owner, key)?.fresh || starterStore.failedToday(owner, key);
-    if (settledToday()) return;
+    // 오늘 받은 결과가 있거나 최근(10분 안)에 실패했으면 부르지 않는다 — 타이머 안에서 다시 본다(그 300ms 사이 다른 마운트의 요청이 끝났을 수 있다).
+    const settled = () => !!starterStore.peek(owner, key)?.fresh || starterStore.recentlyFailed(owner, key);
+    if (settled()) return;
     const timer = setTimeout(() => {
-      if (settledToday()) return;
+      if (settled()) return;
       const ctxNow = ctxRef.current;
       void starterStore
         .run(owner, key, async () => {

@@ -1,11 +1,16 @@
 // 빈 AI 대화 추천 결과 저장소(WP-139) — 같은 대상의 이전 AI 결과를 즉시 보여 주고(stale-while-revalidate), 서울 날짜가 같으면 다시 부르지 않는다.
 // 앞단 메모리 Map(같은 탭의 결과·진행 중 요청·실패 공유) + 뒷단 localStorage(키 `ai-starter:v1:<userId>:<tenantId>`, 최근 저장 50개).
-// localStorage 접근은 전부 try/catch — 사생활 보호 모드·용량 초과·깨진 JSON 이어도 메모리만으로 동작한다. 실패는 메모리에만 기록한다.
+// localStorage 접근은 전부 try/catch — 사생활 보호 모드·용량 초과·깨진 JSON 이어도 메모리만으로 동작한다. 실패는 메모리에만, 10분 동안만 기록한다.
 
 /** localStorage 키 접두 — 로그아웃 때 이 접두의 키를 모두 지운다. */
 export const STARTER_STORAGE_PREFIX = 'ai-starter:v1:';
 /** 사용자·워크스페이스당 보관 개수 — 대상(화면) 수가 무한히 늘어 저장소를 채우지 않게. */
 const MAX_ENTRIES = 50;
+/**
+ * 실패(빈 결과·오류)를 기억하는 시간 — 그사이엔 다시 부르지 않는다. 하루 내내 막으면 비서를 막 연결했거나 일시 장애였을 때 그날 고정 문구만 남는다.
+ * 타이머로 다시 부르지는 않는다 — 10분 뒤 패널을 다시 열거나 대상이 바뀔 때(훅 효과가 다시 돌 때) 부른다.
+ */
+export const FAILURE_COOLDOWN_MS = 10 * 60 * 1000;
 
 type KeyValueStore = Pick<Storage, 'getItem' | 'setItem' | 'removeItem' | 'key'> & { readonly length: number };
 
@@ -39,7 +44,7 @@ export function createStarterStore(opts: { storage?: () => KeyValueStore | null;
     });
   const now = opts.now ?? (() => new Date());
   const memory = new Map<string, StoredEntry>();
-  const failures = new Map<string, string>(); // 키 → 실패한 서울 날짜
+  const failures = new Map<string, number>(); // 키 → 실패 시각(ms)
   const inflight = new Map<string, Promise<string[]>>();
   /** clearAll(로그아웃) 마다 올린다 — 로그아웃 전에 시작한 요청이 뒤늦게 끝나 지운 저장소를 다시 채우지 않게 한다. */
   let epoch = 0;
@@ -93,11 +98,15 @@ export function createStarterStore(opts: { storage?: () => KeyValueStore | null;
     writeAll(owner, map);
   }
 
-  /** 실패(네트워크·5xx·빈 결과·꺼짐) — 그날은 다시 부르지 않는다. 메모리에만. */
+  /** 실패(네트워크·5xx·빈 결과·꺼짐) — {@link FAILURE_COOLDOWN_MS} 동안 다시 부르지 않는다. 메모리에만. */
   function markFailed(owner: string, key: string) {
-    failures.set(mk(owner, key), seoulDate(now()));
+    failures.set(mk(owner, key), now().getTime());
   }
-  const failedToday = (owner: string, key: string) => failures.get(mk(owner, key)) === seoulDate(now());
+  /** 최근(10분 안)에 실패했는가 — 그렇다면 부르지 않는다. */
+  const recentlyFailed = (owner: string, key: string) => {
+    const at = failures.get(mk(owner, key));
+    return at !== undefined && now().getTime() - at < FAILURE_COOLDOWN_MS;
+  };
 
   /** 같은 키의 진행 중 요청을 공유하고, 끝나면 저장 또는 실패 기록. 결코 reject 하지 않는다(실패는 빈 목록). */
   function run(owner: string, key: string, fetcher: () => Promise<string[]>): Promise<string[]> {
@@ -148,7 +157,7 @@ export function createStarterStore(opts: { storage?: () => KeyValueStore | null;
     }
   }
 
-  return { peek, save, markFailed, failedToday, resetFailures: () => failures.clear(), run, clearAll };
+  return { peek, save, markFailed, recentlyFailed, resetFailures: () => failures.clear(), run, clearAll };
 }
 
 export type StarterStore = ReturnType<typeof createStarterStore>;

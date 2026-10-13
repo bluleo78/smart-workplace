@@ -102,15 +102,19 @@ describe('run — 진행 중 공유·실패 기록', () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
     expect(store.peek(OWNER, 'k')).toEqual({ items: ['AI'], fresh: true });
   });
-  it('빈 결과·실패는 그날만 기억하고 localStorage 에 쓰지 않는다', async () => {
-    const { store, storage, setNow } = setup();
+  it('빈 결과·실패는 10분만 기억하고 localStorage 에 쓰지 않는다', async () => {
+    // 비서를 막 연결했거나 일시 장애였으면 그날 내내 고정 문구로 남지 않게 — 10분 뒤 다시 열면 다시 부른다.
+    const { store, storage, setNow } = setup(); // 실패 시각 00:30:00Z
     expect(await store.run(OWNER, 'a', async () => [])).toEqual([]);
     expect(await store.run(OWNER, 'b', async () => { throw new Error('500'); })).toEqual([]);
-    expect(store.failedToday(OWNER, 'a')).toBe(true);
-    expect(store.failedToday(OWNER, 'b')).toBe(true);
+    expect(store.recentlyFailed(OWNER, 'a')).toBe(true);
+    expect(store.recentlyFailed(OWNER, 'b')).toBe(true);
     expect(storage.raw.size).toBe(0);
-    setNow('2026-10-14T00:30:00Z');
-    expect(store.failedToday(OWNER, 'a')).toBe(false);
+    setNow('2026-10-13T00:39:59.999Z'); // 10분 직전
+    expect(store.recentlyFailed(OWNER, 'a')).toBe(true);
+    setNow('2026-10-13T00:40:00Z'); // 정확히 10분 — 다시 부를 수 있다
+    expect(store.recentlyFailed(OWNER, 'a')).toBe(false);
+    expect(store.recentlyFailed(OWNER, 'b')).toBe(false);
   });
   it('로그아웃(clearAll) 전에 시작한 요청이 뒤늦게 끝나도 저장소를 다시 채우지 않는다', async () => {
     const { store, storage } = setup();
@@ -129,7 +133,7 @@ describe('run — 진행 중 공유·실패 기록', () => {
     store.clearAll();
     reject(new Error('500'));
     expect(await p).toEqual([]);
-    expect(store.failedToday(OWNER, 'k')).toBe(false);
+    expect(store.recentlyFailed(OWNER, 'k')).toBe(false);
   });
   it('clearAll 뒤 새로 시작한 요청은 옛 요청이 끝나도 계속 공유된다', async () => {
     const { store } = setup();
@@ -154,7 +158,7 @@ describe('run — 진행 중 공유·실패 기록', () => {
     const { store } = setup();
     await store.run(OWNER, 'a', async () => []);
     store.resetFailures();
-    expect(store.failedToday(OWNER, 'a')).toBe(false);
+    expect(store.recentlyFailed(OWNER, 'a')).toBe(false);
   });
 });
 

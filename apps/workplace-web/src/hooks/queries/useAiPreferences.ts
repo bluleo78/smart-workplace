@@ -27,7 +27,7 @@ export function useAiPreferences() {
   });
 }
 
-/** 저장 — 응답으로 캐시를 바로 바꾸고, 다시 켰을 때 그날의 "꺼짐·실패" 기록 때문에 추천이 안 오지 않도록 실패 기록을 지운다. */
+/** 저장 — 응답으로 캐시를 바로 바꾸고, 다시 켰을 때 최근 "꺼짐·실패" 기록(10분) 때문에 추천이 안 오지 않도록 실패 기록을 지운다. */
 export function useUpdateAiPreferences() {
   const qc = useQueryClient();
   const { user } = useAuth();
