@@ -39,8 +39,14 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-/** 실행 한 번이 elapsedMs 걸린 뒤 실패(예외)하는 collect 구현. */
-const failAfter = (elapsedMs: number, message = 'effort 미지원') => async () => {
+// SDK 가 오류 result 뒤에 던지는 실제 모양(claude-agent-sdk 0.3.284) — 본문은 CLI 가 만든 "API Error: …" 텍스트.
+const sdkError = (resultText: string) => `Claude Code returned an error result: ${resultText}`;
+const EFFORT_400 = sdkError(
+  'API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"This model does not support the effort parameter."}}',
+);
+
+/** 실행 한 번이 elapsedMs 걸린 뒤 실패(예외)하는 collect 구현. 기본은 effort 거절(400). */
+const failAfter = (elapsedMs: number, message = EFFORT_400) => async () => {
   vi.setSystemTime(Date.now() + elapsedMs);
   throw new Error(message);
 };
@@ -168,18 +174,34 @@ describe('runSuggestions', () => {
     await runSuggestions(suggestionsInput.parse(starter), deps, new Date('2026-10-13T15:30:00Z'));
     expect((collectSpy.mock.calls[0][0] as RunnerInput).systemPrompt).toContain('오늘은 2026-10-14 (Asia/Seoul 기준)');
   });
-  it('실행이 실패(ok:false)면 effort 없이 한 번 더 돌고, 그래도 실패면 예외 — 라우트가 502 로 바꾼다', async () => {
+  it('실행이 실패(ok:false)면 예외 — 거절(4xx)로 볼 근거가 없어 다시 돌지 않고, 라우트가 502 로 바꾼다', async () => {
     collectSpy.mockResolvedValue([{ type: 'result', ok: false, text: '["부분"]', usage: null }]);
     await expect(runSuggestions(suggestionsInput.parse(starter), deps, NOW)).rejects.toThrow();
-    expect(collectSpy).toHaveBeenCalledTimes(2);
+    expect(collectSpy).toHaveBeenCalledTimes(1);
   });
   it('러너 예외(시간 초과 등)는 그대로 전파 — 시간을 다 썼으면 다시 돌지 않는다', async () => {
     collectSpy.mockImplementation(failAfter(15_000, 'timeout'));
     await expect(runSuggestions(suggestionsInput.parse(starter), deps, NOW)).rejects.toThrow('timeout');
     expect(collectSpy).toHaveBeenCalledTimes(1);
   });
-  it('effort 를 넣은 실행이 실패하면 effort 없이 남은 시간 안에서 한 번만 다시 돌아 결과를 돌려준다', async () => {
-    // effort 를 받지 않는 모델(예: 구 Haiku)이면 SDK 실행이 실패해 추천이 조용히 사라질 수 있다(/code-review).
+  it.each([
+    ['429(요청 한도)', sdkError('API Error: Request rejected (429) · this may be a temporary capacity issue.')],
+    ['5xx', sdkError('API Error: 500 {"type":"error","error":{"type":"api_error","message":"Internal server error"}}')],
+    ['시간 초과', 'suggestions-starter:7 timeout after 1000ms'],
+  ])('%s 실패는 시간이 남아도 effort 없이 다시 돌지 않는다', async (_label, message) => {
+    collectSpy.mockImplementationOnce(failAfter(1_000, message)).mockResolvedValueOnce(ok('["a 해줘"]'));
+    await expect(runSuggestions(suggestionsInput.parse(starter), deps, NOW)).rejects.toThrow(message);
+    expect(collectSpy).toHaveBeenCalledTimes(1);
+  });
+  it('상태 없이 effort 를 언급하는 API 오류(thinking 꺼진 모델)도 거절로 보고 다시 돈다', async () => {
+    const message = sdkError("API Error: Effort 'low' isn't available with thinking turned off on this model");
+    collectSpy.mockImplementationOnce(failAfter(1_000, message)).mockResolvedValueOnce(ok('["a 해줘"]'));
+    const out = await runSuggestions(suggestionsInput.parse(starter), deps, NOW);
+    expect(out).toEqual({ items: ['a 해줘'] });
+    expect(collectSpy).toHaveBeenCalledTimes(2);
+  });
+  it('effort 를 넣은 실행이 거절(4xx)되면 effort 없이 남은 시간 안에서 한 번만 다시 돌아 결과를 돌려준다', async () => {
+    // effort 를 받지 않는 모델(예: 구 Haiku)이면 요청이 거절돼 추천이 조용히 사라질 수 있다.
     collectSpy.mockImplementationOnce(failAfter(3_000)).mockResolvedValueOnce(ok('["오늘 일정 요약해줘"]'));
     const out = await runSuggestions(suggestionsInput.parse({ ...starter, model: 'claude-haiku-4-5-20251001' }), deps, NOW);
     expect(out).toEqual({ items: ['오늘 일정 요약해줘'] });
@@ -193,13 +215,13 @@ describe('runSuggestions', () => {
   });
   it('남은 시간이 너무 짧으면(2초 미만) 다시 돌지 않는다', async () => {
     collectSpy.mockImplementationOnce(failAfter(13_500)).mockResolvedValueOnce(ok('["a 해줘"]'));
-    await expect(runSuggestions(suggestionsInput.parse(starter), deps, NOW)).rejects.toThrow('effort 미지원');
+    await expect(runSuggestions(suggestionsInput.parse(starter), deps, NOW)).rejects.toThrow('API Error: 400');
     expect(collectSpy).toHaveBeenCalledTimes(1);
   });
   it('opencode 연결은 effort 를 쓰지 않으므로 같은 실행을 다시 돌지 않는다', async () => {
     getProviderCredential.mockResolvedValue(opencode);
     collectSpy.mockImplementationOnce(failAfter(1_000)).mockResolvedValueOnce(ok('["a 해줘"]'));
-    await expect(runSuggestions(suggestionsInput.parse(starter), deps, NOW)).rejects.toThrow('effort 미지원');
+    await expect(runSuggestions(suggestionsInput.parse(starter), deps, NOW)).rejects.toThrow('API Error: 400');
     expect(collectSpy).toHaveBeenCalledTimes(1);
   });
 });

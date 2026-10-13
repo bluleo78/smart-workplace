@@ -1,5 +1,5 @@
 // WP-139 AI 대화 추천·후속 질문 생성기 — 도구 없는 단발 실행(maxTurns 1, effort low)으로 짧은 질문 N개를 JSON 배열로 받는다.
-// effort 를 받지 않는 모델이면 실행이 실패할 수 있어, Claude 연결은 남은 시간 안에서 effort 없이 한 번만 다시 돈다.
+// effort 를 받지 않는 모델이면 요청이 거절(4xx)될 수 있어, Claude 연결은 그런 거절일 때만 남은 시간 안에서 effort 없이 한 번 다시 돈다.
 // workplace-api 가 동기 호출: 빈 대화 추천(starter, 15초)과 답 뒤 후속 질문(followup, 20초). 실패는 throw → 라우트 502 → API 는 빈 결과.
 // runTextEvents 를 쓰지 않는 이유: 모델 결정 규칙(스펙 §6)과 effort 전달이 다르다 — finalizeAfterLimit 처럼 러너를 직접 부른다.
 import { randomUUID } from 'node:crypto';
@@ -8,7 +8,7 @@ import { z } from 'zod';
 
 import { log } from '../logger.js';
 import { runnerFor, type ProviderCredential, type RunnerInput } from './agent-runner.js';
-import { dateContextDirective } from './assistant-system-prompt.js';
+import { dateContextDirective, seoulToday } from './assistant-system-prompt.js';
 import { DEFAULT_MODEL } from './model-defaults.js';
 import { type RunAgentDeps } from './run-agent.js';
 import { finalText, finalUsage, resultOk, type RunnerEvent } from './runner-events.js';
@@ -22,7 +22,7 @@ const ANSWER_MAX_CHARS = 4_000;
 const QUESTION_MAX_CHARS = 1_000;
 /** 파싱 대상 응답 상한 — 배열 탐색이 최악 O(n²) 라 비정상적으로 긴 출력은 앞부분만 본다. */
 const PARSE_MAX_CHARS = 8_000;
-/** effort 없이 다시 돌 최소 남은 시간 — 이보다 짧으면 단발 생성도 끝내기 어려워 재시도하지 않는다(시간 초과로 실패한 경우도 여기서 걸러진다). */
+/** effort 없이 다시 돌 최소 남은 시간 — 이보다 짧으면 단발 생성도 끝내기 어려워 재시도하지 않는다. */
 const RETRY_MIN_REMAINING_MS = 2_000;
 
 // API 가 null 로 보내는 선택 필드는 모두 nullish — ai-agent 를 먼저 재기동해도 구·신 API 를 받는다.
@@ -93,15 +93,9 @@ function partOfDay(hour: number): string {
   return '밤';
 }
 
-/** 서울 기준 날짜·시각 조각(year·month·day·hour·weekday) — 모듈 수준 포매터 하나를 재사용한다. */
+/** 서울 기준 날짜·시각 조각(year·month·day·hour·weekday) — 모듈 수준 포매터 하나를 재사용한다(시각 라벨용). */
 function seoulParts(now: Date): Record<string, string> {
   return Object.fromEntries(SEOUL_PARTS.formatToParts(now).map((x) => [x.type, x.value]));
-}
-
-/** 서울 날짜 yyyy-MM-dd — 시스템 프롬프트의 "오늘 날짜" 블록용. */
-function seoulDate(now: Date): string {
-  const p = seoulParts(now);
-  return `${p.year}-${p.month}-${p.day}`;
 }
 
 /** "2026-10-13 (화) 오전 9시 — 아침" — 서울 날짜·요일·시각·시간대. */
@@ -183,6 +177,21 @@ export function parseSuggestionItems(text: string, count: number): string[] {
   return out;
 }
 
+/**
+ * effort 미지원으로 볼 만한 실패인가 — 요청 거절(4xx, 429 제외)이거나 effort 를 언급하는 API 오류일 때만 true.
+ * 근거(claude-agent-sdk 0.3.284 실측): 러너(runSdkCollect)는 api_error_status 같은 구조화 정보를 넘기지 않고, SDK 가 오류 result 뒤에
+ * `Claude Code returned an error result: <result 텍스트>` 로 throw 한다. 그 텍스트는 CLI 가 만든 `API Error: <상태> …` 이고
+ * 429 는 `API Error: Request rejected (429) · …`, thinking 꺼진 모델의 effort 거절은 상태 없이 `API Error: Effort '…' isn't available…` 이다.
+ * 429·5xx·시간 초과(`… timeout after …`)·result 없음(`추천 질문 실행 실패`)·그 밖의 예외는 effort 를 빼도 나아지지 않으므로 다시 돌지 않는다.
+ */
+function looksLikeEffortRejection(e: unknown): boolean {
+  const message = e instanceof Error ? e.message : String(e);
+  if (!message.includes('API Error')) return false;
+  const status = /API Error: (\d{3})\b/.exec(message)?.[1];
+  if (status) return status.startsWith('4') && status !== '429';
+  return /effort/i.test(message);
+}
+
 /** 한 번 실행 — 실패(러너 예외·실패 result)는 throw. 실패 실행의 부분 텍스트는 쓰지 않는다(누적 요약과 같은 규칙). */
 async function collectOk(input: RunnerInput): Promise<RunnerEvent[]> {
   const events = await runnerFor(input.credential).collect(input);
@@ -203,7 +212,7 @@ export async function runSuggestions(
   const base = input.mode === 'starter' ? starterSystemPrompt(input.count) : followupSystemPrompt(input.count);
   const runInput: RunnerInput = {
     userMessage: input.mode === 'starter' ? buildStarterMessage(input, now) : buildFollowupMessage(input),
-    systemPrompt: base + dateContextDirective(seoulDate(now)),
+    systemPrompt: base + dateContextDirective(seoulToday(now)),
     model,
     maxTurns: 1,
     credential,
@@ -221,10 +230,10 @@ export async function runSuggestions(
   try {
     events = await collectOk(runInput);
   } catch (e) {
-    // effort 를 받지 않는 모델이면 실행 자체가 실패해 추천이 조용히 사라진다 — Claude 연결이고 시간이 남았으면 effort 없이 한 번만 다시 돈다.
+    // effort 를 받지 않는 모델이면 요청이 거절돼 추천이 조용히 사라진다 — Claude 연결이고, 실패가 그런 거절로 보이고, 시간이 남았으면 effort 없이 한 번만 다시 돈다.
     // opencode 러너는 effort 를 쓰지 않아 같은 실행을 반복할 뿐이므로 다시 돌지 않는다. 남은 시간은 요청 시작부터 재서, 다시 돌아도 API 가 정한 상한(timeoutMs)을 넘지 않게 한다.
     const remainingMs = input.timeoutMs - (Date.now() - startedAt);
-    if (credential.provider !== 'anthropic' || remainingMs < RETRY_MIN_REMAINING_MS) throw e;
+    if (credential.provider !== 'anthropic' || !looksLikeEffortRejection(e) || remainingMs < RETRY_MIN_REMAINING_MS) throw e;
     log.warn('suggestions', 'retry_without_effort', {
       requestId, mode: input.mode, agentId: input.agentId, model, remainingMs,
       error: e instanceof Error ? e.message : String(e),
