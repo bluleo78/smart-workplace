@@ -51,12 +51,12 @@ public class MyAssistantController {
     return ResponseEntity.noContent().build();
   }
 
-  /** 모델/생각 깊이 변경(null = 디폴트로 되돌림). */
+  /** 모델/생각 깊이/추천 모델 변경 — 보낸 필드만 바꾸고, 명시적 null 은 디폴트(추천 모델은 자동)로 되돌림(WP-139). */
   @PutMapping("/settings")
   public ResponseEntity<Void> updateSettings(
       @AuthenticationPrincipal Long callerId,
       @Valid @RequestBody UpdateAssistantSettingsRequest req) {
-    service.updateSettings(callerId, req.model(), req.thinkingDepth());
+    service.updateSettings(callerId, req);
     return ResponseEntity.noContent().build();
   }
 

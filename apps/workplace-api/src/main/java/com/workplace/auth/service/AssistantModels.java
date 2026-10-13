@@ -16,5 +16,6 @@ public final class AssistantModels {
           new ModelOption("claude-sonnet-5-5", "Claude Sonnet 5.5"),
           new ModelOption("claude-opus-5-5", "Claude Opus 5.5"),
           new ModelOption("claude-fable-5-1", "Claude Fable 5.1"),
+          new ModelOption("claude-haiku-5-5", "Claude Haiku 5.5"),
           new ModelOption("claude-haiku-4-5-20251001", "Claude Haiku 4.5"));
 }

@@ -1,5 +1,7 @@
 package com.workplace.auth.service;
 
+import com.workplace.auth.dto.AiAgentCredentialRow;
+import com.workplace.auth.dto.UpdateAssistantSettingsRequest;
 import com.workplace.auth.dto.WorkspaceAssistantResponse;
 import com.workplace.auth.exception.KeyTargetMustBeAgentException;
 import com.workplace.auth.repository.AiAgentCredentialRepository;
@@ -27,6 +29,8 @@ public class WorkspaceAssistantService {
   private final AssistantConfigRepository configRepo;
   private final AiAgentCredentialRepository credentialRepo;
   private final UserRepository userRepository;
+  private final AssistantSettingsWriter settingsWriter;
+  private final SuggestionModelPolicy suggestionModelPolicy;
 
   /** 공용 비서로 지정. 대상이 없으면 404, AGENT 가 아니면 400(HUMAN 거부). */
   public void setAgent(long adminId, long agentUserId) {
@@ -52,6 +56,15 @@ public class WorkspaceAssistantService {
     configRepo.upsert(agentId, model, thinkingDepth, cur.maxTurns(), cur.timeoutMs());
   }
 
+  /** 공용 비서 부분 설정 변경(WP-139) — 요청에 있는 필드만. 미지정 상태면 예외. */
+  public void updateSettings(long adminId, UpdateAssistantSettingsRequest req) {
+    long agentId =
+        workspaceRepo
+            .findAgentId()
+            .orElseThrow(() -> new IllegalStateException("공용 비서가 설정되지 않았어요."));
+    settingsWriter.apply(agentId, req);
+  }
+
   /** 공용 비서 지정 해제 — 행 삭제(미지정 상태). */
   @Transactional
   public void clear() {
@@ -63,11 +76,13 @@ public class WorkspaceAssistantService {
   public WorkspaceAssistantResponse get() {
     var agentIdOpt = workspaceRepo.findAgentId();
     if (agentIdOpt.isEmpty()) {
-      return new WorkspaceAssistantResponse(null, null, false, null, null);
+      return new WorkspaceAssistantResponse(null, null, false, null, null, null, null);
     }
     long agentId = agentIdOpt.get();
     String name = userRepository.findById(agentId).map(UserResponse::name).orElse(null);
-    boolean hasActiveToken = credentialRepo.findActive(agentId).isPresent();
+    // WP-139: 활성 자격증명의 제공자로 자동 추천 모델을 정한다(토큰 없음이면 null).
+    var credential = credentialRepo.findActive(agentId);
+    boolean hasActiveToken = credential.isPresent();
 
     // ConfigRow 의 각 필드는 개별 nullable — 필드 단위로 디폴트와 머지한다.
     ConfigRow cur = configRepo.find(agentId).orElse(new ConfigRow(null, null, null, null));
@@ -75,6 +90,16 @@ public class WorkspaceAssistantService {
     String thinkingDepth =
         cur.thinkingDepth() != null ? cur.thinkingDepth() : AssistantDefaults.THINKING_DEPTH;
 
-    return new WorkspaceAssistantResponse(agentId, name, hasActiveToken, model, thinkingDepth);
+    String suggestionModelAuto =
+        suggestionModelPolicy.autoModel(
+            hasActiveToken, credential.map(AiAgentCredentialRow::provider).orElse(null), model);
+    return new WorkspaceAssistantResponse(
+        agentId,
+        name,
+        hasActiveToken,
+        model,
+        thinkingDepth,
+        cur.suggestionModel(),
+        suggestionModelAuto);
   }
 }

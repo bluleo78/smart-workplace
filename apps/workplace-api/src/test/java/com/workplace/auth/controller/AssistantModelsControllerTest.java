@@ -201,7 +201,8 @@ class AssistantModelsControllerTest extends IntegrationTestBase {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.provider").value("anthropic"))
         .andExpect(jsonPath("$.models[0].id").value("claude-sonnet-5-5"))
-        .andExpect(jsonPath("$.models.length()").value(4));
+        // WP-139: 정적 목록에 Haiku 5.5 가 더해져 5개.
+        .andExpect(jsonPath("$.models.length()").value(5));
   }
 
   @Test // #873: 토큰 복호화 실패(키 교체·손상 행)도 500 이 아니라 정적 목록 폴백

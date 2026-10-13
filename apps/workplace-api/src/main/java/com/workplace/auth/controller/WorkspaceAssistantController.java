@@ -46,11 +46,11 @@ public class WorkspaceAssistantController {
     return ResponseEntity.noContent().build();
   }
 
-  /** 공용 비서의 모델/사고 깊이 설정. */
+  /** 공용 비서의 모델/사고 깊이/추천 모델 설정 — 보낸 필드만 바꾼다(WP-139). */
   @PutMapping("/settings")
   public ResponseEntity<Void> updateSettings(
       Authentication auth, @Valid @RequestBody UpdateAssistantSettingsRequest req) {
-    service.updateSettings((Long) auth.getPrincipal(), req.model(), req.thinkingDepth());
+    service.updateSettings((Long) auth.getPrincipal(), req);
     return ResponseEntity.noContent().build();
   }
 }

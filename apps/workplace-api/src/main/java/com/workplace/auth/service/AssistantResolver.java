@@ -1,5 +1,6 @@
 package com.workplace.auth.service;
 
+import com.workplace.auth.dto.AiAgentCredentialRow;
 import com.workplace.auth.exception.HomeAssistantNotConfiguredException;
 import com.workplace.auth.repository.AiAgentCredentialRepository;
 import com.workplace.auth.repository.AssistantConfigRepository;
@@ -23,6 +24,7 @@ public class AssistantResolver {
   private final WorkspaceAssistantRepository workspaceRepo;
   private final AssistantConfigRepository configRepo;
   private final AiAgentCredentialRepository credentialRepo;
+  private final SuggestionModelPolicy suggestionModelPolicy;
 
   @Transactional(readOnly = true)
   public AssistantSpec resolve(long callerId) {
@@ -72,14 +74,17 @@ public class AssistantResolver {
     return candidate.filter(id -> credentialRepo.findActive(id).isPresent());
   }
 
-  /** config 를 디폴트와 병합. */
+  /** config 를 디폴트와 병합. WP-139: 추천 모델은 연결 제공자로 해석해 싣는다(호출부는 그대로 ai-agent 에 넘긴다). */
   private AssistantSpec buildSpec(long agentId) {
     ConfigRow c = configRepo.find(agentId).orElse(new ConfigRow(null, null, null, null));
+    String provider =
+        credentialRepo.findActive(agentId).map(AiAgentCredentialRow::provider).orElse(null);
     return new AssistantSpec(
         agentId,
         c.model() != null ? c.model() : AssistantDefaults.MODEL,
         c.thinkingDepth() != null ? c.thinkingDepth() : AssistantDefaults.THINKING_DEPTH,
         c.maxTurns() != null ? c.maxTurns() : AssistantDefaults.MAX_TURNS,
-        c.timeoutMs() != null ? c.timeoutMs() : AssistantDefaults.TIMEOUT_MS);
+        c.timeoutMs() != null ? c.timeoutMs() : AssistantDefaults.TIMEOUT_MS,
+        suggestionModelPolicy.requestModel(c.suggestionModel(), provider));
   }
 }

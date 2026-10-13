@@ -14,4 +14,10 @@ public record AssistantStatusResponse(
     String thinkingDepth,
     String name,
     String provider,
-    String baseUrl) {}
+    String baseUrl,
+    /** 추천 질문 전용 모델(WP-139) — 원시값, null 이면 자동. */
+    String suggestionModel,
+    /**
+     * 자동일 때 실제로 쓸 모델(WP-139) — Anthropic 은 API 기본값, opencode 는 비서 모델, 연결 없음은 null. 웹 "자동 (…)" 라벨.
+     */
+    String suggestionModelAuto) {}
