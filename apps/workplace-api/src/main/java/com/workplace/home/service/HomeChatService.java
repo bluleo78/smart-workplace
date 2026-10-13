@@ -23,6 +23,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Supplier;
 import java.util.regex.Matcher;
@@ -66,8 +67,15 @@ public class HomeChatService {
    */
   private static final int COMPOSE_MIN_MAX_TURNS = 50;
 
-  /** MCP 프리픽스(mcp__workplace__update_issue → update_issue). 도구 이름 판별 전에 벗겨낸다. */
-  private static final Pattern MCP_PREFIX = Pattern.compile("^mcp__[^_]+__");
+  /**
+   * 런타임 도구 접두(Claude: mcp__workplace__update_issue, opencode: workplace_update_issue →
+   * update_issue). 도구 이름 판별 전에 벗겨낸다 — 공유 stripMcpPrefix(mcp-tools-shared)와 같은 규칙.
+   */
+  private static final Pattern MCP_PREFIX = Pattern.compile("^(?:mcp__[^_]+__|workplace_)");
+
+  /** WP-55: 메모리 도구 이름(접두 제외) — 공유 isMemoryTool 과 같은 집합. */
+  private static final Set<String> MEMORY_TOOLS =
+      Set.of("remember_memory", "update_memory", "forget_memory");
 
   /** WP-158: 위젯 도구 이름 → 위젯 타입(show_issue_list → issue_list). 웹 widgetTypeFromToolName 과 같은 규칙. */
   private static final Pattern SHOW_TOOL = Pattern.compile("show_([a-z_]+)$");
@@ -407,6 +415,7 @@ public class HomeChatService {
 
   /** tool 이벤트 — 표시 가능 도구는 영속 단계에 추가(숨김 도구는 발행만), show_* 는 위젯 블록, result 는 단계 상태 갱신. */
   private void onTool(HomeChatTurn turn, JsonNode toolNode) {
+    boolean acceptedMemory = true;
     String phase = toolNode.path("phase").asText();
     int seq = toolNode.path("seq").asInt();
     if ("start".equals(phase)) {
@@ -426,6 +435,8 @@ public class HomeChatService {
         Map<String, Object> widget = widgetOf(toolName, toolNode.path("args"));
         if (widget != null) turn.blocks.onWidget(widget);
       }
+      // 계약 밖: start 에는 memory 가 실리지 않는다 — 실려 와도 그대로 내보내지 않는다.
+      if (toolNode.has("memory")) acceptedMemory = false;
     } else {
       boolean isError = toolNode.path("isError").asBoolean(false);
       for (Map<String, Object> s : turn.steps) {
@@ -436,9 +447,20 @@ public class HomeChatService {
           break;
         }
       }
+      // WP-55: 메모리 도구 성공 결과 → 결과 줄 블록(되돌리기 근거). ai-agent 가 이미 거르지만 API 도 다시 거른다.
+      if (toolNode.has("memory")) {
+        ChatBlockRecorder.Memory memory =
+            !isError && isMemoryTool(toolNode.path("toolName").asText())
+                ? ChatBlockRecorder.Memory.from(toolNode.get("memory"))
+                : null;
+        if (memory != null) turn.blocks.onMemory(memory);
+        else acceptedMemory = false;
+      }
     }
     @SuppressWarnings("unchecked")
     Map<String, Object> toolPayload = objectMapper.convertValue(toolNode, Map.class);
+    // 거른 memory 는 재발행하지 않는다 — 웹 라이브 순번이 영속 순번과 어긋나지 않게(판정 4).
+    if (!acceptedMemory) toolPayload.remove("memory");
     turn.emit("home.chat.tool", toolPayload);
   }
 
@@ -474,9 +496,11 @@ public class HomeChatService {
    * 도구 이름이 화면에 표시되는 도구인지 판별한다. 프론트 aiToolLabels.ts 의 isDisplayableTool 과 동일 정책.
    *
    * <p>영속 대상(tool_calls)은 표시 가능 도구만 포함한다. show_* / propose_* 는 위젯·확인 카드로 이미 표현되고, respond_chat /
-   * submit_response 는 내부 응답 배관으로 사용자에게 의미 없는 반복 정보다.
+   * submit_response 는 내부 응답 배관으로 사용자에게 의미 없는 반복 정보다. 메모리 도구(WP-55)도 결과 줄로 따로 보여 숨긴다.
    */
   private boolean isDisplayableTool(String toolName) {
+    // WP-55: 메모리 도구는 결과 줄로 보이므로 도구 단계(영속 tool_calls)에 넣지 않는다 — 웹 isVisibleStep 과 같은 규칙.
+    if (isMemoryTool(toolName)) return false;
     String n = stripMcpPrefix(toolName);
     if (n.startsWith("show_") || n.startsWith("propose_")) return false;
     if (n.equals("respond_chat") || n.equals("submit_response")) return false;
@@ -500,6 +524,11 @@ public class HomeChatService {
       w.put("layout", objectMapper.convertValue(args.get("layout"), Map.class));
     }
     return w;
+  }
+
+  /** WP-55: 메모리 도구인가(런타임 접두 무시) — 접두를 벗긴 뒤 이름 집합으로 판별한다(공유 isMemoryTool 과 같은 구조). */
+  static boolean isMemoryTool(String toolName) {
+    return toolName != null && MEMORY_TOOLS.contains(stripMcpPrefix(toolName));
   }
 
   private static String stripMcpPrefix(String toolName) {

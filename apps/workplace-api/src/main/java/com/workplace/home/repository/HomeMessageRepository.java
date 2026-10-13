@@ -1,8 +1,10 @@
 package com.workplace.home.repository;
 
 import static com.workplace.jooq.Tables.HOME_MESSAGE;
+import static com.workplace.jooq.Tables.HOME_SESSION;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
@@ -95,6 +97,34 @@ public class HomeMessageRepository {
         .and(HOME_MESSAGE.ROLE.eq("ASSISTANT"))
         .execute();
   }
+
+  /**
+   * 되돌리기 대상(WP-55) — 호출자 소유 세션의 ASSISTANT 메시지를 행 잠금(FOR UPDATE OF home_message)으로 읽는다. 같은 결과 줄의 동시
+   * 되돌리기가 이 잠금에서 줄을 서 두 번째가 첫 번째의 undone=true 를 본다. 다른 사용자·없는 id·USER 메시지는 empty(→ 404).
+   */
+  public Optional<OwnedBlocks> lockOwnedAssistant(long messageId, long userId) {
+    return dsl.select(HOME_MESSAGE.CONTENT_BLOCKS)
+        .from(HOME_MESSAGE)
+        .join(HOME_SESSION)
+        .on(HOME_SESSION.ID.eq(HOME_MESSAGE.SESSION_ID))
+        .where(HOME_MESSAGE.ID.eq(messageId))
+        .and(HOME_SESSION.USER_ID.eq(userId))
+        .and(HOME_MESSAGE.ROLE.eq("ASSISTANT"))
+        .forUpdate()
+        .of(HOME_MESSAGE)
+        .fetchOptional(r -> new OwnedBlocks(r.value1() == null ? null : r.value1().data()));
+  }
+
+  /** content_blocks 갱신(WP-55 되돌림 표시). lockOwnedAssistant 로 잠근 같은 트랜잭션에서만 부른다. */
+  public int updateContentBlocks(long messageId, String contentBlocksJson) {
+    return dsl.update(HOME_MESSAGE)
+        .set(HOME_MESSAGE.CONTENT_BLOCKS, JSONB.valueOf(contentBlocksJson))
+        .where(HOME_MESSAGE.ID.eq(messageId))
+        .execute();
+  }
+
+  /** 잠근 메시지의 표시 블록 JSON(null 가능). */
+  public record OwnedBlocks(String contentBlocksJson) {}
 
   /**
    * 채팅 맥락용 경량 조회(WP-232) — 경계(uptoId) 이후 메시지의 id·role·content 만 생성순(findBySession 과 동일 정렬)으로 읽는다.

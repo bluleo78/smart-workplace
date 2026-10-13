@@ -97,7 +97,7 @@ final class HomeChatTurn {
 
   /**
    * 정상 완료 — ASSISTANT(COMPLETE) 영속 → 반납 → home.chat.done → afterDone(누적 요약·후속 질문 예약). afterDone 에는
-   * 저장한 메시지 id(영속 실패면 null)를 넘긴다(WP-139).
+   * 저장한 메시지 id(영속 실패면 null)를 넘긴다(WP-139). done 에는 widgets 와 저장한 메시지 id(WP-55)를 싣는다.
    */
   void complete(String fullText, JsonNode widgets, Consumer<Long> afterDone) {
     if (!finished.compareAndSet(false, true)) return;
@@ -112,6 +112,9 @@ final class HomeChatTurn {
     reservation.release();
     Map<String, Object> data = new HashMap<>();
     data.put("widgets", widgets);
+    // WP-55: 웹이 라이브 답의 결과 줄 되돌리기(messageId)를 done 직후 켤 수 있게 — 영속 실패면 null(판정 8). 텍스트 없이 끝난 중단·오류 턴은
+    // 애초에 영속하지 않아 done 도 없다(persistPartial 의 알려진 한계).
+    data.put("messageId", messageId);
     emit("home.chat.done", data);
     afterDone.accept(messageId);
   }
@@ -139,6 +142,8 @@ final class HomeChatTurn {
   /** 부분 답변 저장 — 누적 텍스트가 비면 질문만 남긴다(현행 유지). 끝나지 않은 도구 단계는 error 로 닫는다(R10). */
   private void persistPartial(String status) {
     String text = blocks.streamedText();
+    // 알려진 한계(WP-55): 텍스트가 없는 중단·오류 턴은 저장하지 않으므로(messageId 없음) 그 턴에 기록된 memory 블록도 함께 사라진다 —
+    // 메모리 변경 자체는 이미 반영됐지만 되돌리기 줄은 남지 않는다. 의도적으로 영속을 더하지 않는다.
     if (text.isBlank()) return;
     List<Map<String, Object>> settled = steps.stream().map(HomeChatTurn::settleRunning).toList();
     persist(

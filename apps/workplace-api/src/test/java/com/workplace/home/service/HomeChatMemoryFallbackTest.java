@@ -67,4 +67,15 @@ class HomeChatMemoryFallbackTest {
             "\"memories\":[{\"id\":12,\"kind\":\"PREFERENCE\",\"content\":\"짧은 목록으로 보여 준다\"}]")
         .contains("\"memoryEnabled\":true");
   }
+
+  @Test
+  void 메모리_도구_판별은_Claude_opencode_접두를_무시하고_다른_도구는_아니다() {
+    for (String n : List.of("remember_memory", "update_memory", "forget_memory")) {
+      assertThat(HomeChatService.isMemoryTool(n)).isTrue();
+      assertThat(HomeChatService.isMemoryTool("mcp__workplace__" + n)).isTrue();
+      assertThat(HomeChatService.isMemoryTool("workplace_" + n)).isTrue();
+    }
+    assertThat(HomeChatService.isMemoryTool("update_issue")).isFalse();
+    assertThat(HomeChatService.isMemoryTool("mcp__workplace__show_memory")).isFalse();
+  }
 }

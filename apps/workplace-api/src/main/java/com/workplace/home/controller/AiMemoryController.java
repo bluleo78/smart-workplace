@@ -4,8 +4,11 @@ import com.workplace.global.security.InternalOnBehalfOf;
 import com.workplace.home.dto.AiMemoryItem;
 import com.workplace.home.dto.AiMemoryListResponse;
 import com.workplace.home.dto.CreateAiMemoryRequest;
+import com.workplace.home.dto.UndoAiMemoryRequest;
+import com.workplace.home.dto.UndoAiMemoryResponse;
 import com.workplace.home.dto.UpdateAiMemoryRequest;
 import com.workplace.home.service.AiMemoryService;
+import com.workplace.home.service.AiMemoryUndoService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
@@ -30,6 +33,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class AiMemoryController {
 
   private final AiMemoryService service;
+  private final AiMemoryUndoService undoService;
 
   /** 목록(최신순 전부, 최대 50) + 상한. */
   @GetMapping
@@ -72,5 +76,12 @@ public class AiMemoryController {
   @ResponseStatus(HttpStatus.NO_CONTENT)
   public void clear(@AuthenticationPrincipal Long callerId) {
     service.clear(callerId);
+  }
+
+  /** 채팅 결과 줄 되돌리기(WP-55 §6) — 꺼짐이어도 허용. blockIndex 는 그 메시지의 memory 블록 순번(판정 4). */
+  @PostMapping("/undo")
+  public UndoAiMemoryResponse undo(
+      @AuthenticationPrincipal Long callerId, @RequestBody UndoAiMemoryRequest req) {
+    return undoService.undo(callerId, req);
   }
 }
