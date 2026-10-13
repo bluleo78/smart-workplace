@@ -74,6 +74,28 @@ test.describe('/settings/audit-logs — actionType·resource facet 필터', () =
     },
   );
 
+  // WP-369: 드라이브 전송 링크 발급·사용 액션도 필터 옵션에 한글 라벨로 있고, 고르면 서버 쿼리에 그대로 실린다.
+  test('actionType facet 에 전송 링크 발급·사용이 있고 선택 시 API param 에 반영된다', async ({ adminPage: page }) => {
+    await setupAdminAuth(page);
+    const capture = await setupCapturedAuditLogMocks(page);
+
+    await page.goto('/settings/audit-logs');
+    await expect(page.getByRole('heading', { name: '감사 로그' })).toBeVisible();
+    await capture.waitForRequest();
+
+    await page.getByTestId('add-filter-trigger').click();
+    await page.getByTestId('add-filter-facet-actionType').click();
+    await expect(page.getByTestId('facet-value-actionType-TRANSFER_LINK_CREATE')).toContainText('전송 링크 발급');
+    await expect(page.getByTestId('facet-value-actionType-TRANSFER_LINK_USE')).toContainText('전송 링크 사용');
+    await page.getByTestId('facet-value-actionType-TRANSFER_LINK_USE').click();
+    await page.keyboard.press('Escape');
+
+    await expect
+      .poll(() => capture.lastRequest()?.searchParams.get('actionType'))
+      .toBe('TRANSFER_LINK_USE');
+    await expect(page.getByTestId('filter-chip-actionType')).toBeVisible();
+  });
+
   test('resource facet 선택 → API param 반영 + 칩 표시', async ({ adminPage: page }) => {
     await setupAdminAuth(page);
     const capture = await setupCapturedAuditLogMocks(page);

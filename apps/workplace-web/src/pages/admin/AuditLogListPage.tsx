@@ -47,6 +47,7 @@ import { AuditUserFilter, type AuditUserSelection } from './components/AuditUser
  * - #778 회귀: PAT(UserApiTokenService)/AGENT 키(AgentApiKeyService)/AGENT OAuth 자격증명(AiAgentCredentialService)/
  *   운영자 콘솔(PlatformAuthService)/AGENT 유저 CRUD·구성원 생성(UserService)/드라이브 파일(DriveFileService/DriveBulkService/DriveShareLinkService)
  *   호출부에서 최근 추가된 값 보강.
+ * - WP-369: 드라이브 전송 링크(DriveTransferLinkService) 발급·사용 — 사용 기록의 actor 는 링크 발급자다.
  */
 const ACTION_TYPES = [
   { value: 'CREATE', label: '생성' },
@@ -77,6 +78,8 @@ const ACTION_TYPES = [
   { value: 'FILE_ROLLBACK', label: '파일 롤백' },
   { value: 'FILE_SHARE', label: '공유 링크 생성' },
   { value: 'SHARE_LINK_LOCKED', label: '공유 링크 잠금' },
+  { value: 'TRANSFER_LINK_CREATE', label: '전송 링크 발급' },
+  { value: 'TRANSFER_LINK_USE', label: '전송 링크 사용' },
 ];
 
 /**
