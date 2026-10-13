@@ -73,7 +73,7 @@ function TreeNode({ node, depth, selectedId, onSelect, editable, onEdit, onDelet
         <button
           type="button"
           data-testid={`group-node-${node.id}`}
-          // 고른 그룹을 보조기기에도 알린다 — 다시 누르면 해제되는 필터 토글이라 aria-pressed(그룹 멤버 행과 같은 규칙, WP-368).
+          // 다시 누르면 해제되는 필터라 aria-current 가 아닌 aria-pressed(그룹 멤버 행과 같은 규칙).
           aria-pressed={selectedId === node.id}
           onClick={() => onSelect(node.id)}
           className="min-w-0 flex-1 truncate text-left"

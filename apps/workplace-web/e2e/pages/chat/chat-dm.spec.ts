@@ -4,7 +4,7 @@ import type { Page } from '@playwright/test'
 import { createDm, createDmParticipant, createMessage } from '../../factories/messaging.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { DESKTOP_WIDTHS, expectHeaderBottomAt56, expectStartAligned } from '../../fixtures/layout'
-import { expectCurrent, expectSelectedRow } from '../../fixtures/selection'
+import { expectSelectedRow } from '../../fixtures/selection'
 
 // 채널·DM 사이드바 목록 + SSE 스트림 stub.
 // AppLayout 이 useEventStream() 으로 /api/v1/events 를 항상 구독하므로 함께 stub (#506).
@@ -330,8 +330,7 @@ test.describe('messaging DM', () => {
     await page.goto('/chat/dms/102')
     const open = page.getByTestId('dm-link-102')
     const other = page.getByTestId('dm-link-103')
-    await expectSelectedRow(open, other)
-    await expectCurrent(open, other, 'page')
+    await expectSelectedRow(open, other, { current: 'page' })
     await expect(page.getByTestId('dm-self-link')).not.toHaveAttribute('aria-current')
   })
 
@@ -347,8 +346,7 @@ test.describe('messaging DM', () => {
     await page.goto('/chat/dms/101')
     const self = page.getByTestId('dm-self-link')
     const other = page.getByTestId('dm-link-102')
-    await expectSelectedRow(self, other)
-    await expectCurrent(self, other, 'page')
+    await expectSelectedRow(self, other, { current: 'page' })
   })
 
   test('비참여자 직접 진입 → 대화 없음', async ({ authenticatedPage: page }) => {

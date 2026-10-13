@@ -36,8 +36,9 @@ export async function selectionBarStyle(locator: Locator) {
 export async function expectSelectedRow(
   selected: Locator,
   other: Locator,
-  { bar = true, cls = /bg-selected/ }: { bar?: boolean; cls?: RegExp } = {},
+  { bar = true, cls = /bg-selected/, current }: { bar?: boolean; cls?: RegExp; current?: 'page' | 'true' } = {},
 ) {
+  if (current) await expectCurrent(selected, other, current)
   await expect(selected).toHaveClass(cls)
   await expect(other).not.toHaveClass(cls)
   if (bar) {
@@ -58,6 +59,12 @@ export async function expectSelectedRow(
 export async function expectCurrent(selected: Locator, other: Locator, value: 'page' | 'true') {
   await expect(selected).toHaveAttribute('aria-current', value)
   await expect(other).not.toHaveAttribute('aria-current')
+}
+
+/** 다시 누르면 해제되는 선택(필터 토글 등) — selected 만 aria-pressed=true, other 는 false. */
+export async function expectPressed(selected: Locator, other: Locator) {
+  await expect(selected).toHaveAttribute('aria-pressed', 'true')
+  await expect(other).toHaveAttribute('aria-pressed', 'false')
 }
 
 // 클래스 문자열 안에서 `dark:`·`hover:` 같은 변형 접두가 붙은 토큰은 제외하고 맨 토큰만 본다.

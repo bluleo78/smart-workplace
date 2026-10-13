@@ -4,7 +4,7 @@ import type { Page } from '@playwright/test'
 import type { WikiPageDetail, WikiPageSummary, WikiSpace } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { trackRequests } from '../../fixtures/requests'
-import { expectCurrent, expectSelectedRow } from '../../fixtures/selection'
+import { expectSelectedRow } from '../../fixtures/selection'
 
 /** 페이지 생성 POST 본문. */
 type CreateBody = { parentId: number | null; title: string }
@@ -137,8 +137,7 @@ test('트리 — 열린 페이지 노드만 bg-selected·selection-bar 를 갖�
   // 선택 표시는 행 안의 제목 버튼이 갖는다.
   const picked = page.getByTestId('wiki-tree-row-1').getByRole('button', { name: '제품 문서' })
   const other = page.getByTestId('wiki-tree-row-2').getByRole('button', { name: '기획' })
-  await expectSelectedRow(picked, other)
-  await expectCurrent(picked, other, 'page')
+  await expectSelectedRow(picked, other, { current: 'page' })
 })
 
 test('접기/펼치기 — 부모 토글 시 자손 숨김/노출', async ({ authenticatedPage: page }) => {

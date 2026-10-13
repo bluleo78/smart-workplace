@@ -73,7 +73,6 @@ export function ChannelSidebar() {
         <Link
           to="/chat/threads/inbox"
           data-testid="sidebar-threads-link"
-          // 선택 표시(SELECTED_NAV_CLASS)를 보조기기에도 — 지금 열린 화면(WP-368).
           aria-current={isThreadsRoute ? 'page' : undefined}
           className={cn(
             'flex items-center gap-2 rounded-md px-3 py-1.5 text-sm',

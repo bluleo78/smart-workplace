@@ -36,7 +36,6 @@ export function MobileConversationRow({
     <Link
       to={to}
       data-testid={testId}
-      // 보조기기에도 지금 열린 대화임을 알린다(WP-368 — 선택 표시가 눈으로만 보이던 것).
       aria-current={active ? 'page' : undefined}
       className={cn(
         'flex min-h-14 items-center gap-3 rounded-md px-3 py-2.5 transition-colors',

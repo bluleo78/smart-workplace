@@ -79,18 +79,18 @@ function formatReceivedAt(iso: string | null): string {
 // 목록 한 행 — 안 읽음은 굵게, 첨부 클립 표시.
 function MessageRow({
   m,
-  active,
   open,
+  sheetTarget,
   onSelect,
   pendingVisible,
   showToggle,
   onToggleRead,
 }: {
   m: EmailMessageSummary
-  /** 선택 배경 — 읽기 창에 열린 메일 + 길게 누르기 시트 대상. */
-  active: boolean
-  /** 읽기 창에 열린 메일인가(보조기기 aria-current) — 시트 대상은 강조만 하고 열린 것으로 알리지 않는다. */
+  /** 읽기 창에 열린 메일인가 — 선택 배경 + aria-current. */
   open: boolean
+  /** 길게 누르기 시트의 대상인가 — 어느 메일에 대한 작업인지 선택 배경으로 강조만 하고, 열린 것으로 알리지는 않는다(M4). */
+  sheetTarget: boolean
   onSelect: () => void
   /** "분류 전" 배지 노출 여부 — 받은편지함 계열이고 AI 분류가 켜진 계정일 때만. */
   pendingVisible: boolean
@@ -115,7 +115,6 @@ function MessageRow({
       // 자식 텍스트가 섞이면 장문화되어 SR 청취성 저하(WCAG 1.3.1/4.1.2). 날짜는
       // 식별에 필수가 아니므로 간결함 우선으로 제외.
       aria-label={`${m.fromName || m.fromAddress || '(보낸사람 없음)'} ${m.subject || '(제목 없음)'}`}
-      // 지금 읽기 창에 열린 메일을 보조기기에도 알린다(WP-368 — 선택 배경이 눈으로만 보이던 것).
       aria-current={open ? 'true' : undefined}
       onClick={onSelect}
       onKeyDown={(e) => {
@@ -128,7 +127,7 @@ function MessageRow({
         // group — 안의 읽음 전환 버튼을 행 hover 에 맞춰 드러낸다(WP-187).
         'group relative flex w-full cursor-pointer flex-col gap-0.5 border-b px-4 py-3 text-left transition-colors',
         // 선택은 배경만 — 막대는 안 읽음 표시(아래, 같은 자리·같은 색)와 겹치고, 굵기도 안 읽음 표시라 둘 다 쓰지 않는다.
-        active ? SELECTED_BG_CLASS : 'hover:bg-accent/50',
+        open || sheetTarget ? SELECTED_BG_CLASS : 'hover:bg-accent/50',
       )}
     >
       {/* WP-155: 안 읽음은 굵기만으로는 훑어볼 때 잘 안 보여 왼쪽 primary 막대로 보강.
@@ -1144,9 +1143,8 @@ export function MailInboxPage() {
                 <MessageRow
                   key={m.id}
                   m={m}
-                  // 길게 누르기 시트의 대상 행도 강조한다 — 촘촘한 목록에서 어느 메일에 대한 작업인지 보이게(M4).
-                  active={selectedId === m.id || (sheet.open && sheet.target?.id === m.id)}
                   open={selectedId === m.id}
+                  sheetTarget={sheet.open && sheet.target?.id === m.id}
                   onSelect={() => mailParam.open(String(m.id))}
                   pendingVisible={view.kind !== 'sent' && classificationActive}
                   showToggle={!touchShell}

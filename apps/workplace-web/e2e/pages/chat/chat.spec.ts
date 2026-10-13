@@ -6,7 +6,7 @@ import { createChannel, createMessage } from '../../factories/messaging.factory'
 import { commitImeThenEnterInSameTask } from '../../fixtures/ime';
 import { trackRequests } from '../../fixtures/requests';
 import { expectStays } from '../../fixtures/wait';
-import { expectCurrent, expectSelectedRow } from '../../fixtures/selection';
+import { expectSelectedRow } from '../../fixtures/selection';
 
 const CHANNEL_ID = 1;
 // auth.fixture.ts 의 createUser() 기본 id = 1
@@ -128,8 +128,7 @@ test.describe('messaging 채팅 E2E', () => {
     await page.goto(`/chat/channels/${CHANNEL_ID}`);
     const openLink = page.getByTestId(`channel-link-${CHANNEL_ID}`);
     const otherLink = page.getByTestId('channel-link-2');
-    await expectSelectedRow(openLink, otherLink);
-    await expectCurrent(openLink, otherLink, 'page');
+    await expectSelectedRow(openLink, otherLink, { current: 'page' });
     // 앞 아이콘(# 또는 잠금)만 primary — 다른 행의 아이콘은 기본 색 그대로.
     const iconColor = (l: typeof openLink) => l.locator('svg').first().evaluate((el) => getComputedStyle(el).color);
     expect(await iconColor(openLink)).not.toBe(await iconColor(otherLink));

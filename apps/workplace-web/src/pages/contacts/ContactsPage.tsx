@@ -48,7 +48,6 @@ function ContactRow({
         active ? SELECTED_SURFACE_CLASS : 'hover:bg-accent/50',
       )}
     >
-      {/* 고른 연락처를 보조기기에도 알린다 — 오른쪽 상세에 열린 항목(WP-368). */}
       <button
         type="button"
         onClick={onSelect}
