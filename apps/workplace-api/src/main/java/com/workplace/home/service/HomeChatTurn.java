@@ -97,7 +97,7 @@ final class HomeChatTurn {
 
   /**
    * 정상 완료 — ASSISTANT(COMPLETE) 영속 → 반납 → home.chat.done → afterDone(누적 요약·후속 질문 예약). afterDone 에는
-   * 저장한 메시지 id(영속 실패면 null)를 넘긴다(WP-139).
+   * 저장한 메시지 id(영속 실패면 null)를 넘긴다(WP-139). done 에는 widgets 와 저장한 메시지 id(WP-55)를 싣는다.
    */
   void complete(String fullText, JsonNode widgets, Consumer<Long> afterDone) {
     if (!finished.compareAndSet(false, true)) return;
@@ -110,42 +110,68 @@ final class HomeChatTurn {
             toJsonList(blocks.finish(fullText), "content_blocks"),
             STATUS_COMPLETE);
     reservation.release();
-    Map<String, Object> data = new HashMap<>();
-    data.put("widgets", widgets);
-    emit("home.chat.done", data);
+    emitTerminal("home.chat.done", "widgets", widgets, messageId);
     afterDone.accept(messageId);
   }
 
-  /** 오류 종결 — 누적분을 FAILED 로 남기고 반납 → home.chat.error{message}. */
+  /**
+   * 오류 종결 — 누적분을 FAILED 로 남기고 반납 → home.chat.error{message, messageId}. messageId 는 저장한 부분 답변
+   * id(저장하지 않았으면 null) — 그 턴의 메모리 결과 줄 되돌리기를 다시 열지 않아도 켜기 위해서다(WP-55).
+   */
   void fail(String message) {
     if (!finished.compareAndSet(false, true)) return;
-    persistPartial(STATUS_FAILED);
+    Long messageId = persistPartial(STATUS_FAILED);
     reservation.release();
-    emit("home.chat.error", Map.of("message", message));
+    emitTerminal("home.chat.error", "message", message, messageId);
   }
 
-  /** 취소 종결(사용자 ■·타임아웃) — 누적분을 STOPPED 로 남기고 반납 → home.chat.cancelled{reason}. */
+  /**
+   * 취소 종결(사용자 ■·타임아웃) — 누적분을 STOPPED 로 남기고 반납 → home.chat.cancelled{reason, messageId}(fail 과 같은
+   * 이유).
+   */
   void cancel() {
     if (!finished.compareAndSet(false, true)) return;
-    persistPartial(STATUS_STOPPED);
+    Long messageId = persistPartial(STATUS_STOPPED);
     reservation.release();
     String reason =
         reservation.cancelReason() == StreamingGenerationRegistry.CancelReason.TIMEOUT
             ? "timeout"
             : "user";
-    emit("home.chat.cancelled", Map.of("reason", reason));
+    emitTerminal("home.chat.cancelled", "reason", reason, messageId);
   }
 
-  /** 부분 답변 저장 — 누적 텍스트가 비면 질문만 남긴다(현행 유지). 끝나지 않은 도구 단계는 error 로 닫는다(R10). */
-  private void persistPartial(String status) {
+  /**
+   * 종결 이벤트 발행 — 종류별 필드 하나(widgets·message·reason)와 저장한 메시지 id(WP-55). messageId 는 웹이 라이브 답의 결과 줄
+   * 되돌리기를 종결 직후 켜는 근거다(판정 8) — 저장하지 않았거나 영속에 실패하면 null 이라 Map.of(null 불가) 대신 HashMap 을 쓴다.
+   */
+  private void emitTerminal(String event, String key, Object value, Long messageId) {
+    Map<String, Object> data = new HashMap<>();
+    data.put(key, value);
+    data.put("messageId", messageId);
+    emit(event, data);
+  }
+
+  /**
+   * 부분 답변 저장 — 누적 텍스트도 메모리 결과 줄도 없으면 질문만 남긴다(현행 유지). 끝나지 않은 도구 단계는 error 로 닫는다(R10).
+   *
+   * @return 저장한 메시지 id — 저장하지 않았거나 실패하면 null
+   */
+  private Long persistPartial(String status) {
     String text = blocks.streamedText();
-    if (text.isBlank()) return;
+    boolean blank = text.isBlank();
+    // WP-55: 텍스트가 없어도 메모리 결과 줄이 있으면 저장한다 — 메모리 변경은 이미 반영됐으므로 messageId 가 있어야 그 줄의 되돌리기가
+    // 켜지고 다시 열어도 남는다(빈 본문 + memory 블록 — 웹은 결과 줄만 그린다).
+    if (blank && !blocks.hasMemory()) return null;
     List<Map<String, Object>> settled = steps.stream().map(HomeChatTurn::settleRunning).toList();
-    persist(
-        text,
+    // 공백뿐인 본문("\n"·"\t" 등)은 빈 문자열로 정규화해 저장한다 — 맥락 필터(빈 본문 STOPPED·FAILED 제외)와 웹의 content === ''
+    // 판정이 모두 "빈 답" 으로 일관되게 보게. 블록도 정규화한 본문으로 만든다 — 원문을 넘기면 공백 text 블록이 남아 웹 복원이 빈 답이 아닌
+    // 것으로 보고 자리 문구 없이 "중단됨" 만 그린다. 본문이 "" 이면 finish 가 모든 text 블록을 앞부분(버릴 구간)으로 보아 뺀다.
+    String content = blank ? "" : text;
+    return persist(
+        content,
         null,
         toJsonList(settled, "tool_calls"),
-        toJsonList(blocks.finish(text), "content_blocks"),
+        toJsonList(blocks.finish(content), "content_blocks"),
         status);
   }
 

@@ -5,6 +5,7 @@ import path from 'node:path';
 import {
   serializeSubagent, writeSubagentDefinitions, loadSubagents, toAgentDefinitions, toRouterAgentDefinition, type SubagentDefinition,
 } from './subagent-loader.js';
+import { MEMORY_TOOL_NAMES } from '@smart-workplace/mcp-tools-shared';
 import { ASSISTANT_ROUTER_TOOLS, buildTools } from '../mcp/tools.js';
 
 const issueDef: SubagentDefinition = {
@@ -140,6 +141,14 @@ describe('toAgentDefinitions (#462 슬라이스4)', () => {
     });
   });
 
+  it('WP-55: promptSuffix 를 모든 서브에이전트 prompt 끝에 덧붙인다(생략 시 그대로)', () => {
+    const defs = { a: { description: 'd', tools: [], prompt: 'p' }, b: { description: 'e', tools: [], prompt: 'q' } };
+    const out = toAgentDefinitions(defs, '\n\n## 사용자 메모리\n- x');
+    expect(out.a.prompt).toBe('p\n\n## 사용자 메모리\n- x');
+    expect(out.b.prompt).toBe('q\n\n## 사용자 메모리\n- x');
+    expect(toAgentDefinitions(defs).a.prompt).toBe('p');
+  });
+
   it('model 미지정 시 model 키 생략', () => {
     const out = toAgentDefinitions({ 'a': { description: 'd', tools: [], prompt: 'p' } });
     expect(out['a']).toEqual({ description: 'd', prompt: 'p', tools: [], mcpServers: ['workplace'] });
@@ -193,5 +202,13 @@ describe('실제 서브에이전트 allowlist (#844)', () => {
     const router = new Set(ASSISTANT_ROUTER_TOOLS);
     const unreachable = assistantNames.filter((n) => !router.has(n) && !subagentTools.has(`mcp__workplace__${n}`));
     expect(unreachable).toEqual([]);
+  });
+
+  // WP-55: 메모리는 라우터가 직접 저장한다(하위 에이전트는 이전 대화를 못 본다) — 어느 서브에이전트 frontmatter 에도 두지 않는다.
+  it('WP-55: 메모리 도구는 라우터에만 있고 어느 서브에이전트에도 없다', () => {
+    for (const n of MEMORY_TOOL_NAMES) {
+      expect(ASSISTANT_ROUTER_TOOLS, n).toContain(n);
+      expect(subagentTools.has(`mcp__workplace__${n}`), n).toBe(false);
+    }
   });
 });

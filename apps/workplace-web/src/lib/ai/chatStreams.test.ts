@@ -767,3 +767,77 @@ describe('후속 질문 followups (WP-139)', () => {
     expect(last(s, 's-a')).not.toHaveProperty('followups');
   });
 });
+
+describe('메모리 결과 줄 (WP-55)', () => {
+  it('done 의 messageId 를 마지막 답에 싣고, markMemoryUndone 은 messageId 로 찾아 그 줄만 되돌림으로 바꾼다', () => {
+    const { s } = setup();
+    ask(s, 'A', 'corr-a', 's-a');
+    ev(s, 'tool', {
+      correlationId: 'corr-a', sessionId: 's-a', seq: 1, phase: 'result', toolName: 'remember_memory', isError: false,
+      memory: { action: 'saved', memoryId: 12, kind: 'PREFERENCE', content: '짧은 목록', source: 'AI' },
+    });
+    ev(s, 'delta', { correlationId: 'corr-a', sessionId: 's-a', text: '기억할게요.' });
+    ev(s, 'done', { correlationId: 'corr-a', sessionId: 's-a', widgets: null, messageId: 42 });
+    expect(turnsOf(s, 's-a')?.[1]).toMatchObject({ messageId: 42, content: '기억할게요.' });
+
+    const before = s.getSnapshot();
+    s.markMemoryUndone(42, 0);
+    expect(s.getSnapshot()).not.toBe(before);
+    expect(turnsOf(s, 's-a')?.[1]).toMatchObject({ contentBlocks: [{ kind: 'text' }], memoryBlocks: [{ kind: 'memory', undone: true }] });
+
+    const after = s.getSnapshot();
+    s.markMemoryUndone(999, 0); // 없는 메시지 — 바뀐 게 없으면 통지하지 않는다
+    expect(s.getSnapshot()).toBe(after);
+  });
+
+  // CR3: 오류·취소로 끝나도 서버가 부분 답변을 저장했으면 messageId 가 온다 — 다시 열지 않아도 되돌리기가 켜진다.
+  const memoryTool = (cid: string, sid: string) => ({
+    correlationId: cid, sessionId: sid, seq: 1, phase: 'result', toolName: 'remember_memory', isError: false,
+    memory: { action: 'saved', memoryId: 12, kind: 'PREFERENCE', content: '짧은 목록', source: 'AI' },
+  });
+
+  it('error·시간 초과 cancelled 의 messageId 도 마지막 답에 싣는다', () => {
+    const { s } = setup();
+    ask(s, 'A', 'corr-a', 's-a');
+    ev(s, 'tool', memoryTool('corr-a', 's-a'));
+    ev(s, 'delta', { correlationId: 'corr-a', sessionId: 's-a', text: '반쯤' });
+    ev(s, 'error', { correlationId: 'corr-a', sessionId: 's-a', message: '실패', messageId: 51 });
+    expect(turnsOf(s, 's-a')?.[1]).toMatchObject({ messageId: 51, interrupted: 'failed' });
+
+    ask(s, 'B', 'corr-b', 's-b');
+    ev(s, 'tool', memoryTool('corr-b', 's-b'));
+    ev(s, 'delta', { correlationId: 'corr-b', sessionId: 's-b', text: '반쯤' });
+    ev(s, 'cancelled', { correlationId: 'corr-b', sessionId: 's-b', reason: 'timeout', messageId: 52 });
+    expect(turnsOf(s, 's-b')?.[1]).toMatchObject({ messageId: 52, interrupted: 'timeout' });
+  });
+
+  it('저장하지 않은 종결(messageId null)은 id 를 싣지 않는다', () => {
+    const { s } = setup();
+    ask(s, 'A', 'corr-a', 's-a');
+    ev(s, 'cancelled', { correlationId: 'corr-a', sessionId: 's-a', reason: 'timeout', messageId: null });
+    expect(turnsOf(s, 's-a')?.[1]).not.toHaveProperty('messageId');
+  });
+
+  it('■ 뒤 서버 cancelled 의 messageId 는 멈춘 답에 싣는다', () => {
+    const { s } = setup();
+    ask(s, 'A', 'corr-a', 's-a');
+    ev(s, 'tool', memoryTool('corr-a', 's-a'));
+    ev(s, 'delta', { correlationId: 'corr-a', sessionId: 's-a', text: '멈출 답' });
+    s.stopLocal('s-a');
+    ev(s, 'cancelled', { correlationId: 'corr-a', sessionId: 's-a', reason: 'user', messageId: 53 });
+    expect(turnsOf(s, 's-a')?.[1]).toMatchObject({ messageId: 53, interrupted: 'stopped', content: '멈출 답' });
+    expect(s.getSnapshot().entries.get('s-a')?.correlationId).toBeNull();
+  });
+
+  it('■ 뒤 새 질문을 보낸 다음 온 이전 cancelled 의 messageId 는 새 답에 싣지 않는다', () => {
+    const { s } = setup();
+    ask(s, 'A', 'corr-a', 's-a');
+    ev(s, 'delta', { correlationId: 'corr-a', sessionId: 's-a', text: '멈출 답' });
+    s.stopLocal('s-a');
+    const { correlationId } = s.startTurn('다음 질문');
+    ev(s, 'cancelled', { correlationId: 'corr-a', sessionId: 's-a', reason: 'user', messageId: 53 });
+    const turns = turnsOf(s, 's-a') ?? [];
+    expect(turns.some((t) => 'messageId' in t)).toBe(false);
+    expect(s.getSnapshot().entries.get('s-a')?.correlationId).toBe(correlationId);
+  });
+});

@@ -1,10 +1,13 @@
 package com.workplace.home.service;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
+import com.fasterxml.jackson.databind.JsonNode;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * WP-158: AI 응답 스트림의 표시 블록 순서(텍스트·도구 그룹·위젯)를 도착순으로 기록한다.
@@ -17,6 +20,7 @@ import java.util.Map;
  *   <li>text: 직전 블록이 text 가 아닐 때만 새 블록. textStart 는 그 시점까지 누적된 delta 문자 수.
  *   <li>tools: 직전 블록이 tools 가 아닐 때만 새 블록. stepStart 는 영속 steps(tool_calls) 인덱스.
  *   <li>widget: show_* 도구마다 1블록(웹 WidgetSpec 과 같은 {type, params, layout?}).
+ *   <li>memory: 메모리 도구 결과 줄(WP-55) — 도착순으로 따로 모아 finish 결과 끝에 붙인다(판정 4·5).
  * </ul>
  *
  * <p>펌프 스레드에서 쓰고 done 핸들러에서 읽으므로 메서드를 동기화한다(호출 빈도가 낮아 경합 비용 무시 가능).
@@ -28,7 +32,7 @@ class ChatBlockRecorder {
    * List&lt;?&gt; 로 직렬화하면 Jackson 다형 타입 정보가 붙지 않으므로 @JsonTypeInfo 대신 명시 프로퍼티를 쓴다).
    */
   @JsonPropertyOrder("kind")
-  sealed interface Block permits Text, Tools, Widget {
+  sealed interface Block permits Text, Tools, Widget, Memory {
     @JsonProperty("kind")
     String kind();
   }
@@ -57,8 +61,64 @@ class ChatBlockRecorder {
     }
   }
 
+  /**
+   * 메모리 결과 줄 1개(WP-55) — 웹 MemoryBlock. 블록 판별자 kind 와 겹치지 않게 메모리 종류는 memoryKind(판정 6). undone 은
+   * 되돌리기가 같은 트랜잭션에서 true 로 바꾼다(AiMemoryUndoService — 레코드가 아니라 JSON 트리로 고친다). previousKind 는 updated
+   * 의 고치기 전 종류 — 있으면 되돌리기가 종류도 돌려놓는다(없으면 JSON 에서 빠지고 지금 종류를 유지한다).
+   */
+  record Memory(
+      String action,
+      long memoryId,
+      String memoryKind,
+      String content,
+      @JsonInclude(JsonInclude.Include.NON_NULL) String previousContent,
+      @JsonInclude(JsonInclude.Include.NON_NULL) String previousKind,
+      String source,
+      boolean undone)
+      implements Block {
+    private static final Set<String> ACTIONS = Set.of("saved", "updated", "forgotten");
+
+    @Override
+    public String kind() {
+      return "memory";
+    }
+
+    /**
+     * tool 이벤트의 memory 필드 → 블록. 모양이 틀리면 null(결과 줄을 만들지 않는다). updated 는 되돌릴 이전 내용(공백만은 안 됨)이 있어야 하고,
+     * source 가 없으면 AI(판정 7). previousKind 는 updated 이고 알려진 종류일 때만 남긴다(모르는 값은 버리고 줄은 만든다).
+     */
+    static Memory from(JsonNode m) {
+      if (m == null || !m.isObject()) return null;
+      String action = m.path("action").asText("");
+      String kind = m.path("kind").asText("");
+      String content = m.path("content").asText("");
+      JsonNode id = m.path("memoryId");
+      JsonNode prev = m.path("previousContent");
+      if (!ACTIONS.contains(action) || !AiMemoryService.KINDS.contains(kind) || content.isBlank())
+        return null;
+      if (!id.isIntegralNumber() || !id.canConvertToLong() || id.asLong() <= 0) return null;
+      // 빈 이전 내용은 되돌릴 수 없다(복원이 1~300자 검증에 걸린다) — 되돌리기 버튼만 남는 줄을 만들지 않는다.
+      if ("updated".equals(action) && (!prev.isTextual() || prev.asText().isBlank())) return null;
+      String source =
+          AiMemoryService.SOURCE_USER.equals(m.path("source").asText())
+              ? AiMemoryService.SOURCE_USER
+              : AiMemoryService.SOURCE_AI;
+      String prevKind = m.path("previousKind").asText("");
+      return new Memory(
+          action,
+          id.asLong(),
+          kind,
+          content,
+          prev.isTextual() ? prev.asText() : null,
+          "updated".equals(action) && AiMemoryService.KINDS.contains(prevKind) ? prevKind : null,
+          source,
+          false);
+    }
+  }
+
   private final List<Block> blocks = new ArrayList<>();
   private final StringBuilder streamed = new StringBuilder();
+  private final List<Memory> memories = new ArrayList<>();
 
   /** 텍스트 delta 도착. */
   synchronized void onDelta(String delta) {
@@ -80,8 +140,32 @@ class ChatBlockRecorder {
     blocks.add(new Widget(widget));
   }
 
+  /** 메모리 도구 결과 줄(WP-55) — 표시 블록과 따로 모은다(위임 답 보정·오프셋 불일치에도 버려지지 않게, 판정 5). */
+  synchronized void onMemory(Memory memory) {
+    memories.add(memory);
+  }
+
+  /** 메모리 결과 줄이 하나라도 있는가 — 텍스트 없이 끝난 턴도 결과 줄 때문에 저장할지 가른다(WP-55). */
+  synchronized boolean hasMemory() {
+    return !memories.isEmpty();
+  }
+
   /**
-   * 영속할 블록 목록. 저장 본문(fullText)과 스트리밍 텍스트를 맞춰 textStart 를 본문 기준으로 보정한다.
+   * 영속할 블록 목록 — 표시 블록(displayBlocks) 뒤에 메모리 블록을 도착순으로 붙인다. 표시 블록을 신뢰할 수 없어 null 이어도 메모리 블록은 돌려준다 —
+   * 되돌리기의 순번(blockIndex)이 이 목록의 memory 순번이다(판정 4·5).
+   *
+   * @return 영속할 블록(없으면 null)
+   */
+  synchronized List<Block> finish(String fullText) {
+    List<Block> display = displayBlocks(fullText);
+    if (memories.isEmpty()) return display;
+    List<Block> out = display == null ? new ArrayList<>() : new ArrayList<>(display);
+    out.addAll(memories);
+    return out;
+  }
+
+  /**
+   * 표시 블록 목록. 저장 본문(fullText)과 스트리밍 텍스트를 맞춰 textStart 를 본문 기준으로 보정한다.
    *
    * <p>ai-agent 는 최종 답도 delta 로 내보내므로 스트리밍 텍스트 = (위임 전 라우터 안내 문장) + fullText 이다(run-ai-chat.ts 의 답
    * 결정 우선순위). 위임 답이면 앞의 안내 문장은 본문에 저장되지 않으므로, 그 길이만큼 textStart 를 당기고 안내 문장에만 해당하던 text 블록은 버린다. 이
@@ -89,7 +173,7 @@ class ChatBlockRecorder {
    *
    * @return 영속할 블록(없으면 null)
    */
-  synchronized List<Block> finish(String fullText) {
+  private List<Block> displayBlocks(String fullText) {
     String content = fullText == null ? "" : fullText;
     if (!streamed.toString().endsWith(content)) return null;
     int prefix = streamed.length() - content.length();

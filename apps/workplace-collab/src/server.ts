@@ -940,6 +940,14 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
       }
     },
 
+    // 이미 닫힌 연결이 보낸 awareness 는 버린다 — 접속자 유령 방지(회귀 안정화, WP-55).
+    // 소켓이 끊기며 남은 프레임과 종료가 같은 틱에 오면, Hocuspocus 는 종료(그 연결의 접속자 제거)를 먼저 처리하고
+    // 큐에 남은 awareness 를 뒤이어 적용한다. 그 상태는 어느 연결에도 묶이지 않아 다시 지워지지 않고, 다른 사람 화면에
+    // 30초 만료까지 떠난 사람이 남는다. 이 훅이 적용 직전 마지막 대기 지점이라 여기서 비우면 빈 갱신이 된다(states 는 제자리 수정 규약).
+    async beforeHandleAwareness({ connection, document, states }) {
+      if (connection && !document.hasConnection(connection)) states.clear()
+    },
+
     // ai-apply 뒤 첫 연결 변경(= AI 결과 삽입)은 디바운스 없이 저장한다 — 태그가 만료(AI_TAG_TTL_MS)되기 전에 그 저장이 소비하게.
     // 서버 내부 변경(apply-markdown 등 connection 없음)은 스스로 저장하므로 건너뛴다.
     // setImmediate: Hocuspocus 가 이 변경으로 디바운스 저장을 건 뒤에 즉시 저장을 불러, 걸린 디바운스를 지우고 한 번만 저장한다.

@@ -15,7 +15,8 @@ public final class ChatMessages {
    * #376). tenantId — 요청자의 active-tenant(nullable). ai-agent 가 workplace-api 대리 호출 시
    * X-On-Behalf-Of-Tenant 로 실어 보내, 다중/무 멤버십일 때 AgentTenantResolver 가 fail-closed 되는 것을 막는다(#719).
    * screenContext — 현재 화면 컨텍스트(WP-54, nullable). ai-agent 가 user 메시지 prefix 로 임베드. contextSummary —
-   * 누적 요약(WP-232, nullable). sessionId·attachments — WP-234 메인 채팅 첨부.
+   * 누적 요약(WP-232, nullable). sessionId·attachments — WP-234 메인 채팅 첨부. memories·memoryEnabled —
+   * WP-55 사용자 메모리.
    */
   public record ChatRequest(
       String query,
@@ -33,7 +34,14 @@ public final class ChatMessages {
       /** WP-234: 세션 id(uuid 문자열) — ai-agent 가 첨부 읽기 도구를 이 세션에 묶는다. */
       String sessionId,
       /** WP-234: 세션 전체 첨부(요약 경계 이전 메시지 포함, 매 턴 DB 에서). 없으면 빈 배열. */
-      List<ChatAttachment> attachments) {}
+      List<ChatAttachment> attachments,
+      /** WP-55: 사용자 메모리(updated_at 최신순, ≤50). 꺼짐·조회 실패면 빈 배열. ai-agent 가 사용자 메시지 맨 앞 블록으로 싣는다. */
+      List<ChatMemory> memories,
+      /** WP-55: 메모리 사용 여부. false 면 ai-agent 가 "메모리 꺼짐" 한 줄만 넣어 메모리 도구를 쓰지 않게 한다. */
+      boolean memoryEnabled) {}
+
+  /** ai-agent 로 보내는 메모리 1건(WP-55) — 블록의 "#id" 가 메모리 도구의 memoryId 다. */
+  public record ChatMemory(long id, String kind, String content) {}
 
   /**
    * ai-agent 로 보내는 세션 첨부 한 건(WP-234). current = 이번 턴 USER 메시지에 붙은 파일. java.time 타입을 두지 않는다 —

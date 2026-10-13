@@ -167,7 +167,7 @@ class AiSuggestionControllerTest extends IntegrationTestBase {
   void 추천을_끄면_ai_agent_를_부르지_않고_enabled_false() throws Exception {
     long uid = TestFixtures.createHuman(dsl);
     stubAssistant();
-    preferences.update(uid, false);
+    preferences.update(uid, false, null);
     mvc.perform(
             post("/api/v1/ai/suggestions")
                 .with(authentication(auth(uid)))

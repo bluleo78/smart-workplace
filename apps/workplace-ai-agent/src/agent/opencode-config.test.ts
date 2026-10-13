@@ -129,6 +129,15 @@ describe('buildOpencodeConfig', () => {
     expect(env?.MCP_VISION).toBe('0');
   });
 
+  it('WP-55: subagentPromptSuffix 는 서브에이전트 prompt 끝(비전 규칙 뒤)에만 붙고 primary 에는 붙지 않는다', () => {
+    const suffix = '\n\n## 사용자 메모리\n- [#1 선호] x';
+    const off = buildOpencodeConfig(baseInput({ allowSubagents: true, subagentPromptSuffix: suffix }), 'run-1', ['cmd'], VISION_OFF);
+    expect(off.agent?.['issue-agent']?.prompt).toBe('p' + NO_VISION_PROMPT_RULE + suffix);
+    expect(off.agent?.primary?.prompt).toBe('sys-prompt' + NO_VISION_PROMPT_RULE);
+    const on = buildOpencodeConfig(baseInput({ allowSubagents: true, subagentPromptSuffix: suffix }), 'run-1', ['cmd'], VISION_ON);
+    expect(on.agent?.['issue-agent']?.prompt).toBe('p' + suffix);
+  });
+
   it('비전 알 수 없음: modalities 미선언(opencode 자체 판단) + 프롬프트 규칙 + 이미지는 그대로(MCP_VISION=1)', () => {
     const client = {} as unknown as WorkplaceApiClient;
     const cfg = buildOpencodeConfig(

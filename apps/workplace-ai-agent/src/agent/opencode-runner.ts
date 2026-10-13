@@ -48,8 +48,10 @@ const POOL_ELIGIBLE_PROFILES: ReadonlySet<McpProfile> = new Set(['assistant', 'i
 // WP-234: homeSessionId 가 있는 실행도 제외한다 — read_chat_attachment 의 세션은 stdio MCP env 로 고정돼, 재사용 서버면
 // 이전 대화 세션에 묶인 채 남는다(지금은 메인 채팅이 hostBridge 로 이미 제외되지만 그 전제에 기대지 않는다).
 // WP-259: 테넌트(MCP_ON_BEHALF_OF_TENANT)도 env 로 고정되므로 키에 넣는다 — 같은 사용자라도 테넌트가 다르면 서버를 나눈다.
+// WP-55: 하위 에이전트 프롬프트에 요청별 사용자 메모리(subagentPromptSuffix)가 실린 실행도 제외한다 — config 는 스폰 때 고정되므로
+// 재사용 서버면 앞 사용자의 메모리가 다음 사용자의 위임에 섞인다(지금은 홈 채팅이 hostBridge 로 이미 제외되지만 그 전제에 기대지 않는다).
 function poolKeyFor(i: RunnerInput, vision: OpencodeVision): string | undefined {
-  if (!i.mcp || i.mcp.hostBridge || i.mcp.homeSessionId != null || !POOL_ELIGIBLE_PROFILES.has(i.mcp.profile)) return undefined;
+  if (!i.mcp || i.mcp.hostBridge || i.mcp.homeSessionId != null || i.subagentPromptSuffix || !POOL_ELIGIBLE_PROFILES.has(i.mcp.profile)) return undefined;
   return `${i.agentId}:${i.mcp.profile}:${i.mcp.onBehalfOfId}:${i.mcp.onBehalfOfTenantId ?? '-'}:${i.model}:${String(vision)}`;
 }
 

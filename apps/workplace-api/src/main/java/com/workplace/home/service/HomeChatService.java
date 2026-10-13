@@ -23,7 +23,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
+import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import lombok.extern.slf4j.Slf4j;
@@ -65,8 +67,15 @@ public class HomeChatService {
    */
   private static final int COMPOSE_MIN_MAX_TURNS = 50;
 
-  /** MCP 프리픽스(mcp__workplace__update_issue → update_issue). 도구 이름 판별 전에 벗겨낸다. */
-  private static final Pattern MCP_PREFIX = Pattern.compile("^mcp__[^_]+__");
+  /**
+   * 런타임 도구 접두(Claude: mcp__workplace__update_issue, opencode: workplace_update_issue →
+   * update_issue). 도구 이름 판별 전에 벗겨낸다 — 공유 stripMcpPrefix(mcp-tools-shared)와 같은 규칙.
+   */
+  private static final Pattern MCP_PREFIX = Pattern.compile("^(?:mcp__[^_]+__|workplace_)");
+
+  /** WP-55: 메모리 도구 이름(접두 제외) — 공유 isMemoryTool 과 같은 집합. */
+  private static final Set<String> MEMORY_TOOLS =
+      Set.of("remember_memory", "update_memory", "forget_memory");
 
   /** WP-158: 위젯 도구 이름 → 위젯 타입(show_issue_list → issue_list). 웹 widgetTypeFromToolName 과 같은 규칙. */
   private static final Pattern SHOW_TOOL = Pattern.compile("show_([a-z_]+)$");
@@ -93,6 +102,9 @@ public class HomeChatService {
   /** WP-139: 답 완료 뒤 후속 질문 생성·저장·발행(전용 실행기). */
   private final HomeFollowupService followupService;
 
+  /** WP-55: 매 턴 메모리 조회(꺼짐·실패 처리 포함). */
+  private final AiMemoryService memoryService;
+
   public HomeChatService(
       HomeSessionService sessionService,
       HomeProposalService proposalService,
@@ -106,7 +118,8 @@ public class HomeChatService {
       StreamingGenerationRegistry registry,
       SseRegistry sseRegistry,
       HomeChatProperties chatProperties,
-      HomeFollowupService followupService) {
+      HomeFollowupService followupService,
+      AiMemoryService memoryService) {
     this.sessionService = sessionService;
     this.proposalService = proposalService;
     this.contextService = contextService;
@@ -120,6 +133,7 @@ public class HomeChatService {
     this.sseRegistry = sseRegistry;
     this.chatProperties = chatProperties;
     this.followupService = followupService;
+    this.memoryService = memoryService;
   }
 
   /** 홈 채팅 레지스트리 scope 접두 — 대화(sessionId) 단위로 동시 생성을 추적한다(WP-190). */
@@ -290,6 +304,9 @@ public class HomeChatService {
       AssistantSpec spec,
       Long tenantId) {
     try {
+      // WP-55: 메모리는 매 턴 읽는다(턴 중 저장·수정은 다음 턴부터 반영). 예산 맞춤 전에 읽어야 블록 몫을 뺄 수 있다.
+      AiMemoryService.ChatMemories memories =
+          memoriesOrUnavailable(() -> memoryService.loadForChat(callerId), callerId);
       // WP-232: 예산 초과 시 이 턴에서 동기 요약(진행 라벨 표시) — 요청 스레드를 막지 않도록 pump 에서 수행.
       HomeContextSummaryService.ContextSnapshot ctx =
           contextService.fitToBudget(
@@ -297,6 +314,7 @@ public class HomeChatService {
               sid,
               snapshot,
               spec,
+              AiMemoryService.estimateBlockTokens(memories.items()),
               () -> turn.emit("home.chat.progress", Map.of("label", COMPACTING_LABEL)));
       // userId: 요청 사용자 ID — ai-agent 의 MCP 도구가 assistantAgentId 아닌 실제 요청자 컨텍스트로
       // 드라이브·캘린더 등 사용자 귀속 리소스를 조회·수정하게 한다(refs #376).
@@ -321,7 +339,10 @@ public class HomeChatService {
               ctx.summary(),
               // WP-234: 첨부 읽기 도구 세션 바인딩 + 세션 첨부 목록.
               sid.toString(),
-              attachments);
+              attachments,
+              // WP-55: 사용자 메모리 + 사용 여부(꺼짐·조회 실패면 빈 목록 + false).
+              memories.items(),
+              memories.enabled());
       chatClient.composeStream(
           req,
           // delta: 블록 순서 기록 + 즉시 발행(done 본문은 ai-agent 가 준 fullText, 부분 저장은 누적 텍스트).
@@ -395,6 +416,7 @@ public class HomeChatService {
   /** tool 이벤트 — 표시 가능 도구는 영속 단계에 추가(숨김 도구는 발행만), show_* 는 위젯 블록, result 는 단계 상태 갱신. */
   private void onTool(HomeChatTurn turn, JsonNode toolNode) {
     String phase = toolNode.path("phase").asText();
+    boolean isError = toolNode.path("isError").asBoolean(false); // result 에만 실린다(없으면 false)
     int seq = toolNode.path("seq").asInt();
     if ("start".equals(phase)) {
       String toolName = toolNode.path("toolName").asText();
@@ -414,7 +436,6 @@ public class HomeChatService {
         if (widget != null) turn.blocks.onWidget(widget);
       }
     } else {
-      boolean isError = toolNode.path("isError").asBoolean(false);
       for (Map<String, Object> s : turn.steps) {
         if ("tool".equals(s.get("kind"))
             && Integer.valueOf(seq).equals(s.get("seq"))
@@ -424,9 +445,37 @@ public class HomeChatService {
         }
       }
     }
+    // WP-55: 메모리 도구 성공 결과(result) → 결과 줄 블록(되돌리기 근거). ai-agent 가 이미 거르지만 API 도 다시 거른다.
+    // start 단계, 오류 결과, 메모리가 아닌 도구, 모양이 틀린 memory 는 블록을 만들지 않는다.
+    ChatBlockRecorder.Memory memory =
+        !"start".equals(phase) && !isError && isMemoryTool(toolNode.path("toolName").asText())
+            ? ChatBlockRecorder.Memory.from(toolNode.get("memory"))
+            : null;
     @SuppressWarnings("unchecked")
     Map<String, Object> toolPayload = objectMapper.convertValue(toolNode, Map.class);
+    // 거른 memory 는 재발행하지 않는다 — 웹 라이브 순번이 영속 순번과 어긋나지 않게(판정 4).
+    if (memory != null) turn.blocks.onMemory(memory);
+    else toolPayload.remove("memory");
     turn.emit("home.chat.tool", toolPayload);
+  }
+
+  /**
+   * WP-55: 메모리 조회 실패는 채팅을 막지 않는다(스펙 §3 채팅 주입 5) — 꺼짐 + 빈 목록으로 진행하고 WARN. 꺼짐으로 보내는 이유는 판정 10. 단 사용자
+   * 취소(■ → 펌프 인터럽트)는 조회 실패가 아니다 — 삼키면 취소된 턴이 compose 까지 이어지므로 인터럽트 플래그를 되살려 그대로 던진다(fitToBudget 과
+   * 같은 판별, 펌프 catch 가 cancelled 로 마감한다).
+   */
+  static AiMemoryService.ChatMemories memoriesOrUnavailable(
+      Supplier<AiMemoryService.ChatMemories> loader, long userId) {
+    try {
+      return loader.get();
+    } catch (RuntimeException e) {
+      if (HomeInterruptions.isUserCancel(e)) {
+        Thread.currentThread().interrupt();
+        throw e;
+      }
+      log.warn("홈 채팅 메모리 조회 실패 — 메모리 없이 진행: user={} {}", userId, e.getMessage());
+      return AiMemoryService.ChatMemories.DISABLED;
+    }
   }
 
   /** WP-190: 호출자의 생성 중 대화 + 상한(GET /ai/chat/active). */
@@ -450,9 +499,11 @@ public class HomeChatService {
    * 도구 이름이 화면에 표시되는 도구인지 판별한다. 프론트 aiToolLabels.ts 의 isDisplayableTool 과 동일 정책.
    *
    * <p>영속 대상(tool_calls)은 표시 가능 도구만 포함한다. show_* / propose_* 는 위젯·확인 카드로 이미 표현되고, respond_chat /
-   * submit_response 는 내부 응답 배관으로 사용자에게 의미 없는 반복 정보다.
+   * submit_response 는 내부 응답 배관으로 사용자에게 의미 없는 반복 정보다. 메모리 도구(WP-55)도 결과 줄로 따로 보여 숨긴다.
    */
   private boolean isDisplayableTool(String toolName) {
+    // WP-55: 메모리 도구는 결과 줄로 보이므로 도구 단계(영속 tool_calls)에 넣지 않는다 — 공유 isDisplayableTool 과 같은 규칙.
+    if (isMemoryTool(toolName)) return false;
     String n = stripMcpPrefix(toolName);
     if (n.startsWith("show_") || n.startsWith("propose_")) return false;
     if (n.equals("respond_chat") || n.equals("submit_response")) return false;
@@ -476,6 +527,11 @@ public class HomeChatService {
       w.put("layout", objectMapper.convertValue(args.get("layout"), Map.class));
     }
     return w;
+  }
+
+  /** WP-55: 메모리 도구인가(런타임 접두 무시) — 접두를 벗긴 뒤 이름 집합으로 판별한다(공유 isMemoryTool 과 같은 구조). */
+  static boolean isMemoryTool(String toolName) {
+    return toolName != null && MEMORY_TOOLS.contains(stripMcpPrefix(toolName));
   }
 
   private static String stripMcpPrefix(String toolName) {

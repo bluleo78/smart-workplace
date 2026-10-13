@@ -8,6 +8,7 @@ import com.workplace.jooq.tables.AgentApiKey;
 import com.workplace.jooq.tables.AgentWork;
 import com.workplace.jooq.tables.AgentWorkEvent;
 import com.workplace.jooq.tables.AiAgentCredential;
+import com.workplace.jooq.tables.AiMemory;
 import com.workplace.jooq.tables.AssistantConfig;
 import com.workplace.jooq.tables.AuditLog;
 import com.workplace.jooq.tables.Calendar;
@@ -135,6 +136,11 @@ public class Tables {
      * The table <code>public.ai_agent_credential</code>.
      */
     public static final AiAgentCredential AI_AGENT_CREDENTIAL = AiAgentCredential.AI_AGENT_CREDENTIAL;
+
+    /**
+     * The table <code>public.ai_memory</code>.
+     */
+    public static final AiMemory AI_MEMORY = AiMemory.AI_MEMORY;
 
     /**
      * The table <code>public.assistant_config</code>.

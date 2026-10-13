@@ -2,7 +2,16 @@
 // React 바깥 모듈 상태 + useSyncExternalStore(hooks/useChatStreams) 로 구독한다. API 는 부르지 않는다(어댑터 useChatSession 담당) —
 // 순수 상태라 vitest 로 검증한다. 대화를 옮겨도 칸은 그대로 살아 있어, 돌아오면 스트리밍이 이어 보인다.
 import { type AiActivity, aiActivity } from '@/lib/ai/aiActivity';
-import { appendDelta, appendProgress, applyDoneWidgets, applyTool, markInterrupted, toCards } from '@/lib/ai/chatTurns';
+import {
+  appendDelta,
+  appendProgress,
+  applyDoneMessageId,
+  applyDoneWidgets,
+  applyTool,
+  markInterrupted,
+  markMemoryUndone as markMemoryUndoneIn,
+  toCards,
+} from '@/lib/ai/chatTurns';
 import { onAiStreamEvent } from '@/lib/aiEventBus';
 import { revokeTurnPreviews, withoutTurnAttachments } from '@/lib/homeChatAttachments';
 import { safeLocalStorage } from '@/lib/safeLocalStorage';
@@ -355,7 +364,9 @@ export function createChatStreams(opts: { storage?: () => KeyValueStore | null }
       retire(cid);
       const stoppedSid = sessionOf(key) ?? sid;
       if (stoppedSid && active.get(stoppedSid) === cid) untrackActive(stoppedSid);
-      if (e.correlationId === cid) entries.set(key, { ...e, correlationId: null });
+      // WP-55: 아직 새 질문을 보내지 않았다면(이 칸의 마지막 생성이 이 cid) 멈춘 답이 마지막 턴이다 — 서버가 저장한 부분 답변 id 를 실어
+      // 그 턴의 메모리 결과 줄 되돌리기를 켠다. 새 질문 뒤면 마지막 턴이 다른 답이라 싣지 않는다.
+      if (e.correlationId === cid) entries.set(key, { ...e, correlationId: null, turns: applyDoneMessageId(e.turns, data.messageId) });
       if (route.placeholder && sessionOf(key)) effects.refetch(key);
       effects.sessionsChanged();
       commit();
@@ -367,6 +378,8 @@ export function createChatStreams(opts: { storage?: () => KeyValueStore | null }
         if (kind === 'done') turns = applyDoneWidgets(turns, data.widgets as WidgetSpec[] | null | undefined);
         // 서버 시간 초과 취소는 사용자가 멈춘 것과 구분해 "시간 초과로 중단됨"(라이브만 — 저장은 STOPPED).
         else turns = markInterrupted(turns, kind === 'error' ? 'failed' : data.reason === 'timeout' ? 'timeout' : 'stopped');
+        // WP-55: 저장된 메시지 id — 결과 줄 되돌리기를 종결 직후 켠다(추천 꺼짐·위임 답과 무관). 오류·취소도 부분 답변을 저장하면 id 가 온다.
+        turns = applyDoneMessageId(turns, data.messageId);
       }
       entries.set(key, {
         ...e,
@@ -631,6 +644,17 @@ export function createChatStreams(opts: { storage?: () => KeyValueStore | null }
       entries.set(key, { ...e, turns: [...e.turns, turn] });
       commit();
       return true;
+    },
+    /** WP-55: 채팅 결과 줄 되돌리기 성공 — messageId 는 전역에서 유일하므로 모든 칸에서 찾아 그 줄만 되돌림으로 바꾼다. */
+    markMemoryUndone(messageId: number, blockIndex: number) {
+      let changed = false;
+      for (const [key, e] of entries) {
+        const turns = markMemoryUndoneIn(e.turns, messageId, blockIndex);
+        if (turns === e.turns) continue;
+        entries.set(key, { ...e, turns });
+        changed = true;
+      }
+      if (changed) commit();
     },
 
     /** 삭제된 대화 — 칸·생성 중·미확인을 지우고, 현재였다면 새 대화로. */

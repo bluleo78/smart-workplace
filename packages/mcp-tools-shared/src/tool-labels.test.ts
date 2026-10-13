@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildSharedTools, type SharedToolClient } from './shared-tools.js';
-import { isDisplayableTool, stripMcpPrefix, TOOL_LABELS } from './tool-labels.js';
+import { isDisplayableTool, isMemoryTool, MEMORY_TOOL_NAMES, stripMcpPrefix, TOOL_LABELS } from './tool-labels.js';
 
 // #879: 도구를 추가하고 라벨을 빠뜨리면 AI 채팅에 원래 도구 이름(update_issue 등)이 영어로 그대로 노출된다.
 // ai-agent 로컬 도구의 라벨과 실존하지 않는 키 검사는 ai-agent tools.test.ts 가 맡는다(공유+로컬 전체를 거기서만 안다).
@@ -43,5 +43,28 @@ describe('stripMcpPrefix / isDisplayableTool', () => {
     expect(isDisplayableTool('workplace_propose_create_issue')).toBe(false);
     expect(isDisplayableTool('mcp__workplace__submit_response')).toBe(false);
     expect(isDisplayableTool('workplace_update_issue')).toBe(true);
+  });
+});
+
+// WP-55: 메모리 도구는 결과 줄(🧠)로 따로 보이므로 숨김 도구다 — show_*·propose_* 처럼 라벨이 없다(ai-agent tools.test.ts 의 숨김 도구 무라벨 불변식).
+describe('isMemoryTool (WP-55)', () => {
+  it('세 메모리 도구를 런타임 접두와 무관하게 알아본다', () => {
+    expect(MEMORY_TOOL_NAMES).toEqual(['remember_memory', 'update_memory', 'forget_memory']);
+    for (const n of MEMORY_TOOL_NAMES) {
+      expect(isMemoryTool(n)).toBe(true);
+      expect(isMemoryTool(`mcp__workplace__${n}`)).toBe(true);
+      expect(isMemoryTool(`workplace_${n}`)).toBe(true);
+    }
+    expect(isMemoryTool('update_issue')).toBe(false);
+    expect(isMemoryTool('memory')).toBe(false);
+  });
+
+  it('숨김 도구이고 라벨이 없다', () => {
+    for (const n of MEMORY_TOOL_NAMES) {
+      expect(isDisplayableTool(n)).toBe(false);
+      expect(isDisplayableTool(`mcp__workplace__${n}`)).toBe(false);
+      expect(isDisplayableTool(`workplace_${n}`)).toBe(false);
+      expect(TOOL_LABELS[n]).toBeUndefined();
+    }
   });
 });

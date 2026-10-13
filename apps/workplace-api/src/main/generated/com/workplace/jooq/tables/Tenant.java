@@ -8,6 +8,7 @@ import com.workplace.jooq.Keys;
 import com.workplace.jooq.Public;
 import com.workplace.jooq.tables.AgentWork.AgentWorkPath;
 import com.workplace.jooq.tables.AgentWorkEvent.AgentWorkEventPath;
+import com.workplace.jooq.tables.AiMemory.AiMemoryPath;
 import com.workplace.jooq.tables.AssistantConfig.AssistantConfigPath;
 import com.workplace.jooq.tables.AuditLog.AuditLogPath;
 import com.workplace.jooq.tables.Calendar.CalendarPath;
@@ -295,6 +296,19 @@ public class Tenant extends TableImpl<TenantRecord> {
             _agentWork = new AgentWorkPath(this, null, Keys.AGENT_WORK__AGENT_WORK_TENANT_ID_FKEY.getInverseKey());
 
         return _agentWork;
+    }
+
+    private transient AiMemoryPath _aiMemory;
+
+    /**
+     * Get the implicit to-many join path to the <code>public.ai_memory</code>
+     * table
+     */
+    public AiMemoryPath aiMemory() {
+        if (_aiMemory == null)
+            _aiMemory = new AiMemoryPath(this, null, Keys.AI_MEMORY__AI_MEMORY_TENANT_ID_FKEY.getInverseKey());
+
+        return _aiMemory;
     }
 
     private transient ChatMessageAttachmentPath _chatMessageAttachment;

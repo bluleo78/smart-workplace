@@ -338,6 +338,48 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
     expect(r.mimeType).toBe('image/png');
   });
 
+  // --- WP-55: 사용자 메모리(요청자 대행) ---
+  it('createAiMemory → POST /users/me/ai-memories + 대행 헤더 + 본문 그대로', async () => {
+    const body = { kind: 'PREFERENCE' as const, content: '짧은 목록', source: 'AI' as const, sessionId: SID };
+    const scope = nock(BASE)
+      .matchHeader('authorization', 'Internal tk-internal')
+      .matchHeader('x-on-behalf-of', '42')
+      .post(`${PREFIX}/users/me/ai-memories`, body)
+      .reply(201, { id: 12, kind: 'PREFERENCE', content: '짧은 목록', source: 'AI', createdAt: 't', updatedAt: 't' });
+    const m = await newClient().createAiMemory(42, body);
+    expect(scope.isDone()).toBe(true);
+    expect(m.id).toBe(12);
+  });
+
+  it('updateAiMemory → PATCH /users/me/ai-memories/{id}', async () => {
+    const scope = nock(BASE)
+      .matchHeader('x-on-behalf-of', '42')
+      .patch(`${PREFIX}/users/me/ai-memories/12`, { content: '표 대신 목록' })
+      .reply(200, { id: 12, kind: 'PREFERENCE', content: '표 대신 목록', source: 'AI', createdAt: 't', updatedAt: 't', previousContent: '짧은 목록' });
+    const m = await newClient().updateAiMemory(42, 12, { content: '표 대신 목록' });
+    expect(scope.isDone()).toBe(true);
+    expect(m.previousContent).toBe('짧은 목록');
+  });
+
+  it('deleteAiMemory → DELETE /users/me/ai-memories/{id} → 지운 항목', async () => {
+    const scope = nock(BASE)
+      .matchHeader('x-on-behalf-of', '42')
+      .delete(`${PREFIX}/users/me/ai-memories/9`)
+      .reply(200, { id: 9, kind: 'CONTEXT', content: '백엔드 팀', source: 'USER', createdAt: 't', updatedAt: 't' });
+    const m = await newClient().deleteAiMemory(42, 9);
+    expect(scope.isDone()).toBe(true);
+    expect(m.source).toBe('USER');
+  });
+
+  it('메모리 오류 코드는 Error.message 에 실린다(도구 오류 → AI 안내)', async () => {
+    nock(BASE)
+      .post(`${PREFIX}/users/me/ai-memories`)
+      .reply(409, { status: 409, message: '메모리가 가득 찼어요', errors: { code: 'AI_MEMORY_FULL' } });
+    await expect(
+      newClient().createAiMemory(42, { kind: 'CONTEXT', content: 'x', source: 'AI' }),
+    ).rejects.toThrow('API 오류 409: 메모리가 가득 찼어요 — code: AI_MEMORY_FULL');
+  });
+
   // --- 공유 도구로 옮긴 쓰기 도구들(WP-343): 같은 경로·본문이 toolClient(agentId) 로 에이전트 신원 헤더를 달고 나가는지 ---
 
   describe('toolClient.syncMail', () => {

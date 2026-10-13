@@ -55,6 +55,32 @@ function buildApp() {
 beforeEach(() => vi.clearAllMocks());
 
 describe('chatSchema', () => {
+  // WP-55: 구 API(필드 없음)도 받는다 — memories 는 빈 배열, memoryEnabled 는 없음(러너가 꺼짐으로 다룬다).
+  it('memories·memoryEnabled 생략·null 도 파싱 성공(memories 는 빈 배열)', () => {
+    const parsed = chatSchema.parse(validBody());
+    expect(parsed.memories).toEqual({ items: [], dropped: 0 });
+    expect(parsed.memoryEnabled).toBeUndefined();
+    expect(chatSchema.parse(validBody({ memories: null, memoryEnabled: null })).memories).toEqual({ items: [], dropped: 0 });
+  });
+  it('memories·memoryEnabled 가 보존된다', () => {
+    const memories = [{ id: 12, kind: 'PREFERENCE', content: '짧은 목록으로 보여 준다' }];
+    const parsed = chatSchema.parse(validBody({ memories, memoryEnabled: true }));
+    expect(parsed.memories).toEqual({ items: memories, dropped: 0 });
+    expect(parsed.memoryEnabled).toBe(true);
+  });
+  // F-k: 모르는(미래의) kind·모양이 틀린 항목은 그 항목만 버린다 — 채팅 요청 전체를 400 으로 막지 않는다.
+  it('kind 가 enum 밖이거나 모양이 틀린 메모리는 그 항목만 버리고 요청은 통과한다', () => {
+    const ok = { id: 12, kind: 'CONTEXT', content: '백엔드 팀이다' };
+    const parsed = chatSchema.safeParse(
+      validBody({ memories: [{ id: 1, kind: 'GOAL', content: 'y' }, ok, { id: 0, kind: 'PREFERENCE', content: 'z' }, 'x'], memoryEnabled: true }),
+    );
+    expect(parsed.success).toBe(true);
+    expect(parsed.data?.memories).toEqual({ items: [ok], dropped: 3 });
+  });
+  it('memories 가 배열이 아니면 파싱 실패', () => {
+    expect(chatSchema.safeParse(validBody({ memories: 'x' })).success).toBe(false);
+  });
+
   it('유효 페이로드는 파싱 성공', () => {
     expect(chatSchema.safeParse(validBody()).success).toBe(true);
   });
@@ -143,6 +169,84 @@ describe('chatSchema', () => {
 });
 
 describe('POST /ai/chat', () => {
+  it('WP-55: memories·memoryEnabled 를 runAiChatStream 입력으로 전달', async () => {
+    vi.mocked(runAiChatStream).mockResolvedValue({ fullText: 'ok', widgets: null, pendingActions: [], source: 'router_prose', usage: null });
+    const memories = [{ id: 12, kind: 'PREFERENCE', content: '짧은 목록으로 보여 준다' }];
+    await request(buildApp()).post('/ai/chat').send(validBody({ memories, memoryEnabled: true }));
+    expect(runAiChatStream).toHaveBeenCalledWith(
+      expect.objectContaining({ memories, memoryEnabled: true }),
+      expect.anything(),
+      expect.any(Function),
+      expect.any(AbortSignal),
+      expect.any(Function),
+      expect.any(Function),
+      expect.any(Function),
+    );
+  });
+
+  // CR10: 모양이 틀린 메모리 항목을 버리면 개수만 WARN 으로 남긴다 — 내용(사용자 메모리)은 로그에 싣지 않는다.
+  it('WP-55: 버린 메모리 항목 수를 WARN 으로 남기고 내용은 싣지 않는다', async () => {
+    vi.mocked(runAiChatStream).mockResolvedValue({ fullText: 'ok', widgets: null, pendingActions: [], source: 'router_prose', usage: null });
+    const ok = { id: 12, kind: 'PREFERENCE', content: '짧은 목록으로 보여 준다' };
+    const bad = [{ id: 1, kind: 'GOAL', content: '비밀스러운 내용' }, 'x'];
+    await request(buildApp()).post('/ai/chat').send(validBody({ memories: [ok, ...bad], memoryEnabled: true }));
+    const warns = logMock.warn.mock.calls.filter((c) => c[1] === 'memories_dropped');
+    expect(warns).toHaveLength(1);
+    expect(warns[0][0]).toBe('ai-chat');
+    expect(warns[0][2]).toEqual({ requestId: expect.any(String), dropped: 2 });
+    expect(JSON.stringify(logMock.warn.mock.calls)).not.toContain('비밀스러운 내용');
+  });
+
+  it('WP-55: 버린 메모리 항목이 없으면 WARN 을 남기지 않는다', async () => {
+    vi.mocked(runAiChatStream).mockResolvedValue({ fullText: 'ok', widgets: null, pendingActions: [], source: 'router_prose', usage: null });
+    await request(buildApp()).post('/ai/chat').send(validBody({ memories: [{ id: 12, kind: 'PREFERENCE', content: 'a' }] }));
+    await request(buildApp()).post('/ai/chat').send(validBody());
+    expect(logMock.warn.mock.calls.filter((c) => c[1] === 'memories_dropped')).toHaveLength(0);
+  });
+
+  // CR1: 고침 결과의 이전 종류도 tool SSE memory 에 그대로 싣는다(API 가 블록에 남긴다).
+  it('WP-55: 고침 결과의 previousKind 를 memory 필드에 싣는다', async () => {
+    const updated = {
+      action: 'updated',
+      memoryId: 12,
+      kind: 'CONTEXT',
+      content: '백엔드 팀',
+      previousContent: '짧은 목록',
+      previousKind: 'PREFERENCE',
+      source: 'AI',
+    };
+    vi.mocked(runAiChatStream).mockImplementation(async (_i, _d, _t, _s, _p, onTool) => {
+      onTool?.({ seq: 1, event: 'tool_result', toolName: 'update_memory', isError: false, result: JSON.stringify(updated) });
+      return { fullText: '고쳤어요.', widgets: null, pendingActions: [], source: 'router_prose', usage: null };
+    });
+    const res = await request(buildApp()).post('/ai/chat').send(validBody());
+    const tools = [...res.text.matchAll(/event: tool\ndata: (.*)\n/g)].map((m) => JSON.parse(m[1]) as Record<string, unknown>);
+    expect(tools[0].memory).toEqual(updated);
+  });
+
+  // WP-55: tool SSE 는 결과 원문을 계속 버리고, 메모리 도구(허용 목록)의 성공 결과만 파싱해 memory 필드로 싣는다.
+  it('WP-55: 메모리 도구 성공 결과만 memory 필드로 싣는다(오류·다른 도구·깨진 JSON 제외)', async () => {
+    const saved = { action: 'saved', memoryId: 12, kind: 'PREFERENCE', content: '짧은 목록', source: 'AI' };
+    const forgotten = { action: 'forgotten', memoryId: 9, kind: 'CONTEXT', content: '백엔드 팀', source: 'USER' };
+    vi.mocked(runAiChatStream).mockImplementation(async (_i, _d, _t, _s, _p, onTool) => {
+      onTool?.({ seq: 1, event: 'tool_use_start', toolName: 'remember_memory', args: { kind: 'PREFERENCE', content: '짧은 목록' } });
+      onTool?.({ seq: 1, event: 'tool_result', toolName: 'remember_memory', isError: false, result: JSON.stringify(saved) });
+      onTool?.({ seq: 2, event: 'tool_result', toolName: 'workplace_forget_memory', isError: false, result: JSON.stringify(forgotten) });
+      onTool?.({ seq: 3, event: 'tool_result', toolName: 'update_memory', isError: true, result: 'API 오류 409: 메모리가 가득 찼어요' });
+      onTool?.({ seq: 4, event: 'tool_result', toolName: 'list_issues', isError: false, result: JSON.stringify(saved) });
+      onTool?.({ seq: 5, event: 'tool_result', toolName: 'update_memory', isError: false, result: '{깨짐' });
+      return { fullText: '기억할게요.', widgets: null, pendingActions: [], source: 'router_prose', usage: null };
+    });
+    const res = await request(buildApp()).post('/ai/chat').send(validBody());
+    const tools = [...res.text.matchAll(/event: tool\ndata: (.*)\n/g)].map((m) => JSON.parse(m[1]) as Record<string, unknown>);
+    expect(tools).toHaveLength(6);
+    expect(tools[0].memory).toBeUndefined(); // start
+    expect(tools[1].memory).toEqual(saved);
+    expect(tools[2].memory).toEqual(forgotten); // opencode 접두(workplace_)도 같은 도구
+    for (const t of tools.slice(3)) expect(t.memory).toBeUndefined();
+    for (const t of tools) expect(t).not.toHaveProperty('result');
+  });
+
   it('델타 2개 → event: delta 2개 + event: done 발행', async () => {
     // 러너가 onText 를 2회 호출(점진 write) 후 정상 종료. done에 fullText + widgets 포함.
     vi.mocked(runAiChatStream).mockImplementation(async (_i, _d, onText) => {

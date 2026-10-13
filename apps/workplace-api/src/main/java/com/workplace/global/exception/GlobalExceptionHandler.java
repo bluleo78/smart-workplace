@@ -25,6 +25,7 @@ import com.workplace.file.exception.FileSizeLimitExceededException;
 import com.workplace.file.exception.UnsupportedUploadFileTypeException;
 import com.workplace.fileai.exception.InvalidTextRangeException;
 import com.workplace.global.dto.ErrorResponse;
+import com.workplace.home.exception.AiMemoryException;
 import com.workplace.home.exception.HomeChatConcurrencyLimitException;
 import com.workplace.home.exception.HomeChatSessionBusyException;
 import com.workplace.home.exception.HomeChatUnavailableException;
@@ -358,6 +359,14 @@ public class GlobalExceptionHandler {
     String code = busy ? HomeChatSessionBusyException.CODE : HomeChatConcurrencyLimitException.CODE;
     return ResponseEntity.status(status)
         .body(buildError(status, ex.getMessage(), Map.of("code", code), request));
+  }
+
+  /** WP-55: AI 메모리 거절 — 상태는 예외가 정하고 사유 코드를 errors.code 로 싣는다(웹 토스트·ai-agent 도구 오류 문구가 코드로 가른다). */
+  @ExceptionHandler(AiMemoryException.class)
+  public ResponseEntity<ErrorResponse> handleAiMemory(
+      AiMemoryException ex, HttpServletRequest request) {
+    return ResponseEntity.status(ex.status())
+        .body(buildError(ex.status(), ex.getMessage(), Map.of("code", ex.code()), request));
   }
 
   // 드라이브 도메인 — 미존재(404) / 권한미달(403) / 잘못된 입력(400)

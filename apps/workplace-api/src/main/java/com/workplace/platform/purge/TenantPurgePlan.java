@@ -78,7 +78,8 @@ public final class TenantPurgePlan {
           MESSAGE,
           CHANNEL_MEMBER,
           CHANNEL,
-          // 홈·비서
+          // 홈·비서 (ai_memory 는 home_session 을 SET NULL 로 참조 — 세션보다 먼저, WP-55)
+          AI_MEMORY,
           HOME_ACTION_PROPOSAL,
           HOME_MESSAGE_ATTACHMENT,
           HOME_MESSAGE,

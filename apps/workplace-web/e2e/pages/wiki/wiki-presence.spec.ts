@@ -4,11 +4,13 @@ import { expect, test } from '../../fixtures/auth.fixture'
 import {
   applyCollabMarkdown,
   changeCollabRole,
+  clickBeforeChar,
   connectCollabPeer,
   controlCollabSocket,
   leaveAllCollabPeers,
   presenceShot,
   readCollabMarkdown,
+  textBeforeWidget,
   typeAtEnd,
 } from '../../fixtures/collab'
 import { cursorOf, KIM, LONG_BODY } from '../../fixtures/presence'
@@ -295,9 +297,11 @@ test.describe('노트 원격 커서', () => {
     await b.goto(pagePath(50))
     // 낱말 가운데("가|운데")에 캐럿을 둔다 — 오른쪽 글자가 남아 타이핑해도 캐럿의 상대 위치 JSON 이 그대로인 자리.
     // (공백 옆은 피한다 — 텍스트 차이 계산이 공백을 삽입의 앞·뒤 어느 쪽으로 붙일지 모호해 상대 위치가 바뀔 수 있다.)
-    await typeAtEnd(b, '둘째 문단 가운데', '')
-    for (let i = 0; i < 2; i++) await b.keyboard.press('ArrowLeft')
+    // 끝을 누르고 방향키로 옮기면 부하에서 방향키 하나가 사라져 한 칸 오른쪽에 쳤다 — "운" 앞을 바로 누른다(clickBeforeChar).
+    await clickBeforeChar(b, '둘째 문단 가운데', '둘째 문단 가'.length)
     const cur = cursorOf(a, KIM.id)
+    // B 의 에디터 상태(awareness 로 발행된 커서)가 "가" 뒤에 있는지 상대 화면으로 확인한 뒤 친다.
+    await expect.poll(() => textBeforeWidget(cur)).toBe('둘째 문단 가')
     await expect(cur).toHaveAttribute('data-label-visible', '')
     await a.clock.fastForward(LABEL_SHOW_MS + 100)
     await expect(cur).not.toHaveAttribute('data-label-visible')

@@ -154,6 +154,23 @@ async function mockWidgets(page: Page) {
   await mockApi(page, 'GET', '/api/v1/me/messaging-summary', messagingSummary())
 }
 
+/**
+ * 끌기 좌표를 재기 전에 위젯 본문이 mockWidgets 데이터로 다 채워질 때까지 기다린다(회귀 안정화, WP-55).
+ * 위젯 본문은 지연 로드 + 각자 조회라 스켈레톤 높이로 먼저 그려진다 — 부하에서 카드 좌표를 잰 뒤에 응답이 도착하면
+ * 카드 높이가 바뀌어 미리 잰 놓을 자리가 다른 카드 위가 되고, 순서가 한 칸 어긋난 채 놓였다.
+ */
+async function expectWidgetBodiesLoaded(page: Page, types: string[]) {
+  const loaded: Record<string, () => Promise<void>> = {
+    priority_quadrant: () => expect(page.getByTestId('priority-quadrant-empty')).toBeVisible(),
+    quick_actions: () => expect(page.getByTestId('dashboard-quickactions')).toBeVisible(),
+    my_tasks: () => expect(page.getByTestId('dash-mytasks')).toBeVisible(),
+    notifications: () => expect(page.getByTestId('dash-notif')).toContainText('리뷰 요청 이슈'),
+    recent_chats: () => expect(page.getByTestId('dash-chat-empty')).toBeVisible(),
+    unread_mail: () => expect(page.getByTestId('dash-mail')).toContainText('월간 보고서'),
+  }
+  for (const type of types) await loaded[type]()
+}
+
 test('대시보드 — 저장 레이아웃 순서로 5종 위젯이 렌더된다', { tag: '@smoke' }, async ({
   authenticatedPage: page,
 }) => {
@@ -760,6 +777,7 @@ test('편집 — 드래그로 위젯 순서 변경 → 저장 시 PUT payload �
   // my_tasks 드래그 핸들을 unread_mail 카드 중앙으로 드래그 → 순서 반전.
   // dnd-kit PointerSensor(distance:8) 활성화를 위해 hover → down → move(0,0) → move(target, steps) → up.
   const handle = myTasksCard.getByTestId('widget-drag-handle')
+  await expectWidgetBodiesLoaded(page, ['my_tasks', 'unread_mail'])
   const targetBox = await unreadMailCard.boundingBox()
   if (!targetBox) throw new Error('unread_mail 카드 bounding box 없음')
   await handle.hover()
@@ -835,6 +853,7 @@ test('편집 — wide(col-span-3) 위젯을 좁은 위젯 바로 다음으로 �
   const myTasksCard = page.locator('[data-testid="dashboard-widget"][data-widget="my_tasks"]')
 
   const handle = quickActionsCard.getByTestId('widget-drag-handle')
+  await expectWidgetBodiesLoaded(page, ['priority_quadrant', 'quick_actions', 'my_tasks', 'notifications', 'recent_chats', 'unread_mail'])
   const targetBox = await myTasksCard.boundingBox()
   if (!targetBox) throw new Error('my_tasks 카드 bounding box 없음')
   // my_tasks 카드 중앙으로 드래그 — 포인터가 my_tasks 컬럼(1번째 컬럼) 위에 있음.
