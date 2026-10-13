@@ -91,7 +91,9 @@ describe('drive-agent 정의', () => {
     expect(prompt).toMatch(/이름·폴더는 그대로.*`spaceId`·`folderId`·`name` 은 넘기지 않습니다/);
     // WP-369 최종 리뷰 I3: html 은 read_file 이 태그를 뺀 글자라 내용으로 고쳐 쓰지 않는다(서버도 409) — 같은 "끝까지 읽기" 문단에 둔다.
     expect(prompt).toMatch(/\*\*전문을 다 읽은 뒤에만 저장합니다\*\*.*\*\*html 파일\(\.html·\.xhtml\)도 내용으로 고치지 않습니다\*\*/);
-    expect(prompt).toMatch(/UTF-8 이 아닌 파일.*웹 드라이브 화면에서 같은 이름으로 올리면 새 버전/);
+    expect(prompt).toMatch(/UTF-8 이 아닌 파일.*`truncated:true` 인 파일은.*웹 드라이브 화면에서 같은 이름으로 올리면 새 버전/);
+    // 공유 read_file 의 truncated note 는 업로드 링크를 권하지만 AI Chat 에는 링크 모드가 없다 — 그 안내를 따르지 않게 한다.
+    expect(prompt).toMatch(/`note` 의 업로드 링크 안내는 따르지 않습니다/);
     // 예전 "업로드는 미지원" 안내는 남기지 않는다.
     expect(prompt).not.toMatch(/업로드·멤버 변경·파일 버전 롤백\(되돌리기\)은 미지원/);
   });
