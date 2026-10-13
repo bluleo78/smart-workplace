@@ -89,6 +89,9 @@ describe('drive-agent 정의', () => {
     expect(prompt).toContain('**전문을 다 읽은 뒤에만 저장합니다**');
     expect(prompt).toMatch(/`nextOffset` 이 있으면 없어질 때까지.*`truncated:true`.*저장하지 말고/);
     expect(prompt).toMatch(/이름·폴더는 그대로.*`spaceId`·`folderId`·`name` 은 넘기지 않습니다/);
+    // WP-369 최종 리뷰 I3: html 은 read_file 이 태그를 뺀 글자라 내용으로 고쳐 쓰지 않는다(서버도 409) — 같은 "끝까지 읽기" 문단에 둔다.
+    expect(prompt).toMatch(/\*\*전문을 다 읽은 뒤에만 저장합니다\*\*.*\*\*html 파일\(\.html·\.xhtml\)도 내용으로 고치지 않습니다\*\*/);
+    expect(prompt).toMatch(/UTF-8 이 아닌 파일.*웹 드라이브 화면에서 같은 이름으로 올리면 새 버전/);
     // 예전 "업로드는 미지원" 안내는 남기지 않는다.
     expect(prompt).not.toMatch(/업로드·멤버 변경·파일 버전 롤백\(되돌리기\)은 미지원/);
   });
