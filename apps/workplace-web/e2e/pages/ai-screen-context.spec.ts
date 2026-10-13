@@ -303,12 +303,13 @@ test.describe('AI 채팅 화면 컨텍스트 — 내 작업 · AI 위임', () =>
   })
 
   // 빠른 필터 중이면 건수는 보이는 집합(칩 건수)이고, 범위 전체·켜진 칩이 facts 로 실린다.
+  // URL 에 남은 막힘(blocked)은 /me/ai-tasks 가 무시하는 facet 이라 facts 에 싣지 않는다.
   test('AI 위임 작업 — 빠른 필터·전체 범위면 칩 건수와 facts 를 싣는다', async ({ authenticatedPage: page }) => {
     const chat = await captureChat(page)
     const agent = { id: 9, username: 'claude', name: 'Claude', kind: 'AGENT' as const }
     await mockApi(page, 'GET', '/api/v1/me/ai-tasks', createIssueSearchResponse([createIssue({ id: 31, assignees: [agent] })]))
     await mockApi(page, 'GET', '/api/v1/me/ai-tasks/counts', createAiTaskCounts({ all: 12, waiting: 7 }))
-    await page.goto('/me/ai-tasks?scope=all&state=WAITING')
+    await page.goto('/me/ai-tasks?scope=all&state=WAITING&blocked=true')
     await expect(page.getByTestId('ai-row-31')).toBeVisible()
     await expect(page.getByTestId('ai-quick-count-waiting')).toHaveText('7')
     await page.getByTestId('chat-launcher').click()

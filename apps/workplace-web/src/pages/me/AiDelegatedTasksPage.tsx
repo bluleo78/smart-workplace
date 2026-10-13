@@ -20,12 +20,11 @@ import { AiTasksEmptyState } from './aiTasks/AiTasksEmptyState'
 import { AiTasksMobileList } from './aiTasks/AiTasksMobileList'
 import { AiTasksTable } from './aiTasks/AiTasksTable'
 import { AiTasksToolbar } from './aiTasks/AiTasksToolbar'
-import { meFacetParams } from './meFacetParams'
 
 export default function AiDelegatedTasksPage() {
   const [params] = useSearchParams()
-  const { list, counts, scope, state } = useMemo(() => aiTaskParams(params), [params])
-  const facets = useMemo(() => meFacetParams(params), [params])
+  // facet 은 이 화면이 서버에 실제로 보내는 것(status/priority)만 — 빈 상태 판정·AI 화면 컨텍스트도 같은 값을 쓴다.
+  const { list, counts, facets, filtered, scope, state } = useMemo(() => aiTaskParams(params), [params])
   const query = useAiTasks(list)
   const countsQuery = useAiTaskCounts(counts)
   const isMobile = useIsMobile()
@@ -48,8 +47,6 @@ export default function AiDelegatedTasksPage() {
   const items = query.data?.pages.flatMap((p) => p.items ?? []).filter((x) => x != null) ?? []
   // 마지막 페이지까지 받은 뒤에만 빈 상태 — 스트리밍 중 깜빡임 방지(InfiniteIssueList 와 같은 기준).
   const empty = items.length === 0 && !query.hasNextPage && !query.isFetching
-  // 빠른 필터나 facet 이 하나라도 걸려 있으면 "조건에 맞는 작업 없음"(필터 초기화 제공) — 범위는 필터로 보지 않는다.
-  const filtered = state != null || Object.keys(facets).length > 0
 
   return (
     <Page>

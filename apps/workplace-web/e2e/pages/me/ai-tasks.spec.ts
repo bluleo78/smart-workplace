@@ -180,14 +180,14 @@ test('비어 있으면 안내 문구, 빠른 필터 중이면 조건 문구', as
   const empty = page.getByTestId('ai-row-empty')
   await expect(empty).toBeVisible()
   await expect(empty.locator('svg')).toBeVisible()
-  await expect(empty).toContainText('AI에게 맡긴 작업이 아직 없어요')
-  await expect(empty).toContainText('이슈를 만들 때 담당자를 AI로 지정하면 여기에 표시됩니다.')
+  await expect(empty).toContainText('AI가 진행 중인 작업이 없어요')
+  await expect(empty).toContainText('담당자를 AI 구성원으로 지정하거나, Claude Code 같은 AI 도구로 내 이슈를 작업하면 여기에 표시돼요.')
 
   await expect(page.getByTestId('ai-empty-reset')).toHaveCount(0)
 
   await page.getByTestId('ai-quick-blocked').click()
   await expect(empty).toContainText('조건에 맞는 AI 작업이 없어요')
-  await expect(empty).not.toContainText('AI에게 맡긴 작업이 아직 없어요')
+  await expect(empty).not.toContainText('AI가 진행 중인 작업이 없어요')
   await expect(page.getByTestId('ai-empty-reset')).toBeVisible()
 })
 
@@ -203,9 +203,24 @@ test('facet 만 걸려도 조건 문구 — 필터 초기화는 빠른 필터·f
   await page.getByTestId('ai-empty-reset').click()
   await expect.poll(() => [...new URL(page.url()).searchParams.keys()]).toEqual(['scope'])
   expect(new URL(page.url()).searchParams.get('scope')).toBe('all')
-  await expect(empty).toContainText('AI에게 맡긴 작업이 아직 없어요')
+  await expect(empty).toContainText('AI가 진행 중인 작업이 없어요')
   await expect(page.getByTestId('ai-quick-all')).toHaveAttribute('aria-pressed', 'true')
   await expect(page.getByTestId('ai-scope-all')).toHaveAttribute('aria-pressed', 'true')
+})
+
+// 마감·막힘은 /me/ai-tasks 가 무시하는 facet — 요청에 싣지 않고, 걸려 있어도 "조건 문구"가 아니라 기본 안내를 보인다.
+test('서버가 무시하는 마감·막힘 facet 은 보내지 않고 필터로 보지 않는다', async ({ authenticatedPage: page }) => {
+  const { list, cnt } = await setup(page, [], createAiTaskCounts())
+  await page.goto('/me/ai-tasks?blocked=true&dueTo=2026-10-31&dueDate=today')
+  const empty = page.getByTestId('ai-row-empty')
+  await expect(empty).toContainText('AI가 진행 중인 작업이 없어요')
+  await expect(page.getByTestId('ai-empty-reset')).toHaveCount(0)
+  for (const req of [await list.waitForRequest(), await cnt.waitForRequest()]) {
+    const keys = [...req.searchParams.keys()]
+    expect(keys).not.toContain('blocked')
+    expect(keys).not.toContain('dueFrom')
+    expect(keys).not.toContain('dueTo')
+  }
 })
 
 test('첫 페이지 실패는 빈 상태가 아니라 오류 + 다시 시도', async ({ authenticatedPage: page }) => {

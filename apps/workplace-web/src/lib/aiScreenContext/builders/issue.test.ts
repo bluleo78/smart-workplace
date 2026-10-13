@@ -147,4 +147,8 @@ describe('buildMyTasksContext / buildAiTasksContext', () => {
     });
     expect(buildAiTasksContext({ facets: {}, scope: 'mine' }).scope).toEqual({ label: 'AI 위임 작업' });
   });
+  it('AI 위임 작업 — 서버가 무시하는 마감·차단됨 facet 은 facts 에 싣지 않는다', () => {
+    const ctx = buildAiTasksContext({ facets: { priority: 'HIGH', dueTo: '2026-10-01', blocked: 'true' }, count: 1 });
+    expect(ctx.scope?.facts).toEqual([{ label: '우선순위', value: '높음' }]);
+  });
 });

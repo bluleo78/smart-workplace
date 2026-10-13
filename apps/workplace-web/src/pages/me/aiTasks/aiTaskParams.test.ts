@@ -28,4 +28,24 @@ describe('aiTaskParams', () => {
       expect(out.list).toEqual({ scope: 'MINE' })
     }
   })
+
+  it('서버가 무시하는 facet(마감·막힘)은 보내지 않고 필터로도 보지 않는다 — status·priority 만', () => {
+    const out = aiTaskParams(
+      new URLSearchParams('dueFrom=2026-10-01&dueTo=2026-10-31&blocked=true&dueDate=today&priority=HIGH'),
+    )
+    expect(out.facets).toEqual({ priority: 'HIGH' })
+    expect(out.list).toEqual({ priority: 'HIGH', scope: 'MINE' })
+    expect(out.counts).toEqual({ priority: 'HIGH', scope: 'MINE' })
+    expect(out.filtered).toBe(true)
+
+    const ignored = aiTaskParams(new URLSearchParams('dueTo=2026-10-31&blocked=true&dueDate=today'))
+    expect(ignored.facets).toEqual({})
+    expect(ignored.list).toEqual({ scope: 'MINE' })
+    expect(ignored.filtered).toBe(false)
+  })
+
+  it('빠른 필터(state)만 켜져도 filtered, 범위(scope)는 필터가 아니다', () => {
+    expect(aiTaskParams(new URLSearchParams('state=REVIEW')).filtered).toBe(true)
+    expect(aiTaskParams(new URLSearchParams('scope=all')).filtered).toBe(false)
+  })
 })
