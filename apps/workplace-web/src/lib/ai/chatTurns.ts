@@ -1,6 +1,6 @@
 // 챗 transcript 순수 변환(WP-190) — 라이브 스트림 이벤트와 복원 메시지를 ChatTurn[] 으로 바꾼다.
 // 원래 useChatSession 안의 setTurns 콜백이었다. 대화별 스트림 저장소(chatStreams)가 칸마다 같은 규칙을 적용하도록 분리했다.
-import { isVisibleStep, widgetTypeFromToolName } from '@/lib/aiToolLabels';
+import { isVisibleStep, visibleSteps, widgetTypeFromToolName } from '@/lib/aiToolLabels';
 import { pushTextBlock, pushToolsBlock, pushWidgetBlock, reconcileBlocks } from '@/lib/chatBlocks';
 import { toTurnAttachments } from '@/lib/homeChatAttachments';
 import type {
@@ -54,7 +54,11 @@ export function messageToTurn(m: HomeMessage): ChatTurn {
   if (outcome) return { role: 'action', outcome, content };
   const interrupted = m.status ? INTERRUPTED_BY_STATUS[m.status] : undefined;
   // WP-55: 텍스트 전에 끝났지만 메모리 결과 줄 때문에 저장된 답(빈 본문)은 라이브 markInterrupted 처럼 빈 말풍선·라벨 대신 안내 문구로 보인다.
-  const emptyInterrupted = interrupted && content === '' && !m.widgets?.length && !m.contentBlocks?.length ? interrupted : undefined;
+  // 보이는 도구 단계가 있으면 빈 답이 아니다(패널이 단계 목록을 그린다) — 표시 블록이 없어도(null 폴백) 중단됨·실패 라벨을 그대로 둔다.
+  const emptyInterrupted =
+    interrupted && content === '' && !m.widgets?.length && !m.contentBlocks?.length && !visibleSteps(m.toolCalls ?? []).length
+      ? interrupted
+      : undefined;
   return {
     role: m.role === 'ASSISTANT' ? 'assistant' : 'user',
     content: emptyInterrupted ? EMPTY_BY_KIND[emptyInterrupted] : content,
@@ -127,7 +131,7 @@ export function applyTool(turns: ChatTurn[], evt: ToolEventDto): ChatTurn[] {
       // WP-55: 메모리 도구 성공 결과 → 결과 줄(도착순). 오류 결과는 줄을 만들지 않는다(AI 가 말로 안내).
       if (evt.memory && !evt.isError) memoryBlocks = [...(memoryBlocks ?? []), toMemoryBlock(evt.memory)];
     }
-    return { ...last, steps, widgets, contentBlocks, ...(memoryBlocks ? { memoryBlocks } : {}) };
+    return { ...last, steps, widgets, contentBlocks, memoryBlocks };
   });
 }
 

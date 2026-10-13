@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { ChatTurn, HomeMessage, MessageTurn } from '@/types/home';
+import type { ChatTurn, HomeMessage, MessageTurn, ToolStep } from '@/types/home';
 
 import {
   appendDelta,
@@ -164,6 +164,23 @@ describe('메모리 결과 줄 (WP-55)', () => {
     expect(messageToTurn(msg({ content: '', status: 'STOPPED', memoryBlocks: [savedBlock] }))).toMatchObject({ content: STOPPED_EMPTY });
     // 본문이 있으면 그대로 + 라벨
     expect(messageToTurn(msg({ content: '반쯤', status: 'FAILED' }))).toMatchObject({ content: '반쯤', interrupted: 'failed' });
+  });
+
+  // R6: 빈 본문이어도 보이는 도구 단계가 있으면 빈 답이 아니다 — 안내 문구로 바꾸지 않고 중단됨·실패 라벨을 남긴다(숨김 메모리 도구는 단계로 치지 않는다).
+  it('빈 본문이어도 보이는 도구 단계가 있으면 라벨을 남기고, 숨김 도구 단계뿐이면 안내 문구로 복원한다', () => {
+    const visible: ToolStep = { kind: 'tool', seq: 1, toolName: 'workplace_list_issues', status: 'error' };
+    const hidden: ToolStep = { kind: 'tool', seq: 2, toolName: 'remember_memory', status: 'done' };
+    const stopped = messageToTurn(
+      msg({ content: '', status: 'STOPPED', contentBlocks: null, toolCalls: [visible, hidden], memoryBlocks: [savedBlock] }),
+    ) as MessageTurn;
+    expect(stopped).toMatchObject({ content: '', interrupted: 'stopped', steps: [visible, hidden] });
+    const failed = messageToTurn(msg({ content: '', status: 'FAILED', toolCalls: [visible] })) as MessageTurn;
+    expect(failed).toMatchObject({ content: '', interrupted: 'failed' });
+    const hiddenOnly = messageToTurn(
+      msg({ content: '', status: 'FAILED', toolCalls: [hidden], memoryBlocks: [savedBlock] }),
+    ) as MessageTurn;
+    expect(hiddenOnly).toMatchObject({ content: FAILED_EMPTY });
+    expect(hiddenOnly).not.toHaveProperty('interrupted');
   });
 
   it('첫 토큰 전 중단돼도 결과 줄은 남는다', () => {

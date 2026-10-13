@@ -1,6 +1,5 @@
 // WP-55 AI 메모리 쿼리·뮤테이션 — 설정 카드 목록과 채팅 결과 줄 되돌리기가 같은 캐시를 본다(되돌리면 목록을 다시 읽는다).
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useMutation, useMutationState, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 
@@ -33,30 +32,27 @@ function useInvalidateMemories() {
   return () => qc.invalidateQueries({ queryKey: aiMemoryKeys.list(user?.id) });
 }
 
-/** 되돌리기 진행 중 줄 식별자 — 메시지 id 는 전역 유일, 순번은 그 메시지의 결과 줄 순번. */
-const undoKey = (r: UndoAiMemoryRequest) => `${r.messageId}:${r.blockIndex}`;
+/** 채팅 결과 줄 되돌리기 뮤테이션 키 — 진행 중인 줄을 뮤테이션 캐시에서 찾는다(useMutationState). */
+const UNDO_MUTATION_KEY = ['aiMemories', 'undo'] as const;
 
 /**
  * 채팅 결과 줄 되돌리기. 성공하면 그 줄을 되돌림으로 바꾸고 설정 목록을 다시 읽는다.
  * 실패: 이미 지워짐(GONE·NOT_FOUND) → "이미 지워진 메모리예요", 가득 참 → "…설정에서 정리해 주세요" + "설정 열기",
  * 고친 뒤 또 바뀜(CHANGED) → "그 뒤에 바뀐 메모리라 되돌리지 않았어요"(줄은 되돌리지 않은 채 남는다).
- * 패널이 하나를 두고 모든 줄이 함께 쓰므로 진행 중 상태는 줄마다 따로 센다(isUndoing) — 뮤테이션 하나의 isPending·variables 는 마지막 요청만
- * 가리켜, 다른 줄을 빨리 누르면 앞 줄의 진행 중 표시가 풀린다.
+ * 패널이 하나를 두고 모든 줄이 함께 쓰므로 진행 중 상태는 줄마다 따로 본다(isUndoing) — 뮤테이션 하나의 isPending·variables 는 마지막 요청만
+ * 가리켜, 다른 줄을 빨리 누르면 앞 줄의 진행 중 표시가 풀린다. 진행 중 요청은 뮤테이션 캐시(useMutationState)에서 읽어 패널이 다시 마운트돼도
+ * 유지되고 따로 상태를 들지 않는다.
  */
 export function useUndoAiMemory() {
   const invalidate = useInvalidateMemories();
   const navigate = useNavigate();
-  const [pendingKeys, setPendingKeys] = useState<ReadonlySet<string>>(() => new Set());
+  const pending = useMutationState({
+    filters: { mutationKey: UNDO_MUTATION_KEY, status: 'pending' },
+    select: (m) => m.state.variables as UndoAiMemoryRequest,
+  });
   const mutation = useMutation({
+    mutationKey: UNDO_MUTATION_KEY,
     mutationFn: (body: UndoAiMemoryRequest) => undoAiMemory(body),
-    // 요청마다 그 줄을 진행 중으로 표시하고, 끝나면(성공·실패) 그 줄만 푼다.
-    onMutate: (body) => setPendingKeys((prev) => new Set(prev).add(undoKey(body))),
-    onSettled: (_data, _error, body) =>
-      setPendingKeys((prev) => {
-        const next = new Set(prev);
-        next.delete(undoKey(body));
-        return next;
-      }),
     onSuccess: (_data, body) => {
       chatStreams.markMemoryUndone(body.messageId, body.blockIndex);
       void invalidate();
@@ -83,7 +79,7 @@ export function useUndoAiMemory() {
     undo: mutation.mutate,
     /** 그 줄의 되돌리기가 진행 중인가. */
     isUndoing: (messageId: number | undefined, blockIndex: number) =>
-      messageId != null && pendingKeys.has(undoKey({ messageId, blockIndex })),
+      messageId != null && pending.some((r) => r.messageId === messageId && r.blockIndex === blockIndex),
   };
 }
 
