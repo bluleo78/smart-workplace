@@ -411,6 +411,30 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(response);
   }
 
+  /** 전송 링크(WP-369) 없음·잘못된 토큰·비활성 테넌트·대상 파일 사라짐 — 404. 문구가 새 링크 발급을 안내한다. */
+  @ExceptionHandler(com.workplace.drive.exception.DriveTransferLinkNotFoundException.class)
+  public ResponseEntity<ErrorResponse> handleTransferLinkNotFound(
+      RuntimeException ex, HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.NOT_FOUND, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
+  }
+
+  /** 전송 링크(WP-369) 만료·이미 사용(일회용) — 410. */
+  @ExceptionHandler(com.workplace.drive.exception.DriveTransferLinkGoneException.class)
+  public ResponseEntity<ErrorResponse> handleTransferLinkGone(
+      RuntimeException ex, HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.GONE, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.GONE).body(response);
+  }
+
+  /** 전송 링크(WP-369) 발급자의 권한 상실 — 403. */
+  @ExceptionHandler(com.workplace.drive.exception.DriveTransferLinkForbiddenException.class)
+  public ResponseEntity<ErrorResponse> handleTransferLinkForbidden(
+      RuntimeException ex, HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.FORBIDDEN, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
+  }
+
   // 위키 도메인 — 미존재(404) / 권한미달(403) / 잘못된 입력(400) / 낙관적 충돌(409)
   @ExceptionHandler({
     com.workplace.wiki.exception.WikiSpaceNotFoundException.class,

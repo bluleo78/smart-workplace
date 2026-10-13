@@ -12,6 +12,7 @@ import com.workplace.jooq.tables.DriveFileVersion.DriveFileVersionPath;
 import com.workplace.jooq.tables.DriveFolder.DriveFolderPath;
 import com.workplace.jooq.tables.DriveShareLink.DriveShareLinkPath;
 import com.workplace.jooq.tables.DriveSpace.DriveSpacePath;
+import com.workplace.jooq.tables.DriveTransferLink.DriveTransferLinkPath;
 import com.workplace.jooq.tables.File.FilePath;
 import com.workplace.jooq.tables.Tenant.TenantPath;
 import com.workplace.jooq.tables.records.DriveFileRecord;
@@ -298,6 +299,19 @@ public class DriveFile extends TableImpl<DriveFileRecord> {
             _driveShareLink = new DriveShareLinkPath(this, null, Keys.DRIVE_SHARE_LINK__DRIVE_SHARE_LINK_DRIVE_FILE_ID_FKEY.getInverseKey());
 
         return _driveShareLink;
+    }
+
+    private transient DriveTransferLinkPath _driveTransferLink;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.drive_transfer_link</code> table
+     */
+    public DriveTransferLinkPath driveTransferLink() {
+        if (_driveTransferLink == null)
+            _driveTransferLink = new DriveTransferLinkPath(this, null, Keys.DRIVE_TRANSFER_LINK__DRIVE_TRANSFER_LINK_DRIVE_FILE_ID_FKEY.getInverseKey());
+
+        return _driveTransferLink;
     }
 
     @Override
