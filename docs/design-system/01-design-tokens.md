@@ -328,6 +328,8 @@ orange 계열 주의 색상. warning(amber)보다 강한 주의를 표현하기 
 |------|--------|------|---------|
 | 목록 선택 | `SELECTED_ROW_CLASS` | 왼쪽 3px primary 막대(`selection-bar`) + `bg-selected` + `font-semibold` + 전경색 글자 | 에픽 패널·트리·시트 행 등 현재 고른 항목 |
 | 사이드바 선택 | `SELECTED_NAV_CLASS` | 위 + 아이콘만 `text-primary` | 앞에 아이콘이 있는 2차 사이드바 메뉴 |
+| 목록 선택(바탕만) | `SELECTED_SURFACE_CLASS` | 막대 + `bg-selected` (굵기·글자색 그대로) | 굵기가 의미를 갖는 목록 — 메일 목록(굵게 = 안 읽음)·보조 줄이 있는 연락처 목록 |
+| 다중 선택 | `MULTI_SELECTED_ROW_CLASS` | `bg-primary/10` (막대 없음 — "현재 고른 하나"가 아니라 체크로 모은 여러 개) | 모바일 이슈·드라이브 목록의 선택 모드 행 |
 | 토글 켜짐 | `TOGGLE_ON_CLASS` | `border-primary/50` + `bg-primary/10`(다크 `/15`) + `text-primary` | `aria-pressed` 버튼(에픽 패널·완료 모두 보기·주/월 등). ghost 버튼은 꺼짐에도 `border border-transparent` |
 
 - **글자는 파랗게 하지 않는다**(목록) — 항목 고유 색(에픽 색 점 등)과 섞이지 않고, 파란 글자(링크·켜진 토글)와 의미가 겹치지 않게.

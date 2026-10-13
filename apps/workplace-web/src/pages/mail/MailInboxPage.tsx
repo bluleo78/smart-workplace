@@ -30,6 +30,7 @@ import { markSeenInKept, mergeKeptRows, withOpenRow } from '@/lib/mailKeepRows'
 import { isNeedsReply } from '@/lib/mailNeedsReply'
 import { buildQuote, escapeHtml } from '@/lib/mailQuote'
 import { mailViewHref, resolveMailView, unreadCountForView } from '@/lib/mailView'
+import { SELECTED_SURFACE_CLASS, TOGGLE_ON_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
 
 import { getMessage, getViewUnreadCount, type MailViewScope } from '../../api/mailMessages'
@@ -120,7 +121,8 @@ function MessageRow({
       className={cn(
         // group — 안의 읽음 전환 버튼을 행 hover 에 맞춰 드러낸다(WP-187).
         'group relative flex w-full cursor-pointer flex-col gap-0.5 border-b px-4 py-3 text-left transition-colors',
-        active ? 'bg-accent' : 'hover:bg-accent/50',
+        // 선택은 막대+배경만 — 이 목록은 글자 굵기가 안 읽음 표시라 굵게 하지 않는다. 안 읽음 막대(아래)와 같은 자리를 공유한다.
+        active ? SELECTED_SURFACE_CLASS : 'hover:bg-accent/50',
       )}
     >
       {/* WP-155: 안 읽음은 굵기만으로는 훑어볼 때 잘 안 보여 왼쪽 primary 막대로 보강.
@@ -1039,7 +1041,7 @@ export function MailInboxPage() {
                     // 모바일: 시각 h-9 + after 히트 영역 확장으로 터치 44px 확보. 포커스 링은 디자인 시스템 규칙.
                     'relative inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-xs outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/40',
                     "max-lg:h-9 max-lg:px-4 max-lg:text-sm max-lg:after:absolute max-lg:after:-inset-y-1 max-lg:after:inset-x-0 max-lg:after:content-['']",
-                    view.unreadOnly ? 'border-primary/40 bg-primary/10 font-semibold text-primary' : 'text-foreground hover:bg-accent/50',
+                    view.unreadOnly ? `${TOGGLE_ON_CLASS} font-semibold` : 'text-foreground hover:bg-accent/50',
                   )}
                 >
                   {/* 켜짐을 색에만 의존하지 않도록 점 표시(목업). */}

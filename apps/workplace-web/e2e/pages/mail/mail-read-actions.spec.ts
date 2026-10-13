@@ -31,8 +31,8 @@ test.describe('메일 읽음 조작 — 데스크톱(WP-187)', () => {
     await page.getByTestId('mail-row-toggle-read-10').click()
     await read.waitForRequest()
     await expect(page.getByTestId('mail-unread-bar-10')).toHaveCount(0)
-    // 토글은 행 열기와 분리 — 선택(bg-accent)도 상세도 생기지 않는다.
-    await expect(page.getByTestId('mail-row-10')).not.toHaveClass(/bg-accent(?!\/)/)
+    // 토글은 행 열기와 분리 — 선택(bg-selected)도 상세도 생기지 않는다.
+    await expect(page.getByTestId('mail-row-10')).not.toHaveClass(/bg-selected/)
     await expect(page.getByTestId('mail-detail-empty')).toBeVisible()
     await expect(page.getByTestId('mail-detail')).toHaveCount(0)
     // 완료 후 안 읽은 수를 서버에서 다시 받는다(F25).

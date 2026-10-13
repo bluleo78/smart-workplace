@@ -144,7 +144,11 @@ export function ViewerActionBar({
                   aria-pressed={s.id === 'summary' ? summaryOpen : undefined}
                   onClick={() => onAction(s.id)}
                   data-testid={m.testId}
-                  className="flex w-full flex-col items-center justify-center gap-0.5 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40"
+                  // 요약 토글이 켜진 동안은 아이콘·글자를 primary 로 — 켜짐을 색으로 알린다(하단 바라 테두리 상자는 쓰지 않는다).
+                  className={cn(
+                    'flex w-full flex-col items-center justify-center gap-0.5 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40',
+                    s.id === 'summary' && summaryOpen && 'font-semibold text-primary',
+                  )}
                 >
                   <Icon
                     className={cn('size-5', loading && 'animate-spin')}

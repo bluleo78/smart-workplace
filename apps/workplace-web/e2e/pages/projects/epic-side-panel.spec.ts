@@ -675,3 +675,89 @@ test.describe('에픽 상세 진입 ↗ — 터치 태블릿(≥1024px)', () => 
     await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_KEY}/issues/10$`));
   });
 });
+
+// 선택·켜짐 표시(WP-368) — 선택을 bg-accent(hover 와 같은 토큰)로 그려 구분이 안 되던 문제의 회귀 방지.
+// 클래스 존재뿐 아니라 계산된 배경색이 실제로 달라지는지까지 확인한다(보이는가).
+test.describe('선택·켜짐 표시 (WP-368)', () => {
+  // 에픽 2건 + 본문 이슈 1건 스텁 후 목록으로 진입한다.
+  async function setup(page: Page) {
+    await stubProjectMeta(page);
+    await mockApi(page, 'GET', `/api/v1/projects/${PROJECT_KEY}/types`, systemTypes());
+    const epics = [epic(10, '결제 리뉴얼', 6, 10), epic(11, '알림 개편', 8, 10)];
+    await routeIssueSearch(page, (route, url) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(
+          createIssueSearchResponse(
+            url.searchParams.get('type') === String(makeEpicType().id) ? epics : [createIssue({ id: 1, number: 7 })],
+          ),
+        ),
+      }),
+    );
+    await page.goto(`/projects/${PROJECT_KEY}`);
+  }
+
+  test('선택된 에픽 행은 bg-selected·selection-bar 를 갖고 배경색이 비선택 행과 다르다', async ({ authenticatedPage: page }) => {
+    await setup(page);
+    await openEpicPanel(page);
+    const selected = page.getByTestId('epic-filter-10');
+    const other = page.getByTestId('epic-filter-11');
+
+    await selected.click();
+    await expect(selected).toHaveAttribute('aria-pressed', 'true');
+    await expect(selected).toHaveClass(/bg-selected/);
+    await expect(selected).toHaveClass(/selection-bar/);
+    await expect(other).toHaveAttribute('aria-pressed', 'false');
+    await expect(other).not.toHaveClass(/bg-selected/);
+    await expect(other).not.toHaveClass(/selection-bar/);
+
+    // 계산된 배경이 다르다 — 클래스만 붙고 색이 같으면(예전 bg-accent 문제) 실패한다.
+    const bg = (l: ReturnType<Page['getByTestId']>) => l.evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(await bg(selected)).not.toBe(await bg(other));
+    expect(await bg(selected)).not.toBe('rgba(0, 0, 0, 0)');
+    // 왼쪽 막대(::before) — 폭 3px 의 primary 색 가상 요소가 실제로 그려진다.
+    const bar = await selected.evaluate((el) => {
+      const s = getComputedStyle(el, '::before');
+      return { width: s.width, content: s.content };
+    });
+    expect(bar.width).toBe('3px');
+    expect(bar.content).not.toBe('none');
+
+    // 「전체 이슈」 로 돌아가면 선택 표시가 그쪽으로 옮겨 간다.
+    await page.getByTestId('epic-filter-all').click();
+    await expect(page.getByTestId('epic-filter-all')).toHaveClass(/bg-selected/);
+    await expect(selected).not.toHaveClass(/bg-selected/);
+  });
+
+  test('「에픽」 패널 토글: 꺼짐엔 켜짐 표시가 없고, 켜면 primary 테두리·글자(TOGGLE_ON)', async ({ authenticatedPage: page }) => {
+    await setup(page);
+    const toggle = page.getByTestId('epic-panel-toggle');
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    await expect(toggle).not.toHaveClass(/(?<![:\w-])bg-primary\/10/);
+    await expect(toggle).not.toHaveClass(/(?<![:\w-])text-primary/);
+
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    await expect(toggle).toHaveClass(/(?<![:\w-])bg-primary\/10/);
+    await expect(toggle).toHaveClass(/(?<![:\w-])text-primary/);
+    await expect(toggle).toHaveClass(/(?<![:\w-])border-primary\/50/);
+  });
+
+  test('「완료 모두 보기」: 켜면 TOGGLE_ON 표시가 붙고 버튼 폭이 변하지 않는다', async ({ authenticatedPage: page }) => {
+    await setup(page);
+    const toggle = page.getByTestId('show-all-closed-toggle');
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    await expect(toggle).not.toHaveClass(/(?<![:\w-])bg-primary\/10/);
+    const before = await measureBox(toggle);
+
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    await expect(toggle).toHaveClass(/(?<![:\w-])bg-primary\/10/);
+    await expect(toggle).toHaveClass(/(?<![:\w-])text-primary/);
+    await expect(toggle).toHaveClass(/(?<![:\w-])border-primary\/50/);
+    const after = await measureBox(toggle);
+    // 꺼짐에도 투명 테두리가 있어 켜질 때 폭이 밀리지 않는다.
+    expect(after.width).toBeCloseTo(before.width, 1);
+  });
+});

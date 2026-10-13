@@ -8,6 +8,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Page } from '@/components/layout/Page';
 import { Button } from '@/components/ui/button';
 import { useIsMobile } from '@/hooks/useIsMobile';
+import { TOGGLE_ON_CLASS } from '@/lib/selectionStyles';
 
 import { useIssueSearch } from '../../../hooks/queries/useIssueSearch';
 import { useMilestones } from '../../../hooks/queries/useMilestones';
@@ -119,7 +120,7 @@ export default function TimelinePage() {
               variant="outline"
               size="sm"
               aria-pressed={zoom === 'week'}
-              className={zoom === 'week' ? 'bg-accent' : undefined}
+              className={zoom === 'week' ? TOGGLE_ON_CLASS : undefined}
               onClick={() => setZoom('week')}
             >
               주
@@ -128,7 +129,7 @@ export default function TimelinePage() {
               variant="outline"
               size="sm"
               aria-pressed={zoom === 'month'}
-              className={zoom === 'month' ? 'bg-accent' : undefined}
+              className={zoom === 'month' ? TOGGLE_ON_CLASS : undefined}
               onClick={() => setZoom('month')}
             >
               월

@@ -215,6 +215,26 @@ test.describe('AI 요약 시트', () => {
     await expect(sheet).toHaveCount(0)
   })
 
+  // WP-368 — ✨ 요약 토글이 켜진 동안은 아이콘·글자가 primary 로 보이고, 닫으면 원래 색으로 돌아온다.
+  test('요약을 열면 ✨ 칸이 aria-pressed·text-primary 로 켜짐이 표시되고, 닫으면 해제된다 (WP-368)', async ({ authenticatedPage: page }) => {
+    await stubDriveFiles(page, [MD(80, 'plan.md')])
+    await openViewer(page, 'plan.md')
+    const slot = page.getByTestId('viewer-slot-summary')
+    await expect(slot).toHaveAttribute('aria-pressed', 'false')
+    await expect(slot).not.toHaveClass(/(?<![:\w-])text-primary/)
+    const offColor = await slot.evaluate((el) => getComputedStyle(el).color)
+    await slot.tap()
+    const sheet = page.getByTestId('viewer-summary-sheet')
+    await expect(sheet).toBeVisible()
+    await expect(slot).toHaveAttribute('aria-pressed', 'true')
+    await expect(slot).toHaveClass(/(?<![:\w-])text-primary/)
+    expect(await slot.evaluate((el) => getComputedStyle(el).color)).not.toBe(offColor)
+    await sheet.getByRole('button', { name: '요약 닫기' }).tap()
+    await expect(sheet).toHaveCount(0)
+    await expect(slot).toHaveAttribute('aria-pressed', 'false')
+    await expect(slot).not.toHaveClass(/(?<![:\w-])text-primary/)
+  })
+
   test('시트를 열면 포커스가 시트로 가고 아래 액션 바는 inert, 닫으면 ✨ 칸으로 돌아온다', async ({ authenticatedPage: page }) => {
     await stubDriveFiles(page, [MD(80, 'plan.md')])
     await openViewer(page, 'plan.md')

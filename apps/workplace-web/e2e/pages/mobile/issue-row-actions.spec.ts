@@ -127,6 +127,23 @@ test.describe('모바일 선택 모드', () => {
     await expect(bar).toHaveCount(0);
   });
 
+  // WP-368 — 다중 선택 행은 막대 없이 옅은 primary 배경(MULTI_SELECTED_ROW_CLASS)이 실제로 보인다.
+  test('선택된 행만 bg-primary/10 배경을 갖고 막대(selection-bar)는 없다 (WP-368)', async ({ authenticatedPage: page }) => {
+    await mock(page);
+    await page.goto(`/projects/${KEY}?group=none`);
+    await longPressWithMouse(page, page.getByTestId('issue-row-21'));
+    await page.getByTestId('mobile-action-select').click();
+    const picked = page.getByTestId('issue-row-21');
+    const other = page.getByTestId('issue-row-22');
+    await expect(picked).toHaveAttribute('aria-selected', 'true');
+    await expect(other).toHaveAttribute('aria-selected', 'false');
+    await expect(picked).toHaveClass(/(?<![:\w-])bg-primary\/10/);
+    await expect(other).not.toHaveClass(/(?<![:\w-])bg-primary\/10/);
+    await expect(picked).not.toHaveClass(/selection-bar/);
+    const bg = (l: typeof picked) => l.evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(await bg(picked)).not.toBe(await bg(other));
+  });
+
   test('✕ 버튼(선택 해제)으로 선택 모드를 끝내면 탭이 다시 상세로 이동한다', async ({ authenticatedPage: page }) => {
     await mock(page);
     await page.goto(`/projects/${KEY}?group=none`);

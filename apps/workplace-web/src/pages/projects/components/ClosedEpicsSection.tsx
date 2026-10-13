@@ -5,6 +5,7 @@ import { ArrowUpRight, ChevronRight } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 
+import { SELECTED_ROW_CLASS } from '@/lib/selectionStyles';
 import { cn } from '@/lib/utils';
 
 import { ClosedStatusBadge } from '../../../components/issues/ClosedStatusBadge';
@@ -47,7 +48,7 @@ export function ClosedEpicsSection({
                   onClick={() => onSelect(ep.number)}
                   className={cn(
                     'w-full rounded px-2 py-1.5 text-left text-sm transition-colors pointer-coarse:pr-8',
-                    selected ? 'bg-accent font-medium' : 'hover:bg-muted/50 group-hover:bg-muted/50',
+                    selected ? SELECTED_ROW_CLASS : 'hover:bg-muted/50 group-hover:bg-muted/50',
                   )}
                 >
                   {/* 흐림은 제목·색점에만 — 배지는 또렷하게 둬 상태를 읽을 수 있게 한다. */}

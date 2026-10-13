@@ -6,6 +6,7 @@ import { useMemo, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { SELECTED_ROW_CLASS } from '@/lib/selectionStyles';
 import { cn } from '@/lib/utils';
 import type { CycleResponse } from '@/types/cycle';
 
@@ -63,7 +64,8 @@ export function TimelinePeriodPicker({
                     title={o.label}
                     data-testid={`timeline-period-option-${o.value}`}
                     onClick={() => pick(periodOptionToParam(o.value))}
-                    className={cn('flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-muted', current === o.value && 'bg-accent font-medium')}
+                    // 선택 행엔 hover 배경을 두지 않는다 — hover:bg-muted 가 선택색을 덮지 않게.
+                    className={cn('flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm', current === o.value ? SELECTED_ROW_CLASS : 'hover:bg-muted')}
                   >
                     <span className="min-w-0 flex-1 truncate">{o.label}</span>
                     {o.hint && <span className="shrink-0 text-xs font-normal text-muted-foreground">{o.hint}</span>}

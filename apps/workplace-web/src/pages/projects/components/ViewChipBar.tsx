@@ -19,6 +19,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { TOGGLE_ON_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
 
 import { useDeleteSavedView, usePinSavedView } from '../../../hooks/queries/useSavedViews'
@@ -177,7 +178,7 @@ export function ViewChipBar({
         data-testid="epic-panel-toggle"
         aria-pressed={epicPanelOpen}
         onClick={onToggleEpicPanel}
-        className={cn('ml-auto rounded-full transition-colors', epicPanelOpen && 'bg-accent')}
+        className={cn('ml-auto rounded-full transition-colors', epicPanelOpen && TOGGLE_ON_CLASS)}
       >
         <PanelLeft aria-hidden="true" /> 에픽
       </Button>

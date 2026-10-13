@@ -22,6 +22,7 @@ import { useIsMobile } from '@/hooks/useIsMobile'
 import { mimeToCategory } from '@/lib/fileCategory'
 import { formatFileSize } from '@/lib/formatters'
 import { LABEL_COLORS } from '@/lib/labelColors'
+import { TOGGLE_ON_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
 import type { VirtualAttachment } from '@/types/drive'
 
@@ -106,11 +107,10 @@ export function DriveAttachmentsView() {
             type="button"
             onClick={() => setSource(s)}
             data-testid={`drive-attachment-filter-${s.toLowerCase()}`}
+            aria-pressed={source === s}
             className={cn(
               'rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors',
-              source === s
-                ? 'border-primary bg-accent text-accent-foreground'
-                : 'border-border text-muted-foreground hover:bg-accent/50',
+              source === s ? TOGGLE_ON_CLASS : 'border-border text-muted-foreground hover:bg-accent/50',
             )}
           >
             {SOURCE_LABELS[s]}

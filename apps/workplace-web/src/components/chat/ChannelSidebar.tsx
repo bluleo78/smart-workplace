@@ -15,6 +15,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { previewLine } from '@/lib/conversationPreview'
 import { dmDisplayName, isSelfDm } from '@/lib/dm'
+import { SELECTED_NAV_CLASS, SELECTED_ROW_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
 
 import { ChannelBrowser } from './ChannelBrowser'
@@ -69,7 +70,7 @@ export function ChannelSidebar() {
           data-testid="sidebar-threads-link"
           className={cn(
             'flex items-center gap-2 rounded-md px-3 py-1.5 text-sm',
-            isThreadsRoute ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/50',
+            isThreadsRoute ? SELECTED_NAV_CLASS : 'text-muted-foreground hover:bg-accent/50',
           )}
         >
           <Inbox className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -158,7 +159,7 @@ export function ChannelSidebar() {
               className={cn(
                 'flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors',
                 !isDmRoute && activeId === c.id
-                  ? 'bg-accent text-accent-foreground'
+                  ? SELECTED_NAV_CLASS
                   : 'text-muted-foreground hover:bg-accent/50',
               )}
             >
@@ -222,7 +223,7 @@ export function ChannelSidebar() {
             className={cn(
               'flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors',
               location.pathname === '/chat/dms/self'
-                ? 'bg-accent text-accent-foreground'
+                ? SELECTED_ROW_CLASS
                 : 'text-muted-foreground hover:bg-accent/50',
             )}
           >
@@ -277,7 +278,7 @@ export function ChannelSidebar() {
                 className={cn(
                   'flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors',
                   isDmRoute && activeId === dm.id
-                    ? 'bg-accent text-accent-foreground'
+                    ? SELECTED_ROW_CLASS
                     : 'text-muted-foreground hover:bg-accent/50',
                 )}
               >

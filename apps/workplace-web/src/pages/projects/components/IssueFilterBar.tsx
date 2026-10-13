@@ -19,6 +19,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { TOGGLE_ON_CLASS } from '@/lib/selectionStyles';
 import { cn } from '@/lib/utils';
 
 import type { IssueGroupBy } from '../../../types/issue';
@@ -59,8 +60,9 @@ export function IssueFilterBar({
             disabled={c.closedHidingOverridden}
             onClick={c.toggleShowAllClosed}
             className={cn(
-              'transition-colors',
-              (c.filters.showAllClosed || c.closedHidingOverridden) && 'bg-accent',
+              // 꺼짐에도 투명 테두리를 둬 켜질 때 폭이 2px 밀리지 않게 한다(TOGGLE_ON_CLASS 의 primary 테두리가 자리를 채운다).
+              'border border-transparent transition-colors',
+              (c.filters.showAllClosed || c.closedHidingOverridden) && TOGGLE_ON_CLASS,
             )}
           >
             <CircleCheckBig aria-hidden="true" /> 완료 모두 보기

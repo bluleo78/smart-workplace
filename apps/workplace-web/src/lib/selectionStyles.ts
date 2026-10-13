@@ -3,11 +3,23 @@
 // cn() 의 tailwind-merge 가 bg-·font-·text- 충돌을 뒤쪽 값으로 정리하므로, 기본 클래스 뒤에 붙여 쓴다.
 
 /**
+ * 선택 표시의 바탕만 — 왼쪽 primary 막대 + 선택 전용 배경. 글자 굵기·색은 건드리지 않는다.
+ * 행 안에서 굵기 자체가 의미를 갖는 목록(메일 목록: 굵게 = 안 읽음)에 쓴다. 그 외에는 SELECTED_ROW_CLASS.
+ */
+export const SELECTED_SURFACE_CLASS = 'selection-bar bg-selected'
+
+/**
  * 목록에서 현재 고른 항목(사이드바 메뉴·에픽·트리 노드·시트 행 등).
  * 왼쪽 primary 막대(selection-bar) + 선택 전용 배경(--selected) + 굵게. 글자는 전경색 그대로 둔다
  * — 에픽 색 점처럼 항목 고유 색과 섞이지 않고, 파란 글자(링크·켜진 토글)와 의미가 겹치지 않게.
  */
-export const SELECTED_ROW_CLASS = 'selection-bar bg-selected font-semibold text-foreground'
+export const SELECTED_ROW_CLASS = `${SELECTED_SURFACE_CLASS} font-semibold text-foreground`
+
+/**
+ * 다중 선택 모드(체크로 여러 개를 고른 행) — "현재 고른 하나"가 아니므로 막대 없이 옅은 primary 배경만 쓴다.
+ * 모바일 이슈 목록·드라이브 목록의 선택 모드 행이 같은 표시를 공유한다.
+ */
+export const MULTI_SELECTED_ROW_CLASS = 'bg-primary/10'
 
 /** 앞에 아이콘이 있는 사이드바 메뉴의 선택 행 — 아이콘만 primary 로 한 번 더 강조한다. */
 export const SELECTED_NAV_CLASS = `${SELECTED_ROW_CLASS} [&_svg]:text-primary`
