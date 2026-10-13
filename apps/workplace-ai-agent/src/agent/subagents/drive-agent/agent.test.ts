@@ -72,6 +72,20 @@ describe('drive-agent 정의', () => {
     expect(prompt).not.toMatch(/파일 이름 변경은 미지원/);
   });
 
+  // WP-369 R6: AI Chat 사용자에게는 셸이 없어 create_drive_file 은 content 모드만 쓰고, 로컬 파일은 웹으로 안내한다.
+  it('내용 저장은 content 필수·새 버전 주의, 로컬 파일 업로드는 웹 안내, 다운로드 링크는 10분·한 번·전달 금지를 안내한다', () => {
+    const prompt = loaded['drive-agent'].prompt;
+    expect(prompt).toContain('create_drive_file(spaceId, name, content, folderId?)');
+    expect(prompt).toContain('**`content` 를 반드시 넘깁니다**');
+    expect(prompt).toContain('**새 버전**');
+    expect(prompt).toMatch(/로컬 파일.*웹 드라이브 화면에서 직접 올리라고/);
+    expect(prompt).toContain('create_drive_download_link(driveFileId)');
+    expect(prompt).toContain('**10분 동안 한 번만**');
+    expect(prompt).toMatch(/다른 사람에게 전달하지 말라고/);
+    // 예전 "업로드는 미지원" 안내는 남기지 않는다.
+    expect(prompt).not.toMatch(/업로드·멤버 변경·파일 버전 롤백\(되돌리기\)은 미지원/);
+  });
+
   // WP-354: 라우터가 되묻지 않고 위임하므로, 저장 위치가 모호하면 drive-agent 가 사용자에게 묻는다.
   it('첨부 저장 위치 규칙: 사용자 지정 → 쓰기 가능 스페이스가 하나면 그곳 → 여럿이면 되묻기', () => {
     const prompt = loaded['drive-agent'].prompt;

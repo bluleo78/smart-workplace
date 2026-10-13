@@ -1487,6 +1487,29 @@ describe('공유로 옮긴 쓰기 도구는 에이전트 신원(toolClient(agent
     expect(c.sc.importAttachmentToDrive).toHaveBeenCalledWith(2, null, 900);
   });
 
+  // WP-369 R6: AI Chat 의 create_drive_file 은 content 모드만 — 업로드 링크는 API 를 부르지 않고 오류로 안내한다. 스키마는 공유본 그대로(패리티).
+  it('create_drive_file(assistant) — content 가 있으면 공유 핸들러로 텍스트 파일을 만들고, 없거나 null 이면 업로드 링크를 만들지 않는다', async () => {
+    const c = client();
+    const t = find(buildTools(c, 7, 'assistant'), 'create_drive_file');
+    const out = await t.handler({ spaceId: 2, name: '요약.md', content: '# 요약' });
+    expect(c.sc.createDriveTextFile).toHaveBeenCalledWith(2, null, '요약.md', '# 요약');
+    expect(JSON.parse(out as string)).toMatchObject({ driveFileId: 8, name: 'a.md' });
+    await t.handler({ spaceId: 2, name: '빈.txt', content: '' });
+    expect(c.sc.createDriveTextFile).toHaveBeenLastCalledWith(2, null, '빈.txt', '');
+    await expect(t.handler({ spaceId: 2, name: '보고서.pdf' })).rejects.toThrow(/웹 드라이브 화면에서 직접 올리라고/);
+    await expect(t.handler({ spaceId: 2, name: '보고서.pdf', content: null })).rejects.toThrow(/업로드 링크를 만들 수 없습니다/);
+    expect(c.sc.createDriveUploadLink).not.toHaveBeenCalled();
+    expect(t.description).toMatch(/^AI Chat 에서는 content/);
+  });
+
+  it('create_drive_download_link(assistant) — 요청자 신원의 공유 클라이언트로 링크를 만든다', async () => {
+    const c = client();
+    const out = await find(buildTools(c, 7, 'assistant'), 'create_drive_download_link').handler({ driveFileId: 5 });
+    expect(c.toolClient).toHaveBeenCalledWith(7);
+    expect(c.sc.createDriveDownloadLink).toHaveBeenCalledWith(5);
+    expect(JSON.parse(out as string)).toMatchObject({ url: 'https://w.example/dl', singleUse: true });
+  });
+
   it('옛 이름(create_folder·rename_folder·move_folder·move_file, WP-369 의 rename/move_drive_file·folder·read_attachment)은 어떤 프로필에도 없다', () => {
     const old = [
       'create_folder', 'rename_folder', 'move_folder', 'move_file',

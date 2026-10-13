@@ -389,6 +389,26 @@ export function buildTools(
       sharedTool('list_issues').description,
   };
 
+  // WP-369 R6: 파일 올리기(공유본)의 AI Chat 판 — content 모드만 허용한다. 웹 AI Chat 사용자에게는 셸이 없어 업로드 링크(curl -T)를
+  // 쓸 수 없고, 쓸 수 없는 로그인 없는 링크를 대화에 남길 이유도 없다. 입력 스키마는 공유본 그대로(패리티), content 가 없으면 API 를 부르지 않고 오류로 안내한다.
+  const sharedCreateDriveFile = sharedTool('create_drive_file');
+  const createDriveFileTool: McpTool = {
+    ...sharedCreateDriveFile,
+    description:
+      'AI Chat 에서는 content(직접 쓴 텍스트)로 파일을 만들 때만 쓰세요. 업로드 링크(content 생략)는 만들 수 없습니다 — 사용자의 로컬 파일은 웹 드라이브 화면에서 ' +
+      '직접 올리라고 안내하세요. ' +
+      sharedCreateDriveFile.description,
+    async handler(args) {
+      const content = (args as { content?: unknown } | null)?.content;
+      if (content == null) {
+        throw new Error(
+          'AI Chat 에서는 업로드 링크를 만들 수 없습니다. 저장할 내용을 content 로 넘겨 파일을 만들거나, 로컬 파일은 웹 드라이브 화면에서 직접 올리라고 안내하세요.',
+        );
+      }
+      return sharedCreateDriveFile.handler(args);
+    },
+  };
+
   if (profile === 'chat') {
     // #433: 단일 이벤트 처리 중 add_chat_message 중복 호출 방지.
     // buildTools 클로저가 run 단위로 격리돼야 성립한다 — Claude 는 실행마다 인-프로세스 서버를 새로 만들고,
@@ -1172,7 +1192,7 @@ export function buildTools(
       // WP-354: 복사·첨부 가져오기 — 확인 카드가 없는 되돌릴 수 있는 쓰기라 직접 실행(공유). 롤백은 확인 카드 대상이라 도구로 두지 않는다.
       sharedTool('copy_drive_item'), sharedTool('import_attachment_to_drive'),
       // WP-369: 다운로드 링크·파일 올리기(공유) — 확인 카드가 없는 되돌릴 수 있는 쓰기라 직접 실행. write 라 라우터에 두지 않고 drive-agent 에만 둔다.
-      sharedTool('create_drive_download_link'), sharedTool('create_drive_file'),
+      sharedTool('create_drive_download_link'), createDriveFileTool, // create_drive_file 은 content 모드만(R6)
       proposeDeleteFileTool, proposeDeleteFolderTool, // #333 M4: 드라이브 삭제 제안(confirm 필요)
       // #856: 참석자·프로젝트 멤버·채널 초대·이슈/코멘트/노트 삭제 제안(confirm 필요)
       proposeAddAttendeesTool, proposeRemoveAttendeeTool,

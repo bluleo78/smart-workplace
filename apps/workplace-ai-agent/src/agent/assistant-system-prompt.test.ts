@@ -96,6 +96,15 @@ describe('drive-agent 라우팅·라벨 (M3)', () => {
   it('drive-agent → 드라이브 전문가에게 위임 중', () => {
     expect(delegationLabel('drive-agent')).toBe('드라이브 전문가에게 위임 중');
   });
+  // WP-369 R6: 쓴 내용 저장·다운로드 링크는 drive-agent 로 위임하고(내용은 prompt 에 옮겨 적기), 로컬·첨부 파일 업로드는 웹으로 안내한다.
+  it('쓴 내용 저장·다운로드 링크는 위임하고, 로컬 파일 업로드는 위임 없이 웹 드라이브로 안내한다', () => {
+    expect(ASSISTANT_SYSTEM_PROMPT).toMatch(/쓴 내용을 파일로 저장.*파일 다운로드 링크.*\*\*drive-agent\*\*/);
+    expect(ASSISTANT_SYSTEM_PROMPT).toMatch(/저장할 텍스트 전문과 파일 이름.*prompt 에 그대로 적어/);
+    expect(ASSISTANT_SYSTEM_PROMPT).toMatch(/업로드\*\*는 미지원 — 웹 드라이브 화면에서 직접 올리라고/);
+    // 전송 도구는 write 라 라우터에 직접 싣지 않는다(drive-agent 에만).
+    expect(ASSISTANT_ROUTER_TOOLS).not.toContain('create_drive_download_link');
+    expect(ASSISTANT_ROUTER_TOOLS).not.toContain('create_drive_file');
+  });
 });
 
 describe('한-턴-다건-제안 가드 (#351)', () => {
