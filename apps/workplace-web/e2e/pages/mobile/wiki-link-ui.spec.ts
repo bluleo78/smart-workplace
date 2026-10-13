@@ -68,6 +68,8 @@ test.describe('모바일 노트 링크 시트', () => {
     await input.fill('example.com/v2')
     await page.getByTestId('wiki-link-apply').tap()
     await expect(inputSheet).toHaveCount(0)
+    // 적용하면 에디터로 포커스가 돌아온다(시트의 포커스 트랩에 붙잡혀 허공으로 빠지지 않는다).
+    await expect(page.locator('.ProseMirror')).toBeFocused()
     await expect(page.locator('.ProseMirror a')).toHaveText('설계 문서')
     await expect(page.locator('.ProseMirror a')).toHaveAttribute('href', 'https://example.com/v2')
     await expect.poll(() => savedMarkdown(page, PAGE_ID)).toBe('[설계 문서](https://example.com/v2) 참고.')

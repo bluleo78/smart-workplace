@@ -4,7 +4,7 @@ import type { Page, Route } from '@playwright/test';
 import { mockApi } from '../../fixtures/api-mock';
 import { expect, test } from '../../fixtures/auth.fixture';
 import { bodyOf, trackRequests } from '../../fixtures/requests';
-import { expectStays, measureBox, stableBox } from '../../fixtures/wait';
+import { dropDnd, expectStays, measureBox, stableBox } from '../../fixtures/wait';
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../factories/issue.factory';
 import { makeEpicType, makeSubtaskType, systemTypes } from '../../factories/issueType.factory';
 import { createProject } from '../../factories/project.factory';
@@ -110,7 +110,7 @@ function trackStatusPatch(page: Page) {
 async function dragTo(page: Page, sourceTestId: string, targetTestId: string) {
   await startDrag(page, sourceTestId);
   await moveOver(page, targetTestId);
-  await page.mouse.up();
+  await dropDnd(page);
 }
 
 test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
@@ -150,7 +150,7 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     await expect(page.getByTestId('epic-drop-hint')).toHaveText('에픽에 놓으면 연결됩니다');
     await moveOver(page, `epic-filter-${EPIC_A.number}`);
     await expect(page.getByTestId(`epic-filter-${EPIC_A.number}`)).toHaveAttribute('data-drop-state', 'over');
-    await page.mouse.up();
+    await dropDnd(page);
     await expect.poll(patches).toEqual([{ number: 1, parentNumber: EPIC_A.number }]);
     await expect(page.getByTestId('epic-side-panel')).not.toBeAttached();
     await expect(page.getByTestId('epic-panel-toggle')).toHaveAttribute('aria-pressed', 'false');
@@ -164,7 +164,7 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     await expect(page.getByTestId(`epic-filter-${EPIC_A.number}`)).toContainText('현재');
     await expect(page.getByTestId(`epic-filter-${EPIC_B.number}`)).toHaveAttribute('data-drop-state', 'allowed');
     await expect(page.getByTestId('epic-filter-unassigned')).toHaveAttribute('data-drop-state', 'allowed');
-    await page.mouse.up();
+    await dropDnd(page);
   });
 
   test('현재 에픽에 놓으면 아무 일 없음', async ({ authenticatedPage: page }) => {
@@ -179,7 +179,7 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     const statusPatch = trackStatusPatch(page);
     await page.goto(`/projects/${PROJECT_KEY}?view=board`);
     await startDrag(page, 'issue-card-1');
-    await page.mouse.up();
+    await dropDnd(page);
     await expectStays(page, patches, []);
     expect(statusPatch.count()).toBe(0);
   });
@@ -193,7 +193,7 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     await startDrag(page, 'issue-card-1');
     // 틈 = 패널 오른쪽 끝과 첫 컬럼 왼쪽 끝의 중간, 컬럼 세로 중앙.
     await page.mouse.move((aside.x + aside.width + col.x) / 2, col.y + col.height / 2, { steps: 10 });
-    await page.mouse.up();
+    await dropDnd(page);
     await expectStays(page, patches, []);
     expect(statusPatch.count()).toBe(0);
   });
@@ -210,7 +210,7 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
       await page.goto(`/projects/${PROJECT_KEY}?view=board${c.name.startsWith('SUBTASK') ? `&type=${makeSubtaskType().id}` : ''}`);
       await startDrag(page, 'issue-card-1');
       await moveOver(page, c.target);
-      await page.mouse.up();
+      await dropDnd(page);
       await expectStays(page, patches, []);
       expect(statusPatch.count()).toBe(0);
     });
@@ -239,7 +239,7 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     expect(y).toBeGreaterThan(lastEpic.y + lastEpic.height);
     expect(y).toBeLessThan(panel.y + panel.height);
     await page.mouse.move(x, y, { steps: 10 });
-    await page.mouse.up();
+    await dropDnd(page);
     await expectStays(page, patches, []);
     expect(statusPatch.count()).toBe(0);
   });
@@ -284,7 +284,7 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     await expect(first).toHaveClass(/opacity-40/);
     await expect(second).not.toHaveClass(/opacity-40/);
     await moveOver(page, `epic-filter-${EPIC_A.number}`);
-    await page.mouse.up();
+    await dropDnd(page);
     await expect.poll(patches).toEqual([{ number: 1, parentNumber: EPIC_A.number }]);
   });
 
@@ -307,7 +307,7 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     await expect(page.getByTestId('epic-drop-blocked-reason')).toHaveText('하위 작업은 에픽에 직접 연결할 수 없습니다 — 부모 이슈를 옮겨 주세요');
     await expect(page.getByTestId(`epic-filter-${EPIC_A.number}`)).toHaveAttribute('data-drop-state', 'blocked');
     await moveOver(page, `epic-filter-${EPIC_A.number}`);
-    await page.mouse.up();
+    await dropDnd(page);
     await expectStays(page, patches, []);
   });
 
@@ -317,7 +317,7 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     await startDrag(page, 'issue-row-12');
     await expect(page.getByTestId('epic-drop-blocked-reason')).toHaveText('에픽은 다른 에픽에 넣을 수 없습니다');
     await moveOver(page, `epic-filter-${EPIC_A.number}`);
-    await page.mouse.up();
+    await dropDnd(page);
     await expectStays(page, patches, []);
   });
 
@@ -330,7 +330,7 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     await expect(page.getByTestId('issue-row-drag-overlay')).not.toBeAttached();
     await expect(page.getByTestId('issue-row-1')).not.toHaveClass(/opacity-40/);
     await expect(page.getByTestId('epic-drop-hint')).not.toBeAttached();
-    await page.mouse.up();
+    await dropDnd(page);
     await expectStays(page, patches, []);
   });
 
@@ -430,7 +430,7 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     await page.mouse.down();
     await page.mouse.move(box.x + 90, box.y + box.height / 2, { steps: 5 });
     await page.mouse.move(box.x + 60, box.y + box.height / 2, { steps: 5 });
-    await page.mouse.up();
+    await dropDnd(page);
     // 원위치 놓기는 상세로 이동하지 않는다(목록에 머묾).
     await expectStays(page, () => /view=list/.test(page.url()), true);
     await page.getByTestId('issue-row-1').click({ position: { x: 60, y: box.height / 2 } });
@@ -461,7 +461,7 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     }
     expect(overlapped, '「전체 이슈」 아래에 스크롤로 가려진 에픽 사각형이 겹쳐야 한다').toBe(true);
     await page.mouse.move(p.x, p.y, { steps: 10 });
-    await page.mouse.up();
+    await dropDnd(page);
     await expectStays(page, patches, []);
   });
 
@@ -539,7 +539,7 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     await page.mouse.move(p!.x, p!.y, { steps: 10 });
     await expect.poll(() => list.evaluate((el) => el.scrollTop), { timeout: 3000 }).toBeGreaterThan(0);
     await page.keyboard.press('Escape');
-    await page.mouse.up();
+    await dropDnd(page);
   });
 
   // 다중 담당자 이슈는 담당자 그룹마다 한 번씩 렌더된다 — 드래그 id 가 겹치면 두 사본이 함께 흐려지고 고스트가 다른 사본에서 뜬다.
@@ -572,7 +572,7 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     const ghost = (await page.getByTestId('issue-row-drag-overlay').boundingBox())!;
     expect(Math.abs(ghost.y + ghost.height / 2 - (p.y + 8))).toBeLessThan(40);
     await moveOver(page, `epic-filter-${EPIC_A.number}`);
-    await page.mouse.up();
+    await dropDnd(page);
     await expect.poll(patches).toEqual([{ number: 1, parentNumber: EPIC_A.number }]);
   });
 
@@ -593,7 +593,7 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
       const g = await measureBox(chip, 'issue-row-drag-overlay');
       expect(end.x >= g.x && end.x <= g.x + g.width && end.y >= g.y && end.y <= g.y + g.height).toBe(true);
     }).toPass();
-    await page.mouse.up();
+    await dropDnd(page);
   });
 
   test('보드 담당자 그룹: 여러 컬럼에 보이는 카드는 잡은 사본만 끌리고 고스트는 포인터 옆', async ({ authenticatedPage: page }) => {
@@ -614,7 +614,7 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     expect(Math.abs(ghost.x + ghost.width / 2 - (p.x + 8))).toBeLessThan(40);
     expect(Math.abs(ghost.y + ghost.height / 2 - (p.y + 8))).toBeLessThan(40);
     await moveOver(page, `epic-filter-${EPIC_A.number}`);
-    await page.mouse.up();
+    await dropDnd(page);
     await expect.poll(patches).toEqual([{ number: 1, parentNumber: EPIC_A.number }]);
   });
 
@@ -670,7 +670,7 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     await startDrag(page, 'issue-card-1');
     await expect(page.getByTestId('epic-closed-section')).not.toBeVisible();
     // 드래그 종료 — 섹션이 다시 보이고, 펼침 상태가 유지된다.
-    await page.mouse.up();
+    await dropDnd(page);
     await expect(toggle).toHaveAttribute('aria-expanded', 'true');
     await expect(page.getByTestId('epic-closed-filter-12')).toBeVisible();
   });

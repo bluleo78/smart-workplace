@@ -9,7 +9,7 @@ import { createIssue, createIssueSearchResponse } from '../../factories/issue.fa
 import { createMember, createProject } from '../../factories/project.factory';
 import { expect, test } from '../../fixtures/auth.fixture';
 import { trackRequests } from '../../fixtures/requests';
-import { expectStays } from '../../fixtures/wait';
+import { dropDnd, expectStays } from '../../fixtures/wait';
 
 const KEY = 'WP';
 const ISSUES_PATH = `/api/v1/projects/${KEY}/issues`;
@@ -155,16 +155,14 @@ async function dragRowTo(page: Page, source: Locator, targetKey: string, beforeD
   const t = (await header.boundingBox())!;
   await page.mouse.move(t.x + t.width / 2, t.y + t.height / 2, { steps: 10 });
   if (beforeDrop) await beforeDrop();
-  await page.mouse.up();
+  await dropDnd(page);
 }
 
-// 구간 펼치기 — dnd-kit 은 드롭 직후 50ms 동안 click 을 삼키므로, 펼쳐질 때까지 재시도한다(고정 대기 대신 조건 재시도).
+// 구간 펼치기(이미 펼쳐져 있으면 그대로) — 드롭 직후 dnd-kit 의 click 막음은 dropDnd 가 풀릴 때까지 기다리므로 재시도 없이 누른다.
 async function expand(page: Page, key: string) {
   const toggle = page.getByTestId(`list-cycle-toggle-${key}`);
-  await expect(async () => {
-    if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click();
-    await expect(toggle).toHaveAttribute('aria-expanded', 'true', { timeout: 500 });
-  }).toPass();
+  if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
 }
 
 // 토스트 「되돌리기」 실행 — 한 줄 토스트는 페이지 헤더(z-45) 아래 층(토스터 z-40, #715)에 겹쳐 포인터 클릭이 막힐 수 있다.

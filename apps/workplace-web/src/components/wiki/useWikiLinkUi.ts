@@ -5,6 +5,7 @@
 import { type Editor, getMarkRange, posToDOMRect } from '@tiptap/core'
 import { type EditorState, NodeSelection, Selection } from '@tiptap/pm/state'
 import { type RefObject, useCallback, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import { toast } from 'sonner'
 
 import { clampPos, resolveRelative, toRelative, toRelativeEnd } from './wikiCollabPosition'
@@ -111,14 +112,24 @@ export function useWikiLinkUi(editorRef: RefObject<Editor | null>) {
     [editorRef],
   )
 
+  /**
+   * 주소 입력을 바로 내리고 에디터로 포커스를 돌린다. Tiptap focus() 명령은 다음 프레임(rAF)에 포커스·선택을 돌려, 부하로
+   * 프레임이 늦으면 그 사이 친 글자가 포커스 없는 곳으로 사라지고 그 사이 옮긴 커서를 옛 선택으로 덮는다 — view.focus() 로
+   * 동기로 돌린다. 터치 시트는 모달 포커스 트랩이라 떠 있는 동안 포커스하면 입력칸으로 되돌려지므로 먼저 동기로 내린다.
+   */
+  const closeAndFocus = useCallback((ed: Editor) => {
+    flushSync(() => setInput(null))
+    ed.view.focus()
+  }, [])
+
   /** 주소 입력을 닫는다. refocus 면 에디터로 포커스를 돌린다(바깥 클릭으로 닫힐 땐 그 클릭이 커서를 정한다). */
   const closeInput = useCallback(
     (refocus: boolean) => {
-      setInput(null)
       const ed = editorRef.current
-      if (refocus && ed && !ed.isDestroyed) ed.commands.focus()
+      if (refocus && ed && !ed.isDestroyed) closeAndFocus(ed)
+      else setInput(null)
     },
-    [editorRef],
+    [editorRef, closeAndFocus],
   )
 
   /**
@@ -137,26 +148,26 @@ export function useWikiLinkUi(editorRef: RefObject<Editor | null>) {
       const href = normalizeLinkInput(raw)
       if (!href) return false
       const range = input.resolve(ed)
-      setInput(null)
-      if (!range || (input.mode === 'link' && range.from === range.to)) {
+      const mode = input.mode
+      closeAndFocus(ed)
+      if (!range || (mode === 'link' && range.from === range.to)) {
         toast.error(GONE_MESSAGE)
-        ed.commands.focus()
         return true
       }
       const { from, to } = range
-      if (input.mode === 'insert') {
+      if (mode === 'insert') {
         const text = raw.trim()
         ed.chain()
-          .focus()
           .insertContentAt(from, { type: 'text', text, marks: [{ type: 'link', attrs: { href } }] })
           .setTextSelection(from + text.length)
+          .scrollIntoView()
           .run()
       } else {
-        ed.chain().focus().setTextSelection({ from, to }).setLink({ href }).setTextSelection(to).run()
+        ed.chain().setTextSelection({ from, to }).setLink({ href }).setTextSelection(to).scrollIntoView().run()
       }
       return true
     },
-    [editorRef, input],
+    [editorRef, input, closeAndFocus],
   )
 
   /** 커서가 든 링크 하나만 푼다(맞닿은 다른 주소의 링크는 그대로). 글자는 남긴다. */
@@ -164,7 +175,8 @@ export function useWikiLinkUi(editorRef: RefObject<Editor | null>) {
     const ed = editableEditor(editorRef)
     const r = ed && linkAtCaret(ed.state)
     if (!ed || !r) return
-    ed.chain().focus().setTextSelection(r).unsetLink().setTextSelection(r.to).run()
+    ed.view.focus() // 다음 프레임이 아니라 바로(closeAndFocus 참조)
+    ed.chain().setTextSelection(r).unsetLink().setTextSelection(r.to).scrollIntoView().run()
   }, [editorRef])
 
   /** 터치 셸에서 누른 링크(<a>)로 시트를 연다 — 키보드가 시트를 가리지 않게 에디터 포커스를 뺀다. */
