@@ -101,6 +101,12 @@ public class HomeSessionService {
     return extractedText.attach(items, HomeAttachment::fileId, HomeAttachment::withExtraction);
   }
 
+  /** 최근 대화 제목(WP-139) — 추천 생성 HTTP 는 트랜잭션 밖에서 하도록 제목만 먼저 읽는다. */
+  @Transactional(readOnly = true)
+  public List<String> recentTitles(long callerId, int limit) {
+    return sessionRepo.recentTitles(callerId, limit);
+  }
+
   /** 세션 누적 요약 상태(WP-232). 소유자 검증 후 반환, 요약이 없으면 (null, null). */
   @Transactional(readOnly = true)
   public HomeSessionRepository.SummaryState getContextSummary(long callerId, UUID sessionId) {
