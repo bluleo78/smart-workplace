@@ -7,6 +7,23 @@ export function resourceChangedFrame(data: object): string {
 }
 
 /**
+ * auth.fixture 의 기본 '열린 채 유지되는' SSE 스트림에 프레임을 밀어 넣는다 — 연결을 끊지 않는다.
+ * mockGatedEvents 는 deliver() 전까지 응답을 보류해 클라이언트가 '연결 안 됨'으로 남고, 채팅 화면은 800ms 뒤
+ * 재연결 배너를 띄워 레이아웃을 밀어 낸다. 호버·좌표에 기대는 시나리오는 연결이 유지되는 이 헬퍼를 쓴다.
+ * 스펙이 /api/v1/events 를 따로 route 하지 않아야 하며, 열린 스트림이 아직 없으면 생길 때까지 기다린다.
+ */
+export async function pushHeldEvents(page: Page, body: string): Promise<void> {
+  await page.waitForFunction(
+    () => ((window as unknown as { __e2eHeldSse?: Set<unknown> }).__e2eHeldSse?.size ?? 0) > 0,
+  );
+  await page.evaluate((frame) => {
+    const held = (window as unknown as { __e2eHeldSse: Set<ReadableStreamDefaultController<Uint8Array>> }).__e2eHeldSse;
+    const bytes = new TextEncoder().encode(frame);
+    for (const controller of held) controller.enqueue(bytes);
+  }, body);
+}
+
+/**
  * /api/v1/events 를 게이트된 단일 프레임으로 모킹한다.
  * - deliver() 이전에 도착한 요청은 보류한다. StrictMode 이중 마운트로 첫 연결 요청이 2번 올 수 있어(앞선 것은 취소됨)
  *   '몇 번째 요청인가'가 아니라 '릴리스 이전에 도착했는가'로 구분한다.

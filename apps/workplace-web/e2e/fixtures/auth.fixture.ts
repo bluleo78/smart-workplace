@@ -219,9 +219,14 @@ export async function setupAuthMocks(page: Page, user: UserResponse, roles: Role
       if (res.headers.get(holdHeader) !== '1') return res
       // 요청 signal abort(언마운트·재연결 정리) 시에만 본문을 에러로 끝내 reader.read() 루프를 풀어준다.
       const signal = init?.signal ?? (input instanceof Request ? input.signal : undefined)
+      // 열린 스트림 controller 모음 — pushHeldEvents(gatedEvents.ts)가 연결을 끊지 않고 프레임을 밀어 넣을 때 쓴다.
+      const w = window as unknown as { __e2eHeldSse?: Set<ReadableStreamDefaultController<Uint8Array>> }
+      const held = (w.__e2eHeldSse ??= new Set())
       const body = new ReadableStream<Uint8Array>({
         start(controller) {
+          held.add(controller)
           const abort = () => {
+            held.delete(controller)
             try {
               controller.error(new DOMException('Aborted', 'AbortError'))
             } catch {
