@@ -5,6 +5,9 @@ import static com.workplace.jooq.Tables.AGENT_WORK_EVENT;
 import static com.workplace.jooq.Tables.ISSUE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doReturn;
 
 import com.workplace.issue.dto.AgentWorkPatch;
 import com.workplace.issue.dto.AgentWorkView;
@@ -20,11 +23,13 @@ import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.annotation.Transactional;
 
 /** AgentWorkService 통합 테스트(WP-377) — 보고 생성/갱신·급한 순 정렬과 무소식·사람 응답 복귀·일괄 종료. */
@@ -32,7 +37,8 @@ import org.springframework.transaction.annotation.Transactional;
 class AgentWorkServiceTest extends IntegrationTestBase {
 
   @Autowired AgentWorkService service;
-  @Autowired AgentWorkRepository repo;
+  // 스파이 — 평소엔 실제 저장소로 위임하고, 충돌 직후 종료 경합 테스트에서만 insertIfAbsent 결과를 바꾼다.
+  @MockitoSpyBean AgentWorkRepository repo;
   @Autowired DSLContext dsl;
   @Autowired IssueRepository issueRepository;
   @Autowired ProjectService projectService;
@@ -180,6 +186,20 @@ class AgentWorkServiceTest extends IntegrationTestBase {
   void startOrUpdate_종료된_이슈면_NPE_대신_AgentWorkIssueClosedException() {
     // 보고 검증을 우회해 서비스를 직접 호출 — 동시 종료로 조회에서 이슈가 빠지는 경합과 같은 상황.
     dsl.update(ISSUE).set(ISSUE.STATUS, "DONE").where(ISSUE.ID.eq(issueId)).execute();
+    assertThatThrownBy(
+            () -> service.startOrUpdate(issueId, humanId, "claude-code", AgentWorkPatch.empty()))
+        .isInstanceOf(AgentWorkIssueClosedException.class);
+  }
+
+  /**
+   * insert 가 진행 중 행과 충돌했는데 돌려받기 전에 그 행이 종료돼 조회가 비는 경합 — 500(IllegalStateException)이 아니라 409 로 답한다.
+   * 경합은 저장소의 insertIfAbsent 가 빈 결과를 돌려주는 것으로 재현한다.
+   */
+  @Test
+  void startOrUpdate_충돌한_행이_그사이_종료되면_409_AgentWorkIssueClosedException() {
+    doReturn(Optional.empty())
+        .when(repo)
+        .insertIfAbsent(anyLong(), anyLong(), any(), any(), any(), any(), any(), any());
     assertThatThrownBy(
             () -> service.startOrUpdate(issueId, humanId, "claude-code", AgentWorkPatch.empty()))
         .isInstanceOf(AgentWorkIssueClosedException.class);

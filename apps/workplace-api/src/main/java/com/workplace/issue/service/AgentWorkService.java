@@ -13,6 +13,7 @@ import com.workplace.issue.repository.AgentWorkRepository;
 import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.project.repository.ProjectRepository;
+import com.workplace.user.repository.UserRepository;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
@@ -42,6 +43,7 @@ public class AgentWorkService {
   private final IssueAssigneeRepository assigneeRepository;
   private final IssueRepository issueRepository;
   private final ProjectRepository projectRepository;
+  private final UserRepository userRepository;
   private final IssueChangeNotifier notifier;
 
   /** 이슈들의 진행 중 작업을 급한 순으로 정렬해 이슈별로 돌려준다. 작업 없는 이슈는 키가 없다. */
@@ -64,6 +66,7 @@ public class AgentWorkService {
       long issueId, long workerId, String tool, AgentWorkPatch patch) {
     String initial =
         AgentWorkState.isActive(patch.state()) ? patch.state() : AgentWorkState.WORKING;
+    // 충돌로 기존 행을 돌려받았는데 그 사이 다른 트랜잭션이 종료해 진행 중 행이 없으면(조회가 비면) 500 이 아니라 409 로 답한다.
     var row =
         repository
             .insertIfAbsent(
@@ -75,7 +78,7 @@ public class AgentWorkService {
                 patch.progress(),
                 patch.stepsDone(),
                 patch.stepsTotal())
-            .orElseThrow(() -> new IllegalStateException("agent_work 생성 후 조회 실패"));
+            .orElseThrow(AgentWorkIssueClosedException::new);
     // 답변 필요·인증 필요에서 다른 상태로 바뀌는데 새 note 가 없으면 질문·요청 note 를 지운다 — 남기면 "작업 중 · 질문" 으로 아직 묻는 것처럼 보인다.
     boolean leavingInterrupt =
         isInterrupt(row.state())
@@ -83,6 +86,19 @@ public class AgentWorkService {
             && !row.state().equals(patch.state())
             && patch.note() == null;
     var effective = patch.withTool(tool);
+    // 담당자 추가로 미리 만들어 둔 "시작 전"(SUBMITTED) 행에 첫 보고가 상태 없이 왔으면 작업 중으로 — 새 행을 만들지 않고 같은 행을 이어 쓴다.
+    // (tool 은 위 withTool 로 이미 요청 값이 실려 비어 있던 SUBMITTED 행의 tool 이 채워진다.)
+    if (AgentWorkState.SUBMITTED.equals(row.state()) && effective.state() == null) {
+      effective =
+          new AgentWorkPatch(
+              effective.tool(),
+              AgentWorkState.WORKING,
+              effective.note(),
+              effective.clearNote(),
+              effective.progress(),
+              effective.stepsDone(),
+              effective.stepsTotal());
+    }
     if (leavingInterrupt) {
       effective =
           new AgentWorkPatch(
@@ -103,6 +119,20 @@ public class AgentWorkService {
         .filter(v -> v.worker().id() == workerId)
         .findFirst()
         .orElseThrow(AgentWorkIssueClosedException::new);
+  }
+
+  /**
+   * 담당자로 새로 들어간 구성원 중 외부 실행 AI 에이전트에게 "시작 전"(SUBMITTED) 작업을 미리 만든다(A2A submitted). 이슈가 이미
+   * 종료(DONE·CANCELED) 상태면 만들지 않는다. 내부 AI·사람은 대상이 아니다. 사용자는 한 번에 일괄 조회하고(N+1 회피), 이미 진행 중 작업이 있으면
+   * insertIfAbsent 가 아무것도 넣지 않아 멱등이다(이벤트도 없다). tool 은 아직 모르므로 null — 첫 보고·터치가 채운다. 알림은 호출자(이슈
+   * 생성·담당자 변경 알림)가 이미 낸다.
+   */
+  public void submitForAssignees(long issueId, String issueStatus, Collection<Long> addedUserIds) {
+    if (addedUserIds == null || addedUserIds.isEmpty()) return;
+    if (IssueStatuses.CLOSED.contains(issueStatus)) return;
+    for (long agentId : userRepository.findExternalAgentIds(addedUserIds)) {
+      repository.insertIfAbsent(issueId, agentId, null, AgentWorkState.SUBMITTED);
+    }
   }
 
   /** 종료 — 진행 중이면 지정한 종료 상태(COMPLETED·FAILED·CANCELED·REJECTED)로 끝내고 알림, 없으면 false. */

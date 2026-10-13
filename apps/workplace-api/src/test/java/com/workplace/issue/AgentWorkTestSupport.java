@@ -390,9 +390,14 @@ public abstract class AgentWorkTestSupport extends IntegrationTestBase {
                 .fetch(AGENT_WORK_EVENT.STATE));
   }
 
-  /** 도구를 모르는 SUBMITTED 작업을 저장소로 직접 만든다(자동 생성은 A2 범위라 시드로 대신). */
+  /** 도구를 모르는 SUBMITTED 작업을 저장소로 직접 만든다(담당자 추가 경로를 거치지 않고 상태만 시드할 때). */
   protected void seedSubmitted(long issueId, long workerId) {
     inTenant(() -> agentWorkRepository.insertIfAbsent(issueId, workerId, null, "SUBMITTED"));
+  }
+
+  /** AI 구성원을 외부 실행(EXTERNAL)으로 바꾼다 — 담당자로 들어올 때 "시작 전" 작업이 만들어지는 대상. 기본은 내부 실행(INTERNAL). */
+  protected void makeExternal(long agentUserId) {
+    dsl.update(USER).set(USER.AGENT_RUNTIME, "EXTERNAL").where(USER.ID.eq(agentUserId)).execute();
   }
 
   /** 이슈의 진행 중 작업 수. */

@@ -337,6 +337,21 @@ public class UserRepository {
             .fetch(USER.ID));
   }
 
+  /**
+   * 주어진 id 들 중 외부 에이전트가 직접 일하는 에이전트(kind=AGENT, runtime=EXTERNAL)의 id 집합 (WP-377). 담당자로 지정될 때 "시작
+   * 전" AI 작업을 미리 만들 대상을 한 번의 쿼리로 가려낸다.
+   */
+  public Set<Long> findExternalAgentIds(Collection<Long> ids) {
+    if (ids == null || ids.isEmpty()) return Set.of();
+    return Set.copyOf(
+        dsl.select(USER.ID)
+            .from(USER)
+            .where(USER.ID.in(ids))
+            .and(USER.KIND.eq(UserKind.AGENT))
+            .and(USER.AGENT_RUNTIME.eq(AgentRuntime.EXTERNAL))
+            .fetch(USER.ID));
+  }
+
   /** 표시 이름(name)만 변경한다 — 개인 비서 이름 변경 등. email/username 은 보존. */
   public void updateName(Long id, String name) {
     dsl.update(USER)
