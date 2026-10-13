@@ -91,6 +91,28 @@ class AgentWorkControllerTest extends AgentWorkTestSupport {
   }
 
   @Test
+  void ENDED_와_message_는_챗에_올리고_작업을_종료() {
+    putReport(akToken, TOOL, Map.of("note", "시작"));
+    var r = putReport(akToken, TOOL, Map.of("state", "ENDED", "message", "마쳤습니다"));
+    assertThat(r.getStatusCode()).isEqualTo(HttpStatus.OK);
+    assertThat(body(r).at("/ended").asBoolean()).isTrue();
+    var m = lastChatMessage(issueId);
+    assertThat(m.authorId()).isEqualTo(agentId);
+    assertThat(m.body()).isEqualTo("마쳤습니다");
+    assertThat(m.isQuestion()).isFalse();
+    assertThat(activeWork(issueId, agentId)).isEmpty();
+  }
+
+  @Test
+  void message_첫줄_note_는_서로게이트_쌍을_쪼개지_않음() {
+    // 119자 + 이모지(UTF-16 2칸)가 120 경계에 걸린다.
+    String msg = "가".repeat(119) + "😀뒤";
+    putReport(patToken, TOOL, Map.of("message", msg));
+    String note = activeWork(issueId, humanId).orElseThrow().note();
+    assertThat(note).isEqualTo("가".repeat(119));
+  }
+
+  @Test
   void 처음부터_ENDED_면_이슈상태_TODO_그대로() {
     var r = putReport(patToken, TOOL, Map.of("state", "ENDED"));
     assertThat(r.getStatusCode()).isEqualTo(HttpStatus.OK);

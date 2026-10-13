@@ -59,6 +59,10 @@ public class AgentWorkReportService {
 
     // ENDED 는 저장 상태가 아니라 종료 신호 — startOrUpdate 에 넘기면 state 컬럼에 "ENDED" 가 써진다. 이슈 상태는 건드리지 않는다.
     if (AgentWorkState.ENDED.equals(req.state())) {
+      // message 는 상태와 무관한 챗 글(스펙 §4.1) — 종료 보고여도 올린다(질문 표시 없음). note·progress 는 종료라 무시.
+      if (req.message() != null && !req.message().isBlank()) {
+        chatPoster.post(callerId, projectKey, number, req.message());
+      }
       agentWorkService.end(issue.id(), callerId);
       return new AgentWorkReportResponse(null, true);
     }
@@ -104,6 +108,9 @@ public class AgentWorkReportService {
   /** message 첫 줄(앞뒤 공백 제거)을 note 한도로 자른다. */
   private static String firstLine(String message) {
     String line = message.strip().lines().findFirst().orElse("").strip();
-    return line.length() > NOTE_MAX ? line.substring(0, NOTE_MAX) : line;
+    if (line.length() <= NOTE_MAX) return line;
+    // 서로게이트 쌍(이모지 등)을 반으로 쪼개지 않도록 경계가 high surrogate 면 한 글자 물린다.
+    int end = Character.isHighSurrogate(line.charAt(NOTE_MAX - 1)) ? NOTE_MAX - 1 : NOTE_MAX;
+    return line.substring(0, end);
   }
 }

@@ -295,6 +295,13 @@ public abstract class AgentWorkTestSupport extends IntegrationTestBase {
 
   /** 이슈 챗 마지막 글(작성자 id·질문 표시). 없으면 null. */
   protected ChatRow lastChatMessage(long issueId) {
+    var row = lastChatMessageOrNull(issueId);
+    org.assertj.core.api.Assertions.assertThat(row).as("이슈 %d 챗에 글이 없다", issueId).isNotNull();
+    return row;
+  }
+
+  /** 이슈 챗 마지막 글 — 없으면 null. */
+  protected ChatRow lastChatMessageOrNull(long issueId) {
     return inTenant(
         () ->
             dsl.select(CHAT_MESSAGE.AUTHOR_ID, CHAT_MESSAGE.IS_QUESTION, CHAT_MESSAGE.BODY)
