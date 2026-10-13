@@ -84,13 +84,23 @@ class AssistantSuggestionModelTest extends IntegrationTestBase {
     return human;
   }
 
-  /** 기존 사용자의 개인 비서 자격증명을 (재)등록 — provider 는 "anthropic" 또는 "opencode"(모델 gpt-4.1). */
+  /**
+   * 기존 사용자의 개인 비서 자격증명을 (재)등록 — provider 는 "anthropic" 또는 "opencode"(providerId openai, 모델
+   * gpt-4.1).
+   */
   private void registerCredential(long human, String provider) throws Exception {
+    registerCredential(human, provider, "openai");
+  }
+
+  /** (재)등록 — opencode 면 providerId 를 고른다(추천 모델 "providerId/model" 접두 판정 검증용). */
+  private void registerCredential(long human, String provider, String providerId) throws Exception {
     String body;
     if ("opencode".equals(provider)) {
       var config =
           new ProviderConfig(
-              "openai", null, Map.of("baseURL", "https://api.example.com/v1", "apiKey", "sk-xxxx"));
+              providerId,
+              null,
+              Map.of("baseURL", "https://api.example.com/v1", "apiKey", "sk-xxxx"));
       body =
           om.writeValueAsString(
               new RegisterAssistantCredentialRequest(
@@ -267,6 +277,42 @@ class AssistantSuggestionModelTest extends IntegrationTestBase {
     registerCredential(human, "anthropic");
 
     statusOf(human).andExpect(jsonPath("$.suggestionModel").value("claude-opus-5-5"));
+  }
+
+  @Test
+  void opencode_를_다른_providerId_로_재등록하면_추천_모델이_자동으로_돌아간다() throws Exception {
+    // provider 계열은 같아도 "openai/…" 는 새 연결(providerId other)에서 쓸 수 없는 모델이다 — 남기면 추천·후속이 조용히 빠진다.
+    long human = humanWithOpencodeAssistant();
+    putSettings(human, "{\"suggestionModel\":\"openai/gpt-4.1-mini\"}")
+        .andExpect(status().isNoContent());
+
+    registerCredential(human, "opencode", "other");
+
+    statusOf(human).andExpect(jsonPath("$.suggestionModel").doesNotExist());
+    assertThat(resolver.resolve(human).suggestionModel()).isNull();
+  }
+
+  @Test
+  void opencode_를_같은_providerId_로_재등록하면_추천_모델을_지킨다() throws Exception {
+    // API 키 교체처럼 같은 연결을 다시 등록하는 경우 — 사용자 선택을 지운다면 매번 다시 골라야 한다.
+    long human = humanWithOpencodeAssistant();
+    putSettings(human, "{\"suggestionModel\":\"openai/gpt-4.1-mini\"}")
+        .andExpect(status().isNoContent());
+
+    registerCredential(human, "opencode", "openai");
+
+    statusOf(human).andExpect(jsonPath("$.suggestionModel").value("openai/gpt-4.1-mini"));
+  }
+
+  @Test
+  void opencode_재등록_때_접두가_없는_추천_모델은_자동으로_돌아간다() throws Exception {
+    // "providerId/" 접두가 없으면 어느 연결용인지 알 수 없다 — 새 연결에서 쓸 수 있다고 볼 근거가 없다.
+    long human = humanWithOpencodeAssistant();
+    putSettings(human, "{\"suggestionModel\":\"gpt-4.1-mini\"}").andExpect(status().isNoContent());
+
+    registerCredential(human, "opencode", "openai");
+
+    statusOf(human).andExpect(jsonPath("$.suggestionModel").doesNotExist());
   }
 
   @Test
