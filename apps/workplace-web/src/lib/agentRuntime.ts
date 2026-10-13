@@ -32,8 +32,8 @@ export const RUNTIME_LOCKED_REASON =
 
 /**
  * 외부 에이전트가 접속할 공개 MCP 엔드포인트.
- * 웹 앱에 별도 env(VITE_*)가 없고, 운영·로컬 모두 같은 origin 의 /mcp 로 라우팅(Ingress/프록시)되므로
- * 현재 접속 origin 에서 유도한다.
+ * 웹 앱에 별도 env(VITE_*)가 없고, 같은 origin 의 /mcp 로 라우팅되므로 현재 접속 origin 에서 유도한다.
+ * 운영은 Ingress(mcpPathOnWeb)가, 로컬 개발은 Vite 개발 서버 프록시(vite.config.ts 의 /mcp → 6090)가 MCP 서버로 보낸다.
  */
 export function resolveMcpUrl(origin: string = window.location.origin): string {
   return `${origin}/mcp`;
