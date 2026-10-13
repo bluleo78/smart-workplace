@@ -175,6 +175,11 @@ public class User extends TableImpl<UserRecord> {
      */
     public final TableField<UserRecord, String> TITLE = createField(DSL.name("title"), SQLDataType.VARCHAR(100), this, "");
 
+    /**
+     * The column <code>public.user.ai_suggestions_enabled</code>.
+     */
+    public final TableField<UserRecord, Boolean> AI_SUGGESTIONS_ENABLED = createField(DSL.name("ai_suggestions_enabled"), SQLDataType.BOOLEAN, this, "");
+
     private User(Name alias, Table<UserRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

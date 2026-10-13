@@ -162,6 +162,20 @@ public class HomeMessageRecord extends UpdatableRecordImpl<HomeMessageRecord> {
         return (String) get(9);
     }
 
+    /**
+     * Setter for <code>public.home_message.followups</code>.
+     */
+    public void setFollowups(JSONB value) {
+        set(10, value);
+    }
+
+    /**
+     * Getter for <code>public.home_message.followups</code>.
+     */
+    public JSONB getFollowups() {
+        return (JSONB) get(10);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -185,7 +199,7 @@ public class HomeMessageRecord extends UpdatableRecordImpl<HomeMessageRecord> {
     /**
      * Create a detached, initialised HomeMessageRecord
      */
-    public HomeMessageRecord(Long id, UUID sessionId, String role, String content, JSONB widgets, OffsetDateTime createdAt, Long tenantId, JSONB toolCalls, JSONB contentBlocks, String status) {
+    public HomeMessageRecord(Long id, UUID sessionId, String role, String content, JSONB widgets, OffsetDateTime createdAt, Long tenantId, JSONB toolCalls, JSONB contentBlocks, String status, JSONB followups) {
         super(HomeMessage.HOME_MESSAGE);
 
         setId(id);
@@ -198,6 +212,7 @@ public class HomeMessageRecord extends UpdatableRecordImpl<HomeMessageRecord> {
         setToolCalls(toolCalls);
         setContentBlocks(contentBlocks);
         setStatus(status);
+        setFollowups(followups);
         resetChangedOnNotNull();
     }
 }

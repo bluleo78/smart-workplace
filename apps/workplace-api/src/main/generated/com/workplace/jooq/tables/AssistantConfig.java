@@ -97,6 +97,11 @@ public class AssistantConfig extends TableImpl<AssistantConfigRecord> {
      */
     public final TableField<AssistantConfigRecord, Long> TENANT_ID = createField(DSL.name("tenant_id"), SQLDataType.BIGINT.nullable(false).defaultValue(DSL.field(DSL.raw("(NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::bigint"), SQLDataType.BIGINT)), this, "");
 
+    /**
+     * The column <code>public.assistant_config.suggestion_model</code>.
+     */
+    public final TableField<AssistantConfigRecord, String> SUGGESTION_MODEL = createField(DSL.name("suggestion_model"), SQLDataType.VARCHAR(64), this, "");
+
     private AssistantConfig(Name alias, Table<AssistantConfigRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

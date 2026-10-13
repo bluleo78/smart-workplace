@@ -258,6 +258,25 @@ public class UserRepository {
         .execute();
   }
 
+  /** AI 추천 질문 사용 여부(WP-139). NULL(미설정)·없는 사용자는 켜짐으로 본다 — 기본 켜짐이 스펙. */
+  public boolean isAiSuggestionsEnabled(long id) {
+    Boolean v =
+        dsl.select(USER.AI_SUGGESTIONS_ENABLED)
+            .from(USER)
+            .where(USER.ID.eq(id))
+            .fetchOne(USER.AI_SUGGESTIONS_ENABLED);
+    return v == null || v;
+  }
+
+  /** AI 추천 질문 사용 여부 저장(WP-139). */
+  public void updateAiSuggestionsEnabled(long id, boolean enabled) {
+    dsl.update(USER)
+        .set(USER.AI_SUGGESTIONS_ENABLED, enabled)
+        .set(USER.UPDATED_AT, LocalDateTime.now())
+        .where(USER.ID.eq(id))
+        .execute();
+  }
+
   public boolean existsById(Long id) {
     return dsl.fetchExists(dsl.selectOne().from(USER).where(USER.ID.eq(id)));
   }
