@@ -304,7 +304,7 @@ test.describe('프로필 개인 비서', () => {
     // native <select> 요소가 없어야 한다 — shadcn SelectTrigger(role="combobox")로 대체됨.
     await expect(page.locator('select')).toHaveCount(0)
 
-    await expect(page.getByRole('combobox', { name: '모델' })).toBeVisible()
+    await expect(page.getByRole('combobox', { name: '모델', exact: true })).toBeVisible()
     await expect(page.getByRole('combobox', { name: '생각의 깊이' })).toBeVisible()
   })
 
@@ -336,9 +336,9 @@ test.describe('프로필 개인 비서', () => {
     await expect(page.getByTestId('assistant-configured')).toBeVisible()
     await modelGets.waitFor()
 
-    await expect(page.getByRole('combobox', { name: '모델' })).toContainText('Claude Sonnet 5')
+    await expect(page.getByRole('combobox', { name: '모델', exact: true })).toContainText('Claude Sonnet 5')
 
-    await page.getByRole('combobox', { name: '모델' }).click()
+    await page.getByRole('combobox', { name: '모델', exact: true }).click()
     await expect(page.getByRole('option', { name: 'Claude Sonnet 5' })).toBeVisible()
     await expect(page.getByRole('option', { name: 'Claude Opus 4.8' })).toBeVisible()
     await expect(page.getByRole('option', { name: 'Claude Haiku 4.5' })).toBeVisible()
@@ -375,12 +375,12 @@ test.describe('프로필 개인 비서', () => {
 
     // 응답이 오기 전: 로딩 스켈레톤이 보이고, Select/폴백 텍스트는 아직 없어야 한다.
     await expect(page.getByTestId('assistant-model-loading')).toBeVisible()
-    await expect(page.getByRole('combobox', { name: '모델' })).not.toBeVisible()
+    await expect(page.getByRole('combobox', { name: '모델', exact: true })).not.toBeVisible()
 
     // 응답 도착 후: 스켈레톤은 사라지고 Select 가 나타난다.
     resolveModels?.()
     await expect(page.getByTestId('assistant-model-loading')).not.toBeVisible()
-    await expect(page.getByRole('combobox', { name: '모델' })).toBeVisible()
+    await expect(page.getByRole('combobox', { name: '모델', exact: true })).toBeVisible()
   })
 
   // 모델 목록이 비어 있으면(프로바이더가 목록 조회 미지원) Select 대신 현재값 표시 + 직접 입력 폴백 노출.
@@ -492,7 +492,7 @@ test.describe('프로필 개인 비서', () => {
 
     await page.goto('/settings/assistant')
     await expect(page.getByTestId('assistant-configured')).toBeVisible()
-    await page.getByRole('combobox', { name: '모델' }).click()
+    await page.getByRole('combobox', { name: '모델', exact: true }).click()
     await page.getByRole('option', { name: 'Claude Opus 4.8' }).click()
 
     await expect(page.getByText('서버 오류가 발생했습니다.')).toBeVisible()
@@ -516,7 +516,7 @@ test.describe('프로필 개인 비서', () => {
 
     await page.goto('/settings/assistant')
     await expect(page.getByTestId('assistant-configured')).toBeVisible()
-    await page.getByRole('combobox', { name: '모델' }).click()
+    await page.getByRole('combobox', { name: '모델', exact: true }).click()
     await page.getByRole('option', { name: 'Claude Opus 4.8' }).click()
 
     await expect(page.getByText('비서 설정을 변경했습니다.')).toBeVisible()

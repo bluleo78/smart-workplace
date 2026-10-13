@@ -10,6 +10,7 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 
 import { probeMyAssistantModels } from '../../api/models';
+import { SuggestionModelField } from '../../components/ai/SuggestionModelField';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
@@ -34,6 +35,7 @@ import {
   useUpdateMyAssistantSettings,
 } from '../../hooks/queries/useAssistant';
 import { useAuth } from '../../hooks/useAuth';
+import { providerIdOf, withProviderPrefix } from '../../lib/ai/suggestionModel';
 import { handleApiError } from '../../lib/api-error';
 import { OPENCODE_PRESETS, type OpencodePresetKey, presetLabelFor } from '../../lib/opencode-presets';
 import type { ThinkingDepth } from '../../types/assistant';
@@ -215,11 +217,11 @@ export function PersonalAssistantSection() {
 
   // 수동 모델 변경 — 등록 폼과 동일하게 providerId/ 접두 없으면 자동 부여(현재 저장된 model 의
   // providerId 를 재사용). 접두 누락으로 인한 splitOpencodeModel 실행 시점 실패를 여기서도 방지.
-  const currentProviderId = status?.model?.includes('/') ? status.model.split('/')[0] : undefined;
+  const currentProviderId = providerIdOf(status?.model);
   const handleModelChangeManual = async () => {
     const raw = modelChangeInput.trim();
     if (!raw) return;
-    const resolved = !raw.includes('/') && currentProviderId ? `${currentProviderId}/${raw}` : raw;
+    const resolved = withProviderPrefix(raw, currentProviderId);
     await handleModelChange(resolved);
     setModelChangeInput('');
   };
@@ -228,6 +230,16 @@ export function PersonalAssistantSection() {
   const handleDepthChange = async (thinkingDepth: ThinkingDepth) => {
     try {
       await updateSettings.mutateAsync({ thinkingDepth });
+      toast.success('비서 설정을 변경했습니다.');
+    } catch (e) {
+      handleApiError(e, '비서 설정 변경에 실패했습니다.');
+    }
+  };
+
+  // WP-139: 추천 질문 모델 — 이 필드만 보낸다(서버가 보낸 필드만 바꾼다). null = 자동.
+  const handleSuggestionModelChange = async (suggestionModel: string | null) => {
+    try {
+      await updateSettings.mutateAsync({ suggestionModel });
       toast.success('비서 설정을 변경했습니다.');
     } catch (e) {
       handleApiError(e, '비서 설정 변경에 실패했습니다.');
@@ -386,6 +398,18 @@ export function PersonalAssistantSection() {
                 </SelectContent>
               </Select>
             </div>
+
+            {/* WP-139: 추천 질문 모델 — 생각의 깊이 아래, 연결 해제 위. */}
+            <SuggestionModelField
+              id="assistant-suggestion-model"
+              autoModel={status.suggestionModelAuto}
+              value={status.suggestionModel}
+              options={modelOptions}
+              loading={modelsLoading}
+              saving={updateSettings.isPending}
+              providerId={currentProviderId}
+              onChange={(v) => void handleSuggestionModelChange(v)}
+            />
 
             <Button variant="destructive" onClick={handleDisable}>
               연결 해제
