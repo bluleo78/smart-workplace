@@ -1,19 +1,25 @@
 package com.workplace.mail.repository;
 
+import static com.workplace.jooq.Tables.CONTENT_ATTACHMENT;
 import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
+import static com.workplace.jooq.Tables.FILE;
 import static com.workplace.jooq.tables.EmailContent.EMAIL_CONTENT;
 
+import com.workplace.file.api.InternalFileCategories;
 import com.workplace.jooq.tables.records.EmailContentRecord;
 import com.workplace.mail.dto.ContentSource;
 import com.workplace.mail.dto.ParsedMessage;
 import com.workplace.mail.util.MailContentHash;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.Collection;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
+import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.jooq.InsertSetMoreStep;
 import org.jooq.UpdateSetMoreStep;
+import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
 /**
@@ -182,12 +188,47 @@ public class EmailContentRepository {
   public void deleteOrphans(Collection<Long> contentIds) {
     if (contentIds == null || contentIds.isEmpty()) return;
     // 참조 0 인 content 만 삭제: notExists 서브쿼리로 살아있는 envelope 존재 여부를 체크한다.
-    dsl.deleteFrom(EMAIL_CONTENT)
-        .where(EMAIL_CONTENT.ID.in(contentIds))
-        .andNotExists(
-            dsl.selectOne()
-                .from(EMAIL_MESSAGE)
-                .where(EMAIL_MESSAGE.CONTENT_ID.eq(EMAIL_CONTENT.ID)))
+    Condition target = EMAIL_CONTENT.ID.in(contentIds).and(isOrphan());
+    expireExtractCopiesOf(target);
+    dsl.deleteFrom(EMAIL_CONTENT).where(target).execute();
+  }
+
+  /**
+   * 현재 테넌트에서 어떤 email_message 도 참조하지 않는 content 를 모두 삭제한다(MailContentGcSweeper 주기 GC). 삭제 전에 딸린 추출
+   * 사본을 만료시킨다({@link #expireExtractCopiesOf}).
+   *
+   * @return 삭제된 content 행 수
+   */
+  public int deleteAllOrphans() {
+    expireExtractCopiesOf(isOrphan());
+    return dsl.deleteFrom(EMAIL_CONTENT).where(isOrphan()).execute();
+  }
+
+  /** 살아있는 envelope(email_message)가 참조하지 않는 content. */
+  private Condition isOrphan() {
+    return DSL.notExists(
+        dsl.selectOne().from(EMAIL_MESSAGE).where(EMAIL_MESSAGE.CONTENT_ID.eq(EMAIL_CONTENT.ID)));
+  }
+
+  /**
+   * 지워질 content 의 첨부 추출 사본(WP-358)을 지금 만료시켜 FileCleanupService 가 다음 주기에 회수하게 한다.
+   *
+   * <p>content 를 지우면 content_attachment 가 CASCADE 로 사라지고 extract_file_id 링크도 함께 사라져, 그대로 두면 평문 사본
+   * file 행과 추출 텍스트가 원본 메일과 무관하게 TTL 까지 남는다. 링크가 사라지기 전(같은 트랜잭션, DELETE 직전)에 대상을 모아 만료시킨다. 그 사이
+   * content 가 다시 참조돼 살아남아도 사본만 일찍 사라질 뿐이고 다음 /text 요청이 다시 만든다(무해).
+   */
+  private void expireExtractCopiesOf(Condition contents) {
+    dsl.update(FILE)
+        .set(FILE.EXPIRES_AT, OffsetDateTime.now(ZoneOffset.UTC))
+        .where(FILE.CATEGORY.eq(InternalFileCategories.MAIL_EXTRACT))
+        .and(
+            FILE.ID.in(
+                dsl.select(CONTENT_ATTACHMENT.EXTRACT_FILE_ID)
+                    .from(CONTENT_ATTACHMENT)
+                    .join(EMAIL_CONTENT)
+                    .on(EMAIL_CONTENT.ID.eq(CONTENT_ATTACHMENT.CONTENT_ID))
+                    .where(contents)
+                    .and(CONTENT_ATTACHMENT.EXTRACT_FILE_ID.isNotNull())))
         .execute();
   }
 

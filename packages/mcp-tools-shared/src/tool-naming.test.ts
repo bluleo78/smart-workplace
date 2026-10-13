@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { buildSharedTools, type SharedToolClient } from './shared-tools.js';
+import { TOOL_APPS, toolApps } from './tool-apps.js';
+import { toolDefinitionsSize } from './tool-definitions.js';
 import { TOOL_NAME_MAX_LENGTH, toolNameViolations } from './tool-naming.js';
+
+/** 기본 연결 도구 정의 크기 상한(근사 토큰, 근사식은 tool-definitions.ts estimateTokens·README). 사용자 결정(2026-10-13). */
+const DEFINITION_TOKEN_CAP = 15_000;
+/** 앱당 도구 수 상한. 사용자 결정(2026-10-13). */
+const APP_TOOL_CAP = 15;
 
 // 도구 구성 시점에는 클라이언트 메서드를 부르지 않으므로 빈 객체로 충분하다.
 const tools = buildSharedTools({} as unknown as SharedToolClient);
@@ -29,9 +36,27 @@ describe('공유 도구 명명 규칙 (WP-347)', () => {
     expect(stale).toEqual([]);
   });
 
-  // 외부 MCP 기본 노출 상한(README "노출 기준"). workplace-mcp 는 destructive 를 뺀 나머지를 노출한다.
-  it('외부 MCP 에 노출되는 도구(destructive 제외)는 85개 이하다', () => {
-    expect(tools.filter((t) => t.kind !== 'destructive').length).toBeLessThanOrEqual(85);
+});
+
+/**
+ * 외부 MCP 노출 상한(README "도구 수와 정의 크기", WP-340 웨이브 5). 개수(예전 85개) 대신 클라이언트가 실제로 싣는 양과 앱 단위로 잰다.
+ * 외부 MCP 클라이언트는 연결한 서버의 도구 정의를 매 대화에 전부 싣기 때문에 개수보다 크기가 비용이고, 앱 선택 연결(/mcp/x/{apps})이 실을 양은 앱당 개수가 정한다.
+ */
+describe('외부 MCP 노출 상한 (WP-340 웨이브 5)', () => {
+  // workplace-mcp 기본 연결(/mcp)이 내보내는 것 — destructive 를 뺀 공유 도구 전부.
+  const exposed = tools.filter((t) => t.kind !== 'destructive');
+
+  it(`기본 연결(/mcp)의 도구 정의(tools/list)는 근사 ${DEFINITION_TOKEN_CAP} 토큰 이하다`, () => {
+    // 실패하면 도구별 크기(perTool)를 보고 큰 설명부터 줄인다 — 상한을 올리지 않는다.
+    const size = toolDefinitionsSize(exposed);
+    expect(size.tokens, JSON.stringify(size.perTool.slice(0, 10))).toBeLessThanOrEqual(DEFINITION_TOKEN_CAP);
+  });
+
+  it(`앱마다 도구는 ${APP_TOOL_CAP}개 이하다(여러 앱에 속한 도구는 각 앱에서 센다)`, () => {
+    const over = TOOL_APPS.map((app) => ({ app, count: exposed.filter((t) => toolApps(t).includes(app)).length })).filter(
+      (a) => a.count > APP_TOOL_CAP,
+    );
+    expect(over).toEqual([]);
   });
 });
 

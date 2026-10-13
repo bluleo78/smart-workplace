@@ -7,9 +7,22 @@
 export interface ProjectMetaClient {
   getProjectTypes(projectKey: string): Promise<{ id: number; name: string }[]>;
   getProjectMembers(projectKey: string): Promise<{ userId: number; username: string; name?: string; role?: string }[]>;
-  getProjectLabels(projectKey: string): Promise<{ id: number; name: string }[]>;
-  getProjectMilestones(projectKey: string): Promise<{ id: number; name: string }[]>;
-  getProjectCycles(projectKey: string): Promise<{ id: number; name: string; status?: string }[]>;
+  getProjectLabels(projectKey: string): Promise<{ id: number; name: string; colorToken?: string }[]>;
+  getProjectMilestones(projectKey: string): Promise<{ id: number; name: string; dueDate?: string | null; description?: string | null }[]>;
+  getProjectCycles(projectKey: string): Promise<
+    { id: number; name: string; status?: string; goal?: string | null; startDate?: string | null; endDate?: string | null }[]
+  >;
+  /** GET /projects/{key}/fields — 커스텀 필드 정의(WP-356). options 는 SELECT·MULTI_SELECT 만. */
+  getProjectFields(projectKey: string): Promise<ProjectFieldDef[]>;
+}
+
+/** 커스텀 필드 정의 행(IssueFieldDefResponse) — 이름 해석·값 검증에 쓰는 필드만. */
+export interface ProjectFieldDef {
+  id: number;
+  name: string;
+  /** TEXT·NUMBER·DATE·SELECT·MULTI_SELECT. */
+  type: string;
+  options?: string[] | null;
 }
 
 /**
@@ -17,15 +30,20 @@ export interface ProjectMetaClient {
  * 유형·라벨·마일스톤·사이클 리졸브가 같은 규칙(정확일치)·같은 문구를 쓰도록 한 곳에 둔다.
  */
 function idByName(rows: { id: number; name: string }[], name: string, what: string): number {
+  return rowByName(rows, name, what).id;
+}
+
+/** 이름 → 행(정확일치). 없으면 idByName 과 같은 문구로 throw — 행 전체가 필요한 곳(프로젝트 메타 수정의 병합, WP-356)이 쓴다. */
+export function rowByName<T extends { name: string }>(rows: T[], name: string, what: string): T {
   const match = rows.find((r) => r.name === name);
   if (!match) {
     throw new Error(`${what} '${name}' 을(를) 찾을 수 없습니다. 사용 가능: ${rows.map((r) => r.name).join(', ') || '(없음)'}`);
   }
-  return match.id;
+  return match;
 }
 
 /** 유형 이름 → typeId. */
-export async function resolveTypeId(client: ProjectMetaClient, projectKey: string, typeName: string): Promise<number> {
+export async function resolveTypeId(client: Pick<ProjectMetaClient, 'getProjectTypes'>, projectKey: string, typeName: string): Promise<number> {
   return idByName(await client.getProjectTypes(projectKey), typeName, '유형');
 }
 
@@ -76,7 +94,7 @@ export async function resolveAssigneeIds(
 }
 
 /** 라벨 이름 배열 → labelId 배열. */
-export async function resolveLabelIds(client: ProjectMetaClient, projectKey: string, labelNames: string[]): Promise<number[]> {
+export async function resolveLabelIds(client: Pick<ProjectMetaClient, 'getProjectLabels'>, projectKey: string, labelNames: string[]): Promise<number[]> {
   const labels = await client.getProjectLabels(projectKey);
   return labelNames.map((n) => idByName(labels, n, '라벨'));
 }
@@ -90,6 +108,61 @@ export async function resolveMilestoneId(client: ProjectMetaClient, projectKey: 
 export async function resolveCycleIds(client: ProjectMetaClient, projectKey: string, names: string[]): Promise<number[]> {
   const cycles = await client.getProjectCycles(projectKey);
   return names.map((n) => idByName(cycles, n, '사이클'));
+}
+
+/** 마일스톤 이름 CSV → 서버 milestone 쿼리(id CSV, WP-356). 서버는 숫자가 아닌 토큰을 조용히 버리므로 이름은 여기서 해석·검증한다. */
+export async function resolveMilestoneFilter(
+  client: Pick<ProjectMetaClient, 'getProjectMilestones'>,
+  projectKey: string | undefined,
+  csv: string,
+): Promise<string> {
+  if (!projectKey) throw new Error('마일스톤 이름으로 거르려면 projectKey 를 함께 지정하세요.');
+  const milestones = await client.getProjectMilestones(projectKey);
+  return csv
+    .split(',')
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .map((n) => String(idByName(milestones, n, '마일스톤')))
+    .join(',');
+}
+
+/** 커스텀 필드 이름 → 정의(WP-356). 없으면 사용 가능한 필드 이름을 담아 throw. */
+export function fieldDefByName(defs: ProjectFieldDef[], name: string): ProjectFieldDef {
+  const def = defs.find((d) => d.name === name);
+  if (!def) throw new Error(`커스텀 필드 '${name}' 을(를) 찾을 수 없습니다. 사용 가능: ${defs.map((d) => d.name).join(', ') || '(없음)'}`);
+  return def;
+}
+
+/**
+ * 커스텀 필드 값 → 서버가 받는 JSON 값(WP-356). 쓰기 전에 모양과 선택지를 확인해 실패를 미리 드러낸다(서버도 같은 검증을 한다).
+ * TEXT·DATE·SELECT 는 문자열, NUMBER 는 숫자(숫자 문자열도 받는다), MULTI_SELECT 는 문자열 배열. 선택지 밖 값은 사용 가능 목록을 담아 throw.
+ */
+export function toFieldValue(def: ProjectFieldDef, value: unknown): string | number | string[] {
+  const options = def.options ?? [];
+  const checkOption = (v: string) => {
+    if (!options.includes(v)) throw new Error(`필드 '${def.name}' 에 없는 선택지 '${v}' 입니다. 사용 가능: ${options.join(', ') || '(없음)'}`);
+    return v;
+  };
+  switch (def.type) {
+    case 'NUMBER': {
+      const n = typeof value === 'number' ? value : typeof value === 'string' && value.trim() !== '' ? Number(value) : NaN;
+      if (!Number.isFinite(n)) throw new Error(`필드 '${def.name}' 는 숫자 필드입니다: ${JSON.stringify(value)}`);
+      return n;
+    }
+    case 'MULTI_SELECT': {
+      const arr = Array.isArray(value) ? value : [value];
+      return arr.map((v) => checkOption(String(v)));
+    }
+    case 'SELECT':
+      return checkOption(String(value));
+    case 'DATE':
+      if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+        throw new Error(`필드 '${def.name}' 는 날짜 필드입니다(yyyy-MM-dd): ${JSON.stringify(value)}`);
+      }
+      return value;
+    default:
+      return String(value);
+  }
 }
 
 /**
@@ -133,8 +206,9 @@ export async function resolveCycleFilter(
  * reporter 만 준 "내가 만든" 조회에 담당 조건이 끼면 교집합이 되어 결과가 줄어든다.
  * ai-agent·workplace-mcp 의 list_issues 가 같은 규칙을 쓰도록 공유한다.
  */
-export function defaultListAssignee(p: { assignee?: string; reporter?: string }): string | undefined {
+export function defaultListAssignee(p: { assignee?: string; reporter?: string; watching?: boolean; parent?: string }): string | undefined {
   // WP-176: "any" 는 담당자 조건 없음 — 기본값 "me" 를 끄고 프로젝트 전체 이슈를 대상으로 한다.
   if (p.assignee?.trim().toLowerCase() === 'any') return undefined;
-  return p.assignee ?? (p.reporter ? undefined : 'me');
+  // WP-356: 워치 중 이슈·특정 부모의 하위 이슈는 담당자와 무관한 질문이다 — 기본 "me" 가 끼면 내 담당분만 남는다.
+  return p.assignee ?? (p.reporter || p.watching || p.parent ? undefined : 'me');
 }

@@ -12,6 +12,7 @@ import java.util.List;
  * reporterIds 는 OR 결합 — 이슈를 만든 사람(reporter_id 직접 컬럼) 필터. 비어 있으면 미적용. cycleIds 는 OR 결합 — 지정된 사이클 중
  * 하나라도 연결된 이슈만 매칭하며, includeNoOpenCycle·includeNoCycle 과 OR 결합되어 "지정 사이클 또는 백로그(진행 중·예정 사이클 밖) 또는
  * 사이클 미할당" 을 표현한다. milestoneIds 는 OR 결합 — issue.milestone_id 직접 컬럼 매칭(M:N 아님). 비어 있으면 미적용.
+ * watcherId 가 있으면 그 사용자가 워치 중인 이슈만(WP-356).
  */
 public record IssueSearchQuery(
     String q,
@@ -57,4 +58,69 @@ public record IssueSearchQuery(
     LocalDate closedTo,
     // 생성일(created_at) 범위 — Asia/Seoul 날짜 기준 양끝 포함(WP-307). null 이면 미적용.
     LocalDate createdFrom,
-    LocalDate createdTo) {}
+    LocalDate createdTo,
+    // 워치 필터(WP-356) — 이 사용자가 워치 중인 이슈만. watching=true 면 호출자 id. null 이면 미적용.
+    Long watcherId) {
+
+  /** 워치 필터 없는 기존 28-인자 호환 생성자 — 리포지토리 테스트 시드가 그대로 쓴다. */
+  public IssueSearchQuery(
+      String q,
+      List<String> statuses,
+      List<Long> assigneeIds,
+      boolean includeUnassigned,
+      List<String> priorities,
+      LocalDate dueFrom,
+      LocalDate dueTo,
+      IssueCursor cursor,
+      int size,
+      List<List<Long>> labelIdGroups,
+      List<Long> typeIds,
+      Integer parentNumber,
+      Boolean topLevel,
+      Boolean blocked,
+      Long fieldId,
+      String fieldValue,
+      List<Long> reporterIds,
+      List<Long> cycleIds,
+      boolean includeNoOpenCycle,
+      List<Long> milestoneIds,
+      Boolean excludeSubtasks,
+      Boolean excludeEpics,
+      Boolean hideInactiveClosed,
+      boolean includeNoCycle,
+      LocalDate closedFrom,
+      LocalDate closedTo,
+      LocalDate createdFrom,
+      LocalDate createdTo) {
+    this(
+        q,
+        statuses,
+        assigneeIds,
+        includeUnassigned,
+        priorities,
+        dueFrom,
+        dueTo,
+        cursor,
+        size,
+        labelIdGroups,
+        typeIds,
+        parentNumber,
+        topLevel,
+        blocked,
+        fieldId,
+        fieldValue,
+        reporterIds,
+        cycleIds,
+        includeNoOpenCycle,
+        milestoneIds,
+        excludeSubtasks,
+        excludeEpics,
+        hideInactiveClosed,
+        includeNoCycle,
+        closedFrom,
+        closedTo,
+        createdFrom,
+        createdTo,
+        null);
+  }
+}

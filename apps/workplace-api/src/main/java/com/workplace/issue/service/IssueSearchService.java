@@ -53,8 +53,9 @@ public class IssueSearchService {
   private final com.workplace.project.repository.ProjectRepository projectRepository;
 
   /**
-   * 검색. params 키: q, status, assignee, priority, dueFrom, dueTo, label, type, cursor, size.
-   * assignee·reporter 는 me/숫자 id/username, label·type 은 숫자 id/이름을 받는다(#841).
+   * 검색. params 키: q, status, assignee, priority, dueFrom, dueTo, label, type, cursor, size,
+   * watching(WP-356, true 만). assignee·reporter 는 me/숫자 id/username, label·type 은 숫자 id/이름을
+   * 받는다(#841).
    */
   public IssueSearchResponse search(Long callerId, String projectKey, Map<String, String> params) {
     // read 진입점 — OPEN 프로젝트는 테넌트 전원이 보드/목록을 조회할 수 있다(assertReadable). TEAM/PERSONAL 은 멤버만.
@@ -245,6 +246,9 @@ public class IssueSearchService {
         "true".equalsIgnoreCase(p.get("hideInactiveClosed")) ? Boolean.TRUE : null;
 
     // Phase 4c — fieldId / fieldValue. fieldId 가 숫자가 아니면 null 로 무시 (필터 미적용).
+    // WP-356 — watching=true 면 호출자가 워치 중인 이슈만. 다른 사용자의 워치 목록은 열지 않는다(값은 true 만 받는다).
+    Long watcherId = "true".equalsIgnoreCase(p.get("watching")) ? callerId : null;
+
     Long fieldId = null;
     String fieldValue = trimToNull(p.get("fieldValue"));
     String fid = trimToNull(p.get("fieldId"));
@@ -284,7 +288,8 @@ public class IssueSearchService {
         closedFrom,
         closedTo,
         createdFrom,
-        createdTo);
+        createdTo,
+        watcherId);
   }
 
   private static String trimToNull(String s) {

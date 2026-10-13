@@ -95,10 +95,9 @@ export class ApiClient {
       snapshotReason?: SnapshotReason
       aiActorId?: number
     },
-    opts: { timeoutMs?: number } = {},
+    opts: { signal?: AbortSignal } = {},
   ): Promise<number> {
-    const signal = opts.timeoutMs == null ? undefined : AbortSignal.timeout(opts.timeoutMs)
-    const res = await this.putDoc('storeDoc', tenantId, pageId, doc, signal)
+    const res = await this.putDoc('storeDoc', tenantId, pageId, doc, opts.signal)
     return ((await res.json()) as { version: number }).version
   }
 

@@ -6,7 +6,7 @@
 import { FileTooLargeError, IMAGE_MAX_BYTES } from './attachment-read.js';
 import { parseIssueKey } from './parse.js';
 import type { SharedToolClient } from './shared-tools.js';
-import type { FileBytes, PageResult, TextRange } from './tool-client.js';
+import type { FileBytes, PageResult, ProjectMetaKind, TextRange } from './tool-client.js';
 
 /** 요청 설정 — 쿼리 파라미터·DELETE 본문·바이너리 응답만 쓴다(인증 헤더는 HTTP 인스턴스가 붙인다). */
 export interface HttpRequestConfig {
@@ -82,6 +82,9 @@ async function getBytes(http: HttpLike, url: string): Promise<FileBytes> {
 /** 외부 연락처 force 쿼리 — 서버 기본값이 false 라 true 일 때만 붙인다(미지정과 같은 요청이 되도록). */
 const forceParams = (force?: boolean) => (force ? { params: { force } } : undefined);
 
+/** 프로젝트 메타 종류 → REST 경로 조각(WP-356). 서버 컨트롤러 /projects/{key}/labels·milestones·cycles. */
+const META_PATH: Record<ProjectMetaKind, string> = { label: 'labels', milestone: 'milestones', cycle: 'cycles' };
+
 /** 인증된 HTTP 인스턴스로 공유 도구 클라이언트를 만든다. */
 export function createSharedToolClient(http: HttpLike): SharedToolClient {
   /** 프로젝트 키는 경로 세그먼트라 인코딩한다. */
@@ -121,6 +124,15 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     },
     async getProjectCycles(key) {
       return (await http.get(`${project(key)}/cycles`)).data ?? [];
+    },
+    async getProjectFields(key) {
+      return (await http.get(`${project(key)}/fields`)).data ?? [];
+    },
+    async createProjectMeta(key, kind, body) {
+      return (await http.post(`${project(key)}/${META_PATH[kind]}`, body)).data;
+    },
+    async updateProjectMeta(key, kind, id, body) {
+      return (await http.patch(`${project(key)}/${META_PATH[kind]}/${id}`, body)).data;
     },
     async getMe() {
       // 호출자 신원 — PAT 는 소유자, Internal+X-On-Behalf-Of 는 대리 대상이 된다(담당자 "me" 치환·토큰 검증).
@@ -185,16 +197,37 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     async unwatchIssue(issueKey) {
       await http.delete(`${issue(issueKey)}/watch`);
     },
+    async getIssueWatchers(issueKey) {
+      return (await http.get(`${issue(issueKey)}/watchers`)).data ?? [];
+    },
+    async getIssueDriveLinks(issueKey) {
+      return (await http.get(`${issue(issueKey)}/drive-links`)).data ?? [];
+    },
+    async updateIssueFields(issueKey, values) {
+      return (await http.put(`${issue(issueKey)}/fields`, { values })).data;
+    },
+    async addIssueDriveLink(issueKey, driveFileId) {
+      await http.post(`${issue(issueKey)}/drive-links`, { driveFileId });
+    },
 
     // ── 노트 ──
     async listWikiSpaces() {
       return (await http.get('/wiki/spaces')).data ?? [];
     },
-    async searchWikiPages(query) {
-      return (await http.get('/wiki/search', { params: { q: query } })).data ?? [];
+    async searchWikiPages(query, spaceId) {
+      return (await http.get('/wiki/search', { params: { q: query, ...(spaceId !== undefined && { spaceId }) } })).data ?? [];
     },
     async getWikiPage(pageId) {
       return (await http.get(`/wiki/pages/${pageId}`)).data;
+    },
+    async getWikiPageSummary(pageId) {
+      return (await http.get(`/wiki/pages/${pageId}/summary`)).data;
+    },
+    async listWikiRevisions(pageId) {
+      return (await http.get(`/wiki/pages/${pageId}/revisions`)).data;
+    },
+    async restoreWikiRevision(pageId, version) {
+      return (await http.post(`/wiki/pages/${pageId}/revisions/${version}/restore`)).data;
     },
     async createWikiPage(spaceId, body) {
       return (await http.post(`/wiki/spaces/${spaceId}/pages`, body)).data;
@@ -238,12 +271,36 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
       await http.delete(`/calendar/events/${eventId}/attendees/${userId}`);
     },
 
+    // ── 홈 개요(WP-357) ──
+    async getHomeActivity({ cursor, size }) {
+      return (await http.get('/me/activity', { params: { size, ...(cursor && { cursor }) } })).data;
+    },
+    async getPriorityItems() {
+      return (await http.get('/me/priority-items')).data?.items ?? [];
+    },
+    async getHomeMailSummary() {
+      return (await http.get('/me/mail-summary')).data;
+    },
+    async getMessagingSummary() {
+      return (await http.get('/me/messaging-summary')).data;
+    },
+    async getThreadInbox({ cursor, limit }) {
+      return (await http.get('/messaging/threads/inbox', { params: { limit, ...(cursor && { cursor }) } })).data;
+    },
+
     // ── 메일 ──
     async listMailAccounts() {
       return (await http.get('/mail/accounts')).data ?? [];
     },
-    async listMail(accountId, { folder, limit, query, unread }) {
-      const params = { folder, limit, ...(query ? { query } : {}), ...(unread ? { unread: true } : {}) };
+    async listMail(accountId, { folder, limit, query, unread, category, needsReply }) {
+      const params = {
+        folder,
+        limit,
+        ...(query ? { query } : {}),
+        ...(unread ? { unread: true } : {}),
+        ...(category ? { category } : {}),
+        ...(needsReply ? { needsReply: true } : {}),
+      };
       return (await http.get(`/mail/accounts/${accountId}/messages`, { params })).data ?? [];
     },
     async getMail(messageId) {
@@ -270,6 +327,9 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     async markMailRead(messageId) {
       await http.post(`/mail/messages/${messageId}/read`);
     },
+    async markMailUnread(messageId) {
+      await http.post(`/mail/messages/${messageId}/unread`);
+    },
     async syncMail(accountId) {
       // 소유권은 서버가 검증한다(남의 계정이면 404). 본문은 빈 객체 — 서버가 요청 본문을 읽지 않는다.
       return (await http.post(`/mail/accounts/${accountId}/sync`, {})).data;
@@ -291,6 +351,10 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     },
     async getExternalContact(externalId) {
       return (await http.get(`/contacts/external/${externalId}`)).data;
+    },
+    async listChannelMembers(channelId) {
+      const data = (await http.get(`/messaging/channels/${channelId}/members`)).data;
+      return Array.isArray(data) ? data : [];
     },
 
     // ── 연락처 부가 기능(#839) ──
@@ -359,6 +423,22 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     async addChannelMember(channelId, userId) {
       await http.post(`/messaging/channels/${channelId}/members`, { userId });
     },
+    async joinChannel(channelId) {
+      await http.post(`/messaging/channels/${channelId}/join`);
+    },
+    async addReaction(messageId, emoji) {
+      await http.post(`/messaging/messages/${messageId}/reactions`, { emoji });
+    },
+    async removeReaction(messageId, emoji) {
+      // 서버가 이모지를 쿼리 파라미터로 받는다(DELETE 본문 없음) — axios 가 인코딩한다.
+      await http.delete(`/messaging/messages/${messageId}/reactions`, { params: { emoji } });
+    },
+    async updateChannelMessage(messageId, body) {
+      return (await http.patch(`/messaging/messages/${messageId}`, { body })).data;
+    },
+    async markChannelRead(channelId, uptoMessageId) {
+      await http.post(`/messaging/channels/${channelId}/read`, { uptoMessageId });
+    },
     async discoverChannels(q) {
       const data = (await http.get('/messaging/channels/discover', { params: { q } })).data;
       return Array.isArray(data) ? data : [];
@@ -403,6 +483,23 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     async moveDriveFile(driveFileId, targetFolderId) {
       await http.patch(`/drive/files/${driveFileId}/move`, { targetFolderId });
     },
+    async renameDriveFile(driveFileId, name) {
+      return (await http.patch(`/drive/files/${driveFileId}`, { name })).data;
+    },
+    async copyDriveFile(driveFileId, targetFolderId) {
+      return (await http.post(`/drive/files/${driveFileId}/copy`, { targetFolderId })).data;
+    },
+    async copyDriveFolder(folderId, targetParentId) {
+      return (await http.post(`/drive/folders/${folderId}/copy`, { targetParentId })).data;
+    },
+    async listDriveFileBacklinks(driveFileId) {
+      const data = (await http.get(`/drive/files/${driveFileId}/backlinks`)).data;
+      return Array.isArray(data) ? data : [];
+    },
+    async importAttachmentToDrive(spaceId, folderId, fileId) {
+      const base = `/drive/spaces/${spaceId}`;
+      return (await http.post(folderId == null ? `${base}/import-attachment` : `${base}/folders/${folderId}/import-attachment`, { fileId })).data;
+    },
 
     // ── 첨부·파일 내용 읽기(WP-346) ── 이슈 첨부는 프로젝트 멤버, 드라이브는 스페이스 VIEWER 를 서버가 확인한다.
     async readIssueAttachmentText(issueKey, fileId, range) {
@@ -424,6 +521,24 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     },
     async downloadDriveFile(driveFileId) {
       return getBytes(http, `/drive/files/${driveFileId}/content`);
+    },
+    async readWikiAttachmentText(pageId, fileId, range) {
+      return (await http.get(`/wiki/pages/${pageId}/attachments/${fileId}/text`, rangeParams(range))).data;
+    },
+    async downloadWikiAttachment(pageId, fileId) {
+      return getBytes(http, `/wiki/pages/${pageId}/attachments/${fileId}/content`);
+    },
+    async readMessageAttachmentText(channelId, messageId, fileId, range) {
+      return (await http.get(`/messaging/channels/${channelId}/messages/${messageId}/attachments/${fileId}/text`, rangeParams(range))).data;
+    },
+    async downloadMessageAttachment(channelId, messageId, fileId) {
+      return getBytes(http, `/messaging/channels/${channelId}/messages/${messageId}/attachments/${fileId}/content`);
+    },
+    async readMailAttachmentText(attachmentId, range) {
+      return (await http.get(`/mail/attachments/${attachmentId}/text`, rangeParams(range))).data;
+    },
+    async downloadMailAttachment(attachmentId) {
+      return getBytes(http, `/mail/attachments/${attachmentId}/content`);
     },
 
     // ── 알림 ── 서버가 호출자 본인 알림으로 격리한다(recipientId=callerId).

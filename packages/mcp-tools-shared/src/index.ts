@@ -3,6 +3,16 @@ export { parseIssueKey, describeApiError } from './parse.js';
 export type { McpTool, McpToolAnnotations, SharedTool, ToolHints, ToolKind } from './mcp-tool.js';
 export { TOOL_APPS, TOOL_APP_GUIDES, isToolApp, toolApps, type ToolApp, type ToolAppGuide, type ToolAppTag } from './tool-apps.js';
 export { toolAnnotations } from './tool-annotations.js';
+// WP-340 웨이브 5: tools/list 로 내보내는 도구 정의(workplace-mcp)와 그 크기 근사(상한 테스트·보고).
+export {
+  estimateTokens,
+  nullAsOmitted,
+  toolDefinition,
+  toolDefinitionsSize,
+  wireInputSchema,
+  type ToolDefinition,
+  type ToolDefinitionSize,
+} from './tool-definitions.js';
 export { toMcpContent, summarizeToolResult, resultText, replaceImagesWithNotice, type McpContent, type McpToolResult } from './mcp-content.js';
 export { issueListFilterShape } from './schemas.js';
 export {

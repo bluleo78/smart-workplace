@@ -16,12 +16,13 @@ workplace-mcp(사용자 PAT 원격 MCP)와 workplace-ai-agent(AI 비서 인-프�
 | `shared-tools.ts` | `buildSharedTools(client, opts)` — 공유 도구 전체 |
 | `tool-apps.ts` | `TOOL_APPS`·`ToolApp`·`toolApps()` — 도구를 앱으로 묶는 분류(WP-350, 아래 "앱 분류")와 서버 `instructions` 에 쓰는 앱별 안내(`TOOL_APP_GUIDES`) |
 | `tool-naming.ts` | `toolNameViolations(name)` — 도구 이름 규칙 검사(아래 "도구 명명 규칙"). 두 앱의 테스트가 쓴다 |
+| `tool-definitions.ts` | `toolDefinition(tool)`·`wireInputSchema`·`toolDefinitionsSize`·`estimateTokens`·`nullAsOmitted` — 외부 MCP 가 tools/list 로 내보내는 도구 정의와 그 크기(아래 "도구 수와 정의 크기") |
 
 LLM 에 보여줄 형태로 가공하는 일은 **도구 핸들러**가 맡는다. 식별자 이름 바꾸기나 숫자 id 제거가 여기에 해당한다. 클라이언트에 가공을 두면 앱마다 규칙이 달라진다.
 
 ## 앱에서 쓰는 법
 
-- **workplace-mcp**: `buildSharedTools(createPatApiClient(...))` 에서 `kind: 'destructive'` 를 뺀 나머지를 노출한다. PAT 에는 스코프가 없고 확인 카드도 없어서다.
+- **workplace-mcp**: `buildSharedTools(createPatApiClient(...))` 에서 `kind: 'destructive'` 를 뺀 나머지를 노출한다. PAT 에는 스코프가 없고 확인 카드도 없어서다. tools/list 응답은 SDK 기본 변환이 아니라 `toolDefinition()` 출력이다(WP-340 웨이브 5, `server.ts`) — 호출·입력 검증은 그대로 `registerTool` 의 zod shape 가 한다.
 - **workplace-ai-agent**: 프로필별로 `sharedTool('이름')` 을 골라 쓴다. 에이전트 전용 도구(`propose_*`, `show_*`, `submit_response`, `unassign_self`, chat, 위임)만 앱에서 직접 정의한다.
 - 공유 도구와 **같은 이름의 도구를 앱에서 다시 정의하지 않는다.** 두 앱의 패리티 테스트가 이름과 `z.toJSONSchema(inputSchema)` 의 일치를 강제한다. ai-agent 에서 안내 문구만 덧붙일 때는 공유본을 펼치고 `description` 만 바꾼다(`list_issues` 가 그 예).
 - `inputSchema` 는 반드시 최상위 `z.object(...)` 여야 한다. 서버 레이어가 `.shape` 를 꺼내 등록하기 때문이다. 공유 패키지 소스를 바꾸면 `pnpm --filter @smart-workplace/mcp-tools-shared build` 를 먼저 돌린다(앱은 `dist` 를 import 한다).
@@ -47,7 +48,7 @@ LLM 에 보여줄 형태로 가공하는 일은 **도구 핸들러**가 맡는�
 - 앱 이름은 URL·헤더에 쓰는 값이라 소문자 영문이다: `issue`·`project`·`wiki`·`drive`·`mail`·`messaging`·`calendar`·`contacts`·`notify`·`member`. 새 앱은 `TOOL_APPS` 와 `TOOL_APP_GUIDES` 에 함께 추가한다.
 - 분류는 파일이 아니라 **도구 단위**다. `list_issues` 는 `project-tools.ts` 에 있지만 `issue`, `list_contacts`·`get_external_contact` 는 `member-tools.ts` 에 있지만 `contacts` 다.
 - **한 도구가 여러 앱에 속할 수 있다**(`app: ['issue', 'drive']`). 그 앱 중 하나만 골라도 도구가 보여야 그 앱 안에서 일이 끊기기 때문이다. 꼭 필요한 선행 조회만 겹치고, "있으면 편한" 수준으로는 퍼뜨리지 않는다.
-  - `read_attachment`: 이슈 첨부와 드라이브 파일을 모두 읽는다 → `issue`, `drive`.
+  - `read_attachment`: 이슈·노트·메시지·메일 첨부와 드라이브 파일을 모두 읽는다(WP-358) → `issue`, `drive`, `wiki`, `mail`, `messaging`.
   - `list_projects`·`get_project`: 이슈 작업의 출발점(projectKey·담당자·라벨·마일스톤 목록)이다 → `project`, `issue`.
   - `search_members`: username 을 받는 도구(일정 참석자·프로젝트/채널 멤버·DM·멘션·그룹 멤버)가 설명에서 이 도구로 확인하라고 한다 → `member`, `calendar`, `project`, `messaging`, `contacts`. `mail`·`issue` 에는 싣지 않는다 — `create_issue`(`_from_mail`)의 assignees 는 선택 입력이고("me" 가능) 안내가 `get_project` 의 members 를 가리키며, 어느 설명도 `search_members` 를 가리키지 않는다.
   - 재발 방지: `tool-apps.test.ts` 가 도구 설명·입력 필드 설명에 나온 다른 공유 도구가 같은 앱 범위에도 있는지 대조한다. 대비·대안 언급처럼 선행 조회가 아닌 경우만 그 테스트의 `CROSS_REF_ALLOWED` 에 이유와 함께 올린다.
@@ -55,14 +56,14 @@ LLM 에 보여줄 형태로 가공하는 일은 **도구 핸들러**가 맡는�
 | 앱 | 도구 |
 |---|---|
 | `issue` | `list_issues` `get_issue_detail` `create_issue` `update_issue` `add_comment` `update_comment` `add_issue_dependency` `remove_issue_dependency` `watch_issue` `unwatch_issue` + 겹침: `list_projects` `get_project` `read_attachment` |
-| `project` | `list_projects` `get_project` `create_project` `update_project` `add_project_member` + 겹침: `search_members` |
-| `wiki` | `list_wiki_spaces` `list_wiki_pages` `search_wiki` `get_wiki_page` `list_wiki_backlinks` `create_wiki_page` `update_wiki_page` `move_wiki_page` |
-| `drive` | `list_drive_spaces` `list_drive_items` `search_drive` `get_drive_file_summary` `search_drive_content` `list_drive_trash` `restore_drive_item` `create_drive_folder` `rename_drive_folder` `move_drive_folder` `move_drive_file` + 겹침: `read_attachment` |
-| `mail` | `list_mail_accounts` `list_mail` `get_mail` `get_mail_summary` `draft_mail_reply` `draft_issue_from_mail` `create_issue_from_mail` `mark_mail_read` `sync_mail` |
-| `messaging` | `list_channels` `discover_channels` `list_channel_messages` `list_thread_replies` `add_channel_message` `create_channel` `open_dm` `leave_channel` `add_channel_member` + 겹침: `search_members` |
+| `project` | `list_projects` `get_project` `create_project` `update_project` `add_project_member` `create_project_meta` `update_project_meta` + 겹침: `search_members` |
+| `wiki` | `list_wiki_spaces` `list_wiki_pages` `search_wiki` `get_wiki_page` `list_wiki_backlinks` `create_wiki_page` `update_wiki_page` `move_wiki_page` `restore_wiki_revision` + 겹침: `read_attachment` |
+| `drive` | `list_drive_spaces` `list_drive_items` `search_drive` `get_drive_file_summary` `search_drive_content` `list_drive_trash` `restore_drive_item` `create_drive_folder` `rename_drive_folder` `move_drive_folder` `rename_drive_file` `move_drive_file` `copy_drive_item` `import_attachment_to_drive` + 겹침: `read_attachment` (15개 — 앱당 상한에 닿았다) |
+| `mail` | `list_mail_accounts` `list_mail` `get_mail` `get_mail_summary` `draft_mail_reply` `draft_issue_from_mail` `create_issue_from_mail` `mark_mail_read` `sync_mail` + 겹침: `read_attachment` |
+| `messaging` | `list_channels` `list_channel_messages` `list_thread_replies` `add_channel_message` `create_channel` `open_dm` `leave_channel` `join_channel` `add_reaction` `remove_reaction` `update_channel_message` `mark_channel_read` `add_channel_member` + 겹침: `search_members` `read_attachment` (15개 — 앱당 상한에 닿았다) |
 | `calendar` | `list_events` `get_event` `rsvp_event` `create_event` `update_event` + 겹침: `search_members` |
 | `contacts` | `list_contacts` `get_external_contact` `get_contact_facets` `add_contact_favorite` `remove_contact_favorite` `list_user_groups` `get_user_group` `create_user_group` `update_user_group` `add_user_group_member` `remove_user_group_member` `create_external_contact` `update_external_contact` + 겹침: `search_members` |
-| `notify` | `list_notifications` `mark_notification_read` `mark_all_notifications_read` |
+| `notify` | `list_notifications` `mark_notification_read` `mark_all_notifications_read` `get_home_overview` |
 | `member` | `search_members` `get_member` `get_member_contact` |
 
 workplace-mcp 는 이 태그로 `/mcp/x/{apps}`·`X-MCP-Toolsets` 연결을 걸러낸다(`apps/workplace-mcp/CLAUDE.md` "연결 범위"). 앱 선택은 노출 기준(`kind`)과 별개다 — destructive 는 어느 연결에서도 노출하지 않는다. AI Chat(ai-agent)은 `app` 을 쓰지 않는다.
@@ -84,7 +85,7 @@ workplace-mcp 는 이 태그로 `/mcp/x/{apps}`·`X-MCP-Toolsets` 연결을 걸�
 - `list_issues`(서버가 `size` 건을 채우면 `hasMore` — 마지막 페이지가 정확히 `size` 건이면 빈 다음 페이지가 올 수 있다)와 `list_notifications`(총 개수를 안 줘 한 페이지가 꽉 차면 `hasMore`)만 `hasMore` 가 true 여도 다음 페이지가 비어 있을 수 있다. 설명이 이를 안내한다. `list_channel_messages`(서버가 limit+1 로 조회)와 번호 페이지 도구(`totalPages` 로 계산)는 정확하다.
 - `list_notifications` 의 `nextOffset` 은 서버 목록 기준 위치다. `unreadOnly` 에서는 마지막으로 담은 행 바로 뒤를 가리킨다.
 - 서버에 페이지가 없는 목록은 위 표 대상이 아니다. 아래 표처럼 도구가 limit 으로 자르고 이어 읽을 수 있으면 `hasMore`+`nextOffset`(`list_drive_items`·`list_channels`), 이어 읽을 수 없고 검색어를 좁혀야 하면 `truncated` 로 알린다. `truncated` 는 **잘렸을 때만 `truncated:true` 를 싣고 아니면 생략**한다(`list_thread_replies` 포함. 헬퍼 `truncatedView`).
-- 설명에는 "`hasMore` 가 있으면 `nextCursor` 로 이어 조회하거나, 이어 조회하지 않고 답한다면 일부만 담겼다고 밝히라"를 적는다. AI Chat 의 subagent `agent.md` 와 라우터 프롬프트에도 같은 안내가 있다.
+- 설명에는 "`hasMore` 가 있으면 `nextCursor` 로 이어 조회하거나, 이어 조회하지 않고 답한다면 일부만 담겼다고 밝히라"를 적는다(영어 문형은 아래 "도구 설명 쓰는 법"). AI Chat 의 subagent `agent.md` 와 라우터 프롬프트에도 같은 안내가 있다.
 
 ### 서버 페이지가 없는 목록 (WP-352)
 
@@ -92,12 +93,113 @@ workplace-mcp 는 이 태그로 `/mcp/x/{apps}`·`X-MCP-Toolsets` 연결을 걸�
 |---|---|---|---|
 | `list_drive_items` | `limit`(기본 200·최대 500), `offset` | `{ folders, files, hasMore?, nextOffset? }` | **서버 페이지 추가** — `DriveFolderController` `/spaces/{id}/items` 에 선택 `limit`·`offset`(폴더 먼저·파일 다음 합본 순서, SQL 에서 자름). 파라미터가 없으면 전체(웹 브라우즈 그대로). 폴더 하나에 수천 항목이 있을 수 있고 파일 행마다 저장소 존재 확인이 있다. 도구는 `limit+1` 로 다음 페이지를 확인한다 |
 | `list_wiki_pages` | `parentId?` | `{ items(트리), total, truncated? }` | 도구 상한 500노드(너비 우선). 평면 목록을 잘라 트리를 만들면 고아가 최상위로 올라 계층이 거짓이 되므로 서버 페이지는 두지 않았다. 잘린 노드의 `hiddenChildren` + `parentId` 로 하위를 펼친다 |
-| `list_channels` | `limit`(기본 100·최대 200), `offset` | `{ items, total, hasMore?, nextOffset? }` | 도구 상한(서버 페이지는 없지만 이어 읽을 수 있어 `list_drive_items`·`list_notifications` 와 같은 `hasMore`+`nextOffset`). 내 채널 수라 유계이고 웹 사이드바(`useMyChannels`)가 전체를 쓰므로 서버는 그대로. 이름순 offset 으로 이어 읽는다 |
+| `list_channels` | `q?`, `limit`(기본 100·최대 200), `offset` | `{ items, total, hasMore?, nextOffset? }` | 도구 상한(서버 페이지는 없지만 이어 읽을 수 있어 `list_drive_items`·`list_notifications` 와 같은 `hasMore`+`nextOffset`). 내 채널 수라 유계이고 웹 사이드바(`useMyChannels`)가 전체를 쓰므로 서버는 그대로. 이름순 offset 으로 이어 읽는다. `q`(WP-355, 옛 `discover_channels`)를 주면 공개 채널을 이름 부분일치로 찾아(가입 여부 무관, 항목마다 `member`) 같은 `{items,total,hasMore?,nextOffset?}` 로 같은 limit·offset 으로 자른다 — 서버 discover 도 배열 전체를 주기 때문이다 |
 | `search_drive` | `limit`(기본 50·최대 200, 폴더·파일 각각) | `{ folders, files, truncated? }` | 서버가 각각 200건에서 조용히 자른다(`searchByName` `.limit(200)`) — 도구 limit 을 넘거나 서버 상한 200 에 닿으면 `truncated` |
-| `search_wiki` | — | `{ items, truncated? }` | 서버가 최근 수정순 50건에서 조용히 자른다(`WikiPageService.search`) — 50건에 닿으면 `truncated` |
+| `search_wiki` | `spaceId`(WP-357, 한 스페이스만) | `{ items, truncated? }` | 서버가 최근 수정순 50건에서 조용히 자른다(`WikiPageService.search`) — 50건에 닿으면 `truncated` |
 
 서버가 상한을 조용히 거는 검색은 "상한에 닿음 = 잘렸을 수 있음" 으로 본다(정확히 상한만큼이 전부일 수도 있다). 이어 조회할 수단이 없어 검색어를 좁히라고 안내한다. 서버 상한을 바꾸면 도구 상수(`SEARCH_SERVER_CAP`)도 맞춘다.
 
+
+### 드라이브 보강 (WP-354)
+
+앱당 15개 상한에 닿았으므로(drive 15개) 새 도구는 쓰기 셋뿐이고 나머지는 기존 도구의 옵션·응답으로 처리했다.
+
+| 기능 | 처리 | 근거 |
+|---|---|---|
+| 파일 이름 변경 | `rename_drive_file`(`PATCH /drive/files/{id}`, WP-335 의 UI 와 같은 API). `hints` 는 `rename_drive_folder` 와 같다(덮어씀·멱등) | 같은 폴더에 같은 이름의 활성 파일이 있으면 서버가 409 |
+| 파일·폴더 복사 | `copy_drive_item`(`driveFileId` 또는 `folderId` 중 하나, `restore_drive_item` 과 같은 이유). 새 항목을 만들고 같은 이름이 있으면 409 라 비멱등이다 | 서버가 같은 스페이스 안으로만 복사하고 이름을 그대로 둔다 — 같은 폴더로 복사하면 항상 충돌이라 다른 폴더를 지정해야 한다 |
+| 이슈·채팅 첨부를 드라이브로 | `import_attachment_to_drive`(`POST /drive/spaces/{id}[/folders/{folderId}]/import-attachment`). `attachmentId` 는 `get_issue_detail` 의 `attachments[].attachmentId` 또는 `list_channel_messages` 의 `attachments[].fileId`(둘 다 core file id) | 같은 바이트를 공유해 쿼터를 쓰지 않는다. 서버는 대상 폴더가 같은 스페이스인지와 같은 이름이 없는지 확인한다(409) |
+| 버전 목록·백링크 | 별도 도구 없이 `get_drive_file_summary` 의 `includeVersions`·`includeBacklinks` 옵션 | 옵션이 꺼져 있으면 추가 요청이 없다. 버전 뷰는 업로더 숫자 ID(`uploadedBy`)와 blob 의 core `fileId` 를, 백링크 뷰는 내부 `sourceId` 를 뺀다 |
+| 롤백 | 도구로 두지 않는다 | 새 버전을 만드는 변경이라 확인 카드 대상이다(AI Chat 에서도 미지원 안내) |
+| 폴더 경로 | 두지 않는다 | `/folders/{id}/path` 는 폴더 하나의 breadcrumb 이다. 목록·검색 응답에 넣으면 행마다 요청이 필요하고(검색은 최대 400행), 목록은 모델이 이미 그 폴더 id 를 알고 있다. 휴지통은 서버가 `originalPath` 를 준다 |
+
+이슈 첨부와 채팅 첨부 두 갈래 중 한쪽 출처만 있어도 쓸 수 있어, `import_attachment_to_drive` 설명이 가리키는 `get_issue_detail`·`list_channel_messages` 는 `tool-apps.test.ts` 의 `CROSS_REF_ALLOWED` 에 이유와 함께 올렸다(`read_attachment` 와 같은 구조). 도구는 drive 에만 태그했다.
+
+### 메시징 보강 (WP-355)
+
+앱당 15개 상한에 닿았으므로(messaging 15개) 새 도구는 쓰기 다섯뿐이고(상한을 위해 `discover_channels` 는 `list_channels` 의 `q` 로 접었다 — 옛 이름은 웹 `LEGACY_TOOL_LABELS` 에 남겼다) 나머지는 기존 도구의 옵션이나 후속 홈 도구로 처리한다.
+
+| 기능 | 처리 | 근거 |
+|---|---|---|
+| 채널 참여 | `join_channel`(`POST /channels/{id}/join`). 멱등 | 공개 채널만(비공개·DM 은 403). 이미 멤버면 `ON CONFLICT DO NOTHING` 이라 그대로. 참여 시점의 최신 메시지로 읽음 위치를 잡아 이전 메시지는 안 읽음이 아니다. `list_channels`(q 로 탐색)·`leave_channel` 설명이 이 도구를 가리킨다 |
+| 리액션 | `add_reaction`·`remove_reaction`(`POST`·`DELETE /messages/{id}/reactions`). 둘 다 멱등, 제거만 destructive | 이모지는 1~32자 문자열이고 웹 선택기는 유니코드 문자를 보낸다. 제거는 읽기 출력 `reactions` 의 키와 같은 문자열이어야 한다. 이미 있는 추가·없는 제거는 서버가 이벤트 없이 무시한다. 채널 멤버만. 누가 눌렀는지는 서버도 주지 않는다 |
+| 내 메시지 수정 | `update_channel_message`(`PATCH /messages/{id}`, destructive·멱등) | 작성자만(403), 시간 제한 없음, 답글도 가능, 본문 1~4000자. 본문을 덮어쓰고 `editedAt` 이 찍힌다. 서버가 수정 때 `<@id>` 토큰을 다시 해석하므로 핸들러가 `@username` 을 토큰으로 바꿔 보낸다(`linkMentions`, 작성과 같음 — 빼먹으면 멘션이 조용히 사라진다). 수정은 SSE 만 내보내고 알림은 없다. 응답은 읽기와 같은 `toMessageView`. 메시지 id 는 읽기 출력의 `id` 다(입력 이름 `messageId` 와 어긋나지만 `list_thread_replies` 가 이미 그렇게 쓰므로 바꾸지 않았다) |
+| 채널 읽음 처리 | `mark_channel_read`(`POST /channels/{id}/read`, destructive·멱등) | 서버는 `uptoMessageId` 를 요구한다 — 핸들러가 가장 최근 최상위 메시지(`limit:1`)의 id 를 쓴다. 채널 `unreadCount` 도 최상위 메시지만 세므로 일치한다. 읽음 위치는 `GREATEST` 라 되돌아가지 않는다. 스레드 답글의 읽음(`hasUnreadThreads`)은 별도 상태(`/messages/{id}/thread/read`)라 건드리지 않는다. 메시지가 없는 채널은 서버를 부르지 않고 성공 |
+| 채널 멤버 목록 | 별도 도구 없이 `search_members` 의 `channelId` 옵션 | 서버 `/members` 에는 채널 필터가 없다. `/channels/{id}/members`(채널 멤버만, 페이지·검색 없는 전체)를 읽고 `search`(이름·username 부분일치)·`kind`(기본 HUMAN)·`page` 를 도구가 적용해 같은 `{items,total,hasMore?,nextPage?}` 로 낸다. 항목은 `{username,name,kind,role}`. 이 응답에는 username 이 없었으므로 **서버 `ChannelMemberResponse` 에 `username` 을 더했다**(숫자 userId·가입 시각은 내보내지 않는다). 활성 여부가 없어 `includeInactive` 는 적용하지 않는다 |
+| 캐치업 요약 | 두지 않는다 | `GET /channels/{id}/catchup?since=` 는 서버가 AI 요약(최대 60초)을 돌리는 호출이다. `since` 는 읽음 워터마크(`lastReadMessageId`)인데 채널 뷰가 내보내지 않는다. 모델은 `unreadCount` 만큼 `list_channel_messages` 로 읽어 직접 요약할 수 있다 |
+| 스레드 인박스·메시징 요약 | 홈 개요 도구(WP-357)로 넘긴다 | `GET /threads/inbox`(`{items:[{rootMessage,channelName,lastReplyAt}],nextCursor,hasMore}`)는 채널을 가로지르는 목록이라 읽기 출력에서 `channelId` 를 빼는 `toMessageView` 를 그대로 쓸 수 없다. `GET /me/messaging-summary` 는 홈 요약이다. 둘 다 메시징 앱 슬롯을 쓰지 않는다 |
+| 메시지 삭제 | 도구로 두지 않는다 | 되돌릴 수 없다(soft delete 이고 복원 API 없음). AI Chat 에도 확인 카드가 아직 없어 "지원하지 않는다"고 안내한다 |
+
+채널에서 멘션된 에이전트(ai-agent `messaging` 프로필, 에이전트 신원)에는 리액션·수정·읽음 처리를 싣지 않았다 — 에이전트가 자기 이름으로 리액션하거나 자기 글을 고치는 것은 제품 판단이 필요해 후속으로 남겼다. 추가하려면 프로필 목록에 `sharedTool(...)` 만 더하면 된다. 새 도구는 messaging-agent(사용자 신원)에만 있다.
+
+### 이슈·프로젝트 보강 (WP-356)
+
+새 도구는 라벨·마일스톤·사이클 생성·수정 둘뿐이고(project 앱, 6→8개) 나머지는 기존 도구의 파라미터·응답으로 처리했다.
+
+| 기능 | 처리 | 근거 |
+|---|---|---|
+| 생성 때 라벨·마일스톤·사이클 | `create_issue` 의 `labels`·`milestone`·`cycles`(이름, `get_project`) | **서버 `CreateIssueRequest` 에 `labelIds`·`milestoneId`·`cycleIds` 를 더했다** — 생성 후 PUT 을 따로 부르면 중간 실패 시 라벨 없는 이슈만 남는다. 검증은 `planCreate` 라 확인 카드 사전검증도 같이 막는다. OPEN 프로젝트 비멤버는 수정 경로처럼 지정할 수 없다(403). 사이클은 집합 교체와 같이 완료 사이클도 허용한다 |
+| 목록 필터 | `list_issues` 의 `milestone`(이름 CSV)·`parent`(이슈 키)·`field`(`"이름=값"`)·`watching` | 서버는 마일스톤을 id 로만 받고 숫자가 아닌 토큰을 조용히 버려 이름은 도구가 해석한다. `parent` 는 서버가 프로젝트 안의 번호라 키의 프로젝트로 범위를 고정한다(없으면 모든 프로젝트의 같은 번호). 커스텀 필드는 서버가 jsonb 를 텍스트로 캐스트해 같음을 비교하므로 값을 JSON 으로 직렬화한다(문자열은 따옴표 포함, `IssueSearchServiceFieldFilterTest`). 복수 선택은 배열 전체가 같아야 맞아 거부한다. `parent`·`watching` 은 담당자와 무관한 질문이라 기본 `assignee=me` 를 붙이지 않는다 |
+| 워치 중인 이슈 | `list_issues` 의 `watching:true` | `GET /me/watched-issues` 는 다른 필터를 못 받고 응답에 담당자·유형이 없다 — **서버 이슈 검색에 `watching=true` 필터를 더해** 같은 응답·커서·필터 조합으로 쓴다 |
+| 정렬 | 두지 않는다 | 검색이 `(updated_at, id)` 키셋 커서라 정렬을 바꾸려면 커서 형식부터 바꿔야 한다 |
+| 커스텀 필드 값·드라이브 링크 | `update_issue` 의 `fields`(이름 → 값, null=비우기)·`driveFileId` | `PUT .../fields` 는 준 필드만 바꾼다. 이름·모양·선택지는 쓰기 전에 확인한다(`{ok, results}` 계약 — 실패는 아무것도 쓰기 전). 드라이브 링크는 이미 있으면 서버가 무시하고, 드라이브 스페이스 VIEWER 이상이 필요하다. 결과 키는 `fields`·`driveLink` |
+| 상세의 워처·드라이브 링크 | `get_issue_detail` 의 `watchers {username,name}`·`driveLinks {driveFileId,name,spaceName,availability?}` | 워처의 숫자 userId, 링크의 `createdById`·core `fileId`(이슈 첨부 `attachmentId` 와 헷갈린다)는 뺀다. `availability` 는 휴지통·삭제일 때만 싣는다 |
+| 프로젝트 메타 정보 | `get_project` 의 `milestones {name,dueDate}`·`cycles {name,status,startDate,endDate}`·`fields {name,type,options}` | 숫자 id·목표·위치는 뺀다 |
+| 라벨·마일스톤·사이클 생성·수정 | `create_project_meta`·`update_project_meta`(`kind`) | 판별 유니온 대신 평평한 선택 필드(최상위 `z.object`, 정의 크기). kind 에 없는 필드는 쓰기 전에 거부한다. 서버 PATCH 는 본문 전체로 덮어써서(빠진 설명·기간은 비워진다) **수정은 지금 값을 읽어 준 필드만 바꾼 전체 본문을 보낸다**. 비우기는 `""`(null 갈래를 두면 필드마다 정의가 커진다). 라벨 색은 enum 대신 문자열로 받고 핸들러가 허용 12색을 담아 거부한다(정의 ~80토큰 절약). 권한: 라벨·사이클은 프로젝트 OWNER(+`label:manage`·`cycle:manage`), 마일스톤은 멤버(+`milestone:manage` — AGENT 역할에는 없다). 삭제는 도구로 두지 않는다(AI Chat 에도 확인 카드가 없어 미지원 안내) |
+| 메일로 이슈 만들 때 유형·라벨 | `create_issue_from_mail` 의 `type`·`labels` | **서버 `PromoteToIssueRequest` 에 `typeId`·`labelIds` 를 더해** 같은 생성 경로(`IssueService.create`)로 넘긴다 |
+
+AI Chat 에는 라벨·마일스톤·사이클 생성·수정 확인 카드가 없어 `CARD_ONLY_SHARED_TOOLS` 에 넣지 않고 project-agent(사용자 신원)에 직접 실행 도구로 실었다. issue-agent 는 이슈에 붙이기만 한다(없는 이름이면 만들지 않고 알린다).
+
+### 노트·메일·캘린더·홈 보강 (WP-357)
+
+새 도구는 둘(`restore_wiki_revision`·`get_home_overview`)이고 나머지는 기존 도구의 옵션·파라미터·필드다. 정의 크기는 +401 토큰(14,541 → 14,942)이라 `list_wiki_pages`·`update_wiki_page`·`update_event`·`get_event`·`create_issue_from_mail` 등 기존 설명을 압축해 맞췄다.
+
+| 기능 | 처리 | 근거 |
+|---|---|---|
+| 노트 요약 | `get_wiki_page` 의 `includeSummary` — `summary`(요약이 있을 때)·`summaryStatus`(READY 가 아닐 때: STALE·MISSING·TOO_SHORT·UNAVAILABLE) | `GET /wiki/pages/{id}/summary` 는 저장된 값과 상태만 계산한다 — **AI 를 부르지 않는다**(생성은 `POST` 라 도구가 쓰지 않는다). 그래서 요약이 아직 없는 노트(MISSING)는 만들어 주지 못하고 알리기만 한다. 요약은 공용 비서가 만든다 |
+| 판 기록 | `get_wiki_page` 의 `includeRevisions` — `revisions[{version, editedAt, reason?, editors[이름], aiActor?}]` 최신 30건, 넘치면 `revisionsOmitted` | 서버 `WikiRevisionListResponse` 는 최대 200건이고 `Person{id,name}` 의 숫자 사용자 ID 를 싣는다 — 이름만 남긴다. 현재 판(`current`)은 페이지의 `version` 과 같아 싣지 않는다. 판 제목(복원은 제목을 건드리지 않는다)·스냅샷 적재 시각도 뺀다 |
+| 판 복원 | `restore_wiki_revision(pageId, version)` — `POST /wiki/pages/{id}/revisions/{version}/restore`. `kind: write`, `destructive: true`, 멱등 아님 | 본문을 그 판으로 덮어쓰지만(제목 유지) 복원 직전 본문이 `RESTORE` 사유의 판으로 남아 되돌릴 수 있다 → 쓰기(노출). EDITOR 이상, 본문이 빈 판은 400. 동기화 서버 경로는 호출마다 판이 남을 수 있어 멱등으로 보지 않는다. AI Chat 에는 복원 확인 카드가 없어 wiki-agent 에 직접 실행 도구로 실었다 |
+| 노트 검색 범위 | `search_wiki` 의 `spaceId` | `WikiSearchController` 가 이미 받던 파라미터 |
+| 메일 필터 | `list_mail` 의 `category`(업무·개인·알림·프로모션·뉴스레터)·`needsReply` | 서버는 분류 값을 검증하지 않아 오타가 조용히 빈 목록이 된다 — enum 으로 막는다. `업무` 는 미분류·미적재 메일을 포함한다(서버 `workViewCondition`) |
+| 안 읽음 표시 | `mark_mail_read` 의 `read:false`(`POST /mail/messages/{id}/unread`) | 짝 도구 대신 파라미터. 읽음과 같이 원본 메일 서버로 역동기화되므로 `hints` 는 그대로(destructive·멱등·openWorld). AI 가 회신 필요로 본 메일을 안 읽음으로 되돌리면 회신 필요 목록에 다시 든다 |
+| 메일에 연결된 이슈 | `get_mail` 의 `issueKey` | 기존 `getMailLinkedIssue` 를 병렬로 부른다. 부가 정보라 조회 실패가 메일 읽기를 막지 않는다(키 생략) |
+| 캘린더 목록 | **두지 않는다** | `GET /calendars` 의 id 를 받는 도구가 없다 — `create_event` 는 기본 캘린더에만 만들고(`calendarId` 없음), `update_event` 는 소속을 유지하며, `list_events` 에 캘린더 필터가 없다. 일정 뷰는 `calendarName` 으로 소속을 이미 알려 준다. id 없는 목록은 "어떤 캘린더가 있나" 에만 답해 정의 크기(~100토큰)만큼의 가치가 없다고 보았다. 캘린더를 고르는 입력이 생기면 그때 `list_calendars` 를 둔다 |
+| 홈 개요 | `get_home_overview(sections?, cursor?)` — **notify 앱**(새 앱 이름을 만들지 않고, 15/15 인 messaging 에 싣지 않는다) | 아래 표 |
+
+#### `get_home_overview` 섹션
+
+모든 엔드포인트가 읽기 전용이고 **AI 를 새로 호출하지 않는다**(저장된 우선순위 배치·집계·키셋 목록). 기본 섹션을 크기가 작고 상한이 있는 셋으로 둔 것은 AI 비용이 아니라 출력 크기 때문이다. 한 섹션이 실패해도(예: 한 엔드포인트만 403) 나머지는 돌려주고 그 섹션에 `{error}` 를 둔다. 모두 실패하면 오류로 던진다.
+
+| 섹션(기본 ●) | 서버 | 출력 |
+|---|---|---|
+| `priority` ● | `GET /me/priority-items` | `{items, truncated?}` 위쪽 20건. `{type, title, reason, issueKey?, notificationId?, messageId?, channelId?}` — 서버 `sourceId` 는 종류마다 뜻이 달라(ISSUE_DUE=이슈 내부 id, MENTION=알림 id, MAIL_NEEDS_REPLY=메일 id, MESSAGE_ATTENTION=채널 id) 후속 도구가 받는 이름으로 풀고, 이슈 키는 딥링크 `/projects/{key}/issues/{n}` 에서 얻는다. 점수·딥링크는 뺀다. 배치는 주기적으로 갱신돼 늦을 수 있다 |
+| `mail` ● | `GET /me/mail-summary` | `{unreadCount, needsReplyCount, aiClassification?:false, recent[]}` — `recent` 는 `list_mail` 과 같은 행 뷰(최대 5건). 분류가 꺼져 있으면 회신 필요 수가 뜻이 없어 알린다 |
+| `messaging` ● | `GET /me/messaging-summary` | 카운트 넷 + `recent[]`(최대 5건) `{channelId, kind, label, lastAuthorName?, lastMessagePreview, lastMessageAt, unreadCount?, mentioned?, needsReply?, newThreadReplyCount?, aiReason?}` — 서버 `conversationId` 는 채널 id 라 `channelId` 로 바꾼다. 신호 배지는 참일 때만 싣는다 |
+| `activity` | `GET /me/activity` | `cursorPageView` — `{items[{issueKey, issueTitle, actorName, actorKind, eventType, createdAt}], hasMore?, nextCursor?}`. 이력 id·이슈 id·행위자 숫자 id 는 뺀다. 서버는 페이지가 꽉 차면 `nextCursor` 를 주므로 다음 페이지가 비어 있을 수 있다. 한 번에 10건 |
+| `threads` | `GET /messaging/threads/inbox` | `cursorPageView` — 미읽음 스레드(내가 팔로우). `{channelId, channelName, lastReplyAt, id(스레드 루트 messageId), authorName, body(200자까지), replyCount, unreadReplyCount, …}`. `toMessageView` 가 지우는 `channelId` 를 되살려 `list_thread_replies`(messageId=`id`)·`list_channel_messages` 로 이어 읽게 한다. 한 번에 10건. 서버 `ThreadInboxService` 가 루트 본문의 `<@id>` 를 풀 수 있게 `mentions` 를 채워 준다(WP-357 수정 — 예전에는 빈 목록이라 모든 멘션이 "알 수 없는 사용자"로 보였다) |
+
+- `cursor` 는 `activity` 또는 `threads` **하나만** 요청할 때만 받는다(섹션마다 커서가 달라 섞이면 어느 것인지 모호하다). 다른 조합이면 오류.
+- 설명에는 다른 도구 이름을 적지 않는다 — notify 앱만 고른 연결에는 메일·메시징 도구가 없어서 `tool-apps.test.ts` 의 교차 참조 검사에 걸린다. 대신 후속 도구가 받는 식별자 이름(`issueKey`·`messageId`·`channelId`)을 출력에 둔다.
+- AI Chat: assistant 라우터가 직접 쓰는 읽기 도구다(`ASSISTANT_ROUTER_TOOLS`) — "오늘 뭐부터 하지?" 같은 질문은 담당 도메인이 하나가 아니라 라우터가 한 번에 읽고 답한다. 화면에 띄우는 `show_activity`·`show_my_tasks` 는 그대로다.
+
+### 첨부 읽기 확장 (WP-358)
+
+`read_attachment` 의 source 가 `issue`·`drive` 에서 `wiki`(노트)·`message`(메시징)·`mail`(메일)까지 늘었다. 백엔드는 노트·메시지·메일에 이슈 첨부와 같은 `/text` 구간 API 를 더했고(응답은 같은 `ExtractedTextSlice`), 도구는 같은 상태(`READY`·`PENDING`·`SKIPPED`·`FAILED`·`NONE`)·구간(`offset`·`limit`·`nextOffset`)·출력 모양(`{attachmentId, status, text, totalChars, nextOffset, truncated, reason…}`)으로 돌려준다.
+
+| source | 입력 | id 가 나오는 곳 | 서버 |
+|---|---|---|---|
+| `issue` | `issueKey`·`attachmentId` | `get_issue_detail` 의 `attachments[].attachmentId` | 프로젝트 멤버 |
+| `drive` | `driveFileId` | `list_drive_items`·`search_drive`·`search_drive_content` | 스페이스 VIEWER |
+| `wiki` | `pageId`·`attachmentId` | `get_wiki_page` **본문**의 이미지 주소 `/api/v1/wiki/pages/{pageId}/attachments/{attachmentId}/content` (첨부 목록 필드는 없다) | 스페이스 VIEWER 이상(비멤버 404) |
+| `message` | `channelId`·`messageId`·`attachmentId` | `list_channel_messages`·`list_thread_replies` 항목의 `id` 와 `attachments[].fileId`. `channelId` 는 그 메시지를 읽은 호출의 입력이다(답글 뷰는 `channelId` 를 빼므로 스레드 루트를 읽은 채널) | 채널 멤버(비멤버 403) |
+| `mail` | `attachmentId` | `get_mail` 의 `attachments[].attachmentId` | 본인 소유 첨부(아니면 404) |
+
+- **식별자 재사용**: 정의 크기 때문에 첨부 id 는 `attachmentId` 하나를 이슈·노트·메시지·메일이 같이 쓴다. 새 입력은 `pageId`·`channelId`·`messageId` 뿐이고, 이름은 다른 도구의 입력과 같다. 출력에서도 서버 `fileId` 는 `attachmentId` 로 바꿔 내보낸다. 메일의 `get_mail` 첨부 행은 서버의 `id` 를 `attachmentId` 로 바꿔 준다(이슈 첨부와 같은 이름, 입출력 이름 일치).
+- **메일 첫 호출은 `PENDING`**: 서버가 첫 `/text` 요청에서 바이트를 가져와(IMAP·Graph, 첨부 캐시) 추출용 사본을 만들고 추출을 시작한다. 도구는 `PENDING` 응답에 "잠시 뒤 같은 인자로 다시 호출" 안내(`note`)를 붙인다. 사본의 file 행은 생성 후 고정 7일(`workplace.storage.mail.extract-ttl-days`, 읽어도 늘지 않는다)이고, 평문 사본 바이너리는 추출이 확정되는 즉시 지운다(추출 텍스트는 file 행에 남아 계속 읽힌다). 원본 메일이 사라지면 사본은 곧 만료된다.
+- **이미지**: 이슈·드라이브와 같은 규칙(JPEG·PNG·GIF·WebP, 3.75MB 이하만 이미지 블록, 그 밖에는 사유). `/text` 가 `SKIPPED·IMAGE` 를 주면 `/content` 로 원본을 받는다(권한이 `/text` 와 같다). 노트·메시지·메일에는 첨부 목록이나 크기 메타가 없어 크기는 다운로드 상한(`maxContentLength`)으로, 형식은 응답 Content-Type 으로 판단한다. **노트 업로드는 이미지만 받으므로 `wiki` 갈래는 사실상 이미지 읽기**다. 새 첨부는 `SKIPPED·IMAGE`, 배포 전에 올린 첨부는 추출 행이 없어(노트는 백필하지 않는다) `NONE` 인데, `wiki` 갈래는 `NONE` 도 `/content` 로 받아 이미지로 돌려준다(이미지가 아니면 Content-Type 검사가 형식 사유로 막는다). 메시지·메일의 `NONE` 은 상태만 돌려준다.
+- **크기**: 정의 14,942 → 14,989 토큰(상한 15,000). `read_attachment` 설명에 source 별 id 출처를 더하면서 그 설명과 `list_channels` 설명(`discover_channels` 접기)을 압축해 맞췄다. `tool-apps.test.ts` 의 `CROSS_REF_ALLOWED` 는 `read_attachment` 분을 source 갈래별 출처 도구 표에서 만든다.
+- **messaging 15개 유지**: `read_attachment` 가 messaging 앱에 들어와 `discover_channels` 를 `list_channels` 의 `q` 로 접었다(WP-355 표 참조). 앱별 개수는 issue 13·wiki 10·mail 10·messaging 15·drive 15.
+- 메일 요약·답장 초안(`get_mail_summary`·`draft_mail_reply`)은 서버가 본문(개인 요약·회신 필요 분석은 첨부 이름까지)만 보고 만든다 — 첨부 내용은 쓰지 않는다. 첨부를 반영하려면 에이전트가 먼저 `read_attachment` 로 읽어 본문에 옮긴다(mail-agent `agent.md` 에 안내).
 
 ### 응답 크기 — 정리 뷰
 
@@ -129,10 +231,29 @@ workplace-mcp 는 이 태그로 `/mcp/x/{apps}`·`X-MCP-Toolsets` 연결을 걸�
 - 공유 도구를 바꾸면 subagent `agent.md`, 라우터 프롬프트, `TOOL_LABELS`(웹 `LEGACY_TOOL_LABELS` 포함), ai-driven-agent-inspector 회귀 점검까지 함께 고친다.
 - AI Chat 라우터는 직접 쓰는 도구(읽기·`show_*`·알림·첨부 읽기)만 싣는다(ai-agent `ASSISTANT_ROUTER_TOOLS`, Claude 경로, WP-351). 쓰기·`propose_*` 는 담당 subagent 에만 둔다. assistant 프로필에 도구를 더하면 라우터 목록이나 담당 subagent frontmatter 중 한 곳에 넣는다 — 어느 쪽에도 없으면 `subagent-loader.test.ts` 가 실패한다.
 
-### 도구 수
+### 도구 수와 정의 크기 (WP-340 웨이브 5)
 
 - 새 도구보다 기존 도구의 파라미터 확장을 먼저 한다. 읽기는 상세 도구의 옵션으로 넣는다. 첨부 읽기는 `read_attachment` 하나로 모은다. 읽기와 쓰기는 한 도구에 섞지 않는다.
-- 외부 MCP 기본 노출은 **85개 이하**다(destructive 제외, `tool-naming.test.ts` 가 강제).
+- 외부 MCP 클라이언트는 연결한 서버의 도구 정의를 매 대화에 전부 싣는다. 그래서 상한을 개수(예전 85개)가 아니라 **크기와 앱 단위**로 둔다(2026-10-13 사용자 결정). `tool-naming.test.ts` 가 강제한다.
+  - 기본 연결(`/mcp`, destructive 제외)의 **도구 정의 크기 ≤ 15,000 토큰**(아래 근사식).
+  - **앱당 도구 15개 이하.** 여러 앱에 속한 도구는 각 앱에서 센다.
+- **측정 대상은 실제로 나가는 tools/list** 다. workplace-mcp 는 tools/list 응답을 `toolDefinition()` 출력으로 바꿔 끼우고, 상한 테스트는 같은 함수로 잰다(`toolDefinitionsSize`). 둘이 같다는 것은 workplace-mcp `integration.test.ts` 왕복 테스트가 고정한다.
+- **토큰 근사식**(`estimateTokens`): 한글(음절·자모) 1자 = 1토큰, 나머지(영문·숫자·JSON 구두점) 3.5자 = 1토큰, 합을 올림. 직렬화는 `JSON.stringify(tools/list 의 tools 배열)` 이다. 토크나이저가 아니라 비교용 고정식이다 — 식을 바꾸면 상한의 뜻도 바뀐다.
+- `toolDefinition()` 이 SDK 기본 변환에서 걷어내는 것(의미 없는 반복):
+  - 도구마다 붙던 `$schema`, `execution`(`taskSupport` 기본값이 스펙상 "forbidden" 이라 같은 뜻), `annotations.title`(최상위 `title` 과 같은 값 — 옛 클라이언트용 중복).
+  - 정보 없는 제약: `.int()` 의 안전 정수 경계(±2^53−1), id 의 `exclusiveMinimum: 0`, 문자열의 `minLength: 1`, `z.record(z.string(), …)` 의 `propertyNames: {type:"string"}`(JSON 객체 키는 늘 문자열). 검증은 zod 가 그대로 하므로 어기면 오류가 난다. 일부러 건 범위·길이(`maximum: 100`, `maxLength: 200` 등)는 남는다.
+  - 날짜 정규식 `pattern: "^\d{4}-\d{2}-\d{2}$"` 는 같은 뜻의 `format: "date"`(JSON Schema 의 RFC 3339 full-date = yyyy-MM-dd)로 바꿔 내보낸다. 검증은 zod 정규식 그대로다.
+  - `nullAsOmitted()` 로 만든 입력의 null 갈래(`anyOf:[T,{type:'null'}]` → `T`).
+  - **스펙 기본값과 같은 힌트**: MCP 스펙의 annotations 기본값은 `readOnlyHint:false`·`destructiveHint:true`·`idempotentHint:false`·`openWorldHint:true` 다. 정의에서는 쓰기 도구의 `readOnlyHint:false`·`idempotentHint:false`·`destructiveHint:true` 를 뺀다(destructiveHint:true 생략은 웨이브 5 크기 여유 확보 결정). 빠진 힌트는 스펙상 기본값과 같고, 힌트를 못 받은 클라이언트는 도구를 "파괴적일 수 있음"으로 다룬다(보수적인 쪽) — 그래서 어떤 도구도 덜 보호되지 않는다. 기본값과 다른 값(`destructiveHint:false`, `openWorldHint:false`, `readOnlyHint:true`, `idempotentHint:true`)은 남는다 — 파괴적이지 않은 쓰기에는 `destructiveHint:false` 가 반드시 실린다. 의미 원본은 그대로 `toolAnnotations()`(ai-agent 경로·`tool-annotations.test.ts` 표)이고, 생략은 직렬화 단계에서만 한다 — 정의의 annotations 를 스펙 기본값으로 채우면 `toolAnnotations()` 와 같다는 것을 `tool-definitions.test.ts` 가 모든 도구에서 확인한다.
+- **null 허용**: 모델은 쓰지 않는 인자를 null 로 채워 보내기도 한다(WP-346 `read_attachment`). "null = 생략" 인 선택 입력은 `nullAsOmitted(schema)` 로 만든다 — 검증은 `.nullish()` 그대로(SDK 가 shape 로 검증해 null 을 받는다), 정의에서만 null 갈래를 숨긴다. null 에 "비우기" 뜻이 있는 입력(`update_issue` 의 `parent`·`milestone`, `update_event` 의 `description` 등)에는 쓰지 않는다 — 그 null 은 모델이 알아야 한다. 설명(`.describe`)은 표식 전에 붙이는 것을 권한다(뒤에 붙여도 부모를 따라가 찾는다). `tool-definitions.test.ts` 와 workplace-mcp `integration.test.ts` 가 null 왕복을 고정한다.
+- ai-agent 경로(Claude SDK 인-프로세스·opencode stdio)는 SDK 기본 변환을 그대로 쓴다. 상한 대상이 아니다.
+
+### 도구 설명 쓰는 법 (WP-340 웨이브 5)
+
+- 도구 설명과 파라미터 `.describe()` 는 **영어**로 쓴다. 사용자가 쓰는 한국어 제품 용어는 괄호로 함께 적는다: `issue (이슈)`, `wiki page (노트)`, `cycle (사이클)`, `drive (드라이브)`, `inbox (인박스)`. 화면 라벨(`TOOL_LABELS`·`title`)·도구 결과·오류 메시지·코드 주석은 한국어 그대로다. 서버 `instructions`(`TOOL_APP_GUIDES`, workplace-mcp `instructions.ts`)도 영어다.
+- 번역하지 않고 코드(핸들러·`rest-client.ts`·서버 엔드포인트)에서 쓴다: 무엇을 하는지, 입력의 뜻과 출처(어느 도구 출력의 어느 값인지), 출력 모양, 페이지·잘림, 부작용(알림·외부 동기화·AI 담당자 실행), 실패 동작.
+- 스키마가 이미 말하는 것(기본값 `default`, 범위 `maximum` 등)은 설명에 되풀이하지 않는다. 같은 사실은 도구 설명과 파라미터 설명 중 한 곳에만 쓴다.
+- 페이지 안내는 같은 문형을 쓴다: `If hasMore, pass nextCursor as cursor …, or say the list is partial.` / 잘림은 `truncated:true means more may exist and there is no next page: …`.
 
 ## 도구 명명 규칙 (WP-347)
 
@@ -163,7 +284,7 @@ workplace-mcp 는 이 태그로 `/mcp/x/{apps}`·`X-MCP-Toolsets` 연결을 걸�
 
 1. **도메인 접두 id**: 숫자 식별자는 무엇의 id 인지 이름에 드러낸다.
    - 예: `eventId`, `pageId`, `spaceId`, `channelId`, `accountId`, `messageId`, `folderId`, `driveFileId`, `attachmentId`, `externalId`, `commentId`, `notificationId`
-   - **출력도 같은 이름**이다(WP-353): 채널 목록·검색·생성은 `channelId`, 드라이브 폴더 목록·검색·생성·이름변경·휴지통은 `folderId`, 이슈 첨부는 `attachmentId`(서버의 core file id — 드라이브 `driveFileId`·채팅 첨부 `fileId` 와 섞이지 않게 이름을 달리했다. 이슈 챗 전용 `read_chat_thread_attachment` 의 `fileId` 는 같은 이슈 첨부를 가리키므로 `read_attachment` 의 `attachmentId` 와 같은 값이다). 입력 이름과 출력 이름이 어긋나면 모델이 `id` 를 아무 데나 넣는다.
+   - **출력도 같은 이름**이다(WP-353): 채널 목록·검색·생성은 `channelId`, 드라이브 폴더 목록·검색·생성·이름변경·휴지통은 `folderId`, 이슈·노트·메시지·메일 첨부는 `attachmentId`(서버의 core file id(메일은 첨부 행 id) — 드라이브 `driveFileId`·채팅 첨부 `fileId` 와 섞이지 않게 이름을 달리했다. 이슈 챗 전용 `read_chat_thread_attachment` 의 `fileId` 는 같은 이슈 첨부를 가리키므로 `read_attachment` 의 `attachmentId` 와 같은 값이다). 입력 이름과 출력 이름이 어긋나면 모델이 `id` 를 아무 데나 넣는다.
    - `messageId` 는 메일(`get_mail`)과 채팅 메시지(`list_thread_replies`)에서 같이 쓴다. 도구 이름이 도메인을 정하므로 설명에 어느 결과의 id 인지 적는다.
    - 맨 이름 `id` 는 입력 파라미터로 쓰지 않는다. 실행기나 서버가 `id` 를 읽는다면 핸들러가 옮겨 담는다. 예: `propose_update_event` 는 `{ id: eventId }` 로 옮긴다.
 2. **같은 것은 같은 이름**: 조회 도구와 쓰기 도구, 표시 위젯이 같은 대상을 같은 이름으로 가리킨다.
@@ -174,5 +295,5 @@ workplace-mcp 는 이 태그로 `/mcp/x/{apps}`·`X-MCP-Toolsets` 연결을 걸�
 5. **이름으로 지정할 수 있으면 이름으로 받는다**: 유형·라벨은 이름(`type`, `labels`)으로 받고 서버나 핸들러가 id 로 해석한다. 모르는 값이면 사용 가능 목록을 담은 오류를 돌려 LLM 이 스스로 고칠 수 있게 한다.
 6. **불리언 필터는 의미를 드러낸다**: 예를 들어 `unreadOnly` 다. 서버 쿼리 이름(`unread`)과 다르면 클라이언트가 옮겨 담는다.
 7. **자유 텍스트 검색어**: 새 도구는 `query` 를 쓴다.
-   - `search_drive`·`discover_channels`·`list_issues` 의 `q`, `search_members`·`list_contacts` 의 `search` 는 기존 이름이다.
+   - `search_drive`·`list_channels`·`list_issues` 의 `q`, `search_members`·`list_contacts` 의 `search` 는 기존 이름이다.
    - 이 이름들은 ai-agent 의 `show_*` 위젯 params 와 프론트엔드가 공유하므로, 바꿀 때는 위젯 쪽도 함께 바꾼다.

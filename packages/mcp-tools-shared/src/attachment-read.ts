@@ -4,6 +4,8 @@
 // (예전에는 ai-agent 의 attachment-read-schema.ts·home-attachment-tool.ts 에 있었다 — 공유 도구가 생기며 옮겼다.)
 import { z } from 'zod';
 
+import { nullAsOmitted } from './tool-definitions.js';
+
 // limit 미지정 시 기본 구간 길이. 서버 기본(32000)보다 작게 — 컨텍스트가 작은 모델이 한 번에 너무 많이 받지 않게 한다.
 // 더 필요하면 모델이 limit 을 최대 32000 까지 직접 지정하거나 nextOffset 으로 이어 읽는다.
 export const READ_ATTACHMENT_DEFAULT_LIMIT = 12000;
@@ -11,9 +13,10 @@ export const READ_ATTACHMENT_DEFAULT_LIMIT = 12000;
 // limit 상한 32000 은 서버 계약(WP-242·WP-346)과 같다 — 서버는 넘기면 상한으로 자르지만(ExtractedTextService.read),
 // 모델이 더 달라고 했는데 조용히 잘리는 일이 없도록 스키마에서 먼저 막는다.
 // 선택 인자는 nullish — 모델이 안 쓰는 인자를 null 로 채워 보내는 경우가 있어 null 도 "미지정" 으로 받는다.
+// nullAsOmitted 는 검증은 nullish 그대로 두고, 외부 MCP 정의에서만 null 갈래를 숨긴다(WP-340 웨이브 5 — 정의 크기 절감).
 export const readRangeShape = {
-  offset: z.number().int().min(0).nullish(),
-  limit: z.number().int().min(1).max(32000).nullish(),
+  offset: nullAsOmitted(z.number().int().min(0)),
+  limit: nullAsOmitted(z.number().int().min(1).max(32000)),
 };
 
 /** 파싱한 범위 → 클라이언트 범위. offset 생략은 서버 기본(0), limit 생략은 READ_ATTACHMENT_DEFAULT_LIMIT. */

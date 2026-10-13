@@ -24,8 +24,11 @@ function mockClient(): Client {
     getProjectMembers: vi.fn().mockResolvedValue([]),
     getProjectMilestones: vi.fn().mockResolvedValue([]),
     getProjectCycles: vi.fn().mockResolvedValue([]),
+    getProjectFields: vi.fn().mockResolvedValue([]),
     listIssues: vi.fn().mockResolvedValue({ items: [] }),
     updateProject: vi.fn().mockResolvedValue({ key: 'WP' }),
+    createProjectMeta: vi.fn().mockResolvedValue({ id: 1, projectId: 2, name: 'x' }),
+    updateProjectMeta: vi.fn().mockResolvedValue({ id: 1, projectId: 2, name: 'x' }),
   };
 }
 
@@ -58,7 +61,7 @@ describe('list_projects', () => {
   it('WP-352: 설명이 이어 조회하거나 잘렸다고 알리라고 안내한다', () => {
     const d = tool(mockClient(), 'list_projects').description;
     expect(d).toContain('nextPage');
-    expect(d).toContain('일부만 담겼다고 밝히세요');
+    expect(d).toContain('say the list is partial');
   });
 });
 
@@ -67,7 +70,7 @@ describe('get_project', () => {
     const c = mockClient();
     const out = JSON.parse(resultText(await tool(c, 'get_project').handler({ projectKey: 'WP' })));
     expect(c.getProject).toHaveBeenCalledWith('WP');
-    expect(out).toEqual({ projectKey: 'WP', issueTypes: [], labels: [], milestones: [], cycles: [], members: [] });
+    expect(out).toEqual({ projectKey: 'WP', issueTypes: [], labels: [], milestones: [], cycles: [], fields: [], members: [] });
   });
 
   it('옛 파라미터 key 는 거부한다(projectKey 만)', async () => {
@@ -84,8 +87,15 @@ describe('get_project', () => {
       { id: 2, name: 'BUG' },
     ]);
     vi.mocked(c.getProjectLabels).mockResolvedValue([{ id: 3, name: 'frontend' }]);
-    vi.mocked(c.getProjectMilestones).mockResolvedValue([{ id: 4, name: 'v1.0' }]);
-    vi.mocked(c.getProjectCycles).mockResolvedValue([{ id: 5, name: 'Sprint 3', status: 'ACTIVE' }]);
+    vi.mocked(c.getProjectMilestones).mockResolvedValue([{ id: 4, name: 'v1.0', dueDate: '2026-12-01', description: null }]);
+    vi.mocked(c.getProjectCycles).mockResolvedValue([
+      { id: 5, name: 'Sprint 3', status: 'ACTIVE', goal: 'g', startDate: '2026-10-01', endDate: '2026-10-14' },
+      { id: 6, name: 'Backlog idea', status: 'PLANNED', startDate: null, endDate: null },
+    ]);
+    vi.mocked(c.getProjectFields).mockResolvedValue([
+      { id: 8, name: '고객사', type: 'SELECT', options: ['A사', 'B사'] },
+      { id: 9, name: '견적', type: 'NUMBER', options: null },
+    ]);
     vi.mocked(c.getProjectMembers).mockResolvedValue([
       { userId: 1010, username: 'alice', name: 'Alice', role: 'OWNER' } as { userId: number; username: string },
     ]);
@@ -96,13 +106,21 @@ describe('get_project', () => {
       type: 'TEAM', // description:null 은 값이 없는 키라 생략된다(WP-353)
       issueTypes: ['TASK', 'BUG'],
       labels: ['frontend'],
-      milestones: ['v1.0'],
-      cycles: [{ name: 'Sprint 3', status: 'ACTIVE' }],
+      // WP-356: 마일스톤 기한·사이클 기간·커스텀 필드 정의(숫자 id·목표는 빼고, 없는 값은 생략)
+      milestones: [{ name: 'v1.0', dueDate: '2026-12-01' }],
+      cycles: [
+        { name: 'Sprint 3', status: 'ACTIVE', startDate: '2026-10-01', endDate: '2026-10-14' },
+        { name: 'Backlog idea', status: 'PLANNED' },
+      ],
+      fields: [
+        { name: '고객사', type: 'SELECT', options: ['A사', 'B사'] },
+        { name: '견적', type: 'NUMBER' },
+      ],
       members: [{ username: 'alice', name: 'Alice', role: 'OWNER' }],
     });
     expect(resultText(raw)).not.toContain('userId');
     expect(resultText(raw)).not.toContain('1010');
-    for (const fn of [c.getProjectTypes, c.getProjectLabels, c.getProjectMilestones, c.getProjectCycles, c.getProjectMembers]) {
+    for (const fn of [c.getProjectTypes, c.getProjectLabels, c.getProjectMilestones, c.getProjectCycles, c.getProjectFields, c.getProjectMembers]) {
       expect(fn).toHaveBeenCalledWith('WP');
     }
   });
@@ -234,6 +252,56 @@ describe('list_issues', () => {
     await expect(tool(c, 'list_issues').handler({ projectKey: 'WP', cycle: 'Sprint 9' })).rejects.toThrow('사용 가능: Sprint 3');
     await expect(tool(c, 'list_issues').handler({ cycle: 'active' })).rejects.toThrow('projectKey');
     expect(c.listIssues).not.toHaveBeenCalled();
+  });
+
+  it('WP-356: milestone 이름은 projectKey 의 마일스톤 id 로, 없는 이름은 사용 가능 목록을 담아 거부한다', async () => {
+    const c = mockClient();
+    vi.mocked(c.getProjectMilestones).mockResolvedValue([
+      { id: 4, name: 'v1.0' },
+      { id: 7, name: 'v2.0' },
+    ]);
+    await tool(c, 'list_issues').handler({ projectKey: 'WP', milestone: 'v1.0, v2.0' });
+    expect(issueQuery(c)).toMatchObject({ projectKey: 'WP', milestone: '4,7' });
+    await expect(tool(c, 'list_issues').handler({ projectKey: 'WP', milestone: 'v9' })).rejects.toThrow('사용 가능: v1.0, v2.0');
+    await expect(tool(c, 'list_issues').handler({ milestone: 'v1.0' })).rejects.toThrow('projectKey');
+    expect(c.listIssues).toHaveBeenCalledTimes(1);
+  });
+
+  it('WP-356: parent 는 이슈 키 — 번호와 그 프로젝트로 범위를 정하고, 담당자 기본값 me 를 붙이지 않는다', async () => {
+    const c = mockClient();
+    await tool(c, 'list_issues').handler({ parent: 'WP-12' });
+    expect(issueQuery(c)).toStrictEqual({ projectKey: 'WP', parent: 12, size: 30 });
+    await expect(tool(c, 'list_issues').handler({ projectKey: 'OTHER', parent: 'WP-12' })).rejects.toThrow('다른 프로젝트');
+  });
+
+  it('WP-356: watching:true 는 서버 watching 필터로 보내고 담당자 기본값 me 를 붙이지 않는다', async () => {
+    const c = mockClient();
+    await tool(c, 'list_issues').handler({ watching: true, status: 'TODO' });
+    expect(issueQuery(c)).toStrictEqual({ status: 'TODO', watching: true, size: 30 });
+    // false 는 필터 없음 — 쿼리에서 빠지고 기본 담당자(me)가 그대로다.
+    const c2 = mockClient();
+    await tool(c2, 'list_issues').handler({ watching: false });
+    expect(issueQuery(c2)).toStrictEqual({ assignee: 'me', size: 30 });
+  });
+
+  it('WP-356: field "이름=값" 은 fieldId 와 JSON 값(문자열은 따옴표 포함)으로 바꾼다', async () => {
+    const c = mockClient();
+    vi.mocked(c.getProjectFields).mockResolvedValue([
+      { id: 8, name: '고객사', type: 'SELECT', options: ['A사', 'B사'] },
+      { id: 9, name: '견적', type: 'NUMBER' },
+      { id: 10, name: '태그', type: 'MULTI_SELECT', options: ['x'] },
+    ]);
+    await tool(c, 'list_issues').handler({ projectKey: 'WP', field: '고객사=A사' });
+    expect(issueQuery(c)).toMatchObject({ fieldId: 8, fieldValue: '"A사"' });
+    await tool(c, 'list_issues').handler({ projectKey: 'WP', field: '견적 = 5' });
+    expect(vi.mocked(c.listIssues).mock.calls[1][0]).toMatchObject({ fieldId: 9, fieldValue: '5' });
+    // 선택지 밖 값·없는 필드·복수 선택·형식 오류·projectKey 없음은 조회 전에 거부한다.
+    await expect(tool(c, 'list_issues').handler({ projectKey: 'WP', field: '고객사=C사' })).rejects.toThrow('사용 가능: A사, B사');
+    await expect(tool(c, 'list_issues').handler({ projectKey: 'WP', field: '없음=1' })).rejects.toThrow('사용 가능: 고객사, 견적, 태그');
+    await expect(tool(c, 'list_issues').handler({ projectKey: 'WP', field: '태그=x' })).rejects.toThrow('복수 선택');
+    await expect(tool(c, 'list_issues').handler({ projectKey: 'WP', field: '고객사' })).rejects.toThrow('형식');
+    await expect(tool(c, 'list_issues').handler({ field: '고객사=A사' })).rejects.toThrow('projectKey');
+    expect(c.listIssues).toHaveBeenCalledTimes(2);
   });
 
   it('빈 priority 배열은 쿼리에 싣지 않는다', async () => {
@@ -368,8 +436,8 @@ describe('list_issues 페이지 (WP-352)', () => {
   it('설명이 이어 조회하거나 잘렸다고 알리라고 안내한다(전부로 오해 금지)', () => {
     const d = tool(mockClient(), 'list_issues').description;
     expect(d).toContain('nextCursor');
-    expect(d).toContain('cursor 로 넘겨');
-    expect(d).toContain('일부만 담겼다고 밝히세요');
+    expect(d).toContain('pass nextCursor as cursor');
+    expect(d).toContain('say the list is partial');
   });
 });
 
@@ -467,5 +535,90 @@ describe('add_project_member (WP-349)', () => {
     expect(Object.keys((tool(c, 'add_project_member').inputSchema as unknown as { shape: object }).shape)).toEqual(['projectKey', 'username']);
     await tool(c, 'add_project_member').handler({ projectKey: 'WP', username: 'minsu', role: 'OWNER' });
     expect(c.addProjectMember).toHaveBeenCalledWith('WP', { userId: 5, role: 'MEMBER' });
+  });
+});
+
+describe('create_project_meta·update_project_meta (WP-356)', () => {
+  it('kind 별 경로로 생성하고, 출력은 숫자 id·projectId·시각 없이 kind 와 함께 준다(색 토큰은 color)', async () => {
+    const c = mockClient();
+    vi.mocked(c.createProjectMeta).mockResolvedValue({
+      id: 3, projectId: 2, name: 'bug', colorToken: 'RED', createdAt: '2026-10-13T00:00:00Z', updatedAt: '2026-10-13T00:00:00Z',
+    });
+    const out = JSON.parse(resultText(await tool(c, 'create_project_meta').handler({ projectKey: 'WP', kind: 'label', name: 'bug', color: 'red' })));
+    expect(c.createProjectMeta).toHaveBeenCalledWith('WP', 'label', { name: 'bug', colorToken: 'RED' });
+    expect(out).toEqual({ kind: 'label', name: 'bug', color: 'RED' });
+  });
+
+  it('라벨 색을 안 주면 GRAY, 없는 색은 허용 목록을 담아 서버를 부르지 않고 거부한다', async () => {
+    const c = mockClient();
+    await tool(c, 'create_project_meta').handler({ projectKey: 'WP', kind: 'label', name: 'a' });
+    expect(c.createProjectMeta).toHaveBeenCalledWith('WP', 'label', { name: 'a', colorToken: 'GRAY' });
+    // 빈 문자열은 생략과 같다(수정의 "" 비우기와 달리 색은 필수라 비울 수 없다).
+    await tool(c, 'create_project_meta').handler({ projectKey: 'WP', kind: 'label', name: 'a2', color: '' });
+    expect(c.createProjectMeta).toHaveBeenLastCalledWith('WP', 'label', { name: 'a2', colorToken: 'GRAY' });
+    await expect(tool(c, 'create_project_meta').handler({ projectKey: 'WP', kind: 'label', name: 'b', color: 'MAGENTA' })).rejects.toThrow(
+      '사용 가능: GRAY',
+    );
+    expect(c.createProjectMeta).toHaveBeenCalledTimes(2);
+  });
+
+  it('마일스톤은 dueDate 가 필요하고, kind 에 없는 필드는 쓰기 전에 거부한다', async () => {
+    const c = mockClient();
+    await expect(tool(c, 'create_project_meta').handler({ projectKey: 'WP', kind: 'milestone', name: 'M1' })).rejects.toThrow('dueDate');
+    await expect(
+      tool(c, 'create_project_meta').handler({ projectKey: 'WP', kind: 'label', name: 'x', dueDate: '2026-12-01' }),
+    ).rejects.toThrow('dueDate');
+    await expect(tool(c, 'create_project_meta').handler({ projectKey: 'WP', kind: 'cycle', name: 'C', color: 'RED' })).rejects.toThrow('color');
+    expect(c.createProjectMeta).not.toHaveBeenCalled();
+    await tool(c, 'create_project_meta').handler({ projectKey: 'WP', kind: 'cycle', name: 'C', startDate: '2026-10-01', goal: '' });
+    // 빈 문자열은 생략과 같다.
+    expect(c.createProjectMeta).toHaveBeenCalledWith('WP', 'cycle', { name: 'C', startDate: '2026-10-01', goal: undefined });
+  });
+
+  it('수정은 지금 이름으로 찾아 준 필드만 바꾼 전체 본문을 보낸다(서버는 덮어쓰기) — "" 는 비우기', async () => {
+    const c = mockClient();
+    vi.mocked(c.getProjectCycles).mockResolvedValue([
+      { id: 5, name: 'Sprint 3', status: 'ACTIVE', goal: '출시', startDate: '2026-10-01', endDate: '2026-10-14' },
+    ]);
+    await tool(c, 'update_project_meta').handler({ projectKey: 'WP', kind: 'cycle', name: 'Sprint 3', newName: 'Sprint 3a', endDate: '2026-10-21', goal: '' });
+    expect(c.updateProjectMeta).toHaveBeenCalledWith('WP', 'cycle', 5, {
+      name: 'Sprint 3a', goal: null, startDate: '2026-10-01', endDate: '2026-10-21', status: 'ACTIVE',
+    });
+  });
+
+  it('마일스톤 이름만 바꿔도 기한·설명이 유지되고, 라벨 색만 바꿔도 이름이 유지된다', async () => {
+    const c = mockClient();
+    vi.mocked(c.getProjectMilestones).mockResolvedValue([{ id: 4, name: 'v1', dueDate: '2026-12-01', description: '첫 출시' }]);
+    vi.mocked(c.getProjectLabels).mockResolvedValue([{ id: 3, name: 'bug', colorToken: 'RED' }]);
+    await tool(c, 'update_project_meta').handler({ projectKey: 'WP', kind: 'milestone', name: 'v1', newName: 'v1.0' });
+    expect(c.updateProjectMeta).toHaveBeenCalledWith('WP', 'milestone', 4, { name: 'v1.0', dueDate: '2026-12-01', description: '첫 출시' });
+    await tool(c, 'update_project_meta').handler({ projectKey: 'WP', kind: 'label', name: 'bug', color: 'blue' });
+    expect(c.updateProjectMeta).toHaveBeenLastCalledWith('WP', 'label', 3, { name: 'bug', colorToken: 'BLUE' });
+  });
+
+  it('모델이 쓰지 않는 필드를 null 로 채워도 생략으로 받는다(kind 밖 필드로 세지 않는다)', async () => {
+    const c = mockClient();
+    await tool(c, 'create_project_meta').handler({
+      projectKey: 'WP', kind: 'milestone', name: 'M1', dueDate: '2026-12-01', color: null, goal: null, startDate: null, endDate: null, status: null,
+    });
+    expect(c.createProjectMeta).toHaveBeenCalledWith('WP', 'milestone', expect.objectContaining({ name: 'M1', dueDate: '2026-12-01' }));
+  });
+
+  it('마일스톤 dueDate 는 "" 로 비울 수 없다(서버 필수) — 서버를 부르지 않고 거부한다', async () => {
+    const c = mockClient();
+    vi.mocked(c.getProjectMilestones).mockResolvedValue([{ id: 4, name: 'v1', dueDate: '2026-12-01' }]);
+    await expect(tool(c, 'update_project_meta').handler({ projectKey: 'WP', kind: 'milestone', name: 'v1', dueDate: '' })).rejects.toThrow(
+      'dueDate',
+    );
+    expect(c.updateProjectMeta).not.toHaveBeenCalled();
+  });
+
+  it('없는 이름은 사용 가능 목록을 담아 서버를 부르지 않고 거부한다', async () => {
+    const c = mockClient();
+    vi.mocked(c.getProjectLabels).mockResolvedValue([{ id: 3, name: 'bug' }]);
+    await expect(tool(c, 'update_project_meta').handler({ projectKey: 'WP', kind: 'label', name: 'feature', color: 'RED' })).rejects.toThrow(
+      '사용 가능: bug',
+    );
+    expect(c.updateProjectMeta).not.toHaveBeenCalled();
   });
 });

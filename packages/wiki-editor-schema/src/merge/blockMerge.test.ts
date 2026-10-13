@@ -2,12 +2,46 @@ import MarkdownIt from 'markdown-it'
 import { describe, expect, it, vi } from 'vitest'
 
 import { alignBlocks, applyExactPatch, closestBase, joinBlocks, mergeMarkdown3, similarity, splitBlocks } from './blockMerge'
+import { DIFF_WORK_BUDGET, MERGE_DIFF_WORK_BUDGET } from './charDiff'
+import { measureWork, type WorkTotals } from './workMeter'
 import { docToMarkdown, markdownToDoc } from '../markdown'
 
 // 3-way 블록 병합(WP-289, 스펙 §5.1-3) — 입력은 모두 공용 스키마로 정규화된 마크다운이라고 가정한다(정규화는 collab 이 한다).
 const doc = (...blocks: string[]) => blocks.join('\n\n')
 const P = (n: number, s = '') => `문단${n}: 원래 내용 문장입니다${s}.`
 const BASE = doc(P(1), P(2), P(5))
+/**
+ * 큰 틈 짝짓기 작업량 상한(블록당) — 후보 훑기 예산(blockMerge CANDIDATE_SCAN_BUDGET = 2,000) + 여유 100.
+ * 큰 틈(내용 사슬)은 블록마다 역색인을 예산만큼만 훑으므로 작업량이 블록 수에 비례한다. 짝 표 전체(블록 n 개면 블록당 n 칸)나
+ * 예산 없는 훑기로 퇴화하면 n 이 예산보다 충분히 클 때(5,000 이상) 이 상한을 넘는다. 시계 대신 이것으로 복잡도를 지킨다 —
+ * 같은 입력이면 작업량이 늘 같아 기계 부하와 무관하다.
+ */
+const PAIRING_UNITS_PER_BLOCK = 2_100
+/**
+ * 선형 단계 작업량 상한(블록당) — 블록 나누기(토큰·줄)·잇기·다음 짝 찾기·열 병합·삽입 합치기가 블록 열을 한 번씩 훑는 몫(workMeter 'scan').
+ * 측정 ≈ 블록당 24(5000·10000 블록 모두). 이런 단계 하나가 블록마다 다시 불리면(예: 다음 짝 표를 블록마다 새로 만듦) 블록 수의 제곱이 되어
+ * 이 상한을 넘는다 — 예전 벽시계 단언은 이런 퇴화(10000 블록에서 1억 번의 가벼운 반복, 1초 미만)를 잡지 못했다. 단계 안쪽 반복문을
+ * 다시 쓴 퇴화는 호출 지점의 입력 크기로는 보이지 않는다(그건 멈춤 감시 SCALE_TEST_TIMEOUT_MS 만 잡는다).
+ */
+const SCAN_UNITS_PER_BLOCK = 30
+
+/** 병합 한 번의 작업량(종류별)과 markdown-it 파싱 횟수 — 모듈의 파서 인스턴스도 원형 메서드를 쓰므로 원형을 엿본다. */
+function measureMerge(fn: () => ReturnType<typeof mergeMarkdown3>) {
+  const parse = vi.spyOn(MarkdownIt.prototype, 'parse')
+  try {
+    const { result, work } = measureWork(fn)
+    return { result, work, parses: parse.mock.calls.length }
+  } finally {
+    parse.mockRestore()
+  }
+}
+/**
+ * 큰 노트 병합 묶음(describe)의 테스트 시간 제한 — 성능 단언이 아니라 멈춤(끝나지 않는 계산) 감시다.
+ * 이 묶음의 테스트는 나눌 수 없는 결정적 CPU 계산(혼자 돌면 0.1~0.7초)이라, 전체 테스트를 병렬로 돌리면 10배 넘게 느려져 기본 5초를
+ * 넘겼다(같은 묶음의 첫 큰 테스트가 특히 — JIT 도 CPU 를 기다린다). 빠르기는 시계가 아니라 작업량 상한(PAIRING_UNITS_PER_BLOCK·파싱 횟수)으로
+ * 결정적으로 지킨다 — 짝짓기가 O(n²) 로 퇴화하면 작업량 단언이 부하와 무관하게 실패한다.
+ */
+const SCALE_TEST_TIMEOUT_MS = 60_000
 
 describe('splitBlocks / joinBlocks', () => {
   it('keeps fences and tables whole and splits lists per item', () => {
@@ -43,13 +77,13 @@ describe('similarity / alignBlocks', () => {
     expect(alignBlocks([P(1), P(2), P(5)], [P(1), P(2, ' 수정'), '완전히 다른 새 블록 abc'])).toEqual([0, 1, -1])
   })
 
-  it('aligns a 5000-block note quickly', () => {
+  it('aligns a 5000-block note with work linear in the block count', () => {
     const base = Array.from({ length: 5000 }, (_, i) => `문단 ${i} 내용`)
     const other = [...base]
     other[4000] = '문단 4000 내용 바뀜'
-    const started = performance.now()
-    const match = alignBlocks(base, other)
-    expect(performance.now() - started).toBeLessThan(500)
+    const { result: match, work } = measureWork(() => alignBlocks(base, other))
+    // 고유 블록 앵커로 나누면 남는 틈은 1:1 하나 — 양쪽 블록을 각각 한 번씩 훑는 만큼(2n 남짓)이면 된다. 짝 표(n² = 2,500만)로 퇴화하면 넘는다.
+    expect(work.pairing).toBeLessThanOrEqual(2 * (base.length + other.length))
     expect(match[4000]).toBe(4000)
     expect(match[4999]).toBe(4999)
   })
@@ -167,7 +201,7 @@ describe('mergeMarkdown3', () => {
   })
 })
 
-describe('mergeMarkdown3 — 큰 틈(리뷰 fix)', () => {
+describe('mergeMarkdown3 — 큰 틈(리뷰 fix)', { timeout: SCALE_TEST_TIMEOUT_MS }, () => {
   // AI 가 맨 앞에 문단을 넣고 전체를 다듬는 사이 사람이 가운데 문단 하나를 고친 경우 — 순서 짝짓기면 사람 수정이 이웃 문단에 붙는다.
   const polishAll = (n: number, edited: number) => {
     const base = Array.from({ length: n }, (_, i) => `문단 ${i} 내용 텍스트`)
@@ -182,11 +216,14 @@ describe('mergeMarkdown3 — 큰 틈(리뷰 fix)', () => {
     expect(mergeMarkdown3(base, cur, ai)).toEqual({ markdown: expected, conflicts: 0 })
   })
 
-  it('does the same on a 5000-block note quickly', () => {
+  it('does the same on a 5000-block note with pairing and linear-pass work linear in the block count', () => {
     const { base, cur, ai, expected } = polishAll(5000, 4000)
-    const started = performance.now()
-    const result = mergeMarkdown3(base, cur, ai)
-    expect(performance.now() - started).toBeLessThan(2000)
+    const { result, work, parses } = measureMerge(() => mergeMarkdown3(base, cur, ai))
+    // 측정 ≈ 590만 단위(블록당 ≈ 1,200). 큰 틈을 짝 표 전체로 계산하면 2,500만 단위를 넘는다.
+    expect(work.pairing).toBeLessThanOrEqual(PAIRING_UNITS_PER_BLOCK * 5000)
+    // 선형 단계(측정 ≈ 12만 — 블록당 24)도 블록 수에 비례하고, 문서마다 한 번만 파싱한다.
+    expect(work.scan).toBeLessThanOrEqual(SCAN_UNITS_PER_BLOCK * 5000)
+    expect(parses).toBeLessThanOrEqual(3)
     expect(result).toEqual({ markdown: expected, conflicts: 0 })
   })
 
@@ -207,7 +244,57 @@ describe('mergeMarkdown3 — 큰 틈(리뷰 fix)', () => {
   })
 })
 
-describe('mergeMarkdown3 — 위치와 무관한 큰 틈 짝짓기(리뷰 fix 2)', () => {
+describe('mergeMarkdown3 — 병합 한 번의 글자 diff 예산', { timeout: SCALE_TEST_TIMEOUT_MS }, () => {
+  // 사람·AI 가 둘 다 고친 큰 블록이 여럿이어도 병합 한 번의 글자 diff 작업 합은 MERGE_DIFF_WORK_BUDGET(+ 마지막 diff 의 넘침)을 넘지 않는다.
+  // 블록마다 상한(DIFF_WORK_BUDGET)만 있으면 큰 블록 수만큼 비용이 늘어 바쁜 워커에서 워커 시간 상한(10초)을 넘길 수 있었다.
+  // 블록 넷은 각각 블록 상한 안에서 끝나는 크기(약 410만 단위)라 블록 상한으로는 끊기지 않는다 — 앞의 둘이 몫(1,000만)을 쓰면 뒤의 둘은
+  // 몫이 모자라 거친 diff 가 되고(예전 시간 초과와 같은 모양), 사람 수정 자리의 문맥을 못 찾아 AI 쪽으로 정해진다(결정적 — 입력만으로 정해짐).
+  // 결정적 의사난수(mulberry32) — 아래 큰 틈 묶음과 같은 것.
+  const rng = (seed: number) => () => {
+    seed = (seed + 0x6d2b79f5) | 0
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed)
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+  const WORDS = '회의 결정 사항 다음 주 일정 고객 요청 반영 배포 계획 검토 문서 작성 담당 확인 이슈 처리 the of and design review merge note'.split(' ')
+  const r = rng(11)
+  const words = (n: number) => Array.from({ length: n }, () => WORDS[Math.floor(r() * WORDS.length)]).join(' ')
+  // 블록마다 가운데 문장(keep)만 그대로 두고 AI 가 앞뒤를 통째 다시 쓴다. 사람은 keep 한가운데를 고친다 — 정확한 diff 면 keep 이 같음 구간이라
+  // 문맥(최대 256자)이 keep 안에서 잡혀 사람 수정이 남고, 거친 diff(블록 통째 교체)면 사람 수정 때문에 기준 블록 전체를 못 찾는다.
+  const blocks = Array.from({ length: 4 }, () => {
+    const keep = words(150)
+    const mid = keep.length >> 1
+    const edited = `${keep.slice(0, mid)}사람끝${keep.slice(mid)}`
+    const [left, right] = [words(360), words(360)]
+    const ai = `${words(360)} ${keep} ${words(360)}`
+    return { base: `${left} ${keep} ${right}`, cur: `${left} ${edited} ${right}`, ai, merged: ai.replace(keep, edited) }
+  })
+  const side = (k: 'base' | 'cur' | 'ai' | 'merged') => doc(...blocks.map((b) => b[k]))
+
+  it('caps the total char-diff work of one merge and resolves the blocks past the cap to the AI side', () => {
+    const { result, work } = measureMerge(() => mergeMarkdown3(side('base'), side('cur'), side('ai')))
+    // 상한 = 병합 몫 + 몫을 넘긴 diff 의 넘침(뱀 하나 — 블록 길이 이하). 블록 상한에 걸린 diff 마다 넘칠 수 있어 블록 수만큼 잡는다.
+    const longest = Math.max(...blocks.map((b) => Math.max(b.base.length, b.ai.length)))
+    expect(work.diff).toBeLessThanOrEqual(MERGE_DIFF_WORK_BUDGET + blocks.length * longest)
+    // 몫 안에서 끝난 앞의 두 블록은 사람·AI 수정이 모두 남고, 뒤의 두 블록은 AI 쪽(충돌 2)이다 — 올바른 병합 결과다(거칠 뿐 틀리지 않음).
+    expect(splitBlocks(result.markdown)).toEqual([blocks[0].merged, blocks[1].merged, blocks[2].ai, blocks[3].ai])
+    expect(result.conflicts).toBe(2)
+  })
+
+  it('uses blocks that each fit the per-block budget, so only the merge-wide budget cuts them', () => {
+    // 위 테스트의 전제 — 블록 하나씩은 블록 상한 안에서 정확히 끝나고(사람 수정이 남음), 넷을 합치면 병합 몫을 넘는다.
+    let total = 0
+    for (const b of blocks) {
+      const one = measureMerge(() => mergeMarkdown3(b.base, b.cur, b.ai))
+      expect(one.work.diff).toBeLessThanOrEqual(DIFF_WORK_BUDGET)
+      expect(one.result).toEqual({ markdown: b.merged, conflicts: 0 })
+      total += one.work.diff
+    }
+    expect(total).toBeGreaterThan(MERGE_DIFF_WORK_BUDGET)
+  })
+})
+
+describe('mergeMarkdown3 — 위치와 무관한 큰 틈 짝짓기(리뷰 fix 2)', { timeout: SCALE_TEST_TIMEOUT_MS }, () => {
   // 결정적 의사난수(mulberry32) — 실패 시 같은 입력으로 재현된다.
   const rng = (seed: number) => () => {
     seed = (seed + 0x6d2b79f5) | 0
@@ -247,8 +334,12 @@ describe('mergeMarkdown3 — 위치와 무관한 큰 틈 짝짓기(리뷰 fix 2)
     expect(result.conflicts).toBe(0)
   })
 
-  it.each([50, 600, 3000])('keeps a person edit through random AI inserts/deletes/rewording (N=%i)', (n) => {
-    for (let seed = 1; seed <= 5; seed++) {
+  // 크기 × 씨앗마다 따로 — 한 테스트에 씨앗 다섯을 몰면 테스트 하나의 계산이 다섯 배로 커진다(병렬 부하에서 시간 제한을 넘겼다).
+  // 입력·단언은 그대로이고 실패하면 씨앗이 이름에 남는다.
+  const SEEDS = [1, 2, 3, 4, 5]
+  it.each([50, 600, 3000].flatMap((n) => SEEDS.map((seed) => [n, seed])))(
+    'keeps a person edit through random AI inserts/deletes/rewording (N=%i, seed %i)',
+    (n, seed) => {
       const r = rng(n * 100 + seed)
       const base = Array.from({ length: n }, () => para(r))
       // AI: 블록마다 일정 확률로 지움(가끔 70블록 넘게 연속), 대부분 다듬음, 사이사이 새 블록(가끔 70블록 넘게 연속).
@@ -268,23 +359,26 @@ describe('mergeMarkdown3 — 위치와 무관한 큰 틈 짝짓기(리뷰 fix 2)
       const edited = kept[Math.floor(r() * kept.length)]
       const cur = base.map((b, i) => (i === edited ? b + MARK : b))
       expect(mergeMarkdown3(doc(...base), doc(...cur), doc(...ai)).markdown, `seed ${seed}`).toContain(MARK)
-    }
-  })
+    },
+  )
 
-  it('merges a 10000-block note with a bulk insert and a bulk delete quickly', () => {
+  it('merges a 10000-block note with a bulk insert and a bulk delete, with pairing and linear-pass work linear in the block count', () => {
     const r = rng(3)
     const base = Array.from({ length: 10000 }, () => para(r))
     const cur = base.map((b, i) => (i === 7000 ? b + MARK : b))
     const polished = base.map((b) => reword(r, b))
     const ai = [...polished.slice(0, 2000), ...Array.from({ length: 300 }, () => para(r)), ...polished.slice(2000, 5000), ...polished.slice(5300)]
-    const started = performance.now()
-    const result = mergeMarkdown3(doc(...base), doc(...cur), doc(...ai))
-    expect(performance.now() - started).toBeLessThan(3000)
+    const { result, work, parses } = measureMerge(() => mergeMarkdown3(doc(...base), doc(...cur), doc(...ai)))
+    // 측정 ≈ 330만 단위(블록당 ≈ 330). 짝 표 전체면 1억 단위.
+    expect(work.pairing).toBeLessThanOrEqual(PAIRING_UNITS_PER_BLOCK * 10000)
+    // 선형 단계(측정 ≈ 24만 — 블록당 24)도 블록 수에 비례하고, 문서마다 한 번만 파싱한다.
+    expect(work.scan).toBeLessThanOrEqual(SCAN_UNITS_PER_BLOCK * 10000)
+    expect(parses).toBeLessThanOrEqual(3)
     expect(result.markdown).toContain(polished[7000] + MARK)
   })
 })
 
-describe('mergeMarkdown3 — 반복되는 같은 블록(회의록, 리뷰 fix 3)', () => {
+describe('mergeMarkdown3 — 반복되는 같은 블록(회의록, 리뷰 fix 3)', { timeout: SCALE_TEST_TIMEOUT_MS }, () => {
   const rng = (seed: number) => () => {
     seed = (seed + 0x6d2b79f5) | 0
     let t = Math.imul(seed ^ (seed >>> 15), 1 | seed)
@@ -376,10 +470,16 @@ describe('mergeMarkdown3 — 반복되는 같은 블록(회의록, 리뷰 fix 3)
     return nextOk || prevOk
   }
 
-  it.each([
-    ['paragraphs only', false],
-    ['every unique block reworded too', true],
-  ])('keeps an edit to a middle repeated heading in a 2100+ block log (%s)', (_label, all) => {
+  // 반복 블록 종류마다 따로 — 한 테스트에 세 번의 큰 병합을 몰지 않는다(병렬 부하에서 시간 제한을 넘겼다, 입력·단언은 그대로).
+  const REPEATED = ['### 액션 아이템', '### 참석자', '---']
+  it.each(
+    (
+      [
+        ['paragraphs only', false],
+        ['every unique block reworded too', true],
+      ] as const
+    ).flatMap(([label, all]) => REPEATED.map((kind) => [label, kind, all] as const)),
+  )('keeps an edit to a middle repeated heading in a 2100+ block log (%s, %s)', (_label, kind, all) => {
     const r = rng(all ? 31 : 30)
     const { blocks, kinds } = meetingLog(r, 2100)
     const last = blocks.length - 1
@@ -395,12 +495,9 @@ describe('mergeMarkdown3 — 반복되는 같은 블록(회의록, 리뷰 fix 3)
       },
       () => [],
     )
-    const mid = Math.floor(blocks.length / 2)
-    for (const kind of ['### 액션 아이템', '### 참석자', '---']) {
-      let target = mid
-      while (blocks[target] !== kind) target++
-      expectAtSection(blocks, kinds, t, target, kind)
-    }
+    let target = Math.floor(blocks.length / 2)
+    while (blocks[target] !== kind) target++
+    expectAtSection(blocks, kinds, t, target, kind)
   })
 
   it('never anchors a repeated block to the wrong copy (exact anchors are unique blocks only)', () => {
@@ -437,8 +534,10 @@ describe('mergeMarkdown3 — 반복되는 같은 블록(회의록, 리뷰 fix 3)
     expect(out.conflicts).toBe(0)
   })
 
-  it.each([50, 600, 3000])('keeps an edit to a random repeated copy at its own section (templated log, N=%i)', (n) => {
-    for (let seed = 1; seed <= 5; seed++) {
+  // 크기 × 씨앗마다 따로(입력·단언은 그대로) — 큰 N 의 씨앗 다섯을 한 테스트에 몰지 않는다(병렬 부하에서 시간 제한을 넘겼다).
+  it.each([50, 600, 3000].flatMap((n) => [1, 2, 3, 4, 5].map((seed) => [n, seed])))(
+    'keeps an edit to a random repeated copy at its own section (templated log, N=%i, seed %i)',
+    (n, seed) => {
       const r = rng(n * 7 + seed)
       const { blocks, kinds } = meetingLog(r, n)
       let skip = 0
@@ -464,8 +563,8 @@ describe('mergeMarkdown3 — 반복되는 같은 블록(회의록, 리뷰 fix 3)
       const choices = blocks.map((_, i) => i).filter((i) => checkable(kinds, t, i))
       const target = choices[Math.floor(r() * choices.length)]
       expectAtSection(blocks, kinds, t, target, `seed ${seed} target ${target}`)
-    }
-  })
+    },
+  )
 })
 
 describe('mergeMarkdown3 — 반복 블록을 공통 앞뒤 떼기로 짝짓지 않는다(리뷰 fix 4)', () => {
@@ -602,7 +701,7 @@ describe('closestBase', () => {
   })
 })
 
-describe('mergeMarkdown3 — 표 행·칸 단위 병합(Task 8 후속)', () => {
+describe('mergeMarkdown3 — 표 행·칸 단위 병합(Task 8 후속)', { timeout: SCALE_TEST_TIMEOUT_MS }, () => {
   // 공용 직렬화기 표기 그대로의 표(| a | b |, | --- |).
   const table = (head: string[], rows: string[][]) =>
     [`| ${head.join(' | ')} |`, `| ${head.map(() => '---').join(' | ')} |`, ...rows.map((r) => `| ${r.join(' | ')} |`)].join('\n')
@@ -667,8 +766,10 @@ describe('mergeMarkdown3 — 표 행·칸 단위 병합(Task 8 후속)', () => {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296
   }
   const MARK = '사람ZQ'
-  it.each([20, 120, 400])('keeps a person cell edit and every AI row edit in a table-heavy note (%i sections)', (sections) => {
-    for (let seed = 1; seed <= 10; seed++) {
+  // 크기 × 씨앗마다 따로(입력·단언은 그대로) — 400 회차 씨앗 열 개를 한 테스트에 몰지 않는다(병렬 부하에서 시간 제한을 넘겼다).
+  it.each([20, 120, 400].flatMap((sections) => Array.from({ length: 10 }, (_, k) => [sections, k + 1])))(
+    'keeps a person cell edit and every AI row edit in a table-heavy note (%i sections, seed %i)',
+    (sections, seed) => {
       const r = rng(sections * 31 + seed)
       type Tbl = { head: string[]; rows: string[][] }
       const parts: Array<string | Tbl> = []
@@ -714,8 +815,8 @@ describe('mergeMarkdown3 — 표 행·칸 단위 병합(Task 8 후속)', () => {
         const counts = t.split('\n').map((l) => l.split('|').length)
         expect(new Set(counts).size, msg).toBe(1)
       }
-    }
-  })
+    },
+  )
 })
 
 describe('mergeMarkdown3 — 줄 안 강제 줄바꿈 표기(Task 8 후속)', () => {
@@ -727,7 +828,7 @@ describe('mergeMarkdown3 — 줄 안 강제 줄바꿈 표기(Task 8 후속)', ()
   })
 })
 
-describe('mergeMarkdown3 — 목록 항목·인용 안 자식 단위 병합(WP-326)', () => {
+describe('mergeMarkdown3 — 목록 항목·인용 안 자식 단위 병합(WP-326)', { timeout: SCALE_TEST_TIMEOUT_MS }, () => {
   // 사람은 한 자식(하위 항목·문단·표 칸)을, AI 는 같은 컨테이너의 다른 자식을 고친다. 고친 자리가 8자 안쪽이라 컨테이너 전체 글자 패치는
   // 문맥이 겹쳐 실패하고 AI 쪽이 이겼다 — 자식 단위로 다시 3-way 병합해 둘 다 남아야 한다.
   const normalize = (s: string) => docToMarkdown(markdownToDoc(s)).replace(/\s+$/, '')
@@ -848,8 +949,9 @@ describe('mergeMarkdown3 — 목록 항목·인용 안 자식 단위 병합(WP-3
     const parse = vi.spyOn(MarkdownIt.prototype, 'parse')
     let out: ReturnType<typeof mergeMarkdown3>
     let calls: string[]
+    let work: WorkTotals
     try {
-      out = mergeMarkdown3(base, cur, ai)
+      ;({ result: out, work } = measureWork(() => mergeMarkdown3(base, cur, ai)))
       calls = parse.mock.calls.map(([src]) => String(src))
     } finally {
       parse.mockRestore() // 기록도 지워지므로 위에서 먼저 옮겨 둔다
@@ -859,13 +961,9 @@ describe('mergeMarkdown3 — 목록 항목·인용 안 자식 단위 병합(WP-3
     expect(out.markdown).toContain('잎 59-30 AI')
     expect(calls.length).toBeLessThanOrEqual(20)
     expect(lines).toBeLessThanOrEqual(15 * 3000)
-    // 거친 안전망(시계) — 작업량이 같아도 다른 곳이 크게 느려지면 잡는다. 셋 중 가장 빠른 값만 본다.
-    const times = [0, 1, 2].map(() => {
-      const started = performance.now()
-      mergeMarkdown3(base, cur, ai)
-      return performance.now() - started
-    })
-    expect(Math.min(...times)).toBeLessThan(1500)
+    // 단계마다 자식을 짝짓는 작업도 깊이에 따라 불어나지 않는다(측정 ≈ 1,700 — 줄 수 3,000 이하). 예전의 시계 안전망(세 번 더 병합해
+    // 1.5초 미만)은 병렬 부하에서 흔들려 작업량 단언으로 바꿨다.
+    expect(work.pairing).toBeLessThanOrEqual(3000)
   })
 
   it('preserves a tight item with a sub-list and a loose item with two paragraphs', () => {
@@ -898,44 +996,48 @@ describe('mergeMarkdown3 — 목록 항목·인용 안 자식 단위 병합(WP-3
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296
   }
   const WORDS = ['가', '나', '다', '확인', '자료', '보고', 'x', 'ok', '정리']
-  it('keeps both non-overlapping child edits in random small lists and quotes (seeded)', () => {
-    for (let seed = 1; seed <= 300; seed++) {
-      const r = rng(seed)
-      const pick = () => WORDS[Math.floor(r() * WORDS.length)]
-      // 0 글머리+하위, 1 번호+하위, 2 인용 문단, 3 인용 안 목록, 4 인용 안 번호 목록(AI 삽입 시 번호 밀림), 5 느슨한 항목(문단 여럿)
-      const kind = Math.floor(r() * 6)
-      const n = 2 + Math.floor(r() * 4)
-      // 번호 목록(4)은 자식 글이 겹치지 않게 한다 — 번호가 블록 글자에 들어 있어, 같은 글 항목이 번호 밀림 뒤 엉뚱한 사본과 짝지어지는 것은
-      // 최상위 번호 목록에도 있는 기존 짝짓기 한계(WP-326 범위 밖, 보고서 참고)다.
-      const kids = Array.from({ length: n }, (_, i) => `${pick()} ${pick()}${kind === 4 ? ` ${i}` : ''}`)
-      const p = Math.floor(r() * n)
-      let a = Math.floor(r() * (n - 1))
-      if (a >= p) a++
-      const aiInsert = r() < 0.3
-      const build = (ks: string[]) => {
-        if (kind === 0) return `- 머리\n${ks.map((k) => `  - ${k}`).join('\n')}`
-        if (kind === 1) return `1. 머리\n${ks.map((k) => `   - ${k}`).join('\n')}\n2. 꼬리`
-        if (kind === 2) return ks.map((k) => `> ${k}`).join('\n>\n')
-        if (kind === 3) return `> 머리\n>\n${ks.map((k) => `> - ${k}`).join('\n')}`
-        if (kind === 4) return ks.map((k, i) => `> ${i + 1}. ${k}`).join('\n')
-        return `- 머리\n\n${ks.map((k) => `  ${k}`).join('\n\n')}\n\n- 꼬리`
+  // 씨앗 300 개를 30 개씩 나눠 돈다(입력·단언은 그대로) — 한 테스트에 300 번의 병합을 몰지 않는다(병렬 부하에서 시간 제한을 넘겼다).
+  it.each(Array.from({ length: 10 }, (_, k) => [k * 30 + 1, k * 30 + 30]))(
+    'keeps both non-overlapping child edits in random small lists and quotes (seeds %i-%i)',
+    (from, to) => {
+      for (let seed = from; seed <= to; seed++) {
+        const r = rng(seed)
+        const pick = () => WORDS[Math.floor(r() * WORDS.length)]
+        // 0 글머리+하위, 1 번호+하위, 2 인용 문단, 3 인용 안 목록, 4 인용 안 번호 목록(AI 삽입 시 번호 밀림), 5 느슨한 항목(문단 여럿)
+        const kind = Math.floor(r() * 6)
+        const n = 2 + Math.floor(r() * 4)
+        // 번호 목록(4)은 자식 글이 겹치지 않게 한다 — 번호가 블록 글자에 들어 있어, 같은 글 항목이 번호 밀림 뒤 엉뚱한 사본과 짝지어지는 것은
+        // 최상위 번호 목록에도 있는 기존 짝짓기 한계(WP-326 범위 밖, 보고서 참고)다.
+        const kids = Array.from({ length: n }, (_, i) => `${pick()} ${pick()}${kind === 4 ? ` ${i}` : ''}`)
+        const p = Math.floor(r() * n)
+        let a = Math.floor(r() * (n - 1))
+        if (a >= p) a++
+        const aiInsert = r() < 0.3
+        const build = (ks: string[]) => {
+          if (kind === 0) return `- 머리\n${ks.map((k) => `  - ${k}`).join('\n')}`
+          if (kind === 1) return `1. 머리\n${ks.map((k) => `   - ${k}`).join('\n')}\n2. 꼬리`
+          if (kind === 2) return ks.map((k) => `> ${k}`).join('\n>\n')
+          if (kind === 3) return `> 머리\n>\n${ks.map((k) => `> - ${k}`).join('\n')}`
+          if (kind === 4) return ks.map((k, i) => `> ${i + 1}. ${k}`).join('\n')
+          return `- 머리\n\n${ks.map((k) => `  ${k}`).join('\n\n')}\n\n- 꼬리`
+        }
+        const curKids = kids.map((k, i) => (i === p ? `${k} 사람ZQ` : k))
+        const aiKids = kids.map((k, i) => (i === a ? `${k} AIZQ` : k))
+        if (aiInsert) aiKids.splice(Math.floor(r() * (n + 1)), 0, '새 자식 AINEW')
+        const wrap = (s: string) => doc('앞 문단', s, '뒤 문단')
+        const [base, cur, ai] = [kids, curKids, aiKids].map((ks) => normalize(wrap(build(ks))))
+        const msg = `seed ${seed} kind ${kind}\n${base}\n---\n${cur}\n---\n${ai}`
+        const out = mergeMarkdown3(base, cur, ai)
+        expect(out.markdown, msg).toContain('사람ZQ')
+        expect(out.markdown, msg).toContain('AIZQ')
+        if (aiInsert) expect(out.markdown, msg).toContain('AINEW')
+        expect(out.conflicts, msg).toBe(0)
+        // 다시 읽어도 같은 블록 구성(컨테이너 종류·개수)이어야 한다 — 목록이 쪼개지거나 인용이 풀리면 안 된다.
+        const shape = (s: string) => splitBlocks(s).map((b) => b[0])
+        expect(shape(out.markdown), msg).toEqual(shape(ai))
+        // 직렬화기를 거쳐도 블록이 그대로여야 한다(최상위 느슨한 목록 항목 사이 빈 줄은 joinBlocks 정책상 줄바꿈 하나라 블록으로 비교).
+        expect(splitBlocks(normalize(out.markdown)), msg).toEqual(splitBlocks(out.markdown))
       }
-      const curKids = kids.map((k, i) => (i === p ? `${k} 사람ZQ` : k))
-      const aiKids = kids.map((k, i) => (i === a ? `${k} AIZQ` : k))
-      if (aiInsert) aiKids.splice(Math.floor(r() * (n + 1)), 0, '새 자식 AINEW')
-      const wrap = (s: string) => doc('앞 문단', s, '뒤 문단')
-      const [base, cur, ai] = [kids, curKids, aiKids].map((ks) => normalize(wrap(build(ks))))
-      const msg = `seed ${seed} kind ${kind}\n${base}\n---\n${cur}\n---\n${ai}`
-      const out = mergeMarkdown3(base, cur, ai)
-      expect(out.markdown, msg).toContain('사람ZQ')
-      expect(out.markdown, msg).toContain('AIZQ')
-      if (aiInsert) expect(out.markdown, msg).toContain('AINEW')
-      expect(out.conflicts, msg).toBe(0)
-      // 다시 읽어도 같은 블록 구성(컨테이너 종류·개수)이어야 한다 — 목록이 쪼개지거나 인용이 풀리면 안 된다.
-      const shape = (s: string) => splitBlocks(s).map((b) => b[0])
-      expect(shape(out.markdown), msg).toEqual(shape(ai))
-      // 직렬화기를 거쳐도 블록이 그대로여야 한다(최상위 느슨한 목록 항목 사이 빈 줄은 joinBlocks 정책상 줄바꿈 하나라 블록으로 비교).
-      expect(splitBlocks(normalize(out.markdown)), msg).toEqual(splitBlocks(out.markdown))
-    }
-  })
+    },
+  )
 })

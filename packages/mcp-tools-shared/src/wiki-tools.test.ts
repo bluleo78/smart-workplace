@@ -9,6 +9,9 @@ function mockClient(): WikiToolClient {
     listWikiSpaces: vi.fn().mockResolvedValue([{ id: 1, type: 'PERSONAL', name: '내 노트', role: 'OWNER' }]),
     searchWikiPages: vi.fn().mockResolvedValue([]),
     getWikiPage: vi.fn().mockResolvedValue({}),
+    getWikiPageSummary: vi.fn().mockResolvedValue({}),
+    listWikiRevisions: vi.fn().mockResolvedValue({ current: {}, items: [] }),
+    restoreWikiRevision: vi.fn().mockResolvedValue({}),
     createWikiPage: vi.fn().mockResolvedValue({}),
     updateWikiPage: vi.fn().mockResolvedValue({}),
     listWikiPages: vi.fn().mockResolvedValue([]),
@@ -20,7 +23,7 @@ function mockClient(): WikiToolClient {
 const tool = (c: WikiToolClient, name: string) => buildWikiTools(c).find((x) => x.name === name)!;
 
 describe('buildWikiTools', () => {
-  it('정확히 8종을 반환한다', () => {
+  it('정확히 9종을 반환한다', () => {
     expect(buildWikiTools(mockClient()).map((t) => t.name).sort()).toEqual(
       [
         'create_wiki_page',
@@ -29,6 +32,7 @@ describe('buildWikiTools', () => {
         'list_wiki_pages',
         'list_wiki_spaces',
         'move_wiki_page',
+        'restore_wiki_revision',
         'search_wiki',
         'update_wiki_page',
       ].sort(),
@@ -46,7 +50,7 @@ describe('buildWikiTools', () => {
     const c = mockClient();
     vi.mocked(c.searchWikiPages).mockResolvedValue([{ id: 7, spaceName: '팀', title: '릴리스', snippet: '배포' }]);
     const out = await tool(c, 'search_wiki').handler({ query: '배포' });
-    expect(c.searchWikiPages).toHaveBeenCalledWith('배포');
+    expect(c.searchWikiPages).toHaveBeenCalledWith('배포', undefined);
     const parsed = JSON.parse(resultText(out));
     expect(parsed.items[0]).toMatchObject({ id: 7, title: '릴리스' });
     expect(parsed).not.toHaveProperty('truncated');
@@ -75,6 +79,89 @@ describe('buildWikiTools', () => {
     const out = await tool(c, 'get_wiki_page').handler({ pageId: 7 });
     expect(c.getWikiPage).toHaveBeenCalledWith(7);
     expect(JSON.parse(resultText(out))).toMatchObject({ id: 7, body: '본문' });
+  });
+
+  it('WP-357: search_wiki → spaceId 를 클라이언트로 관통한다', async () => {
+    const c = mockClient();
+    await tool(c, 'search_wiki').handler({ query: '배포', spaceId: 4 });
+    expect(c.searchWikiPages).toHaveBeenCalledWith('배포', 4);
+  });
+
+  it('WP-357: get_wiki_page 는 옵션이 꺼져 있으면 요약·판 기록을 요청하지 않는다', async () => {
+    const c = mockClient();
+    vi.mocked(c.getWikiPage).mockResolvedValue({ id: 7, body: '본문', version: 3 });
+    const out = JSON.parse(resultText(await tool(c, 'get_wiki_page').handler({ pageId: 7 })));
+    expect(c.getWikiPageSummary).not.toHaveBeenCalled();
+    expect(c.listWikiRevisions).not.toHaveBeenCalled();
+    expect(out).toEqual({ id: 7, body: '본문', version: 3 });
+  });
+
+  it('WP-357: includeSummary → 저장된 요약을 summary 로 싣고, READY 면 상태 키를 생략한다', async () => {
+    const c = mockClient();
+    vi.mocked(c.getWikiPage).mockResolvedValue({ id: 7, version: 3 });
+    vi.mocked(c.getWikiPageSummary).mockResolvedValue({ summary: '요약문', status: 'READY', summaryVersion: 3, pageVersion: 3, summarizedAt: '2026-10-01T00:00:00Z' });
+    const out = JSON.parse(resultText(await tool(c, 'get_wiki_page').handler({ pageId: 7, includeSummary: true })));
+    expect(c.getWikiPageSummary).toHaveBeenCalledWith(7);
+    expect(out).toEqual({ id: 7, version: 3, summary: '요약문' });
+  });
+
+  it('WP-357: includeSummary → STALE 은 요약과 상태를, 요약이 없는 상태(MISSING·TOO_SHORT·UNAVAILABLE)는 상태만 싣는다', async () => {
+    const c = mockClient();
+    vi.mocked(c.getWikiPageSummary).mockResolvedValue({ summary: '옛 요약', status: 'STALE' });
+    expect(JSON.parse(resultText(await tool(c, 'get_wiki_page').handler({ pageId: 7, includeSummary: true })))).toMatchObject({ summary: '옛 요약', summaryStatus: 'STALE' });
+    vi.mocked(c.getWikiPageSummary).mockResolvedValue({ summary: null, status: 'TOO_SHORT' });
+    const out = JSON.parse(resultText(await tool(c, 'get_wiki_page').handler({ pageId: 7, includeSummary: true })));
+    expect(out).toMatchObject({ summaryStatus: 'TOO_SHORT' });
+    expect(out).not.toHaveProperty('summary');
+  });
+
+  // 서버 WikiRevisionListResponse 모양 — Person 은 {id, name}(숫자 사용자 ID 포함).
+  const person = (id: number, name: string) => ({ id, name });
+  const revItem = (version: number) => ({
+    version, title: `제목${version}`, editedAt: `2026-10-01T00:00:${String(version % 60).padStart(2, '0')}Z`, createdAt: '2026-10-02T00:00:00Z',
+    reason: 'SESSION', editors: [person(11, '앨리스'), person(12, '밥')], aiActor: null,
+  });
+
+  it('WP-357: includeRevisions → 판마다 편집자 이름만 싣는다(숫자 사용자 ID·적재 시각·판 제목 제외)', async () => {
+    const c = mockClient();
+    vi.mocked(c.getWikiPage).mockResolvedValue({ id: 7, version: 5 });
+    vi.mocked(c.listWikiRevisions).mockResolvedValue({
+      current: { version: 5, editedAt: '2026-10-03T00:00:00Z', editors: [person(11, '앨리스')] },
+      items: [{ ...revItem(4), reason: 'AI', aiActor: person(13, '캐럴') }, revItem(3)],
+    });
+    const out = JSON.parse(resultText(await tool(c, 'get_wiki_page').handler({ pageId: 7, includeRevisions: true })));
+    expect(c.listWikiRevisions).toHaveBeenCalledWith(7);
+    expect(out.revisions).toEqual([
+      { version: 4, editedAt: '2026-10-01T00:00:04Z', reason: 'AI', editors: ['앨리스', '밥'], aiActor: '캐럴' },
+      { version: 3, editedAt: '2026-10-01T00:00:03Z', reason: 'SESSION', editors: ['앨리스', '밥'] },
+    ]);
+    expect(out).not.toHaveProperty('revisionsOmitted');
+    expect(JSON.stringify(out)).not.toMatch(/"id":1[123]/);
+  });
+
+  it('WP-357: includeRevisions → 최근 30건만 싣고 넘치면 빠진 수를 revisionsOmitted 로 알린다', async () => {
+    const c = mockClient();
+    vi.mocked(c.listWikiRevisions).mockResolvedValue({ current: {}, items: Array.from({ length: 45 }, (_, i) => revItem(45 - i)) });
+    const out = JSON.parse(resultText(await tool(c, 'get_wiki_page').handler({ pageId: 7, includeRevisions: true })));
+    expect(out.revisions).toHaveLength(30);
+    expect(out.revisions[0].version).toBe(45);
+    expect(out.revisionsOmitted).toBe(15);
+  });
+
+  it('WP-357: restore_wiki_revision → client.restoreWikiRevision(pageId, version) 의 페이지 뷰를 돌려준다', async () => {
+    const c = mockClient();
+    vi.mocked(c.restoreWikiRevision).mockResolvedValue({ id: 7, version: 6, body: '복원본', updatedBy: 11 });
+    const out = JSON.parse(resultText(await tool(c, 'restore_wiki_revision').handler({ pageId: 7, version: 2 })));
+    expect(c.restoreWikiRevision).toHaveBeenCalledWith(7, 2);
+    expect(out).toEqual({ id: 7, version: 6, body: '복원본' }); // updatedBy(숫자 사용자 ID)는 제거
+  });
+
+  it('WP-357: restore_wiki_revision 은 덮어쓰는 쓰기라 destructive 이고 멱등이 아니며, version 누락·0 을 거부한다', async () => {
+    const c = mockClient();
+    expect(tool(c, 'restore_wiki_revision')).toMatchObject({ kind: 'write', hints: { destructive: true, idempotent: false } });
+    await expect(tool(c, 'restore_wiki_revision').handler({ pageId: 7 })).rejects.toThrow();
+    await expect(tool(c, 'restore_wiki_revision').handler({ pageId: 7, version: 0 })).rejects.toThrow();
+    expect(c.restoreWikiRevision).not.toHaveBeenCalled();
   });
 
   it('create_wiki_page → parentId 생략 시 null 로 client.createWikiPage 호출', async () => {
@@ -125,8 +212,8 @@ describe('buildWikiTools', () => {
   // WP-309: body 는 전체 대체라 모델이 범위 밖 블록을 다시 쓰거나 정규화하면 사람이 쓴 텍스트가 지워진다 — 설명이 이를 막는 문구를 유지해야 한다.
   it('update_wiki_page 설명은 body 전체 대체·범위 밖 블록 원문 복사를 명시한다 (WP-309)', () => {
     const d = tool(mockClient(), 'update_wiki_page').description;
-    expect(d).toContain('문서 전체를 대체');
-    expect(d).toContain('바이트 단위');
+    expect(d).toContain('replaces the whole Markdown document');
+    expect(d).toContain('byte-for-byte');
   });
 
   it('update_wiki_page 는 version 누락 시 zod 파싱을 거부한다', async () => {
@@ -206,8 +293,8 @@ describe('buildWikiTools', () => {
   // WP-352 최종 리뷰: total 은 parentId 를 주면 하위 트리 노드 수고, 한 부모 아래 500 초과 자식은 parentId 로도 못 펼친다.
   it('list_wiki_pages 설명이 total 의 하위 트리 의미와 한 부모 아래 상한 한계를 밝힌다', () => {
     const { description } = tool(mockClient(), 'list_wiki_pages');
-    expect(description).toContain('parentId 를 주면 그 아래 하위 트리의 노드 수');
-    expect(description).toContain('한 부모 바로 아래 자식이');
+    expect(description).toContain('total counts all nodes (under parentId if given)');
+    expect(description).toContain('If a parent has too many direct children');
   });
 
   it('list_wiki_pages 는 스페이스에 없는 parentId 를 오류로 거절한다', async () => {

@@ -7,7 +7,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.drive.dto.DriveFileResponse;
 import com.workplace.drive.dto.VirtualAttachmentPage;
+import com.workplace.drive.exception.DriveDuplicateNameException;
 import com.workplace.drive.exception.DriveForbiddenException;
+import com.workplace.drive.exception.DriveInvalidTargetException;
 import com.workplace.drive.repository.DriveFileVersionRepository;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.dto.IssueRow;
@@ -323,6 +325,45 @@ class DriveVirtualAttachmentServiceTest extends IntegrationTestBase {
 
     assertThat(service.importAttachment(caller, spaceId, null, fileId).name())
         .isEqualTo(".._a_txt.exe");
+  }
+
+  /** 같은 위치에 같은 이름의 활성 파일이 있으면 DB 유니크 위반(500)이 아니라 DriveDuplicateNameException(409)이다(WP-354). */
+  @Test
+  void importAttachment_sameNameInFolder_duplicateName() {
+    long caller = seedUser("editor9");
+    long spaceId = seedSpace(caller, "EDITOR");
+    ProjectResponse proj = newProject(caller, "DN");
+    IssueRow issue = issueRepo.insert(proj.id(), 1, "DN 이슈", null, "MID", null, caller);
+    long fileId = seedFile(caller, "same.txt", null);
+    bindIssueAttachment(fileId, issue.id(), caller, OffsetDateTime.now(ZoneOffset.UTC));
+
+    service.importAttachment(caller, spaceId, null, fileId);
+
+    // 같은 첨부를 같은 루트에 다시 가져오면 이름이 겹친다.
+    assertThatThrownBy(() -> service.importAttachment(caller, spaceId, null, fileId))
+        .isInstanceOf(DriveDuplicateNameException.class);
+  }
+
+  /** 다른 스페이스의 폴더를 대상으로 주면 거부한다 — 허용하면 drive_file 이 스페이스와 폴더가 어긋난 행이 된다(WP-354). */
+  @Test
+  void importAttachment_folderOfOtherSpace_invalidTarget() {
+    long caller = seedUser("editor10");
+    long spaceId = seedSpace(caller, "EDITOR");
+    long otherSpaceId = seedSpace(caller, "EDITOR");
+    long otherFolderId =
+        dsl.insertInto(DRIVE_FOLDER)
+            .set(DRIVE_FOLDER.SPACE_ID, otherSpaceId)
+            .set(DRIVE_FOLDER.NAME, "other-folder")
+            .returning(DRIVE_FOLDER.ID)
+            .fetchOne()
+            .getId();
+    ProjectResponse proj = newProject(caller, "OF");
+    IssueRow issue = issueRepo.insert(proj.id(), 1, "OF 이슈", null, "MID", null, caller);
+    long fileId = seedFile(caller, "of.txt", null);
+    bindIssueAttachment(fileId, issue.id(), caller, OffsetDateTime.now(ZoneOffset.UTC));
+
+    assertThatThrownBy(() -> service.importAttachment(caller, spaceId, otherFolderId, fileId))
+        .isInstanceOf(DriveInvalidTargetException.class);
   }
 
   /** VIEWER → DriveForbiddenException. */

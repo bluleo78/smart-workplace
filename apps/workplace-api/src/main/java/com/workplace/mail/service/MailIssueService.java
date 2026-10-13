@@ -101,7 +101,17 @@ public class MailIssueService {
             callerId,
             req.projectKey(),
             new CreateIssueRequest(
-                req.title(), req.body(), req.priority(), null, assigneeIds, null, null, null));
+                req.title(),
+                req.body(),
+                req.priority(),
+                null,
+                assigneeIds,
+                req.typeId(),
+                null,
+                null,
+                req.labelIds(),
+                null,
+                null));
     issueRepository.updateSource(created.id(), "MAIL", messageId);
     // WP-64: 메일 상세의 "연결된 이슈" 표시가 갱신돼야 하므로 소유자에게 mail 변경을 알린다.
     notifier.mailChanged(callerId, owned.accountId(), messageId, callerId);

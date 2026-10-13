@@ -11,6 +11,7 @@ function mockClient(): MemberToolClient {
     getMemberContact: vi.fn().mockResolvedValue({}),
     listContacts: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
     getExternalContact: vi.fn().mockResolvedValue({}),
+    listChannelMembers: vi.fn().mockResolvedValue([]),
   };
 }
 
@@ -40,7 +41,63 @@ describe('buildMemberTools (#833)', () => {
     vi.mocked(c.searchMembersPage).mockResolvedValue({ items: [{ userId: 3, username: 'minsu', name: '김민수' }], total: 45, hasMore: true, page: 0 });
     const out = JSON.parse(resultText(await tool(c, 'search_members').handler({ search: '김', size: 20 })));
     expect(out).toEqual({ items: [{ username: 'minsu', name: '김민수' }], total: 45, hasMore: true, nextPage: 1 });
-    expect(tool(c, 'search_members').description).toContain('일부만 본 것이라고 밝히세요');
+    expect(tool(c, 'search_members').description).toContain('say the list is partial');
+  });
+
+  describe('search_members 의 channelId (WP-355)', () => {
+    const roster = [
+      { userId: 1, username: 'owner', name: '양동희', kind: 'HUMAN', role: 'OWNER', joinedAt: 't' },
+      { userId: 2, username: 'minsu', name: '김민수', kind: 'HUMAN', role: 'MEMBER', joinedAt: 't' },
+      { userId: 3, username: 'minji', name: '김민지', kind: 'HUMAN', role: 'ADMIN', joinedAt: 't' },
+      { userId: 4, username: 'bot', name: 'AI 비서', kind: 'AGENT', role: 'MEMBER', joinedAt: 't' },
+    ];
+    const withRoster = () => {
+      const c = mockClient();
+      vi.mocked(c.listChannelMembers).mockResolvedValue(roster);
+      return c;
+    };
+
+    it('채널 멤버를 읽어 같은 출력 모양으로 돌려주고, 구성원 검색 API 는 부르지 않으며 숫자 userId·가입 시각은 내보내지 않는다', async () => {
+      const c = withRoster();
+      const out = JSON.parse(resultText(await tool(c, 'search_members').handler({ channelId: 9 })));
+      expect(c.listChannelMembers).toHaveBeenCalledWith(9);
+      expect(c.searchMembersPage).not.toHaveBeenCalled();
+      // kind 기본값 HUMAN — 구성원 검색과 같아 AI 비서(AGENT)는 빠진다.
+      expect(out).toEqual({
+        items: [
+          { username: 'owner', name: '양동희', kind: 'HUMAN', role: 'OWNER' },
+          { username: 'minsu', name: '김민수', kind: 'HUMAN', role: 'MEMBER' },
+          { username: 'minji', name: '김민지', kind: 'HUMAN', role: 'ADMIN' },
+        ],
+        total: 3,
+      });
+      expect(JSON.stringify(out)).not.toContain('userId');
+    });
+
+    it('search 는 이름·username 부분일치(대소문자 무시), kind ALL 은 AI 도 포함한다', async () => {
+      const c = withRoster();
+      expect(JSON.parse(resultText(await tool(c, 'search_members').handler({ channelId: 9, search: '김민' }))).items.map((m: { username: string }) => m.username)).toEqual(['minsu', 'minji']);
+      expect(JSON.parse(resultText(await tool(c, 'search_members').handler({ channelId: 9, search: 'BOT', kind: 'ALL' }))).items).toEqual([
+        { username: 'bot', name: 'AI 비서', kind: 'AGENT', role: 'MEMBER' },
+      ]);
+    });
+
+    it('size 로 자르면 hasMore·nextPage·total 을 싣고 nextPage 로 이어 읽는다', async () => {
+      const c = withRoster();
+      const first = JSON.parse(resultText(await tool(c, 'search_members').handler({ channelId: 9, size: 2 })));
+      expect(first).toMatchObject({ total: 3, hasMore: true, nextPage: 1 });
+      expect(first.items).toHaveLength(2);
+      const second = JSON.parse(resultText(await tool(c, 'search_members').handler({ channelId: 9, size: 2, page: first.nextPage })));
+      expect(second.items.map((m: { username: string }) => m.username)).toEqual(['minji']);
+      expect(second).not.toHaveProperty('hasMore');
+    });
+
+    it('channelId 가 없으면 이전처럼 구성원 검색만 하고 채널 멤버는 읽지 않는다', async () => {
+      const c = withRoster();
+      await tool(c, 'search_members').handler({ search: '김' });
+      expect(c.listChannelMembers).not.toHaveBeenCalled();
+      expect(c.searchMembersPage).toHaveBeenCalled();
+    });
   });
 
   it('get_member 는 username 정확일치 항목을 돌려준다(비활성 포함·ALL 로 조회)', async () => {

@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { buildMailTools } from './mail-tools.js';
-import type { AssigneeResolverClient } from './resolve.js';
+import type { AssigneeResolverClient, ProjectMetaClient } from './resolve.js';
 import type { MailToolClient } from './tool-client.js';
 import { resultText } from './mcp-content.js';
 
-type Client = MailToolClient & AssigneeResolverClient;
+type Client = MailToolClient & AssigneeResolverClient & Pick<ProjectMetaClient, 'getProjectTypes' | 'getProjectLabels'>;
 
 /** 메일 클라이언트 mock(메일→이슈 담당자 해석용 프로젝트 멤버 조회 포함). */
 function mockClient(): Client {
@@ -18,9 +18,12 @@ function mockClient(): Client {
     getMailLinkedIssue: vi.fn().mockResolvedValue(null),
     promoteMailToIssue: vi.fn().mockResolvedValue({ issueKey: 'WP-9' }),
     markMailRead: vi.fn().mockResolvedValue(undefined),
+    markMailUnread: vi.fn().mockResolvedValue(undefined),
     syncMail: vi.fn().mockResolvedValue({ fetched: 3, saved: 2, seenChanged: 1 }),
     getMailSyncStatus: vi.fn().mockResolvedValue({ phase: 'IDLE', total: 0, done: 0, running: false }),
     getProjectMembers: vi.fn().mockResolvedValue([{ userId: 10, username: 'alice' }]),
+    getProjectTypes: vi.fn().mockResolvedValue([{ id: 2, name: 'BUG' }]),
+    getProjectLabels: vi.fn().mockResolvedValue([{ id: 100, name: '고객' }]),
     getMe: vi.fn().mockResolvedValue({ id: 10, username: 'alice' }),
   };
 }
@@ -58,6 +61,18 @@ describe('buildMailTools', () => {
     expect(c.listMail).toHaveBeenCalledWith(1, { folder: 'INBOX', limit: 20, unread: true });
   });
 
+  it('WP-357: list_mail → category·needsReply 를 클라이언트로 관통한다', async () => {
+    const c = mockClient();
+    await tool(c, 'list_mail').handler({ accountId: 1, category: '업무', needsReply: true });
+    expect(c.listMail).toHaveBeenCalledWith(1, { folder: 'INBOX', limit: 20, category: '업무', needsReply: true });
+  });
+
+  it('WP-357: list_mail 은 분류 enum 밖의 값을 거부한다(서버는 검증하지 않아 오타가 조용히 빈 목록이 된다)', async () => {
+    const c = mockClient();
+    await expect(tool(c, 'list_mail').handler({ accountId: 1, category: '업무용' })).rejects.toThrow();
+    expect(c.listMail).not.toHaveBeenCalled();
+  });
+
   it('list_mail 은 옛 파라미터 unread 를 인식하지 않는다(unreadOnly 만)', async () => {
     // 모르는 키는 zod 가 버린다 — 옛 이름으로 보내면 안 읽은 필터가 걸리지 않는다는 점을 고정한다.
     const c = mockClient();
@@ -71,6 +86,23 @@ describe('buildMailTools', () => {
     const out = await tool(c, 'get_mail').handler({ messageId: 9 });
     expect(c.getMail).toHaveBeenCalledWith(9);
     expect(JSON.parse(resultText(out))).toEqual({ id: 9, bodyText: '본문' });
+  });
+
+  it('WP-357: get_mail 은 이 메일로 만든 이슈가 있으면 issueKey 를 싣고, 없으면 키를 생략한다', async () => {
+    const c = mockClient();
+    vi.mocked(c.getMail).mockResolvedValue({ id: 9, bodyText: '본문' });
+    expect(JSON.parse(resultText(await tool(c, 'get_mail').handler({ messageId: 9 })))).not.toHaveProperty('issueKey');
+    vi.mocked(c.getMailLinkedIssue).mockResolvedValue({ issueKey: 'WP-12' });
+    const out = JSON.parse(resultText(await tool(c, 'get_mail').handler({ messageId: 9 })));
+    expect(c.getMailLinkedIssue).toHaveBeenCalledWith(9);
+    expect(out).toMatchObject({ id: 9, issueKey: 'WP-12' });
+  });
+
+  it('WP-357: 연결 이슈 조회가 실패해도 메일 읽기는 막지 않는다(부가 정보)', async () => {
+    const c = mockClient();
+    vi.mocked(c.getMail).mockResolvedValue({ id: 9, bodyText: '본문' });
+    vi.mocked(c.getMailLinkedIssue).mockRejectedValue(new Error('boom'));
+    expect(JSON.parse(resultText(await tool(c, 'get_mail').handler({ messageId: 9 })))).toEqual({ id: 9, bodyText: '본문' });
   });
 
   // 서버 EmailMessageDetail 형태.
@@ -90,7 +122,7 @@ describe('buildMailTools', () => {
     expect(out).not.toHaveProperty('messageId');
     expect(out).not.toHaveProperty('ccAddresses');
     expect(out.bodyText).toBe('안녕하세요\n견적 보냅니다.');
-    expect(out.attachments).toEqual([{ id: 1, filename: 'a.pdf', contentType: 'application/pdf', sizeBytes: 10 }]);
+    expect(out.attachments).toEqual([{ attachmentId: 1, filename: 'a.pdf', contentType: 'application/pdf', sizeBytes: 10 }]);
     expect(out).toMatchObject({ id: 9, subject: '견적', fromAddress: 'a@x.com', seen: false });
     expect(JSON.stringify(out).length).toBeLessThan(JSON.stringify(detail).length * 0.75);
   });
@@ -148,6 +180,17 @@ describe('메일 AI·처리 (#855)', () => {
     expect(out).toEqual({ issueKey: 'WP-9', created: true });
   });
 
+  it('WP-356: create_issue_from_mail → 유형·라벨 이름을 id 로 바꿔 승격 요청에 싣고, 모르는 이름이면 만들지 않는다', async () => {
+    const c = mockClient();
+    await tool(c, 'create_issue_from_mail').handler({ messageId: 3, projectKey: 'WP', title: 't', type: 'BUG', labels: ['고객'] });
+    expect(c.promoteMailToIssue).toHaveBeenCalledWith(3, expect.objectContaining({ typeId: 2, labelIds: [100] }));
+    vi.mocked(c.promoteMailToIssue).mockClear();
+    await expect(tool(c, 'create_issue_from_mail').handler({ messageId: 3, projectKey: 'WP', title: 't', labels: ['없음'] })).rejects.toThrow(
+      '사용 가능: 고객',
+    );
+    expect(c.promoteMailToIssue).not.toHaveBeenCalled();
+  });
+
   // 중복 판정은 서버(#859)가 한다 — 409 면 새로 만들지 않고 기존 연결 이슈 키를 알린다.
   it('create_issue_from_mail → 서버가 409 면 기존 연결 이슈 키를 알린다', async () => {
     const c = mockClient();
@@ -179,6 +222,14 @@ describe('메일 AI·처리 (#855)', () => {
     const out = await tool(c, 'mark_mail_read').handler({ messageId: 3 });
     expect(out).toBe('ok');
     expect(c.markMailRead).toHaveBeenCalledWith(3);
+    expect(c.markMailUnread).not.toHaveBeenCalled();
+  });
+
+  it('WP-357: mark_mail_read read:false → client.markMailUnread(messageId), 읽음 처리는 부르지 않는다', async () => {
+    const c = mockClient();
+    expect(await tool(c, 'mark_mail_read').handler({ messageId: 3, read: false })).toBe('ok');
+    expect(c.markMailUnread).toHaveBeenCalledWith(3);
+    expect(c.markMailRead).not.toHaveBeenCalled();
   });
 
   it('sync_mail → 서버 MailSyncResult 의 건수(fetched·saved·seenChanged)를 JSON 으로 돌려준다 (WP-353)', async () => {
@@ -207,7 +258,7 @@ describe('메일 AI·처리 (#855)', () => {
   it('sync_mail 설명은 결과 필드와 이미 동기화 중인 경우를 안내한다', () => {
     expect(tool(mockClient(), 'sync_mail').description).toMatch(/saved/);
     expect(tool(mockClient(), 'sync_mail').description).toMatch(/alreadySyncing/);
-    expect(tool(mockClient(), 'sync_mail').description).toMatch(/최선의 노력/); // 확인-호출 사이 경쟁 구간을 밝힌다
+    expect(tool(mockClient(), 'sync_mail').description).toMatch(/best effort/); // 확인-호출 사이 경쟁 구간을 밝힌다
   });
 
   it('sync_mail 은 원본 메일 서버에 닿으므로 openWorld 이고, 읽음 상태 덮어쓰기·삭제 반영이 있어 destructive, 멱등은 아니다', () => {

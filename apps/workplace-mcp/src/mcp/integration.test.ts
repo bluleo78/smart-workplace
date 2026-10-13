@@ -5,13 +5,19 @@ import type { Express } from 'express';
 import nock from 'nock';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { buildSharedTools, TOOL_APPS, type SharedToolClient } from '@smart-workplace/mcp-tools-shared';
+import { buildSharedTools, TOOL_APP_GUIDES, TOOL_APPS, toolDefinition, type SharedToolClient } from '@smart-workplace/mcp-tools-shared';
 
 import { createApp } from '../index.js';
 import { exposableTools } from '../tools/index.js';
 import { INSTRUCTIONS_MAX_LENGTH } from './instructions.js';
 
 const API = 'http://api.test';
+/**
+ * 이 파일 테스트의 시간 제한 — 성능 단언이 아니라 멈춤 감시다. 테스트마다 실제 HTTP 왕복 3~4번이고, 요청마다 서버가 도구 전체를 등록한
+ * McpServer 를 새로 만든다(stateless). 혼자 돌면 40~100ms 인데, 전체 테스트를 병렬로 돌리는 부하(CPU 8개에 부하 평균 100 안팎)에서는
+ * 첫 테스트(JIT 데우기 포함)가 4~5.5초까지 늘어 기본 5초가 "빠르게 끝남" 단언처럼 작동했다. 어떤 단언도 시간에 기대지 않는다.
+ */
+const ROUNDTRIP_TEST_TIMEOUT_MS = 30_000;
 let server: ReturnType<Express['listen']>;
 let baseUrl: string;
 
@@ -34,7 +40,7 @@ function connect(token: string) {
   return client.connect(transport).then(() => client);
 }
 
-describe('/mcp', () => {
+describe('/mcp', { timeout: ROUNDTRIP_TEST_TIMEOUT_MS }, () => {
   it('유효 토큰으로 initialize + tools/list 에 create_issue 가 보인다', async () => {
     nock(API).get('/auth/me').reply(200, { id: 1, username: 'u', kind: 'HUMAN' });
     const client = await connect('swp_valid');
@@ -45,27 +51,73 @@ describe('/mcp', () => {
     // #853·WP-342: 연산 성격이 MCP 표준 힌트로 나가야 클라이언트가 읽기 자동승인·덮어쓰기 확인·추가 허용을 구분한다.
     const byName = new Map(tools.tools.map((t) => [t.name, t]));
     // 읽기 도구는 destructive·idempotent 힌트를 싣지 않는다(읽기 전용이라 의미가 없다).
-    expect(byName.get('get_issue_detail')?.annotations).toEqual({
-      title: '이슈 상세 조회',
-      readOnlyHint: true,
-      openWorldHint: false,
-    });
-    // 추가만 하는 쓰기 — destructive 아님.
-    expect(byName.get('create_issue')?.annotations).toMatchObject({
-      readOnlyHint: false,
-      destructiveHint: false,
-      idempotentHint: false,
-      openWorldHint: false,
-    });
-    // 덮어쓰기(집합 교체 포함)는 write 여도 destructive 로 알린다 — kind 와 분리된 hint (WP-342).
-    expect(byName.get('update_issue')?.annotations).toMatchObject({
-      readOnlyHint: false,
-      destructiveHint: true,
-      idempotentHint: true,
-    });
-    // 표시 이름은 top-level title 과 annotations.title 양쪽에 나간다.
+    expect(byName.get('get_issue_detail')?.annotations).toEqual({ readOnlyHint: true, openWorldHint: false });
+    // 추가만 하는 쓰기 — destructive 아님. 스펙 기본값과 같은 readOnlyHint:false·idempotentHint:false 는 정의에서 뺀다(WP-340 웨이브 5; 안 싣는 것이 기본값 false 의 뜻).
+    expect(byName.get('create_issue')?.annotations).toEqual({ destructiveHint: false, openWorldHint: false });
+    // 덮어쓰기(집합 교체 포함)는 write 여도 destructive 다 — kind 와 분리된 hint (WP-342). destructiveHint:true 는 스펙 기본값이라 정의에서 뺀다
+    // (WP-340 웨이브 5 — 힌트가 없으면 클라이언트는 파괴적일 수 있다고 본다. 보수적인 쪽이라 덜 보호되는 도구가 없다).
+    expect(byName.get('update_issue')?.annotations).toEqual({ idempotentHint: true, openWorldHint: false });
+    // 표시 이름은 top-level title 하나로 나간다 — annotations.title 은 같은 값의 옛 클라이언트용 중복이라 tools/list 에서 뺐다(WP-340 웨이브 5).
     expect(byName.get('update_issue')?.title).toBe('이슈 수정');
-    expect(byName.get('update_issue')?.annotations?.title).toBe('이슈 수정');
+    expect(byName.get('update_issue')?.annotations).not.toHaveProperty('title');
+  });
+
+  // WP-340 웨이브 5: tools/list 는 공유 toolDefinition 의 출력 그대로다 — 크기 상한 테스트(공유 tool-naming.test.ts)가 재는 값이 곧 나가는 값.
+  // SDK 기본 변환이 붙이던 $schema·execution 이 없는 것도 여기서 드러난다.
+  it('tools/list 는 공유 toolDefinition 출력과 같다($schema·execution 없음)', async () => {
+    nock(API).get('/auth/me').reply(200, { id: 1, username: 'u', kind: 'HUMAN' });
+    const client = await connect('swp_valid');
+    const { tools } = await client.listTools();
+    expect(tools).toEqual(exposableTools(buildSharedTools({} as unknown as SharedToolClient)).map(toolDefinition));
+    expect(JSON.stringify(tools)).not.toMatch(/\$schema|"execution"/);
+  });
+
+  // 정의에서 null 갈래를 숨겼어도 SDK 입력 검증(registerTool 의 zod shape)은 null 을 받는다 — 모델이 안 쓰는 인자를 null 로 채워 보내는 경우(WP-346).
+  describe('null 인자 허용 (WP-340 웨이브 5)', () => {
+    it('read_attachment 의 다른 source 식별자·범위가 null 이어도 실행된다', async () => {
+      nock(API).get('/auth/me').reply(200, { id: 1, username: 'u', kind: 'HUMAN' });
+      nock(API)
+        .get('/drive/files/9/text')
+        .query({ limit: 12000 })
+        .reply(200, { fileId: 55, status: 'READY', offset: 0, totalChars: 2, truncated: false, nextOffset: null, text: '가나', reasonCode: null, reason: null });
+      const client = await connect('swp_valid');
+      const res = await client.callTool({
+        name: 'read_attachment',
+        arguments: { source: 'drive', driveFileId: 9, issueKey: null, attachmentId: null, offset: null, limit: null },
+      });
+      expect(res.isError).toBeFalsy();
+      expect(JSON.parse((res.content as { text: string }[])[0].text)).toMatchObject({ driveFileId: 9, text: '가나' });
+    });
+
+    it('move_drive_file 의 targetFolderId:null 은 루트로 옮긴다', async () => {
+      nock(API).get('/auth/me').reply(200, { id: 1, username: 'u', kind: 'HUMAN' });
+      const scope = nock(API).patch('/drive/files/3/move', { targetFolderId: null }).reply(204);
+      const client = await connect('swp_valid');
+      const res = await client.callTool({ name: 'move_drive_file', arguments: { driveFileId: 3, targetFolderId: null } });
+      expect(res.isError).toBeFalsy();
+      expect(scope.isDone()).toBe(true);
+    });
+
+    it('update_event 의 "유지" 입력(title·시각·참석자)이 null 이면 현재 값을 유지한다', async () => {
+      nock(API).get('/auth/me').reply(200, { id: 1, username: 'u', kind: 'HUMAN' });
+      const current = {
+        id: 7, title: '회의', description: null, startsAt: '2026-10-20T10:00:00+09:00', endsAt: '2026-10-20T11:00:00+09:00',
+        allDay: false, location: null, color: null, reminderMinutes: null, recurrenceRule: null, attendees: [],
+      };
+      nock(API).get('/calendar/events/7').reply(200, current);
+      const scope = nock(API)
+        .patch('/calendar/events/7', (b) => b.title === '회의' && b.location === '3층' && b.startsAt === current.startsAt)
+        .query({ scope: 'ALL' })
+        .reply(200, { ...current, location: '3층' });
+      const client = await connect('swp_valid');
+      const res = await client.callTool({
+        name: 'update_event',
+        arguments: { eventId: 7, location: '3층', title: null, startsAt: null, endsAt: null, allDay: null, occurrenceDate: null, addAttendees: null, removeAttendees: null },
+      });
+      expect(res.isError).toBeFalsy();
+      expect(JSON.parse((res.content as { text: string }[])[0].text)).toEqual({ ok: true, results: { fields: 'ok' } });
+      expect(scope.isDone()).toBe(true);
+    });
   });
 
   it('tools/call create_issue 가 같은 Bearer 로 workplace-api 를 호출한다', async () => {
@@ -157,7 +209,7 @@ describe('/mcp', () => {
 });
 
 // WP-350: 연결 범위(앱 선택·읽기 전용). 같은 서버·같은 인증 위에서 URL 경로·헤더만 달라진다.
-describe('/mcp 연결 범위 (WP-350)', () => {
+describe('/mcp 연결 범위 (WP-350)', { timeout: ROUNDTRIP_TEST_TIMEOUT_MS }, () => {
   const origin = () => baseUrl.replace(/\/mcp$/, '');
   const meOk = () => nock(API).get('/auth/me').reply(200, { id: 1, username: 'u', kind: 'HUMAN' });
   /** 경로·헤더를 지정해 연결하고 도구 목록·instructions 를 돌려준다. */
@@ -179,8 +231,8 @@ describe('/mcp 연결 범위 (WP-350)', () => {
     const r = await open('/mcp');
     expect([...r.names].sort()).toEqual([...allNames].sort());
     expect(r.instructions.length).toBeLessThanOrEqual(INSTRUCTIONS_MAX_LENGTH);
-    expect(r.instructions.split('\n')[1]).toBe('앱별 안내:');
-    expect(r.instructions).not.toContain('읽기 전용 연결');
+    expect(r.instructions.split('\n')[1]).toBe('Apps:');
+    expect(r.instructions).not.toContain('Read-only connection');
   });
 
   it('/mcp/x/issue,wiki 는 두 앱 도구만 싣고 instructions 도 두 앱만 설명한다', async () => {
@@ -188,9 +240,9 @@ describe('/mcp 연결 범위 (WP-350)', () => {
     expect(r.names).toEqual(expect.arrayContaining(['create_issue', 'update_wiki_page', 'read_attachment']));
     expect(r.names).not.toContain('list_mail');
     expect(r.names).not.toContain('list_events');
-    expect(r.instructions).toContain('- 이슈:');
-    expect(r.instructions).toContain('- 위키(노트):');
-    expect(r.instructions).not.toContain('- 메일:');
+    expect(r.instructions).toContain(`- ${TOOL_APP_GUIDES.issue.label}:`);
+    expect(r.instructions).toContain(`- ${TOOL_APP_GUIDES.wiki.label}:`);
+    expect(r.instructions).not.toContain(`- ${TOOL_APP_GUIDES.mail.label}:`);
   });
 
   it('/mcp/readonly 는 읽기 도구만 싣고 모두 readOnlyHint 다', async () => {
@@ -198,7 +250,7 @@ describe('/mcp 연결 범위 (WP-350)', () => {
     expect(r.names).toContain('list_issues');
     expect(r.names).not.toContain('create_issue');
     expect(r.tools.every((t) => t.annotations?.readOnlyHint === true)).toBe(true);
-    expect(r.instructions).toContain('읽기 전용 연결');
+    expect(r.instructions).toContain('Read-only connection');
   });
 
   it('/mcp/x/{apps}/readonly 는 앱 선택과 읽기 전용의 교집합', async () => {
@@ -208,11 +260,12 @@ describe('/mcp 연결 범위 (WP-350)', () => {
 
   it('X-MCP-Toolsets 헤더는 경로에 앱 선택이 없을 때 앱 선택으로 쓰이고, /readonly 와도 합쳐진다', async () => {
     expect([...(await open('/mcp', { 'X-MCP-Toolsets': 'notify' })).names].sort()).toEqual([
+      'get_home_overview',
       'list_notifications',
       'mark_all_notifications_read',
       'mark_notification_read',
     ]);
-    expect((await open('/mcp/readonly', { 'X-MCP-Toolsets': 'notify' })).names).toEqual(['list_notifications']);
+    expect([...(await open('/mcp/readonly', { 'X-MCP-Toolsets': 'notify' })).names].sort()).toEqual(['get_home_overview', 'list_notifications']);
   });
 
   it('경로에 앱 선택이 있으면 헤더는 무시한다', async () => {

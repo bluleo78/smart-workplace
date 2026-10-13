@@ -40,6 +40,11 @@ function sharedMock(): MockedShared {
     getIssueCycles: vi.fn().mockResolvedValue([]),
     watchIssue: vi.fn().mockResolvedValue(undefined),
     unwatchIssue: vi.fn().mockResolvedValue(undefined),
+    // WP-356: 워처·드라이브 링크·커스텀 필드 값·드라이브 링크 추가
+    getIssueWatchers: vi.fn().mockResolvedValue([]),
+    getIssueDriveLinks: vi.fn().mockResolvedValue([]),
+    updateIssueFields: vi.fn().mockResolvedValue({}),
+    addIssueDriveLink: vi.fn().mockResolvedValue(undefined),
     // 프로젝트 메타·목록(ProjectToolClient)
     getProjectTypes: vi.fn().mockResolvedValue([]),
     getProjectMembers: vi.fn().mockResolvedValue([]),
@@ -47,6 +52,9 @@ function sharedMock(): MockedShared {
     getProjectLabels: vi.fn().mockResolvedValue([]),
     getProjectMilestones: vi.fn().mockResolvedValue([]),
     getProjectCycles: vi.fn().mockResolvedValue([]),
+    getProjectFields: vi.fn().mockResolvedValue([]),
+    createProjectMeta: vi.fn().mockResolvedValue({}),
+    updateProjectMeta: vi.fn().mockResolvedValue({}),
     updateProject: vi.fn().mockResolvedValue({}),
     createProject: vi.fn().mockResolvedValue({}),
     addProjectMember: vi.fn().mockResolvedValue({ userId: 0, username: '' }),
@@ -61,6 +69,10 @@ function sharedMock(): MockedShared {
     updateWikiPage: vi.fn().mockResolvedValue({}),
     listWikiPages: vi.fn().mockResolvedValue([]),
     getWikiBacklinks: vi.fn().mockResolvedValue([]),
+    // WP-357: 노트 요약·판 기록·복원
+    getWikiPageSummary: vi.fn().mockResolvedValue({}),
+    listWikiRevisions: vi.fn().mockResolvedValue({ current: {}, items: [] }),
+    restoreWikiRevision: vi.fn().mockResolvedValue({}),
     moveWikiPage: vi.fn().mockResolvedValue(undefined),
     // 캘린더
     listEvents: vi.fn().mockResolvedValue([]),
@@ -80,6 +92,7 @@ function sharedMock(): MockedShared {
     getMailLinkedIssue: vi.fn().mockResolvedValue(null),
     promoteMailToIssue: vi.fn().mockResolvedValue({ issueKey: 'WP-1' }),
     markMailRead: vi.fn().mockResolvedValue(undefined),
+    markMailUnread: vi.fn().mockResolvedValue(undefined),
     syncMail: vi.fn().mockResolvedValue({ fetched: 3, saved: 2, seenChanged: 1 }),
     getMailSyncStatus: vi.fn().mockResolvedValue({ phase: 'IDLE', total: 0, done: 0, running: false }),
     // 구성원·연락처
@@ -110,6 +123,13 @@ function sharedMock(): MockedShared {
     openDm: vi.fn().mockResolvedValue({ id: 1, participants: [] }),
     leaveChannel: vi.fn().mockResolvedValue(undefined),
     addChannelMember: vi.fn().mockResolvedValue(undefined),
+    // WP-355
+    listChannelMembers: vi.fn().mockResolvedValue([]),
+    joinChannel: vi.fn().mockResolvedValue(undefined),
+    addReaction: vi.fn().mockResolvedValue(undefined),
+    removeReaction: vi.fn().mockResolvedValue(undefined),
+    updateChannelMessage: vi.fn().mockResolvedValue({}),
+    markChannelRead: vi.fn().mockResolvedValue(undefined),
     discoverChannels: vi.fn().mockResolvedValue([]),
     // 드라이브
     listDriveSpaces: vi.fn().mockResolvedValue([]),
@@ -124,9 +144,20 @@ function sharedMock(): MockedShared {
     renameDriveFolder: vi.fn().mockResolvedValue({}),
     moveDriveFolder: vi.fn().mockResolvedValue(undefined),
     moveDriveFile: vi.fn().mockResolvedValue(undefined),
+    renameDriveFile: vi.fn().mockResolvedValue({ id: 5, fileId: 812, name: '새이름.pdf' }),
+    copyDriveFile: vi.fn().mockResolvedValue({ id: 6, fileId: 813, name: '보고서.pdf' }),
+    copyDriveFolder: vi.fn().mockResolvedValue({ id: 11, name: '자료' }),
+    listDriveFileBacklinks: vi.fn().mockResolvedValue([]),
+    importAttachmentToDrive: vi.fn().mockResolvedValue({ id: 7, fileId: 900, name: 'a.png' }),
     // 알림
     listNotifications: vi.fn().mockResolvedValue([]),
     countUnreadNotifications: vi.fn().mockResolvedValue(0),
+    // WP-357: 홈 개요
+    getHomeActivity: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
+    getPriorityItems: vi.fn().mockResolvedValue([]),
+    getHomeMailSummary: vi.fn().mockResolvedValue({ unreadCount: 0, needsReplyCount: 0, classificationActive: true, recent: [] }),
+    getMessagingSummary: vi.fn().mockResolvedValue({ unreadConversationCount: 0, needsReplyCount: 0, aiAttentionCount: 0, attentionCount: 0, recent: [] }),
+    getThreadInbox: vi.fn().mockResolvedValue({ items: [], nextCursor: null, hasMore: false }),
     markNotificationRead: vi.fn().mockResolvedValue(undefined),
     markAllNotificationsRead: vi.fn().mockResolvedValue(undefined),
     // 첨부·파일 내용 읽기(WP-346)
@@ -136,6 +167,13 @@ function sharedMock(): MockedShared {
     readDriveFileText: vi.fn().mockResolvedValue({ fileId: 1, status: 'NONE' }),
     listDriveFileVersions: vi.fn().mockResolvedValue([]),
     downloadDriveFile: vi.fn().mockResolvedValue({ data: new Uint8Array(), mimeType: 'application/octet-stream' }),
+    // WP-358: 노트·메시지·메일 첨부 읽기
+    readWikiAttachmentText: vi.fn(),
+    downloadWikiAttachment: vi.fn(),
+    readMessageAttachmentText: vi.fn(),
+    downloadMessageAttachment: vi.fn(),
+    readMailAttachmentText: vi.fn(),
+    downloadMailAttachment: vi.fn(),
   };
 }
 
@@ -202,13 +240,14 @@ const readLines = (p: string) => readFileSync(p, 'utf8').trim().split('\n').map(
 // 프로필 구성(멤버십)
 // ---------------------------------------------------------------------------
 describe('프로필 구성', () => {
-  it('issue 프로필(기본): 이슈 읽기/쓰기 + 위키 읽기 도구', () => {
+  it('issue 프로필(기본): 이슈 읽기/쓰기 + 프로젝트 조회(get_project) + 위키 읽기 도구', () => {
     const names = buildTools(client(), AGENT_ID).map((t) => t.name).sort();
     expect(names).toEqual([
       'add_comment',
       'add_issue_dependency',
       'create_issue',
       'get_issue_detail',
+      'get_project',
       'get_wiki_page',
       'list_wiki_spaces',
       'remove_issue_dependency',
@@ -237,15 +276,57 @@ describe('프로필 구성', () => {
     expect(names).toEqual(['show_activity', 'show_issue_detail', 'show_issue_list', 'show_mail_list', 'show_my_tasks']);
   });
 
-  it('messaging 프로필: 위임 컨텍스트가 없으면 채널 도구 5종만', () => {
+  it('messaging 프로필: 위임 컨텍스트가 없으면 채널 도구 4종만', () => {
     const names = buildTools(client(), AGENT_ID, 'messaging').map((t) => t.name).sort();
-    expect(names).toEqual(['add_channel_message', 'discover_channels', 'list_channel_messages', 'list_channels', 'list_thread_replies']);
+    expect(names).toEqual(['add_channel_message', 'list_channel_messages', 'list_channels', 'list_thread_replies']);
   });
 
   it('messaging 프로필 + delegationContext: propose_create_issue/propose_create_event + 참석자 조회용 search_members 추가', () => {
     const names = buildTools(client(), AGENT_ID, 'messaging', undefined, { actorId: 7, channelId: 9 }).map((t) => t.name);
     expect(names).toEqual(expect.arrayContaining(['propose_create_issue', 'propose_create_event', 'search_members']));
-    expect(names).toHaveLength(8);
+    expect(names).toHaveLength(7);
+  });
+
+  // WP-355: 리액션·메시지 수정·읽음 처리·채널 참여는 사용자 신원(assistant)에만 싣는다 — 채널에서 멘션된 에이전트 신원(messaging)에는 주지 않는다(정책 보류).
+  it('WP-355: 채널 참여·리액션·메시지 수정·읽음 처리는 assistant 에만 있고 messaging 프로필·라우터 목록에는 없다', () => {
+    const added = ['join_channel', 'add_reaction', 'remove_reaction', 'update_channel_message', 'mark_channel_read'];
+    const assistant = buildTools(client(), AGENT_ID, 'assistant').map((t) => t.name);
+    for (const n of added) {
+      expect(assistant, n).toContain(n);
+      expect(ASSISTANT_ROUTER_TOOLS, n).not.toContain(n); // 쓰기는 담당 subagent(messaging-agent)에만
+    }
+    for (const ctx of [undefined, { actorId: 7, channelId: 9 }] as const) {
+      const names = buildTools(client(), AGENT_ID, 'messaging', undefined, ctx).map((t) => t.name);
+      for (const n of added) expect(names, n).not.toContain(n);
+    }
+  });
+
+  // WP-357: 홈 현황 읽기는 라우터가 직접 읽는 도구(읽기라 라우터 목록에 둔다). 판 복원은 확인 카드가 없는 쓰기라 wiki-agent 에만(라우터에 싣지 않는다).
+  it('WP-357: get_home_overview 는 라우터 목록(읽기 전용 힌트)에 있고, restore_wiki_revision 은 assistant 에만 있고 라우터·카드 전용 목록에는 없다', () => {
+    const tools = buildTools(client(), AGENT_ID, 'assistant');
+    const home = tools.find((t) => t.name === 'get_home_overview')!;
+    expect(home).toBeDefined();
+    expect(ASSISTANT_ROUTER_TOOLS).toContain('get_home_overview');
+    expect(home.annotations?.readOnlyHint).toBe(true);
+    expect(tools.map((t) => t.name)).toContain('restore_wiki_revision');
+    expect(ASSISTANT_ROUTER_TOOLS).not.toContain('restore_wiki_revision');
+    expect(CARD_ONLY_SHARED_TOOLS).not.toHaveProperty('restore_wiki_revision');
+    // 에이전트 신원으로 도는 프로필에는 사람의 홈 현황·노트 복원을 싣지 않는다.
+    for (const profile of ['issue', 'chat', 'home', 'messaging'] as const) {
+      const names = buildTools(client(), AGENT_ID, profile).map((t) => t.name);
+      expect(names, profile).not.toContain('get_home_overview');
+      expect(names, profile).not.toContain('restore_wiki_revision');
+    }
+  });
+
+  // WP-356: 라벨·마일스톤·사이클 생성·수정은 대응 확인 카드가 없어 직접 실행(project-agent) — 라우터 목록에는 싣지 않는다.
+  it('WP-356: create_project_meta·update_project_meta 는 assistant 에만 있고 라우터 목록·카드 전용 목록에는 없다', () => {
+    const assistant = buildTools(client(), AGENT_ID, 'assistant').map((t) => t.name);
+    for (const n of ['create_project_meta', 'update_project_meta']) {
+      expect(assistant, n).toContain(n);
+      expect(ASSISTANT_ROUTER_TOOLS, n).not.toContain(n);
+      expect(CARD_ONLY_SHARED_TOOLS, n).not.toHaveProperty(n);
+    }
   });
 
   it('assistant 프로필: 전 앱 도구 union 을 노출한다', () => {
@@ -260,7 +341,7 @@ describe('프로필 구성', () => {
       // 캘린더
       'list_events', 'get_event', 'propose_create_event', 'propose_update_event', 'propose_delete_event',
       // 메시징
-      'list_channel_messages', 'list_thread_replies', 'add_channel_message', 'list_channels', 'discover_channels',
+      'list_channel_messages', 'list_thread_replies', 'add_channel_message', 'list_channels',
       // 메일
       'list_mail', 'get_mail', 'propose_send_mail', 'list_mail_accounts', 'sync_mail',
       // 연락처·구성원(#833)
@@ -279,6 +360,8 @@ describe('프로필 구성', () => {
       // 메인 AI 채팅 첨부(WP-234) + 이슈 첨부·드라이브 파일 읽기(WP-346)
       'read_chat_attachment', 'read_attachment',
       'create_drive_folder', 'rename_drive_folder', 'move_drive_folder', 'move_drive_file', 'propose_delete_file', 'propose_delete_folder',
+      // WP-354
+      'rename_drive_file', 'copy_drive_item', 'import_attachment_to_drive',
       // #856 확인카드 제안
       'propose_add_attendees', 'propose_remove_attendee', 'propose_update_project_member_role', 'propose_remove_project_member',
       'propose_add_channel_member', 'propose_leave_channel', 'propose_delete_issue', 'propose_delete_comment', 'propose_delete_wiki_page',
@@ -741,16 +824,22 @@ describe('threadBinding — add_channel_message 스레드 mirror', () => {
   });
 });
 
-describe('discover_channels (#350)', () => {
+describe('list_channels q — 공개 채널 탐색 (#350, WP-355)', () => {
   // WP-343: 공유 도구로 이동 — 핸들러 동작은 공유 패키지 테스트가, 여기서는 에이전트 신원(toolClient(agentId))으로 실행되는지만 본다.
-  it('공유 도구로 에이전트 신원(toolClient(agentId))의 discoverChannels 를 호출하고 결과를 JSON 으로 반환한다', async () => {
+  // WP-355: 옛 discover_channels 는 list_channels 의 q 옵션으로 접혔다.
+  it('공유 도구로 에이전트 신원(toolClient(agentId))의 discoverChannels 를 호출하고 같은 {items,total} 형태로 반환한다', async () => {
     const c = client();
     vi.mocked(c.sc.discoverChannels).mockResolvedValue([{ id: 3, name: '공지', kind: 'PUBLIC' }]);
-    const out = await find(buildTools(c, AGENT_ID, 'messaging'), 'discover_channels').handler({ q: '공지' });
+    const out = await find(buildTools(c, AGENT_ID, 'messaging'), 'list_channels').handler({ q: '공지' });
     expect(c.toolClient).toHaveBeenCalledWith(AGENT_ID);
     expect(c.sc.discoverChannels).toHaveBeenCalledWith('공지');
     // WP-353: 채널은 어디서나 channelId 로 가리킨다.
-    expect(JSON.parse(out as string)).toEqual([{ channelId: 3, name: '공지', kind: 'PUBLIC' }]);
+    expect(JSON.parse(out as string)).toEqual({ items: [{ channelId: 3, name: '공지', kind: 'PUBLIC' }], total: 1 });
+  });
+  it('discover_channels 는 더 이상 도구가 아니다', () => {
+    for (const p of ['messaging', 'assistant'] as const) {
+      expect(buildTools(client(), AGENT_ID, p).map((t) => t.name)).not.toContain('discover_channels');
+    }
   });
 });
 
@@ -1375,6 +1464,17 @@ describe('공유로 옮긴 쓰기 도구는 에이전트 신원(toolClient(agent
     const c = client();
     expect(await find(buildTools(c, 7, 'assistant'), 'move_drive_folder').handler({ folderId: 4 })).toBe('ok');
     expect(c.sc.moveDriveFolder).toHaveBeenCalledWith(4, null);
+  });
+
+  // WP-354: 공유 도구를 그대로 쓴다 — 파일 이름변경·복사·첨부 가져오기가 요청자 신원의 클라이언트(sc)로 나간다.
+  it('rename_drive_file·copy_drive_item·import_attachment_to_drive 는 공유 클라이언트(sc)로 호출된다', async () => {
+    const c = client();
+    await find(buildTools(c, 7, 'assistant'), 'rename_drive_file').handler({ driveFileId: 5, name: '새이름.pdf' });
+    expect(c.sc.renameDriveFile).toHaveBeenCalledWith(5, '새이름.pdf');
+    await find(buildTools(c, 7, 'assistant'), 'copy_drive_item').handler({ folderId: 8, targetFolderId: 3 });
+    expect(c.sc.copyDriveFolder).toHaveBeenCalledWith(8, 3);
+    await find(buildTools(c, 7, 'assistant'), 'import_attachment_to_drive').handler({ spaceId: 2, attachmentId: 900 });
+    expect(c.sc.importAttachmentToDrive).toHaveBeenCalledWith(2, null, 900);
   });
 
   it('move_drive_file 은 driveFileId 를 sc.moveDriveFile 에 넘기고, 옛 fileId 파라미터는 거부한다', async () => {

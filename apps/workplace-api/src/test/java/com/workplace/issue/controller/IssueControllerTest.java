@@ -152,6 +152,31 @@ class IssueControllerTest {
         .andExpect(jsonPath("$.title").value("title"));
   }
 
+  /**
+   * WP-356 — 레코드에 호환 생성자가 생겨도 JSON 은 정식(canonical) 생성자로 묶여 labelIds·milestoneId·cycleIds 가 서비스까지
+   * 전달된다.
+   */
+  @Test
+  void create_bindsLabelsMilestoneAndCycles() throws Exception {
+    mockAuthentication("issue:write");
+    when(issueService.create(eq(1L), eq("WP"), any())).thenReturn(sampleIssue());
+
+    mockMvc
+        .perform(
+            post("/api/v1/projects/WP/issues")
+                .header("Authorization", "Bearer valid-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"title\":\"t\",\"labelIds\":[3,4],\"milestoneId\":7,\"cycleIds\":[9]}"))
+        .andExpect(status().isOk());
+
+    var captor = org.mockito.ArgumentCaptor.forClass(CreateIssueRequest.class);
+    org.mockito.Mockito.verify(issueService).create(eq(1L), eq("WP"), captor.capture());
+    org.assertj.core.api.Assertions.assertThat(captor.getValue().labelIds())
+        .containsExactly(3L, 4L);
+    org.assertj.core.api.Assertions.assertThat(captor.getValue().milestoneId()).isEqualTo(7L);
+    org.assertj.core.api.Assertions.assertThat(captor.getValue().cycleIds()).containsExactly(9L);
+  }
+
   @Test
   void create_titleBlank_returns400() throws Exception {
     mockAuthentication("issue:write");

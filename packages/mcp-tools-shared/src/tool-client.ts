@@ -121,6 +121,14 @@ export interface IssueToolClient extends ProjectMetaClient, CurrentUserClient {
   /** POST/DELETE .../watch — 멱등(이미 워치 중이면 no-op). */
   watchIssue(issueKey: string): Promise<void>;
   unwatchIssue(issueKey: string): Promise<void>;
+  /** GET .../watchers — 워처 목록(WatcherResponse: userId·username·name). get_issue_detail 동봉용(WP-356). */
+  getIssueWatchers(issueKey: string): Promise<{ username: string; name?: string; [key: string]: unknown }[]>;
+  /** GET .../drive-links — 연결된 드라이브 파일(DriveLinkResponse raw). get_issue_detail 동봉용(WP-356). */
+  getIssueDriveLinks(issueKey: string): Promise<Record<string, unknown>[]>;
+  /** PUT .../fields — 준 필드만 바꾼다(value null = 비우기). 응답은 갱신된 상세(WP-356). */
+  updateIssueFields(issueKey: string, values: { defId: number; value: unknown }[]): Promise<unknown>;
+  /** POST .../drive-links — 이미 연결돼 있으면 서버가 무시한다(멱등). 드라이브 스페이스 VIEWER 이상 필요(WP-356). */
+  addIssueDriveLink(issueKey: string, driveFileId: number): Promise<void>;
 }
 
 /** 노트 페이지 요약 행(GET /wiki/spaces/{id}/pages) — 트리 조립에 쓰는 필드만 고정한다. */
@@ -134,9 +142,15 @@ export interface WikiPageRow {
 
 export interface WikiToolClient {
   listWikiSpaces(): Promise<unknown>;
-  /** GET /wiki/search — 서버가 최근 수정순 최대 50건으로 자른다(상한을 알리는 일은 핸들러). 배열 원형. */
-  searchWikiPages(query: string): Promise<unknown>;
+  /** GET /wiki/search — 서버가 최근 수정순 최대 50건으로 자른다(상한을 알리는 일은 핸들러). 배열 원형. spaceId 가 있으면 그 스페이스만(WP-357). */
+  searchWikiPages(query: string, spaceId?: number): Promise<unknown>;
   getWikiPage(pageId: number): Promise<unknown>;
+  /** GET /wiki/pages/{id}/summary — 저장된 AI 요약과 상태만 읽는다(WP-357). 생성은 POST 라 부르지 않는다(AI 호출 없음). */
+  getWikiPageSummary(pageId: number): Promise<unknown>;
+  /** GET /wiki/pages/{id}/revisions — 현재 판 + 저장된 판 최신순(서버 상한 200). 원형 그대로(가공은 핸들러, WP-357). */
+  listWikiRevisions(pageId: number): Promise<unknown>;
+  /** POST /wiki/pages/{id}/revisions/{version}/restore — 그 판의 본문으로 복원(제목 유지). 응답은 저장과 같은 페이지 상세(WP-357). */
+  restoreWikiRevision(pageId: number, version: number): Promise<unknown>;
   createWikiPage(spaceId: number, body: { parentId: number | null; title: string }): Promise<unknown>;
   /** 부분 수정 — title/body 생략 시 서버가 현재 값을 유지한다(version 만 필수, 불일치면 409). */
   updateWikiPage(pageId: number, body: { version: number; title?: string; body?: string }): Promise<unknown>;
@@ -193,7 +207,7 @@ export interface MailToolClient {
   listMailAccounts(): Promise<unknown>;
   listMail(
     accountId: number,
-    params: { folder: string; limit: number; query?: string; unread?: boolean },
+    params: { folder: string; limit: number; query?: string; unread?: boolean; category?: string; needsReply?: boolean },
   ): Promise<unknown>;
   getMail(messageId: number): Promise<unknown>;
   /** GET .../summary — 없으면 생성해 캐시한다(메일 원문은 바꾸지 않음). */
@@ -207,10 +221,21 @@ export interface MailToolClient {
   /** POST .../issue — 메일을 이슈로 만들고 백레퍼런스를 남긴다. 이미 만든 메일이면 서버가 409(#859). */
   promoteMailToIssue(
     messageId: number,
-    body: { projectKey: string; title: string; body?: string; priority?: string; assigneeIds?: number[] },
+    body: {
+      projectKey: string;
+      title: string;
+      body?: string;
+      priority?: string;
+      assigneeIds?: number[];
+      /** WP-356: 유형·라벨(이름은 핸들러가 id 로 해석). 서버가 이슈 생성과 같은 트랜잭션에서 붙인다. */
+      typeId?: number;
+      labelIds?: number[];
+    },
   ): Promise<{ issueKey: string }>;
   /** POST /mail/messages/{id}/read — 명시적 읽음 처리(WP-146). 사용자가 요청할 때만 쓴다. */
   markMailRead(messageId: number): Promise<void>;
+  /** POST /mail/messages/{id}/unread — 안 읽음으로 되돌린다(WP-187 서버 API, WP-357). 읽음 처리와 같이 원본 메일 서버로 역동기화된다. */
+  markMailUnread(messageId: number): Promise<void>;
   /** POST /mail/accounts/{id}/sync — INBOX 증분 동기화(원본 메일 서버에 접속). 소유 계정만(아니면 404), 이미 진행 중이면 서버가 빈 결과. */
   syncMail(accountId: number): Promise<unknown>;
   /** GET /mail/accounts/{id}/sync-status — 진행 중 여부(phase LIST/BODIES/IDLE). 서버는 이미 진행 중이면 sync 를 빈 결과로 돌려주므로 구분용(WP-353). */
@@ -226,6 +251,21 @@ export interface MemberToolClient {
   /** 응답 래퍼 { items, nextCursor } 를 그대로 반환(가공은 핸들러). */
   listContacts(params: ContactListParams): Promise<unknown>;
   getExternalContact(externalId: number): Promise<unknown>;
+  /**
+   * GET /messaging/channels/{id}/members — 채널 멤버 전체(페이지 없음, 채널 멤버만 403). search_members 의 channelId 옵션이 쓴다(WP-355).
+   * 행에는 숫자 userId 와 함께 username 이 있다(서버가 싣는다) — 뷰 가공(userId 제거)은 핸들러.
+   */
+  listChannelMembers(channelId: number): Promise<ChannelMemberRow[]>;
+}
+
+/** 채널 멤버 행(ChannelMemberResponse) — 핸들러가 읽는 필드만 고정한다. */
+export interface ChannelMemberRow {
+  userId: number;
+  username: string;
+  name: string;
+  kind?: string;
+  role?: string;
+  [key: string]: unknown;
 }
 
 /** 연락처 대상(즐겨찾기·그룹 멤버) — MEMBER=user.id, EXTERNAL=contact_entry.id. 서버 FavoriteRequest/AddMemberRequest 와 1:1. */
@@ -346,6 +386,16 @@ export interface MessagingToolClient {
    * 채널 OWNER·ADMIN 또는 시스템 ADMIN 만, DM 은 거부.
    */
   addChannelMember(channelId: number, userId: number): Promise<void>;
+  /** POST /messaging/channels/{id}/join — 공개 채널만(비공개 403), 이미 멤버면 no-op(WP-355). */
+  joinChannel(channelId: number): Promise<void>;
+  /** POST /messaging/messages/{id}/reactions — 이미 눌렀으면 no-op(멱등), 채널 멤버만. emoji 1~32자(WP-355). */
+  addReaction(messageId: number, emoji: string): Promise<void>;
+  /** DELETE /messaging/messages/{id}/reactions?emoji= — 누른 적 없으면 no-op(멱등)(WP-355). */
+  removeReaction(messageId: number, emoji: string): Promise<void>;
+  /** PATCH /messaging/messages/{id} — 작성자만(403), 본문 4000자 이하. 저장된 메시지 행(MessageResponse) 원형을 돌려준다(WP-355). */
+  updateChannelMessage(messageId: number, body: string): Promise<unknown>;
+  /** POST /messaging/channels/{id}/read — 채널 멤버만. 읽음 위치를 max(기존, uptoMessageId) 로 올린다(WP-355). */
+  markChannelRead(channelId: number, uptoMessageId: number): Promise<void>;
   /** GET /messaging/channels/discover — 공개·비아카이브 채널을 이름·키워드로 검색한 배열(비배열 응답은 빈 배열). */
   discoverChannels(q: string): Promise<unknown[]>;
 }
@@ -376,6 +426,18 @@ export interface DriveToolClient {
   moveDriveFolder(folderId: number, targetParentId: number | null): Promise<void>;
   /** PATCH /drive/files/{id}/move — targetFolderId null=스페이스 루트. 같은 이름 충돌이면 409. 204. */
   moveDriveFile(driveFileId: number, targetFolderId: number | null): Promise<void>;
+  /** PATCH /drive/files/{id} — 파일 이름 변경(WP-335). 같은 폴더에 같은 이름의 활성 파일이 있으면 409. 변경된 파일 행 반환. */
+  renameDriveFile(driveFileId: number, name: string): Promise<unknown>;
+  /** POST /drive/files/{id}/copy — 같은 스페이스의 targetFolderId(null=루트)로 복사. 같은 이름이 있으면 409. 새 파일 행 반환. */
+  copyDriveFile(driveFileId: number, targetFolderId: number | null): Promise<unknown>;
+  /** POST /drive/folders/{id}/copy — 폴더와 하위 전부를 같은 스페이스의 targetParentId(null=루트) 밑으로 복사. 새 폴더 행 반환. */
+  copyDriveFolder(folderId: number, targetParentId: number | null): Promise<unknown>;
+  /** GET /drive/files/{id}/versions — 최신 버전이 먼저 온다(version_no DESC). read_attachment 의 이미지 크기 확인과 같은 호출. */
+  listDriveFileVersions(driveFileId: number): Promise<DriveFileVersionRow[]>;
+  /** GET /drive/files/{id}/backlinks — 파일을 링크한 이슈·메시지 중 호출자가 볼 수 있는 것만. */
+  listDriveFileBacklinks(driveFileId: number): Promise<DriveBacklinkRow[]>;
+  /** POST /drive/spaces/{id}[/folders/{folderId}]/import-attachment — 이슈·채팅 첨부(core file id)를 드라이브 파일로 가져온다. 생성된 파일 행 반환. */
+  importAttachmentToDrive(spaceId: number, folderId: number | null, fileId: number): Promise<unknown>;
 }
 
 /**
@@ -427,6 +489,14 @@ export interface DriveFileVersionRow {
   [key: string]: unknown;
 }
 
+/** 드라이브 파일 백링크 행(BacklinkResponse) — sourceType 은 ISSUE·MESSAGE 등. */
+export interface DriveBacklinkRow {
+  sourceType: string;
+  label: string;
+  deepLink: string;
+  [key: string]: unknown;
+}
+
 /**
  * 첨부·파일 내용 읽기(WP-346) — read_attachment 가 쓴다. 텍스트는 서버가 추출해 둔 구간을 읽고, 이미지만 원본을 받는다
  * (이미지 블록으로 모델에 넘기려고). 권한은 서버가 강제한다(이슈: 프로젝트 멤버, 드라이브: 스페이스 VIEWER).
@@ -444,6 +514,18 @@ export interface AttachmentToolClient {
   listDriveFileVersions(driveFileId: number): Promise<DriveFileVersionRow[]>;
   /** GET /drive/files/{id}/content — 원본 바이트(인라인 미리보기와 같은 게이트). */
   downloadDriveFile(driveFileId: number): Promise<FileBytes>;
+  /** GET /wiki/pages/{pageId}/attachments/{fileId}/text(WP-358) — 공간 VIEWER 이상, 비멤버는 404. */
+  readWikiAttachmentText(pageId: number, fileId: number, range: TextRange): Promise<ExtractedTextSlice>;
+  /** GET /wiki/pages/{pageId}/attachments/{fileId}/content — 원본 바이트(노트 첨부는 이미지만 올라간다). */
+  downloadWikiAttachment(pageId: number, fileId: number): Promise<FileBytes>;
+  /** GET /messaging/channels/{id}/messages/{msgId}/attachments/{fileId}/text(WP-358) — 채널 멤버만(비멤버 403). */
+  readMessageAttachmentText(channelId: number, messageId: number, fileId: number, range: TextRange): Promise<ExtractedTextSlice>;
+  /** GET /messaging/channels/{id}/messages/{msgId}/attachments/{fileId}/content — 원본 바이트. */
+  downloadMessageAttachment(channelId: number, messageId: number, fileId: number): Promise<FileBytes>;
+  /** GET /mail/attachments/{attachmentId}/text(WP-358) — 본인 소유 첨부만(아니면 404). 응답 fileId 는 요청한 attachmentId 다. 첫 호출은 PENDING. */
+  readMailAttachmentText(attachmentId: number, range: TextRange): Promise<ExtractedTextSlice>;
+  /** GET /mail/attachments/{attachmentId}/content — 원본 바이트(IMAP·Graph 에서 가져온다). */
+  downloadMailAttachment(attachmentId: number): Promise<FileBytes>;
 }
 
 /** 휴지통 항목 — type 에 따라 id 가 drive_file.id(FILE) 또는 폴더 id(FOLDER)다. 뷰가 이름을 나눠 붙이므로 그 필드를 고정한다. */
@@ -488,6 +570,23 @@ export interface NotificationToolClient {
   markAllNotificationsRead(): Promise<void>;
 }
 
+/**
+ * 홈 개요(get_home_overview, WP-357)가 읽는 서버 엔드포인트 — 모두 읽기 전용이고 AI 를 새로 호출하지 않는다(저장된 값·집계).
+ * 원형을 그대로 돌려주고 뷰 가공(숫자 ID 제거·이름 바꾸기)은 핸들러가 한다.
+ */
+export interface HomeToolClient {
+  /** GET /me/activity — { items, nextCursor }. 내가 담당·워치하는 이슈의 최근 이력. size 는 서버가 1..50 으로 자른다. */
+  getHomeActivity(params: { cursor?: string; size: number }): Promise<unknown>;
+  /** GET /me/priority-items — 저장된 AI 우선순위 배치 결과(점수 내림차순) 의 items 배열. */
+  getPriorityItems(): Promise<unknown>;
+  /** GET /me/mail-summary — { unreadCount, needsReplyCount, classificationActive, recent }. recent 는 안 읽은 메일 최대 5건. */
+  getHomeMailSummary(): Promise<unknown>;
+  /** GET /me/messaging-summary — { unreadConversationCount, needsReplyCount, aiAttentionCount, attentionCount, recent }. recent 는 최대 5건. */
+  getMessagingSummary(): Promise<unknown>;
+  /** GET /messaging/threads/inbox — { items:[{rootMessage, channelName, lastReplyAt}], nextCursor, hasMore }(keyset). */
+  getThreadInbox(params: { cursor?: string; limit: number }): Promise<unknown>;
+}
+
 export interface ProjectToolClient extends ProjectMetaClient {
   /** GET /projects — Spring 페이지를 PageResult 로 벗긴다(WP-352). */
   listProjects(page: number, size: number): Promise<PageResult<unknown>>;
@@ -506,7 +605,14 @@ export interface ProjectToolClient extends ProjectMetaClient {
     projectKey: string,
     body: { userId: number; role: 'OWNER' | 'MEMBER' },
   ): Promise<{ userId: number; username: string; name?: string; role?: string; [key: string]: unknown }>;
+  /** POST /projects/{key}/{labels|milestones|cycles} — 라벨·마일스톤·사이클 생성(WP-356). 이름 중복은 409. */
+  createProjectMeta(projectKey: string, kind: ProjectMetaKind, body: Record<string, unknown>): Promise<unknown>;
+  /** PATCH /projects/{key}/{kind}/{id} — 서버는 본문 전체로 덮어쓴다(생략=비움). 병합은 핸들러가 한다(WP-356). */
+  updateProjectMeta(projectKey: string, kind: ProjectMetaKind, id: number, body: Record<string, unknown>): Promise<unknown>;
 }
+
+/** 프로젝트 메타 종류(WP-356) — create_project_meta·update_project_meta 의 kind. */
+export type ProjectMetaKind = 'label' | 'milestone' | 'cycle';
 
 /** 프로젝트 생성 요청 본문 — 서버 CreateProjectRequest 와 1:1(key 는 PERSONAL 이면 서버가 무시하고 자동 생성). */
 export interface CreateProjectBody {

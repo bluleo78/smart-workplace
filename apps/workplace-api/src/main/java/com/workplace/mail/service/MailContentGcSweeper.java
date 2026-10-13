@@ -1,14 +1,11 @@
 package com.workplace.mail.service;
 
-import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
-import static com.workplace.jooq.tables.EmailContent.EMAIL_CONTENT;
-
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.mail.repository.EmailContentRepository;
 import com.workplace.tenant.repository.TenantRepository;
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
-import org.jooq.DSLContext;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -29,13 +26,15 @@ import org.springframework.transaction.support.TransactionTemplate;
 public class MailContentGcSweeper {
 
   private final TenantRepository tenantRepository;
-  private final DSLContext dsl;
+  private final EmailContentRepository contentRepo;
   private final TransactionTemplate txTemplate;
 
   public MailContentGcSweeper(
-      TenantRepository tenantRepository, DSLContext dsl, PlatformTransactionManager txManager) {
+      TenantRepository tenantRepository,
+      EmailContentRepository contentRepo,
+      PlatformTransactionManager txManager) {
     this.tenantRepository = tenantRepository;
-    this.dsl = dsl;
+    this.contentRepo = contentRepo;
     // @Primary TenantAwareTransactionManager 사용 — 트랜잭션 진입 시 GUC 주입
     this.txTemplate = new TransactionTemplate(txManager);
   }
@@ -78,17 +77,8 @@ public class MailContentGcSweeper {
    */
   public void sweepTenant() {
     // 트랜잭션 안에서 실행 → TenantAwareTransactionManager 가 GUC 주입 → RLS 활성화
-    Integer deleted =
-        txTemplate.execute(
-            status -> {
-              // email_message 에 참조되지 않는 email_content 를 모두 삭제
-              return dsl.deleteFrom(EMAIL_CONTENT)
-                  .whereNotExists(
-                      dsl.selectOne()
-                          .from(EMAIL_MESSAGE)
-                          .where(EMAIL_MESSAGE.CONTENT_ID.eq(EMAIL_CONTENT.ID)))
-                  .execute();
-            });
+    // email_message 에 참조되지 않는 email_content 를 모두 삭제 — 딸린 첨부 추출 사본(WP-358)은 삭제 직전에 만료시킨다.
+    Integer deleted = txTemplate.execute(status -> contentRepo.deleteAllOrphans());
 
     if (deleted != null && deleted > 0) {
       log.info("테넌트 {} 고아 email_content {} 건 삭제", TenantContext.get(), deleted);

@@ -10,7 +10,7 @@ describe('drive-agent 정의', () => {
   it('loadSubagents 로 drive-agent 가 로드된다', () => {
     expect(loaded['drive-agent']).toBeDefined();
   });
-  it('tools 는 읽기 7개 + 쓰기 5개 + 삭제제안 2개 + submit_response(총 15개)', () => {
+  it('tools 는 읽기 7개 + 쓰기 8개 + 삭제제안 2개 + submit_response(총 18개)', () => {
     expect(loaded['drive-agent'].tools).toEqual([
       'mcp__workplace__list_drive_spaces',
       'mcp__workplace__list_drive_items',
@@ -23,6 +23,9 @@ describe('drive-agent 정의', () => {
       'mcp__workplace__rename_drive_folder',
       'mcp__workplace__move_drive_folder',
       'mcp__workplace__move_drive_file',
+      'mcp__workplace__rename_drive_file', // WP-354: 파일 이름 변경
+      'mcp__workplace__copy_drive_item', // WP-354: 파일·폴더 복사
+      'mcp__workplace__import_attachment_to_drive', // WP-354: 이슈·채팅 첨부 가져오기
       'mcp__workplace__restore_drive_item', // #855: 휴지통 복원
       'mcp__workplace__propose_delete_file',
       'mcp__workplace__propose_delete_folder',
@@ -54,5 +57,25 @@ describe('drive-agent 정의', () => {
     expect(prompt).toContain('`nextOffset` 을 `offset` 으로 넘겨');
     expect(prompt).toContain('`truncated`');
     expect(prompt).toContain('일부만 봤다고 밝힙니다');
+  });
+
+  // WP-354: 파일 이름변경·복사·첨부 가져오기·버전·백링크 안내가 있고, "파일 이름 변경은 미지원" 류 안내는 없다.
+  it('파일 이름 변경·복사·첨부 가져오기·버전/백링크 옵션을 안내하고 롤백은 미지원으로 둔다', () => {
+    const prompt = loaded['drive-agent'].prompt;
+    expect(prompt).toContain('rename_drive_file(driveFileId, name)');
+    expect(prompt).toContain('copy_drive_item(driveFileId | folderId, targetFolderId?)');
+    expect(prompt).toContain('import_attachment_to_drive(spaceId, attachmentId, folderId?)');
+    expect(prompt).toContain('includeVersions');
+    expect(prompt).toContain('includeBacklinks');
+    expect(prompt).toContain('버전 롤백');
+    expect(prompt).not.toMatch(/파일 이름 변경은 미지원/);
+  });
+
+  // WP-354: 라우터가 되묻지 않고 위임하므로, 저장 위치가 모호하면 drive-agent 가 사용자에게 묻는다.
+  it('첨부 저장 위치 규칙: 사용자 지정 → 쓰기 가능 스페이스가 하나면 그곳 → 여럿이면 되묻기', () => {
+    const prompt = loaded['drive-agent'].prompt;
+    expect(prompt).toContain('사용자가 스페이스·폴더를 말했으면');
+    expect(prompt).toContain('정확히 하나');
+    expect(prompt).toMatch(/후보가 여럿이면.*임의로 고르지 말고.*묻습니다/s);
   });
 });

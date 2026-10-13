@@ -110,6 +110,8 @@ export const searchMembersInput = z.object({
   includeInactive: z.boolean().optional(),
   page: z.number().int().min(0).default(0),
   size: z.number().int().min(1).max(100).default(20),
+  // WP-355: 주면 그 채널의 멤버만 본다(서버 /members 에는 채널 필터가 없어 /channels/{id}/members 를 읽는다).
+  channelId: z.number().int().positive().optional(),
 });
 export const memberInput = z.object({ username: z.string().min(1) });
 export const listContactsInput = z.object({
@@ -124,6 +126,23 @@ export const listContactsInput = z.object({
 });
 export const externalContactInput = z.object({ externalId: z.number().int().positive() });
 
+/**
+ * 채널 멤버 목록 → search_members 와 같은 출력 모양 { items, total, hasMore?, nextPage? }(WP-355). 서버 /channels/{id}/members 는 페이지·검색이 없는
+ * 전체 목록이라 search(이름·username 부분일치)·kind(기본 HUMAN, 구성원 검색과 같다)·page 를 여기서 적용한다. 숫자 userId·가입 시각은 내보내지 않고
+ * username·name·kind·role 만 싣는다. 이 목록에는 활성 여부가 없어 includeInactive 는 적용하지 않는다.
+ */
+async function channelMembersView(client: MemberToolClient, input: z.infer<typeof searchMembersInput> & { channelId: number }) {
+  const term = input.search?.trim().toLowerCase();
+  const rows = (await client.listChannelMembers(input.channelId)).filter(
+    (m) =>
+      (input.kind === 'ALL' || m.kind === input.kind) &&
+      (!term || m.name.toLowerCase().includes(term) || m.username.toLowerCase().includes(term)),
+  );
+  const start = input.page * input.size;
+  const items = rows.slice(start, start + input.size).map((m) => ({ username: m.username, name: m.name, kind: m.kind, role: m.role }));
+  return numberedPageView(items, { total: rows.length, hasMore: start + input.size < rows.length, page: input.page });
+}
+
 /** 구성원 3종 + 연락처 2종 읽기 도구. */
 export function buildMemberTools(client: MemberToolClient): SharedTool[] {
   return [
@@ -134,14 +153,15 @@ export function buildMemberTools(client: MemberToolClient): SharedTool[] {
       app: ['member', 'calendar', 'project', 'messaging', 'contacts'],
       kind: 'read',
       description:
-        '우리 워크스페이스의 구성원을 검색해 JSON 으로 반환합니다. 사람을 찾을 때 쓰는 표준 도구입니다. ' +
-        '각 항목의 username 을 담당자(assignees)·멤버 추가·get_member 등 사람을 가리키는 도구에 그대로 넘기세요(응답에 숫자 id 는 없습니다). ' +
-        'search 로 이름·아이디·이메일 검색, kind 로 HUMAN(사람, 기본)/AGENT(AI)/ALL 한정. 기본은 활성 구성원만이며 includeInactive=true 로 비활성까지 봅니다. ' +
-        '결과는 JSON({items, total, hasMore?, nextPage?})이고 한 번에 size 명(기본 20, 최대 100)만 담깁니다. hasMore 가 있으면(true) 뒤에 더 있으니 ' +
-        'nextPage 를 page 로 넘겨 이어 조회하거나, search 를 더 좁히거나, 일부만 본 것이라고 밝히세요.',
+        'Searches workspace members (구성원) by name, username or email. Pass username to tools that take a person (no numeric ids). kind HUMAN ' +
+        '(default), AGENT (AI) or ALL; active only unless includeInactive. With channelId (a channel I belong to), lists its members with ' +
+        'role; search matches name or username, includeInactive is ignored. Returns {items, total, hasMore?, nextPage?}; if hasMore, pass ' +
+        'nextPage as page, narrow search, or say the list is partial.',
       inputSchema: searchMembersInput,
       async handler(args) {
-        const result = await client.searchMembersPage(searchMembersInput.parse(args));
+        const { channelId, ...query } = searchMembersInput.parse(args);
+        if (channelId !== undefined) return JSON.stringify(await channelMembersView(client, { ...query, channelId }));
+        const result = await client.searchMembersPage(query);
         return JSON.stringify(numberedPageView(result.items.map(toMemberView), result));
       },
     },
@@ -149,7 +169,9 @@ export function buildMemberTools(client: MemberToolClient): SharedTool[] {
       name: 'get_member',
       app: 'member',
       kind: 'read',
-      description: '구성원 단건(아이디·이메일·직책·활성여부·멤버십 역할)을 JSON 으로 반환합니다. username 은 search_members 로 확보하세요.',
+      description:
+        'Returns one member by username (from search_members): name, email, title, kind, active, membershipRole, membershipStatus. Errors if not ' +
+        'found.',
       inputSchema: memberInput,
       async handler(args) {
         const { username } = memberInput.parse(args);
@@ -164,8 +186,8 @@ export function buildMemberTools(client: MemberToolClient): SharedTool[] {
       app: 'member',
       kind: 'read',
       description:
-        '사내 구성원의 연락처 상세(직책·소속 그룹·즐겨찾기 여부)를 JSON 으로 반환합니다. 조직/소속을 묻는 질문에 적합합니다. ' +
-        '외부 연락처가 아니라 구성원용입니다 — 외부 연락처는 get_external_contact 를 쓰세요.',
+        'Returns the contact card of a member by username: email, title, kind, groups (names) and isFavorite. For external contacts use ' +
+        'get_external_contact.',
       inputSchema: memberInput,
       async handler(args) {
         const { username } = memberInput.parse(args);
@@ -181,11 +203,9 @@ export function buildMemberTools(client: MemberToolClient): SharedTool[] {
       app: 'contacts',
       kind: 'read',
       description:
-        '연락처 목록을 JSON 으로 반환합니다. type=EXTERNAL 은 외부 연락처(거래처·고객 등), type=MEMBER 는 사내 구성원입니다. ' +
-        '**식별자 주의**: MEMBER 항목은 username(사내 구성원 — search_members 등 사람을 가리키는 도구에 그대로 넘김), EXTERNAL 항목은 externalId(= 외부 연락처 id)를 가집니다. ' +
-        'externalId 는 외부 연락처 도구에만 사용하세요(구성원 항목에는 없습니다). 사내 구성원을 찾는 것이 목적이면 이 도구 대신 search_members 를 사용하세요(활성여부 등 더 정확한 정보를 줍니다). ' +
-        'search 로 이름·이메일 검색, organization/title 로 좁히기, favorite=true 로 즐겨찾기만. 결과는 {items, hasMore?, nextCursor?} 이고 다음 페이지가 있을 때만 hasMore:true 와 nextCursor 가 오니, ' +
-        'nextCursor 를 cursor 로 넘겨 이어 조회하거나 이어 조회하지 않고 답한다면 일부만 봤다고 밝히세요(키가 없으면 끝까지 다 담긴 것).',
+        'Lists contacts (연락처): MEMBER items (workspace members, by username) and EXTERNAL items (customers, partners; externalId for ' +
+        'external-contact tools only); for members search_members is more complete. search: name or email; organization and title: exact values ' +
+        'from get_contact_facets. Returns {items, hasMore?, nextCursor?}; if hasMore, pass nextCursor as cursor, or say the list is partial.',
       inputSchema: listContactsInput,
       async handler(args) {
         // 서버 응답은 { items, nextCursor } 래퍼(ContactPage)다.
@@ -201,8 +221,8 @@ export function buildMemberTools(client: MemberToolClient): SharedTool[] {
       app: 'contacts',
       kind: 'read',
       description:
-        '외부 연락처 단건 상세를 JSON 으로 반환합니다. externalId 는 list_contacts 의 EXTERNAL 항목이 주는 값입니다. ' +
-        '구성원(MEMBER) 항목에는 externalId 가 없습니다 — 구성원 상세는 username 으로 get_member_contact 를 쓰세요.',
+        'Returns an external contact by externalId (from list_contacts EXTERNAL items), all fields incl. editable and isFavorite. Members have ' +
+        'no externalId: use get_member_contact.',
       inputSchema: externalContactInput,
       async handler(args) {
         const { externalId } = externalContactInput.parse(args);

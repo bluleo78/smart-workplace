@@ -2,10 +2,13 @@
 // 채널 초대(add_channel_member, WP-349)는 외부 MCP 에 직접 실행 도구로 노출하고, AI Chat 은 같은 작업을 propose_add_channel_member
 // 확인 카드로 한다(경로마다 도구 하나 — ai-agent 프로필에는 싣지 않는다). 두 경로가 입력 스키마(addChannelMemberInput)와 대상 해석
 // (requireActiveMember)을 같이 쓴다. 비공개 채널 나가기는 계속 확인 카드(propose_leave_channel)만 한다.
+// WP-355: 채널 참여(join_channel)·리액션(add_reaction·remove_reaction)·내 메시지 수정(update_channel_message)·채널 읽음 처리(mark_channel_read)를 더했다.
+// 메시지 삭제는 되돌릴 수 없어 도구로 두지 않는다(AI Chat 확인 카드도 아직 없음). 채널 멤버 목록은 search_members 의 channelId 옵션(member-tools.ts)이다.
 import { z } from 'zod';
 import { cursorPageView, dropEmpty, omitKeys, truncatedView } from './compact.js';
 import type { SharedTool } from './mcp-tool.js';
 import { findMemberByUsername, requireActiveMember, searchMembersByTerm } from './member-tools.js';
+import { nullAsOmitted } from './tool-definitions.js';
 import type { MemberRow, MemberToolClient, MessagingToolClient } from './tool-client.js';
 
 // 줄 시작·공백·여는 괄호 뒤의 @ 만 후보로 보므로 메일 주소(a@b.com)의 @ 는 건드리지 않고,
@@ -77,18 +80,19 @@ export const listChannelMessagesInput = z.object({
   // 서버(MessageRepository.MAX_LIMIT)가 100 으로 자른다 — 그 이상을 받는 것처럼 보이지 않게 맞춘다.
   limit: z.number().int().min(1).max(100).default(50),
   // WP-352: 이전 호출이 돌려준 nextCursor 를 그대로 넘기면 한 페이지 더 오래된 메시지다(서버 MessageController 의 cursor).
-  cursor: z.string().optional().describe('더 오래된 메시지 커서 — 이전 호출 결과의 nextCursor 를 그대로'),
+  cursor: z.string().optional(),
 });
 /**
  * 내 채널 목록 입력(WP-352). 서버는 내 채널 전체를 한 번에 주므로(페이지 없음 — 웹 사이드바가 전체를 쓴다) 도구가 한 번에 보여 줄 수를
  * 정하고, offset 으로 이어 읽는다(이름순이라 두 호출 사이에 채널이 늘지 않는 한 안정적).
  */
 export const listChannelsInput = z.object({
+  // WP-355: discover_channels 를 접었다(메시징 앱 15개 상한) — q 가 있으면 공개 채널 탐색(가입 여부 무관), 없으면 내 채널·DM.
+  q: nullAsOmitted(z.string().min(1)),
   limit: z.number().int().min(1).max(200).default(100),
-  offset: z.number().int().min(0).default(0).describe('건너뛸 채널 수 — 이전 호출 결과의 nextOffset 을 그대로'),
+  offset: z.number().int().min(0).default(0),
 });
 export const getThreadRepliesInput = z.object({ messageId: z.number().int().positive() });
-export const discoverChannelsInput = z.object({ q: z.string().min(1) });
 
 /** 서버 스레드 페이지 상한(MessageRepository.MAX_LIMIT). */
 const THREAD_PAGE_SIZE = 100;
@@ -153,7 +157,7 @@ export function stripMessageUserIds({ authorId: _authorId, ...rest }: Raw): Raw 
   return out;
 }
 
-/** 리액션 집계 [{emoji,count,reacted}] → { "👍": 2 }. 누른 사람 목록은 서버에도 없고, reacted(내가 눌렀나)는 읽기 맥락에서 쓸모가 적다. */
+/** 리액션 집계 [{emoji,count,reacted}] → { "👍": 2 }. 누른 사람 목록은 서버에 GET /api/v1/messaging/messages/{id}/reactions/users(WP-106)로 따로 있지만 메시지 목록 응답에는 없고 도구 뷰도 개수만 둔다. reacted(내가 눌렀나)는 읽기 맥락에서 쓸모가 적다. */
 function reactionSummary(reactions: unknown): Record<string, number> | undefined {
   if (!Array.isArray(reactions) || reactions.length === 0) return undefined;
   const entries = (reactions as Raw[]).filter((r) => typeof r.emoji === 'string').map((r) => [r.emoji as string, Number(r.count ?? 0)] as const);
@@ -255,6 +259,23 @@ export const createChannelInput = z.object({
 // 본인은 서버가 자동 포함한다. 본인 포함 최대 8명(서버 MAX_MEMBERS).
 export const openDmInput = z.object({ usernames: z.array(z.string().min(1)).min(1).max(7) });
 export const leaveChannelInput = z.object({ channelId: z.number().int().positive() });
+/** 채널 참여·읽음 처리 입력(WP-355) — 둘 다 channelId 하나다. */
+export const joinChannelInput = z.object({ channelId: z.number().int().positive() });
+export const markChannelReadInput = joinChannelInput;
+/**
+ * 리액션 추가·제거 입력(WP-355). 서버는 이모지를 1~32자 문자열로만 검사하고(ReactionRequest) 웹 선택기는 유니코드 문자를 보낸다.
+ * 제거는 추가한 것과 같은 문자열이어야 한다 — 읽기 출력 reactions 의 키 그대로다. messageId 는 메시지 행의 id 다(출력 이름은 id).
+ */
+const messageIdField = z.number().int().positive().describe('id of a list_channel_messages or list_thread_replies item');
+export const reactionInput = z.object({
+  messageId: messageIdField,
+  emoji: z.string().min(1).max(32).describe('Unicode emoji such as 👍, as in reactions'),
+});
+/** 내 메시지 수정 입력(WP-355) — 서버 UpdateMessageRequest 와 같은 1~4000자. */
+export const updateChannelMessageInput = z.object({
+  messageId: messageIdField,
+  body: z.string().min(1).max(4000),
+});
 /** 채널 초대 입력(WP-349) — add_channel_member 와 확인 카드 propose_add_channel_member(이 스키마 + summary)가 같이 쓴다. */
 export const addChannelMemberInput = z.object({
   channelId: z.number().int().positive(),
@@ -271,7 +292,7 @@ export interface MessagingToolOptions {
   parentMessageIdFor?(channelId: number): number | undefined;
 }
 
-/** 메시징 도구(list_channels/list_channel_messages/list_thread_replies/add_channel_message/create_channel/open_dm/leave_channel/add_channel_member). */
+/** 메시징 도구(list_channels/list_channel_messages/list_thread_replies/add_channel_message/create_channel/open_dm/leave_channel/join_channel/add_reaction/remove_reaction/update_channel_message/mark_channel_read/add_channel_member). */
 export function buildMessagingTools(
   client: MessagingToolClient & Pick<MemberToolClient, 'searchMembers'>,
   opts: MessagingToolOptions = {},
@@ -282,31 +303,17 @@ export function buildMessagingTools(
       app: 'messaging',
       kind: 'read',
       description:
-        '내가 속한 채널·DM 목록을 JSON({items, total, hasMore?, nextOffset?})으로 반환합니다(items 는 channelId·name·kind·visibility·memberCount·lastMessage 미리보기 포함, 이름순). ' +
-        '안 읽은 메시지가 있는 채널만 unreadCount(안 읽은 수)·hasUnreadThreads 가 오고, 없으면 이 키들이 생략됩니다(0 / false). ' +
-        '채널 이름만 알 때 channelId 를 확보한 뒤 list_channel_messages / add_channel_message 에 사용하세요. ' +
-        'total 은 내 채널 전체 수이고 한 번에 limit 개(기본 100, 최대 200)만 담기므로, 더 있으면 hasMore:true 와 nextOffset 이 옵니다 — ' +
-        'nextOffset 을 offset 으로 넘겨 이어 조회하거나, 이어 조회하지 않고 답한다면 일부만 본 것이라고 밝히세요(목록에 없다는 단정·개수 집계 금지). ' +
-        '이 키들이 없으면 전부 담긴 것입니다.',
+        'Lists my channels and DMs (채널·DM) by name as {items, total, hasMore?, nextOffset?}: channelId, kind, lastMessage, memberCount; unreadCount ' +
+        'and hasUnreadThreads only when set. q: search public channels by name substring instead, joined or not (member); join_channel to read or ' +
+        'post. If hasMore, pass nextOffset as offset, or say the list is partial.',
       inputSchema: listChannelsInput,
       async handler(args) {
-        const { limit, offset } = listChannelsInput.parse(args);
-        const all = (await client.listChannels()) as unknown[];
+        const { q, limit, offset } = listChannelsInput.parse(args);
+        // q 가 있으면 공개 채널 탐색(구 discover_channels), 없으면 내 채널 — 둘 다 서버가 전체를 주므로 같은 방식으로 잘라 이어 읽는다.
+        const all = q != null ? await client.discoverChannels(q) : ((await client.listChannels()) as unknown[]);
         const items = all.slice(offset, offset + limit).map((c) => toChannelView(c as Raw));
         const next = offset + items.length;
         return JSON.stringify({ items, total: all.length, ...(next < all.length && { hasMore: true, nextOffset: next }) });
-      },
-    },
-    {
-      name: 'discover_channels',
-      app: 'messaging',
-      kind: 'read',
-      description:
-        '공개 채널을 이름·키워드로 검색해 JSON 배열로 반환합니다(channelId·name·kind 포함). list_channels 에 없는 공개 채널을 찾아 channelId 를 확보한 뒤 메시지 조회/작성에 사용하세요.',
-      inputSchema: discoverChannelsInput,
-      async handler(args) {
-        const { q } = discoverChannelsInput.parse(args);
-        return JSON.stringify((await client.discoverChannels(q)).map((c) => toChannelView(c as Raw)));
       },
     },
     {
@@ -314,11 +321,9 @@ export function buildMessagingTools(
       app: 'messaging',
       kind: 'read',
       description:
-        '채널/DM 의 메시지를 최신순(최신 → 오래된 순)으로 JSON({items, hasMore?, nextCursor?})으로 반환합니다(대화 흐름 확인용). 스레드 답글은 빠지고 최상위 메시지만 담기며, ' +
-        '답글이 있는 메시지에만 replyCount 가 옵니다(list_thread_replies 로 조회). 작성자는 authorName·authorKind, 리액션은 { 이모지: 개수 }, ' +
-        '본문의 멘션은 "@이름(username)" 으로 풀려 있습니다(풀 수 없는 멘션은 "@(알 수 없는 사용자)"). 값이 없는 키는 생략됩니다. limit 기본 50·최대 100 이고, 더 오래된 메시지가 있으면 hasMore:true 와 ' +
-        'nextCursor 가 옵니다 — nextCursor 를 cursor 로 넘겨 이어 조회하거나, 이어 조회하지 않고 답한다면 최근 일부만 본 것이라고 밝히세요(요약·집계를 전체인 양 하지 마세요). ' +
-        '이 키들이 없으면 채널의 처음까지 다 담긴 것입니다. 삭제된 메시지는 본문이 "(삭제됨)" 으로 옵니다.',
+        'Lists top-level messages of a channel or DM I belong to, newest first, as {items, hasMore?, nextCursor?}. Replies are left out; ' +
+        'messages with replies carry replyCount (see list_thread_replies). Markdown body, mentions as "@name(username)", reactions {emoji: ' +
+        'count}; deleted ones read "(삭제됨)". If hasMore, pass nextCursor as cursor for older messages, or say the list is partial.',
       inputSchema: listChannelMessagesInput,
       async handler(args) {
         const { channelId, limit, cursor } = listChannelMessagesInput.parse(args);
@@ -331,9 +336,9 @@ export function buildMessagingTools(
       app: 'messaging',
       kind: 'read',
       description:
-        '채널 메시지 하나에 달린 스레드 답글 전체를 오래된 순으로 JSON({items, truncated?})으로 반환합니다(스레드 요약·확인용). ' +
-        'messageId 는 list_channel_messages 결과에서 replyCount 가 있는 메시지의 id 입니다. 본문의 멘션은 "@이름(username)" 으로 풀려 있습니다. ' +
-        'truncated:true 가 있으면 답글이 500개를 넘어 앞부분 500개만 담긴 것이니, 요약할 때 뒷부분이 빠졌다고 밝히세요.',
+        'Returns all replies in the thread of a channel message, oldest first, as {items, truncated?}. messageId: id of a list_channel_messages ' +
+        'item with replyCount. Mentions read "@name(username)". truncated:true means only the first 500 replies are included: say the rest is ' +
+        'missing.',
       inputSchema: getThreadRepliesInput,
       async handler(args) {
         const { messageId } = getThreadRepliesInput.parse(args);
@@ -347,8 +352,8 @@ export function buildMessagingTools(
       kind: 'write',
       hints: { destructive: false, idempotent: false },
       description:
-        '채널/DM 에 메시지를 작성합니다. 본문은 마크다운 지원. 정확히 한 번만 호출하세요. ' +
-        '사람을 멘션하려면 본문에 `@username` 을 쓰세요(username 은 search_members 결과) — 멘션 알림으로 변환됩니다. 메시지 조회 결과의 "@이름(username)" 표기를 따라 쓰지 말고 `@username` 으로 쓰세요.',
+        'Posts a Markdown message to a channel or DM I belong to; call it once. Mention with @username (from search_members), not the ' +
+        '"@name(username)" form shown when reading. Mentioned people and DM members get a push notification.',
       inputSchema: addChannelMessageInput,
       async handler(args) {
         const { channelId, body } = addChannelMessageInput.parse(args);
@@ -362,8 +367,8 @@ export function buildMessagingTools(
       kind: 'write',
       hints: { destructive: false, idempotent: false },
       description:
-        '새 채널을 만들고 내가 OWNER 가 됩니다. visibility 기본 PUBLIC(누구나 참여), PRIVATE 는 초대받은 사람만 봅니다. ' +
-        '이름이 이미 있으면 충돌 오류가 납니다. 만든 채널(channelId·name·visibility)을 JSON 으로 반환합니다.',
+        'Creates a channel (채널) with me as OWNER. visibility PUBLIC (default, anyone can join) or PRIVATE (invited people only). A name in use ' +
+        'is a conflict.',
       inputSchema: createChannelInput,
       async handler(args) {
         return JSON.stringify(toChannelView((await client.createChannel(createChannelInput.parse(args))) as Raw));
@@ -376,8 +381,8 @@ export function buildMessagingTools(
       // 같은 참여자 DM 이 있으면 그것을 돌려준다(find-or-create) — 추가만 하고 멱등.
       hints: { destructive: false, idempotent: true },
       description:
-        'username 목록의 사람들과의 DM 을 엽니다(나는 자동 포함, 나 포함 최대 8명). 같은 참여자 DM 이 이미 있으면 그것을 돌려줍니다. ' +
-        '결과 { channelId, participants } 의 channelId 로 add_channel_message 를 호출하세요. username 은 search_members 로 확인합니다.',
+        'Opens a DM with up to 7 active members by username (from search_members); I am included, and an existing DM with the same people is ' +
+        'reused. Returns {channelId, participants}; post with add_channel_message.',
       inputSchema: openDmInput,
       async handler(args) {
         const { usernames } = openDmInput.parse(args);
@@ -399,10 +404,8 @@ export function buildMessagingTools(
       kind: 'write',
       hints: { destructive: true, idempotent: true },
       description:
-        '공개 채널에서 나갑니다. 나가면 그 채널의 메시지를 읽거나 쓸 수 없고, 이 도구 묶음에는 다시 참여시키는 도구가 없어 ' +
-        '되돌리려면 사용자가 직접 참여해야 합니다(공개 채널이라 가능). 비공개 채널은 나가면 스스로 돌아올 수 없어 이 도구로 나갈 수 없습니다 — ' +
-        'propose_leave_channel 도구가 있으면 그것으로 확인 카드를 제안하고, 없으면 사용자가 직접 나가도록 안내하세요. ' +
-        '채널 OWNER 는 소유권을 넘기기 전에는 나갈 수 없습니다.',
+        'Leaves a public channel (join_channel rejoins). Private channels are refused as irreversible: ' +
+        'offer propose_leave_channel if available, else ask the user. An OWNER must hand over ownership first.',
       inputSchema: leaveChannelInput,
       async handler(args) {
         const { channelId } = leaveChannelInput.parse(args);
@@ -419,6 +422,86 @@ export function buildMessagingTools(
       },
     },
     {
+      name: 'join_channel',
+      app: 'messaging',
+      kind: 'write',
+      // 이미 멤버면 아무것도 바꾸지 않고 성공한다(ChannelMemberRepository.add 의 ON CONFLICT DO NOTHING) — 멱등. 알림은 없고 목록 갱신 신호뿐이다.
+      hints: { destructive: false, idempotent: true },
+      description:
+        'Joins a public channel (채널) as MEMBER (channelId from list_channels with q); DMs and non-public channels are refused. Earlier messages do not ' +
+        'count as unread.',
+      inputSchema: joinChannelInput,
+      async handler(args) {
+        await client.joinChannel(joinChannelInput.parse(args).channelId);
+        return 'ok';
+      },
+    },
+    {
+      name: 'add_reaction',
+      app: 'messaging',
+      kind: 'write',
+      // 서버가 이미 있는 리액션은 이벤트 없이 무시한다(ReactionService.add) — 멱등. 누른 사람에게 알림은 가지 않는다.
+      hints: { destructive: false, idempotent: true },
+      description: 'Adds my emoji reaction to a message in a channel or DM I belong to; repeating is a no-op.',
+      inputSchema: reactionInput,
+      async handler(args) {
+        const { messageId, emoji } = reactionInput.parse(args);
+        await client.addReaction(messageId, emoji);
+        return 'ok';
+      },
+    },
+    {
+      name: 'remove_reaction',
+      app: 'messaging',
+      kind: 'write',
+      // 제거는 destructive(README 노출 기준) — 없던 리액션을 지워도 오류 없이 같은 결과(ReactionService.remove)라 멱등이다.
+      hints: { destructive: true, idempotent: true },
+      description: 'Removes my own emoji reaction from a message; no-op if absent.',
+      inputSchema: reactionInput,
+      async handler(args) {
+        const { messageId, emoji } = reactionInput.parse(args);
+        await client.removeReaction(messageId, emoji);
+        return 'ok';
+      },
+    },
+    {
+      name: 'update_channel_message',
+      app: 'messaging',
+      kind: 'write',
+      // 본문을 덮어쓴다(이전 본문은 남지 않는다)라 destructive. 같은 본문으로 다시 불러도 저장 내용은 같고 알림이 없다(MessageUpdatedEvent 는 SSE 만) — 멱등.
+      hints: { destructive: true, idempotent: true },
+      description:
+        'Replaces the body of my own message (any age, replies too) with new Markdown; it shows as edited and the old text is lost. Mention with ' +
+        '@username as in add_channel_message; edits send no notification. Returns the saved message.',
+      inputSchema: updateChannelMessageInput,
+      async handler(args) {
+        const { messageId, body } = updateChannelMessageInput.parse(args);
+        // 서버가 수정 때 본문의 <@id> 토큰을 다시 해석하므로 작성과 같이 @username 을 토큰으로 바꿔 보낸다 — 안 바꾸면 멘션이 조용히 사라진다.
+        const saved = await client.updateChannelMessage(messageId, await linkMentions(client, body));
+        // 응답은 서버 MessageResponse 원형(authorId 포함) — 읽기 도구와 같은 뷰로 가공해 숫자 사용자 ID 를 내보내지 않는다.
+        return JSON.stringify(toMessageView(saved as Raw, (saved as Raw).parentMessageId != null));
+      },
+    },
+    {
+      name: 'mark_channel_read',
+      app: 'messaging',
+      kind: 'write',
+      // 읽음 위치는 GREATEST 로만 올라가 되돌아가지 않는다(ChannelMemberRepository.markRead) — 같은 인자로 다시 불러도 같은 결과(멱등). 안 읽음 표시를 지우므로 destructive.
+      hints: { destructive: true, idempotent: true },
+      description:
+        'Marks a channel or DM I belong to as read up to its newest top-level message (clears unreadCount); thread replies are tracked separately.',
+      inputSchema: markChannelReadInput,
+      async handler(args) {
+        const { channelId } = markChannelReadInput.parse(args);
+        // 서버는 "어디까지 읽었나"(uptoMessageId)를 요구한다 — 가장 최근 최상위 메시지의 id 로 채운다(채널 안 읽음 수가 세는 것도 최상위 메시지뿐이다).
+        const page = await client.listChannelMessages(channelId, { limit: 1 });
+        const newest = (page.items[0] as Raw | undefined)?.id;
+        // 메시지가 없는 채널은 읽을 것이 없다 — 서버 호출 없이 성공으로 돌려준다.
+        if (typeof newest === 'number') await client.markChannelRead(channelId, newest);
+        return 'ok';
+      },
+    },
+    {
       name: 'add_channel_member',
       app: 'messaging',
       kind: 'write',
@@ -427,10 +510,8 @@ export function buildMessagingTools(
       // 만들지 않으려는 것이고 직접 실행에는 해당하지 않는다(알림처럼 되풀이되는 부작용이 없다). 워크스페이스 밖에 닿지 않는다.
       hints: { destructive: false, idempotent: true },
       description:
-        '채널에 구성원을 초대합니다(MEMBER 로 추가). 채널 OWNER/ADMIN 만 초대할 수 있고 DM 에는 초대할 수 없습니다. ' +
-        'channelId 는 list_channels 결과의 channelId, username 은 search_members 결과의 값입니다(활성 구성원만). 이미 멤버면 역할을 그대로 두고 성공합니다. ' +
-        '초대된 사람에게 인박스·푸시 알림은 가지 않고, 그 사람의 채널 목록에 바로 나타납니다. 채널에 연결된 드라이브 공간이 있으면 그 공간 멤버로도 추가됩니다. ' +
-        '결과는 { channelId, member: { username, name } } 입니다. 멤버 제거·역할 변경은 이 도구로 하지 않습니다.',
+        'Invites an active member (username from search_members) to a channel as MEMBER; channel OWNER or ADMIN only, not DMs. Existing members ' +
+        'are left as is. Not notified; the channel just appears in their list. Also joins the channel drive space, if any.',
       inputSchema: addChannelMemberInput,
       async handler(args) {
         const { channelId, username } = addChannelMemberInput.parse(args);

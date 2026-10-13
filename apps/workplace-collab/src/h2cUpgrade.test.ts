@@ -8,6 +8,7 @@ import type { CollabConfig } from './config'
 import { yDocToMarkdown } from './markdownCodec'
 import type { CollabServer } from './server'
 import { connectClient, type TestClient } from './testing/clients'
+import { ARRIVAL, ARRIVAL_LIMIT_MS } from './testing/wait'
 import { TEST_MODE_INTERNAL_TOKEN } from './testMode'
 
 /** 원시 소켓 응답 — 상태 코드·헤더(소문자 키)·본문. */
@@ -29,10 +30,11 @@ function rawRequest(port: number, method: string, path: string, headers: Record<
     for (const [k, v] of Object.entries(headers)) lines.push(`${k}: ${v}`)
     if (payload.length > 0 || method !== 'GET') lines.push(`Content-Length: ${payload.length}`)
     let buf = Buffer.alloc(0)
+    // 멈춤 감시 — 응답이 끝내 안 오면 받은 만큼을 실패 메시지에 남긴다(응답 시간 단언 아님, 반드시 오는 상태와 같은 상한).
     const timer = setTimeout(() => {
       socket.destroy()
-      reject(new Error(`no complete response within 5s: ${buf.toString('utf8')}`))
-    }, 5000)
+      reject(new Error(`no complete response within ${ARRIVAL_LIMIT_MS}ms: ${buf.toString('utf8')}`))
+    }, ARRIVAL_LIMIT_MS)
     const tryParse = () => {
       const sep = buf.indexOf('\r\n\r\n')
       if (sep < 0) return
@@ -151,7 +153,7 @@ describe('non-websocket Upgrade header (h2c) is served as plain HTTP', () => {
     await rawRequest(app.address.port, 'POST', '/__test/seed', { 'Content-Type': 'application/json' }, JSON.stringify({ docName: doc, body: '본문' }))
     const c = connectClient(app.address.port, doc, 'uid=1')
     clients.push(c)
-    await expect.poll(() => c.provider.isSynced, { timeout: 5000 }).toBe(true)
+    await expect.poll(() => c.provider.isSynced, ARRIVAL).toBe(true)
     expect(yDocToMarkdown(c.doc)).toBe('본문')
   })
 })

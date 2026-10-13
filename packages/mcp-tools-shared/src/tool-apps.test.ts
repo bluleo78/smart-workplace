@@ -49,23 +49,35 @@ describe('도구 앱 태그 (WP-350)', () => {
  * 모두 "선행 조회"가 아니라 대비·대안 언급이라 그 앱에 없어도 일이 끊기지 않는 것만 올린다. 선행 조회라면 허용하지 말고
  * 언급된 도구의 앱 태그를 넓힌다(search_members 가 그 예). 목록에서 이유 없이 항목을 늘리지 않는다.
  */
+/** read_attachment 의 source 갈래별 id 출처 도구(설명에 적는 것). 앱 → 그 갈래의 출처 도구. */
+const ATTACHMENT_SOURCE_REFS: Record<string, string[]> = {
+  issue: ['get_issue_detail'],
+  drive: ['list_drive_items', 'search_drive', 'search_drive_content'],
+  wiki: [],
+  messaging: ['list_channel_messages', 'list_thread_replies'],
+  mail: ['get_mail'],
+};
+
+function readAttachmentCrossRefs(): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const app of Object.keys(ATTACHMENT_SOURCE_REFS)) {
+    for (const [other, refs] of Object.entries(ATTACHMENT_SOURCE_REFS)) {
+      if (other === app) continue;
+      for (const ref of refs) out[`read_attachment@${app} -> ${ref}`] = `${other} 갈래의 id 출처(${app} 갈래에는 불필요)`;
+    }
+  }
+  return out;
+}
+
 const CROSS_REF_ALLOWED: Record<string, string> = {
-  // 이슈 작업 안내 — project 앱 연결만 골라도 프로젝트 조회는 되고, create/update_issue 는 이슈 앱의 몫이다(분류 표 참조).
-  'get_project@project -> create_issue': '프로젝트 정보를 어디에 쓰는지 알리는 안내(이슈 앱의 도구)',
-  'get_project@project -> update_issue': '프로젝트 정보를 어디에 쓰는지 알리는 안내(이슈 앱의 도구)',
   // 구성원 연락처 vs 외부 연락처 — 서로 "이쪽이 아니라 저쪽" 이라는 대비 언급(식별자 혼동 방지).
   'get_member_contact@member -> get_external_contact': '구성원용이 아니라 외부 연락처용이라는 대비 언급',
   'get_external_contact@contacts -> get_member_contact': '외부 연락처용이 아니라 구성원용이라는 대비 언급',
-  // search_members 를 다른 앱에 실으면서 따라온 것 — 설명의 "get_member 등 사람을 가리키는 도구" 는 username 을 쓰는 곳의 예시일 뿐 필수 후속 조회가 아니다.
-  'search_members@calendar -> get_member': 'username 을 쓰는 도구의 예시 언급',
-  'search_members@project -> get_member': 'username 을 쓰는 도구의 예시 언급',
-  'search_members@messaging -> get_member': 'username 을 쓰는 도구의 예시 언급',
-  'search_members@contacts -> get_member': 'username 을 쓰는 도구의 예시 언급',
-  // 첨부 읽기는 이슈 첨부·드라이브 파일 두 갈래 — 각 갈래의 id 출처를 모두 적었을 뿐, 한쪽 앱만 골라도 자기 갈래는 닫힌다.
-  'read_attachment@drive -> get_issue_detail': '이슈 첨부 갈래의 id 출처(드라이브 갈래에는 불필요)',
-  'read_attachment@issue -> list_drive_items': '드라이브 갈래의 id 출처(이슈 갈래에는 불필요)',
-  'read_attachment@issue -> search_drive': '드라이브 갈래의 id 출처(이슈 갈래에는 불필요)',
-  'read_attachment@issue -> search_drive_content': '드라이브 갈래의 id 출처(이슈 갈래에는 불필요)',
+  // 첨부 가져오기는 이슈 첨부·채팅 첨부 두 출처 — 어느 쪽 id 든 가져올 수 있고, 출처 도구는 각 갈래의 안내일 뿐이다(read_attachment 와 같은 구조).
+  'import_attachment_to_drive@drive -> get_issue_detail': '이슈 첨부 갈래의 id 출처(채팅 첨부 갈래에는 불필요)',
+  'import_attachment_to_drive@drive -> list_channel_messages': '채팅 첨부 갈래의 id 출처(이슈 첨부 갈래에는 불필요)',
+  // 첨부 읽기는 source 다섯 갈래(WP-358) — 각 갈래의 id 출처를 모두 적었을 뿐, 한 앱만 골라도 자기 갈래는 닫힌다. 도구가 속한 앱마다 다른 갈래의 출처를 나열한다.
+  ...readAttachmentCrossRefs(),
 };
 
 /** 도구의 설명과 입력 스키마의 필드 설명(JSON Schema 변환 결과)을 합친 텍스트 — 도구 이름 언급을 찾는 대상. */

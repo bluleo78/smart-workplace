@@ -2,8 +2,10 @@
 // 목은 서버 Java record(AttendeeResponse·WikiPageDetail·DriveSpaceResponse·ProjectResponse·MessageResponse·ChannelResponse 등)의
 // 실제 필드를 그대로 따른다 — 필드가 빠진 목은 "userId 없음" 단언이 아무것도 검증하지 못하기 때문이다.
 import { describe, expect, it, vi } from 'vitest';
+import { buildAttachmentTools } from './attachment-tools.js';
 import { buildCalendarTools } from './calendar-tools.js';
 import { buildDriveTools } from './drive-tools.js';
+import { buildHomeTools } from './home-tools.js';
 import { buildSharedIssueTools } from './issue-tools.js';
 import { resultText } from './mcp-content.js';
 import { buildMemberTools } from './member-tools.js';
@@ -14,6 +16,8 @@ import { buildWikiTools } from './wiki-tools.js';
 /** 사용자 ID 를 담는 서버 필드 이름. 응답 어디에도 없어야 한다. */
 const USER_ID_KEYS = new Set([
   'userId', 'ownerId', 'authorId', 'updatedBy', 'invitedBy', 'invitedByUserId', 'actorId', 'reporterId', 'attachedById', 'createdById', 'proposedByUserId',
+  // WP-354: 드라이브 파일 버전의 업로더(DriveFileVersionResponse.uploadedBy) — 이름은 uploadedByName 으로만 둔다.
+  'uploadedBy',
 ]);
 
 /** 본문 문자열에 남은 멘션 토큰 `<@123>` — 숫자 사용자 ID 가 문자열 안에 숨은 모양이다. */
@@ -78,12 +82,15 @@ describe('멤버', () => {
       hasMore: false,
     }),
     getExternalContact: vi.fn(),
+    // 서버 ChannelMemberResponse — 숫자 userId 와 username 이 함께 온다(WP-355).
+    listChannelMembers: vi.fn().mockResolvedValue([{ userId: 3, username: 'minsu', name: '김민수', kind: 'HUMAN', role: 'MEMBER', joinedAt: 't' }]),
   };
   const tools = buildMemberTools(client as never) as never as Parameters<typeof find>[0];
 
   it('search_members·get_member·get_member_contact·list_contacts 는 username 으로만 사람을 가리킨다', async () => {
     for (const [name, args] of [
       ['search_members', { search: '김' }],
+      ['search_members', { channelId: 5 }], // WP-355: 채널 멤버 — 서버 행의 숫자 userId 를 뺀다
       ['get_member', { username: 'minsu' }],
       ['get_member_contact', { username: 'minsu' }],
       ['list_contacts', {}],
@@ -176,6 +183,75 @@ describe('노트', () => {
   });
 });
 
+describe('노트 요약·판 기록·복원 (WP-357)', () => {
+  const wikiClient = {
+    // WP-357: 요약·판 기록·복원 — 서버 WikiPageSummaryState·WikiRevisionListResponse(Person 은 숫자 사용자 id 와 name).
+    getWikiPage: vi.fn().mockResolvedValue({ id: 5, spaceId: 1, parentId: null, title: 'T', body: 'b', version: 3, updatedBy: 9, updatedAt: 't' }),
+    getWikiPageSummary: vi.fn().mockResolvedValue({ summary: '요약', status: 'READY', summaryVersion: 3, pageVersion: 3, summarizedAt: 't' }),
+    listWikiRevisions: vi.fn().mockResolvedValue({
+      current: { version: 3, editedAt: 't', editors: [{ id: 9, name: '앨리스' }] },
+      items: [{ version: 2, title: 'T', editedAt: 't', createdAt: 't', reason: 'AI', editors: [{ id: 9, name: '앨리스' }, { id: 10, name: '밥' }], aiActor: { id: 11, name: '캐럴' } }],
+    }),
+    restoreWikiRevision: vi.fn().mockResolvedValue({ id: 5, spaceId: 1, parentId: null, title: 'T', body: 'c', version: 5, updatedBy: 9, updatedAt: 't' }),
+  };
+  const tools = () => buildWikiTools(wikiClient as never) as never as Parameters<typeof find>[0];
+
+  it('get_wiki_page includeRevisions: 편집자·AI 적용자는 이름으로만 두고 숫자 사용자 ID 를 내보내지 않는다', async () => {
+    const body = out(await find(tools(), 'get_wiki_page').handler({ pageId: 5, includeRevisions: true, includeSummary: true }));
+    expect(userIdLeaks(body, '', WIKI_BODY_TOKEN_EXCEPTION)).toEqual([]);
+    expect(body.revisions[0]).toMatchObject({ editors: ['앨리스', '밥'], aiActor: '캐럴' });
+    expect(JSON.stringify(body.revisions)).not.toMatch(/"id"|\b(9|10|11)\b/);
+  });
+
+  it('restore_wiki_revision: 저장과 같은 페이지 뷰라 updatedBy 가 없다', async () => {
+    const body = out(await find(tools(), 'restore_wiki_revision').handler({ pageId: 5, version: 2 }));
+    expect(userIdLeaks(body)).toEqual([]);
+    expect(body).toMatchObject({ version: 5, updatedAt: 't' });
+  });
+});
+
+describe('홈 개요 (WP-357)', () => {
+  // 서버 ActivityEntryResponse·PriorityItemResponse·MailSummaryResponse·MessagingSummaryResponse·ThreadInboxPage 모양.
+  const client = {
+    getHomeActivity: vi.fn().mockResolvedValue({
+      items: [{ id: 5001, issueId: 412, projectKey: 'WP', issueNumber: 12, issueTitle: 'T', actorId: 9, actorName: '앨리스', actorKind: 'HUMAN', eventType: 'COMMENTED', createdAt: 't' }],
+      nextCursor: null,
+    }),
+    getPriorityItems: vi.fn().mockResolvedValue([{ sourceType: 'ISSUE_DUE', sourceId: '412', title: 'T', deepLink: '/projects/WP/issues/12', importanceScore: 1, urgencyScore: 1, reason: '마감' }]),
+    getHomeMailSummary: vi.fn().mockResolvedValue({ unreadCount: 1, needsReplyCount: 0, classificationActive: true, recent: [{ id: 1, accountId: 3, threadId: 't', sender: 'a', subject: 's', seen: false }] }),
+    getMessagingSummary: vi.fn().mockResolvedValue({
+      unreadConversationCount: 1, needsReplyCount: 0, aiAttentionCount: 0, attentionCount: 0,
+      recent: [{ kind: 'CHANNEL', conversationId: 5, label: '일반', lastAuthorName: '앨리스', lastMessagePreview: 'hi', lastMessageAt: 't', unreadCount: 1, mentioned: true, needsReply: false, newThreadReplyCount: 0, aiReason: null }],
+    }),
+    getThreadInbox: vi.fn().mockResolvedValue({
+      items: [{
+        rootMessage: { id: 40, channelId: 5, authorId: 9, authorName: '앨리스', authorKind: 'HUMAN', body: '안녕 <@3>', mentions: [{ id: 3, username: 'minsu', name: '김민수', kind: 'HUMAN' }], parentMessageId: null, replyCount: 0, unreadReplyCount: 1, followed: true, deleted: false, reactions: [], attachments: [], driveLinks: [], createdAt: 't' },
+        channelName: '일반', lastReplyAt: 't',
+      }],
+      nextCursor: null, hasMore: false,
+    }),
+  };
+  const tools = buildHomeTools(client as never) as never as Parameters<typeof find>[0];
+
+  it('우선순위·메일·메시징·활동·스레드 다섯 섹션 모두에 숫자 사용자 ID 도 <@id> 토큰도 없다', async () => {
+    const body = out(await find(tools, 'get_home_overview').handler({ sections: ['priority', 'mail', 'messaging', 'activity', 'threads'] }));
+    expect(Object.keys(body)).toEqual(['priority', 'mail', 'messaging', 'activity', 'threads']);
+    expect(userIdLeaks(body)).toEqual([]);
+    expect(JSON.stringify(body)).not.toMatch(/<@\d+>/);
+  });
+
+  it('목 점검: 가공 전 활동·스레드 원본에는 숫자 ID 가 실제로 들어 있다', async () => {
+    expect(userIdLeaks(await client.getHomeActivity())).not.toEqual([]);
+    expect(userIdLeaks(await client.getThreadInbox())).not.toEqual([]);
+  });
+
+  it('이어 읽기에 쓰는 식별자(channelId·issueKey·id)는 남는다', async () => {
+    const body = out(await find(tools, 'get_home_overview').handler({ sections: ['messaging', 'threads'] }));
+    expect(body.messaging.recent[0].channelId).toBe(5);
+    expect(body.threads.items[0]).toMatchObject({ channelId: 5, id: 40 });
+  });
+});
+
 describe('이슈', () => {
   // 서버 IssueDetailResponse·IssueResponse — 담당자·작성자·코멘트·이력·첨부자에 숫자 id 를 담는다.
   const person = { id: 9, username: 'alice', name: '앨리스', kind: 'HUMAN' };
@@ -189,9 +265,17 @@ describe('이슈', () => {
     history: [{ eventType: 'STATUS_CHANGED', actorId: 9, actorUsername: 'alice', actorName: '앨리스', actorKind: 'HUMAN', fromValue: 'TODO', toValue: 'DONE', createdAt: '2026-10-01T00:00:00Z' }],
     attachments: [{ fileId: 70, originalName: 'a.png', mimeType: 'image/png', sizeBytes: 3, attachedById: 9, attachedByUsername: 'alice', attachedByName: '앨리스', attachedAt: '2026-10-01T00:00:00Z' }],
   };
+  // WP-356: 워처(WatcherResponse)·드라이브 링크(DriveLinkResponse — 링크를 건 사람 createdById 와 core fileId 를 담는다).
+  const watchers = [{ userId: 9, username: 'alice', name: '앨리스' }];
+  const driveLinks = [
+    { driveFileId: 77, fileId: 70, name: '견적서.pdf', mimeType: 'application/pdf', sizeBytes: 10, hasThumbnail: false, spaceId: 3, spaceName: '영업',
+      availability: 'ACTIVE', createdById: 9, createdAt: '2026-10-01T00:00:00Z' },
+  ];
   const client = {
     getIssueDetail: vi.fn().mockResolvedValue(detail),
     getIssueCycles: vi.fn().mockResolvedValue([]),
+    getIssueWatchers: vi.fn().mockResolvedValue(watchers),
+    getIssueDriveLinks: vi.fn().mockResolvedValue(driveLinks),
     createIssue: vi.fn().mockResolvedValue(summary),
     addIssueDependency: vi.fn().mockResolvedValue(detail),
     getProjectTypes: vi.fn().mockResolvedValue([]),
@@ -211,6 +295,8 @@ describe('이슈', () => {
 
   it('목 점검: 가공 전 원본 이슈 상세에는 숫자 ID 가 실제로 들어 있다', () => {
     expect(userIdLeaks(detail)).toEqual(expect.arrayContaining(['reporter: username+id', 'comments[].authorId', 'attachments[].attachedById']));
+    // WP-356: 워처·드라이브 링크 원본에도 숫자 사용자 ID 가 있다.
+    expect(userIdLeaks({ watchers, driveLinks })).toEqual(expect.arrayContaining(['watchers[].userId', 'driveLinks[].createdById']));
   });
 });
 
@@ -220,6 +306,47 @@ describe('드라이브', () => {
     const body = out(await find(buildDriveTools(client as never) as never, 'list_drive_spaces').handler({}));
     expect(userIdLeaks(body)).toEqual([]);
     expect(body[0]).toMatchObject({ id: 2, role: 'EDITOR' });
+  });
+
+  // WP-354: 서버 DriveFileVersionResponse(uploadedBy 숫자 ID)·BacklinkResponse(sourceId) 필드 그대로.
+  it('get_drive_file_summary: includeVersions·includeBacklinks 응답에 업로더 숫자 ID·core fileId 가 없다', async () => {
+    const client = {
+      getDriveFileSummary: vi.fn().mockResolvedValue({ summary: '요약', status: 'DONE', reason: null }),
+      listDriveFileVersions: vi.fn().mockResolvedValue([
+        { versionNo: 2, fileId: 901, sizeBytes: 200, uploadedBy: 9, uploadedByName: '김하나', createdAt: 't2', comment: null, current: true },
+        { versionNo: 1, fileId: 900, sizeBytes: 100, uploadedBy: 9, uploadedByName: '김하나', createdAt: 't1', comment: '최초', current: false },
+      ]),
+      listDriveFileBacklinks: vi.fn().mockResolvedValue([{ sourceType: 'ISSUE', sourceId: 41, label: 'WP-12 제목', deepLink: '/projects/WP/issues/12' }]),
+    };
+    const body = out(await find(buildDriveTools(client as never) as never, 'get_drive_file_summary').handler({ driveFileId: 5, includeVersions: true, includeBacklinks: true }));
+    expect(userIdLeaks(body)).toEqual([]);
+    expect(body.versions[0]).toMatchObject({ versionNo: 2, uploadedByName: '김하나' });
+    expect(body.versions[0]).not.toHaveProperty('fileId');
+    expect(body.backlinks[0]).not.toHaveProperty('sourceId');
+  });
+
+  it('rename_drive_file·copy_drive_item·import_attachment_to_drive: 파일·폴더 행에 core fileId·사용자 ID 가 없다', async () => {
+    // 서버 DriveFileResponse / DriveFolderResponse 필드 그대로.
+    const fileRow = { id: 5, folderId: 3, fileId: 812, name: 'a.pdf', mimeType: 'application/pdf', sizeBytes: 5, category: 'DOCUMENT', createdAt: 't', updatedAt: 't', versionCount: 1, available: true };
+    const client = {
+      renameDriveFile: vi.fn().mockResolvedValue(fileRow),
+      copyDriveFile: vi.fn().mockResolvedValue(fileRow),
+      copyDriveFolder: vi.fn().mockResolvedValue({ id: 11, parentId: 3, name: '자료', createdAt: 't', updatedAt: 't' }),
+      importAttachmentToDrive: vi.fn().mockResolvedValue(fileRow),
+    };
+    const tools = buildDriveTools(client as never) as never;
+    const outs = [
+      out(await find(tools, 'rename_drive_file').handler({ driveFileId: 5, name: 'a.pdf' })),
+      out(await find(tools, 'copy_drive_item').handler({ driveFileId: 5, targetFolderId: 3 })),
+      out(await find(tools, 'copy_drive_item').handler({ folderId: 8 })),
+      out(await find(tools, 'import_attachment_to_drive').handler({ spaceId: 2, attachmentId: 812 })),
+    ];
+    for (const body of outs) expect(userIdLeaks(body)).toEqual([]);
+    for (const body of [outs[0], outs[1], outs[3]]) {
+      expect(body).toMatchObject({ driveFileId: 5 });
+      expect(body).not.toHaveProperty('fileId');
+    }
+    expect(outs[2]).toMatchObject({ folderId: 11 });
   });
 });
 
@@ -235,10 +362,14 @@ describe('프로젝트', () => {
     getProjectTypes: vi.fn().mockResolvedValue([]),
     getProjectLabels: vi.fn().mockResolvedValue([]),
     getProjectMilestones: vi.fn().mockResolvedValue([]),
-    getProjectCycles: vi.fn().mockResolvedValue([]),
+    getProjectCycles: vi.fn().mockResolvedValue([{ id: 5, projectId: 3, name: 'S1', goal: null, startDate: null, endDate: null, status: 'ACTIVE' }]),
+    // WP-356: 커스텀 필드 정의(IssueFieldDefResponse)·메타 생성/수정 응답(LabelResponse 등)은 사용자 ID 를 담지 않지만, 숫자 id·projectId 는 뺀다.
+    getProjectFields: vi.fn().mockResolvedValue([{ id: 8, projectId: 3, name: '고객사', type: 'SELECT', options: ['A'], position: 0 }]),
     getProjectMembers: vi.fn().mockResolvedValue([{ userId: 9, username: 'alice', name: '앨리스', role: 'OWNER' }]),
     createProject: vi.fn().mockResolvedValue(project),
     updateProject: vi.fn().mockResolvedValue(project),
+    createProjectMeta: vi.fn().mockResolvedValue({ id: 6, projectId: 3, name: 'bug', colorToken: 'RED', createdAt: 't', updatedAt: 't' }),
+    updateProjectMeta: vi.fn().mockResolvedValue({ id: 5, projectId: 3, name: 'S2', goal: null, status: 'ACTIVE', createdAt: 't', updatedAt: 't' }),
     searchMembers: vi.fn(),
   };
   const tools = buildProjectTools(client as never) as never as Parameters<typeof find>[0];
@@ -249,10 +380,16 @@ describe('프로젝트', () => {
       ['get_project', { projectKey: 'WP' }],
       ['create_project', { projectKey: 'WP', name: '워크플레이스' }],
       ['update_project', { projectKey: 'WP', name: '워크플레이스' }],
+      ['create_project_meta', { projectKey: 'WP', kind: 'label', name: 'bug', color: 'RED' }],
+      ['update_project_meta', { projectKey: 'WP', kind: 'cycle', name: 'S1', newName: 'S2' }],
     ] as const) {
       const body = out(await find(tools, name).handler(args));
       expect(userIdLeaks(body), name).toEqual([]);
     }
+    // 커스텀 필드 정의·메타 응답에는 숫자 id·projectId 도 싣지 않는다(이름으로만 가리킨다).
+    const meta = JSON.stringify(out(await find(tools, 'create_project_meta').handler({ projectKey: 'WP', kind: 'label', name: 'bug' })));
+    expect(meta).not.toMatch(/"id"|projectId/);
+    expect(JSON.stringify(out(await find(tools, 'get_project').handler({ projectKey: 'WP' })).fields)).not.toMatch(/"id"|projectId/);
     const detail = out(await find(tools, 'get_project').handler({ projectKey: 'WP' }));
     expect(detail.members).toEqual([{ username: 'alice', name: '앨리스', role: 'OWNER' }]);
     expect(detail).toMatchObject({ projectKey: 'WP', memberCount: 2 });
@@ -279,19 +416,20 @@ describe('메시징', () => {
     createChannel: vi.fn().mockResolvedValue({ ...channel, lastMessage: null }),
     listChannelMessages: vi.fn().mockResolvedValue({ items: [message], nextCursor: null, hasMore: false }),
     getThreadReplies: vi.fn().mockResolvedValue({ items: [{ ...message, id: 41, parentMessageId: 40 }], nextCursor: null, hasMore: false }),
-    searchMembers: vi.fn(),
+    updateChannelMessage: vi.fn().mockResolvedValue(message),
+    searchMembers: vi.fn().mockResolvedValue([]),
   };
   const tools = buildMessagingTools(client as never) as never as Parameters<typeof find>[0];
 
-  it('채널 도구 3종은 id 를 channelId 로 바꾸고 마지막 메시지 미리보기의 authorId 를 뺀다', async () => {
+  it('채널 도구는 id 를 channelId 로 바꾸고 마지막 메시지 미리보기의 authorId 를 뺀다', async () => {
     const list = out(await find(tools, 'list_channels').handler({}));
     expect(userIdLeaks(list)).toEqual([]);
     expect(list.items[0]).toMatchObject({ channelId: 5, name: '일반', lastMessage: { id: 40, authorName: '앨리스', preview: '안녕' } });
     expect(list.items[0]).not.toHaveProperty('id');
-    const discovered = out(await find(tools, 'discover_channels').handler({ q: '일' }));
+    const discovered = out(await find(tools, 'list_channels').handler({ q: '일' }));
     expect(userIdLeaks(discovered)).toEqual([]);
-    expect(discovered[0]).toMatchObject({ channelId: 5 });
-    expect(discovered[0]).not.toHaveProperty('lastMessage'); // 값이 없는 키는 생략
+    expect(discovered.items[0]).toMatchObject({ channelId: 5 });
+    expect(discovered.items[0]).not.toHaveProperty('lastMessage'); // 값이 없는 키는 생략
     const created = out(await find(tools, 'create_channel').handler({ name: '일반' }));
     expect(created).toMatchObject({ channelId: 5 });
     expect(created).not.toHaveProperty('id');
@@ -314,6 +452,13 @@ describe('메시징', () => {
     );
   });
 
+  it('update_channel_message 가 돌려주는 저장된 행도 읽기 뷰와 같다 — 작성자·첨부자·멘션의 숫자 ID 와 <@id> 토큰이 없다(WP-355)', async () => {
+    const saved = out(await find(tools, 'update_channel_message').handler({ messageId: 40, body: '안녕' }));
+    expect(userIdLeaks(saved)).toEqual([]);
+    expect(saved).toMatchObject({ id: 40, authorName: '앨리스', body: '안녕 @김민수(minsu)' });
+    expect(JSON.stringify(saved)).not.toMatch(/<@\d+>/);
+  });
+
   it('멘션 토큰 <@id> 는 @이름(username) 으로 풀리고 mentions 에서 id 가 빠진다(허용 목록 없이 누수 0)', async () => {
     const page = out(await find(tools, 'list_channel_messages').handler({ channelId: 5 }));
     expect(page.items[0].mentions).toEqual([{ username: 'minsu', name: '김민수', kind: 'HUMAN' }]);
@@ -322,5 +467,29 @@ describe('메시징', () => {
     const replies = out(await find(tools, 'list_thread_replies').handler({ messageId: 40 }));
     expect(replies.items[0].body).toBe('안녕 @김민수(minsu)');
     expect(replies.items[0].mentions).toEqual([{ username: 'minsu', name: '김민수', kind: 'HUMAN' }]);
+  });
+});
+
+// WP-358: read_attachment 의 노트·메시지·메일 갈래 — 서버 구간 응답(ExtractedTextSlice)에는 사용자 ID 가 없고, 내부 file id 는 attachmentId 로만 나간다.
+describe('첨부 읽기 (WP-358)', () => {
+  const sliceRow = { fileId: 70, status: 'READY', offset: 0, totalChars: 3, truncated: false, nextOffset: null, text: '안녕 <@3>', reasonCode: null, reason: null };
+  const client = {
+    readWikiAttachmentText: vi.fn().mockResolvedValue(sliceRow),
+    readMessageAttachmentText: vi.fn().mockResolvedValue(sliceRow),
+    readMailAttachmentText: vi.fn().mockResolvedValue({ ...sliceRow, fileId: 9 }),
+  };
+  const [tool] = buildAttachmentTools(client as never);
+  const tools = [tool] as never as Parameters<typeof find>[0];
+
+  it.each([
+    [{ source: 'wiki', pageId: 7, attachmentId: 70 }],
+    [{ source: 'message', channelId: 5, messageId: 40, attachmentId: 70 }],
+    [{ source: 'mail', attachmentId: 9 }],
+  ])('%j: 응답에 서버 fileId 가 없고 attachmentId 로 나간다', async (args) => {
+    const res = out(await find(tools, 'read_attachment').handler(args));
+    expect(res).not.toHaveProperty('fileId');
+    expect(res.attachmentId).toBe(args.attachmentId);
+    // 본문 텍스트는 첨부 원문이라 그대로 둔다 — 멘션 토큰 검사는 여기서 제외한다.
+    expect(userIdLeaks({ ...res, text: undefined })).toEqual([]);
   });
 });

@@ -11,6 +11,8 @@ import { apiAuthenticator, createCollabServer, SCHEMA_MISMATCH_LOG_MS, type Coll
 import { ApiClient } from './apiClient'
 import { connectClient, typeAt, type TestClient as Client } from './testing/clients'
 import { startFakeApi, type FakeApi } from './testing/fakeApi'
+import { manualClock } from './testing/manualClock'
+import { ARRIVAL, expectStays } from './testing/wait'
 
 // 실제 Hocuspocus 서버(포트 0) + Node 클라이언트(전역 WebSocket)로 인증·이관·저장·읽기 전용·만료를 검증한다.
 // 테넌트는 일부러 1 이 아닌 7 — 기본값(0·1)으로 우연히 통과하지 않게.
@@ -62,9 +64,9 @@ describe('collab server', () => {
     clients.push(c)
     return c
   }
-  const synced = (c: Client) => expect.poll(() => c.provider.isSynced, { timeout: 5000 }).toBe(true)
+  const synced = (c: Client) => expect.poll(() => c.provider.isSynced, ARRIVAL).toBe(true)
   const serverDoc = (name = DOC) => app.hocuspocus.documents.get(name)
-  const unloaded = (name = DOC) => expect.poll(() => app.hocuspocus.documents.has(name), { timeout: 5000 }).toBe(false)
+  const unloaded = (name = DOC) => expect.poll(() => app.hocuspocus.documents.has(name), ARRIVAL).toBe(false)
 
   beforeEach(async () => {
     api = await startFakeApi('test-token')
@@ -89,7 +91,7 @@ describe('collab server', () => {
     await synced(a)
     expect(yDocToMarkdown(a.doc)).toBe(BODY)
     // R4: 편집이 없어도 이관 상태를 즉시 1회 저장 — 다음 로드가 같은 상태에서 시작하게. 단 상태만(body·version 그대로).
-    await expect.poll(() => api.stores.length).toBe(1)
+    await expect.poll(() => api.stores.length, ARRIVAL).toBe(1)
     expect(api.stores[0]).toMatchObject({ pageId: 1, tenantId: TENANT, stateOnly: true, bodyVersion: 1 })
     expect(api.stores[0].body).toBeUndefined()
     expect(api.get(1)).toMatchObject({ body: BODY, version: 1, bodyVersion: 1 })
@@ -104,7 +106,7 @@ describe('collab server', () => {
       api.page(1, { tenantId: TENANT, body: RAW, version: 4 })
       const a = connect('editor-token')
       await synced(a)
-      await expect.poll(() => api.stores.length).toBe(1)
+      await expect.poll(() => api.stores.length, ARRIVAL).toBe(1)
       a.provider.destroy()
       await unloaded()
       expect(api.stores).toHaveLength(1)
@@ -126,7 +128,7 @@ describe('collab server', () => {
       await synced(a)
       typeAt(a.doc, 1, '수정 ')
       a.provider.destroy()
-      await expect.poll(() => api.stores.length, { timeout: 3000 }).toBe(2)
+      await expect.poll(() => api.stores.length, ARRIVAL).toBe(2)
       expect(api.stores[0]).toMatchObject({ stateOnly: true })
       expect(api.stores[1]).toMatchObject({ stateOnly: false, editorIds: [5] })
       expect(api.stores[1].body).toContain('수정 ')
@@ -135,13 +137,18 @@ describe('collab server', () => {
 
     it('still derives an edit made while the slow migration store is in flight', async () => {
       // 이관 저장은 로드 안에서 끝나야 동기화가 시작된다 — 그동안 편집이 끼어들 수 없고, 첫 편집은 일반 파생 저장으로 간다.
+      // 이관 저장을 API 에 붙잡아(시간 지연 대신) "저장이 진행 중"을 부하와 무관하게 만든다.
       api.page(1, { tenantId: TENANT, body: RAW, version: 4 })
-      api.storeDelayMs = 300
+      api.holdStores()
       const a = connect('editor-token')
+      await expect.poll(() => api.storeAttempts, ARRIVAL).toBe(1)
+      // 이관 저장이 끝나지 않았으니 로드도 끝나지 않아 동기화 전이다(동기화가 먼저 끝나면 이관 상태 저장 전에 편집이 끼어든다).
+      await expectStays(() => a.provider.isSynced, false)
+      api.releaseStores()
       await synced(a)
       typeAt(a.doc, 1, '곧바로 ')
       a.provider.destroy()
-      await expect.poll(() => api.stores.length, { timeout: 5000 }).toBe(2)
+      await expect.poll(() => api.stores.length, ARRIVAL).toBe(2)
       expect(api.stores.map((s) => s.stateOnly)).toEqual([true, false])
       expect(api.stores[1].body).toContain('곧바로 ')
     })
@@ -150,12 +157,12 @@ describe('collab server', () => {
       api.page(1, { tenantId: TENANT, body: RAW, version: 4 })
       api.failStores = true
       const a = connect('editor-token')
-      await expect.poll(() => a.authFailures).toContain('load-failed')
+      await expect.poll(() => a.authFailures, ARRIVAL).toContain('load-failed')
       a.provider.destroy()
       api.failStores = false
       const b = connect('editor-token')
       await synced(b)
-      await expect.poll(() => api.stores.length).toBe(1)
+      await expect.poll(() => api.stores.length, ARRIVAL).toBe(1)
       expect(api.stores[0]).toMatchObject({ stateOnly: true, bodyVersion: 4 })
       expect(api.get(1)).toMatchObject({ body: RAW, version: 4, bodyVersion: 4 })
     })
@@ -193,12 +200,12 @@ describe('collab server', () => {
     await synced(a)
     await synced(b)
     typeAt(a.doc, 1, '추가 ')
-    await expect.poll(() => yDocToMarkdown(b.doc)).toBe('# 제목\n\n추가 본문')
+    await expect.poll(() => yDocToMarkdown(b.doc), ARRIVAL).toBe('# 제목\n\n추가 본문')
   })
 
   it('rejects unknown token', async () => {
     const a = connect('bad-token')
-    await expect.poll(() => a.authFailures.length).toBeGreaterThan(0)
+    await expect.poll(() => a.authFailures.length, ARRIVAL).toBeGreaterThan(0)
     expect(a.provider.isSynced).toBe(false)
     expect(api.loads).toEqual([])
   })
@@ -206,8 +213,8 @@ describe('collab server', () => {
   it('rejects a namespaced document name outside test mode without asking the API', async () => {
     const a = connect('editor-token', { name: 'e2e-1/wiki-page:1' })
     const bad = connect('editor-token', { name: 'wiki-page:abc' })
-    await expect.poll(() => a.authFailures.length).toBeGreaterThan(0)
-    await expect.poll(() => bad.authFailures.length).toBeGreaterThan(0)
+    await expect.poll(() => a.authFailures.length, ARRIVAL).toBeGreaterThan(0)
+    await expect.poll(() => bad.authFailures.length, ARRIVAL).toBeGreaterThan(0)
     expect(api.accessCalls).toEqual([])
   })
 
@@ -233,7 +240,7 @@ describe('collab server', () => {
     ])('rejects a %s schema version before auth, load or sync', async (_label, version) => {
       const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
       const a = connect('editor-token', { schemaVersion: version })
-      await expect.poll(() => a.authFailures).toEqual([COLLAB_SCHEMA_MISMATCH])
+      await expect.poll(() => a.authFailures, ARRIVAL).toEqual([COLLAB_SCHEMA_MISMATCH])
       expect(a.provider.isSynced).toBe(false)
       expect(yDocToMarkdown(a.doc)).toBe('')
       // 인증 API 도 문서 로드도 일어나지 않고, 서버 메모리에 문서가 열리지 않는다.
@@ -249,9 +256,9 @@ describe('collab server', () => {
       const forged = `1\n[collab] FAKE ${'x'.repeat(200)}`
       // 위조 값이 먼저 로그에 남도록 거부를 기다린 뒤 나머지를 붙인다.
       const first = connect('editor-token', { schemaVersion: forged })
-      await expect.poll(() => first.authFailures).toEqual([COLLAB_SCHEMA_MISMATCH])
+      await expect.poll(() => first.authFailures, ARRIVAL).toEqual([COLLAB_SCHEMA_MISMATCH])
       const rest = [1, 2, 3].map(() => connect('editor-token', { schemaVersion: null }))
-      for (const c of rest) await expect.poll(() => c.authFailures).toEqual([COLLAB_SCHEMA_MISMATCH])
+      for (const c of rest) await expect.poll(() => c.authFailures, ARRIVAL).toEqual([COLLAB_SCHEMA_MISMATCH])
       const lines = warn.mock.calls.map(([m]) => String(m)).filter((m) => m.includes('schema mismatch'))
       expect(lines).toHaveLength(1)
       // JSON 으로 감싸 개행이 이스케이프되고(가짜 로그 줄 불가), 긴 값은 잘린다.
@@ -261,7 +268,7 @@ describe('collab server', () => {
       // 간격이 지나면 다시 한 줄 — 그사이 건너뛴 건수를 함께 남긴다.
       vi.spyOn(Date, 'now').mockReturnValue(Date.now() + SCHEMA_MISMATCH_LOG_MS + 1)
       const late = connect('editor-token', { schemaVersion: null })
-      await expect.poll(() => late.authFailures).toEqual([COLLAB_SCHEMA_MISMATCH])
+      await expect.poll(() => late.authFailures, ARRIVAL).toEqual([COLLAB_SCHEMA_MISMATCH])
       const after = warn.mock.calls.map(([m]) => String(m)).filter((m) => m.includes('schema mismatch'))
       expect(after).toHaveLength(2)
       expect(after[1]).toContain('(+3 more since last log)')
@@ -281,7 +288,7 @@ describe('collab server', () => {
       await Promise.all([testApp.listen(), prodApp.listen()])
       vi.spyOn(console, 'warn').mockImplementation(() => {})
       const stale = connect('editor-token', { name: 'e2e-1/wiki-page:1', target: testApp })
-      await expect.poll(() => stale.authFailures).toEqual([COLLAB_SCHEMA_MISMATCH])
+      await expect.poll(() => stale.authFailures, ARRIVAL).toEqual([COLLAB_SCHEMA_MISMATCH])
       // 운영 모드는 주입된 판을 무시하고 빌드된 판으로 판정한다.
       const ok = connect('editor-token', { target: prodApp })
       await synced(ok)
@@ -294,13 +301,13 @@ describe('collab server', () => {
     await synced(editor)
     await synced(viewer)
     expect(viewer.provider.authorizedScope).toBe('readonly')
-    await expect.poll(() => api.stores.length).toBe(1) // 이관 저장
+    await expect.poll(() => api.stores.length, ARRIVAL).toBe(1) // 이관 저장
     // 조작된 클라이언트: 기본 provider 는 readonly 범위여도 업데이트를 그대로 보낸다.
     typeAt(viewer.doc, 1, '해킹 ')
     // 같은 연결의 메시지는 순서대로 처리된다 — 뒤이어 보낸 awareness 가 에디터에 도착했으면 앞의 업데이트는 이미 처리(폐기)됐다.
     viewer.provider.setAwarenessField('marker', 'after-update')
     await expect
-      .poll(() => [...editor.provider.awareness!.getStates().values()].some((s) => s.marker === 'after-update'))
+      .poll(() => [...editor.provider.awareness!.getStates().values()].some((s) => s.marker === 'after-update'), ARRIVAL)
       .toBe(true)
     expect(yDocToMarkdown(serverDoc()!)).toBe(BODY)
     expect(yDocToMarkdown(editor.doc)).toBe(BODY)
@@ -308,7 +315,7 @@ describe('collab server', () => {
     expect(viewer.provider.unsyncedChanges).toBeGreaterThan(0)
     // 다른 접속자는 영향 없이 계속 편집·동기화된다.
     typeAt(editor.doc, 1, '정상 ')
-    await expect.poll(() => yDocToMarkdown(viewer.doc)).toContain('정상 ')
+    await expect.poll(() => yDocToMarkdown(viewer.doc), ARRIVAL).toContain('정상 ')
     const fresh = connect('editor-token')
     await synced(fresh)
     expect(yDocToMarkdown(fresh.doc)).toBe('# 제목\n\n정상 본문')
@@ -323,11 +330,11 @@ describe('collab server', () => {
   it('stores after last client disconnects with the doc tenant and editor ids', async () => {
     const a = connect('editor-token')
     await synced(a)
-    await expect.poll(() => api.stores.length).toBe(1)
+    await expect.poll(() => api.stores.length, ARRIVAL).toBe(1)
     typeAt(a.doc, 1, '수정 ')
     a.provider.destroy()
     // 접속자가 없어진 뒤의 저장도 문서에 보관한 tenantId 로 간다(가짜 API 는 테넌트 불일치면 404 — 0행 성공 없음).
-    await expect.poll(() => api.stores.length, { timeout: 3000 }).toBe(2)
+    await expect.poll(() => api.stores.length, ARRIVAL).toBe(2)
     expect(api.stores[1]).toMatchObject({ pageId: 1, tenantId: TENANT, body: '# 제목\n\n수정 본문', editorIds: [5] })
     expect(api.get(1)).toMatchObject({ body: '# 제목\n\n수정 본문', version: 2, bodyVersion: 2 }) // 이관은 상태만이라 version 은 편집 저장에서만 오른다
     await unloaded()
@@ -336,15 +343,15 @@ describe('collab server', () => {
   it('stores with the doc tenant even when the last change carries no connection context', async () => {
     const a = connect('editor-token')
     await synced(a)
-    await expect.poll(() => api.stores.length).toBe(1)
+    await expect.poll(() => api.stores.length, ARRIVAL).toBe(1)
     typeAt(a.doc, 1, '수정 ')
-    await expect.poll(() => yDocToMarkdown(serverDoc()!)).toBe('# 제목\n\n수정 본문')
+    await expect.poll(() => yDocToMarkdown(serverDoc()!), ARRIVAL).toBe('# 제목\n\n수정 본문')
     // 출처 없는 서버측 변경이 마지막 변경이 되면 Hocuspocus 의 저장 페이로드 lastContext 는 {} 다 —
     // 저장이 연결 컨텍스트에서 테넌트를 읽으면 여기서 테넌트 없이 호출돼 가짜 API(RLS 흉내)가 거부한다.
     const doc = serverDoc()!
     doc.transact(() => typeAt(doc, 0, '서버 '))
     a.provider.destroy()
-    await expect.poll(() => api.stores.length, { timeout: 3000 }).toBe(2)
+    await expect.poll(() => api.stores.length, ARRIVAL).toBe(2)
     expect(api.stores[1]).toMatchObject({ tenantId: TENANT, body: '# 서버 제목\n\n수정 본문', editorIds: [5] })
     await unloaded()
   })
@@ -353,25 +360,25 @@ describe('collab server', () => {
     it('keeps an unsaved document in memory through a no-edit visit and stores it once the API recovers', async () => {
       const a = connect('editor-token')
       await synced(a)
-      await expect.poll(() => api.stores.length).toBe(1)
+      await expect.poll(() => api.stores.length, ARRIVAL).toBe(1)
       api.failStores = true
       typeAt(a.doc, 1, '수정 ')
       a.provider.destroy()
       // 마지막 접속자 종료 → 즉시 저장 시도 → 실패. Hocuspocus 4.7 은 로그만 남기고 재시도하지 않는다.
-      await expect.poll(() => api.storeFailures).toBeGreaterThan(0)
+      await expect.poll(() => api.storeFailures, ARRIVAL).toBeGreaterThan(0)
       // 편집 없이 들어왔다 나가는 접속 — 4.7 기본 동작이면 예약된 저장이 없어 문서를 바로 내린다(편집 유실).
       const b = connect('viewer-token')
       await synced(b)
       expect(yDocToMarkdown(b.doc)).toBe('# 제목\n\n수정 본문')
       b.provider.destroy()
-      await expect.poll(() => serverDoc()?.getConnectionsCount()).toBe(0)
+      await expect.poll(() => serverDoc()?.getConnectionsCount(), ARRIVAL).toBe(0)
       // 재시도가 몇 번 더 실패하는 동안에도 문서는 메모리에 남는다.
       const failures = api.storeFailures
-      await expect.poll(() => api.storeFailures, { timeout: 3000 }).toBeGreaterThan(failures + 1)
+      await expect.poll(() => api.storeFailures, ARRIVAL).toBeGreaterThan(failures + 1)
       expect(app.hocuspocus.documents.has(DOC)).toBe(true)
       // API 복구 → 재시도가 문서의 테넌트·편집자로 저장하고, 그 뒤에야 문서가 내려간다.
       api.failStores = false
-      await expect.poll(() => api.stores.length, { timeout: 3000 }).toBe(2)
+      await expect.poll(() => api.stores.length, ARRIVAL).toBe(2)
       expect(api.stores[1]).toMatchObject({ pageId: 1, tenantId: TENANT, body: '# 제목\n\n수정 본문', editorIds: [5] })
       await unloaded()
     })
@@ -383,11 +390,11 @@ describe('collab server', () => {
       await slow.listen()
       const a = connect('editor-token', { target: slow })
       await synced(a)
-      await expect.poll(() => api.stores.length).toBe(1)
+      await expect.poll(() => api.stores.length, ARRIVAL).toBe(1)
       api.failStores = true
       typeAt(a.doc, 1, '수정 ')
       a.provider.destroy()
-      await expect.poll(() => api.storeFailures).toBeGreaterThan(0)
+      await expect.poll(() => api.storeFailures, ARRIVAL).toBeGreaterThan(0)
       expect(slow.hocuspocus.documents.has(DOC)).toBe(true)
       api.failStores = false
       await slow.destroy()
@@ -401,16 +408,16 @@ describe('collab server', () => {
       await bounded.listen()
       const a = connect('editor-token', { target: bounded })
       await synced(a)
-      await expect.poll(() => api.stores.length).toBe(1)
+      await expect.poll(() => api.stores.length, ARRIVAL).toBe(1)
       api.failStores = true
       typeAt(a.doc, 1, '수정 ')
       a.provider.destroy()
-      await expect.poll(() => api.storeFailures).toBeGreaterThan(0)
+      await expect.poll(() => api.storeFailures, ARRIVAL).toBeGreaterThan(0)
       const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
       try {
-        const t0 = Date.now()
+        // 시계로 "2초 안에 끝남"을 재지 않는다(부하에서 흔들린다). API 가 계속 실패하므로 종료가 상한(300ms)을 지키지 않으면 끝나지
+        // 않고 테스트 시간 제한(15초)에 걸려 실패한다 — 상한을 지켰다는 증거는 아래 UNSAVED 경고(상한에 걸렸을 때만 남긴다)다.
         await bounded.destroy()
-        expect(Date.now() - t0).toBeLessThan(2000)
         const logged = errors.mock.calls.map((c) => c.map(String).join(' ')).join('\n')
         expect(logged).toMatch(/UNSAVED.*wiki-page:1/)
       } finally {
@@ -421,27 +428,26 @@ describe('collab server', () => {
 
   describe('when the page is gone (API 404 on store)', () => {
     it('drops the unsaved document once, unloads it, never retries and shuts down without an UNSAVED warning', async () => {
-      const gone = createCollabServer(cfg(0, { shutdownTimeoutMs: 5000 }))
+      // 종료 대기 상한을 아주 길게 — 미저장 문서가 없으니 종료는 이 상한을 기다리지 않아야 한다(기다리면 테스트 시간 제한에 걸린다).
+      // 시계로 "1초 안에 끝남"을 재지 않는다(부하에서 흔들린다).
+      const gone = createCollabServer(cfg(0, { shutdownTimeoutMs: 10 * 60_000 }))
       extraApps.push(gone)
       await gone.listen()
       const a = connect('editor-token', { target: gone })
       await synced(a)
-      await expect.poll(() => api.stores.length).toBe(1)
+      await expect.poll(() => api.stores.length, ARRIVAL).toBe(1)
       typeAt(a.doc, 1, '수정 ')
       api.remove(1) // 다른 곳에서 노트 삭제
       const warns = vi.spyOn(console, 'warn').mockImplementation(() => {})
       const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
       try {
         a.provider.destroy()
-        await expect.poll(() => api.storeNotFound).toBe(1)
+        await expect.poll(() => api.storeNotFound, ARRIVAL).toBe(1)
         // 영구 실패 — 재시도 없이 메모리에서 내린다.
-        await expect.poll(() => gone.hocuspocus.documents.has(DOC), { timeout: 3000 }).toBe(false)
+        await expect.poll(() => gone.hocuspocus.documents.has(DOC), ARRIVAL).toBe(false)
         // 재시도 간격(50ms)의 몇 배를 기다려도 추가 저장 시도가 없다.
-        await new Promise((r) => setTimeout(r, 400))
-        expect(api.storeNotFound).toBe(1)
-        const t0 = Date.now()
+        await expectStays(() => api.storeNotFound, 1, { ms: 400 })
         await gone.destroy()
-        expect(Date.now() - t0).toBeLessThan(1000)
         const logged = errors.mock.calls.map((c) => c.map(String).join(' ')).join('\n')
         expect(logged).not.toMatch(/UNSAVED/)
         // 한 번만 경고로 남긴다.
@@ -456,15 +462,15 @@ describe('collab server', () => {
     it('closes remaining connections with 4404 (deleted) when a debounced store finds the page gone', async () => {
       const a = connect('editor-token')
       await synced(a)
-      await expect.poll(() => api.stores.length).toBe(1)
+      await expect.poll(() => api.stores.length, ARRIVAL).toBe(1)
       api.remove(1)
       const warns = vi.spyOn(console, 'warn').mockImplementation(() => {})
       try {
         typeAt(a.doc, 1, '수정 ') // 접속 중 지연 저장 → 404
-        await expect.poll(() => a.disconnects.map((d) => d.code)).toContain(CLOSE_DELETED.code)
+        await expect.poll(() => a.disconnects.map((d) => d.code), ARRIVAL).toContain(CLOSE_DELETED.code)
         await unloaded()
-        await new Promise((r) => setTimeout(r, 400))
-        expect(api.storeNotFound).toBe(1)
+        // 재시도 간격(50ms)의 몇 배 동안 추가 저장 시도가 없다.
+        await expectStays(() => api.storeNotFound, 1, { ms: 400 })
       } finally {
         warns.mockRestore()
       }
@@ -481,17 +487,17 @@ describe('collab server', () => {
     const b = connect('editor2-token', { target: slow })
     await synced(a)
     await synced(b)
-    await expect.poll(() => api.stores.length).toBe(1)
+    await expect.poll(() => api.stores.length, ARRIVAL).toBe(1)
     const server = () => yDocToMarkdown(slow.hocuspocus.documents.get(DOC)!)
     typeAt(a.doc, 1, '가 ')
-    await expect.poll(server).toContain('가 ')
+    await expect.poll(server, ARRIVAL).toContain('가 ')
     typeAt(b.doc, 1, '나 ')
-    await expect.poll(server).toContain('나 ')
+    await expect.poll(server, ARRIVAL).toContain('나 ')
     typeAt(a.doc, 1, '다 ') // 5 가 마지막으로 바꿨다
-    await expect.poll(server).toContain('다 ')
+    await expect.poll(server, ARRIVAL).toContain('다 ')
     a.provider.destroy()
     b.provider.destroy()
-    await expect.poll(() => api.stores.length, { timeout: 5000 }).toBe(2)
+    await expect.poll(() => api.stores.length, ARRIVAL).toBe(2)
     expect(api.stores[1].editorIds).toEqual([8, 5])
   })
 
@@ -500,7 +506,7 @@ describe('collab server', () => {
     const a = connect('editor-token')
     await synced(a)
     typeAt(a.doc, 1, '수정 ')
-    await expect.poll(() => api.get(1).body).toBe('# 제목\n\n수정 본문')
+    await expect.poll(() => api.get(1).body, ARRIVAL).toBe('# 제목\n\n수정 본문')
     await app.closeDocument(DOC)
     expect(app.hocuspocus.documents.has(DOC)).toBe(false)
     const stored = api.get(1)
@@ -515,7 +521,7 @@ describe('collab server', () => {
     const b = connect('editor-token')
     await synced(b)
     expect(yDocToMarkdown(b.doc)).toBe('# 제목\n\n밖에서 바뀜')
-    await expect.poll(() => api.stores.length).toBe(storesBefore + 1)
+    await expect.poll(() => api.stores.length, ARRIVAL).toBe(storesBefore + 1)
     expect(api.stores.at(-1)).toMatchObject({ stateOnly: true, bodyVersion: stored.version + 1 })
     expect(api.get(1)).toMatchObject({ body: outside, version: stored.version + 1, bodyVersion: stored.version + 1 })
     // 편집 없이 닫아도 body 를 다시 쓰지 않는다.
@@ -524,26 +530,42 @@ describe('collab server', () => {
     a.provider.destroy()
     const again = connect('editor-token', { doc: a.doc })
     await synced(again)
-    await expect.poll(() => yDocToMarkdown(a.doc)).toBe('# 제목\n\n밖에서 바뀜')
+    await expect.poll(() => yDocToMarkdown(a.doc), ARRIVAL).toBe('# 제목\n\n밖에서 바뀜')
     await app.closeDocument(DOC)
     expect(api.get(1).body).toBe(outside)
   })
 
   it('closes the connection when the access token expires, and the expired token cannot reconnect', async () => {
+    // 만료는 손 시계로 넘긴다 — 서버(만료 확인·타이머)와 가짜 API(만료 토큰 401)가 같은 시계를 본다. 실제 시계 1~2초 창이면 부하로
+    // 접속·동기화가 늦을 때 연결 전에 이미 만료돼 "동기화된 뒤 끊김"을 보지 못했다.
+    const START = Date.UTC(2026, 0, 1) // 정각 초 — 토큰 만료는 epoch 초로 온다
+    const TTL_MS = 3_600_000
+    const clock = manualClock(START)
+    api.now = clock.now
+    const timed = createCollabServer(cfg(), { clock })
+    extraApps.push(timed)
+    await timed.listen()
     api.token('short-token', {
       userId: 5,
       name: '양동희',
       role: 'EDITOR',
       tenantId: TENANT,
-      tokenExp: Math.floor(Date.now() / 1000) + 2,
+      tokenExp: (START + TTL_MS) / 1000,
     })
-    const a = connect('short-token')
+    const a = connect('short-token', { target: timed })
     await synced(a)
     expect(a.disconnects).toEqual([])
-    await expect.poll(() => a.disconnects.map((d) => d.code), { timeout: 4000 }).toContain(4401)
+    // 만료 타이머가 걸린 뒤에 시계를 넘긴다 — 동기화 완료가 connected 훅(타이머 거는 곳)보다 먼저 올 수도 있어 순서에 기대지 않는다.
+    await expect.poll(() => clock.pendingCount(), ARRIVAL).toBe(1)
+    // 만료 1ms 전 — 만료 타이머가 아직 기다린다(일찍 불렸다면 소켓을 닫고 다시 걸지 않아 0 이다).
+    clock.advance(TTL_MS - 1)
+    expect(clock.pendingCount()).toBe(1)
+    clock.advance(1)
+    expect(clock.pendingCount()).toBe(0)
+    await expect.poll(() => a.disconnects.map((d) => d.code), ARRIVAL).toContain(4401)
     expect(a.disconnects.find((d) => d.code === 4401)?.reason).toBe('token expired')
     // provider 는 자동 재접속한다 — 만료 토큰 그대로면 API 가 401 → 인증 실패(웹은 이때 토큰을 갱신해 다시 붙는다).
-    await expect.poll(() => a.authFailures.length, { timeout: 4000 }).toBeGreaterThan(0)
+    await expect.poll(() => a.authFailures.length, ARRIVAL).toBeGreaterThan(0)
   })
 
   it('fails the load (not silently in memory) when the migration cannot be persisted', async () => {
@@ -562,7 +584,7 @@ describe('collab server', () => {
     extraApps.push(failing)
     await failing.listen()
     const a = connect('editor-token', { target: failing })
-    await expect.poll(() => a.authFailures).toContain('load-failed')
+    await expect.poll(() => a.authFailures, ARRIVAL).toContain('load-failed')
     expect(a.provider.isSynced).toBe(false)
     expect(failing.hocuspocus.documents.has(DOC)).toBe(false)
   })

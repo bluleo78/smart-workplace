@@ -1,5 +1,6 @@
 package com.workplace.wiki.controller;
 
+import com.workplace.fileai.dto.ExtractedTextSlice;
 import com.workplace.wiki.dto.WikiAttachmentResponse;
 import com.workplace.wiki.service.WikiAttachmentService;
 import java.nio.charset.StandardCharsets;
@@ -55,6 +56,20 @@ public class WikiAttachmentController {
         ContentDisposition.inline().filename(f.originalName(), StandardCharsets.UTF_8).build());
     headers.setContentLength(f.sizeBytes());
     return ResponseEntity.ok().headers(headers).body(new FileSystemResource(f.path()));
+  }
+
+  /**
+   * 첨부 추출 텍스트 구간 읽기(WP-358) — 이슈 첨부 /text 와 같은 응답({@link ExtractedTextSlice}). limit 상한 32,000자(초과는
+   * 클램프). 권한은 /content 와 같다(VIEWER 이상, 비멤버·미바인딩은 404).
+   */
+  @GetMapping("/{fileId}/text")
+  public ResponseEntity<ExtractedTextSlice> readText(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable long pageId,
+      @PathVariable long fileId,
+      @RequestParam(defaultValue = "0") int offset,
+      @RequestParam(defaultValue = "32000") int limit) {
+    return ResponseEntity.ok(service.readText(callerId, pageId, fileId, offset, limit));
   }
 
   @DeleteMapping("/{fileId}")

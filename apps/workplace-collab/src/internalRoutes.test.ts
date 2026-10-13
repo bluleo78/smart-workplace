@@ -14,12 +14,15 @@ import * as Y from 'yjs'
 import { AiMarkerBoard } from './aiMarkers'
 import type { CollabConfig } from './config'
 import { FRAGMENT, normalizeMarkdown, yDocToMarkdown } from './markdownCodec'
-import { createMergeRunner, type MergeRunner } from './mergeRunner'
-import { apiAuthenticator, createCollabServer, type CollabDeps, type CollabServer } from './server'
+import type { MergeRunner } from './mergeRunner'
+import { APPLY_STORE_MIN_MS, apiAuthenticator, createCollabServer, type CollabDeps, type CollabServer } from './server'
 import { ApiClient } from './apiClient'
 import { connectClient, replaceTextAt, typeAt, type TestClient } from './testing/clients'
 import { startFakeApi, type FakeApi } from './testing/fakeApi'
-import { createTestMergeRunner } from './testing/testMergeRunner'
+import { manualClock, type ManualClock } from './testing/manualClock'
+import { createTestMergeRunner, type TestMergeRunnerOptions, type TestMergeRunner } from './testing/testMergeRunner'
+import { WORKER_BOOT_LIMIT_MS } from './testing/workerBoot'
+import { ARRIVAL, expectStays } from './testing/wait'
 
 // 내부 HTTP — API 의 본문 저장 위임(apply-markdown replace)과 권한 회수(revalidate)를 실제 서버·provider 로 검증한다.
 // 테넌트는 일부러 7 — 기본값으로 우연히 통과하지 않게.
@@ -47,22 +50,30 @@ describe('internal routes', () => {
     storeRetryMaxMs: 200,
   })
 
-  /** 데운 병합 워커에 첫 작업을 보낸다 — 워커 기동(부하 시 700ms+)이 끝날 때까지 기다린다. */
-  const warm = (m: MergeRunner) => m.prepare({ body: 'warm', bases: ['warm'] }, 60_000)
+  /** 데운 병합 워커에 첫 작업을 보낸다 — 워커 기동이 끝날 때까지 기다린다. */
+  const warm = (m: MergeRunner) => m.prepare({ body: 'warm', bases: ['warm'] }, WORKER_BOOT_LIMIT_MS)
   /**
    * 기본 병합 실행기 — 파일 전체가 데운 워커 하나를 함께 쓴다(WP-311). 테스트마다 서버를 새로 띄우면 첫 병합이 워커를 띄우는데,
-   * 그 기동 시간이 짧은 기한(applyDeadlineMs)·표식 대기 같은 시간 창 안에 끼어 부하 때 간헐 실패했다.
-   * 서버 종료가 공용 워커를 닫지 않게 destroy 만 비운 얇은 래퍼를 서버마다 넘긴다.
+   * 그 기동 시간(부하에서 수 초~십수 초)이 테스트 안에 끼어 부하 때 간헐 실패했다.
+   * 운영 처리(handleJob)를 그대로 돌리는 테스트 워커라, 테스트가 sharedHooks 로 작업마다 붙잡기·고장을 건다(새 워커를 띄우지 않고).
+   * 기한은 손으로 돌리는 시계(sharedClock)로 잰다 — 시간 초과를 보는 테스트만 advance 로 기한을 흘리고, 나머지는 워커가 아무리 느려도
+   * 실행기 시간 초과가 없다. 서버 종료가 공용 워커를 닫지 않게 destroy 만 비운 얇은 래퍼를 서버마다 넘긴다.
    */
-  let sharedMerger: MergeRunner
+  let sharedMerger: TestMergeRunner
+  let sharedClock: ReturnType<typeof manualClock>
+  /** 지금 테스트가 공용 실행기에 건 붙잡기·고장(테스트마다 비운다). */
+  let sharedHooks: Pick<TestMergeRunnerOptions, 'testHold' | 'testFault'> = {}
   const sharedMergerView = (): MergeRunner => ({ ...sharedMerger, destroy: async () => {} })
   /**
-   * 서버를 띄운다 — 실행기를 넘기지 않으면 공용(데운) 실행기, 넘기면 그 실행기를 먼저 데운다.
-   * 작업 순번으로 지연·고장을 거는 실행기는 돌아온 뒤 호출자가 순번을 되돌린다.
+   * 지금 서버의 시계(CollabDeps.clock) — apply-markdown 기한·적용 저장 상한을 잰다. 서버마다 새로 만든 손 시계라, 기한을 보는 테스트만
+   * advance 로 흘리고 나머지는 워커·저장이 아무리 느려도 기한에 걸리지 않는다(실제 20초 기한이면 붙잡은 병합 동안 10초 대기가 두 번 들어가
+   * 기한과 겨뤘다). 실행기 시계(sharedClock)와 따로 둔다 — 같은 시계면 실행기 기한을 흘릴 때 같은 시각의 요청 기한이 먼저 불려 503 사유가 바뀐다.
    */
-  const startApp = async (config: CollabConfig, deps: CollabDeps = {}) => {
-    if (deps.merger) await warm(deps.merger)
-    app = createCollabServer(config, { ...deps, merger: deps.merger ?? sharedMergerView() })
+  let serverClock: ManualClock
+  /** 서버를 띄운다 — 병합 실행기는 늘 공용(데운) 실행기다(느린 병합·고장은 새 워커 대신 sharedHooks 로 건다). */
+  const startApp = async (config: CollabConfig, deps: Omit<CollabDeps, 'merger' | 'clock'> = {}) => {
+    serverClock = manualClock()
+    app = createCollabServer(config, { ...deps, merger: sharedMergerView(), clock: serverClock })
     await app.listen()
   }
   const httpUrl = () => `http://127.0.0.1:${app.address.port}`
@@ -71,9 +82,9 @@ describe('internal routes', () => {
     clients.push(c)
     return c
   }
-  const synced = (c: TestClient) => expect.poll(() => c.provider.isSynced, { timeout: 5000 }).toBe(true)
+  const synced = (c: TestClient) => expect.poll(() => c.provider.isSynced, ARRIVAL).toBe(true)
   const serverDoc = (name = DOC) => app.hocuspocus.documents.get(name)
-  const unloaded = (name = DOC) => expect.poll(() => app.hocuspocus.documents.has(name), { timeout: 5000 }).toBe(false)
+  const unloaded = (name = DOC) => expect.poll(() => app.hocuspocus.documents.has(name), ARRIVAL).toBe(false)
   const postInternal = (path: string, body: unknown, token = TOKEN) =>
     fetch(`${httpUrl()}${path}`, {
       method: 'POST',
@@ -99,40 +110,52 @@ describe('internal routes', () => {
     await startApp({ ...cfg(), debounceMs: 10000, maxDebounceMs: 20000 })
   }
   /**
-   * 병합 워커를 바꿔 다시 띄운다 — 워커 안 인위 지연(동기 블로킹)·짧은 시간 제한으로 느린 병합을 재현.
-   * 지연은 요청의 첫 워커 작업(정규화) 뒤부터, 즉 병합 계산에만 건다.
+   * 다음 병합 작업 하나를 워커 안에서 붙잡는다(over 가 있으면 그 설정으로 서버를 다시 띄운다) — 느린 병합을 시간(바쁜 대기 N ms) 대신
+   * 관문으로 재현한다. 붙잡힌 동안 워커 스레드는 동기로 멈춰 있고(CPU 를 쥔 계산 흉내), release 를 불러야 끝난다 — 그래서 "병합 도중"의
+   * 길이가 기계 부하와 무관하다(시간으로 재면 부하에서 입력이 도착하기 전에 지연이 끝나거나, 짧은 기한이 정규화까지 잘랐다).
    */
-  const restartWithSlowMerge = async (timeoutMs: number, mergeDelayMs: number, over: Partial<CollabConfig> = {}) => {
-    await app.destroy()
-    let jobs = 0
-    await startApp(
-      { ...cfg(), ...over },
-      { merger: createTestMergeRunner({ timeoutMs, testDelayMs: () => (jobs++ === 0 ? 0 : mergeDelayMs) }) },
-    )
-    // 데우기 작업이 순번 0 을 썼다 — 요청의 첫 작업(정규화)이 다시 0 이 되게.
-    jobs = 0
-    /** 병합 작업이 워커에 보내졌다(이제 워커가 지연 중 — 그 사이 입력은 "병합 계산 도중"이다). */
-    return { mergeDispatched: () => jobs >= 2 }
+  const holdNextMerge = async (over?: Partial<CollabConfig>) => {
+    if (over) {
+      await app.destroy()
+      await startApp({ ...cfg(), ...over })
+    }
+    let merges = 0
+    sharedHooks = { testHold: (job) => job.kind === 'merge' && merges++ === 0 }
+    const before = sharedMerger.held()
+    return {
+      release: () => sharedMerger.release(),
+      /** 병합 작업이 워커 안에서 계산 중이다(붙잡힘 — 그 사이 입력은 "병합 계산 도중"이다). */
+      mergeDispatched: () => sharedMerger.held() > before,
+    }
   }
   /** 같은 연결의 메시지는 순서대로 처리된다 — 뒤이어 보낸 awareness 가 관찰자에 도착했으면 앞의 업데이트는 이미 처리됐다. */
   const flushThrough = async (from: TestClient, observer: TestClient, marker: string) => {
     from.provider.setAwarenessField('marker', marker)
     await expect
-      .poll(() => [...observer.provider.awareness!.getStates().values()].some((s) => s.marker === marker))
+      .poll(() => [...observer.provider.awareness!.getStates().values()].some((s) => s.marker === marker), ARRIVAL)
       .toBe(true)
   }
 
+  // 훅 시간 제한은 워커 기동 상한과 같게 — 기본(10초)은 부하에서의 워커 기동보다 짧아 훅이 시간 초과로 파일 전체를 실패시켰다.
   beforeAll(async () => {
-    sharedMerger = createMergeRunner()
+    sharedClock = manualClock()
+    // 실행기 한 번의 상한도 기동 상한으로 — 서버는 이 값을 실제 시계 기준 워커 기한(min(요청 기한, 지금 + 이 값))으로도 쓴다.
+    sharedMerger = createTestMergeRunner({
+      clock: sharedClock,
+      timeoutMs: WORKER_BOOT_LIMIT_MS,
+      testHold: (job) => sharedHooks.testHold?.(job) ?? false,
+      testFault: (job) => sharedHooks.testFault?.(job),
+    })
     await warm(sharedMerger)
-  })
+  }, WORKER_BOOT_LIMIT_MS)
 
   afterAll(async () => {
     await sharedMerger.destroy()
   })
 
   beforeEach(async () => {
-    // 앞 테스트가 공용 워커를 잃었거나(시간 초과·고장) 대기열에 작업을 남겼어도 여기서 다시 데워 다음 테스트로 새지 않게.
+    // 앞 테스트가 공용 워커를 잃었거나(시간 초과·고장) 대기열에 작업을 남겼어도 여기서 다시 데워 다음 테스트로 새지 않게(다시 띄우면 기동 비용).
+    sharedHooks = {}
     await warm(sharedMerger)
     api = await startFakeApi(TOKEN)
     api.page(1, { tenantId: TENANT, body: BODY, version: 1 })
@@ -151,9 +174,12 @@ describe('internal routes', () => {
         },
       },
     })
-  })
+  }, WORKER_BOOT_LIMIT_MS)
 
   afterEach(async () => {
+    // 단언 실패로 끝나 워커 안에 붙잡힌 작업이 남았으면 풀어 준다 — 다음 테스트의 데우기가 그 뒤에 줄 서 멈추지 않게.
+    sharedHooks = {}
+    sharedMerger.release()
     for (const c of clients) c.provider.destroy()
     // 붙잡힌 저장이 남아 있으면(단언 실패로 끝남) 서버 종료가 그 저장을 기다리며 멈추지 않게 먼저 푼다.
     api.releaseStores()
@@ -217,7 +243,7 @@ describe('internal routes', () => {
       const b = connect('editor2-token')
       await synced(a)
       await synced(b)
-      await expect.poll(() => api.stores.length).toBe(1) // 처음 열 때의 이관 저장
+      await expect.poll(() => api.stores.length, ARRIVAL).toBe(1) // 처음 열 때의 이관 저장
       const res = await apply('# 제목\n\nAPI 본문')
       expect(res.status).toBe(200)
       const out = (await res.json()) as { version: number; body: string }
@@ -227,8 +253,8 @@ describe('internal routes', () => {
       expect(api.stores[1]).toMatchObject({ tenantId: TENANT, body: '# 제목\n\nAPI 본문', editorIds: [5] })
       expect(out.version).toBe(api.get(1).version)
       // 열려 있던 두 클라이언트 모두 실시간으로 받는다.
-      await expect.poll(() => yDocToMarkdown(a.doc)).toBe('# 제목\n\nAPI 본문')
-      await expect.poll(() => yDocToMarkdown(b.doc)).toBe('# 제목\n\nAPI 본문')
+      await expect.poll(() => yDocToMarkdown(a.doc), ARRIVAL).toBe('# 제목\n\nAPI 본문')
+      await expect.poll(() => yDocToMarkdown(b.doc), ARRIVAL).toBe('# 제목\n\nAPI 본문')
       // 접속자가 나가도 같은 내용을 다시 저장하지 않는다(내부 연결 해제·지연 저장이 중복 저장을 만들지 않음).
       a.provider.destroy()
       b.provider.destroy()
@@ -293,9 +319,9 @@ describe('internal routes', () => {
       await a.provider.connect()
       const want = '# 새 제목\n\n첫 문단\n\nA입력 둘째 문단'
       // 블록을 통째로 지우고 다시 넣는 구현이면 a 의 입력이 사라진다 — 최소 변경이라 둘 다 남는다.
-      await expect.poll(() => yDocToMarkdown(serverDoc()!)).toBe(want)
-      await expect.poll(() => yDocToMarkdown(b.doc)).toBe(want)
-      await expect.poll(() => yDocToMarkdown(a.doc)).toBe(want)
+      await expect.poll(() => yDocToMarkdown(serverDoc()!), ARRIVAL).toBe(want)
+      await expect.poll(() => yDocToMarkdown(b.doc), ARRIVAL).toBe(want)
+      await expect.poll(() => yDocToMarkdown(a.doc), ARRIVAL).toBe(want)
     })
 
     it('puts the requesting user last in editorIds (API uses the last one as updated_by)', async () => {
@@ -305,12 +331,12 @@ describe('internal routes', () => {
       const b = connect('editor2-token')
       await synced(a)
       await synced(b)
-      await expect.poll(() => api.stores.length).toBe(1)
+      await expect.poll(() => api.stores.length, ARRIVAL).toBe(1)
       // 요청 사용자(5)가 먼저, 다른 편집자(8)가 나중에 입력 — 저장 전 편집자 집합 순서는 [5, 8].
       typeAt(a.doc, 1, '나 ')
-      await expect.poll(() => yDocToMarkdown(serverDoc()!)).toContain('나 첫 문단')
+      await expect.poll(() => yDocToMarkdown(serverDoc()!), ARRIVAL).toContain('나 첫 문단')
       typeAt(b.doc, 2, '남 ')
-      await expect.poll(() => yDocToMarkdown(serverDoc()!)).toContain('남 둘째 문단')
+      await expect.poll(() => yDocToMarkdown(serverDoc()!), ARRIVAL).toContain('남 둘째 문단')
       expect((await apply('# 제목\n\n나 첫 문단\n\n남 둘째 문단\n\n추가')).status).toBe(200)
       expect(api.stores.at(-1)?.editorIds).toEqual([8, 5])
     })
@@ -322,9 +348,9 @@ describe('internal routes', () => {
         const b = connect('editor2-token')
         await synced(a)
         await synced(b)
-        await expect.poll(() => api.stores.length).toBe(1)
+        await expect.poll(() => api.stores.length, ARRIVAL).toBe(1)
         typeAt(b.doc, 1, '남 ')
-        await expect.poll(() => yDocToMarkdown(serverDoc()!)).toContain('남 첫 문단')
+        await expect.poll(() => yDocToMarkdown(serverDoc()!), ARRIVAL).toContain('남 첫 문단')
         api.failStores = true
         expect((await apply('# 제목\n\n남 첫 문단\n\n둘째 문단\n\nAPI')).status).toBe(200)
         return { a, b }
@@ -333,16 +359,16 @@ describe('internal routes', () => {
       it('keeps the requesting user last when the retry stores', async () => {
         await setup()
         api.failStores = false
-        await expect.poll(() => api.stores.at(-1)?.body, { timeout: 5000 }).toContain('API')
+        await expect.poll(() => api.stores.at(-1)?.body, ARRIVAL).toContain('API')
         expect(api.stores.at(-1)?.editorIds).toEqual([8, 5])
       })
 
       it('puts a later editor last when someone edits after the failed apply', async () => {
         const { b } = await setup()
         typeAt(b.doc, 2, '나중 ') // 8 이 apply 뒤에 다시 고쳤다 — 가장 최근 변경의 작성자가 마지막
-        await expect.poll(() => yDocToMarkdown(serverDoc()!)).toContain('나중 둘째 문단')
+        await expect.poll(() => yDocToMarkdown(serverDoc()!), ARRIVAL).toContain('나중 둘째 문단')
         api.failStores = false
-        await expect.poll(() => api.stores.at(-1)?.body, { timeout: 5000 }).toContain('나중 둘째 문단')
+        await expect.poll(() => api.stores.at(-1)?.body, ARRIVAL).toContain('나중 둘째 문단')
         expect(api.stores.at(-1)?.editorIds).toEqual([5, 8])
       })
 
@@ -352,22 +378,22 @@ describe('internal routes', () => {
         const b = connect('editor2-token')
         await synced(a)
         await synced(b)
-        await expect.poll(() => api.stores.length).toBe(1)
+        await expect.poll(() => api.stores.length, ARRIVAL).toBe(1)
         typeAt(b.doc, 1, '남 ')
-        await expect.poll(() => yDocToMarkdown(serverDoc()!)).toContain('남 첫 문단')
+        await expect.poll(() => yDocToMarkdown(serverDoc()!), ARRIVAL).toContain('남 첫 문단')
         api.failStores = true
         // 저장 응답을 붙잡는다 — 시간 지연 대신, 아래 입력이 끝날 때까지 저장이 확실히 진행 중이게.
         api.holdStores()
         const attempts = api.storeAttempts
         const pending = apply('# 제목\n\n남 첫 문단\n\n둘째 문단\n\nAPI')
         // apply 의 저장이 API 에 닿아 응답을 기다리는 동안 8 이 다시 고친다 — 실패 후 되돌린 [8, 5] 보다 더 최근.
-        await expect.poll(() => api.storeAttempts).toBe(attempts + 1)
+        await expect.poll(() => api.storeAttempts, ARRIVAL).toBe(attempts + 1)
         typeAt(b.doc, 2, '도중 ')
-        await expect.poll(() => yDocToMarkdown(serverDoc()!)).toContain('도중 ')
+        await expect.poll(() => yDocToMarkdown(serverDoc()!), ARRIVAL).toContain('도중 ')
         api.releaseStores()
         expect((await pending).status).toBe(200)
         api.failStores = false
-        await expect.poll(() => api.stores.at(-1)?.body, { timeout: 5000 }).toContain('도중 ')
+        await expect.poll(() => api.stores.at(-1)?.body, ARRIVAL).toContain('도중 ')
         expect(api.stores.at(-1)?.editorIds).toEqual([5, 8])
       })
     })
@@ -382,15 +408,15 @@ describe('internal routes', () => {
     it('answers 404 when the page is gone at store, closes connections with 4404 (deleted) and drops the document', async () => {
       const a = connect('editor-token')
       await synced(a)
-      await expect.poll(() => api.stores.length).toBe(1)
+      await expect.poll(() => api.stores.length, ARRIVAL).toBe(1)
       api.remove(1)
       const res = await apply('삭제 뒤 적용')
       expect(res.status).toBe(404)
       // 내부 저장은 사용자 권한과 무관(Internal 토큰) — 404 는 페이지가 없어졌다는 뜻이라 삭제로 알린다.
-      await expect.poll(() => a.disconnects.map((d) => d.code)).toContain(CLOSE_DELETED.code)
+      await expect.poll(() => a.disconnects.map((d) => d.code), ARRIVAL).toContain(CLOSE_DELETED.code)
       await unloaded()
-      await new Promise((r) => setTimeout(r, 400))
-      expect(api.storeNotFound).toBe(1)
+      // 재시도 간격(50ms)의 몇 배 동안 추가 저장 시도가 없다.
+      await expectStays(() => api.storeNotFound, 1, { ms: 400 })
     })
 
     it('accepts a null actor name', async () => {
@@ -412,14 +438,14 @@ describe('internal routes', () => {
     it('answers 200 persisted:false when the store fails after applying, and persists the change once the API recovers', async () => {
       const a = connect('editor-token')
       await synced(a)
-      await expect.poll(() => api.stores.length).toBe(1)
+      await expect.poll(() => api.stores.length, ARRIVAL).toBe(1)
       api.failStores = true
       const res = await apply('저장 실패 본문')
       // 문서는 이미 바뀌었다 — 503 이면 호출자가 같은 변경을 다시 보낸다.
       expect(res.status).toBe(200)
       expect(await res.json()).toMatchObject({ persisted: false, body: '저장 실패 본문' })
       api.failStores = false
-      await expect.poll(() => api.stores.at(-1)?.body, { timeout: 5000 }).toBe('저장 실패 본문')
+      await expect.poll(() => api.stores.at(-1)?.body, ARRIVAL).toBe('저장 실패 본문')
       expect(api.stores.at(-1)?.editorIds).toEqual([5])
     })
 
@@ -436,9 +462,9 @@ describe('internal routes', () => {
       await restartWithLongDebounce()
       const b = connect('editor2-token')
       await synced(b)
-      await expect.poll(() => api.stores.length).toBe(1) // 처음 열 때의 상태만 저장
+      await expect.poll(() => api.stores.length, ARRIVAL).toBe(1) // 처음 열 때의 상태만 저장
       typeAt(b.doc, 2, '사람 ')
-      await expect.poll(() => yDocToMarkdown(serverDoc()!)).toContain('사람 둘째 문단')
+      await expect.poll(() => yDocToMarkdown(serverDoc()!), ARRIVAL).toContain('사람 둘째 문단')
       const restored = '# 제목\n\n복원된 문단'
       const res = await apply(restored, { ai: false, snapshot: true, actor: { userId: 7, name: '복원자' } })
       expect(res.status).toBe(200)
@@ -453,14 +479,14 @@ describe('internal routes', () => {
       // ② 복원 본문 저장 — 사유 RESTORE, 사람 복원이라 AI 귀속 없음.
       expect(applied).toMatchObject({ body: restored, editorIds: [7], snapshot: true, snapshotReason: 'RESTORE' })
       expect(applied.aiActorId).toBeUndefined()
-      await expect.poll(() => yDocToMarkdown(b.doc)).toBe(restored)
+      await expect.poll(() => yDocToMarkdown(b.doc), ARRIVAL).toBe(restored)
     })
 
     it('does not store when the document already equals the restored body and answers the current version', async () => {
       await restartWithLongDebounce()
       const b = connect('editor2-token')
       await synced(b)
-      await expect.poll(() => api.stores.length).toBe(1)
+      await expect.poll(() => api.stores.length, ARRIVAL).toBe(1)
       const res = await apply(BODY, { ai: false, snapshot: true, actor: { userId: 7, name: '복원자' } })
       expect(res.status).toBe(200)
       expect(await res.json()).toEqual({ version: api.get(1).version, body: BODY, persisted: true })
@@ -475,25 +501,25 @@ describe('internal routes', () => {
       await synced(a)
       await synced(b)
       typeAt(b.doc, 1, '사람 ')
-      await expect.poll(() => yDocToMarkdown(serverDoc()!)).toContain('사람 첫 문단')
+      await expect.poll(() => yDocToMarkdown(serverDoc()!), ARRIVAL).toContain('사람 첫 문단')
       // AI 는 사람 입력 전의 판(BODY)을 읽고 같은 문단 끝을 고쳤다.
       const res = await merge(BODY, '# 제목\n\n첫 문단입니다\n\n둘째 문단')
       expect(res.status).toBe(200)
       const want = '# 제목\n\n사람 첫 문단입니다\n\n둘째 문단'
       expect(((await res.json()) as { body: string }).body).toBe(want)
-      await expect.poll(() => yDocToMarkdown(a.doc)).toBe(want)
-      await expect.poll(() => yDocToMarkdown(b.doc)).toBe(want)
+      await expect.poll(() => yDocToMarkdown(a.doc), ARRIVAL).toBe(want)
+      await expect.poll(() => yDocToMarkdown(b.doc), ARRIVAL).toBe(want)
     })
 
     it("stores the person's unsaved edit before an AI apply and flags the apply store for a snapshot", async () => {
       await restartWithLongDebounce()
       const b = connect('editor2-token')
       await synced(b)
-      await expect.poll(() => api.stores.length).toBe(1) // 처음 열 때의 상태만 저장
+      await expect.poll(() => api.stores.length, ARRIVAL).toBe(1) // 처음 열 때의 상태만 저장
       // 사람이 AI 패치의 문맥 글자('문단')를 고쳤다(아직 지연 저장 전) → 같은 블록(유사도 짝)인데 정확 문맥이 깨져 정책상 AI 쪽.
       // (완전히 다른 문장으로 바꾸면 유사도 문턱 아래라 "사람 삭제 + 새 블록"이 되어 둘 다 남는다 — 그건 Task 1 정책대로다.)
       replaceTextAt(b.doc, 1, '첫 문장')
-      await expect.poll(() => yDocToMarkdown(serverDoc()!)).toContain('첫 문장')
+      await expect.poll(() => yDocToMarkdown(serverDoc()!), ARRIVAL).toContain('첫 문장')
       const res = await merge(BODY, '# 제목\n\n첫 문단입니다\n\n둘째 문단')
       expect(res.status).toBe(200)
       const [flush, applied] = api.stores.slice(-2)
@@ -509,16 +535,16 @@ describe('internal routes', () => {
       })
       expect(flush.snapshotReason).toBeUndefined()
       expect(flush.aiActorId).toBeUndefined()
-      await expect.poll(() => yDocToMarkdown(b.doc)).toBe('# 제목\n\n첫 문단입니다\n\n둘째 문단')
+      await expect.poll(() => yDocToMarkdown(b.doc), ARRIVAL).toBe('# 제목\n\n첫 문단입니다\n\n둘째 문단')
     })
 
     it('removes a block the AI deleted even if the person edited it', async () => {
       const b = connect('editor2-token')
       await synced(b)
       typeAt(b.doc, 2, '사람 ')
-      await expect.poll(() => yDocToMarkdown(serverDoc()!)).toContain('사람 둘째 문단')
+      await expect.poll(() => yDocToMarkdown(serverDoc()!), ARRIVAL).toContain('사람 둘째 문단')
       expect((await merge(BODY, '# 제목\n\n첫 문단')).status).toBe(200)
-      await expect.poll(() => yDocToMarkdown(b.doc)).toBe('# 제목\n\n첫 문단')
+      await expect.poll(() => yDocToMarkdown(b.doc), ARRIVAL).toBe('# 제목\n\n첫 문단')
     })
 
     it('normalizes the AI body first so untouched rich blocks stay the person’s version', async () => {
@@ -530,13 +556,13 @@ describe('internal routes', () => {
       await synced(b)
       const table = () => serverDoc(DOC3)!.getXmlFragment(FRAGMENT).get(2)
       typeAt(b.doc, 1, '사람 ')
-      await expect.poll(() => yDocToMarkdown(serverDoc(DOC3)!)).toContain('사람 첫 문단')
+      await expect.poll(() => yDocToMarkdown(serverDoc(DOC3)!), ARRIVAL).toContain('사람 첫 문단')
       const tableBefore = table()
       // AI 는 정규화 전 표기 그대로 돌려보내며 마지막 문단만 고친다.
       const res = await merge(raw, raw.replace('_강조_ 끝', '_강조_ 끝 AI'), {}, 3)
       expect(res.status).toBe(200)
       const want = normalizeMarkdown(raw.replace('첫 문단', '사람 첫 문단').replace('_강조_ 끝', '_강조_ 끝 AI'))
-      await expect.poll(() => yDocToMarkdown(b.doc)).toBe(want)
+      await expect.poll(() => yDocToMarkdown(b.doc), ARRIVAL).toBe(want)
       // 표는 손대지 않았다(같은 Y 타입 — 그 안의 사람 커서·동시 입력이 유지된다). 멘션도 실제 문서에 하나 그대로.
       expect(table()).toBe(tableBefore)
       expect(yDocToMarkdown(serverDoc(DOC3)!).match(/<@5>/g)).toHaveLength(1)
@@ -554,7 +580,7 @@ describe('internal routes', () => {
       const v1 = ((await r1.json()) as { version: number }).version
       const v2 = ((await r2.json()) as { version: number }).version
       expect(v1).not.toBe(v2)
-      await expect.poll(() => yDocToMarkdown(a.doc)).toBe('# 제목\n\n첫 문단 AI1\n\n둘째 문단 AI2')
+      await expect.poll(() => yDocToMarkdown(a.doc), ARRIVAL).toBe('# 제목\n\n첫 문단 AI1\n\n둘째 문단 AI2')
     })
 
     it("merges on a large note without dropping the person's distant edit", async () => {
@@ -564,12 +590,13 @@ describe('internal routes', () => {
       const b = connect('editor2-token', DOC4)
       await synced(b)
       typeAt(b.doc, 900, '사람 ')
-      await expect.poll(() => yDocToMarkdown(serverDoc(DOC4)!)).toContain('사람 문단 900 내용')
-      const started = performance.now()
+      await expect.poll(() => yDocToMarkdown(serverDoc(DOC4)!), ARRIVAL).toContain('사람 문단 900 내용')
+      // 여기선 결과만 본다(시간을 재지 않는다). 병합 계산(mergeMarkdown3)의 복잡도는 wiki-editor-schema 블록 병합 테스트의 작업량 상한이
+      // 결정적으로 지킨다 — 짝짓기·선형 단계(블록 나누기·잇기·다음 짝 찾기 등)의 호출 횟수·입력 크기와 파싱 횟수까지다. 지키지 않는 것:
+      // 그 단계들 안쪽 반복문을 다시 쓴 퇴화와, 이 서버 쪽 정규화(normalizeMarkdown)·keepLive 계획(planKeepLive)의 비용 — 그쪽은 멈춤
+      // 감시(테스트 시간 제한)만 잡는다.
       const res = await merge(big, big.replace('문단 10 내용', '문단 10 AI 내용'), {}, 4)
       expect(res.status).toBe(200)
-      // 회귀 감시용 넉넉한 상한 — 정렬이 O(n²) 문자열 diff 로 퇴화하면 수십 초가 걸린다.
-      expect(performance.now() - started).toBeLessThan(10_000)
       const md = yDocToMarkdown(serverDoc(DOC4)!)
       expect(md).toContain('사람 문단 900 내용')
       expect(md).toContain('문단 10 AI 내용')
@@ -582,7 +609,7 @@ describe('internal routes', () => {
       const p = new Y.XmlElement('paragraph')
       p.insert(0, [new Y.XmlText('사람 문단입니다')])
       b.doc.getXmlFragment(FRAGMENT).insert(2, [p])
-      await expect.poll(() => yDocToMarkdown(serverDoc()!)).toBe('# 제목\n\n첫 문단\n\n사람 문단입니다\n\n둘째 문단')
+      await expect.poll(() => yDocToMarkdown(serverDoc()!), ARRIVAL).toBe('# 제목\n\n첫 문단\n\n사람 문단입니다\n\n둘째 문단')
       const first = (await (await merge(BODY, '# 제목\n\n첫 문단 AI\n\n둘째 문단')).json()) as { version: number; body: string }
       expect(first.body).toBe('# 제목\n\n첫 문단 AI\n\n사람 문단입니다\n\n둘째 문단')
       // 둘째 저장: AI 는 응답 본문에서 이어 쓴다(사람 문단 포함). API 는 baseBody=그 판 실제 본문, altBaseBody=첫 저장 제출본을 싣는다.
@@ -591,7 +618,7 @@ describe('internal routes', () => {
       })
       expect(res.status).toBe(200)
       await expect
-        .poll(() => yDocToMarkdown(b.doc))
+        .poll(() => yDocToMarkdown(b.doc), ARRIVAL)
         .toBe('# 제목\n\n첫 문단 AI\n\n사람 문단입니다\n\n둘째 문단 AI')
     })
 
@@ -599,9 +626,9 @@ describe('internal routes', () => {
       await restartWithLongDebounce()
       const b = connect('editor2-token')
       await synced(b)
-      await expect.poll(() => api.stores.length).toBe(1)
+      await expect.poll(() => api.stores.length, ARRIVAL).toBe(1)
       typeAt(b.doc, 2, '사람 ')
-      await expect.poll(() => yDocToMarkdown(serverDoc()!)).toContain('사람 둘째 문단')
+      await expect.poll(() => yDocToMarkdown(serverDoc()!), ARRIVAL).toContain('사람 둘째 문단')
       expect((await merge(BODY, '# 제목\n\n첫 문단 웹\n\n둘째 문단', { ai: false })).status).toBe(200)
       // 사전 저장 없이 적용 저장 한 번(사람 입력도 함께 담김), snapshot 없음.
       expect(api.stores).toHaveLength(2)
@@ -614,9 +641,9 @@ describe('internal routes', () => {
       await restartWithLongDebounce()
       const b = connect('editor2-token')
       await synced(b)
-      await expect.poll(() => api.stores.length).toBe(1)
+      await expect.poll(() => api.stores.length, ARRIVAL).toBe(1)
       typeAt(b.doc, 2, '사람 ')
-      await expect.poll(() => yDocToMarkdown(serverDoc()!)).toContain('사람 둘째 문단')
+      await expect.poll(() => yDocToMarkdown(serverDoc()!), ARRIVAL).toContain('사람 둘째 문단')
       expect((await merge(BODY, '# 제목\n\n첫 문단 웹\n\n둘째 문단', { ai: false, snapshot: true })).status).toBe(200)
       expect(api.stores).toHaveLength(2)
       expect(api.stores[1]).toMatchObject({ body: '# 제목\n\n첫 문단 웹\n\n사람 둘째 문단', snapshot: false })
@@ -629,12 +656,16 @@ describe('internal routes', () => {
       await startApp({ ...cfg(), applyDeadlineMs: 400 })
       const a = connect('editor-token')
       await synced(a)
-      await expect.poll(() => api.stores.length).toBe(1)
+      await expect.poll(() => api.stores.length, ARRIVAL).toBe(1)
       // 다른 저장이 문서 잠금을 오래 쥐고 있다(느린 API 저장 흉내).
       let release!: () => void
       const mutex = serverDoc()!.saveMutex
       const held = mutex.runExclusive(() => new Promise<void>((r) => (release = r)))
-      const res = await merge(BODY, '# 제목\n\n첫 문단 AI\n\n둘째 문단')
+      const pending = merge(BODY, '# 제목\n\n첫 문단 AI\n\n둘째 문단')
+      // 요청 기한 타이머가 걸린 뒤에(요청이 서버에 닿음) 서버 시계를 기한만큼 흘린다 — 먼저 흘리면 아무 일도 없고 요청이 잠금을 영영 기다린다.
+      await expect.poll(() => serverClock.pendingCount(), ARRIVAL).toBe(1)
+      serverClock.advance(400)
+      const res = await pending
       expect(res.status).toBe(503)
       expect(((await res.json()) as { error: string }).error).toMatch(/apply deadline exceeded/)
       // 잠금이 아직 잡혀 있는데 답이 왔다 — 잠금 해제를 기다리지 않고 기한으로 답했다(벽시계 단언 없이 판정).
@@ -648,40 +679,48 @@ describe('internal routes', () => {
       expect(api.stores).toHaveLength(1)
       // 잠금을 잃지 않았다 — 같은 잠금을 쓰는 지연 저장이 다음 입력을 저장하고,
       typeAt(a.doc, 2, '사람 ')
-      await expect.poll(() => api.stores.length).toBe(2)
+      await expect.poll(() => api.stores.length, ARRIVAL).toBe(2)
       expect(api.stores[1].body).toBe('# 제목\n\n첫 문단\n\n사람 둘째 문단')
-      // 다음 요청도 정상 처리된다(공용 워커가 데워져 있어 400ms 기한 안에 병합이 끝난다 — WP-311).
-      expect((await merge(BODY, '# 제목\n\n첫 문단 AI\n\n둘째 문단')).status).toBe(200)
-      await expect.poll(() => yDocToMarkdown(a.doc)).toBe('# 제목\n\n첫 문단 AI\n\n사람 둘째 문단')
+      // 기한으로 끝난 요청이 문서에 붙인 직접 연결도 풀었다 — 남으면 문서가 내려가지 않고 다음 적용이 낡은 연결 위에서 돈다.
+      await expect.poll(() => serverDoc()!.directConnectionsCount, ARRIVAL).toBe(0)
+      // 버려진 요청 뒤에 온 병합은 평소대로 적용된다(사람 입력 위에 합쳐짐). 서버 시계를 더 흘리지 않으므로 정규화·병합 왕복이 아무리
+      // 느려도 400ms 기한과 겨루지 않는다.
+      const next = await merge(BODY, '# 제목\n\n첫 문단 AI\n\n둘째 문단')
+      expect(next.status).toBe(200)
+      expect(((await next.json()) as { body: string }).body).toBe('# 제목\n\n첫 문단 AI\n\n사람 둘째 문단')
+      await expect.poll(() => yDocToMarkdown(a.doc), ARRIVAL).toBe('# 제목\n\n첫 문단 AI\n\n사람 둘째 문단')
     })
 
     it('answers 200 with persisted:false when the apply store hangs past the deadline, and applies once', async () => {
       await app.destroy()
-      // 적용 전 단계(워커 기동·정규화·병합)는 부하가 걸리면 수백 ms 가 걸린다 — 작업마다 300ms 지연으로 그 상황을 고정한다.
-      // 기한은 그 준비가 끝나고도 남게 잡아, 이 테스트가 보려는 "적용 뒤 저장이 기한을 넘김"만 기한에 걸리게 한다.
-      await startApp({ ...cfg(), applyDeadlineMs: 2500 }, { merger: createTestMergeRunner({ testDelayMs: 300 }) })
+      // 기한은 서버 시계로 잰다 — 시계를 흘리기 전에는 적용 전 단계(정규화·병합)가 아무리 느려도 기한에 걸리지 않는다. 저장은 관문으로
+      // 붙잡아(시간 지연 대신) 기한이 얼마든 기한 안에 끝나지 않고, 저장 시간 상한(남은 기한, 최소 APPLY_STORE_MIN_MS)도 서버 시계로 흘린다.
+      await startApp({ ...cfg(), applyDeadlineMs: 400 })
       const a = connect('editor-token')
       await synced(a)
-      await expect.poll(() => api.stores.length).toBe(1)
+      await expect.poll(() => api.stores.length, ARRIVAL).toBe(1)
       const seen = new Set<string>()
       a.provider.awareness!.on('change', () =>
         [...a.provider.awareness!.getStates().values()]
           .flatMap((st) => (st[COLLAB_AI_MARKERS_FIELD] as CollabAiMarker[] | null | undefined) ?? [])
           .forEach((m) => seen.add(m.id)),
       )
-      // 적용 뒤 즉시 저장이 기한(과 최소 3초)을 넘겨 걸린다.
-      api.storeDelayMs = 9000
-      const started = performance.now()
-      const res = await merge(BODY, '# 제목\n\n첫 문단 AI\n\n둘째 문단')
-      // 저장 대기는 남은 기한(최소 3초)으로 끊긴다 — API read 타임아웃 전에 답한다.
-      expect(performance.now() - started).toBeLessThan(7000)
+      // 적용 뒤 즉시 저장이 풀어 줄 때까지 끝나지 않는다.
+      api.holdStores()
+      const pending = merge(BODY, '# 제목\n\n첫 문단 AI\n\n둘째 문단')
+      // 적용 저장이 API 에 닿아 붙잡혔다(첫 저장은 로드 때의 이관 상태 저장) — 그 뒤 저장 시간 상한(최소 3초)을 서버 시계로 넘긴다.
+      await expect.poll(() => api.storeAttempts, ARRIVAL).toBe(2)
+      serverClock.advance(APPLY_STORE_MIN_MS)
+      const res = await pending
+      // 저장 대기는 상한에서 끊긴다 — 저장이 아직 API 에 붙잡혀 있는데 답이 왔다(API read 타임아웃 전에 답한다).
+      expect(api.stores).toHaveLength(1)
       // 문서는 이미 바뀌었다 — 503 이 아니라 적용됨(저장은 재시도로 이어진다).
       expect(res.status).toBe(200)
       expect(await res.json()).toMatchObject({ persisted: false, body: '# 제목\n\n첫 문단 AI\n\n둘째 문단' })
-      await expect.poll(() => yDocToMarkdown(a.doc)).toBe('# 제목\n\n첫 문단 AI\n\n둘째 문단')
-      api.storeDelayMs = 0
+      await expect.poll(() => yDocToMarkdown(a.doc), ARRIVAL).toBe('# 제목\n\n첫 문단 AI\n\n둘째 문단')
+      api.releaseStores()
       // 재시도 저장이 같은 본문을 한 번 담는다(두 번 적용되지 않음).
-      await expect.poll(() => api.stores.some((st) => st.body === '# 제목\n\n첫 문단 AI\n\n둘째 문단'), { timeout: 15000 }).toBe(true)
+      await expect.poll(() => api.stores.some((st) => st.body === '# 제목\n\n첫 문단 AI\n\n둘째 문단'), ARRIVAL).toBe(true)
       expect(yDocToMarkdown(serverDoc()!).match(/첫 문단 AI/g)).toHaveLength(1)
       // 저장되지 않은 적용엔 ✦ 표식을 올리지 않는다.
       const b = connect('editor2-token')
@@ -693,7 +732,7 @@ describe('internal routes', () => {
     it('rejects an empty AI body with 400 and touches nothing, unless base and current are empty too', async () => {
       const a = connect('editor-token')
       await synced(a)
-      await expect.poll(() => api.stores.length).toBe(1)
+      await expect.poll(() => api.stores.length, ARRIVAL).toBe(1)
       // 빈 본문을 병합하면 "AI 가 거의 모두 지움"이 된다 — 거부.
       for (const body of ['', '   \n\n  ']) {
         const res = await merge(BODY, body)
@@ -720,9 +759,9 @@ describe('internal routes', () => {
       await restartWithLongDebounce()
       const b = connect('editor2-token')
       await synced(b)
-      await expect.poll(() => api.stores.length).toBe(1)
+      await expect.poll(() => api.stores.length, ARRIVAL).toBe(1)
       typeAt(b.doc, 2, '사람 ')
-      await expect.poll(() => yDocToMarkdown(serverDoc()!)).toContain('사람 둘째 문단')
+      await expect.poll(() => yDocToMarkdown(serverDoc()!), ARRIVAL).toContain('사람 둘째 문단')
       api.failStores = true
       // 기준본이 있든(워커가 거절) 비었든(메인 스레드가 현재본을 보고 거절) 같은 400 empty_body.
       for (const base of [BODY, '']) {
@@ -735,8 +774,8 @@ describe('internal routes', () => {
     })
 
     it('keeps other clients syncing while a slow merge runs off the event loop, and keeps their edits', async () => {
-      // 워커가 2초 동안 동기 블로킹(CPU 바쁜 병합 흉내) — 메인 스레드에서 돌면 그동안 실시간 동기화가 멈춘다.
-      const { mergeDispatched } = await restartWithSlowMerge(10_000, 2000)
+      // 워커가 풀어 줄 때까지 동기 블로킹(CPU 바쁜 병합 흉내) — 메인 스레드에서 돌면 그동안 실시간 동기화가 멈춘다.
+      const { mergeDispatched, release } = await holdNextMerge()
       const a = connect('editor-token')
       const b = connect('editor2-token')
       await synced(a)
@@ -746,31 +785,36 @@ describe('internal routes', () => {
         settled = true
         return r
       })
-      // 병합 작업이 워커로 갔다(이제 워커가 블로킹 중) — 시간 대기 대신 그 사건을 기다린다.
-      await expect.poll(mergeDispatched).toBe(true)
+      // 병합 작업이 워커 안에서 블로킹 중 — 시간 대기 대신 그 사건을 기다린다.
+      await expect.poll(mergeDispatched, ARRIVAL).toBe(true)
       typeAt(a.doc, 2, '도중 ')
-      // 병합이 아직 끝나지 않았는데도 다른 접속자에게 곧바로 전달된다.
-      await expect.poll(() => yDocToMarkdown(b.doc), { timeout: 1000 }).toContain('도중 둘째 문단')
+      // 병합이 아직 끝나지 않았는데도(풀어 주기 전까지 끝날 수 없다) 다른 접속자에게 전달된다.
+      await expect.poll(() => yDocToMarkdown(b.doc), ARRIVAL).toContain('도중 둘째 문단')
       expect(settled).toBe(false)
+      // 그 입력이 서버 문서에도 들어간 뒤에 병합을 끝낸다(서버를 거쳐 b 에 왔으니 이미 들어 있다).
+      expect(yDocToMarkdown(serverDoc()!)).toContain('도중 둘째 문단')
+      release()
       const res = await pending
       expect(res.status).toBe(200)
       // 병합 도중 들어온 입력도 사라지지 않는다(바뀐 현재본으로 다시 병합).
       const want = '# 제목\n\n첫 문단 AI\n\n도중 둘째 문단'
       expect(((await res.json()) as { body: string }).body).toBe(want)
-      await expect.poll(() => yDocToMarkdown(b.doc)).toBe(want)
+      await expect.poll(() => yDocToMarkdown(b.doc), ARRIVAL).toBe(want)
     }, 20_000)
 
     it('stores a person edit made during the worker merge before the AI apply, so an AI-side resolution is restorable', async () => {
       // 지연 저장을 길게 — 병합 도중 입력이 지연 저장으로 우연히 남지 않게(남는다면 이 저장 경로 덕이어야 한다).
-      const slow = await restartWithSlowMerge(10_000, 1500, { debounceMs: 10000, maxDebounceMs: 20000 })
+      const slow = await holdNextMerge({ debounceMs: 10000, maxDebounceMs: 20000 })
       const b = connect('editor2-token')
       await synced(b)
-      await expect.poll(() => api.stores.length).toBe(1)
+      await expect.poll(() => api.stores.length, ARRIVAL).toBe(1)
       const pending = merge(BODY, '# 제목\n\n첫 문단입니다\n\n둘째 문단')
-      await expect.poll(slow.mergeDispatched, { timeout: 5000 }).toBe(true)
+      await expect.poll(slow.mergeDispatched, ARRIVAL).toBe(true)
       // 워커가 계산하는 동안 사람이 AI 와 같은 문단을 고친다 → 정책상 AI 쪽으로 정해져 덮인다.
       replaceTextAt(b.doc, 1, '첫 문장')
-      await expect.poll(() => yDocToMarkdown(serverDoc()!)).toContain('첫 문장')
+      await expect.poll(() => yDocToMarkdown(serverDoc()!), ARRIVAL).toContain('첫 문장')
+      // 입력이 서버에 들어간 뒤에야 병합을 끝낸다 — 부하로 입력이 늦어도 "병합 도중 입력"이 된다.
+      slow.release()
       const res = await pending
       expect(res.status).toBe(200)
       expect(((await res.json()) as { body: string }).body).toBe('# 제목\n\n첫 문단입니다\n\n둘째 문단')
@@ -784,7 +828,7 @@ describe('internal routes', () => {
       await restartWithLongDebounce()
       const b = connect('editor2-token')
       await synced(b)
-      await expect.poll(() => api.stores.length).toBe(1)
+      await expect.poll(() => api.stores.length, ARRIVAL).toBe(1)
       // 깨끗한 문서에 바뀐 것 없는 AI 저장 → 저장 없음, 지금 version.
       let res = await merge(BODY, BODY)
       expect(res.status).toBe(200)
@@ -792,7 +836,7 @@ describe('internal routes', () => {
       expect(api.stores).toHaveLength(1)
       // 미저장 사람 입력이 있으면 적용 직전 저장(snapshot 없음)만 하고 그 version 으로 답한다.
       typeAt(b.doc, 2, '사람 ')
-      await expect.poll(() => yDocToMarkdown(serverDoc()!)).toContain('사람 둘째 문단')
+      await expect.poll(() => yDocToMarkdown(serverDoc()!), ARRIVAL).toContain('사람 둘째 문단')
       res = await merge(BODY, BODY)
       expect(res.status).toBe(200)
       expect(await res.json()).toEqual({ version: api.get(1).version, body: '# 제목\n\n첫 문단\n\n사람 둘째 문단', persisted: true })
@@ -800,36 +844,40 @@ describe('internal routes', () => {
       expect(api.stores[1]).toMatchObject({ snapshot: false, editorIds: [8] })
     })
 
+    // 고장 뒤 새 워커 기동이 이 테스트가 보는 성질이라 시간 제한을 기동 상한에 맞춘다 — 기동은 부하에 비례한다.
     it('answers 500 when the merge worker crashes and serves the next merge from a fresh worker', async () => {
-      await app.destroy()
-      let jobs = 0
-      // 둘째 워커 작업(첫 요청의 병합)에서 워커가 죽는다.
-      await startApp(cfg(), { merger: createTestMergeRunner({ testFault: () => (jobs++ === 1 ? 'exit' : undefined) }) })
-      // 데우기 작업이 순번 0 을 썼다 — 첫 요청의 병합이 다시 순번 1 이 되게.
-      jobs = 0
+      let merges = 0
+      // 첫 병합 작업에서 공용 워커가 죽는다(다음 테스트의 데우기가 다시 띄운 워커를 쓴다).
+      sharedHooks = { testFault: (job) => (job.kind === 'merge' && merges++ === 0 ? 'exit' : undefined) }
+      const workers = sharedMerger.workers.length
       const a = connect('editor-token')
       await synced(a)
-      await expect.poll(() => api.stores.length).toBe(1)
+      await expect.poll(() => api.stores.length, ARRIVAL).toBe(1)
       const crashed = await merge(BODY, '# 제목\n\n첫 문단 AI\n\n둘째 문단')
       expect(crashed.status).toBe(500)
       expect(yDocToMarkdown(serverDoc()!)).toBe(BODY)
       expect(api.stores).toHaveLength(1)
       const ok = await merge(BODY, '# 제목\n\n첫 문단 AI\n\n둘째 문단')
       expect(ok.status).toBe(200)
-      await expect.poll(() => yDocToMarkdown(a.doc)).toBe('# 제목\n\n첫 문단 AI\n\n둘째 문단')
-    })
+      await expect.poll(() => yDocToMarkdown(a.doc), ARRIVAL).toBe('# 제목\n\n첫 문단 AI\n\n둘째 문단')
+      expect(sharedMerger.workers).toHaveLength(workers + 1)
+    }, WORKER_BOOT_LIMIT_MS)
 
     it('answers 503 on a merge timeout and leaves the document and store untouched', async () => {
-      await restartWithSlowMerge(1000, 5000)
+      // 병합 작업을 붙잡아 두고 실행기 시계를 그 기한만큼 흘린다 — 시간 초과는 부하와 무관하게 "병합 계산 도중"에 일어난다.
+      // (실제 시계 1초 기한이면 정규화도 같은 기한 안이라, 부하에서는 병합 전에 정규화가 잘리거나 응답이 늦게 왔다.)
+      const slow = await holdNextMerge()
       const a = connect('editor-token')
       await synced(a)
-      await expect.poll(() => api.stores.length).toBe(1)
+      await expect.poll(() => api.stores.length, ARRIVAL).toBe(1)
       const origins: unknown[] = []
       serverDoc()!.on('update', (_u: Uint8Array, origin: unknown) => origins.push(origin))
-      const started = performance.now()
-      const res = await merge(BODY, '# 제목\n\n첫 문단 AI\n\n둘째 문단')
+      const pending = merge(BODY, '# 제목\n\n첫 문단 AI\n\n둘째 문단')
+      await expect.poll(slow.mergeDispatched, ARRIVAL).toBe(true)
+      sharedClock.advance(WORKER_BOOT_LIMIT_MS)
+      const res = await pending
       expect(res.status).toBe(503)
-      expect(performance.now() - started).toBeLessThan(4000)
+      expect(((await res.json()) as { error: string }).error).toMatch(/^merge timed out/)
       expect(origins).toEqual([])
       expect(yDocToMarkdown(serverDoc()!)).toBe(BODY)
       expect(yDocToMarkdown(a.doc)).toBe(BODY)
@@ -843,17 +891,28 @@ describe('internal routes', () => {
       [...c.provider.awareness!.getStates().values()].flatMap(
         (s) => (s[COLLAB_AI_MARKERS_FIELD] as CollabAiMarker[] | null | undefined) ?? [],
       )
-    const restartWithMarkerMs = async (ms: number, markers?: AiMarkerBoard) => {
+    /**
+     * 표식 만료 시계 — 손으로 돌린다. 표식은 advance 할 때만 내려간다. 실제 시계(300~2000ms)면 부하로 적용·메시지가 늦을 때 표식이
+     * 클라이언트가 보기 전에 내려가 "보인다" 단언이 깨졌다.
+     */
+    let markerClock: ManualClock
+    let board: AiMarkerBoard
+    const restartWithMarkerMs = async (ms: number) => {
+      markerClock = manualClock()
+      board = new AiMarkerBoard(ms, markerClock)
       await app.destroy()
-      await startApp({ ...cfg(), aiMarkerMs: ms }, markers ? { markers } : {})
+      await startApp({ ...cfg(), aiMarkerMs: ms }, { markers: board })
     }
+    /** 서버 쪽 표식 상태(서버 awareness) — 시계를 돌린 직후의 서버 판단을 메시지 왕복 없이 본다. */
+    const serverMarkers = () =>
+      (serverDoc()?.awareness.getLocalState()?.[COLLAB_AI_MARKERS_FIELD] as CollabAiMarker[] | undefined) ?? []
 
     it('shows ✦ name at the changed block to open clients for a while', async () => {
       await restartWithMarkerMs(400)
       const b = connect('editor2-token')
       await synced(b)
       expect((await merge(BODY, '# 제목\n\n첫 문단\n\n둘째 문단 AI')).status).toBe(200)
-      await expect.poll(() => markersOn(b).map((m) => m.name)).toEqual(['양동희'])
+      await expect.poll(() => markersOn(b).map((m) => m.name), ARRIVAL).toEqual(['양동희'])
       const m = markersOn(b)[0]
       expect(m.userId).toBe(5)
       // 위치 = 바뀐 블록(셋째, index 2)의 시작 — 받는 쪽 문서에서 풀린다.
@@ -862,7 +921,12 @@ describe('internal routes', () => {
       const abs = Y.createAbsolutePositionFromRelativePosition(Y.createRelativePositionFromJSON(m.anchor), b.doc)
       expect(abs?.type).toBe(frag)
       expect(abs?.index).toBe(2)
-      await expect.poll(() => markersOn(b), { timeout: 3000 }).toEqual([])
+      // 만료 직전까지는 남고, 만료 시각에 내려간다(서버가 판단) — 그 뒤 접속자에게서도 사라진다.
+      markerClock.advance(399)
+      expect(serverMarkers()).toHaveLength(1)
+      markerClock.advance(1)
+      expect(serverMarkers()).toEqual([])
+      await expect.poll(() => markersOn(b), ARRIVAL).toEqual([])
       // 비면 서버 상태 자체를 지운다 — 클라이언트에 남는 건 자기 상태뿐.
       expect(b.provider.awareness!.getStates().size).toBe(1)
     })
@@ -872,11 +936,11 @@ describe('internal routes', () => {
       const a = connect('editor-token')
       await synced(a)
       expect((await merge(BODY, '# 제목\n\n첫 문단 AI\n\n둘째 문단')).status).toBe(200)
-      await expect.poll(() => markersOn(a).length).toBe(1)
+      await expect.poll(() => markersOn(a).length, ARRIVAL).toBe(1)
       // 늦게 붙은 접속자도 연결 시 현재 awareness 를 받는다.
       const late = connect('editor2-token')
       await synced(late)
-      await expect.poll(() => markersOn(late).map((m) => m.name)).toEqual(['양동희'])
+      await expect.poll(() => markersOn(late).map((m) => m.name), ARRIVAL).toEqual(['양동희'])
     })
 
     it('shows no marker for a person (old web) merge or a no-op AI merge', async () => {
@@ -890,7 +954,7 @@ describe('internal routes', () => {
       expect((await merge('# 제목\n\n첫 문단 웹\n\n둘째 문단', '# 제목\n\n첫 문단 웹\n\n둘째 문단')).status).toBe(200)
       // 마지막에 실제로 바꾸는 AI 적용 — 같은 연결의 메시지는 순서대로 오므로, 이 표식이 도착했으면 앞의 두 적용이 보냈을 표식도 이미 왔다.
       expect((await merge('# 제목\n\n첫 문단 웹\n\n둘째 문단', '# 제목 AI\n\n첫 문단 웹\n\n둘째 문단')).status).toBe(200)
-      await expect.poll(() => markersOn(b).length).toBe(1)
+      await expect.poll(() => markersOn(b).length, ARRIVAL).toBe(1)
       expect(seen.size).toBe(1)
     })
 
@@ -900,7 +964,7 @@ describe('internal routes', () => {
       const b = connect('editor2-token')
       await synced(a)
       await synced(b)
-      await expect.poll(() => api.stores.length).toBe(1)
+      await expect.poll(() => api.stores.length, ARRIVAL).toBe(1)
       const seen = new Set<string>()
       b.provider.awareness!.on('change', () => markersOn(b).forEach((m) => seen.add(m.id)))
       api.failStores = true
@@ -919,13 +983,13 @@ describe('internal routes', () => {
       const b = connect('editor2-token')
       await synced(a)
       await synced(b)
-      await expect.poll(() => api.stores.length).toBe(1)
+      await expect.poll(() => api.stores.length, ARRIVAL).toBe(1)
       // 저장 응답을 붙잡는다 — 시간 지연(800ms) 대신, 아래 삽입이 서버에 닿을 때까지 적용 저장이 확실히 진행 중이게.
       api.holdStores()
       const attempts = api.storeAttempts
       const pending = merge(BODY, '# 제목\n\n첫 문단\n\n둘째 문단 AI')
       // 적용은 끝났고(서버 문서에 AI 글) 즉시 저장이 API 에 가 있는 동안 —
-      await expect.poll(() => api.storeAttempts).toBeGreaterThan(attempts)
+      await expect.poll(() => api.storeAttempts, ARRIVAL).toBeGreaterThan(attempts)
       expect(yDocToMarkdown(serverDoc()!)).toContain('둘째 문단 AI')
       // 다른 사람이 맨 앞에 문단을 넣는다(AI 가 바꾼 블록은 index 2 → 3).
       const para = new Y.XmlElement('paragraph')
@@ -934,7 +998,7 @@ describe('internal routes', () => {
       await flushThrough(b, a, 'inserted-above')
       api.releaseStores()
       expect((await pending).status).toBe(200)
-      await expect.poll(() => markersOn(a).length).toBe(1)
+      await expect.poll(() => markersOn(a).length, ARRIVAL).toBe(1)
       const frag = a.doc.getXmlFragment(FRAGMENT)
       const abs = Y.createAbsolutePositionFromRelativePosition(Y.createRelativePositionFromJSON(markersOn(a)[0].anchor), a.doc)
       expect(abs?.type).toBe(frag)
@@ -951,7 +1015,7 @@ describe('internal routes', () => {
       expect(
         (await merge(BODY, '# 제목\n\n첫 문단\n\n둘째 문단 AI2', { actor: { userId: 8, name: '이영희' } })).status,
       ).toBe(200)
-      await expect.poll(() => markersOn(b).map((m) => m.name).sort()).toEqual(['양동희', '이영희'])
+      await expect.poll(() => markersOn(b).map((m) => m.name).sort(), ARRIVAL).toEqual(['양동희', '이영희'])
       // 같은 사람(5)의 표식은 최신 위치(첫 문단, index 1)로 옮겨졌다.
       const mine = markersOn(b).find((m) => m.userId === 5)!
       const abs = Y.createAbsolutePositionFromRelativePosition(Y.createRelativePositionFromJSON(mine.anchor), b.doc)
@@ -959,8 +1023,7 @@ describe('internal routes', () => {
     })
 
     it('does not fail, reload or linger when the document unloads before the marker expires', async () => {
-      const board = new AiMarkerBoard(300)
-      await restartWithMarkerMs(300, board)
+      await restartWithMarkerMs(300)
       const errors: unknown[] = []
       const errorSpy = vi.spyOn(console, 'error').mockImplementation((...args) => void errors.push(args))
       const onRejection = (e: unknown) => errors.push(e)
@@ -971,9 +1034,10 @@ describe('internal routes', () => {
         await unloaded()
         // 내려간 문서의 표식 타이머는 그 자리에서 정리된다 — 문서를 붙잡지도, 프로세스를 붙잡지도 않는다.
         expect(board.pendingTimers()).toEqual([])
+        expect(markerClock.pendingCount()).toBe(0) // 시계에 걸린 만료 타이머도 취소됐다
         expect(board.trackedDocs).toBe(0)
-        // 만료 시각이 지나도 오류가 없고, 내려간 문서가 다시 올라오지도 않는다.
-        await new Promise((r) => setTimeout(r, 500))
+        // 만료 시각이 지나도 오류가 없고, 내려간 문서가 다시 올라오지도 않는다(타이머가 남았다면 여기서 내려간 문서에 표식을 고친다).
+        markerClock.advance(300)
         expect(app.hocuspocus.documents.has(DOC)).toBe(false)
         expect(errors).toEqual([])
       } finally {
@@ -993,14 +1057,14 @@ describe('internal routes', () => {
       api.token('editor-token', { userId: 5, name: '양동희', role: 'EDITOR', tenantId: TENANT, member: false })
       const res = await postInternal('/internal/docs/revalidate', { tenantId: TENANT, spaceId: 2, userId: 5 })
       expect(res.status).toBe(204)
-      await expect.poll(() => a.disconnects.map((d) => d.code)).toContain(CLOSE_FORBIDDEN.code)
+      await expect.poll(() => a.disconnects.map((d) => d.code), ARRIVAL).toContain(CLOSE_FORBIDDEN.code)
       expect(a.disconnects.find((d) => d.code === CLOSE_FORBIDDEN.code)?.reason).toBe(CLOSE_FORBIDDEN.reason)
       // provider 는 재접속하지만 다시 판정에서 거부된다.
-      await expect.poll(() => a.authFailures).toContain('forbidden')
+      await expect.poll(() => a.authFailures, ARRIVAL).toContain('forbidden')
       // 다른 사용자는 영향 없이 계속 편집·저장한다.
       expect(other.disconnects).toEqual([])
       typeAt(other.doc, 1, '계속 ')
-      await expect.poll(() => yDocToMarkdown(serverDoc()!)).toContain('계속 첫 문단')
+      await expect.poll(() => yDocToMarkdown(serverDoc()!), ARRIVAL).toContain('계속 첫 문단')
     })
 
     it('closes every connection that lost access to the listed pages with 4403 when no reason is given, and leaves other pages alone', async () => {
@@ -1014,8 +1078,8 @@ describe('internal routes', () => {
       api.page(1, { tenantId: 99, body: BODY, version: 9 }) // 삭제 흉내 — 판정 404
       const res = await postInternal('/internal/docs/revalidate', { tenantId: TENANT, spaceId: 2, pageIds: [1] })
       expect(res.status).toBe(204)
-      await expect.poll(() => a.disconnects.map((d) => d.code)).toContain(CLOSE_FORBIDDEN.code)
-      await expect.poll(() => b.disconnects.map((d) => d.code)).toContain(CLOSE_FORBIDDEN.code)
+      await expect.poll(() => a.disconnects.map((d) => d.code), ARRIVAL).toContain(CLOSE_FORBIDDEN.code)
+      await expect.poll(() => b.disconnects.map((d) => d.code), ARRIVAL).toContain(CLOSE_FORBIDDEN.code)
       expect(elsewhere.disconnects).toEqual([])
       expect(elsewhere.provider.isSynced).toBe(true)
     })
@@ -1030,8 +1094,8 @@ describe('internal routes', () => {
       api.page(1, { tenantId: 99, body: BODY, version: 9 }) // 삭제 흉내 — 판정 404
       const res = await postInternal('/internal/docs/revalidate', { tenantId: TENANT, spaceId: 2, pageIds: [1], reason: 'deleted' })
       expect(res.status).toBe(204)
-      await expect.poll(() => a.disconnects.map((d) => d.code)).toContain(CLOSE_DELETED.code)
-      await expect.poll(() => b.disconnects.map((d) => d.code)).toContain(CLOSE_DELETED.code)
+      await expect.poll(() => a.disconnects.map((d) => d.code), ARRIVAL).toContain(CLOSE_DELETED.code)
+      await expect.poll(() => b.disconnects.map((d) => d.code), ARRIVAL).toContain(CLOSE_DELETED.code)
       expect(a.disconnects.find((d) => d.code === CLOSE_DELETED.code)?.reason).toBe(CLOSE_DELETED.reason)
       // 삭제는 권한 회수(4403)로 알리지 않는다 — 웹이 "삭제되었습니다"와 "권한 없음"을 가른다.
       expect(a.disconnects.map((d) => d.code)).not.toContain(CLOSE_FORBIDDEN.code)
@@ -1045,7 +1109,7 @@ describe('internal routes', () => {
       const res = await postInternal('/internal/docs/revalidate', { tenantId: TENANT, pageIds: [1], reason: 'deleted' })
       expect(res.status).toBe(204)
       typeAt(a.doc, 1, '그대로 ')
-      await expect.poll(() => yDocToMarkdown(serverDoc()!)).toContain('그대로 첫 문단')
+      await expect.poll(() => yDocToMarkdown(serverDoc()!), ARRIVAL).toContain('그대로 첫 문단')
       expect(a.disconnects).toEqual([])
     })
 
@@ -1056,7 +1120,7 @@ describe('internal routes', () => {
       api.page(1, { tenantId: 99, body: BODY, version: 9 }) // 접근 상실 흉내 — 판정 404
       const res = await postInternal('/internal/docs/revalidate', { tenantId: TENANT, pageIds: [1], reason: 'moved' })
       expect(res.status).toBe(204)
-      await expect.poll(() => a.disconnects.map((d) => d.code)).toContain(CLOSE_FORBIDDEN.code)
+      await expect.poll(() => a.disconnects.map((d) => d.code), ARRIVAL).toContain(CLOSE_FORBIDDEN.code)
       expect(a.disconnects.map((d) => d.code)).not.toContain(CLOSE_DELETED.code)
     })
 
@@ -1069,12 +1133,12 @@ describe('internal routes', () => {
       api.token('editor-token', null)
       const res = await postInternal('/internal/docs/revalidate', { tenantId: TENANT, spaceId: 2, userId: 5 })
       expect(res.status).toBe(204)
-      await expect.poll(() => a.disconnects.map((d) => d.code)).toContain(CLOSE_TOKEN_EXPIRED.code)
+      await expect.poll(() => a.disconnects.map((d) => d.code), ARRIVAL).toContain(CLOSE_TOKEN_EXPIRED.code)
       expect(a.disconnects.find((d) => d.code === CLOSE_TOKEN_EXPIRED.code)?.reason).toBe(CLOSE_TOKEN_EXPIRED.reason)
       expect(a.disconnects.map((d) => d.code)).not.toContain(CLOSE_FORBIDDEN.code)
       expect(a.disconnects.map((d) => d.reason)).not.toContain(CLOSE_FORBIDDEN.reason)
       // 같은(낡은) 토큰으로 재접속하면 거절 사유도 권한 없음이 아니라 만료다 — 웹은 토큰을 갱신해 다시 붙는다.
-      await expect.poll(() => a.authFailures).toContain('token-expired')
+      await expect.poll(() => a.authFailures, ARRIVAL).toContain('token-expired')
       expect(a.authFailures).not.toContain('forbidden')
       expect(other.disconnects).toEqual([])
     })
@@ -1098,7 +1162,7 @@ describe('internal routes', () => {
       // 다른 편집자는 영향 없음.
       expect(observer.statelessMessages).toEqual([])
       typeAt(observer.doc, 2, '정상 ')
-      await expect.poll(() => yDocToMarkdown(a.doc)).toContain('정상 둘째 문단')
+      await expect.poll(() => yDocToMarkdown(a.doc), ARRIVAL).toContain('정상 둘째 문단')
     })
 
     it('leaves an editor who keeps access untouched', async () => {
@@ -1109,7 +1173,7 @@ describe('internal routes', () => {
       const res = await postInternal('/internal/docs/revalidate', { tenantId: TENANT, spaceId: 2, userId: 5 })
       expect(res.status).toBe(204)
       typeAt(a.doc, 1, '그대로 ')
-      await expect.poll(() => yDocToMarkdown(observer.doc)).toContain('그대로 첫 문단')
+      await expect.poll(() => yDocToMarkdown(observer.doc), ARRIVAL).toContain('그대로 첫 문단')
       expect(a.disconnects).toEqual([])
       expect(a.statelessMessages).toEqual([])
     })
@@ -1134,7 +1198,7 @@ describe('internal routes', () => {
       expect(api.accessCalls.length).toBe(before)
       // userId 지정 → 그 사용자만.
       await postInternal('/internal/docs/revalidate', { tenantId: TENANT, spaceId: 2, userId: 8 })
-      await expect.poll(() => b.disconnects.map((d) => d.code)).toContain(CLOSE_FORBIDDEN.code)
+      await expect.poll(() => b.disconnects.map((d) => d.code), ARRIVAL).toContain(CLOSE_FORBIDDEN.code)
       expect(a.disconnects).toEqual([])
     })
 
@@ -1149,7 +1213,7 @@ describe('internal routes', () => {
       expect(res.status).toBe(503)
       authThrows = false
       typeAt(a.doc, 1, '유지 ')
-      await expect.poll(() => yDocToMarkdown(observer.doc)).toContain('유지 첫 문단')
+      await expect.poll(() => yDocToMarkdown(observer.doc), ARRIVAL).toContain('유지 첫 문단')
       expect(a.disconnects).toEqual([])
     })
   })

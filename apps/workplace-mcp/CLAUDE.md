@@ -54,7 +54,8 @@ workplace-mcp 자신은 PAT 를 저장·검증하지 않고 그대로 전달(패
 - 헤더 `X-MCP-Toolsets: issue,wiki` 는 경로에 앱 선택이 **없을 때** 같은 의미다. 경로에 앱 선택(`/x/…`)이 있으면 헤더는 무시한다(합치지 않음). `/mcp/readonly` + 헤더는 헤더 앱 선택 + 읽기 전용이다. 빈 헤더는 없는 것으로 본다.
 - 모르는 앱 이름은 HTTP 400 + JSON-RPC 오류 본문(`error.message` 에 사용 가능한 앱 목록, `error.data.availableApps`). 일부만 싣지 않고 전부 거절한다. 인증(401)이 먼저, `/auth/me` 호출 전에 거절한다.
 - GET·DELETE 는 모든 경로에서 405(stateless). 인증·initialize 조기 검증은 모든 경로가 같다.
-- 서버 `instructions` 는 앱별 도구 안내를 앞에 두고 전체 앱에서도 2,048자 이내(테스트가 강제 — Claude Code tool search 가 그만큼만 쓴다). 고른 앱·로드된 도구만 설명하며 읽기 전용이면 쓰기 문구를 싣지 않는다.
+- 서버 `instructions` 는 앱별 도구 안내를 앞에 두고 전체 앱에서도 2,048자 이내(테스트가 강제 — Claude Code tool search 가 그만큼만 쓴다). 고른 앱·로드된 도구만 설명하며 읽기 전용이면 쓰기 문구를 싣지 않는다. 도구 설명과 같이 영어로 쓴다(WP-340 웨이브 5).
+- tools/list 응답은 공유 패키지 `toolDefinition()` 출력으로 바꿔 끼운다(`server.ts`, WP-340 웨이브 5) — `$schema`·`execution`·`annotations.title`·정보 없는 제약·`nullAsOmitted` 입력의 null 갈래가 빠진다. 크기 상한(기본 연결 ≤ 1.5만 토큰, 앱당 15개)은 공유 패키지 `tool-naming.test.ts` 가 같은 함수로 재고, `integration.test.ts` 가 실제 응답과 같은지 고정한다. 입력 검증은 `registerTool` 의 zod shape 그대로라 null 인자도 계속 받는다.
 - 연결 안내(웹 설정 > API 토큰 발급 직후 대화상자)에 같은 예시가 있다. 앱을 추가하거나 경로를 바꾸면 그 문구(`TokenIssueDialog.tsx`)도 고친다.
 
 ## 도구 추가 방법

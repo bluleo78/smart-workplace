@@ -3,11 +3,24 @@ import { COLLAB_AI_MARKERS_FIELD, type CollabAiMarker } from '@smart-workplace/w
 import * as Y from 'yjs'
 
 import { FRAGMENT } from './markdownCodec'
+import type { Clock } from './clock'
+
+/**
+ * 표식 만료 타이머를 거는 시계 — 기본은 실제 타이머(unref). 동기화 서버 테스트는 손으로 돌리는 시계(testing/manualClock)를 넣어
+ * "표식이 내려갈 때"를 실제 시간이 아니라 테스트가 정한 사건으로 만든다(부하로 메시지가 늦게 와도 표식이 먼저 내려가지 않게).
+ */
+export type MarkerClock = Pick<Clock, 'setTimeout' | 'clearTimeout'>
+
+/** 실제 타이머 — unref 라 남은 표식이 프로세스 종료를 막지 않는다. */
+const realTimers: MarkerClock = {
+  setTimeout: (fn, ms) => setTimeout(fn, ms).unref(),
+  clearTimeout: (handle) => clearTimeout(handle as NodeJS.Timeout | undefined),
+}
 
 /** 문서 하나의 표식 상태 — 지금 보이는 표식과 표식별 만료 타이머, 언로드(destroy) 감지 리스너. */
 interface DocMarkers {
   list: CollabAiMarker[]
-  timers: Map<string, NodeJS.Timeout>
+  timers: Map<string, unknown>
   onDestroy: () => void
 }
 
@@ -21,13 +34,16 @@ interface DocMarkers {
  * 수명:
  * - 표식은 Document 객체 단위로만 다룬다(이름으로 찾지 않음) — 같은 이름으로 다시 올라온 문서·다른 테넌트 문서에 섞이지 않는다.
  * - 문서가 내려가면(Y.Doc 'destroy' 이벤트 — Hocuspocus unloadDocument 가 부른다) 그 문서의 타이머·항목을 바로 정리한다.
- * - 타이머는 unref — 남은 표식이 프로세스 종료를 막지 않는다.
+ * - 타이머는 unref — 남은 표식이 프로세스 종료를 막지 않는다(기본 시계).
  */
 export class AiMarkerBoard {
   private seq = 0
   private readonly docs = new Map<Document, DocMarkers>()
 
-  constructor(private readonly ttlMs: number) {}
+  constructor(
+    private readonly ttlMs: number,
+    private readonly clock: MarkerClock = realTimers,
+  ) {}
 
   /**
    * blockIndex 번째 최상위 블록 시작의 Yjs 상대 위치 — 이후 편집을 따라간다. 적용 직후(동기) 잡아 두고 저장이 끝난 뒤 showAt 으로 올리면,
@@ -50,11 +66,10 @@ export class AiMarkerBoard {
     const marker: CollabAiMarker = { id: `srv-${++this.seq}`, userId: actor.userId, name: actor.name, anchor }
     const entry = this.entryOf(doc)
     for (const old of entry.list) if (old.userId === actor.userId) this.cancel(entry, old.id)
-    const timer = setTimeout(() => {
+    const timer = this.clock.setTimeout(() => {
       entry.timers.delete(marker.id)
       this.publish(doc, entry, entry.list.filter((m) => m.id !== marker.id))
     }, this.ttlMs)
-    timer.unref()
     entry.timers.set(marker.id, timer)
     this.publish(doc, entry, [...entry.list.filter((m) => m.userId !== actor.userId), marker])
   }
@@ -64,8 +79,8 @@ export class AiMarkerBoard {
     return this.docs.size
   }
 
-  /** 아직 만료되지 않은 타이머(테스트 확인용). */
-  pendingTimers(): NodeJS.Timeout[] {
+  /** 아직 만료되지 않은 타이머(테스트 확인용 — 기본 시계면 NodeJS.Timeout). */
+  pendingTimers(): unknown[] {
     return [...this.docs.values()].flatMap((e) => [...e.timers.values()])
   }
 
@@ -86,7 +101,7 @@ export class AiMarkerBoard {
   }
 
   private cancel(entry: DocMarkers, id: string): void {
-    clearTimeout(entry.timers.get(id))
+    this.clock.clearTimeout(entry.timers.get(id))
     entry.timers.delete(id)
   }
 
@@ -94,7 +109,7 @@ export class AiMarkerBoard {
   private forget(doc: Document): void {
     const entry = this.docs.get(doc)
     if (!entry) return
-    for (const t of entry.timers.values()) clearTimeout(t)
+    for (const t of entry.timers.values()) this.clock.clearTimeout(t)
     doc.off('destroy', entry.onDestroy)
     this.docs.delete(doc)
   }

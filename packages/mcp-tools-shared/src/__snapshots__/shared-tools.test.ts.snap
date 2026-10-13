@@ -8,7 +8,9 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "add_contact_favorite": "write",
   "add_issue_dependency": "write",
   "add_project_member": "write",
+  "add_reaction": "write",
   "add_user_group_member": "write",
+  "copy_drive_item": "write",
   "create_channel": "write",
   "create_drive_folder": "write",
   "create_event": "write",
@@ -16,15 +18,16 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "create_issue": "write",
   "create_issue_from_mail": "write",
   "create_project": "write",
+  "create_project_meta": "write",
   "create_user_group": "write",
   "create_wiki_page": "write",
-  "discover_channels": "read",
   "draft_issue_from_mail": "read",
   "draft_mail_reply": "read",
   "get_contact_facets": "read",
   "get_drive_file_summary": "read",
   "get_event": "read",
   "get_external_contact": "read",
+  "get_home_overview": "read",
   "get_issue_detail": "read",
   "get_mail": "read",
   "get_mail_summary": "read",
@@ -33,6 +36,8 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "get_project": "read",
   "get_user_group": "read",
   "get_wiki_page": "read",
+  "import_attachment_to_drive": "write",
+  "join_channel": "write",
   "leave_channel": "write",
   "list_channel_messages": "read",
   "list_channels": "read",
@@ -52,6 +57,7 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "list_wiki_pages": "read",
   "list_wiki_spaces": "read",
   "mark_all_notifications_read": "write",
+  "mark_channel_read": "write",
   "mark_mail_read": "write",
   "mark_notification_read": "write",
   "move_drive_file": "write",
@@ -61,9 +67,12 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "read_attachment": "read",
   "remove_contact_favorite": "write",
   "remove_issue_dependency": "write",
+  "remove_reaction": "write",
   "remove_user_group_member": "write",
+  "rename_drive_file": "write",
   "rename_drive_folder": "write",
   "restore_drive_item": "write",
+  "restore_wiki_revision": "write",
   "rsvp_event": "write",
   "search_drive": "read",
   "search_drive_content": "read",
@@ -71,11 +80,13 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "search_wiki": "read",
   "sync_mail": "write",
   "unwatch_issue": "write",
+  "update_channel_message": "write",
   "update_comment": "write",
   "update_event": "write",
   "update_external_contact": "write",
   "update_issue": "write",
   "update_project": "write",
+  "update_project_meta": "write",
   "update_user_group": "write",
   "update_wiki_page": "write",
   "watch_issue": "write",
@@ -224,6 +235,32 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
     },
   },
   {
+    "name": "add_reaction",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "emoji": {
+          "description": "Unicode emoji such as 👍, as in reactions",
+          "maxLength": 32,
+          "minLength": 1,
+          "type": "string",
+        },
+        "messageId": {
+          "description": "id of a list_channel_messages or list_thread_replies item",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "messageId",
+        "emoji",
+      ],
+      "type": "object",
+    },
+  },
+  {
     "name": "add_user_group_member",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -247,6 +284,38 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       "required": [
         "groupId",
       ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "copy_drive_item",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "driveFileId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "folderId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "targetFolderId": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+      },
       "type": "object",
     },
   },
@@ -438,12 +507,28 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "maxLength": 10000,
           "type": "string",
         },
+        "cycles": {
+          "items": {
+            "type": "string",
+          },
+          "type": "array",
+        },
         "dueDate": {
           "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
           "type": "string",
         },
+        "labels": {
+          "items": {
+            "type": "string",
+          },
+          "type": "array",
+        },
+        "milestone": {
+          "minLength": 1,
+          "type": "string",
+        },
         "parent": {
-          "description": "부모 이슈 키(예: WP-12) — 같은 프로젝트만",
+          "description": "Parent issue key (e.g. WP-12), same project",
           "minLength": 1,
           "type": "string",
         },
@@ -495,6 +580,12 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "maxLength": 10000,
           "type": "string",
         },
+        "labels": {
+          "items": {
+            "type": "string",
+          },
+          "type": "array",
+        },
         "messageId": {
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991,
@@ -514,6 +605,10 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
         },
         "title": {
           "maxLength": 200,
+          "minLength": 1,
+          "type": "string",
+        },
+        "type": {
           "minLength": 1,
           "type": "string",
         },
@@ -551,6 +646,112 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       },
       "required": [
         "projectKey",
+        "name",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "create_project_meta",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "color": {
+          "anyOf": [
+            {
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "dueDate": {
+          "anyOf": [
+            {
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "endDate": {
+          "anyOf": [
+            {
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "goal": {
+          "anyOf": [
+            {
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "kind": {
+          "enum": [
+            "label",
+            "milestone",
+            "cycle",
+          ],
+          "type": "string",
+        },
+        "name": {
+          "minLength": 1,
+          "type": "string",
+        },
+        "projectKey": {
+          "minLength": 1,
+          "type": "string",
+        },
+        "startDate": {
+          "anyOf": [
+            {
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "status": {
+          "anyOf": [
+            {
+              "enum": [
+                "PLANNED",
+                "ACTIVE",
+                "COMPLETED",
+              ],
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+      },
+      "required": [
+        "projectKey",
+        "kind",
         "name",
       ],
       "type": "object",
@@ -627,23 +828,6 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
     },
   },
   {
-    "name": "discover_channels",
-    "schema": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "additionalProperties": false,
-      "properties": {
-        "q": {
-          "minLength": 1,
-          "type": "string",
-        },
-      },
-      "required": [
-        "q",
-      ],
-      "type": "object",
-    },
-  },
-  {
     "name": "draft_issue_from_mail",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -699,6 +883,26 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "maximum": 9007199254740991,
           "type": "integer",
         },
+        "includeBacklinks": {
+          "anyOf": [
+            {
+              "type": "boolean",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "includeVersions": {
+          "anyOf": [
+            {
+              "type": "boolean",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
       },
       "required": [
         "driveFileId",
@@ -743,13 +947,38 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
     },
   },
   {
+    "name": "get_home_overview",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "type": "string",
+        },
+        "sections": {
+          "items": {
+            "enum": [
+              "priority",
+              "mail",
+              "messaging",
+              "activity",
+              "threads",
+            ],
+            "type": "string",
+          },
+          "type": "array",
+        },
+      },
+      "type": "object",
+    },
+  },
+  {
     "name": "get_issue_detail",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
       "properties": {
         "allComments": {
-          "description": "true 면 코멘트를 최근 200건까지 반환(기본은 최근 30건)",
           "type": "boolean",
         },
         "issueKey": {
@@ -874,6 +1103,12 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
       "properties": {
+        "includeRevisions": {
+          "type": "boolean",
+        },
+        "includeSummary": {
+          "type": "boolean",
+        },
         "pageId": {
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991,
@@ -882,6 +1117,60 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       },
       "required": [
         "pageId",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "import_attachment_to_drive",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "attachmentId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "folderId": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "spaceId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "spaceId",
+        "attachmentId",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "join_channel",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "channelId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "channelId",
       ],
       "type": "object",
     },
@@ -916,7 +1205,6 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "integer",
         },
         "cursor": {
-          "description": "더 오래된 메시지 커서 — 이전 호출 결과의 nextCursor 를 그대로",
           "type": "string",
         },
         "limit": {
@@ -947,10 +1235,20 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
         },
         "offset": {
           "default": 0,
-          "description": "건너뛸 채널 수 — 이전 호출 결과의 nextOffset 을 그대로",
           "maximum": 9007199254740991,
           "minimum": 0,
           "type": "integer",
+        },
+        "q": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
         },
       },
       "required": [
@@ -1015,7 +1313,6 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
         },
         "offset": {
           "default": 0,
-          "description": "건너뛸 항목 수 — 이전 호출 결과의 nextOffset 을 그대로",
           "maximum": 9007199254740991,
           "minimum": 0,
           "type": "integer",
@@ -1095,46 +1392,52 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       "additionalProperties": false,
       "properties": {
         "assignee": {
-          "description": "담당자 CSV: "me"(나) | "null"(담당 없음) | username | "any"(담당자 무관 — 프로젝트 전체 이슈). 표시 이름이 아닌 username. assignee·reporter 모두 생략 시 "me"",
+          "description": "CSV: "me", "null" (unassigned), usernames or "any"; default "me" unless reporter, watching or parent is set",
           "type": "string",
         },
         "blocked": {
+          "description": "Only issues with an unfinished blocker",
           "type": "boolean",
         },
         "closedFrom": {
-          "description": "종료일(DONE·CANCELED 진입) 하한 yyyy-MM-dd, Asia/Seoul 기준",
           "type": "string",
         },
         "closedTo": {
-          "description": "종료일 상한 yyyy-MM-dd(포함), Asia/Seoul 기준",
           "type": "string",
         },
         "createdFrom": {
-          "description": "생성일 하한 yyyy-MM-dd, Asia/Seoul 기준",
           "type": "string",
         },
         "createdTo": {
-          "description": "생성일 상한 yyyy-MM-dd(포함), Asia/Seoul 기준",
           "type": "string",
         },
         "cursor": {
-          "description": "다음 페이지 커서 — 이전 호출 결과의 nextCursor 를 그대로(필터·size 는 같게)",
           "type": "string",
         },
         "cycle": {
-          "description": "사이클 CSV(하나라도 일치하면 매칭, OR): 사이클 이름 | "active"(진행 중 사이클) | "none"(사이클이 하나도 할당되지 않은 이슈) | "backlog"(진행 중·예정 사이클 밖 — 완료 사이클에만 남은 이슈 포함). "사이클 미할당"은 none, "백로그"는 backlog. 이름·active 는 projectKey 필요",
+          "description": "CSV, any match: cycle (사이클) names, "active", "none" (no cycle), "backlog" (no active/planned cycle); names and "active" need projectKey",
           "type": "string",
         },
         "dueFrom": {
-          "description": "마감일 하한 yyyy-MM-dd(생성일·종료일 아님)",
           "type": "string",
         },
         "dueTo": {
-          "description": "마감일 상한 yyyy-MM-dd(생성일·종료일 아님)",
+          "type": "string",
+        },
+        "field": {
+          "description": ""name=value" custom field match (not MULTI_SELECT); needs projectKey",
           "type": "string",
         },
         "label": {
-          "description": "라벨 이름 CSV(예: "버그,문서"). 여러 개면 모두 붙은 이슈만(AND). 대소문자 무시",
+          "description": "Label names CSV; all must match",
+          "type": "string",
+        },
+        "milestone": {
+          "description": "Milestone names CSV, any match; needs projectKey",
+          "type": "string",
+        },
+        "parent": {
+          "description": "Only children of this issue key",
           "type": "string",
         },
         "priority": {
@@ -1149,14 +1452,15 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "array",
         },
         "projectKey": {
-          "description": "특정 프로젝트로 한정(예: "WP"). 생략 시 내가 속한 모든 프로젝트",
+          "description": "Omit for all my projects",
           "type": "string",
         },
         "q": {
+          "description": "Substring of title or body",
           "type": "string",
         },
         "reporter": {
-          "description": "작성자 CSV: "me" | username",
+          "description": "CSV: "me" or usernames",
           "type": "string",
         },
         "size": {
@@ -1165,15 +1469,20 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "integer",
         },
         "status": {
-          "description": "상태 CSV: TODO,IN_PROGRESS,DONE,CANCELED",
+          "description": "CSV: TODO,IN_PROGRESS,DONE,CANCELED",
           "type": "string",
         },
         "topLevel": {
+          "description": "Only issues without a parent",
           "type": "boolean",
         },
         "type": {
-          "description": "유형 이름 CSV(예: "BUG,STORY"). 하나라도 일치하면 매칭(OR)",
+          "description": "Type names CSV; any matches",
           "type": "string",
+        },
+        "watching": {
+          "description": "Only issues I watch",
+          "type": "boolean",
         },
       },
       "type": "object",
@@ -1190,8 +1499,20 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "maximum": 9007199254740991,
           "type": "integer",
         },
+        "category": {
+          "description": "업무 includes unclassified",
+          "enum": [
+            "업무",
+            "개인",
+            "알림",
+            "프로모션",
+            "뉴스레터",
+          ],
+          "type": "string",
+        },
         "folder": {
           "default": "INBOX",
+          "description": "INBOX or SENT",
           "type": "string",
         },
         "limit": {
@@ -1199,6 +1520,10 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "maximum": 100,
           "minimum": 1,
           "type": "integer",
+        },
+        "needsReply": {
+          "description": "AI-flagged, still unread",
+          "type": "boolean",
         },
         "query": {
           "type": "string",
@@ -1238,7 +1563,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
         },
         "offset": {
           "default": 0,
-          "description": "이어 읽을 위치 — 이전 호출 결과의 nextOffset 을 그대로(직접 계산하지 마세요)",
+          "description": "nextOffset; do not compute it",
           "maximum": 9007199254740991,
           "minimum": 0,
           "type": "integer",
@@ -1334,7 +1659,6 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       "additionalProperties": false,
       "properties": {
         "parentId": {
-          "description": "이 페이지의 하위 트리만 — 잘린 노드(hiddenChildren)를 펼칠 때",
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991,
           "type": "integer",
@@ -1370,6 +1694,24 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
     },
   },
   {
+    "name": "mark_channel_read",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "channelId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "channelId",
+      ],
+      "type": "object",
+    },
+  },
+  {
     "name": "mark_mail_read",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1380,9 +1722,14 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "maximum": 9007199254740991,
           "type": "integer",
         },
+        "read": {
+          "default": true,
+          "type": "boolean",
+        },
       },
       "required": [
         "messageId",
+        "read",
       ],
       "type": "object",
     },
@@ -1541,6 +1888,18 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
             },
           ],
         },
+        "channelId": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
         "driveFileId": {
           "anyOf": [
             {
@@ -1576,6 +1935,18 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
             },
           ],
         },
+        "messageId": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
         "offset": {
           "anyOf": [
             {
@@ -1588,10 +1959,25 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
             },
           ],
         },
+        "pageId": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
         "source": {
           "enum": [
             "issue",
             "drive",
+            "wiki",
+            "message",
+            "mail",
           ],
           "type": "string",
         },
@@ -1652,6 +2038,32 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
     },
   },
   {
+    "name": "remove_reaction",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "emoji": {
+          "description": "Unicode emoji such as 👍, as in reactions",
+          "maxLength": 32,
+          "minLength": 1,
+          "type": "string",
+        },
+        "messageId": {
+          "description": "id of a list_channel_messages or list_thread_replies item",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "messageId",
+        "emoji",
+      ],
+      "type": "object",
+    },
+  },
+  {
     "name": "remove_user_group_member",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1674,6 +2086,30 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       },
       "required": [
         "groupId",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "rename_drive_file",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "driveFileId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "name": {
+          "maxLength": 255,
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "driveFileId",
+        "name",
       ],
       "type": "object",
     },
@@ -1719,6 +2155,30 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "integer",
         },
       },
+      "type": "object",
+    },
+  },
+  {
+    "name": "restore_wiki_revision",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "pageId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "version": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "pageId",
+        "version",
+      ],
       "type": "object",
     },
   },
@@ -1814,6 +2274,11 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
       "properties": {
+        "channelId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
         "includeInactive": {
           "type": "boolean",
         },
@@ -1860,6 +2325,11 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "minLength": 1,
           "type": "string",
         },
+        "spaceId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
       },
       "required": [
         "query",
@@ -1898,6 +2368,31 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       },
       "required": [
         "issueKey",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "update_channel_message",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "maxLength": 4000,
+          "minLength": 1,
+          "type": "string",
+        },
+        "messageId": {
+          "description": "id of a list_channel_messages or list_thread_replies item",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "messageId",
+        "body",
       ],
       "type": "object",
     },
@@ -2181,9 +2676,23 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           },
           "type": "array",
         },
+        "driveFileId": {
+          "description": "Drive (드라이브) file to link",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
         "dueDate": {
           "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
           "type": "string",
+        },
+        "fields": {
+          "additionalProperties": {},
+          "description": "Custom field values by name (string[] for MULTI_SELECT, null clears)",
+          "propertyNames": {
+            "type": "string",
+          },
+          "type": "object",
         },
         "issueKey": {
           "minLength": 1,
@@ -2205,6 +2714,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
               "type": "null",
             },
           ],
+          "description": "null clears",
         },
         "parent": {
           "anyOf": [
@@ -2216,7 +2726,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
               "type": "null",
             },
           ],
-          "description": "부모 이슈 키(예: WP-12) — 같은 프로젝트만. null 이면 해제",
+          "description": "Parent issue key, same project; null clears",
         },
         "priority": {
           "enum": [
@@ -2282,6 +2792,123 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       },
       "required": [
         "projectKey",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "update_project_meta",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "color": {
+          "anyOf": [
+            {
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "dueDate": {
+          "anyOf": [
+            {
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "endDate": {
+          "anyOf": [
+            {
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "goal": {
+          "anyOf": [
+            {
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "kind": {
+          "enum": [
+            "label",
+            "milestone",
+            "cycle",
+          ],
+          "type": "string",
+        },
+        "name": {
+          "minLength": 1,
+          "type": "string",
+        },
+        "newName": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "projectKey": {
+          "minLength": 1,
+          "type": "string",
+        },
+        "startDate": {
+          "anyOf": [
+            {
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "status": {
+          "anyOf": [
+            {
+              "enum": [
+                "PLANNED",
+                "ACTIVE",
+                "COMPLETED",
+              ],
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+      },
+      "required": [
+        "projectKey",
+        "kind",
+        "name",
       ],
       "type": "object",
     },

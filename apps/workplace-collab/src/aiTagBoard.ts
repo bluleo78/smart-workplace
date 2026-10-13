@@ -1,5 +1,7 @@
 import type { Document } from '@hocuspocus/server'
 
+import { realClock, type Clock } from './clock'
+
 /** 에디터 안 AI 적용 태그 — 요청자(actorId)·요청(requestId)과 만료 시각(epoch ms). */
 export interface AiTag {
   actorId: number
@@ -10,7 +12,7 @@ export interface AiTag {
 /** 문서 하나의 태그 상태 — 지금 태그와 그 만료 타이머, 즉시 저장 예약, flush 를 기다리는 ai-apply 요청들. */
 interface DocAiTag {
   tag?: AiTag
-  timer?: NodeJS.Timeout
+  timer?: unknown
   /** 다음 연결 변경 때 디바운스 없이 저장한다(AI 결과 삽입이 곧바로 태그를 소비하게) — 태그가 소비·취소·만료되면 풀린다. */
   storeNext: boolean
   /** flush 를 기다리는 중인 ai-apply(`${actorId}\n${requestId}`) — 그사이 온 ai-cancel 이 지운다. 여러 사용자가 겹칠 수 있어 집합. */
@@ -39,7 +41,14 @@ interface DocAiTag {
 export class AiTagBoard {
   private readonly docs = new Map<Document, DocAiTag>()
 
-  constructor(private readonly ttlMs: number) {}
+  /**
+   * clock — 만료 시각(now)과 만료 타이머를 재는 시계. 기본은 실제 시계이고, 동기화 서버 테스트는 손으로 돌리는 시계(testing/manualClock)를
+   * 넣어 "만료가 지났다"를 테스트가 정한 사건으로 만든다(부하로 저장 재시도가 늦어져도 만료가 먼저 오지 않게).
+   */
+  constructor(
+    private readonly ttlMs: number,
+    private readonly clock: Clock = realClock,
+  ) {}
 
   /** ai-apply 의 flush 를 시작한다 — 끝날 때 settle 로 꺼낸다(그사이 온 취소를 잃지 않게). */
   begin(doc: Document, actorId: number, requestId: string): void {
@@ -76,7 +85,7 @@ export class AiTagBoard {
     if (!entry || !tag) return undefined
     this.clearTag(entry)
     this.prune(doc, entry)
-    return tag.expiresAt > Date.now() ? tag : undefined
+    return tag.expiresAt > this.clock.now() ? tag : undefined
   }
 
   /** 실패한 저장이 꺼낸 태그를 되돌린다 — 그사이 새 태그가 달렸으면 그쪽이 더 최근 요청이라 두지 않는다. 만료는 새로 센다. */
@@ -105,7 +114,7 @@ export class AiTagBoard {
   /** 종료 — 만료 타이머만 지운다(종료 중 타이머가 프로세스를 붙잡지 않게). 태그는 남겨 마지막 저장이 싣는다. */
   shutdown(): void {
     for (const entry of this.docs.values()) {
-      clearTimeout(entry.timer)
+      this.clock.clearTimeout(entry.timer)
       entry.timer = undefined
     }
   }
@@ -123,9 +132,9 @@ export class AiTagBoard {
   private put(doc: Document, tag: Omit<AiTag, 'expiresAt'>, storeNext: boolean): void {
     const entry = this.entryOf(doc)
     this.clearTag(entry)
-    entry.tag = { actorId: tag.actorId, requestId: tag.requestId, expiresAt: Date.now() + this.ttlMs }
+    entry.tag = { actorId: tag.actorId, requestId: tag.requestId, expiresAt: this.clock.now() + this.ttlMs }
     entry.storeNext = storeNext
-    const timer = setTimeout(() => {
+    const timer = this.clock.setTimeout(() => {
       // 그사이 태그가 바뀌었으면(새 타이머) 이 타이머는 무시한다.
       if (entry.timer !== timer) return
       this.clearTag(entry)
@@ -136,7 +145,7 @@ export class AiTagBoard {
 
   /** 태그와 그 만료 타이머·즉시 저장 예약을 지운다(소비·취소·만료). */
   private clearTag(entry: DocAiTag): void {
-    clearTimeout(entry.timer)
+    this.clock.clearTimeout(entry.timer)
     entry.timer = undefined
     entry.tag = undefined
     entry.storeNext = false

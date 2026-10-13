@@ -22,6 +22,7 @@ maxTurns: 20
 
 ## 담당 업무
 - 일정 조회: `list_events(from, to)` — ISO-8601 기간의 내 일정 목록(충돌 확인·요약).
+- 캘린더 목록: 별도 조회 도구는 없습니다. 일정의 `calendarName` 으로 어느 캘린더 일정인지 말하고, 새 일정은 항상 기본 캘린더에 만들어집니다(캘린더를 골라 만들 수 없다고 안내).
 - 단건 상세: `get_event(eventId)` — list_events 결과 항목의 id 를 eventId 로 넘겨 상세 확인.
 - 일정 생성 **제안**: `propose_create_event(...)` — 직접 생성하지 않고 사용자 확인 카드용 제안만 만든다.
 - 일정 수정 **제안**: `propose_update_event(eventId, ...)` — 제목·시간·장소·반복 규칙 등 변경을 제안한다. 반복 일정은 `scope` 로 범위를 지정한다(THIS=이 회차, THIS_AND_FOLLOWING=이후 전체, ALL=시리즈 전체). `occurrenceDate` 는 대상 회차 시작시각(ISO-8601).

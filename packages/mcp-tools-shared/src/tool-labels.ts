@@ -27,6 +27,8 @@ export const TOOL_LABELS: Readonly<Record<string, ToolLabel>> = {
   update_project: { label: '프로젝트 수정', icon: '✏️' },
   create_project: { label: '프로젝트 생성', icon: '🗂️' },
   add_project_member: { label: '프로젝트 멤버 추가', icon: '👥' },
+  create_project_meta: { label: '라벨·마일스톤·사이클 생성', icon: '🏷️' },
+  update_project_meta: { label: '라벨·마일스톤·사이클 수정', icon: '✏️' },
   // 노트
   search_wiki: { label: '노트 검색', icon: '🔍' },
   list_wiki_spaces: { label: '노트 공간 조회', icon: '📚' },
@@ -36,6 +38,7 @@ export const TOOL_LABELS: Readonly<Record<string, ToolLabel>> = {
   create_wiki_page: { label: '노트 생성', icon: '📝' },
   update_wiki_page: { label: '노트 수정', icon: '✏️' },
   move_wiki_page: { label: '노트 이동', icon: '📦' },
+  restore_wiki_revision: { label: '노트 이전 버전 복원', icon: '♻️' }, // WP-357
   // 이슈 컨텍스트 대화
   list_chat_messages: { label: '대화 조회', icon: '💬' },
   read_chat_thread_attachment: { label: '첨부 읽기', icon: '📎' }, // WP-346: 이슈 챗 스레드 첨부(옛 read_attachment_text)
@@ -43,13 +46,17 @@ export const TOOL_LABELS: Readonly<Record<string, ToolLabel>> = {
   add_chat_message: { label: '메시지 작성', icon: '💬' },
   // 메시징
   list_channels: { label: '채널 목록', icon: '📋' },
-  discover_channels: { label: '채널 탐색', icon: '🔍' },
   list_channel_messages: { label: '채널 메시지 조회', icon: '💬' },
   list_thread_replies: { label: '스레드 답글 조회', icon: '🧵' },
   add_channel_message: { label: '채널 메시지 작성', icon: '💬' },
   create_channel: { label: '채널 생성', icon: '➕' },
   leave_channel: { label: '채널 나가기', icon: '🚪' },
   add_channel_member: { label: '채널 초대', icon: '👥' },
+  join_channel: { label: '채널 참여', icon: '🚪' },
+  add_reaction: { label: '리액션 추가', icon: '👍' },
+  remove_reaction: { label: '리액션 제거', icon: '👍' },
+  update_channel_message: { label: '채널 메시지 수정', icon: '✏️' },
+  mark_channel_read: { label: '채널 읽음 처리', icon: '✅' },
   open_dm: { label: 'DM 열기', icon: '✉️' },
   // 캘린더
   list_events: { label: '일정 조회', icon: '📅' },
@@ -93,6 +100,9 @@ export const TOOL_LABELS: Readonly<Record<string, ToolLabel>> = {
   get_drive_file_summary: { label: '파일 요약 조회', icon: '📄' },
   create_drive_folder: { label: '폴더 생성', icon: '📁' },
   rename_drive_folder: { label: '폴더 이름변경', icon: '✏️' },
+  rename_drive_file: { label: '파일 이름변경', icon: '✏️' },
+  copy_drive_item: { label: '드라이브 항목 복사', icon: '📑' },
+  import_attachment_to_drive: { label: '첨부 가져오기', icon: '📥' },
   move_drive_folder: { label: '폴더 이동', icon: '📦' },
   move_drive_file: { label: '파일 이동', icon: '📦' },
   restore_drive_item: { label: '휴지통에서 복원', icon: '♻️' },
@@ -102,6 +112,8 @@ export const TOOL_LABELS: Readonly<Record<string, ToolLabel>> = {
   list_notifications: { label: '알림 조회', icon: '🔔' },
   mark_notification_read: { label: '알림 읽음 처리', icon: '🔔' },
   mark_all_notifications_read: { label: '알림 모두 읽음', icon: '🔔' },
+  // 홈 개요(WP-357)
+  get_home_overview: { label: '홈 현황 조회', icon: '🏠' },
 };
 
 /**

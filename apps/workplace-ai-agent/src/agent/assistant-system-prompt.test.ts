@@ -13,6 +13,10 @@ describe('ASSISTANT_SYSTEM_PROMPT', () => {
   it('이슈 첨부·드라이브 파일은 read_attachment(source별 식별자), 이 대화의 첨부 fileId 는 read_chat_attachment 전용', () => {
     expect(ASSISTANT_SYSTEM_PROMPT).toContain('{source:"issue", issueKey, attachmentId}');
     expect(ASSISTANT_SYSTEM_PROMPT).toContain('{source:"drive", driveFileId}');
+    // WP-358: 노트 이미지·채널 메시지 첨부·메일 첨부
+    expect(ASSISTANT_SYSTEM_PROMPT).toContain('{source:"wiki", pageId, attachmentId}');
+    expect(ASSISTANT_SYSTEM_PROMPT).toContain('{source:"message", channelId, messageId, attachmentId}');
+    expect(ASSISTANT_SYSTEM_PROMPT).toContain('{source:"mail", attachmentId}');
     expect(ASSISTANT_SYSTEM_PROMPT).toContain('`read_chat_attachment` 전용이며 `read_attachment`(이슈 첨부·드라이브 파일)에 넣지 않습니다');
     // 드라이브 직접 읽기 표에도 read_attachment 가 있다.
     expect(ASSISTANT_SYSTEM_PROMPT).toMatch(/\| 드라이브 \|[^\n]*read_attachment/);
@@ -155,6 +159,26 @@ describe('ASSISTANT_SYSTEM_PROMPT — 동사 기반 라우팅(#460)', () => {
     expect(p).toContain('채널 초대(제안)');
     expect(p).toContain('이슈·코멘트 삭제(제안)');
     expect(p).toContain('이동·삭제(제안)');
+  });
+
+  // WP-355: 리액션·메시지 수정·읽음 처리·채널 참여는 messaging-agent 가 하고(라우터는 읽기만), 채널 멤버 목록은 라우터가 search_members 로 직접 읽는다.
+  it('WP-355: 리액션·메시지 수정·읽음 처리·채널 참여를 messaging-agent 에 위임하고, 채널 멤버는 search_members(channelId)로 직접 읽게 안내한다', () => {
+    expect(p).toContain('내 메시지 수정, 리액션, 채널 읽음 처리, 채널 생성·참여');
+    expect(p).toContain('search_members({channelId})');
+    // 쓰기 도구는 라우터 목록(읽기 전용)에 직접 있지 않다.
+    expect(ASSISTANT_ROUTER_TOOLS).not.toContain('add_reaction');
+  });
+
+  // WP-357: "오늘 뭐부터?" 같은 현황 질문은 라우터가 get_home_overview 로 직접 읽고, 화면 표시 위젯(show_activity·show_my_tasks)과 구분한다.
+  it('WP-357: 홈 현황 질문은 get_home_overview 로 직접 읽게 안내하고 show_* 는 표시 요청에만 쓰게 한다', () => {
+    expect(p).toContain('get_home_overview');
+    expect(p).toContain('`sections`');
+    expect(p).toContain('`show_activity`·`show_my_tasks` 는 화면에 띄워 달라는 요청에만');
+    expect(ASSISTANT_ROUTER_TOOLS).toContain('get_home_overview');
+    // 노트 판 복원·메일 안 읽음 처리는 담당 subagent 에 위임한다.
+    expect(p).toContain('이전 판으로 복원');
+    expect(p).toContain('읽음/안 읽음 처리');
+    expect(p).toContain('includeSummary');
   });
 
   it('메일 요약·이슈 분석 위임 규칙은 유지(회귀 방지)', () => {
@@ -301,5 +325,21 @@ describe('목록 잘림 안내 (WP-352)', () => {
       expect(p).toContain('list_channel_messages');
       expect(p).not.toContain('get_channel_messages');
     }
+  });
+});
+
+// WP-356: issue-agent 는 드라이브를 조회하지 못한다 — 라우터가 파일을 찾아 driveFileId 를 넘기고, 그 조회 도구는 라우터 목록에 있어야 한다.
+describe('드라이브 파일을 이슈에 연결 (WP-356)', () => {
+  it('라우터가 search_drive·list_drive_items 로 찾아 driveFileId 와 이름을 위임 prompt 에 넘기라고 안내한다', () => {
+    for (const runner of ['claude', 'opencode'] as const) {
+      const p = assistantSystemPrompt(runner);
+      expect(p, runner).toContain('드라이브 파일을 이슈에 연결');
+      expect(p, runner).toMatch(/search_drive.*list_drive_items.*driveFileId/s);
+    }
+    expect(ASSISTANT_ROUTER_TOOLS).toEqual(expect.arrayContaining(['search_drive', 'list_drive_items']));
+  });
+
+  it('project-agent 가 라벨·마일스톤·사이클 생성·수정을 맡는다(라우팅 표)', () => {
+    expect(ASSISTANT_SYSTEM_PROMPT).toContain('라벨·마일스톤·사이클 생성·수정');
   });
 });

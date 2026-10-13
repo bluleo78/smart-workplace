@@ -59,10 +59,13 @@ export interface FakeApi {
   failStores: boolean
   /** PUT /doc 을 받은 횟수(응답 전, 성공·실패 모두) — 저장이 진행 중인지 관찰. */
   storeAttempts: number
-  /** PUT /doc 응답 지연(ms) — 저장 도중에 들어오는 편집을 재현. */
-  storeDelayMs: number
   /**
-   * releaseStores 를 부를 때까지 PUT /doc 응답을 붙잡는다 — "저장이 API 에 가 있는 동안"을 시간(storeDelayMs) 대신 사건으로 고정한다.
+   * 토큰 만료를 재는 지금 시각(epoch ms) — 기본 Date.now. 동기화 서버에 손 시계(CollabDeps.clock)를 넣는 테스트가 같은 시계로 바꿔
+   * 서버와 API 가 같은 순간에 만료를 본다.
+   */
+  now: () => number
+  /**
+   * releaseStores 를 부를 때까지 PUT /doc 응답을 붙잡는다 — "저장이 API 에 가 있는 동안"을 시간(지연 ms) 대신 사건으로 고정한다.
    * 부하에서도 붙잡은 구간이 테스트 단계보다 먼저 끝나지 않는다(WP-311).
    */
   holdStores(): void
@@ -112,7 +115,7 @@ export async function startFakeApi(internalToken = 'test-token'): Promise<FakeAp
       accessCalls.push({ pageId, token })
       const who = tokens.get(token)
       // 실 API 는 만료된 JWT 를 인증 필터에서 401 로 막는다 — 같은 동작을 흉내 내 재접속 루프를 막는다.
-      if (!who || (who.tokenExp != null && who.tokenExp * 1000 <= Date.now())) return send(res, 401)
+      if (!who || (who.tokenExp != null && who.tokenExp * 1000 <= self.now())) return send(res, 401)
       const page = pages.get(pageId)
       if (!page || page.tenantId !== who.tenantId || who.member === false) return send(res, 404)
       return send(res, 200, {
@@ -150,7 +153,6 @@ export async function startFakeApi(internalToken = 'test-token'): Promise<FakeAp
       }
       if (req.method === 'PUT') {
         self.storeAttempts += 1
-        if (self.storeDelayMs > 0) await new Promise((r) => setTimeout(r, self.storeDelayMs))
         if (storeGate) await storeGate
         if (self.failStores) {
           self.storeFailures += 1
@@ -225,7 +227,7 @@ export async function startFakeApi(internalToken = 'test-token'): Promise<FakeAp
     storeFailures: 0,
     storeNotFound: 0,
     storeAttempts: 0,
-    storeDelayMs: 0,
+    now: () => Date.now(),
     holdStores() {
       self.releaseStores()
       storeGate = new Promise<void>((r) => (openGate = r))

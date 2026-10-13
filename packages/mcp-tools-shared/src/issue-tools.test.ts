@@ -28,6 +28,15 @@ function mockClient(): IssueToolClient {
     getIssueCycles: vi.fn().mockResolvedValue([]),
     watchIssue: vi.fn().mockResolvedValue(undefined),
     unwatchIssue: vi.fn().mockResolvedValue(undefined),
+    getIssueWatchers: vi.fn().mockResolvedValue([]),
+    getIssueDriveLinks: vi.fn().mockResolvedValue([]),
+    getProjectFields: vi.fn().mockResolvedValue([
+      { id: 8, name: '고객사', type: 'SELECT', options: ['A사', 'B사'] },
+      { id: 9, name: '견적', type: 'NUMBER', options: null },
+      { id: 10, name: '태그', type: 'MULTI_SELECT', options: ['x', 'y'] },
+    ]),
+    updateIssueFields: vi.fn().mockResolvedValue({}),
+    addIssueDriveLink: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -75,7 +84,7 @@ describe('buildSharedIssueTools', () => {
     expect(all).not.toHaveProperty('commentsOmitted');
     expect(detail.description).toMatch(/commentsOmitted/);
     expect(detail.description).toMatch(/allComments/);
-    expect(detail.description).toMatch(/200건/);
+    expect(detail.description).toMatch(/up to 200 comments/);
   });
 
   it('WP-176: get_issue_detail 은 이슈의 사이클을 name·status 로 동봉한다(숫자 id 없음)', async () => {
@@ -119,6 +128,86 @@ describe('buildSharedIssueTools', () => {
     expect(c.addComment).toHaveBeenCalledWith('WP-12', '안녕');
   });
 
+  it('WP-356: get_issue_detail 은 워처(username·name)와 드라이브 링크(driveFileId·이름)를 숫자 사용자 ID·core fileId 없이 동봉한다', async () => {
+    const c = mockClient();
+    vi.mocked(c.getIssueDetail).mockResolvedValue({ issueKey: 'WP-12', summary: { title: 'T' }, comments: [] });
+    vi.mocked(c.getIssueWatchers).mockResolvedValue([{ userId: 4321, username: 'bob', name: '밥' }]);
+    vi.mocked(c.getIssueDriveLinks).mockResolvedValue([
+      { driveFileId: 77, fileId: 9911, name: '견적서.pdf', mimeType: 'application/pdf', sizeBytes: 10, hasThumbnail: false, spaceId: 3,
+        spaceName: '영업', availability: 'ACTIVE', createdById: 4321, createdAt: '2026-10-01T00:00:00Z' },
+      { driveFileId: 78, fileId: 9912, name: '옛 파일', spaceId: 3, spaceName: '영업', availability: 'TRASHED', createdById: 4321 },
+    ]);
+    const raw = resultText(await buildSharedIssueTools(c).find((t) => t.name === 'get_issue_detail')!.handler({ issueKey: 'WP-12' }));
+    const out = JSON.parse(raw);
+    expect(out.watchers).toEqual([{ username: 'bob', name: '밥' }]);
+    expect(out.driveLinks).toEqual([
+      { driveFileId: 77, name: '견적서.pdf', spaceName: '영업' },
+      { driveFileId: 78, name: '옛 파일', spaceName: '영업', availability: 'TRASHED' },
+    ]);
+    expect(raw).not.toMatch(/4321|9911|createdById|"fileId"/);
+    // 링크가 없으면 키를 싣지 않는다.
+    vi.mocked(c.getIssueDriveLinks).mockResolvedValue([]);
+    const none = JSON.parse(resultText(await buildSharedIssueTools(c).find((t) => t.name === 'get_issue_detail')!.handler({ issueKey: 'WP-12' })));
+    expect(none).not.toHaveProperty('driveLinks');
+  });
+
+  it('WP-356: create_issue 는 labels·milestone·cycles 이름을 id 로 바꿔 생성 요청 한 번에 싣는다', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'create_issue')!;
+    await t.handler({ projectKey: 'WP', title: '새 이슈', labels: ['urgent'], milestone: 'v1.0', cycles: ['Sprint 3'] });
+    expect(c.createIssue).toHaveBeenCalledTimes(1);
+    expect(c.createIssue).toHaveBeenCalledWith('WP', expect.objectContaining({ labelIds: [100], milestoneId: 7, cycleIds: [30] }));
+    // 후속 쓰기 호출이 없다(원자적 생성).
+    expect(c.replaceIssueLabels).not.toHaveBeenCalled();
+    expect(c.replaceIssueCycles).not.toHaveBeenCalled();
+    expect(c.updateIssueContent).not.toHaveBeenCalled();
+  });
+
+  it('WP-356: create_issue 는 모르는 라벨·마일스톤·사이클이면 이슈를 만들지 않고 사용 가능 목록을 담아 throw', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'create_issue')!;
+    await expect(t.handler({ projectKey: 'WP', title: 'x', labels: ['nope'] })).rejects.toThrow('사용 가능: urgent');
+    await expect(t.handler({ projectKey: 'WP', title: 'x', milestone: 'v9' })).rejects.toThrow('사용 가능: v1.0');
+    await expect(t.handler({ projectKey: 'WP', title: 'x', cycles: ['S9'] })).rejects.toThrow('사용 가능: Sprint 3');
+    expect(c.createIssue).not.toHaveBeenCalled();
+  });
+
+  it('WP-356: update_issue 는 커스텀 필드를 이름으로 받아 정의 id·값으로 바꿔 한 번에 보내고 결과에 fields 를 싣는다', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    const out = JSON.parse(resultText(await t.handler({ issueKey: 'WP-12', fields: { 고객사: 'A사', 견적: '1500', 태그: ['x', 'y'] } })));
+    expect(c.updateIssueFields).toHaveBeenCalledWith('WP-12', [
+      { defId: 8, value: 'A사' },
+      { defId: 9, value: 1500 },
+      { defId: 10, value: ['x', 'y'] },
+    ]);
+    expect(out).toEqual({ ok: true, results: { fields: 'ok' } });
+    // null 은 비우기 — 값 검증 없이 그대로 보낸다.
+    await t.handler({ issueKey: 'WP-12', fields: { 고객사: null } });
+    expect(c.updateIssueFields).toHaveBeenLastCalledWith('WP-12', [{ defId: 8, value: null }]);
+  });
+
+  it('WP-356: update_issue 는 없는 필드·선택지 밖 값·숫자 아님이면 아무것도 쓰지 않고 throw', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    await expect(t.handler({ issueKey: 'WP-12', title: '바꿈', fields: { 없음: 1 } })).rejects.toThrow('사용 가능: 고객사, 견적, 태그');
+    await expect(t.handler({ issueKey: 'WP-12', title: '바꿈', fields: { 고객사: 'C사' } })).rejects.toThrow('사용 가능: A사, B사');
+    await expect(t.handler({ issueKey: 'WP-12', title: '바꿈', fields: { 견적: '많이' } })).rejects.toThrow('숫자');
+    expect(c.updateIssueContent).not.toHaveBeenCalled();
+    expect(c.updateIssueFields).not.toHaveBeenCalled();
+  });
+
+  it('WP-356: update_issue 의 driveFileId 는 드라이브 링크를 추가하고 실패는 driveLink 결과로만 알린다', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    await t.handler({ issueKey: 'WP-12', driveFileId: 77 });
+    expect(c.addIssueDriveLink).toHaveBeenCalledWith('WP-12', 77);
+    vi.mocked(c.addIssueDriveLink).mockRejectedValueOnce(new Error('드라이브 권한 없음'));
+    const out = JSON.parse(resultText(await t.handler({ issueKey: 'WP-12', status: 'DONE', driveFileId: 78 })));
+    expect(out.ok).toBe(false);
+    expect(out.results).toEqual({ content: 'ok', driveLink: 'failed: 드라이브 권한 없음' });
+  });
+
   it('create_issue 는 type/assignees 를 리졸브 후 createIssue 호출', async () => {
     const c = mockClient();
     const t = buildSharedIssueTools(c).find((x) => x.name === 'create_issue')!;
@@ -138,8 +227,8 @@ describe('buildSharedIssueTools', () => {
   it('create_issue·update_issue 의 parent 입력 설명이 이슈 키(예: WP-12, 같은 프로젝트)를 안내한다', () => {
     for (const name of ['create_issue', 'update_issue']) {
       const schema = z.toJSONSchema(buildSharedIssueTools(mockClient()).find((x) => x.name === name)!.inputSchema as z.ZodType) as unknown as { properties: { parent: { description?: string } } };
-      expect(schema.properties.parent.description, name).toContain('부모 이슈 키(예: WP-12)');
-      expect(schema.properties.parent.description, name).toContain('같은 프로젝트만');
+      expect(schema.properties.parent.description, name).toContain('Parent issue key');
+      expect(schema.properties.parent.description, name).toContain('same project');
     }
   });
 

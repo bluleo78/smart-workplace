@@ -56,6 +56,9 @@ unassign: get_issue_detail → (propose?) → unassign_self
 파일 삭제: list_drive_items → propose_delete_drive_item → [pending_action]
 폴더 이동: list_drive_items → propose_move_folder → [pending_action]
 본문 읽기: list_drive_items/search_drive → read_attachment(source="drive", driveFileId) (요약이면 get_drive_file_summary)
+파일 이름 변경·복사(WP-354): list_drive_items/search_drive → rename_drive_file / copy_drive_item (같은 폴더로 복사하면 이름 충돌 오류가 정상, 다른 폴더를 지정해야 함)
+첨부 가져오기(WP-354): 라우터가 get_issue_detail·list_channel_messages 로 첨부 id 확보 → drive-agent 위임 → list_drive_spaces → import_attachment_to_drive
+버전·연결된 곳(WP-354): get_drive_file_summary(includeVersions·includeBacklinks) — 롤백은 미지원
 ```
 
 ### mail-agent
@@ -73,7 +76,7 @@ unassign: get_issue_detail → (propose?) → unassign_self
 ### messaging-agent
 ```
 채널 메시지: list_channels (채널 확인) → add_channel_message
-채널 탐색: discover_channels → list_channel_messages
+채널 탐색: list_channels(q) → list_channel_messages
 ```
 
 ### wiki-agent

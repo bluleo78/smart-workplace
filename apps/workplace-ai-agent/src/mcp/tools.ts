@@ -286,7 +286,7 @@ export const ASSISTANT_ROUTER_TOOLS: readonly string[] = [
   // 캘린더
   'list_events', 'get_event',
   // 메시징
-  'list_channels', 'discover_channels', 'list_channel_messages', 'list_thread_replies',
+  'list_channels', 'list_channel_messages', 'list_thread_replies',
   // 메일
   'list_mail', 'get_mail',
   // 연락처·사용자 그룹·구성원
@@ -298,6 +298,8 @@ export const ASSISTANT_ROUTER_TOOLS: readonly string[] = [
   'list_drive_spaces', 'list_drive_items', 'search_drive', 'search_drive_content', 'get_drive_file_summary',
   // 알림 — 읽음 처리도 라우터가 직접 한다
   'list_notifications', 'mark_notification_read', 'mark_all_notifications_read',
+  // 홈 현황(WP-357) — 우선순위·메일/메시징 요약·활동·스레드 인박스. 도메인 하나로 정해지지 않는 "오늘 뭐부터?" 질문을 라우터가 직접 읽는다(show_activity·show_my_tasks 는 화면 표시 전용)
+  'get_home_overview',
   // 첨부 읽기 — 이 대화의 첨부(WP-234)·이슈 첨부/드라이브 파일 본문(WP-346)
   'read_chat_attachment', 'read_attachment',
   // 표시 위젯
@@ -458,8 +460,7 @@ export function buildTools(
       sharedTool('list_channel_messages'),
       sharedTool('list_thread_replies'), // #850: 스레드 답글 조회(스레드 요약)
       sharedTool('add_channel_message'),
-      sharedTool('list_channels'),
-      sharedTool('discover_channels'), // #350: 공개 채널 탐색(이름 → channelId)
+      sharedTool('list_channels'), // #350: 채널 목록·탐색(q — 이름 → channelId)
     ];
     // L3 위임: 위임 컨텍스트가 있을 때만 노출. channelId·위임자·parent 는 코드가 스탬프(AI 입력 아님).
     if (delegationContext) {
@@ -1133,6 +1134,7 @@ export function buildTools(
       sharedTool('list_wiki_pages'), sharedTool('list_wiki_backlinks'), // #850: 페이지 트리·백링크
       sharedTool('create_wiki_page'),        // #333 M3: 위키 쓰기(내부)
       sharedTool('update_wiki_page'),        // #333 M3: 위키 쓰기(내부)
+      sharedTool('restore_wiki_revision'),   // WP-357: 이전 판 복원 — 확인 카드가 없어 직접 실행(wiki-agent)
       sharedTool('add_comment'),
       sharedTool('update_comment'),
       sharedTool('create_issue'),
@@ -1147,7 +1149,7 @@ export function buildTools(
       sharedTool('list_channel_messages'), // #333 M3: 메시징 읽기
       sharedTool('list_thread_replies'),   // #850: 스레드 답글 조회
       sharedTool('add_channel_message'),  // #333 M3: 메시징 쓰기(내부 쓰기 직접 실행)
-      sharedTool('list_channels'), sharedTool('discover_channels'), // #350: 채널 목록/탐색(이름→channelId 해석)
+      sharedTool('list_channels'), // #350: 채널 목록/탐색(q — 이름→channelId 해석)
       sharedTool('list_mail'), sharedTool('get_mail'), proposeSendMailTool, // #333 M3: 메일 읽기 + 발송 제안
       sharedTool('list_mail_accounts'), sharedTool('sync_mail'), // #333 M4: 메일 계정 목록 + 수동 동기화
       sharedTool('list_contacts'), sharedTool('get_external_contact'), sharedTool('create_external_contact'), sharedTool('update_external_contact'), proposeDeleteContactTool, // #333 M3: 연락처
@@ -1164,7 +1166,10 @@ export function buildTools(
       sharedTool('get_drive_file_summary'), sharedTool('search_drive_content'), // #850: 파일 요약·내용 검색
       // #850: 알림 인박스 — AI Chat 은 요청자(userId) 신원으로 호출하므로 사람의 알림을 본다(에이전트 신원 프로필엔 두지 않는다).
       sharedTool('list_notifications'), sharedTool('mark_notification_read'), sharedTool('mark_all_notifications_read'),
+      sharedTool('get_home_overview'), // WP-357: 홈 현황 읽기 — 라우터 직접 도구(ASSISTANT_ROUTER_TOOLS)
       sharedTool('create_drive_folder'), sharedTool('rename_drive_folder'), sharedTool('move_drive_folder'), sharedTool('move_drive_file'), // #333 M4: 드라이브 쓰기(직접 실행)
+      // WP-354: 파일 이름변경·복사·첨부 가져오기 — 확인 카드가 없는 되돌릴 수 있는 쓰기라 직접 실행(공유). 롤백은 확인 카드 대상이라 도구로 두지 않는다.
+      sharedTool('rename_drive_file'), sharedTool('copy_drive_item'), sharedTool('import_attachment_to_drive'),
       proposeDeleteFileTool, proposeDeleteFolderTool, // #333 M4: 드라이브 삭제 제안(confirm 필요)
       // #856: 참석자·프로젝트 멤버·채널 초대·이슈/코멘트/노트 삭제 제안(confirm 필요)
       proposeAddAttendeesTool, proposeRemoveAttendeeTool,
@@ -1172,8 +1177,13 @@ export function buildTools(
       proposeDeleteIssueTool, proposeDeleteCommentTool, proposeDeleteWikiPageTool,
       // #854·#855: 되돌릴 수 있는 쓰기(공유) — 이슈 워치·프로젝트 수정·노트 이동·휴지통 복원·RSVP·채널/DM·메일 AI.
       sharedTool('watch_issue'), sharedTool('unwatch_issue'), sharedTool('update_project'), sharedTool('move_wiki_page'),
+      // WP-356: 라벨·마일스톤·사이클 생성·수정 — 대응 확인 카드가 없는 되돌릴 수 있는 쓰기라 직접 실행(project-agent 전용). 삭제는 도구로 두지 않는다.
+      sharedTool('create_project_meta'), sharedTool('update_project_meta'),
       sharedTool('list_drive_trash'), sharedTool('restore_drive_item'), sharedTool('rsvp_event'),
       sharedTool('create_channel'), sharedTool('open_dm'), sharedTool('leave_channel'),
+      // WP-355: 채널 참여·리액션·내 메시지 수정·채널 읽음 처리 — 사용자 신원으로 하는 되돌릴 수 있는 쓰기(직접 실행, 확인 카드 없음). 메시지 삭제는 되돌릴 수 없어 도구로 두지 않는다(확인 카드도 아직 없음).
+      // 채널에서 멘션된 에이전트 신원의 messaging 프로필에는 싣지 않는다(에이전트가 사람 이름으로 리액션·수정하는 정책은 별도 결정).
+      sharedTool('join_channel'), sharedTool('add_reaction'), sharedTool('remove_reaction'), sharedTool('update_channel_message'), sharedTool('mark_channel_read'),
       sharedTool('get_mail_summary'), sharedTool('draft_mail_reply'), sharedTool('draft_issue_from_mail'),
       sharedTool('create_issue_from_mail'), sharedTool('mark_mail_read'),
       buildReadChatAttachmentTool(client, agentId, homeSessionId), // WP-234: 메인 AI 채팅 첨부 읽기(세션 바인딩)
@@ -1202,8 +1212,10 @@ export function buildTools(
   }
 
   // issue 프로파일(기본) — 이슈 읽기/쓰기 + 위키 읽기 그라운딩.
+  // get_project: create_issue/update_issue 의 유형·라벨·마일스톤·사이클·담당자 이름이 이 도구의 결과(프로젝트 설정·members)에서 오므로 함께 둔다.
   return [
     sharedTool('get_issue_detail'),
+    sharedTool('get_project'),
     sharedTool('list_wiki_spaces'),
     sharedTool('search_wiki'),
     sharedTool('get_wiki_page'),

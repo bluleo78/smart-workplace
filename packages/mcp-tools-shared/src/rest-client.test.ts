@@ -120,6 +120,52 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(http.get).toHaveBeenCalledWith('/wiki/search', { params: { q: '배포' } });
   });
 
+  it('WP-357: searchWikiPages(query, spaceId) 는 spaceId 가 있을 때만 params 에 싣는다', async () => {
+    const { http, client } = mockHttp();
+    await client.searchWikiPages('배포', 4);
+    expect(http.get).toHaveBeenCalledWith('/wiki/search', { params: { q: '배포', spaceId: 4 } });
+  });
+
+  it('WP-357: 노트 요약은 GET(AI 생성 POST 가 아니다), 판 기록 목록·복원 경로', async () => {
+    const { http, client } = mockHttp();
+    await client.getWikiPageSummary(5);
+    expect(http.get).toHaveBeenCalledWith('/wiki/pages/5/summary');
+    expect(http.post).not.toHaveBeenCalled();
+    await client.listWikiRevisions(5);
+    expect(http.get).toHaveBeenCalledWith('/wiki/pages/5/revisions');
+    await client.restoreWikiRevision(5, 3);
+    expect(http.post).toHaveBeenCalledWith('/wiki/pages/5/revisions/3/restore');
+  });
+
+  it('WP-357: listMail 은 category·needsReply 를 있을 때만 params 에 싣고, markMailUnread 는 /unread 로 POST', async () => {
+    const { http, client } = mockHttp();
+    await client.listMail(2, { folder: 'INBOX', limit: 20 });
+    expect(http.get).toHaveBeenLastCalledWith('/mail/accounts/2/messages', { params: { folder: 'INBOX', limit: 20 } });
+    await client.listMail(2, { folder: 'INBOX', limit: 20, category: '업무', needsReply: true });
+    expect(http.get).toHaveBeenLastCalledWith('/mail/accounts/2/messages', { params: { folder: 'INBOX', limit: 20, category: '업무', needsReply: true } });
+    await client.markMailUnread(9);
+    expect(http.post).toHaveBeenCalledWith('/mail/messages/9/unread');
+  });
+
+  it('WP-357: 홈 개요 경로 — 활동·우선순위·메일 요약·메시징 요약·스레드 인박스', async () => {
+    const { http, client } = mockHttp();
+    await client.getHomeActivity({ size: 10 });
+    expect(http.get).toHaveBeenLastCalledWith('/me/activity', { params: { size: 10 } });
+    await client.getHomeActivity({ size: 10, cursor: 'C' });
+    expect(http.get).toHaveBeenLastCalledWith('/me/activity', { params: { size: 10, cursor: 'C' } });
+    http.get.mockResolvedValueOnce({ data: { items: [{ sourceType: 'ISSUE_DUE' }] } });
+    expect(await client.getPriorityItems()).toEqual([{ sourceType: 'ISSUE_DUE' }]); // 래퍼 { items } 를 벗긴다
+    expect(await client.getPriorityItems()).toEqual([]);
+    await client.getHomeMailSummary();
+    expect(http.get).toHaveBeenLastCalledWith('/me/mail-summary');
+    await client.getMessagingSummary();
+    expect(http.get).toHaveBeenLastCalledWith('/me/messaging-summary');
+    await client.getThreadInbox({ limit: 10 });
+    expect(http.get).toHaveBeenLastCalledWith('/messaging/threads/inbox', { params: { limit: 10 } });
+    await client.getThreadInbox({ limit: 10, cursor: 'C2' });
+    expect(http.get).toHaveBeenLastCalledWith('/messaging/threads/inbox', { params: { limit: 10, cursor: 'C2' } });
+  });
+
   it('updateWikiPage 는 snapshot:false 를 동봉해 PUT', async () => {
     const { http, client } = mockHttp();
     await client.updateWikiPage(5, { version: 3, title: 't' });
@@ -256,6 +302,26 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(http.post).toHaveBeenCalledWith('/notifications/read-all');
   });
 
+  it('WP-356 이슈·프로젝트 보강 경로: 워처·드라이브 링크·커스텀 필드·프로젝트 메타', async () => {
+    const { http, client } = mockHttp();
+    expect(await client.getIssueWatchers('WP-3')).toEqual([]);
+    expect(http.get).toHaveBeenCalledWith('/projects/WP/issues/3/watchers');
+    expect(await client.getIssueDriveLinks('WP-3')).toEqual([]);
+    expect(http.get).toHaveBeenCalledWith('/projects/WP/issues/3/drive-links');
+    expect(await client.getProjectFields('WP')).toEqual([]);
+    expect(http.get).toHaveBeenCalledWith('/projects/WP/fields');
+    await client.updateIssueFields('WP-3', [{ defId: 8, value: 'A' }]);
+    expect(http.put).toHaveBeenCalledWith('/projects/WP/issues/3/fields', { values: [{ defId: 8, value: 'A' }] });
+    await client.addIssueDriveLink('WP-3', 77);
+    expect(http.post).toHaveBeenCalledWith('/projects/WP/issues/3/drive-links', { driveFileId: 77 });
+    await client.createProjectMeta('WP', 'label', { name: 'bug', colorToken: 'RED' });
+    expect(http.post).toHaveBeenCalledWith('/projects/WP/labels', { name: 'bug', colorToken: 'RED' });
+    await client.createProjectMeta('WP', 'milestone', { name: 'M', dueDate: '2026-12-01' });
+    expect(http.post).toHaveBeenCalledWith('/projects/WP/milestones', { name: 'M', dueDate: '2026-12-01' });
+    await client.updateProjectMeta('WP', 'cycle', 5, { name: 'C' });
+    expect(http.patch).toHaveBeenCalledWith('/projects/WP/cycles/5', { name: 'C' });
+  });
+
   it('#854 업무 쓰기 경로: 사이클·워치·마일스톤/사이클 목록·프로젝트 수정·노트 이동·휴지통', async () => {
     const { http, client } = mockHttp();
     await client.replaceIssueCycles('WP-3', [1, 2]);
@@ -283,6 +349,26 @@ describe('createSharedToolClient 경로 매핑', () => {
     await client.restoreDriveFolder(6);
     expect(http.post).toHaveBeenCalledWith('/drive/files/5/restore');
     expect(http.post).toHaveBeenCalledWith('/drive/folders/6/restore');
+  });
+
+  // WP-354: 파일 이름변경·복사·백링크·첨부 가져오기 경로 — 첨부 가져오기는 폴더 유무로 경로가 갈린다.
+  it('WP-354 드라이브 파일 이름변경·복사·백링크·첨부 가져오기 경로', async () => {
+    const { http, client } = mockHttp();
+    await client.renameDriveFile(5, '새이름.pdf');
+    expect(http.patch).toHaveBeenCalledWith('/drive/files/5', { name: '새이름.pdf' });
+    await client.copyDriveFile(5, 3);
+    expect(http.post).toHaveBeenCalledWith('/drive/files/5/copy', { targetFolderId: 3 });
+    await client.copyDriveFolder(8, null);
+    expect(http.post).toHaveBeenCalledWith('/drive/folders/8/copy', { targetParentId: null });
+    http.get.mockResolvedValueOnce({ data: [{ sourceType: 'ISSUE' }] });
+    expect(await client.listDriveFileBacklinks(5)).toEqual([{ sourceType: 'ISSUE' }]);
+    expect(http.get).toHaveBeenLastCalledWith('/drive/files/5/backlinks');
+    http.get.mockResolvedValueOnce({ data: null });
+    expect(await client.listDriveFileBacklinks(5)).toEqual([]);
+    await client.importAttachmentToDrive(2, null, 900);
+    expect(http.post).toHaveBeenLastCalledWith('/drive/spaces/2/import-attachment', { fileId: 900 });
+    await client.importAttachmentToDrive(2, 4, 900);
+    expect(http.post).toHaveBeenLastCalledWith('/drive/spaces/2/folders/4/import-attachment', { fileId: 900 });
   });
 
   it('WP-147: getMail 은 AI 조회라 항상 markSeen=false 로 부른다(읽음 처리 안 함)', async () => {
@@ -338,6 +424,27 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(http.post).toHaveBeenLastCalledWith('/projects/A%20B/members', { userId: 5, role: 'MEMBER' });
     await client.addChannelMember(9, 5);
     expect(http.post).toHaveBeenLastCalledWith('/messaging/channels/9/members', { userId: 5 });
+  });
+
+  it('WP-355: 메시징 보강 경로 — 참여·리액션·수정·읽음·채널 멤버', async () => {
+    const { http, client } = mockHttp();
+    await client.joinChannel(9);
+    expect(http.post).toHaveBeenLastCalledWith('/messaging/channels/9/join');
+    await client.addReaction(40, '👍');
+    expect(http.post).toHaveBeenLastCalledWith('/messaging/messages/40/reactions', { emoji: '👍' });
+    // 제거는 DELETE 쿼리 파라미터로 이모지를 보낸다(서버 @RequestParam).
+    await client.removeReaction(40, '👍');
+    expect(http.delete).toHaveBeenLastCalledWith('/messaging/messages/40/reactions', { params: { emoji: '👍' } });
+    http.patch.mockResolvedValueOnce({ data: { id: 40, body: '수정' } });
+    expect(await client.updateChannelMessage(40, '수정')).toEqual({ id: 40, body: '수정' });
+    expect(http.patch).toHaveBeenLastCalledWith('/messaging/messages/40', { body: '수정' });
+    await client.markChannelRead(9, 99);
+    expect(http.post).toHaveBeenLastCalledWith('/messaging/channels/9/read', { uptoMessageId: 99 });
+    http.get.mockResolvedValueOnce({ data: [{ userId: 1, username: 'a', name: 'A' }] });
+    expect(await client.listChannelMembers(9)).toEqual([{ userId: 1, username: 'a', name: 'A' }]);
+    expect(http.get).toHaveBeenLastCalledWith('/messaging/channels/9/members');
+    // 비배열 응답(null)은 빈 목록으로 다룬다.
+    expect(await client.listChannelMembers(9)).toEqual([]);
   });
 
   it('getMailLinkedIssue 는 서버의 { issueKey: null } 을 null 로 바꾼다', async () => {
@@ -430,6 +537,31 @@ describe('createSharedToolClient 첨부·파일 내용 읽기 경로(WP-346)', (
     const { http, client } = mockHttp();
     await client.readDriveFileText(9, { offset: 0, limit: 500 });
     expect(http.get).toHaveBeenCalledWith('/drive/files/9/text', { params: { offset: 0, limit: 500 } });
+  });
+
+  // WP-358: 노트·메시지·메일 첨부 — /text 구간 읽기와 이미지 원본(/content, 같은 다운로드 상한)
+  it('노트·메시지·메일 첨부 텍스트 — 소스별 경로 + offset/limit 쿼리', async () => {
+    const { http, client } = mockHttp();
+    await client.readWikiAttachmentText(7, 55, { offset: 6, limit: 100 });
+    expect(http.get).toHaveBeenLastCalledWith('/wiki/pages/7/attachments/55/text', { params: { offset: 6, limit: 100 } });
+    await client.readMessageAttachmentText(3, 40, 55, { limit: 12000 });
+    expect(http.get).toHaveBeenLastCalledWith('/messaging/channels/3/messages/40/attachments/55/text', { params: { limit: 12000 } });
+    await client.readMailAttachmentText(55, { offset: 0, limit: 500 });
+    expect(http.get).toHaveBeenLastCalledWith('/mail/attachments/55/text', { params: { offset: 0, limit: 500 } });
+  });
+
+  it('노트·메시지·메일 첨부 원본 — /content 를 이미지 상한을 걸어 받는다', async () => {
+    const { http, client } = mockHttp();
+    const opts = { responseType: 'arraybuffer', maxContentLength: 3_932_160, maxBodyLength: 3_932_160 };
+    for (const [call, url] of [
+      [() => client.downloadWikiAttachment(7, 55), '/wiki/pages/7/attachments/55/content'],
+      [() => client.downloadMessageAttachment(3, 40, 55), '/messaging/channels/3/messages/40/attachments/55/content'],
+      [() => client.downloadMailAttachment(55), '/mail/attachments/55/content'],
+    ] as const) {
+      http.get.mockResolvedValueOnce({ data: new Uint8Array([7]).buffer, headers: { 'content-type': 'image/png' } });
+      expect((await call()).mimeType).toBe('image/png');
+      expect(http.get).toHaveBeenLastCalledWith(url, opts);
+    }
   });
 
   it('이슈 첨부 목록·드라이브 버전 목록 — 배열이 아니면 빈 배열', async () => {
