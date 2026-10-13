@@ -105,9 +105,10 @@ describe('프로젝트 설정 규칙 (WP-60)', () => {
 
   it('project deleted → projects, pinnedViews, me-issues', () => {
     expect(keysOf('project', 'deleted')).toEqual(
-      expect.arrayContaining([['projects'], ['pinnedViews'], ['me-issues']]),
+      expect.arrayContaining([['projects'], ['pinnedViews'], ['me-issues'], ['ai-tasks']]),
     );
     expect(keysOf('project', 'updated')).not.toContainEqual(['me-issues']);
+    expect(keysOf('project', 'updated')).not.toContainEqual(['ai-tasks']);
   });
 });
 
