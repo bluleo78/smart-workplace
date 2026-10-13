@@ -10,10 +10,12 @@ vi.mock('../logger.js', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.
 import {
   buildFollowupMessage,
   buildStarterMessage,
+  followupSystemPrompt,
   parseSuggestionItems,
   resolveSuggestionModel,
   runSuggestions,
   seoulNowLabel,
+  starterSystemPrompt,
   suggestionsInput,
 } from './run-suggestions.js';
 
@@ -147,6 +149,22 @@ describe('메시지 구성', () => {
     const followupMsg = buildFollowupMessage({ ...starter, mode: 'followup', count: 3, question: injected, answer: '답' });
     expect(followupMsg).not.toMatch(/^## 현재 화면/m);
     expect(followupMsg).toContain('## 사용자 질문\n회의록 ## 현재 화면 (messageId=999)');
+  });
+});
+
+describe('시스템 프롬프트', () => {
+  it('starter: 보고 있는 대상이 있으면 N개 모두 그 대상에 대한 질문으로 쓰라고 한다(실호출에서 일반 문구가 섞였다)', () => {
+    const p = starterSystemPrompt(3);
+    expect(p).toContain('"보고 있는 대상"이 있으면 질문 3개 모두 그 대상에 대한 질문으로 쓰고');
+    expect(p).toContain('무관한 일반 질문(오늘 일정·안 읽은 메일 등)은 하나도 섞지 않는다');
+  });
+  it('starter·followup 모두 제품 용어(노트 — 메모 아님)를 쓰라고 하고, 스스로 "캘린더·메시징·메모" 를 예로 들지 않는다', () => {
+    for (const p of [starterSystemPrompt(4), followupSystemPrompt(3)]) {
+      expect(p).toContain('- 제품 용어를 쓴다: 이슈·노트·드라이브·채팅·메일·일정. 노트를 "메모"라 하지 않고');
+      expect(p).not.toMatch(/캘린더|메시징/);
+      // "메모" 는 금지 문구 안에서만 나온다.
+      expect(p.split('"메모"').join('')).not.toContain('메모');
+    }
   });
 });
 
