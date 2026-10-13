@@ -60,4 +60,26 @@ class ThreadInboxControllerTest extends IntegrationTestBase {
 
     assertThat(inboxService.unreadThreadCount(me)).isEqualTo(1L);
   }
+
+  /** 루트 본문의 멘션 토큰 <@id> 를 풀 수 있도록 mentions 에 사용자 정보를 채운다(없는 사용자는 빠진다). */
+  @Test
+  void inbox_hydratesMentionsOfRootBody() {
+    long me = seedUser();
+    long other = seedUser();
+    long mentioned = seedUser();
+    long ch = channelRepo.insertPublic("멘션채널", other);
+    channelService.join(other, ch);
+    channelService.join(me, ch);
+    channelService.join(mentioned, ch);
+    long root =
+        messageService
+            .create(me, ch, new CreateMessageRequest("확인 부탁 <@" + mentioned + "> <@999999999>"))
+            .id();
+    messageService.create(other, ch, new CreateMessageRequest("답글", root));
+
+    var item = inboxService.inbox(me, null, 50).items().get(0);
+    assertThat(item.rootMessage().id()).isEqualTo(root);
+    assertThat(item.rootMessage().mentions()).extracting(m -> m.id()).containsExactly(mentioned);
+    assertThat(item.rootMessage().mentions().get(0).username()).startsWith("tic_");
+  }
 }

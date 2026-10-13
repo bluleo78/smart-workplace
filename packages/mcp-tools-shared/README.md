@@ -152,7 +152,7 @@ AI Chat 에는 라벨·마일스톤·사이클 생성·수정 확인 카드가 �
 
 ### 노트·메일·캘린더·홈 보강 (WP-357)
 
-새 도구는 둘(`restore_wiki_revision`·`get_home_overview`)이고 나머지는 기존 도구의 옵션·파라미터·필드다. 정의 크기는 +395 토큰(14,541 → 14,936)이라 `list_wiki_pages`·`update_wiki_page`·`update_event`·`get_event`·`create_issue_from_mail` 등 기존 설명을 압축해 맞췄다.
+새 도구는 둘(`restore_wiki_revision`·`get_home_overview`)이고 나머지는 기존 도구의 옵션·파라미터·필드다. 정의 크기는 +401 토큰(14,541 → 14,942)이라 `list_wiki_pages`·`update_wiki_page`·`update_event`·`get_event`·`create_issue_from_mail` 등 기존 설명을 압축해 맞췄다.
 
 | 기능 | 처리 | 근거 |
 |---|---|---|
@@ -176,7 +176,7 @@ AI Chat 에는 라벨·마일스톤·사이클 생성·수정 확인 카드가 �
 | `mail` ● | `GET /me/mail-summary` | `{unreadCount, needsReplyCount, aiClassification?:false, recent[]}` — `recent` 는 `list_mail` 과 같은 행 뷰(최대 5건). 분류가 꺼져 있으면 회신 필요 수가 뜻이 없어 알린다 |
 | `messaging` ● | `GET /me/messaging-summary` | 카운트 넷 + `recent[]`(최대 5건) `{channelId, kind, label, lastAuthorName?, lastMessagePreview, lastMessageAt, unreadCount?, mentioned?, needsReply?, newThreadReplyCount?, aiReason?}` — 서버 `conversationId` 는 채널 id 라 `channelId` 로 바꾼다. 신호 배지는 참일 때만 싣는다 |
 | `activity` | `GET /me/activity` | `cursorPageView` — `{items[{issueKey, issueTitle, actorName, actorKind, eventType, createdAt}], hasMore?, nextCursor?}`. 이력 id·이슈 id·행위자 숫자 id 는 뺀다. 서버는 페이지가 꽉 차면 `nextCursor` 를 주므로 다음 페이지가 비어 있을 수 있다. 한 번에 10건 |
-| `threads` | `GET /messaging/threads/inbox` | `cursorPageView` — 미읽음 스레드(내가 팔로우). `{channelId, channelName, lastReplyAt, id(스레드 루트 messageId), authorName, body(200자까지), replyCount, unreadReplyCount, …}`. `toMessageView` 가 지우는 `channelId` 를 되살려 `list_thread_replies`(messageId=`id`)·`list_channel_messages` 로 이어 읽게 한다. 한 번에 10건 |
+| `threads` | `GET /messaging/threads/inbox` | `cursorPageView` — 미읽음 스레드(내가 팔로우). `{channelId, channelName, lastReplyAt, id(스레드 루트 messageId), authorName, body(200자까지), replyCount, unreadReplyCount, …}`. `toMessageView` 가 지우는 `channelId` 를 되살려 `list_thread_replies`(messageId=`id`)·`list_channel_messages` 로 이어 읽게 한다. 한 번에 10건. 서버 `ThreadInboxService` 가 루트 본문의 `<@id>` 를 풀 수 있게 `mentions` 를 채워 준다(WP-357 수정 — 예전에는 빈 목록이라 모든 멘션이 "알 수 없는 사용자"로 보였다) |
 
 - `cursor` 는 `activity` 또는 `threads` **하나만** 요청할 때만 받는다(섹션마다 커서가 달라 섞이면 어느 것인지 모호하다). 다른 조합이면 오류.
 - 설명에는 다른 도구 이름을 적지 않는다 — notify 앱만 고른 연결에는 메일·메시징 도구가 없어서 `tool-apps.test.ts` 의 교차 참조 검사에 걸린다. 대신 후속 도구가 받는 식별자 이름(`issueKey`·`messageId`·`channelId`)을 출력에 둔다.

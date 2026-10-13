@@ -224,7 +224,7 @@ describe('홈 개요 (WP-357)', () => {
     }),
     getThreadInbox: vi.fn().mockResolvedValue({
       items: [{
-        rootMessage: { id: 40, channelId: 5, authorId: 9, authorName: '앨리스', authorKind: 'HUMAN', body: '안녕 <@3>', mentions: [{ id: 3, username: 'minsu', name: '김민수', kind: 'HUMAN' }], parentMessageId: null, replyCount: 1, unreadReplyCount: 1, followed: true, deleted: false, reactions: [], attachments: [{ fileId: 70, messageId: 40, originalName: 'a.png', mimeType: 'image/png', sizeBytes: 3, attachedById: 9, attachedByName: '앨리스', attachedAt: 't' }], driveLinks: [], createdAt: 't' },
+        rootMessage: { id: 40, channelId: 5, authorId: 9, authorName: '앨리스', authorKind: 'HUMAN', body: '안녕 <@3>', mentions: [{ id: 3, username: 'minsu', name: '김민수', kind: 'HUMAN' }], parentMessageId: null, replyCount: 0, unreadReplyCount: 1, followed: true, deleted: false, reactions: [], attachments: [], driveLinks: [], createdAt: 't' },
         channelName: '일반', lastReplyAt: 't',
       }],
       nextCursor: null, hasMore: false,

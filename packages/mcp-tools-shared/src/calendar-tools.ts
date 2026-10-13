@@ -254,7 +254,7 @@ export function buildCalendarTools(client: CalendarToolsClient): SharedTool[] {
       description:
         'Creates an event in my default calendar (캘린더); each call creates a new one. startsAt/endsAt: ISO-8601 with offset (none = +09:00). ' +
         'attendees: member usernames from search_members (not me, no emails); notify:false skips their invitation notifications. recurrenceRule: ' +
-        'RFC 5545 RRULE. Returns {event, conflicts?}; conflicts are my events already in that slot.',
+        'RFC 5545 RRULE. Returns {event, conflicts?}; conflicts are my events already in that slot (not blocking).',
       inputSchema: createEventInput,
       async handler(args) {
         const { attendees, notify, ...fields } = createEventInput.parse(args);

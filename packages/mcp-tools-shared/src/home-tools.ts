@@ -123,7 +123,7 @@ export function buildHomeTools(client: HomeToolClient): SharedTool[] {
       kind: 'read',
       description:
         'Reads my home (홈) overview; sections default to priority, mail, messaging. priority: AI-ranked items needing me (may lag) ' +
-        'with issueKey, notificationId, messageId or channelId. mail, messaging: counts + recent items. activity: recent ' +
+        'with issueKey, notificationId, messageId or channelId. mail, messaging: counts + recent unread items. activity: recent ' +
         'changes on issues I am assigned or watch. threads: followed threads with unread replies (id = thread root messageId). activity, ' +
         'threads: if hasMore, call again with only that section and nextCursor as cursor, or say it is partial.',
       inputSchema: getHomeOverviewInput,

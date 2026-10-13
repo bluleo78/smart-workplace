@@ -30,7 +30,8 @@ const inboxPage = {
   items: [{
     rootMessage: {
       id: 700, channelId: 55, authorId: 9, authorName: '앨리스', authorKind: 'HUMAN', body: '배포 일정 <@3> 확인 부탁', mentions: [{ id: 3, username: 'minsu', name: '김민수', kind: 'HUMAN' }],
-      parentMessageId: null, replyCount: 4, unreadReplyCount: 2, followed: true, deleted: false, reactions: [], attachments: [], driveLinks: [], createdAt: '2026-10-12T00:00:00Z',
+      // 서버(ThreadInboxService)가 보내는 대로: replyCount 는 0(카드 불필요), 멘션은 본문 토큰을 풀 수 있게 채워 준다.
+      parentMessageId: null, replyCount: 0, unreadReplyCount: 2, followed: true, deleted: false, reactions: [], attachments: [], driveLinks: [], createdAt: '2026-10-12T00:00:00Z',
     },
     channelName: '개발팀', lastReplyAt: '2026-10-13T03:00:00Z',
   }],
@@ -129,11 +130,19 @@ describe('get_home_overview (WP-357)', () => {
     expect(out.threads).toEqual({
       items: [{
         channelId: 55, channelName: '개발팀', lastReplyAt: '2026-10-13T03:00:00Z', id: 700, authorName: '앨리스', authorKind: 'HUMAN',
-        body: '배포 일정 @김민수(minsu) 확인 부탁', mentions: [{ username: 'minsu', name: '김민수', kind: 'HUMAN' }], replyCount: 4, unreadReplyCount: 2, createdAt: '2026-10-12T00:00:00Z',
+        body: '배포 일정 @김민수(minsu) 확인 부탁', mentions: [{ username: 'minsu', name: '김민수', kind: 'HUMAN' }], unreadReplyCount: 2, createdAt: '2026-10-12T00:00:00Z',
       }],
       hasMore: true,
       nextCursor: 'CUR2',
     });
+  });
+
+  // 서버가 멘션 사전을 못 채우던 때(mentions: [])의 모양 — 토큰은 숫자 ID 를 흘리지 않도록 @(알 수 없는 사용자) 로 바뀐다. 서버가 채우는 정상 경로는 위 테스트가 본다.
+  it('멘션 사전이 비어 있으면 토큰은 숫자 대신 "@(알 수 없는 사용자)" 로 바뀐다', async () => {
+    const c = mockClient();
+    vi.mocked(c.getThreadInbox).mockResolvedValue({ items: [{ rootMessage: { ...inboxPage.items[0].rootMessage, mentions: [] }, channelName: 'c', lastReplyAt: 't' }], nextCursor: null });
+    const out = await run(c, { sections: ['threads'] });
+    expect(out.threads.items[0].body).toBe('배포 일정 @(알 수 없는 사용자) 확인 부탁');
   });
 
   it('스레드 본문은 미리보기 길이(200자)로 자른다', async () => {

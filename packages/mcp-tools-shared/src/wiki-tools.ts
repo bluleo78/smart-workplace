@@ -6,7 +6,7 @@ import { dropEmpty, omitKeys, truncatedView } from './compact.js';
 import type { SharedTool } from './mcp-tool.js';
 import type { WikiPageRow, WikiToolClient } from './tool-client.js';
 
-// WP-357: spaceId 로 한 스페이스 안에서만 찾는다(서버 WikiSearchController 의 spaceId — 멤버가 아니면 서버가 빈 결과).
+// WP-357: spaceId 로 한 스페이스 안에서만 찾는다(서버 WikiSearchController 의 spaceId — 멤버가 아니면 서버가 requireRole(VIEWER) 로 404 를 던진다).
 export const searchWikiInput = z.object({
   query: z.string().min(1),
   spaceId: z.number().int().positive().optional(),
