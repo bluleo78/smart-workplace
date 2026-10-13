@@ -11,12 +11,14 @@ import { dateContextDirective } from './assistant-system-prompt.js';
 import { DEFAULT_MODEL } from './model-defaults.js';
 import { type RunAgentDeps } from './run-agent.js';
 import { finalText, finalUsage, resultOk } from './runner-events.js';
-import { formatScreenContext, screenContextSchema } from './screen-context.js';
+import { formatScreenContext, oneLine, screenContextSchema } from './screen-context.js';
 
 /** 추천 문구 최대 길이(코드포인트) — 칩 한 줄에 들어가는 길이(스펙 §4.3). */
 export const MAX_SUGGESTION_CHARS = 40;
 /** 후속 질문에 싣는 답 앞부분 — 긴 답이 프롬프트를 독점하지 않게(스펙 §5.1). */
 const ANSWER_MAX_CHARS = 4_000;
+/** 후속 질문에 싣는 질문 앞부분 — API(HomeFollowupService.QUESTION_MAX_CHARS)도 같은 값으로 잘라 보낸다. 여기서는 방어로 한 번 더. */
+const QUESTION_MAX_CHARS = 1_000;
 /** 파싱 대상 응답 상한 — 배열 탐색이 최악 O(n²) 라 비정상적으로 긴 출력은 앞부분만 본다. */
 const PARSE_MAX_CHARS = 8_000;
 
@@ -100,14 +102,15 @@ export function seoulNowLabel(now: Date): string {
 export function buildStarterMessage(input: SuggestionsInput, now: Date): string {
   const parts = [`## 지금\n${seoulNowLabel(now)}`];
   if (input.screenContext) parts.push(formatScreenContext(input.screenContext));
-  else if (input.recentTitles?.length) parts.push(`## 최근 대화 제목\n${input.recentTitles.map((t) => `- ${t}`).join('\n')}`);
+  // 제목은 사용자 입력에서 온다 — 화면 블록과 같은 한 줄 평탄화로 줄바꿈·"## " 가 블록 머리를 흉내내지 못하게 한다.
+  else if (input.recentTitles?.length) parts.push(`## 최근 대화 제목\n${input.recentTitles.map((t) => `- ${oneLine(t)}`).join('\n')}`);
   parts.push(`질문 ${input.count}개를 JSON 배열로.`);
   return parts.join('\n\n');
 }
 
-/** followup user 메시지 — 이번 질문·답(앞 4000자)·화면 블록 + 요청. */
+/** followup user 메시지 — 이번 질문(앞 1000자, 한 줄)·답(앞 4000자)·화면 블록 + 요청. 답은 마크다운이라 평탄화하지 않는다. */
 export function buildFollowupMessage(input: SuggestionsInput): string {
-  const question = input.question?.trim() ? input.question : '(첨부만 보냄)';
+  const question = input.question?.trim() ? oneLine(input.question.slice(0, QUESTION_MAX_CHARS)) : '(첨부만 보냄)';
   const answer = (input.answer ?? '').slice(0, ANSWER_MAX_CHARS);
   const parts = [`## 사용자 질문\n${question}`, `## AI 답\n${answer}`];
   if (input.screenContext) parts.push(formatScreenContext(input.screenContext));
