@@ -29,27 +29,21 @@ const isTextControl = (el: EventTarget | null) => el instanceof HTMLElement && e
 // 패널 안 버튼·링크를 메뉴 항목처럼 — 전폭·좌측 정렬·44px 높이·아이콘과 글자 가로 배치, 배경/테두리 제거(주 버튼의 흰 글자는 전경색으로).
 // 링크(Button asChild + Link 등)도 버튼과 같은 모양이어야 해서 두 요소에 같은 규칙을 준다(U3-C3).
 // 파괴적 항목(text-destructive)은 색을 유지한다.
-// 켜진 토글(aria-pressed=true → menuitemcheckbox 체크)은 위 규칙이 배경·테두리·글자색을 걷어내 꺼짐과 똑같아 보이므로,
-// 상자 없는 토글 켜짐 표시를 따로 준다(WP-368). selectionStyles 의 TOGGLE_ON_TEXT_CLASS(font-semibold text-primary)와 같은 값 —
-// Tailwind 는 클래스를 소스 문자열에서 통째로 뽑으므로 상수·템플릿으로 조합하면 생성되지 않는다 — 전체를 리터럴로 맞춰 둔다(바꿀 땐 함께).
-// 메뉴 항목(button·a)에만, 파괴적 항목은 빨강 유지(:not) — 특이도 (0,3,1)로 위 :is() 규칙과 text-destructive 규칙보다 확실히 우선한다.
-const pressedClass =
-  '[&_:is(button,a)[aria-pressed=true]:not(.text-destructive)]:font-semibold [&_:is(button,a)[aria-pressed=true]:not(.text-destructive)]:text-primary'
+// 켜진 토글(aria-pressed=true)은 위 규칙에 켜짐 표시까지 걷히므로 TOGGLE_ON_TEXT_CLASS 와 같은 값을 되살린다(파괴적 항목 제외, WP-368).
+// Tailwind 는 소스의 리터럴만 생성하므로 상수를 조합하지 못한다 — selectionStyles 를 바꾸면 함께 바꾼다.
 const panelClass = cn(
   'absolute right-0 top-full z-50 mt-1 w-56 max-w-[calc(100vw-2rem)] flex-col items-stretch gap-0.5 rounded-md border bg-popover p-1 text-popover-foreground shadow-md',
   '[&_input]:w-full [&_select]:w-full',
   '[&_:is(button,a)]:flex [&_:is(button,a)]:min-h-11 [&_:is(button,a)]:w-full [&_:is(button,a)]:items-center [&_:is(button,a)]:gap-2 [&_:is(button,a)]:justify-start [&_:is(button,a)]:rounded-sm [&_:is(button,a)]:border-0 [&_:is(button,a)]:bg-transparent [&_:is(button,a)]:px-3 [&_:is(button,a)]:text-left [&_:is(button,a)]:text-sm [&_:is(button,a)]:text-foreground [&_:is(button,a)]:shadow-none',
   '[&_:is(button,a):hover]:bg-accent [&_.text-destructive]:text-destructive',
-  pressedClass,
+  '[&_:is(button,a)[aria-pressed=true]:not(.text-destructive)]:font-semibold [&_:is(button,a)[aria-pressed=true]:not(.text-destructive)]:text-primary',
 )
 
 // 한 항목 인라인(R7) — 헤더 우측 텍스트 액션(탭 편집 [저장]과 같은 무게). 원래 버튼의 채움·테두리는 걷어낸다.
-// 인라인 항목은 원래 primary 굵은 글자라 켜진 토글은 연한 primary 배경(TOGGLE_ON 채움)으로 구분한다(WP-368).
 const inlineClass = cn(
   'flex items-center',
   '[&_:is(button,a)]:flex [&_:is(button,a)]:h-11 [&_:is(button,a)]:items-center [&_:is(button,a)]:gap-1 [&_:is(button,a)]:whitespace-nowrap [&_:is(button,a)]:rounded-md [&_:is(button,a)]:border-0 [&_:is(button,a)]:bg-transparent [&_:is(button,a)]:px-3 [&_:is(button,a)]:text-[15px] [&_:is(button,a)]:font-semibold [&_:is(button,a)]:text-primary [&_:is(button,a)]:shadow-none',
   '[&_:is(button,a):disabled]:text-muted-foreground [&_.text-destructive]:text-destructive',
-  '[&_:is(button,a)[aria-pressed=true]]:bg-primary/10',
 )
 
 export function MobileHeaderMore({

@@ -2,7 +2,7 @@ import type { Locator, Page } from '@playwright/test'
 import { expect, test } from '../fixtures/auth.fixture'
 import { mockApi } from '../fixtures/api-mock'
 import { measureBox, stableBox } from '../fixtures/wait'
-import { computedBgs, expectToggle } from '../fixtures/selection'
+import { expectToggle } from '../fixtures/selection'
 import { expectHeaderBottomAt56 } from '../fixtures/layout'
 import { createUser } from '../factories/auth.factory'
 import { type HomeChatStartBody, mockHomeChatGeneration, mockHomeProposals, mockStreamingHomeChat, proposal } from '../fixtures/home-chat-mock'
@@ -331,15 +331,17 @@ test('사이드 패널 헤더 닫기 버튼으로 패널이 닫히고 본문이 
   const fullBtn = header.getByTestId('ai-mode-fullscreen')
   await expectToggle(sideBtn, true)
   await expectToggle(fullBtn, false)
-  const [onBg, offBg] = await computedBgs(sideBtn, fullBtn)
-  expect(onBg, '켜진 모드 버튼 배경이 꺼진 버튼과 달라야 한다').not.toBe(offBg)
-  // 꺼진 버튼도 1px 투명 테두리를 가져 켜질 때 크기가 밀리지 않고, 켜진 버튼의 테두리는 보인다(primary).
-  const border = (l: Locator) => l.evaluate((el) => ({ w: getComputedStyle(el).borderTopWidth, c: getComputedStyle(el).borderTopColor }))
-  const [onBorder, offBorder] = await Promise.all([border(sideBtn), border(fullBtn)])
-  expect(onBorder.w).toBe('1px')
-  expect(offBorder.w).toBe('1px')
-  expect(offBorder.c).toBe('rgba(0, 0, 0, 0)')
-  expect(onBorder.c).not.toBe('rgba(0, 0, 0, 0)')
+  // 켜진 버튼은 배경·테두리가 보이고, 꺼진 버튼도 1px 투명 테두리라 켜질 때 크기가 밀리지 않는다.
+  const look = (l: Locator) =>
+    l.evaluate((el) => {
+      const s = getComputedStyle(el)
+      return { bg: s.backgroundColor, borderWidth: s.borderTopWidth, borderColor: s.borderTopColor }
+    })
+  const [on, off] = await Promise.all([look(sideBtn), look(fullBtn)])
+  expect(on.bg, '켜진 모드 버튼 배경이 꺼진 버튼과 달라야 한다').not.toBe(off.bg)
+  expect(off).toMatchObject({ borderWidth: '1px', borderColor: 'rgba(0, 0, 0, 0)' })
+  expect(on.borderWidth).toBe('1px')
+  expect(on.borderColor).not.toBe('rgba(0, 0, 0, 0)')
   // 패널 헤더가 대화 선택 스위처 위 레이어에 위치한다.
   // 패널이 자리 잡는 중 옛 배치를 잴 수 있어 측정+단언을 한 단위로 재시도한다 (WP-225).
   await expect(async () => {

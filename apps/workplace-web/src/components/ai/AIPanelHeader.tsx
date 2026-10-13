@@ -19,8 +19,7 @@ export function AIPanelControls() {
   const { mode, open, close } = useAssistant();
 
   // 모드 버튼 — 현재 모드는 눌린 상태(aria-pressed)로 강조하고, 다른 모드를 누르면 그 모드로 전환한다.
-  // 켜짐은 공용 토글 표시(ghostToggleClass — 꺼짐에도 투명 테두리라 켜질 때 크기가 밀리지 않는다).
-  // 예전 bg-muted 는 hover 와 같은 색이라 구분되지 않았다(WP-368).
+  // 켜짐은 공용 토글 표시 — 예전 bg-muted 는 hover 와 같은 색이라 구분되지 않았다(WP-368).
   const modeButton = (target: Exclude<AIMode, 'closed'>, label: string, Icon: typeof Monitor) => (
     <button
       type="button"
