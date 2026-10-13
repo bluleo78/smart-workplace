@@ -129,11 +129,12 @@ public class AgentWorkService {
   }
 
   /**
-   * 종료 — 진행 중이면 지정한 종료 상태(COMPLETED·FAILED·CANCELED·REJECTED)로 끝내고 알림, 없으면 false. 행의 tool 이 비어
-   * 있으면(시작 전 SUBMITTED 에서 곧바로 종료 보고) 요청의 도구 값을 같은 문장에서 채운다.
+   * 종료 — 진행 중이면 지정한 종료 상태(COMPLETED·FAILED·CANCELED·REJECTED)로 끝내고 알림, 없으면 false. values 의 tool 은
+   * 행의 tool 이 비어 있을 때(시작 전 SUBMITTED 에서 곧바로 종료 보고) 채우고, note·진행률·단계 수는 보낸 것만 같은 문장에서 덮어 종료 이벤트에 마지막
+   * 보고 값이 담긴다.
    */
-  public boolean end(long issueId, long workerId, String terminalState, String tool) {
-    if (repository.endActiveForWorker(issueId, workerId, terminalState, tool) == 0) {
+  public boolean end(long issueId, long workerId, String terminalState, AgentWorkPatch values) {
+    if (repository.endActiveForWorker(issueId, workerId, terminalState, values) == 0) {
       return false;
     }
     notifyChanged(issueId, workerId);

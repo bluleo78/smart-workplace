@@ -63,12 +63,24 @@ public class AgentWorkReportService {
     // 종료 상태(COMPLETED·FAILED·CANCELED·REJECTED)는 진행 상태 갱신이 아니라 작업 행을 닫는 신호다.
     // startOrUpdate 에 넘기지 않고, TODO 이슈도 IN_PROGRESS 로 올리지 않으며 이슈 상태는 건드리지 않는다.
     if (AgentWorkState.isTerminal(req.state())) {
-      // message 는 상태와 무관한 챗 글(스펙 §4.1) — 종료 보고여도 먼저 올린다(질문 표시 없음). note·progress 는 종료라 무시.
+      // message 는 상태와 무관한 챗 글(스펙 §4.1) — 종료 보고여도 먼저 올린다(질문 표시 없음).
       if (hasMessage) {
         chatPoster.post(callerId, projectKey, number, req.message());
       }
-      // 착수 전(SUBMITTED)에서 곧바로 종료 보고하면 행의 tool 이 비어 있으므로 요청의 도구를 종료와 함께 채운다.
-      agentWorkService.end(issue.id(), callerId, req.state(), tool);
+      // 착수 전(SUBMITTED)에서 곧바로 종료 보고하면 행의 tool 이 비어 있으므로 요청의 도구를 종료와 함께 채우고, 보고에 담긴 마지막
+      // note·progress·단계 수도 같은 문장에서 반영한다(note 는 일반 보고와 같은 규칙으로 정한다).
+      agentWorkService.end(
+          issue.id(),
+          callerId,
+          req.state(),
+          new AgentWorkPatch(
+              tool,
+              null,
+              noteFor(req, hasMessage),
+              "".equals(req.note()),
+              req.progress(),
+              req.stepsDone(),
+              req.stepsTotal()));
       return new AgentWorkReportResponse(null, true);
     }
 
@@ -80,12 +92,7 @@ public class AgentWorkReportService {
     Long messageId =
         hasMessage ? chatPoster.post(callerId, projectKey, number, req.message()) : null;
 
-    // note: 빈 문자열은 지우기, 미지정이면 message 첫 줄(최대 120자)로 대체.
     boolean clearNote = "".equals(req.note());
-    String note =
-        req.note() == null
-            ? (hasMessage ? firstLine(req.message()) : null)
-            : (clearNote ? null : req.note());
 
     var view =
         agentWorkService.startOrUpdate(
@@ -95,7 +102,7 @@ public class AgentWorkReportService {
             new AgentWorkPatch(
                 tool,
                 req.state(),
-                note,
+                noteFor(req, hasMessage),
                 clearNote,
                 req.progress(),
                 req.stepsDone(),
@@ -108,6 +115,12 @@ public class AgentWorkReportService {
       chatPoster.markQuestion(messageId);
     }
     return new AgentWorkReportResponse(view, false);
+  }
+
+  /** 보고의 note: 빈 문자열은 지우기(null + clearNote), 미지정이면 message 첫 줄(최대 120자)로 대체, 둘 다 없으면 null(유지). */
+  private static String noteFor(ReportAgentWorkRequest req, boolean hasMessage) {
+    if (req.note() == null) return hasMessage ? firstLine(req.message()) : null;
+    return req.note().isEmpty() ? null : req.note();
   }
 
   /** message 첫 줄(앞뒤 공백 제거)을 note 한도로 자른다. */

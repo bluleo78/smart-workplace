@@ -1,5 +1,7 @@
 package com.workplace.issue.controller;
 
+import static com.workplace.jooq.Tables.AGENT_WORK;
+import static com.workplace.jooq.Tables.AGENT_WORK_EVENT;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.issue.AgentWorkTestSupport;
@@ -99,6 +101,152 @@ class AgentWorkControllerTest extends AgentWorkTestSupport {
     assertThat(allStates(issueId, agentId)).containsExactly(terminal);
     assertThat(eventStates(issueId, agentId)).endsWith(terminal);
     assertThat(issueStatus()).isEqualTo("TODO");
+  }
+
+  /** 종료 보고에 담긴 마지막 note·단계 수가 작업 행과 종료 이벤트(하나뿐)에 최종 값으로 남는다. */
+  @Test
+  void 종료상태_보고의_note_와_단계수가_행과_종료_이벤트에_반영() {
+    putReport(akToken, TOOL, Map.of("note", "작업 중", "stepsDone", 2, "stepsTotal", 3));
+    int before = eventCount();
+    var r =
+        putReport(
+            akToken,
+            TOOL,
+            Map.of("state", "COMPLETED", "note", "모두 끝", "stepsDone", 3, "stepsTotal", 3));
+    assertThat(r.getStatusCode()).isEqualTo(HttpStatus.OK);
+    var row = lastWork();
+    assertThat(row.state()).isEqualTo("COMPLETED");
+    assertThat(row.note()).isEqualTo("모두 끝");
+    assertThat(row.stepsDone()).isEqualTo((short) 3);
+    assertThat(row.stepsTotal()).isEqualTo((short) 3);
+    // 종료 보고 한 번에 이벤트도 정확히 하나, 최종 값을 담는다.
+    assertThat(eventCount()).isEqualTo(before + 1);
+    var ev = lastEvent();
+    assertThat(ev.state()).isEqualTo("COMPLETED");
+    assertThat(ev.note()).isEqualTo("모두 끝");
+    assertThat(ev.stepsDone()).isEqualTo((short) 3);
+    assertThat(ev.stepsTotal()).isEqualTo((short) 3);
+  }
+
+  /** note 미지정 + message 면 일반 보고처럼 message 첫 줄이 note 가 되고, progress 도 반영한다. */
+  @Test
+  void 종료상태_보고도_note_미지정이면_message_첫줄을_note_로() {
+    putReport(akToken, TOOL, Map.of("note", "작업 중"));
+    putReport(
+        akToken, TOOL, Map.of("state", "COMPLETED", "message", "마무리했습니다\n세부 설명", "progress", 100));
+    var row = lastWork();
+    assertThat(row.note()).isEqualTo("마무리했습니다");
+    assertThat(row.progress()).isEqualTo((short) 100);
+    assertThat(lastEvent().note()).isEqualTo("마무리했습니다");
+  }
+
+  /** note 빈 문자열은 일반 보고처럼 지운다. */
+  @Test
+  void 종료상태_보고의_빈_note_는_note_를_지움() {
+    putReport(akToken, TOOL, Map.of("note", "작업 중"));
+    putReport(akToken, TOOL, Map.of("state", "FAILED", "note", ""));
+    assertThat(lastWork().note()).isNull();
+    assertThat(lastEvent().note()).isNull();
+  }
+
+  /** 종료 보고가 note·진행률·단계 수를 보내지 않으면 직전 값이 그대로이고 이벤트는 하나만 는다. */
+  @Test
+  void 종료상태_보고에_값이_없으면_직전_값_유지() {
+    putReport(
+        akToken, TOOL, Map.of("note", "작업 중", "progress", 60, "stepsDone", 2, "stepsTotal", 3));
+    int before = eventCount();
+    assertOk(putReport(akToken, TOOL, Map.of("state", "CANCELED")));
+    var row = lastWork();
+    assertThat(row.state()).isEqualTo("CANCELED");
+    assertThat(row.note()).isEqualTo("작업 중");
+    assertThat(row.progress()).isEqualTo((short) 60);
+    assertThat(row.stepsDone()).isEqualTo((short) 2);
+    assertThat(row.stepsTotal()).isEqualTo((short) 3);
+    assertThat(eventCount()).isEqualTo(before + 1);
+    var ev = lastEvent();
+    assertThat(ev.note()).isEqualTo("작업 중");
+    assertThat(ev.stepsDone()).isEqualTo((short) 2);
+  }
+
+  /** 시작 전(SUBMITTED)에서 곧바로 종료 보고해도 보고의 note·단계 수가 담긴다. */
+  @Test
+  void 시작전_행에서_바로_종료_보고해도_값이_반영() {
+    seedSubmitted(issueId, agentId);
+    assertOk(
+        putReport(
+            akToken,
+            TOOL,
+            Map.of("state", "COMPLETED", "note", "바로 끝", "stepsDone", 1, "stepsTotal", 1)));
+    var row = lastWork();
+    assertThat(row.state()).isEqualTo("COMPLETED");
+    assertThat(row.tool()).isEqualTo(TOOL);
+    assertThat(row.note()).isEqualTo("바로 끝");
+    assertThat(row.stepsTotal()).isEqualTo((short) 1);
+    assertThat(lastEvent().note()).isEqualTo("바로 끝");
+  }
+
+  /** 작업 행·이벤트에서 검증에 필요한 값만 담는 조회 결과. */
+  private record Snapshot(
+      String state, String note, Short progress, Short stepsDone, Short stepsTotal, String tool) {}
+
+  /** (이슈, AI 구성원)의 가장 최근 작업 행. */
+  private Snapshot lastWork() {
+    return inTenant(
+        () ->
+            dsl.select(
+                    AGENT_WORK.STATE,
+                    AGENT_WORK.NOTE,
+                    AGENT_WORK.PROGRESS,
+                    AGENT_WORK.STEPS_DONE,
+                    AGENT_WORK.STEPS_TOTAL,
+                    AGENT_WORK.TOOL)
+                .from(AGENT_WORK)
+                .where(AGENT_WORK.ISSUE_ID.eq(issueId))
+                .and(AGENT_WORK.WORKER_ID.eq(agentId))
+                .orderBy(AGENT_WORK.ID.desc())
+                .limit(1)
+                .fetchOne(
+                    r ->
+                        new Snapshot(
+                            r.get(AGENT_WORK.STATE),
+                            r.get(AGENT_WORK.NOTE),
+                            r.get(AGENT_WORK.PROGRESS),
+                            r.get(AGENT_WORK.STEPS_DONE),
+                            r.get(AGENT_WORK.STEPS_TOTAL),
+                            r.get(AGENT_WORK.TOOL))));
+  }
+
+  /** (이슈, AI 구성원)의 마지막 이벤트. */
+  private Snapshot lastEvent() {
+    return inTenant(
+        () ->
+            dsl.select(
+                    AGENT_WORK_EVENT.STATE,
+                    AGENT_WORK_EVENT.NOTE,
+                    AGENT_WORK_EVENT.PROGRESS,
+                    AGENT_WORK_EVENT.STEPS_DONE,
+                    AGENT_WORK_EVENT.STEPS_TOTAL)
+                .from(AGENT_WORK_EVENT)
+                .join(AGENT_WORK)
+                .on(AGENT_WORK.ID.eq(AGENT_WORK_EVENT.WORK_ID))
+                .where(AGENT_WORK.ISSUE_ID.eq(issueId))
+                .and(AGENT_WORK.WORKER_ID.eq(agentId))
+                .orderBy(AGENT_WORK_EVENT.ID.desc())
+                .limit(1)
+                .fetchOne(
+                    r ->
+                        new Snapshot(
+                            r.get(AGENT_WORK_EVENT.STATE),
+                            r.get(AGENT_WORK_EVENT.NOTE),
+                            r.get(AGENT_WORK_EVENT.PROGRESS),
+                            r.get(AGENT_WORK_EVENT.STEPS_DONE),
+                            r.get(AGENT_WORK_EVENT.STEPS_TOTAL),
+                            null)));
+  }
+
+  /** (이슈, AI 구성원)의 이벤트 수. */
+  private int eventCount() {
+    return eventStates(issueId, agentId).size();
   }
 
   @Test

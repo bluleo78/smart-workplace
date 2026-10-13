@@ -258,14 +258,15 @@ public class AgentWorkRepository {
   }
 
   /**
-   * 작업자 본인의 종료 보고용 — 종료와 같은 문장에서 행의 tool 이 비어 있으면(착수 전 SUBMITTED 에서 곧바로 종료 보고) 요청의 도구 값을 채운다. 이벤트는
-   * 한 번만 남는다.
+   * 작업자 본인의 종료 보고용 — 종료와 같은 문장에서 행의 tool 이 비어 있으면(착수 전 SUBMITTED 에서 곧바로 종료 보고) 패치의 도구 값을 채우고, 보고에
+   * 담긴 note·진행률·단계 수가 있으면 함께 덮는다(마지막 보고가 종료 이벤트에 담기도록). 패치의 state 는 쓰지 않는다(종료 상태가 따로 있다). 이벤트는 한 번만
+   * 남는다.
    */
   public int endActiveForWorker(
-      long issueId, long workerId, String terminalState, String fillTool) {
+      long issueId, long workerId, String terminalState, AgentWorkPatch values) {
     return end(
         terminalState,
-        fillTool,
+        values,
         AGENT_WORK.ISSUE_ID.eq(issueId).and(AGENT_WORK.WORKER_ID.eq(workerId)));
   }
 
@@ -293,12 +294,12 @@ public class AgentWorkRepository {
   }
 
   /**
-   * 진행 중 행(조건 + ended_at IS NULL)을 종료 상태로 닫고 이벤트를 남긴다(fillTool 이 있으면 빈 tool 을 채운다). 종료 상태가 아니면 DB
-   * 정합 CHECK 가 막기 전에 여기서 거절한다.
+   * 진행 중 행(조건 + ended_at IS NULL)을 종료 상태로 닫고 이벤트를 남긴다(values 가 있으면 빈 tool 을 채우고 보낸 note·진행률·단계 수를
+   * 덮는다). 종료 상태가 아니면 DB 정합 CHECK 가 막기 전에 여기서 거절한다.
    */
-  private int end(String terminalState, String fillTool, Condition where) {
+  private int end(String terminalState, AgentWorkPatch values, Condition where) {
     return recordEvents(
-        endStatement(terminalValue(terminalState), fillTool, where, EVENT_SOURCE_FIELDS), false);
+        endStatement(terminalValue(terminalState), values, where, EVENT_SOURCE_FIELDS), false);
   }
 
   /** {@link #end} 와 같되 종료한 행의 이슈 id 를 돌려준다(RETURNING 에 issue_id 를 덧붙여 CTE 에서 고른다). */
@@ -321,14 +322,32 @@ public class AgentWorkRepository {
 
   /** 진행 중 행을 종료 상태(상수 또는 행별 식)로 닫는 UPDATE … RETURNING. */
   private ResultQuery<?> endStatement(
-      Field<String> terminalState, String fillTool, Condition where, List<Field<?>> returning) {
+      Field<String> terminalState,
+      AgentWorkPatch values,
+      Condition where,
+      List<Field<?>> returning) {
     var step =
         dsl.update(AGENT_WORK)
             .set(AGENT_WORK.STATE, terminalState)
             .set(AGENT_WORK.ENDED_AT, DSL.currentOffsetDateTime());
-    // 도구를 모르는 행(SUBMITTED)에 요청의 도구를 채운다 — 이미 값이 있으면 유지.
-    if (fillTool != null) {
-      step = step.set(AGENT_WORK.TOOL, DSL.coalesce(AGENT_WORK.TOOL, DSL.val(fillTool)));
+    if (values != null) {
+      // 도구를 모르는 행(SUBMITTED)에 요청의 도구를 채운다 — 이미 값이 있으면 유지.
+      if (values.tool() != null) {
+        step = step.set(AGENT_WORK.TOOL, DSL.coalesce(AGENT_WORK.TOOL, DSL.val(values.tool())));
+      }
+      // 종료 보고에 담긴 마지막 note·진행률·단계 수는 같은 문장에서 반영해 종료 이벤트가 최종 값을 담게 한다. 보내지 않은 필드는 유지(update 와 같은
+      // 규칙).
+      if (values.clearNote()) {
+        step = step.setNull(AGENT_WORK.NOTE);
+      } else if (values.note() != null) {
+        step = step.set(AGENT_WORK.NOTE, values.note());
+      }
+      if (values.progress() != null)
+        step = step.set(AGENT_WORK.PROGRESS, values.progress().shortValue());
+      if (values.stepsDone() != null)
+        step = step.set(AGENT_WORK.STEPS_DONE, values.stepsDone().shortValue());
+      if (values.stepsTotal() != null)
+        step = step.set(AGENT_WORK.STEPS_TOTAL, values.stepsTotal().shortValue());
     }
     return step.where(where).and(AGENT_WORK.ENDED_AT.isNull()).returning(returning);
   }
