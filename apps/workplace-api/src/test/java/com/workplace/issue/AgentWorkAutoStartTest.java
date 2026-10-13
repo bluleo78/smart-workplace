@@ -13,7 +13,6 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpMethod;
-import org.springframework.http.ResponseEntity;
 
 /**
  * MCP(수행 도구 헤더) 경유 이슈 쓰기 → AI 작업 자동 시작·상태 복귀(WP-377, 스펙 §4.2). PAT·ak_·JWT 로 실제 HTTP 요청을 보내 인증 필터가
@@ -22,11 +21,6 @@ import org.springframework.http.ResponseEntity;
 class AgentWorkAutoStartTest extends AgentWorkTestSupport {
 
   @Autowired private AgentWorkService agentWorkService;
-
-  /** 요청이 성공했는지 — 실패 응답이면 본문을 메시지로 보여준다. */
-  private static void assertOk(ResponseEntity<String> res) {
-    assertThat(res.getStatusCode().is2xxSuccessful()).as(res.getBody()).isTrue();
-  }
 
   @Test
   void PAT_헤더있는_쓰기_담당자면_WORKING_생성() {

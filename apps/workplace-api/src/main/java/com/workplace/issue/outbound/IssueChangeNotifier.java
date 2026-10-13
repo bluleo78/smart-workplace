@@ -34,21 +34,14 @@ public class IssueChangeNotifier {
    */
   public void updated(ProjectRow project, int issueNumber, long issueId, Long actorId) {
     changed(project, issueNumber, issueId, ResourceChangedEvent.OP_UPDATED, actorId);
-    AgentToolWriteEvent.publishIfAgentTool(publisher, issueId, actorId);
-  }
-
-  /**
-   * AI 작업 기록(agent_work) 변경 알림(WP-377). {@link #updated} 와 같은 이벤트를 내보내 화면이 이슈를 다시 읽게 한다. 이슈 쓰기가
-   * 아니므로 수행 도구 터치 이벤트({@link AgentToolWriteEvent})는 발행하지 않는다 — 터치 리스너가 이 메서드로 변경을 알리므로, 여기서 발행하면 터치
-   * → 알림 → 터치로 무한 재귀한다.
-   */
-  public void agentWorkChanged(ProjectRow project, int issueNumber, long issueId, Long actorId) {
-    updatedWithoutTouch(project, issueNumber, issueId, actorId);
+    // 위에서 이슈 이벤트를 이미 냈으므로 터치 리스너는 알림을 다시 내지 않는다(issueNotified=true).
+    AgentToolWriteEvent.publishIfAgentTool(publisher, issueId, actorId, true);
   }
 
   /**
    * 화면 갱신용 수정 알림만 내고 AI 작업 터치({@link AgentToolWriteEvent})는 내지 않는다(WP-377). 이슈 자체를 쓰지 않은 변경 — 워치
-   * 등록·해제, 의존성 추가·제거에서 호출자가 직접 쓰지 않은 상대 이슈 — 에 쓴다. 이런 쓰기로 그 이슈의 AI 작업이 시작·재개되면 안 되기 때문.
+   * 등록·해제, 의존성 추가·제거에서 호출자가 직접 쓰지 않은 상대 이슈 — 에 쓴다. 이런 쓰기로 그 이슈의 AI 작업이 시작·재개되면 안 되기 때문. AI 작업
+   * 기록(agent_work) 변경 알림도 이 메서드를 쓴다 — 터치 리스너가 이 알림을 내므로 터치 이벤트를 발행하면 터치 → 알림 → 터치로 무한 재귀한다.
    */
   public void updatedWithoutTouch(ProjectRow project, int issueNumber, long issueId, Long actorId) {
     changed(project, issueNumber, issueId, ResourceChangedEvent.OP_UPDATED, actorId);

@@ -114,7 +114,7 @@ class AgentWorkServiceTest extends IntegrationTestBase {
   void endAllForIssue_진행중_전부_종료() {
     service.startOrUpdate(issueId, humanId, "claude-code", AgentWorkPatch.empty());
     service.startOrUpdate(issueId, agentId, "claude-code", AgentWorkPatch.empty());
-    service.endAllForIssue(issueId);
+    service.endAllForIssues(List.of(issueId));
     assertThat(service.viewsByIssueIds(List.of(issueId))).doesNotContainKey(issueId);
   }
 }

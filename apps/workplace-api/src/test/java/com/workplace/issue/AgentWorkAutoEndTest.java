@@ -8,18 +8,12 @@ import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
-import org.springframework.http.ResponseEntity;
 
 /**
  * 이슈 종료·담당 해제 → AI 작업 자동 종료(WP-377, 스펙 §4.3). 종료 뒤 MCP 쓰기·재오픈이 작업을 되살리지 않는지도 검증한다. 시각 단언 없이 상태·개수만
  * 본다.
  */
 class AgentWorkAutoEndTest extends AgentWorkTestSupport {
-
-  /** 요청이 성공했는지 — 거절로 인한 거짓 통과를 막는다. */
-  private static void assertOk(ResponseEntity<String> res) {
-    assertThat(res.getStatusCode().is2xxSuccessful()).as(res.getBody()).isTrue();
-  }
 
   @Test
   void 웹에서_DONE_으로_바꾸면_그_이슈_작업_전부_종료() {

@@ -55,7 +55,7 @@ class AgentWorkRepositoryTest extends IntegrationTestBase {
   @Test
   void endActive_후_다시_만들면_새_행() {
     var a = repo.insertIfAbsent(issueId, humanId, "claude-code", "WORKING").orElseThrow();
-    assertThat(repo.endActive(issueId)).isEqualTo(1);
+    assertThat(repo.endActive(List.of(issueId))).isEqualTo(1);
     assertThat(repo.findActive(issueId, humanId)).isEmpty();
     var b = repo.insertIfAbsent(issueId, humanId, "claude-code", "WORKING").orElseThrow();
     assertThat(b.id()).isNotEqualTo(a.id());

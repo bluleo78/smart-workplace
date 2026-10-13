@@ -11,7 +11,10 @@ import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
+import static org.assertj.core.api.Assertions.assertThat;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.dto.IssueAgentKeyRequest;
 import com.workplace.auth.dto.IssueUserTokenRequest;
 import com.workplace.auth.service.AgentApiKeyService;
@@ -270,17 +273,26 @@ public abstract class AgentWorkTestSupport extends IntegrationTestBase {
     return call(HttpMethod.PUT, issuePath() + "/agent-work", token, body, tool);
   }
 
-  /** 이슈 챗 스레드를 만들고(없으면) id 를 돌려준다 — 사람 JWT 로 GET. */
-  protected long chatThreadId() {
-    var res = call(HttpMethod.GET, issuePath() + "/chat/thread", jwtToken, null, null);
+  private static final ObjectMapper MAPPER = new ObjectMapper();
+
+  /** 요청이 성공(2xx)했는지 — 거절로 인한 거짓 통과를 막는다. 실패 응답이면 본문을 메시지로 보여준다. */
+  protected static void assertOk(ResponseEntity<String> res) {
+    assertThat(res.getStatusCode().is2xxSuccessful()).as(res.getBody()).isTrue();
+  }
+
+  /** 응답 본문을 JSON 으로 파싱한다. */
+  protected static JsonNode json(ResponseEntity<String> res) {
     try {
-      return new com.fasterxml.jackson.databind.ObjectMapper()
-          .readTree(res.getBody())
-          .get("threadId")
-          .asLong();
+      return MAPPER.readTree(res.getBody());
     } catch (Exception e) {
       throw new IllegalStateException(res.getBody(), e);
     }
+  }
+
+  /** 이슈 챗 스레드를 만들고(없으면) id 를 돌려준다 — 사람 JWT 로 GET. */
+  protected long chatThreadId() {
+    var res = call(HttpMethod.GET, issuePath() + "/chat/thread", jwtToken, null, null);
+    return json(res).get("threadId").asLong();
   }
 
   /** 이슈 챗 글 작성(사람 JWT 등 지정 토큰). */
@@ -296,7 +308,7 @@ public abstract class AgentWorkTestSupport extends IntegrationTestBase {
   /** 이슈 챗 마지막 글(작성자 id·질문 표시). 없으면 null. */
   protected ChatRow lastChatMessage(long issueId) {
     var row = lastChatMessageOrNull(issueId);
-    org.assertj.core.api.Assertions.assertThat(row).as("이슈 %d 챗에 글이 없다", issueId).isNotNull();
+    assertThat(row).as("이슈 %d 챗에 글이 없다", issueId).isNotNull();
     return row;
   }
 

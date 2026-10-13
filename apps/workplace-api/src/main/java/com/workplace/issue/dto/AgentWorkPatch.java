@@ -13,6 +13,11 @@ public record AgentWorkPatch(
     Integer stepsDone,
     Integer stepsTotal) {
 
+  /** tool 만 지정값으로 덮은 사본 — 나머지 필드는 그대로. */
+  public AgentWorkPatch withTool(String newTool) {
+    return new AgentWorkPatch(newTool, state, note, clearNote, progress, stepsDone, stepsTotal);
+  }
+
   /** 아무것도 바꾸지 않는 패치 — updated_at 갱신(터치)만 할 때 쓴다. */
   public static AgentWorkPatch empty() {
     return new AgentWorkPatch(null, null, null, false, null, null, null);

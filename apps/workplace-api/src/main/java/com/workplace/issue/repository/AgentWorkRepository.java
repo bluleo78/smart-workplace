@@ -7,9 +7,9 @@ import static com.workplace.jooq.Tables.USER;
 import com.workplace.global.dto.UserSummary;
 import com.workplace.issue.dto.AgentWorkPatch;
 import com.workplace.issue.dto.AgentWorkState;
-import com.workplace.issue.dto.AgentWorkView;
 import com.workplace.issue.dto.IssueStatuses;
 import com.workplace.user.dto.UserKind;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
+import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.jooq.Field;
 import org.jooq.Record;
@@ -34,6 +35,9 @@ import org.springframework.stereotype.Repository;
 @Repository
 @RequiredArgsConstructor
 public class AgentWorkRepository {
+
+  /** 무소식 판정 기준 — WORKING 인데 마지막 보고가 이 시간 이상 지났으면 stale. */
+  public static final Duration STALE_AFTER = Duration.ofHours(2);
 
   private final DSLContext dsl;
 
@@ -53,6 +57,18 @@ public class AgentWorkRepository {
 
   /** 작업 행 + 작업자 요약(목록·상세 표시용). stale 은 DB 시계로 계산한 무소식 여부. */
   public record AgentWorkWithWorker(AgentWorkRow work, UserSummary worker, boolean stale) {}
+
+  /**
+   * "살아 있는 AI 작업" 의 단일 정의 — ISSUE 와 조인된 상태에서 진행 중(ended_at IS NULL)이고 이슈가 종료(DONE·CANCELED)되지 않은 행.
+   * 종료 이슈에 남은 진행 중 행은 작업으로 치지 않는다(조회·순위·건수·범위·필터 일관). 상관 서브쿼리({@code AiTaskRepository})도 이 조건을 쓴다.
+   */
+  public static Condition liveWork() {
+    return AGENT_WORK
+        .ISSUE_ID
+        .eq(ISSUE.ID)
+        .and(AGENT_WORK.ENDED_AT.isNull())
+        .and(ISSUE.STATUS.notIn(IssueStatuses.CLOSED));
+  }
 
   /** (이슈, 작업자)의 진행 중 작업 1건. */
   public Optional<AgentWorkRow> findActive(long issueId, long workerId) {
@@ -99,12 +115,7 @@ public class AgentWorkRepository {
     step.where(AGENT_WORK.ID.eq(id)).execute();
   }
 
-  /** 이슈의 진행 중 작업을 모두 종료한다. 종료한 행 수 반환. */
-  public int endActive(long issueId) {
-    return endActive(List.of(issueId));
-  }
-
-  /** 여러 이슈의 진행 중 작업을 한 번에 종료한다(이슈 삭제 시 부모+자식 등). 종료한 행 수 반환. */
+  /** 이슈들의 진행 중 작업을 한 번에 종료한다(종료 상태 진입은 1건, 이슈 삭제는 부모+자식 등). 종료한 행 수 반환. */
   public int endActive(Collection<Long> issueIds) {
     if (issueIds == null || issueIds.isEmpty()) return 0;
     return dsl.update(AGENT_WORK)
@@ -137,16 +148,6 @@ public class AgentWorkRepository {
         .execute();
   }
 
-  /** id 로 진행 중 작업 1건을 종료한다. 이미 끝났거나 없으면 false. */
-  public boolean endById(long id) {
-    return dsl.update(AGENT_WORK)
-            .set(AGENT_WORK.ENDED_AT, DSL.currentOffsetDateTime())
-            .where(AGENT_WORK.ID.eq(id))
-            .and(AGENT_WORK.ENDED_AT.isNull())
-            .execute()
-        > 0;
-  }
-
   /**
    * 이슈들의 진행 중 작업을 작업자 요약과 함께 한 번에 조회(N+1 회피). 이슈별 id 오름차순. 작업 없는 이슈는 키가 없다.
    *
@@ -165,7 +166,7 @@ public class AgentWorkRepository {
                         AGENT_WORK.UPDATED_AT.le(
                             DSL.field(
                                 "now() - make_interval(secs => {0})",
-                                OffsetDateTime.class, AgentWorkView.STALE_AFTER.toSeconds()))))
+                                OffsetDateTime.class, STALE_AFTER.toSeconds()))))
             .as("is_stale");
     var rows =
         dsl.select(AGENT_WORK.fields())
@@ -177,8 +178,7 @@ public class AgentWorkRepository {
             .join(ISSUE)
             .on(ISSUE.ID.eq(AGENT_WORK.ISSUE_ID))
             .where(AGENT_WORK.ISSUE_ID.in(issueIds))
-            .and(AGENT_WORK.ENDED_AT.isNull())
-            .and(ISSUE.STATUS.notIn(IssueStatuses.CLOSED))
+            .and(liveWork())
             .orderBy(AGENT_WORK.ID.asc())
             .fetch();
     Map<Long, List<AgentWorkWithWorker>> result = new LinkedHashMap<>();

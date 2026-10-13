@@ -2,7 +2,6 @@ package com.workplace.issue.dto;
 
 import com.workplace.global.dto.UserSummary;
 import com.workplace.issue.repository.AgentWorkRepository.AgentWorkWithWorker;
-import java.time.Duration;
 import java.time.Instant;
 
 /**
@@ -20,9 +19,6 @@ public record AgentWorkView(
     Instant startedAt,
     Instant updatedAt,
     boolean stale) {
-
-  /** 무소식 판정 기준 — WORKING 인데 마지막 보고가 이 시간 이상 지났으면 stale. */
-  public static final Duration STALE_AFTER = Duration.ofHours(2);
 
   /** 저장 행 + 작업자 → 뷰. stale 은 DB 시계로 조회 시 계산된 값을 그대로 쓴다(앱 서버 시계 차이 배제). */
   public static AgentWorkView of(AgentWorkWithWorker w) {

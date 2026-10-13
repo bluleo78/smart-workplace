@@ -1,5 +1,8 @@
 package com.workplace.issue.service;
 
+import static com.workplace.issue.service.SearchParams.csv;
+import static com.workplace.issue.service.SearchParams.trimToNull;
+
 import com.workplace.global.dto.UserSummary;
 import com.workplace.issue.dto.IssueCursor;
 import com.workplace.issue.dto.IssueResponse;
@@ -20,7 +23,6 @@ import com.workplace.project.service.ProjectAccessGuard;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
@@ -35,9 +37,6 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional(readOnly = true)
 @RequiredArgsConstructor
 public class IssueSearchService {
-
-  private static final int DEFAULT_SIZE = 30;
-  private static final int MAX_SIZE = 100;
 
   private final IssueRepository issueRepository;
   private final IssueLabelRepository issueLabelRepository;
@@ -200,15 +199,7 @@ public class IssueSearchService {
       cursor = IssueCursor.decode(cursorStr);
     }
 
-    int size = DEFAULT_SIZE;
-    String sizeStr = trimToNull(p.get("size"));
-    if (sizeStr != null) {
-      try {
-        size = Math.max(1, Math.min(MAX_SIZE, Integer.parseInt(sizeStr)));
-      } catch (NumberFormatException ignored) {
-        // 기본값 유지
-      }
-    }
+    int size = SearchParams.size(p.get("size"));
 
     // 라벨 CSV — 숫자 id 또는 라벨 이름(#841). 토큰마다 그룹 하나(그룹 간 AND).
     List<List<Long>> labelIdGroups =
@@ -309,18 +300,6 @@ public class IssueSearchService {
         createdFrom,
         createdTo,
         watcherId);
-  }
-
-  private static String trimToNull(String s) {
-    if (s == null) return null;
-    String t = s.trim();
-    return t.isEmpty() ? null : t;
-  }
-
-  private static List<String> csv(String s) {
-    String t = trimToNull(s);
-    if (t == null) return List.of();
-    return Arrays.stream(t.split(",")).map(String::trim).filter(x -> !x.isEmpty()).toList();
   }
 
   private static LocalDate parseDate(String s) {

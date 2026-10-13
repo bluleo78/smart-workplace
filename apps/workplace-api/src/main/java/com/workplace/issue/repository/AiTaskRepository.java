@@ -18,7 +18,6 @@ import com.workplace.issue.dto.AgentWorkState;
 import com.workplace.issue.dto.AiTaskCounts;
 import com.workplace.issue.dto.AiTaskCursor;
 import com.workplace.issue.dto.IssueRow;
-import com.workplace.issue.dto.IssueStatuses;
 import com.workplace.user.dto.UserKind;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -62,16 +61,9 @@ public class AiTaskRepository {
   /** 목록 행 — 다음 커서를 만들 수 있게 이슈 행과 함께 정렬 키(rank, sortAt)를 싣는다. */
   public record AiTaskRow(IssueRow row, int rank, Instant sortAt) {}
 
-  /**
-   * 이 이슈(바깥 ISSUE 행)의 진행 중 작업 — 상관 서브쿼리 공용 조건. 종료(DONE·CANCELED) 이슈에 남은 진행 중 행은 {@link
-   * AgentWorkRepository#findActiveByIssueIds} 처럼 작업으로 치지 않는다(순위·건수·범위·필터 일관).
-   */
+  /** 이 이슈(바깥 ISSUE 행)의 진행 중 작업 — 상관 서브쿼리 공용 조건. 정의는 {@link AgentWorkRepository#liveWork} 하나만 쓴다. */
   private static Condition activeWorkOfIssue() {
-    return AGENT_WORK
-        .ISSUE_ID
-        .eq(ISSUE.ID)
-        .and(AGENT_WORK.ENDED_AT.isNull())
-        .and(ISSUE.STATUS.notIn(IssueStatuses.CLOSED));
+    return AgentWorkRepository.liveWork();
   }
 
   /**

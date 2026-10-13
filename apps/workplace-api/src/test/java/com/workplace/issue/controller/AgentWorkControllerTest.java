@@ -2,34 +2,21 @@ package com.workplace.issue.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.issue.AgentWorkTestSupport;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 
 /** AI 작업 명시 보고 API(WP-377 §4.1) — PAT·ak_ 로 실제 HTTP 요청을 보내 검증한다. */
 class AgentWorkControllerTest extends AgentWorkTestSupport {
-
-  private static final ObjectMapper MAPPER = new ObjectMapper();
-
-  private static JsonNode body(ResponseEntity<String> r) {
-    try {
-      return MAPPER.readTree(r.getBody());
-    } catch (Exception e) {
-      throw new IllegalStateException(r.getBody(), e);
-    }
-  }
 
   @Test
   void 첫_보고는_생성하고_TODO_를_IN_PROGRESS_로() {
     var r = putReport(patToken, TOOL, Map.of("note", "시작"));
     assertThat(r.getStatusCode()).isEqualTo(HttpStatus.OK);
     assertThat(issueStatus()).isEqualTo("IN_PROGRESS");
-    assertThat(body(r).at("/work/state").asText()).isEqualTo("WORKING");
-    assertThat(body(r).at("/ended").asBoolean()).isFalse();
+    assertThat(json(r).at("/work/state").asText()).isEqualTo("WORKING");
+    assertThat(json(r).at("/ended").asBoolean()).isFalse();
   }
 
   @Test
@@ -81,13 +68,13 @@ class AgentWorkControllerTest extends AgentWorkTestSupport {
     // 시작 보고가 TODO → IN_PROGRESS 로 바꿨으므로 종료 후에도 그대로여야 한다.
     var r = putReport(patToken, TOOL, Map.of("state", "ENDED"));
     assertThat(r.getStatusCode()).isEqualTo(HttpStatus.OK);
-    assertThat(body(r).at("/ended").asBoolean()).isTrue();
+    assertThat(json(r).at("/ended").asBoolean()).isTrue();
     assertThat(activeWork(issueId, humanId)).isEmpty();
     assertThat(issueStatus()).isEqualTo("IN_PROGRESS");
     // 진행 중 작업이 없어도 200.
     var again = putReport(patToken, TOOL, Map.of("state", "ENDED"));
     assertThat(again.getStatusCode()).isEqualTo(HttpStatus.OK);
-    assertThat(body(again).at("/ended").asBoolean()).isTrue();
+    assertThat(json(again).at("/ended").asBoolean()).isTrue();
   }
 
   @Test
@@ -95,7 +82,7 @@ class AgentWorkControllerTest extends AgentWorkTestSupport {
     putReport(akToken, TOOL, Map.of("note", "시작"));
     var r = putReport(akToken, TOOL, Map.of("state", "ENDED", "message", "마쳤습니다"));
     assertThat(r.getStatusCode()).isEqualTo(HttpStatus.OK);
-    assertThat(body(r).at("/ended").asBoolean()).isTrue();
+    assertThat(json(r).at("/ended").asBoolean()).isTrue();
     var m = lastChatMessage(issueId);
     assertThat(m.authorId()).isEqualTo(agentId);
     assertThat(m.body()).isEqualTo("마쳤습니다");

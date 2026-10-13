@@ -1,5 +1,8 @@
 package com.workplace.issue.service;
 
+import static com.workplace.issue.service.SearchParams.csv;
+import static com.workplace.issue.service.SearchParams.trimToNull;
+
 import com.workplace.issue.dto.AgentWorkState;
 import com.workplace.issue.dto.AiTaskCounts;
 import com.workplace.issue.dto.AiTaskCursor;
@@ -9,7 +12,6 @@ import com.workplace.issue.repository.AiTaskRepository;
 import com.workplace.issue.repository.AiTaskRepository.AiTaskQuery;
 import com.workplace.issue.repository.AiTaskRepository.AiTaskRow;
 import com.workplace.project.repository.ProjectRepository;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
@@ -25,9 +27,6 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional(readOnly = true)
 @RequiredArgsConstructor
 public class AiTaskSearchService {
-
-  private static final int DEFAULT_SIZE = 30;
-  private static final int MAX_SIZE = 100;
 
   private final AiTaskRepository aiTaskRepository;
   private final IssueSearchService issueSearchService;
@@ -72,28 +71,8 @@ public class AiTaskSearchService {
     String cursorStr = trimToNull(p.get("cursor"));
     AiTaskCursor cursor = cursorStr == null ? null : AiTaskCursor.decode(cursorStr);
 
-    int size = DEFAULT_SIZE;
-    String sizeStr = trimToNull(p.get("size"));
-    if (sizeStr != null) {
-      try {
-        size = Math.max(1, Math.min(MAX_SIZE, Integer.parseInt(sizeStr)));
-      } catch (NumberFormatException ignored) {
-        // 기본값 유지 — 이슈 검색과 같은 관대한 처리
-      }
-    }
+    int size = SearchParams.size(p.get("size"));
     return new AiTaskQuery(
         all, agentStates, csv(p.get("status")), csv(p.get("priority")), cursor, size);
-  }
-
-  private static String trimToNull(String s) {
-    if (s == null) return null;
-    String t = s.trim();
-    return t.isEmpty() ? null : t;
-  }
-
-  private static List<String> csv(String s) {
-    String t = trimToNull(s);
-    if (t == null) return List.of();
-    return Arrays.stream(t.split(",")).map(String::trim).filter(x -> !x.isEmpty()).toList();
   }
 }

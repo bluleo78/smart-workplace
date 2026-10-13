@@ -3,6 +3,7 @@ package com.workplace.issue.service;
 import com.workplace.issue.dto.AgentWorkPatch;
 import com.workplace.issue.dto.AgentWorkState;
 import com.workplace.issue.dto.AgentWorkView;
+import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.dto.IssueStatuses;
 import com.workplace.issue.exception.AgentWorkIssueClosedException;
 import com.workplace.issue.outbound.AgentToolWriteEvent;
@@ -14,9 +15,9 @@ import com.workplace.issue.repository.IssueRepository;
 import com.workplace.project.repository.ProjectRepository;
 import java.util.Collection;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
@@ -48,13 +49,11 @@ public class AgentWorkService {
   public Map<Long, List<AgentWorkView>> viewsByIssueIds(Collection<Long> issueIds) {
     var found = repository.findActiveByIssueIds(issueIds);
     if (found.isEmpty()) return Map.of();
-    Map<Long, List<AgentWorkView>> result = new HashMap<>();
-    found.forEach(
-        (issueId, list) ->
-            result.put(
-                issueId,
-                list.stream().map(w -> AgentWorkView.of(w)).sorted(URGENCY_ORDER).toList()));
-    return result;
+    return found.entrySet().stream()
+        .collect(
+            Collectors.toMap(
+                Map.Entry::getKey,
+                e -> e.getValue().stream().map(AgentWorkView::of).sorted(URGENCY_ORDER).toList()));
   }
 
   /**
@@ -69,16 +68,7 @@ public class AgentWorkService {
         repository
             .insertIfAbsent(issueId, workerId, tool, initial)
             .orElseThrow(() -> new IllegalStateException("agent_work 생성 후 조회 실패"));
-    repository.update(
-        row.id(),
-        new AgentWorkPatch(
-            tool,
-            patch.state(),
-            patch.note(),
-            patch.clearNote(),
-            patch.progress(),
-            patch.stepsDone(),
-            patch.stepsTotal()));
+    repository.update(row.id(), patch.withTool(tool));
     notifyChanged(issueId, workerId);
     // 동시 종료로 조회에서 이슈가 빠지면(종료 이슈 제외) NPE 대신 409 로 답한다.
     return viewsByIssueIds(List.of(issueId)).getOrDefault(issueId, List.of()).stream()
@@ -89,18 +79,15 @@ public class AgentWorkService {
 
   /** 종료 — 진행 중이면 끝내고 알림, 없으면 false. */
   public boolean end(long issueId, long workerId) {
-    var active = repository.findActive(issueId, workerId);
-    if (active.isEmpty() || !repository.endById(active.get().id())) return false;
+    if (repository.endActiveForWorkers(issueId, List.of(workerId)) == 0) return false;
     notifyChanged(issueId, workerId);
     return true;
   }
 
-  /** 이슈의 진행 중 작업을 모두 종료한다. 알림은 호출자(이슈 updated 알림)가 이미 낸다. */
-  public void endAllForIssue(long issueId) {
-    repository.endActive(issueId);
-  }
-
-  /** 여러 이슈의 진행 중 작업을 모두 종료한다(이슈 삭제 — 부모와 함께 지워진 자식 포함). 알림은 호출자(이슈 deleted 알림)가 낸다. */
+  /**
+   * 이슈들의 진행 중 작업을 모두 종료한다 — 종료 상태 진입(1건)·이슈 삭제(부모와 함께 지워진 자식 포함). 알림은 호출자(이슈 updated·deleted 알림)가
+   * 이미 낸다.
+   */
   public void endAllForIssues(Collection<Long> issueIds) {
     repository.endActive(issueIds);
   }
@@ -142,19 +129,20 @@ public class AgentWorkService {
       repository.update(
           existing.get().id(), new AgentWorkPatch(e.tool(), next, null, false, null, null, null));
     }
-    notifyChanged(e.issueId(), e.actorId());
+    // 발행 쪽이 이슈 변경 알림을 이미 냈으면(이슈 updated 경유) 같은 알림을 다시 내지 않는다.
+    if (!e.issueNotified()) notifyChanged(issue, e.actorId());
   }
 
-  /** 이슈·프로젝트 행을 찾아 변경 알림을 낸다. 이슈가 이미 없으면 조용히 건너뛴다. */
+  /** 이슈 행을 찾아 변경 알림을 낸다. 이슈가 이미 없으면 조용히 건너뛴다. */
   private void notifyChanged(long issueId, Long actorId) {
-    issueRepository
-        .findById(issueId)
+    issueRepository.findById(issueId).ifPresent(issue -> notifyChanged(issue, actorId));
+  }
+
+  /** 이미 읽은 이슈 행으로 프로젝트만 찾아 변경 알림을 낸다. 터치 알림이므로 AI 작업 터치는 재발행하지 않는다(재귀 방지). */
+  private void notifyChanged(IssueRow issue, Long actorId) {
+    projectRepository
+        .findById(issue.projectId())
         .ifPresent(
-            issue ->
-                projectRepository
-                    .findById(issue.projectId())
-                    .ifPresent(
-                        project ->
-                            notifier.agentWorkChanged(project, issue.number(), issueId, actorId)));
+            project -> notifier.updatedWithoutTouch(project, issue.number(), issue.id(), actorId));
   }
 }

@@ -58,10 +58,12 @@ public class AgentWorkReportService {
     }
     if (IssueStatuses.CLOSED.contains(issue.status())) throw new AgentWorkIssueClosedException();
 
+    boolean hasMessage = req.message() != null && !req.message().isBlank();
+
     // ENDED 는 저장 상태가 아니라 종료 신호 — startOrUpdate 에 넘기면 state 컬럼에 "ENDED" 가 써진다. 이슈 상태는 건드리지 않는다.
     if (AgentWorkState.ENDED.equals(req.state())) {
       // message 는 상태와 무관한 챗 글(스펙 §4.1) — 종료 보고여도 올린다(질문 표시 없음). note·progress 는 종료라 무시.
-      if (req.message() != null && !req.message().isBlank()) {
+      if (hasMessage) {
         chatPoster.post(callerId, projectKey, number, req.message());
       }
       agentWorkService.end(issue.id(), callerId);
@@ -73,15 +75,15 @@ public class AgentWorkReportService {
       issueService.updateStatus(callerId, projectKey, number, "IN_PROGRESS");
     }
 
-    boolean hasMessage = req.message() != null && !req.message().isBlank();
     Long messageId =
         hasMessage ? chatPoster.post(callerId, projectKey, number, req.message()) : null;
 
     // note: 빈 문자열은 지우기, 미지정이면 message 첫 줄(최대 120자)로 대체.
-    String note = req.note();
-    boolean clearNote = note != null && note.isEmpty();
-    if (clearNote) note = null;
-    if (req.note() == null && hasMessage) note = firstLine(req.message());
+    boolean clearNote = "".equals(req.note());
+    String note =
+        req.note() == null
+            ? (hasMessage ? firstLine(req.message()) : null)
+            : (clearNote ? null : req.note());
 
     var view =
         agentWorkService.startOrUpdate(
