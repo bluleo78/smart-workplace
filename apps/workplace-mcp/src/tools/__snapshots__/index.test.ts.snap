@@ -12,6 +12,8 @@ exports[`buildUserTools > 노출 도구 이름·kind 스냅샷 1`] = `
   "add_user_group_member:write",
   "copy_drive_item:write",
   "create_channel:write",
+  "create_drive_download_link:write",
+  "create_drive_file:write",
   "create_drive_folder:write",
   "create_event:write",
   "create_external_contact:write",

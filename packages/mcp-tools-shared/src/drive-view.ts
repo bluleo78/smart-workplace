@@ -57,3 +57,19 @@ export function toDriveVersionsView(rows: { versionNo: number; sizeBytes: number
 export function toDriveBacklinksView(rows: { sourceType: string; label: string; deepLink: string; [key: string]: unknown }[]) {
   return rows.map(({ sourceId: _sourceId, ...rest }) => rest);
 }
+
+/**
+ * 업로드 링크 발급 응답 → LLM 뷰(WP-369). 서버 url 을 uploadUrl 로 바꿔 다운로드 링크(url)와 헷갈리지 않게 하고, 그대로 붙여 쓸
+ * curl 명령(howTo)과 실패 시 행동(note)을 싣는다 — 응답 글은 정의 크기에 들지 않아, 설명에 다 못 쓴 절차를 여기서 알린다.
+ * Content-Type 을 붙이지 말라는 이유: 서버가 PUT 의 Content-Type 으로 범주 상한을 다시 정해 maxBytes 와 달라질 수 있다.
+ */
+export function toDriveUploadLinkView<T extends { url: string }>({ url, ...rest }: T) {
+  return {
+    uploadUrl: url,
+    ...rest,
+    howTo: `curl -T <local file> "${url}"`,
+    note:
+      '링크는 만료(expiresAt) 전에 한 번만 쓸 수 있습니다. 위 명령 그대로 원시 바이트로 보내고 -H Content-Type·--data-binary·폼은 쓰지 마세요. ' +
+      '전송이 실패하면 이 링크는 다시 쓸 수 없으니 create_drive_file 로 새 링크를 만드세요. 같은 이름의 파일이 있으면 새 버전이 됩니다.',
+  };
+}

@@ -438,6 +438,41 @@ export interface DriveToolClient {
   listDriveFileBacklinks(driveFileId: number): Promise<DriveBacklinkRow[]>;
   /** POST /drive/spaces/{id}[/folders/{folderId}]/import-attachment — 이슈·채팅 첨부(core file id)를 드라이브 파일로 가져온다. 생성된 파일 행 반환. */
   importAttachmentToDrive(spaceId: number, folderId: number | null, fileId: number): Promise<unknown>;
+  /**
+   * POST /drive/files/{id}/download-link — VIEWER 이상. 로그인 없이 한 번만 받을 수 있는 10분짜리 서명 링크를 만든다(WP-369).
+   * 공개 GET 은 전송 전에 링크를 소비하고 Range 를 무시한다 — 끊기면 새 링크가 필요하다.
+   */
+  createDriveDownloadLink(driveFileId: number): Promise<DriveDownloadLink>;
+  /**
+   * POST /drive/spaces/{id}/upload-link — EDITOR 이상, folderId null=루트(폴더는 같은 공간). 한 번만 쓸 수 있는 10분짜리 PUT 링크(WP-369).
+   * name 은 서버가 정리해 링크에 묶는다(응답 name 이 실제 저장 이름). 같은 이름이 있으면 PUT 이 새 버전을 만든다.
+   */
+  createDriveUploadLink(spaceId: number, folderId: number | null, name: string): Promise<DriveUploadLink>;
+  /**
+   * POST /drive/spaces/{id}/files/text — EDITOR 이상. content(UTF-8, 10MB 이하)로 텍스트 파일을 만든다(WP-369).
+   * MIME 은 서버가 이름으로 정한다(md·txt·csv·json, 그 밖은 text/plain). 같은 이름이 있으면 새 버전. DriveFileResponse 원형 반환.
+   */
+  createDriveTextFile(spaceId: number, folderId: number | null, name: string, content: string): Promise<unknown>;
+}
+
+/** 다운로드 링크 발급 응답(WP-369 서버 계약). 사용자 id 는 없다. */
+export interface DriveDownloadLink {
+  url: string;
+  expiresAt: string;
+  name: string;
+  sizeBytes: number;
+  mimeType: string;
+  singleUse: boolean;
+}
+
+/** 업로드 링크 발급 응답(WP-369 서버 계약). maxBytes 는 이름의 범주 상한과 25MB 중 작은 값, name 은 서버가 정리한 실제 저장 이름. */
+export interface DriveUploadLink {
+  url: string;
+  method: 'PUT';
+  expiresAt: string;
+  maxBytes: number;
+  name: string;
+  singleUse: boolean;
 }
 
 /**

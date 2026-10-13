@@ -15,6 +15,8 @@ tools:
   - mcp__workplace__copy_drive_item
   - mcp__workplace__import_attachment_to_drive
   - mcp__workplace__restore_drive_item
+  - mcp__workplace__create_drive_download_link
+  - mcp__workplace__create_drive_file
   - mcp__workplace__propose_delete_file
   - mcp__workplace__propose_delete_folder
   - mcp__workplace__submit_response

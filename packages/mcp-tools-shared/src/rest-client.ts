@@ -500,6 +500,16 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
       const base = `/drive/spaces/${spaceId}`;
       return (await http.post(folderId == null ? `${base}/import-attachment` : `${base}/folders/${folderId}/import-attachment`, { fileId })).data;
     },
+    // ── 전송 링크·텍스트로 만들기(WP-369) ── 모두 JSON 이다. 바이트 전송은 MCP 가 아니라 링크를 받은 쪽(curl·브라우저)이 공개 경로로 한다.
+    async createDriveDownloadLink(driveFileId) {
+      return (await http.post(`/drive/files/${driveFileId}/download-link`)).data;
+    },
+    async createDriveUploadLink(spaceId, folderId, name) {
+      return (await http.post(`/drive/spaces/${spaceId}/upload-link`, { folderId, name })).data;
+    },
+    async createDriveTextFile(spaceId, folderId, name, content) {
+      return (await http.post(`/drive/spaces/${spaceId}/files/text`, { folderId, name, content })).data;
+    },
 
     // ── 첨부·파일 내용 읽기(WP-346) ── 이슈 첨부는 프로젝트 멤버, 드라이브는 스페이스 VIEWER 를 서버가 확인한다.
     async readIssueAttachmentText(issueKey, fileId, range) {

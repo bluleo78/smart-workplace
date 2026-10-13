@@ -348,6 +348,25 @@ describe('드라이브', () => {
     }
     expect(outs[2]).toMatchObject({ folderId: 11 });
   });
+
+  // WP-369: 전송 링크·텍스트로 만들기 응답 — 서버 계약 그대로의 목(DriveDownloadLink·DriveUploadLink·DriveFileResponse).
+  it('create_drive_download_link·create_drive_file(내용·링크): 링크·파일 행에 사용자 ID·core fileId 가 없다', async () => {
+    const fileRow = { id: 5, folderId: null, fileId: 812, name: '회의록.md', mimeType: 'text/markdown', sizeBytes: 9, category: 'TEXT', createdAt: 't', updatedAt: 't', versionCount: 1, available: true };
+    const client = {
+      createDriveDownloadLink: vi.fn().mockResolvedValue({ url: 'https://w.example/api/v1/public/drive/transfer/dl_x', expiresAt: 't', name: 'a.pdf', sizeBytes: 5, mimeType: 'application/pdf', singleUse: true }),
+      createDriveUploadLink: vi.fn().mockResolvedValue({ url: 'https://w.example/api/v1/public/drive/transfer/ul_x', method: 'PUT', expiresAt: 't', maxBytes: 10485760, name: '결과.md', singleUse: true }),
+      createDriveTextFile: vi.fn().mockResolvedValue(fileRow),
+    };
+    const tools = buildDriveTools(client as never) as never;
+    const outs = [
+      out(await find(tools, 'create_drive_download_link').handler({ driveFileId: 5 })),
+      out(await find(tools, 'create_drive_file').handler({ spaceId: 2, name: '결과.md' })),
+      out(await find(tools, 'create_drive_file').handler({ spaceId: 2, name: '회의록.md', content: '# 회의록' })),
+    ];
+    for (const body of outs) expect(userIdLeaks(body)).toEqual([]);
+    expect(outs[2]).toMatchObject({ driveFileId: 5 });
+    expect(outs[2]).not.toHaveProperty('fileId');
+  });
 });
 
 describe('프로젝트', () => {

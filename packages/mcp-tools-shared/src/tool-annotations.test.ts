@@ -64,6 +64,10 @@ const EXPECTED: Record<string, readonly [kind: string, destructive: boolean | nu
   // WP-369: 파일·폴더 이름변경·이동을 하나씩으로 합쳤다 — 덮어쓰고(destructive) 같은 값으로 다시 불러도 그대로(멱등)인 성격은 그대로다.
   rename_drive_item: ['write', true, true, false],
   move_drive_item: ['write', true, true, false],
+  // WP-369: 전송 링크는 부를 때마다 새로 생기고(비멱등) 기존 데이터를 바꾸지 않는다. 파일 올리기는 새 파일·새 버전을 만들며 이전 버전은 남는다.
+  // read 가 아니라 write 다 — 읽기 전용을 자동 승인하는 클라이언트가 묻지 않고 로그인 없는 링크를 만들지 않게(R1).
+  create_drive_download_link: ['write', false, false, false],
+  create_drive_file: ['write', false, false, false],
   move_wiki_page: ['write', true, true, false],
   restore_wiki_revision: ['write', true, false, false],
   open_dm: ['write', false, true, false],

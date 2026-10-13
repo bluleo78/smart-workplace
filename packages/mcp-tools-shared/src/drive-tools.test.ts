@@ -24,6 +24,15 @@ function mockClient(): DriveToolClient {
     listDriveFileVersions: vi.fn().mockResolvedValue([]),
     listDriveFileBacklinks: vi.fn().mockResolvedValue([]),
     importAttachmentToDrive: vi.fn().mockResolvedValue({ id: 7, fileId: 900, folderId: null, name: 'a.png' }),
+    createDriveDownloadLink: vi.fn().mockResolvedValue({
+      url: 'https://w.example/api/v1/public/drive/transfer/dl_abc', expiresAt: '2026-10-13T05:52:00Z', name: '회의 메모.md',
+      sizeBytes: 21, mimeType: 'text/markdown', singleUse: true,
+    }),
+    createDriveUploadLink: vi.fn().mockResolvedValue({
+      url: 'https://w.example/api/v1/public/drive/transfer/ul_abc', method: 'PUT', expiresAt: '2026-10-13T06:10:00Z',
+      maxBytes: 10485760, name: '결과.md', singleUse: true,
+    }),
+    createDriveTextFile: vi.fn().mockResolvedValue({ id: 8, folderId: 3, fileId: 901, name: '회의록.md', mimeType: 'text/markdown', versionCount: 1 }),
   };
 }
 
@@ -361,5 +370,78 @@ describe('폴더·파일 정리 (#333 M4, #840, WP-343)', () => {
     await tool(c, 'import_attachment_to_drive').handler({ spaceId: 2, attachmentId: 900, folderId: 4 });
     expect(c.importAttachmentToDrive).toHaveBeenLastCalledWith(2, 4, 900);
     await expect(tool(c, 'import_attachment_to_drive').handler({ spaceId: 2 })).rejects.toThrow();
+  });
+});
+
+// WP-369: 전송 링크·파일 올리기. 바이트는 MCP 를 거치지 않는다 — 링크를 받은 쪽(curl·브라우저)이 공개 경로로 주고받는다.
+describe('전송 링크·파일 올리기 (WP-369)', () => {
+  it('create_drive_download_link → createDriveDownloadLink(driveFileId) 응답을 그대로 돌려준다', async () => {
+    const c = mockClient();
+    const out = await tool(c, 'create_drive_download_link').handler({ driveFileId: 5 });
+    expect(c.createDriveDownloadLink).toHaveBeenCalledWith(5);
+    expect(JSON.parse(resultText(out))).toEqual({
+      url: 'https://w.example/api/v1/public/drive/transfer/dl_abc', expiresAt: '2026-10-13T05:52:00Z', name: '회의 메모.md',
+      sizeBytes: 21, mimeType: 'text/markdown', singleUse: true,
+    });
+    await expect(tool(c, 'create_drive_download_link').handler({ fileId: 5 })).rejects.toThrow();
+  });
+
+  it('create_drive_file content 모드 → createDriveTextFile 결과를 driveFileId 뷰(core fileId 제거)로, 업로드 링크는 만들지 않는다', async () => {
+    const c = mockClient();
+    const out = await tool(c, 'create_drive_file').handler({ spaceId: 2, folderId: 3, name: '회의록.md', content: '# 회의록' });
+    expect(c.createDriveTextFile).toHaveBeenCalledWith(2, 3, '회의록.md', '# 회의록');
+    expect(c.createDriveUploadLink).not.toHaveBeenCalled();
+    expect(JSON.parse(resultText(out))).toEqual({ driveFileId: 8, folderId: 3, name: '회의록.md', mimeType: 'text/markdown', versionCount: 1 });
+  });
+
+  // 서버는 빈 content 를 받는다(빈 파일) — 진릿값으로 가르면 빈 문자열이 업로드 링크 발급으로 새어 나간다.
+  it('create_drive_file 빈 문자열 content 도 content 모드다(빈 파일), 폴더 생략은 루트(null)', async () => {
+    const c = mockClient();
+    await tool(c, 'create_drive_file').handler({ spaceId: 2, name: '빈.txt', content: '' });
+    expect(c.createDriveTextFile).toHaveBeenCalledWith(2, null, '빈.txt', '');
+    expect(c.createDriveUploadLink).not.toHaveBeenCalled();
+  });
+
+  it('create_drive_file 링크 모드(content 생략·null) → 업로드 링크를 uploadUrl·howTo 뷰로 돌려준다', async () => {
+    const c = mockClient();
+    const out = JSON.parse(resultText(await tool(c, 'create_drive_file').handler({ spaceId: 2, name: '결과.md' })));
+    expect(c.createDriveUploadLink).toHaveBeenCalledWith(2, null, '결과.md');
+    expect(c.createDriveTextFile).not.toHaveBeenCalled();
+    expect(out).toMatchObject({
+      uploadUrl: 'https://w.example/api/v1/public/drive/transfer/ul_abc', method: 'PUT', expiresAt: '2026-10-13T06:10:00Z',
+      maxBytes: 10485760, name: '결과.md', singleUse: true,
+      howTo: 'curl -T <local file> "https://w.example/api/v1/public/drive/transfer/ul_abc"',
+    });
+    // url 은 uploadUrl 로만 준다(다운로드 링크의 url 과 헷갈리지 않게). 안내는 한 번만·Content-Type 금지·새 링크를 말한다.
+    expect(out).not.toHaveProperty('url');
+    expect(out.note).toMatch(/한 번만/);
+    expect(out.note).toMatch(/Content-Type/);
+    expect(out.note).toMatch(/새 링크/);
+    await tool(c, 'create_drive_file').handler({ spaceId: 2, folderId: 4, name: '결과.md', content: null });
+    expect(c.createDriveUploadLink).toHaveBeenLastCalledWith(2, 4, '결과.md');
+    expect(c.createDriveTextFile).not.toHaveBeenCalled();
+  });
+
+  it('create_drive_file 은 이름이 비었거나 spaceId 가 없으면 거부하고 서버를 부르지 않는다', async () => {
+    const c = mockClient();
+    await expect(tool(c, 'create_drive_file').handler({ spaceId: 2, name: '', content: 'x' })).rejects.toThrow();
+    await expect(tool(c, 'create_drive_file').handler({ name: 'a.md' })).rejects.toThrow();
+    expect(c.createDriveTextFile).not.toHaveBeenCalled();
+    expect(c.createDriveUploadLink).not.toHaveBeenCalled();
+  });
+
+  // 설명이 모델이 찾을 낱말(upload·download)과 외부 클라이언트가 지켜야 할 사실을 담는다(R1·R10, 1b 결과).
+  it('설명에 upload·download 낱말, 10분·한 번만·새 링크, curl 사용법, 웹 업로드 안내가 있다', () => {
+    const c = mockClient();
+    const dl = tool(c, 'create_drive_download_link').description;
+    expect(dl.split('.')[0]).toMatch(/download/);
+    for (const s of ['10 minutes', 'no login', 'show it only to the user', 'Works once', 'new link', 'curl -o <name> "<url>"', 'read_file']) {
+      expect(dl).toContain(s);
+    }
+    const up = tool(c, 'create_drive_file').description;
+    expect(up.split('.')[0]).toMatch(/Uploads/);
+    for (const s of ['new version', 'content', 'one-time upload link', '10 minutes', 'maxBytes', 'curl -T <file> "<uploadUrl>"', 'no -H Content-Type', 'new link', 'web drive']) {
+      expect(up).toContain(s);
+    }
   });
 });

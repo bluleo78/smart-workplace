@@ -149,6 +149,10 @@ function sharedMock(): MockedShared {
     copyDriveFolder: vi.fn().mockResolvedValue({ id: 11, name: '자료' }),
     listDriveFileBacklinks: vi.fn().mockResolvedValue([]),
     importAttachmentToDrive: vi.fn().mockResolvedValue({ id: 7, fileId: 900, name: 'a.png' }),
+    // WP-369: 전송 링크·텍스트로 만들기
+    createDriveDownloadLink: vi.fn().mockResolvedValue({ url: 'https://w.example/dl', expiresAt: 't', name: 'a.pdf', sizeBytes: 5, mimeType: 'application/pdf', singleUse: true }),
+    createDriveUploadLink: vi.fn().mockResolvedValue({ url: 'https://w.example/ul', method: 'PUT', expiresAt: 't', maxBytes: 10485760, name: 'a.md', singleUse: true }),
+    createDriveTextFile: vi.fn().mockResolvedValue({ id: 8, fileId: 901, folderId: null, name: 'a.md' }),
     // 알림
     listNotifications: vi.fn().mockResolvedValue([]),
     countUnreadNotifications: vi.fn().mockResolvedValue(0),
@@ -362,6 +366,8 @@ describe('프로필 구성', () => {
       'create_drive_folder', 'rename_drive_item', 'move_drive_item', 'propose_delete_file', 'propose_delete_folder', // WP-369: 이름변경·이동 통합
       // WP-354
       'copy_drive_item', 'import_attachment_to_drive',
+      // WP-369: 다운로드 링크·파일 올리기
+      'create_drive_download_link', 'create_drive_file',
       // #856 확인카드 제안
       'propose_add_attendees', 'propose_remove_attendee', 'propose_update_project_member_role', 'propose_remove_project_member',
       'propose_add_channel_member', 'propose_leave_channel', 'propose_delete_issue', 'propose_delete_comment', 'propose_delete_wiki_page',

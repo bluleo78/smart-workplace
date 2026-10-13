@@ -12,6 +12,8 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "add_user_group_member": "write",
   "copy_drive_item": "write",
   "create_channel": "write",
+  "create_drive_download_link": "write",
+  "create_drive_file": "write",
   "create_drive_folder": "write",
   "create_event": "write",
   "create_external_contact": "write",
@@ -340,6 +342,70 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       "required": [
         "name",
         "visibility",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "create_drive_download_link",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "driveFileId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "driveFileId",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "create_drive_file",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "anyOf": [
+            {
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "folderId": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "name": {
+          "maxLength": 255,
+          "minLength": 1,
+          "type": "string",
+        },
+        "spaceId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "spaceId",
+        "name",
       ],
       "type": "object",
     },

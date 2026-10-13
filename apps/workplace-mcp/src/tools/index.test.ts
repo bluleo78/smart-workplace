@@ -62,6 +62,11 @@ describe('selectTools (WP-350)', () => {
     expect(ro.every((t) => t.kind === 'read')).toBe(true);
     expect(names(ro)).toContain('list_issues');
     expect(names(ro)).not.toContain('create_issue');
+    // WP-369 R1: 로그인 없이 쓰는 전송 링크는 읽기 전용 연결이 묻지 않고 만들지 못하게 write 다 — 읽기 전용에서는 빠지고 기본 연결에만 있다.
+    expect(names(ro)).not.toContain('create_drive_download_link');
+    expect(names(ro)).not.toContain('create_drive_file');
+    expect(names(ro)).toContain('read_file');
+    expect(names(selectTools(all, { apps: ['drive'], readOnly: false }))).toEqual(expect.arrayContaining(['create_drive_download_link', 'create_drive_file']));
   });
 
   it('앱을 고르면 그 앱 도구만 남는다 — 여러 앱이면 합집합', () => {

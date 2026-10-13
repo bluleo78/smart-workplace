@@ -10,7 +10,7 @@ describe('drive-agent 정의', () => {
   it('loadSubagents 로 drive-agent 가 로드된다', () => {
     expect(loaded['drive-agent']).toBeDefined();
   });
-  it('tools 는 읽기 7개 + 쓰기 6개 + 삭제제안 2개 + submit_response(총 16개)', () => {
+  it('tools 는 읽기 7개 + 쓰기 8개 + 삭제제안 2개 + submit_response(총 18개)', () => {
     expect(loaded['drive-agent'].tools).toEqual([
       'mcp__workplace__list_drive_spaces',
       'mcp__workplace__list_drive_items',
@@ -25,6 +25,8 @@ describe('drive-agent 정의', () => {
       'mcp__workplace__copy_drive_item', // WP-354: 파일·폴더 복사
       'mcp__workplace__import_attachment_to_drive', // WP-354: 이슈·채팅 첨부 가져오기
       'mcp__workplace__restore_drive_item', // #855: 휴지통 복원
+      'mcp__workplace__create_drive_download_link', // WP-369: 다운로드 링크
+      'mcp__workplace__create_drive_file', // WP-369: 파일 올리기(AI Chat 은 content 모드만)
       'mcp__workplace__propose_delete_file',
       'mcp__workplace__propose_delete_folder',
       'mcp__workplace__submit_response',

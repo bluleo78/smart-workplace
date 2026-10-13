@@ -371,6 +371,20 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(http.post).toHaveBeenLastCalledWith('/drive/spaces/2/folders/4/import-attachment', { fileId: 900 });
   });
 
+  // WP-369: 전송 링크·텍스트로 만들기 — 모두 JSON 본문이고 폴더 null 은 루트로 그대로 보낸다(서버 계약 task-1b 보고서 §1~3).
+  it('WP-369 다운로드 링크·업로드 링크·텍스트로 만들기 경로', async () => {
+    const { http, client } = mockHttp();
+    http.post.mockResolvedValueOnce({ data: { url: 'u' } });
+    expect(await client.createDriveDownloadLink(5)).toEqual({ url: 'u' });
+    expect(http.post).toHaveBeenLastCalledWith('/drive/files/5/download-link');
+    await client.createDriveUploadLink(2, null, '결과.md');
+    expect(http.post).toHaveBeenLastCalledWith('/drive/spaces/2/upload-link', { folderId: null, name: '결과.md' });
+    await client.createDriveUploadLink(2, 4, '결과.md');
+    expect(http.post).toHaveBeenLastCalledWith('/drive/spaces/2/upload-link', { folderId: 4, name: '결과.md' });
+    await client.createDriveTextFile(2, null, '회의록.md', '# 회의록');
+    expect(http.post).toHaveBeenLastCalledWith('/drive/spaces/2/files/text', { folderId: null, name: '회의록.md', content: '# 회의록' });
+  });
+
   it('WP-147: getMail 은 AI 조회라 항상 markSeen=false 로 부른다(읽음 처리 안 함)', async () => {
     const { http, client } = mockHttp();
     await client.getMail(3);

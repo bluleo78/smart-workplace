@@ -1171,6 +1171,8 @@ export function buildTools(
       sharedTool('create_drive_folder'), sharedTool('rename_drive_item'), sharedTool('move_drive_item'),
       // WP-354: 복사·첨부 가져오기 — 확인 카드가 없는 되돌릴 수 있는 쓰기라 직접 실행(공유). 롤백은 확인 카드 대상이라 도구로 두지 않는다.
       sharedTool('copy_drive_item'), sharedTool('import_attachment_to_drive'),
+      // WP-369: 다운로드 링크·파일 올리기(공유) — 확인 카드가 없는 되돌릴 수 있는 쓰기라 직접 실행. write 라 라우터에 두지 않고 drive-agent 에만 둔다.
+      sharedTool('create_drive_download_link'), sharedTool('create_drive_file'),
       proposeDeleteFileTool, proposeDeleteFolderTool, // #333 M4: 드라이브 삭제 제안(confirm 필요)
       // #856: 참석자·프로젝트 멤버·채널 초대·이슈/코멘트/노트 삭제 제안(confirm 필요)
       proposeAddAttendeesTool, proposeRemoveAttendeeTool,
