@@ -264,13 +264,12 @@ export function createChatStreams(opts: { storage?: () => KeyValueStore | null }
 
   /**
    * WP-139: 이 칸이 마지막 완료 답 뒤의 다른 생성(다른 창·새로고침 전 것)을 알게 됐다 — 이전 답의 후속 질문이 늦게 와도
-   * 그 생성의 답(이력 재조회로 마지막 턴이 된다)에 잘못 붙지 않게 lastDoneCid 를 비운다. 바뀌었으면 true.
+   * 그 생성의 답(이력 재조회로 마지막 턴이 된다)에 잘못 붙지 않게 lastDoneCid 를 비운다.
    */
-  function forgetDone(sid: string, cid: string): boolean {
+  function forgetDone(sid: string, cid: string): void {
     const e = entries.get(sid);
-    if (!e || e.lastDoneCid === null || e.lastDoneCid === cid) return false;
+    if (!e || e.lastDoneCid === null || e.lastDoneCid === cid) return;
     entries.set(sid, { ...e, lastDoneCid: null });
-    return true;
   }
 
   /**
@@ -300,6 +299,9 @@ export function createChatStreams(opts: { storage?: () => KeyValueStore | null }
    * 종결이면 끝난 것으로 기억해 늦게 온 재동기화 응답이 되살리지 못하게 한다(WP-264). 진행 중이면 이 저장소가 아는 대화일 때만
    * 자리표시로 이어받고 이력을 다시 읽어 그 질문과 "답변 중" 을 보인다(WP-266) — SSE 는 워크스페이스 구분 없이 오므로 모르는 대화는
    * 상한·목록에 넣지 않는다(다음 재동기화가 이 워크스페이스 것만 알려 준다).
+   * WP-139 알려진 한계: 다른 탭에서 시작한 생성을 종결 이벤트로 처음 알게 되면(재연결 틈에 끝났거나 이 창에 없던 대화) 여기서는
+   * lastDoneCid 를 정하지 않으므로, 그 답의 후속 질문은 이 탭에 라이브로 붙지 않는다 — 대화를 다시 열면 이력으로 보인다.
+   * (진행 중에 자리표시로 이어받은 생성은 정상 done 경로가 lastDoneCid 를 정한다.)
    */
   function adopt(cid: string, sid: string | null, terminal: boolean) {
     if (!sid) return;

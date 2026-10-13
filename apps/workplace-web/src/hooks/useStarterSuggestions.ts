@@ -42,6 +42,7 @@ export function useStarterSuggestions({
   const { user, activeTenant } = useAuth();
   // 저장 소유자 — 사용자·워크스페이스별로 나눠 다른 계정·테넌트의 추천이 섞이지 않게 한다(starterStorage 키 규칙).
   const owner = user ? `${user.id}:${activeTenant?.tenantId ?? 0}` : null;
+  const userId = user?.id;
   const key = starterContextKey(ctx);
   const viewKey = `${owner ?? '-'}|${key}`;
 
@@ -89,7 +90,7 @@ export function useStarterSuggestions({
         .run(owner, key, async () => {
           const r = await fetchStarterSuggestions(ctxNow ? { screenContext: ctxNow } : {});
           // 서버가 꺼짐을 알려 주면(다른 기기에서 끔) 설정 캐시를 바꿔 목록을 숨기고 이후 호출하지 않는다(설정 화면에서 켜면 다시 받는다).
-          if (!r.enabled) qc.setQueryData<AiPreferences>(aiPreferenceKeys.me, { suggestionsEnabled: false });
+          if (!r.enabled) qc.setQueryData<AiPreferences>(aiPreferenceKeys.me(userId), { suggestionsEnabled: false });
           return r.enabled ? r.items : [];
         })
         .then((items) => {
@@ -100,7 +101,7 @@ export function useStarterSuggestions({
         });
     }, DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [visible, owner, key, qc]);
+  }, [visible, owner, key, qc, userId]);
 
   return {
     heading: starterHeading(ctx),
