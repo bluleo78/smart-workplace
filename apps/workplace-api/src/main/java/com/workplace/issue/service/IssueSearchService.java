@@ -46,6 +46,8 @@ public class IssueSearchService {
   private final IssueTypeRepository typeRepository;
   private final IssueDependencyRepository dependencyRepository;
   private final IssueFieldValueRepository fieldValueRepository;
+  // WP-377: 목록 항목에 진행 중 AI 작업을 싣는다.
+  private final AgentWorkService agentWorkService;
   private final ProjectAccessGuard accessGuard;
   // #841: 라벨·유형 이름, username 필터 토큰 → id 해석(해석 불가 시 400).
   private final IssueFilterResolver filterResolver;
@@ -86,11 +88,21 @@ public class IssueSearchService {
     return assemble(rows, query, pid -> keyById.getOrDefault(pid, ""));
   }
 
-  /** rows → IssueSearchResponse 조립. projectKey 는 row 마다 keyResolver 로 해석(횡단 검색 대응). */
+  /** rows → IssueSearchResponse 조립. 항목 조립은 {@link #assembleItems} 에 맡기고 여기선 커서만 계산한다. */
   private IssueSearchResponse assemble(
       List<IssueRow> rows,
       IssueSearchQuery query,
       java.util.function.LongFunction<String> keyResolver) {
+    var items = assembleItems(rows, keyResolver);
+    return pageOf(items, rows, query);
+  }
+
+  /**
+   * rows → IssueResponse 목록 조립(라벨·첨부·담당자·유형·부모·의존성·필드·AI 작업 일괄 조회). projectKey 는 row 마다 keyResolver
+   * 로 해석(횡단 검색 대응). 다른 목록 조회(AI 진행 목록 등)도 같은 응답 모양을 쓰도록 공개한다.
+   */
+  public List<IssueResponse> assembleItems(
+      List<IssueRow> rows, java.util.function.LongFunction<String> keyResolver) {
     List<Long> issueIds = rows.stream().map(IssueRow::id).toList();
     Map<Long, List<LabelSummary>> labelsByIssue =
         issueLabelRepository.findLabelsByIssueIds(issueIds);
@@ -112,11 +124,12 @@ public class IssueSearchService {
     var blockedFlagByIssue = dependencyRepository.findBlockedFlags(issueIds);
     // Phase 4c — custom field 값 batch (N+1 회피).
     var fieldsByIssue = fieldValueRepository.findByIssueIds(issueIds);
-    var items =
-        rows.stream()
-            .map(
-                r ->
-                    IssueResponse.fromWithCustomFields(
+    // WP-377 — 진행 중 AI 작업 batch (N+1 회피).
+    var agentWorkByIssue = agentWorkService.viewsByIssueIds(issueIds);
+    return rows.stream()
+        .map(
+            r ->
+                IssueResponse.fromWithCustomFields(
                         keyResolver.apply(r.projectId()), // ← project.key() 대신 row 별 해석
                         r,
                         labelsByIssue.getOrDefault(r.id(), List.of()),
@@ -129,8 +142,14 @@ public class IssueSearchService {
                         blockedByByIssue.getOrDefault(r.id(), List.of()),
                         blocksByIssue.getOrDefault(r.id(), List.of()),
                         blockedFlagByIssue.getOrDefault(r.id(), false),
-                        fieldsByIssue.getOrDefault(r.id(), List.of())))
-            .toList();
+                        fieldsByIssue.getOrDefault(r.id(), List.of()))
+                    .withAgentWork(agentWorkByIssue.getOrDefault(r.id(), List.of())))
+        .toList();
+  }
+
+  /** 항목 + 원본 rows 로 커서 페이지 응답을 만든다. 마지막 행의 (updatedAt, id) 가 다음 커서. */
+  private IssueSearchResponse pageOf(
+      List<IssueResponse> items, List<IssueRow> rows, IssueSearchQuery query) {
 
     String nextCursor = null;
     boolean hasMore = false;

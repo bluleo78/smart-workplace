@@ -89,6 +89,8 @@ public class IssueService {
   private final PermissionChecker permissionChecker;
   private final MilestoneService milestoneService;
   private final IssueChangeNotifier changeNotifier;
+  // WP-377: 상세 요약에 진행 중 AI 작업을 싣는다.
+  private final AgentWorkService agentWorkService;
 
   /** WP-356: 생성 시 라벨·사이클 소속 검증과 연결. */
   private final LabelRepository labelRepository;
@@ -410,19 +412,20 @@ public class IssueService {
     // 이미 로드된 IssueResponse 로 블로커를 결정적으로 계산한다(새 쿼리 0).
     var summaryResponse =
         IssueResponse.fromWithCustomFields(
-            project.key(),
-            row,
-            labels,
-            attachments.size(),
-            type,
-            assignees,
-            parentRef,
-            childCount,
-            childDoneCount,
-            blockedByMap.getOrDefault(row.id(), List.of()),
-            blocksMap.getOrDefault(row.id(), List.of()),
-            blockedMap.getOrDefault(row.id(), false),
-            fieldsByIssue.getOrDefault(row.id(), List.of()));
+                project.key(),
+                row,
+                labels,
+                attachments.size(),
+                type,
+                assignees,
+                parentRef,
+                childCount,
+                childDoneCount,
+                blockedByMap.getOrDefault(row.id(), List.of()),
+                blocksMap.getOrDefault(row.id(), List.of()),
+                blockedMap.getOrDefault(row.id(), false),
+                fieldsByIssue.getOrDefault(row.id(), List.of()))
+            .withAgentWork(agentWorkService.viewsByIssueIds(ids).getOrDefault(row.id(), List.of()));
     // AI Instant Context: 항상 반환 — 블로커는 항상 계산, summary/nextAction/generatedAt 은 저장본 없으면 null.
     // 생성 버튼은 항상 렌더(aiContext non-null)해야 하므로 저장본/블로커 여부와 무관하게 인스턴스화.
     var blockers = blockerCalculator.compute(summaryResponse, LocalDate.now(), Instant.now());

@@ -33,6 +33,14 @@ public class IssueChangeNotifier {
     changed(project, issueNumber, issueId, ResourceChangedEvent.OP_UPDATED, actorId);
   }
 
+  /**
+   * AI 작업 기록(agent_work) 변경 알림(WP-377). {@link #updated} 와 같은 이벤트를 내보내 화면이 이슈를 다시 읽게 한다. 이슈 쓰기가
+   * 아니므로 수행 도구 터치 이벤트는 따로 발행하지 않는다.
+   */
+  public void agentWorkChanged(ProjectRow project, int issueNumber, long issueId, Long actorId) {
+    changed(project, issueNumber, issueId, ResourceChangedEvent.OP_UPDATED, actorId);
+  }
+
   /** 이슈 삭제 알림. */
   public void deleted(ProjectRow project, int issueNumber, long issueId, Long actorId) {
     changed(project, issueNumber, issueId, ResourceChangedEvent.OP_DELETED, actorId);
