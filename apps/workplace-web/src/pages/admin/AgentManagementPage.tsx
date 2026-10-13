@@ -150,7 +150,9 @@ export default function AgentManagementPage() {
                   </form>
 
                   <div className="rounded-md border overflow-x-auto">
-                    <table className="w-full text-sm">
+                    {/* 좁은 화면(모바일 시트·외부 연결 카드 안)에서 열 제목이 글자 단위로 꺾이지 않게 줄바꿈을 막고,
+                        넘치는 폭은 바깥 div 의 가로 스크롤로 받는다. */}
+                    <table className="w-full whitespace-nowrap text-sm">
                       <thead>
                         <tr className="text-left text-muted-foreground border-b">
                           <th className="py-2 px-3">prefix</th>
