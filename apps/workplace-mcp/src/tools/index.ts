@@ -26,7 +26,17 @@ export function selectTools(tools: SharedTool[], scope: McpScope): SharedTool[] 
   return tools.filter((t) => (apps === null || toolApps(t).some((a) => apps.includes(a))) && (!readOnly || t.kind === 'read'));
 }
 
-/** 사용자 PAT 컨텍스트에서 노출할 도구 목록(공유 도구 중 destructive 제외 → 연결 범위로 추림). 범위를 안 주면 전체. */
-export function buildUserTools(client: PatApiClient, scope: McpScope = FULL_SCOPE): SharedTool[] {
+/** 접속 주체 종류 — PAT(swp_)는 HUMAN, AGENT API 키(ak_)는 AGENT. */
+export type PrincipalKind = 'HUMAN' | 'AGENT';
+
+/**
+ * 노출할 도구 목록(공유 도구 중 destructive 제외 → 연결 범위로 추림). 범위를 안 주면 전체.
+ * principalKind 는 이후 AGENT 전용 도구 묶음을 등록하기 위한 자리다(WP-372) — 지금은 두 종류 모두 같은 도구를 노출한다.
+ */
+export function buildUserTools(
+  client: PatApiClient,
+  scope: McpScope = FULL_SCOPE,
+  _ctx: { principalKind: PrincipalKind } = { principalKind: 'HUMAN' },
+): SharedTool[] {
   return selectTools(exposableTools(buildSharedTools(client)), scope);
 }

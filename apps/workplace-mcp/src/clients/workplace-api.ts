@@ -9,8 +9,13 @@ import { createSharedToolClient, type SharedToolClient } from '@smart-workplace/
 /** PAT 클라이언트 — 공유 도구 클라이언트 그대로. initialize 토큰 조기 검증도 공유 getMe(GET /auth/me)를 쓴다. */
 export type PatApiClient = SharedToolClient;
 
-/** PAT 토큰을 Authorization: Bearer 헤더로 부착하는 axios 기반 REST 클라이언트를 생성한다. */
-export function createPatApiClient(opts: { baseURL: string; token: string }): PatApiClient {
-  const http = axios.create({ baseURL: opts.baseURL, headers: { Authorization: `Bearer ${opts.token}` } });
+/**
+ * 토큰(PAT 또는 AGENT API 키)을 Authorization: Bearer 헤더로 부착하는 axios 기반 REST 클라이언트를 생성한다.
+ * tenantId 는 AI 키(ak_) 전용 X-On-Behalf-Of-Tenant 값 — 키에는 테넌트가 없어 다중 멤버십 AI 는 이 헤더로 고른다(서버가 멤버십 검증).
+ */
+export function createPatApiClient(opts: { baseURL: string; token: string; tenantId?: string }): PatApiClient {
+  const headers: Record<string, string> = { Authorization: `Bearer ${opts.token}` };
+  if (opts.tenantId) headers['X-On-Behalf-Of-Tenant'] = opts.tenantId;
+  const http = axios.create({ baseURL: opts.baseURL, headers });
   return createSharedToolClient(http);
 }
