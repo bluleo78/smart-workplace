@@ -5,6 +5,7 @@ package com.workplace.jooq;
 
 
 import com.workplace.jooq.tables.AgentApiKey;
+import com.workplace.jooq.tables.AgentWork;
 import com.workplace.jooq.tables.AiAgentCredential;
 import com.workplace.jooq.tables.AssistantConfig;
 import com.workplace.jooq.tables.AuditLog;
@@ -113,6 +114,8 @@ public class Indexes {
     // INDEX definitions
     // -------------------------------------------------------------------------
 
+    public static final Index AGENT_WORK_ACTIVE_UQ = Internal.createIndex(DSL.name("agent_work_active_uq"), AgentWork.AGENT_WORK, new OrderField[] { AgentWork.AGENT_WORK.ISSUE_ID, AgentWork.AGENT_WORK.WORKER_ID }, true);
+    public static final Index AGENT_WORK_WORKER_ACTIVE_IDX = Internal.createIndex(DSL.name("agent_work_worker_active_idx"), AgentWork.AGENT_WORK, new OrderField[] { AgentWork.AGENT_WORK.WORKER_ID }, false);
     public static final Index EMAIL_CONTENT_SEARCH_TV_IDX = Internal.createIndex(DSL.name("email_content_search_tv_idx"), EmailContent.EMAIL_CONTENT, new OrderField[] { EmailContent.EMAIL_CONTENT.SEARCH_TV }, false);
     public static final Index EMAIL_CONTENT_TENANT_HASH_IDX = Internal.createIndex(DSL.name("email_content_tenant_hash_idx"), EmailContent.EMAIL_CONTENT, new OrderField[] { EmailContent.EMAIL_CONTENT.TENANT_ID, EmailContent.EMAIL_CONTENT.CONTENT_HASH }, false);
     public static final Index EMAIL_CONTENT_TENANT_MESSAGE_FP_UK = Internal.createIndex(DSL.name("email_content_tenant_message_fp_uk"), EmailContent.EMAIL_CONTENT, new OrderField[] { EmailContent.EMAIL_CONTENT.TENANT_ID, EmailContent.EMAIL_CONTENT.MESSAGE_ID, EmailContent.EMAIL_CONTENT.FINGERPRINT }, true);
@@ -121,6 +124,7 @@ public class Indexes {
     public static final Index IDX_AAC_USER = Internal.createIndex(DSL.name("idx_aac_user"), AiAgentCredential.AI_AGENT_CREDENTIAL, new OrderField[] { AiAgentCredential.AI_AGENT_CREDENTIAL.USER_ID }, false);
     public static final Index IDX_AGENT_API_KEY_HASH = Internal.createIndex(DSL.name("idx_agent_api_key_hash"), AgentApiKey.AGENT_API_KEY, new OrderField[] { AgentApiKey.AGENT_API_KEY.KEY_HASH }, false);
     public static final Index IDX_AGENT_API_KEY_USER = Internal.createIndex(DSL.name("idx_agent_api_key_user"), AgentApiKey.AGENT_API_KEY, new OrderField[] { AgentApiKey.AGENT_API_KEY.USER_ID }, false);
+    public static final Index IDX_AGENT_WORK_TENANT = Internal.createIndex(DSL.name("idx_agent_work_tenant"), AgentWork.AGENT_WORK, new OrderField[] { AgentWork.AGENT_WORK.TENANT_ID }, false);
     public static final Index IDX_ASSISTANT_CONFIG_TENANT = Internal.createIndex(DSL.name("idx_assistant_config_tenant"), AssistantConfig.ASSISTANT_CONFIG, new OrderField[] { AssistantConfig.ASSISTANT_CONFIG.TENANT_ID }, false);
     public static final Index IDX_AUDIT_LOG_ACTION_TIME = Internal.createIndex(DSL.name("idx_audit_log_action_time"), AuditLog.AUDIT_LOG, new OrderField[] { AuditLog.AUDIT_LOG.ACTION_TIME }, false);
     public static final Index IDX_AUDIT_LOG_ACTION_TYPE = Internal.createIndex(DSL.name("idx_audit_log_action_type"), AuditLog.AUDIT_LOG, new OrderField[] { AuditLog.AUDIT_LOG.ACTION_TYPE }, false);

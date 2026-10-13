@@ -5,6 +5,7 @@ package com.workplace.jooq;
 
 
 import com.workplace.jooq.tables.AgentApiKey;
+import com.workplace.jooq.tables.AgentWork;
 import com.workplace.jooq.tables.AiAgentCredential;
 import com.workplace.jooq.tables.AssistantConfig;
 import com.workplace.jooq.tables.AuditLog;
@@ -106,6 +107,7 @@ import com.workplace.jooq.tables.WikiSpaceMember;
 import com.workplace.jooq.tables.WorkerJob;
 import com.workplace.jooq.tables.WorkspaceAssistant;
 import com.workplace.jooq.tables.records.AgentApiKeyRecord;
+import com.workplace.jooq.tables.records.AgentWorkRecord;
 import com.workplace.jooq.tables.records.AiAgentCredentialRecord;
 import com.workplace.jooq.tables.records.AssistantConfigRecord;
 import com.workplace.jooq.tables.records.AuditLogRecord;
@@ -226,6 +228,7 @@ public class Keys {
     // -------------------------------------------------------------------------
 
     public static final UniqueKey<AgentApiKeyRecord> AGENT_API_KEY_PKEY = Internal.createUniqueKey(AgentApiKey.AGENT_API_KEY, DSL.name("agent_api_key_pkey"), new TableField[] { AgentApiKey.AGENT_API_KEY.ID }, true);
+    public static final UniqueKey<AgentWorkRecord> AGENT_WORK_PKEY = Internal.createUniqueKey(AgentWork.AGENT_WORK, DSL.name("agent_work_pkey"), new TableField[] { AgentWork.AGENT_WORK.ID }, true);
     public static final UniqueKey<AiAgentCredentialRecord> AI_AGENT_CREDENTIAL_PKEY = Internal.createUniqueKey(AiAgentCredential.AI_AGENT_CREDENTIAL, DSL.name("ai_agent_credential_pkey"), new TableField[] { AiAgentCredential.AI_AGENT_CREDENTIAL.ID }, true);
     public static final UniqueKey<AssistantConfigRecord> ASSISTANT_CONFIG_PKEY = Internal.createUniqueKey(AssistantConfig.ASSISTANT_CONFIG, DSL.name("assistant_config_pkey"), new TableField[] { AssistantConfig.ASSISTANT_CONFIG.AGENT_USER_ID }, true);
     public static final UniqueKey<AuditLogRecord> AUDIT_LOG_PKEY = Internal.createUniqueKey(AuditLog.AUDIT_LOG, DSL.name("audit_log_pkey"), new TableField[] { AuditLog.AUDIT_LOG.ID }, true);
@@ -365,6 +368,9 @@ public class Keys {
 
     public static final ForeignKey<AgentApiKeyRecord, UserRecord> AGENT_API_KEY__AGENT_API_KEY_CREATED_BY_FKEY = Internal.createForeignKey(AgentApiKey.AGENT_API_KEY, DSL.name("agent_api_key_created_by_fkey"), new TableField[] { AgentApiKey.AGENT_API_KEY.CREATED_BY }, Keys.USER_PKEY, new TableField[] { User.USER.ID }, true);
     public static final ForeignKey<AgentApiKeyRecord, UserRecord> AGENT_API_KEY__AGENT_API_KEY_USER_ID_FKEY = Internal.createForeignKey(AgentApiKey.AGENT_API_KEY, DSL.name("agent_api_key_user_id_fkey"), new TableField[] { AgentApiKey.AGENT_API_KEY.USER_ID }, Keys.USER_PKEY, new TableField[] { User.USER.ID }, true);
+    public static final ForeignKey<AgentWorkRecord, IssueRecord> AGENT_WORK__AGENT_WORK_ISSUE_ID_FKEY = Internal.createForeignKey(AgentWork.AGENT_WORK, DSL.name("agent_work_issue_id_fkey"), new TableField[] { AgentWork.AGENT_WORK.ISSUE_ID }, Keys.ISSUE_PKEY, new TableField[] { Issue.ISSUE.ID }, true);
+    public static final ForeignKey<AgentWorkRecord, TenantRecord> AGENT_WORK__AGENT_WORK_TENANT_ID_FKEY = Internal.createForeignKey(AgentWork.AGENT_WORK, DSL.name("agent_work_tenant_id_fkey"), new TableField[] { AgentWork.AGENT_WORK.TENANT_ID }, Keys.TENANT_PKEY, new TableField[] { Tenant.TENANT.ID }, true);
+    public static final ForeignKey<AgentWorkRecord, UserRecord> AGENT_WORK__AGENT_WORK_WORKER_ID_FKEY = Internal.createForeignKey(AgentWork.AGENT_WORK, DSL.name("agent_work_worker_id_fkey"), new TableField[] { AgentWork.AGENT_WORK.WORKER_ID }, Keys.USER_PKEY, new TableField[] { User.USER.ID }, true);
     public static final ForeignKey<AiAgentCredentialRecord, UserRecord> AI_AGENT_CREDENTIAL__AI_AGENT_CREDENTIAL_CREATED_BY_FKEY = Internal.createForeignKey(AiAgentCredential.AI_AGENT_CREDENTIAL, DSL.name("ai_agent_credential_created_by_fkey"), new TableField[] { AiAgentCredential.AI_AGENT_CREDENTIAL.CREATED_BY }, Keys.USER_PKEY, new TableField[] { User.USER.ID }, true);
     public static final ForeignKey<AiAgentCredentialRecord, UserRecord> AI_AGENT_CREDENTIAL__AI_AGENT_CREDENTIAL_USER_ID_FKEY = Internal.createForeignKey(AiAgentCredential.AI_AGENT_CREDENTIAL, DSL.name("ai_agent_credential_user_id_fkey"), new TableField[] { AiAgentCredential.AI_AGENT_CREDENTIAL.USER_ID }, Keys.USER_PKEY, new TableField[] { User.USER.ID }, true);
     public static final ForeignKey<AssistantConfigRecord, UserRecord> ASSISTANT_CONFIG__ASSISTANT_CONFIG_AGENT_USER_ID_FKEY = Internal.createForeignKey(AssistantConfig.ASSISTANT_CONFIG, DSL.name("assistant_config_agent_user_id_fkey"), new TableField[] { AssistantConfig.ASSISTANT_CONFIG.AGENT_USER_ID }, Keys.USER_PKEY, new TableField[] { User.USER.ID }, true);

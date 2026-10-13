@@ -8,6 +8,7 @@ import com.workplace.jooq.Indexes;
 import com.workplace.jooq.Keys;
 import com.workplace.jooq.Public;
 import com.workplace.jooq.tables.AgentApiKey.AgentApiKeyPath;
+import com.workplace.jooq.tables.AgentWork.AgentWorkPath;
 import com.workplace.jooq.tables.AiAgentCredential.AiAgentCredentialPath;
 import com.workplace.jooq.tables.AssistantConfig.AssistantConfigPath;
 import com.workplace.jooq.tables.AuditLog.AuditLogPath;
@@ -316,6 +317,19 @@ public class User extends TableImpl<UserRecord> {
             _agentApiKeyUserIdFkey = new AgentApiKeyPath(this, null, Keys.AGENT_API_KEY__AGENT_API_KEY_USER_ID_FKEY.getInverseKey());
 
         return _agentApiKeyUserIdFkey;
+    }
+
+    private transient AgentWorkPath _agentWork;
+
+    /**
+     * Get the implicit to-many join path to the <code>public.agent_work</code>
+     * table
+     */
+    public AgentWorkPath agentWork() {
+        if (_agentWork == null)
+            _agentWork = new AgentWorkPath(this, null, Keys.AGENT_WORK__AGENT_WORK_WORKER_ID_FKEY.getInverseKey());
+
+        return _agentWork;
     }
 
     private transient AiAgentCredentialPath _aiAgentCredentialCreatedByFkey;

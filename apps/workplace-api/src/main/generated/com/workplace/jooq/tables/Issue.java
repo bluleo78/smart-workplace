@@ -7,6 +7,7 @@ package com.workplace.jooq.tables;
 import com.workplace.jooq.Indexes;
 import com.workplace.jooq.Keys;
 import com.workplace.jooq.Public;
+import com.workplace.jooq.tables.AgentWork.AgentWorkPath;
 import com.workplace.jooq.tables.ChatThread.ChatThreadPath;
 import com.workplace.jooq.tables.Cycle.CyclePath;
 import com.workplace.jooq.tables.Issue.IssuePath;
@@ -352,6 +353,19 @@ public class Issue extends TableImpl<IssueRecord> {
             _issueTypeDef = new IssueTypeDefPath(this, Keys.ISSUE__ISSUE_TYPE_ID_FKEY, null);
 
         return _issueTypeDef;
+    }
+
+    private transient AgentWorkPath _agentWork;
+
+    /**
+     * Get the implicit to-many join path to the <code>public.agent_work</code>
+     * table
+     */
+    public AgentWorkPath agentWork() {
+        if (_agentWork == null)
+            _agentWork = new AgentWorkPath(this, null, Keys.AGENT_WORK__AGENT_WORK_ISSUE_ID_FKEY.getInverseKey());
+
+        return _agentWork;
     }
 
     private transient ChatThreadPath _chatThread;

@@ -5,6 +5,7 @@ package com.workplace.jooq;
 
 
 import com.workplace.jooq.tables.AgentApiKey;
+import com.workplace.jooq.tables.AgentWork;
 import com.workplace.jooq.tables.AiAgentCredential;
 import com.workplace.jooq.tables.AssistantConfig;
 import com.workplace.jooq.tables.AuditLog;
@@ -118,6 +119,11 @@ public class Tables {
      * The table <code>public.agent_api_key</code>.
      */
     public static final AgentApiKey AGENT_API_KEY = AgentApiKey.AGENT_API_KEY;
+
+    /**
+     * The table <code>public.agent_work</code>.
+     */
+    public static final AgentWork AGENT_WORK = AgentWork.AGENT_WORK;
 
     /**
      * The table <code>public.ai_agent_credential</code>.
