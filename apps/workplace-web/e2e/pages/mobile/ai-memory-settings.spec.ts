@@ -21,5 +21,17 @@ test('카드가 넘치지 않고 아이콘·버튼이 터치 크기다', async (
   expect(Math.round((await stableBox(page.getByTestId('ai-memory-add'))).height)).toBeGreaterThanOrEqual(44)
   await page.getByTestId('ai-memory-add').click()
   expect(Math.round((await stableBox(page.getByTestId('ai-memory-kind-CONTEXT'))).height)).toBeGreaterThanOrEqual(44)
+  await page.getByTestId('ai-memory-add-input').fill('x')
+  const addForm = page.getByTestId('ai-memory-add-form')
+  for (const btn of [addForm.getByRole('button', { name: '취소' }), page.getByTestId('ai-memory-add-submit')]) {
+    expect(Math.round((await stableBox(btn)).height)).toBeGreaterThanOrEqual(44)
+  }
+  await expectNoHorizontalOverflow(page)
+  await addForm.getByRole('button', { name: '취소' }).click()
+  // 제자리 고치기의 취소/저장도 터치 크기다.
+  await page.getByTestId('ai-memory-edit').first().click()
+  for (const btn of [page.getByTestId('ai-memory-edit-save'), page.getByRole('button', { name: '취소' })]) {
+    expect(Math.round((await stableBox(btn)).height)).toBeGreaterThanOrEqual(44)
+  }
   await expectNoHorizontalOverflow(page)
 })

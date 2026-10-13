@@ -127,7 +127,7 @@ export function AiMemoryCard() {
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>취소</AlertDialogCancel>
-              <AlertDialogAction variant="destructive" data-testid="ai-memory-clear-confirm" onClick={() => clear.mutate()}>
+              <AlertDialogAction variant="destructive" data-testid="ai-memory-clear-confirm" disabled={clear.isPending} onClick={() => clear.mutate()}>
                 모두 지우기
               </AlertDialogAction>
             </AlertDialogFooter>

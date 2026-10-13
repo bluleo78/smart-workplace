@@ -41,6 +41,8 @@ export interface MemoryMock {
   clears: RequestTracker
   /** 다음 쓰기 요청 1건을 이 오류로 거절한다. */
   failNext: (status: number, code: string, message: string) => void
+  /** 다음 목록 GET 1건의 응답을 이 프라미스가 풀릴 때까지 붙잡는다("쓰기는 끝났고 목록은 아직" 상태를 결정적으로 만든다). */
+  holdNextList: (until: Promise<void>) => void
 }
 
 /**
@@ -51,13 +53,14 @@ export async function mockAiMemories(page: Page, initial: AiMemoryItem[]): Promi
   let items = [...initial]
   let nextId = Math.max(100, ...initial.map((m) => m.id + 1))
   let failure: { status: number; code: string; message: string } | null = null
+  let listHold: Promise<void> | null = null
   const creates = trackRequests(page, 'POST', '/api/v1/users/me/ai-memories')
   const updates = trackRequests(page, 'PATCH', /^\/api\/v1\/users\/me\/ai-memories\/\d+$/)
   const deletes = trackRequests(page, 'DELETE', /^\/api\/v1\/users\/me\/ai-memories\/\d+$/)
   const clears = trackRequests(page, 'DELETE', '/api/v1/users/me/ai-memories')
   const json = (status: number, body: unknown) => ({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
-  await page.route((u) => /^\/api\/v1\/users\/me\/ai-memories(\/\d+)?$/.test(u.pathname), (route) => {
+  await page.route((u) => /^\/api\/v1\/users\/me\/ai-memories(\/\d+)?$/.test(u.pathname), async (route) => {
     const req = route.request()
     const method = req.method()
     const id = Number(new URL(req.url()).pathname.split('/')[6] ?? NaN)
@@ -66,7 +69,12 @@ export async function mockAiMemories(page: Page, initial: AiMemoryItem[]): Promi
       failure = null
       return route.fulfill(json(f.status, { status: f.status, error: '', message: f.message, errors: { code: f.code } }))
     }
-    if (method === 'GET') return route.fulfill(json(200, { items, limit: 50 }))
+    if (method === 'GET') {
+      const hold = listHold
+      listHold = null
+      if (hold) await hold
+      return route.fulfill(json(200, { items, limit: 50 }))
+    }
     if (method === 'POST') {
       const body = req.postDataJSON() as { kind: AiMemoryItem['kind']; content: string }
       const created = memoryItem(nextId++, { kind: body.kind, content: body.content.trim(), source: 'USER', updatedAt: new Date().toISOString() })
@@ -99,5 +107,6 @@ export async function mockAiMemories(page: Page, initial: AiMemoryItem[]): Promi
     deletes,
     clears,
     failNext: (status, code, message) => void (failure = { status, code, message }),
+    holdNextList: (until) => void (listHold = until),
   }
 }

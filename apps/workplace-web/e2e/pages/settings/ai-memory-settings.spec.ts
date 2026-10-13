@@ -6,7 +6,7 @@ import { memoryItem, mockAiMemories } from '../../fixtures/ai-memory-mock'
 import { mockAiPreferences } from '../../fixtures/ai-suggestions-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { mockMyAssistantStatus } from '../../fixtures/my-assistant-mock'
-import { stableBox } from '../../fixtures/wait'
+import { gate, stableBox } from '../../fixtures/wait'
 
 const rows = (page: Page) => page.getByTestId('ai-memory-row')
 
@@ -197,4 +197,53 @@ test('저장이 거절되면 서버 사유를 토스트로 보이고 폼을 닫�
   await page.getByTestId('ai-memory-add-submit').click()
   await expect(page.getByText('메모리가 가득 찼어요(최대 50개). 필요 없는 항목을 지워 주세요')).toBeVisible()
   await expect(page.getByTestId('ai-memory-add-form')).toBeVisible()
+})
+
+// 쓰기가 끝나도 목록을 다시 읽기 전에는 지운 줄이 남아 있다 — 그 사이 삭제 버튼이 잠겨 두 번째 DELETE(404)가 나가지 않는다.
+test('삭제 뒤 목록이 갱신되기 전에는 삭제 버튼이 잠겨 두 번째 요청이 나가지 않는다', async ({ authenticatedPage: page }) => {
+  const mock = await mockAiMemories(page, [memoryItem(3, { content: '첫째' }), memoryItem(2, { content: '둘째' })])
+  await openSettings(page)
+  const list = gate()
+  mock.holdNextList(list.p)
+  const del = rows(page).first().getByTestId('ai-memory-delete')
+  await del.click()
+  await mock.deletes.waitFor()
+  await expect(page.getByText('메모리를 삭제했어요')).toBeVisible()
+  await expect(rows(page)).toHaveCount(2) // 목록 응답이 아직 — 지운 줄이 남아 있다
+  await expect(del).toBeDisabled()
+  expect(mock.deletes.count()).toBe(1)
+  list.release()
+  await expect(rows(page)).toHaveCount(1)
+  expect(mock.deletes.count()).toBe(1)
+})
+
+// 고치기·추가도 목록을 다시 읽은 뒤에 닫힌다 — 닫힌 순간 옛 내용·옛 자리가 보이지 않는다.
+test('고치기는 목록이 갱신될 때까지 편집기를 열어 두고 저장 버튼을 잠근다', async ({ authenticatedPage: page }) => {
+  const mock = await mockAiMemories(page, [memoryItem(3, { content: '첫째' }), memoryItem(2, { content: '둘째' })])
+  await openSettings(page)
+  const list = gate()
+  await rows(page).nth(1).getByTestId('ai-memory-edit').click()
+  await page.getByTestId('ai-memory-edit-input').fill('둘째를 고침')
+  mock.holdNextList(list.p)
+  await page.getByTestId('ai-memory-edit-save').click()
+  await mock.updates.waitFor()
+  await expect(page.getByTestId('ai-memory-edit-save')).toBeDisabled()
+  await expect(page.getByTestId('ai-memory-edit-input')).toBeVisible()
+  list.release()
+  await expect(page.getByTestId('ai-memory-edit-input')).toHaveCount(0)
+  await expect(rows(page).getByTestId('ai-memory-content')).toHaveText(['둘째를 고침', '첫째'])
+})
+
+test('모두 지우기 확인 버튼은 요청 중 잠긴다', async ({ authenticatedPage: page }) => {
+  const mock = await mockAiMemories(page, [memoryItem(3), memoryItem(2)])
+  await openSettings(page)
+  const list = gate()
+  await page.getByTestId('ai-memory-clear').click()
+  mock.holdNextList(list.p)
+  await page.getByTestId('ai-memory-clear-confirm').click()
+  await mock.clears.waitFor()
+  await expect(page.getByTestId('ai-memory-empty')).toHaveCount(0)
+  list.release()
+  await expect(page.getByTestId('ai-memory-empty')).toBeVisible()
+  expect(mock.clears.count()).toBe(1)
 })

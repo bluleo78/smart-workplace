@@ -67,7 +67,8 @@ export function useCreateAiMemory() {
   const invalidate = useInvalidateMemories();
   return useMutation({
     mutationFn: (body: { kind: AiMemoryKind; content: string }) => createAiMemory(body),
-    onSuccess: () => void invalidate(),
+    // 목록을 다시 읽을 때까지 pending 유지 — 폼이 닫히고 새 목록이 바로 보이게(옛 내용이 한 번 보이지 않게).
+    onSuccess: () => invalidate(),
     onError: (e) => toast.error(memoryErrorMessage(e, '메모리를 추가하지 못했어요')),
   });
 }
@@ -77,7 +78,8 @@ export function useUpdateAiMemory() {
   const invalidate = useInvalidateMemories();
   return useMutation({
     mutationFn: (v: { id: number; content: string }) => updateAiMemory(v.id, { content: v.content }),
-    onSuccess: () => void invalidate(),
+    // 목록을 다시 읽을 때까지 pending 유지 — 편집기가 닫힐 때 이미 새 내용·새 위치가 보인다.
+    onSuccess: () => invalidate(),
     onError: (e) => toast.error(memoryErrorMessage(e, '메모리를 고치지 못했어요')),
   });
 }
@@ -90,7 +92,6 @@ export function useDeleteAiMemory() {
   return useMutation({
     mutationFn: (item: AiMemoryItem) => deleteAiMemory(item.id),
     onSuccess: (deleted) => {
-      void invalidate();
       toast.success('메모리를 삭제했어요', {
         action: {
           label: '되돌리기',
@@ -101,6 +102,8 @@ export function useDeleteAiMemory() {
           },
         },
       });
+      // 목록을 다시 읽을 때까지 pending 유지 — 지운 줄이 남아 삭제 버튼이 다시 켜져 두 번째 DELETE(404)가 나가지 않게.
+      return invalidate();
     },
     onError: (e) => toast.error(memoryErrorMessage(e, '메모리를 지우지 못했어요')),
   });
@@ -111,7 +114,7 @@ export function useClearAiMemories() {
   const invalidate = useInvalidateMemories();
   return useMutation({
     mutationFn: clearAiMemories,
-    onSuccess: () => void invalidate(),
+    onSuccess: () => invalidate(),
     onError: (e) => handleApiError(e, '메모리를 지우지 못했어요'),
   });
 }

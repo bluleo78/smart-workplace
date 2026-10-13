@@ -5,11 +5,9 @@ import { useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
 import { useDeleteAiMemory, useUpdateAiMemory } from '@/hooks/queries/useAiMemories';
-import { canSubmitContent, contentCountTone, MEMORY_MAX_CHARS, memoryLength } from '@/lib/aiMemory';
 import { formatDateOnly } from '@/lib/formatters';
-import { cn } from '@/lib/utils';
+import { AiMemoryContentEditor } from '@/pages/settings/AiMemoryContentEditor';
 import type { AiMemoryItem } from '@/types/aiMemory';
 
 /** 종류 배지 — 선호는 info, 맥락은 secondary(둘 다 라이트/다크 토큰 쌍). */
@@ -23,7 +21,6 @@ export function AiMemoryRow({ item }: { item: AiMemoryItem }) {
   const remove = useDeleteAiMemory();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(item.content);
-  const len = memoryLength(draft);
   const badge = KIND_BADGE[item.kind];
 
   const startEdit = () => {
@@ -43,25 +40,16 @@ export function AiMemoryRow({ item }: { item: AiMemoryItem }) {
       </Badge>
       {editing ? (
         <div className="min-w-0 flex-1 space-y-1.5">
-          <Textarea
-            data-testid="ai-memory-edit-input"
-            aria-label="메모리 내용"
-            rows={2}
-            autoFocus
+          <AiMemoryContentEditor
             value={draft}
-            onChange={(e) => setDraft(e.target.value)}
+            onChange={setDraft}
+            onCancel={() => setEditing(false)}
+            onSubmit={save}
+            submitLabel="저장"
+            pending={update.isPending}
+            rows={2}
+            testIds={{ input: 'ai-memory-edit-input', count: 'ai-memory-edit-count', submit: 'ai-memory-edit-save' }}
           />
-          <div className="flex items-center gap-2">
-            <span data-testid="ai-memory-edit-count" className={cn('text-xs tabular-nums', contentCountTone(len))}>
-              {len} / {MEMORY_MAX_CHARS}
-            </span>
-            <Button variant="ghost" size="sm" className="ml-auto" onClick={() => setEditing(false)}>
-              취소
-            </Button>
-            <Button size="sm" data-testid="ai-memory-edit-save" disabled={!canSubmitContent(draft) || update.isPending} onClick={save}>
-              저장
-            </Button>
-          </div>
         </div>
       ) : (
         <div className="min-w-0 flex-1">
