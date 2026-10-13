@@ -3,11 +3,11 @@
 import type { Page } from '@playwright/test'
 
 import { openChatPanel, msg, sessionItem, setupLiveChat, summary, TITLE_A } from '../fixtures/ai-live-chat'
-import { gate, mockAiPreferences, mockStarterSuggestions } from '../fixtures/ai-suggestions-mock'
+import { mockAiPreferences, mockStarterSuggestions } from '../fixtures/ai-suggestions-mock'
 import { expect, test } from '../fixtures/auth.fixture'
 import { type HomeChatStartBody, mockHomeChatGeneration } from '../fixtures/home-chat-mock'
 import { mockIssueDetail } from '../fixtures/issue-detail-mock'
-import { expectStays } from '../fixtures/wait'
+import { expectStays, gate } from '../fixtures/wait'
 
 const GENERAL = ['오늘 일정 요약해줘', '나를 멘션한 메시지 정리해줘', '내 작업 우선순위 정리해줘', '답장이 필요한 메일 알려줘']
 const AI = ['3분기 매출 보고서 진행 알려줘', '오늘 오후 회의 안건 정리해줘', '어제 받은 메일 중 급한 것 알려줘', '내 리뷰 대기 이슈 보여줘']

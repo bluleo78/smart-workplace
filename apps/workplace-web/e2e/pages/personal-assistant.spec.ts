@@ -1,6 +1,7 @@
 import type { Route } from '@playwright/test'
 
 import { expect, test } from '../fixtures/auth.fixture'
+import { mockMyAssistantModels, mockMyAssistantStatus } from '../fixtures/my-assistant-mock'
 import { trackRequests } from '../fixtures/requests'
 
 // 프로필 개인 비서 섹션 E2E — Task 13: 등록 폼이 admin ProviderCredentialDialog(Task 12)와 동일한
@@ -47,18 +48,8 @@ function configuredStatus(overrides: Partial<AssistantStatusFixture> = {}): Assi
   }
 }
 
-function mockStatus(page: import('@playwright/test').Page, get: () => AssistantStatusFixture) {
-  return page.route('**/api/v1/users/me/assistant', (route) => {
-    if (route.request().method() === 'GET') {
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(get()),
-      })
-    }
-    return route.fallback()
-  })
-}
+// GET 상태 — 공용 목(my-assistant-mock)에 이 spec 의 상태 타입을 붙인다.
+const mockStatus = (page: import('@playwright/test').Page, get: () => AssistantStatusFixture) => mockMyAssistantStatus(page, get)
 
 // PUT /users/me/assistant/credential — 성공 응답. 등록 요청 tracker 를 돌려준다.
 function mockCredentialRegister(
@@ -76,23 +67,8 @@ function mockCredentialRegister(
   return requests
 }
 
-// GET /users/me/assistant/models — 설정된 비서의 서버 모델 목록.
-function mockModels(
-  page: import('@playwright/test').Page,
-  models: Array<{ id: string; label: string }>,
-  provider = 'anthropic',
-) {
-  return page.route('**/api/v1/users/me/assistant/models', (route) => {
-    if (route.request().method() === 'GET') {
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ provider, models }),
-      })
-    }
-    return route.fallback()
-  })
-}
+// GET /users/me/assistant/models — 설정된 비서의 서버 모델 목록(공용 목).
+const mockModels = mockMyAssistantModels
 
 // POST /users/me/assistant/models/probe — 성공/실패 응답. 프로브 요청 tracker 를 돌려준다.
 function mockProbe(

@@ -2,6 +2,7 @@
 import { mockAiPreferences } from '../../fixtures/ai-suggestions-mock'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { mockMyAssistantModels, mockMyAssistantSettings, mockMyAssistantStatus } from '../../fixtures/my-assistant-mock'
 import { trackRequests } from '../../fixtures/requests'
 
 const status = (over: Record<string, unknown> = {}) => ({
@@ -9,17 +10,16 @@ const status = (over: Record<string, unknown> = {}) => ({
   name: null, provider: 'anthropic', baseUrl: null, suggestionModel: null, suggestionModelAuto: 'claude-haiku-5-5', ...over,
 })
 
+/** 개인 비서 상태·모델 목록·설정 저장 목 — 저장 요청 tracker 를 돌려준다. */
 async function mockPersonal(page: import('@playwright/test').Page, s: Record<string, unknown>, models: Array<{ id: string; label: string }>) {
-  await mockApi(page, 'GET', '/api/v1/users/me/assistant', s)
-  await mockApi(page, 'GET', '/api/v1/users/me/assistant/models', { provider: s.provider ?? 'anthropic', models })
-  const puts = trackRequests(page, 'PUT', '/api/v1/users/me/assistant/settings')
-  await page.route('**/api/v1/users/me/assistant/settings', (r) => r.fulfill({ status: 204, body: '' }))
-  return puts
+  await mockMyAssistantStatus(page, () => s)
+  await mockMyAssistantModels(page, models, typeof s.provider === 'string' ? s.provider : 'anthropic')
+  return mockMyAssistantSettings(page)
 }
 
 test('개인 비서가 없어도 추천 질문 스위치가 보이고, 끄면 false 를 저장한다', async ({ authenticatedPage: page }) => {
   const puts = await mockAiPreferences(page, true)
-  await mockApi(page, 'GET', '/api/v1/users/me/assistant', { ...status(), configured: false, provider: null, model: null, suggestionModelAuto: null })
+  await mockMyAssistantStatus(page, () => ({ ...status(), configured: false, provider: null, model: null, suggestionModelAuto: null }))
   await page.goto('/settings/assistant')
   const card = page.getByTestId('ai-suggestions-card')
   await expect(card).toContainText('추천 질문')
@@ -66,7 +66,7 @@ test('목록 조회를 지원하지 않는 연결은 직접 입력, 자동 라�
   expect(puts.lastBody()).toEqual({ suggestionModel: 'amazon-bedrock-openai/small' })
 })
 
-// 재판정 M2 — 접두 없이 저장하면 실행 시점에 조용히 실패하므로 비서 모델 직접 입력과 같은 규칙으로 providerId/ 를 붙인다.
+// 접두 없이 저장하면 실행 시점에 조용히 실패하므로 비서 모델 직접 입력과 같은 규칙으로 providerId/ 를 붙인다.
 test('직접 입력한 추천 모델에 providerId/ 접두가 없으면 붙여 저장한다', async ({ authenticatedPage: page }) => {
   const puts = await mockPersonal(page, status({ provider: 'opencode', model: 'amazon-bedrock-openai/gpt-oss', suggestionModelAuto: 'amazon-bedrock-openai/gpt-oss' }), [])
   await page.goto('/settings/assistant')

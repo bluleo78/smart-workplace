@@ -40,10 +40,3 @@ export async function mockAiPreferences(page: Page, enabled: boolean): Promise<R
   })
   return puts
 }
-
-/** 테스트가 풀 때까지 응답을 붙잡는 게이트. */
-export function gate() {
-  let release!: () => void
-  const p = new Promise<void>((r) => (release = r))
-  return { p, release }
-}
