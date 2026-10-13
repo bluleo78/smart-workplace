@@ -17,9 +17,15 @@ describe.each(Object.entries(BRAND_THEMES))('filled action tokens (%s)', (_theme
     expect(tokenContrast(body, text, bg)).toBeGreaterThanOrEqual(4.5)
   })
 
-  // 삭제 버튼 hover(hover:bg-destructive/90). primary hover(/90)는 브랜드 라이트(ocean 3.89·sunset ~4.2:1)에서 미달이라 별도 이슈로 남긴다.
-  it.each(['background', 'popover'])('destructive hover(/90 over %s) keeps 4.5:1', (under) => {
-    expect(fgOn(body, 'destructive-foreground', 'destructive', 0.9, under)).toBeGreaterThanOrEqual(4.5)
+  // 채움 버튼 hover(hover:bg-x/90). 예전 브랜드 라이트 primary 는 hover 에서 ocean 3.89·sunset 4.24:1 로 미달이었다 —
+  // primary 명도를 내려(ocean 0.52→0.47·sunset 0.55→0.53) 6조합 모두 4.5:1 을 지킨다(WP-368).
+  it.each([
+    ['destructive-foreground', 'destructive', 'background'],
+    ['destructive-foreground', 'destructive', 'popover'],
+    ['primary-foreground', 'primary', 'background'],
+    ['primary-foreground', 'primary', 'popover'],
+  ])('%s on %s hover(/90 over %s) keeps 4.5:1', (text, fill, under) => {
+    expect(fgOn(body, text, fill, 0.9, under)).toBeGreaterThanOrEqual(4.5)
   })
 
   // 모바일 탭바 AI 캡슐(활성) — ai-accent → primary 그라데이션 위 primary-foreground 글리프. 양 끝 모두 4.5:1.
@@ -43,11 +49,8 @@ describe.each(Object.entries(BRAND_THEMES))('selection tokens (%s)', (theme, bod
   it.each(['background', 'popover'])('selected stands out from %s (≥1.2:1)', (under) => {
     expect(tokenContrast(body, 'selected', under)).toBeGreaterThanOrEqual(1.2)
   })
-  // 브랜드 라이트(ocean·sunset)는 primary 자체가 바탕 위 4.58·4.95:1 로 여유가 없어 연한 채움 위에선 4.0·4.3:1 — 위 primary hover 와 같은
-  // 기존 브랜드 primary 명도 문제라 하한만 고정하고(회귀 방지) 기본 라이트·다크는 AA 4.5:1 을 지킨다.
-  const brandLight = theme === 'ocean-light' || theme === 'sunset-light'
-  it.each(['background', 'popover'])(`primary text on toggle-on fill over %s keeps ${brandLight ? '4:1' : '4.5:1'}`, (under) => {
+  it.each(['background', 'popover'])('primary text on toggle-on fill over %s keeps 4.5:1', (under) => {
     const fill = compositeLuminance(body, 'primary', dark ? 0.15 : 0.1, under)
-    expect(contrast(luminance(oklchOf(body, 'primary')), fill)).toBeGreaterThanOrEqual(brandLight ? 4 : 4.5)
+    expect(contrast(luminance(oklchOf(body, 'primary')), fill)).toBeGreaterThanOrEqual(4.5)
   })
 })

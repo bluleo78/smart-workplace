@@ -359,11 +359,11 @@
 
 /* ===== OCEAN THEME ===== */
 .theme-ocean {
-  --primary: oklch(0.52 0.14 195);
-  --ring: oklch(0.52 0.14 195);
-  --sidebar-primary: oklch(0.52 0.14 195);
-  --sidebar-ring: oklch(0.52 0.14 195);
-  --chart-1: oklch(0.52 0.14 195);
+  --primary: oklch(0.47 0.14 195);
+  --ring: oklch(0.47 0.14 195);
+  --sidebar-primary: oklch(0.47 0.14 195);
+  --sidebar-ring: oklch(0.47 0.14 195);
+  --chart-1: oklch(0.47 0.14 195);
   --accent: oklch(0.96 0.01 195);
   --sidebar-accent: oklch(0.96 0.01 195);
   --selected: oklch(0.915 0.02 195);
@@ -385,11 +385,11 @@
 
 /* ===== SUNSET THEME ===== */
 .theme-sunset {
-  --primary: oklch(0.55 0.18 50);
-  --ring: oklch(0.55 0.18 50);
-  --sidebar-primary: oklch(0.55 0.18 50);
-  --sidebar-ring: oklch(0.55 0.18 50);
-  --chart-1: oklch(0.55 0.18 50);
+  --primary: oklch(0.53 0.18 50);
+  --ring: oklch(0.53 0.18 50);
+  --sidebar-primary: oklch(0.53 0.18 50);
+  --sidebar-ring: oklch(0.53 0.18 50);
+  --chart-1: oklch(0.53 0.18 50);
   --accent: oklch(0.96 0.01 50);
   --sidebar-accent: oklch(0.96 0.01 50);
   --selected: oklch(0.915 0.02 50);
@@ -481,8 +481,8 @@
 }
 
 @keyframes logo-pulse-ocean {
-  0%, 100% { box-shadow: 0 3px 10px oklch(0.52 0.14 195 / 30%); }
-  50% { box-shadow: 0 3px 20px oklch(0.52 0.14 195 / 50%); }
+  0%, 100% { box-shadow: 0 3px 10px oklch(0.47 0.14 195 / 30%); }
+  50% { box-shadow: 0 3px 20px oklch(0.47 0.14 195 / 50%); }
 }
 @keyframes logo-pulse-ocean-dark {
   0%, 100% { box-shadow: 0 3px 12px oklch(0.75 0.12 195 / 30%); }
@@ -492,8 +492,8 @@
 .dark .theme-ocean .logo-pulse, .theme-ocean.dark .logo-pulse { animation: logo-pulse-ocean-dark 3s ease-in-out infinite; }
 
 @keyframes logo-pulse-sunset {
-  0%, 100% { box-shadow: 0 3px 10px oklch(0.55 0.18 50 / 30%); }
-  50% { box-shadow: 0 3px 20px oklch(0.55 0.18 50 / 50%); }
+  0%, 100% { box-shadow: 0 3px 10px oklch(0.53 0.18 50 / 30%); }
+  50% { box-shadow: 0 3px 20px oklch(0.53 0.18 50 / 50%); }
 }
 @keyframes logo-pulse-sunset-dark {
   0%, 100% { box-shadow: 0 3px 12px oklch(0.72 0.15 50 / 30%); }

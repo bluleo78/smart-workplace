@@ -340,7 +340,7 @@ orange 계열 주의 색상. warning(amber)보다 강한 주의를 표현하기 
 - **그대로 두는 켜짐 표시**: 켜짐이 이미 꺼짐·hover 와 뚜렷이 다른 패턴은 `TOGGLE_ON_CLASS` 로 바꾸지 않는다 — 여럿 중 하나를 고르는 채움 버튼(`variant="default"` ↔ `ghost`/`outline`: 캘린더 일/주/월, 이슈 목록/보드, 위젯 항목 수·테두리 없음), 채움 칩(사용자 정의 필드 다중 선택), 아이콘·라벨이 바뀌는 토글(숨김 👁, 즐겨찾기 ★, 구독 — 모바일 ⋯ 메뉴 안에선 아래 규칙), 링·흐림으로 고르는 아바타(타임라인 담당자 필터), 색·아이콘 견본 선택.
 - **모바일 헤더 ⋯ 메뉴**: 메뉴가 항목 버튼의 배경·테두리를 걷어내므로, 켜진 토글(`aria-pressed=true` → `menuitemcheckbox` 체크)은 메뉴가 `TOGGLE_ON_TEXT_CLASS` 와 같은 primary 글자 + 굵게로 표시한다(`MobileHeaderMore`).
 - **적용하지 않는 곳**: 멘션·`/` 메뉴의 키보드 하이라이트(`aria-selected` 콤보박스 — hover 와 같은 성격), 누름(`active:bg-accent`) 피드백, 값 칩(받는 사람·멘션·필터 값), 드래그 드롭 표시. (토글형 칩은 위 `TOGGLE_ON_CLASS`.)
-- 대비는 `actionTokens.test` 가 6조합(기본·ocean·sunset × 라이트·다크)으로 고정한다 — 선택 배경 위 글자 4.5:1, 막대 3:1, 토글 채움 위 primary 글자 4.5:1(브랜드 라이트는 primary 자체 명도 한계로 4:1 하한).
+- 대비는 `actionTokens.test` 가 6조합(기본·ocean·sunset × 라이트·다크)으로 고정한다 — 선택 배경 위 글자 4.5:1, 막대 3:1, 토글 채움 위 primary 글자 4.5:1, 채움 버튼 hover(`/90`) 위 흰 글자 4.5:1.
 - 막대 모양은 `selection-bar` 유틸이 `--selection-bar-inset`·`--selection-bar-bg`·`--selection-bar-shadow` 변수로 받는다. 앱 레일은 `selection-bar nav-active-indicator` 를 함께 쓰며, `.nav-active-indicator` 는 변수만 바꾼다(위아래 25% 인셋, 다크 그라데이션·glow) — 모양은 기존과 같다.
 
 ---
@@ -352,8 +352,10 @@ orange 계열 주의 색상. warning(amber)보다 강한 주의를 표현하기 
 | 테마 | hue | Light `--primary` | Dark `--primary` |
 |------|-----|-------------------|------------------|
 | 기본(Indigo) | 264 | `oklch(0.45 0.2 264)` | `oklch(0.65 0.2 264)` |
-| `.theme-ocean` | 195 (틸/시안) | `oklch(0.52 0.14 195)` | `oklch(0.75 0.12 195)` |
-| `.theme-sunset` | 50 (오렌지) | `oklch(0.55 0.18 50)` | `oklch(0.72 0.15 50)` |
+| `.theme-ocean` | 195 (틸/시안) | `oklch(0.47 0.14 195)` | `oklch(0.75 0.12 195)` |
+| `.theme-sunset` | 50 (오렌지) | `oklch(0.53 0.18 50)` | `oklch(0.72 0.15 50)` |
+
+> 라이트 primary 명도는 대비로 정했다 — 예전 ocean 0.52·sunset 0.55 는 켜진 토글(연한 primary 채움 위 primary 글자)이 4.0·4.3:1, 채움 버튼 hover(`/90`) 흰 글자가 3.9·4.2:1 로 AA(4.5:1) 미달이라 0.47·0.53 으로 내렸다(WP-368). 값은 `actionTokens.test` 가 고정한다.
 
 각 테마는 `.bg-gradient-main` 배경 그라데이션과 `logo-pulse` 애니메이션의 색상도 함께 오버라이드한다([08-animation-motion.md](./08-animation-motion.md) 참조).
 
@@ -467,4 +469,4 @@ Workplace는 Tailwind v4를 사용하며 `tailwind.config.js`가 없다. 대신 
 | 2026-06-06 | v1.0 | 최초 작성 — Workplace `index.css` 기준 Color/테마변형/Radius/Z-Index/Shadow/Tailwind v4 매핑 토큰 정리 |
 | 2026-10-08 | v1.1 | 노트 접속자 색 토큰 `--presence-1..8`·`--presence-foreground`(§1-5) 추가, Tailwind `presence`·`presence-foreground` 색 등록, §1-7 단일 출처·테마 무관 원칙에 접속자 색 예외 명시 (WP-173) |
 | 2026-10-09 | v1.2 | 다크 `--primary-foreground`·`--sidebar-primary-foreground` → `oklch(0.18 0 0)`(5.54:1), 라이트 `--destructive` → `oklch(0.55 0.245 27.325)`(평소 4.93·hover 4.63:1), 다크 `--destructive-foreground` → `oklch(0.18 0 0)`(6.5:1, 삭제 버튼·배지 `dark:bg-destructive/60` 제거), 모바일 AI 캡슐 글리프 `text-primary-foreground`, 다크 스위치 thumb `bg-foreground`, 성공 배지 예시를 `text-success-text` 로 (WP-322). 앱 전체 아바타·에픽 색점을 `--presence-*` 로 통일 (WP-318) |
-| 2026-10-13 | v1.3 | 선택 전용 토큰 `--selected`(6조합)·`selection-bar` 유틸·`src/lib/selectionStyles.ts` 추가, `--accent` 용도를 hover·누름으로 좁히고 §1-8 선택 상태 표시 규칙 신설 (WP-368) |
+| 2026-10-13 | v1.3 | 선택 전용 토큰 `--selected`(6조합)·`selection-bar` 유틸·`src/lib/selectionStyles.ts` 추가, `--accent` 용도를 hover·누름으로 좁히고 §1-8 선택 상태 표시 규칙 신설, ocean·sunset 라이트 primary 를 대비 기준으로 0.47·0.53 으로 낮춤 (WP-368) |
