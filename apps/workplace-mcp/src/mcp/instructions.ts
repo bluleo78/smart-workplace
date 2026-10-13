@@ -33,7 +33,7 @@ export function buildInstructions(tools: readonly SharedTool[], scope: McpScope)
     `Gen:iA Works workplace tools. Scope: ${range}. ${mode}`,
     'Apps:',
     ...lines,
-    'Issues are referenced by key (e.g. WP-12) and people by username. Irreversible actions such as deleting or sending mail are not provided.',
+    'Issues are referenced by key (e.g. WP-12) and people by username. Deleting and sending mail are not provided.',
     // 목록 도구의 페이지·잘림 규칙(WP-352)을 한 번 더 요약한다 — 도구 설명에도 있지만 일부만 보고 전부처럼 답하는 실수가 가장 흔하다.
     'Lists: hasMore means another page (pass the returned next value); truncated means partial with no next page. Never present a partial list as complete.',
   ];

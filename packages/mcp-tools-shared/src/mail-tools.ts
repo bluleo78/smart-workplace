@@ -143,7 +143,7 @@ export function buildMailTools(
       app: 'mail',
       kind: 'read',
       description:
-        'Returns an AI summary of one mail; quicker than get_mail for long mail. Errors if AI is not configured.',
+        'Returns an AI summary of one mail; quicker than get_mail for long mail.',
       inputSchema: getMailInput,
       async handler(args) {
         const { messageId } = getMailInput.parse(args);
@@ -183,7 +183,7 @@ export function buildMailTools(
       hints: { destructive: false, idempotent: true },
       description:
         'Creates an issue (이슈) from a mail. assignees are project member usernames ("me" = caller) and are notified; type and labels are ' +
-        'project names (unknown ones fail). If the mail already has an issue, that issueKey returns: ' +
+        'project names. If the mail already has an issue, that issueKey returns: ' +
         '{issueKey, created}.',
       inputSchema: createIssueFromMailInput,
       async handler(args) {
@@ -231,10 +231,10 @@ export function buildMailTools(
       // 호출마다 last_synced_at 이 갱신되고 그 사이 도착한 메일 때문에 같은 인자도 결과가 달라지므로 멱등이 아니다(true 는 자동 재시도를 부른다).
       hints: { destructive: true, idempotent: false, openWorld: true },
       description:
-        'Syncs an account inbox with its server (M365 Graph or IMAP): fetches new mail, overwrites stored read states with server values (IMAP: ' +
+        'Syncs an account inbox with its server (M365 or IMAP): fetches new mail, overwrites stored read states with server values (IMAP: ' +
         'last 14 days, 500 items), and on M365 deletes mail removed there. Returns {fetched, saved (new), seenChanged}; all 0 = no change. If a ' +
-        'sync is already running: {alreadySyncing:true, phase, done, total}; retry later or use list_mail. That check is best effort; a sync ' +
-        'starting right after it can also yield all 0.',
+        'sync is already running: {alreadySyncing:true, phase, done, total}; retry later or use list_mail. ' +
+        'That check is best effort: all 0 can also mean a sync just started.',
       inputSchema: syncMailInput,
       async handler(args) {
         const { accountId } = syncMailInput.parse(args);

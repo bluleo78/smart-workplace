@@ -153,7 +153,7 @@ export function buildMemberTools(client: MemberToolClient): SharedTool[] {
       app: ['member', 'calendar', 'project', 'messaging', 'contacts'],
       kind: 'read',
       description:
-        'Searches workspace members (구성원) by name, username or email. Pass username to tools that take a person (no numeric ids). kind HUMAN ' +
+        'Searches workspace members (구성원) by name, username or email. kind HUMAN ' +
         '(default), AGENT (AI) or ALL; active only unless includeInactive. With channelId (a channel I belong to), lists its members with ' +
         'role; search matches name or username, includeInactive is ignored. Returns {items, total, hasMore?, nextPage?}; if hasMore, pass ' +
         'nextPage as page, narrow search, or say the list is partial.',
@@ -170,8 +170,7 @@ export function buildMemberTools(client: MemberToolClient): SharedTool[] {
       app: 'member',
       kind: 'read',
       description:
-        'Returns one member by username (from search_members): name, email, title, kind, active, membershipRole, membershipStatus. Errors if not ' +
-        'found.',
+        'Returns one member by username (from search_members): name, email, title, kind, active, membershipRole, membershipStatus.',
       inputSchema: memberInput,
       async handler(args) {
         const { username } = memberInput.parse(args);

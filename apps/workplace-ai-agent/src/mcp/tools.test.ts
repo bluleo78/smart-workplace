@@ -11,7 +11,7 @@ import { describe, expect, it, vi, type Mock } from 'vitest';
 import { z } from 'zod';
 
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
-import { ASSISTANT_ROUTER_TOOLS, buildTools, CARD_ONLY_SHARED_TOOLS, routerToolsFor, type HostBridge, type McpProfile } from './tools.js';
+import { AI_AGENT_EXCLUDED_SHARED_TOOLS, ASSISTANT_ROUTER_TOOLS, buildTools, CARD_ONLY_SHARED_TOOLS, routerToolsFor, type HostBridge, type McpProfile } from './tools.js';
 
 // #842: 서버가 응답한 검증 실패(4xx)를 흉내 낸다 — 인터셉터가 message 를 서버 사유로 채운 AxiosError 형태.
 function apiError(status: number, message: string): Error {
@@ -33,6 +33,7 @@ function sharedMock(): MockedShared {
     replaceIssueAssignees: vi.fn().mockResolvedValue({}),
     replaceIssueLabels: vi.fn().mockResolvedValue({}),
     addComment: vi.fn().mockResolvedValue(undefined),
+    reportAgentWork: vi.fn().mockResolvedValue({ work: null, ended: true }),
     editComment: vi.fn().mockResolvedValue(undefined),
     addIssueDependency: vi.fn().mockResolvedValue({}),
     removeIssueDependency: vi.fn().mockResolvedValue(undefined),
@@ -494,8 +495,18 @@ describe('공유 도구 패리티 (#846)', () => {
     const names = new Set(buildTools(c, AGENT_ID, 'assistant').map((t) => t.name));
     const missing = buildSharedTools(c.sc)
       .map((t) => t.name)
-      .filter((n) => !names.has(n) && !(n in CARD_ONLY_SHARED_TOOLS));
+      .filter((n) => !names.has(n) && !(n in CARD_ONLY_SHARED_TOOLS) && !AI_AGENT_EXCLUDED_SHARED_TOOLS.has(n));
     expect(missing).toEqual([]);
+  });
+
+  it('WP-377: 제외 목록의 도구는 실제 공유 도구이고 어떤 프로필에도 없다', () => {
+    const c = client();
+    const shared = new Set(buildSharedTools(c.sc).map((t) => t.name));
+    for (const name of AI_AGENT_EXCLUDED_SHARED_TOOLS) expect(shared.has(name), name).toBe(true); // 낡은 항목 방지
+    for (const v of variants) {
+      const names = v.build(c).map((t) => t.name);
+      for (const name of AI_AGENT_EXCLUDED_SHARED_TOOLS) expect(names, `${v.label}:${name}`).not.toContain(name);
+    }
   });
 
   it('WP-348: 확인 카드 전용 작업의 직접 실행 도구는 어느 프로필에도 없고, 대응 확인 카드는 assistant 에 있다', () => {

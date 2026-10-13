@@ -2,6 +2,7 @@
 // 백엔드 IssueDetailResponse = { summary: IssueResponse, body, comments[], history[], attachments[], reporter, ... }.
 // WP-307: 예전엔 zod 파싱이 스키마 밖 필드를 조용히 지워 날짜·라벨·마일스톤 등이 빠졌다. 이제 필드를 명시적으로 골라 만들고,
 // AI 가 판단에 쓰는 정보(날짜·분류·계층·작성자·커스텀 필드·첨부·변경 이력)를 모두 싣는다.
+import { toAgentWorkView, type AgentWorkOut } from './agent-work-view.js';
 import { formatIssueKey } from './parse.js';
 import {
   labelNames,
@@ -68,6 +69,8 @@ export interface IssueDetail {
   comments: { id: number; body: string; author: PersonView; createdAt: string | null; updatedAt: string | null }[];
   /** 코멘트가 상한에 걸려 잘렸을 때만: 빠진 오래된 코멘트 수. 없으면 전부 담긴 것(allComments 로도 200건이 넘으면 생긴다). */
   commentsOmitted?: number;
+  /** AI 가 이 이슈에서 하는 작업(WP-377) — 없으면 키가 없다. */
+  agentWork?: AgentWorkOut[];
   /** 최근 변경 이력(오래된→최신). from/to 는 상태값 같은 문자열이거나, 집합 변경이면 객체(숫자 id·색 토큰 제외). */
   history: { at: string | null; actor: PersonView; event: string; from: unknown; to: unknown }[];
   /** 이력이 상한에 걸려 잘렸을 때만: 빠진 오래된 이력 수. */
@@ -186,6 +189,7 @@ export function normalizeIssueDetail(raw: unknown, options: NormalizeIssueDetail
       updatedAt: toSeoulIso(c.updatedAt),
     })),
     ...(commentsOmitted > 0 && { commentsOmitted }),
+    ...(Array.isArray(s.agentWork) && s.agentWork.length > 0 && { agentWork: (s.agentWork as Raw[]).map(toAgentWorkView) }),
     history: history.map((h) => ({
       at: toSeoulIso(h.createdAt),
       actor: toAuthorView(h.actorUsername, h.actorName, h.actorKind),

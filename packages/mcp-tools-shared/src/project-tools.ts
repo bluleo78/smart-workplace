@@ -3,6 +3,7 @@
 // 확인 카드로 한다(경로마다 도구 하나 — ai-agent 프로필에는 싣지 않는다). 두 경로가 입력 스키마(createProjectInput·addProjectMemberInput)와
 // 대상 해석(requireActiveMember)·요청 본문 변환(toCreateProjectBody)을 같이 쓴다. 직접 실행 멤버 추가는 MEMBER 로만 한다 — OWNER 로
 // 들이는 것은 권한 부여(README "계속 빼 둘 것: 구성원 권한 변경")라 카드만 한다. 삭제·멤버 역할 변경·제거도 계속 확인 카드만 한다.
+import { toAgentWorkView } from './agent-work-view.js';
 import { z } from 'zod';
 import type { SharedTool } from './mcp-tool.js';
 import { requireActiveMember } from './member-tools.js';
@@ -155,6 +156,8 @@ export function toIssueListItem(it: IssueRow) {
     parent: toParentView(it.parent, projectKey),
     children: toChildrenView(it.childCount, it.childDoneCount),
     blocked: Boolean(it.blocked),
+    // WP-377: AI 가 이 이슈에서 하는 작업 — 없으면 키가 없다(dropEmpty 가 undefined 를 뺀다).
+    agentWork: it.agentWork?.length ? it.agentWork.map(toAgentWorkView) : undefined,
   };
 }
 
@@ -247,8 +250,8 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       description:
         'Lists issues (이슈) as {items, hasMore?, nextCursor?} (size default 30). If hasMore, pass nextCursor as cursor with the same filters, or say ' +
         'the list is partial; a next page may be empty. due/closed/created From-To: yyyy-MM-dd, inclusive, closed/created in KST; for finished ' +
-        'work add status=DONE (closed ranges also match CANCELED). Unknown names fail, listing allowed values. Items: issueKey, main fields, ' +
-        'parent, children, blocked (dates +09:00, empty keys omitted); body/comments: get_issue_detail.',
+        'work add status=DONE (closed ranges also match CANCELED). Items: issueKey, main fields, parent, children, blocked, agentWork ' +
+        '(dates +09:00, empty keys omitted); body/comments: get_issue_detail.',
       inputSchema: listIssuesInput,
       async handler(args) {
         const { priority, size, cycle: cycleCsv, milestone: milestoneCsv, parent, field, watching, ...p } = listIssuesInput.parse(args);
@@ -318,9 +321,8 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       // PERSONAL 은 키를 서버가 정해 하나 더 생기므로 멱등이 아니다. 워크스페이스 밖에 닿지 않는다.
       hints: { destructive: false, idempotent: false },
       description:
-        'Creates a project (프로젝트) with me as OWNER (needs project write permission). projectKey is the issue key prefix; a taken key conflicts. ' +
-        'type: TEAM (default), OPEN (visible to all, for intake) or PERSONAL (only me; key auto-assigned, so each call creates another). Nobody ' +
-        'is notified.',
+        'Creates a project (프로젝트) with me as OWNER (needs project write permission). projectKey is the issue key prefix. ' +
+        'type: TEAM (default), OPEN (visible to all, for intake) or PERSONAL (only me; key auto-assigned, so each call creates another).',
       inputSchema: createProjectInput,
       async handler(args) {
         return JSON.stringify(toProjectView((await client.createProject(toCreateProjectBody(createProjectInput.parse(args)))) as Record<string, unknown>));
@@ -335,7 +337,7 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       hints: { destructive: false, idempotent: false },
       description:
         'Adds an active member (username from search_members) to a project as MEMBER; project OWNER only. Fails if already a member or for a ' +
-        'PERSONAL project (AI agents only). Not notified; the project just appears in their list.',
+        'PERSONAL project (AI agents only). Not notified.',
       inputSchema: addProjectMemberInput,
       async handler(args) {
         const { projectKey, username } = addProjectMemberInput.parse(args);
@@ -357,7 +359,7 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       description:
         'Creates a label, milestone or cycle (라벨·마일스톤·사이클) by kind. Per kind (other fields rejected): label color (default GRAY); ' +
         'milestone dueDate (required), description; cycle goal, startDate, endDate, status (default PLANNED). Dates yyyy-MM-dd. Labels and ' +
-        'cycles need project OWNER, milestones any member; a taken name conflicts.',
+        'cycles need project OWNER, milestones any member.',
       inputSchema: createProjectMetaInput,
       async handler(args) {
         const { projectKey, kind, name, color, ...rest } = omitNulls(createProjectMetaInput.parse(args));

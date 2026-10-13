@@ -208,7 +208,7 @@ export function buildCalendarTools(client: CalendarToolsClient): SharedTool[] {
       kind: 'read',
       description:
         'Lists my calendar (캘린더) events overlapping [from, to) (ISO-8601; no offset = +09:00). Recurring events appear per occurrence, with ' +
-        'masterEventId and occurrenceDate. id = eventId of other calendar tools.',
+        'masterEventId and occurrenceDate.',
       inputSchema: listEventsInput,
       async handler(args) {
         const { from, to } = listEventsInput.parse(args);
@@ -254,7 +254,7 @@ export function buildCalendarTools(client: CalendarToolsClient): SharedTool[] {
       description:
         'Creates an event in my default calendar (캘린더); each call creates a new one. startsAt/endsAt: ISO-8601 with offset (none = +09:00). ' +
         'attendees: member usernames from search_members (not me, no emails); notify:false skips their invitation notifications. recurrenceRule: ' +
-        'RFC 5545 RRULE. Returns {event, conflicts?}; conflicts are my events already in that slot (not blocking).',
+        'RFC 5545 RRULE. Returns {event, conflicts?}; conflicts are my events already in that slot.',
       inputSchema: createEventInput,
       async handler(args) {
         const { attendees, notify, ...fields } = createEventInput.parse(args);
@@ -291,7 +291,7 @@ export function buildCalendarTools(client: CalendarToolsClient): SharedTool[] {
         'Updates an event I organize and/or its attendees; only given fields change; null clears a nullable field (recurrenceRule:null ends ' +
         'recurrence). Recurring: scope ALL (default), THIS or THIS_AND_FOLLOWING; both need occurrenceDate (from list_events), and field ' +
         'changes also that occurrence\'s startsAt and endsAt. addAttendees/removeAttendees: member usernames (not the organizer, no emails), ' +
-        'whole series; notify:false skips in-app invitations (external calendars may still email). M365-synced events change there too. Steps ' +
+        'whole series; notify:false skips in-app invitations. Steps ' +
         'save independently ({ok, results}); attendee steps are skipped if fields fail.',
       inputSchema: updateEventInput,
       async handler(args) {

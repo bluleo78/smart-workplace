@@ -22,6 +22,17 @@ const raw = {
   attachments: [],
 };
 
+describe('normalizeIssueDetail agentWork (WP-377)', () => {
+  it('summary.agentWork 를 출력 agentWork 로, 없으면 키가 없다', () => {
+    const work = { worker: { id: 7, username: 'claude', name: 'Claude', kind: 'AI' }, tool: 'claude-code', state: 'WAITING', updatedAt: '2026-10-14T00:00:00Z' };
+    const d = normalizeIssueDetail({ ...raw, summary: { ...raw.summary, agentWork: [work] } });
+    expect(d.agentWork).toEqual([
+      { worker: { username: 'claude', name: 'Claude', kind: 'AI' }, tool: 'claude-code', state: 'WAITING', updatedAt: '2026-10-14T09:00:00+09:00' },
+    ]);
+    expect(normalizeIssueDetail(raw)).not.toHaveProperty('agentWork');
+  });
+});
+
 describe('normalizeIssueDetail', () => {
   it('summary 를 flatten 하고 issueKey/title/status/priority/assignees 를 top-level 로', () => {
     const d = normalizeIssueDetail(raw);

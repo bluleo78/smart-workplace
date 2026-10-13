@@ -266,10 +266,10 @@ export const markChannelReadInput = joinChannelInput;
  * 리액션 추가·제거 입력(WP-355). 서버는 이모지를 1~32자 문자열로만 검사하고(ReactionRequest) 웹 선택기는 유니코드 문자를 보낸다.
  * 제거는 추가한 것과 같은 문자열이어야 한다 — 읽기 출력 reactions 의 키 그대로다. messageId 는 메시지 행의 id 다(출력 이름은 id).
  */
-const messageIdField = z.number().int().positive().describe('id of a list_channel_messages or list_thread_replies item');
+const messageIdField = z.number().int().positive().describe('from list_channel_messages or list_thread_replies');
 export const reactionInput = z.object({
   messageId: messageIdField,
-  emoji: z.string().min(1).max(32).describe('Unicode emoji such as 👍, as in reactions'),
+  emoji: z.string().min(1).max(32).describe('Unicode emoji such as 👍'),
 });
 /** 내 메시지 수정 입력(WP-355) — 서버 UpdateMessageRequest 와 같은 1~4000자. */
 export const updateChannelMessageInput = z.object({
@@ -405,7 +405,7 @@ export function buildMessagingTools(
       hints: { destructive: true, idempotent: true },
       description:
         'Leaves a public channel (join_channel rejoins). Private channels are refused as irreversible: ' +
-        'offer propose_leave_channel if available, else ask the user. An OWNER must hand over ownership first.',
+        'offer propose_leave_channel if available, else ask the user.',
       inputSchema: leaveChannelInput,
       async handler(args) {
         const { channelId } = leaveChannelInput.parse(args);
@@ -511,7 +511,7 @@ export function buildMessagingTools(
       hints: { destructive: false, idempotent: true },
       description:
         'Invites an active member (username from search_members) to a channel as MEMBER; channel OWNER or ADMIN only, not DMs. Existing members ' +
-        'are left as is. Not notified; the channel just appears in their list. Also joins the channel drive space, if any.',
+        'are left as is. Not notified. Also joins the channel drive space, if any.',
       inputSchema: addChannelMemberInput,
       async handler(args) {
         const { channelId, username } = addChannelMemberInput.parse(args);

@@ -91,11 +91,32 @@ export interface IssueRow {
   childCount?: number;
   childDoneCount?: number;
   blocked?: boolean;
+  /** AI 작업 진행(WP-377) — 없으면 키 자체가 없다. */
+  agentWork?: Record<string, unknown>[] | null;
   [key: string]: unknown;
 }
 
 /** 이슈 목록 쿼리 — GET /me/issues 에 그대로 실리는 문자열화 가능한 값만. */
 export type IssueListQuery = Record<string, string | number | boolean>;
+
+/** AI 작업 보고 입력 상태(WP-377). ENDED 는 보고 입력에만 있다 — 작업 기록을 끝낸다. */
+export type AgentWorkStateInput = 'WORKING' | 'WAITING' | 'REVIEW' | 'BLOCKED' | 'PAUSED' | 'ENDED';
+
+/** PUT .../agent-work 본문 — 준 필드만 서버로 간다. */
+export interface ReportAgentWorkBody {
+  state?: AgentWorkStateInput;
+  note?: string;
+  progress?: number;
+  stepsDone?: number;
+  stepsTotal?: number;
+  message?: string;
+}
+
+/** PUT .../agent-work 응답 — work 는 raw AgentWorkView(끝났으면 null), ended 는 이번 보고로 기록이 끝났는지. */
+export interface AgentWorkReport {
+  work: Record<string, unknown> | null;
+  ended: boolean;
+}
 
 /** 이슈 도구 — issueKey(WP-12) 기준. 코멘트 API 의 숫자 issue id 해석은 구현(rest-client)이 흡수한다. */
 export interface IssueToolClient extends ProjectMetaClient, CurrentUserClient {
@@ -111,6 +132,8 @@ export interface IssueToolClient extends ProjectMetaClient, CurrentUserClient {
   replaceIssueLabels(issueKey: string, labelIds: number[]): Promise<unknown>;
   addComment(issueKey: string, body: string): Promise<void>;
   editComment(issueKey: string, commentId: number, body: string): Promise<void>;
+  /** PUT .../agent-work — 담당 이슈에 대한 AI 작업 보고(WP-377). 같은 입력의 재보고는 같은 결과다. */
+  reportAgentWork(issueKey: string, body: ReportAgentWorkBody): Promise<AgentWorkReport>;
   /** 갱신된 상세 raw 반환. */
   addIssueDependency(issueKey: string, otherNumber: number, direction: 'blocks' | 'blockedBy'): Promise<unknown>;
   removeIssueDependency(issueKey: string, otherNumber: number, direction: 'blocks' | 'blockedBy'): Promise<void>;

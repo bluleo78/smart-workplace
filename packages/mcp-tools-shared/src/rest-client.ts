@@ -179,6 +179,9 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     async editComment(issueKey, commentId, body) {
       await http.patch(`/issues/${await issueId(issueKey)}/comments/${commentId}`, { body });
     },
+    async reportAgentWork(issueKey, body) {
+      return (await http.put(`${issue(issueKey)}/agent-work`, body)).data;
+    },
     async addIssueDependency(issueKey, otherNumber, direction) {
       return (await http.post(`${issue(issueKey)}/dependencies`, { otherNumber, direction })).data;
     },

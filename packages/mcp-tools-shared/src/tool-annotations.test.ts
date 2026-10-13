@@ -74,6 +74,7 @@ const EXPECTED: Record<string, readonly [kind: string, destructive: boolean | nu
   read_file: ['read', R, R, R],
   remove_contact_favorite: ['write', true, true, false],
   remove_issue_dependency: ['write', true, true, false],
+  report_agent_work: ['write', false, true, false],
   remove_user_group_member: ['write', true, true, false],
   restore_drive_item: ['write', false, false, false],
   rsvp_event: ['write', true, false, false],

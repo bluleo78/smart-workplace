@@ -71,6 +71,7 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "remove_reaction": "write",
   "remove_user_group_member": "write",
   "rename_drive_item": "write",
+  "report_agent_work": "write",
   "restore_drive_item": "write",
   "restore_wiki_revision": "write",
   "rsvp_event": "write",
@@ -241,13 +242,13 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       "additionalProperties": false,
       "properties": {
         "emoji": {
-          "description": "Unicode emoji such as 👍, as in reactions",
+          "description": "Unicode emoji such as 👍",
           "maxLength": 32,
           "minLength": 1,
           "type": "string",
         },
         "messageId": {
-          "description": "id of a list_channel_messages or list_thread_replies item",
+          "description": "from list_channel_messages or list_thread_replies",
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991,
           "type": "integer",
@@ -1492,7 +1493,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       "additionalProperties": false,
       "properties": {
         "assignee": {
-          "description": "CSV: "me", "null" (unassigned), usernames or "any"; default "me" unless reporter, watching or parent is set",
+          "description": "CSV of "me", "null" (unassigned), "any" or usernames; default "me" unless reporter/watching/parent is set",
           "type": "string",
         },
         "blocked": {
@@ -1515,7 +1516,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "string",
         },
         "cycle": {
-          "description": "CSV, any match: cycle (사이클) names, "active", "none" (no cycle), "backlog" (no active/planned cycle); names and "active" need projectKey",
+          "description": "CSV, any match: cycle (사이클) names, "active", "none", "backlog" (no active/planned cycle); names and "active" need projectKey",
           "type": "string",
         },
         "dueFrom": {
@@ -2130,13 +2131,13 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       "additionalProperties": false,
       "properties": {
         "emoji": {
-          "description": "Unicode emoji such as 👍, as in reactions",
+          "description": "Unicode emoji such as 👍",
           "maxLength": 32,
           "minLength": 1,
           "type": "string",
         },
         "messageId": {
-          "description": "id of a list_channel_messages or list_thread_replies item",
+          "description": "from list_channel_messages or list_thread_replies",
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991,
           "type": "integer",
@@ -2214,6 +2215,59 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       },
       "required": [
         "name",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "report_agent_work",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "issueKey": {
+          "minLength": 1,
+          "type": "string",
+        },
+        "message": {
+          "maxLength": 4000,
+          "minLength": 1,
+          "type": "string",
+        },
+        "note": {
+          "description": "one-line status; "" clears",
+          "maxLength": 120,
+          "type": "string",
+        },
+        "progress": {
+          "maximum": 100,
+          "minimum": 0,
+          "type": "integer",
+        },
+        "state": {
+          "enum": [
+            "WORKING",
+            "WAITING",
+            "REVIEW",
+            "BLOCKED",
+            "PAUSED",
+            "ENDED",
+          ],
+          "type": "string",
+        },
+        "stepsDone": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer",
+        },
+        "stepsTotal": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "issueKey",
       ],
       "type": "object",
     },
@@ -2478,7 +2532,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "string",
         },
         "messageId": {
-          "description": "id of a list_channel_messages or list_thread_replies item",
+          "description": "from list_channel_messages or list_thread_replies",
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991,
           "type": "integer",
