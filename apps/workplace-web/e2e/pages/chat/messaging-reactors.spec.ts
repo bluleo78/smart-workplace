@@ -9,7 +9,7 @@ import {
   createReaction,
 } from '../../factories/messaging.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
-import { mockGatedEvents } from '../../fixtures/gatedEvents'
+import { pushHeldEvents } from '../../fixtures/gatedEvents'
 import { trackRequests } from '../../fixtures/requests'
 import { expectStays, stableBox } from '../../fixtures/wait'
 
@@ -40,20 +40,6 @@ async function stubDmsList(page: Page) {
       route.request().method() === 'GET'
         ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) })
         : route.fallback(),
-  )
-}
-
-// SSE 스트림 stub — body 로 임의 이벤트(또는 keep-alive)를 흘릴 수 있다.
-async function stubStream(page: Page, body = `:\n\n`) {
-  await page.route(
-    (url) => url.pathname === '/api/v1/events',
-    (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'text/event-stream',
-        headers: { 'cache-control': 'no-cache' },
-        body,
-      }),
   )
 }
 
@@ -133,7 +119,8 @@ async function setup(page: Page) {
   })
   await stubChannelsList(page, [channel])
   await stubDmsList(page)
-  await stubStream(page)
+  // SSE 는 auth.fixture 기본의 '열린 채 유지되는' 스트림을 그대로 쓴다. 유한 본문으로 덮으면 1~2초마다 재연결되고,
+  // 끊긴 구간이 800ms 를 넘을 때마다 재연결 배너가 켜졌다 꺼지며 화면을 밀어 칩이 마우스 밑에서 빠져 호버 카드가 닫힌다.
   await stubChannelDetail(page, channel)
   await stubMembers(page, CHANNEL_ID, [
     createChannelMember({ userId: ME_ID, name: '양동희' }),
@@ -278,7 +265,6 @@ test.describe('WP-106 반응자 확인 — 데스크톱', () => {
     })
     await stubChannelsList(page, [channel])
     await stubDmsList(page)
-    const events = await mockGatedEvents(page)
     await stubChannelDetail(page, channel)
     await stubMembers(page, CHANNEL_ID, [createChannelMember({ userId: ME_ID, name: '양동희' })])
     await stubMessages(page, CHANNEL_ID, [msg])
@@ -296,7 +282,9 @@ test.describe('WP-106 반응자 확인 — 데스크톱', () => {
     await expect(dialog).toBeVisible()
 
     // 다른 사람(3)이 마지막 반응을 거두면 반응이 0 이 되어 다이얼로그가 닫힌다.
-    events.deliver(
+    // 연결을 끊지 않고 이벤트를 밀어 넣는다 — 응답을 보류하는 mockGatedEvents 는 '연결 안 됨'이라 재연결 배너가 화면을 민다.
+    await pushHeldEvents(
+      page,
       `event: messaging.reaction.removed\n` +
         `data: ${JSON.stringify({ channelId: CHANNEL_ID, messageId: MSG_ID, emoji: '🎉', userId: 3 })}\n\n`,
     )
