@@ -15,6 +15,8 @@
    - 1-4. Semantic Status Tokens (success / warning / info)
    - 1-5. Domain & Accent Tokens (sparkline · AI · caution)
    - 1-6. 정의됨·미사용 토큰 (chart / dtype)
+   - 1-7. Categorical Palette — 식별색
+   - 1-8. 선택 상태 표시 규칙
 2. [컬러 테마 변형 — Ocean / Sunset](#2-컬러-테마-변형--ocean--sunset)
 3. [Border Radius Scale — 모서리 반경 스케일](#3-border-radius-scale--모서리-반경-스케일)
 4. [Z-Index Scale — 레이어 순서 스케일](#4-z-index-scale--레이어-순서-스케일)
@@ -56,8 +58,9 @@ Smart Workplace의 색상 시스템은 CSS 커스텀 프로퍼티(CSS Custom Pro
 | `--secondary-foreground` | `oklch(0.25 0 0)` | 어두운 회색 | Secondary 위 텍스트 |
 | `--muted` | `oklch(0.965 0.005 264)` | 연한 한색 회색 | 음소거 배경, 비활성 영역 |
 | `--muted-foreground` | `oklch(0.5 0 0)` | 중간 회색 | 플레이스홀더, 부가 설명 텍스트 |
-| `--accent` | `oklch(0.955 0.01 264)` | 연한 한색 회색 | hover·active 상태 배경 |
+| `--accent` | `oklch(0.955 0.01 264)` | 연한 한색 회색 | hover·누름(press) 피드백 배경. **선택 표시에 쓰지 않는다** — [1-8](#1-8-선택-상태-표시-규칙) |
 | `--accent-foreground` | `oklch(0.25 0 0)` | 어두운 회색 | Accent 위 텍스트 |
+| `--selected` | `oklch(0.915 0.02 264)` | 연한 인디고 회색 | 목록에서 현재 고른 항목 배경(WP-368). 바탕 대비 1.2:1 이상 — [1-8](#1-8-선택-상태-표시-규칙) |
 | `--destructive` | `oklch(0.55 0.245 27.325)` | 빨간색 | 위험·삭제 액션, 에러 상태. 삭제 버튼 흰 글자(`--destructive-foreground`) 평소 4.93:1·hover(`/90` 합성) 4.63:1 (WP-322) |
 
 #### Structural Tokens
@@ -112,6 +115,7 @@ Smart Workplace의 색상 시스템은 CSS 커스텀 프로퍼티(CSS Custom Pro
 | `--muted-foreground` | `oklch(0.6 0 0)` | 중간 회색 |
 | `--accent` | `oklch(1 0 0 / 7%)` | 흰색 7% 알파 |
 | `--accent-foreground` | `oklch(0.93 0 0)` | Near-white |
+| `--selected` | `oklch(0.28 0.02 275)` | 솔리드(배경 위 흰 ~11% 상당) — 떠 있는 패널(popover) 위에서도 구분되게 알파 대신 솔리드 (WP-368) |
 | `--destructive` | `oklch(0.704 0.191 22.216)` | 밝은 빨간색 |
 | `--destructive-foreground` | `oklch(0.18 0 0)` | 거의 검정 — 밝은 빨강 채움(삭제 버튼·미읽음 배지) 위 6.5:1, hover 5.38:1(흰 글자는 2.77:1, WP-322). 삭제 버튼·배지는 다크에서도 반투명(`/60`) 없이 채운다 |
 
@@ -316,9 +320,27 @@ orange 계열 주의 색상. warning(amber)보다 강한 주의를 표현하기 
 
 ---
 
+### 1-8. 선택 상태 표시 규칙
+
+"지금 고른 것"과 "켜진 것"은 hover 와 다른 전용 표시를 쓴다. 예전엔 선택을 `bg-accent`(hover 와 같은 토큰, 다크 흰 7%·라이트 바탕 대비 3%p) + `font-medium` 만으로 표시해 두 테마 모두 거의 구분되지 않았다(WP-368). 클래스는 `src/lib/selectionStyles.ts` 가 단일 원본이며, 기본 클래스 뒤에 `cn()` 으로 붙인다.
+
+| 상태 | 클래스 | 모양 | 쓰는 곳 |
+|------|--------|------|---------|
+| 목록 선택 | `SELECTED_ROW_CLASS` | 왼쪽 3px primary 막대(`selection-bar`) + `bg-selected` + `font-semibold` + 전경색 글자 | 에픽 패널·트리·시트 행 등 현재 고른 항목 |
+| 사이드바 선택 | `SELECTED_NAV_CLASS` | 위 + 아이콘만 `text-primary` | 앞에 아이콘이 있는 2차 사이드바 메뉴 |
+| 토글 켜짐 | `TOGGLE_ON_CLASS` | `border-primary/50` + `bg-primary/10`(다크 `/15`) + `text-primary` | `aria-pressed` 버튼(에픽 패널·완료 모두 보기·주/월 등). ghost 버튼은 꺼짐에도 `border border-transparent` |
+
+- **글자는 파랗게 하지 않는다**(목록) — 항목 고유 색(에픽 색 점 등)과 섞이지 않고, 파란 글자(링크·켜진 토글)와 의미가 겹치지 않게.
+- **hover 는 그대로** `hover:bg-accent/50`·`hover:bg-muted/50` — 선택보다 확실히 옅어야 한다.
+- **적용하지 않는 곳**: 멘션·`/` 메뉴의 키보드 하이라이트(`aria-selected` 콤보박스 — hover 와 같은 성격), 누름(`active:bg-accent`) 피드백, 칩, 드래그 드롭 표시.
+- 대비는 `actionTokens.test` 가 6조합(기본·ocean·sunset × 라이트·다크)으로 고정한다 — 선택 배경 위 글자 4.5:1, 막대 3:1, 토글 채움 위 primary 글자 4.5:1(브랜드 라이트는 primary 자체 명도 한계로 4:1 하한).
+- 앱 레일은 기존 `nav-active-indicator`(다크 그라데이션 막대)를 유지한다.
+
+---
+
 ## 2. 컬러 테마 변형 — Ocean / Sunset
 
-`index.css`에는 인디고 기본 테마 외에 hue만 바꾼 두 가지 컬러 테마가 정의되어 있다. 최상위 엘리먼트에 `.theme-ocean` 또는 `.theme-sunset` 클래스를 부여하면 `--primary`, `--ring`, `--sidebar-primary`, `--chart-1`, `--accent`가 해당 hue로 오버라이드된다. `.dark`와 조합 가능(`.theme-ocean.dark`).
+`index.css`에는 인디고 기본 테마 외에 hue만 바꾼 두 가지 컬러 테마가 정의되어 있다. 최상위 엘리먼트에 `.theme-ocean` 또는 `.theme-sunset` 클래스를 부여하면 `--primary`, `--ring`, `--sidebar-primary`, `--chart-1`, `--accent`, `--selected`가 해당 hue로 오버라이드된다. `.dark`와 조합 가능(`.theme-ocean.dark`).
 
 | 테마 | hue | Light `--primary` | Dark `--primary` |
 |------|-----|-------------------|------------------|
@@ -438,3 +460,4 @@ Workplace는 Tailwind v4를 사용하며 `tailwind.config.js`가 없다. 대신 
 | 2026-06-06 | v1.0 | 최초 작성 — Workplace `index.css` 기준 Color/테마변형/Radius/Z-Index/Shadow/Tailwind v4 매핑 토큰 정리 |
 | 2026-10-08 | v1.1 | 노트 접속자 색 토큰 `--presence-1..8`·`--presence-foreground`(§1-5) 추가, Tailwind `presence`·`presence-foreground` 색 등록, §1-7 단일 출처·테마 무관 원칙에 접속자 색 예외 명시 (WP-173) |
 | 2026-10-09 | v1.2 | 다크 `--primary-foreground`·`--sidebar-primary-foreground` → `oklch(0.18 0 0)`(5.54:1), 라이트 `--destructive` → `oklch(0.55 0.245 27.325)`(평소 4.93·hover 4.63:1), 다크 `--destructive-foreground` → `oklch(0.18 0 0)`(6.5:1, 삭제 버튼·배지 `dark:bg-destructive/60` 제거), 모바일 AI 캡슐 글리프 `text-primary-foreground`, 다크 스위치 thumb `bg-foreground`, 성공 배지 예시를 `text-success-text` 로 (WP-322). 앱 전체 아바타·에픽 색점을 `--presence-*` 로 통일 (WP-318) |
+| 2026-10-13 | v1.3 | 선택 전용 토큰 `--selected`(6조합)·`selection-bar` 유틸·`src/lib/selectionStyles.ts` 추가, `--accent` 용도를 hover·누름으로 좁히고 §1-8 선택 상태 표시 규칙 신설 (WP-368) |

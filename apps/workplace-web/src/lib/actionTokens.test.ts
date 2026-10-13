@@ -28,3 +28,25 @@ describe.each(Object.entries(BRAND_THEMES))('filled action tokens (%s)', (_theme
     expect(tokenContrast(body, 'primary-foreground', 'primary')).toBeGreaterThanOrEqual(4.5)
   })
 })
+
+// 선택 상태 표시(WP-368) — 선택 배경(--selected) 위 글자 4.5:1, 왼쪽 primary 막대는 비텍스트 3:1(WCAG 1.4.11),
+// 선택 배경은 hover(accent 반투명)보다 확실히 진해야 하므로 바탕 대비도 잰다. 켜진 토글은 primary/10(라이트)·/15(다크) 위 primary 글자.
+describe.each(Object.entries(BRAND_THEMES))('selection tokens (%s)', (theme, body) => {
+  const dark = theme.endsWith('dark')
+  it('foreground on selected keeps 4.5:1', () => {
+    expect(tokenContrast(body, 'foreground', 'selected')).toBeGreaterThanOrEqual(4.5)
+  })
+  it('primary bar on selected keeps 3:1', () => {
+    expect(tokenContrast(body, 'primary', 'selected')).toBeGreaterThanOrEqual(3)
+  })
+  it('selected stands out from background (≥1.2:1)', () => {
+    expect(tokenContrast(body, 'selected', 'background')).toBeGreaterThanOrEqual(1.2)
+  })
+  // 브랜드 라이트(ocean·sunset)는 primary 자체가 바탕 위 4.58·4.95:1 로 여유가 없어 연한 채움 위에선 4.0·4.3:1 — 위 primary hover 와 같은
+  // 기존 브랜드 primary 명도 문제라 하한만 고정하고(회귀 방지) 기본 라이트·다크는 AA 4.5:1 을 지킨다.
+  const brandLight = theme === 'ocean-light' || theme === 'sunset-light'
+  it(`primary text on toggle-on fill keeps ${brandLight ? '4:1' : '4.5:1'}`, () => {
+    const fill = compositeLuminance(body, 'primary', dark ? 0.15 : 0.1, 'background')
+    expect(contrast(luminance(oklchOf(body, 'primary')), fill)).toBeGreaterThanOrEqual(brandLight ? 4 : 4.5)
+  })
+})
