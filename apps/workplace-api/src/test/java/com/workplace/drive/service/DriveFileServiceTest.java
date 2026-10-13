@@ -1098,6 +1098,25 @@ class DriveFileServiceTest extends IntegrationTestBase {
   }
 
   /**
+   * 현재 버전이 10MB 를 넘으면 409 — 잘림 표시가 없어도(추출 상한 초과 SKIPPED·추출하지 않는 형식) 테넌트 잠금을 쥔 채 큰 blob 을 끝까지 읽지
+   * 않는다. csv 는 DATA 범주라 10MB 를 넘게 올릴 수 있다. 버전은 늘지 않는다.
+   */
+  @Test
+  void updateTextFile_originalOver10MB_conflicts() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    byte[] big = new byte[(int) DriveFileService.TEXT_FILE_MAX_BYTES + 1];
+    java.util.Arrays.fill(big, (byte) 'a');
+    DriveFileResponse csv = uploadBytes(u, sp.id(), "큰표.csv", "text/csv", big);
+
+    assertThatThrownBy(() -> fileService.updateTextFile(u, csv.id(), "a", null))
+        .isInstanceOf(com.workplace.drive.exception.DriveNotTextFileException.class)
+        .hasMessageContaining("10MB")
+        .hasMessageEndingWith("업로드 링크로 파일을 올리세요");
+    assertThat(versionsRepo.listForDriveFile(csv.id())).hasSize(1);
+  }
+
+  /**
    * 이름으로 만든 텍스트가 같은 이름의 기존 파일에 흡수될 때도 갱신과 같은 규칙(최종 리뷰 M2) — docx 는 409 이고 버전·FILE 행이 늘지 않는다(blob 저장
    * 전에 거절), html 은 409, yaml 은 지금 MIME(application/x-yaml)을 유지한다.
    */

@@ -245,11 +245,14 @@ public class DriveFileService {
    *   <li>html 계열(text/html·application/xhtml+xml) — 워커가 마크업을 걷어낸다(xhtml 은 추출하지 않는다).
    *   <li>추출이 잘림(file_extraction.truncated) — 워커 MAX_CHARS 초과로 앞부분만 있다. 추출 행이 없거나 아직 PENDING 이면 알 수
    *       없어 다음 검사만으로 판단한다.
-   *   <li>현재 버전 blob 이 올바른 UTF-8 이 아님(예: CP949 CSV) — 워커가 대체 문자(U+FFFD)로 읽어 한글이 깨진다. 스트림으로 읽어 메모리에
-   *       다 올리지 않는다(csv 는 DATA 범주라 256MB 까지 있다). 잘림 검사를 먼저 해 큰 파일 대부분은 읽지 않고 거절한다.
+   *   <li>현재 버전이 텍스트 상한({@link #TEXT_FILE_MAX_BYTES}, 10MB)을 넘음 — 고쳐 쓴 전문도 10MB 를 넘을 수 없고, 잘리지 않은
+   *       추출(기본 100만 자)은 UTF-8 로 4MB 이하라 읽을 수 있는 파일을 막지 않는다. 추출 상한(25MB) 초과로 SKIPPED 된 csv·추출하지 않는
+   *       octet-stream 로그처럼 잘림 표시가 없는 큰 파일을, 테넌트 advisory lock 을 쥔 채 끝까지 읽지 않게 하는 상한이기도 하다.
+   *   <li>현재 버전 blob 이 올바른 UTF-8 이 아님(예: CP949 CSV) — 워커가 대체 문자(U+FFFD)로 읽어 한글이 깨진다. 위 상한 덕에 많아야
+   *       10MB 를 스트림으로 읽는다.
    * </ol>
    *
-   * <p>blob 이 유실됐으면(행은 있고 바이트가 없음) 잃을 원문이 없으므로 UTF-8 검사를 건너뛴다 — 추출 텍스트로 되살리는 것이 유일한 복구 길이다.
+   * <p>blob 이 유실됐으면(행은 있고 바이트가 없음) 잃을 원문이 없으므로 크기·UTF-8 검사를 건너뛴다 — 추출 텍스트로 되살리는 것이 유일한 복구 길이다.
    */
   private void requireRewritable(long fileId, String currentMime) throws IOException {
     String bare = bareMime(currentMime);
@@ -262,20 +265,24 @@ public class DriveFileService {
       throw new DriveNotTextFileException(
           "파일이 커서 읽은 텍스트가 앞부분만이라 내용으로 고쳐 쓸 수 없습니다" + UPLOAD_LINK_HINT);
     }
-    if (!isUtf8(fileId)) {
+    FileContentResult content;
+    try {
+      content = fileUpload.getFileContentTrusted(fileId);
+    } catch (FileBlobMissingException e) {
+      return;
+    }
+    // 크기는 저장소 메타(fileStore.size)라 바이트를 읽지 않는다.
+    if (content.size() > TEXT_FILE_MAX_BYTES) {
+      throw new DriveNotTextFileException("파일이 커서(10MB 초과) 내용으로 고쳐 쓸 수 없습니다" + UPLOAD_LINK_HINT);
+    }
+    if (!isUtf8(content)) {
       throw new DriveNotTextFileException(
           "UTF-8 이 아닌 파일(예: CP949)이라 읽은 텍스트가 원문과 달라 내용으로 고쳐 쓸 수 없습니다" + UPLOAD_LINK_HINT);
     }
   }
 
-  /** 현재 버전 blob 이 처음부터 끝까지 올바른 UTF-8 인지 — 엄격한 디코더(REPORT)로 스트림을 끝까지 읽는다. 끝의 잘린 바이트열도 거절된다. */
-  private boolean isUtf8(long fileId) throws IOException {
-    FileContentResult content;
-    try {
-      content = fileUpload.getFileContentTrusted(fileId);
-    } catch (FileBlobMissingException e) {
-      return true;
-    }
+  /** blob 이 처음부터 끝까지 올바른 UTF-8 인지 — 엄격한 디코더(REPORT)로 스트림을 끝까지 읽는다. 끝의 잘린 바이트열도 거절된다. */
+  private static boolean isUtf8(FileContentResult content) throws IOException {
     CharsetDecoder decoder =
         StandardCharsets.UTF_8
             .newDecoder()
