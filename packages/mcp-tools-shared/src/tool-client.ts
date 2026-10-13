@@ -132,7 +132,7 @@ export interface IssueToolClient extends ProjectMetaClient, CurrentUserClient {
   replaceIssueLabels(issueKey: string, labelIds: number[]): Promise<unknown>;
   addComment(issueKey: string, body: string): Promise<void>;
   editComment(issueKey: string, commentId: number, body: string): Promise<void>;
-  /** PUT .../agent-work — 담당 이슈에 대한 AI 작업 보고(WP-377). 같은 입력의 재보고는 같은 결과다. */
+  /** PUT .../agent-work — 담당 이슈에 대한 AI 작업 보고(WP-377). message 가 있으면 호출마다 이슈 챗에 글이 올라가 재시도는 중복 글을 만든다(멱등 아님). */
   reportAgentWork(issueKey: string, body: ReportAgentWorkBody): Promise<AgentWorkReport>;
   /** 갱신된 상세 raw 반환. */
   addIssueDependency(issueKey: string, otherNumber: number, direction: 'blocks' | 'blockedBy'): Promise<unknown>;

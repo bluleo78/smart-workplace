@@ -19,7 +19,7 @@ export const createIssueInput = z.object({
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   type: z.string().optional(), // 유형 이름(예: BUG) → typeId 리졸브
   assignees: z.array(z.string()).optional(), // username[] → assigneeIds 리졸브
-  parent: z.string().min(1).describe('Parent issue key (e.g. WP-12), same project').optional(), // 부모 이슈 키(WP-12, SUBTASK) — 같은 프로젝트의 이슈여야 한다. 핸들러가 서버용 번호로 옮긴다(#833, WP-353)
+  parent: z.string().min(1).describe('Parent issue key, same project').optional(), // 부모 이슈 키(WP-12, SUBTASK) — 같은 프로젝트의 이슈여야 한다. 핸들러가 서버용 번호로 옮긴다(#833, WP-353)
   // WP-356: 라벨·마일스톤·사이클 이름 → id. 서버가 생성과 같은 트랜잭션에서 붙인다(생성 후 update_issue 를 따로 부를 필요 없음).
   labels: z.array(z.string()).optional(),
   milestone: z.string().min(1).optional(),

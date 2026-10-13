@@ -177,7 +177,8 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
       description:
         'Returns the page tree of a wiki space as {items, total, truncated?}; nodes {id (pageId), title, children?} in sidebar order, ' +
         `at most ${MAX_WIKI_TREE_NODES} (breadth-first). truncated:true: expand a node with hiddenChildren by calling again with its id as ` +
-        'parentId; total counts all nodes (under parentId if given). If a parent has too many direct children, use search_wiki.',
+        'parentId; total counts all nodes (under parentId if given). If a parent has too many direct children, use search_wiki. Without ' +
+        'expanding, say only part was seen.',
       inputSchema: listWikiPagesInput,
       async handler(args) {
         const { spaceId, parentId } = listWikiPagesInput.parse(args);

@@ -269,7 +269,7 @@ export const markChannelReadInput = joinChannelInput;
 const messageIdField = z.number().int().positive().describe('from list_channel_messages or list_thread_replies');
 export const reactionInput = z.object({
   messageId: messageIdField,
-  emoji: z.string().min(1).max(32).describe('Unicode emoji such as 👍'),
+  emoji: z.string().min(1).max(32).describe('Unicode emoji such as 👍, as in reactions'),
 });
 /** 내 메시지 수정 입력(WP-355) — 서버 UpdateMessageRequest 와 같은 1~4000자. */
 export const updateChannelMessageInput = z.object({
@@ -303,7 +303,7 @@ export function buildMessagingTools(
       app: 'messaging',
       kind: 'read',
       description:
-        'Lists my channels and DMs (채널·DM) by name as {items, total, hasMore?, nextOffset?}: channelId, kind, lastMessage, memberCount; unreadCount ' +
+        'Lists my channels and DMs (채널·DM) by name as {items, total, hasMore?, nextOffset?}; unreadCount ' +
         'and hasUnreadThreads only when set. q: search public channels by name substring instead, joined or not (member); join_channel to read or ' +
         'post. If hasMore, pass nextOffset as offset, or say the list is partial.',
       inputSchema: listChannelsInput,
@@ -382,7 +382,7 @@ export function buildMessagingTools(
       hints: { destructive: false, idempotent: true },
       description:
         'Opens a DM with up to 7 active members by username (from search_members); I am included, and an existing DM with the same people is ' +
-        'reused. Returns {channelId, participants}; post with add_channel_message.',
+        'reused; returns the channelId to post with add_channel_message.',
       inputSchema: openDmInput,
       async handler(args) {
         const { usernames } = openDmInput.parse(args);
@@ -405,7 +405,7 @@ export function buildMessagingTools(
       hints: { destructive: true, idempotent: true },
       description:
         'Leaves a public channel (join_channel rejoins). Private channels are refused as irreversible: ' +
-        'offer propose_leave_channel if available, else ask the user.',
+        'offer propose_leave_channel if available, else ask the user. An OWNER must hand over ownership first.',
       inputSchema: leaveChannelInput,
       async handler(args) {
         const { channelId } = leaveChannelInput.parse(args);
@@ -472,7 +472,7 @@ export function buildMessagingTools(
       hints: { destructive: true, idempotent: true },
       description:
         'Replaces the body of my own message (any age, replies too) with new Markdown; it shows as edited and the old text is lost. Mention with ' +
-        '@username as in add_channel_message; edits send no notification. Returns the saved message.',
+        '@username as in add_channel_message; edits send no notification.',
       inputSchema: updateChannelMessageInput,
       async handler(args) {
         const { messageId, body } = updateChannelMessageInput.parse(args);

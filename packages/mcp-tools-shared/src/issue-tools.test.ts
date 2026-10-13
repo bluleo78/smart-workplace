@@ -42,7 +42,7 @@ function mockClient(): IssueToolClient {
 }
 
 describe('buildSharedIssueTools', () => {
-  it('정확히 9종을 반환한다', () => {
+  it('정확히 10종을 반환한다', () => {
     const names = buildSharedIssueTools(mockClient()).map((t) => t.name).sort();
     expect(names).toEqual(
       [

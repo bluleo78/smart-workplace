@@ -242,7 +242,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       "additionalProperties": false,
       "properties": {
         "emoji": {
-          "description": "Unicode emoji such as 👍",
+          "description": "Unicode emoji such as 👍, as in reactions",
           "maxLength": 32,
           "minLength": 1,
           "type": "string",
@@ -629,7 +629,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "string",
         },
         "parent": {
-          "description": "Parent issue key (e.g. WP-12), same project",
+          "description": "Parent issue key, same project",
           "minLength": 1,
           "type": "string",
         },
@@ -2131,7 +2131,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       "additionalProperties": false,
       "properties": {
         "emoji": {
-          "description": "Unicode emoji such as 👍",
+          "description": "Unicode emoji such as 👍, as in reactions",
           "maxLength": 32,
           "minLength": 1,
           "type": "string",

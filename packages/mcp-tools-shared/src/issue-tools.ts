@@ -1,4 +1,4 @@
-// src/issue-tools.ts — 두 앱 공유 이슈 도구 9종. 핸들러는 IssueToolClient(issueKey 기준)만 호출.
+// src/issue-tools.ts — 두 앱 공유 이슈 도구 10종. 핸들러는 IssueToolClient(issueKey 기준)만 호출.
 import { dropEmpty } from './compact.js';
 import { errText, parseIssueKey } from './parse.js';
 import type { SharedTool } from './mcp-tool.js';
@@ -52,7 +52,7 @@ function toDriveLinkView(link: Record<string, unknown>) {
   });
 }
 
-/** 공유 이슈 도구 9종 구성. 각 앱은 자기 클라이언트를 IssueToolClient 로 어댑팅해 넘긴다. */
+/** 공유 이슈 도구 10종 구성. 각 앱은 자기 클라이언트를 IssueToolClient 로 어댑팅해 넘긴다. */
 export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
   return [
     {
@@ -186,11 +186,11 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       name: 'report_agent_work',
       app: 'issue',
       kind: 'write',
-      hints: { destructive: false, idempotent: true },
+      hints: { destructive: false, idempotent: false },
       description:
-        'Reports your work on an issue (이슈) assigned to you: call at start and on each state change ' +
-        '(WAITING before asking the user, REVIEW when done and awaiting review, BLOCKED with the reason, PAUSED when told to stop), ' +
-        'and keep note/progress current; ENDED stops tracking. message also posts to the issue chat.',
+        'Reports your work on an issue (이슈) assigned to you; call at start and on each state change: WAITING before asking the user, ' +
+        'REVIEW when awaiting review, BLOCKED with the reason, PAUSED when told to stop; ENDED stops tracking. message also posts to the ' +
+        'issue chat.',
       inputSchema: reportAgentWorkInput,
       async handler(args) {
         const { issueKey, ...body } = reportAgentWorkInput.parse(args);

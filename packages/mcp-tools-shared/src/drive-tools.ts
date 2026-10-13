@@ -202,7 +202,7 @@ export function buildDriveTools(client: DriveToolClient): SharedTool[] {
       kind: 'read',
       description:
         'AI summary of a drive file: {summary, status, reason}. Only DONE has a summary; otherwise reason set = not summarizable, no ' +
-        'reason = not ready yet. includeVersions adds versions (newest first); includeBacklinks adds issues and messages ' +
+        'reason = not ready yet; never guess. includeVersions adds versions (newest first); includeBacklinks adds issues and messages ' +
         'linking it.',
       inputSchema: getDriveFileSummaryInput,
       async handler(args) {

@@ -202,8 +202,8 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       app: ['project', 'issue'],
       kind: 'read',
       description:
-        'Lists projects (프로젝트) I can access as {items, total, hasMore?, nextPage?}; items: projectKey, name, type, issue counts, viewerIsMember ' +
-        '(empty keys omitted). If hasMore, pass nextPage as page to continue, or say the list is partial.',
+        'Lists projects (프로젝트) I can access as {items, total, hasMore?, nextPage?}; items: projectKey, name, type, issue counts, viewerIsMember. ' +
+        'If hasMore, pass nextPage as page to continue, or say the list is partial.',
       inputSchema: listProjectsInput,
       async handler(args) {
         const { page, size } = listProjectsInput.parse(args);
@@ -216,8 +216,8 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       app: ['project', 'issue'],
       kind: 'read',
       description:
-        'Returns a project (프로젝트) plus the names issue writes accept: issueTypes, labels, milestones {name, dueDate}, cycles {name, status, ' +
-        'startDate, endDate}, fields {name, type, options} (custom fields), members {username, name, role}.',
+        'Returns a project (프로젝트) plus the names issue writes accept: issueTypes, labels, milestones (with dueDate), cycles (status, ' +
+        'dates), fields (custom fields, with options), members (username, name, role).',
       inputSchema: projectKeyInput,
       async handler(args) {
         const { projectKey } = projectKeyInput.parse(args);
