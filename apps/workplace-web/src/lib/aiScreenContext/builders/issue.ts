@@ -123,6 +123,8 @@ export function buildMyTasksContext(input: {
   return facetListContext('내 작업', `내 작업 · ${MY_TASKS_TAB_LABEL[input.tab]}`, input);
 }
 
+/** AI 위임 작업 — count 는 서버 전체 건수(/me/ai-tasks/counts 의 all, WP-377). 무한 스크롤로 받은 행 수가 아니므로
+ *  hasMore 는 싣지 않는다. 범위·빠른 필터는 facts 에 넣지 않는다(facet 만). */
 export function buildAiTasksContext(input: { facets: Record<string, string>; count?: number }): AiScreenContext {
   // 칩은 scope.label 이 view 를 포함하면 범위 라벨만 보여 준다 → 'AI 위임 작업' 한 번만 표시.
   return facetListContext('AI 위임 작업', 'AI 위임 작업', input);
