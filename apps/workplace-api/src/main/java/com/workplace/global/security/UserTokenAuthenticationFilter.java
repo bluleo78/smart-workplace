@@ -105,6 +105,10 @@ public class UserTokenAuthenticationFilter extends OncePerRequestFilter {
                                   new UsernamePasswordAuthenticationToken(
                                       user.id(), null, authorities);
                               SecurityContextHolder.getContext().setAuthentication(token);
+                              // WP-377: MCP 가 실은 수행 도구 — PAT·AI 키 요청에서만 채택(브라우저·Internal 은 무시).
+                              AgentToolContext.set(
+                                  AgentToolContext.normalize(
+                                      request.getHeader(AgentToolContext.HEADER)));
                               userApiTokenRepository.touchLastUsed(tok.id());
                             }));
       }
@@ -112,6 +116,7 @@ public class UserTokenAuthenticationFilter extends OncePerRequestFilter {
     } finally {
       // 풀링된 스레드로 active-tenant ThreadLocal 이 새지 않도록 요청 종료 시 항상 정리한다.
       TenantContext.clear();
+      AgentToolContext.clear();
     }
   }
 
