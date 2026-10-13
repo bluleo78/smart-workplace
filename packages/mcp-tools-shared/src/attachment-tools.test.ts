@@ -186,8 +186,36 @@ describe('read_file — 드라이브 파일', () => {
     const out = await readAttachment(c).handler({ source: 'drive', driveFileId: 9, offset: 6, limit: 500 });
     expect(c.readDriveFileText).toHaveBeenCalledWith(9, { offset: 6, limit: 500 });
     const { fileId: _coreFileId, ...rest } = READY;
-    expect(JSON.parse(resultText(out))).toEqual({ driveFileId: 9, ...rest });
+    // READY 고정값은 nextOffset 이 있어(뒤가 남음) 끝까지 읽으라는 안내가 붙는다.
+    expect(JSON.parse(resultText(out))).toEqual({ driveFileId: 9, ...rest, note: expect.stringContaining('Partial text') });
     expect(JSON.parse(resultText(out))).not.toHaveProperty('fileId');
+  });
+
+  // WP-369 최종 리뷰 I4: 외부 클라이언트가 일부만 읽고 create_drive_file(driveFileId, content) 로 덮어 뒷부분을 잃지 않게 응답 note 로 알린다.
+  it('READY 이고 뒤가 남았으면(nextOffset) 이어 읽을 offset 과 끝까지 읽은 뒤에만 고쳐 쓰라는 note', async () => {
+    const c = mockClient();
+    vi.mocked(c.readDriveFileText).mockResolvedValue(slice('READY', { totalChars: 30000, truncated: false, nextOffset: 12000, text: 'a' }));
+    const out = JSON.parse(resultText(await readAttachment(c).handler({ source: 'drive', driveFileId: 9 })));
+    expect(out.note).toBe(
+      'Partial text: continue with offset=12000; read to the end before rewriting with create_drive_file(driveFileId).',
+    );
+  });
+
+  it('추출이 잘렸으면(truncated) 내용으로 고쳐 쓰지 말고 업로드 링크를 쓰라는 note 가 이어 읽기 안내보다 먼저다', async () => {
+    const c = mockClient();
+    for (const nextOffset of [12000, null]) {
+      vi.mocked(c.readDriveFileText).mockResolvedValue(slice('READY', { totalChars: 1000000, truncated: true, nextOffset, text: 'a' }));
+      const out = JSON.parse(resultText(await readAttachment(c).handler({ source: 'drive', driveFileId: 9 })));
+      expect(out.note).toBe('Extraction is capped: do not rewrite via content; use the upload link (create_drive_file without content).');
+    }
+  });
+
+  it('끝까지 읽었고 잘리지 않았으면 note 가 없다 — 다른 소스(이슈)에도 붙지 않는다', async () => {
+    const c = mockClient();
+    const last = slice('READY', { offset: 6, totalChars: 11, truncated: false, nextOffset: null, text: '바사' });
+    vi.mocked(c.readDriveFileText).mockResolvedValue(last);
+    expect(JSON.parse(resultText(await readAttachment(c).handler({ source: 'drive', driveFileId: 9 })))).not.toHaveProperty('note');
+    expect(JSON.parse(resultText(await readAttachment(c).handler({ source: 'issue', issueKey: 'WP-1', attachmentId: 55 })))).not.toHaveProperty('note');
   });
 
   it.each([

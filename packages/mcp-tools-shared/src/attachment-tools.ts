@@ -88,6 +88,19 @@ function imageResult(label: string, bytes: FileBytes): McpToolResult {
   ];
 }
 
+/**
+ * 드라이브 read_file 응답의 고쳐 쓰기 안내(WP-369 최종 리뷰 I4) — 외부 MCP 클라이언트가 일부만 읽고 create_drive_file(driveFileId, content)
+ * 로 덮어 뒷부분을 잃지 않게 한다. 응답 글은 도구 정의 크기에 들지 않아(메일 PENDING note 와 같은 길) 설명 대신 여기서 알린다.
+ * 추출이 잘렸으면(truncated) 끝까지 읽어도 전문이 아니므로 그 안내가 우선이다 — 서버도 그 파일의 내용 갱신을 409 로 막는다.
+ */
+function driveRewriteNote(slice: ExtractedTextSlice): string | undefined {
+  if (slice.truncated) return 'Extraction is capped: do not rewrite via content; use the upload link (create_drive_file without content).';
+  if (slice.nextOffset != null) {
+    return `Partial text: continue with offset=${slice.nextOffset}; read to the end before rewriting with create_drive_file(driveFileId).`;
+  }
+  return undefined;
+}
+
 /** 파일·첨부 읽기 도구(read_file). kind read — 상태를 바꾸지 않는다(외부 MCP 노출). */
 export function buildAttachmentTools(client: AttachmentToolClient): SharedTool[] {
   /** 이슈 첨부 이미지 — 목록에서 형식·크기를 먼저 보고, 보낼 수 있을 때만 원본을 받는다. */
@@ -146,7 +159,8 @@ export function buildAttachmentTools(client: AttachmentToolClient): SharedTool[]
             if (isImageSkip(slice)) return driveImage(driveFileId);
             // #840: 드라이브 표면에는 core fileId 를 내보내지 않는다 — 다른 드라이브 도구와 같이 driveFileId 로만 가리킨다.
             const { fileId: _coreFileId, ...rest } = slice;
-            return JSON.stringify({ driveFileId, ...rest });
+            const note = driveRewriteNote(slice);
+            return JSON.stringify({ driveFileId, ...rest, ...(note && { note }) });
           }
           case 'wiki': {
             const pageId = p.pageId!;

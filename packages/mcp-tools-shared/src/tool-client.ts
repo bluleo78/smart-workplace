@@ -450,12 +450,14 @@ export interface DriveToolClient {
   createDriveUploadLink(spaceId: number, folderId: number | null, name: string): Promise<DriveUploadLink>;
   /**
    * POST /drive/spaces/{id}/files/text — EDITOR 이상. content(UTF-8, 10MB 이하)로 텍스트 파일을 만든다(WP-369).
-   * MIME 은 서버가 이름으로 정한다(md·txt·csv·json, 그 밖은 text/plain). 같은 이름이 있으면 새 버전. DriveFileResponse 원형 반환.
+   * MIME 은 서버가 이름으로 정한다(md·txt·csv·json, 그 밖은 text/plain). 같은 이름이 있으면 새 버전 — 그때는 updateDriveTextFile 과 같은 규칙(텍스트가
+   * 아니거나 읽은 텍스트가 원문과 다르면 409, MIME 은 지금 형식 유지)이다. DriveFileResponse 원형 반환.
    */
   createDriveTextFile(spaceId: number, folderId: number | null, name: string, content: string): Promise<unknown>;
   /**
    * POST /drive/files/{id}/text — EDITOR 이상. 기존 드라이브 파일에 content 로 새 버전을 올린다(WP-369 Task 3). 200, DriveFileResponse 원형
-   * (id·이름·폴더 그대로, versionCount+1). 현재 버전이 텍스트가 아니면(pdf·docx 등) 서버가 409. mimeType 은 보내지 않는다 — 서버가 지금 형식을 유지한다(html·xml 계열과 octet-stream 만 이름의 확장자로 다시 정한다).
+   * (id·이름·폴더 그대로, versionCount+1). 현재 버전이 텍스트가 아니면(pdf·docx 등), 또는 읽은 텍스트가 원문과 다르면(html 계열·UTF-8 아님·추출 잘림)
+   * 서버가 409(업로드 링크로 올리라는 안내). mimeType 은 보내지 않는다 — 서버가 지금 형식을 유지한다(xml 계열과 octet-stream 만 이름의 확장자로 다시 정한다).
    */
   updateDriveTextFile(driveFileId: number, content: string): Promise<unknown>;
   /**

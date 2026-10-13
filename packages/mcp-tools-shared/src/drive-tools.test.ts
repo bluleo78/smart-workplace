@@ -458,6 +458,20 @@ describe('전송 링크·파일 올리기 (WP-369)', () => {
     expect(c.createDriveTextFile).not.toHaveBeenCalled();
   });
 
+  it('업로드 링크 뷰는 허용 목록 — 서버에 새 필드(발급자 id 등)가 생겨도 내보내지 않는다(WP-369 최종 리뷰 M4)', async () => {
+    const c = mockClient();
+    const server = {
+      url: 'https://w.example/api/v1/public/drive/transfer/ul_abc', method: 'PUT', expiresAt: '2026-10-13T06:10:00Z',
+      maxBytes: 10485760, name: '결과.md', singleUse: true, userId: 77, tokenHash: 'abc',
+    };
+    vi.mocked(c.createDriveUploadLink).mockResolvedValue(server as never);
+    vi.mocked(c.createDriveVersionUploadLink).mockResolvedValue(server as never);
+    for (const args of [{ spaceId: 2, name: '결과.md' }, { driveFileId: 8 }]) {
+      const out = JSON.parse(resultText(await tool(c, 'create_drive_file').handler(args)));
+      expect(Object.keys(out).sort()).toEqual(['expiresAt', 'howTo', 'maxBytes', 'method', 'name', 'note', 'singleUse', 'uploadUrl']);
+    }
+  });
+
   it('create_drive_file 은 이름이 비었거나 spaceId 가 없으면 거부하고 서버를 부르지 않는다', async () => {
     const c = mockClient();
     await expect(tool(c, 'create_drive_file').handler({ spaceId: 2, name: '', content: 'x' })).rejects.toThrow();

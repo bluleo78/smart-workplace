@@ -5,7 +5,7 @@
 // 그래서 core fileId 는 제거하고 drive_file.id 는 driveFileId 로만 노출한다. 나머지 필드는 그대로 넘긴다 —
 // 허용 목록으로 고르면 서버에 새 필드(예: available)가 생길 때 조용히 누락된다.
 import { dropEmpty } from './compact.js';
-import type { DriveDownloadLink } from './tool-client.js';
+import type { DriveDownloadLink, DriveUploadLink } from './tool-client.js';
 
 /** 드라이브 파일 행 → LLM 뷰. core fileId 를 버리고 id 를 driveFileId 로 옮긴다. */
 export type DriveFileView<T extends { id: number; fileId: number }> = Omit<T, 'id' | 'fileId'> & { driveFileId: number };
@@ -77,11 +77,16 @@ const UPLOAD_LINK_NOTE_COMMON =
  * Content-Type 을 붙이지 말라는 이유: 서버가 PUT 의 Content-Type 으로 범주 상한을 다시 정해 maxBytes 와 달라질 수 있다.
  * driveFileId 를 주면 그 파일에 묶인 링크(WP-369 Task 3)다 — 이름 검색 없이 그 파일의 새 버전이 되므로 note 의 재발급·결과 안내가 다르고,
  * 서버가 PUT 의 형식을 막지 않아(메모.md 에 png 를 올리면 png 버전이 된다) 같은 종류의 파일을 올리라고 알린다.
+ * 다운로드 링크 뷰와 같이 **허용 목록**으로 고른다(최종 리뷰 M4) — 로그인 없이 쓸 수 있는 링크라 서버에 나중에 생길 필드가 그대로 새지 않게 한다.
  */
-export function toDriveUploadLinkView<T extends { url: string }>({ url, ...rest }: T, driveFileId?: number) {
+export function toDriveUploadLinkView({ url, method, expiresAt, maxBytes, name, singleUse }: DriveUploadLink, driveFileId?: number) {
   return {
     uploadUrl: url,
-    ...rest,
+    method,
+    expiresAt,
+    maxBytes,
+    name,
+    singleUse,
     howTo: `curl -T <local file> "${url}"`,
     note:
       driveFileId == null
