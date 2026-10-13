@@ -126,8 +126,8 @@ export function stripMcpPrefix(name: string): string {
 }
 
 /**
- * WP-55 메모리 도구 이름 — ai-agent 로컬 라우터 도구(memory-tools.ts)가 이 목록으로 도구를 만든다. 공유 도구는 아니지만
- * 표시 규칙(isDisplayableTool)·결과 허용 목록(isMemoryTool)과 같은 곳에 두어 이름이 한 곳에만 있게 한다.
+ * WP-55 메모리 도구 이름 — ai-agent 로컬 라우터 도구(memory-tools.ts 가 satisfies 로 이 목록에 묶고, 라우터 목록이 펼쳐 쓴다). 공유 도구는
+ * 아니지만 표시 규칙(isDisplayableTool)·결과 허용 목록(isMemoryTool)과 같은 곳에 두어 이름이 한 곳에만 있게 한다.
  */
 export const MEMORY_TOOL_NAMES = ['remember_memory', 'update_memory', 'forget_memory'] as const;
 

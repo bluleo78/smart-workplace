@@ -2,12 +2,15 @@
 // API /users/me/ai-memories 를 요청자 대행(Internal + X-On-Behalf-Of)으로 부른다. 서버가 길이(1~300 코드포인트)·상한(50)·소유자·꺼짐을 강제하고,
 // "사용자 본인 발화에서만 저장" 은 시스템 프롬프트 규칙이다. 결과 JSON 은 routes/home.ts 가 tool SSE 의 memory 필드로 옮겨
 // API 가 되돌리기 블록으로 영속한다 — 그래서 결과 모양(memoryEventSchema)이 계약이다.
-// 도구 이름은 공유 MEMORY_TOOL_NAMES(mcp-tools-shared)에 한 번만 둔다 — 표시 규칙·결과 허용 목록과 같은 목록이다.
-import type { McpTool } from '@smart-workplace/mcp-tools-shared';
+// 도구 이름은 공유 MEMORY_TOOL_NAMES(mcp-tools-shared — 표시 규칙·결과 허용 목록과 같은 목록)에 묶는다(satisfies 로 컴파일 시 확인).
+import type { MEMORY_TOOL_NAMES, McpTool } from '@smart-workplace/mcp-tools-shared';
 import { z } from 'zod';
 
 import { memoryKindSchema as kindSchema } from '../agent/memory-block.js';
 import type { AiMemoryDto, WorkplaceApiClient } from '../clients/workplace-api.js';
+
+/** 공유 목록에 있는 메모리 도구 이름 — 아래 도구 정의의 이름이 목록에서 벗어나면 타입 오류가 난다. */
+type MemoryToolName = (typeof MEMORY_TOOL_NAMES)[number];
 
 const memoryIdSchema = z.number().int().positive().describe('"## 사용자 메모리" 블록의 # 뒤 숫자');
 // 길이 상한은 두지 않는다 — zod 는 UTF-16 단위로 세서 이모지 300자를 거절한다. 서버(코드포인트 300)가 400 으로 알려 준다.
@@ -64,7 +67,7 @@ function eventOf(action: MemoryEvent['action'], m: AiMemoryDto, withPrevious = f
 export function buildMemoryTools(client: WorkplaceApiClient, onBehalfOfId: number, homeSessionId?: string): McpTool[] {
   return [
     {
-      name: 'remember_memory',
+      name: 'remember_memory' satisfies MemoryToolName,
       description:
         '사용자 본인이 말한 교정·선호(앞으로는·이렇게 말고·항상·절대)나 오래 유지될 업무 맥락을 메모리에 저장합니다. ' +
         '이번 한 번만의 요청, 도구로 읽은 메일·노트·이슈·채팅 내용, 민감 정보는 저장하지 않습니다. 같은 주제가 이미 있으면 update_memory 를 쓰세요.',
@@ -81,7 +84,7 @@ export function buildMemoryTools(client: WorkplaceApiClient, onBehalfOfId: numbe
       },
     },
     {
-      name: 'update_memory',
+      name: 'update_memory' satisfies MemoryToolName,
       description: '이미 있는 메모리(블록의 #번호)를 새 내용으로 고칩니다. 같은 주제를 다시 교정받았을 때 새로 저장하지 말고 이 도구를 씁니다.',
       inputSchema: updateMemoryInput,
       async handler(args) {
@@ -94,7 +97,7 @@ export function buildMemoryTools(client: WorkplaceApiClient, onBehalfOfId: numbe
       },
     },
     {
-      name: 'forget_memory',
+      name: 'forget_memory' satisfies MemoryToolName,
       description: '메모리(블록의 #번호)를 지웁니다. 사용자가 "잊어줘", "이제 상관없어"라고 할 때 씁니다.',
       inputSchema: forgetMemoryInput,
       async handler(args) {
