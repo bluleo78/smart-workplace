@@ -63,7 +63,7 @@ export const reportAgentWorkInput = z
   .object({
     issueKey: z.string().min(1),
     state: z.enum(['WORKING', 'WAITING', 'REVIEW', 'BLOCKED', 'PAUSED', 'ENDED']).optional(),
-    note: z.string().max(120).optional().describe('one-line status; "" clears'),
+    note: z.string().max(120).optional().describe('"" clears'), // 한 줄 상태(최대 120자는 스키마가 알린다). 빈 문자열이면 지운다
     progress: z.number().int().min(0).max(100).optional(),
     stepsDone: z.number().int().min(0).optional(),
     stepsTotal: z.number().int().min(1).optional(),

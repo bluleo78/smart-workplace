@@ -188,8 +188,8 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       kind: 'write',
       hints: { destructive: false, idempotent: false },
       description:
-        'Reports work on your assigned issue (이슈) at start/on change: WAITING before asking the user, REVIEW when done, ' +
-        'BLOCKED + why, PAUSED if told to stop, ENDED to stop. message posts to issue chat.',
+        'Reports work on your assigned issue (이슈) at start/on change: WAITING before asking the user, REVIEW awaiting review, ' +
+        'BLOCKED + why, PAUSED if told to pause, ENDED stops tracking. message posts to issue chat.',
       inputSchema: reportAgentWorkInput,
       async handler(args) {
         const { issueKey, ...body } = reportAgentWorkInput.parse(args);

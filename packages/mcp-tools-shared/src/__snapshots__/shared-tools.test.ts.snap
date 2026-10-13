@@ -2235,7 +2235,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "string",
         },
         "note": {
-          "description": "one-line status; "" clears",
+          "description": """ clears",
           "maxLength": 120,
           "type": "string",
         },
