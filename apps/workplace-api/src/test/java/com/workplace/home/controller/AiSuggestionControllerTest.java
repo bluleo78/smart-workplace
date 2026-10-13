@@ -79,6 +79,18 @@ class AiSuggestionControllerTest extends IntegrationTestBase {
         .execute();
   }
 
+  /** 제목이 없거나(null) 빈 세션 — 최근 활동 시각은 직접 정한다(메시지 없는 세션은 NULL 이라 DESC 정렬에서 맨 앞에 온다). */
+  private void untitledSession(long uid, String title, int minutesAgo) {
+    UUID sid = sessionService.create(uid).id();
+    dsl.update(HOME_SESSION)
+        .set(HOME_SESSION.TITLE, title)
+        .set(
+            HOME_SESSION.LAST_MESSAGE_AT,
+            OffsetDateTime.now(ZoneOffset.UTC).minusMinutes(minutesAgo))
+        .where(HOME_SESSION.ID.eq(sid))
+        .execute();
+  }
+
   private SuggestionRequest captured() {
     ArgumentCaptor<SuggestionRequest> c = ArgumentCaptor.forClass(SuggestionRequest.class);
     verify(suggestionClient).suggest(c.capture());
@@ -189,5 +201,44 @@ class AiSuggestionControllerTest extends IntegrationTestBase {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"screenContext\":{\"view\":\"\"}}"))
         .andExpect(status().isBadRequest());
+  }
+
+  @Test
+  void ai_agent_실패로_빈_목록이면_200_빈_결과에_enabled_true() throws Exception {
+    // 클라이언트는 ai-agent 의 모든 실패(502·시간 초과·연결 오류)를 빈 목록으로 바꾼다 — 컨트롤러도 오류 없이 빈 결과를 돌려 웹이 보이던 문구를 유지한다.
+    long uid = TestFixtures.createHuman(dsl);
+    stubAssistant();
+    when(suggestionClient.suggest(any())).thenReturn(List.of());
+    mvc.perform(
+            post("/api/v1/ai/suggestions")
+                .with(authentication(auth(uid)))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.items").isArray())
+        .andExpect(jsonPath("$.items").isEmpty())
+        .andExpect(jsonPath("$.enabled").value(true));
+  }
+
+  @Test
+  void 최근_대화_제목은_다른_사용자와_제목_없는_대화를_뺀다() throws Exception {
+    long uid = TestFixtures.createHuman(dsl);
+    long other = TestFixtures.createHuman(dsl);
+    stubAssistant();
+    when(suggestionClient.suggest(any())).thenReturn(List.of());
+    session(uid, "내 대화", 30);
+    // 제외 대상은 더 최근으로 둔다 — 조건이 빠지면 맨 앞에 끼어 보인다.
+    session(other, "남의 대화", 1);
+    untitledSession(uid, null, 2);
+    untitledSession(uid, "", 3);
+
+    mvc.perform(
+            post("/api/v1/ai/suggestions")
+                .with(authentication(auth(uid)))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+        .andExpect(status().isOk());
+
+    assertThat(captured().recentTitles()).containsExactly("내 대화");
   }
 }

@@ -45,17 +45,6 @@ public class WorkspaceAssistantService {
     workspaceRepo.upsert(agentUserId, adminId);
   }
 
-  /** 공용 비서의 모델/사고 깊이 설정. maxTurns/timeoutMs 는 기존 값 보존. 미지정 상태면 409. */
-  public void updateSettings(long adminId, String model, String thinkingDepth) {
-    long agentId =
-        workspaceRepo
-            .findAgentId()
-            .orElseThrow(() -> new IllegalStateException("공용 비서가 설정되지 않았어요."));
-    // 기존 튜닝 값(maxTurns/timeoutMs)을 덮어쓰지 않도록 현재 행을 읽어 보존한다.
-    ConfigRow cur = configRepo.find(agentId).orElse(new ConfigRow(null, null, null, null));
-    configRepo.upsert(agentId, model, thinkingDepth, cur.maxTurns(), cur.timeoutMs());
-  }
-
   /** 공용 비서 부분 설정 변경(WP-139) — 요청에 있는 필드만. 미지정 상태면 예외. */
   public void updateSettings(long adminId, UpdateAssistantSettingsRequest req) {
     long agentId =

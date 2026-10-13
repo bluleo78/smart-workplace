@@ -44,16 +44,6 @@ public class PersonalAssistantService {
     credentialService.register(callerId, agentId, provider, plaintextSecret, label, model);
   }
 
-  /** 모델/생각 깊이 변경 — maxTurns/timeoutMs 는 기존 값을 보존한다. 비서 미설정이면 예외. */
-  public void updateSettings(long callerId, String model, String thinkingDepth) {
-    long agentId =
-        personalRepo
-            .findAgentId(callerId)
-            .orElseThrow(() -> new IllegalStateException("개인 비서가 설정되지 않았어요."));
-    ConfigRow cur = configRepo.find(agentId).orElse(new ConfigRow(null, null, null, null));
-    configRepo.upsert(agentId, model, thinkingDepth, cur.maxTurns(), cur.timeoutMs());
-  }
-
   /** 부분 설정 변경(WP-139) — 요청에 있는 필드만 바꾼다. 비서 미설정이면 예외. */
   public void updateSettings(long callerId, UpdateAssistantSettingsRequest req) {
     long agentId =

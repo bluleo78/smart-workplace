@@ -18,10 +18,14 @@ class AssistantSettingsWriter {
 
   /** agent 의 설정에 요청을 병합해 저장한다. 빈 문자열 추천 모델은 자동(null)으로 본다. */
   void apply(long agentId, UpdateAssistantSettingsRequest req) {
-    ConfigRow cur = configRepo.find(agentId).orElse(new ConfigRow(null, null, null, null));
-    String model = req.hasModel() ? req.model() : cur.model();
-    String depth = req.hasThinkingDepth() ? req.thinkingDepth() : cur.thinkingDepth();
-    configRepo.upsert(agentId, model, depth, cur.maxTurns(), cur.timeoutMs());
+    // 모델·생각 깊이를 보냈을 때만 그 행을 다시 쓴다 — 추천 모델만 바꾸는 요청이 현재 값을 읽어 되쓰면, 동시에 온 모델 변경을 옛 값으로
+    // 덮을 수 있다(read-modify-write 창).
+    if (req.hasModel() || req.hasThinkingDepth()) {
+      ConfigRow cur = configRepo.find(agentId).orElse(new ConfigRow(null, null, null, null));
+      String model = req.hasModel() ? req.model() : cur.model();
+      String depth = req.hasThinkingDepth() ? req.thinkingDepth() : cur.thinkingDepth();
+      configRepo.upsert(agentId, model, depth, cur.maxTurns(), cur.timeoutMs());
+    }
     if (req.hasSuggestionModel()) {
       String s = req.suggestionModel();
       configRepo.updateSuggestionModel(agentId, s == null || s.isBlank() ? null : s.strip());

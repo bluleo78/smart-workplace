@@ -2,6 +2,7 @@ package com.workplace.auth.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.workplace.auth.dto.UpdateAssistantSettingsRequest;
 import com.workplace.auth.repository.AiAgentCredentialRepository;
 import com.workplace.auth.repository.PersonalAssistantRepository;
 import com.workplace.global.tenant.TenantContext;
@@ -85,7 +86,7 @@ class PersonalAssistantServiceTest extends IntegrationTestBase {
   void 설정변경_후_상태에_반영() {
     long human = TestFixtures.createHuman(dsl);
     service.registerCredential(human, "anthropic", TOKEN, "t", null);
-    service.updateSettings(human, "claude-opus-4-8", "DEEP");
+    service.updateSettings(human, settings("claude-opus-4-8", "DEEP"));
 
     var status = service.getStatus(human);
     assertThat(status.model()).isEqualTo("claude-opus-4-8");
@@ -146,5 +147,13 @@ class PersonalAssistantServiceTest extends IntegrationTestBase {
 
     assertThat(second).isEqualTo(first); // 동일 AGENT 재사용
     assertThat(credentialRepo.findActive(second)).isPresent();
+  }
+
+  /** 컨트롤러와 같은 부분 갱신 요청 — 모델·생각 깊이 두 키를 보낸 것과 같다. */
+  private static UpdateAssistantSettingsRequest settings(String model, String thinkingDepth) {
+    var req = new UpdateAssistantSettingsRequest();
+    req.setModel(model);
+    req.setThinkingDepth(thinkingDepth);
+    return req;
   }
 }
