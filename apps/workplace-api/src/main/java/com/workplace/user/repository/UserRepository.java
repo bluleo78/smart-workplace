@@ -292,7 +292,7 @@ public class UserRepository {
    *
    * <ul>
    *   <li>공통 비서: workspace_assistant 는 RLS 라 일반 쿼리로는 현재 테넌트 행만 보인다. 에이전트는 여러 테넌트에 속할 수 있으므로 RLS 를
-   *       우회하는 SECURITY DEFINER 함수(V168 is_workspace_assistant_agent)로 전 테넌트를 확인한다.
+   *       우회하는 SECURITY DEFINER 함수(V167 is_workspace_assistant_agent)로 전 테넌트를 확인한다.
    *   <li>개인 비서(연결됨): 누군가의 user.personal_assistant_agent_id 가 이 에이전트를 가리킨다.
    *   <li>개인 비서(해제됨): 개인 비서 해제(PersonalAssistantService.disable)는 포인터만 끊고 행(username 접두어 {@code
    *       __assistant_u})은 남긴다. 재등록 시 같은 행을 username 으로 찾아 다시 연결하므로, 포인터만 보면 해제 중에 EXTERNAL 로 바뀐 뒤
