@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { RunnerInput } from './agent-runner.js';
 
@@ -29,8 +29,21 @@ const starter = { mode: 'starter' as const, agentId: 7, count: 4, timeoutMs: 15_
 
 beforeEach(() => {
   vi.clearAllMocks();
+  collectSpy.mockReset(); // 앞 테스트가 남긴 Once 구현이 새지 않게
   getProviderCredential.mockResolvedValue(anthropic);
+  // 재시도 판단(남은 시간)은 Date.now 로 잰다 — 시계를 고정하고 각 실행 안에서 필요한 만큼만 옮겨 결정적으로 만든다.
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(NOW);
 });
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+/** 실행 한 번이 elapsedMs 걸린 뒤 실패(예외)하는 collect 구현. */
+const failAfter = (elapsedMs: number, message = 'effort 미지원') => async () => {
+  vi.setSystemTime(Date.now() + elapsedMs);
+  throw new Error(message);
+};
 
 describe('suggestionsInput', () => {
   it('API 가 보내는 명시적 null 필드를 받는다', () => {
@@ -148,13 +161,45 @@ describe('runSuggestions', () => {
     });
     expect(arg.mcp).toBeUndefined();
     expect(arg.systemPrompt).toContain('## 오늘 날짜');
+    expect(arg.systemPrompt).toContain('오늘은 2026-10-13 (Asia/Seoul 기준)');
   });
-  it('실행이 실패(ok:false)면 예외 — 라우트가 502 로 바꾼다', async () => {
+  it('오늘 날짜는 서울 기준 — UTC 로는 전날이어도 서울 날짜를 싣는다', async () => {
+    collectSpy.mockResolvedValue(ok('["a 해줘"]'));
+    await runSuggestions(suggestionsInput.parse(starter), deps, new Date('2026-10-13T15:30:00Z'));
+    expect((collectSpy.mock.calls[0][0] as RunnerInput).systemPrompt).toContain('오늘은 2026-10-14 (Asia/Seoul 기준)');
+  });
+  it('실행이 실패(ok:false)면 effort 없이 한 번 더 돌고, 그래도 실패면 예외 — 라우트가 502 로 바꾼다', async () => {
     collectSpy.mockResolvedValue([{ type: 'result', ok: false, text: '["부분"]', usage: null }]);
     await expect(runSuggestions(suggestionsInput.parse(starter), deps, NOW)).rejects.toThrow();
+    expect(collectSpy).toHaveBeenCalledTimes(2);
   });
-  it('러너 예외(시간 초과 등)는 그대로 전파', async () => {
-    collectSpy.mockRejectedValue(new Error('timeout'));
+  it('러너 예외(시간 초과 등)는 그대로 전파 — 시간을 다 썼으면 다시 돌지 않는다', async () => {
+    collectSpy.mockImplementation(failAfter(15_000, 'timeout'));
     await expect(runSuggestions(suggestionsInput.parse(starter), deps, NOW)).rejects.toThrow('timeout');
+    expect(collectSpy).toHaveBeenCalledTimes(1);
+  });
+  it('effort 를 넣은 실행이 실패하면 effort 없이 남은 시간 안에서 한 번만 다시 돌아 결과를 돌려준다', async () => {
+    // effort 를 받지 않는 모델(예: 구 Haiku)이면 SDK 실행이 실패해 추천이 조용히 사라질 수 있다(/code-review).
+    collectSpy.mockImplementationOnce(failAfter(3_000)).mockResolvedValueOnce(ok('["오늘 일정 요약해줘"]'));
+    const out = await runSuggestions(suggestionsInput.parse({ ...starter, model: 'claude-haiku-4-5-20251001' }), deps, NOW);
+    expect(out).toEqual({ items: ['오늘 일정 요약해줘'] });
+    expect(collectSpy).toHaveBeenCalledTimes(2);
+    const first = collectSpy.mock.calls[0][0] as RunnerInput;
+    const retry = collectSpy.mock.calls[1][0] as RunnerInput;
+    expect(first).toMatchObject({ effort: 'low', timeoutMs: 15_000 });
+    expect(retry.effort).toBeUndefined();
+    expect(retry).toMatchObject({ model: 'claude-haiku-4-5-20251001', maxTurns: 1, timeoutMs: 12_000, allowSubagents: false });
+    expect(retry.requestId).toBe(first.requestId);
+  });
+  it('남은 시간이 너무 짧으면(2초 미만) 다시 돌지 않는다', async () => {
+    collectSpy.mockImplementationOnce(failAfter(13_500)).mockResolvedValueOnce(ok('["a 해줘"]'));
+    await expect(runSuggestions(suggestionsInput.parse(starter), deps, NOW)).rejects.toThrow('effort 미지원');
+    expect(collectSpy).toHaveBeenCalledTimes(1);
+  });
+  it('opencode 연결은 effort 를 쓰지 않으므로 같은 실행을 다시 돌지 않는다', async () => {
+    getProviderCredential.mockResolvedValue(opencode);
+    collectSpy.mockImplementationOnce(failAfter(1_000)).mockResolvedValueOnce(ok('["a 해줘"]'));
+    await expect(runSuggestions(suggestionsInput.parse(starter), deps, NOW)).rejects.toThrow('effort 미지원');
+    expect(collectSpy).toHaveBeenCalledTimes(1);
   });
 });
