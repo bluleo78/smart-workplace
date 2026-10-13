@@ -103,6 +103,10 @@ export function createHomeRouter(deps: RunAgentDeps): Router {
     const requestId = randomUUID();
     const startedAt = Date.now();
     const d = parsed.data;
+    // WP-55: 모양이 틀린 메모리 항목은 스키마가 조용히 버린다 — 버린 개수만 남긴다(내용은 로그에 싣지 않는다 — 사용자 메모리).
+    const rawMemories: unknown = (req.body as { memories?: unknown } | undefined)?.memories;
+    const droppedMemories = Array.isArray(rawMemories) ? rawMemories.length - d.memories.length : 0;
+    if (droppedMemories > 0) log.warn('ai-chat', 'memories_dropped', { requestId, dropped: droppedMemories });
     log.info('ai-chat', 'start', {
       requestId,
       agentId: d.assistantAgentId,

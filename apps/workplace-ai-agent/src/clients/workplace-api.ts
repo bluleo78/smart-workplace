@@ -44,7 +44,7 @@ export interface HomeAttachmentMeta {
   extraction: ExtractionInfo;
 }
 
-// WP-55: 사용자 메모리 항목(API AiMemoryItem). previousContent 는 PATCH 응답에만 온다.
+// WP-55: 사용자 메모리 항목(API AiMemoryItem). previousContent·previousKind 는 PATCH 응답에만 온다(구 API 는 previousKind 없음).
 export interface AiMemoryDto {
   id: number;
   kind: 'PREFERENCE' | 'CONTEXT';
@@ -53,6 +53,7 @@ export interface AiMemoryDto {
   createdAt: string;
   updatedAt: string;
   previousContent?: string;
+  previousKind?: 'PREFERENCE' | 'CONTEXT';
 }
 
 // 6c: chat thread 메시지 (LLM 노출용 경량 형태).

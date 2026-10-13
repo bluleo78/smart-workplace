@@ -25,13 +25,17 @@ export const rememberMemoryInput = z.object({
 export const updateMemoryInput = z.object({ memoryId: memoryIdSchema, content: contentSchema, kind: kindSchema.optional() });
 export const forgetMemoryInput = z.object({ memoryId: memoryIdSchema });
 
-/** tool SSE 의 memory 필드 — API ChatBlockRecorder.Memory 의 원천. source 는 forgotten 되돌리기(같은 source 로 재생성)에 쓴다(판정 7). */
+/**
+ * tool SSE 의 memory 필드 — API ChatBlockRecorder.Memory 의 원천. source 는 forgotten 되돌리기(같은 source 로 재생성)에 쓴다(판정 7).
+ * previousKind 는 updated 의 고치기 전 종류 — 되돌리기가 종류까지 돌려놓는 근거(구 API 응답엔 없어 선택).
+ */
 export const memoryEventSchema = z.object({
   action: z.enum(['saved', 'updated', 'forgotten']),
   memoryId: z.number().int().positive(),
   kind: kindSchema,
   content: z.string().min(1),
   previousContent: z.string().optional(),
+  previousKind: kindSchema.optional(),
   source: z.enum(['AI', 'USER']).optional(),
 });
 export type MemoryEvent = z.infer<typeof memoryEventSchema>;
@@ -47,10 +51,11 @@ export function parseMemoryToolResult(result: string | undefined): MemoryEvent |
   }
 }
 
-/** API 항목 → 도구 결과(JSON 텍스트). */
-function eventOf(action: MemoryEvent['action'], m: AiMemoryDto, previousContent?: string): string {
+/** API 항목 → 도구 결과(JSON 텍스트). withPrevious 면(updated) 고치기 전 내용·종류를 함께 싣는다. */
+function eventOf(action: MemoryEvent['action'], m: AiMemoryDto, withPrevious = false): string {
   const e: MemoryEvent = { action, memoryId: m.id, kind: m.kind, content: m.content, source: m.source };
-  if (previousContent !== undefined) e.previousContent = previousContent;
+  if (withPrevious && m.previousContent !== undefined) e.previousContent = m.previousContent;
+  if (withPrevious && m.previousKind !== undefined) e.previousKind = m.previousKind;
   return JSON.stringify(e);
 }
 
@@ -87,7 +92,7 @@ export function buildMemoryTools(client: WorkplaceApiClient, onBehalfOfId: numbe
           content: p.content,
           ...(p.kind ? { kind: p.kind } : {}),
         });
-        return eventOf('updated', m, m.previousContent);
+        return eventOf('updated', m, true);
       },
     },
     {

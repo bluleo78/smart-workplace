@@ -70,6 +70,26 @@ describe('buildMemoryTools (WP-55)', () => {
     });
   });
 
+  // CR1: API 가 이전 종류를 돌려주면 결과에 싣는다 — 되돌리기가 AI 가 바꾼 종류까지 돌려놓는 근거.
+  it('update_memory → 이전 종류(previousKind)도 결과에 싣는다', async () => {
+    const { c, tool } = setup();
+    c.updateAiMemory.mockResolvedValue(
+      item({ kind: 'CONTEXT', content: '백엔드 팀이다', previousContent: '짧은 목록으로 보여 준다', previousKind: 'PREFERENCE' }),
+    );
+    const out = await tool('update_memory').handler({ memoryId: 12, content: '백엔드 팀이다', kind: 'CONTEXT' });
+    expect(c.updateAiMemory).toHaveBeenCalledWith(USER, 12, { content: '백엔드 팀이다', kind: 'CONTEXT' });
+    expect(JSON.parse(out as string)).toEqual({
+      action: 'updated',
+      memoryId: 12,
+      kind: 'CONTEXT',
+      content: '백엔드 팀이다',
+      previousContent: '짧은 목록으로 보여 준다',
+      previousKind: 'PREFERENCE',
+      source: 'AI',
+    });
+    expect(parseMemoryToolResult(out as string)?.previousKind).toBe('PREFERENCE');
+  });
+
   it('forget_memory → DELETE → forgotten 결과(지운 항목의 source 포함)', async () => {
     const { c, tool } = setup();
     c.deleteAiMemory.mockResolvedValue(item({ id: 9, kind: 'CONTEXT', content: '백엔드 팀이다', source: 'USER' }));
