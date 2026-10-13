@@ -117,6 +117,24 @@ export function nextFrame(page: Page): Promise<void> {
 }
 
 /**
+ * dnd-kit 키보드 끌기를 시작한다 — Space 로 집은 뒤 센서가 방향키를 받을 준비가 될 때까지 기다린다.
+ * KeyboardSensor 는 시작 직후 방향키 리스너를 setTimeout(0) 으로 다음 태스크에 붙이는데, Chrome 은 연속 입력을 타이머보다
+ * 먼저 처리해 부하에서 바로 누른 방향키가 리스너보다 먼저 와 조용히 버려진다(드롭 대상은 allowed 인 채 over 가 안 된다).
+ * ready(시작 뒤 렌더로만 생기는 상태 — 드롭 대상의 allowed 등)를 확인한 뒤, 한 프레임과 같은 지연(0)의 타이머를 흘려
+ * 먼저 예약된 센서 타이머가 실행됐음을 보장한다(같은 지연의 타이머는 예약 순서대로 실행된다).
+ */
+export async function startKeyboardDrag(row: Locator, ready: () => Promise<void>): Promise<void> {
+  // 목록 로딩 중에는 끌기가 꺼져 있다 — 끌 수 있는 행이 된 뒤에 집는다.
+  await expect(row).toHaveAttribute('aria-roledescription', /.+/);
+  await row.focus();
+  const page = row.page();
+  await page.keyboard.press('Space');
+  await ready();
+  await nextFrame(page);
+  await page.evaluate(() => new Promise<void>((r) => setTimeout(r, 0)));
+}
+
+/**
  * dnd-kit 끌기를 놓는다 — mouse.up() 뒤 dnd-kit 의 click 막음이 풀릴 때까지 기다려, 이어지는 클릭이 삼켜지지 않게 한다.
  * dnd-kit 은 놓은 뒤 setTimeout(50ms) 동안 document 캡처 단계에서 click 전파를 막는데, 부하로 그 타이머가 늦으면 놓은 직후의
  * 클릭(토스트 「되돌리기」·구간 펼치기 등)이 조용히 삼켜진다. 탐침 click 이 제 대상까지 닿는지로 직접 확인한다
