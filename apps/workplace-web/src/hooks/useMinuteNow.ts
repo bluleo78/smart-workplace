@@ -32,8 +32,9 @@ export function useMinuteNow(resolution: NowResolution): { now: Date; resumeCoun
     // 꺼져 있던 동안(데스크톱·다른 보기) 흐른 시간을 바로 반영한다 — 낡은 지금으로 한 프레임 그리지 않게 레이아웃 effect.
     read(false)
     const id = window.setInterval(() => read(false), MINUTE_MS)
+    // 복귀 횟수는 분 단위(목록 보기)일 때만 센다 — 자정 따라가기 판정은 목록 안에서만 의미가 있다.
     const onVisible = () => {
-      if (document.visibilityState === 'visible') read(true)
+      if (document.visibilityState === 'visible') read(resolution === 'minute')
     }
     document.addEventListener('visibilitychange', onVisible)
     return () => {
