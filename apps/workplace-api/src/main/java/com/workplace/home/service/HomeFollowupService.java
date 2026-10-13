@@ -37,6 +37,13 @@ public class HomeFollowupService {
    */
   static final int ANSWER_MAX_CHARS = 4_000;
 
+  /**
+   * 질문 앞부분만 보낸다 — HomeChatRequest.query 에는 길이 상한이 없는데 ai-agent zod 는 question 을 2만 자로 묶어, 넘으면 요청
+   * 전체가 400 이 되어 후속 질문이 조용히 빠진다(최종 리뷰 M1). 다음 질문을 고르는 데는 앞부분이면 충분하다. ai-agent 프롬프트 빌더도 같은 값으로
+   * 자른다(방어).
+   */
+  static final int QUESTION_MAX_CHARS = 1_000;
+
   /** 결정적 고정 문구 출처 — 이런 답에는 이어 물을 대상이 없다(확인 카드만 있는 답도 이 출처로 온다, 스펙 §10.9). */
   static final String SOURCE_FALLBACK = "fallback";
 
@@ -100,10 +107,7 @@ public class HomeFollowupService {
   /** 실행기 스레드 — 생성 → (그사이 끄지 않았으면) 저장 → 발행. */
   private void generate(HomeChatTurn turn, FollowupInput in) {
     try {
-      String answer =
-          in.answer().length() > ANSWER_MAX_CHARS
-              ? in.answer().substring(0, ANSWER_MAX_CHARS)
-              : in.answer();
+      String answer = head(in.answer(), ANSWER_MAX_CHARS);
       List<String> items =
           client.suggest(
               new SuggestionRequest(
@@ -112,7 +116,7 @@ public class HomeFollowupService {
                   in.spec().suggestionModel(), // 해석 완료된 요청 모델(Task 2)
                   in.screenContext(),
                   null,
-                  in.question(),
+                  head(in.question(), QUESTION_MAX_CHARS), // 첨부만 보낸 턴은 null
                   answer,
                   FOLLOWUP_COUNT,
                   FOLLOWUP_TIMEOUT_MS));
@@ -132,5 +136,15 @@ public class HomeFollowupService {
       // 그 밖의 실패(DB 오류 등)는 부가 기능이라 버리되, 원인을 볼 수 있게 경고로 남긴다.
       log.warn("후속 질문 생성·저장 실패: session={} message={}", in.sessionId(), in.messageId(), e);
     }
+  }
+
+  /**
+   * 앞 max 글자(UTF-16 단위). null 은 그대로. 경계가 서로게이트 쌍 가운데면 한 글자 덜 잘라, 짝 잃은 서로게이트가 JSON 직렬화를 깨지 않게
+   * 한다(이모지가 잘리는 경우).
+   */
+  static String head(String s, int max) {
+    if (s == null || s.length() <= max) return s;
+    int end = Character.isHighSurrogate(s.charAt(max - 1)) ? max - 1 : max;
+    return s.substring(0, end);
   }
 }

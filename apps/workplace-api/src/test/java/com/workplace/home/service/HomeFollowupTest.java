@@ -305,4 +305,26 @@ class HomeFollowupTest extends IntegrationTestBase {
     awaitSuggestionIdle();
     assertThat(payloads("home.chat.followups")).isEmpty(); // 빈 결과는 저장·발행 없음
   }
+
+  @Test
+  void 질문이_길면_앞_1000자만_보낸다() throws Exception {
+    // ai-agent zod 상한(question 2만 자)을 넘는 질문이 요청 전체를 400 으로 만들지 않게 API 에서 자른다(최종 리뷰 M1).
+    long uid = user();
+    when(suggestionClient.suggest(any())).thenReturn(List.of());
+    CountDownLatch streamed = stream("짧은 답", "subagent", false);
+    start(uid, "질".repeat(1500));
+    assertThat(streamed.await(5, TimeUnit.SECONDS)).isTrue();
+    awaitTrue(() -> !mockingDetails(suggestionClient).getInvocations().isEmpty());
+    ArgumentCaptor<SuggestionRequest> c = ArgumentCaptor.forClass(SuggestionRequest.class);
+    verify(suggestionClient).suggest(c.capture());
+    assertThat(c.getValue().question()).hasSize(1000);
+    awaitSuggestionIdle();
+  }
+
+  @Test
+  void 앞부분_자르기는_서로게이트_쌍을_가르지_않고_null_은_그대로() {
+    assertThat(HomeFollowupService.head("ab😀", 3)).isEqualTo("ab"); // 😀 은 UTF-16 두 단위
+    assertThat(HomeFollowupService.head("abc", 3)).isEqualTo("abc");
+    assertThat(HomeFollowupService.head(null, 3)).isNull();
+  }
 }
