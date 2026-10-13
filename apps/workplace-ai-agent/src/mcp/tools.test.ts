@@ -153,6 +153,9 @@ function sharedMock(): MockedShared {
     createDriveDownloadLink: vi.fn().mockResolvedValue({ url: 'https://w.example/dl', expiresAt: 't', name: 'a.pdf', sizeBytes: 5, mimeType: 'application/pdf', singleUse: true }),
     createDriveUploadLink: vi.fn().mockResolvedValue({ url: 'https://w.example/ul', method: 'PUT', expiresAt: 't', maxBytes: 10485760, name: 'a.md', singleUse: true }),
     createDriveTextFile: vi.fn().mockResolvedValue({ id: 8, fileId: 901, folderId: null, name: 'a.md' }),
+    // WP-369 Task 3: 기존 파일의 새 버전(텍스트 갱신·파일에 묶인 업로드 링크)
+    updateDriveTextFile: vi.fn().mockResolvedValue({ id: 8, fileId: 902, folderId: null, name: 'a.md', versionCount: 2 }),
+    createDriveVersionUploadLink: vi.fn().mockResolvedValue({ url: 'https://w.example/ul2', method: 'PUT', expiresAt: 't', maxBytes: 10485760, name: 'a.md', singleUse: true }),
     // 알림
     listNotifications: vi.fn().mockResolvedValue([]),
     countUnreadNotifications: vi.fn().mockResolvedValue(0),
@@ -652,7 +655,7 @@ describe('read_chat_attachment 프로필·바인딩 (WP-234)', () => {
 // WP-346: 공유 read_file — assistant(요청자 신원)에만. 이슈 챗(chat)은 AGENT 가 프로젝트 비멤버라 스레드 경유 전용 도구를 쓴다.
 // ---------------------------------------------------------------------------
 describe('read_file 프로필 (WP-346)', () => {
-  it('assistant 의 read_file 는 공유 정의를 요청자 신원 클라이언트(toolClient)로 실행한다', async () => {
+  it('assistant 의 read_file 은 공유 정의를 요청자 신원 클라이언트(toolClient)로 실행한다', async () => {
     const c = client();
     const t = find(buildTools(c, AGENT_ID, 'assistant'), 'read_file');
     expect(t.annotations).toMatchObject({ readOnlyHint: true });
@@ -1498,8 +1501,18 @@ describe('공유로 옮긴 쓰기 도구는 에이전트 신원(toolClient(agent
     expect(c.sc.createDriveTextFile).toHaveBeenLastCalledWith(2, null, '빈.txt', '');
     await expect(t.handler({ spaceId: 2, name: '보고서.pdf' })).rejects.toThrow(/웹 드라이브 화면에서 직접 올리라고/);
     await expect(t.handler({ spaceId: 2, name: '보고서.pdf', content: null })).rejects.toThrow(/업로드 링크를 만들 수 없습니다/);
+    // 기존 파일 갱신(driveFileId)도 content 가 있을 때만 — 없으면 파일에 묶인 업로드 링크도 만들지 않는다.
+    const updated = await t.handler({ driveFileId: 8, content: '# 고친 요약' });
+    expect(c.sc.updateDriveTextFile).toHaveBeenCalledWith(8, '# 고친 요약');
+    expect(JSON.parse(updated as string)).toMatchObject({ driveFileId: 8, versionCount: 2 });
+    await expect(t.handler({ driveFileId: 8 })).rejects.toThrow(/업로드 링크를 만들 수 없습니다/);
+    await expect(t.handler({ driveFileId: 8, content: null })).rejects.toThrow(/업로드 링크를 만들 수 없습니다/);
     expect(c.sc.createDriveUploadLink).not.toHaveBeenCalled();
+    expect(c.sc.createDriveVersionUploadLink).not.toHaveBeenCalled();
+    // 설명은 AI Chat 이 쓸 수 있는 content 모드만 말한다 — 공유본의 업로드 링크·curl 안내는 싣지 않는다(쓸 수 없는 안내와 토큰 낭비).
     expect(t.description).toMatch(/^AI Chat 에서는 content/);
+    expect(t.description).toContain('driveFileId');
+    expect(t.description).not.toMatch(/curl|uploadUrl|one-time upload link|maxBytes/);
   });
 
   it('create_drive_download_link(assistant) — 요청자 신원의 공유 클라이언트로 링크를 만든다', async () => {

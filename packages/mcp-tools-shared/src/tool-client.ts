@@ -453,6 +453,16 @@ export interface DriveToolClient {
    * MIME 은 서버가 이름으로 정한다(md·txt·csv·json, 그 밖은 text/plain). 같은 이름이 있으면 새 버전. DriveFileResponse 원형 반환.
    */
   createDriveTextFile(spaceId: number, folderId: number | null, name: string, content: string): Promise<unknown>;
+  /**
+   * POST /drive/files/{id}/text — EDITOR 이상. 기존 드라이브 파일에 content 로 새 버전을 올린다(WP-369 Task 3). 200, DriveFileResponse 원형
+   * (id·이름·폴더 그대로, versionCount+1). 현재 버전이 텍스트가 아니면(pdf·docx 등) 서버가 409. mimeType 은 보내지 않는다 — 서버가 파일 이름으로 정한다.
+   */
+  updateDriveTextFile(driveFileId: number, content: string): Promise<unknown>;
+  /**
+   * POST /drive/files/{id}/upload-link — EDITOR 이상, 본문 없음. 그 파일에 묶인 일회용 10분 PUT 링크(201, 업로드 링크와 같은 모양).
+   * PUT 은 이름 검색 없이 그 파일의 새 버전이 되고, 이름·폴더는 그대로다(발급 뒤 이름이 바뀌어도 같은 파일).
+   */
+  createDriveVersionUploadLink(driveFileId: number): Promise<DriveUploadLink>;
 }
 
 /** 다운로드 링크 발급 응답(WP-369 서버 계약). 사용자 id 는 없다. */
@@ -533,7 +543,7 @@ export interface DriveBacklinkRow {
 }
 
 /**
- * 첨부·파일 내용 읽기(WP-346) — read_file 가 쓴다. 텍스트는 서버가 추출해 둔 구간을 읽고, 이미지만 원본을 받는다
+ * 첨부·파일 내용 읽기(WP-346) — read_file 이 쓴다. 텍스트는 서버가 추출해 둔 구간을 읽고, 이미지만 원본을 받는다
  * (이미지 블록으로 모델에 넘기려고). 권한은 서버가 강제한다(이슈: 프로젝트 멤버, 드라이브: 스페이스 VIEWER).
  */
 export interface AttachmentToolClient {

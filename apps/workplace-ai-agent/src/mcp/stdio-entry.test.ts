@@ -274,7 +274,7 @@ describe('registerStdioTool', () => {
     }
   });
 
-  // WP-346: 실제 공유 read_file 가 드라이브 이미지를 image 블록으로 돌려줄 때도 비전 미지원이면 안내 문구로 바뀐다.
+  // WP-346: 실제 공유 read_file 이 드라이브 이미지를 image 블록으로 돌려줄 때도 비전 미지원이면 안내 문구로 바뀐다.
   it('read_file 의 이미지도 비전 미지원이면 안내 문구로, 비전 지원이면 image 블록 그대로(WP-346)', async () => {
     const png = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
     const sc = {

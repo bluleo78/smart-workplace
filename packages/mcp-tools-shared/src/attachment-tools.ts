@@ -118,11 +118,11 @@ export function buildAttachmentTools(client: AttachmentToolClient): SharedTool[]
       // WP-369 R7: 전송 도구 두 개를 정의 크기 상한 안에 넣으려고 압축했다 — 드라이브 id 출처(드라이브 앱의 목록·검색이 다 준다)·기본 길이·
       // 메일 첫 호출 안내(응답 note 가 알린다)·출력 필드 나열(응답에 그대로 보인다)·"원본은 주지 않음"(원본은 create_drive_download_link) 문장을 뺐다.
       description:
-        'Reads the content of a drive (드라이브) file or an issue (이슈), wiki page (노트), chat message (메시지) or mail (메일) attachment, by ' +
+        'Reads a drive (드라이브) file or an issue (이슈), wiki page (노트), chat message (메시지) or mail (메일) attachment, by ' +
         'source: drive {driveFileId}; issue {issueKey, attachmentId from get_issue_detail}; wiki image {pageId, attachmentId in a body image ' +
-        'URL .../attachments/{id}/content}; message {channelId, messageId, attachmentId = attachments[].fileId from list_channel_messages or ' +
-        'list_thread_replies}; mail {attachmentId from get_mail}. Documents return a slice of extracted text; pass nextOffset as offset to ' +
-        'continue; truncated:true = extraction capped. Only READY has text: ' +
+        'URL .../attachments/{id}/content}; message {channelId, messageId, attachmentId = attachments[].fileId from list_channel_messages/' +
+        'list_thread_replies}; mail {attachmentId from get_mail}. Text comes in slices (pass nextOffset as offset); ' +
+        'truncated:true = extraction capped. Only READY has text: ' +
         'PENDING = extracting (retry soon), SKIPPED/FAILED = unreadable (relay reason), NONE = never extracted; never guess. JPEG/PNG/GIF/WebP ' +
         `up to ${IMAGE_MAX_BYTES / 1024 / 1024} MB return as images.`,
       inputSchema: readFileInput,

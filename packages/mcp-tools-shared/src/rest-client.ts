@@ -510,6 +510,13 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     async createDriveTextFile(spaceId, folderId, name, content) {
       return (await http.post(`/drive/spaces/${spaceId}/files/text`, { folderId, name, content })).data;
     },
+    // 기존 파일의 새 버전(WP-369 Task 3) — 파일 id 로 가리키므로 공간·폴더·이름을 보내지 않는다.
+    async updateDriveTextFile(driveFileId, content) {
+      return (await http.post(`/drive/files/${driveFileId}/text`, { content })).data;
+    },
+    async createDriveVersionUploadLink(driveFileId) {
+      return (await http.post(`/drive/files/${driveFileId}/upload-link`)).data;
+    },
 
     // ── 첨부·파일 내용 읽기(WP-346) ── 이슈 첨부는 프로젝트 멤버, 드라이브는 스페이스 VIEWER 를 서버가 확인한다.
     async readIssueAttachmentText(issueKey, fileId, range) {

@@ -385,6 +385,18 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(http.post).toHaveBeenLastCalledWith('/drive/spaces/2/files/text', { folderId: null, name: '회의록.md', content: '# 회의록' });
   });
 
+  // WP-369 Task 3: 기존 파일의 새 버전 — 파일 id 경로이고, 텍스트는 {content} 만(mimeType 은 서버가 이름으로), 링크는 본문 없음.
+  it('WP-369 기존 파일 새 버전: 텍스트 갱신·파일에 묶인 업로드 링크 경로', async () => {
+    const { http, client } = mockHttp();
+    await client.updateDriveTextFile(8, '# 고친 회의록');
+    expect(http.post).toHaveBeenLastCalledWith('/drive/files/8/text', { content: '# 고친 회의록' });
+    await client.updateDriveTextFile(8, '');
+    expect(http.post).toHaveBeenLastCalledWith('/drive/files/8/text', { content: '' });
+    http.post.mockResolvedValueOnce({ data: { url: 'u2' } });
+    expect(await client.createDriveVersionUploadLink(8)).toEqual({ url: 'u2' });
+    expect(http.post).toHaveBeenLastCalledWith('/drive/files/8/upload-link');
+  });
+
   it('WP-147: getMail 은 AI 조회라 항상 markSeen=false 로 부른다(읽음 처리 안 함)', async () => {
     const { http, client } = mockHttp();
     await client.getMail(3);

@@ -40,7 +40,7 @@
 상태 변경: get_issue_detail → update_issue(status)
 댓글 추가: get_issue_detail → add_comment
 unassign: get_issue_detail → (propose?) → unassign_self
-첨부 읽기: get_issue_detail(attachments[].fileId) → read_file(source="issue", issueKey, attachmentId) → (nextOffset 있으면 offset 이어 읽기)
+첨부 읽기: get_issue_detail(attachments[].attachmentId) → read_file(source="issue", issueKey, attachmentId) → (nextOffset 있으면 offset 이어 읽기)
 ```
 
 ### calendar-agent
@@ -60,6 +60,7 @@ unassign: get_issue_detail → (propose?) → unassign_self
 첨부 가져오기(WP-354): 라우터가 get_issue_detail·list_channel_messages 로 첨부 id 확보 → drive-agent 위임 → list_drive_spaces → import_attachment_to_drive
 버전·연결된 곳(WP-354): get_drive_file_summary(includeVersions·includeBacklinks) — 롤백은 미지원
 내용 저장(WP-369): 라우터가 텍스트 전문·파일 이름을 prompt 에 담아 위임 → list_drive_spaces → create_drive_file(spaceId, name, content) — content 없이 부르면 결함(AI Chat 은 업로드 링크 불가, 도구가 오류로 막음)
+텍스트 파일 고치기(WP-369): search_drive/list_drive_items → read_file(source="drive", driveFileId) → create_drive_file(driveFileId, content) — 고친 전문을 저장. spaceId·folderId·name 을 함께 넘기거나(도구가 거절), 같은 이름으로 새 파일을 만들어 우회하거나, 읽지 않고 덮어쓰면 결함
 다운로드(WP-369): search_drive/list_drive_items → create_drive_download_link(driveFileId) → 링크와 "10분·한 번만·전달 금지" 안내. 내용 읽기·요약 요청에 링크를 만들면 결함(read_file·get_drive_file_summary)
 ```
 

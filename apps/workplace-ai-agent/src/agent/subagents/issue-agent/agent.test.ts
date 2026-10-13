@@ -50,7 +50,7 @@ describe('issue-agent 정의', () => {
   });
 
   // WP-346: 첨부는 get_issue_detail 의 attachments[].attachmentId 로 source "issue" 읽기(WP-353: fileId → attachmentId).
-  it('본문이 read_file 를 source "issue" + issueKey + attachmentId 로 안내한다', () => {
+  it('본문이 read_file 을 source "issue" + issueKey + attachmentId 로 안내한다', () => {
     const prompt = loaded['issue-agent'].prompt;
     expect(prompt).toContain('read_file(source="issue", issueKey, attachmentId, offset?, limit?)');
     expect(prompt).toContain('attachments[].attachmentId');

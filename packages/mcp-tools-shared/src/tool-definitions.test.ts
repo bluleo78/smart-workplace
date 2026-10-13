@@ -40,6 +40,10 @@ describe('wireInputSchema — tools/list 로 내보내는 입력 스키마 (WP-3
     for (const [name, k] of [['create_drive_folder', 'parentId'], ['move_drive_item', 'targetFolderId']]) {
       expect(props(name)[k], `${name}.${k}`).toEqual({ type: 'integer' });
     }
+    // WP-369: 파일·폴더 중 하나를 받는 드라이브 도구의 두 id 도 null 을 생략으로 받는다 — 정의는 예전 .optional() 과 같은 모양이다.
+    for (const name of ['restore_drive_item', 'rename_drive_item', 'move_drive_item', 'copy_drive_item']) {
+      for (const k of ['driveFileId', 'folderId']) expect(props(name)[k], `${name}.${k}`).toEqual({ type: 'integer' });
+    }
   });
 
   // null 에 "비우기" 뜻이 있는 입력은 null 갈래가 모델에게 보여야 한다 — 표식 없는 nullable 은 그대로 둔다.
@@ -164,6 +168,14 @@ describe('null 을 생략으로 받는다', () => {
     expect(sdkParse('update_event', { eventId: 1, title: '회의', occurrenceDate: null, startsAt: null, endsAt: null, allDay: null, addAttendees: null, removeAttendees: null }).success).toBe(true);
     expect(sdkParse('move_drive_item', { driveFileId: 3, targetFolderId: null }).success).toBe(true);
     expect(sdkParse('create_drive_folder', { spaceId: 1, parentId: null, name: '자료' }).success).toBe(true);
+  });
+
+  // WP-369: 파일·폴더 중 하나를 받는 드라이브 도구는 쓰지 않는 쪽 id 가 null 로 와도 SDK 검증을 통과해야 한다(예전 .optional() 은 거절했다).
+  it('드라이브 파일·폴더 도구(restore·rename·move·copy)는 쓰지 않는 id 의 null 을 검증에서 받아들인다', () => {
+    expect(sdkParse('restore_drive_item', { driveFileId: null, folderId: 4 }).success).toBe(true);
+    expect(sdkParse('rename_drive_item', { driveFileId: 5, folderId: null, name: 'x' }).success).toBe(true);
+    expect(sdkParse('move_drive_item', { driveFileId: null, folderId: 4, targetFolderId: null }).success).toBe(true);
+    expect(sdkParse('copy_drive_item', { driveFileId: 5, folderId: null }).success).toBe(true);
   });
 
   it('표식 없는 선택 입력의 null 은 지금처럼 거절한다(허용 범위를 넓히지 않았다)', () => {

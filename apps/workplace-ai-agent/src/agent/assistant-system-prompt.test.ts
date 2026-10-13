@@ -18,7 +18,7 @@ describe('ASSISTANT_SYSTEM_PROMPT', () => {
     expect(ASSISTANT_SYSTEM_PROMPT).toContain('{source:"message", channelId, messageId, attachmentId}');
     expect(ASSISTANT_SYSTEM_PROMPT).toContain('{source:"mail", attachmentId}');
     expect(ASSISTANT_SYSTEM_PROMPT).toContain('`read_chat_attachment` 전용이며 `read_file`(이슈 첨부·드라이브 파일)에 넣지 않습니다');
-    // 드라이브 직접 읽기 표에도 read_file 가 있다.
+    // 드라이브 직접 읽기 표에도 read_file 이 있다.
     expect(ASSISTANT_SYSTEM_PROMPT).toMatch(/\| 드라이브 \|[^\n]*read_file/);
   });
 
@@ -100,6 +100,9 @@ describe('drive-agent 라우팅·라벨 (M3)', () => {
   it('쓴 내용 저장·다운로드 링크는 위임하고, 로컬 파일 업로드는 위임 없이 웹 드라이브로 안내한다', () => {
     expect(ASSISTANT_SYSTEM_PROMPT).toMatch(/쓴 내용을 파일로 저장.*파일 다운로드 링크.*\*\*drive-agent\*\*/);
     expect(ASSISTANT_SYSTEM_PROMPT).toMatch(/저장할 텍스트 전문과 파일 이름.*prompt 에 그대로 적어/);
+    // WP-369 Task 3: 드라이브의 기존 텍스트 파일 고치기도 drive-agent 로 위임한다(drive-agent 가 읽고 driveFileId+content 로 새 버전 저장).
+    expect(ASSISTANT_SYSTEM_PROMPT).toMatch(/드라이브 텍스트 파일 고치기.*\*\*drive-agent\*\*/);
+    expect(ASSISTANT_SYSTEM_PROMPT).toMatch(/이미 있는 텍스트 파일을 고치는 요청은 drive-agent 가.*위임합니다/);
     expect(ASSISTANT_SYSTEM_PROMPT).toMatch(/업로드\*\*는 미지원 — 웹 드라이브 화면에서 직접 올리라고/);
     // 전송 도구는 write 라 라우터에 직접 싣지 않는다(drive-agent 에만).
     expect(ASSISTANT_ROUTER_TOOLS).not.toContain('create_drive_download_link');

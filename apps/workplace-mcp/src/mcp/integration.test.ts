@@ -98,6 +98,54 @@ describe('/mcp', { timeout: ROUNDTRIP_TEST_TIMEOUT_MS }, () => {
       expect(scope.isDone()).toBe(true);
     });
 
+    // WP-369: 파일·폴더 중 하나를 받는 도구는 쓰지 않는 id 의 null 을 생략으로 본다 — 예전 .optional() 은 SDK 검증에서 거절했고,
+    // 핸들러가 !== undefined 로 갈랐다면 /drive/files/null 로 갔다.
+    it('move_drive_item 의 driveFileId:null 은 생략으로 보고 folderId 의 폴더 이동 API 로 보낸다', async () => {
+      nock(API).get('/auth/me').reply(200, { id: 1, username: 'u', kind: 'HUMAN' });
+      const scope = nock(API).patch('/drive/folders/4/move', { targetParentId: 9 }).reply(204);
+      const client = await connect('swp_valid');
+      const res = await client.callTool({ name: 'move_drive_item', arguments: { driveFileId: null, folderId: 4, targetFolderId: 9 } });
+      expect(res.isError).toBeFalsy();
+      expect(scope.isDone()).toBe(true);
+    });
+
+    // WP-369: create_drive_file 은 모든 입력이 null = 생략이다. content:null 은 업로드 링크 모드로 간다(SDK 검증 경로 고정, Task 2 리뷰 Minor 7).
+    it('create_drive_file 의 content:null 은 업로드 링크를 발급해 uploadUrl·howTo 뷰로 돌려준다', async () => {
+      nock(API).get('/auth/me').reply(200, { id: 1, username: 'u', kind: 'HUMAN' });
+      const url = 'https://w.example/api/v1/public/drive/transfer/ul_abc';
+      const scope = nock(API)
+        .post('/drive/spaces/2/upload-link', { folderId: null, name: '결과.md' })
+        .reply(201, { url, method: 'PUT', expiresAt: '2026-10-13T06:10:00Z', maxBytes: 10485760, name: '결과.md', singleUse: true });
+      const client = await connect('swp_valid');
+      const res = await client.callTool({
+        name: 'create_drive_file',
+        arguments: { spaceId: 2, name: '결과.md', folderId: null, content: null, driveFileId: null },
+      });
+      expect(res.isError).toBeFalsy();
+      expect(scope.isDone()).toBe(true);
+      const body = JSON.parse((res.content as { text: string }[])[0].text);
+      expect(body).toMatchObject({ uploadUrl: url, method: 'PUT', maxBytes: 10485760, howTo: `curl -T <local file> "${url}"` });
+      expect(body).not.toHaveProperty('url');
+    });
+
+    // WP-369 Task 3: driveFileId+content 는 그 파일의 새 버전(POST /drive/files/{id}/text, 본문은 content 만) — 새 파일 경로는 부르지 않는다.
+    it('create_drive_file 의 driveFileId+content 는 기존 파일에 텍스트 새 버전을 올린다(spaceId·name null 은 생략)', async () => {
+      nock(API).get('/auth/me').reply(200, { id: 1, username: 'u', kind: 'HUMAN' });
+      const scope = nock(API)
+        .post('/drive/files/8/text', { content: '# 고친 회의록' })
+        .reply(200, { id: 8, folderId: 3, fileId: 902, name: '회의록.md', mimeType: 'text/markdown', sizeBytes: 19, versionCount: 2 });
+      const client = await connect('swp_valid');
+      const res = await client.callTool({
+        name: 'create_drive_file',
+        arguments: { driveFileId: 8, content: '# 고친 회의록', spaceId: null, name: null },
+      });
+      expect(res.isError).toBeFalsy();
+      expect(scope.isDone()).toBe(true);
+      const body = JSON.parse((res.content as { text: string }[])[0].text);
+      expect(body).toMatchObject({ driveFileId: 8, name: '회의록.md', versionCount: 2 });
+      expect(body).not.toHaveProperty('fileId');
+    });
+
     it('update_event 의 "유지" 입력(title·시각·참석자)이 null 이면 현재 값을 유지한다', async () => {
       nock(API).get('/auth/me').reply(200, { id: 1, username: 'u', kind: 'HUMAN' });
       const current = {
@@ -162,7 +210,7 @@ describe('/mcp', { timeout: ROUNDTRIP_TEST_TIMEOUT_MS }, () => {
     }
   });
 
-  // WP-346: 실제 axios(arraybuffer)·MCP 왕복으로 read_file 를 확인한다 — 텍스트는 JSON, 이미지는 image 블록, source 별 필수 필드 누락은 isError.
+  // WP-346: 실제 axios(arraybuffer)·MCP 왕복으로 read_file 을 확인한다 — 텍스트는 JSON, 이미지는 image 블록, source 별 필수 필드 누락은 isError.
   describe('read_file', () => {
     it('드라이브 문서는 추출 텍스트 구간을 JSON 으로(core fileId 대신 driveFileId)', async () => {
       nock(API).get('/auth/me').reply(200, { id: 1, username: 'u', kind: 'HUMAN' });

@@ -15,7 +15,7 @@ import {
   type SharedToolClient,
 } from '@smart-workplace/mcp-tools-shared';
 
-// WP-244: 첨부 추출 상태·구간 읽기 응답(WP-242 서버 계약 그대로). 구간 응답 타입은 공유 read_file 와 같은 정의를 쓴다(WP-346).
+// WP-244: 첨부 추출 상태·구간 읽기 응답(WP-242 서버 계약 그대로). 구간 응답 타입은 공유 read_file 과 같은 정의를 쓴다(WP-346).
 export type { ExtractedTextSlice, ExtractionStatus };
 export interface ExtractionInfo {
   status: ExtractionStatus;

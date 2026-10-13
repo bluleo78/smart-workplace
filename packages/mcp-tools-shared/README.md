@@ -12,7 +12,7 @@ workplace-mcp(사용자 PAT 원격 MCP)와 workplace-ai-agent(AI 비서 인-프�
 | `tool-client.ts` | 도메인별 구조적 클라이언트 인터페이스. 클라이언트는 raw 를 그대로 반환한다 |
 | `rest-client.ts` | `createSharedToolClient(http)` — 위 인터페이스를 REST 경로로 구현한다. 각 앱은 인증 헤더가 붙은 axios 인스턴스만 넘긴다 |
 | `*-tools.ts` | 도메인별 도구 정의(이슈·프로젝트·노트·캘린더·메일·구성원/연락처·메시징·드라이브·알림·첨부(`attachment-tools.ts`)) |
-| `attachment-read.ts` | 첨부·파일 내용 읽기의 공통 계약 — 구간 범위(`readRangeShape`)·기본 길이·이미지 형식/크기 판정. 공유 `read_file` 와 ai-agent 전용 채팅 첨부 읽기 도구가 같이 쓴다 |
+| `attachment-read.ts` | 첨부·파일 내용 읽기의 공통 계약 — 구간 범위(`readRangeShape`)·기본 길이·이미지 형식/크기 판정. 공유 `read_file` 과 ai-agent 전용 채팅 첨부 읽기 도구가 같이 쓴다 |
 | `shared-tools.ts` | `buildSharedTools(client, opts)` — 공유 도구 전체 |
 | `tool-apps.ts` | `TOOL_APPS`·`ToolApp`·`toolApps()` — 도구를 앱으로 묶는 분류(WP-350, 아래 "앱 분류")와 서버 `instructions` 에 쓰는 앱별 안내(`TOOL_APP_GUIDES`) |
 | `tool-naming.ts` | `toolNameViolations(name)` — 도구 이름 규칙 검사(아래 "도구 명명 규칙"). 두 앱의 테스트가 쓴다 |
@@ -115,7 +115,7 @@ workplace-mcp 는 이 태그로 `/mcp/x/{apps}`·`X-MCP-Toolsets` 연결을 걸�
 | 롤백 | 도구로 두지 않는다 | 새 버전을 만드는 변경이라 확인 카드 대상이다(AI Chat 에서도 미지원 안내) |
 | 폴더 경로 | 두지 않는다 | `/folders/{id}/path` 는 폴더 하나의 breadcrumb 이다. 목록·검색 응답에 넣으면 행마다 요청이 필요하고(검색은 최대 400행), 목록은 모델이 이미 그 폴더 id 를 알고 있다. 휴지통은 서버가 `originalPath` 를 준다 |
 
-이슈 첨부와 채팅 첨부 두 갈래 중 한쪽 출처만 있어도 쓸 수 있어, `import_attachment_to_drive` 설명이 가리키는 `get_issue_detail`·`list_channel_messages` 는 `tool-apps.test.ts` 의 `CROSS_REF_ALLOWED` 에 이유와 함께 올렸다(`read_file` 와 같은 구조). 도구는 drive 에만 태그했다.
+이슈 첨부와 채팅 첨부 두 갈래 중 한쪽 출처만 있어도 쓸 수 있어, `import_attachment_to_drive` 설명이 가리키는 `get_issue_detail`·`list_channel_messages` 는 `tool-apps.test.ts` 의 `CROSS_REF_ALLOWED` 에 이유와 함께 올렸다(`read_file` 과 같은 구조). 도구는 drive 에만 태그했다.
 
 ### 메시징 보강 (WP-355)
 
@@ -202,7 +202,7 @@ AI Chat 에는 라벨·마일스톤·사이클 생성·수정 확인 카드가 �
 - **메일 첫 호출은 `PENDING`**: 서버가 첫 `/text` 요청에서 바이트를 가져와(IMAP·Graph, 첨부 캐시) 추출용 사본을 만들고 추출을 시작한다. 도구는 `PENDING` 응답에 "잠시 뒤 같은 인자로 다시 호출" 안내(`note`)를 붙인다. 사본의 file 행은 생성 후 고정 7일(`workplace.storage.mail.extract-ttl-days`, 읽어도 늘지 않는다)이고, 평문 사본 바이너리는 추출이 확정되는 즉시 지운다(추출 텍스트는 file 행에 남아 계속 읽힌다). 원본 메일이 사라지면 사본은 곧 만료된다.
 - **이미지**: 이슈·드라이브와 같은 규칙(JPEG·PNG·GIF·WebP, 3.75MB 이하만 이미지 블록, 그 밖에는 사유). `/text` 가 `SKIPPED·IMAGE` 를 주면 `/content` 로 원본을 받는다(권한이 `/text` 와 같다). 노트·메시지·메일에는 첨부 목록이나 크기 메타가 없어 크기는 다운로드 상한(`maxContentLength`)으로, 형식은 응답 Content-Type 으로 판단한다. **노트 업로드는 이미지만 받으므로 `wiki` 갈래는 사실상 이미지 읽기**다. 새 첨부는 `SKIPPED·IMAGE`, 배포 전에 올린 첨부는 추출 행이 없어(노트는 백필하지 않는다) `NONE` 인데, `wiki` 갈래는 `NONE` 도 `/content` 로 받아 이미지로 돌려준다(이미지가 아니면 Content-Type 검사가 형식 사유로 막는다). 메시지·메일의 `NONE` 은 상태만 돌려준다.
 - **크기**: 정의 14,942 → 14,989 토큰(상한 15,000). `read_file` 설명에 source 별 id 출처를 더하면서 그 설명과 `list_channels` 설명(`discover_channels` 접기)을 압축해 맞췄다. `tool-apps.test.ts` 의 `CROSS_REF_ALLOWED` 는 `read_file` 분을 source 갈래별 출처 도구 표에서 만든다.
-- **messaging 15개 유지**: `read_file` 가 messaging 앱에 들어와 `discover_channels` 를 `list_channels` 의 `q` 로 접었다(WP-355 표 참조). 앱별 개수는 issue 13·wiki 10·mail 10·messaging 15·drive 15.
+- **messaging 15개 유지**: `read_file` 이 messaging 앱에 들어와 `discover_channels` 를 `list_channels` 의 `q` 로 접었다(WP-355 표 참조). 앱별 개수는 issue 13·wiki 10·mail 10·messaging 15·drive 15.
 - 메일 요약·답장 초안(`get_mail_summary`·`draft_mail_reply`)은 서버가 본문(개인 요약·회신 필요 분석은 첨부 이름까지)만 보고 만든다 — 첨부 내용은 쓰지 않는다. 첨부를 반영하려면 에이전트가 먼저 `read_file` 로 읽어 본문에 옮긴다(mail-agent `agent.md` 에 안내).
 
 ### 드라이브 전송·도구 이름 정리 (WP-369)
@@ -211,13 +211,13 @@ AI Chat 에는 라벨·마일스톤·사이클 생성·수정 확인 카드가 �
 
 | 도구 | 하는 일 | 서버 |
 |---|---|---|
-| `create_drive_download_link` | `{driveFileId}` → `{url, expiresAt, name, sizeBytes, mimeType, singleUse}`. 10분, 로그인 없이 **한 번만** 받는다(공개 GET 이 전송 전에 소비하고 Range 를 무시 — 끊기면 새 링크). 셸은 `curl -o <name> "<url>"` | `POST /drive/files/{id}/download-link`(VIEWER) |
-| `create_drive_file` | `{spaceId, folderId?, name, content?}`. `content` 가 있으면(빈 문자열 포함) 텍스트 파일을 만들어 파일 뷰(`driveFileId`)를, 없으면 일회용 업로드 링크를 `{uploadUrl, method:"PUT", expiresAt, maxBytes, name, singleUse, howTo, note}` 로 준다(`howTo` 는 `curl -T <local file> "<uploadUrl>"`). 같은 이름이면 둘 다 새 버전 | `POST /drive/spaces/{id}/files/text`(EDITOR, md·txt·csv·json 외는 text/plain, 10MB) · `POST /drive/spaces/{id}/upload-link`(EDITOR) |
+| `create_drive_download_link` | `{driveFileId}` → `{url, expiresAt, name, sizeBytes, mimeType, singleUse}`(`toDriveDownloadLinkView` 가 이 여섯 필드만 고른다 — 로그인 없이 밖으로 나가는 링크라 서버에 새 필드가 생겨도 새지 않게 허용 목록). 10분, 로그인 없이 **한 번만** 받는다(공개 GET 이 전송 전에 소비하고 Range 를 무시 — 끊기면 새 링크). 셸은 `curl -o "<name>" "<url>"`(이름에 공백이 있을 수 있어 따옴표) | `POST /drive/files/{id}/download-link`(VIEWER) |
+| `create_drive_file` | 대상은 둘 중 하나 — **새 파일** `{spaceId, folderId?, name}`(같은 이름이면 새 버전) 또는 **기존 파일의 새 버전** `{driveFileId}`(이름·폴더 그대로, 이때 `spaceId`·`folderId`·`name` 은 주면 거절). 모든 입력은 null = 생략. `content` 가 있으면(빈 문자열 포함) 텍스트로 써서 파일 뷰(`driveFileId`)를, 없으면 일회용 업로드 링크를 `{uploadUrl, method:"PUT", expiresAt, maxBytes, name, singleUse, howTo, note}` 로 준다(`howTo` 는 `curl -T <local file> "<uploadUrl>"`). 파일에 묶인 링크의 `note` 는 "이 파일의 새 버전·같은 종류의 파일·같은 driveFileId 로 재발급" 을 말한다 | 새 파일: `POST /drive/spaces/{id}/files/text`(EDITOR, md·txt·csv·json 외는 text/plain, 10MB) · `POST /drive/spaces/{id}/upload-link`(EDITOR). 기존 파일: `POST /drive/files/{id}/text`(EDITOR, 200, 본문 `{content}` — 현재 버전이 텍스트가 아니면 409) · `POST /drive/files/{id}/upload-link`(EDITOR, 본문 없음) |
 
-- **이름 정리**: 드라이브가 앱당 15개 상한에 닿아 있어 두 자리를 만들었다 — `rename_drive_file`+`rename_drive_folder` → `rename_drive_item`, `move_drive_file`+`move_drive_folder` → `move_drive_item`. `restore_drive_item`·`copy_drive_item` 과 같이 `driveFileId`·`folderId` 중 정확히 하나를 받고, 이동 대상은 파일·폴더 모두 `targetFolderId`(생략·null 은 루트 — 폴더 이동 API 의 `targetParentId` 로 핸들러가 옮긴다). hints 는 그대로 덮어씀·멱등. 첨부 읽기는 드라이브 파일까지 읽으므로 `read_attachment` → `read_file`(화면 이름 "파일 읽기"). 다섯 이름은 외부 배포 전이라 깨지는 외부 사용자는 없고, 웹 AI Chat 기록용으로 `LEGACY_TOOL_LABELS` 에 옛 이름을 뒀다.
+- **이름 정리**: 드라이브가 앱당 15개 상한에 닿아 있어 두 자리를 만들었다 — `rename_drive_file`+`rename_drive_folder` → `rename_drive_item`, `move_drive_file`+`move_drive_folder` → `move_drive_item`. `restore_drive_item`·`copy_drive_item` 과 같이 `driveFileId`·`folderId` 중 정확히 하나를 받고(네 도구 모두 두 id 가 `nullAsOmitted` — 쓰지 않는 쪽이 null 로 와도 생략으로 보고, 핸들러도 `!= null` 로 가른다), 이동 대상은 파일·폴더 모두 `targetFolderId`(생략·null 은 루트 — 폴더 이동 API 의 `targetParentId` 로 핸들러가 옮긴다). hints 는 그대로 덮어씀·멱등. 첨부 읽기는 드라이브 파일까지 읽으므로 `read_attachment` → `read_file`(화면 이름 "파일 읽기"). 다섯 이름은 외부 배포 전이라 깨지는 외부 사용자는 없고, 웹 AI Chat 기록용으로 `LEGACY_TOOL_LABELS` 에 옛 이름을 뒀다.
 - **업로드 링크 사용법**(설명·응답 note 에 적음): `curl -T <file> "<uploadUrl>"` 그대로 원시 바이트로 PUT 한다. `--data-binary`·폼은 415 이고, `-H Content-Type` 을 주면 서버가 그 MIME 으로 범주 상한을 다시 정해 `maxBytes` 와 달라질 수 있어 주지 않는다. 링크는 한 번 쓰면 끝이라 전송이 시작된 뒤 실패하면 새 링크가 필요하다. 채팅 클라이언트(Claude.ai 등)는 사용자가 대화에 첨부한 파일을 링크로 보낼 수 없으니 웹 드라이브에서 올리라고 안내한다.
-- **AI Chat**: 웹 사용자에게는 셸이 없어 drive-agent 는 `create_drive_file` 의 content 모드만 쓴다(ai-agent 가 공유본을 펼쳐 content 없는 호출을 API 없이 오류로 막는다, 스키마는 공유본 그대로). 다운로드 요청에는 링크를 10분·한 번·전달 금지 안내와 함께 보여 준다(웹 채팅의 링크는 새 탭으로 열려 바로 내려받는다). 두 도구 모두 write 라 라우터(`ASSISTANT_ROUTER_TOOLS`)가 아니라 drive-agent 에만 둔다.
-- **크기**: 정의 14,989 → 이름 정리 뒤 14,805 → 새 도구 뒤 14,997 토큰(상한 15,000). 새 두 도구(약 354)를 넣으려고 `read_file`(450 → 380, 드라이브 id 출처·기본 길이·출력 필드 나열·"원본은 주지 않음" 삭제)과 드라이브 설명(`get_drive_file_summary`·`copy_drive_item`·`import_attachment_to_drive`·`list_drive_trash` 등)을 압축했다. 실패·재시도 절차처럼 설명에 다 못 쓴 것은 응답의 `note`·`howTo` 로 알린다. 앱별 개수는 issue 13·project 8·wiki 10·drive 15·mail 10·messaging 15·calendar 6·contacts 14·notify 4·member 3.
+- **AI Chat**: 웹 사용자에게는 셸이 없어 drive-agent 는 `create_drive_file` 의 content 모드만 쓴다(ai-agent 가 공유본을 펼쳐 content 없는 호출을 — 새 파일이든 `driveFileId` 든 — API 없이 오류로 막는다, 스키마는 공유본 그대로이고 설명은 링크 안내를 뺀 한국어 판). 드라이브의 텍스트 파일을 고칠 때는 `read_file` 로 읽고 `driveFileId`+`content` 로 새 버전을 저장한다. 다운로드 요청에는 링크를 10분·한 번·전달 금지 안내와 함께 보여 준다(웹 채팅의 링크는 새 탭으로 열려 바로 내려받는다). 두 도구 모두 write 라 라우터(`ASSISTANT_ROUTER_TOOLS`)가 아니라 drive-agent 에만 둔다.
+- **크기**: 정의 14,989 → 이름 정리 뒤 14,805 → 새 도구 뒤 14,997 토큰(상한 15,000). 리뷰 수정 라운드(기존 파일 새 버전 `driveFileId` 모드, 따옴표 친 `curl -o`, 요약 상태 구분 되살림)는 +43 이었고, `read_file`(380 → 365)·`list_drive_items`·`list_drive_trash`·`search_drive_content`·`restore_drive_item`·`copy_drive_item` 설명을 줄여 다시 14,997 에 맞췄다(XOR 네 도구의 null 수용은 직렬화가 null 갈래를 접어 0). 새 두 도구(약 354)를 넣으려고 `read_file`(450 → 380, 드라이브 id 출처·기본 길이·출력 필드 나열·"원본은 주지 않음" 삭제)과 드라이브 설명(`get_drive_file_summary`·`copy_drive_item`·`import_attachment_to_drive`·`list_drive_trash` 등)을 압축했다. 실패·재시도 절차처럼 설명에 다 못 쓴 것은 응답의 `note`·`howTo` 로 알린다. 앱별 개수는 issue 13·project 8·wiki 10·drive 15·mail 10·messaging 15·calendar 6·contacts 14·notify 4·member 3.
 
 ### 응답 크기 — 정리 뷰
 

@@ -350,22 +350,32 @@ describe('드라이브', () => {
   });
 
   // WP-369: 전송 링크·텍스트로 만들기 응답 — 서버 계약 그대로의 목(DriveDownloadLink·DriveUploadLink·DriveFileResponse).
-  it('create_drive_download_link·create_drive_file(내용·링크): 링크·파일 행에 사용자 ID·core fileId 가 없다', async () => {
+  // 다운로드 링크 목에는 서버에 나중에 생길 수 있는 발급자 id(createdById)를 일부러 얹었다 — 뷰가 허용 목록으로 고르지 않으면 이 검사가 잡는다.
+  // driveFileId 모드(Task 3: 기존 파일의 새 버전 — 텍스트 갱신·파일에 묶인 업로드 링크)도 같은 뷰를 거친다.
+  it('create_drive_download_link·create_drive_file(내용·링크·기존 파일): 링크·파일 행에 사용자 ID·core fileId 가 없다', async () => {
     const fileRow = { id: 5, folderId: null, fileId: 812, name: '회의록.md', mimeType: 'text/markdown', sizeBytes: 9, category: 'TEXT', createdAt: 't', updatedAt: 't', versionCount: 1, available: true };
+    const uploadLink = { url: 'https://w.example/api/v1/public/drive/transfer/ul_x', method: 'PUT', expiresAt: 't', maxBytes: 10485760, name: '결과.md', singleUse: true };
     const client = {
-      createDriveDownloadLink: vi.fn().mockResolvedValue({ url: 'https://w.example/api/v1/public/drive/transfer/dl_x', expiresAt: 't', name: 'a.pdf', sizeBytes: 5, mimeType: 'application/pdf', singleUse: true }),
-      createDriveUploadLink: vi.fn().mockResolvedValue({ url: 'https://w.example/api/v1/public/drive/transfer/ul_x', method: 'PUT', expiresAt: 't', maxBytes: 10485760, name: '결과.md', singleUse: true }),
+      createDriveDownloadLink: vi.fn().mockResolvedValue({ url: 'https://w.example/api/v1/public/drive/transfer/dl_x', expiresAt: 't', name: 'a.pdf', sizeBytes: 5, mimeType: 'application/pdf', singleUse: true, createdById: 9 }),
+      createDriveUploadLink: vi.fn().mockResolvedValue(uploadLink),
       createDriveTextFile: vi.fn().mockResolvedValue(fileRow),
+      updateDriveTextFile: vi.fn().mockResolvedValue({ ...fileRow, fileId: 813, versionCount: 2 }),
+      createDriveVersionUploadLink: vi.fn().mockResolvedValue(uploadLink),
     };
     const tools = buildDriveTools(client as never) as never;
     const outs = [
       out(await find(tools, 'create_drive_download_link').handler({ driveFileId: 5 })),
       out(await find(tools, 'create_drive_file').handler({ spaceId: 2, name: '결과.md' })),
       out(await find(tools, 'create_drive_file').handler({ spaceId: 2, name: '회의록.md', content: '# 회의록' })),
+      out(await find(tools, 'create_drive_file').handler({ driveFileId: 5, content: '# 고친 회의록' })),
+      out(await find(tools, 'create_drive_file').handler({ driveFileId: 5 })),
     ];
     for (const body of outs) expect(userIdLeaks(body)).toEqual([]);
-    expect(outs[2]).toMatchObject({ driveFileId: 5 });
-    expect(outs[2]).not.toHaveProperty('fileId');
+    expect(outs[0]).toEqual({ url: 'https://w.example/api/v1/public/drive/transfer/dl_x', expiresAt: 't', name: 'a.pdf', sizeBytes: 5, mimeType: 'application/pdf', singleUse: true });
+    for (const body of [outs[2], outs[3]]) {
+      expect(body).toMatchObject({ driveFileId: 5 });
+      expect(body).not.toHaveProperty('fileId');
+    }
   });
 });
 

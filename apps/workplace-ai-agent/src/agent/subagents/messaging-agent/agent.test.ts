@@ -88,7 +88,7 @@ describe('messaging-agent 정의', () => {
   });
 
   // WP-358: 메시지 첨부는 read_file(source="message") — id 의 출처를 읽기 도구 출력으로 안내하고 비-READY 상태 추측을 금한다.
-  it('read_file 를 source "message" + channelId·messageId·attachmentId 로 안내하고 비-READY 상태 추측을 금한다 (WP-358)', () => {
+  it('read_file 을 source "message" + channelId·messageId·attachmentId 로 안내하고 비-READY 상태 추측을 금한다 (WP-358)', () => {
     const prompt = loaded['messaging-agent'].prompt;
     expect(prompt).toContain('read_file(source="message", channelId, messageId, attachmentId, offset?, limit?)');
     expect(prompt).toContain('`attachments[].fileId`');

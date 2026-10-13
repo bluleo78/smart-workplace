@@ -255,7 +255,7 @@
 
 - **경로마다 도구 하나**: 같은 작업에 확인 카드(`propose_create_event`)와 직접 실행(`create_event`)이 함께 실리면 모델이 헷갈린다. AI Chat 은 확인 카드를 유지하고, 직접 실행 도구는 외부 MCP 전용으로 두어 assistant·subagent 에 싣지 않는다.
 - **검증 로직 공유**: `propose_create_event` 의 참석자 해석(`resolveAttendees`)·시간대 보정(`normalizeTimezone`)·충돌 계산이 `tools.ts` 안에 있다. 외부 MCP 쓰기 도구가 같은 검증을 하려면 공유 패키지(또는 서버)로 옮긴다.
-- **첨부 읽기 정리**: AI Chat 에는 이슈 챗 `read_attachment_text`, 홈 `read_chat_attachment`, 원본 사전 다운로드가 따로 있다. `read_file` 와 이름·입력을 맞추고 세션·스레드 바인딩이 꼭 필요한 것만 전용으로 남긴다. opencode 비전 미지원 모델의 이미지 대체(`replaceImagesWithNotice`)가 공유 도구에도 적용되는지 확인한다.
+- **첨부 읽기 정리**: AI Chat 에는 이슈 챗 `read_attachment_text`, 홈 `read_chat_attachment`, 원본 사전 다운로드가 따로 있다. `read_file` 과 이름·입력을 맞추고 세션·스레드 바인딩이 꼭 필요한 것만 전용으로 남긴다. opencode 비전 미지원 모델의 이미지 대체(`replaceImagesWithNotice`)가 공유 도구에도 적용되는지 확인한다.
 - **subagent 는 도구를 나열한다**: 공유 도구를 추가해도 `agent.md` 의 tools 목록과 라우터 프롬프트에 넣지 않으면 AI Chat 은 못 쓴다. 이슈마다 `agent.md`·프롬프트·라벨(`tool-labels.ts`, 웹 `aiToolLabels`)·`tools.test.ts`·회귀 점검(ai-driven-agent-inspector)을 함께 처리한다.
 - **응답 형식 변경**: 필드 이름 통일·페이지 정보 추가는 subagent 식별자 규칙과 이어 조회 안내에 반영한다.
 - **annotation**: ai-agent 는 annotation 을 보내지 않는다. 외부 MCP 와 같은 hint 를 실을지 함께 정한다.

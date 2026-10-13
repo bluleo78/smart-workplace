@@ -73,7 +73,7 @@ const CROSS_REF_ALLOWED: Record<string, string> = {
   // 구성원 연락처 vs 외부 연락처 — 서로 "이쪽이 아니라 저쪽" 이라는 대비 언급(식별자 혼동 방지).
   'get_member_contact@member -> get_external_contact': '구성원용이 아니라 외부 연락처용이라는 대비 언급',
   'get_external_contact@contacts -> get_member_contact': '외부 연락처용이 아니라 구성원용이라는 대비 언급',
-  // 첨부 가져오기는 이슈 첨부·채팅 첨부 두 출처 — 어느 쪽 id 든 가져올 수 있고, 출처 도구는 각 갈래의 안내일 뿐이다(read_file 와 같은 구조).
+  // 첨부 가져오기는 이슈 첨부·채팅 첨부 두 출처 — 어느 쪽 id 든 가져올 수 있고, 출처 도구는 각 갈래의 안내일 뿐이다(read_file 과 같은 구조).
   'import_attachment_to_drive@drive -> get_issue_detail': '이슈 첨부 갈래의 id 출처(채팅 첨부 갈래에는 불필요)',
   'import_attachment_to_drive@drive -> list_channel_messages': '채팅 첨부 갈래의 id 출처(이슈 첨부 갈래에는 불필요)',
   // 첨부 읽기는 source 다섯 갈래(WP-358) — 각 갈래의 id 출처를 모두 적었을 뿐, 한 앱만 골라도 자기 갈래는 닫힌다. 도구가 속한 앱마다 다른 갈래의 출처를 나열한다.

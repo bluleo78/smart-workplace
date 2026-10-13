@@ -2,8 +2,8 @@
 // 세션은 인자로 받지 않고 실행 단위로 고정(homeSessionId)한다: 모델이 다른 세션 id 를 넣어 남의 대화 첨부를 읽는
 // 경로 자체를 없애기 위해서다(서버도 소유자·세션 연결을 확인하지만 이중 방어). 매 호출 세션 목록을 먼저 받아
 // MIME·크기·추출 상태를 확인한다 — stdio(opencode) 프로세스는 프롬프트의 첨부 목록을 볼 수 없기 때문이다.
-// 문서는 추출 텍스트 구간(WP-242 계약, 공유 read_file 와 같은 표현), 이미지는 MCP image 블록(WP-240)으로 돌려준다.
-// 범위·기본 길이·이미지 형식/크기 기준은 공유 read_file 와 같은 정의를 쓴다(WP-346, attachment-read.ts).
+// 문서는 추출 텍스트 구간(WP-242 계약, 공유 read_file 과 같은 표현), 이미지는 MCP image 블록(WP-240)으로 돌려준다.
+// 범위·기본 길이·이미지 형식/크기 기준은 공유 read_file 과 같은 정의를 쓴다(WP-346, attachment-read.ts).
 // 세션 첨부는 이슈·드라이브 파일이 아니라 세션에 묶인 파일이라 공유 도구로 읽을 수 없다 — 그래서 이 도구만 ai-agent 전용으로 남는다.
 // opencode 비전 미지원 모델이면 stdio-entry 가 이미지 블록을 안내 문구로 바꾼다(WP-241).
 import {
@@ -73,7 +73,7 @@ export function buildReadChatAttachmentTool(
         }
         const { data } = await client.downloadHomeAttachment(onBehalfOfId, homeSessionId, a.fileId);
         // mimeType 은 목록 값 — 응답 Content-Type 은 파라미터(charset 등)가 붙을 수 있어 모델 입력 형식으로 부적합.
-        // 목록 값에도 파라미터·대문자가 섞일 수 있어 공유 read_file 와 같이 baseMimeType 으로 다듬는다.
+        // 목록 값에도 파라미터·대문자가 섞일 수 있어 공유 read_file 과 같이 baseMimeType 으로 다듬는다.
         const mimeType = baseMimeType(a.mimeType);
         return [
           { type: 'text', text: `첨부 이미지 ${JSON.stringify(a.originalName)} (${mimeType}, ${a.sizeBytes}B, fileId ${a.fileId})` },

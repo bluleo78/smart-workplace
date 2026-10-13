@@ -60,7 +60,7 @@ describe('wiki-agent 정의', () => {
   });
 
   // WP-358: 노트 첨부는 지금 이미지뿐이라 read_file(source="wiki")가 이미지를 돌려준다. id 는 본문의 이미지 주소에서 얻는다.
-  it('read_file 를 source "wiki" + pageId·attachmentId(본문 이미지 주소)로 안내하고 추측을 금한다 (WP-358)', () => {
+  it('read_file 을 source "wiki" + pageId·attachmentId(본문 이미지 주소)로 안내하고 추측을 금한다 (WP-358)', () => {
     const prompt = loaded['wiki-agent'].prompt;
     expect(prompt).toContain('read_file(source="wiki", pageId, attachmentId)');
     expect(prompt).toContain('/api/v1/wiki/pages/{pageId}/attachments/{attachmentId}/content');
