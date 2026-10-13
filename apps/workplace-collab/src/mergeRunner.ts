@@ -73,10 +73,29 @@ export interface MergeRunner {
   destroy(): Promise<void>
 }
 
-/** 실행기 옵션 — spawnWorker 는 워커를 띄우는 방법(기본 = mergeWorker, execArgv = 소스 실행이면 tsx 로더). */
+/**
+ * 실행기가 기한을 재는 시계 — 지금 시각과 타이머. 운영은 실제 시계(realClock)다.
+ * 왜 바꿔 끼우나: 기한은 대기열에 넣은 순간부터 재므로 워커 기동 시간도 들어간다. 테스트가 실제 시계로 기한을 재면 기계 부하(워커 기동이
+ * 수 초로 늘어남)에 따라 결과가 달라진다 — 테스트는 손으로 돌리는 시계(testing/manualClock)로 "기한이 왔다"를 사건으로 만든다.
+ */
+export interface RunnerClock {
+  now(): number
+  setTimeout(fn: () => void, ms: number): unknown
+  clearTimeout(handle: unknown): void
+}
+
+/** 실제 시계(Date.now·setTimeout). */
+const realClock: RunnerClock = {
+  now: () => Date.now(),
+  setTimeout: (fn, ms) => setTimeout(fn, ms),
+  clearTimeout: (handle) => clearTimeout(handle as NodeJS.Timeout | undefined),
+}
+
+/** 실행기 옵션 — spawnWorker 는 워커를 띄우는 방법(기본 = mergeWorker, execArgv = 소스 실행이면 tsx 로더), clock 은 기한 시계(기본 실제). */
 export interface MergeRunnerOptions {
   timeoutMs?: number
   spawnWorker?: (execArgv: string[] | undefined) => Worker
+  clock?: RunnerClock
 }
 
 /** 소스 실행(vitest·tsx)인가 — 그러면 워커 진입점도 .ts 소스이고 tsx 로더가 필요하다. */
@@ -96,7 +115,7 @@ interface Pending {
   resolve: (v: WorkerValue) => void
   reject: (e: Error) => void
   /** 대기열에 있는 동안 기한이 오면 빼고 시간 초과로 끝내는 타이머(보낼 때 해제). */
-  queueTimer?: NodeJS.Timeout
+  queueTimer?: unknown
 }
 
 /**
@@ -108,10 +127,11 @@ interface Pending {
  */
 export function createMergeRunner(opts: MergeRunnerOptions = {}): MergeRunner {
   const timeoutMs = opts.timeoutMs ?? MERGE_TIMEOUT_MS
+  const clock = opts.clock ?? realClock
   const workerUrl = new URL(fromSource ? './mergeWorker.ts' : './mergeWorker.js', import.meta.url)
   const queue: Pending[] = []
   let worker: Worker | null = null
-  let running: { p: Pending; timer: NodeJS.Timeout } | null = null
+  let running: { p: Pending; timer: unknown } | null = null
   let nextId = 1
   let destroyed = false
 
@@ -119,7 +139,7 @@ export function createMergeRunner(opts: MergeRunnerOptions = {}): MergeRunner {
   function finish(outcome: { value: WorkerValue } | { error: Error }): void {
     if (!running) return
     const { p, timer } = running
-    clearTimeout(timer)
+    clock.clearTimeout(timer)
     running = null
     if ('value' in outcome) p.resolve(outcome.value)
     else p.reject(outcome.error)
@@ -158,8 +178,8 @@ export function createMergeRunner(opts: MergeRunnerOptions = {}): MergeRunner {
   function pump(): void {
     while (!running && !destroyed && queue.length > 0) {
       const p = queue.shift()!
-      clearTimeout(p.queueTimer)
-      const left = p.deadline - Date.now()
+      clock.clearTimeout(p.queueTimer)
+      const left = p.deadline - clock.now()
       if (left <= 0) {
         // 줄 서 있는 동안 기한이 지났다 — 보내지 않는다.
         p.reject(new MergeTimeoutError('merge timed out while queued'))
@@ -167,7 +187,7 @@ export function createMergeRunner(opts: MergeRunnerOptions = {}): MergeRunner {
       }
       worker ??= spawn()
       const w = worker
-      const timer = setTimeout(() => {
+      const timer = clock.setTimeout(() => {
         // 계산 중인 스레드를 강제 종료한다 — 결과는 버려지고 아무것도 적용되지 않는다.
         discard(w)
         finish({ error: new MergeTimeoutError(`merge timed out after ${left}ms`) })
@@ -181,8 +201,8 @@ export function createMergeRunner(opts: MergeRunnerOptions = {}): MergeRunner {
     if (destroyed) return Promise.reject(new MergeFailedError('merge runner destroyed'))
     return new Promise<WorkerValue>((resolve, reject) => {
       const wait = Math.max(1, limit)
-      const p: Pending = { msg, deadline: Date.now() + wait, resolve, reject }
-      p.queueTimer = setTimeout(() => {
+      const p: Pending = { msg, deadline: clock.now() + wait, resolve, reject }
+      p.queueTimer = clock.setTimeout(() => {
         const i = queue.indexOf(p)
         if (i < 0) return
         queue.splice(i, 1)
@@ -204,7 +224,7 @@ export function createMergeRunner(opts: MergeRunnerOptions = {}): MergeRunner {
     async destroy() {
       destroyed = true
       for (const p of queue.splice(0)) {
-        clearTimeout(p.queueTimer)
+        clock.clearTimeout(p.queueTimer)
         p.reject(new MergeFailedError('merge runner destroyed'))
       }
       if (running) finish({ error: new MergeFailedError('merge runner destroyed') })

@@ -21,22 +21,24 @@ describe('keepLive apply on the main thread', () => {
     fromMd.mockClear()
   })
 
-  it('does no markdown serialization or parsing for a 5000-block note', () => {
-    const blocks = Array.from({ length: 5000 }, (_, i) => `문단 ${i}`)
+  // 단언은 호출 수(0)라 크기와 무관하다 — 블록마다 왕복하면 블록 수만큼 불리므로 500 블록으로도 같은 퇴화를 잡는다.
+  // (예전 5000 블록은 준비 단계 — 문서 만들기·워커 쪽 계획 — 만으로 병렬 부하에서 테스트 시간 제한을 넘겼다.)
+  it('does no markdown serialization or parsing for a 500-block note', () => {
+    const blocks = Array.from({ length: 500 }, (_, i) => `문단 ${i}`)
     const doc = new Y.Doc()
     Y.applyUpdate(doc, markdownToYUpdate(blocks.join('\n\n')))
-    const merged = [...blocks.slice(0, 2500), '문단 2500 AI', ...blocks.slice(2501)].join('\n\n')
+    const merged = [...blocks.slice(0, 250), '문단 250 AI', ...blocks.slice(251)].join('\n\n')
     // 워커 쪽 — 블록 직렬화·LCS 는 여기서(메인 스레드 밖) 한다.
     const plan = structuredClone(planKeepLive(yUpdateToRoot(Y.encodeStateAsUpdate(doc)), merged))
     expect(plan.blocks.filter((b) => typeof b !== 'number')).toHaveLength(1)
     toMd.mockClear()
     fromMd.mockClear()
     const started = performance.now()
-    expect(applyKeepLivePlan(doc, plan, 'ai')).toBe(2500)
+    expect(applyKeepLivePlan(doc, plan, 'ai')).toBe(250)
     const ms = performance.now() - started
     expect(toMd).not.toHaveBeenCalled()
     expect(fromMd).not.toHaveBeenCalled()
-    console.info(`[main-thread keepLive apply] 5000 blocks: ${ms.toFixed(0)}ms`)
+    console.info(`[main-thread keepLive apply] 500 blocks: ${ms.toFixed(0)}ms`)
     expect(yDocToMarkdown(doc)).toBe(merged)
   })
 

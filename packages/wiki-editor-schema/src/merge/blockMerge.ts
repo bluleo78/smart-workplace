@@ -1,6 +1,8 @@
 import DiffMatchPatch from 'diff-match-patch'
 import MarkdownIt from 'markdown-it'
 
+import { countWork } from './workMeter'
+
 /**
  * 노트 3-way 블록 병합(WP-289, 스펙 §5.1-3) — 기준본(AI 가 읽은 판)·현재본(실시간 문서)·AI본을 합친다.
  *
@@ -198,6 +200,7 @@ function lcsPairs(a: string[], a0: number, a1: number, b: string[], b0: number, 
   const n = a1 - a0
   const m = b1 - b0
   if (n === 0 || m === 0 || n * m > MAX_LCS_CELLS) return []
+  countWork(n * m) // 표 칸 수(작업량 계량 — workMeter)
   const w = m + 1
   const dp = new Uint32Array((n + 1) * w)
   for (let i = n - 1; i >= 0; i--) {
@@ -233,6 +236,7 @@ export function trimmedLcsPairs(a: string[], b: string[]): Array<[number, number
   const n = a.length - p - s
   const m = b.length - p - s
   if (n > 0 && m > 0 && n * m <= MAX_LCS_CELLS) {
+    countWork(n * m) // 표 칸 수(작업량 계량 — workMeter)
     // dp[i][j] = a[p+i..] 와 b[p+j..] 의 LCS 길이(뒤에서부터).
     const dp = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1))
     for (let i = n - 1; i >= 0; i--) {
@@ -318,6 +322,7 @@ function uniqueAnchors(base: string[], bs: number, be: number, other: string[], 
 function pairSmallGap(P: Profile[], Q: Profile[], bs: number, os: number, match: number[]): void {
   const n = P.length
   const m = Q.length
+  countWork(n * m) // 유사도를 재는 칸 수(작업량 계량 — workMeter)
   const w = m + 1
   // 문턱 미만은 -1, 이상이면 위치 감점을 뺀 가중치(항상 0 이상).
   const sim = new Float64Array(n * m)
@@ -356,6 +361,7 @@ function contentChain(P: Profile[], Q: Profile[], useI: (i: number) => boolean, 
   const postings = new Map<string, number[]>()
   Q.forEach((q, j) => {
     if (!useJ(j)) return
+    countWork(q.grams.size) // 역색인에 넣는 항목 수(작업량 계량 — workMeter)
     for (const g of q.grams.keys()) {
       const list = postings.get(g)
       if (list) list.push(j)
@@ -396,6 +402,8 @@ function contentChain(P: Profile[], Q: Profile[], useI: (i: number) => boolean, 
       }
     }
     for (const j of touched) hits[j] = 0
+    // 이 블록이 한 일 — 2-gram 목록 수 + 훑은 역색인 항목 + 실제 유사도 계산 수(작업량 계량 — workMeter).
+    countWork(lists.length + scanned + top.length)
     for (const j of top) {
       const s = dice(p, Q[j])
       if (s >= MIN_SIMILARITY) {
@@ -406,6 +414,7 @@ function contentChain(P: Profile[], Q: Profile[], useI: (i: number) => boolean, 
       }
     }
   })
+  countWork(pi.length) // 사슬 DP 가 도는 후보 쌍 수(작업량 계량 — workMeter)
   // i 오름차순, 같은 i 안에서는 j 내림차순 — 같은 기준 블록의 두 후보가 한 사슬에 같이 들어가지 못하게.
   const order = pi.map((_, k) => k).sort((a, b) => pi[a] - pi[b] || pj[b] - pj[a])
   const treeVal = new Float64Array(m + 1)
@@ -465,6 +474,8 @@ export function alignBlocks(base: string[], other: string[]): number[] {
   while (stack.length > 0) {
     const [bs, be, os, oe] = stack.pop()!
     if (bs === be || os === oe) continue
+    // 범위마다 양쪽 블록을 한 번 이상 훑는다(같은지·앵커·프로필) — 범위를 되풀이해 훑는 퇴화도 잡히게 센다(작업량 계량 — workMeter).
+    countWork(be - bs + (oe - os))
     if (sameRange(base, bs, be, other, os, oe)) {
       for (let k = 0; k < be - bs; k++) match[bs + k] = os + k
       continue

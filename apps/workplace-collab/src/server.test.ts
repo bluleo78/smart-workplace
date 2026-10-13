@@ -421,7 +421,9 @@ describe('collab server', () => {
 
   describe('when the page is gone (API 404 on store)', () => {
     it('drops the unsaved document once, unloads it, never retries and shuts down without an UNSAVED warning', async () => {
-      const gone = createCollabServer(cfg(0, { shutdownTimeoutMs: 5000 }))
+      // 종료 대기 상한을 아주 길게 — 미저장 문서가 없으니 종료는 이 상한을 기다리지 않아야 한다(기다리면 테스트 시간 제한에 걸린다).
+      // 시계로 "1초 안에 끝남"을 재지 않는다(부하에서 흔들린다).
+      const gone = createCollabServer(cfg(0, { shutdownTimeoutMs: 10 * 60_000 }))
       extraApps.push(gone)
       await gone.listen()
       const a = connect('editor-token', { target: gone })
@@ -439,9 +441,7 @@ describe('collab server', () => {
         // 재시도 간격(50ms)의 몇 배를 기다려도 추가 저장 시도가 없다.
         await new Promise((r) => setTimeout(r, 400))
         expect(api.storeNotFound).toBe(1)
-        const t0 = Date.now()
         await gone.destroy()
-        expect(Date.now() - t0).toBeLessThan(1000)
         const logged = errors.mock.calls.map((c) => c.map(String).join(' ')).join('\n')
         expect(logged).not.toMatch(/UNSAVED/)
         // 한 번만 경고로 남긴다.

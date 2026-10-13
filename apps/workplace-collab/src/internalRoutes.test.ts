@@ -14,12 +14,14 @@ import * as Y from 'yjs'
 import { AiMarkerBoard } from './aiMarkers'
 import type { CollabConfig } from './config'
 import { FRAGMENT, normalizeMarkdown, yDocToMarkdown } from './markdownCodec'
-import { createMergeRunner, type MergeRunner } from './mergeRunner'
+import type { MergeRunner } from './mergeRunner'
 import { apiAuthenticator, createCollabServer, type CollabDeps, type CollabServer } from './server'
 import { ApiClient } from './apiClient'
 import { connectClient, replaceTextAt, typeAt, type TestClient } from './testing/clients'
 import { startFakeApi, type FakeApi } from './testing/fakeApi'
-import { createTestMergeRunner } from './testing/testMergeRunner'
+import { manualClock } from './testing/manualClock'
+import { createTestMergeRunner, type TestMergeRunnerOptions, type TestMergeRunner } from './testing/testMergeRunner'
+import { WORKER_BOOT_LIMIT_MS } from './testing/workerBoot'
 
 // 내부 HTTP — API 의 본문 저장 위임(apply-markdown replace)과 권한 회수(revalidate)를 실제 서버·provider 로 검증한다.
 // 테넌트는 일부러 7 — 기본값으로 우연히 통과하지 않게.
@@ -47,22 +49,23 @@ describe('internal routes', () => {
     storeRetryMaxMs: 200,
   })
 
-  /** 데운 병합 워커에 첫 작업을 보낸다 — 워커 기동(부하 시 700ms+)이 끝날 때까지 기다린다. */
-  const warm = (m: MergeRunner) => m.prepare({ body: 'warm', bases: ['warm'] }, 60_000)
+  /** 데운 병합 워커에 첫 작업을 보낸다 — 워커 기동이 끝날 때까지 기다린다. */
+  const warm = (m: MergeRunner) => m.prepare({ body: 'warm', bases: ['warm'] }, WORKER_BOOT_LIMIT_MS)
   /**
    * 기본 병합 실행기 — 파일 전체가 데운 워커 하나를 함께 쓴다(WP-311). 테스트마다 서버를 새로 띄우면 첫 병합이 워커를 띄우는데,
-   * 그 기동 시간이 짧은 기한(applyDeadlineMs)·표식 대기 같은 시간 창 안에 끼어 부하 때 간헐 실패했다.
-   * 서버 종료가 공용 워커를 닫지 않게 destroy 만 비운 얇은 래퍼를 서버마다 넘긴다.
+   * 그 기동 시간(부하에서 수 초~십수 초)이 테스트 안에 끼어 부하 때 간헐 실패했다.
+   * 운영 처리(handleJob)를 그대로 돌리는 테스트 워커라, 테스트가 sharedHooks 로 작업마다 붙잡기·고장을 건다(새 워커를 띄우지 않고).
+   * 기한은 손으로 돌리는 시계(sharedClock)로 잰다 — 시간 초과를 보는 테스트만 advance 로 기한을 흘리고, 나머지는 워커가 아무리 느려도
+   * 실행기 시간 초과가 없다. 서버 종료가 공용 워커를 닫지 않게 destroy 만 비운 얇은 래퍼를 서버마다 넘긴다.
    */
-  let sharedMerger: MergeRunner
+  let sharedMerger: TestMergeRunner
+  let sharedClock: ReturnType<typeof manualClock>
+  /** 지금 테스트가 공용 실행기에 건 붙잡기·고장(테스트마다 비운다). */
+  let sharedHooks: Pick<TestMergeRunnerOptions, 'testHold' | 'testFault'> = {}
   const sharedMergerView = (): MergeRunner => ({ ...sharedMerger, destroy: async () => {} })
-  /**
-   * 서버를 띄운다 — 실행기를 넘기지 않으면 공용(데운) 실행기, 넘기면 그 실행기를 먼저 데운다.
-   * 작업 순번으로 지연·고장을 거는 실행기는 돌아온 뒤 호출자가 순번을 되돌린다.
-   */
-  const startApp = async (config: CollabConfig, deps: CollabDeps = {}) => {
-    if (deps.merger) await warm(deps.merger)
-    app = createCollabServer(config, { ...deps, merger: deps.merger ?? sharedMergerView() })
+  /** 서버를 띄운다 — 병합 실행기는 늘 공용(데운) 실행기다(느린 병합·고장은 새 워커 대신 sharedHooks 로 건다). */
+  const startApp = async (config: CollabConfig, deps: Omit<CollabDeps, 'merger'> = {}) => {
+    app = createCollabServer(config, { ...deps, merger: sharedMergerView() })
     await app.listen()
   }
   const httpUrl = () => `http://127.0.0.1:${app.address.port}`
@@ -72,6 +75,11 @@ describe('internal routes', () => {
     return c
   }
   const synced = (c: TestClient) => expect.poll(() => c.provider.isSynced, { timeout: 5000 }).toBe(true)
+  /**
+   * 재접속을 거쳐야 오는 사건(다시 붙을 때의 인증 거절)을 기다리는 창 — provider 는 끊긴 뒤 최소 1초(minDelay) 뒤에야 다시 붙는다.
+   * expect.poll 기본 창(1초)은 그 설계 지연보다 짧아 부하가 조금만 있어도 놓쳤다. 사건이 오면 바로 끝나므로 넉넉히 잡는다.
+   */
+  const AFTER_RECONNECT = { timeout: 10_000 }
   const serverDoc = (name = DOC) => app.hocuspocus.documents.get(name)
   const unloaded = (name = DOC) => expect.poll(() => app.hocuspocus.documents.has(name), { timeout: 5000 }).toBe(false)
   const postInternal = (path: string, body: unknown, token = TOKEN) =>
@@ -99,20 +107,23 @@ describe('internal routes', () => {
     await startApp({ ...cfg(), debounceMs: 10000, maxDebounceMs: 20000 })
   }
   /**
-   * 병합 워커를 바꿔 다시 띄운다 — 워커 안 인위 지연(동기 블로킹)·짧은 시간 제한으로 느린 병합을 재현.
-   * 지연은 요청의 첫 워커 작업(정규화) 뒤부터, 즉 병합 계산에만 건다.
+   * 다음 병합 작업 하나를 워커 안에서 붙잡는다(over 가 있으면 그 설정으로 서버를 다시 띄운다) — 느린 병합을 시간(바쁜 대기 N ms) 대신
+   * 관문으로 재현한다. 붙잡힌 동안 워커 스레드는 동기로 멈춰 있고(CPU 를 쥔 계산 흉내), release 를 불러야 끝난다 — 그래서 "병합 도중"의
+   * 길이가 기계 부하와 무관하다(시간으로 재면 부하에서 입력이 도착하기 전에 지연이 끝나거나, 짧은 기한이 정규화까지 잘랐다).
    */
-  const restartWithSlowMerge = async (timeoutMs: number, mergeDelayMs: number, over: Partial<CollabConfig> = {}) => {
-    await app.destroy()
-    let jobs = 0
-    await startApp(
-      { ...cfg(), ...over },
-      { merger: createTestMergeRunner({ timeoutMs, testDelayMs: () => (jobs++ === 0 ? 0 : mergeDelayMs) }) },
-    )
-    // 데우기 작업이 순번 0 을 썼다 — 요청의 첫 작업(정규화)이 다시 0 이 되게.
-    jobs = 0
-    /** 병합 작업이 워커에 보내졌다(이제 워커가 지연 중 — 그 사이 입력은 "병합 계산 도중"이다). */
-    return { mergeDispatched: () => jobs >= 2 }
+  const holdNextMerge = async (over?: Partial<CollabConfig>) => {
+    if (over) {
+      await app.destroy()
+      await startApp({ ...cfg(), ...over })
+    }
+    let merges = 0
+    sharedHooks = { testHold: (job) => job.kind === 'merge' && merges++ === 0 }
+    const before = sharedMerger.held()
+    return {
+      release: () => sharedMerger.release(),
+      /** 병합 작업이 워커 안에서 계산 중이다(붙잡힘 — 그 사이 입력은 "병합 계산 도중"이다). */
+      mergeDispatched: () => sharedMerger.held() > before,
+    }
   }
   /** 같은 연결의 메시지는 순서대로 처리된다 — 뒤이어 보낸 awareness 가 관찰자에 도착했으면 앞의 업데이트는 이미 처리됐다. */
   const flushThrough = async (from: TestClient, observer: TestClient, marker: string) => {
@@ -122,17 +133,26 @@ describe('internal routes', () => {
       .toBe(true)
   }
 
+  // 훅 시간 제한은 워커 기동 상한과 같게 — 기본(10초)은 부하에서의 워커 기동보다 짧아 훅이 시간 초과로 파일 전체를 실패시켰다.
   beforeAll(async () => {
-    sharedMerger = createMergeRunner()
+    sharedClock = manualClock()
+    // 실행기 한 번의 상한도 기동 상한으로 — 서버는 이 값을 실제 시계 기준 워커 기한(min(요청 기한, 지금 + 이 값))으로도 쓴다.
+    sharedMerger = createTestMergeRunner({
+      clock: sharedClock,
+      timeoutMs: WORKER_BOOT_LIMIT_MS,
+      testHold: (job) => sharedHooks.testHold?.(job) ?? false,
+      testFault: (job) => sharedHooks.testFault?.(job),
+    })
     await warm(sharedMerger)
-  })
+  }, WORKER_BOOT_LIMIT_MS)
 
   afterAll(async () => {
     await sharedMerger.destroy()
   })
 
   beforeEach(async () => {
-    // 앞 테스트가 공용 워커를 잃었거나(시간 초과·고장) 대기열에 작업을 남겼어도 여기서 다시 데워 다음 테스트로 새지 않게.
+    // 앞 테스트가 공용 워커를 잃었거나(시간 초과·고장) 대기열에 작업을 남겼어도 여기서 다시 데워 다음 테스트로 새지 않게(다시 띄우면 기동 비용).
+    sharedHooks = {}
     await warm(sharedMerger)
     api = await startFakeApi(TOKEN)
     api.page(1, { tenantId: TENANT, body: BODY, version: 1 })
@@ -151,9 +171,12 @@ describe('internal routes', () => {
         },
       },
     })
-  })
+  }, WORKER_BOOT_LIMIT_MS)
 
   afterEach(async () => {
+    // 단언 실패로 끝나 워커 안에 붙잡힌 작업이 남았으면 풀어 준다 — 다음 테스트의 데우기가 그 뒤에 줄 서 멈추지 않게.
+    sharedHooks = {}
+    sharedMerger.release()
     for (const c of clients) c.provider.destroy()
     // 붙잡힌 저장이 남아 있으면(단언 실패로 끝남) 서버 종료가 그 저장을 기다리며 멈추지 않게 먼저 푼다.
     api.releaseStores()
@@ -565,11 +588,9 @@ describe('internal routes', () => {
       await synced(b)
       typeAt(b.doc, 900, '사람 ')
       await expect.poll(() => yDocToMarkdown(serverDoc(DOC4)!)).toContain('사람 문단 900 내용')
-      const started = performance.now()
+      // 짝짓기 복잡도(O(n²) 퇴화)는 시계 대신 wiki-editor-schema 블록 병합 테스트의 작업량 상한이 결정적으로 지킨다 — 여기선 결과만 본다.
       const res = await merge(big, big.replace('문단 10 내용', '문단 10 AI 내용'), {}, 4)
       expect(res.status).toBe(200)
-      // 회귀 감시용 넉넉한 상한 — 정렬이 O(n²) 문자열 diff 로 퇴화하면 수십 초가 걸린다.
-      expect(performance.now() - started).toBeLessThan(10_000)
       const md = yDocToMarkdown(serverDoc(DOC4)!)
       expect(md).toContain('사람 문단 900 내용')
       expect(md).toContain('문단 10 AI 내용')
@@ -650,16 +671,16 @@ describe('internal routes', () => {
       typeAt(a.doc, 2, '사람 ')
       await expect.poll(() => api.stores.length).toBe(2)
       expect(api.stores[1].body).toBe('# 제목\n\n첫 문단\n\n사람 둘째 문단')
-      // 다음 요청도 정상 처리된다(공용 워커가 데워져 있어 400ms 기한 안에 병합이 끝난다 — WP-311).
-      expect((await merge(BODY, '# 제목\n\n첫 문단 AI\n\n둘째 문단')).status).toBe(200)
-      await expect.poll(() => yDocToMarkdown(a.doc)).toBe('# 제목\n\n첫 문단 AI\n\n사람 둘째 문단')
+      // 기한으로 끝난 요청이 문서에 붙인 직접 연결도 풀었다 — 남으면 문서가 내려가지 않고 다음 적용이 낡은 연결 위에서 돈다.
+      // (예전엔 "다음 병합이 400ms 기한 안에 끝난다"로 봤는데, 정규화·병합 왕복이 실제 기한을 다퉈 부하에서 흔들렸다.)
+      await expect.poll(() => serverDoc()!.directConnectionsCount).toBe(0)
     })
 
     it('answers 200 with persisted:false when the apply store hangs past the deadline, and applies once', async () => {
       await app.destroy()
-      // 적용 전 단계(워커 기동·정규화·병합)는 부하가 걸리면 수백 ms 가 걸린다 — 작업마다 300ms 지연으로 그 상황을 고정한다.
-      // 기한은 그 준비가 끝나고도 남게 잡아, 이 테스트가 보려는 "적용 뒤 저장이 기한을 넘김"만 기한에 걸리게 한다.
-      await startApp({ ...cfg(), applyDeadlineMs: 2500 }, { merger: createTestMergeRunner({ testDelayMs: 300 }) })
+      // 기한은 적용 전 단계(정규화·병합 — 데운 공용 워커)가 부하에서도 넉넉히 끝나게 잡는다 — 이 테스트가 보려는 "적용 뒤 저장이 기한을
+      // 넘김"만 기한에 걸리게. 저장은 관문으로 붙잡아(시간 지연 대신) 기한이 얼마든 기한 안에 끝나지 않는다.
+      await startApp({ ...cfg(), applyDeadlineMs: 10_000 })
       const a = connect('editor-token')
       await synced(a)
       await expect.poll(() => api.stores.length).toBe(1)
@@ -669,17 +690,17 @@ describe('internal routes', () => {
           .flatMap((st) => (st[COLLAB_AI_MARKERS_FIELD] as CollabAiMarker[] | null | undefined) ?? [])
           .forEach((m) => seen.add(m.id)),
       )
-      // 적용 뒤 즉시 저장이 기한(과 최소 3초)을 넘겨 걸린다.
-      api.storeDelayMs = 9000
-      const started = performance.now()
+      // 적용 뒤 즉시 저장이 풀어 줄 때까지 끝나지 않는다.
+      api.holdStores()
       const res = await merge(BODY, '# 제목\n\n첫 문단 AI\n\n둘째 문단')
-      // 저장 대기는 남은 기한(최소 3초)으로 끊긴다 — API read 타임아웃 전에 답한다.
-      expect(performance.now() - started).toBeLessThan(7000)
+      // 저장 대기는 남은 기한(최소 3초)으로 끊긴다 — 저장이 아직 API 에 붙잡혀 있는데 답이 왔다(API read 타임아웃 전에 답한다).
+      expect(api.storeAttempts).toBeGreaterThanOrEqual(2)
+      expect(api.stores).toHaveLength(1)
       // 문서는 이미 바뀌었다 — 503 이 아니라 적용됨(저장은 재시도로 이어진다).
       expect(res.status).toBe(200)
       expect(await res.json()).toMatchObject({ persisted: false, body: '# 제목\n\n첫 문단 AI\n\n둘째 문단' })
       await expect.poll(() => yDocToMarkdown(a.doc)).toBe('# 제목\n\n첫 문단 AI\n\n둘째 문단')
-      api.storeDelayMs = 0
+      api.releaseStores()
       // 재시도 저장이 같은 본문을 한 번 담는다(두 번 적용되지 않음).
       await expect.poll(() => api.stores.some((st) => st.body === '# 제목\n\n첫 문단 AI\n\n둘째 문단'), { timeout: 15000 }).toBe(true)
       expect(yDocToMarkdown(serverDoc()!).match(/첫 문단 AI/g)).toHaveLength(1)
@@ -735,8 +756,8 @@ describe('internal routes', () => {
     })
 
     it('keeps other clients syncing while a slow merge runs off the event loop, and keeps their edits', async () => {
-      // 워커가 2초 동안 동기 블로킹(CPU 바쁜 병합 흉내) — 메인 스레드에서 돌면 그동안 실시간 동기화가 멈춘다.
-      const { mergeDispatched } = await restartWithSlowMerge(10_000, 2000)
+      // 워커가 풀어 줄 때까지 동기 블로킹(CPU 바쁜 병합 흉내) — 메인 스레드에서 돌면 그동안 실시간 동기화가 멈춘다.
+      const { mergeDispatched, release } = await holdNextMerge()
       const a = connect('editor-token')
       const b = connect('editor2-token')
       await synced(a)
@@ -746,12 +767,15 @@ describe('internal routes', () => {
         settled = true
         return r
       })
-      // 병합 작업이 워커로 갔다(이제 워커가 블로킹 중) — 시간 대기 대신 그 사건을 기다린다.
-      await expect.poll(mergeDispatched).toBe(true)
+      // 병합 작업이 워커 안에서 블로킹 중 — 시간 대기 대신 그 사건을 기다린다.
+      await expect.poll(mergeDispatched, { timeout: 10_000 }).toBe(true)
       typeAt(a.doc, 2, '도중 ')
-      // 병합이 아직 끝나지 않았는데도 다른 접속자에게 곧바로 전달된다.
-      await expect.poll(() => yDocToMarkdown(b.doc), { timeout: 1000 }).toContain('도중 둘째 문단')
+      // 병합이 아직 끝나지 않았는데도(풀어 주기 전까지 끝날 수 없다) 다른 접속자에게 전달된다.
+      await expect.poll(() => yDocToMarkdown(b.doc), { timeout: 10_000 }).toContain('도중 둘째 문단')
       expect(settled).toBe(false)
+      // 그 입력이 서버 문서에도 들어간 뒤에 병합을 끝낸다(서버를 거쳐 b 에 왔으니 이미 들어 있다).
+      expect(yDocToMarkdown(serverDoc()!)).toContain('도중 둘째 문단')
+      release()
       const res = await pending
       expect(res.status).toBe(200)
       // 병합 도중 들어온 입력도 사라지지 않는다(바뀐 현재본으로 다시 병합).
@@ -762,15 +786,17 @@ describe('internal routes', () => {
 
     it('stores a person edit made during the worker merge before the AI apply, so an AI-side resolution is restorable', async () => {
       // 지연 저장을 길게 — 병합 도중 입력이 지연 저장으로 우연히 남지 않게(남는다면 이 저장 경로 덕이어야 한다).
-      const slow = await restartWithSlowMerge(10_000, 1500, { debounceMs: 10000, maxDebounceMs: 20000 })
+      const slow = await holdNextMerge({ debounceMs: 10000, maxDebounceMs: 20000 })
       const b = connect('editor2-token')
       await synced(b)
       await expect.poll(() => api.stores.length).toBe(1)
       const pending = merge(BODY, '# 제목\n\n첫 문단입니다\n\n둘째 문단')
-      await expect.poll(slow.mergeDispatched, { timeout: 5000 }).toBe(true)
+      await expect.poll(slow.mergeDispatched, { timeout: 10_000 }).toBe(true)
       // 워커가 계산하는 동안 사람이 AI 와 같은 문단을 고친다 → 정책상 AI 쪽으로 정해져 덮인다.
       replaceTextAt(b.doc, 1, '첫 문장')
-      await expect.poll(() => yDocToMarkdown(serverDoc()!)).toContain('첫 문장')
+      await expect.poll(() => yDocToMarkdown(serverDoc()!), { timeout: 10_000 }).toContain('첫 문장')
+      // 입력이 서버에 들어간 뒤에야 병합을 끝낸다 — 부하로 입력이 늦어도 "병합 도중 입력"이 된다.
+      slow.release()
       const res = await pending
       expect(res.status).toBe(200)
       expect(((await res.json()) as { body: string }).body).toBe('# 제목\n\n첫 문단입니다\n\n둘째 문단')
@@ -800,13 +826,12 @@ describe('internal routes', () => {
       expect(api.stores[1]).toMatchObject({ snapshot: false, editorIds: [8] })
     })
 
+    // 고장 뒤 새 워커 기동이 이 테스트가 보는 성질이라 시간 제한을 기동 상한에 맞춘다 — 기동은 부하에 비례한다.
     it('answers 500 when the merge worker crashes and serves the next merge from a fresh worker', async () => {
-      await app.destroy()
-      let jobs = 0
-      // 둘째 워커 작업(첫 요청의 병합)에서 워커가 죽는다.
-      await startApp(cfg(), { merger: createTestMergeRunner({ testFault: () => (jobs++ === 1 ? 'exit' : undefined) }) })
-      // 데우기 작업이 순번 0 을 썼다 — 첫 요청의 병합이 다시 순번 1 이 되게.
-      jobs = 0
+      let merges = 0
+      // 첫 병합 작업에서 공용 워커가 죽는다(다음 테스트의 데우기가 다시 띄운 워커를 쓴다).
+      sharedHooks = { testFault: (job) => (job.kind === 'merge' && merges++ === 0 ? 'exit' : undefined) }
+      const workers = sharedMerger.workers.length
       const a = connect('editor-token')
       await synced(a)
       await expect.poll(() => api.stores.length).toBe(1)
@@ -817,19 +842,24 @@ describe('internal routes', () => {
       const ok = await merge(BODY, '# 제목\n\n첫 문단 AI\n\n둘째 문단')
       expect(ok.status).toBe(200)
       await expect.poll(() => yDocToMarkdown(a.doc)).toBe('# 제목\n\n첫 문단 AI\n\n둘째 문단')
-    })
+      expect(sharedMerger.workers).toHaveLength(workers + 1)
+    }, WORKER_BOOT_LIMIT_MS)
 
     it('answers 503 on a merge timeout and leaves the document and store untouched', async () => {
-      await restartWithSlowMerge(1000, 5000)
+      // 병합 작업을 붙잡아 두고 실행기 시계를 그 기한만큼 흘린다 — 시간 초과는 부하와 무관하게 "병합 계산 도중"에 일어난다.
+      // (실제 시계 1초 기한이면 정규화도 같은 기한 안이라, 부하에서는 병합 전에 정규화가 잘리거나 응답이 늦게 왔다.)
+      const slow = await holdNextMerge()
       const a = connect('editor-token')
       await synced(a)
       await expect.poll(() => api.stores.length).toBe(1)
       const origins: unknown[] = []
       serverDoc()!.on('update', (_u: Uint8Array, origin: unknown) => origins.push(origin))
-      const started = performance.now()
-      const res = await merge(BODY, '# 제목\n\n첫 문단 AI\n\n둘째 문단')
+      const pending = merge(BODY, '# 제목\n\n첫 문단 AI\n\n둘째 문단')
+      await expect.poll(slow.mergeDispatched, { timeout: 10_000 }).toBe(true)
+      sharedClock.advance(WORKER_BOOT_LIMIT_MS)
+      const res = await pending
       expect(res.status).toBe(503)
-      expect(performance.now() - started).toBeLessThan(4000)
+      expect(((await res.json()) as { error: string }).error).toMatch(/^merge timed out/)
       expect(origins).toEqual([])
       expect(yDocToMarkdown(serverDoc()!)).toBe(BODY)
       expect(yDocToMarkdown(a.doc)).toBe(BODY)
@@ -996,7 +1026,7 @@ describe('internal routes', () => {
       await expect.poll(() => a.disconnects.map((d) => d.code)).toContain(CLOSE_FORBIDDEN.code)
       expect(a.disconnects.find((d) => d.code === CLOSE_FORBIDDEN.code)?.reason).toBe(CLOSE_FORBIDDEN.reason)
       // provider 는 재접속하지만 다시 판정에서 거부된다.
-      await expect.poll(() => a.authFailures).toContain('forbidden')
+      await expect.poll(() => a.authFailures, AFTER_RECONNECT).toContain('forbidden')
       // 다른 사용자는 영향 없이 계속 편집·저장한다.
       expect(other.disconnects).toEqual([])
       typeAt(other.doc, 1, '계속 ')
@@ -1074,7 +1104,7 @@ describe('internal routes', () => {
       expect(a.disconnects.map((d) => d.code)).not.toContain(CLOSE_FORBIDDEN.code)
       expect(a.disconnects.map((d) => d.reason)).not.toContain(CLOSE_FORBIDDEN.reason)
       // 같은(낡은) 토큰으로 재접속하면 거절 사유도 권한 없음이 아니라 만료다 — 웹은 토큰을 갱신해 다시 붙는다.
-      await expect.poll(() => a.authFailures).toContain('token-expired')
+      await expect.poll(() => a.authFailures, AFTER_RECONNECT).toContain('token-expired')
       expect(a.authFailures).not.toContain('forbidden')
       expect(other.disconnects).toEqual([])
     })
