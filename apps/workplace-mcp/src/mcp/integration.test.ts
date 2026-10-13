@@ -12,6 +12,12 @@ import { exposableTools } from '../tools/index.js';
 import { INSTRUCTIONS_MAX_LENGTH } from './instructions.js';
 
 const API = 'http://api.test';
+/**
+ * 이 파일 테스트의 시간 제한 — 성능 단언이 아니라 멈춤 감시다. 테스트마다 실제 HTTP 왕복 3~4번이고, 요청마다 서버가 도구 전체를 등록한
+ * McpServer 를 새로 만든다(stateless). 혼자 돌면 40~100ms 인데, 전체 테스트를 병렬로 돌리는 부하(CPU 8개에 부하 평균 100 안팎)에서는
+ * 첫 테스트(JIT 데우기 포함)가 4~5.5초까지 늘어 기본 5초가 "빠르게 끝남" 단언처럼 작동했다. 어떤 단언도 시간에 기대지 않는다.
+ */
+const ROUNDTRIP_TEST_TIMEOUT_MS = 30_000;
 let server: ReturnType<Express['listen']>;
 let baseUrl: string;
 
@@ -34,7 +40,7 @@ function connect(token: string) {
   return client.connect(transport).then(() => client);
 }
 
-describe('/mcp', () => {
+describe('/mcp', { timeout: ROUNDTRIP_TEST_TIMEOUT_MS }, () => {
   it('유효 토큰으로 initialize + tools/list 에 create_issue 가 보인다', async () => {
     nock(API).get('/auth/me').reply(200, { id: 1, username: 'u', kind: 'HUMAN' });
     const client = await connect('swp_valid');
@@ -203,7 +209,7 @@ describe('/mcp', () => {
 });
 
 // WP-350: 연결 범위(앱 선택·읽기 전용). 같은 서버·같은 인증 위에서 URL 경로·헤더만 달라진다.
-describe('/mcp 연결 범위 (WP-350)', () => {
+describe('/mcp 연결 범위 (WP-350)', { timeout: ROUNDTRIP_TEST_TIMEOUT_MS }, () => {
   const origin = () => baseUrl.replace(/\/mcp$/, '');
   const meOk = () => nock(API).get('/auth/me').reply(200, { id: 1, username: 'u', kind: 'HUMAN' });
   /** 경로·헤더를 지정해 연결하고 도구 목록·instructions 를 돌려준다. */

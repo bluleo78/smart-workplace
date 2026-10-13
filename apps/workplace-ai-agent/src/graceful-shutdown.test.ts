@@ -56,17 +56,27 @@ describe('gracefulShutdown', () => {
       res.write('data: start\n\n');
       finish = () => res.end('data: end\n\n');
     });
-    const body = new Promise<string>((resolve) => {
-      request({ port, path: '/' }, (res) => {
+    // 응답이 시작됐다는 사건(클라이언트가 헤더를 받음)을 기다린다 — 시간(30ms)으로 기다리면 부하에서 요청이 서버에 닿기 전에 종료가
+    // 시작돼, 진행 중 응답이 없는 채로(대기할 것 없이) 바로 종료됐다.
+    let started!: () => void;
+    const responding = new Promise<void>((r) => (started = r));
+    const body = new Promise<string>((resolve, reject) => {
+      request({ host: '127.0.0.1', port, path: '/' }, (res) => {
+        started();
         let data = '';
         res.on('data', (c) => (data += c));
         res.on('end', () => resolve(data));
-      }).end();
+        res.on('error', reject);
+      })
+        .on('error', reject)
+        .end();
     });
-    await tick(); // 응답 시작까지
+    await responding;
     const exit = vi.fn();
 
     const done = gracefulShutdown({ server, drainTimeoutMs: 5_000, cleanup: () => {}, exit, log: () => {} });
+    // 응답을 끝내기 전에는 종료하지 않는다 — 아직 끝나지 않은 응답이라 부하와 무관하게 성립한다(종료가 응답을 기다리지 않는 결함이면
+    // 리스너를 닫은 직후 몇 틱 안에 exit 가 불린다).
     await tick();
     expect(exit).not.toHaveBeenCalled();
 
