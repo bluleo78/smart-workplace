@@ -165,10 +165,8 @@ export function AIChatPanel({
 
   // WP-139: 추천 켜짐 — 설정 응답이 true 일 때만(로딩 중·실패 포함 그 밖에는 숨김). 끈 사용자에게 한 번도 보이지 않게(스펙 §10.6).
   // 빈 대화 목록과 후속 질문 칩이 같이 쓴다. 설정은 5분 캐시라 두 번째 열기부터는 바로 보인다.
-  // WP-55: 메모리 결과 줄 되돌리기 — 줄마다 훅(뮤테이션 관찰자·navigate)을 두지 않고 패널이 하나를 공유한다.
+  // WP-55: 메모리 결과 줄 되돌리기 — 줄마다 훅(뮤테이션 관찰자·navigate)을 두지 않고 패널이 하나를 공유한다. 진행 중 표시는 줄마다 따로.
   const memoryUndo = useUndoAiMemory();
-  // 진행 중인 되돌리기 대상 — 그 줄만 막고 다른 줄은 따로 누를 수 있게 한다.
-  const undoing = memoryUndo.isPending ? memoryUndo.variables : undefined;
   const aiPrefs = useAiPreferences();
   const suggestionsOn = aiPrefs.data?.suggestionsEnabled === true;
   // 빈 새 대화(세션 없음·턴 없음)에만 — 기존 대화를 고르면 currentSessionId 가 먼저 정해져 이력 로딩 중에도 거짓이다.
@@ -458,8 +456,8 @@ export function AIChatPanel({
                           // 되돌리기는 저장된 메시지 id 가 있어야 한다(답변 중엔 없다 — 회색·클릭 불가).
                           messageId={t.messageId}
                           blockIndex={mi}
-                          onUndo={memoryUndo.mutate}
-                          pending={undoing != null && undoing.messageId === t.messageId && undoing.blockIndex === mi}
+                          onUndo={memoryUndo.undo}
+                          pending={memoryUndo.isUndoing(t.messageId, mi)}
                         />
                       ))}
                     </li>

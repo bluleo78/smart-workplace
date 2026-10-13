@@ -29,12 +29,20 @@ export async function openMemorySettings(page: Page) {
   await expect(page.getByTestId('ai-memory-card')).toBeVisible()
 }
 
-/** 되돌리기 응답을 순서대로 소비 — 비면 받은 값으로 성공({...body, undone:true}). */
-export async function mockMemoryUndo(page: Page, replies: Array<{ status: number; body: unknown }> = []): Promise<RequestTracker> {
+/**
+ * 되돌리기 응답을 순서대로 소비 — 비면 받은 값으로 성공({...body, undone:true}). hold 를 주면 모든 응답을 그 프라미스가 풀릴 때까지 붙잡는다
+ * ("요청은 나갔고 응답은 아직" 상태를 결정적으로 만든다).
+ */
+export async function mockMemoryUndo(
+  page: Page,
+  replies: Array<{ status: number; body: unknown }> = [],
+  hold?: Promise<void>,
+): Promise<RequestTracker> {
   const calls = trackRequests(page, 'POST', '/api/v1/users/me/ai-memories/undo')
   let i = 0
-  await page.route((u) => u.pathname === '/api/v1/users/me/ai-memories/undo', (route) => {
+  await page.route((u) => u.pathname === '/api/v1/users/me/ai-memories/undo', async (route) => {
     const r = replies[i++] ?? { status: 200, body: { ...(route.request().postDataJSON() as UndoAiMemoryRequest), undone: true } }
+    if (hold) await hold
     return route.fulfill({ status: r.status, contentType: 'application/json', body: JSON.stringify(r.body) })
   })
   return calls

@@ -6,7 +6,7 @@ import { ask, msg, openChatPanel, sessionItem, setupLiveChat, summary, TITLE_A }
 import { memoryError, memoryTool, mockMemoryUndo } from '../fixtures/ai-memory-mock'
 import { mockAiPreferences } from '../fixtures/ai-suggestions-mock'
 import { expect, test } from '../fixtures/auth.fixture'
-import { stableBox } from '../fixtures/wait'
+import { gate, stableBox } from '../fixtures/wait'
 
 const C = { correlationId: 'corr-a', sessionId: 's-a' }
 const lines = (page: Page) => page.getByTestId('chat-memory-result')
@@ -70,6 +70,34 @@ test('여러 줄은 문구가 동작별로 다르고 줄마다 따로 되돌린�
   await expect(lines(page).nth(1)).toHaveAttribute('data-undone', 'true')
   await expect(lines(page).nth(0)).toHaveAttribute('data-undone', 'false')
   await expect(lines(page).nth(2)).toHaveAttribute('data-undone', 'false')
+})
+
+// 패널이 되돌리기 뮤테이션 하나를 공유해도 진행 중 표시는 줄마다 따로다 — 둘째 줄을 빨리 눌러도 첫 줄의 요청 중 잠금이 풀리지 않는다.
+test('응답 전에 다른 줄을 눌러도 앞 줄은 요청이 끝날 때까지 잠겨 있다', async ({ authenticatedPage: page }) => {
+  const held = gate()
+  const undo = await mockMemoryUndo(page, [], held.p)
+  const live = await setupLiveChat(page)
+  live.queueStart({ correlationId: 'corr-a', sessionId: 's-a' })
+  await openChatPanel(page)
+  await ask(page, live, '정리해줘')
+  await memoryTool(live, 1, 'remember_memory', saved)
+  await memoryTool(live, 2, 'update_memory', updated)
+  await live.push('delta', { ...C, text: '정리했어요.' })
+  await live.push('done', { ...C, widgets: null, messageId: 5 })
+
+  const first = lines(page).nth(0).getByTestId('chat-memory-undo')
+  const second = lines(page).nth(1).getByTestId('chat-memory-undo')
+  await first.click()
+  await expect(first).toBeDisabled()
+  await expect(second).toBeEnabled() // 다른 줄은 따로 누를 수 있다
+  await second.click()
+  await expect(second).toBeDisabled()
+  await expect(first).toBeDisabled() // 둘째 요청이 첫 줄의 진행 중 표시를 지우지 않는다
+  await expect.poll(() => undo.count()).toBe(2)
+
+  held.release()
+  await expect(lines(page).nth(0)).toHaveAttribute('data-undone', 'true')
+  await expect(lines(page).nth(1)).toHaveAttribute('data-undone', 'true')
 })
 
 test('이미 지워진 메모리·가득 참이면 안내 토스트를 띄우고 줄은 그대로 둔다 — 가득 참은 설정으로 이동할 수 있다', async ({ authenticatedPage: page }) => {
