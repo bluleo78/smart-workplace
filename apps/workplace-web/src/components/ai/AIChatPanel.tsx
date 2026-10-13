@@ -60,6 +60,8 @@ interface Props extends AssistantChat {
   autoFocus?: boolean;
   /** WP-190: 상한 안내의 [대화 목록 보기] — 사이드 패널은 헤더 드롭다운을 직접 연다, 풀스크린은 목록이 늘 보여 생략. */
   onShowSessions?: () => void;
+  /** WP-139: 전체화면 AI 모드 — 넓은 입력 영역에서 빈 대화 추천 목록을 입력창 시작점에 맞추고 행을 문구 폭으로 줄인다. */
+  fullscreen?: boolean;
 }
 
 /** WP-190: 중단된 답변 아래 라벨 — 시간 초과는 라이브 종결에서만 온다(저장된 STOPPED 는 다시 열면 "중단됨"). */
@@ -103,6 +105,7 @@ export function AIChatPanel({
   showSessionSwitcher = true,
   autoFocus = false,
   onShowSessions,
+  fullscreen = false,
 }: Props) {
   const current = sessions.find((s) => s.id === currentSessionId);
   const [input, setInput] = useState('');
@@ -297,9 +300,22 @@ export function AIChatPanel({
         resetKey={currentSessionId}
         aboveAiSheet
       >
-        <div ref={scrollRef} data-testid="chat-scroll" className="flex-1 overflow-auto p-3">
+        {/* WP-139: 키보드가 열린 모바일 시트에서 추천 목록이 보이면 빈 대화 안내와 이 영역의 여백(p-3)을 걷어 목록에 높이를 준다
+            (안내가 한 줄 조각으로 잘리고 목록이 1.5행만 보이던 문제). 대화가 있으면 여백은 그대로다. */}
+        <div
+          ref={scrollRef}
+          data-testid="chat-scroll"
+          className={cn('flex-1 overflow-auto p-3', showStarters && '[:root[data-keyboard-open]_&]:p-0')}
+        >
           {turns.length === 0 ? (
-            <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
+            // safe center — 영역이 안내보다 낮아지면 가운데 정렬이 위쪽을 스크롤로도 못 보는 곳으로 밀어내지 않고 위에서부터 놓는다.
+            <div
+              data-testid="ai-chat-empty-state"
+              className={cn(
+                'flex h-full flex-col items-center justify-center-safe gap-2 text-center',
+                showStarters && '[:root[data-keyboard-open]_&]:hidden',
+              )}
+            >
               <Sparkles className="h-9 w-9 text-muted-foreground/60" />
               <p className="text-base font-medium text-foreground">AI 어시스턴트에게 물어보세요</p>
               <p className="text-sm text-muted-foreground">무엇이든 질문해 보세요</p>
@@ -541,7 +557,8 @@ export function AIChatPanel({
         }}
         // WP-234: 입력창 영역 전체가 파일 드롭 영역 — 오버레이 기준점이 되도록 relative.
         // WP-139: flex-col + min-h-0 — 키보드가 열려 시트가 낮아지면 추천 목록만 줄어 안에서 스크롤하고 입력창은 밀려나지 않는다.
-        className="relative flex min-h-0 flex-col border-t p-2"
+        // 키보드가 열려 빈 대화 영역을 걷은 상태(위 chat-scroll)에선 헤더 아래선과 겹쳐 두 줄로 보이므로 위 테두리를 뺀다.
+        className={cn('relative flex min-h-0 flex-col border-t p-2', showStarters && '[:root[data-keyboard-open]_&]:border-t-0')}
         data-testid="ai-composer"
         {...dropProps}
       >
@@ -576,6 +593,7 @@ export function AIChatPanel({
             {...starters}
             disabled={pending || sendBlocked}
             isMobile={isMobile}
+            alignToInput={fullscreen}
             onPick={sendChip}
           />
         )}
