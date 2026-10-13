@@ -295,9 +295,11 @@ export function CalendarPage() {
 
   // 모바일 목록을 첫 청크·맨 위로 되돌린다(anchor 가 같으면 훅이 스스로 되돌리지 않는다). 헤더 월도 목록이
   // 새 맨 위 날을 알려 올 때까지 anchor 의 달로 둔다. [오늘]·보기 전환·미니 달력 날짜 선택이 함께 쓴다.
+  // 자정에 따라가지 않고 남겨 둔 날(staleTodayKey)도 지운다 — 사용자가 직접 고른 날(지난 오늘을 다시 골라도)을 화면 복귀 때 덮지 않게.
   const resetAgenda = () => {
     agenda.reset()
     setListTop(null)
+    setStaleTodayKey(null)
   }
 
   // [오늘] — anchor 를 오늘로. 모바일 목록은 이미 오늘부터 보고 있었어도 첫 청크·맨 위로.

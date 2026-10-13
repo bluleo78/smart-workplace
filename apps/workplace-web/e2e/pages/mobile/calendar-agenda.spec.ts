@@ -687,6 +687,36 @@ test('자정을 넘길 때 목록을 아래로 읽는 중이면 그대로 두고
   await expect(list.getByTestId('calendar-agenda-day-2026-10-13')).toHaveCount(0)
 })
 
+test('자정에 따라가지 않은 뒤 미니 달력으로 지난 오늘을 직접 고르면, 화면에 돌아와도 그 날을 그대로 둔다', async ({ authenticatedPage: page }) => {
+  const requests = await stubCalendar(page, { runningClock: true })
+  await page.goto('/calendar')
+  const list = agendaList(page)
+  await expect(list.getByTestId('calendar-agenda-day-2026-10-13')).toBeVisible()
+  await scrollToDay(page, '2026-11-01')
+  await expect(page.getByTestId('calendar-title')).toHaveText('11월')
+  await page.clock.fastForward('15:21:00')
+  await expect(list.getByTestId('calendar-agenda-day-2026-10-14')).toContainText('오늘 · 10월 14일 (수)')
+  await expect(list.getByTestId('calendar-agenda-day-2026-10-13')).toHaveCount(1)
+
+  // 10/13 을 직접 고른다 — 미니 달력은 헤더 달(11월)로 열리므로 이전 달로 넘겨 고른다. 목록이 그 날부터 맨 위로.
+  const mini = page.getByTestId('calendar-mobile-mini')
+  await page.getByTestId('calendar-title-toggle').click()
+  await mini.getByRole('button', { name: '이전 달' }).click()
+  await mini.getByRole('button', { name: '2026년 10월 13일 화요일' }).click()
+  await expect.poll(() => list.evaluate((el) => el.scrollTop)).toBe(0)
+  await expect(list.locator('[data-day-key]').first()).toHaveAttribute('data-day-key', '2026-10-13')
+
+  // 화면 복귀 — 고른 날을 덮고 새 오늘로 옮겨 가지 않는다(새 오늘 청크 요청도 없다).
+  // 복귀 판정이 반영된 뒤를 보장하려고 이어서 미니 달력을 열어 달을 넘기고 그 조회까지 기다린 다음 단언한다(복귀 이벤트가 먼저 처리된다).
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')))
+  // 10·11월 그리드는 이미 받았으므로, 아직 받지 않은 9월(8/30 KST 시작)로 넘겨 그 새 조회를 신호로 쓴다.
+  await page.getByTestId('calendar-title-toggle').click()
+  await mini.getByRole('button', { name: '이전 달' }).click()
+  await expect.poll(() => requests.map((r) => r.from)).toContain('2026-08-29T15:00:00.000Z')
+  await expect(list.locator('[data-day-key]').first()).toHaveAttribute('data-day-key', '2026-10-13')
+  expect(requests).not.toContainEqual({ from: '2026-10-13T15:00:00.000Z', to: '2026-11-12T15:00:00.000Z' })
+})
+
 test('목록에서 다음 달까지 내린 뒤 월 보기로 바꾸면 헤더가 보여 주던 달(목록 시작 달이 아니라)이 열린다', async ({ authenticatedPage: page }) => {
   const requests = await stubCalendar(page)
   await page.goto('/calendar')
