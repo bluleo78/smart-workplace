@@ -4,7 +4,7 @@ import { createChannel, createDm } from '../../factories/messaging.factory'
 import { member, memberDetail, page as makeContactPage } from '../../factories/contacts.factory'
 import { detail, mailAccount, summary } from '../../factories/mail.factory'
 import { mockApi } from '../../fixtures/api-mock'
-import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture'
+import { expect, expectNoHorizontalOverflow, stubChat, test, toCalendarMonthView } from '../../fixtures/mobile.fixture'
 import { resizeAndSettle } from '../../fixtures/wait'
 
 test('메일 본문(탭바 숨김)에서도 ✦ 로 AI 시트를 연다', async ({ authenticatedPage: page }) => {
@@ -69,7 +69,7 @@ test('캘린더 헤더: 390px 에서 제목이 읽히고 뷰 전환이 가능하
   await expect(select).toBeVisible()
   // 모바일 첫 보기는 일정 목록(WP-136).
   await expect(page.getByTestId('calendar-view-agenda')).toBeVisible()
-  await select.selectOption('month')
+  await toCalendarMonthView(page)
   await page.getByTestId('calendar-prev').click()
   await expect(title).toHaveText('2026년 12월')
   // 헤더가 제목에 내준 폭(h1 은 flex-1 — 텍스트 길이와 무관)이 충분하다.

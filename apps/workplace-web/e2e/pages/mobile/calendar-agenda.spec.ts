@@ -8,7 +8,8 @@ import type { CalendarEvent } from '../../../src/types/calendar'
 import type { IssueResponse } from '../../../src/types/issue'
 import { calendar, calendarEvent } from '../../factories/calendar.factory'
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory'
-import { expect, expectNoHorizontalOverflow, test } from '../../fixtures/mobile.fixture'
+import { expect, expectNoHorizontalOverflow, test, toCalendarMonthView } from '../../fixtures/mobile.fixture'
+import { touchDrag } from '../../fixtures/touch'
 
 // 화면 날짜·시간은 로컬 타임존 기준 — 실행 머신과 무관하게 KST 로 고정한다.
 test.use({ timezoneId: 'Asia/Seoul' })
@@ -111,21 +112,15 @@ async function scrollToDay(page: Page, key: string) {
 }
 
 /**
- * 본문 좌우 끌기 — 실제 터치 입력(CDP Input.dispatchTouchEvent). 마우스 pointer 이벤트는 touch-action 을 무시해
+ * 본문 좌우 끌기 — 실제 터치 입력(touchDrag, CDP). 마우스 pointer 이벤트는 touch-action 을 무시해
  * "브라우저가 가로 끌기를 패닝으로 가로채 pointercancel" 하는 실제 기기 동작을 재현하지 못한다(주·일 그리드 회귀).
  * yRatio — 스와이프 영역 안 세로 위치(0~1). 기본은 가운데(월 그리드 셀·주/일 시간 그리드 스크롤 영역 안).
  */
 async function swipe(page: Page, dx: number, yRatio = 0.6) {
   const box = (await page.getByTestId('calendar-swipe-area').boundingBox())!
-  const y = Math.round(box.y + box.height * yRatio)
-  const x0 = Math.round(box.x + box.width / 2 - dx / 2)
-  const cdp = await page.context().newCDPSession(page)
-  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: x0, y }] })
-  for (let i = 1; i <= 8; i++) {
-    await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: Math.round(x0 + (dx * i) / 8), y }] })
-  }
-  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
-  await cdp.detach()
+  const y = box.y + box.height * yRatio
+  const cx = box.x + box.width / 2
+  await touchDrag(page, { x: cx - dx / 2, y }, { x: cx + dx / 2, y })
 }
 
 test('① ② 진입 — 목록이 기본, 오늘부터 날짜별 묶음·건수, 첫 요청은 오늘 00:00 부터 30일 하나뿐', async ({ authenticatedPage: page }) => {
@@ -292,8 +287,7 @@ test('⑤ 월 보기로 바꾸면 ‹ › 가 돌아오고, 좌우 스와이프�
   await page.goto('/calendar')
   await expect(agendaList(page).getByTestId('calendar-agenda-day-2026-10-13')).toBeVisible()
 
-  await page.getByTestId('calendar-view-select').selectOption('month')
-  await expect(page.getByTestId('calendar-view-month')).toBeVisible()
+  await toCalendarMonthView(page)
   await expect(page.getByTestId('calendar-prev')).toBeVisible()
   await expect(page.getByTestId('calendar-next')).toBeVisible()
   await expect(page.getByTestId('calendar-title')).toHaveText('10월')
@@ -384,7 +378,7 @@ test('미니 달력 접근성 — 제목 이름은 달 그대로, 펼침 상태�
   await expect(mini).toHaveCount(0)
 
   // 펼친 채 본문 달이 바뀌면 패널 달도 따라간다. 펼친 동안엔 도구 줄(‹ ›·[오늘])이 숨으므로 월 본문 스와이프로 넘긴다.
-  await page.getByTestId('calendar-view-select').selectOption('month')
+  await toCalendarMonthView(page)
   await toggle.click()
   await expect(mini).toContainText('2026년 10월')
   await swipe(page, -150, 0.8)
@@ -728,8 +722,7 @@ test('목록에서 다음 달까지 내린 뒤 월 보기로 바꾸면 헤더가
   await expect(page.getByTestId('calendar-title')).toHaveText('11월')
 
   // 목록 시작(10/13)을 쓰면 10월 월 보기로 튄다 — 헤더가 보여 주던 11월 그대로.
-  await page.getByTestId('calendar-view-select').selectOption('month')
-  await expect(page.getByTestId('calendar-view-month')).toBeVisible()
+  await toCalendarMonthView(page)
   await expect(page.getByTestId('calendar-title')).toHaveText('11월')
   await expect.poll(() => requests.map((r) => r.from)).toContain(NOV_GRID_FROM)
   await expect(page.getByTestId('calendar-view-month').getByText('11월 하순 회고')).toBeVisible()

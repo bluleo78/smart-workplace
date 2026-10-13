@@ -6,7 +6,7 @@ import type { WikiPageDetail, WikiSpace } from '../../../src/types/wiki'
 import { member, page as makeContactPage } from '../../factories/contacts.factory'
 import { createProject } from '../../factories/project.factory'
 import { mockApi } from '../../fixtures/api-mock'
-import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture'
+import { expect, expectNoHorizontalOverflow, stubChat, test, toCalendarMonthView } from '../../fixtures/mobile.fixture'
 import { dismissByOutsideClick } from '../../fixtures/wait'
 
 /** 실제 마우스로 길게 누른다 — 메뉴가 뜰 때까지 누른 채 기다렸다가 뗀다(떼는 click 이 이동을 일으키지 않는지도 함께). */
@@ -240,7 +240,7 @@ test('캘린더: 헤더엔 제목만(잘림 없음), 도구 줄의 오늘·‹·
   const toolbar = page.getByTestId('calendar-mobile-toolbar')
   // 모바일 첫 보기(일정 목록)는 ‹ › 를 숨긴다 — 이동 버튼이 있는 월 보기에서 크기·동작을 본다.
   const select = toolbar.getByTestId('calendar-view-select')
-  await select.selectOption('month')
+  await toCalendarMonthView(page, toolbar)
   for (const id of ['calendar-today', 'calendar-prev', 'calendar-next']) {
     const b = (await toolbar.getByTestId(id).boundingBox())!
     expect(b.width, id).toBeGreaterThanOrEqual(44)

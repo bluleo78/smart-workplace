@@ -24,6 +24,15 @@ export async function stubChat(
   return channels[0]
 }
 
+/**
+ * 모바일 캘린더를 월 보기로 바꾼다 — 모바일 첫 보기는 일정 목록(WP-136)이라 ‹ ›·월 그리드가 필요한 스펙의 공통 전처리.
+ * scope: 보기 select 를 찾을 범위(도구 줄 안인지까지 보려면 그 Locator).
+ */
+export async function toCalendarMonthView(page: Page, scope: Page | Locator = page) {
+  await scope.getByTestId('calendar-view-select').selectOption('month')
+  await expect(page.getByTestId('calendar-view-month')).toBeVisible()
+}
+
 /** 390px 뷰포트에서 문서가 가로로 넘치지 않는지. */
 export async function expectNoHorizontalOverflow(page: Page) {
   const w = await page.evaluate(() => document.documentElement.scrollWidth)
