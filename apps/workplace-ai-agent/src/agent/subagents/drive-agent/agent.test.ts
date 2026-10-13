@@ -93,7 +93,9 @@ describe('drive-agent 정의', () => {
     expect(prompt).toMatch(/\*\*전문을 다 읽은 뒤에만 저장합니다\*\*.*\*\*html 파일\(\.html·\.xhtml\)도 내용으로 고치지 않습니다\*\*/);
     expect(prompt).toMatch(/UTF-8 이 아닌 파일.*`truncated:true` 인 파일은.*웹 드라이브 화면에서 같은 이름으로 올리면 새 버전/);
     // 공유 read_file 의 truncated note 는 업로드 링크를 권하지만 AI Chat 에는 링크 모드가 없다 — 그 안내를 따르지 않게 한다.
-    expect(prompt).toMatch(/`note` 의 업로드 링크 안내는 따르지 않습니다/);
+    expect(prompt).toMatch(/`read_file` 응답 `note` 와 서버 오류 문구의 업로드 링크 안내는 따르지 않습니다/);
+    // 같은 이름 텍스트 만들기가 서버에 거절되는 경우(최종 리뷰 m3) — 다른 이름을 제안한다.
+    expect(prompt).toMatch(/같은 이름이 텍스트가 아닌 파일·html·UTF-8 이 아닌 파일 등이면 서버가 거절하니 다른 이름을 제안/);
     // 예전 "업로드는 미지원" 안내는 남기지 않는다.
     expect(prompt).not.toMatch(/업로드·멤버 변경·파일 버전 롤백\(되돌리기\)은 미지원/);
   });

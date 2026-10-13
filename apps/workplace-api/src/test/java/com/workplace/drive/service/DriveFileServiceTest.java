@@ -1135,12 +1135,16 @@ class DriveFileServiceTest extends IntegrationTestBase {
     DriveFileResponse yaml = uploadAs(u, sp.id(), "설정.yaml", "application/x-yaml", "a: 1");
     int filesBefore = dsl.fetchCount(FILE, FILE.UPLOADED_BY.eq(u));
 
+    // 같은 이름 경로 문구는 "같은 이름의 파일(사유)이 있어" 다른 이름을 권한다(최종 리뷰 m2) — 호출자는 그 파일이 있는 줄 모를 수 있다.
     assertThatThrownBy(() -> fileService.createTextFile(u, sp.id(), null, "보고서.docx", "본문", null))
         .isInstanceOf(com.workplace.drive.exception.DriveNotTextFileException.class)
-        .hasMessage("텍스트 파일만 내용으로 갱신할 수 있습니다");
+        .hasMessage("같은 이름의 파일(텍스트 아님)이 있어 내용으로 새 버전을 만들 수 없습니다. 다른 이름을 쓰거나 업로드 링크로 올리세요");
     assertThatThrownBy(() -> fileService.createTextFile(u, sp.id(), null, "page.html", "a", null))
         .isInstanceOf(com.workplace.drive.exception.DriveNotTextFileException.class)
-        .hasMessageContaining("HTML");
+        .hasMessage("같은 이름의 파일(HTML)이 있어 내용으로 새 버전을 만들 수 없습니다. 다른 이름을 쓰거나 업로드 링크로 올리세요");
+    // 파일 지정 갱신은 그 파일을 고칠 수 없다는 문구 그대로다.
+    assertThatThrownBy(() -> fileService.updateTextFile(u, html.id(), "a", null))
+        .hasMessageStartingWith("HTML 파일은 읽은 텍스트가 마크업을 뺀 것이라");
     assertThat(versionsRepo.listForDriveFile(doc.id())).hasSize(1);
     assertThat(versionsRepo.listForDriveFile(html.id())).hasSize(1);
     assertThat(dsl.fetchCount(FILE, FILE.UPLOADED_BY.eq(u))).isEqualTo(filesBefore);

@@ -42,6 +42,7 @@ import java.util.HashMap;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.InvalidMediaTypeException;
 import org.springframework.http.MediaType;
@@ -586,6 +587,11 @@ public class DriveTransferLinkService {
       throw lostUploadPermission();
     } catch (DriveFolderNotFoundException | DriveInvalidTargetException e) {
       throw uploadFolderGone();
+    } catch (DuplicateKeyException e) {
+      // 이름 경로에서 동명 행을 못 찾은 직후 다른 요청이 같은 이름을 만들었다(유일 인덱스 uq_drive_file_active_name, 최종 리뷰 m1).
+      // 다른 무결성 위반까지 이 문구로 감추지 않게 유일 위반(DuplicateKeyException)만 받는다.
+      throw new DriveTransferUploadRejectedException(
+          HttpStatus.CONFLICT, "같은 이름의 파일이 방금 생겼습니다. 새 링크를 발급받으세요");
     } catch (DriveQuotaExceededException e) {
       // 익명 링크 소지자에게 테넌트 사용량·한도를 드러내지 않는다.
       throw new DriveTransferUploadRejectedException(

@@ -1,5 +1,6 @@
 package com.workplace.drive.service;
 
+import static com.workplace.global.realtime.ResourceChangedEvent.OP_CREATED;
 import static com.workplace.jooq.Tables.AUDIT_LOG;
 import static com.workplace.jooq.Tables.DRIVE_FILE;
 import static com.workplace.jooq.Tables.DRIVE_SPACE;
@@ -11,18 +12,26 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.verify;
 
 import com.workplace.drive.dto.DriveFileResponse;
 import com.workplace.drive.exception.DriveFileNotFoundException;
+import com.workplace.drive.exception.DriveTransferUploadRejectedException;
 import com.workplace.drive.outbound.DriveChangeNotifier;
 import com.workplace.drive.repository.DriveFileRepository;
 import com.workplace.drive.repository.DriveFileVersionRepository;
 import com.workplace.drive.repository.DriveQuotaRepository;
+import com.workplace.drive.repository.DriveTransferLinkRepository.TransferLinkRow;
+import com.workplace.drive.service.DriveTransferLinkService.ReceivedBody;
 import com.workplace.file.service.UploadSource;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import org.jooq.DSLContext;
@@ -30,6 +39,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.TransactionDefinition;
@@ -65,6 +75,7 @@ class DriveFileVersionLockRaceTest extends IntegrationTestBase {
   @Autowired DriveFileService fileService;
   @Autowired DriveSpaceService spaceService;
   @Autowired DriveFileVersionRepository versionsRepo;
+  @Autowired DriveTransferLinkService transfers;
 
   /** advisory lock 을 잡은 직후 한 번 실행할 끼워 넣기 동작(없으면 그대로 통과). */
   private final AtomicReference<Runnable> afterAdvisoryLock = new AtomicReference<>();
@@ -224,6 +235,8 @@ class DriveFileVersionLockRaceTest extends IntegrationTestBase {
     assertThat(afterFindByName.get()).as("끼워 넣기가 실제로 실행됐다").isNull();
     assertThat(created.id()).isNotEqualTo(driveFileId);
     assertThat(created.versionCount()).isEqualTo(1);
+    // 변경 알림도 휴지통 파일이 아니라 새 파일 id 로 나간다.
+    verify(notifier).itemsChanged(OP_CREATED, spaceId, List.of(created.id()), owner);
     cleanupInTenant(1L, () -> assertThat(versionsRepo.listForDriveFile(driveFileId)).hasSize(1));
   }
 
@@ -241,5 +254,61 @@ class DriveFileVersionLockRaceTest extends IntegrationTestBase {
     assertThat(afterAdvisoryLock.get()).isNull();
     assertThat(fileRowsOfOwner()).isEqualTo(filesBefore);
     cleanupInTenant(1L, () -> assertThat(versionsRepo.listForDriveFile(driveFileId)).hasSize(1));
+  }
+
+  /**
+   * 3자 경합(최종 리뷰 m1): 같은 이름 파일을 찾은 직후 그 파일은 다른 이름으로, 다른 파일은 이 이름으로 바뀌면(한 트랜잭션으로 커밋) 잠근 행이 이름 검사에서
+   * 빠진다. 한 번 더 찾아 새로 그 이름이 된 파일을 잠가 새 버전으로 흡수한다 — 새 파일을 만들다 유일 인덱스에 걸리지 않는다.
+   */
+  @Test
+  void createTextFile_renamedAwayAndInAfterLookup_absorbsIntoNewHolder() throws Exception {
+    long other = fileService.createTextFile(owner, spaceId, null, "다른.md", "o1", null).id();
+    afterFindByName.set(
+        committedElsewhere(
+            () -> {
+              fileService.rename(owner, driveFileId, "비켜난.md");
+              fileService.rename(owner, other, "경합.md");
+            }));
+
+    DriveFileResponse saved = fileService.createTextFile(owner, spaceId, null, "경합.md", "v2", null);
+
+    assertThat(afterFindByName.get()).isNull();
+    assertThat(saved.id()).isEqualTo(other);
+    assertThat(saved.versionCount()).isEqualTo(2);
+    cleanupInTenant(1L, () -> assertThat(versionsRepo.listForDriveFile(driveFileId)).hasSize(1));
+  }
+
+  /**
+   * 동명 파일이 없다고 본 직후 다른 파일이 그 이름으로 바뀌면 새 파일 삽입이 유일 인덱스에 걸린다 — 업로드 링크 PUT 은 이를 409 "같은 이름의 파일이 방금
+   * 생겼습니다"로 바꾼다(최종 리뷰 m1). 끼워 넣기는 advisory lock 을 잡지 않는 이름 변경이라 교착하지 않는다.
+   */
+  @Test
+  void completeUpload_nameTakenAfterLookup_isConflict() throws Exception {
+    afterFindByName.set(committedElsewhere(() -> fileService.rename(owner, driveFileId, "새이름.md")));
+    Path body = Files.createTempFile("wp369-race", ".md");
+    Files.writeString(body, "본문");
+    TransferLinkRow link =
+        new TransferLinkRow(
+            0L,
+            1L,
+            DriveTransferLinkService.KIND_UPLOAD,
+            owner,
+            spaceId,
+            null,
+            null,
+            "새이름.md",
+            OffsetDateTime.now().plusMinutes(10),
+            OffsetDateTime.now());
+
+    try (ReceivedBody received = new ReceivedBody(body, Files.size(body), "text/markdown")) {
+      assertThatThrownBy(() -> transfers.completeUpload(link, received, "127.0.0.1", "test"))
+          .isInstanceOfSatisfying(
+              DriveTransferUploadRejectedException.class,
+              e -> {
+                assertThat(e.status()).isEqualTo(HttpStatus.CONFLICT);
+                assertThat(e.getMessage()).isEqualTo("같은 이름의 파일이 방금 생겼습니다. 새 링크를 발급받으세요");
+              });
+    }
+    assertThat(afterFindByName.get()).isNull();
   }
 }

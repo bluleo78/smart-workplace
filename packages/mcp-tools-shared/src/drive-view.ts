@@ -4,6 +4,7 @@
 // 이동·삭제는 drive_file.id 를 받으므로, 같은 이름의 fileId 가 보이면 LLM 이 그것을 넘겨 엉뚱한 파일을 건드린다.
 // 그래서 core fileId 는 제거하고 drive_file.id 는 driveFileId 로만 노출한다. 나머지 필드는 그대로 넘긴다 —
 // 허용 목록으로 고르면 서버에 새 필드(예: available)가 생길 때 조용히 누락된다.
+// 예외: 전송 링크 뷰(toDriveDownloadLinkView·toDriveUploadLinkView)는 로그인 없이 쓰는 링크라 허용 목록으로 고른다(WP-369, fail-closed).
 import { dropEmpty } from './compact.js';
 import type { DriveDownloadLink, DriveUploadLink } from './tool-client.js';
 

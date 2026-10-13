@@ -129,7 +129,7 @@ public class DriveFileService {
    * 쓰고, 없으면 확장자(md·txt·csv·json, 그 밖은 text/plain)로 정한다. 크기 상한은 TEXT 상한(10MB).
    *
    * <p>같은 폴더에 같은 이름의 활성 파일이 있어 그 파일의 새 버전이 될 때는 {@link #updateTextFile} 과 같은 규칙을 탄다(최종 리뷰 M2) — 텍스트
-   * 계열이 아니면 409, 추출 텍스트가 원문과 다르면({@link #requireRewritable}) 409, MIME 은 {@link
+   * 계열이 아니면 409, 추출 텍스트가 원문과 다르면({@link #rewriteBlockerOf}) 409, MIME 은 {@link
    * #updatedTextMimeOf}(지금 MIME 유지). 이 판정은 저장 핵심이 잠근 그 행으로 한다.
    *
    * @throws IllegalArgumentException 허용하지 않는 mimeType(400)
@@ -172,7 +172,7 @@ public class DriveFileService {
    * 기존 파일을 텍스트 내용으로 갱신(WP-369) — 그 파일에 새 버전을 더한다. 이름·폴더는 바꾸지 않는다. 의미는 {@link #addVersion} 과 같다.
    *
    * <p>검사 순서가 존재 은닉을 지킨다: 없는·휴지통 파일 404 → 공간 비멤버 404 · EDITOR 미만 403 → 텍스트 계열이 아니면 409 → MIME(400)
-   * → 크기(400) → (저장 핵심이 행을 잠근 뒤) 추출 텍스트가 원문과 다르면 409({@link #requireRewritable}). 역할 검사를 409 보다 먼저
+   * → 크기(400) → (저장 핵심이 행을 잠근 뒤) 추출 텍스트가 원문과 다르면 409({@link #rewriteBlockerOf}). 역할 검사를 409 보다 먼저
    * 해야 비멤버가 파일 형식을 알아내지 못한다. 원문 판정은 blob 을 읽으므로 싼 검사를 모두 마친 뒤, 새 버전을 붙일 그 행을 잠근 상태에서 한다.
    *
    * <p>MIME 은 {@link #updatedTextMimeOf} 로 정한다 — 명시값은 R4 허용 목록만, 없으면 지금 MIME 을 유지한다(yaml·md·js 가
@@ -224,22 +224,60 @@ public class DriveFileService {
   private static final String UPLOAD_LINK_HINT = ". 업로드 링크로 파일을 올리세요";
 
   /**
-   * 잠근 기존 파일에 내용 모드 새 버전을 붙일 때의 MIME(WP-369) — 텍스트 계열이 아니면 409, 추출 텍스트가 원문과 다르면 409, 그 밖은 {@link
-   * #updatedTextMimeOf}.
+   * 내용으로 고쳐 쓸 수 없는 사유(WP-369 최종 리뷰 I3·I4·m2). 경로마다 문구가 다르다 — 파일 지정 갱신({@code driveFileId})은 그 파일을
+   * 고칠 수 없다는 문구, 같은 이름 텍스트 만들기는 "같은 이름의 파일(사유)이 있어" 다른 이름을 권하는 문구다. 호출자는 같은 이름 파일이 있는 줄 모를 수 있다.
    */
-  private String rewriteMimeOf(DriveFileRepository.DriveFileRow locked, String requestedMime)
+  private enum RewriteBlocker {
+    NOT_TEXT("텍스트 아님", "텍스트 파일만 내용으로 갱신할 수 있습니다"),
+    HTML("HTML", "HTML 파일은 읽은 텍스트가 마크업을 뺀 것이라 내용으로 고쳐 쓸 수 없습니다" + UPLOAD_LINK_HINT),
+    TRUNCATED("추출 잘림", "파일이 커서 읽은 텍스트가 앞부분만이라 내용으로 고쳐 쓸 수 없습니다" + UPLOAD_LINK_HINT),
+    TOO_LARGE("10MB 초과", "파일이 커서(10MB 초과) 내용으로 고쳐 쓸 수 없습니다" + UPLOAD_LINK_HINT),
+    NOT_UTF8(
+        "UTF-8 아님", "UTF-8 이 아닌 파일(예: CP949)이라 읽은 텍스트가 원문과 달라 내용으로 고쳐 쓸 수 없습니다" + UPLOAD_LINK_HINT);
+
+    /** 같은 이름 경로 문구의 괄호 안 사유. */
+    private final String label;
+
+    /** 파일 지정 경로 문구. */
+    private final String message;
+
+    RewriteBlocker(String label, String message) {
+      this.label = label;
+      this.message = message;
+    }
+
+    /** 경로에 맞는 409 — {@code sameName} 이면 같은 이름 텍스트 만들기가 기존 파일에 흡수되려던 경우다. */
+    DriveNotTextFileException toException(boolean sameName) {
+      return new DriveNotTextFileException(
+          sameName
+              ? "같은 이름의 파일(" + label + ")이 있어 내용으로 새 버전을 만들 수 없습니다. 다른 이름을 쓰거나 업로드 링크로 올리세요"
+              : message);
+    }
+  }
+
+  /**
+   * 잠근 기존 파일에 내용 모드 새 버전을 붙일 때의 MIME(WP-369) — 텍스트 계열이 아니거나 추출 텍스트가 원문과 다르면 409({@link
+   * RewriteBlocker}), 그 밖은 {@link #updatedTextMimeOf}.
+   *
+   * @param sameName 이름 경로(같은 이름 텍스트 만들기)인지 — 409 문구를 고른다
+   */
+  private String rewriteMimeOf(
+      DriveFileRepository.DriveFileRow locked, String requestedMime, boolean sameName)
       throws IOException {
     String currentMime = files.findCurrentMime(locked.fileId());
-    if (!isTextLike(currentMime, locked.name())) {
-      throw new DriveNotTextFileException();
+    RewriteBlocker blocker =
+        isTextLike(currentMime, locked.name())
+            ? rewriteBlockerOf(locked.fileId(), currentMime)
+            : RewriteBlocker.NOT_TEXT;
+    if (blocker != null) {
+      throw blocker.toException(sameName);
     }
-    requireRewritable(locked.fileId(), currentMime);
     return updatedTextMimeOf(locked.name(), currentMime, requestedMime);
   }
 
   /**
-   * 내용으로 고쳐 써도 원문을 잃지 않는지(최종 리뷰 I3·I4) — AI 는 추출 텍스트를 읽고 고친 전문을 저장하므로, 추출 텍스트가 원문과 같은 파일만 허용한다. 아니면
-   * 409 와 사유, 그리고 "업로드 링크로 파일을 올리세요".
+   * 내용으로 고쳐 써도 원문을 잃지 않는지(최종 리뷰 I3·I4) — AI 는 추출 텍스트를 읽고 고친 전문을 저장하므로, 추출 텍스트가 원문과 같은 파일만 허용한다. 막을
+   * 사유가 있으면 그 사유, 없으면 null.
    *
    * <ol>
    *   <li>html 계열(text/html·application/xhtml+xml) — 워커가 마크업을 걷어낸다(xhtml 은 추출하지 않는다).
@@ -254,31 +292,26 @@ public class DriveFileService {
    *
    * <p>blob 이 유실됐으면(행은 있고 바이트가 없음) 잃을 원문이 없으므로 크기·UTF-8 검사를 건너뛴다 — 추출 텍스트로 되살리는 것이 유일한 복구 길이다.
    */
-  private void requireRewritable(long fileId, String currentMime) throws IOException {
+  private RewriteBlocker rewriteBlockerOf(long fileId, String currentMime) throws IOException {
     String bare = bareMime(currentMime);
     if (bare != null && MARKUP_STRIPPED_MIMES.contains(bare)) {
-      throw new DriveNotTextFileException(
-          "HTML 파일은 읽은 텍스트가 마크업을 뺀 것이라 내용으로 고쳐 쓸 수 없습니다" + UPLOAD_LINK_HINT);
+      return RewriteBlocker.HTML;
     }
     ExtractionInfo info = extractedText.info(List.of(fileId)).get(fileId);
     if (info != null && Boolean.TRUE.equals(info.truncated())) {
-      throw new DriveNotTextFileException(
-          "파일이 커서 읽은 텍스트가 앞부분만이라 내용으로 고쳐 쓸 수 없습니다" + UPLOAD_LINK_HINT);
+      return RewriteBlocker.TRUNCATED;
     }
     FileContentResult content;
     try {
       content = fileUpload.getFileContentTrusted(fileId);
     } catch (FileBlobMissingException e) {
-      return;
+      return null;
     }
     // 크기는 저장소 메타(fileStore.size)라 바이트를 읽지 않는다.
     if (content.size() > TEXT_FILE_MAX_BYTES) {
-      throw new DriveNotTextFileException("파일이 커서(10MB 초과) 내용으로 고쳐 쓸 수 없습니다" + UPLOAD_LINK_HINT);
+      return RewriteBlocker.TOO_LARGE;
     }
-    if (!isUtf8(content)) {
-      throw new DriveNotTextFileException(
-          "UTF-8 이 아닌 파일(예: CP949)이라 읽은 텍스트가 원문과 달라 내용으로 고쳐 쓸 수 없습니다" + UPLOAD_LINK_HINT);
-    }
+    return isUtf8(content) ? null : RewriteBlocker.NOT_UTF8;
   }
 
   /** blob 이 처음부터 끝까지 올바른 UTF-8 인지 — 엄격한 디코더(REPORT)로 스트림을 끝까지 읽는다. 끝의 잘린 바이트열도 거절된다. */
@@ -472,21 +505,18 @@ public class DriveFileService {
               .lockActiveRow(targetDriveFileId)
               .orElseThrow(() -> new DriveFileNotFoundException(targetDriveFileId));
     } else {
-      // 이름 경로(최종 리뷰 I1): file core 와 같은 정리로 이름을 먼저 정해 동명 행을 찾고 잠근다. 잠그는 사이 휴지통으로 갔거나 이름·폴더가
-      // 바뀌었으면 동명 파일이 없는 것이므로 새 파일 + v1 로 간다(거절이 아니다).
-      String name = SafeFileNames.sanitize(source.originalName(), "file");
+      // 이름 경로(최종 리뷰 I1): file core 와 같은 정리로 이름을 먼저 정해 동명 행을 찾고 잠근다.
       locked =
-          files
-              .findActiveByName(spaceId, folderId, name)
-              .flatMap(files::lockActiveRow)
-              .filter(r -> r.name().equals(name) && Objects.equals(r.folderId(), folderId))
-              .orElse(null);
+          lockActiveByName(
+              spaceId, folderId, SafeFileNames.sanitize(source.originalName(), "file"));
     }
     UploadSource toStore = source;
     if (locked != null) {
       // 내용 모드가 기존 파일에 붙으면 잠근 행의 현재 버전으로 고쳐 쓰기 판정·MIME 을 정한다(I3·M2). 바이트 업로드는 올린 형식 그대로.
       String contentType =
-          text == null ? source.contentType() : rewriteMimeOf(locked, text.requestedMime());
+          text == null
+              ? source.contentType()
+              : rewriteMimeOf(locked, text.requestedMime(), targetDriveFileId == null);
       toStore = new UploadSource(locked.name(), contentType, source.size(), source.writer());
     }
     quota.assertWithinQuota(toStore.size());
@@ -545,6 +575,29 @@ public class DriveFileService {
     notifier.itemsChanged(OP_CREATED, spaceId, List.of(driveFileId), callerId);
     final long fid = driveFileId;
     return files.findResponse(fid).orElseThrow(() -> new DriveFileNotFoundException(fid));
+  }
+
+  /**
+   * 같은 폴더의 동명 활성 파일을 찾아 잠근다(최종 리뷰 I1·m1). 잠그는 사이 그 파일이 휴지통으로 갔거나 이름·폴더가 바뀌었으면 한 번 더 찾는다 — 다른 파일이 막
+   * 그 이름으로 바뀌어 들어온 3자 경합이면 그 파일을 잠가 새 버전으로 흡수한다. 그래도 없으면 null(새 파일 + v1, 거절이 아니다). 두 번째 조회 뒤에도 남는
+   * 아주 좁은 경합은 유일 인덱스(uq_drive_file_active_name)가 막고 호출부가 409 로 바꾼다.
+   */
+  private DriveFileRepository.DriveFileRow lockActiveByName(
+      long spaceId, Long folderId, String name) {
+    for (int attempt = 0; attempt < 2; attempt++) {
+      Optional<Long> found = files.findActiveByName(spaceId, folderId, name);
+      if (found.isEmpty()) {
+        return null;
+      }
+      Optional<DriveFileRepository.DriveFileRow> locked =
+          found
+              .flatMap(files::lockActiveRow)
+              .filter(r -> r.name().equals(name) && Objects.equals(r.folderId(), folderId));
+      if (locked.isPresent()) {
+        return locked.get();
+      }
+    }
+    return null;
   }
 
   /** 다운로드. drive 권한(VIEWER+)으로 인가한 뒤 file core 신뢰 read. */
