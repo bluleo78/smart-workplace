@@ -1,0 +1,165 @@
+// WP-55 채팅 메모리 결과 줄(데스크톱) — 답 아래·후속 질문 위, done 전 되돌리기 비활성, 줄마다 되돌리기, 실패 토스트 2종, 이력 복원, 위임 답 순번, 긴 문구 줄바꿈.
+import type { Page } from '@playwright/test'
+
+import { ask, type LiveChat, msg, openChatPanel, sessionItem, setupLiveChat, summary, TITLE_A } from '../fixtures/ai-live-chat'
+import { memoryError, mockMemoryUndo } from '../fixtures/ai-memory-mock'
+import { mockAiPreferences } from '../fixtures/ai-suggestions-mock'
+import { expect, test } from '../fixtures/auth.fixture'
+import { stableBox } from '../fixtures/wait'
+
+const C = { correlationId: 'corr-a', sessionId: 's-a' }
+const lines = (page: Page) => page.getByTestId('chat-memory-result')
+const undoLinks = (page: Page) => page.getByTestId('chat-memory-undo')
+
+const saved = { action: 'saved', memoryId: 12, kind: 'PREFERENCE', content: '이슈 목록은 짧은 목록으로 보여 준다', source: 'AI' }
+const updated = { action: 'updated', memoryId: 9, kind: 'CONTEXT', content: '백엔드 팀이다', previousContent: '프론트 팀이다', source: 'AI' }
+const forgotten = { action: 'forgotten', memoryId: 7, kind: 'PREFERENCE', content: '표로 보여 준다', source: 'USER' }
+
+/** 메모리 도구 start·result 한 쌍. */
+async function memoryTool(live: LiveChat, seq: number, toolName: string, memory: Record<string, unknown>) {
+  await live.push('tool', { ...C, seq, phase: 'start', toolName, args: {} })
+  await live.push('tool', { ...C, seq, phase: 'result', toolName, isError: false, memory })
+}
+
+test('저장 결과 줄이 답 아래·후속 질문 위에 보이고, done 전엔 되돌리기가 꺼져 있다가 누르면 되돌림으로 바뀐다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
+  const undo = await mockMemoryUndo(page)
+  const live = await setupLiveChat(page)
+  live.queueStart({ correlationId: 'corr-a', sessionId: 's-a' })
+  await openChatPanel(page)
+  await ask(page, live, '앞으로는 이슈 목록을 짧은 목록으로 보여줘')
+  await live.push('delta', { ...C, text: '알겠어요. 앞으로 짧은 목록으로 보여 드릴게요.' })
+  await memoryTool(live, 1, 'mcp__workplace__remember_memory', saved)
+
+  await expect(lines(page)).toHaveCount(1)
+  await expect(lines(page)).toContainText('메모리에 저장함: "이슈 목록은 짧은 목록으로 보여 준다" · 되돌리기')
+  await expect(undoLinks(page)).toBeDisabled() // done 전 — 메시지 id 없음
+  await expect(page.getByTestId('chat-block-tools')).toHaveCount(0) // 도구 단계 목록에는 없다
+
+  await live.push('done', { ...C, widgets: null, messageId: 2 })
+  await live.push('followups', { ...C, messageId: 2, items: ['내 이슈 보여줘'] })
+  await expect(undoLinks(page)).toBeEnabled()
+  const bubble = await stableBox(page.getByTestId('chat-block').last())
+  const line = await stableBox(lines(page).first())
+  const chips = await stableBox(page.getByTestId('chat-followups'))
+  expect(line.y).toBeGreaterThan(bubble.y + bubble.height - 1)
+  expect(chips.y).toBeGreaterThan(line.y + line.height - 1)
+
+  await undoLinks(page).click()
+  await undo.waitFor()
+  expect(undo.lastBody()).toEqual({ messageId: 2, blockIndex: 0 })
+  await expect(lines(page).first()).toHaveAttribute('data-undone', 'true')
+  await expect(lines(page).first()).toContainText('· 되돌림')
+  await expect(undoLinks(page)).toHaveCount(0)
+})
+
+test('여러 줄은 문구가 동작별로 다르고 줄마다 따로 되돌린다', async ({ authenticatedPage: page }) => {
+  const undo = await mockMemoryUndo(page)
+  const live = await setupLiveChat(page)
+  live.queueStart({ correlationId: 'corr-a', sessionId: 's-a' })
+  await openChatPanel(page)
+  await ask(page, live, '정리해줘')
+  await memoryTool(live, 1, 'remember_memory', saved)
+  await memoryTool(live, 2, 'update_memory', updated)
+  await memoryTool(live, 3, 'workplace_forget_memory', forgotten)
+  await live.push('delta', { ...C, text: '세 가지를 정리했어요.' })
+  await live.push('done', { ...C, widgets: null, messageId: 5 })
+
+  await expect(lines(page)).toHaveCount(3)
+  await expect(lines(page).nth(0)).toContainText('메모리에 저장함: "이슈 목록은 짧은 목록으로 보여 준다"')
+  await expect(lines(page).nth(1)).toContainText('메모리를 고침: "백엔드 팀이다"')
+  await expect(lines(page).nth(2)).toContainText('메모리에서 지움: "표로 보여 준다"')
+
+  await lines(page).nth(1).getByTestId('chat-memory-undo').click()
+  await undo.waitFor()
+  expect(undo.lastBody()).toEqual({ messageId: 5, blockIndex: 1 })
+  await expect(lines(page).nth(1)).toHaveAttribute('data-undone', 'true')
+  await expect(lines(page).nth(0)).toHaveAttribute('data-undone', 'false')
+  await expect(lines(page).nth(2)).toHaveAttribute('data-undone', 'false')
+})
+
+test('이미 지워진 메모리·가득 참이면 안내 토스트를 띄우고 줄은 그대로 둔다 — 가득 참은 설정으로 이동할 수 있다', async ({ authenticatedPage: page }) => {
+  await mockMemoryUndo(page, [memoryError(404, 'AI_MEMORY_GONE'), memoryError(409, 'AI_MEMORY_FULL')])
+  const live = await setupLiveChat(page)
+  live.queueStart({ correlationId: 'corr-a', sessionId: 's-a' })
+  await openChatPanel(page)
+  await ask(page, live, '정리해줘')
+  await memoryTool(live, 1, 'update_memory', updated)
+  await memoryTool(live, 2, 'forget_memory', forgotten)
+  await live.push('delta', { ...C, text: '정리했어요.' })
+  await live.push('done', { ...C, widgets: null, messageId: 5 })
+
+  await lines(page).nth(0).getByTestId('chat-memory-undo').click()
+  await expect(page.getByText('이미 지워진 메모리예요')).toBeVisible()
+  await expect(lines(page).nth(0)).toHaveAttribute('data-undone', 'false')
+
+  await lines(page).nth(1).getByTestId('chat-memory-undo').click()
+  await expect(page.getByText('메모리가 가득 찼어요. 설정에서 정리해 주세요')).toBeVisible()
+  await expect(lines(page).nth(1)).toHaveAttribute('data-undone', 'false')
+  // 에러 토스트는 fixture 가 포인터를 통과시킨다 — 토스트 안의 action 버튼을 누르려면 그 규칙을 먼저 걷어낸다.
+  await page.evaluate(() => document.querySelector('style[data-test-toast-passthrough]')?.remove())
+  await page.getByRole('button', { name: '설정 열기' }).click()
+  await expect(page).toHaveURL(/\/settings\/assistant$/)
+})
+
+test('이력의 결과 줄은 저장된 되돌림 상태로 보이고, 이력의 메시지 id 로 되돌린다', async ({ authenticatedPage: page }) => {
+  const undo = await mockMemoryUndo(page)
+  const live = await setupLiveChat(page)
+  live.setSessions([summary('s-a', TITLE_A, 1)])
+  live.setMessages('s-a', [
+    msg(1, 'USER', TITLE_A),
+    {
+      ...msg(2, 'ASSISTANT', '정리했어요.'),
+      contentBlocks: [
+        { kind: 'text', textStart: 0 },
+        { kind: 'memory', action: 'saved', memoryId: 12, memoryKind: 'PREFERENCE', content: '짧은 목록', source: 'AI', undone: true },
+        { kind: 'memory', action: 'forgotten', memoryId: 7, memoryKind: 'PREFERENCE', content: '표로 보여 준다', source: 'USER', undone: false },
+      ],
+    },
+  ])
+  await openChatPanel(page)
+  await page.getByTestId('chat-session-switcher').click()
+  await sessionItem(page, TITLE_A).getByTestId('chat-session-select').click()
+  await expect(page.getByTestId('chat-panel')).toContainText('정리했어요.')
+  await expect(lines(page).nth(0)).toHaveAttribute('data-undone', 'true')
+  await expect(lines(page).nth(1).getByTestId('chat-memory-undo')).toBeEnabled()
+  await lines(page).nth(1).getByTestId('chat-memory-undo').click()
+  await undo.waitFor()
+  expect(undo.lastBody()).toEqual({ messageId: 2, blockIndex: 1 })
+})
+
+// Review Focus 5: 추천을 끈 사용자(followups 없음)도 done 의 messageId 로 되돌리기가 켜지고, 위임 답(안내 문장이 버려지는 턴)에서도 순번 0 이다.
+test('추천을 꺼도 done 뒤 되돌리기가 켜지고 위임 답에서도 순번이 맞다', async ({ authenticatedPage: page }) => {
+  await mockAiPreferences(page, false)
+  const undo = await mockMemoryUndo(page)
+  const live = await setupLiveChat(page)
+  live.queueStart({ correlationId: 'corr-a', sessionId: 's-a' })
+  await openChatPanel(page)
+  await ask(page, live, '앞으로 이슈는 짧게, 그리고 WP-1 닫아줘')
+  await live.push('progress', { ...C, label: '이슈 전문가에게 위임 중' })
+  await live.push('delta', { ...C, text: '확인해 볼게요. ' })
+  await memoryTool(live, 1, 'remember_memory', saved)
+  await live.push('delta', { ...C, text: 'WP-1 을 닫았어요.' })
+  await live.push('done', { ...C, widgets: null, messageId: 8 })
+
+  await expect(undoLinks(page)).toBeEnabled()
+  await undoLinks(page).click()
+  await undo.waitFor()
+  expect(undo.lastBody()).toEqual({ messageId: 8, blockIndex: 0 })
+})
+
+test('긴 메모리 문구는 줄바꿈되어 패널 밖으로 넘치지 않는다', async ({ authenticatedPage: page }) => {
+  const live = await setupLiveChat(page)
+  live.queueStart({ correlationId: 'corr-a', sessionId: 's-a' })
+  await openChatPanel(page)
+  await ask(page, live, '기억해줘')
+  await memoryTool(live, 1, 'remember_memory', { ...saved, content: 'https://example.com/' + 'a'.repeat(280) })
+  await live.push('delta', { ...C, text: '기억할게요.' })
+  await live.push('done', { ...C, widgets: null, messageId: 2 })
+  const line = lines(page).first()
+  await expect(line).toBeVisible()
+  const overflow = await line.evaluate((el) => el.scrollWidth - el.clientWidth)
+  expect(overflow).toBeLessThanOrEqual(0)
+  const panel = await stableBox(page.getByTestId('chat-panel'))
+  const box = await stableBox(line)
+  expect(box.x + box.width).toBeLessThanOrEqual(panel.x + panel.width)
+})

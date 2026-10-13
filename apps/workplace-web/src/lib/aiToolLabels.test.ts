@@ -1,7 +1,7 @@
 import { TOOL_LABELS } from '@smart-workplace/mcp-tools-shared/tool-labels';
 import { describe, expect, it } from 'vitest';
 
-import { getToolDisplay, LEGACY_TOOL_LABELS, widgetTypeFromToolName } from './aiToolLabels';
+import { getToolDisplay, isVisibleStep, LEGACY_TOOL_LABELS, widgetTypeFromToolName } from './aiToolLabels';
 
 // #461: show_* 도구명 → 위젯 타입 추출(점진 렌더용). 백엔드 compose-parser 와 동일 규칙 검증.
 describe('widgetTypeFromToolName', () => {
@@ -63,5 +63,15 @@ describe('getToolDisplay — 옛 도구 이름 폴백', () => {
   });
   it('옛 이름은 공유 TOOL_LABELS 에 없다(폴백 전용)', () => {
     for (const k of Object.keys(LEGACY_TOOL_LABELS)) expect(TOOL_LABELS[k]).toBeUndefined();
+  });
+});
+
+// WP-55: 메모리 도구는 결과 줄로 보이므로 도구 단계 목록에서 숨긴다(라벨은 공유 표에 있다).
+describe('isVisibleStep — 메모리 도구 (WP-55)', () => {
+  it('세 메모리 도구는 런타임 접두와 무관하게 숨기고, 다른 도구는 그대로', () => {
+    for (const n of ['remember_memory', 'mcp__workplace__update_memory', 'workplace_forget_memory']) {
+      expect(isVisibleStep({ kind: 'tool', toolName: n })).toBe(false);
+    }
+    expect(isVisibleStep({ kind: 'tool', toolName: 'update_issue' })).toBe(true);
   });
 });

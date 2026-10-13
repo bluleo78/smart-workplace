@@ -12,6 +12,7 @@ import { DeleteSessionDialog } from '@/components/ai/DeleteSessionDialog';
 import { FollowupChips } from '@/components/ai/FollowupChips';
 import { HomeMessageImage } from '@/components/ai/HomeMessageImage';
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage';
+import { MemoryResultLine } from '@/components/ai/MemoryResultLine';
 import { useAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext';
 import { ScreenContextChip } from '@/components/ai/ScreenContextChip';
 import { StarterSuggestionList } from '@/components/ai/StarterSuggestionList';
@@ -41,7 +42,7 @@ import { useStickToBottom } from '@/hooks/useStickToBottom';
 import { sessionListLabel } from '@/lib/ai/aiActivity';
 import { contextIdentity } from '@/lib/aiScreenContext/common';
 import { visibleSteps } from '@/lib/aiToolLabels';
-import { sliceRange } from '@/lib/chatBlocks';
+import { displayBlocks, memoryBlocks, sliceRange } from '@/lib/chatBlocks';
 import { filesFromPaste } from '@/lib/clipboardFiles';
 import { countSessionAttachments } from '@/lib/homeChatAttachments';
 import { keepFocusProps } from '@/lib/keepFocus';
@@ -332,16 +333,18 @@ export function AIChatPanel({
                   ) :
                   // 빈 어시스턴트 턴은 아직 첫 토큰을 받지 않은 상태 — 3-dot 이 대신 렌더되므로 skip.
                   // 단, 위젯이 있으면(show_* 단독 응답) content 가 비어도 위젯을 렌더해야 하므로 skip 안 함(#431).
-                  t.role === 'assistant' && t.content === '' && !t.widgets?.length && !t.contentBlocks?.length && !visibleSteps(t.steps ?? []).length ? null : (
+                  t.role === 'assistant' && t.content === '' && !t.widgets?.length && !displayBlocks(t.contentBlocks).length && !visibleSteps(t.steps ?? []).length ? null : (
                   <li
                     data-testid="chat-turn"
                     className={cn('flex', t.role === 'assistant' ? 'justify-start' : 'justify-end')}
                   >
                     {t.role === 'assistant' ? (
-                      t.contentBlocks?.length ? (
+                      displayBlocks(t.contentBlocks).length ? (
                         // #463: 라이브 인터리브 — 블록 도착순으로 text↔widget↔도구 그룹(WP-157) 렌더.
                         <div className="flex w-full max-w-[92%] flex-col gap-2" data-testid="chat-widgets">
-                          {t.contentBlocks.map((b, bi, blocks) => {
+                          {t.contentBlocks!.map((b, bi, blocks) => {
+                            // WP-55: 메모리 결과 줄은 말풍선 사이가 아니라 답변 아래에 따로 모아 그린다.
+                            if (b.kind === 'memory') return null;
                             if (b.kind === 'tools') {
                               // WP-157: 도구 그룹 = steps[stepStart ~ 다음 tools 블록의 stepStart). result 이벤트는 steps 만
                               // 갱신하므로 상태 전이(실행 중→✓)가 그대로 반영된다. 표시할 단계가 없으면 ToolStepList 가 null.
@@ -440,6 +443,15 @@ export function AIChatPanel({
                       {INTERRUPTED_LABEL[t.interrupted]}
                     </li>
                   )}
+                  {/* WP-55: 메모리 결과 줄(시안 A) — 답변 말풍선들 아래·후속 질문 위. 줄마다 따로 되돌린다. 첫 토큰 전(3-dot 중)엔 미룬다.
+                      터치 기기는 줄 간격을 넓혀 되돌리기의 위아래 터치 확장이 이웃 줄과 겹치지 않게 한다(후속 질문 칩과 같은 이유). */}
+                  {t.role === 'assistant' && memoryBlocks(t.contentBlocks).length > 0 && !(i === turns.length - 1 && pending && t.content === '') ? (
+                    <li data-testid="chat-memory-results" className="flex flex-col gap-1 pointer-coarse:gap-4">
+                      {memoryBlocks(t.contentBlocks).map((b, mi) => (
+                        <MemoryResultLine key={`${mi}-${b.memoryId}`} block={b} blockIndex={mi} messageId={t.messageId} />
+                      ))}
+                    </li>
+                  ) : null}
                   {/* WP-139: 후속 질문(시안 A) — 마지막 턴이고 답변 중·확인 카드가 아니며 추천을 끄지 않았을 때만. 새 질문을 보내면 마지막 턴이 아니게 되어 사라진다. */}
                   {i === turns.length - 1 && t.role === 'assistant' && !pending && pendingActions.length === 0 && suggestionsOn && t.followups?.length ? (
                     <li data-testid="chat-followups-row" className="flex justify-start">

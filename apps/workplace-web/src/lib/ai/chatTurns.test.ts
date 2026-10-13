@@ -5,10 +5,12 @@ import type { ChatTurn, HomeMessage, MessageTurn } from '@/types/home';
 import {
   appendDelta,
   appendProgress,
+  applyDoneMessageId,
   applyDoneWidgets,
   applyTool,
   FAILED_EMPTY,
   markInterrupted,
+  markMemoryUndone,
   messageToTurn,
   STOPPED_EMPTY,
 } from './chatTurns';
@@ -81,5 +83,54 @@ describe('markInterrupted', () => {
   it('빈 말풍선이면 안내 문구로 바꾼다(라벨 없음)', () => {
     expect(markInterrupted(base(), 'stopped')[1]).toEqual({ role: 'assistant', content: STOPPED_EMPTY });
     expect(markInterrupted(base(), 'failed')[1]).toEqual({ role: 'assistant', content: FAILED_EMPTY });
+  });
+});
+
+describe('메모리 결과 줄 (WP-55)', () => {
+  const memory = { action: 'saved' as const, memoryId: 12, kind: 'PREFERENCE' as const, content: '짧은 목록', source: 'AI' as const };
+
+  it('성공 result 의 memory 는 블록으로, 오류 result 는 무시한다', () => {
+    let t = applyTool(base(), { seq: 1, phase: 'start', toolName: 'remember_memory', args: {} });
+    t = applyTool(t, { seq: 1, phase: 'result', toolName: 'remember_memory', isError: false, memory });
+    t = applyTool(t, { seq: 2, phase: 'result', toolName: 'remember_memory', isError: true, memory: { ...memory, memoryId: 13 } });
+    const last = t[1] as MessageTurn;
+    expect(last.contentBlocks).toEqual([
+      { kind: 'memory', action: 'saved', memoryId: 12, memoryKind: 'PREFERENCE', content: '짧은 목록', source: 'AI', undone: false },
+    ]);
+  });
+
+  it('메시지 id 는 이력(ASSISTANT)과 done 에서 채운다', () => {
+    expect(messageToTurn(msg({ id: 7 }))).toMatchObject({ messageId: 7 });
+    expect(messageToTurn(msg({ id: 7, role: 'USER' }))).not.toHaveProperty('messageId');
+    expect(applyDoneMessageId(base(), 9)[1]).toMatchObject({ messageId: 9 });
+    expect(applyDoneMessageId(base(), null)).toEqual(base());
+  });
+
+  it('markMemoryUndone 은 그 메시지의 blockIndex 번째 memory 블록만 되돌림으로 — 다른 블록은 세지 않는다', () => {
+    const turns: ChatTurn[] = [
+      {
+        role: 'assistant',
+        content: '답',
+        messageId: 5,
+        contentBlocks: [
+          { kind: 'text', textStart: 0 },
+          { kind: 'memory', action: 'saved', memoryId: 1, memoryKind: 'PREFERENCE', content: 'a', source: 'AI', undone: false },
+          { kind: 'memory', action: 'forgotten', memoryId: 2, memoryKind: 'CONTEXT', content: 'b', source: 'USER', undone: false },
+        ],
+      },
+    ];
+    const next = markMemoryUndone(turns, 5, 1);
+    const blocks = (next[0] as MessageTurn).contentBlocks!;
+    expect(blocks[1]).toMatchObject({ undone: false });
+    expect(blocks[2]).toMatchObject({ undone: true });
+    expect(markMemoryUndone(turns, 6, 0)).toBe(turns); // 다른 메시지
+    expect(markMemoryUndone(turns, 5, 9)).toBe(turns); // 순번 밖
+  });
+
+  it('첫 토큰 전 중단돼도 memory 블록은 남는다', () => {
+    const t = applyTool(base(), { seq: 1, phase: 'result', toolName: 'remember_memory', isError: false, memory });
+    const stopped = markInterrupted(t, 'stopped')[1] as MessageTurn;
+    expect(stopped.content).toBe(STOPPED_EMPTY);
+    expect(stopped.contentBlocks).toHaveLength(1);
   });
 });

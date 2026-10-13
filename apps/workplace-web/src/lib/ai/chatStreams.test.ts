@@ -767,3 +767,26 @@ describe('후속 질문 followups (WP-139)', () => {
     expect(last(s, 's-a')).not.toHaveProperty('followups');
   });
 });
+
+describe('메모리 결과 줄 (WP-55)', () => {
+  it('done 의 messageId 를 마지막 답에 싣고, markMemoryUndone 은 messageId 로 찾아 그 줄만 되돌림으로 바꾼다', () => {
+    const { s } = setup();
+    ask(s, 'A', 'corr-a', 's-a');
+    ev(s, 'tool', {
+      correlationId: 'corr-a', sessionId: 's-a', seq: 1, phase: 'result', toolName: 'remember_memory', isError: false,
+      memory: { action: 'saved', memoryId: 12, kind: 'PREFERENCE', content: '짧은 목록', source: 'AI' },
+    });
+    ev(s, 'delta', { correlationId: 'corr-a', sessionId: 's-a', text: '기억할게요.' });
+    ev(s, 'done', { correlationId: 'corr-a', sessionId: 's-a', widgets: null, messageId: 42 });
+    expect(turnsOf(s, 's-a')?.[1]).toMatchObject({ messageId: 42, content: '기억할게요.' });
+
+    const before = s.getSnapshot();
+    s.markMemoryUndone(42, 0);
+    expect(s.getSnapshot()).not.toBe(before);
+    expect(turnsOf(s, 's-a')?.[1]).toMatchObject({ contentBlocks: [{ kind: 'text' }, { kind: 'memory', undone: true }] });
+
+    const after = s.getSnapshot();
+    s.markMemoryUndone(999, 0); // 없는 메시지 — 바뀐 게 없으면 통지하지 않는다
+    expect(s.getSnapshot()).toBe(after);
+  });
+});

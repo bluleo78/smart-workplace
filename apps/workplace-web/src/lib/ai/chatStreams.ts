@@ -2,7 +2,16 @@
 // React 바깥 모듈 상태 + useSyncExternalStore(hooks/useChatStreams) 로 구독한다. API 는 부르지 않는다(어댑터 useChatSession 담당) —
 // 순수 상태라 vitest 로 검증한다. 대화를 옮겨도 칸은 그대로 살아 있어, 돌아오면 스트리밍이 이어 보인다.
 import { type AiActivity, aiActivity } from '@/lib/ai/aiActivity';
-import { appendDelta, appendProgress, applyDoneWidgets, applyTool, markInterrupted, toCards } from '@/lib/ai/chatTurns';
+import {
+  appendDelta,
+  appendProgress,
+  applyDoneMessageId,
+  applyDoneWidgets,
+  applyTool,
+  markInterrupted,
+  markMemoryUndone as markMemoryUndoneIn,
+  toCards,
+} from '@/lib/ai/chatTurns';
 import { onAiStreamEvent } from '@/lib/aiEventBus';
 import { revokeTurnPreviews, withoutTurnAttachments } from '@/lib/homeChatAttachments';
 import { safeLocalStorage } from '@/lib/safeLocalStorage';
@@ -364,7 +373,11 @@ export function createChatStreams(opts: { storage?: () => KeyValueStore | null }
     if (e) {
       let turns = e.turns;
       if (live) {
-        if (kind === 'done') turns = applyDoneWidgets(turns, data.widgets as WidgetSpec[] | null | undefined);
+        if (kind === 'done') {
+          turns = applyDoneWidgets(turns, data.widgets as WidgetSpec[] | null | undefined);
+          // WP-55: 저장된 메시지 id — 결과 줄 되돌리기를 done 직후 켠다(추천 꺼짐·위임 답과 무관).
+          turns = applyDoneMessageId(turns, data.messageId);
+        }
         // 서버 시간 초과 취소는 사용자가 멈춘 것과 구분해 "시간 초과로 중단됨"(라이브만 — 저장은 STOPPED).
         else turns = markInterrupted(turns, kind === 'error' ? 'failed' : data.reason === 'timeout' ? 'timeout' : 'stopped');
       }
@@ -631,6 +644,17 @@ export function createChatStreams(opts: { storage?: () => KeyValueStore | null }
       entries.set(key, { ...e, turns: [...e.turns, turn] });
       commit();
       return true;
+    },
+    /** WP-55: 채팅 결과 줄 되돌리기 성공 — messageId 는 전역에서 유일하므로 모든 칸에서 찾아 그 줄만 되돌림으로 바꾼다. */
+    markMemoryUndone(messageId: number, blockIndex: number) {
+      let changed = false;
+      for (const [key, e] of entries) {
+        const turns = markMemoryUndoneIn(e.turns, messageId, blockIndex);
+        if (turns === e.turns) continue;
+        entries.set(key, { ...e, turns });
+        changed = true;
+      }
+      if (changed) commit();
     },
 
     /** 삭제된 대화 — 칸·생성 중·미확인을 지우고, 현재였다면 새 대화로. */

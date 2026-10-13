@@ -1,5 +1,6 @@
 // 7c: 홈 AI chat/위젯 계약. 백엔드 HomeComposeResponse·ActivityEntryResponse 와 1:1.
 
+import type { AiMemoryKind, AiMemorySource } from './aiMemory';
 import type { AiScreenContext } from './aiScreenContext';
 
 // 위젯 타입(WidgetLayout/WidgetType/WidgetSpec)은 AI 비서 응답(show_* 도구)이 지시하는
@@ -51,6 +52,33 @@ export interface ToolEventDto {
   toolName: string;
   args?: Record<string, unknown>;
   isError?: boolean;
+  /** WP-55: 메모리 도구 성공 결과(phase=result) — 결과 줄(되돌리기)의 근거. API 가 거른 것은 오지 않는다. */
+  memory?: MemoryEventDto;
+}
+
+/** WP-55: tool 이벤트의 memory 필드(ai-agent memoryEventSchema 와 같은 모양). */
+export interface MemoryEventDto {
+  action: 'saved' | 'updated' | 'forgotten';
+  memoryId: number;
+  kind: AiMemoryKind;
+  content: string;
+  previousContent?: string;
+  source?: AiMemorySource;
+}
+
+/**
+ * WP-55: 메모리 결과 줄 블록 — API ChatBlockRecorder.Memory 와 같은 모양. 판별자 kind 와 겹치지 않게 메모리 종류는 memoryKind.
+ * 항상 블록 목록 끝에 모이고(서버 영속 순서), 답변 말풍선들 아래·후속 질문 위에 따로 그린다. undone 은 되돌린 뒤 true.
+ */
+export interface MemoryBlock {
+  kind: 'memory';
+  action: MemoryEventDto['action'];
+  memoryId: number;
+  memoryKind: AiMemoryKind;
+  content: string;
+  previousContent?: string;
+  source: AiMemorySource;
+  undone: boolean;
 }
 
 /**
@@ -62,7 +90,9 @@ export type ContentBlock =
   | { kind: 'text'; textStart: number }
   | { kind: 'widget'; widget: WidgetSpec }
   // WP-157: 연속 도구 호출/위임 그룹 — steps[stepStart ~ 다음 tools 블록의 stepStart) 구간을 한 풍선으로 렌더.
-  | { kind: 'tools'; stepStart: number };
+  | { kind: 'tools'; stepStart: number }
+  // WP-55: 메모리 결과 줄 — 오프셋이 없고 sliceRange 계산에서 빠진다.
+  | MemoryBlock;
 
 /** #843: 확인카드 처리 결과 종류 — 대화 이력의 ACTION_* 메시지와 1:1. */
 export type ActionOutcome = 'done' | 'failed' | 'rejected';
@@ -92,6 +122,8 @@ export interface MessageTurn {
   contentBlocks?: ContentBlock[];
   /** WP-234: 사용자 턴 첨부 — 보낸 직후(낙관적)엔 로컬 미리보기 포함, 복원 시엔 서버 첨부. */
   attachments?: TurnAttachment[];
+  /** WP-55: 저장된 ASSISTANT 메시지 id — 라이브는 done, 복원은 이력에서. 없으면(답변 중·중단 직후) 결과 줄 되돌리기를 끈다. */
+  messageId?: number;
   /** WP-139: 답 뒤 후속 질문(ASSISTANT) — 마지막 턴이고 답변 중·확인 카드가 아닐 때만 칩으로 보인다. */
   followups?: string[];
   /**
