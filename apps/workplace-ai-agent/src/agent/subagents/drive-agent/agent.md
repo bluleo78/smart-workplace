@@ -6,14 +6,12 @@ tools:
   - mcp__workplace__list_drive_items
   - mcp__workplace__search_drive
   - mcp__workplace__get_drive_file_summary
-  - mcp__workplace__read_attachment
+  - mcp__workplace__read_file
   - mcp__workplace__search_drive_content
   - mcp__workplace__list_drive_trash
   - mcp__workplace__create_drive_folder
-  - mcp__workplace__rename_drive_folder
-  - mcp__workplace__move_drive_folder
-  - mcp__workplace__move_drive_file
-  - mcp__workplace__rename_drive_file
+  - mcp__workplace__rename_drive_item
+  - mcp__workplace__move_drive_item
   - mcp__workplace__copy_drive_item
   - mcp__workplace__import_attachment_to_drive
   - mcp__workplace__restore_drive_item
@@ -36,16 +34,14 @@ maxTurns: 20
 - 내용 검색: `search_drive_content(query, spaceId?, limit?)` — 파일 **내용**(추출 텍스트·의미 검색)으로 찾습니다. "매출 얘기 있는 문서" 처럼 이름을 모를 때 씁니다.
 - 내용 요약: `get_drive_file_summary(driveFileId, includeVersions?, includeBacklinks?)` — "이 파일 뭐라고 써 있어?" 에 답할 때 씁니다. `status` 가 `DONE` 이 아니면 요약이 아직 없거나(준비 중) 만들 수 없는 파일(`reason`)이므로, **내용을 추측하지 말고 그 상태를 그대로 알립니다.**
 - 버전 이력·연결된 곳: 같은 도구의 옵션입니다. `includeVersions: true` 면 버전 목록(최신이 먼저, `current` 가 현재 버전, 올린 사람 이름·크기·시각·코멘트), `includeBacklinks: true` 면 이 파일을 링크한 이슈·채팅 메시지(`label`, `deepLink`)가 함께 옵니다. "이 파일 누가 언제 수정했어?", "어디서 쓰이고 있어?" 에 씁니다. 필요한 옵션만 켭니다.
-- 내용 읽기: `read_attachment(source="drive", driveFileId, offset?, limit?)` — 요약이 아니라 **본문 그대로**가 필요할 때(인용·특정 부분 찾기·표 값 확인) 또는 **이미지**를 봐야 할 때 씁니다. 문서는 업로드 때 추출한 텍스트가 구간 단위로 오고(`limit` 생략 시 12000자, 최대 32000), `nextOffset` 이 있으면 `offset` 으로 넘겨 필요한 만큼만 이어 읽습니다. 이미지(JPEG·PNG·GIF·WebP, 3.75MB 이하)는 이미지 그대로 옵니다. `status` 가 `READY` 가 아니면(PENDING 추출 중, SKIPPED·FAILED 읽을 수 없음, NONE 추출 기록 없음) **내용을 추측하지 말고 그 상태와 `reason` 을 그대로 알립니다.** 요약으로 충분하면 `get_drive_file_summary` 가 더 짧습니다.
+- 내용 읽기: `read_file(source="drive", driveFileId, offset?, limit?)` — 요약이 아니라 **본문 그대로**가 필요할 때(인용·특정 부분 찾기·표 값 확인) 또는 **이미지**를 봐야 할 때 씁니다. 문서는 업로드 때 추출한 텍스트가 구간 단위로 오고(`limit` 생략 시 12000자, 최대 32000), `nextOffset` 이 있으면 `offset` 으로 넘겨 필요한 만큼만 이어 읽습니다. 이미지(JPEG·PNG·GIF·WebP, 3.75MB 이하)는 이미지 그대로 옵니다. `status` 가 `READY` 가 아니면(PENDING 추출 중, SKIPPED·FAILED 읽을 수 없음, NONE 추출 기록 없음) **내용을 추측하지 말고 그 상태와 `reason` 을 그대로 알립니다.** 요약으로 충분하면 `get_drive_file_summary` 가 더 짧습니다.
 - 휴지통 조회: `list_drive_trash(spaceId)` — 삭제된 항목 목록. 파일은 `driveFileId`, 폴더는 `folderId` 로 나옵니다.
 
 ### 쓰기 (직접 실행)
 - 폴더 생성: `create_drive_folder(spaceId, name, parentId?)` — parentId 생략 시 루트에 생성.
-- 폴더 이름 변경: `rename_drive_folder(folderId, name)`.
-- 폴더 이동: `move_drive_folder(folderId, targetParentId?)` — targetParentId 생략 시 루트로 이동.
-- 파일 이동: `move_drive_file(driveFileId, targetFolderId?)` — targetFolderId 생략 시 루트로 이동.
-- 파일 이름 변경: `rename_drive_file(driveFileId, name)` — 확장자를 바꾸라는 말이 없으면 유지합니다. 같은 폴더에 같은 이름의 파일이 있으면 오류입니다.
-- 복사: `copy_drive_item(driveFileId | folderId, targetFolderId?)` — 파일·폴더 중 **정확히 하나만** 넘깁니다. 폴더는 안의 내용까지 통째로 복사됩니다. 같은 스페이스 안에서만 되고 `targetFolderId` 생략 시 루트로 갑니다. 이름은 그대로라 **같은 폴더로 복사하면 항상 이름 충돌 오류**이므로, 다른 폴더를 지정하거나 복사 뒤 `rename_drive_file`(폴더는 `rename_drive_folder`)로 이름을 바꿀 수 있게 다른 위치를 먼저 정합니다.
+- 이름 변경: `rename_drive_item(driveFileId | folderId, name)` — 파일·폴더 중 **정확히 하나만** 넘깁니다. 파일은 확장자를 바꾸라는 말이 없으면 유지합니다. 같은 위치에 같은 이름이 있으면 오류입니다.
+- 이동: `move_drive_item(driveFileId | folderId, targetFolderId?)` — 파일·폴더 중 **정확히 하나만** 넘깁니다. `targetFolderId` 는 옮겨 갈 폴더의 `folderId`(폴더 행의 `parentId` 필드가 아님)이고, 생략하면 스페이스 루트로 이동합니다.
+- 복사: `copy_drive_item(driveFileId | folderId, targetFolderId?)` — 파일·폴더 중 **정확히 하나만** 넘깁니다. 폴더는 안의 내용까지 통째로 복사됩니다. 같은 스페이스 안에서만 되고 `targetFolderId` 생략 시 루트로 갑니다. 이름은 그대로라 **같은 폴더로 복사하면 항상 이름 충돌 오류**이므로, 다른 폴더를 지정하거나 복사 뒤 `rename_drive_item` 으로 이름을 바꿀 수 있게 다른 위치를 먼저 정합니다.
 - 첨부 가져오기: `import_attachment_to_drive(spaceId, attachmentId, folderId?)` — 이슈·채널 메시지 첨부를 드라이브 파일로 저장합니다(복사가 아니라 같은 파일을 공유). `attachmentId` 는 `get_issue_detail` 의 `attachments[].attachmentId` 또는 `list_channel_messages` 의 `attachments[].fileId` 이며, 이번 대화에서 조회한 값만 씁니다(이 에이전트가 직접 조회할 수 없으면 라우터가 넘겨 준 값). 같은 폴더에 같은 이름이 있으면 오류입니다. `spaceId` 는 `list_drive_spaces` 에서 고르며, 저장 위치는 아래 순서로 정합니다.
   1. 사용자가 스페이스·폴더를 말했으면 그 이름과 맞는 것을 씁니다(폴더는 `list_drive_items`/`search_drive` 로 `folderId` 확인).
   2. 말하지 않았고 **쓰기 권한(`role` 이 OWNER 또는 EDITOR)이 있고 보관(`archived`)되지 않은 스페이스가 정확히 하나**면 그곳 루트에 저장합니다.

@@ -325,7 +325,7 @@ describe('드라이브', () => {
     expect(body.backlinks[0]).not.toHaveProperty('sourceId');
   });
 
-  it('rename_drive_file·copy_drive_item·import_attachment_to_drive: 파일·폴더 행에 core fileId·사용자 ID 가 없다', async () => {
+  it('rename_drive_item·copy_drive_item·import_attachment_to_drive: 파일·폴더 행에 core fileId·사용자 ID 가 없다', async () => {
     // 서버 DriveFileResponse / DriveFolderResponse 필드 그대로.
     const fileRow = { id: 5, folderId: 3, fileId: 812, name: 'a.pdf', mimeType: 'application/pdf', sizeBytes: 5, category: 'DOCUMENT', createdAt: 't', updatedAt: 't', versionCount: 1, available: true };
     const client = {
@@ -336,7 +336,7 @@ describe('드라이브', () => {
     };
     const tools = buildDriveTools(client as never) as never;
     const outs = [
-      out(await find(tools, 'rename_drive_file').handler({ driveFileId: 5, name: 'a.pdf' })),
+      out(await find(tools, 'rename_drive_item').handler({ driveFileId: 5, name: 'a.pdf' })),
       out(await find(tools, 'copy_drive_item').handler({ driveFileId: 5, targetFolderId: 3 })),
       out(await find(tools, 'copy_drive_item').handler({ folderId: 8 })),
       out(await find(tools, 'import_attachment_to_drive').handler({ spaceId: 2, attachmentId: 812 })),
@@ -470,7 +470,7 @@ describe('메시징', () => {
   });
 });
 
-// WP-358: read_attachment 의 노트·메시지·메일 갈래 — 서버 구간 응답(ExtractedTextSlice)에는 사용자 ID 가 없고, 내부 file id 는 attachmentId 로만 나간다.
+// WP-358: read_file 의 노트·메시지·메일 갈래 — 서버 구간 응답(ExtractedTextSlice)에는 사용자 ID 가 없고, 내부 file id 는 attachmentId 로만 나간다.
 describe('첨부 읽기 (WP-358)', () => {
   const sliceRow = { fileId: 70, status: 'READY', offset: 0, totalChars: 3, truncated: false, nextOffset: null, text: '안녕 <@3>', reasonCode: null, reason: null };
   const client = {
@@ -486,7 +486,7 @@ describe('첨부 읽기 (WP-358)', () => {
     [{ source: 'message', channelId: 5, messageId: 40, attachmentId: 70 }],
     [{ source: 'mail', attachmentId: 9 }],
   ])('%j: 응답에 서버 fileId 가 없고 attachmentId 로 나간다', async (args) => {
-    const res = out(await find(tools, 'read_attachment').handler(args));
+    const res = out(await find(tools, 'read_file').handler(args));
     expect(res).not.toHaveProperty('fileId');
     expect(res.attachmentId).toBe(args.attachmentId);
     // 본문 텍스트는 첨부 원문이라 그대로 둔다 — 멘션 토큰 검사는 여기서 제외한다.

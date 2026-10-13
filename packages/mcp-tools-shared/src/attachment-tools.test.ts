@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 
 import { FileTooLargeError, IMAGE_MAX_BYTES, READ_ATTACHMENT_DEFAULT_LIMIT } from './attachment-read.js';
-import { buildAttachmentTools, readAttachmentInput } from './attachment-tools.js';
+import { buildAttachmentTools, readFileInput } from './attachment-tools.js';
 import { resultText, type McpContent } from './mcp-content.js';
 import type { AttachmentToolClient, ExtractedTextSlice } from './tool-client.js';
 
@@ -46,61 +46,61 @@ function mockClient(): AttachmentToolClient {
   };
 }
 
-const readAttachment = (c: AttachmentToolClient) => buildAttachmentTools(c).find((t) => t.name === 'read_attachment')!;
+const readAttachment = (c: AttachmentToolClient) => buildAttachmentTools(c).find((t) => t.name === 'read_file')!;
 
-describe('read_attachment 입력 스키마', () => {
+describe('read_file 입력 스키마', () => {
   // 서버 레이어가 inputSchema.shape 를 registerTool 에 넘기므로 superRefine 뒤에도 z.object 여야 한다.
   it('최상위는 z.object 이고 shape 에 source·식별자·범위가 있다', () => {
-    expect(readAttachmentInput).toBeInstanceOf(z.ZodObject);
-    expect(Object.keys(readAttachmentInput.shape).sort()).toEqual(['attachmentId', 'channelId', 'driveFileId', 'issueKey', 'limit', 'messageId', 'offset', 'pageId', 'source']);
+    expect(readFileInput).toBeInstanceOf(z.ZodObject);
+    expect(Object.keys(readFileInput.shape).sort()).toEqual(['attachmentId', 'channelId', 'driveFileId', 'issueKey', 'limit', 'messageId', 'offset', 'pageId', 'source']);
   });
 
   it('JSON 스키마로 직렬화된다(MCP 클라이언트가 받는 형식) — 최상위 type object, source 만 필수', () => {
-    const js = z.toJSONSchema(readAttachmentInput) as { type: string; required: string[]; properties: Record<string, unknown> };
+    const js = z.toJSONSchema(readFileInput) as { type: string; required: string[]; properties: Record<string, unknown> };
     expect(js.type).toBe('object');
     expect(js.required).toEqual(['source']);
     expect(js.properties.source).toMatchObject({ enum: ['issue', 'drive', 'wiki', 'message', 'mail'] });
   });
 
   it('source 별 필수 필드를 확인하고, 다른 source 의 식별자를 섞으면 거부한다', () => {
-    expect(() => readAttachmentInput.parse({ source: 'issue', issueKey: 'WP-1' })).toThrow(/issueKey·attachmentId 가 필요/);
-    expect(() => readAttachmentInput.parse({ source: 'drive' })).toThrow(/driveFileId 가 필요/);
-    expect(() => readAttachmentInput.parse({ source: 'issue', issueKey: 'WP-1', attachmentId: 3, driveFileId: 4 })).toThrow(/driveFileId 를 주지/);
-    expect(() => readAttachmentInput.parse({ source: 'drive', driveFileId: 4, attachmentId: 3 })).toThrow(/attachmentId 를 주지/);
-    expect(readAttachmentInput.parse({ source: 'drive', driveFileId: 4 })).toMatchObject({ source: 'drive', driveFileId: 4 });
+    expect(() => readFileInput.parse({ source: 'issue', issueKey: 'WP-1' })).toThrow(/issueKey·attachmentId 가 필요/);
+    expect(() => readFileInput.parse({ source: 'drive' })).toThrow(/driveFileId 가 필요/);
+    expect(() => readFileInput.parse({ source: 'issue', issueKey: 'WP-1', attachmentId: 3, driveFileId: 4 })).toThrow(/driveFileId 를 주지/);
+    expect(() => readFileInput.parse({ source: 'drive', driveFileId: 4, attachmentId: 3 })).toThrow(/attachmentId 를 주지/);
+    expect(readFileInput.parse({ source: 'drive', driveFileId: 4 })).toMatchObject({ source: 'drive', driveFileId: 4 });
   });
 
   it('쓰지 않는 source 의 식별자를 null 로 채워도 "없음"으로 받는다(실제 값을 섞으면 여전히 거부)', () => {
-    expect(readAttachmentInput.parse({ source: 'drive', driveFileId: 9, issueKey: null, attachmentId: null })).toMatchObject({ source: 'drive', driveFileId: 9 });
-    expect(readAttachmentInput.parse({ source: 'issue', issueKey: 'WP-1', attachmentId: 3, driveFileId: null })).toMatchObject({ source: 'issue', attachmentId: 3 });
+    expect(readFileInput.parse({ source: 'drive', driveFileId: 9, issueKey: null, attachmentId: null })).toMatchObject({ source: 'drive', driveFileId: 9 });
+    expect(readFileInput.parse({ source: 'issue', issueKey: 'WP-1', attachmentId: 3, driveFileId: null })).toMatchObject({ source: 'issue', attachmentId: 3 });
     // null 은 필수 필드도 채우지 못한다.
-    expect(() => readAttachmentInput.parse({ source: 'drive', driveFileId: null })).toThrow(/driveFileId 가 필요/);
-    expect(() => readAttachmentInput.parse({ source: 'issue', issueKey: null, attachmentId: 3 })).toThrow(/issueKey·attachmentId 가 필요/);
-    expect(() => readAttachmentInput.parse({ source: 'drive', driveFileId: 9, issueKey: 'WP-1', attachmentId: null })).toThrow(/issueKey 를 주지/);
+    expect(() => readFileInput.parse({ source: 'drive', driveFileId: null })).toThrow(/driveFileId 가 필요/);
+    expect(() => readFileInput.parse({ source: 'issue', issueKey: null, attachmentId: 3 })).toThrow(/issueKey·attachmentId 가 필요/);
+    expect(() => readFileInput.parse({ source: 'drive', driveFileId: 9, issueKey: 'WP-1', attachmentId: null })).toThrow(/issueKey 를 주지/);
   });
 
   // WP-358: 노트·메시지·메일 첨부는 attachmentId 를 재사용하고 pageId·channelId·messageId 만 더한다.
   it('wiki·message·mail 의 필수 식별자를 확인하고 남는 식별자는 거부한다 (WP-358)', () => {
-    expect(() => readAttachmentInput.parse({ source: 'wiki', attachmentId: 3 })).toThrow(/pageId·attachmentId 가 필요/);
-    expect(() => readAttachmentInput.parse({ source: 'message', channelId: 1, attachmentId: 3 })).toThrow(/channelId·messageId·attachmentId 가 필요/);
-    expect(() => readAttachmentInput.parse({ source: 'mail' })).toThrow(/attachmentId 가 필요/);
-    expect(() => readAttachmentInput.parse({ source: 'mail', attachmentId: 3, messageId: 9 })).toThrow(/messageId 를 주지/);
-    expect(() => readAttachmentInput.parse({ source: 'wiki', pageId: 1, attachmentId: 3, channelId: 2 })).toThrow(/channelId 를 주지/);
-    expect(readAttachmentInput.parse({ source: 'wiki', pageId: 1, attachmentId: 3, messageId: null })).toMatchObject({ pageId: 1, attachmentId: 3 });
-    expect(readAttachmentInput.parse({ source: 'message', channelId: 1, messageId: 2, attachmentId: 3 })).toMatchObject({ channelId: 1, messageId: 2 });
-    expect(readAttachmentInput.parse({ source: 'mail', attachmentId: 3 })).toMatchObject({ source: 'mail', attachmentId: 3 });
+    expect(() => readFileInput.parse({ source: 'wiki', attachmentId: 3 })).toThrow(/pageId·attachmentId 가 필요/);
+    expect(() => readFileInput.parse({ source: 'message', channelId: 1, attachmentId: 3 })).toThrow(/channelId·messageId·attachmentId 가 필요/);
+    expect(() => readFileInput.parse({ source: 'mail' })).toThrow(/attachmentId 가 필요/);
+    expect(() => readFileInput.parse({ source: 'mail', attachmentId: 3, messageId: 9 })).toThrow(/messageId 를 주지/);
+    expect(() => readFileInput.parse({ source: 'wiki', pageId: 1, attachmentId: 3, channelId: 2 })).toThrow(/channelId 를 주지/);
+    expect(readFileInput.parse({ source: 'wiki', pageId: 1, attachmentId: 3, messageId: null })).toMatchObject({ pageId: 1, attachmentId: 3 });
+    expect(readFileInput.parse({ source: 'message', channelId: 1, messageId: 2, attachmentId: 3 })).toMatchObject({ channelId: 1, messageId: 2 });
+    expect(readFileInput.parse({ source: 'mail', attachmentId: 3 })).toMatchObject({ source: 'mail', attachmentId: 3 });
   });
 
   it('limit 은 1..32000, offset 은 0 이상', () => {
     const base = { source: 'drive' as const, driveFileId: 4 };
-    expect(() => readAttachmentInput.parse({ ...base, limit: 0 })).toThrow();
-    expect(() => readAttachmentInput.parse({ ...base, limit: 32001 })).toThrow();
-    expect(() => readAttachmentInput.parse({ ...base, offset: -1 })).toThrow();
-    expect(readAttachmentInput.parse({ ...base, limit: 32000, offset: 0 })).toMatchObject({ limit: 32000, offset: 0 });
+    expect(() => readFileInput.parse({ ...base, limit: 0 })).toThrow();
+    expect(() => readFileInput.parse({ ...base, limit: 32001 })).toThrow();
+    expect(() => readFileInput.parse({ ...base, offset: -1 })).toThrow();
+    expect(readFileInput.parse({ ...base, limit: 32000, offset: 0 })).toMatchObject({ limit: 32000, offset: 0 });
   });
 });
 
-describe('read_attachment — 이슈 첨부', () => {
+describe('read_file — 이슈 첨부', () => {
   it('READY: 구간 읽기 응답을 그대로 JSON 으로. limit 생략 시 기본 12000, offset 생략은 미지정', async () => {
     const c = mockClient();
     const out = await readAttachment(c).handler({ source: 'issue', issueKey: 'WP-1', attachmentId: 55 });
@@ -180,7 +180,7 @@ describe('read_attachment — 이슈 첨부', () => {
   });
 });
 
-describe('read_attachment — 드라이브 파일', () => {
+describe('read_file — 드라이브 파일', () => {
   it('READY: core fileId 를 지우고 driveFileId 로 돌려준다(#840)', async () => {
     const c = mockClient();
     const out = await readAttachment(c).handler({ source: 'drive', driveFileId: 9, offset: 6, limit: 500 });
@@ -261,7 +261,7 @@ const NEW_SOURCES = [
   },
 ] as const;
 
-describe.each(NEW_SOURCES)('read_attachment — $name (WP-358)', ({ args, readText, download, textArgs }) => {
+describe.each(NEW_SOURCES)('read_file — $name (WP-358)', ({ args, readText, download, textArgs }) => {
   it('READY: 구간을 읽고 서버 fileId 를 attachmentId 로 바꿔 돌려준다. limit 기본 12000', async () => {
     const c = mockClient();
     const out = await readAttachment(c).handler({ ...args, offset: 6 });
@@ -305,7 +305,7 @@ describe.each(NEW_SOURCES)('read_attachment — $name (WP-358)', ({ args, readTe
   });
 });
 
-describe('read_attachment — 노트 NONE (WP-358)', () => {
+describe('read_file — 노트 NONE (WP-358)', () => {
   // 노트는 이미지만 올라가고 백필하지 않으므로 배포 전 첨부는 NONE 이다 — 그래도 이미지로 읽혀야 한다.
   it('NONE(배포 전 노트 첨부)도 원본을 받아 이미지 블록으로 준다', async () => {
     const c = mockClient();
@@ -333,7 +333,7 @@ describe('read_attachment — 노트 NONE (WP-358)', () => {
   });
 });
 
-describe('read_attachment — 메일 PENDING (WP-358)', () => {
+describe('read_file — 메일 PENDING (WP-358)', () => {
   it('첫 호출은 PENDING 이라 잠시 뒤 다시 호출하라는 안내를 붙인다', async () => {
     const c = mockClient();
     vi.mocked(c.readMailAttachmentText).mockResolvedValue(slice('PENDING'));

@@ -170,7 +170,7 @@ export function normalizeIssueDetail(raw: unknown, options: NormalizeIssueDetail
       value: f.value ?? null,
     })),
     attachments: ((r.attachments ?? []) as Raw[]).map((a) => ({
-      // 이슈 첨부의 core file id — read_attachment 의 attachmentId 입력으로 넘긴다. 드라이브 driveFileId 와 이름이 겹치지 않게 첨부 id 로 부른다(WP-353).
+      // 이슈 첨부의 core file id — read_file 의 attachmentId 입력으로 넘긴다. 드라이브 driveFileId 와 이름이 겹치지 않게 첨부 id 로 부른다(WP-353).
       attachmentId: a.fileId as number,
       name: String(a.originalName ?? ''),
       mimeType: (a.mimeType as string | null) ?? null,

@@ -6,7 +6,7 @@ tools:
   - mcp__workplace__list_thread_replies
   - mcp__workplace__add_channel_message
   - mcp__workplace__list_channels
-  - mcp__workplace__read_attachment
+  - mcp__workplace__read_file
   - mcp__workplace__create_channel
   - mcp__workplace__open_dm
   - mcp__workplace__leave_channel
@@ -32,7 +32,7 @@ maxTurns: 20
 - 채널 참여: `join_channel(channelId)` — 공개 채널에 MEMBER 로 참여합니다. 비공개 채널·DM 은 참여할 수 없고(초대받아야 합니다), 이미 멤버여도 오류 없이 그대로입니다. 참여 전 메시지는 안 읽음으로 세지 않습니다. 사용자가 참여를 요청했을 때만 호출합니다.
 - 대화 확인: `list_channel_messages(channelId)` — 채널/DM 메시지(흐름·맥락 파악). 최신순으로 한 번에 최대 100건(기본 50)이며 스레드 답글은 빠집니다. 결과는 `{items, hasMore?, nextCursor?}` 이고, `hasMore`·`nextCursor` 가 있으면 더 오래된 메시지가 있는 것입니다 — `nextCursor` 를 `cursor` 로 넘겨 이어 읽거나, 이어 읽지 않고 요약·답변한다면 최근 일부만 본 것임을 밝힙니다(이 키들이 없으면 처음까지 다 읽은 것). 작성자는 `authorName`·`authorKind`, 리액션은 `{이모지: 개수}`, 본문의 멘션은 `@이름(username)` 으로 풀려 있습니다(풀 수 없는 멘션은 `@(알 수 없는 사용자)`). 값이 없는 키는 생략됩니다.
 - 스레드 확인: `list_thread_replies(messageId)` — 메시지에 달린 스레드 답글. `list_channel_messages` 결과에서 `replyCount` 가 있는(답글이 있는) 메시지의 `id` 를 넣습니다. 스레드 요약·"거기서 뭐라고 했어?" 에 씁니다.
-- 첨부 읽기: `read_attachment(source="message", channelId, messageId, attachmentId, offset?, limit?)` — 메시지의 첨부 내용을 볼 때 씁니다. `messageId` 는 `list_channel_messages`·`list_thread_replies` 항목의 `id`, `attachmentId` 는 그 항목 `attachments[].fileId`, `channelId` 는 그 메시지를 읽은 채널입니다(스레드 답글도 같은 채널). 문서는 전송할 때 추출한 텍스트가 구간 단위로 오고(`limit` 생략 시 12000자, 최대 32000) `nextOffset` 이 있으면 `offset` 으로 이어 읽습니다. 이미지(JPEG·PNG·GIF·WebP, 3.75MB 이하)는 이미지 그대로 옵니다. `status` 가 `READY` 가 아니면(PENDING 추출 중, SKIPPED·FAILED 읽을 수 없음, NONE 추출 기록 없음 — 이 기능 전에 올린 첨부) **내용을 추측하지 말고 상태와 `reason` 을 그대로 알립니다.** 채널 멤버만 읽을 수 있고, 첨부 이름·종류만으로 충분하면 읽지 않습니다.
+- 첨부 읽기: `read_file(source="message", channelId, messageId, attachmentId, offset?, limit?)` — 메시지의 첨부 내용을 볼 때 씁니다. `messageId` 는 `list_channel_messages`·`list_thread_replies` 항목의 `id`, `attachmentId` 는 그 항목 `attachments[].fileId`, `channelId` 는 그 메시지를 읽은 채널입니다(스레드 답글도 같은 채널). 문서는 전송할 때 추출한 텍스트가 구간 단위로 오고(`limit` 생략 시 12000자, 최대 32000) `nextOffset` 이 있으면 `offset` 으로 이어 읽습니다. 이미지(JPEG·PNG·GIF·WebP, 3.75MB 이하)는 이미지 그대로 옵니다. `status` 가 `READY` 가 아니면(PENDING 추출 중, SKIPPED·FAILED 읽을 수 없음, NONE 추출 기록 없음 — 이 기능 전에 올린 첨부) **내용을 추측하지 말고 상태와 `reason` 을 그대로 알립니다.** 채널 멤버만 읽을 수 있고, 첨부 이름·종류만으로 충분하면 읽지 않습니다.
 - 메시지 작성: `add_channel_message(channelId, body)` — 본문은 마크다운. **정확히 한 번만** 호출합니다.
 - 내 메시지 수정: `update_channel_message(messageId, body)` — **내가 쓴 메시지만** 수정됩니다(남의 메시지는 오류). 시간 제한은 없고 스레드 답글도 됩니다. 본문이 통째로 바뀌고 이전 내용은 사라지며 "수정됨" 으로 표시됩니다(알림은 가지 않습니다). messageId 는 `list_channel_messages`·`list_thread_replies` 결과 항목의 `id` 입니다. 어느 메시지인지 모호하면 되묻고, 사용자가 고칠 문구를 분명히 줬을 때만 호출합니다. 메시지 삭제는 지원하지 않습니다 — 그렇게 안내합니다.
 - 리액션: `add_reaction(messageId, emoji)` / `remove_reaction(messageId, emoji)` — 내 리액션만 추가·제거합니다(이미 같은 리액션이면 그대로). emoji 는 유니코드 이모지 문자 하나(예: 👍)이고, 제거할 때는 `list_channel_messages` 의 `reactions` 키와 정확히 같은 문자열이어야 합니다. 누가 눌렀는지는 도구가 알려주지 않습니다.

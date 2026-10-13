@@ -28,7 +28,7 @@ describe('wireInputSchema — tools/list 로 내보내는 입력 스키마 (WP-3
   });
 
   it('nullAsOmitted 입력은 null 갈래 없이 평범한 선택 입력으로 보인다(required 에도 없다)', () => {
-    const ra = wireInputSchema(tool('read_attachment').inputSchema);
+    const ra = wireInputSchema(tool('read_file').inputSchema);
     const p = ra.properties as Props;
     for (const k of ['issueKey', 'attachmentId', 'driveFileId', 'offset', 'limit']) expect(p[k], k).not.toHaveProperty('anyOf');
     expect(p.attachmentId).toEqual({ type: 'integer' });
@@ -37,7 +37,7 @@ describe('wireInputSchema — tools/list 로 내보내는 입력 스키마 (WP-3
     for (const k of ['occurrenceDate', 'title', 'startsAt', 'endsAt', 'allDay', 'addAttendees', 'removeAttendees']) {
       expect(props('update_event')[k], k).not.toHaveProperty('anyOf');
     }
-    for (const [name, k] of [['create_drive_folder', 'parentId'], ['move_drive_folder', 'targetParentId'], ['move_drive_file', 'targetFolderId']]) {
+    for (const [name, k] of [['create_drive_folder', 'parentId'], ['move_drive_item', 'targetFolderId']]) {
       expect(props(name)[k], `${name}.${k}`).toEqual({ type: 'integer' });
     }
   });
@@ -159,10 +159,10 @@ describe('estimateTokens', () => {
 describe('null 을 생략으로 받는다', () => {
   const sdkParse = (name: string, args: unknown) => z.object((tool(name).inputSchema as z.ZodObject).shape).safeParse(args);
 
-  it('read_attachment·update_event·드라이브 이동은 null 인자를 검증에서 받아들인다', () => {
-    expect(sdkParse('read_attachment', { source: 'drive', driveFileId: 5, issueKey: null, attachmentId: null, offset: null, limit: null }).success).toBe(true);
+  it('read_file·update_event·드라이브 이동은 null 인자를 검증에서 받아들인다', () => {
+    expect(sdkParse('read_file', { source: 'drive', driveFileId: 5, issueKey: null, attachmentId: null, offset: null, limit: null }).success).toBe(true);
     expect(sdkParse('update_event', { eventId: 1, title: '회의', occurrenceDate: null, startsAt: null, endsAt: null, allDay: null, addAttendees: null, removeAttendees: null }).success).toBe(true);
-    expect(sdkParse('move_drive_file', { driveFileId: 3, targetFolderId: null }).success).toBe(true);
+    expect(sdkParse('move_drive_item', { driveFileId: 3, targetFolderId: null }).success).toBe(true);
     expect(sdkParse('create_drive_folder', { spaceId: 1, parentId: null, name: '자료' }).success).toBe(true);
   });
 
@@ -170,9 +170,9 @@ describe('null 을 생략으로 받는다', () => {
     expect(sdkParse('list_issues', { projectKey: null }).success).toBe(false);
   });
 
-  it('read_attachment 핸들러는 null 범위를 기본값으로, null 식별자를 없음으로 본다', async () => {
+  it('read_file 핸들러는 null 범위를 기본값으로, null 식별자를 없음으로 본다', async () => {
     const readDriveFileText = async (id: number, range: unknown) => ({ id, range });
-    const t = buildSharedTools({ readDriveFileText } as unknown as SharedToolClient).find((x) => x.name === 'read_attachment')!;
+    const t = buildSharedTools({ readDriveFileText } as unknown as SharedToolClient).find((x) => x.name === 'read_file')!;
     const out = JSON.parse((await t.handler({ source: 'drive', driveFileId: 5, issueKey: null, attachmentId: null, offset: null, limit: null })) as string);
     expect(out).toMatchObject({ driveFileId: 5, range: { limit: 12000 } });
     expect(out.range).not.toHaveProperty('offset', null);

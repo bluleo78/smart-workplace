@@ -13,7 +13,7 @@ export interface HttpRequestConfig {
   params?: unknown;
   /** DELETE 요청 본문(axios config.data) — 서버가 @RequestBody 로 받는 DELETE(즐겨찾기 해제)에 쓴다(#839). */
   data?: unknown;
-  /** 원본 바이트를 받을 때(axios config.responseType) — read_attachment 의 이미지 원본(WP-346). */
+  /** 원본 바이트를 받을 때(axios config.responseType) — read_file 의 이미지 원본(WP-346). */
   responseType?: 'arraybuffer';
   /** 응답 본문 상한(바이트, axios config.maxContentLength) — 넘으면 받는 도중 중단한다. */
   maxContentLength?: number;

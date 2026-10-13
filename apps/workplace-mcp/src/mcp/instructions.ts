@@ -15,7 +15,7 @@ export function buildInstructions(tools: readonly SharedTool[], scope: McpScope)
   const lines: string[] = [];
 
   // 앱별 안내 — 고른 앱(안 골랐으면 전체)이면서 로드된 도구가 있는 앱만, 앱 순서는 TOOL_APPS 기준.
-  // 고르지 않은 앱은 여러 앱에 걸친 도구(read_attachment 등) 때문에 일부 도구가 실려도 설명하지 않는다 — 그 앱의 도구가 다 있는 것처럼 보이지 않게.
+  // 고르지 않은 앱은 여러 앱에 걸친 도구(read_file 등) 때문에 일부 도구가 실려도 설명하지 않는다 — 그 앱의 도구가 다 있는 것처럼 보이지 않게.
   for (const app of scope.apps ?? TOOL_APPS) {
     const inApp = tools.filter((t) => toolApps(t).includes(app));
     if (inApp.length === 0) continue;

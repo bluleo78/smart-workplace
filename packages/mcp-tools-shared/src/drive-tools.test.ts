@@ -53,8 +53,7 @@ describe('buildDriveTools', () => {
     const c = mockClient();
     expect(tool(c, 'list_drive_items').description).toContain('parentId (a folderId, not a row parentId)');
     expect(tool(c, 'create_drive_folder').description).toContain('parentId (a folderId)');
-    expect(tool(c, 'move_drive_folder').description).toContain('the folderId of the new parent, not a row parentId');
-    expect(tool(c, 'move_drive_file').description).toContain('targetFolderId (a folderId)');
+    expect(tool(c, 'move_drive_item').description).toContain('targetFolderId (a folderId)');
   });
 
   it('list_drive_items → parentId·offset 지정 시 그대로 전달', async () => {
@@ -285,37 +284,53 @@ describe('폴더·파일 정리 (#333 M4, #840, WP-343)', () => {
     await expect(tool(c, 'create_drive_folder').handler({ spaceId: 0, name: 'x' })).rejects.toThrow();
   });
 
-  it('rename_drive_folder → client.renameDriveFolder(folderId, name) 결과를 JSON 으로 반환', async () => {
+  // WP-369: 파일·폴더 이름변경은 rename_drive_item 하나 — driveFileId 면 파일, folderId 면 폴더 API 로 보낸다.
+  it('rename_drive_item → folderId 면 renameDriveFolder 결과를 folderId 뷰로 반환', async () => {
     const c = mockClient();
-    const out = await tool(c, 'rename_drive_folder').handler({ folderId: 4, name: '새이름' });
+    const out = await tool(c, 'rename_drive_item').handler({ folderId: 4, name: '새이름' });
     expect(c.renameDriveFolder).toHaveBeenCalledWith(4, '새이름');
+    expect(c.renameDriveFile).not.toHaveBeenCalled();
     expect(JSON.parse(resultText(out))).toEqual({ folderId: 4, name: '새이름' });
   });
 
-  it('move_drive_folder → targetParentId 생략 시 루트(null)로 이동하고 ok', async () => {
+  it('rename_drive_item → driveFileId 면 renameDriveFile 결과를 driveFileId 뷰(core fileId 제거)로 반환 (WP-354)', async () => {
     const c = mockClient();
-    expect(await tool(c, 'move_drive_folder').handler({ folderId: 4 })).toBe('ok');
-    expect(c.moveDriveFolder).toHaveBeenCalledWith(4, null);
-    await tool(c, 'move_drive_folder').handler({ folderId: 4, targetParentId: 9 });
-    expect(c.moveDriveFolder).toHaveBeenLastCalledWith(4, 9);
-  });
-
-  it('move_drive_file → driveFileId 를 넘기고, 옛 fileId 파라미터는 거부한다(#840)', async () => {
-    const c = mockClient();
-    expect(await tool(c, 'move_drive_file').handler({ driveFileId: 5, targetFolderId: 3 })).toBe('ok');
-    expect(c.moveDriveFile).toHaveBeenCalledWith(5, 3);
-    await tool(c, 'move_drive_file').handler({ driveFileId: 5 });
-    expect(c.moveDriveFile).toHaveBeenLastCalledWith(5, null);
-    await expect(tool(c, 'move_drive_file').handler({ fileId: 812, targetFolderId: 3 })).rejects.toThrow();
-  });
-
-  it('rename_drive_file → client.renameDriveFile(driveFileId, name) 결과를 driveFileId 뷰(core fileId 제거)로 반환 (WP-354)', async () => {
-    const c = mockClient();
-    const out = await tool(c, 'rename_drive_file').handler({ driveFileId: 5, name: '새이름.pdf' });
+    const out = await tool(c, 'rename_drive_item').handler({ driveFileId: 5, name: '새이름.pdf' });
     expect(c.renameDriveFile).toHaveBeenCalledWith(5, '새이름.pdf');
+    expect(c.renameDriveFolder).not.toHaveBeenCalled();
     expect(JSON.parse(resultText(out))).toEqual({ driveFileId: 5, name: '새이름.pdf' });
-    await expect(tool(c, 'rename_drive_file').handler({ driveFileId: 5, name: '' })).rejects.toThrow();
-    await expect(tool(c, 'rename_drive_file').handler({ folderId: 5, name: 'x' })).rejects.toThrow();
+    await expect(tool(c, 'rename_drive_item').handler({ driveFileId: 5, name: '' })).rejects.toThrow();
+  });
+
+  it('rename_drive_item → driveFileId·folderId 를 둘 다 주거나 둘 다 빼면 거부하고 서버를 부르지 않는다', async () => {
+    const c = mockClient();
+    await expect(tool(c, 'rename_drive_item').handler({ driveFileId: 5, folderId: 4, name: 'x' })).rejects.toThrow(/정확히 하나/);
+    await expect(tool(c, 'rename_drive_item').handler({ name: 'x' })).rejects.toThrow(/정확히 하나/);
+    expect(c.renameDriveFile).not.toHaveBeenCalled();
+    expect(c.renameDriveFolder).not.toHaveBeenCalled();
+  });
+
+  // WP-369: 이동도 move_drive_item 하나 — 대상은 파일·폴더 모두 targetFolderId 이고, 폴더 이동 API 의 targetParentId 로 옮겨 담는다.
+  it('move_drive_item → folderId 면 moveDriveFolder(folderId, targetFolderId), 대상 생략·null 은 루트(null)', async () => {
+    const c = mockClient();
+    expect(await tool(c, 'move_drive_item').handler({ folderId: 4 })).toBe('ok');
+    expect(c.moveDriveFolder).toHaveBeenCalledWith(4, null);
+    await tool(c, 'move_drive_item').handler({ folderId: 4, targetFolderId: 9 });
+    expect(c.moveDriveFolder).toHaveBeenLastCalledWith(4, 9);
+    await tool(c, 'move_drive_item').handler({ folderId: 4, targetFolderId: null });
+    expect(c.moveDriveFolder).toHaveBeenLastCalledWith(4, null);
+    expect(c.moveDriveFile).not.toHaveBeenCalled();
+  });
+
+  it('move_drive_item → driveFileId 면 moveDriveFile, 옛 fileId·targetParentId 파라미터만으로는 거부한다(#840)', async () => {
+    const c = mockClient();
+    expect(await tool(c, 'move_drive_item').handler({ driveFileId: 5, targetFolderId: 3 })).toBe('ok');
+    expect(c.moveDriveFile).toHaveBeenCalledWith(5, 3);
+    await tool(c, 'move_drive_item').handler({ driveFileId: 5 });
+    expect(c.moveDriveFile).toHaveBeenLastCalledWith(5, null);
+    expect(c.moveDriveFolder).not.toHaveBeenCalled();
+    await expect(tool(c, 'move_drive_item').handler({ fileId: 812, targetFolderId: 3 })).rejects.toThrow(/정확히 하나/);
+    await expect(tool(c, 'move_drive_item').handler({ driveFileId: 5, folderId: 4 })).rejects.toThrow(/정확히 하나/);
   });
 
   it('copy_drive_item → driveFileId 면 파일 복사, folderId 면 폴더 복사, 대상 생략·null 은 루트(null) (WP-354)', async () => {

@@ -58,20 +58,19 @@ const EXPECTED: Record<string, readonly [kind: string, destructive: boolean | nu
   mark_all_notifications_read: ['write', true, true, false],
   mark_mail_read: ['write', true, true, true],
   mark_notification_read: ['write', true, true, false],
-  // WP-354: 복사·첨부 가져오기는 새 항목을 만든다 — 같은 이름이 있으면 409 라 다시 부르면 오류(비멱등). 파일 이름변경은 폴더 이름변경과 같다.
+  // WP-354: 복사·첨부 가져오기는 새 항목을 만든다 — 같은 이름이 있으면 409 라 다시 부르면 오류(비멱등).
   copy_drive_item: ['write', false, false, false],
   import_attachment_to_drive: ['write', false, false, false],
-  rename_drive_file: ['write', true, true, false],
-  move_drive_file: ['write', true, true, false],
-  move_drive_folder: ['write', true, true, false],
+  // WP-369: 파일·폴더 이름변경·이동을 하나씩으로 합쳤다 — 덮어쓰고(destructive) 같은 값으로 다시 불러도 그대로(멱등)인 성격은 그대로다.
+  rename_drive_item: ['write', true, true, false],
+  move_drive_item: ['write', true, true, false],
   move_wiki_page: ['write', true, true, false],
   restore_wiki_revision: ['write', true, false, false],
   open_dm: ['write', false, true, false],
-  read_attachment: ['read', R, R, R],
+  read_file: ['read', R, R, R],
   remove_contact_favorite: ['write', true, true, false],
   remove_issue_dependency: ['write', true, true, false],
   remove_user_group_member: ['write', true, true, false],
-  rename_drive_folder: ['write', true, true, false],
   restore_drive_item: ['write', false, false, false],
   rsvp_event: ['write', true, false, false],
   // WP-348: 생성은 추가만(로컬 기본 캘린더) — 다시 부르면 또 생겨 비멱등. 수정은 덮어쓰고 참석자를 빼며, M365 동기화 일정이면 그쪽으로 전송된다.

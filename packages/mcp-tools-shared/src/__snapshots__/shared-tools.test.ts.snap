@@ -60,17 +60,15 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "mark_channel_read": "write",
   "mark_mail_read": "write",
   "mark_notification_read": "write",
-  "move_drive_file": "write",
-  "move_drive_folder": "write",
+  "move_drive_item": "write",
   "move_wiki_page": "write",
   "open_dm": "write",
-  "read_attachment": "read",
+  "read_file": "read",
   "remove_contact_favorite": "write",
   "remove_issue_dependency": "write",
   "remove_reaction": "write",
   "remove_user_group_member": "write",
-  "rename_drive_file": "write",
-  "rename_drive_folder": "write",
+  "rename_drive_item": "write",
   "restore_drive_item": "write",
   "restore_wiki_revision": "write",
   "rsvp_event": "write",
@@ -1753,12 +1751,17 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
     },
   },
   {
-    "name": "move_drive_file",
+    "name": "move_drive_item",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
       "properties": {
         "driveFileId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "folderId": {
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991,
           "type": "integer",
@@ -1776,39 +1779,6 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           ],
         },
       },
-      "required": [
-        "driveFileId",
-      ],
-      "type": "object",
-    },
-  },
-  {
-    "name": "move_drive_folder",
-    "schema": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "additionalProperties": false,
-      "properties": {
-        "folderId": {
-          "exclusiveMinimum": 0,
-          "maximum": 9007199254740991,
-          "type": "integer",
-        },
-        "targetParentId": {
-          "anyOf": [
-            {
-              "exclusiveMinimum": 0,
-              "maximum": 9007199254740991,
-              "type": "integer",
-            },
-            {
-              "type": "null",
-            },
-          ],
-        },
-      },
-      "required": [
-        "folderId",
-      ],
       "type": "object",
     },
   },
@@ -1871,7 +1841,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
     },
   },
   {
-    "name": "read_attachment",
+    "name": "read_file",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
@@ -2091,7 +2061,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
     },
   },
   {
-    "name": "rename_drive_file",
+    "name": "rename_drive_item",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
@@ -2101,25 +2071,6 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "maximum": 9007199254740991,
           "type": "integer",
         },
-        "name": {
-          "maxLength": 255,
-          "minLength": 1,
-          "type": "string",
-        },
-      },
-      "required": [
-        "driveFileId",
-        "name",
-      ],
-      "type": "object",
-    },
-  },
-  {
-    "name": "rename_drive_folder",
-    "schema": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "additionalProperties": false,
-      "properties": {
         "folderId": {
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991,
@@ -2132,7 +2083,6 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
         },
       },
       "required": [
-        "folderId",
         "name",
       ],
       "type": "object",

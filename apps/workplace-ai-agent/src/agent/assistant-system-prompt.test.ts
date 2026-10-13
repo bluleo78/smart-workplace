@@ -9,17 +9,17 @@ describe('ASSISTANT_SYSTEM_PROMPT', () => {
     expect(ASSISTANT_SYSTEM_PROMPT).toMatch(/첨부.*위임 prompt 에 옮겨/s);
   });
 
-  // WP-346: 이슈 첨부·드라이브 파일 본문은 공유 read_attachment, 세션 첨부는 read_chat_attachment — fileId 를 섞지 않게 안내.
-  it('이슈 첨부·드라이브 파일은 read_attachment(source별 식별자), 이 대화의 첨부 fileId 는 read_chat_attachment 전용', () => {
+  // WP-346: 이슈 첨부·드라이브 파일 본문은 공유 read_file, 세션 첨부는 read_chat_attachment — fileId 를 섞지 않게 안내.
+  it('이슈 첨부·드라이브 파일은 read_file(source별 식별자), 이 대화의 첨부 fileId 는 read_chat_attachment 전용', () => {
     expect(ASSISTANT_SYSTEM_PROMPT).toContain('{source:"issue", issueKey, attachmentId}');
     expect(ASSISTANT_SYSTEM_PROMPT).toContain('{source:"drive", driveFileId}');
     // WP-358: 노트 이미지·채널 메시지 첨부·메일 첨부
     expect(ASSISTANT_SYSTEM_PROMPT).toContain('{source:"wiki", pageId, attachmentId}');
     expect(ASSISTANT_SYSTEM_PROMPT).toContain('{source:"message", channelId, messageId, attachmentId}');
     expect(ASSISTANT_SYSTEM_PROMPT).toContain('{source:"mail", attachmentId}');
-    expect(ASSISTANT_SYSTEM_PROMPT).toContain('`read_chat_attachment` 전용이며 `read_attachment`(이슈 첨부·드라이브 파일)에 넣지 않습니다');
-    // 드라이브 직접 읽기 표에도 read_attachment 가 있다.
-    expect(ASSISTANT_SYSTEM_PROMPT).toMatch(/\| 드라이브 \|[^\n]*read_attachment/);
+    expect(ASSISTANT_SYSTEM_PROMPT).toContain('`read_chat_attachment` 전용이며 `read_file`(이슈 첨부·드라이브 파일)에 넣지 않습니다');
+    // 드라이브 직접 읽기 표에도 read_file 가 있다.
+    expect(ASSISTANT_SYSTEM_PROMPT).toMatch(/\| 드라이브 \|[^\n]*read_file/);
   });
 
   // WP-343: list_project_members 폐지 — 프로젝트 멤버는 get_project 의 members 로 읽는다.

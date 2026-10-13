@@ -432,7 +432,7 @@ export interface DriveToolClient {
   copyDriveFile(driveFileId: number, targetFolderId: number | null): Promise<unknown>;
   /** POST /drive/folders/{id}/copy — 폴더와 하위 전부를 같은 스페이스의 targetParentId(null=루트) 밑으로 복사. 새 폴더 행 반환. */
   copyDriveFolder(folderId: number, targetParentId: number | null): Promise<unknown>;
-  /** GET /drive/files/{id}/versions — 최신 버전이 먼저 온다(version_no DESC). read_attachment 의 이미지 크기 확인과 같은 호출. */
+  /** GET /drive/files/{id}/versions — 최신 버전이 먼저 온다(version_no DESC). read_file 의 이미지 크기 확인과 같은 호출. */
   listDriveFileVersions(driveFileId: number): Promise<DriveFileVersionRow[]>;
   /** GET /drive/files/{id}/backlinks — 파일을 링크한 이슈·메시지 중 호출자가 볼 수 있는 것만. */
   listDriveFileBacklinks(driveFileId: number): Promise<DriveBacklinkRow[]>;
@@ -498,7 +498,7 @@ export interface DriveBacklinkRow {
 }
 
 /**
- * 첨부·파일 내용 읽기(WP-346) — read_attachment 가 쓴다. 텍스트는 서버가 추출해 둔 구간을 읽고, 이미지만 원본을 받는다
+ * 첨부·파일 내용 읽기(WP-346) — read_file 가 쓴다. 텍스트는 서버가 추출해 둔 구간을 읽고, 이미지만 원본을 받는다
  * (이미지 블록으로 모델에 넘기려고). 권한은 서버가 강제한다(이슈: 프로젝트 멤버, 드라이브: 스페이스 VIEWER).
  */
 export interface AttachmentToolClient {

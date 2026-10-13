@@ -10,20 +10,18 @@ describe('drive-agent 정의', () => {
   it('loadSubagents 로 drive-agent 가 로드된다', () => {
     expect(loaded['drive-agent']).toBeDefined();
   });
-  it('tools 는 읽기 7개 + 쓰기 8개 + 삭제제안 2개 + submit_response(총 18개)', () => {
+  it('tools 는 읽기 7개 + 쓰기 6개 + 삭제제안 2개 + submit_response(총 16개)', () => {
     expect(loaded['drive-agent'].tools).toEqual([
       'mcp__workplace__list_drive_spaces',
       'mcp__workplace__list_drive_items',
       'mcp__workplace__search_drive',
       'mcp__workplace__get_drive_file_summary',
-      'mcp__workplace__read_attachment', // WP-346: 파일 본문(추출 텍스트 구간)·이미지 읽기
+      'mcp__workplace__read_file', // WP-346: 파일 본문(추출 텍스트 구간)·이미지 읽기
       'mcp__workplace__search_drive_content',
       'mcp__workplace__list_drive_trash', // #855: 휴지통 조회
       'mcp__workplace__create_drive_folder',
-      'mcp__workplace__rename_drive_folder',
-      'mcp__workplace__move_drive_folder',
-      'mcp__workplace__move_drive_file',
-      'mcp__workplace__rename_drive_file', // WP-354: 파일 이름 변경
+      'mcp__workplace__rename_drive_item', // WP-369: 파일·폴더 이름 변경 통합
+      'mcp__workplace__move_drive_item', // WP-369: 파일·폴더 이동 통합
       'mcp__workplace__copy_drive_item', // WP-354: 파일·폴더 복사
       'mcp__workplace__import_attachment_to_drive', // WP-354: 이슈·채팅 첨부 가져오기
       'mcp__workplace__restore_drive_item', // #855: 휴지통 복원
@@ -33,9 +31,9 @@ describe('drive-agent 정의', () => {
     ]);
   });
   // WP-346: 내용 읽기는 source "drive" + driveFileId 로, READY 가 아니면 추측하지 않도록 안내한다.
-  it('본문이 read_attachment 를 source "drive" + driveFileId 로 안내하고 비-READY 상태 추측을 금한다', () => {
+  it('본문이 read_file 를 source "drive" + driveFileId 로 안내하고 비-READY 상태 추측을 금한다', () => {
     const prompt = loaded['drive-agent'].prompt;
-    expect(prompt).toContain('read_attachment(source="drive", driveFileId, offset?, limit?)');
+    expect(prompt).toContain('read_file(source="drive", driveFileId, offset?, limit?)');
     expect(prompt).toContain('nextOffset');
     expect(prompt).toMatch(/READY.*내용을 추측하지 말고/s);
   });
@@ -62,7 +60,8 @@ describe('drive-agent 정의', () => {
   // WP-354: 파일 이름변경·복사·첨부 가져오기·버전·백링크 안내가 있고, "파일 이름 변경은 미지원" 류 안내는 없다.
   it('파일 이름 변경·복사·첨부 가져오기·버전/백링크 옵션을 안내하고 롤백은 미지원으로 둔다', () => {
     const prompt = loaded['drive-agent'].prompt;
-    expect(prompt).toContain('rename_drive_file(driveFileId, name)');
+    expect(prompt).toContain('rename_drive_item(driveFileId | folderId, name)');
+    expect(prompt).toContain('move_drive_item(driveFileId | folderId, targetFolderId?)');
     expect(prompt).toContain('copy_drive_item(driveFileId | folderId, targetFolderId?)');
     expect(prompt).toContain('import_attachment_to_drive(spaceId, attachmentId, folderId?)');
     expect(prompt).toContain('includeVersions');

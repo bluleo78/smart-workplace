@@ -1,4 +1,5 @@
 // src/drive-tools.ts — 드라이브 읽기 도구 + 폴더·파일 정리(생성·이름변경·이동·복사) + 첨부 가져오기 + 휴지통 복원. 두 앱 공유(#846, #850, #854, WP-354).
+// WP-369: 파일·폴더 이름변경·이동을 rename_drive_item·move_drive_item 하나씩으로 합쳤다.
 // 파일 행은 toDriveItemsView 로 core fileId 를 지우고 driveFileId 로만 노출한다(#840).
 import { z } from 'zod';
 import { omitKeys } from './compact.js';
@@ -48,23 +49,33 @@ export const searchDriveContentInput = z.object({
   limit: z.number().int().min(1).max(50).default(10),
 });
 
-// 폴더·파일 쓰기 — 폴더는 rename/move 와 같은 folderId, 파일은 driveFileId 로 통일한다(#840: 목록 응답의 core fileId 와 혼동 방지).
+// 폴더·파일 쓰기 — 폴더는 folderId, 파일은 driveFileId 로 통일한다(#840: 목록 응답의 core fileId 와 혼동 방지).
 // 상위·대상 폴더는 생략과 null 이 모두 "스페이스 루트" 라(핸들러가 ?? null) nullAsOmitted — 외부 MCP 정의에는 null 갈래를 숨긴다(WP-340 웨이브 5).
 export const createDriveFolderInput = z.object({
   spaceId: z.number().int().positive(),
   parentId: nullAsOmitted(z.number().int().positive()),
   name: z.string().min(1).max(255),
 });
-export const renameDriveFolderInput = z.object({ folderId: z.number().int().positive(), name: z.string().min(1).max(255) });
-export const moveDriveFolderInput = z.object({
-  folderId: z.number().int().positive(),
-  targetParentId: nullAsOmitted(z.number().int().positive()),
-});
-export const moveDriveFileInput = z.object({
-  driveFileId: z.number().int().positive(),
-  targetFolderId: nullAsOmitted(z.number().int().positive()),
-});
-export const renameDriveFileInput = z.object({ driveFileId: z.number().int().positive(), name: z.string().min(1).max(255) });
+// 이름변경·이동은 파일·폴더를 한 도구로 받는다(WP-369: 드라이브 앱 도구 15개 상한 안에 전송 도구 자리를 만들려고 둘씩 합쳤다).
+// restore_drive_item·copy_drive_item 과 같은 이유로 driveFileId·folderId 중 정확히 하나만 받는다 — 둘은 다른 시퀀스라 둘 다 오면 모호하다.
+const exactlyOneItem = (v: { driveFileId?: number; folderId?: number }) => (v.driveFileId === undefined) !== (v.folderId === undefined);
+const exactlyOneItemMessage = { message: 'driveFileId 와 folderId 중 정확히 하나만 주세요.' };
+export const renameDriveItemInput = z
+  .object({
+    driveFileId: z.number().int().positive().optional(),
+    folderId: z.number().int().positive().optional(),
+    name: z.string().min(1).max(255),
+  })
+  .refine(exactlyOneItem, exactlyOneItemMessage);
+// 대상은 파일·폴더 모두 targetFolderId 하나다(copy_drive_item 과 같은 이름) — 폴더 이동 API 의 targetParentId 로는 핸들러가 옮겨 담는다.
+// 생략과 null 이 모두 스페이스 루트다(서버 move 가 null 폴더를 루트로 받는다).
+export const moveDriveItemInput = z
+  .object({
+    driveFileId: z.number().int().positive().optional(),
+    folderId: z.number().int().positive().optional(),
+    targetFolderId: nullAsOmitted(z.number().int().positive()),
+  })
+  .refine(exactlyOneItem, exactlyOneItemMessage);
 // 복사 원본은 파일·폴더 중 하나다(restore_drive_item 과 같은 이유로 둘 다 오면 모호). 대상 폴더는 생략과 null 이 모두 스페이스 루트.
 export const copyDriveItemInput = z
   .object({
@@ -72,9 +83,7 @@ export const copyDriveItemInput = z
     folderId: z.number().int().positive().optional(),
     targetFolderId: nullAsOmitted(z.number().int().positive()),
   })
-  .refine((v) => (v.driveFileId === undefined) !== (v.folderId === undefined), {
-    message: 'driveFileId 와 folderId 중 정확히 하나만 주세요.',
-  });
+  .refine(exactlyOneItem, exactlyOneItemMessage);
 export const importAttachmentToDriveInput = z.object({
   spaceId: z.number().int().positive(),
   attachmentId: z.number().int().positive(),
@@ -85,11 +94,9 @@ export const listDriveTrashInput = z.object({ spaceId: z.number().int().positive
 // 파일과 폴더는 id 시퀀스가 달라 한쪽만 받는다 — 둘 다 오면 어느 것을 복원할지 모호하다.
 export const restoreDriveItemInput = z
   .object({ driveFileId: z.number().int().positive().optional(), folderId: z.number().int().positive().optional() })
-  .refine((v) => (v.driveFileId === undefined) !== (v.folderId === undefined), {
-    message: 'driveFileId 와 folderId 중 정확히 하나만 주세요.',
-  });
+  .refine(exactlyOneItem, exactlyOneItemMessage);
 
-/** 드라이브 도구(읽기 + 폴더 생성·이름변경·이동 + 파일 이름변경·이동 + 복사 + 첨부 가져오기 + 휴지통 목록·복원). 영구 삭제·휴지통 비우기는 되돌릴 수 없어 두지 않는다(삭제는 propose_* 확인 카드). */
+/** 드라이브 도구(읽기 + 폴더 생성 + 파일·폴더 이름변경·이동·복사 + 첨부 가져오기 + 휴지통 목록·복원). 영구 삭제·휴지통 비우기는 되돌릴 수 없어 두지 않는다(삭제는 propose_* 확인 카드). */
 export function buildDriveTools(client: DriveToolClient): SharedTool[] {
   return [
     {
@@ -230,62 +237,37 @@ export function buildDriveTools(client: DriveToolClient): SharedTool[] {
       },
     },
     {
-      name: 'rename_drive_folder',
+      name: 'rename_drive_item',
       app: 'drive',
       kind: 'write',
       // 이전 이름을 덮어쓴다(destructive). 같은 이름으로 다시 불러도 저장 상태가 그대로이고 이력·알림이 쌓이지 않는다(멱등).
       hints: { destructive: true, idempotent: true },
       description:
-        'Renames a folder (folderId) and returns it; needs EDITOR.',
-      inputSchema: renameDriveFolderInput,
+        'Renames a file (driveFileId) or folder (folderId); give exactly one. Returns the item; needs EDITOR. Fails if the name is taken there.',
+      inputSchema: renameDriveItemInput,
       async handler(args) {
-        const { folderId, name } = renameDriveFolderInput.parse(args);
-        return JSON.stringify(toDriveFolderView((await client.renameDriveFolder(folderId, name)) as { id: number }));
+        const { driveFileId, folderId, name } = renameDriveItemInput.parse(args);
+        if (driveFileId !== undefined) {
+          return JSON.stringify(toDriveFileView((await client.renameDriveFile(driveFileId, name)) as { id: number; fileId: number }));
+        }
+        return JSON.stringify(toDriveFolderView((await client.renameDriveFolder(folderId!, name)) as { id: number }));
       },
     },
     {
-      name: 'move_drive_folder',
+      name: 'move_drive_item',
       app: 'drive',
       kind: 'write',
-      // 상위 폴더를 바꾼다(destructive, move_wiki_page 와 같은 기준). 이미 그 위치면 서버가 no-op 이라 다시 불러도 같은 결과(멱등).
+      // 위치를 바꾼다(destructive, move_wiki_page 와 같은 기준). 이미 그 위치면 서버가 no-op 이라 다시 불러도 같은 결과(멱등).
       hints: { destructive: true, idempotent: true },
       description:
-        'Moves a folder (folderId) into targetParentId (the folderId of the new parent, not a row parentId), or to the space root when omitted; needs ' +
-        'EDITOR.',
-      inputSchema: moveDriveFolderInput,
+        'Moves a file (driveFileId) or folder (folderId) into targetFolderId (a folderId) of the same space, or to the root when omitted; give ' +
+        'exactly one. Needs EDITOR.',
+      inputSchema: moveDriveItemInput,
       async handler(args) {
-        const { folderId, targetParentId } = moveDriveFolderInput.parse(args);
-        await client.moveDriveFolder(folderId, targetParentId ?? null);
+        const { driveFileId, folderId, targetFolderId } = moveDriveItemInput.parse(args);
+        if (driveFileId !== undefined) await client.moveDriveFile(driveFileId, targetFolderId ?? null);
+        else await client.moveDriveFolder(folderId!, targetFolderId ?? null);
         return 'ok';
-      },
-    },
-    {
-      name: 'move_drive_file',
-      app: 'drive',
-      kind: 'write',
-      // move_drive_folder 와 같다 — 위치를 바꾸고(destructive), 이미 그 폴더면 서버가 no-op(멱등).
-      hints: { destructive: true, idempotent: true },
-      description:
-        'Moves a file (driveFileId) into the folder targetFolderId (a folderId), or to the space root when omitted; needs EDITOR.',
-      inputSchema: moveDriveFileInput,
-      async handler(args) {
-        const { driveFileId, targetFolderId } = moveDriveFileInput.parse(args);
-        await client.moveDriveFile(driveFileId, targetFolderId ?? null);
-        return 'ok';
-      },
-    },
-    {
-      name: 'rename_drive_file',
-      app: 'drive',
-      kind: 'write',
-      // rename_drive_folder 와 같다 — 이전 이름을 덮어쓰고(destructive), 같은 이름이면 서버가 no-op 이라 다시 불러도 같은 결과(멱등).
-      hints: { destructive: true, idempotent: true },
-      description:
-        'Renames a file (driveFileId) and returns it; needs EDITOR. Fails if the folder already has a file with that name.',
-      inputSchema: renameDriveFileInput,
-      async handler(args) {
-        const { driveFileId, name } = renameDriveFileInput.parse(args);
-        return JSON.stringify(toDriveFileView((await client.renameDriveFile(driveFileId, name)) as { id: number; fileId: number }));
       },
     },
     {

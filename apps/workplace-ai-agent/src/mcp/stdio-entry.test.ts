@@ -274,15 +274,15 @@ describe('registerStdioTool', () => {
     }
   });
 
-  // WP-346: 실제 공유 read_attachment 가 드라이브 이미지를 image 블록으로 돌려줄 때도 비전 미지원이면 안내 문구로 바뀐다.
-  it('read_attachment 의 이미지도 비전 미지원이면 안내 문구로, 비전 지원이면 image 블록 그대로(WP-346)', async () => {
+  // WP-346: 실제 공유 read_file 가 드라이브 이미지를 image 블록으로 돌려줄 때도 비전 미지원이면 안내 문구로 바뀐다.
+  it('read_file 의 이미지도 비전 미지원이면 안내 문구로, 비전 지원이면 image 블록 그대로(WP-346)', async () => {
     const png = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
     const sc = {
       readDriveFileText: vi.fn().mockResolvedValue({ fileId: 1, status: 'SKIPPED', offset: 0, totalChars: null, truncated: null, nextOffset: null, text: null, reasonCode: 'IMAGE', reason: '이미지' }),
       listDriveFileVersions: vi.fn().mockResolvedValue([{ versionNo: 1, sizeBytes: 4, current: true }]),
       downloadDriveFile: vi.fn().mockResolvedValue({ data: png, mimeType: 'image/png' }),
     } as unknown as SharedToolClient;
-    const tool = buildSharedTools(sc).find((t) => t.name === 'read_attachment')!;
+    const tool = buildSharedTools(sc).find((t) => t.name === 'read_file')!;
     for (const vision of [false, true]) {
       const server = new McpServer({ name: 'workplace', version: '1.0.0' });
       registerStdioTool(server, { ...tool, annotations: toolAnnotations(tool) }, { vision });
@@ -291,7 +291,7 @@ describe('registerStdioTool', () => {
       const client = new Client({ name: 'test', version: '0.0.1' });
       await client.connect(clientT);
       try {
-        const res = await client.callTool({ name: 'read_attachment', arguments: { source: 'drive', driveFileId: 9 } });
+        const res = await client.callTool({ name: 'read_file', arguments: { source: 'drive', driveFileId: 9 } });
         const head = { type: 'text', text: '드라이브 이미지(driveFileId 9) (image/png, 4B)' };
         expect(res.content).toEqual(
           vision

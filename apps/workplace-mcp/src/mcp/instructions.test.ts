@@ -28,7 +28,7 @@ describe('buildInstructions (WP-350)', () => {
     expect(text).toContain(`- ${TOOL_APP_GUIDES.wiki.label}:`);
     expect(text).not.toContain(`- ${TOOL_APP_GUIDES.mail.label}:`);
     expect(text).not.toContain(`- ${TOOL_APP_GUIDES.calendar.label}:`);
-    // read_attachment·list_projects 같은 다중 앱 도구가 실려도 고르지 않은 드라이브·프로젝트는 설명하지 않는다.
+    // read_file·list_projects 같은 다중 앱 도구가 실려도 고르지 않은 드라이브·프로젝트는 설명하지 않는다.
     expect(text).not.toContain(`- ${TOOL_APP_GUIDES.drive.label}:`);
     expect(text).not.toContain(`- ${TOOL_APP_GUIDES.project.label}:`);
     expect(text).toContain('/mcp/x/issue,wiki'); // 넓히는 방법 안내

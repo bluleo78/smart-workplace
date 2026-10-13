@@ -99,15 +99,13 @@ export const TOOL_LABELS: Readonly<Record<string, ToolLabel>> = {
   search_drive_content: { label: '드라이브 내용 검색', icon: '🔍' },
   get_drive_file_summary: { label: '파일 요약 조회', icon: '📄' },
   create_drive_folder: { label: '폴더 생성', icon: '📁' },
-  rename_drive_folder: { label: '폴더 이름변경', icon: '✏️' },
-  rename_drive_file: { label: '파일 이름변경', icon: '✏️' },
+  rename_drive_item: { label: '항목 이름변경', icon: '✏️' }, // WP-369: rename_drive_file·rename_drive_folder 통합
   copy_drive_item: { label: '드라이브 항목 복사', icon: '📑' },
   import_attachment_to_drive: { label: '첨부 가져오기', icon: '📥' },
-  move_drive_folder: { label: '폴더 이동', icon: '📦' },
-  move_drive_file: { label: '파일 이동', icon: '📦' },
+  move_drive_item: { label: '항목 이동', icon: '📦' }, // WP-369: move_drive_file·move_drive_folder 통합
   restore_drive_item: { label: '휴지통에서 복원', icon: '♻️' },
-  // 첨부·파일 내용 읽기(WP-346)
-  read_attachment: { label: '첨부·파일 읽기', icon: '📎' },
+  // 첨부·파일 내용 읽기(WP-346, WP-369 에서 read_attachment → read_file)
+  read_file: { label: '파일 읽기', icon: '📎' },
   // 알림
   list_notifications: { label: '알림 조회', icon: '🔔' },
   mark_notification_read: { label: '알림 읽음 처리', icon: '🔔' },
