@@ -6,6 +6,7 @@ import { makeEpicType, makeTaskType, systemTypes } from '../../factories/issueTy
 import { createProject } from '../../factories/project.factory';
 import { expect, expectNoHorizontalOverflow, historyMarks, stubChat, test } from '../../fixtures/mobile.fixture';
 import { trackRequests } from '../../fixtures/requests';
+import { expectSelectedRow } from '../../fixtures/selection';
 
 const KEY = 'WP';
 const ISSUES = `/api/v1/projects/${KEY}/issues`;
@@ -347,28 +348,8 @@ test.describe('모바일 에픽 시트', () => {
       [30, 12, 31].map(async (n) => (await sheet.getByTestId(`picker-option-epic-${n}`).getByRole('progressbar').boundingBox())!),
     );
     for (const b of boxes.slice(1)) expect(b.x).toBeCloseTo(boxes[0].x, 0);
-  });
-
-  // WP-368 — 시트에서 현재 고른 에픽 행은 선택 전용 표시(막대 + bg-selected), 비선택 행엔 없다.
-  test('선택된 에픽 행만 bg-selected·selection-bar 를 갖고 배경색이 다르다 (WP-368)', async ({ authenticatedPage: page }) => {
-    await mock(page);
-    await page.goto(`/projects/${KEY}?group=none&parent=30`);
-    await page.getByTestId('mobile-chip-epic').click();
-    const sheet = page.getByTestId('mobile-epic-sheet');
-    const selected = sheet.getByTestId('picker-option-epic-30');
-    const other = sheet.getByTestId('picker-option-epic-12');
-    await expect(selected).toHaveAttribute('aria-selected', 'true');
-    // 상세(›) 버튼이 붙는 행은 바깥 래퍼가 선택 표시를 맡는다 — 행 버튼의 부모.
-    const selectedRow = selected.locator('..');
-    const otherRow = other.locator('..');
-    await expect(selectedRow).toHaveClass(/bg-selected/);
-    await expect(selectedRow).toHaveClass(/selection-bar/);
-    await expect(otherRow).not.toHaveClass(/bg-selected/);
-    await expect(otherRow).not.toHaveClass(/selection-bar/);
-    const bg = (l: typeof selectedRow) => l.evaluate((el) => getComputedStyle(el).backgroundColor);
-    expect(await bg(selectedRow)).not.toBe(await bg(otherRow));
-    // 「전체 이슈」 같은 상세 없는 행은 버튼 자체가 선택 표시를 갖는다(선택 안 된 상태에선 없음).
-    await expect(page.getByTestId('picker-option-all')).not.toHaveClass(/bg-selected/);
+    // WP-368 — 시트에서 현재 고른 에픽 행만 선택 전용 표시(막대 + bg-selected). 상세(›) 버튼이 붙는 행은 바깥 래퍼(행 버튼의 부모)가 맡는다.
+    await expectSelectedRow(sheet.getByTestId('picker-option-epic-30').locator('..'), sheet.getByTestId('picker-option-epic-12').locator('..'));
   });
 
   test('에픽 칩 ✕ 터치 영역은 32×32 이상, 툴바 높이는 그대로', async ({ authenticatedPage: page }) => {

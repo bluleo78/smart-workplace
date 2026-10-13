@@ -20,7 +20,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { ImeCommitFlush } from '@/lib/imeCommitFlush';
-import { TOGGLE_ON_CLASS } from '@/lib/selectionStyles';
+import { ghostToggleClass } from '@/lib/selectionStyles';
 import { cn } from '@/lib/utils';
 
 interface MailComposerProps {
@@ -50,9 +50,8 @@ function ToolbarButton({
       onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
       className={cn(
-        // 투명 테두리를 늘 둬 켜질 때(TOGGLE_ON_CLASS 의 primary 테두리) 버튼 크기가 변하지 않게 한다.
-        'rounded border border-transparent p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground',
-        active && TOGGLE_ON_CLASS,
+        'rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground',
+        ghostToggleClass(!!active),
       )}
     >
       {children}

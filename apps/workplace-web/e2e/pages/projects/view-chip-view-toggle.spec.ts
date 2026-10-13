@@ -4,6 +4,7 @@ import { expect, test } from '../../fixtures/auth.fixture'
 import { createIssueSearchResponse } from '../../factories/issue.factory'
 import { createProject } from '../../factories/project.factory'
 import type { SavedViewResponse } from '../../../src/types/savedView'
+import { expectToggleLook } from '../../fixtures/selection'
 
 const KEY = 'WP'
 
@@ -45,20 +46,20 @@ test('뷰칩 — 필터 없이 view=board 인 저장뷰가 있어도 보드 전�
   await page.goto(`/projects/${KEY}`)
 
   // 1) 초기 리스트뷰 — "전체" 활성, 저장뷰 칩은 비활성.
-  await expect(page.getByTestId('view-chip-all')).toHaveClass(/border-foreground/)
-  await expect(page.getByTestId('view-chip-1')).not.toHaveClass(/border-foreground/)
+  await expectToggleLook(page.getByTestId('view-chip-all'), true)
+  await expectToggleLook(page.getByTestId('view-chip-1'), false)
 
   // 2) 보드 뷰로 전환 — URL 은 view=board 로 바뀌지만, 필터가 없으므로 "전체"가 계속 활성이어야
   //    하고 저장뷰("탐색 테스트 뷰")는 활성화되면 안 된다.
   await page.getByRole('button', { name: '보드' }).click()
   await expect(page).toHaveURL(/view=board/)
-  await expect(page.getByTestId('view-chip-all')).toHaveClass(/border-foreground/)
-  await expect(page.getByTestId('view-chip-1')).not.toHaveClass(/border-foreground/)
+  await expectToggleLook(page.getByTestId('view-chip-all'), true)
+  await expectToggleLook(page.getByTestId('view-chip-1'), false)
 
   // 3) 다시 리스트로 전환해도 동일.
   await page.getByRole('button', { name: '리스트' }).click()
-  await expect(page.getByTestId('view-chip-all')).toHaveClass(/border-foreground/)
-  await expect(page.getByTestId('view-chip-1')).not.toHaveClass(/border-foreground/)
+  await expectToggleLook(page.getByTestId('view-chip-all'), true)
+  await expectToggleLook(page.getByTestId('view-chip-1'), false)
 })
 
 test('뷰칩 — 필터가 있는 저장뷰는 view 와 무관하게 필터 일치 시 활성화 (#599)', async ({
@@ -75,14 +76,14 @@ test('뷰칩 — 필터가 있는 저장뷰는 view 와 무관하게 필터 일�
   await page.goto(`/projects/${KEY}?priority=HIGH`)
 
   // 1) 리스트뷰에서 필터가 저장뷰와 일치 — 저장뷰 칩 활성, "전체"는 비활성.
-  await expect(page.getByTestId('view-chip-1')).toHaveClass(/border-foreground/)
-  await expect(page.getByTestId('view-chip-all')).not.toHaveClass(/border-foreground/)
+  await expectToggleLook(page.getByTestId('view-chip-1'), true)
+  await expectToggleLook(page.getByTestId('view-chip-all'), false)
 
   // 2) 보드로 전환해도(view 만 바뀜, 필터는 그대로) 저장뷰가 계속 활성 상태를 유지해야 한다 —
   //    view 는 활성 판정에서 제외되는 축이므로.
   await page.getByRole('button', { name: '보드' }).click()
   await expect(page).toHaveURL(/view=board/)
   await expect(page).toHaveURL(/priority=HIGH/)
-  await expect(page.getByTestId('view-chip-1')).toHaveClass(/border-foreground/)
-  await expect(page.getByTestId('view-chip-all')).not.toHaveClass(/border-foreground/)
+  await expectToggleLook(page.getByTestId('view-chip-1'), true)
+  await expectToggleLook(page.getByTestId('view-chip-all'), false)
 })

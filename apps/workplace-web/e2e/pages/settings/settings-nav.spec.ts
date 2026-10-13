@@ -2,6 +2,7 @@
 // 인증은 auth.fixture 의 authenticatedPage(일반)/adminPage(어드민) 픽스처로 주입한다.
 import { createPageResponse, mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { expectSelectedRow } from '../../fixtures/selection'
 
 test.describe('설정 앱 내비게이션', () => {
   test('구 /profile 은 /settings/profile 로 리다이렉트', async ({ authenticatedPage: page }) => {
@@ -28,12 +29,7 @@ test.describe('설정 앱 내비게이션', () => {
     const sidebar = page.getByTestId('settings-sidebar')
     const active = sidebar.locator('a[aria-current="page"]')
     await expect(active).toHaveCount(1)
-    await expect(active).toHaveClass(/bg-selected/)
-    await expect(active).toHaveClass(/selection-bar/)
-    const inactive = sidebar.locator('a:not([aria-current="page"])').first()
-    await expect(inactive).not.toHaveClass(/bg-selected/)
-    const bg = (l: typeof active) => l.evaluate((el) => getComputedStyle(el).backgroundColor)
-    expect(await bg(active)).not.toBe(await bg(inactive))
+    await expectSelectedRow(active, sidebar.locator('a:not([aria-current="page"])').first())
   })
 
   test('비어드민이 /settings/users 직접 접근 시 차단(홈 리다이렉트)', async ({ authenticatedPage: page }) => {

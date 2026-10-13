@@ -7,6 +7,7 @@ import { createProject } from '../../factories/project.factory';
 import { longPressWithMouse } from '../../fixtures/mobile-chat';
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture';
 import { bodyOf, trackRequests } from '../../fixtures/requests';
+import { expectSelectedRow } from '../../fixtures/selection';
 
 const KEY = 'WP';
 const ISSUES = `/api/v1/projects/${KEY}/issues`;
@@ -108,6 +109,9 @@ test.describe('모바일 선택 모드', () => {
     await expect(bar).toBeVisible();
     await expect(bar).toHaveAttribute('data-mobile', 'true');
     await expect(bar).toContainText('1개 선택');
+    // WP-368 — 다중 선택 행은 막대 없이 옅은 primary 배경(MULTI_SELECTED_ROW_CLASS)이 실제로 보인다.
+    await expect(page.getByTestId('issue-row-21')).toHaveAttribute('aria-selected', 'true');
+    await expectSelectedRow(page.getByTestId('issue-row-21'), page.getByTestId('issue-row-22'), { bar: false, cls: /(?<![:\w-])bg-primary\/10/ });
 
     // 제목 텍스트(링크)를 정확히 탭해도 이동하지 않고 선택이 늘어난다.
     await page.getByTestId('issue-row-22').getByText('환불 콜백 재시도 로직 추가').click();
@@ -125,23 +129,6 @@ test.describe('모바일 선택 모드', () => {
     await page.getByTestId('picker-option-DONE').click();
     await expect.poll(() => calls().filter((c) => c.path.endsWith('/status')).length).toBe(2);
     await expect(bar).toHaveCount(0);
-  });
-
-  // WP-368 — 다중 선택 행은 막대 없이 옅은 primary 배경(MULTI_SELECTED_ROW_CLASS)이 실제로 보인다.
-  test('선택된 행만 bg-primary/10 배경을 갖고 막대(selection-bar)는 없다 (WP-368)', async ({ authenticatedPage: page }) => {
-    await mock(page);
-    await page.goto(`/projects/${KEY}?group=none`);
-    await longPressWithMouse(page, page.getByTestId('issue-row-21'));
-    await page.getByTestId('mobile-action-select').click();
-    const picked = page.getByTestId('issue-row-21');
-    const other = page.getByTestId('issue-row-22');
-    await expect(picked).toHaveAttribute('aria-selected', 'true');
-    await expect(other).toHaveAttribute('aria-selected', 'false');
-    await expect(picked).toHaveClass(/(?<![:\w-])bg-primary\/10/);
-    await expect(other).not.toHaveClass(/(?<![:\w-])bg-primary\/10/);
-    await expect(picked).not.toHaveClass(/selection-bar/);
-    const bg = (l: typeof picked) => l.evaluate((el) => getComputedStyle(el).backgroundColor);
-    expect(await bg(picked)).not.toBe(await bg(other));
   });
 
   test('✕ 버튼(선택 해제)으로 선택 모드를 끝내면 탭이 다시 상세로 이동한다', async ({ authenticatedPage: page }) => {

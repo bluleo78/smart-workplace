@@ -10,6 +10,7 @@ import { createIssue, createIssueSearchResponse } from '../../factories/issue.fa
 import { createMember, createProject } from '../../factories/project.factory';
 import { expect, test } from '../../fixtures/auth.fixture';
 import { trackRequests } from '../../fixtures/requests';
+import { expectToggleLook } from '../../fixtures/selection';
 
 const KEY = 'WP';
 const ISSUES_PATH = `/api/v1/projects/${KEY}/issues`;
@@ -316,6 +317,9 @@ test.describe('이슈 목록 사이클 그룹 (#878)', () => {
     await expect(page.getByTestId('issue-row-90')).toBeVisible();
     await expect(page.locator('[data-testid^="list-cycle-section-"]')).toHaveCount(0);
     await expect(page.getByTestId('view-chip-7')).toHaveClass(/font-medium/);
+    // WP-368 — 활성 칩은 TOGGLE_ON 모양(primary 테두리·글자), 비활성 「전체」 칩엔 없다.
+    await expectToggleLook(page.getByTestId('view-chip-7'), true);
+    await expectToggleLook(page.getByTestId('view-chip-all'), false);
     // 적용 직후는 저장된 뷰와 일치 — 「뷰 업데이트」가 뜨지 않는다.
     await expect(page.getByTestId('update-view-button')).toHaveCount(0);
   });

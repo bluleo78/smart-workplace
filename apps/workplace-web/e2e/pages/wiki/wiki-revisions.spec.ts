@@ -29,6 +29,7 @@ import {
   revisionPreview as preview,
   revisionShot as shot,
 } from '../../fixtures/wiki-revisions'
+import { expectSelectedRow } from '../../fixtures/selection'
 
 // 노트 버전 기록(WP-282) 데스크톱 — 헤더 ⋯ → 버전 기록 패널, 판 미리보기(변경 표시), 복원, 복귀 토스트 "변경 보기".
 // 버전 기록 API 는 route 목(mockWikiRevisions), 본문 동기화는 테스트 모드 동기화 서버(실서버)다. 데이터는 fixtures/wiki-revisions(모바일 spec 과 공용).
@@ -61,15 +62,10 @@ test.describe('노트 버전 기록', () => {
     await expect(revItem(a, 2)).toContainText('09:12')
 
     // WP-368 — 선택 줄(aria-current)만 선택 표시(막대 + bg-selected), 다른 줄엔 없다. 판을 고르면 표시가 옮겨 간다.
-    await expect(revItem(a, 'current')).toHaveClass(/bg-selected/)
-    await expect(revItem(a, 'current')).toHaveClass(/selection-bar/)
-    await expect(revItem(a, 5)).not.toHaveClass(/bg-selected/)
-    const bg = (l: ReturnType<typeof revItem>) => l.evaluate((el) => getComputedStyle(el).backgroundColor)
-    expect(await bg(revItem(a, 'current'))).not.toBe(await bg(revItem(a, 5)))
+    await expectSelectedRow(revItem(a, 'current'), revItem(a, 5))
     await revItem(a, 5).click()
     await expect(revItem(a, 5)).toHaveAttribute('aria-current', 'true')
-    await expect(revItem(a, 5)).toHaveClass(/bg-selected/)
-    await expect(revItem(a, 'current')).not.toHaveClass(/bg-selected/)
+    await expectSelectedRow(revItem(a, 5), revItem(a, 'current'))
 
     // ✕ 로 닫으면 패널·쿼리가 사라진다.
     await a.getByTestId('wiki-revision-panel-close').click()

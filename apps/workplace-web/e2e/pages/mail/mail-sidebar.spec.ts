@@ -6,6 +6,7 @@ import { detail, mailAccount, summary } from '../../factories/mail.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { trackRequests } from '../../fixtures/requests'
+import { expectSelectedRow } from '../../fixtures/selection'
 
 test.describe('메일 사이드바', () => {
   test('계정 스위처 → 다른 계정 선택 시 /mail/:id 이동 + 폴더 INBOX 초기화', async ({
@@ -49,26 +50,8 @@ test.describe('메일 사이드바', () => {
     await page.goto('/mail/1?folder=sent')
     await expect(page.getByTestId('mail-folder-sent')).toHaveAttribute('aria-current', 'page')
     await expect(page.getByTestId('mail-folder-inbox')).not.toHaveAttribute('aria-current', 'page')
-  })
-
-  // WP-368 — 선택 폴더는 hover 와 구분되는 선택 전용 표시(막대 + bg-selected), 비선택은 없다.
-  test('선택된 폴더는 bg-selected·selection-bar 를 갖고 배경색이 비선택과 다르다 (WP-368)', async ({
-    authenticatedPage: page,
-  }) => {
-    await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
-    await page.route(
-      (url) => url.pathname === '/api/v1/mail/accounts/1/messages',
-      (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
-    )
-    await page.goto('/mail/1?folder=sent')
-    const sent = page.getByTestId('mail-folder-sent')
-    const inbox = page.getByTestId('mail-folder-inbox')
-    await expect(sent).toHaveClass(/bg-selected/)
-    await expect(sent).toHaveClass(/selection-bar/)
-    await expect(inbox).not.toHaveClass(/bg-selected/)
-    await expect(inbox).not.toHaveClass(/selection-bar/)
-    const bg = (l: typeof sent) => l.evaluate((el) => getComputedStyle(el).backgroundColor)
-    expect(await bg(sent)).not.toBe(await bg(inbox))
+    // WP-368 — 선택 폴더는 hover 와 구분되는 선택 전용 표시(막대 + bg-selected), 비선택은 없다.
+    await expectSelectedRow(page.getByTestId('mail-folder-sent'), page.getByTestId('mail-folder-inbox'))
   })
 })
 

@@ -6,6 +6,7 @@ import type { Page } from '@playwright/test'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { applyCollabMarkdown, changeCollabRole, typeAtEnd } from '../../fixtures/collab'
 import { mockWikiMentions, mockWikiPageEditor, savedMarkdown } from '../../fixtures/wiki-mock'
+import { expectToggle } from '../../fixtures/selection'
 
 const SPACE_ID = 1
 const PAGE_ID = 412
@@ -51,15 +52,11 @@ test('선택 툴바 서식 토글 — 굵게를 켜면 aria-pressed·TOGGLE_ON �
   await selectText(page, '굵게 처리')
   const bold = page.getByTestId('wiki-format-tb-bold')
   const italic = page.getByTestId('wiki-format-tb-italic')
-  const on = /(?<![:\w-])text-primary/
-  await expect(bold).toHaveAttribute('aria-pressed', 'false')
-  await expect(bold).not.toHaveClass(on)
+  await expectToggle(bold, false)
   await bold.click()
   await expect(page.locator('.ProseMirror strong', { hasText: '굵게 처리' })).toBeVisible()
-  await expect(bold).toHaveAttribute('aria-pressed', 'true')
-  await expect(bold).toHaveClass(on)
-  await expect(bold).toHaveClass(/(?<![:\w-])border-primary\/50/)
-  await expect(italic).not.toHaveClass(on)
+  await expectToggle(bold, true)
+  await expectToggle(italic, false)
 })
 
 test('선택 툴바 🔗 로 선택한 글자에 링크를 건다 — 맨 도메인은 https:// 가 붙어 저장된다', async ({ authenticatedPage: page }) => {

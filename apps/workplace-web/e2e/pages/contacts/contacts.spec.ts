@@ -3,6 +3,7 @@ import type { Page } from '@playwright/test'
 
 import { external, member, memberDetail, page as makePage } from '../../factories/contacts.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { expectSelectedRow } from '../../fixtures/selection'
 
 // /api/v1/contacts 목록 — search·type·favorite 쿼리에 따라 분기.
 async function stubList(page: Page) {
@@ -101,19 +102,13 @@ test('연락처 행·타입 필터 선택 표시 (WP-368)', async ({ authenticat
   await expect(picked).not.toHaveClass(/bg-selected/)
   await picked.click()
   await expect(page.getByTestId('contact-detail-member')).toBeVisible()
-  await expect(picked).toHaveClass(/bg-selected/)
-  await expect(picked).toHaveClass(/selection-bar/)
-  await expect(other).not.toHaveClass(/bg-selected/)
-  const bg = (l: typeof picked) => l.evaluate((el) => getComputedStyle(el).backgroundColor)
-  expect(await bg(picked)).not.toBe(await bg(other))
+  await expectSelectedRow(picked, other)
   // 사이드바 타입 필터 — 활성(전체)만 선택 표시, 나머지는 없다. 바꾸면 따라 옮겨 간다.
   const all = page.getByTestId('contact-filter-ALL')
   const ext = page.getByTestId('contact-filter-EXTERNAL')
-  await expect(all).toHaveClass(/bg-selected/)
-  await expect(ext).not.toHaveClass(/bg-selected/)
+  await expectSelectedRow(all, ext)
   await ext.click()
-  await expect(ext).toHaveClass(/bg-selected/)
-  await expect(all).not.toHaveClass(/bg-selected/)
+  await expectSelectedRow(ext, all)
 })
 
 // #113 전폭 PageHeader + 좁은 화면 뒤로가기

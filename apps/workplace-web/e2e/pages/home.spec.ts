@@ -2,6 +2,7 @@ import type { Page } from '@playwright/test'
 
 import { expect, test } from '../fixtures/auth.fixture'
 import { mockApi } from '../fixtures/api-mock'
+import { expectSelectedRow } from '../fixtures/selection'
 import { dropDnd, expectStays, measureBox, resizeAndSettle } from '../fixtures/wait'
 import { trackRequests } from '../fixtures/requests'
 import { createIssue, createIssueSearchResponse } from '../factories/issue.factory'
@@ -1360,17 +1361,14 @@ test('위젯 추가 모달 — 현재 카테고리 탭만 bg-selected·selection
 
   const modal = page.getByTestId('add-widget-modal')
   const cal = modal.locator('[data-testid="add-widget-category"][data-category="캘린더"]')
-  const current = modal.locator('[data-testid="add-widget-category"][aria-pressed="true"]')
-  await expect(current).toHaveCount(1)
-  await expect(current).toHaveClass(/bg-selected/)
-  await expect(current).toHaveClass(/selection-bar/)
-  await expect(cal).not.toHaveClass(/bg-selected/)
-  const bg = (l: typeof cal) => l.evaluate((el) => getComputedStyle(el).backgroundColor)
-  expect(await bg(current)).not.toBe(await bg(cal))
+  const currentTab = modal.locator('[data-testid="add-widget-category"][aria-pressed="true"]')
+  await expect(currentTab).toHaveCount(1)
+  // 고정 로커 — aria-pressed 로 찾은 로커는 선택이 옮겨 가면 다른 탭을 가리킨다.
+  const current = modal.locator(`[data-testid="add-widget-category"][data-category="${await currentTab.getAttribute('data-category')}"]`)
+  await expectSelectedRow(current, cal)
   await cal.click()
   await expect(cal).toHaveAttribute('aria-pressed', 'true')
-  await expect(cal).toHaveClass(/bg-selected/)
-  await expect(cal).toHaveClass(/selection-bar/)
+  await expectSelectedRow(cal, current)
   await expect(modal.locator('[data-testid="add-widget-category"].bg-selected')).toHaveCount(1)
 })
 

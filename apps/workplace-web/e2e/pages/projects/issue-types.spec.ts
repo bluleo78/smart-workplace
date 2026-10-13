@@ -10,6 +10,7 @@ import { trackRequests } from '../../fixtures/requests';
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
 import { makeIssueType, systemTypes } from '../../factories/issueType.factory';
 import { createMember, createProject } from '../../factories/project.factory';
+import { expectSelectedRow } from '../../fixtures/selection';
 
 const KEY = 'WP';
 
@@ -155,9 +156,7 @@ test.describe('이슈 유형', () => {
       // WP-368 — 현재 유형(TASK)만 선택 표시(bg-selected + 막대), 고르려는 유형엔 없다.
       const currentOpt = page.getByTestId(`issue-type-option-${issue.type.id}`);
       const otherOpt = page.getByTestId(`issue-type-option-${designId}`);
-      await expect(currentOpt).toHaveClass(/bg-selected/);
-      await expect(currentOpt).toHaveClass(/selection-bar/);
-      await expect(otherOpt).not.toHaveClass(/bg-selected/);
+      await expectSelectedRow(currentOpt, otherOpt);
       await otherOpt.click();
 
       await expect.poll(() => typePatches.lastBody()).toEqual({ typeId: designId });

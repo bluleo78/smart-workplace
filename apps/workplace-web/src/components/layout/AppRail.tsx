@@ -105,7 +105,7 @@ function RailLink({
             'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-all duration-200',
             'lg:pl-[10px] lg:pr-2',
             active
-              // 막대는 공용 selection-bar(위치·폭) 위에 nav-active-indicator 가 레일 전용 차이(인셋·다크 그라데이션)를 덮는다.
+              // 막대는 공용 selection-bar 가 그리고, nav-active-indicator 가 레일 전용 변수(인셋·다크 그라데이션)만 바꾼다.
               ? 'bg-accent text-accent-foreground selection-bar nav-active-indicator'
               : 'text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground',
           )}

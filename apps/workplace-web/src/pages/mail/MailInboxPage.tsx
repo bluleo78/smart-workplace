@@ -1041,7 +1041,7 @@ export function MailInboxPage() {
                     // 모바일: 시각 h-9 + after 히트 영역 확장으로 터치 44px 확보. 포커스 링은 디자인 시스템 규칙.
                     'relative inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-xs outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/40',
                     "max-lg:h-9 max-lg:px-4 max-lg:text-sm max-lg:after:absolute max-lg:after:-inset-y-1 max-lg:after:inset-x-0 max-lg:after:content-['']",
-                    view.unreadOnly ? `${TOGGLE_ON_CLASS} font-semibold` : 'text-foreground hover:bg-accent/50',
+                    view.unreadOnly ? cn(TOGGLE_ON_CLASS, 'font-semibold') : 'text-foreground hover:bg-accent/50',
                   )}
                 >
                   {/* 켜짐을 색에만 의존하지 않도록 점 표시(목업). */}

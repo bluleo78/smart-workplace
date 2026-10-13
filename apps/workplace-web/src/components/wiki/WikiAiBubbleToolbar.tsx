@@ -7,8 +7,7 @@ import { AiLabel } from '@/components/ai/AiLabel'
 import { EditorFloatingToolbar } from '@/components/editor/EditorFloatingToolbar'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { TOGGLE_ON_CLASS } from '@/lib/selectionStyles'
-import { cn } from '@/lib/utils'
+import { ghostToggleClass } from '@/lib/selectionStyles'
 
 import {
   LANGUAGE_PRESETS,
@@ -81,7 +80,7 @@ export function WikiAiBubbleToolbar({
           aria-label={label}
           aria-pressed={isActive(editor)}
           data-testid={`wiki-format-tb-${key}`}
-          className={cn('border border-transparent', isActive(editor) && TOGGLE_ON_CLASS)}
+          className={ghostToggleClass(isActive(editor))}
           // mousedown 기본동작 차단 — 클릭이 에디터 선택을 잃지 않게 한다.
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => run(editor)}
@@ -98,7 +97,7 @@ export function WikiAiBubbleToolbar({
           aria-label="링크"
           aria-pressed={editor.isActive('link')}
           data-testid="wiki-format-tb-link"
-          className={cn('border border-transparent', editor.isActive('link') && TOGGLE_ON_CLASS)}
+          className={ghostToggleClass(editor.isActive('link'))}
           onMouseDown={(e) => e.preventDefault()}
           onClick={onLink}
         >

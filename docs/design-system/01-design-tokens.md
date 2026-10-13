@@ -327,18 +327,18 @@ orange 계열 주의 색상. warning(amber)보다 강한 주의를 표현하기 
 | 상태 | 클래스 | 모양 | 쓰는 곳 |
 |------|--------|------|---------|
 | 목록 선택 | `SELECTED_ROW_CLASS` | 왼쪽 3px primary 막대(`selection-bar`) + `bg-selected` + `font-semibold` + 전경색 글자 | 에픽 패널·트리·시트 행 등 현재 고른 항목 |
-| 사이드바 선택 | `SELECTED_NAV_CLASS` | 위 + 앞 아이콘(행의 직계 첫 svg)만 `text-primary` | 앞에 아이콘이 있는 2차 사이드바 메뉴 |
+| 사이드바 선택 | `SELECTED_NAV_CLASS` | 위 + 앞 아이콘만 `text-primary` — 행의 직계 첫 svg, 또는 첫 span(아이콘을 감싼 칸) 안의 svg. 뒤쪽 다른 svg 는 칠하지 않는다 | 앞에 아이콘이 있는 2차 사이드바 메뉴·모바일 대화 행 |
 | 목록 선택(바탕만) | `SELECTED_SURFACE_CLASS` | 막대 + `bg-selected` (굵기·글자색 그대로) | 보조 줄이 있어 굵기를 올리면 번지는 목록 — 연락처 목록·그룹 멤버 행(메일 목록은 아래 `SELECTED_BG_CLASS`) |
 | 목록 선택(막대 없음) | `SELECTED_BG_CLASS` | `bg-selected` 만 — 막대·굵기 없음 | 행 왼쪽 막대가 다른 의미로 쓰이는 목록 — 메일 목록(안 읽음 막대가 같은 자리·같은 색) |
 | 다중 선택 | `MULTI_SELECTED_ROW_CLASS` | `bg-primary/10` (막대 없음 — "현재 고른 하나"가 아니라 체크로 모은 여러 개) | 모바일 이슈·드라이브 목록의 선택 모드 행 |
 | 토글 켜짐(글자만) | `TOGGLE_ON_TEXT_CLASS` | `text-primary` + `font-semibold` (테두리 상자 없음) | 하단 액션 바 등 상자를 못 쓰는 `aria-pressed` 버튼(뷰어 ✨ 요약) |
-| 토글 켜짐 | `TOGGLE_ON_CLASS` | `border-primary/50` + `bg-primary/10`(다크 `/15`) + `text-primary` | `aria-pressed` 버튼(에픽 패널·완료 모두 보기·주/월 등). ghost 버튼은 꺼짐에도 `border border-transparent` |
+| 토글 켜짐 | `TOGGLE_ON_CLASS` | `border-primary/50` + `bg-primary/10`(다크 `/15`) + `text-primary` | `aria-pressed` 버튼(에픽 패널·완료 모두 보기·주/월 등)과 토글형 칩(저장 뷰 칩·출처 필터·조회 기간 트리거). **ghost 버튼은 `ghostToggleClass(on)`** — 꺼짐에도 투명 테두리를 둬 켜질 때 2px 밀리지 않는다. outline 버튼은 자기 테두리가 있어 `TOGGLE_ON_CLASS` 만 붙인다 |
 
 - **글자는 파랗게 하지 않는다**(목록) — 항목 고유 색(에픽 색 점 등)과 섞이지 않고, 파란 글자(링크·켜진 토글)와 의미가 겹치지 않게.
-- **hover 는 그대로** `hover:bg-accent/50`·`hover:bg-muted/50` — 선택보다 확실히 옅어야 한다.
-- **적용하지 않는 곳**: 멘션·`/` 메뉴의 키보드 하이라이트(`aria-selected` 콤보박스 — hover 와 같은 성격), 누름(`active:bg-accent`) 피드백, 칩, 드래그 드롭 표시.
+- **hover 는 그대로** `hover:bg-accent/50`·`hover:bg-muted/50` — 선택보다 확실히 옅어야 한다. 선택 클래스(`SELECTED_BG_CLASS` 계열)는 `hover:bg-selected` 를 함께 가져, 기본 클래스에 hover 배경이 있어도 `cn()` 이 뒤쪽 hover 를 남겨 선택색이 hover 로 옅어지지 않는다 — 그래서 선택 클래스는 기본 클래스 **뒤에** 붙이고 `selected && …` 로 단순하게 쓴다.
+- **적용하지 않는 곳**: 멘션·`/` 메뉴의 키보드 하이라이트(`aria-selected` 콤보박스 — hover 와 같은 성격), 누름(`active:bg-accent`) 피드백, 값 칩(받는 사람·멘션·필터 값), 드래그 드롭 표시. (토글형 칩은 위 `TOGGLE_ON_CLASS`.)
 - 대비는 `actionTokens.test` 가 6조합(기본·ocean·sunset × 라이트·다크)으로 고정한다 — 선택 배경 위 글자 4.5:1, 막대 3:1, 토글 채움 위 primary 글자 4.5:1(브랜드 라이트는 primary 자체 명도 한계로 4:1 하한).
-- 앱 레일은 기존 `nav-active-indicator`(다크 그라데이션 막대)를 유지한다.
+- 막대 모양은 `selection-bar` 유틸이 `--selection-bar-inset`·`--selection-bar-bg`·`--selection-bar-shadow` 변수로 받는다. 앱 레일은 `selection-bar nav-active-indicator` 를 함께 쓰며, `.nav-active-indicator` 는 변수만 바꾼다(위아래 25% 인셋, 다크 그라데이션·glow) — 모양은 기존과 같다.
 
 ---
 

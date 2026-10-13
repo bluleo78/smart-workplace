@@ -1,6 +1,7 @@
 import { createMembership } from '../factories/auth.factory'
 import { expect, test } from '../fixtures/auth.fixture'
 import { expectTheme, tokenColor, withTheme } from '../fixtures/contrast'
+import { selectionBarStyle } from '../fixtures/selection'
 
 test('홈에 앱 레일이 보이고 상단 GNB는 없다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
   await page.goto('/')
@@ -60,8 +61,8 @@ test('앱 레일 — 한글 라벨과 소통 우선 순서(홈·대화·메일·
   ])
 })
 
-// WP-368 — 활성 레일 항목의 막대는 공용 selection-bar 위에 nav-active-indicator 가 레일 전용 차이(위아래 25% 인셋·다크 그라데이션)를
-// 덮는다. 유틸 레이어와 레이어 밖 규칙의 우선순위가 뒤집히면 막대 모양이 바뀌므로 계산된 ::before 스타일로 고정한다.
+// WP-368 — 활성 레일 항목의 막대는 공용 selection-bar 가 그리고, nav-active-indicator 가 CSS 변수(위아래 25% 인셋·다크 그라데이션·glow)만
+// 바꾼다. 변수 정리 전과 같은 모양인지 계산된 ::before 스타일로 고정한다.
 for (const scheme of ['light', 'dark'] as const) {
   test(`앱 레일 — 활성 항목 막대 모양이 유지된다 (${scheme}, WP-368)`, async ({ authenticatedPage: page }) => {
     await withTheme(page, scheme)
@@ -71,30 +72,22 @@ for (const scheme of ['light', 'dark'] as const) {
     await expect(active).toHaveCount(1)
     await expect(active).toHaveClass(/selection-bar/)
     await expect(active).toHaveClass(/nav-active-indicator/)
-    const bar = await active.evaluate((el) => {
-      const s = getComputedStyle(el, '::before')
-      return {
-        hostPosition: getComputedStyle(el).position,
-        position: s.position, left: s.left, width: s.width, radius: s.borderRadius,
-        top: parseFloat(s.top), bottom: parseFloat(s.bottom), height: el.getBoundingClientRect().height,
-        bgColor: s.backgroundColor, bgImage: s.backgroundImage, shadow: s.boxShadow,
-      }
-    })
+    const bar = await selectionBarStyle(active)
     expect(bar.hostPosition).toBe('relative')
     expect(bar.position).toBe('absolute')
     expect(bar.left).toBe('0px')
     expect(bar.width).toBe('3px')
     expect(bar.radius).toBe('0px 3px 3px 0px')
     // 위아래 25% 인셋(selection-bar 기본 22% 가 아니다).
-    expect(bar.top).toBeCloseTo(bar.height * 0.25, 0)
-    expect(bar.bottom).toBeCloseTo(bar.height * 0.25, 0)
+    expect(bar.top).toBeCloseTo(bar.hostHeight * 0.25, 0)
+    expect(bar.bottom).toBeCloseTo(bar.hostHeight * 0.25, 0)
     if (scheme === 'dark') {
-      expect(bar.bgImage).toContain('linear-gradient')
-      expect(bar.shadow).not.toBe('none')
+      expect(bar.backgroundImage).toContain('linear-gradient')
+      expect(bar.boxShadow).not.toBe('none')
     } else {
-      expect(bar.bgImage).toBe('none')
-      expect(bar.shadow).toBe('none')
-      expect(bar.bgColor).toBe(await tokenColor(page, '--primary'))
+      expect(bar.backgroundImage).toBe('none')
+      expect(bar.boxShadow).toBe('none')
+      expect(bar.backgroundColor).toBe(await tokenColor(page, '--primary'))
     }
   })
 }

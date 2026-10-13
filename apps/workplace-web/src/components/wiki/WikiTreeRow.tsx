@@ -92,10 +92,9 @@ export function WikiTreeRow({
         <button
           type="button"
           onClick={() => onOpen(id)}
-          // 선택은 공용 선택 스타일(막대+bg-selected) — hover 배경은 선택 행에 두지 않아 선택색이 hover 로 옅어지지 않게 한다.
           className={cn(
-            'flex min-w-0 flex-1 items-center gap-1 rounded px-2 py-1 text-left text-sm',
-            selected ? SELECTED_ROW_CLASS : 'hover:bg-accent',
+            'flex min-w-0 flex-1 items-center gap-1 rounded px-2 py-1 text-left text-sm hover:bg-accent',
+            selected && SELECTED_ROW_CLASS,
           )}
         >
           <span className="truncate">{label}</span>

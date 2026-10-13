@@ -4,6 +4,7 @@ import { createPageResponse, mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { commitImeThenEnterInSameTask } from '../../fixtures/ime'
 import { trackRequests } from '../../fixtures/requests'
+import { expectToggle } from '../../fixtures/selection'
 
 test.describe('메일 작성·발송', () => {
   test.beforeEach(async ({ authenticatedPage: page }) => {
@@ -66,16 +67,12 @@ test.describe('메일 작성·발송', () => {
     await page.getByTestId('mail-composer-body').click()
     const bold = page.getByRole('button', { name: '굵게' })
     const italic = page.getByRole('button', { name: '기울임' })
-    const on = /(?<![:\w-])text-primary/
-    await expect(bold).toHaveAttribute('aria-pressed', 'false')
-    await expect(bold).not.toHaveClass(on)
+    await expectToggle(bold, false)
     await bold.click()
-    await expect(bold).toHaveAttribute('aria-pressed', 'true')
-    await expect(bold).toHaveClass(on)
-    await expect(bold).toHaveClass(/(?<![:\w-])border-primary\/50/)
-    await expect(italic).not.toHaveClass(on)
+    await expectToggle(bold, true)
+    await expectToggle(italic, false)
     await bold.click()
-    await expect(bold).not.toHaveClass(on)
+    await expectToggle(bold, false)
   })
 
   // WP-333 — macOS Chrome 에서 한글 마지막 글자 조합 중 Enter 를 쳐도 그 글자가 남고 다음 문단으로 넘어간다(수정 뒤 동작 회귀 방지 —

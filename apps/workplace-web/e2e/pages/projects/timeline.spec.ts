@@ -8,6 +8,7 @@ import { createIssue, createIssueSearchResponse } from '../../factories/issue.fa
 import { createMember, createProject } from '../../factories/project.factory';
 import type { CycleResponse } from '../../../src/types/cycle';
 import type { MilestoneResponse } from '../../../src/types/milestone';
+import { expectToggle } from '../../fixtures/selection';
 
 const KEY = 'WP';
 
@@ -456,24 +457,14 @@ test('주/월 줌 토글', async ({ authenticatedPage: page }) => {
   const monthButton = page.getByRole('button', { name: '월' });
   await expect(weekButton).toHaveAttribute('aria-pressed', 'true');
   await expect(monthButton).toHaveAttribute('aria-pressed', 'false');
+  // WP-368 — 켜진 줌 버튼만 TOGGLE_ON(primary 테두리·글자), 전환하면 표시도 따라 옮겨 간다.
+  await expectToggle(weekButton, true);
+  await expectToggle(monthButton, false);
   await monthButton.click();
   await expect(monthButton).toHaveAttribute('aria-pressed', 'true');
   await expect(weekButton).toHaveAttribute('aria-pressed', 'false');
-});
-
-// WP-368 — 켜진 줌 버튼은 TOGGLE_ON(primary 테두리·글자), 꺼진 쪽은 없다. 전환하면 표시도 따라 옮겨 간다.
-test('주/월 줌 토글 — 켜진 쪽만 TOGGLE_ON 표시 (WP-368)', async ({ authenticatedPage: page }) => {
-  await setupTimelineStubs(page);
-  await page.goto(`/projects/${KEY}/timeline`);
-  const weekButton = page.getByRole('button', { name: '주' });
-  const monthButton = page.getByRole('button', { name: '월' });
-  const on = /(?<![:\w-])text-primary/;
-  await expect(weekButton).toHaveClass(on);
-  await expect(weekButton).toHaveClass(/(?<![:\w-])border-primary\/50/);
-  await expect(monthButton).not.toHaveClass(on);
-  await monthButton.click();
-  await expect(monthButton).toHaveClass(on);
-  await expect(weekButton).not.toHaveClass(on);
+  await expectToggle(monthButton, true);
+  await expectToggle(weekButton, false);
 });
 
 test('담당자는 아바타 스택, 라벨/마일스톤은 facet 으로 노출된다 (#638, #647)', async ({ authenticatedPage: page }) => {

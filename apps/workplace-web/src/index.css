@@ -508,31 +508,31 @@
 }
 
 /* WP-368: 목록 선택 행의 왼쪽 primary 막대 — 선택 표시 규칙(디자인 시스템 01 §선택 상태)의 일부.
-   utilities 레이어라 다른 position 유틸과 같은 규칙으로 겹친다. 막대는 테마 primary 를 그대로 따른다(브랜드 테마 대응). */
+   utilities 레이어라 다른 position 유틸과 같은 규칙으로 겹친다. 막대는 테마 primary 를 그대로 따른다(브랜드 테마 대응).
+   모양 변형은 CSS 변수로 받는다 — 위아래 인셋·배경(그라데이션 가능)·그림자. 앱 레일(.nav-active-indicator)이 변수만 바꿔 쓴다. */
 @utility selection-bar {
   position: relative;
   &::before {
     content: '';
     position: absolute;
     left: 0;
-    top: 22%;
-    bottom: 22%;
+    top: var(--selection-bar-inset, 22%);
+    bottom: var(--selection-bar-inset, 22%);
     width: 3px;
     border-radius: 0 3px 3px 0;
-    background: var(--primary);
+    background: var(--selection-bar-bg, var(--primary));
+    box-shadow: var(--selection-bar-shadow, none);
   }
 }
 
-/* Active sidebar indicator — 앱 레일 전용. 막대 기본 모양(위치·폭·둥근 모서리·primary 색)은 selection-bar 유틸이 그리고,
-   AppRail 은 `selection-bar nav-active-indicator` 를 함께 쓴다. 여기서는 차이(위아래 25% 인셋, 다크 그라데이션·glow)만 덮는다.
-   이 규칙은 @layer 밖이라 utilities 레이어의 selection-bar 보다 항상 이긴다(레이어 밖 규칙 > 레이어 안 규칙). */
-.nav-active-indicator::before {
-  top: 25%;
-  bottom: 25%;
+/* Active sidebar indicator — 앱 레일 전용. AppRail 은 `selection-bar nav-active-indicator` 를 함께 쓰고,
+   여기서는 selection-bar 의 변수만 바꾼다(위아래 25% 인셋, 다크 그라데이션·glow). */
+.nav-active-indicator {
+  --selection-bar-inset: 25%;
 }
-.dark .nav-active-indicator::before {
-  background: linear-gradient(180deg, oklch(0.65 0.2 264), oklch(0.6 0.2 300));
-  box-shadow: 0 0 8px oklch(0.65 0.2 264 / 40%);
+.dark .nav-active-indicator {
+  --selection-bar-bg: linear-gradient(180deg, oklch(0.65 0.2 264), oklch(0.6 0.2 300));
+  --selection-bar-shadow: 0 0 8px oklch(0.65 0.2 264 / 40%);
 }
 
 /* Online status dot */

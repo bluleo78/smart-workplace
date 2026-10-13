@@ -4,6 +4,7 @@ import type { Page } from '@playwright/test'
 import { personalDetail, sharedDetail, sharedNode, tree } from '../../factories/userGroups.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { trackRequests } from '../../fixtures/requests'
+import { expectSelectedRow } from '../../fixtures/selection'
 
 // GET /api/v1/user-groups → 기본 트리(공유 1개 + 개인 1개)
 async function stubTree(page: Page) {
@@ -57,29 +58,8 @@ test('조직도(공유) 선택 시 트리+직속 멤버 렌더', { tag: '@smoke'
   await expect(page.getByTestId('contact-empty')).toBeVisible()
 })
 
-// WP-368 — 선택한 그룹 노드 행만 선택 표시(막대 + bg-selected), 다른 노드·선택 해제 후엔 없다.
-test('그룹 트리 선택 표시 (WP-368)', async ({ authenticatedPage: page }) => {
-  await stubContacts(page)
-  await stubTree(page)
-  await stubDetail(page)
-  await page.goto('/contacts')
-  // 행 컨테이너 = 이름 버튼의 부모 div.
-  const row10 = page.getByTestId('group-node-10').locator('..')
-  const row20 = page.getByTestId('group-node-20').locator('..')
-  await expect(row10).not.toHaveClass(/bg-selected/)
-  await page.getByTestId('group-node-10').click()
-  await expect(page.getByTestId('org-chart-view')).toBeVisible()
-  await expect(row10).toHaveClass(/bg-selected/)
-  await expect(row10).toHaveClass(/selection-bar/)
-  await expect(row20).not.toHaveClass(/bg-selected/)
-  const bg = (l: typeof row10) => l.evaluate((el) => getComputedStyle(el).backgroundColor)
-  expect(await bg(row10)).not.toBe(await bg(row20))
-  await page.getByTestId('group-node-10').click()
-  await expect(row10).not.toHaveClass(/bg-selected/)
-})
-
-// WP-368 — 그룹 멤버 목록에서 고른 멤버 행만 선택 표시(연락처 목록 행과 같은 규칙).
-test('그룹 멤버 행 선택 표시 (WP-368)', async ({ authenticatedPage: page }) => {
+// WP-368 — 선택한 그룹 노드 행만 선택 표시(막대 + bg-selected), 다른 노드·선택 해제 후엔 없다. 개인 그룹의 멤버 행도 같은 규칙(연락처 목록 행과 동일).
+test('그룹 트리·그룹 멤버 행 선택 표시 (WP-368)', async ({ authenticatedPage: page }) => {
   await stubContacts(page)
   await stubTree(page)
   await stubDetail(page)
@@ -93,9 +73,16 @@ test('그룹 멤버 행 선택 표시 (WP-368)', async ({ authenticatedPage: pag
       }),
   )
   await page.goto('/contacts')
+  // 행 컨테이너 = 이름 버튼의 부모 div.
+  const row10 = page.getByTestId('group-node-10').locator('..')
+  const row20 = page.getByTestId('group-node-20').locator('..')
+  await page.getByTestId('group-node-10').click()
+  await expect(page.getByTestId('org-chart-view')).toBeVisible()
+  await expectSelectedRow(row10, row20)
+  // 개인 그룹으로 옮기면 선택 표시가 따라가고, 멤버 행은 고르기 전엔 선택 표시가 없다.
   await page.getByTestId('group-node-20').click()
+  await expectSelectedRow(row20, row10)
   const member = page.getByTestId('group-member-MEMBER-1')
-  await expect(member).toBeVisible()
   await expect(member).toHaveAttribute('aria-pressed', 'false')
   await expect(member).not.toHaveClass(/bg-selected/)
   await member.click()

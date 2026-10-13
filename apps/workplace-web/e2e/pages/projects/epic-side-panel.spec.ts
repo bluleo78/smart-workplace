@@ -9,6 +9,7 @@ import { createIssue, createIssueSearchResponse } from '../../factories/issue.fa
 import { makeEpicType, systemTypes } from '../../factories/issueType.factory';
 import { createProject } from '../../factories/project.factory';
 import type { IssueResponse, IssueStatus } from '../../../src/types/issue';
+import { expectSelectedRow, expectToggle, selectionBarStyle } from '../../fixtures/selection';
 
 const PROJECT_KEY = 'WP';
 const ISSUES_PATH = `/api/v1/projects/${PROJECT_KEY}/issues`;
@@ -706,58 +707,31 @@ test.describe('선택·켜짐 표시 (WP-368)', () => {
 
     await selected.click();
     await expect(selected).toHaveAttribute('aria-pressed', 'true');
-    await expect(selected).toHaveClass(/bg-selected/);
-    await expect(selected).toHaveClass(/selection-bar/);
     await expect(other).toHaveAttribute('aria-pressed', 'false');
-    await expect(other).not.toHaveClass(/bg-selected/);
-    await expect(other).not.toHaveClass(/selection-bar/);
-
-    // 계산된 배경이 다르다 — 클래스만 붙고 색이 같으면(예전 bg-accent 문제) 실패한다.
-    const bg = (l: ReturnType<Page['getByTestId']>) => l.evaluate((el) => getComputedStyle(el).backgroundColor);
-    expect(await bg(selected)).not.toBe(await bg(other));
-    expect(await bg(selected)).not.toBe('rgba(0, 0, 0, 0)');
-    // 왼쪽 막대(::before) — 폭 3px 의 primary 색 가상 요소가 실제로 그려진다.
-    const bar = await selected.evaluate((el) => {
-      const s = getComputedStyle(el, '::before');
-      return { width: s.width, content: s.content };
-    });
+    await expectSelectedRow(selected, other);
+    // 왼쪽 막대(::before) — 폭 3px 의 가상 요소가 실제로 그려진다.
+    const bar = await selectionBarStyle(selected);
     expect(bar.width).toBe('3px');
     expect(bar.content).not.toBe('none');
 
     // 「전체 이슈」 로 돌아가면 선택 표시가 그쪽으로 옮겨 간다.
     await page.getByTestId('epic-filter-all').click();
-    await expect(page.getByTestId('epic-filter-all')).toHaveClass(/bg-selected/);
-    await expect(selected).not.toHaveClass(/bg-selected/);
+    await expectSelectedRow(page.getByTestId('epic-filter-all'), selected);
   });
 
-  test('「에픽」 패널 토글: 꺼짐엔 켜짐 표시가 없고, 켜면 primary 테두리·글자(TOGGLE_ON)', async ({ authenticatedPage: page }) => {
+  // 「에픽」(outline)·「완료 모두 보기」(ghost) 토글: 꺼짐엔 켜짐 표시가 없고 켜면 TOGGLE_ON. 폭은 ghost 만 꺼짐에도 투명 테두리로 고정된다.
+  test('패널·완료 토글 — 꺼짐엔 켜짐 표시가 없고, 켜면 TOGGLE_ON 이 붙는다', async ({ authenticatedPage: page }) => {
     await setup(page);
-    const toggle = page.getByTestId('epic-panel-toggle');
-    await expect(toggle).toHaveAttribute('aria-pressed', 'false');
-    await expect(toggle).not.toHaveClass(/(?<![:\w-])bg-primary\/10/);
-    await expect(toggle).not.toHaveClass(/(?<![:\w-])text-primary/);
-
-    await toggle.click();
-    await expect(toggle).toHaveAttribute('aria-pressed', 'true');
-    await expect(toggle).toHaveClass(/(?<![:\w-])bg-primary\/10/);
-    await expect(toggle).toHaveClass(/(?<![:\w-])text-primary/);
-    await expect(toggle).toHaveClass(/(?<![:\w-])border-primary\/50/);
-  });
-
-  test('「완료 모두 보기」: 켜면 TOGGLE_ON 표시가 붙고 버튼 폭이 변하지 않는다', async ({ authenticatedPage: page }) => {
-    await setup(page);
-    const toggle = page.getByTestId('show-all-closed-toggle');
-    await expect(toggle).toHaveAttribute('aria-pressed', 'false');
-    await expect(toggle).not.toHaveClass(/(?<![:\w-])bg-primary\/10/);
-    const before = await measureBox(toggle);
-
-    await toggle.click();
-    await expect(toggle).toHaveAttribute('aria-pressed', 'true');
-    await expect(toggle).toHaveClass(/(?<![:\w-])bg-primary\/10/);
-    await expect(toggle).toHaveClass(/(?<![:\w-])text-primary/);
-    await expect(toggle).toHaveClass(/(?<![:\w-])border-primary\/50/);
-    const after = await measureBox(toggle);
-    // 꺼짐에도 투명 테두리가 있어 켜질 때 폭이 밀리지 않는다.
-    expect(after.width).toBeCloseTo(before.width, 1);
+    for (const { testId, ghost } of [
+      { testId: 'epic-panel-toggle', ghost: false },
+      { testId: 'show-all-closed-toggle', ghost: true },
+    ]) {
+      const toggle = page.getByTestId(testId);
+      await expectToggle(toggle, false);
+      const before = await measureBox(toggle);
+      await toggle.click();
+      await expectToggle(toggle, true);
+      if (ghost) expect((await measureBox(toggle)).width).toBeCloseTo(before.width, 1);
+    }
   });
 });

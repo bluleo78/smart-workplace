@@ -51,10 +51,9 @@ export function IssueTypeSelectPopover({
                   type="button"
                   role="radio"
                   aria-checked={checked}
-                  // 현재 유형은 공용 선택 스타일 — hover 배경은 선택 행에 두지 않아 선택색이 hover 로 옅어지지 않게 한다.
                   className={cn(
-                    'w-full text-left flex items-center gap-2 px-2 py-1 rounded',
-                    checked ? SELECTED_ROW_CLASS : 'hover:bg-accent',
+                    'w-full text-left flex items-center gap-2 px-2 py-1 rounded hover:bg-accent',
+                    checked && SELECTED_ROW_CLASS,
                   )}
                   data-testid={`issue-type-option-${t.id}`}
                   onClick={() => {
