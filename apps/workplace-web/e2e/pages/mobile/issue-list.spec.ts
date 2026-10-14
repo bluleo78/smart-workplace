@@ -4,9 +4,11 @@ import type { Page } from '@playwright/test';
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
 import { makeEpicType, makeTaskType, systemTypes } from '../../factories/issueType.factory';
 import { createProject } from '../../factories/project.factory';
+import { serverEpicFilter } from '../../fixtures/epic-search';
 import { expect, expectNoHorizontalOverflow, historyMarks, stubChat, test } from '../../fixtures/mobile.fixture';
 import { trackRequests } from '../../fixtures/requests';
 import { expectSelectedRow } from '../../fixtures/selection';
+import type { IssueResponse } from '../../../src/types/issue';
 
 const KEY = 'WP';
 const ISSUES = `/api/v1/projects/${KEY}/issues`;
@@ -51,7 +53,11 @@ const CLOSED_EPICS = [
   createIssue({ id: 53, number: 53, projectKey: KEY, title: '구 메신저 연동', type: makeEpicType(), status: 'CANCELED' }),
 ];
 
-async function mock(page: Page, opts: { views?: unknown[]; member?: boolean; closedEpics?: unknown[]; epics?: unknown[] } = {}) {
+async function mock(
+  page: Page,
+  // activeCycle: 진행 중 사이클에 할당된 에픽 번호(WP-389) — 에픽 조회는 serverEpicFilter 로 서버처럼 거른다.
+  opts: { views?: unknown[]; member?: boolean; closedEpics?: IssueResponse[]; epics?: IssueResponse[]; activeCycle?: number[] } = {},
+) {
   await page.route(`**/api/v1/projects/${KEY}`, (r) => r.fulfill(json(createProject({ key: KEY, type: 'TEAM', viewerIsMember: opts.member ?? true }))));
   await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/types`, (r) => r.fulfill(json(systemTypes())));
   for (const p of [`/members`, `/labels`, `/cycles`]) {
@@ -62,9 +68,10 @@ async function mock(page: Page, opts: { views?: unknown[]; member?: boolean; clo
     if (r.request().method() !== 'GET') return r.fallback();
     const sp = new URL(r.request().url()).searchParams;
     const isEpicList = sp.get('type') === String(makeEpicType().id);
-    // status 에 DONE 이 있으면 종료 에픽 조회 — 기본 [] (구역 없음).
-    const isClosedQuery = (sp.get('status') ?? '').includes('DONE');
-    const body = isEpicList ? (isClosedQuery ? (opts.closedEpics ?? []) : (opts.epics ?? EPICS)) : [LONG, PLAIN, SUB];
+    // 에픽 조회 — 종료 구역(status=DONE,CANCELED)·위쪽 목록(hideInactiveClosed)을 서버처럼 거른다. closedEpics 기본 [] (구역 없음).
+    const body = isEpicList
+      ? serverEpicFilter(new URL(r.request().url()), [...(opts.epics ?? EPICS), ...(opts.closedEpics ?? [])], opts.activeCycle)
+      : [LONG, PLAIN, SUB];
     return r.fulfill(json(createIssueSearchResponse(body as never[], null)));
   });
 }
@@ -508,6 +515,29 @@ test.describe('모바일 에픽 시트', () => {
     // 「›」 = 시트 닫고 상세
     await page.getByTestId('mobile-epic-closed-53-detail').click();
     await expect(page).toHaveURL(/\/issues\/53$/);
+  });
+
+  test('진행 중 사이클에 할당된 종료 에픽은 진행 중 에픽 아래 종료 배지와 함께 보이고, 종료된 에픽 구역에서는 빠진다 (WP-389)', async ({ authenticatedPage: page }) => {
+    // 52(완료)만 진행 중 사이클 소속 — 종료 에픽 조회는 서버처럼 52·53 을 모두 돌려준다.
+    await mock(page, { closedEpics: CLOSED_EPICS, activeCycle: [52] });
+    await page.goto(`/projects/${KEY}?group=none`);
+    await page.getByTestId('mobile-chip-epic').click();
+    const sheet = page.getByTestId('mobile-epic-sheet');
+    const option = sheet.getByTestId('picker-option-epic-52');
+    await expect(option).toBeVisible();
+    await expect(option.getByTestId('closed-status-badge')).toHaveText('완료');
+    // 종료 구역에는 사이클 밖의 53 만 남는다.
+    await expect(sheet.getByTestId('mobile-epic-closed-toggle')).toContainText('1');
+    await sheet.getByTestId('mobile-epic-closed-toggle').click();
+    await expect(sheet.getByTestId('mobile-epic-closed-53')).toBeVisible();
+    await expect(sheet.getByTestId('mobile-epic-closed-52')).not.toBeAttached();
+
+    await option.click();
+    await expect(sheet).toBeHidden();
+    await expect(page).toHaveURL(/parent=52/);
+    // URL 진입(새로고침)에도 칩 라벨은 번호가 아닌 제목.
+    await page.reload();
+    await expect(page.getByTestId('mobile-chip-epic')).toContainText('팀 채팅 1차');
   });
 
   test('목록에 없는 에픽 번호로 진입하면 칩에 번호를 표시한다', async ({ authenticatedPage: page }) => {

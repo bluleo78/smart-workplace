@@ -1,6 +1,7 @@
 // 모바일 「◆ 에픽」 칩 + 선택 시트(WP-194) — 데스크톱 EpicSidePanel(224px 고정, 목록을 118px 로 줄임)을 대체.
 // 선택은 패널과 같은 useEpicFilter 로 URL(parent/topLevel)에 반영. 칩은 선택 시 「◆ 에픽명 ✕」(✕ = 전체로 복귀).
 // 에픽 행 끝 「›」 = 시트를 닫고 에픽 상세로 이동(WP-227, 데스크톱 패널 hover ↗ 의 모바일 대응).
+// 진행 중 사이클에 할당된 종료 에픽은 진행 중 에픽 아래에 종료 배지와 함께 둔다(WP-389, 데스크톱 패널과 같은 규칙).
 import { Plus, X } from 'lucide-react';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -8,7 +9,9 @@ import { useNavigate } from 'react-router-dom';
 import { MobilePickerSheet, type PickerOption } from '@/components/mobile/MobilePickerSheet';
 import { cn } from '@/lib/utils';
 
-import { useClosedEpics, useProjectEpics } from '../../../../hooks/queries/useProjectEpics';
+import { ClosedStatusBadge } from '../../../../components/issues/ClosedStatusBadge';
+import { useClosedEpics, usePanelEpics } from '../../../../hooks/queries/useProjectEpics';
+import { isClosedStatus } from '../../../../lib/issueGrouping';
 import { useEpicFilter } from '../../hooks/useEpicFilter';
 import { IssueCreateDialog } from '../IssueCreateDialog';
 import { HIT_EXPAND, MOBILE_CHIP, MOBILE_CHIP_ACTIVE } from './chipStyles';
@@ -16,10 +19,11 @@ import { MobileClosedEpicsFooter } from './MobileClosedEpicsFooter';
 
 export function MobileEpicChip({ projectKey, canCreateIssue }: { projectKey: string; canCreateIssue: boolean }) {
   const { choice, select } = useEpicFilter(projectKey);
-  const { epicType, epics } = useProjectEpics(projectKey);
+  // 진행 중 에픽 + 진행 중 사이클 소속 종료 에픽(WP-389, 뒤쪽) — 데스크톱 패널 위쪽 목록과 같은 조회.
+  const { epicType, epics } = usePanelEpics(projectKey);
   const [open, setOpen] = useState(false);
   const selectedNumber = choice.kind === 'epic' ? choice.number : null;
-  // 종료 에픽 조회는 시트를 열 때, 또는 선택된 에픽이 진행 중 목록에 없을 때(칩 라벨용)만 — 매 진입마다 요청하지 않는다.
+  // 종료 에픽 조회는 시트를 열 때, 또는 선택된 에픽이 위쪽 목록에 없을 때(칩 라벨용)만 — 매 진입마다 요청하지 않는다.
   const closed = useClosedEpics(projectKey, open || (selectedNumber != null && !epics.some((e) => e.number === selectedNumber)));
   const [closedToggled, setClosedToggled] = useState<boolean | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
@@ -47,9 +51,12 @@ export function MobileEpicChip({ projectKey, canCreateIssue }: { projectKey: str
         value: `epic-${ep.number}`,
         label: ep.title,
         detail: { label: `${ep.title} 상세 열기`, onOpen: () => navigate(`/projects/${projectKey}/issues/${ep.number}`) },
+        // 진행 중 사이클 소속 종료 에픽(WP-389)은 진행률 대신 종료 배지로 구분한다.
         // 진행률 바 + 완료/전체 — 데스크톱 패널과 같은 정보. 트랙은 bg-border — bg-muted 는 시트 배경과 거의 같아 0% 가 안 보인다.
         // 숫자 칸은 폭 고정(7ch — 「/」 가 0 보다 넓어 「999/999」 까지 여유)·오른쪽 정렬 — 「0/0」과 「10/125」처럼 길이가 달라도 바가 줄마다 같은 x 에 선다.
-        hint: (
+        hint: isClosedStatus(ep.status) ? (
+          <ClosedStatusBadge status={ep.status} />
+        ) : (
           <span className="flex items-center gap-1.5 tabular-nums">
             <span className="h-1 w-11 overflow-hidden rounded-full bg-border" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
               <span className="block h-full bg-primary" style={{ width: `${pct}%` }} />

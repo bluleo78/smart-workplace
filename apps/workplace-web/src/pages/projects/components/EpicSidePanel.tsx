@@ -3,6 +3,7 @@
 // type=EPIC 검색 + parent=<epicNumber> 필터 + childCount/childDoneCount 를 재사용한다.
 // 열림/닫힘은 ViewChipBar 의 「에픽」 토글이 단일 진입점(조건 마운트).
 // 항목 hover·키보드 포커스 시 ↗ 로 에픽 상세를 연다(WP-227).
+// 진행 중 사이클에 할당된 에픽은 닫혀도 목록 아래쪽에 종료 배지와 함께 남는다(WP-389, 보드의 #876 규칙과 같음).
 // 이슈 드래그 중에는 「에픽 미할당」·각 에픽이 드롭 대상이 된다(IssueDndProvider 안일 때). floating 이면 닫힌 패널을
 // 드래그 동안만 뷰포트 오른쪽에 띄우는 임시 모드.
 import { useDroppable } from '@dnd-kit/core';
@@ -11,10 +12,12 @@ import { type RefObject, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { Skeleton } from '@/components/ui/skeleton';
+import { CLOSED_EPIC_DIM, closedEpicTitleClass } from '@/lib/closedEpicStyles';
 import { SELECTED_ROW_CLASS } from '@/lib/selectionStyles';
 import { cn } from '@/lib/utils';
 
-import { useProjectEpics } from '../../../hooks/queries/useProjectEpics';
+import { ClosedStatusBadge } from '../../../components/issues/ClosedStatusBadge';
+import { usePanelEpics } from '../../../hooks/queries/useProjectEpics';
 import { presenceStyle } from '../../../lib/collab/presence';
 import { DROP_TARGET_CLASS } from '../../../lib/dndDropClass';
 import {
@@ -26,6 +29,7 @@ import {
   type EpicDropState,
   epicDropState,
 } from '../../../lib/epicDnd';
+import { isClosedStatus } from '../../../lib/issueGrouping';
 import type { IssueResponse, ParentRef } from '../../../types/issue';
 import { useEpicFilter } from '../hooks/useEpicFilter';
 import { ClosedEpicsSection } from './ClosedEpicsSection';
@@ -46,7 +50,8 @@ export function EpicSidePanel({
   // 「＋ 에픽 만들기」 다이얼로그 열림 상태.
   const [createOpen, setCreateOpen] = useState(false);
 
-  const { epicType, epics, loading } = useProjectEpics(projectKey);
+  // 진행 중 에픽 + 진행 중 사이클 소속 종료 에픽(WP-389, 뒤쪽). 종료 에픽은 드롭 대상이 아니다.
+  const { epicType, epics, loading } = usePanelEpics(projectKey);
   // 에픽 목록 스크롤 컨테이너 — 에픽 드롭 대상의 clip 으로 실어, 스크롤로 가려진 항목은 드롭 판정에서 뺀다(epicDnd).
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -74,7 +79,7 @@ export function EpicSidePanel({
           : 'flex w-56 shrink-0 flex-col self-stretch border-r pr-3'
       }
     >
-      {/* 헤더 — 레이블 + 에픽 개수. 접기 버튼 없음(진입점은 뷰 탭 바 토글). */}
+      {/* 헤더 — 레이블 + 위쪽 목록의 에픽 개수(「종료된 에픽」 구역 제외). 접기 버튼 없음(진입점은 뷰 탭 바 토글). */}
       <div className="flex items-center justify-between px-1 pb-2">
         <span className="text-xs font-medium text-muted-foreground">에픽</span>
         <span className="text-xs text-muted-foreground" data-testid="epic-panel-count">
@@ -196,12 +201,13 @@ export function EpicSidePanel({
 
 // 패널 항목을 에픽 드롭 대상으로 만든다 — 허용 상태일 때만 활성(비허용은 over 가 되지 않아 놓아도 무시).
 // clip: 항목을 감싼 스크롤 컨테이너(에픽 목록만) — 가려진 항목이 포인터 판정에 잡히지 않게 한다.
+// 종료 에픽(진행 중 사이클 소속, WP-389)은 ParentRef.status 로 epicDropState 가 차단한다.
 function useEpicDroppable(
   epic: ParentRef | null,
   activeIssue: IssueResponse | null,
   clip?: RefObject<HTMLElement | null>,
 ) {
-  const state = epicDropState(activeIssue, epic?.number ?? null);
+  const state = epicDropState(activeIssue, epic);
   const { setNodeRef, isOver } = useDroppable({
     id: epic ? epicDropId(epic.number) : EPIC_DROP_NONE_ID,
     data: { epic, clip } satisfies EpicDropData,
@@ -247,6 +253,7 @@ function UnassignedButton({
 
 // 에픽 항목 — 버튼 클릭은 해당 에픽 필터 토글, 드래그 중에는 그 에픽으로 연결하는 드롭 대상.
 // hover·키보드 포커스 시 오른쪽 개수 자리를 ↗ 상세 링크로 바꾼다(WP-227) — 버튼 안에 링크를 둘 수 없어 형제로 겹쳐 둔다.
+// closed(WP-389): 진행 중 사이클 소속 종료 에픽 — 「종료된 에픽」 구역과 같이 제목·색점을 흐리고 개수 자리에 종료 배지를 둔다.
 function EpicItemButton({
   projectKey, epic: ep, selected, activeIssue, clip, onClick,
 }: {
@@ -257,9 +264,10 @@ function EpicItemButton({
   clip: RefObject<HTMLElement | null>;
   onClick: () => void;
 }) {
-  // 검색 응답은 type 이 항상 채워진다 — 낙관적 반영에 쓸 ParentRef 로 좁힌다.
+  const closed = isClosedStatus(ep.status);
+  // 검색 응답은 type 이 항상 채워진다 — 낙관적 반영에 쓸 ParentRef 로 좁힌다. status 는 종료 에픽 드롭 차단 판정용(WP-389).
   const { setNodeRef, dropState, dropClass } = useEpicDroppable(
-    { number: ep.number, title: ep.title, type: ep.type! },
+    { number: ep.number, title: ep.title, type: ep.type!, status: ep.status },
     activeIssue,
     clip,
   );
@@ -268,6 +276,8 @@ function EpicItemButton({
   const colorStyle = presenceStyle(ep.number);
   // 드래그 중에는 상세 링크를 감춘다 — 드롭 상태 표시가 우선이고, 링크가 드롭 대상 위를 가리지 않게.
   const showDetailLink = !activeIssue;
+  // 개수·종료 배지 자리 — hover·키보드 포커스 동안은 ↗ 링크가 대신 보인다.
+  const hideUnderLink = showDetailLink && 'group-hover:invisible group-kbd:invisible';
   return (
     <div className="group relative">
       <button
@@ -286,19 +296,20 @@ function EpicItemButton({
         )}
       >
         <span className="flex items-center gap-2">
-          <span className="h-2 w-2 shrink-0 rounded-full bg-presence" style={colorStyle} aria-hidden="true" />
-          <span className="min-w-0 flex-1 truncate" title={ep.title}>{ep.title}</span>
+          <span className={cn('h-2 w-2 shrink-0 rounded-full bg-presence', closed && CLOSED_EPIC_DIM)} style={colorStyle} aria-hidden="true" />
+          <span className={cn('min-w-0 flex-1 truncate', closed && closedEpicTitleClass(ep.status, selected))} title={ep.title}>
+            {ep.title}
+          </span>
           {/* 드래그 중인 이슈가 이미 속한 에픽 — 놓아도 변화가 없음을 알린다. */}
           {dropState === 'current' && <span className="text-xs text-muted-foreground">현재</span>}
-          {/* 개수 — hover·키보드 포커스 동안은 같은 자리에 ↗ 링크가 대신 보인다(제목 폭 손실 없음). */}
-          <span
-            className={cn(
-              'text-xs text-muted-foreground',
-              showDetailLink && 'group-hover:invisible group-kbd:invisible',
-            )}
-          >
-            {ep.childDoneCount}/{ep.childCount}
-          </span>
+          {/* 개수(종료 에픽은 종료 배지) — hover·키보드 포커스 동안은 같은 자리에 ↗ 링크가 대신 보인다(제목 폭 손실 없음). */}
+          {closed ? (
+            <ClosedStatusBadge status={ep.status} className={cn(hideUnderLink)} />
+          ) : (
+            <span className={cn('text-xs text-muted-foreground', hideUnderLink)}>
+              {ep.childDoneCount}/{ep.childCount}
+            </span>
+          )}
         </span>
         {/* 진행바 — FreshnessBar 패턴(h-1 rounded-full bg-muted 트랙 + 색 채움). button 내부라 span 만 사용. */}
         <span
@@ -308,7 +319,7 @@ function EpicItemButton({
           aria-valuemax={100}
           className="mt-1.5 ml-4 block h-1 overflow-hidden rounded-full bg-muted"
         >
-          <span className="block h-full rounded-full bg-presence" style={{ ...colorStyle, width: `${pct}%` }} />
+          <span className={cn('block h-full rounded-full bg-presence', closed && CLOSED_EPIC_DIM)} style={{ ...colorStyle, width: `${pct}%` }} />
         </span>
       </button>
       {showDetailLink && (

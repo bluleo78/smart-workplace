@@ -57,6 +57,11 @@ export function statusLabel(status: string): string {
   return Object.hasOwn(ISSUE_STATUS_LABEL, status) ? ISSUE_STATUS_LABEL[status as IssueStatus] : status;
 }
 
+// 종료 상태(완료·취소)인지 — 에픽 패널의 종료 배지·드롭 차단 등 종료 판정의 단일 기준.
+export function isClosedStatus(status: string): boolean {
+  return status === 'DONE' || status === 'CANCELED';
+}
+
 // 우선순위 버킷: 높음→보통→낮음 고정 순서.
 const PRIORITY_ORDER: { key: string; label: string }[] = toOrder(ISSUE_PRIORITY_LABEL);
 

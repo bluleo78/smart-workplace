@@ -2,6 +2,7 @@
 import type { Page, Route } from '@playwright/test';
 
 import { mockApi } from '../../fixtures/api-mock';
+import { serverEpicFilter } from '../../fixtures/epic-search';
 import { expect, test } from '../../fixtures/auth.fixture';
 import { trackRequests } from '../../fixtures/requests';
 import { measureBox } from '../../fixtures/wait';
@@ -44,6 +45,7 @@ function routeIssueSearch(
     },
   );
 }
+
 
 // 패널은 기본 닫힘 — 각 테스트는 탭 바 토글로 연다.
 async function openEpicPanel(page: Page) {
@@ -136,7 +138,7 @@ test.describe('에픽 왼쪽 패널', () => {
     },
   );
 
-  test('완료·취소된 에픽은 패널에 나오지 않는다 — 에픽 조회를 진행 중 상태로 좁힌다 (WP-246)', async ({
+  test('사이클 밖의 완료·취소된 에픽은 패널 위쪽 목록에 나오지 않는다 — hideInactiveClosed 로 조회한다 (WP-246·WP-389)', async ({
     authenticatedPage: page,
   }) => {
     await stubProjectMeta(page);
@@ -148,12 +150,11 @@ test.describe('에픽 왼쪽 패널', () => {
       epic(12, '완료된 에픽', 3, 3, 'DONE'),
       epic(13, '취소된 에픽', 0, 1, 'CANCELED'),
     ];
-    // 서버처럼 status 파라미터로 거른다 — 파라미터가 없으면 종료된 에픽까지 그대로 돌려준다.
-    // 네 상태를 모두 넣었으므로 10·11 만 보이면 요청 status 가 정확히 {TODO, IN_PROGRESS} 임이 확인된다.
+    // 서버처럼 status·hideInactiveClosed 로 거른다 — 둘 다 없으면 종료된 에픽까지 그대로 돌려준다.
+    // 네 상태를 모두 넣었으므로 위쪽 목록에 10·11 만 보이면 사이클 밖 종료 에픽이 빠지도록 조회했음이 확인된다.
     await routeIssueSearch(page, (route, url) => {
       const isEpicSearch = url.searchParams.get('type') === String(makeEpicType().id);
-      const statuses = url.searchParams.get('status')?.split(',');
-      const items = isEpicSearch ? all.filter((e) => !statuses || statuses.includes(e.status)) : [];
+      const items = isEpicSearch ? serverEpicFilter(url, all) : [];
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -547,13 +548,13 @@ test.describe('에픽 왼쪽 패널', () => {
       epic(12, '팀 채팅 1차', 5, 5, 'DONE'),
       epic(13, '음성 메모', 0, 3, 'CANCELED'),
     ];
-    async function setup(page: Page, epics: IssueResponse[] = all, path = `/projects/${PROJECT_KEY}`) {
+    // activeCycle: 진행 중 사이클에 할당된 에픽 번호(WP-389). 서버처럼 종료 에픽 조회(status=DONE,CANCELED)에는 그대로 포함된다.
+    async function setup(page: Page, epics: IssueResponse[] = all, path = `/projects/${PROJECT_KEY}`, activeCycle: number[] = []) {
       await stubProjectMeta(page);
       await mockApi(page, 'GET', `/api/v1/projects/${PROJECT_KEY}/types`, systemTypes());
       await routeIssueSearch(page, (route, url) => {
         const isEpic = url.searchParams.get('type') === String(makeEpicType().id);
-        const statuses = (url.searchParams.get('status') ?? '').split(',').filter(Boolean);
-        const items = isEpic ? epics.filter((e) => statuses.length === 0 || statuses.includes(e.status)) : [];
+        const items = isEpic ? serverEpicFilter(url, epics, activeCycle) : [];
         return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createIssueSearchResponse(items)) });
       });
       await page.goto(path);
@@ -598,6 +599,54 @@ test.describe('에픽 왼쪽 패널', () => {
       await expect(page.getByTestId('epic-closed-filter-13')).not.toBeAttached();
     });
 
+    test('진행 중 사이클에 할당된 종료 에픽은 위쪽 목록에 종료 배지와 함께 남고, 종료된 에픽 구역에서는 빠진다 (WP-389)', async ({
+      authenticatedPage: page,
+    }) => {
+      // 위쪽 목록 조회 — EPIC 유형 + 상태 무관 + hideInactiveClosed(보드와 같은 #876 규칙) 한 번.
+      const panelSearch = page.waitForRequest((r) => {
+        const u = new URL(r.url());
+        return u.pathname === ISSUES_PATH && u.searchParams.get('hideInactiveClosed') === 'true' && u.searchParams.get('type') === String(makeEpicType().id);
+      });
+      // 12(완료)만 진행 중 사이클 소속, 13(취소)은 사이클 밖.
+      await setup(page, all, `/projects/${PROJECT_KEY}`, [12]);
+      expect(new URL((await panelSearch).url()).searchParams.get('status')).toBeNull();
+
+      // 위쪽 목록: 진행 중 10·11 다음에 12 가 종료 배지와 진행률을 갖고 이어진다. 헤더 숫자도 위쪽 목록 기준 3.
+      const list = page.getByTestId('epic-panel-list');
+      await expect(list.locator('[data-testid^="epic-filter-"]')).toHaveCount(3);
+      await expect(list.locator('[data-testid^="epic-filter-"]').nth(2)).toHaveAttribute('data-testid', 'epic-filter-12');
+      const item = page.getByTestId('epic-filter-12');
+      await expect(item.getByTestId('closed-status-badge')).toHaveText('완료');
+      await expect(item.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '100');
+      await expect(item.getByText('팀 채팅 1차')).toHaveClass(/text-muted-foreground/);
+      await expect(page.getByTestId('epic-panel-count')).toHaveText('3');
+
+      // 「종료된 에픽」 구역에는 사이클 밖의 13 만 남는다.
+      const toggle = page.getByTestId('epic-closed-toggle');
+      await expect(toggle).toContainText('1');
+      await toggle.click();
+      await expect(page.getByTestId('epic-closed-filter-13')).toBeVisible();
+      await expect(page.getByTestId('epic-closed-filter-12')).not.toBeAttached();
+
+      // 위쪽 목록의 종료 에픽도 누르면 그 에픽으로 필터하고, ↗ 는 상세로 간다.
+      await item.click();
+      await expect(page).toHaveURL(/parent=12/);
+      await expect(item).toHaveAttribute('aria-pressed', 'true');
+      await item.hover();
+      await page.getByTestId('epic-open-12').click();
+      await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_KEY}/issues/12$`));
+    });
+
+    test('진행 중 에픽이 없어도 사이클에 걸린 종료 에픽이 있으면 빈 상태 대신 그 에픽을 보여준다 (WP-389)', async ({
+      authenticatedPage: page,
+    }) => {
+      await setup(page, all.slice(2), `/projects/${PROJECT_KEY}`, [13]);
+      await expect(page.getByTestId('epic-filter-13')).toBeVisible();
+      await expect(page.getByTestId('epic-filter-13').getByText('음성 메모')).toHaveCSS('text-decoration-line', 'line-through');
+      await expect(page.getByTestId('epic-panel-empty')).not.toBeAttached();
+      await expect(page.getByTestId('epic-panel-count')).toHaveText('1');
+    });
+
     test('종료 에픽이 없으면 구역이 없다', async ({ authenticatedPage: page }) => {
       await setup(page, all.slice(0, 2));
       await expect(page.getByTestId('epic-filter-10')).toBeVisible();
@@ -622,8 +671,9 @@ test.describe('에픽 왼쪽 패널', () => {
         let nextCursor: string | null = null;
 
         if (isEpicSearch) {
-          if (statuses.includes('IN_PROGRESS') || statuses.includes('TODO')) {
-            items = activeEpics.filter((e) => statuses.length === 0 || statuses.includes(e.status));
+          // 위쪽 목록(status 없음 + hideInactiveClosed, WP-389) — 사이클 소속 종료 에픽이 없으니 진행 중 에픽만.
+          if (statuses.length === 0) {
+            items = activeEpics;
             nextCursor = null;
           } else if (statuses.includes('DONE') || statuses.includes('CANCELED')) {
             if (cursor) {

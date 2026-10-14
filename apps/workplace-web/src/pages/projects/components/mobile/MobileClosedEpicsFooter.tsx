@@ -6,6 +6,7 @@ import { Check, ChevronRight } from 'lucide-react';
 
 import { MOBILE_SHEET_ROW } from '@/components/mobile/MobileSheetShell';
 import { SELECTED_ROW_CLASS } from '@/lib/selectionStyles';
+import { closedEpicTitleClass } from '@/lib/closedEpicStyles';
 import { cn } from '@/lib/utils';
 
 import { ClosedStatusBadge } from '../../../../components/issues/ClosedStatusBadge';
@@ -60,7 +61,7 @@ export function MobileClosedEpicsFooter({
                 }}
                 className={cn(MOBILE_SHEET_ROW, 'min-w-0 flex-1')}
               >
-                <span className={cn('min-w-0 flex-1 truncate', selected ? 'text-foreground' : 'text-muted-foreground', ep.status === 'CANCELED' && 'line-through')}>
+                <span className={cn('min-w-0 flex-1 truncate', closedEpicTitleClass(ep.status, selected))}>
                   {ep.title}
                 </span>
                 <ClosedStatusBadge status={ep.status} />
