@@ -1,7 +1,7 @@
 // WP-234: 메인 AI 채팅 첨부 읽기 도구 — 세션 바인딩·문서 상태별·이미지 형식/크기 분기.
 import { describe, expect, it, vi } from 'vitest';
 
-import { IMAGE_MAX_BYTES, READ_ATTACHMENT_DEFAULT_LIMIT } from '@smart-workplace/mcp-tools-shared';
+import { READ_ATTACHMENT_DEFAULT_LIMIT } from '@smart-workplace/mcp-tools-shared';
 import type { z } from 'zod';
 
 import type { ExtractionInfo, HomeAttachmentMeta, WorkplaceApiClient } from '../clients/workplace-api.js';
@@ -23,7 +23,6 @@ function mockClient(list: HomeAttachmentMeta[]) {
     readHomeAttachmentText: vi.fn().mockResolvedValue({
       fileId: 8, status: 'READY', offset: 0, totalChars: 5000, truncated: false, nextOffset: 12000, text: '본문', reasonCode: null, reason: null,
     }),
-    downloadHomeAttachment: vi.fn().mockResolvedValue({ data: Buffer.from('PNGDATA'), mimeType: 'image/png; charset=binary' }),
     // WP-250: /view — 이미지 변환본(JPEG)·PDF 쪽(PNG, X-Page-Count 7).
     viewHomeAttachment: vi.fn(async (_u: number, _s: string, _f: number, page?: number) =>
       page === undefined
@@ -42,12 +41,12 @@ describe('read_chat_attachment', () => {
     expect(c.listHomeSessionAttachments).not.toHaveBeenCalled();
   });
 
-  it('세션 목록에 없는 fileId 는 오류 — 텍스트·원본 호출 없음', async () => {
+  it('세션 목록에 없는 fileId 는 오류 — 텍스트·이미지 호출 없음', async () => {
     const c = mockClient([att(8, 'application/pdf', ex('READY'))]);
     await expect(tool(c).handler({ fileId: 99 })).rejects.toThrow(/이 대화의 첨부가 아닙니다/);
     expect(c.listHomeSessionAttachments).toHaveBeenCalledWith(USER, SID);
     expect(c.readHomeAttachmentText).not.toHaveBeenCalled();
-    expect(c.downloadHomeAttachment).not.toHaveBeenCalled();
+    expect(c.viewHomeAttachment).not.toHaveBeenCalled();
   });
 
   it('문서 READY → 텍스트 구간 JSON(offset 생략 undefined, limit 기본 12000)', async () => {
@@ -103,45 +102,30 @@ describe('read_chat_attachment', () => {
     expect(await tool(c).handler({ fileId: 8 })).toContain('텍스트 추출 대상이 아닌 형식');
   });
 
-  it('이미지 READY(png) → 원본을 받아 [설명 text, image 블록] — mimeType 은 목록 값', async () => {
+  // WP-250: 보낼 수 있는 원본(작은 PNG·JPEG)이어도 서버 변환본을 준다 — 원본 해상도 그대로면 한 요청에 이미지가 20장을 넘을 때
+  // Anthropic API 가 긴 변 2000px 초과 이미지를 거절한다(변환본은 긴 변 1568px 이하).
+  it('이미지(png) → 변환본(/view)을 [설명 text, image 블록]으로 — 형식은 변환본 응답 값', async () => {
     const c = mockClient([att(9, 'image/png', ex('NONE'), 7, '화면.png')]);
     const out = await tool(c).handler({ fileId: 9 });
-    expect(c.downloadHomeAttachment).toHaveBeenCalledWith(USER, SID, 9);
+    expect(c.viewHomeAttachment).toHaveBeenCalledWith(USER, SID, 9);
     expect(out).toEqual([
-      { type: 'text', text: expect.stringContaining('화면.png') },
-      { type: 'image', data: Buffer.from('PNGDATA').toString('base64'), mimeType: 'image/png' },
+      { type: 'text', text: '첨부 이미지 "화면.png"(fileId 9) (image/jpeg, 7B)' },
+      { type: 'image', data: Buffer.from('JPGDATA').toString('base64'), mimeType: 'image/jpeg' },
     ]);
   });
 
-  it('이미지 목록 mimeType 에 파라미터가 붙어도 image 블록은 기본 형식으로 보낸다', async () => {
-    const c = mockClient([att(9, 'image/png; charset=binary', ex('NONE'), 7, '화면.png')]);
-    const out = (await tool(c).handler({ fileId: 9 })) as Array<{ type: string; mimeType?: string }>;
-    expect(out[1]).toMatchObject({ type: 'image', mimeType: 'image/png' });
+  it('크기와 상관없이(1MB jpeg·상한 초과) 늘 변환본', async () => {
+    for (const size of [1_000_000, 3_932_161]) {
+      const c = mockClient([att(9, 'image/jpeg', ex('NONE'), size)]);
+      const out = (await tool(c).handler({ fileId: 9 })) as Array<{ type: string; mimeType?: string }>;
+      expect(c.viewHomeAttachment).toHaveBeenCalledWith(USER, SID, 9);
+      expect(out[1]).toMatchObject({ type: 'image', mimeType: 'image/jpeg' });
+    }
   });
 
-  it('이미지 크기 경계 — 3,932,160B 는 원본 블록, 1B 초과는 원본을 받지 않고 /view 변환본', async () => {
-    const ok = mockClient([att(9, 'image/jpeg', ex('NONE'), IMAGE_MAX_BYTES)]);
-    expect(Array.isArray(await tool(ok).handler({ fileId: 9 }))).toBe(true);
-    expect(ok.viewHomeAttachment).not.toHaveBeenCalled();
-    const big = mockClient([att(9, 'image/jpeg', ex('NONE'), IMAGE_MAX_BYTES + 1)]);
-    const out = (await tool(big).handler({ fileId: 9 })) as Array<{ type: string; mimeType?: string }>;
-    expect(big.downloadHomeAttachment).not.toHaveBeenCalled();
-    expect(big.viewHomeAttachment).toHaveBeenCalledWith(USER, SID, 9);
-    expect(out[1]).toMatchObject({ type: 'image', mimeType: 'image/jpeg' });
-  });
-
-  it('jpeg 1MB → 원본을 받는다(변환본 호출 없음)', async () => {
-    const c = mockClient([att(9, 'image/jpeg', ex('NONE'), 1_000_000)]);
-    const out = (await tool(c).handler({ fileId: 9 })) as Array<{ type: string }>;
-    expect(c.downloadHomeAttachment).toHaveBeenCalledWith(USER, SID, 9);
-    expect(c.viewHomeAttachment).not.toHaveBeenCalled();
-    expect(out[1].type).toBe('image');
-  });
-
-  it('HEIC 등 보낼 수 없는 형식 → 다시 올려 달라는 말 대신 /view 변환본 이미지, 원본 다운로드 없음', async () => {
+  it('HEIC 등 보낼 수 없는 형식도 → 다시 올려 달라는 말 대신 /view 변환본 이미지', async () => {
     const c = mockClient([att(9, 'image/heic', ex('NONE'))]);
     const out = (await tool(c).handler({ fileId: 9 })) as Array<{ type: string; mimeType?: string; text?: string }>;
-    expect(c.downloadHomeAttachment).not.toHaveBeenCalled();
     expect(c.viewHomeAttachment).toHaveBeenCalledWith(USER, SID, 9);
     expect(out[1]).toMatchObject({ type: 'image', mimeType: 'image/jpeg' });
   });

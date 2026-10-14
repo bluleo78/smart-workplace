@@ -328,16 +328,6 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
     expect(requestedPath).not.toContain('?');
   });
 
-  it('downloadHomeAttachment → GET /home/sessions/{sid}/attachments/{fileId}/content (바이너리)', async () => {
-    nock(BASE)
-      .matchHeader('x-on-behalf-of', '42')
-      .get(`${PREFIX}/home/sessions/${SID}/attachments/8/content`)
-      .reply(200, Buffer.from('PNGDATA'), { 'content-type': 'image/png' });
-    const r = await newClient().downloadHomeAttachment(42, SID, 8);
-    expect(r.data.toString()).toBe('PNGDATA');
-    expect(r.mimeType).toBe('image/png');
-  });
-
   // --- WP-250: 모델 입력용 이미지(/view) ---
   it('viewHomeAttachment → GET .../view?page=N, 이미지 바이트 + Content-Type + X-Page-Count', async () => {
     nock(BASE)
@@ -384,7 +374,7 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
     expect((err as { response: { data: unknown } }).response.data).toEqual({ message: '이 PDF 는 6쪽입니다.' });
   });
 
-  // 공유 getBytes 와 같은 규칙 — 상한 초과는 FileTooLargeError 로 던지고, 도구(pageBlocks·imageBlocksFor)가 "변환한 이미지가 …" 사유로 바꾼다.
+  // 공유 getBytes 와 같은 규칙 — 상한 초과는 FileTooLargeError 로 던지고, 도구(pageBlocks·imageViewBlocks)가 "변환한 이미지가 …" 사유로 바꾼다.
   it('/view 는 이미지 상한(IMAGE_MAX_BYTES)을 넘는 응답을 받지 않고 FileTooLargeError 로 던진다', async () => {
     nock(BASE)
       .get(`${PREFIX}/home/sessions/${SID}/attachments/8/view`)

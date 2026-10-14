@@ -590,30 +590,20 @@ export interface DriveBacklinkRow {
 }
 
 /**
- * 첨부·파일 내용 읽기(WP-346) — read_file 이 쓴다. 텍스트는 서버가 추출해 둔 구간을 읽고, 이미지만 원본을 받는다
- * (이미지 블록으로 모델에 넘기려고). 권한은 서버가 강제한다(이슈: 프로젝트 멤버, 드라이브: 스페이스 VIEWER).
+ * 첨부·파일 내용 읽기(WP-346) — read_file 이 쓴다. 텍스트는 서버가 추출해 둔 구간을 읽고, 이미지는 서버 변환본(/view, WP-250)을 받는다
+ * (이미지 블록으로 모델에 넘기려고 — 변환본이 없는 메일만 원본). 권한은 서버가 강제한다(이슈: 프로젝트 멤버, 드라이브: 스페이스 VIEWER).
  */
 export interface AttachmentToolClient {
   /** GET /projects/{key}/issues/{n}/attachments/{fileId}/text. */
   readIssueAttachmentText(issueKey: string, fileId: number, range: TextRange): Promise<ExtractedTextSlice>;
-  /** GET /projects/{key}/issues/{n}/attachments — 이미지 형식·크기 확인용. */
+  /** GET /projects/{key}/issues/{n}/attachments — 이미지 라벨의 파일 이름 확인용. */
   listIssueAttachments(issueKey: string): Promise<IssueAttachmentRow[]>;
-  /** GET /projects/{key}/issues/{n}/attachments/{fileId}/content — 원본 바이트. */
-  downloadIssueAttachment(issueKey: string, fileId: number): Promise<FileBytes>;
   /** GET /drive/files/{id}/text. */
   readDriveFileText(driveFileId: number, range: TextRange): Promise<ExtractedTextSlice>;
-  /** GET /drive/files/{id}/versions — 최신 버전이 먼저 온다(version_no DESC). */
-  listDriveFileVersions(driveFileId: number): Promise<DriveFileVersionRow[]>;
-  /** GET /drive/files/{id}/content — 원본 바이트(인라인 미리보기와 같은 게이트). */
-  downloadDriveFile(driveFileId: number): Promise<FileBytes>;
   /** GET /wiki/pages/{pageId}/attachments/{fileId}/text(WP-358) — 공간 VIEWER 이상, 비멤버는 404. */
   readWikiAttachmentText(pageId: number, fileId: number, range: TextRange): Promise<ExtractedTextSlice>;
-  /** GET /wiki/pages/{pageId}/attachments/{fileId}/content — 원본 바이트(노트 첨부는 이미지만 올라간다). */
-  downloadWikiAttachment(pageId: number, fileId: number): Promise<FileBytes>;
   /** GET /messaging/channels/{id}/messages/{msgId}/attachments/{fileId}/text(WP-358) — 채널 멤버만(비멤버 403). */
   readMessageAttachmentText(channelId: number, messageId: number, fileId: number, range: TextRange): Promise<ExtractedTextSlice>;
-  /** GET /messaging/channels/{id}/messages/{msgId}/attachments/{fileId}/content — 원본 바이트. */
-  downloadMessageAttachment(channelId: number, messageId: number, fileId: number): Promise<FileBytes>;
   /** GET /mail/attachments/{attachmentId}/text(WP-358) — 본인 소유 첨부만(아니면 404). 응답 fileId 는 요청한 attachmentId 다. 첫 호출은 PENDING. */
   readMailAttachmentText(attachmentId: number, range: TextRange): Promise<ExtractedTextSlice>;
   /** GET /mail/attachments/{attachmentId}/content — 원본 바이트(IMAP·Graph 에서 가져온다). */

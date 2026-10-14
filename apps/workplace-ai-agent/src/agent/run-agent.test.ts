@@ -42,7 +42,6 @@ function client(token: string | Error): WorkplaceApiClient {
     // WP-234: 메인 AI 채팅 세션 첨부
     listHomeSessionAttachments: vi.fn().mockResolvedValue([]),
     readHomeAttachmentText: vi.fn(),
-    downloadHomeAttachment: vi.fn(),
     viewHomeAttachment: vi.fn(),
     // WP-55: 메모리 도구
     createAiMemory: vi.fn(),

@@ -7,12 +7,12 @@
 // 세션 첨부는 이슈·드라이브 파일이 아니라 세션에 묶인 파일이라 공유 도구로 읽을 수 없다 — 그래서 이 도구만 ai-agent 전용으로 남는다.
 // opencode 비전 미지원 모델이면 stdio-entry 가 이미지 블록을 안내 문구로 바꾼다(WP-241).
 // WP-250: 모델이 이미지를 볼 수 있으면(images.input) PDF 는 pages:[n] 으로 쪽 이미지를 보고(그림·도표·스캔 PDF), 이미지는
-// 보낼 수 있으면 원본·아니면(HEIC·큰 이미지) 서버 변환본으로 돌려준다.
+// 원본이 아니라 늘 서버 변환본(긴 변 1568px 이하)으로 돌려준다(HEIC·큰 이미지도 같은 길).
 import {
   baseMimeType,
   canViewPages,
   type ImageOptions,
-  imageBlocksFor,
+  imageViewBlocks,
   PAGES_DESCRIPTION,
   pageBlocks,
   pdfNote,
@@ -95,12 +95,9 @@ export function buildReadChatAttachmentTool(
         );
       }
       if (fileKind(a.mimeType) === 'image') {
-        // 보낼 수 있는 형식·크기면 원본, 아니면(HEIC·TIFF·BMP·큰 이미지) 서버 변환본 — 다시 올려 달라고 하지 않는다.
-        return imageBlocksFor(
-          `첨부 이미지 ${name}(fileId ${a.fileId})`,
-          a,
-          () => client.downloadHomeAttachment(onBehalfOfId, homeSessionId, a.fileId),
-          () => client.viewHomeAttachment(onBehalfOfId, homeSessionId, a.fileId),
+        // 서버 변환본(HEIC·TIFF·BMP·큰 이미지 포함) — 원본 해상도 그대로 보내지 않고(이유는 imageViewBlocks), 다시 올려 달라고 하지 않는다.
+        return imageViewBlocks(`첨부 이미지 ${name}(fileId ${a.fileId})`, () =>
+          client.viewHomeAttachment(onBehalfOfId, homeSessionId, a.fileId),
         );
       }
       if (a.extraction.status !== 'READY') return nonReadyNotice(a, images.input);

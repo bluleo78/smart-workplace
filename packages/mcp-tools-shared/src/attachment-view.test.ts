@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { FileTooLargeError } from './attachment-read.js';
-import { imageBlocksFor, pageBlocks, pagesShape, viewBlocks } from './attachment-view.js';
+import { imageViewBlocks, originalImageBlocks, pageBlocks, pagesShape, viewBlocks } from './attachment-view.js';
 import type { McpContent } from './mcp-content.js';
 import type { FileBytes } from './tool-client.js';
 
@@ -144,54 +144,43 @@ describe('pageBlocks', () => {
   });
 });
 
-describe('imageBlocksFor', () => {
+describe('imageViewBlocks', () => {
+  it('변환본을 [설명, image] 블록으로 — 형식은 응답 Content-Type 에서 파라미터를 뗀 값', async () => {
+    const view = vi.fn().mockResolvedValue(png({ mimeType: 'image/jpeg; charset=binary' }));
+    const out = (await imageViewBlocks('"a.jpg"', view)) as McpContent[];
+    expect(view).toHaveBeenCalledOnce();
+    expect(out).toEqual([
+      { type: 'text', text: '"a.jpg" (image/jpeg, 4B)' },
+      { type: 'image', data: Buffer.from(PNG).toString('base64'), mimeType: 'image/jpeg' },
+    ]);
+  });
+
+  it('변환 실패(서버 4xx·5xx)는 던지지 않고 사유를 text 로, 변환본이 상한을 넘으면 그 사유', async () => {
+    const view = vi.fn().mockRejectedValue(new Error('PDF·이미지만 페이지 이미지로 볼 수 있습니다.'));
+    expect(await imageViewBlocks('"x"', view)).toBe('"x": PDF·이미지만 페이지 이미지로 볼 수 있습니다.');
+    expect(await imageViewBlocks('"x"', vi.fn().mockRejectedValue(new FileTooLargeError(10)))).toBe('"x": 변환한 이미지가 10B 를 넘어 받지 않았습니다.');
+  });
+});
+
+// 변환본이 없는 메일 첨부(WP-388)만 쓴다 — 원본을 보낼 수 있으면 그대로, 아니면 사유 안내.
+describe('originalImageBlocks', () => {
   const MB = 1024 * 1024;
 
-  it('보낼 수 있는 jpeg(1MB): 원본을 받고 변환본은 부르지 않는다', async () => {
-    const download = vi.fn().mockResolvedValue(png({ mimeType: 'image/jpeg' }));
-    const view = vi.fn();
-    const out = (await imageBlocksFor('"a.jpg"', { mimeType: 'image/jpeg', sizeBytes: MB }, download, view)) as McpContent[];
-    expect(download).toHaveBeenCalled();
-    expect(view).not.toHaveBeenCalled();
+  it('보낼 수 있는 원본은 그대로 [설명, image] 블록으로', async () => {
+    const out = (await originalImageBlocks('"a.jpg"', vi.fn().mockResolvedValue(png({ mimeType: 'image/jpeg' })))) as McpContent[];
     expect(out[1]).toMatchObject({ type: 'image', mimeType: 'image/jpeg' });
   });
 
-  it('HEIC 메타: 원본을 받지 않고 변환본', async () => {
-    const download = vi.fn();
-    const view = vi.fn().mockResolvedValue(png({ mimeType: 'image/jpeg' }));
-    const out = (await imageBlocksFor('"a.heic"', { mimeType: 'image/heic', sizeBytes: 10 }, download, view)) as McpContent[];
-    expect(download).not.toHaveBeenCalled();
-    expect(view).toHaveBeenCalled();
-    expect(out[1]).toMatchObject({ type: 'image', mimeType: 'image/jpeg' });
+  it('형식(HEIC)·크기(상한 초과)는 사유를 안내하고 내용을 추측하지 말라고 한다', async () => {
+    const heic = await originalImageBlocks('"a.heic"', vi.fn().mockResolvedValue(png({ mimeType: 'image/heic' })));
+    expect(heic).toContain('형식(image/heic)');
+    expect(heic).toContain('추측하지 말고');
+    const big = await originalImageBlocks('"big.png"', vi.fn().mockResolvedValue(png({ data: new Uint8Array(4 * MB) })));
+    expect(big).toContain(`크기(${4 * MB}B)`);
   });
 
-  it('png 5MB 메타: 원본을 받지 않고 변환본', async () => {
-    const download = vi.fn();
-    const view = vi.fn().mockResolvedValue(png());
-    await imageBlocksFor('"big.png"', { mimeType: 'image/png', sizeBytes: 5 * MB }, download, view);
-    expect(download).not.toHaveBeenCalled();
-    expect(view).toHaveBeenCalled();
-  });
-
-  it('크기를 모르고 다운로드가 상한을 넘으면(FileTooLargeError) 변환본', async () => {
-    const download = vi.fn().mockRejectedValue(new FileTooLargeError());
-    const view = vi.fn().mockResolvedValue(png());
-    const out = (await imageBlocksFor('"x"', {}, download, view)) as McpContent[];
-    expect(view).toHaveBeenCalled();
-    expect(out[1]).toMatchObject({ type: 'image' });
-  });
-
-  it('메타가 없어 받은 원본이 보낼 수 없는 형식이면(HEIC) 변환본', async () => {
-    const download = vi.fn().mockResolvedValue(png({ mimeType: 'image/heic' }));
-    const view = vi.fn().mockResolvedValue(png({ mimeType: 'image/jpeg' }));
-    const out = (await imageBlocksFor('"x"', {}, download, view)) as McpContent[];
-    expect(view).toHaveBeenCalled();
-    expect(out[1]).toMatchObject({ type: 'image', mimeType: 'image/jpeg' });
-  });
-
-  it('변환 실패(서버 4xx·5xx)는 메시지를 text 로, 다른 다운로드 오류는 삼키지 않는다', async () => {
-    const view = vi.fn().mockRejectedValue(new Error('PDF·이미지만 페이지 이미지로 볼 수 있습니다.'));
-    expect(await imageBlocksFor('"x"', { mimeType: 'image/heic' }, vi.fn(), view)).toContain('PDF·이미지만 페이지 이미지로 볼 수 있습니다.');
-    await expect(imageBlocksFor('"x"', {}, vi.fn().mockRejectedValue(new Error('boom')), vi.fn())).rejects.toThrow('boom');
+  it('다운로드 상한 초과(FileTooLargeError)는 크기 사유, 다른 다운로드 오류는 삼키지 않는다', async () => {
+    expect(await originalImageBlocks('"x"', vi.fn().mockRejectedValue(new FileTooLargeError()))).toContain('B 초과)');
+    await expect(originalImageBlocks('"x"', vi.fn().mockRejectedValue(new Error('boom')))).rejects.toThrow('boom');
   });
 });

@@ -1,11 +1,11 @@
 // src/attachment-view.ts — 서버가 그린 "모델 입력용 이미지"(/view, WP-250)를 MCP 블록으로 바꾸는 공통 헬퍼.
 // read_file(공유)과 ai-agent 전용 첨부 읽기 도구가 같이 쓴다. 두 갈래가 있다:
 //  · PDF 페이지 — 모델이 pages:[n] 로 고른 쪽을 서버가 이미지로 그려 준다(그림·도표·스캔은 텍스트 추출로 못 읽어서).
-//  · 이미지 — 그대로 보낼 수 있으면(JPEG·PNG·GIF·WebP, 3.75MB 이하) 원본, 아니면(HEIC·TIFF·BMP·큰 이미지) 서버 변환본.
+//  · 이미지 — 늘 서버 변환본(긴 변 1568px 이하로 줄인 JPEG·PNG). 변환본이 없는 메일 첨부(WP-388)만 보낼 수 있는 원본을 그대로 쓴다.
 // 한 번의 호출로 보는 쪽수는 MAX_PAGES_PER_CALL 로 묶는다. 실행 전체의 이미지 누적은 세지 않는다 — 긴 실행은 러너의 컨텍스트 압축에 맡긴다.
 import { z } from 'zod';
 
-import { baseMimeType, FileTooLargeError, IMAGE_MAX_BYTES, imageRejectReasons, SENDABLE_IMAGE_MIMES, toBase64 } from './attachment-read.js';
+import { baseMimeType, FileTooLargeError, IMAGE_MAX_BYTES, imageRejectReasons, toBase64 } from './attachment-read.js';
 import type { McpContent, McpToolResult } from './mcp-content.js';
 import { describeApiError } from './parse.js';
 import { nullAsOmitted } from './tool-definitions.js';
@@ -101,8 +101,14 @@ export async function pageBlocks(
   return collapse(blocks);
 }
 
-/** 변환본 받기 — 서버 오류는 사유를 text 로(이미지 내용을 추측하지 않고 그대로 전하게). */
-async function viewOrNotice(label: string, view: () => Promise<FileBytes>): Promise<McpToolResult> {
+/**
+ * 이미지 파일 → 서버 변환본(/view) 블록. 원본이 보낼 수 있는 형식·크기(JPEG·PNG·GIF·WebP, 3.75MB 이하)여도 변환본을 쓴다 —
+ * 원본은 해상도를 줄이지 않아 4000×3000 사진이 그대로 가고, 한 요청에 이미지가 20장을 넘으면 Anthropic Messages API 가 긴 변 2000px 넘는
+ * 이미지를 거절(400)한다(실행당 장수 상한이 없어 긴 실행은 20장을 넘는다). 변환본은 워커가 긴 변 1568px 이하로 줄이고(작은 이미지는 키우지 않는다)
+ * 서버가 원본 옆에 캐시해 두 번째부터는 워커를 거치지 않는다.
+ * 서버 오류(형식 미지원 415·손상 422·렌더 실패 503·권한 403 등)는 던지지 않고 사유를 text 로 준다 — 이미지 내용을 추측하지 않고 그대로 전하게(pageBlocks 와 같다).
+ */
+export async function imageViewBlocks(label: string, view: () => Promise<FileBytes>): Promise<McpToolResult> {
   try {
     return viewBlocks(label, await view());
   } catch (e) {
@@ -119,32 +125,18 @@ function imageNotice(label: string, reasons: string[]): string {
 }
 
 /**
- * 이미지: 보낼 수 있으면 원본, 아니면 /view 변환본. 메타(목록의 형식·크기)를 알면 먼저 보고 원본을 받지 않는다.
- * 메타를 모르면 원본을 시도하고, 다운로드 상한 초과(FileTooLargeError)나 받은 형식·크기가 보낼 수 없는 것이면 변환본으로 잇는다.
- * view 가 없으면(메일 첨부 — /view 가 없다, WP-388) 변환본 대신 보낼 수 없는 사유를 안내한다.
+ * 변환본(/view)이 없는 이미지(메일 첨부, WP-388) — 원본을 받아 보낼 수 있는 형식·크기면 그대로, 아니면 사유를 안내한다.
+ * 크기 메타가 없어 다운로드 상한(IMAGE_MAX_BYTES)으로 보고, 넘으면(FileTooLargeError) 크기 사유로 안내한다.
  * 다른 다운로드 오류(권한·없음)는 삼키지 않는다 — 도구 레이어가 API 오류로 알린다.
  */
-export async function imageBlocksFor(
-  label: string,
-  meta: { mimeType?: string; sizeBytes?: number },
-  download: () => Promise<FileBytes>,
-  view: (() => Promise<FileBytes>) | undefined,
-): Promise<McpToolResult> {
-  // 보낼 수 없을 때 — 변환본이 있으면 변환본, 없으면 사유 안내.
-  const fallback = (reasons: string[]) => (view ? viewOrNotice(label, view) : imageNotice(label, reasons));
-  // 아는 메타만 본다 — 형식을 모르면 형식을, 크기를 모르면 크기를 따지지 않는다(받은 뒤 다시 본다).
-  const badType = meta.mimeType !== undefined && !SENDABLE_IMAGE_MIMES.has(baseMimeType(meta.mimeType));
-  const tooBig = meta.sizeBytes !== undefined && meta.sizeBytes > IMAGE_MAX_BYTES;
-  if (badType || tooBig) {
-    return fallback([...(badType ? [`형식(${meta.mimeType})`] : []), ...(tooBig ? [`크기(${meta.sizeBytes}B)`] : [])]);
-  }
+export async function originalImageBlocks(label: string, download: () => Promise<FileBytes>): Promise<McpToolResult> {
   let bytes: FileBytes;
   try {
     bytes = await download();
   } catch (e) {
-    if (e instanceof FileTooLargeError) return fallback([`크기(${IMAGE_MAX_BYTES}B 초과)`]);
+    if (e instanceof FileTooLargeError) return imageNotice(label, [`크기(${IMAGE_MAX_BYTES}B 초과)`]);
     throw e;
   }
   const reasons = imageRejectReasons(baseMimeType(bytes.mimeType), bytes.data.byteLength);
-  return reasons.length > 0 ? fallback(reasons) : viewBlocks(label, bytes);
+  return reasons.length > 0 ? imageNotice(label, reasons) : viewBlocks(label, bytes);
 }

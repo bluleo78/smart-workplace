@@ -171,15 +171,11 @@ function sharedMock(): MockedShared {
     // 첨부·파일 내용 읽기(WP-346)
     readIssueAttachmentText: vi.fn().mockResolvedValue({ fileId: 1, status: 'NONE' }),
     listIssueAttachments: vi.fn().mockResolvedValue([]),
-    downloadIssueAttachment: vi.fn().mockResolvedValue({ data: new Uint8Array(), mimeType: 'application/octet-stream' }),
     readDriveFileText: vi.fn().mockResolvedValue({ fileId: 1, status: 'NONE' }),
     listDriveFileVersions: vi.fn().mockResolvedValue([]),
-    downloadDriveFile: vi.fn().mockResolvedValue({ data: new Uint8Array(), mimeType: 'application/octet-stream' }),
     // WP-358: 노트·메시지·메일 첨부 읽기
     readWikiAttachmentText: vi.fn(),
-    downloadWikiAttachment: vi.fn(),
     readMessageAttachmentText: vi.fn(),
-    downloadMessageAttachment: vi.fn(),
     readMailAttachmentText: vi.fn(),
     downloadMailAttachment: vi.fn(),
     // WP-250: 모델 입력용 이미지(/view).
@@ -218,7 +214,6 @@ function client(): TestClient {
     // WP-234: 메인 AI 채팅 세션 첨부
     listHomeSessionAttachments: vi.fn().mockResolvedValue([]),
     readHomeAttachmentText: vi.fn(),
-    downloadHomeAttachment: vi.fn(),
     viewHomeAttachment: vi.fn(),
     // WP-55: 메모리 도구
     createAiMemory: vi.fn(),
@@ -819,7 +814,7 @@ describe('chat 도구', () => {
     await expect(t.handler({ threadId: 5, fileId: 3, limit: 0 })).rejects.toThrow();
   });
 
-  // WP-250: 이슈 챗 첨부 — PDF pages·이미지(원본/변환본).
+  // WP-250: 이슈 챗 첨부 — PDF pages·이미지(늘 변환본).
   describe('read_chat_thread_attachment pages·이미지', () => {
     const png = { data: Buffer.from('PNGDATA'), mimeType: 'image/png' };
     const chatTool = (c: WorkplaceApiClient, images?: { input: boolean }, bound = 5) =>
@@ -853,31 +848,35 @@ describe('chat 도구', () => {
     const imageSlice = (fileId: number, over: Record<string, unknown> = {}) =>
       ({ fileId, status: 'SKIPPED', offset: 0, totalChars: null, truncated: false, nextOffset: null, text: null, reasonCode: 'IMAGE', reason: '이미지', ...over }) as never;
 
-    it('이슈 첨부 이미지(jpeg) → 글자 먼저 읽고 이미지로 건너뛴 뒤에만 메타를 찾아 이슈 첨부 원본 다운로드', async () => {
+    // 보낼 수 있는 원본(jpeg·png)이어도 변환본을 준다 — 원본 해상도 그대로면 한 요청에 이미지가 20장을 넘을 때 Anthropic API 가 긴 변 2000px 초과
+    // 이미지를 거절한다(변환본은 긴 변 1568px 이하). 메타는 이미지인지·라벨 이름을 알려고만 찾는다.
+    it('이슈 첨부 이미지(jpeg) → 글자 먼저 읽고 이미지로 건너뛴 뒤에만 메타를 찾아 변환본(/view), 원본은 받지 않는다', async () => {
       const c = client();
       vi.mocked(c.readChatAttachmentText).mockResolvedValue(imageSlice(7));
       vi.mocked(c.listThreadIssueAttachments).mockResolvedValue([meta(7, 'image/jpeg') as never]);
-      vi.mocked(c.downloadThreadIssueAttachment).mockResolvedValue({ data: Buffer.from('JPG'), mimeType: 'image/jpeg' });
-      const out = (await chatTool(c).handler({ threadId: 5, fileId: 7 })) as Array<{ type: string; mimeType?: string }>;
+      vi.mocked(c.viewChatAttachment).mockResolvedValue({ data: Buffer.from('JPG'), mimeType: 'image/jpeg' });
+      const out = (await chatTool(c).handler({ threadId: 5, fileId: 7 })) as Array<{ type: string; mimeType?: string; text?: string }>;
       expect(c.readChatAttachmentText).toHaveBeenCalledTimes(1);
-      expect(c.downloadThreadIssueAttachment).toHaveBeenCalledWith(AGENT_ID, 5, 7);
+      expect(c.viewChatAttachment).toHaveBeenCalledWith(AGENT_ID, 5, 7);
+      expect(c.downloadThreadIssueAttachment).not.toHaveBeenCalled();
+      expect(out[0].text).toContain('"f7"');
       expect(out[1]).toMatchObject({ type: 'image', mimeType: 'image/jpeg' });
-      expect(c.viewChatAttachment).not.toHaveBeenCalled();
     });
 
-    it('챗 메시지 첨부 이미지(png) → messageId 로 챗 첨부 원본 다운로드', async () => {
+    it('챗 메시지 첨부 이미지(png) → 변환본(/view), 원본은 받지 않는다', async () => {
       const c = client();
       vi.mocked(c.readChatAttachmentText).mockResolvedValue(imageSlice(8));
       vi.mocked(c.getChatMessages).mockResolvedValue([
         { id: 11, authorName: 'A', authorKind: 'HUMAN', body: '', createdAt: 't', deleted: false, attachments: [{ ...meta(8, 'image/png'), messageId: 11 }] },
       ]);
-      vi.mocked(c.downloadChatAttachment).mockResolvedValue(png);
+      vi.mocked(c.viewChatAttachment).mockResolvedValue(png);
       const out = (await chatTool(c).handler({ threadId: 5, fileId: 8 })) as Array<{ type: string }>;
-      expect(c.downloadChatAttachment).toHaveBeenCalledWith(AGENT_ID, 5, 11, 8);
+      expect(c.viewChatAttachment).toHaveBeenCalledWith(AGENT_ID, 5, 8);
+      expect(c.downloadChatAttachment).not.toHaveBeenCalled();
       expect(out[1].type).toBe('image');
     });
 
-    it('이슈 첨부 HEIC → 원본 없이 viewChatAttachment 변환본(page 없이)', async () => {
+    it('이슈 첨부 HEIC → viewChatAttachment 변환본(page 없이)', async () => {
       const c = client();
       vi.mocked(c.readChatAttachmentText).mockResolvedValue(imageSlice(7, { status: 'NONE', reasonCode: null, reason: null }));
       vi.mocked(c.listThreadIssueAttachments).mockResolvedValue([meta(7, 'image/heic') as never]);
@@ -888,7 +887,7 @@ describe('chat 도구', () => {
       expect(out[1]).toMatchObject({ type: 'image', mimeType: 'image/jpeg' });
     });
 
-    it('챗 메시지 첨부 HEIC → 원본 없이 viewChatAttachment 변환본', async () => {
+    it('챗 메시지 첨부 HEIC → viewChatAttachment 변환본', async () => {
       const c = client();
       vi.mocked(c.readChatAttachmentText).mockResolvedValue(imageSlice(9));
       vi.mocked(c.getChatMessages).mockResolvedValue([

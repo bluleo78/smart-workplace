@@ -291,23 +291,24 @@ describe('/mcp', { timeout: ROUNDTRIP_TEST_TIMEOUT_MS }, () => {
       expect(JSON.parse(block.text)).not.toHaveProperty('fileId');
     });
 
-    it('이슈 첨부 이미지는 원본을 받아 image 블록으로', async () => {
+    // WP-250: 보낼 수 있는 원본(작은 PNG)이어도 서버가 줄인 변환본(/view)을 받는다 — 원본(/content)은 부르지 않는다(nock 에 없으면 실패).
+    it('이슈 첨부 이미지는 변환본(/view)을 받아 image 블록으로', async () => {
       nock(API).get('/auth/me').reply(200, { id: 1, username: 'u', kind: 'HUMAN' });
-      const png = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+      const jpeg = Buffer.from([0xff, 0xd8, 0xff]);
       nock(API)
         .get('/projects/WP/issues/12/attachments/3/text')
         .query({ limit: 12000 })
         .reply(200, { fileId: 3, status: 'SKIPPED', offset: 0, totalChars: null, truncated: null, nextOffset: null, text: null, reasonCode: 'IMAGE', reason: '이미지 파일은 글자를 추출하지 않습니다.' })
         .get('/projects/WP/issues/12/attachments')
         .reply(200, [{ fileId: 3, originalName: 'a.png', mimeType: 'image/png', sizeBytes: 4 }])
-        .get('/projects/WP/issues/12/attachments/3/content')
-        .reply(200, png, { 'Content-Type': 'image/png' });
+        .get('/projects/WP/issues/12/attachments/3/view')
+        .reply(200, jpeg, { 'Content-Type': 'image/jpeg' });
       const client = await connect('swp_valid');
       const res = await client.callTool({ name: 'read_file', arguments: { source: 'issue', issueKey: 'WP-12', attachmentId: 3 } });
       expect(res.isError).toBeFalsy();
       expect(res.content).toEqual([
-        { type: 'text', text: '이슈 WP-12 첨부 이미지 "a.png" (image/png, 4B)' },
-        { type: 'image', data: png.toString('base64'), mimeType: 'image/png' },
+        { type: 'text', text: '이슈 WP-12 첨부 이미지 "a.png" (image/jpeg, 3B)' },
+        { type: 'image', data: jpeg.toString('base64'), mimeType: 'image/jpeg' },
       ]);
     });
 

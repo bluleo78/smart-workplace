@@ -287,8 +287,8 @@ describe('registerStdioTool', () => {
     const png = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
     const sc = {
       readDriveFileText: vi.fn().mockResolvedValue({ fileId: 1, status: 'SKIPPED', offset: 0, totalChars: null, truncated: null, nextOffset: null, text: null, reasonCode: 'IMAGE', reason: '이미지' }),
-      listDriveFileVersions: vi.fn().mockResolvedValue([{ versionNo: 1, sizeBytes: 4, current: true }]),
-      downloadDriveFile: vi.fn().mockResolvedValue({ data: png, mimeType: 'image/png' }),
+      // WP-250: 이미지는 늘 서버 변환본(/view)으로 받는다.
+      viewDriveFile: vi.fn().mockResolvedValue({ data: png, mimeType: 'image/png' }),
     } as unknown as SharedToolClient;
     const tool = buildSharedTools(sc).find((t) => t.name === 'read_file')!;
     for (const vision of [false, true]) {

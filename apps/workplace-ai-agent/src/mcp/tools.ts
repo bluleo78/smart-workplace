@@ -7,8 +7,7 @@ import {
   buildSharedTools,
   CREATE_DRIVE_FILE_CONTENT_DESCRIPTION,
   createProjectInput,
-  FileTooLargeError,
-  imageBlocksFor,
+  imageViewBlocks,
   type ImageOptions,
   isImageSkip,
   issueListFilterShape,
@@ -498,30 +497,16 @@ export function buildTools(
           const { offset, limit } = resolveRange(parsed);
           const slice = await client.readChatAttachmentText(agentId, threadId, fileId, offset, limit);
           // 글자 먼저 — 문서는 이 한 번으로 끝나 목록 조회가 없다. 서버가 이미지로 건너뛴 파일(SKIPPED·IMAGE)이나 추출 행이 없는 파일(NONE, 배포 전
-          // 업로드·HEIC 등)만 이미지 후보로 보고 메타(형식·크기·출처)를 찾는다(공유 read_file 의 노트 첨부와 같은 판정).
+          // 업로드·HEIC 등)만 이미지 후보로 보고 메타(형식·이름)를 찾는다(공유 read_file 의 노트 첨부와 같은 판정).
+          // 이미지는 원본이 아니라 늘 서버 변환본(/view)이다 — 원본 해상도 그대로 보내지 않는다(이유는 imageViewBlocks).
           if (isImageSkip(slice) || slice.status === 'NONE') {
             const meta = await findThreadAttachmentMeta(client, agentId, threadId, fileId);
             const view = () => client.viewChatAttachment(agentId, threadId, fileId);
-            if (!meta) {
-              // 메타를 못 찾았어도(이슈 첨부 목록 403·삭제된 메시지·조회 창 밖) /view 는 messageId 없이 서버가 같은 가드로 풀어 주므로 변환본만 준다.
-              // 원본 받기 경로(이슈/챗)를 모르니 download 는 상한 초과로 취급해 곧바로 변환본으로 잇는다.
-              return imageBlocksFor(
-                `스레드 첨부 이미지(fileId ${fileId})`,
-                {},
-                () => Promise.reject(new FileTooLargeError()),
-                view,
-              );
-            }
+            // 메타를 못 찾았어도(이슈 첨부 목록 403·삭제된 메시지·조회 창 밖) /view 는 messageId 없이 서버가 같은 가드로 풀어 주므로 변환본을 준다
+            // (이미지가 아니면 서버가 거절하고 그 사유를 text 로 준다).
+            if (!meta) return imageViewBlocks(`스레드 첨부 이미지(fileId ${fileId})`, view);
             if (fileKind(meta.mimeType) === 'image') {
-              return imageBlocksFor(
-                `스레드 첨부 이미지 ${JSON.stringify(meta.originalName)}(fileId ${fileId})`,
-                meta,
-                () =>
-                  meta.origin.kind === 'issue'
-                    ? client.downloadThreadIssueAttachment(agentId, threadId, fileId)
-                    : client.downloadChatAttachment(agentId, threadId, meta.origin.messageId, fileId),
-                view,
-              );
+              return imageViewBlocks(`스레드 첨부 이미지 ${JSON.stringify(meta.originalName)}(fileId ${fileId})`, view);
             }
           }
           const note = pdfNote(slice, imageInput);

@@ -119,8 +119,8 @@ export async function collectAttachments(
 const FIND_RECENT_LIMIT = 50;
 
 /**
- * 스레드의 첨부 하나(fileId)의 메타 — 형식·크기·출처(이슈 첨부냐 챗 메시지 첨부냐, 챗이면 messageId)를 알아 read_chat_thread_attachment 가
- * 이미지를 원본/변환본으로 가르고 원본을 받을 경로를 고르게 한다(WP-250). 이슈 첨부를 먼저(1회 조회), 없으면 최근 메시지 첨부에서 찾는다
+ * 스레드의 첨부 하나(fileId)의 메타 — 형식·이름을 알아 read_chat_thread_attachment 가 이미지인지 가르고(이미지면 변환본) 라벨에 이름을
+ * 싣게 한다(WP-250). 이슈 첨부를 먼저(1회 조회), 없으면 최근 메시지 첨부에서 찾는다
  * (collectAttachments 와 같은 우선순위). 목록 조회가 실패하거나 어디에도 없으면 undefined — 호출자가 텍스트 읽기로 잇는다(메타는 "있으면 쓰는" 정보).
  */
 export async function findThreadAttachmentMeta(

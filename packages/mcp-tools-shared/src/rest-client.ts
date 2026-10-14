@@ -561,9 +561,6 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
       const data = (await http.get(`${issue(issueKey)}/attachments`)).data;
       return Array.isArray(data) ? data : [];
     },
-    async downloadIssueAttachment(issueKey, fileId) {
-      return getBytes(http, `${issue(issueKey)}/attachments/${fileId}/content`);
-    },
     async readDriveFileText(driveFileId, range) {
       return (await http.get(`/drive/files/${driveFileId}/text`, rangeParams(range))).data;
     },
@@ -571,20 +568,11 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
       const data = (await http.get(`/drive/files/${driveFileId}/versions`)).data;
       return Array.isArray(data) ? data : [];
     },
-    async downloadDriveFile(driveFileId) {
-      return getBytes(http, `/drive/files/${driveFileId}/content`);
-    },
     async readWikiAttachmentText(pageId, fileId, range) {
       return (await http.get(`/wiki/pages/${pageId}/attachments/${fileId}/text`, rangeParams(range))).data;
     },
-    async downloadWikiAttachment(pageId, fileId) {
-      return getBytes(http, `/wiki/pages/${pageId}/attachments/${fileId}/content`);
-    },
     async readMessageAttachmentText(channelId, messageId, fileId, range) {
       return (await http.get(`/messaging/channels/${channelId}/messages/${messageId}/attachments/${fileId}/text`, rangeParams(range))).data;
-    },
-    async downloadMessageAttachment(channelId, messageId, fileId) {
-      return getBytes(http, `/messaging/channels/${channelId}/messages/${messageId}/attachments/${fileId}/content`);
     },
     async readMailAttachmentText(attachmentId, range) {
       return (await http.get(`/mail/attachments/${attachmentId}/text`, rangeParams(range))).data;

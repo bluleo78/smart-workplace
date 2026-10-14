@@ -33,7 +33,7 @@ export {
   type ImageOptions,
   MAX_PAGES_PER_CALL,
   PAGES_DESCRIPTION,
-  imageBlocksFor,
+  imageViewBlocks,
   pageBlocks,
   viewBlocks,
   withPages,
