@@ -121,7 +121,7 @@ export function RichInput({
   const placeholderRef = useRef(placeholder);
   useEffect(() => {
     placeholderRef.current = placeholder;
-  });
+  }, [placeholder]);
 
   // 멘션 팝업 활성 여부를 인스턴스-로컬로 추적. Enter 가드에서 DOM 전역 조회 대신 사용
   // (전역 조회 시 다른 인스턴스의 팝업까지 잡혀 Enter 전송이 잘못 차단됨).

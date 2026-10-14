@@ -8,6 +8,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { useLongPressCapture } from '@/hooks/useLongPressCapture';
 
+import { ChildProgress } from '../../../components/issues/ChildProgress';
 import { IssuePriorityBars } from '../../../components/issues/IssuePriorityBars';
 import { IssueStatusIcon } from '../../../components/issues/IssueStatusIcon';
 import { ParentChip } from '../../../components/issues/ParentChip';
@@ -184,15 +185,11 @@ export const IssueRow = memo(function IssueRow({
             {/* 하위를 가진 이슈엔 진행률(└ done/total)을 표시한다. 목록에서 SUBTASK 를 숨긴 부모는
                 이 배지로 하위 존재를 알리고, 에픽은 자식이 행으로 노출되므로 롤업 진행률로 읽힌다.
                 childCount 는 유형과 무관하게 활성 자식 전체를 세므로(보드 카드와 동일 기준) 둘 다 표시된다. */}
-            {it.childCount > 0 && (
-              <span
-                className="shrink-0 text-xs text-muted-foreground"
-                data-testid={`issue-row-${it.number}-child-progress`}
-                aria-label={`하위 작업 ${it.childDoneCount}/${it.childCount}`}
-              >
-                └ {it.childDoneCount}/{it.childCount}
-              </span>
-            )}
+            <ChildProgress
+              done={it.childDoneCount}
+              total={it.childCount}
+              testId={`issue-row-${it.number}-child-progress`}
+            />
           </div>
           {it.labels.length > 0 && (
             <div className="mt-1 flex flex-wrap gap-1">

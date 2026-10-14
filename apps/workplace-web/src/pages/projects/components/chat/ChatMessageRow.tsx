@@ -29,6 +29,18 @@ import { ChatMessageImage } from './ChatMessageImage';
 import { formatChatTimestamp } from './formatChatTimestamp';
 import type { QuestionState } from './questionState';
 
+/** 질문 태그 모양 — 열린 질문은 주황 「질문」, 답변된 질문은 초록 「질문 ✓ 답변됨」(WP-373). */
+const QUESTION_TAG: Record<QuestionState, { className: string; label: string }> = {
+  open: {
+    className: 'rounded-full border border-caution/60 bg-background px-1.5 text-[11px] font-semibold leading-4 text-caution-text',
+    label: '질문',
+  },
+  answered: {
+    className: 'rounded-full bg-success-subtle px-1.5 text-[11px] font-medium leading-4 text-success-text',
+    label: '질문 ✓ 답변됨',
+  },
+};
+
 interface ChatMessageRowProps {
   message: ChatMessageResponse;
   // 작성자 본인 여부 — 우측 말풍선 레이아웃 판정.
@@ -101,11 +113,7 @@ export function ChatMessageRow({
 
   const body = (
     <div
-      className={`text-sm break-words ${
-        // 마크다운(AI) 본문에는 pre-wrap 을 주지 않는다 — 블록 사이 개행 텍스트 노드가 빈 줄로 보여 번호 목록이 벌어진다.
-        // 문단 안 줄바꿈은 MarkdownMessage 의 p 가 자체로 보존한다(IssueCommentList 와 같은 규칙).
-        isAgent && !message.deleted ? '' : 'whitespace-pre-wrap'
-      } ${
+      className={`text-sm break-words whitespace-pre-wrap ${
         // 본인: 말풍선. 삭제된 메시지는 색 없는 점선 테두리로 자리를 유지한다.
         isOwn ? `wrap-anywhere max-w-full rounded-2xl px-3 py-1.5 ${message.deleted ? 'border border-dashed' : 'bg-primary/10'}` : ''
       } ${message.deleted ? 'italic text-muted-foreground' : ''}`}
@@ -212,20 +220,12 @@ export function ChatMessageRow({
             <div className="flex items-center gap-2 text-xs">
               <span className="font-medium">{message.authorName}</span>
               {isAgent && <AgentBadge size="xs" />}
-              {questionState === 'open' && (
+              {questionState && (
                 <span
-                  className="rounded-full border border-caution/60 bg-background px-1.5 text-[11px] font-semibold leading-4 text-caution-text"
+                  className={QUESTION_TAG[questionState].className}
                   data-testid={`chat-message-question-${message.id}`}
                 >
-                  질문
-                </span>
-              )}
-              {questionState === 'answered' && (
-                <span
-                  className="rounded-full bg-success-subtle px-1.5 text-[11px] font-medium leading-4 text-success-text"
-                  data-testid={`chat-message-question-${message.id}`}
-                >
-                  질문 ✓ 답변됨
+                  {QUESTION_TAG[questionState].label}
                 </span>
               )}
               <span className="text-muted-foreground">{formatChatTimestamp(message.createdAt)}</span>

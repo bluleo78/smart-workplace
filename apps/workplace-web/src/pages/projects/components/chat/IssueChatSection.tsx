@@ -21,6 +21,7 @@ import { useUpdateChatMessage } from '../../../../hooks/queries/useUpdateChatMes
 import { useAuth } from '../../../../hooks/useAuth';
 import { type ChatProgressEvent,onChatProgress, onChatTyping } from '../../../../hooks/useChatStream';
 import { useDebounceValue } from '../../../../hooks/useDebounceValue';
+import { waitingAgentIds } from '../../../../lib/agentWork';
 import { deleteMessageWithUndo } from '../../../../lib/deleteWithUndo';
 import { ChatComposer } from './ChatComposer';
 import { ChatMessageEditor } from './ChatMessageEditor';
@@ -57,15 +58,9 @@ export function IssueChatSection({
   // 질문 「답변됨」 판정용 — 이슈의 AI 작업 중 답변 대기(INPUT_REQUIRED)인 AI id. 이슈 상세와 같은 쿼리 키라 캐시를 공유하고,
   // AI 작업 상태가 바뀌면 서버의 issue 변경 알림이 상세를 무효화해 다시 불러온다. 미로드면 undefined(대기 중으로 간주).
   const issueQ = useIssue(projectKey, issueNumber);
-  const waitingKey = issueQ.data
-    ? (issueQ.data.summary.agentWork ?? [])
-        .filter((w) => w.state === 'INPUT_REQUIRED')
-        .map((w) => w.worker.id)
-        .sort((a, b) => a - b)
-        .join(',')
-    : undefined;
+  const waitingKey = issueQ.data ? waitingAgentIds(issueQ.data.summary.agentWork).join(',') : undefined;
   // 문자열 키로 메모해 상세가 리페치돼도 집합 내용이 같으면 질문 상태를 다시 계산하지 않는다.
-  const waitingAgentIds = useMemo(
+  const waitingIds = useMemo(
     () => (waitingKey === undefined ? undefined : new Set(waitingKey === '' ? [] : waitingKey.split(',').map(Number))),
     [waitingKey],
   );
@@ -281,7 +276,7 @@ export function IssueChatSection({
       editingMessageId={editingId}
       fill={embedded}
       compact={plain}
-      waitingAgentIds={waitingAgentIds}
+      waitingAgentIds={waitingIds}
       renderEditor={(m) => (
         <ChatMessageEditor
           initialBody={m.body}

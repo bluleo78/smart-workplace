@@ -103,7 +103,8 @@ export function MarkdownMessage({
   return (
     <div
       data-testid="markdown-content"
-      className={cn('space-y-2 break-words text-sm [overflow-wrap:anywhere]', className)}
+      // whitespace-normal: 호출자 말풍선의 pre-wrap 이 블록 사이 개행 텍스트 노드로 새어 빈 줄이 생기는 것을 막는다(문단 안 줄바꿈은 p 가 보존).
+      className={cn('space-y-2 whitespace-normal break-words text-sm [overflow-wrap:anywhere]', className)}
     >
       <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={components}>
         {children}

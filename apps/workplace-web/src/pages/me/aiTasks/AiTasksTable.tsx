@@ -2,7 +2,6 @@
 // 이 화면은 분류 화면: 이슈 상태·우선순위는 프로젝트 이슈 목록처럼 앞쪽 아이콘으로 낮추고, AI 진행 정보를 본문으로 둔다.
 // 행 순서는 서버가 준 급한 순 그대로(클라이언트 재정렬 금지 — 무한 스크롤 페이지 경계와 어긋나지 않게).
 // 에픽 묶음은 서버가 묶음 단위로 정렬해 연속으로 준다(WP-375) — 화면은 묶음 머리 + 들여쓴 하위 행으로 그린다.
-import { Layers } from 'lucide-react'
 import { Fragment } from 'react'
 import { Link } from 'react-router-dom'
 
@@ -12,17 +11,18 @@ import {
   AgentStateBadge,
   AgentToolChip,
 } from '@/components/ai/agentWork/AgentWorkBits'
+import { ChildProgress } from '@/components/issues/ChildProgress'
 import { IssuePriorityBars } from '@/components/issues/IssuePriorityBars'
 import { IssueStatusIcon } from '@/components/issues/IssueStatusIcon'
 import { ParentChip } from '@/components/issues/ParentChip'
 import { IssueTypeBadge } from '@/components/issueTypes/IssueTypeBadge'
 import { UserAvatar } from '@/components/users/UserAvatar'
 import { displayState, primaryWork } from '@/lib/agentWork'
-import { labelFg } from '@/lib/labelColors'
 import { cn } from '@/lib/utils'
 import type { AgentWorkView, IssueResponse } from '@/types/issue'
 
 import { type EpicHead, groupAiTasks } from './aiTaskGroups'
+import { EpicHeadTitle } from './EpicHeadTitle'
 
 const DASH = <span className="text-muted-foreground">—</span>
 
@@ -36,16 +36,6 @@ export function AiTaskAssignee({ issue, work }: { issue: IssueResponse; work: Ag
     <span className="inline-flex shrink-0 items-center gap-1">
       <UserAvatar user={u} size="xs" agent={u.kind === 'AGENT'} />
       {more > 0 && <span className="text-xs text-muted-foreground">+{more}</span>}
-    </span>
-  )
-}
-
-/** 하위 진행 └ done/total — 이슈 목록 행(IssueListRow)과 같은 모양. */
-function ChildProgress({ done, total, testId }: { done: number | null; total: number | null; testId: string }) {
-  if (!total) return null
-  return (
-    <span className="shrink-0 text-xs font-normal text-muted-foreground" data-testid={testId} aria-label={`하위 작업 ${done ?? 0}/${total}`}>
-      └ {done ?? 0}/{total}
     </span>
   )
 }
@@ -113,12 +103,7 @@ function EpicHeadRow({ epic, head }: { epic: EpicHead; head: IssueResponse | nul
     <tr className="border-b bg-muted/40" data-testid={tid}>
       <td colSpan={4} className="py-2">
         <div className="flex min-w-0 items-center gap-1.5 pr-4">
-          <Layers className={cn('size-4 shrink-0', (epic.type ? labelFg(epic.type.colorToken) : 'text-muted-foreground'))} aria-hidden="true" />
-          <span className="shrink-0 font-mono text-xs text-muted-foreground">{epic.projectKey}-{epic.number}</span>
-          <Link to={`/projects/${epic.projectKey}/issues/${epic.number}`} className="min-w-0 truncate font-semibold hover:underline" title={epic.title}>
-            {epic.title}
-          </Link>
-          <ChildProgress done={epic.childDoneCount} total={epic.childCount} testId={`${tid}-child-progress`} />
+          <EpicHeadTitle epic={epic} tid={tid} />
         </div>
       </td>
       <AiCells it={head} tid={head ? `ai-row-${head.id}` : tid} />

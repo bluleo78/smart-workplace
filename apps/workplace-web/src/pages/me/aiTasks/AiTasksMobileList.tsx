@@ -3,7 +3,6 @@
 // 메타 줄은 잘리지도 말줄임되지도 않는다 — 진행률은 막대 없이 글자만 두고, 그래도 폭이 모자라면(긴 상태+진행률+시각)
 // 뒤쪽 항목이 다음 줄로 넘어간다(에이전트 유형·마지막 보고는 항상 전체 글자).
 // 에픽 묶음(WP-375): 서버가 묶음 단위로 정렬해 준 행을 머리(아이콘·키·제목·└ n/m) 아래에 이어 그린다. 하위 행은 기존 행 그대로.
-import { Layers } from 'lucide-react'
 import { Fragment } from 'react'
 import { Link } from 'react-router-dom'
 
@@ -15,11 +14,11 @@ import {
 } from '@/components/ai/agentWork/AgentWorkBits'
 import { IssueStatusIcon } from '@/components/issues/IssueStatusIcon'
 import { displayState, primaryWork } from '@/lib/agentWork'
-import { labelFg } from '@/lib/labelColors'
 import type { IssueResponse } from '@/types/issue'
 
 import { type EpicHead, groupAiTasks } from './aiTaskGroups'
 import { AiTaskAssignee } from './AiTasksTable'
+import { EpicHeadTitle } from './EpicHeadTitle'
 
 /** 기존 모바일 행 그대로(묶음 안에서도 같은 모양). */
 function MobileRow({ it }: { it: IssueResponse }) {
@@ -71,16 +70,7 @@ function MobileEpicHead({ epic, head }: { epic: EpicHead; head: IssueResponse | 
   return (
     <li className="border-b bg-muted/40 px-1 py-2" data-testid={tid}>
       <div className="flex min-h-7 min-w-0 items-center gap-1.5">
-        <Layers className={`size-4 shrink-0 ${epic.type ? labelFg(epic.type.colorToken) : 'text-muted-foreground'}`} aria-hidden="true" />
-        <span className="shrink-0 font-mono text-xs text-muted-foreground">{epic.projectKey}-{epic.number}</span>
-        <Link to={`/projects/${epic.projectKey}/issues/${epic.number}`} className="min-w-0 truncate font-semibold">
-          {epic.title}
-        </Link>
-        {epic.childCount ? (
-          <span className="shrink-0 text-xs text-muted-foreground" aria-label={`하위 작업 ${epic.childDoneCount}/${epic.childCount}`}>
-            └ {epic.childDoneCount}/{epic.childCount}
-          </span>
-        ) : null}
+        <EpicHeadTitle epic={epic} tid={tid} />
       </div>
       {head && state && (
         <div className="mt-1 flex min-w-0 items-center gap-1.5 pl-[22px] text-xs text-muted-foreground" data-testid={`${tid}-meta`}>

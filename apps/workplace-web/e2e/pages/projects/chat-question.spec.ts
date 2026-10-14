@@ -10,18 +10,13 @@ import { createIssue, createIssueDetail } from '../../factories/issue.factory';
 import { createMember, createProject } from '../../factories/project.factory';
 import { expect, test } from '../../fixtures/auth.fixture';
 import { mockGatedEvents, resourceChangedFrame } from '../../fixtures/gatedEvents';
+import { json } from '../../fixtures/mobile-chat';
 
 const PROJECT_KEY = 'WP';
 const ISSUE_NUMBER = 1;
 const THREAD_ID = 100;
 const ME_ID = 1;
 const AI_ID = 50;
-
-const json = (body: unknown) => ({
-  status: 200,
-  contentType: 'application/json',
-  body: JSON.stringify(body),
-});
 
 const ai = (id: number, createdAt: string, body: string, question = false) =>
   createChatMessage({
