@@ -175,4 +175,58 @@ class HomeChatMemoryFallbackTest {
         .contains("{\"id\":9,\"kind\":\"CONTEXT\",\"content\":\"백엔드 팀\"}")
         .contains("\"today\":\"2026-10-14\"");
   }
+
+  /** WP-383: "더 있음" 줄이 실리면 그 몫을, 고정 줄이면 라벨 몫을 더한다 — 빈 목록 + 더 있음도 센다(홈에 공통 0·앱만 있을 때). */
+  @Test
+  void 블록_추정은_더_있음_줄과_고정_라벨을_센다() {
+    assertThat(
+            AiMemoryService.estimateBlockTokens(
+                new AiMemoryService.ChatMemories(true, List.of(), "2026-10-14", 3)))
+        .isEqualTo(AiMemoryService.EMPTY_BLOCK_TOKENS + AiMemoryService.MORE_LINE_TOKENS);
+    assertThat(
+            AiMemoryService.estimateBlockTokens(
+                new AiMemoryService.ChatMemories(
+                    true,
+                    List.of(new AiMemoryLine(1, "PREFERENCE", "가나다", null, null, true)),
+                    "2026-10-14",
+                    5)))
+        .isEqualTo(
+            AiMemoryService.BLOCK_HEADER_TOKENS
+                + AiMemoryService.MORE_LINE_TOKENS
+                + 3
+                + AiMemoryService.LINE_OVERHEAD_TOKENS
+                + AiMemoryService.PIN_LABEL_TOKENS);
+  }
+
+  /** WP-383: memoryMoreCount 는 늘 싣고, pinned 는 고정일 때만 싣는다(아니면 구 ai-agent 와 같은 줄 모양). */
+  @Test
+  void ai_agent_요청_JSON_에_더_있음_수와_고정이_실린다() throws Exception {
+    ChatRequest req =
+        new ChatRequest(
+            "q",
+            List.of(),
+            5L,
+            1L,
+            null,
+            "m",
+            "NORMAL",
+            8,
+            60000,
+            null,
+            null,
+            null,
+            List.of(),
+            List.of(
+                new AiMemoryLine(12, "PREFERENCE", "짧게", null, null, true),
+                new AiMemoryLine(9, "CONTEXT", "백엔드 팀", null, null)),
+            true,
+            null,
+            "2026-10-14",
+            7);
+    String json = new ObjectMapper().writeValueAsString(req);
+    assertThat(json)
+        .contains("{\"id\":12,\"kind\":\"PREFERENCE\",\"content\":\"짧게\",\"pinned\":true}")
+        .contains("{\"id\":9,\"kind\":\"CONTEXT\",\"content\":\"백엔드 팀\"}")
+        .contains("\"memoryMoreCount\":7");
+  }
 }

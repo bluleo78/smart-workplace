@@ -154,18 +154,22 @@ public class AiMemoryRepository {
   }
 
   /**
-   * 한 범위(null = 공통)의 유효 행 최신순 최대 limit 건 — 채팅·다른 진입점 주입용(인덱스 ai_memory_user_scope_idx). 만료 행은 싣지
-   * 않는다(WP-380).
+   * 채팅 후보(WP-383) — 범위 필터(공통 + 지금 앱)의 유효 행 최신순 전부. 범위마다 300 이하라 많아야 600 행이고, 벡터·tsvector 는 읽지 않는다.
+   * 순서는 30줄 이하일 때의 주입 순서·빈 질의의 최신 순위다.
    */
-  public List<Row> listInScope(long userId, String scope, int limit, LocalDate today) {
+  public List<Row> listCandidates(long userId, ScopeFilter filter, LocalDate today) {
     return dsl.select(ROW_FIELDS)
         .from(AI_MEMORY)
         .where(AI_MEMORY.USER_ID.eq(userId))
-        .and(inScope(scope))
+        .and(filter.condition())
         .and(active(today))
         .orderBy(AI_MEMORY.UPDATED_AT.desc(), AI_MEMORY.ID.desc())
-        .limit(limit)
         .fetch(AiMemoryRepository::toRow);
+  }
+
+  /** 유효 메모리 수(범위 무관, WP-383) — 블록에 넣지 않은 수("더 있음", 다른 범위 포함)를 센다. */
+  public int countActive(long userId, LocalDate today) {
+    return dsl.fetchCount(AI_MEMORY, AI_MEMORY.USER_ID.eq(userId).and(active(today)));
   }
 
   /** 이 사용자의 생성·복원·범위 이동·고정을 트랜잭션 끝까지 직렬화한다(자동 해제). */

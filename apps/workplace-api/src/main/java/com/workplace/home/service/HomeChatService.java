@@ -320,7 +320,8 @@ public class HomeChatService {
     try {
       // WP-55: 메모리는 매 턴 읽는다(턴 중 저장·수정은 다음 턴부터 반영). 예산 맞춤 전에 읽어야 블록 몫을 뺄 수 있다.
       AiMemoryService.ChatMemories memories =
-          memoriesOrUnavailable(() -> memoryService.loadForChat(callerId, memoryApp), callerId);
+          memoriesOrUnavailable(
+              () -> memoryService.loadForChat(callerId, memoryApp, query), callerId);
       // WP-232: 예산 초과 시 이 턴에서 동기 요약(진행 라벨 표시) — 요청 스레드를 막지 않도록 pump 에서 수행.
       HomeContextSummaryService.ContextSnapshot ctx =
           contextService.fitToBudget(
@@ -355,11 +356,14 @@ public class HomeChatService {
               sid.toString(),
               attachments,
               // WP-55·WP-379·WP-380: 공통 + 지금 앱 메모리 + 사용 여부(꺼짐·조회 실패면 빈 목록 + false) + 지금 화면 앱 + 서버
-              // 오늘(기한 계산 근거 — 메모리를 고른 그 날짜, 꺼짐이면 null).
+              // 오늘(기한 계산 근거 — 메모리를 고른 그 날짜, 꺼짐이면 null). WP-383: 이번 메시지로 관련 메모리를 고른다(질의 임베딩 최대
+              // 1.5초).
               memories.items(),
               memories.enabled(),
               memoryApp,
-              memories.today());
+              memories.today(),
+              // WP-383: 블록에 넣지 않은 유효 메모리 수 — "더 있음" 줄.
+              memories.moreCount());
       chatClient.composeStream(
           req,
           // delta: 블록 순서 기록 + 즉시 발행(done 본문은 ai-agent 가 준 fullText, 부분 저장은 누적 텍스트).

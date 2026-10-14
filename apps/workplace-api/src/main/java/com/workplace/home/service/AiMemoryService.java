@@ -12,12 +12,12 @@ import com.workplace.home.repository.AiMemoryRepository;
 import com.workplace.home.repository.AiMemoryRepository.NewMemory;
 import com.workplace.home.repository.AiMemoryRepository.Row;
 import com.workplace.home.repository.HomeSessionRepository;
+import com.workplace.home.repository.ScopeFilter;
 import com.workplace.user.service.AiPreferenceService;
-import java.time.Instant;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -80,6 +80,7 @@ public class AiMemoryService {
   private final HomeSessionRepository sessionRepo;
   private final AiMemoryClock clock;
   private final ApplicationEventPublisher events;
+  private final AiMemorySelector selector;
 
   /** 내용이 새로 생기거나 바뀐 메모리의 임베딩을 커밋 뒤에 채우게 한다(WP-383) — 롤백되면 이벤트도 사라진다. */
   private void requestEmbedding(long memoryId) {
@@ -97,7 +98,7 @@ public class AiMemoryService {
     LocalDate today = clock.today();
     List<Row> rows = new ArrayList<>(repo.listActive(userId, today));
     rows.addAll(repo.listExpired(userId, today, EXPIRED_LIST_CAP));
-    rows.sort(NEWEST_FIRST);
+    rows.sort(AiMemoryRanker.NEWEST);
     return new AiMemoryListResponse(
         rows.stream().map(r -> toItem(r, null, today)).toList(), LIMIT, PIN_LIMIT);
   }
@@ -415,14 +416,21 @@ public class AiMemoryService {
   }
 
   /**
-   * 채팅 주입용 메모리 묶음(WP-55).
+   * 채팅 주입용 메모리 묶음(WP-55·383).
    *
    * @param today 이 묶음을 고른 서버 오늘(Asia/Seoul, yyyy-MM-dd) — ChatRequest.today(블록의 오늘 줄·기한 계산 근거)로 그대로
-   *     보낸다. 유효 행을 고른 날짜와 같은 값이라 자정을 걸친 턴에서도 어긋나지 않는다. 꺼짐이면 null(ai-agent 는 꺼짐이면 오늘을 쓰지 않는다)
+   *     보낸다. 꺼짐이면 null(ai-agent 는 꺼짐이면 오늘을 쓰지 않는다)
+   * @param moreCount 블록에 넣지 않은 유효 메모리 수(다른 범위 포함, WP-383) — 홈 채팅만 "더 있음" 줄로 보낸다
    */
-  public record ChatMemories(boolean enabled, List<AiMemoryLine> items, String today) {
+  public record ChatMemories(
+      boolean enabled, List<AiMemoryLine> items, String today, int moreCount) {
     /** 꺼짐(빈 목록) — 사용자가 끈 경우와 조회 실패(판정 10 — 켜짐 + 빈 목록이면 AI 가 있는 메모리를 모른 채 중복 저장한다)가 함께 쓴다. */
-    public static final ChatMemories DISABLED = new ChatMemories(false, List.of(), null);
+    public static final ChatMemories DISABLED = new ChatMemories(false, List.of(), null, 0);
+
+    /** "더 있음" 없음 — WP-383 전 호출부·테스트 호환. */
+    public ChatMemories(boolean enabled, List<AiMemoryLine> items, String today) {
+      this(enabled, items, today, 0);
+    }
   }
 
   /**
@@ -441,27 +449,65 @@ public class AiMemoryService {
   /** 줄마다 붙는 "- [#123 선호] " 접두 근사 토큰. */
   static final int LINE_OVERHEAD_TOKENS = 12;
 
-  /** 주입·설정 목록 순서 — updated_at 최신순, 같으면 id 큰 것 먼저(저장소 조회와 같은 규칙). */
-  private static final Comparator<Row> NEWEST_FIRST =
-      Comparator.comparing(Row::updatedAt, Comparator.<Instant>reverseOrder())
-          .thenComparing(Row::id, Comparator.<Long>reverseOrder());
+  /** 매 턴 블록 토큰 예산(WP-383) — 고정 → 순위 순으로 이 안에서 자른다. 머리·"더 있음" 줄 몫을 먼저 뺀다. */
+  public static final int MEMORY_BLOCK_TOKEN_BUDGET = 2_000;
+
+  /** 채팅·다른 진입점의 질의 임베딩 대기(WP-383) — 넘기면 키워드 + 최신으로 고른다. */
+  static final Duration CHAT_EMBED_WAIT = Duration.ofMillis(1_500);
+
+  /** "이 밖에 메모리 N개가 더 있어요(다른 앱 범위 포함). 필요하면 search_memory 로 찾아 보세요." 줄 근사 토큰(한글 약 45자) + 여유. */
+  static final int MORE_LINE_TOKENS = 50;
+
+  /** 줄 라벨 "·고정" 근사 토큰. */
+  static final int PIN_LABEL_TOKENS = 3;
 
   /**
-   * 매 채팅 턴 주입할 메모리(WP-379) — 꺼져 있으면 빈 목록 + enabled=false. 켜져 있으면 공통 + app 범위를 범위마다 유효(만료 안 된) 행 중
-   * 최신 50개씩 읽어(인덱스 각 1회) 합친 뒤 최신순으로(최대 100개). 펌프 스레드·다른 진입점에서 불리며 테넌트는 TenantContext 가 정한다.
+   * 홈 채팅 매 턴 주입(WP-383) — 공통 + app(null 이면 공통만) 중 관련 있는 것을 고른다(AiMemorySelector). 펌프 스레드에서 불리며 테넌트는
+   * TenantContext 가 정한다. 바깥 트랜잭션이 있으면 참여한다(테스트).
    *
-   * @param app 지금 화면 앱 — 호출자가 이미 거른 앱 코드(홈 채팅은 startChat 의 {@link AiMemoryScope#appOrNull}, 다른 진입점은
-   *     AiMemoryReader 상수). null 이면 공통만
+   * @param app 지금 화면 앱 — 호출자가 이미 거른 앱 코드({@link AiMemoryScope#appOrNull}). null 이면 공통만
+   * @param queryText 이번 사용자 메시지 — 비면 고정 + 최신
    */
-  @Transactional(readOnly = true)
-  public ChatMemories loadForChat(long userId, String app) {
-    if (!preferences.memoryEnabled(userId)) return ChatMemories.DISABLED;
-    LocalDate today = clock.today();
-    List<Row> rows = new ArrayList<>(repo.listInScope(userId, null, LIMIT, today));
-    if (app != null) rows.addAll(repo.listInScope(userId, app, LIMIT, today));
-    rows.sort(NEWEST_FIRST);
+  public ChatMemories loadForChat(long userId, String app, String queryText) {
+    return toChatMemories(
+        selector.select(
+            userId,
+            ScopeFilter.chat(app),
+            queryText,
+            CHAT_EMBED_WAIT,
+            MEMORY_BLOCK_TOKEN_BUDGET,
+            false));
+  }
+
+  /**
+   * 다른 진입점(WP-381·383) — 규칙은 홈 채팅과 같고 읽기 트랜잭션을 늘 새로 연다(AiMemoryReader#readForEntry). moreCount 는 쓰지
+   * 않는다(검색 도구가 없다).
+   */
+  public ChatMemories loadForEntry(long userId, String app, String queryText) {
+    return toChatMemories(
+        selector.select(
+            userId,
+            ScopeFilter.chat(app),
+            queryText,
+            CHAT_EMBED_WAIT,
+            MEMORY_BLOCK_TOKEN_BUDGET,
+            true));
+  }
+
+  private static ChatMemories toChatMemories(AiMemorySelector.Selection s) {
+    if (!s.enabled()) return ChatMemories.DISABLED;
     return new ChatMemories(
-        true, rows.stream().map(AiMemoryService::toMemoryLine).toList(), today.toString());
+        true,
+        s.rows().stream().map(AiMemoryService::toMemoryLine).toList(),
+        s.today().toString(),
+        s.moreCount());
+  }
+
+  /** 블록 한 줄 근사 토큰 — 내용 + 접두(+ 고정 라벨). 선택기의 예산 자르기와 블록 추정이 같은 값을 쓴다. */
+  static int lineTokens(String content, boolean pinned) {
+    return TokenEstimates.estimate(content)
+        + LINE_OVERHEAD_TOKENS
+        + (pinned ? PIN_LABEL_TOKENS : 0);
   }
 
   /** 저장 행 → ai-agent 로 보내는 메모리(범위·기한·고정 포함 — 블록 줄의 "선호·이슈·고정"·"(10/24까지)" 표기). */
@@ -476,15 +522,16 @@ public class AiMemoryService {
   }
 
   /**
-   * 메모리 블록 근사 토큰 — 문맥 예산에서 이전 대화 몫을 그만큼 줄인다. 꺼짐이면 0(꺼짐 한 줄뿐), 켜짐 + 0개면 머리·안내·오늘 줄만 실리는 빈 블록 몫, 그
-   * 밖에는 머리 + 줄마다 내용과 접두.
+   * 메모리 블록 근사 토큰 — 문맥 예산에서 이전 대화 몫을 그만큼 줄인다. 꺼짐이면 0, 켜짐 + 0개면 빈 블록 몫, 그 밖에는 머리 + 줄마다 내용·접두·고정 라벨.
+   * "더 있음" 줄이 실리면(moreCount > 0) 그 몫을 더한다.
    */
   public static int estimateBlockTokens(ChatMemories memories) {
     if (!memories.enabled()) return 0;
-    if (memories.items().isEmpty()) return EMPTY_BLOCK_TOKENS;
-    int sum = BLOCK_HEADER_TOKENS;
+    int more = memories.moreCount() > 0 ? MORE_LINE_TOKENS : 0;
+    if (memories.items().isEmpty()) return EMPTY_BLOCK_TOKENS + more;
+    int sum = BLOCK_HEADER_TOKENS + more;
     for (AiMemoryLine m : memories.items()) {
-      sum += TokenEstimates.estimate(m.content()) + LINE_OVERHEAD_TOKENS;
+      sum += lineTokens(m.content(), Boolean.TRUE.equals(m.pinned()));
     }
     return sum;
   }

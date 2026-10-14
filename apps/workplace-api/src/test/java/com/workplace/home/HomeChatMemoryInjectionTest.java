@@ -211,4 +211,21 @@ class HomeChatMemoryInjectionTest extends HomeAttachmentTestSupport {
     assertThat(List.of(before, after)).contains(req.today());
     assertThat(req.memories()).extracting(AiMemoryLine::expiresOn).containsExactly("2999-12-31");
   }
+
+  /** WP-383: 홈 화면(앱 없음)이면 앱 메모리는 싣지 않고 그 수를 "더 있음"으로 보낸다 — ai-agent 가 search_memory 로 찾게. */
+  @Test
+  void 홈_화면이면_앱_메모리는_싣지_않고_더_있음_수로_보낸다() throws Exception {
+    long uid = user();
+    createScoped(uid, "이슈 목록은 짧게 보여 준다", "ISSUE");
+    createScoped(uid, "메일은 세 줄로 요약한다", "MAIL");
+    CountDownLatch latch = stubDone("네");
+
+    chatService.startChat(uid, null, "이슈 정리 방식 기억나?");
+    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
+
+    ChatRequest req = sentRequest();
+    assertThat(req.memoryEnabled()).isTrue();
+    assertThat(req.memories()).isEmpty();
+    assertThat(req.memoryMoreCount()).isEqualTo(2);
+  }
 }
