@@ -16,6 +16,7 @@ import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.security.UserTokenAuthenticationFilter;
 import com.workplace.home.dto.HomeSessionResponse;
+import com.workplace.home.service.HomeConversationSearchService;
 import com.workplace.home.service.HomeSessionService;
 import com.workplace.permission.service.PermissionService;
 import com.workplace.support.AlwaysActiveTenantStatusChecker;
@@ -46,6 +47,7 @@ class HomeSessionControllerTest {
 
   @Autowired MockMvc mockMvc;
   @MockitoBean HomeSessionService sessionService;
+  @MockitoBean HomeConversationSearchService searchService;
   @MockitoBean JwtTokenProvider jwt;
   @MockitoBean JwtProperties jwtProps;
   @MockitoBean PermissionService permissionService;
