@@ -45,6 +45,7 @@ import com.workplace.issue.repository.IssueRepository;
 import com.workplace.issue.repository.IssueTypeRepository;
 import com.workplace.label.exception.InvalidLabelForProjectException;
 import com.workplace.label.repository.LabelRepository;
+import com.workplace.label.service.LabelService;
 import com.workplace.milestone.service.MilestoneService;
 import com.workplace.project.dto.ProjectRow;
 import com.workplace.project.exception.ProjectAccessDeniedException;
@@ -96,6 +97,9 @@ public class IssueService {
   /** WP-356: 생성 시 라벨·사이클 소속 검증과 연결. */
   private final LabelRepository labelRepository;
 
+  /** WP-394: 이름 라벨 확보(없으면 같은 트랜잭션에서 생성). */
+  private final LabelService labelService;
+
   private final CycleRepository cycleRepository;
   private final IssueCycleRepository issueCycleRepository;
 
@@ -136,7 +140,9 @@ public class IssueService {
       row = issueRepository.findById(row.id()).orElseThrow();
     }
     // WP-356 라벨·사이클 연결 — 검증(planCreate)을 통과한 id 만 같은 트랜잭션에서 붙인다. 새 이슈라 diff·이력 없이 추가만 한다.
-    for (Long labelId : plan.labelIds()) {
+    // WP-394 이름 라벨은 여기서 없는 것을 만들어 id 로 합친다 — 이슈 생성과 한 트랜잭션이라 뒤에서 실패하면 라벨도 롤백된다.
+    for (Long labelId :
+        labelService.mergeWithNames(project, callerId, plan.labelIds(), plan.labelNames())) {
       issueLabelRepository.add(row.id(), labelId);
     }
     for (Long cycleId : plan.cycleIds()) {
@@ -181,7 +187,8 @@ public class IssueService {
       Long parentIssueId,
       List<Long> labelIds,
       Long milestoneId,
-      List<Long> cycleIds) {}
+      List<Long> cycleIds,
+      List<String> labelNames) {}
 
   /** 생성 술어 본체 — 쓰기 없이 검증만 수행하고 실행에 필요한 해석값을 반환한다. 예외 종류·순서는 기존 create 와 동일. */
   CreateIssuePlan planCreate(Long callerId, String projectKey, CreateIssueRequest req) {
@@ -260,7 +267,12 @@ public class IssueService {
     //    사이클은 집합 교체(IssueCycleService.replace)처럼 완료 사이클도 허용한다.
     List<Long> labelIds = distinct(req.labelIds());
     List<Long> cycleIds = distinct(req.cycleIds());
-    if ((!labelIds.isEmpty() || !cycleIds.isEmpty() || req.milestoneId() != null)
+    // WP-394 이름 라벨 — 여기선 모양만 검증(쓰기 없음, 사전검증과 공유). 없는 라벨 생성은 create 실행 때.
+    List<String> labelNames = LabelService.normalizeNames(req.labelNames());
+    if ((!labelIds.isEmpty()
+            || !labelNames.isEmpty()
+            || !cycleIds.isEmpty()
+            || req.milestoneId() != null)
         && !accessGuard.isMemberOrAdmin(project, callerId)) {
       throw new ProjectAccessDeniedException("라벨·마일스톤·사이클은 프로젝트 멤버만 지정할 수 있습니다");
     }
@@ -284,7 +296,7 @@ public class IssueService {
     }
 
     return new CreateIssuePlan(
-        project, assigneeIds, typeId, parentIssueId, labelIds, milestoneId, cycleIds);
+        project, assigneeIds, typeId, parentIssueId, labelIds, milestoneId, cycleIds, labelNames);
   }
 
   /** null·중복을 걸러 순서를 지킨 목록으로 — 같은 id 를 두 번 주면 소속 검증의 개수 비교가 어긋나므로. */

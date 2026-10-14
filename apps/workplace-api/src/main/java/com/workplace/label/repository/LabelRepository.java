@@ -85,6 +85,32 @@ public class LabelRepository {
     }
   }
 
+  /** 프로젝트 안에서 이름이 정확히 같은(대소문자 구분) 라벨들. */
+  public List<LabelRow> findByProjectAndNames(Long projectId, List<String> names) {
+    if (names.isEmpty()) return List.of();
+    return dsl.selectFrom(LABEL)
+        .where(LABEL.PROJECT_ID.eq(projectId).and(LABEL.NAME.in(names)))
+        .fetch(this::mapToRow);
+  }
+
+  /**
+   * 같은 이름이 없을 때만 삽입(WP-394). 이미 있으면(동시 생성 포함) 아무것도 쓰지 않고 empty — UNIQUE 위반 예외로 트랜잭션이 깨지지 않게 ON
+   * CONFLICT DO NOTHING 을 쓴다. 호출자는 empty 면 다시 읽어 기존 라벨을 쓴다.
+   */
+  public Optional<LabelRow> insertIfAbsent(
+      Long projectId, String name, String colorToken, Long createdBy) {
+    return dsl.insertInto(LABEL)
+        .set(LABEL.PROJECT_ID, projectId)
+        .set(LABEL.NAME, name)
+        .set(LABEL.COLOR_TOKEN, colorToken)
+        .set(LABEL.CREATED_BY, createdBy)
+        .onConflict(LABEL.PROJECT_ID, LABEL.NAME)
+        .doNothing()
+        .returning()
+        .fetchOptional()
+        .map(this::mapToRow);
+  }
+
   /** 이름/색상 갱신. */
   public void update(Long id, String name, String colorToken) {
     try {

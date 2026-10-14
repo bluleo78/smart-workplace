@@ -165,13 +165,18 @@ public abstract class IntegrationTestBase {
             .returning(USER.ID)
             .fetchOne()
             .getId();
+    grantUserRole(id);
+    return id;
+  }
+
+  /** 시스템 USER 역할을 준다 — 실제 사용자처럼 issue:write·label:manage 등 기본 권한이 필요한 테스트가 쓴다. */
+  protected void grantUserRole(Long userId) {
     Long roleId = baseDsl.select(ROLE.ID).from(ROLE).where(ROLE.NAME.eq("USER")).fetchOne(ROLE.ID);
     baseDsl
         .insertInto(USER_ROLE)
-        .set(USER_ROLE.USER_ID, id)
+        .set(USER_ROLE.USER_ID, userId)
         .set(USER_ROLE.ROLE_ID, roleId)
         .execute();
-    return id;
   }
 
   /**

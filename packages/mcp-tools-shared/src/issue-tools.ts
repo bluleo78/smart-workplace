@@ -8,8 +8,8 @@ import { toAuthorView, toSeoulIso } from './issue-view.js';
 import { toIssueListItem } from './project-tools.js';
 import {
   createdLabelsField,
-  ensureLabelIds,
   fieldDefByName,
+  splitLabelNames,
   resolveAssigneeIds,
   resolveCycleIds,
   resolveMilestoneId,
@@ -140,20 +140,22 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
           cycles?.length ? resolveCycleIds(client, projectKey, cycles) : undefined,
           labels?.length ? client.getProjectLabels(projectKey) : undefined,
         ]);
-        // WP-394: 없는 라벨은 만든다 — 만들기는 쓰기라 다른 이름 해석이 모두 성공한 뒤에 한다(잘못된 담당자 하나로 라벨만 남지 않게).
-        const labelPart = labels ? await ensureLabelIds(client, projectKey, labels, existingLabels) : undefined;
+        // WP-394: 있는 라벨은 id, 없는 라벨은 이름으로 — 없는 라벨은 서버가 이슈 생성과 같은 트랜잭션에서 만든다(실패하면 라벨도 남지 않는다).
+        const labelPart = existingLabels && labels ? splitLabelNames(labels, existingLabels) : undefined;
         // undefined 는 JSON 직렬화에서 빠진다 — 준 값만 서버로 간다.
-        const body = { ...rest, typeId, assigneeIds, parentNumber, labelIds: labelPart?.ids, milestoneId, cycleIds };
+        const body = {
+          ...rest,
+          typeId,
+          assigneeIds,
+          parentNumber,
+          labelIds: labelPart?.ids,
+          labelNames: labelPart?.created,
+          milestoneId,
+          cycleIds,
+        };
         // 서버 응답(IssueResponse)은 reporterId·assignees[].id 같은 숫자 사용자 ID 를 담는다 — 목록 행과 같은 뷰로 바꿔 내보낸다(#833, WP-353).
-        let created: IssueRow;
-        try {
-          created = (await client.createIssue(projectKey, body)) as IssueRow;
-        } catch (e) {
-          // 이슈는 못 만들었어도 라벨은 이미 생겼다 — 오류에 함께 적어 호출자가 남은 라벨을 알게 한다.
-          if (!labelPart?.created.length) throw e;
-          throw new Error(`${errText(e)} (새로 만든 라벨은 남아 있습니다: ${labelPart.created.join(', ')})`);
-        }
-        return JSON.stringify(dropEmpty({ ...toIssueListItem(created), ...createdLabelsField(labelPart) }));
+        const created = toIssueListItem((await client.createIssue(projectKey, body)) as IssueRow);
+        return JSON.stringify(dropEmpty({ ...created, ...createdLabelsField(labelPart) }));
       },
     },
     {
@@ -192,8 +194,8 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
             : undefined,
         ]);
 
-        // WP-394: 없는 라벨은 만든다 — 쓰기라 위의 이름 해석이 모두 성공한 뒤에 한다. [] 는 비우기라 조회·생성 없이 바로 비운다.
-        const labelPart = labels ? await ensureLabelIds(client, projectKey, labels, existingLabels) : undefined;
+        // WP-394: 있는 라벨은 id, 없는 라벨은 이름으로 — 없는 라벨은 서버가 라벨 교체와 같은 트랜잭션에서 만든다. [] 는 비우기라 조회 없이 바로 비운다.
+        const labelPart = labels ? splitLabelNames(labels, existingLabels ?? []) : undefined;
 
         // 2) 필드별 팬아웃 — 각 단계 독립 저장, 성공/실패 구조화.
         const results: Record<string, string> = {};
@@ -219,14 +221,15 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
           await run('assignees', () => client.replaceIssueAssignees(issueKey, assigneeIds));
         }
         if (labelPart !== undefined) {
-          await run('labels', () => client.replaceIssueLabels(issueKey, labelPart.ids));
+          await run('labels', () => client.replaceIssueLabels(issueKey, labelPart.ids, labelPart.created));
         }
         if (cycleIds !== undefined) await run('cycles', () => client.replaceIssueCycles(issueKey, cycleIds));
         if (fieldValues !== undefined) await run('fields', () => client.updateIssueFields(issueKey, fieldValues));
         if (driveFileId !== undefined) await run('driveLink', () => client.addIssueDriveLink(issueKey, driveFileId));
 
         const ok = Object.values(results).every((v) => v === 'ok');
-        return JSON.stringify({ ok, results, ...createdLabelsField(labelPart) });
+        // 라벨 교체가 실패했으면 라벨도 만들어지지 않았다 — 성공했을 때만 새 라벨을 알린다.
+        return JSON.stringify({ ok, results, ...(results.labels === 'ok' ? createdLabelsField(labelPart) : {}) });
       },
     },
     {

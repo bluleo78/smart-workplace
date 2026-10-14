@@ -4,10 +4,12 @@ import static com.workplace.global.realtime.ResourceChangedEvent.OP_CREATED;
 import static com.workplace.global.realtime.ResourceChangedEvent.OP_DELETED;
 import static com.workplace.global.realtime.ResourceChangedEvent.OP_UPDATED;
 
+import com.workplace.global.security.PermissionChecker;
 import com.workplace.label.dto.ColorToken;
 import com.workplace.label.dto.CreateLabelRequest;
 import com.workplace.label.dto.LabelResponse;
 import com.workplace.label.dto.LabelRow;
+import com.workplace.label.exception.InvalidLabelNameException;
 import com.workplace.label.exception.LabelNameDuplicatedException;
 import com.workplace.label.exception.LabelNotFoundException;
 import com.workplace.label.repository.LabelRepository;
@@ -15,6 +17,8 @@ import com.workplace.project.dto.ProjectRow;
 import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.outbound.ProjectChangeNotifier;
 import com.workplace.project.service.ProjectAccessGuard;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DuplicateKeyException;
@@ -33,6 +37,7 @@ public class LabelService {
   private final LabelRepository labelRepository;
   private final ProjectAccessGuard accessGuard;
   private final ProjectChangeNotifier changeNotifier;
+  private final PermissionChecker permissionChecker;
 
   /**
    * 라벨 목록(라벨 picker) — read 진입점. OPEN 은 테넌트 전원 조회 허용(assertReadable). 항목마다 요청자의 수정·삭제 가능 여부를 함께 준다
@@ -55,12 +60,92 @@ public class LabelService {
     String name = req.name().trim();
     try {
       var row = labelRepository.insert(project.id(), name, color, callerId);
-      changeNotifier.changed(
-          ProjectChangeNotifier.RESOURCE_LABEL, OP_CREATED, project, row.id(), callerId);
+      notifyCreated(project, row.id(), callerId);
       return toResponse(row, true);
     } catch (DuplicateKeyException e) {
       throw new LabelNameDuplicatedException(name);
     }
+  }
+
+  /** 이름으로 붙이며 만드는 새 라벨의 색 — 웹 선택기·MCP 와 같은 기본값. */
+  private static final String DEFAULT_COLOR = "GRAY";
+
+  /** 라벨 이름 상한(label.name VARCHAR(40), CreateLabelRequest @Size 와 같다). */
+  private static final int NAME_MAX = 40;
+
+  /**
+   * 이름으로 붙일 라벨 목록 정규화(WP-394) — 앞뒤 공백을 빼고 같은 이름은 하나로(순서 유지). 비었거나 40자를 넘으면 400. 쓰기 없이 검증만 하므로 이슈 생성
+   * 사전검증(dry-run)에서도 쓴다.
+   */
+  public static List<String> normalizeNames(List<String> names) {
+    if (names == null || names.isEmpty()) return List.of();
+    var out = new LinkedHashSet<String>();
+    for (String raw : names) {
+      String name = raw == null ? "" : raw.trim();
+      if (name.isEmpty()) throw new InvalidLabelNameException("라벨 이름이 비어 있습니다");
+      if (name.length() > NAME_MAX) {
+        throw new InvalidLabelNameException("라벨 이름은 " + NAME_MAX + "자 이하여야 합니다: '" + name + "'");
+      }
+      out.add(name);
+    }
+    return List.copyOf(out);
+  }
+
+  /**
+   * 이름 → 라벨 id(WP-394). 프로젝트에 없는 이름은 기본 색으로 만들고 요청자를 만든 사람으로 기록한다 — 이슈 생성·라벨 교체와 같은 트랜잭션에서 불려 이슈
+   * 쓰기가 실패하면 함께 롤백된다(고아 라벨 없음). 이름은 정확 일치(대소문자 구분, UNIQUE(project_id, name) 와 같은 기준).
+   *
+   * <p>권한은 호출부가 확인한다 — 이슈에 라벨을 붙일 수 있는 사람(프로젝트 멤버·ADMIN)이 곧 라벨을 만들 수 있는 사람이다.
+   */
+  public List<Long> ensureByNames(ProjectRow project, Long callerId, List<String> names) {
+    List<String> normalized = normalizeNames(names);
+    if (normalized.isEmpty()) return List.of();
+    var idByName = new HashMap<String, Long>();
+    labelRepository
+        .findByProjectAndNames(project.id(), normalized)
+        .forEach(r -> idByName.put(r.name(), r.id()));
+    var missing = normalized.stream().filter(n -> !idByName.containsKey(n)).toList();
+    if (!missing.isEmpty()) {
+      // 새로 만드는 건 라벨 관리 권한이 있을 때만 — 이슈 쓰기(issue:write)만 있는 역할이 이 경로로 label:manage 를 우회하지 않게.
+      if (!permissionChecker.hasPermission(callerId, "label:manage")) {
+        throw new ProjectAccessDeniedException("라벨을 만들 권한이 없습니다: " + String.join(", ", missing));
+      }
+      for (String name : missing) {
+        idByName.put(name, insertOrFind(project, callerId, name));
+      }
+    }
+    return normalized.stream().map(idByName::get).toList();
+  }
+
+  /** 이미 확인한 라벨 id 와 이름 라벨(없으면 생성)을 순서를 지켜 한 목록으로 — 이슈 생성·라벨 교체가 같이 쓴다. */
+  public List<Long> mergeWithNames(
+      ProjectRow project, Long callerId, List<Long> labelIds, List<String> labelNames) {
+    var merged = new LinkedHashSet<Long>(labelIds == null ? List.of() : labelIds);
+    merged.addAll(ensureByNames(project, callerId, labelNames));
+    return List.copyOf(merged);
+  }
+
+  /**
+   * 없는 이름 하나를 만들어 id 를 돌려준다. 그 사이 같은 이름이 생겼으면(ON CONFLICT) 다시 읽어 그 라벨을 쓰고, 다시 읽기 전에 지워졌으면 한 번 더
+   * 만든다. 그래도 못 잡으면(동시 생성·삭제가 계속 겹침) 409 로 알려 다시 시도하게 한다.
+   */
+  private Long insertOrFind(ProjectRow project, Long callerId, String name) {
+    for (int attempt = 0; attempt < 2; attempt++) {
+      var created = labelRepository.insertIfAbsent(project.id(), name, DEFAULT_COLOR, callerId);
+      if (created.isPresent()) {
+        notifyCreated(project, created.get().id(), callerId);
+        return created.get().id();
+      }
+      var existing = labelRepository.findByProjectAndNames(project.id(), List.of(name));
+      if (!existing.isEmpty()) return existing.get(0).id();
+    }
+    throw new IllegalStateException("라벨 '" + name + "' 을(를) 만들지 못했습니다. 다시 시도해 주세요");
+  }
+
+  /** 라벨 생성 실시간 알림 — 설정 화면·선택기 목록이 새 라벨을 다시 읽게 한다. */
+  private void notifyCreated(ProjectRow project, Long labelId, Long callerId) {
+    changeNotifier.changed(
+        ProjectChangeNotifier.RESOURCE_LABEL, OP_CREATED, project, labelId, callerId);
   }
 
   /** OWNER·ADMIN 또는 만든 멤버 — 이름/색상 수정. */

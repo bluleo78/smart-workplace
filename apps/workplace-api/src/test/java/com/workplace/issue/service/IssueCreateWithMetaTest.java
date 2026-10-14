@@ -13,6 +13,7 @@ import com.workplace.issue.repository.IssueCycleRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.label.dto.CreateLabelRequest;
 import com.workplace.label.exception.InvalidLabelForProjectException;
+import com.workplace.label.exception.InvalidLabelNameException;
 import com.workplace.label.service.LabelService;
 import com.workplace.milestone.dto.CreateMilestoneRequest;
 import com.workplace.milestone.exception.MilestoneNotFoundException;
@@ -80,6 +81,7 @@ class IssueCreateWithMetaTest extends IntegrationTestBase {
         .set(MEMBERSHIP.TENANT_ID, 1L)
         .set(MEMBERSHIP.STATUS, "ACTIVE")
         .execute();
+    grantUserRole(id); // 실제 사용자처럼 label:manage 를 갖게 — 이름 라벨로 새 라벨을 만드는 경로가 이 권한을 본다(WP-394)
     return id;
   }
 
@@ -92,7 +94,7 @@ class IssueCreateWithMetaTest extends IntegrationTestBase {
   private static CreateIssueRequest withMeta(
       String title, List<Long> labelIds, Long milestoneId, List<Long> cycleIds) {
     return new CreateIssueRequest(
-        title, null, null, null, null, null, null, null, labelIds, milestoneId, cycleIds);
+        title, null, null, null, null, null, null, null, labelIds, milestoneId, cycleIds, null);
   }
 
   @Test
@@ -207,5 +209,111 @@ class IssueCreateWithMetaTest extends IntegrationTestBase {
             ownerId, projectKey, withMeta("dup", List.of(bug.id(), bug.id()), null, null));
 
     assertThat(created.labels()).hasSize(1);
+  }
+
+  /** 이름 라벨만 지정한 생성 요청(WP-394). */
+  private static CreateIssueRequest withLabelNames(
+      String title, List<Long> labelIds, List<String> labelNames, Integer parentNumber) {
+    return new CreateIssueRequest(
+        title, null, null, null, null, null, parentNumber, null, labelIds, null, null, labelNames);
+  }
+
+  /** WP-394 — 이름 라벨: 있는 이름은 그대로, 없는 이름은 기본 색으로 만들어 id 라벨과 함께 붙인다. 만든 사람은 요청자. */
+  @Test
+  void create_withLabelNames_createsMissingAndAttachesAll() {
+    var bug = labelService.create(ownerId, projectKey, new CreateLabelRequest("bug", "RED"));
+
+    var created =
+        issueService.create(
+            ownerId,
+            projectKey,
+            withLabelNames("named", List.of(bug.id()), List.of(" ai-fix ", "bug", "ai-fix"), null));
+
+    assertThat(created.labels())
+        .extracting(l -> l.name())
+        .containsExactlyInAnyOrder("bug", "ai-fix");
+    var aiFix =
+        dsl.selectFrom(LABEL)
+            .where(LABEL.PROJECT_ID.eq(projectId).and(LABEL.NAME.eq("ai-fix")))
+            .fetchOne();
+    assertThat(aiFix.getColorToken()).isEqualTo("GRAY");
+    assertThat(aiFix.getCreatedBy()).isEqualTo(ownerId);
+    // 라벨은 프로젝트에 하나씩만 생긴다.
+    assertThat(dsl.fetchCount(LABEL, LABEL.PROJECT_ID.eq(projectId))).isEqualTo(2);
+  }
+
+  /** WP-394 — 이슈 생성이 검증에서 실패하면 이름 라벨도 만들지 않는다(고아 라벨 없음). */
+  @Test
+  void create_withLabelNames_failingCreate_leavesNoLabel() {
+    assertThatThrownBy(
+            () ->
+                issueService.create(
+                    ownerId, projectKey, withLabelNames("bad", null, List.of("orphan"), 999)))
+        .isInstanceOf(RuntimeException.class);
+    assertThat(dsl.fetchCount(LABEL, LABEL.PROJECT_ID.eq(projectId))).isZero();
+    assertThat(issueRepository.countByProject(projectId)).isZero();
+  }
+
+  /** WP-394 — 빈 이름·40자 초과는 400(IllegalArgumentException 계열)이고 사전검증에서도 드러난다. */
+  @Test
+  void validateCreatable_rejectsBlankOrTooLongLabelName() {
+    assertThatThrownBy(
+            () ->
+                issueService.validateCreatable(
+                    ownerId, projectKey, withLabelNames("x", null, List.of("  "), null)))
+        .isInstanceOf(InvalidLabelNameException.class);
+    assertThatThrownBy(
+            () ->
+                issueService.validateCreatable(
+                    ownerId, projectKey, withLabelNames("x", null, List.of("a".repeat(41)), null)))
+        .isInstanceOf(InvalidLabelNameException.class);
+    assertThat(dsl.fetchCount(LABEL, LABEL.PROJECT_ID.eq(projectId))).isZero();
+  }
+
+  /** WP-394 — OPEN 프로젝트 비멤버는 이름 라벨로도 라벨을 만들거나 붙일 수 없다. */
+  @Test
+  void create_openProjectNonMember_withLabelNames_isDenied() {
+    var s = OpenScenario.create(dsl, issueTypeService, issueRepository, sequenceRepository, 1L);
+
+    assertThatThrownBy(
+            () ->
+                issueService.create(
+                    s.strangerId(),
+                    s.projectKey(),
+                    withLabelNames("x", null, List.of("new"), null)))
+        .isInstanceOf(ProjectAccessDeniedException.class);
+  }
+
+  /** WP-394 — label:manage 가 없는 멤버는 이름으로 기존 라벨은 붙일 수 있지만 새 라벨은 만들 수 없다(라벨 관리 권한 우회 방지). */
+  @Test
+  void create_withLabelNames_withoutLabelManage_canAttachExistingButNotCreate() {
+    labelService.create(ownerId, projectKey, new CreateLabelRequest("bug", "RED"));
+    String suffix = UUID.randomUUID().toString().substring(0, 8);
+    Long plain =
+        dsl.insertInto(USER)
+            .set(USER.USERNAME, "plain-" + suffix)
+            .set(USER.PASSWORD, "pw")
+            .set(USER.NAME, "plain")
+            .set(USER.EMAIL, "plain-" + suffix + "@example.com")
+            .returning(USER.ID)
+            .fetchOne()
+            .getId();
+    dsl.insertInto(PROJECT_MEMBER)
+        .set(PROJECT_MEMBER.PROJECT_ID, projectId)
+        .set(PROJECT_MEMBER.USER_ID, plain)
+        .set(PROJECT_MEMBER.ROLE, "MEMBER")
+        .execute();
+
+    var created =
+        issueService.create(plain, projectKey, withLabelNames("ok", null, List.of("bug"), null));
+    assertThat(created.labels()).extracting(l -> l.name()).containsExactly("bug");
+
+    assertThatThrownBy(
+            () ->
+                issueService.create(
+                    plain, projectKey, withLabelNames("no", null, List.of("new-one"), null)))
+        .isInstanceOf(ProjectAccessDeniedException.class)
+        .hasMessageContaining("new-one");
+    assertThat(dsl.fetchCount(LABEL, LABEL.PROJECT_ID.eq(projectId))).isEqualTo(1);
   }
 }

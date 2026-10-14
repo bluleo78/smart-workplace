@@ -4,7 +4,7 @@
 // 인증 방식만 다르다. 그래서 클라이언트는 "경로 호출 + 응답 래퍼 벗기기"까지만 맡고 **raw 를 그대로 반환**한다.
 // LLM 에 보여줄 형태로 가공(식별자 이름 바꾸기·필드 고르기)은 공유 도구 핸들러가 한 곳에서 한다 —
 // 가공이 앱마다 클라이언트에 흩어져 있던 것이 드리프트의 원인이었다(연락처 id→userId 를 한쪽만 하던 식).
-import type { CurrentUserClient, LabelCreatorClient, ProjectMetaClient } from './resolve.js';
+import type { CurrentUserClient, ProjectMetaClient } from './resolve.js';
 
 /** 구성원 디렉터리 행(GET /members). 핸들러가 username·userId·name 을 읽으므로 그 필드만 타입으로 고정한다. */
 export interface MemberRow {
@@ -137,7 +137,7 @@ export interface AgentWorkReport {
 }
 
 /** 이슈 도구 — issueKey(WP-12) 기준. 코멘트 API 의 숫자 issue id 해석은 구현(rest-client)이 흡수한다. */
-export interface IssueToolClient extends ProjectMetaClient, CurrentUserClient, LabelCreatorClient {
+export interface IssueToolClient extends ProjectMetaClient, CurrentUserClient {
   /** GET .../chat/thread — 이슈 챗 스레드 id(없으면 서버가 만든다, WP-373). */
   getIssueChatThreadId(issueKey: string): Promise<number>;
   /**
@@ -157,7 +157,8 @@ export interface IssueToolClient extends ProjectMetaClient, CurrentUserClient, L
   setIssueType(issueKey: string, typeId: number): Promise<void>;
   setIssueParent(issueKey: string, parentNumber: number | null): Promise<void>;
   replaceIssueAssignees(issueKey: string, assigneeIds: number[]): Promise<unknown>;
-  replaceIssueLabels(issueKey: string, labelIds: number[]): Promise<unknown>;
+  /** PUT .../labels — 집합 교체. labelNames(WP-394)는 이름으로 붙일 라벨로, 없으면 서버가 같은 트랜잭션에서 만든다. */
+  replaceIssueLabels(issueKey: string, labelIds: number[], labelNames?: string[]): Promise<unknown>;
   addComment(issueKey: string, body: string): Promise<void>;
   editComment(issueKey: string, commentId: number, body: string): Promise<void>;
   /** PUT .../agent-work — 담당 이슈에 대한 AI 작업 보고(WP-377). message 가 있으면 호출마다 이슈 챗에 글이 올라가 재시도는 중복 글을 만든다(멱등 아님). */
@@ -281,6 +282,8 @@ export interface MailToolClient {
       /** WP-356: 유형·라벨(이름은 핸들러가 id 로 해석). 서버가 이슈 생성과 같은 트랜잭션에서 붙인다. */
       typeId?: number;
       labelIds?: number[];
+      /** WP-394: 이름으로 붙일 라벨 — 없으면 서버가 이슈와 같은 트랜잭션에서 만든다(이미 승격된 메일이면 만들지 않는다). */
+      labelNames?: string[];
     },
   ): Promise<{ issueKey: string }>;
   /** POST /mail/messages/{id}/read — 명시적 읽음 처리(WP-146). 사용자가 요청할 때만 쓴다. */

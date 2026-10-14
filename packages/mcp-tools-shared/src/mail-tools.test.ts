@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { buildMailTools } from './mail-tools.js';
-import type { AssigneeResolverClient, LabelCreatorClient, ProjectMetaClient } from './resolve.js';
+import type { AssigneeResolverClient, ProjectMetaClient } from './resolve.js';
 import type { MailToolClient } from './tool-client.js';
 import { resultText } from './mcp-content.js';
 
-type Client = MailToolClient & AssigneeResolverClient & Pick<ProjectMetaClient, 'getProjectTypes' | 'getProjectLabels'> & LabelCreatorClient;
+type Client = MailToolClient & AssigneeResolverClient & Pick<ProjectMetaClient, 'getProjectTypes' | 'getProjectLabels'>;
 
 /** 메일 클라이언트 mock(메일→이슈 담당자 해석용 프로젝트 멤버 조회 포함). */
 function mockClient(): Client {
@@ -24,7 +24,6 @@ function mockClient(): Client {
     getProjectMembers: vi.fn().mockResolvedValue([{ userId: 10, username: 'alice' }]),
     getProjectTypes: vi.fn().mockResolvedValue([{ id: 2, name: 'BUG' }]),
     getProjectLabels: vi.fn().mockResolvedValue([{ id: 100, name: '고객' }]),
-    createProjectMeta: vi.fn(async (_k: string, _kind: string, body: { name: string }) => ({ id: 200, name: body.name })),
     getMe: vi.fn().mockResolvedValue({ id: 10, username: 'alice' }),
   };
 }
@@ -184,30 +183,27 @@ describe('메일 AI·처리 (#855)', () => {
   it('WP-356: create_issue_from_mail → 유형·라벨 이름을 id 로 바꿔 승격 요청에 싣고, 모르는 유형이면 만들지 않는다', async () => {
     const c = mockClient();
     await tool(c, 'create_issue_from_mail').handler({ messageId: 3, projectKey: 'WP', title: 't', type: 'BUG', labels: ['고객'] });
-    expect(c.promoteMailToIssue).toHaveBeenCalledWith(3, expect.objectContaining({ typeId: 2, labelIds: [100] }));
+    expect(c.promoteMailToIssue).toHaveBeenCalledWith(3, expect.objectContaining({ typeId: 2, labelIds: [100], labelNames: [] }));
     vi.mocked(c.promoteMailToIssue).mockClear();
     await expect(tool(c, 'create_issue_from_mail').handler({ messageId: 3, projectKey: 'WP', title: 't', type: '없음', labels: ['새것'] })).rejects.toThrow(
       '사용 가능',
     );
-    // 유형이 틀리면 라벨도 만들지 않는다(WP-394 — 만들기는 다른 이름 해석이 성공한 뒤).
-    expect(c.createProjectMeta).not.toHaveBeenCalled();
     expect(c.promoteMailToIssue).not.toHaveBeenCalled();
   });
 
-  it('WP-394: create_issue_from_mail 은 없는 라벨을 만들어 붙이고 createdLabels 로 알린다', async () => {
+  it('WP-394: create_issue_from_mail 은 없는 라벨만 이름으로 넘기고(서버가 만든다) createdLabels 로 알린다', async () => {
     const c = mockClient();
     const out = JSON.parse(resultText(await tool(c, 'create_issue_from_mail').handler({ messageId: 3, projectKey: 'WP', title: 't', labels: ['고객', '긴급'] })));
-    expect(c.createProjectMeta).toHaveBeenCalledWith('WP', 'label', { name: '긴급', colorToken: 'GRAY' });
-    expect(c.promoteMailToIssue).toHaveBeenCalledWith(3, expect.objectContaining({ labelIds: [100, 200] }));
-    expect(out.createdLabels).toEqual(['긴급']);
+    expect(c.promoteMailToIssue).toHaveBeenCalledWith(3, expect.objectContaining({ labelIds: [100], labelNames: ['긴급'] }));
+    expect(out).toEqual({ issueKey: 'WP-9', created: true, createdLabels: ['긴급'] });
   });
 
-  it('WP-394: 이미 연결된 이슈가 있어(409) 라벨이 붙지 않아도 새로 만든 라벨은 알린다', async () => {
+  it('WP-394: 이미 연결된 이슈가 있으면(409) 서버가 라벨도 만들지 않으므로 createdLabels 를 싣지 않는다', async () => {
     const c = mockClient();
     vi.mocked(c.promoteMailToIssue).mockRejectedValue(Object.assign(new Error('dup'), { response: { status: 409 } }));
     vi.mocked(c.getMailLinkedIssue).mockResolvedValue({ issueKey: 'WP-7' } as never);
     const out = JSON.parse(resultText(await tool(c, 'create_issue_from_mail').handler({ messageId: 3, projectKey: 'WP', title: 't', labels: ['긴급'] })));
-    expect(out).toEqual({ issueKey: 'WP-7', created: false, createdLabels: ['긴급'] });
+    expect(out).toEqual({ issueKey: 'WP-7', created: false });
   });
 
   // 중복 판정은 서버(#859)가 한다 — 409 면 새로 만들지 않고 기존 연결 이슈 키를 알린다.
