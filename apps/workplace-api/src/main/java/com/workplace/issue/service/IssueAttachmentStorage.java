@@ -118,27 +118,14 @@ public class IssueAttachmentStorage {
             .where(FILE.ID.eq(fileId))
             .fetchOptional();
     dsl.deleteFrom(FILE).where(FILE.ID.eq(fileId)).execute();
-    // FileStore 에 위임 — 상대 경로를 절대 경로로 변환해 삭제
+    // FileStore 에 위임 — 원본·썸네일·이미지 보기 캐시를 함께 지운다(파생 파일은 FileStore 가 best-effort).
     row.ifPresent(
         r -> {
           String path = r.get(FILE.STORAGE_PATH);
           try {
-            fileStore.deleteIfExists(path);
-          } catch (Exception ex) {
+            fileStore.deleteWithDerived(path, r.get(FILE.THUMBNAIL_PATH));
+          } catch (RuntimeException ex) {
             log.warn("첨부 바이너리 삭제 실패 (DB row 는 제거됨): {}", path, ex);
-          }
-          String thumbnailPath = r.get(FILE.THUMBNAIL_PATH);
-          if (thumbnailPath != null) {
-            try {
-              fileStore.deleteIfExists(thumbnailPath);
-            } catch (Exception ex) {
-              log.warn("첨부 썸네일 삭제 실패 (DB row 는 제거됨): {}", thumbnailPath, ex);
-            }
-          }
-          try {
-            fileStore.deleteTreeIfExists(path + ".view");
-          } catch (Exception ex) {
-            log.warn("이미지 보기 캐시 삭제 실패 (DB row 는 제거됨): {}.view", path, ex);
           }
         });
   }

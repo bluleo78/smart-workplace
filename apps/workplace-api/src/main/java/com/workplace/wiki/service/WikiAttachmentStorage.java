@@ -139,21 +139,9 @@ public class WikiAttachmentStorage {
    */
   public void deleteBinary(StoredPaths paths) {
     try {
-      fileStore.deleteIfExists(paths.storagePath());
-    } catch (Exception ex) {
+      fileStore.deleteWithDerived(paths.storagePath(), paths.thumbnailPath());
+    } catch (RuntimeException ex) {
       log.warn("첨부 바이너리 삭제 실패 (DB row 는 이미 제거됨): {}", paths.storagePath(), ex);
-    }
-    if (paths.thumbnailPath() != null) {
-      try {
-        fileStore.deleteIfExists(paths.thumbnailPath());
-      } catch (Exception ex) {
-        log.warn("첨부 썸네일 삭제 실패 (DB row 는 이미 제거됨): {}", paths.thumbnailPath(), ex);
-      }
-    }
-    try {
-      fileStore.deleteTreeIfExists(paths.storagePath() + ".view");
-    } catch (Exception ex) {
-      log.warn("이미지 보기 캐시 삭제 실패 (DB row 는 이미 제거됨): {}.view", paths.storagePath(), ex);
     }
   }
 }
