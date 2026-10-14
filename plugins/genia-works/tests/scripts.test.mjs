@@ -136,3 +136,50 @@ test('gw_prune_sessions: 시작 시각이 다른 세션 파일은 지우고 같�
   assert.equal(existsSync(dead), false);
   assert.equal(existsSync(reused), false);
 });
+
+test('gw-headers: 선택 없음·GENIA_WORKS_AS 없음 → {} (고정 헤더 사용)', () => {
+  const r = run('gw-headers');
+  assert.equal(r.status, 0);
+  assert.equal(r.stdout.trim(), '{}');
+});
+
+test('gw-headers: GENIA_WORKS_AS 로 고른 AI 키', () => {
+  run('gw-keys', ['add', 'ai-dev'], { input: 'ak_FAKE_ABC123\n' });
+  const r = run('gw-headers', [], { env: { GENIA_WORKS_AS: 'ai-dev' } });
+  assert.deepEqual(JSON.parse(r.stdout), { Authorization: 'Bearer ak_FAKE_ABC123' });
+});
+
+test('gw-headers: 세션 선택이 GENIA_WORKS_AS 보다 먼저, me 선택은 {}', () => {
+  run('gw-keys', ['add', 'ai-dev'], { input: 'ak_FAKE_DEV\n' });
+  run('gw-keys', ['add', 'ai-rev'], { input: 'ak_FAKE_REV\n' });
+  run('gw-session', ['select', 'ai-rev']);
+  const a = run('gw-headers', [], { env: { GENIA_WORKS_AS: 'ai-dev' } });
+  assert.deepEqual(JSON.parse(a.stdout), { Authorization: 'Bearer ak_FAKE_REV' });
+  run('gw-session', ['select', 'me']);
+  const b = run('gw-headers', [], { env: { GENIA_WORKS_AS: 'ai-dev' } });
+  assert.equal(b.stdout.trim(), '{}');
+});
+
+// 판정 3: 헤더 스크립트가 실패하면 Claude Code 가 고정 헤더(내 토큰)로 조용히 접속하므로,
+// 키 없는 이름은 실패(exit 1) 대신 무효 토큰을 내서 접속 자체를 거부시킨다.
+test('gw-headers: 키 없는 이름·이상한 이름은 무효 토큰을 내고 다른 파일을 읽지 않는다', () => {
+  writeFileSync(join(home, 'secret'), 'ak_FAKE_SHOULD_NOT_READ\n');
+  for (const as of ['nobody', '../secret', '../../home/secret', 'a b']) {
+    const r = run('gw-headers', [], { env: { GENIA_WORKS_AS: as } });
+    assert.equal(r.stdout.includes('SHOULD_NOT_READ'), false, as);
+    assert.equal(r.status, 0, as);
+    assert.match(r.stdout, /Bearer invalid/, as);
+    assert.match(r.stderr, /키가 없습니다/, as);
+  }
+});
+
+test('gw-headers: pid 재사용(시작 시각 다름) 세션 선택은 무시하고 지운다', () => {
+  run('gw-keys', ['add', 'ai-dev'], { input: 'ak_FAKE_DEV\n' });
+  const dir = join(home, '.genia-works', 'sessions');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, '400-Wed_Oct_14_01_00_00_2026'), 'ai-dev\n'); // 같은 pid, 옛 시작 시각
+  writeFileSync(join(dir, '999-Thu_Oct_15_01_00_00_2026'), 'ai-dev\n'); // 없는 pid
+  const r = run('gw-headers');
+  assert.equal(r.stdout.trim(), '{}');
+  assert.deepEqual(readdirSync(dir), []);
+});

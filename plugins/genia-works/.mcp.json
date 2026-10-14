@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "genia-works": {
+      "type": "http",
+      "url": "${user_config.server_url}",
+      "headers": { "Authorization": "Bearer ${GENIA_WORKS_TOKEN:-${user_config.token}}" },
+      "headersHelper": "\"${CLAUDE_PLUGIN_ROOT}/scripts/gw-headers\""
+    }
+  }
+}
