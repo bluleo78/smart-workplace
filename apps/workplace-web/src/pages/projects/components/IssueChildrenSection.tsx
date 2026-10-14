@@ -26,8 +26,10 @@ import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
 import { useIssueTypes } from '../../../hooks/queries/useIssueTypes';
 import { useIsMobile } from '../../../hooks/useIsMobile';
 import { handleApiError } from '../../../lib/api-error';
+import { isClosedStatus } from '../../../lib/issueGrouping';
 import { getIssueTypeLabel } from '../../../lib/issueTypeLabels';
 import type { IssueResponse } from '../../../types/issue';
+import { AiDelegationBadge } from '../personal/aiDelegation';
 import { IssueStatusBadge } from './IssueStatusBadge';
 
 export function IssueChildrenSection({
@@ -166,23 +168,29 @@ export function IssueChildrenSection({
         <p className="text-xs text-muted-foreground">로딩 중…</p>
       ) : items.length === 0 ? null : (
         <ul className="space-y-1">
-          {items.map((it) => (
-            <li
-              key={it.id}
-              className="flex items-center gap-2 rounded px-1 text-sm hover:bg-accent/50"
-              data-testid={`child-row-${it.number}`}
-            >
-              <span className="text-muted-foreground">└</span>
-              {it.type && <IssueTypeBadge type={it.type} size="sm" iconOnly />}
-              <Link
-                to={`/projects/${projectKey}/issues/${it.number}`}
-                className="flex-1 truncate hover:underline"
+          {items.map((it) => {
+            // 행당 배지는 최대 1개(시안 합의, WP-374) — 끝난 행(완료·취소)은 상태배지,
+            // 열린 행은 AI 배지(진행·시작 전·위임)로 대체(없으면 생략, 진행률 바가 이미 n/n 을 보여줌).
+            // AI 배지 판정은 AiDelegationBadge 와 단일 기준(개인 체크리스트 행과 동일, WP-377).
+            const closed = isClosedStatus(it.status);
+            return (
+              <li
+                key={it.id}
+                className="flex items-center gap-2 rounded px-1 text-sm hover:bg-accent/50"
+                data-testid={`child-row-${it.number}`}
               >
-                {it.title}
-              </Link>
-              <IssueStatusBadge status={it.status} />
-            </li>
-          ))}
+                <span className="text-muted-foreground">└</span>
+                {it.type && <IssueTypeBadge type={it.type} size="sm" iconOnly />}
+                <Link
+                  to={`/projects/${projectKey}/issues/${it.number}`}
+                  className="flex-1 truncate hover:underline"
+                >
+                  {it.title}
+                </Link>
+                {closed ? <IssueStatusBadge status={it.status} /> : <AiDelegationBadge issue={it} />}
+              </li>
+            );
+          })}
         </ul>
       )}
 

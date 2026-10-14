@@ -8,6 +8,7 @@
 
 import { expect, test } from '../../fixtures/auth.fixture';
 import { trackRequests } from '../../fixtures/requests';
+import { agentWorker, createAgentWork } from '../../factories/agentWork.factory';
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
 import { makeSubtaskType, systemTypes } from '../../factories/issueType.factory';
 
@@ -188,11 +189,9 @@ test.describe('SUBTASK', () => {
       // 추가 후 자식 리스트 갱신 (invalidate → refetch).
       await expect(page.getByTestId('child-row-100')).toBeVisible();
       await expect(page.getByTestId('child-row-100')).toContainText('첫 자식');
-      // 상태 배지는 raw Badge variant 대신 시맨틱 StatusBadge(type=pending)를 사용해야 함 (#668).
-      await expect(page.getByTestId('child-row-100').locator('[data-status]')).toHaveAttribute(
-        'data-status',
-        'pending',
-      );
+      // 열린 행(TODO) + AI 작업 없음 — 배지 없음(WP-374, 상태배지는 끝난 행에서만). 끝난 행의
+      // 시맨틱 StatusBadge(#668 회귀 방지)는 아래 WP-374 전용 테스트의 완료 행에서 검증한다.
+      await expect(page.getByTestId('child-row-100').locator('[data-status]')).toHaveCount(0);
     },
   );
 
@@ -523,4 +522,153 @@ test.describe('SUBTASK', () => {
     await expect(page.getByTestId('issue-parent-picker')).toHaveCount(0);
     await expect(page.getByTestId('parent-badge-15')).toBeVisible();
   });
+
+  // 하위 태스크 행 AI 진행 배지(WP-374) — 행당 배지는 최대 1개: 끝난 행(완료·취소)은 상태배지,
+  // 열린 행은 AI 작업이 있으면 AI배지로 대체하고 없으면 둘 다 생략(비주얼 시안 합의).
+  for (const viewport of [
+    { name: '데스크톱', width: 1280, height: 800 },
+    { name: '모바일 375px', width: 375, height: 800 },
+  ]) {
+    test(`하위 태스크 행 — 열린 행은 AI 배지, 끝난 행은 상태배지, 둘 다 없으면 생략 (${viewport.name})`, async ({
+      authenticatedPage: page,
+    }) => {
+      await page.setViewportSize(viewport);
+      const taskSummary = {
+        id: 1,
+        name: 'TASK',
+        colorToken: 'BLUE' as const,
+        icon: 'Circle' as const,
+      };
+      const parentIssue = {
+        ...createIssue({ id: 1, number: 1, title: '부모 TASK' }),
+        type: taskSummary,
+      };
+      // 공용 하위 태스크 팩토리 — 유형·부모만 고정, 나머지는 createIssue overrides 그대로 전달.
+      const subtask = (overrides: Parameters<typeof createIssue>[0]) => ({
+        ...createIssue(overrides),
+        type: makeSubtaskType(),
+        parent: { number: 1, title: '부모 TASK', type: taskSummary },
+      });
+      const waitingChild = subtask({
+        id: 10,
+        number: 10,
+        title: '답변 기다리는 하위 태스크',
+        status: 'IN_PROGRESS',
+        agentWork: [createAgentWork({ worker: agentWorker, state: 'INPUT_REQUIRED' })],
+      });
+      const plainOpenChild = subtask({
+        id: 20,
+        number: 20,
+        title: 'AI 관여 없는 하위 태스크',
+        status: 'TODO',
+      });
+      const notStartedChild = subtask({
+        id: 40,
+        number: 40,
+        title: 'AI 담당인데 아직 시작 안 한 하위 태스크',
+        status: 'TODO',
+        assignees: [agentWorker],
+      });
+      // 작업 기록 없이 AI 담당만 있는 진행 중 행 — 개인 체크리스트와 동일한 「AI 위임」 배지(delegationState, WP-377).
+      const delegatedChild = subtask({
+        id: 50,
+        number: 50,
+        title: 'AI 담당, 작업 기록은 아직 없는 하위 태스크',
+        status: 'IN_PROGRESS',
+        assignees: [agentWorker],
+      });
+      const doneChild = subtask({
+        id: 30,
+        number: 30,
+        title: '완료된 하위 태스크',
+        status: 'DONE',
+        // 끝난 이슈도 agentWork 가 남아있을 수 있지만(과거 작업 이력) 상태배지가 우선이어야 한다.
+        agentWork: [createAgentWork({ worker: agentWorker, state: 'WORKING' })],
+      });
+
+      await setupCommonStubs(page);
+      await page.route(
+        (url) => url.pathname === `${ISSUES_BASE}/1`,
+        (route) =>
+          route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              summary: {
+                ...parentIssue,
+                childCount: 5,
+                childDoneCount: 1,
+                parent: null,
+                labels: [],
+                attachmentCount: 0,
+                assignees: [],
+              },
+              body: '',
+              comments: [],
+              history: [],
+              attachments: [],
+            }),
+          }),
+      );
+      await page.route(
+        (url) => url.pathname === `${ISSUES_BASE}/1/watchers`,
+        (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+      );
+      await page.route(
+        (url) => url.pathname === `${ISSUES_BASE}/1/attachments`,
+        (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+      );
+      await page.route(
+        (url) => url.pathname === ISSUES_BASE,
+        (route) => {
+          const url = new URL(route.request().url());
+          if (url.searchParams.get('parent') === '1') {
+            return route.fulfill({
+              status: 200,
+              contentType: 'application/json',
+              body: JSON.stringify(
+                createIssueSearchResponse(
+                  [waitingChild, plainOpenChild, notStartedChild, delegatedChild, doneChild],
+                  null,
+                ),
+              ),
+            });
+          }
+          return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(createIssueSearchResponse([], null)),
+          });
+        },
+      );
+
+      await page.goto(`/projects/${KEY}/issues/1`);
+      await expect(page.getByTestId('issue-children-section')).toBeVisible();
+
+      // 열린 행 + AI 작업 있음 — AI 배지만, 상태배지는 없음.
+      const waitingRow = page.getByTestId('child-row-10');
+      await expect(waitingRow.getByTestId('ai-delegation-badge-10')).toContainText('답변 필요');
+      await expect(waitingRow.locator('[data-status]')).toHaveCount(0);
+
+      // 열린 행 + AI 작업 없음 — 배지 자체가 없음.
+      const plainRow = page.getByTestId('child-row-20');
+      await expect(plainRow.locator('[data-testid^="ai-delegation-badge-"]')).toHaveCount(0);
+      await expect(plainRow.locator('[data-status]')).toHaveCount(0);
+
+      // 열린 행 + AI 담당(아직 작업 시작 전, TODO) — 시작 전 배지(AiDelegationBadge, 개인 체크리스트와 단일 기준).
+      const notStartedRow = page.getByTestId('child-row-40');
+      await expect(notStartedRow.getByTestId('ai-delegation-badge-40')).toContainText('시작 전');
+      await expect(notStartedRow.locator('[data-status]')).toHaveCount(0);
+
+      // 열린 행 + AI 담당(작업 기록 없음, TODO 아님) — 「AI 위임」 배지.
+      const delegatedRow = page.getByTestId('child-row-50');
+      await expect(delegatedRow.getByTestId('ai-delegation-badge-50')).toContainText('AI 위임');
+      await expect(delegatedRow.locator('[data-status]')).toHaveCount(0);
+
+      // 끝난 행 — agentWork 가 있어도 상태배지(완료)가 우선, AI 배지는 없음.
+      const doneRow = page.getByTestId('child-row-30');
+      await expect(doneRow.locator('[data-status]')).toHaveAttribute('data-status', 'success');
+      await expect(doneRow.locator('[data-testid^="ai-delegation-badge-"]')).toHaveCount(0);
+    });
+  }
 });
