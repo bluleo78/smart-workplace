@@ -1,0 +1,4 @@
+{
+  "description": "genia-works — 세션별 접속 신원 선택, 신원 상태 줄, 키 파일 보호, 기존 수동 등록 정리",
+  "modules": ["./register.js"]
+}
