@@ -792,8 +792,21 @@ describe('OpencodeRunner 웜 캐시 통합', () => {
       (input.credential as { payload: unknown }).payload,
       'openai/gpt-5',
     );
-    expect(buildOpencodeConfig).toHaveBeenCalledWith(input, expect.any(String), expect.any(Array), { vision: false });
+    // WP-250: 풀 대상(issue·브리지 없음)이라 pooled true — 재사용 서버에는 실행당 이미지 예산을 두지 않는다.
+    expect(buildOpencodeConfig).toHaveBeenCalledWith(input, expect.any(String), expect.any(Array), { vision: false, pooled: true });
     expect(acquireServer).toHaveBeenCalledWith('7:issue:42:-:openai/gpt-5:false', expect.any(Function));
+  });
+
+  it('풀 대상이 아닌 실행(chat)은 pooled false 로 config 를 만든다(WP-250 실행당 이미지 예산)', async () => {
+    const es = makeEventStream();
+    eventSubscribe.mockResolvedValue({ stream: es.stream });
+    es.push({ type: 'session.idle', properties: { sessionID: 'sess-1' } });
+
+    const input = baseInput({ mcp: { client: {} as unknown as WorkplaceApiClient, profile: 'chat', onBehalfOfId: 42, chatThreadId: 5 } });
+    await new OpencodeRunner().stream(input, () => {}).done;
+
+    expect(buildOpencodeConfig).toHaveBeenCalledWith(input, expect.any(String), expect.any(Array), { vision: true, pooled: false });
+    expect(acquireServer).not.toHaveBeenCalled();
   });
 
   it('호출자가 판단한 opencodeVision 을 넘기면 다시 판단하지 않고 그 값을 config 에 쓴다', async () => {
@@ -805,7 +818,7 @@ describe('OpencodeRunner 웜 캐시 통합', () => {
     await new OpencodeRunner().stream(input, () => {}).done;
 
     expect(resolveOpencodeModelVision).not.toHaveBeenCalled();
-    expect(buildOpencodeConfig).toHaveBeenCalledWith(input, expect.any(String), expect.any(Array), { vision: undefined });
+    expect(buildOpencodeConfig).toHaveBeenCalledWith(input, expect.any(String), expect.any(Array), { vision: undefined, pooled: false });
   });
 
   it('비전 판단이 throw 해도 등록한 브리지를 해제한다(try/finally 안)', async () => {

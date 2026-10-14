@@ -17,7 +17,7 @@ import { createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk';
 import { buildTools } from '../mcp/tools.js';
 import { adaptMcpTool, buildInProcessWorkplaceMcpServer } from './sdk-mcp-server.js';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
-import { toolAnnotations, type SharedTool } from '@smart-workplace/mcp-tools-shared';
+import { IMAGE_BUDGET_EXHAUSTED, ImageBudget, toolAnnotations, type SharedTool } from '@smart-workplace/mcp-tools-shared';
 
 describe('adaptMcpTool', () => {
   it('string 반환을 CallToolResult content 로 래핑', async () => {
@@ -126,6 +126,9 @@ describe('adaptMcpTool onTool emit (#462 슬라이스4)', () => {
 });
 
 describe('buildInProcessWorkplaceMcpServer', () => {
+  // WP-250: Claude 경로는 늘 이미지를 볼 수 있고, 서버 하나가 실행 하나라 실행당 예산을 서버마다 새로 만들어 9번째 인자로 넘긴다.
+  const IMAGES = { input: true, budget: expect.any(ImageBudget) };
+
   it('컨텍스트를 buildTools 로 전달하고 server 명 workplace 로 createSdkMcpServer 호출', () => {
     const client = {} as WorkplaceApiClient;
     const threadBinding = { channelId: 5, parentMessageId: 9 };
@@ -133,7 +136,7 @@ describe('buildInProcessWorkplaceMcpServer', () => {
     const server = buildInProcessWorkplaceMcpServer({
       client, onBehalfOfId: 99, profile: 'messaging', threadBinding, delegationContext,
     });
-    expect(buildTools).toHaveBeenCalledWith(client, 99, 'messaging', threadBinding, delegationContext, undefined, undefined, undefined);
+    expect(buildTools).toHaveBeenCalledWith(client, 99, 'messaging', threadBinding, delegationContext, undefined, undefined, undefined, IMAGES);
     // lastCall: 테스트 순서·다른 호출에 영향받지 않게 마지막 호출 인자로 단언.
     const opts = vi.mocked(createSdkMcpServer).mock.lastCall![0] as { name: string; tools: unknown[] };
     expect(opts.name).toBe('workplace');
@@ -145,14 +148,14 @@ describe('buildInProcessWorkplaceMcpServer', () => {
     const client = {} as WorkplaceApiClient;
     const hostBridge = { onProposal: () => {}, onSubmitResponse: () => {}, onUnassignResult: () => {} };
     buildInProcessWorkplaceMcpServer({ client, onBehalfOfId: 1, profile: 'assistant', hostBridge });
-    expect(buildTools).toHaveBeenCalledWith(client, 1, 'assistant', undefined, undefined, hostBridge, undefined, undefined);
+    expect(buildTools).toHaveBeenCalledWith(client, 1, 'assistant', undefined, undefined, hostBridge, undefined, undefined, IMAGES);
   });
 
   // WP-244: chat 프로필 실행 스레드 바인딩은 7번째 인자.
   it('chatThreadId 를 buildTools 7번째 인자로 전달', () => {
     const client = {} as WorkplaceApiClient;
     buildInProcessWorkplaceMcpServer({ client, onBehalfOfId: 1, profile: 'chat', chatThreadId: 17 });
-    expect(buildTools).toHaveBeenCalledWith(client, 1, 'chat', undefined, undefined, undefined, 17, undefined);
+    expect(buildTools).toHaveBeenCalledWith(client, 1, 'chat', undefined, undefined, undefined, 17, undefined, IMAGES);
   });
 
   // WP-234: 메인 AI 채팅 세션 바인딩은 8번째 인자.
@@ -160,6 +163,44 @@ describe('buildInProcessWorkplaceMcpServer', () => {
     const client = {} as WorkplaceApiClient;
     const sid = '3f1c2a4e-8b7d-4c1e-9f2a-6d5b4c3a2e1f';
     buildInProcessWorkplaceMcpServer({ client, onBehalfOfId: 1, profile: 'assistant', homeSessionId: sid });
-    expect(buildTools).toHaveBeenCalledWith(client, 1, 'assistant', undefined, undefined, undefined, undefined, sid);
+    expect(buildTools).toHaveBeenCalledWith(client, 1, 'assistant', undefined, undefined, undefined, undefined, sid, IMAGES);
+  });
+});
+
+// WP-250: 실행당 이미지 상한 — 실제 buildTools 로 만든 서버의 read_file 이 서버(= 실행)마다 하나인 예산을 같이 쓴다.
+describe('실행당 이미지 예산 (WP-250)', () => {
+  type AdaptedTool = { name: string; handler: (args: unknown, extra: unknown) => Promise<{ content: { type: string; text?: string }[] }> };
+
+  // 실제 buildTools 로 assistant 서버를 만들고 그 read_file 과 쪽 이미지 목을 돌려준다.
+  async function serverReadFile() {
+    const actual = await vi.importActual<typeof import('../mcp/tools.js')>('../mcp/tools.js');
+    vi.mocked(buildTools).mockImplementationOnce(actual.buildTools);
+    const viewDriveFile = vi.fn(async () => ({ data: new Uint8Array([1, 2, 3]), mimeType: 'image/png', pageCount: 40 }));
+    const client = { toolClient: () => ({ viewDriveFile }) } as unknown as WorkplaceApiClient;
+    buildInProcessWorkplaceMcpServer({ client, onBehalfOfId: 1, profile: 'assistant' });
+    const opts = vi.mocked(createSdkMcpServer).mock.lastCall![0] as unknown as { tools: AdaptedTool[] };
+    const readFile = opts.tools.find((t) => t.name === 'read_file')!;
+    const call = (pages: number[]) => readFile.handler({ source: 'drive', driveFileId: 9, pages }, undefined);
+    return { call, viewDriveFile };
+  }
+
+  it('3장씩 6번(18장) 본 뒤 7번째 3장 요청은 IMAGE_BUDGET_EXHAUSTED 로 거절하고 쪽 이미지를 받지 않는다', async () => {
+    const { call, viewDriveFile } = await serverReadFile();
+    for (let i = 0; i < 6; i++) {
+      const res = await call([1, 2, 3]);
+      expect(res.content.filter((b) => b.type === 'image'), `${i + 1}번째`).toHaveLength(3);
+    }
+    const seventh = await call([1, 2, 3]);
+    expect(seventh.content).toEqual([{ type: 'text', text: IMAGE_BUDGET_EXHAUSTED }]);
+    // 예산은 받기 전에 차감하므로 거절된 7번째는 서버에 쪽 이미지를 요청하지 않는다.
+    expect(viewDriveFile).toHaveBeenCalledTimes(18);
+  });
+
+  it('새 서버(= 새 실행)는 예산을 새로 받는다', async () => {
+    const first = await serverReadFile();
+    for (let i = 0; i < 7; i++) await first.call([1, 2, 3]);
+    const second = await serverReadFile();
+    const res = await second.call([1, 2, 3]);
+    expect(res.content.filter((b) => b.type === 'image')).toHaveLength(3);
   });
 });

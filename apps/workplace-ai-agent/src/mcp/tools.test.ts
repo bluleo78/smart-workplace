@@ -491,10 +491,17 @@ describe('프로필 구성', () => {
 // ---------------------------------------------------------------------------
 describe('공유 도구 패리티 (#846)', () => {
   const bridge: HostBridge = { onProposal: () => {}, onSubmitResponse: () => {}, onUnassignResult: () => {} };
-  const variants: { label: string; build: (c: TestClient) => ReturnType<typeof buildTools> }[] = [
+  // imageInput: 그 변형이 buildTools 에 넘긴 이미지 입력 여부(WP-250) — 공유본도 같은 옵션으로 만들어 비교한다(미지정 = 공유 기본 true).
+  const variants: { label: string; imageInput?: boolean; build: (c: TestClient) => ReturnType<typeof buildTools> }[] = [
     ...(['issue', 'chat', 'home', 'messaging', 'assistant'] as McpProfile[]).map((p) => ({
       label: p,
       build: (c: TestClient) => buildTools(c, AGENT_ID, p),
+    })),
+    // WP-250: read_file 은 assistant 에만 있어 이미지 입력 두 경우를 assistant 로 확인한다.
+    ...[true, false].map((input) => ({
+      label: `assistant+images.input=${input}`,
+      imageInput: input,
+      build: (c: TestClient) => buildTools(c, AGENT_ID, 'assistant', undefined, undefined, undefined, undefined, undefined, { input }),
     })),
     { label: 'messaging+threadBinding', build: (c) => buildTools(c, AGENT_ID, 'messaging', { channelId: 9, parentMessageId: 1 }) },
     {
@@ -507,7 +514,7 @@ describe('공유 도구 패리티 (#846)', () => {
   for (const v of variants) {
     it(`${v.label}: 공유 도구와 같은 이름의 도구는 입력 스키마가 공유본과 같고, 모든 inputSchema 는 ZodObject 다`, () => {
       const c = client();
-      const shared = new Map(buildSharedTools(c.sc).map((t) => [t.name, t]));
+      const shared = new Map(buildSharedTools(c.sc, { imageInput: v.imageInput }).map((t) => [t.name, t]));
       const tools = v.build(c);
       // 같은 프로필 안에서 이름 중복이 있으면 SDK 가 하나를 조용히 덮는다.
       expect(new Set(tools.map((t) => t.name)).size).toBe(tools.length);
@@ -709,6 +716,17 @@ describe('read_file 프로필 (WP-346)', () => {
 
   it.each(['issue', 'chat', 'home', 'messaging'] as McpProfile[])('%s 프로필에는 없다', (p) => {
     expect(buildTools(client(), AGENT_ID, p).map((t) => t.name)).not.toContain('read_file');
+  });
+
+  // WP-250: 이미지를 볼 수 없는 모델에는 페이지 보기 인자(pages)를 보이지 않는다 — 실행 쪽(images.input)이 고른다.
+  it('images.input false 면 read_file 스키마에 pages 가 없고, true(또는 미지정)면 있다', () => {
+    const props = (images?: { input: boolean }) => {
+      const t = find(buildTools(client(), AGENT_ID, 'assistant', undefined, undefined, undefined, undefined, undefined, images), 'read_file');
+      return Object.keys((z.toJSONSchema(t.inputSchema) as { properties: Record<string, unknown> }).properties);
+    };
+    expect(props({ input: false })).not.toContain('pages');
+    expect(props({ input: true })).toContain('pages');
+    expect(props()).toContain('pages');
   });
 
   it('옛 이름 read_attachment_text 는 어느 프로필에도 없다(read_chat_thread_attachment 로 바뀜)', () => {

@@ -4,7 +4,7 @@
 // 컨텍스트(onBehalfOf/threadBinding/delegationContext)·호스트 브리지·도구 로깅은 인자로 직접 받는다.
 import { createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk';
 import type { McpSdkServerConfigWithInstance, SdkMcpToolDefinition } from '@anthropic-ai/claude-agent-sdk';
-import { summarizeToolResult, toMcpContent } from '@smart-workplace/mcp-tools-shared';
+import { IMAGE_BUDGET_PER_RUN, ImageBudget, summarizeToolResult, toMcpContent } from '@smart-workplace/mcp-tools-shared';
 import { z } from 'zod';
 
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
@@ -90,6 +90,9 @@ export function buildInProcessWorkplaceMcpServer(i: {
     i.hostBridge,
     i.chatThreadId,
     i.homeSessionId,
+    // WP-250: Claude 는 이미지를 볼 수 있어 페이지 보기를 연다. 이 서버는 실행마다 새로 만들므로(claude-sdk-runner toSdkRunInput)
+    // 실행당 이미지 상한을 여기서 하나 만들어 도구들이 같이 쓰게 한다 — 이전 이미지가 매 턴 다시 실려 요청 크기가 커지는 것을 막는다.
+    { input: true, budget: new ImageBudget(IMAGE_BUDGET_PER_RUN) },
   );
   // 라우터·서브에이전트 호출이 같은 인스턴스를 공유하므로 seq 카운터 1개로 전체 순서 보존.
   let seq = 0;

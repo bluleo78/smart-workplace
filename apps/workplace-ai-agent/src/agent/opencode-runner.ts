@@ -107,7 +107,8 @@ export class OpencodeRunner implements AgentRunner {
         const vision = i.opencodeVision ? i.opencodeVision.value : await resolveOpencodeModelVision(payload, i.model);
         poolKey = poolKeyFor(i, vision);
         const stdioEntryCmd = resolveStdioEntryCmd();
-        const config = buildOpencodeConfig(i, runId, stdioEntryCmd, { vision });
+        // WP-250: 풀 키가 있으면 재사용 서버 — 실행당 이미지 예산을 두지 않는다(opencode-config buildMcpEnvironment).
+        const config = buildOpencodeConfig(i, runId, stdioEntryCmd, { vision, pooled: poolKey !== undefined });
         // createIsolatedOpencode 는 (1) 포트 충돌 회피(port:0 → OS 할당)와 (2) 데이터 디렉터리
         // 격리(서버마다 고유 XDG_DATA_HOME → 자기 SQLite)를 함께 처리한다. 둘 다 동시 스폰 시 크래시를
         // 막기 위한 것 — 4096 포트 고정 충돌과 공유 opencode.db 'database is locked' 경합(opencode-spawn.ts).

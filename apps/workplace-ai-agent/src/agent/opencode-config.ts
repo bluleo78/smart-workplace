@@ -3,6 +3,7 @@
 // 주입한다(비밀 포함 — 우리 자신의 process.env 에는 아무 것도 심지 않는다).
 // 실제 타입은 node_modules/@opencode-ai/sdk 의 gen/types.gen.d.ts 기준(Config/AgentConfig/McpLocalConfig).
 import type { Config as OpencodeConfig, AgentConfig as OpencodeAgentConfig } from '@opencode-ai/sdk';
+import { IMAGE_BUDGET_PER_RUN } from '@smart-workplace/mcp-tools-shared';
 
 import { DEFAULT_API_BASE_URL, DEFAULT_PORT } from '../constants.js';
 import type { RunnerInput } from './agent-runner.js';
@@ -43,7 +44,8 @@ export function resolveStdioEntryCmd(): string[] {
 // MCP_THREAD_BINDING/MCP_DELEGATION_CONTEXT/MCP_BRIDGE_URL/MCP_BRIDGE_RUN_ID).
 // baseURL/internalToken 은 RunnerMcpConfig 에 없으므로(client 뒤에 캡슐화) 메인 프로세스 자신의
 // 부트스트랩 env(index.ts 가 이미 필수 검증)를 그대로 재사용한다 — 자식도 같은 workplace-api 를 호출.
-function buildMcpEnvironment(i: RunnerInput, runId: string, vision: OpencodeVision): Record<string, string> {
+// WP-250: pooled 는 이 config 로 띄운 서버를 웜 풀이 다른 실행에 재사용하는지(opencode-runner poolKeyFor 가 키를 준 실행).
+function buildMcpEnvironment(i: RunnerInput, runId: string, vision: OpencodeVision, pooled: boolean): Record<string, string> {
   const mcp = i.mcp;
   if (!mcp) return {};
   const env: Record<string, string> = {
@@ -54,6 +56,14 @@ function buildMcpEnvironment(i: RunnerInput, runId: string, vision: OpencodeVisi
     // WP-241: 미지원이 확실할 때만 0 — 도구 결과의 이미지를 안내 문구로 바꾼다(stdio-entry). 알 수 없으면 그대로 넘긴다.
     MCP_VISION: vision === false ? '0' : '1',
   };
+  // WP-250: 페이지 보기(read_file pages)는 이미지를 볼 수 있다고 확인된 모델(vision === true)에만 연다 — 알 수 없음·미지원 모델에는
+  // 쓸 수 없는 인자를 보이지 않는다. 실행당 이미지 상한(MCP_IMAGE_BUDGET)은 실행마다 새로 띄우는 서버에만 준다:
+  // opencode 는 MCP 호출에 대화(세션) 식별자를 넘기지 않아 재사용 서버의 예산을 실행 단위로 묶을 수 없다. 재사용 서버에 주면 stdio
+  // 프로세스가 실행 사이에 살아 있어 첫 20장 뒤로는 이후 모든 실행이 거절된다 — 그래서 풀 실행은 호출당 3장 상한만 둔다.
+  if (vision === true) {
+    env.MCP_IMAGE_TOOLS = '1';
+    if (!pooled) env.MCP_IMAGE_BUDGET = String(IMAGE_BUDGET_PER_RUN);
+  }
   if (mcp.threadBinding) env.MCP_THREAD_BINDING = JSON.stringify(mcp.threadBinding);
   if (mcp.delegationContext) env.MCP_DELEGATION_CONTEXT = JSON.stringify(mcp.delegationContext);
   // WP-244: chat 도구의 실행 스레드 바인딩. env 는 스폰 시 고정되므로 chat 이 웜 풀 대상이 아님을 전제로 한다(opencode-runner.ts).
@@ -111,11 +121,13 @@ function modelEntry(vision: OpencodeVision) {
 // RunnerInput → opencode Config. i.credential 은 반드시 opencode credential 이어야 한다
 // (호출부는 OpencodeRunner 뿐이지만, credential 오분기를 조기에 잡기 위해 방어적으로 재확인).
 // opts.vision 은 opencode-vision.resolveOpencodeVision 결과(러너가 판단해 넘긴다).
+// opts.pooled 는 웜 풀 재사용 서버인지(WP-250) — 실행당 이미지 예산을 줄지 가른다. 빠뜨리면 재사용 서버에 예산이 붙어
+// 영구히 바닥나므로 선택 인자로 두지 않는다.
 export function buildOpencodeConfig(
   i: RunnerInput,
   runId: string,
   stdioEntryCmd: string[],
-  opts: { vision: OpencodeVision },
+  opts: { vision: OpencodeVision; pooled: boolean },
 ): OpencodeConfig {
   if (i.credential.provider !== 'opencode') {
     throw new Error('buildOpencodeConfig 는 opencode credential 만 지원합니다');
@@ -159,7 +171,7 @@ export function buildOpencodeConfig(
           workplace: {
             type: 'local',
             command: stdioEntryCmd,
-            environment: buildMcpEnvironment(i, runId, opts.vision),
+            environment: buildMcpEnvironment(i, runId, opts.vision, opts.pooled),
           },
         }
       : {},
