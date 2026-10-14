@@ -22,6 +22,7 @@ export {
   SENDABLE_IMAGE_MIMES,
   IMAGE_MAX_BYTES,
   baseMimeType,
+  effectiveMimeType,
   FileTooLargeError,
   imageRejectReasons,
   isSendableImage,
@@ -39,7 +40,7 @@ export {
   viewBlocks,
   withImageBudget,
 } from './attachment-view.js';
-export { isImageSkip, pdfNote, type AttachmentToolOptions } from './attachment-tools.js';
+export { isImageSkip, isUnsupportedSkip, pdfNote, type AttachmentToolOptions } from './attachment-tools.js';
 export type * from './tool-client.js';
 export {
   listConflicts,

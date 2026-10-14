@@ -155,8 +155,10 @@ describe('read_file — 이슈 첨부', () => {
     vi.mocked(c.readIssueAttachmentText).mockResolvedValue(s);
     const out = await readAttachment(c).handler({ source: 'issue', issueKey: 'WP-1', attachmentId: 55 });
     expect(JSON.parse(resultText(out))).toEqual(issueView(s));
-    expect(c.listIssueAttachments).not.toHaveBeenCalled();
+    // 형식 미지원은 옛 octet-stream 사진인지 파일명을 보려고 목록만 본다(목록이 비어 있으면 이전처럼 사유 그대로).
+    if (s.reasonCode !== 'UNSUPPORTED_TYPE') expect(c.listIssueAttachments).not.toHaveBeenCalled();
     expect(c.downloadIssueAttachment).not.toHaveBeenCalled();
+    expect(c.viewIssueAttachment).not.toHaveBeenCalled();
   });
 
   it('이미지(SKIPPED·IMAGE): 목록으로 형식·크기를 확인한 뒤 원본을 받아 [설명, image] 블록으로', async () => {
@@ -203,6 +205,29 @@ describe('read_file — 이슈 첨부', () => {
     expect(c.downloadIssueAttachment).not.toHaveBeenCalled();
     expect(c.viewIssueAttachment).toHaveBeenCalledWith('WP-1', 55, undefined);
     expect(out[1]).toEqual(JPEG_BLOCK);
+  });
+
+  // 코드 리뷰: 확장자 매핑 전에 올라온 HEIC 는 octet-stream 이라 서버가 형식 미지원(UNSUPPORTED_TYPE)으로 건너뛴다 —
+  // 목록의 파일명으로 이미지인지 다시 보고 변환본(/view)으로 준다. 목록은 한 번만 부른다.
+  it('형식 미지원으로 건너뛴 옛 octet-stream HEIC 는 파일명으로 이미지 판정해 변환본을 준다', async () => {
+    const c = mockClient();
+    vi.mocked(c.readIssueAttachmentText).mockResolvedValue(slice('SKIPPED', { reasonCode: 'UNSUPPORTED_TYPE', reason: '이 형식은 텍스트 추출을 지원하지 않습니다.' }));
+    vi.mocked(c.listIssueAttachments).mockResolvedValue([{ fileId: 55, originalName: 'IMG_0001.HEIC', mimeType: 'application/octet-stream', sizeBytes: 10 }]);
+    const out = (await readAttachment(c).handler({ source: 'issue', issueKey: 'WP-1', attachmentId: 55 })) as McpContent[];
+    expect(c.listIssueAttachments).toHaveBeenCalledTimes(1);
+    expect(c.downloadIssueAttachment).not.toHaveBeenCalled();
+    expect(c.viewIssueAttachment).toHaveBeenCalledWith('WP-1', 55, undefined);
+    expect(out[1]).toEqual(JPEG_BLOCK);
+  });
+
+  it('형식 미지원 파일이 이미지 확장자가 아니면(zip 등) 이전처럼 사유를 그대로 돌려준다', async () => {
+    const c = mockClient();
+    const unsupported = slice('SKIPPED', { reasonCode: 'UNSUPPORTED_TYPE', reason: '이 형식은 텍스트 추출을 지원하지 않습니다.' });
+    vi.mocked(c.readIssueAttachmentText).mockResolvedValue(unsupported);
+    vi.mocked(c.listIssueAttachments).mockResolvedValue([{ fileId: 55, originalName: 'bundle.zip', mimeType: 'application/octet-stream', sizeBytes: 10 }]);
+    const out = await readAttachment(c).handler({ source: 'issue', issueKey: 'WP-1', attachmentId: 55 });
+    expect(c.viewIssueAttachment).not.toHaveBeenCalled();
+    expect(JSON.parse(resultText(out))).toEqual(issueView(unsupported));
   });
 
   it('변환이 실패하면(서버 사유) 던지지 않고 그 사유를 text 로', async () => {
