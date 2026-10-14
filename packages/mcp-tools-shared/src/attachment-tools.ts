@@ -5,8 +5,8 @@
 // PDF 는 원본이 아니라 서버가 그린 페이지 이미지만 돌려준다(WP-250) — pages:[n] 로 고른 쪽만, 호출당 3장·실행당 예산 안에서.
 import { z } from 'zod';
 
-import { baseMimeType, FileTooLargeError, IMAGE_MAX_BYTES, imageRejectReasons, readRangeShape, resolveRange, toBase64 } from './attachment-read.js';
-import { IMAGE_BUDGET_EXHAUSTED, type ImageBudget, imageBlocksFor, MAX_PAGES_PER_CALL, pageBlocks, pagesShape } from './attachment-view.js';
+import { baseMimeType, FileTooLargeError, IMAGE_MAX_BYTES, imageRejectReasons, readRangeShape, resolveRange } from './attachment-read.js';
+import { type ImageBudget, imageBlocksFor, MAX_PAGES_PER_CALL, pageBlocks, pagesShape, viewBlocks, withImageBudget } from './attachment-view.js';
 import type { McpToolResult } from './mcp-content.js';
 import type { SharedTool } from './mcp-tool.js';
 import { nullAsOmitted } from './tool-definitions.js';
@@ -96,15 +96,10 @@ async function downloadImage(label: string, download: () => Promise<FileBytes>):
   }
 }
 
-/** 받은 원본 → [설명 text, image] 블록. 형식은 응답 Content-Type 에서 파라미터를 떼어 쓴다(모델 입력 형식). 받은 뒤에도 형식·크기를 다시 본다. */
+/** 받은 원본 → [설명 text, image] 블록(viewBlocks 와 같은 모양). 받은 뒤에도 형식·크기를 다시 보고, 보낼 수 없으면 안내 문구. */
 function imageResult(label: string, bytes: FileBytes): McpToolResult {
-  const mimeType = baseMimeType(bytes.mimeType);
-  const reasons = imageRejectReasons(mimeType, bytes.data.byteLength);
-  if (reasons.length > 0) return imageNotice(label, reasons);
-  return [
-    { type: 'text', text: `${label} (${mimeType}, ${bytes.data.byteLength}B)` },
-    { type: 'image', data: toBase64(bytes.data), mimeType },
-  ];
+  const reasons = imageRejectReasons(baseMimeType(bytes.mimeType), bytes.data.byteLength);
+  return reasons.length > 0 ? imageNotice(label, reasons) : viewBlocks(label, bytes);
 }
 
 /**
@@ -240,8 +235,8 @@ export function buildAttachmentTools(client: AttachmentToolClient, opts: Attachm
             const attachmentId = p.attachmentId!;
             const slice = await client.readWikiAttachmentText(pageId, attachmentId, range);
             // 노트 업로드는 지금 이미지만 받는다 — 그래서 새 첨부는 SKIPPED·IMAGE 이고 원본을 이미지 블록으로 돌려준다.
-            // 배포 전에 올린 첨부는 추출 행이 없어 NONE 인데(노트는 백필하지 않는다) 이것도 이미지라서 같은 길로 받는다 — 이미지가 아니면
-            // 받은 응답의 Content-Type 검사가 형식 사유로 막는다.
+            // 배포 전에 올린 첨부는 추출 행이 없어 NONE 인데(노트는 백필하지 않는다) 이것도 이미지라서 같은 길로 받는다 — 받은 원본을
+            // 보낼 수 없으면(이미지가 아니거나 HEIC 등) 변환본(/view)에 맡기고, 서버가 형식을 거절하면(415) 그 사유를 text 로 준다(WP-250).
             // 노트·메시지·메일은 크기 메타를 알 길이 없어(목록 API 없음) 형식은 응답 Content-Type, 크기는 다운로드 상한(IMAGE_MAX_BYTES)으로 본다.
             if (isImageSkip(slice) || slice.status === 'NONE') {
               return imageBlocksFor(
@@ -277,8 +272,10 @@ export function buildAttachmentTools(client: AttachmentToolClient, opts: Attachm
             const slice = await client.readMailAttachmentText(attachmentId, range);
             // 메일은 /view 가 없어(WP-388) 지금처럼 원본만 — 보낼 수 없으면 거절 안내. pages 안내(pdfNote)도 붙이지 않는다.
             if (isImageSkip(slice)) {
-              if (budget && !budget.take(1)) return IMAGE_BUDGET_EXHAUSTED;
-              return downloadImage(`메일 첨부 이미지(attachmentId ${attachmentId})`, () => client.downloadMailAttachment(attachmentId));
+              // 예산은 실제로 준 이미지만 센다 — 거절 안내로 끝나면 돌려놓는다(withImageBudget).
+              return withImageBudget(budget, 1, () =>
+                downloadImage(`메일 첨부 이미지(attachmentId ${attachmentId})`, () => client.downloadMailAttachment(attachmentId)),
+              );
             }
             // 메일은 서버가 요청한 attachmentId 를 fileId 로 돌려준다(내부 사본 id 는 내보내지 않는다). 첫 호출은 서버가 사본을 만들며 추출을 시작해 PENDING 이다.
             const { fileId: _requestedId, ...rest } = slice;

@@ -3,7 +3,7 @@ import { z } from 'zod';
 
 import { FileTooLargeError, IMAGE_MAX_BYTES, READ_ATTACHMENT_DEFAULT_LIMIT } from './attachment-read.js';
 import { buildAttachmentTools, readFileInput } from './attachment-tools.js';
-import { IMAGE_BUDGET_EXHAUSTED, ImageBudget } from './attachment-view.js';
+import { ImageBudget } from './attachment-view.js';
 import { resultText, type McpContent } from './mcp-content.js';
 import type { AttachmentToolClient, ExtractedTextSlice } from './tool-client.js';
 
@@ -515,7 +515,7 @@ describe('read_file — 페이지 이미지(pages, WP-250)', () => {
     const c = mockClient();
     const tool = readAttachment(c, { imageBudget: new ImageBudget(3) });
     await tool.handler({ source: 'drive', driveFileId: 9, pages: [1, 2] });
-    expect(await tool.handler({ source: 'drive', driveFileId: 9, pages: [1, 2] })).toBe(IMAGE_BUDGET_EXHAUSTED);
+    expect(await tool.handler({ source: 'drive', driveFileId: 9, pages: [1, 2] })).toContain('1장 남았습니다(요청 2장)');
     expect(c.viewDriveFile).toHaveBeenCalledTimes(2);
   });
 
@@ -524,6 +524,16 @@ describe('read_file — 페이지 이미지(pages, WP-250)', () => {
     vi.mocked(c.readDriveFileText).mockResolvedValue(IMAGE_SKIP);
     const tool = readAttachment(c, { imageBudget: new ImageBudget(1) });
     await tool.handler({ source: 'drive', driveFileId: 9 });
-    expect(await tool.handler({ source: 'drive', driveFileId: 9 })).toBe(IMAGE_BUDGET_EXHAUSTED);
+    expect(await tool.handler({ source: 'drive', driveFileId: 9 })).toContain('다 썼습니다(1장)');
+  });
+
+  // 리뷰 M2: 메일 이미지가 거절 안내로 끝나면(형식 불가) 예산을 쓰지 않는다.
+  it('메일 이미지가 거절 안내로 끝나면 예산을 되돌린다', async () => {
+    const c = mockClient();
+    vi.mocked(c.readMailAttachmentText).mockResolvedValue(IMAGE_SKIP);
+    vi.mocked(c.downloadMailAttachment).mockResolvedValue({ data: PNG, mimeType: 'image/heic' });
+    const budget = new ImageBudget(1);
+    expect(await readAttachment(c, { imageBudget: budget }).handler({ source: 'mail', attachmentId: 55 })).toContain('형식(image/heic)');
+    expect(budget.take(1)).toBe(true);
   });
 });

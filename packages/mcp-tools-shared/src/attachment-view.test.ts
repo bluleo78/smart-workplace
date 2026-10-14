@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { FileTooLargeError } from './attachment-read.js';
-import { IMAGE_BUDGET_EXHAUSTED, ImageBudget, imageBlocksFor, pageBlocks, pagesShape, viewBlocks } from './attachment-view.js';
+import { IMAGE_BUDGET_EXHAUSTED, IMAGE_BUDGET_PER_RUN, ImageBudget, imageBlocksFor, pageBlocks, pagesShape, viewBlocks } from './attachment-view.js';
 import type { McpContent } from './mcp-content.js';
 import type { FileBytes } from './tool-client.js';
 
@@ -15,6 +15,27 @@ describe('ImageBudget', () => {
     expect(b.take(2)).toBe(false);
     expect(b.take(1)).toBe(true);
     expect(b.take(1)).toBe(false);
+  });
+
+  it('refund 는 상한(cap)을 넘겨 늘리지 않는다', () => {
+    const b = new ImageBudget(2);
+    b.take(1);
+    b.refund(5);
+    expect(b.take(2)).toBe(true);
+    expect(b.take(1)).toBe(false);
+  });
+
+  // 리뷰 M3: 남은 장수가 있으면 몇 장 남았는지, 없으면 실제 상한으로 다 썼다고 말한다.
+  it('shortfall 안내 — 남았으면 남은 장수·요청 장수, 다 썼으면 실제 상한', () => {
+    const b = new ImageBudget(20);
+    b.take(18);
+    expect(b.shortfall(3)).toBe('이번 대화에서 볼 수 있는 이미지가 2장 남았습니다(요청 3장). 2장 이하로 줄여 다시 요청하세요.');
+    b.take(2);
+    expect(b.shortfall(1)).toBe(IMAGE_BUDGET_EXHAUSTED);
+    const small = new ImageBudget(5);
+    small.take(5);
+    expect(small.shortfall(1)).toContain('다 썼습니다(5장)');
+    expect(IMAGE_BUDGET_EXHAUSTED).toContain(`(${IMAGE_BUDGET_PER_RUN}장)`);
   });
 });
 
@@ -53,10 +74,41 @@ describe('pageBlocks', () => {
     expect(out[0]).toEqual({ type: 'text', text: '"보고서.pdf" 2쪽(전체 6쪽) (image/png, 4B)' });
   });
 
-  it('예산이 모자라면 받지 않고 다 썼다는 안내만', async () => {
+  it('예산이 모자라면 받지 않고 남은 장수 안내만', async () => {
     const fetch = vi.fn();
-    expect(await pageBlocks('"보고서.pdf"', [1, 2], fetch, new ImageBudget(1))).toBe(IMAGE_BUDGET_EXHAUSTED);
+    expect(await pageBlocks('"보고서.pdf"', [1, 2], fetch, new ImageBudget(1))).toContain('1장 남았습니다(요청 2장)');
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  // 리뷰 M2: 예산은 모델에 실제로 준 이미지 장수만 센다 — 실패한 쪽(범위 밖·손상)은 되돌린다.
+  it('실패한 쪽은 예산을 되돌린다', async () => {
+    const budget = new ImageBudget(3);
+    await pageBlocks('"a.pdf"', [6, 7], async (n) => {
+      if (n === 7) throw new Error('이 PDF 는 6쪽입니다.');
+      return png();
+    }, budget);
+    expect(budget.take(2)).toBe(true);
+    expect(budget.take(1)).toBe(false);
+  });
+
+  // 리뷰 M8: 모든 쪽이 같은 사유로 실패하면(403·404·415 등) 같은 문장을 되풀이하지 않고 한 줄로.
+  it('같은 사유의 실패는 쪽 번호를 묶어 한 줄로', async () => {
+    const out = await pageBlocks('"a.png"', [1, 2, 3], async () => {
+      throw new Error('page 는 PDF 에만 쓸 수 있습니다.');
+    });
+    expect(out).toBe('"a.png" 1·2·3쪽: page 는 PDF 에만 쓸 수 있습니다.');
+  });
+
+  // 리뷰 M1: 프록시 502·504 HTML 같은 JSON 이 아닌 본문을 통째로 모델에 넘기지 않는다(describeApiError 와 같은 300자).
+  it('JSON 이 아닌 긴 오류 본문은 잘라서 싣는다', async () => {
+    const out = await pageBlocks('"a.pdf"', [1], async () => {
+      throw Object.assign(new Error('Request failed with status code 502'), {
+        response: { status: 502, data: `<html>${'x'.repeat(5000)}</html>` },
+      });
+    });
+    expect(typeof out).toBe('string');
+    expect(out).toContain('API 오류 502: <html>');
+    expect((out as string).length).toBeLessThan(400);
   });
 
   it('예산은 중복을 뺀 장수만큼 먼저 차감한다', async () => {
@@ -148,7 +200,14 @@ describe('imageBlocksFor', () => {
     const budget = new ImageBudget(1);
     const download = vi.fn().mockResolvedValue(png());
     await imageBlocksFor('"a.png"', {}, download, vi.fn(), budget);
-    expect(await imageBlocksFor('"b.png"', {}, download, vi.fn(), budget)).toBe(IMAGE_BUDGET_EXHAUSTED);
+    expect(await imageBlocksFor('"b.png"', {}, download, vi.fn(), budget)).toContain('다 썼습니다(1장)');
     expect(download).toHaveBeenCalledTimes(1);
+  });
+
+  it('이미지를 주지 못하면(변환 실패 안내·다운로드 오류) 예산을 되돌린다', async () => {
+    const budget = new ImageBudget(1);
+    await imageBlocksFor('"x"', { mimeType: 'image/heic' }, vi.fn(), vi.fn().mockRejectedValue(new Error('415')), budget);
+    await expect(imageBlocksFor('"x"', {}, vi.fn().mockRejectedValue(new Error('boom')), vi.fn(), budget)).rejects.toThrow('boom');
+    expect(budget.take(1)).toBe(true);
   });
 });

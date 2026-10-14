@@ -655,4 +655,16 @@ describe('createSharedToolClient 첨부·파일 내용 읽기 경로(WP-346)', (
     // 앱 서버 레이어(workplace-mcp)는 response.data 로 다시 요약하므로 본문도 객체로 바꿔 둔다.
     expect(err.response.data).toEqual({ message: '이 PDF 는 6쪽입니다. 1~6 사이 페이지를 지정하세요.' });
   });
+
+  // 리뷰 M1: 프록시가 준 HTML 502 같은 JSON 이 아닌 본문은 message 에 통째로 싣지 않는다(describeApiError 의 300자 자르기).
+  it('JSON 이 아닌 바이트 오류 본문은 잘라서 message 로', async () => {
+    const { http, client } = mockHttp();
+    const html = `<html>${'x'.repeat(5000)}</html>`;
+    http.get.mockRejectedValueOnce(
+      Object.assign(new Error('Request failed with status code 502'), { response: { status: 502, data: Buffer.from(html) } }),
+    );
+    const err = await client.viewDriveFile(9, 1).catch((e) => e);
+    expect(err.message.startsWith('API 오류 502: <html>')).toBe(true);
+    expect(err.message.length).toBeLessThan(400);
+  });
 });

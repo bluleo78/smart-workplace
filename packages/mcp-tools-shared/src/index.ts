@@ -36,6 +36,7 @@ export {
   pageBlocks,
   pagesShape,
   viewBlocks,
+  withImageBudget,
 } from './attachment-view.js';
 export type { AttachmentToolOptions } from './attachment-tools.js';
 export type * from './tool-client.js';
