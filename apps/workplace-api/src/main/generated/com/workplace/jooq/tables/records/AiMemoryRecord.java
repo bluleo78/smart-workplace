@@ -176,6 +176,72 @@ public class AiMemoryRecord extends UpdatableRecordImpl<AiMemoryRecord> {
         return (LocalDate) get(10);
     }
 
+    /**
+     * Setter for <code>public.ai_memory.pinned</code>.
+     */
+    public void setPinned(Boolean value) {
+        set(11, value);
+    }
+
+    /**
+     * Getter for <code>public.ai_memory.pinned</code>.
+     */
+    public Boolean getPinned() {
+        return (Boolean) get(11);
+    }
+
+    /**
+     * @deprecated Unknown data type. If this is a qualified, user-defined type,
+     * it may have been excluded from code generation. If this is a built-in
+     * type, you can define an explicit {@link org.jooq.Binding} to specify how
+     * this type should be handled. Deprecation can be turned off using
+     * {@literal <deprecationOnUnknownTypes/>} in your code generator
+     * configuration.
+     */
+    @Deprecated
+    public void setSearchTv(Object value) {
+        set(12, value);
+    }
+
+    /**
+     * @deprecated Unknown data type. If this is a qualified, user-defined type,
+     * it may have been excluded from code generation. If this is a built-in
+     * type, you can define an explicit {@link org.jooq.Binding} to specify how
+     * this type should be handled. Deprecation can be turned off using
+     * {@literal <deprecationOnUnknownTypes/>} in your code generator
+     * configuration.
+     */
+    @Deprecated
+    public Object getSearchTv() {
+        return get(12);
+    }
+
+    /**
+     * @deprecated Unknown data type. If this is a qualified, user-defined type,
+     * it may have been excluded from code generation. If this is a built-in
+     * type, you can define an explicit {@link org.jooq.Binding} to specify how
+     * this type should be handled. Deprecation can be turned off using
+     * {@literal <deprecationOnUnknownTypes/>} in your code generator
+     * configuration.
+     */
+    @Deprecated
+    public void setEmbedding(Object value) {
+        set(13, value);
+    }
+
+    /**
+     * @deprecated Unknown data type. If this is a qualified, user-defined type,
+     * it may have been excluded from code generation. If this is a built-in
+     * type, you can define an explicit {@link org.jooq.Binding} to specify how
+     * this type should be handled. Deprecation can be turned off using
+     * {@literal <deprecationOnUnknownTypes/>} in your code generator
+     * configuration.
+     */
+    @Deprecated
+    public Object getEmbedding() {
+        return get(13);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -199,7 +265,7 @@ public class AiMemoryRecord extends UpdatableRecordImpl<AiMemoryRecord> {
     /**
      * Create a detached, initialised AiMemoryRecord
      */
-    public AiMemoryRecord(Long id, Long userId, String kind, String content, String source, UUID sourceSessionId, OffsetDateTime createdAt, OffsetDateTime updatedAt, Long tenantId, String scope, LocalDate expiresOn) {
+    public AiMemoryRecord(Long id, Long userId, String kind, String content, String source, UUID sourceSessionId, OffsetDateTime createdAt, OffsetDateTime updatedAt, Long tenantId, String scope, LocalDate expiresOn, Boolean pinned, Object searchTv, Object embedding) {
         super(AiMemory.AI_MEMORY);
 
         setId(id);
@@ -213,6 +279,9 @@ public class AiMemoryRecord extends UpdatableRecordImpl<AiMemoryRecord> {
         setTenantId(tenantId);
         setScope(scope);
         setExpiresOn(expiresOn);
+        setPinned(pinned);
+        setSearchTv(searchTv);
+        setEmbedding(embedding);
         resetChangedOnNotNull();
     }
 }

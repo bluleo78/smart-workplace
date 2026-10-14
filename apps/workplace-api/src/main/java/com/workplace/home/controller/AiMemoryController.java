@@ -4,6 +4,7 @@ import com.workplace.global.security.InternalOnBehalfOf;
 import com.workplace.home.dto.AiMemoryItem;
 import com.workplace.home.dto.AiMemoryListResponse;
 import com.workplace.home.dto.CreateAiMemoryRequest;
+import com.workplace.home.dto.PinAiMemoryRequest;
 import com.workplace.home.dto.UndoAiMemoryRequest;
 import com.workplace.home.dto.UndoAiMemoryResponse;
 import com.workplace.home.dto.UpdateAiMemoryRequest;
@@ -18,6 +19,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -35,7 +37,7 @@ public class AiMemoryController {
   private final AiMemoryService service;
   private final AiMemoryUndoService undoService;
 
-  /** 목록(최신순 전부, 최대 50) + 상한. */
+  /** 목록(최신순 전부) + 범위 상한·고정 상한. */
   @GetMapping
   public AiMemoryListResponse list(@AuthenticationPrincipal Long callerId) {
     return service.list(callerId);
@@ -68,6 +70,17 @@ public class AiMemoryController {
       @PathVariable("id") long id,
       Authentication authentication) {
     return service.delete(callerId, id, InternalOnBehalfOf.isInternal(authentication));
+  }
+
+  /** 고정 켜기·끄기(WP-383) — 사용자 전용(Internal 대행이면 403). updated_at 은 그대로라 최신순이 바뀌지 않는다. */
+  @PutMapping("/{id}/pin")
+  public AiMemoryItem pin(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable("id") long id,
+      @RequestBody PinAiMemoryRequest req,
+      Authentication authentication) {
+    return service.setPinned(
+        callerId, id, req.pinned(), InternalOnBehalfOf.isInternal(authentication));
   }
 
   /** 모두 지우기 — 204. */

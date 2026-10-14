@@ -1,6 +1,7 @@
 package com.workplace.home.exception;
 
 import com.workplace.home.service.AiMemoryScope;
+import com.workplace.home.service.AiMemoryService;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
@@ -17,6 +18,8 @@ public class AiMemoryException extends RuntimeException {
   public static final String DISABLED = "AI_MEMORY_DISABLED";
   public static final String GONE = "AI_MEMORY_GONE";
   public static final String CHANGED = "AI_MEMORY_CHANGED";
+  public static final String PIN_FULL = "AI_MEMORY_PIN_FULL";
+  public static final String PIN_USER_ONLY = "AI_MEMORY_PIN_USER_ONLY";
 
   private final HttpStatus status;
   private final String code;
@@ -46,8 +49,8 @@ public class AiMemoryException extends RuntimeException {
   }
 
   /**
-   * 범위마다 유효 메모리 50개 초과(409, WP-379). 앱 범위면 메시지에 범위 이름을 넣는다 — ai-agent 도구 오류를 받은 AI 가 "이슈 메모리가 가득
-   * 찼어요"라고 안내하게. 공통은 WP-55 문구 그대로. 조용히 버리지 않는다.
+   * 범위마다 유효 메모리 상한(300) 초과(409, WP-379·383). 앱 범위면 메시지에 범위 이름을 넣는다 — ai-agent 도구 오류를 받은 AI 가 "이슈
+   * 메모리가 가득 찼어요"라고 안내하게. 조용히 버리지 않는다.
    *
    * @param scope 가득 찬 범위(null = 공통)
    */
@@ -56,8 +59,23 @@ public class AiMemoryException extends RuntimeException {
     return new AiMemoryException(
         HttpStatus.CONFLICT,
         FULL,
-        prefix + "메모리가 가득 찼어요(최대 50개). 필요 없는 항목을 지워 주세요",
+        prefix + "메모리가 가득 찼어요(최대 " + AiMemoryService.LIMIT + "개). 필요 없는 항목을 지워 주세요",
         scope == null ? AiMemoryScope.COMMON : scope);
+  }
+
+  /** 범위마다 고정 상한(10) 초과(409, WP-383 판정 1) — 가득 참과 같이 errors.scope 를 싣는다(웹이 범위 이름으로 안내). */
+  public static AiMemoryException pinFull(String scope) {
+    String prefix = scope == null ? "" : AiMemoryScope.label(scope) + " ";
+    return new AiMemoryException(
+        HttpStatus.CONFLICT,
+        PIN_FULL,
+        prefix + "메모리 고정은 최대 " + AiMemoryService.PIN_LIMIT + "개예요. 다른 고정을 풀어 주세요",
+        scope == null ? AiMemoryScope.COMMON : scope);
+  }
+
+  /** AI 대행의 고정 시도(403, WP-383 판정 2) — 고정은 사용자가 설정 화면에서만 한다. */
+  public static AiMemoryException pinUserOnly() {
+    return new AiMemoryException(HttpStatus.FORBIDDEN, PIN_USER_ONLY, "고정은 사용자가 설정에서만 할 수 있어요");
   }
 
   /** 메모리를 끈 사용자에 대한 AI 대행 쓰기(409). 설정 화면 직접 관리는 허용된다. */

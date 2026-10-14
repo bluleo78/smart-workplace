@@ -40,6 +40,7 @@ import org.jooq.TableField;
 import org.jooq.TableOptions;
 import org.jooq.UniqueKey;
 import org.jooq.impl.DSL;
+import org.jooq.impl.DefaultDataType;
 import org.jooq.impl.Internal;
 import org.jooq.impl.SQLDataType;
 import org.jooq.impl.TableImpl;
@@ -121,6 +122,33 @@ public class AiMemory extends TableImpl<AiMemoryRecord> {
      */
     public final TableField<AiMemoryRecord, LocalDate> EXPIRES_ON = createField(DSL.name("expires_on"), SQLDataType.LOCALDATE, this, "");
 
+    /**
+     * The column <code>public.ai_memory.pinned</code>.
+     */
+    public final TableField<AiMemoryRecord, Boolean> PINNED = createField(DSL.name("pinned"), SQLDataType.BOOLEAN.nullable(false).defaultValue(DSL.field(DSL.raw("false"), SQLDataType.BOOLEAN)), this, "");
+
+    /**
+     * @deprecated Unknown data type. If this is a qualified, user-defined type,
+     * it may have been excluded from code generation. If this is a built-in
+     * type, you can define an explicit {@link org.jooq.Binding} to specify how
+     * this type should be handled. Deprecation can be turned off using
+     * {@literal <deprecationOnUnknownTypes/>} in your code generator
+     * configuration.
+     */
+    @Deprecated
+    public final TableField<AiMemoryRecord, Object> SEARCH_TV = createField(DSL.name("search_tv"), DefaultDataType.getDefaultDataType("\"pg_catalog\".\"tsvector\""), this, "");
+
+    /**
+     * @deprecated Unknown data type. If this is a qualified, user-defined type,
+     * it may have been excluded from code generation. If this is a built-in
+     * type, you can define an explicit {@link org.jooq.Binding} to specify how
+     * this type should be handled. Deprecation can be turned off using
+     * {@literal <deprecationOnUnknownTypes/>} in your code generator
+     * configuration.
+     */
+    @Deprecated
+    public final TableField<AiMemoryRecord, Object> EMBEDDING = createField(DSL.name("embedding"), DefaultDataType.getDefaultDataType("\"public\".\"vector\""), this, "");
+
     private AiMemory(Name alias, Table<AiMemoryRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }
@@ -190,7 +218,7 @@ public class AiMemory extends TableImpl<AiMemoryRecord> {
 
     @Override
     public List<Index> getIndexes() {
-        return Arrays.asList(Indexes.AI_MEMORY_EXPIRES_IDX, Indexes.AI_MEMORY_USER_IDX, Indexes.AI_MEMORY_USER_SCOPE_IDX, Indexes.IDX_AI_MEMORY_SOURCE_SESSION);
+        return Arrays.asList(Indexes.AI_MEMORY_EMBEDDING_PENDING_IDX, Indexes.AI_MEMORY_EXPIRES_IDX, Indexes.AI_MEMORY_SEARCH_TV_IDX, Indexes.AI_MEMORY_USER_IDX, Indexes.AI_MEMORY_USER_SCOPE_IDX, Indexes.IDX_AI_MEMORY_SOURCE_SESSION);
     }
 
     @Override

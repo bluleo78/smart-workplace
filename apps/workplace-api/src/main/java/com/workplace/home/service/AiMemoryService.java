@@ -29,7 +29,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * AI 메모리(WP-55) — 사용자가 대화에서 알려 준 교정·선호(PREFERENCE)와 업무 맥락(CONTEXT). 설정 화면 직접 관리와 AI 대행 도구가 같은
- * 규칙(1~300자 코드포인트, 범위마다 50개, 본인 것만)을 쓴다.
+ * 규칙(1~300자 코드포인트, 범위마다 300개, 고정은 범위마다 10개(WP-383), 본인 것만)을 쓴다.
  *
  * <p>서버가 강제하는 것은 길이·상한·소유자·꺼짐까지다 — "사용자 본인 발화에서만 저장"은 ai-agent 시스템 프롬프트 규칙이다.
  *
@@ -39,12 +39,17 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class AiMemoryService {
 
-  /** 범위(공통 또는 앱 하나)마다 상한 — WP-379. 응답 limit 도 이 값("범위마다")이다. 매 턴 공통 + 지금 앱 최대 100개를 주입한다. */
-  static final int LIMIT = 50;
+  /**
+   * 범위(공통 또는 앱 하나)마다 상한 — WP-383 에서 50 → 300. 응답 limit 도 이 값("범위마다")이다. 매 턴 주입은 이 중 관련 있는 것만 고른다.
+   */
+  public static final int LIMIT = 300;
+
+  /** 범위마다 고정 상한(WP-383) — 고정은 매 턴 늘 주입되므로 예산을 독점하지 않게 작게 둔다. 만료 행도 센다(판정 1). */
+  public static final int PIN_LIMIT = 10;
 
   /**
    * 설정 목록에 싣는 만료 행 최대 개수(최신순). 만료 행은 한도가 없고 정리 배치가 지우기 전 30일 동안 남아, AI 가 짧은 기한 메모리를 많이 만들면 끝없이 쌓일 수
-   * 있다 — 유효 행(범위마다 50 이하)은 모두 싣고 만료 행만 이 수로 자른다. 오래된 만료 행은 목록에서만 빠지고 곧 지워진다.
+   * 있다 — 유효 행(범위마다 300 이하)은 모두 싣고 만료 행만 이 수로 자른다. 오래된 만료 행은 목록에서만 빠지고 곧 지워진다.
    */
   static final int EXPIRED_LIST_CAP = 100;
 
@@ -84,7 +89,8 @@ public class AiMemoryService {
     List<Row> rows = new ArrayList<>(repo.listActive(userId, today));
     rows.addAll(repo.listExpired(userId, today, EXPIRED_LIST_CAP));
     rows.sort(NEWEST_FIRST);
-    return new AiMemoryListResponse(rows.stream().map(r -> toItem(r, null, today)).toList(), LIMIT);
+    return new AiMemoryListResponse(
+        rows.stream().map(r -> toItem(r, null, today)).toList(), LIMIT, PIN_LIMIT);
   }
 
   /**
@@ -133,6 +139,8 @@ public class AiMemoryService {
     String s = req.hasScope() ? targetScope : cur.scope();
     LocalDate e = req.clearExpiry() ? null : req.expiresOn() != null ? newExpiry : cur.expiresOn();
     requireRoomIfActivating(userId, cur, s, e, today);
+    // WP-383: 고정 행을 다른 범위로 옮기면 그 범위의 고정 상한을 센다(판정 1) — 범위를 바꾸는 요청이라 사용자 잠금은 이미 잡았다.
+    requirePinRoomIfMoving(userId, cur, s);
     Row saved = repo.update(userId, id, k, c, s, e).orElseThrow(AiMemoryException::notFound);
     return toItem(saved, cur, today);
   }
@@ -203,10 +211,31 @@ public class AiMemoryService {
     String s = requireScope(before.scope());
     LocalDate e = dateOrNull(before.expiresOn());
     requireRoomIfActivating(userId, cur, s, e, today);
+    // 범위 이동 되돌리기로 고정 행이 고정이 가득 찬 범위로 들어가 상한을 넘는 우회를 막는다(update 와 같은 규칙).
+    requirePinRoomIfMoving(userId, cur, s);
     Row saved =
         repo.update(userId, id, k, normalizeContent(before.content()), s, e)
             .orElseThrow(AiMemoryException::gone);
     return toItem(saved, cur, today);
+  }
+
+  /**
+   * 고정 켜기·끄기(WP-383, 판정 1·2) — 사용자 전용(대행이면 403). 켤 때만 그 범위의 고정 수(만료 포함)를 센다. 사용자 잠금 → 행 잠금 순서는
+   * 생성·고치기와 같다(동시 고정 두 건이 모두 9개를 보고 11개가 되지 않게). updated_at 은 그대로라 설정 목록 최신순·주입 최신 순위가 바뀌지 않는다.
+   *
+   * @throws AiMemoryException 403 PIN_USER_ONLY, 400(pinned 없음), 404(없음·남의 것), 409 PIN_FULL(+scope)
+   */
+  @Transactional
+  public AiMemoryItem setPinned(long userId, long id, Boolean pinned, boolean internal) {
+    if (internal) throw AiMemoryException.pinUserOnly();
+    if (pinned == null) throw AiMemoryException.invalid("pinned 를 true 나 false 로 보내 주세요");
+    repo.lockUser(userId);
+    Row cur = repo.lock(userId, id).orElseThrow(AiMemoryException::notFound);
+    if (pinned && !cur.pinned() && repo.countPinnedInScope(userId, cur.scope()) >= PIN_LIMIT) {
+      throw AiMemoryException.pinFull(cur.scope());
+    }
+    Row saved = repo.setPinned(userId, id, pinned).orElseThrow(AiMemoryException::notFound);
+    return toItem(saved, null, clock.today());
   }
 
   /** 모두 지우기 — 본인 것만(모든 범위). */
@@ -245,6 +274,15 @@ public class AiMemoryService {
     if (isActive(cur.expiresOn(), today) && Objects.equals(cur.scope(), targetScope)) return;
     if (repo.countInScope(userId, targetScope, today) >= LIMIT) {
       throw AiMemoryException.full(targetScope);
+    }
+  }
+
+  /** 고정 행이 다른 범위로 옮겨 갈 때 대상 범위의 고정 상한(만료 포함)을 센다 — 호출자가 사용자 잠금을 이미 잡았다. */
+  private void requirePinRoomIfMoving(long userId, Row cur, String targetScope) {
+    if (cur.pinned()
+        && !Objects.equals(cur.scope(), targetScope)
+        && repo.countPinnedInScope(userId, targetScope) >= PIN_LIMIT) {
+      throw AiMemoryException.pinFull(targetScope);
     }
   }
 
@@ -361,7 +399,8 @@ public class AiMemoryService {
         before == null ? null : before.scope(),
         r.expiresOn(),
         !isActive(r.expiresOn(), today),
-        before == null ? null : before.expiresOn());
+        before == null ? null : before.expiresOn(),
+        r.pinned());
   }
 
   /**
@@ -414,14 +453,15 @@ public class AiMemoryService {
         true, rows.stream().map(AiMemoryService::toMemoryLine).toList(), today.toString());
   }
 
-  /** 저장 행 → ai-agent 로 보내는 메모리(범위·기한 포함 — 블록 줄의 "선호·이슈"·"(10/24까지)" 표기). */
+  /** 저장 행 → ai-agent 로 보내는 메모리(범위·기한·고정 포함 — 블록 줄의 "선호·이슈·고정"·"(10/24까지)" 표기). */
   static AiMemoryLine toMemoryLine(Row r) {
     return new AiMemoryLine(
         r.id(),
         r.kind(),
         r.content(),
         r.scope(),
-        r.expiresOn() == null ? null : r.expiresOn().toString());
+        r.expiresOn() == null ? null : r.expiresOn().toString(),
+        r.pinned() ? Boolean.TRUE : null);
   }
 
   /**
