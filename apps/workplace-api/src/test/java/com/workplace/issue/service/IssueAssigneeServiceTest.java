@@ -197,8 +197,11 @@ class IssueAssigneeServiceTest extends IntegrationTestBase {
     issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
     service.replace(owner, p.key(), 1, List.of(other, agent));
 
+    // 거부 문구는 MCP 결과로 AI 에게 전달되므로 허용되는 경우(자기 제외·바로 아래 빈 하위 항목 맡기)를 안내해야 한다(WP-375).
     assertThatThrownBy(() -> service.replace(agent, p.key(), 1, List.of(agent)))
-        .isInstanceOf(IssueAssigneeAgentRestrictionException.class);
+        .isInstanceOf(IssueAssigneeAgentRestrictionException.class)
+        .hasMessageContaining("담당자에서 자기를 빼거나")
+        .hasMessageContaining("담당자 없는 바로 아래 하위 항목");
   }
 
   @Test
