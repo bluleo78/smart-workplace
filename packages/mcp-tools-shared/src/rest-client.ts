@@ -4,7 +4,7 @@
 // 파라미터 이름·기본값·가공 규칙이 조금씩 어긋났다. 경로 매핑을 여기 한 곳에 두고, 각 앱은 인증이 붙은 HTTP 인스턴스만 준다.
 // 이 클라이언트는 경로 호출과 응답 래퍼 벗기기까지만 하고 LLM 용 가공은 공유 도구 핸들러가 맡는다.
 import { FileTooLargeError, IMAGE_MAX_BYTES } from './attachment-read.js';
-import { parseIssueKey } from './parse.js';
+import { describeApiError, parseIssueKey } from './parse.js';
 import type { SharedToolClient } from './shared-tools.js';
 import type { FileBytes, PageResult, ProjectMetaKind, TextRange } from './tool-client.js';
 
@@ -63,9 +63,31 @@ const isMaxLengthExceeded = (e: unknown) =>
   typeof e === 'object' && e !== null && /maxContentLength|maxBodyLength/.test(String((e as { message?: unknown }).message ?? ''));
 
 /**
+ * 바이너리 요청의 오류 본문을 푼다(WP-250) — responseType arraybuffer 면 서버 ErrorResponse JSON 도 바이트로 와서,
+ * 그대로면 오류 요약이 "API 오류 400" 만 남고 한국어 사유(예: "이 PDF 는 6쪽입니다…")가 사라진다. 바이트를 JSON(안 되면 글)으로
+ * 바꿔 response.data 에 되돌려 두고(workplace-mcp 서버 레이어가 response.data 로 요약한다), message 도 같은 요약으로 올린다
+ * (ai-agent 인터셉터는 바이트 본문으로 이미 message 를 만들었다).
+ */
+function decodeErrorBody(e: unknown): void {
+  const res = (e as { response?: { status?: number; data?: unknown } })?.response;
+  if (!res) return;
+  const raw = res.data;
+  const bytes = raw instanceof Uint8Array ? raw : raw instanceof ArrayBuffer ? new Uint8Array(raw) : undefined;
+  if (!bytes) return;
+  const text = new TextDecoder().decode(bytes);
+  try {
+    res.data = JSON.parse(text);
+  } catch {
+    res.data = text;
+  }
+  if (e instanceof Error) e.message = describeApiError(res.status, res.data);
+}
+
+/**
  * 바이너리 GET → 원본 바이트 + Content-Type. Node 의 axios 는 arraybuffer 를 Buffer(=Uint8Array)로 준다 — ArrayBuffer 로 오면 감싼다.
  * 크기 메타 없이 받는 경우(드라이브 파일 등)에도 이미지 상한을 넘는 다운로드를 막으려고 maxContentLength 를 건다 —
- * 초과하면 FileTooLargeError 로 바꿔 던져 도구가 "크기 초과" 안내로 잇게 한다. 지금 원본 받기는 이미지 전용이다.
+ * 초과하면 FileTooLargeError 로 바꿔 던져 도구가 "크기 초과" 안내로 잇게 한다. 원본 받기·/view 변환본(WP-250) 모두 이미지 전용이다
+ * (변환본은 서버가 긴 변 1568px·1MB 안팎으로 줄여 같은 상한에 넉넉히 든다). /view 의 X-Page-Count 는 pageCount 로 싣는다.
  */
 async function getBytes(http: HttpLike, url: string): Promise<FileBytes> {
   let r;
@@ -73,11 +95,20 @@ async function getBytes(http: HttpLike, url: string): Promise<FileBytes> {
     r = await http.get(url, { responseType: 'arraybuffer', maxContentLength: IMAGE_MAX_BYTES, maxBodyLength: IMAGE_MAX_BYTES });
   } catch (e) {
     if (isMaxLengthExceeded(e)) throw new FileTooLargeError();
+    decodeErrorBody(e);
     throw e;
   }
   const data = r.data instanceof Uint8Array ? r.data : new Uint8Array(r.data as ArrayBuffer);
-  return { data, mimeType: String(r.headers?.['content-type'] ?? 'application/octet-stream') };
+  const pageCount = Number(r.headers?.['x-page-count']);
+  return {
+    data,
+    mimeType: String(r.headers?.['content-type'] ?? 'application/octet-stream'),
+    ...(Number.isInteger(pageCount) && pageCount > 0 && { pageCount }),
+  };
 }
+
+/** /view 경로 — page 는 PDF 쪽(1부터)이고 줄 때만 쿼리로 붙인다(이미지 변환본은 page 없이). */
+const viewUrl = (base: string, page?: number) => `${base}/view${page !== undefined ? `?page=${page}` : ''}`;
 
 /** 외부 연락처 force 쿼리 — 서버 기본값이 false 라 true 일 때만 붙인다(미지정과 같은 요청이 되도록). */
 const forceParams = (force?: boolean) => (force ? { params: { force } } : undefined);
@@ -559,6 +590,19 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     },
     async downloadMailAttachment(attachmentId) {
       return getBytes(http, `/mail/attachments/${attachmentId}/content`);
+    },
+    // WP-250: 모델 입력용 이미지(PDF 쪽·이미지 변환본). 권한 게이트는 /text 와 같다. 메일은 아직 없다(WP-388).
+    async viewIssueAttachment(issueKey, fileId, page) {
+      return getBytes(http, viewUrl(`${issue(issueKey)}/attachments/${fileId}`, page));
+    },
+    async viewDriveFile(driveFileId, page) {
+      return getBytes(http, viewUrl(`/drive/files/${driveFileId}`, page));
+    },
+    async viewWikiAttachment(pageId, fileId, page) {
+      return getBytes(http, viewUrl(`/wiki/pages/${pageId}/attachments/${fileId}`, page));
+    },
+    async viewMessageAttachment(channelId, messageId, fileId, page) {
+      return getBytes(http, viewUrl(`/messaging/channels/${channelId}/messages/${messageId}/attachments/${fileId}`, page));
     },
 
     // ── 알림 ── 서버가 호출자 본인 알림으로 격리한다(recipientId=callerId).

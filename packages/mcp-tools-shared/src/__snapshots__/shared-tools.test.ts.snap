@@ -2058,6 +2058,23 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
             },
           ],
         },
+        "pages": {
+          "anyOf": [
+            {
+              "items": {
+                "maximum": 9007199254740991,
+                "minimum": 1,
+                "type": "integer",
+              },
+              "maxItems": 3,
+              "minItems": 1,
+              "type": "array",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
         "source": {
           "enum": [
             "issue",

@@ -26,6 +26,18 @@ export {
   isSendableImage,
   toBase64,
 } from './attachment-read.js';
+// WP-250: 모델 입력용 이미지(/view) — ai-agent 가 실행당 예산을 만들고 자기 첨부 도구에서 같은 헬퍼를 쓴다.
+export {
+  ImageBudget,
+  IMAGE_BUDGET_EXHAUSTED,
+  IMAGE_BUDGET_PER_RUN,
+  MAX_PAGES_PER_CALL,
+  imageBlocksFor,
+  pageBlocks,
+  pagesShape,
+  viewBlocks,
+} from './attachment-view.js';
+export type { AttachmentToolOptions } from './attachment-tools.js';
 export type * from './tool-client.js';
 export {
   listConflicts,

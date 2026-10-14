@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import { FileTooLargeError, IMAGE_MAX_BYTES, READ_ATTACHMENT_DEFAULT_LIMIT } from './attachment-read.js';
 import { buildAttachmentTools, readFileInput } from './attachment-tools.js';
+import { IMAGE_BUDGET_EXHAUSTED, ImageBudget } from './attachment-view.js';
 import { resultText, type McpContent } from './mcp-content.js';
 import type { AttachmentToolClient, ExtractedTextSlice } from './tool-client.js';
 
@@ -28,6 +29,10 @@ const issueView = ({ fileId, ...rest }: ExtractedTextSlice) => ({ attachmentId: 
 const READY = slice('READY', { totalChars: 11, truncated: false, nextOffset: 6, text: '가나다라마😀' });
 const IMAGE_SKIP = slice('SKIPPED', { reasonCode: 'IMAGE', reason: '이미지 파일은 글자를 추출하지 않습니다.' });
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+/** 서버 /view 응답(WP-250) — 원본과 구분되게 JPEG 로 둔다. */
+const JPEG = new Uint8Array([0xff, 0xd8, 0xff]);
+const VIEW = { data: JPEG, mimeType: 'image/jpeg' };
+const JPEG_BLOCK = { type: 'image', data: Buffer.from(JPEG).toString('base64'), mimeType: 'image/jpeg' };
 
 function mockClient(): AttachmentToolClient {
   return {
@@ -43,16 +48,31 @@ function mockClient(): AttachmentToolClient {
     downloadMessageAttachment: vi.fn().mockResolvedValue({ data: PNG, mimeType: 'image/png' }),
     readMailAttachmentText: vi.fn().mockResolvedValue(READY),
     downloadMailAttachment: vi.fn().mockResolvedValue({ data: PNG, mimeType: 'image/png' }),
+    viewIssueAttachment: vi.fn().mockResolvedValue(VIEW),
+    viewDriveFile: vi.fn().mockResolvedValue(VIEW),
+    viewWikiAttachment: vi.fn().mockResolvedValue(VIEW),
+    viewMessageAttachment: vi.fn().mockResolvedValue(VIEW),
   };
 }
 
-const readAttachment = (c: AttachmentToolClient) => buildAttachmentTools(c).find((t) => t.name === 'read_file')!;
+const readAttachment = (c: AttachmentToolClient, opts?: Parameters<typeof buildAttachmentTools>[1]) =>
+  buildAttachmentTools(c, opts).find((t) => t.name === 'read_file')!;
 
 describe('read_file 입력 스키마', () => {
   // 서버 레이어가 inputSchema.shape 를 registerTool 에 넘기므로 superRefine 뒤에도 z.object 여야 한다.
-  it('최상위는 z.object 이고 shape 에 source·식별자·범위가 있다', () => {
+  it('최상위는 z.object 이고 shape 에 source·식별자·범위·pages 가 있다', () => {
     expect(readFileInput).toBeInstanceOf(z.ZodObject);
-    expect(Object.keys(readFileInput.shape).sort()).toEqual(['attachmentId', 'channelId', 'driveFileId', 'issueKey', 'limit', 'messageId', 'offset', 'pageId', 'source']);
+    expect(Object.keys(readFileInput.shape).sort()).toEqual(['attachmentId', 'channelId', 'driveFileId', 'issueKey', 'limit', 'messageId', 'offset', 'pageId', 'pages', 'source']);
+  });
+
+  // WP-250: 이미지를 볼 수 없는 모델에는 pages 를 아예 보여 주지 않는다(입력·설명 모두) — 못 쓰는 인자를 부르지 않게.
+  it('imageInput:false 면 pages 입력과 설명 문장이 없다. 기본(true)은 있다', () => {
+    const off = readAttachment(mockClient(), { imageInput: false });
+    expect((off.inputSchema as z.ZodObject).shape).not.toHaveProperty('pages');
+    expect(off.description).not.toContain('pages');
+    const on = readAttachment(mockClient());
+    expect((on.inputSchema as z.ZodObject).shape).toHaveProperty('pages');
+    expect(on.description).toContain('pages:[n]');
   });
 
   it('JSON 스키마로 직렬화된다(MCP 클라이언트가 받는 형식) — 최상위 type object, source 만 필수', () => {
@@ -144,39 +164,46 @@ describe('read_file — 이슈 첨부', () => {
     ]);
   });
 
-  it('이미지 크기 상한 초과: 원본을 받지 않고 안내 문구만', async () => {
+  // WP-250: 보낼 수 없는 이미지는 거절 안내 대신 서버가 변환한 이미지(/view)를 준다.
+  it('이미지 크기 상한 초과: 원본을 받지 않고 변환본(/view)', async () => {
     const c = mockClient();
     vi.mocked(c.readIssueAttachmentText).mockResolvedValue(IMAGE_SKIP);
     vi.mocked(c.listIssueAttachments).mockResolvedValue([
       { fileId: 55, originalName: 'big.jpg', mimeType: 'image/jpeg', sizeBytes: IMAGE_MAX_BYTES + 1 },
     ]);
-    const out = await readAttachment(c).handler({ source: 'issue', issueKey: 'WP-1', attachmentId: 55 });
-    expect(typeof out).toBe('string');
-    expect(out).toContain(`크기(${IMAGE_MAX_BYTES + 1}B)`);
-    expect(out).not.toContain('형식(');
+    const out = (await readAttachment(c).handler({ source: 'issue', issueKey: 'WP-1', attachmentId: 55 })) as McpContent[];
     expect(c.downloadIssueAttachment).not.toHaveBeenCalled();
+    expect(c.viewIssueAttachment).toHaveBeenCalledWith('WP-1', 55, undefined);
+    expect(out).toEqual([{ type: 'text', text: '이슈 WP-1 첨부 이미지 "big.jpg" (image/jpeg, 3B)' }, JPEG_BLOCK]);
   });
 
-  it('메타가 없어 사전 검사를 못 해도 다운로드 상한 초과(FileTooLargeError)면 크기 초과 안내로 잇는다', async () => {
+  it('메타가 없어 사전 검사를 못 해도 다운로드 상한 초과(FileTooLargeError)면 변환본으로 잇는다', async () => {
     const c = mockClient();
     vi.mocked(c.readIssueAttachmentText).mockResolvedValue(IMAGE_SKIP);
     vi.mocked(c.downloadIssueAttachment).mockRejectedValue(new FileTooLargeError());
-    const out = await readAttachment(c).handler({ source: 'issue', issueKey: 'WP-1', attachmentId: 55 });
-    expect(typeof out).toBe('string');
-    expect(out).toContain(`크기(${IMAGE_MAX_BYTES}B 초과)`);
+    const out = (await readAttachment(c).handler({ source: 'issue', issueKey: 'WP-1', attachmentId: 55 })) as McpContent[];
+    expect(out[1]).toEqual(JPEG_BLOCK);
     // 다른 오류는 삼키지 않는다.
     vi.mocked(c.downloadIssueAttachment).mockRejectedValue(new Error('boom'));
     await expect(readAttachment(c).handler({ source: 'issue', issueKey: 'WP-1', attachmentId: 55 })).rejects.toThrow('boom');
   });
 
-  it('보낼 수 없는 이미지 형식(예: HEIC): 원본을 받지 않고 형식만 사유로', async () => {
+  it('보낼 수 없는 이미지 형식(예: HEIC): 원본을 받지 않고 변환본(/view)의 이미지 블록', async () => {
     const c = mockClient();
     vi.mocked(c.readIssueAttachmentText).mockResolvedValue(IMAGE_SKIP);
     vi.mocked(c.listIssueAttachments).mockResolvedValue([{ fileId: 55, originalName: 'a.heic', mimeType: 'image/heic', sizeBytes: 10 }]);
-    const out = await readAttachment(c).handler({ source: 'issue', issueKey: 'WP-1', attachmentId: 55 });
-    expect(out).toContain('형식(image/heic)');
-    expect(out).not.toContain('크기(');
+    const out = (await readAttachment(c).handler({ source: 'issue', issueKey: 'WP-1', attachmentId: 55 })) as McpContent[];
     expect(c.downloadIssueAttachment).not.toHaveBeenCalled();
+    expect(c.viewIssueAttachment).toHaveBeenCalledWith('WP-1', 55, undefined);
+    expect(out[1]).toEqual(JPEG_BLOCK);
+  });
+
+  it('변환이 실패하면(서버 사유) 던지지 않고 그 사유를 text 로', async () => {
+    const c = mockClient();
+    vi.mocked(c.readIssueAttachmentText).mockResolvedValue(IMAGE_SKIP);
+    vi.mocked(c.listIssueAttachments).mockResolvedValue([{ fileId: 55, originalName: 'a.heic', mimeType: 'image/heic', sizeBytes: 10 }]);
+    vi.mocked(c.viewIssueAttachment).mockRejectedValue(new Error('페이지 이미지를 만들지 못했습니다. 잠시 후 다시 시도하세요.'));
+    expect(await readAttachment(c).handler({ source: 'issue', issueKey: 'WP-1', attachmentId: 55 })).toContain('잠시 후 다시 시도하세요');
   });
 });
 
@@ -245,22 +272,23 @@ describe('read_file — 드라이브 파일', () => {
     expect(out[0]).toEqual({ type: 'text', text: '드라이브 이미지(driveFileId 9) (image/png, 4B)' });
   });
 
-  it('이미지 크기 상한 초과(현재 버전): 원본을 받지 않고 안내 문구만', async () => {
+  it('이미지 크기 상한 초과(현재 버전): 원본을 받지 않고 변환본(/view)', async () => {
     const c = mockClient();
     vi.mocked(c.readDriveFileText).mockResolvedValue(IMAGE_SKIP);
     vi.mocked(c.listDriveFileVersions).mockResolvedValue([{ versionNo: 1, sizeBytes: IMAGE_MAX_BYTES + 1, current: true }]);
-    const out = await readAttachment(c).handler({ source: 'drive', driveFileId: 9 });
-    expect(out).toContain(`크기(${IMAGE_MAX_BYTES + 1}B)`);
+    const out = (await readAttachment(c).handler({ source: 'drive', driveFileId: 9 })) as McpContent[];
     expect(c.downloadDriveFile).not.toHaveBeenCalled();
+    expect(c.viewDriveFile).toHaveBeenCalledWith(9, undefined);
+    expect(out[1]).toEqual(JPEG_BLOCK);
   });
 
-  it('받은 원본이 보낼 수 없는 형식이면(버전 정보 없음) base64 없이 안내 문구', async () => {
+  it('받은 원본이 보낼 수 없는 형식이면(HEIC — 버전 정보에는 형식이 없다) 변환본(/view)', async () => {
     const c = mockClient();
     vi.mocked(c.readDriveFileText).mockResolvedValue(IMAGE_SKIP);
-    vi.mocked(c.downloadDriveFile).mockResolvedValue({ data: PNG, mimeType: 'image/svg+xml' });
-    const out = await readAttachment(c).handler({ source: 'drive', driveFileId: 9 });
-    expect(typeof out).toBe('string');
-    expect(out).toContain('형식(image/svg+xml)');
+    vi.mocked(c.downloadDriveFile).mockResolvedValue({ data: PNG, mimeType: 'image/heic' });
+    const out = (await readAttachment(c).handler({ source: 'drive', driveFileId: 9 })) as McpContent[];
+    expect(c.viewDriveFile).toHaveBeenCalledWith(9, undefined);
+    expect(out[1]).toEqual(JPEG_BLOCK);
   });
 });
 
@@ -271,6 +299,7 @@ const NEW_SOURCES = [
     args: { source: 'wiki', pageId: 7, attachmentId: 55 },
     readText: (c: AttachmentToolClient) => c.readWikiAttachmentText,
     download: (c: AttachmentToolClient) => c.downloadWikiAttachment,
+    view: (c: AttachmentToolClient) => c.viewWikiAttachment,
     textArgs: [7, 55],
   },
   {
@@ -278,6 +307,7 @@ const NEW_SOURCES = [
     args: { source: 'message', channelId: 3, messageId: 40, attachmentId: 55 },
     readText: (c: AttachmentToolClient) => c.readMessageAttachmentText,
     download: (c: AttachmentToolClient) => c.downloadMessageAttachment,
+    view: (c: AttachmentToolClient) => c.viewMessageAttachment,
     textArgs: [3, 40, 55],
   },
   {
@@ -285,11 +315,13 @@ const NEW_SOURCES = [
     args: { source: 'mail', attachmentId: 55 },
     readText: (c: AttachmentToolClient) => c.readMailAttachmentText,
     download: (c: AttachmentToolClient) => c.downloadMailAttachment,
+    // 메일 첨부는 /view 가 없다(WP-388) — 보낼 수 없는 이미지는 지금처럼 안내 문구.
+    view: null,
     textArgs: [55],
   },
 ] as const;
 
-describe.each(NEW_SOURCES)('read_file — $name (WP-358)', ({ args, readText, download, textArgs }) => {
+describe.each(NEW_SOURCES)('read_file — $name (WP-358)', ({ args, readText, download, view, textArgs }) => {
   it('READY: 구간을 읽고 서버 fileId 를 attachmentId 로 바꿔 돌려준다. limit 기본 12000', async () => {
     const c = mockClient();
     const out = await readAttachment(c).handler({ ...args, offset: 6 });
@@ -321,13 +353,21 @@ describe.each(NEW_SOURCES)('read_file — $name (WP-358)', ({ args, readText, do
     expect(out[1]).toEqual({ type: 'image', data: Buffer.from(PNG).toString('base64'), mimeType: 'image/png' });
   });
 
-  it('이미지 크기 초과(FileTooLargeError)·형식 불가(HEIC)는 안내 문구만, 다른 오류는 삼키지 않는다', async () => {
+  it('이미지 크기 초과(FileTooLargeError)·형식 불가(HEIC)는 변환본(메일은 안내 문구), 다른 오류는 삼키지 않는다', async () => {
     const c = mockClient();
     vi.mocked(readText(c)).mockResolvedValue(IMAGE_SKIP);
     vi.mocked(download(c)).mockRejectedValue(new FileTooLargeError());
-    expect(await readAttachment(c).handler(args)).toContain(`크기(${IMAGE_MAX_BYTES}B 초과)`);
+    const big = await readAttachment(c).handler(args);
     vi.mocked(download(c)).mockResolvedValue({ data: PNG, mimeType: 'image/heic' });
-    expect(await readAttachment(c).handler(args)).toContain('형식(image/heic)');
+    const heic = await readAttachment(c).handler(args);
+    if (view) {
+      expect(view(c)).toHaveBeenCalledWith(...textArgs, undefined);
+      expect((big as McpContent[])[1]).toEqual(JPEG_BLOCK);
+      expect((heic as McpContent[])[1]).toEqual(JPEG_BLOCK);
+    } else {
+      expect(big).toContain(`크기(${IMAGE_MAX_BYTES}B 초과)`);
+      expect(heic).toContain('형식(image/heic)');
+    }
     vi.mocked(download(c)).mockRejectedValue(new Error('boom'));
     await expect(readAttachment(c).handler(args)).rejects.toThrow('boom');
   });
@@ -343,11 +383,14 @@ describe('read_file — 노트 NONE (WP-358)', () => {
     expect(out[1]).toEqual({ type: 'image', data: Buffer.from(PNG).toString('base64'), mimeType: 'image/png' });
   });
 
-  it('NONE 인데 이미지가 아니면 형식 사유 안내만 준다', async () => {
+  it('NONE 인데 받은 원본이 보낼 수 없는 형식이면 변환본(/view)에 맡기고, 서버가 거절하면 그 사유를 text 로', async () => {
     const c = mockClient();
     vi.mocked(c.readWikiAttachmentText).mockResolvedValue(slice('NONE'));
-    vi.mocked(c.downloadWikiAttachment).mockResolvedValue({ data: PNG, mimeType: 'application/pdf' });
-    expect(await readAttachment(c).handler({ source: 'wiki', pageId: 7, attachmentId: 55 })).toContain('형식(application/pdf)');
+    vi.mocked(c.downloadWikiAttachment).mockResolvedValue({ data: PNG, mimeType: 'application/zip' });
+    vi.mocked(c.viewWikiAttachment).mockRejectedValue(new Error('PDF·이미지만 페이지 이미지로 볼 수 있습니다.'));
+    const out = await readAttachment(c).handler({ source: 'wiki', pageId: 7, attachmentId: 55 });
+    expect(c.viewWikiAttachment).toHaveBeenCalledWith(7, 55, undefined);
+    expect(out).toContain('PDF·이미지만 페이지 이미지로 볼 수 있습니다.');
   });
 
   it('메시지·메일의 NONE 은 이미지로 가정하지 않는다(상태만)', async () => {
@@ -376,5 +419,111 @@ describe('read_file — 메일 PENDING (WP-358)', () => {
     vi.mocked(c.readWikiAttachmentText).mockResolvedValue(slice('PENDING'));
     const out = JSON.parse(resultText(await readAttachment(c).handler({ source: 'wiki', pageId: 7, attachmentId: 55 })));
     expect(out).toEqual(issueView(slice('PENDING')));
+  });
+});
+
+// WP-250: PDF 페이지 이미지(pages)·스캔 PDF 안내·실행당 이미지 예산.
+describe('read_file — 페이지 이미지(pages, WP-250)', () => {
+  const PDF_READY = slice('READY', { totalChars: 5, truncated: false, nextOffset: null, text: '본문', pageCount: 6 });
+  const SCANNED = slice('SKIPPED', { reasonCode: 'SCANNED_PDF', reason: '스캔된 PDF로 보여 읽을 수 있는 글자가 없습니다.', pageCount: 4 });
+
+  it('issue + pages: 텍스트 대신 /view?page 로 쪽 이미지를 준다', async () => {
+    const c = mockClient();
+    const out = (await readAttachment(c).handler({ source: 'issue', issueKey: 'WP-1', attachmentId: 55, pages: [2] })) as McpContent[];
+    expect(c.viewIssueAttachment).toHaveBeenCalledWith('WP-1', 55, 2);
+    expect(c.readIssueAttachmentText).not.toHaveBeenCalled();
+    expect(out).toEqual([{ type: 'text', text: expect.stringContaining('2쪽') }, JPEG_BLOCK]);
+  });
+
+  it('drive + pages:[1,2,3]: 쪽마다 한 번씩', async () => {
+    const c = mockClient();
+    const out = (await readAttachment(c).handler({ source: 'drive', driveFileId: 9, pages: [1, 2, 3] })) as McpContent[];
+    expect(vi.mocked(c.viewDriveFile).mock.calls).toEqual([[9, 1], [9, 2], [9, 3]]);
+    expect(out.filter((b) => b.type === 'image')).toHaveLength(3);
+    expect(c.readDriveFileText).not.toHaveBeenCalled();
+  });
+
+  it('wiki·message + pages: 소스별 /view', async () => {
+    const c = mockClient();
+    await readAttachment(c).handler({ source: 'wiki', pageId: 7, attachmentId: 55, pages: [1] });
+    expect(c.viewWikiAttachment).toHaveBeenCalledWith(7, 55, 1);
+    await readAttachment(c).handler({ source: 'message', channelId: 3, messageId: 40, attachmentId: 55, pages: [5] });
+    expect(c.viewMessageAttachment).toHaveBeenCalledWith(3, 40, 55, 5);
+  });
+
+  it('mail + pages: 던지지 않고 아직 지원하지 않는다는 문구', async () => {
+    const c = mockClient();
+    const out = await readAttachment(c).handler({ source: 'mail', attachmentId: 55, pages: [1] });
+    expect(out).toContain('메일 첨부는 아직 페이지 보기를 지원하지 않습니다');
+    expect(c.readMailAttachmentText).not.toHaveBeenCalled();
+  });
+
+  it('pages 는 1~3개, 1부터 — 4쪽 이상·0쪽은 스키마가 거절', async () => {
+    const tool = readAttachment(mockClient());
+    await expect(tool.handler({ source: 'drive', driveFileId: 9, pages: [1, 2, 3, 4] })).rejects.toThrow();
+    await expect(tool.handler({ source: 'drive', driveFileId: 9, pages: [0] })).rejects.toThrow();
+  });
+
+  it('범위 밖 쪽(서버 400)은 던지지 않고 사유를 text 로', async () => {
+    const c = mockClient();
+    vi.mocked(c.viewDriveFile).mockRejectedValue(new Error('API 오류 400: 이 PDF 는 6쪽입니다. 1~6 사이 페이지를 지정하세요.'));
+    const out = await readAttachment(c).handler({ source: 'drive', driveFileId: 9, pages: [9] });
+    expect(out).toContain('이 PDF 는 6쪽입니다');
+  });
+
+  it('READY PDF: pageCount 를 싣고 그림·스캔 쪽은 pages 로 보라는 note — imageInput:false 면 note 없음', async () => {
+    const c = mockClient();
+    vi.mocked(c.readIssueAttachmentText).mockResolvedValue(PDF_READY);
+    const on = JSON.parse(resultText(await readAttachment(c).handler({ source: 'issue', issueKey: 'WP-1', attachmentId: 55 })));
+    expect(on).toMatchObject({ pageCount: 6, note: '그림·도표·스캔 페이지는 pages 로 이미지를 볼 수 있습니다.' });
+    const off = JSON.parse(resultText(await readAttachment(c, { imageInput: false }).handler({ source: 'issue', issueKey: 'WP-1', attachmentId: 55 })));
+    expect(off.pageCount).toBe(6);
+    expect(off).not.toHaveProperty('note');
+  });
+
+  it('드라이브 READY PDF 는 고쳐 쓰기 안내와 pages 안내를 함께 싣는다(한쪽이 다른 쪽을 덮지 않게)', async () => {
+    const c = mockClient();
+    vi.mocked(c.readDriveFileText).mockResolvedValue({ ...PDF_READY, nextOffset: 2 });
+    const out = JSON.parse(resultText(await readAttachment(c).handler({ source: 'drive', driveFileId: 9 })));
+    expect(out.note).toContain('Partial text');
+    expect(out.note).toContain('pages 로 이미지를 볼 수 있습니다');
+  });
+
+  it('스캔 PDF(SKIPPED·SCANNED_PDF): pages 로 읽으라는 note. imageInput:false 면 모델을 바꾸라는 안내', async () => {
+    const c = mockClient();
+    vi.mocked(c.readDriveFileText).mockResolvedValue(SCANNED);
+    const on = JSON.parse(resultText(await readAttachment(c).handler({ source: 'drive', driveFileId: 9 })));
+    expect(on.note).toBe('글자가 없는 스캔 PDF(4쪽)입니다. pages 로 페이지 이미지를 읽으세요.');
+    const off = JSON.parse(resultText(await readAttachment(c, { imageInput: false }).handler({ source: 'drive', driveFileId: 9 })));
+    expect(off.note).toBe('이 모델은 이미지를 볼 수 없어 읽을 수 없습니다. 비서 설정에서 이미지를 볼 수 있는 모델로 바꾸면 읽을 수 있습니다.');
+  });
+
+  it('스캔 PDF 의 쪽수를 아직 모르면(null) 쪽수 없이 안내한다', async () => {
+    const c = mockClient();
+    vi.mocked(c.readIssueAttachmentText).mockResolvedValue({ ...SCANNED, pageCount: null });
+    const out = JSON.parse(resultText(await readAttachment(c).handler({ source: 'issue', issueKey: 'WP-1', attachmentId: 55 })));
+    expect(out.note).toBe('글자가 없는 스캔 PDF 입니다. pages 로 페이지 이미지를 읽으세요.');
+  });
+
+  it('메일 첨부에는 pages 안내를 붙이지 않는다(메일은 페이지 보기를 지원하지 않는다)', async () => {
+    const c = mockClient();
+    vi.mocked(c.readMailAttachmentText).mockResolvedValue(SCANNED);
+    expect(JSON.parse(resultText(await readAttachment(c).handler({ source: 'mail', attachmentId: 55 })))).not.toHaveProperty('note');
+  });
+
+  it('예산은 호출 사이에 공유된다 — ImageBudget(3) 으로 pages:[1,2] 두 번이면 두 번째는 다 썼다는 안내', async () => {
+    const c = mockClient();
+    const tool = readAttachment(c, { imageBudget: new ImageBudget(3) });
+    await tool.handler({ source: 'drive', driveFileId: 9, pages: [1, 2] });
+    expect(await tool.handler({ source: 'drive', driveFileId: 9, pages: [1, 2] })).toBe(IMAGE_BUDGET_EXHAUSTED);
+    expect(c.viewDriveFile).toHaveBeenCalledTimes(2);
+  });
+
+  it('이미지 원본 보기도 예산을 1장 쓴다', async () => {
+    const c = mockClient();
+    vi.mocked(c.readDriveFileText).mockResolvedValue(IMAGE_SKIP);
+    const tool = readAttachment(c, { imageBudget: new ImageBudget(1) });
+    await tool.handler({ source: 'drive', driveFileId: 9 });
+    expect(await tool.handler({ source: 'drive', driveFileId: 9 })).toBe(IMAGE_BUDGET_EXHAUSTED);
   });
 });

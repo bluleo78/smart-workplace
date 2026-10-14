@@ -623,4 +623,36 @@ describe('createSharedToolClient 첨부·파일 내용 읽기 경로(WP-346)', (
     http.get.mockRejectedValueOnce(new Error('Network Error'));
     await expect(client.downloadIssueAttachment('WP-12', 3)).rejects.toThrow('Network Error');
   });
+  // WP-250: 모델 입력용 이미지(/view) — PDF 쪽은 ?page= 쿼리, 이미지 변환본은 쿼리 없이. X-Page-Count 는 전체 쪽수로.
+  it('첨부·파일 이미지 보기 — 소스별 /view 경로, page 는 줄 때만 쿼리로', async () => {
+    const { http, client } = mockHttp();
+    const opts = { responseType: 'arraybuffer', maxContentLength: 3_932_160, maxBodyLength: 3_932_160 };
+    for (const [call, url] of [
+      [() => client.viewIssueAttachment('WP-12', 3, 2), '/projects/WP/issues/12/attachments/3/view?page=2'],
+      [() => client.viewIssueAttachment('WP-12', 3), '/projects/WP/issues/12/attachments/3/view'],
+      [() => client.viewDriveFile(9, 1), '/drive/files/9/view?page=1'],
+      [() => client.viewWikiAttachment(7, 55), '/wiki/pages/7/attachments/55/view'],
+      [() => client.viewMessageAttachment(3, 40, 55, 4), '/messaging/channels/3/messages/40/attachments/55/view?page=4'],
+    ] as const) {
+      http.get.mockResolvedValueOnce({ data: Buffer.from([1]), headers: { 'content-type': 'image/png', 'x-page-count': '6' } });
+      const v = await call();
+      expect(http.get).toHaveBeenLastCalledWith(url, opts);
+      expect(v).toMatchObject({ mimeType: 'image/png', pageCount: 6 });
+    }
+    // 헤더가 없으면(이미지 변환본) pageCount 도 없다.
+    http.get.mockResolvedValueOnce({ data: Buffer.from([1]), headers: { 'content-type': 'image/jpeg' } });
+    expect((await client.viewDriveFile(9)).pageCount).toBeUndefined();
+  });
+
+  it('바이너리 요청의 서버 오류 본문(바이트)을 ErrorResponse 로 풀어 한국어 사유를 message 로 올린다', async () => {
+    const { http, client } = mockHttp();
+    const body = Buffer.from(JSON.stringify({ message: '이 PDF 는 6쪽입니다. 1~6 사이 페이지를 지정하세요.' }));
+    http.get.mockRejectedValueOnce(
+      Object.assign(new Error('Request failed with status code 400'), { response: { status: 400, data: body } }),
+    );
+    const err = await client.viewDriveFile(9, 9).catch((e) => e);
+    expect(err.message).toBe('API 오류 400: 이 PDF 는 6쪽입니다. 1~6 사이 페이지를 지정하세요.');
+    // 앱 서버 레이어(workplace-mcp)는 response.data 로 다시 요약하므로 본문도 객체로 바꿔 둔다.
+    expect(err.response.data).toEqual({ message: '이 PDF 는 6쪽입니다. 1~6 사이 페이지를 지정하세요.' });
+  });
 });

@@ -182,6 +182,11 @@ function sharedMock(): MockedShared {
     downloadMessageAttachment: vi.fn(),
     readMailAttachmentText: vi.fn(),
     downloadMailAttachment: vi.fn(),
+    // WP-250: 모델 입력용 이미지(/view).
+    viewIssueAttachment: vi.fn(),
+    viewDriveFile: vi.fn(),
+    viewWikiAttachment: vi.fn(),
+    viewMessageAttachment: vi.fn(),
   };
 }
 
