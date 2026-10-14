@@ -122,6 +122,42 @@ class AiTasksControllerTest extends IntegrationTestBase {
   }
 
   @Test
+  void MINE_은_내가_담당자_워커_보고자_중_하나이면_보인다_WP395() throws Exception {
+    // 내가 만들고 AI 에게 맡김.
+    long reportedByMeDelegated = issue("reported-me-delegated", me);
+    assign(reportedByMeDelegated, agent);
+    work(reportedByMeDelegated, agent, "WORKING");
+    // 다른 사람 이슈를 내가 AI 도구로 작업.
+    long othersIssueIWork = issue("others-issue-i-work", other);
+    work(othersIssueIWork, me, "WORKING");
+    // 내가 담당, 다른 사람이 AI 도구로 작업 — 지금까지는 안 보였던 경우.
+    long assignedToMeOthersWork = issue("assigned-me-others-work", other);
+    assign(assignedToMeOthersWork, me);
+    work(assignedToMeOthersWork, other, "WORKING");
+    // AI 와 내가 공동 담당(내가 만들지 않음) — 지금까지는 안 보였던 경우.
+    long coAssignedWithAgent = issue("co-assigned-with-agent", other);
+    assign(coAssignedWithAgent, agent);
+    assign(coAssignedWithAgent, me);
+    work(coAssignedWithAgent, agent, "WORKING");
+    // 내가 만들고 다른 사람이 담당, 그 사람이 AI 도구로 작업 — 지금까지는 안 보였던 경우.
+    long reportedByMeOthersWork = issue("reported-me-others-work", me);
+    assign(reportedByMeOthersWork, other);
+    work(reportedByMeOthersWork, other, "WORKING");
+    // 음성 대조군 — 담당·워커·보고자 어디에도 내가 없으면 여전히 안 보임.
+    long notMine = issue("not-mine", other);
+    assign(notMine, agent);
+    work(notMine, agent, "WORKING");
+
+    assertThat(titles(getJson("/api/v1/me/ai-tasks")))
+        .containsExactlyInAnyOrder(
+            "reported-me-delegated",
+            "others-issue-i-work",
+            "assigned-me-others-work",
+            "co-assigned-with-agent",
+            "reported-me-others-work");
+  }
+
+  @Test
   void ALL_은_접근가능한_모든_AI_이슈_접근불가_프로젝트_제외() throws Exception {
     long a = issue("a", me);
     assign(a, agent);
@@ -305,6 +341,34 @@ class AiTasksControllerTest extends IntegrationTestBase {
     assertThat(failed.at("/items/0/agentWork/0/state").asText()).isEqualTo("FAILED");
     assertThat(failed.at("/items/0/agentWork/0/endedAt").asText())
         .isEqualTo("2026-10-03T00:00:00Z");
+  }
+
+  /**
+   * WP-395 범위(보고자·담당자·작업자)는 완료 보기에도 같다. 대표 종료 작업은 행을 걸리게 한 근거의 후보 안에서 — 내가 담당한 이슈면 그 이슈의 사람 작업 중
+   * 최근, 내가 작업자로만 걸린 이슈면 내 작업 중 최근.
+   */
+  @Test
+  void 완료_보기도_담당자를_나와_관련에_포함하고_대표는_걸린_근거의_후보에서() throws Exception {
+    // 내가 담당, 다른 사람이 AI 도구로 끝냄(취소 10-06) — 내 반려(10-02)보다 최근인 남의 작업이 대표.
+    long assignedToMe = issue("assigned-me", other);
+    assign(assignedToMe, me);
+    endedWork(assignedToMe, me, "REJECTED", Instant.parse("2026-10-02T00:00:00Z"));
+    endedWork(assignedToMe, other, "CANCELED", Instant.parse("2026-10-06T00:00:00Z"));
+    // AI 와 내가 공동 담당(내가 만들지 않음) — AI 의 완료.
+    long coAssigned = issue("co-assigned", other);
+    assign(coAssigned, agent);
+    assign(coAssigned, me);
+    endedWork(coAssigned, agent, "COMPLETED", Instant.parse("2026-10-05T00:00:00Z"));
+    // 담당·보고자 아님 — 다른 사람이 끝낸 작업만 있으면 나와 관련 밖.
+    long notMine = issue("not-mine", other);
+    endedWork(notMine, other, "COMPLETED", Instant.parse("2026-10-07T00:00:00Z"));
+
+    JsonNode body = getJson("/api/v1/me/ai-tasks?agentState=" + DONE_STATES);
+    assertThat(titles(body)).containsExactly("assigned-me", "co-assigned");
+    assertThat(body.at("/items/0/agentWork/0/state").asText()).isEqualTo("CANCELED");
+    assertThat(body.at("/items/0/agentWork/0/worker/id").asLong()).isEqualTo(other);
+    assertThat(body.at("/items/1/agentWork/0/state").asText()).isEqualTo("COMPLETED");
+    assertThat(counts("/api/v1/me/ai-tasks/counts")).containsEntry("done", 2);
   }
 
   /** 미완료 보기 행은 진행 중 작업만 싣는다 — 종료 시각(endedAt)도, 예전 종료 작업도 섞이지 않는다. */

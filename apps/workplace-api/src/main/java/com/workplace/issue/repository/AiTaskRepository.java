@@ -112,20 +112,57 @@ public class AiTaskRepository {
   }
 
   /**
+   * "나와 관련" 판정(WP-395) — 이슈 단위 두 조건. issueMine: 내가 보고자이거나 담당자(전체 범위면 항상 참). delegated: AI 구성원이
+   * 담당자이고 issueMine. 작업 단위 조건(작업자가 나)은 {@link WorkSummary} 의 my* 집계가 맡는다.
+   */
+  private record Scope(Condition delegated, Condition issueMine) {}
+
+  private static Scope scope(long callerId, boolean all) {
+    Condition agentAssigned =
+        exists(
+            selectOne()
+                .from(ISSUE_ASSIGNEE)
+                .join(USER)
+                .on(USER.ID.eq(ISSUE_ASSIGNEE.USER_ID))
+                .where(ISSUE_ASSIGNEE.ISSUE_ID.eq(ISSUE.ID))
+                .and(USER.KIND.eq(UserKind.AGENT)));
+    if (all) return new Scope(agentAssigned, DSL.trueCondition());
+    Condition assignedToMe =
+        exists(
+            selectOne()
+                .from(ISSUE_ASSIGNEE)
+                .where(ISSUE_ASSIGNEE.ISSUE_ID.eq(ISSUE.ID))
+                .and(ISSUE_ASSIGNEE.USER_ID.eq(callerId)));
+    Condition issueMine = ISSUE.REPORTER_ID.eq(callerId).or(assignedToMe);
+    return new Scope(agentAssigned.and(issueMine), issueMine);
+  }
+
+  /** 내가 작업자인 사람 작업(전체 범위면 모든 사람 작업) — USER 가 조인돼 있어야 한다. */
+  private static Condition myHumanWork(long callerId, boolean all) {
+    Condition human = USER.KIND.eq(UserKind.HUMAN);
+    return all ? human : human.and(AGENT_WORK.WORKER_ID.eq(callerId));
+  }
+
+  /**
    * 이슈 1건의 AI 작업 요약(WP-396) — 바깥 ISSUE 행마다 LATERAL 로 agent_work 를 <b>한 번만</b> 훑어 미완료·완료 판정과 정렬 키에
    * 필요한 값을 모두 집계한다(같은 상관 서브쿼리를 조건마다 되풀이하지 않게). 집계만 있고 GROUP BY 가 없어 작업이 없어도 한 행(값은 NULL)이 나온다.
    *
    * <p>"진행 중"은 {@link AgentWorkRepository#liveWork} 와 같은 정의(ended_at IS NULL + 이슈 미종료)다 — 행
-   * 조건(ended_at)은 집계 안에서, 이슈 조건은 {@link #hasLive} 에서 건다. mine 은 "나와 관련" ASSISTED 의 사람 작업(전체 범위면 모든
-   * 사람 작업).
+   * 조건(ended_at)은 집계 안에서, 이슈 조건은 {@link #hasLive} 에서 건다.
+   *
+   * <p>행이 걸리는 근거는 셋이고(WP-395), 후보 작업이 좁아지는 순서로 포개진다: AI 담당(delegated → 모든 작업) ⊇ 내 이슈(issueMine → 사람
+   * 작업) ⊇ 내 작업(작업자가 나인 사람 작업). 완료 보기의 정렬 시각·대표 종료 작업은 그 행을 걸리게 한 가장 넓은 근거의 후보 안에서 고른다 — 걸린 이유와 배지가
+   * 어긋나지 않게.
    */
   private static final class WorkSummary {
     final Table<?> table;
     final Field<Integer> liveRank;
     final Field<OffsetDateTime> liveAt;
-    final Field<Boolean> mineLive;
+    final Field<Boolean> humanLive;
+    final Field<Boolean> myLive;
     final Field<OffsetDateTime> doneAt;
-    final Field<OffsetDateTime> mineDoneAt;
+    final Field<OffsetDateTime> humanDoneAt;
+    final Field<OffsetDateTime> myDoneAt;
 
     /** liveStateSets 순서대로 — 그 상태들 중 하나인 진행 중 작업이 있는지. */
     final List<Field<Boolean>> liveIn = new ArrayList<>();
@@ -138,13 +175,16 @@ public class AiTaskRepository {
         long callerId, boolean all, Collection<String> terminal, List<List<String>> liveStateSets) {
       Condition live = AGENT_WORK.ENDED_AT.isNull();
       Condition ended = AGENT_WORK.ENDED_AT.isNotNull().and(AGENT_WORK.STATE.in(terminal));
-      Condition mine = humanWorker(callerId, all);
+      Condition human = USER.KIND.eq(UserKind.HUMAN);
+      Condition mine = myHumanWork(callerId, all);
       List<SelectField<?>> cols = new ArrayList<>();
       cols.add(min(stateRankCase()).filterWhere(live).as("w_live_rank"));
       cols.add(max(AGENT_WORK.UPDATED_AT).filterWhere(live).as("w_live_at"));
-      cols.add(DSL.boolOr(live.and(mine)).as("w_mine_live"));
+      cols.add(DSL.boolOr(live.and(human)).as("w_human_live"));
+      cols.add(DSL.boolOr(live.and(mine)).as("w_my_live"));
       cols.add(max(AGENT_WORK.ENDED_AT).filterWhere(ended).as("w_done_at"));
-      cols.add(max(AGENT_WORK.ENDED_AT).filterWhere(ended.and(mine)).as("w_mine_done_at"));
+      cols.add(max(AGENT_WORK.ENDED_AT).filterWhere(ended.and(human)).as("w_human_done_at"));
+      cols.add(max(AGENT_WORK.ENDED_AT).filterWhere(ended.and(mine)).as("w_my_done_at"));
       for (int i = 0; i < liveStateSets.size(); i++) {
         cols.add(
             DSL.boolOr(live.and(AGENT_WORK.STATE.in(liveStateSets.get(i)))).as("w_live_in_" + i));
@@ -159,9 +199,11 @@ public class AiTaskRepository {
               .as("aw");
       liveRank = table.field("w_live_rank", Integer.class);
       liveAt = table.field("w_live_at", OffsetDateTime.class);
-      mineLive = table.field("w_mine_live", Boolean.class);
+      humanLive = table.field("w_human_live", Boolean.class);
+      myLive = table.field("w_my_live", Boolean.class);
       doneAt = table.field("w_done_at", OffsetDateTime.class);
-      mineDoneAt = table.field("w_mine_done_at", OffsetDateTime.class);
+      humanDoneAt = table.field("w_human_done_at", OffsetDateTime.class);
+      myDoneAt = table.field("w_my_done_at", OffsetDateTime.class);
       for (int i = 0; i < liveStateSets.size(); i++) {
         liveIn.add(table.field("w_live_in_" + i, Boolean.class));
       }
@@ -172,17 +214,26 @@ public class AiTaskRepository {
       return liveRank.isNotNull().and(ISSUE.STATUS.notIn(IssueStatuses.CLOSED));
     }
 
-    /** 미완료 보기 — 살아 있는 작업이 있고, AI 담당(delegated)이거나 (나의) 사람 작업이 진행 중. */
-    Condition open(Condition delegated) {
-      return hasLive().and(delegated.or(DSL.condition(mineLive)));
+    /** 미완료 보기 — 살아 있는 작업이 있고, AI 담당이거나 / 내 이슈에서 사람 작업이 진행 중이거나 / 내 사람 작업이 진행 중. */
+    Condition open(Scope sc) {
+      return hasLive()
+          .and(
+              sc.delegated()
+                  .or(sc.issueMine().and(DSL.condition(humanLive)))
+                  .or(DSL.condition(myLive)));
     }
 
     /**
-     * 완료 보기 — 살아 있는 작업이 없고(미완료와 배타), 요청한 종료 상태의 종료 작업이 있음. AI 담당이면 누구의 종료 작업이든, 아니면 (나의) 사람 종료 작업만
-     * — 행을 걸리게 한 이 조건이 대표 종료 작업 선택({@link #endedWorkId})과 정렬 시각에도 그대로 쓰인다.
+     * 완료 보기 — 살아 있는 작업이 없고(미완료와 배타), 요청한 종료 상태의 종료 작업이 근거별 후보(AI 담당 → 모든 작업, 내 이슈 → 사람 작업, 그 밖 → 내
+     * 사람 작업) 안에 있음. 같은 후보가 정렬 시각({@link #sortAt})과 대표 종료 작업({@link #endedWorkId})에도 쓰인다.
      */
-    Condition done(Condition delegated) {
-      return DSL.not(hasLive()).and(delegated.and(doneAt.isNotNull()).or(mineDoneAt.isNotNull()));
+    Condition done(Scope sc) {
+      return DSL.not(hasLive())
+          .and(
+              sc.delegated()
+                  .and(doneAt.isNotNull())
+                  .or(sc.issueMine().and(humanDoneAt.isNotNull()))
+                  .or(myDoneAt.isNotNull()));
     }
 
     /** 정렬 키 1 — 살아 있는 작업 중 가장 급한 상태의 순위, 없으면 맨 뒤(NO_WORK_RANK). */
@@ -190,30 +241,13 @@ public class AiTaskRepository {
       return when(hasLive(), liveRank).otherwise(inline(AgentWorkState.NO_WORK_RANK));
     }
 
-    /** 정렬 키 2 — 살아 있는 작업의 마지막 보고 시각, 없으면(완료 보기) 행을 걸리게 한 종료 작업의 최근 종료 시각, 그것도 없으면 이슈 수정 시각. */
-    Field<OffsetDateTime> sortAt(Condition delegated) {
+    /** 정렬 키 2 — 살아 있는 작업의 마지막 보고 시각, 없으면(완료 보기) 근거별 후보의 최근 종료 시각, 그것도 없으면 이슈 수정 시각. */
+    Field<OffsetDateTime> sortAt(Scope sc) {
       return coalesce(
-          when(hasLive(), liveAt), when(delegated, doneAt).otherwise(mineDoneAt), ISSUE.UPDATED_AT);
+          when(hasLive(), liveAt),
+          when(sc.delegated(), doneAt).when(sc.issueMine(), humanDoneAt).otherwise(myDoneAt),
+          ISSUE.UPDATED_AT);
     }
-  }
-
-  /** "나와 관련"이면 내가 작업자인 사람 작업, 전체면 모든 사람 작업(ASSISTED) — USER 가 조인돼 있어야 한다. */
-  private static Condition humanWorker(long callerId, boolean all) {
-    Condition human = USER.KIND.eq(UserKind.HUMAN);
-    return all ? human : human.and(AGENT_WORK.WORKER_ID.eq(callerId));
-  }
-
-  /** AI 담당(DELEGATED) — 담당자에 AI 구성원. "나와 관련"이면 내가 만든 이슈만(기존 웹 규칙). */
-  private static Condition delegated(long callerId, boolean all) {
-    Condition d =
-        exists(
-            selectOne()
-                .from(ISSUE_ASSIGNEE)
-                .join(USER)
-                .on(USER.ID.eq(ISSUE_ASSIGNEE.USER_ID))
-                .where(ISSUE_ASSIGNEE.ISSUE_ID.eq(ISSUE.ID))
-                .and(USER.KIND.eq(UserKind.AGENT)));
-    return all ? d : d.and(ISSUE.REPORTER_ID.eq(callerId));
   }
 
   /**
@@ -233,9 +267,8 @@ public class AiTaskRepository {
             q.all(),
             terminal.isEmpty() ? AgentWorkState.TERMINAL : terminal,
             active.isEmpty() ? List.of() : List.of(active));
-    Condition delegated = delegated(callerId, q.all());
-    Condition where =
-        facetCondition(callerId, q).and(viewCondition(w, delegated, active, terminal));
+    Scope sc = scope(callerId, q.all());
+    Condition where = facetCondition(callerId, q).and(viewCondition(w, sc, active, terminal));
 
     var selfType = ISSUE_TYPE_DEF.as("ai_self_type");
     var parent = ISSUE.as("ai_parent");
@@ -253,10 +286,11 @@ public class AiTaskRepository {
         dsl.select(
                 ISSUE.ID.as("b_id"),
                 w.rank().as("b_rank"),
-                w.sortAt(delegated).as("b_sort_at"),
+                w.sortAt(sc).as("b_sort_at"),
                 groupKey.as("b_group"),
                 epicNumber.as("b_epic"),
-                field(delegated).as("b_delegated"))
+                field(sc.delegated()).as("b_delegated"),
+                field(sc.issueMine()).as("b_issue_mine"))
             .from(ISSUE)
             .crossJoin(w.table)
             .join(selfType)
@@ -273,6 +307,7 @@ public class AiTaskRepository {
     Field<Long> bGroup = base.field("b_group", Long.class);
     Field<Integer> bEpic = base.field("b_epic", Integer.class);
     Field<Boolean> bDelegated = base.field("b_delegated", Boolean.class);
+    Field<Boolean> bIssueMine = base.field("b_issue_mine", Boolean.class);
 
     // 2단: 묶음 창 함수(묶음 순위·최근 시각·크기)와 머리 순서(에픽 자신 행이면 0).
     Table<?> ranked =
@@ -283,6 +318,7 @@ public class AiTaskRepository {
                 bGroup.as("r_group"),
                 bEpic.as("r_epic"),
                 bDelegated.as("r_delegated"),
+                bIssueMine.as("r_issue_mine"),
                 min(bRank).over(partitionBy(bGroup)).as("r_group_rank"),
                 max(bSortAt).over(partitionBy(bGroup)).as("r_group_sort_at"),
                 count().over(partitionBy(bGroup)).as("r_group_size"),
@@ -299,11 +335,12 @@ public class AiTaskRepository {
     Field<Integer> rGroupSize = ranked.field("r_group_size", Integer.class);
     Field<Integer> rHead = ranked.field("r_head", Integer.class);
     Field<Boolean> rDelegated = ranked.field("r_delegated", Boolean.class);
+    Field<Boolean> rIssueMine = ranked.field("r_issue_mine", Boolean.class);
     // 완료 보기를 요청했을 때만 행의 대표 종료 작업 id 를 고른다 — 미완료 보기 행에 종료 배지가 섞이지 않게(페이지 행에만 계산).
     Field<Long> endedWorkId =
         terminal.isEmpty()
             ? DSL.inline((Long) null, Long.class)
-            : endedWorkId(callerId, q.all(), rDelegated, terminal);
+            : endedWorkId(callerId, q.all(), rDelegated, rIssueMine, terminal);
 
     List<SelectField<?>> fields = new ArrayList<>(Arrays.asList(IssueRepository.ROW_FIELDS));
     fields.addAll(
@@ -368,7 +405,11 @@ public class AiTaskRepository {
    * 행에만 돈다(종료 인덱스 issue_id, ended_at DESC, id DESC 를 탄다).
    */
   private static Field<Long> endedWorkId(
-      long callerId, boolean all, Field<Boolean> delegated, Collection<String> terminal) {
+      long callerId,
+      boolean all,
+      Field<Boolean> delegated,
+      Field<Boolean> issueMine,
+      Collection<String> terminal) {
     return field(
         select(AGENT_WORK.ID)
             .from(AGENT_WORK)
@@ -377,7 +418,11 @@ public class AiTaskRepository {
             .where(AGENT_WORK.ISSUE_ID.eq(ISSUE.ID))
             .and(AGENT_WORK.ENDED_AT.isNotNull())
             .and(AGENT_WORK.STATE.in(terminal))
-            .and(DSL.condition(delegated).or(humanWorker(callerId, all)))
+            // 근거별 후보 — AI 담당이면 모든 작업, 내 이슈면 사람 작업, 그 밖은 내 사람 작업(WorkSummary 의 done·sortAt 과 같다).
+            .and(
+                DSL.condition(delegated)
+                    .or(DSL.condition(issueMine).and(USER.KIND.eq(UserKind.HUMAN)))
+                    .or(myHumanWork(callerId, all)))
             .orderBy(
                 AGENT_WORK.ENDED_AT.desc(),
                 when(AGENT_WORK.STATE.eq(AgentWorkState.CANCELED), inline(1)).otherwise(inline(0)),
@@ -439,9 +484,9 @@ public class AiTaskRepository {
    */
   public AiTaskCounts counts(long callerId, AiTaskQuery q) {
     WorkSummary w = new WorkSummary(callerId, q.all(), AgentWorkState.TERMINAL, CHIP_STATES);
-    Condition delegated = delegated(callerId, q.all());
-    Condition open = w.open(delegated);
-    Condition done = w.done(delegated);
+    Scope sc = scope(callerId, q.all());
+    Condition open = w.open(sc);
+    Condition done = w.done(sc);
     var r =
         dsl.select(
                 count().filterWhere(open),
@@ -473,11 +518,11 @@ public class AiTaskRepository {
    * 안에 있다.
    */
   private static Condition viewCondition(
-      WorkSummary w, Condition delegated, List<String> active, List<String> terminal) {
-    if (active.isEmpty() && terminal.isEmpty()) return w.open(delegated);
+      WorkSummary w, Scope sc, List<String> active, List<String> terminal) {
+    if (active.isEmpty() && terminal.isEmpty()) return w.open(sc);
     Condition c = DSL.falseCondition();
-    if (!active.isEmpty()) c = c.or(w.open(delegated).and(DSL.condition(w.liveIn.get(0))));
-    if (!terminal.isEmpty()) c = c.or(w.done(delegated));
+    if (!active.isEmpty()) c = c.or(w.open(sc).and(DSL.condition(w.liveIn.get(0))));
+    if (!terminal.isEmpty()) c = c.or(w.done(sc));
     return c;
   }
 
