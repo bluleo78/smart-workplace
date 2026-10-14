@@ -330,7 +330,6 @@ describe('registerStdioTool', () => {
   });
 });
 
-// WP-259: stdio MCP 클라이언트가 테넌트 헤더를 실제로 싣는지 HTTP 수준에서 확인한다.
 // WP-250: 설정 → buildTools 의 images 인자. 예산이 있으면 이 프로세스(= 실행별 서버)가 쓸 ImageBudget 을 하나 만든다.
 describe('imageOptionsFromConfig', () => {
   it('MCP_IMAGE_TOOLS·MCP_IMAGE_BUDGET 이 있으면 input true + 그 장수의 예산', () => {
@@ -354,6 +353,7 @@ describe('imageOptionsFromConfig', () => {
   });
 });
 
+// WP-259: stdio MCP 클라이언트가 테넌트 헤더를 실제로 싣는지 HTTP 수준에서 확인한다.
 describe('createClientFromConfig', () => {
   afterEach(() => nock.cleanAll());
 

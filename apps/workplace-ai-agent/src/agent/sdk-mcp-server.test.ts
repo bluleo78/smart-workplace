@@ -171,7 +171,7 @@ describe('buildInProcessWorkplaceMcpServer', () => {
 describe('실행당 이미지 예산 (WP-250)', () => {
   type AdaptedTool = { name: string; handler: (args: unknown, extra: unknown) => Promise<{ content: { type: string; text?: string }[] }> };
 
-  // 실제 buildTools 로 assistant 서버를 만들고 그 read_file 과 쪽 이미지 목을 돌려준다.
+  // 실제 buildTools 로 assistant 서버를 만들고, 그 read_file 호출 함수와 쪽 이미지를 돌려주는 viewDriveFile 목을 함께 돌려준다.
   async function serverReadFile() {
     const actual = await vi.importActual<typeof import('../mcp/tools.js')>('../mcp/tools.js');
     vi.mocked(buildTools).mockImplementationOnce(actual.buildTools);
