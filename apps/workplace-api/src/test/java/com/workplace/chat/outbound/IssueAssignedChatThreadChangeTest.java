@@ -73,7 +73,8 @@ class IssueAssignedChatThreadChangeTest extends IntegrationTestBase {
     assigneeService.replace(
         b.reporterId(), b.projectKey(), b.issueNumber(), List.of(b.assigneeId(), s.agentId()));
     clearInvocations(registry);
-    assigneeService.replace(b.reporterId(), b.projectKey(), b.issueNumber(), List.of(b.assigneeId()));
+    assigneeService.replace(
+        b.reporterId(), b.projectKey(), b.issueNumber(), List.of(b.assigneeId()));
     assertChatThreadReceived();
   }
 }
