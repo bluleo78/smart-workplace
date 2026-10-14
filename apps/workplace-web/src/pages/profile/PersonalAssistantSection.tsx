@@ -130,11 +130,23 @@ export function PersonalAssistantSection() {
     setVision('auto');
   };
 
+  // 모델이 바뀌면 이미지 입력 지정은 자동 감지로 되돌린다 — 지정한 값은 선택한 그 모델에만 적용되고,
+  // 다른 모델로 바꾸면 그 모델은 자동 감지가 기본이다(이전 모델의 지정이 새 모델에 따라가지 않게).
+  const onSelectModel = (model: string) => {
+    setSelectedModel(model);
+    setVision('auto');
+  };
+  const onManualModelChange = (model: string) => {
+    setManualModel(model);
+    setVision('auto');
+  };
+
   // 모델 목록 프로브 — 성공 시 모델 Select 노출, 실패 시 수동 입력 폴백 노출.
   const onProbeModels = async () => {
     setProbeError(null);
     setProbedModels(null);
     setSelectedModel('');
+    setVision('auto');
     try {
       const res = await probe.mutateAsync();
       setProbedModels(res.models);
@@ -529,7 +541,7 @@ export function PersonalAssistantSection() {
                 {probedModels != null ? (
                   <div className="space-y-1.5">
                     <Label htmlFor="credential-model-select">모델</Label>
-                    <Select value={selectedModel} onValueChange={setSelectedModel}>
+                    <Select value={selectedModel} onValueChange={onSelectModel}>
                       <SelectTrigger
                         id="credential-model-select"
                         data-testid="credential-model-select"
@@ -555,7 +567,7 @@ export function PersonalAssistantSection() {
                       id="credential-model-manual"
                       data-testid="credential-model-manual"
                       value={manualModel}
-                      onChange={(e) => setManualModel(e.target.value)}
+                      onChange={(e) => onManualModelChange(e.target.value)}
                       placeholder={`${presetKey}/model-id`}
                       autoComplete="off"
                     />

@@ -424,6 +424,46 @@ test.describe('/admin/agents — AI 연결 및 모델', () => {
     },
   );
 
+  test('opencode 이미지 입력 — 모델을 바꾸면 자동 감지로 되돌아가고 vision 키가 전송되지 않는다', async ({
+    adminPage: page,
+  }) => {
+    await setupBase(page);
+    const state = await setupCredential(page, { initial: 'absent' });
+    setupProbe(page, {
+      status: 200,
+      models: [
+        { id: 'amazon-bedrock-openai/openai.gpt-oss-120b-1:0', label: 'GPT-OSS 120B' },
+        { id: 'amazon-bedrock-openai/anthropic.claude-3-5-sonnet', label: 'Claude 3.5 Sonnet' },
+      ],
+    });
+
+    await enterAndSelect(page);
+    await page.getByTestId('oauth-token-register').click();
+    await page.getByTestId('credential-provider-opencode').click();
+    await page.getByTestId('credential-api-key').fill('sk-bedrock-test-key');
+    await page.getByTestId('credential-probe-models').click();
+
+    // 모델 A 선택 → "볼 수 있음" 지정.
+    await page.getByTestId('credential-model-select').click();
+    await page.getByRole('option', { name: 'GPT-OSS 120B' }).click();
+    const vision = page.getByTestId('credential-vision');
+    await vision.click();
+    await page.getByRole('option', { name: '볼 수 있음' }).click();
+    await expect(vision).toHaveText('볼 수 있음');
+
+    // 모델 B 로 바꾸면 지정이 사라지고 자동 감지로 돌아온다.
+    await page.getByTestId('credential-model-select').click();
+    await page.getByRole('option', { name: 'Claude 3.5 Sonnet' }).click();
+    await expect(vision).toHaveText('자동 감지');
+
+    await page.getByRole('button', { name: '연결하기' }).click();
+    await expect(page.getByText('AI에 연결했습니다.')).toBeVisible();
+
+    expect(state.posts.count()).toBe(1);
+    const body = state.posts.bodies()[0] as { providerConfig: Record<string, unknown> };
+    expect(body.providerConfig).not.toHaveProperty('vision');
+  });
+
   test('opencode 프로브 실패 → 수동 입력 모델에도 이미지 입력이 보이고 접두가 붙은 id 로 키가 잡힌다', async ({
     adminPage: page,
   }) => {

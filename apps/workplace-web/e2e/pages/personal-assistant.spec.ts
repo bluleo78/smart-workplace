@@ -286,6 +286,47 @@ test.describe('프로필 개인 비서', () => {
     ).toEqual({ 'amazon-bedrock-openai/openai.gpt-oss-120b-1:0': true })
   })
 
+  test('opencode 이미지 입력 — 모델을 바꾸면 자동 감지로 되돌아가고 vision 키가 전송되지 않는다', async ({
+    authenticatedPage: page,
+  }) => {
+    let configured = false
+    await mockStatus(page, () => (configured ? configuredStatus({ provider: 'opencode' }) : unconfiguredStatus()))
+    const requests = mockCredentialRegister(page, () => {
+      configured = true
+    })
+    mockProbe(page, {
+      status: 200,
+      models: [
+        { id: 'amazon-bedrock-openai/openai.gpt-oss-120b-1:0', label: 'GPT-OSS 120B' },
+        { id: 'amazon-bedrock-openai/anthropic.claude-3-5-sonnet', label: 'Claude 3.5 Sonnet' },
+      ],
+    })
+
+    await page.goto('/settings/assistant')
+    await page.getByTestId('credential-provider-opencode').click()
+    await page.getByTestId('credential-api-key').fill('sk-bedrock-test-key')
+    await page.getByTestId('credential-probe-models').click()
+
+    await page.getByTestId('credential-model-select').click()
+    await page.getByRole('option', { name: 'GPT-OSS 120B' }).click()
+    const vision = page.getByTestId('credential-vision')
+    await vision.click()
+    await page.getByRole('option', { name: '볼 수 없음' }).click()
+    await expect(vision).toHaveText('볼 수 없음')
+
+    await page.getByTestId('credential-model-select').click()
+    await page.getByRole('option', { name: 'Claude 3.5 Sonnet' }).click()
+    await expect(vision).toHaveText('자동 감지')
+
+    await page.getByRole('button', { name: '등록' }).click()
+    await expect(page.getByText('개인 비서를 등록했습니다.')).toBeVisible()
+
+    expect(requests.count()).toBe(1)
+    expect(requests.bodies<{ providerConfig: Record<string, unknown> }>()[0].providerConfig).not.toHaveProperty(
+      'vision',
+    )
+  })
+
   test('opencode 모델 미선택 → 제출 버튼 비활성(POST 호출 없음)', async ({
     authenticatedPage: page,
   }) => {
