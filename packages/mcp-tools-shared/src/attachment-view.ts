@@ -75,6 +75,8 @@ export async function withImageBudget(
  * 프록시 502·504 HTML 을 통째로 모델에 넘기지 않게). 응답이 없으면(네트워크 오류·plain Error) message.
  */
 function viewErrorText(e: unknown): string {
+  // /view 바이트가 다운로드 상한을 넘은 경우 — 원본이 아니라 서버가 변환한 이미지가 큰 것이라 주어를 바꿔 알린다.
+  if (e instanceof FileTooLargeError) return `변환한 이미지가 ${e.maxBytes}B 를 넘어 받지 않았습니다.`;
   const res = (e as { response?: { status?: number; data?: unknown } })?.response;
   if (res && res.data !== undefined) return describeApiError(res.status, res.data);
   return e instanceof Error ? e.message : String(e);

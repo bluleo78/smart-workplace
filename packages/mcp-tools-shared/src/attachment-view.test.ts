@@ -111,6 +111,14 @@ describe('pageBlocks', () => {
     expect(budget.take(1)).toBe(false);
   });
 
+  // 코드 리뷰: /view 상한 초과는 원본이 아니라 변환한 이미지가 큰 것이다 — 사유 주어를 바로 쓴다.
+  it('변환본이 다운로드 상한을 넘으면(FileTooLargeError) "변환한 이미지가" 로 알린다', async () => {
+    const out = await pageBlocks('"a.pdf"', [1], async () => {
+      throw new FileTooLargeError();
+    });
+    expect(out).toBe(`"a.pdf" 1쪽: 변환한 이미지가 ${new FileTooLargeError().maxBytes}B 를 넘어 받지 않았습니다.`);
+  });
+
   it('서버가 알려 준 전체 쪽수(X-Page-Count)를 설명에 붙인다', async () => {
     const out = (await pageBlocks('"보고서.pdf"', [2], async () => png({ pageCount: 6 }))) as McpContent[];
     expect(out[0]).toEqual({ type: 'text', text: '"보고서.pdf" 2쪽(전체 6쪽) (image/png, 4B)' });

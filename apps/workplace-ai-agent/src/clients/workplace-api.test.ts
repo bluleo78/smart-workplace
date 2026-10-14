@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import nock from 'nock';
 
-import { IMAGE_MAX_BYTES, parseIssueKey } from '@smart-workplace/mcp-tools-shared';
+import { FileTooLargeError, IMAGE_MAX_BYTES, parseIssueKey } from '@smart-workplace/mcp-tools-shared';
 
 import { createWorkplaceApiClient } from './workplace-api.js';
 
@@ -384,11 +384,12 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
     expect((err as { response: { data: unknown } }).response.data).toEqual({ message: '이 PDF 는 6쪽입니다.' });
   });
 
-  it('/view 는 이미지 상한(IMAGE_MAX_BYTES)을 넘는 응답을 받지 않고 한국어 사유로 던진다', async () => {
+  // 공유 getBytes 와 같은 규칙 — 상한 초과는 FileTooLargeError 로 던지고, 도구(pageBlocks·imageBlocksFor)가 "변환한 이미지가 …" 사유로 바꾼다.
+  it('/view 는 이미지 상한(IMAGE_MAX_BYTES)을 넘는 응답을 받지 않고 FileTooLargeError 로 던진다', async () => {
     nock(BASE)
       .get(`${PREFIX}/home/sessions/${SID}/attachments/8/view`)
       .reply(200, Buffer.alloc(IMAGE_MAX_BYTES + 1), { 'content-type': 'image/png' });
-    await expect(newClient().viewHomeAttachment(42, SID, 8)).rejects.toThrow(/변환한 이미지가 .*넘어 받지 않았습니다/);
+    await expect(newClient().viewHomeAttachment(42, SID, 8)).rejects.toBeInstanceOf(FileTooLargeError);
   });
 
   // --- WP-55: 사용자 메모리(요청자 대행) ---

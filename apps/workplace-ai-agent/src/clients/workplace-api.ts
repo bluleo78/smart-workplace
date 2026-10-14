@@ -10,14 +10,14 @@ import {
   createSharedToolClient,
   decodeErrorBody,
   describeApiError,
-  FileTooLargeError,
-  IMAGE_MAX_BYTES,
+  getBytes,
   parseIssueKey,
   type ExtractedTextSlice,
   type ExtractionStatus,
   type FileBytes,
   type HttpRequestConfig,
   type SharedToolClient,
+  viewUrl,
 } from '@smart-workplace/mcp-tools-shared';
 
 // WP-244: 첨부 추출 상태·구간 읽기 응답(WP-242 서버 계약 그대로). 구간 응답 타입은 공유 read_file 과 같은 정의를 쓴다(WP-346).
@@ -196,37 +196,6 @@ function rangeParams(offset?: number, limit?: number): Record<string, number> {
   return p;
 }
 
-/**
- * /view GET — 이미지 전용이라 공유 getBytes 와 같이 IMAGE_MAX_BYTES 상한을 건다(서버가 1MB 안팎으로 줄여 주지만 상한 없는 다운로드를 두지 않는다).
- * 상한을 넘으면 axios 의 maxContentLength 오류를 모델이 읽을 수 있는 한국어 사유로 바꿔 던진다(도구가 text 로 전한다).
- */
-async function getView(
-  http: AxiosInstance,
-  url: string,
-  config: { headers: Record<string, string>; params?: Record<string, number> },
-): Promise<FileBytes> {
-  try {
-    return toViewBytes(
-      await http.get(url, { ...config, responseType: 'arraybuffer', maxContentLength: IMAGE_MAX_BYTES, maxBodyLength: IMAGE_MAX_BYTES }),
-    );
-  } catch (e) {
-    if (/maxContentLength|maxBodyLength/.test(String((e as { message?: unknown })?.message ?? ''))) {
-      throw new Error(new FileTooLargeError().message.replace('원본이', '변환한 이미지가'));
-    }
-    throw e;
-  }
-}
-
-/** /view 응답 → FileBytes — Content-Type 원문과 X-Page-Count(양의 정수일 때만)를 싣는다. */
-function toViewBytes(r: { data: unknown; headers: Record<string, unknown> }): FileBytes {
-  const pageCount = Number(r.headers['x-page-count']);
-  return {
-    data: Buffer.from(r.data as ArrayBuffer),
-    mimeType: String(r.headers['content-type'] ?? 'application/octet-stream'),
-    ...(Number.isInteger(pageCount) && pageCount > 0 && { pageCount }),
-  };
-}
-
 export function createWorkplaceApiClient(opts: {
   baseURL?: string;
   internalToken: string;
@@ -256,6 +225,11 @@ export function createWorkplaceApiClient(opts: {
         ? { 'X-On-Behalf-Of-Tenant': String(opts.onBehalfOfTenantId) }
         : {}),
     },
+  });
+
+  // 공유 getBytes 에 넘길 GET — 대행 신원 헤더(X-On-Behalf-Of·테넌트)만 얹는다. 인증·오류 메시지 보강 인터셉터는 같은 http 인스턴스에서 적용된다.
+  const asAgent = (agentId: number) => ({
+    get: (url: string, config?: HttpRequestConfig) => http.get(url, { ...config, ...onBehalfOf(agentId) }),
   });
 
   return {
@@ -418,19 +392,14 @@ export function createWorkplaceApiClient(opts: {
       return { data: Buffer.from(r.data as ArrayBuffer), mimeType };
     },
 
-    // WP-250: /view 는 PDF 쪽(?page=N) 또는 이미지 변환본을 돌려준다. X-Page-Count(PDF 전체 쪽수)는 pageCount 로 싣는다.
+    // WP-250: /view 는 PDF 쪽(?page=N) 또는 이미지 변환본을 돌려준다. 받기는 공유 getBytes 하나로 — 이미지 상한(넘으면 FileTooLargeError),
+    // 오류 본문 풀기, X-Page-Count(PDF 전체 쪽수) → pageCount 를 공유 read_file 과 같은 규칙으로 처리한다.
     async viewHomeAttachment(onBehalfOfId, sessionId, fileId, page) {
-      return getView(http, `/home/sessions/${encodeURIComponent(sessionId)}/attachments/${fileId}/view`, {
-        ...onBehalfOf(onBehalfOfId),
-        ...(page !== undefined && { params: { page } }),
-      });
+      return getBytes(asAgent(onBehalfOfId), viewUrl(`/home/sessions/${encodeURIComponent(sessionId)}/attachments/${fileId}`, page));
     },
 
     async viewChatAttachment(agentId, threadId, fileId, page) {
-      return getView(http, `/chat/threads/${threadId}/attachments/${fileId}/view`, {
-        ...onBehalfOf(agentId),
-        ...(page !== undefined && { params: { page } }),
-      });
+      return getBytes(asAgent(agentId), viewUrl(`/chat/threads/${threadId}/attachments/${fileId}`, page));
     },
 
     async createAiMemory(onBehalfOfId, body) {

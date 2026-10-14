@@ -88,8 +88,9 @@ export function decodeErrorBody(e: unknown): void {
  * 크기 메타 없이 받는 경우(드라이브 파일 등)에도 이미지 상한을 넘는 다운로드를 막으려고 maxContentLength 를 건다 —
  * 초과하면 FileTooLargeError 로 바꿔 던져 도구가 "크기 초과" 안내로 잇게 한다. 원본 받기·/view 변환본(WP-250) 모두 이미지 전용이다
  * (변환본은 서버가 긴 변 1568px·1MB 안팎으로 줄여 같은 상한에 넉넉히 든다). /view 의 X-Page-Count 는 pageCount 로 싣는다.
+ * ai-agent 의 전용 첨부 도구(/view)도 이 함수를 쓴다 — 신원 헤더를 붙인 get 만 넘기면 된다(상한·오류 변환·쪽수 파싱을 한 곳에).
  */
-async function getBytes(http: HttpLike, url: string): Promise<FileBytes> {
+export async function getBytes(http: Pick<HttpLike, 'get'>, url: string): Promise<FileBytes> {
   let r;
   try {
     r = await http.get(url, { responseType: 'arraybuffer', maxContentLength: IMAGE_MAX_BYTES, maxBodyLength: IMAGE_MAX_BYTES });
@@ -108,7 +109,7 @@ async function getBytes(http: HttpLike, url: string): Promise<FileBytes> {
 }
 
 /** /view 경로 — page 는 PDF 쪽(1부터)이고 줄 때만 쿼리로 붙인다(이미지 변환본은 page 없이). */
-const viewUrl = (base: string, page?: number) => `${base}/view${page !== undefined ? `?page=${page}` : ''}`;
+export const viewUrl = (base: string, page?: number) => `${base}/view${page !== undefined ? `?page=${page}` : ''}`;
 
 /** 외부 연락처 force 쿼리 — 서버 기본값이 false 라 true 일 때만 붙인다(미지정과 같은 요청이 되도록). */
 const forceParams = (force?: boolean) => (force ? { params: { force } } : undefined);
