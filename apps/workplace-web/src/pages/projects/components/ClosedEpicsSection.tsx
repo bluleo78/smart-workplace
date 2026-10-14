@@ -9,13 +9,13 @@ import { SELECTED_ROW_CLASS } from '@/lib/selectionStyles';
 import { cn } from '@/lib/utils';
 
 import { ClosedStatusBadge } from '../../../components/issues/ClosedStatusBadge';
-import { useClosedEpics } from '../../../hooks/queries/useProjectEpics';
 import { presenceStyle } from '../../../lib/collab/presence';
+import type { IssueResponse } from '../../../types/issue';
 
+// epics: 종료 에픽 목록 — 패널이 useClosedEpics 로 한 번 받아 에픽 필터(WP-390)와 함께 쓴다.
 export function ClosedEpicsSection({
-  projectKey, selectedEpic, onSelect, hidden = false,
-}: { projectKey: string; selectedEpic: number | null; onSelect: (epicNumber: number) => void; hidden?: boolean }) {
-  const { epics } = useClosedEpics(projectKey);
+  projectKey, epics, selectedEpic, onSelect, hidden = false,
+}: { projectKey: string; epics: IssueResponse[]; selectedEpic: number | null; onSelect: (epicNumber: number) => void; hidden?: boolean }) {
   const [toggled, setToggled] = useState<boolean | null>(null);
   const autoOpen = selectedEpic != null && epics.some((e) => e.number === selectedEpic);
   const open = toggled ?? autoOpen;

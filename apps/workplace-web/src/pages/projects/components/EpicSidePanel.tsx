@@ -14,7 +14,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { SELECTED_ROW_CLASS } from '@/lib/selectionStyles';
 import { cn } from '@/lib/utils';
 
-import { useProjectEpics } from '../../../hooks/queries/useProjectEpics';
+import { useClosedEpics, useProjectEpics } from '../../../hooks/queries/useProjectEpics';
 import { presenceStyle } from '../../../lib/collab/presence';
 import { DROP_TARGET_CLASS } from '../../../lib/dndDropClass';
 import {
@@ -38,8 +38,10 @@ const ITEM_BASE = 'w-full rounded px-2 py-1.5 text-left text-sm transition-color
 export function EpicSidePanel({
   projectKey, canCreateIssue = false, floating = false,
 }: { projectKey: string; canCreateIssue?: boolean; floating?: boolean }) {
+  // 종료된 에픽(WP-245) — 아래 구역 목록이자, 에픽 필터가 「완료 모두 보기」를 켜고 끌 기준(WP-390). 한 번만 조회해 함께 쓴다.
+  const closedEpics = useClosedEpics(projectKey).epics;
   // 에픽 필터 범위(URL parent/topLevel) 읽기·쓰기는 훅이 맡는다 — 다른 필터·뷰·group 원값 보존 포함.
-  const { choice, select } = useEpicFilter(projectKey);
+  const { choice, select } = useEpicFilter(projectKey, closedEpics);
   // 「에픽 미할당」 = 부모 없는(topLevel) 비EPIC 이슈. 유형 필터와 독립.
   const unassignedActive = choice.kind === 'unassigned';
   const selectedEpic = choice.kind === 'epic' ? choice.number : null;
@@ -162,6 +164,7 @@ export function EpicSidePanel({
           마운트는 유지해 사용자의 펼침 상태를 드래그 후에도 보존한다(Review Focus 4). */}
         <ClosedEpicsSection
           projectKey={projectKey}
+          epics={closedEpics}
           selectedEpic={selectedEpic}
           onSelect={(n) => select({ kind: 'epic', number: n })}
           hidden={!!activeIssue || loading}
