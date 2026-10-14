@@ -8,6 +8,10 @@
 // 알 수 없으면 모델 엔트리를 비워 opencode 자체 판단(models.dev 등록 provider 는 capability 를 스스로 채움)에
 // 맡긴다 — 임의로 지원/미지원을 단정하면 텍스트 전용 모델에 이미지를 강제(provider 400)하거나 비전 모델의
 // 이미지를 빼앗게 된다.
+//
+// WP-250: 같은 `/models` 응답에서 모델의 컨텍스트 한도도 읽는다(resolveOpencodeModelLimit). opencode 는 config 에 limit 이 없는
+// custom provider 모델을 한도 0 으로 보고 미리 압축(compaction)하지 않는다 — 이미지가 쌓이는 긴 실행이 provider 거절 뒤에야
+// 압축되고, 그때 opencode 가 "첨부가 너무 커서 처리하지 못했다"는 안내를 모델에 넣는다(1.17.18 실측). 한도를 알면 그 전에 압축한다.
 import { createHash } from 'node:crypto';
 
 import { log } from '../logger.js';
@@ -19,12 +23,21 @@ export const VISION_CACHE_TTL_MS = 60 * 60 * 1000;
 export const VISION_FAILURE_TTL_MS = 5 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 3000;
 
-// credential 단위 캐시 값 — 모델 id → vision(필드 없으면 목록에서 제외). null = 조회 실패.
-type ModelVisionMap = Map<string, boolean> | null;
+// `/models` 에서 읽은 모델별 메타 — 값이 있을 때만 채운다(없음 = 판단 불가).
+interface ModelMeta {
+  vision?: boolean;
+  /** 컨텍스트 한도(토큰) — 입력+출력 합. */
+  context?: number;
+  /** 출력 한도(토큰). */
+  output?: number;
+}
 
-const cache = new Map<string, { value: ModelVisionMap; expiresAt: number }>();
+// credential 단위 캐시 값 — 모델 id → 메타(읽을 값이 하나도 없으면 목록에서 제외). null = 조회 실패.
+type ModelMetaMap = Map<string, ModelMeta> | null;
+
+const cache = new Map<string, { value: ModelMetaMap; expiresAt: number }>();
 // 같은 credential 동시 조회는 한 번만 보낸다.
-const inflight = new Map<string, Promise<ModelVisionMap>>();
+const inflight = new Map<string, Promise<ModelMetaMap>>();
 
 // 테스트 격리용 — 캐시·진행 중 조회 초기화.
 export function resetVisionCache(): void {
@@ -43,29 +56,45 @@ function manualVision(payload: OpencodeProviderConfig, modelID: string, provider
   return (providerID ? pick(`${providerID}/${modelID}`) : undefined) ?? pick(modelID);
 }
 
-type ModelEntry = { id?: unknown; capabilities?: { vision?: unknown }; metadata?: { capabilities?: { vision?: unknown } } };
+type ModelEntry = {
+  id?: unknown;
+  max_model_len?: unknown;
+  capabilities?: { vision?: unknown };
+  metadata?: { capabilities?: { vision?: unknown }; limits?: { max_context_length?: unknown; max_output_tokens?: unknown } };
+};
 
-// `/models` 응답(OpenAI 호환 `{ data: [{ id, ... }] }`) → 모델별 vision 맵. vision 위치는 provider 마다 달라
-// `metadata.capabilities.vision`(neuralwatt 실측)과 `capabilities.vision` 을 모두 본다. boolean 인 모델만 담는다(없음 = 판단 불가).
-export function parseModelsVision(body: unknown): Map<string, boolean> {
-  const out = new Map<string, boolean>();
+const positiveInt = (v: unknown): number | undefined => (typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : undefined);
+
+// `/models` 응답(OpenAI 호환 `{ data: [{ id, ... }] }`) → 모델별 메타. 위치는 provider 마다 달라 여러 곳을 본다:
+//  · vision — `metadata.capabilities.vision`(neuralwatt 실측)과 `capabilities.vision`. boolean 일 때만.
+//  · context — `max_model_len`(vLLM 표준 필드 — 서버가 실제로 거절하는 길이)과 `metadata.limits.max_context_length`(neuralwatt 실측). 양의 정수일 때만.
+//  · output — `metadata.limits.max_output_tokens`(neuralwatt 실측). 양의 정수일 때만.
+export function parseModelsMeta(body: unknown): Map<string, ModelMeta> {
+  const out = new Map<string, ModelMeta>();
   const data = (body as { data?: unknown })?.data;
   if (!Array.isArray(data)) return out;
   for (const m of data as ModelEntry[]) {
-    const vision = m?.metadata?.capabilities?.vision ?? m?.capabilities?.vision;
-    if (typeof m?.id === 'string' && typeof vision === 'boolean') out.set(m.id, vision);
+    if (typeof m?.id !== 'string') continue;
+    const meta: ModelMeta = {};
+    const vision = m.metadata?.capabilities?.vision ?? m.capabilities?.vision;
+    if (typeof vision === 'boolean') meta.vision = vision;
+    const context = positiveInt(m.max_model_len) ?? positiveInt(m.metadata?.limits?.max_context_length);
+    if (context) meta.context = context;
+    const output = positiveInt(m.metadata?.limits?.max_output_tokens);
+    if (output) meta.output = output;
+    if (Object.keys(meta).length > 0) out.set(m.id, meta);
   }
   return out;
 }
 
-async function fetchModelsVision(baseURL: string, apiKey: string | undefined): Promise<ModelVisionMap> {
+async function fetchModelsMeta(baseURL: string, apiKey: string | undefined): Promise<ModelMetaMap> {
   try {
     const res = await fetch(`${baseURL.replace(/\/+$/, '')}/models`, {
       headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return parseModelsVision(await res.json());
+    return parseModelsMeta(await res.json());
   } catch (e) {
     log.error('opencode-vision', 'models_fetch_fail', {
       baseURL,
@@ -75,15 +104,15 @@ async function fetchModelsVision(baseURL: string, apiKey: string | undefined): P
   }
 }
 
-// credential(baseURL+apiKey) 단위로 캐시된 모델 vision 맵을 얻는다. 키는 해시로 저장해 비밀을 메모리 키에 두지 않는다.
-async function getModelsVision(baseURL: string, apiKey: string | undefined): Promise<ModelVisionMap> {
+// credential(baseURL+apiKey) 단위로 캐시된 모델 메타 맵을 얻는다(비전·한도 판단이 같은 조회를 나눠 쓴다). 키는 해시로 저장해 비밀을 메모리 키에 두지 않는다.
+async function getModelsMeta(baseURL: string, apiKey: string | undefined): Promise<ModelMetaMap> {
   const key = createHash('sha256').update(`${baseURL}\0${apiKey ?? ''}`).digest('hex');
   const hit = cache.get(key);
   if (hit && hit.expiresAt > Date.now()) return hit.value;
   if (hit) cache.delete(key); // 만료분은 비워 회전된 키의 목록이 남지 않게 한다
   const pending = inflight.get(key);
   if (pending) return pending;
-  const p = fetchModelsVision(baseURL, apiKey)
+  const p = fetchModelsMeta(baseURL, apiKey)
     .then((value) => {
       cache.set(key, {
         value,
@@ -110,10 +139,15 @@ export async function resolveOpencodeVision(
 ): Promise<OpencodeVision> {
   const manual = manualVision(payload, modelID, providerID);
   if (manual !== undefined) return manual;
+  return (await modelMeta(payload, modelID))?.vision;
+}
+
+// credential 의 `/models` 에서 이 모델의 메타 — baseURL 이 없으면(models.dev 등록 provider) 조회하지 않는다. 조회 실패 = undefined.
+async function modelMeta(payload: OpencodeProviderConfig, modelID: string): Promise<ModelMeta | undefined> {
   const baseURL = payload.options?.baseURL;
   const apiKey = payload.options?.apiKey;
   if (typeof baseURL !== 'string' || !baseURL) return undefined;
-  const models = await getModelsVision(baseURL, typeof apiKey === 'string' ? apiKey : undefined);
+  const models = await getModelsMeta(baseURL, typeof apiKey === 'string' ? apiKey : undefined);
   return models?.get(modelID);
 }
 
@@ -136,6 +170,34 @@ export async function opencodeVisionFor(credential: ProviderCredential, model: s
   if (credential.provider !== 'opencode') return undefined;
   try {
     return { value: await resolveOpencodeModelVision(credential.payload, model) };
+  } catch {
+    return undefined;
+  }
+}
+
+/** opencode 모델 엔트리의 limit — 없으면 opencode 판단(models.dev 등록 모델은 자체 한도, custom 은 0 = 미리 압축하지 않음). */
+export type OpencodeModelLimit = { context: number; output: number } | undefined;
+
+/** opencode 가 요청 max_tokens 와 압축 기준에 쓰는 출력 상한(ProviderTransform.OUTPUT_TOKEN_MAX, 1.17.18 바이너리 확인). */
+const OPENCODE_OUTPUT_TOKEN_MAX = 32_000;
+
+/**
+ * provider `/models` 가 알려 준 컨텍스트 한도로 opencode 모델 limit 을 만든다(WP-250). 값이 없으면 기본값을 지어내지 않고 undefined.
+ * opencode 는 (마지막 응답의 토큰 합) ≥ context − min(output || 32000, 32000) 이면 미리 압축한다. 출력 한도를 모르면 output 0 —
+ * opencode 가 "모름"으로 보는 값이라 요청 max_tokens 는 지금처럼 32000 이고, 그 길이로는 provider 도 같은 지점에서 거절한다.
+ * 쓸 수 있는 길이(context − 출력 몫)가 0 이하면 매 단계 압축만 되풀이하므로 limit 을 두지 않는다. 예외를 던지지 않는다.
+ * 주의: config 의 limit 은 opencode 의 models.dev 값보다 우선한다 — models.dev 등록 provider 에서 출력 한도를 모르면 output 0 이
+ * models.dev 의 출력 한도를 덮는다(그 값이 32000 미만이면 요청 max_tokens 가 32000 으로 오른다).
+ */
+export async function resolveOpencodeModelLimit(payload: OpencodeProviderConfig, model: string): Promise<OpencodeModelLimit> {
+  try {
+    const { modelID } = splitOpencodeModel(model);
+    const meta = await modelMeta(payload, modelID);
+    if (!meta?.context) return undefined;
+    const output = meta.output ?? 0;
+    const reserved = Math.min(output || OPENCODE_OUTPUT_TOKEN_MAX, OPENCODE_OUTPUT_TOKEN_MAX);
+    if (meta.context <= reserved) return undefined;
+    return { context: meta.context, output };
   } catch {
     return undefined;
   }

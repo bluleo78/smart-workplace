@@ -114,6 +114,18 @@ describe('buildOpencodeConfig', () => {
     });
   });
 
+  // WP-250: provider /models 가 알려 준 한도는 모델 엔트리 limit 으로 — opencode 가 한도에 닿기 전에 압축한다. 없으면 선언하지 않는다.
+  it('모델 한도(limit)가 있으면 모델 엔트리에 선언하고, 없으면 두지 않는다(WP-250)', () => {
+    const models = (opts: Parameters<typeof buildOpencodeConfig>[3]) =>
+      (buildOpencodeConfig(baseInput(), 'run-1', ['cmd'], opts).provider as Record<string, { models: Record<string, unknown> }>).openai.models['gpt-5'];
+    expect(models({ vision: true, limit: { context: 262128, output: 0 } })).toEqual({
+      modalities: { input: ['text', 'image'], output: ['text'] },
+      limit: { context: 262128, output: 0 },
+    });
+    expect(models({ vision: undefined, limit: { context: 65536, output: 8192 } })).toEqual({ limit: { context: 65536, output: 8192 } });
+    expect(models({ vision: undefined })).toEqual({});
+  });
+
   it('비전 미지원: modalities 미선언 + 프롬프트 규칙 + MCP_VISION=0 + 서브에이전트 프롬프트에도 규칙(WP-241)', () => {
     const client = {} as unknown as WorkplaceApiClient;
     const cfg = buildOpencodeConfig(

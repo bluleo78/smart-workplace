@@ -3,8 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   opencodeVisionFor,
-  parseModelsVision,
+  parseModelsMeta,
   resetVisionCache,
+  resolveOpencodeModelLimit,
   resolveOpencodeModelVision,
   resolveOpencodeVision,
   VISION_CACHE_TTL_MS,
@@ -31,21 +32,23 @@ function okResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
 }
 
-describe('parseModelsVision', () => {
+describe('parseModelsMeta — vision', () => {
+  const vision = (body: unknown) => [...parseModelsMeta(body)].map(([id, m]) => [id, m.vision]);
+
   it('top-level capabilities.vision 형태도 읽는다', () => {
-    expect([...parseModelsVision({ data: [{ id: 'm', capabilities: { vision: true } }] })]).toEqual([['m', true]]);
+    expect(vision({ data: [{ id: 'm', capabilities: { vision: true } }] })).toEqual([['m', true]]);
   });
 
   it('metadata.capabilities.vision 이 boolean 인 모델만 담는다', () => {
-    expect([...parseModelsVision(MODELS_BODY)]).toEqual([
+    expect(vision(MODELS_BODY)).toEqual([
       ['qwen3.6-35b', true],
       ['glm-5.3', false],
     ]);
   });
 
   it('형식이 다르면 빈 맵', () => {
-    expect(parseModelsVision({ models: [] }).size).toBe(0);
-    expect(parseModelsVision(null).size).toBe(0);
+    expect(parseModelsMeta({ models: [] }).size).toBe(0);
+    expect(parseModelsMeta(null).size).toBe(0);
   });
 });
 
@@ -198,5 +201,93 @@ describe('opencodeVisionFor', () => {
   it('모델 형식 오류는 던지지 않고 undefined', async () => {
     const cred = { provider: 'opencode' as const, payload: payload({ vision: true }), model: null };
     expect(await opencodeVisionFor(cred, 'no-slash-model')).toBeUndefined();
+  });
+});
+
+// WP-250: 같은 /models 응답에서 모델 컨텍스트 한도를 읽어 opencode limit 을 만든다(값이 없으면 지어내지 않는다).
+describe('parseModelsMeta', () => {
+  it('neuralwatt 실측 형태 — max_model_len·metadata.limits 의 한도와 vision 을 함께 읽는다', () => {
+    const meta = parseModelsMeta({
+      data: [
+        {
+          id: 'qwen-3.8-27b',
+          max_model_len: 262128,
+          metadata: { capabilities: { vision: true }, limits: { max_context_length: 262128, max_output_tokens: 131072 } },
+        },
+        { id: 'glm-5.3', max_model_len: 1048560, metadata: { capabilities: { vision: false }, limits: { max_output_tokens: null } } },
+        { id: 'only-limits', object: 'model', metadata: { limits: { max_context_length: 65536 } } },
+        { id: 'plain-model', object: 'model' },
+      ],
+    });
+    expect([...meta]).toEqual([
+      ['qwen-3.8-27b', { vision: true, context: 262128, output: 131072 }],
+      ['glm-5.3', { vision: false, context: 1048560 }],
+      ['only-limits', { context: 65536 }],
+    ]);
+  });
+
+  it('양의 정수가 아닌 한도(0·음수·소수·문자열)는 버린다', () => {
+    const meta = parseModelsMeta({ data: [{ id: 'a', max_model_len: 0 }, { id: 'b', max_model_len: '4096' }, { id: 'c', max_model_len: 1.5 }] });
+    expect(meta.size).toBe(0);
+  });
+});
+
+describe('resolveOpencodeModelLimit', () => {
+  const fetchMock = vi.fn<typeof fetch>();
+  const body = (models: unknown[]) => ({ data: models });
+
+  beforeEach(() => {
+    resetVisionCache();
+    fetchMock.mockReset();
+    vi.stubGlobal('fetch', fetchMock);
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('컨텍스트·출력 한도를 그대로 limit 으로', async () => {
+    fetchMock.mockImplementation(async () => okResponse(body([{ id: 'm', max_model_len: 262128, metadata: { limits: { max_output_tokens: 131072 } } }])));
+    expect(await resolveOpencodeModelLimit(payload(), 'custom/m')).toEqual({ context: 262128, output: 131072 });
+  });
+
+  it('출력 한도를 모르면 output 0(opencode 의 "모름") — 기본값을 지어내지 않는다', async () => {
+    fetchMock.mockImplementation(async () => okResponse(body([{ id: 'm', max_model_len: 131072 }])));
+    expect(await resolveOpencodeModelLimit(payload(), 'custom/m')).toEqual({ context: 131072, output: 0 });
+  });
+
+  it('컨텍스트 한도가 없거나 목록에 없는 모델·조회 실패·baseURL 없음은 undefined', async () => {
+    fetchMock.mockImplementation(async () => okResponse(body([{ id: 'm', metadata: { capabilities: { vision: true } } }])));
+    expect(await resolveOpencodeModelLimit(payload(), 'custom/m')).toBeUndefined();
+    expect(await resolveOpencodeModelLimit(payload(), 'custom/missing')).toBeUndefined();
+    resetVisionCache();
+    fetchMock.mockImplementation(async () => new Response('no', { status: 500 }));
+    expect(await resolveOpencodeModelLimit(payload(), 'custom/m')).toBeUndefined();
+    fetchMock.mockClear();
+    expect(await resolveOpencodeModelLimit(payload({ options: { apiKey: 'k' } }), 'custom/m')).toBeUndefined();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('쓸 수 있는 길이(컨텍스트 − 출력 몫 min(출력||32000, 32000))가 0 이하면 두지 않는다 — 매 단계 압축 방지', async () => {
+    fetchMock.mockImplementation(async () =>
+      okResponse(body([
+        { id: 'small', max_model_len: 32000 },
+        { id: 'small-known-out', max_model_len: 20000, metadata: { limits: { max_output_tokens: 4000 } } },
+        { id: 'tight', max_model_len: 8192, metadata: { limits: { max_output_tokens: 8192 } } },
+      ])),
+    );
+    expect(await resolveOpencodeModelLimit(payload(), 'custom/small')).toBeUndefined();
+    expect(await resolveOpencodeModelLimit(payload(), 'custom/small-known-out')).toEqual({ context: 20000, output: 4000 });
+    expect(await resolveOpencodeModelLimit(payload(), 'custom/tight')).toBeUndefined();
+  });
+
+  it('비전 수동 설정이 있어도 한도는 /models 로 판단하고, 비전 판단과 같은 조회 캐시를 쓴다', async () => {
+    fetchMock.mockImplementation(async () => okResponse(body([{ id: 'm', max_model_len: 65536, metadata: { capabilities: { vision: true } } }])));
+    const p = payload({ vision: false });
+    expect(await resolveOpencodeModelVision(p, 'custom/m')).toBe(false);
+    expect(await resolveOpencodeModelLimit(p, 'custom/m')).toEqual({ context: 65536, output: 0 });
+    expect(await resolveOpencodeModelVision(payload(), 'custom/m')).toBe(true);
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it('모델 형식 오류는 던지지 않고 undefined', async () => {
+    expect(await resolveOpencodeModelLimit(payload(), 'no-slash-model')).toBeUndefined();
   });
 });

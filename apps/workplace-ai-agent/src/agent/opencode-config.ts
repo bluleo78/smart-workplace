@@ -6,7 +6,7 @@ import type { Config as OpencodeConfig, AgentConfig as OpencodeAgentConfig } fro
 
 import { DEFAULT_API_BASE_URL, DEFAULT_PORT } from '../constants.js';
 import type { RunnerInput } from './agent-runner.js';
-import type { OpencodeVision } from './opencode-vision.js';
+import type { OpencodeModelLimit, OpencodeVision } from './opencode-vision.js';
 import { loadSubagents, type SubagentDefinition } from './subagent-loader.js';
 
 // opencode 모델 표기 'providerId/modelId' 를 첫 '/' 기준으로 분해. 이 프로젝트의 opencode 모델
@@ -107,18 +107,23 @@ export const NO_VISION_PROMPT_RULE = `
 
 // opencode 모델 엔트리 — 비전 모델은 이미지 입력을 선언해야 opencode 가 이미지를 버리지 않는다(WP-233 실측).
 // 미지원·알 수 없음은 비워 opencode 자체 판단(custom=텍스트 전용, models.dev 등록 모델=자체 capability)에 맡긴다.
-function modelEntry(vision: OpencodeVision) {
-  return vision === true ? { modalities: { input: ['text' as const, 'image' as const], output: ['text' as const] } } : {};
+// WP-250: limit(provider /models 가 알려 준 컨텍스트 한도)이 있으면 함께 선언한다 — opencode 는 limit 이 없는 custom 모델을 한도 0 으로 보고
+// 미리 압축하지 않는다(resolveOpencodeModelLimit 참고). 없으면 비워 opencode 판단(models.dev 등록 모델은 자체 한도)에 맡긴다.
+function modelEntry(vision: OpencodeVision, limit: OpencodeModelLimit) {
+  return {
+    ...(vision === true ? { modalities: { input: ['text' as const, 'image' as const], output: ['text' as const] } } : {}),
+    ...(limit ? { limit } : {}),
+  };
 }
 
 // RunnerInput → opencode Config. i.credential 은 반드시 opencode credential 이어야 한다
 // (호출부는 OpencodeRunner 뿐이지만, credential 오분기를 조기에 잡기 위해 방어적으로 재확인).
-// opts.vision 은 opencode-vision.resolveOpencodeVision 결과(러너가 판단해 넘긴다).
+// opts.vision 은 opencode-vision.resolveOpencodeVision 결과(러너가 판단해 넘긴다). opts.limit 은 resolveOpencodeModelLimit 결과(WP-250).
 export function buildOpencodeConfig(
   i: RunnerInput,
   runId: string,
   stdioEntryCmd: string[],
-  opts: { vision: OpencodeVision },
+  opts: { vision: OpencodeVision; limit?: OpencodeModelLimit },
 ): OpencodeConfig {
   if (i.credential.provider !== 'opencode') {
     throw new Error('buildOpencodeConfig 는 opencode credential 만 지원합니다');
@@ -132,7 +137,7 @@ export function buildOpencodeConfig(
       [payload.providerId]: {
         npm: payload.npm ?? '@ai-sdk/openai-compatible',
         options: payload.options,
-        models: { [modelID]: modelEntry(opts.vision) },
+        models: { [modelID]: modelEntry(opts.vision, opts.limit) },
       },
     },
     agent: {

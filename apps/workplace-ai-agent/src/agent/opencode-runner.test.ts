@@ -29,9 +29,12 @@ vi.mock('./opencode-config.js', () => ({
   }),
 }));
 
-// WP-241: provider /models 조회를 막고 vision 판단을 테스트에서 고른다(기본 = 지원).
-const { resolveOpencodeModelVision } = vi.hoisted(() => ({ resolveOpencodeModelVision: vi.fn(async () => true) }));
-vi.mock('./opencode-vision.js', () => ({ resolveOpencodeModelVision }));
+// WP-241: provider /models 조회를 막고 vision 판단을 테스트에서 고른다(기본 = 지원). WP-250: 모델 한도도(기본 = 모름).
+const { resolveOpencodeModelVision, resolveOpencodeModelLimit } = vi.hoisted(() => ({
+  resolveOpencodeModelVision: vi.fn(async () => true),
+  resolveOpencodeModelLimit: vi.fn(async (): Promise<{ context: number; output: number } | undefined> => undefined),
+}));
+vi.mock('./opencode-vision.js', () => ({ resolveOpencodeModelVision, resolveOpencodeModelLimit }));
 
 // registerBridge/releaseBridge 페어링을 정확히 카운트하기 위해 registry 자체를 모킹.
 const { registerBridge, releaseBridge } = vi.hoisted(() => ({
@@ -874,6 +877,24 @@ describe('OpencodeRunner 웜 캐시 통합', () => {
     );
     expect(buildOpencodeConfig).toHaveBeenCalledWith(input, expect.any(String), expect.any(Array), { vision: false });
     expect(acquireServer).toHaveBeenCalledWith('7:issue:42:-:openai/gpt-5:false', expect.any(Function));
+  });
+
+  // WP-250: provider /models 의 컨텍스트 한도가 있으면 config 의 모델 limit 으로 넘기고, 같은 한도의 서버만 재사용하도록 풀 키에 넣는다.
+  it('모델 한도를 config 에 넘기고 풀 키에도 반영한다(WP-250)', async () => {
+    resolveOpencodeModelLimit.mockResolvedValueOnce({ context: 262128, output: 131072 });
+    const es = makeEventStream();
+    eventSubscribe.mockResolvedValue({ stream: es.stream });
+    es.push({ type: 'session.idle', properties: { sessionID: 'sess-1' } });
+
+    const input = baseInput({ agentId: 7, model: 'openai/gpt-5', mcp: { client: {} as unknown as WorkplaceApiClient, profile: 'issue', onBehalfOfId: 42 } });
+    await new OpencodeRunner().stream(input, () => {}).done;
+
+    expect(resolveOpencodeModelLimit).toHaveBeenCalledWith((input.credential as { payload: unknown }).payload, 'openai/gpt-5');
+    expect(buildOpencodeConfig).toHaveBeenCalledWith(input, expect.any(String), expect.any(Array), {
+      vision: true,
+      limit: { context: 262128, output: 131072 },
+    });
+    expect(acquireServer).toHaveBeenCalledWith('7:issue:42:-:openai/gpt-5:true:262128/131072', expect.any(Function));
   });
 
   it('호출자가 판단한 opencodeVision 을 넘기면 다시 판단하지 않고 그 값을 config 에 쓴다', async () => {
