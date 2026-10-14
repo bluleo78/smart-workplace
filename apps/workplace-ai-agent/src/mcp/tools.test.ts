@@ -6,7 +6,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { buildSharedTools, isDisplayableTool, MEMORY_TOOL_NAMES, toolAnnotations, toolNameViolations, TOOL_LABELS, type SharedToolClient } from '@smart-workplace/mcp-tools-shared';
+import { buildSharedTools, ImageBudget, isDisplayableTool, MEMORY_TOOL_NAMES, toolAnnotations, toolNameViolations, TOOL_LABELS, type SharedToolClient } from '@smart-workplace/mcp-tools-shared';
 import { describe, expect, it, vi, type Mock } from 'vitest';
 import { z } from 'zod';
 
@@ -214,10 +214,12 @@ function client(): TestClient {
     downloadThreadIssueAttachment: vi.fn(),
     readChatAttachmentText: vi.fn(),
     downloadChatAttachment: vi.fn(),
+    viewChatAttachment: vi.fn(),
     // WP-234: 메인 AI 채팅 세션 첨부
     listHomeSessionAttachments: vi.fn().mockResolvedValue([]),
     readHomeAttachmentText: vi.fn(),
     downloadHomeAttachment: vi.fn(),
+    viewHomeAttachment: vi.fn(),
     // WP-55: 메모리 도구
     createAiMemory: vi.fn(),
     updateAiMemory: vi.fn(),
@@ -815,6 +817,116 @@ describe('chat 도구', () => {
     const t = find(buildTools(client(), AGENT_ID, 'chat'), 'read_chat_thread_attachment');
     await expect(t.handler({ threadId: 5, fileId: 3, limit: 32001 })).rejects.toThrow();
     await expect(t.handler({ threadId: 5, fileId: 3, limit: 0 })).rejects.toThrow();
+  });
+
+  // WP-250: 이슈 챗 첨부 — PDF pages·이미지(원본/변환본).
+  describe('read_chat_thread_attachment pages·이미지', () => {
+    const png = { data: Buffer.from('PNGDATA'), mimeType: 'image/png' };
+    const chatTool = (c: WorkplaceApiClient, images?: { input: boolean; budget?: ImageBudget }, bound = 5) =>
+      find(buildTools(c, AGENT_ID, 'chat', undefined, undefined, undefined, bound, undefined, images), 'read_chat_thread_attachment');
+    const meta = (fileId: number, mimeType: string, sizeBytes = 1000) => ({ fileId, originalName: `f${fileId}`, mimeType, sizeBytes });
+
+    it('pages:[1] → viewChatAttachment(agentId, threadId, fileId, 1) 이미지 블록, 텍스트·목록 조회 없음', async () => {
+      const c = client();
+      vi.mocked(c.viewChatAttachment).mockResolvedValue({ ...png, pageCount: 4 });
+      const out = (await chatTool(c).handler({ threadId: 5, fileId: 3, pages: [1] })) as Array<{ type: string; text?: string }>;
+      expect(c.viewChatAttachment).toHaveBeenCalledWith(AGENT_ID, 5, 3, 1);
+      expect(out.map((b) => b.type)).toEqual(['text', 'image']);
+      expect(out[0].text).toContain('1쪽(전체 4쪽)');
+      expect(c.readChatAttachmentText).not.toHaveBeenCalled();
+      expect(c.listThreadIssueAttachments).not.toHaveBeenCalled();
+    });
+
+    it('다른 threadId 는 pages 가 있어도 /view 호출 전에 거부', async () => {
+      const c = client();
+      await expect(chatTool(c).handler({ threadId: 6, fileId: 3, pages: [1] })).rejects.toThrow(/스레드만 사용할 수 있습니다/);
+      expect(c.viewChatAttachment).not.toHaveBeenCalled();
+    });
+
+    it('pages 오류는 던지지 않고 사유를 text 로', async () => {
+      const c = client();
+      vi.mocked(c.viewChatAttachment).mockRejectedValue(Object.assign(new Error('x'), { response: { status: 400, data: { message: '이 PDF 는 2쪽입니다.' } } }));
+      expect(await chatTool(c).handler({ threadId: 5, fileId: 3, pages: [9] })).toContain('이 PDF 는 2쪽입니다.');
+    });
+
+    it('이슈 첨부 이미지(jpeg) → 이슈 첨부 원본 다운로드, 텍스트 읽기 없음', async () => {
+      const c = client();
+      vi.mocked(c.listThreadIssueAttachments).mockResolvedValue([meta(7, 'image/jpeg') as never]);
+      vi.mocked(c.downloadThreadIssueAttachment).mockResolvedValue({ data: Buffer.from('JPG'), mimeType: 'image/jpeg' });
+      const out = (await chatTool(c).handler({ threadId: 5, fileId: 7 })) as Array<{ type: string; mimeType?: string }>;
+      expect(c.downloadThreadIssueAttachment).toHaveBeenCalledWith(AGENT_ID, 5, 7);
+      expect(out[1]).toMatchObject({ type: 'image', mimeType: 'image/jpeg' });
+      expect(c.readChatAttachmentText).not.toHaveBeenCalled();
+      expect(c.viewChatAttachment).not.toHaveBeenCalled();
+    });
+
+    it('챗 메시지 첨부 이미지(png) → messageId 로 챗 첨부 원본 다운로드', async () => {
+      const c = client();
+      vi.mocked(c.getChatMessages).mockResolvedValue([
+        { id: 11, authorName: 'A', authorKind: 'HUMAN', body: '', createdAt: 't', deleted: false, attachments: [{ ...meta(8, 'image/png'), messageId: 11 }] },
+      ]);
+      vi.mocked(c.downloadChatAttachment).mockResolvedValue(png);
+      const out = (await chatTool(c).handler({ threadId: 5, fileId: 8 })) as Array<{ type: string }>;
+      expect(c.downloadChatAttachment).toHaveBeenCalledWith(AGENT_ID, 5, 11, 8);
+      expect(out[1].type).toBe('image');
+    });
+
+    it('HEIC 이미지 → 원본 없이 viewChatAttachment 변환본(page 없이)', async () => {
+      const c = client();
+      vi.mocked(c.listThreadIssueAttachments).mockResolvedValue([meta(7, 'image/heic') as never]);
+      vi.mocked(c.viewChatAttachment).mockResolvedValue({ data: Buffer.from('JPG'), mimeType: 'image/jpeg' });
+      const out = (await chatTool(c).handler({ threadId: 5, fileId: 7 })) as Array<{ type: string; mimeType?: string }>;
+      expect(c.downloadThreadIssueAttachment).not.toHaveBeenCalled();
+      expect(c.viewChatAttachment).toHaveBeenCalledWith(AGENT_ID, 5, 7);
+      expect(out[1]).toMatchObject({ type: 'image', mimeType: 'image/jpeg' });
+    });
+
+    it('문서(PDF) → 기존 텍스트 경로, 이미지 호출 없음. 쪽수가 있으면 pages 안내 note', async () => {
+      const c = client();
+      vi.mocked(c.listThreadIssueAttachments).mockResolvedValue([meta(7, 'application/pdf') as never]);
+      vi.mocked(c.readChatAttachmentText).mockResolvedValue({
+        fileId: 7, status: 'READY', offset: 0, totalChars: 2, truncated: false, nextOffset: null, text: '본문', reasonCode: null, reason: null, pageCount: 3,
+      });
+      const out = JSON.parse((await chatTool(c).handler({ threadId: 5, fileId: 7 })) as string);
+      expect(out).toMatchObject({ text: '본문' });
+      expect(out.note).toContain('pages');
+      expect(c.viewChatAttachment).not.toHaveBeenCalled();
+    });
+
+    it('스캔 PDF(SKIPPED) → 스캔 안내 note, images.input false 면 모델 전환 안내', async () => {
+      const slice = { fileId: 7, status: 'SKIPPED', offset: 0, totalChars: null, truncated: false, nextOffset: null, text: null, reasonCode: 'SCANNED_PDF', reason: '스캔', pageCount: 5 } as const;
+      const c = client();
+      vi.mocked(c.readChatAttachmentText).mockResolvedValue(slice);
+      expect(JSON.parse((await chatTool(c).handler({ threadId: 5, fileId: 7 })) as string).note).toContain('스캔 PDF(5쪽)');
+      expect(JSON.parse((await chatTool(c, { input: false }).handler({ threadId: 5, fileId: 7 })) as string).note).toContain('이미지를 볼 수 있는 모델');
+    });
+
+    it('메타 조회가 실패해도 텍스트 읽기는 그대로 동작', async () => {
+      const c = client();
+      vi.mocked(c.listThreadIssueAttachments).mockRejectedValue(new Error('403'));
+      vi.mocked(c.getChatMessages).mockRejectedValue(new Error('500'));
+      vi.mocked(c.readChatAttachmentText).mockResolvedValue({ fileId: 7, status: 'PENDING' } as never);
+      expect(JSON.parse((await chatTool(c).handler({ threadId: 5, fileId: 7 })) as string).status).toBe('PENDING');
+    });
+
+    it('images.input false 면 스키마·설명에 pages 없음, true(또는 미지정)면 있다', () => {
+      const c = client();
+      const keys = (t: ReturnType<typeof chatTool>) => Object.keys((z.toJSONSchema(t.inputSchema) as { properties: Record<string, unknown> }).properties);
+      expect(keys(chatTool(c, { input: false }))).not.toContain('pages');
+      expect(chatTool(c, { input: false }).description).not.toContain('pages');
+      expect(keys(chatTool(c, { input: true }))).toContain('pages');
+      expect(chatTool(c).description).toContain('pages');
+    });
+
+    it('이미지 예산을 다 쓰면 /view·원본을 받지 않고 안내', async () => {
+      const c = client();
+      const budget = new ImageBudget(1);
+      vi.mocked(c.viewChatAttachment).mockResolvedValue(png);
+      const t = chatTool(c, { input: true, budget });
+      expect(Array.isArray(await t.handler({ threadId: 5, fileId: 3, pages: [1] }))).toBe(true);
+      expect(await t.handler({ threadId: 5, fileId: 3, pages: [2] })).toContain('다 썼습니다');
+      expect(c.viewChatAttachment).toHaveBeenCalledTimes(1);
+    });
   });
 
   // WP-244: 실행 스레드 바인딩 — chatThreadId 가 있으면 다른 threadId 는 API 호출 전에 거부한다.

@@ -12,6 +12,7 @@ import {
   parseIssueKey,
   type ExtractedTextSlice,
   type ExtractionStatus,
+  type FileBytes,
   type HttpRequestConfig,
   type SharedToolClient,
 } from '@smart-workplace/mcp-tools-shared';
@@ -24,6 +25,8 @@ export interface ExtractionInfo {
   truncated: boolean | null; // 서버가 null 을 줄 수 있음 — 소비자는 false 로 취급
   reasonCode: string | null;
   reason: string | null;
+  // WP-250: PDF 전체 쪽수 — PDF 가 아니거나 이전 추출 행이면 null·생략(구 API 응답에는 필드가 없다).
+  pageCount?: number | null;
 }
 // WP-244: 챗 메시지에 붙은 첨부 메타(추출 상태 포함).
 export interface ChatAttachmentMeta {
@@ -159,11 +162,15 @@ export interface WorkplaceApiClient {
   // readChatAttachmentText 는 스레드의 챗 첨부와 스레드가 딸린 이슈의 첨부를 모두 받는다.
   readChatAttachmentText(agentId: number, threadId: number, fileId: number, offset?: number, limit?: number): Promise<ExtractedTextSlice>;
   downloadChatAttachment(agentId: number, threadId: number, messageId: number, fileId: number): Promise<{ data: Buffer; mimeType: string }>;
+  // WP-250: 스레드의 챗 첨부·스레드가 딸린 이슈 첨부의 모델 입력용 이미지(/text 와 같은 범위) — PDF 쪽(page, 1부터) 또는 이미지 변환본.
+  viewChatAttachment(agentId: number, threadId: number, fileId: number, page?: number): Promise<FileBytes>;
   // WP-234: 메인 AI 채팅 세션 첨부 — 웹과 같은 /home/sessions/{sid}/attachments* 를 요청자(onBehalfOfId=userId) 대행으로 부른다.
   // 서버가 세션 소유자·세션 연결 여부를 확인하므로(타 세션 파일은 404) 여기서는 경로만 맞춘다.
   listHomeSessionAttachments(onBehalfOfId: number, sessionId: string): Promise<HomeAttachmentMeta[]>;
   readHomeAttachmentText(onBehalfOfId: number, sessionId: string, fileId: number, offset?: number, limit?: number): Promise<ExtractedTextSlice>;
   downloadHomeAttachment(onBehalfOfId: number, sessionId: string, fileId: number): Promise<{ data: Buffer; mimeType: string }>;
+  // WP-250: 모델 입력용 이미지 — PDF 는 page(1부터)쪽을 그린 이미지, 이미지 파일은 page 없이 변환본. 서버 오류는 ErrorResponse 의 한국어 message 로 던진다.
+  viewHomeAttachment(onBehalfOfId: number, sessionId: string, fileId: number, page?: number): Promise<FileBytes>;
   // WP-55: 메모리 도구(라우터 전용) — 요청자(onBehalfOfId=userId) 대행. Internal 대행만 source:'AI'·sessionId 를 받고, 꺼짐이면 409 AI_MEMORY_DISABLED.
   createAiMemory(
     onBehalfOfId: number,
@@ -178,12 +185,39 @@ export interface WorkplaceApiClient {
   withOnBehalfOfTenant(tenantId: number): WorkplaceApiClient;
 }
 
+/**
+ * WP-250: arraybuffer 요청의 오류 본문을 푼다 — responseType 이 arraybuffer 면 서버 ErrorResponse JSON 도 바이트로 와서,
+ * 그대로 요약하면 한국어 사유(예: "이 PDF 는 6쪽입니다…")가 사라지고 "API 오류 400" 만 남는다. 바이트를 JSON(안 되면 글)으로 바꿔
+ * response.data 에 되돌려 두면 아래 인터셉터의 describeApiError 와 /view 호출부(pageBlocks 의 사유 요약)가 같은 데이터를 본다.
+ */
+function decodeBinaryErrorBody(res: { data: unknown }): void {
+  const raw = res.data;
+  const bytes = raw instanceof Uint8Array ? raw : raw instanceof ArrayBuffer ? new Uint8Array(raw) : undefined;
+  if (!bytes) return;
+  const text = new TextDecoder().decode(bytes);
+  try {
+    res.data = JSON.parse(text);
+  } catch {
+    res.data = text;
+  }
+}
+
 // WP-244: 구간 읽기 쿼리 — 생략한 값은 보내지 않아 서버 기본값(offset 0, limit 32000)을 따른다.
 function rangeParams(offset?: number, limit?: number): Record<string, number> {
   const p: Record<string, number> = {};
   if (offset !== undefined) p.offset = offset;
   if (limit !== undefined) p.limit = limit;
   return p;
+}
+
+/** /view 응답 → FileBytes — Content-Type 원문과 X-Page-Count(양의 정수일 때만)를 싣는다. */
+function toViewBytes(r: { data: unknown; headers: Record<string, unknown> }): FileBytes {
+  const pageCount = Number(r.headers['x-page-count']);
+  return {
+    data: Buffer.from(r.data as ArrayBuffer),
+    mimeType: String(r.headers['content-type'] ?? 'application/octet-stream'),
+    ...(Number.isInteger(pageCount) && pageCount > 0 && { pageCount }),
+  };
 }
 
 export function createWorkplaceApiClient(opts: {
@@ -201,6 +235,7 @@ export function createWorkplaceApiClient(opts: {
   // 자가교정이 불가능했다. AxiosError 객체는 그대로 두고(status 판정 호출부 유지) message 만 보강한다.
   http.interceptors.response.use(undefined, (err: unknown) => {
     if (axios.isAxiosError(err) && err.response) {
+      decodeBinaryErrorBody(err.response);
       err.message = describeApiError(err.response.status, err.response.data);
     }
     return Promise.reject(err);
@@ -373,6 +408,25 @@ export function createWorkplaceApiClient(opts: {
       });
       const mimeType = String(r.headers['content-type'] ?? 'application/octet-stream');
       return { data: Buffer.from(r.data as ArrayBuffer), mimeType };
+    },
+
+    // WP-250: /view 는 PDF 쪽(?page=N) 또는 이미지 변환본을 돌려준다. X-Page-Count(PDF 전체 쪽수)는 pageCount 로 싣는다.
+    async viewHomeAttachment(onBehalfOfId, sessionId, fileId, page) {
+      const r = await http.get(`/home/sessions/${encodeURIComponent(sessionId)}/attachments/${fileId}/view`, {
+        ...onBehalfOf(onBehalfOfId),
+        responseType: 'arraybuffer',
+        ...(page !== undefined && { params: { page } }),
+      });
+      return toViewBytes(r);
+    },
+
+    async viewChatAttachment(agentId, threadId, fileId, page) {
+      const r = await http.get(`/chat/threads/${threadId}/attachments/${fileId}/view`, {
+        ...onBehalfOf(agentId),
+        responseType: 'arraybuffer',
+        ...(page !== undefined && { params: { page } }),
+      });
+      return toViewBytes(r);
     },
 
     async createAiMemory(onBehalfOfId, body) {

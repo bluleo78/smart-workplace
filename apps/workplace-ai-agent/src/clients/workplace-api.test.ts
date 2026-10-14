@@ -338,6 +338,52 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
     expect(r.mimeType).toBe('image/png');
   });
 
+  // --- WP-250: 모델 입력용 이미지(/view) ---
+  it('viewHomeAttachment → GET .../view?page=N, 이미지 바이트 + Content-Type + X-Page-Count', async () => {
+    nock(BASE)
+      .matchHeader('x-on-behalf-of', '42')
+      .get(`${PREFIX}/home/sessions/${SID}/attachments/8/view`)
+      .query({ page: '3' })
+      .reply(200, Buffer.from('PAGEPNG'), { 'content-type': 'image/png', 'x-page-count': '7' });
+    const r = await newClient().viewHomeAttachment(42, SID, 8, 3);
+    expect(r.data.toString()).toBe('PAGEPNG');
+    expect(r.mimeType).toBe('image/png');
+    expect(r.pageCount).toBe(7);
+  });
+
+  it('viewHomeAttachment → page 생략이면 쿼리 없음, X-Page-Count 없으면 pageCount 도 없다', async () => {
+    let requested = '';
+    nock(BASE)
+      .get((uri) => {
+        requested = uri;
+        return uri.includes('/view');
+      })
+      .reply(200, Buffer.from('JPG'), { 'content-type': 'image/jpeg' });
+    const r = await newClient().viewHomeAttachment(42, SID, 8);
+    expect(requested).not.toContain('?');
+    expect(r.pageCount).toBeUndefined();
+  });
+
+  it('viewChatAttachment → GET /chat/threads/{id}/attachments/{fileId}/view?page=N + 에이전트 대행 헤더', async () => {
+    nock(BASE)
+      .matchHeader('x-on-behalf-of', '201')
+      .get(`${PREFIX}/chat/threads/5/attachments/3/view`)
+      .query({ page: '1' })
+      .reply(200, Buffer.from('PAGEPNG'), { 'content-type': 'image/png', 'x-page-count': '2' });
+    const r = await newClient().viewChatAttachment(201, 5, 3, 1);
+    expect(r).toMatchObject({ mimeType: 'image/png', pageCount: 2 });
+  });
+
+  it('/view 오류 본문(arraybuffer 로 온 ErrorResponse JSON)을 풀어 한국어 message 와 response.data 로 올린다', async () => {
+    nock(BASE)
+      .get(`${PREFIX}/home/sessions/${SID}/attachments/8/view`)
+      .query({ page: '9' })
+      .reply(400, { message: '이 PDF 는 6쪽입니다.' });
+    const err = await newClient().viewHomeAttachment(42, SID, 8, 9).catch((e: unknown) => e);
+    expect((err as Error).message).toContain('이 PDF 는 6쪽입니다.');
+    expect((err as { response: { data: unknown } }).response.data).toEqual({ message: '이 PDF 는 6쪽입니다.' });
+  });
+
   // --- WP-55: 사용자 메모리(요청자 대행) ---
   it('createAiMemory → POST /users/me/ai-memories + 대행 헤더 + 본문 그대로', async () => {
     const body = { kind: 'PREFERENCE' as const, content: '짧은 목록', source: 'AI' as const, sessionId: SID };

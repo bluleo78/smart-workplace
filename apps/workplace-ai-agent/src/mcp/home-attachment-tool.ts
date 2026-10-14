@@ -6,13 +6,19 @@
 // 범위·기본 길이·이미지 형식/크기 기준은 공유 read_file 과 같은 정의를 쓴다(WP-346, attachment-read.ts).
 // 세션 첨부는 이슈·드라이브 파일이 아니라 세션에 묶인 파일이라 공유 도구로 읽을 수 없다 — 그래서 이 도구만 ai-agent 전용으로 남는다.
 // opencode 비전 미지원 모델이면 stdio-entry 가 이미지 블록을 안내 문구로 바꾼다(WP-241).
+// WP-250: 모델이 이미지를 볼 수 있으면(images.input) PDF 는 pages:[n] 으로 쪽 이미지를 보고(그림·도표·스캔 PDF), 이미지는
+// 보낼 수 있으면 원본·아니면(HEIC·큰 이미지) 서버 변환본으로 돌려준다. 이미지 장수는 실행당 예산(images.budget)이 묶는다.
 import {
   baseMimeType,
-  imageRejectReasons,
+  type ExtractedTextSlice,
+  type ImageBudget,
+  imageBlocksFor,
+  MAX_PAGES_PER_CALL,
+  pageBlocks,
+  pagesShape,
   READ_ATTACHMENT_DEFAULT_LIMIT,
   readRangeShape,
   resolveRange,
-  toBase64,
   type McpTool,
 } from '@smart-workplace/mcp-tools-shared';
 import { z } from 'zod';
@@ -25,14 +31,39 @@ export const NO_HOME_SESSION_ERROR =
   'read_chat_attachment 는 메인 AI 채팅 대화에서만 쓸 수 있습니다(이 실행에 묶인 대화가 없습니다).';
 
 // offset/limit 범위(nullish·상한 32000)는 공유 read_file·이슈 챗 read_chat_thread_attachment 와 같은 계약이다.
-const readChatAttachmentInput = z.object({
+const baseInput = z.object({
   fileId: z.number().int().positive(),
   ...readRangeShape,
 });
+// WP-250: pages(PDF 쪽 이미지)는 이미지를 볼 수 있는 모델에만 싣는다 — 못 쓰는 인자를 스키마에 두지 않는다.
+const inputFor = (imageInput: boolean) => (imageInput ? baseInput.extend(pagesShape) : baseInput);
+
+/** 모델이 이미지를 볼 수 있을 때 이미지 도구 설명에 덧붙이는 pages 한 문장(두 첨부 도구 공통). */
+export const PAGES_DESCRIPTION = `PDF 는 pages:[n](최대 ${MAX_PAGES_PER_CALL}쪽)로 쪽 이미지를 볼 수 있습니다(그림·도표·스캔).`;
+
+/**
+ * 추출 슬라이스에 붙일 PDF 안내(WP-250, 공유 read_file 과 같은 문구) — 스캔 PDF 는 pages 로 읽으라고, 이미지를 볼 수 없는 모델이면
+ * 모델을 바꾸라고(사용자에게 다시 올려 달라고 하지 않게) 알리고, 텍스트로 읽은 PDF 는 그림·도표를 pages 로 볼 수 있다고 알린다.
+ * 쪽수는 이전 추출 행이면 null 이라 그때는 쪽수 없이 말한다.
+ */
+export function pdfNote(
+  slice: Pick<ExtractedTextSlice, 'status' | 'reasonCode' | 'pageCount'>,
+  imageInput: boolean,
+): string | undefined {
+  if (slice.status === 'SKIPPED' && slice.reasonCode === 'SCANNED_PDF') {
+    if (!imageInput) return '이 모델은 이미지를 볼 수 없어 읽을 수 없습니다. 비서 설정에서 이미지를 볼 수 있는 모델로 바꾸면 읽을 수 있습니다.';
+    return `글자가 없는 스캔 PDF${slice.pageCount ? `(${slice.pageCount}쪽)` : ' '}입니다. pages 로 페이지 이미지를 읽으세요.`;
+  }
+  if (imageInput && slice.status === 'READY' && slice.pageCount) return '그림·도표·스캔 페이지는 pages 로 이미지를 볼 수 있습니다.';
+  return undefined;
+}
 
 /** 추출이 READY 가 아닌 문서의 안내 — 상태·사유만 알리고 재업로드를 유도하지 않는다. 파일명은 JSON 으로 감싸 제어문자를 무력화. */
-function nonReadyNotice(a: HomeAttachmentMeta): string {
+function nonReadyNotice(a: HomeAttachmentMeta, imageInput: boolean): string {
   const name = JSON.stringify(a.originalName);
+  // 스캔 PDF 는 텍스트가 없는 게 아니라 "글자가 이미지"인 것 — pages 로 읽게 하거나(이미지 입력), 모델 전환을 안내한다.
+  const scanned = pdfNote(a.extraction, imageInput);
+  if (scanned) return `${name}: ${scanned}`;
   switch (a.extraction.status) {
     case 'PENDING':
       return `${name}: 텍스트 추출 중입니다. 잠시 후 다시 읽어 보세요. 사용자에게 파일을 다시 올려 달라고 하지 마세요.`;
@@ -48,16 +79,20 @@ export function buildReadChatAttachmentTool(
   client: WorkplaceApiClient,
   onBehalfOfId: number,
   homeSessionId?: string,
+  // WP-250: 모델이 이미지를 볼 수 있는지(기본 true)와 실행당 이미지 예산(없으면 호출당 3장만). buildTools 의 images 와 같은 값이다.
+  images: { input: boolean; budget?: ImageBudget } = { input: true },
 ): McpTool {
+  const input = inputFor(images.input);
   return {
     name: 'read_chat_attachment',
     description:
       '이 대화에 첨부된 파일을 읽습니다. 프롬프트 "## 이 대화의 첨부" 목록의 fileId 로 호출하세요. ' +
       `문서는 추출 텍스트를 구간 단위로 돌려줍니다(limit 생략 시 ${READ_ATTACHMENT_DEFAULT_LIMIT}자, 최대 32000 — 결과의 nextOffset 이 있으면 offset 으로 넘겨 이어 읽기). ` +
-      '이미지는 이미지 그대로 돌려줍니다. 추출 중·읽을 수 없는 파일은 상태와 사유만 옵니다.',
-    inputSchema: readChatAttachmentInput,
+      '이미지는 이미지 그대로 돌려줍니다. 추출 중·읽을 수 없는 파일은 상태와 사유만 옵니다.' +
+      (images.input ? ` ${PAGES_DESCRIPTION}` : ''),
+    inputSchema: input,
     async handler(args) {
-      const p = readChatAttachmentInput.parse(args);
+      const p = input.parse(args) as z.infer<typeof baseInput> & { pages?: number[] | null };
       if (!homeSessionId) throw new Error(NO_HOME_SESSION_ERROR);
       // 매 호출 목록을 다시 받는다 — 추출 상태가 실행 중에 READY 로 바뀔 수 있고, 목록에 없으면 이 세션 파일이 아니다.
       const list = await client.listHomeSessionAttachments(onBehalfOfId, homeSessionId);
@@ -65,24 +100,34 @@ export function buildReadChatAttachmentTool(
       if (!a) {
         throw new Error(`이 대화의 첨부가 아닙니다(fileId ${p.fileId}). "이 대화의 첨부" 목록에 있는 fileId 를 쓰세요.`);
       }
-      if (fileKind(a.mimeType) === 'image') {
-        // 실제 사유만 말한다 — 형식만 문제인데 크기까지 탓하면 모델이 엉뚱한 안내를 한다.
-        const reasons = imageRejectReasons(a.mimeType, a.sizeBytes);
-        if (reasons.length > 0) {
-          return `${JSON.stringify(a.originalName)}: 이 이미지의 ${reasons.join('과 ')}는 모델에 보낼 수 없습니다. 사용자에게 JPEG·PNG·GIF·WebP(3.75MB 이하)로 다시 올려 달라고 안내하세요.`;
+      const name = JSON.stringify(a.originalName);
+      if (p.pages) {
+        // 쪽 이미지는 PDF 만 — 목록의 형식으로 먼저 거른다(이미지 파일은 pages 없이, 그 밖은 텍스트로 읽는다).
+        if (baseMimeType(a.mimeType) !== 'application/pdf') {
+          return `${name}: pages 는 PDF 에만 쓸 수 있습니다(${a.mimeType}). 이미지는 pages 없이, 문서는 텍스트로 읽으세요.`;
         }
-        const { data } = await client.downloadHomeAttachment(onBehalfOfId, homeSessionId, a.fileId);
-        // mimeType 은 목록 값 — 응답 Content-Type 은 파라미터(charset 등)가 붙을 수 있어 모델 입력 형식으로 부적합.
-        // 목록 값에도 파라미터·대문자가 섞일 수 있어 공유 read_file 과 같이 baseMimeType 으로 다듬는다.
-        const mimeType = baseMimeType(a.mimeType);
-        return [
-          { type: 'text', text: `첨부 이미지 ${JSON.stringify(a.originalName)} (${mimeType}, ${a.sizeBytes}B, fileId ${a.fileId})` },
-          { type: 'image', data: toBase64(data), mimeType },
-        ];
+        return pageBlocks(
+          `첨부 PDF ${name}(fileId ${a.fileId})`,
+          p.pages,
+          (n) => client.viewHomeAttachment(onBehalfOfId, homeSessionId, a.fileId, n),
+          images.budget,
+        );
       }
-      if (a.extraction.status !== 'READY') return nonReadyNotice(a);
+      if (fileKind(a.mimeType) === 'image') {
+        // 보낼 수 있는 형식·크기면 원본, 아니면(HEIC·TIFF·BMP·큰 이미지) 서버 변환본 — 다시 올려 달라고 하지 않는다.
+        return imageBlocksFor(
+          `첨부 이미지 ${name}(fileId ${a.fileId})`,
+          a,
+          () => client.downloadHomeAttachment(onBehalfOfId, homeSessionId, a.fileId),
+          () => client.viewHomeAttachment(onBehalfOfId, homeSessionId, a.fileId),
+          images.budget,
+        );
+      }
+      if (a.extraction.status !== 'READY') return nonReadyNotice(a, images.input);
       const { offset, limit } = resolveRange(p);
-      return JSON.stringify(await client.readHomeAttachmentText(onBehalfOfId, homeSessionId, a.fileId, offset, limit));
+      const slice = await client.readHomeAttachmentText(onBehalfOfId, homeSessionId, a.fileId, offset, limit);
+      const note = pdfNote(slice, images.input);
+      return JSON.stringify(note ? { ...slice, note } : slice);
     },
   };
 }

@@ -114,3 +114,32 @@ export async function collectAttachments(
 ): Promise<CollectedAttachments> {
   return mergeAttachments(await fetchIssueAttachments(client, agentId, threadId), threadId, recent);
 }
+
+/** findThreadAttachmentMeta 가 챗 첨부를 찾느라 훑는 최근 메시지 수 — 이슈 챗 프롬프트가 싣는 첨부(THREAD_PREFETCH)보다 넉넉히. */
+const FIND_RECENT_LIMIT = 50;
+
+/**
+ * 스레드의 첨부 하나(fileId)의 메타 — 형식·크기·출처(이슈 첨부냐 챗 메시지 첨부냐, 챗이면 messageId)를 알아 read_chat_thread_attachment 가
+ * 이미지를 원본/변환본으로 가르고 원본을 받을 경로를 고르게 한다(WP-250). 이슈 첨부를 먼저(1회 조회), 없으면 최근 메시지 첨부에서 찾는다
+ * (collectAttachments 와 같은 우선순위). 목록 조회가 실패하거나 어디에도 없으면 undefined — 호출자가 텍스트 읽기로 잇는다(메타는 "있으면 쓰는" 정보).
+ */
+export async function findThreadAttachmentMeta(
+  client: WorkplaceApiClient,
+  agentId: number,
+  threadId: number,
+  fileId: number,
+): Promise<AgentAttachment | undefined> {
+  const issue = await fetchIssueAttachments(client, agentId, threadId);
+  const fromIssue = issue.attachments.find((a) => a.fileId === fileId);
+  if (fromIssue) return fromIssue;
+  try {
+    const recent = await client.getChatMessages(agentId, threadId, FIND_RECENT_LIMIT);
+    return chatAttachments(threadId, recent).find((a) => a.fileId === fileId);
+  } catch (e) {
+    console.warn('[attachment-source] 스레드 메시지 첨부 조회 실패 — 메타 없이 진행', {
+      threadId,
+      error: e instanceof Error ? e.message : String(e),
+    });
+    return undefined;
+  }
+}

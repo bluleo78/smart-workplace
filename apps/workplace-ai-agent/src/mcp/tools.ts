@@ -7,12 +7,15 @@ import {
   buildSharedTools,
   CREATE_DRIVE_FILE_CONTENT_DESCRIPTION,
   createProjectInput,
+  imageBlocksFor,
   type ImageBudget,
   issueListFilterShape,
   listConflicts as listConflictsShared,
   MEMORY_TOOL_NAMES,
   NO_ATTENDEE_TO_ADD,
   normalizeTimezone,
+  pageBlocks,
+  pagesShape,
   parseIssueKey,
   READ_ATTACHMENT_DEFAULT_LIMIT,
   readRangeShape,
@@ -27,7 +30,9 @@ import {
   type MemberRow,
 } from '@smart-workplace/mcp-tools-shared';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
-import { buildReadChatAttachmentTool } from './home-attachment-tool.js';
+import { findThreadAttachmentMeta } from '../agent/attachment-source.js';
+import { fileKind } from '../agent/attachment-presenter.js';
+import { buildReadChatAttachmentTool, PAGES_DESCRIPTION, pdfNote } from './home-attachment-tool.js';
 import { buildMemoryTools } from './memory-tools.js';
 
 // sdk-mcp-server.ts / stdio-entry.ts 가 './tools.js' 에서 McpTool 을 계속 import 하므로 재-export 유지.
@@ -69,11 +74,14 @@ const getChatThreadInput = z.object({
 // WP-346: offset/limit 범위·기본 길이는 공유 read_file·메인 채팅 read_chat_attachment 와 같은 정의(공유 attachment-read).
 // 공유 read_file(source:'issue')로 대체하지 않는 이유: 이슈 챗에 멘션된 AGENT 는 프로젝트 비멤버라 이슈 첨부 API 가 403 이고,
 // 챗 메시지 첨부는 이슈 첨부도 드라이브 파일도 아니다 — 스레드 경유만 둘 다 읽는다.
-const readChatThreadAttachmentInput = z.object({
+const readChatThreadAttachmentBase = z.object({
   fileId: z.number().int().positive(),
   threadId: z.number().int().positive(),
   ...readRangeShape,
 });
+// WP-250: pages(PDF 쪽 이미지)는 이미지를 볼 수 있는 모델에만 싣는다(images.input).
+const readChatThreadAttachmentInputFor = (imageInput: boolean) =>
+  imageInput ? readChatThreadAttachmentBase.extend(pagesShape) : readChatThreadAttachmentBase;
 
 // #833: 구성원 쓰기 제안 입력. roleId 대신 역할명을 받는다 — 실행기가 서버에서 이름→id 를 해석하므로
 // 에이전트에 role:read 권한을 추가로 줄 필요가 없다.
@@ -439,6 +447,8 @@ export function buildTools(
     // opencode 는 chat 프로필을 웜 풀에서 빼 실행마다 stdio MCP 프로세스를 새로 띄운다(WP-244, opencode-runner.ts).
     // 시스템 프롬프트 지시를 AI가 무시하는 비결정적 동작을 코드 레벨에서 결정론적으로 차단한다.
     let addChatMessageCalled = false;
+    // WP-250: 첨부 읽기 입력 — 이미지를 볼 수 있는 모델에만 pages 를 싣는다.
+    const threadAttachmentInput = readChatThreadAttachmentInputFor(images?.input ?? true);
     // WP-244: 실행 스레드 바인딩 — 다른 threadId 는 API 호출 전에 거부한다.
     const assertBoundThread = (threadId: number): void => {
       if (chatThreadId != null && threadId !== chatThreadId) {
@@ -467,14 +477,41 @@ export function buildTools(
         description:
           '이 이슈 챗 스레드의 첨부파일 추출 텍스트를 구간 단위로 읽습니다. 프롬프트 첨부 섹션에 적힌 그대로 threadId 와 fileId 로 호출하세요(이슈 첨부·챗 첨부 공통). ' +
           `limit 생략 시 ${READ_ATTACHMENT_DEFAULT_LIMIT}자(최대 32000). 필요한 만큼만 읽고, 결과의 nextOffset 이 있으면 offset 으로 넘겨 이어 읽습니다. ` +
-          'status 가 READY 가 아니면 text 없이 상태·사유만 옵니다.',
-        inputSchema: readChatThreadAttachmentInput,
+          'status 가 READY 가 아니면 text 없이 상태·사유만 옵니다. 이미지 파일은 이미지로 돌려줍니다.' +
+          (images?.input ?? true ? ` ${PAGES_DESCRIPTION}` : ''),
+        inputSchema: threadAttachmentInput,
         async handler(args) {
-          const parsed = readChatThreadAttachmentInput.parse(args);
+          const parsed = threadAttachmentInput.parse(args) as z.infer<typeof readChatThreadAttachmentBase> & { pages?: number[] | null };
           const { threadId, fileId } = parsed;
           assertBoundThread(threadId);
+          if (parsed.pages) {
+            // 쪽 이미지 — 서버(/view)가 같은 가드로 PDF 인지·쪽 범위를 확인하고, 오류 사유는 pageBlocks 가 한국어로 돌려준다(메타 조회 불필요).
+            return pageBlocks(
+              `스레드 첨부(fileId ${fileId})`,
+              parsed.pages,
+              (n) => client.viewChatAttachment(agentId, threadId, fileId, n),
+              images?.budget,
+            );
+          }
+          // 이미지는 메타(형식·크기·출처)로 판별한다 — 텍스트 구간 응답에는 형식이 없고, 원본 받기 경로도 출처(이슈/챗)마다 다르다.
+          const meta = await findThreadAttachmentMeta(client, agentId, threadId, fileId);
+          if (meta && fileKind(meta.mimeType) === 'image') {
+            const label = `스레드 첨부 이미지 ${JSON.stringify(meta.originalName)}(fileId ${fileId})`;
+            return imageBlocksFor(
+              label,
+              meta,
+              () =>
+                meta.origin.kind === 'issue'
+                  ? client.downloadThreadIssueAttachment(agentId, threadId, fileId)
+                  : client.downloadChatAttachment(agentId, threadId, meta.origin.messageId, fileId),
+              () => client.viewChatAttachment(agentId, threadId, fileId),
+              images?.budget,
+            );
+          }
           const { offset, limit } = resolveRange(parsed);
-          return JSON.stringify(await client.readChatAttachmentText(agentId, threadId, fileId, offset, limit));
+          const slice = await client.readChatAttachmentText(agentId, threadId, fileId, offset, limit);
+          const note = pdfNote(slice, images?.input ?? true);
+          return JSON.stringify(note ? { ...slice, note } : slice);
         },
       },
       {
@@ -1233,7 +1270,7 @@ export function buildTools(
       sharedTool('join_channel'), sharedTool('add_reaction'), sharedTool('remove_reaction'), sharedTool('update_channel_message'), sharedTool('mark_channel_read'),
       sharedTool('get_mail_summary'), sharedTool('draft_mail_reply'), sharedTool('draft_issue_from_mail'),
       sharedTool('create_issue_from_mail'), sharedTool('mark_mail_read'),
-      buildReadChatAttachmentTool(client, agentId, homeSessionId), // WP-234: 메인 AI 채팅 첨부 읽기(세션 바인딩)
+      buildReadChatAttachmentTool(client, agentId, homeSessionId, images), // WP-234: 메인 AI 채팅 첨부 읽기(세션 바인딩)
       ...buildMemoryTools(client, agentId, homeSessionId), // WP-55: 메모리 도구(라우터 전용 쓰기 예외) — 요청자 신원·이 대화 세션
       // WP-346: 이슈 첨부·드라이브 파일 내용 읽기(공유) — AI Chat 은 요청자 신원이라 사람의 권한으로 읽는다(위의 세션 첨부와 다른 대상).
       sharedTool('read_file'),
