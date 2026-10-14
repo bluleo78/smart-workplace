@@ -266,7 +266,7 @@ export const markChannelReadInput = joinChannelInput;
  * 리액션 추가·제거 입력(WP-355). 서버는 이모지를 1~32자 문자열로만 검사하고(ReactionRequest) 웹 선택기는 유니코드 문자를 보낸다.
  * 제거는 추가한 것과 같은 문자열이어야 한다 — 읽기 출력 reactions 의 키 그대로다. messageId 는 메시지 행의 id 다(출력 이름은 id).
  */
-const messageIdField = z.number().int().positive().describe('id of a list_channel_messages or list_thread_replies item');
+const messageIdField = z.number().int().positive().describe('from list_channel_messages or list_thread_replies');
 export const reactionInput = z.object({
   messageId: messageIdField,
   emoji: z.string().min(1).max(32).describe('Unicode emoji such as 👍, as in reactions'),
@@ -303,7 +303,7 @@ export function buildMessagingTools(
       app: 'messaging',
       kind: 'read',
       description:
-        'Lists my channels and DMs (채널·DM) by name as {items, total, hasMore?, nextOffset?}: channelId, kind, lastMessage, memberCount; unreadCount ' +
+        'Lists my channels and DMs (채널·DM) by name as {items, total, hasMore?, nextOffset?}; unreadCount ' +
         'and hasUnreadThreads only when set. q: search public channels by name substring instead, joined or not (member); join_channel to read or ' +
         'post. If hasMore, pass nextOffset as offset, or say the list is partial.',
       inputSchema: listChannelsInput,
@@ -382,7 +382,7 @@ export function buildMessagingTools(
       hints: { destructive: false, idempotent: true },
       description:
         'Opens a DM with up to 7 active members by username (from search_members); I am included, and an existing DM with the same people is ' +
-        'reused. Returns {channelId, participants}; post with add_channel_message.',
+        'reused; returns the channelId to post with add_channel_message.',
       inputSchema: openDmInput,
       async handler(args) {
         const { usernames } = openDmInput.parse(args);
@@ -472,7 +472,7 @@ export function buildMessagingTools(
       hints: { destructive: true, idempotent: true },
       description:
         'Replaces the body of my own message (any age, replies too) with new Markdown; it shows as edited and the old text is lost. Mention with ' +
-        '@username as in add_channel_message; edits send no notification. Returns the saved message.',
+        '@username as in add_channel_message; edits send no notification.',
       inputSchema: updateChannelMessageInput,
       async handler(args) {
         const { messageId, body } = updateChannelMessageInput.parse(args);
@@ -511,7 +511,7 @@ export function buildMessagingTools(
       hints: { destructive: false, idempotent: true },
       description:
         'Invites an active member (username from search_members) to a channel as MEMBER; channel OWNER or ADMIN only, not DMs. Existing members ' +
-        'are left as is. Not notified; the channel just appears in their list. Also joins the channel drive space, if any.',
+        'are left as is. Not notified. Also joins the channel drive space, if any.',
       inputSchema: addChannelMemberInput,
       async handler(args) {
         const { channelId, username } = addChannelMemberInput.parse(args);

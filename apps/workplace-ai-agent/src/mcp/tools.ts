@@ -46,6 +46,13 @@ export const CARD_ONLY_SHARED_TOOLS: Readonly<Record<string, readonly string[]>>
   add_channel_member: ['propose_add_channel_member'],
 };
 
+/**
+ * WP-377: AI Chat·서브에이전트 프로필에 싣지 않는 공유 도구. 외부 클라이언트(Claude Code·Cursor 등) 전용이다 —
+ * 서버가 돌리는 AI 는 이슈 진행 기록(report_agent_work)을 남기지 않는다(스펙 §1 "하지 않는 것"). 그래서 sharedTool() 이 이 이름을 거부하고,
+ * tools.test.ts 의 "공유 도구 전부 노출" 검사도 이 목록만 빼고 본다. CARD_ONLY_SHARED_TOOLS 와 달리 대체 도구(확인 카드)는 없다.
+ */
+export const AI_AGENT_EXCLUDED_SHARED_TOOLS: ReadonlySet<string> = new Set(['report_agent_work']);
+
 const issueKey = z.object({ issueKey: z.string().min(1) });
 // 6c: chat 프로필 도구 입력.
 const addChatMessageInput = z.object({
@@ -376,6 +383,8 @@ export function buildTools(
     if (t.kind === 'destructive') throw new Error(`destructive 공유 도구는 직접 노출할 수 없습니다: ${name}`);
     // WP-348: 확인 카드가 있는 작업의 직접 실행 도구는 AI Chat 에 싣지 않는다.
     if (name in CARD_ONLY_SHARED_TOOLS) throw new Error(`확인 카드로만 하는 공유 도구는 직접 노출할 수 없습니다: ${name}`);
+    // WP-377: 외부 클라이언트 전용 도구(진행 보고)는 서버 AI 에 싣지 않는다.
+    if (AI_AGENT_EXCLUDED_SHARED_TOOLS.has(name)) throw new Error(`외부 클라이언트 전용 공유 도구는 노출할 수 없습니다: ${name}`);
     // WP-342: 연산 성격 힌트를 실어 보낸다 — Claude Code 가 readOnlyHint 로 읽기 도구를 병렬 실행한다. 로컬 전용 도구는 힌트가 없다.
     return { ...t, annotations: toolAnnotations(t) };
   };

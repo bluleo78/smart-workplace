@@ -1,5 +1,6 @@
 // src/schemas.ts — 이슈 도구 입력 zod 스키마. 두 앱 공유(기존 중복 제거).
 import { z } from 'zod';
+import { AGENT_WORK_STATE_INPUTS } from './tool-client.js';
 
 /** issueKey 만 받는 최소 입력. */
 export const issueKeyInput = z.object({ issueKey: z.string().min(1) });
@@ -19,7 +20,7 @@ export const createIssueInput = z.object({
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   type: z.string().optional(), // 유형 이름(예: BUG) → typeId 리졸브
   assignees: z.array(z.string()).optional(), // username[] → assigneeIds 리졸브
-  parent: z.string().min(1).describe('Parent issue key (e.g. WP-12), same project').optional(), // 부모 이슈 키(WP-12, SUBTASK) — 같은 프로젝트의 이슈여야 한다. 핸들러가 서버용 번호로 옮긴다(#833, WP-353)
+  parent: z.string().min(1).describe('Parent issue key, same project').optional(), // 부모 이슈 키(WP-12, SUBTASK) — 같은 프로젝트의 이슈여야 한다. 핸들러가 서버용 번호로 옮긴다(#833, WP-353)
   // WP-356: 라벨·마일스톤·사이클 이름 → id. 서버가 생성과 같은 트랜잭션에서 붙인다(생성 후 update_issue 를 따로 부를 필요 없음).
   labels: z.array(z.string()).optional(),
   milestone: z.string().min(1).optional(),
@@ -54,6 +55,23 @@ export const updateIssueInput = z.object({
 
 /** 코멘트 작성 입력. */
 export const addCommentInput = z.object({ issueKey: z.string().min(1), body: z.string().min(1) });
+
+/**
+ * AI 작업 보고 입력(WP-377). steps 두 값은 짝으로만 받는다 — 하나만 오면 "3/?" 처럼 의미 없는 진행이 되기 때문.
+ * 서버도 같은 규칙으로 검증하지만 MCP 에서 먼저 명확한 메시지로 거절한다.
+ */
+export const reportAgentWorkInput = z
+  .object({
+    issueKey: z.string().min(1),
+    state: z.enum(AGENT_WORK_STATE_INPUTS).optional(),
+    note: z.string().max(120).optional().describe('one-line status; "" clears'), // 한 줄 상태(최대 120자는 스키마가 알린다). 빈 문자열이면 지운다
+    progress: z.number().int().min(0).max(100).optional(),
+    stepsDone: z.number().int().min(0).optional(),
+    stepsTotal: z.number().int().min(1).optional(),
+    message: z.string().min(1).max(4000).optional(),
+  })
+  .refine((v) => (v.stepsDone === undefined) === (v.stepsTotal === undefined), { message: 'stepsDone and stepsTotal go together' })
+  .refine((v) => v.stepsDone === undefined || v.stepsDone <= (v.stepsTotal ?? 0), { message: 'stepsDone must not exceed stepsTotal' });
 
 /** 코멘트 수정 입력. */
 export const editCommentInput = z.object({
@@ -118,13 +136,13 @@ export const listIssuesInput = z.object({
     .string()
     .optional()
     .describe(
-      'CSV: "me", "null" (unassigned), usernames or "any"; default "me" unless reporter, watching or parent is set',
+      'CSV of "me", "null" (unassigned), "any" or usernames; default "me" unless reporter/watching/parent is set',
     ),
   cycle: z
     .string()
     .optional()
     .describe(
-      'CSV, any match: cycle (사이클) names, "active", "none" (no cycle), "backlog" (no active/planned cycle); names and "active" need projectKey',
+      'CSV, any match: cycle (사이클) names, "active", "none", "backlog" (no active/planned cycle); names and "active" need projectKey',
     ),
   // WP-356: 아래 넷은 핸들러가 서버 쿼리로 바꾼다(마일스톤 이름→id, 부모 키→번호+projectKey, 필드 이름→fieldId+JSON 값, 워치=호출자).
   milestone: z.string().optional().describe('Milestone names CSV, any match; needs projectKey'),

@@ -10,6 +10,7 @@ import com.workplace.global.util.LikePatternUtils;
 import com.workplace.user.dto.AgentResponse;
 import com.workplace.user.dto.AgentRuntime;
 import com.workplace.user.dto.AgentUsernames;
+import com.workplace.user.dto.AssigneeInfo;
 import com.workplace.user.dto.UserKind;
 import com.workplace.user.dto.UserResponse;
 import java.time.LocalDateTime;
@@ -18,7 +19,6 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
-import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
@@ -264,14 +264,15 @@ public class UserRepository {
   }
 
   /**
-   * 에이전트 실행 방식(INTERNAL|EXTERNAL) 변경 (WP-371). 호출 전 AGENT 여부·보호 대상(비서) 검증은 서비스가 한다. 변경된 행이 없으면 (대상
-   * 없음) false.
+   * 에이전트 실행 방식(INTERNAL|EXTERNAL) 변경 (WP-371). 호출 전 AGENT 여부·보호 대상(비서) 검증은 서비스가 한다. 값이 실제로 바뀐 경우에만
+   * true — 대상이 없거나 이미 같은 값이면 false(별도 선조회 없이 한 문장으로 변경 여부를 판단한다).
    */
   public boolean updateAgentRuntime(Long id, String runtime) {
     return dsl.update(USER)
             .set(USER.AGENT_RUNTIME, runtime)
             .set(USER.UPDATED_AT, LocalDateTime.now())
             .where(USER.ID.eq(id))
+            .and(USER.AGENT_RUNTIME.isDistinctFrom(runtime))
             .execute()
         > 0;
   }
@@ -322,19 +323,22 @@ public class UserRepository {
     dsl.select(USER.ID).from(USER).where(USER.ID.eq(id)).forUpdate().fetch();
   }
 
-  /**
-   * 주어진 id 들 중 서버(ai-agent)가 대신 실행하는 에이전트(kind=AGENT, runtime=INTERNAL)의 id 집합 (WP-371). 순서 판단은 호출자
-   * ({@code ServerAgentResolver}) 몫이라 집합으로 돌려준다.
-   */
-  public Set<Long> findInternalAgentIds(Collection<Long> ids) {
-    if (ids.isEmpty()) return Set.of();
-    return Set.copyOf(
-        dsl.select(USER.ID)
-            .from(USER)
-            .where(USER.ID.in(ids))
-            .and(USER.KIND.eq(UserKind.AGENT))
-            .and(USER.AGENT_RUNTIME.eq(AgentRuntime.INTERNAL))
-            .fetch(USER.ID));
+  /** 담당자 지정 처리용 사용자 정보를 한 번에 조회(활성 여부·AI 실행 방식 포함). 없는 id 는 빠진다. */
+  public List<AssigneeInfo> findAssigneeInfos(Collection<Long> ids) {
+    if (ids == null || ids.isEmpty()) return List.of();
+    return dsl.select(
+            USER.ID, USER.USERNAME, USER.NAME, USER.KIND, USER.IS_ACTIVE, USER.AGENT_RUNTIME)
+        .from(USER)
+        .where(USER.ID.in(ids))
+        .fetch(
+            r ->
+                new AssigneeInfo(
+                    r.get(USER.ID),
+                    r.get(USER.USERNAME),
+                    r.get(USER.NAME),
+                    r.get(USER.KIND),
+                    Boolean.TRUE.equals(r.get(USER.IS_ACTIVE)),
+                    r.get(USER.AGENT_RUNTIME)));
   }
 
   /** 표시 이름(name)만 변경한다 — 개인 비서 이름 변경 등. email/username 은 보존. */

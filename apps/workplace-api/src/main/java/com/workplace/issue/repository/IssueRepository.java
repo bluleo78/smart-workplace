@@ -23,6 +23,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -60,8 +61,11 @@ public class IssueRepository {
                   .where(MILESTONE.ID.eq(ISSUE.MILESTONE_ID)))
           .as("milestone_name");
 
-  /** {@link #mapToRow} 가 읽는 이슈 행 컬럼 — 조회·INSERT RETURNING 이 한 목록을 공유해 컬럼 추가 시 한 곳만 고친다. */
-  private static final SelectField<?>[] ROW_FIELDS = {
+  /**
+   * {@link #mapToRow} 가 읽는 이슈 행 컬럼 — 조회·INSERT RETURNING 이 한 목록을 공유해 컬럼 추가 시 한 곳만 고친다. 같은 패키지의
+   * {@link AiTaskRepository} 도 같은 행 모양을 쓰도록 package-private.
+   */
+  static final SelectField<?>[] ROW_FIELDS = {
     ISSUE.ID,
     ISSUE.PROJECT_ID,
     ISSUE.NUMBER,
@@ -86,7 +90,7 @@ public class IssueRepository {
    * SELECT 결과를 {@link IssueRow} 로 매핑. OffsetDateTime → Instant 변환. typeId 는 V10 이후 NOT NULL,
    * parentIssueId 는 V11 이후 nullable.
    */
-  private IssueRow mapToRow(Record r) {
+  IssueRow mapToRow(Record r) {
     OffsetDateTime created = r.get(ISSUE.CREATED_AT);
     OffsetDateTime updated = r.get(ISSUE.UPDATED_AT);
     OffsetDateTime closed = r.get(ISSUE.CLOSED_AT);
@@ -136,6 +140,15 @@ public class IssueRepository {
         .from(ISSUE)
         .where(ISSUE.ID.eq(id).and(ISSUE.DELETED_AT.isNull()))
         .fetchOptional(this::mapToRow);
+  }
+
+  /** id 들로 활성(삭제 아님) 이슈를 한 번에 조회 — N+1 회피. 없는 id 는 결과에서 빠진다. */
+  public List<IssueRow> findByIds(Collection<Long> ids) {
+    if (ids == null || ids.isEmpty()) return List.of();
+    return dsl.select(ROW_FIELDS)
+        .from(ISSUE)
+        .where(ISSUE.ID.in(ids).and(ISSUE.DELETED_AT.isNull()))
+        .fetch(this::mapToRow);
   }
 
   /** projectId + number 로 활성 이슈 조회. */
@@ -633,12 +646,11 @@ public class IssueRepository {
   }
 
   /**
-   * 프로젝트 횡단 검색 — 호출자가 멤버인 모든 프로젝트의 이슈를 필터/커서로 조회(홈 /me/issues). {@link #search(Long,
-   * com.workplace.issue.dto.IssueSearchQuery)} 와 동일하되 베이스 스코프만 단일 프로젝트(PROJECT_ID.eq) 대신 멤버십 EXISTS
-   * 로 교체한다. 추가로 OPEN 프로젝트에 이슈를 올린 비멤버 reporter 도 자신이 접수한 이슈를 "내 이슈"에서 볼 수 있도록 OR 조건을 확장한다.
+   * 프로젝트 횡단 조회의 베이스 범위 — 활성 이슈 중 호출자가 멤버인 프로젝트의 이슈 + OPEN 프로젝트에 호출자가 올린 이슈, 삭제된 프로젝트 제외.
+   * /me/issues({@link #searchMemberOf})와 AI 위임 작업 목록({@link AiTaskRepository})이 같은 접근 범위를 쓰도록 한 곳에
+   * 둔다.
    */
-  public List<IssueRow> searchMemberOf(
-      Long memberUserId, com.workplace.issue.dto.IssueSearchQuery query) {
+  public Condition memberScopeCondition(Long memberUserId) {
     // 베이스 조건: 활성 이슈 + (멤버인 프로젝트 이슈 OR OPEN 프로젝트에 reporter 로 올린 이슈).
     // - 멤버십 EXISTS: 프로젝트 멤버라면 해당 프로젝트의 모든 이슈를 볼 수 있다.
     // - OPEN reporter OR: 비멤버라도 OPEN 프로젝트에 자신이 등록한 이슈는 홈에서 추적 가능해야 한다.
@@ -687,6 +699,17 @@ public class IssueRepository {
                             .ID
                             .eq(ISSUE.PROJECT_ID)
                             .and(com.workplace.jooq.Tables.PROJECT.DELETED_AT.isNull()))));
+    return where;
+  }
+
+  /**
+   * 프로젝트 횡단 검색 — 호출자가 멤버인 모든 프로젝트의 이슈를 필터/커서로 조회(홈 /me/issues). {@link #search(Long,
+   * com.workplace.issue.dto.IssueSearchQuery)} 와 동일하되 베이스 스코프만 단일 프로젝트(PROJECT_ID.eq) 대신 멤버십 EXISTS
+   * 로 교체한다. 추가로 OPEN 프로젝트에 이슈를 올린 비멤버 reporter 도 자신이 접수한 이슈를 "내 이슈"에서 볼 수 있도록 OR 조건을 확장한다.
+   */
+  public List<IssueRow> searchMemberOf(
+      Long memberUserId, com.workplace.issue.dto.IssueSearchQuery query) {
+    org.jooq.Condition where = memberScopeCondition(memberUserId);
 
     if (query.q() != null && !query.q().isBlank()) {
       String pattern = "%" + query.q().trim() + "%";

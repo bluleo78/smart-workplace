@@ -75,6 +75,8 @@ const EXPECTED: Record<string, readonly [kind: string, destructive: boolean | nu
   remove_contact_favorite: ['write', true, true, false],
   remove_issue_dependency: ['write', true, true, false],
   remove_user_group_member: ['write', true, true, false],
+  // 같은 입력을 다시 보고해도 message 가 있으면 챗 글이 또 올라가므로 멱등이 아니다.
+  report_agent_work: ['write', false, false, false],
   restore_drive_item: ['write', false, false, false],
   rsvp_event: ['write', true, false, false],
   // WP-348: 생성은 추가만(로컬 기본 캘린더) — 다시 부르면 또 생겨 비멱등. 수정은 덮어쓰고 참석자를 빼며, M365 동기화 일정이면 그쪽으로 전송된다.

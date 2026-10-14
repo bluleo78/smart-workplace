@@ -163,7 +163,7 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
       kind: 'read',
       description:
         'Lists wiki spaces (노트 스페이스) I can access (id = spaceId); my personal space is type PERSONAL ("내 ' +
-        '노트"). search_wiki searches pages only.',
+        '노트").',
       inputSchema: z.object({}),
       async handler() {
         // 스페이스 소유자 ownerId 는 숫자 사용자 ID 라 내보내지 않는다(#833, WP-353) — 내 역할은 role 로 알 수 있다.
@@ -264,9 +264,9 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
       hints: { destructive: true, idempotent: false },
       description:
         'Saves a wiki page (노트) title and/or body; omitted fields stay. body replaces the whole Markdown document (anything left out is deleted): ' +
-        'for a partial edit send the full body, copying untouched blocks byte-for-byte from get_wiki_page (no rewording, no normalizing of ' +
-        'whitespace, lists, emphasis or headings). version: from get_wiki_page or the last save; others\' edits since then are merged (this ' +
-        'request wins on overlap). 409: version unusable as base (read over 1 hour ago, unknown or newer than current): re-read and reapply.',
+        'for a partial edit send the full body, copying untouched blocks byte-for-byte from get_wiki_page (no rewording or normalizing). ' +
+        'version: from get_wiki_page or the last save; others\' edits since then are merged (this ' +
+        'request wins on overlap). 409: version unusable (over 1 hour old, unknown or newer than current): re-read and reapply.',
       inputSchema: updateWikiPageInput,
       async handler(args) {
         const { pageId, ...body } = updateWikiPageInput.parse(args);

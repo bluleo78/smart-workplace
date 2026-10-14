@@ -47,8 +47,8 @@ public class WatcherService {
             .orElseThrow(() -> new IssueNotFoundException(projectKey, number));
     // 등록 + WatcherAddedEvent 발행은 자동 등록과 같은 진입점을 쓴다(신규 insert 때만 발행).
     if (watcherAutoEnroller.enroll(issue.id(), callerId, callerId)) {
-      // 실시간 무효화 — 실제 insert 가 일어났을 때만
-      changeNotifier.updated(project, number, issue.id(), callerId);
+      // 실시간 무효화 — 실제 insert 가 일어났을 때만. 워치는 이슈 작업이 아니므로 AI 작업을 시작·재개하지 않는 알림을 쓴다(WP-377).
+      changeNotifier.updatedWithoutTouch(project, number, issue.id(), callerId);
     }
   }
 
@@ -60,7 +60,8 @@ public class WatcherService {
             .findByProjectAndNumber(project.id(), number)
             .orElseThrow(() -> new IssueNotFoundException(projectKey, number));
     watcherRepository.remove(issue.id(), callerId);
-    changeNotifier.updated(project, number, issue.id(), callerId);
+    // 워치 해제도 이슈 작업이 아니다 — AI 작업 터치 없는 알림(WP-377).
+    changeNotifier.updatedWithoutTouch(project, number, issue.id(), callerId);
   }
 
   /**

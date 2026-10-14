@@ -49,6 +49,14 @@ public class ChatMessageRepository {
         .getId();
   }
 
+  /** 글을 "답변 필요 질문"으로 표시한다(WP-377 — AI 구성원이 INPUT_REQUIRED 로 멈추며 남긴 글). */
+  public void markQuestion(long messageId) {
+    dsl.update(CHAT_MESSAGE)
+        .set(CHAT_MESSAGE.IS_QUESTION, true)
+        .where(CHAT_MESSAGE.ID.eq(messageId))
+        .execute();
+  }
+
   /** body 수정 + edited_at = now + mentions 재저장. */
   public void update(long id, String body, List<Long> mentionUserIds) {
     dsl.update(CHAT_MESSAGE)

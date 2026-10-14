@@ -111,6 +111,11 @@ public class ChatMessage extends TableImpl<ChatMessageRecord> {
      */
     public final TableField<ChatMessageRecord, Long> TENANT_ID = createField(DSL.name("tenant_id"), SQLDataType.BIGINT.nullable(false).defaultValue(DSL.field(DSL.raw("(NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::bigint"), SQLDataType.BIGINT)), this, "");
 
+    /**
+     * The column <code>public.chat_message.is_question</code>.
+     */
+    public final TableField<ChatMessageRecord, Boolean> IS_QUESTION = createField(DSL.name("is_question"), SQLDataType.BOOLEAN.nullable(false).defaultValue(DSL.field(DSL.raw("false"), SQLDataType.BOOLEAN)), this, "");
+
     private ChatMessage(Name alias, Table<ChatMessageRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

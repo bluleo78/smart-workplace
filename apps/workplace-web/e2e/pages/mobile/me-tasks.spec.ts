@@ -2,6 +2,7 @@
 // Page.Body 스크롤 영역이 실제로 스크롤되어 뒤쪽 행이 보이는지 확인한다(헤더 바를 빼도 본문 스크롤이 살아 있어야 함).
 import type { Page } from '@playwright/test'
 
+import { createAiTaskCounts } from '../../factories/agentWork.factory'
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture'
@@ -17,6 +18,9 @@ const LAST_ID = 100 + ISSUES.length - 1
 async function setup(page: Page, path: string) {
   await stubChat(page)
   await mockApi(page, 'GET', '/api/v1/me/issues', createIssueSearchResponse(ISSUES))
+  // AI 위임 작업은 전용 조회(/me/ai-tasks + 칩 건수 counts, WP-377).
+  await mockApi(page, 'GET', '/api/v1/me/ai-tasks', createIssueSearchResponse(ISSUES))
+  await mockApi(page, 'GET', '/api/v1/me/ai-tasks/counts', createAiTaskCounts({ all: ISSUES.length }))
   await page.goto(path)
 }
 

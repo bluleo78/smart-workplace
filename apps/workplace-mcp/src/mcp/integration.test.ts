@@ -221,6 +221,26 @@ describe('/mcp', { timeout: ROUNDTRIP_TEST_TIMEOUT_MS }, () => {
       expect(scope.isDone()).toBe(true);
     });
 
+    it('User-Agent 의 제품 토큰을 X-Agent-Tool 로 /auth/me 와 도구 호출에 전달한다 (WP-377)', async () => {
+      nock(API, { reqheaders: { 'x-agent-tool': 'claude-code' } }).get('/auth/me').reply(200, { id: 1, username: 'u', kind: 'HUMAN' });
+      const scope = nock(API, { reqheaders: { 'x-agent-tool': 'claude-code' } })
+        .get('/projects/WP/issues/1')
+        .reply(200, { issueKey: 'WP-1', number: 1, title: 't', status: 'TODO' });
+      const client = await connect('swp_valid', { 'User-Agent': 'claude-code/2.1.296 (sdk-cli)' });
+      await client.callTool({ name: 'get_issue_detail', arguments: { issueKey: 'WP-1' } });
+      expect(scope.isDone()).toBe(true);
+    });
+
+    it('인식할 수 없는 User-Agent 면 X-Agent-Tool 은 mcp (WP-377)', async () => {
+      nock(API, { reqheaders: { 'x-agent-tool': 'mcp' } }).get('/auth/me').reply(200, { id: 1, username: 'u', kind: 'HUMAN' });
+      const scope = nock(API, { reqheaders: { 'x-agent-tool': 'mcp' } })
+        .get('/projects/WP/issues/1')
+        .reply(200, { issueKey: 'WP-1', number: 1, title: 't', status: 'TODO' });
+      const client = await connect('swp_valid', { 'User-Agent': 'weird_name!/1' });
+      await client.callTool({ name: 'get_issue_detail', arguments: { issueKey: 'WP-1' } });
+      expect(scope.isDone()).toBe(true);
+    });
+
     it('사람 PAT(swp_) 요청에는 X-On-Behalf-Of-Tenant 를 전달하지 않는다', async () => {
       nock(API, { badheaders: ['x-on-behalf-of-tenant'] }).get('/auth/me').reply(200, { id: 1, username: 'u', kind: 'HUMAN' });
       const client = await connect('swp_valid', { 'X-On-Behalf-Of-Tenant': '7' });

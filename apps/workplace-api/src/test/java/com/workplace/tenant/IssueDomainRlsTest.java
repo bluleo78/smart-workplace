@@ -1,5 +1,7 @@
 package com.workplace.tenant;
 
+import static com.workplace.jooq.Tables.AGENT_WORK;
+import static com.workplace.jooq.Tables.AGENT_WORK_EVENT;
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_TYPE_DEF;
 import static com.workplace.jooq.Tables.PROJECT;
@@ -158,6 +160,125 @@ class IssueDomainRlsTest extends IntegrationTestBase {
               // GUC 를 tenant#1 로 전환 → tid2 의 issue 는 비가시 (RLS USING 차단)
               setGuc(1L);
               assertThat(dsl.fetchCount(dsl.selectFrom(ISSUE).where(ISSUE.ID.eq(iid)))).isZero();
+
+              status.setRollbackOnly(); // 공유 DB 무오염
+              return null;
+            });
+  }
+
+  /**
+   * AI 작업 기록(agent_work, WP-377)도 크로스테넌트 격리됨을 증명 — 무소식·급한 순 목록이 다른 테넌트 작업을 섞지 않게 하는 회귀 가드. issue
+   * 테스트와 같은 단일 트랜잭션+롤백 패턴. tenant_id 는 GUC DEFAULT 로 채워지는지까지 본다(INSERT 에서 명시하지 않음).
+   */
+  @Test
+  void agentWork_isIsolatedAcrossTenants() {
+    new TransactionTemplate(txManager)
+        .execute(
+            status -> {
+              Long tid2 =
+                  dsl.insertInto(TENANT)
+                      .set(TENANT.SLUG, "rls-aw-" + System.nanoTime())
+                      .set(TENANT.NAME, "RLS-AW")
+                      .set(TENANT.STATUS, "ACTIVE")
+                      .returning(TENANT.ID)
+                      .fetchOne()
+                      .getId();
+
+              String suffix = String.valueOf(System.nanoTime() % 1_000_000);
+              Long userId =
+                  dsl.insertInto(USER)
+                      .set(USER.USERNAME, "rls-aw-user-" + suffix)
+                      .set(USER.NAME, "RLS-AW User")
+                      .set(USER.EMAIL, "rls-aw-user-" + suffix + "@example.com")
+                      .set(USER.KIND, "HUMAN")
+                      .returning(USER.ID)
+                      .fetchOne()
+                      .getId();
+
+              // tid2 컨텍스트에서 project → issue_type_def → issue → agent_work 순으로 삽입
+              setGuc(tid2);
+              Long pid =
+                  dsl.insertInto(PROJECT)
+                      .set(PROJECT.KEY, "AWR" + (System.nanoTime() % 100000))
+                      .set(PROJECT.NAME, "RLS AgentWork Test Project")
+                      .set(PROJECT.OWNER_ID, userId)
+                      .set(PROJECT.TENANT_ID, tid2)
+                      .returning(PROJECT.ID)
+                      .fetchOne()
+                      .getId();
+              Long typeId =
+                  dsl.insertInto(ISSUE_TYPE_DEF)
+                      .set(ISSUE_TYPE_DEF.PROJECT_ID, pid)
+                      .set(ISSUE_TYPE_DEF.NAME, "TASK")
+                      .set(ISSUE_TYPE_DEF.COLOR_TOKEN, "BLUE")
+                      .set(ISSUE_TYPE_DEF.ICON, "Circle")
+                      .returning(ISSUE_TYPE_DEF.ID)
+                      .fetchOne()
+                      .getId();
+              Long iid =
+                  dsl.insertInto(ISSUE)
+                      .set(ISSUE.PROJECT_ID, pid)
+                      .set(ISSUE.NUMBER, 1)
+                      .set(ISSUE.TITLE, "rls-aw-issue")
+                      .set(ISSUE.STATUS, "TODO")
+                      .set(ISSUE.PRIORITY, "MID")
+                      .set(ISSUE.REPORTER_ID, userId)
+                      .set(ISSUE.TYPE_ID, typeId)
+                      .set(ISSUE.TENANT_ID, tid2)
+                      .returning(ISSUE.ID)
+                      .fetchOne()
+                      .getId();
+              Long awId =
+                  dsl.insertInto(AGENT_WORK)
+                      .set(AGENT_WORK.ISSUE_ID, iid)
+                      .set(AGENT_WORK.WORKER_ID, userId)
+                      .set(AGENT_WORK.TOOL, "claude-code")
+                      .returning(AGENT_WORK.ID)
+                      .fetchOne()
+                      .getId();
+              // 상태 변경 이력(agent_work_event)도 같은 방식으로 격리된다.
+              Long evId =
+                  dsl.insertInto(AGENT_WORK_EVENT)
+                      .set(AGENT_WORK_EVENT.WORK_ID, awId)
+                      .set(AGENT_WORK_EVENT.STATE, "WORKING")
+                      .returning(AGENT_WORK_EVENT.ID)
+                      .fetchOne()
+                      .getId();
+
+              // tid2 컨텍스트에서는 가시 + tenant_id 가 GUC 로 채워짐
+              assertThat(
+                      dsl.select(AGENT_WORK_EVENT.TENANT_ID)
+                          .from(AGENT_WORK_EVENT)
+                          .where(AGENT_WORK_EVENT.ID.eq(evId))
+                          .fetchOne(AGENT_WORK_EVENT.TENANT_ID))
+                  .isEqualTo(tid2);
+              assertThat(
+                      dsl.select(AGENT_WORK.TENANT_ID)
+                          .from(AGENT_WORK)
+                          .where(AGENT_WORK.ID.eq(awId))
+                          .fetchOne(AGENT_WORK.TENANT_ID))
+                  .isEqualTo(tid2);
+
+              // GUC 를 tenant#1 로 전환 → tid2 의 agent_work 는 비가시, 갱신도 0행
+              setGuc(1L);
+              assertThat(dsl.fetchCount(dsl.selectFrom(AGENT_WORK).where(AGENT_WORK.ID.eq(awId))))
+                  .isZero();
+              assertThat(
+                      dsl.update(AGENT_WORK)
+                          .set(AGENT_WORK.STATE, "PAUSED")
+                          .where(AGENT_WORK.ID.eq(awId))
+                          .execute())
+                  .isZero();
+              assertThat(
+                      dsl.fetchCount(
+                          dsl.selectFrom(AGENT_WORK_EVENT).where(AGENT_WORK_EVENT.ID.eq(evId))))
+                  .isZero();
+              assertThat(
+                      dsl.update(AGENT_WORK_EVENT)
+                          .set(AGENT_WORK_EVENT.STATE, "PAUSED")
+                          .where(AGENT_WORK_EVENT.ID.eq(evId))
+                          .execute())
+                  .isZero();
 
               status.setRollbackOnly(); // 공유 DB 무오염
               return null;

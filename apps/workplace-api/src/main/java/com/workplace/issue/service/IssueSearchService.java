@@ -1,5 +1,8 @@
 package com.workplace.issue.service;
 
+import static com.workplace.issue.service.SearchParams.csv;
+import static com.workplace.issue.service.SearchParams.trimToNull;
+
 import com.workplace.global.dto.UserSummary;
 import com.workplace.issue.dto.IssueCursor;
 import com.workplace.issue.dto.IssueResponse;
@@ -20,7 +23,6 @@ import com.workplace.project.service.ProjectAccessGuard;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
@@ -36,9 +38,6 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class IssueSearchService {
 
-  private static final int DEFAULT_SIZE = 30;
-  private static final int MAX_SIZE = 100;
-
   private final IssueRepository issueRepository;
   private final IssueLabelRepository issueLabelRepository;
   private final IssueAttachmentRepository issueAttachmentRepository;
@@ -46,6 +45,8 @@ public class IssueSearchService {
   private final IssueTypeRepository typeRepository;
   private final IssueDependencyRepository dependencyRepository;
   private final IssueFieldValueRepository fieldValueRepository;
+  // WP-377: 목록 항목에 진행 중 AI 작업을 싣는다.
+  private final AgentWorkService agentWorkService;
   private final ProjectAccessGuard accessGuard;
   // #841: 라벨·유형 이름, username 필터 토큰 → id 해석(해석 불가 시 400).
   private final IssueFilterResolver filterResolver;
@@ -86,11 +87,21 @@ public class IssueSearchService {
     return assemble(rows, query, pid -> keyById.getOrDefault(pid, ""));
   }
 
-  /** rows → IssueSearchResponse 조립. projectKey 는 row 마다 keyResolver 로 해석(횡단 검색 대응). */
+  /** rows → IssueSearchResponse 조립. 항목 조립은 {@link #assembleItems} 에 맡기고 여기선 커서만 계산한다. */
   private IssueSearchResponse assemble(
       List<IssueRow> rows,
       IssueSearchQuery query,
       java.util.function.LongFunction<String> keyResolver) {
+    var items = assembleItems(rows, keyResolver);
+    return pageOf(items, rows, query);
+  }
+
+  /**
+   * rows → IssueResponse 목록 조립(라벨·첨부·담당자·유형·부모·의존성·필드·AI 작업 일괄 조회). projectKey 는 row 마다 keyResolver
+   * 로 해석(횡단 검색 대응). 다른 목록 조회(AI 진행 목록 등)도 같은 응답 모양을 쓰도록 공개한다.
+   */
+  public List<IssueResponse> assembleItems(
+      List<IssueRow> rows, java.util.function.LongFunction<String> keyResolver) {
     List<Long> issueIds = rows.stream().map(IssueRow::id).toList();
     Map<Long, List<LabelSummary>> labelsByIssue =
         issueLabelRepository.findLabelsByIssueIds(issueIds);
@@ -112,11 +123,12 @@ public class IssueSearchService {
     var blockedFlagByIssue = dependencyRepository.findBlockedFlags(issueIds);
     // Phase 4c — custom field 값 batch (N+1 회피).
     var fieldsByIssue = fieldValueRepository.findByIssueIds(issueIds);
-    var items =
-        rows.stream()
-            .map(
-                r ->
-                    IssueResponse.fromWithCustomFields(
+    // WP-377 — 진행 중 AI 작업 batch (N+1 회피).
+    var agentWorkByIssue = agentWorkService.viewsByIssueIds(issueIds);
+    return rows.stream()
+        .map(
+            r ->
+                IssueResponse.fromWithCustomFields(
                         keyResolver.apply(r.projectId()), // ← project.key() 대신 row 별 해석
                         r,
                         labelsByIssue.getOrDefault(r.id(), List.of()),
@@ -129,8 +141,14 @@ public class IssueSearchService {
                         blockedByByIssue.getOrDefault(r.id(), List.of()),
                         blocksByIssue.getOrDefault(r.id(), List.of()),
                         blockedFlagByIssue.getOrDefault(r.id(), false),
-                        fieldsByIssue.getOrDefault(r.id(), List.of())))
-            .toList();
+                        fieldsByIssue.getOrDefault(r.id(), List.of()))
+                    .withAgentWork(agentWorkByIssue.getOrDefault(r.id(), List.of())))
+        .toList();
+  }
+
+  /** 항목 + 원본 rows 로 커서 페이지 응답을 만든다. 마지막 행의 (updatedAt, id) 가 다음 커서. */
+  private IssueSearchResponse pageOf(
+      List<IssueResponse> items, List<IssueRow> rows, IssueSearchQuery query) {
 
     String nextCursor = null;
     boolean hasMore = false;
@@ -181,15 +199,7 @@ public class IssueSearchService {
       cursor = IssueCursor.decode(cursorStr);
     }
 
-    int size = DEFAULT_SIZE;
-    String sizeStr = trimToNull(p.get("size"));
-    if (sizeStr != null) {
-      try {
-        size = Math.max(1, Math.min(MAX_SIZE, Integer.parseInt(sizeStr)));
-      } catch (NumberFormatException ignored) {
-        // 기본값 유지
-      }
-    }
+    int size = SearchParams.size(p.get("size"));
 
     // 라벨 CSV — 숫자 id 또는 라벨 이름(#841). 토큰마다 그룹 하나(그룹 간 AND).
     List<List<Long>> labelIdGroups =
@@ -290,18 +300,6 @@ public class IssueSearchService {
         createdFrom,
         createdTo,
         watcherId);
-  }
-
-  private static String trimToNull(String s) {
-    if (s == null) return null;
-    String t = s.trim();
-    return t.isEmpty() ? null : t;
-  }
-
-  private static List<String> csv(String s) {
-    String t = trimToNull(s);
-    if (t == null) return List.of();
-    return Arrays.stream(t.split(",")).map(String::trim).filter(x -> !x.isEmpty()).toList();
   }
 
   private static LocalDate parseDate(String s) {

@@ -1,5 +1,6 @@
 // 개인 프로젝트 전용 상세 화면 E2E — 분기/뷰 토글/패널/리다이렉트/필드 다이어트.
 // 전 구간 page.route 모킹(백엔드 무관). 모킹 데이터는 실제 타입(factory) 사용.
+import { createAgentWork } from '../../factories/agentWork.factory';
 import { createChatMessagePage, createChatThread } from '../../factories/chat.factory';
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../factories/issue.factory';
 import { systemTypes } from '../../factories/issueType.factory';
@@ -65,23 +66,31 @@ test('뷰 토글 클릭 시 view 가 전환되고 열린 drawer(task)는 닫힌�
   await expect(page).not.toHaveURL(/view=/);
 });
 
-test('체크리스트는 작업 행과 AI 위임 배지를 렌더한다', async ({ authenticatedPage: page }) => {
+test('체크리스트는 작업 행과 AI 진행·AI 위임 배지를 렌더한다', async ({ authenticatedPage: page }) => {
   const agent = { id: 99, username: 'ai', name: 'AI', kind: 'AGENT' as const };
   await mockPersonal(page, [
     createIssue({ projectKey: KEY, number: 1, title: '블로그 초안', status: 'IN_PROGRESS', assignees: [agent] }),
     createIssue({ projectKey: KEY, number: 2, title: '운동 계획', status: 'TODO', assignees: [] }),
     createIssue({ projectKey: KEY, number: 3, title: '주간 회고', status: 'TODO', assignees: [agent] }),
+    createIssue({
+      projectKey: KEY, number: 4, title: '여행 예약', status: 'IN_PROGRESS', assignees: [agent],
+      // 서버는 급한 순으로 내려준다(BLOCKED 가 WORKING 보다 앞).
+      agentWork: [createAgentWork({ worker: agent, state: 'BLOCKED' }), createAgentWork({ worker: agent, state: 'WORKING' })],
+    }),
   ]);
   await page.goto(`/projects/${KEY}`);
 
   await expect(page.getByTestId('personal-task-row-1')).toContainText('블로그 초안');
   await expect(page.getByTestId('personal-task-row-2')).toContainText('운동 계획');
-  // AGENT 담당 + 진행중 → AiSignalBadge "AI 처리중"(✨+텍스트). 비위임 행엔 배지 없음.
-  await expect(page.getByTestId('ai-delegation-badge-1')).toContainText('AI 처리중');
+  // AGENT 담당 + 진행 중 작업 기록 없음 → "AI 위임"(예전 "AI 처리중" 문구는 없어졌다 — 진행 상태는 작업 기록이 보여 준다).
+  await expect(page.getByTestId('ai-delegation-badge-1')).toContainText('AI 위임');
+  // 비위임 행엔 배지 없음.
   await expect(page.getByTestId('ai-delegation-badge-2')).toHaveCount(0);
-  // AGENT 담당 + TODO → AiSignalBadge "AI 위임"(아직 처리 시작 전).
-  await expect(page.getByTestId('ai-delegation-badge-3')).toContainText('AI 위임');
-  await expect(page.getByTestId('ai-delegation-badge-3')).not.toContainText('처리중');
+  // AGENT 담당 + TODO + 작업 없음 → AI 진행 "시작 전".
+  await expect(page.getByTestId('ai-delegation-badge-3')).toHaveText('시작 전');
+  // 진행 중 작업이 있으면 가장 급한 상태(막힘 > 작업 중). 서버가 급한 순으로 내려주므로 화면은 첫 항목을 쓴다.
+  await expect(page.getByTestId('ai-delegation-badge-4')).toHaveText('막힘');
+  await expect(page.getByTestId('personal-checklist')).not.toContainText('처리중');
 });
 
 test('보드 뷰는 팀 리치카드를 상태 3컬럼으로 배치한다(CANCELED 컬럼 부재)', async ({ authenticatedPage: page }) => {

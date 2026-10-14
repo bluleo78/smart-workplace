@@ -175,6 +175,18 @@ describe('프로젝트 정리 뷰 (WP-353)', () => {
   });
 });
 
+describe('toIssueListItem agentWork (WP-377)', () => {
+  it('agentWork 가 있으면 AI 작업 뷰로 싣고, 없으면 키가 없다', () => {
+    const work = { worker: { id: 7, username: 'claude', name: 'Claude', kind: 'AI' }, tool: 'mcp', state: 'REVIEW', updatedAt: '2026-10-14T00:00:00Z' };
+    const withWork = toIssueListItem({ projectKey: 'WP', number: 1, agentWork: [work] });
+    expect(withWork.agentWork).toEqual([
+      { worker: { username: 'claude', name: 'Claude', kind: 'AI' }, tool: 'mcp', state: 'REVIEW', updatedAt: '2026-10-14T09:00:00+09:00' },
+    ]);
+    const without = JSON.parse(JSON.stringify(Object.fromEntries(Object.entries(toIssueListItem({ projectKey: 'WP', number: 2 })).filter(([, v]) => v !== undefined))));
+    expect(without).not.toHaveProperty('agentWork');
+  });
+});
+
 describe('list_issues', () => {
   it('assignee·reporter 모두 생략 시 assignee=me, 기본 size 30, undefined 필드는 쿼리에 없다', async () => {
     const c = mockClient();

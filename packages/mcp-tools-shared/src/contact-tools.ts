@@ -129,7 +129,7 @@ export function buildContactTools(client: ContactToolClient & Pick<MemberToolCli
       app: 'contacts',
       kind: 'read',
       description:
-        'Returns the organizations and titles used by external contacts. list_contacts filters on these exact values; pick from this list.',
+        'Returns the organizations and titles used by external contacts. list_contacts filters on these exact values.',
       inputSchema: z.object({}),
       async handler() {
         return JSON.stringify(await client.getContactFacets());
@@ -168,8 +168,8 @@ export function buildContactTools(client: ContactToolClient & Pick<MemberToolCli
       app: 'contacts',
       kind: 'read',
       description:
-        'Returns the user group (그룹) trees: shared (the org chart everyone sees) and personal (mine), nodes {groupId, name, code, visibility, ' +
-        'children}.',
+        'Returns the user group (그룹) trees: shared (the org chart) and personal (mine), nodes with groupId, name, code, visibility, ' +
+        'children.',
       inputSchema: z.object({}),
       async handler() {
         const { shared = [], personal = [] } = (await client.listUserGroups()) ?? {};
@@ -195,7 +195,7 @@ export function buildContactTools(client: ContactToolClient & Pick<MemberToolCli
       hints: { destructive: false, idempotent: false },
       description:
         'Creates a user group. visibility PERSONAL (default, only me) or SHARED (org chart; needs org-chart management permission). ' +
-        'parentGroupId nests it under a group of the same visibility (personal: mine only). Sibling names must be unique.',
+        'parentGroupId nests it under a group of the same visibility (personal: mine only).',
       inputSchema: createUserGroupInput,
       async handler(args) {
         const { parentGroupId, ...rest } = createUserGroupInput.parse(args);
@@ -257,7 +257,7 @@ export function buildContactTools(client: ContactToolClient & Pick<MemberToolCli
       kind: 'write',
       hints: { destructive: false, idempotent: false },
       description:
-        'Creates an external contact (외부 연락처), SHARED or PERSONAL, and returns it. If the same name and email exist it fails with a duplicate ' +
+        'Creates an external contact (외부 연락처), SHARED or PERSONAL. If the same name and email exist it fails with a duplicate ' +
         'warning: tell the user; retry with force:true only after they confirm.',
       inputSchema: createExternalContactInput,
       async handler(args) {

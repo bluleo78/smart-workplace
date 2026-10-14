@@ -10,6 +10,8 @@ import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.service.ProjectAccessGuard;
+import com.workplace.user.dto.AssigneeInfo;
+import com.workplace.user.dto.UserResponse;
 import com.workplace.user.repository.UserRepository;
 import com.workplace.watcher.service.WatcherAutoEnroller;
 import java.time.Instant;
@@ -40,6 +42,7 @@ public class IssueAssigneeService {
   private final UserRepository userRepository;
   private final ApplicationEventPublisher publisher;
   private final IssueChangeNotifier changeNotifier;
+  private final AgentWorkService agentWorkService;
 
   /**
    * 이슈 담당자 집합을 통째로 교체한다.
@@ -93,12 +96,10 @@ public class IssueAssigneeService {
     toRemove.removeAll(target);
 
     // 2-b) 신규 추가 대상 중 비활성화(is_active=false)된 사용자는 담당자로 지정 불가 (#624)
-    if (!toAdd.isEmpty()) {
-      boolean hasInactive =
-          userRepository.findByIds(new ArrayList<>(toAdd)).stream().anyMatch(u -> !u.isActive());
-      if (hasInactive) {
-        throw new InvalidAssigneeForProjectException();
-      }
+    // 추가 대상 사용자는 한 번만 읽어 비활성 검사·외부 AI 작업 생성·이력 요약에 함께 쓴다.
+    List<AssigneeInfo> addedUsers = userRepository.findAssigneeInfos(toAdd);
+    if (addedUsers.stream().anyMatch(u -> !u.isActive())) {
+      throw new InvalidAssigneeForProjectException();
     }
 
     // 3) 제거 대상의 사용자 요약을 먼저 조회 (삭제 후에는 USER JOIN 으로 못 가져옴)
@@ -106,22 +107,23 @@ public class IssueAssigneeService {
     if (!toRemove.isEmpty()) {
       removedSummaries =
           userRepository.findByIds(new ArrayList<>(toRemove)).stream()
-              .map(u -> new UserSummary(u.id(), u.username(), u.name(), u.kind()))
+              .map(UserResponse::toSummary)
               .toList();
     }
 
     for (Long uid : toAdd) repo.add(issue.id(), uid, callerId);
     for (Long uid : toRemove) repo.remove(issue.id(), uid);
+    // 외부 실행 AI 구성원이 새로 담당자가 되면 "시작 전" 작업을 만든다(WP-377) — 종료 이슈는 서비스가 거른다.
+    agentWorkService.submitForAssignees(issue.id(), issue.status(), addedUsers);
+    // 담당에서 빠진 사람의 AI 작업은 끝낸다(WP-377 §4.3) — 변경 알림 전에 닫아 화면 갱신이 최신 상태를 보게 한다.
+    if (!toRemove.isEmpty()) {
+      agentWorkService.cancelForWorkers(issue.id(), toRemove);
+    }
 
     // 4) history — diff 0 이면 미기록
     List<UserSummary> addedSummaries = List.of();
     if (!toAdd.isEmpty() || !toRemove.isEmpty()) {
-      if (!toAdd.isEmpty()) {
-        addedSummaries =
-            userRepository.findByIds(new ArrayList<>(toAdd)).stream()
-                .map(u -> new UserSummary(u.id(), u.username(), u.name(), u.kind()))
-                .toList();
-      }
+      addedSummaries = addedUsers.stream().map(AssigneeInfo::toSummary).toList();
       historyRecorder.recordAssigneesChanged(
           callerId, issue.id(), addedSummaries, removedSummaries);
       // 실시간 무효화 — diff 가 있을 때만
@@ -133,11 +135,7 @@ public class IssueAssigneeService {
 
     // 6) 변경이 있을 때만 도메인 이벤트 발행 (AFTER_COMMIT 에서 ai-agent 발사 후보)
     if (!toAdd.isEmpty() || !toRemove.isEmpty()) {
-      var actor =
-          userRepository
-              .findById(callerId)
-              .map(u -> new UserSummary(u.id(), u.username(), u.name(), u.kind()))
-              .orElse(null);
+      var actor = userRepository.findById(callerId).map(UserResponse::toSummary).orElse(null);
       var currentAssignees = repo.findByIssue(issue.id());
       String issueKey = project.key() + "-" + issue.number();
       publisher.publishEvent(

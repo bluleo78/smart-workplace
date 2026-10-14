@@ -147,6 +147,20 @@ public class ChatMessageRecord extends UpdatableRecordImpl<ChatMessageRecord> {
         return (Long) get(8);
     }
 
+    /**
+     * Setter for <code>public.chat_message.is_question</code>.
+     */
+    public void setIsQuestion(Boolean value) {
+        set(9, value);
+    }
+
+    /**
+     * Getter for <code>public.chat_message.is_question</code>.
+     */
+    public Boolean getIsQuestion() {
+        return (Boolean) get(9);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -170,7 +184,7 @@ public class ChatMessageRecord extends UpdatableRecordImpl<ChatMessageRecord> {
     /**
      * Create a detached, initialised ChatMessageRecord
      */
-    public ChatMessageRecord(Long id, Long threadId, Long authorId, String body, JSONB mentions, OffsetDateTime createdAt, OffsetDateTime editedAt, OffsetDateTime deletedAt, Long tenantId) {
+    public ChatMessageRecord(Long id, Long threadId, Long authorId, String body, JSONB mentions, OffsetDateTime createdAt, OffsetDateTime editedAt, OffsetDateTime deletedAt, Long tenantId, Boolean isQuestion) {
         super(ChatMessage.CHAT_MESSAGE);
 
         setId(id);
@@ -182,6 +196,7 @@ public class ChatMessageRecord extends UpdatableRecordImpl<ChatMessageRecord> {
         setEditedAt(editedAt);
         setDeletedAt(deletedAt);
         setTenantId(tenantId);
+        setIsQuestion(isQuestion);
         resetChangedOnNotNull();
     }
 }

@@ -59,6 +59,7 @@ class IssueBlockerCalculatorTest {
       String status, LocalDate due, Instant updatedAt, boolean blocked) {
     return new com.workplace.issue.dto.IssueResponse(
         1L, "PRJ", 1, "제목", status, "MID", due, null, null, null, 1L, updatedAt, updatedAt, null,
-        List.of(), 0, null, List.of(), null, 0, 0, List.of(), List.of(), blocked, List.of(), 1);
+        List.of(), 0, null, List.of(), null, 0, 0, List.of(), List.of(), blocked, List.of(), 1,
+        List.of());
   }
 }

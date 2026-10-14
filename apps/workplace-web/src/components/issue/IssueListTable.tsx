@@ -1,4 +1,4 @@
-// 이슈 목록 테이블 — ID/제목/상태/우선순위. 내 작업·AI 위임 등 여러 뷰에서 공유.
+// 이슈 목록 테이블 — ID/제목/상태/우선순위. 내 작업 탭들이 공유(AI 위임 작업은 전용 표 — pages/me/aiTasks).
 // 상태·우선순위는 프로젝트 이슈 목록과 시각 언어 통일을 위해 아이콘 방식 사용(#294).
 import { Link } from 'react-router-dom'
 
@@ -7,19 +7,14 @@ import { IssuePriorityBars } from '../issues/IssuePriorityBars'
 import { IssueStatusIcon } from '../issues/IssueStatusIcon'
 import { IssueTypeBadge } from '../issueTypes/IssueTypeBadge'
 import { LabelChip } from '../labels/LabelChip'
-import { UserAvatar } from '../users/UserAvatar'
 
 export function IssueListTable({
   items,
   rowTestIdPrefix,
-  showAssignees = false,
 }: {
   items: IssueResponse[]
   /** 행 testid 접두어 — 예: "watched-row" → "watched-row-12". */
   rowTestIdPrefix: string
-  // AI 위임 페이지는 어느 AI 담당인지가 핵심 → opt-in 으로 담당자 칩(아바타+AGENT 마커) 표시.
-  // 공유 테이블 기본 off 로 내 작업 뷰(MyTasks)는 출력 무영향.
-  showAssignees?: boolean
 }) {
   return (
     <div className="overflow-x-auto">
@@ -30,7 +25,6 @@ export function IssueListTable({
             <th>제목</th>
             <th className="w-28">상태</th>
             <th className="w-24">우선순위</th>
-            {showAssignees && <th className="w-20">담당자</th>}
           </tr>
         </thead>
         <tbody>
@@ -67,33 +61,6 @@ export function IssueListTable({
               <td>
                 <IssuePriorityBars priority={it.priority} />
               </td>
-              {showAssignees && (
-                <td>
-                  <span className="flex items-center -space-x-1">
-                    {it.assignees.length === 0 ? (
-                      <span className="text-muted-foreground">—</span>
-                    ) : (
-                      <>
-                        {it.assignees.slice(0, 3).map((u) => (
-                          // AGENT(AI) 담당자는 보라색 ring + Bot 마커로 사람과 시각 구분.
-                          <UserAvatar
-                            key={u.id}
-                            user={u}
-                            size="xs"
-                            ring
-                            agent={u.kind === 'AGENT'}
-                          />
-                        ))}
-                        {it.assignees.length > 3 && (
-                          <span className="text-xs text-muted-foreground ml-1">
-                            +{it.assignees.length - 3}
-                          </span>
-                        )}
-                      </>
-                    )}
-                  </span>
-                </td>
-              )}
             </tr>
           ))}
         </tbody>

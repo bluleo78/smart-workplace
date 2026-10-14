@@ -132,4 +132,23 @@ describe('buildMyTasksContext / buildAiTasksContext', () => {
   it('AI 위임 작업', () => {
     expect(buildAiTasksContext({ facets: {}, count: 2 })).toEqual({ view: 'AI 위임 작업', scope: { label: 'AI 위임 작업', count: 2 } });
   });
+  it('AI 위임 작업 — 범위 전체·AI 진행 칩을 facet 앞 facts 로(나와 관련·칩 없음이면 생략)', () => {
+    expect(buildAiTasksContext({ facets: { status: 'TODO' }, count: 7, scope: 'all', stateLabel: '답변 필요' })).toEqual({
+      view: 'AI 위임 작업',
+      scope: {
+        label: 'AI 위임 작업',
+        facts: [
+          { label: '범위', value: '전체' },
+          { label: 'AI 진행', value: '답변 필요' },
+          { label: '상태', value: '할 일' },
+        ],
+        count: 7,
+      },
+    });
+    expect(buildAiTasksContext({ facets: {}, scope: 'mine' }).scope).toEqual({ label: 'AI 위임 작업' });
+  });
+  it('AI 위임 작업 — 서버가 무시하는 마감·차단됨 facet 은 facts 에 싣지 않는다', () => {
+    const ctx = buildAiTasksContext({ facets: { priority: 'HIGH', dueTo: '2026-10-01', blocked: 'true' }, count: 1 });
+    expect(ctx.scope?.facts).toEqual([{ label: '우선순위', value: '높음' }]);
+  });
 });

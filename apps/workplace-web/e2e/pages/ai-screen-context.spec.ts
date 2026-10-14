@@ -5,6 +5,7 @@ import { trackRequests } from '../fixtures/requests'
 import { expect, test } from '../fixtures/auth.fixture'
 import { type HomeChatStartBody, mockHomeChatGeneration } from '../fixtures/home-chat-mock'
 import { mockIssueDetail } from '../fixtures/issue-detail-mock'
+import { createAiTaskCounts } from '../factories/agentWork.factory'
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../factories/issue.factory'
 import { createChatMessagePage, createChatThread } from '../factories/chat.factory'
 import { createProject } from '../factories/project.factory'
@@ -279,18 +280,18 @@ test.describe('AI 채팅 화면 컨텍스트 — 내 작업 · AI 위임', () =>
     })
   })
 
-  test('AI 위임 작업은 AGENT 담당만 센 건수를 싣는다', async ({ authenticatedPage: page }) => {
+  // WP-377: 건수는 로드된 행 수가 아니라 서버 전체 건수(/me/ai-tasks/counts 의 all) — 행 2건, all 2 가 아닌 값으로 구분.
+  test('AI 위임 작업은 counts 의 전체 건수를 싣는다', async ({ authenticatedPage: page }) => {
     const chat = await captureChat(page)
     const agent = { id: 9, username: 'claude', name: 'Claude', kind: 'AGENT' as const }
-    const human = { id: 1, username: 'kim', name: '김사람', kind: 'HUMAN' as const }
     await mockApi(
-      page, 'GET', '/api/v1/me/issues',
+      page, 'GET', '/api/v1/me/ai-tasks',
       createIssueSearchResponse([
         createIssue({ id: 31, assignees: [agent] }),
-        createIssue({ id: 32, assignees: [human] }),
         createIssue({ id: 33, assignees: [agent] }),
       ]),
     )
+    await mockApi(page, 'GET', '/api/v1/me/ai-tasks/counts', createAiTaskCounts({ all: 12 }))
     await page.goto('/me/ai-tasks')
     await expect(page.getByTestId('ai-row-31')).toBeVisible()
     await page.getByTestId('chat-launcher').click()
@@ -298,7 +299,31 @@ test.describe('AI 채팅 화면 컨텍스트 — 내 작업 · AI 위임', () =>
     await page.getByTestId('chat-input').fill('진행 상황 알려줘')
     await page.getByRole('button', { name: '보내기' }).click()
     await expect.poll(chat.count).toBe(1)
-    expect(chat.bodies<HomeChatStartBody>()[0].screenContext).toEqual({ view: 'AI 위임 작업', scope: { label: 'AI 위임 작업', count: 2 } })
+    expect(chat.bodies<HomeChatStartBody>()[0].screenContext).toEqual({ view: 'AI 위임 작업', scope: { label: 'AI 위임 작업', count: 12 } })
+  })
+
+  // 빠른 필터 중이면 건수는 보이는 집합(칩 건수)이고, 범위 전체·켜진 칩이 facts 로 실린다.
+  // URL 에 남은 막힘(blocked)은 /me/ai-tasks 가 무시하는 facet 이라 facts 에 싣지 않는다.
+  test('AI 위임 작업 — 빠른 필터·전체 범위면 칩 건수와 facts 를 싣는다', async ({ authenticatedPage: page }) => {
+    const chat = await captureChat(page)
+    const agent = { id: 9, username: 'claude', name: 'Claude', kind: 'AGENT' as const }
+    await mockApi(page, 'GET', '/api/v1/me/ai-tasks', createIssueSearchResponse([createIssue({ id: 31, assignees: [agent] })]))
+    await mockApi(page, 'GET', '/api/v1/me/ai-tasks/counts', createAiTaskCounts({ all: 12, inputRequired: 7 }))
+    await page.goto('/me/ai-tasks?scope=all&state=INPUT_REQUIRED&blocked=true')
+    await expect(page.getByTestId('ai-row-31')).toBeVisible()
+    await expect(page.getByTestId('ai-quick-count-inputRequired')).toHaveText('7')
+    await page.getByTestId('chat-launcher').click()
+    await page.getByTestId('chat-input').fill('답변할 것 알려줘')
+    await page.getByRole('button', { name: '보내기' }).click()
+    await expect.poll(chat.count).toBe(1)
+    expect(chat.bodies<HomeChatStartBody>()[0].screenContext).toEqual({
+      view: 'AI 위임 작업',
+      scope: {
+        label: 'AI 위임 작업',
+        facts: [{ label: '범위', value: '전체' }, { label: 'AI 진행', value: '답변 필요' }],
+        count: 7,
+      },
+    })
   })
 })
 

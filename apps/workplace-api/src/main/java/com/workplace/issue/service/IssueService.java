@@ -51,6 +51,7 @@ import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.repository.ProjectIssueSequenceRepository;
 import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.service.ProjectAccessGuard;
+import com.workplace.user.dto.AssigneeInfo;
 import com.workplace.user.repository.UserRepository;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -89,6 +90,8 @@ public class IssueService {
   private final PermissionChecker permissionChecker;
   private final MilestoneService milestoneService;
   private final IssueChangeNotifier changeNotifier;
+  // WP-377: 상세 요약에 진행 중 AI 작업을 싣는다.
+  private final AgentWorkService agentWorkService;
 
   /** WP-356: 생성 시 라벨·사이클 소속 검증과 연결. */
   private final LabelRepository labelRepository;
@@ -296,6 +299,10 @@ public class IssueService {
     for (Long uid : assigneeIds) {
       assigneeRepository.add(row.id(), uid, callerId);
     }
+    // 담당자 사용자 정보는 한 번만 읽어 시작 전 작업 판별과 이벤트용 요약에 함께 쓴다.
+    List<AssigneeInfo> assignees = userRepository.findAssigneeInfos(assigneeIds);
+    // 외부 실행 AI 구성원이 담당자로 들어오면 "시작 전" 작업을 만든다(WP-377). 종료 상태로 만든 이슈에는 만들지 않는다.
+    agentWorkService.submitForAssignees(row.id(), row.status(), assignees);
 
     // 4) watcher 자동 등록: reporter + 각 assignee (caller 와 다를 때만)
     watcherAutoEnroller.enroll(row.id(), callerId, callerId);
@@ -313,12 +320,7 @@ public class IssueService {
             .findById(callerId)
             .map(u -> new UserSummary(u.id(), u.username(), u.name(), u.kind()))
             .orElse(null);
-    List<UserSummary> assigneeSummaries =
-        assigneeIds.isEmpty()
-            ? List.of()
-            : userRepository.findByIds(assigneeIds).stream()
-                .map(u -> new UserSummary(u.id(), u.username(), u.name(), u.kind()))
-                .toList();
+    List<UserSummary> assigneeSummaries = assignees.stream().map(AssigneeInfo::toSummary).toList();
     String issueKey = project.key() + "-" + number;
     Instant occurredAt = Instant.now();
     publisher.publishEvent(
@@ -410,19 +412,20 @@ public class IssueService {
     // 이미 로드된 IssueResponse 로 블로커를 결정적으로 계산한다(새 쿼리 0).
     var summaryResponse =
         IssueResponse.fromWithCustomFields(
-            project.key(),
-            row,
-            labels,
-            attachments.size(),
-            type,
-            assignees,
-            parentRef,
-            childCount,
-            childDoneCount,
-            blockedByMap.getOrDefault(row.id(), List.of()),
-            blocksMap.getOrDefault(row.id(), List.of()),
-            blockedMap.getOrDefault(row.id(), false),
-            fieldsByIssue.getOrDefault(row.id(), List.of()));
+                project.key(),
+                row,
+                labels,
+                attachments.size(),
+                type,
+                assignees,
+                parentRef,
+                childCount,
+                childDoneCount,
+                blockedByMap.getOrDefault(row.id(), List.of()),
+                blocksMap.getOrDefault(row.id(), List.of()),
+                blockedMap.getOrDefault(row.id(), false),
+                fieldsByIssue.getOrDefault(row.id(), List.of()))
+            .withAgentWork(agentWorkService.viewsByIssueIds(ids).getOrDefault(row.id(), List.of()));
     // AI Instant Context: 항상 반환 — 블로커는 항상 계산, summary/nextAction/generatedAt 은 저장본 없으면 null.
     // 생성 버튼은 항상 렌더(aiContext non-null)해야 하므로 저장본/블로커 여부와 무관하게 인스턴스화.
     var blockers = blockerCalculator.compute(summaryResponse, LocalDate.now(), Instant.now());
@@ -582,6 +585,16 @@ public class IssueService {
         newStart,
         newMilestoneId,
         newClosedAt);
+    // 종료 상태(DONE/CANCELED)로 진입하면 그 이슈의 진행 중 AI 작업을 전부 끝낸다(WP-377 §4.3).
+    // DONE 은 COMPLETED(착수 전 SUBMITTED 만 CANCELED), CANCELED 는 CANCELED 로 닫고, 재오픈은 되살리지 않는다.
+    // 알림은 아래 changeNotifier.updated 가 이미 보내므로 여기서는 기록만 닫는다.
+    if (nowClosed && !wasClosed) {
+      if ("DONE".equals(newStatus)) {
+        agentWorkService.endAllOnIssueDone(List.of(before.id()));
+      } else {
+        agentWorkService.cancelAllForIssues(List.of(before.id()));
+      }
+    }
     // WP-199 본문이 바뀐 요청만 이미지 연결 상태를 맞춘다 — 상태·담당자만 바꾸는 PATCH 에서 불필요한 잠금을 잡지 않는다.
     // 새 본문·이전 본문 모두 이미지 참조가 없으면 syncIssueImages 가 추가 쿼리 없이 돌아간다.
     if (req.body() != null) {
@@ -753,6 +766,8 @@ public class IssueService {
     var deletedIds = new java.util.ArrayList<Long>(childIds);
     deletedIds.add(row.id());
     bodyImageService.demoteAllOfIssues(deletedIds);
+    // 삭제된 이슈(부모+자식)의 진행 중 AI 작업 종료(WP-377) — 남겨 두면 AI 위임 작업 건수·담당 작업 흐름에 유령 작업으로 남는다.
+    agentWorkService.cancelAllForIssues(deletedIds);
     // 실시간 무효화 — checkDeletable 이 이미 resolve 한 project 를 재사용(중복 조회 방지)
     changeNotifier.deleted(target.project(), number, row.id(), callerId);
   }

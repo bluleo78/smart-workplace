@@ -105,7 +105,7 @@ function facetFacts(facets: Record<string, string>) {
   ]);
 }
 
-// 내 작업·AI 위임 작업 공통 — 범위 라벨 + facet facts + 목록 상태.
+// 내 작업 — 범위 라벨 + facet facts + 목록 상태.
 function facetListContext(
   view: string,
   label: string,
@@ -123,7 +123,22 @@ export function buildMyTasksContext(input: {
   return facetListContext('내 작업', `내 작업 · ${MY_TASKS_TAB_LABEL[input.tab]}`, input);
 }
 
-export function buildAiTasksContext(input: { facets: Record<string, string>; count?: number }): AiScreenContext {
+/** AI 위임 작업(WP-377) — count 는 보이는 집합의 서버 건수(/me/ai-tasks/counts — 칩이 켜졌으면 그 칩 건수, 아니면 all).
+ *  무한 스크롤로 받은 행 수가 아니므로 hasMore 는 싣지 않는다. facts 는 범위 「전체」·켜진 AI 진행 칩(기본값이면 생략) + 상태·우선순위.
+ *  마감·차단됨은 /me/ai-tasks 가 무시하는 facet 이라 URL 에 남아 있어도 싣지 않는다(결과에 반영되지 않는 조건을 AI 에 알리지 않게). */
+export function buildAiTasksContext(input: {
+  facets: Record<string, string>;
+  count?: number;
+  scope?: 'mine' | 'all';
+  /** 켜진 빠른 필터 칩 라벨(답변 필요 등) — 전체 칩이면 없음. */
+  stateLabel?: string | null;
+}): AiScreenContext {
+  const facts = buildFacts([
+    ['범위', input.scope === 'all' ? '전체' : null],
+    ['AI 진행', input.stateLabel],
+    ['상태', joinMapped(csv(input.facets.status), ISSUE_STATUS_LABEL)],
+    ['우선순위', joinMapped(csv(input.facets.priority), ISSUE_PRIORITY_LABEL)],
+  ]);
   // 칩은 scope.label 이 view 를 포함하면 범위 라벨만 보여 준다 → 'AI 위임 작업' 한 번만 표시.
-  return facetListContext('AI 위임 작업', 'AI 위임 작업', input);
+  return { view: 'AI 위임 작업', scope: withListState({ label: 'AI 위임 작업', facts }, input) };
 }

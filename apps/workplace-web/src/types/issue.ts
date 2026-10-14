@@ -30,6 +30,33 @@ export interface IssueLinkSummary {
   dueDate: string | null;
 }
 
+// AI 에이전트 작업 상태(진행 중인 행만) — 서버 AgentWorkState 의 ACTIVE 와 1:1, A2A 1.0 어휘 + 플랫폼 확장(REVIEW·BLOCKED·PAUSED) (WP-377).
+// 종료 상태(COMPLETED·FAILED·CANCELED·REJECTED)는 목록에 내려오지 않는다.
+export type AgentWorkState =
+  | 'SUBMITTED'
+  | 'WORKING'
+  | 'INPUT_REQUIRED'
+  | 'AUTH_REQUIRED'
+  | 'REVIEW'
+  | 'BLOCKED'
+  | 'PAUSED';
+
+// 이슈에 걸린 AI 작업 한 건 — 서버가 급한 순(대표 먼저)으로 내려준다.
+export interface AgentWorkView {
+  worker: UserSummary;
+  // 시작 전(SUBMITTED) 행은 아직 도구를 몰라 null.
+  tool: string | null;
+  state: AgentWorkState;
+  note: string | null;
+  progress: number | null;
+  stepsDone: number | null;
+  stepsTotal: number | null;
+  startedAt: string;
+  updatedAt: string;
+  // 작업 중인데 2시간 넘게 보고가 없으면 true.
+  stale: boolean;
+}
+
 export interface IssueResponse {
   id: number;
   projectKey: string;
@@ -74,6 +101,8 @@ export interface IssueResponse {
   blocked: boolean;
   // 프로젝트 커스텀 필드의 현재 값 목록 (Phase 4c). 정의는 있는데 값이 없는 필드는 빠진다.
   customFields: IssueFieldEntry[];
+  // AI 진행 중인 작업 목록(WP-377) — 없으면 생략.
+  agentWork?: AgentWorkView[];
 }
 
 export interface IssueCommentResponse {

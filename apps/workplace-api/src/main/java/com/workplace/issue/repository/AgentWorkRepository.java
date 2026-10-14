@@ -1,0 +1,518 @@
+package com.workplace.issue.repository;
+
+import static com.workplace.jooq.Tables.AGENT_WORK;
+import static com.workplace.jooq.Tables.AGENT_WORK_EVENT;
+import static com.workplace.jooq.Tables.ISSUE;
+import static com.workplace.jooq.Tables.ISSUE_ASSIGNEE;
+import static com.workplace.jooq.Tables.USER;
+
+import com.workplace.global.dto.UserSummary;
+import com.workplace.issue.dto.AgentWorkPatch;
+import com.workplace.issue.dto.AgentWorkState;
+import com.workplace.issue.dto.IssueStatuses;
+import com.workplace.user.dto.UserKind;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import lombok.RequiredArgsConstructor;
+import org.jooq.Condition;
+import org.jooq.DSLContext;
+import org.jooq.Field;
+import org.jooq.InsertOnDuplicateStep;
+import org.jooq.Name;
+import org.jooq.Record;
+import org.jooq.Result;
+import org.jooq.ResultQuery;
+import org.jooq.impl.DSL;
+import org.springframework.stereotype.Repository;
+
+/**
+ * AI 작업 기록 저장소(WP-377). 진행 중 = ended_at IS NULL, 종료 = ended_at 설정 + 종료
+ * 상태(COMPLETED·FAILED·CANCELED·REJECTED). 모든 갱신은 updated_at 을 now() 로 올린다.
+ *
+ * <p>상태 변경 이력(agent_work_event)은 쓰기 경로마다 여기서 남긴다 — 변경 후 행을 {@code RETURNING} 으로 받아 같은 문장 안에서 이벤트로
+ * 넣으므로 다시 읽지 않고, 문장 하나라 행 변경과 이벤트가 함께 성공·실패한다(트리거는 쓰지 않는다).
+ *
+ * <p>시각(updated_at·ended_at)은 JVM 시계가 아니라 DB 시계(current_timestamp)로 찍는다 — insert 의 DEFAULT now() 와
+ * 같은 시계를 써야 무소식(2시간) 판정·급한 순 정렬이 앱 서버 간 시계 차이에 흔들리지 않는다.
+ */
+@Repository
+@RequiredArgsConstructor
+public class AgentWorkRepository {
+
+  /** 무소식 판정 기준 — WORKING 인데 마지막 보고가 이 시간 이상 지났으면 stale. */
+  public static final Duration STALE_AFTER = Duration.ofHours(2);
+
+  private final DSLContext dsl;
+
+  /** 작업 행 조회 결과. 시각은 Instant 로 변환해 돌려준다. */
+  public record AgentWorkRow(
+      long id,
+      long issueId,
+      long workerId,
+      String tool,
+      String state,
+      String note,
+      Integer progress,
+      Integer stepsDone,
+      Integer stepsTotal,
+      Instant startedAt,
+      Instant updatedAt) {}
+
+  /** 작업 행 + 작업자 요약(목록·상세 표시용). stale 은 DB 시계로 계산한 무소식 여부. */
+  public record AgentWorkWithWorker(AgentWorkRow work, UserSummary worker, boolean stale) {}
+
+  /**
+   * "살아 있는 AI 작업" 의 단일 정의 — ISSUE 와 조인된 상태에서 진행 중(ended_at IS NULL)이고 이슈가 종료(DONE·CANCELED)되지 않은 행.
+   * 종료 이슈에 남은 진행 중 행은 작업으로 치지 않는다(조회·순위·건수·범위·필터 일관). 상관 서브쿼리({@code AiTaskRepository})도 이 조건을 쓴다.
+   */
+  public static Condition liveWork() {
+    return AGENT_WORK
+        .ISSUE_ID
+        .eq(ISSUE.ID)
+        .and(AGENT_WORK.ENDED_AT.isNull())
+        .and(ISSUE.STATUS.notIn(IssueStatuses.CLOSED));
+  }
+
+  /** (이슈, 작업자)의 진행 중 작업 1건. */
+  public Optional<AgentWorkRow> findActive(long issueId, long workerId) {
+    return dsl.selectFrom(AGENT_WORK)
+        .where(AGENT_WORK.ISSUE_ID.eq(issueId))
+        .and(AGENT_WORK.WORKER_ID.eq(workerId))
+        .and(AGENT_WORK.ENDED_AT.isNull())
+        .fetchOptional()
+        .map(AgentWorkRepository::toRow);
+  }
+
+  /**
+   * 삽입 시도 결과 — 진행 중 행과 "이번 호출이 그 행을 실제로 넣었는가". inserted 가 true 면 행에는 이미 호출자가 준 값이 들어 있어 같은 값으로 다시
+   * 갱신할 필요가 없고, false 면 먼저 있던(또는 경합에서 다른 트랜잭션이 만든) 행이라 호출자가 자기 값을 덮어 써야 한다.
+   */
+  public record InsertOutcome(AgentWorkRow row, boolean inserted) {}
+
+  /** 상태만 정해 진행 중 작업을 만든다 — note·진행률·단계 없이 시작하는 경우(터치 자동 시작·시드 등). */
+  public Optional<InsertOutcome> insertOutcome(
+      long issueId, long workerId, String tool, String state) {
+    return insertOutcome(issueId, workerId, tool, state, null, null, null, null);
+  }
+
+  /**
+   * 진행 중 작업이 없으면 만든다. 부분 유니크(agent_work_active_uq)와 충돌하면 아무것도 넣지 않고 기존 진행 중 행을 돌려준다 — 동시 첫 보고가 멱등이
+   * 되도록(예외 대신 재조회). 첫 보고의 상태·note·진행률·단계를 처음부터 함께 넣어 이력이 보고당 한 번만 남게 한다. 새로 들어간 경우에만 이벤트를 남기고, 충돌이면
+   * RETURNING 이 비어 이벤트도 없다. tool 은 SUBMITTED 처럼 아직 모르면 null. 실제로 넣었으면 INSERT 의 RETURNING 스냅샷을 그대로
+   * 돌려주고(재조회 없음), 충돌일 때만 기존 진행 중 행을 조회한다 — 그 사이 종료돼 행이 없으면 빈 결과.
+   */
+  public Optional<InsertOutcome> insertOutcome(
+      long issueId,
+      long workerId,
+      String tool,
+      String state,
+      String note,
+      Integer progress,
+      Integer stepsDone,
+      Integer stepsTotal) {
+    var inserted =
+        recordEventRows(
+            dsl.insertInto(AGENT_WORK)
+                .set(AGENT_WORK.ISSUE_ID, issueId)
+                .set(AGENT_WORK.WORKER_ID, workerId)
+                .set(AGENT_WORK.TOOL, tool)
+                .set(AGENT_WORK.STATE, state)
+                .set(AGENT_WORK.NOTE, note)
+                .set(AGENT_WORK.PROGRESS, progress == null ? null : progress.shortValue())
+                .set(AGENT_WORK.STEPS_DONE, stepsDone == null ? null : stepsDone.shortValue())
+                .set(AGENT_WORK.STEPS_TOTAL, stepsTotal == null ? null : stepsTotal.shortValue())
+                .onConflictDoNothing()
+                .returning(AGENT_WORK.fields()),
+            false,
+            List.of(AGENT_WORK.fields()));
+    // RETURNING 이 한 행을 돌려줬으면 이번 문장이 넣은 것 — 충돌이면 0행이라 기존 행을 읽는다.
+    if (!inserted.isEmpty()) return Optional.of(new InsertOutcome(toRow(inserted.get(0)), true));
+    return findActive(issueId, workerId).map(row -> new InsertOutcome(row, false));
+  }
+
+  /**
+   * 외부 실행으로 바뀐 AI 구성원이 이미 담당자인 열린 이슈(종료·삭제 아님)마다 "시작 전"(SUBMITTED) 작업을 한 문장으로 만든다. 이미 진행 중 작업이 있는
+   * 이슈는 충돌로 건너뛴다. 새로 만든 행의 이슈 id 를 돌려준다 — 호출자가 그 이슈들의 화면 갱신 알림을 낸다. tool 은 아직 모르므로 null.
+   */
+  public List<Long> insertSubmittedForAssignedOpenIssues(long workerId) {
+    var openAssigned =
+        dsl.select(
+                ISSUE_ASSIGNEE.ISSUE_ID,
+                DSL.inline(workerId),
+                DSL.inline(AgentWorkState.SUBMITTED),
+                ISSUE.TENANT_ID)
+            .from(ISSUE_ASSIGNEE)
+            .join(ISSUE)
+            .on(ISSUE.ID.eq(ISSUE_ASSIGNEE.ISSUE_ID))
+            .where(ISSUE_ASSIGNEE.USER_ID.eq(workerId))
+            .and(ISSUE.DELETED_AT.isNull())
+            .and(ISSUE.STATUS.notIn(IssueStatuses.CLOSED));
+    // 테넌트는 GUC 기본값에 기대지 않고 이슈의 tenant_id 를 그대로 옮긴다.
+    return insertSubmittedReturningIssueIds(
+        dsl.insertInto(
+                AGENT_WORK,
+                AGENT_WORK.ISSUE_ID,
+                AGENT_WORK.WORKER_ID,
+                AGENT_WORK.STATE,
+                AGENT_WORK.TENANT_ID)
+            .select(openAssigned));
+  }
+
+  /**
+   * 한 이슈에 담당자로 들어온 AI 구성원들의 "시작 전"(SUBMITTED) 작업을 한 문장으로 만든다. 이미 진행 중 작업이 있는 (이슈, 작업자)는 충돌로 건너뛰어
+   * 멱등이고 이벤트도 남지 않는다. tool 은 아직 모르므로 null. 테넌트는 단일 행 삽입({@link #insertOutcome})과 같이 컬럼 기본값(GUC)을
+   * 따른다.
+   */
+  public void insertSubmitted(long issueId, Collection<Long> workerIds) {
+    if (workerIds == null || workerIds.isEmpty()) return;
+    var insert =
+        dsl.insertInto(AGENT_WORK, AGENT_WORK.ISSUE_ID, AGENT_WORK.WORKER_ID, AGENT_WORK.STATE);
+    for (Long workerId : workerIds) {
+      insert = insert.values(issueId, workerId, AgentWorkState.SUBMITTED);
+    }
+    insertSubmittedReturningIssueIds(insert);
+  }
+
+  /** 충돌은 건너뛰고(ON CONFLICT DO NOTHING) 새로 만든 SUBMITTED 행마다 이벤트를 남기며, 새 행의 이슈 id 를 돌려준다. */
+  private List<Long> insertSubmittedReturningIssueIds(InsertOnDuplicateStep<?> insert) {
+    List<Field<?>> returning = new ArrayList<>(EVENT_SOURCE_FIELDS);
+    returning.add(AGENT_WORK.ISSUE_ID);
+    return recordEvents(
+        insert.onConflictDoNothing().returning(returning), false, AGENT_WORK.ISSUE_ID);
+  }
+
+  /**
+   * 진행 중 행의 부분 갱신 — null 필드는 유지, clearNote 면 note 를 NULL 로. 항상 updated_at 을 now() 로 올린다(터치 겸용). 대상은
+   * 진행 중 행(ended_at IS NULL)뿐이라, 동시에 종료된 행에는 아무것도 쓰지 않는다(0행 — 진행 상태 값이 종료 행에 써져 정합 CHECK 가 깨지는 것
+   * 방지). 상태·note·진행률·단계가 갱신 전 행과 실제로 달라졌을 때만 이벤트를 남긴다 — 같은 값 재보고·터치·도구 값 갱신은 이력을 부풀리지 않는다. 갱신한 행 수
+   * 반환.
+   */
+  public int update(long id, AgentWorkPatch patch) {
+    var step = dsl.update(AGENT_WORK).set(AGENT_WORK.UPDATED_AT, DSL.currentOffsetDateTime());
+    if (patch.tool() != null) step = step.set(AGENT_WORK.TOOL, patch.tool());
+    if (patch.state() != null) step = step.set(AGENT_WORK.STATE, patch.state());
+    if (patch.clearNote()) {
+      step = step.setNull(AGENT_WORK.NOTE);
+    } else if (patch.note() != null) {
+      step = step.set(AGENT_WORK.NOTE, patch.note());
+    }
+    if (patch.progress() != null)
+      step = step.set(AGENT_WORK.PROGRESS, patch.progress().shortValue());
+    if (patch.stepsDone() != null)
+      step = step.set(AGENT_WORK.STEPS_DONE, patch.stepsDone().shortValue());
+    if (patch.stepsTotal() != null)
+      step = step.set(AGENT_WORK.STEPS_TOTAL, patch.stepsTotal().shortValue());
+    // PostgreSQL 18 의 RETURNING OLD/NEW — 이 문장이 실제로 덮어쓴 갱신 전 행(old)과 갱신 후 행(수식 없는 컬럼 = new)을 비교한다.
+    // 자기 조인으로 읽은 사본은 동시 갱신 시 오래된 버전일 수 있어(이벤트 누락·중복) 쓰지 않는다.
+    Field<Boolean> changed =
+        DSL.field(
+            AGENT_WORK
+                .STATE
+                .isDistinctFrom(old(AGENT_WORK.STATE))
+                .or(AGENT_WORK.NOTE.isDistinctFrom(old(AGENT_WORK.NOTE)))
+                .or(AGENT_WORK.PROGRESS.isDistinctFrom(old(AGENT_WORK.PROGRESS)))
+                .or(AGENT_WORK.STEPS_DONE.isDistinctFrom(old(AGENT_WORK.STEPS_DONE)))
+                .or(AGENT_WORK.STEPS_TOTAL.isDistinctFrom(old(AGENT_WORK.STEPS_TOTAL))));
+    List<Field<?>> returning = new ArrayList<>(EVENT_SOURCE_FIELDS);
+    returning.add(changed.as(CHANGED_COLUMN));
+    return recordEvents(
+        step.where(AGENT_WORK.ID.eq(id)).and(AGENT_WORK.ENDED_AT.isNull()).returning(returning),
+        true);
+  }
+
+  /**
+   * 이슈들의 진행 중 작업을 한 번에 종료한다(종료 상태 진입은 1건, 이슈 삭제는 부모+자식 등). 행은 지우지 않고 지정한 종료 상태로 닫는다. 종료한 행 수 반환.
+   */
+  public int endActive(Collection<Long> issueIds, String terminalState) {
+    if (issueIds == null || issueIds.isEmpty()) return 0;
+    return end(terminalState, null, AGENT_WORK.ISSUE_ID.in(issueIds));
+  }
+
+  /**
+   * 이슈 완료(DONE)로 이슈들의 진행 중 작업을 한 문장으로 닫는다 — 일하던 작업은 COMPLETED, 아직 착수 전(SUBMITTED)이던 작업은 한 번도 일하지
+   * 않았으니 CANCELED. 이벤트에는 행마다 실제로 들어간 종료 상태가 남는다. 종료한 행 수 반환.
+   */
+  public int endActiveOnIssueDone(Collection<Long> issueIds) {
+    if (issueIds == null || issueIds.isEmpty()) return 0;
+    Field<String> terminal =
+        DSL.when(AGENT_WORK.STATE.eq(AgentWorkState.SUBMITTED), DSL.inline(AgentWorkState.CANCELED))
+            .otherwise(DSL.inline(AgentWorkState.COMPLETED));
+    return recordEvents(
+        endStatement(terminal, null, AGENT_WORK.ISSUE_ID.in(issueIds), EVENT_SOURCE_FIELDS), false);
+  }
+
+  /** 이슈에서 지정한 작업자들의 진행 중 작업만 종료한다(담당자에서 빠진 경우, 작업자 본인의 종료 보고 등). */
+  public int endActiveForWorkers(long issueId, Collection<Long> workerIds, String terminalState) {
+    if (workerIds == null || workerIds.isEmpty()) return 0;
+    return end(
+        terminalState,
+        null,
+        AGENT_WORK.ISSUE_ID.eq(issueId).and(AGENT_WORK.WORKER_ID.in(workerIds)));
+  }
+
+  /**
+   * 작업자 본인의 종료 보고용 — 종료와 같은 문장에서 행의 tool 이 비어 있으면(착수 전 SUBMITTED 에서 곧바로 종료 보고) 패치의 도구 값을 채우고, 보고에
+   * 담긴 note·진행률·단계 수가 있으면 함께 덮는다(마지막 보고가 종료 이벤트에 담기도록). 패치의 state 는 쓰지 않는다(종료 상태가 따로 있다). 이벤트는 한 번만
+   * 남는다.
+   */
+  public int endActiveForWorker(
+      long issueId, long workerId, String terminalState, AgentWorkPatch values) {
+    return end(
+        terminalState,
+        values,
+        AGENT_WORK.ISSUE_ID.eq(issueId).and(AGENT_WORK.WORKER_ID.eq(workerId)));
+  }
+
+  /**
+   * 작업자의 모든 이슈에서 지정한 상태의 진행 중 작업만 종료한다(외부→내부 실행 방식 전환 시 영영 착수하지 않을 "시작 전" 정리). 종료한 행의 이슈 id 를 돌려준다
+   * — 호출자가 그 이슈들의 화면 갱신 알림을 낸다.
+   */
+  public List<Long> endActiveForWorkerInStates(
+      long workerId, Collection<String> fromStates, String terminalState) {
+    return endReturningIssueIds(
+        terminalState, AGENT_WORK.WORKER_ID.eq(workerId).and(AGENT_WORK.STATE.in(fromStates)));
+  }
+
+  /** 프로젝트의 모든 이슈에서 지정 작업자의 진행 중 작업을 종료한다(프로젝트 멤버 제거 시 — 담당 매핑이 함께 지워지므로). */
+  public int endActiveForWorkerInProject(long projectId, long workerId, String terminalState) {
+    return end(
+        terminalState,
+        null,
+        AGENT_WORK
+            .WORKER_ID
+            .eq(workerId)
+            .and(
+                AGENT_WORK.ISSUE_ID.in(
+                    dsl.select(ISSUE.ID).from(ISSUE).where(ISSUE.PROJECT_ID.eq(projectId)))));
+  }
+
+  /**
+   * 진행 중 행(조건 + ended_at IS NULL)을 종료 상태로 닫고 이벤트를 남긴다(values 가 있으면 빈 tool 을 채우고 보낸 note·진행률·단계 수를
+   * 덮는다). 종료 상태가 아니면 DB 정합 CHECK 가 막기 전에 여기서 거절한다.
+   */
+  private int end(String terminalState, AgentWorkPatch values, Condition where) {
+    return recordEvents(
+        endStatement(terminalValue(terminalState), values, where, EVENT_SOURCE_FIELDS), false);
+  }
+
+  /** {@link #end} 와 같되 종료한 행의 이슈 id 를 돌려준다(RETURNING 에 issue_id 를 덧붙여 CTE 에서 고른다). */
+  private List<Long> endReturningIssueIds(String terminalState, Condition where) {
+    List<Field<?>> returning = new ArrayList<>(EVENT_SOURCE_FIELDS);
+    returning.add(AGENT_WORK.ISSUE_ID);
+    return recordEvents(
+        endStatement(terminalValue(terminalState), null, where, returning),
+        false,
+        AGENT_WORK.ISSUE_ID);
+  }
+
+  /** 종료 상태 상수를 SET 값으로 — 종료 상태가 아니면 DB 정합 CHECK 가 막기 전에 여기서 거절한다. */
+  private static Field<String> terminalValue(String terminalState) {
+    if (!AgentWorkState.isTerminal(terminalState)) {
+      throw new IllegalArgumentException("종료 상태가 아님: " + terminalState);
+    }
+    return DSL.inline(terminalState);
+  }
+
+  /** 진행 중 행을 종료 상태(상수 또는 행별 식)로 닫는 UPDATE … RETURNING. */
+  private ResultQuery<?> endStatement(
+      Field<String> terminalState,
+      AgentWorkPatch values,
+      Condition where,
+      List<Field<?>> returning) {
+    var step =
+        dsl.update(AGENT_WORK)
+            .set(AGENT_WORK.STATE, terminalState)
+            .set(AGENT_WORK.ENDED_AT, DSL.currentOffsetDateTime());
+    if (values != null) {
+      // 도구를 모르는 행(SUBMITTED)에 요청의 도구를 채운다 — 이미 값이 있으면 유지.
+      if (values.tool() != null) {
+        step = step.set(AGENT_WORK.TOOL, DSL.coalesce(AGENT_WORK.TOOL, DSL.val(values.tool())));
+      }
+      // 종료 보고에 담긴 마지막 note·진행률·단계 수는 같은 문장에서 반영해 종료 이벤트가 최종 값을 담게 한다. 보내지 않은 필드는 유지(update 와 같은
+      // 규칙).
+      if (values.clearNote()) {
+        step = step.setNull(AGENT_WORK.NOTE);
+      } else if (values.note() != null) {
+        step = step.set(AGENT_WORK.NOTE, values.note());
+      }
+      if (values.progress() != null)
+        step = step.set(AGENT_WORK.PROGRESS, values.progress().shortValue());
+      if (values.stepsDone() != null)
+        step = step.set(AGENT_WORK.STEPS_DONE, values.stepsDone().shortValue());
+      if (values.stepsTotal() != null)
+        step = step.set(AGENT_WORK.STEPS_TOTAL, values.stepsTotal().shortValue());
+    }
+    return step.where(where).and(AGENT_WORK.ENDED_AT.isNull()).returning(returning);
+  }
+
+  /** RETURNING 안에서 갱신 전 행의 컬럼({@code old.<col>}, PostgreSQL 18). */
+  private static <T> Field<T> old(Field<T> column) {
+    return DSL.field(DSL.name("old", column.getName()), column.getDataType());
+  }
+
+  /**
+   * 이벤트로 옮길 변경 후 스냅샷 컬럼. RETURNING 목록과 CTE 의 SELECT 가 이 목록 하나에서 만들어지고, 이벤트 INSERT 의 대상 컬럼({@link
+   * #EVENT_TARGET_FIELDS})과 같은 순서여야 한다. 테넌트는 GUC 기본값에 기대지 않고 작업 행의 tenant_id 를 이벤트에 그대로 옮긴다.
+   */
+  private static final List<Field<?>> EVENT_SOURCE_FIELDS =
+      List.of(
+          AGENT_WORK.ID,
+          AGENT_WORK.TENANT_ID,
+          AGENT_WORK.STATE,
+          AGENT_WORK.NOTE,
+          AGENT_WORK.PROGRESS,
+          AGENT_WORK.STEPS_DONE,
+          AGENT_WORK.STEPS_TOTAL);
+
+  /** {@link #EVENT_SOURCE_FIELDS} 와 같은 순서로 대응하는 agent_work_event 컬럼. */
+  private static final List<Field<?>> EVENT_TARGET_FIELDS =
+      List.of(
+          AGENT_WORK_EVENT.WORK_ID,
+          AGENT_WORK_EVENT.TENANT_ID,
+          AGENT_WORK_EVENT.STATE,
+          AGENT_WORK_EVENT.NOTE,
+          AGENT_WORK_EVENT.PROGRESS,
+          AGENT_WORK_EVENT.STEPS_DONE,
+          AGENT_WORK_EVENT.STEPS_TOTAL);
+
+  /** update 의 RETURNING 에 덧붙이는 "갱신 전과 달라졌는가" 컬럼 이름. */
+  private static final String CHANGED_COLUMN = "changed";
+
+  /**
+   * 행을 바꾸는 RETURNING 문을 CTE 로 감싸 그 결과를 agent_work_event 로 옮긴다({@code WITH u AS (UPDATE/INSERT …
+   * RETURNING …), e AS (INSERT INTO agent_work_event SELECT … FROM u) SELECT count(*) FROM u}). 문장
+   * 하나라 행 변경과 이벤트가 함께 성공·실패한다. onlyChanged 면 RETURNING 의 changed 컬럼이 참인 행만 이벤트로 남긴다. 바뀐 행 수(이벤트 수가
+   * 아님)를 돌려준다.
+   */
+  private int recordEvents(ResultQuery<?> changed, boolean onlyChanged) {
+    return recordEvents(changed, onlyChanged, AGENT_WORK.ID).size();
+  }
+
+  /**
+   * {@link #recordEvents(ResultQuery, boolean)} 와 같되 바뀐 행마다 project 컬럼 값을 돌려준다(RETURNING 에 그 컬럼이 들어
+   * 있어야 한다). 이벤트로 옮기는 컬럼은 project 와 무관하게 {@link #EVENT_SOURCE_FIELDS} 뿐이다.
+   */
+  private <T> List<T> recordEvents(ResultQuery<?> changed, boolean onlyChanged, Field<T> project) {
+    return recordEventRows(changed, onlyChanged, List.of(project)).getValues(0, project.getType());
+  }
+
+  /**
+   * {@link #recordEvents(ResultQuery, boolean, Field)} 의 본체 — 바뀐 행마다 project 컬럼들을 레코드로
+   * 돌려준다(RETURNING 에 그 컬럼들이 들어 있어야 한다). 값 하나가 아니라 행 전체가 필요한 호출자(삽입 직후 행 반환)가 쓴다.
+   */
+  private Result<Record> recordEventRows(
+      ResultQuery<?> changed, boolean onlyChanged, List<? extends Field<?>> project) {
+    Name u = DSL.name("u");
+    Name e = DSL.name("e");
+    var snapshot = DSL.table(u);
+    List<Field<?>> columns = new ArrayList<>();
+    for (Field<?> f : EVENT_SOURCE_FIELDS) {
+      columns.add(DSL.field(DSL.name("u", f.getName()), f.getType()));
+    }
+    var source = dsl.select(columns).from(snapshot);
+    var events =
+        dsl.insertInto(AGENT_WORK_EVENT, EVENT_TARGET_FIELDS)
+            .select(
+                onlyChanged
+                    ? source.where(DSL.field(DSL.name("u", CHANGED_COLUMN), Boolean.class))
+                    : source)
+            .returning(AGENT_WORK_EVENT.ID);
+    List<Field<?>> projected = new ArrayList<>();
+    for (Field<?> f : project) {
+      projected.add(DSL.field(DSL.name("u", f.getName()), f.getDataType()));
+    }
+    return dsl.with(u.as(changed), e.as(events)).select(projected).from(snapshot).fetch();
+  }
+
+  /**
+   * 이슈들의 진행 중 작업을 작업자 요약과 함께 한 번에 조회(N+1 회피). 이슈별 id 오름차순. 작업 없는 이슈는 키가 없다.
+   *
+   * <p>종료(DONE·CANCELED)된 이슈의 작업은 진행 중 행이 남아 있어도 돌려주지 않는다 — 종료 처리와 자동 종료 사이 롤링 배포 등으로 남은 행이 화면에 "작업
+   * 중" 으로 보이지 않게 하는 방어선.
+   */
+  public Map<Long, List<AgentWorkWithWorker>> findActiveByIssueIds(Collection<Long> issueIds) {
+    if (issueIds == null || issueIds.isEmpty()) return Map.of();
+    // 무소식(stale) 은 JVM 이 아니라 DB 시계로 판정 — updated_at 을 찍는 시계와 같아야 서버 간 시계 차이에 흔들리지 않는다.
+    Field<Boolean> staleField =
+        DSL.field(
+                AGENT_WORK
+                    .STATE
+                    .eq(AgentWorkState.WORKING)
+                    .and(
+                        AGENT_WORK.UPDATED_AT.le(
+                            DSL.field(
+                                "now() - make_interval(secs => {0})",
+                                OffsetDateTime.class, STALE_AFTER.toSeconds()))))
+            .as("is_stale");
+    var rows =
+        dsl.select(AGENT_WORK.fields())
+            .select(USER.USERNAME, USER.NAME, USER.KIND)
+            .select(staleField)
+            .from(AGENT_WORK)
+            .join(USER)
+            .on(USER.ID.eq(AGENT_WORK.WORKER_ID))
+            .join(ISSUE)
+            .on(ISSUE.ID.eq(AGENT_WORK.ISSUE_ID))
+            .where(AGENT_WORK.ISSUE_ID.in(issueIds))
+            .and(liveWork())
+            .orderBy(AGENT_WORK.ID.asc())
+            .fetch();
+    Map<Long, List<AgentWorkWithWorker>> result = new LinkedHashMap<>();
+    for (Record r : rows) {
+      var row = toRow(r);
+      var worker =
+          new UserSummary(row.workerId(), r.get(USER.USERNAME), r.get(USER.NAME), r.get(USER.KIND));
+      result
+          .computeIfAbsent(row.issueId(), k -> new ArrayList<>())
+          .add(new AgentWorkWithWorker(row, worker, Boolean.TRUE.equals(r.get(staleField))));
+    }
+    return result;
+  }
+
+  /**
+   * 사람이 이슈에 응답(챗 글·댓글 등)했을 때, 그 이슈에서 "답변 필요(INPUT_REQUIRED)" 로 멈춘 AI 구성원 작업을 작업 중으로 되돌린다. 사람(도구
+   * 사용자) 작업은 건드리지 않는다. 인증 필요(AUTH_REQUIRED)는 사람이 글로 답해서 풀리는 게 아니라 권한을 준 뒤 AI 가 다시 쓰면 터치로 복귀하므로 여기서
+   * 건드리지 않는다.
+   */
+  public int resumeInputRequiredAgents(long issueId) {
+    return recordEvents(
+        dsl.update(AGENT_WORK)
+            .set(AGENT_WORK.STATE, AgentWorkState.WORKING)
+            // 응답으로 질문이 해소됐으니 질문 note 를 지운다(남으면 "작업 중 · 질문" 으로 보인다).
+            .setNull(AGENT_WORK.NOTE)
+            .set(AGENT_WORK.UPDATED_AT, DSL.currentOffsetDateTime())
+            .where(AGENT_WORK.ISSUE_ID.eq(issueId))
+            .and(AGENT_WORK.ENDED_AT.isNull())
+            .and(AGENT_WORK.STATE.eq(AgentWorkState.INPUT_REQUIRED))
+            .and(
+                AGENT_WORK.WORKER_ID.in(
+                    dsl.select(USER.ID).from(USER).where(USER.KIND.eq(UserKind.AGENT))))
+            .returning(EVENT_SOURCE_FIELDS),
+        false);
+  }
+
+  /** AGENT_WORK 컬럼을 가진 Record → AgentWorkRow (OffsetDateTime → Instant). */
+  private static AgentWorkRow toRow(Record r) {
+    OffsetDateTime started = r.get(AGENT_WORK.STARTED_AT);
+    OffsetDateTime updated = r.get(AGENT_WORK.UPDATED_AT);
+    return new AgentWorkRow(
+        r.get(AGENT_WORK.ID),
+        r.get(AGENT_WORK.ISSUE_ID),
+        r.get(AGENT_WORK.WORKER_ID),
+        r.get(AGENT_WORK.TOOL),
+        r.get(AGENT_WORK.STATE),
+        r.get(AGENT_WORK.NOTE),
+        r.get(AGENT_WORK.PROGRESS) == null ? null : r.get(AGENT_WORK.PROGRESS).intValue(),
+        r.get(AGENT_WORK.STEPS_DONE) == null ? null : r.get(AGENT_WORK.STEPS_DONE).intValue(),
+        r.get(AGENT_WORK.STEPS_TOTAL) == null ? null : r.get(AGENT_WORK.STEPS_TOTAL).intValue(),
+        started != null ? started.toInstant() : null,
+        updated != null ? updated.toInstant() : null);
+  }
+}

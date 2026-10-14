@@ -19,6 +19,7 @@ function mockClient(): IssueToolClient {
     replaceIssueAssignees: vi.fn().mockResolvedValue({}),
     replaceIssueLabels: vi.fn().mockResolvedValue({}),
     addComment: vi.fn().mockResolvedValue(undefined),
+    reportAgentWork: vi.fn().mockResolvedValue({ work: null, ended: true }),
     editComment: vi.fn().mockResolvedValue(undefined),
     addIssueDependency: vi.fn().mockResolvedValue({ summary: { title: 't', status: 'TODO', priority: 'MID', assignees: [] } }),
     removeIssueDependency: vi.fn().mockResolvedValue(undefined),
@@ -41,7 +42,7 @@ function mockClient(): IssueToolClient {
 }
 
 describe('buildSharedIssueTools', () => {
-  it('정확히 9종을 반환한다', () => {
+  it('정확히 10종을 반환한다', () => {
     const names = buildSharedIssueTools(mockClient()).map((t) => t.name).sort();
     expect(names).toEqual(
       [
@@ -51,6 +52,7 @@ describe('buildSharedIssueTools', () => {
         'update_comment',
         'get_issue_detail',
         'remove_issue_dependency',
+        'report_agent_work',
         'unwatch_issue',
         'update_issue',
         'watch_issue',
@@ -126,6 +128,53 @@ describe('buildSharedIssueTools', () => {
     const t = buildSharedIssueTools(c).find((x) => x.name === 'add_comment')!;
     await expect(t.handler({ issueKey: 'WP-12', body: '안녕' })).resolves.toBe('ok');
     expect(c.addComment).toHaveBeenCalledWith('WP-12', '안녕');
+  });
+
+  describe('report_agent_work', () => {
+    const reportTool = (c: IssueToolClient) => buildSharedIssueTools(c).find((x) => x.name === 'report_agent_work')!;
+
+    it('issueKey 를 뺀 본문을 reportAgentWork 로 넘기고 work.state 를 돌려준다', async () => {
+      const c = mockClient();
+      vi.mocked(c.reportAgentWork).mockResolvedValue({
+        work: { worker: { id: 7, username: 'claude', name: 'Claude', kind: 'AI' }, tool: 'mcp', state: 'INPUT_REQUIRED', updatedAt: '2026-10-14T00:00:00Z' },
+        ended: false,
+      });
+      const out = JSON.parse(resultText(await reportTool(c).handler({ issueKey: 'WP-12', state: 'INPUT_REQUIRED', message: '질문' })));
+      expect(c.reportAgentWork).toHaveBeenCalledWith('WP-12', { state: 'INPUT_REQUIRED', message: '질문' });
+      expect(out.work.state).toBe('INPUT_REQUIRED');
+      expect(out.work.worker).toEqual({ username: 'claude', name: 'Claude', kind: 'AI' });
+    });
+
+    it.each(['COMPLETED', 'FAILED', 'CANCELED', 'REJECTED'])('%s 보고는 work 없이 ended:true 만 돌려준다', async (state) => {
+      const c = mockClient();
+      const out = JSON.parse(resultText(await reportTool(c).handler({ issueKey: 'WP-12', state })));
+      expect(c.reportAgentWork).toHaveBeenCalledWith('WP-12', { state });
+      expect(out).toEqual({ ended: true });
+    });
+
+    it('A2A 상태 10종을 받고 옛 WAITING·ENDED 는 거절한다', async () => {
+      const c = mockClient();
+      for (const state of ['WORKING', 'INPUT_REQUIRED', 'AUTH_REQUIRED', 'BLOCKED', 'PAUSED', 'REVIEW', 'COMPLETED', 'FAILED', 'CANCELED', 'REJECTED']) {
+        await reportTool(c).handler({ issueKey: 'WP-12', state });
+      }
+      expect(c.reportAgentWork).toHaveBeenCalledTimes(10);
+      for (const state of ['WAITING', 'ENDED']) {
+        await expect(reportTool(c).handler({ issueKey: 'WP-12', state })).rejects.toThrow();
+      }
+      expect(c.reportAgentWork).toHaveBeenCalledTimes(10);
+    });
+
+    it.each([
+      ['stepsDone 만', { stepsDone: 2 }],
+      ['stepsTotal 만', { stepsTotal: 5 }],
+      ['stepsDone > stepsTotal', { stepsDone: 6, stepsTotal: 5 }],
+      ['progress 101', { progress: 101 }],
+      ['note 121자', { note: 'a'.repeat(121) }],
+    ])('입력 검증 실패: %s', async (_label, extra) => {
+      const c = mockClient();
+      await expect(reportTool(c).handler({ issueKey: 'WP-12', ...extra })).rejects.toThrow();
+      expect(c.reportAgentWork).not.toHaveBeenCalled();
+    });
   });
 
   it('WP-356: get_issue_detail 은 워처(username·name)와 드라이브 링크(driveFileId·이름)를 숫자 사용자 ID·core fileId 없이 동봉한다', async () => {

@@ -7,6 +7,7 @@ import type { Request, Response } from 'express';
 import { describeApiError, toMcpContent, toolAnnotations, toolDefinition } from '@smart-workplace/mcp-tools-shared';
 import type { z } from 'zod';
 
+import { agentToolFromUserAgent } from './agent-tool.js';
 import { createPatApiClient } from '../clients/workplace-api.js';
 import { buildUserTools } from '../tools/index.js';
 import { buildInstructions } from './instructions.js';
@@ -38,8 +39,10 @@ export function buildMcpServer(
   scope: McpScope = FULL_SCOPE,
   /** X-On-Behalf-Of-Tenant(ak_ 전용) — workplace-api 호출 헤더에 쓴다. */
   tenantId?: string,
+  /** 수행 도구 이름(User-Agent 에서 추출) — X-Agent-Tool 헤더로 실린다(WP-377). */
+  agentTool?: string,
 ): McpServer {
-  const client = createPatApiClient({ baseURL: apiBaseUrl, token, tenantId });
+  const client = createPatApiClient({ baseURL: apiBaseUrl, token, tenantId, agentTool });
   // serverInfo — name 은 설정 키가 없을 때 도구 이름 접두사로 쓰는 클라이언트가 있어 영문·숫자·-·_ 만 쓰고,
   // 브랜드 표기(콜론·공백 포함)는 표시용 title 로 둔다(WP-334).
   // WP-350: 연결 범위에 맞춰 도구를 추리고, instructions 도 로드된 도구만 설명하도록 같은 목록으로 만든다.
@@ -120,6 +123,8 @@ export async function handleMcpPost(
   }
   const token = auth.slice('Bearer '.length);
   const tenantId = readTenantHeader(req, token);
+  // WP-377: AI 작업 보고의 출처 — 클라이언트 User-Agent 의 제품 토큰을 X-Agent-Tool 로 api 에 넘긴다.
+  const agentTool = agentToolFromUserAgent(req.headers['user-agent']);
 
   // 앱 이름이 틀리면 도구를 일부만 싣지 않고 400 + 사용 가능한 목록으로 거절한다. 인증 뒤·/auth/me 앞에서 해 불필요한 API 호출을 피한다.
   // 본문은 이 서버의 다른 사전 거절(401)과 같은 JSON-RPC 오류 모양이다 — Streamable HTTP 클라이언트는 비 2xx 본문을 오류 메시지로 보여 준다.
@@ -139,7 +144,7 @@ export async function handleMcpPost(
   if (isInit) {
     try {
       // /auth/me 는 사람·AI 모두 인증된 userId 로 응답한다(AGENT 키 필터도 userId principal 을 세움).
-      await createPatApiClient({ baseURL: apiBaseUrl, token, tenantId }).getMe();
+      await createPatApiClient({ baseURL: apiBaseUrl, token, tenantId, agentTool }).getMe();
     } catch {
       res.status(401).json({
         jsonrpc: '2.0',
@@ -150,7 +155,7 @@ export async function handleMcpPost(
     }
   }
 
-  const server = buildMcpServer(apiBaseUrl, token, scope, tenantId);
+  const server = buildMcpServer(apiBaseUrl, token, scope, tenantId, agentTool);
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
   res.on('close', () => {
     void transport.close();

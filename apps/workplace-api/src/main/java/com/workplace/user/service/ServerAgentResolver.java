@@ -1,10 +1,12 @@
 package com.workplace.user.service;
 
 import com.workplace.global.dto.UserSummary;
+import com.workplace.user.dto.AssigneeInfo;
 import com.workplace.user.dto.UserKind;
 import com.workplace.user.repository.UserRepository;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -38,7 +40,11 @@ public class ServerAgentResolver {
    */
   public Long pickActingAgentId(List<Long> agentCandidateIds) {
     if (agentCandidateIds.isEmpty()) return null;
-    Set<Long> internal = userRepository.findInternalAgentIds(agentCandidateIds);
+    Set<Long> internal =
+        userRepository.findAssigneeInfos(agentCandidateIds).stream()
+            .filter(AssigneeInfo::isInternalAgent)
+            .map(AssigneeInfo::id)
+            .collect(Collectors.toSet());
     return agentCandidateIds.stream().filter(internal::contains).findFirst().orElse(null);
   }
 }

@@ -71,6 +71,7 @@ exports[`buildUserTools > 노출 도구 이름·kind 스냅샷 1`] = `
   "remove_reaction:write",
   "remove_user_group_member:write",
   "rename_drive_item:write",
+  "report_agent_work:write",
   "restore_drive_item:write",
   "restore_wiki_revision:write",
   "rsvp_event:write",

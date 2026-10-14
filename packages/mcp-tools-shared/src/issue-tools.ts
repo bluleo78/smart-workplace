@@ -1,8 +1,9 @@
-// src/issue-tools.ts — 두 앱 공유 이슈 도구 9종. 핸들러는 IssueToolClient(issueKey 기준)만 호출.
+// src/issue-tools.ts — 두 앱 공유 이슈 도구 10종. 핸들러는 IssueToolClient(issueKey 기준)만 호출.
 import { dropEmpty } from './compact.js';
 import { errText, parseIssueKey } from './parse.js';
 import type { SharedTool } from './mcp-tool.js';
 import { ISSUE_DETAIL_COMMENT_HARD_LIMIT, ISSUE_DETAIL_COMMENT_LIMIT, ISSUE_DETAIL_HISTORY_LIMIT, normalizeIssueDetail } from './issue-detail.js';
+import { toAgentWorkView } from './agent-work-view.js';
 import { toIssueListItem } from './project-tools.js';
 import {
   fieldDefByName,
@@ -20,6 +21,7 @@ import {
   editCommentInput,
   getIssueDetailInput,
   issueKeyInput,
+  reportAgentWorkInput,
   updateIssueInput,
 } from './schemas.js';
 import type { IssueRow, IssueToolClient } from './tool-client.js';
@@ -50,7 +52,7 @@ function toDriveLinkView(link: Record<string, unknown>) {
   });
 }
 
-/** 공유 이슈 도구 9종 구성. 각 앱은 자기 클라이언트를 IssueToolClient 로 어댑팅해 넘긴다. */
+/** 공유 이슈 도구 10종 구성. 각 앱은 자기 클라이언트를 IssueToolClient 로 어댑팅해 넘긴다. */
 export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
   return [
     {
@@ -59,9 +61,9 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       kind: 'read',
       description:
         'Returns one issue (이슈) by issueKey (e.g. WP-12): Markdown body, all fields (dates +09:00), cycles, parent, children, blockedBy/blocks, ' +
-        `custom fields, watchers, driveLinks {driveFileId, name}, attachments (attachmentId for read_file), the latest ${ISSUE_DETAIL_COMMENT_LIMIT} comments and ` +
+        `custom fields, watchers, driveLinks, attachments (attachmentId for read_file), the latest ${ISSUE_DETAIL_COMMENT_LIMIT} comments and ` +
         `${ISSUE_DETAIL_HISTORY_LIMIT} history entries. commentsOmitted/historyOmitted count older ones left out (absent = complete); ` +
-        `allComments:true returns up to ${ISSUE_DETAIL_COMMENT_HARD_LIMIT} comments. closedAt: when DONE or CANCELED. People ` +
+        `allComments:true returns up to ${ISSUE_DETAIL_COMMENT_HARD_LIMIT} comments. closedAt: DONE or CANCELED time. People ` +
         '{username, name, kind}, watchers lack kind; username null if unknown.',
       inputSchema: getIssueDetailInput,
       async handler(args) {
@@ -90,9 +92,9 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       kind: 'write',
       hints: { destructive: false, idempotent: false },
       description:
-        'Creates an issue (이슈) in projectKey with all given fields at once and returns it. type, labels, milestone, cycles and assignees ' +
-        '(usernames, "me" = caller) are names from get_project; unknown names fail before creating, listing allowed values. New assignees are ' +
-        'notified; an assigned AI agent starts working.',
+        'Creates an issue (이슈) in projectKey and returns it. type, labels, milestone, cycles and assignees (usernames, "me" = caller) are names ' +
+        'from get_project; unknown names fail before creating, listing allowed values. New assignees are notified; an assigned AI agent ' +
+        'starts working.',
       inputSchema: createIssueInput,
       async handler(args) {
         const { projectKey, type, assignees, parent, labels, milestone, cycles, ...rest } = createIssueInput.parse(args);
@@ -119,8 +121,8 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       hints: { destructive: true, idempotent: true },
       description:
         'Updates an issue (이슈); only given fields change. assignees (usernames, "me" = caller), labels and cycles replace the set ([] clears). ' +
-        'Names (type, labels, milestone, cycles, fields) come from get_project; unknown names or options fail before any write, then each part ' +
-        'saves on its own: {ok, results}. Status/priority changes notify assignees and watchers; new assignees are notified.',
+        'Names (type, labels, milestone, cycles, fields) come from get_project; unknown ones fail before any write, then each part saves on ' +
+        'its own: {ok, results}. Status/priority changes notify assignees and watchers, new assignees too.',
       inputSchema: updateIssueInput,
       async handler(args) {
         const { issueKey, type, parent, assignees, labels, milestone, cycles, fields, driveFileId, ...rest } = updateIssueInput.parse(args);
@@ -182,6 +184,23 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       },
     },
     {
+      name: 'report_agent_work',
+      app: 'issue',
+      kind: 'write',
+      hints: { destructive: false, idempotent: false },
+      description:
+        'Reports work on your assigned issue (이슈) at start/on change: INPUT_REQUIRED before asking the user, AUTH_REQUIRED if you need ' +
+        'credentials/permission, REVIEW done awaiting review, BLOCKED + why, PAUSED if told to stop; COMPLETED/FAILED/CANCELED/REJECTED end the ' +
+        'work. message posts to issue chat.',
+      inputSchema: reportAgentWorkInput,
+      async handler(args) {
+        const { issueKey, ...body } = reportAgentWorkInput.parse(args);
+        const { work, ended } = await client.reportAgentWork(issueKey, body);
+        // 서버 뷰의 숫자 id 는 빼고 사람을 username 으로만 가리킨다(#833). 끝났으면 work 는 null 이라 ended 만 남는다.
+        return JSON.stringify(dropEmpty({ work: work ? toAgentWorkView(work) : null, ended }));
+      },
+    },
+    {
       name: 'add_comment',
       app: 'issue',
       kind: 'write',
@@ -219,7 +238,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       hints: { destructive: false, idempotent: true },
       description:
         'Adds a blocking link between two issues of the same project. direction "blocks": issueKey blocks otherIssueKey; "blockedBy": the ' +
-        'reverse. An existing link is a no-op; a cycle is an error. Returns the issue\'s links {blockedBy, blocks, blocked}.',
+        'reverse. An existing link is a no-op; a cycle is an error. Returns the issue\'s links.',
       inputSchema: dependencyInput,
       async handler(args) {
         const { issueKey, otherIssueKey, direction } = dependencyInput.parse(args);

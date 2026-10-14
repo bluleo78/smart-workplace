@@ -170,8 +170,7 @@ export function buildMemberTools(client: MemberToolClient): SharedTool[] {
       app: 'member',
       kind: 'read',
       description:
-        'Returns one member by username (from search_members): name, email, title, kind, active, membershipRole, membershipStatus. Errors if not ' +
-        'found.',
+        'Returns one member by username (from search_members): name, email, title, kind, active, membershipRole, membershipStatus.',
       inputSchema: memberInput,
       async handler(args) {
         const { username } = memberInput.parse(args);

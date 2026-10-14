@@ -43,6 +43,7 @@ export function issueTargets(pk: string): InvalidationTarget[] {
     { queryKey: ['issues', 'search', pk] }, // 목록·보드·타임라인·하위 이슈
     { queryKey: ['issues', pk] }, // 상세(detail) 전체
     { queryKey: ['me-issues'] },
+    { queryKey: ['ai-tasks'] }, // AI 작업 목록·건수(WP-377)
     { queryKey: ['watched-issues'] },
     { queryKey: ['my-issue-dues'] },
     { queryKey: ['home', 'myIssues'] },
@@ -79,6 +80,7 @@ const configRule =
 // 내 이슈·홈 계열 — 프로젝트 삭제 시 다른 프로젝트 화면의 내 이슈 목록에서도 빠져야 한다.
 const MY_ISSUE_TARGETS: InvalidationTarget[] = [
   { queryKey: ['me-issues'] },
+  { queryKey: ['ai-tasks'] }, // 삭제된 프로젝트 이슈는 AI 작업 목록·건수에서도 빠진다(WP-377)
   { queryKey: ['watched-issues'] },
   { queryKey: ['my-issue-dues'] },
   { queryKey: ['home', 'myIssues'] },
