@@ -1,5 +1,7 @@
 package com.workplace.issue.repository;
 
+import static com.workplace.jooq.Tables.CHAT_MESSAGE;
+import static com.workplace.jooq.Tables.CHAT_THREAD;
 import static com.workplace.jooq.Tables.CYCLE;
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_CYCLE;
@@ -9,8 +11,12 @@ import static com.workplace.jooq.Tables.MILESTONE;
 import static com.workplace.jooq.Tables.PROJECT;
 import static org.jooq.impl.DSL.count;
 import static org.jooq.impl.DSL.exists;
+import static org.jooq.impl.DSL.field;
+import static org.jooq.impl.DSL.max;
 import static org.jooq.impl.DSL.noCondition;
 import static org.jooq.impl.DSL.notExists;
+import static org.jooq.impl.DSL.select;
+import static org.jooq.impl.DSL.selectOne;
 
 import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.dto.IssueSearchQuery;
@@ -470,6 +476,7 @@ public class IssueRepository {
     }
     where = where.and(dateRangeCondition(query));
     where = where.and(watcherCondition(query));
+    where = where.and(pendingForCondition(query));
     where = where.and(labelGroupsCondition(query.labelIdGroups()));
     where = where.and(cycleCondition(query));
     if (query.milestoneIds() != null && !query.milestoneIds().isEmpty()) {
@@ -590,6 +597,33 @@ public class IssueRepository {
                     .ISSUE_ID
                     .eq(ISSUE.ID)
                     .and(ISSUE_WATCHER.USER_ID.eq(query.watcherId()))));
+  }
+
+  /**
+   * 새 글 필터(WP-373) — 단일/횡단 검색 공용. 이슈 스레드에 삭제되지 않은 다른 사람의 글이 이 사용자의 마지막(삭제되지 않은) 글보다 뒤에 있으면 해당, 이
+   * 사용자가 쓴 적이 없으면 다른 사람 글이 하나라도 있으면 해당. EXISTS 하나라 행마다 추가 조회가 없고, 마지막 글 시각은
+   * idx_chat_message_thread_created(thread_id, created_at DESC, id DESC)로 찾는다.
+   */
+  private Condition pendingForCondition(IssueSearchQuery query) {
+    Long uid = query.pendingForUserId();
+    if (uid == null) return noCondition();
+    var mine = CHAT_MESSAGE.as("pending_mine");
+    Field<OffsetDateTime> myLast =
+        field(
+            select(max(mine.CREATED_AT))
+                .from(mine)
+                .where(mine.THREAD_ID.eq(CHAT_THREAD.ID))
+                .and(mine.AUTHOR_ID.eq(uid))
+                .and(mine.DELETED_AT.isNull()));
+    return exists(
+        selectOne()
+            .from(CHAT_THREAD)
+            .join(CHAT_MESSAGE)
+            .on(CHAT_MESSAGE.THREAD_ID.eq(CHAT_THREAD.ID))
+            .where(CHAT_THREAD.ISSUE_ID.eq(ISSUE.ID))
+            .and(CHAT_MESSAGE.DELETED_AT.isNull())
+            .and(CHAT_MESSAGE.AUTHOR_ID.ne(uid))
+            .and(myLast.isNull().or(CHAT_MESSAGE.CREATED_AT.gt(myLast))));
   }
 
   /** 날짜 범위 필터의 하루 경계 기준 — AI 비서가 "이번 주"를 Asia/Seoul 로 계산하므로 같은 기준으로 자른다(WP-307). */
@@ -755,6 +789,7 @@ public class IssueRepository {
     }
     where = where.and(dateRangeCondition(query));
     where = where.and(watcherCondition(query));
+    where = where.and(pendingForCondition(query));
     where = where.and(labelGroupsCondition(query.labelIdGroups()));
     where = where.and(cycleCondition(query));
     if (query.milestoneIds() != null && !query.milestoneIds().isEmpty()) {
