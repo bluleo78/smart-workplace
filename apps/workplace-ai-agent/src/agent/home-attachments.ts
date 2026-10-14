@@ -1,7 +1,7 @@
 // WP-234: 메인 AI 채팅 첨부 — 요청 스키마(세션 전체 첨부 목록)와 매 턴 user 메시지에 고정 주입하는 "## 이 대화의 첨부" 블록.
 // 이력 윈도·누적 요약과 별개로 매 턴 세션 전체 목록을 싣는다 — 앞부분 이력이 요약으로 대체돼도 AI 가 파일을 근거로
 // 답하고 "다시 첨부해 달라"고 하지 않게 하는 연속성의 핵심이다. 읽기는 read_chat_attachment(필요할 때만)로 한다.
-import { isSendableImage } from '@smart-workplace/mcp-tools-shared';
+import { baseMimeType, isSendableImage } from '@smart-workplace/mcp-tools-shared';
 import { z } from 'zod';
 
 import type { HomeAttachmentMeta, WorkplaceApiClient } from '../clients/workplace-api.js';
@@ -47,7 +47,10 @@ function sizeLabel(bytes: number): string {
 function statusLabel(a: HomeChatAttachment, imageVision: boolean): string {
   if (fileKind(a.mimeType) === 'image') {
     if (!imageVision) return '이미지 — 이 비서(모델)는 이미지를 볼 수 없음';
-    return isSendableImage(a) ? '이미지' : '이미지 — 이 형식·크기는 도구가 변환본으로 보여 줌';
+    if (isSendableImage(a)) return '이미지';
+    // SVG 는 서버가 변환하지 않는다(/view 가 415) — 변환본을 약속하지 않는다.
+    if (baseMimeType(a.mimeType) === 'image/svg+xml') return '이미지 — SVG 는 이미지로 볼 수 없음';
+    return '이미지 — 이 형식·크기는 도구가 변환본으로 보여 줌';
   }
   const x = a.extraction;
   switch (x.status) {

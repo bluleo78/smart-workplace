@@ -67,12 +67,15 @@ describe('formatHomeAttachmentsBlock', () => {
       [
         a({ fileId: 4, originalName: '화면.png', mimeType: 'image/png', sizeBytes: 2048, extraction: st('NONE') }),
         a({ fileId: 5, originalName: '사진.heic', mimeType: 'image/heic', sizeBytes: 2048, extraction: st('NONE') }),
+        a({ fileId: 6, originalName: '로고.svg', mimeType: 'image/svg+xml', sizeBytes: 2048, extraction: st('NONE') }),
       ],
       true,
     );
     expect(block).toContain('fileId 4 · 이미지');
     expect(block).toContain('fileId 5 · 이미지 — 이 형식·크기는 도구가 변환본으로 보여 줌');
     expect(block).not.toContain('보낼 수 없음');
+    // SVG 는 서버가 변환하지 않으므로(/view 415) 변환본을 약속하지 않는다.
+    expect(block).toContain('fileId 6 · 이미지 — SVG 는 이미지로 볼 수 없음');
     expect(block).toContain('이미지·문서 모두 read_chat_attachment');
     expect(block).toContain('그림·도표·스캔 PDF 는 pages 로 해당 페이지를 보세요');
     expect(block).not.toContain('이미지는 볼 수 없');
