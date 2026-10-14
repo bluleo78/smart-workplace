@@ -78,9 +78,7 @@ async function stubDmsList(page: Page) {
   )
 }
 
-// SSE(/api/v1/events) 는 따로 route 하지 않고 auth.fixture 의 '열린 채 유지되는' 기본 스트림을 쓴다.
-// 유한 본문으로 덮으면 응답 직후 스트림이 끝나 재연결이 반복되고, 끊김이 유예(800ms)를 넘는 순간마다
-// 재연결 배너가 목록을 32px 밀어 내 호버·좌표 단언이 드물게 깨진다.
+// SSE 는 따로 route 하지 않는다 — 유한 본문으로 덮으면 재연결 배너가 아무 때나 떠 목록을 밀어 낸다(auth.fixture 의 열린 스트림 사용).
 
 async function stubChannelDetail(page: Page, channel: ReturnType<typeof createChannel>) {
   await page.route(
@@ -1031,5 +1029,5 @@ test('팀 채팅 AI 메시지의 번호 목록은 항목 사이가 벌어지지 
   // 항목 안 줄바꿈이 공백으로 접히지 않고 두 줄로 그려진다(한 줄짜리 1번 항목의 1.5배 이상).
   expect(b!.height).toBeGreaterThan(a!.height * 1.5)
   // innerText 는 CSS white-space 를 반영한다 — 접히면 개행 대신 공백이 된다.
-  expect(await items.nth(1).innerText()).toBe('b\n이어지는 문장')
+  await expect(items.nth(1)).toHaveJSProperty('innerText', 'b\n이어지는 문장')
 })

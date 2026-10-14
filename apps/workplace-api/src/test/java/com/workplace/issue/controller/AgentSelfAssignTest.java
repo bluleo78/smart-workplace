@@ -10,6 +10,7 @@ import com.workplace.issue.AgentWorkTestSupport;
 import com.workplace.issue.dto.CreateIssueRequest;
 import com.workplace.issue.exception.IssueAssigneeAgentRestrictionException;
 import com.workplace.issue.service.IssueAssigneeService;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
@@ -20,9 +21,9 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 
 /**
  * AI 구성원의 하위 항목 자기 배정(WP-375 §3.5) 실제 HTTP 통합 테스트. AI 가 맡은 이슈의 바로 아래 "빈·열린" 하위 항목만 자기 혼자 맡을 수 있고, 그
@@ -31,15 +32,6 @@ import org.springframework.http.HttpStatus;
 class AgentSelfAssignTest extends AgentWorkTestSupport {
 
   @Autowired private IssueAssigneeService assigneeService;
-
-  @Value("${spring.datasource.url}")
-  private String dbUrl;
-
-  @Value("${spring.datasource.username}")
-  private String dbUser;
-
-  @Value("${spring.datasource.password}")
-  private String dbPassword;
 
   private int epicNumber;
   private long c1Id;
@@ -142,23 +134,11 @@ class AgentSelfAssignTest extends AgentWorkTestSupport {
   @Test
   void 자기가_자기_이슈_아래로_옮긴_이슈는_맡을_수_없고_사람이_옮긴_이슈는_맡을_수_있다() {
     // AI 가 부모 없는 X 를 자기 에픽 아래로 옮긴 뒤 맡으려 하면 거부 — 아무 빈 이슈나 끌어와 맡는 우회를 막는다.
-    assertOk(
-        call(
-            HttpMethod.PATCH,
-            parentPath(xNumber),
-            akToken,
-            Map.of("parentNumber", epicNumber),
-            TOOL));
+    assertOk(setParent(xNumber, akToken, TOOL, epicNumber));
     assertForbidden(xNumber, List.of(agentId));
     // 사람이 다시 옮겨 마지막 부모 변경자가 사람이면 기존 규칙대로 맡을 수 있다.
-    assertOk(call(HttpMethod.PATCH, parentPath(xNumber), jwtToken, nullParent(), null));
-    assertOk(
-        call(
-            HttpMethod.PATCH,
-            parentPath(xNumber),
-            jwtToken,
-            Map.of("parentNumber", epicNumber),
-            null));
+    assertOk(setParent(xNumber, jwtToken, null, null));
+    assertOk(setParent(xNumber, jwtToken, null, epicNumber));
     assertOk(
         call(
             HttpMethod.PUT,
@@ -170,69 +150,54 @@ class AgentSelfAssignTest extends AgentWorkTestSupport {
 
   @Test
   void 같은_빈_자식의_담당을_동시에_바꾸면_뒤에_온_AI_자기_배정은_앞의_담당을_보고_거부된다() throws Exception {
-    CountDownLatch locked = new CountDownLatch(1);
-    CountDownLatch release = new CountDownLatch(1);
-    ExecutorService pool = Executors.newFixedThreadPool(2);
-    try {
-      // 1) 사람이 C1 을 다른 사람에게 배정하는 트랜잭션이 이슈 행을 잠근 채 커밋을 미룬다.
-      Future<?> holder =
-          pool.submit(
-              () ->
-                  inTenant(
-                      () -> {
-                        assigneeService.replace(humanId, projectKey, c1Number, List.of(otherId));
-                        locked.countDown();
-                        awaitQuietly(release);
-                        return null;
-                      }));
-      assertThat(locked.await(10, TimeUnit.SECONDS)).isTrue();
-      // 2) AI 의 자기 배정은 같은 이슈 행 잠금에서 기다린다(잠그지 않으면 빈 담당자를 읽고 바로 끝나 아래 대기 확인이 실패한다).
-      Future<Throwable> claimer = pool.submit(() -> claimInBackground(c1Number));
-      awaitLockWaiter(dbUrl, dbUser, dbPassword, claimer);
-      // 3) 앞 배정이 커밋된 뒤 판정하므로 더는 "빈 하위 항목" 이 아니다 — 거부되고 담당자는 한 명으로 남는다.
-      release.countDown();
-      holder.get(10, TimeUnit.SECONDS);
-      assertThat(claimer.get(10, TimeUnit.SECONDS))
-          .isInstanceOf(IssueAssigneeAgentRestrictionException.class);
-    } finally {
-      release.countDown();
-      pool.shutdownNow();
-    }
+    // 사람이 C1 을 다른 사람에게 배정하는 동안 AI 가 C1 을 맡으려 하면, AI 는 C1 행 잠금에서 기다렸다가 배정 뒤 상태로 판정된다.
+    var result =
+        claimWhileHolding(
+            () -> assigneeService.replace(humanId, projectKey, c1Number, List.of(otherId)));
+    assertThat(result).isInstanceOf(IssueAssigneeAgentRestrictionException.class);
     assertThat(inTenant(() -> issueAssigneeRepository.findUserIdsByIssue(c1Id)))
         .containsExactly(otherId);
   }
 
   @Test
   void 부모에서_AI_를_빼는_교체와_겹치면_AI_자기_배정은_그_교체가_끝난_뒤_판정돼_거부된다() throws Exception {
+    // 사람이 에픽 E 담당자에서 AI 를 빼는 동안 AI 가 C1 을 맡으려 하면, AI 는 부모 E 행 공유 잠금에서 기다렸다가 빠진 뒤 상태로 판정된다.
+    var result =
+        claimWhileHolding(
+            () -> assigneeService.replace(humanId, projectKey, epicNumber, List.of()));
+    assertThat(result).isInstanceOf(IssueAssigneeAgentRestrictionException.class);
+    assertThat(inTenant(() -> issueAssigneeRepository.findUserIdsByIssue(c1Id))).isEmpty();
+  }
+
+  /**
+   * holder 를 커밋하지 않은 트랜잭션에서 실행해 행 잠금을 쥔 채, 다른 스레드에서 AI 의 C1 자기 배정을 보낸다. 자기 배정이 잠금 대기에 든 것을 확인한 뒤
+   * holder 를 커밋하고 자기 배정 결과(성공이면 null, 실패면 예외)를 돌려준다. 잠그지 않는 구현이면 자기 배정이 대기 없이 끝나 대기 확인에서 실패한다.
+   */
+  private Throwable claimWhileHolding(Runnable holderAction) throws Exception {
     CountDownLatch locked = new CountDownLatch(1);
     CountDownLatch release = new CountDownLatch(1);
     ExecutorService pool = Executors.newFixedThreadPool(2);
     try {
-      // 1) 사람이 에픽 E 의 담당자에서 AI 를 빼는 트랜잭션이 E 행을 잠근 채 커밋을 미룬다.
       Future<?> holder =
           pool.submit(
               () ->
                   inTenant(
                       () -> {
-                        assigneeService.replace(humanId, projectKey, epicNumber, List.of());
+                        holderAction.run();
                         locked.countDown();
                         awaitQuietly(release);
                         return null;
                       }));
       assertThat(locked.await(10, TimeUnit.SECONDS)).isTrue();
-      // 2) AI 의 C1 자기 배정은 부모 E 담당자를 읽기 전 E 행 공유 잠금에서 기다린다(잠그지 않으면 아직 담당자인 옛 값을 읽고 통과한다).
       Future<Throwable> claimer = pool.submit(() -> claimInBackground(c1Number));
-      awaitLockWaiter(dbUrl, dbUser, dbPassword, claimer);
-      // 3) 교체가 커밋된 뒤 판정하므로 AI 는 더 이상 부모 담당자가 아니다 — 거부되고 C1 은 빈 채로 남는다.
+      awaitLockWaiter(claimer);
       release.countDown();
       holder.get(10, TimeUnit.SECONDS);
-      assertThat(claimer.get(10, TimeUnit.SECONDS))
-          .isInstanceOf(IssueAssigneeAgentRestrictionException.class);
+      return claimer.get(10, TimeUnit.SECONDS);
     } finally {
       release.countDown();
       pool.shutdownNow();
     }
-    assertThat(inTenant(() -> issueAssigneeRepository.findUserIdsByIssue(c1Id))).isEmpty();
   }
 
   /**
@@ -257,15 +222,14 @@ class AgentSelfAssignTest extends AgentWorkTestSupport {
         .isEqualTo(HttpStatus.FORBIDDEN);
   }
 
-  private String parentPath(int number) {
-    return "/api/v1/projects/" + projectKey + "/issues/" + number + "/parent";
-  }
-
-  /** 부모 해제 본문 — Map.of 는 null 값을 받지 않는다. */
-  private static Map<String, Object> nullParent() {
-    var body = new java.util.HashMap<String, Object>();
-    body.put("parentNumber", null);
-    return body;
+  /** 부모 설정(parent 가 null 이면 해제). singletonMap 은 Map.of 와 달리 null 값을 받는다. */
+  private ResponseEntity<String> setParent(int number, String token, String tool, Integer parent) {
+    return call(
+        HttpMethod.PATCH,
+        "/api/v1/projects/" + projectKey + "/issues/" + number + "/parent",
+        token,
+        Collections.singletonMap("parentNumber", parent),
+        tool);
   }
 
   private String assignPath(int number) {

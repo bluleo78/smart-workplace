@@ -1,7 +1,6 @@
 package com.workplace.issue.service;
 
 import com.workplace.global.dto.UserSummary;
-import com.workplace.issue.dto.IssueHistoryEventType;
 import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.dto.IssueStatuses;
 import com.workplace.issue.exception.InvalidAssigneeForProjectException;
@@ -62,9 +61,7 @@ public class IssueAssigneeService {
   public List<UserSummary> replace(
       Long callerId, String projectKey, int number, List<Long> userIds) {
     var project = accessGuard.assertMember(projectKey, callerId);
-    // 이슈 행을 잠가 같은 이슈의 담당자 교체를 한 줄로 세운다 — 두 요청이 같은 "빈 담당자" 를 읽고 각자 넣으면 AI 자기 배정의
-    // "혼자 맡기" 규칙이 깨져 담당자가 둘이 된다(WP-375). 부모 변경(setParent·setType)도 같은 행을 잠근 채 읽으므로 판정 중 부모가 바뀌지
-    // 않는다.
+    // 이슈 행을 잠가 같은 이슈의 담당자 교체를 한 줄로 세운다 — 동시에 같은 "빈 담당자" 를 읽고 각자 넣으면 담당자가 둘이 된다(WP-375).
     var issue =
         issueRepository
             .findByProjectAndNumberForUpdate(project.id(), number)
@@ -185,11 +182,14 @@ public class IssueAssigneeService {
     if (IssueStatuses.CLOSED.contains(issue.status())) return false;
     Long parentId = issue.parentIssueId();
     if (parentId == null) return false;
+    // 부모 관계를 AI 가 만들었으면 잠금 없이 먼저 거부한다(이 이슈 행은 replace 가 잠가 그 사이 부모 이력이 바뀌지 않는다).
+    if (historyRepository
+        .findLastParentChangerKind(issue.id())
+        .filter("AGENT"::equals)
+        .isPresent()) {
+      return false;
+    }
     issueRepository.lockForShare(parentId);
-    if (!repo.findUserIdsByIssue(parentId).contains(callerId)) return false;
-    return historyRepository
-        .findLastActorKind(issue.id(), IssueHistoryEventType.PARENT_CHANGED.name())
-        .map(kind -> !"AGENT".equals(kind))
-        .orElse(true);
+    return repo.findUserIdsByIssue(parentId).contains(callerId);
   }
 }

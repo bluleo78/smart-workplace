@@ -12,11 +12,10 @@ const BLOCK_TAGS = new Set([
   'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr', 'div', 'section', 'details', 'summary', 'dl', 'dt', 'dd',
 ])
 type HastNode = { type: string; tagName?: string; value?: string; children?: HastNode[] }
-const isTag = (n: HastNode | undefined, tag: string) => n?.type === 'element' && n.tagName === tag
 const isBlock = (n: HastNode | undefined) => n?.type === 'element' && BLOCK_TAGS.has(n.tagName ?? '')
 
 /**
- * pre-wrap(p·li) 아래에서 원문에 없던 빈 칸·빈 줄로 그려지는 포맷용 공백을 지운다.
+ * pre-wrap(p·li) 아래에서 원문에 없던 빈 칸·빈 줄로 그려지는 포맷용 공백을 지운다(트리는 렌더마다 새로 만들어지므로 제자리에서 고친다).
  * - 블록 옆에 낀 공백 전용 텍스트: 남기면 목록 항목·문단 사이가 한 줄씩 벌어지거나 빈 칸이 생긴다.
  * - 체크박스(input) 바로 뒤 공백: 체크박스가 absolute 라 글자만 한 칸 밀린다.
  * - 하드 브레이크(br) 바로 뒤 개행: br 과 개행이 둘 다 줄바꿈으로 그려져 빈 줄이 생긴다.
@@ -25,17 +24,15 @@ const isBlock = (n: HastNode | undefined) => n?.type === 'element' && BLOCK_TAGS
 function stripLayoutWhitespace(node: HastNode) {
   const kids = node.children
   if (!kids) return
-  const out: HastNode[] = []
-  kids.forEach((c, i) => {
-    if (c.type !== 'text') return void out.push(c)
-    let v = c.value ?? ''
-    if (/^\s+$/.test(v) && (isBlock(kids[i - 1]) || isBlock(kids[i + 1]))) return
-    if (isTag(kids[i - 1], 'input')) v = v.replace(/^\s+/, '')
-    else if (isTag(kids[i - 1], 'br')) v = v.replace(/^\n/, '')
-    if (v) out.push(v === c.value ? c : { ...c, value: v })
+  node.children = kids.filter((c, i) => {
+    if (c.type !== 'text') return true
+    const prev = kids[i - 1]
+    if (/^\s+$/.test(c.value ?? '') && (isBlock(prev) || isBlock(kids[i + 1]))) return false
+    if (prev?.tagName === 'input') c.value = c.value?.replace(/^\s+/, '')
+    else if (prev?.tagName === 'br') c.value = c.value?.replace(/^\n/, '')
+    return c.value !== ''
   })
-  node.children = out
-  out.forEach(stripLayoutWhitespace)
+  node.children.forEach(stripLayoutWhitespace)
 }
 const REHYPE_PLUGINS = [() => stripLayoutWhitespace]
 
@@ -58,15 +55,12 @@ const BASE_COMPONENTS: Components = {
   ol: ({ children, className }) => (
     <ol className={listClass(className, 'list-decimal')}>{children}</ol>
   ),
+  // 항목 안 줄바꿈(「3. 항목\n이어지는 문장」)은 p 처럼 pre-wrap 으로 보존한다 — tight list 의 li 는 p 없이 글자를 바로 담는다.
   // 체크리스트 항목 — 체크박스를 왼쪽 여백에 절대배치해, 긴 항목이 줄바꿈돼도 둘째 줄이 체크박스 밑으로 파고들지 않고
   // 글머리 들여쓰기(hanging indent)를 유지한다. loose list 에선 체크박스가 li 직속이 아닌 p 안에 들어가도 li 기준으로 놓인다.
-  // 항목 안 줄바꿈(「3. 항목\n이어지는 문장」)은 p 처럼 pre-wrap 으로 보존한다 — tight list 의 li 는 p 없이 글자를 바로 담는다.
-  li: ({ children, className }) =>
-    className?.includes('task-list-item') ? (
-      <li className="relative whitespace-pre-wrap pl-5">{children}</li>
-    ) : (
-      <li className="whitespace-pre-wrap">{children}</li>
-    ),
+  li: ({ children, className }) => (
+    <li className={cn('whitespace-pre-wrap', className?.includes('task-list-item') && 'relative pl-5')}>{children}</li>
+  ),
   // remark-gfm 이 내는 input 은 체크리스트 체크박스뿐(원시 HTML 비허용) — 원문의 [x]/[ ] 상태만 읽기 전용으로 보여준다.
   input: ({ checked }) => (
     <input

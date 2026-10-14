@@ -32,7 +32,6 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /** WP-234: 전송 시 첨부 연결 — 같은 트랜잭션의 연결·승격·추출 요청, 첨부만 전송, 입력·소유·상한 검증과 동시성. */
@@ -224,15 +223,6 @@ class HomeChatAttachmentSendTest extends HomeAttachmentTestSupport {
 
   @Autowired private HomeSessionRepository sessionRepo;
 
-  @Value("${spring.datasource.url}")
-  private String dbUrl;
-
-  @Value("${spring.datasource.username}")
-  private String dbUser;
-
-  @Value("${spring.datasource.password}")
-  private String dbPassword;
-
   /**
    * 소유 확인은 통과했는데 세션 행 잠금을 기다리는 사이 세션이 지워지면 404 다. 잠금 결과(false)를 무시하고 진행하면 USER 메시지 INSERT 가 FK
    * 위반(500)이 될 수 있다.
@@ -305,7 +295,7 @@ class HomeChatAttachmentSendTest extends HomeAttachmentTestSupport {
                   TenantContext.clear();
                 }
               });
-      awaitLockWaiter(dbUrl, dbUser, dbPassword, deleter);
+      awaitLockWaiter(deleter);
       // 3) 전송이 커밋되면 삭제가 이어서 그 연결을 보고 만료 표시한다.
       release.countDown();
       sender.get(10, TimeUnit.SECONDS);
@@ -357,7 +347,7 @@ class HomeChatAttachmentSendTest extends HomeAttachmentTestSupport {
                   TenantContext.clear();
                 }
               });
-      awaitLockWaiter(dbUrl, dbUser, dbPassword, sender);
+      awaitLockWaiter(sender);
       // 3) 세션 삭제가 커밋되면 잠금 조회는 행을 찾지 못한다.
       release.countDown();
       holder.get(10, TimeUnit.SECONDS);

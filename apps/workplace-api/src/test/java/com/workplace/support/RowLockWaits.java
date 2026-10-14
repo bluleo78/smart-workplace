@@ -17,13 +17,15 @@ public final class RowLockWaits {
   private RowLockWaits() {}
 
   /**
-   * waiter 가 행 잠금을 기다리는 상태가 될 때까지 기다린다(최대 10초). 테스트 풀이 작아 풀 밖의 별도 커넥션으로 본다 — 풀에서 빌리면 waiter 가 커넥션을
-   * 못 받아 잠금에 닿지 못할 수 있다. pg_stat_activity 는 다른 롤 세션의 대기 상태를 권한으로 가리므로 롤과 무관하게 보이는 pg_locks 를 본다.
+   * waiter 가 행 잠금을 기다리는 상태가 될 때까지 기다린다(최대 10초). 테스트 풀이 작아 풀 밖의 별도 커넥션(컨테이너 소유자 롤)으로 본다 — 풀에서 빌리면
+   * waiter 가 커넥션을 못 받아 잠금에 닿지 못할 수 있다. pg_stat_activity 는 다른 롤 세션의 대기 상태를 권한으로 가리므로 롤과 무관하게 보이는
+   * pg_locks 를 본다.
    */
-  public static void awaitLockWaiter(String url, String user, String password, Future<?> waiter)
-      throws Exception {
+  public static void awaitLockWaiter(Future<?> waiter) throws Exception {
     long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
-    try (Connection c = DriverManager.getConnection(url, user, password);
+    var db = PostgresTestContainer.INSTANCE;
+    try (Connection c =
+            DriverManager.getConnection(db.getJdbcUrl(), db.getUsername(), db.getPassword());
         PreparedStatement ps =
             c.prepareStatement("select count(*) from pg_locks where not granted")) {
       while (System.nanoTime() < deadline) {

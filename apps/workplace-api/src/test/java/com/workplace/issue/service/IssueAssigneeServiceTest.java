@@ -9,6 +9,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.issue.dto.CreateIssueRequest;
+import com.workplace.issue.dto.IssueHistoryEventType;
 import com.workplace.issue.dto.IssueResponse;
 import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.exception.InvalidAssigneeForProjectException;
@@ -319,14 +320,16 @@ class IssueAssigneeServiceTest extends IntegrationTestBase {
     service.replace(owner, p.key(), 1, List.of(agentA));
     // 다른 AI(B)가 부모 관계를 만든 상태(setParent 와 같은 결과 — 부모 갱신 + PARENT_CHANGED 이력).
     issueRepository.updateParent(child.id(), parent.id());
-    historyRepository.insert(child.id(), agentB, "PARENT_CHANGED", null, "{}");
+    historyRepository.insert(
+        child.id(), agentB, IssueHistoryEventType.PARENT_CHANGED.name(), null, "{}");
 
     // 같은 운영자가 AI 를 여럿 두어 서로 옮겨 주는 우회도 막는다 — 부모 관계는 사람이 만든 것만 근거로 친다.
     assertThatThrownBy(() -> service.replace(agentA, p.key(), 2, List.of(agentA)))
         .isInstanceOf(IssueAssigneeAgentRestrictionException.class);
 
     // 사람이 다시 부모 관계를 만들면(마지막 변경자가 사람) 맡을 수 있다.
-    historyRepository.insert(child.id(), owner, "PARENT_CHANGED", null, "{}");
+    historyRepository.insert(
+        child.id(), owner, IssueHistoryEventType.PARENT_CHANGED.name(), null, "{}");
     assertThat(service.replace(agentA, p.key(), 2, List.of(agentA)).get(0).id()).isEqualTo(agentA);
   }
 }
