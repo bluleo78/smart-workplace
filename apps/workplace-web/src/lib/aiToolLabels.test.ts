@@ -79,6 +79,12 @@ describe('formatPages', () => {
     expect(formatPages([11, 12, 13])).toBe('11–13쪽');
     expect(formatPages([2, 5])).toBe('2·5쪽');
   });
+  it('순서·중복과 상관없이 정렬·중복 제거해 보인다', () => {
+    expect(formatPages([13, 12, 11])).toBe('11–13쪽');
+    expect(formatPages([7, 7])).toBe('7쪽');
+    expect(formatPages([5, 2])).toBe('2·5쪽');
+    expect(formatPages([3, 1, 2, 2])).toBe('1–3쪽');
+  });
   it('배열이 아니거나 비었거나 숫자가 아니면 null', () => {
     expect(formatPages(undefined)).toBeNull();
     expect(formatPages('7')).toBeNull();
@@ -106,6 +112,14 @@ describe('getToolStepDisplay', () => {
   });
   it('pages 가 비정상이면 기존 라벨로 폴백', () => {
     expect(getToolStepDisplay('read_file', { pages: [] }).label).toBe('파일 읽기');
+  });
+  it('메일 첨부(read_file source mail)는 pages 가 있어도 페이지 보기가 아니다(메일은 미지원)', () => {
+    expect(getToolStepDisplay('mcp__workplace__read_file', { source: 'mail', attachmentId: 3, pages: [2] })).toEqual({
+      label: '파일 읽기',
+      icon: '📎',
+      detail: null,
+    });
+    expect(getToolStepDisplay('read_file', { source: 'drive', driveFileId: 3, pages: [2] }).label).toBe('페이지 보기');
   });
   it('pages 를 받는 도구가 아니면 pages 가 있어도 기존 라벨', () => {
     expect(getToolStepDisplay('update_issue', { issueKey: 'EX-1', pages: [3] }).label).toBe('이슈 수정');

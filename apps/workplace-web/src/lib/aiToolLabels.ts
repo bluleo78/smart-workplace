@@ -71,21 +71,24 @@ export function getToolDetail(_toolName: string, args?: Record<string, unknown>)
 const PAGE_VIEW_TOOLS = new Set(['read_file', 'read_chat_attachment', 'read_chat_thread_attachment']);
 
 // pages 인자 → "7쪽" / "11–13쪽"(연속 구간, en dash) / "2·5쪽"(흩어진 쪽, 가운뎃점).
+// 모델이 보낸 순서·중복과 상관없이 같은 쪽 집합은 같게 보이도록 정렬·중복 제거한다([13,12,11]→11–13쪽, [7,7]→7쪽).
 // 배열이 아니거나 비었거나 양의 정수가 아닌 값이 섞여 있으면 null — 호출부가 기존 표시로 폴백한다.
 export function formatPages(pages: unknown): string | null {
   if (!Array.isArray(pages) || pages.length === 0) return null;
   if (!pages.every((p) => typeof p === 'number' && Number.isInteger(p) && p > 0)) return null;
-  const nums = pages as number[];
+  const nums = [...new Set(pages as number[])].sort((a, b) => a - b);
   const consecutive = nums.length > 1 && nums.every((p, i) => i === 0 || p === nums[i - 1] + 1);
   return consecutive ? `${nums[0]}–${nums[nums.length - 1]}쪽` : `${nums.join('·')}쪽`;
 }
 
 // 도구 단계 한 줄(아이콘 + 라벨 + detail). 페이지를 본 단계는 "📄 페이지 보기 7쪽" 으로, 그 외는 기존 라벨·detail 을 쓴다.
+// 메일 첨부(read_file source 'mail')는 페이지 보기를 지원하지 않아(도구가 텍스트 읽기 안내로 돌려준다) pages 가 있어도 기존 라벨로 둔다.
 export function getToolStepDisplay(
   toolName: string,
   args?: Record<string, unknown>,
 ): { label: string; icon: string; detail: string | null } {
-  const pagesText = PAGE_VIEW_TOOLS.has(strip(toolName)) ? formatPages(args?.pages) : null;
+  const pageView = PAGE_VIEW_TOOLS.has(strip(toolName)) && args?.source !== 'mail';
+  const pagesText = pageView ? formatPages(args?.pages) : null;
   if (pagesText) return { label: '페이지 보기', icon: '📄', detail: pagesText };
   const { label, icon } = getToolDisplay(toolName);
   return { label, icon, detail: getToolDetail(toolName, args) };
