@@ -15,12 +15,20 @@ const ISSUE = { kind: 'issue' as const, threadId: 5 };
 const CHAT = { kind: 'chat' as const, threadId: 5, messageId: 9 };
 const ready = (n: number, truncated = false): ExtractionInfo => ({ status: 'READY', totalChars: n, truncated, reasonCode: null, reason: null });
 const status = (s: ExtractionInfo['status'], reason: string | null = null): ExtractionInfo => ({ status: s, totalChars: null, truncated: false, reasonCode: null, reason });
+/** 글자 없는 스캔 PDF(SKIPPED + SCANNED_PDF). 쪽수는 서버가 추출 행에서 내려준다(WP-250). */
+const scanned = (pageCount: number | null = 4): ExtractionInfo => ({
+  status: 'SKIPPED', totalChars: null, truncated: false, reasonCode: 'SCANNED_PDF', reason: '스캔 PDF(텍스트 없음)', pageCount,
+});
+const TOOL = (fileId: number) => `read_chat_thread_attachment({threadId:5, fileId:${fileId}})`;
 
 /** 이슈 목록 조회가 성공한 수집 결과. */
 const ok = (attachments: AgentAttachment[]) => ({ attachments, issueListFailed: false });
 
-function a(fileId: number, name: string, mimeType: string, extraction: ExtractionInfo, origin: AgentAttachment['origin'] = ISSUE): AgentAttachment {
-  return { origin, fileId, originalName: name, mimeType, sizeBytes: 10, extraction };
+function a(
+  fileId: number, name: string, mimeType: string, extraction: ExtractionInfo,
+  origin: AgentAttachment['origin'] = ISSUE, sizeBytes = 10,
+): AgentAttachment {
+  return { origin, fileId, originalName: name, mimeType, sizeBytes, extraction };
 }
 
 describe('presentAttachments', () => {
@@ -34,20 +42,60 @@ describe('presentAttachments', () => {
     expect(await presentAttachments(CLAUDE, ok([]), deps)).toEqual({ section: '첨부 없음', guidance: '' });
   });
 
-  it('Claude: 이미지·PDF 만 다운로드, PDF READY 면 텍스트 도구도 병기', async () => {
+  it('Claude: 보낼 수 있는 이미지·텍스트만 다운로드, PDF 는 받지 않고 텍스트·페이지 도구 줄', async () => {
     const list = [
       a(1, 'shot.png', 'image/png', status('SKIPPED', '이미지')),
-      a(2, 'spec.pdf', 'application/pdf', ready(1200)),
+      a(2, 'spec.pdf', 'application/pdf', { ...ready(1200), pageCount: 7 }),
       a(3, 'memo.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', ready(300), CHAT),
     ];
     const p = await presentAttachments(CLAUDE, ok(list), deps);
-    expect(vi.mocked(downloadAttachments).mock.calls[0][2].map((x) => x.fileId)).toEqual([1, 2]);
+    expect(vi.mocked(downloadAttachments).mock.calls[0][2].map((x) => x.fileId)).toEqual([1]);
     expect(p.section).toContain('/tmp/w/1-shot.png');
-    expect(p.section).toContain('/tmp/w/2-spec.pdf');
-    expect(p.section).toContain('read_chat_thread_attachment({threadId:5, fileId:2})');
-    expect(p.section).toContain('read_chat_thread_attachment({threadId:5, fileId:3})');
+    expect(p.section).not.toContain('/tmp/w/2-spec.pdf');
+    expect(p.section).toContain(`텍스트·페이지: ${TOOL(2)} — 약 1200자, 총 7쪽`);
+    expect(p.section).toContain(TOOL(3));
     expect(p.section).toContain('[챗 첨부] memo.docx');
     expect(p.guidance).toContain('Read');
+  });
+
+  it('Claude: 쪽수를 모르는 PDF(구 추출 행)는 "총 M쪽" 을 생략한다', async () => {
+    const p = await presentAttachments(CLAUDE, ok([a(2, 'old.pdf', 'application/pdf', ready(50))]), deps);
+    expect(p.section).toContain(`텍스트·페이지: ${TOOL(2)} — 약 50자`);
+    expect(p.section).not.toContain('총 ');
+  });
+
+  it('Claude: heic·큰 png 는 내려받지 않고 이미지 도구 줄(서버 변환본)', async () => {
+    const list = [
+      a(1, 'photo.heic', 'image/heic', status('NONE')),
+      a(2, 'big.png', 'image/png', status('NONE'), ISSUE, 5_000_000),
+      a(3, 'ok.jpg', 'image/jpeg', status('NONE')),
+    ];
+    const p = await presentAttachments(CLAUDE, ok(list), deps);
+    expect(vi.mocked(downloadAttachments).mock.calls[0][2].map((x) => x.fileId)).toEqual([3]);
+    expect(p.section).toContain(`이미지: ${TOOL(1)}`);
+    expect(p.section).toContain(`이미지: ${TOOL(2)}`);
+    expect(p.section).toContain('/tmp/w/3-ok.jpg');
+  });
+
+  it('Claude: 스캔 PDF 는 pages 로 페이지 이미지를 읽게 안내(쪽수 포함), 재업로드 금지', async () => {
+    const p = await presentAttachments(CLAUDE, ok([a(2, 'scan.pdf', 'application/pdf', scanned(4))]), deps);
+    expect(p.section).toContain('글자 없는 스캔 PDF(4쪽) — pages 로 페이지 이미지를 읽으세요');
+    expect(p.section).toContain('pages:[');
+    expect(p.section).toContain('다시 올리거나 다른 형식으로 올려 달라고 하지 말 것');
+    expect(p.section).not.toContain('텍스트로 읽을 수 없음');
+  });
+
+  it('스캔 PDF 쪽수를 모르면 쪽수 없이 안내한다', async () => {
+    const p = await presentAttachments(CLAUDE, ok([a(2, 'scan.pdf', 'application/pdf', scanned(null))]), deps);
+    expect(p.section).toContain('글자 없는 스캔 PDF — pages 로 페이지 이미지를 읽으세요');
+  });
+
+  it('Claude 안내문: 로컬경로는 Read, 문서·PDF 는 도구, 그림·도표·스캔은 pages', async () => {
+    const p = await presentAttachments(CLAUDE, ok([a(2, 'spec.pdf', 'application/pdf', ready(5))]), deps);
+    expect(p.guidance).toContain('로컬경로');
+    expect(p.guidance).toContain('Read');
+    expect(p.guidance).toContain('문서·PDF');
+    expect(p.guidance).toContain('pages:[n]');
   });
 
   it('opencode 는 받을 첨부가 없다 — 이미지는 볼 수 없음, PDF 는 텍스트 도구', async () => {
@@ -57,7 +105,17 @@ describe('presentAttachments', () => {
     expect(p.section).toContain('이미지를 볼 수 없');
     expect(p.section).toContain('read_chat_thread_attachment({threadId:5, fileId:2})');
     expect(p.section).not.toContain('로컬경로');
+    expect(p.section).not.toContain('pages');
+    expect(p.section).not.toContain('텍스트·페이지');
     expect(p.guidance).not.toContain('Read');
+    expect(p.guidance).not.toContain('pages');
+  });
+
+  it('opencode(비전 아님): 스캔 PDF 는 읽을 수 없음 + 이미지를 볼 수 있는 모델로 바꾸라는 안내(pages 언급 없음)', async () => {
+    const p = await presentAttachments(OC, ok([a(2, 'scan.pdf', 'application/pdf', scanned(4))]), deps);
+    expect(p.section).toContain('텍스트로 읽을 수 없음');
+    expect(p.section).toContain('이미지를 볼 수 있는 모델');
+    expect(p.section).not.toContain('pages');
   });
 
   it.each([
@@ -97,11 +155,11 @@ describe('presentAttachments', () => {
     expect(p.section).toContain('잘림');
   });
 
-  it('Claude: PDF 다운로드가 건너뛰어져도 READY 면 텍스트 도구 줄 유지', async () => {
-    vi.mocked(downloadAttachments).mockResolvedValue(new Map([[2, { skipReason: '파일당 상한(10MB) 초과' }]]));
-    const p = await presentAttachments(CLAUDE, ok([a(2, 'big.pdf', 'application/pdf', ready(9))]), deps);
-    expect(p.section).toContain('파일당 상한(10MB) 초과');
-    expect(p.section).toContain('read_chat_thread_attachment({threadId:5, fileId:2})');
+  it('Claude: 이미지 원본을 못 받으면 건너뛴 사유와 함께 도구 줄로 대신 읽게 한다', async () => {
+    vi.mocked(downloadAttachments).mockResolvedValue(new Map([[1, { skipReason: '파일당 상한(10MB) 초과' }]]));
+    const p = await presentAttachments(CLAUDE, ok([a(1, 'x.png', 'image/png', status('NONE'))]), deps);
+    expect(p.section).toContain('원본 건너뜀: 파일당 상한(10MB) 초과');
+    expect(p.section).toContain(`이미지: ${TOOL(1)}`);
   });
 
   it('이슈 목록 실패 + 다른 첨부 없음 → "첨부 없음" 대신 단정 금지 줄', async () => {
@@ -167,14 +225,20 @@ describe('presentAttachments', () => {
     expect(p.section).toContain('read_chat_thread_attachment');
   });
 
-  it('readsLocally: Claude 는 이미지·PDF·텍스트, 비전 opencode 는 이미지만 로컬로 읽는다', () => {
-    expect(readsLocally(CLAUDE, 'text/csv')).toBe(true);
-    expect(readsLocally(CLAUDE, 'application/vnd.ms-excel')).toBe(false);
-    expect(readsLocally(OC, 'application/pdf')).toBe(false);
-    expect(readsLocally(OC, 'image/png')).toBe(false);
-    expect(readsLocally(OC_VISION, 'image/png')).toBe(true);
-    expect(readsLocally(OC_VISION, 'application/pdf')).toBe(false);
-    expect(readsLocally(OC_VISION, 'text/plain')).toBe(false);
+  it('readsLocally: Claude 는 보낼 수 있는 이미지·텍스트만, 비전 opencode 는 보낼 수 있는 이미지만 로컬로 읽는다', () => {
+    const f = (mimeType: string, sizeBytes = 10) => ({ mimeType, sizeBytes });
+    expect(readsLocally(CLAUDE, f('text/csv'))).toBe(true);
+    expect(readsLocally(CLAUDE, f('image/jpeg'))).toBe(true);
+    expect(readsLocally(CLAUDE, f('image/heic'))).toBe(false); // 모델에 보낼 수 없는 형식 → 서버 변환본
+    expect(readsLocally(CLAUDE, f('image/png', 5_000_000))).toBe(false); // 3.75MB 초과
+    expect(readsLocally(CLAUDE, f('application/pdf'))).toBe(false); // WP-250: PDF 는 도구로
+    expect(readsLocally(CLAUDE, f('application/vnd.ms-excel'))).toBe(false);
+    expect(readsLocally(OC, f('application/pdf'))).toBe(false);
+    expect(readsLocally(OC, f('image/png'))).toBe(false);
+    expect(readsLocally(OC_VISION, f('image/png'))).toBe(true);
+    expect(readsLocally(OC_VISION, f('image/heic'))).toBe(false);
+    expect(readsLocally(OC_VISION, f('application/pdf'))).toBe(false);
+    expect(readsLocally(OC_VISION, f('text/plain'))).toBe(false);
   });
 
   // WP-241·236 통합: 비전 opencode 모델은 이미지만 받아 read 로 보고, 문서는 계속 텍스트 도구로 읽는다.
@@ -184,8 +248,16 @@ describe('presentAttachments', () => {
     expect(vi.mocked(downloadAttachments).mock.calls[0][2].map((x) => x.fileId)).toEqual([1]);
     expect(p.section).toContain('로컬경로: /tmp/w/1-shot.png');
     expect(p.section).not.toContain('이미지를 볼 수 없');
-    expect(p.section).toContain('read_chat_thread_attachment({threadId:5, fileId:2})');
+    expect(p.section).toContain(`텍스트·페이지: ${TOOL(2)} — 약 1200자`);
     expect(p.guidance).toContain('로컬경로(이미지)는 read');
+    expect(p.guidance).toContain('pages:[n]');
+  });
+
+  it('비전 opencode: heic 는 내려받지 않고 이미지 도구 줄', async () => {
+    const p = await presentAttachments(OC_VISION, ok([a(1, 'p.heic', 'image/heic', status('NONE'))]), deps);
+    expect(vi.mocked(downloadAttachments).mock.calls[0][2]).toEqual([]);
+    expect(p.section).toContain(`이미지: ${TOOL(1)}`);
+    expect(p.section).not.toContain('이미지를 볼 수 없');
   });
 
   it('비전 opencode: 이미지 원본을 못 받으면 건너뛴 사유를 보여준다', async () => {

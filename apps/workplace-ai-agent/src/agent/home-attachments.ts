@@ -61,7 +61,9 @@ function statusLabel(a: HomeChatAttachment, imageVision: boolean): string {
 
 const NEXT_OFFSET_HOW = '문서는 텍스트 구간으로 오며, 더 필요하면 결과의 nextOffset 을 offset 으로 넘겨 이어 읽기';
 // 읽는 쪽(러너·모델) 능력별 방법 — 비전 판단은 run-ai-chat 이 실행당 1회 내린 값을 받는다(러너 config 와 같은 값).
-const HOW_VISION = `이미지·문서 모두 read_chat_attachment({fileId}) 로 읽으세요(${NEXT_OFFSET_HOW}).`;
+const HOW_VISION =
+  `이미지·문서 모두 read_chat_attachment({fileId}) 로 읽으세요(${NEXT_OFFSET_HOW}). ` +
+  '그림·도표·스캔 PDF 는 pages 로 해당 페이지를 보세요.';
 const HOW_NO_VISION =
   `문서는 read_chat_attachment({fileId}) 로 읽으세요(${NEXT_OFFSET_HOW}). ` +
   '이미지는 볼 수 없으니, 이미지 내용이 필요하면 사용자에게 이미지 내용을 글로 알려 달라고 안내하세요.';

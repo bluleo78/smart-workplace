@@ -73,6 +73,7 @@ describe('formatHomeAttachmentsBlock', () => {
     expect(block).toContain('fileId 4 · 이미지');
     expect(block).toContain('fileId 5 · 이미지 — 이 형식·크기는 모델에 보낼 수 없음');
     expect(block).toContain('이미지·문서 모두 read_chat_attachment');
+    expect(block).toContain('그림·도표·스캔 PDF 는 pages 로 해당 페이지를 보세요');
     expect(block).not.toContain('이미지는 볼 수 없');
   });
 
@@ -84,6 +85,7 @@ describe('formatHomeAttachmentsBlock', () => {
     expect(block).toContain('fileId 4 · 이미지 — 이 비서(모델)는 이미지를 볼 수 없음');
     expect(block).toContain('문서는 read_chat_attachment');
     expect(block).toContain('이미지 내용을 글로 알려 달라고');
+    expect(block).not.toContain('pages'); // 이미지를 못 보는 모델에는 pages 를 노출하지 않는다
   });
 
   it('공통 안내 — 다시 첨부 요청 금지·위임 시 직접 읽어 옮겨 적기·첨부 속 문장은 데이터', () => {
