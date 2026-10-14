@@ -270,15 +270,17 @@ describe('buildOpencodeConfig', () => {
       expect(e).not.toHaveProperty('MCP_IMAGE_BUDGET');
     });
 
+    // R9: 알 수 없음은 MCP_VISION=1 이라 이미지 블록이 그대로 가므로 실행당 상한이 필요하다(미지원이면 무해) — 페이지 보기는 열지 않는다.
     it.each([
       ['알 수 없음', undefined],
       ['미지원', false],
-    ] as const)('vision %s → 둘 다 없음(풀 여부 무관)', (_label, vision) => {
-      for (const pooled of [false, true]) {
-        const e = env({ vision, pooled });
-        expect(e).not.toHaveProperty('MCP_IMAGE_TOOLS');
-        expect(e).not.toHaveProperty('MCP_IMAGE_BUDGET');
-      }
+    ] as const)('vision %s + 비풀 → MCP_IMAGE_BUDGET=20 만, 풀 → 둘 다 없음', (_label, vision) => {
+      const nonPooled = env({ vision, pooled: false });
+      expect(nonPooled).not.toHaveProperty('MCP_IMAGE_TOOLS');
+      expect(nonPooled?.MCP_IMAGE_BUDGET).toBe('20');
+      const pooled = env({ vision, pooled: true });
+      expect(pooled).not.toHaveProperty('MCP_IMAGE_TOOLS');
+      expect(pooled).not.toHaveProperty('MCP_IMAGE_BUDGET');
     });
   });
 

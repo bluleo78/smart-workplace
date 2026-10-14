@@ -184,16 +184,24 @@ describe('실행당 이미지 예산 (WP-250)', () => {
     return { call, viewDriveFile };
   }
 
-  it('3장씩 6번(18장) 본 뒤 7번째 3장 요청은 IMAGE_BUDGET_EXHAUSTED 로 거절하고 쪽 이미지를 받지 않는다', async () => {
+  it('3장씩 6번(18장) 본 뒤 7번째 3장 요청은 남은 장수(2장)로 거절하고, 2장을 더 보면 20장째에서 IMAGE_BUDGET_EXHAUSTED', async () => {
     const { call, viewDriveFile } = await serverReadFile();
     for (let i = 0; i < 6; i++) {
       const res = await call([1, 2, 3]);
       expect(res.content.filter((b) => b.type === 'image'), `${i + 1}번째`).toHaveLength(3);
     }
     const seventh = await call([1, 2, 3]);
-    expect(seventh.content).toEqual([{ type: 'text', text: IMAGE_BUDGET_EXHAUSTED }]);
-    // 예산은 받기 전에 차감하므로 거절된 7번째는 서버에 쪽 이미지를 요청하지 않는다.
+    expect(seventh.content).toHaveLength(1);
+    expect(seventh.content[0].text).toContain('2장 남았습니다');
+    // 예산은 받기 전에 잡으므로 거절된 7번째는 서버에 쪽 이미지를 요청하지 않는다.
     expect(viewDriveFile).toHaveBeenCalledTimes(18);
+
+    // 남은 2장은 그대로 볼 수 있고, 다 쓰면(남은 0장) 실행당 상한을 다 썼다는 안내로 거절한다.
+    const eighth = await call([1, 2]);
+    expect(eighth.content.filter((b) => b.type === 'image')).toHaveLength(2);
+    const ninth = await call([1]);
+    expect(ninth.content).toEqual([{ type: 'text', text: IMAGE_BUDGET_EXHAUSTED }]);
+    expect(viewDriveFile).toHaveBeenCalledTimes(20);
   });
 
   it('새 서버(= 새 실행)는 예산을 새로 받는다', async () => {

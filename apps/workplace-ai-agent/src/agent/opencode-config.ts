@@ -57,13 +57,14 @@ function buildMcpEnvironment(i: RunnerInput, runId: string, vision: OpencodeVisi
     MCP_VISION: vision === false ? '0' : '1',
   };
   // WP-250: 페이지 보기(read_file pages)는 이미지를 볼 수 있다고 확인된 모델(vision === true)에만 연다 — 알 수 없음·미지원 모델에는
-  // 쓸 수 없는 인자를 보이지 않는다. 실행당 이미지 상한(MCP_IMAGE_BUDGET)은 실행마다 새로 띄우는 서버에만 준다:
-  // opencode 는 MCP 호출에 대화(세션) 식별자를 넘기지 않아 재사용 서버의 예산을 실행 단위로 묶을 수 없다. 재사용 서버에 주면 stdio
-  // 프로세스가 실행 사이에 살아 있어 첫 20장 뒤로는 이후 모든 실행이 거절된다 — 그래서 풀 실행은 호출당 3장 상한만 둔다.
-  if (vision === true) {
-    env.MCP_IMAGE_TOOLS = '1';
-    if (!pooled) env.MCP_IMAGE_BUDGET = String(IMAGE_BUDGET_PER_RUN);
-  }
+  // 쓸 수 없는 인자를 보이지 않는다.
+  if (vision === true) env.MCP_IMAGE_TOOLS = '1';
+  // WP-250 R9: 실행당 이미지 상한(MCP_IMAGE_BUDGET)은 비전 판단과 무관하게 건다 — 알 수 없음도 MCP_VISION=1 이라 이미지 첨부 읽기가
+  // 이미지 블록을 그대로 넘기므로 상한이 필요하다(미지원이면 이미지가 안내 문구로 바뀌어 무해하다).
+  // 단 실행마다 새로 띄우는 서버에만 준다: opencode 는 MCP 호출에 대화(세션) 식별자를 넘기지 않아 재사용 서버의 예산을 실행 단위로
+  // 묶을 수 없다. 재사용 서버에 주면 stdio 프로세스가 실행 사이에 살아 있어 첫 20장 뒤로는 이후 모든 실행이 거절된다 — 그래서 풀 실행은
+  // 호출당 3장 상한만 둔다.
+  if (!pooled) env.MCP_IMAGE_BUDGET = String(IMAGE_BUDGET_PER_RUN);
   if (mcp.threadBinding) env.MCP_THREAD_BINDING = JSON.stringify(mcp.threadBinding);
   if (mcp.delegationContext) env.MCP_DELEGATION_CONTEXT = JSON.stringify(mcp.delegationContext);
   // WP-244: chat 도구의 실행 스레드 바인딩. env 는 스폰 시 고정되므로 chat 이 웜 풀 대상이 아님을 전제로 한다(opencode-runner.ts).

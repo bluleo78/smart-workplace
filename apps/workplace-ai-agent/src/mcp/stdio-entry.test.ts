@@ -341,6 +341,13 @@ describe('imageOptionsFromConfig', () => {
     expect(images.budget!.take(1)).toBe(false);
   });
 
+  // R9: 페이지 보기를 닫아도(input false) 기존 이미지 경로(read_file·read_chat_attachment 의 이미지 첨부)는 이미지를 돌려주므로 예산은 그대로 건다.
+  it('MCP_IMAGE_TOOLS 없이 MCP_IMAGE_BUDGET 만 있으면 input false + 예산', () => {
+    const images = imageOptionsFromConfig(parseConfigFromEnv(baseEnv({ MCP_IMAGE_BUDGET: '20' })));
+    expect(images.input).toBe(false);
+    expect(images.budget).toBeInstanceOf(ImageBudget);
+  });
+
   it('예산 env 가 없으면(재사용 서버) 예산 없음, 이미지 도구 env 가 없으면 input false', () => {
     expect(imageOptionsFromConfig(parseConfigFromEnv(baseEnv({ MCP_IMAGE_TOOLS: '1' })))).toEqual({ input: true, budget: undefined });
     expect(imageOptionsFromConfig(parseConfigFromEnv(baseEnv()))).toEqual({ input: false, budget: undefined });
