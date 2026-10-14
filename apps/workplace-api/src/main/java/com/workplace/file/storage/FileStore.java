@@ -4,6 +4,9 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.util.Comparator;
+import java.util.stream.Stream;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.multipart.MultipartFile;
@@ -87,6 +90,58 @@ public class FileStore {
       return Files.deleteIfExists(resolve(stored));
     } catch (IOException e) {
       throw new UncheckedIOException("파일 삭제 실패: " + stored, e);
+    }
+  }
+
+  /**
+   * 임시 파일에 다 쓴 뒤 이름 바꾸기로 한 번에 놓는다(WP-250 렌더 캐시). 같은 경로를 여러 요청이 동시에 써도 읽는 쪽은 언제나 온전한 파일 하나만 본다 — 마지막
+   * 이름 바꾸기가 이기고, 반쯤 쓴 파일이 보이는 순간이 없다. 임시 파일은 같은 디렉터리에 둬야 원자적 이름 바꾸기가 된다(다른 파일시스템이면 안 된다).
+   */
+  public void writeAtomically(String relativePath, byte[] bytes) {
+    Path target = resolve(relativePath);
+    Path tmp = null;
+    try {
+      Files.createDirectories(target.getParent());
+      tmp = Files.createTempFile(target.getParent(), ".tmp-", ".part");
+      Files.write(tmp, bytes);
+      Files.move(tmp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+      tmp = null;
+    } catch (IOException e) {
+      throw new UncheckedIOException("파일 저장 실패: " + relativePath, e);
+    } finally {
+      // 이름 바꾸기 전에 실패했으면 임시 파일을 지운다(캐시 디렉터리에 찌꺼기가 쌓이지 않게).
+      if (tmp != null) {
+        try {
+          Files.deleteIfExists(tmp);
+        } catch (IOException ignored) {
+          // 정리 실패는 원래 오류를 가리지 않게 무시한다.
+        }
+      }
+    }
+  }
+
+  /** 파일 전체를 읽는다(렌더 캐시 적중 시). */
+  public byte[] readAllBytes(String stored) {
+    try {
+      return Files.readAllBytes(resolve(stored));
+    } catch (IOException e) {
+      throw new UncheckedIOException("파일 읽기 실패: " + stored, e);
+    }
+  }
+
+  /** 디렉터리를 통째로 지운다(원본 삭제 시 렌더 캐시 "{storage_path}.view/" 정리용). 없으면 아무것도 하지 않는다. */
+  public void deleteTreeIfExists(String relativeDir) {
+    Path dir = resolve(relativeDir);
+    if (!Files.exists(dir)) {
+      return;
+    }
+    // 깊은 경로부터 지워야 디렉터리가 비어 있다 — walk 결과를 역순으로.
+    try (Stream<Path> paths = Files.walk(dir)) {
+      for (Path p : paths.sorted(Comparator.reverseOrder()).toList()) {
+        Files.deleteIfExists(p);
+      }
+    } catch (IOException e) {
+      throw new UncheckedIOException("디렉터리 삭제 실패: " + relativeDir, e);
     }
   }
 

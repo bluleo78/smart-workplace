@@ -115,6 +115,11 @@ workplace:
       # 백필 스케줄러 한 틱당 재개(findResumable) 최대 파일 수(#735). V124 재개방 백필이 다수 행을 한 번에
       # PENDING 으로 되돌려도, 이 상한이 한 틱 전량 디스패치를 막는다.
       resume-batch-size: ${WORKER_EXTRACT_RESUME_BATCH_SIZE:50}
+    render:
+      # 첨부를 모델 입력용 이미지로 그리는 /render(WP-250). 긴 변 픽셀은 캐시 파일 이름에 들어가 바꾸면 새로 그린다.
+      max-edge: ${WORKER_RENDER_MAX_EDGE:1568}
+      # 큰 PDF 한 쪽 래스터화 여유. 이 시간 동안 API 는 DB 연결을 잡지 않는다(트랜잭션 밖 호출).
+      timeout-seconds: ${WORKER_RENDER_TIMEOUT_SECONDS:20}
 
 app:
   jwt:

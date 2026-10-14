@@ -10,6 +10,7 @@ import com.workplace.drive.outbound.WorkerEmbedClient;
 import com.workplace.fileai.outbound.AiAgentDriveConfig;
 import com.workplace.fileai.outbound.WorkerClientConfig;
 import com.workplace.fileai.outbound.WorkerProperties;
+import com.workplace.fileai.outbound.WorkerRenderClient;
 import com.workplace.home.outbound.AiAgentChatClient;
 import com.workplace.home.outbound.HomeChatConfig;
 import com.workplace.home.outbound.PriorityAiConfig;
@@ -93,7 +94,12 @@ class InternalHttpRealSocketTest {
     Function<String, AiAgentProperties> ai = url -> new AiAgentProperties(url, "tok", true);
     Function<String, WorkerProperties> worker =
         url ->
-            new WorkerProperties(url, "tok", true, new WorkerProperties.Embed("m", 3, 1000, true));
+            new WorkerProperties(
+                url,
+                "tok",
+                true,
+                new WorkerProperties.Embed("m", 3, 1000, true),
+                new WorkerProperties.Render(1568, 20));
     return Stream.of(
         client(
             "HomeChat 누적 요약", u -> new HomeChatConfig().aiAgentContextSummaryClient(ai.apply(u))),
@@ -112,7 +118,8 @@ class InternalHttpRealSocketTest {
         client("AiAgentEvent", u -> new OutboundConfig().aiAgentEventClient(ai.apply(u))),
         client("DriveOverview 스트림", u -> new DriveOverviewStreamClient(ai.apply(u))),
         client("Worker", u -> new WorkerClientConfig().workerClient(worker.apply(u))),
-        client("WorkerEmbed", u -> new WorkerEmbedClient(worker.apply(u))));
+        client("WorkerEmbed", u -> new WorkerEmbedClient(worker.apply(u))),
+        client("WorkerRender", u -> new WorkerRenderClient(worker.apply(u))));
   }
 
   private static Arguments client(String name, Function<String, Object> factory) {

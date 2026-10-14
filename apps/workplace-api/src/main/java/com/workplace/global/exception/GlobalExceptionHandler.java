@@ -23,6 +23,7 @@ import com.workplace.file.exception.FileBlobMissingException;
 import com.workplace.file.exception.FileNotFoundException;
 import com.workplace.file.exception.FileSizeLimitExceededException;
 import com.workplace.file.exception.UnsupportedUploadFileTypeException;
+import com.workplace.fileai.exception.AttachmentViewException;
 import com.workplace.fileai.exception.InvalidTextRangeException;
 import com.workplace.global.dto.ErrorResponse;
 import com.workplace.home.exception.AiMemoryException;
@@ -1525,6 +1526,17 @@ public class GlobalExceptionHandler {
       InvalidTextRangeException ex, HttpServletRequest request) {
     return ResponseEntity.badRequest()
         .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
+  }
+
+  /**
+   * 첨부 페이지·이미지 보기 실패(WP-250) — 예외가 정한 상태(400/404/413/415/422/503)와 한국어 안내를 그대로 싣는다. 안내문은 모델이 다음 행동을
+   * 고르는 데 쓰므로(예: 범위 밖이면 쪽수, 손상이면 다시 올려 달라고 하지 말 것) 예외 안에서 정한 문구를 바꾸지 않는다.
+   */
+  @ExceptionHandler(AttachmentViewException.class)
+  public ResponseEntity<ErrorResponse> handleAttachmentView(
+      AttachmentViewException ex, HttpServletRequest request) {
+    HttpStatus status = HttpStatus.valueOf(ex.status());
+    return ResponseEntity.status(status).body(buildError(status, ex.getMessage(), null, request));
   }
 
   /** 스레드 첨부가 아니거나 없는 fileId → 404(WP-242). */

@@ -153,4 +153,21 @@ class GlobalExceptionHandlerTest {
     assertThat(res.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
     assertThat(res.getBody().message()).contains("corr-2");
   }
+
+  @Test
+  void 첨부_이미지_보기_실패는_예외의_상태와_한국어_안내를_싣는다() {
+    // WP-250: 범위 밖이면 400 + 쪽수가 든 안내 — 모델이 올바른 쪽으로 다시 부르게.
+    ResponseEntity<ErrorResponse> res =
+        handler.handleAttachmentView(
+            new com.workplace.fileai.exception.AttachmentViewException(400, "PAGE_OUT_OF_RANGE", 3),
+            request);
+    assertThat(res.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    assertThat(res.getBody().message()).isEqualTo("이 PDF 는 3쪽입니다. 1~3 사이 페이지를 지정하세요.");
+
+    ResponseEntity<ErrorResponse> down =
+        handler.handleAttachmentView(
+            com.workplace.fileai.exception.AttachmentViewException.workerUnavailable(), request);
+    assertThat(down.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+    assertThat(down.getBody().status()).isEqualTo(503);
+  }
 }

@@ -86,3 +86,6 @@ workplace:
       dimensions: 1024
       max-chars: 8000
       enabled: true
+    render:
+      max-edge: 1568
+      timeout-seconds: 20
