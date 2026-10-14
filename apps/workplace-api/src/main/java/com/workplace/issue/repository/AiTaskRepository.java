@@ -3,6 +3,7 @@ package com.workplace.issue.repository;
 import static com.workplace.jooq.Tables.AGENT_WORK;
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_ASSIGNEE;
+import static com.workplace.jooq.Tables.ISSUE_TYPE_DEF;
 import static com.workplace.jooq.Tables.USER;
 import static org.jooq.impl.DSL.coalesce;
 import static org.jooq.impl.DSL.count;
@@ -11,8 +12,11 @@ import static org.jooq.impl.DSL.field;
 import static org.jooq.impl.DSL.inline;
 import static org.jooq.impl.DSL.max;
 import static org.jooq.impl.DSL.min;
+import static org.jooq.impl.DSL.noCondition;
+import static org.jooq.impl.DSL.partitionBy;
 import static org.jooq.impl.DSL.select;
 import static org.jooq.impl.DSL.selectOne;
+import static org.jooq.impl.DSL.when;
 
 import com.workplace.issue.dto.AgentWorkState;
 import com.workplace.issue.dto.AiTaskCounts;
@@ -31,13 +35,15 @@ import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.jooq.Field;
 import org.jooq.SelectField;
+import org.jooq.Table;
 import org.springframework.stereotype.Repository;
 
 /**
  * AI 위임 작업 목록·건수 조회(WP-377 §5.2). 범위는 /me/issues 와 같은 접근 범위({@link
  * IssueRepository#memberScopeCondition}) 안에서 "AI 에게 맡긴 이슈(DELEGATED) 또는 사람이 AI 도구로 작업 중인
- * 이슈(ASSISTED)" 로 좁히고, 사람이 할 일이 먼저 보이도록 급한 순(진행 중 작업 상태) → 마지막 보고 최근순 → id 로 정렬한다. 정렬 키가 (rank,
- * sortAt, id) 셋이라 페이지는 같은 셋으로 된 복합 커서({@link AiTaskCursor})로 넘긴다.
+ * 이슈(ASSISTED)" 로 좁히고, 사람이 할 일이 먼저 보이도록 급한 순(진행 중 작업 상태) → 마지막 보고 최근순 → id 로 정렬한다. WP-375 부터 이 정렬을
+ * 에픽 묶음 단위로 감싸 한 에픽의 행이 연속으로 나온다 — 정렬 키 7개(묶음 순위, 묶음 최근 시각, 묶음 키, 머리 순서, rank, sortAt, id)를 같은 7개로
+ * 된 복합 커서({@link AiTaskCursor})로 넘긴다.
  */
 @Repository
 @RequiredArgsConstructor
@@ -58,8 +64,23 @@ public class AiTaskRepository {
       AiTaskCursor cursor,
       int size) {}
 
-  /** 목록 행 — 다음 커서를 만들 수 있게 이슈 행과 함께 정렬 키(rank, sortAt)를 싣는다. */
-  public record AiTaskRow(IssueRow row, int rank, Instant sortAt) {}
+  /**
+   * 목록 행 — 다음 커서를 만들 수 있게 정렬 키 7개와 묶음 정보를 함께 싣는다. epicNumber 는 묶음 키가 에픽일 때만(그 밖은 null), groupSize 는
+   * 필터 적용 후 묶음 행 수.
+   */
+  public record AiTaskRow(
+      IssueRow row,
+      int rank,
+      Instant sortAt,
+      long groupKey,
+      int groupRank,
+      Instant groupSortAt,
+      int headOrder,
+      int groupSize,
+      Integer epicNumber) {}
+
+  /** 에픽 유형 이름 — 묶음 키 판정에 쓴다(ISSUE_TYPE_DEF.NAME). */
+  private static final String EPIC = "EPIC";
 
   /** 이 이슈(바깥 ISSUE 행)의 진행 중 작업 — 상관 서브쿼리 공용 조건. 정의는 {@link AgentWorkRepository#liveWork} 하나만 쓴다. */
   private static Condition activeWorkOfIssue() {
@@ -94,31 +115,162 @@ public class AiTaskRepository {
           field(select(max(AGENT_WORK.UPDATED_AT)).from(AGENT_WORK).where(activeWorkOfIssue())),
           ISSUE.UPDATED_AT);
 
-  /** 급한 순으로 한 페이지를 조회한다. 정렬: rank ASC, sortAt DESC, id DESC. */
+  /**
+   * 에픽 묶음 단위 급한 순 한 페이지(WP-375 §3.6). 묶음 키 = 에픽이면 자기 id, 부모가 에픽이면 부모 id, 그 밖은 자기 id. 정렬: 묶음 안 최소 순위
+   * ASC → 묶음 안 최근 보고 DESC → 묶음 키 DESC → 머리(에픽 행) 먼저 → 순위 ASC, 정렬 시각 DESC, id DESC.
+   *
+   * <p>파생 테이블 두 단(1단: 필터 통과 행의 기본 키·묶음 키, 2단: 묶음 창 함수)으로 계산하고 바깥에서 seek 한다. 창 함수는 필터를 적용한 행만으로 커서
+   * 조건 <b>전</b>에 계산한다 — 빠른 필터를 켜면 걸러진 행끼리 묶이고, 페이지가 달라도 묶음 값이 같아 묶음이 페이지 경계를 넘어도 이어진다. 1단 안의 범위
+   * 조건·RANK·SORT_AT 은 1단 FROM 의 ISSUE 를 참조한다(파생 테이블은 바깥 ISSUE 를 볼 수 없다).
+   */
   public List<AiTaskRow> search(long callerId, AiTaskQuery q) {
     Condition where = baseCondition(callerId, q);
     if (q.agentStates() != null && !q.agentStates().isEmpty()) {
       where = where.and(hasActiveWorkIn(q.agentStates()));
     }
-    if (q.cursor() != null) {
-      where = where.and(afterCursor(q.cursor()));
-    }
 
-    var rankField = RANK.as("ai_rank");
-    var sortAtField = SORT_AT.as("ai_sort_at");
+    var selfType = ISSUE_TYPE_DEF.as("ai_self_type");
+    var parent = ISSUE.as("ai_parent");
+    var parentType = ISSUE_TYPE_DEF.as("ai_parent_type");
+    // 묶음 키·에픽 번호 — 자기가 에픽이면 자기, 부모가 에픽이면 부모, 그 밖은 자기 id(에픽 번호 없음 → ELSE 생략으로 NULL).
+    Field<Long> groupKey =
+        when(selfType.NAME.eq(EPIC), ISSUE.ID)
+            .when(parentType.NAME.eq(EPIC), ISSUE.PARENT_ISSUE_ID)
+            .otherwise(ISSUE.ID);
+    Field<Integer> epicNumber =
+        when(selfType.NAME.eq(EPIC), ISSUE.NUMBER).when(parentType.NAME.eq(EPIC), parent.NUMBER);
+
+    // 1단: 필터를 통과한 행의 기본 정렬 키·묶음 키.
+    Table<?> base =
+        dsl.select(
+                ISSUE.ID.as("b_id"),
+                RANK.as("b_rank"),
+                SORT_AT.as("b_sort_at"),
+                groupKey.as("b_group"),
+                epicNumber.as("b_epic"))
+            .from(ISSUE)
+            .join(selfType)
+            .on(selfType.ID.eq(ISSUE.TYPE_ID))
+            .leftJoin(parent)
+            .on(parent.ID.eq(ISSUE.PARENT_ISSUE_ID))
+            .leftJoin(parentType)
+            .on(parentType.ID.eq(parent.TYPE_ID))
+            .where(where)
+            .asTable("ai_base");
+    Field<Long> bId = base.field("b_id", Long.class);
+    Field<Integer> bRank = base.field("b_rank", Integer.class);
+    Field<OffsetDateTime> bSortAt = base.field("b_sort_at", OffsetDateTime.class);
+    Field<Long> bGroup = base.field("b_group", Long.class);
+    Field<Integer> bEpic = base.field("b_epic", Integer.class);
+
+    // 2단: 묶음 창 함수(묶음 순위·최근 시각·크기)와 머리 순서(에픽 자신 행이면 0).
+    Table<?> ranked =
+        dsl.select(
+                bId.as("r_id"),
+                bRank.as("r_rank"),
+                bSortAt.as("r_sort_at"),
+                bGroup.as("r_group"),
+                bEpic.as("r_epic"),
+                min(bRank).over(partitionBy(bGroup)).as("r_group_rank"),
+                max(bSortAt).over(partitionBy(bGroup)).as("r_group_sort_at"),
+                count().over(partitionBy(bGroup)).as("r_group_size"),
+                when(bGroup.eq(bId), inline(0)).otherwise(inline(1)).as("r_head"))
+            .from(base)
+            .asTable("ai_ranked");
+    Field<Long> rId = ranked.field("r_id", Long.class);
+    Field<Integer> rRank = ranked.field("r_rank", Integer.class);
+    Field<OffsetDateTime> rSortAt = ranked.field("r_sort_at", OffsetDateTime.class);
+    Field<Long> rGroup = ranked.field("r_group", Long.class);
+    Field<Integer> rEpic = ranked.field("r_epic", Integer.class);
+    Field<Integer> rGroupRank = ranked.field("r_group_rank", Integer.class);
+    Field<OffsetDateTime> rGroupSortAt = ranked.field("r_group_sort_at", OffsetDateTime.class);
+    Field<Integer> rGroupSize = ranked.field("r_group_size", Integer.class);
+    Field<Integer> rHead = ranked.field("r_head", Integer.class);
+
     List<SelectField<?>> fields = new ArrayList<>(Arrays.asList(IssueRepository.ROW_FIELDS));
-    fields.add(rankField);
-    fields.add(sortAtField);
+    fields.addAll(
+        List.of(rRank, rSortAt, rGroup, rEpic, rGroupRank, rGroupSortAt, rGroupSize, rHead));
+
+    Condition seek = noCondition();
+    if (q.cursor() != null) {
+      AiTaskCursor c = q.cursor();
+      seek =
+          after(
+              List.of(
+                  SeekKey.asc(rGroupRank, c.groupRank()),
+                  SeekKey.desc(rGroupSortAt, utc(c.groupSortAt())),
+                  SeekKey.desc(rGroup, c.groupKey()),
+                  SeekKey.asc(rHead, c.headOrder()),
+                  SeekKey.asc(rRank, c.rank()),
+                  SeekKey.desc(rSortAt, utc(c.sortAt())),
+                  SeekKey.desc(ISSUE.ID, c.id())));
+    }
 
     return dsl.select(fields)
         .from(ISSUE)
-        .where(where)
-        .orderBy(RANK.asc(), SORT_AT.desc(), ISSUE.ID.desc())
+        .join(ranked)
+        .on(rId.eq(ISSUE.ID))
+        .where(seek)
+        .orderBy(
+            rGroupRank.asc(),
+            rGroupSortAt.desc(),
+            rGroup.desc(),
+            rHead.asc(),
+            rRank.asc(),
+            rSortAt.desc(),
+            ISSUE.ID.desc())
         .limit(q.size())
         .fetch(
             r ->
                 new AiTaskRow(
-                    issueRepository.mapToRow(r), r.get(rankField), r.get(sortAtField).toInstant()));
+                    issueRepository.mapToRow(r),
+                    r.get(rRank),
+                    r.get(rSortAt).toInstant(),
+                    r.get(rGroup),
+                    r.get(rGroupRank),
+                    r.get(rGroupSortAt).toInstant(),
+                    r.get(rHead),
+                    r.get(rGroupSize),
+                    r.get(rEpic)));
+  }
+
+  /** 커서 시각(Instant) → timestamptz 비교 값. 마이크로초 그대로. */
+  private static OffsetDateTime utc(Instant t) {
+    return t.atOffset(ZoneOffset.UTC);
+  }
+
+  /** seek 정렬 키 하나 — 필드·커서 값·방향. */
+  private record SeekKey<T>(Field<T> field, T value, boolean desc) {
+    static <T> SeekKey<T> asc(Field<T> f, T v) {
+      return new SeekKey<>(f, v, false);
+    }
+
+    static <T> SeekKey<T> desc(Field<T> f, T v) {
+      return new SeekKey<>(f, v, true);
+    }
+
+    /** 이 키에서 커서 행보다 "뒤"(ASC 면 큼, DESC 면 작음). */
+    Condition beyond() {
+      return desc ? field.lt(value) : field.gt(value);
+    }
+
+    /** 이 키에서 커서 행과 같음 — 다음 키로 동률을 깬다. */
+    Condition same() {
+      return field.eq(value);
+    }
+  }
+
+  /**
+   * 커서 행 다음 행 조건 — 정렬 키를 사전식으로 비교한다: k1 뒤 OR (k1 같음 AND (k2 뒤 OR (k2 같음 AND …))). 방향이 섞인 키에도 맞다(행 값
+   * 비교 (a,b) &gt; (x,y) 는 방향이 모두 같을 때만 쓸 수 있다).
+   */
+  private static Condition after(List<SeekKey<?>> keys) {
+    Condition c = keys.get(keys.size() - 1).beyond();
+    for (int i = keys.size() - 2; i >= 0; i--) {
+      SeekKey<?> k = keys.get(i);
+      c = k.beyond().or(k.same().and(c));
+    }
+    return c;
   }
 
   /**
@@ -188,15 +340,5 @@ public class AiTaskRepository {
   private static Condition hasActiveWorkIn(List<String> states) {
     return exists(
         selectOne().from(AGENT_WORK).where(activeWorkOfIssue()).and(AGENT_WORK.STATE.in(states)));
-  }
-
-  /**
-   * 커서 다음 행 — 정렬(rank ASC, sortAt DESC, id DESC) 기준으로 커서 행보다 뒤인 것: rank &gt; r OR (rank = r AND
-   * (sortAt &lt; t OR (sortAt = t AND id &lt; i))). 시각은 timestamptz 로 비교한다(마이크로초 그대로).
-   */
-  private static Condition afterCursor(AiTaskCursor c) {
-    OffsetDateTime t = c.sortAt().atOffset(ZoneOffset.UTC);
-    return RANK.gt(c.rank())
-        .or(RANK.eq(c.rank()).and(SORT_AT.lt(t).or(SORT_AT.eq(t).and(ISSUE.ID.lt(c.id())))));
   }
 }
