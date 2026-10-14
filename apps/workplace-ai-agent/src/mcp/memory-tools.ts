@@ -1,12 +1,14 @@
 // WP-55 메모리 도구 — 메인 AI 채팅 라우터 전용 로컬 도구(propose_* 처럼 ai-agent 에 정의, 공유 패키지·외부 MCP 에는 없다).
-// API /users/me/ai-memories 를 요청자 대행(Internal + X-On-Behalf-Of)으로 부른다. 서버가 길이(1~300 코드포인트)·상한(50)·소유자·꺼짐을 강제하고,
+// API /users/me/ai-memories 를 요청자 대행(Internal + X-On-Behalf-Of)으로 부른다. 서버가 길이(1~300 코드포인트)·상한(범위마다 300)·소유자·꺼짐을 강제하고,
 // "사용자 본인 발화에서만 저장" 은 시스템 프롬프트 규칙이다. 결과 JSON 은 routes/home.ts 가 tool SSE 의 memory 필드로 옮겨
 // API 가 되돌리기 블록으로 영속한다 — 그래서 결과 모양(memoryEventSchema)이 계약이다.
+// WP-383: search_memory(읽기)도 여기 둔다 — 메모리 저장 도구가 아니라 MEMORY_TOOL_NAMES(숨김·결과 줄 허용 목록)에는 넣지 않고 단계 목록에 "메모리 찾기"로 보인다.
 // 도구 이름은 공유 MEMORY_TOOL_NAMES(mcp-tools-shared — 표시 규칙·결과 허용 목록과 같은 목록)에 묶는다(satisfies 로 컴파일 시 확인).
 import type { MEMORY_TOOL_NAMES, McpTool } from '@smart-workplace/mcp-tools-shared';
+import axios from 'axios';
 import { z } from 'zod';
 
-import { memoryDateSchema, memoryKindSchema as kindSchema, memoryScopeSchema } from '../agent/memory-block.js';
+import { memoryDateSchema, memoryKindSchema as kindSchema, memoryLine, memoryScopeSchema, parseMemoryItems, seoulYear } from '../agent/memory-block.js';
 import type { AiMemoryDto, WorkplaceApiClient } from '../clients/workplace-api.js';
 
 /** 공유 목록에 있는 메모리 도구 이름 — 아래 도구 정의의 이름이 목록에서 벗어나면 타입 오류가 난다. */
@@ -153,4 +155,59 @@ export function buildMemoryTools(client: WorkplaceApiClient, onBehalfOfId: numbe
       },
     },
   ];
+}
+
+/** WP-383: 메모리 꺼짐 — API 가 memoryEnabled:false 로 답했을 때. */
+export const MEMORY_SEARCH_OFF = '메모리가 꺼져 있어 찾을 수 없다 — 메모리 도구를 쓰지 말 것';
+
+/** WP-383: 구 API(검색 엔드포인트 없음 — 404·405)일 때. 채팅을 끊지 않고 결과로 알린다(스펙 5). */
+export const MEMORY_SEARCH_UNAVAILABLE = '지금은 메모리 찾기를 쓸 수 없다 — 블록에 실린 메모리만 쓴다';
+
+/** 서버에 그 엔드포인트가 없는가 — 구 API 가 GET …/search 를 /{id} 경로의 405(또는 404)로 돌려준다(판정 10). */
+export function isEndpointMissing(e: unknown): boolean {
+  return axios.isAxiosError(e) && (e.response?.status === 404 || e.response?.status === 405);
+}
+
+export const searchMemoryInput = z.object({
+  query: z.string().trim().min(1).describe('찾을 말 — 지금 질문의 핵심 낱말(예: "이슈 목록 형식", "메일 서명", "보고서 마감")'),
+  scope: z
+    .enum(['ALL', 'COMMON', ...memoryScopeSchema.options])
+    .optional()
+    .describe("찾을 범위 — 생략하면 ALL(모든 범위). 특정 앱 것만이면 그 앱(ISSUE·WIKI·MAIL·DRIVE·MESSAGING·CALENDAR), 공통만이면 'COMMON'."),
+  limit: z.number().int().min(1).max(20).optional().describe('최대 개수(기본 10, 최대 20)'),
+});
+
+/**
+ * search_memory(WP-383) — 블록에 실리지 않은 메모리(다른 앱 범위·순위 밖)를 찾는다. 라우터 전용 로컬 읽기 도구라 readOnlyHint 를 싣는다.
+ * 결과 줄은 블록과 같은 형식이라 # 뒤 숫자를 update_memory·forget_memory 에 그대로 쓴다.
+ */
+export function buildMemorySearchTool(client: WorkplaceApiClient, onBehalfOfId: number): McpTool {
+  return {
+    name: 'search_memory',
+    description:
+      '사용자 메모리에서 지금 질문과 관련 있는 것을 찾습니다. "## 사용자 메모리" 블록 끝에 "이 밖에 메모리 N개가 더 있어요" 줄이 있고 질문이 특정 앱이나 이전 교정·선호와 관련돼 보일 때 씁니다. 이미 블록에 있는 내용은 찾지 않습니다.',
+    inputSchema: searchMemoryInput,
+    annotations: { readOnlyHint: true },
+    async handler(args) {
+      const p = searchMemoryInput.parse(args);
+      let r;
+      try {
+        r = await client.searchAiMemories(onBehalfOfId, {
+          q: p.query,
+          ...(p.scope ? { scope: p.scope } : {}),
+          ...(p.limit ? { limit: p.limit } : {}),
+        });
+      } catch (e) {
+        if (isEndpointMissing(e)) return MEMORY_SEARCH_UNAVAILABLE;
+        throw e;
+      }
+      if (!r.memoryEnabled) return MEMORY_SEARCH_OFF;
+      const items = parseMemoryItems(r.items).items;
+      if (items.length === 0) return `"${p.query}" 관련 메모리를 찾지 못했다.`;
+      const refYear = seoulYear();
+      return [`"${p.query}" 관련 메모리 ${items.length}개 — # 뒤 숫자가 memoryId 다:`, ...items.map((m) => memoryLine(m, refYear))].join(
+        '\n',
+      );
+    },
+  };
 }

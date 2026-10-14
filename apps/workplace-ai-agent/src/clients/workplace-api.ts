@@ -73,6 +73,12 @@ export interface AiMemoryDto {
   previousExpiresOn?: string;
 }
 
+// WP-383: 메모리 검색 결과(API AiMemorySearchResponse). items 는 블록 줄과 같은 모양이지만 도구가 parseMemoryItems 로 하나씩 거른다.
+export interface AiMemorySearchDto {
+  memoryEnabled: boolean;
+  items: unknown[];
+}
+
 // 6c: chat thread 메시지 (LLM 노출용 경량 형태).
 export interface ChatMessageItem {
   id: number;
@@ -195,6 +201,8 @@ export interface WorkplaceApiClient {
     body: { content: string; kind?: MemoryKind; scope?: MemoryScope | null; expiresOn?: string; clearExpiry?: boolean },
   ): Promise<AiMemoryDto>;
   deleteAiMemory(onBehalfOfId: number, memoryId: number): Promise<AiMemoryDto>;
+  // WP-383: search_memory — 요청자 대행 GET. 꺼짐이면 { memoryEnabled:false, items:[] }, 구 API 는 404·405(도구가 "쓸 수 없음"으로 바꾼다).
+  searchAiMemories(onBehalfOfId: number, params: { q: string; scope?: string; limit?: number }): Promise<AiMemorySearchDto>;
   // #719: 요청자의 active-tenant 를 X-On-Behalf-Of-Tenant 로 싣는 스코프 클라이언트를 반환한다.
   // 인-프로세스 MCP 서버는 이 인스턴스를 서브에이전트까지 공유하므로, run 당 1회 스코프하면
   // 위임 도구 호출까지 전부 동일하게 적용된다(다중/무 멤버십 요청자의 AgentTenantResolver
@@ -420,6 +428,11 @@ export function createWorkplaceApiClient(opts: {
     async deleteAiMemory(onBehalfOfId, memoryId) {
       const r = await http.delete(`/users/me/ai-memories/${memoryId}`, onBehalfOf(onBehalfOfId));
       return r.data as AiMemoryDto;
+    },
+
+    async searchAiMemories(onBehalfOfId, params) {
+      const r = await http.get('/users/me/ai-memories/search', { ...onBehalfOf(onBehalfOfId), params });
+      return r.data as AiMemorySearchDto;
     },
   };
 }

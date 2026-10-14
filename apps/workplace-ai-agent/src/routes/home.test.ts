@@ -80,6 +80,19 @@ describe('chatSchema', () => {
     expect(chatSchema.parse(validBody({ memories, memoryEnabled: true })).memories).toEqual({ items: memories, dropped: 0 });
   });
 
+  // Review Focus 4: 구 API(필드 없음)·틀린 값은 0 — 채팅을 막지 않는다.
+  it('WP-383: memoryMoreCount 는 0 이상 정수면 보존, 없거나 틀리면 0', () => {
+    expect(chatSchema.parse(validBody({ memoryMoreCount: 7 })).memoryMoreCount).toBe(7);
+    expect(chatSchema.parse(validBody()).memoryMoreCount).toBe(0);
+    expect(chatSchema.parse(validBody({ memoryMoreCount: -1 })).memoryMoreCount).toBe(0);
+    expect(chatSchema.parse(validBody({ memoryMoreCount: 'x' })).memoryMoreCount).toBe(0);
+  });
+
+  it('WP-383: 메모리 항목의 pinned 를 보존한다', () => {
+    const memories = [{ id: 12, kind: 'PREFERENCE', content: '짧게', pinned: true }];
+    expect(chatSchema.parse(validBody({ memories, memoryEnabled: true })).memories.items).toEqual(memories);
+  });
+
   it('memories·memoryEnabled 가 보존된다', () => {
     const memories = [{ id: 12, kind: 'PREFERENCE', content: '짧은 목록으로 보여 준다' }];
     const parsed = chatSchema.parse(validBody({ memories, memoryEnabled: true }));

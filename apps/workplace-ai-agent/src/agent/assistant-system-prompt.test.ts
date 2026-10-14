@@ -397,6 +397,19 @@ describe('사용자 메모리 규칙 (WP-55)', () => {
     it(`${name}: 같은 대상에 대한 선호를 바꾸거나 덧붙이는 것도 같은 주제로 update_memory 한다`, () => {
       expect(p).toContain('같은 대상(예: 이슈 목록을 보여 주는 방식)에 대한 선호를 바꾸거나 덧붙이는 것도 같은 주제다');
     });
+
+    it(`${name}: WP-383 search_memory — 더 있음 줄이 있고 관련돼 보이면 먼저 찾고, 블록에 있는 것은 찾지 않으며, 꺼짐이면 쓰지 않는다`, () => {
+      expect(p).toContain('`remember_memory`·`update_memory`·`forget_memory`·`search_memory` 를 쓰지 않는다');
+      expect(p).toContain('블록 끝에 "이 밖에 메모리 N개가 더 있어요" 줄이 있고');
+      expect(p).toContain('`search_memory` 로 먼저 찾아본다');
+      expect(p).toContain('이미 블록에 있는 내용은 찾지 않는다');
+      expect(p).toContain('저장하기 전에 `search_memory` 로 같은 주제가 있는지 확인한다');
+    });
+
+    it(`${name}: WP-383 고정은 사용자만 — 설정에서 핀을 누르라고 안내한다`, () => {
+      expect(p).toContain('"고정"은 사용자가 설정에서 고정한 메모리다');
+      expect(p).toContain('설정 > AI 비서 > 메모리');
+    });
   }
 
   // F-f: 위임과 함께 불러도 된다는 문장은 위임이 있는 Claude 라우터에만 — opencode primary 는 위임 도구가 꺼져 있다.

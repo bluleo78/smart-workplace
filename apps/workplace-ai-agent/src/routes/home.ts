@@ -78,6 +78,14 @@ export const chatSchema = z
     app: memoryScopeSchema.nullish().catch(null),
     // WP-380: 서버 오늘(Asia/Seoul) — 블록의 오늘 줄. 구 API 는 생략, 형식이 틀리면 null(오늘 줄만 빠진다).
     today: memoryDateSchema.nullish().catch(null),
+    // WP-383: 블록에 넣지 않은 유효 메모리 수(다른 범위 포함). 구 API 는 생략, 틀린 값은 0 — "더 있음" 줄만 빠지고 채팅은 그대로다.
+    memoryMoreCount: z
+      .number()
+      .int()
+      .nonnegative()
+      .nullish()
+      .catch(null)
+      .transform((v) => v ?? 0),
   })
   .refine((d) => d.query.length > 0 || d.attachments.some((a) => a.current), {
     message: 'query 가 비어 있으면 이번 메시지 첨부가 있어야 합니다',
