@@ -174,6 +174,19 @@ public class WikiAttachmentService {
   }
 
   /**
+   * 이미지 보기용 파일 id 확인(WP-250, R5) — {@link #readText} 와 같은 가드(공간 VIEWER 이상 + 이 페이지에 바인딩된 첨부)를 거쳐
+   * core file.id 만 돌려준다.
+   */
+  @Transactional(readOnly = true)
+  public long resolveViewFileId(long callerId, long pageId, long fileId) {
+    long spaceId =
+        pages.findSpaceId(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
+    perms.requireRole(spaceId, callerId, "VIEWER");
+    requireBound(pageId, fileId);
+    return fileId;
+  }
+
+  /**
    * 삭제 — EDITOR 이상.
    *
    * <p>DB(매핑+file row)는 이 트랜잭션 안에서 지우지만, 디스크 바이너리는 커밋 후({@code afterCommit})에만 지운다. 트랜잭션 안에서 즉시

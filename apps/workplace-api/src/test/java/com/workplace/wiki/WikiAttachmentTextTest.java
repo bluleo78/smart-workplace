@@ -8,11 +8,20 @@ import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.workplace.fileai.ExtractionProfile;
+import com.workplace.fileai.outbound.WorkerRenderClient;
+import com.workplace.fileai.outbound.WorkerRenderClient.RenderResult;
 import com.workplace.fileai.service.FileExtractionRowWriter;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
@@ -32,6 +41,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -53,6 +63,9 @@ class WikiAttachmentTextTest extends IntegrationTestBase {
   @Autowired WikiAttachmentService attachmentService;
   @Autowired WikiAttachmentRepository attachmentRepo;
   @Autowired FileExtractionRowWriter rowWriter;
+
+  /** WP-250: /view 의 워커 렌더 호출 목 — 실제 워커 없이 권한·헤더·본문만 검증한다. */
+  @MockitoBean WorkerRenderClient worker;
 
   /** PNG 매직바이트 + 채움 — ImageSniffer 판정용 16바이트. */
   private static final byte[] PNG = {
@@ -110,7 +123,8 @@ class WikiAttachmentTextTest extends IntegrationTestBase {
             .set(FILE.MIME_TYPE, "application/pdf")
             .set(FILE.SIZE_BYTES, 10L)
             .set(FILE.CATEGORY, "ATTACHMENT")
-            .set(FILE.STORAGE_PATH, "tenant-1/wiki/test/spec.pdf")
+            // 경로마다 고유 — /view 캐시({path}.view/)가 이전 실행에서 남아 워커 호출 단언을 흔들지 않게
+            .set(FILE.STORAGE_PATH, "tenant-1/wiki/test/" + UUID.randomUUID() + "/spec.pdf")
             .set(FILE.UPLOADED_BY, ownerId)
             .set(FILE.CREATED_AT, OffsetDateTime.now())
             .returning(FILE.ID)
@@ -198,5 +212,46 @@ class WikiAttachmentTextTest extends IntegrationTestBase {
         .andExpect(jsonPath("$.nextOffset").doesNotExist());
     mvc.perform(get(url).header("Authorization", "Bearer " + tokenFor(outsiderId)))
         .andExpect(status().isNotFound());
+  }
+
+  // ---- WP-250: GET .../attachments/{fileId}/view — 첨부 PDF 쪽·이미지를 모델 입력용 이미지로 ----
+
+  private static final byte[] VIEW_PNG = {(byte) 0x89, 'P', 'N', 'G', 9, 9, 9};
+
+  @Test
+  void view_는_권한_있는_사용자에게_이미지와_쪽수_헤더를_돌려준다() throws Exception {
+    long fileId = seedBoundPdf();
+    when(worker.render(anyString(), eq("application/pdf"), eq(1), anyInt()))
+        .thenReturn(new RenderResult(VIEW_PNG, "image/png", 3));
+    mvc.perform(
+            get("/api/v1/wiki/pages/" + pageId + "/attachments/" + fileId + "/view")
+                .param("page", "1")
+                .header("Authorization", "Bearer " + tokenFor(viewerId)))
+        .andExpect(status().isOk())
+        .andExpect(header().string("Content-Type", "image/png"))
+        .andExpect(header().string("X-Page-Count", "3"))
+        .andExpect(header().string("Cache-Control", "max-age=300, private"))
+        .andExpect(content().bytes(VIEW_PNG));
+  }
+
+  @Test
+  void view_는_공간_비멤버를_404_로_막고_워커를_부르지_않는다() throws Exception {
+    long fileId = seedBoundPdf();
+    mvc.perform(
+            get("/api/v1/wiki/pages/" + pageId + "/attachments/" + fileId + "/view")
+                .param("page", "1")
+                .header("Authorization", "Bearer " + tokenFor(outsiderId)))
+        .andExpect(status().isNotFound());
+    verifyNoInteractions(worker);
+  }
+
+  @Test
+  void view_는_이_페이지에_없는_fileId_를_404_로_막는다() throws Exception {
+    mvc.perform(
+            get("/api/v1/wiki/pages/" + pageId + "/attachments/999999999/view")
+                .param("page", "1")
+                .header("Authorization", "Bearer " + tokenFor(viewerId)))
+        .andExpect(status().isNotFound());
+    verifyNoInteractions(worker);
   }
 }

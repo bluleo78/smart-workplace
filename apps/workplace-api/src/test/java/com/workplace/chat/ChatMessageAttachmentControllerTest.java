@@ -15,6 +15,7 @@ import com.workplace.chat.exception.ChatThreadNotMemberException;
 import com.workplace.chat.exception.InvalidChatAttachmentException;
 import com.workplace.chat.repository.ChatMessageAttachmentRepository;
 import com.workplace.chat.service.ChatMessageAttachmentService;
+import com.workplace.fileai.service.AttachmentViewService;
 import com.workplace.global.config.SecurityConfig;
 import com.workplace.global.security.ApiKeyAuthenticationFilter;
 import com.workplace.global.security.JwtAuthenticationFilter;
@@ -55,6 +56,10 @@ class ChatMessageAttachmentControllerTest {
 
   @Autowired MockMvc mockMvc;
   @MockitoBean ChatMessageAttachmentService service;
+
+  /** WP-250: 컨트롤러가 /view 용으로 주입받는 공통 서비스 — 슬라이스 컨텍스트에 빈이 있어야 한다. */
+  @MockitoBean AttachmentViewService attachmentView;
+
   @MockitoBean JwtTokenProvider jwt;
   @MockitoBean JwtProperties jwtProps;
   @MockitoBean PermissionService permissionService;

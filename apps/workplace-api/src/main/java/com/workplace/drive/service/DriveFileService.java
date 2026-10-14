@@ -639,6 +639,18 @@ public class DriveFileService {
   }
 
   /**
+   * 이미지 보기용 파일 id 확인(WP-250, R5) — {@link #readText} 와 같은 가드(없는·휴지통 파일 404, 스페이스 VIEWER 이상)를 거쳐 현재
+   * 버전의 core file.id 만 돌려준다.
+   */
+  @Transactional(readOnly = true)
+  public long resolveViewFileId(long callerId, long driveFileId) {
+    DriveFileRepository.DriveFileRow row =
+        files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
+    perms.requireRole(row.spaceId(), callerId, "VIEWER");
+    return row.fileId();
+  }
+
+  /**
    * 공유 링크 다운로드. 멤버십 검사 없이(capability URL) 컨텍스트 설정 후 file core 신뢰 read. trashed 파일은 findRow 가 제외 →
    * 호출부에서 NotFound 처리.
    */

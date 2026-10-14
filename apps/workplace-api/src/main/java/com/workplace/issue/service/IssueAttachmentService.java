@@ -177,6 +177,24 @@ public class IssueAttachmentService {
   }
 
   /**
+   * 이미지 보기용 파일 id 확인(WP-250, R5) — {@link #readText} 와 같은 가드(조회 권한 + 이 이슈의 첨부)를 거쳐 core file.id 만
+   * 돌려준다.
+   */
+  @Transactional(readOnly = true)
+  public long resolveViewFileId(Long callerId, String projectKey, int number, Long fileId) {
+    var project = accessGuard.assertReadable(projectKey, callerId);
+    var issue =
+        issueRepository
+            .findByProjectAndNumber(project.id(), number)
+            .orElseThrow(() -> new IssueNotFoundException(projectKey, number));
+    var att = repo.findById(fileId).orElseThrow(() -> new AttachmentNotFoundException(fileId));
+    if (!att.issueId().equals(issue.id())) {
+      throw new AttachmentNotFoundException(fileId);
+    }
+    return fileId;
+  }
+
+  /**
    * 삭제 — 첨부자 본인 또는 프로젝트 OWNER. 매핑 + file row + 디스크 정리 후 history. 선검증은 조회 가드로 두어 OPEN 프로젝트의 비멤버 첨부자도
    * 자기 첨부를 지울 수 있게 한다(WP-202). 그 외 비멤버는 아래 첨부자/OWNER 판정에서 거부된다.
    */

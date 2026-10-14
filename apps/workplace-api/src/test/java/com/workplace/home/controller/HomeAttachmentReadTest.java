@@ -2,12 +2,19 @@ package com.workplace.home.controller;
 
 import static com.workplace.jooq.Tables.FILE_EXTRACTION;
 import static org.hamcrest.Matchers.startsWith;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.workplace.fileai.outbound.WorkerRenderClient.RenderResult;
 import com.workplace.home.HomeAttachmentTestSupport;
 import java.util.List;
 import java.util.UUID;
@@ -168,5 +175,53 @@ class HomeAttachmentReadTest extends HomeAttachmentTestSupport {
         .andExpect(jsonPath("$[1].attachments.length()").value(0))
         .andExpect(jsonPath("$[2].content").value(""))
         .andExpect(jsonPath("$[2].attachments[0].fileId").value(s.txt()));
+  }
+
+  // ---- WP-250: GET /sessions/{sid}/attachments/{fileId}/view — 첨부 PDF 쪽·이미지를 모델 입력용 이미지로 ----
+
+  private static final byte[] VIEW_PNG = {(byte) 0x89, 'P', 'N', 'G', 9, 9, 9};
+  private static final String VIEW = "/api/v1/home/sessions/{sid}/attachments/{fileId}/view";
+
+  @Test
+  void view_는_세션_소유자에게_PDF_쪽_이미지와_쪽수_헤더를_돌려준다() throws Exception {
+    Seed s = seed();
+    when(worker.render(anyString(), eq("application/pdf"), eq(1), anyInt()))
+        .thenReturn(new RenderResult(VIEW_PNG, "image/png", 5));
+    http(as(s.uid(), get(VIEW, s.sid(), s.pdf()).param("page", "1")))
+        .andExpect(status().isOk())
+        .andExpect(header().string("Content-Type", "image/png"))
+        .andExpect(header().string("X-Page-Count", "5"))
+        .andExpect(header().string("Cache-Control", "max-age=300, private"))
+        .andExpect(content().bytes(VIEW_PNG));
+  }
+
+  @Test
+  void view_는_이미지_파일을_page_없이_보여_주고_쪽수_헤더는_없다() throws Exception {
+    Seed s = seed();
+    when(worker.render(anyString(), eq("image/png"), isNull(), anyInt()))
+        .thenReturn(new RenderResult(VIEW_PNG, "image/png", null));
+    http(as(s.uid(), get(VIEW, s.sid(), s.png())))
+        .andExpect(status().isOk())
+        .andExpect(header().doesNotExist("X-Page-Count"))
+        .andExpect(content().bytes(VIEW_PNG));
+  }
+
+  @Test
+  void view_는_남의_세션을_404_로_막고_워커를_부르지_않는다() throws Exception {
+    Seed s = seed();
+    long stranger = user();
+    http(as(stranger, get(VIEW, s.sid(), s.pdf()).param("page", "1")))
+        .andExpect(status().isNotFound());
+    verifyNoInteractions(worker);
+  }
+
+  @Test
+  void view_는_이_세션에_붙지_않은_파일을_404_로_막는다() throws Exception {
+    Seed s = seed();
+    UUID other = sessionService.create(s.uid()).id();
+    long x = upload(s.uid(), "x.pdf", "application/pdf", "%PDF".getBytes());
+    attachmentService.appendUserMessage(s.uid(), other, "다른", List.of(x));
+    http(as(s.uid(), get(VIEW, s.sid(), x).param("page", "1"))).andExpect(status().isNotFound());
+    verifyNoInteractions(worker);
   }
 }

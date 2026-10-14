@@ -9,7 +9,9 @@ import com.workplace.drive.dto.TargetFolderRequest;
 import com.workplace.drive.dto.UpdateTextFileRequest;
 import com.workplace.drive.service.DriveFileService;
 import com.workplace.file.service.FileUploadService.FileContentResult;
+import com.workplace.fileai.controller.ViewImageResponses;
 import com.workplace.fileai.dto.ExtractedTextSlice;
+import com.workplace.fileai.service.AttachmentViewService;
 import jakarta.validation.Valid;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -39,6 +41,8 @@ import org.springframework.web.multipart.MultipartFile;
 @RequestMapping("/api/v1/drive")
 public class DriveFileController {
   private final DriveFileService fileService;
+
+  private final AttachmentViewService attachmentView;
 
   @PostMapping(value = "/spaces/{id}/files", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
   public ResponseEntity<DriveFileResponse> upload(
@@ -167,6 +171,19 @@ public class DriveFileController {
       @RequestParam(defaultValue = "0") int offset,
       @RequestParam(defaultValue = "32000") int limit) {
     return ResponseEntity.ok(fileService.readText(callerId, driveFileId, offset, limit));
+  }
+
+  /**
+   * 첨부를 모델 입력용 이미지로 보여 준다(WP-250) — PDF 는 ?page=N(1부터), 이미지 파일은 page 없이. 권한은 /text 와 같다. 도메인
+   * 가드(트랜잭션)가 끝난 뒤 워커 렌더를 부르므로 이 컨트롤러는 트랜잭션을 걸지 않는다(R5).
+   */
+  @GetMapping("/files/{id}/view")
+  public ResponseEntity<byte[]> view(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable("id") long driveFileId,
+      @RequestParam(required = false) Integer page) {
+    long id = fileService.resolveViewFileId(callerId, driveFileId);
+    return ViewImageResponses.of(attachmentView.view(id, page));
   }
 
   /** 버전 이력 목록(#79). */

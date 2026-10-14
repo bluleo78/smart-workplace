@@ -37,7 +37,15 @@ public final class MimeNormalizer {
           Map.entry("xls", "application/vnd.ms-excel"),
           Map.entry("ppt", "application/vnd.ms-powerpoint"),
           Map.entry("hwpx", "application/hwp+zip"),
-          Map.entry("hwp", "application/x-hwp"));
+          Map.entry("hwp", "application/x-hwp"),
+          // WP-250: 브라우저가 빈 type·octet-stream 으로 보내기 쉬운 이미지(HEIC 등). 새 업로드에만 적용한다 —
+          // V125 백필 CASE 표는 의도적으로 바꾸지 않았다(기존 행은 그대로, 위 드리프트 주의는 문서 형식 기준).
+          // 이미지 mime 은 ExtractableTypes.skipReason 이 "image:" 로 분류해 SKIPPED·IMAGE 가 된다.
+          Map.entry("heic", "image/heic"),
+          Map.entry("heif", "image/heif"),
+          Map.entry("tif", "image/tiff"),
+          Map.entry("tiff", "image/tiff"),
+          Map.entry("bmp", "image/bmp"));
 
   /**
    * 파일명·브라우저 mime 으로 정규화된 mime 을 결정한다.

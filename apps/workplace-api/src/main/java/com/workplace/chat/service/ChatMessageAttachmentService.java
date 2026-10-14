@@ -188,6 +188,23 @@ public class ChatMessageAttachmentService {
     return extractedText.read(fileId, offset, limit);
   }
 
+  /**
+   * 이미지 보기용 파일 id 확인(WP-250, R5) — {@link #readText} 와 같은 가드(이슈 첨부면 이슈 열람 권한, 챗 첨부면 스레드 열람 권한 + 스레드
+   * 소속)를 거쳐 core file.id 만 돌려준다. 워커 렌더는 이 트랜잭션 밖에서 컨트롤러가 부른다.
+   */
+  @Transactional(readOnly = true)
+  public long resolveViewFileId(long callerId, long threadId, long fileId) {
+    if (issueAttachments.isIssueAttachment(threadId, fileId)) {
+      issueAttachments.ensureCanReadIssueAttachments(threadId, callerId);
+    } else {
+      threadAccess.ensureCanRead(threadId, callerId);
+      if (!repo.isAttachedToThread(fileId, threadId)) {
+        throw new ChatAttachmentNotFoundException(fileId);
+      }
+    }
+    return fileId;
+  }
+
   /** 선업로드 응답 한 건. messageId 에 바인딩하기 전까지는 임시 상태. */
   public record UploadedFile(Long fileId, String originalName, String mimeType, long sizeBytes) {}
 }

@@ -205,6 +205,16 @@ public class HomeAttachmentService {
     return extractedText.read(fileId, offset, limit);
   }
 
+  /**
+   * 이미지 보기용 파일 id 확인(WP-250, R5) — {@link #readText} 와 같은 가드(세션 소유자·그 세션 첨부)를 거쳐 core file.id 만
+   * 돌려준다. 워커 렌더(오래 걸릴 수 있음)는 이 읽기 전용 트랜잭션이 끝난 뒤 컨트롤러가 한다(DB 연결을 잡고 있지 않게).
+   */
+  @Transactional(readOnly = true)
+  public long resolveViewFileId(long callerId, UUID sessionId, long fileId) {
+    requireStored(callerId, sessionId, fileId);
+    return fileId;
+  }
+
   /** 원본 스트리밍용 저장 정보 — path 를 절대경로로 복원해 돌려준다(컨트롤러가 FileSystemResource 로 바로 쓴다). */
   @Transactional(readOnly = true)
   public StoredFile content(long callerId, UUID sessionId, long fileId) {
