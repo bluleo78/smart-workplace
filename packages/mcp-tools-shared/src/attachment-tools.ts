@@ -117,12 +117,18 @@ function driveRewriteNote(slice: ExtractedTextSlice): string | undefined {
 
 /**
  * PDF 응답 note(WP-250) — 텍스트로 못 읽는 쪽(그림·도표·스캔)을 pages 로 볼 수 있다고 알린다. 이미지를 볼 수 없는 모델(imageInput false)에는
- * READY 면 아무 말도 하지 않고, 스캔 PDF 면 모델을 바꾸면 읽을 수 있다고 알린다(사용자에게 다시 올려 달라고 하지 않게).
+ * READY 면 아무 말도 하지 않고, 스캔 PDF 면 연결 설정의 '이미지 입력' 지정이나 모델 변경으로 볼 수 있다고 알린다(사용자에게 다시 올려 달라고 하지 않게).
  * 쪽수(pageCount)는 이전 추출 행이면 null 이라 그때는 쪽수 없이 말한다.
  */
 export function pdfNote(slice: Pick<ExtractedTextSlice, 'status' | 'reasonCode' | 'pageCount'>, imageInput: boolean): string | undefined {
   if (slice.status === 'SKIPPED' && slice.reasonCode === 'SCANNED_PDF') {
-    if (!imageInput) return '이 모델은 이미지를 볼 수 없어 읽을 수 없습니다. 비서 설정에서 이미지를 볼 수 있는 모델로 바꾸면 읽을 수 있습니다.';
+    // imageInput false 는 "못 본다"가 아니라 "볼 수 있다고 확인되지 않았다"일 수 있다(자동 감지 실패) — 단정하지 않고 수동 지정 길을 함께 알린다.
+    if (!imageInput) {
+      return (
+        `글자가 없는 스캔 PDF${slice.pageCount ? `(${slice.pageCount}쪽)` : ''}라 글자로는 읽을 수 없고, 지금 설정으로는 페이지 이미지를 볼 수 없습니다. ` +
+        "모델이 이미지를 볼 수 있다면 AI 연결 설정에서 '이미지 입력'을 '볼 수 있음'으로 지정하거나, 이미지를 볼 수 있는 모델로 바꾸면 페이지를 볼 수 있다고 사용자에게 안내하세요."
+      );
+    }
     return `글자가 없는 스캔 PDF${slice.pageCount ? `(${slice.pageCount}쪽)` : ' '}입니다. pages 로 페이지 이미지를 읽으세요.`;
   }
   if (imageInput && slice.status === 'READY' && slice.pageCount) return '그림·도표·스캔 페이지는 pages 로 이미지를 볼 수 있습니다.';
@@ -203,8 +209,9 @@ export function buildAttachmentTools(client: AttachmentToolClient, opts: Attachm
         'truncated:true = extraction capped. Only READY has text: ' +
         'PENDING = extracting (retry soon), SKIPPED/FAILED = unreadable (relay reason), NONE = never extracted; never guess. ' +
         // WP-250: 정의 크기 상한(16,000토큰) 때문에 한 문장씩만 — 이미지를 볼 수 없는 모델에는 pages 문장을 싣지 않는다.
-        'Images return as images (large/HEIC are converted).' +
-        (imageInput ? ` PDF: pages:[n] (max ${MAX_PAGES_PER_CALL}) returns page images (figures, charts, scans).` : ''),
+        // 변환본(/view)·pages 는 메일 첨부에 없다(WP-388) — 모델이 메일에 pages 를 시도하거나 HEIC 를 기대하지 않게 밝힌다.
+        'Images return as images (large/HEIC converted; not mail).' +
+        (imageInput ? ` PDF (not mail): pages:[n] (max ${MAX_PAGES_PER_CALL}) returns page images (figures, charts, scans).` : ''),
       inputSchema: input,
       async handler(args) {
         const p = input.parse(args);

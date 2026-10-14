@@ -75,6 +75,13 @@ describe('read_file 입력 스키마', () => {
     expect(on.description).toContain('pages:[n]');
   });
 
+  // WP-250 최종 리뷰: 변환본(/view)·pages 는 메일 첨부에 없다(WP-388) — 설명이 메일 제외를 밝힌다.
+  it('설명은 큰 이미지·HEIC 변환과 pages 가 메일 첨부에는 없다고 밝힌다', () => {
+    expect(readAttachment(mockClient()).description).toContain('large/HEIC converted; not mail');
+    expect(readAttachment(mockClient()).description).toContain('PDF (not mail): pages:[n]');
+    expect(readAttachment(mockClient(), { imageInput: false }).description).toContain('not mail');
+  });
+
   it('JSON 스키마로 직렬화된다(MCP 클라이언트가 받는 형식) — 최상위 type object, source 만 필수', () => {
     const js = z.toJSONSchema(readFileInput) as { type: string; required: string[]; properties: Record<string, unknown> };
     expect(js.type).toBe('object');
@@ -489,13 +496,18 @@ describe('read_file — 페이지 이미지(pages, WP-250)', () => {
     expect(out.note).toContain('pages 로 이미지를 볼 수 있습니다');
   });
 
-  it('스캔 PDF(SKIPPED·SCANNED_PDF): pages 로 읽으라는 note. imageInput:false 면 모델을 바꾸라는 안내', async () => {
+  it('스캔 PDF(SKIPPED·SCANNED_PDF): pages 로 읽으라는 note. imageInput:false 면 이미지 입력 지정·모델 변경 안내', async () => {
     const c = mockClient();
     vi.mocked(c.readDriveFileText).mockResolvedValue(SCANNED);
     const on = JSON.parse(resultText(await readAttachment(c).handler({ source: 'drive', driveFileId: 9 })));
     expect(on.note).toBe('글자가 없는 스캔 PDF(4쪽)입니다. pages 로 페이지 이미지를 읽으세요.');
     const off = JSON.parse(resultText(await readAttachment(c, { imageInput: false }).handler({ source: 'drive', driveFileId: 9 })));
-    expect(off.note).toBe('이 모델은 이미지를 볼 수 없어 읽을 수 없습니다. 비서 설정에서 이미지를 볼 수 있는 모델로 바꾸면 읽을 수 있습니다.');
+    // 못 본다고 단정하지 않고(자동 감지 실패일 수 있다) 연결 설정의 '이미지 입력' 지정을 함께 안내한다. pages 는 이 모델에 없는 인자라 말하지 않는다.
+    expect(off.note).toBe(
+      "글자가 없는 스캔 PDF(4쪽)라 글자로는 읽을 수 없고, 지금 설정으로는 페이지 이미지를 볼 수 없습니다. " +
+        "모델이 이미지를 볼 수 있다면 AI 연결 설정에서 '이미지 입력'을 '볼 수 있음'으로 지정하거나, 이미지를 볼 수 있는 모델로 바꾸면 페이지를 볼 수 있다고 사용자에게 안내하세요.",
+    );
+    expect(off.note).not.toContain('pages');
   });
 
   it('스캔 PDF 의 쪽수를 아직 모르면(null) 쪽수 없이 안내한다', async () => {
