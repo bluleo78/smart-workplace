@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.home.repository.TextEmbeddingRepository;
+import com.workplace.home.service.AiMemoryRanker;
 import com.workplace.home.service.HomeSessionService;
 import com.workplace.support.FakeTextEmbedder;
 import com.workplace.support.FakeTextEmbedderConfig;
@@ -40,6 +41,13 @@ import org.springframework.transaction.annotation.Transactional;
 class HomeConversationSearchApiTest extends IntegrationTestBase {
 
   private static final String SEARCH = "/api/v1/home/sessions/search";
+  private static final double MAX_DISTANCE = AiMemoryRanker.SEMANTIC_MAX_DISTANCE;
+
+  /**
+   * "고양이" 질의와 "냥이" 답을 같은 차원으로 — 질의의 조사 뗀 형태("고양")·답의 "냥이는"까지 묶어야 턴 입력("질문: …\n답: …")의 다른 낱말이 있어도 가짜
+   * 임베딩 거리가 상한(0.5) 안에 든다.
+   */
+  private static final List<List<String>> SYNONYMS = List.of(List.of("고양이", "고양", "냥이", "냥이는"));
 
   @Autowired MockMvc mvc;
   @Autowired DSLContext dsl;
@@ -72,6 +80,18 @@ class HomeConversationSearchApiTest extends IntegrationTestBase {
     } finally {
       TenantContext.set(1L);
     }
+  }
+
+  /** 질문·답 한 턴을 만들고 답에 가짜 턴 임베딩을 바로 써 넣는다(@Transactional 이라 커밋 뒤 채우기가 돌지 않는다) → 대화 id. */
+  private UUID embeddedTurn(long uid, String question, String answer) {
+    UUID sid = sessions.create(uid).id();
+    sessions.appendMessage(uid, sid, "USER", question, null, null, null);
+    long id = sessions.appendMessage(uid, sid, "ASSISTANT", answer, null, null, null);
+    embeddings.writeTurn(
+        id,
+        TextEmbeddingRepository.vectorLiteral(
+            fake.expected(TextEmbeddingRepository.turnInput(question, answer))));
+    return sid;
   }
 
   /** 질문·답 한 턴을 가진 대화를 만든다 → 대화 id. */
@@ -120,20 +140,37 @@ class HomeConversationSearchApiTest extends IntegrationTestBase {
   @Test
   void 낱말이_달라도_답의_뜻으로_찾고_대기는_5초다() throws Exception {
     long uid = TestFixtures.createHuman(dsl);
-    fake.synonyms(List.of(List.of("고양이", "냥이")));
-    UUID sid = sessions.create(uid).id();
-    sessions.appendMessage(uid, sid, "USER", "반려동물 얘기", null, null, null);
-    long answer = sessions.appendMessage(uid, sid, "ASSISTANT", "냥이는 귀여워요", null, null, null);
-    embeddings.writeTurn(
-        answer,
-        TextEmbeddingRepository.vectorLiteral(
-            fake.expected(TextEmbeddingRepository.turnInput("반려동물 얘기", "냥이는 귀여워요"))));
+    fake.synonyms(SYNONYMS);
+    UUID sid = embeddedTurn(uid, "반려동물 얘기", "냥이는 귀여워요");
 
     call(uid, get(SEARCH).param("q", "고양이"))
         .andExpect(jsonPath("$.items", hasSize(1)))
         .andExpect(jsonPath("$.items[0].sessionId").value(sid.toString()))
         .andExpect(jsonPath("$.items[0].answerExcerpt").value("냥이는 귀여워요"));
     assertThat(fake.lastQueryTimeout()).isEqualTo(Duration.ofSeconds(5));
+  }
+
+  @Test
+  void 임베딩돼_있어도_뜻이_먼_대화는_돌려주지_않는다() throws Exception {
+    long uid = TestFixtures.createHuman(dsl);
+    fake.synonyms(SYNONYMS);
+    UUID near = embeddedTurn(uid, "반려동물 얘기", "냥이는 귀여워요");
+    List<List<String>> far =
+        List.of(
+            List.of("커피 추천", "디카페인 라떼"), List.of("회의 시간", "오전 열 시"), List.of("보고서 양식", "표로 정리하세요"));
+    for (List<String> t : far) embeddedTurn(uid, t.get(0), t.get(1));
+    // 전제: 가까운 답은 상한 안, 먼 답은 상한 밖(해시 충돌로 우연히 통과하지 않게). 먼 대화는 질의 낱말도 담지 않는다.
+    assertThat(fake.distance("고양이", TextEmbeddingRepository.turnInput("반려동물 얘기", "냥이는 귀여워요")))
+        .isLessThanOrEqualTo(MAX_DISTANCE);
+    for (List<String> t : far) {
+      assertThat(fake.distance("고양이", TextEmbeddingRepository.turnInput(t.get(0), t.get(1))))
+          .isGreaterThan(MAX_DISTANCE);
+    }
+
+    // 상위 50 만으로 자르면 임베딩된 네 대화가 모두 나온다 — 거리 상한으로 가까운 대화만.
+    call(uid, get(SEARCH).param("q", "고양이"))
+        .andExpect(jsonPath("$.items", hasSize(1)))
+        .andExpect(jsonPath("$.items[0].sessionId").value(near.toString()));
   }
 
   @Test
