@@ -253,6 +253,50 @@ class AttachmentViewServiceTest extends IntegrationTestBase {
     verifyNoInteractions(worker);
   }
 
+  /** SVG 는 image/* 지만 워커가 열지 못한다 — 워커까지 가서 "손상·암호" 안내를 받지 않고 형식 미지원(415)으로 막는다. */
+  @Test
+  void SVG_는_워커_없이_415() {
+    long svg = seedFile("image/svg+xml", "d.svg", 100L);
+
+    assertThatThrownBy(() -> service.view(svg, null))
+        .isInstanceOfSatisfying(
+            AttachmentViewException.class,
+            e -> {
+              assertThat(e.status()).isEqualTo(415);
+              assertThat(e.code()).isEqualTo("UNSUPPORTED");
+              assertThat(e.getMessage()).contains("SVG");
+            });
+    verifyNoInteractions(worker);
+  }
+
+  /**
+   * 캐시 디렉터리 자리에 일반 파일이 있으면 캐시 읽기("디렉터리가 아님")와 쓰기(디렉터리 만들기)가 모두 실패한다. 그래도 500 이 아니라 워커가 준 바이트를 돌려주고,
+   * 쪽수 보충(⑤)도 그대로 한다.
+   */
+  @Test
+  void 캐시를_읽고_쓰지_못해도_워커가_그린_바이트를_돌려준다() {
+    long id = seedPdf(null);
+    fileStore.writeAtomically(dir + "/a.pdf.view", new byte[] {1});
+    when(worker.render(anyString(), anyString(), any(), anyInt()))
+        .thenReturn(new RenderResult(PNG, "image/png", 5));
+
+    ViewImage v = service.view(id, 2);
+
+    assertThat(v.data()).isEqualTo(PNG);
+    assertThat(v.contentType()).isEqualTo("image/png");
+    assertThat(v.pageCount()).isEqualTo(5);
+    verify(worker, times(1)).render(anyString(), anyString(), any(), anyInt());
+    Integer stored =
+        new TransactionTemplate(txManager)
+            .execute(
+                s ->
+                    dsl.select(FILE_EXTRACTION.PAGE_COUNT)
+                        .from(FILE_EXTRACTION)
+                        .where(FILE_EXTRACTION.FILE_ID.eq(id))
+                        .fetchOne(FILE_EXTRACTION.PAGE_COUNT));
+    assertThat(stored).isEqualTo(5);
+  }
+
   @Test
   void 없는_파일이면_404() {
     assertThatThrownBy(() -> service.view(Long.MAX_VALUE, 1))

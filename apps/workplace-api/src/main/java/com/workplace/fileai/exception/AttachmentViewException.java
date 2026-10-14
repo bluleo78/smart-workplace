@@ -82,7 +82,7 @@ public class AttachmentViewException extends RuntimeException {
               : "페이지는 1 이상이어야 합니다.";
       case "PAGE_REQUIRED" -> "PDF 는 page 로 볼 페이지를 지정해야 합니다.";
       case "PAGE_NOT_ALLOWED" -> "page 는 PDF 에만 쓸 수 있습니다.";
-      case "UNSUPPORTED" -> "PDF·이미지만 페이지 이미지로 볼 수 있습니다.";
+      case "UNSUPPORTED" -> "PDF·이미지만 이미지로 볼 수 있습니다(SVG 는 볼 수 없습니다).";
       case "TOO_LARGE" -> "25MB 를 넘는 파일은 이미지로 만들 수 없습니다.";
       case "UNREADABLE" -> "파일을 열 수 없습니다(손상·암호). 사용자에게 다시 올려 달라고 하지 마세요.";
       case "NOT_FOUND" -> "원본 파일을 찾을 수 없습니다.";

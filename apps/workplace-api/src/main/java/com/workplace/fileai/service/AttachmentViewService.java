@@ -13,6 +13,7 @@ import java.io.UncheckedIOException;
 import java.nio.file.NoSuchFileException;
 import java.util.List;
 import java.util.Locale;
+import lombok.extern.slf4j.Slf4j;
 import org.jooq.DSLContext;
 import org.jooq.Record3;
 import org.springframework.stereotype.Service;
@@ -29,7 +30,11 @@ import org.springframework.transaction.support.TransactionTemplate;
  * <p><b>트랜잭션(R5)</b>: 클래스·메서드에 {@code @Transactional} 을 두지 않는다 — 워커 호출(최대 timeoutSeconds) 동안 DB 연결을
  * 잡지 않기 위해서다. RLS 테넌트 GUC 는 트랜잭션이 시작될 때만 걸리므로 파일 행 읽기는 {@link #readOnlyTx}, page_count 채우기는 {@link
  * #writeTx} 로 각각 짧게 감싼다. 호출자도 트랜잭션 밖에서 불러야 이 의도가 지켜진다.
+ *
+ * <p><b>캐시 실패</b>: 캐시는 성능용일 뿐이라 읽기·쓰기 실패(디스크 오류·권한 등)로 요청을 실패시키지 않는다 — 읽기 실패는 캐시 없음으로 보고 워커를 부르고,
+ * 쓰기 실패는 경고만 남기고 워커가 준 바이트를 그대로 돌려준다.
  */
+@Slf4j
 @Service
 public class AttachmentViewService {
 
@@ -86,7 +91,8 @@ public class AttachmentViewService {
     boolean pdf = "application/pdf".equals(mime);
 
     // ② 워커에 가기 전에 거를 수 있는 것은 모두 거른다 — 워커 왕복·FastAPI 검증 실패(엉뚱한 안내)를 피한다.
-    if (!pdf && !mime.startsWith("image/")) {
+    // SVG 는 image/* 지만 벡터 문서라 워커(Pillow)가 열지 못해 "손상·암호" 안내로 돌아오므로 여기서 형식 미지원으로 막는다.
+    if (!pdf && (!mime.startsWith("image/") || "image/svg+xml".equals(mime))) {
       throw new AttachmentViewException("UNSUPPORTED");
     }
     if (pdf && page == null) throw new AttachmentViewException("PAGE_REQUIRED");
@@ -121,7 +127,7 @@ public class AttachmentViewService {
     }
     // 클라이언트가 형식을 image/png · image/jpeg 둘 중 하나로 맞춰 주므로 캐시 적중 때와 같은 값이 나간다.
     String ext = "image/png".equals(r.contentType()) ? ".png" : ".jpg";
-    fileStore.writeAtomically(dir + stem + ext, r.data());
+    writeCache(dir + stem + ext, r.data());
 
     // ⑤ 추출이 아직 쪽수를 못 채웠으면(배포 전 추출·스캔 PDF) 워커가 알려 준 값으로 보충 — 짧은 쓰기 트랜잭션
     Integer pageCount = pdf ? (known != null ? known : r.pageCount()) : null;
@@ -136,13 +142,27 @@ public class AttachmentViewService {
     writeTx.executeWithoutResult(st -> jobs.fillPageCountIfMissing(fileId, pageCount));
   }
 
-  /** 캐시 파일을 읽는다. 없으면 null — 다시 그린다(exists 후 읽기 사이에 지워지는 경합도 같은 길로). */
+  /**
+   * 캐시 파일을 읽는다. 없으면 null — 다시 그린다(exists 후 읽기 사이에 지워지는 경합도 같은 길로). 다른 읽기 실패도 캐시 없음으로 보고 경고만 남긴다 —
+   * 캐시 디스크 문제로 보기 요청 전체가 500 이 되지 않게 한다.
+   */
   private byte[] readCache(String rel) {
     try {
       return fileStore.readAllBytes(rel);
     } catch (UncheckedIOException e) {
-      if (e.getCause() instanceof NoSuchFileException) return null;
-      throw e;
+      if (!(e.getCause() instanceof NoSuchFileException)) {
+        log.warn("보기 캐시 읽기 실패 — 워커로 다시 그린다: path={}", rel, e);
+      }
+      return null;
+    }
+  }
+
+  /** 캐시에 쓴다. 실패하면 경고만 남긴다 — 워커가 준 바이트는 이미 있으니 그대로 돌려준다(다음 요청이 다시 그릴 뿐). */
+  private void writeCache(String rel, byte[] data) {
+    try {
+      fileStore.writeAtomically(rel, data);
+    } catch (UncheckedIOException e) {
+      log.warn("보기 캐시 쓰기 실패 — 캐시 없이 응답한다: path={}", rel, e);
     }
   }
 
