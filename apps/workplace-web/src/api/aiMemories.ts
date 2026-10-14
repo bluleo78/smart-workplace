@@ -44,3 +44,9 @@ export async function deleteAiMemory(id: number): Promise<AiMemoryItem> {
 export async function clearAiMemories(): Promise<void> {
   await client.delete('/users/me/ai-memories');
 }
+
+/** 고정 켜기·끄기(WP-383) — 사용자 전용. 범위 고정이 가득이면 409 AI_MEMORY_PIN_FULL(서버 문구에 범위 이름). updatedAt 은 바뀌지 않는다. */
+export async function pinAiMemory(id: number, pinned: boolean): Promise<AiMemoryItem> {
+  const { data } = await client.put<AiMemoryItem>(`/users/me/ai-memories/${id}/pin`, { pinned });
+  return data;
+}

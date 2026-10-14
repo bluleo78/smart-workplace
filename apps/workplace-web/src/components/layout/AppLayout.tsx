@@ -4,6 +4,7 @@ import { useEffect, useMemo } from 'react'
 import { Outlet, useNavigate } from 'react-router-dom'
 
 import { AIAssistantProvider } from '@/components/ai/AIAssistantContext'
+import { AiChatDeepLink } from '@/components/ai/AiChatDeepLink'
 import { AIChip } from '@/components/ai/AIChip'
 import { AIFullscreen } from '@/components/ai/AIFullscreen'
 import { AISidePanel } from '@/components/ai/AISidePanel'
@@ -75,6 +76,8 @@ export function AppLayout() {
         <AIAssistantProvider hotkeysEnabled={aiAvailable}>
           {/* WP-54: 화면 컨텍스트 store — 페이지(Outlet)가 등록하고 AI 패널이 읽는다. */}
           <AiScreenContextProvider>
+            {/* WP-384: /?aiChat=<id> 딥링크 — 패널을 열고 그 대화를 복원한다(비서가 있을 때만). */}
+            {aiAvailable && <AiChatDeepLink />}
             {/* 인박스 패널 오픈 상태를 AppRail(InboxPanel)·본문이 공유 — 합성 레이어가 패널을 연다. */}
             <InboxProvider>
               {/* WP-162: 홈 편집 초안 저장소 — 아래 셸 분기(isMobile)보다 바깥에 둬야 lg 경계 리사이즈로 셸이 바뀌어

@@ -75,6 +75,8 @@ export interface ChatInput {
   app?: MemoryScope | null;
   // WP-380: 서버 오늘(yyyy-MM-dd) — 블록의 오늘 줄·기한 표기 기준. 없으면(구 API) 오늘 줄 없음.
   today?: string | null;
+  // WP-383: 블록에 넣지 않은 유효 메모리 수 — 0 보다 크면 블록 끝에 "더 있음" 줄(search_memory 단서). 없으면(구 API) 0.
+  memoryMoreCount?: number;
 }
 
 // #404: show_issue_detail 위젯에서 존재하지 않는 이슈 번호를 결정론적으로 차단한다.
@@ -262,7 +264,13 @@ export async function runAiChatStream(
   ]);
   const imageVision = credential.provider === 'anthropic' || opencodeVision?.value === true;
   // WP-55: 메모리 블록은 한 번만 만든다 — 사용자 메시지 맨 앞과 하위 에이전트 접미사(아래)가 같은 값을 쓴다.
-  const memoryBlock = formatMemoryBlock(input.memories ?? [], input.memoryEnabled, { app: input.app, today: input.today });
+  // WP-383 판정 11: "더 있음" 줄은 search_memory 가 있는 라우터 블록에만 — 하위 에이전트 블록은 그 줄 없이 따로 만든다.
+  const memoryCtx = { app: input.app, today: input.today };
+  const memoryBlock = formatMemoryBlock(input.memories ?? [], input.memoryEnabled, {
+    ...memoryCtx,
+    moreCount: input.memoryMoreCount ?? 0,
+  });
+  const subagentMemoryBlock = formatMemoryBlock(input.memories ?? [], input.memoryEnabled, memoryCtx);
   const userMessage = buildChatUserMessage({ ...input, attachments }, imageVision, memoryBlock);
 
   const events: RunnerEvent[] = [];
@@ -313,7 +321,7 @@ export async function runAiChatStream(
       opencodeVision, // WP-234: 첨부 블록 문구에 쓴 판단을 러너 config 에도 그대로
       // WP-55: 하위 에이전트 프롬프트 끝에 같은 메모리 블록 — 켜짐 + 1개 이상일 때만(하위 에이전트엔 메모리 도구가 없어 꺼짐 줄은 붙이지 않는다,
       // 판정 13). 요청마다 다르므로 opencode 러너는 이 값이 있으면 웜 풀을 쓰지 않는다(opencode-runner poolKeyFor).
-      subagentPromptSuffix: subagentMemorySuffix(memoryBlock, input.memoryEnabled, (input.memories ?? []).length > 0),
+      subagentPromptSuffix: subagentMemorySuffix(subagentMemoryBlock, input.memoryEnabled, (input.memories ?? []).length > 0),
       mcp: {
         client: mcpClient,
         onBehalfOfId: input.userId ?? agentId,

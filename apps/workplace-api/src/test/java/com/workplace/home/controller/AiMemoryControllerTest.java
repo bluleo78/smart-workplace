@@ -9,8 +9,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.workplace.home.AiMemoryTestFixtures;
 import com.workplace.home.repository.AiMemoryRepository;
-import com.workplace.home.repository.AiMemoryRepository.NewMemory;
+import com.workplace.home.service.AiMemoryService;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import java.util.List;
@@ -52,12 +53,13 @@ class AiMemoryControllerTest extends IntegrationTestBase {
   }
 
   @Test
-  void 처음에는_빈_목록과_상한_50() throws Exception {
+  void 처음에는_빈_목록과_상한_300_고정_상한_10() throws Exception {
     long uid = TestFixtures.createHuman(dsl);
     call(uid, get(BASE))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.items.length()").value(0))
-        .andExpect(jsonPath("$.limit").value(50));
+        .andExpect(jsonPath("$.limit").value(AiMemoryService.LIMIT))
+        .andExpect(jsonPath("$.pinLimit").value(AiMemoryService.PIN_LIMIT));
   }
 
   @Test
@@ -146,13 +148,12 @@ class AiMemoryControllerTest extends IntegrationTestBase {
   }
 
   @Test
-  void 오십개면_추가는_409_AI_MEMORY_FULL() throws Exception {
+  void 삼백개면_추가는_409_AI_MEMORY_FULL() throws Exception {
     long uid = TestFixtures.createHuman(dsl);
-    for (int i = 0; i < 50; i++)
-      repo.insert(uid, new NewMemory("PREFERENCE", "메모리 " + i, "USER", null, null, null));
+    AiMemoryTestFixtures.fill(dsl, uid, null, AiMemoryService.LIMIT);
     call(uid, post(BASE).content(body("PREFERENCE", "하나 더")))
         .andExpect(status().isConflict())
         .andExpect(jsonPath("$.errors.code").value("AI_MEMORY_FULL"));
-    call(uid, get(BASE)).andExpect(jsonPath("$.items.length()").value(50));
+    call(uid, get(BASE)).andExpect(jsonPath("$.items.length()").value(AiMemoryService.LIMIT));
   }
 }

@@ -7,6 +7,7 @@ import {
   MEMORY_SCOPE_NOTE,
   memoryItemSchema,
   memoryLine,
+  memoryMoreLine,
   parseMemoryItems,
   subagentMemorySuffix,
   todayLine,
@@ -196,5 +197,49 @@ describe('읽기 전용 블록 (WP-381)', () => {
       dropped: 3,
     });
     expect(parseMemoryItems(null)).toEqual({ items: [], dropped: 0 });
+  });
+});
+
+describe('고정·더 있음 (WP-383)', () => {
+  const MORE3 = '이 밖에 메모리 3개가 더 있어요(다른 앱 범위 포함). 필요하면 search_memory 로 찾아 보세요.';
+
+  it('고정 줄은 라벨 끝에 "·고정" — 범위·기한과 함께', () => {
+    expect(
+      memoryLine({ id: 12, kind: 'PREFERENCE', content: '짧게', scope: 'ISSUE', pinned: true, expiresOn: '2026-10-24' }, 2026),
+    ).toBe('- [#12 선호·이슈·고정] 짧게 (10/24까지)');
+    expect(memoryLine({ id: 9, kind: 'CONTEXT', content: '백엔드 팀', pinned: true }, 2026)).toBe('- [#9 맥락·고정] 백엔드 팀');
+    expect(memoryLine({ id: 9, kind: 'CONTEXT', content: '백엔드 팀', pinned: null }, 2026)).toBe('- [#9 맥락] 백엔드 팀');
+  });
+
+  it('더 있음 줄 문구는 스펙 그대로', () => {
+    expect(memoryMoreLine(3)).toBe(MORE3);
+  });
+
+  it('켜짐 + N개 + 더 있음 → 줄들 다음 마지막 줄', () => {
+    const lines = formatMemoryBlock(M, true, { today: '2026-10-14', moreCount: 3 }).split('\n');
+    expect(lines.at(-1)).toBe(MORE3);
+    expect(lines.at(-2)).toBe('- [#9 맥락] 백엔드 팀이고 주로 WP 프로젝트를 본다');
+  });
+
+  // Review Focus 1: 홈에 공통 0개·앱 메모리만 있으면 "아직 없음"으로 속이지 않는다.
+  it('켜짐 + 0개 + 더 있음 → "지금 화면에 실린 메모리는 없다" + 오늘 + 더 있음', () => {
+    expect(formatMemoryBlock([], true, { today: '2026-10-14', moreCount: 3 }).split('\n')).toEqual([
+      '## 사용자 메모리',
+      '지금 화면에 실린 메모리는 없다. 지금 화면: 앱 없음(공통 메모리만 실렸다)',
+      '오늘: 2026-10-14 (수)',
+      MORE3,
+    ]);
+  });
+
+  it('더 있음이 0 이거나 없으면 이전과 같고, 꺼짐이면 꺼짐 한 줄', () => {
+    expect(formatMemoryBlock([], true, { today: '2026-10-14', moreCount: 0 })).toContain('아직 저장된 메모리가 없다.');
+    expect(formatMemoryBlock(M, true, { moreCount: 0 })).not.toContain('search_memory');
+    expect(formatMemoryBlock(M, false, { moreCount: 5 })).toBe(MEMORY_OFF_LINE);
+  });
+
+  it('memoryItemSchema: pinned 는 boolean·null·없음, 그 밖은 항목 거절', () => {
+    expect(memoryItemSchema.safeParse({ id: 1, kind: 'PREFERENCE', content: 'x', pinned: true }).success).toBe(true);
+    expect(memoryItemSchema.safeParse({ id: 1, kind: 'PREFERENCE', content: 'x', pinned: null }).success).toBe(true);
+    expect(memoryItemSchema.safeParse({ id: 1, kind: 'PREFERENCE', content: 'x', pinned: 'yes' }).success).toBe(false);
   });
 });

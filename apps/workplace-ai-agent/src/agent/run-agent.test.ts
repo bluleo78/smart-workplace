@@ -47,6 +47,8 @@ function client(token: string | Error): WorkplaceApiClient {
     createAiMemory: vi.fn(),
     updateAiMemory: vi.fn(),
     deleteAiMemory: vi.fn(),
+    searchAiMemories: vi.fn(),
+    searchConversations: vi.fn(),
     proposeCreateIssue: vi.fn().mockResolvedValue(undefined),
     proposeCreateEvent: vi.fn().mockResolvedValue(undefined),
     listDelegationCandidates: vi.fn().mockResolvedValue([]),

@@ -1,12 +1,15 @@
 // AI 도구 호출/위임 단계를 어시스턴트 버블 안에 중첩 렌더.
 // 위임(delegation)은 헤더, 이후 도구(tool)는 그 아래 들여쓰기. 도착 순서가 인과 순서.
+// 위임 없이 바로 부른 도구(메모리·지난 대화 찾기 등)는 들여 쓰지 않아 본문 왼쪽 선에 맞추고, 상태(✓·실행 중…)는 라벨 바로 뒤에 둔다
+// — 말풍선 오른쪽 끝으로 밀면 넓은 패널에서 라벨과 멀리 떨어져 어느 단계의 상태인지 읽히지 않는다(WP-384 UI 리뷰).
 import { getToolStepDisplay, visibleSteps } from '@/lib/aiToolLabels';
+import { cn } from '@/lib/utils';
 import type { ToolStep } from '@/types/home';
 
 function StatusMark({ status }: { status?: ToolStep['status'] }) {
-  if (status === 'error') return <span className="ml-auto shrink-0 text-destructive">✗ 실패</span>;
-  if (status === 'done') return <span className="ml-auto shrink-0 text-muted-foreground">✓</span>;
-  return <span className="ml-auto shrink-0 animate-pulse text-muted-foreground">실행 중…</span>;
+  if (status === 'error') return <span className="shrink-0 text-destructive">✗ 실패</span>;
+  if (status === 'done') return <span className="shrink-0 text-muted-foreground">✓</span>;
+  return <span className="shrink-0 animate-pulse text-muted-foreground">실행 중…</span>;
 }
 
 export function ToolStepList({ steps }: { steps: ToolStep[] }) {
@@ -24,8 +27,10 @@ export function ToolStepList({ steps }: { steps: ToolStep[] }) {
           );
         }
         const { label, icon, detail } = getToolStepDisplay(s.toolName ?? '', s.args);
+        // 앞에 위임 헤더가 있을 때만 그 아래로 들여 쓴다.
+        const nested = vis.slice(0, i).some((p) => p.kind === 'delegation');
         return (
-          <li key={i} className="flex items-center gap-1.5 pl-4" data-testid="tool-step-tool">
+          <li key={i} className={cn('flex items-center gap-1.5', nested && 'pl-4')} data-testid="tool-step-tool">
             <span>{icon}</span>
             <span>{label}</span>
             {detail && <span className="truncate text-muted-foreground/70">{detail}</span>}

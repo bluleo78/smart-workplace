@@ -119,14 +119,27 @@ class WikiAiServiceTest {
     when(perms.requireRole(eq(SPACE_ID), eq(CALLER), eq("EDITOR"))).thenReturn("EDITOR");
     when(assistantResolver.resolve(CALLER)).thenReturn(spec());
     List<AiMemoryLine> lines =
-        List.of(new AiMemoryLine(3L, "PREFERENCE", "노트는 개조식으로", "WIKI", null));
-    when(memoryReader.readForEntry(CALLER, AiMemoryReader.WIKI)).thenReturn(lines);
+        List.of(new AiMemoryLine(3L, "PREFERENCE", "노트는 개조식으로", "WIKI", null, null));
+    when(memoryReader.readForEntry(CALLER, AiMemoryReader.WIKI, null)).thenReturn(lines);
 
     ArgumentCaptor<Object> bodyCaptor = ArgumentCaptor.forClass(Object.class);
     service.startCompose(CALLER, PAGE_ID, continueAction());
 
     verify(agent).stream(bodyCaptor.capture(), any(), any());
     assertThat(((WikiAiService.AgentBody) bodyCaptor.getValue()).memories()).isEqualTo(lines);
+  }
+
+  /** WP-383: 노트 작성은 지시문으로 메모리를 고른다(이어 쓰기처럼 지시문이 없으면 null — 고정 + 최신). */
+  @Test
+  void startCompose_지시문으로_메모리를_고른다() throws Exception {
+    when(pages.findDetail(PAGE_ID)).thenReturn(Optional.of(page()));
+    when(perms.requireRole(eq(SPACE_ID), eq(CALLER), eq("EDITOR"))).thenReturn("EDITOR");
+    when(assistantResolver.resolve(CALLER)).thenReturn(spec());
+
+    service.startCompose(
+        CALLER, PAGE_ID, new WikiAiRequest(WikiAiAction.DRAFT, "회의록 초안을 써 줘", null));
+
+    verify(memoryReader).readForEntry(CALLER, AiMemoryReader.WIKI, "회의록 초안을 써 줘");
   }
 
   /**
@@ -153,9 +166,9 @@ class WikiAiServiceTest {
 
     svc.startCompose(CALLER, PAGE_ID, continueAction());
 
-    verify(memoryReader, never()).readForEntry(anyLong(), any());
+    verify(memoryReader, never()).readForEntry(anyLong(), any(), any());
     held.forEach(Runnable::run);
-    verify(memoryReader).readForEntry(CALLER, AiMemoryReader.WIKI);
+    verify(memoryReader).readForEntry(CALLER, AiMemoryReader.WIKI, null);
   }
 
   /** EDITOR 통과 시 페이지 제목·본문·액션이 에이전트 요청 본문(AgentBody)에 실린다. */

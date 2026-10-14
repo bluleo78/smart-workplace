@@ -1,4 +1,4 @@
-// WP-55 사용자 메모리 블록 — API 가 매 턴 보내는 메모리(최신순 ≤50)를 사용자 메시지 맨 앞과 하위 에이전트 프롬프트 맨 끝에 같은 문구로 싣는다.
+// WP-55 사용자 메모리 블록 — API 가 매 턴 보내는 메모리(API 가 관련 있는 것만 고른 목록 — WP-383)를 사용자 메시지 맨 앞과 하위 에이전트 프롬프트 맨 끝에 같은 문구로 싣는다.
 // 시스템 프롬프트에는 넣지 않는다: 정적 본문의 프롬프트 캐시를 지키고, 사용자가 쓴 텍스트가 시스템 권한을 얻지 않게 하기 위해서다.
 // 블록은 요청 때만 만드는 값이라 home_message 에는 사용자 원문만 남는다(이력·요약에 메모리가 중복으로 쌓이지 않는다).
 // WP-380: 줄 끝 기한 "(10/24까지)" 와 "오늘: 2026-10-14 (수)" 줄 — 모델이 기한을 계산하는 근거(시스템 프롬프트에는 날짜를 넣지 않는다 — 캐시).
@@ -36,6 +36,8 @@ export const memoryItemSchema = z.object({
   scope: memoryScopeSchema.nullish(),
   // WP-380: 기한(그날까지 유효). API 는 유효 행만 보낸다 — 표시만 한다.
   expiresOn: memoryDateSchema.nullish(),
+  // WP-383: 사용자가 설정에서 고정했는가 — API 는 고정일 때만 true 로 싣는다(구 API 는 없음).
+  pinned: z.boolean().nullish(),
 });
 export type MemoryItem = z.infer<typeof memoryItemSchema>;
 
@@ -48,7 +50,7 @@ export const MEMORY_BLOCK_INTRO =
 const KIND_LABEL: Record<MemoryKind, string> = { PREFERENCE: '선호', CONTEXT: '맥락' };
 
 /** 줄바꿈·연속 공백을 한 칸으로 — 여러 줄 입력이 블록 구조를 깨거나 "## …" 머리글을 만들지 못하게(판정 14). */
-function oneLine(s: string): string {
+export function oneLine(s: string): string {
   return s.replace(/\s+/g, ' ').trim();
 }
 
@@ -84,30 +86,42 @@ function expiryText(expiresOn: string, refYear: number): string {
   return y === refYear ? `${m}/${d}` : `${y}/${m}/${d}`;
 }
 
-/** 블록의 메모리 한 줄 — `- [#12 선호·이슈] 내용 (10/24까지)`. 홈 채팅·읽기 전용 블록이 같은 형식을 쓴다. */
+/** 블록의 메모리 한 줄 — `- [#12 선호·이슈·고정] 내용 (10/24까지)`. 홈 채팅·읽기 전용 블록·search_memory 결과가 같은 형식을 쓴다. */
 export function memoryLine(m: MemoryItem, refYear: number): string {
   const scope = m.scope ? `·${MEMORY_SCOPE_LABEL[m.scope]}` : '';
+  const pin = m.pinned ? '·고정' : '';
   const expiry = m.expiresOn ? ` (${expiryText(m.expiresOn, refYear)}까지)` : '';
-  return `- [#${m.id} ${KIND_LABEL[m.kind]}${scope}] ${oneLine(m.content)}${expiry}`;
+  return `- [#${m.id} ${KIND_LABEL[m.kind]}${scope}${pin}] ${oneLine(m.content)}${expiry}`;
+}
+
+/** WP-383: 블록에 넣지 않은 메모리가 있을 때 마지막 줄 — AI 가 search_memory 로 찾을 단서(스펙 3.3 문구 그대로). */
+export function memoryMoreLine(n: number): string {
+  return `이 밖에 메모리 ${n}개가 더 있어요(다른 앱 범위 포함). 필요하면 search_memory 로 찾아 보세요.`;
 }
 
 /**
  * 사용자 메시지 맨 앞에 붙일 메모리 블록. `#` 뒤 숫자가 update_memory·forget_memory 의 memoryId 다.
  * - enabled !== true(false·null·undefined) → MEMORY_OFF_LINE
+ * - 켜짐 + 0개 + 더 있음 → 헤더·"지금 화면에 실린 메모리는 없다 + 지금 화면"·(오늘)·더 있음(WP-383 — 홈에 공통이 없고 앱 메모리만 있을 때 "아직 없음"으로 속이지 않는다)
  * - 켜짐 + 0개 → today 가 있으면 헤더·"아직 없음 + 지금 화면"·오늘 세 줄(첫 저장의 기한 계산 근거), 없으면(구 API) ''
- * - 켜짐 + N개 → 헤더 · 안내 · 범위 뜻 + 지금 화면 · (오늘) · 줄들(API 가 고른 순서 그대로 — 공통 + 지금 앱, 최신순)
+ * - 켜짐 + N개 → 헤더 · 안내 · 범위 뜻 + 지금 화면 · (오늘) · 줄들(API 가 고른 순서 그대로 — 고정 먼저, 그다음 순위) · (더 있음)
  *
  * @param ctx.app 지금 화면 앱(WP-379) — 없으면 "앱 없음" 으로 안내한다
  * @param ctx.today 서버 오늘(WP-380, yyyy-MM-dd) — 오늘 줄과 기한 표기의 기준 연도
+ * @param ctx.moreCount 블록에 넣지 않은 유효 메모리 수(WP-383) — 0 보다 크면 마지막에 더 있음 줄. 하위 에이전트용 블록은 넘기지 않는다(판정 11)
  */
 export function formatMemoryBlock(
   memories: readonly MemoryItem[],
   enabled: boolean | null | undefined,
-  ctx: { app?: MemoryScope | null; today?: string | null } = {},
+  ctx: { app?: MemoryScope | null; today?: string | null; moreCount?: number | null } = {},
 ): string {
   if (enabled !== true) return MEMORY_OFF_LINE;
   const today = ctx.today ? [todayLine(ctx.today)] : [];
+  const more = ctx.moreCount && ctx.moreCount > 0 ? [memoryMoreLine(ctx.moreCount)] : [];
   if (memories.length === 0) {
+    if (more.length > 0) {
+      return [MEMORY_BLOCK_HEADER, `지금 화면에 실린 메모리는 없다. ${currentAppLine(ctx.app)}`, ...today, ...more].join('\n');
+    }
     return ctx.today ? [MEMORY_BLOCK_HEADER, `아직 저장된 메모리가 없다. ${currentAppLine(ctx.app)}`, ...today].join('\n') : '';
   }
   const refYear = refYearOf(ctx.today);
@@ -117,6 +131,7 @@ export function formatMemoryBlock(
     `${MEMORY_SCOPE_NOTE} ${currentAppLine(ctx.app)}`,
     ...today,
     ...memories.map((m) => memoryLine(m, refYear)),
+    ...more,
   ].join('\n');
 }
 

@@ -37,14 +37,16 @@ public final class ChatMessages {
       String sessionId,
       /** WP-234: 세션 전체 첨부(요약 경계 이전 메시지 포함, 매 턴 DB 에서). 없으면 빈 배열. */
       List<ChatAttachment> attachments,
-      /** WP-55·WP-379: 공통 + 지금 앱 메모리(범위마다 최신 50, 합쳐 최신순). 꺼짐·조회 실패면 빈 배열. */
+      /** WP-55·WP-379: 공통 + 지금 앱 중 관련 있는 것 — 고정 먼저, 그다음 순위 순(WP-383). 꺼짐·조회 실패면 빈 배열. */
       List<AiMemoryLine> memories,
       /** WP-55: 메모리 사용 여부. false 면 ai-agent 가 "메모리 꺼짐" 한 줄만 넣어 메모리 도구를 쓰지 않게 한다. */
       boolean memoryEnabled,
       /** WP-379: 지금 화면 앱(ISSUE·WIKI·…, 없으면 null) — 블록의 "지금 화면" 안내. 주입 필터는 API 가 이미 했다. */
       String app,
       /** WP-380: 서버 오늘(Asia/Seoul, yyyy-MM-dd) — 블록의 "오늘:" 줄과 AI 의 기한 계산 근거. */
-      String today) {}
+      String today,
+      /** WP-383: 블록에 넣지 않은 유효 메모리 수(다른 범위 포함) — ai-agent 가 0 보다 크면 "이 밖에 메모리 N개…" 줄을 붙인다. */
+      int memoryMoreCount) {}
 
   /**
    * ai-agent 로 보내는 세션 첨부 한 건(WP-234). current = 이번 턴 USER 메시지에 붙은 파일. java.time 타입을 두지 않는다 —

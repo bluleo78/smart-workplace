@@ -84,7 +84,7 @@ class AiMemoryExpiryTest extends IntegrationTestBase {
   @Test
   void 만료일_당일은_유효하고_다음_날부터_만료다() throws Exception {
     long uid = TestFixtures.createHuman(dsl);
-    for (int i = 0; i < 49; i++) seed(uid, null, null);
+    AiMemoryTestFixtures.fill(dsl, uid, null, AiMemoryService.LIMIT - 1);
     call(
             uid,
             post(BASE),
@@ -93,7 +93,7 @@ class AiMemoryExpiryTest extends IntegrationTestBase {
         .andExpect(jsonPath("$.expiresOn").value("2026-10-14"))
         .andExpect(jsonPath("$.expired").value(false));
 
-    assertThat(memories.loadForChat(uid, null).items())
+    assertThat(memories.loadForChat(uid, null, null).items())
         .extracting(AiMemoryLine::content)
         .contains("이번 주는 결제 모듈");
     call(uid, post(BASE), "{\"kind\":\"PREFERENCE\",\"content\":\"하나 더\"}")
@@ -104,8 +104,7 @@ class AiMemoryExpiryTest extends IntegrationTestBase {
     list(uid)
         .andExpect(jsonPath("$.items[0].content").value("이번 주는 결제 모듈"))
         .andExpect(jsonPath("$.items[0].expired").value(true));
-    assertThat(memories.loadForChat(uid, null).items())
-        .hasSize(49)
+    assertThat(memories.loadForChat(uid, null, null).items())
         .extracting(AiMemoryLine::content)
         .doesNotContain("이번 주는 결제 모듈");
     call(uid, post(BASE), "{\"kind\":\"PREFERENCE\",\"content\":\"하나 더\"}")
@@ -172,13 +171,13 @@ class AiMemoryExpiryTest extends IntegrationTestBase {
         .andExpect(jsonPath("$.previousExpiresOn").value("2026-10-24"));
   }
 
-  /** 만료 행은 한도에 안 든다 — 되살리기(기한 연장·계속 기억)는 그 범위가 50 이면 409, 만료인 채 내용만 고치기는 된다. */
+  /** 만료 행은 한도에 안 든다 — 되살리기(기한 연장·계속 기억)는 그 범위가 300 이면 409, 만료인 채 내용만 고치기는 된다. */
   @Test
   void 만료_행_되살리기는_범위가_가득이면_409() throws Exception {
     long uid = TestFixtures.createHuman(dsl);
     long expired = seed(uid, "ISSUE", TODAY.minusDays(1));
     long last = 0;
-    for (int i = 0; i < 50; i++) last = seed(uid, "ISSUE", null);
+    for (int i = 0; i < AiMemoryService.LIMIT; i++) last = seed(uid, "ISSUE", null);
 
     call(uid, patch(BASE + "/" + expired), "{\"clearExpiry\":true}")
         .andExpect(status().isConflict())
@@ -220,7 +219,7 @@ class AiMemoryExpiryTest extends IntegrationTestBase {
   @Test
   void 지난_기한의_지움_되돌리기는_만료_상태로_재생성한다() throws Exception {
     long uid = TestFixtures.createHuman(dsl);
-    for (int i = 0; i < 50; i++) seed(uid, "ISSUE", null);
+    for (int i = 0; i < AiMemoryService.LIMIT; i++) seed(uid, "ISSUE", null);
     ObjectNode forgotten =
         AiMemoryTestFixtures.memoryBlock("forgotten", 987700L, "PREFERENCE", "지난 일", null, "AI");
     forgotten.put("scope", "ISSUE").put("expiresOn", "2026-10-01");
@@ -236,7 +235,7 @@ class AiMemoryExpiryTest extends IntegrationTestBase {
     long uid = TestFixtures.createHuman(dsl);
     seed(uid, null, LocalDate.of(2026, 10, 24));
     seed(uid, null, null);
-    AiMemoryService.ChatMemories m = memories.loadForChat(uid, null);
+    AiMemoryService.ChatMemories m = memories.loadForChat(uid, null, null);
     assertThat(m.items()).extracting(AiMemoryLine::expiresOn).containsExactly(null, "2026-10-24");
     // 유효 행을 고른 그 오늘을 함께 돌려준다 — 채팅이 다시 읽지 않아 자정을 걸쳐도 어긋나지 않는다.
     assertThat(m.today()).isEqualTo("2026-10-14");

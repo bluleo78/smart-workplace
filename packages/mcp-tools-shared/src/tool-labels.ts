@@ -45,6 +45,8 @@ export const TOOL_LABELS: Readonly<Record<string, ToolLabel>> = {
   list_chat_messages: { label: '대화 조회', icon: '💬' },
   read_chat_thread_attachment: { label: '첨부 읽기', icon: '📎' }, // WP-346: 이슈 챗 스레드 첨부(옛 read_attachment_text)
   read_chat_attachment: { label: '첨부 읽기', icon: '📎' }, // WP-234: 메인 AI 채팅 첨부
+  search_memory: { label: '메모리 찾기', icon: '🧠' }, // WP-383: 블록에 없는 사용자 메모리 찾기(ai-agent 로컬, 라우터 전용)
+  search_conversations: { label: '지난 대화 찾기', icon: '💬' }, // WP-384: 지난 대화 검색(ai-agent 로컬, 라우터 전용)
   add_chat_message: { label: '메시지 작성', icon: '💬' },
   // 메시징
   list_channels: { label: '채널 목록', icon: '📋' },

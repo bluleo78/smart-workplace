@@ -1715,4 +1715,12 @@ describe('runAiChatStream — 사용자 메모리 블록 (WP-55)', () => {
     streamSpy.mockReset();
     expect((await run({})).subagentPromptSuffix).toBe('');
   });
+
+  // WP-383 판정 11: 하위 에이전트엔 검색 도구가 없으니 "더 있음" 줄은 사용자 메시지 블록에만 싣는다.
+  it('WP-383: 더 있음 줄은 사용자 메시지에만 있고 하위 에이전트 접미사에는 없다', async () => {
+    const input = await run({ memories, memoryMoreCount: 4 });
+    const more = '이 밖에 메모리 4개가 더 있어요(다른 앱 범위 포함). 필요하면 search_memory 로 찾아 보세요.';
+    expect(input.userMessage).toBe(`${block}\n${more}\n\n현재 요청: 내 할 일`);
+    expect(input.subagentPromptSuffix).toBe(`\n\n${block}`);
+  });
 });

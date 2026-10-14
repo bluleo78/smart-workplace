@@ -77,6 +77,8 @@ export interface MemoryMock {
   updates: RequestTracker
   deletes: RequestTracker
   clears: RequestTracker
+  /** WP-383 고정 PUT. */
+  pins: RequestTracker
   /** 다음 쓰기 요청 1건을 이 오류로 거절한다. */
   failNext: (status: number, code: string, message: string) => void
   /** 다음 목록 GET 1건의 응답을 이 프라미스가 풀릴 때까지 붙잡는다("쓰기는 끝났고 목록은 아직" 상태를 결정적으로 만든다). */
@@ -84,7 +86,7 @@ export interface MemoryMock {
 }
 
 /**
- * 설정 카드용 상태 있는 목 — 목록은 배열 순서(맨 앞 = 최신)로 돌려준다. 추가·고치기는 맨 앞으로, 지우기는 지운 항목을 돌려준다.
+ * 설정 카드용 상태 있는 목(고정 WP-383 포함) — 목록은 배열 순서(맨 앞 = 최신)로 돌려준다. 추가·고치기는 맨 앞으로, 지우기는 지운 항목을 돌려준다.
  * 서버 규칙 중 화면이 기대는 것만 흉내 낸다(직접 추가는 USER, 고치기 응답의 previousContent·previousKind), 범위 저장·옮기기(WP-379), 기한 저장·지정·없애기(WP-380).
  */
 export async function mockAiMemories(page: Page, initial: AiMemoryItem[]): Promise<MemoryMock> {
@@ -96,6 +98,7 @@ export async function mockAiMemories(page: Page, initial: AiMemoryItem[]): Promi
   const updates = trackRequests(page, 'PATCH', /^\/api\/v1\/users\/me\/ai-memories\/\d+$/)
   const deletes = trackRequests(page, 'DELETE', /^\/api\/v1\/users\/me\/ai-memories\/\d+$/)
   const clears = trackRequests(page, 'DELETE', '/api/v1/users/me/ai-memories')
+  const pins = trackRequests(page, 'PUT', /^\/api\/v1\/users\/me\/ai-memories\/\d+\/pin$/)
   const json = (status: number, body: unknown) => ({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
   await page.route((u) => /^\/api\/v1\/users\/me\/ai-memories(\/\d+)?$/.test(u.pathname), async (route) => {
@@ -111,7 +114,7 @@ export async function mockAiMemories(page: Page, initial: AiMemoryItem[]): Promi
       const hold = listHold
       listHold = null
       if (hold) await hold
-      return route.fulfill(json(200, { items, limit: 50 }))
+      return route.fulfill(json(200, { items, limit: 300, pinLimit: 10 }))
     }
     if (method === 'POST') {
       const body = req.postDataJSON() as { kind: AiMemoryItem['kind']; content: string; scope?: AiMemoryItem['scope']; expiresOn?: string }
@@ -156,12 +159,28 @@ export async function mockAiMemories(page: Page, initial: AiMemoryItem[]): Promi
     }
     return route.fallback()
   })
+  // WP-383 고정 — 다음 쓰기 거절(failNext)도 받는다. 토글은 updatedAt 을 바꾸지 않는다(자리는 그대로, 화면이 고정 행을 묶음 맨 위로 올린다).
+  await page.route((u) => /^\/api\/v1\/users\/me\/ai-memories\/\d+\/pin$/.test(u.pathname), async (route) => {
+    const id = Number(new URL(route.request().url()).pathname.split('/')[6])
+    if (failure) {
+      const f = failure
+      failure = null
+      return route.fulfill(json(f.status, errorBody(f.status, f.code, f.message)))
+    }
+    const cur = items.find((m) => m.id === id)
+    if (!cur) return route.fulfill(json(404, errorBody(404, 'AI_MEMORY_NOT_FOUND', '메모리를 찾을 수 없어요')))
+    const { pinned } = route.request().postDataJSON() as { pinned: boolean }
+    const next = { ...cur, pinned }
+    items = items.map((m) => (m.id === id ? next : m))
+    return route.fulfill(json(200, next))
+  })
   return {
     items: () => items,
     creates,
     updates,
     deletes,
     clears,
+    pins,
     failNext: (status, code, message) => void (failure = { status, code, message }),
     holdNextList: (until) => void (listHold = until),
   }

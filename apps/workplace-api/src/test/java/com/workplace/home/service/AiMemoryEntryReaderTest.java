@@ -72,7 +72,7 @@ class AiMemoryEntryReaderTest extends IntegrationTestBase {
     memoryService.create(
         uid, new CreateAiMemoryRequest("PREFERENCE", "이슈는 짧게", null, null, "ISSUE", null), false);
 
-    List<AiMemoryLine> lines = reader.readForEntry(uid, AiMemoryReader.MAIL);
+    List<AiMemoryLine> lines = reader.readForEntry(uid, AiMemoryReader.MAIL, null);
 
     assertThat(lines).extracting(AiMemoryLine::content).containsExactly("메일은 세 줄로", "답은 존댓말로");
     assertThat(lines.get(0).scope()).isEqualTo("MAIL");
@@ -87,11 +87,11 @@ class AiMemoryEntryReaderTest extends IntegrationTestBase {
     long uid = user();
     memoryService.create(
         uid, new CreateAiMemoryRequest("PREFERENCE", "노트는 개조식으로", null, null, null, null), false);
-    assertThat(reader.readForEntry(uid, AiMemoryReader.WIKI)).hasSize(1);
+    assertThat(reader.readForEntry(uid, AiMemoryReader.WIKI, null)).hasSize(1);
 
     doReturn(false).when(preferences).memoryEnabled(anyLong());
 
-    assertThat(reader.readForEntry(uid, AiMemoryReader.WIKI)).isEmpty();
+    assertThat(reader.readForEntry(uid, AiMemoryReader.WIKI, null)).isEmpty();
   }
 
   /** 조회가 실패해도 빈 목록이고, 트랜잭션이 스레드에 남지 않아 실패가 풀린 뒤의 다음 조회는 정상으로 읽는다. */
@@ -103,11 +103,11 @@ class AiMemoryEntryReaderTest extends IntegrationTestBase {
     assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
     doThrow(new IllegalStateException("db down")).when(preferences).memoryEnabled(anyLong());
 
-    assertThat(reader.readForEntry(uid, AiMemoryReader.MESSAGING)).isEmpty();
+    assertThat(reader.readForEntry(uid, AiMemoryReader.MESSAGING, null)).isEmpty();
     assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
 
     doCallRealMethod().when(preferences).memoryEnabled(anyLong());
-    assertThat(reader.readForEntry(uid, AiMemoryReader.MESSAGING))
+    assertThat(reader.readForEntry(uid, AiMemoryReader.MESSAGING, null))
         .extracting(AiMemoryLine::content)
         .containsExactly("요약은 세 줄로");
   }
@@ -124,7 +124,7 @@ class AiMemoryEntryReaderTest extends IntegrationTestBase {
     outer.setReadOnly(true);
 
     List<AiMemoryLine> lines =
-        outer.execute(s -> reader.readForEntry(uid, AiMemoryReader.MESSAGING));
+        outer.execute(s -> reader.readForEntry(uid, AiMemoryReader.MESSAGING, null));
 
     assertThat(lines).isEmpty();
   }

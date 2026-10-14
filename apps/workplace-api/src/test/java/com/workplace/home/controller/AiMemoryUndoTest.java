@@ -15,7 +15,6 @@ import com.workplace.home.AiMemoryTestFixtures;
 import com.workplace.home.dto.AiMemoryItem;
 import com.workplace.home.dto.UpdateAiMemoryRequest;
 import com.workplace.home.repository.AiMemoryRepository;
-import com.workplace.home.repository.AiMemoryRepository.NewMemory;
 import com.workplace.home.service.AiMemoryService;
 import com.workplace.home.service.HomeSessionService;
 import com.workplace.support.IntegrationTestBase;
@@ -160,15 +159,14 @@ class AiMemoryUndoTest extends IntegrationTestBase {
   @Test
   void 지움_되돌리기가_상한이면_409_FULL_이고_블록은_그대로다() throws Exception {
     long uid = TestFixtures.createHuman(dsl);
-    for (int i = 0; i < 50; i++)
-      repo.insert(uid, new NewMemory("PREFERENCE", "m" + i, "USER", null, null, null));
+    AiMemoryTestFixtures.fill(dsl, uid, null, AiMemoryService.LIMIT);
     long mid = message(uid, block("forgotten", 987654L, "CONTEXT", "백엔드 팀이다", null, "USER"));
 
     undo(uid, mid, 0)
         .andExpect(status().isConflict())
         .andExpect(jsonPath("$.errors.code").value("AI_MEMORY_FULL"));
     assertThat(memoryBlocks(mid).get(0).path("undone").asBoolean()).isFalse();
-    assertThat(AiMemoryTestFixtures.countMemories(dsl, uid)).isEqualTo(50);
+    assertThat(AiMemoryTestFixtures.countMemories(dsl, uid)).isEqualTo(AiMemoryService.LIMIT);
   }
 
   /** Review Focus 1(순차): 두 번 눌러도 메모리는 한 번만 다시 생긴다. */
@@ -427,8 +425,7 @@ class AiMemoryUndoTest extends IntegrationTestBase {
     long uid2 = TestFixtures.createHuman(dsl);
     AiMemoryItem m2 = create(uid2, "PREFERENCE", "목록은 짧게");
     memories.update(uid2, m2.id(), moveTo("ISSUE"), false);
-    for (int i = 0; i < 50; i++)
-      repo.insert(uid2, new NewMemory("PREFERENCE", "c" + i, "USER", null, null, null));
+    AiMemoryTestFixtures.fill(dsl, uid2, null, AiMemoryService.LIMIT);
     long mid2 =
         message(
             uid2,
@@ -455,8 +452,7 @@ class AiMemoryUndoTest extends IntegrationTestBase {
         .andExpect(jsonPath("$.memory.scope").value("MAIL"));
 
     long uid2 = TestFixtures.createHuman(dsl);
-    for (int i = 0; i < 50; i++)
-      repo.insert(uid2, new NewMemory("PREFERENCE", "m" + i, "USER", null, "MAIL", null));
+    AiMemoryTestFixtures.fill(dsl, uid2, "MAIL", AiMemoryService.LIMIT);
     long mid2 =
         message(
             uid2,

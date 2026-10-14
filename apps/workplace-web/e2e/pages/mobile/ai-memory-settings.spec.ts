@@ -86,3 +86,23 @@ test.describe('기한 (WP-380)', () => {
     expect(mock.updates.lastBody()).toEqual({ expiresOn: '2026-10-21' })
   })
 })
+
+// WP-383 터치: 막힌 핀(범위 고정 10개)은 호버가 없어 탭하면 토스트로 이유를 알린다. 핀·수정·삭제는 44px, 고정 행도 두 줄을 유지한다.
+test('고정이 가득이면 막힌 핀을 탭할 때 토스트가 뜨고, 핀·수정·삭제는 44px 다', async ({ authenticatedPage: page }) => {
+  const pinnedTen = Array.from({ length: 10 }, (_, i) => memoryItem(20 - i, { pinned: true, content: `고정 ${i}` }))
+  await mockAiMemories(page, [...pinnedTen, memoryItem(5, { content: '보통' })])
+  await openMemorySettings(page)
+  await expectNoHorizontalOverflow(page)
+  for (const id of ['ai-memory-pin', 'ai-memory-edit', 'ai-memory-delete']) {
+    const box = await stableBox(page.getByTestId(id).first())
+    expect(Math.round(box.height)).toBeGreaterThanOrEqual(44)
+    expect(Math.round(box.width)).toBeGreaterThanOrEqual(44)
+  }
+  // 막힌 핀은 aria-disabled 버튼 — Playwright tap 은 비활성으로 보고 기다리기만 하므로 그 자리를 손가락으로 직접 누른다(실제 터치와 같다).
+  const blocked = page.getByTestId('ai-memory-row').filter({ hasText: '보통' }).getByTestId('ai-memory-pin')
+  await expect(blocked).toHaveAttribute('aria-disabled', 'true')
+  await blocked.scrollIntoViewIfNeeded()
+  const box = await stableBox(blocked)
+  await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2)
+  await expect(page.getByText('이 범위는 고정이 10개까지예요')).toBeVisible()
+})

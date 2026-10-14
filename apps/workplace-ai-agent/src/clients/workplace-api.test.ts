@@ -415,6 +415,29 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
     expect(m.source).toBe('USER');
   });
 
+  it('WP-383: searchAiMemories → GET /users/me/ai-memories/search?q&scope&limit + 대행 헤더', async () => {
+    const scope = nock(BASE)
+      .matchHeader('x-on-behalf-of', '42')
+      .get(`${PREFIX}/users/me/ai-memories/search`)
+      .query({ q: '이슈 목록', scope: 'ISSUE', limit: '5' })
+      .reply(200, { memoryEnabled: true, items: [{ id: 3, kind: 'PREFERENCE', content: '짧게', scope: 'ISSUE' }] });
+    const r = await newClient().searchAiMemories(42, { q: '이슈 목록', scope: 'ISSUE', limit: 5 });
+    expect(scope.isDone()).toBe(true);
+    expect(r.memoryEnabled).toBe(true);
+    expect(r.items).toHaveLength(1);
+  });
+
+  it('WP-384: searchConversations → GET /home/sessions/search?q&excludeSessionId&limit + 대행 헤더', async () => {
+    const scope = nock(BASE)
+      .matchHeader('x-on-behalf-of', '42')
+      .get(`${PREFIX}/home/sessions/search`)
+      .query({ q: '고양이', excludeSessionId: SID, limit: '3' })
+      .reply(200, { memoryEnabled: true, items: [] });
+    const r = await newClient().searchConversations(42, { q: '고양이', excludeSessionId: SID, limit: 3 });
+    expect(scope.isDone()).toBe(true);
+    expect(r.memoryEnabled).toBe(true);
+  });
+
   it('메모리 오류 코드는 Error.message 에 실린다(도구 오류 → AI 안내)', async () => {
     nock(BASE)
       .post(`${PREFIX}/users/me/ai-memories`)

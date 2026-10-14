@@ -13,6 +13,8 @@ import java.time.LocalDate;
  * <p>WP-380: expiresOn 은 항상(null = 기한 없음, yyyy-MM-dd), expired 는 서버 오늘(Asia/Seoul) 기준 만료 여부 — 웹은
  * 날짜를 다시 계산하지 않고 이 값을 쓴다(오늘 판정을 서버 시계 하나로 맞춘다). previousExpiresOn 은 고치기 응답에서 이전 기한이 있었을 때만(없으면 빠짐 =
  * 기한 없음).
+ *
+ * <p>WP-383: pinned — 사용자가 설정에서 고정했는가(고정 행은 설정 묶음 맨 위·채팅 주입에 먼저 실린다 — 토큰 예산 안에서).
  */
 public record AiMemoryItem(
     long id,
@@ -27,4 +29,5 @@ public record AiMemoryItem(
     @JsonInclude(JsonInclude.Include.NON_NULL) String previousScope,
     LocalDate expiresOn,
     boolean expired,
-    @JsonInclude(JsonInclude.Include.NON_NULL) LocalDate previousExpiresOn) {}
+    @JsonInclude(JsonInclude.Include.NON_NULL) LocalDate previousExpiresOn,
+    boolean pinned) {}

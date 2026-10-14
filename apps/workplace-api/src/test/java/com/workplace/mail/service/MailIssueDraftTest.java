@@ -6,6 +6,7 @@ import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -191,8 +192,9 @@ class MailIssueDraftTest extends IntegrationTestBase {
   @Test
   void draftIssue_메일_메모리를_요청에_싣는다() {
     long messageId = seedMailMessage(callerId);
-    List<AiMemoryLine> lines = List.of(new AiMemoryLine(6L, "CONTEXT", "정산 업무 담당", null, null));
-    when(memoryReader.readForEntry(callerId, AiMemoryReader.MAIL)).thenReturn(lines);
+    List<AiMemoryLine> lines =
+        List.of(new AiMemoryLine(6L, "CONTEXT", "정산 업무 담당", null, null, null));
+    when(memoryReader.readForEntry(eq(callerId), eq(AiMemoryReader.MAIL), any())).thenReturn(lines);
     when(mailClient.issueDraft(any()))
         .thenReturn(new MailAiMessages.IssueDraftResult("정산 검토", "- 5월 자료", "HIGH", projectKey));
 

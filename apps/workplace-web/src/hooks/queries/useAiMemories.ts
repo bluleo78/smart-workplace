@@ -3,7 +3,7 @@ import { useMutation, useMutationState, useQuery, useQueryClient } from '@tansta
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 
-import { clearAiMemories, createAiMemory, deleteAiMemory, listAiMemories, undoAiMemory, updateAiMemory } from '../../api/aiMemories';
+import { clearAiMemories, createAiMemory, deleteAiMemory, listAiMemories, pinAiMemory, undoAiMemory, updateAiMemory } from '../../api/aiMemories';
 import { chatStreams } from '../../lib/ai/chatStreams';
 import {
   extractApiErrorScope,
@@ -124,6 +124,19 @@ export function useUpdateAiMemory() {
     // 목록을 다시 읽을 때까지 pending 유지 — 편집기가 닫힐 때 이미 새 내용·새 위치가 보인다.
     onSuccess: () => invalidate(),
     onError: (e) => toast.error(memoryErrorMessage(e, '메모리를 고치지 못했어요')),
+  });
+}
+
+/**
+ * 고정 토글(WP-383) — 목록을 다시 읽을 때까지 pending(고정 행이 묶음 맨 위로 옮겨 보일 때 풀린다). 실패는 서버 문구(고정 가득 참 포함).
+ * 실패해도 다시 읽는다 — 409(가득 참)는 다른 탭·기기에서 고정이 바뀌었다는 뜻이라 화면의 고정 수·막힘을 서버에 맞춘다.
+ */
+export function usePinAiMemory() {
+  const invalidate = useInvalidateMemories();
+  return useMutation({
+    mutationFn: ({ id, pinned }: { id: number; pinned: boolean }) => pinAiMemory(id, pinned),
+    onSettled: () => invalidate(),
+    onError: (e) => toast.error(memoryErrorMessage(e, '고정을 바꾸지 못했어요')),
   });
 }
 

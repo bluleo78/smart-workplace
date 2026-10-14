@@ -1,9 +1,11 @@
 package com.workplace.home.service;
 
 import com.workplace.global.ai.AiMemoryLine;
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.util.TokenEstimates;
 import com.workplace.home.dto.AiMemoryItem;
 import com.workplace.home.dto.AiMemoryListResponse;
+import com.workplace.home.dto.AiMemorySearchResponse;
 import com.workplace.home.dto.CreateAiMemoryRequest;
 import com.workplace.home.dto.UpdateAiMemoryRequest;
 import com.workplace.home.exception.AiMemoryException;
@@ -11,25 +13,25 @@ import com.workplace.home.repository.AiMemoryRepository;
 import com.workplace.home.repository.AiMemoryRepository.NewMemory;
 import com.workplace.home.repository.AiMemoryRepository.Row;
 import com.workplace.home.repository.HomeSessionRepository;
+import com.workplace.home.repository.ScopeFilter;
 import com.workplace.user.service.AiPreferenceService;
-import java.time.Instant;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
  * AI 메모리(WP-55) — 사용자가 대화에서 알려 준 교정·선호(PREFERENCE)와 업무 맥락(CONTEXT). 설정 화면 직접 관리와 AI 대행 도구가 같은
- * 규칙(1~300자 코드포인트, 범위마다 50개, 본인 것만)을 쓴다.
+ * 규칙(1~300자 코드포인트, 범위마다 300개, 고정은 범위마다 10개(WP-383), 본인 것만)을 쓴다.
  *
  * <p>서버가 강제하는 것은 길이·상한·소유자·꺼짐까지다 — "사용자 본인 발화에서만 저장"은 ai-agent 시스템 프롬프트 규칙이다.
  *
@@ -39,12 +41,17 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class AiMemoryService {
 
-  /** 범위(공통 또는 앱 하나)마다 상한 — WP-379. 응답 limit 도 이 값("범위마다")이다. 매 턴 공통 + 지금 앱 최대 100개를 주입한다. */
-  static final int LIMIT = 50;
+  /**
+   * 범위(공통 또는 앱 하나)마다 상한 — WP-383 에서 50 → 300. 응답 limit 도 이 값("범위마다")이다. 매 턴 주입은 이 중 관련 있는 것만 고른다.
+   */
+  public static final int LIMIT = 300;
+
+  /** 범위마다 고정 상한(WP-383) — 고정은 매 턴 먼저 실리므로(토큰 예산 안에서) 예산을 독점하지 않게 작게 둔다. 만료 행도 센다(판정 1). */
+  public static final int PIN_LIMIT = 10;
 
   /**
    * 설정 목록에 싣는 만료 행 최대 개수(최신순). 만료 행은 한도가 없고 정리 배치가 지우기 전 30일 동안 남아, AI 가 짧은 기한 메모리를 많이 만들면 끝없이 쌓일 수
-   * 있다 — 유효 행(범위마다 50 이하)은 모두 싣고 만료 행만 이 수로 자른다. 오래된 만료 행은 목록에서만 빠지고 곧 지워진다.
+   * 있다 — 유효 행(범위마다 300 이하)은 모두 싣고 만료 행만 이 수로 자른다. 오래된 만료 행은 목록에서만 빠지고 곧 지워진다.
    */
   static final int EXPIRED_LIST_CAP = 100;
 
@@ -73,6 +80,15 @@ public class AiMemoryService {
   private final AiPreferenceService preferences;
   private final HomeSessionRepository sessionRepo;
   private final AiMemoryClock clock;
+  private final ApplicationEventPublisher events;
+  private final AiMemorySelector selector;
+
+  /** 내용이 새로 생기거나 바뀐 메모리의 임베딩을 커밋 뒤에 채우게 한다(WP-383) — 롤백되면 이벤트도 사라진다. */
+  private void requestEmbedding(long memoryId) {
+    events.publishEvent(
+        new TextEmbeddingService.Requested(
+            TenantContext.get(), TextEmbeddingService.Target.MEMORY, memoryId));
+  }
 
   /**
    * 본인 메모리 목록(범위 무관 최신순) + 범위마다 상한 — 웹이 범위별로 묶어 개수·가득 참을 센다. 유효 행은 모두, 만료 행(expired 표시)은 최신
@@ -83,8 +99,9 @@ public class AiMemoryService {
     LocalDate today = clock.today();
     List<Row> rows = new ArrayList<>(repo.listActive(userId, today));
     rows.addAll(repo.listExpired(userId, today, EXPIRED_LIST_CAP));
-    rows.sort(NEWEST_FIRST);
-    return new AiMemoryListResponse(rows.stream().map(r -> toItem(r, null, today)).toList(), LIMIT);
+    rows.sort(AiMemoryRanker.NEWEST);
+    return new AiMemoryListResponse(
+        rows.stream().map(r -> toItem(r, null, today)).toList(), LIMIT, PIN_LIMIT);
   }
 
   /**
@@ -133,7 +150,10 @@ public class AiMemoryService {
     String s = req.hasScope() ? targetScope : cur.scope();
     LocalDate e = req.clearExpiry() ? null : req.expiresOn() != null ? newExpiry : cur.expiresOn();
     requireRoomIfActivating(userId, cur, s, e, today);
+    // WP-383: 고정 행을 다른 범위로 옮기면 그 범위의 고정 상한을 센다(판정 1) — 범위를 바꾸는 요청이라 사용자 잠금은 이미 잡았다.
+    requirePinRoomIfMoving(userId, cur, s);
     Row saved = repo.update(userId, id, k, c, s, e).orElseThrow(AiMemoryException::notFound);
+    if (!cur.content().equals(saved.content())) requestEmbedding(id);
     return toItem(saved, cur, today);
   }
 
@@ -203,10 +223,32 @@ public class AiMemoryService {
     String s = requireScope(before.scope());
     LocalDate e = dateOrNull(before.expiresOn());
     requireRoomIfActivating(userId, cur, s, e, today);
+    // 범위 이동 되돌리기로 고정 행이 고정이 가득 찬 범위로 들어가 상한을 넘는 우회를 막는다(update 와 같은 규칙).
+    requirePinRoomIfMoving(userId, cur, s);
     Row saved =
         repo.update(userId, id, k, normalizeContent(before.content()), s, e)
             .orElseThrow(AiMemoryException::gone);
+    if (!cur.content().equals(saved.content())) requestEmbedding(id);
     return toItem(saved, cur, today);
+  }
+
+  /**
+   * 고정 켜기·끄기(WP-383, 판정 1·2) — 사용자 전용(대행이면 403). 켤 때만 그 범위의 고정 수(만료 포함)를 센다. 사용자 잠금 → 행 잠금 순서는
+   * 생성·고치기와 같다(동시 고정 두 건이 모두 9개를 보고 11개가 되지 않게). updated_at 은 그대로라 설정 목록 최신순·주입 최신 순위가 바뀌지 않는다.
+   *
+   * @throws AiMemoryException 403 PIN_USER_ONLY, 400(pinned 없음), 404(없음·남의 것), 409 PIN_FULL(+scope)
+   */
+  @Transactional
+  public AiMemoryItem setPinned(long userId, long id, Boolean pinned, boolean internal) {
+    if (internal) throw AiMemoryException.pinUserOnly();
+    if (pinned == null) throw AiMemoryException.invalid("pinned 를 true 나 false 로 보내 주세요");
+    repo.lockUser(userId);
+    Row cur = repo.lock(userId, id).orElseThrow(AiMemoryException::notFound);
+    if (pinned && !cur.pinned() && repo.countPinnedInScope(userId, cur.scope()) >= PIN_LIMIT) {
+      throw AiMemoryException.pinFull(cur.scope());
+    }
+    Row saved = repo.setPinned(userId, id, pinned).orElseThrow(AiMemoryException::notFound);
+    return toItem(saved, null, clock.today());
   }
 
   /** 모두 지우기 — 본인 것만(모든 범위). */
@@ -248,6 +290,15 @@ public class AiMemoryService {
     }
   }
 
+  /** 고정 행이 다른 범위로 옮겨 갈 때 대상 범위의 고정 상한(만료 포함)을 센다 — 호출자가 사용자 잠금을 이미 잡았다. */
+  private void requirePinRoomIfMoving(long userId, Row cur, String targetScope) {
+    if (cur.pinned()
+        && !Objects.equals(cur.scope(), targetScope)
+        && repo.countPinnedInScope(userId, targetScope) >= PIN_LIMIT) {
+      throw AiMemoryException.pinFull(targetScope);
+    }
+  }
+
   /**
    * 검증 → 사용자 잠금 → (유효로 들어가면) 그 범위 유효 개수 상한 → 저장(preferredId 가 있으면 그 id 를 먼저 시도). 잠금을 먼저 잡아야 동시 요청 두
    * 건이 모두 49개를 보고 51개가 되는 일을 막는다(READ COMMITTED 에서 잠금 뒤 count 는 앞 요청의 커밋을 본다). 만료 상태로 다시 만드는 되살리기는
@@ -267,11 +318,11 @@ public class AiMemoryService {
       throw AiMemoryException.full(m.scope());
     }
     // 되살리기(preferredId)는 원래 id 를 먼저 시도하고, 쓸 수 없으면 새 id 로 만든다.
-    if (preferredId != null) {
-      Optional<Row> same = repo.insertWithId(preferredId, userId, m);
-      if (same.isPresent()) return same.get();
-    }
-    return repo.insert(userId, m);
+    Row saved = null;
+    if (preferredId != null) saved = repo.insertWithId(preferredId, userId, m).orElse(null);
+    if (saved == null) saved = repo.insert(userId, m);
+    requestEmbedding(saved.id());
+    return saved;
   }
 
   /** 앞뒤 공백 제거 후 1~300 코드포인트인지 — 넘으면 자르지 않고 400(뜻이 바뀌므로). */
@@ -361,18 +412,21 @@ public class AiMemoryService {
         before == null ? null : before.scope(),
         r.expiresOn(),
         !isActive(r.expiresOn(), today),
-        before == null ? null : before.expiresOn());
+        before == null ? null : before.expiresOn(),
+        r.pinned());
   }
 
   /**
-   * 채팅 주입용 메모리 묶음(WP-55).
+   * 채팅 주입용 메모리 묶음(WP-55·383).
    *
    * @param today 이 묶음을 고른 서버 오늘(Asia/Seoul, yyyy-MM-dd) — ChatRequest.today(블록의 오늘 줄·기한 계산 근거)로 그대로
-   *     보낸다. 유효 행을 고른 날짜와 같은 값이라 자정을 걸친 턴에서도 어긋나지 않는다. 꺼짐이면 null(ai-agent 는 꺼짐이면 오늘을 쓰지 않는다)
+   *     보낸다. 꺼짐이면 null(ai-agent 는 꺼짐이면 오늘을 쓰지 않는다)
+   * @param moreCount 블록에 넣지 않은 유효 메모리 수(다른 범위 포함, WP-383) — 홈 채팅만 "더 있음" 줄로 보낸다
    */
-  public record ChatMemories(boolean enabled, List<AiMemoryLine> items, String today) {
+  public record ChatMemories(
+      boolean enabled, List<AiMemoryLine> items, String today, int moreCount) {
     /** 꺼짐(빈 목록) — 사용자가 끈 경우와 조회 실패(판정 10 — 켜짐 + 빈 목록이면 AI 가 있는 메모리를 모른 채 중복 저장한다)가 함께 쓴다. */
-    public static final ChatMemories DISABLED = new ChatMemories(false, List.of(), null);
+    public static final ChatMemories DISABLED = new ChatMemories(false, List.of(), null, 0);
   }
 
   /**
@@ -391,49 +445,124 @@ public class AiMemoryService {
   /** 줄마다 붙는 "- [#123 선호] " 접두 근사 토큰. */
   static final int LINE_OVERHEAD_TOKENS = 12;
 
-  /** 주입·설정 목록 순서 — updated_at 최신순, 같으면 id 큰 것 먼저(저장소 조회와 같은 규칙). */
-  private static final Comparator<Row> NEWEST_FIRST =
-      Comparator.comparing(Row::updatedAt, Comparator.<Instant>reverseOrder())
-          .thenComparing(Row::id, Comparator.<Long>reverseOrder());
+  /** 매 턴 블록 토큰 예산(WP-383) — 고정 → 순위 순으로 이 안에서 자른다. 머리·"더 있음" 줄 몫을 먼저 뺀다. */
+  public static final int MEMORY_BLOCK_TOKEN_BUDGET = 2_000;
+
+  /** 채팅·다른 진입점의 질의 임베딩 대기(WP-383) — 넘기면 키워드 + 최신으로 고른다. */
+  static final Duration CHAT_EMBED_WAIT = Duration.ofMillis(1_500);
+
+  /** "이 밖에 메모리 N개가 더 있어요(다른 앱 범위 포함). 필요하면 search_memory 로 찾아 보세요." 줄 근사 토큰(한글 약 45자) + 여유. */
+  static final int MORE_LINE_TOKENS = 50;
+
+  /** 줄 라벨 "·고정" 근사 토큰. */
+  static final int PIN_LABEL_TOKENS = 3;
 
   /**
-   * 매 채팅 턴 주입할 메모리(WP-379) — 꺼져 있으면 빈 목록 + enabled=false. 켜져 있으면 공통 + app 범위를 범위마다 유효(만료 안 된) 행 중
-   * 최신 50개씩 읽어(인덱스 각 1회) 합친 뒤 최신순으로(최대 100개). 펌프 스레드·다른 진입점에서 불리며 테넌트는 TenantContext 가 정한다.
+   * 홈 채팅 매 턴 주입(WP-383) — 공통 + app(null 이면 공통만) 중 관련 있는 것을 고른다(AiMemorySelector). 펌프 스레드에서 불리며 테넌트는
+   * TenantContext 가 정한다. 바깥 트랜잭션이 있으면 참여한다(테스트).
    *
-   * @param app 지금 화면 앱 — 호출자가 이미 거른 앱 코드(홈 채팅은 startChat 의 {@link AiMemoryScope#appOrNull}, 다른 진입점은
-   *     AiMemoryReader 상수). null 이면 공통만
+   * @param app 지금 화면 앱 — 호출자가 이미 거른 앱 코드({@link AiMemoryScope#appOrNull}). null 이면 공통만
+   * @param queryText 이번 사용자 메시지 — 비면 고정 + 최신
    */
-  @Transactional(readOnly = true)
-  public ChatMemories loadForChat(long userId, String app) {
-    if (!preferences.memoryEnabled(userId)) return ChatMemories.DISABLED;
-    LocalDate today = clock.today();
-    List<Row> rows = new ArrayList<>(repo.listInScope(userId, null, LIMIT, today));
-    if (app != null) rows.addAll(repo.listInScope(userId, app, LIMIT, today));
-    rows.sort(NEWEST_FIRST);
-    return new ChatMemories(
-        true, rows.stream().map(AiMemoryService::toMemoryLine).toList(), today.toString());
+  public ChatMemories loadForChat(long userId, String app, String queryText) {
+    return toChatMemories(
+        selector.select(
+            userId,
+            ScopeFilter.chat(app),
+            queryText,
+            CHAT_EMBED_WAIT,
+            MEMORY_BLOCK_TOKEN_BUDGET,
+            false));
   }
 
-  /** 저장 행 → ai-agent 로 보내는 메모리(범위·기한 포함 — 블록 줄의 "선호·이슈"·"(10/24까지)" 표기). */
+  /**
+   * 다른 진입점(WP-381·383) — 규칙은 홈 채팅과 같고 읽기 트랜잭션을 늘 새로 연다(AiMemoryReader#readForEntry). moreCount 는 쓰지
+   * 않는다(검색 도구가 없다).
+   */
+  public ChatMemories loadForEntry(long userId, String app, String queryText) {
+    return toChatMemories(
+        selector.select(
+            userId,
+            ScopeFilter.chat(app),
+            queryText,
+            CHAT_EMBED_WAIT,
+            MEMORY_BLOCK_TOKEN_BUDGET,
+            true));
+  }
+
+  /** 검색(search_memory) 질의 임베딩 대기 — 도구 호출이라 채팅 첫 토큰보다 덜 급하다. */
+  static final Duration SEARCH_EMBED_WAIT = Duration.ofSeconds(5);
+
+  /** 검색 기본 개수. */
+  static final int SEARCH_DEFAULT_LIMIT = 10;
+
+  /** 검색 최대 개수. */
+  static final int SEARCH_MAX_LIMIT = 20;
+
+  /**
+   * 메모리 검색(WP-383 스펙 3.6) — 본인 유효 메모리 중 키워드·의미 갈래에 든 것을 RRF 순으로. 꺼짐이면 memoryEnabled=false + 빈
+   * 목록(대행· 사용자 모두 — 읽기라 409 로 막지 않는다).
+   *
+   * @param scope null·ALL = 전부, COMMON = 공통만, 앱 코드 = 그 앱만
+   * @param limit 기본 10, 1~20 으로 묶는다
+   * @throws AiMemoryException 400 — 빈 질의(판정 9)·모르는 범위
+   */
+  public AiMemorySearchResponse search(long userId, String q, String scope, Integer limit) {
+    if (q == null || q.isBlank()) throw AiMemoryException.invalid("찾을 말을 넣어 주세요");
+    ScopeFilter filter = searchScope(scope);
+    int n = limit == null ? SEARCH_DEFAULT_LIMIT : Math.max(1, Math.min(limit, SEARCH_MAX_LIMIT));
+    AiMemorySelector.Found found = selector.search(userId, filter, q, SEARCH_EMBED_WAIT, n);
+    return new AiMemorySearchResponse(
+        found.enabled(), found.rows().stream().map(AiMemoryService::toMemoryLine).toList());
+  }
+
+  /** 검색 범위 문자열 → 필터. 모르는 값은 400(조용히 전부로 넓히지 않는다). */
+  static ScopeFilter searchScope(String scope) {
+    if (scope == null || scope.isBlank() || "ALL".equals(scope)) return ScopeFilter.ALL;
+    if (AiMemoryScope.COMMON.equals(scope)) return ScopeFilter.commonOnly();
+    if (AiMemoryScope.isApp(scope)) return ScopeFilter.app(scope);
+    throw AiMemoryException.invalid(
+        "scope 는 ALL·COMMON·앱 코드(" + String.join("·", AiMemoryScope.APPS) + ") 중 하나예요");
+  }
+
+  private static ChatMemories toChatMemories(AiMemorySelector.Selection s) {
+    if (!s.enabled()) return ChatMemories.DISABLED;
+    return new ChatMemories(
+        true,
+        s.rows().stream().map(AiMemoryService::toMemoryLine).toList(),
+        s.today().toString(),
+        s.moreCount());
+  }
+
+  /** 블록 한 줄 근사 토큰 — 내용 + 접두(+ 고정 라벨). 선택기의 예산 자르기와 블록 추정이 같은 값을 쓴다. */
+  static int lineTokens(String content, boolean pinned) {
+    return TokenEstimates.estimate(content)
+        + LINE_OVERHEAD_TOKENS
+        + (pinned ? PIN_LABEL_TOKENS : 0);
+  }
+
+  /** 저장 행 → ai-agent 로 보내는 메모리(범위·기한·고정 포함 — 블록 줄의 "선호·이슈·고정"·"(10/24까지)" 표기). */
   static AiMemoryLine toMemoryLine(Row r) {
     return new AiMemoryLine(
         r.id(),
         r.kind(),
         r.content(),
         r.scope(),
-        r.expiresOn() == null ? null : r.expiresOn().toString());
+        r.expiresOn() == null ? null : r.expiresOn().toString(),
+        r.pinned() ? Boolean.TRUE : null);
   }
 
   /**
-   * 메모리 블록 근사 토큰 — 문맥 예산에서 이전 대화 몫을 그만큼 줄인다. 꺼짐이면 0(꺼짐 한 줄뿐), 켜짐 + 0개면 머리·안내·오늘 줄만 실리는 빈 블록 몫, 그
-   * 밖에는 머리 + 줄마다 내용과 접두.
+   * 메모리 블록 근사 토큰 — 문맥 예산에서 이전 대화 몫을 그만큼 줄인다. 꺼짐이면 0, 켜짐 + 0개면 빈 블록 몫, 그 밖에는 머리 + 줄마다 내용·접두·고정 라벨.
+   * "더 있음" 줄이 실리면(moreCount > 0) 그 몫을 더한다.
    */
   public static int estimateBlockTokens(ChatMemories memories) {
     if (!memories.enabled()) return 0;
-    if (memories.items().isEmpty()) return EMPTY_BLOCK_TOKENS;
-    int sum = BLOCK_HEADER_TOKENS;
+    int more = memories.moreCount() > 0 ? MORE_LINE_TOKENS : 0;
+    if (memories.items().isEmpty()) return EMPTY_BLOCK_TOKENS + more;
+    int sum = BLOCK_HEADER_TOKENS + more;
     for (AiMemoryLine m : memories.items()) {
-      sum += TokenEstimates.estimate(m.content()) + LINE_OVERHEAD_TOKENS;
+      sum += lineTokens(m.content(), Boolean.TRUE.equals(m.pinned()));
     }
     return sum;
   }

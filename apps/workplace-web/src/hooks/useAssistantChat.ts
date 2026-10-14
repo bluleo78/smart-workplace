@@ -2,15 +2,19 @@
 // AI 어시스턴트 채팅 브리지 — 챗 세션 상태 + 세션 목록을 모은다.
 // 어시스턴트는 어느 경로에서든 제자리(in-place)에서 답한다 — 홈으로 강제 이동/캔버스 구성 없음.
 // WP-190: 대화별 상태(목록 문구·헤더 점·상한) 노출.
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 
 import { useChatSessionContext } from '@/hooks/chat-session-context';
 import { useSessions } from '@/hooks/queries/useHomeQueries';
 import type { AiActivity } from '@/lib/ai/aiActivity';
 import { chatStreams, type SessionStatus } from '@/lib/ai/chatStreams';
+import { withLinkedSession } from '@/lib/aiChatLink';
 import type { AiMemoryScope } from '@/types/aiMemory';
 import type { AiScreenContext } from '@/types/aiScreenContext';
 import type { ChatTurn, HomeSessionSummary, ProposalCard, TurnAttachment } from '@/types/home';
+
+/** 목록 응답 전 — 렌더마다 새 배열을 만들지 않게. */
+const NO_SESSIONS: HomeSessionSummary[] = [];
 
 export interface AssistantChat {
   turns: ChatTurn[];
@@ -73,10 +77,15 @@ export function useAssistantChat(): AssistantChat {
     if (sessions.data) chatStreams.pruneUnseen(sessions.data.items.map((s) => s.id), sessions.data.nextCursor === null);
   }, [sessions.data]);
 
+  // WP-384: 링크로 연 지금 대화가 첫 30개 밖이면 그 항목을 붙인다(헤더 제목·목록 강조). 지금 대화일 때만 — 다른 대화로 옮기면 빠진다.
+  const linked = session.sessionId ? session.linkedSessions[session.sessionId] : undefined;
+  const items = sessions.data?.items ?? NO_SESSIONS;
+  const sessionItems = useMemo(() => withLinkedSession(items, linked), [items, linked]);
+
   return {
     turns: session.turns,
     pending: session.pending,
-    sessions: sessions.data?.items ?? [],
+    sessions: sessionItems,
     currentSessionId: session.sessionId,
     newSessionNonce: session.newSessionNonce,
     attachmentResetNonce: session.attachmentResetNonce,

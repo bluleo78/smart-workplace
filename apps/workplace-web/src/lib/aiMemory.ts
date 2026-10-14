@@ -14,17 +14,23 @@ export const UNDO_GONE_MESSAGE = '이미 지워진 메모리예요';
 export const UNDO_CHANGED_MESSAGE = '그 뒤에 바뀐 메모리라 되돌리지 않았어요';
 /** 설정 지움 되돌리기 — 지운 뒤 자정(KST)이 지나 기한이 이미 지났을 때(지난 기한으로는 다시 만들 수 없다 — 서버 400). */
 export const UNDO_EXPIRED_MESSAGE = '기한이 지나 되돌릴 수 없어요';
-/** 지움 되돌리기가 상한(50)에 걸렸을 때 — 토스트 action "설정 열기". */
+/** 지움 되돌리기가 범위 상한(300)에 걸렸을 때 — 토스트 action "설정 열기". */
 export const UNDO_FULL_MESSAGE = '메모리가 가득 찼어요. 설정에서 정리해 주세요';
 /** 가득 참 토스트의 이동 경로. */
 export const MEMORY_SETTINGS_PATH = '/settings/assistant';
 
-/** 사용자당 상한(서버 AiMemoryService.LIMIT 과 같다). */
-export const MEMORY_LIMIT = 50;
+/** 범위마다 상한(서버 AiMemoryService.LIMIT 과 같다 — WP-383 에서 50 → 300). 구 API 응답의 limit 이 우선이다. */
+export const MEMORY_LIMIT = 300;
 /** 내용 상한(코드포인트, 서버 MAX_CHARS 와 같다). */
 export const MEMORY_MAX_CHARS = 300;
 /** 이 개수부터 목록 카운트를 주황으로(곧 가득 참). */
-export const MEMORY_WARN_AT = 45;
+export const MEMORY_WARN_AT = 270;
+/** 범위마다 고정 상한(서버 AiMemoryService.PIN_LIMIT, WP-383) — 응답에 pinLimit 이 없을 때(구 API) 쓴다. */
+export const PIN_LIMIT = 10;
+/** 전체가 이 개수를 넘으면 카드 위에 검색칸을 둔다(WP-383). */
+export const SEARCH_OVER = 20;
+/** 인피니트 스크롤 한 번에 그리는 행 수(WP-383) — 처음 30행, sentinel 이 보일 때마다 30행씩 더. */
+export const ROWS_PAGE = 30;
 
 /** 앞뒤 공백을 지운 코드포인트 수 — 서버 normalizeContent 와 같은 기준(이모지 1개 = 1자). */
 export function memoryLength(s: string): number {
@@ -42,7 +48,7 @@ export function contentCountTone(len: number): string {
   return len > MEMORY_MAX_CHARS ? 'text-destructive' : 'text-muted-foreground';
 }
 
-/** 목록 카운트(n / 50) 색 — 45개부터 주황. */
+/** 목록 카운트(n / 300) 색 — 270개부터 주황. */
 export function listCountTone(count: number): string {
   return count >= MEMORY_WARN_AT ? 'text-warning-text' : 'text-muted-foreground';
 }
@@ -118,7 +124,7 @@ export interface MemoryGroup {
 
 /**
  * 목록(서버 최신순) → 범위 묶음. 만료 행(서버 expired)은 묶음 끝으로 — 유효 행만 한도에 든다. 유효·만료 모두 없는 범위는 뺀다.
- * 한 번 훑어 범위별로 나눈 뒤 묶음 순서대로 꺼낸다 — 모르는 범위 값(신 서버)은 순서에 없어 빠진다.
+ * 한 번 훑어 범위별로 나눈 뒤 묶음 순서대로 꺼낸다 — 모르는 범위 값(신 서버)은 순서에 없어 빠진다. 묶음 안 유효 행은 고정 먼저(WP-383).
  */
 export function groupMemories(items: readonly AiMemoryItem[]): MemoryGroup[] {
   const byScope = new Map<AiMemoryScopeKey, MemoryGroup>();
@@ -128,7 +134,62 @@ export function groupMemories(items: readonly AiMemoryItem[]): MemoryGroup[] {
     if (!g) byScope.set(key, (g = { key, label: SCOPE_LABEL[key], active: [], expired: [] }));
     (m.expired ? g.expired : g.active).push(m);
   }
-  return SCOPE_ORDER.flatMap((key) => byScope.get(key) ?? []);
+  return SCOPE_ORDER.flatMap((key) => {
+    const g = byScope.get(key);
+    return g ? [{ ...g, active: pinnedFirst(g.active) }] : [];
+  });
+}
+
+/** 고정 먼저(각자 받은 최신순 유지) — 고정 행은 묶음 맨 위(WP-383). */
+function pinnedFirst(rows: AiMemoryItem[]): AiMemoryItem[] {
+  return [...rows.filter((m) => m.pinned), ...rows.filter((m) => !m.pinned)];
+}
+
+/** 그 묶음의 고정 수 — 서버처럼 만료 행도 센다(만료 행 되살리기가 고정 상한을 넘기지 않게). */
+export function pinnedCount(group: MemoryGroup): number {
+  return [...group.active, ...group.expired].filter((m) => m.pinned).length;
+}
+
+/** 검색칸 필터 — 앞뒤 공백을 지운 질의가 내용에(대소문자 무시) 들어 있는가. 빈 질의는 모두 맞는다(클라이언트 필터, 스펙 3.7). */
+export function matchesMemoryQuery(m: AiMemoryItem, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  return q === '' || m.content.toLowerCase().includes(q);
+}
+
+/** 고정 막힘 안내 — 데스크톱 툴팁·터치 토스트 공용(범위는 묶음 소제목이 이미 말한다). */
+export function pinFullHint(pinLimit: number): string {
+  return `이 범위는 고정이 ${pinLimit}개까지예요`;
+}
+
+/** 화면에 그릴 묶음과 행 — 검색 질의로 거른 뒤 묶음 순서대로 앞에서부터 maxRows 행까지만 담는다(인피니트 스크롤). 행이 없는 묶음은 뺀다. */
+export interface VisibleGroup {
+  group: MemoryGroup;
+  rows: AiMemoryItem[];
+  /** 이 묶음에서 질의와 맞는 행 수(자르기 전) — 검색 중 머리글 "N개 일치". */
+  matched: number;
+}
+
+/**
+ * 인피니트 스크롤용 — 묶음(고정 먼저 → 유효 → 만료) 전체를 한 줄로 이어 앞에서 maxRows 행만 보인다. total 은 거른 뒤 전체 행 수(맞는 게 없음 안내),
+ * hasMore 는 아직 그리지 않은 행이 있는지(sentinel). 묶음 카운트(n / 300)는 거르기 전 group 그대로 쓰므로 여기서 바꾸지 않는다.
+ */
+export function visibleGroups(
+  groups: readonly MemoryGroup[],
+  query: string,
+  maxRows: number,
+): { views: VisibleGroup[]; total: number; hasMore: boolean } {
+  let left = maxRows;
+  let total = 0;
+  const views: VisibleGroup[] = [];
+  for (const group of groups) {
+    const rows = [...group.active, ...group.expired].filter((m) => matchesMemoryQuery(m, query));
+    total += rows.length;
+    if (rows.length === 0 || left <= 0) continue;
+    const shown = rows.slice(0, left);
+    left -= shown.length;
+    views.push({ group, rows: shown, matched: rows.length });
+  }
+  return { views, total, hasMore: total > maxRows };
 }
 
 /** 만료 뒤 자동 삭제까지 — 서버 정리 배치(기한 < 오늘 - 30)와 같은 기준이라 기한 + 31일에 지워진다. */
@@ -164,16 +225,6 @@ export function expiryPatch(before: string | null, after: string | null): { expi
 /** 한도에 닿은 범위들 — 직접 추가·범위 옮기기에서 고를 수 없다(서버도 409 로 막는다). */
 export function fullScopeKeys(groups: readonly MemoryGroup[], limit: number): Set<AiMemoryScopeKey> {
   return new Set(groups.filter((g) => g.active.length >= limit).map((g) => g.key));
-}
-
-/** 이 개수를 넘는 묶음은 접는다. */
-export const COLLAPSE_OVER = 10;
-/** 접힌 묶음에 보이는 행 수. */
-const COLLAPSED_SHOW = 5;
-
-/** 묶음에 보일 행 — 10개 넘고 접혀 있으면 처음 5개. */
-export function collapsedRows<T>(rows: readonly T[], expanded: boolean): readonly T[] {
-  return rows.length > COLLAPSE_OVER && !expanded ? rows.slice(0, COLLAPSED_SHOW) : rows;
 }
 
 /** 직접 추가의 처음 범위 — 공통, 공통이 가득이면 첫 빈 앱 범위, 모두 가득이면 null(추가 버튼이 막힌다). */

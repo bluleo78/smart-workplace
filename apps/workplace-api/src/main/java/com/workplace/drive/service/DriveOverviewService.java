@@ -103,8 +103,8 @@ public class DriveOverviewService {
                     .filter(e -> e.text() != null && !e.text().isBlank())
                     .toList());
 
-    // WP-381: 공통 + 드라이브 메모리(읽기 전용, 실패해도 빈 목록).
-    List<AiMemoryLine> memories = memoryReader.readForEntry(callerId, AiMemoryReader.DRIVE);
+    // WP-381: 공통 + 드라이브 메모리(읽기 전용, 실패해도 빈 목록). WP-383: 질의 없음(고정 + 최신) — 스펙 3.5.
+    List<AiMemoryLine> memories = memoryReader.readForEntry(callerId, AiMemoryReader.DRIVE, null);
     AgentBody body =
         new AgentBody(
             q, ex, spec.agentUserId(), spec.model(), spec.maxTurns(), spec.timeoutMs(), memories);
