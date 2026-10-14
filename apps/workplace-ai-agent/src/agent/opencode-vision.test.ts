@@ -248,9 +248,23 @@ describe('resolveOpencodeModelLimit', () => {
     expect(await resolveOpencodeModelLimit(payload(), 'custom/m')).toEqual({ context: 262128, output: 131072 });
   });
 
-  it('출력 한도를 모르면 output 0(opencode 의 "모름") — 기본값을 지어내지 않는다', async () => {
+  it('출력 한도를 모르면 models.dev 에 없는 provider(genia·custom·amazon-bedrock-openai)만 output 0(opencode 의 "모름") — 기본값을 지어내지 않는다', async () => {
     fetchMock.mockImplementation(async () => okResponse(body([{ id: 'm', max_model_len: 131072 }])));
-    expect(await resolveOpencodeModelLimit(payload(), 'custom/m')).toEqual({ context: 131072, output: 0 });
+    for (const providerId of ['genia', 'custom', 'amazon-bedrock-openai']) {
+      expect(await resolveOpencodeModelLimit(payload({ providerId }), `${providerId}/m`)).toEqual({ context: 131072, output: 0 });
+    }
+  });
+
+  // opencode 1.17.18 실측: config limit 은 output 키가 필수이고(빼면 ConfigInvalidError), output 0 은 models.dev 의 출력 한도를 덮는다.
+  it('models.dev 등록 provider(openai 등)·모르는 id 는 출력 한도를 모르면 limit 을 두지 않는다 — models.dev 출력 한도를 0 으로 덮지 않게', async () => {
+    fetchMock.mockImplementation(async () => okResponse(body([{ id: 'm', max_model_len: 131072 }])));
+    expect(await resolveOpencodeModelLimit(payload({ providerId: 'openai' }), 'openai/m')).toBeUndefined();
+    expect(await resolveOpencodeModelLimit(payload({ providerId: 'neuralwatt' }), 'neuralwatt/m')).toBeUndefined();
+  });
+
+  it('출력 한도까지 알면 provider 와 상관없이 둘 다 선언한다', async () => {
+    fetchMock.mockImplementation(async () => okResponse(body([{ id: 'm', max_model_len: 262128, metadata: { limits: { max_output_tokens: 131072 } } }])));
+    expect(await resolveOpencodeModelLimit(payload({ providerId: 'neuralwatt' }), 'neuralwatt/m')).toEqual({ context: 262128, output: 131072 });
   });
 
   it('컨텍스트 한도가 없거나 목록에 없는 모델·조회 실패·baseURL 없음은 undefined', async () => {

@@ -182,18 +182,32 @@ export type OpencodeModelLimit = { context: number; output: number } | undefined
 const OPENCODE_OUTPUT_TOKEN_MAX = 32_000;
 
 /**
+ * models.dev 에 없다고 확인한 provider id — 웹 연결 다이얼로그 프리셋 키(apps/workplace-web/src/lib/opencode-presets.ts, 저장되는 providerId 가
+ * 곧 프리셋 키다) 중 custom 계열. 출력 한도를 모를 때 output 0 을 이 id 에만 선언한다(resolveOpencodeModelLimit).
+ * 왜 목록인가(opencode 1.17.18 라이브 확인, WP-250 리뷰):
+ *  · config 의 limit 은 output 키가 필수다 — 빼면 ConfigInvalidError("Missing key")로 서버는 떠도 모든 설정 조회·실행이 실패한다. 그래서 output 을
+ *    생략해 models.dev 값에 맡길 수 없다.
+ *  · limit 은 필드별로 config 값이 models.dev 값보다 우선한다 — neuralwatt 에 {context, output: 0} 을 주면 models.dev 의 출력 한도 131072 가 0 으로
+ *    덮인다. models.dev 출력 한도가 32000 미만인 모델이면 요청 max_tokens 가 32000 으로 올라 provider 가 거절할 수 있다.
+ *  · 이 세 id 는 models.dev 에 없어(openai·google 은 있다) limit 을 안 주면 {0, 0} 이고, output 0 은 opencode 의 "모름"과 같아 덮을 값이 없다.
+ * 목록에 없는 id 는 출력 한도까지 알 때만 limit 을 둔다 — 모르면 지금처럼 provider 거절 뒤 압축에 맡긴다. 프리셋을 늘리면 models.dev 등록 여부를 보고 더한다.
+ */
+const NON_MODELS_DEV_PROVIDER_IDS: ReadonlySet<string> = new Set(['genia', 'custom', 'amazon-bedrock-openai']);
+
+/**
  * provider `/models` 가 알려 준 컨텍스트 한도로 opencode 모델 limit 을 만든다(WP-250). 값이 없으면 기본값을 지어내지 않고 undefined.
- * opencode 는 (마지막 응답의 토큰 합) ≥ context − min(output || 32000, 32000) 이면 미리 압축한다. 출력 한도를 모르면 output 0 —
- * opencode 가 "모름"으로 보는 값이라 요청 max_tokens 는 지금처럼 32000 이고, 그 길이로는 provider 도 같은 지점에서 거절한다.
+ * opencode 는 (마지막 응답의 토큰 합) ≥ context − min(output || 32000, 32000) 이면 미리 압축한다.
+ * 출력 한도를 모르면 models.dev 에 없는 provider(NON_MODELS_DEV_PROVIDER_IDS)만 output 0 으로 둔다 — opencode 가 "모름"으로 보는 값이라 요청
+ * max_tokens 는 지금처럼 32000 이고, 그 길이로는 provider 도 같은 지점에서 거절한다. 다른 provider 는 models.dev 출력 한도를 0 으로 덮지 않게 두지 않는다.
  * 쓸 수 있는 길이(context − 출력 몫)가 0 이하면 매 단계 압축만 되풀이하므로 limit 을 두지 않는다. 예외를 던지지 않는다.
- * 주의: config 의 limit 은 opencode 의 models.dev 값보다 우선한다 — models.dev 등록 provider 에서 출력 한도를 모르면 output 0 이
- * models.dev 의 출력 한도를 덮는다(그 값이 32000 미만이면 요청 max_tokens 가 32000 으로 오른다).
  */
 export async function resolveOpencodeModelLimit(payload: OpencodeProviderConfig, model: string): Promise<OpencodeModelLimit> {
   try {
     const { modelID } = splitOpencodeModel(model);
     const meta = await modelMeta(payload, modelID);
     if (!meta?.context) return undefined;
+    // 출력 한도를 모르면 models.dev 값을 덮을 수 없는 provider 에만 output 0 을 둔다. 판정은 opencode 가 models.dev 와 맞추는 provider 블록 키(payload.providerId).
+    if (meta.output === undefined && !NON_MODELS_DEV_PROVIDER_IDS.has(payload.providerId)) return undefined;
     const output = meta.output ?? 0;
     const reserved = Math.min(output || OPENCODE_OUTPUT_TOKEN_MAX, OPENCODE_OUTPUT_TOKEN_MAX);
     if (meta.context <= reserved) return undefined;
