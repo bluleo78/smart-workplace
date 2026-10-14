@@ -1,5 +1,6 @@
 package com.workplace.issue.controller;
 
+import com.workplace.fileai.controller.ViewImageResponses;
 import com.workplace.fileai.dto.ExtractedTextSlice;
 import com.workplace.fileai.service.AttachmentViewService;
 import com.workplace.global.security.RequirePermission;
@@ -94,8 +95,9 @@ public class IssueAttachmentController {
       @PathVariable int number,
       @PathVariable Long fileId,
       @RequestParam(required = false) Integer page) {
-    return attachmentView.respond(
-        service.resolveViewFileId((Long) auth.getPrincipal(), key, number, fileId), page);
+    return ViewImageResponses.of(
+        attachmentView.view(
+            service.resolveViewFileId((Long) auth.getPrincipal(), key, number, fileId), page));
   }
 
   /** 다운로드 — 멤버 전체. Content-Disposition: attachment 로 파일명 유지. */

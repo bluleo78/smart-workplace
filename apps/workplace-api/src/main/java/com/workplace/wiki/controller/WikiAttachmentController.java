@@ -1,5 +1,6 @@
 package com.workplace.wiki.controller;
 
+import com.workplace.fileai.controller.ViewImageResponses;
 import com.workplace.fileai.dto.ExtractedTextSlice;
 import com.workplace.fileai.service.AttachmentViewService;
 import com.workplace.wiki.dto.WikiAttachmentResponse;
@@ -82,7 +83,8 @@ public class WikiAttachmentController {
       @PathVariable long pageId,
       @PathVariable long fileId,
       @RequestParam(required = false) Integer page) {
-    return attachmentView.respond(service.resolveViewFileId(callerId, pageId, fileId), page);
+    return ViewImageResponses.of(
+        attachmentView.view(service.resolveViewFileId(callerId, pageId, fileId), page));
   }
 
   @DeleteMapping("/{fileId}")

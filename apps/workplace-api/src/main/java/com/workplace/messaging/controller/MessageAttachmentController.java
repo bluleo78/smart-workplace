@@ -1,5 +1,6 @@
 package com.workplace.messaging.controller;
 
+import com.workplace.fileai.controller.ViewImageResponses;
 import com.workplace.fileai.dto.ExtractedTextSlice;
 import com.workplace.fileai.service.AttachmentViewService;
 import com.workplace.messaging.repository.MessageAttachmentRepository;
@@ -71,8 +72,9 @@ public class MessageAttachmentController {
       @PathVariable("msgId") long messageId,
       @PathVariable long fileId,
       @RequestParam(required = false) Integer page) {
-    return attachmentView.respond(
-        service.resolveViewFileId(callerId, channelId, messageId, fileId), page);
+    return ViewImageResponses.of(
+        attachmentView.view(
+            service.resolveViewFileId(callerId, channelId, messageId, fileId), page));
   }
 
   /** 다운로드(스트리밍). 채널 멤버만 허용. */

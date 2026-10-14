@@ -12,13 +12,9 @@ import com.workplace.fileai.outbound.WorkerRenderClient;
 import com.workplace.fileai.repository.WorkerJobRepository;
 import java.io.UncheckedIOException;
 import java.nio.file.NoSuchFileException;
-import java.time.Duration;
 import lombok.extern.slf4j.Slf4j;
 import org.jooq.DSLContext;
 import org.jooq.Record4;
-import org.springframework.http.CacheControl;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -35,8 +31,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  * #writeTx} 로 각각 짧게 감싼다. 호출자도 트랜잭션 밖에서 불러야 이 의도가 지켜진다.
  *
  * <p><b>응답</b>: 도메인 컨트롤러 6곳(이슈·챗·노트·메시지·드라이브·홈)의 {@code GET .../view} 는 모두 {@code return
- * attachmentView.respond(service.resolveViewFileId(...), page);} 한 줄이다 — PDF 는 {@code
- * ?page=N}(1부터), 이미지 파일은 page 없이 부르고, 권한은 그 도메인의 {@code /text} 와 같다. 도메인 가드({@code
+ * ViewImageResponses.of(attachmentView.view(service.resolveViewFileId(...), page));} 한 줄이다 — PDF 는
+ * {@code ?page=N}(1부터), 이미지 파일은 page 없이 부르고, 권한은 그 도메인의 {@code /text} 와 같다. 도메인 가드({@code
  * resolveViewFileId}, 읽기 전용 트랜잭션)가 끝난 뒤 이 서비스를 부르므로 컨트롤러는 트랜잭션을 걸지 않는다(R5).
  *
  * <p><b>캐시 실패</b>: 캐시는 성능용일 뿐이라 읽기·쓰기 실패(디스크 오류·권한 등)로 요청을 실패시키지 않는다 — 읽기 실패는 캐시 없음으로 보고 워커를 부르고,
@@ -72,21 +68,6 @@ public class AttachmentViewService {
     this.readOnlyTx = new TransactionTemplate(txManager);
     this.readOnlyTx.setReadOnly(true);
     this.writeTx = new TransactionTemplate(txManager);
-  }
-
-  /**
-   * {@link #view} 결과를 HTTP 응답으로 — Content-Type 은 워커가 그린 형식(PNG/JPEG), 캐시는 사용자별 {@code private}
-   * 5분(권한이 바뀔 수 있어 공유 캐시를 금지), PDF 면 전체 쪽수를 {@link ViewImage#PAGE_COUNT_HEADER} 로 알려 준다(AI 가 범위를 넘지
-   * 않게). 쪽수를 모르거나 이미지 파일이면 헤더를 생략한다.
-   */
-  public ResponseEntity<byte[]> respond(long fileId, Integer page) {
-    ViewImage v = view(fileId, page);
-    ResponseEntity.BodyBuilder b =
-        ResponseEntity.ok()
-            .contentType(MediaType.parseMediaType(v.contentType()))
-            .cacheControl(CacheControl.maxAge(Duration.ofSeconds(300)).cachePrivate());
-    if (v.pageCount() != null) b.header(ViewImage.PAGE_COUNT_HEADER, String.valueOf(v.pageCount()));
-    return b.body(v.data());
   }
 
   /**

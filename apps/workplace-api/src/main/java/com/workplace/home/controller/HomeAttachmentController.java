@@ -1,5 +1,6 @@
 package com.workplace.home.controller;
 
+import com.workplace.fileai.controller.ViewImageResponses;
 import com.workplace.fileai.dto.ExtractedTextSlice;
 import com.workplace.fileai.service.AttachmentViewService;
 import com.workplace.home.dto.HomeAttachment;
@@ -79,7 +80,8 @@ public class HomeAttachmentController {
       @PathVariable UUID sid,
       @PathVariable long fileId,
       @RequestParam(required = false) Integer page) {
-    return attachmentView.respond(service.resolveViewFileId(callerId, sid, fileId), page);
+    return ViewImageResponses.of(
+        attachmentView.view(service.resolveViewFileId(callerId, sid, fileId), page));
   }
 
   /** 구간 읽기 limit 상한. */

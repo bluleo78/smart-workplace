@@ -9,6 +9,7 @@ import com.workplace.drive.dto.TargetFolderRequest;
 import com.workplace.drive.dto.UpdateTextFileRequest;
 import com.workplace.drive.service.DriveFileService;
 import com.workplace.file.service.FileUploadService.FileContentResult;
+import com.workplace.fileai.controller.ViewImageResponses;
 import com.workplace.fileai.dto.ExtractedTextSlice;
 import com.workplace.fileai.service.AttachmentViewService;
 import jakarta.validation.Valid;
@@ -178,7 +179,8 @@ public class DriveFileController {
       @AuthenticationPrincipal Long callerId,
       @PathVariable("id") long driveFileId,
       @RequestParam(required = false) Integer page) {
-    return attachmentView.respond(fileService.resolveViewFileId(callerId, driveFileId), page);
+    return ViewImageResponses.of(
+        attachmentView.view(fileService.resolveViewFileId(callerId, driveFileId), page));
   }
 
   /** 버전 이력 목록(#79). */

@@ -2,6 +2,7 @@ package com.workplace.chat.controller;
 
 import com.workplace.chat.repository.ChatMessageAttachmentRepository;
 import com.workplace.chat.service.ChatMessageAttachmentService;
+import com.workplace.fileai.controller.ViewImageResponses;
 import com.workplace.fileai.dto.ExtractedTextSlice;
 import com.workplace.fileai.service.AttachmentViewService;
 import java.io.IOException;
@@ -68,7 +69,8 @@ public class ChatMessageAttachmentController {
       @PathVariable("id") long threadId,
       @PathVariable long fileId,
       @RequestParam(required = false) Integer page) {
-    return attachmentView.respond(service.resolveViewFileId(callerId, threadId, fileId), page);
+    return ViewImageResponses.of(
+        attachmentView.view(service.resolveViewFileId(callerId, threadId, fileId), page));
   }
 
   /** 다운로드(스트리밍). 스레드 멤버만 허용. 교차 스레드 접근 시 4xx 반환. */
