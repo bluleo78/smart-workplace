@@ -39,6 +39,7 @@ import org.jooq.TableField;
 import org.jooq.TableOptions;
 import org.jooq.UniqueKey;
 import org.jooq.impl.DSL;
+import org.jooq.impl.DefaultDataType;
 import org.jooq.impl.SQLDataType;
 import org.jooq.impl.TableImpl;
 
@@ -119,6 +120,17 @@ public class HomeMessage extends TableImpl<HomeMessageRecord> {
      */
     public final TableField<HomeMessageRecord, JSONB> FOLLOWUPS = createField(DSL.name("followups"), SQLDataType.JSONB, this, "");
 
+    /**
+     * @deprecated Unknown data type. If this is a qualified, user-defined type,
+     * it may have been excluded from code generation. If this is a built-in
+     * type, you can define an explicit {@link org.jooq.Binding} to specify how
+     * this type should be handled. Deprecation can be turned off using
+     * {@literal <deprecationOnUnknownTypes/>} in your code generator
+     * configuration.
+     */
+    @Deprecated
+    public final TableField<HomeMessageRecord, Object> EMBEDDING = createField(DSL.name("embedding"), DefaultDataType.getDefaultDataType("\"public\".\"vector\""), this, "");
+
     private HomeMessage(Name alias, Table<HomeMessageRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }
@@ -188,7 +200,7 @@ public class HomeMessage extends TableImpl<HomeMessageRecord> {
 
     @Override
     public List<Index> getIndexes() {
-        return Arrays.asList(Indexes.IDX_HOME_MESSAGE_SESSION, Indexes.IDX_HOME_MESSAGE_TENANT);
+        return Arrays.asList(Indexes.HOME_MESSAGE_EMBEDDING_PENDING_IDX, Indexes.IDX_HOME_MESSAGE_SESSION, Indexes.IDX_HOME_MESSAGE_TENANT);
     }
 
     @Override

@@ -32,7 +32,9 @@ public class TextEmbeddingService {
   /** 대상 테이블 — 선언 순서가 백필 순서다(메모리 먼저). */
   public enum Target {
     /** ai_memory(WP-383). */
-    MEMORY
+    MEMORY,
+    /** home_message 완료 답(WP-384) — 직전 질문과 함께. */
+    TURN
   }
 
   /** 한 행 채우기 결과 — FAILED(워커 실패)면 백필이 이번 주기를 멈춘다. */
@@ -77,6 +79,7 @@ public class TextEmbeddingService {
             s ->
                 switch (target) {
                   case MEMORY -> repo.memoryText(id);
+                  case TURN -> repo.turnText(id);
                 });
     if (text == null) return Result.SKIPPED;
     Optional<float[]> vec = embedder.embedDocument(text);
@@ -87,6 +90,7 @@ public class TextEmbeddingService {
             s ->
                 switch (target) {
                   case MEMORY -> repo.writeMemory(id, text, literal);
+                  case TURN -> repo.writeTurn(id, literal);
                 });
     return written != null && written > 0 ? Result.FILLED : Result.SKIPPED;
   }

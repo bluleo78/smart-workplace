@@ -1,10 +1,13 @@
 package com.workplace.home.repository;
 
 import static com.workplace.jooq.Tables.AI_MEMORY;
+import static com.workplace.jooq.Tables.HOME_MESSAGE;
 
+import com.workplace.global.util.Texts;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
+import org.jooq.Record;
 import org.springframework.stereotype.Repository;
 
 /**
@@ -45,6 +48,55 @@ public class TextEmbeddingRepository {
         .orderBy(AI_MEMORY.ID.asc())
         .limit(limit)
         .fetch(AI_MEMORY.ID);
+  }
+
+  /** 대화 턴 임베딩 입력 상한(WP-384) — 답이 길어도 앞부분이 질문과 답의 주제를 담는다. */
+  public static final int TURN_INPUT_CHARS = 2_000;
+
+  /** 대화 턴 임베딩 입력(WP-384) — 완료된 ASSISTANT 답과 같은 대화의 직전 USER 질문. 이미 채웠거나 대상(완료·비지 않은 답)이 아니면 null. */
+  public String turnText(long messageId) {
+    Record r =
+        dsl.fetchOne(
+            """
+            SELECT a.content AS answer,
+                   (SELECT u.content FROM home_message u
+                     WHERE u.session_id = a.session_id AND u.role = 'USER' AND u.id < a.id
+                     ORDER BY u.id DESC LIMIT 1) AS question
+            FROM home_message a
+            WHERE a.id = ? AND a.role = 'ASSISTANT' AND a.status = 'COMPLETE'
+              AND a.embedding IS NULL AND a.content <> ''
+            """,
+            messageId);
+    return r == null
+        ? null
+        : turnInput(r.get("question", String.class), r.get("answer", String.class));
+  }
+
+  /** 턴 입력 문자열 — "질문: {질문}\n답: {답}" 앞 2,000자(서로게이트 쌍을 가르지 않는다). */
+  public static String turnInput(String question, String answer) {
+    return Texts.headUtf16(
+        "질문: " + (question == null ? "" : question) + "\n답: " + answer, TURN_INPUT_CHARS);
+  }
+
+  /** 턴 임베딩 쓰기 — 아직 비어 있을 때만(완료 답은 내용이 바뀌지 않으니 내용 조건은 없다). 쓴 행 수. */
+  public int writeTurn(long messageId, String vectorLiteral) {
+    return dsl.execute(
+        "UPDATE home_message SET embedding = cast(? as vector) WHERE id = ? AND embedding IS NULL",
+        vectorLiteral,
+        messageId);
+  }
+
+  /** 임베딩이 빈 완료 답 id 오래된 순 limit 개 — 부분 인덱스 home_message_embedding_pending_idx. 빈 답은 대상이 아니다. */
+  public List<Long> pendingTurnIds(int limit) {
+    return dsl.select(HOME_MESSAGE.ID)
+        .from(HOME_MESSAGE)
+        .where(HOME_MESSAGE.ROLE.eq("ASSISTANT"))
+        .and(HOME_MESSAGE.STATUS.eq("COMPLETE"))
+        .and(HOME_MESSAGE.EMBEDDING.isNull())
+        .and(HOME_MESSAGE.CONTENT.ne(""))
+        .orderBy(HOME_MESSAGE.ID.asc())
+        .limit(limit)
+        .fetch(HOME_MESSAGE.ID);
   }
 
   /** float[] → pgvector 텍스트 리터럴 "[v1,v2,…]"(cast(? as vector) 바인딩용). */

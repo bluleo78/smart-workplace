@@ -1,6 +1,7 @@
 package com.workplace.support;
 
 import static com.workplace.jooq.Tables.AI_MEMORY;
+import static com.workplace.jooq.Tables.HOME_MESSAGE;
 
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.home.repository.TextEmbeddingRepository;
@@ -49,5 +50,36 @@ public class MemoryEmbeddingProbe {
         .from(AI_MEMORY)
         .where(AI_MEMORY.ID.eq(id))
         .fetchOne(0, Boolean.class);
+  }
+
+  /** 대화 메시지(WP-384)의 저장된 임베딩이 이 텍스트의 가짜 벡터와 같은가(비었으면 false). */
+  public boolean turnEmbeddingIs(long messageId, String text) {
+    String literal = TextEmbeddingRepository.vectorLiteral(fake.expected(text));
+    TenantContext.set(1L);
+    Boolean r =
+        new TransactionTemplate(txManager)
+            .execute(
+                st ->
+                    dsl.select(
+                            DSL.field(
+                                "embedding = cast({0} as vector)", Boolean.class, DSL.val(literal)))
+                        .from(HOME_MESSAGE)
+                        .where(HOME_MESSAGE.ID.eq(messageId))
+                        .fetchOne(0, Boolean.class));
+    return Boolean.TRUE.equals(r);
+  }
+
+  /** 대화 메시지(WP-384)의 임베딩이 비었는가(커밋된 값). */
+  public boolean turnEmbeddingEmpty(long messageId) {
+    TenantContext.set(1L);
+    Boolean r =
+        new TransactionTemplate(txManager)
+            .execute(
+                st ->
+                    dsl.select(DSL.field("embedding IS NULL", Boolean.class))
+                        .from(HOME_MESSAGE)
+                        .where(HOME_MESSAGE.ID.eq(messageId))
+                        .fetchOne(0, Boolean.class));
+    return Boolean.TRUE.equals(r);
   }
 }

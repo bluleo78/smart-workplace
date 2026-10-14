@@ -176,6 +176,32 @@ public class HomeMessageRecord extends UpdatableRecordImpl<HomeMessageRecord> {
         return (JSONB) get(10);
     }
 
+    /**
+     * @deprecated Unknown data type. If this is a qualified, user-defined type,
+     * it may have been excluded from code generation. If this is a built-in
+     * type, you can define an explicit {@link org.jooq.Binding} to specify how
+     * this type should be handled. Deprecation can be turned off using
+     * {@literal <deprecationOnUnknownTypes/>} in your code generator
+     * configuration.
+     */
+    @Deprecated
+    public void setEmbedding(Object value) {
+        set(11, value);
+    }
+
+    /**
+     * @deprecated Unknown data type. If this is a qualified, user-defined type,
+     * it may have been excluded from code generation. If this is a built-in
+     * type, you can define an explicit {@link org.jooq.Binding} to specify how
+     * this type should be handled. Deprecation can be turned off using
+     * {@literal <deprecationOnUnknownTypes/>} in your code generator
+     * configuration.
+     */
+    @Deprecated
+    public Object getEmbedding() {
+        return get(11);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -199,7 +225,7 @@ public class HomeMessageRecord extends UpdatableRecordImpl<HomeMessageRecord> {
     /**
      * Create a detached, initialised HomeMessageRecord
      */
-    public HomeMessageRecord(Long id, UUID sessionId, String role, String content, JSONB widgets, OffsetDateTime createdAt, Long tenantId, JSONB toolCalls, JSONB contentBlocks, String status, JSONB followups) {
+    public HomeMessageRecord(Long id, UUID sessionId, String role, String content, JSONB widgets, OffsetDateTime createdAt, Long tenantId, JSONB toolCalls, JSONB contentBlocks, String status, JSONB followups, Object embedding) {
         super(HomeMessage.HOME_MESSAGE);
 
         setId(id);
@@ -213,6 +239,7 @@ public class HomeMessageRecord extends UpdatableRecordImpl<HomeMessageRecord> {
         setContentBlocks(contentBlocks);
         setStatus(status);
         setFollowups(followups);
+        setEmbedding(embedding);
         resetChangedOnNotNull();
     }
 }

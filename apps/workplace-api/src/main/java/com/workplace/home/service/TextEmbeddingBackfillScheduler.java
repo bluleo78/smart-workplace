@@ -76,6 +76,7 @@ public class TextEmbeddingBackfillScheduler {
   private Map<Target, List<Long>> pendingOf() {
     Map<Target, List<Long>> m = new EnumMap<>(Target.class);
     m.put(Target.MEMORY, repo.pendingMemoryIds(BATCH));
+    m.put(Target.TURN, repo.pendingTurnIds(BATCH));
     return m;
   }
 }

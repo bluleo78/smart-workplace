@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.workplace.fileai.service.ExtractedTextService;
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.home.dto.HomeAttachment;
 import com.workplace.home.dto.HomeMessageResponse;
 import com.workplace.home.dto.HomeSessionResponse;
@@ -23,6 +24,7 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.SneakyThrows;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -40,6 +42,9 @@ public class HomeSessionService {
 
   /** WP-139: 추천을 끈 사용자에게는 저장된 후속 질문을 내려주지 않는다. */
   private final AiPreferenceService aiPreferences;
+
+  /** WP-384: 완료 답 임베딩 요청을 커밋 뒤 이벤트로 낸다. */
+  private final ApplicationEventPublisher events;
 
   @Transactional
   public HomeSessionResponse create(long callerId) {
@@ -223,6 +228,15 @@ public class HomeSessionService {
             sessionId, role, content, widgetsJson, toolCallsJson, contentBlocksJson, status);
     String titleIfNull = "USER".equals(role) ? trimTitle(content) : null;
     sessionRepo.touch(sessionId, titleIfNull);
+    // WP-384: 완료된 답은 커밋 뒤 "질문 + 답" 임베딩을 채운다(지난 대화 의미 검색). 중단·실패·빈 답은 대상이 아니다. 롤백되면 이벤트도 사라진다.
+    if ("ASSISTANT".equals(role)
+        && "COMPLETE".equals(status)
+        && content != null
+        && !content.isBlank()) {
+      events.publishEvent(
+          new TextEmbeddingService.Requested(
+              TenantContext.get(), TextEmbeddingService.Target.TURN, id));
+    }
     return id;
   }
 
