@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   carryBoardTab,
   filtersToParams,
+  overridesClosedHiding,
   parseFilters,
   parseGroupBy,
   parseGroupParam,
@@ -151,11 +152,17 @@ describe('withDefaultIssueScope — 활성 사이클 밖 종료 이슈 숨김 (#
     expect(filtersToParams(parsed, 'board', null).get('closed')).toBe('all');
   });
 
-  it('상태·사이클·마일스톤·부모를 명시하면 그 선택이 우선해 숨기지 않는다', () => {
+  it('상태·사이클·마일스톤을 명시하면 그 선택이 우선해 숨기지 않는다', () => {
     expect(withDefaultIssueScope(parseFilters(new URLSearchParams('milestone=4'))).hideInactiveClosed).toBe(false);
-    expect(withDefaultIssueScope(parseFilters(new URLSearchParams('parent=12'))).hideInactiveClosed).toBe(false);
     expect(withDefaultIssueScope(parseFilters(new URLSearchParams('status=DONE'))).hideInactiveClosed).toBe(false);
     expect(withDefaultIssueScope(parseFilters(new URLSearchParams('cycle=3'))).hideInactiveClosed).toBe(false);
+  });
+
+  it('에픽 선택(parent)은 숨김을 풀지 않고 「완료 모두 보기」를 따른다(WP-390)', () => {
+    const epic = parseFilters(new URLSearchParams('parent=12'));
+    expect(overridesClosedHiding(epic)).toBe(false);
+    expect(withDefaultIssueScope(epic).hideInactiveClosed).toBe(true);
+    expect(withDefaultIssueScope(parseFilters(new URLSearchParams('parent=12&closed=all'))).hideInactiveClosed).toBe(false);
   });
 });
 
