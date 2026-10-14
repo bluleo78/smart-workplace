@@ -2,6 +2,7 @@ package com.workplace.mail.service;
 
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
+import com.workplace.global.ai.AiMemoryReader;
 import com.workplace.mail.dto.CoachingNote;
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.dto.MailDraftCoaching;
@@ -26,7 +27,8 @@ import com.workplace.mail.service.MailSummaryDecider.Outcome;
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * 메일 AI 사용자 기능(7d · WP-149): 요약 표시·강제 생성("AI 요약" 버튼)·답장 초안·초안 코칭. 분류·요약 생성 자체는 {@link
@@ -46,17 +48,31 @@ public class MailAiService {
   private final EmailAccountRepository accountRepo;
   private final AssistantResolver assistantResolver;
 
+  /** WP-381: 답장 초안·초안 코칭에 싣는 읽기 전용 메모리(공통 + 메일). */
+  private final AiMemoryReader memoryReader;
+
+  /**
+   * 답장 초안·초안 코칭의 짧은 읽기 트랜잭션 — @Primary TenantAwareTransactionManager 로 구성해 진입 시 RLS
+   * GUC(app.tenant_id) 가 주입된다. 소유권·ai_enabled·스레드 조회만 감싸고 메모리 읽기·LLM 호출은 밖에서 한다.
+   */
+  private final TransactionTemplate readTx;
+
   public MailAiService(
       MailAnalysisService analysis,
       AiAgentMailClient mailClient,
       EmailMessageRepository messageRepo,
       EmailAccountRepository accountRepo,
-      AssistantResolver assistantResolver) {
+      AssistantResolver assistantResolver,
+      AiMemoryReader memoryReader,
+      PlatformTransactionManager txManager) {
     this.analysis = analysis;
     this.mailClient = mailClient;
     this.messageRepo = messageRepo;
     this.accountRepo = accountRepo;
     this.assistantResolver = assistantResolver;
+    this.memoryReader = memoryReader;
+    this.readTx = new TransactionTemplate(txManager);
+    this.readTx.setReadOnly(true);
   }
 
   /**
@@ -144,28 +160,33 @@ public class MailAiService {
   /**
    * AI 답장 초안(미영속). 스레드 전체를 맥락으로. ai_enabled=false 면 503.
    *
-   * <p>RLS GUC 주입 위해 @Transactional(readOnly) 필수 — 없으면 첫 RLS 스코프 SELECT 가 빈 결과 → 거짓 404. DB 쓰기
-   * 없음(초안 미영속)이라 readOnly. <b>트레이드오프</b>: LLM 호출(최대 90s) 동안 DB 커넥션을 점유한다 — 짧은-트랜잭션 리팩터링은 후속 과제(#230
-   * 보고서 참조).
+   * <p>소유권·ai_enabled·비서·스레드 조회는 짧은 읽기 트랜잭션({@link #readTx}) 안에서 한다 — RLS GUC 가 없으면 첫 RLS 스코프
+   * SELECT 가 빈 결과 → 거짓 404. 메모리 읽기(WP-381, 공통 + 메일 — 트랜잭션 밖에서 부르는 이유는 {@link
+   * AiMemoryReader#readForEntry})와 LLM 호출(최대 90s)은 트랜잭션이 끝난 뒤 한다 — LLM 호출 동안 커넥션을 쥐지 않는다(#230).
    */
-  @Transactional(readOnly = true)
   public MailReplyDraft replyDraft(long userId, long messageId) {
-    AiContext ctx =
-        messageRepo
-            .findAiContextByIdAndUser(userId, messageId)
-            .orElseThrow(() -> new EmailMessageNotFoundException(messageId));
-    requireEnabled(ctx);
-    AssistantSpec spec = requireSpec(userId);
-    List<ThreadMessage> thread = messageRepo.findThreadByIdAndUser(userId, messageId);
+    TxInput in =
+        readTx.execute(
+            s -> {
+              AiContext ctx =
+                  messageRepo
+                      .findAiContextByIdAndUser(userId, messageId)
+                      .orElseThrow(() -> new EmailMessageNotFoundException(messageId));
+              requireEnabled(ctx);
+              AssistantSpec spec = requireSpec(userId);
+              return new TxInput(
+                  ctx.selfAddress(), spec, messageRepo.findThreadByIdAndUser(userId, messageId));
+            });
     ReplyDraftResult r =
         mailClient.replyDraft(
             new ReplyDraftRequest(
-                thread,
-                nz(ctx.selfAddress()),
-                spec.agentUserId(),
-                spec.model(),
+                in.thread(),
+                nz(in.selfAddress()),
+                in.spec().agentUserId(),
+                in.spec().model(),
                 MAX_TURNS,
-                spec.timeoutMs()));
+                in.spec().timeoutMs(),
+                memoryReader.readForEntry(userId, AiMemoryReader.MAIL)));
     return new MailReplyDraft(r.draftBody());
   }
 
@@ -173,36 +194,41 @@ public class MailAiService {
    * 초안 코칭(미영속): 내 초안을 톤·명료성(답장이면 완결성까지) 관점으로 코칭하고 개선본을 제시한다. ai_enabled=false 면 503, 타 계정이면 404.
    * 소유권·ai_enabled 게이트를 LLM 호출보다 먼저 통과시킨다.
    *
-   * <p>RLS GUC 주입을 위해 @Transactional(readOnly) — DB 쓰기 없음. LLM 호출(최대 timeoutMs) 동안 커넥션 점유는
-   * reply-draft 와 동일한 후속 과제(#230).
+   * <p>소유권·ai_enabled·비서·스레드 조회만 짧은 읽기 트랜잭션({@link #readTx}, RLS GUC)에서 하고, 메모리 읽기(WP-381, 공통 +
+   * 메일)와 LLM 호출은 그 뒤에 한다 — reply-draft 와 같은 이유.
    */
-  @Transactional(readOnly = true)
   public MailDraftCoaching coachDraft(long userId, MailDraftCoachingRequest req) {
-    // 소유권 검증 먼저 — 타 계정/없음이면 404.
-    EmailAccountResponse acct =
-        accountRepo
-            .findByIdAndUser(userId, req.accountId())
-            .orElseThrow(() -> new EmailAccountNotFoundException(req.accountId()));
-    // ai_enabled 게이트.
-    if (!acct.aiEnabled()) {
-      throw new MailAiUnavailableException("이 계정은 AI 비서가 꺼져 있어요. 계정 설정에서 켜주세요.");
-    }
-    AssistantSpec spec = requireSpec(userId);
-    // 답장이면 원문 스레드 동봉(소유 검증 포함), 새 메일이면 빈 리스트.
-    List<ThreadMessage> thread =
-        req.inReplyToMessageId() == null
-            ? List.of()
-            : messageRepo.findThreadByIdAndUser(userId, req.inReplyToMessageId());
+    TxInput in =
+        readTx.execute(
+            s -> {
+              // 소유권 검증 먼저 — 타 계정/없음이면 404.
+              EmailAccountResponse acct =
+                  accountRepo
+                      .findByIdAndUser(userId, req.accountId())
+                      .orElseThrow(() -> new EmailAccountNotFoundException(req.accountId()));
+              // ai_enabled 게이트.
+              if (!acct.aiEnabled()) {
+                throw new MailAiUnavailableException("이 계정은 AI 비서가 꺼져 있어요. 계정 설정에서 켜주세요.");
+              }
+              AssistantSpec spec = requireSpec(userId);
+              // 답장이면 원문 스레드 동봉(소유 검증 포함), 새 메일이면 빈 리스트.
+              List<ThreadMessage> thread =
+                  req.inReplyToMessageId() == null
+                      ? List.of()
+                      : messageRepo.findThreadByIdAndUser(userId, req.inReplyToMessageId());
+              return new TxInput(acct.emailAddress(), spec, thread);
+            });
     DraftCoachingResult r =
         mailClient.coachDraft(
             new DraftCoachingRequest(
                 nz(req.bodyText()),
-                thread,
-                nz(acct.emailAddress()),
-                spec.agentUserId(),
-                spec.model(),
+                in.thread(),
+                nz(in.selfAddress()),
+                in.spec().agentUserId(),
+                in.spec().model(),
                 MAX_TURNS,
-                spec.timeoutMs()));
+                in.spec().timeoutMs(),
+                memoryReader.readForEntry(userId, AiMemoryReader.MAIL)));
     List<CoachingNote> notes =
         r.notes() == null
             ? List.of()
@@ -227,4 +253,10 @@ public class MailAiService {
   private String nz(String s) {
     return s == null ? "" : s;
   }
+
+  /**
+   * 답장 초안·초안 코칭의 트랜잭션 안 조회 결과 — 트랜잭션 밖 LLM 호출로 넘긴다. selfAddress 는 내 메일 주소(답장 초안은 그 메일의 수신 주소, 코칭은
+   * 계정 주소).
+   */
+  private record TxInput(String selfAddress, AssistantSpec spec, List<ThreadMessage> thread) {}
 }

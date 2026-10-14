@@ -13,8 +13,11 @@ import org.springframework.stereotype.Component;
 @Component
 public class AiMemoryClock {
 
+  /** 메모리 날짜 기준 시간대 id — 컴파일 상수라 정리 배치의 {@code @Scheduled(zone = …)} 도 같은 값을 쓴다. */
+  public static final String ZONE_ID = "Asia/Seoul";
+
   /** 메모리 날짜 기준 시간대. */
-  public static final ZoneId ZONE = ZoneId.of("Asia/Seoul");
+  public static final ZoneId ZONE = ZoneId.of(ZONE_ID);
 
   private final Clock clock;
 

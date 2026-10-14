@@ -3,6 +3,7 @@ package com.workplace.home.service;
 import com.workplace.global.tenant.TenantScopedRunner;
 import com.workplace.home.repository.AiMemoryRepository;
 import java.time.LocalDate;
+import java.util.concurrent.atomic.AtomicInteger;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
@@ -27,7 +28,7 @@ public class AiMemoryExpiryCleanupScheduler {
   private final AiMemoryClock clock;
 
   /** 매일 04:10(Asia/Seoul). */
-  @Scheduled(cron = "0 10 4 * * *", zone = "Asia/Seoul")
+  @Scheduled(cron = "0 10 4 * * *", zone = AiMemoryClock.ZONE_ID)
   @SchedulerLock(name = "AiMemoryExpiryCleanupScheduler.purgeExpired")
   public void purgeExpired() {
     purgeAllTenants();
@@ -36,9 +37,9 @@ public class AiMemoryExpiryCleanupScheduler {
   /** 모든 활성 테넌트에서 기한 + 30일이 지난 행을 지우고 합계를 돌려준다(테스트·수동 실행 진입점). */
   public int purgeAllTenants() {
     LocalDate cutoff = clock.today().minusDays(KEEP_DAYS);
-    int[] total = {0};
-    tenantRunner.forEachActiveTenant(tenantId -> total[0] += repo.deleteExpiredBefore(cutoff));
-    if (total[0] > 0) log.info("만료 AI 메모리 정리 — {}건 (기한 {} 이전)", total[0], cutoff);
-    return total[0];
+    AtomicInteger total = new AtomicInteger();
+    tenantRunner.forEachActiveTenant(tenantId -> total.addAndGet(repo.deleteExpiredBefore(cutoff)));
+    if (total.get() > 0) log.info("만료 AI 메모리 정리 — {}건 (기한 {} 이전)", total.get(), cutoff);
+    return total.get();
   }
 }

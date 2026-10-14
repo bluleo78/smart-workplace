@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.workplace.home.AiMemoryTestFixtures;
 import com.workplace.home.exception.AiMemoryException;
 import com.workplace.home.repository.AiMemoryRepository;
+import com.workplace.home.repository.AiMemoryRepository.NewMemory;
 import com.workplace.support.TestFixtures;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,7 +22,8 @@ class AiMemoryConcurrencyTest extends AiMemoryRaceTestSupport {
     users.add(uid);
     inTenant(
         () -> {
-          for (int i = 0; i < 49; i++) repo.insert(uid, "PREFERENCE", "m" + i, "USER", null);
+          for (int i = 0; i < 49; i++)
+            repo.insert(uid, new NewMemory("PREFERENCE", "m" + i, "USER", null, null, null));
           return null;
         });
 
@@ -38,6 +40,6 @@ class AiMemoryConcurrencyTest extends AiMemoryRaceTestSupport {
             });
 
     assertThat(results).containsExactlyInAnyOrder("ok", "AI_MEMORY_FULL");
-    assertThat(inTenant(() -> repo.count(uid))).isEqualTo(50);
+    assertThat(inTenant(() -> AiMemoryTestFixtures.countMemories(dsl, uid))).isEqualTo(50);
   }
 }

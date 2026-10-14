@@ -12,7 +12,7 @@ vi.mock('../agent/run-mail-ai.js', () => ({
   runMailClassifyBatch: vi.fn(),
 }));
 
-import { createMailRouter } from './mail.js';
+import { coachDraftSchema, createMailRouter, issueDraftSchema, replyDraftSchema } from './mail.js';
 import {
   runMailAnalyzeContent,
   runMailAnalyzePersonal,
@@ -235,5 +235,18 @@ describe('POST /mail/classify-batch', () => {
     const res = await request(app()).post('/mail/classify-batch').send(valid);
     expect(res.status).toBe(502);
     expect(res.body).toEqual({ error: 'mail-classify-batch_failed' });
+  });
+});
+
+describe('읽기 전용 메모리 스키마 (WP-381)', () => {
+  const ok = { id: 3, kind: 'PREFERENCE', content: '메일은 존댓말로', scope: 'MAIL' };
+  const cfg = { assistantAgentId: 7, model: 'm', maxTurns: 1, timeoutMs: 1000 };
+  it('세 초안 스키마가 memories 를 받아 모양 틀린 항목만 버리고, 없으면 빈 배열', () => {
+    const memories = [ok, { id: 1, kind: 'GOAL', content: 'x' }];
+    expect(replyDraftSchema.parse({ ...cfg, thread: [], replyingAs: 'me', memories }).memories).toEqual([ok]);
+    expect(coachDraftSchema.parse({ ...cfg, thread: [], replyingAs: 'me', draftBody: 'd', memories }).memories).toEqual([ok]);
+    expect(issueDraftSchema.parse({ ...cfg, subject: 's', body: 'b', candidateProjects: [], memories }).memories).toEqual([ok]);
+    expect(replyDraftSchema.parse({ ...cfg, thread: [], replyingAs: 'me' }).memories).toEqual([]);
+    expect(replyDraftSchema.safeParse({ ...cfg, thread: [], replyingAs: 'me', memories: 'x' }).success).toBe(false);
   });
 });

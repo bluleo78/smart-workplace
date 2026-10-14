@@ -3,6 +3,8 @@ package com.workplace.wiki.service;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
+import com.workplace.global.ai.AiMemoryLine;
+import com.workplace.global.ai.AiMemoryReader;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.realtime.StreamingGenerationRegistry;
 import com.workplace.wiki.dto.WikiAiAction;
@@ -13,6 +15,7 @@ import com.workplace.wiki.outbound.WikiAiAgentStreamClient;
 import com.workplace.wiki.repository.WikiPageRepository;
 import java.io.InterruptedIOException;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -47,6 +50,9 @@ public class WikiAiService {
   private final SseRegistry sseRegistry;
   private final WikiPageService pageService;
 
+  /** WP-381: 노트 AI 작성에 싣는 읽기 전용 메모리(공통 + 노트). */
+  private final AiMemoryReader memoryReader;
+
   public WikiAiService(
       WikiPageRepository pages,
       WikiPermissions perms,
@@ -55,7 +61,8 @@ public class WikiAiService {
       @Qualifier("wikiAiStreamExecutor") AsyncTaskExecutor executor,
       StreamingGenerationRegistry registry,
       SseRegistry sseRegistry,
-      WikiPageService pageService) {
+      WikiPageService pageService,
+      AiMemoryReader memoryReader) {
     this.pages = pages;
     this.perms = perms;
     this.assistantResolver = assistantResolver;
@@ -64,6 +71,7 @@ public class WikiAiService {
     this.registry = registry;
     this.sseRegistry = sseRegistry;
     this.pageService = pageService;
+    this.memoryReader = memoryReader;
   }
 
   /**
@@ -83,19 +91,6 @@ public class WikiAiService {
     // 3) 비서 해석(미설정이면 HomeAssistantNotConfiguredException → 일반 4xx).
     AssistantSpec spec = assistantResolver.resolve(callerId);
 
-    AgentBody body =
-        new AgentBody(
-            req.action(),
-            page.title(),
-            page.body() == null ? "" : page.body(),
-            req.selection(),
-            req.prompt(),
-            spec.agentUserId(),
-            spec.model(),
-            spec.thinkingDepth(),
-            spec.maxTurns(),
-            spec.timeoutMs());
-
     // 4) 펌프를 레지스트리에 등록 — correlationId 는 클로저로 각 이벤트 payload 에 실린다.
     return registry.start(
         callerId,
@@ -103,6 +98,23 @@ public class WikiAiService {
         TIMEOUT,
         correlationId ->
             () -> {
+              // WP-381: 공통 + 노트 메모리(읽기 전용, 실패해도 빈 목록 — 작성은 그대로). 트랜잭션이 없는 펌프 스레드(권한 확인 뒤)에서
+              // 읽는다 — 이유는 AiMemoryReader#readForEntry.
+              List<AiMemoryLine> memories =
+                  memoryReader.readForEntry(callerId, AiMemoryReader.WIKI);
+              AgentBody body =
+                  new AgentBody(
+                      req.action(),
+                      page.title(),
+                      page.body() == null ? "" : page.body(),
+                      req.selection(),
+                      req.prompt(),
+                      spec.agentUserId(),
+                      spec.model(),
+                      spec.thinkingDepth(),
+                      spec.maxTurns(),
+                      spec.timeoutMs(),
+                      memories);
               // #736: 델타가 한 번이라도 전달됐으면(부분 텍스트가 이미 에디터에 삽입·자동저장 예정) 정상
               // 완료/취소/에러 어느 경로로 끝나든 attribution 을 기록한다 — "정상 종료만 기록"하면 취소·
               // 타임아웃으로 끝난 스트림도 실제로는 AI 텍스트가 남는데 신호가 빠지는 false negative 가 생긴다.
@@ -195,5 +207,7 @@ public class WikiAiService {
       String model,
       String thinkingDepth,
       int maxTurns,
-      int timeoutMs) {}
+      int timeoutMs,
+      /** WP-381: 공통 + 노트 메모리 — ai-agent 가 요청문 맨 앞 읽기 전용 블록으로 싣는다. null 이면 생략. */
+      List<AiMemoryLine> memories) {}
 }

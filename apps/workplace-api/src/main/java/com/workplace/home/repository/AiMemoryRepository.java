@@ -56,6 +56,18 @@ public class AiMemoryRepository {
       String scope,
       LocalDate expiresOn) {}
 
+  /**
+   * 저장할 메모리 1건(id·시각 제외) — insert·insertWithId 가 받는다. sessionId 는 AI 대행 저장의 출처 대화(없으면 null), scope
+   * 는 null = 공통(WP-379), expiresOn 은 null = 기한 없음(WP-380).
+   */
+  public record NewMemory(
+      String kind,
+      String content,
+      String source,
+      UUID sessionId,
+      String scope,
+      LocalDate expiresOn) {}
+
   /** 범위 조건 — null 은 공통(IS NULL). */
   private static Condition inScope(String scope) {
     return scope == null ? AI_MEMORY.SCOPE.isNull() : AI_MEMORY.SCOPE.eq(scope);
@@ -66,10 +78,23 @@ public class AiMemoryRepository {
     return AI_MEMORY.EXPIRES_ON.isNull().or(AI_MEMORY.EXPIRES_ON.ge(today));
   }
 
-  /** updated_at 최신순(같으면 id 큰 것 먼저) 최대 limit 건 — 범위와 무관한 설정 목록(웹이 묶는다)·테스트 조회용. */
-  public List<Row> listNewest(long userId, int limit) {
+  /**
+   * 유효 행 전부(범위 무관) 최신순 — 설정 목록용. 범위마다 상한(50)이 유효 행만 세므로 개수는 범위 수 × 50 이하다. 만료 행과 상한을 나눠 쓰지 않아 만료 행이
+   * 아무리 많아도 유효 행이 목록에서 빠지지 않는다.
+   */
+  public List<Row> listActive(long userId, LocalDate today) {
     return dsl.selectFrom(AI_MEMORY)
         .where(AI_MEMORY.USER_ID.eq(userId))
+        .and(active(today))
+        .orderBy(AI_MEMORY.UPDATED_AT.desc(), AI_MEMORY.ID.desc())
+        .fetch(AiMemoryRepository::toRow);
+  }
+
+  /** 만료 행(기한 &lt; 오늘) 최신순 최대 limit 건 — 설정 목록용. 만료 행은 한도가 없어 상한을 둔다. */
+  public List<Row> listExpired(long userId, LocalDate today, int limit) {
+    return dsl.selectFrom(AI_MEMORY)
+        .where(AI_MEMORY.USER_ID.eq(userId))
+        .and(AI_MEMORY.EXPIRES_ON.lt(today))
         .orderBy(AI_MEMORY.UPDATED_AT.desc(), AI_MEMORY.ID.desc())
         .limit(limit)
         .fetch(AiMemoryRepository::toRow);
@@ -82,11 +107,6 @@ public class AiMemoryRepository {
         .and(AI_MEMORY.USER_ID.eq(userId))
         .forUpdate()
         .fetchOptional(AiMemoryRepository::toRow);
-  }
-
-  /** 본인 메모리 전체 개수(범위 무관) — 테스트·운영 확인용. 한도는 {@link #countInScope} 로 센다. */
-  public int count(long userId) {
-    return dsl.fetchCount(AI_MEMORY, AI_MEMORY.USER_ID.eq(userId));
   }
 
   /**
@@ -119,31 +139,9 @@ public class AiMemoryRepository {
     dsl.execute("SELECT pg_advisory_xact_lock(?, ?)", LOCK_CLASS, (int) userId);
   }
 
-  /** 공통 메모리 1건 저장(기존 호출부·테스트 호환). */
-  public Row insert(long userId, String kind, String content, String source, UUID sourceSessionId) {
-    return insert(userId, kind, content, source, sourceSessionId, null);
-  }
-
-  /** 기한 없는 메모리 1건 저장(기존 호출부·테스트 호환). */
-  public Row insert(
-      long userId, String kind, String content, String source, UUID sourceSessionId, String scope) {
-    return insert(userId, kind, content, source, sourceSessionId, scope, null);
-  }
-
   /** 메모리 1건 저장 후 저장된 행을 돌려준다(상한·기한 검사는 호출자가 잠금 안에서 한다). */
-  public Row insert(
-      long userId,
-      String kind,
-      String content,
-      String source,
-      UUID sourceSessionId,
-      String scope,
-      LocalDate expiresOn) {
-    return toRow(
-        dsl.insertInto(AI_MEMORY)
-            .set(newRecord(userId, kind, content, source, sourceSessionId, scope, expiresOn))
-            .returning()
-            .fetchOne());
+  public Row insert(long userId, NewMemory m) {
+    return toRow(dsl.insertInto(AI_MEMORY).set(newRecord(userId, m)).returning().fetchOne());
   }
 
   /**
@@ -151,17 +149,9 @@ public class AiMemoryRepository {
    * 시퀀스가 아직 발급하지 않은 값이면 empty 를 돌려 호출자가 새 id 로 만들게 한다. 발급 전 값을 넣으면 나중에 시퀀스가 그 값에 닿을 때 일반 저장이 키 충돌로
    * 실패하므로 막는다.
    */
-  public Optional<Row> insertWithId(
-      long id,
-      long userId,
-      String kind,
-      String content,
-      String source,
-      UUID sourceSessionId,
-      String scope,
-      LocalDate expiresOn) {
+  public Optional<Row> insertWithId(long id, long userId, NewMemory m) {
     if (id <= 0 || id > lastIssued(dsl, ID_SEQUENCE)) return Optional.empty();
-    AiMemoryRecord r = newRecord(userId, kind, content, source, sourceSessionId, scope, expiresOn);
+    AiMemoryRecord r = newRecord(userId, m);
     r.setId(id);
     return dsl.insertInto(AI_MEMORY)
         .set(r)
@@ -189,23 +179,16 @@ public class AiMemoryRepository {
    * 저장할 값만 채운 레코드 — insert·insertWithId 공용. 채운 필드만 INSERT 에 실리므로(changed 플래그) tenant_id 는 컬럼
    * DEFAULT(GUC)가 채운다. scope·expiresOn 은 null 이어도 명시적으로 넣는다(공통·기한 없음).
    */
-  private AiMemoryRecord newRecord(
-      long userId,
-      String kind,
-      String content,
-      String source,
-      UUID sourceSessionId,
-      String scope,
-      LocalDate expiresOn) {
+  private AiMemoryRecord newRecord(long userId, NewMemory m) {
     OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
     AiMemoryRecord r = dsl.newRecord(AI_MEMORY);
     r.setUserId(userId);
-    r.setKind(kind);
-    r.setContent(content);
-    r.setSource(source);
-    r.setSourceSessionId(sourceSessionId);
-    r.setScope(scope);
-    r.setExpiresOn(expiresOn);
+    r.setKind(m.kind());
+    r.setContent(m.content());
+    r.setSource(m.source());
+    r.setSourceSessionId(m.sessionId());
+    r.setScope(m.scope());
+    r.setExpiresOn(m.expiresOn());
     r.setCreatedAt(now);
     r.setUpdatedAt(now);
     return r;

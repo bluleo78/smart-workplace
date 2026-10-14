@@ -7,7 +7,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.home.AiMemoryTestFixtures;
 import com.workplace.home.repository.AiMemoryRepository;
+import com.workplace.home.repository.AiMemoryRepository.NewMemory;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import java.time.LocalDate;
@@ -74,13 +76,18 @@ class AiMemoryExpiryCleanupTest extends IntegrationTestBase {
 
   private long seed(long tenantId, long uid, LocalDate expiresOn) {
     return inTenant(
-        tenantId, () -> repo.insert(uid, "PREFERENCE", "m", "USER", null, null, expiresOn).id());
+        tenantId,
+        () ->
+            repo.insert(uid, new NewMemory("PREFERENCE", "m", "USER", null, null, expiresOn)).id());
   }
 
   private List<Long> ids(long tenantId, long uid) {
     return inTenant(
         tenantId,
-        () -> repo.listNewest(uid, 500).stream().map(AiMemoryRepository.Row::id).toList());
+        () ->
+            AiMemoryTestFixtures.allMemories(baseDsl, uid).stream()
+                .map(AiMemoryRepository.Row::id)
+                .toList());
   }
 
   @Test

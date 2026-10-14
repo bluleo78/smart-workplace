@@ -1,5 +1,7 @@
 package com.workplace.mail;
 
+import static com.workplace.jooq.Tables.EMAIL_ACCOUNT;
+import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -11,7 +13,10 @@ import static org.mockito.Mockito.when;
 
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
+import com.workplace.global.ai.AiMemoryLine;
+import com.workplace.global.ai.AiMemoryReader;
 import com.workplace.global.security.EncryptionService;
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.mail.dto.EmailAccountRequest;
 import com.workplace.mail.dto.MailDraftCoaching;
 import com.workplace.mail.dto.MailDraftCoachingRequest;
@@ -30,6 +35,8 @@ import com.workplace.mail.outbound.MailAiMessages.AnalyzePersonalResult;
 import com.workplace.mail.outbound.MailAiMessages.CoachingNoteWire;
 import com.workplace.mail.outbound.MailAiMessages.DraftCoachingRequest;
 import com.workplace.mail.outbound.MailAiMessages.DraftCoachingResult;
+import com.workplace.mail.outbound.MailAiMessages.ReplyDraftRequest;
+import com.workplace.mail.outbound.MailAiMessages.ReplyDraftResult;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailContentRepository;
 import com.workplace.mail.repository.EmailFolderRepository;
@@ -41,13 +48,17 @@ import com.workplace.support.TestFixtures;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /** MailAiService 통합 테스트. ai-agent 클라이언트와 비서 해석기는 Mock으로 대체 — 서비스 로직(캐시, gate)만 검증. */
 @Transactional
@@ -67,6 +78,9 @@ class MailAiServiceTest extends IntegrationTestBase {
 
   /** 비서 해석은 관심 밖 — 더미 사양으로 고정. */
   @MockitoBean AssistantResolver assistantResolver;
+
+  /** 메일 메모리(WP-381) — 목 기본값은 빈 목록이라 다른 테스트는 메모리 없이 그대로 동작한다. */
+  @MockitoBean AiMemoryReader memoryReader;
 
   private void stubAssistant() {
     AssistantSpec spec = new AssistantSpec(5L, "claude-sonnet-4-6", "NORMAL", 8, 60000);
@@ -558,5 +572,90 @@ class MailAiServiceTest extends IntegrationTestBase {
                 mailAiService.coachDraft(
                     stranger, new MailDraftCoachingRequest(accountId, "<p>x</p>", "x", null)))
         .isInstanceOf(EmailAccountNotFoundException.class);
+  }
+
+  /** WP-381: 답장 초안 코칭(AI 검토)에 공통 + 메일(MAIL) 메모리를 싣는다. */
+  @Test
+  void coachDraft_메일_메모리를_요청에_싣는다() {
+    stubAssistant();
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = createAccount(userId, "mem@test.local", true);
+    List<AiMemoryLine> lines =
+        List.of(new AiMemoryLine(5L, "PREFERENCE", "메일은 존댓말로", "MAIL", null));
+    when(memoryReader.readForEntry(userId, AiMemoryReader.MAIL)).thenReturn(lines);
+    when(mailClient.coachDraft(any())).thenReturn(new DraftCoachingResult(List.of(), "<p>개선</p>"));
+
+    mailAiService.coachDraft(
+        userId, new MailDraftCoachingRequest(accountId, "<p>빨리</p>", "빨리", null));
+
+    ArgumentCaptor<DraftCoachingRequest> cap = ArgumentCaptor.forClass(DraftCoachingRequest.class);
+    verify(mailClient).coachDraft(cap.capture());
+    assertThat(cap.getValue().memories()).isEqualTo(lines);
+  }
+
+  /** WP-381: 답장 초안에도 공통 + 메일 메모리를 싣는다. */
+  @Test
+  void replyDraft_메일_메모리를_요청에_싣는다() {
+    stubAssistant();
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = createAccount(userId, "mem2@test.local", true);
+    long folderId = folderRepo.ensureFolder(accountId, "INBOX").id();
+    long msgId = insertMessage(accountId, folderId, "mem-msg-1@test.local", "mem-thread-1");
+    List<AiMemoryLine> lines =
+        List.of(new AiMemoryLine(5L, "PREFERENCE", "메일은 존댓말로", "MAIL", null));
+    when(memoryReader.readForEntry(userId, AiMemoryReader.MAIL)).thenReturn(lines);
+    when(mailClient.replyDraft(any())).thenReturn(new ReplyDraftResult("초안"));
+
+    mailAiService.replyDraft(userId, msgId);
+
+    ArgumentCaptor<ReplyDraftRequest> cap = ArgumentCaptor.forClass(ReplyDraftRequest.class);
+    verify(mailClient).replyDraft(cap.capture());
+    assertThat(cap.getValue().memories()).isEqualTo(lines);
+  }
+
+  /**
+   * WP-381: 메모리는 읽기 트랜잭션 밖에서 읽는다 — 안에서 읽으면 요청 하나가 커넥션 두 개를 동시에 쥐어, 풀이 포화되면 요청끼리 서로를 기다린다. 테스트 트랜잭션이
+   * 있으면 늘 "트랜잭션 중"으로 보이므로 이 테스트만 트랜잭션 없이 돌리고, 시드는 커밋한 뒤 지운다. 소유권·RLS 조회가 서비스 자체 읽기 트랜잭션에서 그대로
+   * 통과하는지(거짓 404 없음)도 함께 본다.
+   */
+  @Test
+  @Transactional(propagation = Propagation.NOT_SUPPORTED)
+  void coachDraft_메모리는_트랜잭션_밖에서_읽는다() {
+    stubAssistant();
+    TenantContext.set(1L);
+    long[] ids =
+        new TransactionTemplate(txManager)
+            .execute(
+                s -> {
+                  long uid = TestFixtures.createHuman(dsl);
+                  return new long[] {uid, createAccount(uid, "notx-" + uid + "@test.local", true)};
+                });
+    try {
+      List<AiMemoryLine> lines =
+          List.of(new AiMemoryLine(5L, "PREFERENCE", "메일은 존댓말로", "MAIL", null));
+      AtomicReference<Boolean> txActiveAtRead = new AtomicReference<>();
+      when(memoryReader.readForEntry(ids[0], AiMemoryReader.MAIL))
+          .thenAnswer(
+              inv -> {
+                txActiveAtRead.set(TransactionSynchronizationManager.isActualTransactionActive());
+                return lines;
+              });
+      when(mailClient.coachDraft(any()))
+          .thenReturn(new DraftCoachingResult(List.of(), "<p>개선</p>"));
+
+      mailAiService.coachDraft(
+          ids[0], new MailDraftCoachingRequest(ids[1], "<p>빨리</p>", "빨리", null));
+
+      assertThat(txActiveAtRead.get()).isFalse();
+      ArgumentCaptor<DraftCoachingRequest> cap =
+          ArgumentCaptor.forClass(DraftCoachingRequest.class);
+      verify(mailClient).coachDraft(cap.capture());
+      assertThat(cap.getValue().memories()).isEqualTo(lines);
+    } finally {
+      cleanupInTenant(
+          1L, () -> baseDsl.deleteFrom(EMAIL_ACCOUNT).where(EMAIL_ACCOUNT.ID.eq(ids[1])).execute());
+      baseDsl.deleteFrom(USER).where(USER.ID.eq(ids[0])).execute();
+      TenantContext.clear();
+    }
   }
 }

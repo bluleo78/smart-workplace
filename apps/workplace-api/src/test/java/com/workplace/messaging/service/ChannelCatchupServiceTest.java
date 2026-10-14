@@ -16,6 +16,9 @@ import static org.mockito.Mockito.when;
 
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
+import com.workplace.global.ai.AiMemoryLine;
+import com.workplace.global.ai.AiMemoryReader;
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.messaging.dto.CreateMessageRequest;
 import com.workplace.messaging.outbound.AiAgentCatchupClient;
 import com.workplace.messaging.outbound.dto.CatchupSummarizeRequest;
@@ -25,6 +28,7 @@ import com.workplace.support.IntegrationTestBase;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 import org.jooq.DSLContext;
 import org.jooq.JSONB;
 import org.junit.jupiter.api.BeforeEach;
@@ -32,7 +36,10 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
 /**
@@ -43,7 +50,7 @@ import org.springframework.web.server.ResponseStatusException;
  * 검증한다.
  *
  * <p>케이스: ①내 차례=나를 멘션한 미읽음만 ②환각 id 필터 ③미읽음0=AI 미호출+빈응답 ④캐시 히트=AI 1회 ⑤비멤버 403 ⑥타테넌트 채널=RLS
- * fail-closed 403.
+ * fail-closed 403 ⑦메모리 지문 캐시(WP-381 — 메모리가 같으면 함께 쓰고, 다르거나 바뀌면 다시 요약).
  */
 @Transactional
 class ChannelCatchupServiceTest extends IntegrationTestBase {
@@ -55,6 +62,9 @@ class ChannelCatchupServiceTest extends IntegrationTestBase {
   @Autowired MessageService messageService;
   @MockitoBean AiAgentCatchupClient catchupClient;
   @MockitoBean AssistantResolver assistantResolver;
+
+  /** 요청자 메모리(WP-381) — 목 기본값은 빈 목록이라 다른 테스트는 메모리 없이 그대로 동작한다. */
+  @MockitoBean AiMemoryReader memoryReader;
 
   /** 해석될 비서 사양 — 하드코딩 id(2) 가 아닌 이 값이 AI 요청에 실려야 한다(WP-110). */
   private static final AssistantSpec SPEC =
@@ -188,6 +198,92 @@ class ChannelCatchupServiceTest extends IntegrationTestBase {
     verify(catchupClient, times(1)).summarize(any());
   }
 
+  /** 같은 채널·같은 미읽음이어도 메모리가 다른 사용자는 캐시를 쓰지 않고 자기 메모리로 다시 요약한다(같은 사용자·같은 메모리는 캐시). */
+  @Test
+  void 같은_채널이어도_메모리가_다른_사용자는_자기_메모리로_다시_요약한다() {
+    long channelId = seedChannelWithMembers();
+    long m1 = postByB(channelId, "배포 일정 공유합니다", null);
+    long since = m1 - 1;
+    when(memoryReader.readForEntry(callerA, AiMemoryReader.MESSAGING))
+        .thenReturn(List.of(new AiMemoryLine(1L, "PREFERENCE", "요약은 세 줄로", "MESSAGING", null)));
+    when(catchupClient.summarize(any()))
+        .thenReturn(new CatchupSummarizeResult(List.of(), List.of()));
+
+    service.summarize(callerA, channelId, since);
+    service.summarize(callerA, channelId, since);
+    service.summarize(userC, channelId, since);
+
+    ArgumentCaptor<CatchupSummarizeRequest> cap =
+        ArgumentCaptor.forClass(CatchupSummarizeRequest.class);
+    verify(catchupClient, times(2)).summarize(cap.capture());
+    assertThat(cap.getAllValues().get(0).memories())
+        .extracting(AiMemoryLine::content)
+        .containsExactly("요약은 세 줄로");
+    assertThat(cap.getAllValues().get(1).memories()).isEmpty();
+    // 캐시 키가 메모리 지문이라 캐시 확인 전에 매번 메모리를 읽는다.
+    verify(memoryReader, times(2)).readForEntry(callerA, AiMemoryReader.MESSAGING);
+  }
+
+  /** 메모리가 없는 사용자끼리는 같은 채널·같은 미읽음 요약을 함께 쓴다 — 요약에 개인 메모리가 실리지 않았으니 나눠 써도 된다. */
+  @Test
+  void 메모리가_없는_두_사용자는_요약을_함께_쓴다() {
+    long channelId = seedChannelWithMembers();
+    long m1 = postByB(channelId, "회의록 올렸어요", null);
+    when(catchupClient.summarize(any()))
+        .thenReturn(new CatchupSummarizeResult(List.of(), List.of()));
+
+    service.summarize(callerA, channelId, m1 - 1);
+    service.summarize(userC, channelId, m1 - 1);
+
+    verify(catchupClient, times(1)).summarize(any());
+  }
+
+  /** 메모리 내용이 다르면 같은 채널·같은 미읽음이어도 다른 사람의 메모리로 만든 요약을 쓰지 않는다. */
+  @Test
+  void 메모리가_다른_두_사용자는_요약을_나눠_쓰지_않는다() {
+    long channelId = seedChannelWithMembers();
+    long m1 = postByB(channelId, "회의록 올렸어요", null);
+    when(memoryReader.readForEntry(callerA, AiMemoryReader.MESSAGING))
+        .thenReturn(List.of(new AiMemoryLine(1L, "PREFERENCE", "요약은 세 줄로", null, null)));
+    when(memoryReader.readForEntry(userC, AiMemoryReader.MESSAGING))
+        .thenReturn(List.of(new AiMemoryLine(2L, "PREFERENCE", "요약은 표로", null, null)));
+    when(catchupClient.summarize(any()))
+        .thenReturn(new CatchupSummarizeResult(List.of(), List.of()));
+
+    service.summarize(callerA, channelId, m1 - 1);
+    service.summarize(userC, channelId, m1 - 1);
+
+    ArgumentCaptor<CatchupSummarizeRequest> cap =
+        ArgumentCaptor.forClass(CatchupSummarizeRequest.class);
+    verify(catchupClient, times(2)).summarize(cap.capture());
+    assertThat(cap.getAllValues())
+        .extracting(r -> r.memories().get(0).content())
+        .containsExactly("요약은 세 줄로", "요약은 표로");
+  }
+
+  /** 메모리를 고치면 같은 사용자·같은 미읽음이어도 캐시를 쓰지 않고 바뀐 메모리로 다시 요약한다. */
+  @Test
+  void 메모리가_바뀌면_캐시를_쓰지_않고_다시_요약한다() {
+    long channelId = seedChannelWithMembers();
+    long m1 = postByB(channelId, "배포 일정 공유합니다", null);
+    when(memoryReader.readForEntry(callerA, AiMemoryReader.MESSAGING))
+        .thenReturn(List.of(new AiMemoryLine(1L, "PREFERENCE", "요약은 세 줄로", null, null)));
+    when(catchupClient.summarize(any()))
+        .thenReturn(new CatchupSummarizeResult(List.of(), List.of()));
+    service.summarize(callerA, channelId, m1 - 1);
+
+    when(memoryReader.readForEntry(callerA, AiMemoryReader.MESSAGING))
+        .thenReturn(List.of(new AiMemoryLine(1L, "PREFERENCE", "요약은 다섯 줄로", null, null)));
+    service.summarize(callerA, channelId, m1 - 1);
+
+    ArgumentCaptor<CatchupSummarizeRequest> cap =
+        ArgumentCaptor.forClass(CatchupSummarizeRequest.class);
+    verify(catchupClient, times(2)).summarize(cap.capture());
+    assertThat(cap.getAllValues().get(1).memories())
+        .extracting(AiMemoryLine::content)
+        .containsExactly("요약은 다섯 줄로");
+  }
+
   @Test
   void 비멤버는_403() {
     long channelId = seedChannelWithMembers();
@@ -318,5 +414,81 @@ class ChannelCatchupServiceTest extends IntegrationTestBase {
         .returning(TENANT.ID)
         .fetchOne()
         .getId();
+  }
+
+  /**
+   * WP-381: 메모리는 읽기 트랜잭션 밖에서 읽는다 — 안에서 읽으면 요청 하나가 커넥션 두 개를 동시에 쥐어, 풀이 포화되면 요청끼리 서로를 기다린다. 테스트 트랜잭션이
+   * 있으면 늘 "트랜잭션 중"으로 보이므로 이 테스트만 트랜잭션 없이 돌린다. 시드는 서비스 부수 효과(알림 등)가 없도록 jOOQ 로 직접 커밋하고 끝에 지운다.
+   * 멤버십·미읽음 조회가 서비스 자체 읽기 트랜잭션(RLS GUC)에서 그대로 통과하는지도 함께 본다.
+   */
+  @Test
+  @Transactional(propagation = Propagation.NOT_SUPPORTED)
+  void 메모리는_트랜잭션_밖에서_읽는다() {
+    TenantContext.set(1L);
+    long[] ids =
+        new TransactionTemplate(txManager)
+            .execute(
+                s -> {
+                  long c =
+                      dsl.insertInto(CHANNEL)
+                          .set(CHANNEL.NAME, "catchup-notx-" + UUID.randomUUID())
+                          .set(CHANNEL.KIND, "CHANNEL")
+                          .set(CHANNEL.VISIBILITY, "PUBLIC")
+                          .set(CHANNEL.CREATED_BY, userB)
+                          .returning(CHANNEL.ID)
+                          .fetchOne()
+                          .getId();
+                  for (long u : new long[] {callerA, userB}) {
+                    dsl.insertInto(CHANNEL_MEMBER)
+                        .set(CHANNEL_MEMBER.CHANNEL_ID, c)
+                        .set(CHANNEL_MEMBER.USER_ID, u)
+                        .set(CHANNEL_MEMBER.ROLE, "MEMBER")
+                        .execute();
+                  }
+                  long m =
+                      dsl.insertInto(MESSAGE)
+                          .set(MESSAGE.CHANNEL_ID, c)
+                          .set(MESSAGE.AUTHOR_ID, userB)
+                          .set(MESSAGE.BODY, "배포 일정 공유합니다")
+                          .returning(MESSAGE.ID)
+                          .fetchOne()
+                          .getId();
+                  return new long[] {c, m};
+                });
+    try {
+      AtomicReference<Boolean> txActiveAtRead = new AtomicReference<>();
+      when(memoryReader.readForEntry(callerA, AiMemoryReader.MESSAGING))
+          .thenAnswer(
+              inv -> {
+                txActiveAtRead.set(TransactionSynchronizationManager.isActualTransactionActive());
+                return List.of(new AiMemoryLine(1L, "PREFERENCE", "요약은 세 줄로", "MESSAGING", null));
+              });
+      when(catchupClient.summarize(any()))
+          .thenReturn(new CatchupSummarizeResult(List.of(), List.of()));
+
+      var res = service.summarize(callerA, ids[0], ids[1] - 1);
+
+      assertThat(txActiveAtRead.get()).isFalse();
+      assertThat(res.unreadCount()).isEqualTo(1);
+      ArgumentCaptor<CatchupSummarizeRequest> cap =
+          ArgumentCaptor.forClass(CatchupSummarizeRequest.class);
+      verify(catchupClient).summarize(cap.capture());
+      assertThat(cap.getValue().memories())
+          .extracting(AiMemoryLine::content)
+          .containsExactly("요약은 세 줄로");
+    } finally {
+      cleanupInTenant(
+          1L,
+          () -> {
+            baseDsl.deleteFrom(MESSAGE).where(MESSAGE.CHANNEL_ID.eq(ids[0])).execute();
+            baseDsl
+                .deleteFrom(CHANNEL_MEMBER)
+                .where(CHANNEL_MEMBER.CHANNEL_ID.eq(ids[0]))
+                .execute();
+            baseDsl.deleteFrom(CHANNEL).where(CHANNEL.ID.eq(ids[0])).execute();
+          });
+      baseDsl.deleteFrom(USER).where(USER.ID.in(callerA, userB, userC)).execute();
+      TenantContext.clear();
+    }
   }
 }

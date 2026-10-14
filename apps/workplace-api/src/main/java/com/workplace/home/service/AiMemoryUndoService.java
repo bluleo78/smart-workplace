@@ -61,7 +61,7 @@ public class AiMemoryUndoService {
    * 반대 동작. saved → 지움(이미 없으면 그대로), updated → 이전 내용·종류(기록돼 있으면)·범위·기한으로(없으면 GONE, 그 뒤에 또 바뀌었으면
    * CHANGED, 이전 범위가 가득이면 FULL), forgotten → 같은 id·종류·내용·출처·범위·기한으로 재생성(상한이면 FULL — id 를 유지해야 앞선 줄의
    * 되돌리기가 같은 메모리를 가리킨다). 범위·기한 필드가 없는 구 블록은 공통·기한 없음이다(WP-379·380). saved 는 그 사이 사용자가 고쳤어도 같은 항목이므로
-   * 지운다(스펙 §6).
+   * 지운다.
    */
   private AiMemoryItem reverse(long userId, ObjectNode b) {
     long memoryId = b.path("memoryId").asLong();

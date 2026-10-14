@@ -8,7 +8,7 @@ vi.mock('../agent/run-messaging-ai.js', async (importOriginal) => {
   return { ...actual, runMessagingClassify: vi.fn() };
 });
 
-import { createMessagingRouter } from './messaging.js';
+import { catchupSchema, createMessagingRouter } from './messaging.js';
 import { runMessagingClassify } from '../agent/run-messaging-ai.js';
 
 function app() {
@@ -46,5 +46,14 @@ describe('POST /messaging/classify', () => {
     vi.mocked(runMessagingClassify).mockRejectedValue(new Error('boom'));
     const res = await request(app()).post('/messaging/classify').send(valid);
     expect(res.status).toBe(502);
+  });
+});
+
+describe('catchup 스키마 — 읽기 전용 메모리 (WP-381)', () => {
+  it('memories 를 받아 모양 틀린 항목만 버리고, 없으면 빈 배열', () => {
+    const base = { messages: [{ id: 1, authorName: 'a', body: 'b' }], assistantAgentId: 7, model: 'm', maxTurns: 1, timeoutMs: 1000 };
+    const ok = { id: 5, kind: 'PREFERENCE', content: '세 줄로', scope: 'MESSAGING' };
+    expect(catchupSchema.parse({ ...base, memories: [ok, 'x'] }).memories).toEqual([ok]);
+    expect(catchupSchema.parse(base).memories).toEqual([]);
   });
 });

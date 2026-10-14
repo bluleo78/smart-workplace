@@ -10,16 +10,4 @@ import java.util.UUID;
  * 문자열로 받는 이유는 형식 오류를 Jackson 의 영문 400 대신 서비스의 한국어 400 으로 알리기 위해서다.
  */
 public record CreateAiMemoryRequest(
-    String kind, String content, String source, UUID sessionId, String scope, String expiresOn) {
-
-  /** 공통·기한 없음(기존 호출부·테스트 호환). */
-  public CreateAiMemoryRequest(String kind, String content, String source, UUID sessionId) {
-    this(kind, content, source, sessionId, null, null);
-  }
-
-  /** 기한 없음(WP-379 호출부 호환). */
-  public CreateAiMemoryRequest(
-      String kind, String content, String source, UUID sessionId, String scope) {
-    this(kind, content, source, sessionId, scope, null);
-  }
-}
+    String kind, String content, String source, UUID sessionId, String scope, String expiresOn) {}

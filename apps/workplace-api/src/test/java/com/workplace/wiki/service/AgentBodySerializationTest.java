@@ -29,7 +29,8 @@ class AgentBodySerializationTest {
             "claude-opus",
             "NORMAL",
             5,
-            60_000);
+            60_000,
+            null);
 
     JsonNode json = mapper.readTree(mapper.writeValueAsString(body));
 
@@ -66,7 +67,8 @@ class AgentBodySerializationTest {
             "claude-sonnet",
             "DEEP",
             3,
-            30_000);
+            30_000,
+            null);
 
     JsonNode json = mapper.readTree(mapper.writeValueAsString(body));
 
@@ -86,5 +88,34 @@ class AgentBodySerializationTest {
     assertThat(json.get("action").asText()).isEqualTo("draft");
     assertThat(json.get("selection").asText()).isEqualTo("선택된 텍스트");
     assertThat(json.get("prompt").asText()).isEqualTo("이 주제로 써줘");
+  }
+
+  /** WP-381: memories 는 ai-agent memoryItemSchema 모양 — scope·expiresOn 은 있을 때만. */
+  @Test
+  void serialize_memories_omitsNullScopeAndExpiry() throws Exception {
+    WikiAiService.AgentBody body =
+        new WikiAiService.AgentBody(
+            WikiAiAction.CONTINUE,
+            "제목",
+            "본문",
+            null,
+            null,
+            900L,
+            "claude-opus",
+            "NORMAL",
+            5,
+            60_000,
+            java.util.List.of(
+                new com.workplace.global.ai.AiMemoryLine(
+                    3L, "PREFERENCE", "개조식", "WIKI", "2026-10-24"),
+                new com.workplace.global.ai.AiMemoryLine(1L, "CONTEXT", "백엔드 팀", null, null)));
+
+    JsonNode json = mapper.readTree(mapper.writeValueAsString(body));
+
+    assertThat(json.get("memories").get(0).toString())
+        .isEqualTo(
+            "{\"id\":3,\"kind\":\"PREFERENCE\",\"content\":\"개조식\",\"scope\":\"WIKI\",\"expiresOn\":\"2026-10-24\"}");
+    assertThat(json.get("memories").get(1).toString())
+        .isEqualTo("{\"id\":1,\"kind\":\"CONTEXT\",\"content\":\"백엔드 팀\"}");
   }
 }

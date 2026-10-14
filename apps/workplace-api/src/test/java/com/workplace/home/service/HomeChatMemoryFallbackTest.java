@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.workplace.home.outbound.ChatMessages.ChatMemory;
+import com.workplace.global.ai.AiMemoryLine;
 import com.workplace.home.outbound.ChatMessages.ChatRequest;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -46,7 +46,9 @@ class HomeChatMemoryFallbackTest {
 
   @Test
   void 조회가_성공하면_그대로_쓴다() {
-    var ok = new AiMemoryService.ChatMemories(true, List.of(new ChatMemory(3, "CONTEXT", "백엔드 팀")));
+    var ok =
+        new AiMemoryService.ChatMemories(
+            true, List.of(new AiMemoryLine(3, "CONTEXT", "백엔드 팀", null, null)), "2026-10-14");
     assertThat(HomeChatService.memoriesOrUnavailable(() -> ok, 7L)).isSameAs(ok);
   }
 
@@ -55,15 +57,17 @@ class HomeChatMemoryFallbackTest {
   void 블록_추정은_꺼짐이면_0_빈_목록이면_빈_블록_몫_줄마다_내용과_접두를_더한다() {
     assertThat(AiMemoryService.estimateBlockTokens(AiMemoryService.ChatMemories.DISABLED)).isZero();
     assertThat(
-            AiMemoryService.estimateBlockTokens(new AiMemoryService.ChatMemories(true, List.of())))
+            AiMemoryService.estimateBlockTokens(
+                new AiMemoryService.ChatMemories(true, List.of(), "2026-10-14")))
         .isEqualTo(AiMemoryService.EMPTY_BLOCK_TOKENS);
     assertThat(
             AiMemoryService.estimateBlockTokens(
                 new AiMemoryService.ChatMemories(
                     true,
                     List.of(
-                        new ChatMemory(1, "PREFERENCE", "가나다"),
-                        new ChatMemory(2, "CONTEXT", "abcd")))))
+                        new AiMemoryLine(1, "PREFERENCE", "가나다", null, null),
+                        new AiMemoryLine(2, "CONTEXT", "abcd", null, null)),
+                    "2026-10-14")))
         .isEqualTo(
             AiMemoryService.BLOCK_HEADER_TOKENS
                 + (3 + AiMemoryService.LINE_OVERHEAD_TOKENS)
@@ -87,8 +91,10 @@ class HomeChatMemoryFallbackTest {
             null,
             null,
             List.of(),
-            List.of(new ChatMemory(12, "PREFERENCE", "짧은 목록으로 보여 준다")),
-            true);
+            List.of(new AiMemoryLine(12, "PREFERENCE", "짧은 목록으로 보여 준다", null, null)),
+            true,
+            null,
+            null);
     String json = new ObjectMapper().writeValueAsString(req);
     assertThat(json)
         .contains(
@@ -126,10 +132,11 @@ class HomeChatMemoryFallbackTest {
             null,
             List.of(),
             List.of(
-                new ChatMemory(12, "PREFERENCE", "짧게", "ISSUE"),
-                new ChatMemory(9, "CONTEXT", "백엔드 팀")),
+                new AiMemoryLine(12, "PREFERENCE", "짧게", "ISSUE", null),
+                new AiMemoryLine(9, "CONTEXT", "백엔드 팀", null, null)),
             true,
-            "ISSUE");
+            "ISSUE",
+            null);
     String json = new ObjectMapper().writeValueAsString(req);
     assertThat(json)
         .contains("{\"id\":12,\"kind\":\"PREFERENCE\",\"content\":\"짧게\",\"scope\":\"ISSUE\"}")
@@ -156,8 +163,8 @@ class HomeChatMemoryFallbackTest {
             null,
             List.of(),
             List.of(
-                new ChatMemory(12, "PREFERENCE", "짧게", null, "2026-10-24"),
-                new ChatMemory(9, "CONTEXT", "백엔드 팀")),
+                new AiMemoryLine(12, "PREFERENCE", "짧게", null, "2026-10-24"),
+                new AiMemoryLine(9, "CONTEXT", "백엔드 팀", null, null)),
             true,
             null,
             "2026-10-14");

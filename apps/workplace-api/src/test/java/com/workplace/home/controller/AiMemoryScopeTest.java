@@ -10,8 +10,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.workplace.home.outbound.ChatMessages.ChatMemory;
+import com.workplace.global.ai.AiMemoryLine;
+import com.workplace.home.AiMemoryTestFixtures;
 import com.workplace.home.repository.AiMemoryRepository;
+import com.workplace.home.repository.AiMemoryRepository.NewMemory;
 import com.workplace.home.service.AiMemoryService;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
@@ -31,8 +33,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * WP-379: 메모리 범위 — 생성·목록의 scope, 잘못된 범위 400, 범위마다 50개 한도(409 + errors.scope), PATCH 범위
- * 이동(present-flag: 키가 없으면 유지, null 이면 공통), 가득 찬 범위로 이동 409 와 같은 범위 안 고치기 허용(Review Focus 2), 목록은
- * 범위를 합쳐 전부.
+ * 이동(present-flag: 키가 없으면 유지, null 이면 공통), 가득 찬 범위로 이동 409 와 같은 범위 안 고치기 허용, 목록은 범위를 합쳐 전부.
  */
 @Transactional
 class AiMemoryScopeTest extends IntegrationTestBase {
@@ -67,7 +68,8 @@ class AiMemoryScopeTest extends IntegrationTestBase {
 
   /** 범위(null = 공통)에 n 개를 바로 넣는다(서비스 한도를 거치지 않는 시드). */
   private void fill(long uid, String scope, int n) {
-    for (int i = 0; i < n; i++) repo.insert(uid, "PREFERENCE", "m" + i, "USER", null, scope);
+    for (int i = 0; i < n; i++)
+      repo.insert(uid, new NewMemory("PREFERENCE", "m" + i, "USER", null, scope, null));
   }
 
   @Test
@@ -139,7 +141,7 @@ class AiMemoryScopeTest extends IntegrationTestBase {
         .andExpect(jsonPath("$.previousScope").value("MAIL"));
   }
 
-  /** Review Focus 2: 가득 찬 범위로 옮기는 것만 막는다 — 그 범위 안의 내용 고치기는 된다. */
+  /** 가득 찬 범위로 옮기는 것만 막는다 — 그 범위 안의 내용 고치기는 된다. */
   @Test
   void 가득_찬_범위로_옮기면_409_이고_같은_범위_안_고치기는_된다() throws Exception {
     long uid = TestFixtures.createHuman(dsl);
@@ -150,7 +152,7 @@ class AiMemoryScopeTest extends IntegrationTestBase {
         .andExpect(jsonPath("$.errors.code").value("AI_MEMORY_FULL"))
         .andExpect(jsonPath("$.errors.scope").value("ISSUE"));
     long issueId =
-        repo.listNewest(uid, 100).stream()
+        AiMemoryTestFixtures.allMemories(dsl, uid).stream()
             .filter(r -> "ISSUE".equals(r.scope()))
             .findFirst()
             .orElseThrow()
@@ -174,9 +176,12 @@ class AiMemoryScopeTest extends IntegrationTestBase {
   @Test
   void 채팅_주입은_공통과_그_앱만_범위마다_최신_50개씩이다() {
     long uid = TestFixtures.createHuman(dsl);
-    for (int i = 0; i < 55; i++) repo.insert(uid, "PREFERENCE", "c" + i, "USER", null, null);
-    for (int i = 0; i < 52; i++) repo.insert(uid, "PREFERENCE", "i" + i, "USER", null, "ISSUE");
-    for (int i = 0; i < 3; i++) repo.insert(uid, "PREFERENCE", "m" + i, "USER", null, "MAIL");
+    for (int i = 0; i < 55; i++)
+      repo.insert(uid, new NewMemory("PREFERENCE", "c" + i, "USER", null, null, null));
+    for (int i = 0; i < 52; i++)
+      repo.insert(uid, new NewMemory("PREFERENCE", "i" + i, "USER", null, "ISSUE", null));
+    for (int i = 0; i < 3; i++)
+      repo.insert(uid, new NewMemory("PREFERENCE", "m" + i, "USER", null, "MAIL", null));
 
     AiMemoryService.ChatMemories m = memoryService.loadForChat(uid, "ISSUE");
 
@@ -186,7 +191,7 @@ class AiMemoryScopeTest extends IntegrationTestBase {
     assertThat(m.items()).noneMatch(c -> "MAIL".equals(c.scope()));
     // 각 범위의 가장 오래된 것부터 빠진다.
     assertThat(m.items())
-        .extracting(ChatMemory::content)
+        .extracting(AiMemoryLine::content)
         .doesNotContain("c0", "c4", "i0", "i1")
         .contains("c5", "c54", "i2", "i51");
     // 최신순 — 마지막에 넣은 이슈가 맨 앞.

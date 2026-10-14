@@ -1,5 +1,6 @@
 package com.workplace.mail.outbound;
 
+import com.workplace.global.ai.AiMemoryLine;
 import java.util.List;
 
 /** ai-agent /mail/* 요청·응답 계약. assistant 설정(agentId/model/maxTurns/timeoutMs)은 요청 본문으로 전달. */
@@ -9,20 +10,25 @@ public final class MailAiMessages {
   /** 스레드 메시지 1건(답장 초안 컨텍스트). */
   public record ThreadMessage(String from, String date, String body) {}
 
+  /** 답장 초안 요청. memories — WP-381 공통 + 메일 메모리(읽기 전용 블록). */
   public record ReplyDraftRequest(
       List<ThreadMessage> thread,
       String replyingAs,
       long assistantAgentId,
       String model,
       int maxTurns,
-      int timeoutMs) {}
+      int timeoutMs,
+      List<AiMemoryLine> memories) {}
 
   public record ReplyDraftResult(String draftBody) {}
 
   /** 초안 코칭 노트 1건(ai-agent 와이어). */
   public record CoachingNoteWire(String dimension, String message) {}
 
-  /** 초안 코칭 요청: 초안 평문 + (답장이면) 원문 스레드. 새 메일이면 thread 빈 리스트. */
+  /**
+   * 초안 코칭 요청: 초안 평문 + (답장이면) 원문 스레드. 새 메일이면 thread 빈 리스트. memories — WP-381 공통 + 메일 메모리(답장 초안을 다듬는
+   * 같은 초안 흐름이다).
+   */
   public record DraftCoachingRequest(
       String draftBody,
       List<ThreadMessage> thread,
@@ -30,12 +36,16 @@ public final class MailAiMessages {
       long assistantAgentId,
       String model,
       int maxTurns,
-      int timeoutMs) {}
+      int timeoutMs,
+      List<AiMemoryLine> memories) {}
 
   /** 초안 코칭 결과: 코칭 노트 목록 + 다듬은 개선본 HTML. */
   public record DraftCoachingResult(List<CoachingNoteWire> notes, String improvedBodyHtml) {}
 
-  /** #520 이슈 초안 요청. candidateProjects 로 AI 가 projectKey 를 고른다. */
+  /**
+   * #520 이슈 초안 요청. candidateProjects 로 AI 가 projectKey 를 고른다. memories — WP-381 공통 + 메일 메모리(이슈 범위
+   * 메모리는 싣지 않는다).
+   */
   public record IssueDraftRequest(
       String subject,
       String body,
@@ -43,7 +53,8 @@ public final class MailAiMessages {
       long assistantAgentId,
       String model,
       int maxTurns,
-      int timeoutMs) {}
+      int timeoutMs,
+      List<AiMemoryLine> memories) {}
 
   /** 후보 프로젝트(key+name) — ai-agent 전송용. */
   public record CandidateProject(String key, String name) {}

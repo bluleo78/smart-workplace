@@ -11,9 +11,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.workplace.global.ai.AiMemoryLine;
 import com.workplace.home.AiMemoryTestFixtures;
-import com.workplace.home.outbound.ChatMessages.ChatMemory;
 import com.workplace.home.repository.AiMemoryRepository;
+import com.workplace.home.repository.AiMemoryRepository.NewMemory;
 import com.workplace.home.service.AiMemoryClock;
 import com.workplace.home.service.AiMemoryService;
 import com.workplace.home.service.HomeSessionService;
@@ -72,7 +73,7 @@ class AiMemoryExpiryTest extends IntegrationTestBase {
 
   /** 저장소로 직접 1건(과거 기한 행을 만들 수 있게). */
   private long seed(long uid, String scope, LocalDate expiresOn) {
-    return repo.insert(uid, "PREFERENCE", "m", "USER", null, scope, expiresOn).id();
+    return repo.insert(uid, new NewMemory("PREFERENCE", "m", "USER", null, scope, expiresOn)).id();
   }
 
   private ResultActions undo(long uid, long messageId) throws Exception {
@@ -93,7 +94,7 @@ class AiMemoryExpiryTest extends IntegrationTestBase {
         .andExpect(jsonPath("$.expired").value(false));
 
     assertThat(memories.loadForChat(uid, null).items())
-        .extracting(ChatMemory::content)
+        .extracting(AiMemoryLine::content)
         .contains("이번 주는 결제 모듈");
     call(uid, post(BASE), "{\"kind\":\"PREFERENCE\",\"content\":\"하나 더\"}")
         .andExpect(status().isConflict())
@@ -105,7 +106,7 @@ class AiMemoryExpiryTest extends IntegrationTestBase {
         .andExpect(jsonPath("$.items[0].expired").value(true));
     assertThat(memories.loadForChat(uid, null).items())
         .hasSize(49)
-        .extracting(ChatMemory::content)
+        .extracting(AiMemoryLine::content)
         .doesNotContain("이번 주는 결제 모듈");
     call(uid, post(BASE), "{\"kind\":\"PREFERENCE\",\"content\":\"하나 더\"}")
         .andExpect(status().isCreated());
@@ -235,9 +236,33 @@ class AiMemoryExpiryTest extends IntegrationTestBase {
     long uid = TestFixtures.createHuman(dsl);
     seed(uid, null, LocalDate.of(2026, 10, 24));
     seed(uid, null, null);
-    assertThat(memories.loadForChat(uid, null).items())
-        .extracting(ChatMemory::expiresOn)
-        .containsExactly(null, "2026-10-24");
-    assertThat(memories.today()).isEqualTo("2026-10-14");
+    AiMemoryService.ChatMemories m = memories.loadForChat(uid, null);
+    assertThat(m.items()).extracting(AiMemoryLine::expiresOn).containsExactly(null, "2026-10-24");
+    // 유효 행을 고른 그 오늘을 함께 돌려준다 — 채팅이 다시 읽지 않아 자정을 걸쳐도 어긋나지 않는다.
+    assertThat(m.today()).isEqualTo("2026-10-14");
+  }
+
+  /**
+   * 설정 목록은 유효 행을 모두 싣고 만료 행은 최신 100개까지만 싣는다 — AI 가 짧은 기한 메모리를 많이 만들어 만료 행이 쌓여도(30일 동안 남는다) 그보다 오래된
+   * 유효 행이 목록에서 밀려나지 않는다(웹은 이 목록으로 범위별 개수·가득 참을 계산한다).
+   */
+  @Test
+  void 설정_목록은_유효_행을_모두_싣고_만료_행은_최신_100개까지만_싣는다() throws Exception {
+    long uid = TestFixtures.createHuman(dsl);
+    long oldActive = seed(uid, null, null);
+    long oldActiveIssue = seed(uid, "ISSUE", LocalDate.of(2026, 10, 20));
+    List<Long> expired = new java.util.ArrayList<>();
+    for (int i = 0; i < 520; i++) expired.add(seed(uid, null, LocalDate.of(2026, 10, 1)));
+
+    String body =
+        list(uid).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+    List<Integer> ids = com.jayway.jsonpath.JsonPath.read(body, "$.items[*].id");
+    List<Boolean> expiredFlags = com.jayway.jsonpath.JsonPath.read(body, "$.items[*].expired");
+
+    assertThat(ids).contains((int) oldActive, (int) oldActiveIssue);
+    assertThat(expiredFlags.stream().filter(Boolean::booleanValue).count()).isEqualTo(100);
+    // 만료 행은 최신 100개 — 가장 오래된 420개는 빠진다.
+    assertThat(ids.stream().map(Integer::longValue).filter(expired::contains).toList())
+        .containsExactlyInAnyOrderElementsOf(expired.subList(420, 520));
   }
 }

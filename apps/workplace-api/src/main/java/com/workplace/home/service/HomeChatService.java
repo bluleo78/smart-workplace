@@ -167,18 +167,7 @@ public class HomeChatService {
       String query,
       AiScreenContext screenContext,
       List<Long> fileIds) {
-    return startChat(callerId, sessionId, query, screenContext, fileIds, null);
-  }
-
-  /** 지금 화면 앱 없는 호출(기존 호출부·테스트 호환) — 공통 메모리만 주입한다. */
-  public HomeChatStartedResponse startChat(
-      long callerId,
-      UUID sessionId,
-      String query,
-      AiScreenContext screenContext,
-      List<Long> fileIds,
-      UUID correlationId) {
-    return startChat(callerId, sessionId, query, screenContext, fileIds, correlationId, null);
+    return startChat(callerId, sessionId, query, screenContext, fileIds, null, null);
   }
 
   /**
@@ -366,11 +355,11 @@ public class HomeChatService {
               sid.toString(),
               attachments,
               // WP-55·WP-379·WP-380: 공통 + 지금 앱 메모리 + 사용 여부(꺼짐·조회 실패면 빈 목록 + false) + 지금 화면 앱 + 서버
-              // 오늘(기한 계산 근거).
+              // 오늘(기한 계산 근거 — 메모리를 고른 그 날짜, 꺼짐이면 null).
               memories.items(),
               memories.enabled(),
               memoryApp,
-              memoryService.today());
+              memories.today());
       chatClient.composeStream(
           req,
           // delta: 블록 순서 기록 + 즉시 발행(done 본문은 ai-agent 가 준 fullText, 부분 저장은 누적 텍스트).

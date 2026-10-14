@@ -20,12 +20,6 @@ public final class UpdateAiMemoryRequest {
   /** Jackson 역직렬화용. */
   public UpdateAiMemoryRequest() {}
 
-  /** 내용·종류만 고치는 요청(서비스 호환 오버로드·테스트). */
-  public UpdateAiMemoryRequest(String content, String kind) {
-    this.content = content;
-    this.kind = kind;
-  }
-
   @JsonProperty("content")
   public void setContent(String content) {
     this.content = content;

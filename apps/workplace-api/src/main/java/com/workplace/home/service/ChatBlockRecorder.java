@@ -67,7 +67,7 @@ class ChatBlockRecorder {
    * 의 고치기 전 종류 — 있으면 되돌리기가 종류도 돌려놓는다(없으면 JSON 에서 빠지고 지금 종류를 유지한다).
    *
    * <p>WP-379: scope(결과의 범위)·previousScope(updated 의 이전 범위)는 앱 범위일 때만 남는다 — null 은 공통이라 JSON 에서
-   * 빠지고, 필드가 없는 구 블록과 같은 해석이 된다(판정 6).
+   * 빠지고, 필드가 없는 구 블록과 같은 해석(공통)이 된다.
    *
    * <p>WP-380: expiresOn·previousExpiresOn(yyyy-MM-dd, 없으면 빠짐 = 기한 없음 — 구 블록과 같은 해석).
    */
@@ -94,8 +94,8 @@ class ChatBlockRecorder {
 
     /**
      * tool 이벤트의 memory 필드 → 블록. 모양이 틀리면 null(결과 줄을 만들지 않는다). updated 는 되돌릴 이전 내용(공백만은 안 됨)이 있어야 하고,
-     * source 가 없으면 AI(판정 7). previousKind 는 updated 이고 알려진 종류일 때만 남긴다(모르는 값은 버리고 줄은 만든다). 범위는
-     * 없거나(공통) 앱 6개 중 하나여야 한다 — 모르는 범위면 되돌리기가 엉뚱한 범위로 복원하므로 줄을 만들지 않는다.
+     * source 가 없으면 AI 로 본다(메모리 도구 결과는 AI 대행 저장이 기본이다). previousKind 는 updated 이고 알려진 종류일 때만 남긴다(모르는
+     * 값은 버리고 줄은 만든다). 범위는 없거나(공통) 앱 6개 중 하나여야 한다 — 모르는 범위면 되돌리기가 엉뚱한 범위로 복원하므로 줄을 만들지 않는다.
      */
     static Memory from(JsonNode m) {
       if (m == null || !m.isObject()) return null;

@@ -1,7 +1,7 @@
 package com.workplace.home.outbound;
 
-import com.fasterxml.jackson.annotation.JsonInclude;
 import com.workplace.fileai.dto.ExtractionInfo;
+import com.workplace.global.ai.AiMemoryLine;
 import com.workplace.home.dto.AiScreenContext;
 import com.workplace.home.dto.HomeAttachment;
 import java.util.List;
@@ -38,112 +38,13 @@ public final class ChatMessages {
       /** WP-234: 세션 전체 첨부(요약 경계 이전 메시지 포함, 매 턴 DB 에서). 없으면 빈 배열. */
       List<ChatAttachment> attachments,
       /** WP-55·WP-379: 공통 + 지금 앱 메모리(범위마다 최신 50, 합쳐 최신순). 꺼짐·조회 실패면 빈 배열. */
-      List<ChatMemory> memories,
+      List<AiMemoryLine> memories,
       /** WP-55: 메모리 사용 여부. false 면 ai-agent 가 "메모리 꺼짐" 한 줄만 넣어 메모리 도구를 쓰지 않게 한다. */
       boolean memoryEnabled,
       /** WP-379: 지금 화면 앱(ISSUE·WIKI·…, 없으면 null) — 블록의 "지금 화면" 안내. 주입 필터는 API 가 이미 했다. */
       String app,
-      /** WP-380: 서버 오늘(Asia/Seoul, yyyy-MM-dd) — 블록의 "오늘:" 줄과 AI 의 기한 계산 근거. 구 호출은 null. */
-      String today) {
-
-    /** app 없는 호출(기존 테스트 호환) — 지금 화면 앱 없음. */
-    public ChatRequest(
-        String query,
-        List<ContextMessage> recentContext,
-        long assistantAgentId,
-        long userId,
-        Long tenantId,
-        String model,
-        String thinkingDepth,
-        int maxTurns,
-        int timeoutMs,
-        AiScreenContext screenContext,
-        String contextSummary,
-        String sessionId,
-        List<ChatAttachment> attachments,
-        List<ChatMemory> memories,
-        boolean memoryEnabled) {
-      this(
-          query,
-          recentContext,
-          assistantAgentId,
-          userId,
-          tenantId,
-          model,
-          thinkingDepth,
-          maxTurns,
-          timeoutMs,
-          screenContext,
-          contextSummary,
-          sessionId,
-          attachments,
-          memories,
-          memoryEnabled,
-          null,
-          null);
-    }
-
-    /** today 없는 호출(WP-379 호출부·테스트 호환). */
-    public ChatRequest(
-        String query,
-        List<ContextMessage> recentContext,
-        long assistantAgentId,
-        long userId,
-        Long tenantId,
-        String model,
-        String thinkingDepth,
-        int maxTurns,
-        int timeoutMs,
-        AiScreenContext screenContext,
-        String contextSummary,
-        String sessionId,
-        List<ChatAttachment> attachments,
-        List<ChatMemory> memories,
-        boolean memoryEnabled,
-        String app) {
-      this(
-          query,
-          recentContext,
-          assistantAgentId,
-          userId,
-          tenantId,
-          model,
-          thinkingDepth,
-          maxTurns,
-          timeoutMs,
-          screenContext,
-          contextSummary,
-          sessionId,
-          attachments,
-          memories,
-          memoryEnabled,
-          app,
-          null);
-    }
-  }
-
-  /**
-   * ai-agent 로 보내는 메모리 1건(WP-55) — 블록의 "#id" 가 메모리 도구의 memoryId 다. scope(WP-379)·expiresOn(WP-380,
-   * yyyy-MM-dd 문자열 — 이 클라이언트들은 java.time 모듈 없는 ObjectMapper 로 직렬화한다)은 있을 때만 싣는다(null → JSON 에서 빠져 구
-   * ai-agent 와 같은 모양).
-   */
-  public record ChatMemory(
-      long id,
-      String kind,
-      String content,
-      @JsonInclude(JsonInclude.Include.NON_NULL) String scope,
-      @JsonInclude(JsonInclude.Include.NON_NULL) String expiresOn) {
-
-    /** 공통·기한 없음(기존 호출부·테스트 호환). */
-    public ChatMemory(long id, String kind, String content) {
-      this(id, kind, content, null, null);
-    }
-
-    /** 기한 없음(WP-379 호출부·테스트 호환). */
-    public ChatMemory(long id, String kind, String content, String scope) {
-      this(id, kind, content, scope, null);
-    }
-  }
+      /** WP-380: 서버 오늘(Asia/Seoul, yyyy-MM-dd) — 블록의 "오늘:" 줄과 AI 의 기한 계산 근거. */
+      String today) {}
 
   /**
    * ai-agent 로 보내는 세션 첨부 한 건(WP-234). current = 이번 턴 USER 메시지에 붙은 파일. java.time 타입을 두지 않는다 —

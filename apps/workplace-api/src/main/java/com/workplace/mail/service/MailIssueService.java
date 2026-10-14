@@ -2,6 +2,7 @@ package com.workplace.mail.service;
 
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
+import com.workplace.global.ai.AiMemoryReader;
 import com.workplace.issue.dto.CreateIssueRequest;
 import com.workplace.issue.dto.IssueResponse;
 import com.workplace.issue.repository.IssueRepository;
@@ -49,6 +50,9 @@ public class MailIssueService {
   private final ProjectService projectService;
   private final MailChangeNotifier notifier;
 
+  /** WP-381: 메일 → 이슈 초안에 싣는 읽기 전용 메모리(공통 + 메일 — 이슈 범위 메모리는 싣지 않는다). */
+  private final AiMemoryReader memoryReader;
+
   /**
    * 짧은-트랜잭션용 TransactionTemplate — @Primary {@code TenantAwareTransactionManager} 로 구성해 트랜잭션 진입 시
    * RLS GUC(app.tenant_id) 가 주입된다.
@@ -63,7 +67,8 @@ public class MailIssueService {
       AssistantResolver assistantResolver,
       ProjectService projectService,
       MailChangeNotifier notifier,
-      PlatformTransactionManager txManager) {
+      PlatformTransactionManager txManager,
+      AiMemoryReader memoryReader) {
     this.issueService = issueService;
     this.issueRepository = issueRepository;
     this.messageRepo = messageRepo;
@@ -72,6 +77,7 @@ public class MailIssueService {
     this.projectService = projectService;
     this.notifier = notifier;
     this.txTemplate = new TransactionTemplate(txManager);
+    this.memoryReader = memoryReader;
   }
 
   /**
@@ -158,7 +164,8 @@ public class MailIssueService {
                 spec.agentUserId(),
                 spec.model(),
                 MAX_TURNS,
-                spec.timeoutMs()));
+                spec.timeoutMs(),
+                memoryReader.readForEntry(callerId, AiMemoryReader.MAIL)));
 
     // AI 추천 projectKey 가 후보에 없으면 무시(null) — 프론트가 개인 프로젝트로 폴백.
     String suggested =

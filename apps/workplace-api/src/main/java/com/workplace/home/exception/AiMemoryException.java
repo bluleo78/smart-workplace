@@ -86,8 +86,8 @@ public class AiMemoryException extends RuntimeException {
   }
 
   /**
-   * 응답 errors — code 가 첫 값이다(웹 handleApiError 는 errors 의 첫 값을 토스트로 쓴다). FULL 이면 scope 를 더한다(판정 7 —
-   * Map.of 는 null 을 못 받으므로 순서 있는 맵으로 만든다).
+   * 응답 errors — code 가 첫 값이다(웹 handleApiError 는 errors 의 첫 값을 토스트로 쓴다). FULL 이면 scope 를 더한다(Map.of
+   * 는 null 을 못 받으므로 순서 있는 맵으로 만든다).
    */
   public Map<String, String> errors() {
     Map<String, String> m = new LinkedHashMap<>();

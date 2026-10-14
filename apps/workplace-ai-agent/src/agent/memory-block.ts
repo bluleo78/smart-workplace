@@ -127,3 +127,38 @@ export function formatMemoryBlock(
 export function subagentMemorySuffix(block: string, enabled: boolean | null | undefined, hasItems: boolean): string {
   return enabled === true && hasItems && block ? `\n\n${block}` : '';
 }
+
+/**
+ * 요청 본문 memories → 유효 항목 + 버린 개수(WP-55 판정: 항목은 하나씩 검증해 틀린 것만 버린다 — 나중에 API 가 새 종류·범위를 더해도 요청 전체가
+ * 400 이 되지 않게). 홈 채팅과 읽기 전용 진입점이 같은 규칙을 쓴다.
+ */
+export function parseMemoryItems(raw: readonly unknown[] | null | undefined): { items: MemoryItem[]; dropped: number } {
+  const list = raw ?? [];
+  const items = list.flatMap((item) => {
+    const r = memoryItemSchema.safeParse(item);
+    return r.success ? [r.data] : [];
+  });
+  return { items, dropped: list.length - items.length };
+}
+
+/** 읽기 전용 진입점 스키마 필드(WP-381) — 구 API 는 생략(빈 배열), 배열이 아니면 400, 항목은 하나씩 거른다. */
+export const readOnlyMemoriesField = z
+  .array(z.unknown())
+  .nullish()
+  .transform((v) => parseMemoryItems(v).items);
+
+/**
+ * 홈 AI 비서 밖 진입점(노트 작성·메일 초안·드라이브 개요·채널 따라잡기)의 읽기 전용 메모리 블록(WP-381) — 홈 채팅과 같은 헤더·안내·줄 형식.
+ * 저장 도구가 없으니 꺼짐 줄·지금 화면·오늘 줄은 싣지 않는다(API 가 그 앱 + 공통만 골라 보낸다). 비면 ''.
+ */
+export function formatReadOnlyMemoryBlock(memories: readonly MemoryItem[] | null | undefined): string {
+  if (!memories?.length) return '';
+  const refYear = seoulYear();
+  return [MEMORY_BLOCK_HEADER, MEMORY_BLOCK_INTRO, ...memories.map((m) => memoryLine(m, refYear))].join('\n');
+}
+
+/** 요청문 맨 앞에 읽기 전용 블록을 붙인다(블록이 없으면 요청문 그대로) — 시스템 프롬프트는 건드리지 않는다(캐시·권한 분리). */
+export function withReadOnlyMemory(memories: readonly MemoryItem[] | null | undefined, userMessage: string): string {
+  const block = formatReadOnlyMemoryBlock(memories);
+  return block ? `${block}\n\n${userMessage}` : userMessage;
+}

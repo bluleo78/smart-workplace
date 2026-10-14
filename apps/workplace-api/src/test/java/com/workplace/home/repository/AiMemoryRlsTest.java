@@ -2,8 +2,11 @@ package com.workplace.home.repository;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.workplace.home.AiMemoryTestFixtures;
+import com.workplace.home.repository.AiMemoryRepository.NewMemory;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
+import java.time.LocalDate;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -26,12 +29,18 @@ class AiMemoryRlsTest extends IntegrationTestBase {
               long tid2 = TestFixtures.createTenant(dsl, "ACTIVE");
               long uid = TestFixtures.createHuman(dsl);
               setGuc(tid2);
-              long id = repo.insert(uid, "PREFERENCE", "테넌트2 메모리", "USER", null).id();
-              assertThat(repo.count(uid)).isEqualTo(1);
+              long id =
+                  repo.insert(
+                          uid, new NewMemory("PREFERENCE", "테넌트2 메모리", "USER", null, null, null))
+                      .id();
+              assertThat(AiMemoryTestFixtures.countMemories(dsl, uid)).isEqualTo(1);
 
               setGuc(1L);
-              assertThat(repo.listNewest(uid, 50)).isEmpty();
-              assertThat(repo.count(uid)).isZero();
+              // 실제 조회·한도 쿼리도 RLS 로 0행이어야 한다.
+              LocalDate today = LocalDate.now();
+              assertThat(repo.listActive(uid, today)).isEmpty();
+              assertThat(repo.countInScope(uid, null, today)).isZero();
+              assertThat(AiMemoryTestFixtures.countMemories(dsl, uid)).isZero();
               assertThat(repo.lock(uid, id)).isEmpty();
               assertThat(repo.delete(uid, id)).isEmpty();
 

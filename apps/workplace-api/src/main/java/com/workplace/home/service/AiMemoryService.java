@@ -1,13 +1,14 @@
 package com.workplace.home.service;
 
+import com.workplace.global.ai.AiMemoryLine;
 import com.workplace.global.util.TokenEstimates;
 import com.workplace.home.dto.AiMemoryItem;
 import com.workplace.home.dto.AiMemoryListResponse;
 import com.workplace.home.dto.CreateAiMemoryRequest;
 import com.workplace.home.dto.UpdateAiMemoryRequest;
 import com.workplace.home.exception.AiMemoryException;
-import com.workplace.home.outbound.ChatMessages.ChatMemory;
 import com.workplace.home.repository.AiMemoryRepository;
+import com.workplace.home.repository.AiMemoryRepository.NewMemory;
 import com.workplace.home.repository.AiMemoryRepository.Row;
 import com.workplace.home.repository.HomeSessionRepository;
 import com.workplace.user.service.AiPreferenceService;
@@ -41,8 +42,11 @@ public class AiMemoryService {
   /** 범위(공통 또는 앱 하나)마다 상한 — WP-379. 응답 limit 도 이 값("범위마다")이다. 매 턴 공통 + 지금 앱 최대 100개를 주입한다. */
   static final int LIMIT = 50;
 
-  /** 설정 목록 최대 행 — 범위 7개 × 50 + 만료 행 여유(판정 3). 목록이 이보다 길면 오래된 것부터 빠진다. */
-  static final int LIST_CAP = 500;
+  /**
+   * 설정 목록에 싣는 만료 행 최대 개수(최신순). 만료 행은 한도가 없고 정리 배치가 지우기 전 30일 동안 남아, AI 가 짧은 기한 메모리를 많이 만들면 끝없이 쌓일 수
+   * 있다 — 유효 행(범위마다 50 이하)은 모두 싣고 만료 행만 이 수로 자른다. 오래된 만료 행은 목록에서만 빠지고 곧 지워진다.
+   */
+  static final int EXPIRED_LIST_CAP = 100;
 
   /** 내용 최대 길이(코드포인트). DB VARCHAR(300) 과 같다. */
   static final int MAX_CHARS = 300;
@@ -70,13 +74,17 @@ public class AiMemoryService {
   private final HomeSessionRepository sessionRepo;
   private final AiMemoryClock clock;
 
-  /** 본인 메모리 목록(범위 무관 최신순, 최대 LIST_CAP, 만료 행 포함 — expired 표시) + 범위마다 상한 — 웹이 범위별로 묶는다. */
+  /**
+   * 본인 메모리 목록(범위 무관 최신순) + 범위마다 상한 — 웹이 범위별로 묶어 개수·가득 참을 센다. 유효 행은 모두, 만료 행(expired 표시)은 최신
+   * EXPIRED_LIST_CAP 개까지 — 만료 행이 상한을 나눠 써서 오래된 유효 행이 빠지면 웹의 범위별 개수가 틀린다.
+   */
   @Transactional(readOnly = true)
   public AiMemoryListResponse list(long userId) {
     LocalDate today = clock.today();
-    return new AiMemoryListResponse(
-        repo.listNewest(userId, LIST_CAP).stream().map(r -> toItem(r, null, today)).toList(),
-        LIMIT);
+    List<Row> rows = new ArrayList<>(repo.listActive(userId, today));
+    rows.addAll(repo.listExpired(userId, today, EXPIRED_LIST_CAP));
+    rows.sort(NEWEST_FIRST);
+    return new AiMemoryListResponse(rows.stream().map(r -> toItem(r, null, today)).toList(), LIMIT);
   }
 
   /**
@@ -94,19 +102,10 @@ public class AiMemoryService {
     String scope = requireScope(req.scope());
     LocalDate today = clock.today();
     LocalDate expiresOn = parseExpiresOn(req.expiresOn(), today);
-    return toItem(
-        insertChecked(
-            userId,
-            req.kind(),
-            req.content(),
-            ai ? SOURCE_AI : SOURCE_USER,
-            session,
-            null,
-            scope,
-            expiresOn,
-            today),
-        null,
-        today);
+    NewMemory m =
+        new NewMemory(
+            req.kind(), req.content(), ai ? SOURCE_AI : SOURCE_USER, session, scope, expiresOn);
+    return toItem(insertChecked(userId, m, null, today), null, today);
   }
 
   /**
@@ -138,12 +137,6 @@ public class AiMemoryService {
     return toItem(saved, cur, today);
   }
 
-  /** 내용·종류만 고치는 호출(기존 호출부·테스트 호환) — 범위는 그대로. */
-  @Transactional
-  public AiMemoryItem update(long userId, long id, String content, String kind, boolean internal) {
-    return update(userId, id, new UpdateAiMemoryRequest(content, kind), internal);
-  }
-
   /** 지우기 — 대행이면 꺼짐 409. 지운 항목을 돌려준다(forget_memory 결과·설정 "되돌리기" 토스트 근거 — 범위 포함). */
   @Transactional
   public AiMemoryItem delete(long userId, long id, boolean internal) {
@@ -172,19 +165,8 @@ public class AiMemoryService {
       String expiresOn) {
     String s = SOURCE_AI.equals(source) ? SOURCE_AI : SOURCE_USER;
     LocalDate today = clock.today();
-    return toItem(
-        insertChecked(
-            userId,
-            kind,
-            content,
-            s,
-            null,
-            memoryId,
-            requireScope(scope),
-            dateOrNull(expiresOn),
-            today),
-        null,
-        today);
+    NewMemory m = new NewMemory(kind, content, s, null, requireScope(scope), dateOrNull(expiresOn));
+    return toItem(insertChecked(userId, m, memoryId, today), null, today);
   }
 
   /** 되돌리기용 삭제(saved) — 이미 없으면 false(그대로 진행). */
@@ -269,31 +251,27 @@ public class AiMemoryService {
   /**
    * 검증 → 사용자 잠금 → (유효로 들어가면) 그 범위 유효 개수 상한 → 저장(preferredId 가 있으면 그 id 를 먼저 시도). 잠금을 먼저 잡아야 동시 요청 두
    * 건이 모두 49개를 보고 51개가 되는 일을 막는다(READ COMMITTED 에서 잠금 뒤 count 는 앞 요청의 커밋을 본다). 만료 상태로 다시 만드는 되살리기는
-   * 한도에 들지 않는다.
+   * 한도에 들지 않는다. 범위·기한은 호출자가 이미 검증했고, 종류·내용은 여기서 검증·정리한다.
    */
-  Row insertChecked(
-      long userId,
-      String kind,
-      String content,
-      String source,
-      UUID sessionId,
-      Long preferredId,
-      String scope,
-      LocalDate expiresOn,
-      LocalDate today) {
-    String k = requireKind(kind);
-    String c = normalizeContent(content);
+  Row insertChecked(long userId, NewMemory raw, Long preferredId, LocalDate today) {
+    NewMemory m =
+        new NewMemory(
+            requireKind(raw.kind()),
+            normalizeContent(raw.content()),
+            raw.source(),
+            raw.sessionId(),
+            raw.scope(),
+            raw.expiresOn());
     repo.lockUser(userId);
-    if (isActive(expiresOn, today) && repo.countInScope(userId, scope, today) >= LIMIT) {
-      throw AiMemoryException.full(scope);
+    if (isActive(m.expiresOn(), today) && repo.countInScope(userId, m.scope(), today) >= LIMIT) {
+      throw AiMemoryException.full(m.scope());
     }
     // 되살리기(preferredId)는 원래 id 를 먼저 시도하고, 쓸 수 없으면 새 id 로 만든다.
     if (preferredId != null) {
-      Optional<Row> same =
-          repo.insertWithId(preferredId, userId, k, c, source, sessionId, scope, expiresOn);
+      Optional<Row> same = repo.insertWithId(preferredId, userId, m);
       if (same.isPresent()) return same.get();
     }
-    return repo.insert(userId, k, c, source, sessionId, scope, expiresOn);
+    return repo.insert(userId, m);
   }
 
   /** 앞뒤 공백 제거 후 1~300 코드포인트인지 — 넘으면 자르지 않고 400(뜻이 바뀌므로). */
@@ -348,7 +326,9 @@ public class AiMemoryService {
    * 500 이고 그 아래면 저장돼도 웹 날짜 표기·ai-agent 주입(같은 정규식)에서 빠지므로 여기서 400 으로 막는다. 없는 날짜(2026-02-30)도 400.
    */
   private static LocalDate strictDate(String raw) {
-    if (!isStrictDate(raw)) throw invalidDate();
+    if (!isStrictDate(raw)) {
+      throw AiMemoryException.invalid("기한은 yyyy-MM-dd 형식의 실제 날짜여야 해요");
+    }
     return LocalDate.parse(raw);
   }
 
@@ -364,15 +344,6 @@ public class AiMemoryService {
     } catch (DateTimeParseException e) {
       return false;
     }
-  }
-
-  private static AiMemoryException invalidDate() {
-    return AiMemoryException.invalid("기한은 yyyy-MM-dd 형식의 실제 날짜여야 해요");
-  }
-
-  /** 서버 오늘(Asia/Seoul, yyyy-MM-dd) — ChatRequest.today(블록의 오늘 줄·기한 계산 근거). */
-  public String today() {
-    return clock.today().toString();
   }
 
   /** 저장 행 → 응답 항목. before 가 있으면(고치기·고침 복원) 이전 내용·종류·범위·기한을 싣는다. expired 는 today 기준. */
@@ -393,10 +364,15 @@ public class AiMemoryService {
         before == null ? null : before.expiresOn());
   }
 
-  /** 채팅 주입용 메모리 묶음(WP-55). */
-  public record ChatMemories(boolean enabled, List<ChatMemory> items) {
+  /**
+   * 채팅 주입용 메모리 묶음(WP-55).
+   *
+   * @param today 이 묶음을 고른 서버 오늘(Asia/Seoul, yyyy-MM-dd) — ChatRequest.today(블록의 오늘 줄·기한 계산 근거)로 그대로
+   *     보낸다. 유효 행을 고른 날짜와 같은 값이라 자정을 걸친 턴에서도 어긋나지 않는다. 꺼짐이면 null(ai-agent 는 꺼짐이면 오늘을 쓰지 않는다)
+   */
+  public record ChatMemories(boolean enabled, List<AiMemoryLine> items, String today) {
     /** 꺼짐(빈 목록) — 사용자가 끈 경우와 조회 실패(판정 10 — 켜짐 + 빈 목록이면 AI 가 있는 메모리를 모른 채 중복 저장한다)가 함께 쓴다. */
-    public static final ChatMemories DISABLED = new ChatMemories(false, List.of());
+    public static final ChatMemories DISABLED = new ChatMemories(false, List.of(), null);
   }
 
   /**
@@ -415,7 +391,7 @@ public class AiMemoryService {
   /** 줄마다 붙는 "- [#123 선호] " 접두 근사 토큰. */
   static final int LINE_OVERHEAD_TOKENS = 12;
 
-  /** 주입 순서 — updated_at 최신순, 같으면 id 큰 것 먼저(listNewest 와 같은 규칙). */
+  /** 주입·설정 목록 순서 — updated_at 최신순, 같으면 id 큰 것 먼저(저장소 조회와 같은 규칙). */
   private static final Comparator<Row> NEWEST_FIRST =
       Comparator.comparing(Row::updatedAt, Comparator.<Instant>reverseOrder())
           .thenComparing(Row::id, Comparator.<Long>reverseOrder());
@@ -424,22 +400,23 @@ public class AiMemoryService {
    * 매 채팅 턴 주입할 메모리(WP-379) — 꺼져 있으면 빈 목록 + enabled=false. 켜져 있으면 공통 + app 범위를 범위마다 유효(만료 안 된) 행 중
    * 최신 50개씩 읽어(인덱스 각 1회) 합친 뒤 최신순으로(최대 100개). 펌프 스레드·다른 진입점에서 불리며 테넌트는 TenantContext 가 정한다.
    *
-   * @param app 지금 화면 앱 — null·모르는 값이면 공통만(판정 12)
+   * @param app 지금 화면 앱 — 호출자가 이미 거른 앱 코드(홈 채팅은 startChat 의 {@link AiMemoryScope#appOrNull}, 다른 진입점은
+   *     AiMemoryReader 상수). null 이면 공통만
    */
   @Transactional(readOnly = true)
   public ChatMemories loadForChat(long userId, String app) {
     if (!preferences.memoryEnabled(userId)) return ChatMemories.DISABLED;
     LocalDate today = clock.today();
     List<Row> rows = new ArrayList<>(repo.listInScope(userId, null, LIMIT, today));
-    String a = AiMemoryScope.appOrNull(app);
-    if (a != null) rows.addAll(repo.listInScope(userId, a, LIMIT, today));
+    if (app != null) rows.addAll(repo.listInScope(userId, app, LIMIT, today));
     rows.sort(NEWEST_FIRST);
-    return new ChatMemories(true, rows.stream().map(AiMemoryService::toChatMemory).toList());
+    return new ChatMemories(
+        true, rows.stream().map(AiMemoryService::toMemoryLine).toList(), today.toString());
   }
 
   /** 저장 행 → ai-agent 로 보내는 메모리(범위·기한 포함 — 블록 줄의 "선호·이슈"·"(10/24까지)" 표기). */
-  static ChatMemory toChatMemory(Row r) {
-    return new ChatMemory(
+  static AiMemoryLine toMemoryLine(Row r) {
+    return new AiMemoryLine(
         r.id(),
         r.kind(),
         r.content(),
@@ -455,7 +432,7 @@ public class AiMemoryService {
     if (!memories.enabled()) return 0;
     if (memories.items().isEmpty()) return EMPTY_BLOCK_TOKENS;
     int sum = BLOCK_HEADER_TOKENS;
-    for (ChatMemory m : memories.items()) {
+    for (AiMemoryLine m : memories.items()) {
       sum += TokenEstimates.estimate(m.content()) + LINE_OVERHEAD_TOKENS;
     }
     return sum;

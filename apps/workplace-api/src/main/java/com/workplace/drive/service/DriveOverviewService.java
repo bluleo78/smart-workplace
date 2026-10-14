@@ -5,6 +5,8 @@ import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.drive.outbound.DriveOverviewStreamClient;
 import com.workplace.drive.repository.DriveExcerptRepository;
+import com.workplace.global.ai.AiMemoryLine;
+import com.workplace.global.ai.AiMemoryReader;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.realtime.StreamingGenerationRegistry;
 import java.io.InterruptedIOException;
@@ -43,6 +45,9 @@ public class DriveOverviewService {
   private final StreamingGenerationRegistry registry;
   private final SseRegistry sseRegistry;
 
+  /** WP-381: 드라이브 개요에 싣는 읽기 전용 메모리(공통 + 드라이브). */
+  private final AiMemoryReader memoryReader;
+
   /**
    * 발췌 조회를 트랜잭션으로 감싸 RLS GUC 를 주입하기 위한 읽기전용 TransactionTemplate.
    *
@@ -59,7 +64,8 @@ public class DriveOverviewService {
       @Qualifier("driveOverviewStreamExecutor") AsyncTaskExecutor executor,
       PlatformTransactionManager txManager,
       StreamingGenerationRegistry registry,
-      SseRegistry sseRegistry) {
+      SseRegistry sseRegistry,
+      AiMemoryReader memoryReader) {
     this.search = search;
     this.excerpts = excerpts;
     this.assistantResolver = assistantResolver;
@@ -69,6 +75,7 @@ public class DriveOverviewService {
     this.txTemplate.setReadOnly(true);
     this.registry = registry;
     this.sseRegistry = sseRegistry;
+    this.memoryReader = memoryReader;
   }
 
   /**
@@ -96,8 +103,11 @@ public class DriveOverviewService {
                     .filter(e -> e.text() != null && !e.text().isBlank())
                     .toList());
 
+    // WP-381: 공통 + 드라이브 메모리(읽기 전용, 실패해도 빈 목록).
+    List<AiMemoryLine> memories = memoryReader.readForEntry(callerId, AiMemoryReader.DRIVE);
     AgentBody body =
-        new AgentBody(q, ex, spec.agentUserId(), spec.model(), spec.maxTurns(), spec.timeoutMs());
+        new AgentBody(
+            q, ex, spec.agentUserId(), spec.model(), spec.maxTurns(), spec.timeoutMs(), memories);
 
     // 4) 펌프를 레지스트리에 등록 — correlationId 는 클로저로 각 이벤트 payload 에 실린다.
     return registry.start(
@@ -163,7 +173,9 @@ public class DriveOverviewService {
       long assistantAgentId,
       String model,
       int maxTurns,
-      int timeoutMs) {}
+      int timeoutMs,
+      /** WP-381: 공통 + 드라이브 메모리. null 이면 생략. */
+      List<AiMemoryLine> memories) {}
 
   /** 발췌 1건(파일명 + 텍스트). */
   record Excerpt(String name, String text) {}

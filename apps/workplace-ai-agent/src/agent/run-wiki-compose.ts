@@ -3,6 +3,7 @@
 // (1) includePartialMessages:true 로 partial text_delta 수신, (2) 각 라인을 즉시 onDelta 로 흘림.
 // kill 전파: 상위(라우트)가 연결 종료 시 AbortSignal → handle.kill() 로 query interrupt.
 import { runnerFor } from './agent-runner.js';
+import { withReadOnlyMemory } from './memory-block.js';
 import { extractTextDelta } from './wiki-delta-parser.js';
 import { thinkingDirective } from './thinking.js';
 import { WIKI_SYSTEM_PROMPT, buildWikiUserMessage, type WikiComposeInput } from './wiki-prompt.js';
@@ -23,7 +24,8 @@ export async function runWikiCompose(
 
   const handle = runnerFor(credential).stream(
     {
-      userMessage: buildWikiUserMessage(input),
+      // WP-381: 읽기 전용 메모리 블록을 요청문 맨 앞에(시스템 프롬프트는 그대로).
+      userMessage: withReadOnlyMemory(input.memories, buildWikiUserMessage(input)),
       systemPrompt,
       // 우선순위: 요청 body(input.model) > redeem 응답(credential.model) > env/기본값.
       model: input.model ?? credential.model ?? process.env.WORKPLACE_AI_MODEL ?? DEFAULT_MODEL,
