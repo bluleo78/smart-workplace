@@ -48,7 +48,13 @@ public class AiMemorySelector {
   /** 검색 결과 — 꺼짐이면 enabled=false. */
   public record Found(boolean enabled, List<Row> rows) {}
 
-  private record Candidates(List<Row> rows, int activeTotal, LocalDate today) {}
+  /**
+   * 첫 읽기 결과.
+   *
+   * @param rows 후보 행 최신순 — 많고 질의가 있으면 null(순위 재료 조회가 읽는다)
+   * @param count 후보 수
+   */
+  private record Candidates(List<Row> rows, int count, int activeTotal, LocalDate today) {}
 
   private final AiPreferenceService preferences;
   private final AiMemoryClock clock;
@@ -92,23 +98,25 @@ public class AiMemorySelector {
       int tokenBudget,
       boolean isolated) {
     TransactionTemplate tx = isolated ? newTx : joinTx;
+    boolean blank = isBlank(queryText);
+    // 후보 수를 먼저 센다 — 적거나 질의가 비면 최신순 행을 여기서 읽고, 많고 질의가 있으면 행을 읽지 않는다(순위 재료 조회가 같은 행을 다시 읽지 않게).
     Candidates c =
         tx.execute(
             s -> {
               if (!preferences.memoryEnabled(userId)) return null;
               LocalDate today = clock.today();
-              return new Candidates(
-                  repo.listCandidates(userId, filter, today),
-                  repo.countActive(userId, today),
-                  today);
+              int count = repo.countCandidates(userId, filter, today);
+              List<Row> rows =
+                  count <= SMALL_SET || blank ? repo.listCandidates(userId, filter, today) : null;
+              return new Candidates(rows, count, repo.countActive(userId, today), today);
             });
     if (c == null) return Selection.DISABLED;
     List<Row> chosen;
-    if (c.rows().size() <= SMALL_SET) {
+    if (c.count() <= SMALL_SET) {
       chosen = pinnedFirst(c.rows());
     } else {
       List<Row> ordered =
-          isBlank(queryText)
+          blank
               ? c.rows()
               : rank(userId, filter, queryText.strip(), c.today(), embedWait, tx).stream()
                   .map(Ranked::row)

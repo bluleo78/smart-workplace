@@ -88,6 +88,18 @@ public class FakeTextEmbedder implements TextEmbedder {
         : Optional.empty();
   }
 
+  /**
+   * 두 텍스트의 기대 벡터 코사인 거리(1 − 내적, 벡터는 정규화돼 있다) — 의미 거리 상한(AiMemoryRanker.SEMANTIC_MAX_DISTANCE) 테스트가
+   * "가까운 것·먼 것" 전제를 먼저 단언해 해시 충돌로 우연히 통과하지 않게 한다.
+   */
+  public double distance(String a, String b) {
+    float[] x = expected(a);
+    float[] y = expected(b);
+    double dot = 0;
+    for (int i = 0; i < DIM; i++) dot += x[i] * y[i];
+    return 1 - dot;
+  }
+
   /** 켜짐·실패와 무관한 기대 벡터 — 테스트가 저장된 값과 비교하거나 직접 써 넣을 때 쓴다. */
   public float[] expected(String text) {
     float[] v = new float[DIM];

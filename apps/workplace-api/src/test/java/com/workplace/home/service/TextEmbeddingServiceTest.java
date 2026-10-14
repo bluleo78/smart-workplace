@@ -10,6 +10,8 @@ import com.workplace.support.FakeTextEmbedder;
 import com.workplace.support.FakeTextEmbedderConfig;
 import com.workplace.support.MemoryEmbeddingProbe;
 import com.workplace.support.TestFixtures;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.Executor;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -169,6 +171,29 @@ class TextEmbeddingServiceTest extends AiMemoryRaceTestSupport {
 
     assertThat(embeddingIs(ok, "정상 내용")).isTrue();
     assertThat(embeddingIs(poison, "워커가 거절하는 내용")).isFalse();
+  }
+
+  @Test
+  void 늘_실패하는_행이_연달아_있어도_다음_주기에는_다른_행을_먼저_채운다() {
+    long uid = user();
+    fake.setEnabled(false);
+    // 연속 실패 상한만큼의 독성 행이 정상 행보다 앞(id 오름차순)에 있다 — 예전엔 매 주기 여기서 멈춰 뒤 행(다른 테넌트 포함)을 영영 못 채웠다.
+    List<Long> poison = new ArrayList<>();
+    for (int i = 0; i < TextEmbeddingBackfillScheduler.MAX_CONSECUTIVE_FAILURES; i++) {
+      String text = "워커가 거절하는 내용 " + i;
+      poison.add(create(uid, text));
+      fake.failOn(text);
+    }
+    long ok = create(uid, "정상 내용");
+    fake.setEnabled(true);
+
+    // 한 주기가 멈추면 0 을 돌려주므로 "> 0 인 동안" 이 아니라 정상 행이 채워질 때까지(최대 20 주기) 돌린다.
+    for (int i = 0; i < 20 && !embeddingIs(ok, "정상 내용"); i++) backfill.backfillOnce();
+
+    assertThat(embeddingIs(ok, "정상 내용")).isTrue();
+    for (int i = 0; i < poison.size(); i++) {
+      assertThat(embeddingIs(poison.get(i), "워커가 거절하는 내용 " + i)).isFalse();
+    }
   }
 
   @Test

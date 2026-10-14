@@ -581,7 +581,7 @@ class MailAiServiceTest extends IntegrationTestBase {
     long userId = TestFixtures.createHuman(dsl);
     long accountId = createAccount(userId, "mem@test.local", true);
     List<AiMemoryLine> lines =
-        List.of(new AiMemoryLine(5L, "PREFERENCE", "메일은 존댓말로", "MAIL", null));
+        List.of(new AiMemoryLine(5L, "PREFERENCE", "메일은 존댓말로", "MAIL", null, null));
     when(memoryReader.readForEntry(userId, AiMemoryReader.MAIL, null)).thenReturn(lines);
     when(mailClient.coachDraft(any())).thenReturn(new DraftCoachingResult(List.of(), "<p>개선</p>"));
 
@@ -602,7 +602,7 @@ class MailAiServiceTest extends IntegrationTestBase {
     long folderId = folderRepo.ensureFolder(accountId, "INBOX").id();
     long msgId = insertMessage(accountId, folderId, "mem-msg-1@test.local", "mem-thread-1");
     List<AiMemoryLine> lines =
-        List.of(new AiMemoryLine(5L, "PREFERENCE", "메일은 존댓말로", "MAIL", null));
+        List.of(new AiMemoryLine(5L, "PREFERENCE", "메일은 존댓말로", "MAIL", null, null));
     when(memoryReader.readForEntry(userId, AiMemoryReader.MAIL, "테스트 제목")).thenReturn(lines);
     when(mailClient.replyDraft(any())).thenReturn(new ReplyDraftResult("초안"));
 
@@ -622,7 +622,7 @@ class MailAiServiceTest extends IntegrationTestBase {
     long folderId = folderRepo.ensureFolder(accountId, "INBOX").id();
     long msgId = insertMessage(accountId, folderId, "mem-msg-3@test.local", "mem-thread-3");
     List<AiMemoryLine> lines =
-        List.of(new AiMemoryLine(5L, "PREFERENCE", "메일은 존댓말로", "MAIL", null));
+        List.of(new AiMemoryLine(5L, "PREFERENCE", "메일은 존댓말로", "MAIL", null, null));
     when(memoryReader.readForEntry(userId, AiMemoryReader.MAIL, "테스트 제목")).thenReturn(lines);
     when(mailClient.coachDraft(any())).thenReturn(new DraftCoachingResult(List.of(), "<p>개선</p>"));
 
@@ -653,7 +653,7 @@ class MailAiServiceTest extends IntegrationTestBase {
                 });
     try {
       List<AiMemoryLine> lines =
-          List.of(new AiMemoryLine(5L, "PREFERENCE", "메일은 존댓말로", "MAIL", null));
+          List.of(new AiMemoryLine(5L, "PREFERENCE", "메일은 존댓말로", "MAIL", null, null));
       AtomicReference<Boolean> txActiveAtRead = new AtomicReference<>();
       when(memoryReader.readForEntry(ids[0], AiMemoryReader.MAIL, null))
           .thenAnswer(

@@ -205,7 +205,8 @@ class ChannelCatchupServiceTest extends IntegrationTestBase {
     long m1 = postByB(channelId, "배포 일정 공유합니다", null);
     long since = m1 - 1;
     when(memoryReader.readForEntry(callerA, AiMemoryReader.MESSAGING, null))
-        .thenReturn(List.of(new AiMemoryLine(1L, "PREFERENCE", "요약은 세 줄로", "MESSAGING", null)));
+        .thenReturn(
+            List.of(new AiMemoryLine(1L, "PREFERENCE", "요약은 세 줄로", "MESSAGING", null, null)));
     when(catchupClient.summarize(any()))
         .thenReturn(new CatchupSummarizeResult(List.of(), List.of()));
 
@@ -244,9 +245,9 @@ class ChannelCatchupServiceTest extends IntegrationTestBase {
     long channelId = seedChannelWithMembers();
     long m1 = postByB(channelId, "회의록 올렸어요", null);
     when(memoryReader.readForEntry(callerA, AiMemoryReader.MESSAGING, null))
-        .thenReturn(List.of(new AiMemoryLine(1L, "PREFERENCE", "요약은 세 줄로", null, null)));
+        .thenReturn(List.of(new AiMemoryLine(1L, "PREFERENCE", "요약은 세 줄로", null, null, null)));
     when(memoryReader.readForEntry(userC, AiMemoryReader.MESSAGING, null))
-        .thenReturn(List.of(new AiMemoryLine(2L, "PREFERENCE", "요약은 표로", null, null)));
+        .thenReturn(List.of(new AiMemoryLine(2L, "PREFERENCE", "요약은 표로", null, null, null)));
     when(catchupClient.summarize(any()))
         .thenReturn(new CatchupSummarizeResult(List.of(), List.of()));
 
@@ -267,13 +268,13 @@ class ChannelCatchupServiceTest extends IntegrationTestBase {
     long channelId = seedChannelWithMembers();
     long m1 = postByB(channelId, "배포 일정 공유합니다", null);
     when(memoryReader.readForEntry(callerA, AiMemoryReader.MESSAGING, null))
-        .thenReturn(List.of(new AiMemoryLine(1L, "PREFERENCE", "요약은 세 줄로", null, null)));
+        .thenReturn(List.of(new AiMemoryLine(1L, "PREFERENCE", "요약은 세 줄로", null, null, null)));
     when(catchupClient.summarize(any()))
         .thenReturn(new CatchupSummarizeResult(List.of(), List.of()));
     service.summarize(callerA, channelId, m1 - 1);
 
     when(memoryReader.readForEntry(callerA, AiMemoryReader.MESSAGING, null))
-        .thenReturn(List.of(new AiMemoryLine(1L, "PREFERENCE", "요약은 다섯 줄로", null, null)));
+        .thenReturn(List.of(new AiMemoryLine(1L, "PREFERENCE", "요약은 다섯 줄로", null, null, null)));
     service.summarize(callerA, channelId, m1 - 1);
 
     ArgumentCaptor<CatchupSummarizeRequest> cap =
@@ -461,7 +462,8 @@ class ChannelCatchupServiceTest extends IntegrationTestBase {
           .thenAnswer(
               inv -> {
                 txActiveAtRead.set(TransactionSynchronizationManager.isActualTransactionActive());
-                return List.of(new AiMemoryLine(1L, "PREFERENCE", "요약은 세 줄로", "MESSAGING", null));
+                return List.of(
+                    new AiMemoryLine(1L, "PREFERENCE", "요약은 세 줄로", "MESSAGING", null, null));
               });
       when(catchupClient.summarize(any()))
           .thenReturn(new CatchupSummarizeResult(List.of(), List.of()));

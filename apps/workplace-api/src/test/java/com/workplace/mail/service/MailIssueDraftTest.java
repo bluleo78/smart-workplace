@@ -192,7 +192,8 @@ class MailIssueDraftTest extends IntegrationTestBase {
   @Test
   void draftIssue_메일_메모리를_요청에_싣는다() {
     long messageId = seedMailMessage(callerId);
-    List<AiMemoryLine> lines = List.of(new AiMemoryLine(6L, "CONTEXT", "정산 업무 담당", null, null));
+    List<AiMemoryLine> lines =
+        List.of(new AiMemoryLine(6L, "CONTEXT", "정산 업무 담당", null, null, null));
     when(memoryReader.readForEntry(eq(callerId), eq(AiMemoryReader.MAIL), any())).thenReturn(lines);
     when(mailClient.issueDraft(any()))
         .thenReturn(new MailAiMessages.IssueDraftResult("정산 검토", "- 5월 자료", "HIGH", projectKey));

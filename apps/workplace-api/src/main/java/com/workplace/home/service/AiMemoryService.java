@@ -427,11 +427,6 @@ public class AiMemoryService {
       boolean enabled, List<AiMemoryLine> items, String today, int moreCount) {
     /** 꺼짐(빈 목록) — 사용자가 끈 경우와 조회 실패(판정 10 — 켜짐 + 빈 목록이면 AI 가 있는 메모리를 모른 채 중복 저장한다)가 함께 쓴다. */
     public static final ChatMemories DISABLED = new ChatMemories(false, List.of(), null, 0);
-
-    /** "더 있음" 없음 — WP-383 전 호출부·테스트 호환. */
-    public ChatMemories(boolean enabled, List<AiMemoryLine> items, String today) {
-      this(enabled, items, today, 0);
-    }
   }
 
   /**

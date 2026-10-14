@@ -11,6 +11,7 @@ import com.workplace.global.tenant.TenantContext;
 import com.workplace.home.repository.AiMemoryRepository;
 import com.workplace.home.repository.AiMemoryRepository.NewMemory;
 import com.workplace.home.repository.TextEmbeddingRepository;
+import com.workplace.home.service.AiMemoryRanker;
 import com.workplace.support.FakeTextEmbedder;
 import com.workplace.support.FakeTextEmbedderConfig;
 import com.workplace.support.IntegrationTestBase;
@@ -40,6 +41,7 @@ import org.springframework.transaction.annotation.Transactional;
 class AiMemorySearchApiTest extends IntegrationTestBase {
 
   private static final String SEARCH = "/api/v1/users/me/ai-memories/search";
+  private static final double MAX_DISTANCE = AiMemoryRanker.SEMANTIC_MAX_DISTANCE;
 
   @Autowired MockMvc mvc;
   @Autowired DSLContext dsl;
@@ -76,6 +78,14 @@ class AiMemorySearchApiTest extends IntegrationTestBase {
 
   private long add(long uid, String content, String scope) {
     return repo.insert(uid, new NewMemory("PREFERENCE", content, "USER", null, scope, null)).id();
+  }
+
+  /** 공통 메모리를 만들고 가짜 임베딩을 바로 써 넣는다(@Transactional 이라 커밋 뒤 채우기가 돌지 않는다). */
+  private long embedded(long uid, String content) {
+    long id = add(uid, content, null);
+    embeddings.writeMemory(
+        id, content, TextEmbeddingRepository.vectorLiteral(fake.expected(content)));
+    return id;
   }
 
   @Test
@@ -139,15 +149,31 @@ class AiMemorySearchApiTest extends IntegrationTestBase {
   @Test
   void 낱말이_달라도_뜻으로_찾고_대기는_5초다() throws Exception {
     long uid = TestFixtures.createHuman(dsl);
-    fake.synonyms(List.of(List.of("고양이", "냥이")));
-    long cat = add(uid, "냥이 사진을 자주 본다", null);
-    embeddings.writeMemory(
-        cat, "냥이 사진을 자주 본다", TextEmbeddingRepository.vectorLiteral(fake.expected("냥이 사진을 자주 본다")));
+    // 가짜 임베딩에서 의미 거리 상한(0.5) 안에 들도록 질의의 조사 뗀 형태("고양")까지 묶고 내용을 짧게 둔다.
+    fake.synonyms(List.of(List.of("고양이", "고양", "냥이")));
+    long cat = embedded(uid, "냥이 사진");
 
     call(uid, get(SEARCH).param("q", "고양이"))
         .andExpect(jsonPath("$.items", hasSize(1)))
         .andExpect(jsonPath("$.items[0].id").value(cat));
     assertThat(fake.lastQueryTimeout()).isEqualTo(Duration.ofSeconds(5));
+  }
+
+  @Test
+  void 임베딩돼_있어도_뜻이_먼_메모리는_돌려주지_않는다() throws Exception {
+    long uid = TestFixtures.createHuman(dsl);
+    fake.synonyms(List.of(List.of("고양이", "고양", "냥이")));
+    long near = embedded(uid, "냥이 사진");
+    List<String> far = List.of("커피는 디카페인", "회의는 오전에", "보고서는 표로 정리", "출장 일정은 메일로");
+    for (String c : far) embedded(uid, c);
+    // 전제: 가까운 것은 상한 안, 먼 것은 상한 밖(해시 충돌로 우연히 통과하지 않게). 먼 것은 질의 낱말도 담지 않는다.
+    assertThat(fake.distance("고양이", "냥이 사진")).isLessThanOrEqualTo(MAX_DISTANCE);
+    for (String c : far) assertThat(fake.distance("고양이", c)).isGreaterThan(MAX_DISTANCE);
+
+    // 상위 50 만으로 거르면 임베딩된 다섯 행이 모두 나온다 — 거리 상한으로 가까운 것만.
+    call(uid, get(SEARCH).param("q", "고양이"))
+        .andExpect(jsonPath("$.items", hasSize(1)))
+        .andExpect(jsonPath("$.items[0].id").value(near));
   }
 
   @Test

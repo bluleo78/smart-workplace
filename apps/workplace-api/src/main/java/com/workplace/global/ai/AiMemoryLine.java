@@ -15,10 +15,4 @@ public record AiMemoryLine(
     String content,
     @JsonInclude(JsonInclude.Include.NON_NULL) String scope,
     @JsonInclude(JsonInclude.Include.NON_NULL) String expiresOn,
-    @JsonInclude(JsonInclude.Include.NON_NULL) Boolean pinned) {
-
-  /** 고정 아님 — WP-381 까지의 호출부·테스트 호환. */
-  public AiMemoryLine(long id, String kind, String content, String scope, String expiresOn) {
-    this(id, kind, content, scope, expiresOn, null);
-  }
-}
+    @JsonInclude(JsonInclude.Include.NON_NULL) Boolean pinned) {}

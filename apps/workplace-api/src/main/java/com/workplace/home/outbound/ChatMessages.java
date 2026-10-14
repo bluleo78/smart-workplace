@@ -46,48 +46,7 @@ public final class ChatMessages {
       /** WP-380: 서버 오늘(Asia/Seoul, yyyy-MM-dd) — 블록의 "오늘:" 줄과 AI 의 기한 계산 근거. */
       String today,
       /** WP-383: 블록에 넣지 않은 유효 메모리 수(다른 범위 포함) — ai-agent 가 0 보다 크면 "이 밖에 메모리 N개…" 줄을 붙인다. */
-      int memoryMoreCount) {
-
-    /** WP-383 전 호출부·테스트 호환 — "더 있음" 0. */
-    public ChatRequest(
-        String query,
-        List<ContextMessage> recentContext,
-        long assistantAgentId,
-        long userId,
-        Long tenantId,
-        String model,
-        String thinkingDepth,
-        int maxTurns,
-        int timeoutMs,
-        AiScreenContext screenContext,
-        String contextSummary,
-        String sessionId,
-        List<ChatAttachment> attachments,
-        List<AiMemoryLine> memories,
-        boolean memoryEnabled,
-        String app,
-        String today) {
-      this(
-          query,
-          recentContext,
-          assistantAgentId,
-          userId,
-          tenantId,
-          model,
-          thinkingDepth,
-          maxTurns,
-          timeoutMs,
-          screenContext,
-          contextSummary,
-          sessionId,
-          attachments,
-          memories,
-          memoryEnabled,
-          app,
-          today,
-          0);
-    }
-  }
+      int memoryMoreCount) {}
 
   /**
    * ai-agent 로 보내는 세션 첨부 한 건(WP-234). current = 이번 턴 USER 메시지에 붙은 파일. java.time 타입을 두지 않는다 —

@@ -5,10 +5,13 @@ import com.workplace.global.tenant.TenantScopedRunner;
 import com.workplace.home.repository.TextEmbeddingRepository;
 import com.workplace.home.service.TextEmbeddingService.Result;
 import com.workplace.home.service.TextEmbeddingService.Target;
+import java.util.ArrayList;
 import java.util.EnumMap;
-import java.util.LinkedHashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
@@ -18,7 +21,8 @@ import org.springframework.stereotype.Component;
 /**
  * 임베딩 백필(WP-383·384) — 1분마다 활성 테넌트마다 embedding IS NULL 행을 오래된 순 50개씩(메모리 → 대화 턴 순) 채운다. 커밋 뒤 작업이 놓친
  * 행(큐 넘침·워커 장애·롤링 배포 중 구 파드의 저장)과 기존 데이터를 천천히 채운다. 빈 행 id 는 테넌트 트랜잭션에서 모으고, 임베딩·쓰기는 그 밖에서 행마다 따로
- * 한다. 워커가 연달아 실패하면 이번 주기를 멈추고 다음 주기에 다시 한다. 여러 파드는 ShedLock 으로 한 번만 돈다.
+ * 한다. 워커가 연달아 실패하면 이번 주기를 멈추고 다음 주기에 다시 한다 — 실패한 행은 다음 주기 맨 끝으로 미뤄 늘 실패하는 행이 다른 행을 막지 않는다. 여러 파드는
+ * ShedLock 으로 한 번만 돈다.
  */
 @Slf4j
 @Component
@@ -29,10 +33,20 @@ public class TextEmbeddingBackfillScheduler {
   static final int BATCH = 50;
 
   /**
-   * 연달아 이만큼 실패하면 워커 장애로 보고 이번 주기를 멈춘다. 한 번 실패로 멈추지 않는 이유: 늘 실패하는 행 하나(워커가 거절하는 내용)가 오래된 순 맨 앞에 있으면
-   * 매 주기 그 행에서 멈춰 뒤 행을 영영 못 채운다.
+   * 연달아 이만큼 실패하면 워커 장애로 보고 이번 주기를 멈춘다 — 워커가 죽었을 때 주기마다 헛 호출을 이 수로 묶는다. 늘 실패하는 행(워커가 거절하는 내용)이 오래된 순
+   * 맨 앞에 이만큼 몰려 있어도 막히지 않는 이유는 recentlyFailed — 실패한 행은 다음 주기에 맨 끝으로 미뤄진다.
    */
   static final int MAX_CONSECUTIVE_FAILURES = 3;
+
+  /** 백필 한 건 — 테넌트·대상·행 id. */
+  private record Job(long tenantId, Target target, long id) {}
+
+  /**
+   * 지난 주기들에서 실패한 행. 다음 주기에는 다른 빈 행을 모두 먼저 해 보고 이 행들은 맨 끝에 다시 해 본다(영영 건너뛰지 않는다 — 워커 장애로 실패한 행도 회복 뒤
+   * 채워진다). 성공하면 빼고, 이번 주기 빈 행 목록에 없는 키(다른 경로로 채워졌거나 지워진 행)는 버려 크기가 빈 행 수(테넌트 × 대상 × BATCH)를 넘지 않는다.
+   * 파드마다 따로 든다 — 다른 파드가 주기를 잡으면 그 파드는 처음 한 번 다시 멈췄다가 배운다.
+   */
+  private final Set<Job> recentlyFailed = ConcurrentHashMap.newKeySet();
 
   private final TextEmbedder embedder;
   private final TenantScopedRunner tenantRunner;
@@ -48,25 +62,30 @@ public class TextEmbeddingBackfillScheduler {
   /** 한 주기 — 채운 행 수(테스트·수동 실행 진입점). 임베딩이 꺼져 있으면 아무것도 읽지 않는다. */
   public int backfillOnce() {
     if (!embedder.enabled()) return 0;
-    Map<Long, Map<Target, List<Long>>> pending = new LinkedHashMap<>();
-    tenantRunner.forEachActiveTenant(tid -> pending.put(tid, pendingOf()));
+    List<Job> jobs = new ArrayList<>();
+    tenantRunner.forEachActiveTenant(
+        tid -> pendingOf().forEach((t, ids) -> ids.forEach(id -> jobs.add(new Job(tid, t, id)))));
+    recentlyFailed.retainAll(new HashSet<>(jobs));
+    // 지난번에 실패한 행은 맨 끝으로 — 늘 실패하는 행이 앞에 몰려 있어도 다른 행(다른 테넌트 포함)이 먼저 채워진다.
+    List<Job> ordered = new ArrayList<>(jobs.size());
+    jobs.stream().filter(j -> !recentlyFailed.contains(j)).forEach(ordered::add);
+    jobs.stream().filter(recentlyFailed::contains).forEach(ordered::add);
     int filled = 0;
     int failures = 0;
-    for (Target target : Target.values()) {
-      for (Map.Entry<Long, Map<Target, List<Long>>> e : pending.entrySet()) {
-        for (long id : e.getValue().getOrDefault(target, List.of())) {
-          Result r = TextEmbeddingService.inTenant(e.getKey(), () -> service.embedOne(target, id));
-          if (r == Result.FAILED) {
-            if (++failures >= MAX_CONSECUTIVE_FAILURES) {
-              log.info("임베딩 백필 중단 — 워커 실패, 다음 주기에 다시: 채움 {}건", filled);
-              return filled;
-            }
-            continue;
-          }
-          failures = 0;
-          if (r == Result.FILLED) filled++;
+    for (Job j : ordered) {
+      Result r =
+          TextEmbeddingService.inTenant(j.tenantId(), () -> service.embedOne(j.target(), j.id()));
+      if (r == Result.FAILED) {
+        recentlyFailed.add(j);
+        if (++failures >= MAX_CONSECUTIVE_FAILURES) {
+          log.info("임베딩 백필 중단 — 워커 실패, 다음 주기에 다시: 채움 {}건", filled);
+          return filled;
         }
+        continue;
       }
+      recentlyFailed.remove(j);
+      failures = 0;
+      if (r == Result.FILLED) filled++;
     }
     if (filled > 0) log.info("임베딩 백필 — {}건", filled);
     return filled;

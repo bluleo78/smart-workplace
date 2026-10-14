@@ -107,8 +107,9 @@ class AgentBodySerializationTest {
             60_000,
             java.util.List.of(
                 new com.workplace.global.ai.AiMemoryLine(
-                    3L, "PREFERENCE", "개조식", "WIKI", "2026-10-24"),
-                new com.workplace.global.ai.AiMemoryLine(1L, "CONTEXT", "백엔드 팀", null, null)));
+                    3L, "PREFERENCE", "개조식", "WIKI", "2026-10-24", null),
+                new com.workplace.global.ai.AiMemoryLine(
+                    1L, "CONTEXT", "백엔드 팀", null, null, null)));
 
     JsonNode json = mapper.readTree(mapper.writeValueAsString(body));
 

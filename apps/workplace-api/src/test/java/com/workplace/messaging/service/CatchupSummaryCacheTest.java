@@ -88,7 +88,7 @@ class CatchupSummaryCacheTest {
 
   /** 메모리 한 줄 — content·scope 만 바꿔 가며 쓴다(종류 PREFERENCE, 기한 없음). */
   private static AiMemoryLine line(long id, String content, String scope) {
-    return new AiMemoryLine(id, "PREFERENCE", content, scope, null);
+    return new AiMemoryLine(id, "PREFERENCE", content, scope, null, null);
   }
 
   /** WP-383: 고정 여부도 지문에 든다 — 같은 내용이어도 고정이 바뀌면 블록 줄("·고정")이 달라 요약을 따로 만든다. */
@@ -99,6 +99,6 @@ class CatchupSummaryCacheTest {
                 List.of(new AiMemoryLine(1, "PREFERENCE", "a", null, null, true))))
         .isNotEqualTo(
             CatchupSummaryCache.fingerprint(
-                List.of(new AiMemoryLine(1, "PREFERENCE", "a", null, null))));
+                List.of(new AiMemoryLine(1, "PREFERENCE", "a", null, null, null))));
   }
 }

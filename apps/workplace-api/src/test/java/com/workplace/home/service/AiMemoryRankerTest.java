@@ -54,6 +54,27 @@ class AiMemoryRankerTest {
   }
 
   @Test
+  void 의미_거리가_상한을_넘으면_맞지_않은_것이고_순위도_얻지_못한다() {
+    Row newerFar = row(1, 1);
+    Row olderNear = row(2, 100);
+    Row oldestFar = row(3, 200);
+
+    List<Ranked> ranked =
+        AiMemoryRanker.rank(
+            List.of(
+                new Scored(newerFar, false, 0, 0, AiMemoryRanker.SEMANTIC_MAX_DISTANCE + 0.01),
+                new Scored(olderNear, false, 0, 0, AiMemoryRanker.SEMANTIC_MAX_DISTANCE),
+                new Scored(oldestFar, false, 0, 0, 1.0)));
+
+    // 상한 밖 행은 임베딩이 있어도 의미 미스(51) — 상한 안 행만 순위를 얻어 앞서고, 검색이 돌려줄 행도 그것뿐이다.
+    assertThat(ranked).extracting(r -> r.row().id()).containsExactly(2L, 1L, 3L);
+    assertThat(ranked)
+        .filteredOn(Ranked::matched)
+        .extracting(r -> r.row().id())
+        .containsExactly(2L);
+  }
+
+  @Test
   void 최신_순위는_51_이상을_51_로_묶는다() {
     List<Scored> scored = new ArrayList<>();
     for (long i = 1; i <= 60; i++) scored.add(plain(row(i, i)));

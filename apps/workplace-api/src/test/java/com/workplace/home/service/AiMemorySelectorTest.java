@@ -124,15 +124,16 @@ class AiMemorySelectorTest extends IntegrationTestBase {
   @Test
   void 낱말이_달라도_뜻이_같으면_고르고_대기는_1_5초다() {
     long uid = TestFixtures.createHuman(dsl);
-    fake.synonyms(List.of(List.of("고양이", "냥이")));
-    long cat = add(uid, "냥이 사진을 자주 본다", null);
+    // 가짜 임베딩에서 의미 거리 상한(0.5) 안에 들도록 질의의 조사 뗀 형태("고양")까지 묶고 내용을 짧게 둔다.
+    fake.synonyms(List.of(List.of("고양이", "고양", "냥이")));
+    long cat = add(uid, "냥이 사진", null);
     age(cat);
-    embed(cat, "냥이 사진을 자주 본다");
+    embed(cat, "냥이 사진");
     AiMemoryTestFixtures.fill(dsl, uid, null, 40);
 
     AiMemoryService.ChatMemories m = service.loadForChat(uid, null, "고양이");
 
-    assertThat(contents(m)).contains("냥이 사진을 자주 본다");
+    assertThat(contents(m)).contains("냥이 사진");
     assertThat(fake.lastQueryTimeout()).isEqualTo(Duration.ofMillis(1500));
   }
 

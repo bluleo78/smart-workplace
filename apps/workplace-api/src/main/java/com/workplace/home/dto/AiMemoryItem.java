@@ -14,7 +14,7 @@ import java.time.LocalDate;
  * 날짜를 다시 계산하지 않고 이 값을 쓴다(오늘 판정을 서버 시계 하나로 맞춘다). previousExpiresOn 은 고치기 응답에서 이전 기한이 있었을 때만(없으면 빠짐 =
  * 기한 없음).
  *
- * <p>WP-383: pinned — 사용자가 설정에서 고정했는가(고정 행은 설정 묶음 맨 위·채팅 주입에 늘 포함).
+ * <p>WP-383: pinned — 사용자가 설정에서 고정했는가(고정 행은 설정 묶음 맨 위·채팅 주입에 먼저 실린다 — 토큰 예산 안에서).
  */
 public record AiMemoryItem(
     long id,

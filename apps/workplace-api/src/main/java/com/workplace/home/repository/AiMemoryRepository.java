@@ -167,6 +167,15 @@ public class AiMemoryRepository {
         .fetch(AiMemoryRepository::toRow);
   }
 
+  /**
+   * 채팅 후보 수(WP-383) — listCandidates 와 같은 조건. 많으면 행을 읽지 않고 순위 재료(AiMemoryRankRepository.score)로 바로
+   * 간다.
+   */
+  public int countCandidates(long userId, ScopeFilter filter, LocalDate today) {
+    return dsl.fetchCount(
+        AI_MEMORY, AI_MEMORY.USER_ID.eq(userId).and(filter.condition()).and(active(today)));
+  }
+
   /** 유효 메모리 수(범위 무관, WP-383) — 블록에 넣지 않은 수("더 있음", 다른 범위 포함)를 센다. */
   public int countActive(long userId, LocalDate today) {
     return dsl.fetchCount(AI_MEMORY, AI_MEMORY.USER_ID.eq(userId).and(active(today)));

@@ -119,7 +119,7 @@ class WikiAiServiceTest {
     when(perms.requireRole(eq(SPACE_ID), eq(CALLER), eq("EDITOR"))).thenReturn("EDITOR");
     when(assistantResolver.resolve(CALLER)).thenReturn(spec());
     List<AiMemoryLine> lines =
-        List.of(new AiMemoryLine(3L, "PREFERENCE", "노트는 개조식으로", "WIKI", null));
+        List.of(new AiMemoryLine(3L, "PREFERENCE", "노트는 개조식으로", "WIKI", null, null));
     when(memoryReader.readForEntry(CALLER, AiMemoryReader.WIKI, null)).thenReturn(lines);
 
     ArgumentCaptor<Object> bodyCaptor = ArgumentCaptor.forClass(Object.class);
