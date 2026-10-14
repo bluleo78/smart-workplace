@@ -1,6 +1,6 @@
 // WP-384 지난 대화 검색 — 메인 AI 채팅 라우터 전용 로컬 읽기 도구(공유 패키지·외부 MCP 에는 없다).
 // API /home/sessions/search 를 요청자 대행(Internal + X-On-Behalf-Of)으로 부른다. 지금 대화는 도구가 묶어 빼고(모델이 고르지 못한다),
-// 결과 줄의 [제목](/?chat=<id>) 를 AI 가 출처 링크로 그대로 붙인다 — 웹이 이 링크를 같은 탭 딥링크로 연다.
+// 결과 줄의 [제목](/?aiChat=<id>) 를 AI 가 출처 링크로 그대로 붙인다 — 웹이 이 링크를 같은 탭 딥링크로 연다.
 import type { McpTool } from '@smart-workplace/mcp-tools-shared';
 import { z } from 'zod';
 
@@ -19,7 +19,7 @@ export const searchConversationsInput = z.object({
   limit: z.number().int().min(1).max(10).optional().describe('최대 대화 수(기본 5, 최대 10)'),
 });
 
-const DEEP_LINK = /^\/\?chat=[0-9A-Za-z-]+$/;
+const DEEP_LINK = /^\/\?aiChat=[0-9A-Za-z-]+$/;
 const SEOUL_DATE = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' });
 
 /** 링크 텍스트용 제목 — 마크다운 링크를 깨는 대괄호를 지우고, 비면 "제목 없는 대화". */
@@ -30,7 +30,7 @@ function linkTitle(title: string | null): string {
 
 /** 서버 링크가 딥링크 모양이면 그대로, 아니면 sessionId 로 다시 만든다(엉뚱한 링크를 출처로 싣지 않게). */
 function linkOf(h: ConversationHitDto): string {
-  return DEEP_LINK.test(h.link) ? h.link : `/?chat=${encodeURIComponent(h.sessionId)}`;
+  return DEEP_LINK.test(h.link) ? h.link : `/?aiChat=${encodeURIComponent(h.sessionId)}`;
 }
 
 function hitLines(h: ConversationHitDto, n: number): string[] {

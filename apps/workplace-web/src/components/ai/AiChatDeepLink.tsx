@@ -1,4 +1,4 @@
-// WP-384 대화 딥링크 `/?chat=<sessionId>` — 앱 어디서든 이 파라미터를 보면 AI 패널(데스크톱 사이드·모바일 시트)을 열고 그 대화를 복원한 뒤
+// WP-384 대화 딥링크 `/?aiChat=<sessionId>` — 앱 어디서든 이 파라미터를 보면 AI 패널(데스크톱 사이드·모바일 시트)을 열고 그 대화를 복원한 뒤
 // 파라미터를 지운다(replace — 뒤로 가기로 다시 열리지 않게, 다른 쿼리·router state 는 그대로). 없는(지움·남의) 대화는 안내 토스트. AI 답 안 대화
 // 링크도 같은 파라미터로 이 컴포넌트를 거친다(MarkdownMessage AiLink). AppLayout 이 비서가 있을 때만 그린다.
 import { useEffect, useRef } from 'react';

@@ -1,4 +1,4 @@
-// WP-384 대화 딥링크(데스크톱) — /?chat=<id> 로 사이드 패널을 열고 대화를 복원한 뒤 파라미터를 지운다. 없는 대화는 토스트, 모양이 틀린 id 는
+// WP-384 대화 딥링크(데스크톱) — /?aiChat=<id> 로 사이드 패널을 열고 대화를 복원한 뒤 파라미터를 지운다. 없는 대화는 토스트, 모양이 틀린 id 는
 // 서버에 묻지 않는다. AI 답 안 내부 링크는 같은 탭(라우터)으로 다른 대화를 열고 외부 링크는 새 탭. 검색 도구 단계 라벨.
 import type { Page } from '@playwright/test'
 
@@ -27,31 +27,31 @@ async function mockSession(page: Page, id: string, messages: HomeMessage[]) {
 
 test('딥링크로 들어오면 사이드 패널에 그 대화를 복원하고 주소의 chat 파라미터를 지운다', async ({ authenticatedPage: page }) => {
   await mockSession(page, ID, turn('고양이 사진 어디 둘까', '사진/고양이 폴더에 모으세요'))
-  await page.goto(`/?chat=${ID}`)
+  await page.goto(`/?aiChat=${ID}`)
   await expect(page.getByTestId('ai-side-panel')).toBeVisible()
   await expect(page.getByTestId('chat-panel')).toContainText('사진/고양이 폴더에 모으세요')
-  await expect(page).not.toHaveURL(/chat=/)
+  await expect(page).not.toHaveURL(/aiChat=/)
 })
 
 test('없거나 남의 대화면 "대화를 찾을 수 없어요" 토스트를 띄우고 파라미터를 지운다', async ({ authenticatedPage: page }) => {
   await mockApi(page, 'GET', `/api/v1/home/sessions/${ID}/messages`, { status: 404, message: '대화를 찾을 수 없습니다' }, { status: 404 })
   await mockApi(page, 'GET', `/api/v1/home/sessions/${ID}/proposals`, [])
-  await page.goto(`/?chat=${ID}`)
+  await page.goto(`/?aiChat=${ID}`)
   await expect(page.getByText('대화를 찾을 수 없어요')).toBeVisible()
-  await expect(page).not.toHaveURL(/chat=/)
+  await expect(page).not.toHaveURL(/aiChat=/)
 })
 
 test('모양이 틀린 id 는 서버에 묻지 않고 토스트만 띄운다', async ({ authenticatedPage: page }) => {
   const calls = trackRequests(page, 'GET', /^\/api\/v1\/home\/sessions\/[^/]+\/messages$/)
-  await page.goto('/?chat=not-a-uuid')
+  await page.goto('/?aiChat=not-a-uuid')
   await expect(page.getByText('대화를 찾을 수 없어요')).toBeVisible()
   expect(calls.count()).toBe(0)
 })
 
 test('AI 답 안 대화 링크는 같은 탭에서 그 대화를 열고, 외부 링크는 새 탭 링크다', async ({ authenticatedPage: page }) => {
-  await mockSession(page, ID, turn('지난번 고양이 얘기 찾아 줘', `[고양이 사진 정리](/?chat=${OTHER}) 에서 얘기했어요. [참고](https://example.com)`))
+  await mockSession(page, ID, turn('지난번 고양이 얘기 찾아 줘', `[고양이 사진 정리](/?aiChat=${OTHER}) 에서 얘기했어요. [참고](https://example.com)`))
   await mockSession(page, OTHER, turn('고양이 사진 어디 둘까', '사진/고양이 폴더에 모으세요'))
-  await page.goto(`/?chat=${ID}`)
+  await page.goto(`/?aiChat=${ID}`)
   const panel = page.getByTestId('chat-panel')
   const internal = panel.getByTestId('markdown-internal-link')
   await expect(internal).toHaveText('고양이 사진 정리')
@@ -62,13 +62,13 @@ test('AI 답 안 대화 링크는 같은 탭에서 그 대화를 열고, 외부 
   await internal.click()
   await expect(panel).toContainText('사진/고양이 폴더에 모으세요')
   expect(page.context().pages()).toHaveLength(pagesBefore)
-  await expect(page).not.toHaveURL(/chat=/)
+  await expect(page).not.toHaveURL(/aiChat=/)
 })
 
 test('딥링크로 연 대화가 첫 30개 목록 밖이어도 헤더에 그 대화 제목(첫 질문)이 보인다', async ({ authenticatedPage: page }) => {
-  await mockSession(page, ID, turn('지난번 고양이 사진 얘기 찾아 줘', `[고양이 사진 정리](/?chat=${OTHER}) 에서 얘기했어요.`))
+  await mockSession(page, ID, turn('지난번 고양이 사진 얘기 찾아 줘', `[고양이 사진 정리](/?aiChat=${OTHER}) 에서 얘기했어요.`))
   await mockSession(page, OTHER, turn('  고양이 사진은 어디에 모아 두면 좋을까? 폴더 이름도 같이 정해 줘  ', '사진/고양이 폴더에 모으세요'))
-  await page.goto(`/?chat=${ID}`)
+  await page.goto(`/?aiChat=${ID}`)
   const title = page.getByTestId('chat-session-title')
   await expect(title).toHaveText('지난번 고양이 사진 얘기 찾아 줘')
   // 답 안 대화 링크로 다른 대화를 열면 그 대화의 첫 질문(앞뒤 공백 없이 40자)으로 바뀐다 — 링크 글자가 아니다.
@@ -78,9 +78,9 @@ test('딥링크로 연 대화가 첫 30개 목록 밖이어도 헤더에 그 대
 })
 
 test('대화 링크는 지금 화면의 다른 쿼리를 지우지 않고 히스토리를 늘리지 않는다', async ({ authenticatedPage: page }) => {
-  await mockSession(page, ID, turn('지난번 고양이 얘기 찾아 줘', `[고양이 사진 정리](/?chat=${OTHER}) 에서 얘기했어요.`))
+  await mockSession(page, ID, turn('지난번 고양이 얘기 찾아 줘', `[고양이 사진 정리](/?aiChat=${OTHER}) 에서 얘기했어요.`))
   await mockSession(page, OTHER, turn('고양이 사진 어디 둘까', '사진/고양이 폴더에 모으세요'))
-  await page.goto(`/settings/profile?keep=1&chat=${ID}`)
+  await page.goto(`/settings/profile?keep=1&aiChat=${ID}`)
   await expect(page.getByTestId('markdown-internal-link')).toBeVisible()
   await expect(page).toHaveURL(/\/settings\/profile\?keep=1$/)
   const before = await page.evaluate(() => history.length)
@@ -92,7 +92,7 @@ test('대화 링크는 지금 화면의 다른 쿼리를 지우지 않고 히스
 
 test('전체 화면에서 답 안 화면 링크를 누르면 사이드로 내려 그 화면이 보인다 — 뒤로 가면 전체 화면으로 돌아온다', async ({ authenticatedPage: page }) => {
   await mockSession(page, ID, turn('프로필 어디서 바꿔', '[프로필 설정](/settings/profile) 에서 바꿀 수 있어요.'))
-  await page.goto(`/?chat=${ID}`)
+  await page.goto(`/?aiChat=${ID}`)
   await expect(page.getByTestId('ai-side-panel')).toBeVisible()
   await page.getByTestId('chat-launcher').click() // side → fullscreen
   const fs = page.getByTestId('ai-fullscreen')
@@ -113,7 +113,7 @@ test('말풍선 안 단계 줄은 본문 왼쪽 선에 맞고 ✓ 는 라벨 바
     { kind: 'tool', seq: 1, toolName: 'search_conversations', args: { query: '고양이' }, status: 'done' },
   ]
   await mockSession(page, ID, messages)
-  await page.goto(`/?chat=${ID}`)
+  await page.goto(`/?aiChat=${ID}`)
   const row = page.getByTestId('tool-step-tool')
   await expect(row).toContainText('지난 대화 찾기')
   const body = await stableBox(page.getByTestId('chat-panel').getByTestId('markdown-content'))

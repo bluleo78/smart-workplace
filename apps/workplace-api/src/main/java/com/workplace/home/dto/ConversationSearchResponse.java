@@ -13,7 +13,7 @@ public record ConversationSearchResponse(boolean memoryEnabled, List<Item> items
   /**
    * @param question 대표 턴의 질문 앞 200자(없으면 null)
    * @param answerExcerpt 대표 턴 답의 키워드 주변 300자(없으면 앞 300자, 답이 없으면 null)
-   * @param link 웹 딥링크 "/?chat=<sessionId>" — AI 가 출처 링크로 그대로 붙인다
+   * @param link 웹 딥링크 "/?aiChat=<sessionId>" — AI 가 출처 링크로 그대로 붙인다
    */
   public record Item(
       UUID sessionId,

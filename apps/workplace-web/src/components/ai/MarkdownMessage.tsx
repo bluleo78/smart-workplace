@@ -54,7 +54,7 @@ function ExternalLink({ href, children }: { href?: string; children?: ReactNode 
 
 /**
  * AI 답 안 링크(WP-384) — 같은 출처 상대 경로는 라우터로 같은 탭에서 연다.
- * - 대화 딥링크("/?chat=<id>"): 지금 화면·쿼리·router state 에 머문 채 chat 만 더해 replace — AiChatDeepLink 가 그 대화를 열고 파라미터를 지운다
+ * - 대화 딥링크("/?aiChat=<id>"): 지금 화면·쿼리·router state 에 머문 채 aiChat 만 더해 replace — AiChatDeepLink 가 그 대화를 열고 파라미터를 지운다
  *   (push 하면 곧 지워질 항목이 남아 뒤로 가기가 한 번 헛돈다).
  * - 다른 화면 링크: 이동 직전에 onPageLink(전체 화면 AI 를 내려 이동한 화면이 보이게 — AIChatPanel 이 준다).
  * 외부 링크·라우터 밖(정적 렌더)은 이전처럼 새 탭.

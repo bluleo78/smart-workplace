@@ -46,29 +46,29 @@ describe('MarkdownMessage 내부 링크 (WP-384)', () => {
     renderToStaticMarkup(createElement(MemoryRouter, null, createElement(MarkdownMessage, { internalLinks: true, children: md })))
 
   it('internalLinks 면 상대 경로는 새 탭이 아닌 라우터 링크, 외부 링크는 그대로 새 탭', () => {
-    const html = inRouter(`[지난 대화](/?chat=${ID}) · [외부](https://example.com)`)
+    const html = inRouter(`[지난 대화](/?aiChat=${ID}) · [외부](https://example.com)`)
     // 라우터 Link 의 속성 순서는 라이브러리가 정한다 — 그 a 하나를 떼어 속성만 본다.
     const internal = html.match(/<a [^>]*data-testid="markdown-internal-link"[^>]*>지난 대화<\/a>/)?.[0]
     expect(internal).toBeDefined()
-    expect(internal).toContain(`href="/?chat=${ID}"`)
+    expect(internal).toContain(`href="/?aiChat=${ID}"`)
     expect(internal).not.toContain('target=')
     expect(html).toContain('<a href="https://example.com" target="_blank" rel="noreferrer" class="text-primary underline">외부</a>')
   })
 
   it('internalLinks 가 없거나 라우터 밖이면 이전처럼 모두 새 탭', () => {
-    expect(render(`[지난 대화](/?chat=${ID})`)).toContain('target="_blank"')
+    expect(render(`[지난 대화](/?aiChat=${ID})`)).toContain('target="_blank"')
     expect(renderToStaticMarkup(createElement(MarkdownMessage, { internalLinks: true, children: '[a](/x)' }))).toContain('target="_blank"')
   })
 
-  it('대화 링크는 지금 화면 경로·쿼리에 chat 만 더한다 — 다른 화면 링크는 그 경로 그대로', () => {
+  it('대화 링크는 지금 화면 경로·쿼리에 aiChat 만 더한다 — 다른 화면 링크는 그 경로 그대로', () => {
     const html = renderToStaticMarkup(
       createElement(
         MemoryRouter,
         { initialEntries: ['/projects/WP?issue=WP-1'] },
-        createElement(MarkdownMessage, { internalLinks: true, children: `[대화](/?chat=${ID}) [이슈](/projects/WP/issues/2)` }),
+        createElement(MarkdownMessage, { internalLinks: true, children: `[대화](/?aiChat=${ID}) [이슈](/projects/WP/issues/2)` }),
       ),
     )
-    expect(html).toContain(`href="/projects/WP?issue=WP-1&amp;chat=${ID}"`)
+    expect(html).toContain(`href="/projects/WP?issue=WP-1&amp;aiChat=${ID}"`)
     expect(html).toContain('href="/projects/WP/issues/2"')
   })
 })

@@ -76,7 +76,7 @@ export function AppLayout() {
         <AIAssistantProvider hotkeysEnabled={aiAvailable}>
           {/* WP-54: 화면 컨텍스트 store — 페이지(Outlet)가 등록하고 AI 패널이 읽는다. */}
           <AiScreenContextProvider>
-            {/* WP-384: /?chat=<id> 딥링크 — 패널을 열고 그 대화를 복원한다(비서가 있을 때만). */}
+            {/* WP-384: /?aiChat=<id> 딥링크 — 패널을 열고 그 대화를 복원한다(비서가 있을 때만). */}
             {aiAvailable && <AiChatDeepLink />}
             {/* 인박스 패널 오픈 상태를 AppRail(InboxPanel)·본문이 공유 — 합성 레이어가 패널을 연다. */}
             <InboxProvider>

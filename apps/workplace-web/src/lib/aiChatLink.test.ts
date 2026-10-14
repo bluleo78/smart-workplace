@@ -23,7 +23,7 @@ describe('aiChatLink (WP-384)', () => {
   });
 
   it('같은 출처 상대 경로만 내부 링크 — 프로토콜 상대(//)·역슬래시(/\\)·절대 URL 은 아니다', () => {
-    expect(isInternalHref('/?chat=x')).toBe(true);
+    expect(isInternalHref('/?aiChat=x')).toBe(true);
     expect(isInternalHref('/projects/WP/issues/12')).toBe(true);
     expect(isInternalHref('//evil.example/x')).toBe(false);
     expect(isInternalHref('/\\evil.example')).toBe(false);
@@ -32,16 +32,18 @@ describe('aiChatLink (WP-384)', () => {
   });
 
   it('대화 딥링크면 id, 아니면 null', () => {
-    expect(chatLinkSessionId(`/?chat=${ID}`)).toBe(ID);
-    expect(chatLinkSessionId(`/projects?chat=${ID}`)).toBeNull();
-    expect(chatLinkSessionId('/?chat=bad')).toBeNull();
-    expect(chatLinkSessionId(`https://x.example/?chat=${ID}`)).toBeNull();
+    expect(chatLinkSessionId(`/?aiChat=${ID}`)).toBe(ID);
+    expect(chatLinkSessionId(`/projects?aiChat=${ID}`)).toBeNull();
+    expect(chatLinkSessionId('/?aiChat=bad')).toBeNull();
+    expect(chatLinkSessionId(`https://x.example/?aiChat=${ID}`)).toBeNull();
   });
 
   it('대화 링크는 지금 쿼리에 chat 만 더하고 다른 파라미터는 그대로 둔다', () => {
-    expect(withChatParam('', ID)).toBe(`?chat=${ID}`);
-    expect(withChatParam('?issue=WP-1&tab=a', ID)).toBe(`?issue=WP-1&tab=a&chat=${ID}`);
-    expect(withChatParam('?chat=old&x=1', ID)).toBe(`?chat=${ID}&x=1`);
+    expect(withChatParam('', ID)).toBe(`?aiChat=${ID}`);
+    expect(withChatParam('?issue=WP-1&tab=a', ID)).toBe(`?issue=WP-1&tab=a&aiChat=${ID}`);
+    expect(withChatParam('?aiChat=old&x=1', ID)).toBe(`?aiChat=${ID}&x=1`);
+    // 이슈 채팅 드로워의 ?chat=1 과 겹치지 않는다 — 드로워 파라미터는 그대로 남는다.
+    expect(withChatParam('?chat=1', ID)).toBe(`?chat=1&aiChat=${ID}`);
   });
 
   const msg = (id: number, role: HomeMessage['role'], content: string | null, createdAt = '2026-10-10T00:00:00Z'): HomeMessage => ({

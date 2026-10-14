@@ -74,7 +74,7 @@ public class HomeConversationSearchService {
         h.lastMessageAt(),
         h.question() == null ? null : Texts.truncateCodePoints(flat(h.question()), QUESTION_CHARS),
         excerpt(h.answer(), terms, EXCERPT_CHARS),
-        "/?chat=" + h.sessionId());
+        "/?aiChat=" + h.sessionId());
   }
 
   /**

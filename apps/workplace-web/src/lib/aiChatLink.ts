@@ -1,8 +1,8 @@
-// WP-384 AI 대화 링크 규칙 — 딥링크 `/?chat=<sessionId>`(지난 대화 검색 결과·출처 링크)와 AI 답 안 내부 링크 판별.
+// WP-384 AI 대화 링크 규칙 — 딥링크 `/?aiChat=<sessionId>`(지난 대화 검색 결과·출처 링크)와 AI 답 안 내부 링크 판별.
 import type { HomeMessage, HomeSessionSummary } from '@/types/home';
 
-/** 딥링크 쿼리 이름. */
-export const CHAT_PARAM = 'chat';
+/** 딥링크 쿼리 이름 — 이슈 채팅 드로워가 `chat` 을 쓰므로(useIssueChatDrawerParam) 겹치지 않는 이름. */
+export const CHAT_PARAM = 'aiChat';
 
 /** 없는(지움·남의) 대화 딥링크 토스트. */
 export const CHAT_NOT_FOUND_MESSAGE = '대화를 찾을 수 없어요';
@@ -19,7 +19,7 @@ export function isInternalHref(href: string | null | undefined): href is string 
   return !!href && href.startsWith('/') && !href.startsWith('//') && !href.startsWith('/\\');
 }
 
-/** "/?chat=<uuid>" 딥링크면 그 id, 아니면 null — 지금 화면에 머문 채 대화만 여는 링크로 바꿀 때 쓴다. */
+/** "/?aiChat=<uuid>" 딥링크면 그 id, 아니면 null — 지금 화면에 머문 채 대화만 여는 링크로 바꿀 때 쓴다. */
 export function chatLinkSessionId(href: string | null | undefined): string | null {
   if (!isInternalHref(href)) return null;
   const url = new URL(href, 'http://local');
@@ -28,7 +28,7 @@ export function chatLinkSessionId(href: string | null | undefined): string | nul
   return isSessionId(id) ? id : null;
 }
 
-/** 지금 화면 쿼리에 chat 만 더한(같으면 바꾼) search — 다른 파라미터(이슈 드로워 등)는 그대로 둔다. */
+/** 지금 화면 쿼리에 aiChat 만 더한(같으면 바꾼) search — 다른 파라미터(이슈 드로워 등)는 그대로 둔다. */
 export function withChatParam(search: string, id: string): string {
   const params = new URLSearchParams(search);
   params.set(CHAT_PARAM, id);

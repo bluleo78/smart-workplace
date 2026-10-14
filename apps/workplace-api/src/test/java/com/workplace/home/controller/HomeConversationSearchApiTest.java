@@ -34,7 +34,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * WP-384 search_conversations API — 키워드·의미(가짜 임베딩, 5초 대기)로 본인 대화만, 대화마다 대표 턴 하나, 지금 대화·지운 대화·남의 대화
- * 제외, 꺼짐이면 memoryEnabled=false, 빈 질의 400, limit 기본 5·최대 10, 질문 앞 200자·답 발췌 300자, 링크 "/?chat=<id>".
+ * 제외, 꺼짐이면 memoryEnabled=false, 빈 질의 400, limit 기본 5·최대 10, 질문 앞 200자·답 발췌 300자, 링크 "/?aiChat=<id>".
  */
 @Transactional
 @Import(FakeTextEmbedderConfig.class)
@@ -117,7 +117,7 @@ class HomeConversationSearchApiTest extends IntegrationTestBase {
         .andExpect(jsonPath("$.items", hasSize(1)))
         .andExpect(jsonPath("$.items[0].sessionId").value(cat.toString()))
         .andExpect(jsonPath("$.items[0].title").value("고양이 사진 어디 둘까"))
-        .andExpect(jsonPath("$.items[0].link").value("/?chat=" + cat))
+        .andExpect(jsonPath("$.items[0].link").value("/?aiChat=" + cat))
         .andExpect(jsonPath("$.items[0].question", startsWith("고양이")))
         .andExpect(jsonPath("$.items[0].lastMessageAt").isNotEmpty());
   }
