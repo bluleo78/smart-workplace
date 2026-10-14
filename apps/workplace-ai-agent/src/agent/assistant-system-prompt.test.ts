@@ -410,6 +410,18 @@ describe('사용자 메모리 규칙 (WP-55)', () => {
       expect(p).toContain('"고정"은 사용자가 설정에서 고정한 메모리다');
       expect(p).toContain('설정 > AI 비서 > 메모리');
     });
+
+    // 스펙 3.8(10-14 제보): "나는 고양이를 좋아해"에 저장하지 않고 "기억해 줘라고 말해 달라"고 되물었다.
+    it(`${name}: WP-383 자기 취향·사실도 저장 대상이고, 저장할지 묻지 않는다`, () => {
+      expect(p).toContain('사용자가 자기 자신에 대해 밝힌 오래 갈 취향·관심사·습관·사실');
+      expect(p).toContain('"나는 고양이를 좋아해"');
+      expect(p).toContain('"나 매일 아침 9시에 출근해"');
+      expect(p).toContain('취향·관심사는 kind=PREFERENCE');
+      expect(p).toContain('습관·사실은 kind=CONTEXT');
+      expect(p).toContain('**저장할지 묻지 않는다**');
+      expect(p).toContain('"오늘 점심 뭐 먹지"');
+      expect(p).toContain('건강·종교·정치 성향·금융 같은 민감한 개인 정보');
+    });
   }
 
   // F-f: 위임과 함께 불러도 된다는 문장은 위임이 있는 Claude 라우터에만 — opencode primary 는 위임 도구가 꺼져 있다.

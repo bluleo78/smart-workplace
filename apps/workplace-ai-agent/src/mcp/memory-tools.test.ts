@@ -36,6 +36,17 @@ describe('buildMemoryTools (WP-55)', () => {
     expect(updateMemoryInput.shape.content.description).toContain('지어내지 않는다');
   });
 
+  // 스펙 3.8: 도구 설명도 프롬프트와 같은 범위 — 자기 취향·사실 포함, 묻지 않고 저장.
+  it('WP-383: remember_memory 설명·kind 설명이 자기 취향·사실을 저장 대상으로 담고 묻지 말라고 한다', () => {
+    const { tool } = setup();
+    const d = tool('remember_memory').description;
+    expect(d).toContain('자기 자신에 대해 밝힌 오래 갈 취향·관심사·습관·사실');
+    expect(d).toContain('저장할지 묻지 말고 바로 저장');
+    expect(d).toContain('건강·종교·정치·금융');
+    expect(rememberMemoryInput.shape.kind.description).toContain('본인의 취향·관심사');
+    expect(rememberMemoryInput.shape.kind.description).toContain('본인에 관한 사실·습관');
+  });
+
   it('remember_memory → 대행 POST(source AI + 이 대화 세션) → saved 결과', async () => {
     const { c, tool } = setup();
     c.createAiMemory.mockResolvedValue(item());

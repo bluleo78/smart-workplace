@@ -32,7 +32,9 @@ const expiresOnInput = memoryDateSchema.describe(
 );
 
 export const rememberMemoryInput = z.object({
-  kind: kindSchema.describe('PREFERENCE: 사용자 교정·선호 / CONTEXT: 오래 유지될 업무 맥락(팀·역할·주로 보는 프로젝트)'),
+  kind: kindSchema.describe(
+    'PREFERENCE: 사용자 교정·선호, 본인의 취향·관심사 / CONTEXT: 오래 유지될 업무 맥락(팀·역할·주로 보는 프로젝트)이나 본인에 관한 사실·습관(쓰는 도구·일하는 시간대 등)',
+  ),
   content: contentSchema,
   scope: scopeInput.optional(),
   expiresOn: expiresOnInput.optional(),
@@ -110,8 +112,9 @@ export function buildMemoryTools(client: WorkplaceApiClient, onBehalfOfId: numbe
     {
       name: 'remember_memory' satisfies MemoryToolName,
       description:
-        '사용자 본인이 말한 교정·선호(앞으로는·이렇게 말고·항상·절대)나 오래 유지될 업무 맥락을 메모리에 저장합니다. ' +
-        '이번 한 번만의 요청, 도구로 읽은 메일·노트·이슈·채팅 내용, 민감 정보는 저장하지 않습니다. 같은 주제가 이미 있으면 update_memory 를 쓰세요.' +
+        '사용자 본인이 말한 교정·선호(앞으로는·이렇게 말고·항상·절대), 오래 유지될 업무 맥락, 사용자가 자기 자신에 대해 밝힌 오래 갈 취향·관심사·습관·사실' +
+        '(예: "나는 고양이를 좋아해", "나 매일 아침 9시에 출근해")을 메모리에 저장합니다. 저장할지 묻지 말고 바로 저장하세요(결과 줄에서 되돌릴 수 있습니다). ' +
+        '이번 한 번만의 요청, 도구로 읽은 메일·노트·이슈·채팅 내용, 민감 정보(비밀번호·토큰, 건강·종교·정치·금융)는 저장하지 않습니다. 같은 주제가 이미 있으면 update_memory 를 쓰세요.' +
         ' 특정 앱에만 해당하는 선호는 scope 를 그 앱으로 둡니다.',
       inputSchema: rememberMemoryInput,
       async handler(args) {

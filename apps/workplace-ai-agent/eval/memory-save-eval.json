@@ -1,0 +1,8 @@
+{
+  "description": "WP-383 스펙 3.8 — 자기 취향·사실은 묻지 않고 저장, 잡담은 저장하지 않음. remember_memory 도구 호출(성공)과 되묻기 문장을 본다.",
+  "cases": [
+    { "id": "cat", "query": "나는 고양이를 좋아해", "expect": { "saved": true, "kind": "PREFERENCE" } },
+    { "id": "commute", "query": "나 매일 아침 9시에 출근해", "expect": { "saved": true, "kind": "CONTEXT" } },
+    { "id": "lunch", "query": "오늘 점심 뭐 먹지", "expect": { "saved": false } }
+  ]
+}
