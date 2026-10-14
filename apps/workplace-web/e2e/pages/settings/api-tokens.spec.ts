@@ -102,7 +102,7 @@ test.describe('/settings/tokens', () => {
       const plaintext = page.getByTestId('token-plaintext');
       await expect(plaintext).toContainText('swp_');
       await expect(dialog).toContainText('다시 표시되지 않습니다');
-      await expect(dialog.getByRole('button', { name: '복사', exact: true }).first()).toBeVisible();
+      await expect(dialog.getByTestId('token-copy')).toBeVisible();
       await expect(page.getByTestId('token-issue-expiry')).toContainText('까지');
 
       // ③ 플러그인 설치 안내(WP-378) — 토큰이 든 명령은 어디에도 없고, 설치 명령은 접속한 웹 origin 기준이다.
@@ -116,7 +116,7 @@ test.describe('/settings/tokens', () => {
 
       // 설치 명령 복사 — 클립보드가 설치 명령 두 줄이다.
       await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
-      await install.locator('xpath=following-sibling::button').click();
+      await page.getByTestId('token-plugin-install-command-copy').click();
       expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
         `/plugin marketplace add ${origin}/claude/marketplace.json\n/plugin install genia-works@genia-works`,
       );

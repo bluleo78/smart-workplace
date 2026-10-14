@@ -1,5 +1,5 @@
 // 읽기 전용 명령어 블록 + 복사 버튼.
-// 좁은 화면에서 페이지가 가로로 넘치지 않도록 코드 블록 자체가 가로 스크롤된다.
+// 긴 명령은 잘리거나 가로 스크롤되지 않고 줄바꿈해 전부 보이게 한다(복사는 원본 문자열 그대로).
 
 import { toast } from 'sonner';
 
@@ -18,12 +18,20 @@ export function CopyableCommand({ command, testId }: { command: string; testId: 
   return (
     <div className="flex min-w-0 flex-col gap-2">
       <pre
-        className="max-w-full overflow-x-auto rounded bg-muted p-3 font-mono text-xs"
+        className="max-w-full whitespace-pre-wrap break-all rounded bg-muted p-3 font-mono text-xs"
         data-testid={testId}
       >
         <code>{command}</code>
       </pre>
-      <Button type="button" variant="outline" size="sm" className="self-end" onClick={onCopy}>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="self-end"
+        onClick={onCopy}
+        aria-label="명령 복사"
+        data-testid={`${testId}-copy`}
+      >
         복사
       </Button>
     </div>

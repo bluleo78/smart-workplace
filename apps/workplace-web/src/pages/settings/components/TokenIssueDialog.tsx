@@ -68,8 +68,9 @@ export function TokenIssueDialog({
             size="sm"
             onClick={() => void copy(plaintextToken ?? '', '토큰을 복사했습니다')}
             disabled={!plaintextToken}
+            data-testid="token-copy"
           >
-            복사
+            토큰 복사
           </Button>
 
           <p className="text-sm text-muted-foreground" data-testid="token-issue-expiry">
