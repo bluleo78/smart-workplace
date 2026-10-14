@@ -79,6 +79,8 @@ class PendingForMeTest extends AgentWorkTestSupport {
     assertThat(pendingNumbers(jwtToken)).doesNotContain(issueNumber);
 
     assertOk(putReport(akToken, TOOL, Map.of("state", "WORKING", "message", "지울 글")));
+    // 삭제 전에는 사람에게 처리 대기로 잡혀야 한다 — 필터가 항상 false 인 구현을 잡는다.
+    assertThat(pendingNumbers(jwtToken)).contains(issueNumber);
     long id =
         json(
                 call(
