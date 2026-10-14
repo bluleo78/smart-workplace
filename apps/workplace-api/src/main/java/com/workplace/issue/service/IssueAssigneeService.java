@@ -1,6 +1,8 @@
 package com.workplace.issue.service;
 
 import com.workplace.global.dto.UserSummary;
+import com.workplace.issue.dto.IssueRow;
+import com.workplace.issue.dto.IssueStatuses;
 import com.workplace.issue.exception.InvalidAssigneeForProjectException;
 import com.workplace.issue.exception.IssueAssigneeAgentRestrictionException;
 import com.workplace.issue.exception.IssueNotFoundException;
@@ -72,7 +74,7 @@ public class IssueAssigneeService {
       }
     }
 
-    // 1-b) AGENT 호출자는 "자기 자신만 제거" 외 변경 금지 (Phase 5c-2)
+    // 1-b) AGENT 호출자 — "자기 자신만 제거" 또는 "내가 맡은 이슈의 빈 하위 항목을 자기 혼자 맡기"(WP-375) 외 변경 금지 (Phase 5c-2)
     var callerUser =
         userRepository
             .findById(callerId)
@@ -80,9 +82,8 @@ public class IssueAssigneeService {
     if ("AGENT".equals(callerUser.kind())) {
       Set<Long> currentSet = new HashSet<>(repo.findUserIdsByIssue(issue.id()));
       Set<Long> targetSet = new HashSet<>(normalized);
-      Set<Long> currentMinusSelf = new HashSet<>(currentSet);
-      currentMinusSelf.remove(callerId);
-      if (!targetSet.equals(currentMinusSelf)) {
+      if (!isSelfRemoval(currentSet, targetSet, callerId)
+          && !isSelfClaimOfChild(issue, currentSet, targetSet, callerId)) {
         throw new IssueAssigneeAgentRestrictionException();
       }
     }
@@ -152,5 +153,24 @@ public class IssueAssigneeService {
     }
 
     return repo.findByIssue(issue.id());
+  }
+
+  /** 새 집합 = 현재 집합 − 호출자(자기 제거). */
+  private static boolean isSelfRemoval(Set<Long> current, Set<Long> target, long callerId) {
+    Set<Long> currentMinusSelf = new HashSet<>(current);
+    currentMinusSelf.remove(callerId);
+    return target.equals(currentMinusSelf);
+  }
+
+  /**
+   * AI 구성원이 자기가 맡은 이슈의 바로 아래 빈 하위 항목을 혼자 맡는지(WP-375 §3.5). 담당자가 비어 있고, 열려 있고, 새 집합이 {호출자}이고, 바로 위
+   * 부모의 담당자에 호출자가 있어야 한다. 손자는 자식을 먼저 맡아야 이 규칙을 통과한다(한 단계씩).
+   */
+  private boolean isSelfClaimOfChild(
+      IssueRow issue, Set<Long> current, Set<Long> target, long callerId) {
+    if (!current.isEmpty() || !target.equals(Set.of(callerId))) return false;
+    if (IssueStatuses.CLOSED.contains(issue.status())) return false;
+    Long parentId = issue.parentIssueId();
+    return parentId != null && repo.findUserIdsByIssue(parentId).contains(callerId);
   }
 }
