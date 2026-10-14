@@ -79,6 +79,7 @@
   --color-caution: var(--caution);
   --color-caution-foreground: var(--caution-foreground);
   --color-caution-subtle: var(--caution-subtle);
+  --color-caution-text: var(--caution-text);
   --color-dtype-text: var(--dtype-text);
   --color-dtype-number: var(--dtype-number);
   --color-dtype-date: var(--dtype-date);
@@ -175,6 +176,8 @@
   --caution: oklch(0.7 0.15 55);
   --caution-foreground: oklch(0.2 0 0);
   --caution-subtle: oklch(0.96 0.04 55);
+  /* 주황 문구색 — --caution(0.7)은 밝은 배경 위 작은 글자로는 대비가 부족해 명도를 낮춘 글자 전용 값(--warning-text 와 같은 방식). */
+  --caution-text: oklch(0.5 0.14 50);
   /* 데이터 타입 시각화 토큰 — 스키마 탐색기에서 SQL 데이터 타입을 구분하는 색상 */
   --dtype-text: oklch(0.55 0.15 240);
   --dtype-number: oklch(0.55 0.16 160);
@@ -265,6 +268,8 @@
   --caution: oklch(0.78 0.13 55);
   --caution-foreground: oklch(0.985 0 0);
   --caution-subtle: oklch(0.2 0.04 55);
+  /* 다크: 어두운 배경 위에선 --caution 자체가 충분히 밝아 그대로 쓴다. */
+  --caution-text: var(--caution);
   /* 데이터 타입 시각화 토큰 (다크 모드) */
   --dtype-text: oklch(0.7 0.13 240);
   --dtype-number: oklch(0.7 0.14 160);

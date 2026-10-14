@@ -1006,3 +1006,40 @@ test.describe('#356 AI 메시지 마크다운 렌더링', () => {
     await expect(body).toContainText('## 사람 메시지는 ** 그대로')
   })
 })
+
+// ── AI 메시지 번호 목록 간격 (WP-373) ────────────────────────────────────────────
+// 바깥 whitespace-pre-wrap 이 마크다운 블록 사이 개행을 빈 줄로 그려 번호 목록이 벌어지던 결함 회귀 방지.
+
+const LIST_CHANNEL_ID = 702
+
+test('팀 채팅 AI 메시지의 번호 목록은 항목 사이가 벌어지지 않는다', async ({ authenticatedPage: page }) => {
+  const channel = createChannel({ id: LIST_CHANNEL_ID, name: '목록', memberCount: 2 })
+  await stubChannelsList(page, [channel])
+  await stubDmsList(page)
+  await stubStream(page)
+  await stubChannelDetail(page, channel)
+  await stubMembers(page, LIST_CHANNEL_ID, [
+    createChannelMember({ userId: 99, name: 'My AI', kind: 'AGENT' }),
+  ])
+  await stubMessages(page, LIST_CHANNEL_ID, [
+    createMessage({
+      id: 41,
+      channelId: LIST_CHANNEL_ID,
+      authorId: 99,
+      authorName: 'My AI',
+      authorKind: 'AGENT',
+      body: '1. a\n2. b',
+      createdAt: '2026-06-06T03:10:00',
+    }),
+  ])
+  await stubMarkRead(page, LIST_CHANNEL_ID)
+  await stubUsers(page)
+  await page.goto(`/chat/channels/${LIST_CHANNEL_ID}`)
+
+  const items = page.getByTestId('message-body-41').locator('li')
+  await expect(items).toHaveCount(2)
+  const a = await items.nth(0).boundingBox()
+  const b = await items.nth(1).boundingBox()
+  // 예전에는 pre-wrap 이 항목 사이 개행을 빈 줄로 그려 한 줄(약 20px) 이상 벌어졌다.
+  expect(b!.y - (a!.y + a!.height)).toBeLessThan(8)
+})

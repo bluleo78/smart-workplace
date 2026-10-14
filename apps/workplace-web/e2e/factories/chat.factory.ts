@@ -53,6 +53,7 @@ export function createChatMessage(
     createdAt: now(),
     editedAt: null,
     deleted: false,
+    question: false, // WP-373
     ...overrides,
   };
 }

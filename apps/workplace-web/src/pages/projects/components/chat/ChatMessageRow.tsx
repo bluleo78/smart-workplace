@@ -27,6 +27,7 @@ import { AgentBadge } from '../../../../components/users/AgentBadge';
 import type { ChatMessageResponse } from '../../../../types/chat';
 import { ChatMessageImage } from './ChatMessageImage';
 import { formatChatTimestamp } from './formatChatTimestamp';
+import type { QuestionState } from './questionState';
 
 interface ChatMessageRowProps {
   message: ChatMessageResponse;
@@ -39,6 +40,8 @@ interface ChatMessageRowProps {
   // 작업 시트 열기 — 스크린리더용 "메시지 작업" 버튼(A1)이 쓴다. 터치 셸이 아니거나 허용된 작업이 없으면 미전달.
   // 길게 누르기 자체는 목록이 위임으로 판정한다(useMessageListLongPress, 행의 data-message-id — 팀 채팅과 같은 규칙).
   onOpenActions?: () => void;
+  // 질문 메시지 상태(WP-373) — open: 주황 강조 + 「질문」 태그, answered: 강조 없이 「질문 ✓ 답변됨」 태그.
+  questionState?: QuestionState;
 }
 
 export function ChatMessageRow({
@@ -49,6 +52,7 @@ export function ChatMessageRow({
   onEdit,
   onDelete,
   onOpenActions,
+  questionState,
 }: ChatMessageRowProps) {
   const isAgent = message.authorKind === 'AGENT';
   // 모바일 터치 셸 — hover 툴바를 그리지 않고, 길게 누르면 목록이 가진 작업 시트가 열린다.
@@ -97,7 +101,11 @@ export function ChatMessageRow({
 
   const body = (
     <div
-      className={`text-sm whitespace-pre-wrap break-words ${
+      className={`text-sm break-words ${
+        // 마크다운(AI) 본문에는 pre-wrap 을 주지 않는다 — 블록 사이 개행 텍스트 노드가 빈 줄로 보여 번호 목록이 벌어진다.
+        // 문단 안 줄바꿈은 MarkdownMessage 의 p 가 자체로 보존한다(IssueCommentList 와 같은 규칙).
+        isAgent && !message.deleted ? '' : 'whitespace-pre-wrap'
+      } ${
         // 본인: 말풍선. 삭제된 메시지는 색 없는 점선 테두리로 자리를 유지한다.
         isOwn ? `wrap-anywhere max-w-full rounded-2xl px-3 py-1.5 ${message.deleted ? 'border border-dashed' : 'bg-primary/10'}` : ''
       } ${message.deleted ? 'italic text-muted-foreground' : ''}`}
@@ -160,8 +168,14 @@ export function ChatMessageRow({
       // 목록 위임 길게 누르기의 대상 표식(수정 중인 행은 이 컴포넌트 대신 에디터가 렌더돼 표식이 없다).
       data-message-id={message.id}
       {...(isOwn ? toolbarRowProps : {})}
+      data-question={questionState}
       className={`group relative flex gap-2 px-3 py-2 ${
-        isAgent ? 'border-l-2 border-ai-accent' : ''
+        // 열린 질문은 주황(왼쪽 테두리 + 옅은 배경)이 AGENT 보라보다 우선.
+        questionState === 'open'
+          ? 'border-l-2 border-caution bg-caution-subtle'
+          : isAgent
+            ? 'border-l-2 border-ai-accent'
+            : ''
       } ${isPending ? 'opacity-60' : ''} ${isOwn ? 'justify-end' : ''} ${
         // 터치 셸: 선택·콜아웃 억제(이유는 TOUCH_NO_SELECT_CLASS 주석).
         touchShell ? TOUCH_NO_SELECT_CLASS : ''
@@ -198,6 +212,22 @@ export function ChatMessageRow({
             <div className="flex items-center gap-2 text-xs">
               <span className="font-medium">{message.authorName}</span>
               {isAgent && <AgentBadge size="xs" />}
+              {questionState === 'open' && (
+                <span
+                  className="rounded-full border border-caution/60 bg-background px-1.5 text-[11px] font-semibold leading-4 text-caution-text"
+                  data-testid={`chat-message-question-${message.id}`}
+                >
+                  질문
+                </span>
+              )}
+              {questionState === 'answered' && (
+                <span
+                  className="rounded-full bg-success-subtle px-1.5 text-[11px] font-medium leading-4 text-success-text"
+                  data-testid={`chat-message-question-${message.id}`}
+                >
+                  질문 ✓ 답변됨
+                </span>
+              )}
               <span className="text-muted-foreground">{formatChatTimestamp(message.createdAt)}</span>
               {message.editedAt && (
                 <span className="text-muted-foreground" aria-label="수정됨">

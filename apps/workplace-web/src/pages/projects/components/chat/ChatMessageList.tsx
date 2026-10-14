@@ -23,6 +23,7 @@ import { ScrollArea } from '../../../../components/ui/scroll-area';
 import { getDateKey } from '../../../../lib/formatters';
 import type { ChatMessageResponse } from '../../../../types/chat';
 import { ChatMessageRow } from './ChatMessageRow';
+import { questionStates } from './questionState';
 
 /** 이슈 채팅 첨부 뷰어 열림 router state 키(WP-279) — 팀 채팅·메인 AI 채팅 키와 나눈다(이슈 상세의 ?preview 첨부 뷰어와도 별개). */
 const ISSUE_CHAT_PREVIEW_KEY = 'issueChatPreview';
@@ -71,6 +72,8 @@ export function ChatMessageList({
       ),
     [messages],
   );
+  // 질문 글별 상태(열림/답변됨) — 로드된 범위에서 도출한다(questionState.ts).
+  const qStates = useMemo(() => questionStates(sorted), [sorted]);
   const lastId = sorted.length > 0 ? sorted[sorted.length - 1].id : null;
   const sheet = useMessageSheet(sorted);
   // 시트 작업 — 권한·순서는 messageSheetActions 가 정한다(본인·미삭제·확정 메시지만 수정·삭제 + 복사). 이슈 채팅엔 반응·스레드가 없다.
@@ -190,6 +193,7 @@ export function ChatMessageList({
                       isOwn={canEdit}
                       canEdit={canEdit}
                       isPending={isPending}
+                      questionState={qStates.get(m.id)}
                       onEdit={onEdit}
                       onDelete={onDelete}
                       // 스크린리더용 "메시지 작업" 버튼(A1) — 길게 누르기와 같은 조건일 때만.

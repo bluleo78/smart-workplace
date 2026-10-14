@@ -35,6 +35,10 @@ export interface ChatMessageResponse {
   createdAt: string;
   editedAt: string | null;
   deleted: boolean;
+  // WP-373: AI 가 사람의 답을 기다리는 질문 글 여부(삭제되면 false). 보내는 중인 낙관적 메시지·구 API 응답엔 없다.
+  question?: boolean;
+  // WP-373: 작성자 로그인 id(외부 AI 식별용). 구 API 응답엔 없을 수 있다.
+  authorUsername?: string;
 }
 
 export interface ChatThreadResponse {
