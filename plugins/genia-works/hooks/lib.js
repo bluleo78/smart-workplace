@@ -26,8 +26,16 @@ export function identityLabel({ selected, as, hasEnvToken, keyMissing }) {
 }
 
 // 키 저장소(~/.genia-works) 경로가 든 도구 입력인지 — 대화로 키가 새지 않게 막는다(우회는 막지 못함, README 에 명시).
+// 경로 뒤에 올 수 있는 구분자: 경로 구분·끝·따옴표·공백·셸 연산자(;&|)<>).
 export function isKeyPath(text) {
-  return /\.genia-works(\/|\\|$|["'\s])/.test(text)
+  return /\.genia-works(\/|\\|$|["'\s;&|)<>])/.test(text)
+}
+
+// 도구 입력에서 경로·명령으로 쓰이는 필드의 문자열만 뽑는다 — 쓰는 내용(content·new_string 등)에 경로가 언급된 것까지 막지 않으려는 것.
+const TARGET_FIELDS = ['file_path', 'path', 'notebook_path', 'pattern', 'glob', 'command']
+export function toolTargets(input) {
+  if (!input || typeof input !== 'object') return []
+  return TARGET_FIELDS.map((k) => input[k]).filter((v) => typeof v === 'string')
 }
 
 // 세션 선택을 지우는 종료 사유 — /clear·/resume 은 같은 프로세스가 계속 돌아 지우면 연결과 어긋난다.

@@ -75,3 +75,55 @@ test('세션 시작: 고른 이름의 키가 없으면 상태 줄이 직접 알�
   await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
   expect(statuses.join('|')).toContain('ghost 키가 없습니다 — /genia-works:login')
 })
+
+test('키 저장소 가드: Read·Grep·Bash 경로 변형은 거부', async ($, on) => {
+  on('tool.call', () => ({ result: 'ran' }))
+  expect((await $.tool.call({ tool: 'Read', file_path: '/Users/x/.genia-works/keys/a' } as any)).deny).toBeTruthy()
+  expect((await $.tool.call({ tool: 'Grep', path: '~/.genia-works', pattern: 'ak_' } as any)).deny).toBeTruthy()
+  expect((await $.tool.call({ tool: 'Bash', command: 'cat $HOME/.genia-works/keys/a' } as any)).deny).toBeTruthy()
+})
+
+test('키 저장소 가드: 내용에 경로가 언급된 Edit 은 허용', async ($, on) => {
+  on('tool.call', () => ({ result: 'ran' }))
+  const r = await $.tool.call({ tool: 'Edit', file_path: '/repo/README.md', old_string: 'a', new_string: '~/.genia-works/keys 는 보호' } as any)
+  expect(r.result).toBe('ran')
+})
+
+test('as 인자 없음: 현재 신원과 등록된 이름을 알린다', async ($, on) => {
+  stubScripts(on, { 'gw-keys list': { exitCode: 0, stdout: 'ai-dev\t10-14\nai-rev\t10-12\n' }, 'gw-session show': { exitCode: 0, stdout: 'ai-dev\n' } })
+  const r = await $.command.run({ command: AS_COMMAND, args: '' })
+  expect(r.text).toContain('현재: ai-dev')
+  expect(r.text).toContain('ai-dev, ai-rev')
+})
+
+test('as me: 내 토큰으로 전환', async ($, on) => {
+  const calls = stubScripts(on, {})
+  const clock = mock.clock(on)
+  on('command.run', { command: 'mcp' }, () => ({}))
+  const r = await $.command.run({ command: AS_COMMAND, args: 'me' })
+  expect(r.text).toContain('내 토큰')
+  expect(calls.some((c) => c[1] === 'select' && c[2] === 'me')).toBe(true)
+  await clock.advance(400)
+})
+
+test('logout: 시간이 지나면 다시 연결하고 상태 줄을 갱신한다', async ($, on) => {
+  stubScripts(on, { 'gw-session show': { exitCode: 0, stdout: '' } })
+  mock.env(on, {})
+  const clock = mock.clock(on)
+  const reconnects: string[] = []
+  const statuses: string[] = []
+  on('command.run', { command: 'mcp' }, (_$: any, e: any) => { reconnects.push(e.args); return {} })
+  on('ui.status', (_$: any, e: any) => { statuses.push(JSON.stringify(e)); return { value: undefined } })
+  await $.command.run({ command: LOGOUT_COMMAND, args: '' })
+  expect(reconnects).toEqual([])
+  await clock.advance(400)
+  expect(reconnects).toEqual(['reconnect plugin:genia-works:genia-works'])
+  expect(statuses.join('|')).toContain('내 토큰')
+})
+
+test('session.end: logout 사유도 선택을 지운다', async ($, on) => {
+  const calls = stubScripts(on, {})
+  on('session.end', (_$: any, e: any) => ({ sessionId: e.sessionId }))
+  await $.session.end({ reason: 'logout', sessionId: 's', resume: { id: 's' } })
+  expect(calls.filter((c) => c[1] === 'clear').length).toBe(1)
+})

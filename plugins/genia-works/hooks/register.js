@@ -1,7 +1,7 @@
 // genia-works mod — 세션별 접속 신원 선택(로그인 패널·전환·로그아웃), 신원 상태 줄, 키 파일 읽기 차단,
 // 기존 수동 등록 정리. 토큰 주입은 하지 않는다(헤더 스크립트 담당 — 플러그인 MCP 가 mod 보다 먼저 연결된다).
 // 규칙: $ 를 쓰는 코드는 모두 이 파일 안에 둔다(다른 파일 함수에 $ 를 넘기면 검증이 실패). lib.js 는 순수 함수만.
-import { COMMANDS, parseKeyList, identityLabel, isKeyPath, END_CLEARS } from './lib.js'
+import { COMMANDS, parseKeyList, identityLabel, isKeyPath, toolTargets, END_CLEARS } from './lib.js'
 
 const SERVER = 'plugin:genia-works:genia-works'
 let opts = {}
@@ -32,7 +32,10 @@ function reconnectSoon($) {
     } catch (err) {
       $.ui.toast('genia-works 다시 연결 실패: ' + String(err))
     }
-    await refreshStatus($)
+    // 상태 줄 갱신 실패(스크립트 오류 등)는 상태 줄만 건너뛴다.
+    try {
+      await refreshStatus($)
+    } catch {}
   })
 }
 
@@ -57,7 +60,9 @@ export function register(on, options) {
   opts = options ?? {}
 
   on('session.start', async ($, e, next) => {
-    await refreshStatus($)
+    try {
+      await refreshStatus($)
+    } catch {} // 스크립트 실패는 상태 줄만 건너뛰고 세션 시작은 막지 않는다
     return next(e)
   })
 
@@ -83,7 +88,7 @@ export function register(on, options) {
 
   // 키 저장소 읽기 차단 — 키가 대화(기록·모델 입력)로 들어가지 않게 한다. 핸들러가 실패해도 막는 쪽으로 닫는다(판정 4).
   on('tool.call', async ($, e, next) => {
-    if (isKeyPath(JSON.stringify(e))) {
+    if (toolTargets(e).some(isKeyPath)) {
       return { deny: 'genia-works 키 저장소(~/.genia-works)는 열 수 없습니다. 신원 확인은 ' + COMMANDS.as + ' 를 쓰세요.' }
     }
     return next(e)

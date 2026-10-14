@@ -1,7 +1,7 @@
 // mod 순수 함수 테스트 — $ 없이 node --test 로 돈다.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseKeyList, identityLabel, isKeyPath, END_CLEARS } from '../hooks/lib.js';
+import { parseKeyList, identityLabel, isKeyPath, toolTargets, END_CLEARS } from '../hooks/lib.js';
 
 test('parseKeyList: 탭 구분 줄을 이름·등록일로', () => {
   assert.deepEqual(parseKeyList('ai-dev\t10-14\nai-review\t10-12\n'), [
@@ -39,4 +39,23 @@ test('END_CLEARS: clear·resume 에서는 선택을 지우지 않는다', () => 
   assert.equal(END_CLEARS.has('other'), true);
   assert.equal(END_CLEARS.has('clear'), false);
   assert.equal(END_CLEARS.has('resume'), false);
+});
+
+test('isKeyPath: 셸 연산자 뒤 경로도 잡고, 비슷한 이름은 놓아 준다', () => {
+  assert.equal(isKeyPath('cd ~/.genia-works;cat keys/*'), true);
+  assert.equal(isKeyPath('ls ~/.genia-works|x'), true);
+  assert.equal(isKeyPath('cat ~/.genia-works>x'), true);
+  assert.equal(isKeyPath('echo $(ls ~/.genia-works)'), true);
+  assert.equal(isKeyPath('curl https://genia-works.iacloud.kr/mcp'), false);
+  assert.equal(isKeyPath('ls ~/.genia-works-x'), false);
+  assert.equal(isKeyPath('/p/plugins/genia-works/scripts/gw-keys list'), false);
+});
+
+test('toolTargets: 경로·명령 필드의 문자열만', () => {
+  assert.deepEqual(
+    toolTargets({ tool: 'Edit', file_path: '/a/README.md', new_string: '~/.genia-works/keys', old_string: 'x' }),
+    ['/a/README.md'],
+  );
+  assert.deepEqual(toolTargets({ tool: 'Bash', command: 'ls', glob: '*.md', path: 3 }), ['*.md', 'ls']);
+  assert.deepEqual(toolTargets(null), []);
 });
