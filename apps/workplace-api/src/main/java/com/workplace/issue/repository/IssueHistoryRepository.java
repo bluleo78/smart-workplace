@@ -6,6 +6,7 @@ import static com.workplace.jooq.Tables.USER;
 import com.workplace.issue.dto.IssueHistoryEntryResponse;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import org.jooq.Record;
@@ -51,6 +52,16 @@ public class IssueHistoryRepository {
         .where(ISSUE_HISTORY.ISSUE_ID.eq(issueId))
         .orderBy(ISSUE_HISTORY.CREATED_AT.asc())
         .fetch(this::mapToResponse);
+  }
+
+  /** 이슈에 마지막으로 그 유형의 이벤트를 남긴 사용자 id — 그런 이력이 없으면 empty. */
+  public Optional<Long> findLastActor(Long issueId, String eventType) {
+    return dsl.select(ISSUE_HISTORY.ACTOR_ID)
+        .from(ISSUE_HISTORY)
+        .where(ISSUE_HISTORY.ISSUE_ID.eq(issueId).and(ISSUE_HISTORY.EVENT_TYPE.eq(eventType)))
+        .orderBy(ISSUE_HISTORY.CREATED_AT.desc(), ISSUE_HISTORY.ID.desc())
+        .limit(1)
+        .fetchOptional(ISSUE_HISTORY.ACTOR_ID);
   }
 
   /** 히스토리 한 건 INSERT. */

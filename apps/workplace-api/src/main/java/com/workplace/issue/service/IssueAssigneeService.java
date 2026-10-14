@@ -9,6 +9,7 @@ import com.workplace.issue.exception.IssueNotFoundException;
 import com.workplace.issue.outbound.IssueChangeNotifier;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueAssignedEvent;
 import com.workplace.issue.repository.IssueAssigneeRepository;
+import com.workplace.issue.repository.IssueHistoryRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.service.ProjectAccessGuard;
@@ -45,6 +46,7 @@ public class IssueAssigneeService {
   private final ApplicationEventPublisher publisher;
   private final IssueChangeNotifier changeNotifier;
   private final AgentWorkService agentWorkService;
+  private final IssueHistoryRepository historyRepository;
 
   /**
    * 이슈 담당자 집합을 통째로 교체한다.
@@ -59,9 +61,11 @@ public class IssueAssigneeService {
   public List<UserSummary> replace(
       Long callerId, String projectKey, int number, List<Long> userIds) {
     var project = accessGuard.assertMember(projectKey, callerId);
+    // 이슈 행을 잠가 같은 이슈의 담당자 교체를 한 줄로 세운다 — 두 요청이 같은 "빈 담당자" 를 읽고 각자 넣으면 AI 자기 배정의
+    // "혼자 맡기" 규칙이 깨져 담당자가 둘이 된다(WP-375). 부모 변경(setParent)도 같은 행을 잠그므로 판정 중 부모가 바뀌지 않는다.
     var issue =
         issueRepository
-            .findByProjectAndNumber(project.id(), number)
+            .findByProjectAndNumberForUpdate(project.id(), number)
             .orElseThrow(() -> new IssueNotFoundException(projectKey, number));
 
     List<Long> normalized = userIds == null ? List.of() : userIds;
@@ -164,13 +168,18 @@ public class IssueAssigneeService {
 
   /**
    * AI 구성원이 자기가 맡은 이슈의 바로 아래 빈 하위 항목을 혼자 맡는지(WP-375 §3.5). 담당자가 비어 있고, 열려 있고, 새 집합이 {호출자}이고, 바로 위
-   * 부모의 담당자에 호출자가 있어야 한다. 손자는 자식을 먼저 맡아야 이 규칙을 통과한다(한 단계씩).
+   * 부모의 담당자에 호출자가 있어야 한다. 손자는 자식을 먼저 맡아야 이 규칙을 통과한다(한 단계씩). 마지막 부모 변경을 호출자 자신이 했으면 거부한다 — 아무 빈 이슈나
+   * 자기 이슈 아래로 옮긴 뒤 맡는 우회를 막는다(부모 관계는 다른 사람이 만든 것만 근거로 친다).
    */
   private boolean isSelfClaimOfChild(
       IssueRow issue, Set<Long> current, Set<Long> target, long callerId) {
     if (!current.isEmpty() || !target.equals(Set.of(callerId))) return false;
     if (IssueStatuses.CLOSED.contains(issue.status())) return false;
     Long parentId = issue.parentIssueId();
-    return parentId != null && repo.findUserIdsByIssue(parentId).contains(callerId);
+    if (parentId == null || !repo.findUserIdsByIssue(parentId).contains(callerId)) return false;
+    return historyRepository
+        .findLastActor(issue.id(), "PARENT_CHANGED")
+        .filter(actor -> actor == callerId)
+        .isEmpty();
   }
 }
