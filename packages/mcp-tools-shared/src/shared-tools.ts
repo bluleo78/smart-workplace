@@ -44,7 +44,7 @@ export type SharedToolClient = IssueToolClient &
   AttachmentToolClient;
 
 /**
- * 앱별 옵션 — 메시징(parentMessageIdFor)과 read_file 의 이미지 입력(WP-250: imageInput 기본 true, imageBudget 없으면 실행당 상한 없음).
+ * 앱별 옵션 — 메시징(parentMessageIdFor)과 read_file 의 이미지 입력(WP-250: images.input 기본 true, images.budget 없으면 실행당 상한 없음).
  * 기본값은 예전 동작과 같아 옵션을 안 주는 호출부도 그대로 컴파일·동작한다.
  */
 export type SharedToolOptions = MessagingToolOptions & AttachmentToolOptions;
@@ -63,6 +63,6 @@ export function buildSharedTools(client: SharedToolClient, opts: SharedToolOptio
     ...buildDriveTools(client),
     ...buildNotifyTools(client),
     ...buildHomeTools(client),
-    ...buildAttachmentTools(client, { imageInput: opts.imageInput, imageBudget: opts.imageBudget }),
+    ...buildAttachmentTools(client, opts),
   ];
 }

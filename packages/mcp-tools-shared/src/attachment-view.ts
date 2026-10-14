@@ -13,14 +13,16 @@ import type { FileBytes } from './tool-client.js';
 
 /** 한 번의 read_file 호출로 볼 수 있는 최대 쪽수. */
 export const MAX_PAGES_PER_CALL = 3;
+/** 서버 /view 원본 상한(AttachmentViewService.MAX_SOURCE_BYTES, 워커 config.MAX_BYTES)과 같은 25MB — 넘는 PDF 는 페이지를 그리지 않는다(413). */
+export const MAX_VIEW_SOURCE_BYTES = 25 * 1024 * 1024;
+/** 모델이 이미지를 볼 수 있을 때 ai-agent 첨부 도구(read_chat_attachment·read_chat_thread_attachment) 설명에 덧붙이는 pages 한 문장. */
+export const PAGES_DESCRIPTION = `PDF 는 pages:[n](최대 ${MAX_PAGES_PER_CALL}쪽)로 쪽 이미지를 볼 수 있습니다(그림·도표·스캔).`;
 /** 한 번의 실행에서 볼 수 있는 최대 이미지 수 — 이전 이미지가 매 턴 다시 실려도 요청 크기 상한에 닿지 않게. */
 export const IMAGE_BUDGET_PER_RUN = 20;
 
 /** 예산을 다 썼을 때 모델에 주는 안내 — 같은 요청을 되풀이하지 않고 사용자에게 범위를 좁혀 달라고 하게 한다. cap 은 실제 상한. */
 const usedUpNotice = (cap: number) =>
   `이번 대화에서 볼 수 있는 이미지를 다 썼습니다(${cap}장). 볼 페이지를 좁혀 달라고 사용자에게 요청하세요.`;
-/** 기본 상한(IMAGE_BUDGET_PER_RUN)을 다 썼을 때의 안내 — 예산이 하나도 남지 않았을 때 ImageBudget.shortfall 이 돌려주는 문구와 같다. */
-export const IMAGE_BUDGET_EXHAUSTED = usedUpNotice(IMAGE_BUDGET_PER_RUN);
 
 /**
  * 실행당 이미지 상한 — 도구 서버 인스턴스(= 한 번의 에이전트 실행)마다 하나를 만들어 도구들이 같이 쓴다.
@@ -85,6 +87,31 @@ function viewErrorText(e: unknown): string {
 /** pages 입력 — 1부터, 1~3개. 중복은 핸들러가 한 번만 본다. null 은 "미지정"(모델이 쓰지 않는 인자를 null 로 채우는 경우). */
 export const pagesShape = { pages: nullAsOmitted(z.array(z.number().int().min(1)).min(1).max(MAX_PAGES_PER_CALL)) };
 
+/**
+ * 이미지 입력 옵션 — input 은 모델이 이미지를 볼 수 있는지, budget 은 실행당 이미지 예산(없으면 호출당 상한만).
+ * read_file(공유)과 ai-agent 첨부 도구가 같은 모양으로 받는다.
+ */
+export interface ImageOptions {
+  input: boolean;
+  budget?: ImageBudget;
+}
+
+/**
+ * 첨부 읽기 입력 스키마에 pages 를 더한다 — 이미지를 볼 수 있는 모델(imageInput)에만. 못 쓰는 인자를 스키마·정의에 두지 않기 위해서다.
+ * 뺀 판도 타입은 pages 를 선택 필드로 갖게 해(값은 늘 없다) 핸들러가 한 모양으로 다룬다.
+ */
+export function withPages<T extends z.ZodRawShape>(base: z.ZodObject<T>, imageInput: boolean) {
+  return (imageInput ? base.extend(pagesShape) : base) as z.ZodObject<T> & z.ZodObject<typeof pagesShape>;
+}
+
+/**
+ * PDF 를 페이지 이미지로 볼 수 있다고 안내해도 되는지 — 이미지를 볼 수 있는 모델이고 25MB 이하 PDF 일 때(넘으면 서버가 413).
+ * 글자로 못 읽는 PDF(추출 기록 없음·실패·건너뜀)의 pages 안내를 프롬프트·도구 결과가 같은 기준으로 붙이게 한다. 상태 조건은 호출자가 따로 본다.
+ */
+export function canViewPages(a: { mimeType: string; sizeBytes: number }, imageInput: boolean): boolean {
+  return imageInput && baseMimeType(a.mimeType) === 'application/pdf' && a.sizeBytes <= MAX_VIEW_SOURCE_BYTES;
+}
+
 /** /view 바이트 → [설명 text, image] 블록. 형식은 응답 Content-Type 에서 파라미터를 뗀 값(모델 입력 형식). */
 export function viewBlocks(label: string, v: FileBytes): McpContent[] {
   const mimeType = baseMimeType(v.mimeType);
@@ -141,39 +168,52 @@ async function viewOrNotice(label: string, view: () => Promise<FileBytes>): Prom
   }
 }
 
+/** 보낼 수 없는 이미지 안내(변환본이 없는 메일 첨부, WP-388) — 실제 사유만 말하고, 내용을 추측하지 않게 한다. label 은 JSON 으로 감싸 제어문자를 무력화한 이름·식별자. */
+function imageNotice(label: string, reasons: string[]): string {
+  return (
+    `${label}: 이 이미지의 ${reasons.join('과 ')}는 모델에 보낼 수 없습니다(JPEG·PNG·GIF·WebP, ${IMAGE_MAX_BYTES}B 이하만 가능). ` +
+    '이미지 내용을 추측하지 말고, 사용자에게 직접 확인해 달라고 안내하세요.'
+  );
+}
+
 /**
  * 이미지: 보낼 수 있으면 원본, 아니면 /view 변환본. 메타(목록의 형식·크기)를 알면 먼저 보고 원본을 받지 않는다.
  * 메타를 모르면 원본을 시도하고, 다운로드 상한 초과(FileTooLargeError)나 받은 형식·크기가 보낼 수 없는 것이면 변환본으로 잇는다.
+ * view 가 없으면(메일 첨부 — /view 가 없다, WP-388) 변환본 대신 보낼 수 없는 사유를 안내한다.
  * 다른 다운로드 오류(권한·없음)는 삼키지 않는다 — 도구 레이어가 API 오류로 알린다.
  */
 export async function imageBlocksFor(
   label: string,
   meta: { mimeType?: string; sizeBytes?: number },
   download: () => Promise<FileBytes>,
-  view: () => Promise<FileBytes>,
+  view: (() => Promise<FileBytes>) | undefined,
   budget?: ImageBudget,
 ): Promise<McpToolResult> {
   return withImageBudget(budget, 1, () => originalOrConverted(label, meta, download, view));
 }
 
-/** imageBlocksFor 의 본체(예산 밖) — 원본을 보낼 수 있으면 원본, 아니면 변환본. */
+/** imageBlocksFor 의 본체(예산 밖) — 원본을 보낼 수 있으면 원본, 아니면 변환본(없으면 사유 안내). */
 async function originalOrConverted(
   label: string,
   meta: { mimeType?: string; sizeBytes?: number },
   download: () => Promise<FileBytes>,
-  view: () => Promise<FileBytes>,
+  view: (() => Promise<FileBytes>) | undefined,
 ): Promise<McpToolResult> {
+  // 보낼 수 없을 때 — 변환본이 있으면 변환본, 없으면 사유 안내.
+  const fallback = (reasons: string[]) => (view ? viewOrNotice(label, view) : imageNotice(label, reasons));
   // 아는 메타만 본다 — 형식을 모르면 형식을, 크기를 모르면 크기를 따지지 않는다(받은 뒤 다시 본다).
   const badType = meta.mimeType !== undefined && !SENDABLE_IMAGE_MIMES.has(baseMimeType(meta.mimeType));
   const tooBig = meta.sizeBytes !== undefined && meta.sizeBytes > IMAGE_MAX_BYTES;
-  if (badType || tooBig) return viewOrNotice(label, view);
+  if (badType || tooBig) {
+    return fallback([...(badType ? [`형식(${meta.mimeType})`] : []), ...(tooBig ? [`크기(${meta.sizeBytes}B)`] : [])]);
+  }
   let bytes: FileBytes;
   try {
     bytes = await download();
   } catch (e) {
-    if (e instanceof FileTooLargeError) return viewOrNotice(label, view);
+    if (e instanceof FileTooLargeError) return fallback([`크기(${IMAGE_MAX_BYTES}B 초과)`]);
     throw e;
   }
-  if (imageRejectReasons(bytes.mimeType, bytes.data.byteLength).length > 0) return viewOrNotice(label, view);
-  return viewBlocks(label, bytes);
+  const reasons = imageRejectReasons(baseMimeType(bytes.mimeType), bytes.data.byteLength);
+  return reasons.length > 0 ? fallback(reasons) : viewBlocks(label, bytes);
 }

@@ -31,5 +31,5 @@ export function selectTools(tools: SharedTool[], scope: McpScope): SharedTool[] 
  */
 export function buildUserTools(client: PatApiClient, scope: McpScope = FULL_SCOPE): SharedTool[] {
   // WP-250: 외부 MCP 클라이언트 모델은 이미지를 볼 수 있다고 본다(pages 노출). 실행 단위가 없어 실행당 예산은 두지 않는다 — 호출당 3장만.
-  return selectTools(exposableTools(buildSharedTools(client, { imageInput: true })), scope);
+  return selectTools(exposableTools(buildSharedTools(client, { images: { input: true } })), scope);
 }

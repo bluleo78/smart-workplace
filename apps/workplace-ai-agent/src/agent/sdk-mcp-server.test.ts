@@ -17,7 +17,7 @@ import { createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk';
 import { buildTools } from '../mcp/tools.js';
 import { adaptMcpTool, buildInProcessWorkplaceMcpServer } from './sdk-mcp-server.js';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
-import { IMAGE_BUDGET_EXHAUSTED, ImageBudget, toolAnnotations, type SharedTool } from '@smart-workplace/mcp-tools-shared';
+import { ImageBudget, toolAnnotations, type SharedTool } from '@smart-workplace/mcp-tools-shared';
 
 describe('adaptMcpTool', () => {
   it('string 반환을 CallToolResult content 로 래핑', async () => {
@@ -184,7 +184,7 @@ describe('실행당 이미지 예산 (WP-250)', () => {
     return { call, viewDriveFile };
   }
 
-  it('3장씩 6번(18장) 본 뒤 7번째 3장 요청은 남은 장수(2장)로 거절하고, 2장을 더 보면 20장째에서 IMAGE_BUDGET_EXHAUSTED', async () => {
+  it('3장씩 6번(18장) 본 뒤 7번째 3장 요청은 남은 장수(2장)로 거절하고, 2장을 더 보면 20장째에서 다 썼다는 안내', async () => {
     const { call, viewDriveFile } = await serverReadFile();
     for (let i = 0; i < 6; i++) {
       const res = await call([1, 2, 3]);
@@ -200,7 +200,7 @@ describe('실행당 이미지 예산 (WP-250)', () => {
     const eighth = await call([1, 2]);
     expect(eighth.content.filter((b) => b.type === 'image')).toHaveLength(2);
     const ninth = await call([1]);
-    expect(ninth.content).toEqual([{ type: 'text', text: IMAGE_BUDGET_EXHAUSTED }]);
+    expect(ninth.content).toEqual([{ type: 'text', text: '이번 대화에서 볼 수 있는 이미지를 다 썼습니다(20장). 볼 페이지를 좁혀 달라고 사용자에게 요청하세요.' }]);
     expect(viewDriveFile).toHaveBeenCalledTimes(20);
   });
 

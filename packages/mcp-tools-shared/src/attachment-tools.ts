@@ -5,12 +5,12 @@
 // PDF 는 원본이 아니라 서버가 그린 페이지 이미지만 돌려준다(WP-250) — pages:[n] 로 고른 쪽만, 호출당 3장·실행당 예산 안에서.
 import { z } from 'zod';
 
-import { baseMimeType, FileTooLargeError, IMAGE_MAX_BYTES, imageRejectReasons, readRangeShape, resolveRange } from './attachment-read.js';
-import { type ImageBudget, imageBlocksFor, MAX_PAGES_PER_CALL, pageBlocks, pagesShape, viewBlocks, withImageBudget } from './attachment-view.js';
+import { readRangeShape, resolveRange } from './attachment-read.js';
+import { type ImageOptions, imageBlocksFor, MAX_PAGES_PER_CALL, pageBlocks, withPages } from './attachment-view.js';
 import type { McpToolResult } from './mcp-content.js';
 import type { SharedTool } from './mcp-tool.js';
 import { nullAsOmitted } from './tool-definitions.js';
-import type { AttachmentToolClient, ExtractedTextSlice, FileBytes } from './tool-client.js';
+import type { AttachmentToolClient, ExtractedTextSlice } from './tool-client.js';
 
 /** source 별 필수 식별자 — 나머지 식별자는 줄 수 없다. 필드 이름은 입력 이름 그대로다(드라이브만 driveFileId, 나머지 첨부는 attachmentId 를 재사용). */
 const SOURCE_FIELDS = {
@@ -45,9 +45,7 @@ export function readFileInputFor(imageInput: boolean) {
     messageId: nullAsOmitted(z.number().int().positive()),
     ...readRangeShape,
   });
-  // pages 를 뺀 판도 타입은 pages 를 선택 필드로 갖게 해(값은 늘 없다) 핸들러가 한 모양으로 다룬다.
-  const shaped = (imageInput ? base.extend(pagesShape) : base) as typeof base & z.ZodObject<typeof pagesShape>;
-  return shaped.superRefine((v, ctx) => {
+  return withPages(base, imageInput).superRefine((v, ctx) => {
     const { required, from } = SOURCE_FIELDS[v.source];
     const missing = required.filter((f) => v[f] == null);
     if (missing.length > 0) {
@@ -63,10 +61,9 @@ export function readFileInputFor(imageInput: boolean) {
 /** 기본(이미지 입력 가능) 스키마 — 테스트·외부에서 스키마 모양을 볼 때 쓴다. */
 export const readFileInput = readFileInputFor(true);
 
-/** read_file 옵션(WP-250) — imageInput 은 모델이 이미지를 볼 수 있는지(기본 true), imageBudget 은 실행당 이미지 예산(없으면 무제한). */
+/** read_file 옵션(WP-250) — 이미지 입력(images.input, 기본 true)과 실행당 이미지 예산(images.budget, 없으면 무제한). */
 export interface AttachmentToolOptions {
-  imageInput?: boolean;
-  imageBudget?: ImageBudget;
+  images?: ImageOptions;
 }
 
 /** 메일 첨부 + pages — 메일은 /view 가 없다(WP-388). 던지지 않고 텍스트 읽기로 돌아가게 안내한다. */
@@ -74,33 +71,6 @@ const MAIL_PAGES_UNSUPPORTED = '메일 첨부는 아직 페이지 보기를 지�
 
 /** 서버가 이미지로 판정해 추출을 건너뛴 파일인지 — 이때만 원본을 받는다. */
 export const isImageSkip = (s: Pick<ExtractedTextSlice, 'status' | 'reasonCode'>) => s.status === 'SKIPPED' && s.reasonCode === 'IMAGE';
-
-/** 보낼 수 없는 이미지 안내(지금은 /view 가 없는 메일 첨부만, WP-388) — 실제 사유만 말하고, 내용을 추측하지 않게 한다. label 은 JSON 으로 감싸 제어문자를 무력화한 이름·식별자. */
-function imageNotice(label: string, reasons: string[]): string {
-  return (
-    `${label}: 이 이미지의 ${reasons.join('과 ')}는 모델에 보낼 수 없습니다(JPEG·PNG·GIF·WebP, ${IMAGE_MAX_BYTES}B 이하만 가능). ` +
-    '이미지 내용을 추측하지 말고, 사용자에게 직접 확인해 달라고 안내하세요.'
-  );
-}
-
-/**
- * 원본 받기 — 크기 메타가 없어 사전 검사를 못 한 경우를 위해 클라이언트가 다운로드 상한(IMAGE_MAX_BYTES)을 걸고,
- * 넘으면 FileTooLargeError 를 던진다. 그때도 사전 검사와 같은 "크기 초과" 안내로 잇는다.
- */
-async function downloadImage(label: string, download: () => Promise<FileBytes>): Promise<McpToolResult> {
-  try {
-    return imageResult(label, await download());
-  } catch (e) {
-    if (e instanceof FileTooLargeError) return imageNotice(label, [`크기(${IMAGE_MAX_BYTES}B 초과)`]);
-    throw e;
-  }
-}
-
-/** 받은 원본 → [설명 text, image] 블록(viewBlocks 와 같은 모양). 받은 뒤에도 형식·크기를 다시 보고, 보낼 수 없으면 안내 문구. */
-function imageResult(label: string, bytes: FileBytes): McpToolResult {
-  const reasons = imageRejectReasons(baseMimeType(bytes.mimeType), bytes.data.byteLength);
-  return reasons.length > 0 ? imageNotice(label, reasons) : viewBlocks(label, bytes);
-}
 
 /**
  * 드라이브 read_file 응답의 고쳐 쓰기 안내(WP-369 최종 리뷰 I4) — 외부 MCP 클라이언트가 일부만 읽고 create_drive_file(driveFileId, content)
@@ -143,8 +113,8 @@ function noteField(...notes: (string | undefined)[]): { note?: string } {
 
 /** 파일·첨부 읽기 도구(read_file). kind read — 상태를 바꾸지 않는다(외부 MCP 노출). */
 export function buildAttachmentTools(client: AttachmentToolClient, opts: AttachmentToolOptions = {}): SharedTool[] {
-  const imageInput = opts.imageInput ?? true;
-  const budget = opts.imageBudget;
+  const imageInput = opts.images?.input ?? true;
+  const budget = opts.images?.budget;
   const input = readFileInputFor(imageInput);
 
   /**
@@ -281,9 +251,13 @@ export function buildAttachmentTools(client: AttachmentToolClient, opts: Attachm
             const slice = await client.readMailAttachmentText(attachmentId, range);
             // 메일은 /view 가 없어(WP-388) 지금처럼 원본만 — 보낼 수 없으면 거절 안내. pages 안내(pdfNote)도 붙이지 않는다.
             if (isImageSkip(slice)) {
-              // 예산은 실제로 준 이미지만 센다 — 거절 안내로 끝나면 돌려놓는다(withImageBudget).
-              return withImageBudget(budget, 1, () =>
-                downloadImage(`메일 첨부 이미지(attachmentId ${attachmentId})`, () => client.downloadMailAttachment(attachmentId)),
+              // 변환본이 없어 view 를 주지 않는다 — 보낼 수 없으면 사유 안내. 예산은 실제로 준 이미지만 센다(거절 안내로 끝나면 돌려놓는다).
+              return imageBlocksFor(
+                `메일 첨부 이미지(attachmentId ${attachmentId})`,
+                {},
+                () => client.downloadMailAttachment(attachmentId),
+                undefined,
+                budget,
               );
             }
             // 메일은 서버가 요청한 attachmentId 를 fileId 로 돌려준다(내부 사본 id 는 내보내지 않는다). 첫 호출은 서버가 사본을 만들며 추출을 시작해 PENDING 이다.

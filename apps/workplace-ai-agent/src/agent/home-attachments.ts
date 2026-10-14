@@ -1,12 +1,12 @@
 // WP-234: 메인 AI 채팅 첨부 — 요청 스키마(세션 전체 첨부 목록)와 매 턴 user 메시지에 고정 주입하는 "## 이 대화의 첨부" 블록.
 // 이력 윈도·누적 요약과 별개로 매 턴 세션 전체 목록을 싣는다 — 앞부분 이력이 요약으로 대체돼도 AI 가 파일을 근거로
 // 답하고 "다시 첨부해 달라"고 하지 않게 하는 연속성의 핵심이다. 읽기는 read_chat_attachment(필요할 때만)로 한다.
-import { baseMimeType, isSendableImage } from '@smart-workplace/mcp-tools-shared';
+import { baseMimeType, canViewPages, isSendableImage } from '@smart-workplace/mcp-tools-shared';
 import { z } from 'zod';
 
 import type { HomeAttachmentMeta, WorkplaceApiClient } from '../clients/workplace-api.js';
 import { log } from '../logger.js';
-import { fileKind, MAX_VIEW_SOURCE_BYTES, sanitizeName } from './attachment-presenter.js';
+import { fileKind, sanitizeName } from './attachment-presenter.js';
 
 // WP-242 공통 ExtractionInfo — 서버는 nullable 필드를 null 또는 생략으로 보낼 수 있어 null 로 정규화한다.
 export const extractionInfoSchema = z.object({
@@ -56,7 +56,7 @@ function statusLabel(a: HomeChatAttachment, imageVision: boolean): string {
   const x = a.extraction;
   // WP-250 코드 리뷰: 글자로 못 읽는 PDF(추출 기록 없음·실패·건너뜀)도 이미지를 볼 수 있는 모델은 pages 로 페이지 이미지를 볼 수 있다 —
   // 그렇게 적지 않으면 읽을 길이 없다고 보고 멈춘다. 25MB 를 넘으면 서버가 그리지 않으므로(413) 약속하지 않는다.
-  const pagesHint = kind === 'pdf' && imageVision && a.sizeBytes <= MAX_VIEW_SOURCE_BYTES ? ' — pages 로 페이지 이미지를 볼 수 있음' : '';
+  const pagesHint = canViewPages(a, imageVision) ? ' — pages 로 페이지 이미지를 볼 수 있음' : '';
   switch (x.status) {
     case 'READY':
       return `텍스트${x.totalChars != null ? ` 약 ${x.totalChars}자` : ''}${x.truncated ? '(추출 상한으로 잘림)' : ''}`;

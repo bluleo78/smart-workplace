@@ -9,15 +9,15 @@ import {
   createProjectInput,
   FileTooLargeError,
   imageBlocksFor,
-  type ImageBudget,
+  type ImageOptions,
   isImageSkip,
   issueListFilterShape,
   listConflicts as listConflictsShared,
   MEMORY_TOOL_NAMES,
   NO_ATTENDEE_TO_ADD,
   normalizeTimezone,
+  PAGES_DESCRIPTION,
   pageBlocks,
-  pagesShape,
   parseIssueKey,
   pdfNote,
   READ_ATTACHMENT_DEFAULT_LIMIT,
@@ -29,13 +29,14 @@ import {
   resolveRange,
   toCreateProjectBody,
   toolAnnotations,
+  withPages,
   type McpTool,
   type MemberRow,
 } from '@smart-workplace/mcp-tools-shared';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
 import { findThreadAttachmentMeta } from '../agent/attachment-source.js';
 import { fileKind } from '../agent/attachment-presenter.js';
-import { buildReadChatAttachmentTool, PAGES_DESCRIPTION } from './home-attachment-tool.js';
+import { buildReadChatAttachmentTool } from './home-attachment-tool.js';
 import { buildMemoryTools } from './memory-tools.js';
 
 // sdk-mcp-server.ts / stdio-entry.ts 가 './tools.js' 에서 McpTool 을 계속 import 하므로 재-export 유지.
@@ -82,9 +83,6 @@ const readChatThreadAttachmentBase = z.object({
   threadId: z.number().int().positive(),
   ...readRangeShape,
 });
-// WP-250: pages(PDF 쪽 이미지)는 이미지를 볼 수 있는 모델에만 싣는다(images.input).
-const readChatThreadAttachmentInputFor = (imageInput: boolean) =>
-  imageInput ? readChatThreadAttachmentBase.extend(pagesShape) : readChatThreadAttachmentBase;
 
 // #833: 구성원 쓰기 제안 입력. roleId 대신 역할명을 받는다 — 실행기가 서버에서 이름→id 를 해석하므로
 // 에이전트에 role:read 권한을 추가로 줄 필요가 없다.
@@ -383,8 +381,10 @@ export function buildTools(
   // read_chat_attachment·read_chat_thread_attachment) 모두 pages(PDF 쪽 이미지)를 스키마·설명에서 빼고 스캔 PDF 안내만 바꾼다.
   // 이미지 첨부는 input 과 상관없이 이미지로 돌려주므로(이미지를 볼 수 없는 opencode 모델이면 stdio 도구 등록이 결과 이미지를 안내 문구로 바꾼다, WP-241) budget 은 늘 걸린다.
   // budget 은 이 실행이 볼 수 있는 이미지 장수(도구 서버 인스턴스 = 실행 하나일 때만 준다). 미지정이면 공유 기본(볼 수 있음·실행당 상한 없음 — 호출당 3장만).
-  images?: { input: boolean; budget?: ImageBudget },
+  images?: ImageOptions,
 ): McpTool[] {
+  // WP-250: 이미지 입력 여부 — 미지정이면 공유 기본과 같이 볼 수 있음(true). 세 첨부 도구가 이 값 하나를 쓴다.
+  const imageInput = images?.input ?? true;
   // #846: 두 앱 공유 도구(이슈·프로젝트·노트·캘린더·메일·구성원·메시징·드라이브 읽기) — 프로필이 이름으로 골라 쓴다.
   // 같은 이름의 도구를 여기서 따로 정의하지 않는다(tools.test.ts 패리티 테스트가 강제) — 정의가 두 벌이면 파라미터가 어긋난다.
   const sc = client.toolClient(agentId);
@@ -392,8 +392,7 @@ export function buildTools(
     // 스레드 mirror: 바인딩된 트리거 채널에 한해 그 스레드 parent 로 답한다(다른 채널은 인라인).
     parentMessageIdFor: (channelId) =>
       threadBinding && threadBinding.channelId === channelId ? threadBinding.parentMessageId : undefined,
-    imageInput: images?.input,
-    imageBudget: images?.budget,
+    images,
   });
   const sharedTool = (name: string): McpTool => {
     const t = shared.find((x) => x.name === name);
@@ -452,7 +451,7 @@ export function buildTools(
     // 시스템 프롬프트 지시를 AI가 무시하는 비결정적 동작을 코드 레벨에서 결정론적으로 차단한다.
     let addChatMessageCalled = false;
     // WP-250: 첨부 읽기 입력 — 이미지를 볼 수 있는 모델에만 pages 를 싣는다.
-    const threadAttachmentInput = readChatThreadAttachmentInputFor(images?.input ?? true);
+    const threadAttachmentInput = withPages(readChatThreadAttachmentBase, imageInput);
     // WP-244: 실행 스레드 바인딩 — 다른 threadId 는 API 호출 전에 거부한다.
     const assertBoundThread = (threadId: number): void => {
       if (chatThreadId != null && threadId !== chatThreadId) {
@@ -482,7 +481,7 @@ export function buildTools(
           '이 이슈 챗 스레드의 첨부파일 추출 텍스트를 구간 단위로 읽습니다. 프롬프트 첨부 섹션에 적힌 그대로 threadId 와 fileId 로 호출하세요(이슈 첨부·챗 첨부 공통). ' +
           `limit 생략 시 ${READ_ATTACHMENT_DEFAULT_LIMIT}자(최대 32000). 필요한 만큼만 읽고, 결과의 nextOffset 이 있으면 offset 으로 넘겨 이어 읽습니다. ` +
           'status 가 READY 가 아니면 text 없이 상태·사유만 옵니다. 이미지 파일은 이미지로 돌려줍니다.' +
-          (images?.input ?? true ? ` ${PAGES_DESCRIPTION}` : ''),
+          (imageInput ? ` ${PAGES_DESCRIPTION}` : ''),
         inputSchema: threadAttachmentInput,
         async handler(args) {
           const parsed = threadAttachmentInput.parse(args) as z.infer<typeof readChatThreadAttachmentBase> & { pages?: number[] | null };
@@ -499,7 +498,6 @@ export function buildTools(
           }
           const { offset, limit } = resolveRange(parsed);
           const slice = await client.readChatAttachmentText(agentId, threadId, fileId, offset, limit);
-          const imageInput = images?.input ?? true;
           // 글자 먼저 — 문서는 이 한 번으로 끝나 목록 조회가 없다. 서버가 이미지로 건너뛴 파일(SKIPPED·IMAGE)이나 추출 행이 없는 파일(NONE, 배포 전
           // 업로드·HEIC 등)만 이미지 후보로 보고 메타(형식·크기·출처)를 찾는다(공유 read_file 의 노트 첨부와 같은 판정).
           if (isImageSkip(slice) || slice.status === 'NONE') {

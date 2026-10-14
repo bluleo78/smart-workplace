@@ -493,8 +493,8 @@ describe('프로필 구성', () => {
 // ---------------------------------------------------------------------------
 describe('공유 도구 패리티 (#846)', () => {
   const bridge: HostBridge = { onProposal: () => {}, onSubmitResponse: () => {}, onUnassignResult: () => {} };
-  // imageInput: 그 변형이 buildTools 에 넘긴 이미지 입력 여부(WP-250) — 공유본도 같은 옵션으로 만들어 비교한다(미지정 = 공유 기본 true).
-  const variants: { label: string; imageInput?: boolean; build: (c: TestClient) => ReturnType<typeof buildTools> }[] = [
+  // images: 그 변형이 buildTools 에 넘긴 이미지 입력 옵션(WP-250) — 공유본도 같은 옵션으로 만들어 비교한다(미지정 = 공유 기본 true).
+  const variants: { label: string; images?: { input: boolean }; build: (c: TestClient) => ReturnType<typeof buildTools> }[] = [
     ...(['issue', 'chat', 'home', 'messaging', 'assistant'] as McpProfile[]).map((p) => ({
       label: p,
       build: (c: TestClient) => buildTools(c, AGENT_ID, p),
@@ -502,7 +502,7 @@ describe('공유 도구 패리티 (#846)', () => {
     // WP-250: read_file 은 assistant 에만 있어 이미지 입력 두 경우를 assistant 로 확인한다.
     ...[true, false].map((input) => ({
       label: `assistant+images.input=${input}`,
-      imageInput: input,
+      images: { input },
       build: (c: TestClient) => buildTools(c, AGENT_ID, 'assistant', undefined, undefined, undefined, undefined, undefined, { input }),
     })),
     { label: 'messaging+threadBinding', build: (c) => buildTools(c, AGENT_ID, 'messaging', { channelId: 9, parentMessageId: 1 }) },
@@ -516,7 +516,7 @@ describe('공유 도구 패리티 (#846)', () => {
   for (const v of variants) {
     it(`${v.label}: 공유 도구와 같은 이름의 도구는 입력 스키마가 공유본과 같고, 모든 inputSchema 는 ZodObject 다`, () => {
       const c = client();
-      const shared = new Map(buildSharedTools(c.sc, { imageInput: v.imageInput }).map((t) => [t.name, t]));
+      const shared = new Map(buildSharedTools(c.sc, { images: v.images }).map((t) => [t.name, t]));
       const tools = v.build(c);
       // 같은 프로필 안에서 이름 중복이 있으면 SDK 가 하나를 조용히 덮는다.
       expect(new Set(tools.map((t) => t.name)).size).toBe(tools.length);

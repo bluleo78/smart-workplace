@@ -10,20 +10,21 @@
 // 보낼 수 있으면 원본·아니면(HEIC·큰 이미지) 서버 변환본으로 돌려준다. 이미지 장수는 실행당 예산(images.budget)이 묶는다.
 import {
   baseMimeType,
-  type ImageBudget,
+  canViewPages,
+  type ImageOptions,
   imageBlocksFor,
-  MAX_PAGES_PER_CALL,
+  PAGES_DESCRIPTION,
   pageBlocks,
   pdfNote,
-  pagesShape,
   READ_ATTACHMENT_DEFAULT_LIMIT,
   readRangeShape,
   resolveRange,
+  withPages,
   type McpTool,
 } from '@smart-workplace/mcp-tools-shared';
 import { z } from 'zod';
 
-import { fileKind, MAX_VIEW_SOURCE_BYTES } from '../agent/attachment-presenter.js';
+import { fileKind } from '../agent/attachment-presenter.js';
 import type { HomeAttachmentMeta, WorkplaceApiClient } from '../clients/workplace-api.js';
 
 /** 세션에 묶이지 않은 실행(메인 채팅 외)에서 부르면 돌려줄 오류. */
@@ -35,11 +36,6 @@ const baseInput = z.object({
   fileId: z.number().int().positive(),
   ...readRangeShape,
 });
-// WP-250: pages(PDF 쪽 이미지)는 이미지를 볼 수 있는 모델에만 싣는다 — 못 쓰는 인자를 스키마에 두지 않는다.
-const inputFor = (imageInput: boolean) => (imageInput ? baseInput.extend(pagesShape) : baseInput);
-
-/** 모델이 이미지를 볼 수 있을 때 이미지 도구 설명에 덧붙이는 pages 한 문장(두 첨부 도구 공통). */
-export const PAGES_DESCRIPTION = `PDF 는 pages:[n](최대 ${MAX_PAGES_PER_CALL}쪽)로 쪽 이미지를 볼 수 있습니다(그림·도표·스캔).`;
 
 /** 추출이 READY 가 아닌 문서의 안내 — 상태·사유만 알리고 재업로드를 유도하지 않는다. 파일명은 JSON 으로 감싸 제어문자를 무력화. */
 function nonReadyNotice(a: HomeAttachmentMeta, imageInput: boolean): string {
@@ -48,10 +44,7 @@ function nonReadyNotice(a: HomeAttachmentMeta, imageInput: boolean): string {
   const scanned = pdfNote(a.extraction, imageInput);
   if (scanned) return `${name}: ${scanned}`;
   // WP-250 코드 리뷰: 글자로 못 읽는 PDF(추출 기록 없음·실패·건너뜀)도 이미지를 볼 수 있으면 페이지 이미지로 읽을 수 있다(25MB 이하 — 넘으면 서버 413).
-  const pagesHint =
-    imageInput && fileKind(a.mimeType) === 'pdf' && a.sizeBytes <= MAX_VIEW_SOURCE_BYTES
-      ? ' pages:[n] 로 페이지 이미지를 볼 수 있습니다(쪽수를 모르면 pages:[1] 부터).'
-      : '';
+  const pagesHint = canViewPages(a, imageInput) ? ' pages:[n] 로 페이지 이미지를 볼 수 있습니다(쪽수를 모르면 pages:[1] 부터).' : '';
   switch (a.extraction.status) {
     case 'PENDING':
       return `${name}: 텍스트 추출 중입니다. 잠시 후 다시 읽어 보세요. 사용자에게 파일을 다시 올려 달라고 하지 마세요.`;
@@ -68,9 +61,10 @@ export function buildReadChatAttachmentTool(
   onBehalfOfId: number,
   homeSessionId?: string,
   // WP-250: 모델이 이미지를 볼 수 있는지(기본 true)와 실행당 이미지 예산(없으면 호출당 3장만). buildTools 의 images 와 같은 값이다.
-  images: { input: boolean; budget?: ImageBudget } = { input: true },
+  images: ImageOptions = { input: true },
 ): McpTool {
-  const input = inputFor(images.input);
+  // WP-250: pages(PDF 쪽 이미지)는 이미지를 볼 수 있는 모델에만 싣는다 — 못 쓰는 인자를 스키마에 두지 않는다.
+  const input = withPages(baseInput, images.input);
   return {
     name: 'read_chat_attachment',
     description:

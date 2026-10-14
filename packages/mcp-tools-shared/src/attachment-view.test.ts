@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { FileTooLargeError } from './attachment-read.js';
-import { IMAGE_BUDGET_EXHAUSTED, IMAGE_BUDGET_PER_RUN, ImageBudget, imageBlocksFor, pageBlocks, pagesShape, viewBlocks } from './attachment-view.js';
+import { IMAGE_BUDGET_PER_RUN, ImageBudget, imageBlocksFor, pageBlocks, pagesShape, viewBlocks } from './attachment-view.js';
 import type { McpContent } from './mcp-content.js';
 import type { FileBytes } from './tool-client.js';
 
@@ -31,11 +31,11 @@ describe('ImageBudget', () => {
     b.take(18);
     expect(b.shortfall(3)).toBe('이번 대화에서 볼 수 있는 이미지가 2장 남았습니다(요청 3장). 2장 이하로 줄여 다시 요청하세요.');
     b.take(2);
-    expect(b.shortfall(1)).toBe(IMAGE_BUDGET_EXHAUSTED);
+    expect(b.shortfall(1)).toBe('이번 대화에서 볼 수 있는 이미지를 다 썼습니다(20장). 볼 페이지를 좁혀 달라고 사용자에게 요청하세요.');
     const small = new ImageBudget(5);
     small.take(5);
     expect(small.shortfall(1)).toContain('다 썼습니다(5장)');
-    expect(IMAGE_BUDGET_EXHAUSTED).toContain(`(${IMAGE_BUDGET_PER_RUN}장)`);
+    expect(IMAGE_BUDGET_PER_RUN).toBe(20);
   });
 });
 

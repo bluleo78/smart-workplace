@@ -4,7 +4,7 @@
 // 도구로 통일했다(WP-250) — 도구가 추출 텍스트와, 이미지를 볼 수 있는 모델에는 pages 로 쪽 이미지를 준다.
 // opencode 는 비전 지원 모델(WP-241 판단)일 때만 보낼 수 있는 이미지를 로컬 read 로 보고(WP-236 의 read 허용 범위),
 // 그 외 파일은 도구로 읽는다 — custom provider 모델은 PDF 입력을 못 받는다. 비전이 아니면 pages 는 안내하지 않는다(도구도 숨김).
-import { baseMimeType, isSendableImage, MAX_PAGES_PER_CALL } from '@smart-workplace/mcp-tools-shared';
+import { baseMimeType, canViewPages, isSendableImage, MAX_PAGES_PER_CALL } from '@smart-workplace/mcp-tools-shared';
 
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
 import type { ProviderCredential } from './agent-runner.js';
@@ -28,9 +28,6 @@ export interface PresentedAttachments {
 }
 
 export type FileKind = 'image' | 'pdf' | 'text' | 'other';
-
-/** 서버 /view 원본 상한(AttachmentViewService.MAX_SOURCE_BYTES, 워커 config.MAX_BYTES)과 같은 25MB — 넘는 PDF 는 페이지를 그리지 않는다(413). */
-export const MAX_VIEW_SOURCE_BYTES = 25 * 1024 * 1024;
 
 // 서버 ExtractableTypes 의 TEXT_LIKE_EXTRA 와 같은 목록 — text/* 외에 텍스트로 읽을 수 있는 application/* 타입.
 // 서버와 어긋나면 Claude 가 원본을 받는 범위와 추출 대상 범위가 달라지므로 함께 갱신할 것.
@@ -75,6 +72,9 @@ function toolCall(a: AgentAttachment, pagesArg = ''): string {
   return `read_chat_thread_attachment({threadId:${a.origin.threadId}, fileId:${a.fileId}${pagesArg}})`;
 }
 
+/** 줄마다 붙이는 재업로드 금지 — 스캔 PDF 등에서 모델이 "텍스트 레이어 있는 PDF 로 다시 올려 달라" 고 제안한 사례가 있어 줄 자체에 붙인다. */
+const NO_REUPLOAD = '다시 올리거나 다른 형식으로 올려 달라고 하지 말 것';
+
 /**
  * 추출 상태별 한 줄(공통). READY 만 도구 호출을 안내하고, 나머지는 상태·사유만 — 재업로드 요청을 유도하지 않는다.
  * pdfPages(WP-250): 이미지를 볼 수 있는 모델이 PDF 를 읽을 때 — 텍스트와 함께 pages 로 쪽 이미지를 볼 수 있다고 알리고,
@@ -86,17 +86,17 @@ function extractionLine(a: AgentAttachment, pdfPages = false): string {
   if (isPdf && x.status === 'SKIPPED' && x.reasonCode === 'SCANNED_PDF') {
     if (pdfPages) {
       // 쪽수를 모르는 이전 추출 행은 쪽수 없이 말한다(pageCount null·생략).
-      return `글자 없는 스캔 PDF${x.pageCount ? `(${x.pageCount}쪽)` : ''} — pages 로 페이지 이미지를 읽으세요: ${toolCall(a, ', pages:[n]')} — 다시 올리거나 다른 형식으로 올려 달라고 하지 말 것`;
+      return `글자 없는 스캔 PDF${x.pageCount ? `(${x.pageCount}쪽)` : ''} — pages 로 페이지 이미지를 읽으세요: ${toolCall(a, ', pages:[n]')} — ${NO_REUPLOAD}`;
     }
-    return `텍스트로 읽을 수 없음: ${x.reason ?? '사유 미상'} — 이미지를 볼 수 있는 모델로 바꾸면 읽을 수 있음(비서 설정) — 다시 올리거나 다른 형식으로 올려 달라고 하지 말 것`;
+    return `텍스트로 읽을 수 없음: ${x.reason ?? '사유 미상'} — 이미지를 볼 수 있는 모델로 바꾸면 읽을 수 있음(비서 설정) — ${NO_REUPLOAD}`;
   }
   // WP-250 코드 리뷰: Claude 도 PDF 를 로컬 Read 하지 않으므로, 추출 행이 없거나(NONE — 추출 기능 전 업로드) 실패했거나 스캔이 아닌 사유로
   // 건너뛴 PDF 도 이미지를 볼 수 있는 모델이면 페이지 이미지로 읽게 한다 — 그렇지 않으면 읽을 길이 없다. 쪽수를 모르면 1쪽부터 보게 하고,
   // 범위를 넘으면 서버가 실제 쪽수를 알려 준다(400). 25MB 를 넘는 PDF 는 서버가 그리지 않으므로(413) 약속하지 않는다.
-  if (isPdf && pdfPages && x.status !== 'READY' && x.status !== 'PENDING' && a.sizeBytes <= MAX_VIEW_SOURCE_BYTES) {
+  if (canViewPages(a, pdfPages) && x.status !== 'READY' && x.status !== 'PENDING') {
     const why = x.status === 'NONE' ? '텍스트 추출 기록 없음' : `텍스트로 읽을 수 없음: ${x.reason ?? '사유 미상'}`;
     const pages = x.pageCount ? `(총 ${x.pageCount}쪽)` : '(쪽수를 모르면 pages:[1] 부터)';
-    return `${why} — pages 로 페이지 이미지를 읽으세요${pages}: ${toolCall(a, ', pages:[n]')} — 다시 올리거나 다른 형식으로 올려 달라고 하지 말 것`;
+    return `${why} — pages 로 페이지 이미지를 읽으세요${pages}: ${toolCall(a, ', pages:[n]')} — ${NO_REUPLOAD}`;
   }
   switch (x.status) {
     case 'READY': {
@@ -110,8 +110,7 @@ function extractionLine(a: AgentAttachment, pdfPages = false): string {
       return '텍스트 추출 중 — 잠시 후 다시 물어봐 달라고 안내';
     case 'SKIPPED':
     case 'FAILED':
-      // 스캔 PDF 등에서 모델이 "텍스트 레이어 있는 PDF 로 다시 올려 달라" 고 제안한 사례가 있어 줄 자체에 금지를 붙인다.
-      return `텍스트로 읽을 수 없음: ${x.reason ?? '사유 미상'} — 다시 올리거나 다른 형식으로 올려 달라고 하지 말 것`;
+      return `텍스트로 읽을 수 없음: ${x.reason ?? '사유 미상'} — ${NO_REUPLOAD}`;
     default:
       return '텍스트 추출 대상 아님';
   }

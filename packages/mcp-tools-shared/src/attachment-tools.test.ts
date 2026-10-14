@@ -67,7 +67,7 @@ describe('read_file 입력 스키마', () => {
 
   // WP-250: 이미지를 볼 수 없는 모델에는 pages 를 아예 보여 주지 않는다(입력·설명 모두) — 못 쓰는 인자를 부르지 않게.
   it('imageInput:false 면 pages 입력과 설명 문장이 없다. 기본(true)은 있다', () => {
-    const off = readAttachment(mockClient(), { imageInput: false });
+    const off = readAttachment(mockClient(), { images: { input: false } });
     expect((off.inputSchema as z.ZodObject).shape).not.toHaveProperty('pages');
     expect(off.description).not.toContain('pages');
     const on = readAttachment(mockClient());
@@ -79,7 +79,7 @@ describe('read_file 입력 스키마', () => {
   it('설명은 큰 이미지·HEIC 변환과 pages 가 메일 첨부에는 없다고 밝힌다', () => {
     expect(readAttachment(mockClient()).description).toContain('large/HEIC converted; not mail');
     expect(readAttachment(mockClient()).description).toContain('PDF (not mail): pages:[n]');
-    expect(readAttachment(mockClient(), { imageInput: false }).description).toContain('not mail');
+    expect(readAttachment(mockClient(), { images: { input: false } }).description).toContain('not mail');
   });
 
   it('JSON 스키마로 직렬화된다(MCP 클라이언트가 받는 형식) — 최상위 type object, source 만 필수', () => {
@@ -484,7 +484,7 @@ describe('read_file — 페이지 이미지(pages, WP-250)', () => {
     vi.mocked(c.readIssueAttachmentText).mockResolvedValue(PDF_READY);
     const on = JSON.parse(resultText(await readAttachment(c).handler({ source: 'issue', issueKey: 'WP-1', attachmentId: 55 })));
     expect(on).toMatchObject({ pageCount: 6, note: '그림·도표·스캔 페이지는 pages 로 이미지를 볼 수 있습니다.' });
-    const off = JSON.parse(resultText(await readAttachment(c, { imageInput: false }).handler({ source: 'issue', issueKey: 'WP-1', attachmentId: 55 })));
+    const off = JSON.parse(resultText(await readAttachment(c, { images: { input: false } }).handler({ source: 'issue', issueKey: 'WP-1', attachmentId: 55 })));
     expect(off.pageCount).toBe(6);
     expect(off).not.toHaveProperty('note');
   });
@@ -502,7 +502,7 @@ describe('read_file — 페이지 이미지(pages, WP-250)', () => {
     vi.mocked(c.readDriveFileText).mockResolvedValue(SCANNED);
     const on = JSON.parse(resultText(await readAttachment(c).handler({ source: 'drive', driveFileId: 9 })));
     expect(on.note).toBe('글자가 없는 스캔 PDF(4쪽)입니다. pages 로 페이지 이미지를 읽으세요.');
-    const off = JSON.parse(resultText(await readAttachment(c, { imageInput: false }).handler({ source: 'drive', driveFileId: 9 })));
+    const off = JSON.parse(resultText(await readAttachment(c, { images: { input: false } }).handler({ source: 'drive', driveFileId: 9 })));
     // 못 본다고 단정하지 않고(자동 감지 실패일 수 있다) 연결 설정의 '이미지 입력' 지정을 함께 안내한다. pages 는 이 모델에 없는 인자라 말하지 않는다.
     expect(off.note).toBe(
       "글자가 없는 스캔 PDF(4쪽)라 글자로는 읽을 수 없고, 지금 설정으로는 페이지 이미지를 볼 수 없습니다. " +
@@ -526,7 +526,7 @@ describe('read_file — 페이지 이미지(pages, WP-250)', () => {
 
   it('예산은 호출 사이에 공유된다 — ImageBudget(3) 으로 pages:[1,2] 두 번이면 두 번째는 다 썼다는 안내', async () => {
     const c = mockClient();
-    const tool = readAttachment(c, { imageBudget: new ImageBudget(3) });
+    const tool = readAttachment(c, { images: { input: true, budget: new ImageBudget(3) } });
     await tool.handler({ source: 'drive', driveFileId: 9, pages: [1, 2] });
     expect(await tool.handler({ source: 'drive', driveFileId: 9, pages: [1, 2] })).toContain('1장 남았습니다(요청 2장)');
     expect(c.viewDriveFile).toHaveBeenCalledTimes(2);
@@ -535,7 +535,7 @@ describe('read_file — 페이지 이미지(pages, WP-250)', () => {
   it('이미지 원본 보기도 예산을 1장 쓴다', async () => {
     const c = mockClient();
     vi.mocked(c.readDriveFileText).mockResolvedValue(IMAGE_SKIP);
-    const tool = readAttachment(c, { imageBudget: new ImageBudget(1) });
+    const tool = readAttachment(c, { images: { input: true, budget: new ImageBudget(1) } });
     await tool.handler({ source: 'drive', driveFileId: 9 });
     expect(await tool.handler({ source: 'drive', driveFileId: 9 })).toContain('다 썼습니다(1장)');
   });
@@ -546,7 +546,7 @@ describe('read_file — 페이지 이미지(pages, WP-250)', () => {
     vi.mocked(c.readMailAttachmentText).mockResolvedValue(IMAGE_SKIP);
     vi.mocked(c.downloadMailAttachment).mockResolvedValue({ data: PNG, mimeType: 'image/heic' });
     const budget = new ImageBudget(1);
-    expect(await readAttachment(c, { imageBudget: budget }).handler({ source: 'mail', attachmentId: 55 })).toContain('형식(image/heic)');
+    expect(await readAttachment(c, { images: { input: true, budget: budget } }).handler({ source: 'mail', attachmentId: 55 })).toContain('형식(image/heic)');
     expect(budget.take(1)).toBe(true);
   });
 });
