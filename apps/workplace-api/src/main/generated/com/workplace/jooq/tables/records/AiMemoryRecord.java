@@ -6,6 +6,7 @@ package com.workplace.jooq.tables.records;
 
 import com.workplace.jooq.tables.AiMemory;
 
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
@@ -147,6 +148,34 @@ public class AiMemoryRecord extends UpdatableRecordImpl<AiMemoryRecord> {
         return (Long) get(8);
     }
 
+    /**
+     * Setter for <code>public.ai_memory.scope</code>.
+     */
+    public void setScope(String value) {
+        set(9, value);
+    }
+
+    /**
+     * Getter for <code>public.ai_memory.scope</code>.
+     */
+    public String getScope() {
+        return (String) get(9);
+    }
+
+    /**
+     * Setter for <code>public.ai_memory.expires_on</code>.
+     */
+    public void setExpiresOn(LocalDate value) {
+        set(10, value);
+    }
+
+    /**
+     * Getter for <code>public.ai_memory.expires_on</code>.
+     */
+    public LocalDate getExpiresOn() {
+        return (LocalDate) get(10);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -170,7 +199,7 @@ public class AiMemoryRecord extends UpdatableRecordImpl<AiMemoryRecord> {
     /**
      * Create a detached, initialised AiMemoryRecord
      */
-    public AiMemoryRecord(Long id, Long userId, String kind, String content, String source, UUID sourceSessionId, OffsetDateTime createdAt, OffsetDateTime updatedAt, Long tenantId) {
+    public AiMemoryRecord(Long id, Long userId, String kind, String content, String source, UUID sourceSessionId, OffsetDateTime createdAt, OffsetDateTime updatedAt, Long tenantId, String scope, LocalDate expiresOn) {
         super(AiMemory.AI_MEMORY);
 
         setId(id);
@@ -182,6 +211,8 @@ public class AiMemoryRecord extends UpdatableRecordImpl<AiMemoryRecord> {
         setCreatedAt(createdAt);
         setUpdatedAt(updatedAt);
         setTenantId(tenantId);
+        setScope(scope);
+        setExpiresOn(expiresOn);
         resetChangedOnNotNull();
     }
 }

@@ -453,4 +453,59 @@ class HomeChatMemoryBlockTest extends HomeAttachmentTestSupport {
     assertThat(emitted("home.chat.tool"))
         .anySatisfy(p -> assertThat(p.get("memory")).isEqualTo(knownMap));
   }
+
+  /**
+   * WP-379: 결과의 scope·previousScope 를 블록에 남긴다(null = 공통이라 빠진다). 모르는 범위면 되돌리기가 엉뚱한 범위로 복원하므로 줄을 만들지
+   * 않는다.
+   */
+  @Test
+  void 범위는_블록에_남기고_모르는_범위의_결과는_줄을_만들지_않는다() throws Exception {
+    long uid = user();
+    String updated =
+        "{\"action\":\"updated\",\"memoryId\":12,\"kind\":\"PREFERENCE\",\"content\":\"이슈는 짧게\","
+            + "\"previousContent\":\"짧게\",\"source\":\"AI\",\"scope\":\"ISSUE\",\"previousScope\":null}";
+    String bad =
+        "{\"action\":\"saved\",\"memoryId\":13,\"kind\":\"PREFERENCE\",\"content\":\"x\",\"source\":\"AI\",\"scope\":\"CONTACTS\"}";
+    HomeMessageResponse a =
+        assistantAfter(
+            uid,
+            (delta, progress, tool) -> {
+              tool.accept(result(1, "update_memory", false, updated));
+              tool.accept(result(2, "remember_memory", false, bad));
+              delta.accept("고쳤어요.");
+              return "고쳤어요.";
+            });
+
+    assertThat(a.memoryBlocks()).hasSize(1);
+    assertThat(a.memoryBlocks().get(0))
+        .isEqualTo(
+            om.readTree(
+                "{\"kind\":\"memory\",\"action\":\"updated\",\"memoryId\":12,\"memoryKind\":\"PREFERENCE\","
+                    + "\"content\":\"이슈는 짧게\",\"previousContent\":\"짧게\",\"source\":\"AI\",\"undone\":false,"
+                    + "\"scope\":\"ISSUE\"}"));
+  }
+
+  /** WP-380: 결과의 기한·이전 기한을 블록에 남기고(없으면 빠짐), yyyy-MM-dd 가 아닌 기한이면 줄을 만들지 않는다. */
+  @Test
+  void 기한은_블록에_남기고_형식이_틀린_기한의_결과는_줄을_만들지_않는다() throws Exception {
+    long uid = user();
+    String updated =
+        "{\"action\":\"updated\",\"memoryId\":12,\"kind\":\"PREFERENCE\",\"content\":\"결제 모듈\","
+            + "\"previousContent\":\"결제 모듈\",\"source\":\"AI\",\"expiresOn\":\"2026-10-19\",\"previousExpiresOn\":null}";
+    String bad =
+        "{\"action\":\"saved\",\"memoryId\":13,\"kind\":\"PREFERENCE\",\"content\":\"x\",\"source\":\"AI\",\"expiresOn\":\"10/19\"}";
+    HomeMessageResponse a =
+        assistantAfter(
+            uid,
+            (delta, progress, tool) -> {
+              tool.accept(result(1, "update_memory", false, updated));
+              tool.accept(result(2, "remember_memory", false, bad));
+              delta.accept("기한을 정했어요.");
+              return "기한을 정했어요.";
+            });
+
+    assertThat(a.memoryBlocks()).hasSize(1);
+    assertThat(a.memoryBlocks().get(0).path("expiresOn").asText()).isEqualTo("2026-10-19");
+    assertThat(a.memoryBlocks().get(0).has("previousExpiresOn")).isFalse();
+  }
 }

@@ -6,6 +6,7 @@
  * ESLint(no-restricted-syntax)로 금지(#632). 용도별 선택 기준은 docs/CODING_CONVENTION.md
  * "날짜/시간 표시 포맷" 표 참조. 이 파일만 규칙 예외.
  */
+import { format, parse } from 'date-fns';
 
 /** 타임존 정보가 이미 붙어 있는지 판별 — 'Z' 또는 ±HH:MM / ±HHMM 오프셋(#617). */
 const TZ_SUFFIX_RE = /Z$|[+-]\d{2}:?\d{2}$/;
@@ -64,6 +65,17 @@ export function formatDateMonthDay(dateStr: string | null | undefined): string {
   const d = parseUtcDate(dateStr);
   if (Number.isNaN(d.getTime())) return '';
   return new Intl.DateTimeFormat('ko-KR', { month: 'long', day: 'numeric' }).format(d);
+}
+
+/**
+ * 날짜 전용 `YYYY-MM-DD` → 월·일("10월 24일"), KST 오늘과 연도가 다르면 연도까지("2027년 1월 5일"). AI 메모리 기한처럼 시간대가 없는 날짜용 —
+ * Date 로 파싱하지 않는다(브라우저 시간대에 따라 하루 밀리는 일이 없게). 무효 입력이면 ''(세그먼트 생략).
+ */
+export function formatDateOnlyMonthDay(dateStr: string | null | undefined, now: Date = new Date()): string {
+  const m = dateStr?.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return '';
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  return y === Number(kstDateKey(now).slice(0, 4)) ? `${mo}월 ${d}일` : `${y}년 ${mo}월 ${d}일`;
 }
 
 /**
@@ -263,6 +275,19 @@ const KST_DATE_KEY = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }
 /** Date → KST 기준 날짜 키(YYYY-MM-DD). 날짜 비교·만료 판정용(표시용 아님). */
 export function kstDateKey(d: Date): string {
   return KST_DATE_KEY.format(d);
+}
+
+/**
+ * 날짜 키(YYYY-MM-DD) → 그 날짜의 로컬 자정 Date — 달력 선택값·날짜 더하기용 날짜 전용 값(시간대 변환 없음).
+ * kstDateKey 와 달리 시각을 KST 로 옮기지 않는다 — 키가 이미 날짜 자체다.
+ */
+export function parseDateKey(key: string): Date {
+  return parse(key, 'yyyy-MM-dd', new Date());
+}
+
+/** Date(로컬 날짜) → 날짜 키(YYYY-MM-DD) — parseDateKey 의 반대. 달력이 고른 로컬 날짜를 그대로 키로 만든다. */
+export function formatDateKey(d: Date): string {
+  return format(d, 'yyyy-MM-dd');
 }
 
 /**

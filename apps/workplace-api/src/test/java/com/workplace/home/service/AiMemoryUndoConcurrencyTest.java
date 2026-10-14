@@ -41,7 +41,8 @@ class AiMemoryUndoConcurrencyTest extends AiMemoryRaceTestSupport {
                     : "restored");
 
     assertThat(results).containsExactlyInAnyOrder("restored", "noop");
-    assertThat(inTenant(() -> repo.count(uid))).isEqualTo(1);
-    assertThat(inTenant(() -> repo.listNewest(uid, 50)).get(0).source()).isEqualTo("USER");
+    assertThat(inTenant(() -> AiMemoryTestFixtures.countMemories(dsl, uid))).isEqualTo(1);
+    assertThat(inTenant(() -> AiMemoryTestFixtures.allMemories(dsl, uid)).get(0).source())
+        .isEqualTo("USER");
   }
 }

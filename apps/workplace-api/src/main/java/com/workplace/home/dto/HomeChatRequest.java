@@ -12,13 +12,18 @@ import java.util.UUID;
  *
  * <p>WP-234: fileIds(선택)는 선업로드한 첨부 id. query 는 첨부가 있으면 비어도 된다 — "본문도 첨부도 없음"만 400. 검사는 Bean
  * Validation 대신 컨트롤러·서비스가 한국어 문구로 한다(검증 실패 기본 문구가 영문이라).
+ *
+ * <p>WP-379: app(선택)은 지금 화면 앱(ISSUE·WIKI·MAIL·DRIVE·MESSAGING·CALENDAR) — 공통 + 그 앱 메모리를 고르는 데만 쓴다.
+ * 화면 참고 칩을 꺼도 웹이 보낸다(화면 내용이 아니라 내 선호 선택용). 모르는 값은 서비스가 400 대신 "앱 없음"으로 다룬다 — 구·신 웹이 엇갈려도 메모리 부가 기능
+ * 때문에 채팅을 막지 않는다.
  */
 public record HomeChatRequest(
     UUID sessionId,
     String query,
     @Valid AiScreenContext screenContext,
     List<Long> fileIds,
-    UUID correlationId) {
+    UUID correlationId,
+    String app) {
 
   /** 보낼 내용이 있는지 — 공백 아닌 본문 또는 첨부 1개 이상. */
   public boolean hasContent() {

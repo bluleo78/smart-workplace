@@ -116,6 +116,7 @@ describe('buildMyTasksContext / buildAiTasksContext', () => {
     const ctx = buildMyTasksContext({ tab: 'assigned', facets: { status: 'TODO', priority: 'HIGH,MID', dueTo: '2026-10-01', blocked: 'true' }, count: 4, hasMore: false });
     expect(ctx).toEqual({
       view: '내 작업',
+      app: 'ISSUE',
       scope: {
         label: '내 작업 · 할당',
         facts: [
@@ -130,11 +131,12 @@ describe('buildMyTasksContext / buildAiTasksContext', () => {
     });
   });
   it('AI 위임 작업', () => {
-    expect(buildAiTasksContext({ facets: {}, count: 2 })).toEqual({ view: 'AI 위임 작업', scope: { label: 'AI 위임 작업', count: 2 } });
+    expect(buildAiTasksContext({ facets: {}, count: 2 })).toEqual({ view: 'AI 위임 작업', app: 'ISSUE', scope: { label: 'AI 위임 작업', count: 2 } });
   });
   it('AI 위임 작업 — 범위 전체·AI 진행 칩을 facet 앞 facts 로(나와 관련·칩 없음이면 생략)', () => {
     expect(buildAiTasksContext({ facets: { status: 'TODO' }, count: 7, scope: 'all', stateLabel: '답변 필요' })).toEqual({
       view: 'AI 위임 작업',
+      app: 'ISSUE',
       scope: {
         label: 'AI 위임 작업',
         facts: [
@@ -150,5 +152,20 @@ describe('buildMyTasksContext / buildAiTasksContext', () => {
   it('AI 위임 작업 — 서버가 무시하는 마감·차단됨 facet 은 facts 에 싣지 않는다', () => {
     const ctx = buildAiTasksContext({ facets: { priority: 'HIGH', dueTo: '2026-10-01', blocked: 'true' }, count: 1 });
     expect(ctx.scope?.facts).toEqual([{ label: '우선순위', value: '높음' }]);
+  });
+});
+
+describe('화면 앱 (WP-379)', () => {
+  it('이슈 상세·목록은 ISSUE', () => {
+    expect(buildIssueDetailContext({ projectKey: 'WP', issue }).app).toBe('ISSUE');
+    const list = buildIssueListContext({
+      projectKey: 'WP',
+      projectName: 'Workplace',
+      view: 'list',
+      groupBy: null,
+      filters: emptyFilters,
+      lookups: { members: [], labels: [], types: [], cycles: [], milestones: [] },
+    });
+    expect(list.app).toBe('ISSUE');
   });
 });

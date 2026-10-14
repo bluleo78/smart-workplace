@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { type MemoryItem, withReadOnlyMemory } from './memory-block.js'
 import { type RunAgentDeps } from './run-agent.js'
 import { runText } from './run-messaging-ai.js'
 
@@ -15,7 +16,7 @@ export const messagingCatchupInput = z.object({
     .array(z.object({ id: z.number(), authorName: z.string(), body: z.string() }))
     .min(1),
 })
-export type MessagingCatchupInput = z.infer<typeof messagingCatchupInput> & BaseConfig
+export type MessagingCatchupInput = z.infer<typeof messagingCatchupInput> & BaseConfig & { memories?: MemoryItem[] }
 
 export interface CatchupGroup {
   text: string
@@ -66,7 +67,7 @@ export async function runMessagingCatchup(
   const messageList = input.messages
     .map((m) => `- [${m.id}] ${m.authorName}: ${m.body}`)
     .join('\n')
-  const userMessage = `안 읽은 메시지:\n${messageList}`
+  const userMessage = withReadOnlyMemory(input.memories, `안 읽은 메시지:\n${messageList}`)
   return parseCatchupJson(
     await runText(CATCHUP_PROMPT, userMessage, input, deps, 'messaging-catchup'),
   )

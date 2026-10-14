@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.home.repository.AiMemoryRepository;
+import com.workplace.home.repository.AiMemoryRepository.NewMemory;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import java.util.List;
@@ -147,7 +148,8 @@ class AiMemoryControllerTest extends IntegrationTestBase {
   @Test
   void 오십개면_추가는_409_AI_MEMORY_FULL() throws Exception {
     long uid = TestFixtures.createHuman(dsl);
-    for (int i = 0; i < 50; i++) repo.insert(uid, "PREFERENCE", "메모리 " + i, "USER", null);
+    for (int i = 0; i < 50; i++)
+      repo.insert(uid, new NewMemory("PREFERENCE", "메모리 " + i, "USER", null, null, null));
     call(uid, post(BASE).content(body("PREFERENCE", "하나 더")))
         .andExpect(status().isConflict())
         .andExpect(jsonPath("$.errors.code").value("AI_MEMORY_FULL"));

@@ -8,6 +8,7 @@ describe('buildCalendarContext', () => {
   it('보기·기간(KST)·일정 수', () => {
     expect(buildCalendarContext({ view: 'week', ...range, count: 5, editing: null, creating: false })).toEqual({
       view: '캘린더',
+      app: 'CALENDAR',
       scope: {
         label: '주 보기',
         refs: { from: range.from, to: range.to },

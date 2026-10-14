@@ -1,6 +1,7 @@
 // 이슈 영역 화면 컨텍스트 builder(WP-54) — 이슈 상세·프로젝트 이슈 목록·내 작업·AI 위임 작업.
 // 필터 id 는 이미 로드된 라벨/멤버/유형/사이클/마일스톤 목록으로 이름 해석(AI 도구가 이름을 받음). 모르는 id 는 #id.
 // 상태·우선순위·그룹 라벨은 화면(보드 헤더·필터 바)과 같은 공용 맵을 쓴다 — 사용자와 AI 가 같은 단어로 말하게.
+// WP-379: app 은 홈 채팅 메모리 범위 선택용(서버로 보내는 screenContext 에선 빠진다).
 import { ISSUE_GROUP_BY_LABEL, ISSUE_PRIORITY_LABEL, ISSUE_STATUS_LABEL } from '@/lib/issueGrouping';
 import { MY_TASKS_TAB_LABEL } from '@/pages/me/myTasksTabs';
 import type { AiScreenContext } from '@/types/aiScreenContext';
@@ -23,6 +24,7 @@ export function buildIssueDetailContext({ projectKey, issue }: { projectKey: str
   const issueKey = `${projectKey}-${issue.number}`;
   return {
     view: '이슈 상세',
+    app: 'ISSUE',
     focus: {
       type: '이슈',
       label: clip(`${issueKey} ${issue.title}`, LIMITS.label),
@@ -92,7 +94,7 @@ export function buildIssueListContext(input: IssueListContextInput): AiScreenCon
       { overflowLabel: '기타 필터' },
     ),
   }, input);
-  return { view: '이슈 목록', scope };
+  return { view: '이슈 목록', app: 'ISSUE', scope };
 }
 
 // meFacetParams() 결과(status/priority CSV, dueFrom/dueTo, blocked='true') → facts.
@@ -111,7 +113,7 @@ function facetListContext(
   label: string,
   input: { facets: Record<string, string>; count?: number; hasMore?: boolean },
 ): AiScreenContext {
-  return { view, scope: withListState({ label, facts: facetFacts(input.facets) }, input) };
+  return { view, app: 'ISSUE', scope: withListState({ label, facts: facetFacts(input.facets) }, input) };
 }
 
 export function buildMyTasksContext(input: {
@@ -140,5 +142,5 @@ export function buildAiTasksContext(input: {
     ['우선순위', joinMapped(csv(input.facets.priority), ISSUE_PRIORITY_LABEL)],
   ]);
   // 칩은 scope.label 이 view 를 포함하면 범위 라벨만 보여 준다 → 'AI 위임 작업' 한 번만 표시.
-  return { view: 'AI 위임 작업', scope: withListState({ label: 'AI 위임 작업', facts }, input) };
+  return { view: 'AI 위임 작업', app: 'ISSUE', scope: withListState({ label: 'AI 위임 작업', facts }, input) };
 }

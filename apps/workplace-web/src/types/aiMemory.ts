@@ -4,6 +4,8 @@
 export type AiMemoryKind = 'PREFERENCE' | 'CONTEXT';
 /** AI 가 저장(AI) / 설정에서 직접 추가(USER). */
 export type AiMemorySource = 'AI' | 'USER';
+/** WP-379 메모리 범위(앱) — 없으면(null) 공통. 서버 AiMemoryScope.APPS 와 같은 순서(설정 화면 묶음 순서). */
+export type AiMemoryScope = 'ISSUE' | 'WIKI' | 'MAIL' | 'DRIVE' | 'MESSAGING' | 'CALENDAR';
 
 /** 메모리 1건. previousContent·previousKind 는 고치기(PATCH) 응답에만 온다. */
 export interface AiMemoryItem {
@@ -15,6 +17,16 @@ export interface AiMemoryItem {
   updatedAt: string; // ISO 8601
   previousContent?: string;
   previousKind?: AiMemoryKind;
+  /** WP-379: 범위 — null 이면 공통. 구 API 응답엔 없다. */
+  scope?: AiMemoryScope | null;
+  /** WP-379: 고치기 전 범위(PATCH 응답, 앱이었을 때만). */
+  previousScope?: AiMemoryScope;
+  /** WP-380: 기한(YYYY-MM-DD, 그날까지 유효) — null·없음은 기한 없음. */
+  expiresOn?: string | null;
+  /** WP-380: 서버 오늘(KST) 기준 만료 여부 — 웹은 날짜를 다시 계산하지 않는다. */
+  expired?: boolean;
+  /** WP-380: 고치기 전 기한(PATCH 응답, 있었을 때만). */
+  previousExpiresOn?: string;
 }
 
 /** GET /users/me/ai-memories — updatedAt 최신순 + 상한(50). */

@@ -1,6 +1,7 @@
 // 드라이브 화면 컨텍스트 builder(WP-54). 파일은 drive_file id(driveFileId) — core fileId 는 보내지 않는다.
 // 폴더는 list_drive_items 인자명 parentId 로 보낸다.
 // 파일 크기는 드라이브 화면과 같은 포매터(formatFileSize)로 — 사용자와 AI 가 같은 표기를 본다.
+// WP-379: app 은 홈 채팅 메모리 범위 선택용(서버로 보내는 screenContext 에선 빠진다).
 import { formatFileSize } from '@/lib/formatters';
 import type { AiScreenContext } from '@/types/aiScreenContext';
 
@@ -24,6 +25,7 @@ export function buildDriveContext(input: {
     !input.q && input.folderCount != null && input.fileCount != null ? `폴더 ${input.folderCount} · 파일 ${input.fileCount}` : null;
   const ctx: AiScreenContext = {
     view: '드라이브',
+    app: 'DRIVE',
     scope: {
       label: clip(`드라이브 ${path}`, LIMITS.label),
       refs: buildRefs({ spaceId: input.spaceId, parentId: input.folderId }),

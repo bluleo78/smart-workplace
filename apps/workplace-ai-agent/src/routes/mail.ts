@@ -3,6 +3,7 @@
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 
+import { readOnlyMemoriesField } from '../agent/memory-block.js';
 import { type RunAgentDeps } from '../agent/run-agent.js';
 import {
   runMailAnalyzeContent,
@@ -25,18 +26,24 @@ export const replyDraftSchema = z.object({
   thread: z.array(z.object({ from: z.string(), date: z.string(), body: z.string() })),
   replyingAs: z.string(),
   ...baseConfig,
+  // WP-381: 공통 + 메일 메모리(읽기 전용). 구 API 는 생략 → 빈 배열.
+  memories: readOnlyMemoriesField,
 });
 export const coachDraftSchema = z.object({
   draftBody: z.string(),
   thread: z.array(z.object({ from: z.string(), date: z.string(), body: z.string() })),
   replyingAs: z.string(),
   ...baseConfig,
+  // WP-381: 공통 + 메일 메모리(읽기 전용). 구 API 는 생략 → 빈 배열.
+  memories: readOnlyMemoriesField,
 });
 export const issueDraftSchema = z.object({
   subject: z.string(),
   body: z.string(),
   candidateProjects: z.array(z.object({ key: z.string(), name: z.string() })),
   ...baseConfig,
+  // WP-381: 공통 + 메일 메모리(읽기 전용). 구 API 는 생략 → 빈 배열.
+  memories: readOnlyMemoriesField,
 });
 
 // WP-149 받을 항목이 하나도 없으면 호출 자체가 무의미 — 400.

@@ -134,3 +134,11 @@ describe('POST /wiki/summarize', () => {
     expect(res.body).toEqual({ error: 'wiki-summarize_failed' });
   });
 });
+
+describe('compose 스키마 — 읽기 전용 메모리 (WP-381)', () => {
+  it('memories 를 받는다(없으면 빈 배열)', () => {
+    const ok = { id: 3, kind: 'PREFERENCE', content: '개조식', scope: 'WIKI' };
+    expect(wikiComposeSchema.parse(validBody({ memories: [ok, 'x'] })).memories).toEqual([ok]);
+    expect(wikiComposeSchema.parse(validBody()).memories).toEqual([]);
+  });
+});

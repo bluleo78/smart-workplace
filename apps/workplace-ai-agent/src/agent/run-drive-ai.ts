@@ -3,6 +3,7 @@
 // runDriveOverview: 검색 발췌 목록 → SDK 스트리밍 → 인용 달린 답변 델타 콜백.
 // 도구 미사용 텍스트 in/out. runDriveSummarize 는 run-mail-ai 의 공용 runText 를 그대로 쓴다.
 import { runnerFor } from './agent-runner.js';
+import { type MemoryItem, withReadOnlyMemory } from './memory-block.js';
 import { runText } from './run-mail-ai.js';
 import { extractTextDelta } from './wiki-delta-parser.js';
 import { DRIVE_SUMMARIZE_PROMPT } from './prompts/drive.js';
@@ -36,6 +37,7 @@ export interface DriveOverviewInput {
   model?: string;
   maxTurns?: number;
   timeoutMs?: number;
+  memories?: MemoryItem[]; // WP-381 읽기 전용 메모리
 }
 
 /** 발췌 기반 스트리밍 합성: onText 로 text_delta 를 즉시 전달, 완료 시 resolve. */
@@ -52,7 +54,7 @@ export async function runDriveOverview(
   const excerptsBlock = input.excerpts
     .map((e) => `<excerpt name="${e.name}">\n${e.text.slice(0, 2000)}\n</excerpt>`)
     .join('\n');
-  const userMessage = `질문: ${input.query}\n\n<excerpts>\n${excerptsBlock}\n</excerpts>`;
+  const userMessage = withReadOnlyMemory(input.memories, `질문: ${input.query}\n\n<excerpts>\n${excerptsBlock}\n</excerpts>`);
 
   const handle = runnerFor(credential).stream(
     {

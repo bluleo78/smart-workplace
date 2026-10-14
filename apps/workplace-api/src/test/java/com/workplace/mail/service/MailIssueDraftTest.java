@@ -6,10 +6,13 @@ import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
+import com.workplace.global.ai.AiMemoryLine;
+import com.workplace.global.ai.AiMemoryReader;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.mail.dto.MailIssueDraft;
 import com.workplace.mail.exception.EmailMessageNotFoundException;
@@ -26,6 +29,7 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
@@ -41,6 +45,9 @@ class MailIssueDraftTest extends IntegrationTestBase {
 
   /** AssistantResolver 목(비서 미설정 환경에서도 통과). */
   @MockitoBean AssistantResolver assistantResolver;
+
+  /** 메일 메모리(WP-381) — 목 기본값은 빈 목록이라 다른 테스트는 메모리 없이 그대로 동작한다. */
+  @MockitoBean AiMemoryReader memoryReader;
 
   /** 테스트용 고정 AssistantSpec. */
   private static final AssistantSpec MOCK_SPEC =
@@ -178,5 +185,22 @@ class MailIssueDraftTest extends IntegrationTestBase {
                     new com.workplace.mail.dto.PromoteToIssueRequest(
                         projectKey, "제목", null, "MID", List.of())))
         .isInstanceOf(EmailMessageNotFoundException.class);
+  }
+
+  /** WP-381: 메일 → 이슈 초안에는 공통 + 메일(MAIL) 메모리를 싣는다(이슈 범위가 아니다). */
+  @Test
+  void draftIssue_메일_메모리를_요청에_싣는다() {
+    long messageId = seedMailMessage(callerId);
+    List<AiMemoryLine> lines = List.of(new AiMemoryLine(6L, "CONTEXT", "정산 업무 담당", null, null));
+    when(memoryReader.readForEntry(callerId, AiMemoryReader.MAIL)).thenReturn(lines);
+    when(mailClient.issueDraft(any()))
+        .thenReturn(new MailAiMessages.IssueDraftResult("정산 검토", "- 5월 자료", "HIGH", projectKey));
+
+    mailIssueService.draftIssue(callerId, messageId);
+
+    ArgumentCaptor<MailAiMessages.IssueDraftRequest> cap =
+        ArgumentCaptor.forClass(MailAiMessages.IssueDraftRequest.class);
+    verify(mailClient).issueDraft(cap.capture());
+    assertThat(cap.getValue().memories()).isEqualTo(lines);
   }
 }

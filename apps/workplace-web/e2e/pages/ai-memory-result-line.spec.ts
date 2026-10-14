@@ -1,5 +1,5 @@
 // WP-55 채팅 메모리 결과 줄(데스크톱) — 답 아래·후속 질문 위, done 전 되돌리기 비활성, 줄마다 되돌리기, 실패 토스트 3종, 이력 복원, 위임 답 순번,
-// 오류·■ 정지로 끝난 턴의 되돌리기(종결 이벤트의 messageId), 긴 문구 줄바꿈.
+// 오류·■ 정지로 끝난 턴의 되돌리기(종결 이벤트의 messageId), 긴 문구 줄바꿈. WP-380: 기한 덩어리.
 import type { Page } from '@playwright/test'
 
 import { ask, msg, openChatPanel, sessionItem, setupLiveChat, summary, TITLE_A } from '../fixtures/ai-live-chat'
@@ -268,4 +268,51 @@ test('긴 메모리 문구는 줄바꿈되어 패널 밖으로 넘치지 않는�
   const panel = await stableBox(page.getByTestId('chat-panel'))
   const box = await stableBox(line)
   expect(box.x + box.width).toBeLessThanOrEqual(panel.x + panel.width)
+})
+
+// WP-379: 앱 범위 결과는 범위 이름을 붙인 문구로, 공통은 WP-55 문구 그대로. 되돌리기 가득 참은 서버가 알려 준 범위로 안내한다.
+test('앱 범위 결과 줄은 "이슈 메모리에 저장함" 이고, 되돌리기 가득 참은 그 범위 이름으로 안내한다', async ({ authenticatedPage: page }) => {
+  await mockMemoryUndo(page, [memoryError(409, 'AI_MEMORY_FULL', '오류', { scope: 'MAIL' })])
+  const live = await setupLiveChat(page)
+  live.queueStart({ correlationId: 'corr-a', sessionId: 's-a' })
+  await openChatPanel(page)
+  await ask(page, live, '정리해줘')
+  await memoryTool(live, 1, 'remember_memory', { ...saved, scope: 'ISSUE' })
+  await memoryTool(live, 2, 'update_memory', { ...updated, scope: null, previousScope: 'ISSUE' })
+  await memoryTool(live, 3, 'forget_memory', { ...forgotten, scope: 'MAIL' })
+  await live.push('delta', { ...C, text: '정리했어요.' })
+  await live.push('done', { ...C, widgets: null, messageId: 5 })
+
+  await expect(lines(page).nth(0)).toContainText('이슈 메모리에 저장함: "이슈 목록은 짧은 목록으로 보여 준다"')
+  await expect(lines(page).nth(1)).toContainText('메모리를 고침: "백엔드 팀이다"')
+  await expect(lines(page).nth(2)).toContainText('메일 메모리에서 지움: "표로 보여 준다"')
+
+  await lines(page).nth(2).getByTestId('chat-memory-undo').click()
+  await expect(page.getByText('메일 메모리가 가득 찼어요. 설정에서 정리해 주세요')).toBeVisible()
+  await expect(lines(page).nth(2)).toHaveAttribute('data-undone', 'false')
+})
+
+test.describe('기한 (WP-380)', () => {
+  test.use({ timezoneId: 'Asia/Seoul' })
+
+  test('기한 있는 결과 줄은 " · 10월 24일까지", 지움 줄엔 없고, 되돌리면 기한도 취소선이다', async ({ authenticatedPage: page }) => {
+    await page.clock.setFixedTime(new Date('2026-10-14T03:00:00Z'))
+    await mockMemoryUndo(page)
+    const live = await setupLiveChat(page)
+    live.queueStart({ correlationId: 'corr-a', sessionId: 's-a' })
+    await openChatPanel(page)
+    await ask(page, live, '이번 주는 결제 모듈만 볼 거야')
+    await memoryTool(live, 1, 'remember_memory', { ...saved, content: '이번 주는 결제 모듈 집중', scope: 'ISSUE', expiresOn: '2026-10-24' })
+    await memoryTool(live, 2, 'forget_memory', { ...forgotten, expiresOn: '2026-10-20' })
+    await live.push('delta', { ...C, text: '기억할게요.' })
+    await live.push('done', { ...C, widgets: null, messageId: 5 })
+
+    await expect(lines(page).nth(0)).toContainText('이슈 메모리에 저장함: "이번 주는 결제 모듈 집중" · 10월 24일까지 · 되돌리기')
+    await expect(lines(page).nth(0).getByTestId('chat-memory-expiry')).toHaveCSS('white-space', 'nowrap')
+    await expect(lines(page).nth(1).getByTestId('chat-memory-expiry')).toHaveCount(0)
+
+    await lines(page).nth(0).getByTestId('chat-memory-undo').click()
+    await expect(lines(page).nth(0)).toHaveAttribute('data-undone', 'true')
+    await expect(lines(page).nth(0).getByTestId('chat-memory-expiry').locator('..')).toHaveCSS('text-decoration-line', 'line-through')
+  })
 })

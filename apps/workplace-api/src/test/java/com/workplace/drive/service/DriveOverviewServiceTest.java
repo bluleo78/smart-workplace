@@ -18,6 +18,8 @@ import com.workplace.drive.dto.DriveContentHit;
 import com.workplace.drive.dto.DriveContentSearchResponse;
 import com.workplace.drive.outbound.DriveOverviewStreamClient;
 import com.workplace.drive.repository.DriveExcerptRepository;
+import com.workplace.global.ai.AiMemoryLine;
+import com.workplace.global.ai.AiMemoryReader;
 import com.workplace.global.realtime.DefaultStreamingGenerationRegistry;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.realtime.StreamingGenerationRegistry;
@@ -54,6 +56,7 @@ class DriveOverviewServiceTest {
   private PlatformTransactionManager txManager;
   private SseRegistry sseRegistry;
   private StreamingGenerationRegistry registry;
+  private AiMemoryReader memoryReader;
   private DriveOverviewService service;
 
   private static final long CALLER = 7L;
@@ -66,6 +69,7 @@ class DriveOverviewServiceTest {
     agent = mock(DriveOverviewStreamClient.class);
     sseRegistry = mock(SseRegistry.class);
     registry = new DefaultStreamingGenerationRegistry();
+    memoryReader = mock(AiMemoryReader.class);
 
     // 읽기전용 TransactionTemplate 이 execute() 를 호출할 때 콜백을 즉시 실행하는 스텁 txManager.
     txManager = mock(PlatformTransactionManager.class);
@@ -81,7 +85,8 @@ class DriveOverviewServiceTest {
             new TaskExecutorAdapter(Runnable::run),
             txManager,
             registry,
-            sseRegistry);
+            sseRegistry,
+            memoryReader);
   }
 
   private AssistantSpec spec() {
@@ -90,6 +95,23 @@ class DriveOverviewServiceTest {
 
   private DriveContentHit hit(long fileId, String name) {
     return new DriveContentHit(fileId, fileId, 10L, "기획 공간", name, "text/plain", "발췌", 0.9);
+  }
+
+  /** WP-381: 드라이브 개요 요청에 공통 + 드라이브(DRIVE) 메모리를 싣는다. */
+  @Test
+  void startOverview_드라이브_메모리를_요청_본문에_싣는다() throws Exception {
+    when(search.search(eq(CALLER), eq("매출"), eq(5), isNull()))
+        .thenReturn(new DriveContentSearchResponse(List.of(), false));
+    when(assistantResolver.resolve(CALLER)).thenReturn(spec());
+    List<AiMemoryLine> lines = List.of(new AiMemoryLine(4L, "PREFERENCE", "개요는 표로", "DRIVE", null));
+    when(memoryReader.readForEntry(CALLER, AiMemoryReader.DRIVE)).thenReturn(lines);
+
+    ArgumentCaptor<Object> bodyCaptor = ArgumentCaptor.forClass(Object.class);
+    service.startOverview(CALLER, "매출", null);
+
+    verify(agent).stream(bodyCaptor.capture(), any(), any());
+    assertThat(((DriveOverviewService.AgentBody) bodyCaptor.getValue()).memories())
+        .isEqualTo(lines);
   }
 
   /** 검색·발췌·비서 해석 결과가 정확히 AgentBody 에 실려 agent.stream 에 전달된다. */
@@ -283,7 +305,8 @@ class DriveOverviewServiceTest {
             realExecutor,
             txManager,
             realRegistry,
-            sseRegistry);
+            sseRegistry,
+            memoryReader);
 
     CountDownLatch started = new CountDownLatch(1);
     doAnswer(
@@ -331,7 +354,8 @@ class DriveOverviewServiceTest {
             new TaskExecutorAdapter(Runnable::run),
             txManager,
             mockRegistry,
-            sseRegistry);
+            sseRegistry,
+            memoryReader);
 
     svc.cancelOverview("corr-1", CALLER);
 

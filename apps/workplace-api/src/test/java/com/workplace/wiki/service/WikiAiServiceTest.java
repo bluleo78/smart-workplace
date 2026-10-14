@@ -15,6 +15,8 @@ import static org.mockito.Mockito.when;
 
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
+import com.workplace.global.ai.AiMemoryLine;
+import com.workplace.global.ai.AiMemoryReader;
 import com.workplace.global.realtime.DefaultStreamingGenerationRegistry;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.realtime.StreamingGenerationRegistry;
@@ -27,6 +29,8 @@ import com.workplace.wiki.repository.WikiPageRepository;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -53,6 +57,7 @@ class WikiAiServiceTest {
   private SseRegistry sseRegistry;
   private StreamingGenerationRegistry registry;
   private WikiPageService pageService;
+  private AiMemoryReader memoryReader;
   private WikiAiService service;
 
   private static final long CALLER = 7L;
@@ -68,6 +73,7 @@ class WikiAiServiceTest {
     sseRegistry = mock(SseRegistry.class);
     registry = new DefaultStreamingGenerationRegistry();
     pageService = mock(WikiPageService.class);
+    memoryReader = mock(AiMemoryReader.class);
     service =
         new WikiAiService(
             pages,
@@ -77,7 +83,8 @@ class WikiAiServiceTest {
             new TaskExecutorAdapter(Runnable::run),
             registry,
             sseRegistry,
-            pageService);
+            pageService,
+            memoryReader);
   }
 
   private WikiPageDetail page() {
@@ -103,6 +110,52 @@ class WikiAiServiceTest {
     verify(agent, never()).stream(any(), any(), any());
     verify(assistantResolver, never()).resolve(anyLong());
     verify(sseRegistry, never()).fanOut(any(), any(), any());
+  }
+
+  /** WP-381: 노트 AI 작성 요청에 공통 + 노트(WIKI) 메모리를 싣는다. */
+  @Test
+  void startCompose_노트_메모리를_요청_본문에_싣는다() throws Exception {
+    when(pages.findDetail(PAGE_ID)).thenReturn(Optional.of(page()));
+    when(perms.requireRole(eq(SPACE_ID), eq(CALLER), eq("EDITOR"))).thenReturn("EDITOR");
+    when(assistantResolver.resolve(CALLER)).thenReturn(spec());
+    List<AiMemoryLine> lines =
+        List.of(new AiMemoryLine(3L, "PREFERENCE", "노트는 개조식으로", "WIKI", null));
+    when(memoryReader.readForEntry(CALLER, AiMemoryReader.WIKI)).thenReturn(lines);
+
+    ArgumentCaptor<Object> bodyCaptor = ArgumentCaptor.forClass(Object.class);
+    service.startCompose(CALLER, PAGE_ID, continueAction());
+
+    verify(agent).stream(bodyCaptor.capture(), any(), any());
+    assertThat(((WikiAiService.AgentBody) bodyCaptor.getValue()).memories()).isEqualTo(lines);
+  }
+
+  /**
+   * WP-381: 메모리는 요청 스레드가 아니라 펌프에서 읽는다 — startCompose 는 읽기 트랜잭션이라, 거기서 메모리를 읽으면 요청 하나가 커넥션 두 개를 동시에
+   * 쥐어 풀이 포화될 때 요청끼리 서로를 기다린다. 실행기가 펌프를 붙잡아 두면 startCompose 가 끝날 때까지 메모리를 읽지 않는다.
+   */
+  @Test
+  void startCompose_메모리는_요청_스레드가_아니라_펌프에서_읽는다() throws Exception {
+    when(pages.findDetail(PAGE_ID)).thenReturn(Optional.of(page()));
+    when(perms.requireRole(eq(SPACE_ID), eq(CALLER), eq("EDITOR"))).thenReturn("EDITOR");
+    when(assistantResolver.resolve(CALLER)).thenReturn(spec());
+    List<Runnable> held = new ArrayList<>();
+    WikiAiService svc =
+        new WikiAiService(
+            pages,
+            perms,
+            assistantResolver,
+            agent,
+            new TaskExecutorAdapter(held::add),
+            registry,
+            sseRegistry,
+            pageService,
+            memoryReader);
+
+    svc.startCompose(CALLER, PAGE_ID, continueAction());
+
+    verify(memoryReader, never()).readForEntry(anyLong(), any());
+    held.forEach(Runnable::run);
+    verify(memoryReader).readForEntry(CALLER, AiMemoryReader.WIKI);
   }
 
   /** EDITOR 통과 시 페이지 제목·본문·액션이 에이전트 요청 본문(AgentBody)에 실린다. */
@@ -298,7 +351,8 @@ class WikiAiServiceTest {
             realExecutor,
             realRegistry,
             sseRegistry,
-            pageService);
+            pageService,
+            memoryReader);
 
     CountDownLatch started = new CountDownLatch(1);
     doAnswer(
@@ -346,7 +400,8 @@ class WikiAiServiceTest {
             new TaskExecutorAdapter(Runnable::run),
             mockRegistry,
             sseRegistry,
-            pageService);
+            pageService,
+            memoryReader);
 
     svc.cancelCompose("corr-1", CALLER);
 

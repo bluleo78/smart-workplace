@@ -7,8 +7,13 @@ import type { LiveChat } from './ai-live-chat'
 import { mockMyAssistantStatus } from './my-assistant-mock'
 import { type RequestTracker, trackRequests } from './requests'
 
-/** 서버 ErrorResponse 본문(errors.code 에 도메인 오류 코드). */
-const errorBody = (status: number, code: string, message: string) => ({ status, error: '', message, errors: { code } })
+/** 서버 ErrorResponse 본문(errors.code 에 도메인 오류 코드, extra 는 errors 의 다른 키 — 예: 가득 찬 범위 scope). */
+const errorBody = (status: number, code: string, message: string, extra: Record<string, string> = {}) => ({
+  status,
+  error: '',
+  message,
+  errors: { code, ...extra },
+})
 
 /** 메모리 도구 start·result 한 쌍을 흘린다 — result 에 memory(결과 줄 근거)를 싣는다. ids 기본값은 스펙들이 쓰는 첫 대화. */
 export async function memoryTool(
@@ -48,8 +53,11 @@ export async function mockMemoryUndo(
   return calls
 }
 
-/** 서버 오류 응답(ErrorResponse + errors.code). */
-export const memoryError = (status: number, code: string, message = '오류') => ({ status, body: errorBody(status, code, message) })
+/** 서버 오류 응답(ErrorResponse + errors.code [+ 다른 키]). */
+export const memoryError = (status: number, code: string, message = '오류', extra: Record<string, string> = {}) => ({
+  status,
+  body: errorBody(status, code, message, extra),
+})
 
 /** 메모리 항목 팩토리 — updatedAt 은 id 가 클수록 최근. */
 export const memoryItem = (id: number, over: Partial<AiMemoryItem> = {}): AiMemoryItem => ({
@@ -77,7 +85,7 @@ export interface MemoryMock {
 
 /**
  * 설정 카드용 상태 있는 목 — 목록은 배열 순서(맨 앞 = 최신)로 돌려준다. 추가·고치기는 맨 앞으로, 지우기는 지운 항목을 돌려준다.
- * 서버 규칙 중 화면이 기대는 것만 흉내 낸다(직접 추가는 USER, 고치기 응답의 previousContent·previousKind).
+ * 서버 규칙 중 화면이 기대는 것만 흉내 낸다(직접 추가는 USER, 고치기 응답의 previousContent·previousKind), 범위 저장·옮기기(WP-379), 기한 저장·지정·없애기(WP-380).
  */
 export async function mockAiMemories(page: Page, initial: AiMemoryItem[]): Promise<MemoryMock> {
   let items = [...initial]
@@ -106,18 +114,36 @@ export async function mockAiMemories(page: Page, initial: AiMemoryItem[]): Promi
       return route.fulfill(json(200, { items, limit: 50 }))
     }
     if (method === 'POST') {
-      const body = req.postDataJSON() as { kind: AiMemoryItem['kind']; content: string }
-      const created = memoryItem(nextId++, { kind: body.kind, content: body.content.trim(), source: 'USER', updatedAt: new Date().toISOString() })
+      const body = req.postDataJSON() as { kind: AiMemoryItem['kind']; content: string; scope?: AiMemoryItem['scope']; expiresOn?: string }
+      const created = memoryItem(nextId++, {
+        kind: body.kind,
+        content: body.content.trim(),
+        source: 'USER',
+        scope: body.scope ?? null,
+        ...(body.expiresOn ? { expiresOn: body.expiresOn, expired: false } : {}),
+        updatedAt: new Date().toISOString(),
+      })
       items = [created, ...items]
       return route.fulfill(json(201, created))
     }
     if (method === 'PATCH') {
       const cur = items.find((m) => m.id === id)
       if (!cur) return route.fulfill(json(404, errorBody(404, 'AI_MEMORY_NOT_FOUND', '메모리를 찾을 수 없어요')))
-      const body = req.postDataJSON() as { content?: string }
-      const next = { ...cur, content: body.content?.trim() ?? cur.content, updatedAt: new Date().toISOString() }
+      const body = req.postDataJSON() as { content?: string; scope?: AiMemoryItem['scope']; expiresOn?: string; clearExpiry?: boolean }
+      const next = {
+        ...cur,
+        content: body.content?.trim() ?? cur.content,
+        // present-flag — 키가 있을 때만 범위를 옮긴다(null = 공통).
+        ...('scope' in body ? { scope: body.scope ?? null } : {}),
+        // WP-380: 기한 지정·없애기 — 되살린 행은 만료가 풀린다(서버는 오늘 기준으로 다시 판정).
+        ...(body.expiresOn ? { expiresOn: body.expiresOn, expired: false } : {}),
+        ...(body.clearExpiry ? { expiresOn: null, expired: false } : {}),
+        updatedAt: new Date().toISOString(),
+      }
       items = [next, ...items.filter((m) => m.id !== id)]
-      return route.fulfill(json(200, { ...next, previousContent: cur.content, previousKind: cur.kind }))
+      return route.fulfill(
+        json(200, { ...next, previousContent: cur.content, previousKind: cur.kind, ...(cur.scope ? { previousScope: cur.scope } : {}), ...(cur.expiresOn ? { previousExpiresOn: cur.expiresOn } : {}) }),
+      )
     }
     if (method === 'DELETE' && Number.isNaN(id)) {
       items = []

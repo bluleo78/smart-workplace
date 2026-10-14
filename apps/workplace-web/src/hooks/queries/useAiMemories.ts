@@ -6,14 +6,18 @@ import { toast } from 'sonner';
 import { clearAiMemories, createAiMemory, deleteAiMemory, listAiMemories, undoAiMemory, updateAiMemory } from '../../api/aiMemories';
 import { chatStreams } from '../../lib/ai/chatStreams';
 import {
+  extractApiErrorScope,
   MEMORY_SETTINGS_PATH,
   memoryErrorMessage,
+  memoryFullMessage,
   UNDO_CHANGED_MESSAGE,
-  UNDO_FULL_MESSAGE,
+  UNDO_EXPIRED_MESSAGE,
   UNDO_GONE_MESSAGE,
+  wasExpiredAtUndo,
 } from '../../lib/aiMemory';
 import { extractApiErrorCode, handleApiError } from '../../lib/api-error';
-import type { AiMemoryItem, AiMemoryKind, UndoAiMemoryRequest } from '../../types/aiMemory';
+import { kstDateKey } from '../../lib/formatters';
+import type { AiMemoryItem, AiMemoryKind, AiMemoryScope, UndoAiMemoryRequest } from '../../types/aiMemory';
 import { useAuth } from '../useAuth';
 
 /** 가득 참 토스트 지속 시간(ms) — action(설정 열기)을 누를 여유. */
@@ -60,8 +64,8 @@ export function useUndoAiMemory() {
     onError: (e) => {
       const code = extractApiErrorCode(e);
       if (code === 'AI_MEMORY_FULL') {
-        // 설정으로 이동하는 action 토스트라 기본(약 4초)보다 오래 둔다 — 읽고 누를 시간을 준다.
-        toast.error(UNDO_FULL_MESSAGE, {
+        // 설정으로 이동하는 action 토스트라 기본(약 4초)보다 오래 둔다 — 읽고 누를 시간을 준다. 범위는 서버 409 errors.scope 기준.
+        toast.error(memoryFullMessage(extractApiErrorScope(e)), {
           duration: UNDO_FULL_TOAST_MS,
           action: { label: '설정 열기', onClick: () => navigate(MEMORY_SETTINGS_PATH) },
         });
@@ -96,18 +100,27 @@ export function useAiMemories() {
 export function useCreateAiMemory(failMessage = '메모리를 추가하지 못했어요') {
   const invalidate = useInvalidateMemories();
   return useMutation({
-    mutationFn: (body: { kind: AiMemoryKind; content: string }) => createAiMemory(body),
+    mutationFn: (body: { kind: AiMemoryKind; content: string; scope?: AiMemoryScope; expiresOn?: string }) => createAiMemory(body),
     // 목록을 다시 읽을 때까지 pending 유지 — 폼이 닫히고 새 목록이 바로 보이게(옛 내용이 한 번 보이지 않게).
     onSuccess: () => invalidate(),
     onError: (e) => toast.error(memoryErrorMessage(e, failMessage)),
   });
 }
 
-/** 제자리 고치기. */
+/** 제자리 고치기 — scope 키는 범위를 바꿀 때만 싣는다(null = 공통으로). 기한은 바꿀 때만 expiresOn 또는 clearExpiry(WP-380). content 없이도 된다(만료 행 되살리기). */
 export function useUpdateAiMemory() {
   const invalidate = useInvalidateMemories();
   return useMutation({
-    mutationFn: (v: { id: number; content: string }) => updateAiMemory(v.id, { content: v.content }),
+    mutationFn: ({
+      id,
+      ...body
+    }: {
+      id: number;
+      content?: string;
+      scope?: AiMemoryScope | null;
+      expiresOn?: string;
+      clearExpiry?: true;
+    }) => updateAiMemory(id, body),
     // 목록을 다시 읽을 때까지 pending 유지 — 편집기가 닫힐 때 이미 새 내용·새 위치가 보인다.
     onSuccess: () => invalidate(),
     onError: (e) => toast.error(memoryErrorMessage(e, '메모리를 고치지 못했어요')),
@@ -115,7 +128,9 @@ export function useUpdateAiMemory() {
 }
 
 /**
- * 지우기 — 즉시 지우고 "메모리를 삭제했어요" + "되돌리기" 토스트. 되돌리기는 같은 kind·content 로 다시 만든다(직접 추가 경로라 USER, 판정 11).
+ * 지우기 — 즉시 지우고 "메모리를 삭제했어요" + "되돌리기" 토스트. 되돌리기는 같은 kind·content·scope·expiresOn 으로 다시 만든다(직접 추가 경로라 USER).
+ * 만료 항목은 되돌리기가 없다 — 지난 기한으로는 다시 만들 수 없다(서버 400). 지울 때는 유효였어도 누르기 전에 자정(KST)이 지나 기한이 지났으면
+ * 요청하지 않고 그 이유를 토스트로 알린다.
  */
 export function useDeleteAiMemory() {
   const invalidate = useInvalidateMemories();
@@ -123,9 +138,28 @@ export function useDeleteAiMemory() {
   return useMutation({
     mutationFn: (item: AiMemoryItem) => deleteAiMemory(item.id),
     onSuccess: (deleted) => {
-      toast.success('메모리를 삭제했어요', {
-        action: { label: '되돌리기', onClick: () => restore.mutate({ kind: deleted.kind, content: deleted.content }) },
-      });
+      if (deleted.expired) {
+        toast.success('메모리를 삭제했어요');
+      } else {
+        toast.success('메모리를 삭제했어요', {
+          action: {
+            label: '되돌리기',
+            // 같은 범위·기한으로 다시 만든다(공통·기한 없음이면 키 생략). 오늘은 누르는 순간에 다시 잰다 — 지운 뒤 자정이 지났을 수 있다.
+            onClick: () => {
+              if (wasExpiredAtUndo(deleted.expiresOn, kstDateKey(new Date()))) {
+                toast.error(UNDO_EXPIRED_MESSAGE);
+                return;
+              }
+              restore.mutate({
+                kind: deleted.kind,
+                content: deleted.content,
+                ...(deleted.scope ? { scope: deleted.scope } : {}),
+                ...(deleted.expiresOn ? { expiresOn: deleted.expiresOn } : {}),
+              });
+            },
+          },
+        });
+      }
       // 목록을 다시 읽을 때까지 pending 유지 — 지운 줄이 남아 삭제 버튼이 다시 켜져 두 번째 DELETE(404)가 나가지 않게.
       return invalidate();
     },

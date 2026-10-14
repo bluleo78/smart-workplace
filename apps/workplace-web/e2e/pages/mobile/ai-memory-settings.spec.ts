@@ -52,3 +52,37 @@ test('내용이 행 폭 대부분을 쓰고 메타 날짜가 중간에서 끊기
   const meta = await stableBox(page.getByTestId('ai-memory-meta'))
   expect(edit.y + edit.height / 2, '아이콘 중심이 메타 줄 중앙').toBeCloseTo(meta.y + meta.height / 2, 0)
 })
+
+// WP-379: 범위 묶음 소제목·카운트와 범위 고르기가 좁은 화면에서 넘치지 않고 터치 크기다.
+test('범위 묶음과 범위 고르기가 넘치지 않고 터치 크기다', async ({ authenticatedPage: page }) => {
+  await mockAiMemories(page, [
+    memoryItem(3, { content: '메신저 대화 요약은 세 줄로 정리해 보여 준다', scope: 'MESSAGING' }),
+    memoryItem(2, { content: '답은 존댓말로 한다' }),
+  ])
+  await openMemorySettings(page)
+  await expect(page.getByTestId('ai-memory-group')).toHaveCount(2)
+  await expectNoHorizontalOverflow(page)
+  await page.getByTestId('ai-memory-edit').first().click()
+  expect(Math.round((await stableBox(page.getByTestId('ai-memory-edit-scope'))).height)).toBeGreaterThanOrEqual(44)
+  await expectNoHorizontalOverflow(page)
+})
+
+// WP-380: 모바일 만료 행 — 링크가 넘치지 않고, 기한 연장은 바텀시트(기한 없음 버튼 없음)에서 고른다.
+test.describe('기한 (WP-380)', () => {
+  test.use({ timezoneId: 'Asia/Seoul' })
+
+  test('만료 행의 기한 연장은 바텀시트로 고르고 가로로 넘치지 않는다', async ({ authenticatedPage: page }) => {
+    await page.clock.setFixedTime(new Date('2026-10-14T03:00:00Z'))
+    const mock = await mockAiMemories(page, [
+      memoryItem(6, { content: '지난 출장 중에는 메일 답장을 짧게 한다', expiresOn: '2026-10-10', expired: true }),
+    ])
+    await openMemorySettings(page)
+    await expectNoHorizontalOverflow(page)
+    await page.getByTestId('ai-memory-extend').click()
+    await expect(page.getByTestId('ai-memory-extend-sheet')).toBeVisible()
+    await expect(page.getByTestId('ai-memory-extend-sheet-clear')).toHaveCount(0)
+    await page.getByTestId('ai-memory-extend-sheet-next-week').click()
+    await mock.updates.waitFor()
+    expect(mock.updates.lastBody()).toEqual({ expiresOn: '2026-10-21' })
+  })
+})
