@@ -1,5 +1,6 @@
 package com.workplace.auth.dto;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
@@ -20,9 +21,16 @@ public class UpdateAssistantSettingsRequest {
   @Size(max = 64)
   private String suggestionModel;
 
+  /**
+   * 지금(또는 같은 요청으로 바꾸는) 모델의 이미지 입력 수동 지정(WP-250) — true/false, null 이면 자동 감지로 되돌림. JsonNode 로 받아
+   * "true" 같은 문자열이 불리언으로 바뀌어 들어오지 않게 하고, 형식 검사는 서비스(AiAgentCredentialService)가 한다.
+   */
+  private JsonNode vision;
+
   private boolean modelPresent;
   private boolean thinkingDepthPresent;
   private boolean suggestionModelPresent;
+  private boolean visionPresent;
 
   public String model() {
     return model;
@@ -34,6 +42,10 @@ public class UpdateAssistantSettingsRequest {
 
   public String suggestionModel() {
     return suggestionModel;
+  }
+
+  public JsonNode vision() {
+    return vision;
   }
 
   /** 요청에 model 키가 있었는가. */
@@ -51,6 +63,11 @@ public class UpdateAssistantSettingsRequest {
     return suggestionModelPresent;
   }
 
+  /** 요청에 vision 키가 있었는가. */
+  public boolean hasVision() {
+    return visionPresent;
+  }
+
   public void setModel(String model) {
     this.model = model;
     this.modelPresent = true;
@@ -64,5 +81,10 @@ public class UpdateAssistantSettingsRequest {
   public void setSuggestionModel(String suggestionModel) {
     this.suggestionModel = suggestionModel;
     this.suggestionModelPresent = true;
+  }
+
+  public void setVision(JsonNode vision) {
+    this.vision = vision;
+    this.visionPresent = true;
   }
 }

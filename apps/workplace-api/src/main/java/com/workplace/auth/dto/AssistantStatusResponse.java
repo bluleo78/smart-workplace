@@ -20,4 +20,6 @@ public record AssistantStatusResponse(
     /**
      * 자동일 때 실제로 쓸 모델(WP-139) — Anthropic 은 API 기본값, opencode 는 비서 모델, 연결 없음은 null. 웹 "자동 (…)" 라벨.
      */
-    String suggestionModelAuto) {}
+    String suggestionModelAuto,
+    /** 지금 모델의 이미지 입력 수동 지정(WP-250) — true/false, null 이면 자동 감지(opencode 연결이 아니어도 null). */
+    Boolean vision) {}

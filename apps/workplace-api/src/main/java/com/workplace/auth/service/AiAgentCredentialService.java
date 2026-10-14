@@ -1,7 +1,9 @@
 package com.workplace.auth.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.workplace.audit.service.AuditLogService;
 import com.workplace.auth.dto.AiAgentCredentialRow;
 import com.workplace.auth.dto.OAuthTokenMetaResponse;
@@ -192,6 +194,76 @@ public class AiAgentCredentialService {
     return "opencode".equals(row.provider())
         ? new ProviderCredentialRedeemResponse("opencode", null, plaintext, model, row.label())
         : new ProviderCredentialRedeemResponse("anthropic", plaintext, null, model, row.label());
+  }
+
+  /**
+   * 모델 이미지 입력 수동 지정 갱신(WP-250) — 등록 후 모델만 바꾸거나 지금 모델의 지정을 고칠 때(비서 설정 변경). 활성 opencode 자격증명의
+   * provider config 에서 vision 만 {@code {model: true|false}} 로 바꾸거나(이전 모델 키는 지운다 — 지금 모델만 의미가 있다)
+   * 지운다(null = 자동 감지). 같은 행을 그 자리에서 다시 암호화해 쓴다 — 재등록(register)처럼 회수·새 행·감사 로그·추천 모델 초기화를 일으키지 않고,
+   * providerId·options(apiKey 포함)는 값 그대로 둔다.
+   *
+   * @param model 지정을 걸 모델("providerId/modelId", 저장 키와 같은 형식)
+   * @param vision boolean 또는 null(자동). 그 밖은 400
+   */
+  public void updateModelVision(Long agentUserId, String model, JsonNode vision) {
+    boolean auto = vision == null || vision.isNull();
+    if (!auto && !vision.isBoolean()) {
+      throw new InvalidProviderCredentialException("vision 은 true/false 또는 null(자동 감지)이어야 합니다");
+    }
+    AiAgentCredentialRow row = repo.findActive(agentUserId).orElse(null);
+    if (row == null || !"opencode".equals(row.provider())) {
+      if (auto) return; // 지정할 것이 없다(Claude 연결은 늘 이미지를 본다)
+      throw new InvalidProviderCredentialException("이미지 입력 지정은 OpenAI 호환 연결에만 할 수 있습니다");
+    }
+    if (!auto && (model == null || model.isBlank())) {
+      throw new InvalidProviderCredentialException("이미지 입력을 지정할 모델이 없습니다");
+    }
+    ObjectNode payload;
+    try {
+      payload = (ObjectNode) objectMapper.readTree(encryptionService.decrypt(row.encryptedToken()));
+    } catch (JsonProcessingException | ClassCastException e) {
+      throw new IllegalStateException("저장된 provider config 를 읽을 수 없습니다", e);
+    }
+    if (auto) {
+      if (!payload.has("vision")) return;
+      payload.remove("vision");
+    } else {
+      ObjectNode perModel = objectMapper.createObjectNode();
+      perModel.put(model, vision.booleanValue());
+      payload.set("vision", perModel);
+    }
+    try {
+      repo.updateEncryptedToken(
+          row.id(), encryptionService.encrypt(objectMapper.writeValueAsString(payload)));
+    } catch (JsonProcessingException e) {
+      throw new IllegalStateException("provider config 를 저장할 수 없습니다", e);
+    }
+  }
+
+  /**
+   * 지금 모델의 이미지 입력 수동 지정(WP-250) — 비서 설정 화면이 초깃값으로 보여 준다. 모델별 맵이면 그 모델 키, 전 모델 공통 boolean 이면 그 값,
+   * 지정이 없거나 opencode 연결이 아니면 null(자동 감지). ai-agent manualVision 과 같은 읽기 규칙(키는
+   * "providerId/modelId").
+   */
+  @Transactional(readOnly = true)
+  public Boolean findModelVision(Long agentUserId, String model) {
+    return repo.findActive(agentUserId)
+        .filter(r -> "opencode".equals(r.provider()))
+        .map(r -> readVision(r, model))
+        .orElse(null);
+  }
+
+  private Boolean readVision(AiAgentCredentialRow row, String model) {
+    try {
+      JsonNode v =
+          objectMapper.readTree(encryptionService.decrypt(row.encryptedToken())).get("vision");
+      if (v == null || v.isNull()) return null;
+      if (v.isBoolean()) return v.booleanValue();
+      JsonNode m = model == null ? null : v.get(model);
+      return m != null && m.isBoolean() ? m.booleanValue() : null;
+    } catch (Exception e) {
+      return null; // 상태 조회는 best-effort — 파싱 실패로 화면 전체를 깨뜨리지 않는다(extractBaseUrl 과 같은 규칙).
+    }
   }
 
   /**
