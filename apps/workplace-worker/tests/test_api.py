@@ -65,3 +65,115 @@ def test_run_extract_passes_page_markers(monkeypatch, tmp_path):
     main._run_extract(main.ExtractTask(jobId=1, storageKey="a.txt", mime="text/plain", tenantId=1, pageMarkers=True))
     main._run_extract(main.ExtractTask(jobId=1, storageKey="a.txt", mime="text/plain", tenantId=1))
     assert seen == [True, False]
+
+
+# ---------------------------------------------------------------------------
+# /render (WP-250) — PDF 페이지·이미지를 모델 입력용 이미지로 동기 변환
+# ---------------------------------------------------------------------------
+import io
+
+import fitz
+from PIL import Image
+
+_AUTH = {"Authorization": "Internal secret"}
+
+
+def _pdf_bytes(pages: int, with_text: bool = True) -> bytes:
+    """테스트용 PDF — with_text=False 면 텍스트 레이어가 없는(스캔 유사) 페이지."""
+    doc = fitz.open()
+    for i in range(pages):
+        p = doc.new_page()
+        if with_text:
+            p.insert_text((72, 72), f"page {i + 1}")
+    return doc.tobytes()
+
+
+def _render_client(monkeypatch, tmp_path):
+    """BLOB_BASE 를 tmp_path 로 고정한 TestClient (config 는 import 시점 고정이라 직접 패치)."""
+    from app import config
+    from app.main import app
+    monkeypatch.setattr(config, "BLOB_BASE", str(tmp_path))
+    return TestClient(app)
+
+
+def test_render_pdf_page_returns_png_and_page_count(monkeypatch, tmp_path):
+    (tmp_path / "a.pdf").write_bytes(_pdf_bytes(3))
+    c = _render_client(monkeypatch, tmp_path)
+    r = c.post("/render", headers=_AUTH, json={"storageKey": "a.pdf", "mime": "application/pdf", "page": 2, "maxEdge": 800})
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "image/png"
+    assert r.headers["x-page-count"] == "3"
+
+
+def test_render_image_has_no_page_count_header(monkeypatch, tmp_path):
+    buf = io.BytesIO()
+    Image.new("RGB", (100, 80)).save(buf, "JPEG")
+    (tmp_path / "a.jpg").write_bytes(buf.getvalue())
+    c = _render_client(monkeypatch, tmp_path)
+    r = c.post("/render", headers=_AUTH, json={"storageKey": "a.jpg", "mime": "image/jpeg"})
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "image/jpeg"
+    assert "x-page-count" not in r.headers
+
+
+def test_render_pdf_requires_page(monkeypatch, tmp_path):
+    (tmp_path / "a.pdf").write_bytes(_pdf_bytes(1))
+    c = _render_client(monkeypatch, tmp_path)
+    r = c.post("/render", headers=_AUTH, json={"storageKey": "a.pdf", "mime": "application/pdf"})
+    assert r.status_code == 400 and r.json()["detail"]["code"] == "PAGE_REQUIRED"
+
+
+def test_render_image_rejects_page(monkeypatch, tmp_path):
+    buf = io.BytesIO()
+    Image.new("RGB", (10, 10)).save(buf, "JPEG")
+    (tmp_path / "a.jpg").write_bytes(buf.getvalue())
+    c = _render_client(monkeypatch, tmp_path)
+    r = c.post("/render", headers=_AUTH, json={"storageKey": "a.jpg", "mime": "image/jpeg", "page": 1})
+    assert r.status_code == 400 and r.json()["detail"]["code"] == "PAGE_NOT_ALLOWED"
+
+
+def test_render_page_out_of_range_carries_page_count(monkeypatch, tmp_path):
+    (tmp_path / "a.pdf").write_bytes(_pdf_bytes(3))
+    c = _render_client(monkeypatch, tmp_path)
+    r = c.post("/render", headers=_AUTH, json={"storageKey": "a.pdf", "mime": "application/pdf", "page": 9})
+    assert r.status_code == 400
+    assert r.json()["detail"] == {"code": "PAGE_OUT_OF_RANGE", "pageCount": 3}
+
+
+def test_render_requires_auth(monkeypatch, tmp_path):
+    c = _render_client(monkeypatch, tmp_path)
+    r = c.post("/render", json={"storageKey": "a.pdf", "mime": "application/pdf", "page": 1})
+    assert r.status_code == 401
+
+
+def test_render_rejects_path_traversal(monkeypatch, tmp_path):
+    c = _render_client(monkeypatch, tmp_path)
+    r = c.post("/render", headers=_AUTH, json={"storageKey": "../x", "mime": "application/pdf", "page": 1})
+    assert r.status_code == 400
+
+
+def test_render_missing_blob_is_404(monkeypatch, tmp_path):
+    """blob 파일이 없으면 500 이 아니라 404 NOT_FOUND — api 클라이언트가 구분해 매핑한다."""
+    c = _render_client(monkeypatch, tmp_path)
+    r = c.post("/render", headers=_AUTH, json={"storageKey": "nope.pdf", "mime": "application/pdf", "page": 1})
+    assert r.status_code == 404 and r.json()["detail"] == {"code": "NOT_FOUND"}
+
+
+def test_render_oversize_is_413(monkeypatch, tmp_path):
+    from app import config
+    (tmp_path / "a.pdf").write_bytes(_pdf_bytes(1))
+    c = _render_client(monkeypatch, tmp_path)
+    monkeypatch.setattr(config, "MAX_BYTES", 10)
+    r = c.post("/render", headers=_AUTH, json={"storageKey": "a.pdf", "mime": "application/pdf", "page": 1})
+    assert r.status_code == 413 and r.json()["detail"]["code"] == "TOO_LARGE"
+
+
+def test_run_extract_skipped_empty_carries_page_count(monkeypatch, tmp_path):
+    """텍스트 없는 PDF(스캔) 도 SKIPPED/empty 콜백에 pageCount 를 실어 페이지 이미지 보기가 범위를 알게 한다."""
+    from app import config, main
+    (tmp_path / "scan.pdf").write_bytes(_pdf_bytes(3, with_text=False))
+    monkeypatch.setattr(config, "BLOB_BASE", str(tmp_path))
+    posted = []
+    monkeypatch.setattr("app.callback.post_result", lambda job_id, payload, **kw: posted.append(payload))
+    main._run_extract(main.ExtractTask(jobId=1, storageKey="scan.pdf", mime="application/pdf", tenantId=7))
+    assert posted == [{"tenantId": 7, "status": "SKIPPED", "error": "empty", "pageCount": 3}]

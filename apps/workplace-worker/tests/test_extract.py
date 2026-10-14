@@ -147,3 +147,25 @@ def test_pdf_without_text_is_empty():
     for markers in (False, True):
         r = extract_text(_make_pdf(["", ""]), "application/pdf", max_chars=10_000, page_markers=markers)
         assert r["text"] == ""
+
+
+def test_pdf_page_count():
+    """PDF 는 추출 결과에 pageCount 를 싣는다(WP-250 — 페이지 이미지 보기의 범위 기준)."""
+    r = extract_text(_make_pdf(["first", "second"]), "application/pdf", max_chars=10_000)
+    assert r["pageCount"] == 2
+
+
+def test_pdf_without_text_still_reports_page_count():
+    """텍스트 없는 PDF 도 text 는 비어도 pageCount 는 유지 — SKIPPED/empty 콜백에 실린다."""
+    r = extract_text(_make_pdf(["", "", ""]), "application/pdf", max_chars=10_000)
+    assert r["text"] == "" and r["pageCount"] == 3
+
+
+def test_non_pdf_page_count_is_none():
+    """PDF 가 아니면 페이지 개념이 없으므로 None."""
+    from docx import Document
+    import io
+    d = Document(); d.add_paragraph("hello")
+    buf = io.BytesIO(); d.save(buf)
+    r = extract_text(buf.getvalue(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document", max_chars=10_000)
+    assert r["pageCount"] is None
