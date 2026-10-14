@@ -11,6 +11,7 @@ from dataclasses import dataclass
 import fitz
 import pillow_heif
 from PIL import Image
+from PIL.JpegImagePlugin import JpegImageFile
 
 # 이전 이미지가 매 턴 다시 실리므로 작게 — 넘으면 JPEG 로 줄인다(요청 크기 상한 대비).
 PNG_MAX_BYTES = 1_000_000
@@ -85,7 +86,8 @@ def _open_image(data: bytes, max_edge: int | None = None) -> Image.Image:
         if img.width * img.height > MAX_IMAGE_PIXELS:
             raise RenderError(422, {"code": "UNREADABLE"})
         img.seek(0)  # 애니메이션은 첫 프레임
-        if max_edge and img.format == "JPEG":
+        # MPO(휴대폰 사진의 깊이·HDR 보조 영상이 붙은 JPEG)도 JpegImageFile 하위 클래스라 같은 축소 디코딩을 쓴다.
+        if max_edge and isinstance(img, JpegImageFile):
             scale = max_edge / max(img.size)
             if scale < 1:
                 img.draft(img.mode, (math.ceil(img.width * scale), math.ceil(img.height * scale)))

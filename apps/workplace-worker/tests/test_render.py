@@ -208,6 +208,18 @@ def test_jpeg_is_decoded_reduced_with_draft():
     assert _open_image(_img("RGB", size=(4000, 3000))).size == (4000, 3000)
 
 
+def test_mpo_phone_photo_is_decoded_reduced_too():
+    """휴대폰 사진은 보조 영상이 붙은 MPO 로 열리는 경우가 많다 — JPEG 와 같이 줄여 읽는다."""
+    buf = io.BytesIO()
+    Image.new("RGB", (4000, 3000), "red").save(
+        buf, "MPO", save_all=True, append_images=[Image.new("RGB", (400, 300), "blue")]
+    )
+    assert Image.open(io.BytesIO(buf.getvalue())).format == "MPO"
+    assert _open_image(buf.getvalue(), max_edge=1568).size == (2000, 1500)
+    out = render_image(buf.getvalue(), "image/jpeg", max_edge=1568)
+    assert Image.open(io.BytesIO(out.data)).size == (1568, 1176)
+
+
 @pytest.mark.parametrize("orientation", [3, 6, 8])
 def test_large_rotated_jpeg_matches_rotate_then_shrink(orientation):
     """축소 뒤에 돌려도(draft 포함) 전체 해상도에서 돌린 뒤 줄인 결과와 크기·방향이 같다."""
