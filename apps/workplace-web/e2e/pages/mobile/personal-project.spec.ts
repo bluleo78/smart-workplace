@@ -135,6 +135,44 @@ test.describe('작업 상세(전체 화면)', () => {
     expect(putLabels.requests[0].payload).toEqual({ labelIds: [1, 2] });
   });
 
+  test('WP-394: 라벨 시트에서 없는 이름 → 만들기 → POST(GRAY) → 체크된 채 추가 → 완료하면 PUT 1회', async ({ authenticatedPage: page }) => {
+    const { putLabels } = await stubPersonal(page);
+    // 나중에 등록한 라우트가 먼저 잡는다 — 만든 라벨이 재조회에도 보이게 GET·POST 를 함께 다룬다.
+    const labels = [...LABELS];
+    const posts = trackRequests(page, 'POST', `/api/v1/projects/${KEY}/labels`);
+    await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/labels`, (r) => {
+      if (r.request().method() === 'POST') {
+        const { name } = r.request().postDataJSON() as { name: string };
+        const created = createLabel({ id: 99, name, colorToken: 'GRAY', viewerCanManage: true });
+        labels.push(created);
+        return r.fulfill({ json: created });
+      }
+      return r.fulfill({ json: labels });
+    });
+    await page.goto(`/projects/${KEY}?task=1`);
+    const sheet = page.getByTestId('issue-label-sheet');
+    await page.getByTestId('mobile-prop-label').tap();
+
+    const search = sheet.getByTestId('issue-label-sheet-search');
+    // 정확히 같은 이름이 있으면 만들기가 없다.
+    await search.fill('세금');
+    await expect(sheet.getByTestId('issue-label-sheet-create')).toHaveCount(0);
+    await search.fill('영수증');
+    await expect(sheet.getByText('결과가 없습니다')).toHaveCount(0);
+    await expect(sheet.getByTestId('issue-label-sheet-create')).toHaveText('「영수증」 라벨 만들기');
+    await sheet.getByTestId('issue-label-sheet-create').tap();
+
+    await posts.waitFor();
+    expect(posts.lastBody()).toEqual({ name: '영수증', colorToken: 'GRAY' });
+    await expect(search).toHaveValue('');
+    await expect(sheet.getByTestId('multi-option-99')).toHaveAttribute('aria-selected', 'true');
+
+    await sheet.getByTestId('issue-label-sheet-done').tap();
+    await expect(sheet).toBeHidden();
+    await expect.poll(() => putLabels.requests.length).toBe(1);
+    expect(putLabels.requests[0].payload).toEqual({ labelIds: [1, 99] });
+  });
+
   test('담당자 칩 — 그대로 완료하면 요청 없음, 바꾸고 완료하면 PUT 1회', async ({ authenticatedPage: page }) => {
     await stubPersonal(page);
     const putAssignees = await mockApi(page, 'PUT', `/api/v1/projects/${KEY}/issues/1/assignees`, [], { capture: true });

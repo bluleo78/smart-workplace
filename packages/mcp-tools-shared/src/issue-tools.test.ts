@@ -11,6 +11,7 @@ function mockClient(): IssueToolClient {
     getProjectMembers: vi.fn().mockResolvedValue([{ userId: 10, username: 'alice' }]),
     getMe: vi.fn().mockResolvedValue({ id: 10, username: 'alice' }),
     getProjectLabels: vi.fn().mockResolvedValue([{ id: 100, name: 'urgent' }]),
+    createProjectMeta: vi.fn(async (_k: string, _kind: string, body: { name: string }) => ({ id: 200, name: body.name })),
     getIssueDetail: vi.fn(),
     createIssue: vi.fn().mockResolvedValue({ ok: true }),
     updateIssueContent: vi.fn().mockResolvedValue({}),
@@ -215,13 +216,62 @@ describe('buildSharedIssueTools', () => {
     expect(c.updateIssueContent).not.toHaveBeenCalled();
   });
 
-  it('WP-356: create_issue 는 모르는 라벨·마일스톤·사이클이면 이슈를 만들지 않고 사용 가능 목록을 담아 throw', async () => {
+  it('WP-356: create_issue 는 모르는 마일스톤·사이클이면 이슈를 만들지 않고 사용 가능 목록을 담아 throw', async () => {
     const c = mockClient();
     const t = buildSharedIssueTools(c).find((x) => x.name === 'create_issue')!;
-    await expect(t.handler({ projectKey: 'WP', title: 'x', labels: ['nope'] })).rejects.toThrow('사용 가능: urgent');
     await expect(t.handler({ projectKey: 'WP', title: 'x', milestone: 'v9' })).rejects.toThrow('사용 가능: v1.0');
     await expect(t.handler({ projectKey: 'WP', title: 'x', cycles: ['S9'] })).rejects.toThrow('사용 가능: Sprint 3');
     expect(c.createIssue).not.toHaveBeenCalled();
+  });
+
+  it('WP-394: create_issue 는 없는 라벨을 만들어 붙이고 createdLabels 로 알린다', async () => {
+    const c = mockClient();
+    vi.mocked(c.createIssue).mockResolvedValue({ projectKey: 'WP', number: 5, title: '새 이슈', status: 'TODO', priority: 'MID', assignees: [], labels: [] });
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'create_issue')!;
+    const out = JSON.parse(resultText(await t.handler({ projectKey: 'WP', title: '새 이슈', labels: ['urgent', 'ai-fix'] })));
+    expect(c.createProjectMeta).toHaveBeenCalledWith('WP', 'label', { name: 'ai-fix', colorToken: 'GRAY' });
+    expect(c.createIssue).toHaveBeenCalledWith('WP', expect.objectContaining({ labelIds: [100, 200] }));
+    expect(out.createdLabels).toEqual(['ai-fix']);
+  });
+
+  it('WP-394: create_issue 는 다른 이름이 틀리면 라벨을 만들지 않는다', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'create_issue')!;
+    await expect(t.handler({ projectKey: 'WP', title: 'x', labels: ['ai-fix'], milestone: 'v9' })).rejects.toThrow('사용 가능: v1.0');
+    expect(c.createProjectMeta).not.toHaveBeenCalled();
+    expect(c.createIssue).not.toHaveBeenCalled();
+  });
+
+  it('WP-394: update_issue 는 없는 라벨을 만들어 집합을 교체하고, 담당자가 틀리면 아무것도 만들지 않는다', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    const out = JSON.parse(resultText(await t.handler({ issueKey: 'WP-12', labels: ['ai-fix'] })));
+    expect(c.replaceIssueLabels).toHaveBeenCalledWith('WP-12', [200]);
+    expect(out).toEqual({ ok: true, results: { labels: 'ok' }, createdLabels: ['ai-fix'] });
+
+    const c2 = mockClient();
+    const t2 = buildSharedIssueTools(c2).find((x) => x.name === 'update_issue')!;
+    await expect(t2.handler({ issueKey: 'WP-12', labels: ['ai-fix'], assignees: ['nobody'] })).rejects.toThrow();
+    expect(c2.createProjectMeta).not.toHaveBeenCalled();
+    expect(c2.replaceIssueLabels).not.toHaveBeenCalled();
+  });
+
+  it('WP-394: update_issue 의 labels: [] 는 비우기 — 라벨 조회·생성 없이 비우고 createdLabels 도 없다', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    const out = JSON.parse(resultText(await t.handler({ issueKey: 'WP-12', labels: [] })));
+    expect(c.replaceIssueLabels).toHaveBeenCalledWith('WP-12', []);
+    expect(c.getProjectLabels).not.toHaveBeenCalled();
+    expect(out).toEqual({ ok: true, results: { labels: 'ok' } });
+  });
+
+  it('WP-394: create_issue 가 라벨을 만든 뒤 이슈 생성에 실패하면 오류에 남은 라벨을 적는다', async () => {
+    const c = mockClient();
+    vi.mocked(c.createIssue).mockRejectedValue(new Error('부모 이슈를 찾을 수 없습니다'));
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'create_issue')!;
+    await expect(t.handler({ projectKey: 'WP', title: 'x', labels: ['ai-fix'] })).rejects.toThrow(
+      '부모 이슈를 찾을 수 없습니다 (새로 만든 라벨은 남아 있습니다: ai-fix)',
+    );
   });
 
   it('WP-356: update_issue 는 커스텀 필드를 이름으로 받아 정의 id·값으로 바꿔 한 번에 보내고 결과에 fields 를 싣는다', async () => {

@@ -54,9 +54,9 @@ class LabelRepositoryTest extends IntegrationTestBase {
         projectService.create(owner, new CreateProjectRequest(uniqueKey("PA"), "Proj A", "x"));
     ProjectResponse p2 =
         projectService.create(owner, new CreateProjectRequest(uniqueKey("PB"), "Proj B", "x"));
-    labelRepository.insert(p1.id(), "버그", "RED");
-    labelRepository.insert(p1.id(), "개선", "GREEN");
-    labelRepository.insert(p2.id(), "버그", "RED");
+    labelRepository.insert(p1.id(), "버그", "RED", null);
+    labelRepository.insert(p1.id(), "개선", "GREEN", null);
+    labelRepository.insert(p2.id(), "버그", "RED", null);
 
     var rows = labelRepository.findByProject(p1.id());
     assertThat(rows).hasSize(2);
@@ -67,8 +67,8 @@ class LabelRepositoryTest extends IntegrationTestBase {
     Long owner = createUser("lb");
     ProjectResponse p1 =
         projectService.create(owner, new CreateProjectRequest(uniqueKey("PC"), "Proj C", "x"));
-    var a = labelRepository.insert(p1.id(), "라벨A", "RED");
-    var b = labelRepository.insert(p1.id(), "라벨B", "BLUE");
+    var a = labelRepository.insert(p1.id(), "라벨A", "RED", null);
+    var b = labelRepository.insert(p1.id(), "라벨B", "BLUE", null);
 
     var rows = labelRepository.findByIds(List.of(a.id(), b.id()));
     assertThat(rows).hasSize(2);

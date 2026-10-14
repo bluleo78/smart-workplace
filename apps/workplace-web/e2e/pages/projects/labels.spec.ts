@@ -127,6 +127,58 @@ test.describe('라벨', () => {
   );
 
   test(
+    'WP-394: 일반 멤버도 설정에서 라벨을 추가하고, 수정·삭제 버튼은 손댈 수 있는 라벨에만 보인다',
+    async ({ authenticatedPage: page }) => {
+      // 현재 사용자(id=1)는 MEMBER — 남이 만든 라벨은 viewerCanManage=false, 내가 만든 라벨은 true.
+      const labels: LabelResponse[] = [
+        createLabel({ id: 1, name: '남의라벨', colorToken: 'RED', viewerCanManage: false }),
+        createLabel({ id: 2, name: '내라벨', colorToken: 'BLUE', viewerCanManage: true }),
+      ];
+      await page.route(`**/api/v1/projects/${PROJECT_KEY}`, (route) =>
+        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createProject()) }),
+      );
+      await page.route(`**/api/v1/projects/${PROJECT_KEY}/members`, (route) =>
+        route.request().method() === 'GET'
+          ? route.fulfill({
+              status: 200,
+              contentType: 'application/json',
+              body: JSON.stringify([
+                createMember({ userId: 1, username: 'testuser', name: '테스트 사용자', role: 'MEMBER' }),
+                createMember({ userId: 2, username: 'owner', name: '오너', role: 'OWNER' }),
+              ]),
+            })
+          : route.fallback(),
+      );
+      const posts = trackRequests(page, 'POST', `/api/v1/projects/${PROJECT_KEY}/labels`);
+      await page.route(`**/api/v1/projects/${PROJECT_KEY}/labels`, (route) => {
+        if (route.request().method() === 'POST') {
+          const body = route.request().postDataJSON() as { name: string; colorToken: ColorToken };
+          const created = createLabel({ id: 3, ...body, viewerCanManage: true });
+          labels.push(created);
+          return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(created) });
+        }
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(labels) });
+      });
+
+      await page.goto(`/projects/${PROJECT_KEY}/settings`);
+      const form = page.getByTestId('label-create-form');
+      await expect(form).toBeVisible();
+      // 남이 만든 라벨엔 버튼이 없고, 내가 만든 라벨엔 있다.
+      await expect(page.getByTestId('label-row-1')).toBeVisible();
+      await expect(page.getByRole('button', { name: '남의라벨 이름 변경' })).toHaveCount(0);
+      await expect(page.getByRole('button', { name: '남의라벨 삭제' })).toHaveCount(0);
+      await expect(page.getByRole('button', { name: '내라벨 이름 변경' })).toBeVisible();
+      await expect(page.getByRole('button', { name: '내라벨 삭제' })).toBeVisible();
+
+      await form.getByLabel('이름').fill('새라벨');
+      await form.getByRole('button', { name: '추가' }).click();
+      await posts.waitFor();
+      expect(posts.lastBody()).toEqual({ name: '새라벨', colorToken: 'GRAY' });
+      await expect(page.getByRole('button', { name: '새라벨 삭제' })).toBeVisible();
+    },
+  );
+
+  test(
     '라벨 2개 이상 선택 시 AND 결합(모두 포함) 표기 노출 — 다른 facet(OR)과 구분 (#626)',
     async ({ authenticatedPage: page }) => {
       const labelA = createLabel({ name: '라벨A', colorToken: 'RED' });

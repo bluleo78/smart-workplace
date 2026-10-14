@@ -11,6 +11,7 @@ import com.workplace.jooq.tables.Issue.IssuePath;
 import com.workplace.jooq.tables.IssueLabel.IssueLabelPath;
 import com.workplace.jooq.tables.Project.ProjectPath;
 import com.workplace.jooq.tables.Tenant.TenantPath;
+import com.workplace.jooq.tables.User.UserPath;
 import com.workplace.jooq.tables.records.LabelRecord;
 
 import java.time.OffsetDateTime;
@@ -97,6 +98,11 @@ public class Label extends TableImpl<LabelRecord> {
      * The column <code>public.label.tenant_id</code>.
      */
     public final TableField<LabelRecord, Long> TENANT_ID = createField(DSL.name("tenant_id"), SQLDataType.BIGINT.nullable(false).defaultValue(DSL.field(DSL.raw("(NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::bigint"), SQLDataType.BIGINT)), this, "");
+
+    /**
+     * The column <code>public.label.created_by</code>.
+     */
+    public final TableField<LabelRecord, Long> CREATED_BY = createField(DSL.name("created_by"), SQLDataType.BIGINT, this, "");
 
     private Label(Name alias, Table<LabelRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
@@ -187,7 +193,7 @@ public class Label extends TableImpl<LabelRecord> {
 
     @Override
     public List<ForeignKey<LabelRecord, ?>> getReferences() {
-        return Arrays.asList(Keys.LABEL__FK_LABEL_TENANT, Keys.LABEL__LABEL_PROJECT_ID_FKEY);
+        return Arrays.asList(Keys.LABEL__FK_LABEL_TENANT, Keys.LABEL__LABEL_CREATED_BY_FKEY, Keys.LABEL__LABEL_PROJECT_ID_FKEY);
     }
 
     private transient TenantPath _tenant;
@@ -200,6 +206,18 @@ public class Label extends TableImpl<LabelRecord> {
             _tenant = new TenantPath(this, Keys.LABEL__FK_LABEL_TENANT, null);
 
         return _tenant;
+    }
+
+    private transient UserPath _user;
+
+    /**
+     * Get the implicit join path to the <code>public.user</code> table.
+     */
+    public UserPath user() {
+        if (_user == null)
+            _user = new UserPath(this, Keys.LABEL__LABEL_CREATED_BY_FKEY, null);
+
+        return _user;
     }
 
     private transient ProjectPath _project;

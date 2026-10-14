@@ -93,10 +93,70 @@ export async function resolveAssigneeIds(
   return [...new Set(ids)];
 }
 
-/** 라벨 이름 배열 → labelId 배열. */
-export async function resolveLabelIds(client: Pick<ProjectMetaClient, 'getProjectLabels'>, projectKey: string, labelNames: string[]): Promise<number[]> {
-  const labels = await client.getProjectLabels(projectKey);
-  return labelNames.map((n) => idByName(labels, n, '라벨'));
+/** 라벨 생성에 필요한 최소 시그니처 — POST /projects/{key}/labels(프로젝트 멤버, WP-394). 이름 중복은 409. */
+export interface LabelCreatorClient {
+  createProjectMeta(projectKey: string, kind: 'label', body: { name: string; colorToken: string }): Promise<unknown>;
+}
+
+/** 새 라벨 기본 색 — 웹 라벨 관리·create_project_meta 의 기본값과 같다. */
+export const DEFAULT_LABEL_COLOR = 'GRAY';
+
+/** 서버 라벨 이름 상한(label.name VARCHAR(40), CreateLabelRequest @Size) — 쓰기 전에 걸러 고아 라벨·부분 실패를 막는다. */
+const LABEL_NAME_MAX = 40;
+
+type LabelRow = { id: number; name: string };
+
+/**
+ * 라벨 이름 배열 → labelId 배열. 프로젝트에 없는 이름은 기본 색으로 만들어 붙인다(WP-394 — GitLab·Jira 처럼 이름만으로 바로 쓰게).
+ * 이름은 앞뒤 공백을 빼고 정확 일치(대소문자 구분, 서버 UNIQUE(project_id, name) 와 같은 기준)로 찾으며, 같은 호출 안의 중복은 하나로 친다.
+ * 만들기는 쓰기라 호출부는 다른 이름(유형·담당자 등) 해석이 모두 성공한 뒤에 부른다 — 목록은 그 해석과 함께 미리 읽어 existing 으로
+ * 넘기면 왕복이 늘지 않는다. created 는 새로 만든 이름 — 오타로 생긴 라벨을 호출자가 알아챌 수 있게 돌려준다(createdLabelsField).
+ */
+export async function ensureLabelIds(
+  client: Pick<ProjectMetaClient, 'getProjectLabels'> & LabelCreatorClient,
+  projectKey: string,
+  labelNames: string[],
+  existing?: LabelRow[],
+): Promise<{ ids: number[]; created: string[] }> {
+  const names = [...new Set(labelNames.map((n) => n.trim()))];
+  if (names.length === 0) return { ids: [], created: [] }; // 비우기 — 조회·생성할 것이 없다
+  // 쓰기 전에 모양부터 확인 — 하나라도 잘못되면 아무 라벨도 만들지 않는다.
+  if (names.some((n) => n.length === 0)) throw new Error('라벨 이름이 비어 있습니다.');
+  const tooLong = names.find((n) => n.length > LABEL_NAME_MAX);
+  if (tooLong) throw new Error(`라벨 이름은 ${LABEL_NAME_MAX}자 이하여야 합니다: '${tooLong}'`);
+
+  const labels = existing ?? (await client.getProjectLabels(projectKey));
+  const idOf = new Map(labels.map((l) => [l.name, l.id]));
+  const missing = names.filter((n) => !idOf.has(n));
+  // 없는 라벨은 서로 독립이라 한꺼번에 만든다.
+  const results = await Promise.allSettled(
+    missing.map((name) => client.createProjectMeta(projectKey, 'label', { name, colorToken: DEFAULT_LABEL_COLOR })),
+  );
+  const created: string[] = [];
+  const failed: { name: string; reason: unknown }[] = [];
+  results.forEach((r, i) => {
+    if (r.status === 'fulfilled') {
+      idOf.set(missing[i], (r.value as LabelRow).id);
+      created.push(missing[i]);
+    } else {
+      failed.push({ name: missing[i], reason: r.reason });
+    }
+  });
+  if (failed.length) {
+    // 동시에 누가 같은 이름을 만들었으면(409) 한 번 다시 읽어 그 라벨을 쓴다. 그래도 없으면(권한 없음 등) 원래 오류를 그대로 알린다.
+    const fresh = await client.getProjectLabels(projectKey);
+    for (const { name, reason } of failed) {
+      const raced = fresh.find((l) => l.name === name);
+      if (!raced) throw reason;
+      idOf.set(name, raced.id);
+    }
+  }
+  return { ids: names.map((n) => idOf.get(n)!), created };
+}
+
+/** 도구 결과에 붙일 createdLabels — 새로 만든 라벨이 있을 때만 키를 싣는다. */
+export function createdLabelsField(part: { created: string[] } | undefined): { createdLabels?: string[] } {
+  return part?.created.length ? { createdLabels: part.created } : {};
 }
 
 /** 마일스톤 이름 → milestoneId(#854). */

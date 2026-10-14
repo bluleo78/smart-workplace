@@ -1,5 +1,6 @@
 // 프로젝트 설정 페이지의 라벨 관리 섹션.
-// OWNER 만 생성/수정/삭제 가능 (백엔드 가드가 최종 검증, isOwner 로 UI 숨김).
+// 생성은 프로젝트 멤버, 수정·삭제는 OWNER 또는 그 라벨을 만든 사람(WP-394) — 백엔드 가드가 최종 검증하고,
+// 화면은 canCreate·라벨별 viewerCanManage 로 버튼을 숨긴다.
 
 import { useState } from 'react';
 
@@ -16,13 +17,15 @@ import {
   useUpdateLabel,
 } from '../../../hooks/queries/useLabels';
 import { LABEL_COLORS } from '../../../lib/labelColors';
-import { COLOR_TOKENS, type ColorToken } from '../../../types/label';
+import { COLOR_TOKENS, type ColorToken, DEFAULT_LABEL_COLOR } from '../../../types/label';
 
 export function LabelManagement({
   projectKey,
+  canCreate,
   isOwner,
 }: {
   projectKey: string;
+  canCreate: boolean;
   isOwner: boolean;
 }) {
   const labels = useLabels(projectKey);
@@ -30,7 +33,7 @@ export function LabelManagement({
   const update = useUpdateLabel(projectKey);
   const del = useDeleteLabel(projectKey);
   const [name, setName] = useState('');
-  const [color, setColor] = useState<ColorToken>('GRAY');
+  const [color, setColor] = useState<ColorToken>(DEFAULT_LABEL_COLOR);
 
   // 이름 변경 Dialog 상태 — window.prompt() 대체 (#160)
   const [renameTarget, setRenameTarget] = useState<{
@@ -46,7 +49,7 @@ export function LabelManagement({
     try {
       await create.mutateAsync({ name: trimmed, colorToken: color });
       setName('');
-      setColor('GRAY');
+      setColor(DEFAULT_LABEL_COLOR);
     } catch {
       // 에러 토스트는 mutation 의 onError 가 담당.
     }
@@ -56,7 +59,7 @@ export function LabelManagement({
     <section className="space-y-3" aria-label="라벨 관리">
       <h2 className="text-lg font-semibold">라벨</h2>
 
-      {isOwner && (
+      {canCreate && (
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -113,7 +116,8 @@ export function LabelManagement({
             >
               {/* LabelChip 의 색상 도트가 색상을 시각적으로 전달하므로 colorToken 원시값 텍스트 불필요 (#307) */}
               <LabelChip label={{ id: l.id, name: l.name, colorToken: l.colorToken }} />
-              {isOwner && (
+              {/* 구 서버 응답엔 viewerCanManage 가 없다 — 그땐 예전처럼 OWNER 만 */}
+              {(l.viewerCanManage ?? isOwner) && (
                 <div className="ml-auto flex gap-2">
                   <Button
                     variant="ghost"

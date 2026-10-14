@@ -39,9 +39,11 @@ export default function ProjectSettingsPage() {
   const remove = useDeleteProject();
   // 멤버 목록 기반으로 현재 사용자의 프로젝트 권한을 도출 — 라벨 편집 UI 게이팅에 사용.
   const members = useProjectMembers(key);
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
   const isOwner =
     members.data?.some((m) => m.userId === user?.id && m.role === 'OWNER') ?? false;
+  // 라벨은 멤버면 만들 수 있다(WP-394). ADMIN 은 멤버가 아니어도 서버가 통과시킨다(개인 프로젝트 제외).
+  const isMember = members.data?.some((m) => m.userId === user?.id) ?? false;
   // 개인 프로젝트는 멤버 개념이 없어 멤버 관리 섹션을 숨긴다.
   const isPersonal = project.data?.type === 'PERSONAL';
 
@@ -125,7 +127,11 @@ export default function ProjectSettingsPage() {
         ? <MemberManagement projectKey={key} agentOnly />
         : <MemberManagement projectKey={key} />}
 
-      <LabelManagement projectKey={key} isOwner={isOwner} />
+      <LabelManagement
+        projectKey={key}
+        canCreate={isMember || (isAdmin && !isPersonal)}
+        isOwner={isOwner}
+      />
 
       <IssueTypeManagement projectKey={key} isOwner={isOwner} />
 

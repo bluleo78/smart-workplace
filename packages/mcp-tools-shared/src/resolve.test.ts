@@ -4,12 +4,13 @@ import {
   fieldDefByName,
   resolveAssigneeIds,
   resolveCycleIds,
-  resolveLabelIds,
   resolveMilestoneId,
   resolveTypeId,
   rowByName,
   toFieldValue,
+  ensureLabelIds,
   type CurrentUserClient,
+  type LabelCreatorClient,
   type ProjectMetaClient,
 } from './resolve.js';
 
@@ -87,14 +88,58 @@ describe('resolveAssigneeIds', () => {
   });
 });
 
-describe('resolveLabelIds', () => {
-  it('라벨 이름 배열을 id 배열로 변환한다', async () => {
-    await expect(resolveLabelIds(client(), 'WP', ['backend'])).resolves.toEqual([101]);
+// WP-394: 없는 라벨은 만들어 붙인다.
+describe('ensureLabelIds', () => {
+  /** 라벨 생성까지 되는 mock — 만든 라벨은 id 200 부터. */
+  function creator(): ProjectMetaClient & CurrentUserClient & LabelCreatorClient {
+    let next = 200;
+    return { ...client(), createProjectMeta: vi.fn(async (_k: string, _kind: string, body: { name: string }) => ({ id: next++, name: body.name })) };
+  }
+
+  it('있는 라벨은 id 로 바꾸고 아무것도 만들지 않는다', async () => {
+    const c = creator();
+    await expect(ensureLabelIds(c, 'WP', ['backend', 'urgent'])).resolves.toEqual({ ids: [101, 100], created: [] });
+    expect(c.createProjectMeta).not.toHaveBeenCalled();
   });
-  it('없는 라벨이면 유효 목록을 담아 throw', async () => {
-    await expect(resolveLabelIds(client(), 'WP', ['nope'])).rejects.toThrow(
-      "라벨 'nope' 을(를) 찾을 수 없습니다. 사용 가능: urgent, backend",
-    );
+
+  it('없는 라벨은 회색으로 만들고 created 에 이름을 담는다', async () => {
+    const c = creator();
+    await expect(ensureLabelIds(c, 'WP', ['urgent', 'ai-fix'])).resolves.toEqual({ ids: [100, 200], created: ['ai-fix'] });
+    expect(c.createProjectMeta).toHaveBeenCalledWith('WP', 'label', { name: 'ai-fix', colorToken: 'GRAY' });
+  });
+
+  it('공백을 빼고, 같은 호출 안의 중복은 한 번만 만든다', async () => {
+    const c = creator();
+    await expect(ensureLabelIds(c, 'WP', [' ai-fix ', 'ai-fix'])).resolves.toEqual({ ids: [200], created: ['ai-fix'] });
+    expect(c.createProjectMeta).toHaveBeenCalledTimes(1);
+  });
+
+  it('대소문자가 다르면 다른 라벨이다(서버 유일 제약과 같은 기준)', async () => {
+    const c = creator();
+    await expect(ensureLabelIds(c, 'WP', ['Urgent'])).resolves.toEqual({ ids: [200], created: ['Urgent'] });
+  });
+
+  it('빈 이름·40자 초과면 아무것도 만들지 않고 throw', async () => {
+    const c = creator();
+    await expect(ensureLabelIds(c, 'WP', ['ai-fix', '  '])).rejects.toThrow('라벨 이름이 비어 있습니다.');
+    await expect(ensureLabelIds(c, 'WP', ['ai-fix', 'x'.repeat(41)])).rejects.toThrow('40자 이하');
+    expect(c.createProjectMeta).not.toHaveBeenCalled();
+  });
+
+  it('만드는 사이 누가 같은 이름을 만들었으면(409) 다시 읽어 그 라벨을 쓴다', async () => {
+    const c = creator();
+    vi.mocked(c.createProjectMeta).mockRejectedValueOnce(Object.assign(new Error('conflict'), { response: { status: 409 } }));
+    vi.mocked(c.getProjectLabels)
+      .mockResolvedValueOnce([{ id: 100, name: 'urgent' }])
+      .mockResolvedValueOnce([{ id: 100, name: 'urgent' }, { id: 150, name: 'ai-fix' }]);
+    await expect(ensureLabelIds(c, 'WP', ['ai-fix'])).resolves.toEqual({ ids: [150], created: [] });
+  });
+
+  it('만들기가 실패하고 다시 읽어도 없으면(권한 없음 등) 원래 오류를 그대로 던진다', async () => {
+    const c = creator();
+    const denied = Object.assign(new Error('forbidden'), { response: { status: 403 } });
+    vi.mocked(c.createProjectMeta).mockRejectedValueOnce(denied);
+    await expect(ensureLabelIds(c, 'WP', ['ai-fix'])).rejects.toBe(denied);
   });
 });
 

@@ -29,6 +29,7 @@ public class LabelRepository {
         r.get(LABEL.PROJECT_ID),
         r.get(LABEL.NAME),
         r.get(LABEL.COLOR_TOKEN),
+        r.get(LABEL.CREATED_BY),
         created != null ? created.toInstant() : null,
         updated != null ? updated.toInstant() : null);
   }
@@ -67,13 +68,14 @@ public class LabelRepository {
     return dsl.selectFrom(LABEL).where(LABEL.ID.in(ids)).fetch(this::mapToRow);
   }
 
-  /** 신규 라벨 삽입. UNIQUE(project_id, name) 위반은 DuplicateKeyException 으로 전파. */
-  public LabelRow insert(Long projectId, String name, String colorToken) {
+  /** 신규 라벨 삽입(createdBy = 만든 사람). UNIQUE(project_id, name) 위반은 DuplicateKeyException 으로 전파. */
+  public LabelRow insert(Long projectId, String name, String colorToken, Long createdBy) {
     try {
       return dsl.insertInto(LABEL)
           .set(LABEL.PROJECT_ID, projectId)
           .set(LABEL.NAME, name)
           .set(LABEL.COLOR_TOKEN, colorToken)
+          .set(LABEL.CREATED_BY, createdBy)
           .returning()
           .fetchOptional()
           .map(this::mapToRow)

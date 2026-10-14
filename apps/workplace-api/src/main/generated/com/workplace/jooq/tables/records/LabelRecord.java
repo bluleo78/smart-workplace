@@ -118,6 +118,20 @@ public class LabelRecord extends UpdatableRecordImpl<LabelRecord> {
         return (Long) get(6);
     }
 
+    /**
+     * Setter for <code>public.label.created_by</code>.
+     */
+    public void setCreatedBy(Long value) {
+        set(7, value);
+    }
+
+    /**
+     * Getter for <code>public.label.created_by</code>.
+     */
+    public Long getCreatedBy() {
+        return (Long) get(7);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -141,7 +155,7 @@ public class LabelRecord extends UpdatableRecordImpl<LabelRecord> {
     /**
      * Create a detached, initialised LabelRecord
      */
-    public LabelRecord(Long id, Long projectId, String name, String colorToken, OffsetDateTime createdAt, OffsetDateTime updatedAt, Long tenantId) {
+    public LabelRecord(Long id, Long projectId, String name, String colorToken, OffsetDateTime createdAt, OffsetDateTime updatedAt, Long tenantId, Long createdBy) {
         super(Label.LABEL);
 
         setId(id);
@@ -151,6 +165,7 @@ public class LabelRecord extends UpdatableRecordImpl<LabelRecord> {
         setCreatedAt(createdAt);
         setUpdatedAt(updatedAt);
         setTenantId(tenantId);
+        setCreatedBy(createdBy);
         resetChangedOnNotNull();
     }
 }

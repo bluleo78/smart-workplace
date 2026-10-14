@@ -7,10 +7,11 @@ import { toAgentWorkView } from './agent-work-view.js';
 import { toAuthorView, toSeoulIso } from './issue-view.js';
 import { toIssueListItem } from './project-tools.js';
 import {
+  createdLabelsField,
+  ensureLabelIds,
   fieldDefByName,
   resolveAssigneeIds,
   resolveCycleIds,
-  resolveLabelIds,
   resolveMilestoneId,
   resolveTypeId,
   toFieldValue,
@@ -123,26 +124,36 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       kind: 'write',
       hints: { destructive: false, idempotent: false },
       description:
-        'Creates an issue (이슈) in projectKey and returns it. type, labels, milestone, cycles and assignees (usernames, "me" = caller) are names ' +
-        'from get_project; unknown names fail before creating, listing allowed values. New assignees are notified; an assigned AI agent ' +
-        'starts working.',
+        'Creates an issue (이슈) in projectKey and returns it. type, milestone, cycles and assignees (usernames, "me" = caller) are names ' +
+        'from get_project; unknown ones fail before creating, listing allowed values. labels are names too, but unknown label names are ' +
+        'created (gray) and listed in createdLabels. New assignees are notified; an assigned AI agent starts working.',
       inputSchema: createIssueInput,
       async handler(args) {
         const { projectKey, type, assignees, parent, labels, milestone, cycles, ...rest } = createIssueInput.parse(args);
         // 리졸브(이름→ID)를 create 이전에 수행 — 실패 시 이슈를 만들지 않고 throw. 서로 독립 조회라 병렬로 보낸다.
         // WP-356: 라벨·마일스톤·사이클도 서버가 생성과 같은 트랜잭션에서 붙인다 — 생성 후 update_issue 를 따로 부르지 않아도 된다.
         const parentNumber = parent != null ? parentNumberOf(parent, projectKey) : undefined;
-        const [typeId, assigneeIds, labelIds, milestoneId, cycleIds] = await Promise.all([
+        const [typeId, assigneeIds, milestoneId, cycleIds, existingLabels] = await Promise.all([
           type ? resolveTypeId(client, projectKey, type) : undefined,
           assignees ? resolveAssigneeIds(client, projectKey, assignees) : undefined,
-          labels?.length ? resolveLabelIds(client, projectKey, labels) : undefined,
           milestone ? resolveMilestoneId(client, projectKey, milestone) : undefined,
           cycles?.length ? resolveCycleIds(client, projectKey, cycles) : undefined,
+          labels?.length ? client.getProjectLabels(projectKey) : undefined,
         ]);
+        // WP-394: 없는 라벨은 만든다 — 만들기는 쓰기라 다른 이름 해석이 모두 성공한 뒤에 한다(잘못된 담당자 하나로 라벨만 남지 않게).
+        const labelPart = labels ? await ensureLabelIds(client, projectKey, labels, existingLabels) : undefined;
         // undefined 는 JSON 직렬화에서 빠진다 — 준 값만 서버로 간다.
-        const body = { ...rest, typeId, assigneeIds, parentNumber, labelIds, milestoneId, cycleIds };
+        const body = { ...rest, typeId, assigneeIds, parentNumber, labelIds: labelPart?.ids, milestoneId, cycleIds };
         // 서버 응답(IssueResponse)은 reporterId·assignees[].id 같은 숫자 사용자 ID 를 담는다 — 목록 행과 같은 뷰로 바꿔 내보낸다(#833, WP-353).
-        return JSON.stringify(dropEmpty(toIssueListItem((await client.createIssue(projectKey, body)) as IssueRow)));
+        let created: IssueRow;
+        try {
+          created = (await client.createIssue(projectKey, body)) as IssueRow;
+        } catch (e) {
+          // 이슈는 못 만들었어도 라벨은 이미 생겼다 — 오류에 함께 적어 호출자가 남은 라벨을 알게 한다.
+          if (!labelPart?.created.length) throw e;
+          throw new Error(`${errText(e)} (새로 만든 라벨은 남아 있습니다: ${labelPart.created.join(', ')})`);
+        }
+        return JSON.stringify(dropEmpty({ ...toIssueListItem(created), ...createdLabelsField(labelPart) }));
       },
     },
     {
@@ -152,8 +163,9 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       hints: { destructive: true, idempotent: true },
       description:
         'Updates an issue (이슈); only given fields change. assignees (usernames, "me" = caller), labels and cycles replace the set ([] clears). ' +
-        'Names (type, labels, milestone, cycles, fields) come from get_project; unknown ones fail before any write, then each part saves on ' +
-        'its own: {ok, results}. Status/priority changes notify assignees and watchers, new assignees too.',
+        'Names (type, milestone, cycles, fields) come from get_project; unknown ones fail before any write. Unknown label names are created ' +
+        '(gray) and listed in createdLabels. Then each part saves on its own: {ok, results, createdLabels?}. Status/priority changes notify ' +
+        'assignees and watchers, new assignees too.',
       inputSchema: updateIssueInput,
       async handler(args) {
         const { issueKey, type, parent, assignees, labels, milestone, cycles, fields, driveFileId, ...rest } = updateIssueInput.parse(args);
@@ -164,10 +176,10 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
         //    WP-356: 커스텀 필드는 이름 → 정의를 찾고 값 모양·선택지까지 확인한다(서버 검증과 같다, null 은 비우기).
         const parentNumber = parent === undefined || parent === null ? parent : parentNumberOf(parent, projectKey);
         const fieldEntries = fields ? Object.entries(fields) : [];
-        const [typeId, assigneeIds, labelIds, milestoneId, cycleIds, fieldValues] = await Promise.all([
+        const [typeId, assigneeIds, existingLabels, milestoneId, cycleIds, fieldValues] = await Promise.all([
           type ? resolveTypeId(client, projectKey, type) : undefined,
           assignees ? resolveAssigneeIds(client, projectKey, assignees) : undefined,
-          labels ? resolveLabelIds(client, projectKey, labels) : undefined,
+          labels?.length ? client.getProjectLabels(projectKey) : undefined,
           milestone ? resolveMilestoneId(client, projectKey, milestone) : undefined,
           cycles ? resolveCycleIds(client, projectKey, cycles) : undefined,
           fieldEntries.length
@@ -179,6 +191,9 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
               )
             : undefined,
         ]);
+
+        // WP-394: 없는 라벨은 만든다 — 쓰기라 위의 이름 해석이 모두 성공한 뒤에 한다. [] 는 비우기라 조회·생성 없이 바로 비운다.
+        const labelPart = labels ? await ensureLabelIds(client, projectKey, labels, existingLabels) : undefined;
 
         // 2) 필드별 팬아웃 — 각 단계 독립 저장, 성공/실패 구조화.
         const results: Record<string, string> = {};
@@ -203,15 +218,15 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
         if (assigneeIds !== undefined) {
           await run('assignees', () => client.replaceIssueAssignees(issueKey, assigneeIds));
         }
-        if (labelIds !== undefined) {
-          await run('labels', () => client.replaceIssueLabels(issueKey, labelIds));
+        if (labelPart !== undefined) {
+          await run('labels', () => client.replaceIssueLabels(issueKey, labelPart.ids));
         }
         if (cycleIds !== undefined) await run('cycles', () => client.replaceIssueCycles(issueKey, cycleIds));
         if (fieldValues !== undefined) await run('fields', () => client.updateIssueFields(issueKey, fieldValues));
         if (driveFileId !== undefined) await run('driveLink', () => client.addIssueDriveLink(issueKey, driveFileId));
 
         const ok = Object.values(results).every((v) => v === 'ok');
-        return JSON.stringify({ ok, results });
+        return JSON.stringify({ ok, results, ...createdLabelsField(labelPart) });
       },
     },
     {

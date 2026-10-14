@@ -9,7 +9,7 @@ export async function listLabels(projectKey: string): Promise<LabelResponse[]> {
   return data;
 }
 
-// OWNER 전용 — 신규 라벨 생성.
+// 프로젝트 멤버 — 신규 라벨 생성(WP-394).
 export async function createLabel(
   projectKey: string,
   body: { name: string; colorToken: string },
@@ -18,7 +18,7 @@ export async function createLabel(
   return data;
 }
 
-// OWNER 전용 — 이름/색상 변경.
+// OWNER 또는 만든 사람 — 이름/색상 변경.
 export async function updateLabel(
   projectKey: string,
   id: number,
@@ -28,7 +28,7 @@ export async function updateLabel(
   return data;
 }
 
-// OWNER 전용 — 라벨 삭제 (이슈 부착도 cascade).
+// OWNER 또는 만든 사람 — 라벨 삭제 (이슈 부착도 cascade).
 export async function deleteLabel(projectKey: string, id: number): Promise<void> {
   await client.delete<void>(`/projects/${projectKey}/labels/${id}`);
 }
