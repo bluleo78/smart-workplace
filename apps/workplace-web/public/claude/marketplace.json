@@ -1,0 +1,17 @@
+{
+  "name": "genia-works",
+  "description": "Gen:iA Works — Claude Code 연결",
+  "owner": { "name": "Gen:iA Works" },
+  "plugins": [
+    {
+      "name": "genia-works",
+      "description": "genia-works MCP 연결과 세션별 접속 신원 선택",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/bluleo78/smart-workplace.git",
+        "path": "plugins/genia-works",
+        "ref": "genia-works--v0.1.0"
+      }
+    }
+  ]
+}
