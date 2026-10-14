@@ -84,7 +84,9 @@ class AiAgentChatClientTest {
         null,
         List.of(),
         List.of(),
-        false);
+        false,
+        null,
+        null);
   }
 
   @Test

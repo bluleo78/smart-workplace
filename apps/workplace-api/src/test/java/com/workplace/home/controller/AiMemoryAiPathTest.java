@@ -163,4 +163,44 @@ class AiMemoryAiPathTest extends IntegrationTestBase {
         .andExpect(jsonPath("$.content").value("짧은 목록으로 보여 준다"))
         .andExpect(jsonPath("$.source").value("AI"));
   }
+
+  /** WP-380: 대행 경로도 같은 기한 검증을 쓴다 — 부호 붙은 큰 연도·빈 문자열은 400(빈 문자열이 기한을 지우지 않는다). */
+  @Test
+  void 대행_경로도_연도_네_자리_실제_날짜가_아닌_기한은_400() throws Exception {
+    long uid = user();
+    Map<String, Object> body = new HashMap<>();
+    body.put("kind", "PREFERENCE");
+    body.put("content", "이번 주는 결제 모듈");
+    body.put("source", "AI");
+    body.put("expiresOn", "+12026-01-01");
+    internal(uid, post(BASE).content(om.writeValueAsString(body)))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.errors.code").value("AI_MEMORY_INVALID"));
+    long id = idOf(internal(uid, post(BASE).content(aiBody("표로 보여 준다", null))));
+    internal(uid, patch(BASE + "/" + id).content("{\"expiresOn\":\"\"}"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.errors.code").value("AI_MEMORY_INVALID"));
+  }
+
+  /**
+   * WP-379: AI 대행 생성은 scope 를 받고, 고치기(scope:null = 공통)는 이전 범위(previousScope)를 돌려준다(결과 줄·되돌리기 근거).
+   */
+  @Test
+  void 대행_경로도_범위를_받고_고치기_응답에_이전_범위를_싣는다() throws Exception {
+    long uid = user();
+    Map<String, Object> body = new HashMap<>();
+    body.put("kind", "PREFERENCE");
+    body.put("content", "메일은 세 줄로 요약한다");
+    body.put("source", "AI");
+    body.put("scope", "MAIL");
+    long id =
+        idOf(
+            internal(uid, post(BASE).content(om.writeValueAsString(body)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.scope").value("MAIL")));
+    internal(uid, patch(BASE + "/" + id).content("{\"content\":\"메일은 세 줄로 요약한다\",\"scope\":null}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.scope").value(org.hamcrest.Matchers.nullValue()))
+        .andExpect(jsonPath("$.previousScope").value("MAIL"));
+  }
 }

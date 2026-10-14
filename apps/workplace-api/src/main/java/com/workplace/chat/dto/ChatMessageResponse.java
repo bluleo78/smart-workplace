@@ -18,7 +18,11 @@ public record ChatMessageResponse(
     List<DriveLinkResponse> driveLinks,
     Instant createdAt,
     Instant editedAt,
-    boolean deleted) {
+    boolean deleted,
+    // MCP 가 숫자 id 없이 작성자를 가리킨다(#833)
+    String authorUsername,
+    // AI 가 사람의 답을 기다리는 질문(WP-373)
+    boolean question) {
 
   /** 첨부 목록을 교체한 복사본. (하이드레이션용) */
   public ChatMessageResponse withAttachments(List<ChatMessageAttachmentResponse> a) {
@@ -34,7 +38,9 @@ public record ChatMessageResponse(
         driveLinks,
         createdAt,
         editedAt,
-        deleted);
+        deleted,
+        authorUsername,
+        question);
   }
 
   /** 드라이브 링크 목록을 교체한 복사본. (하이드레이션용) */
@@ -51,6 +57,8 @@ public record ChatMessageResponse(
         d,
         createdAt,
         editedAt,
-        deleted);
+        deleted,
+        authorUsername,
+        question);
   }
 }

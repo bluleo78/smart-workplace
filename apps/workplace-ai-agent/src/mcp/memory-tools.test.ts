@@ -118,6 +118,69 @@ describe('buildMemoryTools (WP-55)', () => {
   });
 });
 
+describe('메모리 도구 범위 (WP-379)', () => {
+  it('remember_memory: scope 를 그대로 POST 하고 결과에 scope 를 싣는다', async () => {
+    const { c, tool } = setup(null);
+    c.createAiMemory.mockResolvedValue(item({ scope: 'ISSUE' }));
+    const out = await tool('remember_memory').handler({ kind: 'PREFERENCE', content: '짧은 목록으로 보여 준다', scope: 'ISSUE' });
+    expect(c.createAiMemory.mock.calls[0][1]).toEqual({
+      kind: 'PREFERENCE',
+      content: '짧은 목록으로 보여 준다',
+      source: 'AI',
+      scope: 'ISSUE',
+    });
+    expect(JSON.parse(out as string)).toMatchObject({ action: 'saved', scope: 'ISSUE' });
+  });
+
+  it('remember_memory: scope 생략이면 키를 보내지 않고 결과 scope 는 null(공통)', async () => {
+    const { c, tool } = setup(null);
+    c.createAiMemory.mockResolvedValue(item({ scope: null }));
+    const out = await tool('remember_memory').handler({ kind: 'CONTEXT', content: '백엔드 팀이다' });
+    expect(c.createAiMemory.mock.calls[0][1]).not.toHaveProperty('scope');
+    expect(JSON.parse(out as string).scope).toBeNull();
+  });
+
+  it("update_memory: scope 'COMMON' 은 PATCH scope:null 로, 결과에 이전 범위(없으면 null)를 싣는다", async () => {
+    const { c, tool } = setup();
+    c.updateAiMemory.mockResolvedValue(item({ scope: null, previousContent: '짧은 목록으로 보여 준다', previousScope: 'ISSUE' }));
+    const out = await tool('update_memory').handler({ memoryId: 12, content: '짧은 목록으로 보여 준다', scope: 'COMMON' });
+    expect(c.updateAiMemory).toHaveBeenCalledWith(USER, 12, { content: '짧은 목록으로 보여 준다', scope: null });
+    expect(JSON.parse(out as string)).toMatchObject({ action: 'updated', scope: null, previousScope: 'ISSUE' });
+  });
+
+  it('update_memory: 범위를 바꾸지 않으면 scope 를 보내지 않고, 응답에 previousScope 가 없으면(공통) null 로 싣는다', async () => {
+    const { c, tool } = setup();
+    c.updateAiMemory.mockResolvedValue(item({ scope: null, previousContent: 'a' }));
+    const out = await tool('update_memory').handler({ memoryId: 12, content: '짧은 목록으로 보여 준다' });
+    expect(c.updateAiMemory.mock.calls[0][2]).toEqual({ content: '짧은 목록으로 보여 준다' });
+    expect(JSON.parse(out as string)).toMatchObject({ scope: null, previousScope: null });
+  });
+
+  it('구 API(응답에 scope 없음)면 결과에 scope·previousScope 를 싣지 않는다', async () => {
+    const { c, tool } = setup();
+    c.updateAiMemory.mockResolvedValue(item({ previousContent: 'a' }));
+    const out = JSON.parse((await tool('update_memory').handler({ memoryId: 12, content: 'b' })) as string);
+    expect(out).not.toHaveProperty('scope');
+    expect(out).not.toHaveProperty('previousScope');
+  });
+
+  it('forget_memory: 지운 항목의 scope 를 싣는다(되돌리기 재생성용)', async () => {
+    const { c, tool } = setup();
+    c.deleteAiMemory.mockResolvedValue(item({ scope: 'MAIL' }));
+    expect(JSON.parse((await tool('forget_memory').handler({ memoryId: 12 })) as string)).toMatchObject({
+      action: 'forgotten',
+      scope: 'MAIL',
+    });
+  });
+
+  it('입력 scope 가 모르는 값이면 API 를 부르지 않고 던진다', async () => {
+    const { c, tool } = setup();
+    await expect(tool('remember_memory').handler({ kind: 'PREFERENCE', content: 'a', scope: 'CONTACTS' })).rejects.toThrow();
+    await expect(tool('remember_memory').handler({ kind: 'PREFERENCE', content: 'a', scope: 'COMMON' })).rejects.toThrow();
+    expect(c.createAiMemory).not.toHaveBeenCalled();
+  });
+});
+
 describe('parseMemoryToolResult (WP-55)', () => {
   it('도구 결과 JSON 을 이벤트로 — 모르는 필드는 버린다', () => {
     expect(
@@ -132,5 +195,52 @@ describe('parseMemoryToolResult (WP-55)', () => {
     expect(parseMemoryToolResult('API 오류 409: …')).toBeNull();
     expect(parseMemoryToolResult(JSON.stringify({ action: 'moved', memoryId: 1, kind: 'CONTEXT', content: 'c' }))).toBeNull();
     expect(parseMemoryToolResult(JSON.stringify({ action: 'saved', memoryId: 1, kind: 'CONTEXT', content: '' }))).toBeNull();
+  });
+});
+
+describe('메모리 도구 기한 (WP-380)', () => {
+  it('remember_memory: expiresOn 을 POST 하고 결과에 기한을 싣는다', async () => {
+    const { c, tool } = setup(null);
+    c.createAiMemory.mockResolvedValue(item({ scope: null, expiresOn: '2026-10-19', expired: false }));
+    const out = await tool('remember_memory').handler({ kind: 'CONTEXT', content: '결제 모듈 집중', expiresOn: '2026-10-19' });
+    expect(c.createAiMemory.mock.calls[0][1]).toEqual({ kind: 'CONTEXT', content: '결제 모듈 집중', source: 'AI', expiresOn: '2026-10-19' });
+    expect(JSON.parse(out as string)).toMatchObject({ action: 'saved', expiresOn: '2026-10-19' });
+  });
+
+  it('update_memory: clearExpiry 는 PATCH clearExpiry:true, 결과에 이전 기한(없으면 null)', async () => {
+    const { c, tool } = setup();
+    c.updateAiMemory.mockResolvedValue(item({ scope: null, expiresOn: null, previousContent: 'a', previousExpiresOn: '2026-10-19' }));
+    const out = await tool('update_memory').handler({ memoryId: 12, content: 'a', clearExpiry: true });
+    expect(c.updateAiMemory).toHaveBeenCalledWith(USER, 12, { content: 'a', clearExpiry: true });
+    expect(JSON.parse(out as string)).toMatchObject({ expiresOn: null, previousExpiresOn: '2026-10-19' });
+  });
+
+  // API 는 expiresOn 과 clearExpiry 를 함께 받으면 400 이다 — 도구 스키마는 둘 다 받아도 핸들러가 clearExpiry 를 우선해 expiresOn 을 보내지 않는다.
+  it('update_memory: expiresOn 과 clearExpiry 가 함께 오면 clearExpiry 만 보낸다', async () => {
+    const { c, tool } = setup();
+    c.updateAiMemory.mockResolvedValue(item({ scope: null, expiresOn: null, previousContent: 'a' }));
+    await tool('update_memory').handler({ memoryId: 12, content: 'a', expiresOn: '2026-10-19', clearExpiry: true });
+    expect(c.updateAiMemory.mock.calls[0][2]).toEqual({ content: 'a', clearExpiry: true });
+  });
+
+  it('update_memory: expiresOn 만 오면 그대로 보낸다', async () => {
+    const { c, tool } = setup();
+    c.updateAiMemory.mockResolvedValue(item({ scope: null, expiresOn: '2026-10-19', previousContent: 'a' }));
+    await tool('update_memory').handler({ memoryId: 12, content: 'a', expiresOn: '2026-10-19' });
+    expect(c.updateAiMemory.mock.calls[0][2]).toEqual({ content: 'a', expiresOn: '2026-10-19' });
+  });
+
+  it('update_memory: 기한을 안 바꾸면 기한 키를 보내지 않고, 이전 기한이 없으면 null', async () => {
+    const { c, tool } = setup();
+    c.updateAiMemory.mockResolvedValue(item({ scope: null, expiresOn: null, previousContent: 'a' }));
+    const out = await tool('update_memory').handler({ memoryId: 12, content: 'b' });
+    expect(c.updateAiMemory.mock.calls[0][2]).toEqual({ content: 'b' });
+    expect(JSON.parse(out as string)).toMatchObject({ expiresOn: null, previousExpiresOn: null });
+  });
+
+  it('형식이 틀린 기한은 API 를 부르지 않고 던진다', async () => {
+    const { c, tool } = setup();
+    await expect(tool('remember_memory').handler({ kind: 'PREFERENCE', content: 'a', expiresOn: '10/19' })).rejects.toThrow();
+    expect(c.createAiMemory).not.toHaveBeenCalled();
   });
 });

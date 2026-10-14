@@ -57,6 +57,14 @@ export interface AgentWorkView {
   stale: boolean;
 }
 
+/** AI 위임 작업 행의 에픽 묶음(WP-375) — /me/ai-tasks 만 싣는다. size 2 이상이면 화면이 묶음 머리를 그린다. */
+export interface AiTaskGroup {
+  epicNumber: number
+  size: number
+  epicChildCount: number
+  epicChildDoneCount: number
+}
+
 export interface IssueResponse {
   id: number;
   projectKey: string;
@@ -103,6 +111,8 @@ export interface IssueResponse {
   customFields: IssueFieldEntry[];
   // AI 진행 중인 작업 목록(WP-377) — 없으면 생략.
   agentWork?: AgentWorkView[];
+  // AI 위임 작업(WP-375) — 에픽 묶음 정보. 묶이지 않은 단독 행은 생략.
+  aiGroup?: AiTaskGroup | null;
 }
 
 export interface IssueCommentResponse {

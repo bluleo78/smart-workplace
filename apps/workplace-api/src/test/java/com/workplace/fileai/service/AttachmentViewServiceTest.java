@@ -209,7 +209,7 @@ class AttachmentViewServiceTest extends IntegrationTestBase {
   }
 
   /**
-   * 판단은 저장된 mime(파라미터 뗀 값)만 본다 — 옛 octet-stream 사진은 V172 가 데이터에서 이미지 mime 으로 바로잡아 파일명으로 다시 판별하지
+   * 판단은 저장된 mime(파라미터 뗀 값)만 본다 — 옛 octet-stream 사진은 V174 가 데이터에서 이미지 mime 으로 바로잡아 파일명으로 다시 판별하지
    * 않는다. 워커에도 그 기본형을 넘긴다(워커는 image/* 가 아니면 거절). octet-stream 은 이름이 무엇이든 415.
    */
   @Test

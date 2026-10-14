@@ -254,7 +254,7 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
         'agentWork (dates +09:00, empty keys omitted); body/comments: get_issue_detail.',
       inputSchema: listIssuesInput,
       async handler(args) {
-        const { priority, size, cycle: cycleCsv, milestone: milestoneCsv, parent, field, watching, ...p } = listIssuesInput.parse(args);
+        const { priority, size, cycle: cycleCsv, milestone: milestoneCsv, parent, field, watching, pendingForMe, ...p } = listIssuesInput.parse(args);
         // WP-356: 부모는 이슈 키로 받는다 — 서버 parent 는 프로젝트 안의 번호라 키의 프로젝트로 범위를 고정한다(없으면 모든 프로젝트의 같은 번호가 걸린다).
         let projectKey = p.projectKey;
         let parentNumber: number | undefined;
@@ -285,6 +285,7 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
             parent: parentNumber,
             ...fieldFilter,
             watching: watching || undefined,
+            pendingForMe: pendingForMe || undefined,
           }).filter((e): e is [string, string | number | boolean] => e[1] !== undefined),
         );
         if (priority?.length) query.priority = priority.join(',');

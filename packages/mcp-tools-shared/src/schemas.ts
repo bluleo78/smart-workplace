@@ -149,4 +149,13 @@ export const listIssuesInput = z.object({
   parent: z.string().optional().describe('Only children of this issue key'),
   field: z.string().optional().describe('"name=value" custom field match (not MULTI_SELECT); needs projectKey'),
   watching: z.boolean().optional().describe('Only issues I watch'),
+  // WP-373: 서버 pendingForMe 필터로 바꿔 보낸다 — 내 마지막 이슈 챗 글 뒤에 남의 글이 온 이슈.
+  pendingForMe: z.boolean().optional().describe('Only issues with chat posts by others after my last'),
+});
+
+/** get_issue_chat 입력(WP-373). after 는 이전 응답의 next(메시지 id). 생략하면 내 마지막 글 이후 새 글 + 직전 맥락. */
+export const getIssueChatInput = z.object({
+  issueKey: z.string().min(1),
+  after: z.number().int().positive().optional(),
+  limit: z.number().int().min(1).max(100).optional(),
 });

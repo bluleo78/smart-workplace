@@ -22,7 +22,7 @@ import org.springframework.core.io.ClassPathResource;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * V172(WP-250) — 확장자 매핑이 생기기 전에 octet-stream·빈 값으로 저장된 HEIC·TIFF·BMP 사진을 새 업로드와 같은 이미지 mime·추출 사유로
+ * V174(WP-250) — 확장자 매핑이 생기기 전에 octet-stream·빈 값으로 저장된 HEIC·TIFF·BMP 사진을 새 업로드와 같은 이미지 mime·추출 사유로
  * 바로잡는 데이터 정리.
  *
  * <p>Testcontainers 는 빈 DB 에서 마이그레이션을 돌려 정리 대상이 없으므로, 옛 상태 행을 시드한 뒤 같은 SQL 파일을 다시 실행해 결과를 본다(V147
@@ -31,7 +31,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 class ImageMimeBackfillMigrationTest extends IntegrationTestBase {
 
   private static final long TENANT = 1L;
-  private static final String MIGRATION = "db/migration/V172__file_image_mime_backfill.sql";
+  private static final String MIGRATION = "db/migration/V174__file_image_mime_backfill.sql";
 
   @Autowired DSLContext dsl;
   @Autowired ExtractedTextService texts;
@@ -48,7 +48,7 @@ class ImageMimeBackfillMigrationTest extends IntegrationTestBase {
                 s ->
                     dsl.insertInto(USER)
                         .set(USER.USERNAME, "v172-" + suffix)
-                        .set(USER.NAME, "V172")
+                        .set(USER.NAME, "V174")
                         .set(USER.EMAIL, "v172-" + suffix + "@example.com")
                         .set(USER.KIND, "HUMAN")
                         .returning(USER.ID)

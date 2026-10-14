@@ -2,14 +2,20 @@
 // 수정은 제자리 입력(300자 카운트, 취소/저장), 삭제는 즉시 + 되돌리기 토스트(훅). 터치 기기는 아이콘 버튼을 44px 로 키운다.
 // 배치: 데스크톱은 [배지][내용+메타][아이콘] 한 줄. 터치(모바일)는 아이콘 두 개(88px)가 오른쪽을 먹어 내용이 11자 폭으로 접히던 문제가 있어
 // 아이콘을 메타 줄 오른쪽으로 내리고(내용은 아이콘 아래 폭까지 쓴다), 44px 터치 영역은 음수 마진으로 줄 높이를 늘리지 않은 채 유지한다.
+// WP-379: 제자리 고치기에서 범위도 옮긴다(가득 찬 범위는 고를 수 없다).
+// WP-380: 메타 끝에 기한("10월 24일까지"), 고치기에서 기한도 고른다. 만료 행(서버 expired)은 흐리게 + "만료됨 · …까지 · …에 지워져요" + 기한 연장·계속 기억.
 import { Pencil, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useDeleteAiMemory, useUpdateAiMemory } from '@/hooks/queries/useAiMemories';
-import { formatDateOnly } from '@/lib/formatters';
+import { type AiMemoryScopeKey, expiryPatch, MEMORY_LINK, purgeDateKey, scopeKeyOf } from '@/lib/aiMemory';
+import { formatDateOnly, formatDateOnlyMonthDay } from '@/lib/formatters';
+import { cn } from '@/lib/utils';
 import { AiMemoryContentEditor } from '@/pages/settings/AiMemoryContentEditor';
+import { AiMemoryExpiryPicker } from '@/pages/settings/AiMemoryExpiryPicker';
+import { AiMemoryScopeSelect } from '@/pages/settings/AiMemoryScopeSelect';
 import type { AiMemoryItem } from '@/types/aiMemory';
 
 /** 종류 배지 — 선호는 AI 보라(ai-accent), 맥락은 info(하늘). 둘 다 라이트/다크 토큰 쌍(시안 A). */
@@ -18,31 +24,47 @@ export const KIND_BADGE = {
   CONTEXT: { label: '맥락', variant: 'info' },
 } as const;
 
-export function AiMemoryRow({ item }: { item: AiMemoryItem }) {
+export function AiMemoryRow({ item, fullScopes }: { item: AiMemoryItem; fullScopes: ReadonlySet<AiMemoryScopeKey> }) {
   const update = useUpdateAiMemory();
   const remove = useDeleteAiMemory();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(item.content);
+  const scope = scopeKeyOf(item.scope);
+  const [draftScope, setDraftScope] = useState<AiMemoryScopeKey>(scope);
+  const expiry = item.expiresOn ?? null;
+  const [draftExpiry, setDraftExpiry] = useState<string | null>(expiry);
+  const expired = item.expired === true;
   const badge = KIND_BADGE[item.kind];
 
   const startEdit = () => {
     setDraft(item.content);
+    setDraftScope(scope);
+    setDraftExpiry(expiry);
     setEditing(true);
   };
   const save = () => {
+    const scopeChanged = draftScope !== scope;
+    const expiryBody = expiryPatch(expiry, draftExpiry);
     // 바뀐 게 없으면 요청하지 않고 닫는다(updatedAt 이 바뀌어 맨 위로 튀지 않게).
-    if (draft.trim() === item.content) return setEditing(false);
-    update.mutate({ id: item.id, content: draft }, { onSuccess: () => setEditing(false) });
+    if (draft.trim() === item.content && !scopeChanged && Object.keys(expiryBody).length === 0) return setEditing(false);
+    update.mutate(
+      // 범위는 바뀔 때만 싣는다(present-flag — 키가 있으면 서버가 옮긴다, 공통은 null). 기한도 바뀔 때만(지정 또는 없애기).
+      { id: item.id, content: draft, ...(scopeChanged ? { scope: draftScope === 'COMMON' ? null : draftScope } : {}), ...expiryBody },
+      { onSuccess: () => setEditing(false) },
+    );
   };
+  /** 만료 행 되살리기 — 기한 연장(새 날짜) 또는 계속 기억(null). 내용은 그대로. 그 범위가 가득이면 서버 409 를 훅이 토스트로 띄운다. */
+  const revive = (next: string | null) => update.mutate({ id: item.id, ...expiryPatch(expiry, next) });
 
   return (
     <li
       data-testid="ai-memory-row"
       data-id={item.id}
+      data-expired={expired ? 'true' : undefined}
       // 3열 격자(배지·내용·아이콘). 터치는 2열로 접고 내용(p)이 아이콘 열까지 가로지르며, 아이콘은 메타 줄(2행)로 내려온다.
       className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-2 px-3 py-2 pointer-coarse:py-3.5"
     >
-      <Badge variant={badge.variant} className="col-[1] row-[1/span_2] mt-0.5" data-testid="ai-memory-kind">
+      <Badge variant={badge.variant} className={cn('col-[1] row-[1/span_2] mt-0.5', expired && 'opacity-60')} data-testid="ai-memory-kind">
         {badge.label}
       </Badge>
       {editing ? (
@@ -57,19 +79,51 @@ export function AiMemoryRow({ item }: { item: AiMemoryItem }) {
             rows={2}
             ariaLabel="메모리 내용"
             testIdPrefix="ai-memory-edit"
+            fields={
+              <>
+                <AiMemoryScopeSelect value={draftScope} onChange={setDraftScope} fullScopes={fullScopes} current={scope} testId="ai-memory-edit-scope" />
+                <AiMemoryExpiryPicker value={draftExpiry} onChange={setDraftExpiry} testId="ai-memory-edit-expiry" />
+              </>
+            }
           />
         </div>
       ) : (
         <>
           <p
             data-testid="ai-memory-content"
-            className="col-[2] row-[1] min-w-0 whitespace-pre-wrap break-keep text-sm [overflow-wrap:anywhere] pointer-coarse:col-[2/span_2]"
+            className={cn(
+              'col-[2] row-[1] min-w-0 whitespace-pre-wrap break-keep text-sm [overflow-wrap:anywhere] pointer-coarse:col-[2/span_2]',
+              expired && 'text-muted-foreground opacity-60',
+            )}
           >
             {item.content}
           </p>
-          {/* 날짜(2026-10-12)는 하이픈에서 끊기지 않게 한 덩어리로 — 출처와 날짜 사이 " · " 에서만 줄이 바뀐다. */}
+          {/* 날짜는 하이픈·공백에서 끊기지 않게 한 덩어리로 — " · " 에서만 줄이 바뀐다. */}
           <p data-testid="ai-memory-meta" className="col-[2] row-[2] min-w-0 text-xs text-muted-foreground">
-            {item.source === 'AI' ? 'AI가 저장' : '직접 추가'} · <span className="whitespace-nowrap">{formatDateOnly(item.updatedAt)}</span>
+            {expired && expiry ? (
+              <>
+                만료됨 · <span className="whitespace-nowrap">{formatDateOnlyMonthDay(expiry)}까지</span> ·{' '}
+                <span className="whitespace-nowrap">{formatDateOnlyMonthDay(purgeDateKey(expiry))}에 지워져요</span>
+                {' · '}
+                <AiMemoryExpiryPicker value={expiry} onChange={revive} testId="ai-memory-extend" variant="link" disabled={update.isPending} />
+                {' · '}
+                <button type="button" data-testid="ai-memory-keep" className={MEMORY_LINK} disabled={update.isPending} onClick={() => revive(null)}>
+                  계속 기억
+                </button>
+              </>
+            ) : (
+              <>
+                {item.source === 'AI' ? 'AI가 저장' : '직접 추가'} · <span className="whitespace-nowrap">{formatDateOnly(item.updatedAt)}</span>
+                {expiry && (
+                  <>
+                    {' · '}
+                    <span data-testid="ai-memory-expiry" className="whitespace-nowrap">
+                      {formatDateOnlyMonthDay(expiry)}까지
+                    </span>
+                  </>
+                )}
+              </>
+            )}
           </p>
           <div className="col-[3] row-[1/span_2] flex gap-0.5 pointer-coarse:row-[2] pointer-coarse:-my-3.5 pointer-coarse:-mr-1.5">
             <Button

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { currentEpicChoice, nextEpicScope } from './epicScope';
+import { currentEpicChoice, nextEpicScope, nextShowAllClosed } from './epicScope';
 
 const ALL = { parentNumber: null, topLevel: false };
 const UNASSIGNED = { parentNumber: null, topLevel: true };
@@ -31,5 +31,30 @@ describe('nextEpicScope', () => {
   });
   it('전체 선택은 항상 둘 다 해제 + 무효화', () => {
     expect(nextEpicScope(EPIC10, { kind: 'all' })).toEqual({ parentNumber: null, topLevel: false, invalidate: true });
+  });
+});
+
+describe('nextShowAllClosed (WP-390)', () => {
+  // 30·31 = 종료된 에픽, 10·11 = 진행 중 에픽.
+  const isClosed = (n: number) => n >= 30;
+  const at = (parentNumber: number | null, showAllClosed: boolean) => ({ parentNumber, showAllClosed });
+
+  it('진행 중 에픽 선택은 사용자 토글을 그대로 둔다', () => {
+    expect(nextShowAllClosed(at(null, false), 10, isClosed)).toBe(false);
+    expect(nextShowAllClosed(at(null, true), 10, isClosed)).toBe(true);
+    expect(nextShowAllClosed(at(10, false), 11, isClosed)).toBe(false);
+  });
+  it('종료된 에픽을 고르면 켠다(다른 종료 에픽으로 옮겨도 켜진 채)', () => {
+    expect(nextShowAllClosed(at(null, false), 30, isClosed)).toBe(true);
+    expect(nextShowAllClosed(at(10, false), 30, isClosed)).toBe(true);
+    expect(nextShowAllClosed(at(31, true), 30, isClosed)).toBe(true);
+  });
+  it('종료된 에픽에서 벗어나면 끈다 — 전체·미할당·같은 에픽 재선택 해제(다음 parent 없음), 진행 중 에픽', () => {
+    expect(nextShowAllClosed(at(30, true), null, isClosed)).toBe(false);
+    expect(nextShowAllClosed(at(30, true), 10, isClosed)).toBe(false);
+  });
+  it('진행 중 에픽에서 벗어날 때는 토글을 건드리지 않는다', () => {
+    expect(nextShowAllClosed(at(10, true), null, isClosed)).toBe(true);
+    expect(nextShowAllClosed(at(10, false), null, isClosed)).toBe(false);
   });
 });

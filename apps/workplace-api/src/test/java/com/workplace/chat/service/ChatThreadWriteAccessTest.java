@@ -91,7 +91,7 @@ class ChatThreadWriteAccessTest extends IntegrationTestBase {
     long threadId = threadWithLateProjectMember(s);
     var msg = messageService.create(s.reporterId(), threadId, new CreateChatMessageRequest("hi"));
 
-    var page = messageService.list(s.outsiderId(), threadId, null, 50);
+    var page = messageService.list(s.outsiderId(), threadId, null, null, false, 50);
 
     assertThat(page.items()).extracting(m -> m.id()).contains(msg.id());
     assertThatCode(() -> messageService.markRead(s.outsiderId(), threadId, msg.id()))

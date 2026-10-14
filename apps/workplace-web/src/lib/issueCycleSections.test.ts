@@ -82,6 +82,11 @@ describe('구간 필터 — 종료 이슈 스코프 (#876 과 동일 결과)', (
     });
   });
 
+  it('백로그: 에픽을 골라도 종료 이슈를 숨긴다 — 지난 사이클 완료분이 쌓이지 않게(WP-390)', () => {
+    expect(backlogSectionFilters({ ...EMPTY, parentNumber: 12 })).toMatchObject({ parentNumber: 12, hideInactiveClosed: true });
+    expect(backlogSectionFilters({ ...EMPTY, parentNumber: 12, showAllClosed: true }).hideInactiveClosed).toBe(false);
+  });
+
   it('사용자 필터(담당자 등)는 모든 구간에 유지된다', () => {
     const user = { ...EMPTY, assigneeIds: [10], q: 'x' };
     expect(cycleSectionFilters(user, 1)).toMatchObject({ assigneeIds: [10], q: 'x' });

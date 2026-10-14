@@ -1,5 +1,6 @@
 // 모바일 목록 화면 컨텍스트 builder(WP-191) — 탭 루트 목록(홈·채팅·작업·드라이브·노트)은 페이지 대신 사이드바만 그려
 // 페이지가 컨텍스트를 등록하지 않는다. 사이드바와 같은 데이터로 "지금 보는 목록"을 AI 에게 알린다(view+scope 만).
+// WP-379: app 은 홈 채팅 메모리 범위 선택용(서버로 보내는 screenContext 에선 빠진다).
 import type { AiScreenContext } from '@/types/aiScreenContext';
 
 import { buildFacts, withListState } from '../common';
@@ -22,6 +23,7 @@ export function buildChatListContext(input: {
 }): AiScreenContext {
   return {
     view: '채팅',
+    app: 'MESSAGING',
     scope: withListState(
       {
         label: '채팅 목록',
@@ -42,6 +44,7 @@ export function buildChatListContext(input: {
 export function buildTaskListContext(input: { projects: string[]; pinnedViews: string[] }): AiScreenContext {
   return {
     view: '작업',
+    app: 'ISSUE',
     scope: withListState(
       { label: '작업 목록', facts: buildFacts([['프로젝트', names(input.projects)], ['고정 보기', names(input.pinnedViews)]]) },
       { count: input.projects.length },
@@ -53,6 +56,7 @@ export function buildTaskListContext(input: { projects: string[]; pinnedViews: s
 export function buildDriveSpacesContext(input: { spaces: string[] }): AiScreenContext {
   return {
     view: '드라이브',
+    app: 'DRIVE',
     scope: withListState({ label: '드라이브 공간 목록', facts: buildFacts([['공간', names(input.spaces)]]) }, { count: input.spaces.length }),
   };
 }

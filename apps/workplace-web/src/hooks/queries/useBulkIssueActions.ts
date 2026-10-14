@@ -10,6 +10,7 @@ import { replaceIssueAssignees } from '../../api/issueAssignees';
 import { issuesApi, updateIssueStatus } from '../../api/issues';
 import { extractApiError } from '../../lib/api-error';
 import type { IssuePriority, IssueStatus } from '../../types/issue';
+import { chatKeys } from './chatKeys';
 import { issueKeys } from './useIssues';
 
 // 성공/실패 건수를 세어 결과 토스트를 띄우는 공통 헬퍼.
@@ -60,7 +61,11 @@ export function useBulkAssign(projectKey: string) {
     // userIds — 빈 배열이면 담당자 해제(미지정), 아니면 해당 집합으로 교체(단일 지정 UI 기준 1명).
     mutationFn: async ({ numbers, userIds }: { numbers: number[]; userIds: number[] }) =>
       Promise.allSettled(numbers.map((n) => replaceIssueAssignees(projectKey, n, userIds))),
-    onSuccess: (results) => reportBulkResult(results, '담당자를 지정했습니다'),
+    onSuccess: (results) => {
+      // 담당 AI 가 바뀌면 이슈 챗 작성창 안내가 바뀐다 — 스레드 응답의 externalAgent (WP-373).
+      qc.invalidateQueries({ queryKey: [...chatKeys.all, 'thread', projectKey] });
+      reportBulkResult(results, '담당자를 지정했습니다');
+    },
     onSettled: () => invalidateIssueCaches(qc, projectKey),
   });
 }

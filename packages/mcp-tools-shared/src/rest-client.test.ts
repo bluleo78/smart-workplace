@@ -100,6 +100,41 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(await client.listIssues({})).toEqual({ items: [], nextCursor: undefined, hasMore: undefined });
   });
 
+  it('이슈 챗: 스레드 id 를 구하고 메시지를 after / afterMine 으로 읽는다(WP-373)', async () => {
+    const { http, client } = mockHttp();
+    http.get.mockResolvedValueOnce({ data: { threadId: 55 } });
+    expect(await client.getIssueChatThreadId('WP-1')).toBe(55);
+    expect(http.get).toHaveBeenLastCalledWith('/projects/WP/issues/1/chat/thread');
+    http.get.mockResolvedValueOnce({ data: { items: [{ id: 1 }], nextCursor: '1', hasMore: true } });
+    expect(await client.listIssueChatMessages(55, {})).toEqual({ items: [{ id: 1 }], nextCursor: '1', hasMore: true });
+    expect(http.get).toHaveBeenLastCalledWith('/chat/threads/55/messages', { params: { afterMine: true, limit: undefined } });
+    http.get.mockResolvedValueOnce({ data: null });
+    expect(await client.listIssueChatMessages(55, { after: 10, limit: 5 })).toEqual({ items: [], nextCursor: undefined, hasMore: false });
+    expect(http.get).toHaveBeenLastCalledWith('/chat/threads/55/messages', { params: { after: 10, limit: 5 } });
+  });
+
+  it('이슈 챗 첨부: 스레드 id 를 구해 텍스트·변환본(/view) 경로로 읽는다(WP-373)', async () => {
+    const { http, client } = mockHttp();
+    http.get.mockResolvedValueOnce({ data: { threadId: 55 } }).mockResolvedValueOnce({ data: { status: 'READY' } });
+    await client.readIssueChatAttachmentText('WP-1', 11, 900, { offset: 0, limit: 100 });
+    expect(http.get).toHaveBeenLastCalledWith('/chat/threads/55/attachments/900/text', { params: { offset: 0, limit: 100 } });
+    // 같은 이슈의 스레드 id 는 캐시되어 다시 구하지 않는다.
+    http.get.mockResolvedValueOnce({ data: new Uint8Array([7]).buffer, headers: { 'content-type': 'image/png' } });
+    expect((await client.viewIssueChatAttachment('WP-1', 900, 2)).mimeType).toBe('image/png');
+    expect(http.get).toHaveBeenLastCalledWith('/chat/threads/55/attachments/900/view?page=2', expect.objectContaining({ responseType: 'arraybuffer' }));
+  });
+
+  it('이슈 챗 스레드 id 는 같은 issueKey 로 한 번만 조회하고, 실패하면 캐시하지 않는다', async () => {
+    const { http, client } = mockHttp();
+    http.get.mockResolvedValueOnce({ data: { threadId: 55 } });
+    expect(await client.getIssueChatThreadId('WP-1')).toBe(55);
+    expect(await client.getIssueChatThreadId('WP-1')).toBe(55);
+    expect(http.get).toHaveBeenCalledTimes(1);
+    http.get.mockRejectedValueOnce(new Error('boom')).mockResolvedValueOnce({ data: { threadId: 66 } });
+    await expect(client.getIssueChatThreadId('WP-2')).rejects.toThrow('boom');
+    expect(await client.getIssueChatThreadId('WP-2')).toBe(66);
+  });
+
   it('listProjects 는 Spring 페이지의 total·다음 페이지 여부(page+1<totalPages)를 보존하고 bare 배열도 처리한다(WP-352)', async () => {
     const { http, client } = mockHttp();
     http.get.mockResolvedValueOnce({ data: { content: [{ key: 'WP' }], page: 0, size: 50, totalElements: 120, totalPages: 3 } });

@@ -148,7 +148,7 @@ class ChatMessageAttachmentIntegrationTest extends IntegrationTestBase {
     // when: 스레드를 다시 열고, 메시지 목록도 읽는다.
     var recent =
         threadService.getOrCreate(callerId, s.projectKey(), s.issueNumber()).recentMessages();
-    var page = chatMessageService.list(callerId, sent.threadId(), null, 50).items();
+    var page = chatMessageService.list(callerId, sent.threadId(), null, null, false, 50).items();
 
     // then: 두 경로 모두 삭제 표시만 있고 첨부는 비어 있다.
     for (var list : List.of(recent, page)) {

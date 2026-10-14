@@ -4,6 +4,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 
+import { readOnlyMemoriesField } from '../agent/memory-block.js';
 import { type RunAgentDeps } from '../agent/run-agent.js';
 import { runDriveSummarize, runDriveOverview } from '../agent/run-drive-ai.js';
 import { handler } from './mail.js';
@@ -28,6 +29,7 @@ const overviewSchema = z.object({
   model: z.string().optional(),
   maxTurns: z.number().int().positive().optional(),
   timeoutMs: z.number().int().positive().optional(),
+  memories: readOnlyMemoriesField, // WP-381 공통 + 드라이브 메모리
 });
 
 export function createDriveRouter(deps: RunAgentDeps): Router {

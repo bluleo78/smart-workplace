@@ -122,7 +122,7 @@ export function IssueDndProvider({ projectKey, children }: { projectKey: string;
     }
     if (!isEpicDropData(dst)) return;
     // 비허용 대상은 droppable 이 disabled 라 over 가 되지 않지만, 규칙을 한 번 더 확인해 방어한다.
-    if (epicDropState(src.issue, dst.epic?.number ?? null) !== 'allowed') return;
+    if (epicDropState(src.issue, dst.epic) !== 'allowed') return;
     moveEpic.mutate({ issue: src.issue, to: dst.epic });
   }
 

@@ -138,6 +138,16 @@ export interface AgentWorkReport {
 
 /** 이슈 도구 — issueKey(WP-12) 기준. 코멘트 API 의 숫자 issue id 해석은 구현(rest-client)이 흡수한다. */
 export interface IssueToolClient extends ProjectMetaClient, CurrentUserClient {
+  /** GET .../chat/thread — 이슈 챗 스레드 id(없으면 서버가 만든다, WP-373). */
+  getIssueChatThreadId(issueKey: string): Promise<number>;
+  /**
+   * GET /chat/threads/{id}/messages — after 가 있으면 그 뒤를, 없으면 afterMine(내 마지막 글 직전 5개 + 그 뒤)을 오름차순으로(WP-373).
+   * 래퍼({ items, nextCursor, hasMore })를 그대로 둔다. nextCursor 는 hasMore 일 때 마지막 메시지 id 문자열.
+   */
+  listIssueChatMessages(
+    threadId: number,
+    q: { after?: number; limit?: number },
+  ): Promise<{ items: Record<string, unknown>[]; nextCursor?: string | null; hasMore: boolean; truncated?: boolean }>;
   /** 이슈 상세 — 백엔드 raw JSON 반환(정규화는 도구 핸들러가 normalizeIssueDetail 로 수행). */
   getIssueDetail(issueKey: string): Promise<unknown>;
   /** 이슈 생성 — 생성 응답 raw 반환. */
@@ -597,6 +607,8 @@ export interface AttachmentToolClient {
   readMailAttachmentText(attachmentId: number, range: TextRange): Promise<ExtractedTextSlice>;
   /** GET /mail/attachments/{attachmentId}/content — 원본 바이트(IMAP·Graph 에서 가져온다). */
   downloadMailAttachment(attachmentId: number): Promise<FileBytes>;
+  /** 이슈 챗 첨부 텍스트(WP-373) — 스레드 id 는 이슈 키로 구한다. GET /chat/threads/{id}/attachments/{fileId}/text. */
+  readIssueChatAttachmentText(issueKey: string, messageId: number, fileId: number, range: TextRange): Promise<ExtractedTextSlice>;
   // ── 모델 입력용 이미지(WP-250) — GET …/view. page(1부터)는 PDF 쪽이고 쿼리로, 없으면 이미지 변환본(HEIC·큰 이미지 등).
   //    서버 4xx·5xx 는 한국어 사유가 message 에 실린 오류로 던진다(예: 범위 밖 쪽 400, 손상 422, 렌더 실패 503). 메일은 아직 없다(WP-388).
   /** GET /projects/{key}/issues/{n}/attachments/{fileId}/view[?page=N]. */
@@ -607,6 +619,8 @@ export interface AttachmentToolClient {
   viewWikiAttachment(pageId: number, fileId: number, page?: number): Promise<FileBytes>;
   /** GET /messaging/channels/{id}/messages/{msgId}/attachments/{fileId}/view[?page=N]. */
   viewMessageAttachment(channelId: number, messageId: number, fileId: number, page?: number): Promise<FileBytes>;
+  /** 이슈 챗 첨부(WP-373) — 스레드 id 는 이슈 키로 구한다. GET /chat/threads/{id}/attachments/{fileId}/view[?page=N]. */
+  viewIssueChatAttachment(issueKey: string, fileId: number, page?: number): Promise<FileBytes>;
 }
 
 /** 휴지통 항목 — type 에 따라 id 가 drive_file.id(FILE) 또는 폴더 id(FOLDER)다. 뷰가 이름을 나눠 붙이므로 그 필드를 고정한다. */

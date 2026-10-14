@@ -1,9 +1,10 @@
-// src/issue-tools.ts — 두 앱 공유 이슈 도구 10종. 핸들러는 IssueToolClient(issueKey 기준)만 호출.
+// src/issue-tools.ts — 두 앱 공유 이슈 도구 11종. 핸들러는 IssueToolClient(issueKey 기준)만 호출.
 import { dropEmpty } from './compact.js';
 import { errText, parseIssueKey } from './parse.js';
 import type { SharedTool } from './mcp-tool.js';
 import { ISSUE_DETAIL_COMMENT_HARD_LIMIT, ISSUE_DETAIL_COMMENT_LIMIT, ISSUE_DETAIL_HISTORY_LIMIT, normalizeIssueDetail } from './issue-detail.js';
 import { toAgentWorkView } from './agent-work-view.js';
+import { toAuthorView, toSeoulIso } from './issue-view.js';
 import { toIssueListItem } from './project-tools.js';
 import {
   fieldDefByName,
@@ -19,12 +20,42 @@ import {
   createIssueInput,
   dependencyInput,
   editCommentInput,
+  getIssueChatInput,
   getIssueDetailInput,
   issueKeyInput,
   reportAgentWorkInput,
   updateIssueInput,
 } from './schemas.js';
+import { resolveMentionTokens } from './messaging-tools.js';
 import type { IssueRow, IssueToolClient } from './tool-client.js';
+
+/** 첨부 텍스트 추출 상태 → {status, totalChars?, reason?} — truncated·reasonCode 같은 내부 값은 AI 에 필요 없어 뺀다. */
+function toExtractionView(extraction: unknown) {
+  if (!extraction || typeof extraction !== 'object') return undefined;
+  const e = extraction as Record<string, unknown>;
+  return dropEmpty({ status: e.status, totalChars: e.totalChars, reason: e.reason });
+}
+
+/** 이슈 챗 메시지 → LLM 뷰(WP-373). 숫자 사용자 id(#833)·멘션·드라이브 링크 원형은 빼고, 첨부는 read_file(issue_chat) 입력 이름으로 바꾼다. */
+function toIssueChatMessageView(m: Record<string, unknown>) {
+  const deleted = m.deleted === true;
+  const attachments = Array.isArray(m.attachments) ? (m.attachments as Record<string, unknown>[]) : [];
+  return dropEmpty({
+    id: m.id,
+    author: toAuthorView(m.authorUsername, m.authorName, m.authorKind),
+    // 삭제된 글은 서버가 본문 자리에 "(삭제됨)" 을 채우므로 body 를 빼고 deleted 만 알린다.
+    // 본문의 멘션 토큰 <@id> 은 mentions 로 이름을 풀어 숫자 사용자 id 가 AI 에 닿지 않게 한다(#833).
+    body: deleted ? undefined : resolveMentionTokens(String(m.body ?? ''), m.mentions),
+    question: m.question === true ? true : undefined,
+    // 시각은 목록·상세와 같은 Asia/Seoul 오프셋 표기로 맞춘다.
+    createdAt: toSeoulIso(m.createdAt),
+    editedAt: toSeoulIso(m.editedAt) ?? undefined,
+    deleted: deleted ? true : undefined,
+    attachments: attachments.map((a) =>
+      dropEmpty({ attachmentId: a.fileId, name: a.originalName, mimeType: a.mimeType, size: a.sizeBytes, extraction: toExtractionView(a.extraction) }),
+    ),
+  });
+}
 
 /**
  * 부모 이슈 키(WP-12) → 서버용 이슈 번호. 서버는 부모를 같은 프로젝트의 번호(parentNumber)로만 받는다 —
@@ -198,6 +229,30 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
         const { work, ended } = await client.reportAgentWork(issueKey, body);
         // 서버 뷰의 숫자 id 는 빼고 사람을 username 으로만 가리킨다(#833). 끝났으면 work 는 null 이라 ended 만 남는다.
         return JSON.stringify(dropEmpty({ work: work ? toAgentWorkView(work) : null, ended }));
+      },
+    },
+    {
+      name: 'get_issue_chat',
+      app: 'issue',
+      kind: 'read',
+      description:
+        'Reads an issue (이슈) chat oldest first. Without after: my latest post, the 5 before it and everything after ' +
+        '(all recent if I never posted). Pass next as after for more. question:true = an AI asked and waits. ' +
+        'Attachments: read_file source issue_chat.',
+      inputSchema: getIssueChatInput,
+      async handler(args) {
+        const { issueKey, after, limit } = getIssueChatInput.parse(args);
+        const threadId = await client.getIssueChatThreadId(issueKey);
+        const page = await client.listIssueChatMessages(threadId, { after, limit: limit ?? 30 });
+        return JSON.stringify(
+          dropEmpty({
+            messages: page.items.map(toIssueChatMessageView),
+            hasMore: page.hasMore,
+            next: page.hasMore && page.nextCursor ? Number(page.nextCursor) : undefined,
+            // 이어 읽을 페이지는 없지만 앞쪽이 잘린 부분 목록 — 전부로 오해하지 않게 알린다(내 글이 없을 때 최신 limit 개만 준 경우).
+            truncated: page.truncated ? true : undefined,
+          }),
+        );
       },
     },
     {

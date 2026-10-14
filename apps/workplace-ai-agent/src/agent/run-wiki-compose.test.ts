@@ -119,3 +119,18 @@ describe('runWikiCompose', () => {
     await p;
   });
 });
+
+describe('읽기 전용 메모리 (WP-381)', () => {
+  it('요청문 맨 앞에 메모리 블록을 붙이고 시스템 프롬프트는 바꾸지 않는다', async () => {
+    streamSpy.mockReturnValue({ done: Promise.resolve(), kill: () => {} });
+    await runWikiCompose(
+      baseInput('continue', { memories: [{ id: 3, kind: 'PREFERENCE', content: '노트는 개조식으로', scope: 'WIKI' }] }),
+      { client: fakeClient },
+      () => {},
+    );
+    const arg = streamSpy.mock.calls[0][0];
+    expect(arg.userMessage.startsWith('## 사용자 메모리\n')).toBe(true);
+    expect(arg.userMessage).toContain('- [#3 선호·노트] 노트는 개조식으로\n\n다음 문서의 마지막 부분을');
+    expect(arg.systemPrompt).not.toContain('사용자 메모리');
+  });
+});

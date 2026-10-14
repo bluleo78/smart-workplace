@@ -143,7 +143,7 @@ describe('read_chat_attachment', () => {
       const out = (await tool(c).handler({ fileId: 8, pages: [3] })) as Array<{ type: string; text?: string }>;
       expect(c.viewHomeAttachment).toHaveBeenCalledTimes(1);
       expect(c.viewHomeAttachment).toHaveBeenCalledWith(USER, SID, 8, 3);
-      expect(out.map((b) => b.type)).toEqual(['text', 'image']);
+      expect(out.map((b) => b.type)).toEqual(['text', 'image', 'text']);
       expect(out[0].text).toContain('3쪽(전체 7쪽)');
       expect(c.readHomeAttachmentText).not.toHaveBeenCalled();
     });

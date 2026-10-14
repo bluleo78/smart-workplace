@@ -5,7 +5,7 @@ import axios, { AxiosInstance } from 'axios';
 
 import { DEFAULT_API_BASE_URL } from '../constants.js';
 import type { ProviderCredential } from '../agent/agent-runner.js';
-import type { MemoryKind } from '../agent/memory-block.js';
+import type { MemoryKind, MemoryScope } from '../agent/memory-block.js';
 import {
   createSharedToolClient,
   decodeErrorBody,
@@ -61,6 +61,16 @@ export interface AiMemoryDto {
   updatedAt: string;
   previousContent?: string;
   previousKind?: MemoryKind;
+  /** WP-379: 범위(공통 null). 구 API 는 키 자체가 없다. */
+  scope?: MemoryScope | null;
+  /** WP-379: 고치기 전 범위 — 앱 범위였을 때만 온다(공통이면 키 없음). */
+  previousScope?: MemoryScope;
+  /** WP-380: 기한(yyyy-MM-dd, 없으면 null). 구 API 는 키 자체가 없다. */
+  expiresOn?: string | null;
+  /** WP-380: 서버 오늘 기준 만료 여부. */
+  expired?: boolean;
+  /** WP-380: 고치기 전 기한 — 있었을 때만. */
+  previousExpiresOn?: string;
 }
 
 // 6c: chat thread 메시지 (LLM 노출용 경량 형태).
@@ -176,9 +186,14 @@ export interface WorkplaceApiClient {
   // WP-55: 메모리 도구(라우터 전용) — 요청자(onBehalfOfId=userId) 대행. Internal 대행만 source:'AI'·sessionId 를 받고, 꺼짐이면 409 AI_MEMORY_DISABLED.
   createAiMemory(
     onBehalfOfId: number,
-    body: { kind: MemoryKind; content: string; source: 'AI'; sessionId?: string },
+    body: { kind: MemoryKind; content: string; source: 'AI'; sessionId?: string; scope?: MemoryScope; expiresOn?: string },
   ): Promise<AiMemoryDto>;
-  updateAiMemory(onBehalfOfId: number, memoryId: number, body: { content: string; kind?: MemoryKind }): Promise<AiMemoryDto>;
+  /** scope 키가 있으면 범위를 바꾼다(null = 공통으로) — API PATCH present-flag. */
+  updateAiMemory(
+    onBehalfOfId: number,
+    memoryId: number,
+    body: { content: string; kind?: MemoryKind; scope?: MemoryScope | null; expiresOn?: string; clearExpiry?: boolean },
+  ): Promise<AiMemoryDto>;
   deleteAiMemory(onBehalfOfId: number, memoryId: number): Promise<AiMemoryDto>;
   // #719: 요청자의 active-tenant 를 X-On-Behalf-Of-Tenant 로 싣는 스코프 클라이언트를 반환한다.
   // 인-프로세스 MCP 서버는 이 인스턴스를 서브에이전트까지 공유하므로, run 당 1회 스코프하면

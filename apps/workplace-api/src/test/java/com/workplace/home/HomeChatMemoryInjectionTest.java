@@ -5,17 +5,24 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.workplace.home.outbound.ChatMessages.ChatMemory;
+import com.workplace.global.ai.AiMemoryLine;
+import com.workplace.home.dto.CreateAiMemoryRequest;
 import com.workplace.home.outbound.ChatMessages.ChatRequest;
+import com.workplace.home.service.AiMemoryClock;
 import com.workplace.home.service.AiMemoryService;
 import com.workplace.user.service.AiPreferenceService;
+import java.time.LocalDate;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
 
 /**
  * WP-55: 홈 채팅 펌프가 매 턴 메모리를 ChatRequest 에 싣고, 메모리 블록 추정만큼 이전 대화 몫을 줄인다. HomeAttachmentTestSupport 와
@@ -64,7 +71,7 @@ class HomeChatMemoryInjectionTest extends HomeAttachmentTestSupport {
     ChatRequest req = sentRequest();
     assertThat(req.memoryEnabled()).isTrue();
     assertThat(req.memories())
-        .extracting(ChatMemory::content)
+        .extracting(AiMemoryLine::content)
         .containsExactly("백엔드 팀이다", "짧은 목록으로 보여 준다");
     assertThat(req.memories().get(0).kind()).isEqualTo("CONTEXT");
     assertThat(req.memories().get(0).id()).isPositive();
@@ -83,6 +90,8 @@ class HomeChatMemoryInjectionTest extends HomeAttachmentTestSupport {
     ChatRequest req = sentRequest();
     assertThat(req.memoryEnabled()).isFalse();
     assertThat(req.memories()).isEmpty();
+    // 오늘은 메모리를 고른 날짜다 — 꺼짐이면 고르지 않았으므로 싣지 않는다(ai-agent 는 꺼짐이면 오늘을 쓰지 않는다).
+    assertThat(req.today()).isNull();
   }
 
   @Test
@@ -119,5 +128,87 @@ class HomeChatMemoryInjectionTest extends HomeAttachmentTestSupport {
     assertThat(req.recentContext().get(0).content()).startsWith("답변2");
     verify(summaryClient, never()).summarize(any());
     assertThat(sessionService.getMessages(uid, sid)).hasSizeGreaterThanOrEqualTo(4); // DB 이력은 그대로
+  }
+
+  /** 범위를 지정해 만든다(설정 화면 직접 추가와 같은 경로). */
+  private void createScoped(long uid, String content, String scope) {
+    memoryService.create(
+        uid, new CreateAiMemoryRequest("PREFERENCE", content, null, null, scope, null), false);
+  }
+
+  /** WP-379: 지금 화면 앱이 있으면 공통 + 그 앱 메모리만(다른 앱 제외), 최신순으로 싣고 app 도 함께 보낸다. */
+  @Test
+  void app_이_있으면_공통과_그_앱_메모리만_최신순으로_보내고_app_도_싣는다() throws Exception {
+    long uid = user();
+    createScoped(uid, "답은 존댓말로 한다", null);
+    createScoped(uid, "이슈 목록은 짧게 보여 준다", "ISSUE");
+    createScoped(uid, "메일은 세 줄로 요약한다", "MAIL");
+    CountDownLatch latch = stubDone("네");
+
+    chatService.startChat(uid, null, "이슈 보여줘", null, List.of(), null, "ISSUE");
+    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
+
+    ChatRequest req = sentRequest();
+    assertThat(req.app()).isEqualTo("ISSUE");
+    assertThat(req.memories())
+        .extracting(AiMemoryLine::content)
+        .containsExactly("이슈 목록은 짧게 보여 준다", "답은 존댓말로 한다");
+    assertThat(req.memories()).extracting(AiMemoryLine::scope).containsExactly("ISSUE", null);
+  }
+
+  /** 앱이 없거나 모르는 값이면 공통만 — 채팅은 막지 않는다. */
+  @Test
+  void app_이_없거나_모르는_값이면_공통만_보낸다() throws Exception {
+    long uid = user();
+    createScoped(uid, "답은 존댓말로 한다", null);
+    createScoped(uid, "이슈 목록은 짧게 보여 준다", "ISSUE");
+    CountDownLatch latch = stubDone("네");
+
+    chatService.startChat(uid, null, "안녕", null, List.of(), null, "CONTACTS");
+    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
+
+    ChatRequest req = sentRequest();
+    assertThat(req.app()).isNull();
+    assertThat(req.memories()).extracting(AiMemoryLine::content).containsExactly("답은 존댓말로 한다");
+  }
+
+  /** 웹 → API POST /ai/chat 본문의 app 이 펌프까지 전달된다. */
+  @Test
+  void 채팅_요청_본문의_app_이_ai_agent_요청까지_간다() throws Exception {
+    long uid = user();
+    createScoped(uid, "메일은 세 줄로 요약한다", "MAIL");
+    CountDownLatch latch = stubDone("네");
+
+    http(post("/api/v1/ai/chat")
+            .header("Authorization", bearer(uid))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"query\":\"메일 정리해줘\",\"app\":\"MAIL\"}"))
+        .andExpect(status().isOk());
+    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
+
+    ChatRequest req = sentRequest();
+    assertThat(req.app()).isEqualTo("MAIL");
+    assertThat(req.memories()).extracting(AiMemoryLine::scope).containsExactly("MAIL");
+  }
+
+  /** WP-380: 블록의 오늘 줄·기한 계산 근거로 서버 오늘(Asia/Seoul)을 보내고, 메모리 기한을 문자열로 싣는다. */
+  @Test
+  void 오늘_날짜와_메모리_기한을_함께_보낸다() throws Exception {
+    long uid = user();
+    memoryService.create(
+        uid,
+        new CreateAiMemoryRequest("PREFERENCE", "이번 분기는 결제 모듈", null, null, null, "2999-12-31"),
+        false);
+    CountDownLatch latch = stubDone("네");
+    String before = LocalDate.now(AiMemoryClock.ZONE).toString();
+
+    chatService.startChat(uid, null, "안녕");
+    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
+    String after = LocalDate.now(AiMemoryClock.ZONE).toString();
+
+    ChatRequest req = sentRequest();
+    // 자정을 걸쳐도 깨지지 않게 호출 전후 날짜 중 하나면 된다.
+    assertThat(List.of(before, after)).contains(req.today());
+    assertThat(req.memories()).extracting(AiMemoryLine::expiresOn).containsExactly("2999-12-31");
   }
 }

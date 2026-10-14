@@ -4,7 +4,7 @@
 import type { ClientRect, CollisionDescriptor, DroppableContainer, UniqueIdentifier } from '@dnd-kit/core';
 import { describe, expect, it } from 'vitest';
 
-import type { IssueResponse } from '../types/issue';
+import type { IssueResponse, IssueStatus, ParentRef } from '../types/issue';
 import {
   describeDropTarget,
   epicDragBlockReason,
@@ -71,12 +71,19 @@ describe('epicDragBlockReason', () => {
 });
 
 describe('epicDropState', () => {
-  it('드래그 없음 → idle', () => expect(epicDropState(null, 10)).toBe('idle'));
-  it('차단 유형 → blocked', () => expect(epicDropState(issue('SUBTASK', 3), 10)).toBe('blocked'));
-  it('현재 에픽 → current', () => expect(epicDropState(issue('TASK', 10), 10)).toBe('current'));
+  // 드롭 대상 에픽 — 상태를 주면 종료 판정에 쓴다.
+  const target = (number: number, status?: IssueStatus): ParentRef => ({ number, title: `에픽 ${number}`, type: t('EPIC'), status });
+  it('드래그 없음 → idle', () => expect(epicDropState(null, target(10))).toBe('idle'));
+  it('차단 유형 → blocked', () => expect(epicDropState(issue('SUBTASK', 3), target(10))).toBe('blocked'));
+  it('현재 에픽 → current', () => expect(epicDropState(issue('TASK', 10), target(10))).toBe('current'));
   it('부모 없음 + 미할당 → current', () => expect(epicDropState(issue('TASK', null), null)).toBe('current'));
-  it('다른 에픽 → allowed', () => expect(epicDropState(issue('TASK', 10), 11)).toBe('allowed'));
+  it('다른 에픽 → allowed', () => expect(epicDropState(issue('TASK', 10), target(11))).toBe('allowed'));
   it('에픽 소속 + 미할당 → allowed', () => expect(epicDropState(issue('TASK', 10), null)).toBe('allowed'));
+  it('종료된 다른 에픽 → blocked (WP-389)', () => {
+    expect(epicDropState(issue('TASK', 10), target(11, 'DONE'))).toBe('blocked');
+    expect(epicDropState(issue('TASK', null), target(11, 'CANCELED'))).toBe('blocked');
+  });
+  it('이미 속한 종료 에픽 → current (WP-389)', () => expect(epicDropState(issue('TASK', 11), target(11, 'DONE'))).toBe('current'));
 });
 
 describe('isEpicDropData', () => {

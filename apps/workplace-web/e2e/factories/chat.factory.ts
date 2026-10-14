@@ -53,6 +53,7 @@ export function createChatMessage(
     createdAt: now(),
     editedAt: null,
     deleted: false,
+    question: false, // WP-373
     ...overrides,
   };
 }
@@ -67,6 +68,7 @@ export function createChatThread(
     members: [createChatMember()],
     recentMessages: [],
     canPost: true,
+    externalAgent: null, // WP-373
     ...overrides,
   };
 }

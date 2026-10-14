@@ -58,9 +58,10 @@ public class AiMemoryUndoService {
   }
 
   /**
-   * 반대 동작. saved → 지움(이미 없으면 그대로), updated → 이전 내용(이전 종류가 기록돼 있으면 종류도)으로(없으면 GONE, 그 뒤에 또 바뀌었으면
-   * CHANGED), forgotten → 같은 id·종류·내용·출처로 재생성(상한이면 FULL — id 를 유지해야 앞선 줄의 되돌리기가 같은 메모리를 가리킨다).
-   * saved 는 그 사이 사용자가 고쳤어도 같은 항목이므로 지운다(스펙 §6).
+   * 반대 동작. saved → 지움(이미 없으면 그대로), updated → 이전 내용·종류(기록돼 있으면)·범위·기한으로(없으면 GONE, 그 뒤에 또 바뀌었으면
+   * CHANGED, 이전 범위가 가득이면 FULL), forgotten → 같은 id·종류·내용·출처·범위·기한으로 재생성(상한이면 FULL — id 를 유지해야 앞선 줄의
+   * 되돌리기가 같은 메모리를 가리킨다). 범위·기한 필드가 없는 구 블록은 공통·기한 없음이다(WP-379·380). saved 는 그 사이 사용자가 고쳤어도 같은 항목이므로
+   * 지운다.
    */
   private AiMemoryItem reverse(long userId, ObjectNode b) {
     long memoryId = b.path("memoryId").asLong();
@@ -73,17 +74,25 @@ public class AiMemoryUndoService {
           memoryService.restoreContent(
               userId,
               memoryId,
-              requiredText(b, "content"),
-              requiredText(b, "memoryKind"),
-              requiredText(b, "previousContent"),
-              b.path("previousKind").isTextual() ? b.path("previousKind").asText() : null);
+              new AiMemoryService.Snapshot(
+                  requiredText(b, "content"),
+                  requiredText(b, "memoryKind"),
+                  textOrNull(b, "scope"),
+                  textOrNull(b, "expiresOn")),
+              new AiMemoryService.Snapshot(
+                  requiredText(b, "previousContent"),
+                  textOrNull(b, "previousKind"),
+                  textOrNull(b, "previousScope"),
+                  textOrNull(b, "previousExpiresOn")));
       case "forgotten" ->
           memoryService.restore(
               userId,
               memoryId,
               requiredText(b, "memoryKind"),
               requiredText(b, "content"),
-              b.path("source").asText("AI"));
+              b.path("source").asText("AI"),
+              textOrNull(b, "scope"),
+              textOrNull(b, "expiresOn"));
       default -> throw AiMemoryException.invalid("되돌릴 수 없는 메모리 결과예요");
     };
   }
@@ -102,6 +111,12 @@ public class AiMemoryUndoService {
     JsonNode v = b.path(field);
     if (!v.isTextual()) throw AiMemoryException.invalid("되돌릴 메모리 결과가 손상됐어요");
     return v.asText();
+  }
+
+  /** 문자열 필드(없거나 문자열이 아니면 null — 구 블록의 scope·previousKind). */
+  private static String textOrNull(ObjectNode b, String field) {
+    JsonNode v = b.path(field);
+    return v.isTextual() ? v.asText() : null;
   }
 
   private ArrayNode readBlocks(String json) {

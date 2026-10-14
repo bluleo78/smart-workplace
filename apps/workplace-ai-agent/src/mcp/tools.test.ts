@@ -177,11 +177,15 @@ function sharedMock(): MockedShared {
     readMessageAttachmentText: vi.fn(),
     readMailAttachmentText: vi.fn(),
     downloadMailAttachment: vi.fn(),
+    getIssueChatThreadId: vi.fn(),
+    listIssueChatMessages: vi.fn(),
+    readIssueChatAttachmentText: vi.fn(),
     // WP-250: 모델 입력용 이미지(/view).
     viewIssueAttachment: vi.fn(),
     viewDriveFile: vi.fn(),
     viewWikiAttachment: vi.fn(),
     viewMessageAttachment: vi.fn(),
+    viewIssueChatAttachment: vi.fn(),
   };
 }
 
@@ -825,7 +829,8 @@ describe('chat 도구', () => {
       vi.mocked(c.viewChatAttachment).mockResolvedValue({ ...png, pageCount: 4 });
       const out = (await chatTool(c).handler({ threadId: 5, fileId: 3, pages: [1] })) as Array<{ type: string; text?: string }>;
       expect(c.viewChatAttachment).toHaveBeenCalledWith(AGENT_ID, 5, 3, 1);
-      expect(out.map((b) => b.type)).toEqual(['text', 'image']);
+      // 마지막 text 는 본 내용을 글로 적어 두라는 안내(PAGES_NOTE_HINT) — 압축되면 이미지는 빠진다.
+      expect(out.map((b) => b.type)).toEqual(['text', 'image', 'text']);
       expect(out[0].text).toContain('1쪽(전체 4쪽)');
       expect(c.readChatAttachmentText).not.toHaveBeenCalled();
       expect(c.listThreadIssueAttachments).not.toHaveBeenCalled();
@@ -920,7 +925,7 @@ describe('chat 도구', () => {
       expect(c.viewChatAttachment).not.toHaveBeenCalled();
     });
 
-    // 형식 미지원(UNSUPPORTED_TYPE)은 이미지 후보가 아니다 — 옛 octet-stream 사진은 V172 가 데이터에서 IMAGE 로 바로잡았다(WP-250).
+    // 형식 미지원(UNSUPPORTED_TYPE)은 이미지 후보가 아니다 — 옛 octet-stream 사진은 V174 가 데이터에서 IMAGE 로 바로잡았다(WP-250).
     it('형식 미지원으로 건너뛴 파일 → 메타를 찾지 않고 슬라이스 그대로', async () => {
       const c = client();
       vi.mocked(c.readChatAttachmentText).mockResolvedValue(

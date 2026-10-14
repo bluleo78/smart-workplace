@@ -206,7 +206,7 @@ export function MessageRow({
   ) : ownBubble && !hasBody ? null : (
     <div
       data-testid={`message-body-${m.id}`}
-      className={`text-sm whitespace-pre-wrap break-words ${
+      className={`text-sm break-words whitespace-pre-wrap ${
         // 본인: 말풍선. 삭제된 메시지는 색 없는 점선 테두리로 자리를 유지한다.
         // wrap-anywhere: 공백 없는 긴 문자열도 말풍선 안에서 끊어 min-content 폭을 줄인다(가로 스크롤 방지).
         ownBubble ? `wrap-anywhere rounded-2xl px-3 py-1.5 ${m.deleted ? 'border border-dashed' : 'bg-primary/10'}` : ''

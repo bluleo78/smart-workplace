@@ -78,7 +78,9 @@ class HomeChatStreamClientTest {
         null,
         List.of(),
         List.of(),
-        false);
+        false,
+        null,
+        null);
   }
 
   /** delta×3 + done — 순서대로 소비하고 fullText/widgets 파싱이 올바른지 검증. */

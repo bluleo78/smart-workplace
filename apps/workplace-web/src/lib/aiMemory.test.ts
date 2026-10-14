@@ -1,7 +1,31 @@
 import { AxiosError, AxiosHeaders } from 'axios';
 import { describe, expect, it } from 'vitest';
 
-import { canSubmitContent, contentCountTone, listCountTone, memoryErrorMessage, memoryLength } from './aiMemory';
+import type { AiMemoryItem } from '@/types/aiMemory';
+
+import {
+  canSubmitContent,
+  COLLAPSE_OVER,
+  collapsedRows,
+  contentCountTone,
+  defaultAddScope,
+  expiryPatch,
+  expiryQuickPicks,
+  extractApiErrorScope,
+  fullScopeKeys,
+  groupMemories,
+  listCountTone,
+  memoryErrorMessage,
+  memoryFullMessage,
+  memoryLength,
+  memoryNoun,
+  purgeDateKey,
+  SCOPE_LABEL,
+  scopeDescription,
+  scopeKeyOf,
+  UNDO_FULL_MESSAGE,
+  wasExpiredAtUndo,
+} from './aiMemory';
 
 /** 서버 ErrorResponse 를 실은 axios 오류. */
 function apiError(status: number, data: unknown): AxiosError {
@@ -36,5 +60,135 @@ describe('메모리 길이·카운트 (WP-55)', () => {
       '메모리가 가득 찼어요(최대 50개)',
     );
     expect(memoryErrorMessage(new Error('x'), '추가하지 못했어요')).toBe('추가하지 못했어요');
+  });
+});
+
+describe('메모리 범위 (WP-379)', () => {
+  it('범위 키·이름 — null·없음은 공통', () => {
+    expect(scopeKeyOf(null)).toBe('COMMON');
+    expect(scopeKeyOf(undefined)).toBe('COMMON');
+    expect(scopeKeyOf('MAIL')).toBe('MAIL');
+    expect(SCOPE_LABEL.COMMON).toBe('공통');
+    expect(SCOPE_LABEL.WIKI).toBe('노트');
+    expect(SCOPE_LABEL.MESSAGING).toBe('메신저');
+  });
+
+  it('결과 줄 명사 — 앱이면 "이슈 메모리", 공통이면 "메모리"', () => {
+    expect(memoryNoun('ISSUE')).toBe('이슈 메모리');
+    expect(memoryNoun(undefined)).toBe('메모리');
+  });
+
+  it('가득 참 문구 — 앱 범위면 그 범위 이름, 공통·모름이면 기존 문구', () => {
+    expect(memoryFullMessage('ISSUE')).toBe('이슈 메모리가 가득 찼어요. 설정에서 정리해 주세요');
+    expect(memoryFullMessage('COMMON')).toBe(UNDO_FULL_MESSAGE);
+    expect(memoryFullMessage(null)).toBe(UNDO_FULL_MESSAGE);
+    expect(memoryFullMessage('CONTACTS')).toBe(UNDO_FULL_MESSAGE);
+  });
+
+  it('409 응답의 errors.scope 를 읽는다(없으면 null)', () => {
+    expect(extractApiErrorScope(apiError(409, { message: 'x', errors: { code: 'AI_MEMORY_FULL', scope: 'MAIL' } }))).toBe('MAIL');
+    expect(extractApiErrorScope(apiError(409, { message: 'x', errors: { code: 'AI_MEMORY_FULL' } }))).toBeNull();
+    expect(extractApiErrorScope(new Error('x'))).toBeNull();
+  });
+});
+
+const mem = (id: number, scope: AiMemoryItem['scope'] = null): AiMemoryItem => ({
+  id,
+  kind: 'PREFERENCE',
+  content: `m${id}`,
+  source: 'AI',
+  createdAt: '2026-10-10T00:00:00Z',
+  updatedAt: '2026-10-10T00:00:00Z',
+  scope,
+});
+
+describe('설정 묶음 (WP-379)', () => {
+  it('범위 순서(공통 → 이슈 → 노트 → 메일 → 드라이브 → 메신저 → 캘린더)로 묶고 빈 범위는 뺀다 — 묶음 안은 받은 순서(최신순) 그대로', () => {
+    const groups = groupMemories([mem(9, 'MAIL'), mem(8), mem(7, 'ISSUE'), mem(6), mem(5, 'MAIL'), mem(4, undefined)]);
+    expect(groups.map((g) => g.key)).toEqual(['COMMON', 'ISSUE', 'MAIL']);
+    expect(groups.map((g) => g.label)).toEqual(['공통', '이슈', '메일']);
+    expect(groups[0].active.map((m) => m.id)).toEqual([8, 6, 4]);
+    expect(groups[2].active.map((m) => m.id)).toEqual([9, 5]);
+    expect(groups.every((g) => g.expired.length === 0)).toBe(true);
+  });
+
+  it('모르는 범위 값(신 서버)은 묶음에서 뺀다', () => {
+    const unknown = { ...mem(3), scope: 'NEWAPP' as unknown as AiMemoryItem['scope'] };
+    expect(groupMemories([unknown, mem(2)]).map((g) => [g.key, g.active.length])).toEqual([['COMMON', 1]]);
+  });
+
+  it('가득 찬 범위 — 묶음의 유효 행 수가 한도 이상', () => {
+    const groups = groupMemories([...Array.from({ length: 50 }, (_, i) => mem(i + 1)), mem(100, 'ISSUE')]);
+    expect([...fullScopeKeys(groups, 50)]).toEqual(['COMMON']);
+  });
+
+  it('10개 넘는 묶음은 접으면 5개, 펼치면 전부 — 10개 이하는 그대로', () => {
+    const eleven = Array.from({ length: COLLAPSE_OVER + 1 }, (_, i) => mem(i));
+    expect(collapsedRows(eleven, false)).toHaveLength(5);
+    expect(collapsedRows(eleven, true)).toHaveLength(11);
+    expect(collapsedRows(eleven.slice(0, 10), false)).toHaveLength(10);
+  });
+
+  it('직접 추가 기본 범위 — 공통, 공통이 가득이면 첫 빈 앱 범위, 모두 가득이면 null', () => {
+    expect(defaultAddScope(new Set())).toBe('COMMON');
+    expect(defaultAddScope(new Set(['COMMON', 'ISSUE']))).toBe('WIKI');
+    expect(defaultAddScope(new Set(['COMMON', 'ISSUE', 'WIKI', 'MAIL', 'DRIVE', 'MESSAGING', 'CALENDAR']))).toBeNull();
+  });
+
+  it('묶음 설명', () => {
+    expect(scopeDescription('COMMON')).toBe('모든 AI 대화에 반영돼요');
+    expect(scopeDescription('DRIVE')).toBe('드라이브 화면의 AI 대화에만 반영돼요');
+  });
+});
+
+describe('기한 (WP-380)', () => {
+  it('만료 행은 묶음 끝으로 — 한도 계산(active)에서 빠진다', () => {
+    const rows = [
+      { ...mem(5), expired: true, expiresOn: '2026-10-10' },
+      { ...mem(4), expiresOn: '2026-10-24', expired: false },
+      mem(3),
+    ];
+    const [g] = groupMemories(rows);
+    expect(g.active.map((m) => m.id)).toEqual([4, 3]);
+    expect(g.expired.map((m) => m.id)).toEqual([5]);
+    expect(fullScopeKeys([g], 2).has('COMMON')).toBe(true);
+    expect(fullScopeKeys([g], 3).has('COMMON')).toBe(false);
+  });
+
+  it('만료 행만 있는 범위도 묶음을 보인다', () => {
+    expect(groupMemories([{ ...mem(1, 'MAIL'), expired: true, expiresOn: '2026-10-01' }]).map((g) => g.key)).toEqual(['MAIL']);
+  });
+
+  it('자동 삭제일 = 기한 + 31일(10/10 → 11/10)', () => {
+    expect(purgeDateKey('2026-10-10')).toBe('2026-11-10');
+    expect(purgeDateKey('2026-12-15')).toBe('2027-01-15');
+  });
+
+  it('빠른 선택 — 기한 없음(편집·추가만)·다음 주·한 달 뒤', () => {
+    expect(expiryQuickPicks('2026-10-14', true)).toEqual([
+      { key: 'none', label: '기한 없음', value: null },
+      { key: 'next-week', label: '다음 주', value: '2026-10-21' },
+      { key: 'next-month', label: '한 달 뒤', value: '2026-11-14' },
+    ]);
+    expect(expiryQuickPicks('2026-01-31', false).map((q) => q.value)).toEqual(['2026-02-07', '2026-02-28']);
+  });
+
+  it('기한 바꾸기 본문 — 같으면 없음, 지정이면 expiresOn, 없애면 clearExpiry', () => {
+    expect(expiryPatch('2026-10-24', '2026-10-24')).toEqual({});
+    expect(expiryPatch(null, '2026-10-24')).toEqual({ expiresOn: '2026-10-24' });
+    expect(expiryPatch('2026-10-24', null)).toEqual({ clearExpiry: true });
+  });
+});
+
+describe('설정 지움 되돌리기의 기한 판정 (WP-380)', () => {
+  it('되돌리기를 누른 날(KST)보다 기한이 앞서면 지난 것 — 다시 만들지 않는다', () => {
+    expect(wasExpiredAtUndo('2026-10-13', '2026-10-14')).toBe(true);
+  });
+
+  it('기한 당일·이후·기한 없음은 되돌릴 수 있다', () => {
+    expect(wasExpiredAtUndo('2026-10-14', '2026-10-14')).toBe(false);
+    expect(wasExpiredAtUndo('2026-10-20', '2026-10-14')).toBe(false);
+    expect(wasExpiredAtUndo(null, '2026-10-14')).toBe(false);
+    expect(wasExpiredAtUndo(undefined, '2026-10-14')).toBe(false);
   });
 });

@@ -107,6 +107,19 @@ describe('메모리 결과 줄 (WP-55)', () => {
     expect(toMemoryBlock(memory)).not.toHaveProperty('previousKind');
   });
 
+  it('WP-379 toMemoryBlock: 범위·이전 범위는 앱일 때만 싣는다(null = 공통 → 키 없음, 서버 블록과 같은 모양)', () => {
+    expect(toMemoryBlock({ ...memory, scope: 'ISSUE' })).toEqual({ ...savedBlock, scope: 'ISSUE' });
+    expect(toMemoryBlock({ ...memory, scope: null })).toEqual(savedBlock);
+    expect(
+      toMemoryBlock({ ...memory, action: 'updated', previousContent: 'a', scope: null, previousScope: 'MAIL' }),
+    ).toEqual({ ...savedBlock, action: 'updated', previousContent: 'a', previousScope: 'MAIL' });
+  });
+
+  it('WP-380 toMemoryBlock: 기한·이전 기한은 있을 때만', () => {
+    expect(toMemoryBlock({ ...memory, expiresOn: '2026-10-24' })).toEqual({ ...savedBlock, expiresOn: '2026-10-24' });
+    expect(toMemoryBlock({ ...memory, expiresOn: null, previousExpiresOn: null })).toEqual(savedBlock);
+  });
+
   // I1: 서버는 memory 블록을 memoryBlocks 로 따로 보낸다(구 웹 보호) — 이력 턴은 그대로 memoryBlocks 로 옮긴다(순번 유지).
   it('이력의 memoryBlocks 를 순서대로 옮기고 contentBlocks 는 건드리지 않는다', () => {
     const saved = { ...savedBlock, undone: true };

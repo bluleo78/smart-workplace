@@ -94,7 +94,7 @@ public class AttachmentViewService {
                     .fetchOne());
     if (f == null) throw new AttachmentViewException("NOT_FOUND");
     String storagePath = f.value1();
-    // 저장된 mime 만 본다 — 옛 octet-stream HEIC·TIFF·BMP 는 V172 가 데이터에서 이미지 mime 으로 바로잡았다.
+    // 저장된 mime 만 본다 — 옛 octet-stream HEIC·TIFF·BMP 는 V174 가 데이터에서 이미지 mime 으로 바로잡았다.
     String mime = MimeNormalizer.baseMime(f.value2());
     boolean pdf = "application/pdf".equals(mime);
 

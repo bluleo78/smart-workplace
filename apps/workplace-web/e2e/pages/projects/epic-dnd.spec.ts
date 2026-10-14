@@ -2,6 +2,7 @@
 import type { Page, Route } from '@playwright/test';
 
 import { mockApi } from '../../fixtures/api-mock';
+import { serverEpicFilter } from '../../fixtures/epic-search';
 import { expect, test } from '../../fixtures/auth.fixture';
 import { bodyOf, trackRequests } from '../../fixtures/requests';
 import { dropDnd, expectStays, measureBox, stableBox } from '../../fixtures/wait';
@@ -37,8 +38,10 @@ async function setup(
     issuesByCycle?: Record<string, number[]>;
     // 에픽 목록 — 기본 A·B. 긴 목록(스크롤) 검증은 많이 넘긴다.
     epics?: { number: number; title: string }[];
-    // 종료된 에픽(WP-245) — 에픽 조회에 status=DONE,CANCELED 가 오면 이 목록을 돌려준다. 기본 [] (구역 없음).
+    // 종료된 에픽(WP-245) — 에픽 조회는 serverEpicFilter 로 서버처럼 거른다. 기본 [] (구역 없음).
     closedEpics?: IssueResponse[];
+    // 진행 중 사이클에 할당된 에픽 번호(WP-389) — 이 종료 에픽은 패널 위쪽 목록에 종료 배지로 나오며 드롭 대상이 아니다.
+    activeCycle?: number[];
   },
 ) {
   const epics = opts.epics ?? [EPIC_A, EPIC_B];
@@ -62,9 +65,8 @@ async function setup(
       if (route.request().method() !== 'GET') return route.fallback();
       const url = new URL(route.request().url());
       const cycleParam = url.searchParams.get('cycle');
-      const isClosedQuery = (url.searchParams.get('status') ?? '').includes('DONE');
       const body = url.searchParams.get('type') === String(makeEpicType().id)
-        ? (isClosedQuery ? (opts.closedEpics ?? []) : epics.map(epic))
+        ? serverEpicFilter(url, [...epics.map(epic), ...(opts.closedEpics ?? [])], opts.activeCycle)
         : opts.issuesByCycle && cycleParam != null
           ? (opts.issuesByCycle[cycleParam] ?? []).map((n) => issues.get(n)!)
           : [...issues.values()];
@@ -649,6 +651,39 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     await page.keyboard.press('Space');
     await expect.poll(() => statusPatches.lastBody()).toEqual({ status: 'CANCELED' });
     await expectStays(page, patches, []);
+  });
+
+  test('진행 중 사이클 소속 종료 에픽은 위쪽 목록에 있어도 드롭 대상이 아니다 — 차단으로 흐리고 놓아도 PATCH 없음 (WP-389)', async ({ authenticatedPage: page }) => {
+    const { patches } = await setup(page, {
+      issues: [createIssue({ id: 1, number: 1, title: '카드', status: 'TODO' })],
+      closedEpics: [createIssue({ id: 12, number: 12, title: '이번 사이클 끝난 에픽', type: makeEpicType(), status: 'DONE', childCount: 2, childDoneCount: 2 })],
+      activeCycle: [12],
+      panelOpen: true,
+    });
+    await page.goto(`/projects/${PROJECT_KEY}?view=board`);
+    await expect(page.getByTestId('epic-filter-12')).toBeVisible();
+    await startDrag(page, 'issue-card-1');
+    // 진행 중 에픽은 허용, 종료 에픽은 차단 — 드래그 동안 목록에서 사라지지 않고 제자리에서 흐려진다.
+    await expect(page.getByTestId(`epic-filter-${EPIC_A.number}`)).toHaveAttribute('data-drop-state', 'allowed');
+    await expect(page.getByTestId('epic-filter-12')).toHaveAttribute('data-drop-state', 'blocked');
+    await moveOver(page, 'epic-filter-12');
+    await dropDnd(page);
+    await expectStays(page, patches, []);
+  });
+
+  test('이미 진행 중 사이클 소속 종료 에픽에 속한 이슈를 끌면 그 에픽은 차단이 아니라 「현재」로 보인다 (WP-389)', async ({ authenticatedPage: page }) => {
+    const done = createIssue({ id: 12, number: 12, title: '이번 사이클 끝난 에픽', type: makeEpicType(), status: 'DONE', childCount: 1, childDoneCount: 1 });
+    await setup(page, {
+      issues: [createIssue({ id: 1, number: 1, title: '카드', status: 'DONE', parent: { number: 12, title: done.title, type: makeEpicType() } })],
+      closedEpics: [done],
+      activeCycle: [12],
+      panelOpen: true,
+    });
+    await page.goto(`/projects/${PROJECT_KEY}?view=board`);
+    await startDrag(page, 'issue-card-1');
+    await expect(page.getByTestId('epic-filter-12')).toHaveAttribute('data-drop-state', 'current');
+    await expect(page.getByTestId('epic-filter-12')).toContainText('현재');
+    await dropDnd(page);
   });
 
   test('드래그 중에는 「종료된 에픽」 구역이 숨겨지고, 놓으면 다시 보이며 펼침 상태가 유지된다 (WP-245)', async ({ authenticatedPage: page }) => {

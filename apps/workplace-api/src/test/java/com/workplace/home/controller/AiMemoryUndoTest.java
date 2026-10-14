@@ -2,6 +2,7 @@ package com.workplace.home.controller;
 
 import static com.workplace.jooq.Tables.HOME_MESSAGE;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -12,7 +13,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.workplace.home.AiMemoryTestFixtures;
 import com.workplace.home.dto.AiMemoryItem;
+import com.workplace.home.dto.UpdateAiMemoryRequest;
 import com.workplace.home.repository.AiMemoryRepository;
+import com.workplace.home.repository.AiMemoryRepository.NewMemory;
 import com.workplace.home.service.AiMemoryService;
 import com.workplace.home.service.HomeSessionService;
 import com.workplace.support.IntegrationTestBase;
@@ -75,7 +78,9 @@ class AiMemoryUndoTest extends IntegrationTestBase {
 
   /** 본인 메모리 1건(없으면 empty). */
   private Optional<AiMemoryRepository.Row> find(long uid, long id) {
-    return repo.listNewest(uid, 50).stream().filter(r -> r.id() == id).findFirst();
+    return AiMemoryTestFixtures.allMemories(dsl, uid).stream()
+        .filter(r -> r.id() == id)
+        .findFirst();
   }
 
   /** 메시지의 memory 블록들(순번 순). */
@@ -149,20 +154,21 @@ class AiMemoryUndoTest extends IntegrationTestBase {
         .andExpect(jsonPath("$.memory.kind").value("CONTEXT"))
         .andExpect(jsonPath("$.memory.content").value("백엔드 팀이다"))
         .andExpect(jsonPath("$.memory.source").value("AI"));
-    assertThat(repo.count(uid)).isEqualTo(1);
+    assertThat(AiMemoryTestFixtures.countMemories(dsl, uid)).isEqualTo(1);
   }
 
   @Test
   void 지움_되돌리기가_상한이면_409_FULL_이고_블록은_그대로다() throws Exception {
     long uid = TestFixtures.createHuman(dsl);
-    for (int i = 0; i < 50; i++) repo.insert(uid, "PREFERENCE", "m" + i, "USER", null);
+    for (int i = 0; i < 50; i++)
+      repo.insert(uid, new NewMemory("PREFERENCE", "m" + i, "USER", null, null, null));
     long mid = message(uid, block("forgotten", 987654L, "CONTEXT", "백엔드 팀이다", null, "USER"));
 
     undo(uid, mid, 0)
         .andExpect(status().isConflict())
         .andExpect(jsonPath("$.errors.code").value("AI_MEMORY_FULL"));
     assertThat(memoryBlocks(mid).get(0).path("undone").asBoolean()).isFalse();
-    assertThat(repo.count(uid)).isEqualTo(50);
+    assertThat(AiMemoryTestFixtures.countMemories(dsl, uid)).isEqualTo(50);
   }
 
   /** Review Focus 1(순차): 두 번 눌러도 메모리는 한 번만 다시 생긴다. */
@@ -176,7 +182,7 @@ class AiMemoryUndoTest extends IntegrationTestBase {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.undone").value(true))
         .andExpect(jsonPath("$.memory").doesNotExist());
-    assertThat(repo.count(uid)).isEqualTo(1);
+    assertThat(AiMemoryTestFixtures.countMemories(dsl, uid)).isEqualTo(1);
   }
 
   @Test
@@ -201,7 +207,7 @@ class AiMemoryUndoTest extends IntegrationTestBase {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.memory.content").value("백엔드 팀이다"))
         .andExpect(jsonPath("$.memory.source").value("AI"));
-    assertThat(repo.count(uid)).isEqualTo(1);
+    assertThat(AiMemoryTestFixtures.countMemories(dsl, uid)).isEqualTo(1);
     assertThat(memoryBlocks(mid).get(0).path("undone").asBoolean()).isTrue();
   }
 
@@ -224,7 +230,7 @@ class AiMemoryUndoTest extends IntegrationTestBase {
   void 이전_종류가_없는_고침_줄은_내용만_되돌리고_지금_종류를_유지한다() throws Exception {
     long uid = TestFixtures.createHuman(dsl);
     AiMemoryItem m = create(uid, "PREFERENCE", "짧은 목록");
-    memories.update(uid, m.id(), "백엔드 팀이다", "CONTEXT", false);
+    memories.update(uid, m.id(), edit("백엔드 팀이다", "CONTEXT"), false);
     long mid = message(uid, block("updated", m.id(), "CONTEXT", "백엔드 팀이다", "짧은 목록", "AI"));
 
     undo(uid, mid, 0)
@@ -285,7 +291,7 @@ class AiMemoryUndoTest extends IntegrationTestBase {
   void 고침_되돌리기는_이전_종류가_있으면_종류도_돌려놓는다() throws Exception {
     long uid = TestFixtures.createHuman(dsl);
     AiMemoryItem m = create(uid, "PREFERENCE", "짧은 목록");
-    memories.update(uid, m.id(), "백엔드 팀이다", "CONTEXT", false);
+    memories.update(uid, m.id(), edit("백엔드 팀이다", "CONTEXT"), false);
     long mid =
         message(
             uid,
@@ -307,7 +313,7 @@ class AiMemoryUndoTest extends IntegrationTestBase {
     long uid = TestFixtures.createHuman(dsl);
     AiMemoryItem m = create(uid, "PREFERENCE", "표 대신 목록");
     long mid = message(uid, block("updated", m.id(), "PREFERENCE", "표 대신 목록", "짧은 목록", "AI"));
-    memories.update(uid, m.id(), "사용자가 나중에 고친 내용", null, false);
+    memories.update(uid, m.id(), edit("사용자가 나중에 고친 내용", null), false);
 
     undo(uid, mid, 0)
         .andExpect(status().isConflict())
@@ -326,7 +332,7 @@ class AiMemoryUndoTest extends IntegrationTestBase {
             uid,
             block("updated", m.id(), "CONTEXT", "백엔드 팀이다", "짧은 목록", "AI")
                 .put("previousKind", "PREFERENCE"));
-    memories.update(uid, m.id(), null, "PREFERENCE", false);
+    memories.update(uid, m.id(), edit(null, "PREFERENCE"), false);
 
     undo(uid, mid, 0)
         .andExpect(status().isConflict())
@@ -356,7 +362,7 @@ class AiMemoryUndoTest extends IntegrationTestBase {
 
     undo(uid, mid, 0).andExpect(status().isOk());
     assertThat(find(uid, m.id())).isEmpty();
-    assertThat(repo.count(uid)).isZero();
+    assertThat(AiMemoryTestFixtures.countMemories(dsl, uid)).isZero();
   }
 
   /** CR2: 원래 id 가 이미 쓰이고 있으면(같은 메모리를 다른 줄로 이미 되살림) 새 id 로 되살린다 — 키 충돌로 실패하지 않는다. */
@@ -369,7 +375,7 @@ class AiMemoryUndoTest extends IntegrationTestBase {
     undo(uid, mid, 0)
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.memory.content").value("짧은 목록"));
-    assertThat(repo.count(uid)).isEqualTo(2);
+    assertThat(AiMemoryTestFixtures.countMemories(dsl, uid)).isEqualTo(2);
     assertThat(find(uid, m.id())).isPresent();
   }
 
@@ -384,6 +390,109 @@ class AiMemoryUndoTest extends IntegrationTestBase {
 
     undo(uid, mid, 0).andExpect(status().isOk());
     assertThat(find(uid, unissued)).isEmpty();
-    assertThat(repo.count(uid)).isEqualTo(1);
+    assertThat(AiMemoryTestFixtures.countMemories(dsl, uid)).isEqualTo(1);
+  }
+
+  /** 내용·종류만 고치는 요청(서비스 직접 호출용, null 은 그대로 둔다). */
+  private static UpdateAiMemoryRequest edit(String content, String kind) {
+    UpdateAiMemoryRequest r = new UpdateAiMemoryRequest();
+    if (content != null) r.setContent(content);
+    if (kind != null) r.setKind(kind);
+    return r;
+  }
+
+  /** 범위만 옮기는 고치기 요청(서비스 직접 호출용). */
+  private static UpdateAiMemoryRequest moveTo(String scope) {
+    UpdateAiMemoryRequest r = new UpdateAiMemoryRequest();
+    r.setScope(scope);
+    return r;
+  }
+
+  /** WP-379: 고침 되돌리기는 이전 범위로 옮긴다 — 이전 범위가 그 사이 가득 찼으면 409 FULL(+범위)이고 블록은 그대로다. */
+  @Test
+  void 고침_되돌리기는_이전_범위로_옮기고_이전_범위가_가득이면_409() throws Exception {
+    long uid = TestFixtures.createHuman(dsl);
+    AiMemoryItem m = create(uid, "PREFERENCE", "목록은 짧게");
+    memories.update(uid, m.id(), moveTo("ISSUE"), false);
+    // AI 가 공통 → 이슈로 옮긴 줄(previousScope 없음 = 공통).
+    long mid =
+        message(
+            uid,
+            block("updated", m.id(), "PREFERENCE", "목록은 짧게", "목록은 짧게", "AI").put("scope", "ISSUE"));
+    undo(uid, mid, 0)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.memory.scope").value(nullValue()));
+    assertThat(find(uid, m.id()).orElseThrow().scope()).isNull();
+
+    long uid2 = TestFixtures.createHuman(dsl);
+    AiMemoryItem m2 = create(uid2, "PREFERENCE", "목록은 짧게");
+    memories.update(uid2, m2.id(), moveTo("ISSUE"), false);
+    for (int i = 0; i < 50; i++)
+      repo.insert(uid2, new NewMemory("PREFERENCE", "c" + i, "USER", null, null, null));
+    long mid2 =
+        message(
+            uid2,
+            block("updated", m2.id(), "PREFERENCE", "목록은 짧게", "목록은 짧게", "AI")
+                .put("scope", "ISSUE"));
+    undo(uid2, mid2, 0)
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.errors.code").value("AI_MEMORY_FULL"))
+        .andExpect(jsonPath("$.errors.scope").value("COMMON"));
+    assertThat(memoryBlocks(mid2).get(0).path("undone").asBoolean()).isFalse();
+    assertThat(find(uid2, m2.id()).orElseThrow().scope()).isEqualTo("ISSUE");
+  }
+
+  /** WP-379: 지움 되돌리기는 같은 범위로 다시 만든다 — 그 범위가 가득이면 409 FULL + 그 범위. */
+  @Test
+  void 지움_되돌리기는_같은_범위로_다시_만들고_가득이면_409_와_범위() throws Exception {
+    long uid = TestFixtures.createHuman(dsl);
+    long mid =
+        message(
+            uid,
+            block("forgotten", 987654L, "PREFERENCE", "메일은 존댓말로", null, "AI").put("scope", "MAIL"));
+    undo(uid, mid, 0)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.memory.scope").value("MAIL"));
+
+    long uid2 = TestFixtures.createHuman(dsl);
+    for (int i = 0; i < 50; i++)
+      repo.insert(uid2, new NewMemory("PREFERENCE", "m" + i, "USER", null, "MAIL", null));
+    long mid2 =
+        message(
+            uid2,
+            block("forgotten", 987655L, "PREFERENCE", "메일은 존댓말로", null, "AI").put("scope", "MAIL"));
+    undo(uid2, mid2, 0)
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.errors.code").value("AI_MEMORY_FULL"))
+        .andExpect(jsonPath("$.errors.scope").value("MAIL"));
+  }
+
+  /**
+   * WP-55 때 영속된 줄(scope 필드 없음)은 공통으로 해석한다 — 지움 줄은 공통으로 재생성, 고침 줄은 지금 공통이면 복원하고 그 뒤 다른 범위로 옮겼으면 덮지
+   * 않는다(409 CHANGED).
+   */
+  @Test
+  void 범위_필드가_없는_구_블록은_공통으로_해석한다() throws Exception {
+    long uid = TestFixtures.createHuman(dsl);
+    long forgotten = message(uid, block("forgotten", 987656L, "CONTEXT", "백엔드 팀이다", null, "AI"));
+    undo(uid, forgotten, 0)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.memory.scope").value(nullValue()));
+
+    AiMemoryItem a = create(uid, "PREFERENCE", "표 대신 목록");
+    long updated = message(uid, block("updated", a.id(), "PREFERENCE", "표 대신 목록", "짧은 목록", "AI"));
+    undo(uid, updated, 0)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.memory.content").value("짧은 목록"))
+        .andExpect(jsonPath("$.memory.scope").value(nullValue()));
+
+    AiMemoryItem b = create(uid, "PREFERENCE", "목록은 담당자만");
+    memories.update(uid, b.id(), moveTo("ISSUE"), false);
+    long moved = message(uid, block("updated", b.id(), "PREFERENCE", "목록은 담당자만", "목록은 짧게", "AI"));
+    undo(uid, moved, 0)
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.errors.code").value("AI_MEMORY_CHANGED"));
+    assertThat(find(uid, b.id()).orElseThrow().scope()).isEqualTo("ISSUE");
+    assertThat(find(uid, b.id()).orElseThrow().content()).isEqualTo("목록은 담당자만");
   }
 }

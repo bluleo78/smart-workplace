@@ -1,5 +1,5 @@
 // WP-55 AI 메모리 엔드포인트. 실패 토스트는 훅이 정한다(오류 코드별 문구).
-import type { AiMemoryItem, AiMemoryKind, AiMemoryList, UndoAiMemoryRequest, UndoAiMemoryResponse } from '../types/aiMemory';
+import type { AiMemoryItem, AiMemoryKind, AiMemoryList, AiMemoryScope, UndoAiMemoryRequest, UndoAiMemoryResponse } from '../types/aiMemory';
 import { client } from './client';
 
 /** 채팅 결과 줄 되돌리기. */
@@ -14,14 +14,22 @@ export async function listAiMemories(): Promise<AiMemoryList> {
   return data;
 }
 
-/** 직접 추가 — 서버가 항상 USER 로 저장한다. */
-export async function createAiMemory(body: { kind: AiMemoryKind; content: string }): Promise<AiMemoryItem> {
+/** 직접 추가 — 서버가 항상 USER 로 저장한다. scope 생략 = 공통(WP-379), expiresOn 생략 = 기한 없음(WP-380). */
+export async function createAiMemory(body: {
+  kind: AiMemoryKind;
+  content: string;
+  scope?: AiMemoryScope;
+  expiresOn?: string;
+}): Promise<AiMemoryItem> {
   const { data } = await client.post<AiMemoryItem>('/users/me/ai-memories', body);
   return data;
 }
 
-/** 고치기 — 응답에 이전 내용(previousContent)이 온다. */
-export async function updateAiMemory(id: number, body: { content?: string; kind?: AiMemoryKind }): Promise<AiMemoryItem> {
+/** 고치기 — 응답에 이전 내용(previousContent)이 온다. scope 키가 있으면 범위를 옮긴다(null = 공통, WP-379). 기한은 expiresOn 지정 또는 clearExpiry(둘을 함께 보내면 400, WP-380). */
+export async function updateAiMemory(
+  id: number,
+  body: { content?: string; kind?: AiMemoryKind; scope?: AiMemoryScope | null; expiresOn?: string; clearExpiry?: true },
+): Promise<AiMemoryItem> {
   const { data } = await client.patch<AiMemoryItem>(`/users/me/ai-memories/${id}`, body);
   return data;
 }

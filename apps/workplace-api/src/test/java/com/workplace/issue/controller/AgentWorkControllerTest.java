@@ -9,6 +9,7 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 
 /** AI 작업 명시 보고 API(WP-377 §4.1) — PAT·ak_ 로 실제 HTTP 요청을 보내 검증한다. */
@@ -346,5 +347,80 @@ class AgentWorkControllerTest extends AgentWorkTestSupport {
     putReport(patToken, TOOL, Map.of("note", "사람"));
     putReport(akToken, TOOL, Map.of("note", "AI"));
     assertThat(activeCount(issueId)).isEqualTo(2);
+  }
+
+  @Test
+  void 질문은_메시지_목록_응답과_스레드_최근메시지에_question_true_로_나간다() {
+    putReport(akToken, TOOL, Map.of("state", "INPUT_REQUIRED", "message", "A안과 B안 중 무엇으로 할까요?"));
+    long threadId = chatThreadId();
+    var page =
+        json(
+            call(
+                HttpMethod.GET,
+                "/api/v1/chat/threads/" + threadId + "/messages",
+                jwtToken,
+                null,
+                null));
+    var first = page.get("items").get(0);
+    assertThat(first.get("question").asBoolean()).isTrue();
+    assertThat(first.get("authorUsername").asText()).isNotBlank();
+    var thread = json(call(HttpMethod.GET, issuePath() + "/chat/thread", jwtToken, null, null));
+    assertThat(thread.get("recentMessages").get(0).get("question").asBoolean()).isTrue();
+  }
+
+  @Test
+  void 사람의_일반_챗_글은_question_false() {
+    postChat(jwtToken, "그냥 메모");
+    long threadId = chatThreadId();
+    var page =
+        json(
+            call(
+                HttpMethod.GET,
+                "/api/v1/chat/threads/" + threadId + "/messages",
+                jwtToken,
+                null,
+                null));
+    assertThat(page.get("items").get(0).get("question").asBoolean()).isFalse();
+  }
+
+  @Test
+  void 삭제된_질문은_question_false() {
+    putReport(akToken, TOOL, Map.of("state", "INPUT_REQUIRED", "message", "질문"));
+    long threadId = chatThreadId();
+    long msgId =
+        json(call(
+                HttpMethod.GET,
+                "/api/v1/chat/threads/" + threadId + "/messages",
+                jwtToken,
+                null,
+                null))
+            .get("items")
+            .get(0)
+            .get("id")
+            .asLong();
+    // 작성자(AI) 본인만 지울 수 있다.
+    assertOk(call(HttpMethod.DELETE, "/api/v1/chat/messages/" + msgId, akToken, null, null));
+    var item =
+        json(call(
+                HttpMethod.GET,
+                "/api/v1/chat/threads/" + threadId + "/messages",
+                jwtToken,
+                null,
+                null))
+            .get("items")
+            .get(0);
+    assertThat(item.get("deleted").asBoolean()).isTrue();
+    assertThat(item.get("question").asBoolean()).isFalse();
+  }
+
+  @Test
+  void 사람의_보고_message_는_AI구성원_INPUT_REQUIRED_를_풀지_않는다() {
+    putReport(akToken, TOOL, Map.of("state", "INPUT_REQUIRED", "message", "질문"));
+    // 사람이 자기 AI 도구로 진행을 남긴다 — 사람의 답이 아니다.
+    assertOk(putReport(patToken, TOOL, Map.of("state", "WORKING", "message", "제 쪽 진행: 테스트 작성 중")));
+    assertThat(activeWork(issueId, agentId).orElseThrow().state()).isEqualTo("INPUT_REQUIRED");
+    // 사람이 챗 입력창으로 답하면 푼다.
+    assertOk(postChat(jwtToken, "A안으로"));
+    assertThat(activeWork(issueId, agentId).orElseThrow().state()).isEqualTo("WORKING");
   }
 }

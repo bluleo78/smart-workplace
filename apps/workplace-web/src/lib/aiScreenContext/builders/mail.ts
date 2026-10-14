@@ -1,4 +1,5 @@
 // 메일함 화면 컨텍스트 builder(WP-54). messageId 는 숫자 id(get_mail 인자) — RFC Message-ID 문자열이 아니다.
+// WP-379: app 은 홈 채팅 메모리 범위 선택용(서버로 보내는 screenContext 에선 빠진다).
 import type { AiScreenContext } from '@/types/aiScreenContext';
 
 import { buildFacts, buildRefs, clip, fmtKst, LIMITS, withListState } from '../common';
@@ -36,7 +37,7 @@ export function buildMailContext(input: MailContextInput): AiScreenContext {
     { count: input.count },
   );
 
-  const ctx: AiScreenContext = { view: '메일함', scope };
+  const ctx: AiScreenContext = { view: '메일함', app: 'MAIL', scope };
   const s = input.selected;
   if (s) {
     ctx.focus = {

@@ -1,5 +1,6 @@
 // Wiki S3(A2): 인에디터 /ai 컴포즈 — 시스템 프롬프트 + 액션별 user 메시지 빌더.
 // 도구를 쓰지 않는 순수 텍스트 생성이라 컨텍스트(본문/선택/지시문)는 모두 프롬프트에 임베드한다.
+import type { MemoryItem } from './memory-block.js';
 
 export type WikiAiAction =
   | 'draft'
@@ -23,6 +24,7 @@ export interface WikiComposeInput {
   pageBody: string; // 현재 본문(마크다운)
   selection?: string; // 선택 영역(변형 대상이 있을 때)
   prompt?: string; // draft 지시문
+  memories?: MemoryItem[]; // WP-381 읽기 전용 메모리
 }
 
 export const WIKI_SYSTEM_PROMPT =

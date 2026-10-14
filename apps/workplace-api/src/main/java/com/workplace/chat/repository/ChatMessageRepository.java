@@ -2,6 +2,7 @@ package com.workplace.chat.repository;
 
 import static com.workplace.jooq.Tables.CHAT_MESSAGE;
 import static com.workplace.jooq.Tables.USER;
+import static org.jooq.impl.DSL.row;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.chat.dto.ChatMessagePage;
@@ -11,15 +12,19 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.SneakyThrows;
+import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.jooq.JSONB;
 import org.jooq.Record;
 import org.jooq.SelectConditionStep;
+import org.jooq.SelectField;
 import org.springframework.stereotype.Repository;
 
 /**
@@ -33,28 +38,41 @@ public class ChatMessageRepository {
   private static final String DELETED_BODY = "(삭제됨)";
   private static final int MAX_LIMIT = 100;
 
+  /** 응답 매핑(toResponse)에 필요한 컬럼 — 모든 메시지 조회가 같은 목록을 쓴다. */
+  private static final SelectField<?>[] MESSAGE_FIELDS = {
+    CHAT_MESSAGE.ID,
+    CHAT_MESSAGE.THREAD_ID,
+    CHAT_MESSAGE.AUTHOR_ID,
+    USER.NAME,
+    USER.USERNAME,
+    USER.KIND,
+    CHAT_MESSAGE.BODY,
+    CHAT_MESSAGE.MENTIONS,
+    CHAT_MESSAGE.CREATED_AT,
+    CHAT_MESSAGE.EDITED_AT,
+    CHAT_MESSAGE.DELETED_AT,
+    CHAT_MESSAGE.IS_QUESTION
+  };
+
   private final DSLContext dsl;
   private final ObjectMapper objectMapper;
 
-  /** 작성 후 ID 반환. mentions 는 user.id 의 long[] 형태로 저장. */
-  public long insert(long threadId, long authorId, String body, List<Long> mentionUserIds) {
+  /**
+   * 작성 후 ID 반환. mentions 는 user.id 의 long[] 형태로 저장. question 은 AI 구성원이 답변 필요로 멈추며 남긴 글인지(WP-373) —
+   * 생성과 같은 INSERT 에 넣어 생성 이벤트·SSE 가 저장값과 같은 값을 보게 한다(예전 사후 markQuestion 은 이벤트가 저장 전 값으로 나갔다).
+   */
+  public long insert(
+      long threadId, long authorId, String body, List<Long> mentionUserIds, boolean question) {
     JSONB jsonb = JSONB.valueOf(toJson(mentionUserIds));
     return dsl.insertInto(CHAT_MESSAGE)
         .set(CHAT_MESSAGE.THREAD_ID, threadId)
         .set(CHAT_MESSAGE.AUTHOR_ID, authorId)
         .set(CHAT_MESSAGE.BODY, body)
         .set(CHAT_MESSAGE.MENTIONS, jsonb)
+        .set(CHAT_MESSAGE.IS_QUESTION, question)
         .returning(CHAT_MESSAGE.ID)
         .fetchOne()
         .getId();
-  }
-
-  /** 글을 "답변 필요 질문"으로 표시한다(WP-377 — AI 구성원이 INPUT_REQUIRED 로 멈추며 남긴 글). */
-  public void markQuestion(long messageId) {
-    dsl.update(CHAT_MESSAGE)
-        .set(CHAT_MESSAGE.IS_QUESTION, true)
-        .where(CHAT_MESSAGE.ID.eq(messageId))
-        .execute();
   }
 
   /** body 수정 + edited_at = now + mentions 재저장. */
@@ -93,17 +111,7 @@ public class ChatMessageRepository {
 
   /** id 로 단건 조회. soft-deleted 도 body 마스킹해 반환. */
   public Optional<ChatMessageResponse> findById(long id, MentionResolver resolver) {
-    return dsl.select(
-            CHAT_MESSAGE.ID,
-            CHAT_MESSAGE.THREAD_ID,
-            CHAT_MESSAGE.AUTHOR_ID,
-            USER.NAME,
-            USER.KIND,
-            CHAT_MESSAGE.BODY,
-            CHAT_MESSAGE.MENTIONS,
-            CHAT_MESSAGE.CREATED_AT,
-            CHAT_MESSAGE.EDITED_AT,
-            CHAT_MESSAGE.DELETED_AT)
+    return dsl.select(MESSAGE_FIELDS)
         .from(CHAT_MESSAGE)
         .join(USER)
         .on(USER.ID.eq(CHAT_MESSAGE.AUTHOR_ID))
@@ -111,26 +119,123 @@ public class ChatMessageRepository {
         .fetchOptional(r -> toResponse(r, resolver));
   }
 
+  /** 정렬 키 (created_at, id) — after·afterMine 조회의 기준점. */
+  private record Anchor(OffsetDateTime createdAt, long id) {}
+
+  /** 이 스레드의 메시지 기준점. 다른 스레드이거나 없으면 empty. */
+  private Optional<Anchor> anchorOf(long threadId, long messageId) {
+    return dsl.select(CHAT_MESSAGE.CREATED_AT, CHAT_MESSAGE.ID)
+        .from(CHAT_MESSAGE)
+        .where(CHAT_MESSAGE.ID.eq(messageId).and(CHAT_MESSAGE.THREAD_ID.eq(threadId)))
+        .fetchOptional(r -> new Anchor(r.value1(), r.value2()));
+  }
+
+  /** 호출자의 삭제되지 않은 마지막 글 기준점(WP-373 — pendingForMe 와 같은 "내 마지막 글" 정의). */
+  private Optional<Anchor> lastOwnAnchor(long threadId, long authorId) {
+    return dsl.select(CHAT_MESSAGE.CREATED_AT, CHAT_MESSAGE.ID)
+        .from(CHAT_MESSAGE)
+        .where(CHAT_MESSAGE.THREAD_ID.eq(threadId))
+        .and(CHAT_MESSAGE.AUTHOR_ID.eq(authorId))
+        .and(CHAT_MESSAGE.DELETED_AT.isNull())
+        .orderBy(CHAT_MESSAGE.CREATED_AT.desc(), CHAT_MESSAGE.ID.desc())
+        .limit(1)
+        .fetchOptional(r -> new Anchor(r.value1(), r.value2()));
+  }
+
+  /** (created_at, id) 가 기준점보다 뒤 — 행 값 비교로 정렬 키와 같은 순서를 쓴다. */
+  private static Condition afterAnchor(Anchor a) {
+    return row(CHAT_MESSAGE.CREATED_AT, CHAT_MESSAGE.ID).gt(row(a.createdAt(), a.id()));
+  }
+
+  /** (created_at, id) 가 기준점보다 앞. */
+  private static Condition beforeAnchor(Anchor a) {
+    return row(CHAT_MESSAGE.CREATED_AT, CHAT_MESSAGE.ID).lt(row(a.createdAt(), a.id()));
+  }
+
+  /** 스레드의 메시지 + 작성자 조인 select — 모든 목록 조회가 공유한다. */
+  private SelectConditionStep<?> selectInThread(long threadId) {
+    return dsl.select(MESSAGE_FIELDS)
+        .from(CHAT_MESSAGE)
+        .join(USER)
+        .on(USER.ID.eq(CHAT_MESSAGE.AUTHOR_ID))
+        .where(CHAT_MESSAGE.THREAD_ID.eq(threadId));
+  }
+
+  /** limit+1 개로 받은 오름차순 목록을 페이지로 — 넘치면 hasMore, 다음 after 는 마지막 메시지 id. */
+  private static ChatMessagePage ascendingPage(
+      List<ChatMessageResponse> head, List<ChatMessageResponse> rest, int limit) {
+    boolean hasMore = rest.size() > limit;
+    List<ChatMessageResponse> body = hasMore ? rest.subList(0, limit) : rest;
+    List<ChatMessageResponse> items = new ArrayList<>(head);
+    items.addAll(body);
+    String next = hasMore ? String.valueOf(body.get(body.size() - 1).id()) : null;
+    return new ChatMessagePage(items, next, hasMore);
+  }
+
+  /**
+   * after 메시지보다 뒤의 글을 오름차순으로(WP-373 — 외부 AI 가 새 글만 읽는다). after 가 이 스레드의 글이 아니면
+   * IllegalArgumentException(400).
+   */
+  public ChatMessagePage findAfter(
+      long threadId, long afterId, int limit, MentionResolver resolver) {
+    Anchor a =
+        anchorOf(threadId, afterId)
+            .orElseThrow(() -> new IllegalArgumentException("after 메시지가 이 대화에 없습니다: " + afterId));
+    List<ChatMessageResponse> rest =
+        selectInThread(threadId)
+            .and(afterAnchor(a))
+            .orderBy(CHAT_MESSAGE.CREATED_AT.asc(), CHAT_MESSAGE.ID.asc())
+            .limit(limit + 1)
+            .fetch(r -> toResponse(r, resolver));
+    return ascendingPage(List.of(), rest, limit);
+  }
+
+  /** afterMine 앞에 붙이는 맥락 글 수(스펙 §3.3). */
+  private static final int MINE_CONTEXT = 5;
+
+  /** 호출자의 마지막 글 기준 "직전 5개 + 그 글부터 최대 limit 개"(오름차순). 호출자 글이 없으면 최신 limit 개를 오름차순으로. */
+  public ChatMessagePage findAroundOwnLast(
+      long threadId, long callerId, int limit, MentionResolver resolver) {
+    Optional<Anchor> mine = lastOwnAnchor(threadId, callerId);
+    if (mine.isEmpty()) {
+      // 내 글이 없으면 기준점이 없어 최신 limit 개만 준다. 더 오래된 글이 남아 있으면 커서로 이을 수 없는 부분 목록이므로
+      // truncated 로 알려, 호출자(AI)가 잘린 스레드를 전부로 오해하지 않게 한다.
+      List<ChatMessageResponse> latest =
+          newestAscending(selectInThread(threadId), limit + 1, resolver);
+      boolean truncated = latest.size() > limit;
+      if (truncated) latest = latest.subList(latest.size() - limit, latest.size());
+      return new ChatMessagePage(latest, null, false, truncated ? Boolean.TRUE : null);
+    }
+    Anchor a = mine.get();
+    List<ChatMessageResponse> context =
+        newestAscending(selectInThread(threadId).and(beforeAnchor(a)), MINE_CONTEXT, resolver);
+    List<ChatMessageResponse> rest =
+        selectInThread(threadId)
+            .and(afterAnchor(a).or(CHAT_MESSAGE.ID.eq(a.id())))
+            .orderBy(CHAT_MESSAGE.CREATED_AT.asc(), CHAT_MESSAGE.ID.asc())
+            .limit(limit + 1)
+            .fetch(r -> toResponse(r, resolver));
+    return ascendingPage(context, rest, limit);
+  }
+
+  /** 조건에 맞는 글 중 최신 n 개를 오름차순으로 — 내림차순으로 n 개 자른 뒤 뒤집는다. */
+  private List<ChatMessageResponse> newestAscending(
+      SelectConditionStep<?> query, int n, MentionResolver resolver) {
+    List<ChatMessageResponse> newest =
+        new ArrayList<>(
+            query
+                .orderBy(CHAT_MESSAGE.CREATED_AT.desc(), CHAT_MESSAGE.ID.desc())
+                .limit(n)
+                .fetch(r -> toResponse(r, resolver)));
+    Collections.reverse(newest);
+    return newest;
+  }
+
   /** Cursor 페이징. nextCursor 는 base64(createdAt|id). */
   public ChatMessagePage findPage(
       long threadId, String cursor, int limit, MentionResolver resolver) {
     int safeLimit = Math.min(limit, MAX_LIMIT);
-    SelectConditionStep<?> query =
-        dsl.select(
-                CHAT_MESSAGE.ID,
-                CHAT_MESSAGE.THREAD_ID,
-                CHAT_MESSAGE.AUTHOR_ID,
-                USER.NAME,
-                USER.KIND,
-                CHAT_MESSAGE.BODY,
-                CHAT_MESSAGE.MENTIONS,
-                CHAT_MESSAGE.CREATED_AT,
-                CHAT_MESSAGE.EDITED_AT,
-                CHAT_MESSAGE.DELETED_AT)
-            .from(CHAT_MESSAGE)
-            .join(USER)
-            .on(USER.ID.eq(CHAT_MESSAGE.AUTHOR_ID))
-            .where(CHAT_MESSAGE.THREAD_ID.eq(threadId));
+    SelectConditionStep<?> query = selectInThread(threadId);
 
     if (cursor != null && !cursor.isEmpty()) {
       Cursor c = Cursor.decode(cursor);
@@ -178,7 +283,10 @@ public class ChatMessageRepository {
         java.util.List.of(), // driveLinks — 서비스에서 하이드레이트
         created == null ? null : created.toInstant(),
         edited == null ? null : edited.toInstant(),
-        deleted);
+        deleted,
+        r.get(USER.USERNAME),
+        // 삭제된 질문은 강조하지 않는다(스펙 §3.1).
+        !deleted && Boolean.TRUE.equals(r.get(CHAT_MESSAGE.IS_QUESTION)));
   }
 
   /** 메시지가 해당 thread 소속인지 — 크로스-스레드 첨부 접근 차단용. */

@@ -51,15 +51,14 @@ public class AiMemoryController {
     return service.create(callerId, req, InternalOnBehalfOf.isInternal(authentication));
   }
 
-  /** 고치기 — 이전 내용 포함. 대행 + 꺼짐이면 409. */
+  /** 고치기 — 이전 내용·종류·범위 포함. scope 는 present-flag(키가 있으면 적용, null = 공통). 대행 + 꺼짐이면 409. */
   @PatchMapping("/{id}")
   public AiMemoryItem update(
       @AuthenticationPrincipal Long callerId,
       @PathVariable("id") long id,
       @RequestBody UpdateAiMemoryRequest req,
       Authentication authentication) {
-    return service.update(
-        callerId, id, req.content(), req.kind(), InternalOnBehalfOf.isInternal(authentication));
+    return service.update(callerId, id, req, InternalOnBehalfOf.isInternal(authentication));
   }
 
   /** 지우기 — 지운 항목(판정 12). 대행 + 꺼짐이면 409. */

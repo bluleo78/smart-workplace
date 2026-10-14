@@ -1,4 +1,5 @@
 // 위키 화면 컨텍스트 builder(WP-54) — pageId/spaceId 는 get_wiki_page/list_wiki_pages 인자와 동일.
+// WP-379: app 은 홈 채팅 메모리 범위 선택용(서버로 보내는 screenContext 에선 빠진다).
 import type { AiScreenContext } from '@/types/aiScreenContext';
 
 import { buildFacts, buildRefs, clip, fmtKst, LIMITS } from '../common';
@@ -13,9 +14,10 @@ export function buildWikiContext(input: {
     label: clip(`위키 스페이스 ${input.spaceName ?? `#${input.spaceId}`}`, LIMITS.label),
     refs: buildRefs({ spaceId: input.spaceId }),
   };
-  if (!input.page) return { view: '위키', scope };
+  if (!input.page) return { view: '위키', app: 'WIKI', scope };
   return {
     view: '위키 페이지',
+    app: 'WIKI',
     focus: {
       type: '위키 페이지',
       label: clip(input.page.title.trim() || '제목 없음', LIMITS.label),

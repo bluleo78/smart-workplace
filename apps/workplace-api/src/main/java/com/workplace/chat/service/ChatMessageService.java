@@ -53,12 +53,52 @@ public class ChatMessageService {
   // WP-213: 이슈 토크 읽기/쓰기 접근 판정 + 보낼 때 자동 참여.
   private final ChatThreadAccess threadAccess;
 
-  /**
-   * 메시지 작성. 스레드 멤버가 아니어도 댓글 작성 권한이 있으면 이 시점에 대화에 자동 참여한다(WP-213). 빈 메시지(본문도 첨부도 드라이브링크도 없음) 거부.
-   * 첨부/드라이브링크 바인딩 후 하이드레이트된 응답 반환. mention 파싱 후 INSERT, AFTER_COMMIT 이벤트 발행.
-   */
+  /** 메시지 작성(화면·일반 API). 질문 표시는 받지 않는다 — 질문은 report_agent_work 만 만든다(스펙 §3.1). */
   @Transactional
   public ChatMessageResponse create(long callerId, long threadId, CreateChatMessageRequest req) {
+    return doCreate(callerId, threadId, req, Origin.USER);
+  }
+
+  /**
+   * AI 작업 보고(report_agent_work)의 글(WP-373). question 을 생성과 함께 저장하고, 작성자가 사람이어도 "사람의 답"
+   * (IssueHumanReplyPosted)으로 치지 않는다 — 사람이 자기 AI 도구로 남긴 진행 보고가 다른 AI 의 답변 필요를 풀면 안 된다(스펙 §3.2).
+   */
+  @Transactional
+  public ChatMessageResponse createFromReport(
+      long callerId, long threadId, String body, boolean question) {
+    return doCreate(
+        callerId,
+        threadId,
+        new CreateChatMessageRequest(body),
+        question ? Origin.REPORT_QUESTION : Origin.REPORT);
+  }
+
+  /** 글이 만들어진 경로 — 질문 표시와 "사람의 답" 취급 여부를 한 값으로 정한다. */
+  private enum Origin {
+    /** 화면·일반 API 로 사람이 쓴 글. */
+    USER,
+    /** AI 작업 보고(report_agent_work)의 일반 진행 글. */
+    REPORT,
+    /** AI 작업 보고의 답변 필요 질문 글. */
+    REPORT_QUESTION;
+
+    /** 질문(답변 필요) 글인지. */
+    boolean question() {
+      return this == REPORT_QUESTION;
+    }
+
+    /** 보고 경로의 글인지 — 사람이 작성자여도 "사람의 답"으로 치지 않는다. */
+    boolean fromReport() {
+      return this != USER;
+    }
+  }
+
+  /**
+   * 메시지 작성 본체. 스레드 멤버가 아니어도 댓글 작성 권한이 있으면 이 시점에 대화에 자동 참여한다(WP-213). 빈 메시지(본문도 첨부도 드라이브링크도 없음) 거부.
+   * 첨부/드라이브링크 바인딩 후 하이드레이트된 응답 반환. mention 파싱 후 INSERT, AFTER_COMMIT 이벤트 발행.
+   */
+  private ChatMessageResponse doCreate(
+      long callerId, long threadId, CreateChatMessageRequest req, Origin origin) {
     // 거부될 요청(권한 없음·삭제된 이슈·빈 메시지)으로는 대화에 참여시키지 않도록 쓰기 권한부터 확인하고, 참여는 검증을 모두 통과한 뒤 한다.
     var joinCtx = threadAccess.ensureCanWrite(threadId, callerId);
     // #621: 원본 이슈가 소프트삭제됐으면 스레드가 남아있어도 메시지 전송을 막는다.
@@ -87,7 +127,8 @@ public class ChatMessageService {
       memberRepo.insertIgnoreConflict(threadId, agentMentionIds);
     }
 
-    long messageId = messageRepo.insert(threadId, callerId, req.body(), mentionUserIds);
+    long messageId =
+        messageRepo.insert(threadId, callerId, req.body(), mentionUserIds, origin.question());
     // 선업로드 첨부 바인딩 + 영구 승격(같은 트랜잭션 — RLS 컨텍스트 공유).
     attachmentService.bindToMessage(callerId, messageId, req.fileIds());
     // 드라이브 파일 교차링크 — 발신자 thread 멤버 + 각 파일 ≥VIEWER 검증은 createLink 내부.
@@ -100,8 +141,8 @@ public class ChatMessageService {
     ChatMessageResponse saved = findOne(messageId);
     var created = buildEvent(threadId, messageId, callerId, req.body(), mentionUserIds, saved);
     publisher.publishEvent(created);
-    // WP-377: 사람이 올린 글이면 답변 필요로 멈춘 AI 구성원 작업을 작업 중으로 되돌리도록 알린다.
-    if (UserKind.HUMAN.equals(created.actor().kind())) {
+    // WP-377: 사람이 올린 글이면 답변 필요로 멈춘 AI 구성원 작업을 작업 중으로 되돌리도록 알린다. 보고 경로의 글은 제외(WP-373).
+    if (!origin.fromReport() && UserKind.HUMAN.equals(created.actor().kind())) {
       publisher.publishEvent(new IssueHumanReplyPosted(created.issueId()));
     }
     return saved;
@@ -147,15 +188,41 @@ public class ChatMessageService {
     publisher.publishEvent(new ChatMessageDeletedEvent(threadId, messageId));
   }
 
-  // readOnly 트랜잭션 — 읽기 권한 확인(chat_thread_member 등)·findPage(chat_message) 가 모두 RLS 보호 테이블이라,
-  // 트랜잭션이 없으면 GUC 미주입 autocommit 연결로 fail-closed(빈 결과/멤버 아님)된다. doBegin 이 readOnly 트랜잭션에도
-  // GUC 를 주입하므로 @Transactional(readOnly) 로 RLS 컨텍스트를 확보한다.
+  /** cursor 모드(최신순 위로 스크롤) 기본 크기 — 화면이 쓰는 현행 값. */
+  private static final int DEFAULT_PAGE = 50;
+
+  /** after·afterMine 모드 기본 크기(스펙 §3.3). */
+  private static final int DEFAULT_AFTER_PAGE = 30;
+
+  private static final int MAX_PAGE = 100;
+
+  /**
+   * 메시지 목록. cursor(최신순 이전 페이지)·after(그 뒤 오름차순)·afterMine(내 마지막 글 직전 5개 + 그 뒤) 셋 중 하나만 쓴다 — 둘 이상이면
+   * IllegalArgumentException(400). 읽기는 스레드 조회(getOrCreate)와 같은 권한 — 비멤버도 과거 메시지를 스크롤해 볼 수 있어야
+   * 한다(WP-213). readOnly 트랜잭션 — 읽기 권한 확인(chat_thread_member 등)·조회(chat_message)가 모두 RLS 보호 테이블이라,
+   * 트랜잭션이 없으면 GUC 미주입 autocommit 연결로 fail-closed(빈 결과/멤버 아님)된다. doBegin 이 readOnly 트랜잭션에도 GUC 를
+   * 주입한다.
+   */
   @Transactional(readOnly = true)
-  public ChatMessagePage list(long callerId, long threadId, String cursor, int limit) {
-    // 읽기는 스레드 조회(getOrCreate)와 같은 권한 — 비멤버도 과거 메시지를 스크롤해 볼 수 있어야 한다(WP-213).
+  public ChatMessagePage list(
+      long callerId, long threadId, String cursor, Long after, boolean afterMine, Integer limit) {
+    boolean hasCursor = cursor != null && !cursor.isEmpty();
+    int modes = (hasCursor ? 1 : 0) + (after != null ? 1 : 0) + (afterMine ? 1 : 0);
+    if (modes > 1) {
+      throw new IllegalArgumentException("cursor·after·afterMine 은 하나만 줄 수 있습니다");
+    }
     threadAccess.ensureCanRead(threadId, callerId);
-    return messageHydrator.hydrate(
-        messageRepo.findPage(threadId, cursor, limit, userMentionHydrator::asMentionResponses));
+    boolean ascending = after != null || afterMine;
+    int requested = limit == null ? (ascending ? DEFAULT_AFTER_PAGE : DEFAULT_PAGE) : limit;
+    int size = Math.max(1, Math.min(requested, MAX_PAGE));
+    ChatMessageRepository.MentionResolver resolver = userMentionHydrator::asMentionResponses;
+    ChatMessagePage page =
+        after != null
+            ? messageRepo.findAfter(threadId, after, size, resolver)
+            : afterMine
+                ? messageRepo.findAroundOwnLast(threadId, callerId, size, resolver)
+                : messageRepo.findPage(threadId, cursor, size, resolver);
+    return messageHydrator.hydrate(page);
   }
 
   @Transactional
@@ -245,6 +312,7 @@ public class ChatMessageService {
         mentions,
         saved.attachments(),
         saved.driveLinks(),
+        saved.question(),
         Instant.now());
   }
 }

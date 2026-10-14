@@ -42,7 +42,7 @@ const TEXT_LIKE_EXTRA = new Set([
 
 /**
  * MIME → 파일 종류. 프레젠터(다운로드·문구)와 run-chat-agent(추출 대기 판단)가 함께 쓴다. 파라미터(charset 등)는 떼고 본다.
- * 옛 octet-stream HEIC·TIFF·BMP 사진은 V172 가 데이터에서 이미지 mime 으로 바로잡아(WP-250) 파일명으로 다시 판별하지 않는다.
+ * 옛 octet-stream HEIC·TIFF·BMP 사진은 V174 가 데이터에서 이미지 mime 으로 바로잡아(WP-250) 파일명으로 다시 판별하지 않는다.
  */
 export function fileKind(mimeType: string): FileKind {
   const mime = baseMimeType(mimeType);

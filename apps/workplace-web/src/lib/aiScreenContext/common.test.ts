@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildFacts, buildRefs, chipLabel, clip, contextIdentity, fmtKst, LIMITS } from './common';
+import { buildFacts, buildRefs, chipLabel, clip, contextIdentity, fmtKst, LIMITS, screenContextPayload } from './common';
 
 describe('clip', () => {
   it('상한 이하면 trim 만', () => expect(clip('  abc ', 10)).toBe('abc'));
@@ -79,5 +79,13 @@ describe('contextIdentity', () => {
     const f1 = { view: '이슈 상세', focus: { type: '이슈', label: 'x', refs: { issueKey: 'WP-1' } } };
     const f2 = { view: '이슈 상세', focus: { type: '이슈', label: 'x', refs: { issueKey: 'WP-2' } } };
     expect(contextIdentity(f1)).not.toBe(contextIdentity(f2));
+  });
+});
+
+describe('screenContextPayload (WP-379)', () => {
+  it('서버로 보내는 화면 참고에서 app 만 뺀다(원본은 그대로)', () => {
+    const ctx = { view: '이슈 상세', app: 'ISSUE' as const, scope: { label: '프로젝트 WP' } };
+    expect(screenContextPayload(ctx)).toEqual({ view: '이슈 상세', scope: { label: '프로젝트 WP' } });
+    expect(ctx.app).toBe('ISSUE');
   });
 });

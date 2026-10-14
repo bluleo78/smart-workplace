@@ -218,7 +218,7 @@ class ChatDomainRlsTest extends IntegrationTestBase {
                   .execute();
 
               // list 는 @Transactional(readOnly) — 현재 tid2 tx 에 합류해 GUC 의존 ensureMember/findPage 성공
-              ChatMessagePage page = messageService.list(userId, threadId, null, 20);
+              ChatMessagePage page = messageService.list(userId, threadId, null, null, false, 20);
               assertThat(page.items()).hasSize(1);
               assertThat(page.items().get(0).body()).isEqualTo("rls-list-message");
 

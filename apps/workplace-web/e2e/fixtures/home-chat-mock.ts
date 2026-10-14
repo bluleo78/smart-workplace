@@ -40,6 +40,8 @@ export type HomeChatStartBody = {
   correlationId: string
   screenContext?: AiScreenContext
   fileIds?: number[]
+  /** WP-379: 지금 화면 앱 — 없는 화면이면 키 없음. */
+  app?: string
 }
 
 /** 실제 서버처럼 웹이 보낸 correlationId 를 그대로 쓴다(WP-267). */

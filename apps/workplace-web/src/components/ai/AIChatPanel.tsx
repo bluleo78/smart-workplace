@@ -210,6 +210,9 @@ export function AIChatPanel({
     return contextActive ? screenContext : undefined;
   };
 
+  // WP-379: 지금 화면 앱 — 화면 참고 칩 × 와 무관하게 보낸다(화면 내용이 아니라 내 선호 범위 선택용).
+  const currentApp = () => screenContext?.app ?? null;
+
   /** 입력창 전송 — 초안 글·첨부를 보내고, 거절되면 초안으로 돌려놓는다. */
   const submit = () => {
     if (!sendOpen() || !canSend) return;
@@ -217,7 +220,7 @@ export function AIChatPanel({
     const ctx = takeScreenContext();
     const attachments = attach.snapshot();
     setInput('');
-    void onSubmit(query, ctx, attachments).then((accepted) => {
+    void onSubmit(query, ctx, attachments, currentApp()).then((accepted) => {
       // 서버가 받아들였을 때만 보낸 파일을 초안에서 뺀다(WP-234) — 거절(400)이면 칩을 남겨 사유 토스트를 보고 고칠 수 있게.
       if (accepted) {
         attach.commitSent(attachments);
@@ -232,7 +235,7 @@ export function AIChatPanel({
   /** WP-139: 추천·후속 칩 — 문구 그대로 보낸다. 입력창 초안·첨부 초안은 건드리지 않아 거절돼도 초안을 덮지 않는다. */
   const sendChip = (query: string) => {
     if (!sendOpen()) return;
-    void onSubmit(query, takeScreenContext());
+    void onSubmit(query, takeScreenContext(), undefined, currentApp());
   };
 
   return (

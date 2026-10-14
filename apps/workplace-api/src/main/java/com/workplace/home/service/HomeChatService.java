@@ -167,7 +167,7 @@ public class HomeChatService {
       String query,
       AiScreenContext screenContext,
       List<Long> fileIds) {
-    return startChat(callerId, sessionId, query, screenContext, fileIds, null);
+    return startChat(callerId, sessionId, query, screenContext, fileIds, null, null);
   }
 
   /**
@@ -182,6 +182,7 @@ public class HomeChatService {
    * @param screenContext 현재 화면 컨텍스트(WP-54, nullable) — 저장하지 않고 이번 요청에만 ai-agent 로 전달
    * @param fileIds 선업로드한 첨부 id(WP-234, null·빈 목록 허용) — USER 메시지와 같은 트랜잭션에서 연결·승격된다
    * @param correlationId 웹이 정한 생성 id(WP-267, nullable) — 없으면 서버가 발급한다. 진행 중인 생성과 겹치면 409
+   * @param app 지금 화면 앱(WP-379, nullable) — 공통 + 그 앱 메모리를 고른다. 모르는 값은 앱 없음
    * @return correlationId(이벤트 필터·취소) + sessionId(새 대화면 만든 id)
    */
   public HomeChatStartedResponse startChat(
@@ -190,7 +191,8 @@ public class HomeChatService {
       String query,
       AiScreenContext screenContext,
       List<Long> fileIds,
-      UUID correlationId) {
+      UUID correlationId,
+      String app) {
     // 1) enabled 확인 — 비활성이면 시작 전 예외로 단락.
     if (!aiAgentProperties.enabled()) {
       throw new HomeChatUnavailableException("AI 채팅 기능이 현재 비활성화되어 있어요.");
@@ -223,7 +225,14 @@ public class HomeChatService {
     // Error(StackOverflowError·OOM 등)까지 잡는다 — 놓치면 슬롯이 프로세스 수명 내내 새어 그 사용자의 상한이 영구히 줄어든다.
     try {
       return startReserved(
-          callerId, sid, sessionId == null, text, fileIds, screenContext, reservation);
+          callerId,
+          sid,
+          sessionId == null,
+          text,
+          fileIds,
+          screenContext,
+          AiMemoryScope.appOrNull(app),
+          reservation);
     } catch (Throwable e) {
       reservation.release();
       throw e;
@@ -238,6 +247,7 @@ public class HomeChatService {
       String text,
       List<Long> fileIds,
       AiScreenContext screenContext,
+      String memoryApp,
       StreamingGenerationRegistry.Reservation reservation) {
     // 3) 비서 해석 — 세션 생성보다 먼저(미설정이면 503 이고 빈 세션을 남기지 않는다).
     AssistantSpec spec = assistantResolver.resolve(callerId);
@@ -281,7 +291,8 @@ public class HomeChatService {
                 attachments,
                 snapshot,
                 spec,
-                tenantId),
+                tenantId,
+                memoryApp),
         // R4: 큐(core 4·queue 16) 대기 중 취소·타임아웃되면 태스크는 돌지 않는다 — 누적 텍스트가 없으니 저장 없이 cancelled 만 나가
         // 웹이 "생성 중" 에 갇히지 않는다.
         turn::cancel);
@@ -291,6 +302,8 @@ public class HomeChatService {
   /**
    * 펌프(전용 executor 스레드) — 맥락 예산 맞춤 → ai-agent 스트림 → 콜백별 이벤트·누적 → 종결. 종결은 HomeChatTurn 이 정확히 한 번
    * 처리한다(영속 → 반납 → 이벤트).
+   *
+   * @param memoryApp 지금 화면 앱(검증됨, null = 공통만)
    */
   private void pump(
       HomeChatTurn turn,
@@ -302,11 +315,12 @@ public class HomeChatService {
       List<ChatAttachment> attachments,
       HomeContextSummaryService.ContextSnapshot snapshot,
       AssistantSpec spec,
-      Long tenantId) {
+      Long tenantId,
+      String memoryApp) {
     try {
       // WP-55: 메모리는 매 턴 읽는다(턴 중 저장·수정은 다음 턴부터 반영). 예산 맞춤 전에 읽어야 블록 몫을 뺄 수 있다.
       AiMemoryService.ChatMemories memories =
-          memoriesOrUnavailable(() -> memoryService.loadForChat(callerId), callerId);
+          memoriesOrUnavailable(() -> memoryService.loadForChat(callerId, memoryApp), callerId);
       // WP-232: 예산 초과 시 이 턴에서 동기 요약(진행 라벨 표시) — 요청 스레드를 막지 않도록 pump 에서 수행.
       HomeContextSummaryService.ContextSnapshot ctx =
           contextService.fitToBudget(
@@ -314,7 +328,7 @@ public class HomeChatService {
               sid,
               snapshot,
               spec,
-              AiMemoryService.estimateBlockTokens(memories.items()),
+              AiMemoryService.estimateBlockTokens(memories),
               () -> turn.emit("home.chat.progress", Map.of("label", COMPACTING_LABEL)));
       // userId: 요청 사용자 ID — ai-agent 의 MCP 도구가 assistantAgentId 아닌 실제 요청자 컨텍스트로
       // 드라이브·캘린더 등 사용자 귀속 리소스를 조회·수정하게 한다(refs #376).
@@ -340,9 +354,12 @@ public class HomeChatService {
               // WP-234: 첨부 읽기 도구 세션 바인딩 + 세션 첨부 목록.
               sid.toString(),
               attachments,
-              // WP-55: 사용자 메모리 + 사용 여부(꺼짐·조회 실패면 빈 목록 + false).
+              // WP-55·WP-379·WP-380: 공통 + 지금 앱 메모리 + 사용 여부(꺼짐·조회 실패면 빈 목록 + false) + 지금 화면 앱 + 서버
+              // 오늘(기한 계산 근거 — 메모리를 고른 그 날짜, 꺼짐이면 null).
               memories.items(),
-              memories.enabled());
+              memories.enabled(),
+              memoryApp,
+              memories.today());
       chatClient.composeStream(
           req,
           // delta: 블록 순서 기록 + 즉시 발행(done 본문은 ai-agent 가 준 fullText, 부분 저장은 누적 텍스트).

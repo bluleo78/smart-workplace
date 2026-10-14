@@ -65,7 +65,7 @@ public class AgentWorkReportService {
     if (AgentWorkState.isTerminal(req.state())) {
       // message 는 상태와 무관한 챗 글(스펙 §4.1) — 종료 보고여도 먼저 올린다(질문 표시 없음).
       if (hasMessage) {
-        chatPoster.post(callerId, projectKey, number, req.message());
+        chatPoster.post(callerId, projectKey, number, req.message(), false);
       }
       // 착수 전(SUBMITTED)에서 곧바로 종료 보고하면 행의 tool 이 비어 있으므로 요청의 도구를 종료와 함께 채우고, 보고에 담긴 마지막
       // note·progress·단계 수도 같은 문장에서 반영한다(note 는 일반 보고와 같은 규칙으로 정한다).
@@ -89,9 +89,6 @@ public class AgentWorkReportService {
       issueService.updateStatus(callerId, projectKey, number, "IN_PROGRESS");
     }
 
-    Long messageId =
-        hasMessage ? chatPoster.post(callerId, projectKey, number, req.message()) : null;
-
     boolean clearNote = "".equals(req.note());
 
     var view =
@@ -108,11 +105,13 @@ public class AgentWorkReportService {
                 req.stepsDone(),
                 req.stepsTotal()));
 
-    // AI 구성원이 답변 필요(INPUT_REQUIRED)로 멈추며 남긴 글만 질문으로 표시한다(사람 글·인증 필요 글은 일반 글).
-    if (messageId != null
-        && AgentWorkState.INPUT_REQUIRED.equals(view.state())
-        && UserKind.isAgent(view.worker().kind())) {
-      chatPoster.markQuestion(messageId);
+    // 갱신된 상태가 답변 필요(INPUT_REQUIRED)이고 작업자가 AI 구성원일 때만 질문으로 저장한다(사람 글·인증 필요 글은 일반 글).
+    // 질문 여부를 생성과 함께 저장하려고 작업 갱신 뒤에 글을 올린다 — 같은 트랜잭션이라 이벤트는 커밋 뒤 함께 나간다.
+    if (hasMessage) {
+      boolean question =
+          AgentWorkState.INPUT_REQUIRED.equals(view.state())
+              && UserKind.isAgent(view.worker().kind());
+      chatPoster.post(callerId, projectKey, number, req.message(), question);
     }
     return new AgentWorkReportResponse(view, false);
   }

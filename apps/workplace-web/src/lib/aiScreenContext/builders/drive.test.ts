@@ -8,6 +8,7 @@ describe('buildDriveContext', () => {
   it('스페이스·폴더 경로·개수 — 폴더 id 는 parentId(list_drive_items 인자)', () => {
     expect(buildDriveContext(base)).toEqual({
       view: '드라이브',
+      app: 'DRIVE',
       scope: { label: '드라이브 팀 드라이브 / 기획 / 2026', refs: { spaceId: '4', parentId: '11' }, facts: [{ label: '항목', value: '폴더 2 · 파일 5' }] },
     });
   });

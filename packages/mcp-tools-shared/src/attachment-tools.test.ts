@@ -43,10 +43,12 @@ function mockClient(): AttachmentToolClient {
     readMessageAttachmentText: vi.fn().mockResolvedValue(READY),
     readMailAttachmentText: vi.fn().mockResolvedValue(READY),
     downloadMailAttachment: vi.fn().mockResolvedValue({ data: PNG, mimeType: 'image/png' }),
+    readIssueChatAttachmentText: vi.fn().mockResolvedValue(READY),
     viewIssueAttachment: vi.fn().mockResolvedValue(VIEW),
     viewDriveFile: vi.fn().mockResolvedValue(VIEW),
     viewWikiAttachment: vi.fn().mockResolvedValue(VIEW),
     viewMessageAttachment: vi.fn().mockResolvedValue(VIEW),
+    viewIssueChatAttachment: vi.fn().mockResolvedValue(VIEW),
   };
 }
 
@@ -81,7 +83,7 @@ describe('read_file 입력 스키마', () => {
     const js = z.toJSONSchema(readFileInput) as { type: string; required: string[]; properties: Record<string, unknown> };
     expect(js.type).toBe('object');
     expect(js.required).toEqual(['source']);
-    expect(js.properties.source).toMatchObject({ enum: ['issue', 'drive', 'wiki', 'message', 'mail'] });
+    expect(js.properties.source).toMatchObject({ enum: ['issue', 'issue_chat', 'drive', 'wiki', 'message', 'mail'] });
   });
 
   it('source 별 필수 필드를 확인하고, 다른 source 의 식별자를 섞으면 거부한다', () => {
@@ -469,5 +471,37 @@ describe('read_file — 페이지 이미지(pages, WP-250)', () => {
     const c = mockClient();
     vi.mocked(c.readMailAttachmentText).mockResolvedValue(SCANNED);
     expect(JSON.parse(resultText(await readAttachment(c).handler({ source: 'mail', attachmentId: 55 })))).not.toHaveProperty('note');
+  });
+
+  it('issue_chat + pages: 스레드 /view?page 로 쪽 이미지를 준다', async () => {
+    const c = mockClient();
+    const out = (await readAttachment(c).handler({ source: 'issue_chat', issueKey: 'WP-1', messageId: 11, attachmentId: 55, pages: [3] })) as McpContent[];
+    expect(c.viewIssueChatAttachment).toHaveBeenCalledWith('WP-1', 55, 3);
+    expect(c.readIssueChatAttachmentText).not.toHaveBeenCalled();
+    expect(out.filter((b) => b.type === 'image')).toHaveLength(1);
+  });
+});
+
+describe('read_file — 이슈 챗 첨부 (WP-373)', () => {
+  const args = { source: 'issue_chat', issueKey: 'WP-1', messageId: 11, attachmentId: 55 };
+
+  it('issueKey·messageId·attachmentId 로 텍스트를 읽고 fileId 를 attachmentId 로 돌려준다', async () => {
+    const c = mockClient();
+    const out = JSON.parse(resultText(await readAttachment(c).handler(args)));
+    expect(c.readIssueChatAttachmentText).toHaveBeenCalledWith('WP-1', 11, 55, expect.anything());
+    expect(out).toEqual(issueView(READY));
+  });
+
+  it('이미지(SKIPPED·IMAGE)는 서버 변환본(/view)을 이미지 블록으로 돌려준다', async () => {
+    const c = mockClient();
+    vi.mocked(c.readIssueChatAttachmentText).mockResolvedValue(IMAGE_SKIP);
+    const out = await readAttachment(c).handler(args);
+    expect(c.viewIssueChatAttachment).toHaveBeenCalledWith('WP-1', 55, undefined);
+    expect(Array.isArray(out) && out.some((b) => b.type === 'image')).toBe(true);
+  });
+
+  it('channelId 를 주거나 messageId 가 없으면 거부한다', () => {
+    expect(() => readFileInput.parse({ ...args, channelId: 3 })).toThrow(/channelId 를 주지/);
+    expect(() => readFileInput.parse({ source: 'issue_chat', issueKey: 'WP-1', attachmentId: 55 })).toThrow(/messageId/);
   });
 });

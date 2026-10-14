@@ -1,10 +1,13 @@
 package com.workplace.home.exception;
 
+import com.workplace.home.service.AiMemoryScope;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import org.springframework.http.HttpStatus;
 
 /**
  * AI 메모리(WP-55) 요청 거절 — HTTP 상태와 사유 코드를 함께 싣는다. 웹·ai-agent 는 {@code errors.code} 로 사유를 가른다(상태만으로는
- * "가득 참"과 "꺼짐"이 같은 409 라 구분되지 않는다).
+ * "가득 참"과 "꺼짐"이 같은 409 라 구분되지 않는다). WP-379: 가득 참은 어느 범위인지 {@code errors.scope} 로도 싣는다.
  */
 public class AiMemoryException extends RuntimeException {
 
@@ -18,13 +21,21 @@ public class AiMemoryException extends RuntimeException {
   private final HttpStatus status;
   private final String code;
 
-  private AiMemoryException(HttpStatus status, String code, String message) {
+  /** FULL 일 때 가득 찬 범위(앱 코드 또는 {@link AiMemoryScope#COMMON}) — 그 외 null. */
+  private final String scope;
+
+  private AiMemoryException(HttpStatus status, String code, String message, String scope) {
     super(message);
     this.status = status;
     this.code = code;
+    this.scope = scope;
   }
 
-  /** 길이·종류·빈 값 등 입력 오류(400). 잘라서 저장하지 않는다 — 뜻이 바뀌므로. */
+  private AiMemoryException(HttpStatus status, String code, String message) {
+    this(status, code, message, null);
+  }
+
+  /** 길이·종류·범위·빈 값 등 입력 오류(400). 잘라서 저장하지 않는다 — 뜻이 바뀌므로. */
   public static AiMemoryException invalid(String message) {
     return new AiMemoryException(HttpStatus.BAD_REQUEST, INVALID, message);
   }
@@ -34,10 +45,19 @@ public class AiMemoryException extends RuntimeException {
     return new AiMemoryException(HttpStatus.NOT_FOUND, NOT_FOUND, "메모리를 찾을 수 없어요");
   }
 
-  /** 사용자당 상한(50개) 초과(409). 조용히 버리지 않는다. */
-  public static AiMemoryException full() {
+  /**
+   * 범위마다 유효 메모리 50개 초과(409, WP-379). 앱 범위면 메시지에 범위 이름을 넣는다 — ai-agent 도구 오류를 받은 AI 가 "이슈 메모리가 가득
+   * 찼어요"라고 안내하게. 공통은 WP-55 문구 그대로. 조용히 버리지 않는다.
+   *
+   * @param scope 가득 찬 범위(null = 공통)
+   */
+  public static AiMemoryException full(String scope) {
+    String prefix = scope == null ? "" : AiMemoryScope.label(scope) + " ";
     return new AiMemoryException(
-        HttpStatus.CONFLICT, FULL, "메모리가 가득 찼어요(최대 50개). 필요 없는 항목을 지워 주세요");
+        HttpStatus.CONFLICT,
+        FULL,
+        prefix + "메모리가 가득 찼어요(최대 50개). 필요 없는 항목을 지워 주세요",
+        scope == null ? AiMemoryScope.COMMON : scope);
   }
 
   /** 메모리를 끈 사용자에 대한 AI 대행 쓰기(409). 설정 화면 직접 관리는 허용된다. */
@@ -63,5 +83,16 @@ public class AiMemoryException extends RuntimeException {
   /** errors.code 로 싣는 사유 코드(AI_MEMORY_*). */
   public String code() {
     return code;
+  }
+
+  /**
+   * 응답 errors — code 가 첫 값이다(웹 handleApiError 는 errors 의 첫 값을 토스트로 쓴다). FULL 이면 scope 를 더한다(Map.of
+   * 는 null 을 못 받으므로 순서 있는 맵으로 만든다).
+   */
+  public Map<String, String> errors() {
+    Map<String, String> m = new LinkedHashMap<>();
+    m.put("code", code);
+    if (scope != null) m.put("scope", scope);
+    return m;
   }
 }

@@ -124,6 +124,13 @@ class HomeChatContextBudgetTest extends IntegrationTestBase {
     return c.getValue();
   }
 
+  /**
+   * 폴백(오래된 원문 버리기) 뒤 남는 메시지 수 — 메모리는 기본 켜짐이고 0개라 예산 400 에서 빈 메모리 블록 몫을 뺀 만큼을 메시지당 50 으로 나눈다(7건).
+   */
+  private static int keptAfterEmptyMemoryBlock() {
+    return (400 - AiMemoryService.EMPTY_BLOCK_TOKENS) / 50;
+  }
+
   private static void await(BooleanSupplier cond) throws InterruptedException {
     long deadline = System.currentTimeMillis() + 5000;
     while (!cond.getAsBoolean()) {
@@ -217,9 +224,9 @@ class HomeChatContextBudgetTest extends IntegrationTestBase {
 
     ChatRequest req = sentRequest();
     assertThat(req.contextSummary()).isNull();
-    // 예산 400 → 최신 8건(400) 유지, 가장 오래된 2건 버림.
-    assertThat(req.recentContext()).hasSize(8);
-    assertThat(req.recentContext().get(0).content()).startsWith("질문2");
+    // 예산 400 − 빈 메모리 블록 몫(켜짐 + 0개, 50) = 350 → 최신 7건(350) 유지, 가장 오래된 3건 버림.
+    assertThat(req.recentContext()).hasSize(keptAfterEmptyMemoryBlock());
+    assertThat(req.recentContext().get(0).content()).startsWith("답변2");
     assertThat(sessionService.getContextSummary(uid, sid)).isEqualTo(new SummaryState(null, null));
   }
 
@@ -273,9 +280,9 @@ class HomeChatContextBudgetTest extends IntegrationTestBase {
 
     ChatRequest req = sentRequest();
     assertThat(req.contextSummary()).isNull();
-    // 실패 테스트와 동일 — 예산 400 → 최신 8건 유지, 가장 오래된 2건 버림.
-    assertThat(req.recentContext()).hasSize(8);
-    assertThat(req.recentContext().get(0).content()).startsWith("질문2");
+    // 실패 테스트와 동일 — 예산 400 − 빈 메모리 블록 몫 = 350 → 최신 7건 유지, 가장 오래된 3건 버림.
+    assertThat(req.recentContext()).hasSize(keptAfterEmptyMemoryBlock());
+    assertThat(req.recentContext().get(0).content()).startsWith("답변2");
     verify(sseRegistry, never()).fanOut(any(), eq("home.chat.error"), any());
   }
 

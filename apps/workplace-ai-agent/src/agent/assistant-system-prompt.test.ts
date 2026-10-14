@@ -359,6 +359,21 @@ describe('드라이브 파일을 이슈에 연결 (WP-356)', () => {
 // WP-55: 메모리 저장 규칙은 정적 본문(두 러너 공통)에 있다 — 블록은 사용자 메시지로만 온다.
 describe('사용자 메모리 규칙 (WP-55)', () => {
   for (const [name, p] of [['claude', ASSISTANT_SYSTEM_PROMPT], ['opencode', assistantSystemPrompt('opencode')]] as const) {
+    it(`${name}: WP-379 범위 규칙 — 앱 범위·공통 판단, 애매하면 공통, 범위 줄은 지금 앱에만`, () => {
+      expect(p).toContain('특정 앱의 화면·목록·형식·업무에 관한 선호·맥락이면 `remember_memory` 의 scope 를 그 앱으로');
+      expect(p).toContain('애매하면 공통');
+      expect(p).toContain('블록의 범위 줄은 지금 화면이 그 앱일 때만 실린다');
+      expect(p).toContain("scope 를 'COMMON'");
+    });
+
+    it(`${name}: WP-380 기한 규칙(기간이 드러날 때만·오늘 줄로 계산·불분명하면 없이)과 가득 참 안내`, () => {
+      expect(p).toContain('기간이 드러날 때만 `expiresOn`');
+      expect(p).toContain('블록의 "오늘:" 줄로 계산한다');
+      expect(p).toContain('기간이 불분명하면 기한 없이 저장한다');
+      expect(p).toContain('clearExpiry');
+      expect(p).toContain('메모리가 가득 찼어요, 설정에서 정리해 주세요');
+    });
+
     it(`${name}: 저장할 것·저장하지 말 것·갱신/삭제·언어·꺼짐 규칙을 담는다`, () => {
       expect(p).toContain('## 사용자 메모리');
       for (const n of ['remember_memory', 'update_memory', 'forget_memory']) expect(p).toContain(n);

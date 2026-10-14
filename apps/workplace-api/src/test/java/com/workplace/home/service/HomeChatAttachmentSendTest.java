@@ -2,6 +2,8 @@ package com.workplace.home.service;
 
 import static com.workplace.jooq.Tables.FILE;
 import static com.workplace.jooq.Tables.HOME_SESSION;
+import static com.workplace.support.RowLockWaits.awaitLockWaiter;
+import static com.workplace.support.RowLockWaits.awaitQuietly;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -17,10 +19,6 @@ import com.workplace.home.exception.HomeChatConcurrencyLimitException;
 import com.workplace.home.exception.HomeChatSessionBusyException;
 import com.workplace.home.exception.HomeSessionNotFoundException;
 import com.workplace.home.repository.HomeSessionRepository;
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -34,7 +32,6 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /** WP-234: 전송 시 첨부 연결 — 같은 트랜잭션의 연결·승격·추출 요청, 첨부만 전송, 입력·소유·상한 검증과 동시성. */
@@ -226,15 +223,6 @@ class HomeChatAttachmentSendTest extends HomeAttachmentTestSupport {
 
   @Autowired private HomeSessionRepository sessionRepo;
 
-  @Value("${spring.datasource.url}")
-  private String dbUrl;
-
-  @Value("${spring.datasource.username}")
-  private String dbUser;
-
-  @Value("${spring.datasource.password}")
-  private String dbPassword;
-
   /**
    * 소유 확인은 통과했는데 세션 행 잠금을 기다리는 사이 세션이 지워지면 404 다. 잠금 결과(false)를 무시하고 진행하면 USER 메시지 INSERT 가 FK
    * 위반(500)이 될 수 있다.
@@ -367,37 +355,6 @@ class HomeChatAttachmentSendTest extends HomeAttachmentTestSupport {
     } finally {
       release.countDown();
       pool.shutdownNow();
-    }
-  }
-
-  /**
-   * 전송 커넥션이 행 잠금을 기다리는 상태가 될 때까지 기다린다(최대 10초). 테스트 풀은 2개라(잠금 보유 1 + 전송 1) 풀 밖의 별도 커넥션으로 본다 — 풀에서
-   * 빌리면 전송이 커넥션을 못 받아 잠금에 닿지 못한다. pg_stat_activity 는 다른 롤 세션의 대기 상태를 권한으로 가리므로 롤과 무관하게 보이는 pg_locks
-   * 를 본다.
-   */
-  private void awaitLockWaiter(Future<Throwable> sender) throws Exception {
-    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
-    try (Connection c = DriverManager.getConnection(dbUrl, dbUser, dbPassword);
-        PreparedStatement ps =
-            c.prepareStatement("select count(*) from pg_locks where not granted")) {
-      while (System.nanoTime() < deadline) {
-        try (ResultSet rs = ps.executeQuery()) {
-          if (rs.next() && rs.getLong(1) > 0) return;
-        }
-        // 잠금에 닿기 전에 끝났으면(소유 확인 실패 등) 기다릴 이유가 없다 — 원인을 그대로 보인다.
-        if (sender.isDone()) throw new AssertionError("전송이 잠금 대기 전에 끝났다", sender.get());
-        Thread.sleep(20); // 잠금 대기 진입을 관측하는 폴링 간격 — 조건 대기다.
-      }
-    }
-    throw new AssertionError("전송이 세션 행 잠금을 기다리는 상태가 되지 않았다");
-  }
-
-  private static void awaitQuietly(CountDownLatch latch) {
-    try {
-      if (!latch.await(10, TimeUnit.SECONDS)) throw new AssertionError("release 신호가 오지 않았다");
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-      throw new AssertionError(e);
     }
   }
 
