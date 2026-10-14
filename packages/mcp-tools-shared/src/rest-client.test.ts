@@ -118,9 +118,21 @@ describe('createSharedToolClient 경로 매핑', () => {
     http.get.mockResolvedValueOnce({ data: { threadId: 55 } }).mockResolvedValueOnce({ data: { status: 'READY' } });
     await client.readIssueChatAttachmentText('WP-1', 11, 900, { offset: 0, limit: 100 });
     expect(http.get).toHaveBeenLastCalledWith('/chat/threads/55/attachments/900/text', { params: { offset: 0, limit: 100 } });
-    http.get.mockResolvedValueOnce({ data: { threadId: 55 } }).mockResolvedValueOnce({ data: new Uint8Array([7]).buffer, headers: { 'content-type': 'image/png' } });
+    // 같은 이슈의 스레드 id 는 캐시되어 다시 구하지 않는다.
+    http.get.mockResolvedValueOnce({ data: new Uint8Array([7]).buffer, headers: { 'content-type': 'image/png' } });
     expect((await client.downloadIssueChatAttachment('WP-1', 11, 900)).mimeType).toBe('image/png');
     expect(http.get).toHaveBeenLastCalledWith('/chat/threads/55/messages/11/attachments/900/content', expect.objectContaining({ responseType: 'arraybuffer' }));
+  });
+
+  it('이슈 챗 스레드 id 는 같은 issueKey 로 한 번만 조회하고, 실패하면 캐시하지 않는다', async () => {
+    const { http, client } = mockHttp();
+    http.get.mockResolvedValueOnce({ data: { threadId: 55 } });
+    expect(await client.getIssueChatThreadId('WP-1')).toBe(55);
+    expect(await client.getIssueChatThreadId('WP-1')).toBe(55);
+    expect(http.get).toHaveBeenCalledTimes(1);
+    http.get.mockRejectedValueOnce(new Error('boom')).mockResolvedValueOnce({ data: { threadId: 66 } });
+    await expect(client.getIssueChatThreadId('WP-2')).rejects.toThrow('boom');
+    expect(await client.getIssueChatThreadId('WP-2')).toBe(66);
   });
 
   it('listProjects 는 Spring 페이지의 total·다음 페이지 여부(page+1<totalPages)를 보존하고 bare 배열도 처리한다(WP-352)', async () => {

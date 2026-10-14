@@ -102,6 +102,21 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
   const issueId = async (issueKey: string): Promise<number> =>
     ((await http.get(issue(issueKey))).data as { summary: { id: number } }).summary.id;
 
+  /**
+   * issueKey → 이슈 챗 threadId. 이슈의 챗 스레드 id 는 바뀌지 않으므로 클라이언트 인스턴스 안에서 캐시한다 — 첨부 읽기·받기마다 같은 GET 을
+   * 되풀이하지 않게. 실패한 요청은 캐시에서 빼 다음 호출이 다시 시도한다.
+   */
+  const threadIds = new Map<string, Promise<number>>();
+  const issueChatThreadId = (issueKey: string): Promise<number> => {
+    let p = threadIds.get(issueKey);
+    if (!p) {
+      p = http.get(`${issue(issueKey)}/chat/thread`).then((r) => r.data.threadId as number);
+      threadIds.set(issueKey, p);
+      p.catch(() => threadIds.delete(issueKey));
+    }
+    return p;
+  };
+
   return {
     // ── 프로젝트·이슈 ──
     async listProjects(page, size) {
@@ -153,7 +168,7 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
       return { items: data?.items ?? [], nextCursor: data?.nextCursor, hasMore: data?.hasMore };
     },
     async getIssueChatThreadId(issueKey) {
-      return (await http.get(`${issue(issueKey)}/chat/thread`)).data.threadId;
+      return issueChatThreadId(issueKey);
     },
     async listIssueChatMessages(threadId, { after, limit }) {
       // after 가 없으면 서버가 내 마지막 글 기준(afterMine)으로 고른다 — 새 글과 직전 맥락을 한 번에 받는다(WP-373).
@@ -543,11 +558,11 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     },
     async readIssueChatAttachmentText(issueKey, _messageId, fileId, range) {
       // 텍스트 API 는 스레드 단위(메시지 id 없음) — 메시지 소속 확인은 원본 받기 경로가 한다(WP-373).
-      const threadId = (await http.get(`${issue(issueKey)}/chat/thread`)).data.threadId;
+      const threadId = await issueChatThreadId(issueKey);
       return (await http.get(`/chat/threads/${threadId}/attachments/${fileId}/text`, rangeParams(range))).data;
     },
     async downloadIssueChatAttachment(issueKey, messageId, fileId) {
-      const threadId = (await http.get(`${issue(issueKey)}/chat/thread`)).data.threadId;
+      const threadId = await issueChatThreadId(issueKey);
       return getBytes(http, `/chat/threads/${threadId}/messages/${messageId}/attachments/${fileId}/content`);
     },
     async readDriveFileText(driveFileId, range) {

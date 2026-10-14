@@ -4,6 +4,7 @@ import { errText, parseIssueKey } from './parse.js';
 import type { SharedTool } from './mcp-tool.js';
 import { ISSUE_DETAIL_COMMENT_HARD_LIMIT, ISSUE_DETAIL_COMMENT_LIMIT, ISSUE_DETAIL_HISTORY_LIMIT, normalizeIssueDetail } from './issue-detail.js';
 import { toAgentWorkView } from './agent-work-view.js';
+import { toAuthorView, toSeoulIso } from './issue-view.js';
 import { toIssueListItem } from './project-tools.js';
 import {
   fieldDefByName,
@@ -41,13 +42,14 @@ function toIssueChatMessageView(m: Record<string, unknown>) {
   const attachments = Array.isArray(m.attachments) ? (m.attachments as Record<string, unknown>[]) : [];
   return dropEmpty({
     id: m.id,
-    author: { username: m.authorUsername, name: m.authorName, kind: m.authorKind },
+    author: toAuthorView(m.authorUsername, m.authorName, m.authorKind),
     // 삭제된 글은 서버가 본문 자리에 "(삭제됨)" 을 채우므로 body 를 빼고 deleted 만 알린다.
     // 본문의 멘션 토큰 <@id> 은 mentions 로 이름을 풀어 숫자 사용자 id 가 AI 에 닿지 않게 한다(#833).
     body: deleted ? undefined : resolveMentionTokens(String(m.body ?? ''), m.mentions),
     question: m.question === true ? true : undefined,
-    createdAt: m.createdAt,
-    editedAt: m.editedAt ?? undefined,
+    // 시각은 목록·상세와 같은 Asia/Seoul 오프셋 표기로 맞춘다.
+    createdAt: toSeoulIso(m.createdAt),
+    editedAt: toSeoulIso(m.editedAt) ?? undefined,
     deleted: deleted ? true : undefined,
     attachments: attachments.map((a) =>
       dropEmpty({ attachmentId: a.fileId, name: a.originalName, mimeType: a.mimeType, size: a.sizeBytes, extraction: toExtractionView(a.extraction) }),

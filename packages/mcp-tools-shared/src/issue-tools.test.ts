@@ -439,9 +439,9 @@ describe('get_issue_chat (WP-373)', () => {
     expect(c.listIssueChatMessages).toHaveBeenCalledWith(55, { after: undefined, limit: 30 });
     expect(out).toEqual({
       messages: [
-        { id: 11, author: { username: 'kodi', name: '코디', kind: 'AGENT' }, body: '질문', question: true, createdAt: '2026-10-14T01:00:00Z',
+        { id: 11, author: { username: 'kodi', name: '코디', kind: 'AGENT' }, body: '질문', question: true, createdAt: '2026-10-14T10:00:00+09:00',
           attachments: [{ attachmentId: 900, name: 'a.txt', mimeType: 'text/plain', size: 12, extraction: { status: 'READY', totalChars: 12 } }] },
-        { id: 12, author: { username: 'dh', name: '양동희', kind: 'HUMAN' }, deleted: true, createdAt: '2026-10-14T01:01:00Z' },
+        { id: 12, author: { username: 'dh', name: '양동희', kind: 'HUMAN' }, deleted: true, createdAt: '2026-10-14T10:01:00+09:00' },
       ],
       hasMore: false,
     });
