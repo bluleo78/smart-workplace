@@ -212,4 +212,41 @@ class HomeConversationSearchApiTest extends IntegrationTestBase {
         .andExpect(jsonPath("$.items[0].question", startsWith("고양이 질")))
         .andExpect(jsonPath("$.items[0].answerExcerpt", startsWith("…")));
   }
+
+  @Test
+  void 질문이_대표면_같은_턴의_답만_짝짓고_뒤_턴의_답이나_빈_답은_붙이지_않는다() throws Exception {
+    long uid = TestFixtures.createHuman(dsl);
+    UUID sid = sessions.create(uid).id();
+    sessions.appendMessage(uid, sid, "USER", "수족관 위치 알려줘", null, null, null);
+    sessions.appendMessage(uid, sid, "ASSISTANT", "", null, null, null, "STOPPED");
+    sessions.appendMessage(uid, sid, "USER", "다음 질문이야", null, null, null);
+    sessions.appendMessage(uid, sid, "ASSISTANT", "다음 턴의 답", null, null, null);
+
+    call(uid, get(SEARCH).param("q", "수족관"))
+        .andExpect(jsonPath("$.items", hasSize(1)))
+        .andExpect(jsonPath("$.items[0].question", startsWith("수족관")))
+        .andExpect(jsonPath("$.items[0].answerExcerpt").isEmpty());
+  }
+
+  @Test
+  void 질문이_대표면_바로_다음_답을_짝짓는다() throws Exception {
+    long uid = TestFixtures.createHuman(dsl);
+    turn(uid, "수족관 위치 알려줘", "서울숲 옆이에요");
+
+    call(uid, get(SEARCH).param("q", "수족관"))
+        .andExpect(jsonPath("$.items[0].answerExcerpt").value("서울숲 옆이에요"));
+  }
+
+  @Test
+  void 기호뿐인_질의는_200이고_와일드카드가_전부와_맞지_않는다() throws Exception {
+    long uid = TestFixtures.createHuman(dsl);
+    turn(uid, "고양이 얘기", "귀여워요");
+    turn(uid, "커피 얘기", "라떼");
+
+    for (String q : List.of("%_?", "%", "_", "\\")) {
+      call(uid, get(SEARCH).param("q", q))
+          .andExpect(status().isOk())
+          .andExpect(jsonPath("$.items", hasSize(0)));
+    }
+  }
 }

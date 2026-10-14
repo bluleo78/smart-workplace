@@ -29,17 +29,17 @@ public class HomeConversationSearchRepository {
 
   private final DSLContext dsl;
 
-  /** 대화 하나의 대표 메시지. */
+  /**
+   * 대화 하나의 대표 턴 — 대표 메시지가 ASSISTANT 면 직전 USER 가 질문, USER 면 같은 턴(다음 USER 전)의 첫 ASSISTANT 가 답. 없는 쪽은
+   * null.
+   */
   public record Hit(
       UUID sessionId,
       long messageId,
-      String role,
-      double score,
       String title,
-      Instant lastMessageAt) {}
-
-  /** 대표 메시지의 질문·답 — 없는 쪽은 null. */
-  public record TurnPair(String question, String answer) {}
+      Instant lastMessageAt,
+      String question,
+      String answer) {}
 
   /**
    * @param terms {@code SearchTerms.of(query)} — 비면 전문검색만
@@ -106,33 +106,23 @@ public class HomeConversationSearchRepository {
     sql.append(
         ", best AS (SELECT DISTINCT ON (session_id) session_id, id, role, score FROM scored"
             + " ORDER BY session_id, score DESC, id DESC)"
-            + " SELECT b.session_id, b.id AS message_id, b.role, b.score, s.title, s.last_message_at"
+            + " SELECT b.session_id, b.id AS message_id, s.title, s.last_message_at,"
+            // 대표 턴의 질문·답을 한 번에 — 히트마다 따로 묻지 않는다. USER 대표의 답은 다음 USER 메시지 전까지만 본다(답이 없는
+            // 질문이 뒤 턴의 답이나 중단·실패한 빈 답과 짝지어지지 않게).
+            + " CASE WHEN b.role = 'ASSISTANT' THEN (SELECT u.content FROM home_message u"
+            + "   WHERE u.session_id = b.session_id AND u.role = 'USER' AND u.id < b.id"
+            + "   ORDER BY u.id DESC LIMIT 1) ELSE m.content END AS question,"
+            + " CASE WHEN b.role = 'ASSISTANT' THEN m.content ELSE (SELECT a.content FROM home_message a"
+            + "   WHERE a.session_id = b.session_id AND a.role = 'ASSISTANT' AND a.content <> '' AND a.id > b.id"
+            + "   AND a.id < COALESCE((SELECT min(n.id) FROM home_message n"
+            + "     WHERE n.session_id = b.session_id AND n.role = 'USER' AND n.id > b.id),"
+            + "     9223372036854775807)"
+            + "   ORDER BY a.id ASC LIMIT 1) END AS answer"
             + " FROM best b JOIN home_session s ON s.id = b.session_id"
+            + " JOIN home_message m ON m.id = b.id"
             + " ORDER BY b.score DESC, s.last_message_at DESC LIMIT ?");
     p.add(limit);
     return dsl.fetch(sql.toString(), p.toArray()).map(HomeConversationSearchRepository::toHit);
-  }
-
-  /** 대표 메시지 → 질문·답. ASSISTANT 면 직전 USER 가 질문, USER 면 바로 다음 ASSISTANT 가 답. 메시지가 없으면 둘 다 null. */
-  public TurnPair turnPair(long messageId) {
-    Record r =
-        dsl.fetchOne(
-            """
-            SELECT m.role, m.content,
-                   (SELECT u.content FROM home_message u
-                     WHERE u.session_id = m.session_id AND u.role = 'USER' AND u.id < m.id
-                     ORDER BY u.id DESC LIMIT 1) AS prev_user,
-                   (SELECT a.content FROM home_message a
-                     WHERE a.session_id = m.session_id AND a.role = 'ASSISTANT' AND a.id > m.id
-                     ORDER BY a.id ASC LIMIT 1) AS next_answer
-            FROM home_message m WHERE m.id = ?
-            """,
-            messageId);
-    if (r == null) return new TurnPair(null, null);
-    String content = r.get("content", String.class);
-    return "ASSISTANT".equals(r.get("role", String.class))
-        ? new TurnPair(r.get("prev_user", String.class), content)
-        : new TurnPair(content, r.get("next_answer", String.class));
   }
 
   private static Hit toHit(Record r) {
@@ -140,9 +130,9 @@ public class HomeConversationSearchRepository {
     return new Hit(
         r.get("session_id", UUID.class),
         r.get("message_id", Long.class),
-        r.get("role", String.class),
-        r.get("score", Double.class),
         r.get("title", String.class),
-        last == null ? null : last.toInstant());
+        last == null ? null : last.toInstant(),
+        r.get("question", String.class),
+        r.get("answer", String.class));
   }
 }

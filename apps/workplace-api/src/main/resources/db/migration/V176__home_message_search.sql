@@ -5,6 +5,6 @@
 -- 의미: "질문: {직전 USER}\n답: {ASSISTANT}"(2,000자)의 BGE-M3 dense(1024). 완료(COMPLETE)된 ASSISTANT 행에만 커밋 뒤·백필로 채운다.
 -- 사용자 필터 뒤 정확 탐색이라 벡터 인덱스는 두지 않는다.
 ALTER TABLE home_message ADD COLUMN embedding vector(1024);
--- 백필(1분마다 오래된 순 50개)용 부분 인덱스 — 채울 대상(완료 답 + 빈 임베딩)만 담는다.
+-- 백필(1분마다 오래된 순 50개)용 부분 인덱스 — 채울 대상(완료 답 + 비지 않은 본문 + 빈 임베딩 — pendingTurnIds·turnText 조건과 같다)만 담는다.
 CREATE INDEX home_message_embedding_pending_idx ON home_message (id)
-  WHERE role = 'ASSISTANT' AND status = 'COMPLETE' AND embedding IS NULL;
+  WHERE role = 'ASSISTANT' AND status = 'COMPLETE' AND embedding IS NULL AND content <> '';

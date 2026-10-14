@@ -2,11 +2,13 @@ package com.workplace.home.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.workplace.home.AiMemoryTestFixtures;
 import com.workplace.home.repository.TextEmbeddingRepository;
 import com.workplace.support.FakeTextEmbedder;
 import com.workplace.support.FakeTextEmbedderConfig;
 import com.workplace.support.MemoryEmbeddingProbe;
 import com.workplace.support.TestFixtures;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Executor;
 import org.junit.jupiter.api.AfterEach;
@@ -25,6 +27,7 @@ class TurnEmbeddingTest extends AiMemoryRaceTestSupport {
   @Autowired HomeSessionService sessions;
   @Autowired TextEmbeddingService embeddingService;
   @Autowired TextEmbeddingBackfillScheduler backfill;
+  @Autowired AiMemoryService memories;
   @Autowired FakeTextEmbedder fake;
 
   private MemoryEmbeddingProbe probe;
@@ -95,6 +98,48 @@ class TurnEmbeddingTest extends AiMemoryRaceTestSupport {
     for (int i = 0; i < 20 && backfill.backfillOnce() > 0; i++) {}
 
     assertThat(probe.turnEmbeddingIs(answer, "질문: 주간 보고 마감\n답: 금요일 오후 4시예요")).isTrue();
+  }
+
+  @Test
+  void 백필은_메모리를_턴보다_먼저_채운다() {
+    long uid = user();
+    UUID sid = session(uid);
+    fake.setEnabled(false);
+    append(uid, sid, "USER", "순서 질문", "COMPLETE");
+    append(uid, sid, "ASSISTANT", "순서 답", "COMPLETE");
+    inTenant(() -> AiMemoryTestFixtures.createMemory(memories, uid, "PREFERENCE", "순서 메모리"));
+    fake.setEnabled(true);
+    fake.reset();
+
+    for (int i = 0; i < 20 && backfill.backfillOnce() > 0; i++) {}
+
+    // 문서 임베딩 호출 순서 — 턴 입력은 "질문: " 로 시작한다. 마지막 메모리 호출이 첫 턴 호출보다 앞서야 한다.
+    List<String> texts = fake.documentTexts();
+    int firstTurn = -1;
+    int lastMemory = -1;
+    for (int i = 0; i < texts.size(); i++) {
+      if (texts.get(i).startsWith("질문: ")) {
+        if (firstTurn < 0) firstTurn = i;
+      } else {
+        lastMemory = i;
+      }
+    }
+    assertThat(firstTurn).isGreaterThanOrEqualTo(0);
+    assertThat(lastMemory).isGreaterThanOrEqualTo(0).isLessThan(firstTurn);
+  }
+
+  @Test
+  void 공백뿐인_답은_빈_답이_아니라서_커밋_뒤에도_임베딩_대상이다() {
+    long uid = user();
+    UUID sid = session(uid);
+    append(uid, sid, "USER", "공백 질문", "COMPLETE");
+    long blank = append(uid, sid, "ASSISTANT", "   ", "COMPLETE");
+    long empty = append(uid, sid, "ASSISTANT", "", "COMPLETE");
+
+    // 빈 문자열만 빈 답 — 백필·turnText(`content <> ''`)와 같은 규칙. 공백 답은 이벤트도 백필도 같이 대상으로 본다.
+    assertThat(probe.turnEmbeddingEmpty(empty)).isTrue();
+    assertThat(probe.turnEmbeddingIs(blank, TextEmbeddingRepository.turnInput("공백 질문", "   ")))
+        .isTrue();
   }
 
   @Test

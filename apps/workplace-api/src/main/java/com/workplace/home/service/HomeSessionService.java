@@ -228,11 +228,12 @@ public class HomeSessionService {
             sessionId, role, content, widgetsJson, toolCallsJson, contentBlocksJson, status);
     String titleIfNull = "USER".equals(role) ? trimTitle(content) : null;
     sessionRepo.touch(sessionId, titleIfNull);
-    // WP-384: 완료된 답은 커밋 뒤 "질문 + 답" 임베딩을 채운다(지난 대화 의미 검색). 중단·실패·빈 답은 대상이 아니다. 롤백되면 이벤트도 사라진다.
+    // WP-384: 완료된 답은 커밋 뒤 "질문 + 답" 임베딩을 채운다(지난 대화 의미 검색). 중단·실패·빈 답은 대상이 아니다(빈 답 = 빈 문자열만 —
+    // 백필·turnText 의 `content <> ''` 와 같은 규칙). 롤백되면 이벤트도 사라진다.
     if ("ASSISTANT".equals(role)
         && "COMPLETE".equals(status)
         && content != null
-        && !content.isBlank()) {
+        && !content.isEmpty()) {
       events.publishEvent(
           new TextEmbeddingService.Requested(
               TenantContext.get(), TextEmbeddingService.Target.TURN, id));

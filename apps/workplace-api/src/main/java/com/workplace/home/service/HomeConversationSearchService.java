@@ -6,9 +6,7 @@ import com.workplace.home.dto.ConversationSearchResponse;
 import com.workplace.home.exception.AiMemoryException;
 import com.workplace.home.repository.HomeConversationSearchRepository;
 import com.workplace.home.repository.HomeConversationSearchRepository.Hit;
-import com.workplace.home.repository.HomeConversationSearchRepository.TurnPair;
 import com.workplace.user.service.AiPreferenceService;
-import java.time.Duration;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
@@ -23,7 +21,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 public class HomeConversationSearchService {
 
-  static final Duration EMBED_WAIT = Duration.ofSeconds(5);
   static final int DEFAULT_LIMIT = 5;
   static final int MAX_LIMIT = 10;
   static final int QUESTION_CHARS = 200;
@@ -60,25 +57,23 @@ public class HomeConversationSearchService {
     }
     String query = q.strip();
     List<String> terms = SearchTerms.of(query);
-    float[] vec = embedder.embedQuery(query, EMBED_WAIT).orElse(null);
+    float[] vec = embedder.embedQuery(query, AiMemoryService.SEARCH_EMBED_WAIT).orElse(null);
     List<ConversationSearchResponse.Item> items =
         tx.execute(
             s ->
                 repo.search(userId, query, terms, vec, excludeSessionId, n).stream()
-                    .map(h -> toItem(h, repo.turnPair(h.messageId()), terms))
+                    .map(h -> toItem(h, terms))
                     .toList());
     return new ConversationSearchResponse(true, items == null ? List.of() : items);
   }
 
-  private static ConversationSearchResponse.Item toItem(Hit h, TurnPair turn, List<String> terms) {
+  private static ConversationSearchResponse.Item toItem(Hit h, List<String> terms) {
     return new ConversationSearchResponse.Item(
         h.sessionId(),
         h.title(),
         h.lastMessageAt(),
-        turn.question() == null
-            ? null
-            : Texts.truncateCodePoints(flat(turn.question()), QUESTION_CHARS),
-        excerpt(turn.answer(), terms, EXCERPT_CHARS),
+        h.question() == null ? null : Texts.truncateCodePoints(flat(h.question()), QUESTION_CHARS),
+        excerpt(h.answer(), terms, EXCERPT_CHARS),
         "/?chat=" + h.sessionId());
   }
 

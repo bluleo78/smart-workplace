@@ -8,6 +8,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -22,6 +23,7 @@ public class FakeTextEmbedder implements TextEmbedder {
 
   private final Map<String, String> canonical = new ConcurrentHashMap<>();
   private final Set<String> failTexts = ConcurrentHashMap.newKeySet();
+  private final List<String> documentTexts = new CopyOnWriteArrayList<>();
   private final AtomicInteger documentCalls = new AtomicInteger();
   private volatile boolean enabled = true;
   private volatile boolean failing;
@@ -32,6 +34,7 @@ public class FakeTextEmbedder implements TextEmbedder {
     canonical.clear();
     failTexts.clear();
     documentCalls.set(0);
+    documentTexts.clear();
     enabled = true;
     failing = false;
     lastQueryTimeout = null;
@@ -64,6 +67,11 @@ public class FakeTextEmbedder implements TextEmbedder {
     return documentCalls.get();
   }
 
+  /** 문서 임베딩을 요청받은 텍스트 — 호출 순서대로(백필 순서 확인용). */
+  public List<String> documentTexts() {
+    return List.copyOf(documentTexts);
+  }
+
   /** 마지막 질의 임베딩의 대기 시간(채팅 1.5초·검색 5초 고정 확인용). */
   public Duration lastQueryTimeout() {
     return lastQueryTimeout;
@@ -83,6 +91,7 @@ public class FakeTextEmbedder implements TextEmbedder {
   @Override
   public Optional<float[]> embedDocument(String text) {
     documentCalls.incrementAndGet();
+    if (text != null) documentTexts.add(text);
     return enabled && !failing && text != null && !text.isBlank() && !failTexts.contains(text)
         ? Optional.of(expected(text))
         : Optional.empty();

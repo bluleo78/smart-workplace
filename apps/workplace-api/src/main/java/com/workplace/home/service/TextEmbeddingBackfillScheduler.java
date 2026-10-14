@@ -6,6 +6,7 @@ import com.workplace.home.repository.TextEmbeddingRepository;
 import com.workplace.home.service.TextEmbeddingService.Result;
 import com.workplace.home.service.TextEmbeddingService.Target;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashSet;
 import java.util.List;
@@ -65,6 +66,8 @@ public class TextEmbeddingBackfillScheduler {
     List<Job> jobs = new ArrayList<>();
     tenantRunner.forEachActiveTenant(
         tid -> pendingOf().forEach((t, ids) -> ids.forEach(id -> jobs.add(new Job(tid, t, id)))));
+    // 메모리 먼저(스펙 3.2) — 테넌트별로 쌓인 순서를 대상 기준 안정 정렬해, 연속 실패로 주기가 멈춰도 뒤 테넌트의 메모리가 앞 테넌트의 턴 뒤에서 기다리지 않는다.
+    jobs.sort(Comparator.comparing(Job::target));
     recentlyFailed.retainAll(new HashSet<>(jobs));
     // 지난번에 실패한 행은 맨 끝으로 — 늘 실패하는 행이 앞에 몰려 있어도 다른 행(다른 테넌트 포함)이 먼저 채워진다.
     List<Job> ordered = new ArrayList<>(jobs.size());
