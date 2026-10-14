@@ -6,6 +6,7 @@ import { expect, test } from '../../fixtures/auth.fixture'
 import { mockApi } from '../../fixtures/api-mock'
 import { agentWorker as agent, createAgentWork, createAiTaskCounts, minutesAgo } from '../../factories/agentWork.factory'
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory'
+import { GROUPED_ROWS } from '../../fixtures/ai-tasks-groups'
 import { DESKTOP_WIDTHS, expectHeaderBottomAt56, expectStartAligned } from '../../fixtures/layout'
 import type { IssueResponse } from '../../../src/types/issue'
 import type { UserSummary } from '../../../src/types/user'
@@ -298,6 +299,62 @@ for (const width of [1280, ...DESKTOP_WIDTHS]) {
       const { scrollWidth, clientWidth } = await table.evaluate((el) => ({ scrollWidth: el.scrollWidth, clientWidth: el.clientWidth }))
       expect(scrollWidth).toBeLessThanOrEqual(clientWidth)
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
+    })
+  })
+}
+
+// 에픽 묶음(WP-375) — 서버가 묶음 단위로 정렬해 준 행을 머리 + 들여쓴 하위 행으로 그린다.
+test('에픽 묶음 머리 아래 하위 행이 들여쓰기되고 에픽 부모 칩은 숨는다', async ({ authenticatedPage: page }) => {
+  await setup(page, GROUPED_ROWS)
+  await page.goto('/me/ai-tasks')
+  await expect(page.getByTestId('ai-epic-412')).toContainText('WP-412')
+  await expect(page.getByTestId('ai-epic-412')).toContainText('└ 1/5')
+  await expect(page.getByTestId('ai-row-412')).toHaveCount(0) // 에픽 행은 머리로만
+  await expect(page.getByTestId('ai-epic-412').getByTestId('ai-row-412-state')).toBeVisible() // 머리 줄에 에픽 자신 AI 진행
+  const titleCell = page.getByTestId('ai-row-413').locator('td').nth(3).locator('div').first()
+  await expect(titleCell).toHaveCSS('padding-left', '20px')
+  await expect(page.getByTestId('issue-row-413-parent')).toHaveCount(0)
+  await expect(page.getByTestId('ai-epic-420')).toBeVisible() // 에픽 행 없는 묶음도 머리
+  await expect(page.getByTestId('ai-epic-420').getByTestId('ai-row-420-state')).toHaveCount(0) // AI 칸은 비움
+})
+
+test('묶이지 않은 행의 부모 칩은 키를 먼저 보인다', async ({ authenticatedPage: page }) => {
+  await setup(page, GROUPED_ROWS)
+  await page.goto('/me/ai-tasks')
+  await expect(page.getByTestId('issue-row-431-parent')).toContainText('WP-377')
+  await expect(page.getByTestId('issue-row-431-parent')).toContainText('AI 작업 기록')
+})
+
+test('다음 페이지의 하위 행은 같은 머리 아래 이어 붙는다', async ({ authenticatedPage: page }) => {
+  const rows = GROUPED_ROWS.filter((r) => [421, 422, 430].includes(r.number)).map((r) => (
+    r.aiGroup ? { ...r, aiGroup: { ...r.aiGroup, size: 2 } } : r))
+  // 1페이지: [421] + nextCursor, 2페이지(cursor=c2): [422, 430].
+  await page.route((u) => u.pathname === LIST, (route) => {
+    const cursor = new URL(route.request().url()).searchParams.get('cursor')
+    return route.fulfill({
+      json: cursor === 'c2'
+        ? createIssueSearchResponse([rows[1], rows[2]])
+        : createIssueSearchResponse([rows[0]], 'c2'),
+    })
+  })
+  await mockApi(page, 'GET', COUNTS, createAiTaskCounts())
+  await page.goto('/me/ai-tasks')
+  await expect(page.getByTestId('ai-row-430')).toBeVisible()
+  await expect(page.getByTestId('ai-epic-420')).toHaveCount(1)
+  const order = await page.locator('[data-testid^="ai-row-"], [data-testid^="ai-epic-"]').evaluateAll((els) =>
+    els.map((e) => e.getAttribute('data-testid')).filter((t) => /^ai-(row|epic)-\d+$/.test(t ?? '')))
+  expect(order).toEqual(['ai-epic-420', 'ai-row-421', 'ai-row-422', 'ai-row-430'])
+})
+
+// 에픽 묶음 화면 캡처(WP-375) — 라이트·다크 1280. 겹침·잘림은 사람이 캡처로 확인한다(test-results/tc/ai-tasks-groups/).
+for (const scheme of ['light', 'dark'] as const) {
+  test.describe(`에픽 묶음 캡처 ${scheme}`, () => {
+    test.use({ viewport: { width: 1280, height: 820 }, colorScheme: scheme })
+    test(`1280 ${scheme}`, async ({ authenticatedPage: page }) => {
+      await setup(page, GROUPED_ROWS, createAiTaskCounts({ all: 8, inputRequired: 1, review: 1, blocked: 1, working: 3 }))
+      await page.goto('/me/ai-tasks')
+      await expect(page.getByTestId('ai-row-431')).toBeVisible()
+      await page.screenshot({ path: `../../test-results/tc/ai-tasks-groups/after-1280${scheme === 'dark' ? '-dark' : ''}.png` })
     })
   })
 }
