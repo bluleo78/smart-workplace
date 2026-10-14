@@ -185,4 +185,77 @@ test.describe('admin 공통 비서', () => {
     await expect(page.getByTestId('workspace-assistant-model')).toBeDisabled();
     await expect(page.getByTestId('workspace-assistant-model-empty')).toBeVisible();
   });
+
+  // WP-250 코드 리뷰: 공통 비서도 등록 후 모델을 바꾸며 이미지 입력을 지정할 수 있다(OpenAI 호환 연결만).
+  test('opencode 공통 비서 — 이미지 입력만 바꾸면 지금 모델에, 모델을 바꾸면 그 선택을 새 모델에 함께 보낸다', async ({
+    adminPage: page,
+  }) => {
+    await mockAgentsAndKeys(page);
+    // 나중에 등록한 라우트가 먼저 응답한다 — 자격증명을 OpenAI 호환으로 바꾼다.
+    await page.route(/\/api\/v1\/admin\/agents\/\d+\/provider-credential$/, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: 1, provider: 'opencode', baseUrl: 'https://api.example.com/v1', label: 'oc', createdAt: '2026-05-31T00:00:00Z', lastUsedAt: null,
+        }),
+      }),
+    );
+    let ws = { agentUserId: AGENT_ID, agentName: AGENT_FIXTURE.name, hasActiveToken: true, model: 'openai/gpt-4.1', thinkingDepth: 'NORMAL', vision: false as boolean | null };
+    await page.route('**/api/v1/admin/workspace-assistant', (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(ws) })
+        : route.fallback(),
+    );
+    const puts = trackRequests(page, 'PUT', '/api/v1/admin/workspace-assistant/settings');
+    await page.route('**/api/v1/admin/workspace-assistant/settings', (route) => {
+      const body = route.request().postDataJSON() as { model?: string; vision?: boolean | null };
+      ws = { ...ws, ...(body.model !== undefined && { model: body.model, vision: null }), ...('vision' in body && { vision: body.vision ?? null }) };
+      return route.fulfill({ status: 204, body: '' });
+    });
+    await page.route(/\/api\/v1\/admin\/agents\/\d+\/models$/, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          provider: 'opencode',
+          models: [
+            { id: 'openai/gpt-4.1', label: 'GPT-4.1' },
+            { id: 'openai/my-vl', label: 'My VL' },
+          ],
+        }),
+      }),
+    );
+
+    await page.goto('/settings/agents');
+    await page.getByTestId(`agent-row-${AGENT_ID}`).click();
+
+    const vision = page.getByTestId('workspace-assistant-vision');
+    await expect(vision).toHaveText('볼 수 없음');
+    await vision.click();
+    await page.getByRole('option', { name: '볼 수 있음' }).click();
+    await expect.poll(() => puts.lastBody()).toEqual({ vision: true });
+    await expect(vision).toHaveText('볼 수 있음');
+
+    await page.getByTestId('workspace-assistant-model').click();
+    await page.getByRole('option', { name: 'My VL' }).click();
+    await expect.poll(() => puts.lastBody()).toEqual({ model: 'openai/my-vl', vision: true });
+  });
+
+  test('Claude 공통 비서는 이미지 입력 선택을 보이지 않는다', async ({ adminPage: page }) => {
+    await mockCurrentWorkspaceAssistant(page);
+    await mockAgentsAndKeys(page);
+    await page.route(/\/api\/v1\/admin\/agents\/\d+\/models$/, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ provider: 'anthropic', models: [{ id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' }] }),
+      }),
+    );
+
+    await page.goto('/settings/agents');
+    await page.getByTestId(`agent-row-${AGENT_ID}`).click();
+    await expect(page.getByTestId('workspace-assistant-model')).toBeVisible();
+    await expect(page.getByTestId('workspace-assistant-vision')).toHaveCount(0);
+  });
 });

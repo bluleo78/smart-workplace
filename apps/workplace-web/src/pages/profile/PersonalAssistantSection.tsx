@@ -38,7 +38,7 @@ import {
 import { useAuth } from '../../hooks/useAuth';
 import { useModelVisionChoice } from '../../hooks/useModelVisionChoice';
 import { providerIdOf, withProviderPrefix } from '../../lib/ai/suggestionModel';
-import { visionConfigFor } from '../../lib/ai/visionConfig';
+import { type VisionChoice, visionChoiceOf, visionConfigFor, visionSettingOf } from '../../lib/ai/visionConfig';
 import { handleApiError } from '../../lib/api-error';
 import { OPENCODE_PRESETS, type OpencodePresetKey, presetLabelFor } from '../../lib/opencode-presets';
 import type { ThinkingDepth } from '../../types/assistant';
@@ -218,10 +218,18 @@ export function PersonalAssistantSection() {
     }
   };
 
+  // WP-250: 등록 후 이미지 입력 지정 — OpenAI 호환(opencode) 연결만(Claude 는 늘 이미지를 본다). 이 화면은 고르면 바로 저장하므로
+  // 서버 상태의 지금 모델 지정값이 곧 화면 값이다. 자동 감지가 안 되는 커스텀 모델을 재등록 없이 지정할 수 있게 한다.
+  const isOpencode = status?.provider === 'opencode';
+  const currentVision = visionChoiceOf(status?.vision);
+
   // 모델 변경 — 실패 시 오류 토스트(silent failure 방지), 성공 시 확인 토스트.
+  // opencode 면 지금 보이는 이미지 입력 선택을 새 모델에 함께 건다(자동이면 null — 서버가 지정을 지운다).
   const handleModelChange = async (model: string) => {
     try {
-      await updateSettings.mutateAsync({ model });
+      await updateSettings.mutateAsync(
+        isOpencode ? { model, vision: visionSettingOf(currentVision) } : { model },
+      );
       toast.success('비서 설정을 변경했습니다.');
     } catch (e) {
       handleApiError(e, '비서 설정 변경에 실패했습니다.');
@@ -237,6 +245,16 @@ export function PersonalAssistantSection() {
     const resolved = withProviderPrefix(raw, currentProviderId);
     await handleModelChange(resolved);
     setModelChangeInput('');
+  };
+
+  // 이미지 입력만 바꾸기 — 지금 모델에 건다(서버가 vision 을 지금 모델 키 하나로 저장).
+  const handleVisionChange = async (choice: VisionChoice) => {
+    try {
+      await updateSettings.mutateAsync({ vision: visionSettingOf(choice) });
+      toast.success('비서 설정을 변경했습니다.');
+    } catch (e) {
+      handleApiError(e, '비서 설정 변경에 실패했습니다.');
+    }
   };
 
   // 생각의 깊이 변경 — 실패 시 오류 토스트, 성공 시 확인 토스트.
@@ -389,6 +407,17 @@ export function PersonalAssistantSection() {
                 </>
               )}
             </div>
+
+            {/* WP-250: 모델 바로 아래 — 모델을 바꿀 때 이 선택이 새 모델에 함께 저장된다(OpenAI 호환 연결만). */}
+            {isOpencode ? (
+              <VisionInputSelect
+                id="assistant-vision"
+                testId="assistant-vision"
+                value={currentVision}
+                onChange={(v) => void handleVisionChange(v)}
+                disabled={updateSettings.isPending}
+              />
+            ) : null}
 
             <div className="space-y-2">
               <label className="text-sm font-medium" htmlFor="assistant-depth">

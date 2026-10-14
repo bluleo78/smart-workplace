@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 
 import { SuggestionModelField } from '@/components/ai/SuggestionModelField';
+import { VisionInputSelect } from '@/components/ai/VisionInputSelect';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -45,6 +46,7 @@ import {
 } from '../../../hooks/queries/useAssistant';
 import { useAuth } from '../../../hooks/useAuth';
 import { providerIdOf } from '../../../lib/ai/suggestionModel';
+import { type VisionChoice, visionChoiceOf, visionSettingOf } from '../../../lib/ai/visionConfig';
 import { handleApiError } from '../../../lib/api-error';
 import { formatDateTimeLocale } from '../../../lib/formatters';
 import { presetLabelFor } from '../../../lib/opencode-presets';
@@ -169,9 +171,26 @@ export function AgentConnectionSection({ agentUserId }: Props) {
     }
   };
 
+  // WP-250: 등록 후 이미지 입력 지정 — OpenAI 호환(opencode) 연결만. 서버 상태(지금 모델의 지정값)가 곧 화면 값이고, 모델을 바꾸면
+  // 지금 보이는 선택을 새 모델에 함께 건다(자동이면 null — 서버가 지정을 지운다). 재등록 없이 커스텀 모델의 이미지 입력을 지정할 수 있다.
+  const isOpencode = meta?.provider === 'opencode';
+  const currentVision = visionChoiceOf(ws?.vision);
+
   const onModel = async (model: string) => {
     try {
-      await updateSettings.mutateAsync({ model });
+      await updateSettings.mutateAsync(
+        isOpencode ? { model, vision: visionSettingOf(currentVision) } : { model },
+      );
+      toast.success('설정을 변경했습니다.');
+    } catch (e) {
+      handleApiError(e, '설정 변경에 실패했습니다.');
+    }
+  };
+
+  // 이미지 입력만 바꾸기 — 지금 모델에 건다.
+  const onVision = async (choice: VisionChoice) => {
+    try {
+      await updateSettings.mutateAsync({ vision: visionSettingOf(choice) });
       toast.success('설정을 변경했습니다.');
     } catch (e) {
       handleApiError(e, '설정 변경에 실패했습니다.');
@@ -295,6 +314,16 @@ export function AgentConnectionSection({ agentUserId }: Props) {
                   </p>
                 ) : null}
               </div>
+              {/* WP-250: 모델 옆 — 모델을 바꿀 때 이 선택이 새 모델에 함께 저장된다(OpenAI 호환 연결만). */}
+              {isOpencode ? (
+                <VisionInputSelect
+                  id="workspace-assistant-vision"
+                  testId="workspace-assistant-vision"
+                  value={currentVision}
+                  onChange={(v) => void onVision(v)}
+                  disabled={updateSettings.isPending}
+                />
+              ) : null}
               <div className="space-y-1">
                 <label className="text-sm font-medium" htmlFor="workspace-assistant-depth">
                   생각의 깊이

@@ -37,3 +37,18 @@ export const NO_VISION_PICK: VisionPick = { model: '', choice: 'auto' };
 export function visionChoiceFor(pick: VisionPick, model: string): VisionChoice {
   return pick.model === model ? pick.choice : 'auto';
 }
+
+/**
+ * 등록 후 비서 설정(모델 변경 화면)의 "이미지 입력" — 서버 상태의 지금 모델 지정값(true/false, 없으면 자동)을 선택 상자 값으로.
+ * 이 화면은 선택을 바로 저장하므로(다른 설정 항목과 같음) 서버 값이 곧 화면 값이다.
+ */
+export function visionChoiceOf(vision: boolean | null | undefined): VisionChoice {
+  if (vision === true) return 'yes';
+  if (vision === false) return 'no';
+  return 'auto';
+}
+
+/** 선택 상자 값 → 비서 설정 변경의 vision 값. 자동은 null(서버가 지정을 지운다). */
+export function visionSettingOf(choice: VisionChoice): boolean | null {
+  return choice === 'auto' ? null : choice === 'yes';
+}

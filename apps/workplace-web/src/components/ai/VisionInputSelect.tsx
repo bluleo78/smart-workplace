@@ -1,4 +1,4 @@
-// 모델의 "이미지 입력" 지원 여부 선택 상자 + 도움말 — AI 연결 다이얼로그(관리자)와 개인 비서 등록 폼이 같이 쓴다.
+// 모델의 "이미지 입력" 지원 여부 선택 상자 + 도움말 — AI 연결 다이얼로그(관리자)·개인 비서 등록 폼과, 등록 후 모델 설정(개인 비서·공통 비서)이 같이 쓴다.
 // 자동 감지가 실패하는 OpenAI 호환 모델을 위해 사람이 직접 "볼 수 있음/볼 수 없음"을 지정할 수 있게 한다.
 // 선택값은 visionConfigFor 로 providerConfig.vision 에 실린다(자동이면 키 생략).
 import { Label } from '@/components/ui/label';
@@ -17,6 +17,8 @@ interface Props {
   /** 트리거 id — 라벨(htmlFor)과 연결한다. */
   id: string;
   testId?: string;
+  /** 저장 중 등 — 선택을 잠근다(등록 후 설정 화면은 고르면 바로 저장한다). */
+  disabled?: boolean;
 }
 
 // 옵션 표시 순서·문구 — 기본(자동 감지)을 맨 앞에 둔다.
@@ -26,11 +28,11 @@ const OPTIONS: { value: VisionChoice; label: string }[] = [
   { value: 'no', label: '볼 수 없음' },
 ];
 
-export function VisionInputSelect({ value, onChange, id, testId }: Props) {
+export function VisionInputSelect({ value, onChange, id, testId, disabled }: Props) {
   return (
     <div className="space-y-1.5">
       <Label htmlFor={id}>이미지 입력</Label>
-      <Select value={value} onValueChange={(v) => onChange(v as VisionChoice)}>
+      <Select value={value} onValueChange={(v) => onChange(v as VisionChoice)} disabled={disabled}>
         <SelectTrigger id={id} data-testid={testId}>
           <SelectValue />
         </SelectTrigger>

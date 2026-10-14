@@ -19,6 +19,7 @@ interface AssistantStatusFixture {
   name?: string | null
   provider?: string | null
   baseUrl?: string | null
+  vision?: boolean | null
 }
 
 function unconfiguredStatus(): AssistantStatusFixture {
@@ -724,5 +725,85 @@ test.describe('프로필 개인 비서', () => {
 
     await expect(page.getByText('비서 설정을 변경했습니다.')).toBeVisible()
     expect(puts.lastBody()).toEqual({ thinkingDepth: 'DEEP' })
+  })
+
+  // WP-250 코드 리뷰: 등록 후 모델을 바꿔도 이미지 입력을 지정할 수 있다 — 설정 PUT 을 서버처럼 상태에 반영하는 목으로
+  // "이미지 입력만 바꾸기 → 지금 모델에", "모델 바꾸기 → 지금 보이는 선택을 새 모델에 함께" 를 요청 본문으로 확인한다.
+  function mockOpencodeSettingsServer(page: import('@playwright/test').Page, initial: Partial<AssistantStatusFixture>) {
+    let st = configuredStatus({ provider: 'opencode', model: 'openai/gpt-4.1', vision: null, ...initial })
+    const puts = trackRequests(page, 'PUT', '/api/v1/users/me/assistant/settings')
+    void mockStatus(page, () => st)
+    void page.route('**/api/v1/users/me/assistant/settings', (route) => {
+      const body = route.request().postDataJSON() as { model?: string; vision?: boolean | null }
+      st = { ...st, ...(body.model !== undefined && { model: body.model, vision: null }), ...('vision' in body && { vision: body.vision }) }
+      return route.fulfill({ status: 204, body: '' })
+    })
+    return puts
+  }
+
+  test('등록 후 opencode — 이미지 입력만 바꾸면 지금 모델에, 모델을 바꾸면 그 선택을 새 모델에 함께 보낸다', async ({
+    authenticatedPage: page,
+  }) => {
+    const puts = mockOpencodeSettingsServer(page, {})
+    await mockModels(page, [
+      { id: 'openai/gpt-4.1', label: 'GPT-4.1' },
+      { id: 'openai/my-vl', label: 'My VL' },
+    ], 'opencode')
+
+    await page.goto('/settings/assistant')
+    const vision = page.getByTestId('assistant-vision')
+    await expect(vision).toHaveText('자동 감지')
+
+    await vision.click()
+    await page.getByRole('option', { name: '볼 수 있음' }).click()
+    await expect.poll(() => puts.lastBody()).toEqual({ vision: true })
+    await expect(vision).toHaveText('볼 수 있음')
+
+    await vision.scrollIntoViewIfNeeded()
+    await page.screenshot({ path: '../../test-results/tc/personal-assistant-vision/configured-vision.png' })
+
+    await page.getByRole('combobox', { name: '모델', exact: true }).click()
+    await page.getByRole('option', { name: 'My VL' }).click()
+    await expect.poll(() => puts.lastBody()).toEqual({ model: 'openai/my-vl', vision: true })
+  })
+
+  test('등록 후 opencode(모델 목록 없음) — 직접 입력으로 모델을 바꿀 때도 이미지 입력 선택이 함께 간다', async ({
+    authenticatedPage: page,
+  }) => {
+    const puts = mockOpencodeSettingsServer(page, { vision: false })
+    await mockModels(page, [], 'opencode')
+
+    await page.goto('/settings/assistant')
+    const vision = page.getByTestId('assistant-vision')
+    // 지금 모델에 저장된 지정이 초깃값으로 보인다.
+    await expect(vision).toHaveText('볼 수 없음')
+
+    await page.getByTestId('assistant-model-manual-input').fill('my-custom-vl')
+    await page.getByTestId('assistant-model-manual-apply').click()
+    await expect.poll(() => puts.lastBody()).toEqual({ model: 'openai/my-custom-vl', vision: false })
+
+    // 자동 감지로 되돌리면 vision:null(서버가 지정을 지운다).
+    await vision.click()
+    await page.getByRole('option', { name: '자동 감지' }).click()
+    await expect.poll(() => puts.lastBody()).toEqual({ vision: null })
+  })
+
+  test('Claude 연결은 이미지 입력 선택을 보이지 않고 모델 변경에 vision 을 싣지 않는다', async ({
+    authenticatedPage: page,
+  }) => {
+    await mockStatus(page, () => configuredStatus())
+    await mockModels(page, [
+      { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
+      { id: 'claude-opus-4-8', label: 'Claude Opus 4.8' },
+    ])
+    const puts = trackRequests(page, 'PUT', '/api/v1/users/me/assistant/settings')
+    await page.route('**/api/v1/users/me/assistant/settings', (route) => route.fulfill({ status: 204, body: '' }))
+
+    await page.goto('/settings/assistant')
+    await expect(page.getByTestId('assistant-configured')).toBeVisible()
+    await expect(page.getByTestId('assistant-vision')).toHaveCount(0)
+    await page.getByRole('combobox', { name: '모델', exact: true }).click()
+    await page.getByRole('option', { name: 'Claude Opus 4.8' }).click()
+    await expect.poll(() => puts.lastBody()).toEqual({ model: 'claude-opus-4-8' })
   })
 })
