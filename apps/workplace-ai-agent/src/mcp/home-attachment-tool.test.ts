@@ -1,4 +1,4 @@
-// WP-234: 메인 AI 채팅 첨부 읽기 도구 — 세션 바인딩·문서 상태별·이미지 형식/크기 분기.
+// WP-234: 메인 AI 채팅 첨부 읽기 도구 — 세션 바인딩·문서 상태별·이미지(늘 변환본, WP-250).
 import { describe, expect, it, vi } from 'vitest';
 
 import { READ_ATTACHMENT_DEFAULT_LIMIT } from '@smart-workplace/mcp-tools-shared';
@@ -137,7 +137,7 @@ describe('read_chat_attachment', () => {
     expect(out).toContain('손상된 이미지입니다.');
   });
 
-  describe('WP-250 pages·스캔 PDF·이미지 예산', () => {
+  describe('WP-250 pages·스캔 PDF', () => {
     it('PDF pages:[3] → viewHomeAttachment(.., 3) 이미지 블록(쪽수 표기)', async () => {
       const c = mockClient([att(8, 'application/pdf', ex('READY'))]);
       const out = (await tool(c).handler({ fileId: 8, pages: [3] })) as Array<{ type: string; text?: string }>;
