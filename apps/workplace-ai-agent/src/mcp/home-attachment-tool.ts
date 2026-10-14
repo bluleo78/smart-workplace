@@ -23,7 +23,7 @@ import {
 } from '@smart-workplace/mcp-tools-shared';
 import { z } from 'zod';
 
-import { fileKind } from '../agent/attachment-presenter.js';
+import { fileKind, MAX_VIEW_SOURCE_BYTES } from '../agent/attachment-presenter.js';
 import type { HomeAttachmentMeta, WorkplaceApiClient } from '../clients/workplace-api.js';
 
 /** 세션에 묶이지 않은 실행(메인 채팅 외)에서 부르면 돌려줄 오류. */
@@ -47,14 +47,19 @@ function nonReadyNotice(a: HomeAttachmentMeta, imageInput: boolean): string {
   // 스캔 PDF 는 텍스트가 없는 게 아니라 "글자가 이미지"인 것 — pages 로 읽게 하거나(이미지 입력), 모델 전환을 안내한다.
   const scanned = pdfNote(a.extraction, imageInput);
   if (scanned) return `${name}: ${scanned}`;
+  // WP-250 코드 리뷰: 글자로 못 읽는 PDF(추출 기록 없음·실패·건너뜀)도 이미지를 볼 수 있으면 페이지 이미지로 읽을 수 있다(25MB 이하 — 넘으면 서버 413).
+  const pagesHint =
+    imageInput && fileKind(a.mimeType, a.originalName) === 'pdf' && a.sizeBytes <= MAX_VIEW_SOURCE_BYTES
+      ? ' pages:[n] 로 페이지 이미지를 볼 수 있습니다(쪽수를 모르면 pages:[1] 부터).'
+      : '';
   switch (a.extraction.status) {
     case 'PENDING':
       return `${name}: 텍스트 추출 중입니다. 잠시 후 다시 읽어 보세요. 사용자에게 파일을 다시 올려 달라고 하지 마세요.`;
     case 'SKIPPED':
     case 'FAILED':
-      return `${name}: 텍스트로 읽을 수 없습니다(${a.extraction.reason ?? '사유 미상'}). 이 사유를 사용자에게 알리고, 다시 올리거나 다른 형식으로 올려 달라고 하지 마세요.`;
+      return `${name}: 텍스트로 읽을 수 없습니다(${a.extraction.reason ?? '사유 미상'}). 이 사유를 사용자에게 알리고, 다시 올리거나 다른 형식으로 올려 달라고 하지 마세요.${pagesHint}`;
     default:
-      return `${name}: 텍스트 추출 대상이 아닌 형식입니다(${a.mimeType}). 파일 이름 등 알 수 있는 정보만 활용하세요.`;
+      return `${name}: 텍스트 추출 대상이 아닌 형식입니다(${a.mimeType}). 파일 이름 등 알 수 있는 정보만 활용하세요.${pagesHint}`;
   }
 }
 
@@ -96,7 +101,8 @@ export function buildReadChatAttachmentTool(
           images.budget,
         );
       }
-      if (fileKind(a.mimeType) === 'image') {
+      // 옛 업로드의 HEIC·TIFF·BMP 는 mime 이 octet-stream 이라 파일명으로 이미지인지 본다 — 형식을 보낼 수 없어 변환본(/view)으로 간다.
+      if (fileKind(a.mimeType, a.originalName) === 'image') {
         // 보낼 수 있는 형식·크기면 원본, 아니면(HEIC·TIFF·BMP·큰 이미지) 서버 변환본 — 다시 올려 달라고 하지 않는다.
         return imageBlocksFor(
           `첨부 이미지 ${name}(fileId ${a.fileId})`,

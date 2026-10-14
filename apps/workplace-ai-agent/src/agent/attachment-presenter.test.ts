@@ -90,6 +90,50 @@ describe('presentAttachments', () => {
     expect(p.section).toContain('글자 없는 스캔 PDF — pages 로 페이지 이미지를 읽으세요');
   });
 
+  // WP-250 코드 리뷰: Claude 도 PDF 를 로컬 Read 하지 않으므로 추출 기록이 없거나(NONE) 실패·스캔 아닌 사유로 건너뛴 PDF 는
+  // 페이지 이미지가 유일한 길이다 — 쪽수를 모르면 1쪽부터, 알면 총 쪽수를 알린다.
+  it('Claude: 추출 기록이 없는 PDF(NONE)는 pages 로 1쪽부터 읽게 안내한다', async () => {
+    const p = await presentAttachments(CLAUDE, ok([a(2, 'old.pdf', 'application/pdf', NO_EXTRACTION)]), deps);
+    expect(p.section).toContain(
+      `텍스트 추출 기록 없음 — pages 로 페이지 이미지를 읽으세요(쪽수를 모르면 pages:[1] 부터): read_chat_thread_attachment({threadId:5, fileId:2, pages:[n]})`,
+    );
+    expect(p.section).not.toContain('텍스트 추출 대상 아님');
+    expect(p.section).toContain('다시 올리거나 다른 형식으로 올려 달라고 하지 말 것');
+  });
+
+  it.each([
+    ['FAILED', { ...status('FAILED', '추출 오류'), pageCount: 6 }, '텍스트로 읽을 수 없음: 추출 오류 — pages 로 페이지 이미지를 읽으세요(총 6쪽)'],
+    ['SKIPPED(빈 문서)', status('SKIPPED', '파일에서 글자를 찾지 못했습니다.'), '텍스트로 읽을 수 없음: 파일에서 글자를 찾지 못했습니다. — pages 로 페이지 이미지를 읽으세요(쪽수를 모르면 pages:[1] 부터)'],
+  ])('Claude·비전 opencode: %s PDF 도 pages 로 읽게 안내한다', async (_n, ex, expected) => {
+    for (const reader of [CLAUDE, OC_VISION]) {
+      const p = await presentAttachments(reader, ok([a(2, 'x.pdf', 'application/pdf', ex)]), deps);
+      expect(p.section).toContain(expected);
+      expect(p.section).toContain('pages:[n]');
+    }
+  });
+
+  it('25MB 를 넘는 PDF 는 서버가 페이지를 그리지 않으므로 pages 를 약속하지 않는다', async () => {
+    const big = a(2, 'big.pdf', 'application/pdf', status('SKIPPED', '파일이 커서(25MB 초과) 텍스트를 추출하지 않았습니다.'), ISSUE, 26 * 1024 * 1024);
+    const p = await presentAttachments(CLAUDE, ok([big]), deps);
+    expect(p.section).toContain('텍스트로 읽을 수 없음: 파일이 커서');
+    expect(p.section).not.toContain('pages:[n]');
+  });
+
+  it('비전이 아닌 opencode 는 NONE PDF 에 pages 를 말하지 않는다', async () => {
+    const p = await presentAttachments(OC, ok([a(2, 'old.pdf', 'application/pdf', NO_EXTRACTION)]), deps);
+    expect(p.section).toContain('텍스트 추출 대상 아님');
+    expect(p.section).not.toContain('pages');
+  });
+
+  // 확장자 매핑 전 업로드라 octet-stream 으로 저장된 HEIC 는 파일명으로 이미지로 본다 — 로컬로 받지 않고 이미지 도구 줄(서버 변환본).
+  it('Claude: octet-stream 으로 저장된 옛 HEIC 는 이미지 도구 줄, 내려받지 않는다', async () => {
+    const legacy = a(1, 'IMG_0001.HEIC', 'application/octet-stream', status('SKIPPED', '이 형식은 텍스트 추출을 지원하지 않습니다.'));
+    const p = await presentAttachments(CLAUDE, ok([legacy]), deps);
+    expect(vi.mocked(downloadAttachments).mock.calls[0][2]).toEqual([]);
+    expect(p.section).toContain(`이미지: ${TOOL(1)}`);
+    expect(p.section).not.toContain('텍스트로 읽을 수 없음');
+  });
+
   it('Claude 안내문: 로컬경로는 Read, 문서·PDF 는 도구, 그림·도표·스캔은 pages', async () => {
     const p = await presentAttachments(CLAUDE, ok([a(2, 'spec.pdf', 'application/pdf', ready(5))]), deps);
     expect(p.guidance).toContain('로컬경로');

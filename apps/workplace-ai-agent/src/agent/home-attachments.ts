@@ -6,7 +6,7 @@ import { z } from 'zod';
 
 import type { HomeAttachmentMeta, WorkplaceApiClient } from '../clients/workplace-api.js';
 import { log } from '../logger.js';
-import { fileKind, sanitizeName } from './attachment-presenter.js';
+import { fileKind, MAX_VIEW_SOURCE_BYTES, sanitizeName } from './attachment-presenter.js';
 
 // WP-242 공통 ExtractionInfo — 서버는 nullable 필드를 null 또는 생략으로 보낼 수 있어 null 로 정규화한다.
 export const extractionInfoSchema = z.object({
@@ -45,7 +45,8 @@ function sizeLabel(bytes: number): string {
  * 그렇게 적지 않으면 모델이 읽어 보기도 전에 사용자에게 다시 올려 달라고 한다.
  */
 function statusLabel(a: HomeChatAttachment, imageVision: boolean): string {
-  if (fileKind(a.mimeType) === 'image') {
+  const kind = fileKind(a.mimeType, a.originalName);
+  if (kind === 'image') {
     if (!imageVision) return '이미지 — 이 비서(모델)는 이미지를 볼 수 없음';
     if (isSendableImage(a)) return '이미지';
     // SVG 는 서버가 변환하지 않는다(/view 가 415) — 변환본을 약속하지 않는다.
@@ -53,6 +54,9 @@ function statusLabel(a: HomeChatAttachment, imageVision: boolean): string {
     return '이미지 — 이 형식·크기는 도구가 변환본으로 보여 줌';
   }
   const x = a.extraction;
+  // WP-250 코드 리뷰: 글자로 못 읽는 PDF(추출 기록 없음·실패·건너뜀)도 이미지를 볼 수 있는 모델은 pages 로 페이지 이미지를 볼 수 있다 —
+  // 그렇게 적지 않으면 읽을 길이 없다고 보고 멈춘다. 25MB 를 넘으면 서버가 그리지 않으므로(413) 약속하지 않는다.
+  const pagesHint = kind === 'pdf' && imageVision && a.sizeBytes <= MAX_VIEW_SOURCE_BYTES ? ' — pages 로 페이지 이미지를 볼 수 있음' : '';
   switch (x.status) {
     case 'READY':
       return `텍스트${x.totalChars != null ? ` 약 ${x.totalChars}자` : ''}${x.truncated ? '(추출 상한으로 잘림)' : ''}`;
@@ -60,9 +64,9 @@ function statusLabel(a: HomeChatAttachment, imageVision: boolean): string {
       return '텍스트 추출 중';
     case 'SKIPPED':
     case 'FAILED':
-      return `텍스트로 읽을 수 없음: ${sanitizeName(x.reason ?? '사유 미상')}`;
+      return `텍스트로 읽을 수 없음: ${sanitizeName(x.reason ?? '사유 미상')}${pagesHint}`;
     default:
-      return '텍스트 추출 대상 아님';
+      return `텍스트 추출 대상 아님${pagesHint}`;
   }
 }
 
@@ -101,7 +105,7 @@ export const EXTRACTION_WAIT_LABEL = '첨부 파일 읽을 준비 중';
 
 /** 이번 메시지(current) 첨부 중 이미지가 아니고 추출 중(PENDING)인 것이 있는지. 이미지는 추출 대상이 아니다. */
 export function currentExtractionPending(attachments: HomeChatAttachment[]): boolean {
-  return attachments.some((a) => a.current && fileKind(a.mimeType) !== 'image' && a.extraction.status === 'PENDING');
+  return attachments.some((a) => a.current && fileKind(a.mimeType, a.originalName) !== 'image' && a.extraction.status === 'PENDING');
 }
 
 /** 최신 세션 목록의 추출 상태만 덮어쓴다 — current 표시는 요청(API)이 정한 값을 유지한다. */

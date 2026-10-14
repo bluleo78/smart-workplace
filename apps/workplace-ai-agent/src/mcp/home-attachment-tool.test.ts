@@ -87,6 +87,25 @@ describe('read_chat_attachment', () => {
     expect(c.readHomeAttachmentText).not.toHaveBeenCalled();
   });
 
+  // WP-250 코드 리뷰: 글자로 못 읽는 PDF 도 이미지를 볼 수 있으면 pages 로 페이지 이미지를 볼 수 있다고 알린다(볼 수 없으면 말하지 않는다).
+  it.each([
+    ['NONE', ex('NONE')],
+    ['FAILED', ex('FAILED', { reason: '추출 오류' })],
+  ])('PDF %s → 이미지 입력이면 pages 안내를 덧붙인다', async (_n, x) => {
+    const c = mockClient([att(8, 'application/pdf', x)]);
+    expect(await tool(c).handler({ fileId: 8 })).toContain('pages:[n] 로 페이지 이미지를 볼 수 있습니다');
+    const noVision = buildReadChatAttachmentTool(c as unknown as WorkplaceApiClient, USER, SID, { input: false });
+    expect(await noVision.handler({ fileId: 8 })).not.toContain('pages');
+  });
+
+  it('옛 octet-stream HEIC(파일명 확장자) → 원본 없이 변환본(/view)', async () => {
+    const c = mockClient([att(9, 'application/octet-stream', ex('SKIPPED', { reasonCode: 'UNSUPPORTED_TYPE' }), 2048, 'IMG_0001.HEIC')]);
+    const out = (await tool(c).handler({ fileId: 9 })) as Array<{ type: string; mimeType?: string }>;
+    expect(c.downloadHomeAttachment).not.toHaveBeenCalled();
+    expect(c.viewHomeAttachment).toHaveBeenCalledWith(USER, SID, 9);
+    expect(out[1]).toMatchObject({ type: 'image', mimeType: 'image/jpeg' });
+  });
+
   it('문서 NONE → 추출 대상 아님 안내', async () => {
     const c = mockClient([att(8, 'application/zip', ex('NONE'))]);
     expect(await tool(c).handler({ fileId: 8 })).toContain('텍스트 추출 대상이 아닌 형식');

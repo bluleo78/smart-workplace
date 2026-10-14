@@ -4,7 +4,7 @@
 // 도구로 통일했다(WP-250) — 도구가 추출 텍스트와, 이미지를 볼 수 있는 모델에는 pages 로 쪽 이미지를 준다.
 // opencode 는 비전 지원 모델(WP-241 판단)일 때만 보낼 수 있는 이미지를 로컬 read 로 보고(WP-236 의 read 허용 범위),
 // 그 외 파일은 도구로 읽는다 — custom provider 모델은 PDF 입력을 못 받는다. 비전이 아니면 pages 는 안내하지 않는다(도구도 숨김).
-import { isSendableImage, MAX_PAGES_PER_CALL } from '@smart-workplace/mcp-tools-shared';
+import { effectiveMimeType, isSendableImage, MAX_PAGES_PER_CALL } from '@smart-workplace/mcp-tools-shared';
 
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
 import type { ProviderCredential } from './agent-runner.js';
@@ -29,6 +29,9 @@ export interface PresentedAttachments {
 
 export type FileKind = 'image' | 'pdf' | 'text' | 'other';
 
+/** 서버 /view 원본 상한(AttachmentViewService.MAX_SOURCE_BYTES, 워커 config.MAX_BYTES)과 같은 25MB — 넘는 PDF 는 페이지를 그리지 않는다(413). */
+export const MAX_VIEW_SOURCE_BYTES = 25 * 1024 * 1024;
+
 // 서버 ExtractableTypes 의 TEXT_LIKE_EXTRA 와 같은 목록 — text/* 외에 텍스트로 읽을 수 있는 application/* 타입.
 // 서버와 어긋나면 Claude 가 원본을 받는 범위와 추출 대상 범위가 달라지므로 함께 갱신할 것.
 const TEXT_LIKE_EXTRA = new Set([
@@ -40,8 +43,12 @@ const TEXT_LIKE_EXTRA = new Set([
   'application/x-sh',
 ]);
 
-/** MIME → 파일 종류. 프레젠터(다운로드·문구)와 run-chat-agent(추출 대기 판단)가 함께 쓴다. */
-export function fileKind(mime: string): FileKind {
+/**
+ * MIME → 파일 종류. 프레젠터(다운로드·문구)와 run-chat-agent(추출 대기 판단)가 함께 쓴다.
+ * name(파일명)을 주면 octet-stream 으로 저장된 옛 HEIC·TIFF·BMP 사진을 확장자로 이미지로 본다(WP-250 — 서버 /view 도 같은 규칙으로 그린다).
+ */
+export function fileKind(mimeType: string, name?: string | null): FileKind {
+  const mime = effectiveMimeType(mimeType, name);
   if (mime.startsWith('image/')) return 'image';
   if (mime === 'application/pdf') return 'pdf';
   if (mime.startsWith('text/') || TEXT_LIKE_EXTRA.has(mime)) return 'text';
@@ -54,8 +61,8 @@ export function fileKind(mime: string): FileKind {
  * HEIC·큰 이미지는 서버 변환본이 필요해 도구로, PDF 는 poppler 없이 읽히도록(WP-250) 도구로 보낸다 — 그래서 크기도 본다.
  * opencode 는 비전 모델일 때 보낼 수 있는 이미지만 read 로 본다. 나머지는 도구에 의존한다.
  */
-export function readsLocally(reader: AttachmentReader, a: { mimeType: string; sizeBytes: number }): boolean {
-  const fk = fileKind(a.mimeType);
+export function readsLocally(reader: AttachmentReader, a: { mimeType: string; sizeBytes: number; originalName?: string }): boolean {
+  const fk = fileKind(a.mimeType, a.originalName);
   if (reader.runner === 'anthropic') return fk === 'text' || (fk === 'image' && isSendableImage(a));
   return fk === 'image' && reader.imageVision && isSendableImage(a);
 }
@@ -75,13 +82,21 @@ function toolCall(a: AgentAttachment, pagesArg = ''): string {
  */
 function extractionLine(a: AgentAttachment, pdfPages = false): string {
   const x = a.extraction;
-  const isPdf = fileKind(a.mimeType) === 'pdf';
+  const isPdf = fileKind(a.mimeType, a.originalName) === 'pdf';
   if (isPdf && x.status === 'SKIPPED' && x.reasonCode === 'SCANNED_PDF') {
     if (pdfPages) {
       // 쪽수를 모르는 이전 추출 행은 쪽수 없이 말한다(pageCount null·생략).
       return `글자 없는 스캔 PDF${x.pageCount ? `(${x.pageCount}쪽)` : ''} — pages 로 페이지 이미지를 읽으세요: ${toolCall(a, ', pages:[n]')} — 다시 올리거나 다른 형식으로 올려 달라고 하지 말 것`;
     }
     return `텍스트로 읽을 수 없음: ${x.reason ?? '사유 미상'} — 이미지를 볼 수 있는 모델로 바꾸면 읽을 수 있음(비서 설정) — 다시 올리거나 다른 형식으로 올려 달라고 하지 말 것`;
+  }
+  // WP-250 코드 리뷰: Claude 도 PDF 를 로컬 Read 하지 않으므로, 추출 행이 없거나(NONE — 추출 기능 전 업로드) 실패했거나 스캔이 아닌 사유로
+  // 건너뛴 PDF 도 이미지를 볼 수 있는 모델이면 페이지 이미지로 읽게 한다 — 그렇지 않으면 읽을 길이 없다. 쪽수를 모르면 1쪽부터 보게 하고,
+  // 범위를 넘으면 서버가 실제 쪽수를 알려 준다(400). 25MB 를 넘는 PDF 는 서버가 그리지 않으므로(413) 약속하지 않는다.
+  if (isPdf && pdfPages && x.status !== 'READY' && x.status !== 'PENDING' && a.sizeBytes <= MAX_VIEW_SOURCE_BYTES) {
+    const why = x.status === 'NONE' ? '텍스트 추출 기록 없음' : `텍스트로 읽을 수 없음: ${x.reason ?? '사유 미상'}`;
+    const pages = x.pageCount ? `(총 ${x.pageCount}쪽)` : '(쪽수를 모르면 pages:[1] 부터)';
+    return `${why} — pages 로 페이지 이미지를 읽으세요${pages}: ${toolCall(a, ', pages:[n]')} — 다시 올리거나 다른 형식으로 올려 달라고 하지 말 것`;
   }
   switch (x.status) {
     case 'READY': {
@@ -120,7 +135,7 @@ function localLine(o: DownloadOutcome | undefined): string {
 
 /** 항목별 하위 줄 — 러너·파일 종류·추출 상태 조합. */
 function detailLines(reader: AttachmentReader, a: AgentAttachment, downloads: Map<number, DownloadOutcome>): string[] {
-  const fk = fileKind(a.mimeType);
+  const fk = fileKind(a.mimeType, a.originalName);
   if (readsLocally(reader, a)) {
     const o = downloads.get(a.fileId);
     const lines = [localLine(o)];

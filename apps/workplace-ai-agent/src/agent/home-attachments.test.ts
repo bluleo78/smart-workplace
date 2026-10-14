@@ -81,6 +81,22 @@ describe('formatHomeAttachmentsBlock', () => {
     expect(block).not.toContain('이미지는 볼 수 없');
   });
 
+  // WP-250 코드 리뷰: 글자로 못 읽는 PDF 도 비전 모델은 pages 로 볼 수 있다고 적고(25MB 이하), 옛 octet-stream HEIC 는 파일명으로 이미지로 본다.
+  it('비전 가능: 글자로 못 읽는 PDF 에 pages 안내, 25MB 초과·비전 불가는 안내 없음, 옛 octet-stream HEIC 는 이미지', () => {
+    const list = [
+      a({ fileId: 1, extraction: st('NONE') }),
+      a({ fileId: 2, extraction: st('FAILED', '추출 오류') }),
+      a({ fileId: 3, sizeBytes: 26 * 1024 * 1024, extraction: st('SKIPPED', '파일이 커서') }),
+      a({ fileId: 4, originalName: 'IMG_0001.HEIC', mimeType: 'application/octet-stream', sizeBytes: 2048, extraction: st('SKIPPED', '이 형식은 텍스트 추출을 지원하지 않습니다.') }),
+    ];
+    const block = formatHomeAttachmentsBlock(list, true);
+    expect(block).toContain('fileId 1 · 텍스트 추출 대상 아님 — pages 로 페이지 이미지를 볼 수 있음');
+    expect(block).toContain('fileId 2 · 텍스트로 읽을 수 없음: 추출 오류 — pages 로 페이지 이미지를 볼 수 있음');
+    expect(block).toMatch(/fileId 3 · 텍스트로 읽을 수 없음: 파일이 커서\n/);
+    expect(block).toContain('fileId 4 · 이미지 — 이 형식·크기는 도구가 변환본으로 보여 줌');
+    expect(formatHomeAttachmentsBlock(list, false)).not.toContain('pages');
+  });
+
   it('비전 불가: 이미지는 볼 수 없음 — 글로 알려 달라고 안내, 문서는 읽기', () => {
     const block = formatHomeAttachmentsBlock(
       [a({ fileId: 4, originalName: '화면.png', mimeType: 'image/png', sizeBytes: 2048, extraction: st('NONE') }), a()],
