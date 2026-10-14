@@ -29,7 +29,7 @@ const base = {
 
 function makeAgents(): AgentResponse[] {
   return [
-    { ...base, id: 100, username: 'in_bot', name: '내부봇', type: 'REGULAR', runtime: 'INTERNAL' },
+    { ...base, id: 100, username: 'ai-dev', name: '내부봇', type: 'REGULAR', runtime: 'INTERNAL' },
     {
       ...base,
       id: 101,
@@ -117,22 +117,33 @@ test.describe('/settings/agents 실행 방식', () => {
     await page.getByTestId('agent-runtime-EXTERNAL').click();
     await expect(page.getByTestId('external-connect-card')).toBeVisible();
     await expect(page.getByTestId('agent-connection-section')).toHaveCount(0);
-    // ② 연결 설정 — 사용자 범위 genia-works 를 환경변수 우선 헤더로 다시 등록. ③ 실행 — 환경변수로 AI 키 주입.
-    await expect(page.getByTestId('mcp-setup-command')).toContainText('claude mcp remove genia-works -s user');
-    // 주소는 설정 › 토큰 발급과 같은 MCP_ENDPOINT(VITE_MCP_URL, dev 기본 6090) — api-tokens.spec 과 같은 기준.
-    await expect(page.getByTestId('mcp-setup-command')).toContainText('genia-works http://localhost:6090/mcp');
-    await expect(page.getByTestId('mcp-setup-command')).toContainText(
-      "--header 'Authorization: Bearer ${GENIA_WORKS_TOKEN:-<내 API 토큰>}'",
+    // ② 플러그인 설치 ③ 이 AI 등록 ④ 이 AI로 일하기(WP-378) — 키·토큰이 든 명령은 없다.
+    const origin = new URL(page.url()).origin;
+    await expect(page.getByTestId('plugin-install-command')).toHaveText(
+      `/plugin marketplace add ${origin}/claude/marketplace.json\n/plugin install genia-works@genia-works`,
     );
-    await expect(page.getByTestId('agent-launch-command')).toHaveText('GENIA_WORKS_TOKEN=<발급한 키> claude');
+    await expect(page.getByTestId('agent-login-command')).toHaveText('/genia-works:login');
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+    await page.getByTestId('agent-username-copy').click();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('ai-dev');
+    await expect(page.getByTestId('agent-switch-command')).toHaveText('/genia-works:as ai-dev');
+    await expect(page.getByTestId('agent-launch-as-command')).toHaveText('GENIA_WORKS_AS=ai-dev claude');
+    // 다른 방법(접힘) — 펼쳐야 키를 직접 넘기는 명령이 보인다.
+    await expect(page.getByTestId('agent-fallback-command')).toHaveCount(0);
+    await page.getByTestId('agent-fallback').click();
+    await expect(page.getByTestId('agent-fallback-command')).toHaveText('GENIA_WORKS_TOKEN=<발급한 키> claude');
     await expect(page.getByPlaceholder('label (예: 맥북)')).toBeVisible();
     await shot(page, 'drawer-external-desktop');
     // 드로어는 내부 스크롤이라 뷰포트 캡처로는 ②·③ 이 잘린다 — 연결 카드만 따로 저장해 UI 리뷰에 쓴다.
     await page.getByTestId('external-connect-card').screenshot({ path: path.join(SHOT_DIR, 'external-connect-card-desktop.png') });
 
-    // 키 발급 다이얼로그에 실제 키가 채워진 명령이 나온다.
+    // 키 발급 다이얼로그에는 로그인 안내만 있고 평문 키가 든 명령은 없다.
     await page.getByTestId('key-issue-form').getByRole('button', { name: '키 발급' }).click();
-    await expect(page.getByTestId('agent-key-launch-command')).toHaveText('GENIA_WORKS_TOKEN=ak_new_SECRET claude');
+    const keyDialog = page.getByTestId('agent-key-issue-dialog');
+    await expect(keyDialog.getByTestId('agent-key-login-guide')).toContainText('/genia-works:login');
+    await expect(keyDialog.getByTestId('agent-key-login-guide')).toContainText('ai-dev');
+    await expect(keyDialog).not.toContainText('GENIA_WORKS_TOKEN=ak_');
+    await expect(keyDialog.getByRole('button', { name: '키 복사' })).toBeVisible();
   });
 
   test('409 사유를 서버 메시지로 보여준다', async ({ adminPage: page }) => {

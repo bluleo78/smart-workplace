@@ -2,7 +2,9 @@
 // 목록은 테이블, 상세(공통 비서 지정 + 인증)는 우측 Drawer(Sheet)로 표시한다.
 // 키 발급 응답에 포함된 plaintextKey 는 즉시 dialog 로 표시 (1회).
 
+import { ChevronDown } from 'lucide-react';
 import { useState } from 'react';
+import { toast } from 'sonner';
 
 import { SettingsPage } from '@/components/layout/SettingsPage';
 import {
@@ -17,6 +19,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Label } from '@/components/ui/label';
 import {
   Sheet,
@@ -36,6 +39,13 @@ import {
 } from '@/components/ui/table';
 import { formatDateOnly } from '@/lib/formatters';
 import { parseId } from '@/lib/historyParam';
+import {
+  buildLaunchAsCommand,
+  buildPluginInstallCommands,
+  buildSwitchCommand,
+  buildTokenFallbackCommand,
+  PLUGIN_COMMANDS,
+} from '@/lib/pluginGuide';
 
 import { AgentBadge } from '../../components/users/AgentBadge';
 import { useRevokeAgentKey } from '../../hooks/queries/useAgentKeys';
@@ -43,11 +53,8 @@ import { useAgents, useDeleteAgent } from '../../hooks/queries/useAgents';
 import { useWorkspaceAssistant } from '../../hooks/queries/useAssistant';
 import { useHistoryParam } from '../../hooks/useHistoryParam';
 import {
-  buildAgentLaunchCommand,
-  buildMcpSetupCommand,
   externalKeyStatusText,
   runtimeBadgeLabel,
-  TOKEN_ENV,
 } from '../../lib/agentRuntime';
 import { clickableRowProps } from '../../lib/clickableRowProps';
 import { AgentConnectionSection } from './components/AgentConnectionSection';
@@ -58,10 +65,15 @@ import { AgentRuntimeSection } from './components/AgentRuntimeSection';
 import { CopyableCommand } from './components/CopyableCommand';
 import { NewAgentDialog } from './components/NewAgentDialog';
 
-// 외부 연결 안내 명령 — 입력(접속 origin·플레이스홀더)이 렌더마다 바뀌지 않아 모듈 로드 시 한 번만 만든다.
-// 실행 명령의 키 평문은 발급 직후 1회만 알 수 있어 드로어에서는 플레이스홀더로 둔다.
-const setupCommand = buildMcpSetupCommand();
-const launchCommand = buildAgentLaunchCommand();
+// AI 아이디 복사 — 플러그인 로그인 화면의 "이름" 칸에 그대로 붙여 넣게 한다. 실패 시 직접 복사하도록 알린다.
+async function copyUsername(username: string) {
+  try {
+    await navigator.clipboard.writeText(username);
+    toast.success('아이디를 복사했습니다');
+  } catch {
+    toast.error('복사에 실패했습니다. 아이디를 직접 선택해 복사하세요.');
+  }
+}
 
 export default function AgentManagementPage() {
   // 개인 비서(자동 생성 AGENT) 포함 여부 토글. 기본 표시 — 토글로 숨김 가능.
@@ -313,22 +325,56 @@ export default function AgentManagementPage() {
                     </div>
                     <div className="space-y-2">
                       <h4 className="text-xs font-medium text-muted-foreground">
-                        ② Claude Code 연결 설정 (한 번만)
+                        ② genia-works 플러그인 설치 (한 번만 · 설치했으면 건너뛰기)
                       </h4>
-                      <CopyableCommand command={setupCommand} testId="mcp-setup-command" />
-                      <p className="text-xs text-muted-foreground">
-                        기존 genia-works 연결을 {TOKEN_ENV} 환경변수가 있으면 그 키로, 없으면 내 API 토큰으로
-                        접속하게 바꿔요. &lt;내 API 토큰&gt;은 설정 › API 토큰에서 발급한 값으로 바꿔 넣으세요.
-                      </p>
+                      <CopyableCommand command={buildPluginInstallCommands()} testId="plugin-install-command" />
                     </div>
                     <div className="space-y-2">
-                      <h4 className="text-xs font-medium text-muted-foreground">③ 이 AI로 Claude Code 실행</h4>
-                      <CopyableCommand command={launchCommand} testId="agent-launch-command" />
+                      <h4 className="text-xs font-medium text-muted-foreground">
+                        ③ Claude Code 에 이 AI 등록 (컴퓨터마다 한 번)
+                      </h4>
+                      <CopyableCommand command={PLUGIN_COMMANDS.login} testId="agent-login-command" />
                       <p className="text-xs text-muted-foreground">
-                        이 명령으로 띄운 세션만 이 AI로 연결되고, 평소 Claude Code는 내 계정 그대로예요. 다른
-                        플러그인도 함께 쓸 수 있어요. 키는 발급 직후 한 번만 보이니 &lt;발급한 키&gt;를 바꿔 넣으세요.
+                        「새 AI 추가」를 고르고 ①에서 발급한 키를 붙여 넣으세요. 이름은 이 AI 의 아이디{' '}
+                        <code className="font-mono">{selected.username}</code> 로 넣으면 아래 명령을 그대로 쓸 수 있어요.
+                      </p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        data-testid="agent-username-copy"
+                        onClick={() => void copyUsername(selected.username)}
+                      >
+                        아이디 복사
+                      </Button>
+                    </div>
+                    <div className="space-y-2">
+                      <h4 className="text-xs font-medium text-muted-foreground">④ 이 AI로 일하기</h4>
+                      <p className="text-xs text-muted-foreground">지금 세션에서 바꾸기</p>
+                      <CopyableCommand command={buildSwitchCommand(selected.username)} testId="agent-switch-command" />
+                      <p className="text-xs text-muted-foreground">처음부터 이 AI로 띄우기</p>
+                      <CopyableCommand command={buildLaunchAsCommand(selected.username)} testId="agent-launch-as-command" />
+                      <p className="text-xs text-muted-foreground">
+                        그 세션만 이 AI로 바뀌고, 다른 세션은 내 계정 그대로예요.{' '}
+                        <code className="font-mono">{PLUGIN_COMMANDS.logout}</code> 하면 내 계정으로 돌아옵니다.
                       </p>
                     </div>
+                    {/* 플러그인 전환을 못 쓰는 환경용 — 기본은 접어 둔다. */}
+                    <Collapsible className="border-t pt-3">
+                      <CollapsibleTrigger
+                        className="group flex w-full items-center justify-between text-left text-xs font-medium text-muted-foreground hover:text-foreground"
+                        data-testid="agent-fallback"
+                      >
+                        다른 방법 (Windows 등 플러그인 전환을 쓸 수 없을 때)
+                        <ChevronDown className="size-4 transition-transform group-data-[state=open]:rotate-180" />
+                      </CollapsibleTrigger>
+                      <CollapsibleContent className="space-y-2 pt-2">
+                        <CopyableCommand command={buildTokenFallbackCommand()} testId="agent-fallback-command" />
+                        <p className="text-xs text-muted-foreground">
+                          키를 직접 넘겨 띄웁니다. 셸 기록에 키가 남을 수 있어요.
+                        </p>
+                      </CollapsibleContent>
+                    </Collapsible>
                   </section>
                 ) : (
                   <>
@@ -373,7 +419,7 @@ export default function AgentManagementPage() {
       <NewAgentDialog open={showNew} onOpenChange={setShowNew} />
       <AgentKeyIssueDialog
         plaintextKey={plaintext}
-        launchCommand={external && plaintext ? buildAgentLaunchCommand(plaintext) : null}
+        username={external ? selected?.username ?? null : null}
         open={plaintext != null}
         onOpenChange={(v) => {
           if (!v) setPlaintext(null);

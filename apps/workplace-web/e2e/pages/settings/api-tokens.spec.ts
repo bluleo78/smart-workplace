@@ -102,17 +102,30 @@ test.describe('/settings/tokens', () => {
       const plaintext = page.getByTestId('token-plaintext');
       await expect(plaintext).toContainText('swp_');
       await expect(dialog).toContainText('다시 표시되지 않습니다');
-      await expect(dialog.getByRole('button', { name: '복사', exact: true })).toBeVisible();
+      await expect(dialog.getByRole('button', { name: '복사', exact: true }).first()).toBeVisible();
       await expect(page.getByTestId('token-issue-expiry')).toContainText('까지');
 
-      // ③ 연결 명령(claude mcp add ...) 코드 블록
-      const command = page.getByTestId('token-connect-command');
-      // 복사한 명령이 그대로 실행돼야 하므로 이름·범위·URL·헤더를 전체 문자열로 검증한다(WP-334).
-      await expect(command).toHaveText(
-        /^claude mcp add -s user --transport http genia-works "http:\/\/localhost:6090\/mcp" --header "Authorization: Bearer swp_PLAINTEXT_[^"]+"$/,
+      // ③ 플러그인 설치 안내(WP-378) — 토큰이 든 명령은 어디에도 없고, 설치 명령은 접속한 웹 origin 기준이다.
+      const origin = new URL(page.url()).origin;
+      const install = page.getByTestId('token-plugin-install-command');
+      await expect(install).toContainText(`/plugin marketplace add ${origin}/claude/marketplace.json`);
+      await expect(install).toContainText('/plugin install genia-works@genia-works');
+      await expect(page.getByTestId('token-plugin-token-step')).toContainText('/plugin configure genia-works@genia-works');
+      await expect(dialog).not.toContainText('claude mcp add');
+      await expect(dialog).not.toContainText('--header');
+
+      // 설치 명령 복사 — 클립보드가 설치 명령 두 줄이다.
+      await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+      await install.locator('xpath=following-sibling::button').click();
+      expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+        `/plugin marketplace add ${origin}/claude/marketplace.json\n/plugin install genia-works@genia-works`,
       );
 
-      // 범위 선택 안내(WP-350) — 앱 선택·읽기 전용 주소 예시. 위 명령(전체 연결)은 그대로다.
+      // 다른 도구로 연결(접힘) — 펼치면 연결 주소와 범위 선택 안내(WP-350)가 보인다. dev 는 MCP 6090, preview 는 접속 origin(WP-387).
+      const expectedMcp = process.env.E2E_SERVER === 'preview' ? `${origin}/mcp` : 'http://localhost:6090/mcp';
+      await expect(page.getByTestId('token-connect-scope-guide')).toHaveCount(0);
+      await page.getByTestId('token-other-tools').click();
+      await expect(page.getByTestId('token-mcp-endpoint')).toHaveText(expectedMcp);
       const scopeGuide = page.getByTestId('token-connect-scope-guide');
       await expect(scopeGuide).toContainText('/mcp/x/issue,wiki');
       await expect(scopeGuide).toContainText('이슈·노트 도구만');

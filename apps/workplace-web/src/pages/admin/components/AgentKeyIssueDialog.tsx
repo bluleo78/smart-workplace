@@ -13,19 +13,19 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 
-import { CopyableCommand } from './CopyableCommand';
+import { buildSwitchCommand, PLUGIN_COMMANDS } from '../../../lib/pluginGuide';
 
 interface AgentKeyIssueDialogProps {
   plaintextKey: string | null;
-  // 외부 에이전트면 실제 키가 채워진 "이 AI로 Claude Code 실행" 명령(복사용). 없으면 미표시.
-  launchCommand?: string | null;
+  // 외부 에이전트의 아이디 — 있으면 플러그인 로그인 안내를 보인다. 키는 명령에 넣지 않는다(셸 기록에 남음).
+  username?: string | null;
   open: boolean;
   onOpenChange: (next: boolean) => void;
 }
 
 export function AgentKeyIssueDialog({
   plaintextKey,
-  launchCommand,
+  username,
   open,
   onOpenChange,
 }: AgentKeyIssueDialogProps) {
@@ -47,7 +47,7 @@ export function AgentKeyIssueDialog({
           <DialogTitle>새 API 키</DialogTitle>
           <DialogDescription className="sr-only">새 API 키</DialogDescription>
         </DialogHeader>
-        <div className="space-y-3">
+        <div className="min-w-0 space-y-3">
           <p className="text-sm text-destructive font-medium">
             이 키는 다시 표시되지 않습니다. 지금 안전한 곳에 저장하세요.
           </p>
@@ -57,17 +57,21 @@ export function AgentKeyIssueDialog({
           >
             {plaintextKey ?? ''}
           </code>
-          {launchCommand && (
-            <div className="space-y-1">
-              <p className="text-xs text-muted-foreground">
-                이 AI로 Claude Code 실행 (연결 설정은 에이전트 상세의 ② 를 한 번 해 두세요)
+          {username && (
+            <div className="space-y-1 text-xs text-muted-foreground" data-testid="agent-key-login-guide">
+              <p>
+                Claude Code 에서 <code className="font-mono">{PLUGIN_COMMANDS.login}</code> › 「새 AI 추가」에 이 키를
+                붙여 넣으세요. 이름은 <code className="font-mono">{username}</code>.
               </p>
-              <CopyableCommand command={launchCommand} testId="agent-key-launch-command" />
+              <p>
+                등록한 뒤에는 <code className="font-mono">{buildSwitchCommand(username)}</code> 로 이 AI 로 일할 수
+                있어요. 플러그인이 없다면 에이전트 상세의 ② 를 먼저 하세요.
+              </p>
             </div>
           )}
           <DialogFooter>
             <Button onClick={onCopy} disabled={!plaintextKey}>
-              복사
+              키 복사
             </Button>
             <Button variant="ghost" onClick={() => onOpenChange(false)}>
               닫기
