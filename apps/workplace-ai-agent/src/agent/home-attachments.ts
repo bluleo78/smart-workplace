@@ -39,11 +39,15 @@ function sizeLabel(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
 }
 
-/** 항목 상태 표기 — 이미지는 비전·형식/크기, 문서는 추출 상태. 도구 결과 분기(home-attachment-tool)와 같은 기준. */
+/**
+ * 항목 상태 표기 — 이미지는 비전·형식/크기, 문서는 추출 상태. 도구 결과 분기(home-attachment-tool)와 같은 기준.
+ * 그대로 보낼 수 없는 이미지(HEIC·큰 이미지)도 도구가 서버 변환본(/view)을 돌려주므로(WP-250) "보낼 수 없음"이 아니라 변환본으로 본다고 적는다 —
+ * 그렇게 적지 않으면 모델이 읽어 보기도 전에 사용자에게 다시 올려 달라고 한다.
+ */
 function statusLabel(a: HomeChatAttachment, imageVision: boolean): string {
   if (fileKind(a.mimeType) === 'image') {
     if (!imageVision) return '이미지 — 이 비서(모델)는 이미지를 볼 수 없음';
-    return isSendableImage(a) ? '이미지' : '이미지 — 이 형식·크기는 모델에 보낼 수 없음';
+    return isSendableImage(a) ? '이미지' : '이미지 — 이 형식·크기는 도구가 변환본으로 보여 줌';
   }
   const x = a.extraction;
   switch (x.status) {

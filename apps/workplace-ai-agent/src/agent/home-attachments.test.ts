@@ -62,7 +62,7 @@ describe('formatHomeAttachmentsBlock', () => {
     expect(block).toContain('fileId 3 · 텍스트 추출 대상 아님');
   });
 
-  it('비전 가능: 이미지·문서 모두 read_chat_attachment 로 읽기 안내, 보낼 수 없는 이미지는 표시', () => {
+  it('비전 가능: 이미지·문서 모두 read_chat_attachment 로 읽기 안내, 그대로 보낼 수 없는 이미지는 변환본으로 본다고 표시(WP-250)', () => {
     const block = formatHomeAttachmentsBlock(
       [
         a({ fileId: 4, originalName: '화면.png', mimeType: 'image/png', sizeBytes: 2048, extraction: st('NONE') }),
@@ -71,7 +71,8 @@ describe('formatHomeAttachmentsBlock', () => {
       true,
     );
     expect(block).toContain('fileId 4 · 이미지');
-    expect(block).toContain('fileId 5 · 이미지 — 이 형식·크기는 모델에 보낼 수 없음');
+    expect(block).toContain('fileId 5 · 이미지 — 이 형식·크기는 도구가 변환본으로 보여 줌');
+    expect(block).not.toContain('보낼 수 없음');
     expect(block).toContain('이미지·문서 모두 read_chat_attachment');
     expect(block).toContain('그림·도표·스캔 PDF 는 pages 로 해당 페이지를 보세요');
     expect(block).not.toContain('이미지는 볼 수 없');
