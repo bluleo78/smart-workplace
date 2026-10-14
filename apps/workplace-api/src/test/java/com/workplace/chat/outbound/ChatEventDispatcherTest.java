@@ -76,6 +76,7 @@ class ChatEventDispatcherTest {
         mentions,
         List.of(),
         List.of(),
+        false,
         Instant.now());
   }
 

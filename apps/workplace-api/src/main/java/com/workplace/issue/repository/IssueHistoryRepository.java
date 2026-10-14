@@ -4,8 +4,10 @@ import static com.workplace.jooq.Tables.ISSUE_HISTORY;
 import static com.workplace.jooq.Tables.USER;
 
 import com.workplace.issue.dto.IssueHistoryEntryResponse;
+import com.workplace.issue.dto.IssueHistoryEventType;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import org.jooq.Record;
@@ -51,6 +53,25 @@ public class IssueHistoryRepository {
         .where(ISSUE_HISTORY.ISSUE_ID.eq(issueId))
         .orderBy(ISSUE_HISTORY.CREATED_AT.asc())
         .fetch(this::mapToResponse);
+  }
+
+  /**
+   * 이슈의 부모를 마지막으로 바꾼 사용자의 kind(HUMAN·AGENT) — 부모 변경 이력이 없으면 empty. created_at(트랜잭션 시작 시각)이 아니라 id 로
+   * 정렬한다 — id 는 행 잠금 뒤 INSERT 때 매겨져 같은 이슈 안에서 커밋 순서와 같다.
+   */
+  public Optional<String> findLastParentChangerKind(Long issueId) {
+    return dsl.select(USER.KIND)
+        .from(ISSUE_HISTORY)
+        .join(USER)
+        .on(USER.ID.eq(ISSUE_HISTORY.ACTOR_ID))
+        .where(
+            ISSUE_HISTORY
+                .ISSUE_ID
+                .eq(issueId)
+                .and(ISSUE_HISTORY.EVENT_TYPE.eq(IssueHistoryEventType.PARENT_CHANGED.name())))
+        .orderBy(ISSUE_HISTORY.ID.desc())
+        .limit(1)
+        .fetchOptional(USER.KIND);
   }
 
   /** 히스토리 한 건 INSERT. */

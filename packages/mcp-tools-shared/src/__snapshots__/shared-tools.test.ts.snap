@@ -30,6 +30,7 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "get_event": "read",
   "get_external_contact": "read",
   "get_home_overview": "read",
+  "get_issue_chat": "read",
   "get_issue_detail": "read",
   "get_mail": "read",
   "get_mail_summary": "read",
@@ -1074,6 +1075,33 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
     },
   },
   {
+    "name": "get_issue_chat",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "after": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "issueKey": {
+          "minLength": 1,
+          "type": "string",
+        },
+        "limit": {
+          "maximum": 100,
+          "minimum": 1,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "issueKey",
+      ],
+      "type": "object",
+    },
+  },
+  {
     "name": "get_issue_detail",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1540,6 +1568,10 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
         "parent": {
           "description": "Only children of this issue key",
           "type": "string",
+        },
+        "pendingForMe": {
+          "description": "Only issues with chat posts by others after my last",
+          "type": "boolean",
         },
         "priority": {
           "items": {
@@ -2061,6 +2093,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
         "source": {
           "enum": [
             "issue",
+            "issue_chat",
             "drive",
             "wiki",
             "message",

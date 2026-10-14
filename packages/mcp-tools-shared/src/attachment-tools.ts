@@ -13,6 +13,7 @@ import type { AttachmentToolClient, ExtractedTextSlice, FileBytes } from './tool
 /** source 별 필수 식별자 — 나머지 식별자는 줄 수 없다. 필드 이름은 입력 이름 그대로다(드라이브만 driveFileId, 나머지 첨부는 attachmentId 를 재사용). */
 const SOURCE_FIELDS = {
   issue: { required: ['issueKey', 'attachmentId'], from: 'get_issue_detail 의 attachments[].attachmentId' },
+  issue_chat: { required: ['issueKey', 'messageId', 'attachmentId'], from: 'get_issue_chat 의 messages[].id 와 attachments[].attachmentId' },
   drive: { required: ['driveFileId'], from: 'list_drive_items·search_drive 결과의 driveFileId' },
   wiki: { required: ['pageId', 'attachmentId'], from: '노트 본문 이미지 주소 .../attachments/{attachmentId}/content' },
   message: { required: ['channelId', 'messageId', 'attachmentId'], from: 'list_channel_messages·list_thread_replies 항목의 id 와 attachments[].fileId, 그 채널의 channelId' },
@@ -29,7 +30,7 @@ const IDENTIFIER_FIELDS = ['issueKey', 'attachmentId', 'driveFileId', 'pageId', 
  */
 export const readFileInput = z
   .object({
-    source: z.enum(['issue', 'drive', 'wiki', 'message', 'mail']),
+    source: z.enum(['issue', 'issue_chat', 'drive', 'wiki', 'message', 'mail']),
     // 쓰지 않는 source 의 식별자를 모델이 null 로 채워 보내는 경우가 있어 nullish — null 은 "없음"으로 본다(범위 인자와 같은 이유).
     issueKey: nullAsOmitted(z.string().min(1)),
     // WP-353: 이슈 첨부의 id. 서버는 core file id 로 가리키지만 도구 표면에서는 드라이브 driveFileId·채팅 첨부 fileId 와 섞이지 않게 attachmentId 로 부른다.
@@ -132,7 +133,7 @@ export function buildAttachmentTools(client: AttachmentToolClient): SharedTool[]
       // 메일 첫 호출 안내(응답 note 가 알린다)·출력 필드 나열(응답에 그대로 보인다)·"원본은 주지 않음"(원본은 create_drive_download_link) 문장을 뺐다.
       description:
         'Reads a drive (드라이브) file or an issue (이슈), wiki page (노트), chat message (메시지) or mail (메일) attachment, by ' +
-        'source: drive {driveFileId}; issue {issueKey, attachmentId from get_issue_detail}; wiki image {pageId, attachmentId in a body image ' +
+        'source: drive {driveFileId}; issue {issueKey, attachmentId from get_issue_detail}; issue_chat {issueKey, messageId, attachmentId from get_issue_chat}; wiki image {pageId, attachmentId in a body image ' +
         'URL .../attachments/{id}/content}; message {channelId, messageId, attachmentId = attachments[].fileId from list_channel_messages/' +
         'list_thread_replies}; mail {attachmentId from get_mail}. Text comes in slices (pass nextOffset as offset); ' +
         'truncated:true = extraction capped. Only READY has text: ' +
@@ -150,6 +151,19 @@ export function buildAttachmentTools(client: AttachmentToolClient): SharedTool[]
             const slice = await client.readIssueAttachmentText(issueKey, attachmentId, range);
             if (isImageSkip(slice)) return issueImage(issueKey, attachmentId);
             // 서버 응답의 core fileId 는 입력과 같은 이름 attachmentId 로 돌려준다(입출력 이름 일치, WP-353).
+            const { fileId: _coreFileId, ...rest } = slice;
+            return JSON.stringify({ attachmentId, ...rest });
+          }
+          case 'issue_chat': {
+            const issueKey = p.issueKey!;
+            const messageId = p.messageId!;
+            const attachmentId = p.attachmentId!;
+            const slice = await client.readIssueChatAttachmentText(issueKey, messageId, attachmentId, range);
+            if (isImageSkip(slice)) {
+              return downloadImage(`이슈 ${issueKey} 챗 첨부 이미지(attachmentId ${attachmentId})`, () =>
+                client.downloadIssueChatAttachment(issueKey, messageId, attachmentId),
+              );
+            }
             const { fileId: _coreFileId, ...rest } = slice;
             return JSON.stringify({ attachmentId, ...rest });
           }

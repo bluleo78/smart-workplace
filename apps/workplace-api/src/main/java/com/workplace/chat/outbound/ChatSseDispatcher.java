@@ -51,6 +51,7 @@ public class ChatSseDispatcher {
     p.put("threadId", e.threadId());
     p.put("id", e.messageId());
     p.put("authorId", e.actor().id());
+    p.put("authorUsername", e.actor().username());
     p.put("authorName", e.actor().name());
     p.put("authorKind", e.actor().kind());
     p.put("body", e.body());
@@ -61,6 +62,7 @@ public class ChatSseDispatcher {
     // 첨부 파일·드라이브 링크를 SSE 페이로드에 포함 — 프론트 ChatMessageResponse 캐스트와 필드 일치.
     p.put("attachments", e.attachments());
     p.put("driveLinks", e.driveLinks());
+    p.put("question", e.question());
     registry.fanOut(memberRepo.findMemberIds(e.threadId()), "chat.message.created", p);
   }
 

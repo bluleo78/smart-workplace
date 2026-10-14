@@ -8,6 +8,7 @@ import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.PROJECT_MEMBER;
 import static com.workplace.jooq.Tables.USER;
 
+import com.workplace.global.dto.UserSummary;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
@@ -83,6 +84,23 @@ public class IssueStakeholderLookup {
         .from(ISSUE_ASSIGNEE)
         .where(ISSUE_ASSIGNEE.ISSUE_ID.eq(issueId))
         .fetch(r -> r.get(ISSUE_ASSIGNEE.USER_ID));
+  }
+
+  /**
+   * 이슈 담당자 중 첫 외부 실행 AI(WP-373 — 작성창 안내 "멘션 없이 보내도 {이름}이 이어받아요"). 담당 지정 순서(created_at, user id)로 첫
+   * 사람. 없으면 empty.
+   */
+  public Optional<UserSummary> findFirstExternalAgent(long issueId) {
+    return dsl.select(USER.ID, USER.USERNAME, USER.NAME, USER.KIND)
+        .from(ISSUE_ASSIGNEE)
+        .join(USER)
+        .on(USER.ID.eq(ISSUE_ASSIGNEE.USER_ID))
+        .where(ISSUE_ASSIGNEE.ISSUE_ID.eq(issueId))
+        .and(USER.KIND.eq("AGENT"))
+        .and(USER.AGENT_RUNTIME.eq("EXTERNAL"))
+        .orderBy(ISSUE_ASSIGNEE.CREATED_AT.asc(), USER.ID.asc())
+        .limit(1)
+        .fetchOptional(r -> new UserSummary(r.value1(), r.value2(), r.value3(), r.value4()));
   }
 
   /** 이슈의 watcher user.id 목록. */

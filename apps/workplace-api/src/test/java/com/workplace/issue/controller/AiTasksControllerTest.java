@@ -3,6 +3,7 @@ package com.workplace.issue.controller;
 import static com.workplace.jooq.Tables.AGENT_WORK;
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_ASSIGNEE;
+import static com.workplace.jooq.Tables.ISSUE_TYPE_DEF;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
@@ -17,6 +18,7 @@ import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -234,6 +236,126 @@ class AiTasksControllerTest extends IntegrationTestBase {
     assertThat(status("/api/v1/me/ai-tasks?cursor=" + issueCursorLike)).isEqualTo(400);
   }
 
+  // ---------------------------------------------------------------- 에픽 묶음(WP-375)
+
+  /** 묶음 시드 기준 시각 — 실제 시각과 무관하게 고정한다. */
+  private static final Instant REF = Instant.parse("2026-10-14T03:00:00Z");
+
+  /** 에픽 묶음 시드에서 만든 이슈 id. */
+  private record EpicSeed(long e, long c1, long c2, long c3, long s1, long s2) {}
+
+  /**
+   * 에픽 E(작업 중, t-50분) 아래 C1(답변 필요, t-40분)·C2(검토 필요, t-30분)·C3(완료, 담당·작업 없음 — 목록 밖, 하위 수에만 든다), 단독
+   * S1(막힘, t-5분)·S2(답변 필요, t-60분). 모두 내가 만든 AI 담당 이슈라 "나와 관련" 범위.
+   */
+  private EpicSeed seedEpicGroup() {
+    long epicType = epicTypeId();
+    long e = issue("E", me);
+    setType(e, epicType);
+    long c1 = issue("C1", me);
+    long c2 = issue("C2", me);
+    long c3 = issue("C3", me);
+    for (long c : List.of(c1, c2, c3)) setParent(c, e);
+    setStatus(c3, "DONE");
+    long s1 = issue("S1", me);
+    long s2 = issue("S2", me);
+    for (long id : List.of(e, c1, c2, s1, s2)) assign(id, agent);
+    work(e, agent, "WORKING", REF.minus(Duration.ofMinutes(50)));
+    work(c1, agent, "INPUT_REQUIRED", REF.minus(Duration.ofMinutes(40)));
+    work(c2, agent, "REVIEW", REF.minus(Duration.ofMinutes(30)));
+    work(s1, agent, "BLOCKED", REF.minus(Duration.ofMinutes(5)));
+    work(s2, agent, "INPUT_REQUIRED", REF.minus(Duration.ofMinutes(60)));
+    return new EpicSeed(e, c1, c2, c3, s1, s2);
+  }
+
+  @Test
+  void 에픽_묶음은_연속이고_가장_급한_행_순위로_자리잡으며_머리가_먼저() throws Exception {
+    EpicSeed s = seedEpicGroup();
+
+    // E 묶음 순위 = min(작업중 4, 답변 필요 0, 검토 2) = 0, 최근 = t-30분. S2 도 순위 0 이지만 t-60분이라 뒤, S1(막힘 3)이 맨 뒤.
+    JsonNode body = getJson("/api/v1/me/ai-tasks?size=100");
+    assertThat(titles(body)).containsExactly("E", "C1", "C2", "S2", "S1");
+    JsonNode items = body.get("items");
+    JsonNode head = items.get(0).get("aiGroup");
+    assertThat(head.get("epicNumber").asInt()).isEqualTo(number(s.e()));
+    assertThat(head.get("size").asInt()).isEqualTo(3);
+    assertThat(head.get("epicChildCount").asInt()).isEqualTo(3); // C1·C2·C3
+    assertThat(head.get("epicChildDoneCount").asInt()).isEqualTo(1); // C3
+    // 하위 행도 같은 묶음 정보를 싣는다.
+    assertThat(items.get(1).at("/aiGroup/epicNumber").asInt()).isEqualTo(number(s.e()));
+    assertThat(items.get(2).at("/aiGroup/size").asInt()).isEqualTo(3);
+    // 비에픽 단독 행은 aiGroup 생략.
+    assertThat(items.get(3).has("aiGroup")).isFalse();
+    assertThat(items.get(4).has("aiGroup")).isFalse();
+  }
+
+  @Test
+  void 부모가_에픽이_아니면_묶지_않고_각자_단독() throws Exception {
+    // 비에픽(TASK) 부모 아래 하위 — 묶음 키가 각자 자기 id 라 개별 정렬, aiGroup 없음.
+    long p = issue("P", me);
+    long k = issue("K", me);
+    setParent(k, p);
+    assign(p, agent);
+    assign(k, agent);
+    work(p, agent, "WORKING", REF.minus(Duration.ofMinutes(10)));
+    work(k, agent, "INPUT_REQUIRED", REF.minus(Duration.ofMinutes(20)));
+
+    JsonNode body = getJson("/api/v1/me/ai-tasks?size=100");
+    assertThat(titles(body)).containsExactly("K", "P");
+    body.get("items").forEach(it -> assertThat(it.has("aiGroup")).isFalse());
+  }
+
+  @Test
+  void 커서로_나눠_받아도_한번에_받은_순서와_같다() throws Exception {
+    seedEpicGroup();
+
+    List<String> all = titles(getJson("/api/v1/me/ai-tasks?size=100"));
+    // 크기 1·2 둘 다 — 묶음 안(머리↔하위)과 묶음 사이 경계를 모두 자른다.
+    for (int size : List.of(1, 2)) {
+      List<String> paged = new ArrayList<>();
+      String cursor = null;
+      int pages = 0;
+      do {
+        JsonNode page =
+            getJson(
+                "/api/v1/me/ai-tasks?size=" + size + (cursor == null ? "" : "&cursor=" + cursor));
+        paged.addAll(titles(page));
+        // 페이지가 달라도 묶음 크기는 필터 적용 후 전체 기준이다.
+        page.get("items")
+            .forEach(
+                it -> {
+                  if (it.has("aiGroup")) assertThat(it.at("/aiGroup/size").asInt()).isEqualTo(3);
+                });
+        cursor = page.get("hasMore").asBoolean() ? page.get("nextCursor").asText() : null;
+        assertThat(++pages).as("페이지 순회가 끝나지 않는다").isLessThan(20);
+      } while (cursor != null);
+      assertThat(paged).as("size=" + size).isEqualTo(all);
+    }
+  }
+
+  @Test
+  void 빠른_필터를_켜면_걸러진_행끼리만_묶는다() throws Exception {
+    EpicSeed s = seedEpicGroup();
+
+    // 답변 필요만: C1(t-40분, 묶음 E 의 유일한 행) 이 S2(t-60분) 보다 앞. 에픽 행이 빠져도 C1 은 에픽 묶음 정보를 싣는다.
+    JsonNode body = getJson("/api/v1/me/ai-tasks?agentState=INPUT_REQUIRED&size=100");
+    assertThat(titles(body)).containsExactly("C1", "S2");
+    JsonNode g = body.get("items").get(0).get("aiGroup");
+    assertThat(g.get("epicNumber").asInt()).isEqualTo(number(s.e()));
+    assertThat(g.get("size").asInt()).isEqualTo(1);
+    assertThat(g.get("epicChildCount").asInt()).isEqualTo(3);
+    assertThat(body.get("items").get(1).has("aiGroup")).isFalse();
+  }
+
+  @Test
+  void 이전_형식_커서는_400() throws Exception {
+    String old =
+        java.util.Base64.getUrlEncoder()
+            .withoutPadding()
+            .encodeToString(("1|" + REF + "|5").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    assertThat(status("/api/v1/me/ai-tasks?cursor=" + old)).isEqualTo(400);
+  }
+
   // ---------------------------------------------------------------- 건수·응답
 
   @Test
@@ -384,6 +506,29 @@ class AiTasksControllerTest extends IntegrationTestBase {
         .set(ISSUE.UPDATED_AT, at.atOffset(ZoneOffset.UTC))
         .where(ISSUE.ID.eq(issueId))
         .execute();
+  }
+
+  /** 이 프로젝트의 EPIC 유형 id(프로젝트 생성 시 시스템 유형으로 시드됨). */
+  private long epicTypeId() {
+    return dsl.select(ISSUE_TYPE_DEF.ID)
+        .from(ISSUE_TYPE_DEF)
+        .where(ISSUE_TYPE_DEF.PROJECT_ID.eq(projectId).and(ISSUE_TYPE_DEF.NAME.eq("EPIC")))
+        .fetchOne(ISSUE_TYPE_DEF.ID);
+  }
+
+  /** 유형 직접 갱신 — 규칙 검사 없이 모양만 만든다. */
+  private void setType(long issueId, long typeId) {
+    dsl.update(ISSUE).set(ISSUE.TYPE_ID, typeId).where(ISSUE.ID.eq(issueId)).execute();
+  }
+
+  /** 부모 직접 갱신 — 규칙 검사 없이 모양만 만든다. */
+  private void setParent(long issueId, long parentId) {
+    dsl.update(ISSUE).set(ISSUE.PARENT_ISSUE_ID, parentId).where(ISSUE.ID.eq(issueId)).execute();
+  }
+
+  /** 이슈 번호(응답의 epicNumber 와 비교). */
+  private int number(long issueId) {
+    return dsl.select(ISSUE.NUMBER).from(ISSUE).where(ISSUE.ID.eq(issueId)).fetchOne(ISSUE.NUMBER);
   }
 
   private void setStatus(long issueId, String status) {

@@ -12,7 +12,8 @@ import java.util.List;
  * reporterIds 는 OR 결합 — 이슈를 만든 사람(reporter_id 직접 컬럼) 필터. 비어 있으면 미적용. cycleIds 는 OR 결합 — 지정된 사이클 중
  * 하나라도 연결된 이슈만 매칭하며, includeNoOpenCycle·includeNoCycle 과 OR 결합되어 "지정 사이클 또는 백로그(진행 중·예정 사이클 밖) 또는
  * 사이클 미할당" 을 표현한다. milestoneIds 는 OR 결합 — issue.milestone_id 직접 컬럼 매칭(M:N 아님). 비어 있으면 미적용.
- * watcherId 가 있으면 그 사용자가 워치 중인 이슈만(WP-356).
+ * watcherId 가 있으면 그 사용자가 워치 중인 이슈만(WP-356). pendingForUserId 가 있으면 그 사용자의 마지막 이슈 챗 글 이후 다른 사람 글이 있는
+ * 이슈만(WP-373).
  */
 public record IssueSearchQuery(
     String q,
@@ -60,7 +61,10 @@ public record IssueSearchQuery(
     LocalDate createdFrom,
     LocalDate createdTo,
     // 워치 필터(WP-356) — 이 사용자가 워치 중인 이슈만. watching=true 면 호출자 id. null 이면 미적용.
-    Long watcherId) {
+    Long watcherId,
+    // 새 글 필터(WP-373) — 이 사용자의 마지막 이슈 챗 글 이후 다른 사람이 글을 남긴 이슈만. pendingForMe=true 면 호출자 id. null 이면
+    // 미적용.
+    Long pendingForUserId) {
 
   /** 워치 필터 없는 기존 28-인자 호환 생성자 — 리포지토리 테스트 시드가 그대로 쓴다. */
   public IssueSearchQuery(
@@ -121,6 +125,7 @@ public record IssueSearchQuery(
         closedTo,
         createdFrom,
         createdTo,
+        null,
         null);
   }
 }

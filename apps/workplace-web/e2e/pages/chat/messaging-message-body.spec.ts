@@ -78,18 +78,7 @@ async function stubDmsList(page: Page) {
   )
 }
 
-async function stubStream(page: Page) {
-  await page.route(
-    (url) => url.pathname === '/api/v1/events',
-    (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'text/event-stream',
-        headers: { 'cache-control': 'no-cache' },
-        body: `:\n\n`,
-      }),
-  )
-}
+// SSE 는 따로 route 하지 않는다 — 유한 본문으로 덮으면 재연결 배너가 아무 때나 떠 목록을 밀어 낸다(auth.fixture 의 열린 스트림 사용).
 
 async function stubChannelDetail(page: Page, channel: ReturnType<typeof createChannel>) {
   await page.route(
@@ -168,7 +157,6 @@ test.describe('messaging 메시지 본문 기본기', () => {
 
     await stubChannelsList(page, [channel])
     await stubDmsList(page)
-    await stubStream(page)
     await stubChannelDetail(page, channel)
     await stubMembers(page, CHANNEL_ID, [
       createChannelMember({ userId: 10, name: 'bluleo78', kind: 'HUMAN' }),
@@ -423,7 +411,6 @@ async function setupSplitChannel(page: Page) {
 
   await stubChannelsList(page, [channel])
   await stubDmsList(page)
-  await stubStream(page)
   await stubChannelDetail(page, channel)
   await stubMembers(page, OWN_CHANNEL_ID, [
     createChannelMember({ userId: 1, name: 'me', kind: 'HUMAN' }),
@@ -759,7 +746,6 @@ test.describe('메시지 좌/우 분리 — 스레드 패널(384px)', () => {
 
     await stubChannelsList(page, [channel])
     await stubDmsList(page)
-    await stubStream(page)
     await stubChannelDetail(page, channel)
     await stubMembers(page, THREAD_CHANNEL_ID, [
       createChannelMember({ userId: 1, name: 'me', kind: 'HUMAN' }),
@@ -908,7 +894,6 @@ test.describe('후속 줄 hover 시각', () => {
 
     await stubChannelsList(page, [channel])
     await stubDmsList(page)
-    await stubStream(page)
     await stubChannelDetail(page, channel)
     await stubMembers(page, HOVERTIME_CHANNEL_ID, [
       createChannelMember({ userId: 1, name: 'me', kind: 'HUMAN' }),
@@ -965,7 +950,6 @@ test.describe('#356 AI 메시지 마크다운 렌더링', () => {
 
     await stubChannelsList(page, [channel])
     await stubDmsList(page)
-    await stubStream(page)
     await stubChannelDetail(page, channel)
     await stubMembers(page, MD_CHANNEL_ID, [
       createChannelMember({ userId: 10, name: 'bluleo78', kind: 'HUMAN' }),
@@ -1005,4 +989,45 @@ test.describe('#356 AI 메시지 마크다운 렌더링', () => {
     // 원시 기호가 그대로 보임
     await expect(body).toContainText('## 사람 메시지는 ** 그대로')
   })
+})
+
+// ── AI 메시지 번호 목록 간격 (WP-373) ────────────────────────────────────────────
+// 바깥 whitespace-pre-wrap 이 마크다운 블록 사이 개행을 빈 줄로 그려 번호 목록이 벌어지던 결함 회귀 방지.
+
+const LIST_CHANNEL_ID = 702
+
+test('팀 채팅 AI 메시지의 번호 목록은 항목 사이가 벌어지지 않는다', async ({ authenticatedPage: page }) => {
+  const channel = createChannel({ id: LIST_CHANNEL_ID, name: '목록', memberCount: 2 })
+  await stubChannelsList(page, [channel])
+  await stubDmsList(page)
+  await stubChannelDetail(page, channel)
+  await stubMembers(page, LIST_CHANNEL_ID, [
+    createChannelMember({ userId: 99, name: 'My AI', kind: 'AGENT' }),
+  ])
+  await stubMessages(page, LIST_CHANNEL_ID, [
+    createMessage({
+      id: 41,
+      channelId: LIST_CHANNEL_ID,
+      authorId: 99,
+      authorName: 'My AI',
+      authorKind: 'AGENT',
+      // 2번 항목 안의 줄바꿈(질문 문장 이어 쓰기)은 같은 항목 안에서 줄을 바꿔야 한다.
+      body: '1. a\n2. b\n이어지는 문장',
+      createdAt: '2026-06-06T03:10:00',
+    }),
+  ])
+  await stubMarkRead(page, LIST_CHANNEL_ID)
+  await stubUsers(page)
+  await page.goto(`/chat/channels/${LIST_CHANNEL_ID}`)
+
+  const items = page.getByTestId('message-body-41').locator('li')
+  await expect(items).toHaveCount(2)
+  const a = await items.nth(0).boundingBox()
+  const b = await items.nth(1).boundingBox()
+  // 예전에는 pre-wrap 이 항목 사이 개행을 빈 줄로 그려 한 줄(약 20px) 이상 벌어졌다.
+  expect(b!.y - (a!.y + a!.height)).toBeLessThan(8)
+  // 항목 안 줄바꿈이 공백으로 접히지 않고 두 줄로 그려진다(한 줄짜리 1번 항목의 1.5배 이상).
+  expect(b!.height).toBeGreaterThan(a!.height * 1.5)
+  // innerText 는 CSS white-space 를 반영한다 — 접히면 개행 대신 공백이 된다.
+  await expect(items.nth(1)).toHaveJSProperty('innerText', 'b\n이어지는 문장')
 })

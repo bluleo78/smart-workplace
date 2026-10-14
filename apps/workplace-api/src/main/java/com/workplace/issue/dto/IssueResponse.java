@@ -44,10 +44,22 @@ public record IssueResponse(
     // #611 낙관적 동시성 토큰 — PATCH 에 그대로 실어 보내면 그 사이 다른 편집이 있었는지 서버가 판정한다.
     int version,
     // WP-377 진행 중 AI 작업(급한 순). 없으면 JSON 에서 생략.
-    @JsonInclude(JsonInclude.Include.NON_EMPTY) List<AgentWorkView> agentWork) {
+    @JsonInclude(JsonInclude.Include.NON_EMPTY) List<AgentWorkView> agentWork,
+    // WP-375 AI 위임 작업 행의 에픽 묶음 — /me/ai-tasks 만 채운다. 없으면 JSON 에서 생략.
+    @JsonInclude(JsonInclude.Include.NON_NULL) AiTaskGroup aiGroup) {
 
   /** 진행 중 AI 작업 목록을 채운 사본을 돌려준다(목록·상세 조립 단계에서 한 번에 조회해 주입). */
   public IssueResponse withAgentWork(List<AgentWorkView> list) {
+    return copyWith(list == null ? List.of() : list, aiGroup);
+  }
+
+  /** AI 위임 작업 묶음 정보를 채운 사본(WP-375 — /me/ai-tasks 조립 단계). */
+  public IssueResponse withAiGroup(AiTaskGroup g) {
+    return copyWith(agentWork, g);
+  }
+
+  /** 나머지 필드는 그대로 두고 agentWork·aiGroup 만 바꾼 사본 — 필드 복사를 한 곳에 둔다. */
+  private IssueResponse copyWith(List<AgentWorkView> newAgentWork, AiTaskGroup newAiGroup) {
     return new IssueResponse(
         id,
         projectKey,
@@ -75,7 +87,8 @@ public record IssueResponse(
         blocked,
         customFields,
         version,
-        list == null ? List.of() : list);
+        newAgentWork,
+        newAiGroup);
   }
 
   /**
@@ -110,7 +123,8 @@ public record IssueResponse(
         false,
         List.of(),
         r.version(),
-        List.of());
+        List.of(),
+        null);
   }
 
   /**
@@ -146,7 +160,8 @@ public record IssueResponse(
         false,
         List.of(),
         r.version(),
-        List.of());
+        List.of(),
+        null);
   }
 
   /** 라벨 + 첨부 카운트까지 채운 버전 — Phase 3b 호출자 호환. type null, assignees 빈 리스트. */
@@ -179,7 +194,8 @@ public record IssueResponse(
         false,
         List.of(),
         r.version(),
-        List.of());
+        List.of(),
+        null);
   }
 
   /** 라벨 + 첨부 카운트 + 담당자까지 채운 풀버전 — Phase 3c 호출자 호환. type null. */
@@ -216,7 +232,8 @@ public record IssueResponse(
         false,
         List.of(),
         r.version(),
-        List.of());
+        List.of(),
+        null);
   }
 
   /** Phase 4 — 라벨 + 첨부 카운트 + 유형 + 담당자 모두 채운 풀버전. */
@@ -254,7 +271,8 @@ public record IssueResponse(
         false,
         List.of(),
         r.version(),
-        List.of());
+        List.of(),
+        null);
   }
 
   /**
@@ -298,7 +316,8 @@ public record IssueResponse(
         false,
         List.of(),
         r.version(),
-        List.of());
+        List.of(),
+        null);
   }
 
   /** Phase 4b — 의존성(blockedBy/blocks/blocked) 까지 채운 최신 풀버전. 검색/상세 경로에서 사용. */
@@ -342,7 +361,8 @@ public record IssueResponse(
         blocked,
         List.of(),
         r.version(),
-        List.of());
+        List.of(),
+        null);
   }
 
   /**
@@ -389,6 +409,7 @@ public record IssueResponse(
         blocked,
         customFields == null ? List.of() : customFields,
         r.version(),
-        List.of());
+        List.of(),
+        null);
   }
 }

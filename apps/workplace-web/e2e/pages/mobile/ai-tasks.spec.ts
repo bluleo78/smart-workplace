@@ -5,6 +5,7 @@ import type { Page } from '@playwright/test'
 
 import { agentWorker as agent, createAgentWork, createAiTaskCounts, minutesAgo } from '../../factories/agentWork.factory'
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory'
+import { GROUPED_ROWS } from '../../fixtures/ai-tasks-groups'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture'
 
@@ -110,4 +111,17 @@ test('빠른 필터 칩은 가로 스크롤로 마지막 칩까지 닿는다', a
   await expect(last).toBeInViewport({ ratio: 1 })
   await last.click()
   await expect(last).toHaveAttribute('aria-pressed', 'true')
+})
+
+test('모바일 묶음 머리 — 아이콘·키·제목·하위 진행, 에픽 자신 작업은 머리 아래 한 줄', async ({ authenticatedPage: page }) => {
+  await stubChat(page)
+  await mockApi(page, 'GET', '/api/v1/me/ai-tasks', createIssueSearchResponse(GROUPED_ROWS))
+  await mockApi(page, 'GET', '/api/v1/me/ai-tasks/counts', createAiTaskCounts({ all: 8 }))
+  await page.goto('/me/ai-tasks')
+  await expect(page.getByTestId('ai-epic-412')).toContainText('WP-412')
+  await expect(page.getByTestId('ai-epic-412')).toContainText('└ 1/5')
+  await expect(page.getByTestId('ai-epic-412-meta')).toBeVisible()
+  await expect(page.getByTestId('ai-epic-420-meta')).toHaveCount(0)
+  await expect(page.getByTestId('ai-row-413')).toBeVisible()
+  await expectNoHorizontalOverflow(page)
 })

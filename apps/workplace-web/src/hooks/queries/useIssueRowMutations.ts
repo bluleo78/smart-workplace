@@ -10,6 +10,7 @@ import { issuesApi } from '../../api/issues';
 import { handleApiError } from '../../lib/api-error';
 import type { IssuePriority } from '../../types/issue';
 import type { UserSummary } from '../../types/user';
+import { chatKeys } from './chatKeys';
 import { patchIssueInSearchCache } from './issueSearchCache';
 import { invalidateIssueCaches } from './useBulkIssueActions';
 import { issueKeys } from './useIssues';
@@ -49,6 +50,8 @@ export function useSetIssueAssignees(projectKey: string) {
     },
     onSuccess: (_data, { number, successMessage }) => {
       qc.invalidateQueries({ queryKey: ['watchers', projectKey, number] });
+      // 담당 AI 가 바뀌면 이슈 챗 작성창 안내가 바뀐다 — 스레드 응답의 externalAgent (WP-373).
+      qc.invalidateQueries({ queryKey: chatKeys.thread(projectKey, number) });
       toast.success(successMessage ?? '담당자를 변경했습니다');
     },
     onSettled: () => invalidateIssueCaches(qc, projectKey),

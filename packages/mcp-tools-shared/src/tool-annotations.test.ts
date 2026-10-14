@@ -29,6 +29,7 @@ const EXPECTED: Record<string, readonly [kind: string, destructive: boolean | nu
   get_event: ['read', R, R, R],
   get_home_overview: ['read', R, R, R],
   get_external_contact: ['read', R, R, R],
+  get_issue_chat: ['read', R, R, R],
   get_issue_detail: ['read', R, R, R],
   get_mail: ['read', R, R, R],
   get_mail_summary: ['read', R, R, R],

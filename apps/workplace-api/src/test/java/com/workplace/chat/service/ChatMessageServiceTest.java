@@ -13,6 +13,7 @@ import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageCreatedEvent;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageUpdatedEvent;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatThreadTypingEvent;
 import com.workplace.chat.repository.ChatThreadMemberRepository;
+import com.workplace.issue.outbound.IssueHumanReplyPosted;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.support.IntegrationTestBase;
 import java.time.Instant;
@@ -103,7 +104,7 @@ class ChatMessageServiceTest extends IntegrationTestBase {
             s.reporterId(), thread.threadId(), new CreateChatMessageRequest("byebye"));
 
     messageService.delete(s.reporterId(), msg.id());
-    var page = messageService.list(s.reporterId(), thread.threadId(), null, 50);
+    var page = messageService.list(s.reporterId(), thread.threadId(), null, null, false, 50);
     assertThat(page.items()).hasSize(1);
     assertThat(page.items().get(0).deleted()).isTrue();
     assertThat(page.items().get(0).body()).isEqualTo("(삭제됨)");
@@ -153,5 +154,31 @@ class ChatMessageServiceTest extends IntegrationTestBase {
     assertThat(typing).hasSize(1);
     assertThat(typing.get(0).threadId()).isEqualTo(thread.threadId());
     assertThat(typing.get(0).actor().id()).isEqualTo(s.reporterId());
+  }
+
+  @Test
+  void createFromReport_는_question_을_저장하고_생성이벤트에_싣고_사람답_이벤트는_내지_않는다() {
+    ChatFixtures.Setup s = fx.setup();
+    var thread = threadService.getOrCreate(s.reporterId(), s.projectKey(), s.issueNumber());
+
+    ChatMessageResponse msg =
+        messageService.createFromReport(s.reporterId(), thread.threadId(), "진행 보고", true);
+
+    assertThat(msg.question()).isTrue();
+    var created = events.stream(ChatMessageCreatedEvent.class).toList();
+    assertThat(created).hasSize(1);
+    assertThat(created.get(0).question()).isTrue();
+    // 보고 경로는 작성자가 사람이어도 "사람의 답"이 아니다.
+    assertThat(events.stream(IssueHumanReplyPosted.class).count()).isZero();
+  }
+
+  @Test
+  void 사람의_일반_create_는_사람답_이벤트를_낸다() {
+    ChatFixtures.Setup s = fx.setup();
+    var thread = threadService.getOrCreate(s.reporterId(), s.projectKey(), s.issueNumber());
+    messageService.create(s.reporterId(), thread.threadId(), new CreateChatMessageRequest("답"));
+    assertThat(events.stream(IssueHumanReplyPosted.class).count()).isEqualTo(1L);
+    assertThat(events.stream(ChatMessageCreatedEvent.class).findFirst().orElseThrow().question())
+        .isFalse();
   }
 }

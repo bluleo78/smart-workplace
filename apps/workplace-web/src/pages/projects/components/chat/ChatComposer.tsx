@@ -28,9 +28,12 @@ interface ChatComposerProps {
   onTyping?: () => void;
   // 마운트 시 입력창에 포커스(드로워로 채팅을 연 직후 바로 입력하도록).
   autoFocus?: boolean;
+  // 지정되면 기기와 무관하게 이 안내를 placeholder 로 쓴다(외부 실행 AI 담당 이슈의 답변 안내, WP-373).
+  // 긴 문구라 모바일 폭에서 두 줄로 접히므로 루트에 data-long-placeholder 를 달아 CSS 가 높이를 확보하게 한다.
+  placeholder?: string;
 }
 
-export function ChatComposer({ threadId, members, onSubmit, onTyping, autoFocus }: ChatComposerProps) {
+export function ChatComposer({ threadId, members, onSubmit, onTyping, autoFocus, placeholder }: ChatComposerProps) {
   const {
     pending,
     pendingDrive,
@@ -62,7 +65,7 @@ export function ChatComposer({ threadId, members, onSubmit, onTyping, autoFocus 
   };
 
   return (
-    <div className="relative border-t p-3" data-testid="chat-composer" {...dropProps}>
+    <div className="relative border-t p-3" data-testid="chat-composer" data-long-placeholder={placeholder ? '' : undefined} {...dropProps}>
       {isDragging && <ComposerDropOverlay />}
       <ComposerAttachmentChips
         testIdPrefix="chat-composer"
@@ -76,7 +79,7 @@ export function ChatComposer({ threadId, members, onSubmit, onTyping, autoFocus 
         onSubmit={handleSubmit}
         onChange={onTyping}
         clearOnSubmit
-        placeholder={touchShell ? MESSAGE_PLACEHOLDER : undefined}
+        placeholder={placeholder ?? (touchShell ? MESSAGE_PLACEHOLDER : undefined)}
         autoFocus={autoFocus}
         allowEmptySubmit={hasAny}
         disableWhenEmpty

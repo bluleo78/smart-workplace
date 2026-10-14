@@ -664,9 +664,10 @@ public class IssueService {
    */
   public IssueDetailResponse setType(Long callerId, String projectKey, int number, Long newTypeId) {
     var project = accessGuard.assertMember(projectKey, callerId);
+    // 행을 잠근 채 읽는다(setParent 와 같은 이유).
     var issue =
         issueRepository
-            .findByProjectAndNumber(project.id(), number)
+            .findByProjectAndNumberForUpdate(project.id(), number)
             .orElseThrow(() -> new IssueNotFoundException(projectKey, number));
     var newType =
         typeRepository.findById(newTypeId).orElseThrow(InvalidTypeForProjectException::new);
@@ -811,9 +812,11 @@ public class IssueService {
   public IssueDetailResponse setParent(
       Long callerId, String projectKey, int number, Integer newParentNumber) {
     var project = accessGuard.assertMember(projectKey, callerId);
+    // 행을 잠근 채 읽는다 — 동시 부모·유형 변경이 옛 부모로 검증·이력(from)을 남기지 않고, AI 자기 배정 판정(IssueAssigneeService)과 순서가
+    // 맞는다.
     var row =
         issueRepository
-            .findByProjectAndNumber(project.id(), number)
+            .findByProjectAndNumberForUpdate(project.id(), number)
             .orElseThrow(() -> new IssueNotFoundException(projectKey, number));
     var currentType = typeRepository.findById(row.typeId()).orElseThrow();
     boolean isSubtask = "SUBTASK".equals(currentType.name());

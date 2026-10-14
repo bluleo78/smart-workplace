@@ -15,11 +15,14 @@ export function ParentChip({
   parent,
   issueNumber,
   variant = 'row',
+  showKey = false,
 }: {
   projectKey: string;
   parent: ParentRef;
   issueNumber: number;
   variant?: 'row' | 'card';
+  // AI 위임 작업처럼 칩이 좁은 화면에서 부모가 무엇인지 키로 먼저 알 수 있게 키를 제목 앞에 둔다(WP-375). 기본은 제목만.
+  showKey?: boolean;
 }) {
   // 색상·아이콘은 부모 유형에서 파생 — 하드코딩 hex 없이 디자인시스템 색상 토큰만 사용.
   const colors = LABEL_COLORS[parent.type.colorToken as ColorToken] ?? LABEL_COLORS.GRAY;
@@ -28,6 +31,11 @@ export function ParentChip({
   const content = (
     <>
       <Icon className="h-3 w-3 shrink-0" />
+      {showKey && (
+        <span className="shrink-0 font-mono">
+          {projectKey}-{parent.number}
+        </span>
+      )}
       <span className="truncate">{parent.title}</span>
     </>
   );

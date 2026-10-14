@@ -6,12 +6,16 @@ import static com.workplace.issue.service.SearchParams.trimToNull;
 import com.workplace.issue.dto.AgentWorkState;
 import com.workplace.issue.dto.AiTaskCounts;
 import com.workplace.issue.dto.AiTaskCursor;
+import com.workplace.issue.dto.AiTaskGroup;
+import com.workplace.issue.dto.IssueResponse;
 import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.dto.IssueSearchResponse;
 import com.workplace.issue.repository.AiTaskRepository;
 import com.workplace.issue.repository.AiTaskRepository.AiTaskQuery;
 import com.workplace.issue.repository.AiTaskRepository.AiTaskRow;
+import com.workplace.issue.repository.IssueRepository;
 import com.workplace.project.repository.ProjectRepository;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
@@ -20,8 +24,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * AI 위임 작업 목록·건수(WP-377 §5.2). 쿼리 파라미터를 {@link AiTaskQuery} 로 정규화해 {@link AiTaskRepository} 로 조회하고,
- * 항목은 이슈 목록과 같은 응답 모양({@link IssueSearchService#assembleItems})으로 조립한다. /me/issues 의 (updated_at,
- * id) 커서로는 급한 순 정렬을 넘길 수 없어 전용 복합 커서를 쓴다.
+ * 항목은 이슈 목록과 같은 응답 모양({@link IssueSearchService#assembleItems})으로 조립한 뒤 에픽 묶음 정보(aiGroup, WP-375)를
+ * 붙인다. /me/issues 의 (updated_at, id) 커서로는 묶음 단위 급한 순 정렬을 넘길 수 없어 전용 복합 커서를 쓴다.
  */
 @Service
 @Transactional(readOnly = true)
@@ -31,8 +35,9 @@ public class AiTaskSearchService {
   private final AiTaskRepository aiTaskRepository;
   private final IssueSearchService issueSearchService;
   private final ProjectRepository projectRepository;
+  private final IssueRepository issueRepository;
 
-  /** 급한 순 한 페이지. 마지막 행의 정렬 키(rank, sortAt, id)가 다음 커서. */
+  /** 에픽 묶음 단위 급한 순 한 페이지(WP-375). 마지막 행의 정렬 키 7개가 다음 커서, 에픽 묶음 행에는 aiGroup 을 싣는다. */
   public IssueSearchResponse search(long callerId, Map<String, String> params) {
     AiTaskQuery query = parse(params);
     List<AiTaskRow> rows = aiTaskRepository.search(callerId, query);
@@ -41,17 +46,41 @@ public class AiTaskSearchService {
     var keyById =
         projectRepository.keysByIds(
             issueRows.stream().map(IssueRow::projectId).distinct().toList());
+    // assembleItems 는 입력 순서를 보존한다 — rows 와 같은 인덱스로 묶음 정보를 붙인다.
     var items = issueSearchService.assembleItems(issueRows, pid -> keyById.getOrDefault(pid, ""));
+
+    // 에픽 묶음의 하위 진행(└ n/m) — 에픽 행이 이 페이지에 없어도 머리에 그릴 수 있게 묶음 키(에픽 id)로 한 번에 센다.
+    List<Long> epicIds =
+        rows.stream()
+            .filter(r -> r.epicNumber() != null)
+            .map(AiTaskRow::groupKey)
+            .distinct()
+            .toList();
+    var childCount = issueRepository.countChildrenByParentIds(epicIds);
+    var childDone = issueRepository.countDoneChildrenByParentIds(epicIds);
+    List<IssueResponse> withGroups = new ArrayList<>(items.size());
+    for (int i = 0; i < items.size(); i++) {
+      AiTaskRow r = rows.get(i);
+      AiTaskGroup g =
+          r.epicNumber() == null
+              ? null
+              : new AiTaskGroup(
+                  r.epicNumber(),
+                  r.groupSize(),
+                  childCount.getOrDefault(r.groupKey(), 0),
+                  childDone.getOrDefault(r.groupKey(), 0));
+      withGroups.add(items.get(i).withAiGroup(g));
+    }
 
     // 기존 이슈 검색과 같은 규칙 — 꽉 찬 페이지면 다음이 있다고 본다(마지막 페이지가 정확히 size 면 빈 페이지 한 번 더).
     String nextCursor = null;
     boolean hasMore = false;
     if (!rows.isEmpty() && rows.size() >= query.size()) {
       AiTaskRow last = rows.get(rows.size() - 1);
-      nextCursor = new AiTaskCursor(last.rank(), last.sortAt(), last.row().id()).encode();
+      nextCursor = last.toCursor().encode();
       hasMore = true;
     }
-    return new IssueSearchResponse(items, nextCursor, hasMore);
+    return new IssueSearchResponse(withGroups, nextCursor, hasMore);
   }
 
   /** 빠른 필터 칩 건수. agentState·cursor·size 는 무시된다. */

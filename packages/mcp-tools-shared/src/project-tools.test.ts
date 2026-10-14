@@ -188,6 +188,12 @@ describe('toIssueListItem agentWork (WP-377)', () => {
 });
 
 describe('list_issues', () => {
+  it('pendingForMe 를 서버 쿼리로 넘기고 기본 assignee=me 를 유지한다 (WP-373)', async () => {
+    const c = mockClient();
+    await tool(c, 'list_issues').handler({ pendingForMe: true });
+    expect(issueQuery(c)).toStrictEqual({ pendingForMe: true, assignee: 'me', size: 30 });
+  });
+
   it('assignee·reporter 모두 생략 시 assignee=me, 기본 size 30, undefined 필드는 쿼리에 없다', async () => {
     const c = mockClient();
     await tool(c, 'list_issues').handler({ status: 'TODO' });

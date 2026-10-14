@@ -51,7 +51,8 @@ public class ChatMessageHydrator {
 
   /** 메시지 페이지의 항목을 채운다 — 페이징 정보(커서·더 있음)는 그대로 둔다. 목록 API 와 스레드 첫 페이지가 같이 쓴다(WP-365). */
   public ChatMessagePage hydrate(ChatMessagePage page) {
-    return new ChatMessagePage(hydrate(page.items()), page.nextCursor(), page.hasMore());
+    return new ChatMessagePage(
+        hydrate(page.items()), page.nextCursor(), page.hasMore(), page.truncated());
   }
 
   /** 단건 메시지에 첨부·드라이브 링크를 채운다. */

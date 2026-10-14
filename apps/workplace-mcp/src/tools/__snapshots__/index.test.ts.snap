@@ -30,6 +30,7 @@ exports[`buildUserTools > 노출 도구 이름·kind 스냅샷 1`] = `
   "get_event:read",
   "get_external_contact:read",
   "get_home_overview:read",
+  "get_issue_chat:read",
   "get_issue_detail:read",
   "get_mail:read",
   "get_mail_summary:read",
