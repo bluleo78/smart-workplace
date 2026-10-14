@@ -551,6 +551,50 @@ class ExtractionE2eTest extends IntegrationTestBase {
     assertThat(readPageCount(1L, fileId)).isEqualTo(5);
   }
 
+  /**
+   * WP-250: 추출 콜백이 쪽수 없이 와도(구 워커·재추출) 이미 채운 page_count 를 NULL 로 지우지 않는다 — coalesce(새 값, 기존 값). 새 값이
+   * 오면 그 값으로 바꾼다.
+   */
+  @Test
+  void advanceCallbacks_keepExistingPageCountWhenCallbackHasNone() {
+    long fileId = createTextReadyFile(1L);
+    resetToExtracting(1L, fileId, 4);
+    inTenantTx(1L, () -> jobRepo.advanceToSkipped(fileId, "empty", null));
+    assertThat(readPageCount(1L, fileId)).isEqualTo(4);
+
+    resetToExtracting(1L, fileId, 4);
+    inTenantTx(1L, () -> jobRepo.advanceToTextReady(fileId, "본문", 2, false, "ko", (Integer) null));
+    assertThat(readPageCount(1L, fileId)).isEqualTo(4);
+
+    resetToExtracting(1L, fileId, 4);
+    inTenantTx(1L, () -> jobRepo.advanceToTextReady(fileId, "본문", 2, false, "ko", 9));
+    assertThat(readPageCount(1L, fileId)).isEqualTo(9);
+  }
+
+  /** 콜백 CAS 가 통하도록 EXTRACTING 으로 되돌리고 page_count 를 지정한다. */
+  private void resetToExtracting(long tenantId, long fileId, int pageCount) {
+    inTenantTx(
+        tenantId,
+        () ->
+            dsl.update(FILE_EXTRACTION)
+                .set(FILE_EXTRACTION.STATUS, "EXTRACTING")
+                .set(FILE_EXTRACTION.PAGE_COUNT, pageCount)
+                .where(FILE_EXTRACTION.FILE_ID.eq(fileId))
+                .execute());
+  }
+
+  /** 테넌트 컨텍스트를 건 짧은 쓰기 트랜잭션 — RLS GUC 는 트랜잭션 시작 때만 걸린다. */
+  private void inTenantTx(long tenantId, Runnable work) {
+    Long prev = TenantContext.get();
+    TenantContext.set(tenantId);
+    try {
+      new TransactionTemplate(txManager).executeWithoutResult(s -> work.run());
+    } finally {
+      if (prev == null) TenantContext.clear();
+      else TenantContext.set(prev);
+    }
+  }
+
   private void fillPageCount(long tenantId, long fileId, int pageCount) {
     Long prev = TenantContext.get();
     TenantContext.set(tenantId);

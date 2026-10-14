@@ -186,7 +186,7 @@ public class WorkerJobRepository {
         .set(FILE_EXTRACTION.CHAR_COUNT, charCount)
         .set(FILE_EXTRACTION.TRUNCATED, truncated)
         .set(FILE_EXTRACTION.LANG, lang)
-        .set(FILE_EXTRACTION.PAGE_COUNT, pageCount)
+        .set(FILE_EXTRACTION.PAGE_COUNT, keepPageCountIfNull(pageCount))
         .set(FILE_EXTRACTION.EXTRACTED_AT, OffsetDateTime.now())
         .where(FILE_EXTRACTION.FILE_ID.eq(fileId))
         .and(FILE_EXTRACTION.STATUS.eq("EXTRACTING"))
@@ -204,11 +204,19 @@ public class WorkerJobRepository {
     return dsl.update(FILE_EXTRACTION)
             .set(FILE_EXTRACTION.STATUS, "SKIPPED")
             .set(FILE_EXTRACTION.ERROR, truncateError(error))
-            .set(FILE_EXTRACTION.PAGE_COUNT, pageCount)
+            .set(FILE_EXTRACTION.PAGE_COUNT, keepPageCountIfNull(pageCount))
             .where(FILE_EXTRACTION.FILE_ID.eq(fileId))
             .and(FILE_EXTRACTION.STATUS.eq("EXTRACTING"))
             .execute()
         == 1;
+  }
+
+  /**
+   * 추출 콜백이 쪽수를 주지 않으면(구 워커·PDF 가 아닌 파일) 이미 있는 page_count 를 지키는 값 — coalesce(새 값, 기존 값). 이미지 보기 요청이
+   * 워커에서 받아 채운 쪽수를 재추출 콜백이 NULL 로 지우면 다음 보기 요청이 범위 검사 없이 워커까지 가게 된다(WP-250).
+   */
+  private static Field<Integer> keepPageCountIfNull(Integer pageCount) {
+    return DSL.coalesce(DSL.val(pageCount, FILE_EXTRACTION.PAGE_COUNT), FILE_EXTRACTION.PAGE_COUNT);
   }
 
   /**
