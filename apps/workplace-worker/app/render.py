@@ -4,11 +4,13 @@
 결과는 PNG(투명도·도면) 또는 JPEG(사진)이며, PNG 가 PNG_MAX_BYTES(1MB) 를 넘으면 JPEG 로 다시 인코딩한다.
 """
 import io
+import math
+import threading
 from dataclasses import dataclass
 
 import fitz
 import pillow_heif
-from PIL import Image, ImageOps
+from PIL import Image
 
 # 이전 이미지가 매 턴 다시 실리므로 작게 — 넘으면 JPEG 로 줄인다(요청 크기 상한 대비).
 PNG_MAX_BYTES = 1_000_000
@@ -20,6 +22,9 @@ MAX_IMAGE_PIXELS = 100_000_000
 Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
 # HEIC/HEIF 를 Pillow 가 열 수 있게 모듈 로드 시 한 번만 등록한다.
 pillow_heif.register_heif_opener()
+# PyMuPDF(MuPDF)는 스레드 안전하지 않다 — /render 는 동기 라우트라 스레드풀에서 동시에 돈다. AI 가 여러 쪽을 한꺼번에 요청하면(pageBlocks 병렬)
+# 같은 순간 여러 렌더가 겹치므로 페이지 그리기를 한 번에 하나씩 한다(쪽당 수십~수백 ms 라 직렬화 비용이 작다).
+_PDF_LOCK = threading.Lock()
 
 
 @dataclass
@@ -40,6 +45,12 @@ class RenderError(Exception):
 
 def render_pdf_page(data: bytes, page: int, max_edge: int) -> Rendered:
     """PDF 의 page(1부터) 를 긴 변 max_edge 로 그린다. 깨진 페이지는 UNREADABLE(422)."""
+    with _PDF_LOCK:
+        return _render_pdf_page(data, page, max_edge)
+
+
+def _render_pdf_page(data: bytes, page: int, max_edge: int) -> Rendered:
+    """render_pdf_page 의 본체 — 잠금 안에서만 부른다."""
     try:
         doc = fitz.open(stream=data, filetype="pdf")
     except Exception as e:  # noqa: BLE001 — 깨진 PDF
@@ -62,14 +73,22 @@ def render_pdf_page(data: bytes, page: int, max_edge: int) -> Rendered:
             raise RenderError(422, {"code": "UNREADABLE"}) from e
 
 
-def _open_image(data: bytes) -> Image.Image:
-    """바이트를 열어 첫 프레임까지 로드한다. 깨진 파일·폭탄 이미지는 UNREADABLE(422)."""
+def _open_image(data: bytes, max_edge: int | None = None) -> Image.Image:
+    """바이트를 열어 첫 프레임까지 로드한다. 깨진 파일·폭탄 이미지는 UNREADABLE(422).
+
+    JPEG 는 max_edge 를 주면 load 전에 draft 로 디코더가 1/2·1/4·1/8 로 줄여 읽게 한다 — 큰 사진을 전체 해상도로 풀지 않아 메모리가 크게 준다.
+    draft 는 요청 크기보다 작아지지 않는 가장 작은 배율을 고르므로 이후 thumbnail 결과(긴 변 max_edge)는 그대로다.
+    """
     try:
         img = Image.open(io.BytesIO(data))
         # load 전에 픽셀 수를 직접 확인 — Pillow 는 한도 1~2배 구간에선 경고만 낸다.
         if img.width * img.height > MAX_IMAGE_PIXELS:
             raise RenderError(422, {"code": "UNREADABLE"})
         img.seek(0)  # 애니메이션은 첫 프레임
+        if max_edge and img.format == "JPEG":
+            scale = max_edge / max(img.size)
+            if scale < 1:
+                img.draft(img.mode, (math.ceil(img.width * scale), math.ceil(img.height * scale)))
         img.load()
     except RenderError:
         raise
@@ -80,6 +99,19 @@ def _open_image(data: bytes) -> Image.Image:
 
 # 16비트(회색조) 모드 — convert("RGB") 가 255 로 잘라 전부 흰색이 되므로 8비트로 먼저 줄인다.
 _HIGH_DEPTH_MODES = ("I;16", "I;16B", "I;16L", "I;16N", "I")
+# 그대로 축소(thumbnail)해도 되는 모드 — 그 밖(P·1 은 최근접 보간으로 품질이 깨지고, CMYK·F 등은 최종 변환이 필요)은 필요한 변환을 먼저 한다.
+_RESIZABLE_MODES = ("RGB", "RGBA", "L", "LA")
+# EXIF Orientation → 같은 결과를 내는 변환(ImageOps.exif_transpose 와 같은 표). 축소한 뒤에 돌린다 — 긴 변 기준 정사각형 상자로 줄이므로
+# 돌리기 전·후 어느 쪽에서 줄여도 결과 크기가 같고, 전체 해상도 회전 사본을 만들지 않는다.
+_ORIENTATION_TRANSPOSE = {
+    2: Image.Transpose.FLIP_LEFT_RIGHT,
+    3: Image.Transpose.ROTATE_180,
+    4: Image.Transpose.FLIP_TOP_BOTTOM,
+    5: Image.Transpose.TRANSPOSE,
+    6: Image.Transpose.ROTATE_270,
+    7: Image.Transpose.TRANSVERSE,
+    8: Image.Transpose.ROTATE_90,
+}
 
 
 def _to_8bit(img: Image.Image) -> Image.Image:
@@ -90,15 +122,28 @@ def _to_8bit(img: Image.Image) -> Image.Image:
 
 
 def render_image(data: bytes, mime: str, max_edge: int) -> Rendered:
-    """이미지를 회전 반영·축소해 PNG(투명도 있음) 또는 JPEG 로 만든다. 손상 파일은 UNREADABLE(422)."""
+    """이미지를 회전 반영·축소해 PNG(투명도 있음) 또는 JPEG 로 만든다. 손상 파일은 UNREADABLE(422).
+
+    메모리: 전체 해상도에서 회전·모드 변환 사본을 만들지 않도록 가능한 한 먼저 줄인다 — JPEG 는 디코딩 단계에서(draft), 나머지는
+    축소할 수 있는 모드가 되자마자 thumbnail 한 뒤 회전·최종 모드 변환을 한다.
+    """
     if not mime.startswith("image/"):
         raise RenderError(415, {"code": "UNSUPPORTED"})
-    img = _open_image(data)
+    img = _open_image(data, max_edge)
     try:
-        img = _to_8bit(ImageOps.exif_transpose(img))
+        # 회전 정보는 모드 변환(point·convert) 전에 읽는다 — 변환 사본은 TIFF 태그 등 원본의 EXIF 를 잃을 수 있다.
+        orientation = img.getexif().get(0x0112, 1)
         has_alpha = img.mode in ("RGBA", "LA", "PA") or (img.mode == "P" and "transparency" in img.info)
-        img = img.convert("RGBA" if has_alpha else "RGB")
+        target = "RGBA" if has_alpha else "RGB"
+        img = _to_8bit(img)
+        if img.mode not in _RESIZABLE_MODES:
+            img = img.convert(target)
         img.thumbnail((max_edge, max_edge))
+        method = _ORIENTATION_TRANSPOSE.get(orientation)
+        if method is not None:
+            img = img.transpose(method)
+        if img.mode != target:
+            img = img.convert(target)
         buf = io.BytesIO()
         if has_alpha:
             img.save(buf, "PNG", optimize=True)

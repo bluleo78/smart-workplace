@@ -5,7 +5,7 @@ import fitz
 import pytest
 from PIL import Image
 
-from app.render import RenderError, render_image, render_pdf_page
+from app.render import RenderError, _open_image, render_image, render_pdf_page
 
 
 def _pdf(pages: int, size=(595, 842)) -> bytes:
@@ -158,7 +158,7 @@ def test_rgba_png_over_limit_falls_back_to_jpeg_on_white():
 
 def test_pa_mode_treated_as_alpha(monkeypatch):
     """PA(팔레트+알파)는 파일로 만들기 어려워 열기 단계를 대체해 알파 판정만 검증한다."""
-    monkeypatch.setattr("app.render._open_image", lambda data: Image.new("PA", (10, 10)))
+    monkeypatch.setattr("app.render._open_image", lambda data, max_edge=None: Image.new("PA", (10, 10)))
     out = render_image(b"", "image/png", max_edge=1568)
     assert out.mime == "image/png"
 
@@ -177,3 +177,66 @@ def test_decompression_bomb_is_unreadable():
     with pytest.raises(RenderError) as e:
         render_image(buf.getvalue(), "image/png", max_edge=1568)
     assert e.value.status == 422
+
+
+# --- 코드 리뷰: 메모리(전체 해상도 사본 줄이기) -----------------------------
+
+def _with_orientation(mode: str, size, fmt: str, orientation: int) -> bytes:
+    """좌상단만 흰 사각형인 이미지에 EXIF Orientation 을 붙여 저장한다 — 회전 방향까지 확인할 수 있게."""
+    img = Image.new(mode, size, "black")
+    img.paste("white", (0, 0, size[0] // 4, size[1] // 4))
+    exif = img.getexif()
+    exif[0x0112] = orientation
+    buf = io.BytesIO()
+    img.save(buf, fmt, exif=exif)
+    return buf.getvalue()
+
+
+def _expected_old_way(data: bytes, max_edge: int) -> Image.Image:
+    """바꾸기 전 방식(전체 해상도에서 회전한 뒤 축소)의 결과 — 새 방식과 크기·방향이 같아야 한다."""
+    from PIL import ImageOps
+    img = ImageOps.exif_transpose(Image.open(io.BytesIO(data))).convert("RGB")
+    img.thumbnail((max_edge, max_edge))
+    return img
+
+
+def test_jpeg_is_decoded_reduced_with_draft():
+    """큰 JPEG 는 디코딩 단계에서 줄여 읽는다(1/2 배율) — 목표 크기보다 작아지지는 않는다."""
+    img = _open_image(_img("RGB", size=(4000, 3000)), max_edge=1568)
+    assert img.size == (2000, 1500)
+    # max_edge 를 주지 않으면(다른 호출자) 전체 해상도 그대로.
+    assert _open_image(_img("RGB", size=(4000, 3000))).size == (4000, 3000)
+
+
+@pytest.mark.parametrize("orientation", [3, 6, 8])
+def test_large_rotated_jpeg_matches_rotate_then_shrink(orientation):
+    """축소 뒤에 돌려도(draft 포함) 전체 해상도에서 돌린 뒤 줄인 결과와 크기·방향이 같다."""
+    data = _with_orientation("RGB", (4000, 3000), "JPEG", orientation)
+    out = Image.open(io.BytesIO(render_image(data, "image/jpeg", max_edge=1568).data))
+    expected = _expected_old_way(data, 1568)
+    assert out.size == expected.size
+    # 흰 사각형이 같은 모서리에 있다(회전 방향 확인) — JPEG 손실을 감안해 밝기만 비교한다.
+    for xy in ((5, 5), (out.width - 5, 5), (5, out.height - 5), (out.width - 5, out.height - 5)):
+        assert (sum(out.getpixel(xy)) > 380) == (sum(expected.getpixel(xy)) > 380)
+
+
+def test_large_rotated_png_matches_rotate_then_shrink():
+    """JPEG 가 아닌 이미지는 축소할 수 있는 모드에서 먼저 thumbnail 한 뒤 돌린다 — 결과는 기존 방식과 같다."""
+    data = _with_orientation("RGB", (3000, 2000), "PNG", 6)
+    out = Image.open(io.BytesIO(render_image(data, "image/png", max_edge=1568).data))
+    expected = _expected_old_way(data, 1568)
+    assert out.size == expected.size == (1045, 1568)
+    assert sum(out.getpixel((out.width - 5, 5))) > 380  # 좌상단 흰 사각형이 90도 돌아 우상단으로
+
+
+def test_palette_with_transparency_shrinks_with_alpha():
+    """투명도 있는 팔레트(P) 이미지는 RGBA 로 먼저 바꾼 뒤 줄인다(최근접 보간으로 깨지지 않게) — 결과는 투명도를 지킨 PNG."""
+    img = Image.new("P", (3200, 1600), 0)
+    img.putpalette([0, 0, 0, 255, 0, 0] + [0] * 762)
+    img.paste(1, (1600, 0, 3200, 1600))
+    buf = io.BytesIO()
+    img.save(buf, "PNG", transparency=0)
+    out = render_image(buf.getvalue(), "image/png", max_edge=1568)
+    res = Image.open(io.BytesIO(out.data))
+    assert out.mime == "image/png" and res.size == (1568, 784) and res.mode == "RGBA"
+    assert res.getpixel((10, 10))[3] == 0 and res.getpixel((1500, 10))[:3] == (255, 0, 0)
