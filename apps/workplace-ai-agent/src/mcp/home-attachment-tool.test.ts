@@ -93,7 +93,7 @@ describe('read_chat_attachment', () => {
   ])('PDF %s → 이미지 입력이면 pages 안내를 덧붙인다', async (_n, x) => {
     const c = mockClient([att(8, 'application/pdf', x)]);
     expect(await tool(c).handler({ fileId: 8 })).toContain('pages:[n] 로 페이지 이미지를 볼 수 있습니다');
-    const noVision = buildReadChatAttachmentTool(c as unknown as WorkplaceApiClient, USER, SID, { input: false });
+    const noVision = buildReadChatAttachmentTool(c as unknown as WorkplaceApiClient, USER, SID, false);
     expect(await noVision.handler({ fileId: 8 })).not.toContain('pages');
   });
 
@@ -171,9 +171,9 @@ describe('read_chat_attachment', () => {
       expect(c.readHomeAttachmentText).not.toHaveBeenCalled();
     });
 
-    it('images.input false + SKIPPED SCANNED_PDF → 모델 전환 안내(pages 언급 없음)', async () => {
+    it('imageInput false + SKIPPED SCANNED_PDF → 모델 전환 안내(pages 언급 없음)', async () => {
       const c = mockClient([att(8, 'application/pdf', ex('SKIPPED', { reasonCode: 'SCANNED_PDF', pageCount: 5 }))]);
-      const t = buildReadChatAttachmentTool(c as unknown as WorkplaceApiClient, USER, SID, { input: false });
+      const t = buildReadChatAttachmentTool(c as unknown as WorkplaceApiClient, USER, SID, false);
       const out = (await t.handler({ fileId: 8 })) as string;
       expect(out).toContain('이미지를 볼 수 있는 모델');
       expect(out).not.toContain('pages');
@@ -187,10 +187,10 @@ describe('read_chat_attachment', () => {
       expect(JSON.parse((await tool(c).handler({ fileId: 8 })) as string).note).toBeUndefined();
     });
 
-    it('images.input false → 스키마·설명에 pages 없음, true 면 있다', () => {
+    it('imageInput false → 스키마·설명에 pages 없음, true 면 있다', () => {
       const c = mockClient([]);
-      const off = buildReadChatAttachmentTool(c as unknown as WorkplaceApiClient, USER, SID, { input: false });
-      const on = buildReadChatAttachmentTool(c as unknown as WorkplaceApiClient, USER, SID, { input: true });
+      const off = buildReadChatAttachmentTool(c as unknown as WorkplaceApiClient, USER, SID, false);
+      const on = buildReadChatAttachmentTool(c as unknown as WorkplaceApiClient, USER, SID, true);
       expect(Object.keys((off.inputSchema as z.ZodObject).shape)).not.toContain('pages');
       expect(off.description).not.toContain('pages');
       expect(Object.keys((on.inputSchema as z.ZodObject).shape)).toContain('pages');

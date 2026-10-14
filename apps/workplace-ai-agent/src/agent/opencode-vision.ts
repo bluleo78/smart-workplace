@@ -128,20 +128,6 @@ async function getModelsMeta(baseURL: string, apiKey: string | undefined): Promi
 /** 이미지 입력 지원 여부 — true=지원, false=미지원, undefined=알 수 없음(opencode 자체 판단에 맡김). */
 export type OpencodeVision = boolean | undefined;
 
-/**
- * opencode credential·모델의 이미지 입력 지원 여부. 예외를 던지지 않는다(조회 실패 = 알 수 없음).
- * providerID 를 주면 수동 설정의 'providerId/modelId' 키(웹·API 저장 형식)를 먼저 본다. /models 메타는 provider 가 접두 없는 id 로 주므로 modelID 로만 찾는다.
- */
-export async function resolveOpencodeVision(
-  payload: OpencodeProviderConfig,
-  modelID: string,
-  providerID?: string,
-): Promise<OpencodeVision> {
-  const manual = manualVision(payload, modelID, providerID);
-  if (manual !== undefined) return manual;
-  return (await modelMeta(payload, modelID))?.vision;
-}
-
 // credential 의 `/models` 에서 이 모델의 메타 — baseURL 이 없으면(models.dev 등록 provider) 조회하지 않는다. 조회 실패 = undefined.
 async function modelMeta(payload: OpencodeProviderConfig, modelID: string): Promise<ModelMeta | undefined> {
   const baseURL = payload.options?.baseURL;
@@ -152,13 +138,11 @@ async function modelMeta(payload: OpencodeProviderConfig, modelID: string): Prom
 }
 
 /**
- * 'providerId/modelId' 형식 모델 문자열로 판단. 모델 형식이 잘못되면 splitOpencodeModel 이 던진다.
- * providerID 는 payload.providerId 가 아니라 모델 문자열에서 뗀다 — 수동 설정 키가 그 모델 문자열 그대로 저장되므로, 첫 '/' 로 나눠 다시 붙이면
- * modelId 에 '/' 가 들어 있어도 저장 키와 정확히 같다.
+ * 'providerId/modelId' 형식 모델 문자열의 이미지 입력 지원 여부. 판단 규칙은 resolveOpencodeModelSettings 한 곳에만 둔다(수동 설정 → /models).
+ * 예외를 던지지 않는다(조회 실패 = 알 수 없음) — 다만 모델 형식이 잘못되면 splitOpencodeModel 이 던진다.
  */
-export function resolveOpencodeModelVision(payload: OpencodeProviderConfig, model: string): Promise<OpencodeVision> {
-  const { providerID, modelID } = splitOpencodeModel(model);
-  return resolveOpencodeVision(payload, modelID, providerID);
+export async function resolveOpencodeModelVision(payload: OpencodeProviderConfig, model: string): Promise<OpencodeVision> {
+  return (await resolveOpencodeModelSettings(payload, model)).vision;
 }
 
 /**

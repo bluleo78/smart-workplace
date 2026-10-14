@@ -557,10 +557,6 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     async readIssueAttachmentText(issueKey, fileId, range) {
       return (await http.get(`${issue(issueKey)}/attachments/${fileId}/text`, rangeParams(range))).data;
     },
-    async listIssueAttachments(issueKey) {
-      const data = (await http.get(`${issue(issueKey)}/attachments`)).data;
-      return Array.isArray(data) ? data : [];
-    },
     async readDriveFileText(driveFileId, range) {
       return (await http.get(`/drive/files/${driveFileId}/text`, rangeParams(range))).data;
     },

@@ -127,7 +127,7 @@ describe('adaptMcpTool onTool emit (#462 슬라이스4)', () => {
 
 describe('buildInProcessWorkplaceMcpServer', () => {
   // WP-250: Claude 경로는 늘 이미지를 볼 수 있어 9번째 인자로 이미지 입력을 연다.
-  const IMAGES = { input: true };
+  const IMAGES = true;
 
   it('컨텍스트를 buildTools 로 전달하고 server 명 workplace 로 createSdkMcpServer 호출', () => {
     const client = {} as WorkplaceApiClient;

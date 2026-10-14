@@ -6,12 +6,11 @@
 // 범위·기본 길이는 공유 read_file 과 같은 정의를 쓴다(WP-346, attachment-read.ts). 이미지는 형식·크기를 따지지 않고 늘 서버 변환본이다(WP-250).
 // 세션 첨부는 이슈·드라이브 파일이 아니라 세션에 묶인 파일이라 공유 도구로 읽을 수 없다 — 그래서 이 도구만 ai-agent 전용으로 남는다.
 // opencode 비전 미지원 모델이면 stdio-entry 가 이미지 블록을 안내 문구로 바꾼다(WP-241).
-// WP-250: 모델이 이미지를 볼 수 있으면(images.input) PDF 는 pages:[n] 으로 쪽 이미지를 보고(그림·도표·스캔 PDF), 이미지는
+// WP-250: 모델이 이미지를 볼 수 있으면(imageInput) PDF 는 pages:[n] 으로 쪽 이미지를 보고(그림·도표·스캔 PDF), 이미지는
 // 원본이 아니라 늘 서버 변환본(긴 변 1568px 이하)으로 돌려준다(HEIC·큰 이미지도 같은 길).
 import {
   baseMimeType,
   canViewPages,
-  type ImageOptions,
   imageViewBlocks,
   PAGES_DESCRIPTION,
   pageBlocks,
@@ -60,18 +59,18 @@ export function buildReadChatAttachmentTool(
   client: WorkplaceApiClient,
   onBehalfOfId: number,
   homeSessionId?: string,
-  // WP-250: 모델이 이미지를 볼 수 있는지(기본 true). buildTools 의 images 와 같은 값이다.
-  images: ImageOptions = { input: true },
+  // WP-250: 모델이 이미지를 볼 수 있는지(기본 true). buildTools 의 imageInput 과 같은 값이다.
+  imageInput = true,
 ): McpTool {
   // WP-250: pages(PDF 쪽 이미지)는 이미지를 볼 수 있는 모델에만 싣는다 — 못 쓰는 인자를 스키마에 두지 않는다.
-  const input = withPages(baseInput, images.input);
+  const input = withPages(baseInput, imageInput);
   return {
     name: 'read_chat_attachment',
     description:
       '이 대화에 첨부된 파일을 읽습니다. 프롬프트 "## 이 대화의 첨부" 목록의 fileId 로 호출하세요. ' +
       `문서는 추출 텍스트를 구간 단위로 돌려줍니다(limit 생략 시 ${READ_ATTACHMENT_DEFAULT_LIMIT}자, 최대 32000 — 결과의 nextOffset 이 있으면 offset 으로 넘겨 이어 읽기). ` +
       '이미지는 이미지 그대로 돌려줍니다. 추출 중·읽을 수 없는 파일은 상태와 사유만 옵니다.' +
-      (images.input ? ` ${PAGES_DESCRIPTION}` : ''),
+      (imageInput ? ` ${PAGES_DESCRIPTION}` : ''),
     inputSchema: input,
     async handler(args) {
       const p = input.parse(args) as z.infer<typeof baseInput> & { pages?: number[] | null };
@@ -100,10 +99,10 @@ export function buildReadChatAttachmentTool(
           client.viewHomeAttachment(onBehalfOfId, homeSessionId, a.fileId),
         );
       }
-      if (a.extraction.status !== 'READY') return nonReadyNotice(a, images.input);
+      if (a.extraction.status !== 'READY') return nonReadyNotice(a, imageInput);
       const { offset, limit } = resolveRange(p);
       const slice = await client.readHomeAttachmentText(onBehalfOfId, homeSessionId, a.fileId, offset, limit);
-      const note = pdfNote(slice, images.input);
+      const note = pdfNote(slice, imageInput);
       return JSON.stringify(note ? { ...slice, note } : slice);
     },
   };

@@ -37,7 +37,6 @@ const PNG_BLOCK = { type: 'image', data: Buffer.from(PNG).toString('base64'), mi
 function mockClient(): AttachmentToolClient {
   return {
     readIssueAttachmentText: vi.fn().mockResolvedValue(READY),
-    listIssueAttachments: vi.fn().mockResolvedValue([]),
     readDriveFileText: vi.fn().mockResolvedValue(READY),
     readWikiAttachmentText: vi.fn().mockResolvedValue(READY),
     readMessageAttachmentText: vi.fn().mockResolvedValue(READY),
@@ -50,8 +49,8 @@ function mockClient(): AttachmentToolClient {
   };
 }
 
-const readAttachment = (c: AttachmentToolClient, opts?: Parameters<typeof buildAttachmentTools>[1]) =>
-  buildAttachmentTools(c, opts).find((t) => t.name === 'read_file')!;
+const readAttachment = (c: AttachmentToolClient, imageInput?: boolean) =>
+  buildAttachmentTools(c, imageInput).find((t) => t.name === 'read_file')!;
 
 describe('read_file 입력 스키마', () => {
   // 서버 레이어가 inputSchema.shape 를 registerTool 에 넘기므로 superRefine 뒤에도 z.object 여야 한다.
@@ -62,7 +61,7 @@ describe('read_file 입력 스키마', () => {
 
   // WP-250: 이미지를 볼 수 없는 모델에는 pages 를 아예 보여 주지 않는다(입력·설명 모두) — 못 쓰는 인자를 부르지 않게.
   it('imageInput:false 면 pages 입력과 설명 문장이 없다. 기본(true)은 있다', () => {
-    const off = readAttachment(mockClient(), { images: { input: false } });
+    const off = readAttachment(mockClient(), false);
     expect((off.inputSchema as z.ZodObject).shape).not.toHaveProperty('pages');
     expect(off.description).not.toContain('pages');
     const on = readAttachment(mockClient());
@@ -74,7 +73,7 @@ describe('read_file 입력 스키마', () => {
   it('설명은 큰 이미지·HEIC 변환과 pages 가 메일 첨부에는 없다고 밝힌다', () => {
     expect(readAttachment(mockClient()).description).toContain('large/HEIC converted; not mail');
     expect(readAttachment(mockClient()).description).toContain('PDF (not mail): pages:[n]');
-    expect(readAttachment(mockClient(), { images: { input: false } }).description).toContain('not mail');
+    expect(readAttachment(mockClient(), false).description).toContain('not mail');
   });
 
   it('JSON 스키마로 직렬화된다(MCP 클라이언트가 받는 형식) — 최상위 type object, source 만 필수', () => {
@@ -150,32 +149,22 @@ describe('read_file — 이슈 첨부', () => {
     vi.mocked(c.readIssueAttachmentText).mockResolvedValue(s);
     const out = await readAttachment(c).handler({ source: 'issue', issueKey: 'WP-1', attachmentId: 55 });
     expect(JSON.parse(resultText(out))).toEqual(issueView(s));
-    expect(c.listIssueAttachments).not.toHaveBeenCalled();
     expect(c.viewIssueAttachment).not.toHaveBeenCalled();
   });
 
   // WP-250: 보낼 수 있는 원본(작은 PNG·JPEG)이어도 서버가 줄인 변환본(/view)을 준다 — 원본 해상도 그대로면 한 요청에 이미지가 20장을 넘을 때
-  // Anthropic API 가 긴 변 2000px 초과 이미지를 거절한다. 목록은 라벨의 파일 이름을 얻으려고만 본다.
-  it('이미지(SKIPPED·IMAGE): 보낼 수 있는 원본이어도 변환본(/view)을 [설명, image] 블록으로 — 라벨은 목록의 파일 이름', async () => {
+  // Anthropic API 가 긴 변 2000px 초과 이미지를 거절한다. 
+  it('이미지(SKIPPED·IMAGE): 보낼 수 있는 원본이어도 변환본(/view)을 [설명, image] 블록으로 — 라벨은 식별자', async () => {
     const c = mockClient();
     vi.mocked(c.readIssueAttachmentText).mockResolvedValue(IMAGE_SKIP);
-    vi.mocked(c.listIssueAttachments).mockResolvedValue([{ fileId: 55, originalName: '화면.png', mimeType: 'image/png', sizeBytes: 4 }]);
     const out = (await readAttachment(c).handler({ source: 'issue', issueKey: 'WP-1', attachmentId: 55 })) as McpContent[];
     expect(c.viewIssueAttachment).toHaveBeenCalledWith('WP-1', 55, undefined);
-    expect(out).toEqual([{ type: 'text', text: '이슈 WP-1 첨부 이미지 "화면.png" (image/jpeg, 3B)' }, JPEG_BLOCK]);
-  });
-
-  it('목록에 없으면 attachmentId 를 라벨로 쓰고 같은 변환본을 준다', async () => {
-    const c = mockClient();
-    vi.mocked(c.readIssueAttachmentText).mockResolvedValue(IMAGE_SKIP);
-    const out = (await readAttachment(c).handler({ source: 'issue', issueKey: 'WP-1', attachmentId: 55 })) as McpContent[];
-    expect(out).toEqual([{ type: 'text', text: '이슈 WP-1 첨부 이미지 "attachmentId 55" (image/jpeg, 3B)' }, JPEG_BLOCK]);
+    expect(out).toEqual([{ type: 'text', text: '이슈 WP-1 첨부 이미지(attachmentId 55) (image/jpeg, 3B)' }, JPEG_BLOCK]);
   });
 
   it('변환이 실패하면(서버 사유) 던지지 않고 그 사유를 text 로', async () => {
     const c = mockClient();
     vi.mocked(c.readIssueAttachmentText).mockResolvedValue(IMAGE_SKIP);
-    vi.mocked(c.listIssueAttachments).mockResolvedValue([{ fileId: 55, originalName: 'a.heic', mimeType: 'image/heic', sizeBytes: 10 }]);
     vi.mocked(c.viewIssueAttachment).mockRejectedValue(new Error('페이지 이미지를 만들지 못했습니다. 잠시 후 다시 시도하세요.'));
     expect(await readAttachment(c).handler({ source: 'issue', issueKey: 'WP-1', attachmentId: 55 })).toContain('잠시 후 다시 시도하세요');
   });
@@ -441,7 +430,7 @@ describe('read_file — 페이지 이미지(pages, WP-250)', () => {
     vi.mocked(c.readIssueAttachmentText).mockResolvedValue(PDF_READY);
     const on = JSON.parse(resultText(await readAttachment(c).handler({ source: 'issue', issueKey: 'WP-1', attachmentId: 55 })));
     expect(on).toMatchObject({ pageCount: 6, note: '그림·도표·스캔 페이지는 pages 로 이미지를 볼 수 있습니다.' });
-    const off = JSON.parse(resultText(await readAttachment(c, { images: { input: false } }).handler({ source: 'issue', issueKey: 'WP-1', attachmentId: 55 })));
+    const off = JSON.parse(resultText(await readAttachment(c, false).handler({ source: 'issue', issueKey: 'WP-1', attachmentId: 55 })));
     expect(off.pageCount).toBe(6);
     expect(off).not.toHaveProperty('note');
   });
@@ -459,7 +448,7 @@ describe('read_file — 페이지 이미지(pages, WP-250)', () => {
     vi.mocked(c.readDriveFileText).mockResolvedValue(SCANNED);
     const on = JSON.parse(resultText(await readAttachment(c).handler({ source: 'drive', driveFileId: 9 })));
     expect(on.note).toBe('글자가 없는 스캔 PDF(4쪽)입니다. pages 로 페이지 이미지를 읽으세요.');
-    const off = JSON.parse(resultText(await readAttachment(c, { images: { input: false } }).handler({ source: 'drive', driveFileId: 9 })));
+    const off = JSON.parse(resultText(await readAttachment(c, false).handler({ source: 'drive', driveFileId: 9 })));
     // 못 본다고 단정하지 않고(자동 감지 실패일 수 있다) 연결 설정의 '이미지 입력' 지정을 함께 안내한다. pages 는 이 모델에 없는 인자라 말하지 않는다.
     expect(off.note).toBe(
       "글자가 없는 스캔 PDF(4쪽)라 글자로는 읽을 수 없고, 지금 설정으로는 페이지 이미지를 볼 수 없습니다. " +

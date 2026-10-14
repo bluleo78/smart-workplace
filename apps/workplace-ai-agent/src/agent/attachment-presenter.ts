@@ -15,7 +15,7 @@ type RunnerKind = ProviderCredential['provider'];
 
 /**
  * 첨부를 읽는 쪽(러너+모델)의 능력. imageVision 은 모델이 이미지를 볼 수 있는지 —
- * Claude 는 항상 true, opencode 는 resolveOpencodeVision 이 true 로 판단한 경우만(알 수 없음은 false 로 본다).
+ * Claude 는 항상 true, opencode 는 resolveOpencodeModelVision 이 true 로 판단한 경우만(알 수 없음은 false 로 본다).
  */
 export interface AttachmentReader {
   runner: RunnerKind;

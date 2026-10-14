@@ -34,14 +34,6 @@ function viewErrorText(e: unknown): string {
 export const pagesShape = { pages: nullAsOmitted(z.array(z.number().int().min(1)).min(1).max(MAX_PAGES_PER_CALL)) };
 
 /**
- * 이미지 입력 옵션 — input 은 모델이 이미지를 볼 수 있는지.
- * read_file(공유)과 ai-agent 첨부 도구가 같은 모양으로 받는다.
- */
-export interface ImageOptions {
-  input: boolean;
-}
-
-/**
  * 첨부 읽기 입력 스키마에 pages 를 더한다 — 이미지를 볼 수 있는 모델(imageInput)에만. 못 쓰는 인자를 스키마·정의에 두지 않기 위해서다.
  * 뺀 판도 타입은 pages 를 선택 필드로 갖게 해(값은 늘 없다) 핸들러가 한 모양으로 다룬다.
  */

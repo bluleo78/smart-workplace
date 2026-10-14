@@ -22,23 +22,19 @@ export {
   SENDABLE_IMAGE_MIMES,
   IMAGE_MAX_BYTES,
   baseMimeType,
-  FileTooLargeError,
-  imageRejectReasons,
   isSendableImage,
   toBase64,
 } from './attachment-read.js';
 // WP-250: 모델 입력용 이미지(/view) — ai-agent 가 자기 첨부 도구에서 같은 헬퍼를 쓴다.
 export {
   canViewPages,
-  type ImageOptions,
   MAX_PAGES_PER_CALL,
   PAGES_DESCRIPTION,
   imageViewBlocks,
   pageBlocks,
-  viewBlocks,
   withPages,
 } from './attachment-view.js';
-export { isImageSkip, pdfNote, type AttachmentToolOptions } from './attachment-tools.js';
+export { isImageSkip, pdfNote } from './attachment-tools.js';
 export type * from './tool-client.js';
 export {
   listConflicts,

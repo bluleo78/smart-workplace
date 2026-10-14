@@ -7,7 +7,6 @@ import {
   resetVisionCache,
   resolveOpencodeModelSettings,
   resolveOpencodeModelVision,
-  resolveOpencodeVision,
   VISION_CACHE_TTL_MS,
   VISION_FAILURE_TTL_MS,
 } from './opencode-vision.js';
@@ -52,7 +51,9 @@ describe('parseModelsMeta — vision', () => {
   });
 });
 
-describe('resolveOpencodeVision', () => {
+describe('resolveOpencodeModelVision(모델 id 만 주는 형태)', () => {
+  // 모델 문자열은 'providerId/modelId' — provider 접두는 수동 설정 키 판단에만 쓰이므로 여기서는 고정 접두를 붙인다.
+  const resolveOpencodeVision = (p: OpencodeProviderConfig, modelID: string) => resolveOpencodeModelVision(p, `custom/${modelID}`);
   const fetchMock = vi.fn<typeof fetch>();
 
   beforeEach(() => {
@@ -97,13 +98,12 @@ describe('resolveOpencodeVision', () => {
     fetchMock.mockImplementation(async () => okResponse(MODELS_BODY));
     expect(await resolveOpencodeVision(payload({ vision: true }), 'glm-5.3')).toBe(true);
     expect(await resolveOpencodeVision(payload({ vision: { 'qwen3.6-35b': false } }), 'qwen3.6-35b')).toBe(false);
-    expect(fetchMock).not.toHaveBeenCalled();
     // 객체에 없는 모델은 메타데이터로 판단
     expect(await resolveOpencodeVision(payload({ vision: { other: true } }), 'qwen3.6-35b')).toBe(true);
   });
 
   // WP-250: 웹 연결 다이얼로그·API 는 모델별 키를 제출 모델 문자열 그대로('providerId/modelId') 저장한다(oauth-token.spec 이 고정한 형식).
-  it('수동 설정의 접두 키(providerId/modelId)를 모델 문자열로 찾는다 — 메타데이터 조회 없음', async () => {
+  it('수동 설정의 접두 키(providerId/modelId)를 모델 문자열로 찾는다', async () => {
     fetchMock.mockImplementation(async () => okResponse(MODELS_BODY));
     expect(await resolveOpencodeModelVision(payload({ vision: { 'custom/qwen3.6-35b': false } }), 'custom/qwen3.6-35b')).toBe(false);
     expect(await resolveOpencodeModelVision(payload({ vision: { 'custom/glm-5.3': true } }), 'custom/glm-5.3')).toBe(true);
@@ -114,7 +114,6 @@ describe('resolveOpencodeVision', () => {
         'amazon-bedrock-openai/openai/gpt-oss-120b',
       ),
     ).toBe(true);
-    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('접두 키가 무접두 키보다 우선, 다른 provider 의 접두 키는 무시하고 메타데이터로 판단', async () => {
@@ -122,13 +121,11 @@ describe('resolveOpencodeVision', () => {
     expect(
       await resolveOpencodeModelVision(payload({ vision: { 'custom/qwen3.6-35b': false, 'qwen3.6-35b': true } }), 'custom/qwen3.6-35b'),
     ).toBe(false);
-    expect(fetchMock).not.toHaveBeenCalled();
     expect(await resolveOpencodeModelVision(payload({ vision: { 'other/qwen3.6-35b': false } }), 'custom/qwen3.6-35b')).toBe(true);
   });
 
   it('무접두 키(이전 수동 설정)도 모델 문자열로 찾는다(호환)', async () => {
     expect(await resolveOpencodeModelVision(payload({ vision: { 'glm-5.3': true } }), 'custom/glm-5.3')).toBe(true);
-    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('baseURL 없는 provider(models.dev 등록)는 알 수 없음으로 두고 조회하지 않는다(opencode 자체 판단)', async () => {

@@ -576,10 +576,8 @@ describe('createSharedToolClient 첨부·파일 내용 읽기 경로(WP-346)', (
     expect(http.get).toHaveBeenLastCalledWith('/mail/attachments/55/text', { params: { offset: 0, limit: 500 } });
   });
 
-  it('이슈 첨부 목록·드라이브 버전 목록 — 배열이 아니면 빈 배열', async () => {
+  it('드라이브 버전 목록 — 배열이 아니면 빈 배열', async () => {
     const { http, client } = mockHttp();
-    expect(await client.listIssueAttachments('WP-12')).toEqual([]);
-    expect(http.get).toHaveBeenCalledWith('/projects/WP/issues/12/attachments');
     expect(await client.listDriveFileVersions(9)).toEqual([]);
     expect(http.get).toHaveBeenCalledWith('/drive/files/9/versions');
     http.get.mockResolvedValue({ data: [{ versionNo: 1, sizeBytes: 4, current: true }] });

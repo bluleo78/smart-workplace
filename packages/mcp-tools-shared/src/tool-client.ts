@@ -564,15 +564,6 @@ export interface FileBytes {
   pageCount?: number;
 }
 
-/** 이슈 첨부 목록 행(IssueAttachmentResponse) — 이미지 판정·안내에 쓰는 필드만 고정한다. */
-export interface IssueAttachmentRow {
-  fileId: number;
-  originalName: string;
-  mimeType: string;
-  sizeBytes: number;
-  [key: string]: unknown;
-}
-
 /** 드라이브 파일 버전 행(DriveFileVersionResponse) — 현재 버전 크기로 이미지 크기 상한을 내려받기 전에 확인한다. */
 export interface DriveFileVersionRow {
   versionNo: number;
@@ -596,8 +587,6 @@ export interface DriveBacklinkRow {
 export interface AttachmentToolClient {
   /** GET /projects/{key}/issues/{n}/attachments/{fileId}/text. */
   readIssueAttachmentText(issueKey: string, fileId: number, range: TextRange): Promise<ExtractedTextSlice>;
-  /** GET /projects/{key}/issues/{n}/attachments — 이미지 라벨의 파일 이름 확인용. */
-  listIssueAttachments(issueKey: string): Promise<IssueAttachmentRow[]>;
   /** GET /drive/files/{id}/text. */
   readDriveFileText(driveFileId: number, range: TextRange): Promise<ExtractedTextSlice>;
   /** GET /wiki/pages/{pageId}/attachments/{fileId}/text(WP-358) — 공간 VIEWER 이상, 비멤버는 404. */

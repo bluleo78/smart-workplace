@@ -217,7 +217,7 @@ async function main(): Promise<void> {
     hostBridge,
     config.chatThreadId,
     config.homeSessionId,
-    { input: config.imageInput },
+    config.imageInput,
   );
 
   // 서버명 'workplace' 고정 — mcp__workplace__* 네임스페이스 정합(sdk-mcp-server.ts 참고).

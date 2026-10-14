@@ -299,15 +299,13 @@ describe('/mcp', { timeout: ROUNDTRIP_TEST_TIMEOUT_MS }, () => {
         .get('/projects/WP/issues/12/attachments/3/text')
         .query({ limit: 12000 })
         .reply(200, { fileId: 3, status: 'SKIPPED', offset: 0, totalChars: null, truncated: null, nextOffset: null, text: null, reasonCode: 'IMAGE', reason: '이미지 파일은 글자를 추출하지 않습니다.' })
-        .get('/projects/WP/issues/12/attachments')
-        .reply(200, [{ fileId: 3, originalName: 'a.png', mimeType: 'image/png', sizeBytes: 4 }])
         .get('/projects/WP/issues/12/attachments/3/view')
         .reply(200, jpeg, { 'Content-Type': 'image/jpeg' });
       const client = await connect('swp_valid');
       const res = await client.callTool({ name: 'read_file', arguments: { source: 'issue', issueKey: 'WP-12', attachmentId: 3 } });
       expect(res.isError).toBeFalsy();
       expect(res.content).toEqual([
-        { type: 'text', text: '이슈 WP-12 첨부 이미지 "a.png" (image/jpeg, 3B)' },
+        { type: 'text', text: '이슈 WP-12 첨부 이미지(attachmentId 3) (image/jpeg, 3B)' },
         { type: 'image', data: jpeg.toString('base64'), mimeType: 'image/jpeg' },
       ]);
     });

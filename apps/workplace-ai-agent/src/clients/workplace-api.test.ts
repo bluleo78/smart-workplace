@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import nock from 'nock';
 
-import { FileTooLargeError, IMAGE_MAX_BYTES, parseIssueKey } from '@smart-workplace/mcp-tools-shared';
+import { IMAGE_MAX_BYTES, parseIssueKey } from '@smart-workplace/mcp-tools-shared';
 
 import { createWorkplaceApiClient } from './workplace-api.js';
 
@@ -379,7 +379,7 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
     nock(BASE)
       .get(`${PREFIX}/home/sessions/${SID}/attachments/8/view`)
       .reply(200, Buffer.alloc(IMAGE_MAX_BYTES + 1), { 'content-type': 'image/png' });
-    await expect(newClient().viewHomeAttachment(42, SID, 8)).rejects.toBeInstanceOf(FileTooLargeError);
+    await expect(newClient().viewHomeAttachment(42, SID, 8)).rejects.toMatchObject({ name: 'FileTooLargeError' });
   });
 
   // --- WP-55: 사용자 메모리(요청자 대행) ---

@@ -170,7 +170,6 @@ function sharedMock(): MockedShared {
     markAllNotificationsRead: vi.fn().mockResolvedValue(undefined),
     // 첨부·파일 내용 읽기(WP-346)
     readIssueAttachmentText: vi.fn().mockResolvedValue({ fileId: 1, status: 'NONE' }),
-    listIssueAttachments: vi.fn().mockResolvedValue([]),
     readDriveFileText: vi.fn().mockResolvedValue({ fileId: 1, status: 'NONE' }),
     listDriveFileVersions: vi.fn().mockResolvedValue([]),
     // WP-358: 노트·메시지·메일 첨부 읽기
@@ -488,17 +487,17 @@ describe('프로필 구성', () => {
 // ---------------------------------------------------------------------------
 describe('공유 도구 패리티 (#846)', () => {
   const bridge: HostBridge = { onProposal: () => {}, onSubmitResponse: () => {}, onUnassignResult: () => {} };
-  // images: 그 변형이 buildTools 에 넘긴 이미지 입력 옵션(WP-250) — 공유본도 같은 옵션으로 만들어 비교한다(미지정 = 공유 기본 true).
-  const variants: { label: string; images?: { input: boolean }; build: (c: TestClient) => ReturnType<typeof buildTools> }[] = [
+  // imageInput: 그 변형이 buildTools 에 넘긴 이미지 입력 옵션(WP-250) — 공유본도 같은 옵션으로 만들어 비교한다(미지정 = 공유 기본 true).
+  const variants: { label: string; imageInput?: boolean; build: (c: TestClient) => ReturnType<typeof buildTools> }[] = [
     ...(['issue', 'chat', 'home', 'messaging', 'assistant'] as McpProfile[]).map((p) => ({
       label: p,
       build: (c: TestClient) => buildTools(c, AGENT_ID, p),
     })),
     // WP-250: read_file 은 assistant 에만 있어 이미지 입력 두 경우를 assistant 로 확인한다.
     ...[true, false].map((input) => ({
-      label: `assistant+images.input=${input}`,
-      images: { input },
-      build: (c: TestClient) => buildTools(c, AGENT_ID, 'assistant', undefined, undefined, undefined, undefined, undefined, { input }),
+      label: `assistant+imageInput=${input}`,
+      imageInput: input,
+      build: (c: TestClient) => buildTools(c, AGENT_ID, 'assistant', undefined, undefined, undefined, undefined, undefined, input),
     })),
     { label: 'messaging+threadBinding', build: (c) => buildTools(c, AGENT_ID, 'messaging', { channelId: 9, parentMessageId: 1 }) },
     {
@@ -511,7 +510,7 @@ describe('공유 도구 패리티 (#846)', () => {
   for (const v of variants) {
     it(`${v.label}: 공유 도구와 같은 이름의 도구는 입력 스키마가 공유본과 같고, 모든 inputSchema 는 ZodObject 다`, () => {
       const c = client();
-      const shared = new Map(buildSharedTools(c.sc, { images: v.images }).map((t) => [t.name, t]));
+      const shared = new Map(buildSharedTools(c.sc, { imageInput: v.imageInput }).map((t) => [t.name, t]));
       const tools = v.build(c);
       // 같은 프로필 안에서 이름 중복이 있으면 SDK 가 하나를 조용히 덮는다.
       expect(new Set(tools.map((t) => t.name)).size).toBe(tools.length);
@@ -715,14 +714,14 @@ describe('read_file 프로필 (WP-346)', () => {
     expect(buildTools(client(), AGENT_ID, p).map((t) => t.name)).not.toContain('read_file');
   });
 
-  // WP-250: 이미지를 볼 수 없는 모델에는 페이지 보기 인자(pages)를 보이지 않는다 — 실행 쪽(images.input)이 고른다.
-  it('images.input false 면 read_file 스키마에 pages 가 없고, true(또는 미지정)면 있다', () => {
-    const props = (images?: { input: boolean }) => {
-      const t = find(buildTools(client(), AGENT_ID, 'assistant', undefined, undefined, undefined, undefined, undefined, images), 'read_file');
+  // WP-250: 이미지를 볼 수 없는 모델에는 페이지 보기 인자(pages)를 보이지 않는다 — 실행 쪽(imageInput)이 고른다.
+  it('imageInput false 면 read_file 스키마에 pages 가 없고, true(또는 미지정)면 있다', () => {
+    const props = (imageInput?: boolean) => {
+      const t = find(buildTools(client(), AGENT_ID, 'assistant', undefined, undefined, undefined, undefined, undefined, imageInput), 'read_file');
       return Object.keys((z.toJSONSchema(t.inputSchema) as { properties: Record<string, unknown> }).properties);
     };
-    expect(props({ input: false })).not.toContain('pages');
-    expect(props({ input: true })).toContain('pages');
+    expect(props(false)).not.toContain('pages');
+    expect(props(true)).toContain('pages');
     expect(props()).toContain('pages');
   });
 
@@ -817,8 +816,8 @@ describe('chat 도구', () => {
   // WP-250: 이슈 챗 첨부 — PDF pages·이미지(늘 변환본).
   describe('read_chat_thread_attachment pages·이미지', () => {
     const png = { data: Buffer.from('PNGDATA'), mimeType: 'image/png' };
-    const chatTool = (c: WorkplaceApiClient, images?: { input: boolean }, bound = 5) =>
-      find(buildTools(c, AGENT_ID, 'chat', undefined, undefined, undefined, bound, undefined, images), 'read_chat_thread_attachment');
+    const chatTool = (c: WorkplaceApiClient, imageInput?: boolean, bound = 5) =>
+      find(buildTools(c, AGENT_ID, 'chat', undefined, undefined, undefined, bound, undefined, imageInput), 'read_chat_thread_attachment');
     const meta = (fileId: number, mimeType: string, sizeBytes = 1000) => ({ fileId, originalName: `f${fileId}`, mimeType, sizeBytes });
 
     it('pages:[1] → viewChatAttachment(agentId, threadId, fileId, 1) 이미지 블록, 텍스트·목록 조회 없음', async () => {
@@ -849,17 +848,17 @@ describe('chat 도구', () => {
       ({ fileId, status: 'SKIPPED', offset: 0, totalChars: null, truncated: false, nextOffset: null, text: null, reasonCode: 'IMAGE', reason: '이미지', ...over }) as never;
 
     // 보낼 수 있는 원본(jpeg·png)이어도 변환본을 준다 — 원본 해상도 그대로면 한 요청에 이미지가 20장을 넘을 때 Anthropic API 가 긴 변 2000px 초과
-    // 이미지를 거절한다(변환본은 긴 변 1568px 이하). 메타는 이미지인지·라벨 이름을 알려고만 찾는다.
-    it('이슈 첨부 이미지(jpeg) → 글자 먼저 읽고 이미지로 건너뛴 뒤에만 메타를 찾아 변환본(/view), 원본은 받지 않는다', async () => {
+    // 이미지를 거절한다(변환본은 긴 변 1568px 이하). 메타는 추출 행이 없는 파일(NONE)이 이미지인지 알려고만 찾는다.
+    it('이슈 첨부 이미지(jpeg) → 글자 먼저 읽고 이미지로 건너뛰면 메타 조회 없이 변환본(/view), 원본은 받지 않는다', async () => {
       const c = client();
       vi.mocked(c.readChatAttachmentText).mockResolvedValue(imageSlice(7));
-      vi.mocked(c.listThreadIssueAttachments).mockResolvedValue([meta(7, 'image/jpeg') as never]);
       vi.mocked(c.viewChatAttachment).mockResolvedValue({ data: Buffer.from('JPG'), mimeType: 'image/jpeg' });
       const out = (await chatTool(c).handler({ threadId: 5, fileId: 7 })) as Array<{ type: string; mimeType?: string; text?: string }>;
       expect(c.readChatAttachmentText).toHaveBeenCalledTimes(1);
       expect(c.viewChatAttachment).toHaveBeenCalledWith(AGENT_ID, 5, 7);
       expect(c.downloadThreadIssueAttachment).not.toHaveBeenCalled();
-      expect(out[0].text).toContain('"f7"');
+      expect(c.listThreadIssueAttachments).not.toHaveBeenCalled();
+      expect(out[0].text).toContain('fileId 7');
       expect(out[1]).toMatchObject({ type: 'image', mimeType: 'image/jpeg' });
     });
 
@@ -947,20 +946,20 @@ describe('chat 도구', () => {
       expect(c.getChatMessages).not.toHaveBeenCalled();
     });
 
-    it('스캔 PDF(SKIPPED) → 스캔 안내 note, images.input false 면 모델 전환 안내', async () => {
+    it('스캔 PDF(SKIPPED) → 스캔 안내 note, imageInput false 면 모델 전환 안내', async () => {
       const slice = { fileId: 7, status: 'SKIPPED', offset: 0, totalChars: null, truncated: false, nextOffset: null, text: null, reasonCode: 'SCANNED_PDF', reason: '스캔', pageCount: 5 } as const;
       const c = client();
       vi.mocked(c.readChatAttachmentText).mockResolvedValue(slice);
       expect(JSON.parse((await chatTool(c).handler({ threadId: 5, fileId: 7 })) as string).note).toContain('스캔 PDF(5쪽)');
-      expect(JSON.parse((await chatTool(c, { input: false }).handler({ threadId: 5, fileId: 7 })) as string).note).toContain('이미지를 볼 수 있는 모델');
+      expect(JSON.parse((await chatTool(c, false).handler({ threadId: 5, fileId: 7 })) as string).note).toContain('이미지를 볼 수 있는 모델');
     });
 
-    it('images.input false 면 스키마·설명에 pages 없음, true(또는 미지정)면 있다', () => {
+    it('imageInput false 면 스키마·설명에 pages 없음, true(또는 미지정)면 있다', () => {
       const c = client();
       const keys = (t: ReturnType<typeof chatTool>) => Object.keys((z.toJSONSchema(t.inputSchema) as { properties: Record<string, unknown> }).properties);
-      expect(keys(chatTool(c, { input: false }))).not.toContain('pages');
-      expect(chatTool(c, { input: false }).description).not.toContain('pages');
-      expect(keys(chatTool(c, { input: true }))).toContain('pages');
+      expect(keys(chatTool(c, false))).not.toContain('pages');
+      expect(chatTool(c, false).description).not.toContain('pages');
+      expect(keys(chatTool(c, true))).toContain('pages');
       expect(chatTool(c).description).toContain('pages');
     });
   });

@@ -6,7 +6,7 @@
 import { z } from 'zod';
 
 import { readRangeShape, resolveRange } from './attachment-read.js';
-import { type ImageOptions, imageViewBlocks, MAX_PAGES_PER_CALL, originalImageBlocks, pageBlocks, withPages } from './attachment-view.js';
+import { imageViewBlocks, MAX_PAGES_PER_CALL, originalImageBlocks, pageBlocks, withPages } from './attachment-view.js';
 import type { McpToolResult } from './mcp-content.js';
 import type { SharedTool } from './mcp-tool.js';
 import { nullAsOmitted } from './tool-definitions.js';
@@ -61,11 +61,6 @@ export function readFileInputFor(imageInput: boolean) {
 /** 기본(이미지 입력 가능) 스키마 — 테스트·외부에서 스키마 모양을 볼 때 쓴다. */
 export const readFileInput = readFileInputFor(true);
 
-/** read_file 옵션(WP-250) — 이미지 입력(images.input, 기본 true). */
-export interface AttachmentToolOptions {
-  images?: ImageOptions;
-}
-
 /** 메일 첨부 + pages — 메일은 /view 가 없다(WP-388). 던지지 않고 텍스트 읽기로 돌아가게 안내한다. */
 const MAIL_PAGES_UNSUPPORTED = '메일 첨부는 아직 페이지 보기를 지원하지 않습니다. pages 없이 텍스트로 읽으세요.';
 
@@ -111,19 +106,16 @@ function noteField(...notes: (string | undefined)[]): { note?: string } {
   return text ? { note: text } : {};
 }
 
-/** 파일·첨부 읽기 도구(read_file). kind read — 상태를 바꾸지 않는다(외부 MCP 노출). */
-export function buildAttachmentTools(client: AttachmentToolClient, opts: AttachmentToolOptions = {}): SharedTool[] {
-  const imageInput = opts.images?.input ?? true;
+/**
+ * 파일·첨부 읽기 도구(read_file). kind read — 상태를 바꾸지 않는다(외부 MCP 노출).
+ * imageInput(WP-250): 모델이 이미지를 볼 수 있는지(기본 true) — false 면 pages 인자·안내를 뺀다.
+ */
+export function buildAttachmentTools(client: AttachmentToolClient, imageInput = true): SharedTool[] {
   const input = readFileInputFor(imageInput);
 
-  /**
-   * 이슈 첨부 이미지 — 변환본(/view). 목록은 라벨에 파일 이름을 싣느라 본다.
-   * 서버 첨부 행의 fileId 가 곧 attachmentId 다(이슈 첨부는 core file id 로 식별).
-   */
-  async function issueImage(issueKey: string, attachmentId: number): Promise<McpToolResult> {
-    const row = (await client.listIssueAttachments(issueKey)).find((a) => a.fileId === attachmentId);
-    const label = `이슈 ${issueKey} 첨부 이미지 ${JSON.stringify(row?.originalName ?? `attachmentId ${attachmentId}`)}`;
-    return imageViewBlocks(label, () => client.viewIssueAttachment(issueKey, attachmentId, undefined));
+  /** 이슈 첨부 이미지 — 변환본(/view). 라벨은 다른 source 처럼 식별자만 싣는다(목록 조회 없음). */
+  function issueImage(issueKey: string, attachmentId: number): Promise<McpToolResult> {
+    return imageViewBlocks(`이슈 ${issueKey} 첨부 이미지(attachmentId ${attachmentId})`, () => client.viewIssueAttachment(issueKey, attachmentId, undefined));
   }
 
   /** pages 요청 — source 별 /view 로 쪽 이미지를 받는다. 메일은 아직 없어 안내 문구(WP-388). superRefine 이 식별자를 확인했다. */
