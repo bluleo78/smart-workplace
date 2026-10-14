@@ -1,4 +1,5 @@
 // 채팅 화면 컨텍스트 builder(WP-54). DM 도 channelId(list_channel_messages 인자). 스레드는 루트 메시지 id(list_thread_replies 인자).
+// WP-379: app 은 홈 채팅 메모리 범위 선택용(서버로 보내는 screenContext 에선 빠진다).
 import type { AiScreenContext } from '@/types/aiScreenContext';
 
 import { buildFacts, buildRefs, clip, LIMITS, withListState } from '../common';
@@ -13,6 +14,7 @@ export function buildChannelContext(input: {
 }): AiScreenContext {
   const ctx: AiScreenContext = {
     view: '채널',
+    app: 'MESSAGING',
     scope: {
       label: clip(`채널 #${input.name}`, LIMITS.label),
       refs: buildRefs({ channelId: input.channelId }),
@@ -36,11 +38,12 @@ export function buildChannelContext(input: {
 export function buildDmContext(input: { channelId: number; participantNames: string[] }): AiScreenContext {
   return {
     view: 'DM',
+    app: 'MESSAGING',
     scope: { label: clip(`DM · ${input.participantNames.join(', ')}`, LIMITS.label), refs: buildRefs({ channelId: input.channelId }) },
   };
 }
 
 /** 스레드 모아보기 — 로드된 스레드 수(count)와 추가 페이지 여부. */
 export function buildThreadsInboxContext(input: { count: number; hasMore: boolean }): AiScreenContext {
-  return { view: '스레드 모아보기', scope: withListState({ label: '내 스레드 모아보기' }, input) };
+  return { view: '스레드 모아보기', app: 'MESSAGING', scope: withListState({ label: '내 스레드 모아보기' }, input) };
 }

@@ -7,11 +7,29 @@ import { z } from 'zod';
 export const memoryKindSchema = z.enum(['PREFERENCE', 'CONTEXT']);
 export type MemoryKind = z.infer<typeof memoryKindSchema>;
 
-/** API ChatMemory 계약(id·kind·content). 길이는 API 가 코드포인트 기준으로 이미 검증한다(여기서 UTF-16 상한을 두면 이모지 300자가 거절된다). */
+/** 메모리 범위(API AiMemoryScope.APPS) — 없으면 공통. 블록 줄·도구 입력·요청 app 이 이 정의 하나를 쓴다(WP-379). */
+export const memoryScopeSchema = z.enum(['ISSUE', 'WIKI', 'MAIL', 'DRIVE', 'MESSAGING', 'CALENDAR']);
+export type MemoryScope = z.infer<typeof memoryScopeSchema>;
+
+/** 범위 → 블록·안내에 쓰는 한국어 앱 이름(웹 설정 화면의 이름과 같다). */
+export const MEMORY_SCOPE_LABEL: Record<MemoryScope, string> = {
+  ISSUE: '이슈',
+  WIKI: '노트',
+  MAIL: '메일',
+  DRIVE: '드라이브',
+  MESSAGING: '메신저',
+  CALENDAR: '캘린더',
+};
+
+/**
+ * API ChatMemory 계약(id·kind·content·scope?). 길이는 API 가 코드포인트 기준으로 이미 검증한다(여기서 UTF-16 상한을 두면 이모지 300자가 거절된다).
+ * scope 는 앱 범위일 때만 온다(공통·구 API 는 없음). 모르는 범위면 항목을 버린다 — 공통으로 잘못 보이게 싣지 않는다.
+ */
 export const memoryItemSchema = z.object({
   id: z.number().int().positive(),
   kind: memoryKindSchema,
   content: z.string().min(1),
+  scope: memoryScopeSchema.nullish(),
 });
 export type MemoryItem = z.infer<typeof memoryItemSchema>;
 
@@ -28,16 +46,36 @@ function oneLine(s: string): string {
   return s.replace(/\s+/g, ' ').trim();
 }
 
+/** WP-379: 범위 줄의 뜻 — 홈 채팅 블록의 안내 줄 앞부분. */
+export const MEMORY_SCOPE_NOTE = '범위가 붙은 줄(예: [#3 선호·이슈])은 그 앱 화면에서만 쓰는 선호·맥락이다.';
+
+/** 홈 채팅 블록의 "지금 화면" 안내 — 범위 줄이 왜 이 앱 것만 실렸는지 모델이 알게 한다. */
+function currentAppLine(app: MemoryScope | null | undefined): string {
+  return app ? `지금 화면: ${MEMORY_SCOPE_LABEL[app]}` : '지금 화면: 앱 없음(공통 메모리만 실렸다)';
+}
+
+/** 블록의 메모리 한 줄 — `- [#12 선호·이슈] 내용`(공통은 `- [#9 맥락] 내용`). 홈 채팅·읽기 전용 블록이 같은 형식을 쓴다. */
+export function memoryLine(m: MemoryItem): string {
+  const scope = m.scope ? `·${MEMORY_SCOPE_LABEL[m.scope]}` : '';
+  return `- [#${m.id} ${KIND_LABEL[m.kind]}${scope}] ${oneLine(m.content)}`;
+}
+
 /**
  * 사용자 메시지 맨 앞에 붙일 메모리 블록. `#` 뒤 숫자가 update_memory·forget_memory 의 memoryId 다.
  * - enabled !== true(false·null·undefined) → MEMORY_OFF_LINE
  * - 켜짐 + 0개 → ''(블록 없음 — 저장 규칙은 시스템 프롬프트에 있다)
+ * - 켜짐 + N개 → 헤더 · 안내 · 범위 뜻 + 지금 화면 · 줄들(API 가 고른 순서 그대로 — 공통 + 지금 앱, 최신순)
+ *
+ * @param ctx.app 지금 화면 앱(WP-379) — 없으면 "앱 없음" 으로 안내한다
  */
-export function formatMemoryBlock(memories: readonly MemoryItem[], enabled: boolean | null | undefined): string {
+export function formatMemoryBlock(
+  memories: readonly MemoryItem[],
+  enabled: boolean | null | undefined,
+  ctx: { app?: MemoryScope | null } = {},
+): string {
   if (enabled !== true) return MEMORY_OFF_LINE;
   if (memories.length === 0) return '';
-  const lines = memories.map((m) => `- [#${m.id} ${KIND_LABEL[m.kind]}] ${oneLine(m.content)}`);
-  return [MEMORY_BLOCK_HEADER, MEMORY_BLOCK_INTRO, ...lines].join('\n');
+  return [MEMORY_BLOCK_HEADER, MEMORY_BLOCK_INTRO, `${MEMORY_SCOPE_NOTE} ${currentAppLine(ctx.app)}`, ...memories.map(memoryLine)].join('\n');
 }
 
 /**

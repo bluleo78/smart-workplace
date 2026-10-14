@@ -8,6 +8,7 @@ import { useChatSessionContext } from '@/hooks/chat-session-context';
 import { useSessions } from '@/hooks/queries/useHomeQueries';
 import type { AiActivity } from '@/lib/ai/aiActivity';
 import { chatStreams, type SessionStatus } from '@/lib/ai/chatStreams';
+import type { AiMemoryScope } from '@/types/aiMemory';
 import type { AiScreenContext } from '@/types/aiScreenContext';
 import type { ChatTurn, HomeSessionSummary, ProposalCard, TurnAttachment } from '@/types/home';
 
@@ -22,7 +23,13 @@ export interface AssistantChat {
    * WP-54 화면 컨텍스트 포함 전송. WP-234: attachments — 이번 메시지 첨부.
    * false 면 서버가 받지 않았다(409·429·400 등) — 패널이 입력을 되돌리고 첨부 초안을 남긴다(WP-190·WP-234).
    */
-  onSubmit: (query: string, screenContext?: AiScreenContext, attachments?: TurnAttachment[]) => Promise<boolean>;
+  onSubmit: (
+    query: string,
+    screenContext?: AiScreenContext,
+    attachments?: TurnAttachment[],
+    /** WP-379: 지금 화면 앱(화면 참고를 뺐어도 보낸다). */
+    app?: AiMemoryScope | null,
+  ) => Promise<boolean>;
   /** WP-234: 실제 대화 전환(새 대화·대화 선택·현재 대화 삭제) 신호 — 증가 시 패널이 첨부 초안을 비운다. */
   attachmentResetNonce: number;
   /** #335: 현재 대화의 생성만 멈춘다(부분 응답 보존). */

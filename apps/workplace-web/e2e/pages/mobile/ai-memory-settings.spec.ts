@@ -52,3 +52,17 @@ test('내용이 행 폭 대부분을 쓰고 메타 날짜가 중간에서 끊기
   const meta = await stableBox(page.getByTestId('ai-memory-meta'))
   expect(edit.y + edit.height / 2, '아이콘 중심이 메타 줄 중앙').toBeCloseTo(meta.y + meta.height / 2, 0)
 })
+
+// WP-379: 범위 묶음 소제목·카운트와 범위 고르기가 좁은 화면에서 넘치지 않고 터치 크기다.
+test('범위 묶음과 범위 고르기가 넘치지 않고 터치 크기다', async ({ authenticatedPage: page }) => {
+  await mockAiMemories(page, [
+    memoryItem(3, { content: '메신저 대화 요약은 세 줄로 정리해 보여 준다', scope: 'MESSAGING' }),
+    memoryItem(2, { content: '답은 존댓말로 한다' }),
+  ])
+  await openMemorySettings(page)
+  await expect(page.getByTestId('ai-memory-group')).toHaveCount(2)
+  await expectNoHorizontalOverflow(page)
+  await page.getByTestId('ai-memory-edit').first().click()
+  expect(Math.round((await stableBox(page.getByTestId('ai-memory-edit-scope'))).height)).toBeGreaterThanOrEqual(44)
+  await expectNoHorizontalOverflow(page)
+})

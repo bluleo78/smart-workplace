@@ -9,7 +9,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 
 import { homeChatAttachmentSchema } from '../agent/home-attachments.js';
-import { memoryItemSchema } from '../agent/memory-block.js';
+import { memoryItemSchema, memoryScopeSchema } from '../agent/memory-block.js';
 import { type RunAgentDeps } from '../agent/run-agent.js';
 import { runAiChatStream } from '../agent/run-ai-chat.js';
 import { homeContextSummaryInput, runHomeContextSummary } from '../agent/run-home-context-summary.js';
@@ -81,6 +81,8 @@ export const chatSchema = z
       }),
     // WP-55: 메모리 사용 여부. 구 API(필드 없음)는 null/undefined → 러너가 꺼짐으로 다룬다(메모리 엔드포인트가 없을 수 있다).
     memoryEnabled: z.boolean().nullish(),
+    // WP-379: 지금 화면 앱 — 블록의 "지금 화면" 안내용(주입 필터는 API 가 이미 했다). 구 API 는 생략, 모르는 값은 null 로 받아 채팅을 막지 않는다.
+    app: memoryScopeSchema.nullish().catch(null),
   })
   .refine((d) => d.query.length > 0 || d.attachments.some((a) => a.current), {
     message: 'query 가 비어 있으면 이번 메시지 첨부가 있어야 합니다',

@@ -1,7 +1,7 @@
 // 챗 세션 어댑터(WP-190) — 대화별 스트림 저장소(chatStreams)의 "현재 대화" 칸을 읽고 쓰며, API 호출(시작·취소·복원·확인카드)을 맡는다.
 // AppLayout 레벨에서 1회 생성해 컨텍스트로 공유한다(side/fullscreen/모바일 시트가 같은 상태를 본다). 대화를 옮겨도 진행 중 생성은 끊지 않는다.
 import { useQueryClient } from '@tanstack/react-query';
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 
 import { homeApi } from '@/api/home';
@@ -24,7 +24,9 @@ import {
   sessionStatus,
 } from '@/lib/ai/chatStreams';
 import { FAILED_EMPTY, messageToTurn } from '@/lib/ai/chatTurns';
+import { screenContextPayload } from '@/lib/aiScreenContext/common';
 import { handleApiError } from '@/lib/api-error';
+import type { AiMemoryScope } from '@/types/aiMemory';
 import type { AiScreenContext } from '@/types/aiScreenContext';
 import type { ChatTurn, PendingAction, ProposalCard, TurnAttachment } from '@/types/home';
 
@@ -67,24 +69,35 @@ export function useChatSession() {
   // home.chat.* 는 저장소가 한 곳에서 구독한다(요청마다 붙였다 떼지 않음).
   useEffect(() => connectChatEvents(chatStreams), []);
 
+  // WP-379: 마지막 전송의 화면 앱 — 승인 실패 재요청(화면 참고 없이 보내는 내부 전송)도 같은 범위 메모리를 쓰게.
+  const lastAppRef = useRef<AiMemoryScope | null>(null);
+
   /**
    * 질문 전송. 낙관적으로 두 턴을 붙이고(correlationId 도 이때 정해 라우팅에 올린다, WP-267) POST 에 실어 보낸다.
    * WP-234: attachments — 이번 메시지 첨부(낙관적 사용자 턴에 미리보기와 함께 붙이고, fileIds 로 POST 본문에 싣는다).
+   * WP-379: app — 지금 화면 앱(화면 참고를 뺐어도 보낸다). 없으면 키 생략 → 공통 메모리만.
    * @returns 서버가 요청을 받아들였는지. false(409·429·400·네트워크 오류 등)면 패널이 입력·첨부 초안을 되돌린다(R17·WP-234).
    */
   const submitQuery = useCallback(
-    async (query: string, screenContext?: AiScreenContext, attachments?: TurnAttachment[]): Promise<boolean> => {
+    async (
+      query: string,
+      screenContext?: AiScreenContext,
+      attachments?: TurnAttachment[],
+      app?: AiMemoryScope | null,
+    ): Promise<boolean> => {
+      lastAppRef.current = app ?? null;
       const { key, gen, correlationId, userTurn } = chatStreams.startTurn(query, attachments);
       const sessionId = key.startsWith(DRAFT_PREFIX) ? null : key;
       const fileIds = attachments?.map((a) => a.fileId) ?? [];
       try {
-        // WP-54: screenContext 는 있을 때만 키를 싣는다. WP-234: fileIds 도 있을 때만(없는 요청은 기존 본문과 동일).
+        // WP-54: screenContext 는 있을 때만 키를 싣는다(app 은 빼고). WP-234: fileIds 도 있을 때만. WP-379: app 도 있을 때만.
         const { data } = await homeApi.startChat({
           sessionId,
           query,
           correlationId,
-          ...(screenContext ? { screenContext } : {}),
+          ...(screenContext ? { screenContext: screenContextPayload(screenContext) } : {}),
           ...(fileIds.length ? { fileIds } : {}),
+          ...(app ? { app } : {}),
         });
         // 응답 전에 ■ 를 눌렀다면 서버가 받은 지금 취소한다(그때는 서버가 몰라 취소를 보내지 않았다).
         const cancelNow = chatStreams.attach(correlationId, data.correlationId, data.sessionId);
@@ -175,7 +188,7 @@ export function useChatSession() {
   /** #843: 실패 카드 → AI 에게 사유를 반영해 다시 제안 요청(화면 컨텍스트 없이). */
   const requestProposalFix = useCallback(
     (card: ProposalCard) => {
-      void submitQuery(`「${card.summary}」 승인이 실패했어요. 실패 사유를 반영해서 다시 제안해 줘.`);
+      void submitQuery(`「${card.summary}」 승인이 실패했어요. 실패 사유를 반영해서 다시 제안해 줘.`, undefined, undefined, lastAppRef.current);
     },
     [submitQuery],
   );

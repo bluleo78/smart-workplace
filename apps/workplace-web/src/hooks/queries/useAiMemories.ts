@@ -6,14 +6,15 @@ import { toast } from 'sonner';
 import { clearAiMemories, createAiMemory, deleteAiMemory, listAiMemories, undoAiMemory, updateAiMemory } from '../../api/aiMemories';
 import { chatStreams } from '../../lib/ai/chatStreams';
 import {
+  extractApiErrorScope,
   MEMORY_SETTINGS_PATH,
   memoryErrorMessage,
+  memoryFullMessage,
   UNDO_CHANGED_MESSAGE,
-  UNDO_FULL_MESSAGE,
   UNDO_GONE_MESSAGE,
 } from '../../lib/aiMemory';
 import { extractApiErrorCode, handleApiError } from '../../lib/api-error';
-import type { AiMemoryItem, AiMemoryKind, UndoAiMemoryRequest } from '../../types/aiMemory';
+import type { AiMemoryItem, AiMemoryKind, AiMemoryScope, UndoAiMemoryRequest } from '../../types/aiMemory';
 import { useAuth } from '../useAuth';
 
 /** 가득 참 토스트 지속 시간(ms) — action(설정 열기)을 누를 여유. */
@@ -60,8 +61,8 @@ export function useUndoAiMemory() {
     onError: (e) => {
       const code = extractApiErrorCode(e);
       if (code === 'AI_MEMORY_FULL') {
-        // 설정으로 이동하는 action 토스트라 기본(약 4초)보다 오래 둔다 — 읽고 누를 시간을 준다.
-        toast.error(UNDO_FULL_MESSAGE, {
+        // 설정으로 이동하는 action 토스트라 기본(약 4초)보다 오래 둔다 — 읽고 누를 시간을 준다. 범위는 서버 409 errors.scope 기준.
+        toast.error(memoryFullMessage(extractApiErrorScope(e)), {
           duration: UNDO_FULL_TOAST_MS,
           action: { label: '설정 열기', onClick: () => navigate(MEMORY_SETTINGS_PATH) },
         });
@@ -96,18 +97,18 @@ export function useAiMemories() {
 export function useCreateAiMemory(failMessage = '메모리를 추가하지 못했어요') {
   const invalidate = useInvalidateMemories();
   return useMutation({
-    mutationFn: (body: { kind: AiMemoryKind; content: string }) => createAiMemory(body),
+    mutationFn: (body: { kind: AiMemoryKind; content: string; scope?: AiMemoryScope }) => createAiMemory(body),
     // 목록을 다시 읽을 때까지 pending 유지 — 폼이 닫히고 새 목록이 바로 보이게(옛 내용이 한 번 보이지 않게).
     onSuccess: () => invalidate(),
     onError: (e) => toast.error(memoryErrorMessage(e, failMessage)),
   });
 }
 
-/** 제자리 고치기. */
+/** 제자리 고치기 — scope 키는 범위를 바꿀 때만 싣는다(null = 공통으로). */
 export function useUpdateAiMemory() {
   const invalidate = useInvalidateMemories();
   return useMutation({
-    mutationFn: (v: { id: number; content: string }) => updateAiMemory(v.id, { content: v.content }),
+    mutationFn: ({ id, ...body }: { id: number; content: string; scope?: AiMemoryScope | null }) => updateAiMemory(id, body),
     // 목록을 다시 읽을 때까지 pending 유지 — 편집기가 닫힐 때 이미 새 내용·새 위치가 보인다.
     onSuccess: () => invalidate(),
     onError: (e) => toast.error(memoryErrorMessage(e, '메모리를 고치지 못했어요')),
@@ -115,7 +116,7 @@ export function useUpdateAiMemory() {
 }
 
 /**
- * 지우기 — 즉시 지우고 "메모리를 삭제했어요" + "되돌리기" 토스트. 되돌리기는 같은 kind·content 로 다시 만든다(직접 추가 경로라 USER, 판정 11).
+ * 지우기 — 즉시 지우고 "메모리를 삭제했어요" + "되돌리기" 토스트. 되돌리기는 같은 kind·content 로 다시 만든다(직접 추가 경로라 USER).
  */
 export function useDeleteAiMemory() {
   const invalidate = useInvalidateMemories();
@@ -124,7 +125,12 @@ export function useDeleteAiMemory() {
     mutationFn: (item: AiMemoryItem) => deleteAiMemory(item.id),
     onSuccess: (deleted) => {
       toast.success('메모리를 삭제했어요', {
-        action: { label: '되돌리기', onClick: () => restore.mutate({ kind: deleted.kind, content: deleted.content }) },
+        action: {
+          label: '되돌리기',
+          // 같은 범위로 다시 만든다(공통이면 키 생략).
+          onClick: () =>
+            restore.mutate({ kind: deleted.kind, content: deleted.content, ...(deleted.scope ? { scope: deleted.scope } : {}) }),
+        },
       });
       // 목록을 다시 읽을 때까지 pending 유지 — 지운 줄이 남아 삭제 버튼이 다시 켜져 두 번째 DELETE(404)가 나가지 않게.
       return invalidate();

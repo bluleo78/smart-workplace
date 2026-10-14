@@ -163,6 +163,9 @@ export function toMemoryBlock(m: MemoryEventDto): MemoryBlock {
     content: m.content,
     ...(m.previousContent !== undefined ? { previousContent: m.previousContent } : {}),
     ...(m.previousKind !== undefined ? { previousKind: m.previousKind } : {}),
+    // WP-379: 범위는 앱일 때만(null = 공통 → 키 없음) — 서버 블록(NON_NULL)과 같은 모양이라 이력 복원과 라이브가 같다.
+    ...(m.scope ? { scope: m.scope } : {}),
+    ...(m.previousScope ? { previousScope: m.previousScope } : {}),
     source: m.source ?? 'AI',
     undone: false,
   };

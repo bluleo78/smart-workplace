@@ -3,16 +3,20 @@
 // 긴 문구는 좁은 패널(≈380px)에서 넘치지 않게 강제 줄바꿈하고, 터치 기기에선 되돌리기의 위아래 터치 영역을 넓힌다.
 // 되돌리기는 평소에도 링크로 보이게(primary + 밑줄, 시안) 하고, " · 되돌리기"/" · 되돌림" 은 한 덩어리(nowrap)로 묶어 "·" 만 줄 끝에 남지 않게 한다.
 // 되돌리기 요청(뮤테이션)은 패널(AIChatPanel)이 하나를 두고 줄마다 넘긴다 — 줄 수만큼 관찰자를 만들지 않게.
+// WP-379: 앱 범위 결과는 "이슈 메모리에 저장함" 처럼 범위 이름을 붙인다.
+import { memoryNoun } from '@/lib/aiMemory';
 import { HIT_AREA_Y_COARSE } from '@/lib/hitArea';
 import { cn } from '@/lib/utils';
 import type { UndoAiMemoryRequest } from '@/types/aiMemory';
 import type { MemoryBlock } from '@/types/home';
 
-const PREFIX: Record<MemoryBlock['action'], string> = {
-  saved: '메모리에 저장함',
-  updated: '메모리를 고침',
-  forgotten: '메모리에서 지움',
-};
+/** 동작 문구 — 앱 범위면 "이슈 메모리에 저장함", 공통이면 WP-55 문구 그대로("메모리에 저장함"). */
+function prefixOf(block: MemoryBlock): string {
+  const noun = memoryNoun(block.scope);
+  if (block.action === 'saved') return `${noun}에 저장함`;
+  if (block.action === 'updated') return `${noun}를 고침`;
+  return `${noun}에서 지움`;
+}
 
 interface Props {
   block: MemoryBlock;
@@ -39,7 +43,7 @@ export function MemoryResultLine({ block, blockIndex, messageId, onUndo, pending
       <span aria-hidden className="shrink-0 leading-4">🧠</span>
       <span className="min-w-0 flex-1 leading-4 [overflow-wrap:anywhere]">
         <span className={cn(block.undone && 'line-through opacity-60')}>
-          {PREFIX[block.action]}: "{block.content}"
+          {prefixOf(block)}: "{block.content}"
         </span>
         {/* 구분점과 동작을 한 nowrap 덩어리로 — 좁은 줄에서 덩어리째 다음 줄로 내려가 "·" 가 줄 끝에 매달리지 않는다. */}
         <span className={cn('whitespace-nowrap', block.undone && 'opacity-60')}>

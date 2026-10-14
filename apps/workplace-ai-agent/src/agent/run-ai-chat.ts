@@ -20,7 +20,7 @@ import type { ProviderCredential } from './agent-runner.js';
 import type { HostBridge } from '../mcp/tools.js';
 import { formatScreenContext, type ScreenContext } from './screen-context.js';
 import { opencodeVisionFor } from './opencode-vision.js';
-import { formatMemoryBlock, type MemoryItem, subagentMemorySuffix } from './memory-block.js';
+import { formatMemoryBlock, type MemoryItem, type MemoryScope, subagentMemorySuffix } from './memory-block.js';
 import { FINALIZE_PROGRESS_LABEL, FINALIZE_TIMEOUT_MS, finalizeAfterLimit, ToolResultCollector } from './ai-chat-finalize.js';
 import { RunnerLimitError } from './runner-limit.js';
 import { awaitHomeExtraction, DEFAULT_ATTACHMENT_QUERY, EXTRACTION_WAIT_LABEL, formatHomeAttachmentsBlock, type HomeChatAttachment } from './home-attachments.js';
@@ -71,6 +71,8 @@ export interface ChatInput {
   // WP-55: 사용자 메모리(최신순 ≤50)와 사용 여부. memoryEnabled 가 없으면(구 API) 꺼짐으로 다룬다.
   memories?: MemoryItem[];
   memoryEnabled?: boolean | null;
+  // WP-379: 지금 화면 앱(없으면 공통만 실린 블록). 블록 안내 줄에만 쓴다.
+  app?: MemoryScope | null;
 }
 
 // #404: show_issue_detail 위젯에서 존재하지 않는 이슈 번호를 결정론적으로 차단한다.
@@ -258,7 +260,7 @@ export async function runAiChatStream(
   ]);
   const imageVision = credential.provider === 'anthropic' || opencodeVision?.value === true;
   // WP-55: 메모리 블록은 한 번만 만든다 — 사용자 메시지 맨 앞과 하위 에이전트 접미사(아래)가 같은 값을 쓴다.
-  const memoryBlock = formatMemoryBlock(input.memories ?? [], input.memoryEnabled);
+  const memoryBlock = formatMemoryBlock(input.memories ?? [], input.memoryEnabled, { app: input.app });
   const userMessage = buildChatUserMessage({ ...input, attachments }, imageVision, memoryBlock);
 
   const events: RunnerEvent[] = [];

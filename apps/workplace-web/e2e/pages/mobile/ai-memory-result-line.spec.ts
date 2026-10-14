@@ -1,5 +1,6 @@
 // WP-55 모바일 메모리 결과 줄 — 넘침 없음, 되돌리기 바로 아래 6px 를 탭해도 그 줄을 되돌린다(터치 확장), 줄 간격이 확장보다 넓어 이웃 줄을 가로채지 않는다.
 import { ask, setupLiveChat } from '../../fixtures/ai-live-chat'
+import { type HomeChatStartBody } from '../../fixtures/home-chat-mock'
 import { memoryError, memoryTool, mockMemoryUndo } from '../../fixtures/ai-memory-mock'
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture'
 import { stableBox } from '../../fixtures/wait'
@@ -85,4 +86,27 @@ test('되돌리기 실패 토스트가 AI 시트 위에 보이고 설정 열기�
   expect(topmostIsToast, '토스트가 AI 시트에 가려지지 않는다').toBe(true)
   await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2)
   await expect(page).toHaveURL(/\/settings\/assistant$/)
+})
+
+// WP-379: 모바일 채팅 목록 화면에서 보낸 질문은 app=MESSAGING, 범위 결과 줄이 좁은 화면에서 넘치지 않는다.
+test('채팅 목록에서 보낸 질문은 app 이 MESSAGING 이고 범위 결과 줄이 넘치지 않는다', async ({ authenticatedPage: page }) => {
+  await stubChat(page)
+  const live = await setupLiveChat(page)
+  live.queueStart({ correlationId: 'corr-a', sessionId: 's-a' })
+  await page.goto('/chat')
+  await page.getByTestId('mobile-tab-ai').click()
+  await ask(page, live, '앞으로 메신저 요약은 세 줄로 해줘')
+  expect(live.starts.lastBody<HomeChatStartBody>()?.app).toBe('MESSAGING')
+
+  await memoryTool(live, 1, 'remember_memory', {
+    action: 'saved',
+    memoryId: 21,
+    kind: 'PREFERENCE',
+    content: '메신저 대화 요약은 세 줄로 정리해 보여 준다',
+    source: 'AI',
+    scope: 'MESSAGING',
+  })
+  await live.push('done', { ...C, widgets: null, messageId: 2 })
+  await expect(page.getByTestId('chat-memory-result')).toContainText('메신저 메모리에 저장함')
+  await expectNoHorizontalOverflow(page)
 })

@@ -1,6 +1,7 @@
 // WP-55 AI 메모리 공용 규칙 — 서버 오류 코드(ErrorResponse.errors.code) 해석과 사용자 문구.
 // handleApiError 는 errors 의 첫 값(코드 문자열)을 토스트로 띄우므로 메모리 오류는 이 코드로 문구를 고른다.
 import { apiErrorResponse, extractApiError, extractApiErrorCode } from '@/lib/api-error';
+import type { AiMemoryItem, AiMemoryScope } from '@/types/aiMemory';
 
 /** 되돌릴 대상이 이미 없을 때(GONE·NOT_FOUND). */
 export const UNDO_GONE_MESSAGE = '이미 지워진 메모리예요';
@@ -44,4 +45,89 @@ export function memoryErrorMessage(error: unknown, fallback: string): string {
   const message = apiErrorResponse(error)?.message;
   if (message && extractApiErrorCode(error)) return message;
   return extractApiError(error, fallback);
+}
+
+/** WP-379 앱 범위 — 설정 화면 묶음·선택 순서(공통 다음). */
+export const MEMORY_SCOPES: readonly AiMemoryScope[] = ['ISSUE', 'WIKI', 'MAIL', 'DRIVE', 'MESSAGING', 'CALENDAR'];
+/** 묶음·선택·한도 키 — 공통은 'COMMON'(서버 errors.scope 와 같은 표기). */
+export type AiMemoryScopeKey = AiMemoryScope | 'COMMON';
+/** 범위 이름(ai-agent MEMORY_SCOPE_LABEL 과 같다). */
+export const SCOPE_LABEL: Record<AiMemoryScopeKey, string> = {
+  COMMON: '공통',
+  ISSUE: '이슈',
+  WIKI: '노트',
+  MAIL: '메일',
+  DRIVE: '드라이브',
+  MESSAGING: '메신저',
+  CALENDAR: '캘린더',
+};
+
+/** 항목의 범위 키 — null·없음(구 API)은 공통. */
+export function scopeKeyOf(scope: AiMemoryScope | null | undefined): AiMemoryScopeKey {
+  return scope ?? 'COMMON';
+}
+
+/** 결과 줄 명사 — 앱 범위면 "이슈 메모리", 공통이면 "메모리"(WP-55 문구 그대로). */
+export function memoryNoun(scope: AiMemoryScope | null | undefined): string {
+  return scope ? `${SCOPE_LABEL[scope]} 메모리` : '메모리';
+}
+
+/** 앱 범위 키인가(서버가 준 문자열 검사용). */
+function isAppScope(v: string | null | undefined): v is AiMemoryScope {
+  return !!v && (MEMORY_SCOPES as readonly string[]).includes(v);
+}
+
+/** 되돌리기 가득 참 토스트 문구 — 서버 409 errors.scope 기준: 앱이면 그 범위 이름, 공통·모름이면 기존 문구. */
+export function memoryFullMessage(scopeKey: string | null | undefined): string {
+  return isAppScope(scopeKey) ? `${SCOPE_LABEL[scopeKey]} 메모리가 가득 찼어요. 설정에서 정리해 주세요` : UNDO_FULL_MESSAGE;
+}
+
+/** 409 AI_MEMORY_FULL 의 errors.scope(가득 찬 범위 — 공통은 'COMMON'). 없으면 null. */
+export function extractApiErrorScope(error: unknown): string | null {
+  const scope = apiErrorResponse(error)?.errors?.scope;
+  return typeof scope === 'string' ? scope : null;
+}
+
+/** 설정 묶음 순서 — 공통을 맨 위에 두고 그 아래 앱 범위를 앱 목록 순서대로 둔다. */
+export const SCOPE_ORDER: readonly AiMemoryScopeKey[] = ['COMMON', ...MEMORY_SCOPES];
+
+/** 설정 카드의 범위 묶음 하나 — active 는 유효 행(최신순, 한도 계산 대상), expired 는 만료 행(WP-380, 묶음 끝에 흐리게). */
+export interface MemoryGroup {
+  key: AiMemoryScopeKey;
+  label: string;
+  active: AiMemoryItem[];
+  expired: AiMemoryItem[];
+}
+
+/** 목록(서버 최신순) → 범위 묶음. 빈 범위는 뺀다. 묶음 안은 받은 순서 그대로. */
+export function groupMemories(items: readonly AiMemoryItem[]): MemoryGroup[] {
+  return SCOPE_ORDER.flatMap((key) => {
+    const rows = items.filter((m) => scopeKeyOf(m.scope) === key);
+    return rows.length ? [{ key, label: SCOPE_LABEL[key], active: rows, expired: [] }] : [];
+  });
+}
+
+/** 한도에 닿은 범위들 — 직접 추가·범위 옮기기에서 고를 수 없다(서버도 409 로 막는다). */
+export function fullScopeKeys(groups: readonly MemoryGroup[], limit: number): Set<AiMemoryScopeKey> {
+  return new Set(groups.filter((g) => g.active.length >= limit).map((g) => g.key));
+}
+
+/** 이 개수를 넘는 묶음은 접는다. */
+export const COLLAPSE_OVER = 10;
+/** 접힌 묶음에 보이는 행 수. */
+export const COLLAPSED_SHOW = 5;
+
+/** 묶음에 보일 행 — 10개 넘고 접혀 있으면 처음 5개. */
+export function collapsedRows<T>(rows: readonly T[], expanded: boolean): readonly T[] {
+  return rows.length > COLLAPSE_OVER && !expanded ? rows.slice(0, COLLAPSED_SHOW) : rows;
+}
+
+/** 직접 추가의 처음 범위 — 공통, 공통이 가득이면 첫 빈 앱 범위, 모두 가득이면 null(추가 버튼이 막힌다). */
+export function defaultAddScope(full: ReadonlySet<AiMemoryScopeKey>): AiMemoryScopeKey | null {
+  return SCOPE_ORDER.find((k) => !full.has(k)) ?? null;
+}
+
+/** 묶음 소제목 설명. */
+export function scopeDescription(key: AiMemoryScopeKey): string {
+  return key === 'COMMON' ? '모든 AI 대화에 반영돼요' : `${SCOPE_LABEL[key]} 화면의 AI 대화에만 반영돼요`;
 }

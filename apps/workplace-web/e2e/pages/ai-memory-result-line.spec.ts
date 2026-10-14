@@ -269,3 +269,25 @@ test('긴 메모리 문구는 줄바꿈되어 패널 밖으로 넘치지 않는�
   const box = await stableBox(line)
   expect(box.x + box.width).toBeLessThanOrEqual(panel.x + panel.width)
 })
+
+// WP-379: 앱 범위 결과는 범위 이름을 붙인 문구로, 공통은 WP-55 문구 그대로. 되돌리기 가득 참은 서버가 알려 준 범위로 안내한다.
+test('앱 범위 결과 줄은 "이슈 메모리에 저장함" 이고, 되돌리기 가득 참은 그 범위 이름으로 안내한다', async ({ authenticatedPage: page }) => {
+  await mockMemoryUndo(page, [memoryError(409, 'AI_MEMORY_FULL', '오류', { scope: 'MAIL' })])
+  const live = await setupLiveChat(page)
+  live.queueStart({ correlationId: 'corr-a', sessionId: 's-a' })
+  await openChatPanel(page)
+  await ask(page, live, '정리해줘')
+  await memoryTool(live, 1, 'remember_memory', { ...saved, scope: 'ISSUE' })
+  await memoryTool(live, 2, 'update_memory', { ...updated, scope: null, previousScope: 'ISSUE' })
+  await memoryTool(live, 3, 'forget_memory', { ...forgotten, scope: 'MAIL' })
+  await live.push('delta', { ...C, text: '정리했어요.' })
+  await live.push('done', { ...C, widgets: null, messageId: 5 })
+
+  await expect(lines(page).nth(0)).toContainText('이슈 메모리에 저장함: "이슈 목록은 짧은 목록으로 보여 준다"')
+  await expect(lines(page).nth(1)).toContainText('메모리를 고침: "백엔드 팀이다"')
+  await expect(lines(page).nth(2)).toContainText('메일 메모리에서 지움: "표로 보여 준다"')
+
+  await lines(page).nth(2).getByTestId('chat-memory-undo').click()
+  await expect(page.getByText('메일 메모리가 가득 찼어요. 설정에서 정리해 주세요')).toBeVisible()
+  await expect(lines(page).nth(2)).toHaveAttribute('data-undone', 'false')
+})

@@ -62,6 +62,17 @@ describe('chatSchema', () => {
     expect(parsed.memoryEnabled).toBeUndefined();
     expect(chatSchema.parse(validBody({ memories: null, memoryEnabled: null })).memories).toEqual({ items: [], dropped: 0 });
   });
+  it('WP-379: app 은 알려진 앱이면 보존, 없으면 undefined, 모르는 값이면 null(채팅은 막지 않는다)', () => {
+    expect(chatSchema.parse(validBody({ app: 'MAIL' })).app).toBe('MAIL');
+    expect(chatSchema.parse(validBody()).app).toBeUndefined();
+    expect(chatSchema.parse(validBody({ app: 'CONTACTS' })).app).toBeNull();
+  });
+
+  it('WP-379: 메모리 항목의 scope 를 보존한다', () => {
+    const memories = [{ id: 12, kind: 'PREFERENCE', content: '짧게', scope: 'ISSUE' }];
+    expect(chatSchema.parse(validBody({ memories, memoryEnabled: true })).memories).toEqual({ items: memories, dropped: 0 });
+  });
+
   it('memories·memoryEnabled 가 보존된다', () => {
     const memories = [{ id: 12, kind: 'PREFERENCE', content: '짧은 목록으로 보여 준다' }];
     const parsed = chatSchema.parse(validBody({ memories, memoryEnabled: true }));
@@ -169,6 +180,32 @@ describe('chatSchema', () => {
 });
 
 describe('POST /ai/chat', () => {
+  it('WP-379: app 을 runAiChatStream 입력으로 전달', async () => {
+    vi.mocked(runAiChatStream).mockResolvedValue({ fullText: 'ok', widgets: null, pendingActions: [], source: 'router_prose', usage: null });
+    await request(buildApp()).post('/ai/chat').send(validBody({ app: 'ISSUE' }));
+    expect(vi.mocked(runAiChatStream).mock.calls[0][0]).toEqual(expect.objectContaining({ app: 'ISSUE' }));
+  });
+
+  it('WP-379: 고침 결과의 scope·previousScope 를 memory 필드에 싣는다(공통 = null)', async () => {
+    const updated = {
+      action: 'updated',
+      memoryId: 12,
+      kind: 'PREFERENCE',
+      content: '이슈는 짧게',
+      previousContent: '짧게',
+      source: 'AI',
+      scope: 'ISSUE',
+      previousScope: null,
+    };
+    vi.mocked(runAiChatStream).mockImplementation(async (_i, _d, _t, _s, _p, onTool) => {
+      onTool?.({ seq: 1, event: 'tool_result', toolName: 'update_memory', isError: false, result: JSON.stringify(updated) });
+      return { fullText: '고쳤어요.', widgets: null, pendingActions: [], source: 'router_prose', usage: null };
+    });
+    const res = await request(buildApp()).post('/ai/chat').send(validBody());
+    const tools = [...res.text.matchAll(/event: tool\ndata: (.*)\n/g)].map((m) => JSON.parse(m[1]) as Record<string, unknown>);
+    expect(tools[0].memory).toEqual(updated);
+  });
+
   it('WP-55: memories·memoryEnabled 를 runAiChatStream 입력으로 전달', async () => {
     vi.mocked(runAiChatStream).mockResolvedValue({ fullText: 'ok', widgets: null, pendingActions: [], source: 'router_prose', usage: null });
     const memories = [{ id: 12, kind: 'PREFERENCE', content: '짧은 목록으로 보여 준다' }];

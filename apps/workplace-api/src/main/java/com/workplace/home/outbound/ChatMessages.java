@@ -1,5 +1,6 @@
 package com.workplace.home.outbound;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.workplace.fileai.dto.ExtractionInfo;
 import com.workplace.home.dto.AiScreenContext;
 import com.workplace.home.dto.HomeAttachment;
@@ -16,7 +17,7 @@ public final class ChatMessages {
    * X-On-Behalf-Of-Tenant 로 실어 보내, 다중/무 멤버십일 때 AgentTenantResolver 가 fail-closed 되는 것을 막는다(#719).
    * screenContext — 현재 화면 컨텍스트(WP-54, nullable). ai-agent 가 user 메시지 prefix 로 임베드. contextSummary —
    * 누적 요약(WP-232, nullable). sessionId·attachments — WP-234 메인 채팅 첨부. memories·memoryEnabled —
-   * WP-55 사용자 메모리.
+   * WP-55 사용자 메모리. app — WP-379 지금 화면 앱.
    */
   public record ChatRequest(
       String query,
@@ -35,13 +36,65 @@ public final class ChatMessages {
       String sessionId,
       /** WP-234: 세션 전체 첨부(요약 경계 이전 메시지 포함, 매 턴 DB 에서). 없으면 빈 배열. */
       List<ChatAttachment> attachments,
-      /** WP-55: 사용자 메모리(updated_at 최신순, ≤50). 꺼짐·조회 실패면 빈 배열. ai-agent 가 사용자 메시지 맨 앞 블록으로 싣는다. */
+      /** WP-55·WP-379: 공통 + 지금 앱 메모리(범위마다 최신 50, 합쳐 최신순). 꺼짐·조회 실패면 빈 배열. */
       List<ChatMemory> memories,
       /** WP-55: 메모리 사용 여부. false 면 ai-agent 가 "메모리 꺼짐" 한 줄만 넣어 메모리 도구를 쓰지 않게 한다. */
-      boolean memoryEnabled) {}
+      boolean memoryEnabled,
+      /** WP-379: 지금 화면 앱(ISSUE·WIKI·…, 없으면 null) — 블록의 "지금 화면" 안내. 주입 필터는 API 가 이미 했다. */
+      String app) {
 
-  /** ai-agent 로 보내는 메모리 1건(WP-55) — 블록의 "#id" 가 메모리 도구의 memoryId 다. */
-  public record ChatMemory(long id, String kind, String content) {}
+    /** app 없는 호출(기존 테스트 호환) — 지금 화면 앱 없음. */
+    public ChatRequest(
+        String query,
+        List<ContextMessage> recentContext,
+        long assistantAgentId,
+        long userId,
+        Long tenantId,
+        String model,
+        String thinkingDepth,
+        int maxTurns,
+        int timeoutMs,
+        AiScreenContext screenContext,
+        String contextSummary,
+        String sessionId,
+        List<ChatAttachment> attachments,
+        List<ChatMemory> memories,
+        boolean memoryEnabled) {
+      this(
+          query,
+          recentContext,
+          assistantAgentId,
+          userId,
+          tenantId,
+          model,
+          thinkingDepth,
+          maxTurns,
+          timeoutMs,
+          screenContext,
+          contextSummary,
+          sessionId,
+          attachments,
+          memories,
+          memoryEnabled,
+          null);
+    }
+  }
+
+  /**
+   * ai-agent 로 보내는 메모리 1건(WP-55) — 블록의 "#id" 가 메모리 도구의 memoryId 다. scope(WP-379)는 앱 범위일 때만 싣는다(null
+   * = 공통 → JSON 에서 빠져 구 ai-agent 와 같은 모양).
+   */
+  public record ChatMemory(
+      long id,
+      String kind,
+      String content,
+      @JsonInclude(JsonInclude.Include.NON_NULL) String scope) {
+
+    /** 공통 메모리(기존 호출부·테스트 호환). */
+    public ChatMemory(long id, String kind, String content) {
+      this(id, kind, content, null);
+    }
+  }
 
   /**
    * ai-agent 로 보내는 세션 첨부 한 건(WP-234). current = 이번 턴 USER 메시지에 붙은 파일. java.time 타입을 두지 않는다 —

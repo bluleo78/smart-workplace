@@ -8,6 +8,7 @@ describe('buildMailContext', () => {
   it('목록만 — 계정·폴더·건수', () => {
     expect(buildMailContext(base)).toEqual({
       view: '메일함',
+      app: 'MAIL',
       scope: { label: 'me@x.com · 받은편지함', refs: { accountId: '3', folder: 'INBOX' }, count: 12 },
     });
   });

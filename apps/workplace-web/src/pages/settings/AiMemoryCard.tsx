@@ -1,6 +1,7 @@
 // 설정 > AI 비서 "메모리" 카드(WP-55, 시안 A + 2차 시안 상태) — 추천 질문 카드 바로 아래, 개인 비서 유무와 관계없이 보인다.
-// 스위치(메모리 사용)는 채팅과 같은 ai-preferences 캐시를 바꾸고, 목록은 최신순 전부(최대 50줄, 접지 않음). 꺼져 있어도 목록 편집·삭제·추가는
-// 그대로 되며 목록만 흐리게 보인다. 45개부터 카운트 주황, 50개면 추가 비활성 + 경고.
+// 스위치(메모리 사용)는 채팅과 같은 ai-preferences 캐시를 바꾼다. 꺼져 있어도 목록 편집·삭제·추가는 그대로 되며 목록만 흐리게 보인다.
+// WP-379(시안 B): 목록을 범위 묶음(공통 → 이슈 → … → 캘린더, 빈 범위 숨김)으로 보이고 한도·카운트·가득 참 경고는 묶음마다(AiMemoryScopeGroup).
+// 직접 추가는 모든 범위가 가득일 때만 막는다.
 import { useState } from 'react';
 
 import {
@@ -19,10 +20,10 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { useAiMemories, useClearAiMemories } from '@/hooks/queries/useAiMemories';
 import { useAiPreferences, useUpdateAiPreferences } from '@/hooks/queries/useAiPreferences';
-import { listCountTone, MEMORY_LIMIT } from '@/lib/aiMemory';
+import { fullScopeKeys, groupMemories, MEMORY_LIMIT, SCOPE_ORDER } from '@/lib/aiMemory';
 import { cn } from '@/lib/utils';
 import { AiMemoryAddForm } from '@/pages/settings/AiMemoryAddForm';
-import { AiMemoryRow } from '@/pages/settings/AiMemoryRow';
+import { AiMemoryScopeGroup } from '@/pages/settings/AiMemoryScopeGroup';
 
 export function AiMemoryCard() {
   const prefs = useAiPreferences();
@@ -36,7 +37,10 @@ export function AiMemoryCard() {
   const enabled = prefs.data?.memoryEnabled ?? true;
   const items = memories.data?.items ?? [];
   const limit = memories.data?.limit ?? MEMORY_LIMIT;
-  const full = items.length >= limit;
+  const groups = groupMemories(items);
+  const fullScopes = fullScopeKeys(groups, limit);
+  // 모든 범위가 가득일 때만 추가를 막는다 — 하나라도 남으면 폼이 그 범위를 기본으로 고른다.
+  const allFull = fullScopes.size === SCOPE_ORDER.length;
 
   return (
     <Card data-testid="ai-memory-card">
@@ -64,7 +68,7 @@ export function AiMemoryCard() {
 
         {/* 꺼짐: 목록만 흐리게 — 편집·삭제·추가는 그대로(사용자가 직접 하는 정리). */}
         <div data-testid="ai-memory-list-area" className={cn('space-y-2 transition-opacity', !enabled && 'opacity-60')}>
-          {adding && <AiMemoryAddForm onClose={() => setAdding(false)} />}
+          {adding && <AiMemoryAddForm fullScopes={fullScopes} onClose={() => setAdding(false)} />}
           {memories.isPending ? (
             <Skeleton className="h-16 w-full" />
           ) : memories.isError ? (
@@ -76,19 +80,13 @@ export function AiMemoryCard() {
               </p>
             )
           ) : (
-            <ul data-testid="ai-memory-list" className="divide-y rounded-md border">
-              {items.map((m) => (
-                <AiMemoryRow key={m.id} item={m} />
+            <div className="space-y-4">
+              {groups.map((g) => (
+                <AiMemoryScopeGroup key={g.key} group={g} limit={limit} fullScopes={fullScopes} />
               ))}
-            </ul>
+            </div>
           )}
         </div>
-
-        {full && (
-          <p data-testid="ai-memory-full" className="text-xs text-warning-text">
-            메모리가 가득 찼어요. 새로 기억하려면 필요 없는 항목을 지워 주세요. (AI도 새로 저장하지 못해요)
-          </p>
-        )}
 
         <div className="flex flex-wrap items-center gap-2">
           <Button
@@ -96,14 +94,11 @@ export function AiMemoryCard() {
             size="sm"
             data-testid="ai-memory-add"
             className="pointer-coarse:min-h-11"
-            disabled={full || adding || !memories.isSuccess}
+            disabled={allFull || adding || !memories.isSuccess}
             onClick={() => setAdding(true)}
           >
             ＋ 직접 추가
           </Button>
-          <span data-testid="ai-memory-count" className={cn('text-xs tabular-nums', listCountTone(items.length))}>
-            {items.length} / {limit}
-          </span>
           {items.length > 0 && (
             <Button
               variant="ghost"
@@ -122,7 +117,7 @@ export function AiMemoryCard() {
             <AlertDialogHeader>
               <AlertDialogTitle>메모리를 모두 지울까요?</AlertDialogTitle>
               <AlertDialogDescription>
-                기억한 내용 {items.length}개가 모두 삭제되고 되돌릴 수 없어요. 다음 대화부터 반영되지 않아요.
+                모든 범위의 메모리 {items.length}개가 삭제되고 되돌릴 수 없어요. 다음 대화부터 반영되지 않아요.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>

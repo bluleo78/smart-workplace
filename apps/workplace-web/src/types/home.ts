@@ -1,6 +1,6 @@
 // 7c: 홈 AI chat/위젯 계약. 백엔드 HomeComposeResponse·ActivityEntryResponse 와 1:1.
 
-import type { AiMemoryKind, AiMemorySource } from './aiMemory';
+import type { AiMemoryKind, AiMemoryScope, AiMemorySource } from './aiMemory';
 import type { AiScreenContext } from './aiScreenContext';
 
 // 위젯 타입(WidgetLayout/WidgetType/WidgetSpec)은 AI 비서 응답(show_* 도구)이 지시하는
@@ -33,6 +33,8 @@ export interface ChatRequest {
   screenContext?: AiScreenContext;
   /** WP-234: 미리 올린 첨부(POST /home/attachments 응답의 fileId). 없으면 키 생략. */
   fileIds?: number[];
+  /** WP-379: 지금 화면 앱 — 공통 + 이 앱 메모리를 싣는다. 앱이 없는 화면(홈·연락처)이면 키 생략. */
+  app?: AiMemoryScope;
 }
 
 /** AI 도구 호출/위임 단계 — 어시스턴트 턴 인라인 표시 + 복원. */
@@ -66,6 +68,10 @@ export interface MemoryEventDto {
   /** 고치기 전 종류(updated) — 서버 되돌리기가 종류도 돌려놓는 근거. 구 ai-agent 결과엔 없다. */
   previousKind?: AiMemoryKind;
   source?: AiMemorySource;
+  /** WP-379: 범위(공통 null). 구 ai-agent 결과엔 없다. */
+  scope?: AiMemoryScope | null;
+  /** WP-379: 고치기 전 범위(updated, 공통 null). */
+  previousScope?: AiMemoryScope | null;
 }
 
 /**
@@ -83,6 +89,10 @@ export interface MemoryBlock {
   previousKind?: AiMemoryKind;
   source: AiMemorySource;
   undone: boolean;
+  /** WP-379: 범위 — 앱일 때만(공통·구 블록은 없음). 결과 줄 문구("이슈 메모리에 저장함")에 쓴다. */
+  scope?: AiMemoryScope;
+  /** WP-379: 고치기 전 범위(updated, 앱일 때만). */
+  previousScope?: AiMemoryScope;
 }
 
 /**

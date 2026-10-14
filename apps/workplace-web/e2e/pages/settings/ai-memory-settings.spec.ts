@@ -1,5 +1,6 @@
 // WP-55 설정 > AI 비서 > 메모리 카드(데스크톱) — 위치·목록·배지·메타, 제자리 편집(카운트·300자 초과), 삭제 토스트 되돌리기, 직접 추가(빈 값·초과 비활성·종류),
 // 모두 지우기 확인, 스위치 꺼짐(흐림 + 편집 가능), 빈 상태, 45개 주황·50개 가득 참, 저장 실패 토스트.
+// WP-379: 범위 묶음(순서·소제목·묶음 카운트·접기), 편집·추가의 범위, 가득 찬 범위.
 import type { Page } from '@playwright/test'
 
 import { memoryItem, mockAiMemories, openMemorySettings } from '../../fixtures/ai-memory-mock'
@@ -33,7 +34,8 @@ test('추천 질문 카드 아래·개인 비서 위에 최신순 목록과 배�
   await expect(rows(page).nth(1).getByTestId('ai-memory-kind')).toHaveAttribute('data-variant', 'ai')
   await expect(rows(page).nth(0).getByTestId('ai-memory-meta')).toHaveText('직접 추가 · 2026-10-13')
   await expect(rows(page).nth(1).getByTestId('ai-memory-meta')).toHaveText('AI가 저장 · 2026-10-12')
-  await expect(page.getByTestId('ai-memory-count')).toHaveText('2 / 50')
+  await expect(page.getByTestId('ai-memory-group-count')).toHaveText('2 / 50')
+  await expect(page.getByTestId('ai-memory-group-title')).toHaveText('공통 · 모든 AI 대화에 반영돼요')
   await expect(page.getByTestId('ai-memory-toggle')).toHaveAttribute('aria-checked', 'true')
 })
 
@@ -139,7 +141,7 @@ test('직접 추가 폼은 목록 맨 위에 열리고, 빈 값·초과면 막�
   await expect(form).toHaveCount(0)
   await expect(rows(page).first().getByTestId('ai-memory-content')).toHaveText('주로 WP 프로젝트를 본다')
   await expect(rows(page).first().getByTestId('ai-memory-kind')).toHaveText('맥락')
-  await expect(page.getByTestId('ai-memory-count')).toHaveText('2 / 50')
+  await expect(page.getByTestId('ai-memory-group-count')).toHaveText('2 / 50')
 })
 
 test('모두 지우기는 개수를 알려 주는 확인 뒤에만 지우고, 지우면 빈 상태가 된다', async ({ authenticatedPage: page }) => {
@@ -148,7 +150,7 @@ test('모두 지우기는 개수를 알려 주는 확인 뒤에만 지우고, �
   await page.getByTestId('ai-memory-clear').click()
   const dialog = page.getByTestId('ai-memory-clear-dialog')
   await expect(dialog).toContainText('메모리를 모두 지울까요?')
-  await expect(dialog).toContainText('기억한 내용 3개가 모두 삭제되고 되돌릴 수 없어요. 다음 대화부터 반영되지 않아요.')
+  await expect(dialog).toContainText('모든 범위의 메모리 3개가 삭제되고 되돌릴 수 없어요. 다음 대화부터 반영되지 않아요.')
   await dialog.getByRole('button', { name: '취소' }).click()
   await expect(rows(page)).toHaveCount(3)
   expect(mock.clears.count()).toBe(0)
@@ -158,7 +160,7 @@ test('모두 지우기는 개수를 알려 주는 확인 뒤에만 지우고, �
   await mock.clears.waitFor()
   await expect(page.getByTestId('ai-memory-empty')).toBeVisible()
   await expect(page.getByTestId('ai-memory-clear')).toHaveCount(0)
-  await expect(page.getByTestId('ai-memory-count')).toHaveText('0 / 50')
+  await expect(page.getByTestId('ai-memory-group')).toHaveCount(0)
 })
 
 test('스위치를 끄면 false 를 저장하고 목록이 흐려지지만 편집은 그대로 된다', async ({ authenticatedPage: page }) => {
@@ -196,35 +198,52 @@ test('두 스위치를 연달아 바꿔도 늦게 온 응답이 다른 스위치
   await expect(page.getByTestId('ai-memory-toggle')).toHaveAttribute('aria-checked', 'false')
 })
 
-test('비어 있으면 안내 문구와 0 / 50 을 보이고 모두 지우기는 없다', async ({ authenticatedPage: page }) => {
+test('비어 있으면 안내 문구를 보이고 묶음·모두 지우기는 없다', async ({ authenticatedPage: page }) => {
   await mockAiMemories(page, [])
   await openMemorySettings(page)
   await expect(page.getByTestId('ai-memory-empty')).toHaveText(
     "아직 기억한 내용이 없어요. 대화에서 '앞으로는 ~해줘'라고 말하거나 직접 추가해 보세요.",
   )
-  await expect(page.getByTestId('ai-memory-count')).toHaveText('0 / 50')
+  await expect(page.getByTestId('ai-memory-group')).toHaveCount(0)
   await expect(page.getByTestId('ai-memory-clear')).toHaveCount(0)
 })
 
 const many = (n: number) => Array.from({ length: n }, (_, i) => memoryItem(n - i))
 
-test('45개면 카운트가 주황이고 추가는 된다', async ({ authenticatedPage: page }) => {
+test('45개면 묶음 카운트가 주황이고 추가는 된다 — 10개 넘는 묶음은 5개만 보이다 펼치고 접는다', async ({ authenticatedPage: page }) => {
   await mockAiMemories(page, many(45))
   await openMemorySettings(page)
-  await expect(page.getByTestId('ai-memory-count')).toHaveText('45 / 50')
-  await expect(page.getByTestId('ai-memory-count')).toHaveClass(/text-warning-text/)
+  await expect(page.getByTestId('ai-memory-group-count')).toHaveText('45 / 50')
+  await expect(page.getByTestId('ai-memory-group-count')).toHaveClass(/text-warning-text/)
   await expect(page.getByTestId('ai-memory-add')).toBeEnabled()
-  await expect(page.getByTestId('ai-memory-full')).toHaveCount(0)
+  await expect(page.getByTestId('ai-memory-group-full')).toHaveCount(0)
+
+  await expect(rows(page)).toHaveCount(5)
+  await expect(page.getByTestId('ai-memory-group-more')).toHaveText('40개 더 보기')
+  await page.getByTestId('ai-memory-group-more').click()
+  await expect(rows(page)).toHaveCount(45)
+  await expect(page.getByTestId('ai-memory-group-more')).toHaveText('접기')
+  await page.getByTestId('ai-memory-group-more').click()
+  await expect(rows(page)).toHaveCount(5)
 })
 
-test('50개면 추가가 막히고 가득 참 경고가 보인다', async ({ authenticatedPage: page }) => {
-  await mockAiMemories(page, many(50))
+test('공통 50개면 공통 묶음에 가득 참 경고, 추가는 열리고 기본 범위는 이슈이며 공통은 고를 수 없다', async ({ authenticatedPage: page }) => {
+  const mock = await mockAiMemories(page, many(50))
   await openMemorySettings(page)
-  await expect(page.getByTestId('ai-memory-count')).toHaveText('50 / 50')
-  await expect(page.getByTestId('ai-memory-add')).toBeDisabled()
-  await expect(page.getByTestId('ai-memory-full')).toHaveText(
-    '메모리가 가득 찼어요. 새로 기억하려면 필요 없는 항목을 지워 주세요. (AI도 새로 저장하지 못해요)',
+  await expect(page.getByTestId('ai-memory-group-count')).toHaveText('가득 참 · 50 / 50')
+  await expect(page.getByTestId('ai-memory-group-full')).toHaveText(
+    '공통 메모리가 가득 찼어요. 새로 기억하려면 필요 없는 항목을 지워 주세요. (AI도 새로 저장하지 못해요)',
   )
+  await page.getByTestId('ai-memory-add').click()
+  await expect(page.getByTestId('ai-memory-add-scope')).toHaveText('이슈')
+  await page.getByTestId('ai-memory-add-scope').click()
+  await expect(page.getByTestId('ai-memory-add-scope-COMMON')).toHaveAttribute('aria-disabled', 'true')
+  await expect(page.getByTestId('ai-memory-add-scope-COMMON')).toContainText('가득 참')
+  await page.keyboard.press('Escape')
+  await page.getByTestId('ai-memory-add-input').fill('이슈 목록은 짧게 보여 준다')
+  await page.getByTestId('ai-memory-add-submit').click()
+  await mock.creates.waitFor()
+  expect(mock.creates.lastBody()).toEqual({ kind: 'PREFERENCE', content: '이슈 목록은 짧게 보여 준다', scope: 'ISSUE' })
 })
 
 test('저장이 거절되면 서버 사유를 토스트로 보이고 폼을 닫지 않는다', async ({ authenticatedPage: page }) => {
@@ -285,4 +304,94 @@ test('모두 지우기 확인 버튼은 요청 중 잠긴다', async ({ authenti
   list.release()
   await expect(page.getByTestId('ai-memory-empty')).toBeVisible()
   expect(mock.clears.count()).toBe(1)
+})
+
+test('범위 묶음은 공통 → 이슈 → 메일 순서이고 빈 범위는 숨긴다 — 소제목·카운트는 묶음마다', async ({ authenticatedPage: page }) => {
+  await mockAiMemories(page, [
+    memoryItem(9, { content: '메일은 세 줄로 요약한다', scope: 'MAIL' }),
+    memoryItem(8, { content: '답은 존댓말로 한다' }),
+    memoryItem(7, { content: '이슈 목록은 짧게 보여 준다', scope: 'ISSUE' }),
+    memoryItem(6, { content: '백엔드 팀이다', kind: 'CONTEXT' }),
+  ])
+  await openMemorySettings(page)
+  const groups = page.getByTestId('ai-memory-group')
+  await expect(groups).toHaveCount(3)
+  expect(await groups.evaluateAll((els) => els.map((e) => e.getAttribute('data-scope')))).toEqual(['COMMON', 'ISSUE', 'MAIL'])
+  await expect(page.getByTestId('ai-memory-group-title')).toHaveText([
+    '공통 · 모든 AI 대화에 반영돼요',
+    '이슈 · 이슈 화면의 AI 대화에만 반영돼요',
+    '메일 · 메일 화면의 AI 대화에만 반영돼요',
+  ])
+  await expect(page.getByTestId('ai-memory-group-count')).toHaveText(['2 / 50', '1 / 50', '1 / 50'])
+  await expect(groups.nth(0).getByTestId('ai-memory-content')).toHaveText(['답은 존댓말로 한다', '백엔드 팀이다'])
+})
+
+test('고치기에서 범위를 바꾸면 PATCH 에 scope 를 싣고 그 묶음으로 옮겨 간다 — 범위를 그대로 두면 scope 를 보내지 않는다', async ({ authenticatedPage: page }) => {
+  const mock = await mockAiMemories(page, [memoryItem(3, { content: '목록은 짧게' }), memoryItem(2, { content: '메일은 짧게', scope: 'MAIL' })])
+  await openMemorySettings(page)
+  await rows(page).nth(0).getByTestId('ai-memory-edit').click()
+  await expect(page.getByTestId('ai-memory-edit-scope')).toHaveText('공통 (모든 AI)')
+  await page.getByTestId('ai-memory-edit-scope').click()
+  await page.getByTestId('ai-memory-edit-scope-ISSUE').click()
+  await page.getByTestId('ai-memory-edit-submit').click()
+  await mock.updates.waitFor()
+  expect(mock.updates.lastBody()).toEqual({ content: '목록은 짧게', scope: 'ISSUE' })
+  await expect(page.locator('[data-testid="ai-memory-group"][data-scope="ISSUE"]').getByTestId('ai-memory-content')).toHaveText('목록은 짧게')
+
+  // 메일 → 공통으로(null).
+  await page.locator('[data-testid="ai-memory-group"][data-scope="MAIL"]').getByTestId('ai-memory-edit').click()
+  await page.getByTestId('ai-memory-edit-scope').click()
+  await page.getByTestId('ai-memory-edit-scope-COMMON').click()
+  await page.getByTestId('ai-memory-edit-submit').click()
+  await mock.updates.waitFor(2)
+  expect(mock.updates.lastBody()).toEqual({ content: '메일은 짧게', scope: null })
+
+  // 내용만 고치면 scope 키가 없다.
+  await rows(page).first().getByTestId('ai-memory-edit').click()
+  await page.getByTestId('ai-memory-edit-input').fill('메일은 아주 짧게')
+  await page.getByTestId('ai-memory-edit-submit').click()
+  await mock.updates.waitFor(3)
+  expect(mock.updates.lastBody()).toEqual({ content: '메일은 아주 짧게' })
+})
+
+test('가득 찬 범위로는 옮길 수 없지만 그 범위 안의 항목은 그대로 고칠 수 있다', async ({ authenticatedPage: page }) => {
+  const issues = Array.from({ length: 50 }, (_, i) => memoryItem(50 - i, { scope: 'ISSUE', content: `이슈 메모 ${50 - i}` }))
+  const mock = await mockAiMemories(page, [memoryItem(60, { content: '공통 하나' }), ...issues])
+  await openMemorySettings(page)
+  const issueGroup = page.locator('[data-testid="ai-memory-group"][data-scope="ISSUE"]')
+
+  // 공통 항목 — 가득 찬 이슈로는 옮길 수 없다.
+  await page.locator('[data-testid="ai-memory-group"][data-scope="COMMON"]').getByTestId('ai-memory-edit').click()
+  await page.getByTestId('ai-memory-edit-scope').click()
+  await expect(page.getByTestId('ai-memory-edit-scope-ISSUE')).toHaveAttribute('aria-disabled', 'true')
+  await page.keyboard.press('Escape')
+  await page.getByRole('button', { name: '취소' }).click()
+
+  // 가득 찬 이슈 안의 항목 — 같은 범위라 선택은 열려 있고, 내용을 실제로 저장하면 scope 키 없이 PATCH 한다.
+  await issueGroup.getByTestId('ai-memory-edit').first().click()
+  await page.getByTestId('ai-memory-edit-scope').click()
+  await expect(page.getByTestId('ai-memory-edit-scope-ISSUE')).not.toHaveAttribute('aria-disabled', 'true')
+  await page.keyboard.press('Escape')
+  await page.getByTestId('ai-memory-edit-input').fill('이슈 메모 고침')
+  await page.getByTestId('ai-memory-edit-submit').click()
+  await mock.updates.waitFor()
+  expect(mock.updates.lastBody()).toEqual({ content: '이슈 메모 고침' })
+  expect(mock.updates.lastBody()).not.toHaveProperty('scope')
+  await expect(issueGroup.getByTestId('ai-memory-content').first()).toHaveText('이슈 메모 고침')
+})
+
+test('직접 추가에서 범위를 고르면 그 범위로 만들어 새 묶음이 생긴다', async ({ authenticatedPage: page }) => {
+  const mock = await mockAiMemories(page, [memoryItem(3, { content: '첫째' })])
+  await openMemorySettings(page)
+  await page.getByTestId('ai-memory-add').click()
+  await expect(page.getByTestId('ai-memory-add-scope')).toHaveText('공통 (모든 AI)')
+  await page.getByTestId('ai-memory-add-scope').click()
+  await page.getByTestId('ai-memory-add-scope-MAIL').click()
+  await page.getByTestId('ai-memory-add-input').fill('메일 답장은 존댓말로')
+  await page.getByTestId('ai-memory-add-submit').click()
+  await mock.creates.waitFor()
+  expect(mock.creates.lastBody()).toEqual({ kind: 'PREFERENCE', content: '메일 답장은 존댓말로', scope: 'MAIL' })
+  await expect(page.locator('[data-testid="ai-memory-group"][data-scope="MAIL"]').getByTestId('ai-memory-content')).toHaveText(
+    '메일 답장은 존댓말로',
+  )
 })

@@ -2,14 +2,17 @@
 // 수정은 제자리 입력(300자 카운트, 취소/저장), 삭제는 즉시 + 되돌리기 토스트(훅). 터치 기기는 아이콘 버튼을 44px 로 키운다.
 // 배치: 데스크톱은 [배지][내용+메타][아이콘] 한 줄. 터치(모바일)는 아이콘 두 개(88px)가 오른쪽을 먹어 내용이 11자 폭으로 접히던 문제가 있어
 // 아이콘을 메타 줄 오른쪽으로 내리고(내용은 아이콘 아래 폭까지 쓴다), 44px 터치 영역은 음수 마진으로 줄 높이를 늘리지 않은 채 유지한다.
+// WP-379: 제자리 고치기에서 범위도 옮긴다(가득 찬 범위는 고를 수 없다).
 import { Pencil, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useDeleteAiMemory, useUpdateAiMemory } from '@/hooks/queries/useAiMemories';
+import { type AiMemoryScopeKey, scopeKeyOf } from '@/lib/aiMemory';
 import { formatDateOnly } from '@/lib/formatters';
 import { AiMemoryContentEditor } from '@/pages/settings/AiMemoryContentEditor';
+import { AiMemoryScopeSelect } from '@/pages/settings/AiMemoryScopeSelect';
 import type { AiMemoryItem } from '@/types/aiMemory';
 
 /** 종류 배지 — 선호는 AI 보라(ai-accent), 맥락은 info(하늘). 둘 다 라이트/다크 토큰 쌍(시안 A). */
@@ -18,21 +21,29 @@ export const KIND_BADGE = {
   CONTEXT: { label: '맥락', variant: 'info' },
 } as const;
 
-export function AiMemoryRow({ item }: { item: AiMemoryItem }) {
+export function AiMemoryRow({ item, fullScopes }: { item: AiMemoryItem; fullScopes: ReadonlySet<AiMemoryScopeKey> }) {
   const update = useUpdateAiMemory();
   const remove = useDeleteAiMemory();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(item.content);
+  const scope = scopeKeyOf(item.scope);
+  const [draftScope, setDraftScope] = useState<AiMemoryScopeKey>(scope);
   const badge = KIND_BADGE[item.kind];
 
   const startEdit = () => {
     setDraft(item.content);
+    setDraftScope(scope);
     setEditing(true);
   };
   const save = () => {
+    const scopeChanged = draftScope !== scope;
     // 바뀐 게 없으면 요청하지 않고 닫는다(updatedAt 이 바뀌어 맨 위로 튀지 않게).
-    if (draft.trim() === item.content) return setEditing(false);
-    update.mutate({ id: item.id, content: draft }, { onSuccess: () => setEditing(false) });
+    if (draft.trim() === item.content && !scopeChanged) return setEditing(false);
+    update.mutate(
+      // 범위는 바뀔 때만 싣는다(present-flag — 키가 있으면 서버가 옮긴다, 공통은 null).
+      { id: item.id, content: draft, ...(scopeChanged ? { scope: draftScope === 'COMMON' ? null : draftScope } : {}) },
+      { onSuccess: () => setEditing(false) },
+    );
   };
 
   return (
@@ -57,6 +68,9 @@ export function AiMemoryRow({ item }: { item: AiMemoryItem }) {
             rows={2}
             ariaLabel="메모리 내용"
             testIdPrefix="ai-memory-edit"
+            fields={
+              <AiMemoryScopeSelect value={draftScope} onChange={setDraftScope} fullScopes={fullScopes} current={scope} testId="ai-memory-edit-scope" />
+            }
           />
         </div>
       ) : (

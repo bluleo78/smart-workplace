@@ -99,4 +99,34 @@ class HomeChatMemoryFallbackTest {
     assertThat(HomeChatService.isMemoryTool("update_issue")).isFalse();
     assertThat(HomeChatService.isMemoryTool("mcp__workplace__show_memory")).isFalse();
   }
+
+  /** WP-379: 메모리 범위는 있을 때만 JSON 에 싣고(구 ai-agent 와 같은 모양 유지), 지금 화면 앱을 함께 보낸다. */
+  @Test
+  void ai_agent_요청_JSON_에_범위와_app_이_실린다() throws Exception {
+    ChatRequest req =
+        new ChatRequest(
+            "q",
+            List.of(),
+            5L,
+            1L,
+            null,
+            "m",
+            "NORMAL",
+            8,
+            60000,
+            null,
+            null,
+            null,
+            List.of(),
+            List.of(
+                new ChatMemory(12, "PREFERENCE", "짧게", "ISSUE"),
+                new ChatMemory(9, "CONTEXT", "백엔드 팀")),
+            true,
+            "ISSUE");
+    String json = new ObjectMapper().writeValueAsString(req);
+    assertThat(json)
+        .contains("{\"id\":12,\"kind\":\"PREFERENCE\",\"content\":\"짧게\",\"scope\":\"ISSUE\"}")
+        .contains("{\"id\":9,\"kind\":\"CONTEXT\",\"content\":\"백엔드 팀\"}")
+        .contains("\"app\":\"ISSUE\"");
+  }
 }

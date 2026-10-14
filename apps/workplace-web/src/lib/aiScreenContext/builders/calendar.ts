@@ -1,5 +1,6 @@
 // 캘린더 화면 컨텍스트 builder(WP-54). 반복 회차는 get_event 가 마스터를 돌려주므로 eventId=masterEventId ?? id,
 // 회차 기준 일시·회차일을 facts 로 함께 보내 "이 회의" 가 어느 회차인지 AI 가 알게 한다.
+// WP-379: app 은 홈 채팅 메모리 범위 선택용(서버로 보내는 screenContext 에선 빠진다).
 import { CALENDAR_VIEW_LABEL } from '@/lib/calendar';
 import type { AiScreenContext } from '@/types/aiScreenContext';
 import type { CalendarViewType } from '@/types/calendar';
@@ -41,7 +42,7 @@ export function buildCalendarContext(input: CalendarContextInput): AiScreenConte
     },
     { count: input.count },
   );
-  const ctx: AiScreenContext = { view: '캘린더', scope };
+  const ctx: AiScreenContext = { view: '캘린더', app: 'CALENDAR', scope };
 
   const e = input.editing;
   if (e) {

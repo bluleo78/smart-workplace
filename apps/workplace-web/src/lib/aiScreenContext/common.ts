@@ -109,3 +109,13 @@ export function contextIdentity(ctx: AiScreenContext | null): string | null {
     scopeRefs: ctx.scope?.refs ?? null,
   });
 }
+
+/**
+ * WP-379: 서버로 보내는 화면 참고 — app 은 웹이 메모리 범위를 고르는 데만 쓰는 값이라 뺀다(API·ai-agent screenContext 계약에 없다).
+ * 원본(스토어의 컨텍스트)은 바꾸지 않는다.
+ */
+export function screenContextPayload(ctx: AiScreenContext): Omit<AiScreenContext, 'app'> {
+  const out = { ...ctx };
+  delete out.app;
+  return out;
+}

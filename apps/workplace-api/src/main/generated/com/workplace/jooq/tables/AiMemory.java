@@ -110,6 +110,11 @@ public class AiMemory extends TableImpl<AiMemoryRecord> {
      */
     public final TableField<AiMemoryRecord, Long> TENANT_ID = createField(DSL.name("tenant_id"), SQLDataType.BIGINT.nullable(false).defaultValue(DSL.field(DSL.raw("(NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::bigint"), SQLDataType.BIGINT)), this, "");
 
+    /**
+     * The column <code>public.ai_memory.scope</code>.
+     */
+    public final TableField<AiMemoryRecord, String> SCOPE = createField(DSL.name("scope"), SQLDataType.VARCHAR(16), this, "");
+
     private AiMemory(Name alias, Table<AiMemoryRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }
@@ -179,7 +184,7 @@ public class AiMemory extends TableImpl<AiMemoryRecord> {
 
     @Override
     public List<Index> getIndexes() {
-        return Arrays.asList(Indexes.AI_MEMORY_USER_IDX, Indexes.IDX_AI_MEMORY_SOURCE_SESSION);
+        return Arrays.asList(Indexes.AI_MEMORY_USER_IDX, Indexes.AI_MEMORY_USER_SCOPE_IDX, Indexes.IDX_AI_MEMORY_SOURCE_SESSION);
     }
 
     @Override
@@ -237,6 +242,7 @@ public class AiMemory extends TableImpl<AiMemoryRecord> {
     public List<Check<AiMemoryRecord>> getChecks() {
         return Arrays.asList(
             Internal.createCheck(this, DSL.name("ck_ai_memory_kind"), "(((kind)::text = ANY ((ARRAY['PREFERENCE'::character varying, 'CONTEXT'::character varying])::text[])))", true),
+            Internal.createCheck(this, DSL.name("ck_ai_memory_scope"), "(((scope IS NULL) OR ((scope)::text = ANY ((ARRAY['ISSUE'::character varying, 'WIKI'::character varying, 'MAIL'::character varying, 'DRIVE'::character varying, 'MESSAGING'::character varying, 'CALENDAR'::character varying])::text[]))))", true),
             Internal.createCheck(this, DSL.name("ck_ai_memory_source"), "(((source)::text = ANY ((ARRAY['AI'::character varying, 'USER'::character varying])::text[])))", true)
         );
     }
