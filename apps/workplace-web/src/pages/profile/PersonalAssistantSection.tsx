@@ -224,11 +224,12 @@ export function PersonalAssistantSection() {
   const currentVision = visionChoiceOf(status?.vision);
 
   // 모델 변경 — 실패 시 오류 토스트(silent failure 방지), 성공 시 확인 토스트.
-  // opencode 면 지금 보이는 이미지 입력 선택을 새 모델에 함께 건다(자동이면 null — 서버가 지정을 지운다).
+  // opencode 면 vision:null 을 함께 보낸다. 서버가 지정을 지워 새 모델은 자동 감지에서 시작한다.
+  // 다른 모델은 자동 감지에서 시작 — 이전 모델의 지정을 옮기면 못 보는 모델에 이미지가 갈 수 있어 vision:null 로 지정을 지운다.
   const handleModelChange = async (model: string) => {
     try {
       await updateSettings.mutateAsync(
-        isOpencode ? { model, vision: visionSettingOf(currentVision) } : { model },
+        isOpencode ? { model, vision: null } : { model },
       );
       toast.success('비서 설정을 변경했습니다.');
     } catch (e) {

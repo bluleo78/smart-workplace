@@ -171,15 +171,15 @@ export function AgentConnectionSection({ agentUserId }: Props) {
     }
   };
 
-  // WP-250: 등록 후 이미지 입력 지정 — OpenAI 호환(opencode) 연결만. 서버 상태(지금 모델의 지정값)가 곧 화면 값이고, 모델을 바꾸면
-  // 지금 보이는 선택을 새 모델에 함께 건다(자동이면 null — 서버가 지정을 지운다). 재등록 없이 커스텀 모델의 이미지 입력을 지정할 수 있다.
+  // WP-250: 등록 후 이미지 입력 지정 — OpenAI 호환(opencode) 연결만. 서버 상태(지금 모델의 지정값)가 곧 화면 값이다. 모델을 바꾸면
+  // vision:null 을 함께 보낸다 — 다른 모델은 자동 감지에서 시작(이전 모델 지정을 옮기면 못 보는 모델에 이미지가 갈 수 있음). 재등록 없이 커스텀 모델의 이미지 입력을 지정할 수 있다.
   const isOpencode = meta?.provider === 'opencode';
   const currentVision = visionChoiceOf(ws?.vision);
 
   const onModel = async (model: string) => {
     try {
       await updateSettings.mutateAsync(
-        isOpencode ? { model, vision: visionSettingOf(currentVision) } : { model },
+        isOpencode ? { model, vision: null } : { model },
       );
       toast.success('설정을 변경했습니다.');
     } catch (e) {

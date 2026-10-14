@@ -187,7 +187,7 @@ test.describe('admin 공통 비서', () => {
   });
 
   // WP-250 코드 리뷰: 공통 비서도 등록 후 모델을 바꾸며 이미지 입력을 지정할 수 있다(OpenAI 호환 연결만).
-  test('opencode 공통 비서 — 이미지 입력만 바꾸면 지금 모델에, 모델을 바꾸면 그 선택을 새 모델에 함께 보낸다', async ({
+  test('opencode 공통 비서 — 이미지 입력만 바꾸면 지금 모델에, 모델을 바꾸면 vision:null 로 자동 감지에서 시작한다', async ({
     adminPage: page,
   }) => {
     await mockAgentsAndKeys(page);
@@ -239,7 +239,9 @@ test.describe('admin 공통 비서', () => {
 
     await page.getByTestId('workspace-assistant-model').click();
     await page.getByRole('option', { name: 'My VL' }).click();
-    await expect.poll(() => puts.lastBody()).toEqual({ model: 'openai/my-vl', vision: true });
+    await expect.poll(() => puts.lastBody()).toEqual({ model: 'openai/my-vl', vision: null });
+    // 다른 모델은 자동 감지에서 시작 — 이전 모델의 '볼 수 있음' 이 옮겨지지 않는다.
+    await expect(vision).toHaveText('자동 감지');
   });
 
   test('Claude 공통 비서는 이미지 입력 선택을 보이지 않는다', async ({ adminPage: page }) => {
