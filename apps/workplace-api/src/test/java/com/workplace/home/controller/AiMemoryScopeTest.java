@@ -15,6 +15,7 @@ import com.workplace.home.repository.AiMemoryRepository;
 import com.workplace.home.service.AiMemoryService;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
+import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -157,8 +158,8 @@ class AiMemoryScopeTest extends IntegrationTestBase {
     call(uid, patch(BASE + "/" + issueId).content("{\"content\":\"이슈 고침\",\"scope\":\"ISSUE\"}"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.content").value("이슈 고침"));
-    assertThat(repo.countInScope(uid, "ISSUE")).isEqualTo(50);
-    assertThat(repo.countInScope(uid, null)).isEqualTo(1);
+    assertThat(repo.countInScope(uid, "ISSUE", LocalDate.of(2026, 10, 14))).isEqualTo(50);
+    assertThat(repo.countInScope(uid, null, LocalDate.of(2026, 10, 14))).isEqualTo(1);
   }
 
   @Test

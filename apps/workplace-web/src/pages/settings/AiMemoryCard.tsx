@@ -2,7 +2,7 @@
 // 스위치(메모리 사용)는 채팅과 같은 ai-preferences 캐시를 바꾼다. 꺼져 있어도 목록 편집·삭제·추가는 그대로 되며 목록만 흐리게 보인다.
 // WP-379(시안 B): 목록을 범위 묶음(공통 → 이슈 → … → 캘린더, 빈 범위 숨김)으로 보이고 한도·카운트·가득 참 경고는 묶음마다(AiMemoryScopeGroup).
 // 직접 추가는 모든 범위가 가득일 때만 막는다.
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 
 import {
   AlertDialog,
@@ -24,6 +24,10 @@ import { fullScopeKeys, groupMemories, MEMORY_LIMIT, SCOPE_ORDER } from '@/lib/a
 import { cn } from '@/lib/utils';
 import { AiMemoryAddForm } from '@/pages/settings/AiMemoryAddForm';
 import { AiMemoryScopeGroup } from '@/pages/settings/AiMemoryScopeGroup';
+import type { AiMemoryItem } from '@/types/aiMemory';
+
+/** 응답 전 빈 목록 — 렌더마다 새 배열을 만들지 않아 묶음 계산 memo 가 유지된다. */
+const NO_ITEMS: AiMemoryItem[] = [];
 
 export function AiMemoryCard() {
   const prefs = useAiPreferences();
@@ -35,10 +39,11 @@ export function AiMemoryCard() {
 
   // 응답 전·구 API(필드 없음)는 켜짐으로 그린다 — 서버 기본(NULL = 켜짐)과 같다.
   const enabled = prefs.data?.memoryEnabled ?? true;
-  const items = memories.data?.items ?? [];
+  const items = memories.data?.items ?? NO_ITEMS;
   const limit = memories.data?.limit ?? MEMORY_LIMIT;
-  const groups = groupMemories(items);
-  const fullScopes = fullScopeKeys(groups, limit);
+  // 목록이 바뀔 때만 다시 묶는다 — 스위치·추가 폼 등 다른 상태로 다시 그릴 때 매번 나누지 않게.
+  const groups = useMemo(() => groupMemories(items), [items]);
+  const fullScopes = useMemo(() => fullScopeKeys(groups, limit), [groups, limit]);
   // 모든 범위가 가득일 때만 추가를 막는다 — 하나라도 남으면 폼이 그 범위를 기본으로 고른다.
   const allFull = fullScopes.size === SCOPE_ORDER.length;
 

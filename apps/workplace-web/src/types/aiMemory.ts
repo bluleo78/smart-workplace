@@ -21,6 +21,12 @@ export interface AiMemoryItem {
   scope?: AiMemoryScope | null;
   /** WP-379: 고치기 전 범위(PATCH 응답, 앱이었을 때만). */
   previousScope?: AiMemoryScope;
+  /** WP-380: 기한(YYYY-MM-DD, 그날까지 유효) — null·없음은 기한 없음. */
+  expiresOn?: string | null;
+  /** WP-380: 서버 오늘(KST) 기준 만료 여부 — 웹은 날짜를 다시 계산하지 않는다. */
+  expired?: boolean;
+  /** WP-380: 고치기 전 기한(PATCH 응답, 있었을 때만). */
+  previousExpiresOn?: string;
 }
 
 /** GET /users/me/ai-memories — updatedAt 최신순 + 상한(50). */

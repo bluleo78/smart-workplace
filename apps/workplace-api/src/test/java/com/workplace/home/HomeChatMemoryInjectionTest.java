@@ -11,8 +11,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.workplace.home.dto.CreateAiMemoryRequest;
 import com.workplace.home.outbound.ChatMessages.ChatMemory;
 import com.workplace.home.outbound.ChatMessages.ChatRequest;
+import com.workplace.home.service.AiMemoryClock;
 import com.workplace.home.service.AiMemoryService;
 import com.workplace.user.service.AiPreferenceService;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -185,5 +187,26 @@ class HomeChatMemoryInjectionTest extends HomeAttachmentTestSupport {
     ChatRequest req = sentRequest();
     assertThat(req.app()).isEqualTo("MAIL");
     assertThat(req.memories()).extracting(ChatMemory::scope).containsExactly("MAIL");
+  }
+
+  /** WP-380: 블록의 오늘 줄·기한 계산 근거로 서버 오늘(Asia/Seoul)을 보내고, 메모리 기한을 문자열로 싣는다. */
+  @Test
+  void 오늘_날짜와_메모리_기한을_함께_보낸다() throws Exception {
+    long uid = user();
+    memoryService.create(
+        uid,
+        new CreateAiMemoryRequest("PREFERENCE", "이번 분기는 결제 모듈", null, null, null, "2999-12-31"),
+        false);
+    CountDownLatch latch = stubDone("네");
+    String before = LocalDate.now(AiMemoryClock.ZONE).toString();
+
+    chatService.startChat(uid, null, "안녕");
+    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
+    String after = LocalDate.now(AiMemoryClock.ZONE).toString();
+
+    ChatRequest req = sentRequest();
+    // 자정을 걸쳐도 깨지지 않게 호출 전후 날짜 중 하나면 된다.
+    assertThat(List.of(before, after)).contains(req.today());
+    assertThat(req.memories()).extracting(ChatMemory::expiresOn).containsExactly("2999-12-31");
   }
 }

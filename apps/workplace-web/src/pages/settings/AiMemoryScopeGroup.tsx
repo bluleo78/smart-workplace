@@ -1,6 +1,6 @@
 // 설정 메모리 카드의 범위 묶음 하나(WP-379, 시안 B) — 소제목 `{범위} · {설명}` + 오른쪽 `n / 50`(45부터 주황, 50이면 "가득 참 · 50 / 50" + 경고 한 줄).
 // 유효 행(최신순) 뒤에 만료 행(WP-380). 10개 넘는 묶음은 처음 5개 + "n개 더 보기"로 펼치고 접는다.
-import { useState } from 'react';
+import { useId, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { type AiMemoryScopeKey, COLLAPSE_OVER, collapsedRows, listCountTone, type MemoryGroup, scopeDescription } from '@/lib/aiMemory';
@@ -17,16 +17,18 @@ interface Props {
 
 export function AiMemoryScopeGroup({ group, limit, fullScopes }: Props) {
   const [expanded, setExpanded] = useState(false);
+  const titleId = useId();
   const rows = [...group.active, ...group.expired];
   const visible = collapsedRows(rows, expanded);
   const count = group.active.length;
   const full = count >= limit;
   return (
-    <section data-testid="ai-memory-group" data-scope={group.key} className="space-y-1.5">
+    <section data-testid="ai-memory-group" data-scope={group.key} aria-labelledby={titleId} className="space-y-1.5">
       <div className="flex items-baseline justify-between gap-2">
-        <p data-testid="ai-memory-group-title" className="min-w-0 break-keep text-xs text-muted-foreground">
+        {/* 제목은 실제 heading(h3) — 시각 모양은 기존 작은 muted 문구 그대로. */}
+        <h3 id={titleId} data-testid="ai-memory-group-title" className="min-w-0 break-keep text-xs font-normal text-muted-foreground">
           <span className="font-medium text-foreground">{group.label}</span> · {scopeDescription(group.key)}
-        </p>
+        </h3>
         <span data-testid="ai-memory-group-count" className={cn('shrink-0 text-xs tabular-nums', listCountTone(count))}>
           {full ? `가득 참 · ${count} / ${limit}` : `${count} / ${limit}`}
         </span>

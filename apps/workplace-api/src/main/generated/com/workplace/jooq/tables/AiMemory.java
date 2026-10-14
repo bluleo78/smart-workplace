@@ -12,6 +12,7 @@ import com.workplace.jooq.tables.Tenant.TenantPath;
 import com.workplace.jooq.tables.User.UserPath;
 import com.workplace.jooq.tables.records.AiMemoryRecord;
 
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.Arrays;
 import java.util.Collection;
@@ -115,6 +116,11 @@ public class AiMemory extends TableImpl<AiMemoryRecord> {
      */
     public final TableField<AiMemoryRecord, String> SCOPE = createField(DSL.name("scope"), SQLDataType.VARCHAR(16), this, "");
 
+    /**
+     * The column <code>public.ai_memory.expires_on</code>.
+     */
+    public final TableField<AiMemoryRecord, LocalDate> EXPIRES_ON = createField(DSL.name("expires_on"), SQLDataType.LOCALDATE, this, "");
+
     private AiMemory(Name alias, Table<AiMemoryRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }
@@ -184,7 +190,7 @@ public class AiMemory extends TableImpl<AiMemoryRecord> {
 
     @Override
     public List<Index> getIndexes() {
-        return Arrays.asList(Indexes.AI_MEMORY_USER_IDX, Indexes.AI_MEMORY_USER_SCOPE_IDX, Indexes.IDX_AI_MEMORY_SOURCE_SESSION);
+        return Arrays.asList(Indexes.AI_MEMORY_EXPIRES_IDX, Indexes.AI_MEMORY_USER_IDX, Indexes.AI_MEMORY_USER_SCOPE_IDX, Indexes.IDX_AI_MEMORY_SOURCE_SESSION);
     }
 
     @Override

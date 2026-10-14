@@ -72,6 +72,9 @@ export interface MemoryEventDto {
   scope?: AiMemoryScope | null;
   /** WP-379: 고치기 전 범위(updated, 공통 null). */
   previousScope?: AiMemoryScope | null;
+  /** WP-380: 기한(없으면 null). 구 ai-agent 결과엔 없다. */
+  expiresOn?: string | null;
+  previousExpiresOn?: string | null;
 }
 
 /**
@@ -93,6 +96,9 @@ export interface MemoryBlock {
   scope?: AiMemoryScope;
   /** WP-379: 고치기 전 범위(updated, 앱일 때만). */
   previousScope?: AiMemoryScope;
+  /** WP-380: 기한 — 있을 때만(결과 줄 " · 10월 24일까지"). */
+  expiresOn?: string;
+  previousExpiresOn?: string;
 }
 
 /**

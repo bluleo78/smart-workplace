@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
-import { formatMemoryBlock, MEMORY_OFF_LINE, MEMORY_SCOPE_NOTE, memoryItemSchema, subagentMemorySuffix } from './memory-block.js';
+import {
+  formatMemoryBlock,
+  MEMORY_OFF_LINE,
+  MEMORY_SCOPE_NOTE,
+  memoryItemSchema,
+  memoryLine,
+  subagentMemorySuffix,
+  todayLine,
+} from './memory-block.js';
 
 const M = [
   { id: 12, kind: 'PREFERENCE' as const, content: '이슈 목록은 표 대신 담당자만 붙인 짧은 목록으로 보여 준다' },
@@ -52,20 +60,21 @@ describe('memoryItemSchema', () => {
   });
 });
 
-describe('subagentMemorySuffix (WP-55 판정 13)', () => {
+describe('subagentMemorySuffix', () => {
   it('꺼짐·구 API → 빈 문자열(하위 에이전트엔 꺼짐 줄을 붙이지 않는다)', () => {
-    expect(subagentMemorySuffix(formatMemoryBlock(M, false), false)).toBe('');
-    expect(subagentMemorySuffix(formatMemoryBlock(M, null), null)).toBe('');
-    expect(subagentMemorySuffix(formatMemoryBlock([], undefined), undefined)).toBe('');
+    expect(subagentMemorySuffix(formatMemoryBlock(M, false), false, true)).toBe('');
+    expect(subagentMemorySuffix(formatMemoryBlock(M, null), null, true)).toBe('');
+    expect(subagentMemorySuffix(formatMemoryBlock([], undefined), undefined, false)).toBe('');
   });
 
-  it('켜짐 + 0개 → 빈 문자열', () => {
-    expect(subagentMemorySuffix(formatMemoryBlock([], true), true)).toBe('');
+  it('켜짐 + 0개 → 빈 문자열(오늘 줄만 있는 블록도 하위 에이전트엔 싣지 않는다)', () => {
+    expect(subagentMemorySuffix(formatMemoryBlock([], true), true, false)).toBe('');
+    expect(subagentMemorySuffix(formatMemoryBlock([], true, { today: '2026-10-14' }), true, false)).toBe('');
   });
 
   it('켜짐 + N개 → 빈 줄 하나 뒤에 같은 블록', () => {
     const block = formatMemoryBlock(M, true);
-    expect(subagentMemorySuffix(block, true)).toBe(`\n\n${block}`);
+    expect(subagentMemorySuffix(block, true, true)).toBe(`\n\n${block}`);
   });
 });
 
@@ -105,5 +114,47 @@ describe('범위 (WP-379)', () => {
     expect(memoryItemSchema.safeParse({ id: 1, kind: 'PREFERENCE', content: 'a', scope: null }).success).toBe(true);
     expect(memoryItemSchema.safeParse({ id: 1, kind: 'PREFERENCE', content: 'a', scope: 'MAIL' }).success).toBe(true);
     expect(memoryItemSchema.safeParse({ id: 1, kind: 'PREFERENCE', content: 'a', scope: 'CONTACTS' }).success).toBe(false);
+  });
+});
+
+describe('기한·오늘 (WP-380)', () => {
+  it('기한이 있으면 줄 끝에 (월/일까지) — 기준 연도와 다르면 연도까지', () => {
+    expect(memoryLine({ id: 3, kind: 'CONTEXT', content: '결제 모듈 집중', expiresOn: '2026-10-19' }, 2026)).toBe(
+      '- [#3 맥락] 결제 모듈 집중 (10/19까지)',
+    );
+    expect(memoryLine({ id: 3, kind: 'PREFERENCE', content: 'x', scope: 'ISSUE', expiresOn: '2027-01-05' }, 2026)).toBe(
+      '- [#3 선호·이슈] x (2027/1/5까지)',
+    );
+    expect(memoryLine({ id: 3, kind: 'PREFERENCE', content: 'x', expiresOn: null }, 2026)).toBe('- [#3 선호] x');
+  });
+
+  it('오늘 줄은 날짜와 요일', () => {
+    expect(todayLine('2026-10-14')).toBe('오늘: 2026-10-14 (수)');
+    expect(todayLine('2026-10-18')).toBe('오늘: 2026-10-18 (일)');
+  });
+
+  it('켜짐 + N개 + today → 지금 화면 안내 다음에 오늘 줄, 기한은 today 의 연도 기준', () => {
+    const block = formatMemoryBlock([{ id: 3, kind: 'CONTEXT', content: '결제 모듈 집중', expiresOn: '2026-10-19' }], true, {
+      app: null,
+      today: '2026-10-14',
+    });
+    expect(block.split('\n').slice(2)).toEqual([
+      `${MEMORY_SCOPE_NOTE} 지금 화면: 앱 없음(공통 메모리만 실렸다)`,
+      '오늘: 2026-10-14 (수)',
+      '- [#3 맥락] 결제 모듈 집중 (10/19까지)',
+    ]);
+  });
+
+  it('켜짐 + 0개 + today → 헤더·없음 안내·오늘 세 줄, today 가 없으면(구 API) 블록 없음', () => {
+    expect(formatMemoryBlock([], true, { app: 'MAIL', today: '2026-10-14' })).toBe(
+      ['## 사용자 메모리', '아직 저장된 메모리가 없다. 지금 화면: 메일', '오늘: 2026-10-14 (수)'].join('\n'),
+    );
+    expect(formatMemoryBlock([], true, { app: 'MAIL' })).toBe('');
+  });
+
+  it('memoryItemSchema: expiresOn 은 yyyy-MM-dd 이거나 없음/null, 그 밖은 항목 거절', () => {
+    expect(memoryItemSchema.safeParse({ id: 1, kind: 'PREFERENCE', content: 'a', expiresOn: '2026-10-19' }).success).toBe(true);
+    expect(memoryItemSchema.safeParse({ id: 1, kind: 'PREFERENCE', content: 'a', expiresOn: null }).success).toBe(true);
+    expect(memoryItemSchema.safeParse({ id: 1, kind: 'PREFERENCE', content: 'a', expiresOn: '10/19' }).success).toBe(false);
   });
 });

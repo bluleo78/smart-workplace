@@ -166,6 +166,9 @@ export function toMemoryBlock(m: MemoryEventDto): MemoryBlock {
     // WP-379: 범위는 앱일 때만(null = 공통 → 키 없음) — 서버 블록(NON_NULL)과 같은 모양이라 이력 복원과 라이브가 같다.
     ...(m.scope ? { scope: m.scope } : {}),
     ...(m.previousScope ? { previousScope: m.previousScope } : {}),
+    // WP-380: 기한도 있을 때만(null = 없음 → 키 없음).
+    ...(m.expiresOn ? { expiresOn: m.expiresOn } : {}),
+    ...(m.previousExpiresOn ? { previousExpiresOn: m.previousExpiresOn } : {}),
     source: m.source ?? 'AI',
     undone: false,
   };

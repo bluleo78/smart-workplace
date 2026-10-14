@@ -95,6 +95,7 @@ private static final long ACCESS_TOKEN_TTL_MS = 30 * 60 * 1000L;
 |---|---|---|---|
 | 목록/테이블 컬럼 — 날짜만 | `formatDateOnly` | `2026-07-15` | zero-pad, 로케일 비의존. 기본 선택지 |
 | 좁은 칩/배지 — 월·일 | `formatDateMonthDay` | `7월 15일` | 무효 입력 시 `''` (세그먼트 생략용) |
+| 날짜 전용 값 — 월·일(다른 해면 연도) | `formatDateOnlyMonthDay` | `10월 24일` / `2027년 1월 5일` | 입력 `YYYY-MM-DD`(UTC 파싱 안 함), 연도 기준은 KST 오늘. AI 메모리 기한(WP-380). 무효 시 `''` |
 | 상세/헤더 — 한국어 표기 | `formatDateKorean` | `2026년 7월 15일` | 입력은 **날짜 전용** `YYYY-MM-DD` (타임존 왜곡 방지로 UTC 파싱 안 함) |
 | 로그/타임스탬프 — 초 단위 | `formatDateTime` | `2026-07-15 14:59:59` | 감사 로그 등 정밀도 필요한 곳 |
 | 툴팁/활동 — 분 단위 | `formatDateTimeMinute` | `2026-07-15 14:59` | hover 절대시간, 댓글/타임라인 |
@@ -109,7 +110,7 @@ private static final long ACCESS_TOKEN_TTL_MS = 30 * 60 * 1000L;
 | 숫자 천단위 | `formatNumber` | `9,007,199,254,740,991` | 날짜 아님(구문 기반 린트 규칙 대응) |
 | 로케일 날짜 | `formatDateShort` | `2026. 7. 15.` | 기존 표기 유지용(토큰·드라이브 휴지통). 신규 목록은 `formatDateOnly` 우선 |
 
-모든 포매터는 `null`/`undefined`/무효 입력 시 `'-'` 를 반환한다(`formatDateMonthDay` 만 `''`).
+모든 포매터는 `null`/`undefined`/무효 입력 시 `'-'` 를 반환한다(`formatDateMonthDay`·`formatDateOnlyMonthDay` 는 `''`).
 
 ### 기존 직접 호출 잔존분
 

@@ -9,6 +9,8 @@ import {
   collapsedRows,
   contentCountTone,
   defaultAddScope,
+  expiryPatch,
+  expiryQuickPicks,
   extractApiErrorScope,
   fullScopeKeys,
   groupMemories,
@@ -17,10 +19,12 @@ import {
   memoryFullMessage,
   memoryLength,
   memoryNoun,
+  purgeDateKey,
   SCOPE_LABEL,
   scopeDescription,
   scopeKeyOf,
   UNDO_FULL_MESSAGE,
+  wasExpiredAtUndo,
 } from './aiMemory';
 
 /** 서버 ErrorResponse 를 실은 axios 오류. */
@@ -108,6 +112,11 @@ describe('설정 묶음 (WP-379)', () => {
     expect(groups.every((g) => g.expired.length === 0)).toBe(true);
   });
 
+  it('모르는 범위 값(신 서버)은 묶음에서 뺀다', () => {
+    const unknown = { ...mem(3), scope: 'NEWAPP' as unknown as AiMemoryItem['scope'] };
+    expect(groupMemories([unknown, mem(2)]).map((g) => [g.key, g.active.length])).toEqual([['COMMON', 1]]);
+  });
+
   it('가득 찬 범위 — 묶음의 유효 행 수가 한도 이상', () => {
     const groups = groupMemories([...Array.from({ length: 50 }, (_, i) => mem(i + 1)), mem(100, 'ISSUE')]);
     expect([...fullScopeKeys(groups, 50)]).toEqual(['COMMON']);
@@ -129,5 +138,57 @@ describe('설정 묶음 (WP-379)', () => {
   it('묶음 설명', () => {
     expect(scopeDescription('COMMON')).toBe('모든 AI 대화에 반영돼요');
     expect(scopeDescription('DRIVE')).toBe('드라이브 화면의 AI 대화에만 반영돼요');
+  });
+});
+
+describe('기한 (WP-380)', () => {
+  it('만료 행은 묶음 끝으로 — 한도 계산(active)에서 빠진다', () => {
+    const rows = [
+      { ...mem(5), expired: true, expiresOn: '2026-10-10' },
+      { ...mem(4), expiresOn: '2026-10-24', expired: false },
+      mem(3),
+    ];
+    const [g] = groupMemories(rows);
+    expect(g.active.map((m) => m.id)).toEqual([4, 3]);
+    expect(g.expired.map((m) => m.id)).toEqual([5]);
+    expect(fullScopeKeys([g], 2).has('COMMON')).toBe(true);
+    expect(fullScopeKeys([g], 3).has('COMMON')).toBe(false);
+  });
+
+  it('만료 행만 있는 범위도 묶음을 보인다', () => {
+    expect(groupMemories([{ ...mem(1, 'MAIL'), expired: true, expiresOn: '2026-10-01' }]).map((g) => g.key)).toEqual(['MAIL']);
+  });
+
+  it('자동 삭제일 = 기한 + 31일(10/10 → 11/10)', () => {
+    expect(purgeDateKey('2026-10-10')).toBe('2026-11-10');
+    expect(purgeDateKey('2026-12-15')).toBe('2027-01-15');
+  });
+
+  it('빠른 선택 — 기한 없음(편집·추가만)·다음 주·한 달 뒤', () => {
+    expect(expiryQuickPicks('2026-10-14', true)).toEqual([
+      { key: 'none', label: '기한 없음', value: null },
+      { key: 'next-week', label: '다음 주', value: '2026-10-21' },
+      { key: 'next-month', label: '한 달 뒤', value: '2026-11-14' },
+    ]);
+    expect(expiryQuickPicks('2026-01-31', false).map((q) => q.value)).toEqual(['2026-02-07', '2026-02-28']);
+  });
+
+  it('기한 바꾸기 본문 — 같으면 없음, 지정이면 expiresOn, 없애면 clearExpiry', () => {
+    expect(expiryPatch('2026-10-24', '2026-10-24')).toEqual({});
+    expect(expiryPatch(null, '2026-10-24')).toEqual({ expiresOn: '2026-10-24' });
+    expect(expiryPatch('2026-10-24', null)).toEqual({ clearExpiry: true });
+  });
+});
+
+describe('설정 지움 되돌리기의 기한 판정 (WP-380)', () => {
+  it('되돌리기를 누른 날(KST)보다 기한이 앞서면 지난 것 — 다시 만들지 않는다', () => {
+    expect(wasExpiredAtUndo('2026-10-13', '2026-10-14')).toBe(true);
+  });
+
+  it('기한 당일·이후·기한 없음은 되돌릴 수 있다', () => {
+    expect(wasExpiredAtUndo('2026-10-14', '2026-10-14')).toBe(false);
+    expect(wasExpiredAtUndo('2026-10-20', '2026-10-14')).toBe(false);
+    expect(wasExpiredAtUndo(null, '2026-10-14')).toBe(false);
+    expect(wasExpiredAtUndo(undefined, '2026-10-14')).toBe(false);
   });
 });

@@ -4,6 +4,7 @@ import static com.workplace.jooq.Tables.AI_MEMORY;
 
 import com.workplace.jooq.tables.records.AiMemoryRecord;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -24,6 +25,9 @@ import org.springframework.stereotype.Repository;
  *
  * <p>WP-379: scope(null = 공통, 아니면 앱 하나)를 다룬다. 범위 조건은 {@link #inScope} 로만 만든다 — 공통은 {@code IS NULL}
  * 이어야 하는데 {@code eq(null)} 은 아무 행도 맞지 않는 {@code = NULL} 이 될 수 있다.
+ *
+ * <p>WP-380: expires_on(null = 기한 없음). 한도·주입은 유효 행(기한 없음 또는 오늘 이후)만 센다 — 조건은 {@link #active} 로만
+ * 만든다. 정리 배치의 {@link #deleteExpiredBefore} 만 user_id 없이 테넌트 전체(RLS)를 지운다.
  */
 @Repository
 @RequiredArgsConstructor
@@ -40,7 +44,7 @@ public class AiMemoryRepository {
 
   private final DSLContext dsl;
 
-  /** 메모리 1건. scope 는 null = 공통(WP-379). */
+  /** 메모리 1건. scope 는 null = 공통(WP-379), expiresOn 은 null = 기한 없음(WP-380). */
   public record Row(
       long id,
       String kind,
@@ -49,11 +53,17 @@ public class AiMemoryRepository {
       UUID sourceSessionId,
       Instant createdAt,
       Instant updatedAt,
-      String scope) {}
+      String scope,
+      LocalDate expiresOn) {}
 
   /** 범위 조건 — null 은 공통(IS NULL). */
   private static Condition inScope(String scope) {
     return scope == null ? AI_MEMORY.SCOPE.isNull() : AI_MEMORY.SCOPE.eq(scope);
+  }
+
+  /** 유효 조건 — 기한 없음 또는 기한 ≥ 오늘(당일까지 유효). */
+  private static Condition active(LocalDate today) {
+    return AI_MEMORY.EXPIRES_ON.isNull().or(AI_MEMORY.EXPIRES_ON.ge(today));
   }
 
   /** updated_at 최신순(같으면 id 큰 것 먼저) 최대 limit 건 — 범위와 무관한 설정 목록(웹이 묶는다)·테스트 조회용. */
@@ -79,16 +89,24 @@ public class AiMemoryRepository {
     return dsl.fetchCount(AI_MEMORY, AI_MEMORY.USER_ID.eq(userId));
   }
 
-  /** 한 범위(null = 공통)의 본인 메모리 개수 — 범위마다 상한(50) 검사용(인덱스 ai_memory_user_scope_idx). */
-  public int countInScope(long userId, String scope) {
-    return dsl.fetchCount(AI_MEMORY, AI_MEMORY.USER_ID.eq(userId).and(inScope(scope)));
+  /**
+   * 한 범위(null = 공통)의 유효 메모리 개수 — 범위마다 상한(50) 검사용(인덱스 ai_memory_user_scope_idx). 만료 행은 세지
+   * 않는다(WP-380).
+   */
+  public int countInScope(long userId, String scope, LocalDate today) {
+    return dsl.fetchCount(
+        AI_MEMORY, AI_MEMORY.USER_ID.eq(userId).and(inScope(scope)).and(active(today)));
   }
 
-  /** 한 범위(null = 공통)의 최신순 최대 limit 건 — 채팅·다른 진입점 주입용(인덱스 ai_memory_user_scope_idx). */
-  public List<Row> listInScope(long userId, String scope, int limit) {
+  /**
+   * 한 범위(null = 공통)의 유효 행 최신순 최대 limit 건 — 채팅·다른 진입점 주입용(인덱스 ai_memory_user_scope_idx). 만료 행은 싣지
+   * 않는다(WP-380).
+   */
+  public List<Row> listInScope(long userId, String scope, int limit, LocalDate today) {
     return dsl.selectFrom(AI_MEMORY)
         .where(AI_MEMORY.USER_ID.eq(userId))
         .and(inScope(scope))
+        .and(active(today))
         .orderBy(AI_MEMORY.UPDATED_AT.desc(), AI_MEMORY.ID.desc())
         .limit(limit)
         .fetch(AiMemoryRepository::toRow);
@@ -106,12 +124,24 @@ public class AiMemoryRepository {
     return insert(userId, kind, content, source, sourceSessionId, null);
   }
 
-  /** 메모리 1건 저장 후 저장된 행을 돌려준다(상한 검사는 호출자가 잠금 안에서 한다). */
+  /** 기한 없는 메모리 1건 저장(기존 호출부·테스트 호환). */
   public Row insert(
       long userId, String kind, String content, String source, UUID sourceSessionId, String scope) {
+    return insert(userId, kind, content, source, sourceSessionId, scope, null);
+  }
+
+  /** 메모리 1건 저장 후 저장된 행을 돌려준다(상한·기한 검사는 호출자가 잠금 안에서 한다). */
+  public Row insert(
+      long userId,
+      String kind,
+      String content,
+      String source,
+      UUID sourceSessionId,
+      String scope,
+      LocalDate expiresOn) {
     return toRow(
         dsl.insertInto(AI_MEMORY)
-            .set(newRecord(userId, kind, content, source, sourceSessionId, scope))
+            .set(newRecord(userId, kind, content, source, sourceSessionId, scope, expiresOn))
             .returning()
             .fetchOne());
   }
@@ -128,9 +158,10 @@ public class AiMemoryRepository {
       String content,
       String source,
       UUID sourceSessionId,
-      String scope) {
+      String scope,
+      LocalDate expiresOn) {
     if (id <= 0 || id > lastIssued(dsl, ID_SEQUENCE)) return Optional.empty();
-    AiMemoryRecord r = newRecord(userId, kind, content, source, sourceSessionId, scope);
+    AiMemoryRecord r = newRecord(userId, kind, content, source, sourceSessionId, scope, expiresOn);
     r.setId(id);
     return dsl.insertInto(AI_MEMORY)
         .set(r)
@@ -156,10 +187,16 @@ public class AiMemoryRepository {
 
   /**
    * 저장할 값만 채운 레코드 — insert·insertWithId 공용. 채운 필드만 INSERT 에 실리므로(changed 플래그) tenant_id 는 컬럼
-   * DEFAULT(GUC)가 채운다. scope 는 null 이어도 명시적으로 넣는다(공통).
+   * DEFAULT(GUC)가 채운다. scope·expiresOn 은 null 이어도 명시적으로 넣는다(공통·기한 없음).
    */
   private AiMemoryRecord newRecord(
-      long userId, String kind, String content, String source, UUID sourceSessionId, String scope) {
+      long userId,
+      String kind,
+      String content,
+      String source,
+      UUID sourceSessionId,
+      String scope,
+      LocalDate expiresOn) {
     OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
     AiMemoryRecord r = dsl.newRecord(AI_MEMORY);
     r.setUserId(userId);
@@ -168,17 +205,20 @@ public class AiMemoryRepository {
     r.setSource(source);
     r.setSourceSessionId(sourceSessionId);
     r.setScope(scope);
+    r.setExpiresOn(expiresOn);
     r.setCreatedAt(now);
     r.setUpdatedAt(now);
     return r;
   }
 
-  /** 종류·내용·범위를 바꾸고 맨 위로 올린다(updated_at 갱신) — 없거나 남의 것이면 empty. */
-  public Optional<Row> update(long userId, long id, String kind, String content, String scope) {
+  /** 종류·내용·범위·기한을 바꾸고 맨 위로 올린다(updated_at 갱신) — 없거나 남의 것이면 empty. */
+  public Optional<Row> update(
+      long userId, long id, String kind, String content, String scope, LocalDate expiresOn) {
     return dsl.update(AI_MEMORY)
         .set(AI_MEMORY.KIND, kind)
         .set(AI_MEMORY.CONTENT, content)
         .set(AI_MEMORY.SCOPE, scope)
+        .set(AI_MEMORY.EXPIRES_ON, expiresOn)
         .set(AI_MEMORY.UPDATED_AT, OffsetDateTime.now(ZoneOffset.UTC))
         .where(AI_MEMORY.ID.eq(id))
         .and(AI_MEMORY.USER_ID.eq(userId))
@@ -202,6 +242,14 @@ public class AiMemoryRepository {
     return dsl.deleteFrom(AI_MEMORY).where(AI_MEMORY.USER_ID.eq(userId)).execute();
   }
 
+  /**
+   * 정리 배치(WP-380) — 기한이 cutoff 보다 앞선 행을 지운다(테넌트 안 모든 사용자). 테넌트는 RLS(GUC)가 거르므로 TenantScopedRunner
+   * 트랜잭션 안에서만 부른다. 부분 인덱스 ai_memory_expires_idx 를 탄다.
+   */
+  public int deleteExpiredBefore(LocalDate cutoff) {
+    return dsl.deleteFrom(AI_MEMORY).where(AI_MEMORY.EXPIRES_ON.lt(cutoff)).execute();
+  }
+
   private static Row toRow(AiMemoryRecord r) {
     return new Row(
         r.getId(),
@@ -211,6 +259,7 @@ public class AiMemoryRepository {
         r.getSourceSessionId(),
         r.getCreatedAt().toInstant(),
         r.getUpdatedAt().toInstant(),
-        r.getScope());
+        r.getScope(),
+        r.getExpiresOn());
   }
 }

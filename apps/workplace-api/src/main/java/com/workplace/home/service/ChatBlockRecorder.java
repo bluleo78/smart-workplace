@@ -68,6 +68,8 @@ class ChatBlockRecorder {
    *
    * <p>WP-379: scope(결과의 범위)·previousScope(updated 의 이전 범위)는 앱 범위일 때만 남는다 — null 은 공통이라 JSON 에서
    * 빠지고, 필드가 없는 구 블록과 같은 해석이 된다(판정 6).
+   *
+   * <p>WP-380: expiresOn·previousExpiresOn(yyyy-MM-dd, 없으면 빠짐 = 기한 없음 — 구 블록과 같은 해석).
    */
   record Memory(
       String action,
@@ -79,7 +81,9 @@ class ChatBlockRecorder {
       String source,
       boolean undone,
       @JsonInclude(JsonInclude.Include.NON_NULL) String scope,
-      @JsonInclude(JsonInclude.Include.NON_NULL) String previousScope)
+      @JsonInclude(JsonInclude.Include.NON_NULL) String previousScope,
+      @JsonInclude(JsonInclude.Include.NON_NULL) String expiresOn,
+      @JsonInclude(JsonInclude.Include.NON_NULL) String previousExpiresOn)
       implements Block {
     private static final Set<String> ACTIONS = Set.of("saved", "updated", "forgotten");
 
@@ -107,6 +111,8 @@ class ChatBlockRecorder {
       if ("updated".equals(action) && (!prev.isTextual() || prev.asText().isBlank())) return null;
       if (!isScopeOrAbsent(m.path("scope")) || !isScopeOrAbsent(m.path("previousScope")))
         return null;
+      if (!isDateOrAbsent(m.path("expiresOn")) || !isDateOrAbsent(m.path("previousExpiresOn")))
+        return null;
       String source =
           AiMemoryService.SOURCE_USER.equals(m.path("source").asText())
               ? AiMemoryService.SOURCE_USER
@@ -122,12 +128,23 @@ class ChatBlockRecorder {
           source,
           false,
           textOrNull(m.path("scope")),
-          "updated".equals(action) ? textOrNull(m.path("previousScope")) : null);
+          "updated".equals(action) ? textOrNull(m.path("previousScope")) : null,
+          textOrNull(m.path("expiresOn")),
+          "updated".equals(action) ? textOrNull(m.path("previousExpiresOn")) : null);
     }
 
     /** 범위 값이 없거나(키 없음·null = 공통) 앱 6개 중 하나인가. */
     private static boolean isScopeOrAbsent(JsonNode n) {
       return n.isMissingNode() || n.isNull() || (n.isTextual() && AiMemoryScope.isApp(n.asText()));
+    }
+
+    /**
+     * 기한 값이 없거나(키 없음·null) 연도 네 자리 yyyy-MM-dd 의 실제 날짜인가(요청 기한 검증과 같은 규칙) — 틀린 값이면 되돌리기가 400 으로 막히므로
+     * 줄을 만들지 않는다.
+     */
+    private static boolean isDateOrAbsent(JsonNode n) {
+      if (n.isMissingNode() || n.isNull()) return true;
+      return n.isTextual() && AiMemoryService.isStrictDate(n.asText());
     }
 
     private static String textOrNull(JsonNode n) {

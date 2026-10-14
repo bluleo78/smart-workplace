@@ -6,7 +6,7 @@
 import type { MEMORY_TOOL_NAMES, McpTool } from '@smart-workplace/mcp-tools-shared';
 import { z } from 'zod';
 
-import { memoryKindSchema as kindSchema, memoryScopeSchema } from '../agent/memory-block.js';
+import { memoryDateSchema, memoryKindSchema as kindSchema, memoryScopeSchema } from '../agent/memory-block.js';
 import type { AiMemoryDto, WorkplaceApiClient } from '../clients/workplace-api.js';
 
 /** 공유 목록에 있는 메모리 도구 이름 — 아래 도구 정의의 이름이 목록에서 벗어나면 타입 오류가 난다. */
@@ -24,10 +24,16 @@ const scopeInput = memoryScopeSchema.describe(
   '특정 앱의 화면·목록·형식·업무에만 해당하면 그 앱(ISSUE 이슈·WIKI 노트·MAIL 메일·DRIVE 드라이브·MESSAGING 메신저·CALENDAR 캘린더). 말투·언어·역할·팀처럼 어디서나 통하면 생략(공통). 애매하면 생략.',
 );
 
+// WP-380: 기한 — 기간이 드러날 때만. 그날(포함)까지 유효.
+const expiresOnInput = memoryDateSchema.describe(
+  '기간이 드러난 선호·맥락만("이번 주", "이번 달", "출장 중", "○일까지") — 그날(포함)까지 유효한 날짜 yyyy-MM-dd. 블록의 "오늘:" 줄로 계산한다(이번 주 = 이번 주 일요일). 기간이 불분명하면 생략.',
+);
+
 export const rememberMemoryInput = z.object({
   kind: kindSchema.describe('PREFERENCE: 사용자 교정·선호 / CONTEXT: 오래 유지될 업무 맥락(팀·역할·주로 보는 프로젝트)'),
   content: contentSchema,
   scope: scopeInput.optional(),
+  expiresOn: expiresOnInput.optional(),
 });
 export const updateMemoryInput = z.object({
   memoryId: memoryIdSchema,
@@ -37,6 +43,8 @@ export const updateMemoryInput = z.object({
     .enum([...memoryScopeSchema.options, 'COMMON'])
     .optional()
     .describe("범위를 바꿀 때만 — 앱으로 옮기면 그 앱, 모든 곳에 적용하려면 'COMMON'. 바꾸지 않으면 생략."),
+  expiresOn: expiresOnInput.optional(),
+  clearExpiry: z.boolean().optional().describe('true 면 기한을 없앤다(사용자가 계속 기억하라고 할 때). expiresOn 과 함께 쓰지 않는다.'),
 });
 export const forgetMemoryInput = z.object({ memoryId: memoryIdSchema });
 
@@ -55,6 +63,8 @@ export const memoryEventSchema = z.object({
   source: z.enum(['AI', 'USER']).optional(),
   scope: memoryScopeSchema.nullish(),
   previousScope: memoryScopeSchema.nullish(),
+  expiresOn: memoryDateSchema.nullish(),
+  previousExpiresOn: memoryDateSchema.nullish(),
 });
 export type MemoryEvent = z.infer<typeof memoryEventSchema>;
 
@@ -81,6 +91,11 @@ function eventOf(action: MemoryEvent['action'], m: AiMemoryDto, withPrevious = f
     e.scope = m.scope;
     if (withPrevious) e.previousScope = m.previousScope ?? null;
   }
+  // WP-380: 기한도 같은 규칙 — 응답에 expiresOn 키가 있을 때만(새 API), 이전 기한은 없으면 null.
+  if (m.expiresOn !== undefined) {
+    e.expiresOn = m.expiresOn;
+    if (withPrevious) e.previousExpiresOn = m.previousExpiresOn ?? null;
+  }
   return JSON.stringify(e);
 }
 
@@ -105,13 +120,16 @@ export function buildMemoryTools(client: WorkplaceApiClient, onBehalfOfId: numbe
           source: 'AI',
           ...(homeSessionId ? { sessionId: homeSessionId } : {}),
           ...(p.scope ? { scope: p.scope } : {}),
+          ...(p.expiresOn ? { expiresOn: p.expiresOn } : {}),
         });
         return eventOf('saved', m);
       },
     },
     {
       name: 'update_memory' satisfies MemoryToolName,
-      description: '이미 있는 메모리(블록의 #번호)를 새 내용으로 고칩니다. 같은 주제를 다시 교정받았을 때 새로 저장하지 말고 이 도구를 씁니다.',
+      description:
+        '이미 있는 메모리(블록의 #번호)를 새 내용으로 고칩니다. 같은 주제를 다시 교정받았을 때 새로 저장하지 말고 이 도구를 씁니다.' +
+        ' 기한을 바꾸거나(expiresOn) 없앨(clearExpiry) 때도 씁니다.',
       inputSchema: updateMemoryInput,
       async handler(args) {
         const p = updateMemoryInput.parse(args);
@@ -119,6 +137,8 @@ export function buildMemoryTools(client: WorkplaceApiClient, onBehalfOfId: numbe
           content: p.content,
           ...(p.kind ? { kind: p.kind } : {}),
           ...(p.scope ? { scope: p.scope === 'COMMON' ? null : p.scope } : {}),
+          // API 는 expiresOn 과 clearExpiry 를 함께 받으면 400 — 둘 다 오면 없애기(clearExpiry)를 우선한다.
+          ...(p.clearExpiry ? { clearExpiry: true } : p.expiresOn ? { expiresOn: p.expiresOn } : {}),
         });
         return eventOf('updated', m, true);
       },

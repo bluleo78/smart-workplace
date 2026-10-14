@@ -67,6 +67,13 @@ describe('chatSchema', () => {
     expect(chatSchema.parse(validBody()).app).toBeUndefined();
     expect(chatSchema.parse(validBody({ app: 'CONTACTS' })).app).toBeNull();
   });
+  it('WP-380: today 는 yyyy-MM-dd 면 보존, 없으면 undefined, 틀리면 null(채팅은 막지 않는다) — 메모리 expiresOn 보존', () => {
+    expect(chatSchema.parse(validBody({ today: '2026-10-14' })).today).toBe('2026-10-14');
+    expect(chatSchema.parse(validBody()).today).toBeUndefined();
+    expect(chatSchema.parse(validBody({ today: '10/14' })).today).toBeNull();
+    const memories = [{ id: 12, kind: 'PREFERENCE', content: '짧게', expiresOn: '2026-10-19' }];
+    expect(chatSchema.parse(validBody({ memories, memoryEnabled: true })).memories.items).toEqual(memories);
+  });
 
   it('WP-379: 메모리 항목의 scope 를 보존한다', () => {
     const memories = [{ id: 12, kind: 'PREFERENCE', content: '짧게', scope: 'ISSUE' }];

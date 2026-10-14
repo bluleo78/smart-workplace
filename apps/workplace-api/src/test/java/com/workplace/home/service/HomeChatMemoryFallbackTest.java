@@ -50,13 +50,20 @@ class HomeChatMemoryFallbackTest {
     assertThat(HomeChatService.memoriesOrUnavailable(() -> ok, 7L)).isSameAs(ok);
   }
 
+  /** 꺼짐은 0, 켜짐 + 0개는 빈 블록(머리·안내·오늘 줄) 몫, 그 밖에는 머리 + 줄마다 내용과 접두. */
   @Test
-  void 블록_추정은_빈_목록이면_0_이고_줄마다_내용과_접두를_더한다() {
-    assertThat(AiMemoryService.estimateBlockTokens(List.of())).isZero();
+  void 블록_추정은_꺼짐이면_0_빈_목록이면_빈_블록_몫_줄마다_내용과_접두를_더한다() {
+    assertThat(AiMemoryService.estimateBlockTokens(AiMemoryService.ChatMemories.DISABLED)).isZero();
+    assertThat(
+            AiMemoryService.estimateBlockTokens(new AiMemoryService.ChatMemories(true, List.of())))
+        .isEqualTo(AiMemoryService.EMPTY_BLOCK_TOKENS);
     assertThat(
             AiMemoryService.estimateBlockTokens(
-                List.of(
-                    new ChatMemory(1, "PREFERENCE", "가나다"), new ChatMemory(2, "CONTEXT", "abcd"))))
+                new AiMemoryService.ChatMemories(
+                    true,
+                    List.of(
+                        new ChatMemory(1, "PREFERENCE", "가나다"),
+                        new ChatMemory(2, "CONTEXT", "abcd")))))
         .isEqualTo(
             AiMemoryService.BLOCK_HEADER_TOKENS
                 + (3 + AiMemoryService.LINE_OVERHEAD_TOKENS)
@@ -128,5 +135,37 @@ class HomeChatMemoryFallbackTest {
         .contains("{\"id\":12,\"kind\":\"PREFERENCE\",\"content\":\"짧게\",\"scope\":\"ISSUE\"}")
         .contains("{\"id\":9,\"kind\":\"CONTEXT\",\"content\":\"백엔드 팀\"}")
         .contains("\"app\":\"ISSUE\"");
+  }
+
+  /** WP-380: 기한은 있을 때만 싣고(문자열 yyyy-MM-dd — outbound 에 java.time 없음), today 를 함께 보낸다. */
+  @Test
+  void ai_agent_요청_JSON_에_기한과_오늘이_실린다() throws Exception {
+    ChatRequest req =
+        new ChatRequest(
+            "q",
+            List.of(),
+            5L,
+            1L,
+            null,
+            "m",
+            "NORMAL",
+            8,
+            60000,
+            null,
+            null,
+            null,
+            List.of(),
+            List.of(
+                new ChatMemory(12, "PREFERENCE", "짧게", null, "2026-10-24"),
+                new ChatMemory(9, "CONTEXT", "백엔드 팀")),
+            true,
+            null,
+            "2026-10-14");
+    String json = new ObjectMapper().writeValueAsString(req);
+    assertThat(json)
+        .contains(
+            "{\"id\":12,\"kind\":\"PREFERENCE\",\"content\":\"짧게\",\"expiresOn\":\"2026-10-24\"}")
+        .contains("{\"id\":9,\"kind\":\"CONTEXT\",\"content\":\"백엔드 팀\"}")
+        .contains("\"today\":\"2026-10-14\"");
   }
 }

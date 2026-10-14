@@ -366,6 +366,14 @@ describe('사용자 메모리 규칙 (WP-55)', () => {
       expect(p).toContain("scope 를 'COMMON'");
     });
 
+    it(`${name}: WP-380 기한 규칙(기간이 드러날 때만·오늘 줄로 계산·불분명하면 없이)과 가득 참 안내`, () => {
+      expect(p).toContain('기간이 드러날 때만 `expiresOn`');
+      expect(p).toContain('블록의 "오늘:" 줄로 계산한다');
+      expect(p).toContain('기간이 불분명하면 기한 없이 저장한다');
+      expect(p).toContain('clearExpiry');
+      expect(p).toContain('메모리가 가득 찼어요, 설정에서 정리해 주세요');
+    });
+
     it(`${name}: 저장할 것·저장하지 말 것·갱신/삭제·언어·꺼짐 규칙을 담는다`, () => {
       expect(p).toContain('## 사용자 메모리');
       for (const n of ['remember_memory', 'update_memory', 'forget_memory']) expect(p).toContain(n);

@@ -339,7 +339,7 @@ public class HomeChatService {
               sid,
               snapshot,
               spec,
-              AiMemoryService.estimateBlockTokens(memories.items()),
+              AiMemoryService.estimateBlockTokens(memories),
               () -> turn.emit("home.chat.progress", Map.of("label", COMPACTING_LABEL)));
       // userId: 요청 사용자 ID — ai-agent 의 MCP 도구가 assistantAgentId 아닌 실제 요청자 컨텍스트로
       // 드라이브·캘린더 등 사용자 귀속 리소스를 조회·수정하게 한다(refs #376).
@@ -365,10 +365,12 @@ public class HomeChatService {
               // WP-234: 첨부 읽기 도구 세션 바인딩 + 세션 첨부 목록.
               sid.toString(),
               attachments,
-              // WP-55·WP-379: 공통 + 지금 앱 메모리 + 사용 여부(꺼짐·조회 실패면 빈 목록 + false) + 지금 화면 앱.
+              // WP-55·WP-379·WP-380: 공통 + 지금 앱 메모리 + 사용 여부(꺼짐·조회 실패면 빈 목록 + false) + 지금 화면 앱 + 서버
+              // 오늘(기한 계산 근거).
               memories.items(),
               memories.enabled(),
-              memoryApp);
+              memoryApp,
+              memoryService.today());
       chatClient.composeStream(
           req,
           // delta: 블록 순서 기록 + 즉시 발행(done 본문은 ai-agent 가 준 fullText, 부분 저장은 누적 텍스트).

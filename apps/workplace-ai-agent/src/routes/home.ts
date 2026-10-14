@@ -9,7 +9,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 
 import { homeChatAttachmentSchema } from '../agent/home-attachments.js';
-import { memoryItemSchema, memoryScopeSchema } from '../agent/memory-block.js';
+import { memoryDateSchema, memoryItemSchema, memoryScopeSchema } from '../agent/memory-block.js';
 import { type RunAgentDeps } from '../agent/run-agent.js';
 import { runAiChatStream } from '../agent/run-ai-chat.js';
 import { homeContextSummaryInput, runHomeContextSummary } from '../agent/run-home-context-summary.js';
@@ -83,6 +83,8 @@ export const chatSchema = z
     memoryEnabled: z.boolean().nullish(),
     // WP-379: 지금 화면 앱 — 블록의 "지금 화면" 안내용(주입 필터는 API 가 이미 했다). 구 API 는 생략, 모르는 값은 null 로 받아 채팅을 막지 않는다.
     app: memoryScopeSchema.nullish().catch(null),
+    // WP-380: 서버 오늘(Asia/Seoul) — 블록의 오늘 줄. 구 API 는 생략, 형식이 틀리면 null(오늘 줄만 빠진다).
+    today: memoryDateSchema.nullish().catch(null),
   })
   .refine((d) => d.query.length > 0 || d.attachments.some((a) => a.current), {
     message: 'query 가 비어 있으면 이번 메시지 첨부가 있어야 합니다',

@@ -1653,6 +1653,20 @@ describe('runAiChatStream — 사용자 메모리 블록 (WP-55)', () => {
     return streamSpy.mock.calls[0][0] as RunnerInput;
   }
 
+  // run() 은 streamSpy 의 첫 호출을 읽으므로 한 테스트에 한 번만 부른다.
+  it('WP-380: today 가 있으면 지금 화면 안내 다음에 오늘 줄이 실린다', async () => {
+    const withToday = (await run({ memories, today: '2026-10-14' })).userMessage;
+    expect(withToday).toContain('지금 화면: 앱 없음(공통 메모리만 실렸다)\n오늘: 2026-10-14 (수)\n- [#12 선호]');
+  });
+
+  it('WP-380: 메모리 0개여도 today 가 있으면 오늘 블록이 앞에 붙지만 하위 에이전트 접미사는 없다', async () => {
+    const empty = await run({ today: '2026-10-14' });
+    expect(empty.userMessage).toBe(
+      '## 사용자 메모리\n아직 저장된 메모리가 없다. 지금 화면: 앱 없음(공통 메모리만 실렸다)\n오늘: 2026-10-14 (수)\n\n현재 요청: 내 할 일',
+    );
+    expect(empty.subagentPromptSuffix).toBe('');
+  });
+
   it('WP-379: app 과 범위가 블록에 실린다(지금 화면 안내 + 범위 줄)', async () => {
     const prompt = (
       await run({

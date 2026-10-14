@@ -66,3 +66,23 @@ test('범위 묶음과 범위 고르기가 넘치지 않고 터치 크기다', a
   expect(Math.round((await stableBox(page.getByTestId('ai-memory-edit-scope'))).height)).toBeGreaterThanOrEqual(44)
   await expectNoHorizontalOverflow(page)
 })
+
+// WP-380: 모바일 만료 행 — 링크가 넘치지 않고, 기한 연장은 바텀시트(기한 없음 버튼 없음)에서 고른다.
+test.describe('기한 (WP-380)', () => {
+  test.use({ timezoneId: 'Asia/Seoul' })
+
+  test('만료 행의 기한 연장은 바텀시트로 고르고 가로로 넘치지 않는다', async ({ authenticatedPage: page }) => {
+    await page.clock.setFixedTime(new Date('2026-10-14T03:00:00Z'))
+    const mock = await mockAiMemories(page, [
+      memoryItem(6, { content: '지난 출장 중에는 메일 답장을 짧게 한다', expiresOn: '2026-10-10', expired: true }),
+    ])
+    await openMemorySettings(page)
+    await expectNoHorizontalOverflow(page)
+    await page.getByTestId('ai-memory-extend').click()
+    await expect(page.getByTestId('ai-memory-extend-sheet')).toBeVisible()
+    await expect(page.getByTestId('ai-memory-extend-sheet-clear')).toHaveCount(0)
+    await page.getByTestId('ai-memory-extend-sheet-next-week').click()
+    await mock.updates.waitFor()
+    expect(mock.updates.lastBody()).toEqual({ expiresOn: '2026-10-21' })
+  })
+})
