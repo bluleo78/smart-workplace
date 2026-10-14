@@ -104,7 +104,7 @@ class DriveOverviewServiceTest {
         .thenReturn(new DriveContentSearchResponse(List.of(), false));
     when(assistantResolver.resolve(CALLER)).thenReturn(spec());
     List<AiMemoryLine> lines = List.of(new AiMemoryLine(4L, "PREFERENCE", "개요는 표로", "DRIVE", null));
-    when(memoryReader.readForEntry(CALLER, AiMemoryReader.DRIVE)).thenReturn(lines);
+    when(memoryReader.readForEntry(CALLER, AiMemoryReader.DRIVE, null)).thenReturn(lines);
 
     ArgumentCaptor<Object> bodyCaptor = ArgumentCaptor.forClass(Object.class);
     service.startOverview(CALLER, "매출", null);

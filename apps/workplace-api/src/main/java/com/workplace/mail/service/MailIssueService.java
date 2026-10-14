@@ -165,7 +165,13 @@ public class MailIssueService {
                 spec.model(),
                 MAX_TURNS,
                 spec.timeoutMs(),
-                memoryReader.readForEntry(callerId, AiMemoryReader.MAIL)));
+                // WP-383: 메일 제목으로 관련 메모리를 고른다(비면 고정 + 최신).
+                memoryReader.readForEntry(
+                    callerId,
+                    AiMemoryReader.MAIL,
+                    ctx.subject() == null || ctx.subject().isBlank()
+                        ? null
+                        : ctx.subject().strip())));
 
     // AI 추천 projectKey 가 후보에 없으면 무시(null) — 프론트가 개인 프로젝트로 폴백.
     String suggested =

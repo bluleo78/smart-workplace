@@ -582,7 +582,7 @@ class MailAiServiceTest extends IntegrationTestBase {
     long accountId = createAccount(userId, "mem@test.local", true);
     List<AiMemoryLine> lines =
         List.of(new AiMemoryLine(5L, "PREFERENCE", "메일은 존댓말로", "MAIL", null));
-    when(memoryReader.readForEntry(userId, AiMemoryReader.MAIL)).thenReturn(lines);
+    when(memoryReader.readForEntry(userId, AiMemoryReader.MAIL, null)).thenReturn(lines);
     when(mailClient.coachDraft(any())).thenReturn(new DraftCoachingResult(List.of(), "<p>개선</p>"));
 
     mailAiService.coachDraft(
@@ -603,13 +603,34 @@ class MailAiServiceTest extends IntegrationTestBase {
     long msgId = insertMessage(accountId, folderId, "mem-msg-1@test.local", "mem-thread-1");
     List<AiMemoryLine> lines =
         List.of(new AiMemoryLine(5L, "PREFERENCE", "메일은 존댓말로", "MAIL", null));
-    when(memoryReader.readForEntry(userId, AiMemoryReader.MAIL)).thenReturn(lines);
+    when(memoryReader.readForEntry(userId, AiMemoryReader.MAIL, "테스트 제목")).thenReturn(lines);
     when(mailClient.replyDraft(any())).thenReturn(new ReplyDraftResult("초안"));
 
     mailAiService.replyDraft(userId, msgId);
 
     ArgumentCaptor<ReplyDraftRequest> cap = ArgumentCaptor.forClass(ReplyDraftRequest.class);
     verify(mailClient).replyDraft(cap.capture());
+    assertThat(cap.getValue().memories()).isEqualTo(lines);
+  }
+
+  /** WP-383: 답장 코칭은 원메일 제목(+요약)으로 메모리를 고른다 — 새 메일이면 질의 없음(고정 + 최신). */
+  @Test
+  void coachDraft_답장이면_원메일_제목으로_메모리를_고른다() {
+    stubAssistant();
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = createAccount(userId, "mem3@test.local", true);
+    long folderId = folderRepo.ensureFolder(accountId, "INBOX").id();
+    long msgId = insertMessage(accountId, folderId, "mem-msg-3@test.local", "mem-thread-3");
+    List<AiMemoryLine> lines =
+        List.of(new AiMemoryLine(5L, "PREFERENCE", "메일은 존댓말로", "MAIL", null));
+    when(memoryReader.readForEntry(userId, AiMemoryReader.MAIL, "테스트 제목")).thenReturn(lines);
+    when(mailClient.coachDraft(any())).thenReturn(new DraftCoachingResult(List.of(), "<p>개선</p>"));
+
+    mailAiService.coachDraft(
+        userId, new MailDraftCoachingRequest(accountId, "<p>빨리</p>", "빨리", msgId));
+
+    ArgumentCaptor<DraftCoachingRequest> cap = ArgumentCaptor.forClass(DraftCoachingRequest.class);
+    verify(mailClient).coachDraft(cap.capture());
     assertThat(cap.getValue().memories()).isEqualTo(lines);
   }
 
@@ -634,7 +655,7 @@ class MailAiServiceTest extends IntegrationTestBase {
       List<AiMemoryLine> lines =
           List.of(new AiMemoryLine(5L, "PREFERENCE", "메일은 존댓말로", "MAIL", null));
       AtomicReference<Boolean> txActiveAtRead = new AtomicReference<>();
-      when(memoryReader.readForEntry(ids[0], AiMemoryReader.MAIL))
+      when(memoryReader.readForEntry(ids[0], AiMemoryReader.MAIL, null))
           .thenAnswer(
               inv -> {
                 txActiveAtRead.set(TransactionSynchronizationManager.isActualTransactionActive());

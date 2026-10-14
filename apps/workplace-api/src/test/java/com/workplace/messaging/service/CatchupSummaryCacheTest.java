@@ -90,4 +90,15 @@ class CatchupSummaryCacheTest {
   private static AiMemoryLine line(long id, String content, String scope) {
     return new AiMemoryLine(id, "PREFERENCE", content, scope, null);
   }
+
+  /** WP-383: 고정 여부도 지문에 든다 — 같은 내용이어도 고정이 바뀌면 블록 줄("·고정")이 달라 요약을 따로 만든다. */
+  @Test
+  void 고정이_다르면_지문도_다르다() {
+    assertThat(
+            CatchupSummaryCache.fingerprint(
+                List.of(new AiMemoryLine(1, "PREFERENCE", "a", null, null, true))))
+        .isNotEqualTo(
+            CatchupSummaryCache.fingerprint(
+                List.of(new AiMemoryLine(1, "PREFERENCE", "a", null, null))));
+  }
 }

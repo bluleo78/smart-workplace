@@ -204,7 +204,7 @@ class ChannelCatchupServiceTest extends IntegrationTestBase {
     long channelId = seedChannelWithMembers();
     long m1 = postByB(channelId, "배포 일정 공유합니다", null);
     long since = m1 - 1;
-    when(memoryReader.readForEntry(callerA, AiMemoryReader.MESSAGING))
+    when(memoryReader.readForEntry(callerA, AiMemoryReader.MESSAGING, null))
         .thenReturn(List.of(new AiMemoryLine(1L, "PREFERENCE", "요약은 세 줄로", "MESSAGING", null)));
     when(catchupClient.summarize(any()))
         .thenReturn(new CatchupSummarizeResult(List.of(), List.of()));
@@ -221,7 +221,7 @@ class ChannelCatchupServiceTest extends IntegrationTestBase {
         .containsExactly("요약은 세 줄로");
     assertThat(cap.getAllValues().get(1).memories()).isEmpty();
     // 캐시 키가 메모리 지문이라 캐시 확인 전에 매번 메모리를 읽는다.
-    verify(memoryReader, times(2)).readForEntry(callerA, AiMemoryReader.MESSAGING);
+    verify(memoryReader, times(2)).readForEntry(callerA, AiMemoryReader.MESSAGING, null);
   }
 
   /** 메모리가 없는 사용자끼리는 같은 채널·같은 미읽음 요약을 함께 쓴다 — 요약에 개인 메모리가 실리지 않았으니 나눠 써도 된다. */
@@ -243,9 +243,9 @@ class ChannelCatchupServiceTest extends IntegrationTestBase {
   void 메모리가_다른_두_사용자는_요약을_나눠_쓰지_않는다() {
     long channelId = seedChannelWithMembers();
     long m1 = postByB(channelId, "회의록 올렸어요", null);
-    when(memoryReader.readForEntry(callerA, AiMemoryReader.MESSAGING))
+    when(memoryReader.readForEntry(callerA, AiMemoryReader.MESSAGING, null))
         .thenReturn(List.of(new AiMemoryLine(1L, "PREFERENCE", "요약은 세 줄로", null, null)));
-    when(memoryReader.readForEntry(userC, AiMemoryReader.MESSAGING))
+    when(memoryReader.readForEntry(userC, AiMemoryReader.MESSAGING, null))
         .thenReturn(List.of(new AiMemoryLine(2L, "PREFERENCE", "요약은 표로", null, null)));
     when(catchupClient.summarize(any()))
         .thenReturn(new CatchupSummarizeResult(List.of(), List.of()));
@@ -266,13 +266,13 @@ class ChannelCatchupServiceTest extends IntegrationTestBase {
   void 메모리가_바뀌면_캐시를_쓰지_않고_다시_요약한다() {
     long channelId = seedChannelWithMembers();
     long m1 = postByB(channelId, "배포 일정 공유합니다", null);
-    when(memoryReader.readForEntry(callerA, AiMemoryReader.MESSAGING))
+    when(memoryReader.readForEntry(callerA, AiMemoryReader.MESSAGING, null))
         .thenReturn(List.of(new AiMemoryLine(1L, "PREFERENCE", "요약은 세 줄로", null, null)));
     when(catchupClient.summarize(any()))
         .thenReturn(new CatchupSummarizeResult(List.of(), List.of()));
     service.summarize(callerA, channelId, m1 - 1);
 
-    when(memoryReader.readForEntry(callerA, AiMemoryReader.MESSAGING))
+    when(memoryReader.readForEntry(callerA, AiMemoryReader.MESSAGING, null))
         .thenReturn(List.of(new AiMemoryLine(1L, "PREFERENCE", "요약은 다섯 줄로", null, null)));
     service.summarize(callerA, channelId, m1 - 1);
 
@@ -457,7 +457,7 @@ class ChannelCatchupServiceTest extends IntegrationTestBase {
                 });
     try {
       AtomicReference<Boolean> txActiveAtRead = new AtomicReference<>();
-      when(memoryReader.readForEntry(callerA, AiMemoryReader.MESSAGING))
+      when(memoryReader.readForEntry(callerA, AiMemoryReader.MESSAGING, null))
           .thenAnswer(
               inv -> {
                 txActiveAtRead.set(TransactionSynchronizationManager.isActualTransactionActive());

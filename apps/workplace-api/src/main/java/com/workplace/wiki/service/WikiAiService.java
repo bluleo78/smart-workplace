@@ -100,8 +100,12 @@ public class WikiAiService {
             () -> {
               // WP-381: 공통 + 노트 메모리(읽기 전용, 실패해도 빈 목록 — 작성은 그대로). 트랜잭션이 없는 펌프 스레드(권한 확인 뒤)에서
               // 읽는다 — 이유는 AiMemoryReader#readForEntry.
+              // WP-383: 지시문(draft 의 prompt)으로 관련 메모리를 고른다 — 없으면 고정 + 최신.
               List<AiMemoryLine> memories =
-                  memoryReader.readForEntry(callerId, AiMemoryReader.WIKI);
+                  memoryReader.readForEntry(
+                      callerId,
+                      AiMemoryReader.WIKI,
+                      req.prompt() == null || req.prompt().isBlank() ? null : req.prompt());
               AgentBody body =
                   new AgentBody(
                       req.action(),

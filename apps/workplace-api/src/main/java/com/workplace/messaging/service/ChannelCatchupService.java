@@ -83,8 +83,9 @@ public class ChannelCatchupService {
       return new ChannelCatchupResponse(0, List.of(), List.of(), List.of());
     }
     // WP-381: 요약에 싣는 요청자 메모리(공통 + 메신저). 캐시는 (메모리 지문, channelId, since, maxId) — 메모리가 같은 사람끼리만 요약을
-    // 함께 쓴다.
-    List<AiMemoryLine> memories = memoryReader.readForEntry(callerId, AiMemoryReader.MESSAGING);
+    // 함께 쓴다. WP-383: 질의 없음(고정 + 최신) — 스펙 3.5.
+    List<AiMemoryLine> memories =
+        memoryReader.readForEntry(callerId, AiMemoryReader.MESSAGING, null);
     CatchupSummarizeResult ai = cache.get(memories, channelId, since, snap.maxId());
     if (ai == null) {
       // caller 의 비서(개인 → 공용, 토큰 보유)로 요약한다. 예전엔 id 2 를 하드코딩해 운영에서 HUMAN 계정을 가리켜

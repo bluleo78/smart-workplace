@@ -77,7 +77,10 @@ public class CatchupSummaryCache {
         new Entry(value, clock.instant().plus(TTL)));
   }
 
-  /** 메모리 줄 목록의 지문 — 빈 목록이면 {@link #NO_MEMORY}, 아니면 줄마다 id·종류·내용·범위·기한을 차례로 넣은 SHA-256(16진). */
+  /**
+   * 메모리 줄 목록의 지문 — 빈 목록이면 {@link #NO_MEMORY}, 아니면 줄마다 id·종류·내용·범위·기한·고정(WP-383)을 차례로 넣은
+   * SHA-256(16진).
+   */
   static String fingerprint(List<AiMemoryLine> memories) {
     if (memories == null || memories.isEmpty()) {
       return NO_MEMORY;
@@ -89,6 +92,7 @@ public class CatchupSummaryCache {
       field(md, m.content());
       field(md, m.scope());
       field(md, m.expiresOn());
+      field(md, Boolean.TRUE.equals(m.pinned()) ? "1" : null);
     }
     return HexFormat.of().formatHex(md.digest());
   }

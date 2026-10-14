@@ -20,11 +20,11 @@ public class AiMemoryEntryReader implements AiMemoryReader {
 
   private final AiMemoryService memoryService;
 
-  /** 공통 + app 메모리를 새 읽기 트랜잭션으로 고른다. 꺼짐·조회 실패면 빈 목록(기능은 메모리 없이 진행). */
+  /** 공통 + app 메모리를 새 읽기 트랜잭션으로 고른다(queryText 로 관련도). 꺼짐·조회 실패면 빈 목록(기능은 메모리 없이 진행). */
   @Override
-  public List<AiMemoryLine> readForEntry(long userId, String app) {
+  public List<AiMemoryLine> readForEntry(long userId, String app, String queryText) {
     try {
-      AiMemoryService.ChatMemories m = memoryService.loadForEntry(userId, app, null);
+      AiMemoryService.ChatMemories m = memoryService.loadForEntry(userId, app, queryText);
       return m.enabled() ? m.items() : List.of();
     } catch (RuntimeException e) {
       // 인터럽트로 실패했으면 플래그만 되살려 이 스레드의 주인이 인터럽트 상태를 잃지 않게 하고, 다시 던지지는 않는다 — 메모리는 부가

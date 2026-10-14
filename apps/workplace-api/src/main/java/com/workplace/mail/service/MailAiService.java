@@ -3,6 +3,7 @@ package com.workplace.mail.service;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.ai.AiMemoryReader;
+import com.workplace.global.util.Texts;
 import com.workplace.mail.dto.CoachingNote;
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.dto.MailDraftCoaching;
@@ -175,7 +176,10 @@ public class MailAiService {
               requireEnabled(ctx);
               AssistantSpec spec = requireSpec(userId);
               return new TxInput(
-                  ctx.selfAddress(), spec, messageRepo.findThreadByIdAndUser(userId, messageId));
+                  ctx.selfAddress(),
+                  spec,
+                  messageRepo.findThreadByIdAndUser(userId, messageId),
+                  memoryQuery(ctx));
             });
     ReplyDraftResult r =
         mailClient.replyDraft(
@@ -186,7 +190,7 @@ public class MailAiService {
                 in.spec().model(),
                 MAX_TURNS,
                 in.spec().timeoutMs(),
-                memoryReader.readForEntry(userId, AiMemoryReader.MAIL)));
+                memoryReader.readForEntry(userId, AiMemoryReader.MAIL, in.memoryQuery())));
     return new MailReplyDraft(r.draftBody());
   }
 
@@ -216,7 +220,15 @@ public class MailAiService {
                   req.inReplyToMessageId() == null
                       ? List.of()
                       : messageRepo.findThreadByIdAndUser(userId, req.inReplyToMessageId());
-              return new TxInput(acct.emailAddress(), spec, thread);
+              // WP-383: 답장이면 원메일 제목 + 요약으로 메모리를 고른다(새 메일이면 질의 없음 — 고정 + 최신).
+              String memoryQuery =
+                  req.inReplyToMessageId() == null
+                      ? null
+                      : messageRepo
+                          .findAiContextByIdAndUser(userId, req.inReplyToMessageId())
+                          .map(MailAiService::memoryQuery)
+                          .orElse(null);
+              return new TxInput(acct.emailAddress(), spec, thread, memoryQuery);
             });
     DraftCoachingResult r =
         mailClient.coachDraft(
@@ -228,12 +240,32 @@ public class MailAiService {
                 in.spec().model(),
                 MAX_TURNS,
                 in.spec().timeoutMs(),
-                memoryReader.readForEntry(userId, AiMemoryReader.MAIL)));
+                memoryReader.readForEntry(userId, AiMemoryReader.MAIL, in.memoryQuery())));
     List<CoachingNote> notes =
         r.notes() == null
             ? List.of()
             : r.notes().stream().map(n -> new CoachingNote(n.dimension(), n.message())).toList();
     return new MailDraftCoaching(notes, nz(r.improvedBodyHtml()));
+  }
+
+  /** 메모리 고르기 질의 상한(WP-383) — 제목 + 요약 앞부분이면 관련도를 매기기에 충분하다. */
+  static final int MEMORY_QUERY_CHARS = 200;
+
+  /** 메일 → 메모리 질의 — 개인 요약이 있으면 그것을, 없으면 공용 요약을 제목 뒤에 붙인다. */
+  static String memoryQuery(AiContext ctx) {
+    String summary =
+        ctx.personalSummary() == null || ctx.personalSummary().isBlank()
+            ? ctx.summary()
+            : ctx.personalSummary();
+    return memoryQuery(ctx.subject(), summary);
+  }
+
+  /** 제목 + 요약 앞 200자(WP-383 판정 5). 둘 다 비면 null — 리더가 고정 + 최신으로 고른다. */
+  static String memoryQuery(String subject, String summary) {
+    String q =
+        ((subject == null ? "" : subject.strip()) + " " + (summary == null ? "" : summary.strip()))
+            .strip();
+    return q.isEmpty() ? null : Texts.headUtf16(q, MEMORY_QUERY_CHARS);
   }
 
   private void requireEnabled(AiContext ctx) {
@@ -258,5 +290,6 @@ public class MailAiService {
    * 답장 초안·초안 코칭의 트랜잭션 안 조회 결과 — 트랜잭션 밖 LLM 호출로 넘긴다. selfAddress 는 내 메일 주소(답장 초안은 그 메일의 수신 주소, 코칭은
    * 계정 주소).
    */
-  private record TxInput(String selfAddress, AssistantSpec spec, List<ThreadMessage> thread) {}
+  private record TxInput(
+      String selfAddress, AssistantSpec spec, List<ThreadMessage> thread, String memoryQuery) {}
 }
