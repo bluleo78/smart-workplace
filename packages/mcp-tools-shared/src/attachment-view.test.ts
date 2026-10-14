@@ -69,6 +69,48 @@ describe('pageBlocks', () => {
     expect(out[2]).toEqual({ type: 'text', text: expect.stringContaining('8쪽') });
   });
 
+  // 코드 리뷰: 쪽을 차례로 받으면 3쪽이 세 배 걸린다 — 한꺼번에 요청하되 결과는 요청 순서로 싣는다.
+  it('여러 쪽을 동시에 요청하고, 늦게 끝난 쪽이 있어도 결과는 요청 순서대로', async () => {
+    const started: number[] = [];
+    const release: Record<number, (v: FileBytes) => void> = {};
+    const fetch = (n: number) =>
+      new Promise<FileBytes>((resolve) => {
+        started.push(n);
+        release[n] = resolve;
+      });
+    const pending = pageBlocks('"a.pdf"', [3, 1, 2], fetch);
+    // 첫 쪽이 끝나기 전에 세 쪽 모두 요청이 나갔다.
+    await Promise.resolve();
+    expect(started).toEqual([3, 1, 2]);
+    release[2](png({ mimeType: 'image/jpeg' }));
+    release[1](png());
+    release[3](png({ pageCount: 9 }));
+    const out = (await pending) as McpContent[];
+    expect(out.filter((b) => b.type === 'text').map((b) => (b.type === 'text' ? b.text : ''))).toEqual([
+      '"a.pdf" 3쪽(전체 9쪽) (image/png, 4B)',
+      '"a.pdf" 1쪽 (image/png, 4B)',
+      '"a.pdf" 2쪽 (image/jpeg, 4B)',
+    ]);
+  });
+
+  it('일부 쪽만 실패하면 받은 쪽 이미지를 요청 순서로 싣고 실패 사유를 뒤에 붙이며, 실패한 장수만 예산을 되돌린다', async () => {
+    const budget = new ImageBudget(3);
+    const out = (await pageBlocks('"a.pdf"', [5, 9, 4], async (n) => {
+      if (n === 9) throw new Error('이 PDF 는 6쪽입니다.');
+      await new Promise((r) => setTimeout(r, n === 5 ? 5 : 0));
+      return png();
+    }, budget)) as McpContent[];
+    expect(out.map((b) => (b.type === 'text' ? b.text : b.type))).toEqual([
+      '"a.pdf" 5쪽 (image/png, 4B)',
+      'image',
+      '"a.pdf" 4쪽 (image/png, 4B)',
+      'image',
+      '"a.pdf" 9쪽: 이 PDF 는 6쪽입니다.',
+    ]);
+    expect(budget.take(1)).toBe(true);
+    expect(budget.take(1)).toBe(false);
+  });
+
   it('서버가 알려 준 전체 쪽수(X-Page-Count)를 설명에 붙인다', async () => {
     const out = (await pageBlocks('"보고서.pdf"', [2], async () => png({ pageCount: 6 }))) as McpContent[];
     expect(out[0]).toEqual({ type: 'text', text: '"보고서.pdf" 2쪽(전체 6쪽) (image/png, 4B)' });

@@ -98,7 +98,8 @@ function collapse(blocks: McpContent[]): McpToolResult {
 }
 
 /**
- * 페이지들을 차례로 받아 블록으로. 예산은 중복을 뺀 장수만큼 받기 전에 잡고, 실패한 쪽만큼 돌려놓는다(withImageBudget).
+ * 페이지들을 한꺼번에(병렬로) 받아 요청 순서대로 블록으로. 예산은 중복을 뺀 장수만큼 받기 전에 잡고, 실패한 쪽만큼 돌려놓는다(withImageBudget).
+ * 쪽마다 서버 왕복(캐시가 없으면 워커 렌더)이 있어 차례로 받으면 3쪽 요청이 세 배 걸린다 — 결과는 받은 순서가 아니라 요청 순서로 싣는다.
  * 서버 오류(범위 밖 400·손상 422·렌더 실패 503 등)는 던지지 않고 그 쪽의 사유를 text 로 돌려준다 — 모델이 범위를 고쳐 다시 부르게.
  * 일부 쪽만 실패하면 받은 쪽의 이미지 뒤에 실패 사유를 붙이고, 같은 사유는 쪽 번호를 묶어 한 줄로 쓴다(403·404·415 는 모든 쪽이 같다).
  */
@@ -110,18 +111,20 @@ export async function pageBlocks(
 ): Promise<McpToolResult> {
   const unique = [...new Set(pages)];
   return withImageBudget(budget, unique.length, async () => {
+    // allSettled — 한 쪽이 실패해도 나머지 쪽은 그대로 받는다. 결과 배열은 unique 와 같은 순서다.
+    const settled = await Promise.allSettled(unique.map((n) => fetch(n)));
     const blocks: McpContent[] = [];
-    // 사유 → 실패한 쪽 번호(삽입 순서 유지).
+    // 사유 → 실패한 쪽 번호(요청 순서 유지).
     const failures = new Map<string, number[]>();
-    for (const n of unique) {
-      try {
-        const v = await fetch(n);
-        blocks.push(...viewBlocks(`${label} ${n}쪽${v.pageCount ? `(전체 ${v.pageCount}쪽)` : ''}`, v));
-      } catch (e) {
-        const reason = viewErrorText(e);
+    settled.forEach((r, i) => {
+      const n = unique[i];
+      if (r.status === 'fulfilled') {
+        blocks.push(...viewBlocks(`${label} ${n}쪽${r.value.pageCount ? `(전체 ${r.value.pageCount}쪽)` : ''}`, r.value));
+      } else {
+        const reason = viewErrorText(r.reason);
         failures.set(reason, [...(failures.get(reason) ?? []), n]);
       }
-    }
+    });
     for (const [reason, failed] of failures) blocks.push({ type: 'text', text: `${label} ${failed.join('·')}쪽: ${reason}` });
     return collapse(blocks);
   });
