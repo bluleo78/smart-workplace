@@ -136,7 +136,7 @@ const FAKE_KEY = 'ak_FAKE_ABC'
 const PANE_PROPS = { title: 'genia-works 로그인', isFocused: true, bodyColumns: 80, placement: 'inline', scroll: { offset: 0, bodyRows: 10 }, view: {} } as const
 
 // 패널 테스트용 가짜 세계 — 스크립트(stdin 기록)·http.fetch·ui 바닥 이벤트. 서버는 절대 부르지 않는다.
-function loginWorld(on: any, answers: Record<string, { exitCode: number; stdout?: string; stderr?: string }>, fetchStatus = 200) {
+function loginWorld(on: any, answers: Record<string, { exitCode: number; stdout?: string; stderr?: string }>, fetchStatus: number | 'error' | 'hang' = 200) {
   const runs: { argv: string[]; stdin?: string }[] = []
   const fetches: { url: string; init: any }[] = []
   const shown: string[] = [] // 화면 밖으로 나간 문구(로그·토스트·상태 줄)
@@ -149,7 +149,9 @@ function loginWorld(on: any, answers: Record<string, { exitCode: number; stdout?
   })
   on('http.fetch', (_$: any, e: any) => {
     fetches.push({ url: e.url, init: e.init })
-    return { value: { status: fetchStatus, ok: fetchStatus >= 200 && fetchStatus < 300, headers: {}, text: '' } }
+    if (fetchStatus === 'hang') return new Promise(() => {}) // 끝내 응답하지 않음
+    if (fetchStatus === 'error') throw new Error('connect ECONNREFUSED')
+    return { value: { status: fetchStatus, ok: (fetchStatus as number) >= 200 && (fetchStatus as number) < 300, headers: {}, text: '' } }
   })
   on('ui.open', () => ({ value: undefined }))
   on('ui.close', () => ({ value: undefined }))
@@ -157,7 +159,8 @@ function loginWorld(on: any, answers: Record<string, { exitCode: number; stdout?
   on('ui.toast', (_$: any, e: any) => { shown.push(JSON.stringify(e)); return { value: undefined } })
   on('ui.status', (_$: any, e: any) => { shown.push(JSON.stringify(e)); return { value: undefined } })
   mock.env(on, {})
-  return { runs, fetches, shown, scripts: () => runs.map((r) => r.argv.slice(1).join(' ')) }
+  const clock = mock.clock(on)
+  return { clock, runs, fetches, shown, scripts: () => runs.map((r) => r.argv.slice(1).join(' ')) }
 }
 
 const mountPane = ($: any) => $.ui.mount({ plugin: 'genia-works', surface: 'terminal', component: 'Pane', requestId: PANE_ID, props: PANE_PROPS })
@@ -209,7 +212,6 @@ test('login: 키 확인이 401 이면 저장하지 않고 안내한다', { optio
   await ui.input({ key: 'gw-key', text: FAKE_KEY, kind: 'change' })
   await ui.input({ key: 'gw-name', text: 'ai-dev', kind: 'change' })
   await ui.input({ key: 'gw-name', text: 'ai-dev', kind: 'submit' })
-  expect(w.scripts().some((s) => s.startsWith('keys add') || s.startsWith('add'))).toBe(false)
   expect(w.runs.some((r) => r.argv[1] === 'add')).toBe(false)
   expect(JSON.stringify(await ui.findAll({}))).toContain('키가 맞지 않습니다')
   await ui.unmount()
@@ -238,5 +240,128 @@ test('login: 관리 › 삭제 — 지금 쓰는 이름이면 세션 선택을 �
   const order = w.runs.map((r) => r.argv[1]).filter((a) => a === 'clear' || a === 'remove')
   expect(order).toEqual(['clear', 'remove'])
   expect(w.runs.find((r) => r.argv[1] === 'remove')?.argv[2]).toBe('ai-dev')
+  await ui.unmount()
+})
+
+// 키 입력 후 저장까지 한 번에 — 반환은 패널
+async function fillAndSave($: any, key: string, name: string) {
+  await $.command.run({ command: LOGIN_COMMAND, args: '' })
+  const ui = await mountPane($)
+  await ui.input({ key: 'gw-key', text: key, kind: 'change' })
+  await ui.input({ key: 'gw-name', text: name, kind: 'change' })
+  await ui.input({ key: 'gw-name', text: name, kind: 'submit' })
+  return ui
+}
+const EMPTY = { 'gw-keys list': { exitCode: 0, stdout: '' }, 'gw-session show': { exitCode: 0, stdout: '' } }
+
+test('login: 닫으면 입력해 둔 키를 비운다(다시 열 때 명령 없이도 빈 칸)', { options: { server_url: SERVER_URL } }, async ($, on) => {
+  loginWorld(on, EMPTY)
+  await $.command.run({ command: LOGIN_COMMAND, args: '' })
+  const ui = await mountPane($)
+  await ui.input({ key: 'gw-key', text: FAKE_KEY, kind: 'change' })
+  expect((await ui.find({ key: 'gw-key' }))?.text).toBe('●'.repeat(FAKE_KEY.length))
+  await ui.press({ key: 'gw-cancel' }) // 패널 닫기 — keyBuf 를 비운다(사람이 Esc 로 닫는 경로는 엔진이 처리기를 불러 테스트로 못 낸다)
+  await ui.unmount()
+  const again = await mountPane($)
+  expect((await again.find({ key: 'gw-key' }))?.text ?? '').toBe('')
+  await again.unmount()
+})
+
+test('login: 네트워크 오류는 저장하지 않고 고정 문구로 알리며 키를 비운다', { options: { server_url: SERVER_URL } }, async ($, on) => {
+  const w = loginWorld(on, EMPTY, 'error')
+  const ui = await fillAndSave($, FAKE_KEY, 'ai-dev')
+  expect(w.runs.some((r) => r.argv[1] === 'add')).toBe(false)
+  const all = JSON.stringify(await ui.findAll({}))
+  expect(all).toContain('서버에 접속하지 못했습니다')
+  expect(all).not.toContain('ECONNREFUSED')
+  expect((await ui.find({ key: 'gw-key' }))?.text ?? '').toBe('')
+  await ui.unmount()
+})
+
+test('login: 401 이 아닌 HTTP 오류도 저장하지 않고 키를 비운다', { options: { server_url: SERVER_URL } }, async ($, on) => {
+  const w = loginWorld(on, EMPTY, 500)
+  const ui = await fillAndSave($, FAKE_KEY, 'ai-dev')
+  expect(w.runs.some((r) => r.argv[1] === 'add')).toBe(false)
+  expect(JSON.stringify(await ui.findAll({}))).toContain('HTTP 500')
+  expect((await ui.find({ key: 'gw-key' }))?.text ?? '').toBe('')
+  await ui.unmount()
+})
+
+test('login: swp_ 키는 설정 안내만 하고 서버를 부르지 않는다', { options: { server_url: SERVER_URL } }, async ($, on) => {
+  const w = loginWorld(on, EMPTY)
+  const ui = await fillAndSave($, 'swp_FAKE_X', 'ai-dev')
+  expect(w.fetches.length).toBe(0)
+  expect(JSON.stringify(await ui.findAll({}))).toContain('swp_')
+  await ui.unmount()
+})
+
+test('login: 형식이 틀린 키는 서버를 부르지 않는다', { options: { server_url: SERVER_URL } }, async ($, on) => {
+  const w = loginWorld(on, EMPTY)
+  const ui = await fillAndSave($, 'ak_bad key"', 'ai-dev')
+  expect(w.fetches.length).toBe(0)
+  expect(w.runs.some((r) => r.argv[1] === 'add')).toBe(false)
+  await ui.unmount()
+})
+
+test('login: 이미 있는 이름은 한 번 더 눌러야 덮어쓴다', { options: { server_url: SERVER_URL } }, async ($, on) => {
+  const w = loginWorld(on, { 'gw-keys list': { exitCode: 0, stdout: 'ai-dev\t10-14\n' }, 'gw-session show': { exitCode: 0, stdout: '' } })
+  await $.command.run({ command: LOGIN_COMMAND, args: '' })
+  const ui = await mountPane($)
+  await ui.press({ key: 'gw-add' })
+  await ui.input({ key: 'gw-key', text: FAKE_KEY, kind: 'change' })
+  await ui.input({ key: 'gw-name', text: 'ai-dev', kind: 'change' })
+  await ui.input({ key: 'gw-name', text: 'ai-dev', kind: 'submit' })
+  expect(w.fetches.length).toBe(0)
+  expect(JSON.stringify(await ui.findAll({}))).toContain('바꿀까요')
+  await ui.input({ key: 'gw-name', text: 'ai-dev', kind: 'submit' })
+  expect(w.fetches.length).toBe(1)
+  expect(w.runs.find((r) => r.argv[1] === 'add')?.stdin).toBe(FAKE_KEY + '\n')
+  await ui.unmount()
+})
+
+test('login: 저장 뒤 바꾸기는 그 이름으로 세션을 고른다', { options: { server_url: SERVER_URL } }, async ($, on) => {
+  const w = loginWorld(on, EMPTY)
+  on('command.run', { command: 'mcp' }, () => ({}))
+  const ui = await fillAndSave($, FAKE_KEY, 'ai-dev')
+  await ui.press({ key: 'gw-switch-now' })
+  expect(w.runs.some((r) => r.argv[1] === 'select' && r.argv[2] === 'ai-dev')).toBe(true)
+  await ui.unmount()
+})
+
+test('login: 현재 쓰지 않는 이름을 지울 때는 세션 선택을 지우지 않는다', { options: { server_url: SERVER_URL } }, async ($, on) => {
+  const w = loginWorld(on, { 'gw-keys list': { exitCode: 0, stdout: 'ai-dev\t10-14\nai-rev\t10-12\n' }, 'gw-session show': { exitCode: 0, stdout: 'ai-dev\n' } })
+  await $.command.run({ command: LOGIN_COMMAND, args: '' })
+  const ui = await mountPane($)
+  await ui.press({ key: 'gw-manage' })
+  await ui.press({ key: 'gw-remove-ai-rev' })
+  await ui.press({ key: 'gw-remove-confirm-ai-rev' })
+  expect(w.runs.some((r) => r.argv[1] === 'clear')).toBe(false)
+  expect(w.runs.find((r) => r.argv[1] === 'remove')?.argv[2]).toBe('ai-rev')
+  await ui.unmount()
+})
+
+test('login: 지우기 스크립트가 실패하면 실패를 알린다', { options: { server_url: SERVER_URL } }, async ($, on) => {
+  loginWorld(on, { 'gw-keys list': { exitCode: 0, stdout: 'ai-rev\t10-12\n' }, 'gw-session show': { exitCode: 0, stdout: '' }, 'gw-keys remove': { exitCode: 1, stderr: 'boom' } })
+  await $.command.run({ command: LOGIN_COMMAND, args: '' })
+  const ui = await mountPane($)
+  await ui.press({ key: 'gw-manage' })
+  await ui.press({ key: 'gw-remove-ai-rev' })
+  await ui.press({ key: 'gw-remove-confirm-ai-rev' })
+  expect(JSON.stringify(await ui.findAll({}))).toContain('지우지 못했습니다')
+  await ui.unmount()
+})
+
+test('login: 서버가 응답하지 않으면 10초 뒤 안내하고 저장하지 않는다', { options: { server_url: SERVER_URL } }, async ($, on) => {
+  const w = loginWorld(on, EMPTY, 'hang')
+  const clock = w.clock
+  await $.command.run({ command: LOGIN_COMMAND, args: '' })
+  const ui = await mountPane($)
+  await ui.input({ key: 'gw-key', text: FAKE_KEY, kind: 'change' })
+  await ui.input({ key: 'gw-name', text: 'ai-dev', kind: 'change' })
+  const sent = ui.input({ key: 'gw-name', text: 'ai-dev', kind: 'submit' })
+  await clock.advance(10_500)
+  await sent
+  expect(JSON.stringify(await ui.findAll({}))).toContain('서버 응답이 없습니다')
+  expect(w.runs.some((r) => r.argv[1] === 'add')).toBe(false)
   await ui.unmount()
 })

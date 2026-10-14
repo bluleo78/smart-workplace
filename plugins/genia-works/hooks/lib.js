@@ -42,17 +42,19 @@ export function toolTargets(input) {
 export const END_CLEARS = new Set(['prompt_input_exit', 'logout', 'other'])
 
 // 가림 입력 — mod 의 Input 에는 가리기 옵션이 없어, 실제 값은 따로 들고 필드에는 ● 를 그린다(2026-10-15 결정).
-// drawn: 지난번 그린 ●…, typed: 사람이 고친 뒤 필드 내용. 반환: 새 실제 값.
-export function applyMaskedInput(real, drawn, typed) {
+// real: 지금까지의 실제 값, typed: 사람이 고친 뒤 필드 내용. 반환: 새 실제 값.
+// 다시 그리기 전에 입력이 연달아 오면 필드에 방금 친 평문이 남아 있다 — 그 글자는 실제 값과 같은 글자이므로,
+// 앞·뒤에서 「● 이거나 실제 글자와 같은」 구간을 공통 접두·접미로 보고 가운데(새로 바뀐 부분)만 typed 에서 가져온다.
+// 피할 수 없는 모호함: 가운데 글자를 Backspace/Delete 로 지우면 끝에서 지운 것과 구별되지 않는다(키 확인에서 걸러진다).
+export function applyMaskedInput(real, _drawn, typed) {
   if (typed === '') return ''
-  const bullets = typed.replace(/[^●]/g, '').length
-  const fresh = typed.replace(/●/g, '')
-  if (bullets === 0) return fresh // 전체를 바꿔 붙여넣음
-  if (typed.startsWith(drawn)) return real + typed.slice(drawn.length) // 끝에 치기·붙여넣기
-  if (fresh === '' && bullets < real.length) return real.slice(0, bullets) // 지우기(끝에서)
-  // 중간 편집 — ● 가 아닌 글자를 그 위치(앞의 ● 개수)에 끼운다
-  const at = typed.indexOf(fresh[0])
-  return real.slice(0, at) + fresh + real.slice(at)
+  const same = (t, r) => t === '●' || t === r
+  let p = 0
+  while (p < typed.length && p < real.length && same(typed[p], real[p])) p++
+  const room = Math.min(typed.length, real.length) - p // 접두와 겹치지 않는 범위
+  let s = 0
+  while (s < room && same(typed[typed.length - 1 - s], real[real.length - 1 - s])) s++
+  return real.slice(0, p) + typed.slice(p, typed.length - s) + real.slice(real.length - s)
 }
 
 // 화면에 그릴 가림 문자열 — 실제 키 길이만큼 ● 이다.
@@ -73,4 +75,9 @@ export function initializeBody() {
 // 이름 규칙 — scripts/gw-lib.sh 의 gw_valid_name 과 같다(예약 이름 me 도 거부).
 export function validName(name) {
   return /^[A-Za-z0-9._@-]+$/.test(name) && name !== '.' && name !== '..' && name !== 'me'
+}
+
+// AI 키 형식 — 게이트웨이 헤더 스크립트가 받는 문자만(ak_ + 영숫자·_-).
+export function validKey(key) {
+  return /^ak_[A-Za-z0-9_-]+$/.test(key)
 }

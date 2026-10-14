@@ -1,7 +1,7 @@
 // mod 순수 함수 테스트 — $ 없이 node --test 로 돈다.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseKeyList, identityLabel, isKeyPath, toolTargets, END_CLEARS, applyMaskedInput, maskOf, initializeBody, validName } from '../hooks/lib.js';
+import { parseKeyList, identityLabel, isKeyPath, toolTargets, END_CLEARS, applyMaskedInput, maskOf, initializeBody, validName, validKey } from '../hooks/lib.js';
 
 test('parseKeyList: 탭 구분 줄을 이름·등록일로', () => {
   assert.deepEqual(parseKeyList('ai-dev\t10-14\nai-review\t10-12\n'), [
@@ -87,4 +87,18 @@ test('validName', () => {
   assert.equal(validName('ai-dev'), true);
   assert.equal(validName('dh.yang@iacloud.kr'), true);
   for (const bad of ['', '.', '..', '../x', 'a b', 'a/b', 'me']) assert.equal(validName(bad), false, bad);
+});
+
+test('applyMaskedInput: 다시 그리기 전에 연달아 온 입력(필드에 평문이 남음)', () => {
+  assert.equal(applyMaskedInput('ak_F', '●●●●', '●●●FG'), 'ak_FG');
+  assert.equal(applyMaskedInput('ak_FAKE', '●●●●●●●', '●●●FAKE_ABC'), 'ak_FAKE_ABC');
+  // 가운데에 평문이 남은 채 앞에 끼워 치기
+  assert.equal(applyMaskedInput('ak_FAKE', '●●●●●●●', '●X●●F●●●'), 'aXk_FAKE');
+  // 평문이 남은 채 끝에서 지우기
+  assert.equal(applyMaskedInput('ak_FAKE', '●●●●●●●', '●●●FAK'), 'ak_FAK');
+});
+
+test('validKey', () => {
+  assert.equal(validKey('ak_FAKE_ab-1'), true);
+  for (const bad of ['', 'ak_', 'swp_x', 'ak_a b', 'ak_a"b', 'xak_abc']) assert.equal(validKey(bad), false, bad);
 });
