@@ -220,7 +220,7 @@ public class AiAgentCredentialService {
     }
     ObjectNode payload;
     try {
-      payload = (ObjectNode) objectMapper.readTree(encryptionService.decrypt(row.encryptedToken()));
+      payload = (ObjectNode) readPayload(row);
     } catch (JsonProcessingException | ClassCastException e) {
       throw new IllegalStateException("저장된 provider config 를 읽을 수 없습니다", e);
     }
@@ -255,8 +255,7 @@ public class AiAgentCredentialService {
 
   private Boolean readVision(AiAgentCredentialRow row, String model) {
     try {
-      JsonNode v =
-          objectMapper.readTree(encryptionService.decrypt(row.encryptedToken())).get("vision");
+      JsonNode v = readPayload(row).get("vision");
       if (v == null || v.isNull()) return null;
       if (v.isBoolean()) return v.booleanValue();
       JsonNode m = model == null ? null : v.get(model);
@@ -339,14 +338,21 @@ public class AiAgentCredentialService {
 
   private String extractBaseUrl(AiAgentCredentialRow row) {
     try {
-      String plaintext = encryptionService.decrypt(row.encryptedToken());
-      JsonNode options = objectMapper.readTree(plaintext).get("options");
+      JsonNode options = readPayload(row).get("options");
       return options != null && options.hasNonNull("baseURL")
           ? options.get("baseURL").asText()
           : null;
     } catch (Exception e) {
       return null; // 메타 조회는 best-effort — 파싱 실패로 전체 응답을 깨뜨리지 않는다.
     }
+  }
+
+  /**
+   * 저장된 자격증명을 복호화해 JSON 으로 읽는다(opencode provider config). 파싱 실패 처리는 호출자마다 다르다(best-effort 조회·저장
+   * 거절).
+   */
+  private JsonNode readPayload(AiAgentCredentialRow row) throws JsonProcessingException {
+    return objectMapper.readTree(encryptionService.decrypt(row.encryptedToken()));
   }
 
   private UserResponse assertAgent(Long userId) {
