@@ -8,6 +8,13 @@ from PIL import Image
 from app.render import RenderError, _open_image, render_image, render_pdf_page
 
 
+def _file(tmp_path, data: bytes):
+    """render_pdf_page 는 경로로 연다 — 테스트 바이트를 임시 파일로 쓴다."""
+    path = tmp_path / "doc.pdf"
+    path.write_bytes(data)
+    return path
+
+
 def _pdf(pages: int, size=(595, 842)) -> bytes:
     doc = fitz.open()
     for i in range(pages):
@@ -16,38 +23,38 @@ def _pdf(pages: int, size=(595, 842)) -> bytes:
     return doc.tobytes()
 
 
-def test_pdf_page_long_edge_fits_max_edge():
-    out = render_pdf_page(_pdf(3), page=2, max_edge=1568)
+def test_pdf_page_long_edge_fits_max_edge(tmp_path):
+    out = render_pdf_page(_file(tmp_path, _pdf(3)), page=2, max_edge=1568)
     img = Image.open(io.BytesIO(out.data))
     assert abs(max(img.size) - 1568) <= 1  # PyMuPDF 반올림 허용
     assert out.mime == "image/png"
     assert out.page_count == 3
 
 
-def test_huge_page_is_capped_by_max_edge():
+def test_huge_page_is_capped_by_max_edge(tmp_path):
     # A0 의 4배(약 9500pt) — 배율을 긴 변으로 정하므로 픽셀이 폭주하지 않는다(Review Focus 1)
-    out = render_pdf_page(_pdf(1, size=(9536, 13484)), page=1, max_edge=1568)
+    out = render_pdf_page(_file(tmp_path, _pdf(1, size=(9536, 13484))), page=1, max_edge=1568)
     assert max(Image.open(io.BytesIO(out.data)).size) <= 1569  # 반올림 허용
 
 
-def test_page_out_of_range():
+def test_page_out_of_range(tmp_path):
     with pytest.raises(RenderError) as e:
-        render_pdf_page(_pdf(2), page=3, max_edge=1568)
+        render_pdf_page(_file(tmp_path, _pdf(2)), page=3, max_edge=1568)
     assert e.value.status == 400 and e.value.detail == {"code": "PAGE_OUT_OF_RANGE", "pageCount": 2}
 
 
-def test_broken_pdf_is_unreadable():
+def test_broken_pdf_is_unreadable(tmp_path):
     with pytest.raises(RenderError) as e:
-        render_pdf_page(b"%PDF-1.4 broken", page=1, max_edge=1568)
+        render_pdf_page(_file(tmp_path, b"%PDF-1.4 broken"), page=1, max_edge=1568)
     assert e.value.status == 422
 
 
-def test_encrypted_pdf_is_unreadable():
+def test_encrypted_pdf_is_unreadable(tmp_path):
     doc = fitz.open()
     doc.new_page()
     data = doc.tobytes(encryption=fitz.PDF_ENCRYPT_AES_256, user_pw="u", owner_pw="o")
     with pytest.raises(RenderError) as e:
-        render_pdf_page(data, page=1, max_edge=1568)
+        render_pdf_page(_file(tmp_path, data), page=1, max_edge=1568)
     assert e.value.status == 422
 
 
@@ -131,7 +138,7 @@ def test_16bit_grayscale_png_is_not_white(mode):
     assert abs(r - 117) <= 2 and r == g == b  # 30000 / 256 ≈ 117
 
 
-def test_pdf_page_png_over_limit_falls_back_to_jpeg():
+def test_pdf_page_png_over_limit_falls_back_to_jpeg(tmp_path):
     """페이지 PNG 가 1MB 를 넘으면 JPEG 로 다시 인코딩한다."""
     import os
     noise = Image.frombytes("RGB", (1200, 1200), os.urandom(1200 * 1200 * 3))
@@ -140,7 +147,7 @@ def test_pdf_page_png_over_limit_falls_back_to_jpeg():
     doc = fitz.open()
     page = doc.new_page(width=595, height=842)
     page.insert_image(page.rect, stream=buf.getvalue())
-    out = render_pdf_page(doc.tobytes(), page=1, max_edge=1568)
+    out = render_pdf_page(_file(tmp_path, doc.tobytes()), page=1, max_edge=1568)
     assert out.mime == "image/jpeg" and out.page_count == 1
 
 

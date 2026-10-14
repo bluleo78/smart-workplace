@@ -7,6 +7,7 @@ import io
 import math
 import threading
 from dataclasses import dataclass
+from pathlib import Path
 
 import fitz
 import pillow_heif
@@ -44,34 +45,33 @@ class RenderError(Exception):
         self.detail = detail
 
 
-def render_pdf_page(data: bytes, page: int, max_edge: int) -> Rendered:
-    """PDF 의 page(1부터) 를 긴 변 max_edge 로 그린다. 깨진 페이지는 UNREADABLE(422)."""
+def render_pdf_page(path: Path, page: int, max_edge: int) -> Rendered:
+    """PDF 파일 path 의 page(1부터) 를 긴 변 max_edge 로 그린다. 깨진 페이지는 UNREADABLE(422).
+
+    파일을 통째로 읽어 넘기지 않고 경로로 연다 — MuPDF 가 필요한 부분만 읽어 쪽마다 25MB 사본을 만들지 않는다.
+    """
+    # fitz 작업(열기·그리기) 전체를 잠금 안에서 — MuPDF 는 스레드 안전하지 않다(_PDF_LOCK 참조).
     with _PDF_LOCK:
-        return _render_pdf_page(data, page, max_edge)
-
-
-def _render_pdf_page(data: bytes, page: int, max_edge: int) -> Rendered:
-    """render_pdf_page 의 본체 — 잠금 안에서만 부른다."""
-    try:
-        doc = fitz.open(stream=data, filetype="pdf")
-    except Exception as e:  # noqa: BLE001 — 깨진 PDF
-        raise RenderError(422, {"code": "UNREADABLE"}) from e
-    with doc:
-        if doc.needs_pass:
-            raise RenderError(422, {"code": "UNREADABLE"})
-        count = len(doc)
-        if page < 1 or page > count:
-            raise RenderError(400, {"code": "PAGE_OUT_OF_RANGE", "pageCount": count})
         try:
-            p = doc[page - 1]
-            zoom = min(max_edge / max(p.rect.width, p.rect.height), MAX_ZOOM)
-            pix = p.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
-            png = pix.tobytes("png")
-            if len(png) <= PNG_MAX_BYTES:
-                return Rendered(png, "image/png", count)
-            return Rendered(pix.tobytes("jpeg", jpg_quality=JPEG_QUALITY), "image/jpeg", count)
-        except Exception as e:  # noqa: BLE001 — 렌더 중 손상된 페이지(500 방지)
+            doc = fitz.open(path, filetype="pdf")
+        except Exception as e:  # noqa: BLE001 — 깨진 PDF
             raise RenderError(422, {"code": "UNREADABLE"}) from e
+        with doc:
+            if doc.needs_pass:
+                raise RenderError(422, {"code": "UNREADABLE"})
+            count = len(doc)
+            if page < 1 or page > count:
+                raise RenderError(400, {"code": "PAGE_OUT_OF_RANGE", "pageCount": count})
+            try:
+                p = doc[page - 1]
+                zoom = min(max_edge / max(p.rect.width, p.rect.height), MAX_ZOOM)
+                pix = p.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
+                png = pix.tobytes("png")
+                if len(png) <= PNG_MAX_BYTES:
+                    return Rendered(png, "image/png", count)
+                return Rendered(pix.tobytes("jpeg", jpg_quality=JPEG_QUALITY), "image/jpeg", count)
+            except Exception as e:  # noqa: BLE001 — 렌더 중 손상된 페이지(500 방지)
+                raise RenderError(422, {"code": "UNREADABLE"}) from e
 
 
 def _open_image(data: bytes, max_edge: int | None = None) -> Image.Image:

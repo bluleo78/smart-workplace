@@ -88,7 +88,7 @@ def render(t: RenderTask) -> Response:
         if t.mime == "application/pdf":
             if t.page is None:
                 raise RenderError(400, {"code": "PAGE_REQUIRED"})
-            r = render_pdf_page(path.read_bytes(), t.page, t.maxEdge)
+            r = render_pdf_page(path, t.page, t.maxEdge)
         else:
             if t.page is not None:
                 raise RenderError(400, {"code": "PAGE_NOT_ALLOWED"})
