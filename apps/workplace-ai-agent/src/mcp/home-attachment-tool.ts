@@ -10,11 +10,11 @@
 // 보낼 수 있으면 원본·아니면(HEIC·큰 이미지) 서버 변환본으로 돌려준다. 이미지 장수는 실행당 예산(images.budget)이 묶는다.
 import {
   baseMimeType,
-  type ExtractedTextSlice,
   type ImageBudget,
   imageBlocksFor,
   MAX_PAGES_PER_CALL,
   pageBlocks,
+  pdfNote,
   pagesShape,
   READ_ATTACHMENT_DEFAULT_LIMIT,
   readRangeShape,
@@ -40,23 +40,6 @@ const inputFor = (imageInput: boolean) => (imageInput ? baseInput.extend(pagesSh
 
 /** 모델이 이미지를 볼 수 있을 때 이미지 도구 설명에 덧붙이는 pages 한 문장(두 첨부 도구 공통). */
 export const PAGES_DESCRIPTION = `PDF 는 pages:[n](최대 ${MAX_PAGES_PER_CALL}쪽)로 쪽 이미지를 볼 수 있습니다(그림·도표·스캔).`;
-
-/**
- * 추출 슬라이스에 붙일 PDF 안내(WP-250, 공유 read_file 과 같은 문구) — 스캔 PDF 는 pages 로 읽으라고, 이미지를 볼 수 없는 모델이면
- * 모델을 바꾸라고(사용자에게 다시 올려 달라고 하지 않게) 알리고, 텍스트로 읽은 PDF 는 그림·도표를 pages 로 볼 수 있다고 알린다.
- * 쪽수는 이전 추출 행이면 null 이라 그때는 쪽수 없이 말한다.
- */
-export function pdfNote(
-  slice: Pick<ExtractedTextSlice, 'status' | 'reasonCode' | 'pageCount'>,
-  imageInput: boolean,
-): string | undefined {
-  if (slice.status === 'SKIPPED' && slice.reasonCode === 'SCANNED_PDF') {
-    if (!imageInput) return '이 모델은 이미지를 볼 수 없어 읽을 수 없습니다. 비서 설정에서 이미지를 볼 수 있는 모델로 바꾸면 읽을 수 있습니다.';
-    return `글자가 없는 스캔 PDF${slice.pageCount ? `(${slice.pageCount}쪽)` : ' '}입니다. pages 로 페이지 이미지를 읽으세요.`;
-  }
-  if (imageInput && slice.status === 'READY' && slice.pageCount) return '그림·도표·스캔 페이지는 pages 로 이미지를 볼 수 있습니다.';
-  return undefined;
-}
 
 /** 추출이 READY 가 아닌 문서의 안내 — 상태·사유만 알리고 재업로드를 유도하지 않는다. 파일명은 JSON 으로 감싸 제어문자를 무력화. */
 function nonReadyNotice(a: HomeAttachmentMeta, imageInput: boolean): string {

@@ -65,10 +65,10 @@ const isMaxLengthExceeded = (e: unknown) =>
 /**
  * 바이너리 요청의 오류 본문을 푼다(WP-250) — responseType arraybuffer 면 서버 ErrorResponse JSON 도 바이트로 와서,
  * 그대로면 오류 요약이 "API 오류 400" 만 남고 한국어 사유(예: "이 PDF 는 6쪽입니다…")가 사라진다. 바이트를 JSON(안 되면 글)으로
- * 바꿔 response.data 에 되돌려 두고(workplace-mcp 서버 레이어가 response.data 로 요약한다), message 도 같은 요약으로 올린다
- * (ai-agent 인터셉터는 바이트 본문으로 이미 message 를 만들었다).
+ * 바꿔 response.data 에 되돌려 두고(workplace-mcp 서버 레이어와 ai-agent 의 /view 호출부가 response.data 로 요약한다), message 도 같은 요약으로 올린다.
+ * ai-agent 는 자기 axios 인터셉터에서 이 함수를 먼저 불러 같은 처리를 한다.
  */
-function decodeErrorBody(e: unknown): void {
+export function decodeErrorBody(e: unknown): void {
   const res = (e as { response?: { status?: number; data?: unknown } })?.response;
   if (!res) return;
   const raw = res.data;

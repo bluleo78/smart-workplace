@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import nock from 'nock';
 
-import { parseIssueKey } from '@smart-workplace/mcp-tools-shared';
+import { IMAGE_MAX_BYTES, parseIssueKey } from '@smart-workplace/mcp-tools-shared';
 
 import { createWorkplaceApiClient } from './workplace-api.js';
 
@@ -382,6 +382,13 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
     const err = await newClient().viewHomeAttachment(42, SID, 8, 9).catch((e: unknown) => e);
     expect((err as Error).message).toContain('이 PDF 는 6쪽입니다.');
     expect((err as { response: { data: unknown } }).response.data).toEqual({ message: '이 PDF 는 6쪽입니다.' });
+  });
+
+  it('/view 는 이미지 상한(IMAGE_MAX_BYTES)을 넘는 응답을 받지 않고 한국어 사유로 던진다', async () => {
+    nock(BASE)
+      .get(`${PREFIX}/home/sessions/${SID}/attachments/8/view`)
+      .reply(200, Buffer.alloc(IMAGE_MAX_BYTES + 1), { 'content-type': 'image/png' });
+    await expect(newClient().viewHomeAttachment(42, SID, 8)).rejects.toThrow(/변환한 이미지가 .*넘어 받지 않았습니다/);
   });
 
   // --- WP-55: 사용자 메모리(요청자 대행) ---

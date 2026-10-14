@@ -22,6 +22,7 @@ export {
   SENDABLE_IMAGE_MIMES,
   IMAGE_MAX_BYTES,
   baseMimeType,
+  FileTooLargeError,
   imageRejectReasons,
   isSendableImage,
   toBase64,
@@ -38,7 +39,7 @@ export {
   viewBlocks,
   withImageBudget,
 } from './attachment-view.js';
-export type { AttachmentToolOptions } from './attachment-tools.js';
+export { isImageSkip, pdfNote, type AttachmentToolOptions } from './attachment-tools.js';
 export type * from './tool-client.js';
 export {
   listConflicts,
@@ -57,6 +58,6 @@ export { addChannelMemberInput, resolveMentionTokens } from './messaging-tools.j
 // WP-369: AI Chat 의 create_drive_file 판이 업로드 링크 안내를 뺀 content 모드 설명만 쓴다(ai-agent mcp/tools.ts).
 export { CREATE_DRIVE_FILE_CONTENT_DESCRIPTION } from './drive-tools.js';
 export { buildSharedTools, type SharedToolClient, type SharedToolOptions } from './shared-tools.js';
-export { createSharedToolClient, type HttpLike, type HttpRequestConfig } from './rest-client.js';
+export { createSharedToolClient, decodeErrorBody, type HttpLike, type HttpRequestConfig } from './rest-client.js';
 export { MEMORY_TOOL_NAMES, TOOL_LABELS, isDisplayableTool, isMemoryTool, stripMcpPrefix, type ToolLabel } from './tool-labels.js';
 export { TOOL_NAME_MAX_LENGTH, toolNameViolations } from './tool-naming.js';

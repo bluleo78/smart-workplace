@@ -7,8 +7,10 @@ import {
   buildSharedTools,
   CREATE_DRIVE_FILE_CONTENT_DESCRIPTION,
   createProjectInput,
+  FileTooLargeError,
   imageBlocksFor,
   type ImageBudget,
+  isImageSkip,
   issueListFilterShape,
   listConflicts as listConflictsShared,
   MEMORY_TOOL_NAMES,
@@ -17,6 +19,7 @@ import {
   pageBlocks,
   pagesShape,
   parseIssueKey,
+  pdfNote,
   READ_ATTACHMENT_DEFAULT_LIMIT,
   readRangeShape,
   requireActiveMember as requireActiveMemberShared,
@@ -32,7 +35,7 @@ import {
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
 import { findThreadAttachmentMeta } from '../agent/attachment-source.js';
 import { fileKind } from '../agent/attachment-presenter.js';
-import { buildReadChatAttachmentTool, PAGES_DESCRIPTION, pdfNote } from './home-attachment-tool.js';
+import { buildReadChatAttachmentTool, PAGES_DESCRIPTION } from './home-attachment-tool.js';
 import { buildMemoryTools } from './memory-tools.js';
 
 // sdk-mcp-server.ts / stdio-entry.ts 가 './tools.js' 에서 McpTool 을 계속 import 하므로 재-export 유지.
@@ -493,24 +496,39 @@ export function buildTools(
               images?.budget,
             );
           }
-          // 이미지는 메타(형식·크기·출처)로 판별한다 — 텍스트 구간 응답에는 형식이 없고, 원본 받기 경로도 출처(이슈/챗)마다 다르다.
-          const meta = await findThreadAttachmentMeta(client, agentId, threadId, fileId);
-          if (meta && fileKind(meta.mimeType) === 'image') {
-            const label = `스레드 첨부 이미지 ${JSON.stringify(meta.originalName)}(fileId ${fileId})`;
-            return imageBlocksFor(
-              label,
-              meta,
-              () =>
-                meta.origin.kind === 'issue'
-                  ? client.downloadThreadIssueAttachment(agentId, threadId, fileId)
-                  : client.downloadChatAttachment(agentId, threadId, meta.origin.messageId, fileId),
-              () => client.viewChatAttachment(agentId, threadId, fileId),
-              images?.budget,
-            );
-          }
           const { offset, limit } = resolveRange(parsed);
           const slice = await client.readChatAttachmentText(agentId, threadId, fileId, offset, limit);
-          const note = pdfNote(slice, images?.input ?? true);
+          const imageInput = images?.input ?? true;
+          // 글자 먼저 — 문서는 이 한 번으로 끝나 목록 조회가 없다. 서버가 이미지로 건너뛴 파일(SKIPPED·IMAGE)이나 추출 행이 없는 파일(NONE, 배포 전
+          // 업로드·HEIC 등)만 이미지 후보로 보고 메타(형식·크기·출처)를 찾는다(공유 read_file 의 노트 첨부와 같은 판정).
+          if (isImageSkip(slice) || slice.status === 'NONE') {
+            const meta = await findThreadAttachmentMeta(client, agentId, threadId, fileId);
+            const view = () => client.viewChatAttachment(agentId, threadId, fileId);
+            if (!meta) {
+              // 메타를 못 찾았어도(이슈 첨부 목록 403·삭제된 메시지·조회 창 밖) /view 는 messageId 없이 서버가 같은 가드로 풀어 주므로 변환본만 준다.
+              // 원본 받기 경로(이슈/챗)를 모르니 download 는 상한 초과로 취급해 곧바로 변환본으로 잇는다.
+              return imageBlocksFor(
+                `스레드 첨부 이미지(fileId ${fileId})`,
+                {},
+                () => Promise.reject(new FileTooLargeError()),
+                view,
+                images?.budget,
+              );
+            }
+            if (fileKind(meta.mimeType) === 'image') {
+              return imageBlocksFor(
+                `스레드 첨부 이미지 ${JSON.stringify(meta.originalName)}(fileId ${fileId})`,
+                meta,
+                () =>
+                  meta.origin.kind === 'issue'
+                    ? client.downloadThreadIssueAttachment(agentId, threadId, fileId)
+                    : client.downloadChatAttachment(agentId, threadId, meta.origin.messageId, fileId),
+                view,
+                images?.budget,
+              );
+            }
+          }
+          const note = pdfNote(slice, imageInput);
           return JSON.stringify(note ? { ...slice, note } : slice);
         },
       },

@@ -849,19 +849,25 @@ describe('chat 도구', () => {
       expect(await chatTool(c).handler({ threadId: 5, fileId: 3, pages: [9] })).toContain('이 PDF 는 2쪽입니다.');
     });
 
-    it('이슈 첨부 이미지(jpeg) → 이슈 첨부 원본 다운로드, 텍스트 읽기 없음', async () => {
+    // 서버가 이미지로 건너뛴 파일(SKIPPED·IMAGE)·추출 행이 없는 파일(NONE)의 텍스트 구간 응답.
+    const imageSlice = (fileId: number, over: Record<string, unknown> = {}) =>
+      ({ fileId, status: 'SKIPPED', offset: 0, totalChars: null, truncated: false, nextOffset: null, text: null, reasonCode: 'IMAGE', reason: '이미지', ...over }) as never;
+
+    it('이슈 첨부 이미지(jpeg) → 글자 먼저 읽고 이미지로 건너뛴 뒤에만 메타를 찾아 이슈 첨부 원본 다운로드', async () => {
       const c = client();
+      vi.mocked(c.readChatAttachmentText).mockResolvedValue(imageSlice(7));
       vi.mocked(c.listThreadIssueAttachments).mockResolvedValue([meta(7, 'image/jpeg') as never]);
       vi.mocked(c.downloadThreadIssueAttachment).mockResolvedValue({ data: Buffer.from('JPG'), mimeType: 'image/jpeg' });
       const out = (await chatTool(c).handler({ threadId: 5, fileId: 7 })) as Array<{ type: string; mimeType?: string }>;
+      expect(c.readChatAttachmentText).toHaveBeenCalledTimes(1);
       expect(c.downloadThreadIssueAttachment).toHaveBeenCalledWith(AGENT_ID, 5, 7);
       expect(out[1]).toMatchObject({ type: 'image', mimeType: 'image/jpeg' });
-      expect(c.readChatAttachmentText).not.toHaveBeenCalled();
       expect(c.viewChatAttachment).not.toHaveBeenCalled();
     });
 
     it('챗 메시지 첨부 이미지(png) → messageId 로 챗 첨부 원본 다운로드', async () => {
       const c = client();
+      vi.mocked(c.readChatAttachmentText).mockResolvedValue(imageSlice(8));
       vi.mocked(c.getChatMessages).mockResolvedValue([
         { id: 11, authorName: 'A', authorKind: 'HUMAN', body: '', createdAt: 't', deleted: false, attachments: [{ ...meta(8, 'image/png'), messageId: 11 }] },
       ]);
@@ -871,14 +877,69 @@ describe('chat 도구', () => {
       expect(out[1].type).toBe('image');
     });
 
-    it('HEIC 이미지 → 원본 없이 viewChatAttachment 변환본(page 없이)', async () => {
+    it('이슈 첨부 HEIC → 원본 없이 viewChatAttachment 변환본(page 없이)', async () => {
       const c = client();
+      vi.mocked(c.readChatAttachmentText).mockResolvedValue(imageSlice(7, { status: 'NONE', reasonCode: null, reason: null }));
       vi.mocked(c.listThreadIssueAttachments).mockResolvedValue([meta(7, 'image/heic') as never]);
       vi.mocked(c.viewChatAttachment).mockResolvedValue({ data: Buffer.from('JPG'), mimeType: 'image/jpeg' });
       const out = (await chatTool(c).handler({ threadId: 5, fileId: 7 })) as Array<{ type: string; mimeType?: string }>;
       expect(c.downloadThreadIssueAttachment).not.toHaveBeenCalled();
       expect(c.viewChatAttachment).toHaveBeenCalledWith(AGENT_ID, 5, 7);
       expect(out[1]).toMatchObject({ type: 'image', mimeType: 'image/jpeg' });
+    });
+
+    it('챗 메시지 첨부 HEIC → 원본 없이 viewChatAttachment 변환본', async () => {
+      const c = client();
+      vi.mocked(c.readChatAttachmentText).mockResolvedValue(imageSlice(9));
+      vi.mocked(c.getChatMessages).mockResolvedValue([
+        { id: 12, authorName: 'A', authorKind: 'HUMAN', body: '', createdAt: 't', deleted: false, attachments: [{ ...meta(9, 'image/heic'), messageId: 12 }] },
+      ]);
+      vi.mocked(c.viewChatAttachment).mockResolvedValue({ data: Buffer.from('JPG'), mimeType: 'image/jpeg' });
+      const out = (await chatTool(c).handler({ threadId: 5, fileId: 9 })) as Array<{ type: string; mimeType?: string }>;
+      expect(c.downloadChatAttachment).not.toHaveBeenCalled();
+      expect(c.viewChatAttachment).toHaveBeenCalledWith(AGENT_ID, 5, 9);
+      expect(out[1]).toMatchObject({ type: 'image', mimeType: 'image/jpeg' });
+    });
+
+    it('이슈 챗 이미지 경로도 예산을 센다 — 다 쓰면 원본·변환본을 받지 않고 안내, 실패한 장수는 돌려놓는다', async () => {
+      const c = client();
+      const budget = new ImageBudget(1);
+      vi.mocked(c.readChatAttachmentText).mockResolvedValue(imageSlice(7));
+      vi.mocked(c.listThreadIssueAttachments).mockResolvedValue([meta(7, 'image/jpeg') as never]);
+      vi.mocked(c.downloadThreadIssueAttachment).mockResolvedValue({ data: Buffer.from('JPG'), mimeType: 'image/jpeg' });
+      const t = chatTool(c, { input: true, budget });
+      expect(Array.isArray(await t.handler({ threadId: 5, fileId: 7 }))).toBe(true);
+      expect(await t.handler({ threadId: 5, fileId: 7 })).toContain('다 썼습니다');
+      expect(c.downloadThreadIssueAttachment).toHaveBeenCalledTimes(1);
+      // 변환 실패(이미지를 못 줌)는 예산을 돌려놓는다 — 다음 호출이 다시 받을 수 있다.
+      const b2 = new ImageBudget(1);
+      const c2 = client();
+      vi.mocked(c2.readChatAttachmentText).mockResolvedValue(imageSlice(7));
+      vi.mocked(c2.viewChatAttachment).mockRejectedValueOnce(new Error('503')).mockResolvedValue(png);
+      const t2 = chatTool(c2, { input: true, budget: b2 });
+      expect(typeof (await t2.handler({ threadId: 5, fileId: 7 }))).toBe('string');
+      expect(Array.isArray(await t2.handler({ threadId: 5, fileId: 7 }))).toBe(true);
+    });
+
+    it('이슈 첨부 목록 조회가 실패하고 메시지 창 밖이어도(메타 없음) 변환본(/view)으로 이미지를 준다', async () => {
+      const c = client();
+      vi.mocked(c.readChatAttachmentText).mockResolvedValue(imageSlice(7));
+      vi.mocked(c.listThreadIssueAttachments).mockRejectedValue(new Error('403'));
+      vi.mocked(c.getChatMessages).mockRejectedValue(new Error('500'));
+      vi.mocked(c.viewChatAttachment).mockResolvedValue({ data: Buffer.from('JPG'), mimeType: 'image/jpeg' });
+      const out = (await chatTool(c).handler({ threadId: 5, fileId: 7 })) as Array<{ type: string; mimeType?: string }>;
+      expect(c.viewChatAttachment).toHaveBeenCalledWith(AGENT_ID, 5, 7);
+      expect(c.downloadThreadIssueAttachment).not.toHaveBeenCalled();
+      expect(c.downloadChatAttachment).not.toHaveBeenCalled();
+      expect(out[1]).toMatchObject({ type: 'image', mimeType: 'image/jpeg' });
+    });
+
+    it('메타가 문서(image 아님)인 NONE 파일 → 슬라이스 JSON 그대로(이미지 호출 없음)', async () => {
+      const c = client();
+      vi.mocked(c.readChatAttachmentText).mockResolvedValue(imageSlice(7, { status: 'NONE', reasonCode: null, reason: null }));
+      vi.mocked(c.listThreadIssueAttachments).mockResolvedValue([meta(7, 'application/zip') as never]);
+      expect(JSON.parse((await chatTool(c).handler({ threadId: 5, fileId: 7 })) as string).status).toBe('NONE');
+      expect(c.viewChatAttachment).not.toHaveBeenCalled();
     });
 
     it('문서(PDF) → 기존 텍스트 경로, 이미지 호출 없음. 쪽수가 있으면 pages 안내 note', async () => {
@@ -891,6 +952,9 @@ describe('chat 도구', () => {
       expect(out).toMatchObject({ text: '본문' });
       expect(out.note).toContain('pages');
       expect(c.viewChatAttachment).not.toHaveBeenCalled();
+      // 글자 먼저 — READY 문서는 목록 조회 없이 한 번에 끝난다.
+      expect(c.listThreadIssueAttachments).not.toHaveBeenCalled();
+      expect(c.getChatMessages).not.toHaveBeenCalled();
     });
 
     it('스캔 PDF(SKIPPED) → 스캔 안내 note, images.input false 면 모델 전환 안내', async () => {
@@ -899,14 +963,6 @@ describe('chat 도구', () => {
       vi.mocked(c.readChatAttachmentText).mockResolvedValue(slice);
       expect(JSON.parse((await chatTool(c).handler({ threadId: 5, fileId: 7 })) as string).note).toContain('스캔 PDF(5쪽)');
       expect(JSON.parse((await chatTool(c, { input: false }).handler({ threadId: 5, fileId: 7 })) as string).note).toContain('이미지를 볼 수 있는 모델');
-    });
-
-    it('메타 조회가 실패해도 텍스트 읽기는 그대로 동작', async () => {
-      const c = client();
-      vi.mocked(c.listThreadIssueAttachments).mockRejectedValue(new Error('403'));
-      vi.mocked(c.getChatMessages).mockRejectedValue(new Error('500'));
-      vi.mocked(c.readChatAttachmentText).mockResolvedValue({ fileId: 7, status: 'PENDING' } as never);
-      expect(JSON.parse((await chatTool(c).handler({ threadId: 5, fileId: 7 })) as string).status).toBe('PENDING');
     });
 
     it('images.input false 면 스키마·설명에 pages 없음, true(또는 미지정)면 있다', () => {

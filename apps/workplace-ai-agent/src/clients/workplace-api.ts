@@ -8,7 +8,10 @@ import type { ProviderCredential } from '../agent/agent-runner.js';
 import type { MemoryKind } from '../agent/memory-block.js';
 import {
   createSharedToolClient,
+  decodeErrorBody,
   describeApiError,
+  FileTooLargeError,
+  IMAGE_MAX_BYTES,
   parseIssueKey,
   type ExtractedTextSlice,
   type ExtractionStatus,
@@ -185,29 +188,33 @@ export interface WorkplaceApiClient {
   withOnBehalfOfTenant(tenantId: number): WorkplaceApiClient;
 }
 
-/**
- * WP-250: arraybuffer 요청의 오류 본문을 푼다 — responseType 이 arraybuffer 면 서버 ErrorResponse JSON 도 바이트로 와서,
- * 그대로 요약하면 한국어 사유(예: "이 PDF 는 6쪽입니다…")가 사라지고 "API 오류 400" 만 남는다. 바이트를 JSON(안 되면 글)으로 바꿔
- * response.data 에 되돌려 두면 아래 인터셉터의 describeApiError 와 /view 호출부(pageBlocks 의 사유 요약)가 같은 데이터를 본다.
- */
-function decodeBinaryErrorBody(res: { data: unknown }): void {
-  const raw = res.data;
-  const bytes = raw instanceof Uint8Array ? raw : raw instanceof ArrayBuffer ? new Uint8Array(raw) : undefined;
-  if (!bytes) return;
-  const text = new TextDecoder().decode(bytes);
-  try {
-    res.data = JSON.parse(text);
-  } catch {
-    res.data = text;
-  }
-}
-
 // WP-244: 구간 읽기 쿼리 — 생략한 값은 보내지 않아 서버 기본값(offset 0, limit 32000)을 따른다.
 function rangeParams(offset?: number, limit?: number): Record<string, number> {
   const p: Record<string, number> = {};
   if (offset !== undefined) p.offset = offset;
   if (limit !== undefined) p.limit = limit;
   return p;
+}
+
+/**
+ * /view GET — 이미지 전용이라 공유 getBytes 와 같이 IMAGE_MAX_BYTES 상한을 건다(서버가 1MB 안팎으로 줄여 주지만 상한 없는 다운로드를 두지 않는다).
+ * 상한을 넘으면 axios 의 maxContentLength 오류를 모델이 읽을 수 있는 한국어 사유로 바꿔 던진다(도구가 text 로 전한다).
+ */
+async function getView(
+  http: AxiosInstance,
+  url: string,
+  config: { headers: Record<string, string>; params?: Record<string, number> },
+): Promise<FileBytes> {
+  try {
+    return toViewBytes(
+      await http.get(url, { ...config, responseType: 'arraybuffer', maxContentLength: IMAGE_MAX_BYTES, maxBodyLength: IMAGE_MAX_BYTES }),
+    );
+  } catch (e) {
+    if (/maxContentLength|maxBodyLength/.test(String((e as { message?: unknown })?.message ?? ''))) {
+      throw new Error(new FileTooLargeError().message.replace('원본이', '변환한 이미지가'));
+    }
+    throw e;
+  }
 }
 
 /** /view 응답 → FileBytes — Content-Type 원문과 X-Page-Count(양의 정수일 때만)를 싣는다. */
@@ -235,7 +242,8 @@ export function createWorkplaceApiClient(opts: {
   // 자가교정이 불가능했다. AxiosError 객체는 그대로 두고(status 판정 호출부 유지) message 만 보강한다.
   http.interceptors.response.use(undefined, (err: unknown) => {
     if (axios.isAxiosError(err) && err.response) {
-      decodeBinaryErrorBody(err.response);
+      // WP-250: arraybuffer 요청의 오류 본문(ErrorResponse JSON)을 먼저 풀어야 한국어 사유가 message·response.data 에 남는다.
+      decodeErrorBody(err);
       err.message = describeApiError(err.response.status, err.response.data);
     }
     return Promise.reject(err);
@@ -412,21 +420,17 @@ export function createWorkplaceApiClient(opts: {
 
     // WP-250: /view 는 PDF 쪽(?page=N) 또는 이미지 변환본을 돌려준다. X-Page-Count(PDF 전체 쪽수)는 pageCount 로 싣는다.
     async viewHomeAttachment(onBehalfOfId, sessionId, fileId, page) {
-      const r = await http.get(`/home/sessions/${encodeURIComponent(sessionId)}/attachments/${fileId}/view`, {
+      return getView(http, `/home/sessions/${encodeURIComponent(sessionId)}/attachments/${fileId}/view`, {
         ...onBehalfOf(onBehalfOfId),
-        responseType: 'arraybuffer',
         ...(page !== undefined && { params: { page } }),
       });
-      return toViewBytes(r);
     },
 
     async viewChatAttachment(agentId, threadId, fileId, page) {
-      const r = await http.get(`/chat/threads/${threadId}/attachments/${fileId}/view`, {
+      return getView(http, `/chat/threads/${threadId}/attachments/${fileId}/view`, {
         ...onBehalfOf(agentId),
-        responseType: 'arraybuffer',
         ...(page !== undefined && { params: { page } }),
       });
-      return toViewBytes(r);
     },
 
     async createAiMemory(onBehalfOfId, body) {

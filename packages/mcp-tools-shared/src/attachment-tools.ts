@@ -73,7 +73,7 @@ export interface AttachmentToolOptions {
 const MAIL_PAGES_UNSUPPORTED = '메일 첨부는 아직 페이지 보기를 지원하지 않습니다. pages 없이 텍스트로 읽으세요.';
 
 /** 서버가 이미지로 판정해 추출을 건너뛴 파일인지 — 이때만 원본을 받는다. */
-const isImageSkip = (s: ExtractedTextSlice) => s.status === 'SKIPPED' && s.reasonCode === 'IMAGE';
+export const isImageSkip = (s: Pick<ExtractedTextSlice, 'status' | 'reasonCode'>) => s.status === 'SKIPPED' && s.reasonCode === 'IMAGE';
 
 /** 보낼 수 없는 이미지 안내(지금은 /view 가 없는 메일 첨부만, WP-388) — 실제 사유만 말하고, 내용을 추측하지 않게 한다. label 은 JSON 으로 감싸 제어문자를 무력화한 이름·식별자. */
 function imageNotice(label: string, reasons: string[]): string {
@@ -120,7 +120,7 @@ function driveRewriteNote(slice: ExtractedTextSlice): string | undefined {
  * READY 면 아무 말도 하지 않고, 스캔 PDF 면 모델을 바꾸면 읽을 수 있다고 알린다(사용자에게 다시 올려 달라고 하지 않게).
  * 쪽수(pageCount)는 이전 추출 행이면 null 이라 그때는 쪽수 없이 말한다.
  */
-function pdfNote(slice: ExtractedTextSlice, imageInput: boolean): string | undefined {
+export function pdfNote(slice: Pick<ExtractedTextSlice, 'status' | 'reasonCode' | 'pageCount'>, imageInput: boolean): string | undefined {
   if (slice.status === 'SKIPPED' && slice.reasonCode === 'SCANNED_PDF') {
     if (!imageInput) return '이 모델은 이미지를 볼 수 없어 읽을 수 없습니다. 비서 설정에서 이미지를 볼 수 있는 모델로 바꾸면 읽을 수 있습니다.';
     return `글자가 없는 스캔 PDF${slice.pageCount ? `(${slice.pageCount}쪽)` : ' '}입니다. pages 로 페이지 이미지를 읽으세요.`;
