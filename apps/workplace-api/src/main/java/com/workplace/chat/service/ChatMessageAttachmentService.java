@@ -177,15 +177,8 @@ public class ChatMessageAttachmentService {
   @Transactional(readOnly = true)
   public ExtractedTextSlice readText(
       long callerId, long threadId, long fileId, int offset, int limit) {
-    if (issueAttachments.isIssueAttachment(threadId, fileId)) {
-      issueAttachments.ensureCanReadIssueAttachments(threadId, callerId);
-    } else {
-      threadAccess.ensureCanRead(threadId, callerId);
-      if (!repo.isAttachedToThread(fileId, threadId)) {
-        throw new ChatAttachmentNotFoundException(fileId);
-      }
-    }
-    return extractedText.read(fileId, offset, limit);
+    // 권한 규칙은 resolveViewFileId 한 곳에 — /text 와 /view 가 같은 가드를 쓴다(같은 readOnly 트랜잭션 안에서 실행).
+    return extractedText.read(resolveViewFileId(callerId, threadId, fileId), offset, limit);
   }
 
   /**

@@ -201,8 +201,8 @@ public class HomeAttachmentService {
   @Transactional(readOnly = true)
   public ExtractedTextSlice readText(
       long callerId, UUID sessionId, long fileId, int offset, int limit) {
-    requireStored(callerId, sessionId, fileId);
-    return extractedText.read(fileId, offset, limit);
+    // 권한 규칙은 resolveViewFileId 한 곳에 — /text 와 /view 가 같은 가드를 쓴다(같은 readOnly 트랜잭션 안에서 실행).
+    return extractedText.read(resolveViewFileId(callerId, sessionId, fileId), offset, limit);
   }
 
   /**

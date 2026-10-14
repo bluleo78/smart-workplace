@@ -632,10 +632,8 @@ public class DriveFileService {
    */
   @Transactional(readOnly = true)
   public ExtractedTextSlice readText(long callerId, long driveFileId, int offset, int limit) {
-    DriveFileRepository.DriveFileRow row =
-        files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
-    perms.requireRole(row.spaceId(), callerId, "VIEWER");
-    return extractedText.read(row.fileId(), offset, limit);
+    // 권한 규칙은 resolveViewFileId 한 곳에 — /text 와 /view 가 같은 가드를 쓴다(같은 readOnly 트랜잭션 안에서 실행).
+    return extractedText.read(resolveViewFileId(callerId, driveFileId), offset, limit);
   }
 
   /**

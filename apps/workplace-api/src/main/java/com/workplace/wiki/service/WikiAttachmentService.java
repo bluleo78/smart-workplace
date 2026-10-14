@@ -166,11 +166,8 @@ public class WikiAttachmentService {
   @Transactional(readOnly = true)
   public ExtractedTextSlice readText(
       long callerId, long pageId, long fileId, int offset, int limit) {
-    long spaceId =
-        pages.findSpaceId(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
-    perms.requireRole(spaceId, callerId, "VIEWER");
-    requireBound(pageId, fileId);
-    return extractedText.read(fileId, offset, limit);
+    // 권한 규칙은 resolveViewFileId 한 곳에 — /text 와 /view 가 같은 가드를 쓴다(같은 readOnly 트랜잭션 안에서 실행).
+    return extractedText.read(resolveViewFileId(callerId, pageId, fileId), offset, limit);
   }
 
   /**

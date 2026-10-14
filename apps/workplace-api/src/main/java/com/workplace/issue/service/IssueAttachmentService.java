@@ -164,16 +164,9 @@ public class IssueAttachmentService {
   @Transactional(readOnly = true)
   public ExtractedTextSlice readText(
       Long callerId, String projectKey, int number, Long fileId, int offset, int limit) {
-    var project = accessGuard.assertReadable(projectKey, callerId);
-    var issue =
-        issueRepository
-            .findByProjectAndNumber(project.id(), number)
-            .orElseThrow(() -> new IssueNotFoundException(projectKey, number));
-    var att = repo.findById(fileId).orElseThrow(() -> new AttachmentNotFoundException(fileId));
-    if (!att.issueId().equals(issue.id())) {
-      throw new AttachmentNotFoundException(fileId);
-    }
-    return extractedText.read(fileId, offset, limit);
+    // 권한 규칙은 resolveViewFileId 한 곳에 — /text 와 /view 가 같은 가드를 쓴다(같은 readOnly 트랜잭션 안에서 실행).
+    return extractedText.read(
+        resolveViewFileId(callerId, projectKey, number, fileId), offset, limit);
   }
 
   /**
