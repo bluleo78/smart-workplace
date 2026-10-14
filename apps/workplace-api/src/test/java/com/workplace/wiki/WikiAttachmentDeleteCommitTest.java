@@ -39,6 +39,7 @@ class WikiAttachmentDeleteCommitTest extends IntegrationTestBase {
   @Autowired WikiSpaceService spaceService;
   @Autowired WikiPageService pageService;
   @Autowired WikiAttachmentService attachmentService;
+  @Autowired com.workplace.file.storage.FileStore fileStore;
 
   /**
    * @AfterEach 에서 정리할 유저 id — space/page/attachment 매핑은 wiki_space 삭제 시 CASCADE 로 함께 정리된다.
@@ -130,6 +131,55 @@ class WikiAttachmentDeleteCommitTest extends IntegrationTestBase {
               "커밋 후 디스크 바이너리가 실제로 사라져야 한다(afterCommit unlink) — afterCompletion 오기재나 등록만 하고 미실행이면 이 단언이"
                   + " 깨진다")
           .isFalse();
+    } finally {
+      TenantContext.clear();
+    }
+  }
+
+  /**
+   * WP-250: 노트 첨부 삭제는 커밋 후 원본뿐 아니라 썸네일과 이미지 보기 캐시("{storage_path}.view/")도 지워야 한다. 둘 다 DB 행이 없어 원본과
+   * 함께 지우지 않으면 고아로 남는다.
+   */
+  @Test
+  void 삭제_커밋_후_썸네일과_이미지보기_캐시도_사라진다() throws java.io.IOException {
+    TenantContext.set(1L);
+    try {
+      long ownerId = createUser("own");
+      long spaceId = spaceService.createTeamSpace(ownerId, "커밋 삭제 파생 테스트 공간").id();
+      seededSpaceId = spaceId;
+      long pageId =
+          pageService.create(ownerId, spaceId, new CreatePageRequest(null, "삭제 파생 페이지")).id();
+
+      byte[] png = {(byte) 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0, 0, 0, 0, 0};
+      WikiAttachmentResponse res =
+          attachmentService.upload(
+              ownerId, pageId, new MockMultipartFile("file", "a.png", "image/png", png));
+      seededFileId = res.fileId();
+
+      var stored = attachmentService.download(ownerId, pageId, res.fileId());
+      String storagePath =
+          dsl.select(FILE.STORAGE_PATH)
+              .from(FILE)
+              .where(FILE.ID.eq(res.fileId()))
+              .fetchOne(0, String.class);
+      String thumbPath = storagePath + ".thumb.png";
+      dsl.update(FILE)
+          .set(FILE.THUMBNAIL_PATH, thumbPath)
+          .where(FILE.ID.eq(res.fileId()))
+          .execute();
+      var thumb = fileStore.resolve(thumbPath);
+      var cache = fileStore.resolve(storagePath + ".view/img-1568.jpg");
+      Files.createDirectories(cache.getParent());
+      Files.writeString(thumb, "thumb");
+      Files.writeString(cache, "img");
+
+      attachmentService.delete(ownerId, pageId, res.fileId());
+      seededFileId = -1;
+
+      assertThat(stored.path()).doesNotExist();
+      assertThat(thumb).doesNotExist();
+      assertThat(cache).doesNotExist();
+      assertThat(fileStore.resolve(storagePath + ".view")).doesNotExist();
     } finally {
       TenantContext.clear();
     }

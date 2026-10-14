@@ -120,6 +120,13 @@ public class FileCleanupService {
             log.warn("썸네일 삭제 실패(무시): {}: {}", thumbnailPath, te.getMessage());
           }
         }
+        // WP-250: 이미지 보기 캐시("{storage_path}.view/")도 함께 지운다 — DB 행이 없는 파생 파일이라 원본과 같이
+        // 지우지 않으면 영구 고아가 된다. 실패해도 원본 삭제·DB 정리는 그대로 진행(고아 캐시는 경미).
+        try {
+          fileStore.deleteTreeIfExists(storagePath + ".view");
+        } catch (RuntimeException ve) {
+          log.warn("이미지 보기 캐시 삭제 실패(무시): {}.view: {}", storagePath, ve.getMessage());
+        }
       } catch (IOException e) {
         log.warn(
             "디스크 파일 삭제 실패 — DB 레코드를 유지하여 다음 정리 사이클에서 재시도 가능: {}: {}", storagePath, e.getMessage());

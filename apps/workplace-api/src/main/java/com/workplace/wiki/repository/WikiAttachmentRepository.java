@@ -170,8 +170,8 @@ public class WikiAttachmentRepository {
     dsl.deleteFrom(WIKI_PAGE_ATTACHMENT).where(WIKI_PAGE_ATTACHMENT.FILE_ID.eq(fileId)).execute();
   }
 
-  /** file 행 회수에 필요한 최소 정보 — id 와 디스크 경로. */
-  public record AttachedFile(long fileId, String storagePath) {}
+  /** file 행 회수에 필요한 최소 정보 — id 와 디스크 경로(원본·썸네일, 썸네일은 없으면 null). */
+  public record AttachedFile(long fileId, String storagePath, String thumbnailPath) {}
 
   /**
    * rootPageId 와 그 모든 후손 페이지에 바인딩된 첨부 file 행. 페이지 삭제 직전에 호출해야 한다 — wiki_page_attachment 는 page_id
@@ -191,13 +191,16 @@ public class WikiAttachmentRepository {
               UNION
               SELECT p.id FROM wiki_page p JOIN tree t ON p.parent_id = t.id
             )
-            SELECT f.id, f.storage_path
+            SELECT f.id, f.storage_path, f.thumbnail_path
               FROM wiki_page_attachment a
               JOIN tree t ON t.id = a.page_id
               JOIN file f ON f.id = a.file_id
             """,
             rootPageId)
-        .map(r -> new AttachedFile(r.get(0, Long.class), r.get(1, String.class)));
+        .map(
+            r ->
+                new AttachedFile(
+                    r.get(0, Long.class), r.get(1, String.class), r.get(2, String.class)));
   }
 
   /**

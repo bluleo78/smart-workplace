@@ -203,12 +203,12 @@ public class WikiAttachmentService {
     storage
         .deleteFileRow(fileId)
         .ifPresent(
-            relativePath ->
+            paths ->
                 TransactionSynchronizationManager.registerSynchronization(
                     new TransactionSynchronization() {
                       @Override
                       public void afterCommit() {
-                        storage.deleteBinary(relativePath);
+                        storage.deleteBinary(paths);
                       }
                     }));
   }
@@ -239,8 +239,11 @@ public class WikiAttachmentService {
           deleted,
           rootPageId);
     }
-    List<String> paths =
-        attached.stream().map(WikiAttachmentRepository.AttachedFile::storagePath).toList();
+    // 원본뿐 아니라 썸네일·이미지 보기 캐시(WP-250)도 커밋 후 함께 지운다.
+    List<WikiAttachmentStorage.StoredPaths> paths =
+        attached.stream()
+            .map(a -> new WikiAttachmentStorage.StoredPaths(a.storagePath(), a.thumbnailPath()))
+            .toList();
     TransactionSynchronizationManager.registerSynchronization(
         new TransactionSynchronization() {
           @Override

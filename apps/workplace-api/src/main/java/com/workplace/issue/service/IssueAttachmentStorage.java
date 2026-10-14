@@ -105,21 +105,40 @@ public class IssueAttachmentStorage {
         .getId();
   }
 
-  /** file row + 디스크 바이너리 삭제. 디스크 정리 실패는 로그만 — DB 정합성 우선. */
+  /**
+   * file row + 디스크 바이너리 삭제. 디스크 정리 실패는 로그만 — DB 정합성 우선.
+   *
+   * <p>원본 외에 썸네일(thumbnail_path)과 이미지 보기 캐시("{storage_path}.view/", WP-250)도 함께 지운다 — 둘 다 DB 행이 없는
+   * 파생 파일이라 여기서 지우지 않으면 영구 고아가 된다. 각 정리는 독립 best-effort 라 하나가 실패해도 나머지는 계속한다.
+   */
   public void deleteFileRowAndBinary(Long fileId) {
-    var path =
-        dsl.select(FILE.STORAGE_PATH)
+    var row =
+        dsl.select(FILE.STORAGE_PATH, FILE.THUMBNAIL_PATH)
             .from(FILE)
             .where(FILE.ID.eq(fileId))
-            .fetchOptional(0, String.class);
+            .fetchOptional();
     dsl.deleteFrom(FILE).where(FILE.ID.eq(fileId)).execute();
     // FileStore 에 위임 — 상대 경로를 절대 경로로 변환해 삭제
-    path.ifPresent(
-        p -> {
+    row.ifPresent(
+        r -> {
+          String path = r.get(FILE.STORAGE_PATH);
           try {
-            fileStore.deleteIfExists(p);
+            fileStore.deleteIfExists(path);
           } catch (Exception ex) {
-            log.warn("첨부 바이너리 삭제 실패 (DB row 는 제거됨): {}", p, ex);
+            log.warn("첨부 바이너리 삭제 실패 (DB row 는 제거됨): {}", path, ex);
+          }
+          String thumbnailPath = r.get(FILE.THUMBNAIL_PATH);
+          if (thumbnailPath != null) {
+            try {
+              fileStore.deleteIfExists(thumbnailPath);
+            } catch (Exception ex) {
+              log.warn("첨부 썸네일 삭제 실패 (DB row 는 제거됨): {}", thumbnailPath, ex);
+            }
+          }
+          try {
+            fileStore.deleteTreeIfExists(path + ".view");
+          } catch (Exception ex) {
+            log.warn("이미지 보기 캐시 삭제 실패 (DB row 는 제거됨): {}.view", path, ex);
           }
         });
   }
