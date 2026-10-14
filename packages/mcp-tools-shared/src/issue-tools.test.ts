@@ -215,13 +215,59 @@ describe('buildSharedIssueTools', () => {
     expect(c.updateIssueContent).not.toHaveBeenCalled();
   });
 
-  it('WP-356: create_issue 는 모르는 라벨·마일스톤·사이클이면 이슈를 만들지 않고 사용 가능 목록을 담아 throw', async () => {
+  it('WP-356: create_issue 는 모르는 마일스톤·사이클이면 이슈를 만들지 않고 사용 가능 목록을 담아 throw', async () => {
     const c = mockClient();
     const t = buildSharedIssueTools(c).find((x) => x.name === 'create_issue')!;
-    await expect(t.handler({ projectKey: 'WP', title: 'x', labels: ['nope'] })).rejects.toThrow('사용 가능: urgent');
     await expect(t.handler({ projectKey: 'WP', title: 'x', milestone: 'v9' })).rejects.toThrow('사용 가능: v1.0');
     await expect(t.handler({ projectKey: 'WP', title: 'x', cycles: ['S9'] })).rejects.toThrow('사용 가능: Sprint 3');
     expect(c.createIssue).not.toHaveBeenCalled();
+  });
+
+  it('WP-394: create_issue 는 없는 라벨을 이름으로 넘기고(서버가 만든다) 새로 생길 이름을 createdLabels 로 알린다', async () => {
+    const c = mockClient();
+    vi.mocked(c.createIssue).mockResolvedValue({ projectKey: 'WP', number: 5, title: '새 이슈', status: 'TODO', priority: 'MID', assignees: [], labels: [] });
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'create_issue')!;
+    const out = JSON.parse(resultText(await t.handler({ projectKey: 'WP', title: '새 이슈', labels: [' urgent', 'ai-fix', 'ai-fix'] })));
+    // 있는 라벨은 id(구버전 API 도 기존 라벨을 지우지 않게), 없는 라벨만 이름 — 서버가 만든다.
+    expect(c.createIssue).toHaveBeenCalledWith('WP', expect.objectContaining({ labelIds: [100], labelNames: ['ai-fix'] }));
+    expect(out.createdLabels).toEqual(['ai-fix']);
+  });
+
+  it('WP-394: create_issue 는 빈 라벨 이름·40자 초과면 이슈를 만들지 않고 throw', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'create_issue')!;
+    await expect(t.handler({ projectKey: 'WP', title: 'x', labels: [' '] })).rejects.toThrow('라벨 이름이 비어 있습니다.');
+    await expect(t.handler({ projectKey: 'WP', title: 'x', labels: ['x'.repeat(41)] })).rejects.toThrow('40자 이하');
+    expect(c.createIssue).not.toHaveBeenCalled();
+  });
+
+  it('WP-394: update_issue 는 있는 라벨 id·없는 라벨 이름으로 집합을 교체하고, 교체가 성공했을 때만 createdLabels 를 싣는다', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    const out = JSON.parse(resultText(await t.handler({ issueKey: 'WP-12', labels: ['urgent', 'ai-fix'] })));
+    expect(c.replaceIssueLabels).toHaveBeenCalledWith('WP-12', [100], ['ai-fix']);
+    expect(out).toEqual({ ok: true, results: { labels: 'ok' }, createdLabels: ['ai-fix'] });
+
+    // 교체가 실패하면 서버 트랜잭션이 롤백돼 라벨도 생기지 않았다 — createdLabels 를 싣지 않는다.
+    vi.mocked(c.replaceIssueLabels).mockRejectedValueOnce(new Error('이슈를 찾을 수 없습니다'));
+    const failed = JSON.parse(resultText(await t.handler({ issueKey: 'WP-12', labels: ['ai-fix'] })));
+    expect(failed).toEqual({ ok: false, results: { labels: 'failed: 이슈를 찾을 수 없습니다' } });
+  });
+
+  it('WP-394: update_issue 는 담당자 이름이 틀리면 라벨을 포함해 아무것도 쓰지 않는다', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    await expect(t.handler({ issueKey: 'WP-12', labels: ['ai-fix'], assignees: ['nobody'] })).rejects.toThrow();
+    expect(c.replaceIssueLabels).not.toHaveBeenCalled();
+  });
+
+  it('WP-394: update_issue 의 labels: [] 는 비우기 — 라벨 조회 없이 비우고 createdLabels 도 없다', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    const out = JSON.parse(resultText(await t.handler({ issueKey: 'WP-12', labels: [] })));
+    expect(c.replaceIssueLabels).toHaveBeenCalledWith('WP-12', [], []);
+    expect(c.getProjectLabels).not.toHaveBeenCalled();
+    expect(out).toEqual({ ok: true, results: { labels: 'ok' } });
   });
 
   it('WP-356: update_issue 는 커스텀 필드를 이름으로 받아 정의 id·값으로 바꿔 한 번에 보내고 결과에 fields 를 싣는다', async () => {

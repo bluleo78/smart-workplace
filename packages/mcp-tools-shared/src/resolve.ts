@@ -93,10 +93,40 @@ export async function resolveAssigneeIds(
   return [...new Set(ids)];
 }
 
-/** 라벨 이름 배열 → labelId 배열. */
-export async function resolveLabelIds(client: Pick<ProjectMetaClient, 'getProjectLabels'>, projectKey: string, labelNames: string[]): Promise<number[]> {
-  const labels = await client.getProjectLabels(projectKey);
-  return labelNames.map((n) => idByName(labels, n, '라벨'));
+/** 새 라벨 기본 색 — 웹 라벨 관리·create_project_meta·서버 이름 라벨 생성의 기본값과 같다. */
+export const DEFAULT_LABEL_COLOR = 'GRAY';
+
+/** 서버 라벨 이름 상한(label.name VARCHAR(40)) — 쓰기 전에 걸러 update_issue 가 일부만 저장되지 않게 한다. */
+const LABEL_NAME_MAX = 40;
+
+/**
+ * 이슈에 붙일 라벨 이름 → 요청 본문 조각(WP-394). 앞뒤 공백을 빼고 같은 이름은 하나로 친 뒤, 미리 읽은 프로젝트 라벨(existing)에 있는 이름은
+ * labelIds 로, 없는 이름만 labelNames 로 나눈다 — 없는 라벨은 서버가 이슈 쓰기와 같은 트랜잭션에서 만든다(쓰기가 실패하면 라벨도 남지 않는다).
+ * 있는 라벨을 id 로 보내는 이유: labelNames 를 모르는 구버전 API(롤링 배포)가 그 필드를 무시해도 기존 라벨이 지워지지 않게.
+ * created(= 새로 만들 이름)는 오타로 생긴 라벨을 호출자가 알아챌 수 있게 결과에 싣는다. 이름은 정확 일치(대소문자 구분, 서버 유일 제약과 같은 기준).
+ */
+export function splitLabelNames(
+  labelNames: string[],
+  existing: { id: number; name: string }[],
+): { ids: number[]; created: string[] } {
+  const names = [...new Set(labelNames.map((n) => n.trim()))];
+  if (names.some((n) => n.length === 0)) throw new Error('라벨 이름이 비어 있습니다.');
+  const tooLong = names.find((n) => n.length > LABEL_NAME_MAX);
+  if (tooLong) throw new Error(`라벨 이름은 ${LABEL_NAME_MAX}자 이하여야 합니다: '${tooLong}'`);
+  const idOf = new Map(existing.map((l) => [l.name, l.id]));
+  const ids: number[] = [];
+  const created: string[] = [];
+  for (const name of names) {
+    const id = idOf.get(name);
+    if (id !== undefined) ids.push(id);
+    else created.push(name);
+  }
+  return { ids, created };
+}
+
+/** 도구 결과에 붙일 createdLabels — 새로 만든 라벨이 있을 때만 키를 싣는다. */
+export function createdLabelsField(part: { created: string[] } | undefined): { createdLabels?: string[] } {
+  return part?.created.length ? { createdLabels: part.created } : {};
 }
 
 /** 마일스톤 이름 → milestoneId(#854). */

@@ -23,8 +23,8 @@ public class IssueLabelController {
 
   private final IssueLabelService issueLabelService;
 
-  /** 라벨 집합 교체 요청 본문. */
-  public record ReplaceLabelsRequest(@NotNull List<Long> labelIds) {}
+  /** 라벨 집합 교체 요청 본문. labelNames(선택, WP-394)는 이름으로 붙일 라벨 — 없으면 만들어 labelIds 와 합친다. */
+  public record ReplaceLabelsRequest(@NotNull List<Long> labelIds, List<String> labelNames) {}
 
   /** 라벨 집합 통째로 교체. */
   @PutMapping
@@ -35,6 +35,7 @@ public class IssueLabelController {
       @PathVariable int number,
       @Valid @RequestBody ReplaceLabelsRequest req) {
     return ResponseEntity.ok(
-        issueLabelService.replace((Long) auth.getPrincipal(), key, number, req.labelIds()));
+        issueLabelService.replace(
+            (Long) auth.getPrincipal(), key, number, req.labelIds(), req.labelNames()));
   }
 }

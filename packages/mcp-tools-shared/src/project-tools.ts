@@ -8,7 +8,7 @@ import { z } from 'zod';
 import type { SharedTool } from './mcp-tool.js';
 import { requireActiveMember } from './member-tools.js';
 import { nullAsOmitted } from './tool-definitions.js';
-import { defaultListAssignee, fieldDefByName, resolveCycleFilter, resolveMilestoneFilter, rowByName, toFieldValue } from './resolve.js';
+import { DEFAULT_LABEL_COLOR, defaultListAssignee, fieldDefByName, resolveCycleFilter, resolveMilestoneFilter, rowByName, toFieldValue } from './resolve.js';
 import { formatIssueKey, parseIssueKey } from './parse.js';
 import { cursorPageView, dropEmpty, numberedPageView, omitKeys } from './compact.js';
 import { labelNames, toChildrenView, toParentView, toPeopleView, toSeoulIso, typeName } from './issue-view.js';
@@ -361,14 +361,14 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       description:
         'Creates a label, milestone or cycle (라벨·마일스톤·사이클) by kind. Per kind (other fields rejected): label color (default GRAY); ' +
         'milestone dueDate (required), description; cycle goal, startDate, endDate, status (default PLANNED). Dates yyyy-MM-dd. Labels and ' +
-        'cycles need project OWNER, milestones any member.',
+        'milestones need any project member, cycles project OWNER.',
       inputSchema: createProjectMetaInput,
       async handler(args) {
         const { projectKey, kind, name, color, ...rest } = omitNulls(createProjectMetaInput.parse(args));
         assertMetaFields(kind, { color, ...rest });
         if (kind === 'milestone' && !rest.dueDate) throw new Error('마일스톤은 dueDate(yyyy-MM-dd)가 필요합니다.');
         // 서버 라벨 요청은 colorToken 이 필수다 — 색을 안 주면(빈 문자열 포함) 웹 기본값과 같은 GRAY. 다른 필드도 빈 문자열은 생략과 같다.
-        const body = kind === 'label' ? { name, colorToken: labelColor(color) ?? 'GRAY' } : { name, ...blankAs(rest, undefined) };
+        const body = kind === 'label' ? { name, colorToken: labelColor(color) ?? DEFAULT_LABEL_COLOR } : { name, ...blankAs(rest, undefined) };
         return JSON.stringify(toProjectMetaView(kind, (await client.createProjectMeta(projectKey, kind, body)) as Record<string, unknown>));
       },
     },
@@ -380,7 +380,8 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       hints: { destructive: true, idempotent: true },
       description:
         'Changes a label, milestone or cycle found by kind and current name (from get_project); newName renames. Only given fields change ' +
-        '(per kind as in create_project_meta); "" clears description, goal or dates. Same roles as creating.',
+        '(per kind as in create_project_meta); "" clears description, goal or dates. Labels: project OWNER or whoever created the label; ' +
+        'milestones and cycles: same roles as creating.',
       inputSchema: updateProjectMetaInput,
       async handler(args) {
         const { projectKey, kind, name, newName, color, ...rest } = omitNulls(updateProjectMetaInput.parse(args));

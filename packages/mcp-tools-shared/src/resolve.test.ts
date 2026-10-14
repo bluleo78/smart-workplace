@@ -4,11 +4,11 @@ import {
   fieldDefByName,
   resolveAssigneeIds,
   resolveCycleIds,
-  resolveLabelIds,
   resolveMilestoneId,
   resolveTypeId,
   rowByName,
   toFieldValue,
+  splitLabelNames,
   type CurrentUserClient,
   type ProjectMetaClient,
 } from './resolve.js';
@@ -87,14 +87,21 @@ describe('resolveAssigneeIds', () => {
   });
 });
 
-describe('resolveLabelIds', () => {
-  it('라벨 이름 배열을 id 배열로 변환한다', async () => {
-    await expect(resolveLabelIds(client(), 'WP', ['backend'])).resolves.toEqual([101]);
+// WP-394: 있는 라벨은 id, 없는 라벨은 이름(서버가 만든다)으로 나눈다.
+describe('splitLabelNames', () => {
+  const existing = [{ id: 100, name: 'urgent' }, { id: 101, name: 'backend' }];
+
+  it('공백을 빼고 중복을 하나로, 있는 라벨은 ids·없는 라벨은 created', () => {
+    expect(splitLabelNames([' urgent ', 'ai-fix', 'ai-fix', 'backend'], existing)).toEqual({ ids: [100, 101], created: ['ai-fix'] });
   });
-  it('없는 라벨이면 유효 목록을 담아 throw', async () => {
-    await expect(resolveLabelIds(client(), 'WP', ['nope'])).rejects.toThrow(
-      "라벨 'nope' 을(를) 찾을 수 없습니다. 사용 가능: urgent, backend",
-    );
+
+  it('대소문자가 다르면 다른 라벨이다(서버 유일 제약과 같은 기준)', () => {
+    expect(splitLabelNames(['Urgent'], existing)).toEqual({ ids: [], created: ['Urgent'] });
+  });
+
+  it('빈 이름·40자 초과면 throw', () => {
+    expect(() => splitLabelNames(['ai-fix', '  '], existing)).toThrow('라벨 이름이 비어 있습니다.');
+    expect(() => splitLabelNames(['x'.repeat(41)], existing)).toThrow('40자 이하');
   });
 });
 

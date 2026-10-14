@@ -11,7 +11,7 @@ import { MobilePickerSheet } from '@/components/mobile/MobilePickerSheet';
 import { cn } from '@/lib/utils';
 
 import { IssueStatusIcon } from '../../../../components/issues/IssueStatusIcon';
-import { useLabels } from '../../../../hooks/queries/useLabels';
+import { useCreateLabel, useLabels } from '../../../../hooks/queries/useLabels';
 import { useProjectEpics } from '../../../../hooks/queries/useProjectEpics';
 import { useProjectMembers } from '../../../../hooks/queries/useProjectMembers';
 import { useUpdateIssueAssignees } from '../../../../hooks/queries/useUpdateIssueAssignees';
@@ -20,6 +20,7 @@ import { useUpdateIssueParent } from '../../../../hooks/queries/useUpdateIssuePa
 import { formatDateMonthDay } from '../../../../lib/formatters';
 import { ISSUE_PRIORITY_LABEL, ISSUE_PRIORITY_OPTIONS, ISSUE_STATUS_LABEL, ISSUE_STATUSES } from '../../../../lib/issueGrouping';
 import type { IssuePriority, IssueResponse, IssueStatus, UpdateIssueRequest } from '../../../../types/issue';
+import { DEFAULT_LABEL_COLOR } from '../../../../types/label';
 import { incompleteBlockers } from '../incompleteBlockers';
 import { StatusDoneBlockedDialog } from '../IssueStatusSelect';
 import { MOBILE_CHIP } from './chipStyles';
@@ -224,6 +225,7 @@ function LabelPropChip({ projectKey, issue, disabled }: { projectKey: string; is
   const [open, setOpen] = useState(false);
   const labels = useLabels(projectKey);
   const update = useUpdateIssueLabels(projectKey, issue.number);
+  const createLabel = useCreateLabel(projectKey); // WP-394: 시트에서 없는 라벨을 바로 만든다
   const first = issue.labels[0];
   return (
     <>
@@ -247,6 +249,12 @@ function LabelPropChip({ projectKey, issue, disabled }: { projectKey: string; is
         searchable
         value={issue.labels.map((l) => String(l.id))}
         options={(labels.data ?? []).map((l) => ({ value: String(l.id), label: l.name }))}
+        // 목록을 불러온 뒤에만 만들기를 연다 — 실패·로딩 중엔 options 가 비어 있는 라벨도 「없음」으로 보여 중복 생성(409)을 부른다.
+        onCreate={
+          labels.isSuccess
+            ? async (name) => String((await createLabel.mutateAsync({ name, colorToken: DEFAULT_LABEL_COLOR })).id)
+            : undefined
+        }
         onClose={(picked) => {
           setOpen(false);
           const next = picked.map(Number);

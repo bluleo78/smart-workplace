@@ -12,6 +12,8 @@ import java.util.List;
  *
  * <p>WP-356: labelIds·milestoneId·cycleIds 는 생성과 같은 트랜잭션에서 붙인다 — 생성 후 PUT 을 따로 부르면 중간 실패 시 라벨 없는
  * 이슈만 남는다(비원자적). 모두 같은 프로젝트 소속이어야 하고, 프로젝트 멤버(또는 ADMIN)만 지정할 수 있다(수정 경로와 같은 규칙).
+ *
+ * <p>WP-394: labelNames 는 이름으로 붙일 라벨 — 프로젝트에 없는 이름은 같은 트랜잭션에서 기본 색으로 만들어 붙인다(labelIds 와 합친다).
  */
 public record CreateIssueRequest(
     @NotBlank @Size(max = 200) String title,
@@ -24,7 +26,8 @@ public record CreateIssueRequest(
     LocalDate startDate,
     List<Long> labelIds,
     Long milestoneId,
-    List<Long> cycleIds) {
+    List<Long> cycleIds,
+    List<String> labelNames) {
 
   /** 라벨·마일스톤·사이클 없이 만드는 기존 8-인자 호환 생성자 — 기존 호출부(메일 승격 외 시드·테스트)가 그대로 쓴다. */
   public CreateIssueRequest(
@@ -45,6 +48,7 @@ public record CreateIssueRequest(
         typeId,
         parentNumber,
         startDate,
+        null,
         null,
         null,
         null);

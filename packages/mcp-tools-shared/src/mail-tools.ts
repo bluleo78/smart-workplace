@@ -5,8 +5,9 @@ import { dropEmpty, omitKeys } from './compact.js';
 import { htmlToText } from './html-text.js';
 import type { SharedTool } from './mcp-tool.js';
 import {
+  createdLabelsField,
+  splitLabelNames,
   resolveAssigneeIds,
-  resolveLabelIds,
   resolveTypeId,
   type AssigneeResolverClient,
   type ProjectMetaClient,
@@ -183,20 +184,28 @@ export function buildMailTools(
       hints: { destructive: false, idempotent: true },
       description:
         'Creates an issue (이슈) from a mail. assignees are project member usernames ("me" = caller) and are notified; type and labels are ' +
-        'project names. If the mail already has an issue, that issueKey returns: ' +
-        '{issueKey, created}.',
+        'project names (unknown label names are created, gray, and listed in createdLabels). If the mail already has an issue, that ' +
+        'issueKey returns: {issueKey, created}.',
       inputSchema: createIssueFromMailInput,
       async handler(args) {
         const { messageId, assignees, type, labels, ...rest } = createIssueFromMailInput.parse(args);
         // 이름 → id 해석을 승격 전에 모두 끝낸다 — 하나라도 실패하면 이슈를 만들지 않는다(서로 독립 조회라 병렬).
-        const [assigneeIds, typeId, labelIds] = await Promise.all([
+        const [assigneeIds, typeId, existingLabels] = await Promise.all([
           assignees ? resolveAssigneeIds(client, rest.projectKey, assignees) : undefined,
           type ? resolveTypeId(client, rest.projectKey, type) : undefined,
-          labels?.length ? resolveLabelIds(client, rest.projectKey, labels) : undefined,
+          labels?.length ? client.getProjectLabels(rest.projectKey) : undefined,
         ]);
+        // WP-394: 있는 라벨은 id, 없는 라벨은 이름으로 — 없는 라벨은 서버가 이슈와 같은 트랜잭션에서 만든다(이미 승격된 메일이면 만들지 않는다).
+        const labelPart = existingLabels && labels ? splitLabelNames(labels, existingLabels) : undefined;
         try {
-          const { issueKey } = await client.promoteMailToIssue(messageId, { ...rest, assigneeIds, typeId, labelIds });
-          return JSON.stringify({ issueKey, created: true });
+          const { issueKey } = await client.promoteMailToIssue(messageId, {
+            ...rest,
+            assigneeIds,
+            typeId,
+            labelIds: labelPart?.ids,
+            labelNames: labelPart?.created,
+          });
+          return JSON.stringify({ issueKey, created: true, ...createdLabelsField(labelPart) });
         } catch (e) {
           // 중복은 서버가 메일 행 잠금으로 원자적으로 막고 409 로 알린다(#859) — 기존 연결 이슈를 찾아 안내한다.
           if ((e as { response?: { status?: number } })?.response?.status !== 409) throw e;

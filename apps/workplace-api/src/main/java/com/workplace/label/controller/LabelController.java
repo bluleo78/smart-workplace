@@ -18,7 +18,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** 프로젝트 스코프 라벨 CRUD 컨트롤러. OWNER 검증은 서비스 레이어. */
+/** 프로젝트 스코프 라벨 CRUD 컨트롤러. 역할 검증(생성 멤버, 수정·삭제 OWNER 또는 만든 사람)은 서비스 레이어. */
 @RestController
 @RequestMapping("/api/v1/projects/{key}/labels")
 @RequiredArgsConstructor
@@ -33,7 +33,7 @@ public class LabelController {
     return ResponseEntity.ok(labelService.list((Long) auth.getPrincipal(), key));
   }
 
-  /** 신규 라벨 생성 — OWNER 권한. */
+  /** 신규 라벨 생성 — 프로젝트 멤버. */
   @PostMapping
   @RequirePermission("label:manage")
   public ResponseEntity<LabelResponse> create(
@@ -41,7 +41,7 @@ public class LabelController {
     return ResponseEntity.ok(labelService.create((Long) auth.getPrincipal(), key, req));
   }
 
-  /** 라벨 이름/색상 수정 — OWNER 권한. */
+  /** 라벨 이름/색상 수정 — OWNER 또는 만든 사람. */
   @PatchMapping("/{labelId}")
   @RequirePermission("label:manage")
   public ResponseEntity<LabelResponse> update(
@@ -52,7 +52,7 @@ public class LabelController {
     return ResponseEntity.ok(labelService.update((Long) auth.getPrincipal(), key, labelId, req));
   }
 
-  /** 라벨 삭제 — OWNER 권한. */
+  /** 라벨 삭제 — OWNER 또는 만든 사람. */
   @DeleteMapping("/{labelId}")
   @RequirePermission("label:manage")
   public ResponseEntity<Void> delete(

@@ -57,9 +57,8 @@ public class ProjectAccessGuard {
         projectRepository
             .findByKey(projectKey)
             .orElseThrow(() -> new ProjectNotFoundException(projectKey));
-    boolean isPersonal = "PERSONAL".equals(project.type());
     // ADMIN 은 멤버십/역할 검증을 우회 — 단, PERSONAL 은 소유자만 접근 (완전 비공개)
-    if (!isPersonal && permissionChecker.userHasRole(userId, "ADMIN")) {
+    if (adminBypass(project, userId)) {
       return project;
     }
     MemberRow member =
@@ -100,9 +99,8 @@ public class ProjectAccessGuard {
     if ("OPEN".equals(project.type())) {
       return true; // OPEN: 테넌트 전원 허용 (RLS 가 타 테넌트 차단)
     }
-    boolean isPersonal = "PERSONAL".equals(project.type());
     // 비PERSONAL 이고 ADMIN 이면 허용 (PERSONAL 은 소유자만)
-    if (!isPersonal && permissionChecker.userHasRole(userId, "ADMIN")) {
+    if (adminBypass(project, userId)) {
       return true;
     }
     return memberRepository.find(project.id(), userId).isPresent();
@@ -121,11 +119,7 @@ public class ProjectAccessGuard {
    * 사용한다.
    */
   public boolean isMemberOrAdmin(ProjectRow project, Long userId) {
-    boolean isPersonal = "PERSONAL".equals(project.type());
-    if (!isPersonal && permissionChecker.userHasRole(userId, "ADMIN")) {
-      return true;
-    }
-    return memberRepository.find(project.id(), userId).isPresent();
+    return adminBypass(project, userId) || memberRepository.find(project.id(), userId).isPresent();
   }
 
   /**
@@ -137,6 +131,23 @@ public class ProjectAccessGuard {
         .find(project.id(), userId)
         .map(m -> "OWNER".equals(m.role()))
         .orElse(false);
+  }
+
+  /**
+   * 요청자의 이 프로젝트 역할 — ADMIN 우회 대상이면 "ADMIN", 아니면 멤버 role("OWNER"·"MEMBER"), 멤버가 아니면 null.
+   * assertWithRole 과 같은 규칙을 역할·멤버 조회 각 1회로 내 준다 — 목록 항목마다 권한 플래그를 계산하는 곳(라벨 수정·삭제 가능 여부, WP-394)이
+   * 쓴다.
+   */
+  public String viewerRole(ProjectRow project, Long userId) {
+    if (adminBypass(project, userId)) {
+      return "ADMIN";
+    }
+    return memberRepository.find(project.id(), userId).map(MemberRow::role).orElse(null);
+  }
+
+  /** ADMIN 우회 규칙 한 곳 — 비PERSONAL 프로젝트에서 ADMIN 이면 멤버십·역할 검사를 건너뛴다(PERSONAL 은 소유자만, 완전 비공개). */
+  private boolean adminBypass(ProjectRow project, Long userId) {
+    return !"PERSONAL".equals(project.type()) && permissionChecker.userHasRole(userId, "ADMIN");
   }
 
   /**

@@ -180,15 +180,30 @@ describe('메일 AI·처리 (#855)', () => {
     expect(out).toEqual({ issueKey: 'WP-9', created: true });
   });
 
-  it('WP-356: create_issue_from_mail → 유형·라벨 이름을 id 로 바꿔 승격 요청에 싣고, 모르는 이름이면 만들지 않는다', async () => {
+  it('WP-356: create_issue_from_mail → 유형·라벨 이름을 id 로 바꿔 승격 요청에 싣고, 모르는 유형이면 만들지 않는다', async () => {
     const c = mockClient();
     await tool(c, 'create_issue_from_mail').handler({ messageId: 3, projectKey: 'WP', title: 't', type: 'BUG', labels: ['고객'] });
-    expect(c.promoteMailToIssue).toHaveBeenCalledWith(3, expect.objectContaining({ typeId: 2, labelIds: [100] }));
+    expect(c.promoteMailToIssue).toHaveBeenCalledWith(3, expect.objectContaining({ typeId: 2, labelIds: [100], labelNames: [] }));
     vi.mocked(c.promoteMailToIssue).mockClear();
-    await expect(tool(c, 'create_issue_from_mail').handler({ messageId: 3, projectKey: 'WP', title: 't', labels: ['없음'] })).rejects.toThrow(
-      '사용 가능: 고객',
+    await expect(tool(c, 'create_issue_from_mail').handler({ messageId: 3, projectKey: 'WP', title: 't', type: '없음', labels: ['새것'] })).rejects.toThrow(
+      '사용 가능',
     );
     expect(c.promoteMailToIssue).not.toHaveBeenCalled();
+  });
+
+  it('WP-394: create_issue_from_mail 은 없는 라벨만 이름으로 넘기고(서버가 만든다) createdLabels 로 알린다', async () => {
+    const c = mockClient();
+    const out = JSON.parse(resultText(await tool(c, 'create_issue_from_mail').handler({ messageId: 3, projectKey: 'WP', title: 't', labels: ['고객', '긴급'] })));
+    expect(c.promoteMailToIssue).toHaveBeenCalledWith(3, expect.objectContaining({ labelIds: [100], labelNames: ['긴급'] }));
+    expect(out).toEqual({ issueKey: 'WP-9', created: true, createdLabels: ['긴급'] });
+  });
+
+  it('WP-394: 이미 연결된 이슈가 있으면(409) 서버가 라벨도 만들지 않으므로 createdLabels 를 싣지 않는다', async () => {
+    const c = mockClient();
+    vi.mocked(c.promoteMailToIssue).mockRejectedValue(Object.assign(new Error('dup'), { response: { status: 409 } }));
+    vi.mocked(c.getMailLinkedIssue).mockResolvedValue({ issueKey: 'WP-7' } as never);
+    const out = JSON.parse(resultText(await tool(c, 'create_issue_from_mail').handler({ messageId: 3, projectKey: 'WP', title: 't', labels: ['긴급'] })));
+    expect(out).toEqual({ issueKey: 'WP-7', created: false });
   });
 
   // 중복 판정은 서버(#859)가 한다 — 409 면 새로 만들지 않고 기존 연결 이슈 키를 알린다.

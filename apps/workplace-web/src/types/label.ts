@@ -18,6 +18,9 @@ export const COLOR_TOKENS = [
 
 export type ColorToken = (typeof COLOR_TOKENS)[number];
 
+// 새 라벨 기본 색 — 설정 화면 기본 선택값이자 이슈 선택기에서 바로 만든 라벨의 색(WP-394).
+export const DEFAULT_LABEL_COLOR: ColorToken = 'GRAY';
+
 // 프로젝트 라벨 단건 응답.
 export interface LabelResponse {
   id: number;
@@ -26,6 +29,8 @@ export interface LabelResponse {
   colorToken: ColorToken;
   createdAt: string;
   updatedAt: string;
+  // 요청자가 이 라벨을 수정·삭제할 수 있는지 — OWNER·ADMIN 또는 만든 멤버(WP-394). 구 서버 응답엔 없다(롤링 배포).
+  viewerCanManage?: boolean;
 }
 
 // 이슈에 첨부된 라벨 요약 — IssueResponse 안에 embed.

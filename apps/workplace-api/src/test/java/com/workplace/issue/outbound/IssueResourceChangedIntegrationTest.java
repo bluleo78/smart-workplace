@@ -125,7 +125,7 @@ class IssueResourceChangedIntegrationTest extends IntegrationTestBase {
     int n = createIssue();
     clearInvocations(registry);
     // 실제 부착 변경이 있어야 발행된다(diff 0 은 no-op) — 라벨을 하나 만들어 붙인다.
-    Long labelId = labelRepository.insert(projectId, "rc-label", "blue").id();
+    Long labelId = labelRepository.insert(projectId, "rc-label", "blue", null).id();
     labelService.replace(owner, key, n, List.of(labelId));
     captureChanged("updated", n);
   }

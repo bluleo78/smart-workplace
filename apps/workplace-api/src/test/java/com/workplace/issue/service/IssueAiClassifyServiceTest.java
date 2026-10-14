@@ -44,8 +44,8 @@ class IssueAiClassifyServiceTest extends IntegrationTestBase {
     when(labelRepository.findByProject(10L))
         .thenReturn(
             List.of(
-                new LabelRow(1L, 10L, "backend", "#ff0000", null, null),
-                new LabelRow(2L, 10L, "bug", "#ff5500", null, null)));
+                new LabelRow(1L, 10L, "backend", "#ff0000", null, null, null),
+                new LabelRow(2L, 10L, "bug", "#ff5500", null, null, null)));
     AssistantSpec spec = new AssistantSpec(2L, "claude-sonnet-4-6", "NONE", 6, 30_000);
     when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.of(spec));
     IssueClassifyResult aiResult =

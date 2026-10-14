@@ -157,7 +157,8 @@ export interface IssueToolClient extends ProjectMetaClient, CurrentUserClient {
   setIssueType(issueKey: string, typeId: number): Promise<void>;
   setIssueParent(issueKey: string, parentNumber: number | null): Promise<void>;
   replaceIssueAssignees(issueKey: string, assigneeIds: number[]): Promise<unknown>;
-  replaceIssueLabels(issueKey: string, labelIds: number[]): Promise<unknown>;
+  /** PUT .../labels — 집합 교체. labelNames(WP-394)는 이름으로 붙일 라벨로, 없으면 서버가 같은 트랜잭션에서 만든다. */
+  replaceIssueLabels(issueKey: string, labelIds: number[], labelNames?: string[]): Promise<unknown>;
   addComment(issueKey: string, body: string): Promise<void>;
   editComment(issueKey: string, commentId: number, body: string): Promise<void>;
   /** PUT .../agent-work — 담당 이슈에 대한 AI 작업 보고(WP-377). message 가 있으면 호출마다 이슈 챗에 글이 올라가 재시도는 중복 글을 만든다(멱등 아님). */
@@ -281,6 +282,8 @@ export interface MailToolClient {
       /** WP-356: 유형·라벨(이름은 핸들러가 id 로 해석). 서버가 이슈 생성과 같은 트랜잭션에서 붙인다. */
       typeId?: number;
       labelIds?: number[];
+      /** WP-394: 이름으로 붙일 라벨 — 없으면 서버가 이슈와 같은 트랜잭션에서 만든다(이미 승격된 메일이면 만들지 않는다). */
+      labelNames?: string[];
     },
   ): Promise<{ issueKey: string }>;
   /** POST /mail/messages/{id}/read — 명시적 읽음 처리(WP-146). 사용자가 요청할 때만 쓴다. */

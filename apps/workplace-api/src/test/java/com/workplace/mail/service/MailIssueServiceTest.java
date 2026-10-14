@@ -157,13 +157,47 @@ class MailIssueServiceTest extends IntegrationTestBase {
             callerId,
             messageId,
             new PromoteToIssueRequest(
-                projectKey, "유형 라벨", null, "MID", List.of(), bugType.id(), List.of(label.id())));
+                projectKey,
+                "유형 라벨",
+                null,
+                "MID",
+                List.of(),
+                bugType.id(),
+                List.of(label.id()),
+                null));
     mailIssueIds(messageId); // AfterEach 정리 대상으로 등록
 
     int number = Integer.parseInt(result.issueKey().substring(projectKey.length() + 1));
     var detail = issueService.get(callerId, projectKey, number);
     assertThat(detail.summary().type().name()).isEqualTo("BUG");
     assertThat(detail.summary().labels()).extracting(l -> l.name()).containsExactly("메일");
+  }
+
+  /** WP-394 — 승격 요청의 이름 라벨은 이슈와 같은 트랜잭션에서 만들어 붙는다. 이미 승격된 메일이면 이슈도 라벨도 만들지 않는다. */
+  @Test
+  void promoteToIssue_withLabelNames_createsLabelOnlyWhenIssueIsCreated() {
+    // 실제 사용자처럼 USER 역할(label:manage 포함)을 준다 — 이름 라벨로 새 라벨을 만드는 경로가 이 권한을 본다.
+    grantUserRole(callerId);
+    long messageId = seedMailMessage(callerId);
+    var req =
+        new PromoteToIssueRequest(
+            projectKey, "이름 라벨", null, "MID", List.of(), null, null, List.of("메일-요청"));
+
+    PromotedIssue result = mailIssueService.promoteToIssue(callerId, messageId, req);
+    mailIssueIds(messageId); // AfterEach 정리 대상으로 등록
+    int number = Integer.parseInt(result.issueKey().substring(projectKey.length() + 1));
+    assertThat(issueService.get(callerId, projectKey, number).summary().labels())
+        .extracting(l -> l.name())
+        .containsExactly("메일-요청");
+
+    var again =
+        new PromoteToIssueRequest(
+            projectKey, "다시", null, "MID", List.of(), null, null, List.of("두번째-라벨"));
+    assertThatThrownBy(() -> mailIssueService.promoteToIssue(callerId, messageId, again))
+        .isInstanceOf(MailAlreadyPromotedException.class);
+    assertThat(labelService.list(callerId, projectKey))
+        .extracting(l -> l.name())
+        .containsExactly("메일-요청");
   }
 
   @Test

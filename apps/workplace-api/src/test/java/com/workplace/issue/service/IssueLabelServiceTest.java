@@ -13,6 +13,7 @@ import com.workplace.label.exception.InvalidLabelForProjectException;
 import com.workplace.label.service.LabelService;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
+import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
 import java.util.List;
@@ -113,5 +114,38 @@ class IssueLabelServiceTest extends IntegrationTestBase {
     issueLabelService.replace(owner, p.key(), 1, List.of(l.id()));
 
     assertThat(historyRepository.findByIssue(issue.id())).hasSize(before);
+  }
+
+  /** WP-394 — 이름 라벨: 없는 이름은 만들어(만든 사람 = 요청자) id 라벨과 합쳐 교체하고, 이력도 남긴다. */
+  @Test
+  void replace_with_label_names_creates_missing_and_records_history() {
+    Long owner = createUser("n");
+    ProjectResponse p = newProject(owner, "IN");
+    var bug = labelService.create(owner, p.key(), new CreateLabelRequest("bug", "RED"));
+    var issue = issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+
+    var result =
+        issueLabelService.replace(
+            owner, p.key(), 1, List.of(bug.id()), List.of("ai-fix", "bug", "Bug"));
+
+    // 대소문자가 다르면 다른 라벨(「Bug」 새로 생성), 「bug」 는 기존 것을 쓴다.
+    assertThat(result).extracting(l -> l.name()).containsExactlyInAnyOrder("bug", "ai-fix", "Bug");
+    assertThat(labelService.list(owner, p.key())).hasSize(3);
+    assertThat(historyRepository.findByIssue(issue.id()))
+        .anyMatch(h -> h.eventType().equals("LABELS_CHANGED"));
+  }
+
+  /** WP-394 — 멤버가 아니면 이름 라벨로도 라벨을 만들 수 없다(라벨도 생기지 않는다). */
+  @Test
+  void replace_with_label_names_by_non_member_is_denied() {
+    Long owner = createUser("o");
+    Long outsider = createUser("x");
+    ProjectResponse p = newProject(owner, "IO");
+    issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+
+    assertThatThrownBy(
+            () -> issueLabelService.replace(outsider, p.key(), 1, List.of(), List.of("new")))
+        .isInstanceOf(ProjectAccessDeniedException.class);
+    assertThat(labelService.list(owner, p.key())).isEmpty();
   }
 }
