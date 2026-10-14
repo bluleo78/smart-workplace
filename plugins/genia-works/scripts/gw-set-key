@@ -6,7 +6,8 @@ name="${1:-}"
 printf '%s 의 AI 키(ak_…)를 붙여 넣고 Enter: ' "$name" >&2
 if [ -t 0 ]; then
   old=$(stty -g)
-  trap 'stty "$old"' EXIT INT TERM
+  trap 'stty "$old"' EXIT
+  trap 'exit 130' INT TERM
   stty -echo
 fi
 IFS= read -r key

@@ -84,6 +84,7 @@ test('gw-keys add/has/list/remove: 폴더 700·파일 600, list 는 키 값을 �
 test('gw-keys add: 이름·키 형식 검사, 임시 파일이 남지 않는다', () => {
   assert.equal(run('gw-keys', ['add', '../evil'], { input: 'ak_FAKE_A\n' }).status, 2);
   assert.equal(run('gw-keys', ['add', '..'], { input: 'ak_FAKE_A\n' }).status, 2);
+  assert.equal(run('gw-keys', ['add', 'me'], { input: 'ak_FAKE_A\n' }).status, 2);
   assert.equal(run('gw-keys', ['add', 'ai dev'], { input: 'ak_FAKE_A\n' }).status, 2);
   assert.equal(run('gw-keys', ['add', 'ai-dev'], { input: 'swp_FAKE_ME\n' }).status, 3);
   assert.equal(run('gw-keys', ['add', 'ai-dev'], { input: 'ak_FAKE "x"\n' }).status, 3);
@@ -104,4 +105,34 @@ test('gw-session select/show/clear: 키가 있는 이름만, me 는 언제나', 
   assert.equal(run('gw-session', ['clear']).status, 0);
   assert.equal(existsSync(f), false);
   assert.equal(run('gw-session', ['show']).stdout.trim(), '');
+});
+
+test('성공한 add/select 뒤에도 .tmp.* 임시 파일이 남지 않는다', () => {
+  assert.equal(run('gw-keys', ['add', 'ai-dev'], { input: 'ak_FAKE_ABC123\n' }).status, 0);
+  assert.equal(run('gw-session', ['select', 'ai-dev']).status, 0);
+  for (const d of ['keys', 'sessions']) {
+    const files = readdirSync(join(home, '.genia-works', d));
+    assert.equal(files.some((n) => n.startsWith('.tmp.')), false, d);
+    assert.equal(files.length, 1, d);
+  }
+});
+
+test('gw_prune_sessions: 시작 시각이 다른 세션 파일은 지우고 같은 것은 둔다', () => {
+  const dir = join(home, '.genia-works', 'sessions');
+  mkdirSync(dir, { recursive: true });
+  const good = join(dir, '400-Thu_Oct_15_06_00_00_2026');
+  const reused = join(dir, '400x-Thu_Oct_15_06_00_00_2026');
+  const stale = join(dir, '400-Wed_Oct_14_01_00_00_2026');
+  const dead = join(dir, '999-Thu_Oct_15_06_00_00_2026');
+  for (const f of [good, stale, dead]) writeFileSync(f, 'me\n');
+  writeFileSync(reused, 'me\n');
+  const r = spawnSync('sh', ['-c', '. "$1/gw-lib.sh"; gw_prune_sessions', 'sh', scripts], {
+    encoding: 'utf8',
+    env: { PATH: `${bin}:${process.env.PATH}`, HOME: home, FAKE_PS_TABLE: table },
+  });
+  assert.equal(r.status, 0);
+  assert.equal(existsSync(good), true);
+  assert.equal(existsSync(stale), false);
+  assert.equal(existsSync(dead), false);
+  assert.equal(existsSync(reused), false);
 });

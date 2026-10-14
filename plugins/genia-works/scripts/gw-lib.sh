@@ -5,9 +5,10 @@ GW_KEYS="$GW_HOME/keys"
 GW_SESSIONS="$GW_HOME/sessions"
 
 # 이름 검사 — 파일 이름으로 쓰므로 경로 조작(../, /)·공백·빈 값을 막는다.
+# me 는 "내 토큰" 선택값(gw-session select me)이라 키 이름으로 쓰면 선택할 수 없으므로 예약한다.
 gw_valid_name() {
   case "$1" in
-    '' | . | .. | *[!A-Za-z0-9._@-]*) return 1 ;;
+    '' | . | .. | me | *[!A-Za-z0-9._@-]*) return 1 ;;
   esac
   return 0
 }
@@ -62,5 +63,10 @@ gw_prune_sessions() {
 gw_write_atomic() {
   dir=$(dirname "$1")
   tmp=$(mktemp "$dir/.tmp.XXXXXX") || return 1
-  printf '%s\n' "$2" > "$tmp" && chmod 600 "$tmp" && mv -f "$tmp" "$1"
+  # 하나라도 실패하면 임시 파일을 남기지 않고 실패를 알린다.
+  if printf '%s\n' "$2" > "$tmp" && chmod 600 "$tmp" && mv -f "$tmp" "$1"; then
+    return 0
+  fi
+  rm -f "$tmp"
+  return 1
 }
