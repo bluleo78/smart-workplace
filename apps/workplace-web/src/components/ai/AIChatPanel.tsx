@@ -5,6 +5,7 @@ import { ArrowUp, ChevronDown, CircleAlert, Loader2, MessageSquare, Plus, Sparkl
 import { Fragment, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { ActionResultLine } from '@/components/ai/ActionResultLine';
+import { useAssistant } from '@/components/ai/AIAssistantContext';
 import { AiLabel } from '@/components/ai/AiLabel';
 import { AISessionItems } from '@/components/ai/AISessionList';
 import { AiStatusDot } from '@/components/ai/AiStatusDot';
@@ -114,6 +115,12 @@ export function AIChatPanel({
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   // 모바일 입력 영역 분기(플레이스홀더·포커스 링·원형 전송 버튼) — 데스크톱 DOM 은 그대로.
   const isMobile = useIsMobile();
+  // WP-384: 답 안 다른 화면 링크 — 전체 화면(모바일 시트 포함)이 이동한 화면을 덮지 않게 내린다. 앱 레일 이동(#454)과 같은 규칙:
+  // 히스토리를 건드리지 않는 dismiss(데스크톱은 사이드로, 모바일은 닫기). close() 는 history.go(-1) 로 방금 한 이동을 되돌린다.
+  const { mode: aiMode, dismiss: dismissAi } = useAssistant();
+  const onPageLink = useCallback(() => {
+    if (aiMode === 'fullscreen') dismissAi(isMobile ? 'closed' : 'side');
+  }, [aiMode, dismissAi, isMobile]);
   // 세션 스위처 드롭다운 open 상태(#451) — 세션 항목이 DropdownMenuItem 이 아닌 일반 button 이라
   // Radix 자동 닫힘이 동작하지 않으므로, controlled 로 두고 선택 직후 명시적으로 닫는다.
   const [sessionMenuOpen, setSessionMenuOpen] = useState(false);
@@ -367,7 +374,7 @@ export function AIChatPanel({
                               if (!text.trim()) return null;
                               return (
                                 <div key={bi} className="self-start rounded-2xl bg-muted px-3 py-1.5 text-foreground" data-testid="chat-block">
-                                  <MarkdownMessage internalLinks>{text}</MarkdownMessage>
+                                  <MarkdownMessage internalLinks onPageLink={onPageLink}>{text}</MarkdownMessage>
                                 </div>
                               );
                             }
@@ -389,7 +396,7 @@ export function AIChatPanel({
                           {t.steps && visibleSteps(t.steps).length > 0 && <ToolStepList steps={t.steps} />}
                           {t.content && (
                             <div className="self-start rounded-2xl bg-muted px-3 py-1.5 text-foreground">
-                              <MarkdownMessage internalLinks>{t.content}</MarkdownMessage>
+                              <MarkdownMessage internalLinks onPageLink={onPageLink}>{t.content}</MarkdownMessage>
                             </div>
                           )}
                           {t.widgets.map((w, wi) => {
@@ -412,7 +419,7 @@ export function AIChatPanel({
                           <div className="min-w-0 rounded-2xl bg-muted px-3 py-1.5 text-foreground">
                             {/* 도구 호출 단계 인라인 표시 — 본문 위에 렌더. 표시 가능 step 이 있을 때만. */}
                             {t.steps && visibleSteps(t.steps).length > 0 && <ToolStepList steps={t.steps} />}
-                            <MarkdownMessage internalLinks>{t.content}</MarkdownMessage>
+                            <MarkdownMessage internalLinks onPageLink={onPageLink}>{t.content}</MarkdownMessage>
                           </div>
                         </div>
                       )

@@ -1,7 +1,7 @@
 // 챗 세션 어댑터(WP-190) — 대화별 스트림 저장소(chatStreams)의 "현재 대화" 칸을 읽고 쓰며, API 호출(시작·취소·복원·확인카드)을 맡는다.
 // AppLayout 레벨에서 1회 생성해 컨텍스트로 공유한다(side/fullscreen/모바일 시트가 같은 상태를 본다). 대화를 옮겨도 진행 중 생성은 끊지 않는다.
 import { useQueryClient } from '@tanstack/react-query';
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { homeApi } from '@/api/home';
@@ -24,11 +24,12 @@ import {
   sessionStatus,
 } from '@/lib/ai/chatStreams';
 import { FAILED_EMPTY, messageToTurn } from '@/lib/ai/chatTurns';
+import { linkedSessionSummary } from '@/lib/aiChatLink';
 import { screenContextPayload } from '@/lib/aiScreenContext/common';
 import { handleApiError, isNotFoundError } from '@/lib/api-error';
 import type { AiMemoryScope } from '@/types/aiMemory';
 import type { AiScreenContext } from '@/types/aiScreenContext';
-import type { ChatTurn, PendingAction, ProposalCard, TurnAttachment } from '@/types/home';
+import type { ChatTurn, HomeSessionSummary, PendingAction, ProposalCard, TurnAttachment } from '@/types/home';
 
 const EMPTY_TURNS: ChatTurn[] = [];
 /** WP-268: 이력 조회가 이만큼 끝나지 않으면 실패로 보고 전송 잠금을 푼다(응답 없는 요청에 입력이 영영 막히지 않게). */
@@ -68,6 +69,9 @@ export function useChatSession() {
   }, [qc, reload]);
   // home.chat.* 는 저장소가 한 곳에서 구독한다(요청마다 붙였다 떼지 않음).
   useEffect(() => connectChatEvents(chatStreams), []);
+
+  // WP-384: 링크·딥링크로 연 대화의 목록 항목(id → 항목) — 첫 30개 목록 밖의 오래된 대화도 헤더에 제목이 보이게(useAssistantChat 이 목록에 합친다).
+  const [linkedSessions, setLinkedSessions] = useState<Readonly<Record<string, HomeSessionSummary>>>({});
 
   // WP-379: 마지막 전송의 화면 앱 — 승인 실패 재요청(화면 참고 없이 보내는 내부 전송)도 같은 범위 메모리를 쓰게.
   const lastAppRef = useRef<AiMemoryScope | null>(null);
@@ -166,6 +170,7 @@ export function useChatSession() {
       ]);
       chatStreams.load(id, data.map(messageToTurn), proposals);
       chatStreams.select(id);
+      setLinkedSessions((prev) => ({ ...prev, [id]: linkedSessionSummary(id, data) }));
       return 'ok';
     } catch (err) {
       if (isNotFoundError(err)) return 'not-found';
@@ -179,7 +184,18 @@ export function useChatSession() {
     (id: string) => {
       const s = chatStreams.getSnapshot();
       const cid = isGenerating(s, id) ? (s.active.get(id) ?? s.entries.get(id)?.correlationId ?? null) : null;
-      const remove = () => del.mutate(id, { onSuccess: () => chatStreams.forget(id) });
+      const remove = () =>
+        del.mutate(id, {
+          onSuccess: () => {
+            chatStreams.forget(id);
+            // 링크로 연 항목도 버린다 — 지운 대화가 목록에 다시 붙지 않게.
+            setLinkedSessions((prev) => {
+              const next = { ...prev };
+              delete next[id];
+              return next;
+            });
+          },
+        });
       // 취소 후 삭제(스펙 §4) — 취소 실패(이미 끝남 등)여도 삭제는 진행한다.
       if (cid) void homeApi.cancelChat(cid).catch(() => {}).finally(remove);
       else remove();
@@ -223,6 +239,7 @@ export function useChatSession() {
   const entry = snap.currentKey ? snap.entries.get(snap.currentKey) : undefined;
   return {
     sessionId: currentSessionId(snap),
+    linkedSessions,
     turns: entry?.turns ?? EMPTY_TURNS,
     pending: entry?.pending ?? false,
     pendingActions: entry?.pendingActions ?? EMPTY_CARDS,

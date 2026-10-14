@@ -1,4 +1,5 @@
 // WP-384 AI 대화 링크 규칙 — 딥링크 `/?chat=<sessionId>`(지난 대화 검색 결과·출처 링크)와 AI 답 안 내부 링크 판별.
+import type { HomeMessage, HomeSessionSummary } from '@/types/home';
 
 /** 딥링크 쿼리 이름. */
 export const CHAT_PARAM = 'chat';
@@ -25,4 +26,36 @@ export function chatLinkSessionId(href: string | null | undefined): string | nul
   if (url.pathname !== '/') return null;
   const id = url.searchParams.get(CHAT_PARAM);
   return isSessionId(id) ? id : null;
+}
+
+/** 지금 화면 쿼리에 chat 만 더한(같으면 바꾼) search — 다른 파라미터(이슈 드로워 등)는 그대로 둔다. */
+export function withChatParam(search: string, id: string): string {
+  const params = new URLSearchParams(search);
+  params.set(CHAT_PARAM, id);
+  return `?${params.toString()}`;
+}
+
+/** 서버 세션 제목 규칙(HomeSessionService.trimTitle) — 첫 사용자 메시지를 앞뒤 공백 없이 40자까지. */
+const TITLE_MAX = 40;
+/** 첫 질문이 없을 때(첨부만 보낸 대화 등) 헤더에 쓸 이름. */
+export const LINKED_SESSION_FALLBACK_TITLE = '지난 대화';
+
+/**
+ * 링크·딥링크로 연 대화의 목록 항목(WP-384) — 세션 목록은 최근 30개만 받아 오래된 대화는 그 밖에 있다. 단건 조회 API 가 없으므로 복원한 이력으로
+ * 서버와 같은 규칙의 제목을 만들어, 헤더·목록이 "대화 선택"으로 남지 않게 한다.
+ */
+export function linkedSessionSummary(id: string, messages: readonly HomeMessage[]): HomeSessionSummary {
+  const first = messages.find((m) => m.role === 'USER' && m.content?.trim())?.content?.trim();
+  return {
+    id,
+    title: first ? first.slice(0, TITLE_MAX) : LINKED_SESSION_FALLBACK_TITLE,
+    lastMessageAt: messages.at(-1)?.createdAt ?? new Date(0).toISOString(),
+    widgetCount: 0,
+  };
+}
+
+/** 지금 대화가 목록에 없으면 링크로 연 항목을 끝에 붙인다(가장 오래된 쪽 — 목록은 최신순). 있으면 서버 목록 그대로. */
+export function withLinkedSession(items: HomeSessionSummary[], linked: HomeSessionSummary | undefined): HomeSessionSummary[] {
+  if (!linked || items.some((s) => s.id === linked.id)) return items;
+  return [...items, linked];
 }

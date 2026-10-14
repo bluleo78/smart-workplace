@@ -1,9 +1,9 @@
 import { type ReactNode, useMemo } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
-import { Link, useInRouterContext } from 'react-router-dom'
+import { Link, useInRouterContext, useLocation } from 'react-router-dom'
 import remarkGfm from 'remark-gfm'
 
-import { CHAT_PARAM, chatLinkSessionId, isInternalHref } from '@/lib/aiChatLink'
+import { chatLinkSessionId, isInternalHref, withChatParam } from '@/lib/aiChatLink'
 import { cn } from '@/lib/utils'
 
 const REMARK_PLUGINS = [remarkGfm]
@@ -43,24 +43,46 @@ function listClass(className: string | undefined, marker: string): string {
   return className?.includes('contains-task-list') ? 'list-none space-y-0.5 pl-1' : `${marker} space-y-0.5 pl-5`
 }
 
-/**
- * AI 답 안 링크(WP-384) — 같은 출처 상대 경로는 라우터로 같은 탭에서 연다. 대화 딥링크("/?chat=<id>")는 지금 화면에 머문 채 쿼리만 바꿔
- * AiChatDeepLink 가 그 대화를 연다. 외부 링크·라우터 밖(정적 렌더)은 이전처럼 새 탭.
- */
-function AiLink({ href, children }: { href?: string; children?: ReactNode }) {
-  const inRouter = useInRouterContext()
-  if (inRouter && isInternalHref(href)) {
-    const chatId = chatLinkSessionId(href)
-    return (
-      <Link to={chatId ? { search: `?${CHAT_PARAM}=${chatId}` } : href} data-testid="markdown-internal-link" className="text-primary underline">
-        {children}
-      </Link>
-    )
-  }
+/** 새 탭 링크 — 외부 링크와 라우터 밖(정적 렌더) 링크 공용. */
+function ExternalLink({ href, children }: { href?: string; children?: ReactNode }) {
   return (
     <a href={href} target="_blank" rel="noreferrer" className="text-primary underline">
       {children}
     </a>
+  )
+}
+
+/**
+ * AI 답 안 링크(WP-384) — 같은 출처 상대 경로는 라우터로 같은 탭에서 연다.
+ * - 대화 딥링크("/?chat=<id>"): 지금 화면·쿼리·router state 에 머문 채 chat 만 더해 replace — AiChatDeepLink 가 그 대화를 열고 파라미터를 지운다
+ *   (push 하면 곧 지워질 항목이 남아 뒤로 가기가 한 번 헛돈다).
+ * - 다른 화면 링크: 이동 직전에 onPageLink(전체 화면 AI 를 내려 이동한 화면이 보이게 — AIChatPanel 이 준다).
+ * 외부 링크·라우터 밖(정적 렌더)은 이전처럼 새 탭.
+ */
+function AiLink({ href, children, onPageLink }: { href?: string; children?: ReactNode; onPageLink?: () => void }) {
+  const inRouter = useInRouterContext()
+  if (!inRouter || !isInternalHref(href)) return <ExternalLink href={href}>{children}</ExternalLink>
+  const chatId = chatLinkSessionId(href)
+  return chatId ? <ChatLink id={chatId}>{children}</ChatLink> : (
+    <Link to={href} onClick={onPageLink} data-testid="markdown-internal-link" className="text-primary underline">
+      {children}
+    </Link>
+  )
+}
+
+/** 대화 딥링크 — 라우터 안에서만 그린다(useLocation). */
+function ChatLink({ id, children }: { id: string; children?: ReactNode }) {
+  const location = useLocation()
+  return (
+    <Link
+      to={{ pathname: location.pathname, search: withChatParam(location.search, id), hash: location.hash }}
+      replace
+      state={location.state}
+      data-testid="markdown-internal-link"
+      className="text-primary underline"
+    >
+      {children}
+    </Link>
   )
 }
 
@@ -94,11 +116,7 @@ const BASE_COMPONENTS: Components = {
       className="absolute left-0 top-[0.3em] size-3.5 accent-primary"
     />
   ),
-  a: ({ children, href }) => (
-    <a href={href} target="_blank" rel="noreferrer" className="text-primary underline">
-      {children}
-    </a>
-  ),
+  a: ({ children, href }) => <ExternalLink href={href}>{children}</ExternalLink>,
   strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
   hr: () => <hr className="border-border" />,
   blockquote: ({ children }) => (
@@ -136,7 +154,7 @@ const BASE_COMPONENTS: Components = {
  * renderImage 가 있을 때만 img 를 그 렌더러로 그린다(WP-199 이슈 본문 이미지) — 공용 컴포넌트가 특정 도메인
  * 컴포넌트를 import 하지 않도록 호출자가 주입한다. 없으면 react-markdown 기본 img 렌더를 그대로 쓴다.
  *
- * internalLinks 가 켜지면 상대 경로 링크를 라우터로 같은 탭에서 연다(WP-384).
+ * internalLinks 가 켜지면 상대 경로 링크를 라우터로 같은 탭에서 연다(WP-384). onPageLink 는 대화가 아닌 화면 링크로 이동하기 직전에 부른다.
  *
  * 디자인 시스템: hex/임의 색 금지 — 시맨틱 토큰(bg-muted/border-border/text-primary 등)만 사용.
  * tailwind typography 플러그인을 쓰지 않으므로 요소별 스타일을 components 로 직접 지정해 채팅 말풍선에 맞춘다.
@@ -146,19 +164,24 @@ export function MarkdownMessage({
   className,
   renderImage,
   internalLinks,
+  onPageLink,
 }: {
   children: string
   className?: string
   renderImage?: (props: { src?: string; alt?: string }) => ReactNode
   /** WP-384: AI 답 — 같은 출처 상대 경로를 같은 탭 라우터 링크로(AIChatPanel 이 켠다). 다른 호출자는 이전처럼 모두 새 탭. */
   internalLinks?: boolean
+  /** WP-384: 답 안 다른 화면 링크로 이동하기 직전 — 전체 화면 AI 를 내린다(AIChatPanel). */
+  onPageLink?: () => void
 }) {
   const components = useMemo<Components>(() => {
     const withImage: Components = renderImage
       ? { ...BASE_COMPONENTS, img: ({ src, alt }) => renderImage({ src: typeof src === 'string' ? src : undefined, alt }) }
       : BASE_COMPONENTS
-    return internalLinks ? { ...withImage, a: ({ href, children: c }) => <AiLink href={href}>{c}</AiLink> } : withImage
-  }, [renderImage, internalLinks])
+    return internalLinks
+      ? { ...withImage, a: ({ href, children: c }) => <AiLink href={href} onPageLink={onPageLink}>{c}</AiLink> }
+      : withImage
+  }, [renderImage, internalLinks, onPageLink])
   return (
     <div
       data-testid="markdown-content"

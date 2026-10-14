@@ -59,4 +59,16 @@ describe('MarkdownMessage 내부 링크 (WP-384)', () => {
     expect(render(`[지난 대화](/?chat=${ID})`)).toContain('target="_blank"')
     expect(renderToStaticMarkup(createElement(MarkdownMessage, { internalLinks: true, children: '[a](/x)' }))).toContain('target="_blank"')
   })
+
+  it('대화 링크는 지금 화면 경로·쿼리에 chat 만 더한다 — 다른 화면 링크는 그 경로 그대로', () => {
+    const html = renderToStaticMarkup(
+      createElement(
+        MemoryRouter,
+        { initialEntries: ['/projects/WP?issue=WP-1'] },
+        createElement(MarkdownMessage, { internalLinks: true, children: `[대화](/?chat=${ID}) [이슈](/projects/WP/issues/2)` }),
+      ),
+    )
+    expect(html).toContain(`href="/projects/WP?issue=WP-1&amp;chat=${ID}"`)
+    expect(html).toContain('href="/projects/WP/issues/2"')
+  })
 })

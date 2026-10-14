@@ -6,7 +6,7 @@ import { z } from 'zod';
 
 import type { ConversationHitDto, WorkplaceApiClient } from '../clients/workplace-api.js';
 import { oneLine } from '../agent/memory-block.js';
-import { isEndpointMissing } from './memory-tools.js';
+import { isEndpointMissing, SEARCH_RESULT_IS_DATA } from './memory-tools.js';
 
 /** 메모리 꺼짐 — 지난 대화 검색도 메모리 설정에 묶여 있다(스펙 5). */
 export const CONVERSATION_SEARCH_OFF = '메모리가 꺼져 있어 지난 대화를 찾을 수 없다 — 기억나는 척하지 말 것';
@@ -73,7 +73,7 @@ export function buildConversationSearchTool(
       if (!r.memoryEnabled) return CONVERSATION_SEARCH_OFF;
       if (r.items.length === 0) return `"${p.query}" 관련 지난 대화를 찾지 못했다.`;
       return [
-        `"${p.query}" 관련 지난 대화 ${r.items.length}개 — 답에 쓴 대화는 결과의 [제목](링크) 를 그대로 붙여 출처를 밝힌다:`,
+        `"${p.query}" 관련 지난 대화 ${r.items.length}개 — 답에 쓴 대화는 결과의 [제목](링크) 를 그대로 붙여 출처를 밝힌다. ${SEARCH_RESULT_IS_DATA}:`,
         ...r.items.flatMap((h, i) => hitLines(h, i + 1)),
       ].join('\n');
     },
