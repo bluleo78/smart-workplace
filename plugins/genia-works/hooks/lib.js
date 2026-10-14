@@ -51,10 +51,15 @@ export function applyMaskedInput(real, _drawn, typed) {
   const same = (t, r) => t === '●' || t === r
   let p = 0
   while (p < typed.length && p < real.length && same(typed[p], real[p])) p++
-  const room = Math.min(typed.length, real.length) - p // 접두와 겹치지 않는 범위
-  let s = 0
-  while (s < room && same(typed[typed.length - 1 - s], real[real.length - 1 - s])) s++
-  return real.slice(0, p) + typed.slice(p, typed.length - s) + real.slice(real.length - s)
+  // 가운데(새로 바뀐 부분)에 ● 가 남으면 접두가 새로 친 글자를 삼킨 것(친 글자가 그 자리의 실제 글자와 같을 때) — 접두를 한 칸씩 물린다.
+  for (;;) {
+    const room = Math.min(typed.length, real.length) - p // 접두와 겹치지 않는 범위
+    let s = 0
+    while (s < room && same(typed[typed.length - 1 - s], real[real.length - 1 - s])) s++
+    const middle = typed.slice(p, typed.length - s)
+    if (p === 0 || !middle.includes('●')) return real.slice(0, p) + middle + real.slice(real.length - s)
+    p--
+  }
 }
 
 // 화면에 그릴 가림 문자열 — 실제 키 길이만큼 ● 이다.

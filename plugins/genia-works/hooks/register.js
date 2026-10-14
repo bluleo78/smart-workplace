@@ -57,7 +57,10 @@ async function describe($) {
 }
 
 const PANE = 'genia-works-login'
-// 패널 상태 — keyBuf(실제 키)는 저장·닫기 즉시 비운다. 화면에는 maskOf(keyBuf)만 그린다.
+// 패널 상태 — keyBuf(실제 키)는 저장 성공·실패, 검증·확인 실패, 화면 이동(go·키 바꾸기), 패널 닫기에서 비운다
+// (덮어쓰기 확인 단계만 같은 키로 다시 누르도록 남긴다). 화면에는 maskOf(keyBuf)만 그린다.
+// attempt: 열기·이동·닫기마다 올라가는 번호 — 서버 확인 중에 화면이 바뀌었으면 늦게 온 저장을 버린다.
+let attempt = 0
 let pane = { view: 'pick', list: [], current: '', keyBuf: '', name: '', message: '', confirm: '', busy: false }
 
 // 패널 열기 — 등록된 AI 가 없으면 바로 「새 AI 추가」 화면으로 간다.
@@ -65,6 +68,7 @@ async function openLogin($) {
   const list = parseKeyList((await script($, 'gw-keys', ['list'])).stdout)
   // 현재 신원 — 세션 선택이 없으면 GENIA_WORKS_AS 가 가리키는 이름을 현재로 본다(헤더 스크립트와 같은 우선순위)
   const current = (await script($, 'gw-session', ['show'])).stdout.trim() || ((await $.env.get('GENIA_WORKS_AS')) ?? '')
+  attempt++
   pane = { view: list.length ? 'pick' : 'add', list, current, keyBuf: '', name: '', message: '', confirm: '', busy: false }
   await $.ui.open({ id: PANE, title: 'genia-works 로그인', focus: true, closeOnEscape: true })
 }
@@ -118,7 +122,9 @@ async function saveNewKeyInner($) {
   }
   pane.message = '확인 중…'
   $.ui.invalidate('ui.render')
+  const mine = attempt
   const bad = await verifyKey($, key)
+  if (mine !== attempt) return // 확인 중에 취소·이동했다 — 저장도 화면 전환도 하지 않는다
   if (bad) return fail(bad)
   const r = await script($, 'gw-keys', ['add', name], key + '\n')
   pane.keyBuf = ''
@@ -131,6 +137,7 @@ async function saveNewKeyInner($) {
 // 패널 닫기 — 플러그인이 스스로 닫을 때는 자기 ui.close 처리기가 불리지 않으므로 여기서 키를 먼저 비운다.
 // (사람이 Esc 로 닫는 경우는 아래 ui.close 처리기가 비운다.)
 async function closePane($) {
+  attempt++
   pane.keyBuf = ''
   await $.ui.close({ id: PANE })
 }
@@ -169,7 +176,7 @@ async function removeKey($, name) {
 function renderPane($, e) {
   const { Box, Text, Button, Input } = $.ui.resolve(e)
   const redraw = () => $.ui.invalidate('ui.render')
-  const go = (view) => () => { pane.view = view; pane.keyBuf = ''; pane.message = ''; pane.confirm = ''; redraw() }
+  const go = (view) => () => { attempt++; pane.view = view; pane.keyBuf = ''; pane.message = ''; pane.confirm = ''; redraw() }
   const msg = pane.message ? h(Text, null, pane.message) : null
   let body
   if (pane.view === 'pick') {
@@ -210,7 +217,7 @@ function renderPane($, e) {
       h(Text, null, '등록된 AI 관리'),
       ...pane.list.flatMap((k) => [
         h(Text, { key: 'gw-name-' + k.name }, `${k.name}  등록 ${k.added}`),
-        h(Button, { key: 'gw-rekey-' + k.name, label: `${k.name} 키 바꾸기`, onPress: () => { pane.view = 'add'; pane.name = k.name; pane.keyBuf = ''; pane.message = ''; pane.confirm = ''; redraw() } }),
+        h(Button, { key: 'gw-rekey-' + k.name, label: `${k.name} 키 바꾸기`, onPress: () => { attempt++; pane.view = 'add'; pane.name = k.name; pane.keyBuf = ''; pane.message = ''; pane.confirm = ''; redraw() } }),
         h(Button, { key: 'gw-remove-' + k.name, label: `${k.name} 삭제`, onPress: () => { pane.confirm = 'remove-' + k.name; redraw() } }),
         pane.confirm === 'remove-' + k.name
           ? h(Box, { flexDirection: 'column' },

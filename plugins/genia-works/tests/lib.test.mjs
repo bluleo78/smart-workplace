@@ -102,3 +102,30 @@ test('validKey', () => {
   assert.equal(validKey('ak_FAKE_ab-1'), true);
   for (const bad of ['', 'ak_', 'swp_x', 'ak_a b', 'ak_a"b', 'xak_abc']) assert.equal(validKey(bad), false, bad);
 });
+
+test('applyMaskedInput: 새로 친 글자가 그 자리의 실제 글자와 같아도 ● 가 남지 않는다', () => {
+  assert.equal(applyMaskedInput('ak_AA', '●●●●●', '●●●●A●'), 'ak_AAA');
+  assert.equal(applyMaskedInput('ak_FAKE_ABC', maskOf('ak_FAKE_ABC'), 'a' + maskOf('ak_FAKE_ABC')), 'aak_FAKE_ABC');
+  // 반복되는 글자 한가운데에 끼워 치기
+  assert.equal(applyMaskedInput('ak_AAA', '●●●●●●', '●●●●A●●'), 'ak_AAAA');
+});
+
+test('applyMaskedInput: 임의의 한 번 편집 뒤에도 ● 가 없고 길이가 필드와 같다', () => {
+  let seed = 12345;
+  const rnd = (n) => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed % n; };
+  const alpha = 'AaBb01_-k';
+  const str = (n) => Array.from({ length: n }, () => alpha[rnd(alpha.length)]).join('');
+  for (let i = 0; i < 2000; i++) {
+    const real = 'ak_' + str(1 + rnd(10));
+    const m = maskOf(real);
+    const at = rnd(m.length + 1);
+    let typed;
+    const kind = rnd(3);
+    if (kind === 0) typed = m.slice(0, at) + str(1) + m.slice(at); // 한 글자 끼워 치기
+    else if (kind === 1) typed = m.slice(0, at) + str(1 + rnd(5)) + m.slice(at); // 붙여넣기
+    else typed = m.slice(0, Math.max(0, m.length - 1)); // 끝에서 지우기
+    const out = applyMaskedInput(real, m, typed);
+    assert.ok(!out.includes('●'), `${real} ${typed} -> ${out}`);
+    assert.equal(out.length, typed.length, `${real} ${typed} -> ${out}`);
+  }
+});

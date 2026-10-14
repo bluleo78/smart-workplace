@@ -136,7 +136,7 @@ const FAKE_KEY = 'ak_FAKE_ABC'
 const PANE_PROPS = { title: 'genia-works 로그인', isFocused: true, bodyColumns: 80, placement: 'inline', scroll: { offset: 0, bodyRows: 10 }, view: {} } as const
 
 // 패널 테스트용 가짜 세계 — 스크립트(stdin 기록)·http.fetch·ui 바닥 이벤트. 서버는 절대 부르지 않는다.
-function loginWorld(on: any, answers: Record<string, { exitCode: number; stdout?: string; stderr?: string }>, fetchStatus: number | 'error' | 'hang' = 200) {
+function loginWorld(on: any, answers: Record<string, { exitCode: number; stdout?: string; stderr?: string }>, fetchStatus: number | 'error' | 'hang' | 'slow' = 200) {
   const runs: { argv: string[]; stdin?: string }[] = []
   const fetches: { url: string; init: any }[] = []
   const shown: string[] = [] // 화면 밖으로 나간 문구(로그·토스트·상태 줄)
@@ -149,6 +149,7 @@ function loginWorld(on: any, answers: Record<string, { exitCode: number; stdout?
   })
   on('http.fetch', (_$: any, e: any) => {
     fetches.push({ url: e.url, init: e.init })
+    if (fetchStatus === 'slow') return new Promise((res) => setTimeout(() => res({ value: { status: 200, ok: true, headers: {}, text: '' } }), 30)) // 곧 성공하지만 늦게 도착
     if (fetchStatus === 'hang') return new Promise(() => {}) // 끝내 응답하지 않음
     if (fetchStatus === 'error') throw new Error('connect ECONNREFUSED')
     return { value: { status: fetchStatus, ok: (fetchStatus as number) >= 200 && (fetchStatus as number) < 300, headers: {}, text: '' } }
@@ -362,6 +363,22 @@ test('login: 서버가 응답하지 않으면 10초 뒤 안내하고 저장하�
   await clock.advance(10_500)
   await sent
   expect(JSON.stringify(await ui.findAll({}))).toContain('서버 응답이 없습니다')
+  expect(w.runs.some((r) => r.argv[1] === 'add')).toBe(false)
+  await ui.unmount()
+})
+
+test('login: 서버 확인 중에 취소하면 늦게 와도 저장하지 않는다', { options: { server_url: SERVER_URL } }, async ($, on) => {
+  const w = loginWorld(on, EMPTY, 'slow')
+  await $.command.run({ command: LOGIN_COMMAND, args: '' })
+  const ui = await mountPane($)
+  await ui.input({ key: 'gw-key', text: FAKE_KEY, kind: 'change' })
+  await ui.input({ key: 'gw-name', text: 'ai-dev', kind: 'change' })
+  const sent = ui.input({ key: 'gw-name', text: 'ai-dev', kind: 'submit' })
+  for (let i = 0; i < 50 && w.fetches.length === 0; i++) await new Promise((r) => setTimeout(r, 2)) // 확인 요청이 나간 뒤에 취소
+  expect(w.fetches.length).toBe(1)
+  await ui.press({ key: 'gw-cancel' })
+  await sent
+  await new Promise((r) => setTimeout(r, 60))
   expect(w.runs.some((r) => r.argv[1] === 'add')).toBe(false)
   await ui.unmount()
 })
