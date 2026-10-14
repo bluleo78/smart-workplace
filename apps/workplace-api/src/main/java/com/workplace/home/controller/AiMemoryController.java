@@ -3,6 +3,7 @@ package com.workplace.home.controller;
 import com.workplace.global.security.InternalOnBehalfOf;
 import com.workplace.home.dto.AiMemoryItem;
 import com.workplace.home.dto.AiMemoryListResponse;
+import com.workplace.home.dto.AiMemorySearchResponse;
 import com.workplace.home.dto.CreateAiMemoryRequest;
 import com.workplace.home.dto.PinAiMemoryRequest;
 import com.workplace.home.dto.UndoAiMemoryRequest;
@@ -22,6 +23,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -41,6 +43,19 @@ public class AiMemoryController {
   @GetMapping
   public AiMemoryListResponse list(@AuthenticationPrincipal Long callerId) {
     return service.list(callerId);
+  }
+
+  /**
+   * 검색(WP-383 search_memory) — 본인 유효 메모리 중 질의와 관련 있는 것. 꺼짐이면 memoryEnabled=false + 빈 목록. 사용자·대행 모두
+   * 쓸 수 있다(읽기). 경로가 {@code /{id}} 보다 구체적이라 PATCH·DELETE {@code /{id}} 와 겹치지 않는다.
+   */
+  @GetMapping("/search")
+  public AiMemorySearchResponse search(
+      @AuthenticationPrincipal Long callerId,
+      @RequestParam(value = "q", required = false) String q,
+      @RequestParam(value = "scope", required = false) String scope,
+      @RequestParam(value = "limit", required = false) Integer limit) {
+    return service.search(callerId, q, scope, limit);
   }
 
   /** 생성 — 201 + 항목. ai-agent 대행(Internal)이면 source:'AI'·세션을 받고 꺼짐이면 409(판정 2). */

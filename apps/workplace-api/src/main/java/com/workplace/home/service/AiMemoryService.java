@@ -5,6 +5,7 @@ import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.util.TokenEstimates;
 import com.workplace.home.dto.AiMemoryItem;
 import com.workplace.home.dto.AiMemoryListResponse;
+import com.workplace.home.dto.AiMemorySearchResponse;
 import com.workplace.home.dto.CreateAiMemoryRequest;
 import com.workplace.home.dto.UpdateAiMemoryRequest;
 import com.workplace.home.exception.AiMemoryException;
@@ -492,6 +493,41 @@ public class AiMemoryService {
             CHAT_EMBED_WAIT,
             MEMORY_BLOCK_TOKEN_BUDGET,
             true));
+  }
+
+  /** 검색(search_memory) 질의 임베딩 대기 — 도구 호출이라 채팅 첫 토큰보다 덜 급하다. */
+  static final Duration SEARCH_EMBED_WAIT = Duration.ofSeconds(5);
+
+  /** 검색 기본 개수. */
+  static final int SEARCH_DEFAULT_LIMIT = 10;
+
+  /** 검색 최대 개수. */
+  static final int SEARCH_MAX_LIMIT = 20;
+
+  /**
+   * 메모리 검색(WP-383 스펙 3.6) — 본인 유효 메모리 중 키워드·의미 갈래에 든 것을 RRF 순으로. 꺼짐이면 memoryEnabled=false + 빈
+   * 목록(대행· 사용자 모두 — 읽기라 409 로 막지 않는다).
+   *
+   * @param scope null·ALL = 전부, COMMON = 공통만, 앱 코드 = 그 앱만
+   * @param limit 기본 10, 1~20 으로 묶는다
+   * @throws AiMemoryException 400 — 빈 질의(판정 9)·모르는 범위
+   */
+  public AiMemorySearchResponse search(long userId, String q, String scope, Integer limit) {
+    if (q == null || q.isBlank()) throw AiMemoryException.invalid("찾을 말을 넣어 주세요");
+    ScopeFilter filter = searchScope(scope);
+    int n = limit == null ? SEARCH_DEFAULT_LIMIT : Math.max(1, Math.min(limit, SEARCH_MAX_LIMIT));
+    AiMemorySelector.Found found = selector.search(userId, filter, q, SEARCH_EMBED_WAIT, n);
+    return new AiMemorySearchResponse(
+        found.enabled(), found.rows().stream().map(AiMemoryService::toMemoryLine).toList());
+  }
+
+  /** 검색 범위 문자열 → 필터. 모르는 값은 400(조용히 전부로 넓히지 않는다). */
+  static ScopeFilter searchScope(String scope) {
+    if (scope == null || scope.isBlank() || "ALL".equals(scope)) return ScopeFilter.ALL;
+    if (AiMemoryScope.COMMON.equals(scope)) return ScopeFilter.commonOnly();
+    if (AiMemoryScope.isApp(scope)) return ScopeFilter.app(scope);
+    throw AiMemoryException.invalid(
+        "scope 는 ALL·COMMON·앱 코드(" + String.join("·", AiMemoryScope.APPS) + ") 중 하나예요");
   }
 
   private static ChatMemories toChatMemories(AiMemorySelector.Selection s) {
