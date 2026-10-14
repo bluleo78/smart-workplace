@@ -31,7 +31,11 @@ public final class RowLockWaits {
           if (rs.next() && rs.getLong(1) > 0) return;
         }
         // 잠금에 닿기 전에 끝났으면 기다릴 이유가 없다 — 결과(예외)를 그대로 보인다.
-        if (waiter.isDone()) throw new AssertionError("잠금 대기 전에 끝났다: " + waiter.get());
+        if (waiter.isDone()) {
+          Object result = waiter.get();
+          throw new AssertionError(
+              "잠금 대기 전에 끝났다: " + result, result instanceof Throwable t ? t : null);
+        }
         Thread.sleep(20); // 잠금 대기 진입을 관측하는 폴링 간격 — 조건 대기다.
       }
     }

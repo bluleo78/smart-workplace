@@ -23,8 +23,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
-import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * AI 구성원의 하위 항목 자기 배정(WP-375 §3.5) 실제 HTTP 통합 테스트. AI 가 맡은 이슈의 바로 아래 "빈·열린" 하위 항목만 자기 혼자 맡을 수 있고, 그
@@ -33,7 +31,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 class AgentSelfAssignTest extends AgentWorkTestSupport {
 
   @Autowired private IssueAssigneeService assigneeService;
-  @Autowired private PlatformTransactionManager txManager;
 
   @Value("${spring.datasource.url}")
   private String dbUrl;
@@ -181,16 +178,11 @@ class AgentSelfAssignTest extends AgentWorkTestSupport {
       Future<?> holder =
           pool.submit(
               () ->
-                  withTenant(
+                  inTenant(
                       () -> {
-                        new TransactionTemplate(txManager)
-                            .executeWithoutResult(
-                                st -> {
-                                  assigneeService.replace(
-                                      humanId, projectKey, c1Number, List.of(otherId));
-                                  locked.countDown();
-                                  awaitQuietly(release);
-                                });
+                        assigneeService.replace(humanId, projectKey, c1Number, List.of(otherId));
+                        locked.countDown();
+                        awaitQuietly(release);
                         return null;
                       }));
       assertThat(locked.await(10, TimeUnit.SECONDS)).isTrue();
@@ -198,6 +190,7 @@ class AgentSelfAssignTest extends AgentWorkTestSupport {
       Future<Throwable> claimer =
           pool.submit(
               () ->
+                  // 바깥 트랜잭션 없이 부른다 — 거부 예외가 감싼 트랜잭션을 rollback-only 로 만들지 않게.
                   withTenant(
                       () -> {
                         try {

@@ -54,12 +54,15 @@ public class IssueHistoryRepository {
         .fetch(this::mapToResponse);
   }
 
-  /** 이슈에 마지막으로 그 유형의 이벤트를 남긴 사용자 id — 그런 이력이 없으면 empty. */
+  /**
+   * 이슈에 마지막으로 그 유형의 이벤트를 남긴 사용자 id — 그런 이력이 없으면 empty. created_at 은 트랜잭션 시작 시각(NOW())이라 늦게 시작해 먼저
+   * 커밋한 변경과 순서가 뒤집힐 수 있다. id 는 행 잠금을 쥔 뒤 INSERT 시점에 매겨지므로 같은 이슈 안에서 커밋 순서와 같다.
+   */
   public Optional<Long> findLastActor(Long issueId, String eventType) {
     return dsl.select(ISSUE_HISTORY.ACTOR_ID)
         .from(ISSUE_HISTORY)
         .where(ISSUE_HISTORY.ISSUE_ID.eq(issueId).and(ISSUE_HISTORY.EVENT_TYPE.eq(eventType)))
-        .orderBy(ISSUE_HISTORY.CREATED_AT.desc(), ISSUE_HISTORY.ID.desc())
+        .orderBy(ISSUE_HISTORY.ID.desc())
         .limit(1)
         .fetchOptional(ISSUE_HISTORY.ACTOR_ID);
   }

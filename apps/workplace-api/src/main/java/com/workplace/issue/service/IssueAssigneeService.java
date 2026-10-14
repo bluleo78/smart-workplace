@@ -1,6 +1,7 @@
 package com.workplace.issue.service;
 
 import com.workplace.global.dto.UserSummary;
+import com.workplace.issue.dto.IssueHistoryEventType;
 import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.dto.IssueStatuses;
 import com.workplace.issue.exception.InvalidAssigneeForProjectException;
@@ -178,8 +179,8 @@ public class IssueAssigneeService {
     Long parentId = issue.parentIssueId();
     if (parentId == null || !repo.findUserIdsByIssue(parentId).contains(callerId)) return false;
     return historyRepository
-        .findLastActor(issue.id(), "PARENT_CHANGED")
-        .filter(actor -> actor == callerId)
-        .isEmpty();
+        .findLastActor(issue.id(), IssueHistoryEventType.PARENT_CHANGED.name())
+        .map(actor -> actor != callerId)
+        .orElse(true);
   }
 }
