@@ -44,9 +44,9 @@ import {
   useUpdateWorkspaceAssistantSettings,
   useWorkspaceAssistant,
 } from '../../../hooks/queries/useAssistant';
+import { useAssistantVisionSetting } from '../../../hooks/useAssistantVisionSetting';
 import { useAuth } from '../../../hooks/useAuth';
 import { providerIdOf } from '../../../lib/ai/suggestionModel';
-import { type VisionChoice, visionChoiceOf, visionSettingOf } from '../../../lib/ai/visionConfig';
 import { handleApiError } from '../../../lib/api-error';
 import { formatDateTimeLocale } from '../../../lib/formatters';
 import { presetLabelFor } from '../../../lib/opencode-presets';
@@ -171,31 +171,19 @@ export function AgentConnectionSection({ agentUserId }: Props) {
     }
   };
 
-  // WP-250: 등록 후 이미지 입력 지정 — OpenAI 호환(opencode) 연결만. 서버 상태(지금 모델의 지정값)가 곧 화면 값이다. 모델을 바꾸면
-  // vision:null 을 함께 보낸다 — 다른 모델은 자동 감지에서 시작(이전 모델 지정을 옮기면 못 보는 모델에 이미지가 갈 수 있음). 재등록 없이 커스텀 모델의 이미지 입력을 지정할 수 있다.
-  const isOpencode = meta?.provider === 'opencode';
-  const currentVision = visionChoiceOf(ws?.vision);
-
-  const onModel = async (model: string) => {
-    try {
-      await updateSettings.mutateAsync(
-        isOpencode ? { model, vision: null } : { model },
-      );
-      toast.success('설정을 변경했습니다.');
-    } catch (e) {
-      handleApiError(e, '설정 변경에 실패했습니다.');
-    }
-  };
-
-  // 이미지 입력만 바꾸기 — 지금 모델에 건다.
-  const onVision = async (choice: VisionChoice) => {
-    try {
-      await updateSettings.mutateAsync({ vision: visionSettingOf(choice) });
-      toast.success('설정을 변경했습니다.');
-    } catch (e) {
-      handleApiError(e, '설정 변경에 실패했습니다.');
-    }
-  };
+  // WP-250: 등록 후 이미지 입력 지정(OpenAI 호환 연결만)과 모델 변경 — 재등록 없이 커스텀 모델의 이미지 입력을 지정할 수 있다.
+  // 모델 변경·이미지 입력 저장 규칙(모델을 바꾸면 자동 감지로)은 개인 비서 화면과 같은 훅이 정한다.
+  const {
+    isOpencode,
+    currentVision,
+    changeModel: onModel,
+    changeVision: onVision,
+  } = useAssistantVisionSetting({
+    provider: meta?.provider,
+    vision: ws?.vision,
+    save: updateSettings.mutateAsync,
+    messages: { success: '설정을 변경했습니다.', error: '설정 변경에 실패했습니다.' },
+  });
 
   const onDepth = async (thinkingDepth: ThinkingDepth) => {
     try {

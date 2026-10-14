@@ -35,10 +35,11 @@ import {
   useUpdateMyAssistantName,
   useUpdateMyAssistantSettings,
 } from '../../hooks/queries/useAssistant';
+import { useAssistantVisionSetting } from '../../hooks/useAssistantVisionSetting';
 import { useAuth } from '../../hooks/useAuth';
 import { useModelVisionChoice } from '../../hooks/useModelVisionChoice';
 import { providerIdOf, withProviderPrefix } from '../../lib/ai/suggestionModel';
-import { type VisionChoice, visionChoiceOf, visionConfigFor, visionSettingOf } from '../../lib/ai/visionConfig';
+import { visionConfigFor } from '../../lib/ai/visionConfig';
 import { handleApiError } from '../../lib/api-error';
 import { OPENCODE_PRESETS, type OpencodePresetKey, presetLabelFor } from '../../lib/opencode-presets';
 import type { ThinkingDepth } from '../../types/assistant';
@@ -218,24 +219,19 @@ export function PersonalAssistantSection() {
     }
   };
 
-  // WP-250: 등록 후 이미지 입력 지정 — OpenAI 호환(opencode) 연결만(Claude 는 늘 이미지를 본다). 이 화면은 고르면 바로 저장하므로
-  // 서버 상태의 지금 모델 지정값이 곧 화면 값이다. 자동 감지가 안 되는 커스텀 모델을 재등록 없이 지정할 수 있게 한다.
-  const isOpencode = status?.provider === 'opencode';
-  const currentVision = visionChoiceOf(status?.vision);
-
-  // 모델 변경 — 실패 시 오류 토스트(silent failure 방지), 성공 시 확인 토스트.
-  // opencode 면 vision:null 을 함께 보내 지정을 지운다 — 다른 모델은 자동 감지에서 시작한다(이전 모델의 지정을 옮기면
-  // 못 보는 모델에 이미지가 갈 수 있다).
-  const handleModelChange = async (model: string) => {
-    try {
-      await updateSettings.mutateAsync(
-        isOpencode ? { model, vision: null } : { model },
-      );
-      toast.success('비서 설정을 변경했습니다.');
-    } catch (e) {
-      handleApiError(e, '비서 설정 변경에 실패했습니다.');
-    }
-  };
+  // WP-250: 등록 후 이미지 입력 지정(OpenAI 호환 연결만)과 모델 변경 — 자동 감지가 안 되는 커스텀 모델을 재등록 없이 지정할 수 있게 한다.
+  // 모델 변경·이미지 입력 저장 규칙(모델을 바꾸면 자동 감지로)은 공통 비서 화면과 같은 훅이 정한다.
+  const {
+    isOpencode,
+    currentVision,
+    changeModel: handleModelChange,
+    changeVision: handleVisionChange,
+  } = useAssistantVisionSetting({
+    provider: status?.provider,
+    vision: status?.vision,
+    save: updateSettings.mutateAsync,
+    messages: { success: '비서 설정을 변경했습니다.', error: '비서 설정 변경에 실패했습니다.' },
+  });
 
   // 수동 모델 변경 — 등록 폼과 동일하게 providerId/ 접두 없으면 자동 부여(현재 저장된 model 의
   // providerId 를 재사용). 접두 누락으로 인한 splitOpencodeModel 실행 시점 실패를 여기서도 방지.
@@ -246,16 +242,6 @@ export function PersonalAssistantSection() {
     const resolved = withProviderPrefix(raw, currentProviderId);
     await handleModelChange(resolved);
     setModelChangeInput('');
-  };
-
-  // 이미지 입력만 바꾸기 — 지금 모델에 건다(서버가 vision 을 지금 모델 키 하나로 저장).
-  const handleVisionChange = async (choice: VisionChoice) => {
-    try {
-      await updateSettings.mutateAsync({ vision: visionSettingOf(choice) });
-      toast.success('비서 설정을 변경했습니다.');
-    } catch (e) {
-      handleApiError(e, '비서 설정 변경에 실패했습니다.');
-    }
   };
 
   // 생각의 깊이 변경 — 실패 시 오류 토스트, 성공 시 확인 토스트.
