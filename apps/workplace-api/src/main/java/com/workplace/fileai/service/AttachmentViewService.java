@@ -3,7 +3,6 @@ package com.workplace.fileai.service;
 import static com.workplace.jooq.Tables.FILE;
 import static com.workplace.jooq.Tables.FILE_EXTRACTION;
 
-import com.workplace.file.service.MimeNormalizer;
 import com.workplace.file.storage.FileStore;
 import com.workplace.fileai.dto.ViewImage;
 import com.workplace.fileai.exception.AttachmentViewException;
@@ -17,7 +16,7 @@ import java.util.List;
 import java.util.Locale;
 import lombok.extern.slf4j.Slf4j;
 import org.jooq.DSLContext;
-import org.jooq.Record5;
+import org.jooq.Record4;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -77,12 +76,11 @@ public class AttachmentViewService {
    */
   public ViewImage view(long fileId, Integer page) {
     // ① 파일 행 + 추출 행의 쪽수 — 한 번의 LEFT JOIN 을 짧은 읽기 전용 트랜잭션 하나로(RLS GUC 적용). 추출 행이 없으면 쪽수는 null.
-    Record5<String, String, String, Long, Integer> f =
+    Record4<String, String, Long, Integer> f =
         readOnlyTx.execute(
             st ->
                 dsl.select(
                         FILE.STORAGE_PATH,
-                        FILE.ORIGINAL_NAME,
                         FILE.MIME_TYPE,
                         FILE.SIZE_BYTES,
                         FILE_EXTRACTION.PAGE_COUNT)
@@ -93,7 +91,8 @@ public class AttachmentViewService {
                     .fetchOne());
     if (f == null) throw new AttachmentViewException("NOT_FOUND");
     String storagePath = f.value1();
-    String mime = effectiveMime(f.value2(), f.value3());
+    // 저장된 mime 만 본다 — 옛 octet-stream HEIC·TIFF·BMP 는 V172 가 데이터에서 이미지 mime 으로 바로잡았다.
+    String mime = baseMime(f.value2());
     boolean pdf = "application/pdf".equals(mime);
 
     // ② 워커에 가기 전에 거를 수 있는 것은 모두 거른다 — 워커 왕복·FastAPI 검증 실패(엉뚱한 안내)를 피한다.
@@ -103,8 +102,8 @@ public class AttachmentViewService {
     }
     if (pdf && page == null) throw new AttachmentViewException("PAGE_REQUIRED");
     if (!pdf && page != null) throw new AttachmentViewException("PAGE_NOT_ALLOWED");
-    if (f.value4() > MAX_SOURCE_BYTES) throw new AttachmentViewException("TOO_LARGE");
-    Integer known = pdf ? f.value5() : null;
+    if (f.value3() > MAX_SOURCE_BYTES) throw new AttachmentViewException("TOO_LARGE");
+    Integer known = pdf ? f.value4() : null;
     if (pdf && (page < 1 || (known != null && page > known))) {
       throw new AttachmentViewException("PAGE_OUT_OF_RANGE", known);
     }
@@ -170,15 +169,6 @@ public class AttachmentViewService {
     } catch (UncheckedIOException e) {
       log.warn("보기 캐시 쓰기 실패 — 캐시 없이 응답한다: path={}", rel, e);
     }
-  }
-
-  /**
-   * 보기 판단에 쓸 mime — 저장된 mime 이 octet-stream·빈 값이면 파일명 확장자로 정규화한다. 확장자 매핑(HEIC·TIFF·BMP 등)은 새 업로드에만
-   * 적용돼, 그 전에 올라온 사진은 octet-stream 으로 남아 415 가 됐다(WP-250). 업로드 경계와 같은 표({@link MimeNormalizer})를 써서
-   * 어긋나지 않게 하고, 워커에도 이 값을 넘긴다(워커는 image/* 가 아니면 거절한다).
-   */
-  static String effectiveMime(String originalName, String storedMime) {
-    return baseMime(MimeNormalizer.normalize(originalName, baseMime(storedMime)));
   }
 
   /** "application/pdf; charset=binary" → "application/pdf". null 이면 빈 문자열(→ 415). */

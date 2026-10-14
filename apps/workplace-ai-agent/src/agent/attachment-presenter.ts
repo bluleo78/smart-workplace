@@ -4,7 +4,7 @@
 // 도구로 통일했다(WP-250) — 도구가 추출 텍스트와, 이미지를 볼 수 있는 모델에는 pages 로 쪽 이미지를 준다.
 // opencode 는 비전 지원 모델(WP-241 판단)일 때만 보낼 수 있는 이미지를 로컬 read 로 보고(WP-236 의 read 허용 범위),
 // 그 외 파일은 도구로 읽는다 — custom provider 모델은 PDF 입력을 못 받는다. 비전이 아니면 pages 는 안내하지 않는다(도구도 숨김).
-import { effectiveMimeType, isSendableImage, MAX_PAGES_PER_CALL } from '@smart-workplace/mcp-tools-shared';
+import { baseMimeType, isSendableImage, MAX_PAGES_PER_CALL } from '@smart-workplace/mcp-tools-shared';
 
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
 import type { ProviderCredential } from './agent-runner.js';
@@ -44,11 +44,11 @@ const TEXT_LIKE_EXTRA = new Set([
 ]);
 
 /**
- * MIME → 파일 종류. 프레젠터(다운로드·문구)와 run-chat-agent(추출 대기 판단)가 함께 쓴다.
- * name(파일명)을 주면 octet-stream 으로 저장된 옛 HEIC·TIFF·BMP 사진을 확장자로 이미지로 본다(WP-250 — 서버 /view 도 같은 규칙으로 그린다).
+ * MIME → 파일 종류. 프레젠터(다운로드·문구)와 run-chat-agent(추출 대기 판단)가 함께 쓴다. 파라미터(charset 등)는 떼고 본다.
+ * 옛 octet-stream HEIC·TIFF·BMP 사진은 V172 가 데이터에서 이미지 mime 으로 바로잡아(WP-250) 파일명으로 다시 판별하지 않는다.
  */
-export function fileKind(mimeType: string, name?: string | null): FileKind {
-  const mime = effectiveMimeType(mimeType, name);
+export function fileKind(mimeType: string): FileKind {
+  const mime = baseMimeType(mimeType);
   if (mime.startsWith('image/')) return 'image';
   if (mime === 'application/pdf') return 'pdf';
   if (mime.startsWith('text/') || TEXT_LIKE_EXTRA.has(mime)) return 'text';
@@ -61,8 +61,8 @@ export function fileKind(mimeType: string, name?: string | null): FileKind {
  * HEIC·큰 이미지는 서버 변환본이 필요해 도구로, PDF 는 poppler 없이 읽히도록(WP-250) 도구로 보낸다 — 그래서 크기도 본다.
  * opencode 는 비전 모델일 때 보낼 수 있는 이미지만 read 로 본다. 나머지는 도구에 의존한다.
  */
-export function readsLocally(reader: AttachmentReader, a: { mimeType: string; sizeBytes: number; originalName?: string }): boolean {
-  const fk = fileKind(a.mimeType, a.originalName);
+export function readsLocally(reader: AttachmentReader, a: { mimeType: string; sizeBytes: number }): boolean {
+  const fk = fileKind(a.mimeType);
   if (reader.runner === 'anthropic') return fk === 'text' || (fk === 'image' && isSendableImage(a));
   return fk === 'image' && reader.imageVision && isSendableImage(a);
 }
@@ -82,7 +82,7 @@ function toolCall(a: AgentAttachment, pagesArg = ''): string {
  */
 function extractionLine(a: AgentAttachment, pdfPages = false): string {
   const x = a.extraction;
-  const isPdf = fileKind(a.mimeType, a.originalName) === 'pdf';
+  const isPdf = fileKind(a.mimeType) === 'pdf';
   if (isPdf && x.status === 'SKIPPED' && x.reasonCode === 'SCANNED_PDF') {
     if (pdfPages) {
       // 쪽수를 모르는 이전 추출 행은 쪽수 없이 말한다(pageCount null·생략).
@@ -135,7 +135,7 @@ function localLine(o: DownloadOutcome | undefined): string {
 
 /** 항목별 하위 줄 — 러너·파일 종류·추출 상태 조합. */
 function detailLines(reader: AttachmentReader, a: AgentAttachment, downloads: Map<number, DownloadOutcome>): string[] {
-  const fk = fileKind(a.mimeType, a.originalName);
+  const fk = fileKind(a.mimeType);
   if (readsLocally(reader, a)) {
     const o = downloads.get(a.fileId);
     const lines = [localLine(o)];

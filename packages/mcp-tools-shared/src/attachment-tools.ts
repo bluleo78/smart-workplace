@@ -5,7 +5,7 @@
 // PDF 는 원본이 아니라 서버가 그린 페이지 이미지만 돌려준다(WP-250) — pages:[n] 로 고른 쪽만, 호출당 3장·실행당 예산 안에서.
 import { z } from 'zod';
 
-import { baseMimeType, effectiveMimeType, FileTooLargeError, IMAGE_MAX_BYTES, imageRejectReasons, readRangeShape, resolveRange } from './attachment-read.js';
+import { baseMimeType, FileTooLargeError, IMAGE_MAX_BYTES, imageRejectReasons, readRangeShape, resolveRange } from './attachment-read.js';
 import { type ImageBudget, imageBlocksFor, MAX_PAGES_PER_CALL, pageBlocks, pagesShape, viewBlocks, withImageBudget } from './attachment-view.js';
 import type { McpToolResult } from './mcp-content.js';
 import type { SharedTool } from './mcp-tool.js';
@@ -74,13 +74,6 @@ const MAIL_PAGES_UNSUPPORTED = '메일 첨부는 아직 페이지 보기를 지�
 
 /** 서버가 이미지로 판정해 추출을 건너뛴 파일인지 — 이때만 원본을 받는다. */
 export const isImageSkip = (s: Pick<ExtractedTextSlice, 'status' | 'reasonCode'>) => s.status === 'SKIPPED' && s.reasonCode === 'IMAGE';
-
-/**
- * 형식 미지원으로 추출을 건너뛴 파일인지 — 확장자 매핑 전에 octet-stream 으로 저장된 HEIC·TIFF·BMP 사진이 여기 든다(WP-250).
- * 이름을 아는 도구는 이때 effectiveMimeType 으로 이미지인지 다시 보고 이미지 길로 보낸다.
- */
-export const isUnsupportedSkip = (s: Pick<ExtractedTextSlice, 'status' | 'reasonCode'>) =>
-  s.status === 'SKIPPED' && s.reasonCode === 'UNSUPPORTED_TYPE';
 
 /** 보낼 수 없는 이미지 안내(지금은 /view 가 없는 메일 첨부만, WP-388) — 실제 사유만 말하고, 내용을 추측하지 않게 한다. label 은 JSON 으로 감싸 제어문자를 무력화한 이름·식별자. */
 function imageNotice(label: string, reasons: string[]): string {
@@ -154,21 +147,12 @@ export function buildAttachmentTools(client: AttachmentToolClient, opts: Attachm
   const budget = opts.imageBudget;
   const input = readFileInputFor(imageInput);
 
-  /** 이슈 첨부 목록 행 — 서버 첨부 행의 fileId 가 곧 attachmentId 다(이슈 첨부는 core file id 로 식별). */
-  async function issueRow(issueKey: string, attachmentId: number) {
-    return (await client.listIssueAttachments(issueKey)).find((a) => a.fileId === attachmentId);
-  }
-
   /**
    * 이슈 첨부 이미지 — 목록에서 형식·크기를 먼저 보고, 보낼 수 있으면 원본, 아니면 변환본(/view)을 받는다.
-   * 이미 목록 행을 찾았으면(옛 octet-stream 이미지 판정) 그 행을 넘겨 목록을 다시 부르지 않는다.
+   * 서버 첨부 행의 fileId 가 곧 attachmentId 다(이슈 첨부는 core file id 로 식별).
    */
-  async function issueImage(
-    issueKey: string,
-    attachmentId: number,
-    found?: Awaited<ReturnType<typeof issueRow>>,
-  ): Promise<McpToolResult> {
-    const row = found ?? (await issueRow(issueKey, attachmentId));
+  async function issueImage(issueKey: string, attachmentId: number): Promise<McpToolResult> {
+    const row = (await client.listIssueAttachments(issueKey)).find((a) => a.fileId === attachmentId);
     const label = `이슈 ${issueKey} 첨부 이미지 ${JSON.stringify(row?.originalName ?? `attachmentId ${attachmentId}`)}`;
     return imageBlocksFor(
       label,
@@ -243,14 +227,6 @@ export function buildAttachmentTools(client: AttachmentToolClient, opts: Attachm
             const attachmentId = p.attachmentId!;
             const slice = await client.readIssueAttachmentText(issueKey, attachmentId, range);
             if (isImageSkip(slice)) return issueImage(issueKey, attachmentId);
-            // 옛 업로드의 HEIC·TIFF·BMP 는 mime 이 octet-stream 이라 형식 미지원으로 건너뛰어졌다 — 목록의 파일명으로 이미지인지 다시 보고
-            // 이미지면 변환본(/view, 서버도 같은 확장자 규칙으로 그린다)으로 준다. 드라이브·메시지는 파일명을 얻을 길이 없어 여기서 다루지 않는다.
-            if (isUnsupportedSkip(slice)) {
-              const row = await issueRow(issueKey, attachmentId);
-              if (row && effectiveMimeType(row.mimeType, row.originalName).startsWith('image/')) {
-                return issueImage(issueKey, attachmentId, row);
-              }
-            }
             // 서버 응답의 core fileId 는 입력과 같은 이름 attachmentId 로 돌려준다(입출력 이름 일치, WP-353).
             const { fileId: _coreFileId, ...rest } = slice;
             return JSON.stringify({ attachmentId, ...rest, ...noteField(pdfNote(slice, imageInput)) });

@@ -125,15 +125,6 @@ describe('presentAttachments', () => {
     expect(p.section).not.toContain('pages');
   });
 
-  // 확장자 매핑 전 업로드라 octet-stream 으로 저장된 HEIC 는 파일명으로 이미지로 본다 — 로컬로 받지 않고 이미지 도구 줄(서버 변환본).
-  it('Claude: octet-stream 으로 저장된 옛 HEIC 는 이미지 도구 줄, 내려받지 않는다', async () => {
-    const legacy = a(1, 'IMG_0001.HEIC', 'application/octet-stream', status('SKIPPED', '이 형식은 텍스트 추출을 지원하지 않습니다.'));
-    const p = await presentAttachments(CLAUDE, ok([legacy]), deps);
-    expect(vi.mocked(downloadAttachments).mock.calls[0][2]).toEqual([]);
-    expect(p.section).toContain(`이미지: ${TOOL(1)}`);
-    expect(p.section).not.toContain('텍스트로 읽을 수 없음');
-  });
-
   it('Claude 안내문: 로컬경로는 Read, 문서·PDF 는 도구, 그림·도표·스캔은 pages', async () => {
     const p = await presentAttachments(CLAUDE, ok([a(2, 'spec.pdf', 'application/pdf', ready(5))]), deps);
     expect(p.guidance).toContain('로컬경로');

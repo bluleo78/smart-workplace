@@ -49,7 +49,7 @@ function nonReadyNotice(a: HomeAttachmentMeta, imageInput: boolean): string {
   if (scanned) return `${name}: ${scanned}`;
   // WP-250 코드 리뷰: 글자로 못 읽는 PDF(추출 기록 없음·실패·건너뜀)도 이미지를 볼 수 있으면 페이지 이미지로 읽을 수 있다(25MB 이하 — 넘으면 서버 413).
   const pagesHint =
-    imageInput && fileKind(a.mimeType, a.originalName) === 'pdf' && a.sizeBytes <= MAX_VIEW_SOURCE_BYTES
+    imageInput && fileKind(a.mimeType) === 'pdf' && a.sizeBytes <= MAX_VIEW_SOURCE_BYTES
       ? ' pages:[n] 로 페이지 이미지를 볼 수 있습니다(쪽수를 모르면 pages:[1] 부터).'
       : '';
   switch (a.extraction.status) {
@@ -101,8 +101,7 @@ export function buildReadChatAttachmentTool(
           images.budget,
         );
       }
-      // 옛 업로드의 HEIC·TIFF·BMP 는 mime 이 octet-stream 이라 파일명으로 이미지인지 본다 — 형식을 보낼 수 없어 변환본(/view)으로 간다.
-      if (fileKind(a.mimeType, a.originalName) === 'image') {
+      if (fileKind(a.mimeType) === 'image') {
         // 보낼 수 있는 형식·크기면 원본, 아니면(HEIC·TIFF·BMP·큰 이미지) 서버 변환본 — 다시 올려 달라고 하지 않는다.
         return imageBlocksFor(
           `첨부 이미지 ${name}(fileId ${a.fileId})`,

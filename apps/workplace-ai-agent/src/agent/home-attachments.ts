@@ -45,7 +45,7 @@ function sizeLabel(bytes: number): string {
  * 그렇게 적지 않으면 모델이 읽어 보기도 전에 사용자에게 다시 올려 달라고 한다.
  */
 function statusLabel(a: HomeChatAttachment, imageVision: boolean): string {
-  const kind = fileKind(a.mimeType, a.originalName);
+  const kind = fileKind(a.mimeType);
   if (kind === 'image') {
     if (!imageVision) return '이미지 — 이 비서(모델)는 이미지를 볼 수 없음';
     if (isSendableImage(a)) return '이미지';
@@ -105,7 +105,7 @@ export const EXTRACTION_WAIT_LABEL = '첨부 파일 읽을 준비 중';
 
 /** 이번 메시지(current) 첨부 중 이미지가 아니고 추출 중(PENDING)인 것이 있는지. 이미지는 추출 대상이 아니다. */
 export function currentExtractionPending(attachments: HomeChatAttachment[]): boolean {
-  return attachments.some((a) => a.current && fileKind(a.mimeType, a.originalName) !== 'image' && a.extraction.status === 'PENDING');
+  return attachments.some((a) => a.current && fileKind(a.mimeType) !== 'image' && a.extraction.status === 'PENDING');
 }
 
 /** 최신 세션 목록의 추출 상태만 덮어쓴다 — current 표시는 요청(API)이 정한 값을 유지한다. */

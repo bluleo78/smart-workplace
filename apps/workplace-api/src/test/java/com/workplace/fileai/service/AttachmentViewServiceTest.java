@@ -210,14 +210,14 @@ class AttachmentViewServiceTest extends IntegrationTestBase {
   }
 
   /**
-   * 확장자 매핑 도입 전에 올라온 사진은 mime 이 octet-stream 으로 저장돼 있다 — 보기 시점에 파일명 확장자로 판단해 이미지로 그리고, 워커에도 정규화한
-   * mime 을 넘긴다(워커는 image/* 가 아니면 거절). 확장자로도 모르는 파일은 그대로 415.
+   * 판단은 저장된 mime(파라미터 뗀 값)만 본다 — 옛 octet-stream 사진은 V172 가 데이터에서 이미지 mime 으로 바로잡아 파일명으로 다시 판별하지
+   * 않는다. 워커에도 그 기본형을 넘긴다(워커는 image/* 가 아니면 거절). octet-stream 은 이름이 무엇이든 415.
    */
   @Test
-  void 옛_octet_stream_HEIC_는_파일명으로_이미지로_보고_모르는_확장자는_415() {
-    long heic = seedFile("application/octet-stream", "photo.HEIC", 1000L);
-    long tif = seedFile("", "scan.tif", 1000L);
-    long zip = seedFile("application/octet-stream", "bundle.zip", 1000L);
+  void 저장된_mime_기본형으로_판단하고_octet_stream_은_415() {
+    long heic = seedFile("image/heic", "photo.HEIC", 1000L);
+    long tif = seedFile("IMAGE/TIFF; foo=bar", "scan.tif", 1000L);
+    long octet = seedFile("application/octet-stream", "legacy.heic", 1000L);
     byte[] jpg = {(byte) 0xFF, (byte) 0xD8, 9};
     when(worker.render(anyString(), anyString(), isNull(), anyInt()))
         .thenReturn(new RenderResult(jpg, "image/jpeg", null));
@@ -227,7 +227,7 @@ class AttachmentViewServiceTest extends IntegrationTestBase {
     assertThat(service.view(tif, null).data()).isEqualTo(jpg);
     verify(worker).render(eq(dir + "/scan.tif"), eq("image/tiff"), isNull(), eq(1568));
 
-    assertThatThrownBy(() -> service.view(zip, null))
+    assertThatThrownBy(() -> service.view(octet, null))
         .isInstanceOfSatisfying(
             AttachmentViewException.class, e -> assertThat(e.code()).isEqualTo("UNSUPPORTED"));
     verify(worker, times(2)).render(anyString(), anyString(), any(), anyInt());

@@ -11,7 +11,6 @@ import {
   imageBlocksFor,
   type ImageBudget,
   isImageSkip,
-  isUnsupportedSkip,
   issueListFilterShape,
   listConflicts as listConflictsShared,
   MEMORY_TOOL_NAMES,
@@ -503,13 +502,10 @@ export function buildTools(
           const imageInput = images?.input ?? true;
           // 글자 먼저 — 문서는 이 한 번으로 끝나 목록 조회가 없다. 서버가 이미지로 건너뛴 파일(SKIPPED·IMAGE)이나 추출 행이 없는 파일(NONE, 배포 전
           // 업로드·HEIC 등)만 이미지 후보로 보고 메타(형식·크기·출처)를 찾는다(공유 read_file 의 노트 첨부와 같은 판정).
-          // 형식 미지원(SKIPPED·UNSUPPORTED_TYPE)도 후보다 — 확장자 매핑 전에 octet-stream 으로 저장된 HEIC·TIFF·BMP 사진이 여기 든다(WP-250).
-          // 이 경우는 메타의 파일명으로 이미지일 때만 이미지 길로 보낸다(메타를 못 찾으면 zip 등일 수 있어 변환을 시도하지 않는다).
-          const unsupported = isUnsupportedSkip(slice);
-          if (isImageSkip(slice) || slice.status === 'NONE' || unsupported) {
+          if (isImageSkip(slice) || slice.status === 'NONE') {
             const meta = await findThreadAttachmentMeta(client, agentId, threadId, fileId);
             const view = () => client.viewChatAttachment(agentId, threadId, fileId);
-            if (!meta && !unsupported) {
+            if (!meta) {
               // 메타를 못 찾았어도(이슈 첨부 목록 403·삭제된 메시지·조회 창 밖) /view 는 messageId 없이 서버가 같은 가드로 풀어 주므로 변환본만 준다.
               // 원본 받기 경로(이슈/챗)를 모르니 download 는 상한 초과로 취급해 곧바로 변환본으로 잇는다.
               return imageBlocksFor(
@@ -520,7 +516,7 @@ export function buildTools(
                 images?.budget,
               );
             }
-            if (meta && fileKind(meta.mimeType, meta.originalName) === 'image') {
+            if (fileKind(meta.mimeType) === 'image') {
               return imageBlocksFor(
                 `스레드 첨부 이미지 ${JSON.stringify(meta.originalName)}(fileId ${fileId})`,
                 meta,

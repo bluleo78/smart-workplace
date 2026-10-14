@@ -38,8 +38,8 @@ public final class MimeNormalizer {
           Map.entry("ppt", "application/vnd.ms-powerpoint"),
           Map.entry("hwpx", "application/hwp+zip"),
           Map.entry("hwp", "application/x-hwp"),
-          // WP-250: 브라우저가 빈 type·octet-stream 으로 보내기 쉬운 이미지(HEIC 등). 새 업로드에만 적용한다 —
-          // V125 백필 CASE 표는 의도적으로 바꾸지 않았다(기존 행은 그대로, 위 드리프트 주의는 문서 형식 기준).
+          // WP-250: 브라우저가 빈 type·octet-stream 으로 보내기 쉬운 이미지(HEIC 등). 이 매핑 전에 올라온 기존 행은 V172 가
+          // 같은 표로 바로잡았다(V125 표는 문서 형식만 — 이미지 항목을 고치면 V172 와 드리프트).
           // 이미지 mime 은 ExtractableTypes.skipReason 이 "image:" 로 분류해 SKIPPED·IMAGE 가 된다.
           Map.entry("heic", "image/heic"),
           Map.entry("heif", "image/heif"),

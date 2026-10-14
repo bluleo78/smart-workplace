@@ -44,30 +44,6 @@ export function baseMimeType(contentType: string): string {
 }
 
 /**
- * 파일명 확장자 → 이미지 mime — 서버 업로드 정규화(MimeNormalizer)의 이미지 항목(WP-250)과 같은 표. 브라우저가 빈 type·octet-stream 으로
- * 보내기 쉬운 형식들로, 그 매핑이 생기기 전에 올라온 파일은 아직 octet-stream 으로 저장돼 있다. 서버와 어긋나면 함께 고칠 것.
- */
-const IMAGE_MIME_BY_EXTENSION: Readonly<Record<string, string>> = {
-  heic: 'image/heic',
-  heif: 'image/heif',
-  tif: 'image/tiff',
-  tiff: 'image/tiff',
-  bmp: 'image/bmp',
-};
-
-/**
- * 판단에 쓸 mime — 저장된 mime 이 octet-stream·빈 값이고 파일명 확장자가 위 표에 있으면 그 이미지 mime, 아니면 저장된 mime(파라미터 뗀 값).
- * 서버 /view 도 같은 규칙으로 옛 HEIC·TIFF·BMP 를 이미지로 그려 주므로, 도구가 이런 파일을 "추출 대상 아님"으로 끝내지 않고 이미지 길로 보낸다.
- */
-export function effectiveMimeType(mimeType: string, name?: string | null): string {
-  const base = baseMimeType(mimeType ?? '');
-  if ((base !== '' && base !== 'application/octet-stream') || !name) return base;
-  const dot = name.lastIndexOf('.');
-  const mapped = dot >= 0 ? IMAGE_MIME_BY_EXTENSION[name.slice(dot + 1).trim().toLowerCase()] : undefined;
-  return mapped ?? base;
-}
-
-/**
  * 이미지 블록으로 보낼 수 없는 사유 — 빈 배열이면 보낼 수 있다. 실제 사유만 돌려준다:
  * 형식만 문제인데 크기까지 탓하면 모델이 엉뚱한 안내를 한다. sizeBytes 를 모르면(undefined) 크기는 따지지 않는다.
  */

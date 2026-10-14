@@ -942,38 +942,15 @@ describe('chat 도구', () => {
       expect(c.viewChatAttachment).not.toHaveBeenCalled();
     });
 
-    // WP-250 코드 리뷰: 확장자 매핑 전 업로드라 octet-stream 으로 저장된 HEIC 는 형식 미지원(UNSUPPORTED_TYPE)으로 건너뛰어진다 —
-    // 메타의 파일명으로 이미지면 변환본, 이미지 확장자가 아니거나 메타를 못 찾으면 이전처럼 슬라이스 그대로.
-    const unsupportedSlice = (fileId: number) =>
-      imageSlice(fileId, { reasonCode: 'UNSUPPORTED_TYPE', reason: '이 형식은 텍스트 추출을 지원하지 않습니다.' });
-
-    it('형식 미지원으로 건너뛴 옛 octet-stream HEIC → 파일명으로 이미지 판정해 변환본(/view)', async () => {
+    // 형식 미지원(UNSUPPORTED_TYPE)은 이미지 후보가 아니다 — 옛 octet-stream 사진은 V172 가 데이터에서 IMAGE 로 바로잡았다(WP-250).
+    it('형식 미지원으로 건너뛴 파일 → 메타를 찾지 않고 슬라이스 그대로', async () => {
       const c = client();
-      vi.mocked(c.readChatAttachmentText).mockResolvedValue(unsupportedSlice(7));
-      vi.mocked(c.listThreadIssueAttachments).mockResolvedValue([
-        { fileId: 7, originalName: 'IMG_0001.HEIC', mimeType: 'application/octet-stream', sizeBytes: 1000 } as never,
-      ]);
-      vi.mocked(c.viewChatAttachment).mockResolvedValue({ data: Buffer.from('JPG'), mimeType: 'image/jpeg' });
-      const out = (await chatTool(c).handler({ threadId: 5, fileId: 7 })) as Array<{ type: string; mimeType?: string }>;
-      expect(c.downloadThreadIssueAttachment).not.toHaveBeenCalled();
-      expect(c.viewChatAttachment).toHaveBeenCalledWith(AGENT_ID, 5, 7);
-      expect(out[1]).toMatchObject({ type: 'image', mimeType: 'image/jpeg' });
-    });
-
-    it('형식 미지원 파일이 이미지 확장자가 아니거나 메타를 못 찾으면 슬라이스 그대로(변환 시도 없음)', async () => {
-      const c = client();
-      vi.mocked(c.readChatAttachmentText).mockResolvedValue(unsupportedSlice(7));
-      vi.mocked(c.listThreadIssueAttachments).mockResolvedValue([
-        { fileId: 7, originalName: 'bundle.zip', mimeType: 'application/octet-stream', sizeBytes: 1000 } as never,
-      ]);
+      vi.mocked(c.readChatAttachmentText).mockResolvedValue(
+        imageSlice(7, { reasonCode: 'UNSUPPORTED_TYPE', reason: '이 형식은 텍스트 추출을 지원하지 않습니다.' }),
+      );
       expect(JSON.parse((await chatTool(c).handler({ threadId: 5, fileId: 7 })) as string).reasonCode).toBe('UNSUPPORTED_TYPE');
-      const c2 = client();
-      vi.mocked(c2.readChatAttachmentText).mockResolvedValue(unsupportedSlice(7));
-      vi.mocked(c2.listThreadIssueAttachments).mockRejectedValue(new Error('403'));
-      vi.mocked(c2.getChatMessages).mockResolvedValue([]);
-      expect(JSON.parse((await chatTool(c2).handler({ threadId: 5, fileId: 7 })) as string).reasonCode).toBe('UNSUPPORTED_TYPE');
+      expect(c.listThreadIssueAttachments).not.toHaveBeenCalled();
       expect(c.viewChatAttachment).not.toHaveBeenCalled();
-      expect(c2.viewChatAttachment).not.toHaveBeenCalled();
     });
 
     it('문서(PDF) → 기존 텍스트 경로, 이미지 호출 없음. 쪽수가 있으면 pages 안내 note', async () => {
