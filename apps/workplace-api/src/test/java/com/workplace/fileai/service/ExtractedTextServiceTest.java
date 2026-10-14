@@ -185,16 +185,15 @@ class ExtractedTextServiceTest extends IntegrationTestBase {
     long none = seedFileOnly("application/pdf");
     assertThat(service.read(text, 0, 10).pageCount()).isNull();
     assertThat(service.info(List.of(text)).get(text).pageCount()).isNull();
-    assertThat(service.pageCount(text)).isNull();
-    assertThat(service.pageCount(none)).isNull();
     assertThat(service.read(none, 0, 10).pageCount()).isNull();
   }
 
+  /** 쪽수는 구간 읽기 응답에 실린다(보기 서비스는 같은 값을 파일 행과 LEFT JOIN 으로 직접 읽는다). */
   @Test
-  void pageCount_조회는_저장된_페이지_수를_돌려준다() {
+  void 구간_읽기는_저장된_페이지_수를_돌려준다() {
     long id = seed("application/pdf", "SKIPPED", null, false, "empty");
     setPageCount(id, 12);
-    assertThat(service.pageCount(id)).isEqualTo(12);
+    assertThat(service.read(id, 0, 10).pageCount()).isEqualTo(12);
   }
 
   // ── 헬퍼 ──

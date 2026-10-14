@@ -104,18 +104,6 @@ public class ExtractedTextService {
   }
 
   /**
-   * PDF 총 페이지 수(없으면 null) — 페이지 이미지 보기 요청의 범위 사전 검사에 쓴다(WP-250). 추출 행이 없거나 아직 모르면 null 이라 호출자는 워커가
-   * 알려 주는 값으로 보충한다.
-   */
-  @Transactional(readOnly = true)
-  public Integer pageCount(long fileId) {
-    return dsl.select(FILE_EXTRACTION.PAGE_COUNT)
-        .from(FILE_EXTRACTION)
-        .where(FILE_EXTRACTION.FILE_ID.eq(fileId))
-        .fetchOne(FILE_EXTRACTION.PAGE_COUNT);
-  }
-
-  /**
    * 글자 구간 읽기. limit 은 {@link #MAX_LIMIT} 로 클램프한다.
    *
    * @throws InvalidTextRangeException offset &lt; 0 또는 limit &lt; 1
