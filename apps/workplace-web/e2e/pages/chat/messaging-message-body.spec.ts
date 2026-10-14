@@ -78,18 +78,9 @@ async function stubDmsList(page: Page) {
   )
 }
 
-async function stubStream(page: Page) {
-  await page.route(
-    (url) => url.pathname === '/api/v1/events',
-    (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'text/event-stream',
-        headers: { 'cache-control': 'no-cache' },
-        body: `:\n\n`,
-      }),
-  )
-}
+// SSE(/api/v1/events) 는 따로 route 하지 않고 auth.fixture 의 '열린 채 유지되는' 기본 스트림을 쓴다.
+// 유한 본문으로 덮으면 응답 직후 스트림이 끝나 재연결이 반복되고, 끊김이 유예(800ms)를 넘는 순간마다
+// 재연결 배너가 목록을 32px 밀어 내 호버·좌표 단언이 드물게 깨진다.
 
 async function stubChannelDetail(page: Page, channel: ReturnType<typeof createChannel>) {
   await page.route(
@@ -168,7 +159,6 @@ test.describe('messaging 메시지 본문 기본기', () => {
 
     await stubChannelsList(page, [channel])
     await stubDmsList(page)
-    await stubStream(page)
     await stubChannelDetail(page, channel)
     await stubMembers(page, CHANNEL_ID, [
       createChannelMember({ userId: 10, name: 'bluleo78', kind: 'HUMAN' }),
@@ -423,7 +413,6 @@ async function setupSplitChannel(page: Page) {
 
   await stubChannelsList(page, [channel])
   await stubDmsList(page)
-  await stubStream(page)
   await stubChannelDetail(page, channel)
   await stubMembers(page, OWN_CHANNEL_ID, [
     createChannelMember({ userId: 1, name: 'me', kind: 'HUMAN' }),
@@ -759,7 +748,6 @@ test.describe('메시지 좌/우 분리 — 스레드 패널(384px)', () => {
 
     await stubChannelsList(page, [channel])
     await stubDmsList(page)
-    await stubStream(page)
     await stubChannelDetail(page, channel)
     await stubMembers(page, THREAD_CHANNEL_ID, [
       createChannelMember({ userId: 1, name: 'me', kind: 'HUMAN' }),
@@ -908,7 +896,6 @@ test.describe('후속 줄 hover 시각', () => {
 
     await stubChannelsList(page, [channel])
     await stubDmsList(page)
-    await stubStream(page)
     await stubChannelDetail(page, channel)
     await stubMembers(page, HOVERTIME_CHANNEL_ID, [
       createChannelMember({ userId: 1, name: 'me', kind: 'HUMAN' }),
@@ -965,7 +952,6 @@ test.describe('#356 AI 메시지 마크다운 렌더링', () => {
 
     await stubChannelsList(page, [channel])
     await stubDmsList(page)
-    await stubStream(page)
     await stubChannelDetail(page, channel)
     await stubMembers(page, MD_CHANNEL_ID, [
       createChannelMember({ userId: 10, name: 'bluleo78', kind: 'HUMAN' }),
@@ -1016,7 +1002,6 @@ test('팀 채팅 AI 메시지의 번호 목록은 항목 사이가 벌어지지 
   const channel = createChannel({ id: LIST_CHANNEL_ID, name: '목록', memberCount: 2 })
   await stubChannelsList(page, [channel])
   await stubDmsList(page)
-  await stubStream(page)
   await stubChannelDetail(page, channel)
   await stubMembers(page, LIST_CHANNEL_ID, [
     createChannelMember({ userId: 99, name: 'My AI', kind: 'AGENT' }),
