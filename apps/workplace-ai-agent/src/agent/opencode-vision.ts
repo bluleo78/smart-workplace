@@ -33,10 +33,14 @@ export function resetVisionCache(): void {
 }
 
 // 수동 설정 해석 — boolean 이면 전 모델 공통, 객체면 모델별. 해당 값이 없으면 undefined.
+// 모델별 키는 웹 연결 다이얼로그·API 가 저장하는 그대로 'providerId/modelId'(제출 모델 문자열)이다(WP-250). 접두 없는 modelId 키도
+// 예전 수동 설정(WP-241)과의 호환으로 함께 본다 — 접두 키가 우선. providerID 를 모르면(직접 호출) 접두 없는 키만 본다.
 // payload 는 검증 없는 JSON 이라 모델별 값도 boolean 일 때만 인정한다.
-function manualVision(payload: OpencodeProviderConfig, modelID: string): boolean | undefined {
-  const v = typeof payload.vision === 'boolean' ? payload.vision : payload.vision?.[modelID];
-  return typeof v === 'boolean' ? v : undefined;
+function manualVision(payload: OpencodeProviderConfig, modelID: string, providerID?: string): boolean | undefined {
+  const map = payload.vision;
+  if (typeof map === 'boolean') return map;
+  const pick = (k: string) => (typeof map?.[k] === 'boolean' ? map[k] : undefined);
+  return (providerID ? pick(`${providerID}/${modelID}`) : undefined) ?? pick(modelID);
 }
 
 type ModelEntry = { id?: unknown; capabilities?: { vision?: unknown }; metadata?: { capabilities?: { vision?: unknown } } };
@@ -95,9 +99,16 @@ async function getModelsVision(baseURL: string, apiKey: string | undefined): Pro
 /** 이미지 입력 지원 여부 — true=지원, false=미지원, undefined=알 수 없음(opencode 자체 판단에 맡김). */
 export type OpencodeVision = boolean | undefined;
 
-/** opencode credential·모델의 이미지 입력 지원 여부. 예외를 던지지 않는다(조회 실패 = 알 수 없음). */
-export async function resolveOpencodeVision(payload: OpencodeProviderConfig, modelID: string): Promise<OpencodeVision> {
-  const manual = manualVision(payload, modelID);
+/**
+ * opencode credential·모델의 이미지 입력 지원 여부. 예외를 던지지 않는다(조회 실패 = 알 수 없음).
+ * providerID 를 주면 수동 설정의 'providerId/modelId' 키(웹·API 저장 형식)를 먼저 본다. /models 메타는 provider 가 접두 없는 id 로 주므로 modelID 로만 찾는다.
+ */
+export async function resolveOpencodeVision(
+  payload: OpencodeProviderConfig,
+  modelID: string,
+  providerID?: string,
+): Promise<OpencodeVision> {
+  const manual = manualVision(payload, modelID, providerID);
   if (manual !== undefined) return manual;
   const baseURL = payload.options?.baseURL;
   const apiKey = payload.options?.apiKey;
@@ -106,9 +117,14 @@ export async function resolveOpencodeVision(payload: OpencodeProviderConfig, mod
   return models?.get(modelID);
 }
 
-/** 'providerId/modelId' 형식 모델 문자열로 판단. 모델 형식이 잘못되면 splitOpencodeModel 이 던진다. */
+/**
+ * 'providerId/modelId' 형식 모델 문자열로 판단. 모델 형식이 잘못되면 splitOpencodeModel 이 던진다.
+ * providerID 는 payload.providerId 가 아니라 모델 문자열에서 뗀다 — 수동 설정 키가 그 모델 문자열 그대로 저장되므로, 첫 '/' 로 나눠 다시 붙이면
+ * modelId 에 '/' 가 들어 있어도 저장 키와 정확히 같다.
+ */
 export function resolveOpencodeModelVision(payload: OpencodeProviderConfig, model: string): Promise<OpencodeVision> {
-  return resolveOpencodeVision(payload, splitOpencodeModel(model).modelID);
+  const { providerID, modelID } = splitOpencodeModel(model);
+  return resolveOpencodeVision(payload, modelID, providerID);
 }
 
 /**

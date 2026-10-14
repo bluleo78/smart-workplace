@@ -18,7 +18,8 @@ export interface OpencodeProviderConfig {
   providerId: string;
   npm?: string;
   options: Record<string, unknown>;
-  // WP-241: 이미지 입력 지원 수동 설정 — boolean=전 모델 공통, 객체=모델 id 별. provider `/models` 메타데이터보다 우선.
+  // WP-241: 이미지 입력 지원 수동 설정 — boolean=전 모델 공통, 객체=모델별(키는 'providerId/modelId', WP-250 — 접두 없는 키도 호환으로 읽음).
+  // provider `/models` 메타데이터보다 우선.
   vision?: boolean | Record<string, boolean>;
 }
 

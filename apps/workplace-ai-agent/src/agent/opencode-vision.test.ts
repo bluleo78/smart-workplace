@@ -5,6 +5,7 @@ import {
   opencodeVisionFor,
   parseModelsVision,
   resetVisionCache,
+  resolveOpencodeModelVision,
   resolveOpencodeVision,
   VISION_CACHE_TTL_MS,
   VISION_FAILURE_TTL_MS,
@@ -98,6 +99,35 @@ describe('resolveOpencodeVision', () => {
     expect(await resolveOpencodeVision(payload({ vision: { other: true } }), 'qwen3.6-35b')).toBe(true);
   });
 
+  // WP-250: 웹 연결 다이얼로그·API 는 모델별 키를 제출 모델 문자열 그대로('providerId/modelId') 저장한다(oauth-token.spec 이 고정한 형식).
+  it('수동 설정의 접두 키(providerId/modelId)를 모델 문자열로 찾는다 — 메타데이터 조회 없음', async () => {
+    fetchMock.mockImplementation(async () => okResponse(MODELS_BODY));
+    expect(await resolveOpencodeModelVision(payload({ vision: { 'custom/qwen3.6-35b': false } }), 'custom/qwen3.6-35b')).toBe(false);
+    expect(await resolveOpencodeModelVision(payload({ vision: { 'custom/glm-5.3': true } }), 'custom/glm-5.3')).toBe(true);
+    // modelId 에 '/' 가 들어 있어도 첫 '/' 로 나눠 다시 붙이므로 저장 키와 같다.
+    expect(
+      await resolveOpencodeModelVision(
+        payload({ vision: { 'amazon-bedrock-openai/openai/gpt-oss-120b': true } }),
+        'amazon-bedrock-openai/openai/gpt-oss-120b',
+      ),
+    ).toBe(true);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('접두 키가 무접두 키보다 우선, 다른 provider 의 접두 키는 무시하고 메타데이터로 판단', async () => {
+    fetchMock.mockImplementation(async () => okResponse(MODELS_BODY));
+    expect(
+      await resolveOpencodeModelVision(payload({ vision: { 'custom/qwen3.6-35b': false, 'qwen3.6-35b': true } }), 'custom/qwen3.6-35b'),
+    ).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(await resolveOpencodeModelVision(payload({ vision: { 'other/qwen3.6-35b': false } }), 'custom/qwen3.6-35b')).toBe(true);
+  });
+
+  it('무접두 키(이전 수동 설정)도 모델 문자열로 찾는다(호환)', async () => {
+    expect(await resolveOpencodeModelVision(payload({ vision: { 'glm-5.3': true } }), 'custom/glm-5.3')).toBe(true);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('baseURL 없는 provider(models.dev 등록)는 알 수 없음으로 두고 조회하지 않는다(opencode 자체 판단)', async () => {
     expect(await resolveOpencodeVision(payload({ providerId: 'openai', options: { apiKey: 'k' } }), 'gpt-4o')).toBeUndefined();
     expect(fetchMock).not.toHaveBeenCalled();
@@ -153,6 +183,14 @@ describe('opencodeVisionFor', () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
     const cred = { provider: 'opencode' as const, payload: payload({ vision: false }), model: null };
     expect(await opencodeVisionFor(cred, 'custom/glm-5.3')).toEqual({ value: false });
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it('opencode 모델별 수동 설정(접두 키)도 {value} 로 감싼다(조회 없음, WP-250)', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const cred = { provider: 'opencode' as const, payload: payload({ vision: { 'custom/glm-5.3': true } }), model: null };
+    expect(await opencodeVisionFor(cred, 'custom/glm-5.3')).toEqual({ value: true });
     expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
   });
