@@ -94,7 +94,7 @@ class ChatMessageControllerTest {
 
   @Test
   void list_returnsPage() throws Exception {
-    when(messageService.list(eq(1L), eq(1L), any(), eq(50)))
+    when(messageService.list(eq(1L), eq(1L), any(), any(), eq(false), any()))
         .thenReturn(new ChatMessagePage(List.of(sample()), null, false));
     mockMvc
         .perform(get("/api/v1/chat/threads/1/messages").header("Authorization", "Bearer v"))

@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.SneakyThrows;
+import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.jooq.JSONB;
 import org.jooq.Record;
@@ -119,16 +120,121 @@ public class ChatMessageRepository {
         .fetchOptional(r -> toResponse(r, resolver));
   }
 
+  /** 정렬 키 (created_at, id) — after·afterMine 조회의 기준점. */
+  private record Anchor(OffsetDateTime createdAt, long id) {}
+
+  /** 이 스레드의 메시지 기준점. 다른 스레드이거나 없으면 empty. */
+  private Optional<Anchor> anchorOf(long threadId, long messageId) {
+    return dsl.select(CHAT_MESSAGE.CREATED_AT, CHAT_MESSAGE.ID)
+        .from(CHAT_MESSAGE)
+        .where(CHAT_MESSAGE.ID.eq(messageId).and(CHAT_MESSAGE.THREAD_ID.eq(threadId)))
+        .fetchOptional(r -> new Anchor(r.value1(), r.value2()));
+  }
+
+  /** 호출자의 삭제되지 않은 마지막 글 기준점(WP-373 — pendingForMe 와 같은 "내 마지막 글" 정의). */
+  private Optional<Anchor> lastOwnAnchor(long threadId, long authorId) {
+    return dsl.select(CHAT_MESSAGE.CREATED_AT, CHAT_MESSAGE.ID)
+        .from(CHAT_MESSAGE)
+        .where(CHAT_MESSAGE.THREAD_ID.eq(threadId))
+        .and(CHAT_MESSAGE.AUTHOR_ID.eq(authorId))
+        .and(CHAT_MESSAGE.DELETED_AT.isNull())
+        .orderBy(CHAT_MESSAGE.CREATED_AT.desc(), CHAT_MESSAGE.ID.desc())
+        .limit(1)
+        .fetchOptional(r -> new Anchor(r.value1(), r.value2()));
+  }
+
+  private static Condition afterAnchor(Anchor a) {
+    return CHAT_MESSAGE
+        .CREATED_AT
+        .gt(a.createdAt())
+        .or(CHAT_MESSAGE.CREATED_AT.eq(a.createdAt()).and(CHAT_MESSAGE.ID.gt(a.id())));
+  }
+
+  private static Condition beforeAnchor(Anchor a) {
+    return CHAT_MESSAGE
+        .CREATED_AT
+        .lt(a.createdAt())
+        .or(CHAT_MESSAGE.CREATED_AT.eq(a.createdAt()).and(CHAT_MESSAGE.ID.lt(a.id())));
+  }
+
+  /** 스레드의 메시지 + 작성자 조인 select — 모든 목록 조회가 공유한다. */
+  private SelectConditionStep<?> selectInThread(long threadId) {
+    return dsl.select(MESSAGE_FIELDS)
+        .from(CHAT_MESSAGE)
+        .join(USER)
+        .on(USER.ID.eq(CHAT_MESSAGE.AUTHOR_ID))
+        .where(CHAT_MESSAGE.THREAD_ID.eq(threadId));
+  }
+
+  /** limit+1 개로 받은 오름차순 목록을 페이지로 — 넘치면 hasMore, 다음 after 는 마지막 메시지 id. */
+  private static ChatMessagePage ascendingPage(
+      List<ChatMessageResponse> head, List<ChatMessageResponse> rest, int limit) {
+    boolean hasMore = rest.size() > limit;
+    List<ChatMessageResponse> body = hasMore ? rest.subList(0, limit) : rest;
+    List<ChatMessageResponse> items = new java.util.ArrayList<>(head);
+    items.addAll(body);
+    String next = hasMore ? String.valueOf(body.get(body.size() - 1).id()) : null;
+    return new ChatMessagePage(items, next, hasMore);
+  }
+
+  /**
+   * after 메시지보다 뒤의 글을 오름차순으로(WP-373 — 외부 AI 가 새 글만 읽는다). after 가 이 스레드의 글이 아니면
+   * IllegalArgumentException(400).
+   */
+  public ChatMessagePage findAfter(
+      long threadId, long afterId, int limit, MentionResolver resolver) {
+    Anchor a =
+        anchorOf(threadId, afterId)
+            .orElseThrow(() -> new IllegalArgumentException("after 메시지가 이 대화에 없습니다: " + afterId));
+    List<ChatMessageResponse> rest =
+        selectInThread(threadId)
+            .and(afterAnchor(a))
+            .orderBy(CHAT_MESSAGE.CREATED_AT.asc(), CHAT_MESSAGE.ID.asc())
+            .limit(limit + 1)
+            .fetch(r -> toResponse(r, resolver));
+    return ascendingPage(List.of(), rest, limit);
+  }
+
+  /** afterMine 앞에 붙이는 맥락 글 수(스펙 §3.3). */
+  private static final int MINE_CONTEXT = 5;
+
+  /** 호출자의 마지막 글 기준 "직전 5개 + 그 글부터 최대 limit 개"(오름차순). 호출자 글이 없으면 최신 limit 개를 오름차순으로. */
+  public ChatMessagePage findAroundOwnLast(
+      long threadId, long callerId, int limit, MentionResolver resolver) {
+    Optional<Anchor> mine = lastOwnAnchor(threadId, callerId);
+    if (mine.isEmpty()) {
+      List<ChatMessageResponse> latest =
+          new java.util.ArrayList<>(
+              selectInThread(threadId)
+                  .orderBy(CHAT_MESSAGE.CREATED_AT.desc(), CHAT_MESSAGE.ID.desc())
+                  .limit(limit)
+                  .fetch(r -> toResponse(r, resolver)));
+      java.util.Collections.reverse(latest);
+      return new ChatMessagePage(latest, null, false);
+    }
+    Anchor a = mine.get();
+    List<ChatMessageResponse> context =
+        new java.util.ArrayList<>(
+            selectInThread(threadId)
+                .and(beforeAnchor(a))
+                .orderBy(CHAT_MESSAGE.CREATED_AT.desc(), CHAT_MESSAGE.ID.desc())
+                .limit(MINE_CONTEXT)
+                .fetch(r -> toResponse(r, resolver)));
+    java.util.Collections.reverse(context);
+    List<ChatMessageResponse> rest =
+        selectInThread(threadId)
+            .and(afterAnchor(a).or(CHAT_MESSAGE.ID.eq(a.id())))
+            .orderBy(CHAT_MESSAGE.CREATED_AT.asc(), CHAT_MESSAGE.ID.asc())
+            .limit(limit + 1)
+            .fetch(r -> toResponse(r, resolver));
+    return ascendingPage(context, rest, limit);
+  }
+
   /** Cursor 페이징. nextCursor 는 base64(createdAt|id). */
   public ChatMessagePage findPage(
       long threadId, String cursor, int limit, MentionResolver resolver) {
     int safeLimit = Math.min(limit, MAX_LIMIT);
-    SelectConditionStep<?> query =
-        dsl.select(MESSAGE_FIELDS)
-            .from(CHAT_MESSAGE)
-            .join(USER)
-            .on(USER.ID.eq(CHAT_MESSAGE.AUTHOR_ID))
-            .where(CHAT_MESSAGE.THREAD_ID.eq(threadId));
+    SelectConditionStep<?> query = selectInThread(threadId);
 
     if (cursor != null && !cursor.isEmpty()) {
       Cursor c = Cursor.decode(cursor);

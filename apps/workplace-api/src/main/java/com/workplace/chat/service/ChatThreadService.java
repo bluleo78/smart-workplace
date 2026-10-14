@@ -68,7 +68,8 @@ public class ChatThreadService {
         recent.items(),
         recent.nextCursor(),
         recent.hasMore(),
-        canPost);
+        canPost,
+        lookup.findFirstExternalAgent(issue.id()).orElse(null));
   }
 
   /** thread row + 초기 멤버 INSERT. ON CONFLICT DO NOTHING 으로 race-safe. */

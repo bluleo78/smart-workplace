@@ -167,15 +167,47 @@ public class ChatMessageService {
     publisher.publishEvent(new ChatMessageDeletedEvent(threadId, messageId));
   }
 
-  // readOnly 트랜잭션 — 읽기 권한 확인(chat_thread_member 등)·findPage(chat_message) 가 모두 RLS 보호 테이블이라,
-  // 트랜잭션이 없으면 GUC 미주입 autocommit 연결로 fail-closed(빈 결과/멤버 아님)된다. doBegin 이 readOnly 트랜잭션에도
-  // GUC 를 주입하므로 @Transactional(readOnly) 로 RLS 컨텍스트를 확보한다.
+  /** cursor 모드(최신순 위로 스크롤) 기본 크기 — 화면이 쓰는 현행 값. */
+  private static final int DEFAULT_PAGE = 50;
+
+  /** after·afterMine 모드 기본 크기(스펙 §3.3). */
+  private static final int DEFAULT_AFTER_PAGE = 30;
+
+  private static final int MAX_PAGE = 100;
+
+  /** 기존 호출부 호환 — cursor 모드. */
   @Transactional(readOnly = true)
   public ChatMessagePage list(long callerId, long threadId, String cursor, int limit) {
-    // 읽기는 스레드 조회(getOrCreate)와 같은 권한 — 비멤버도 과거 메시지를 스크롤해 볼 수 있어야 한다(WP-213).
+    return list(callerId, threadId, cursor, null, false, limit);
+  }
+
+  /**
+   * 메시지 목록. cursor(최신순 이전 페이지)·after(그 뒤 오름차순)·afterMine(내 마지막 글 직전 5개 + 그 뒤) 셋 중 하나만 쓴다 — 둘 이상이면
+   * IllegalArgumentException(400). 읽기는 스레드 조회(getOrCreate)와 같은 권한 — 비멤버도 과거 메시지를 스크롤해 볼 수 있어야
+   * 한다(WP-213). readOnly 트랜잭션 — 읽기 권한 확인(chat_thread_member 등)·조회(chat_message)가 모두 RLS 보호 테이블이라,
+   * 트랜잭션이 없으면 GUC 미주입 autocommit 연결로 fail-closed(빈 결과/멤버 아님)된다. doBegin 이 readOnly 트랜잭션에도 GUC 를
+   * 주입한다.
+   */
+  @Transactional(readOnly = true)
+  public ChatMessagePage list(
+      long callerId, long threadId, String cursor, Long after, boolean afterMine, Integer limit) {
+    boolean hasCursor = cursor != null && !cursor.isEmpty();
+    int modes = (hasCursor ? 1 : 0) + (after != null ? 1 : 0) + (afterMine ? 1 : 0);
+    if (modes > 1) {
+      throw new IllegalArgumentException("cursor·after·afterMine 은 하나만 줄 수 있습니다");
+    }
     threadAccess.ensureCanRead(threadId, callerId);
-    return messageHydrator.hydrate(
-        messageRepo.findPage(threadId, cursor, limit, userMentionHydrator::asMentionResponses));
+    boolean ascending = after != null || afterMine;
+    int requested = limit == null ? (ascending ? DEFAULT_AFTER_PAGE : DEFAULT_PAGE) : limit;
+    int size = Math.max(1, Math.min(requested, MAX_PAGE));
+    ChatMessageRepository.MentionResolver resolver = userMentionHydrator::asMentionResponses;
+    ChatMessagePage page =
+        after != null
+            ? messageRepo.findAfter(threadId, after, size, resolver)
+            : afterMine
+                ? messageRepo.findAroundOwnLast(threadId, callerId, size, resolver)
+                : messageRepo.findPage(threadId, cursor, size, resolver);
+    return messageHydrator.hydrate(page);
   }
 
   @Transactional

@@ -30,13 +30,17 @@ public class ChatMessageController {
 
   private final ChatMessageService messageService;
 
+  /** 메시지 목록 — cursor(이전 페이지)·after(그 뒤)·afterMine(내 마지막 글 기준) 중 하나(WP-373). */
   @GetMapping("/threads/{id}/messages")
   public ResponseEntity<ChatMessagePage> list(
       @AuthenticationPrincipal Long callerId,
       @PathVariable("id") long threadId,
       @RequestParam(required = false) String cursor,
-      @RequestParam(defaultValue = "50") int limit) {
-    return ResponseEntity.ok(messageService.list(callerId, threadId, cursor, limit));
+      @RequestParam(required = false) Long after,
+      @RequestParam(defaultValue = "false") boolean afterMine,
+      @RequestParam(required = false) Integer limit) {
+    return ResponseEntity.ok(
+        messageService.list(callerId, threadId, cursor, after, afterMine, limit));
   }
 
   @PostMapping("/threads/{id}/messages")
