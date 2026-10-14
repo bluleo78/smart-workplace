@@ -495,6 +495,51 @@ test.describe('/admin/agents — AI 연결 및 모델', () => {
     expect(body.providerConfig.vision).toEqual({ 'amazon-bedrock-openai/gpt-4o-mini': false });
   });
 
+  // WP-250 최종 리뷰: 직접 입력 중 키를 칠 때마다 선택이 지워지지 않는다 — 선택은 그때의 모델 id 에만 적용되고,
+  // 같은 id 로 정리되는 입력(끝 공백)에는 유지, 다른 id 가 되면 자동 감지로 보인다.
+  test('opencode 수동 입력 — 이미지 입력 선택은 그 모델 id 에만 적용되고 같은 id 로 정리되는 입력에는 유지된다', async ({
+    adminPage: page,
+  }) => {
+    await setupBase(page);
+    const state = await setupCredential(page, { initial: 'absent' });
+    setupProbe(page, { status: 502 });
+
+    await enterAndSelect(page);
+    await page.getByTestId('oauth-token-register').click();
+    await page.getByTestId('credential-provider-opencode').click();
+    await page.getByTestId('credential-base-url').fill('https://api.openai.com/v1');
+    await page.getByTestId('credential-api-key').fill('sk-openai-test');
+    await page.getByTestId('credential-probe-models').click();
+
+    const manual = page.getByTestId('credential-model-manual');
+    await manual.fill('gpt-4o');
+    const vision = page.getByTestId('credential-vision');
+    await vision.click();
+    await page.getByRole('option', { name: '볼 수 있음' }).click();
+    await expect(vision).toHaveText('볼 수 있음');
+
+    // 끝 공백은 제출 id 가 같아(앞뒤 공백 정리) 선택이 그대로다 — 지울 때도 마찬가지.
+    await manual.press('End');
+    await manual.pressSequentially(' ');
+    await expect(vision).toHaveText('볼 수 있음');
+    await manual.press('Backspace');
+    await expect(vision).toHaveText('볼 수 있음');
+
+    // 다른 모델 id 가 되면 자동 감지로 보인다(이전 모델의 지정이 따라가지 않는다).
+    await manual.pressSequentially('-mini');
+    await expect(vision).toHaveText('자동 감지');
+    await vision.click();
+    await page.getByRole('option', { name: '볼 수 없음' }).click();
+
+    await page.getByRole('button', { name: '연결하기' }).click();
+    await expect(page.getByText('AI에 연결했습니다.')).toBeVisible();
+
+    expect(state.posts.count()).toBe(1);
+    const body = state.posts.bodies()[0] as { model: string; providerConfig: { vision?: unknown } };
+    expect(body.model).toBe('amazon-bedrock-openai/gpt-4o-mini');
+    expect(body.providerConfig.vision).toEqual({ 'amazon-bedrock-openai/gpt-4o-mini': false });
+  });
+
   test('opencode 모델 미선택 → 제출 버튼 비활성(POST 호출 없음)', async ({ adminPage: page }) => {
     await setupBase(page);
     const state = await setupCredential(page, { initial: 'absent' });

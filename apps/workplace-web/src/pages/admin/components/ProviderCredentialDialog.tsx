@@ -32,8 +32,9 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { useRegisterAgentProviderCredential } from '@/hooks/queries/useAgentProviderCredential';
+import { useModelVisionChoice } from '@/hooks/useModelVisionChoice';
 import { withProviderPrefix } from '@/lib/ai/suggestionModel';
-import { type VisionChoice, visionConfigFor } from '@/lib/ai/visionConfig';
+import { visionConfigFor } from '@/lib/ai/visionConfig';
 import { handleApiError } from '@/lib/api-error';
 import { OPENCODE_PRESETS, type OpencodePresetKey } from '@/lib/opencode-presets';
 import type { CredentialProvider, ModelOption } from '@/types/providerCredential';
@@ -67,8 +68,14 @@ export function ProviderCredentialDialog({
   const [probeError, setProbeError] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState('');
   const [manualModel, setManualModel] = useState('');
-  // 이미지 입력 수동 지정 — 'auto' 면 providerConfig.vision 을 보내지 않는다.
-  const [vision, setVision] = useState<VisionChoice>('auto');
+  // 수동 입력 모델 id 에 providerId/ 접두어가 없으면 자동으로 붙인다 — 실측 함정(접두 없이 저장 →
+  // splitOpencodeModel 실행 시점 실패) 방지. presetKey 는 제출과 함께 전송되는
+  // providerConfig.providerId 와 항상 동일하므로 추측이 아니라 정확한 값이다.
+  const normalizedManualModel = withProviderPrefix(manualModel, presetKey);
+  const resolvedModel = selectedModel || normalizedManualModel;
+  // 이미지 입력 수동 지정 — 'auto' 면 providerConfig.vision 을 보내지 않는다. 선택은 그때의 모델 id 에만 적용되어,
+  // 모델을 바꾸면(직접 입력 중 다른 id 가 되면) 자동 감지로 보인다. 키를 칠 때마다 지우지 않으므로 같은 id 로 정리되는 입력엔 유지된다.
+  const { vision, setVision, resetVision } = useModelVisionChoice(resolvedModel);
 
   const mutation = useRegisterAgentProviderCredential(agentUserId);
   const probe = useMutation({
@@ -88,7 +95,7 @@ export function ProviderCredentialDialog({
     setProbeError(null);
     setSelectedModel('');
     setManualModel('');
-    setVision('auto');
+    resetVision();
   };
 
   // 프리셋 변경 시 baseURL 템플릿 자동 채움 + 이전 프로브 결과 초기화.
@@ -100,18 +107,7 @@ export function ProviderCredentialDialog({
     setProbeError(null);
     setSelectedModel('');
     setManualModel('');
-    setVision('auto');
-  };
-
-  // 모델이 바뀌면 이미지 입력 지정은 자동 감지로 되돌린다 — 지정한 값은 선택한 그 모델에만 적용되고,
-  // 다른 모델로 바꾸면 그 모델은 자동 감지가 기본이다(이전 모델의 지정이 새 모델에 따라가지 않게).
-  const onSelectModel = (model: string) => {
-    setSelectedModel(model);
-    setVision('auto');
-  };
-  const onManualModelChange = (model: string) => {
-    setManualModel(model);
-    setVision('auto');
+    resetVision();
   };
 
   // 모델 목록 프로브 — 성공 시 모델 Select 노출, 실패 시 수동 입력 폴백 노출.
@@ -119,7 +115,7 @@ export function ProviderCredentialDialog({
     setProbeError(null);
     setModelOptions(null);
     setSelectedModel('');
-    setVision('auto');
+    resetVision();
     try {
       const res = await probe.mutateAsync();
       setModelOptions(res.models);
@@ -131,11 +127,6 @@ export function ProviderCredentialDialog({
     }
   };
 
-  // 수동 입력 모델 id 에 providerId/ 접두어가 없으면 자동으로 붙인다 — 실측 함정(접두 없이 저장 →
-  // splitOpencodeModel 실행 시점 실패) 방지. presetKey 는 제출과 함께 전송되는
-  // providerConfig.providerId 와 항상 동일하므로 추측이 아니라 정확한 값이다.
-  const normalizedManualModel = withProviderPrefix(manualModel, presetKey);
-  const resolvedModel = selectedModel || normalizedManualModel;
   const visionConfig = visionConfigFor(vision, resolvedModel);
 
   const submit = async () => {
@@ -306,7 +297,7 @@ export function ProviderCredentialDialog({
               {modelOptions != null ? (
                 <div className="space-y-1.5">
                   <Label htmlFor="credential-model-select">모델</Label>
-                  <Select value={selectedModel} onValueChange={onSelectModel}>
+                  <Select value={selectedModel} onValueChange={setSelectedModel}>
                     <SelectTrigger
                       id="credential-model-select"
                       data-testid="credential-model-select"
@@ -332,7 +323,7 @@ export function ProviderCredentialDialog({
                     id="credential-model-manual"
                     data-testid="credential-model-manual"
                     value={manualModel}
-                    onChange={(e) => onManualModelChange(e.target.value)}
+                    onChange={(e) => setManualModel(e.target.value)}
                     placeholder={`${presetKey}/model-id`}
                     autoComplete="off"
                   />

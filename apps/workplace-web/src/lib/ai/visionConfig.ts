@@ -17,3 +17,23 @@ export function visionConfigFor(
   if (choice === 'auto' || !model) return undefined;
   return { [model]: choice === 'yes' };
 }
+
+/**
+ * 이미지 입력 선택과 그 선택을 한 모델 id — 선택은 그 모델에만 적용된다(WP-250 최종 리뷰).
+ * 모델 직접 입력 중 키를 칠 때마다 선택을 지우던 방식 대신, 선택 당시 모델을 기억해 두고 화면·제출 값은 visionChoiceFor 로 고른다.
+ */
+export interface VisionPick {
+  model: string;
+  choice: VisionChoice;
+}
+
+/** 아무것도 지정하지 않은 상태(자동 감지). */
+export const NO_VISION_PICK: VisionPick = { model: '', choice: 'auto' };
+
+/**
+ * 지금 모델에 적용할 선택 — 선택할 때의 모델과 지금 모델(접두·공백 정리 후 제출 값)이 같을 때만 그 선택, 다르면 자동 감지.
+ * 이전 모델에 지정한 값이 다른 모델로 따라가지 않게 하면서, 같은 id 로 정리되는 입력(끝 공백 등)에는 선택을 유지한다.
+ */
+export function visionChoiceFor(pick: VisionPick, model: string): VisionChoice {
+  return pick.model === model ? pick.choice : 'auto';
+}
