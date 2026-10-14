@@ -187,19 +187,7 @@ class AgentSelfAssignTest extends AgentWorkTestSupport {
                       }));
       assertThat(locked.await(10, TimeUnit.SECONDS)).isTrue();
       // 2) AI 의 자기 배정은 같은 이슈 행 잠금에서 기다린다(잠그지 않으면 빈 담당자를 읽고 바로 끝나 아래 대기 확인이 실패한다).
-      Future<Throwable> claimer =
-          pool.submit(
-              () ->
-                  // 바깥 트랜잭션 없이 부른다 — 거부 예외가 감싼 트랜잭션을 rollback-only 로 만들지 않게.
-                  withTenant(
-                      () -> {
-                        try {
-                          assigneeService.replace(agentId, projectKey, c1Number, List.of(agentId));
-                          return null;
-                        } catch (Throwable t) {
-                          return t;
-                        }
-                      }));
+      Future<Throwable> claimer = pool.submit(() -> claimInBackground(c1Number));
       awaitLockWaiter(dbUrl, dbUser, dbPassword, claimer);
       // 3) 앞 배정이 커밋된 뒤 판정하므로 더는 "빈 하위 항목" 이 아니다 — 거부되고 담당자는 한 명으로 남는다.
       release.countDown();
@@ -212,6 +200,54 @@ class AgentSelfAssignTest extends AgentWorkTestSupport {
     }
     assertThat(inTenant(() -> issueAssigneeRepository.findUserIdsByIssue(c1Id)))
         .containsExactly(otherId);
+  }
+
+  @Test
+  void 부모에서_AI_를_빼는_교체와_겹치면_AI_자기_배정은_그_교체가_끝난_뒤_판정돼_거부된다() throws Exception {
+    CountDownLatch locked = new CountDownLatch(1);
+    CountDownLatch release = new CountDownLatch(1);
+    ExecutorService pool = Executors.newFixedThreadPool(2);
+    try {
+      // 1) 사람이 에픽 E 의 담당자에서 AI 를 빼는 트랜잭션이 E 행을 잠근 채 커밋을 미룬다.
+      Future<?> holder =
+          pool.submit(
+              () ->
+                  inTenant(
+                      () -> {
+                        assigneeService.replace(humanId, projectKey, epicNumber, List.of());
+                        locked.countDown();
+                        awaitQuietly(release);
+                        return null;
+                      }));
+      assertThat(locked.await(10, TimeUnit.SECONDS)).isTrue();
+      // 2) AI 의 C1 자기 배정은 부모 E 담당자를 읽기 전 E 행 공유 잠금에서 기다린다(잠그지 않으면 아직 담당자인 옛 값을 읽고 통과한다).
+      Future<Throwable> claimer = pool.submit(() -> claimInBackground(c1Number));
+      awaitLockWaiter(dbUrl, dbUser, dbPassword, claimer);
+      // 3) 교체가 커밋된 뒤 판정하므로 AI 는 더 이상 부모 담당자가 아니다 — 거부되고 C1 은 빈 채로 남는다.
+      release.countDown();
+      holder.get(10, TimeUnit.SECONDS);
+      assertThat(claimer.get(10, TimeUnit.SECONDS))
+          .isInstanceOf(IssueAssigneeAgentRestrictionException.class);
+    } finally {
+      release.countDown();
+      pool.shutdownNow();
+    }
+    assertThat(inTenant(() -> issueAssigneeRepository.findUserIdsByIssue(c1Id))).isEmpty();
+  }
+
+  /**
+   * 다른 스레드에서 AI 자기 배정 — 성공이면 null, 실패면 던진 예외. 바깥 트랜잭션 없이 불러 거부 예외가 감싼 트랜잭션을 rollback-only 로 만들지 않게.
+   */
+  private Throwable claimInBackground(int number) {
+    return withTenant(
+        () -> {
+          try {
+            assigneeService.replace(agentId, projectKey, number, List.of(agentId));
+            return null;
+          } catch (Throwable t) {
+            return t;
+          }
+        });
   }
 
   private void assertForbidden(int number, List<Long> userIds) {

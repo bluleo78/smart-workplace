@@ -305,4 +305,28 @@ class IssueAssigneeServiceTest extends IntegrationTestBase {
     assertThat(result).hasSize(1);
     assertThat(result.get(0).id()).isEqualTo(other);
   }
+
+  @Test
+  void agent_cannot_claim_child_whose_parent_link_was_made_by_another_agent() {
+    Long owner = createUser("ag6-owner");
+    Long agentA = createAgentUserWithMembership("ag6-a");
+    Long agentB = createAgentUserWithMembership("ag6-b");
+    ProjectResponse p = newProject(owner, "AGPAR");
+    projectService.addMember(owner, p.key(), new AddMemberRequest(agentA, "MEMBER"));
+    projectService.addMember(owner, p.key(), new AddMemberRequest(agentB, "MEMBER"));
+    var parent = issueRepository.insert(p.id(), 1, "부모", null, "MID", null, owner);
+    var child = issueRepository.insert(p.id(), 2, "자식", null, "MID", null, owner);
+    service.replace(owner, p.key(), 1, List.of(agentA));
+    // 다른 AI(B)가 부모 관계를 만든 상태(setParent 와 같은 결과 — 부모 갱신 + PARENT_CHANGED 이력).
+    issueRepository.updateParent(child.id(), parent.id());
+    historyRepository.insert(child.id(), agentB, "PARENT_CHANGED", null, "{}");
+
+    // 같은 운영자가 AI 를 여럿 두어 서로 옮겨 주는 우회도 막는다 — 부모 관계는 사람이 만든 것만 근거로 친다.
+    assertThatThrownBy(() -> service.replace(agentA, p.key(), 2, List.of(agentA)))
+        .isInstanceOf(IssueAssigneeAgentRestrictionException.class);
+
+    // 사람이 다시 부모 관계를 만들면(마지막 변경자가 사람) 맡을 수 있다.
+    historyRepository.insert(child.id(), owner, "PARENT_CHANGED", null, "{}");
+    assertThat(service.replace(agentA, p.key(), 2, List.of(agentA)).get(0).id()).isEqualTo(agentA);
+  }
 }

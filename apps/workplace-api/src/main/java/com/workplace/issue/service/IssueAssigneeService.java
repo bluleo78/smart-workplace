@@ -63,7 +63,8 @@ public class IssueAssigneeService {
       Long callerId, String projectKey, int number, List<Long> userIds) {
     var project = accessGuard.assertMember(projectKey, callerId);
     // 이슈 행을 잠가 같은 이슈의 담당자 교체를 한 줄로 세운다 — 두 요청이 같은 "빈 담당자" 를 읽고 각자 넣으면 AI 자기 배정의
-    // "혼자 맡기" 규칙이 깨져 담당자가 둘이 된다(WP-375). 부모 변경(setParent)도 같은 행을 잠그므로 판정 중 부모가 바뀌지 않는다.
+    // "혼자 맡기" 규칙이 깨져 담당자가 둘이 된다(WP-375). 부모 변경(setParent·setType)도 같은 행을 잠근 채 읽으므로 판정 중 부모가 바뀌지
+    // 않는다.
     var issue =
         issueRepository
             .findByProjectAndNumberForUpdate(project.id(), number)
@@ -169,18 +170,26 @@ public class IssueAssigneeService {
 
   /**
    * AI 구성원이 자기가 맡은 이슈의 바로 아래 빈 하위 항목을 혼자 맡는지(WP-375 §3.5). 담당자가 비어 있고, 열려 있고, 새 집합이 {호출자}이고, 바로 위
-   * 부모의 담당자에 호출자가 있어야 한다. 손자는 자식을 먼저 맡아야 이 규칙을 통과한다(한 단계씩). 마지막 부모 변경을 호출자 자신이 했으면 거부한다 — 아무 빈 이슈나
-   * 자기 이슈 아래로 옮긴 뒤 맡는 우회를 막는다(부모 관계는 다른 사람이 만든 것만 근거로 친다).
+   * 부모의 담당자에 호출자가 있어야 한다. 손자는 자식을 먼저 맡아야 이 규칙을 통과한다(한 단계씩).
+   *
+   * <ul>
+   *   <li>부모 관계는 사람이 만든 것만 근거로 친다 — 마지막 부모 변경자가 AI(자신이든 다른 AI 든)면 거부한다. 아무 빈 이슈나 AI 이슈 아래로 옮긴 뒤 맡는
+   *       우회를 막는다. AI 가 자기 이슈 아래에 새로 만든 하위 항목은 부모 변경 이력이 없어 맡을 수 있다(새 작업이므로 의도).
+   *   <li>부모 행을 공유 잠금한 뒤 부모 담당자를 읽는다 — 동시에 부모에서 이 AI 를 빼는 교체가 끼어들지 못한다. 잠금 순서는 항상 자식(replace 가 잠근 이
+   *       이슈) → 부모다.
+   * </ul>
    */
   private boolean isSelfClaimOfChild(
       IssueRow issue, Set<Long> current, Set<Long> target, long callerId) {
     if (!current.isEmpty() || !target.equals(Set.of(callerId))) return false;
     if (IssueStatuses.CLOSED.contains(issue.status())) return false;
     Long parentId = issue.parentIssueId();
-    if (parentId == null || !repo.findUserIdsByIssue(parentId).contains(callerId)) return false;
+    if (parentId == null) return false;
+    issueRepository.lockForShare(parentId);
+    if (!repo.findUserIdsByIssue(parentId).contains(callerId)) return false;
     return historyRepository
-        .findLastActor(issue.id(), IssueHistoryEventType.PARENT_CHANGED.name())
-        .map(actor -> actor != callerId)
+        .findLastActorKind(issue.id(), IssueHistoryEventType.PARENT_CHANGED.name())
+        .map(kind -> !"AGENT".equals(kind))
         .orElse(true);
   }
 }

@@ -146,6 +146,14 @@ public class IssueRepository {
         .fetchOptional(this::mapToRow);
   }
 
+  /**
+   * 이슈 행 공유 잠금(SELECT ... FOR SHARE) — 트랜잭션 끝까지 그 이슈의 수정·담당자 교체(FOR NO KEY UPDATE)를 막는다. AI 자기 배정
+   * 판정이 부모 담당자를 읽는 동안 부모 담당자 교체가 끼어들어, 부모에서 빠진 AI 가 그 하위 항목을 맡는 것을 막는다(WP-375).
+   */
+  public void lockForShare(Long id) {
+    dsl.select(ISSUE.ID).from(ISSUE).where(ISSUE.ID.eq(id)).forShare().fetch();
+  }
+
   /** id 들로 활성(삭제 아님) 이슈를 한 번에 조회 — N+1 회피. 없는 id 는 결과에서 빠진다. */
   public List<IssueRow> findByIds(Collection<Long> ids) {
     if (ids == null || ids.isEmpty()) return List.of();
