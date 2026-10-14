@@ -55,9 +55,9 @@ build_and_push() {
       ;;
     web)
       log "Building + pushing $app (context: project root)"
-      # VITE_MCP_URL 미설정 시 mcp 서비스 호스트 공개 포트(10002) 기본값으로 폴백(무해).
+      # VITE_MCP_URL 미설정이면 빈 값 — 안내 화면이 접속한 웹 origin 의 /mcp 를 쓴다(WP-387).
       docker buildx build --platform "$PLATFORM" -t "$REGISTRY/web:latest" -f apps/workplace-web/Dockerfile \
-        --build-arg VITE_MCP_URL="${VITE_MCP_URL:-http://localhost:10002}" --push .
+        --build-arg VITE_MCP_URL="${VITE_MCP_URL:-}" --push .
       ;;
     admin)
       log "Building + pushing $app (context: project root)"

@@ -137,9 +137,9 @@ services:
       context: .
       dockerfile: apps/workplace-web/Dockerfile
       args:
-        # mcp 서비스의 호스트 공개 포트(10002)를 기본값으로 사용 — 미설정 시 현행(localhost:7090)과
-        # 다른 무해한 폴백(운영 도메인 기준 실제 접근 가능한 포트).
-        VITE_MCP_URL: ${VITE_MCP_URL:-http://localhost:10002}
+        # 미설정이면 빈 값 — 안내 화면이 접속한 웹 origin 의 /mcp 를 쓴다(WP-387).
+        # compose 처럼 MCP 가 web 과 다른 포트로 열리는 배포는 VITE_MCP_URL 을 꼭 넣을 것.
+        VITE_MCP_URL: ${VITE_MCP_URL:-}
     ports:
       - "${WEB_PORT:-10000}:8080"   # DHI nginx 는 nonroot → 컨테이너 8080 리슨
     depends_on:
