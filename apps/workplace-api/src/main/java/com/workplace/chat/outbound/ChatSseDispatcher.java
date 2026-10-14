@@ -51,6 +51,7 @@ public class ChatSseDispatcher {
     p.put("threadId", e.threadId());
     p.put("id", e.messageId());
     p.put("authorId", e.actor().id());
+    p.put("authorUsername", e.actor().username());
     p.put("authorName", e.actor().name());
     p.put("authorKind", e.actor().kind());
     p.put("body", e.body());

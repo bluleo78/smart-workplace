@@ -11,11 +11,9 @@ import static com.workplace.jooq.Tables.MILESTONE;
 import static com.workplace.jooq.Tables.PROJECT;
 import static org.jooq.impl.DSL.count;
 import static org.jooq.impl.DSL.exists;
-import static org.jooq.impl.DSL.field;
-import static org.jooq.impl.DSL.max;
 import static org.jooq.impl.DSL.noCondition;
 import static org.jooq.impl.DSL.notExists;
-import static org.jooq.impl.DSL.select;
+import static org.jooq.impl.DSL.row;
 import static org.jooq.impl.DSL.selectOne;
 
 import com.workplace.issue.dto.IssueRow;
@@ -600,21 +598,15 @@ public class IssueRepository {
   }
 
   /**
-   * 새 글 필터(WP-373) — 단일/횡단 검색 공용. 이슈 스레드에 삭제되지 않은 다른 사람의 글이 이 사용자의 마지막(삭제되지 않은) 글보다 뒤에 있으면 해당, 이
-   * 사용자가 쓴 적이 없으면 다른 사람 글이 하나라도 있으면 해당. EXISTS 하나라 행마다 추가 조회가 없고, 마지막 글 시각은
+   * 새 글 필터(WP-373) — 단일/횡단 검색 공용. 이슈 스레드에 삭제되지 않은 다른 사람의 글 m 이 있고, 그 뒤(created_at, id 순서 —
+   * afterMine·after 와 같은 정렬)에 이 사용자의 삭제되지 않은 글이 없으면 해당. 이 사용자가 쓴 적이 없으면 NOT EXISTS 가 참이라 다른 사람 글이
+   * 하나라도 있을 때 해당한다. created_at 이 같아도 id 로 순서가 정해지도록 행 비교를 쓴다. 마지막 글은
    * idx_chat_message_thread_created(thread_id, created_at DESC, id DESC)로 찾는다.
    */
   private Condition pendingForCondition(IssueSearchQuery query) {
     Long uid = query.pendingForUserId();
     if (uid == null) return noCondition();
     var mine = CHAT_MESSAGE.as("pending_mine");
-    Field<OffsetDateTime> myLast =
-        field(
-            select(max(mine.CREATED_AT))
-                .from(mine)
-                .where(mine.THREAD_ID.eq(CHAT_THREAD.ID))
-                .and(mine.AUTHOR_ID.eq(uid))
-                .and(mine.DELETED_AT.isNull()));
     return exists(
         selectOne()
             .from(CHAT_THREAD)
@@ -623,7 +615,15 @@ public class IssueRepository {
             .where(CHAT_THREAD.ISSUE_ID.eq(ISSUE.ID))
             .and(CHAT_MESSAGE.DELETED_AT.isNull())
             .and(CHAT_MESSAGE.AUTHOR_ID.ne(uid))
-            .and(myLast.isNull().or(CHAT_MESSAGE.CREATED_AT.gt(myLast))));
+            .andNotExists(
+                selectOne()
+                    .from(mine)
+                    .where(mine.THREAD_ID.eq(CHAT_THREAD.ID))
+                    .and(mine.AUTHOR_ID.eq(uid))
+                    .and(mine.DELETED_AT.isNull())
+                    .and(
+                        row(mine.CREATED_AT, mine.ID)
+                            .gt(row(CHAT_MESSAGE.CREATED_AT, CHAT_MESSAGE.ID)))));
   }
 
   /** 날짜 범위 필터의 하루 경계 기준 — AI 비서가 "이번 주"를 Asia/Seoul 로 계산하므로 같은 기준으로 자른다(WP-307). */

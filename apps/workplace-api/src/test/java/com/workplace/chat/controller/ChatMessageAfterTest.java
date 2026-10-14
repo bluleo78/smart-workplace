@@ -80,6 +80,17 @@ class ChatMessageAfterTest extends AgentWorkTestSupport {
         json(call(HttpMethod.GET, messagesPath() + "?afterMine=true&limit=2", akToken, null, null));
     assertThat(bodies(page)).containsExactly("h3", "h4");
     assertThat(page.get("hasMore").asBoolean()).isFalse();
+    // 더 오래된 글이 잘렸으므로 이어 읽을 커서는 없어도 부분 목록임을 알린다.
+    assertThat(page.get("truncated").asBoolean()).isTrue();
+  }
+
+  @Test
+  void afterMine_은_내_글이_없고_전부_담기면_truncated_가_없다() {
+    postMany(jwtToken, "h", 2);
+    var page =
+        json(call(HttpMethod.GET, messagesPath() + "?afterMine=true&limit=2", akToken, null, null));
+    assertThat(bodies(page)).containsExactly("h1", "h2");
+    assertThat(page.has("truncated")).isFalse();
   }
 
   @Test

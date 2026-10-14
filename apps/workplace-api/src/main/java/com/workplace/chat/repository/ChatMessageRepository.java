@@ -203,14 +203,18 @@ public class ChatMessageRepository {
       long threadId, long callerId, int limit, MentionResolver resolver) {
     Optional<Anchor> mine = lastOwnAnchor(threadId, callerId);
     if (mine.isEmpty()) {
+      // 내 글이 없으면 기준점이 없어 최신 limit 개만 준다. 더 오래된 글이 남아 있으면 커서로 이을 수 없는 부분 목록이므로
+      // truncated 로 알려, 호출자(AI)가 잘린 스레드를 전부로 오해하지 않게 한다.
       List<ChatMessageResponse> latest =
           new java.util.ArrayList<>(
               selectInThread(threadId)
                   .orderBy(CHAT_MESSAGE.CREATED_AT.desc(), CHAT_MESSAGE.ID.desc())
-                  .limit(limit)
+                  .limit(limit + 1)
                   .fetch(r -> toResponse(r, resolver)));
+      boolean truncated = latest.size() > limit;
+      if (truncated) latest = new java.util.ArrayList<>(latest.subList(0, limit));
       java.util.Collections.reverse(latest);
-      return new ChatMessagePage(latest, null, false);
+      return new ChatMessagePage(latest, null, false, truncated ? Boolean.TRUE : null);
     }
     Anchor a = mine.get();
     List<ChatMessageResponse> context =

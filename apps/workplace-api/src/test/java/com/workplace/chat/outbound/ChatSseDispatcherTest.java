@@ -60,6 +60,8 @@ class ChatSseDispatcherTest {
     verify(registry).fanOut(eq(List.of(1L, 2L)), eq("chat.message.created"), payload.capture());
     // 질문 표시가 이벤트 값 그대로 SSE 페이로드에 실린다.
     assertThat(payload.getValue()).containsEntry("question", true);
+    // 작성자 username 도 실려야 프론트가 멘션·표시에 쓸 수 있다.
+    assertThat(payload.getValue()).containsEntry("authorUsername", "alice");
   }
 
   @Test

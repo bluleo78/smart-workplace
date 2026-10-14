@@ -1,5 +1,6 @@
 package com.workplace.issue.controller;
 
+import static com.workplace.jooq.Tables.CHAT_MESSAGE;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -105,5 +106,37 @@ class PendingForMeTest extends AgentWorkTestSupport {
     int n2 = createIssueWithAgentMessage("둘째");
     int n3 = createIssueWithAgentMessage("셋째");
     assertThat(pendingNumbers(jwtToken)).contains(n2, n3);
+  }
+
+  /** 같은 시각(created_at)으로 두 글을 시드한다 — 앞 글의 id 가 더 작다. 작성자 순서가 곧 (created_at, id) 순서. */
+  private void seedSameInstant(long threadId, long firstAuthor, long secondAuthor) {
+    java.time.OffsetDateTime at = java.time.OffsetDateTime.parse("2026-01-01T00:00:00Z");
+    inTenant(
+        () -> {
+          for (long author : new long[] {firstAuthor, secondAuthor}) {
+            dsl.insertInto(CHAT_MESSAGE)
+                .set(CHAT_MESSAGE.THREAD_ID, threadId)
+                .set(CHAT_MESSAGE.AUTHOR_ID, author)
+                .set(CHAT_MESSAGE.BODY, "동시각")
+                .set(CHAT_MESSAGE.MENTIONS, org.jooq.JSONB.valueOf("[]"))
+                .set(CHAT_MESSAGE.CREATED_AT, at)
+                .execute();
+          }
+          return null;
+        });
+  }
+
+  @Test
+  void 같은_시각이면_id_가_큰_글을_뒤로_본다_남의_글이_id_뒤면_대기() {
+    // created_at 이 같아도 목록 순서는 (created_at, id) — 내 글(id 작음) 뒤에 남의 글이 있으니 새 글이다.
+    seedSameInstant(chatThreadId(), humanId, otherId);
+    assertThat(pendingNumbers(jwtToken)).contains(issueNumber);
+  }
+
+  @Test
+  void 같은_시각이면_남의_글이_id_앞이면_대기가_아니다() {
+    // 남의 글(id 작음)이 내 글(id 큼)보다 앞 — created_at 만 비교하면 틀리게 잡히던 경우.
+    seedSameInstant(chatThreadId(), otherId, humanId);
+    assertThat(pendingNumbers(jwtToken)).doesNotContain(issueNumber);
   }
 }
