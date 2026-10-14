@@ -224,8 +224,8 @@ export function PersonalAssistantSection() {
   const currentVision = visionChoiceOf(status?.vision);
 
   // 모델 변경 — 실패 시 오류 토스트(silent failure 방지), 성공 시 확인 토스트.
-  // opencode 면 vision:null 을 함께 보낸다. 서버가 지정을 지워 새 모델은 자동 감지에서 시작한다.
-  // 다른 모델은 자동 감지에서 시작 — 이전 모델의 지정을 옮기면 못 보는 모델에 이미지가 갈 수 있어 vision:null 로 지정을 지운다.
+  // opencode 면 vision:null 을 함께 보내 지정을 지운다 — 다른 모델은 자동 감지에서 시작한다(이전 모델의 지정을 옮기면
+  // 못 보는 모델에 이미지가 갈 수 있다).
   const handleModelChange = async (model: string) => {
     try {
       await updateSettings.mutateAsync(
@@ -409,7 +409,7 @@ export function PersonalAssistantSection() {
               )}
             </div>
 
-            {/* WP-250: 모델 바로 아래 — 모델을 바꿀 때 이 선택이 새 모델에 함께 저장된다(OpenAI 호환 연결만). */}
+            {/* WP-250: 모델 바로 아래 — 지금 모델의 이미지 입력 지정. 고르면 바로 저장되고, 모델을 바꾸면 자동 감지로 돌아간다(OpenAI 호환 연결만). */}
             {isOpencode ? (
               <VisionInputSelect
                 id="assistant-vision"

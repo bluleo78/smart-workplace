@@ -314,7 +314,7 @@ export function AgentConnectionSection({ agentUserId }: Props) {
                   </p>
                 ) : null}
               </div>
-              {/* WP-250: 모델 옆 — 모델을 바꿀 때 이 선택이 새 모델에 함께 저장된다(OpenAI 호환 연결만). */}
+              {/* WP-250: 모델 옆 — 지금 모델의 이미지 입력 지정. 고르면 바로 저장되고, 모델을 바꾸면 자동 감지로 돌아간다(OpenAI 호환 연결만). */}
               {isOpencode ? (
                 <VisionInputSelect
                   id="workspace-assistant-vision"
