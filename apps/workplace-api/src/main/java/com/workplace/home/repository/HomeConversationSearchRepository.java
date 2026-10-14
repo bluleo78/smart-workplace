@@ -3,7 +3,6 @@ package com.workplace.home.repository;
 import static com.workplace.home.service.AiMemoryRanker.CANDIDATES;
 import static com.workplace.home.service.AiMemoryRanker.K;
 import static com.workplace.home.service.AiMemoryRanker.MISS_RANK;
-import static com.workplace.home.service.AiMemoryRanker.SEMANTIC_MAX_DISTANCE;
 
 import com.workplace.global.util.LikePatternUtils;
 import java.time.Instant;
@@ -18,14 +17,21 @@ import org.springframework.stereotype.Repository;
 
 /**
  * 지난 대화 검색(WP-384) — 호출자 본인 대화(home_session.user_id, 테넌트는 RLS)의 메시지에서 키워드 후보(USER·ASSISTANT 전문검색 +
- * 낱말별 ILIKE, 상위 50)와 의미 후보(완료 답 임베딩 코사인 거리 SEMANTIC_MAX_DISTANCE 이하, 상위 50)를 RRF(K=60, 미스 51)로 합치고,
- * 대화마다 최고 점수 메시지 하나를 대표로 상위 limit 개 대화를 돌려준다. 메시지가 많아 SQL CTE 안에서 후보를 자른다(판정 7). 질의 임베딩이 없으면 의미 CTE
- * 를 빼 null 벡터 바인딩을 피한다 (DriveContentSearchRepository 와 같은 방식). ILIKE 는 `ESCAPE '\'` 를 명시해
- * LikePatternUtils 이스케이프를 받는다.
+ * 낱말별 ILIKE, 상위 50)와 의미 후보(완료 답 임베딩 코사인 거리 CONVERSATION_SEMANTIC_MAX_DISTANCE 이하, 상위 50)를 RRF(K=60,
+ * 미스 51)로 합치고, 대화마다 최고 점수 메시지 하나를 대표로 상위 limit 개 대화를 돌려준다. 메시지가 많아 SQL CTE 안에서 후보를 자른다(판정 7). 질의
+ * 임베딩이 없으면 의미 CTE 를 빼 null 벡터 바인딩을 피한다 (DriveContentSearchRepository 와 같은 방식). ILIKE 는 `ESCAPE '\'`
+ * 를 명시해 LikePatternUtils 이스케이프를 받는다.
  */
 @Repository
 @RequiredArgsConstructor
 public class HomeConversationSearchRepository {
+
+  /**
+   * 지난 대화 검색의 의미 거리 상한. 대화 턴("질문: …\n답: …")은 길어서 짧은 질의와의 거리가 메모리 문장보다 멀다 — BGE-M3 측정에서 관련 중앙값
+   * 0.352·최대 0.530, 무관 최소 0.399·하위 5% 0.449 라 메모리 상한(0.45)을 쓰면 관련 턴을 놓친다. 0.50 에서 라이브 recall@20
+   * 1.00.
+   */
+  public static final double CONVERSATION_SEMANTIC_MAX_DISTANCE = 0.50;
 
   private final DSLContext dsl;
 
@@ -86,7 +92,7 @@ public class HomeConversationSearchRepository {
               + " FROM mine WHERE role = 'ASSISTANT' AND embedding IS NOT NULL) v"
               + " WHERE d <= ? ORDER BY d, id DESC LIMIT ?)");
       p.add(literal);
-      p.add(SEMANTIC_MAX_DISTANCE);
+      p.add(CONVERSATION_SEMANTIC_MAX_DISTANCE);
       p.add(CANDIDATES);
       sql.append(
           ", scored AS (SELECT m.id, m.session_id, m.role,"

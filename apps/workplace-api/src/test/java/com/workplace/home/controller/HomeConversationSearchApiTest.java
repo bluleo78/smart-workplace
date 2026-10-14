@@ -9,8 +9,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.home.repository.HomeConversationSearchRepository;
 import com.workplace.home.repository.TextEmbeddingRepository;
-import com.workplace.home.service.AiMemoryRanker;
 import com.workplace.home.service.HomeSessionService;
 import com.workplace.support.FakeTextEmbedder;
 import com.workplace.support.FakeTextEmbedderConfig;
@@ -41,7 +41,8 @@ import org.springframework.transaction.annotation.Transactional;
 class HomeConversationSearchApiTest extends IntegrationTestBase {
 
   private static final String SEARCH = "/api/v1/home/sessions/search";
-  private static final double MAX_DISTANCE = AiMemoryRanker.SEMANTIC_MAX_DISTANCE;
+  private static final double MAX_DISTANCE =
+      HomeConversationSearchRepository.CONVERSATION_SEMANTIC_MAX_DISTANCE;
 
   /**
    * "고양이" 질의와 "냥이" 답을 같은 차원으로 — 질의의 조사 뗀 형태("고양")·답의 "냥이는"까지 묶어야 턴 입력("질문: …\n답: …")의 다른 낱말이 있어도 가짜
