@@ -5,8 +5,8 @@
 import { Check, ChevronRight } from 'lucide-react';
 
 import { MOBILE_SHEET_ROW } from '@/components/mobile/MobileSheetShell';
-import { SELECTED_ROW_CLASS } from '@/lib/selectionStyles';
 import { closedEpicTitleClass } from '@/lib/closedEpicStyles';
+import { SELECTED_ROW_CLASS } from '@/lib/selectionStyles';
 import { cn } from '@/lib/utils';
 
 import { ClosedStatusBadge } from '../../../../components/issues/ClosedStatusBadge';

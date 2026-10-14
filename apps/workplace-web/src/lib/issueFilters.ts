@@ -97,16 +97,17 @@ export function withDefaultIssueScope(f: IssueFilters): IssueFilters {
   };
 }
 
-// 종료 이슈 숨김(#876)을 무력화하는 명시 필터 — 완료 상태 선택, 지난 사이클·마일스톤 선택, 특정 부모의 자식 보기는
+// 종료 이슈 숨김(#876)을 무력화하는 명시 필터 — 완료 상태 선택, 지난 사이클·마일스톤 선택은
 // 그 묶음 전체가 대상이라 숨기지 않는다. 묶음을 고르는 필터 필드를 새로 추가하면 여기 포함 여부를 결정할 것.
 // (검색어 q 는 의도적으로 제외 — 검색도 기본 범위 안에서 동작하고, 지난 이슈는 「완료 모두 보기」로 찾는다.)
+// (에픽 선택 parent 도 제외 — 진행 중 에픽의 백로그에 지난 사이클 완료분이 쌓이지 않게 사용자 토글을 따른다.
+//  종료된 에픽을 고를 때만 useEpicFilter 가 토글을 실제로 켠다(WP-390).)
 export function overridesClosedHiding(f: IssueFilters): boolean {
   return (
     f.statuses.length > 0 ||
     f.cycleIds.length > 0 ||
     !!f.cycleUnassigned ||
-    f.milestoneIds.length > 0 ||
-    f.parentNumber != null
+    f.milestoneIds.length > 0
   );
 }
 

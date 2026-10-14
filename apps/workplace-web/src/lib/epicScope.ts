@@ -21,3 +21,20 @@ export function nextEpicScope(cur: EpicScopeState, choice: EpicScopeChoice): Epi
   const next = cur.parentNumber === choice.number ? null : choice.number;
   return { parentNumber: next, topLevel: false, invalidate: next === null };
 }
+
+/**
+ * 에픽 선택 전환 뒤의 「완료 모두 보기」(WP-390). 진행 중 에픽은 사용자 토글을 그대로 따른다.
+ * - 종료된 에픽(완료·취소되고 진행 중 사이클 밖 — 「종료된 에픽」 구역)으로 들어가면 켠다: 하위 이슈가 대부분 지난 사이클
+ *   완료분이라 기본 숨김이면 목록이 비어 보이기 때문.
+ * - 그 종료된 에픽에서 벗어나면(전체·미할당·다른 에픽·같은 에픽 재선택 해제) 끈다 — 남겨 두면 백로그에 지난 완료분이 다시 쌓인다.
+ * 종료된 에픽인지는 isClosedEpic(「종료된 에픽」 목록 포함 여부)로 본다.
+ */
+export function nextShowAllClosed(
+  cur: { parentNumber: number | null; showAllClosed: boolean },
+  nextParentNumber: number | null,
+  isClosedEpic: (epicNumber: number) => boolean,
+): boolean {
+  if (nextParentNumber != null && isClosedEpic(nextParentNumber)) return true;
+  if (cur.parentNumber != null && isClosedEpic(cur.parentNumber)) return false;
+  return cur.showAllClosed;
+}

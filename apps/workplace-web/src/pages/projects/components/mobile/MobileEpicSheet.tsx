@@ -4,13 +4,14 @@
 // 진행 중 사이클에 할당된 종료 에픽은 진행 중 에픽 아래에 종료 배지와 함께 둔다(WP-389, 데스크톱 패널과 같은 규칙).
 import { Plus, X } from 'lucide-react';
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import { MobilePickerSheet, type PickerOption } from '@/components/mobile/MobilePickerSheet';
 import { cn } from '@/lib/utils';
 
 import { ClosedStatusBadge } from '../../../../components/issues/ClosedStatusBadge';
 import { useClosedEpics, usePanelEpics } from '../../../../hooks/queries/useProjectEpics';
+import { parseFilters } from '../../../../lib/issueFilters';
 import { isClosedStatus } from '../../../../lib/issueGrouping';
 import { useEpicFilter } from '../../hooks/useEpicFilter';
 import { IssueCreateDialog } from '../IssueCreateDialog';
@@ -18,13 +19,15 @@ import { HIT_EXPAND, MOBILE_CHIP, MOBILE_CHIP_ACTIVE } from './chipStyles';
 import { MobileClosedEpicsFooter } from './MobileClosedEpicsFooter';
 
 export function MobileEpicChip({ projectKey, canCreateIssue }: { projectKey: string; canCreateIssue: boolean }) {
-  const { choice, select } = useEpicFilter(projectKey);
   // 진행 중 에픽 + 진행 중 사이클 소속 종료 에픽(WP-389, 뒤쪽) — 데스크톱 패널 위쪽 목록과 같은 조회.
   const { epicType, epics } = usePanelEpics(projectKey);
   const [open, setOpen] = useState(false);
-  const selectedNumber = choice.kind === 'epic' ? choice.number : null;
+  // 선택된 에픽 번호(URL parent) — 종료 에픽 조회 조건에 필요해 useEpicFilter(종료 목록을 받는다)보다 먼저 읽는다.
+  const selectedNumber = parseFilters(useSearchParams()[0]).parentNumber;
   // 종료 에픽 조회는 시트를 열 때, 또는 선택된 에픽이 위쪽 목록에 없을 때(칩 라벨용)만 — 매 진입마다 요청하지 않는다.
+  // 종료 에픽이 선택돼 있으면 늘 조회되므로, 에픽 필터가 그 에픽에서 벗어날 때 토글을 끌 판단(WP-390)에도 충분하다.
   const closed = useClosedEpics(projectKey, open || (selectedNumber != null && !epics.some((e) => e.number === selectedNumber)));
+  const { choice, select } = useEpicFilter(projectKey, closed.epics);
   const [closedToggled, setClosedToggled] = useState<boolean | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const navigate = useNavigate();
