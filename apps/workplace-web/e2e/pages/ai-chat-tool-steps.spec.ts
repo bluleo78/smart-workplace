@@ -188,6 +188,44 @@ test('신규 도구(search_members·update_issue)도 원래 이름이 아닌 한
   await expect(page.getByTestId('tool-step-list')).not.toContainText('update_issue')
 })
 
+// ── 케이스 3c: 본 PDF 페이지 표시 (WP-250) ──────────────────────────────────
+// pages 인자가 있는 첨부 읽기 단계는 "📄 페이지 보기 7쪽 / 11–13쪽" 으로, 없으면 기존 "첨부 읽기" 로 보인다.
+
+test('pages 인자가 있는 첨부 읽기 단계는 "페이지 보기 N쪽" 으로 표시된다 (WP-250)', async ({
+  authenticatedPage: page,
+}) => {
+  await mockHomeChatGeneration(page, {
+    frames: [
+      { event: 'tool', data: { seq: 1, phase: 'start', toolName: 'mcp__workplace__read_chat_attachment', args: { fileId: 41 } } },
+      { event: 'tool', data: { seq: 1, phase: 'result', toolName: 'mcp__workplace__read_chat_attachment', isError: false } },
+      { event: 'tool', data: { seq: 2, phase: 'start', toolName: 'mcp__workplace__read_chat_attachment', args: { fileId: 41, pages: [7] } } },
+      { event: 'tool', data: { seq: 2, phase: 'result', toolName: 'mcp__workplace__read_chat_attachment', isError: false } },
+      { event: 'tool', data: { seq: 3, phase: 'start', toolName: 'mcp__workplace__read_chat_attachment', args: { fileId: 41, pages: [11, 12, 13] } } },
+      { event: 'tool', data: { seq: 3, phase: 'result', toolName: 'mcp__workplace__read_chat_attachment', isError: false } },
+      { event: 'delta', data: { text: '확인했어요.' } },
+      { event: 'done', data: { sessionId: 's-tool-pages' } },
+    ],
+  })
+
+  await page.goto('/')
+  await page.getByTestId('chat-launcher').click()
+  await page.getByTestId('chat-input').fill('첨부 PDF 도표 봐줘')
+  await page.getByRole('button', { name: '보내기' }).click()
+
+  const toolRows = page.getByTestId('tool-step-tool')
+  await expect(toolRows).toHaveCount(3)
+  await expect(toolRows.nth(0)).toContainText('첨부 읽기')
+  await expect(toolRows.nth(0)).not.toContainText('쪽')
+  await expect(toolRows.nth(1)).toContainText('페이지 보기')
+  await expect(toolRows.nth(1)).toContainText('7쪽')
+  await expect(toolRows.nth(2)).toContainText('페이지 보기')
+  await expect(toolRows.nth(2)).toContainText('11–13쪽')
+
+  await page.getByTestId('tool-step-list').first().screenshot({
+    path: 'test-results/tc/ai-chat-tool-steps/page-view-steps.png',
+  })
+})
+
 // ── 케이스 4: 복원 — 세션 메시지 toolCalls 가 ToolStepList 로 렌더된다 ────────
 
 test('세션 복원 시 toolCalls 가 ToolStepList(위임+도구 행) 로 렌더된다', async ({

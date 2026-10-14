@@ -1,6 +1,6 @@
 // AI 도구 호출/위임 단계를 어시스턴트 버블 안에 중첩 렌더.
 // 위임(delegation)은 헤더, 이후 도구(tool)는 그 아래 들여쓰기. 도착 순서가 인과 순서.
-import { getToolDetail, getToolDisplay, visibleSteps } from '@/lib/aiToolLabels';
+import { getToolStepDisplay, visibleSteps } from '@/lib/aiToolLabels';
 import type { ToolStep } from '@/types/home';
 
 function StatusMark({ status }: { status?: ToolStep['status'] }) {
@@ -23,8 +23,7 @@ export function ToolStepList({ steps }: { steps: ToolStep[] }) {
             </li>
           );
         }
-        const { label, icon } = getToolDisplay(s.toolName ?? '');
-        const detail = getToolDetail(s.toolName ?? '', s.args);
+        const { label, icon, detail } = getToolStepDisplay(s.toolName ?? '', s.args);
         return (
           <li key={i} className="flex items-center gap-1.5 pl-4" data-testid="tool-step-tool">
             <span>{icon}</span>

@@ -67,6 +67,30 @@ export function getToolDetail(_toolName: string, args?: Record<string, unknown>)
   return parts.length ? parts.slice(0, 2).join(' · ') : null;
 }
 
+// WP-250: PDF 페이지를 이미지로 볼 수 있는(= pages 인자를 받는) 도구. 이름 접두(mcp__workplace__ 등)는 strip 으로 이미 벗긴 뒤 비교한다.
+const PAGE_VIEW_TOOLS = new Set(['read_file', 'read_chat_attachment', 'read_chat_thread_attachment']);
+
+// pages 인자 → "7쪽" / "11–13쪽"(연속 구간, en dash) / "2·5쪽"(흩어진 쪽, 가운뎃점).
+// 배열이 아니거나 비었거나 양의 정수가 아닌 값이 섞여 있으면 null — 호출부가 기존 표시로 폴백한다.
+export function formatPages(pages: unknown): string | null {
+  if (!Array.isArray(pages) || pages.length === 0) return null;
+  if (!pages.every((p) => typeof p === 'number' && Number.isInteger(p) && p > 0)) return null;
+  const nums = pages as number[];
+  const consecutive = nums.length > 1 && nums.every((p, i) => i === 0 || p === nums[i - 1] + 1);
+  return consecutive ? `${nums[0]}–${nums[nums.length - 1]}쪽` : `${nums.join('·')}쪽`;
+}
+
+// 도구 단계 한 줄(아이콘 + 라벨 + detail). 페이지를 본 단계는 "📄 페이지 보기 7쪽" 으로, 그 외는 기존 라벨·detail 을 쓴다.
+export function getToolStepDisplay(
+  toolName: string,
+  args?: Record<string, unknown>,
+): { label: string; icon: string; detail: string | null } {
+  const pagesText = PAGE_VIEW_TOOLS.has(strip(toolName)) ? formatPages(args?.pages) : null;
+  if (pagesText) return { label: '페이지 보기', icon: '📄', detail: pagesText };
+  const { label, icon } = getToolDisplay(toolName);
+  return { label, icon, detail: getToolDetail(toolName, args) };
+}
+
 // 단계 표시 여부 — 표시 불가 tool 은 숨김(delegation 은 유지). 렌더 필터·도구 그룹 블록 생성(WP-157)이 같은 규칙을 쓴다.
 export function isVisibleStep(s: ToolStep): boolean {
   return s.kind === 'delegation' || (s.toolName ? isDisplayableTool(s.toolName) : true);
