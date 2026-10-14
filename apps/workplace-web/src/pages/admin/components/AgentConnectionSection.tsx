@@ -306,6 +306,7 @@ export function AgentConnectionSection({ agentUserId }: Props) {
               {isOpencode ? (
                 <VisionInputSelect
                   id="workspace-assistant-vision"
+                  settingsSpacing="space-y-1"
                   testId="workspace-assistant-vision"
                   value={currentVision}
                   onChange={(v) => void onVision(v)}

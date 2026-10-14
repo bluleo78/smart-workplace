@@ -19,6 +19,11 @@ interface Props {
   testId?: string;
   /** 저장 중 등 — 선택을 잠근다(등록 후 설정 화면은 고르면 바로 저장한다). */
   disabled?: boolean;
+  /**
+   * 등록 후 설정 화면용 — 옆 필드와 같은 마크업(일반 label + 이 간격 클래스, 예: 'space-y-1')으로 그려 라벨·선택 상자 줄을 맞춘다.
+   * 없으면 다이얼로그·등록 폼 기본(ui Label + space-y-1.5).
+   */
+  settingsSpacing?: string;
 }
 
 // 옵션 표시 순서·문구 — 기본(자동 감지)을 맨 앞에 둔다.
@@ -28,10 +33,23 @@ const OPTIONS: { value: VisionChoice; label: string }[] = [
   { value: 'no', label: '볼 수 없음' },
 ];
 
-export function VisionInputSelect({ value, onChange, id, testId, disabled }: Props) {
+export function VisionInputSelect({
+  value,
+  onChange,
+  id,
+  testId,
+  disabled,
+  settingsSpacing,
+}: Props) {
   return (
-    <div className="space-y-1.5">
-      <Label htmlFor={id}>이미지 입력</Label>
+    <div className={settingsSpacing ?? 'space-y-1.5'}>
+      {settingsSpacing ? (
+        <label className="text-sm font-medium" htmlFor={id}>
+          이미지 입력
+        </label>
+      ) : (
+        <Label htmlFor={id}>이미지 입력</Label>
+      )}
       <Select value={value} onValueChange={(v) => onChange(v as VisionChoice)} disabled={disabled}>
         <SelectTrigger id={id} data-testid={testId}>
           <SelectValue />

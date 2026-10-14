@@ -399,6 +399,7 @@ export function PersonalAssistantSection() {
             {isOpencode ? (
               <VisionInputSelect
                 id="assistant-vision"
+                settingsSpacing="space-y-2"
                 testId="assistant-vision"
                 value={currentVision}
                 onChange={(v) => void handleVisionChange(v)}
