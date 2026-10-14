@@ -22,10 +22,10 @@ public final class AiMemoryRanker {
 
   /**
    * 의미 갈래에 "맞았다"고 보는 코사인 거리 상한(이하만 의미 순위에 든다). 상위 50 만으로 거르면 임베딩된 행은 질의와 무관해도 늘 들어 검색이 거르지 못한다 —
-   * 그래서 거리로 자른다. 메모리 검색(matched)·채팅 주입 순위·지난 대화 검색이 같은 값을 쓴다. 초깃값이며 실제 BGE-M3 라이브 평가
-   * (AiMemorySelectionLiveEvalTest)로 조정한다.
+   * 그래서 거리로 자른다. 메모리 검색(matched)·채팅 주입 순위가 쓴다(지난 대화 검색은 별도 상수). 실제 BGE-M3 측정(짧은 문장): 관련 쌍 최대 0.429,
+   * 무관 쌍 최소 0.329·하위 5% 0.462. 0.45 는 관련 13/13 을 유지하고 무관 23/707 만 들이며(0.50 은 74/707) 이 값으로 정했다.
    */
-  public static final double SEMANTIC_MAX_DISTANCE = 0.5;
+  public static final double SEMANTIC_MAX_DISTANCE = 0.45;
 
   /**
    * 순위가 매겨진 행.
