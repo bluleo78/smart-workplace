@@ -37,16 +37,27 @@ public class AttachmentViewException extends RuntimeException {
   private final String code;
   private final Integer pageCount;
 
-  public AttachmentViewException(int status, String code, Integer pageCount) {
+  /**
+   * 상태는 코드에서 정한다({@link #statusOf}) — 호출자가 상태와 코드를 따로 넘겨 어긋나는 일이 없게 한 곳의 표만 쓴다.
+   *
+   * @param code 오류 코드(표에 없으면 503 · WORKER_UNAVAILABLE 안내)
+   * @param pageCount PDF 전체 쪽수 — PAGE_OUT_OF_RANGE 에서만 의미가 있다(모르면 null)
+   */
+  public AttachmentViewException(String code, Integer pageCount) {
     super(messageOf(code, pageCount));
-    this.status = status;
+    this.status = statusOf(code);
     this.code = code;
     this.pageCount = pageCount;
   }
 
+  /** 페이지 수가 필요 없는 코드용. */
+  public AttachmentViewException(String code) {
+    this(code, null);
+  }
+
   /** 워커 장애·타임아웃·서버 쪽 결함 — 503 WORKER_UNAVAILABLE. */
   public static AttachmentViewException workerUnavailable() {
-    return new AttachmentViewException(503, WORKER_UNAVAILABLE, null);
+    return new AttachmentViewException(WORKER_UNAVAILABLE);
   }
 
   /**
@@ -57,9 +68,9 @@ public class AttachmentViewException extends RuntimeException {
     return code != null && STATUS.containsKey(code) && !WORKER_UNAVAILABLE.equals(code);
   }
 
-  /** 코드의 HTTP 상태 — 워커 응답 상태 대신 이 표를 써서 코드와 상태가 어긋나지 않게 한다. */
+  /** 코드의 HTTP 상태 — 코드↔상태의 유일한 표. 워커 응답 상태도 이 표로 다시 정한다. 모르는 코드는 503. */
   public static int statusOf(String code) {
-    return STATUS.getOrDefault(code, 503);
+    return code == null ? 503 : STATUS.getOrDefault(code, 503);
   }
 
   private static String messageOf(String code, Integer pageCount) {

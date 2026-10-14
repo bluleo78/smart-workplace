@@ -80,21 +80,21 @@ public class AttachmentViewService {
                     .from(FILE)
                     .where(FILE.ID.eq(fileId))
                     .fetchOne());
-    if (f == null) throw new AttachmentViewException(404, "NOT_FOUND", null);
+    if (f == null) throw new AttachmentViewException("NOT_FOUND");
     String storagePath = f.value1();
     String mime = baseMime(f.value2());
     boolean pdf = "application/pdf".equals(mime);
 
     // ② 워커에 가기 전에 거를 수 있는 것은 모두 거른다 — 워커 왕복·FastAPI 검증 실패(엉뚱한 안내)를 피한다.
     if (!pdf && !mime.startsWith("image/")) {
-      throw new AttachmentViewException(415, "UNSUPPORTED", null);
+      throw new AttachmentViewException("UNSUPPORTED");
     }
-    if (pdf && page == null) throw new AttachmentViewException(400, "PAGE_REQUIRED", null);
-    if (!pdf && page != null) throw new AttachmentViewException(400, "PAGE_NOT_ALLOWED", null);
-    if (f.value3() > MAX_SOURCE_BYTES) throw new AttachmentViewException(413, "TOO_LARGE", null);
+    if (pdf && page == null) throw new AttachmentViewException("PAGE_REQUIRED");
+    if (!pdf && page != null) throw new AttachmentViewException("PAGE_NOT_ALLOWED");
+    if (f.value3() > MAX_SOURCE_BYTES) throw new AttachmentViewException("TOO_LARGE");
     Integer known = pdf ? extractedText.pageCount(fileId) : null; // 자체 readOnly 트랜잭션
     if (pdf && (page < 1 || (known != null && page > known))) {
-      throw new AttachmentViewException(400, "PAGE_OUT_OF_RANGE", known);
+      throw new AttachmentViewException("PAGE_OUT_OF_RANGE", known);
     }
 
     // ③ 캐시 — 워커가 PNG 를 1MB 넘으면 JPEG 로 바꿔 주므로 확장자를 미리 모른다. 둘 다 본다.
@@ -109,16 +109,31 @@ public class AttachmentViewService {
     }
 
     // ④ 워커 호출 — 어떤 트랜잭션 밖에서도(DB 연결을 잡지 않는다)
-    RenderResult r = worker.render(storagePath, mime, page, maxEdge);
+    RenderResult r;
+    try {
+      r = worker.render(storagePath, mime, page, maxEdge);
+    } catch (AttachmentViewException e) {
+      // 쪽수를 몰라 워커까지 갔다가 범위 밖으로 거절됐으면, 워커가 알려 준 쪽수를 채워 다음 요청은 워커 없이 거르게 한다.
+      if (pdf && known == null && "PAGE_OUT_OF_RANGE".equals(e.code()) && e.pageCount() != null) {
+        fillPageCount(fileId, e.pageCount());
+      }
+      throw e;
+    }
+    // 클라이언트가 형식을 image/png · image/jpeg 둘 중 하나로 맞춰 주므로 캐시 적중 때와 같은 값이 나간다.
     String ext = "image/png".equals(r.contentType()) ? ".png" : ".jpg";
     fileStore.writeAtomically(dir + stem + ext, r.data());
 
     // ⑤ 추출이 아직 쪽수를 못 채웠으면(배포 전 추출·스캔 PDF) 워커가 알려 준 값으로 보충 — 짧은 쓰기 트랜잭션
     Integer pageCount = pdf ? (known != null ? known : r.pageCount()) : null;
     if (pdf && known == null && r.pageCount() != null) {
-      writeTx.executeWithoutResult(st -> jobs.fillPageCountIfMissing(fileId, r.pageCount()));
+      fillPageCount(fileId, r.pageCount());
     }
     return new ViewImage(r.data(), r.contentType(), pageCount);
+  }
+
+  /** 비어 있는 page_count 만 채운다 — 짧은 쓰기 트랜잭션(RLS GUC 가 걸리게, 읽기 전용 안이 아니게). */
+  private void fillPageCount(long fileId, int pageCount) {
+    writeTx.executeWithoutResult(st -> jobs.fillPageCountIfMissing(fileId, pageCount));
   }
 
   /** 캐시 파일을 읽는다. 없으면 null — 다시 그린다(exists 후 읽기 사이에 지워지는 경합도 같은 길로). */

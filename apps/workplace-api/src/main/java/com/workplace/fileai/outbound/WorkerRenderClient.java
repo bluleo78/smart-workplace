@@ -94,9 +94,18 @@ public class WorkerRenderClient {
 
     int status = resp.statusCode();
     if (status == 200) {
+      String type = imageType(resp.headers().firstValue("Content-Type").orElse(""));
+      if (type == null) {
+        // 워커 계약은 PNG·JPEG 뿐 — 다른 형식은 캐시 확장자·응답 형식을 정할 수 없어 장애로 다룬다.
+        log.warn(
+            "render 응답 형식이 PNG·JPEG 가 아님: contentType={} storageKey={}",
+            resp.headers().firstValue("Content-Type").orElse(null),
+            storageKey);
+        throw AttachmentViewException.workerUnavailable();
+      }
       return new RenderResult(
           resp.body(),
-          baseType(resp.headers().firstValue("Content-Type").orElse("image/png")),
+          type,
           resp.headers()
               .firstValue("X-Page-Count")
               .map(WorkerRenderClient::parseIntOrNull)
@@ -125,10 +134,7 @@ public class WorkerRenderClient {
       // JSON 이 아니면 code 없음 → 아래에서 503
     }
     if (AttachmentViewException.isPassThrough(code)) {
-      return new AttachmentViewException(
-          AttachmentViewException.statusOf(code),
-          code,
-          "PAGE_OUT_OF_RANGE".equals(code) ? pageCount : null);
+      return new AttachmentViewException(code, "PAGE_OUT_OF_RANGE".equals(code) ? pageCount : null);
     }
     log.warn(
         "render 거절을 전할 수 없음(API 쪽 결함 의심): status={} code={} storageKey={} body={}",
@@ -139,12 +145,19 @@ public class WorkerRenderClient {
     return AttachmentViewException.workerUnavailable();
   }
 
-  /** "image/jpeg; q=85" → "image/jpeg". */
-  private static String baseType(String contentType) {
+  /**
+   * 응답 Content-Type 을 정확히 "image/png" 또는 "image/jpeg" 로 맞춘다("image/jpeg; q=85"·"IMAGE/JPG" 등). 새로
+   * 그린 응답과 캐시 적중(확장자로 정함)이 같은 값을 돌려주게 하려는 것이다. 둘 다 아니면 null.
+   */
+  static String imageType(String contentType) {
     int semi = contentType.indexOf(';');
-    return (semi >= 0 ? contentType.substring(0, semi) : contentType)
-        .trim()
-        .toLowerCase(Locale.ROOT);
+    String base =
+        (semi >= 0 ? contentType.substring(0, semi) : contentType).trim().toLowerCase(Locale.ROOT);
+    return switch (base) {
+      case "image/png" -> "image/png";
+      case "image/jpeg", "image/jpg", "image/pjpeg" -> "image/jpeg";
+      default -> null;
+    };
   }
 
   /** 로그용 본문 자르기 — 예상 밖 응답이 커도 로그를 덮지 않게. */

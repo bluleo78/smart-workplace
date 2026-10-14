@@ -21,6 +21,7 @@ import com.workplace.fileai.exception.AttachmentViewException;
 import com.workplace.fileai.outbound.WorkerRenderClient;
 import com.workplace.fileai.outbound.WorkerRenderClient.RenderResult;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.jooq.tables.Tenant;
 import com.workplace.support.IntegrationTestBase;
 import java.util.ArrayList;
 import java.util.List;
@@ -60,6 +61,12 @@ class AttachmentViewServiceTest extends IntegrationTestBase {
 
   private Long userId;
 
+  /** 테넌트 #2 회귀 검사용 — 세션 기본 GUC(1)와 다른 고정 슬러그 테넌트(NonTransactionalRlsReadGuardTest 와 같은 fixture). */
+  private static final String FIXTURE_TENANT_SLUG = "rls-guard-fixture-tenant";
+
+  private Long tid2;
+  private final List<Long> tenant2FileIds = new ArrayList<>();
+
   @BeforeEach
   void setUp() {
     TenantContext.set(TENANT);
@@ -81,6 +88,20 @@ class AttachmentViewServiceTest extends IntegrationTestBase {
 
   @AfterEach
   void tearDown() {
+    // 테넌트 #2 행은 GUC=2 에서만 보이므로 따로 지운다(사용자 FK 때문에 사용자 삭제보다 먼저).
+    if (tid2 != null && !tenant2FileIds.isEmpty()) {
+      new TransactionTemplate(txManager)
+          .executeWithoutResult(
+              s -> {
+                setGuc(tid2);
+                dsl.deleteFrom(FILE_EXTRACTION)
+                    .where(FILE_EXTRACTION.FILE_ID.in(tenant2FileIds))
+                    .execute();
+                dsl.deleteFrom(FILE).where(FILE.ID.in(tenant2FileIds)).execute();
+              });
+    }
+    tenant2FileIds.clear();
+    tid2 = null;
     new TransactionTemplate(txManager)
         .executeWithoutResult(
             s -> {
@@ -289,6 +310,129 @@ class AttachmentViewServiceTest extends IntegrationTestBase {
     String cache = dir + "/a.pdf.view/p1-1568.png";
     assertThat(fileStore.size(cache)).isEqualTo(big.length);
     assertThat(fileStore.readAllBytes(cache)).isEqualTo(big);
+  }
+
+  /**
+   * R5 회귀 검사 — 테넌트 #2 에 커밋한 PDF 를 트랜잭션 밖에서 보고, 비어 있던 page_count 가 채워져야 한다.
+   *
+   * <p>테스트 프로필은 풀 커넥션마다 세션 GUC 를 테넌트 1 로 박아 두므로(application-test.yml connection-init-sql) 테넌트 1
+   * 시드로는 파일 행 읽기·page_count 쓰기가 트랜잭션 밖으로 새도 드러나지 않는다. 트랜잭션-로컬 GUC 만 세션 값을 덮으므로, 테넌트 #2 에서는
+   * readOnlyTx 가 빠지면 파일 행이 안 보여 404, writeTx 가 빠지면 0행 갱신으로 page_count 가 null 로 남는다.
+   */
+  @Test
+  void 테넌트2_에서도_파일을_읽고_page_count_를_채운다() {
+    tid2 = ensureFixtureTenant();
+    long id = seedTenant2Pdf();
+    when(worker.render(anyString(), anyString(), any(), anyInt()))
+        .thenReturn(new RenderResult(PNG, "image/png", 4));
+
+    TenantContext.set(tid2);
+    ViewImage v = service.view(id, 1);
+
+    assertThat(v.data()).isEqualTo(PNG);
+    assertThat(v.pageCount()).isEqualTo(4);
+    assertThat(tenant2PageCount(id)).isEqualTo(4);
+  }
+
+  @Test
+  void 쪽수를_몰라_워커가_범위_밖으로_거절하면_쪽수를_채우고_다음엔_워커_없이_거른다() {
+    long id = seedPdf(null);
+    when(worker.render(anyString(), anyString(), any(), anyInt()))
+        .thenThrow(new AttachmentViewException("PAGE_OUT_OF_RANGE", 3));
+
+    assertThatThrownBy(() -> service.view(id, 9))
+        .isInstanceOfSatisfying(
+            AttachmentViewException.class,
+            e -> {
+              assertThat(e.status()).isEqualTo(400);
+              assertThat(e.pageCount()).isEqualTo(3);
+            });
+    Integer stored =
+        new TransactionTemplate(txManager)
+            .execute(
+                s ->
+                    dsl.select(FILE_EXTRACTION.PAGE_COUNT)
+                        .from(FILE_EXTRACTION)
+                        .where(FILE_EXTRACTION.FILE_ID.eq(id))
+                        .fetchOne(FILE_EXTRACTION.PAGE_COUNT));
+    assertThat(stored).isEqualTo(3);
+
+    assertThatThrownBy(() -> service.view(id, 9)).isInstanceOf(AttachmentViewException.class);
+    verify(worker, times(1)).render(anyString(), anyString(), any(), anyInt());
+  }
+
+  /** 고정 슬러그 fixture 테넌트 find-or-create(커밋). app_tenant 는 tenant DELETE 불가(V46)라 1행을 재사용한다. */
+  private long ensureFixtureTenant() {
+    // 클래스 상수 TENANT(=1L)와 이름이 겹쳐 jOOQ 테이블은 별칭 변수로 쓴다.
+    Tenant tenantTable = Tenant.TENANT;
+    return new TransactionTemplate(txManager)
+        .execute(
+            s -> {
+              Long existing =
+                  dsl.select(tenantTable.ID)
+                      .from(tenantTable)
+                      .where(tenantTable.SLUG.eq(FIXTURE_TENANT_SLUG))
+                      .fetchOne(tenantTable.ID);
+              if (existing != null) return existing;
+              return dsl.insertInto(tenantTable)
+                  .set(tenantTable.SLUG, FIXTURE_TENANT_SLUG)
+                  .set(tenantTable.NAME, "RLS Guard Fixture Tenant")
+                  .set(tenantTable.STATUS, "ACTIVE")
+                  .returning(tenantTable.ID)
+                  .fetchOne()
+                  .getId();
+            });
+  }
+
+  /**
+   * 테넌트 #2 에 PDF 파일 행 + page_count 가 빈 추출 행을 커밋한다(GUC=2 트랜잭션 — file.tenant_id 는 DEFAULT 가 GUC 로
+   * 채움).
+   */
+  private long seedTenant2Pdf() {
+    long id =
+        new TransactionTemplate(txManager)
+            .execute(
+                s -> {
+                  setGuc(tid2);
+                  long fid =
+                      dsl.insertInto(FILE)
+                          .set(FILE.ORIGINAL_NAME, "t2.pdf")
+                          .set(FILE.STORED_NAME, "t2.pdf")
+                          .set(FILE.MIME_TYPE, "application/pdf")
+                          .set(FILE.SIZE_BYTES, 1000L)
+                          .set(FILE.STORAGE_PATH, dir + "/t2.pdf")
+                          .set(FILE.UPLOADED_BY, userId)
+                          .returning(FILE.ID)
+                          .fetchOne()
+                          .getId();
+                  dsl.insertInto(FILE_EXTRACTION)
+                      .set(FILE_EXTRACTION.FILE_ID, fid)
+                      .set(FILE_EXTRACTION.STATUS, "DONE")
+                      .set(FILE_EXTRACTION.PROFILE, "TEXT_ONLY")
+                      .set(FILE_EXTRACTION.TENANT_ID, tid2)
+                      .execute();
+                  return fid;
+                });
+    tenant2FileIds.add(id);
+    return id;
+  }
+
+  /** 테넌트 #2 의 page_count 를 GUC=2 트랜잭션으로 읽는다. */
+  private Integer tenant2PageCount(long fileId) {
+    return new TransactionTemplate(txManager)
+        .execute(
+            s -> {
+              setGuc(tid2);
+              return dsl.select(FILE_EXTRACTION.PAGE_COUNT)
+                  .from(FILE_EXTRACTION)
+                  .where(FILE_EXTRACTION.FILE_ID.eq(fileId))
+                  .fetchOne(FILE_EXTRACTION.PAGE_COUNT);
+            });
+  }
+
+  /** 트랜잭션-로컬 GUC 설정. */
+  private void setGuc(long tenantId) {
+    dsl.execute("SELECT set_config('app.tenant_id', '" + tenantId + "', true)");
   }
 
   /** PDF 파일 행 + 추출 행. pageCount 가 null 이면 page_count 가 빈 추출 행을 둔다(채우기 검증용). */

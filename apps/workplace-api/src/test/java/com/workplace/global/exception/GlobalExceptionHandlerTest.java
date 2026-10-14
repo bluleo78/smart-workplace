@@ -159,7 +159,7 @@ class GlobalExceptionHandlerTest {
     // WP-250: 범위 밖이면 400 + 쪽수가 든 안내 — 모델이 올바른 쪽으로 다시 부르게.
     ResponseEntity<ErrorResponse> res =
         handler.handleAttachmentView(
-            new com.workplace.fileai.exception.AttachmentViewException(400, "PAGE_OUT_OF_RANGE", 3),
+            new com.workplace.fileai.exception.AttachmentViewException("PAGE_OUT_OF_RANGE", 3),
             request);
     assertThat(res.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     assertThat(res.getBody().message()).isEqualTo("이 PDF 는 3쪽입니다. 1~3 사이 페이지를 지정하세요.");

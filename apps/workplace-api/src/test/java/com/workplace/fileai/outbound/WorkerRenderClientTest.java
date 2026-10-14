@@ -107,6 +107,21 @@ class WorkerRenderClientTest {
     assertThat(sent.get("page").isNull()).isTrue();
   }
 
+  /** 형식은 정확히 image/png · image/jpeg 로 맞춘다 — 캐시 적중(확장자로 정함)과 새로 그린 응답이 같은 값을 내게. */
+  @Test
+  void 응답_형식은_png_jpeg_둘로_정규화하고_그밖은_503() {
+    stub = new Stub(200, "IMAGE/JPG", null, new byte[] {1});
+    assertThat(client(true).render("k", "image/heic", null, 1568).contentType())
+        .isEqualTo("image/jpeg");
+
+    stub = new Stub(200, "Image/PNG;foo=bar", "2", new byte[] {1});
+    assertThat(client(true).render("k", "application/pdf", 1, 1568).contentType())
+        .isEqualTo("image/png");
+
+    stub = new Stub(200, "image/webp", null, new byte[] {1});
+    assertWorkerUnavailable(() -> client(true).render("k", "image/webp", null, 1568));
+  }
+
   @Test
   void 페이지_범위_밖이면_400_과_페이지수를_싣는다() {
     json(400, "{\"detail\":{\"code\":\"PAGE_OUT_OF_RANGE\",\"pageCount\":3}}");

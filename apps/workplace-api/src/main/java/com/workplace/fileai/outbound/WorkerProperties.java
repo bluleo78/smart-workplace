@@ -36,5 +36,27 @@ public record WorkerProperties(
    * @param maxEdge 결과 이미지 긴 변 픽셀 — 기본 1568(모델 이미지 입력 권장 상한). 워커가 64~4096 만 받는다.
    * @param timeoutSeconds /render 요청 타임아웃(초) — 큰 PDF 한 쪽 래스터화 여유를 둔 기본 20.
    */
-  public record Render(int maxEdge, int timeoutSeconds) {}
+  public record Render(int maxEdge, int timeoutSeconds) {
+
+    /** 워커 /render 가 받는 긴 변 범위 — 밖이면 모든 요청이 워커 검증(422)에서 막히므로 기동 때 바로 실패시킨다. */
+    public static final int MIN_EDGE = 64;
+
+    public static final int MAX_EDGE = 4096;
+
+    public Render {
+      if (maxEdge < MIN_EDGE || maxEdge > MAX_EDGE) {
+        throw new IllegalArgumentException(
+            "workplace.worker.render.max-edge 는 "
+                + MIN_EDGE
+                + "~"
+                + MAX_EDGE
+                + " 사이여야 합니다(워커 /render 범위): "
+                + maxEdge);
+      }
+      if (timeoutSeconds < 1) {
+        throw new IllegalArgumentException(
+            "workplace.worker.render.timeout-seconds 는 1 이상이어야 합니다: " + timeoutSeconds);
+      }
+    }
+  }
 }
