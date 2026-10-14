@@ -168,7 +168,7 @@ test('gw-headers: 키 없는 이름·이상한 이름은 무효 토큰을 내고
     const r = run('gw-headers', [], { env: { GENIA_WORKS_AS: as } });
     assert.equal(r.stdout.includes('SHOULD_NOT_READ'), false, as);
     assert.equal(r.status, 0, as);
-    assert.match(r.stdout, /Bearer invalid/, as);
+    assert.equal(JSON.parse(r.stdout).Authorization, 'Bearer invalid', as);
     assert.match(r.stderr, /키가 없습니다/, as);
   }
 });
@@ -182,4 +182,28 @@ test('gw-headers: pid 재사용(시작 시각 다름) 세션 선택은 무시하
   const r = run('gw-headers');
   assert.equal(r.stdout.trim(), '{}');
   assert.deepEqual(readdirSync(dir), []);
+});
+
+test('gw-headers: 빈 키·따옴표/공백/역슬래시 든 키 파일은 없는 키와 같이 Bearer invalid', () => {
+  const dir = join(home, '.genia-works', 'keys');
+  mkdirSync(dir, { recursive: true });
+  const bad = { empty: '', blank: '   \n', quote: 'ak_FA"KE\n', space: 'ak_FA KE\n', slash: 'ak_FA\\KE\n' };
+  for (const [n, content] of Object.entries(bad)) {
+    writeFileSync(join(dir, n), content);
+    const r = run('gw-headers', [], { env: { GENIA_WORKS_AS: n } });
+    assert.equal(r.status, 0, n);
+    assert.equal(JSON.parse(r.stdout).Authorization, 'Bearer invalid', n);
+  }
+});
+
+test('gw-headers: GENIA_WORKS_AS=me → {}', () => {
+  const r = run('gw-headers', [], { env: { GENIA_WORKS_AS: 'me' } });
+  assert.equal(r.status, 0);
+  assert.equal(r.stdout.trim(), '{}');
+});
+
+test('gw-keys add: 따옴표 든 키는 exit 3', () => {
+  const r = run('gw-keys', ['add', 'ai-x'], { input: 'ak_FA"KE\n' });
+  assert.equal(r.status, 3);
+  assert.equal(existsSync(join(home, '.genia-works', 'keys', 'ai-x')), false);
 });
