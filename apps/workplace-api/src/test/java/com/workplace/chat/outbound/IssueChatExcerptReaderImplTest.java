@@ -78,10 +78,10 @@ class IssueChatExcerptReaderImplTest extends IntegrationTestBase {
               long threadId = threadRepo.insertIfAbsent(s.issueId());
 
               // 메시지 1: 사용자(USER kind) 작성.
-              messageRepo.insert(threadId, s.reporterId(), "첫 번째 메시지", List.of());
+              messageRepo.insert(threadId, s.reporterId(), "첫 번째 메시지", List.of(), false);
 
               // 메시지 2: 에이전트(AGENT kind) 작성.
-              messageRepo.insert(threadId, extraAgentId, "두 번째 메시지(에이전트)", List.of());
+              messageRepo.insert(threadId, extraAgentId, "두 번째 메시지(에이전트)", List.of(), false);
 
               // 메시지 3: soft-delete 처리 — 조회에서 제외되어야 함.
               long deletedId =

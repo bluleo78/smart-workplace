@@ -50,39 +50,16 @@ public record IssueResponse(
 
   /** 진행 중 AI 작업 목록을 채운 사본을 돌려준다(목록·상세 조립 단계에서 한 번에 조회해 주입). */
   public IssueResponse withAgentWork(List<AgentWorkView> list) {
-    return new IssueResponse(
-        id,
-        projectKey,
-        number,
-        title,
-        status,
-        priority,
-        dueDate,
-        startDate,
-        milestoneId,
-        milestoneName,
-        reporterId,
-        createdAt,
-        updatedAt,
-        closedAt,
-        labels,
-        attachmentCount,
-        type,
-        assignees,
-        parent,
-        childCount,
-        childDoneCount,
-        blockedBy,
-        blocks,
-        blocked,
-        customFields,
-        version,
-        list == null ? List.of() : list,
-        aiGroup);
+    return copyWith(list == null ? List.of() : list, aiGroup);
   }
 
   /** AI 위임 작업 묶음 정보를 채운 사본(WP-375 — /me/ai-tasks 조립 단계). */
   public IssueResponse withAiGroup(AiTaskGroup g) {
+    return copyWith(agentWork, g);
+  }
+
+  /** 나머지 필드는 그대로 두고 agentWork·aiGroup 만 바꾼 사본 — 필드 복사를 한 곳에 둔다. */
+  private IssueResponse copyWith(List<AgentWorkView> newAgentWork, AiTaskGroup newAiGroup) {
     return new IssueResponse(
         id,
         projectKey,
@@ -110,8 +87,8 @@ public record IssueResponse(
         blocked,
         customFields,
         version,
-        agentWork,
-        g);
+        newAgentWork,
+        newAiGroup);
   }
 
   /**

@@ -2,6 +2,7 @@ package com.workplace.chat.repository;
 
 import static com.workplace.jooq.Tables.CHAT_MESSAGE;
 import static com.workplace.jooq.Tables.USER;
+import static org.jooq.impl.DSL.row;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.chat.dto.ChatMessagePage;
@@ -11,7 +12,9 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +24,7 @@ import org.jooq.DSLContext;
 import org.jooq.JSONB;
 import org.jooq.Record;
 import org.jooq.SelectConditionStep;
+import org.jooq.SelectField;
 import org.springframework.stereotype.Repository;
 
 /**
@@ -35,7 +39,7 @@ public class ChatMessageRepository {
   private static final int MAX_LIMIT = 100;
 
   /** 응답 매핑(toResponse)에 필요한 컬럼 — 모든 메시지 조회가 같은 목록을 쓴다. */
-  private static final org.jooq.SelectField<?>[] MESSAGE_FIELDS = {
+  private static final SelectField<?>[] MESSAGE_FIELDS = {
     CHAT_MESSAGE.ID,
     CHAT_MESSAGE.THREAD_ID,
     CHAT_MESSAGE.AUTHOR_ID,
@@ -52,11 +56,6 @@ public class ChatMessageRepository {
 
   private final DSLContext dsl;
   private final ObjectMapper objectMapper;
-
-  /** 작성 후 ID 반환(일반 글 — 질문 아님). */
-  public long insert(long threadId, long authorId, String body, List<Long> mentionUserIds) {
-    return insert(threadId, authorId, body, mentionUserIds, false);
-  }
 
   /**
    * 작성 후 ID 반환. mentions 는 user.id 의 long[] 형태로 저장. question 은 AI 구성원이 답변 필요로 멈추며 남긴 글인지(WP-373) —
@@ -143,18 +142,14 @@ public class ChatMessageRepository {
         .fetchOptional(r -> new Anchor(r.value1(), r.value2()));
   }
 
+  /** (created_at, id) 가 기준점보다 뒤 — 행 값 비교로 정렬 키와 같은 순서를 쓴다. */
   private static Condition afterAnchor(Anchor a) {
-    return CHAT_MESSAGE
-        .CREATED_AT
-        .gt(a.createdAt())
-        .or(CHAT_MESSAGE.CREATED_AT.eq(a.createdAt()).and(CHAT_MESSAGE.ID.gt(a.id())));
+    return row(CHAT_MESSAGE.CREATED_AT, CHAT_MESSAGE.ID).gt(row(a.createdAt(), a.id()));
   }
 
+  /** (created_at, id) 가 기준점보다 앞. */
   private static Condition beforeAnchor(Anchor a) {
-    return CHAT_MESSAGE
-        .CREATED_AT
-        .lt(a.createdAt())
-        .or(CHAT_MESSAGE.CREATED_AT.eq(a.createdAt()).and(CHAT_MESSAGE.ID.lt(a.id())));
+    return row(CHAT_MESSAGE.CREATED_AT, CHAT_MESSAGE.ID).lt(row(a.createdAt(), a.id()));
   }
 
   /** 스레드의 메시지 + 작성자 조인 select — 모든 목록 조회가 공유한다. */
@@ -171,7 +166,7 @@ public class ChatMessageRepository {
       List<ChatMessageResponse> head, List<ChatMessageResponse> rest, int limit) {
     boolean hasMore = rest.size() > limit;
     List<ChatMessageResponse> body = hasMore ? rest.subList(0, limit) : rest;
-    List<ChatMessageResponse> items = new java.util.ArrayList<>(head);
+    List<ChatMessageResponse> items = new ArrayList<>(head);
     items.addAll(body);
     String next = hasMore ? String.valueOf(body.get(body.size() - 1).id()) : null;
     return new ChatMessagePage(items, next, hasMore);
@@ -206,25 +201,14 @@ public class ChatMessageRepository {
       // 내 글이 없으면 기준점이 없어 최신 limit 개만 준다. 더 오래된 글이 남아 있으면 커서로 이을 수 없는 부분 목록이므로
       // truncated 로 알려, 호출자(AI)가 잘린 스레드를 전부로 오해하지 않게 한다.
       List<ChatMessageResponse> latest =
-          new java.util.ArrayList<>(
-              selectInThread(threadId)
-                  .orderBy(CHAT_MESSAGE.CREATED_AT.desc(), CHAT_MESSAGE.ID.desc())
-                  .limit(limit + 1)
-                  .fetch(r -> toResponse(r, resolver)));
+          newestAscending(selectInThread(threadId), limit + 1, resolver);
       boolean truncated = latest.size() > limit;
-      if (truncated) latest = new java.util.ArrayList<>(latest.subList(0, limit));
-      java.util.Collections.reverse(latest);
+      if (truncated) latest = latest.subList(latest.size() - limit, latest.size());
       return new ChatMessagePage(latest, null, false, truncated ? Boolean.TRUE : null);
     }
     Anchor a = mine.get();
     List<ChatMessageResponse> context =
-        new java.util.ArrayList<>(
-            selectInThread(threadId)
-                .and(beforeAnchor(a))
-                .orderBy(CHAT_MESSAGE.CREATED_AT.desc(), CHAT_MESSAGE.ID.desc())
-                .limit(MINE_CONTEXT)
-                .fetch(r -> toResponse(r, resolver)));
-    java.util.Collections.reverse(context);
+        newestAscending(selectInThread(threadId).and(beforeAnchor(a)), MINE_CONTEXT, resolver);
     List<ChatMessageResponse> rest =
         selectInThread(threadId)
             .and(afterAnchor(a).or(CHAT_MESSAGE.ID.eq(a.id())))
@@ -232,6 +216,19 @@ public class ChatMessageRepository {
             .limit(limit + 1)
             .fetch(r -> toResponse(r, resolver));
     return ascendingPage(context, rest, limit);
+  }
+
+  /** 조건에 맞는 글 중 최신 n 개를 오름차순으로 — 내림차순으로 n 개 자른 뒤 뒤집는다. */
+  private List<ChatMessageResponse> newestAscending(
+      SelectConditionStep<?> query, int n, MentionResolver resolver) {
+    List<ChatMessageResponse> newest =
+        new ArrayList<>(
+            query
+                .orderBy(CHAT_MESSAGE.CREATED_AT.desc(), CHAT_MESSAGE.ID.desc())
+                .limit(n)
+                .fetch(r -> toResponse(r, resolver)));
+    Collections.reverse(newest);
+    return newest;
   }
 
   /** Cursor 페이징. nextCursor 는 base64(createdAt|id). */

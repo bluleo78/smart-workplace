@@ -77,7 +77,13 @@ public class AiTaskRepository {
       Instant groupSortAt,
       int headOrder,
       int groupSize,
-      Integer epicNumber) {}
+      Integer epicNumber) {
+
+    /** 이 행 다음부터 이어 읽는 커서 — 정렬 키 7개를 그대로 옮긴다. */
+    public AiTaskCursor toCursor() {
+      return new AiTaskCursor(groupRank, groupSortAt, groupKey, headOrder, rank, sortAt, row.id());
+    }
+  }
 
   /** 에픽 유형 이름 — 묶음 키 판정에 쓴다(ISSUE_TYPE_DEF.NAME). */
   private static final String EPIC = "EPIC";

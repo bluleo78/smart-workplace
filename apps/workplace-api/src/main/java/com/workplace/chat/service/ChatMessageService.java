@@ -56,7 +56,7 @@ public class ChatMessageService {
   /** 메시지 작성(화면·일반 API). 질문 표시는 받지 않는다 — 질문은 report_agent_work 만 만든다(스펙 §3.1). */
   @Transactional
   public ChatMessageResponse create(long callerId, long threadId, CreateChatMessageRequest req) {
-    return doCreate(callerId, threadId, req, false, false);
+    return doCreate(callerId, threadId, req, Origin.USER);
   }
 
   /**
@@ -66,7 +66,31 @@ public class ChatMessageService {
   @Transactional
   public ChatMessageResponse createFromReport(
       long callerId, long threadId, String body, boolean question) {
-    return doCreate(callerId, threadId, new CreateChatMessageRequest(body), question, true);
+    return doCreate(
+        callerId,
+        threadId,
+        new CreateChatMessageRequest(body),
+        question ? Origin.REPORT_QUESTION : Origin.REPORT);
+  }
+
+  /** 글이 만들어진 경로 — 질문 표시와 "사람의 답" 취급 여부를 한 값으로 정한다. */
+  private enum Origin {
+    /** 화면·일반 API 로 사람이 쓴 글. */
+    USER,
+    /** AI 작업 보고(report_agent_work)의 일반 진행 글. */
+    REPORT,
+    /** AI 작업 보고의 답변 필요 질문 글. */
+    REPORT_QUESTION;
+
+    /** 질문(답변 필요) 글인지. */
+    boolean question() {
+      return this == REPORT_QUESTION;
+    }
+
+    /** 보고 경로의 글인지 — 사람이 작성자여도 "사람의 답"으로 치지 않는다. */
+    boolean fromReport() {
+      return this != USER;
+    }
   }
 
   /**
@@ -74,11 +98,7 @@ public class ChatMessageService {
    * 첨부/드라이브링크 바인딩 후 하이드레이트된 응답 반환. mention 파싱 후 INSERT, AFTER_COMMIT 이벤트 발행.
    */
   private ChatMessageResponse doCreate(
-      long callerId,
-      long threadId,
-      CreateChatMessageRequest req,
-      boolean question,
-      boolean fromReport) {
+      long callerId, long threadId, CreateChatMessageRequest req, Origin origin) {
     // 거부될 요청(권한 없음·삭제된 이슈·빈 메시지)으로는 대화에 참여시키지 않도록 쓰기 권한부터 확인하고, 참여는 검증을 모두 통과한 뒤 한다.
     var joinCtx = threadAccess.ensureCanWrite(threadId, callerId);
     // #621: 원본 이슈가 소프트삭제됐으면 스레드가 남아있어도 메시지 전송을 막는다.
@@ -107,7 +127,8 @@ public class ChatMessageService {
       memberRepo.insertIgnoreConflict(threadId, agentMentionIds);
     }
 
-    long messageId = messageRepo.insert(threadId, callerId, req.body(), mentionUserIds, question);
+    long messageId =
+        messageRepo.insert(threadId, callerId, req.body(), mentionUserIds, origin.question());
     // 선업로드 첨부 바인딩 + 영구 승격(같은 트랜잭션 — RLS 컨텍스트 공유).
     attachmentService.bindToMessage(callerId, messageId, req.fileIds());
     // 드라이브 파일 교차링크 — 발신자 thread 멤버 + 각 파일 ≥VIEWER 검증은 createLink 내부.
@@ -121,7 +142,7 @@ public class ChatMessageService {
     var created = buildEvent(threadId, messageId, callerId, req.body(), mentionUserIds, saved);
     publisher.publishEvent(created);
     // WP-377: 사람이 올린 글이면 답변 필요로 멈춘 AI 구성원 작업을 작업 중으로 되돌리도록 알린다. 보고 경로의 글은 제외(WP-373).
-    if (!fromReport && UserKind.HUMAN.equals(created.actor().kind())) {
+    if (!origin.fromReport() && UserKind.HUMAN.equals(created.actor().kind())) {
       publisher.publishEvent(new IssueHumanReplyPosted(created.issueId()));
     }
     return saved;
@@ -174,12 +195,6 @@ public class ChatMessageService {
   private static final int DEFAULT_AFTER_PAGE = 30;
 
   private static final int MAX_PAGE = 100;
-
-  /** 기존 호출부 호환 — cursor 모드. */
-  @Transactional(readOnly = true)
-  public ChatMessagePage list(long callerId, long threadId, String cursor, int limit) {
-    return list(callerId, threadId, cursor, null, false, limit);
-  }
 
   /**
    * 메시지 목록. cursor(최신순 이전 페이지)·after(그 뒤 오름차순)·afterMine(내 마지막 글 직전 5개 + 그 뒤) 셋 중 하나만 쓴다 — 둘 이상이면

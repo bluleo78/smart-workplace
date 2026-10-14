@@ -92,7 +92,7 @@ class OpenChatThreadTest extends IntegrationTestBase {
     var msg =
         messageService.create(
             s.reporterId(), thread.threadId(), new CreateChatMessageRequest("문의드립니다"));
-    var page = messageService.list(s.strangerId(), thread.threadId(), null, 50);
+    var page = messageService.list(s.strangerId(), thread.threadId(), null, null, false, 50);
     assertThat(page.items()).extracting(m -> m.id()).contains(msg.id());
   }
 

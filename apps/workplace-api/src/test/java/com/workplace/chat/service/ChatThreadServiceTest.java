@@ -104,7 +104,8 @@ class ChatThreadServiceTest extends IntegrationTestBase {
     assertThat(reopened.recentMessages()).hasSize(20);
     assertThat(reopened.recentHasMore()).isTrue();
     assertThat(reopened.recentNextCursor()).isNotNull();
-    var older = messageService.list(s.reporterId(), threadId, reopened.recentNextCursor(), 20);
+    var older =
+        messageService.list(s.reporterId(), threadId, reopened.recentNextCursor(), null, false, 20);
     assertThat(older.items()).extracting(ChatMessageResponse::id).containsExactly(sentIds.get(0));
     assertThat(older.hasMore()).isFalse();
   }

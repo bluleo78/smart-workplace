@@ -104,7 +104,7 @@ class ChatMessageServiceTest extends IntegrationTestBase {
             s.reporterId(), thread.threadId(), new CreateChatMessageRequest("byebye"));
 
     messageService.delete(s.reporterId(), msg.id());
-    var page = messageService.list(s.reporterId(), thread.threadId(), null, 50);
+    var page = messageService.list(s.reporterId(), thread.threadId(), null, null, false, 50);
     assertThat(page.items()).hasSize(1);
     assertThat(page.items().get(0).deleted()).isTrue();
     assertThat(page.items().get(0).body()).isEqualTo("(삭제됨)");

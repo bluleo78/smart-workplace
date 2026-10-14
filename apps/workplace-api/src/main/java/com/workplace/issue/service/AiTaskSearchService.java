@@ -77,16 +77,7 @@ public class AiTaskSearchService {
     boolean hasMore = false;
     if (!rows.isEmpty() && rows.size() >= query.size()) {
       AiTaskRow last = rows.get(rows.size() - 1);
-      nextCursor =
-          new AiTaskCursor(
-                  last.groupRank(),
-                  last.groupSortAt(),
-                  last.groupKey(),
-                  last.headOrder(),
-                  last.rank(),
-                  last.sortAt(),
-                  last.row().id())
-              .encode();
+      nextCursor = last.toCursor().encode();
       hasMore = true;
     }
     return new IssueSearchResponse(withGroups, nextCursor, hasMore);
