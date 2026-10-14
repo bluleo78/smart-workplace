@@ -5,6 +5,7 @@ import { ArrowUpRight, ChevronRight } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 
+import { CLOSED_EPIC_DIM, closedEpicTitleClass } from '@/lib/closedEpicStyles';
 import { SELECTED_ROW_CLASS } from '@/lib/selectionStyles';
 import { cn } from '@/lib/utils';
 
@@ -53,9 +54,9 @@ export function ClosedEpicsSection({
                 >
                   {/* 흐림은 제목·색점에만 — 배지는 또렷하게 둬 상태를 읽을 수 있게 한다. */}
                   <span className="flex items-center gap-2">
-                    <span className="h-2 w-2 shrink-0 rounded-full bg-presence opacity-50 dark:opacity-70" style={presenceStyle(ep.number)} aria-hidden="true" />
+                    <span className={cn('h-2 w-2 shrink-0 rounded-full bg-presence', CLOSED_EPIC_DIM)} style={presenceStyle(ep.number)} aria-hidden="true" />
                     <span
-                      className={cn('min-w-0 flex-1 truncate', selected ? 'text-foreground' : 'text-muted-foreground', ep.status === 'CANCELED' && 'line-through')}
+                      className={cn('min-w-0 flex-1 truncate', closedEpicTitleClass(ep.status, selected))}
                       title={ep.title}
                     >
                       {ep.title}
