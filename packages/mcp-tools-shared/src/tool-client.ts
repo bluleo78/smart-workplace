@@ -147,7 +147,7 @@ export interface IssueToolClient extends ProjectMetaClient, CurrentUserClient {
   listIssueChatMessages(
     threadId: number,
     q: { after?: number; limit?: number },
-  ): Promise<{ items: Record<string, unknown>[]; nextCursor?: string | null; hasMore: boolean }>;
+  ): Promise<{ items: Record<string, unknown>[]; nextCursor?: string | null; hasMore: boolean; truncated?: boolean }>;
   /** 이슈 상세 — 백엔드 raw JSON 반환(정규화는 도구 핸들러가 normalizeIssueDetail 로 수행). */
   getIssueDetail(issueKey: string): Promise<unknown>;
   /** 이슈 생성 — 생성 응답 raw 반환. */

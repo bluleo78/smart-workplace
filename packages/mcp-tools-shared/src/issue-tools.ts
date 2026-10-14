@@ -247,6 +247,8 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
             messages: page.items.map(toIssueChatMessageView),
             hasMore: page.hasMore,
             next: page.hasMore && page.nextCursor ? Number(page.nextCursor) : undefined,
+            // 이어 읽을 페이지는 없지만 앞쪽이 잘린 부분 목록 — 전부로 오해하지 않게 알린다(내 글이 없을 때 최신 limit 개만 준 경우).
+            truncated: page.truncated ? true : undefined,
           }),
         );
       },

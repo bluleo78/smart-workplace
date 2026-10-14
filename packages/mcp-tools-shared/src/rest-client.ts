@@ -159,7 +159,7 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
       // after 가 없으면 서버가 내 마지막 글 기준(afterMine)으로 고른다 — 새 글과 직전 맥락을 한 번에 받는다(WP-373).
       const params = after !== undefined ? { after, limit } : { afterMine: true, limit };
       const data = (await http.get(`/chat/threads/${threadId}/messages`, { params })).data;
-      return { items: data?.items ?? [], nextCursor: data?.nextCursor, hasMore: !!data?.hasMore };
+      return { items: data?.items ?? [], nextCursor: data?.nextCursor, hasMore: !!data?.hasMore, truncated: data?.truncated === true ? true : undefined };
     },
     async getIssueDetail(issueKey) {
       return (await http.get(issue(issueKey))).data;

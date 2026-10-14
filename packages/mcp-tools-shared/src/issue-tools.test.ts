@@ -474,4 +474,14 @@ describe('get_issue_chat (WP-373)', () => {
     expect(out.hasMore).toBe(true);
     expect(out.next).toBe(11);
   });
+
+  it('서버가 truncated 를 주면 그대로 싣고, 없으면 키를 싣지 않는다', async () => {
+    const c = mockClient();
+    vi.mocked(c.listIssueChatMessages).mockResolvedValue({ items: rows.slice(0, 1), nextCursor: null, hasMore: false, truncated: true });
+    const cut = JSON.parse(resultText(await chatTool(c).handler({ issueKey: 'WP-1' })));
+    expect(cut.truncated).toBe(true);
+    expect(cut.hasMore).toBe(false);
+    vi.mocked(c.listIssueChatMessages).mockResolvedValue({ items: rows.slice(0, 1), nextCursor: null, hasMore: false });
+    expect('truncated' in JSON.parse(resultText(await chatTool(c).handler({ issueKey: 'WP-1' })))).toBe(false);
+  });
 });
