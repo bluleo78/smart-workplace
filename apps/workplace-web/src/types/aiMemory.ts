@@ -27,7 +27,7 @@ export interface AiMemoryItem {
   expired?: boolean;
   /** WP-380: 고치기 전 기한(PATCH 응답, 있었을 때만). */
   previousExpiresOn?: string;
-  /** WP-383: 사용자가 고정했는가 — 고정 행은 묶음 맨 위·채팅에 늘 실린다. 구 API 응답엔 없다. */
+  /** WP-383: 사용자가 고정했는가 — 고정 행은 묶음 맨 위·채팅에 먼저 실린다(토큰 예산 안에서). 구 API 응답엔 없다. */
   pinned?: boolean;
 }
 

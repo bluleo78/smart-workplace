@@ -229,13 +229,19 @@ describe('고정·검색·인피니트 스크롤 (WP-383)', () => {
     ]);
     expect(visibleGroups(groups, '', 20).views.map((v) => [v.group.key, v.rows.length])).toEqual([['COMMON', 20]]);
     expect(visibleGroups(groups, '', ROWS_PAGE * 2).views.reduce((n, v) => n + v.rows.length, 0)).toBe(35);
+    // 더 있음 — 아직 그리지 않은 행이 있을 때만.
+    expect(first.hasMore).toBe(true);
+    expect(visibleGroups(groups, '', 35).hasMore).toBe(false);
+    // 일치 수는 자르기 전 묶음 기준(ISSUE 는 5행만 보여도 10개).
+    expect(first.views.map((v) => v.matched)).toEqual([25, 10]);
   });
 
   it('인피니트 스크롤 — 검색으로 거른 행만 세고 맞는 행이 없는 묶음은 뺀다', () => {
     const cat = { ...mem(1, 'ISSUE'), content: '고양이' };
     const groups = groupMemories([mem(3), mem(2), cat]);
-    const { views, total } = visibleGroups(groups, '고양', ROWS_PAGE);
+    const { views, total, hasMore } = visibleGroups(groups, '고양', ROWS_PAGE);
     expect(total).toBe(1);
-    expect(views.map((v) => v.group.key)).toEqual(['ISSUE']);
+    expect(hasMore).toBe(false);
+    expect(views.map((v) => [v.group.key, v.matched])).toEqual([['ISSUE', 1]]);
   });
 });

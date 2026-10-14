@@ -1,6 +1,6 @@
 // 설정 메모리 카드의 범위 묶음 하나(WP-379, 시안 B) — 소제목 `{범위} · {설명}` + 오른쪽 `n / 300`(270부터 주황, 300이면 "가득 참 · 300 / 300" + 경고 한 줄).
 // 유효 행(고정 먼저, 최신순) 뒤에 만료 행(WP-380). WP-383: 행은 카드가 인피니트 스크롤로 잘라 넘긴다(rows) — 묶음 자체는 접지 않는다.
-// 카운트·가득 참은 거르기 전 묶음 그대로, 범위 고정이 가득이면 행 핀을 막는다.
+// 카운트·가득 참은 거르기 전 묶음 그대로(검색 중엔 앞에 "N개 일치 · "), 범위 고정이 가득이면 행 핀을 막는다.
 import { useId } from 'react';
 
 import { type AiMemoryScopeKey, listCountTone, type MemoryGroup, pinFullHint, pinnedCount, scopeDescription } from '@/lib/aiMemory';
@@ -13,6 +13,8 @@ interface Props {
   group: MemoryGroup;
   /** 이번에 그릴 행(검색·인피니트 스크롤로 자른 것). */
   rows: AiMemoryItem[];
+  /** 검색 중 이 묶음에서 맞는 행 수(자르기 전) — 검색하지 않으면 null. */
+  matched: number | null;
   /** 범위마다 고정 상한(서버 pinLimit). */
   pinLimit: number;
   /** 범위마다 상한(서버 limit). */
@@ -21,7 +23,7 @@ interface Props {
   fullScopes: ReadonlySet<AiMemoryScopeKey>;
 }
 
-export function AiMemoryScopeGroup({ group, rows, limit, pinLimit, fullScopes }: Props) {
+export function AiMemoryScopeGroup({ group, rows, matched, limit, pinLimit, fullScopes }: Props) {
   const titleId = useId();
   const count = group.active.length;
   const full = count >= limit;
@@ -34,6 +36,7 @@ export function AiMemoryScopeGroup({ group, rows, limit, pinLimit, fullScopes }:
           <span className="font-medium text-foreground">{group.label}</span> · {scopeDescription(group.key)}
         </h3>
         <span data-testid="ai-memory-group-count" className={cn('shrink-0 text-xs tabular-nums', listCountTone(count))}>
+          {matched != null && `${matched}개 일치 · `}
           {full ? `가득 참 · ${count} / ${limit}` : `${count} / ${limit}`}
         </span>
       </div>

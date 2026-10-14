@@ -165,13 +165,19 @@ export function pinFullHint(pinLimit: number): string {
 export interface VisibleGroup {
   group: MemoryGroup;
   rows: AiMemoryItem[];
+  /** 이 묶음에서 질의와 맞는 행 수(자르기 전) — 검색 중 머리글 "N개 일치". */
+  matched: number;
 }
 
 /**
- * 인피니트 스크롤용 — 묶음(고정 먼저 → 유효 → 만료) 전체를 한 줄로 이어 앞에서 maxRows 행만 보인다. total 은 거른 뒤 전체 행 수(더 있는지 판단).
- * 묶음 카운트(n / 300)는 거르기 전 group 그대로 쓰므로 여기서 바꾸지 않는다.
+ * 인피니트 스크롤용 — 묶음(고정 먼저 → 유효 → 만료) 전체를 한 줄로 이어 앞에서 maxRows 행만 보인다. total 은 거른 뒤 전체 행 수(맞는 게 없음 안내),
+ * hasMore 는 아직 그리지 않은 행이 있는지(sentinel). 묶음 카운트(n / 300)는 거르기 전 group 그대로 쓰므로 여기서 바꾸지 않는다.
  */
-export function visibleGroups(groups: readonly MemoryGroup[], query: string, maxRows: number): { views: VisibleGroup[]; total: number } {
+export function visibleGroups(
+  groups: readonly MemoryGroup[],
+  query: string,
+  maxRows: number,
+): { views: VisibleGroup[]; total: number; hasMore: boolean } {
   let left = maxRows;
   let total = 0;
   const views: VisibleGroup[] = [];
@@ -181,9 +187,9 @@ export function visibleGroups(groups: readonly MemoryGroup[], query: string, max
     if (rows.length === 0 || left <= 0) continue;
     const shown = rows.slice(0, left);
     left -= shown.length;
-    views.push({ group, rows: shown });
+    views.push({ group, rows: shown, matched: rows.length });
   }
-  return { views, total };
+  return { views, total, hasMore: total > maxRows };
 }
 
 /** 만료 뒤 자동 삭제까지 — 서버 정리 배치(기한 < 오늘 - 30)와 같은 기준이라 기한 + 31일에 지워진다. */

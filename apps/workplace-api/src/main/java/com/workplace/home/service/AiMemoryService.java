@@ -46,7 +46,7 @@ public class AiMemoryService {
    */
   public static final int LIMIT = 300;
 
-  /** 범위마다 고정 상한(WP-383) — 고정은 매 턴 늘 주입되므로 예산을 독점하지 않게 작게 둔다. 만료 행도 센다(판정 1). */
+  /** 범위마다 고정 상한(WP-383) — 고정은 매 턴 먼저 실리므로(토큰 예산 안에서) 예산을 독점하지 않게 작게 둔다. 만료 행도 센다(판정 1). */
   public static final int PIN_LIMIT = 10;
 
   /**

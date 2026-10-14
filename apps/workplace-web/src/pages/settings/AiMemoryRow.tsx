@@ -4,7 +4,9 @@
 // 아이콘을 메타 줄 오른쪽으로 내리고(내용은 아이콘 아래 폭까지 쓴다), 44px 터치 영역은 음수 마진으로 줄 높이를 늘리지 않은 채 유지한다.
 // WP-379: 제자리 고치기에서 범위도 옮긴다(가득 찬 범위는 고를 수 없다).
 // WP-383: 수정 앞 핀(고정) 토글 — 고정이면 채운 핀 + 메타 맨 앞 "고정"(터치는 채운 핀이 대신해 글자는 sr-only). 범위 고정이 가득이면 고정 안 된 행의 핀을 막고
-// 데스크톱은 호버 툴팁, 터치는 탭 토스트로 이유를 알린다(고정 풀기는 늘 된다). 터치에선 배지를 첫 줄에만 두고 메타를 배지 열부터 시작해 행이 두 줄로 유지된다.
+// 데스크톱은 호버·포커스 툴팁, 터치는 탭 토스트로 이유를 알린다(고정 풀기는 늘 된다). 터치에선 배지를 첫 줄에만 두고 메타를 배지 열부터 시작해 행이 두 줄로 유지된다.
+// 핀 이름은 늘 "고정"이고 상태는 aria-pressed 가 말한다. 막힌 핀은 disabled 가 아닌 aria-disabled 버튼 — 포커스·탭을 받아 이유를 알리고, 흐림(opacity) 대신
+// 한 단계 옅은 색 + not-allowed 커서로 보통 핀과 구분하면서도 눌러 볼 수 있어 보이게 한다.
 // WP-380: 메타 끝에 기한("10월 24일까지"), 고치기에서 기한도 고른다. 만료 행(서버 expired)은 흐리게 + "만료됨 · …까지 · …에 지워져요" + 기한 연장·계속 기억.
 import { Pencil, Pin, Trash2 } from 'lucide-react';
 import { useState } from 'react';
@@ -14,6 +16,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useDeleteAiMemory, usePinAiMemory, useUpdateAiMemory } from '@/hooks/queries/useAiMemories';
+import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer';
 import { type AiMemoryScopeKey, expiryPatch, MEMORY_LINK, purgeDateKey, scopeKeyOf } from '@/lib/aiMemory';
 import { formatDateOnly, formatDateOnlyMonthDay } from '@/lib/formatters';
 import { cn } from '@/lib/utils';
@@ -28,9 +31,6 @@ export const KIND_BADGE = {
   CONTEXT: { label: '맥락', variant: 'info' },
 } as const;
 
-/** 터치(거친 포인터) 기기인가 — 호버가 없어 툴팁 대신 토스트를 쓴다. */
-const isCoarsePointer = () => typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches;
-
 export function AiMemoryRow({
   item,
   fullScopes,
@@ -44,6 +44,8 @@ export function AiMemoryRow({
   const update = useUpdateAiMemory();
   const remove = useDeleteAiMemory();
   const pin = usePinAiMemory();
+  // 터치(거친 포인터)는 호버가 없어 막힌 핀의 이유를 툴팁 대신 토스트로 알린다.
+  const coarse = useIsCoarsePointer();
   const pinned = item.pinned === true;
   // 고정 풀기는 늘 된다 — 막는 것은 가득 찬 범위에서 새로 고정하는 것뿐.
   const pinBlocked = !pinned && pinFullHint != null;
@@ -76,16 +78,31 @@ export function AiMemoryRow({
   /** 만료 행 되살리기 — 기한 연장(새 날짜) 또는 계속 기억(null). 내용은 그대로. 그 범위가 가득이면 서버 409 를 훅이 토스트로 띄운다. */
   const revive = (next: string | null) => update.mutate({ id: item.id, ...expiryPatch(expiry, next) });
 
+  const onPin = () => {
+    if (pinBlocked) {
+      if (coarse) toast.info(pinFullHint);
+      return;
+    }
+    pin.mutate({ id: item.id, pinned: !pinned });
+  };
   const pinButton = (
     <Button
       variant="ghost"
       size="icon"
-      className={cn('size-7 pointer-coarse:size-11', pinned ? 'text-primary hover:text-primary' : 'text-muted-foreground')}
-      aria-label={pinned ? '고정 해제' : '고정'}
+      className={cn(
+        'size-7 pointer-coarse:size-11',
+        pinned
+          ? 'text-primary hover:text-primary'
+          : pinBlocked
+            ? 'cursor-not-allowed text-muted-foreground/70 hover:bg-transparent hover:text-muted-foreground/70'
+            : 'text-muted-foreground',
+      )}
+      aria-label="고정"
       aria-pressed={pinned}
+      aria-disabled={pinBlocked || undefined}
       data-testid="ai-memory-pin"
-      disabled={pinBlocked || pin.isPending}
-      onClick={() => pin.mutate({ id: item.id, pinned: !pinned })}
+      disabled={pin.isPending}
+      onClick={onPin}
     >
       <Pin className={cn('size-3.5', pinned && 'fill-current')} />
     </Button>
@@ -178,18 +195,9 @@ export function AiMemoryRow({
           </p>
           <div className="col-[3] row-[1/span_2] flex gap-0.5 pointer-coarse:row-[2] pointer-coarse:-my-3.5 pointer-coarse:-mr-1.5">
             {pinBlocked ? (
-              // 막힌 버튼은 포인터 이벤트가 없어 감싼 span 이 호버(툴팁)·탭(토스트)·포커스를 받는다. 터치는 호버가 없어 툴팁 없이 토스트만.
-              <Tooltip open={isCoarsePointer() ? false : undefined}>
-                <TooltipTrigger asChild>
-                  <span
-                    tabIndex={0}
-                    data-testid="ai-memory-pin-blocked"
-                    className="inline-flex rounded-md"
-                    onClick={() => isCoarsePointer() && toast.info(pinFullHint)}
-                  >
-                    {pinButton}
-                  </span>
-                </TooltipTrigger>
+              // 터치는 호버가 없어 툴팁을 열지 않는다(탭하면 onPin 이 토스트).
+              <Tooltip open={coarse ? false : undefined}>
+                <TooltipTrigger asChild>{pinButton}</TooltipTrigger>
                 <TooltipContent>{pinFullHint}</TooltipContent>
               </Tooltip>
             ) : (

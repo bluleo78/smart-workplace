@@ -8,6 +8,7 @@ import type { Page } from '@playwright/test'
 import { memoryItem, mockAiMemories, openMemorySettings } from '../../fixtures/ai-memory-mock'
 import { mockAiPreferences } from '../../fixtures/ai-suggestions-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { trackRequests } from '../../fixtures/requests'
 import { gate, stableBox } from '../../fixtures/wait'
 
 const rows = (page: Page) => page.getByTestId('ai-memory-row')
@@ -547,13 +548,23 @@ test.describe('고정·검색 (WP-383)', () => {
 
   test('범위 고정이 10개면 고정 안 된 행의 핀이 막히고 툴팁으로 이유를 알린다 — 고정 풀기는 된다', async ({ authenticatedPage: page }) => {
     const pinnedTen = Array.from({ length: 10 }, (_, i) => memoryItem(20 - i, { pinned: true, content: `고정 ${i}` }))
-    await mockAiMemories(page, [...pinnedTen, memoryItem(5, { content: '보통' })])
+    const mock = await mockAiMemories(page, [...pinnedTen, memoryItem(5, { content: '보통' })])
     await openMemorySettings(page)
     const plain = rows(page).filter({ hasText: '보통' })
-    await expect(plain.getByTestId('ai-memory-pin')).toBeDisabled()
-    await plain.getByTestId('ai-memory-pin-blocked').hover()
+    const blocked = plain.getByTestId('ai-memory-pin')
+    // 막힌 핀도 이름 있는 버튼(aria-disabled)이라 읽기 도구가 이유(툴팁 설명)를 듣는다. 흐림(opacity)은 겹치지 않는다.
+    await expect(blocked).toHaveAttribute('aria-disabled', 'true')
+    await expect(blocked).toHaveAccessibleName('고정')
+    expect(await blocked.evaluate((el) => getComputedStyle(el).opacity)).toBe('1')
+    await blocked.hover()
     await expect(page.getByRole('tooltip')).toHaveText('이 범위는 고정이 10개까지예요')
+    // 눌러도 요청하지 않는다 — aria-disabled 라 Playwright click 은 기다리기만 하므로 그 자리를 마우스로 직접 누른다.
+    await blocked.scrollIntoViewIfNeeded()
+    const box = await stableBox(blocked)
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
+    expect(mock.pins.count()).toBe(0)
     await expect(rows(page).nth(0).getByTestId('ai-memory-pin')).toBeEnabled()
+    await expect(rows(page).nth(0).getByTestId('ai-memory-pin')).toHaveAccessibleName('고정')
   })
 
   test('고정이 서버에서 거절되면(409) 서버 문구를 토스트로 띄운다', async ({ authenticatedPage: page }) => {
@@ -571,7 +582,7 @@ test.describe('고정·검색 (WP-383)', () => {
     const search = page.getByTestId('ai-memory-search')
     await search.fill('고양이')
     await expect(rows(page).getByTestId('ai-memory-content')).toHaveText(['고양이를 좋아한다'])
-    await expect(page.getByTestId('ai-memory-group-count')).toHaveText('21 / 300')
+    await expect(page.getByTestId('ai-memory-group-count')).toHaveText('1개 일치 · 21 / 300')
     await search.fill('없는 말')
     await expect(page.getByTestId('ai-memory-search-empty')).toBeVisible()
     await expect(rows(page)).toHaveCount(0)
@@ -592,6 +603,57 @@ test.describe('고정·검색 (WP-383)', () => {
     // "메모리" 는 모든 행에 맞는다 — 질의가 바뀌면 다시 30행부터.
     await page.getByTestId('ai-memory-search').fill('메모리')
     await expect(rows(page)).toHaveCount(30)
+  })
+
+  test('키 큰 화면에서는 스크롤하지 않아도 sentinel 이 보이는 동안 계속 30행씩 더 그린다', async ({ authenticatedPage: page }) => {
+    // 100행(약 5,000px)이 한 화면에 다 들어가는 높이 — 교차 이벤트가 다시 오지 않아도 observer 가 다시 붙어 이어서 늘어야 한다.
+    await page.setViewportSize({ width: 1280, height: 7000 })
+    await mockAiMemories(page, many(100))
+    await openMemorySettings(page)
+    await expect(rows(page)).toHaveCount(100)
+  })
+
+  test('검색 중엔 묶음 머리글 앞에 일치 개수가 붙는다 — 카운트는 거르기 전 그대로', async ({ authenticatedPage: page }) => {
+    await mockAiMemories(page, [memoryItem(30, { content: '고양이를 좋아한다' }), memoryItem(29, { content: '고양이 사진은 앨범에' }), ...many(20)])
+    await openMemorySettings(page)
+    await expect(page.getByTestId('ai-memory-group-count')).toHaveText('22 / 300')
+    await page.getByTestId('ai-memory-search').fill('고양이')
+    await expect(page.getByTestId('ai-memory-group-count')).toHaveText('2개 일치 · 22 / 300')
+  })
+
+  test('검색칸이 사라지면 질의도 버려서 다시 20개를 넘었을 때 숨은 필터가 되살아나지 않는다', async ({ authenticatedPage: page }) => {
+    await mockAiMemories(page, [memoryItem(30, { content: '고양이를 좋아한다' }), ...many(20)])
+    await openMemorySettings(page)
+    await page.getByTestId('ai-memory-search').fill('고양이')
+    await rows(page).getByTestId('ai-memory-delete').click()
+    await expect(page.getByTestId('ai-memory-search')).toHaveCount(0)
+    await expect(rows(page)).toHaveCount(20)
+    await page.getByRole('button', { name: '되돌리기' }).click()
+    await expect(page.getByTestId('ai-memory-search')).toHaveValue('')
+    await expect(rows(page)).toHaveCount(21)
+  })
+
+  test('고정이 409 로 거절되면 목록을 다시 읽어 다른 곳에서 바뀐 상태를 맞춘다', async ({ authenticatedPage: page }) => {
+    const mock = await mockAiMemories(page, [memoryItem(2, { scope: 'ISSUE', content: '이슈 메모' })])
+    await openMemorySettings(page)
+    const lists = trackRequests(page, 'GET', '/api/v1/users/me/ai-memories')
+    mock.failNext(409, 'AI_MEMORY_PIN_FULL', '이슈 메모리 고정은 최대 10개예요. 다른 고정을 풀어 주세요')
+    await rows(page).getByTestId('ai-memory-pin').click()
+    await expect(page.getByText('이슈 메모리 고정은 최대 10개예요. 다른 고정을 풀어 주세요')).toBeVisible()
+    await lists.waitFor()
+  })
+
+  test('직접 추가·모두 지우기는 목록 위 도구 줄에 있어 행이 늘어도 밀려나지 않는다', async ({ authenticatedPage: page }) => {
+    await mockAiMemories(page, many(100))
+    await openMemorySettings(page)
+    const add = await page.getByTestId('ai-memory-add').boundingBox()
+    const clear = await page.getByTestId('ai-memory-clear').boundingBox()
+    const firstRow = await rows(page).first().boundingBox()
+    expect(add!.y).toBeLessThan(firstRow!.y)
+    expect(clear!.y).toBeLessThan(firstRow!.y)
+    // 검색칸과 같은 줄이다.
+    const search = await page.getByTestId('ai-memory-search').boundingBox()
+    expect(Math.abs(add!.y + add!.height / 2 - (search!.y + search!.height / 2))).toBeLessThan(4)
   })
 
   test('20개 이하면 검색칸이 없다', async ({ authenticatedPage: page }) => {
