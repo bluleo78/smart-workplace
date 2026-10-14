@@ -12,18 +12,32 @@ const BLOCK_TAGS = new Set([
   'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr', 'div',
 ])
 type HastNode = { type: string; tagName?: string; value?: string; children?: HastNode[] }
+const isTag = (n: HastNode | undefined, tag: string) => n?.type === 'element' && n.tagName === tag
 const isBlock = (n: HastNode | undefined) => n?.type === 'element' && BLOCK_TAGS.has(n.tagName ?? '')
 
-/** 블록 옆에 낀 개행 전용 텍스트 노드를 지운다. 남겨 두면 pre-wrap 아래에서 빈 줄로 그려져 목록 항목 사이가 벌어진다. */
-function stripBlockGaps(node: HastNode) {
+/**
+ * pre-wrap(p·li) 아래에서 원문에 없던 빈 칸·빈 줄로 그려지는 포맷용 공백을 지운다.
+ * - 블록 옆에 낀 개행 전용 텍스트: 남기면 목록 항목·문단 사이가 한 줄씩 벌어진다.
+ * - 체크박스(input) 바로 뒤 공백: 체크박스가 absolute 라 글자만 한 칸 밀린다.
+ * - 하드 브레이크(br) 바로 뒤 개행: br 과 개행이 둘 다 줄바꿈으로 그려져 빈 줄이 생긴다.
+ * 인라인 요소 사이의 soft break("**a**\n*b*")는 원문 줄바꿈이므로 남긴다.
+ */
+function stripLayoutWhitespace(node: HastNode) {
   const kids = node.children
   if (!kids) return
-  node.children = kids.filter(
-    (c, i) => !(c.type === 'text' && /^\s*\n\s*$/.test(c.value ?? '') && (isBlock(kids[i - 1]) || isBlock(kids[i + 1]))),
-  )
-  node.children.forEach(stripBlockGaps)
+  const out: HastNode[] = []
+  kids.forEach((c, i) => {
+    if (c.type !== 'text') return void out.push(c)
+    let v = c.value ?? ''
+    if (/^\s*\n\s*$/.test(v) && (isBlock(kids[i - 1]) || isBlock(kids[i + 1]))) return
+    if (isTag(kids[i - 1], 'input')) v = v.replace(/^\s+/, '')
+    else if (isTag(kids[i - 1], 'br')) v = v.replace(/^\n/, '')
+    if (v) out.push(v === c.value ? c : { ...c, value: v })
+  })
+  node.children = out
+  out.forEach(stripLayoutWhitespace)
 }
-const REHYPE_PLUGINS = [() => stripBlockGaps]
+const REHYPE_PLUGINS = [() => stripLayoutWhitespace]
 
 /** 목록 클래스 — 체크리스트(contains-task-list)면 불릿 없이 얕게, 아니면 지정한 불릿 스타일. */
 function listClass(className: string | undefined, marker: string): string {
@@ -127,7 +141,7 @@ export function MarkdownMessage({
   return (
     <div
       data-testid="markdown-content"
-      // whitespace-normal: 호출자 말풍선의 pre-wrap 을 끊는다. 줄바꿈 보존은 p·li 가 직접 맡고, 블록 사이 포맷용 개행은 stripBlockGaps 가 지운다.
+      // whitespace-normal: 호출자 말풍선의 pre-wrap 을 끊는다. 줄바꿈 보존은 p·li 가 직접 맡고, 블록 사이 포맷용 개행은 stripLayoutWhitespace 가 지운다.
       className={cn('space-y-2 whitespace-normal break-words text-sm [overflow-wrap:anywhere]', className)}
     >
       <ReactMarkdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS} components={components}>
