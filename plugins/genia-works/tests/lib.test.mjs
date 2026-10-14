@@ -1,7 +1,7 @@
 // mod 순수 함수 테스트 — $ 없이 node --test 로 돈다.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseKeyList, identityLabel, isKeyPath, toolTargets, END_CLEARS } from '../hooks/lib.js';
+import { parseKeyList, identityLabel, isKeyPath, toolTargets, END_CLEARS, applyMaskedInput, maskOf, initializeBody, validName } from '../hooks/lib.js';
 
 test('parseKeyList: 탭 구분 줄을 이름·등록일로', () => {
   assert.deepEqual(parseKeyList('ai-dev\t10-14\nai-review\t10-12\n'), [
@@ -58,4 +58,33 @@ test('toolTargets: 경로·명령 필드의 문자열만', () => {
   );
   assert.deepEqual(toolTargets({ tool: 'Bash', command: 'ls', glob: '*.md', path: 3 }), ['*.md', 'ls']);
   assert.deepEqual(toolTargets(null), []);
+});
+
+test('applyMaskedInput: 치기·붙여넣기·지우기·전체 바꾸기', () => {
+  // 빈 필드에 붙여넣기
+  assert.equal(applyMaskedInput('', '', 'ak_FAKE_ABC'), 'ak_FAKE_ABC');
+  // ●●● 뒤에 한 글자 치기
+  assert.equal(applyMaskedInput('ak_', '●●●', '●●●F'), 'ak_F');
+  // 끝에서 하나 지우기
+  assert.equal(applyMaskedInput('ak_F', '●●●●', '●●●'), 'ak_');
+  // 전부 지우기
+  assert.equal(applyMaskedInput('ak_F', '●●●●', ''), '');
+  // 전체 선택 후 새로 붙여넣기(● 없이 새 글자만)
+  assert.equal(applyMaskedInput('ak_OLD', '●●●●●●', 'ak_NEW'), 'ak_NEW');
+  // 중간에 끼워 치기(커서 이동) — 위치를 알 수 없으니 ● 이 아닌 글자를 그 자리에 넣는다
+  assert.equal(applyMaskedInput('ak_', '●●●', '●X●●'), 'aXk_');
+  assert.equal(maskOf('ak_F'), '●●●●');
+});
+
+test('initializeBody: MCP initialize 요청', () => {
+  const b = JSON.parse(initializeBody());
+  assert.equal(b.method, 'initialize');
+  assert.equal(b.jsonrpc, '2.0');
+  assert.ok(b.params.protocolVersion);
+});
+
+test('validName', () => {
+  assert.equal(validName('ai-dev'), true);
+  assert.equal(validName('dh.yang@iacloud.kr'), true);
+  for (const bad of ['', '.', '..', '../x', 'a b', 'a/b', 'me']) assert.equal(validName(bad), false, bad);
 });
