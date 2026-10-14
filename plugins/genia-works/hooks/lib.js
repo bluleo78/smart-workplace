@@ -87,12 +87,14 @@ export function validKey(key) {
   return /^ak_[A-Za-z0-9_-]+$/.test(key)
 }
 
-// 같은 genia-works 서버인지 — origin 이 같고 경로가 /mcp 계열이면 같은 서버로 본다(범위 주소 /mcp/x/…·/readonly 포함).
+// 같은 genia-works 서버인지 — origin 이 같고 경로가 끝의 '/' 하나를 뗀 뒤 같을 때만 같은 서버로 본다(/mcp == /mcp/).
+// /mcp/readonly·/mcp/x/issue·/mcpfoo 는 다른 서버다: 삭제는 되돌릴 수 없고, 가림은 같은 주소에서만 확인됐다.
 export function sameServer(a, b) {
   try {
     const x = new URL(a)
     const y = new URL(b)
-    return x.origin === y.origin && x.pathname.startsWith('/mcp') && y.pathname.startsWith('/mcp')
+    const path = (u) => u.pathname.replace(/\/$/, '')
+    return x.origin === y.origin && path(x) === path(y)
   } catch {
     return false
   }

@@ -271,28 +271,37 @@ async function cleanupManualInner($) {
     $.ui.toast('플러그인 토큰으로 접속하지 못했습니다 — 기존 등록을 그대로 둡니다', { timeoutMs: 10000 })
     return
   }
-  // 되살리기 — 이미 지운 항목을 원래 설정으로 다시 등록한다. 실패해도 더 할 수 있는 일이 없어 삼킨다.
+  // 되살리기 — 이미 지운 항목을 원래 설정으로 다시 등록한다. 하나라도 실패하면 false.
+  // 주의: 옛 설정(토큰 포함 가능)이 잠시 명령 인자(argv)에 실린다 — add-json 이 JSON 을 인자로만 받아 피할 수 없다.
   const restore = async (done) => {
+    let all = true
     for (const f of done) {
       try {
-        await $.process.run(['claude', 'mcp', 'add-json', f.name, JSON.stringify(f.config), '-s', f.scope])
-      } catch {}
+        const r = await $.process.run(['claude', 'mcp', 'add-json', f.name, JSON.stringify(f.config), '-s', f.scope], { cwd: root })
+        if (r.exitCode !== 0) all = false
+      } catch {
+        all = false
+      }
     }
+    return all
+  }
+  const restoreToast = async (done, okText) => {
+    const text = (await restore(done)) ? okText : '기존 등록을 되살리지 못했습니다 — 터미널에서 claude mcp add 로 다시 등록하세요'
+    if (text) $.ui.toast(text, { timeoutMs: 12000 }) // okText 가 빈 문자열이면 성공 시 따로 알리지 않는다(뒤따르는 토스트가 있다)
   }
   const removed = []
   for (const f of found) {
     let r
     try {
-      r = await $.process.run(['claude', 'mcp', 'remove', f.name, '-s', f.scope])
+      r = await $.process.run(['claude', 'mcp', 'remove', f.name, '-s', f.scope], { cwd: root })
     } catch {
-      await restore(removed)
+      await restoreToast(removed, '')
       $.ui.toast(`claude 명령을 찾지 못해 기존 등록을 지우지 못했습니다 — 터미널에서 claude mcp remove ${f.name} -s ${f.scope} 를 실행하세요`, { timeoutMs: 12000 })
       return
     }
     if (r.exitCode !== 0) {
-      await restore(removed)
-      // claude mcp remove 의 stderr 에는 토큰이 없다 — 그래도 길이는 제한한다.
-      $.ui.toast(`기존 등록 ${f.name} 을 지우지 못했습니다: ${String(r.stderr ?? '').trim().slice(0, 120)}`, { timeoutMs: 12000 })
+      await restoreToast(removed, '')
+      $.ui.toast(`기존 등록 ${f.name} 을 지우지 못했습니다 — 터미널에서 claude mcp remove ${f.name} -s ${f.scope} 를 실행하세요`, { timeoutMs: 12000 })
       return
     }
     removed.push(f)
@@ -300,10 +309,11 @@ async function cleanupManualInner($) {
   let connected = null
   try {
     const c = await $.mcp.connect('genia-works') // 이 플러그인 .mcp.json 의 서버 키
-    if (c.isConnected) connected = c.server
+    // 세션이 아직 옛 수동 서버를 들고 있으면 connect 가 그 이름(≠SERVER)으로 답한다 — 옛 연결·옛 토큰이라 확인이 되지 않으므로 연결 안 됨으로 본다.
+    if (c.isConnected && c.server === SERVER) connected = c.server
   } catch {}
   if (!connected) {
-    // 연결이 안 돼도 되살리지 않는다 — 되살리면 수동 등록이 플러그인 서버를 계속 가린다.
+    // 연결이 안 돼도 되살리지 않는다 — 되살리면 수동 등록이 플러그인 서버를 계속 가린다(세션 시작마다 되풀이).
     // 위 토큰 확인이 이 서버가 플러그인 토큰을 받아들임을 이미 보였으므로, 다음 시작부터는 플러그인 연결이 선다.
     $.ui.toast('기존 genia-works 수동 등록을 지웠습니다 — 이 세션은 다시 시작하면 플러그인 연결로 바뀝니다', { timeoutMs: 12000 })
     return
@@ -314,9 +324,8 @@ async function cleanupManualInner($) {
     ok = !res?.isError
   } catch {}
   if (!ok) {
-    // 연결은 됐는데 도구가 안 돈다 — 확인할 수 없는 상태로 둘 수 없어 원래 등록으로 되돌린다.
-    await restore(removed)
-    $.ui.toast('플러그인 연결 확인에 실패해 기존 등록을 되살렸습니다', { timeoutMs: 12000 })
+    // 플러그인 연결인데 도구가 안 돈다 — 확인할 수 없는 상태로 둘 수 없어 원래 등록으로 되돌린다.
+    await restoreToast(removed, '플러그인 연결 확인에 실패해 기존 등록을 되살렸습니다')
     return
   }
   const scopes = [...new Set(removed.map((f) => (f.scope === 'user' ? '사용자 범위' : '이 프로젝트')))].join('·')

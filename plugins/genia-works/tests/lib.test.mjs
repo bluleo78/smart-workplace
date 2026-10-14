@@ -130,9 +130,11 @@ test('applyMaskedInput: 임의의 한 번 편집 뒤에도 ● 가 없고 길이
   }
 });
 
-test('sameServer: 같은 origin 의 /mcp 계열이면 같은 서버', () => {
+test('sameServer: origin 과 경로(끝 / 제외)가 같을 때만 같은 서버', () => {
   assert.equal(sameServer('https://genia-works.iacloud.kr/mcp', 'https://genia-works.iacloud.kr/mcp/'), true);
-  assert.equal(sameServer('https://genia-works.iacloud.kr/mcp/x/issue', 'https://genia-works.iacloud.kr/mcp'), true);
+  assert.equal(sameServer('https://genia-works.iacloud.kr/mcp/x/issue', 'https://genia-works.iacloud.kr/mcp'), false);
+  assert.equal(sameServer('https://genia-works.iacloud.kr/mcp/readonly', 'https://genia-works.iacloud.kr/mcp'), false);
+  assert.equal(sameServer('https://genia-works.iacloud.kr/mcpfoo', 'https://genia-works.iacloud.kr/mcp'), false);
   assert.equal(sameServer('http://localhost:6190/mcp', 'https://genia-works.iacloud.kr/mcp'), false);
   assert.equal(sameServer('not a url', 'https://genia-works.iacloud.kr/mcp'), false);
 });
@@ -143,7 +145,7 @@ test('findManualRegistrations: 사용자·로컬 범위에서 같은 서버만',
       'genia-works': { type: 'http', url: 'https://genia-works.iacloud.kr/mcp', headers: { Authorization: 'Bearer swp_FAKE_OLD' } },
       other: { type: 'http', url: 'https://example.com/mcp' },
     },
-    projects: { '/repo': { mcpServers: { gw: { type: 'http', url: 'https://genia-works.iacloud.kr/mcp/readonly' } } } },
+    projects: { '/repo': { mcpServers: { gw: { type: 'http', url: 'https://genia-works.iacloud.kr/mcp/' }, ro: { type: 'http', url: 'https://genia-works.iacloud.kr/mcp/readonly' } } } },
   };
   const found = findManualRegistrations(cfg, '/repo', 'https://genia-works.iacloud.kr/mcp');
   assert.deepEqual(found.map((f) => [f.scope, f.name]), [['user', 'genia-works'], ['local', 'gw']]);

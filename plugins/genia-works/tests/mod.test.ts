@@ -391,6 +391,7 @@ const OLD_CONFIG = { type: 'http', url: SERVER_URL, headers: { Authorization: 'B
 // 정리 테스트용 가짜 세계 — ~/.claude.json(fs.read)·claude 명령(process.run)·mcp.connect/call·http.fetch·ui. 실제 claude 는 부르지 않는다.
 function cleanupWorld(on: any, o: { claudeJson?: any; fetchStatus?: number; connect?: any; callError?: boolean; run?: (argv: string[]) => any } = {}) {
   const runs: string[][] = []
+  const cwds: unknown[] = []
   const shown: string[] = []
   const calls: string[] = []
   const claudeJson = o.claudeJson ?? { mcpServers: { 'genia-works': OLD_CONFIG } }
@@ -398,6 +399,7 @@ function cleanupWorld(on: any, o: { claudeJson?: any; fetchStatus?: number; conn
   on('session.root', () => ({ value: '/repo' }))
   on('process.run', (_$: any, e: any) => {
     runs.push(e.argv)
+    if (e.argv[0] === 'claude') cwds.push(e.init?.cwd)
     const custom = o.run?.(e.argv)
     return { value: custom ?? { exitCode: 0, stdout: '', stderr: '' } }
   })
@@ -420,7 +422,7 @@ function cleanupWorld(on: any, o: { claudeJson?: any; fetchStatus?: number; conn
   }
   const removes = () => runs.filter((r) => r[0] === 'claude' && r[2] === 'remove')
   const adds = () => runs.filter((r) => r[0] === 'claude' && r[2] === 'add-json')
-  return { start, runs, shown, calls, removes, adds }
+  return { start, runs, cwds, shown, calls, removes, adds }
 }
 
 test('수동 등록 정리: 플러그인 토큰이 없으면 지우지 않고 안내한다', { options: { server_url: SERVER_URL } }, async ($, on) => {
@@ -435,6 +437,7 @@ test('수동 등록 정리: 확인·연결·호출이 모두 되면 지우고 �
   await w.start($)
   expect(w.removes()).toEqual([['claude', 'mcp', 'remove', 'genia-works', '-s', 'user']])
   expect(w.adds()).toEqual([])
+  expect(w.cwds).toEqual(['/repo'])
   expect(w.calls).toEqual(['connect genia-works', 'call plugin:genia-works:genia-works list_projects'])
   expect(w.shown.join('|')).toContain('기존 genia-works 수동 등록(사용자 범위)을 지우고 플러그인 연결로 바꿨습니다')
 })
@@ -469,7 +472,45 @@ test('수동 등록 정리: claude 를 못 찾으면 연결하지 않고 터미�
   expect(w.shown.join('|')).toContain('claude mcp remove genia-works -s user')
 })
 
-for (const [label, o] of [['성공', {}], ['호출 실패', { callError: true }], ['연결 안 됨', { connect: { isConnected: false, reason: 'failed', message: 'x' } }], ['확인 401', { fetchStatus: 401 }]] as const) {
+test('수동 등록 정리: connect 가 옛 수동 서버 이름으로 답하면 연결 안 됨으로 본다', { options: { server_url: SERVER_URL, token: NEW_TOKEN } }, async ($, on) => {
+  const w = cleanupWorld(on, { connect: { isConnected: true, server: 'genia-works' } })
+  await w.start($)
+  expect(w.removes().length).toBe(1)
+  expect(w.adds()).toEqual([])
+  expect(w.calls).toEqual(['connect genia-works'])
+  expect(w.shown.join('|')).toContain('다시 시작하면 플러그인 연결로 바뀝니다')
+})
+
+test('수동 등록 정리: remove 가 0 이 아닌 코드로 끝나면 이름만 알리고 멈춘다', { options: { server_url: SERVER_URL, token: NEW_TOKEN } }, async ($, on) => {
+  const w = cleanupWorld(on, { run: (argv) => (argv[2] === 'remove' ? { exitCode: 1, stdout: '', stderr: 'secret-looking ' + OLD_TOKEN } : undefined) })
+  await w.start($)
+  expect(w.calls).toEqual([])
+  const text = w.shown.join('|')
+  expect(text).toContain('기존 등록 genia-works 을 지우지 못했습니다')
+  expect(text).not.toContain(OLD_TOKEN)
+})
+
+test('수동 등록 정리: 두 번째 remove 가 실패하면 첫 번째를 되살린다', { options: { server_url: SERVER_URL, token: NEW_TOKEN } }, async ($, on) => {
+  const local = { type: 'http', url: SERVER_URL + '/' }
+  const w = cleanupWorld(on, {
+    claudeJson: { mcpServers: { 'genia-works': OLD_CONFIG }, projects: { '/repo': { mcpServers: { gw: local } } } },
+    run: (argv) => (argv[2] === 'remove' && argv[3] === 'gw' ? { exitCode: 1, stdout: '', stderr: 'x' } : undefined),
+  })
+  await w.start($)
+  expect(w.adds()).toEqual([['claude', 'mcp', 'add-json', 'genia-works', JSON.stringify(OLD_CONFIG), '-s', 'user']])
+  expect(w.cwds.every((c) => c === '/repo')).toBe(true)
+  expect(w.calls).toEqual([])
+})
+
+test('수동 등록 정리: 되살리기도 실패하면 성공이라 하지 않는다', { options: { server_url: SERVER_URL, token: NEW_TOKEN } }, async ($, on) => {
+  const w = cleanupWorld(on, { callError: true, run: (argv) => (argv[2] === 'add-json' ? { exitCode: 1, stdout: '', stderr: 'x' } : undefined) })
+  await w.start($)
+  const text = w.shown.join('|')
+  expect(text).toContain('기존 등록을 되살리지 못했습니다')
+  expect(text).not.toContain('되살렸습니다')
+})
+
+for (const [label, o] of [['성공', {}], ['호출 실패', { callError: true }], ['연결 안 됨', { connect: { isConnected: false, reason: 'failed', message: 'x' } }], ['확인 401', { fetchStatus: 401 }], ['remove 실패', { run: (a: string[]) => (a[2] === 'remove' ? { exitCode: 1, stdout: '', stderr: 'x' } : undefined) }], ['claude 없음', { run: (a: string[]) => { if (a[2] === 'remove') throw new Error('ENOENT') } }]] as const) {
   test(`수동 등록 정리: 옛 토큰이 토스트·로그·상태 줄 어디에도 새지 않는다 (${label})`, { options: { server_url: SERVER_URL, token: NEW_TOKEN } }, async ($, on) => {
     const w = cleanupWorld(on, o as any)
     await w.start($)
