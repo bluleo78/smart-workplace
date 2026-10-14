@@ -345,16 +345,3 @@ test('다음 페이지의 하위 행은 같은 머리 아래 이어 붙는다', 
     els.map((e) => e.getAttribute('data-testid')).filter((t) => /^ai-(row|epic)-\d+$/.test(t ?? '')))
   expect(order).toEqual(['ai-epic-420', 'ai-row-421', 'ai-row-422', 'ai-row-430'])
 })
-
-// 에픽 묶음 화면 캡처(WP-375) — 라이트·다크 1280. 겹침·잘림은 사람이 캡처로 확인한다(test-results/tc/ai-tasks-groups/).
-for (const scheme of ['light', 'dark'] as const) {
-  test.describe(`에픽 묶음 캡처 ${scheme}`, () => {
-    test.use({ viewport: { width: 1280, height: 820 }, colorScheme: scheme })
-    test(`1280 ${scheme}`, async ({ authenticatedPage: page }) => {
-      await setup(page, GROUPED_ROWS, createAiTaskCounts({ all: 8, inputRequired: 1, review: 1, blocked: 1, working: 3 }))
-      await page.goto('/me/ai-tasks')
-      await expect(page.getByTestId('ai-row-431')).toBeVisible()
-      await page.screenshot({ path: `../../test-results/tc/ai-tasks-groups/after-1280${scheme === 'dark' ? '-dark' : ''}.png` })
-    })
-  })
-}

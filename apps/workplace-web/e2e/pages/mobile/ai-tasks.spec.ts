@@ -125,16 +125,3 @@ test('모바일 묶음 머리 — 아이콘·키·제목·하위 진행, 에픽 
   await expect(page.getByTestId('ai-row-413')).toBeVisible()
   await expectNoHorizontalOverflow(page)
 })
-
-// 모바일 묶음 캡처(WP-375) — 375px(test-results/tc/ai-tasks-groups/).
-test.describe('에픽 묶음 캡처 모바일', () => {
-  test.use({ viewport: { width: 375, height: 812 } })
-  test('375', async ({ authenticatedPage: page }) => {
-    await stubChat(page)
-    await mockApi(page, 'GET', '/api/v1/me/ai-tasks', createIssueSearchResponse(GROUPED_ROWS))
-    await mockApi(page, 'GET', '/api/v1/me/ai-tasks/counts', createAiTaskCounts({ all: 8, inputRequired: 1, review: 1, blocked: 1, working: 3 }))
-    await page.goto('/me/ai-tasks')
-    await expect(page.getByTestId('ai-row-431')).toBeVisible()
-    await page.screenshot({ path: '../../test-results/tc/ai-tasks-groups/after-mobile.png' })
-  })
-})
