@@ -20,6 +20,8 @@ export interface AssistantStatus {
   suggestionModel?: string | null;
   /** WP-139: 자동일 때 실제로 쓸 모델(API 가 정함 — Anthropic 은 설정 기본값, opencode 는 비서 모델). 연결 없음은 null. */
   suggestionModelAuto?: string | null;
+  /** WP-250: 지금 모델의 이미지 입력 수동 지정 — true/false, null 이면 자동 감지. 구 API 응답·E2E 픽스처 호환을 위해 선택. */
+  vision?: boolean | null;
 }
 
 // 공통 비서(admin) 상태. agentUserId 가 null 이면 미지정 상태.
@@ -33,6 +35,8 @@ export interface WorkspaceAssistant {
   suggestionModel?: string | null;
   /** WP-139: 자동일 때 실제로 쓸 모델(API 가 정함 — Anthropic 은 설정 기본값, opencode 는 비서 모델). 연결 없음은 null. */
   suggestionModelAuto?: string | null;
+  /** WP-250: 지금 모델의 이미지 입력 수동 지정 — true/false, null 이면 자동 감지. 구 API 응답·E2E 픽스처 호환을 위해 선택. */
+  vision?: boolean | null;
 }
 
 // 비서 설정 변경 요청 — 개인/공용 공통. 미지정 필드는 변경 없음.
@@ -41,4 +45,9 @@ export interface UpdateAssistantSettings {
   thinkingDepth?: ThinkingDepth | null;
   /** WP-139: 추천 질문 모델 — null 이면 자동으로 되돌린다. 키를 빼면 변경 없음(서버가 보낸 필드만 바꾼다). */
   suggestionModel?: string | null;
+  /**
+   * WP-250: 이미지 입력 지정 — 같은 요청의 model(없으면 지금 모델)에 건다. true/false, null 이면 자동 감지로 되돌린다.
+   * 키를 빼면 변경 없음. OpenAI 호환(opencode) 연결에만 보낸다(Claude 연결에 true/false 를 보내면 서버가 400).
+   */
+  vision?: boolean | null;
 }

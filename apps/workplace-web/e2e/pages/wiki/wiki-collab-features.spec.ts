@@ -7,7 +7,7 @@ import { readFile } from 'node:fs/promises'
 import type { Page } from '@playwright/test'
 
 import { expect, test } from '../../fixtures/auth.fixture'
-import { readCollabMarkdown, typeAtEnd } from '../../fixtures/collab'
+import { caretAtEnd, readCollabMarkdown, typeAtEnd } from '../../fixtures/collab'
 import { expectStays } from '../../fixtures/wait'
 import { mockWikiPageEditor } from '../../fixtures/wiki-mock'
 
@@ -50,7 +50,7 @@ test.describe('동시 편집 중 기존 편집 기능', () => {
     collabNs,
   }) => {
     const b = await openBoth(a, newAuthedPage, 51, `맨 위\n\n${TABLE_MD}`)
-    await a.locator('.ProseMirror td').first().click()
+    await caretAtEnd(a, 'API 설계')
     const toolbar = a.getByTestId('wiki-table-toolbar')
     await expect(toolbar).toBeVisible()
 
@@ -89,7 +89,7 @@ test.describe('동시 편집 중 기존 편집 기능', () => {
     collabNs,
   }) => {
     const b = await openBoth(a, newAuthedPage, 52, `맨 위\n\n${TABLE_MD}`)
-    // 글자를 하나 쳐서 A 의 커서를 'API 설계' 셀 끝에 확정한다(클릭만으론 selectionchange 가 비동기).
+    // A 의 커서를 'API 설계' 셀 끝에 두고 글자를 하나 쳐 본다.
     await typeAtEnd(a, 'API 설계', '.')
     const apiCell = a.locator('.ProseMirror td').first()
     await expect(apiCell).toHaveText('API 설계.')
@@ -148,7 +148,7 @@ test.describe('동시 편집 중 기존 편집 기능', () => {
     collabNs,
   }) => {
     const b = await openBoth(a, newAuthedPage, 54, '맨 위\n\n마지막 문단')
-    // 클릭만으론 커서가 확정되지 않는다(selectionchange 비동기) — 글자를 하나 쳐서 확정한 뒤 줄을 바꾼다.
+    // 문단 끝에 글자를 하나 친 뒤 줄을 바꾼다.
     await typeAtEnd(a, '마지막 문단', '.')
     await a.keyboard.press('Enter')
     await a.keyboard.type('/')

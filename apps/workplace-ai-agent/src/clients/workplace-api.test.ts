@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import nock from 'nock';
 
-import { parseIssueKey } from '@smart-workplace/mcp-tools-shared';
+import { IMAGE_MAX_BYTES, parseIssueKey } from '@smart-workplace/mcp-tools-shared';
 
 import { createWorkplaceApiClient } from './workplace-api.js';
 
@@ -328,14 +328,58 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
     expect(requestedPath).not.toContain('?');
   });
 
-  it('downloadHomeAttachment → GET /home/sessions/{sid}/attachments/{fileId}/content (바이너리)', async () => {
+  // --- WP-250: 모델 입력용 이미지(/view) ---
+  it('viewHomeAttachment → GET .../view?page=N, 이미지 바이트 + Content-Type + X-Page-Count', async () => {
     nock(BASE)
       .matchHeader('x-on-behalf-of', '42')
-      .get(`${PREFIX}/home/sessions/${SID}/attachments/8/content`)
-      .reply(200, Buffer.from('PNGDATA'), { 'content-type': 'image/png' });
-    const r = await newClient().downloadHomeAttachment(42, SID, 8);
-    expect(r.data.toString()).toBe('PNGDATA');
+      .get(`${PREFIX}/home/sessions/${SID}/attachments/8/view`)
+      .query({ page: '3' })
+      .reply(200, Buffer.from('PAGEPNG'), { 'content-type': 'image/png', 'x-page-count': '7' });
+    const r = await newClient().viewHomeAttachment(42, SID, 8, 3);
+    expect(r.data.toString()).toBe('PAGEPNG');
     expect(r.mimeType).toBe('image/png');
+    expect(r.pageCount).toBe(7);
+  });
+
+  it('viewHomeAttachment → page 생략이면 쿼리 없음, X-Page-Count 없으면 pageCount 도 없다', async () => {
+    let requested = '';
+    nock(BASE)
+      .get((uri) => {
+        requested = uri;
+        return uri.includes('/view');
+      })
+      .reply(200, Buffer.from('JPG'), { 'content-type': 'image/jpeg' });
+    const r = await newClient().viewHomeAttachment(42, SID, 8);
+    expect(requested).not.toContain('?');
+    expect(r.pageCount).toBeUndefined();
+  });
+
+  it('viewChatAttachment → GET /chat/threads/{id}/attachments/{fileId}/view?page=N + 에이전트 대행 헤더', async () => {
+    nock(BASE)
+      .matchHeader('x-on-behalf-of', '201')
+      .get(`${PREFIX}/chat/threads/5/attachments/3/view`)
+      .query({ page: '1' })
+      .reply(200, Buffer.from('PAGEPNG'), { 'content-type': 'image/png', 'x-page-count': '2' });
+    const r = await newClient().viewChatAttachment(201, 5, 3, 1);
+    expect(r).toMatchObject({ mimeType: 'image/png', pageCount: 2 });
+  });
+
+  it('/view 오류 본문(arraybuffer 로 온 ErrorResponse JSON)을 풀어 한국어 message 와 response.data 로 올린다', async () => {
+    nock(BASE)
+      .get(`${PREFIX}/home/sessions/${SID}/attachments/8/view`)
+      .query({ page: '9' })
+      .reply(400, { message: '이 PDF 는 6쪽입니다.' });
+    const err = await newClient().viewHomeAttachment(42, SID, 8, 9).catch((e: unknown) => e);
+    expect((err as Error).message).toContain('이 PDF 는 6쪽입니다.');
+    expect((err as { response: { data: unknown } }).response.data).toEqual({ message: '이 PDF 는 6쪽입니다.' });
+  });
+
+  // 공유 getBytes 와 같은 규칙 — 상한 초과는 FileTooLargeError 로 던지고, 도구(pageBlocks·imageViewBlocks)가 "변환한 이미지가 …" 사유로 바꾼다.
+  it('/view 는 이미지 상한(IMAGE_MAX_BYTES)을 넘는 응답을 받지 않고 FileTooLargeError 로 던진다', async () => {
+    nock(BASE)
+      .get(`${PREFIX}/home/sessions/${SID}/attachments/8/view`)
+      .reply(200, Buffer.alloc(IMAGE_MAX_BYTES + 1), { 'content-type': 'image/png' });
+    await expect(newClient().viewHomeAttachment(42, SID, 8)).rejects.toMatchObject({ name: 'FileTooLargeError' });
   });
 
   // --- WP-55: 사용자 메모리(요청자 대행) ---

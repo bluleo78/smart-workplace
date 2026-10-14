@@ -77,7 +77,7 @@ class TextOnlyProfileTest extends IntegrationTestBase {
     inTenantRun(
         () ->
             pipeline.applyExtractResult(
-                jobId, new ExtractResult(TENANT, "DONE", "본문", 2, null, false, null)));
+                jobId, new ExtractResult(TENANT, "DONE", "본문", 2, null, false, null, null)));
     Thread.sleep(300); // afterCommit 비동기 요약 nudge 가 있었다면 실행될 시간
 
     assertThat(status(fileId)).isEqualTo("DONE");
@@ -92,7 +92,7 @@ class TextOnlyProfileTest extends IntegrationTestBase {
     inTenantRun(
         () ->
             pipeline.applyExtractResult(
-                jobId, new ExtractResult(TENANT, "DONE", "본문", 2, null, false, null)));
+                jobId, new ExtractResult(TENANT, "DONE", "본문", 2, null, false, null, null)));
     assertThat(status(fileId)).isIn("TEXT_READY", "SUMMARIZING", "DONE");
   }
 
@@ -114,7 +114,8 @@ class TextOnlyProfileTest extends IntegrationTestBase {
     inTenantRun(
         () ->
             pipeline.applyExtractResult(
-                jobId, new ExtractResult(TENANT, "FAILED", null, null, null, null, longMessage)));
+                jobId,
+                new ExtractResult(TENANT, "FAILED", null, null, null, null, longMessage, null)));
     String error =
         inTenant(
             () ->

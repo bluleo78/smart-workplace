@@ -245,9 +245,17 @@ describe('runChatAgent 트리거 첨부 추출 대기(WP-244)', () => {
     expect(streamSpy).toHaveBeenCalledOnce();
   });
 
-  it('Claude + 트리거 PENDING PDF → 로컬 Read 가능하므로 기다리지 않는다', async () => {
+  // WP-250: PDF 는 더 이상 로컬 Read 대상이 아니라 추출 텍스트·쪽수가 필요하므로 Claude 도 추출을 기다린다.
+  it('Claude + 트리거 PENDING PDF → 로컬로 읽지 않으므로 추출을 기다린다', async () => {
     const d = { ...deps(), sleep: vi.fn(async () => {}) };
     vi.mocked(mergeAttachments).mockReturnValue(onMessage(9, 'PENDING', 'application/pdf'));
+    await runChatAgent(env, d);
+    expect(d.sleep).toHaveBeenCalled();
+  });
+
+  it('Claude + 트리거 PENDING 텍스트(txt) → 로컬 Read 가능하므로 기다리지 않는다', async () => {
+    const d = { ...deps(), sleep: vi.fn(async () => {}) };
+    vi.mocked(mergeAttachments).mockReturnValue(onMessage(9, 'PENDING', 'text/plain'));
     await runChatAgent(env, d);
     expect(d.sleep).not.toHaveBeenCalled();
     expect(d.client.getChatMessages).toHaveBeenCalledTimes(1);

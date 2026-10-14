@@ -149,7 +149,7 @@ export const ViewerBody = memo(function ViewerBody({
   // 변환 결과(없으면 아직 변환 전). WP-203: pdf 는 toVerifiedPdfBlob 을 통과한 blob 만 담아 pdf.js 로 넘긴다.
   const [content, setContent] = useState<BodyContent | null>(null)
   const [convertError, setConvertError] = useState(false)
-  // 재생 불가(코덱 미지원 등 플레이어 error 이벤트) — 실패 화면이 아니라 미지원 화면 + 다운로드로 바꾼다(스펙 §5.3).
+  // 재생 불가(코덱 미지원 등 플레이어 error 이벤트)·브라우저가 못 그리는 이미지(img error) — 실패 화면이 아니라 미지원 화면 + 다운로드로 바꾼다(스펙 §5.3).
   const [unplayable, setUnplayable] = useState(false)
   // 이미지 확대 계산용 — 본문 내용 영역 크기(패딩 제외)와 이미지 원본 크기.
   const [bodyEl, setBodyEl] = useState<HTMLDivElement | null>(null)
@@ -301,13 +301,15 @@ export const ViewerBody = memo(function ViewerBody({
           <div className="h-3 w-2/3 animate-pulse rounded bg-muted" />
         </div>
       )}
-      {!error && kind === 'IMAGE' && content?.k === 'url' && (
+      {!error && kind === 'IMAGE' && !unplayable && content?.k === 'url' && (
         // 맞춤(확대 1)은 본문 안에 전체가 보이게, 확대는 맞춤 폭 × 배율을 명시 폭으로 준다(레이아웃 크기가 커져 스크롤 영역도 늘어난다).
         // 크기를 재기 전에는 max-w/max-h 로 화면 안에 둔다.
         <img
           src={content.url}
           alt={item.name}
           onLoad={(e) => setNatural({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
+          // 브라우저가 못 그리는 이미지(크롬·파이어폭스의 HEIC·TIFF 등 — WP-250 부터 이미지로 분류)는 빈 그림 대신 미지원 화면 + 다운로드로.
+          onError={() => setUnplayable(true)}
           // 확대 기준 요소 표식 — 핀치·두 번 탭 기준점을 이 요소 안 비율로 잡는다(여백·가운데 정렬 여백은 배율을 따르지 않으므로).
           data-zoom-content=""
           className={cn('m-auto shrink-0', fitWidth == null ? 'max-h-full max-w-full object-contain' : 'h-auto max-h-none max-w-none')}

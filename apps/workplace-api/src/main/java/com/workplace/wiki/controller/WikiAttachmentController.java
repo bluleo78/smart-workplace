@@ -1,6 +1,8 @@
 package com.workplace.wiki.controller;
 
+import com.workplace.fileai.controller.ViewImageResponses;
 import com.workplace.fileai.dto.ExtractedTextSlice;
+import com.workplace.fileai.service.AttachmentViewService;
 import com.workplace.wiki.dto.WikiAttachmentResponse;
 import com.workplace.wiki.service.WikiAttachmentService;
 import java.nio.charset.StandardCharsets;
@@ -29,6 +31,8 @@ import org.springframework.web.multipart.MultipartFile;
 public class WikiAttachmentController {
 
   private final WikiAttachmentService service;
+
+  private final AttachmentViewService attachmentView;
 
   @PostMapping
   public ResponseEntity<WikiAttachmentResponse> upload(
@@ -70,6 +74,17 @@ public class WikiAttachmentController {
       @RequestParam(defaultValue = "0") int offset,
       @RequestParam(defaultValue = "32000") int limit) {
     return ResponseEntity.ok(service.readText(callerId, pageId, fileId, offset, limit));
+  }
+
+  /** 첨부를 모델 입력용 이미지로 보여 준다(WP-250) — 규칙·권한·트랜잭션(R5)은 {@link AttachmentViewService} 참조. */
+  @GetMapping("/{fileId}/view")
+  public ResponseEntity<byte[]> view(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable long pageId,
+      @PathVariable long fileId,
+      @RequestParam(required = false) Integer page) {
+    return ViewImageResponses.of(
+        attachmentView.view(service.resolveViewFileId(callerId, pageId, fileId), page));
   }
 
   @DeleteMapping("/{fileId}")

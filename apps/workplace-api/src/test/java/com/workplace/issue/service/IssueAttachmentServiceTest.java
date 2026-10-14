@@ -48,6 +48,7 @@ class IssueAttachmentServiceTest extends IntegrationTestBase {
   @Autowired IssueRepository issueRepository;
   @Autowired IssueHistoryRepository historyRepository;
   @Autowired ProjectService projectService;
+  @Autowired com.workplace.file.storage.FileStore fileStore;
 
   /**
    * FilePathBuilder 가 TenantContext.get() 을 사용하므로 테스트 시작 전 테넌트를 설정. connection-init-sql 의
@@ -240,6 +241,44 @@ class IssueAttachmentServiceTest extends IntegrationTestBase {
 
     // OWNER OK
     service.delete(owner, p.key(), 1, fileB);
+  }
+
+  /**
+   * WP-250: 첨부 삭제는 원본뿐 아니라 썸네일과 이미지 보기 캐시("{storage_path}.view/")도 지워야 한다 — 둘 다 DB 행이 없어 원본과 함께 지우지
+   * 않으면 고아로 남는다.
+   */
+  @Test
+  void delete_alsoRemovesThumbnailAndViewCache() throws IOException {
+    Long owner = createUser("owner");
+    ProjectResponse p = newProject(owner, "AT");
+    issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    Long fileId =
+        service
+            .upload(owner, p.key(), 1, List.of(mockFile("a.pdf", new byte[] {1})))
+            .get(0)
+            .fileId();
+
+    String storagePath =
+        dsl.select(FILE.STORAGE_PATH)
+            .from(FILE)
+            .where(FILE.ID.eq(fileId))
+            .fetchOne(0, String.class);
+    String thumbPath = storagePath + ".thumb.png";
+    dsl.update(FILE).set(FILE.THUMBNAIL_PATH, thumbPath).where(FILE.ID.eq(fileId)).execute();
+    var original = fileStore.resolve(storagePath);
+    var thumb = fileStore.resolve(thumbPath);
+    var cache = fileStore.resolve(storagePath + ".view/p1-1568.png");
+    Files.createDirectories(cache.getParent());
+    Files.writeString(thumb, "thumb");
+    Files.writeString(cache, "page");
+    assertThat(original).exists();
+
+    service.delete(owner, p.key(), 1, fileId);
+
+    assertThat(original).doesNotExist();
+    assertThat(thumb).doesNotExist();
+    assertThat(cache).doesNotExist();
+    assertThat(fileStore.resolve(storagePath + ".view")).doesNotExist();
   }
 
   /** OPEN 프로젝트 생성 — 비멤버 테넌트 사용자도 이슈 생성·조회가 가능한 유형(WP-202). */

@@ -15,6 +15,7 @@ import org.springframework.stereotype.Component;
 class AssistantSettingsWriter {
 
   private final AssistantConfigRepository configRepo;
+  private final AiAgentCredentialService credentialService;
 
   /** agent 의 설정에 요청을 병합해 저장한다. 빈 문자열 추천 모델은 자동(null)으로 본다. */
   void apply(long agentId, UpdateAssistantSettingsRequest req) {
@@ -29,6 +30,14 @@ class AssistantSettingsWriter {
     if (req.hasSuggestionModel()) {
       String s = req.suggestionModel();
       configRepo.updateSuggestionModel(agentId, s == null || s.isBlank() ? null : s.strip());
+    }
+    // WP-250: 이미지 입력 지정 — 같은 요청에 모델이 있으면 그 새 모델, 없으면 지금 모델에 건다(등록 후 모델만 바꿔도 다시 지정할 수 있게).
+    if (req.hasVision()) {
+      String model =
+          req.hasModel()
+              ? req.model()
+              : configRepo.find(agentId).map(ConfigRow::model).orElse(null);
+      credentialService.updateModelVision(agentId, model, req.vision());
     }
   }
 }

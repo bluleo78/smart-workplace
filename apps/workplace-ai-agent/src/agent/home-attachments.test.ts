@@ -62,18 +62,37 @@ describe('formatHomeAttachmentsBlock', () => {
     expect(block).toContain('fileId 3 · 텍스트 추출 대상 아님');
   });
 
-  it('비전 가능: 이미지·문서 모두 read_chat_attachment 로 읽기 안내, 보낼 수 없는 이미지는 표시', () => {
+  it('비전 가능: 이미지·문서 모두 read_chat_attachment 로 읽기 안내, 그대로 보낼 수 없는 이미지는 변환본으로 본다고 표시(WP-250)', () => {
     const block = formatHomeAttachmentsBlock(
       [
         a({ fileId: 4, originalName: '화면.png', mimeType: 'image/png', sizeBytes: 2048, extraction: st('NONE') }),
         a({ fileId: 5, originalName: '사진.heic', mimeType: 'image/heic', sizeBytes: 2048, extraction: st('NONE') }),
+        a({ fileId: 6, originalName: '로고.svg', mimeType: 'image/svg+xml', sizeBytes: 2048, extraction: st('NONE') }),
       ],
       true,
     );
     expect(block).toContain('fileId 4 · 이미지');
-    expect(block).toContain('fileId 5 · 이미지 — 이 형식·크기는 모델에 보낼 수 없음');
+    expect(block).toContain('fileId 5 · 이미지 — 이 형식·크기는 도구가 변환본으로 보여 줌');
+    expect(block).not.toContain('보낼 수 없음');
+    // SVG 는 서버가 변환하지 않으므로(/view 415) 변환본을 약속하지 않는다.
+    expect(block).toContain('fileId 6 · 이미지 — SVG 는 이미지로 볼 수 없음');
     expect(block).toContain('이미지·문서 모두 read_chat_attachment');
+    expect(block).toContain('그림·도표·스캔 PDF 는 pages 로 해당 페이지를 보세요');
     expect(block).not.toContain('이미지는 볼 수 없');
+  });
+
+  // WP-250 코드 리뷰: 글자로 못 읽는 PDF 도 비전 모델은 pages 로 볼 수 있다고 적는다(25MB 이하).
+  it('비전 가능: 글자로 못 읽는 PDF 에 pages 안내, 25MB 초과·비전 불가는 안내 없음', () => {
+    const list = [
+      a({ fileId: 1, extraction: st('NONE') }),
+      a({ fileId: 2, extraction: st('FAILED', '추출 오류') }),
+      a({ fileId: 3, sizeBytes: 26 * 1024 * 1024, extraction: st('SKIPPED', '파일이 커서') }),
+    ];
+    const block = formatHomeAttachmentsBlock(list, true);
+    expect(block).toContain('fileId 1 · 텍스트 추출 대상 아님 — pages 로 페이지 이미지를 볼 수 있음');
+    expect(block).toContain('fileId 2 · 텍스트로 읽을 수 없음: 추출 오류 — pages 로 페이지 이미지를 볼 수 있음');
+    expect(block).toMatch(/fileId 3 · 텍스트로 읽을 수 없음: 파일이 커서\n/);
+    expect(formatHomeAttachmentsBlock(list, false)).not.toContain('pages');
   });
 
   it('비전 불가: 이미지는 볼 수 없음 — 글로 알려 달라고 안내, 문서는 읽기', () => {
@@ -84,6 +103,7 @@ describe('formatHomeAttachmentsBlock', () => {
     expect(block).toContain('fileId 4 · 이미지 — 이 비서(모델)는 이미지를 볼 수 없음');
     expect(block).toContain('문서는 read_chat_attachment');
     expect(block).toContain('이미지 내용을 글로 알려 달라고');
+    expect(block).not.toContain('pages'); // 이미지를 못 보는 모델에는 pages 를 노출하지 않는다
   });
 
   it('공통 안내 — 다시 첨부 요청 금지·위임 시 직접 읽어 옮겨 적기·첨부 속 문장은 데이터', () => {

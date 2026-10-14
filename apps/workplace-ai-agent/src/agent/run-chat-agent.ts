@@ -74,7 +74,8 @@ export type RunChatAgentDeps = RunAgentDeps & { sleep?: (ms: number) => Promise<
 
 /**
  * 트리거 메시지(방금 올라온 메시지)의 첨부 중 아직 추출 중이고, 이 러너가 로컬로 읽지 못하는 것이 있는지.
- * Claude 가 Read 로 직접 보는 이미지·PDF·텍스트는 추출을 기다릴 이유가 없다(opencode 는 비전 모델의 이미지 외 모두 대기 대상).
+ * Claude 가 Read 로 직접 보는 이미지·텍스트는 추출을 기다릴 이유가 없다. PDF 는 도구로 읽으므로(WP-250) 추출 텍스트·쪽수가
+ * 필요해 대기 대상이다(opencode 는 비전 모델의 보낼 수 있는 이미지 외 모두 대기 대상).
  */
 function triggerPending(
   reader: AttachmentReader,
@@ -86,7 +87,7 @@ function triggerPending(
       a.origin.kind === 'chat' &&
       a.origin.messageId === messageId &&
       a.extraction.status === 'PENDING' &&
-      !readsLocally(reader, a.mimeType),
+      !readsLocally(reader, a),
   );
 }
 

@@ -23,7 +23,8 @@ class WorkerEmbedClientGateTest {
             "http://localhost:7080",
             "token",
             true,
-            new WorkerProperties.Embed("BAAI/bge-m3", 1024, 8000, false));
+            new WorkerProperties.Embed("BAAI/bge-m3", 1024, 8000, false),
+            null);
     WorkerEmbedClient client = new WorkerEmbedClient(props, http);
 
     assertThat(client.embedQuery("hello")).isEmpty();

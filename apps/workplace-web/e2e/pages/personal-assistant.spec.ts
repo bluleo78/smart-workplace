@@ -19,6 +19,7 @@ interface AssistantStatusFixture {
   name?: string | null
   provider?: string | null
   baseUrl?: string | null
+  vision?: boolean | null
 }
 
 function unconfiguredStatus(): AssistantStatusFixture {
@@ -239,6 +240,139 @@ test.describe('프로필 개인 비서', () => {
     await expect(page.getByText('개인 비서를 등록했습니다.')).toBeVisible()
     expect(requests.count()).toBe(1)
     expect(requests.bodies<{ model: string }>()[0].model).toBe('amazon-bedrock-openai/gpt-4o-mini')
+  })
+
+  test('opencode 이미지 입력 — 기본 자동 감지 → 볼 수 있음 선택 시 모델 id 키의 vision 이 전송된다', async ({
+    authenticatedPage: page,
+  }) => {
+    let configured = false
+    await mockStatus(page, () => (configured ? configuredStatus({ provider: 'opencode' }) : unconfiguredStatus()))
+    const requests = mockCredentialRegister(page, () => {
+      configured = true
+    })
+    mockProbe(page, {
+      status: 200,
+      models: [
+        { id: 'amazon-bedrock-openai/openai.gpt-oss-120b-1:0', label: 'GPT-OSS 120B' },
+        { id: 'amazon-bedrock-openai/anthropic.claude-3-5-sonnet', label: 'Claude 3.5 Sonnet' },
+      ],
+    })
+
+    await page.goto('/settings/assistant')
+    await page.getByTestId('credential-provider-opencode').click()
+    await expect(page.getByTestId('credential-vision')).toHaveCount(0)
+
+    await page.getByTestId('credential-api-key').fill('sk-bedrock-test-key')
+    await page.getByTestId('credential-probe-models').click()
+    await page.getByTestId('credential-model-select').click()
+    await page.getByRole('option', { name: 'GPT-OSS 120B' }).click()
+
+    const vision = page.getByTestId('credential-vision')
+    await expect(vision).toHaveText('자동 감지')
+    // 인라인 폼이 길어 뷰포트 아래로 밀리므로 스크린샷 전에 선택 상자를 화면 안으로 가져온다.
+    await vision.scrollIntoViewIfNeeded()
+    await page.screenshot({
+      path: '../../test-results/tc/personal-assistant-vision/vision-select.png',
+    })
+    await vision.click()
+    await page.getByRole('option', { name: '볼 수 있음' }).click()
+    await expect(vision).toHaveText('볼 수 있음')
+
+    await page.getByRole('button', { name: '등록' }).click()
+    await expect(page.getByText('개인 비서를 등록했습니다.')).toBeVisible()
+
+    expect(requests.count()).toBe(1)
+    expect(
+      requests.bodies<{ providerConfig: { vision?: unknown } }>()[0].providerConfig.vision,
+    ).toEqual({ 'amazon-bedrock-openai/openai.gpt-oss-120b-1:0': true })
+  })
+
+  test('opencode 이미지 입력 — 모델을 바꾸면 자동 감지로 되돌아가고 vision 키가 전송되지 않는다', async ({
+    authenticatedPage: page,
+  }) => {
+    let configured = false
+    await mockStatus(page, () => (configured ? configuredStatus({ provider: 'opencode' }) : unconfiguredStatus()))
+    const requests = mockCredentialRegister(page, () => {
+      configured = true
+    })
+    mockProbe(page, {
+      status: 200,
+      models: [
+        { id: 'amazon-bedrock-openai/openai.gpt-oss-120b-1:0', label: 'GPT-OSS 120B' },
+        { id: 'amazon-bedrock-openai/anthropic.claude-3-5-sonnet', label: 'Claude 3.5 Sonnet' },
+      ],
+    })
+
+    await page.goto('/settings/assistant')
+    await page.getByTestId('credential-provider-opencode').click()
+    await page.getByTestId('credential-api-key').fill('sk-bedrock-test-key')
+    await page.getByTestId('credential-probe-models').click()
+
+    await page.getByTestId('credential-model-select').click()
+    await page.getByRole('option', { name: 'GPT-OSS 120B' }).click()
+    const vision = page.getByTestId('credential-vision')
+    await vision.click()
+    await page.getByRole('option', { name: '볼 수 없음' }).click()
+    await expect(vision).toHaveText('볼 수 없음')
+
+    await page.getByTestId('credential-model-select').click()
+    await page.getByRole('option', { name: 'Claude 3.5 Sonnet' }).click()
+    await expect(vision).toHaveText('자동 감지')
+
+    await page.getByRole('button', { name: '등록' }).click()
+    await expect(page.getByText('개인 비서를 등록했습니다.')).toBeVisible()
+
+    expect(requests.count()).toBe(1)
+    expect(requests.bodies<{ providerConfig: Record<string, unknown> }>()[0].providerConfig).not.toHaveProperty(
+      'vision',
+    )
+  })
+
+  // WP-250 최종 리뷰: 직접 입력 중 키를 칠 때마다 선택이 지워지지 않는다 — 선택은 그때의 모델 id 에만 적용되고,
+  // 같은 id 로 정리되는 입력(끝 공백)에는 유지, 다른 id 가 되면 자동 감지로 보인다.
+  test('opencode 수동 입력 — 이미지 입력 선택은 그 모델 id 에만 적용되고 같은 id 로 정리되는 입력에는 유지된다', async ({
+    authenticatedPage: page,
+  }) => {
+    let configured = false
+    await mockStatus(page, () => (configured ? configuredStatus({ provider: 'opencode' }) : unconfiguredStatus()))
+    const requests = mockCredentialRegister(page, () => {
+      configured = true
+    })
+    mockProbe(page, { status: 502 })
+
+    await page.goto('/settings/assistant')
+    await page.getByTestId('credential-provider-opencode').click()
+    await page.getByTestId('credential-base-url').fill('https://api.openai.com/v1')
+    await page.getByTestId('credential-api-key').fill('sk-openai-test')
+    await page.getByTestId('credential-probe-models').click()
+
+    const manual = page.getByTestId('credential-model-manual')
+    await manual.fill('gpt-4o')
+    const vision = page.getByTestId('credential-vision')
+    await vision.click()
+    await page.getByRole('option', { name: '볼 수 있음' }).click()
+    await expect(vision).toHaveText('볼 수 있음')
+
+    // 끝 공백은 제출 id 가 같아(앞뒤 공백 정리) 선택이 그대로다 — 지울 때도 마찬가지.
+    await manual.press('End')
+    await manual.pressSequentially(' ')
+    await expect(vision).toHaveText('볼 수 있음')
+    await manual.press('Backspace')
+    await expect(vision).toHaveText('볼 수 있음')
+
+    // 다른 모델 id 가 되면 자동 감지로 보인다(이전 모델의 지정이 따라가지 않는다).
+    await manual.pressSequentially('-mini')
+    await expect(vision).toHaveText('자동 감지')
+    await vision.click()
+    await page.getByRole('option', { name: '볼 수 없음' }).click()
+
+    await page.getByRole('button', { name: '등록' }).click()
+    await expect(page.getByText('개인 비서를 등록했습니다.')).toBeVisible()
+
+    expect(requests.count()).toBe(1)
+    const body = requests.bodies<{ model: string; providerConfig: { vision?: unknown } }>()[0]
+    expect(body.model).toBe('amazon-bedrock-openai/gpt-4o-mini')
+    expect(body.providerConfig.vision).toEqual({ 'amazon-bedrock-openai/gpt-4o-mini': false })
   })
 
   test('opencode 모델 미선택 → 제출 버튼 비활성(POST 호출 없음)', async ({
@@ -591,5 +725,88 @@ test.describe('프로필 개인 비서', () => {
 
     await expect(page.getByText('비서 설정을 변경했습니다.')).toBeVisible()
     expect(puts.lastBody()).toEqual({ thinkingDepth: 'DEEP' })
+  })
+
+  // WP-250 코드 리뷰: 등록 후 모델을 바꿔도 이미지 입력을 지정할 수 있다 — 설정 PUT 을 서버처럼 상태에 반영하는 목으로
+  // "이미지 입력만 바꾸기 → 지금 모델에", "모델 바꾸기 → vision:null(자동 감지에서 시작)" 를 요청 본문으로 확인한다.
+  function mockOpencodeSettingsServer(page: import('@playwright/test').Page, initial: Partial<AssistantStatusFixture>) {
+    let st = configuredStatus({ provider: 'opencode', model: 'openai/gpt-4.1', vision: null, ...initial })
+    const puts = trackRequests(page, 'PUT', '/api/v1/users/me/assistant/settings')
+    void mockStatus(page, () => st)
+    void page.route('**/api/v1/users/me/assistant/settings', (route) => {
+      const body = route.request().postDataJSON() as { model?: string; vision?: boolean | null }
+      st = { ...st, ...(body.model !== undefined && { model: body.model, vision: null }), ...('vision' in body && { vision: body.vision }) }
+      return route.fulfill({ status: 204, body: '' })
+    })
+    return puts
+  }
+
+  test('등록 후 opencode — 이미지 입력만 바꾸면 지금 모델에, 모델을 바꾸면 vision:null 로 자동 감지에서 시작한다', async ({
+    authenticatedPage: page,
+  }) => {
+    const puts = mockOpencodeSettingsServer(page, {})
+    await mockModels(page, [
+      { id: 'openai/gpt-4.1', label: 'GPT-4.1' },
+      { id: 'openai/my-vl', label: 'My VL' },
+    ], 'opencode')
+
+    await page.goto('/settings/assistant')
+    const vision = page.getByTestId('assistant-vision')
+    await expect(vision).toHaveText('자동 감지')
+
+    await vision.click()
+    await page.getByRole('option', { name: '볼 수 있음' }).click()
+    await expect.poll(() => puts.lastBody()).toEqual({ vision: true })
+    await expect(vision).toHaveText('볼 수 있음')
+
+    await vision.scrollIntoViewIfNeeded()
+    await page.screenshot({ path: '../../test-results/tc/personal-assistant-vision/configured-vision.png' })
+
+    await page.getByRole('combobox', { name: '모델', exact: true }).click()
+    await page.getByRole('option', { name: 'My VL' }).click()
+    await expect.poll(() => puts.lastBody()).toEqual({ model: 'openai/my-vl', vision: null })
+    // 다른 모델은 자동 감지에서 시작 — 이전 모델의 '볼 수 있음' 이 옮겨지지 않는다.
+    await expect(vision).toHaveText('자동 감지')
+  })
+
+  test('등록 후 opencode(모델 목록 없음) — 직접 입력으로 모델을 바꿔도 vision:null 로 자동 감지에서 시작한다', async ({
+    authenticatedPage: page,
+  }) => {
+    const puts = mockOpencodeSettingsServer(page, { vision: false })
+    await mockModels(page, [], 'opencode')
+
+    await page.goto('/settings/assistant')
+    const vision = page.getByTestId('assistant-vision')
+    // 지금 모델에 저장된 지정이 초깃값으로 보인다.
+    await expect(vision).toHaveText('볼 수 없음')
+
+    await page.getByTestId('assistant-model-manual-input').fill('my-custom-vl')
+    await page.getByTestId('assistant-model-manual-apply').click()
+    await expect.poll(() => puts.lastBody()).toEqual({ model: 'openai/my-custom-vl', vision: null })
+    await expect(vision).toHaveText('자동 감지')
+
+    // 새 모델에 직접 지정하면 그 모델에만 저장된다.
+    await vision.click()
+    await page.getByRole('option', { name: '볼 수 없음' }).click()
+    await expect.poll(() => puts.lastBody()).toEqual({ vision: false })
+  })
+
+  test('Claude 연결은 이미지 입력 선택을 보이지 않고 모델 변경에 vision 을 싣지 않는다', async ({
+    authenticatedPage: page,
+  }) => {
+    await mockStatus(page, () => configuredStatus())
+    await mockModels(page, [
+      { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
+      { id: 'claude-opus-4-8', label: 'Claude Opus 4.8' },
+    ])
+    const puts = trackRequests(page, 'PUT', '/api/v1/users/me/assistant/settings')
+    await page.route('**/api/v1/users/me/assistant/settings', (route) => route.fulfill({ status: 204, body: '' }))
+
+    await page.goto('/settings/assistant')
+    await expect(page.getByTestId('assistant-configured')).toBeVisible()
+    await expect(page.getByTestId('assistant-vision')).toHaveCount(0)
+    await page.getByRole('combobox', { name: '모델', exact: true }).click()
+    await page.getByRole('option', { name: 'Claude Opus 4.8' }).click()
+    await expect.poll(() => puts.lastBody()).toEqual({ model: 'claude-opus-4-8' })
   })
 })

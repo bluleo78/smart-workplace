@@ -1,7 +1,13 @@
 import { TOOL_LABELS } from '@smart-workplace/mcp-tools-shared/tool-labels';
 import { describe, expect, it } from 'vitest';
 
-import { getToolDisplay, LEGACY_TOOL_LABELS, widgetTypeFromToolName } from './aiToolLabels';
+import {
+  formatPages,
+  getToolDisplay,
+  getToolStepDisplay,
+  LEGACY_TOOL_LABELS,
+  widgetTypeFromToolName,
+} from './aiToolLabels';
 
 // #461: show_* 도구명 → 위젯 타입 추출(점진 렌더용). 백엔드 compose-parser 와 동일 규칙 검증.
 describe('widgetTypeFromToolName', () => {
@@ -63,5 +69,59 @@ describe('getToolDisplay — 옛 도구 이름 폴백', () => {
   });
   it('옛 이름은 공유 TOOL_LABELS 에 없다(폴백 전용)', () => {
     for (const k of Object.keys(LEGACY_TOOL_LABELS)) expect(TOOL_LABELS[k]).toBeUndefined();
+  });
+});
+
+// WP-250: AI 가 PDF 페이지를 이미지로 본 도구 단계는 "📄 페이지 보기 7쪽" 으로 보인다.
+describe('formatPages', () => {
+  it('한 쪽 · 연속 구간(en dash) · 흩어진 쪽(가운뎃점)', () => {
+    expect(formatPages([7])).toBe('7쪽');
+    expect(formatPages([11, 12, 13])).toBe('11–13쪽');
+    expect(formatPages([2, 5])).toBe('2·5쪽');
+  });
+  it('순서·중복과 상관없이 정렬·중복 제거해 보인다', () => {
+    expect(formatPages([13, 12, 11])).toBe('11–13쪽');
+    expect(formatPages([7, 7])).toBe('7쪽');
+    expect(formatPages([5, 2])).toBe('2·5쪽');
+    expect(formatPages([3, 1, 2, 2])).toBe('1–3쪽');
+  });
+  it('배열이 아니거나 비었거나 숫자가 아니면 null', () => {
+    expect(formatPages(undefined)).toBeNull();
+    expect(formatPages('7')).toBeNull();
+    expect(formatPages([])).toBeNull();
+    expect(formatPages(['7'])).toBeNull();
+    expect(formatPages([7, NaN])).toBeNull();
+  });
+});
+
+describe('getToolStepDisplay', () => {
+  it('pages 가 있으면 페이지 보기 라벨(mcp 프리픽스 포함)', () => {
+    expect(getToolStepDisplay('mcp__workplace__read_chat_attachment', { fileId: 1, pages: [7] })).toEqual({
+      label: '페이지 보기',
+      icon: '📄',
+      detail: '7쪽',
+    });
+  });
+  it('pages 가 없으면 기존 라벨·detail 그대로', () => {
+    expect(getToolStepDisplay('read_file', { source: 'drive', driveFileId: 3 })).toEqual({
+      label: '파일 읽기',
+      icon: '📎',
+      detail: null,
+    });
+    expect(getToolStepDisplay('read_chat_attachment', { fileId: 41 }).label).toBe('첨부 읽기');
+  });
+  it('pages 가 비정상이면 기존 라벨로 폴백', () => {
+    expect(getToolStepDisplay('read_file', { pages: [] }).label).toBe('파일 읽기');
+  });
+  it('메일 첨부(read_file source mail)는 pages 가 있어도 페이지 보기가 아니다(메일은 미지원)', () => {
+    expect(getToolStepDisplay('mcp__workplace__read_file', { source: 'mail', attachmentId: 3, pages: [2] })).toEqual({
+      label: '파일 읽기',
+      icon: '📎',
+      detail: null,
+    });
+    expect(getToolStepDisplay('read_file', { source: 'drive', driveFileId: 3, pages: [2] }).label).toBe('페이지 보기');
+  });
+  it('pages 를 받는 도구가 아니면 pages 가 있어도 기존 라벨', () => {
+    expect(getToolStepDisplay('update_issue', { issueKey: 'EX-1', pages: [3] }).label).toBe('이슈 수정');
   });
 });

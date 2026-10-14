@@ -8,12 +8,16 @@ import type { ProviderCredential } from '../agent/agent-runner.js';
 import type { MemoryKind, MemoryScope } from '../agent/memory-block.js';
 import {
   createSharedToolClient,
+  decodeErrorBody,
   describeApiError,
+  getBytes,
   parseIssueKey,
   type ExtractedTextSlice,
   type ExtractionStatus,
+  type FileBytes,
   type HttpRequestConfig,
   type SharedToolClient,
+  viewUrl,
 } from '@smart-workplace/mcp-tools-shared';
 
 // WP-244: 첨부 추출 상태·구간 읽기 응답(WP-242 서버 계약 그대로). 구간 응답 타입은 공유 read_file 과 같은 정의를 쓴다(WP-346).
@@ -24,6 +28,8 @@ export interface ExtractionInfo {
   truncated: boolean | null; // 서버가 null 을 줄 수 있음 — 소비자는 false 로 취급
   reasonCode: string | null;
   reason: string | null;
+  // WP-250: PDF 전체 쪽수 — PDF 가 아니거나 이전 추출 행이면 null·생략(구 API 응답에는 필드가 없다).
+  pageCount?: number | null;
 }
 // WP-244: 챗 메시지에 붙은 첨부 메타(추출 상태 포함).
 export interface ChatAttachmentMeta {
@@ -169,11 +175,14 @@ export interface WorkplaceApiClient {
   // readChatAttachmentText 는 스레드의 챗 첨부와 스레드가 딸린 이슈의 첨부를 모두 받는다.
   readChatAttachmentText(agentId: number, threadId: number, fileId: number, offset?: number, limit?: number): Promise<ExtractedTextSlice>;
   downloadChatAttachment(agentId: number, threadId: number, messageId: number, fileId: number): Promise<{ data: Buffer; mimeType: string }>;
+  // WP-250: 스레드의 챗 첨부·스레드가 딸린 이슈 첨부의 모델 입력용 이미지(/text 와 같은 범위) — PDF 쪽(page, 1부터) 또는 이미지 변환본.
+  viewChatAttachment(agentId: number, threadId: number, fileId: number, page?: number): Promise<FileBytes>;
   // WP-234: 메인 AI 채팅 세션 첨부 — 웹과 같은 /home/sessions/{sid}/attachments* 를 요청자(onBehalfOfId=userId) 대행으로 부른다.
   // 서버가 세션 소유자·세션 연결 여부를 확인하므로(타 세션 파일은 404) 여기서는 경로만 맞춘다.
   listHomeSessionAttachments(onBehalfOfId: number, sessionId: string): Promise<HomeAttachmentMeta[]>;
   readHomeAttachmentText(onBehalfOfId: number, sessionId: string, fileId: number, offset?: number, limit?: number): Promise<ExtractedTextSlice>;
-  downloadHomeAttachment(onBehalfOfId: number, sessionId: string, fileId: number): Promise<{ data: Buffer; mimeType: string }>;
+  // WP-250: 모델 입력용 이미지 — PDF 는 page(1부터)쪽을 그린 이미지, 이미지 파일은 page 없이 변환본. 서버 오류는 ErrorResponse 의 한국어 message 로 던진다.
+  viewHomeAttachment(onBehalfOfId: number, sessionId: string, fileId: number, page?: number): Promise<FileBytes>;
   // WP-55: 메모리 도구(라우터 전용) — 요청자(onBehalfOfId=userId) 대행. Internal 대행만 source:'AI'·sessionId 를 받고, 꺼짐이면 409 AI_MEMORY_DISABLED.
   createAiMemory(
     onBehalfOfId: number,
@@ -216,6 +225,8 @@ export function createWorkplaceApiClient(opts: {
   // 자가교정이 불가능했다. AxiosError 객체는 그대로 두고(status 판정 호출부 유지) message 만 보강한다.
   http.interceptors.response.use(undefined, (err: unknown) => {
     if (axios.isAxiosError(err) && err.response) {
+      // WP-250: arraybuffer 요청의 오류 본문(ErrorResponse JSON)을 먼저 풀어야 한국어 사유가 message·response.data 에 남는다.
+      decodeErrorBody(err);
       err.message = describeApiError(err.response.status, err.response.data);
     }
     return Promise.reject(err);
@@ -228,6 +239,11 @@ export function createWorkplaceApiClient(opts: {
         ? { 'X-On-Behalf-Of-Tenant': String(opts.onBehalfOfTenantId) }
         : {}),
     },
+  });
+
+  // 공유 getBytes 에 넘길 GET — 대행 신원 헤더(X-On-Behalf-Of·테넌트)만 얹는다. 인증·오류 메시지 보강 인터셉터는 같은 http 인스턴스에서 적용된다.
+  const asAgent = (agentId: number) => ({
+    get: (url: string, config?: HttpRequestConfig) => http.get(url, { ...config, ...onBehalfOf(agentId) }),
   });
 
   return {
@@ -381,13 +397,14 @@ export function createWorkplaceApiClient(opts: {
       return r.data as ExtractedTextSlice;
     },
 
-    async downloadHomeAttachment(onBehalfOfId, sessionId, fileId) {
-      const r = await http.get(`/home/sessions/${encodeURIComponent(sessionId)}/attachments/${fileId}/content`, {
-        ...onBehalfOf(onBehalfOfId),
-        responseType: 'arraybuffer',
-      });
-      const mimeType = String(r.headers['content-type'] ?? 'application/octet-stream');
-      return { data: Buffer.from(r.data as ArrayBuffer), mimeType };
+    // WP-250: /view 는 PDF 쪽(?page=N) 또는 이미지 변환본을 돌려준다. 받기는 공유 getBytes 하나로 — 이미지 상한(넘으면 FileTooLargeError),
+    // 오류 본문 풀기, X-Page-Count(PDF 전체 쪽수) → pageCount 를 공유 read_file 과 같은 규칙으로 처리한다.
+    async viewHomeAttachment(onBehalfOfId, sessionId, fileId, page) {
+      return getBytes(asAgent(onBehalfOfId), viewUrl(`/home/sessions/${encodeURIComponent(sessionId)}/attachments/${fileId}`, page));
+    },
+
+    async viewChatAttachment(agentId, threadId, fileId, page) {
+      return getBytes(asAgent(agentId), viewUrl(`/chat/threads/${threadId}/attachments/${fileId}`, page));
     },
 
     async createAiMemory(onBehalfOfId, body) {

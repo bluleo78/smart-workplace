@@ -67,6 +67,14 @@ public class AiAgentCredentialRepository {
         .execute();
   }
 
+  /** 자격증명 암호문만 바꾼다(WP-250 이미지 입력 지정) — 행 id·label·생성/사용 시각은 그대로 둔다. */
+  public void updateEncryptedToken(Long id, String encryptedToken) {
+    dsl.update(AI_AGENT_CREDENTIAL)
+        .set(AI_AGENT_CREDENTIAL.ENCRYPTED_TOKEN, encryptedToken)
+        .where(AI_AGENT_CREDENTIAL.ID.eq(id))
+        .execute();
+  }
+
   /** redeem 후 last_used_at 갱신. throttle/async 없음. */
   public void touchLastUsed(Long id) {
     dsl.update(AI_AGENT_CREDENTIAL)

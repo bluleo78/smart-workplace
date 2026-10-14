@@ -5,6 +5,7 @@ package com.workplace.fileai.dto;
  *
  * @param offset 요청 offset(코드포인트)
  * @param nextOffset 다음 구간 시작. 끝에 도달했거나 READY 가 아니면 null
+ * @param pageCount PDF 총 페이지 수(WP-250). READY 가 아니어도(스캔 PDF 등) 알면 싣는다 — 없으면 null
  */
 public record ExtractedTextSlice(
     long fileId,
@@ -15,4 +16,5 @@ public record ExtractedTextSlice(
     Integer nextOffset,
     String text,
     String reasonCode,
-    String reason) {}
+    String reason,
+    Integer pageCount) {}

@@ -112,23 +112,25 @@ def extract_text(data: bytes, mime: str, max_chars: int, page_markers: bool = Fa
     :param max_chars: 최대 반환 문자 수 (초과 시 잘라냄)
     :param page_markers: True 면 PDF 에 [페이지 N] 표식을 넣는다(첨부 TEXT_ONLY 전용, WP-242).
                          False(기본)는 드라이브 FULL — 표식이 검색·요약·임베딩을 오염시키지 않도록 \n 으로만 잇는다.
-    :return: {text, charCount, lang, truncated}
+    :return: {text, charCount, lang, truncated, pageCount}
              - text: 추출된 텍스트 (미지원 mime → "")
              - charCount: 반환된 text 길이 (I1: api ExtractResult.charCount 와 키 통일)
              - lang: 언어 코드(현재 미구현, None)
              - truncated: max_chars 초과로 잘렸으면 True
+             - pageCount: PDF 만 전체 페이지 수, 그 외 None. 텍스트가 비어도(스캔 PDF) 유지해
+               api 가 '페이지 이미지 보기'의 범위(WP-250)를 알 수 있게 한다.
     """
-    text = _dispatch(data, mime, page_markers)
+    text, page_count = _dispatch(data, mime, page_markers)
     truncated = len(text) > max_chars
     if truncated:
         text = text[:max_chars]
     # I1 수정: 워커→api 콜백 페이로드 키를 charCount(camelCase)로 통일.
     # 이전 char_count(snake_case)는 Jackson 기본 설정으로 역직렬화 불가(null 폴백).
-    return {"text": text, "charCount": len(text), "lang": None, "truncated": truncated}
+    return {"text": text, "charCount": len(text), "lang": None, "truncated": truncated, "pageCount": page_count}
 
 
-def _dispatch(data: bytes, mime: str, page_markers: bool) -> str:
-    """mime 타입에 따라 적절한 파서를 선택해 텍스트 추출.
+def _dispatch(data: bytes, mime: str, page_markers: bool) -> tuple[str, int | None]:
+    """mime 타입에 따라 적절한 파서를 선택해 (텍스트, 페이지 수) 추출. 페이지 수는 PDF 만, 그 외 None.
 
     api `ExtractableTypes` 와 1:1 미러 — 한쪽만 고치면 드리프트(#735).
     """
@@ -140,21 +142,23 @@ def _dispatch(data: bytes, mime: str, page_markers: bool) -> str:
         import fitz  # pymupdf
         with fitz.open(stream=data, filetype="pdf") as doc:
             pages = [page.get_text().strip() for page in doc]
+        # 페이지 수는 텍스트 유무와 무관하게 돌려준다(스캔 PDF 도 이미지로 볼 수 있어야 함).
+        page_count = len(pages)
         if not any(pages):
-            return ""
+            return "", page_count
         if not page_markers:
             # 드라이브(FULL): 브랜치 이전 동작 — 표식 없이 페이지를 \n 으로만 잇는다.
-            return "\n".join(pages).strip()
+            return "\n".join(pages).strip(), page_count
         parts = [pages[0]]
         for no, body in enumerate(pages[1:], start=2):
             parts.append(f"\n\n[페이지 {no}]\n\n{body}")
-        return "".join(parts).strip()
+        return "".join(parts).strip(), page_count
 
     if mime == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
         # DOCX: python-docx 로 단락 텍스트 추출
         from docx import Document
         doc = Document(io.BytesIO(data))
-        return "\n".join(p.text for p in doc.paragraphs).strip()
+        return "\n".join(p.text for p in doc.paragraphs).strip(), None
 
     if mime == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
         # XLSX: openpyxl 로 모든 시트 셀 값을 CSV 형태로 결합
@@ -164,28 +168,28 @@ def _dispatch(data: bytes, mime: str, page_markers: bool) -> str:
         for ws in wb.worksheets:
             for row in ws.iter_rows(values_only=True):
                 rows.append(",".join("" if c is None else str(c) for c in row))
-        return "\n".join(rows).strip()
+        return "\n".join(rows).strip(), None
 
     if mime == "application/vnd.openxmlformats-officedocument.presentationml.presentation":
         # PPTX: python-pptx 로 슬라이드 텍스트 + 노트 추출
-        return _extract_pptx(data)
+        return _extract_pptx(data), None
 
     if mime == "application/hwp+zip":
         # HWPX: ZIP+XML 표준 라이브러리 파싱
-        return _extract_hwpx(data)
+        return _extract_hwpx(data), None
 
     suffix = _SOFFICE_SUFFIX_BY_MIME.get(mime)
     if suffix is not None:
         # 레거시 OLE(.doc/.ppt/.xls)·.hwp: LibreOffice headless 변환
-        return soffice.convert_to_text(data, suffix)
+        return soffice.convert_to_text(data, suffix), None
 
     if mime == "text/html":
         # HTML: 범용 text/ 분기보다 먼저 처리 — 마크업 제거 후 텍스트만 남긴다.
-        return _strip_html(data)
+        return _strip_html(data), None
 
     if mime.startswith("text/") or mime in _TEXT_LIKE_APPLICATION_MIMES:
         # 텍스트 계열: UTF-8 디코딩(오류 문자 대체)
-        return data.decode("utf-8", errors="replace").strip()
+        return data.decode("utf-8", errors="replace").strip(), None
 
     # 미지원 mime(이미지 등) → 빈 텍스트(호출측이 SKIPPED 판정)
-    return ""
+    return "", None

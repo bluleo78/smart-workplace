@@ -49,6 +49,7 @@ public class ExtractedTextService {
             FILE_EXTRACTION.ERROR,
             FILE_EXTRACTION.CHAR_COUNT,
             FILE_EXTRACTION.TRUNCATED,
+            FILE_EXTRACTION.PAGE_COUNT,
             FILE.MIME_TYPE,
             hasText)
         .from(FILE_EXTRACTION)
@@ -98,7 +99,8 @@ public class ExtractedTextService {
         r.get(FILE.MIME_TYPE),
         totalChars,
         r.get(FILE_EXTRACTION.TRUNCATED),
-        hasText);
+        hasText,
+        r.get(FILE_EXTRACTION.PAGE_COUNT));
   }
 
   /**
@@ -122,6 +124,7 @@ public class ExtractedTextService {
                 FILE_EXTRACTION.STATUS,
                 FILE_EXTRACTION.ERROR,
                 FILE_EXTRACTION.TRUNCATED,
+                FILE_EXTRACTION.PAGE_COUNT,
                 FILE.MIME_TYPE,
                 total,
                 slice)
@@ -136,13 +139,31 @@ public class ExtractedTextService {
         r == null ? ExtractionInfo.NONE : toInfo(r, totalChars, totalChars != null);
     if (!"READY".equals(info.status())) {
       return new ExtractedTextSlice(
-          fileId, info.status(), offset, null, null, null, null, info.reasonCode(), info.reason());
+          fileId,
+          info.status(),
+          offset,
+          null,
+          null,
+          null,
+          null,
+          info.reasonCode(),
+          info.reason(),
+          info.pageCount());
     }
     String text = Objects.requireNonNullElse(r.get(slice), "");
     int returned = text.codePointCount(0, text.length());
     int end = offset + returned;
     Integer next = returned > 0 && end < totalChars ? end : null;
     return new ExtractedTextSlice(
-        fileId, "READY", offset, totalChars, info.truncated(), next, text, null, null);
+        fileId,
+        "READY",
+        offset,
+        totalChars,
+        info.truncated(),
+        next,
+        text,
+        null,
+        null,
+        info.pageCount());
   }
 }

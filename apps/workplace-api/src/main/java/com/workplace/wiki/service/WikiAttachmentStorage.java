@@ -110,30 +110,38 @@ public class WikiAttachmentStorage {
         rec.get(FILE.SIZE_BYTES));
   }
 
+  /** 지울 디스크 파일 경로 묶음 — 원본과 썸네일(없으면 null). 이미지 보기 캐시 경로는 원본에서 파생된다. */
+  public record StoredPaths(String storagePath, String thumbnailPath) {}
+
   /**
    * file row 삭제 — 바이너리는 지우지 않고 상대경로만 반환한다(row 없으면 empty).
    *
    * <p>row 삭제와 바이너리 unlink 를 분리한 이유(리뷰 지적): 호출자가 이 메서드를 트랜잭션 안에서 부르고 그 트랜잭션이 롤백되면, row 는 되살아나는데 이
    * 메서드가 즉시 바이너리까지 지워버리면 "살아있는 row 가 없는 blob 을 가리키는" 상태가 영구히 남는다. 호출자(예:
    * WikiAttachmentService.delete)는 이 반환값을 커밋 후({@code TransactionSynchronization.afterCommit})에만
-   * {@link #deleteBinary(String)} 로 넘겨야 한다.
+   * {@link #deleteBinary(StoredPaths)} 로 넘겨야 한다. 썸네일 경로도 row 와 함께 사라지므로 여기서 같이 읽어 돌려준다(WP-250).
    */
-  public Optional<String> deleteFileRow(Long fileId) {
+  public Optional<StoredPaths> deleteFileRow(Long fileId) {
     var path =
-        dsl.select(FILE.STORAGE_PATH)
+        dsl.select(FILE.STORAGE_PATH, FILE.THUMBNAIL_PATH)
             .from(FILE)
             .where(FILE.ID.eq(fileId))
-            .fetchOptional(0, String.class);
+            .fetchOptional(
+                r -> new StoredPaths(r.get(FILE.STORAGE_PATH), r.get(FILE.THUMBNAIL_PATH)));
     dsl.deleteFrom(FILE).where(FILE.ID.eq(fileId)).execute();
     return path;
   }
 
-  /** 상대경로의 디스크 바이너리 삭제. 정리 실패는 로그만 — 이 시점엔 DB row 가 이미 커밋 삭제된 뒤라 DB 정합성에 영향 없음. */
-  public void deleteBinary(String relativePath) {
+  /**
+   * 디스크 파일 삭제 — 원본, 썸네일, 이미지 보기 캐시("{storage_path}.view/", WP-250). 정리 실패는 로그만 — 이 시점엔 DB row 가 이미
+   * 커밋 삭제된 뒤라 DB 정합성에 영향 없다. 셋은 DB 행이 없는 파생 파일이라 지우지 않으면 영구 고아가 되며, 각각 독립 best-effort 라 하나가 실패해도
+   * 나머지는 계속한다.
+   */
+  public void deleteBinary(StoredPaths paths) {
     try {
-      fileStore.deleteIfExists(relativePath);
-    } catch (Exception ex) {
-      log.warn("첨부 바이너리 삭제 실패 (DB row 는 이미 제거됨): {}", relativePath, ex);
+      fileStore.deleteWithDerived(paths.storagePath(), paths.thumbnailPath());
+    } catch (RuntimeException ex) {
+      log.warn("첨부 바이너리 삭제 실패 (DB row 는 이미 제거됨): {}", paths.storagePath(), ex);
     }
   }
 }

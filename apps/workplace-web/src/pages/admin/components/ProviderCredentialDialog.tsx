@@ -9,6 +9,7 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 
 import { probeAgentModels } from '@/api/models';
+import { VisionInputSelect } from '@/components/ai/VisionInputSelect';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -31,7 +32,9 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { useRegisterAgentProviderCredential } from '@/hooks/queries/useAgentProviderCredential';
+import { useModelVisionChoice } from '@/hooks/useModelVisionChoice';
 import { withProviderPrefix } from '@/lib/ai/suggestionModel';
+import { visionConfigFor } from '@/lib/ai/visionConfig';
 import { handleApiError } from '@/lib/api-error';
 import { OPENCODE_PRESETS, type OpencodePresetKey } from '@/lib/opencode-presets';
 import type { CredentialProvider, ModelOption } from '@/types/providerCredential';
@@ -65,6 +68,14 @@ export function ProviderCredentialDialog({
   const [probeError, setProbeError] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState('');
   const [manualModel, setManualModel] = useState('');
+  // 수동 입력 모델 id 에 providerId/ 접두어가 없으면 자동으로 붙인다 — 실측 함정(접두 없이 저장 →
+  // splitOpencodeModel 실행 시점 실패) 방지. presetKey 는 제출과 함께 전송되는
+  // providerConfig.providerId 와 항상 동일하므로 추측이 아니라 정확한 값이다.
+  const normalizedManualModel = withProviderPrefix(manualModel, presetKey);
+  const resolvedModel = selectedModel || normalizedManualModel;
+  // 이미지 입력 수동 지정 — 'auto' 면 providerConfig.vision 을 보내지 않는다. 선택은 그때의 모델 id 에만 적용되어,
+  // 모델을 바꾸면(직접 입력 중 다른 id 가 되면) 자동 감지로 보인다. 키를 칠 때마다 지우지 않으므로 같은 id 로 정리되는 입력엔 유지된다.
+  const { vision, setVision, resetVision } = useModelVisionChoice(resolvedModel);
 
   const mutation = useRegisterAgentProviderCredential(agentUserId);
   const probe = useMutation({
@@ -84,6 +95,7 @@ export function ProviderCredentialDialog({
     setProbeError(null);
     setSelectedModel('');
     setManualModel('');
+    resetVision();
   };
 
   // 프리셋 변경 시 baseURL 템플릿 자동 채움 + 이전 프로브 결과 초기화.
@@ -95,6 +107,7 @@ export function ProviderCredentialDialog({
     setProbeError(null);
     setSelectedModel('');
     setManualModel('');
+    resetVision();
   };
 
   // 모델 목록 프로브 — 성공 시 모델 Select 노출, 실패 시 수동 입력 폴백 노출.
@@ -102,6 +115,7 @@ export function ProviderCredentialDialog({
     setProbeError(null);
     setModelOptions(null);
     setSelectedModel('');
+    resetVision();
     try {
       const res = await probe.mutateAsync();
       setModelOptions(res.models);
@@ -113,11 +127,7 @@ export function ProviderCredentialDialog({
     }
   };
 
-  // 수동 입력 모델 id 에 providerId/ 접두어가 없으면 자동으로 붙인다 — 실측 함정(접두 없이 저장 →
-  // splitOpencodeModel 실행 시점 실패) 방지. presetKey 는 제출과 함께 전송되는
-  // providerConfig.providerId 와 항상 동일하므로 추측이 아니라 정확한 값이다.
-  const normalizedManualModel = withProviderPrefix(manualModel, presetKey);
-  const resolvedModel = selectedModel || normalizedManualModel;
+  const visionConfig = visionConfigFor(vision, resolvedModel);
 
   const submit = async () => {
     if (connectionType === 'anthropic') {
@@ -149,7 +159,12 @@ export function ProviderCredentialDialog({
     try {
       await mutation.mutateAsync({
         provider: 'opencode',
-        providerConfig: { providerId: presetKey, options: { baseURL: baseUrl.trim(), apiKey } },
+        providerConfig: {
+          providerId: presetKey,
+          options: { baseURL: baseUrl.trim(), apiKey },
+          // 수동 지정일 때만 { [최종 모델 id]: true|false } — 자동이면 키 생략.
+          ...(visionConfig ? { vision: visionConfig } : {}),
+        },
         model: resolvedModel,
       });
       toast.success(isReissue ? '연결 정보를 변경했습니다.' : 'AI에 연결했습니다.');
@@ -313,6 +328,16 @@ export function ProviderCredentialDialog({
                     autoComplete="off"
                   />
                 </div>
+              ) : null}
+
+              {/* 모델이 정해질 수 있는 상태(목록 노출 또는 프로브 실패 → 수동 입력)에서만 노출. */}
+              {modelOptions != null || probeError ? (
+                <VisionInputSelect
+                  id="credential-vision"
+                  testId="credential-vision"
+                  value={vision}
+                  onChange={setVision}
+                />
               ) : null}
             </div>
           )}

@@ -1,6 +1,8 @@
 package com.workplace.home.controller;
 
+import com.workplace.fileai.controller.ViewImageResponses;
 import com.workplace.fileai.dto.ExtractedTextSlice;
+import com.workplace.fileai.service.AttachmentViewService;
 import com.workplace.home.dto.HomeAttachment;
 import com.workplace.home.dto.HomeUploadedFile;
 import com.workplace.home.service.HomeAttachmentService;
@@ -36,6 +38,8 @@ public class HomeAttachmentController {
 
   private final HomeAttachmentService service;
 
+  private final AttachmentViewService attachmentView;
+
   /** 선업로드 — fileId 메타 목록. files 파트가 없으면 서비스가 한국어 400 을 낸다(스프링 기본 오류 대신). */
   @PostMapping(value = "/attachments", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
   public List<HomeUploadedFile> upload(
@@ -67,6 +71,17 @@ public class HomeAttachmentController {
       @RequestParam(defaultValue = "12000") int limit) {
     // 상한 32000 — 과대 요청은 에러 대신 상한으로 줄인다(음수·0 은 서비스가 400).
     return service.readText(callerId, sid, fileId, offset, Math.min(limit, MAX_TEXT_LIMIT));
+  }
+
+  /** 첨부를 모델 입력용 이미지로 보여 준다(WP-250) — 규칙·권한·트랜잭션(R5)은 {@link AttachmentViewService} 참조. */
+  @GetMapping("/sessions/{sid}/attachments/{fileId}/view")
+  public ResponseEntity<byte[]> view(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable UUID sid,
+      @PathVariable long fileId,
+      @RequestParam(required = false) Integer page) {
+    return ViewImageResponses.of(
+        attachmentView.view(service.resolveViewFileId(callerId, sid, fileId), page));
   }
 
   /** 구간 읽기 limit 상한. */

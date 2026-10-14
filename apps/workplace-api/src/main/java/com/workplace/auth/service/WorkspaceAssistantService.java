@@ -33,6 +33,7 @@ public class WorkspaceAssistantService {
   private final AssistantSettingsWriter settingsWriter;
   private final SuggestionModelPolicy suggestionModelPolicy;
   private final AgentRuntimePolicy agentRuntimePolicy;
+  private final AiAgentCredentialService credentialService;
 
   /** 공용 비서로 지정. 대상이 없으면 404, AGENT 가 아니면 400(HUMAN 거부). */
   public void setAgent(long adminId, long agentUserId) {
@@ -72,7 +73,7 @@ public class WorkspaceAssistantService {
   public WorkspaceAssistantResponse get() {
     var agentIdOpt = workspaceRepo.findAgentId();
     if (agentIdOpt.isEmpty()) {
-      return new WorkspaceAssistantResponse(null, null, false, null, null, null, null);
+      return new WorkspaceAssistantResponse(null, null, false, null, null, null, null, null);
     }
     long agentId = agentIdOpt.get();
     String name = userRepository.findById(agentId).map(UserResponse::name).orElse(null);
@@ -96,6 +97,7 @@ public class WorkspaceAssistantService {
         model,
         thinkingDepth,
         cur.suggestionModel(),
-        suggestionModelAuto);
+        suggestionModelAuto,
+        credentialService.findModelVision(agentId, model));
   }
 }

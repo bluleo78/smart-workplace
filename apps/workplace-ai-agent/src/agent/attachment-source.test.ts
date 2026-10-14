@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-import { collectAttachments, NO_EXTRACTION } from './attachment-source.js';
+import { collectAttachments, findThreadAttachmentMeta, NO_EXTRACTION } from './attachment-source.js';
 import type { ChatMessageItem, WorkplaceApiClient } from '../clients/workplace-api.js';
 
 const READY = { status: 'READY' as const, totalChars: 10, truncated: false, reasonCode: null, reason: null };
@@ -71,5 +71,37 @@ describe('collectAttachments', () => {
   it('이슈 목록 성공 → issueListFailed=false', async () => {
     const r = await collectAttachments(client, 99, 5, []);
     expect(r.issueListFailed).toBe(false);
+  });
+});
+
+// WP-250: 이슈 챗 첨부 도구가 이미지 형식·출처를 알아내는 단건 메타 조회.
+describe('findThreadAttachmentMeta', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+  const issueMeta = { fileId: 1, originalName: 'spec.png', mimeType: 'image/png', sizeBytes: 9, extraction: READY };
+  const mk = (over: Partial<Record<'listThreadIssueAttachments' | 'getChatMessages', unknown>> = {}) =>
+    ({
+      listThreadIssueAttachments: vi.fn().mockResolvedValue([issueMeta]),
+      getChatMessages: vi.fn().mockResolvedValue([msg(11, [{ fileId: 2, messageId: 11, originalName: 'a.heic', mimeType: 'image/heic', sizeBytes: 1 }])]),
+      ...over,
+    }) as unknown as WorkplaceApiClient;
+
+  it('이슈 첨부에 있으면 그것(메시지 조회 없음)', async () => {
+    const c = mk();
+    const a = await findThreadAttachmentMeta(c, 99, 5, 1);
+    expect(a).toMatchObject({ fileId: 1, origin: { kind: 'issue', threadId: 5 }, mimeType: 'image/png' });
+    expect(c.getChatMessages).not.toHaveBeenCalled();
+  });
+
+  it('없으면 최근 메시지 첨부에서 찾아 messageId 를 함께 준다', async () => {
+    const a = await findThreadAttachmentMeta(mk(), 99, 5, 2);
+    expect(a).toMatchObject({ fileId: 2, origin: { kind: 'chat', threadId: 5, messageId: 11 }, mimeType: 'image/heic' });
+  });
+
+  it('어디에도 없거나 조회가 실패하면 undefined(던지지 않는다)', async () => {
+    expect(await findThreadAttachmentMeta(mk(), 99, 5, 77)).toBeUndefined();
+    const failing = mk({ listThreadIssueAttachments: vi.fn().mockRejectedValue(new Error('403')), getChatMessages: vi.fn().mockRejectedValue(new Error('500')) });
+    expect(await findThreadAttachmentMeta(failing, 99, 5, 1)).toBeUndefined();
   });
 });

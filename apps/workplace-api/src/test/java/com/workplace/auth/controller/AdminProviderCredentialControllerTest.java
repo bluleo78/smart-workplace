@@ -3,6 +3,7 @@ package com.workplace.auth.controller;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -36,6 +37,7 @@ class AdminProviderCredentialControllerTest extends IntegrationTestBase {
   @Autowired MockMvc mvc;
   @Autowired ObjectMapper objectMapper;
   @Autowired DSLContext dsl;
+  @Autowired com.workplace.auth.service.AiAgentCredentialService credentialService;
 
   /** 컨트롤러가 (Long) auth.getPrincipal() 캐스트하므로 principal 을 Long 으로 직접 세팅. */
   private Authentication authWith(Long userId, String... permissions) {
@@ -92,6 +94,50 @@ class AdminProviderCredentialControllerTest extends IntegrationTestBase {
         .andExpect(jsonPath("$.provider").value("opencode"))
         .andExpect(jsonPath("$.baseUrl").value("https://api.example.com/v1"))
         .andExpect(jsonPath("$.label").value("opencode-main"));
+  }
+
+  @Test // WP-250: providerConfig.vision 이 컨트롤러 직렬화에서 버려지지 않고 redeem 페이로드까지 남는다
+  void register_opencode_vision_redeem페이로드에_보존() throws Exception {
+    Long admin = createHumanUserForTest();
+    Long agentId = createAgentUserForTest();
+    var config =
+        new ProviderConfig(
+            "custom",
+            null,
+            Map.of("baseURL", "https://api.example.com/v1", "apiKey", "sk-xxxx"),
+            Map.of("custom/qwen3.6-35b-vl", true));
+    var req =
+        new ProviderCredentialRegisterRequest(
+            "opencode", null, config, "custom/qwen3.6-35b-vl", "opencode-vision");
+    mvc.perform(
+            post("/api/v1/admin/agents/" + agentId + "/provider-credential")
+                .with(authentication(authWith(admin, "user:write")))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(req)))
+        .andExpect(status().isCreated());
+
+    var payload = objectMapper.readTree(credentialService.redeemSelf(agentId).payload());
+    assertThat(payload.get("vision").get("custom/qwen3.6-35b-vl").asBoolean()).isTrue();
+  }
+
+  @Test // WP-250: 문자열 vision 은 400
+  void register_opencode_vision_잘못된값이면_400() throws Exception {
+    Long admin = createHumanUserForTest();
+    Long agentId = createAgentUserForTest();
+    var config =
+        new ProviderConfig(
+            "custom",
+            null,
+            Map.of("baseURL", "https://api.example.com/v1", "apiKey", "sk-xxxx"),
+            "yes");
+    var req =
+        new ProviderCredentialRegisterRequest("opencode", null, config, "custom/m", "opencode-bad");
+    mvc.perform(
+            post("/api/v1/admin/agents/" + agentId + "/provider-credential")
+                .with(authentication(authWith(admin, "user:write")))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(req)))
+        .andExpect(status().isBadRequest());
   }
 
   @Test

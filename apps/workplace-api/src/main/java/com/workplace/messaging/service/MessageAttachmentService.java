@@ -164,12 +164,23 @@ public class MessageAttachmentService {
   @Transactional(readOnly = true)
   public ExtractedTextSlice readText(
       long callerId, long channelId, long messageId, long fileId, int offset, int limit) {
+    // 권한 규칙은 resolveViewFileId 한 곳에 — /text 와 /view 가 같은 가드를 쓴다(같은 readOnly 트랜잭션 안에서 실행).
+    return extractedText.read(
+        resolveViewFileId(callerId, channelId, messageId, fileId), offset, limit);
+  }
+
+  /**
+   * 이미지 보기용 파일 id 확인(WP-250, R5) — {@link #readText} 와 같은 가드(채널 멤버 + 그 채널 메시지에 붙은 첨부)를 거쳐 core
+   * file.id 만 돌려준다.
+   */
+  @Transactional(readOnly = true)
+  public long resolveViewFileId(long callerId, long channelId, long messageId, long fileId) {
     ensureMember(channelId, callerId);
     if (!messageRepo.belongsToChannel(messageId, channelId)
         || repo.findStoredFile(fileId, messageId).isEmpty()) {
       throw new InvalidMessageAttachmentException(fileId);
     }
-    return extractedText.read(fileId, offset, limit);
+    return fileId;
   }
 
   /** 채널 멤버 여부 확인. 비멤버면 ChannelNotMemberException 발생. */

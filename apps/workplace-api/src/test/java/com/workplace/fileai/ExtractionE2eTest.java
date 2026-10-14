@@ -536,6 +536,94 @@ class ExtractionE2eTest extends IntegrationTestBase {
     }
   }
 
+  /**
+   * WP-250: 배포 전 추출분처럼 page_count 가 비어 있을 때만 채운다 — 이미 값이 있으면 덮어쓰지 않는다(이미지 보기 요청이 워커에서 받은 값으로 보충).
+   */
+  @Test
+  void fillPageCountIfMissing_fillsOnlyWhenNull() {
+    long fileId = createTextReadyFile(1L);
+    assertThat(readPageCount(1L, fileId)).isNull();
+
+    fillPageCount(1L, fileId, 5);
+    assertThat(readPageCount(1L, fileId)).isEqualTo(5);
+
+    fillPageCount(1L, fileId, 7);
+    assertThat(readPageCount(1L, fileId)).isEqualTo(5);
+  }
+
+  /**
+   * WP-250: 추출 콜백이 쪽수 없이 와도(구 워커·재추출) 이미 채운 page_count 를 NULL 로 지우지 않는다 — coalesce(새 값, 기존 값). 새 값이
+   * 오면 그 값으로 바꾼다.
+   */
+  @Test
+  void advanceCallbacks_keepExistingPageCountWhenCallbackHasNone() {
+    long fileId = createTextReadyFile(1L);
+    resetToExtracting(1L, fileId, 4);
+    inTenantTx(1L, () -> jobRepo.advanceToSkipped(fileId, "empty", null));
+    assertThat(readPageCount(1L, fileId)).isEqualTo(4);
+
+    resetToExtracting(1L, fileId, 4);
+    inTenantTx(1L, () -> jobRepo.advanceToTextReady(fileId, "본문", 2, false, "ko", (Integer) null));
+    assertThat(readPageCount(1L, fileId)).isEqualTo(4);
+
+    resetToExtracting(1L, fileId, 4);
+    inTenantTx(1L, () -> jobRepo.advanceToTextReady(fileId, "본문", 2, false, "ko", 9));
+    assertThat(readPageCount(1L, fileId)).isEqualTo(9);
+  }
+
+  /** 콜백 CAS 가 통하도록 EXTRACTING 으로 되돌리고 page_count 를 지정한다. */
+  private void resetToExtracting(long tenantId, long fileId, int pageCount) {
+    inTenantTx(
+        tenantId,
+        () ->
+            dsl.update(FILE_EXTRACTION)
+                .set(FILE_EXTRACTION.STATUS, "EXTRACTING")
+                .set(FILE_EXTRACTION.PAGE_COUNT, pageCount)
+                .where(FILE_EXTRACTION.FILE_ID.eq(fileId))
+                .execute());
+  }
+
+  /** 테넌트 컨텍스트를 건 짧은 쓰기 트랜잭션 — RLS GUC 는 트랜잭션 시작 때만 걸린다. */
+  private void inTenantTx(long tenantId, Runnable work) {
+    Long prev = TenantContext.get();
+    TenantContext.set(tenantId);
+    try {
+      new TransactionTemplate(txManager).executeWithoutResult(s -> work.run());
+    } finally {
+      if (prev == null) TenantContext.clear();
+      else TenantContext.set(prev);
+    }
+  }
+
+  private void fillPageCount(long tenantId, long fileId, int pageCount) {
+    Long prev = TenantContext.get();
+    TenantContext.set(tenantId);
+    try {
+      new TransactionTemplate(txManager)
+          .executeWithoutResult(s -> jobRepo.fillPageCountIfMissing(fileId, pageCount));
+    } finally {
+      if (prev == null) TenantContext.clear();
+      else TenantContext.set(prev);
+    }
+  }
+
+  private Integer readPageCount(long tenantId, long fileId) {
+    Long prev = TenantContext.get();
+    TenantContext.set(tenantId);
+    try {
+      return new TransactionTemplate(txManager)
+          .execute(
+              s ->
+                  dsl.select(FILE_EXTRACTION.PAGE_COUNT)
+                      .from(FILE_EXTRACTION)
+                      .where(FILE_EXTRACTION.FILE_ID.eq(fileId))
+                      .fetchOne(FILE_EXTRACTION.PAGE_COUNT));
+    } finally {
+      if (prev == null) TenantContext.clear();
+      else TenantContext.set(prev);
+    }
+  }
+
   private String readSummary(long tenantId, long fileId) {
     Long prev = TenantContext.get();
     TenantContext.set(tenantId);

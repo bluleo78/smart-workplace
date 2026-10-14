@@ -6,8 +6,7 @@ import com.workplace.file.api.ExpiredFileRetentionPolicy;
 import com.workplace.file.storage.FileStore;
 import com.workplace.global.tenant.TenantScopedRunner;
 import jakarta.annotation.PostConstruct;
-import java.io.IOException;
-import java.nio.file.Files;
+import java.io.UncheckedIOException;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -104,23 +103,16 @@ public class FileCleanupService {
     }
 
     // 디스크 삭제 성공한 파일 id 만 추적 — 실패한 것은 DB 레코드를 유지하여 재시도 가능하게 함.
-    // 썸네일은 원본 삭제에 성공할 때 best-effort 로 함께 삭제(실패해도 무시 — 고아 썸네일은 경미).
+    // 썸네일·이미지 보기 캐시("{storage_path}.view/", WP-250)는 FileStore 가 best-effort 로 함께 지운다(고아 파생 파일은
+    // 경미).
     List<Long> successfullyDeletedIds = new ArrayList<>();
     for (var row : expired) {
       if (retained.contains(row.get(FILE.ID))) continue;
       String storagePath = row.get(FILE.STORAGE_PATH);
-      String thumbnailPath = row.get(FILE.THUMBNAIL_PATH);
       try {
-        Files.deleteIfExists(fileStore.resolve(storagePath));
+        fileStore.deleteWithDerived(storagePath, row.get(FILE.THUMBNAIL_PATH));
         successfullyDeletedIds.add(row.get(FILE.ID));
-        if (thumbnailPath != null) {
-          try {
-            Files.deleteIfExists(fileStore.resolve(thumbnailPath));
-          } catch (IOException te) {
-            log.warn("썸네일 삭제 실패(무시): {}: {}", thumbnailPath, te.getMessage());
-          }
-        }
-      } catch (IOException e) {
+      } catch (UncheckedIOException e) {
         log.warn(
             "디스크 파일 삭제 실패 — DB 레코드를 유지하여 다음 정리 사이클에서 재시도 가능: {}: {}", storagePath, e.getMessage());
       }

@@ -1,6 +1,8 @@
 package com.workplace.issue.controller;
 
+import com.workplace.fileai.controller.ViewImageResponses;
 import com.workplace.fileai.dto.ExtractedTextSlice;
+import com.workplace.fileai.service.AttachmentViewService;
 import com.workplace.global.security.RequirePermission;
 import com.workplace.issue.dto.IssueAttachmentResponse;
 import com.workplace.issue.service.IssueAttachmentService;
@@ -36,6 +38,8 @@ import org.springframework.web.multipart.MultipartFile;
 public class IssueAttachmentController {
 
   private final IssueAttachmentService service;
+
+  private final AttachmentViewService attachmentView;
 
   /** 다중 multipart 업로드. files 필드명 고정. */
   @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -80,6 +84,20 @@ public class IssueAttachmentController {
       @RequestParam(defaultValue = "32000") int limit) {
     return ResponseEntity.ok(
         service.readText((Long) auth.getPrincipal(), key, number, fileId, offset, limit));
+  }
+
+  /** 첨부를 모델 입력용 이미지로 보여 준다(WP-250) — 규칙·권한·트랜잭션(R5)은 {@link AttachmentViewService} 참조. */
+  @GetMapping("/{fileId}/view")
+  @RequirePermission("project:read")
+  public ResponseEntity<byte[]> view(
+      Authentication auth,
+      @PathVariable String key,
+      @PathVariable int number,
+      @PathVariable Long fileId,
+      @RequestParam(required = false) Integer page) {
+    return ViewImageResponses.of(
+        attachmentView.view(
+            service.resolveViewFileId((Long) auth.getPrincipal(), key, number, fileId), page));
   }
 
   /** 다운로드 — 멤버 전체. Content-Disposition: attachment 로 파일명 유지. */

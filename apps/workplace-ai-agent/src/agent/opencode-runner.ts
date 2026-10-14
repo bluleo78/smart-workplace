@@ -12,7 +12,7 @@ import { buildOpencodeConfig, resolveStdioEntryCmd, splitOpencodeModel } from '.
 import { acquireServer, evictServer, releaseServer, type OpencodeHandle, type SpawnOpencode } from './opencode-server-pool.js';
 import { createIsolatedOpencode } from './opencode-spawn.js';
 import { attachmentRootDir } from './attachment-prep.js';
-import { resolveOpencodeModelVision, type OpencodeVision } from './opencode-vision.js';
+import { resolveOpencodeModelSettings, type OpencodeModelSettings } from './opencode-vision.js';
 import type { McpProfile } from '../mcp/tools.js';
 import type { RunnerEvent, RunnerUsage } from './runner-events.js';
 import { RunnerLimitError } from './runner-limit.js';
@@ -50,9 +50,11 @@ const POOL_ELIGIBLE_PROFILES: ReadonlySet<McpProfile> = new Set(['assistant', 'i
 // WP-259: 테넌트(MCP_ON_BEHALF_OF_TENANT)도 env 로 고정되므로 키에 넣는다 — 같은 사용자라도 테넌트가 다르면 서버를 나눈다.
 // WP-55: 하위 에이전트 프롬프트에 요청별 사용자 메모리(subagentPromptSuffix)가 실린 실행도 제외한다 — config 는 스폰 때 고정되므로
 // 재사용 서버면 앞 사용자의 메모리가 다음 사용자의 위임에 섞인다(지금은 홈 채팅이 hostBridge 로 이미 제외되지만 그 전제에 기대지 않는다).
-function poolKeyFor(i: RunnerInput, vision: OpencodeVision): string | undefined {
+// WP-250: 모델 한도(limit)도 config 에 실리므로 키에 넣는다 — provider 가 한도를 바꾸면 옛 config 의 서버를 재사용하지 않게.
+function poolKeyFor(i: RunnerInput, { vision, limit }: OpencodeModelSettings): string | undefined {
   if (!i.mcp || i.mcp.hostBridge || i.mcp.homeSessionId != null || i.subagentPromptSuffix || !POOL_ELIGIBLE_PROFILES.has(i.mcp.profile)) return undefined;
-  return `${i.agentId}:${i.mcp.profile}:${i.mcp.onBehalfOfId}:${i.mcp.onBehalfOfTenantId ?? '-'}:${i.model}:${String(vision)}`;
+  const limitKey = limit ? `:${limit.context}/${limit.output}` : '';
+  return `${i.agentId}:${i.mcp.profile}:${i.mcp.onBehalfOfId}:${i.mcp.onBehalfOfTenantId ?? '-'}:${i.model}:${String(vision)}${limitKey}`;
 }
 
 // 세션 생성 + 이벤트 구독 — 풀에서 재사용한 서버든 새로 스폰한 서버든 동일하게 거친다. 실패 시
@@ -103,11 +105,12 @@ export class OpencodeRunner implements AgentRunner {
       let timer: ReturnType<typeof setTimeout> | undefined;
       let errored = false;
       try {
-        // WP-241: 비전 판단 — try 안에서 해야 실패해도 finally 가 브리지를 해제한다. 호출자가 판단해 넘겼으면 그 값.
-        const vision = i.opencodeVision ? i.opencodeVision.value : await resolveOpencodeModelVision(payload, i.model);
-        poolKey = poolKeyFor(i, vision);
+        // WP-241·WP-250: 비전 판단과 모델 컨텍스트 한도를 provider /models 조회 한 번(credential 캐시)으로 함께 얻는다 — 한도를 알면 opencode 가
+        // 한도에 닿기 전에 압축한다. 호출자가 비전을 판단해 넘겼으면 그 값. try 안에서 해야 실패해도 finally 가 브리지를 해제한다.
+        const settings = await resolveOpencodeModelSettings(payload, i.model, i.opencodeVision);
+        poolKey = poolKeyFor(i, settings);
         const stdioEntryCmd = resolveStdioEntryCmd();
-        const config = buildOpencodeConfig(i, runId, stdioEntryCmd, { vision });
+        const config = buildOpencodeConfig(i, runId, stdioEntryCmd, settings);
         // createIsolatedOpencode 는 (1) 포트 충돌 회피(port:0 → OS 할당)와 (2) 데이터 디렉터리
         // 격리(서버마다 고유 XDG_DATA_HOME → 자기 SQLite)를 함께 처리한다. 둘 다 동시 스폰 시 크래시를
         // 막기 위한 것 — 4096 포트 고정 충돌과 공유 opencode.db 'database is locked' 경합(opencode-spawn.ts).
@@ -206,6 +209,10 @@ export class OpencodeRunner implements AgentRunner {
         // 프롬프트 규칙은 실측에서 오히려 이미지 읽기를 건너뛰게 만들어(5회 중 4회) 쓰지 않는다.
         const filterNarration = i.mcp?.profile === 'assistant';
         const narrationMessageIds = new Set<string>();
+        // WP-250: 컨텍스트가 차 opencode 가 세션을 압축(compaction)하는 중인지. 모델 한도를 넘은 요청이 provider 에서
+        // 거절되면(ContextOverflowError) opencode 는 session.error 를 먼저 낸 뒤 대화를 요약하고 이어 간다(1.17.18 라이브 실측) —
+        // 그 오류로 실행을 끝내지 않고 session.compacted 를 기다린다. 압축마저 실패하면 compacted 없이 idle 이 와 오류로 끝낸다.
+        let compactionPending = false;
 
         for await (const ev of es.stream) {
           if (killed) break;
@@ -274,6 +281,9 @@ export class OpencodeRunner implements AgentRunner {
 
           if (ev.type === 'message.updated') {
             const info = ev.properties.info;
+            // WP-250: 압축 요약 메시지(summary·mode 'compaction')는 모델이 다음 단계에 읽을 대화 요약이지 사용자에게 줄 답이 아니다 —
+            // text 를 내보내지 않고 사용량도 그 메시지 것으로 덮지 않는다. opencode 는 요약을 쓰기 전에 이 표시가 달린 message.updated 를 먼저 낸다(실측).
+            if (info.role === 'assistant' && (info.summary === true || info.mode === 'compaction')) continue;
             if (info.role === 'assistant' && knownSessionIds.has(info.sessionID)) {
               assistantMessageIds.add(info.id);
               if (info.sessionID === session.id) {
@@ -283,8 +293,20 @@ export class OpencodeRunner implements AgentRunner {
             continue;
           }
 
+          if (ev.type === 'session.compacted') {
+            if (ev.properties.sessionID === session.id) compactionPending = false;
+            continue;
+          }
+
           if (ev.type === 'session.idle') {
             if (ev.properties.sessionID === session.id) {
+              if (compactionPending) {
+                // 한도 초과 뒤 압축이 끝나지 못했다(요약 요청마저 한도를 넘는 등) — 답 없이 멈춘 실행이라 오류로 알린다.
+                errored = true;
+                log.error('opencode-runner', 'opencode_compaction_failed', { requestId: i.requestId });
+                onEvent({ type: 'result', ok: false, text: fullText || null, usage: lastUsage });
+                break;
+              }
               onEvent({ type: 'result', ok: true, text: fullText, usage: lastUsage });
               break;
             }
@@ -294,6 +316,13 @@ export class OpencodeRunner implements AgentRunner {
           if (ev.type === 'session.error') {
             const sid = ev.properties.sessionID;
             if (!sid || sid === session.id) {
+              // WP-250: 컨텍스트 한도 초과는 opencode 가 곧 압축하고 이어 간다 — 실행을 끝내지 않는다(위 compactionPending 참고).
+              // 이 오류 이름은 서버(1.17.x)에는 있지만 SDK 타입(1.17.13 v1 생성 타입)의 합집합에는 없어 문자열로 비교한다.
+              if ((ev.properties.error?.name as string | undefined) === 'ContextOverflowError') {
+                compactionPending = true;
+                log.info('opencode-runner', 'opencode_context_overflow_compacting', { requestId: i.requestId });
+                continue;
+              }
               errored = true;
               // session.error 의 실제 원인(ProviderAuthError/ApiError 등)을 남긴다 — 기존엔 이벤트
               // 발생 사실만 기록해 원인 파악이 불가능했다(실측: 원인 불명 session.error 디버깅 난항).

@@ -22,6 +22,12 @@ describe('buildUserTools', () => {
     expect(signature(buildUserTools(client))).toEqual(signature(exposableTools(buildSharedTools({} as SharedToolClient))));
   });
 
+  // WP-250: 외부 MCP 클라이언트 모델은 이미지를 볼 수 있다고 보고 read_file 에 PDF 쪽 이미지 입력(pages)을 연다.
+  it('read_file 정의에 pages 입력이 보인다', () => {
+    const readFile = buildUserTools(client).find((t) => t.name === 'read_file')!;
+    expect((z.toJSONSchema(readFile.inputSchema) as { properties: Record<string, unknown> }).properties).toHaveProperty('pages');
+  });
+
   // #853: PAT 는 스코프 없이 사용자 권한을 그대로 갖는다 — 되돌릴 수 없는 도구는 확인 카드 없이 열리면 안 된다.
   it('destructive 도구는 노출하지 않는다', () => {
     const base = (name: string) => ({ name, description: name, app: 'issue' as const, inputSchema: z.object({}), handler: async () => '' });

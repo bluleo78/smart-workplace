@@ -166,11 +166,21 @@ public class WikiAttachmentService {
   @Transactional(readOnly = true)
   public ExtractedTextSlice readText(
       long callerId, long pageId, long fileId, int offset, int limit) {
+    // 권한 규칙은 resolveViewFileId 한 곳에 — /text 와 /view 가 같은 가드를 쓴다(같은 readOnly 트랜잭션 안에서 실행).
+    return extractedText.read(resolveViewFileId(callerId, pageId, fileId), offset, limit);
+  }
+
+  /**
+   * 이미지 보기용 파일 id 확인(WP-250, R5) — {@link #readText} 와 같은 가드(공간 VIEWER 이상 + 이 페이지에 바인딩된 첨부)를 거쳐
+   * core file.id 만 돌려준다.
+   */
+  @Transactional(readOnly = true)
+  public long resolveViewFileId(long callerId, long pageId, long fileId) {
     long spaceId =
         pages.findSpaceId(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
     perms.requireRole(spaceId, callerId, "VIEWER");
     requireBound(pageId, fileId);
-    return extractedText.read(fileId, offset, limit);
+    return fileId;
   }
 
   /**
@@ -190,12 +200,12 @@ public class WikiAttachmentService {
     storage
         .deleteFileRow(fileId)
         .ifPresent(
-            relativePath ->
+            paths ->
                 TransactionSynchronizationManager.registerSynchronization(
                     new TransactionSynchronization() {
                       @Override
                       public void afterCommit() {
-                        storage.deleteBinary(relativePath);
+                        storage.deleteBinary(paths);
                       }
                     }));
   }
@@ -226,8 +236,11 @@ public class WikiAttachmentService {
           deleted,
           rootPageId);
     }
-    List<String> paths =
-        attached.stream().map(WikiAttachmentRepository.AttachedFile::storagePath).toList();
+    // 원본뿐 아니라 썸네일·이미지 보기 캐시(WP-250)도 커밋 후 함께 지운다.
+    List<WikiAttachmentStorage.StoredPaths> paths =
+        attached.stream()
+            .map(a -> new WikiAttachmentStorage.StoredPaths(a.storagePath(), a.thumbnailPath()))
+            .toList();
     TransactionSynchronizationManager.registerSynchronization(
         new TransactionSynchronization() {
           @Override

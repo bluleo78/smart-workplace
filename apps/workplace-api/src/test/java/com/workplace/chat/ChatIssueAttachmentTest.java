@@ -7,17 +7,27 @@ import static com.workplace.jooq.tables.ProjectMember.PROJECT_MEMBER;
 import static com.workplace.jooq.tables.User.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.workplace.chat.dto.CreateChatMessageRequest;
 import com.workplace.chat.exception.ChatThreadNotMemberException;
 import com.workplace.chat.repository.ChatThreadMemberRepository;
 import com.workplace.chat.service.ChatFixtures;
 import com.workplace.chat.service.ChatIssueAttachmentService;
 import com.workplace.chat.service.ChatMessageAttachmentService;
+import com.workplace.chat.service.ChatMessageService;
 import com.workplace.chat.service.ChatThreadService;
+import com.workplace.fileai.dto.ViewImage;
+import com.workplace.fileai.outbound.WorkerRenderClient;
 import com.workplace.global.outbound.AiAgentEventClient;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.tenant.TenantContext;
@@ -56,12 +66,16 @@ class ChatIssueAttachmentTest extends IntegrationTestBase {
   @Autowired IssueAttachmentService issueAttachmentService;
   @Autowired ChatIssueAttachmentService chatIssueAttachments;
   @Autowired ChatMessageAttachmentService chatAttachments;
+  @Autowired ChatMessageService chatMessageService;
   @Autowired ChatFixtures fx;
   @Autowired DSLContext dsl;
   @Autowired TransactionTemplate tx;
 
   @MockitoBean SseRegistry sseRegistry;
   @MockitoBean AiAgentEventClient aiAgentEventClient;
+
+  /** WP-250: /view 의 워커 렌더 호출 목 — 실제 워커 없이 권한·헤더·본문만 검증한다. */
+  @MockitoBean WorkerRenderClient worker;
 
   private final List<Long> agentIds = new ArrayList<>();
 
@@ -81,6 +95,9 @@ class ChatIssueAttachmentTest extends IntegrationTestBase {
           dsl.execute(
               "DELETE FROM issue_attachment ia USING file f"
                   + " WHERE ia.file_id = f.id AND f.category = 'ATTACHMENT'");
+          dsl.execute(
+              "DELETE FROM chat_message_attachment cma USING file f"
+                  + " WHERE cma.file_id = f.id AND f.category = 'ATTACHMENT'");
           dsl.execute("DELETE FROM file WHERE category = 'ATTACHMENT'");
           return null;
         });
@@ -162,6 +179,12 @@ class ChatIssueAttachmentTest extends IntegrationTestBase {
     joinThread(threadId, agentId);
     long fileId = uploadIssuePdf(s);
     markDone(fileId, "abcdef");
+    inTx(
+        () ->
+            dsl.update(FILE_EXTRACTION)
+                .set(FILE_EXTRACTION.PAGE_COUNT, 4)
+                .where(FILE_EXTRACTION.FILE_ID.eq(fileId))
+                .execute());
 
     // 기존 이슈 첨부 API 는 그대로 막혀 있다(비멤버·역할 없음) — 권한을 느슨하게 하지 않았다.
     mockMvc
@@ -181,7 +204,9 @@ class ChatIssueAttachmentTest extends IntegrationTestBase {
         .andExpect(jsonPath("$[0].fileId").value(fileId))
         .andExpect(jsonPath("$[0].issueId").value(s.issueId()))
         .andExpect(jsonPath("$[0].originalName").value("spec.pdf"))
-        .andExpect(jsonPath("$[0].extraction.status").value("READY"));
+        .andExpect(jsonPath("$[0].extraction.status").value("READY"))
+        // WP-250: 목록 extraction 에 PDF 쪽수가 실려 AI 가 페이지 이미지를 요청할 수 있다.
+        .andExpect(jsonPath("$[0].extraction.pageCount").value(4));
 
     // 텍스트 — 기존 스레드 첨부 텍스트 경로가 이슈 첨부 fileId 도 받는다.
     mockMvc
@@ -358,5 +383,96 @@ class ChatIssueAttachmentTest extends IntegrationTestBase {
                     threadId,
                     fileId)))
         .andExpect(status().isNotFound());
+  }
+
+  // ---- WP-250: GET /threads/{id}/attachments/{fileId}/view — 이슈 첨부·챗 첨부 모두 같은 경로 ----
+
+  private static final byte[] VIEW_PNG = {(byte) 0x89, 'P', 'N', 'G', 9, 9, 9};
+
+  private void mockRender(int pageCount) {
+    when(worker.render(anyString(), eq("application/pdf"), eq(1), anyInt()))
+        .thenReturn(new ViewImage(VIEW_PNG, "image/png", pageCount));
+  }
+
+  @Test
+  void view_는_스레드_멤버_AGENT_에게_이슈_첨부_쪽_이미지를_돌려준다() throws Exception {
+    ChatFixtures.Setup s = fx.setup();
+    long threadId = threadOf(s);
+    long agentId = insertAgent();
+    joinThread(threadId, agentId);
+    long fileId = uploadIssuePdf(s);
+    mockRender(6);
+
+    mockMvc
+        .perform(
+            as(
+                agentId,
+                get("/api/v1/chat/threads/{id}/attachments/{fileId}/view", threadId, fileId)
+                    .param("page", "1")))
+        .andExpect(status().isOk())
+        .andExpect(header().string("Content-Type", "image/png"))
+        .andExpect(header().string("X-Page-Count", "6"))
+        .andExpect(content().bytes(VIEW_PNG));
+  }
+
+  @Test
+  void view_는_챗_첨부_PDF_도_스레드_멤버에게_보여_준다() throws Exception {
+    ChatFixtures.Setup s = fx.setup();
+    long threadId = threadOf(s);
+    long fileId =
+        chatAttachments
+            .upload(
+                s.reporterId(),
+                threadId,
+                List.of(new MockMultipartFile("files", "a.pdf", "application/pdf", PDF_BYTES)))
+            .get(0)
+            .fileId();
+    chatMessageService.create(
+        s.reporterId(), threadId, new CreateChatMessageRequest("본문", List.of(fileId), List.of()));
+    mockRender(2);
+
+    mockMvc
+        .perform(
+            as(
+                s.reporterId(),
+                get("/api/v1/chat/threads/{id}/attachments/{fileId}/view", threadId, fileId)
+                    .param("page", "1")))
+        .andExpect(status().isOk())
+        .andExpect(header().string("X-Page-Count", "2"))
+        .andExpect(content().bytes(VIEW_PNG));
+  }
+
+  @Test
+  void view_는_스레드_멤버도_프로젝트_멤버도_아니면_403_이고_워커를_부르지_않는다() throws Exception {
+    ChatFixtures.Setup s = fx.setup();
+    long threadId = threadOf(s);
+    long fileId = uploadIssuePdf(s);
+
+    mockMvc
+        .perform(
+            as(
+                s.outsiderId(),
+                get("/api/v1/chat/threads/{id}/attachments/{fileId}/view", threadId, fileId)
+                    .param("page", "1")))
+        .andExpect(status().isForbidden());
+    verifyNoInteractions(worker);
+  }
+
+  @Test
+  void view_는_다른_이슈의_fileId_를_404_로_막는다() throws Exception {
+    ChatFixtures.Setup s = fx.setup();
+    long threadId = threadOf(s);
+    long agentId = insertAgent();
+    joinThread(threadId, agentId);
+    long otherFileId = uploadIssuePdf(fx.setup());
+
+    mockMvc
+        .perform(
+            as(
+                agentId,
+                get("/api/v1/chat/threads/{id}/attachments/{fileId}/view", threadId, otherFileId)
+                    .param("page", "1")))
+        .andExpect(status().isNotFound());
+    verifyNoInteractions(worker);
   }
 }

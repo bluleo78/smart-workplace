@@ -1,7 +1,9 @@
 package com.workplace.auth.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.workplace.audit.service.AuditLogService;
 import com.workplace.auth.dto.AiAgentCredentialRow;
 import com.workplace.auth.dto.OAuthTokenMetaResponse;
@@ -195,6 +197,75 @@ public class AiAgentCredentialService {
   }
 
   /**
+   * 모델 이미지 입력 수동 지정 갱신(WP-250) — 등록 후 모델만 바꾸거나 지금 모델의 지정을 고칠 때(비서 설정 변경). 활성 opencode 자격증명의
+   * provider config 에서 vision 만 {@code {model: true|false}} 로 바꾸거나(이전 모델 키는 지운다 — 지금 모델만 의미가 있다)
+   * 지운다(null = 자동 감지). 같은 행을 그 자리에서 다시 암호화해 쓴다 — 재등록(register)처럼 회수·새 행·감사 로그·추천 모델 초기화를 일으키지 않고,
+   * providerId·options(apiKey 포함)는 값 그대로 둔다.
+   *
+   * @param model 지정을 걸 모델("providerId/modelId", 저장 키와 같은 형식)
+   * @param vision boolean 또는 null(자동). 그 밖은 400
+   */
+  public void updateModelVision(Long agentUserId, String model, JsonNode vision) {
+    boolean auto = vision == null || vision.isNull();
+    if (!auto && !vision.isBoolean()) {
+      throw new InvalidProviderCredentialException("vision 은 true/false 또는 null(자동 감지)이어야 합니다");
+    }
+    AiAgentCredentialRow row = repo.findActive(agentUserId).orElse(null);
+    if (row == null || !"opencode".equals(row.provider())) {
+      if (auto) return; // 지정할 것이 없다(Claude 연결은 늘 이미지를 본다)
+      throw new InvalidProviderCredentialException("이미지 입력 지정은 OpenAI 호환 연결에만 할 수 있습니다");
+    }
+    if (!auto && (model == null || model.isBlank())) {
+      throw new InvalidProviderCredentialException("이미지 입력을 지정할 모델이 없습니다");
+    }
+    ObjectNode payload;
+    try {
+      payload = (ObjectNode) readPayload(row);
+    } catch (JsonProcessingException | ClassCastException e) {
+      throw new IllegalStateException("저장된 provider config 를 읽을 수 없습니다", e);
+    }
+    if (auto) {
+      if (!payload.has("vision")) return;
+      payload.remove("vision");
+    } else {
+      ObjectNode perModel = objectMapper.createObjectNode();
+      perModel.put(model, vision.booleanValue());
+      payload.set("vision", perModel);
+    }
+    try {
+      repo.updateEncryptedToken(
+          row.id(), encryptionService.encrypt(objectMapper.writeValueAsString(payload)));
+    } catch (JsonProcessingException e) {
+      throw new IllegalStateException("provider config 를 저장할 수 없습니다", e);
+    }
+  }
+
+  /**
+   * 지금 모델의 이미지 입력 수동 지정(WP-250) — 비서 설정 화면이 초깃값으로 보여 준다. 모델별 맵이면 그 모델 키, 전 모델 공통 boolean 이면 그 값,
+   * 지정이 없거나 opencode 연결이 아니면 null(자동 감지). ai-agent manualVision 과 같은 읽기 규칙(키는
+   * "providerId/modelId").
+   */
+  @Transactional(readOnly = true)
+  public Boolean findModelVision(Long agentUserId, String model) {
+    return repo.findActive(agentUserId)
+        .filter(r -> "opencode".equals(r.provider()))
+        .map(r -> readVision(r, model))
+        .orElse(null);
+  }
+
+  private Boolean readVision(AiAgentCredentialRow row, String model) {
+    try {
+      JsonNode v = readPayload(row).get("vision");
+      if (v == null || v.isNull()) return null;
+      if (v.isBoolean()) return v.booleanValue();
+      JsonNode m = model == null ? null : v.get(model);
+      return m != null && m.isBoolean() ? m.booleanValue() : null;
+    } catch (Exception e) {
+      return null; // 상태 조회는 best-effort — 파싱 실패로 화면 전체를 깨뜨리지 않는다(extractBaseUrl 과 같은 규칙).
+    }
+  }
+
+  /**
    * 저장된 추천 모델을 새 연결에서도 쓸 수 있는가(WP-139). 추천 모델은 provider 형식에 묶인다(Anthropic id ↔ opencode
    * "providerId/model").
    *
@@ -239,7 +310,23 @@ public class AiAgentCredentialService {
           "opencode provider config 에 options.baseURL/options.apiKey 가 필요합니다");
     }
     ProbeUrlValidator.validate(options.get("baseURL").asText());
+    validateVision(node.get("vision"));
     return node.get("providerId").asText();
+  }
+
+  /**
+   * 모델 이미지 입력 수동 설정(WP-250) 검증 — 없음/null(자동 감지), boolean(전 모델 공통), 모든 값이 boolean 인 객체(모델 id →
+   * boolean)만 허용한다. ai-agent(manualVision)는 boolean 이 아닌 값을 조용히 무시하므로, 오타("yes" 등)가 "설정했는데 안 먹는"
+   * 상태로 저장되지 않게 등록 시점에 막는다.
+   */
+  private void validateVision(JsonNode vision) {
+    if (vision == null || vision.isNull() || vision.isBoolean()) {
+      return;
+    }
+    if (vision.isObject() && vision.properties().stream().allMatch(e -> e.getValue().isBoolean())) {
+      return;
+    }
+    throw new InvalidProviderCredentialException("vision 은 true/false 또는 모델별 true/false 여야 합니다");
   }
 
   /** row → 메타 응답. opencode 는 복호화 후 payload 에서 options.baseURL 을 추출(실패 시 null), anthropic 은 null. */
@@ -251,14 +338,21 @@ public class AiAgentCredentialService {
 
   private String extractBaseUrl(AiAgentCredentialRow row) {
     try {
-      String plaintext = encryptionService.decrypt(row.encryptedToken());
-      JsonNode options = objectMapper.readTree(plaintext).get("options");
+      JsonNode options = readPayload(row).get("options");
       return options != null && options.hasNonNull("baseURL")
           ? options.get("baseURL").asText()
           : null;
     } catch (Exception e) {
       return null; // 메타 조회는 best-effort — 파싱 실패로 전체 응답을 깨뜨리지 않는다.
     }
+  }
+
+  /**
+   * 저장된 자격증명을 복호화해 JSON 으로 읽는다(opencode provider config). 파싱 실패 처리는 호출자마다 다르다(best-effort 조회·저장
+   * 거절).
+   */
+  private JsonNode readPayload(AiAgentCredentialRow row) throws JsonProcessingException {
+    return objectMapper.readTree(encryptionService.decrypt(row.encryptedToken()));
   }
 
   private UserResponse assertAgent(Long userId) {

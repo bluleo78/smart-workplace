@@ -164,6 +164,17 @@ public class IssueAttachmentService {
   @Transactional(readOnly = true)
   public ExtractedTextSlice readText(
       Long callerId, String projectKey, int number, Long fileId, int offset, int limit) {
+    // 권한 규칙은 resolveViewFileId 한 곳에 — /text 와 /view 가 같은 가드를 쓴다(같은 readOnly 트랜잭션 안에서 실행).
+    return extractedText.read(
+        resolveViewFileId(callerId, projectKey, number, fileId), offset, limit);
+  }
+
+  /**
+   * 이미지 보기용 파일 id 확인(WP-250, R5) — {@link #readText} 와 같은 가드(조회 권한 + 이 이슈의 첨부)를 거쳐 core file.id 만
+   * 돌려준다.
+   */
+  @Transactional(readOnly = true)
+  public long resolveViewFileId(Long callerId, String projectKey, int number, Long fileId) {
     var project = accessGuard.assertReadable(projectKey, callerId);
     var issue =
         issueRepository
@@ -173,7 +184,7 @@ public class IssueAttachmentService {
     if (!att.issueId().equals(issue.id())) {
       throw new AttachmentNotFoundException(fileId);
     }
-    return extractedText.read(fileId, offset, limit);
+    return fileId;
   }
 
   /**

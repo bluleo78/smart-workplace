@@ -45,6 +45,8 @@ public class FileExtractionPipeline {
    * 워커 추출 결과 페이로드 — 콜백 컨트롤러와 공유(controller→service 단방향).
    *
    * <p>tenantId 는 디스패치 시 워커에 전달한 값을 그대로 에코(round-trip). 콜백 컨트롤러가 TenantContext 복원에 사용.
+   *
+   * <p>pageCount(WP-250)는 PDF 총 페이지 수 — PDF 가 아니면 null. 글자가 없어 SKIPPED 로 끝나는 스캔 PDF 도 싣는다.
    */
   public record ExtractResult(
       Long tenantId,
@@ -53,7 +55,8 @@ public class FileExtractionPipeline {
       Integer charCount,
       String lang,
       Boolean truncated,
-      String error) {}
+      String error,
+      Integer pageCount) {}
 
   /**
    * 요약 단계 1회의 결과 — 배치가 ai-agent 연속 불가를 세는 근거(WP-177).
@@ -239,7 +242,8 @@ public class FileExtractionPipeline {
               result.text(),
               result.charCount() != null ? result.charCount() : result.text().length(),
               Boolean.TRUE.equals(result.truncated()),
-              result.lang());
+              result.lang(),
+              result.pageCount());
       if (advanced.isEmpty()) {
         log.debug("TEXT_READY 전이 CAS 실패 — 스테일 콜백 무시: jobId={} fileId={}", jobId, fileId);
         return;
@@ -281,7 +285,7 @@ public class FileExtractionPipeline {
           "FAILED".equals(result.status())
               ? "extract-error:" + (raw != null ? raw : "")
               : (raw != null ? raw : "empty-text:" + result.status());
-      boolean advanced = jobs.advanceToSkipped(fileId, error);
+      boolean advanced = jobs.advanceToSkipped(fileId, error, result.pageCount());
       if (!advanced) {
         log.debug("SKIPPED 전이 CAS 실패 — 스테일 콜백 무시: jobId={} fileId={}", jobId, fileId);
       } else {

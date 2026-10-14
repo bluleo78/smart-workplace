@@ -632,10 +632,20 @@ public class DriveFileService {
    */
   @Transactional(readOnly = true)
   public ExtractedTextSlice readText(long callerId, long driveFileId, int offset, int limit) {
+    // 권한 규칙은 resolveViewFileId 한 곳에 — /text 와 /view 가 같은 가드를 쓴다(같은 readOnly 트랜잭션 안에서 실행).
+    return extractedText.read(resolveViewFileId(callerId, driveFileId), offset, limit);
+  }
+
+  /**
+   * 이미지 보기용 파일 id 확인(WP-250, R5) — {@link #readText} 와 같은 가드(없는·휴지통 파일 404, 스페이스 VIEWER 이상)를 거쳐 현재
+   * 버전의 core file.id 만 돌려준다.
+   */
+  @Transactional(readOnly = true)
+  public long resolveViewFileId(long callerId, long driveFileId) {
     DriveFileRepository.DriveFileRow row =
         files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
     perms.requireRole(row.spaceId(), callerId, "VIEWER");
-    return extractedText.read(row.fileId(), offset, limit);
+    return row.fileId();
   }
 
   /**

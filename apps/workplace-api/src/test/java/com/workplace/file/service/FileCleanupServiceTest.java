@@ -208,6 +208,43 @@ class FileCleanupServiceTest extends IntegrationTestBase {
   }
 
   /**
+   * WP-250: 만료 정리는 원본·썸네일뿐 아니라 이미지 보기 캐시 디렉터리("{storage_path}.view/")도 함께 지워야 한다. 캐시는 DB 행이 없어 원본과
+   * 함께 지우지 않으면 영구 고아로 남는다.
+   */
+  @Test
+  void cleanupExpiredFiles_alsoRemovesThumbnailAndViewCache() throws IOException {
+    String storagePath = "tenant-1/files/view-cache-cleanup.pdf";
+    String thumbPath = "tenant-1/files/view-cache-cleanup.thumb.png";
+    Path original = fileStore.resolve(storagePath);
+    Path thumb = fileStore.resolve(thumbPath);
+    Path cache = fileStore.resolve(storagePath + ".view/p1-1568.png");
+    Files.createDirectories(original.getParent());
+    Files.createDirectories(cache.getParent());
+    Files.writeString(original, "pdf");
+    Files.writeString(thumb, "thumb");
+    Files.writeString(cache, "page");
+
+    dsl.insertInto(FILE)
+        .set(FILE.ORIGINAL_NAME, "view-cache-cleanup.pdf")
+        .set(FILE.STORED_NAME, "view-cache-cleanup.pdf")
+        .set(FILE.STORAGE_PATH, storagePath)
+        .set(FILE.THUMBNAIL_PATH, thumbPath)
+        .set(FILE.MIME_TYPE, "application/pdf")
+        .set(FILE.SIZE_BYTES, 3L)
+        .set(FILE.CATEGORY, "IMPORT")
+        .set(FILE.UPLOADED_BY, testUserId)
+        .set(FILE.EXPIRES_AT, OffsetDateTime.now(ZoneOffset.UTC).minusHours(1))
+        .execute();
+
+    fileCleanupService.cleanupExpiredForCurrentTenant();
+
+    assertThat(original).doesNotExist();
+    assertThat(thumb).doesNotExist();
+    assertThat(cache).doesNotExist();
+    assertThat(fileStore.resolve(storagePath + ".view")).doesNotExist();
+  }
+
+  /**
    * 혼합 시나리오: 일부 파일 삭제 성공, 일부 실패 시 성공한 파일의 DB 레코드만 삭제되어야 한다.
    *
    * <p>이슈 #152 수정 검증 — 디스크 삭제 성공 경로만 IN 절로 지정하여 DB 삭제하는 로직을 확인한다.

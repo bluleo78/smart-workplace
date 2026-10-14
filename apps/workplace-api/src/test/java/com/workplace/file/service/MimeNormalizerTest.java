@@ -52,4 +52,19 @@ class MimeNormalizerTest {
     assertThat(MimeNormalizer.normalize("A.HWP", "application/octet-stream"))
         .isEqualTo("application/x-hwp");
   }
+
+  /** WP-250: 브라우저가 빈 type·octet-stream 으로 보내기 쉬운 이미지 확장자 — 새 업로드에서 image/* 로 보정한다. */
+  @Test
+  @DisplayName("HEIC·HEIF·TIFF·BMP 는 빈 type·octet-stream 일 때 이미지 mime 으로 보정")
+  void normalizesImageExtensions() {
+    assertThat(MimeNormalizer.normalize("IMG_1.HEIC", "")).isEqualTo("image/heic");
+    assertThat(MimeNormalizer.normalize("a.heif", "application/octet-stream"))
+        .isEqualTo("image/heif");
+    assertThat(MimeNormalizer.normalize("scan.tif", null)).isEqualTo("image/tiff");
+    assertThat(MimeNormalizer.normalize("scan.TIFF", "application/octet-stream"))
+        .isEqualTo("image/tiff");
+    assertThat(MimeNormalizer.normalize("a.bmp", "")).isEqualTo("image/bmp");
+    // 브라우저가 구체적 mime 을 주면 그대로 신뢰한다.
+    assertThat(MimeNormalizer.normalize("a.heic", "image/heic")).isEqualTo("image/heic");
+  }
 }

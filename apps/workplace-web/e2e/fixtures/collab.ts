@@ -275,60 +275,68 @@ export async function watchCollabAiApply(
 }
 
 /**
- * 노트 본문에서 paragraph 를 담은 문단 끝에 이어 친다 — 문단 마지막 글자의 오른쪽 가장자리를 눌러 캐럿을 둔다.
- * 예전엔 문단을 누르고 End 를 눌렀는데, macOS Chromium 은 End 로 캐럿을 줄 끝에 보내지 않아(문서 스크롤만) 문단 가운데를
- * 누른 자리에 그대로 쳤다 — 가운데가 글자 오른쪽 빈칸인 짧은 문단에서만 우연히 끝에 들어갔다. 마지막 글자 사각형의
- * 오른쪽 끝을 누르면 줄바꿈된 긴 문단도 플랫폼과 무관하게 끝에 놓인다.
+ * 노트 본문에서 paragraph 를 담은 문단의 at 자리(글자 offset, 'end' 는 문단 끝)에 캐럿을 둔다 — 에디터 상태에 바로 박는다(WP-250).
+ * 예전엔 그 자리를 마우스로 눌렀는데, 동시 편집 중 부하에서 누름이 통째로 사라졌다(상대 글자가 문서 맨 앞에 들어감): Chromium 은
+ * 누른 뒤의 DOM 선택을 비동기 selectionchange 로 알리고 ProseMirror 는 그때서야 상태에 읽는데, 그 사이에 상대 입력·awareness 가
+ * 도착해 뷰가 갱신되면 ProseMirror 가 아직 옛 상태 선택(첫 접속이면 문서 맨 앞)을 DOM 에 다시 쓴다(prosemirror-view 는 끌기 선택만
+ * 보호한다). 상태 선택은 y-prosemirror 가 원격 변경 너머로 상대 위치로 옮겨 주므로, 상태에 먼저 박으면 뒤이은 동기화와 무관하게 남는다.
+ * 자리 계산·포커스·선택이 한 번의 evaluate(페이지 JS 한 턴) 안이라 그 사이에 원격 변경이 끼지 못한다.
  */
-export async function typeAtEnd(page: Page, paragraph: string, text: string): Promise<void> {
+async function placeCaret(page: Page, paragraph: string, at: number | 'end'): Promise<void> {
   const para = page.locator('.ProseMirror p', { hasText: paragraph }).first()
   await para.scrollIntoViewIfNeeded()
-  const point = await para.evaluate((el) => {
-    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT)
-    let last: Text | null = null
-    while (walker.nextNode()) {
-      const node = walker.currentNode as Text
-      if (node.length > 0) last = node
+  await para.evaluate((el, at) => {
+    // Tiptap 이 에디터 DOM(.ProseMirror)에 인스턴스를 붙여 둔다 — 캐럿 배치에 쓰는 부분만 본다.
+    type EditorDom = HTMLElement & {
+      editor?: {
+        view: { posAtDOM(node: Node, offset: number): number; focus(): void }
+        commands: { setTextSelection(pos: number): boolean }
+      }
     }
-    if (!last) throw new Error('문단에 글자가 없다')
-    const range = document.createRange()
-    range.setStart(last, last.length - 1)
-    range.setEnd(last, last.length)
-    // 마지막 글자가 줄바꿈 경계에 걸치면 사각형이 여럿 — 마지막(아래 줄) 것을 쓴다.
-    const rects = range.getClientRects()
-    const r = rects[rects.length - 1]
-    return { x: r.right - 1, y: r.top + r.height / 2 }
-  })
-  await page.mouse.click(point.x, point.y)
+    const editor = (el.closest('.ProseMirror') as EditorDom | null)?.editor
+    if (!editor) throw new Error('문단이 에디터 안에 없다')
+    // at 자리의 글자 노드·노드 안 위치 — 'end' 는 마지막(빈 것 제외) 글자 노드의 끝.
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT)
+    let node: Text | null = null
+    let offset = 0
+    let left = at === 'end' ? Infinity : at
+    while (walker.nextNode()) {
+      const text = walker.currentNode as Text
+      if (text.length === 0) continue
+      if (at === 'end') {
+        node = text
+        offset = text.length
+      } else if (left < text.length) {
+        node = text
+        offset = left
+        break
+      } else left -= text.length
+    }
+    if (!node) throw new Error(at === 'end' ? '문단에 글자가 없다' : `문단에 ${at} 번째 글자가 없다`)
+    // 먼저 포커스(지금 상태 선택을 DOM 에 씀) 뒤 선택을 바꾼다 — 포커스가 있는 채로 바뀌어야 원격 커서(awareness)도 새 자리로 간다.
+    editor.view.focus()
+    editor.commands.setTextSelection(editor.view.posAtDOM(node, offset))
+  }, at)
+}
+
+/** 노트 본문에서 paragraph 를 담은 문단 끝에 캐럿을 두고 이어 친다(캐럿 배치는 placeCaret). */
+export async function typeAtEnd(page: Page, paragraph: string, text: string): Promise<void> {
+  await placeCaret(page, paragraph, 'end')
   await page.keyboard.type(text)
 }
 
+/** 노트 본문에서 paragraph 를 담은 문단 끝에 캐럿만 둔다 — 입력 없이 커서 기반 UI(표 툴바 등)를 띄울 때. */
+export function caretAtEnd(page: Page, paragraph: string): Promise<void> {
+  return placeCaret(page, paragraph, 'end')
+}
+
 /**
- * 노트 본문에서 paragraph 를 담은 문단의 offset 번째 글자 앞에 캐럿을 둔다 — 그 글자 사각형의 왼쪽 가장자리를 누른다(회귀 안정화, WP-55).
- * 끝을 누른 뒤 방향키로 옮기면 부하에서 한 번이 사라졌다: 방향키는 브라우저가 캐럿을 옮기고 ProseMirror 는 뒤이은 selectionchange 에서야
- * 읽는데, 그 사이에 원격 awareness·동기화로 뷰가 갱신되면 ProseMirror 가 옛 선택을 DOM 에 다시 써 방향키 하나가 없던 일이 된다.
- * 누르는 동안은 ProseMirror 가 DOM 선택을 덮어쓰지 않는다. 자리가 맞았는지는 호출부가 상대 화면의 커서 위치 등으로 확인한다.
+ * 노트 본문에서 paragraph 를 담은 문단의 offset 번째 글자 앞에 캐럿을 둔다(회귀 안정화, WP-55·WP-250).
+ * 끝에 둔 뒤 방향키로 옮기면 부하에서 한 번이 사라졌다 — 방향키도 누름과 같이 DOM 선택을 selectionchange 로만 알려, 그 사이 원격
+ * 갱신에 덮인다. placeCaret 으로 상태에 바로 박는다. 자리가 맞았는지는 호출부가 상대 화면의 커서 위치 등으로 확인한다.
  */
-export async function clickBeforeChar(page: Page, paragraph: string, offset: number): Promise<void> {
-  const para = page.locator('.ProseMirror p', { hasText: paragraph }).first()
-  await para.scrollIntoViewIfNeeded()
-  const point = await para.evaluate((el, at) => {
-    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT)
-    let left = at
-    while (walker.nextNode()) {
-      const node = walker.currentNode as Text
-      if (left < node.length) {
-        const range = document.createRange()
-        range.setStart(node, left)
-        range.setEnd(node, left + 1)
-        const r = range.getClientRects()[0]
-        return { x: r.left + 1, y: r.top + r.height / 2 }
-      }
-      left -= node.length
-    }
-    throw new Error(`문단에 ${at} 번째 글자가 없다`)
-  }, offset)
-  await page.mouse.click(point.x, point.y)
+export function caretBeforeChar(page: Page, paragraph: string, offset: number): Promise<void> {
+  return placeCaret(page, paragraph, offset)
 }
 
 /** 원격 커서 위젯 앞까지의 문단 글자 — 상대 화면에서 그 사람 캐럿이 어느 글자 뒤에 있는지 본다(위젯은 글자 노드가 없다). */

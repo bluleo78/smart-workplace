@@ -165,6 +165,62 @@ class ExtractionPipelineTest extends IntegrationTestBase {
     assertThat(readCharCount(1L, fileId)).isEqualTo(11);
   }
 
+  /** WP-250: DONE 콜백의 pageCount 가 file_extraction.page_count 로 저장된다(Jackson 매핑 포함). */
+  @Test
+  void doneCallback_storesPageCount() throws Exception {
+    doNothing()
+        .when(workerClient)
+        .dispatchExtract(any(Long.class), any(), any(), any(Long.class), anyBoolean());
+    long fileId = createPendingFile(1L);
+    TenantContext.set(1L);
+    try {
+      pipeline.dispatchPending(fileId);
+    } finally {
+      TenantContext.clear();
+    }
+    long jobId = latestJobId(1L, fileId);
+
+    mockMvc
+        .perform(
+            post("/internal/worker/jobs/{id}/result", jobId)
+                .header("Authorization", "Internal " + INTERNAL_TOKEN)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"status\":\"DONE\",\"text\":\"글\",\"charCount\":1,\"truncated\":false,\"pageCount\":5}"))
+        .andExpect(status().isOk());
+
+    assertThat(readPageCount(1L, fileId)).isEqualTo(5);
+  }
+
+  /** WP-250: 스캔 PDF(SKIPPED, error=empty)도 페이지 수는 저장한다 — AI 가 페이지 이미지를 요청할 수 있게. */
+  @Test
+  void skippedCallback_storesPageCount() {
+    long fileId = createExtractingFile(1L);
+    long jobId = insertJob(1L, fileId);
+
+    applyInTenant(
+        jobId,
+        new FileExtractionPipeline.ExtractResult(
+            1L, "SKIPPED", null, null, null, null, "empty", 3));
+
+    assertThat(readStatus(1L, fileId)).isEqualTo("SKIPPED");
+    assertThat(readPageCount(1L, fileId)).isEqualTo(3);
+  }
+
+  /** WP-250: 페이지 수가 없는 콜백(PDF 아님)은 page_count 를 NULL 로 둔다. */
+  @Test
+  void doneCallback_withoutPageCount_leavesNull() {
+    long fileId = createExtractingFile(1L);
+    long jobId = insertJob(1L, fileId);
+
+    applyInTenant(
+        jobId,
+        new FileExtractionPipeline.ExtractResult(1L, "DONE", "글", 1, null, false, null, null));
+
+    assertThat(readStatus(1L, fileId)).isEqualTo("TEXT_READY");
+    assertThat(readPageCount(1L, fileId)).isNull();
+  }
+
   /** 스테일 콜백: DONE 콜백 → TEXT_READY 전이 후 두 번째 DONE 콜백은 무시(이미 TEXT_READY). */
   @Test
   void staleCallback_isIgnored() throws Exception {
@@ -359,6 +415,69 @@ class ExtractionPipelineTest extends IntegrationTestBase {
   }
 
   // ── 헬퍼 ──
+
+  /** 지정 테넌트에서 file_extraction.page_count 조회. */
+  private Integer readPageCount(long tenantId, long fileId) {
+    Long prev = TenantContext.get();
+    TenantContext.set(tenantId);
+    try {
+      return new TransactionTemplate(txManager)
+          .execute(
+              s ->
+                  dsl.select(FILE_EXTRACTION.PAGE_COUNT)
+                      .from(FILE_EXTRACTION)
+                      .where(FILE_EXTRACTION.FILE_ID.eq(fileId))
+                      .fetchOne(FILE_EXTRACTION.PAGE_COUNT));
+    } finally {
+      if (prev == null) TenantContext.clear();
+      else TenantContext.set(prev);
+    }
+  }
+
+  /** PENDING 파일을 만든 뒤 EXTRACTING 으로 돌려 콜백을 직접 적용할 수 있게 한다(디스패치 mock 불필요). */
+  private long createExtractingFile(long tenantId) {
+    long fileId = createPendingFile(tenantId);
+    cleanupInTenant(
+        tenantId,
+        () ->
+            dsl.update(FILE_EXTRACTION)
+                .set(FILE_EXTRACTION.STATUS, "EXTRACTING")
+                .where(FILE_EXTRACTION.FILE_ID.eq(fileId))
+                .execute());
+    return fileId;
+  }
+
+  /** fileId 를 가리키는 worker_job 을 직접 삽입해 id 를 돌려준다(applyExtractResult 의 역조회용). */
+  private long insertJob(long tenantId, long fileId) {
+    Long prev = TenantContext.get();
+    TenantContext.set(tenantId);
+    try {
+      return new TransactionTemplate(txManager)
+          .execute(
+              s ->
+                  dsl.insertInto(WORKER_JOB)
+                      .set(WORKER_JOB.TENANT_ID, tenantId)
+                      .set(WORKER_JOB.TASK_TYPE, "extract")
+                      .set(WORKER_JOB.STATUS, "RUNNING")
+                      .set(WORKER_JOB.PARAMS, JSONB.valueOf("{\"fileId\":" + fileId + "}"))
+                      .returning(WORKER_JOB.ID)
+                      .fetchOne()
+                      .getId());
+    } finally {
+      if (prev == null) TenantContext.clear();
+      else TenantContext.set(prev);
+    }
+  }
+
+  /** 콜백 컨트롤러가 하듯 테넌트 컨텍스트를 세우고 결과를 적용한다. */
+  private void applyInTenant(long jobId, FileExtractionPipeline.ExtractResult result) {
+    TenantContext.set(1L);
+    try {
+      pipeline.applyExtractResult(jobId, result);
+    } finally {
+      TenantContext.clear();
+    }
+  }
 
   /** 지정 테넌트에서 FILE + FILE_EXTRACTION(PENDING) 행을 생성해 file_id 반환. */
   private long createPendingFile(long tenantId) {

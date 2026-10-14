@@ -13,7 +13,6 @@ import com.workplace.mail.repository.ContentAttachmentRepository;
 import com.workplace.mail.repository.ContentAttachmentRepository.ExtractTarget;
 import com.workplace.mail.repository.EmailAttachmentRepository;
 import com.workplace.mail.repository.EmailAttachmentRepository.AttachmentDownloadContext;
-import java.util.Locale;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
@@ -120,14 +119,17 @@ public class MailAttachmentTextService {
         s.nextOffset(),
         s.text(),
         s.reasonCode(),
-        s.reason());
+        s.reason(),
+        s.pageCount());
   }
 
   /** 사본 없이 SKIPPED 응답을 만든다 — 원시 사유(image:/unsupported-mime:/oversize)를 공용 분류기로 코드·문구로 바꾼다. */
   private static ExtractedTextSlice skipped(
       long attachmentId, int offset, String rawReason, String mime) {
     return status(
-        attachmentId, offset, ExtractionInfo.of("SKIPPED", rawReason, mime, null, null, false));
+        attachmentId,
+        offset,
+        ExtractionInfo.of("SKIPPED", rawReason, mime, null, null, false, null));
   }
 
   /**
@@ -144,7 +146,8 @@ public class MailAttachmentTextService {
         null,
         null,
         info.reasonCode(),
-        info.reason());
+        info.reason(),
+        info.pageCount());
   }
 
   /**
@@ -153,12 +156,7 @@ public class MailAttachmentTextService {
    * 로 굳을 수 있다.
    */
   static String normalizeMime(String filename, String contentType) {
-    String base = null;
-    if (contentType != null) {
-      int semi = contentType.indexOf(';');
-      base =
-          (semi < 0 ? contentType : contentType.substring(0, semi)).trim().toLowerCase(Locale.ROOT);
-    }
-    return MimeNormalizer.normalize(filename, base);
+    // 기본형이 빈 값(Content-Type 없음)이면 normalize 가 null 과 같이 확장자로 보정한다.
+    return MimeNormalizer.normalize(filename, MimeNormalizer.baseMime(contentType));
   }
 }

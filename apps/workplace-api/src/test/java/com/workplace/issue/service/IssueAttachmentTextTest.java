@@ -7,8 +7,20 @@ import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.workplace.fileai.dto.ViewImage;
 import com.workplace.fileai.outbound.WorkerClient;
+import com.workplace.fileai.outbound.WorkerRenderClient;
+import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.exception.AttachmentNotFoundException;
 import com.workplace.issue.repository.IssueRepository;
@@ -26,6 +38,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -42,7 +55,12 @@ class IssueAttachmentTextTest extends IntegrationTestBase {
   @Autowired IssueAttachmentService service;
   @Autowired IssueRepository issueRepository;
   @Autowired ProjectService projectService;
+  @Autowired MockMvc mvc;
+  @Autowired JwtTokenProvider jwtTokenProvider;
   @MockitoBean WorkerClient workerClient;
+
+  /** WP-250: /view 의 워커 렌더 호출 목 — 실제 워커 없이 권한·헤더·본문만 검증한다. */
+  @MockitoBean WorkerRenderClient worker;
 
   private Long ownerId;
   private String projectKey;
@@ -177,6 +195,21 @@ class IssueAttachmentTextTest extends IntegrationTestBase {
     assertThat(s.nextOffset()).isEqualTo(3);
   }
 
+  /** WP-250: 목록 extraction 과 구간 읽기 응답 모두 page_count 를 싣는다. */
+  @Test
+  void 목록과_구간_읽기에_pageCount_가_실린다() {
+    long fileId = uploadPdf();
+    markDone(fileId, "가나다라마");
+    dsl.update(FILE_EXTRACTION)
+        .set(FILE_EXTRACTION.PAGE_COUNT, 9)
+        .where(FILE_EXTRACTION.FILE_ID.eq(fileId))
+        .execute();
+    assertThat(service.list(ownerId, projectKey, issueNumber).get(0).extraction().pageCount())
+        .isEqualTo(9);
+    assertThat(service.readText(ownerId, projectKey, issueNumber, fileId, 0, 2).pageCount())
+        .isEqualTo(9);
+  }
+
   @Test
   void 다른_이슈의_fileId_는_404() {
     long fileId = uploadPdf();
@@ -194,5 +227,57 @@ class IssueAttachmentTextTest extends IntegrationTestBase {
     Long outsider = createUser("outsider");
     assertThatThrownBy(() -> service.readText(outsider, projectKey, issueNumber, fileId, 0, 10))
         .isInstanceOf(ProjectAccessDeniedException.class);
+  }
+
+  // ---- WP-250: GET .../attachments/{fileId}/view — 첨부 PDF 쪽·이미지를 모델 입력용 이미지로 ----
+
+  private static final byte[] VIEW_PNG = {(byte) 0x89, 'P', 'N', 'G', 9, 9, 9};
+
+  private String viewUrl(String key, int number, long fileId) {
+    return "/api/v1/projects/" + key + "/issues/" + number + "/attachments/" + fileId + "/view";
+  }
+
+  private String tokenFor(long userId) {
+    return "Bearer " + jwtTokenProvider.generateAccessToken(userId, "user-" + userId, 1L);
+  }
+
+  @Test
+  void view_는_프로젝트_멤버에게_이미지와_쪽수_헤더를_돌려준다() throws Exception {
+    long fileId = uploadPdf();
+    when(worker.render(anyString(), eq("application/pdf"), eq(1), anyInt()))
+        .thenReturn(new ViewImage(VIEW_PNG, "image/png", 3));
+    mvc.perform(
+            get(viewUrl(projectKey, issueNumber, fileId))
+                .param("page", "1")
+                .header("Authorization", tokenFor(ownerId)))
+        .andExpect(status().isOk())
+        .andExpect(header().string("Content-Type", "image/png"))
+        .andExpect(header().string("X-Page-Count", "3"))
+        .andExpect(header().string("Cache-Control", "max-age=300, private"))
+        .andExpect(content().bytes(VIEW_PNG));
+  }
+
+  @Test
+  void view_는_비공개_프로젝트_비멤버를_403_으로_막고_워커를_부르지_않는다() throws Exception {
+    long fileId = uploadPdf();
+    Long outsider = createUser("outsider");
+    mvc.perform(
+            get(viewUrl(projectKey, issueNumber, fileId))
+                .param("page", "1")
+                .header("Authorization", tokenFor(outsider)))
+        .andExpect(status().isForbidden());
+    verifyNoInteractions(worker);
+  }
+
+  @Test
+  void view_는_다른_이슈의_fileId_를_404_로_막는다() throws Exception {
+    long fileId = uploadPdf();
+    issueRepository.insert(projectId, 2, "t2", null, "MID", null, ownerId);
+    mvc.perform(
+            get(viewUrl(projectKey, 2, fileId))
+                .param("page", "1")
+                .header("Authorization", tokenFor(ownerId)))
+        .andExpect(status().isNotFound());
+    verifyNoInteractions(worker);
   }
 }

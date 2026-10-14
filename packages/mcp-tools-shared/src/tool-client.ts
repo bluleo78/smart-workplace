@@ -553,9 +553,11 @@ export interface ExtractedTextSlice {
   truncated: boolean | null;
   nextOffset: number | null;
   text: string | null;
-  /** SKIPPED·FAILED 사유 코드(ExtractionReasons.Code). 이미지는 'IMAGE'. */
+  /** SKIPPED·FAILED 사유 코드(ExtractionReasons.Code). 이미지는 'IMAGE', 글자 없는 PDF 는 'SCANNED_PDF'. */
   reasonCode: string | null;
   reason: string | null;
+  /** PDF 전체 쪽수(WP-250) — PDF 가 아니거나 아직 모르면(이전 추출 행) null. 응답에 없을 수도 있어 선택 필드다. */
+  pageCount?: number | null;
 }
 
 /** 구간 읽기 범위 — 생략한 값은 쿼리에 싣지 않아 서버 기본값(offset 0, limit 32000)을 따른다. */
@@ -568,15 +570,8 @@ export interface TextRange {
 export interface FileBytes {
   data: Uint8Array;
   mimeType: string;
-}
-
-/** 이슈 첨부 목록 행(IssueAttachmentResponse) — 이미지 판정·안내에 쓰는 필드만 고정한다. */
-export interface IssueAttachmentRow {
-  fileId: number;
-  originalName: string;
-  mimeType: string;
-  sizeBytes: number;
-  [key: string]: unknown;
+  /** PDF 페이지 이미지(/view, WP-250)일 때 서버가 X-Page-Count 로 알려 준 전체 쪽수 — 원본·이미지 변환본에는 없다. */
+  pageCount?: number;
 }
 
 /** 드라이브 파일 버전 행(DriveFileVersionResponse) — 현재 버전 크기로 이미지 크기 상한을 내려받기 전에 확인한다. */
@@ -596,38 +591,36 @@ export interface DriveBacklinkRow {
 }
 
 /**
- * 첨부·파일 내용 읽기(WP-346) — read_file 이 쓴다. 텍스트는 서버가 추출해 둔 구간을 읽고, 이미지만 원본을 받는다
- * (이미지 블록으로 모델에 넘기려고). 권한은 서버가 강제한다(이슈: 프로젝트 멤버, 드라이브: 스페이스 VIEWER).
+ * 첨부·파일 내용 읽기(WP-346) — read_file 이 쓴다. 텍스트는 서버가 추출해 둔 구간을 읽고, 이미지는 서버 변환본(/view, WP-250)을 받는다
+ * (이미지 블록으로 모델에 넘기려고 — 변환본이 없는 메일만 원본). 권한은 서버가 강제한다(이슈: 프로젝트 멤버, 드라이브: 스페이스 VIEWER).
  */
 export interface AttachmentToolClient {
   /** GET /projects/{key}/issues/{n}/attachments/{fileId}/text. */
   readIssueAttachmentText(issueKey: string, fileId: number, range: TextRange): Promise<ExtractedTextSlice>;
-  /** GET /projects/{key}/issues/{n}/attachments — 이미지 형식·크기 확인용. */
-  listIssueAttachments(issueKey: string): Promise<IssueAttachmentRow[]>;
-  /** GET /projects/{key}/issues/{n}/attachments/{fileId}/content — 원본 바이트. */
-  downloadIssueAttachment(issueKey: string, fileId: number): Promise<FileBytes>;
   /** GET /drive/files/{id}/text. */
   readDriveFileText(driveFileId: number, range: TextRange): Promise<ExtractedTextSlice>;
-  /** GET /drive/files/{id}/versions — 최신 버전이 먼저 온다(version_no DESC). */
-  listDriveFileVersions(driveFileId: number): Promise<DriveFileVersionRow[]>;
-  /** GET /drive/files/{id}/content — 원본 바이트(인라인 미리보기와 같은 게이트). */
-  downloadDriveFile(driveFileId: number): Promise<FileBytes>;
   /** GET /wiki/pages/{pageId}/attachments/{fileId}/text(WP-358) — 공간 VIEWER 이상, 비멤버는 404. */
   readWikiAttachmentText(pageId: number, fileId: number, range: TextRange): Promise<ExtractedTextSlice>;
-  /** GET /wiki/pages/{pageId}/attachments/{fileId}/content — 원본 바이트(노트 첨부는 이미지만 올라간다). */
-  downloadWikiAttachment(pageId: number, fileId: number): Promise<FileBytes>;
   /** GET /messaging/channels/{id}/messages/{msgId}/attachments/{fileId}/text(WP-358) — 채널 멤버만(비멤버 403). */
   readMessageAttachmentText(channelId: number, messageId: number, fileId: number, range: TextRange): Promise<ExtractedTextSlice>;
-  /** GET /messaging/channels/{id}/messages/{msgId}/attachments/{fileId}/content — 원본 바이트. */
-  downloadMessageAttachment(channelId: number, messageId: number, fileId: number): Promise<FileBytes>;
   /** GET /mail/attachments/{attachmentId}/text(WP-358) — 본인 소유 첨부만(아니면 404). 응답 fileId 는 요청한 attachmentId 다. 첫 호출은 PENDING. */
   readMailAttachmentText(attachmentId: number, range: TextRange): Promise<ExtractedTextSlice>;
   /** GET /mail/attachments/{attachmentId}/content — 원본 바이트(IMAP·Graph 에서 가져온다). */
   downloadMailAttachment(attachmentId: number): Promise<FileBytes>;
   /** 이슈 챗 첨부 텍스트(WP-373) — 스레드 id 는 이슈 키로 구한다. GET /chat/threads/{id}/attachments/{fileId}/text. */
   readIssueChatAttachmentText(issueKey: string, messageId: number, fileId: number, range: TextRange): Promise<ExtractedTextSlice>;
-  /** GET /chat/threads/{id}/messages/{msgId}/attachments/{fileId}/content — 원본 바이트. */
-  downloadIssueChatAttachment(issueKey: string, messageId: number, fileId: number): Promise<FileBytes>;
+  // ── 모델 입력용 이미지(WP-250) — GET …/view. page(1부터)는 PDF 쪽이고 쿼리로, 없으면 이미지 변환본(HEIC·큰 이미지 등).
+  //    서버 4xx·5xx 는 한국어 사유가 message 에 실린 오류로 던진다(예: 범위 밖 쪽 400, 손상 422, 렌더 실패 503). 메일은 아직 없다(WP-388).
+  /** GET /projects/{key}/issues/{n}/attachments/{fileId}/view[?page=N]. */
+  viewIssueAttachment(issueKey: string, fileId: number, page?: number): Promise<FileBytes>;
+  /** GET /drive/files/{id}/view[?page=N]. */
+  viewDriveFile(driveFileId: number, page?: number): Promise<FileBytes>;
+  /** GET /wiki/pages/{pageId}/attachments/{fileId}/view[?page=N]. */
+  viewWikiAttachment(pageId: number, fileId: number, page?: number): Promise<FileBytes>;
+  /** GET /messaging/channels/{id}/messages/{msgId}/attachments/{fileId}/view[?page=N]. */
+  viewMessageAttachment(channelId: number, messageId: number, fileId: number, page?: number): Promise<FileBytes>;
+  /** 이슈 챗 첨부(WP-373) — 스레드 id 는 이슈 키로 구한다. GET /chat/threads/{id}/attachments/{fileId}/view[?page=N]. */
+  viewIssueChatAttachment(issueKey: string, fileId: number, page?: number): Promise<FileBytes>;
 }
 
 /** 휴지통 항목 — type 에 따라 id 가 drive_file.id(FILE) 또는 폴더 id(FOLDER)다. 뷰가 이름을 나눠 붙이므로 그 필드를 고정한다. */

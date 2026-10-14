@@ -79,7 +79,7 @@ public class PersonalAssistantService {
     var agentOpt = personalRepo.findAgentId(callerId);
     if (agentOpt.isEmpty()) {
       return new AssistantStatusResponse(
-          false, null, null, null, null, null, null, null, null, null);
+          false, null, null, null, null, null, null, null, null, null, null);
     }
     long agentId = agentOpt.get();
 
@@ -110,7 +110,8 @@ public class PersonalAssistantService {
         provider,
         baseUrl,
         c.suggestionModel(),
-        suggestionModelAuto);
+        suggestionModelAuto,
+        credentialService.findModelVision(agentId, model));
   }
 
   /**

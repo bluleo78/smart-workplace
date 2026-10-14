@@ -310,6 +310,20 @@ public class FileExtractionRecord extends UpdatableRecordImpl<FileExtractionReco
         return (String) get(18);
     }
 
+    /**
+     * Setter for <code>public.file_extraction.page_count</code>.
+     */
+    public void setPageCount(Integer value) {
+        set(19, value);
+    }
+
+    /**
+     * Getter for <code>public.file_extraction.page_count</code>.
+     */
+    public Integer getPageCount() {
+        return (Integer) get(19);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -333,7 +347,7 @@ public class FileExtractionRecord extends UpdatableRecordImpl<FileExtractionReco
     /**
      * Create a detached, initialised FileExtractionRecord
      */
-    public FileExtractionRecord(Long fileId, String status, String extractedText, Integer charCount, Boolean truncated, String lang, String summary, String summaryModel, Integer attempts, OffsetDateTime leasedUntil, String error, OffsetDateTime extractedAt, OffsetDateTime summarizedAt, OffsetDateTime createdAt, OffsetDateTime updatedAt, Long tenantId, Object searchTv, Object embedding, String profile) {
+    public FileExtractionRecord(Long fileId, String status, String extractedText, Integer charCount, Boolean truncated, String lang, String summary, String summaryModel, Integer attempts, OffsetDateTime leasedUntil, String error, OffsetDateTime extractedAt, OffsetDateTime summarizedAt, OffsetDateTime createdAt, OffsetDateTime updatedAt, Long tenantId, Object searchTv, Object embedding, String profile, Integer pageCount) {
         super(FileExtraction.FILE_EXTRACTION);
 
         setFileId(fileId);
@@ -355,6 +369,7 @@ public class FileExtractionRecord extends UpdatableRecordImpl<FileExtractionReco
         setSearchTv(searchTv);
         setEmbedding(embedding);
         setProfile(profile);
+        setPageCount(pageCount);
         resetChangedOnNotNull();
     }
 }

@@ -1,6 +1,8 @@
 package com.workplace.messaging.controller;
 
+import com.workplace.fileai.controller.ViewImageResponses;
 import com.workplace.fileai.dto.ExtractedTextSlice;
+import com.workplace.fileai.service.AttachmentViewService;
 import com.workplace.messaging.repository.MessageAttachmentRepository;
 import com.workplace.messaging.service.MessageAttachmentService;
 import java.io.IOException;
@@ -28,8 +30,12 @@ public class MessageAttachmentController {
 
   private final MessageAttachmentService service;
 
-  public MessageAttachmentController(MessageAttachmentService service) {
+  private final AttachmentViewService attachmentView;
+
+  public MessageAttachmentController(
+      MessageAttachmentService service, AttachmentViewService attachmentView) {
     this.service = service;
+    this.attachmentView = attachmentView;
   }
 
   /** 선업로드 → fileId 메타 목록. 이후 메시지 전송 시 fileIds 로 바인딩. */
@@ -56,6 +62,19 @@ public class MessageAttachmentController {
       @RequestParam(defaultValue = "32000") int limit) {
     return ResponseEntity.ok(
         service.readText(callerId, channelId, messageId, fileId, offset, limit));
+  }
+
+  /** 첨부를 모델 입력용 이미지로 보여 준다(WP-250) — 규칙·권한·트랜잭션(R5)은 {@link AttachmentViewService} 참조. */
+  @GetMapping("/channels/{id}/messages/{msgId}/attachments/{fileId}/view")
+  public ResponseEntity<byte[]> view(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable("id") long channelId,
+      @PathVariable("msgId") long messageId,
+      @PathVariable long fileId,
+      @RequestParam(required = false) Integer page) {
+    return ViewImageResponses.of(
+        attachmentView.view(
+            service.resolveViewFileId(callerId, channelId, messageId, fileId), page));
   }
 
   /** 다운로드(스트리밍). 채널 멤버만 허용. */

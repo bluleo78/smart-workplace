@@ -35,6 +35,8 @@ export interface StdioEntryConfig {
   bridgeRunId?: string;
   // WP-241: 모델이 이미지를 볼 수 있는지(MCP_VISION). false 면 도구 결과의 이미지를 안내 문구로 바꾼다.
   vision: boolean;
+  // WP-250: 페이지 보기(read_file pages)를 열지(MCP_IMAGE_TOOLS=1). 러너가 이미지를 볼 수 있다고 확인한 모델에만 심는다.
+  imageInput: boolean;
 }
 
 // 이미지를 볼 수 없는 모델에 이미지 대신 넘기는 안내. 시스템 프롬프트 규칙(NO_VISION_PROMPT_RULE)과 짝을 이룬다.
@@ -120,6 +122,8 @@ export function parseConfigFromEnv(env: NodeJS.ProcessEnv): StdioEntryConfig {
     bridgeRunId: env.MCP_BRIDGE_RUN_ID,
     // 미지정은 지원으로 본다(러너는 항상 0/1 을 심는다 — 기존 동작 유지용 기본값).
     vision: env.MCP_VISION !== '0',
+    // WP-250: MCP_VISION 과 달리 미지정은 닫힘 — 이미지를 볼 수 있는지 모르는 모델에 쓸 수 없는 인자(pages)를 보이지 않는다.
+    imageInput: env.MCP_IMAGE_TOOLS === '1',
   };
 }
 
@@ -213,6 +217,7 @@ async function main(): Promise<void> {
     hostBridge,
     config.chatThreadId,
     config.homeSessionId,
+    config.imageInput,
   );
 
   // 서버명 'workplace' 고정 — mcp__workplace__* 네임스페이스 정합(sdk-mcp-server.ts 참고).

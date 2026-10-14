@@ -113,15 +113,15 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(http.get).toHaveBeenLastCalledWith('/chat/threads/55/messages', { params: { after: 10, limit: 5 } });
   });
 
-  it('이슈 챗 첨부: 스레드 id 를 구해 텍스트·원본 경로로 읽는다(WP-373)', async () => {
+  it('이슈 챗 첨부: 스레드 id 를 구해 텍스트·변환본(/view) 경로로 읽는다(WP-373)', async () => {
     const { http, client } = mockHttp();
     http.get.mockResolvedValueOnce({ data: { threadId: 55 } }).mockResolvedValueOnce({ data: { status: 'READY' } });
     await client.readIssueChatAttachmentText('WP-1', 11, 900, { offset: 0, limit: 100 });
     expect(http.get).toHaveBeenLastCalledWith('/chat/threads/55/attachments/900/text', { params: { offset: 0, limit: 100 } });
     // 같은 이슈의 스레드 id 는 캐시되어 다시 구하지 않는다.
     http.get.mockResolvedValueOnce({ data: new Uint8Array([7]).buffer, headers: { 'content-type': 'image/png' } });
-    expect((await client.downloadIssueChatAttachment('WP-1', 11, 900)).mimeType).toBe('image/png');
-    expect(http.get).toHaveBeenLastCalledWith('/chat/threads/55/messages/11/attachments/900/content', expect.objectContaining({ responseType: 'arraybuffer' }));
+    expect((await client.viewIssueChatAttachment('WP-1', 900, 2)).mimeType).toBe('image/png');
+    expect(http.get).toHaveBeenLastCalledWith('/chat/threads/55/attachments/900/view?page=2', expect.objectContaining({ responseType: 'arraybuffer' }));
   });
 
   it('이슈 챗 스레드 id 는 같은 issueKey 로 한 번만 조회하고, 실패하면 캐시하지 않는다', async () => {
@@ -611,41 +611,27 @@ describe('createSharedToolClient 첨부·파일 내용 읽기 경로(WP-346)', (
     expect(http.get).toHaveBeenLastCalledWith('/mail/attachments/55/text', { params: { offset: 0, limit: 500 } });
   });
 
-  it('노트·메시지·메일 첨부 원본 — /content 를 이미지 상한을 걸어 받는다', async () => {
+  it('드라이브 버전 목록 — 배열이 아니면 빈 배열', async () => {
     const { http, client } = mockHttp();
-    const opts = { responseType: 'arraybuffer', maxContentLength: 3_932_160, maxBodyLength: 3_932_160 };
-    for (const [call, url] of [
-      [() => client.downloadWikiAttachment(7, 55), '/wiki/pages/7/attachments/55/content'],
-      [() => client.downloadMessageAttachment(3, 40, 55), '/messaging/channels/3/messages/40/attachments/55/content'],
-      [() => client.downloadMailAttachment(55), '/mail/attachments/55/content'],
-    ] as const) {
-      http.get.mockResolvedValueOnce({ data: new Uint8Array([7]).buffer, headers: { 'content-type': 'image/png' } });
-      expect((await call()).mimeType).toBe('image/png');
-      expect(http.get).toHaveBeenLastCalledWith(url, opts);
-    }
-  });
-
-  it('이슈 첨부 목록·드라이브 버전 목록 — 배열이 아니면 빈 배열', async () => {
-    const { http, client } = mockHttp();
-    expect(await client.listIssueAttachments('WP-12')).toEqual([]);
-    expect(http.get).toHaveBeenCalledWith('/projects/WP/issues/12/attachments');
     expect(await client.listDriveFileVersions(9)).toEqual([]);
     expect(http.get).toHaveBeenCalledWith('/drive/files/9/versions');
     http.get.mockResolvedValue({ data: [{ versionNo: 1, sizeBytes: 4, current: true }] });
     expect(await client.listDriveFileVersions(9)).toEqual([{ versionNo: 1, sizeBytes: 4, current: true }]);
   });
 
+  // 이미지 원본은 이제 메일 첨부만 받는다(나머지는 /view 변환본, WP-250) — 바이트 받기 공통 규칙은 메일 /content 로 확인한다.
   it('원본 받기 — arraybuffer 로 요청하고 Content-Type 을 함께 돌려준다(Buffer·ArrayBuffer 모두)', async () => {
     const { http, client } = mockHttp();
+    const opts = { responseType: 'arraybuffer', maxContentLength: 3_932_160, maxBodyLength: 3_932_160 };
     http.get.mockResolvedValueOnce({ data: Buffer.from([1, 2]), headers: { 'content-type': 'image/png' } });
-    const a = await client.downloadIssueAttachment('WP-12', 3);
-    expect(http.get).toHaveBeenCalledWith('/projects/WP/issues/12/attachments/3/content', { responseType: 'arraybuffer', maxContentLength: 3_932_160, maxBodyLength: 3_932_160 });
+    const a = await client.downloadMailAttachment(55);
+    expect(http.get).toHaveBeenCalledWith('/mail/attachments/55/content', opts);
     expect([...a.data]).toEqual([1, 2]);
     expect(a.mimeType).toBe('image/png');
 
     http.get.mockResolvedValueOnce({ data: new Uint8Array([7]).buffer, headers: {} });
-    const b = await client.downloadDriveFile(9);
-    expect(http.get).toHaveBeenLastCalledWith('/drive/files/9/content', { responseType: 'arraybuffer', maxContentLength: 3_932_160, maxBodyLength: 3_932_160 });
+    const b = await client.downloadMailAttachment(56);
+    expect(http.get).toHaveBeenLastCalledWith('/mail/attachments/56/content', opts);
     expect([...b.data]).toEqual([7]);
     expect(b.mimeType).toBe('application/octet-stream');
   });
@@ -653,9 +639,53 @@ describe('createSharedToolClient 첨부·파일 내용 읽기 경로(WP-346)', (
   it('원본 받기 — 다운로드 상한(이미지 3.75MB)을 건다: axios 의 maxContentLength 초과는 FileTooLargeError 로 바뀐다', async () => {
     const { http, client } = mockHttp();
     http.get.mockRejectedValueOnce(Object.assign(new Error('maxContentLength size of 3932160 exceeded'), { code: 'ERR_BAD_RESPONSE' }));
-    await expect(client.downloadDriveFile(9)).rejects.toBeInstanceOf(FileTooLargeError);
+    await expect(client.downloadMailAttachment(55)).rejects.toBeInstanceOf(FileTooLargeError);
     // 상한과 무관한 오류는 그대로 던진다.
     http.get.mockRejectedValueOnce(new Error('Network Error'));
-    await expect(client.downloadIssueAttachment('WP-12', 3)).rejects.toThrow('Network Error');
+    await expect(client.downloadMailAttachment(55)).rejects.toThrow('Network Error');
+  });
+  // WP-250: 모델 입력용 이미지(/view) — PDF 쪽은 ?page= 쿼리, 이미지 변환본은 쿼리 없이. X-Page-Count 는 전체 쪽수로.
+  it('첨부·파일 이미지 보기 — 소스별 /view 경로, page 는 줄 때만 쿼리로', async () => {
+    const { http, client } = mockHttp();
+    const opts = { responseType: 'arraybuffer', maxContentLength: 3_932_160, maxBodyLength: 3_932_160 };
+    for (const [call, url] of [
+      [() => client.viewIssueAttachment('WP-12', 3, 2), '/projects/WP/issues/12/attachments/3/view?page=2'],
+      [() => client.viewIssueAttachment('WP-12', 3), '/projects/WP/issues/12/attachments/3/view'],
+      [() => client.viewDriveFile(9, 1), '/drive/files/9/view?page=1'],
+      [() => client.viewWikiAttachment(7, 55), '/wiki/pages/7/attachments/55/view'],
+      [() => client.viewMessageAttachment(3, 40, 55, 4), '/messaging/channels/3/messages/40/attachments/55/view?page=4'],
+    ] as const) {
+      http.get.mockResolvedValueOnce({ data: Buffer.from([1]), headers: { 'content-type': 'image/png', 'x-page-count': '6' } });
+      const v = await call();
+      expect(http.get).toHaveBeenLastCalledWith(url, opts);
+      expect(v).toMatchObject({ mimeType: 'image/png', pageCount: 6 });
+    }
+    // 헤더가 없으면(이미지 변환본) pageCount 도 없다.
+    http.get.mockResolvedValueOnce({ data: Buffer.from([1]), headers: { 'content-type': 'image/jpeg' } });
+    expect((await client.viewDriveFile(9)).pageCount).toBeUndefined();
+  });
+
+  it('바이너리 요청의 서버 오류 본문(바이트)을 ErrorResponse 로 풀어 한국어 사유를 message 로 올린다', async () => {
+    const { http, client } = mockHttp();
+    const body = Buffer.from(JSON.stringify({ message: '이 PDF 는 6쪽입니다. 1~6 사이 페이지를 지정하세요.' }));
+    http.get.mockRejectedValueOnce(
+      Object.assign(new Error('Request failed with status code 400'), { response: { status: 400, data: body } }),
+    );
+    const err = await client.viewDriveFile(9, 9).catch((e) => e);
+    expect(err.message).toBe('API 오류 400: 이 PDF 는 6쪽입니다. 1~6 사이 페이지를 지정하세요.');
+    // 앱 서버 레이어(workplace-mcp)는 response.data 로 다시 요약하므로 본문도 객체로 바꿔 둔다.
+    expect(err.response.data).toEqual({ message: '이 PDF 는 6쪽입니다. 1~6 사이 페이지를 지정하세요.' });
+  });
+
+  // 리뷰 M1: 프록시가 준 HTML 502 같은 JSON 이 아닌 본문은 message 에 통째로 싣지 않는다(describeApiError 의 300자 자르기).
+  it('JSON 이 아닌 바이트 오류 본문은 잘라서 message 로', async () => {
+    const { http, client } = mockHttp();
+    const html = `<html>${'x'.repeat(5000)}</html>`;
+    http.get.mockRejectedValueOnce(
+      Object.assign(new Error('Request failed with status code 502'), { response: { status: 502, data: Buffer.from(html) } }),
+    );
+    const err = await client.viewDriveFile(9, 1).catch((e) => e);
+    expect(err.message.startsWith('API 오류 502: <html>')).toBe(true);
+    expect(err.message.length).toBeLessThan(400);
   });
 });

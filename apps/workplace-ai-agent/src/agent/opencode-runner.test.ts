@@ -29,9 +29,21 @@ vi.mock('./opencode-config.js', () => ({
   }),
 }));
 
-// WP-241: provider /models 조회를 막고 vision 판단을 테스트에서 고른다(기본 = 지원).
-const { resolveOpencodeModelVision } = vi.hoisted(() => ({ resolveOpencodeModelVision: vi.fn(async () => true) }));
-vi.mock('./opencode-vision.js', () => ({ resolveOpencodeModelVision }));
+// WP-241: provider /models 조회를 막고 vision 판단을 테스트에서 고른다(기본 = 지원). WP-250: 모델 한도도(기본 = 모름).
+const { resolveOpencodeModelSettings } = vi.hoisted(() => ({
+  // 기본: 호출자가 비전을 넘기면 그 값, 아니면 지원(true). 한도는 없음.
+  resolveOpencodeModelSettings: vi.fn(
+    async (
+      _payload: unknown,
+      _model: string,
+      known?: { value: boolean | undefined },
+    ): Promise<{ vision: boolean | undefined; limit: { context: number; output: number } | undefined }> => ({
+      vision: known ? known.value : true,
+      limit: undefined,
+    }),
+  ),
+}));
+vi.mock('./opencode-vision.js', () => ({ resolveOpencodeModelSettings }));
 
 // registerBridge/releaseBridge 페어링을 정확히 카운트하기 위해 registry 자체를 모킹.
 const { registerBridge, releaseBridge } = vi.hoisted(() => ({
@@ -508,6 +520,86 @@ describe('OpencodeRunner.stream', () => {
     expect(events).toEqual([{ type: 'result', ok: false, text: null, usage: null }]);
   });
 
+  // WP-250: 컨텍스트 압축(compaction) — opencode 1.17.18 라이브 실측(이미지 쪽 보기 24장 실행)의 이벤트 순서를 그대로 옮겼다.
+  describe('컨텍스트 압축(WP-250)', () => {
+    const assistant = (id: string, extra: Record<string, unknown> = {}, tokens = { input: 0, output: 0 }) => ({
+      type: 'message.updated',
+      properties: { info: { id, sessionID: 'sess-1', role: 'assistant', mode: 'primary', tokens, ...extra } },
+    });
+    const user = (id: string) => ({ type: 'message.updated', properties: { info: { id, sessionID: 'sess-1', role: 'user' } } });
+    const text = (messageID: string, t: string, extra: Record<string, unknown> = {}) => ({
+      type: 'message.part.updated',
+      properties: { part: { id: `${messageID}-t`, sessionID: 'sess-1', messageID, type: 'text', text: t, ...extra } },
+    });
+    // 압축 요약 메시지 — opencode 는 summary·mode 'compaction' 표시가 달린 message.updated 를 요약 text 보다 먼저 낸다.
+    const summaryMessage = (id: string) => assistant(id, { summary: true, mode: 'compaction' });
+    const compactedTail = (summaryId: string) => [
+      user('u-compact'),
+      summaryMessage(summaryId),
+      text(summaryId, '## Objective\n- Read pages 1–24 ...'),
+      user('u-continue'),
+      text('u-continue', 'Continue if you have next steps, or stop and ask for clarification if you are unsure how to proceed.', { synthetic: true }),
+      { type: 'session.compacted', properties: { sessionID: 'sess-1' } },
+    ];
+
+    async function run(events: unknown[]) {
+      const es = makeEventStream();
+      eventSubscribe.mockResolvedValue({ stream: es.stream });
+      for (const e of events) es.push(e);
+      const out: RunnerEvent[] = [];
+      const handle = new OpencodeRunner().stream(baseInput(), (e) => out.push(e));
+      return { handle, out };
+    }
+
+    it('한도에 닿아 미리 압축하면 요약 text 는 답으로 내보내지 않고 이어진 답만 낸다(사용량도 요약 메시지 것으로 덮지 않는다)', async () => {
+      const { handle, out } = await run([
+        assistant('m1', {}, { input: 805, output: 39 }),
+        ...compactedTail('m-sum'),
+        assistant('m2', {}, { input: 6610, output: 29 }),
+        text('m2', 'P1, P2, P3'),
+        { type: 'session.idle', properties: { sessionID: 'sess-1' } },
+      ]);
+      await handle.done;
+      expect(out).toEqual([
+        { type: 'text_delta', text: 'P1, P2, P3', parentToolUseId: null },
+        { type: 'result', ok: true, text: 'P1, P2, P3', usage: { inputTokens: 6610, outputTokens: 29 } },
+      ]);
+    });
+
+    it('provider 가 한도 초과로 거절하면(ContextOverflowError session.error) 실행을 끝내지 않고 압축 뒤 이어진 답을 낸다', async () => {
+      const { handle, out } = await run([
+        assistant('m1', {}, { input: 22600, output: 20 }),
+        {
+          type: 'session.error',
+          properties: {
+            sessionID: 'sess-1',
+            error: { name: 'ContextOverflowError', data: { message: "Bad Request: This model's maximum context length is 32768 tokens." } },
+          },
+        },
+        ...compactedTail('m-sum'),
+        assistant('m2', {}, { input: 1000, output: 20 }),
+        text('m2', 'FINAL'),
+        { type: 'session.idle', properties: { sessionID: 'sess-1' } },
+      ]);
+      await handle.done;
+      expect(out).toEqual([
+        { type: 'text_delta', text: 'FINAL', parentToolUseId: null },
+        { type: 'result', ok: true, text: 'FINAL', usage: { inputTokens: 1000, outputTokens: 20 } },
+      ]);
+    });
+
+    it('한도 초과 뒤 압축이 끝나지 못하면(session.compacted 없이 idle) 오류로 끝낸다', async () => {
+      const { handle, out } = await run([
+        { type: 'session.error', properties: { sessionID: 'sess-1', error: { name: 'ContextOverflowError', data: { message: 'too long' } } } },
+        user('u-compact'),
+        summaryMessage('m-sum'),
+        { type: 'session.idle', properties: { sessionID: 'sess-1' } },
+      ]);
+      await expect(handle.done).rejects.toThrow('opencode session.error');
+      expect(out).toEqual([{ type: 'result', ok: false, text: null, usage: null }]);
+    });
+  });
+
   it('timeout → RunnerLimitError(kind=timeout) 로 reject — 호출자가 부분 결과로 마무리할 수 있게', async () => {
     const es = makeEventStream();
     eventSubscribe.mockResolvedValue({ stream: es.stream });
@@ -780,7 +872,7 @@ describe('OpencodeRunner 웜 캐시 통합', () => {
   });
 
   it('vision 판단 결과를 config 에 넘기고 풀 키에도 반영한다(WP-241)', async () => {
-    resolveOpencodeModelVision.mockResolvedValueOnce(false);
+    resolveOpencodeModelSettings.mockResolvedValueOnce({ vision: false, limit: undefined });
     const es = makeEventStream();
     eventSubscribe.mockResolvedValue({ stream: es.stream });
     es.push({ type: 'session.idle', properties: { sessionID: 'sess-1' } });
@@ -788,15 +880,35 @@ describe('OpencodeRunner 웜 캐시 통합', () => {
     const input = baseInput({ agentId: 7, model: 'openai/gpt-5', mcp: { client: {} as unknown as WorkplaceApiClient, profile: 'issue', onBehalfOfId: 42 } });
     await new OpencodeRunner().stream(input, () => {}).done;
 
-    expect(resolveOpencodeModelVision).toHaveBeenCalledWith(
+    expect(resolveOpencodeModelSettings).toHaveBeenCalledWith(
       (input.credential as { payload: unknown }).payload,
       'openai/gpt-5',
+      undefined,
     );
-    expect(buildOpencodeConfig).toHaveBeenCalledWith(input, expect.any(String), expect.any(Array), { vision: false });
+    expect(buildOpencodeConfig).toHaveBeenCalledWith(input, expect.any(String), expect.any(Array), { vision: false, limit: undefined });
     expect(acquireServer).toHaveBeenCalledWith('7:issue:42:-:openai/gpt-5:false', expect.any(Function));
   });
 
-  it('호출자가 판단한 opencodeVision 을 넘기면 다시 판단하지 않고 그 값을 config 에 쓴다', async () => {
+  // WP-250: provider /models 의 컨텍스트 한도가 있으면 config 의 모델 limit 으로 넘기고, 같은 한도의 서버만 재사용하도록 풀 키에 넣는다.
+  it('모델 한도를 config 에 넘기고 풀 키에도 반영한다(WP-250)', async () => {
+    resolveOpencodeModelSettings.mockResolvedValueOnce({ vision: true, limit: { context: 262128, output: 131072 } });
+    const es = makeEventStream();
+    eventSubscribe.mockResolvedValue({ stream: es.stream });
+    es.push({ type: 'session.idle', properties: { sessionID: 'sess-1' } });
+
+    const input = baseInput({ agentId: 7, model: 'openai/gpt-5', mcp: { client: {} as unknown as WorkplaceApiClient, profile: 'issue', onBehalfOfId: 42 } });
+    await new OpencodeRunner().stream(input, () => {}).done;
+
+    // 비전·한도는 한 번의 판단(같은 /models 조회)으로 얻는다.
+    expect(resolveOpencodeModelSettings).toHaveBeenCalledOnce();
+    expect(buildOpencodeConfig).toHaveBeenCalledWith(input, expect.any(String), expect.any(Array), {
+      vision: true,
+      limit: { context: 262128, output: 131072 },
+    });
+    expect(acquireServer).toHaveBeenCalledWith('7:issue:42:-:openai/gpt-5:true:262128/131072', expect.any(Function));
+  });
+
+  it('호출자가 판단한 opencodeVision 을 넘기면 그 값을 판단에 넘겨 config 에 쓴다', async () => {
     const es = makeEventStream();
     eventSubscribe.mockResolvedValue({ stream: es.stream });
     es.push({ type: 'session.idle', properties: { sessionID: 'sess-1' } });
@@ -804,12 +916,12 @@ describe('OpencodeRunner 웜 캐시 통합', () => {
     const input = baseInput({ opencodeVision: { value: undefined } });
     await new OpencodeRunner().stream(input, () => {}).done;
 
-    expect(resolveOpencodeModelVision).not.toHaveBeenCalled();
-    expect(buildOpencodeConfig).toHaveBeenCalledWith(input, expect.any(String), expect.any(Array), { vision: undefined });
+    expect(resolveOpencodeModelSettings).toHaveBeenCalledWith(expect.anything(), input.model, { value: undefined });
+    expect(buildOpencodeConfig).toHaveBeenCalledWith(input, expect.any(String), expect.any(Array), { vision: undefined, limit: undefined });
   });
 
   it('비전 판단이 throw 해도 등록한 브리지를 해제한다(try/finally 안)', async () => {
-    resolveOpencodeModelVision.mockRejectedValueOnce(new Error('boom'));
+    resolveOpencodeModelSettings.mockRejectedValueOnce(new Error('boom'));
     const hostBridge = { onProposal: vi.fn(), onSubmitResponse: vi.fn(), onUnassignResult: vi.fn() };
     const input = baseInput({ mcp: { client: {} as unknown as WorkplaceApiClient, profile: 'messaging', onBehalfOfId: 1, hostBridge } });
     await expect(new OpencodeRunner().stream(input, () => {}).done).rejects.toThrow('boom');

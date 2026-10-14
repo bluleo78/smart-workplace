@@ -35,7 +35,15 @@ describe('parseConfigFromEnv', () => {
       bridgeUrl: undefined,
       bridgeRunId: undefined,
       vision: true,
+      imageInput: false,
     });
+  });
+
+  // WP-250: 페이지 보기(read_file pages)는 러너가 이미지를 볼 수 있는 모델에만 연다 — 미지정은 닫힘(텍스트 전용 모델에 못 쓰는 인자를 보이지 않게).
+  it('MCP_IMAGE_TOOLS=1 이면 imageInput=true, 미지정·그 외 값이면 false(WP-250)', () => {
+    expect(parseConfigFromEnv(baseEnv({ MCP_IMAGE_TOOLS: '1' })).imageInput).toBe(true);
+    expect(parseConfigFromEnv(baseEnv()).imageInput).toBe(false);
+    expect(parseConfigFromEnv(baseEnv({ MCP_IMAGE_TOOLS: '0' })).imageInput).toBe(false);
   });
 
   it('MCP_VISION=0 이면 vision=false, 1 이면 true(WP-241)', () => {
@@ -279,8 +287,8 @@ describe('registerStdioTool', () => {
     const png = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
     const sc = {
       readDriveFileText: vi.fn().mockResolvedValue({ fileId: 1, status: 'SKIPPED', offset: 0, totalChars: null, truncated: null, nextOffset: null, text: null, reasonCode: 'IMAGE', reason: '이미지' }),
-      listDriveFileVersions: vi.fn().mockResolvedValue([{ versionNo: 1, sizeBytes: 4, current: true }]),
-      downloadDriveFile: vi.fn().mockResolvedValue({ data: png, mimeType: 'image/png' }),
+      // WP-250: 이미지는 늘 서버 변환본(/view)으로 받는다.
+      viewDriveFile: vi.fn().mockResolvedValue({ data: png, mimeType: 'image/png' }),
     } as unknown as SharedToolClient;
     const tool = buildSharedTools(sc).find((t) => t.name === 'read_file')!;
     for (const vision of [false, true]) {

@@ -126,6 +126,9 @@ describe('adaptMcpTool onTool emit (#462 슬라이스4)', () => {
 });
 
 describe('buildInProcessWorkplaceMcpServer', () => {
+  // WP-250: Claude 경로는 늘 이미지를 볼 수 있어 9번째 인자로 이미지 입력을 연다.
+  const IMAGES = true;
+
   it('컨텍스트를 buildTools 로 전달하고 server 명 workplace 로 createSdkMcpServer 호출', () => {
     const client = {} as WorkplaceApiClient;
     const threadBinding = { channelId: 5, parentMessageId: 9 };
@@ -133,7 +136,7 @@ describe('buildInProcessWorkplaceMcpServer', () => {
     const server = buildInProcessWorkplaceMcpServer({
       client, onBehalfOfId: 99, profile: 'messaging', threadBinding, delegationContext,
     });
-    expect(buildTools).toHaveBeenCalledWith(client, 99, 'messaging', threadBinding, delegationContext, undefined, undefined, undefined);
+    expect(buildTools).toHaveBeenCalledWith(client, 99, 'messaging', threadBinding, delegationContext, undefined, undefined, undefined, IMAGES);
     // lastCall: 테스트 순서·다른 호출에 영향받지 않게 마지막 호출 인자로 단언.
     const opts = vi.mocked(createSdkMcpServer).mock.lastCall![0] as { name: string; tools: unknown[] };
     expect(opts.name).toBe('workplace');
@@ -145,14 +148,14 @@ describe('buildInProcessWorkplaceMcpServer', () => {
     const client = {} as WorkplaceApiClient;
     const hostBridge = { onProposal: () => {}, onSubmitResponse: () => {}, onUnassignResult: () => {} };
     buildInProcessWorkplaceMcpServer({ client, onBehalfOfId: 1, profile: 'assistant', hostBridge });
-    expect(buildTools).toHaveBeenCalledWith(client, 1, 'assistant', undefined, undefined, hostBridge, undefined, undefined);
+    expect(buildTools).toHaveBeenCalledWith(client, 1, 'assistant', undefined, undefined, hostBridge, undefined, undefined, IMAGES);
   });
 
   // WP-244: chat 프로필 실행 스레드 바인딩은 7번째 인자.
   it('chatThreadId 를 buildTools 7번째 인자로 전달', () => {
     const client = {} as WorkplaceApiClient;
     buildInProcessWorkplaceMcpServer({ client, onBehalfOfId: 1, profile: 'chat', chatThreadId: 17 });
-    expect(buildTools).toHaveBeenCalledWith(client, 1, 'chat', undefined, undefined, undefined, 17, undefined);
+    expect(buildTools).toHaveBeenCalledWith(client, 1, 'chat', undefined, undefined, undefined, 17, undefined, IMAGES);
   });
 
   // WP-234: 메인 AI 채팅 세션 바인딩은 8번째 인자.
@@ -160,6 +163,33 @@ describe('buildInProcessWorkplaceMcpServer', () => {
     const client = {} as WorkplaceApiClient;
     const sid = '3f1c2a4e-8b7d-4c1e-9f2a-6d5b4c3a2e1f';
     buildInProcessWorkplaceMcpServer({ client, onBehalfOfId: 1, profile: 'assistant', homeSessionId: sid });
-    expect(buildTools).toHaveBeenCalledWith(client, 1, 'assistant', undefined, undefined, undefined, undefined, sid);
+    expect(buildTools).toHaveBeenCalledWith(client, 1, 'assistant', undefined, undefined, undefined, undefined, sid, IMAGES);
+  });
+});
+
+// WP-250: 이미지 장수는 실행 단위로 세지 않는다 — 긴 실행은 SDK 의 컨텍스트 자동 압축에 맡기고, 호출당 3쪽 상한만 둔다.
+describe('read_file 페이지 보기 — 실행당 상한 없음 (WP-250)', () => {
+  type AdaptedTool = { name: string; handler: (args: unknown, extra: unknown) => Promise<{ content: { type: string; text?: string }[] }> };
+
+  // 실제 buildTools 로 assistant 서버를 만들고, 그 read_file 호출 함수와 쪽 이미지를 돌려주는 viewDriveFile 목을 함께 돌려준다.
+  async function serverReadFile() {
+    const actual = await vi.importActual<typeof import('../mcp/tools.js')>('../mcp/tools.js');
+    vi.mocked(buildTools).mockImplementationOnce(actual.buildTools);
+    const viewDriveFile = vi.fn(async () => ({ data: new Uint8Array([1, 2, 3]), mimeType: 'image/png', pageCount: 40 }));
+    const client = { toolClient: () => ({ viewDriveFile }) } as unknown as WorkplaceApiClient;
+    buildInProcessWorkplaceMcpServer({ client, onBehalfOfId: 1, profile: 'assistant' });
+    const opts = vi.mocked(createSdkMcpServer).mock.lastCall![0] as unknown as { tools: AdaptedTool[] };
+    const readFile = opts.tools.find((t) => t.name === 'read_file')!;
+    const call = (pages: number[]) => readFile.handler({ source: 'drive', driveFileId: 9, pages }, undefined);
+    return { call, viewDriveFile };
+  }
+
+  it('3쪽씩 여러 번 불러도(24장) 실행 단위로 거절하지 않는다', async () => {
+    const { call, viewDriveFile } = await serverReadFile();
+    for (let i = 0; i < 8; i++) {
+      const res = await call([1, 2, 3]);
+      expect(res.content.filter((b) => b.type === 'image'), `${i + 1}번째`).toHaveLength(3);
+    }
+    expect(viewDriveFile).toHaveBeenCalledTimes(24);
   });
 });

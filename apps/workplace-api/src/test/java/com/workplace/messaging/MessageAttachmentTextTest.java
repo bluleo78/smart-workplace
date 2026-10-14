@@ -5,10 +5,19 @@ import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.workplace.fileai.dto.ViewImage;
+import com.workplace.fileai.outbound.WorkerRenderClient;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.messaging.dto.CreateMessageRequest;
@@ -28,6 +37,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -46,6 +56,9 @@ class MessageAttachmentTextTest extends IntegrationTestBase {
   @Autowired MessageService messageService;
   @Autowired MessageAttachmentService attachmentService;
   @Autowired MessageAttachmentStorage storage;
+
+  /** WP-250: /view 의 워커 렌더 호출 목 — 실제 워커 없이 권한·헤더·본문만 검증한다. */
+  @MockitoBean WorkerRenderClient worker;
 
   private long userId;
   private long outsiderId;
@@ -187,6 +200,59 @@ class MessageAttachmentTextTest extends IntegrationTestBase {
         .andExpect(jsonPath("$.nextOffset").value(5));
     mvc.perform(get(url).header("Authorization", "Bearer " + tokenFor(outsiderId)))
         .andExpect(status().isForbidden());
+  }
+
+  // ---- WP-250: GET .../attachments/{fileId}/view — 첨부 PDF 쪽·이미지를 모델 입력용 이미지로 ----
+
+  private static final byte[] VIEW_PNG = {(byte) 0x89, 'P', 'N', 'G', 9, 9, 9};
+
+  private String viewUrl(long[] ids) {
+    return "/api/v1/messaging/channels/"
+        + channelId
+        + "/messages/"
+        + ids[0]
+        + "/attachments/"
+        + ids[1]
+        + "/view";
+  }
+
+  @Test
+  void view_는_채널_멤버에게_이미지와_쪽수_헤더를_돌려준다() throws Exception {
+    long[] ids = sendPdf();
+    when(worker.render(anyString(), eq("application/pdf"), eq(1), anyInt()))
+        .thenReturn(new ViewImage(VIEW_PNG, "image/png", 2));
+    mvc.perform(
+            get(viewUrl(ids))
+                .param("page", "1")
+                .header("Authorization", "Bearer " + tokenFor(userId)))
+        .andExpect(status().isOk())
+        .andExpect(header().string("Content-Type", "image/png"))
+        .andExpect(header().string("X-Page-Count", "2"))
+        .andExpect(header().string("Cache-Control", "max-age=300, private"))
+        .andExpect(content().bytes(VIEW_PNG));
+  }
+
+  @Test
+  void view_는_채널_비멤버를_403_으로_막고_워커를_부르지_않는다() throws Exception {
+    long[] ids = sendPdf();
+    mvc.perform(
+            get(viewUrl(ids))
+                .param("page", "1")
+                .header("Authorization", "Bearer " + tokenFor(outsiderId)))
+        .andExpect(status().isForbidden());
+    verifyNoInteractions(worker);
+  }
+
+  @Test
+  void view_는_다른_메시지의_fileId_를_400_으로_막는다() throws Exception {
+    long[] ids = sendPdf();
+    long[] other = sendPdf();
+    mvc.perform(
+            get(viewUrl(new long[] {ids[0], other[1]}))
+                .param("page", "1")
+                .header("Authorization", "Bearer " + tokenFor(userId)))
+        .andExpect(status().isBadRequest());
+    verifyNoInteractions(worker);
   }
 
   private String tokenFor(long uid) {

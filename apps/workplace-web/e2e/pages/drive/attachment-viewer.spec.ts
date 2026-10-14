@@ -82,6 +82,17 @@ test('0 바이트 텍스트는 오류가 아니라 빈 미리보기', async ({ a
   await expect(page.getByTestId('preview-loading')).toHaveCount(0)
 })
 
+test('브라우저가 못 그리는 이미지(HEIC)는 빈 그림 대신 미지원 화면과 다운로드', async ({ authenticatedPage: page }) => {
+  // WP-250: HEIC 는 image/heic 로 분류된다 — 크롬은 그리지 못하므로 img error 로 미지원 화면에 넘어가야 한다.
+  const body = Buffer.from('ftypheic — chromium cannot decode this')
+  await stubDriveFiles(page, [{ id: 72, name: 'photo.heic', mimeType: 'image/heic', sizeBytes: body.length }], { 72: body })
+  await openPreview(page, 'photo.heic')
+  const notice = page.getByTestId('preview-unsupported')
+  await expect(notice).toContainText('이 형식은 미리 볼 수 없어요')
+  await expect(notice.getByRole('button', { name: '다운로드' })).toBeVisible()
+  await expect(page.getByTestId('preview-body').locator('img')).toHaveCount(0)
+})
+
 test('PDF 는 모든 페이지를 세로로 그리고 현재 페이지를 보여 준다', async ({ authenticatedPage: page }) => {
   const pdf = fs.readFileSync(path.join(HERE, '../../fixtures/sample-3p.pdf'))
   await stubDriveFiles(page, [{ id: 72, name: 'three.pdf', mimeType: 'application/pdf', sizeBytes: pdf.length }], { 72: pdf })

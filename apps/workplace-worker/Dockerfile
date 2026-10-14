@@ -14,7 +14,7 @@ RUN apt-get update && apt-get install --no-install-recommends -y python3-venv \
 # venv 에 런타임 의존만 설치(dev 그룹·FlagEmbedding 등 무거운 옵션 제외 — 기존 이미지 동작 보존).
 RUN python -m venv /app/.venv
 ENV PATH="/app/.venv/bin:$PATH"
-RUN pip install --no-cache-dir fastapi "uvicorn[standard]" pymupdf python-docx openpyxl httpx python-pptx
+RUN pip install --no-cache-dir fastapi "uvicorn[standard]" pymupdf python-docx openpyxl httpx python-pptx pillow pillow-heif
 
 COPY app ./app
 

@@ -45,7 +45,7 @@ class FileExtractionSchedulerSeedBudgetTest {
         pipeline,
         List.of(first, second),
         rowWriter,
-        new WorkerProperties(null, null, workerEnabled, null));
+        new WorkerProperties(null, null, workerEnabled, null, null));
   }
 
   /** fileId from..from+n-1 의 PDF 대상 n 건. */

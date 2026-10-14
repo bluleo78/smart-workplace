@@ -9,12 +9,24 @@ import static com.workplace.jooq.Tables.TENANT;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.workplace.drive.exception.DriveFileNotFoundException;
 import com.workplace.drive.exception.DriveSpaceNotFoundException;
 import com.workplace.fileai.dto.ExtractedTextSlice;
+import com.workplace.fileai.dto.ViewImage;
 import com.workplace.fileai.exception.InvalidTextRangeException;
+import com.workplace.fileai.outbound.WorkerRenderClient;
 import com.workplace.fileai.service.ExtractedTextService;
+import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
 import java.util.UUID;
@@ -22,6 +34,8 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -39,6 +53,11 @@ class DriveFileTextTest extends IntegrationTestBase {
   @Autowired DSLContext dsl;
   @Autowired DriveFileService fileService;
   @Autowired PlatformTransactionManager txManager;
+  @Autowired MockMvc mvc;
+  @Autowired JwtTokenProvider jwtTokenProvider;
+
+  /** WP-250: /view 의 워커 렌더 호출 목 — 실제 워커 없이 권한·헤더·쪽수 보충을 검증한다. */
+  @MockitoBean WorkerRenderClient worker;
 
   // @AfterEach 정리용 — 시드에서 채운다.
   private Long tid2;
@@ -206,6 +225,79 @@ class DriveFileTextTest extends IntegrationTestBase {
     tid2 = null;
   }
 
+  // ---- WP-250: GET /api/v1/drive/files/{id}/view — 테넌트 #2 에 시드해 R5(트랜잭션 경계)까지 종단 검증 ----
+
+  private static final byte[] VIEW_PNG = {(byte) 0x89, 'P', 'N', 'G', 9, 9, 9};
+
+  private String tokenFor(long userId) {
+    return "Bearer " + jwtTokenProvider.generateAccessToken(userId, "u" + userId, tid2);
+  }
+
+  private Integer pageCountOfCore() {
+    return new TransactionTemplate(txManager)
+        .execute(
+            st -> {
+              setGuc(tid2);
+              return dsl.select(FILE_EXTRACTION.PAGE_COUNT)
+                  .from(FILE_EXTRACTION)
+                  .where(FILE_EXTRACTION.FILE_ID.eq(fileIdCore))
+                  .fetchOne(FILE_EXTRACTION.PAGE_COUNT);
+            });
+  }
+
+  @Test
+  void view_는_스페이스_멤버에게_이미지와_쪽수를_주고_page_count_를_채운다() throws Exception {
+    seedFixture("DONE", null, "본문");
+    assertThat(pageCountOfCore()).isNull();
+    when(worker.render(anyString(), eq("application/pdf"), eq(1), anyInt()))
+        .thenReturn(new ViewImage(VIEW_PNG, "image/png", 8));
+
+    try {
+      mvc.perform(
+              get("/api/v1/drive/files/{id}/view", driveFileId)
+                  .param("page", "1")
+                  .header("Authorization", tokenFor(memberId)))
+          .andExpect(status().isOk())
+          .andExpect(header().string("Content-Type", "image/png"))
+          .andExpect(header().string("X-Page-Count", "8"))
+          .andExpect(header().string("Cache-Control", "max-age=300, private"))
+          .andExpect(content().bytes(VIEW_PNG));
+    } finally {
+      TenantContext.set(tid2); // 필터가 요청 뒤 비운 테스트 스레드 컨텍스트를 되돌린다
+    }
+    assertThat(pageCountOfCore()).isEqualTo(8);
+  }
+
+  @Test
+  void view_는_비멤버를_404_로_막고_워커를_부르지_않는다() throws Exception {
+    seedFixture("DONE", null, "본문");
+    try {
+      mvc.perform(
+              get("/api/v1/drive/files/{id}/view", driveFileId)
+                  .param("page", "1")
+                  .header("Authorization", tokenFor(outsiderId)))
+          .andExpect(status().isNotFound());
+    } finally {
+      TenantContext.set(tid2);
+    }
+    verifyNoInteractions(worker);
+  }
+
+  @Test
+  void view_는_없는_드라이브_파일을_404_로_막는다() throws Exception {
+    seedFixture("DONE", null, "본문");
+    try {
+      mvc.perform(
+              get("/api/v1/drive/files/{id}/view", driveFileId + 100_000)
+                  .param("page", "1")
+                  .header("Authorization", tokenFor(memberId)))
+          .andExpect(status().isNotFound());
+    } finally {
+      TenantContext.set(tid2);
+    }
+    verifyNoInteractions(worker);
+  }
+
   // ---------------------------------------------------------------- 시드
 
   /**
@@ -246,7 +338,8 @@ class DriveFileTextTest extends IntegrationTestBase {
                       .set(FILE.STORED_NAME, "stored_" + suffix)
                       .set(FILE.MIME_TYPE, "application/pdf")
                       .set(FILE.SIZE_BYTES, 100L)
-                      .set(FILE.STORAGE_PATH, "/data/uploads/" + suffix)
+                      // 상대 경로 — /view 가 "{path}.view/" 캐시를 파일 저장소 아래에 쓴다(경로마다 고유해 이전 실행 캐시와 섞이지 않음)
+                      .set(FILE.STORAGE_PATH, "wp250-drive-view/" + suffix + "/report.pdf")
                       .set(FILE.UPLOADED_BY, memberId)
                       .returning(FILE.ID)
                       .fetchOne()

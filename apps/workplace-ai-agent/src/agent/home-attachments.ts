@@ -1,7 +1,7 @@
 // WP-234: 메인 AI 채팅 첨부 — 요청 스키마(세션 전체 첨부 목록)와 매 턴 user 메시지에 고정 주입하는 "## 이 대화의 첨부" 블록.
 // 이력 윈도·누적 요약과 별개로 매 턴 세션 전체 목록을 싣는다 — 앞부분 이력이 요약으로 대체돼도 AI 가 파일을 근거로
 // 답하고 "다시 첨부해 달라"고 하지 않게 하는 연속성의 핵심이다. 읽기는 read_chat_attachment(필요할 때만)로 한다.
-import { isSendableImage } from '@smart-workplace/mcp-tools-shared';
+import { baseMimeType, canViewPages, isSendableImage } from '@smart-workplace/mcp-tools-shared';
 import { z } from 'zod';
 
 import type { HomeAttachmentMeta, WorkplaceApiClient } from '../clients/workplace-api.js';
@@ -39,13 +39,24 @@ function sizeLabel(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
 }
 
-/** 항목 상태 표기 — 이미지는 비전·형식/크기, 문서는 추출 상태. 도구 결과 분기(home-attachment-tool)와 같은 기준. */
+/**
+ * 항목 상태 표기 — 이미지는 비전·형식/크기, 문서는 추출 상태. 도구(home-attachment-tool)는 이미지를 늘 서버 변환본(/view)으로 돌려주므로(WP-250),
+ * 원본을 그대로 보낼 수 없는 이미지(HEIC·큰 이미지)는 "보낼 수 없음"이 아니라 변환본으로 본다고 적는다 —
+ * 그렇게 적지 않으면 모델이 읽어 보기도 전에 사용자에게 다시 올려 달라고 한다. 보낼 수 있는 이미지는 그냥 '이미지'로 적는다.
+ */
 function statusLabel(a: HomeChatAttachment, imageVision: boolean): string {
-  if (fileKind(a.mimeType) === 'image') {
+  const kind = fileKind(a.mimeType);
+  if (kind === 'image') {
     if (!imageVision) return '이미지 — 이 비서(모델)는 이미지를 볼 수 없음';
-    return isSendableImage(a) ? '이미지' : '이미지 — 이 형식·크기는 모델에 보낼 수 없음';
+    if (isSendableImage(a)) return '이미지';
+    // SVG 는 서버가 변환하지 않는다(/view 가 415) — 변환본을 약속하지 않는다.
+    if (baseMimeType(a.mimeType) === 'image/svg+xml') return '이미지 — SVG 는 이미지로 볼 수 없음';
+    return '이미지 — 이 형식·크기는 도구가 변환본으로 보여 줌';
   }
   const x = a.extraction;
+  // WP-250 코드 리뷰: 글자로 못 읽는 PDF(추출 기록 없음·실패·건너뜀)도 이미지를 볼 수 있는 모델은 pages 로 페이지 이미지를 볼 수 있다 —
+  // 그렇게 적지 않으면 읽을 길이 없다고 보고 멈춘다. 25MB 를 넘으면 서버가 그리지 않으므로(413) 약속하지 않는다.
+  const pagesHint = canViewPages(a, imageVision) ? ' — pages 로 페이지 이미지를 볼 수 있음' : '';
   switch (x.status) {
     case 'READY':
       return `텍스트${x.totalChars != null ? ` 약 ${x.totalChars}자` : ''}${x.truncated ? '(추출 상한으로 잘림)' : ''}`;
@@ -53,15 +64,17 @@ function statusLabel(a: HomeChatAttachment, imageVision: boolean): string {
       return '텍스트 추출 중';
     case 'SKIPPED':
     case 'FAILED':
-      return `텍스트로 읽을 수 없음: ${sanitizeName(x.reason ?? '사유 미상')}`;
+      return `텍스트로 읽을 수 없음: ${sanitizeName(x.reason ?? '사유 미상')}${pagesHint}`;
     default:
-      return '텍스트 추출 대상 아님';
+      return `텍스트 추출 대상 아님${pagesHint}`;
   }
 }
 
 const NEXT_OFFSET_HOW = '문서는 텍스트 구간으로 오며, 더 필요하면 결과의 nextOffset 을 offset 으로 넘겨 이어 읽기';
 // 읽는 쪽(러너·모델) 능력별 방법 — 비전 판단은 run-ai-chat 이 실행당 1회 내린 값을 받는다(러너 config 와 같은 값).
-const HOW_VISION = `이미지·문서 모두 read_chat_attachment({fileId}) 로 읽으세요(${NEXT_OFFSET_HOW}).`;
+const HOW_VISION =
+  `이미지·문서 모두 read_chat_attachment({fileId}) 로 읽으세요(${NEXT_OFFSET_HOW}). ` +
+  '그림·도표·스캔 PDF 는 pages 로 해당 페이지를 보세요.';
 const HOW_NO_VISION =
   `문서는 read_chat_attachment({fileId}) 로 읽으세요(${NEXT_OFFSET_HOW}). ` +
   '이미지는 볼 수 없으니, 이미지 내용이 필요하면 사용자에게 이미지 내용을 글로 알려 달라고 안내하세요.';

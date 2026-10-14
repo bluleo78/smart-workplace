@@ -22,10 +22,19 @@ export {
   SENDABLE_IMAGE_MIMES,
   IMAGE_MAX_BYTES,
   baseMimeType,
-  imageRejectReasons,
   isSendableImage,
   toBase64,
 } from './attachment-read.js';
+// WP-250: 모델 입력용 이미지(/view) — ai-agent 가 자기 첨부 도구에서 같은 헬퍼를 쓴다.
+export {
+  canViewPages,
+  MAX_PAGES_PER_CALL,
+  PAGES_DESCRIPTION,
+  imageViewBlocks,
+  pageBlocks,
+  withPages,
+} from './attachment-view.js';
+export { isImageSkip, pdfNote } from './attachment-tools.js';
 export type * from './tool-client.js';
 export {
   listConflicts,
@@ -44,6 +53,6 @@ export { addChannelMemberInput, resolveMentionTokens } from './messaging-tools.j
 // WP-369: AI Chat 의 create_drive_file 판이 업로드 링크 안내를 뺀 content 모드 설명만 쓴다(ai-agent mcp/tools.ts).
 export { CREATE_DRIVE_FILE_CONTENT_DESCRIPTION } from './drive-tools.js';
 export { buildSharedTools, type SharedToolClient, type SharedToolOptions } from './shared-tools.js';
-export { createSharedToolClient, type HttpLike, type HttpRequestConfig } from './rest-client.js';
+export { createSharedToolClient, decodeErrorBody, getBytes, type HttpLike, type HttpRequestConfig, viewUrl } from './rest-client.js';
 export { MEMORY_TOOL_NAMES, TOOL_LABELS, isDisplayableTool, isMemoryTool, stripMcpPrefix, type ToolLabel } from './tool-labels.js';
 export { TOOL_NAME_MAX_LENGTH, toolNameViolations } from './tool-naming.js';

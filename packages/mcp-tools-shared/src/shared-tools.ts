@@ -43,7 +43,11 @@ export type SharedToolClient = IssueToolClient &
   HomeToolClient &
   AttachmentToolClient;
 
-export type SharedToolOptions = MessagingToolOptions;
+/**
+ * 앱별 옵션 — 메시징(parentMessageIdFor)과 read_file 의 이미지 입력(WP-250: imageInput 기본 true).
+ * 기본값은 예전 동작과 같아 옵션을 안 주는 호출부도 그대로 컴파일·동작한다.
+ */
+export type SharedToolOptions = MessagingToolOptions & { imageInput?: boolean };
 
 /** 공유 도구 전체(이슈·프로젝트·노트·캘린더·메일·구성원/연락처·연락처 그룹·메시징·드라이브·알림·홈 개요·첨부 읽기). 이름 목록은 스냅샷 테스트가 고정한다. */
 export function buildSharedTools(client: SharedToolClient, opts: SharedToolOptions = {}): SharedTool[] {
@@ -59,6 +63,6 @@ export function buildSharedTools(client: SharedToolClient, opts: SharedToolOptio
     ...buildDriveTools(client),
     ...buildNotifyTools(client),
     ...buildHomeTools(client),
-    ...buildAttachmentTools(client),
+    ...buildAttachmentTools(client, opts.imageInput),
   ];
 }

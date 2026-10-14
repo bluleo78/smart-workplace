@@ -15,9 +15,10 @@ import {
   NO_VISION_PROMPT_RULE,
 } from './opencode-config.js';
 
-const VISION_ON = { vision: true };
-const VISION_OFF = { vision: false };
-const VISION_UNKNOWN = { vision: undefined };
+// 모델 한도는 따로 보는 테스트(WP-250)만 넣는다 — 나머지는 한도 없음(undefined).
+const VISION_ON = { vision: true, limit: undefined };
+const VISION_OFF = { vision: false, limit: undefined };
+const VISION_UNKNOWN = { vision: undefined, limit: undefined };
 import { loadSubagents } from './subagent-loader.js';
 import type { RunnerInput } from './agent-runner.js';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
@@ -112,6 +113,18 @@ describe('buildOpencodeConfig', () => {
         models: { 'gpt-5': { modalities: { input: ['text', 'image'], output: ['text'] } } },
       },
     });
+  });
+
+  // WP-250: provider /models 가 알려 준 한도는 모델 엔트리 limit 으로 — opencode 가 한도에 닿기 전에 압축한다. 없으면 선언하지 않는다.
+  it('모델 한도(limit)가 있으면 모델 엔트리에 선언하고, 없으면 두지 않는다(WP-250)', () => {
+    const models = (opts: Parameters<typeof buildOpencodeConfig>[3]) =>
+      (buildOpencodeConfig(baseInput(), 'run-1', ['cmd'], opts).provider as Record<string, { models: Record<string, unknown> }>).openai.models['gpt-5'];
+    expect(models({ vision: true, limit: { context: 262128, output: 0 } })).toEqual({
+      modalities: { input: ['text', 'image'], output: ['text'] },
+      limit: { context: 262128, output: 0 },
+    });
+    expect(models({ vision: undefined, limit: { context: 65536, output: 8192 } })).toEqual({ limit: { context: 65536, output: 8192 } });
+    expect(models({ vision: undefined, limit: undefined })).toEqual({});
   });
 
   it('비전 미지원: modalities 미선언 + 프롬프트 규칙 + MCP_VISION=0 + 서브에이전트 프롬프트에도 규칙(WP-241)', () => {
@@ -241,9 +254,29 @@ describe('buildOpencodeConfig', () => {
         MCP_PROFILE: 'issue',
         MCP_ON_BEHALF_OF: '55',
         MCP_VISION: '1',
+        MCP_IMAGE_TOOLS: '1',
         MCP_THREAD_BINDING: JSON.stringify({ channelId: 1, parentMessageId: 2 }),
         MCP_DELEGATION_CONTEXT: JSON.stringify({ actorId: 3, channelId: 1, parentMessageId: 2 }),
       },
+    });
+  });
+
+  // WP-250: 이미지를 볼 수 있는 모델(vision === true)에만 페이지 보기(MCP_IMAGE_TOOLS)를 연다.
+  describe('이미지 입력 env (WP-250)', () => {
+    const client = {} as unknown as WorkplaceApiClient;
+    const env = (vision: boolean | undefined) =>
+      (buildOpencodeConfig(baseInput({ mcp: { client, profile: 'assistant', onBehalfOfId: 1 } }), 'run-1', ['cmd'], { vision, limit: undefined }).mcp
+        ?.workplace as { environment?: Record<string, string> }).environment;
+
+    it('vision true → MCP_IMAGE_TOOLS=1', () => {
+      expect(env(true)?.MCP_IMAGE_TOOLS).toBe('1');
+    });
+
+    it.each([
+      ['알 수 없음', undefined],
+      ['미지원', false],
+    ] as const)('vision %s → MCP_IMAGE_TOOLS 없음', (_label, vision) => {
+      expect(env(vision)).not.toHaveProperty('MCP_IMAGE_TOOLS');
     });
   });
 

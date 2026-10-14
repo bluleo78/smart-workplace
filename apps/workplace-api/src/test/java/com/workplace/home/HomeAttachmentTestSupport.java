@@ -17,6 +17,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
+import com.workplace.fileai.outbound.WorkerRenderClient;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
@@ -73,6 +74,9 @@ public abstract class HomeAttachmentTestSupport extends IntegrationTestBase {
   @MockitoBean protected AssistantResolver assistantResolver;
   @MockitoBean protected SseRegistry sseRegistry;
   @MockitoBean protected TenantScopedRunner tenantScopedRunner;
+
+  /** WP-250: /view 의 워커 렌더 호출 목 — 실제 워커 없이 권한·헤더·쪽수 보충을 검증한다(공용이라 컨텍스트 캐시를 나누지 않는다). */
+  @MockitoBean protected WorkerRenderClient worker;
 
   @Autowired protected DSLContext dsl;
   @Autowired protected ObjectMapper om;

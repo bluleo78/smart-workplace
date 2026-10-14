@@ -18,6 +18,7 @@ import com.workplace.drive.exception.DriveDuplicateNameException;
 import com.workplace.drive.service.DriveFileService;
 import com.workplace.file.service.FileUploadService.FileContentResult;
 import com.workplace.fileai.dto.ExtractedTextSlice;
+import com.workplace.fileai.service.AttachmentViewService;
 import com.workplace.global.config.SecurityConfig;
 import com.workplace.global.security.ApiKeyAuthenticationFilter;
 import com.workplace.global.security.JwtAuthenticationFilter;
@@ -56,6 +57,10 @@ class DriveFileControllerTest {
   @Autowired private MockMvc mockMvc;
 
   @MockitoBean private DriveFileService fileService;
+
+  /** WP-250: 컨트롤러가 /view 용으로 주입받는 공통 서비스 — 슬라이스 컨텍스트에 빈이 있어야 한다. */
+  @MockitoBean private AttachmentViewService attachmentView;
+
   @MockitoBean private JwtTokenProvider jwtTokenProvider;
   @MockitoBean private JwtProperties jwtProperties;
   @MockitoBean private PermissionService permissionService;
@@ -111,7 +116,8 @@ class DriveFileControllerTest {
   @Test
   void readText_defaults_returnsSlice() throws Exception {
     when(fileService.readText(1L, 7L, 0, 32000))
-        .thenReturn(new ExtractedTextSlice(55L, "READY", 0, 3, false, null, "본문입", null, null));
+        .thenReturn(
+            new ExtractedTextSlice(55L, "READY", 0, 3, false, null, "본문입", null, null, null));
     mockMvc
         .perform(get("/api/v1/drive/files/7/text").header("Authorization", "Bearer test-token"))
         .andExpect(status().isOk())
@@ -126,7 +132,7 @@ class DriveFileControllerTest {
   void readText_passesRange_andPendingHasNoText() throws Exception {
     when(fileService.readText(1L, 7L, 100, 50))
         .thenReturn(
-            new ExtractedTextSlice(55L, "PENDING", 100, null, null, null, null, null, null));
+            new ExtractedTextSlice(55L, "PENDING", 100, null, null, null, null, null, null, null));
     mockMvc
         .perform(
             get("/api/v1/drive/files/7/text?offset=100&limit=50")

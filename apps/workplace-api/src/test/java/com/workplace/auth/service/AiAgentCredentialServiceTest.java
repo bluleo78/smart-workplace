@@ -6,6 +6,7 @@ import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.exception.InvalidProviderCredentialException;
 import com.workplace.auth.exception.KeyTargetMustBeAgentException;
 import com.workplace.auth.exception.OAuthTokenNotFoundException;
@@ -274,5 +275,68 @@ class AiAgentCredentialServiceTest extends IntegrationTestBase {
     var meta = service.register(admin, agent, "opencode", cfg, "bedrock", "bedrock/gpt-oss-120b");
 
     assertThat(meta.baseUrl()).isEqualTo("http://192.168.1.10:8080/v1");
+  }
+
+  /** vision 케이스 공용 — opencode config JSON 에 vision 조각(`"vision":...`)을 붙여 등록한다. */
+  private String cfgWithVision(String visionFragment) {
+    return "{\"providerId\":\"custom\",\"options\":{\"baseURL\":\"https://ep.example/v1\","
+        + "\"apiKey\":\"sk-test-123456789012345678901234\"}"
+        + (visionFragment == null ? "" : ",\"vision\":" + visionFragment)
+        + "}";
+  }
+
+  @Test // WP-250: 모델별 vision 설정은 저장되어 redeem(ai-agent 로 내려가는 경로)에 그대로 남는다
+  void registerOpencodeWithPerModelVision_keptInRedeemPayload() throws Exception {
+    Long admin = createUser("admin", "HUMAN");
+    Long agent = createUser("ai", "AGENT");
+    String cfg = cfgWithVision("{\"custom/qwen3.6-35b-vl\":true,\"custom/text-only\":false}");
+
+    service.register(admin, agent, "opencode", cfg, "custom", "custom/qwen3.6-35b-vl");
+
+    var vision = new ObjectMapper().readTree(service.redeemSelf(agent).payload()).get("vision");
+    assertThat(vision.get("custom/qwen3.6-35b-vl").asBoolean()).isTrue();
+    assertThat(vision.get("custom/text-only").asBoolean()).isFalse();
+  }
+
+  @Test // WP-250: boolean vision(전 모델 공통)도 그대로 보존
+  void registerOpencodeWithBooleanVision_keptInRedeemPayload() throws Exception {
+    Long admin = createUser("admin", "HUMAN");
+    Long agent = createUser("ai", "AGENT");
+
+    service.register(admin, agent, "opencode", cfgWithVision("true"), "custom", "custom/m");
+
+    var vision = new ObjectMapper().readTree(service.redeemSelf(agent).payload()).get("vision");
+    assertThat(vision.isBoolean()).isTrue();
+    assertThat(vision.asBoolean()).isTrue();
+  }
+
+  @Test // WP-250: vision 이 없거나 null 이면 기존과 동일하게 등록되고 payload 에 값이 없다(자동 감지)
+  void registerOpencodeWithoutVision_succeeds() throws Exception {
+    Long admin = createUser("admin", "HUMAN");
+    Long agent = createUser("ai", "AGENT");
+
+    service.register(admin, agent, "opencode", cfgWithVision(null), "custom", "custom/m");
+    var none = new ObjectMapper().readTree(service.redeemSelf(agent).payload());
+    assertThat(none.hasNonNull("vision")).isFalse();
+
+    service.register(admin, agent, "opencode", cfgWithVision("null"), "custom", "custom/m");
+    var nul = new ObjectMapper().readTree(service.redeemSelf(agent).payload());
+    assertThat(nul.hasNonNull("vision")).isFalse();
+  }
+
+  @Test // WP-250: vision 이 boolean·모델별 boolean 맵이 아니면 400
+  void registerOpencodeWithInvalidVision_throws400() {
+    Long admin = createUser("admin", "HUMAN");
+    Long agent = createUser("ai", "AGENT");
+
+    for (String bad : new String[] {"\"yes\"", "{\"m\":\"yes\"}", "1", "[true]", "{\"m\":null}"}) {
+      assertThatThrownBy(
+              () ->
+                  service.register(
+                      admin, agent, "opencode", cfgWithVision(bad), "custom", "custom/m"))
+          .as("vision=%s", bad)
+          .isInstanceOf(InvalidProviderCredentialException.class)
+          .hasMessage("vision 은 true/false 또는 모델별 true/false 여야 합니다");
+    }
   }
 }

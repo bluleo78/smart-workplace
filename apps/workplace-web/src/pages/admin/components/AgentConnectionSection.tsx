@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 
 import { SuggestionModelField } from '@/components/ai/SuggestionModelField';
+import { VisionInputSelect } from '@/components/ai/VisionInputSelect';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -43,6 +44,7 @@ import {
   useUpdateWorkspaceAssistantSettings,
   useWorkspaceAssistant,
 } from '../../../hooks/queries/useAssistant';
+import { useAssistantVisionSetting } from '../../../hooks/useAssistantVisionSetting';
 import { useAuth } from '../../../hooks/useAuth';
 import { providerIdOf } from '../../../lib/ai/suggestionModel';
 import { handleApiError } from '../../../lib/api-error';
@@ -169,14 +171,19 @@ export function AgentConnectionSection({ agentUserId }: Props) {
     }
   };
 
-  const onModel = async (model: string) => {
-    try {
-      await updateSettings.mutateAsync({ model });
-      toast.success('설정을 변경했습니다.');
-    } catch (e) {
-      handleApiError(e, '설정 변경에 실패했습니다.');
-    }
-  };
+  // WP-250: 등록 후 이미지 입력 지정(OpenAI 호환 연결만)과 모델 변경 — 재등록 없이 커스텀 모델의 이미지 입력을 지정할 수 있다.
+  // 모델 변경·이미지 입력 저장 규칙(모델을 바꾸면 자동 감지로)은 개인 비서 화면과 같은 훅이 정한다.
+  const {
+    isOpencode,
+    currentVision,
+    changeModel: onModel,
+    changeVision: onVision,
+  } = useAssistantVisionSetting({
+    provider: meta?.provider,
+    vision: ws?.vision,
+    save: updateSettings.mutateAsync,
+    messages: { success: '설정을 변경했습니다.', error: '설정 변경에 실패했습니다.' },
+  });
 
   const onDepth = async (thinkingDepth: ThinkingDepth) => {
     try {
@@ -295,6 +302,17 @@ export function AgentConnectionSection({ agentUserId }: Props) {
                   </p>
                 ) : null}
               </div>
+              {/* WP-250: 모델 옆 — 지금 모델의 이미지 입력 지정. 고르면 바로 저장되고, 모델을 바꾸면 자동 감지로 돌아간다(OpenAI 호환 연결만). */}
+              {isOpencode ? (
+                <VisionInputSelect
+                  id="workspace-assistant-vision"
+                  settingsSpacing="space-y-1"
+                  testId="workspace-assistant-vision"
+                  value={currentVision}
+                  onChange={(v) => void onVision(v)}
+                  disabled={updateSettings.isPending}
+                />
+              ) : null}
               <div className="space-y-1">
                 <label className="text-sm font-medium" htmlFor="workspace-assistant-depth">
                   생각의 깊이

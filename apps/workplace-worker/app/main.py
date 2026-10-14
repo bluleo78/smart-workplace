@@ -1,9 +1,10 @@
 """범용 워커 디스패치. /tasks/{type} 로 작업 받고 백그라운드 처리 후 api 콜백."""
-from fastapi import FastAPI, Depends, BackgroundTasks
-from pydantic import BaseModel
+from fastapi import FastAPI, Depends, BackgroundTasks, HTTPException, Response
+from pydantic import BaseModel, Field
 from . import config, blobs, callback, embed
 from .auth import require_internal
 from .extract import extract_text
+from .render import RenderError, render_image, render_pdf_page
 
 app = FastAPI()
 
@@ -60,6 +61,45 @@ async def embed_query(q: EmbedQuery) -> dict:
     return {"dimensions": len(vec), "embedding": vec}
 
 
+class RenderTask(BaseModel):
+    storageKey: str
+    mime: str
+    page: int | None = Field(default=None, ge=1)   # PDF 만, 1부터
+    maxEdge: int = Field(default=1568, ge=64, le=4096)  # 긴 변 상한(px) — 범위 밖은 422
+
+
+@app.post("/render", dependencies=[Depends(require_internal)])
+def render(t: RenderTask) -> Response:
+    """PDF 페이지·이미지를 모델 입력용 이미지로 동기 변환(WP-250). API 가 결과를 캐시한다.
+
+    오류는 detail={code,...} 로 돌려 api 클라이언트(WorkerRenderClient)가 코드별로 매핑한다.
+    """
+    try:
+        path = blobs.resolve_blob_path(config.BLOB_BASE, t.storageKey)
+    except ValueError:  # 경로 이탈(../ 등)
+        raise HTTPException(status_code=400, detail={"code": "BAD_KEY"})
+    try:
+        size = path.stat().st_size
+    except FileNotFoundError:  # 500 대신 404 로 구분해 api 가 '파일 없음'으로 매핑
+        raise HTTPException(status_code=404, detail={"code": "NOT_FOUND"})
+    if size > config.MAX_BYTES:
+        raise HTTPException(status_code=413, detail={"code": "TOO_LARGE"})
+    try:
+        if t.mime == "application/pdf":
+            if t.page is None:
+                raise RenderError(400, {"code": "PAGE_REQUIRED"})
+            r = render_pdf_page(path, t.page, t.maxEdge)
+        else:
+            if t.page is not None:
+                raise RenderError(400, {"code": "PAGE_NOT_ALLOWED"})
+            r = render_image(path.read_bytes(), t.mime, t.maxEdge)
+    except RenderError as e:
+        raise HTTPException(status_code=e.status, detail=e.detail)
+    # PDF 만 전체 페이지 수를 헤더로 알려 api 가 범위를 안내하게 한다.
+    headers = {"X-Page-Count": str(r.page_count)} if r.page_count is not None else {}
+    return Response(content=r.data, media_type=r.mime, headers=headers)
+
+
 def _run_extract(t: ExtractTask) -> None:
     # C1: 모든 콜백 페이로드에 tenantId 를 에코한다. api WorkerCallbackController 가
     # TenantContext.set(tenantId) 로 RLS GUC 를 복원한다. 워커는 tenantId 를 해석하지 않는다.
@@ -72,7 +112,9 @@ def _run_extract(t: ExtractTask) -> None:
             return
         r = extract_text(path.read_bytes(), t.mime, config.MAX_CHARS, page_markers=t.pageMarkers)
         if not r["text"]:
-            callback.post_result(t.jobId, {**base_payload, "status": "SKIPPED", "error": "empty"})
+            # WP-250: 스캔 PDF 도 페이지 수는 전달(페이지 이미지 보기 범위)
+            callback.post_result(t.jobId, {**base_payload, "status": "SKIPPED", "error": "empty",
+                                           "pageCount": r.get("pageCount")})
             return
         callback.post_result(t.jobId, {**base_payload, "status": "DONE", **r})
     except Exception as e:  # noqa: BLE001 — 어떤 실패든 api 로 보고(잡 멈춤 방지)

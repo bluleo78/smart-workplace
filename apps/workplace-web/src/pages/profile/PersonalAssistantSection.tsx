@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 
 import { probeMyAssistantModels } from '../../api/models';
 import { SuggestionModelField } from '../../components/ai/SuggestionModelField';
+import { VisionInputSelect } from '../../components/ai/VisionInputSelect';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
@@ -34,8 +35,11 @@ import {
   useUpdateMyAssistantName,
   useUpdateMyAssistantSettings,
 } from '../../hooks/queries/useAssistant';
+import { useAssistantVisionSetting } from '../../hooks/useAssistantVisionSetting';
 import { useAuth } from '../../hooks/useAuth';
+import { useModelVisionChoice } from '../../hooks/useModelVisionChoice';
 import { providerIdOf, withProviderPrefix } from '../../lib/ai/suggestionModel';
+import { visionConfigFor } from '../../lib/ai/visionConfig';
 import { handleApiError } from '../../lib/api-error';
 import { OPENCODE_PRESETS, type OpencodePresetKey, presetLabelFor } from '../../lib/opencode-presets';
 import type { ThinkingDepth } from '../../types/assistant';
@@ -85,6 +89,14 @@ export function PersonalAssistantSection() {
   const [probeError, setProbeError] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState('');
   const [manualModel, setManualModel] = useState('');
+  // 수동 입력 모델 id 에 providerId/ 접두어가 없으면 자동으로 붙인다 — 실측 함정(접두 없이 저장 →
+  // splitOpencodeModel 실행 시점 실패) 방지. presetKey 는 제출과 함께 전송되는
+  // providerConfig.providerId 와 항상 동일하므로 추측이 아니라 정확한 값이다.
+  const normalizedManualModel = withProviderPrefix(manualModel, presetKey);
+  const resolvedModel = selectedModel || normalizedManualModel;
+  // 이미지 입력 수동 지정 — 'auto' 면 providerConfig.vision 을 보내지 않는다. 선택은 그때의 모델 id 에만 적용되어,
+  // 모델을 바꾸면(직접 입력 중 다른 id 가 되면) 자동 감지로 보인다. 키를 칠 때마다 지우지 않으므로 같은 id 로 정리되는 입력엔 유지된다.
+  const { vision, setVision, resetVision } = useModelVisionChoice(resolvedModel);
 
   // 설정 완료된 비서의 모델 변경 폴백 입력 — 프로브(useMyAssistantModels)가 실패하면(예: 프로바이더가
   // /models 목록 조회를 지원하지 않는 경우) Select 가 비어 선택 불가능해지므로 직접 입력을 허용한다.
@@ -111,6 +123,7 @@ export function PersonalAssistantSection() {
     setProbeError(null);
     setSelectedModel('');
     setManualModel('');
+    resetVision();
   };
 
   // 프리셋 변경 시 baseURL 템플릿 자동 채움 + 이전 프로브 결과 초기화.
@@ -122,6 +135,7 @@ export function PersonalAssistantSection() {
     setProbeError(null);
     setSelectedModel('');
     setManualModel('');
+    resetVision();
   };
 
   // 모델 목록 프로브 — 성공 시 모델 Select 노출, 실패 시 수동 입력 폴백 노출.
@@ -129,6 +143,7 @@ export function PersonalAssistantSection() {
     setProbeError(null);
     setProbedModels(null);
     setSelectedModel('');
+    resetVision();
     try {
       const res = await probe.mutateAsync();
       setProbedModels(res.models);
@@ -140,11 +155,7 @@ export function PersonalAssistantSection() {
     }
   };
 
-  // 수동 입력 모델 id 에 providerId/ 접두어가 없으면 자동으로 붙인다 — 사용자가 실측으로
-  // 두 번 겪은 함정(접두 없이 저장 → splitOpencodeModel 실행 시점 실패) 방지. presetKey 는 이
-  // 제출과 함께 전송되는 providerConfig.providerId 와 항상 동일하므로 추측이 아니라 정확한 값이다.
-  const normalizedManualModel = withProviderPrefix(manualModel, presetKey);
-  const resolvedModel = selectedModel || normalizedManualModel;
+  const visionConfig = visionConfigFor(vision, resolvedModel);
 
   // 자격증명 등록 — anthropic(토큰 최소 32자)/opencode(모델 필수) 공통 진입점.
   const submitCredential = async () => {
@@ -174,7 +185,12 @@ export function PersonalAssistantSection() {
     try {
       await register.mutateAsync({
         provider: 'opencode',
-        providerConfig: { providerId: presetKey, options: { baseURL: baseUrl.trim(), apiKey } },
+        providerConfig: {
+          providerId: presetKey,
+          options: { baseURL: baseUrl.trim(), apiKey },
+          // 수동 지정일 때만 { [최종 모델 id]: true|false } — 자동이면 키 생략.
+          ...(visionConfig ? { vision: visionConfig } : {}),
+        },
         model: resolvedModel,
       });
       resetForm();
@@ -203,15 +219,19 @@ export function PersonalAssistantSection() {
     }
   };
 
-  // 모델 변경 — 실패 시 오류 토스트(silent failure 방지), 성공 시 확인 토스트.
-  const handleModelChange = async (model: string) => {
-    try {
-      await updateSettings.mutateAsync({ model });
-      toast.success('비서 설정을 변경했습니다.');
-    } catch (e) {
-      handleApiError(e, '비서 설정 변경에 실패했습니다.');
-    }
-  };
+  // WP-250: 등록 후 이미지 입력 지정(OpenAI 호환 연결만)과 모델 변경 — 자동 감지가 안 되는 커스텀 모델을 재등록 없이 지정할 수 있게 한다.
+  // 모델 변경·이미지 입력 저장 규칙(모델을 바꾸면 자동 감지로)은 공통 비서 화면과 같은 훅이 정한다.
+  const {
+    isOpencode,
+    currentVision,
+    changeModel: handleModelChange,
+    changeVision: handleVisionChange,
+  } = useAssistantVisionSetting({
+    provider: status?.provider,
+    vision: status?.vision,
+    save: updateSettings.mutateAsync,
+    messages: { success: '비서 설정을 변경했습니다.', error: '비서 설정 변경에 실패했습니다.' },
+  });
 
   // 수동 모델 변경 — 등록 폼과 동일하게 providerId/ 접두 없으면 자동 부여(현재 저장된 model 의
   // providerId 를 재사용). 접두 누락으로 인한 splitOpencodeModel 실행 시점 실패를 여기서도 방지.
@@ -374,6 +394,18 @@ export function PersonalAssistantSection() {
                 </>
               )}
             </div>
+
+            {/* WP-250: 모델 바로 아래 — 지금 모델의 이미지 입력 지정. 고르면 바로 저장되고, 모델을 바꾸면 자동 감지로 돌아간다(OpenAI 호환 연결만). */}
+            {isOpencode ? (
+              <VisionInputSelect
+                id="assistant-vision"
+                settingsSpacing="space-y-2"
+                testId="assistant-vision"
+                value={currentVision}
+                onChange={(v) => void handleVisionChange(v)}
+                disabled={updateSettings.isPending}
+              />
+            ) : null}
 
             <div className="space-y-2">
               <label className="text-sm font-medium" htmlFor="assistant-depth">
@@ -552,6 +584,16 @@ export function PersonalAssistantSection() {
                       붙습니다.
                     </p>
                   </div>
+                ) : null}
+
+                {/* 모델이 정해질 수 있는 상태(목록 노출 또는 프로브 실패 → 수동 입력)에서만 노출. */}
+                {probedModels != null || probeError ? (
+                  <VisionInputSelect
+                    id="credential-vision"
+                    testId="credential-vision"
+                    value={vision}
+                    onChange={setVision}
+                  />
                 ) : null}
               </div>
             )}
