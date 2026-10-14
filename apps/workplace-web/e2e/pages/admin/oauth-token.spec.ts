@@ -371,6 +371,90 @@ test.describe('/admin/agents — AI 연결 및 모델', () => {
     expect((state.posts.bodies()[0] as { model: string }).model).toBe('amazon-bedrock-openai/gpt-4o-mini');
   });
 
+  test(
+    'opencode 이미지 입력 — 기본 자동 감지 → 볼 수 있음 선택 시 모델 id 키의 vision 이 전송된다',
+    async ({ adminPage: page }) => {
+      await setupBase(page);
+      const state = await setupCredential(page, { initial: 'absent' });
+      setupProbe(page, {
+        status: 200,
+        models: [
+          { id: 'amazon-bedrock-openai/openai.gpt-oss-120b-1:0', label: 'GPT-OSS 120B' },
+          { id: 'amazon-bedrock-openai/anthropic.claude-3-5-sonnet', label: 'Claude 3.5 Sonnet' },
+        ],
+      });
+
+      await enterAndSelect(page);
+      await page.getByTestId('oauth-token-register').click();
+      await page.getByTestId('credential-provider-opencode').click();
+
+      // 모델 목록이 나오기 전에는 "이미지 입력" 이 보이지 않는다.
+      await expect(page.getByTestId('credential-vision')).toHaveCount(0);
+
+      await page.getByTestId('credential-api-key').fill('sk-bedrock-test-key');
+      await page.getByTestId('credential-probe-models').click();
+      await page.getByTestId('credential-model-select').click();
+      await page.getByRole('option', { name: 'GPT-OSS 120B' }).click();
+
+      // 기본값은 "자동 감지" + 도움말.
+      const vision = page.getByTestId('credential-vision');
+      await expect(page.getByText('이미지 입력', { exact: true })).toBeVisible();
+      await expect(vision).toHaveText('자동 감지');
+      await expect(
+        page.getByText(
+          '이미지를 볼 수 있는 모델이면 AI가 첨부 사진과 PDF 페이지를 직접 봅니다. 자동 감지가 안 되는 모델은 직접 지정하세요.',
+        ),
+      ).toBeVisible();
+      await page.screenshot({
+        path: '../../test-results/tc/admin-provider-credential-vision/vision-select.png',
+      });
+
+      await vision.click();
+      await page.getByRole('option', { name: '볼 수 있음' }).click();
+      await expect(vision).toHaveText('볼 수 있음');
+
+      await page.getByRole('button', { name: '연결하기' }).click();
+      await expect(page.getByText('AI에 연결했습니다.')).toBeVisible();
+
+      expect(state.posts.count()).toBe(1);
+      const body = state.posts.bodies()[0] as { providerConfig: { vision?: unknown } };
+      expect(body.providerConfig.vision).toEqual({
+        'amazon-bedrock-openai/openai.gpt-oss-120b-1:0': true,
+      });
+    },
+  );
+
+  test('opencode 프로브 실패 → 수동 입력 모델에도 이미지 입력이 보이고 접두가 붙은 id 로 키가 잡힌다', async ({
+    adminPage: page,
+  }) => {
+    await setupBase(page);
+    const state = await setupCredential(page, { initial: 'absent' });
+    setupProbe(page, { status: 502 });
+
+    await enterAndSelect(page);
+    await page.getByTestId('oauth-token-register').click();
+    await page.getByTestId('credential-provider-opencode').click();
+    await page.getByTestId('credential-base-url').fill('https://api.openai.com/v1');
+    await page.getByTestId('credential-api-key').fill('sk-openai-test');
+    await page.getByTestId('credential-probe-models').click();
+
+    await page.getByTestId('credential-model-manual').fill('gpt-4o-mini');
+    const vision = page.getByTestId('credential-vision');
+    await expect(vision).toHaveText('자동 감지');
+    await vision.click();
+    await page.getByRole('option', { name: '볼 수 없음' }).click();
+    await page.screenshot({
+      path: '../../test-results/tc/admin-provider-credential-vision/vision-select-manual.png',
+    });
+
+    await page.getByRole('button', { name: '연결하기' }).click();
+    await expect(page.getByText('AI에 연결했습니다.')).toBeVisible();
+
+    expect(state.posts.count()).toBe(1);
+    const body = state.posts.bodies()[0] as { providerConfig: { vision?: unknown } };
+    expect(body.providerConfig.vision).toEqual({ 'amazon-bedrock-openai/gpt-4o-mini': false });
+  });
+
   test('opencode 모델 미선택 → 제출 버튼 비활성(POST 호출 없음)', async ({ adminPage: page }) => {
     await setupBase(page);
     const state = await setupCredential(page, { initial: 'absent' });

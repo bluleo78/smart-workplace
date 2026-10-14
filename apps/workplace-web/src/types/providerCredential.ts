@@ -10,6 +10,8 @@ export interface ProviderConfig {
   providerId: string;
   npm?: string;
   options: { baseURL: string; apiKey: string };
+  // 모델의 이미지 입력 지원 수동 지정 — boolean(전체) 또는 모델 id 별 맵. 생략하면 서버가 자동 감지한다.
+  vision?: boolean | Record<string, boolean>;
 }
 
 // 자격증명 메타 — 평문/암호문 절대 미포함. baseUrl 은 opencode 일 때만 값 존재(anthropic 은 null).

@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 
 import { probeMyAssistantModels } from '../../api/models';
 import { SuggestionModelField } from '../../components/ai/SuggestionModelField';
+import { VisionInputSelect } from '../../components/ai/VisionInputSelect';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
@@ -36,6 +37,7 @@ import {
 } from '../../hooks/queries/useAssistant';
 import { useAuth } from '../../hooks/useAuth';
 import { providerIdOf, withProviderPrefix } from '../../lib/ai/suggestionModel';
+import { type VisionChoice, visionConfigFor } from '../../lib/ai/visionConfig';
 import { handleApiError } from '../../lib/api-error';
 import { OPENCODE_PRESETS, type OpencodePresetKey, presetLabelFor } from '../../lib/opencode-presets';
 import type { ThinkingDepth } from '../../types/assistant';
@@ -85,6 +87,8 @@ export function PersonalAssistantSection() {
   const [probeError, setProbeError] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState('');
   const [manualModel, setManualModel] = useState('');
+  // 이미지 입력 수동 지정 — 'auto' 면 providerConfig.vision 을 보내지 않는다.
+  const [vision, setVision] = useState<VisionChoice>('auto');
 
   // 설정 완료된 비서의 모델 변경 폴백 입력 — 프로브(useMyAssistantModels)가 실패하면(예: 프로바이더가
   // /models 목록 조회를 지원하지 않는 경우) Select 가 비어 선택 불가능해지므로 직접 입력을 허용한다.
@@ -111,6 +115,7 @@ export function PersonalAssistantSection() {
     setProbeError(null);
     setSelectedModel('');
     setManualModel('');
+    setVision('auto');
   };
 
   // 프리셋 변경 시 baseURL 템플릿 자동 채움 + 이전 프로브 결과 초기화.
@@ -122,6 +127,7 @@ export function PersonalAssistantSection() {
     setProbeError(null);
     setSelectedModel('');
     setManualModel('');
+    setVision('auto');
   };
 
   // 모델 목록 프로브 — 성공 시 모델 Select 노출, 실패 시 수동 입력 폴백 노출.
@@ -145,6 +151,7 @@ export function PersonalAssistantSection() {
   // 제출과 함께 전송되는 providerConfig.providerId 와 항상 동일하므로 추측이 아니라 정확한 값이다.
   const normalizedManualModel = withProviderPrefix(manualModel, presetKey);
   const resolvedModel = selectedModel || normalizedManualModel;
+  const visionConfig = visionConfigFor(vision, resolvedModel);
 
   // 자격증명 등록 — anthropic(토큰 최소 32자)/opencode(모델 필수) 공통 진입점.
   const submitCredential = async () => {
@@ -174,7 +181,12 @@ export function PersonalAssistantSection() {
     try {
       await register.mutateAsync({
         provider: 'opencode',
-        providerConfig: { providerId: presetKey, options: { baseURL: baseUrl.trim(), apiKey } },
+        providerConfig: {
+          providerId: presetKey,
+          options: { baseURL: baseUrl.trim(), apiKey },
+          // 수동 지정일 때만 { [최종 모델 id]: true|false } — 자동이면 키 생략.
+          ...(visionConfig ? { vision: visionConfig } : {}),
+        },
         model: resolvedModel,
       });
       resetForm();
@@ -552,6 +564,16 @@ export function PersonalAssistantSection() {
                       붙습니다.
                     </p>
                   </div>
+                ) : null}
+
+                {/* 모델이 정해질 수 있는 상태(목록 노출 또는 프로브 실패 → 수동 입력)에서만 노출. */}
+                {probedModels != null || probeError ? (
+                  <VisionInputSelect
+                    id="credential-vision"
+                    testId="credential-vision"
+                    value={vision}
+                    onChange={setVision}
+                  />
                 ) : null}
               </div>
             )}
