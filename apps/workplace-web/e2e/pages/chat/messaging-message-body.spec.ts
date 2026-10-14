@@ -1013,7 +1013,8 @@ test('팀 채팅 AI 메시지의 번호 목록은 항목 사이가 벌어지지 
       authorId: 99,
       authorName: 'My AI',
       authorKind: 'AGENT',
-      body: '1. a\n2. b',
+      // 2번 항목 안의 줄바꿈(질문 문장 이어 쓰기)은 같은 항목 안에서 줄을 바꿔야 한다.
+      body: '1. a\n2. b\n이어지는 문장',
       createdAt: '2026-06-06T03:10:00',
     }),
   ])
@@ -1027,4 +1028,8 @@ test('팀 채팅 AI 메시지의 번호 목록은 항목 사이가 벌어지지 
   const b = await items.nth(1).boundingBox()
   // 예전에는 pre-wrap 이 항목 사이 개행을 빈 줄로 그려 한 줄(약 20px) 이상 벌어졌다.
   expect(b!.y - (a!.y + a!.height)).toBeLessThan(8)
+  // 항목 안 줄바꿈이 공백으로 접히지 않고 두 줄로 그려진다(한 줄짜리 1번 항목의 1.5배 이상).
+  expect(b!.height).toBeGreaterThan(a!.height * 1.5)
+  // innerText 는 CSS white-space 를 반영한다 — 접히면 개행 대신 공백이 된다.
+  expect(await items.nth(1).innerText()).toBe('b\n이어지는 문장')
 })

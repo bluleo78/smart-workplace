@@ -6,6 +6,25 @@ import { cn } from '@/lib/utils'
 
 const REMARK_PLUGINS = [remarkGfm]
 
+// 블록 요소 — 이 앞뒤에 낀 개행 전용 텍스트는 원문의 줄바꿈이 아니라 mdast→hast 변환이 끼워 넣는 포맷용 공백이다.
+const BLOCK_TAGS = new Set([
+  'p', 'ul', 'ol', 'li', 'blockquote', 'pre', 'table', 'thead', 'tbody', 'tr', 'th', 'td',
+  'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr', 'div',
+])
+type HastNode = { type: string; tagName?: string; value?: string; children?: HastNode[] }
+const isBlock = (n: HastNode | undefined) => n?.type === 'element' && BLOCK_TAGS.has(n.tagName ?? '')
+
+/** 블록 옆에 낀 개행 전용 텍스트 노드를 지운다. 남겨 두면 pre-wrap 아래에서 빈 줄로 그려져 목록 항목 사이가 벌어진다. */
+function stripBlockGaps(node: HastNode) {
+  const kids = node.children
+  if (!kids) return
+  node.children = kids.filter(
+    (c, i) => !(c.type === 'text' && /^\s*\n\s*$/.test(c.value ?? '') && (isBlock(kids[i - 1]) || isBlock(kids[i + 1]))),
+  )
+  node.children.forEach(stripBlockGaps)
+}
+const REHYPE_PLUGINS = [() => stripBlockGaps]
+
 /** 목록 클래스 — 체크리스트(contains-task-list)면 불릿 없이 얕게, 아니면 지정한 불릿 스타일. */
 function listClass(className: string | undefined, marker: string): string {
   return className?.includes('contains-task-list') ? 'list-none space-y-0.5 pl-1' : `${marker} space-y-0.5 pl-5`
@@ -27,8 +46,13 @@ const BASE_COMPONENTS: Components = {
   ),
   // 체크리스트 항목 — 체크박스를 왼쪽 여백에 절대배치해, 긴 항목이 줄바꿈돼도 둘째 줄이 체크박스 밑으로 파고들지 않고
   // 글머리 들여쓰기(hanging indent)를 유지한다. loose list 에선 체크박스가 li 직속이 아닌 p 안에 들어가도 li 기준으로 놓인다.
+  // 항목 안 줄바꿈(「3. 항목\n이어지는 문장」)은 p 처럼 pre-wrap 으로 보존한다 — tight list 의 li 는 p 없이 글자를 바로 담는다.
   li: ({ children, className }) =>
-    className?.includes('task-list-item') ? <li className="relative pl-5">{children}</li> : <li>{children}</li>,
+    className?.includes('task-list-item') ? (
+      <li className="relative whitespace-pre-wrap pl-5">{children}</li>
+    ) : (
+      <li className="whitespace-pre-wrap">{children}</li>
+    ),
   // remark-gfm 이 내는 input 은 체크리스트 체크박스뿐(원시 HTML 비허용) — 원문의 [x]/[ ] 상태만 읽기 전용으로 보여준다.
   input: ({ checked }) => (
     <input
@@ -103,10 +127,10 @@ export function MarkdownMessage({
   return (
     <div
       data-testid="markdown-content"
-      // whitespace-normal: 호출자 말풍선의 pre-wrap 이 블록 사이 개행 텍스트 노드로 새어 빈 줄이 생기는 것을 막는다(문단 안 줄바꿈은 p 가 보존).
+      // whitespace-normal: 호출자 말풍선의 pre-wrap 을 끊는다. 줄바꿈 보존은 p·li 가 직접 맡고, 블록 사이 포맷용 개행은 stripBlockGaps 가 지운다.
       className={cn('space-y-2 whitespace-normal break-words text-sm [overflow-wrap:anywhere]', className)}
     >
-      <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={components}>
+      <ReactMarkdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS} components={components}>
         {children}
       </ReactMarkdown>
     </div>
