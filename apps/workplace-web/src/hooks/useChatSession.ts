@@ -25,7 +25,7 @@ import {
 } from '@/lib/ai/chatStreams';
 import { FAILED_EMPTY, messageToTurn } from '@/lib/ai/chatTurns';
 import { screenContextPayload } from '@/lib/aiScreenContext/common';
-import { handleApiError } from '@/lib/api-error';
+import { handleApiError, isNotFoundError } from '@/lib/api-error';
 import type { AiMemoryScope } from '@/types/aiMemory';
 import type { AiScreenContext } from '@/types/aiScreenContext';
 import type { ChatTurn, PendingAction, ProposalCard, TurnAttachment } from '@/types/home';
@@ -147,6 +147,33 @@ export function useChatSession() {
     [reload],
   );
 
+  /**
+   * WP-384 딥링크 — 그 대화를 읽어 현재 대화로 둔다. 이미 이력이 있으면 바로 고른다. 없거나 남의 대화(404)면 'not-found'(호출자가 토스트), 그 밖의
+   * 실패는 공용 오류 토스트 + 'error'. 읽기에 성공한 뒤에만 고른다 — 없는 대화가 현재 대화로 남지 않게.
+   */
+  const openSession = useCallback(async (id: string): Promise<'ok' | 'not-found' | 'error'> => {
+    if (chatStreams.hasHistory(id)) {
+      chatStreams.select(id);
+      return 'ok';
+    }
+    try {
+      const [{ data }, proposals] = await Promise.all([
+        homeApi.sessionMessages(id, HISTORY_LOCK_TIMEOUT_MS),
+        homeApi
+          .sessionProposals(id, HISTORY_LOCK_TIMEOUT_MS)
+          .then((r) => r.data)
+          .catch(() => [] as PendingAction[]),
+      ]);
+      chatStreams.load(id, data.map(messageToTurn), proposals);
+      chatStreams.select(id);
+      return 'ok';
+    } catch (err) {
+      if (isNotFoundError(err)) return 'not-found';
+      handleApiError(err, '대화를 불러오지 못했어요');
+      return 'error';
+    }
+  }, []);
+
   // 삭제 — 생성 중이면 먼저 취소해 슬롯을 비우고(지운 대화에 답변 저장 시도 방지), 성공하면 칸을 잊는다.
   const deleteSession = useCallback(
     (id: string) => {
@@ -217,6 +244,7 @@ export function useChatSession() {
     stopStreaming,
     newSession,
     restoreSession,
+    openSession,
     deleteSession,
   };
 }

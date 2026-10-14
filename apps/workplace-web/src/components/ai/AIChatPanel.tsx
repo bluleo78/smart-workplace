@@ -367,7 +367,7 @@ export function AIChatPanel({
                               if (!text.trim()) return null;
                               return (
                                 <div key={bi} className="self-start rounded-2xl bg-muted px-3 py-1.5 text-foreground" data-testid="chat-block">
-                                  <MarkdownMessage>{text}</MarkdownMessage>
+                                  <MarkdownMessage internalLinks>{text}</MarkdownMessage>
                                 </div>
                               );
                             }
@@ -389,7 +389,7 @@ export function AIChatPanel({
                           {t.steps && visibleSteps(t.steps).length > 0 && <ToolStepList steps={t.steps} />}
                           {t.content && (
                             <div className="self-start rounded-2xl bg-muted px-3 py-1.5 text-foreground">
-                              <MarkdownMessage>{t.content}</MarkdownMessage>
+                              <MarkdownMessage internalLinks>{t.content}</MarkdownMessage>
                             </div>
                           )}
                           {t.widgets.map((w, wi) => {
@@ -412,7 +412,7 @@ export function AIChatPanel({
                           <div className="min-w-0 rounded-2xl bg-muted px-3 py-1.5 text-foreground">
                             {/* 도구 호출 단계 인라인 표시 — 본문 위에 렌더. 표시 가능 step 이 있을 때만. */}
                             {t.steps && visibleSteps(t.steps).length > 0 && <ToolStepList steps={t.steps} />}
-                            <MarkdownMessage>{t.content}</MarkdownMessage>
+                            <MarkdownMessage internalLinks>{t.content}</MarkdownMessage>
                           </div>
                         </div>
                       )
