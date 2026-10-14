@@ -239,7 +239,23 @@ public class AiAgentCredentialService {
           "opencode provider config 에 options.baseURL/options.apiKey 가 필요합니다");
     }
     ProbeUrlValidator.validate(options.get("baseURL").asText());
+    validateVision(node.get("vision"));
     return node.get("providerId").asText();
+  }
+
+  /**
+   * 모델 이미지 입력 수동 설정(WP-250) 검증 — 없음/null(자동 감지), boolean(전 모델 공통), 모든 값이 boolean 인 객체(모델 id →
+   * boolean)만 허용한다. ai-agent(manualVision)는 boolean 이 아닌 값을 조용히 무시하므로, 오타("yes" 등)가 "설정했는데 안 먹는"
+   * 상태로 저장되지 않게 등록 시점에 막는다.
+   */
+  private void validateVision(JsonNode vision) {
+    if (vision == null || vision.isNull() || vision.isBoolean()) {
+      return;
+    }
+    if (vision.isObject() && vision.properties().stream().allMatch(e -> e.getValue().isBoolean())) {
+      return;
+    }
+    throw new InvalidProviderCredentialException("vision 은 true/false 또는 모델별 true/false 여야 합니다");
   }
 
   /** row → 메타 응답. opencode 는 복호화 후 payload 에서 options.baseURL 을 추출(실패 시 null), anthropic 은 null. */
