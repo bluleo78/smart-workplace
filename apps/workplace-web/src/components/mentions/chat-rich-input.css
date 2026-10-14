@@ -14,3 +14,13 @@
   height: 0;
   pointer-events: none;
 }
+/* 이슈 챗 작성창의 긴 안내(외부 실행 AI 이름이 든 문구)는 모바일 폭에서 두 줄로 접힌다 — placeholder 는 float+height 0 이라
+   입력창을 키우지 못해 둘째 줄이 잘리므로, 비어 있을 때만 두 줄 높이를 확보하고 단어 중간에서 끊지 않는다(WP-373). */
+@media (max-width: 1023.98px) {
+  [data-long-placeholder] .ProseMirror:has(> p.is-editor-empty:only-child) {
+    min-height: calc(2lh + 1rem + 2px);
+  }
+  [data-long-placeholder] .ProseMirror p.is-editor-empty::before {
+    word-break: keep-all;
+  }
+}

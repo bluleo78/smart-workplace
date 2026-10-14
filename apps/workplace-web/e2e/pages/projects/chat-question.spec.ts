@@ -6,7 +6,7 @@ import type { Page } from '@playwright/test';
 
 import { createChatMember, createChatMessage, createChatThread } from '../../factories/chat.factory';
 import { createIssue, createIssueDetail } from '../../factories/issue.factory';
-import { createProject } from '../../factories/project.factory';
+import { createMember, createProject } from '../../factories/project.factory';
 import { expect, test } from '../../fixtures/auth.fixture';
 import { mockGatedEvents } from '../../fixtures/gatedEvents';
 
@@ -52,8 +52,13 @@ function seedMessages() {
   ];
 }
 
-async function setup(page: Page) {
+const KODI = { id: 77, username: 'kodi', name: '코디', kind: 'AGENT' as const };
+const HINT = '답변 입력… 멘션 없이 보내도 코디가 이어받아요';
+
+async function setup(page: Page, opts: { externalAgent?: typeof KODI | null } = {}) {
   const messages = seedMessages();
+  // 스레드 응답이 싣는 외부 실행 AI — 담당자 변경 시나리오에서 테스트가 바꾼다.
+  const agentRef = { current: opts.externalAgent ?? null };
   const detail = createIssueDetail({
     summary: createIssue({ id: 1, number: ISSUE_NUMBER, title: '질문 표시 테스트' }),
   });
@@ -62,6 +67,7 @@ async function setup(page: Page) {
     issueId: 1,
     members: [createChatMember({ userId: ME_ID, username: 'testuser', name: '테스트 사용자' })],
     recentMessages: messages,
+    externalAgent: opts.externalAgent ?? null,
   });
   await page.route(`**/api/v1/projects/${PROJECT_KEY}`, (r) => r.fulfill(json(createProject())));
   await page.route(`**/api/v1/projects/${PROJECT_KEY}/members`, (r) => r.fulfill(json([])));
@@ -81,7 +87,7 @@ async function setup(page: Page) {
   );
   await page.route(
     (u) => u.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}/chat/thread`,
-    (r) => r.fulfill(json(thread)),
+    (r) => r.fulfill(json({ ...thread, externalAgent: agentRef.current })),
   );
   await page.route(
     (u) => u.pathname === `/api/v1/chat/threads/${THREAD_ID}/messages`,
@@ -94,6 +100,7 @@ async function setup(page: Page) {
     (u) => u.pathname === `/api/v1/chat/threads/${THREAD_ID}/read`,
     (r) => r.fulfill({ status: 204 }),
   );
+  return { agentRef };
 }
 
 /** 드로워를 열고 시드 메시지가 그려질 때까지 기다린다(캐시 준비 신호). */
@@ -173,5 +180,60 @@ test.describe('이슈 챗 질문 표시', () => {
     const b = await items.nth(1).boundingBox();
     // 예전에는 바깥 pre-wrap 이 블록 사이 개행을 빈 줄로 그려 한 줄 이상 벌어졌다.
     expect(b!.y - (a!.y + a!.height)).toBeLessThan(8);
+  });
+
+  test.describe('작성창 안내 (WP-373 §5.2)', () => {
+    const emptyLine = (page: Page) =>
+      page.getByTestId('chat-composer').locator('.ProseMirror p.is-editor-empty');
+
+    test('외부 실행 AI 가 담당한 이슈만 작성창 안내에 그 이름이 나온다', async ({ authenticatedPage: page }) => {
+      await setup(page, { externalAgent: KODI });
+      await openDrawer(page);
+      await expect(emptyLine(page)).toHaveAttribute('data-placeholder', HINT);
+      await page.screenshot({ path: 'test-results/tc/chat-question/composer-hint-1280.png' });
+    });
+
+    test('외부 실행 AI 가 없으면 기존 안내 그대로', async ({ authenticatedPage: page }) => {
+      await setup(page, { externalAgent: null });
+      await openDrawer(page);
+      await expect(emptyLine(page)).toHaveAttribute('data-placeholder', /.+/);
+      await expect(emptyLine(page)).not.toHaveAttribute('data-placeholder', /이어받아요/);
+    });
+
+    test('담당자를 바꿔 스레드가 다시 오면 열린 작성창 안내도 바뀐다', async ({ authenticatedPage: page }) => {
+      const { agentRef } = await setup(page, { externalAgent: KODI });
+      // 담당자 교체 PUT — 성공하면 서버가 다음 스레드 응답에서 externalAgent 를 null 로 돌려준다.
+      await page.route(
+        (u) => u.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}/assignees`,
+        (r) => {
+          if (r.request().method() !== 'PUT') return r.fallback();
+          agentRef.current = null;
+          return r.fulfill(json({}));
+        },
+      );
+      await page.route(`**/api/v1/projects/${PROJECT_KEY}/members`, (r) =>
+        r.fulfill(
+          json([
+            createMember({ userId: ME_ID, username: 'testuser', name: '테스트 사용자', role: 'OWNER' }),
+            createMember({ userId: KODI.id, username: KODI.username, name: KODI.name, role: 'MEMBER' }),
+          ]),
+        ),
+      );
+      await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+      await page.getByTestId('issue-chat-open').click();
+      await expect(emptyLine(page)).toHaveAttribute('data-placeholder', HINT);
+
+      // 드로워는 모달이라 닫고 상세의 담당자 선택기에서 사람 한 명으로 바꾼 뒤 다시 연다 —
+      // 변경 성공이 챗 스레드 캐시를 무효화해 새 응답(externalAgent=null)을 받아야 한다.
+      await page.keyboard.press('Escape');
+      await expect(page.getByTestId('issue-chat-drawer')).toBeHidden();
+      await page.getByTestId('assignee-picker-trigger').click();
+      await page.getByTestId(`assignee-option-${ME_ID}`).click();
+      await page.keyboard.press('Escape');
+      await expect(page.getByText('담당자를 저장했습니다')).toBeVisible();
+
+      await page.getByTestId('issue-chat-open').click();
+      await expect(emptyLine(page)).not.toHaveAttribute('data-placeholder', /이어받아요/);
+    });
   });
 });

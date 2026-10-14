@@ -116,6 +116,13 @@ export function RichInput({
     membersRef.current = members;
   });
 
+  // 안내 문구는 에디터를 만들 때 한 번만 읽히므로, ref 로 최신 값을 읽게 하고 바뀌면 빈 트랜잭션으로 장식을 다시 그린다
+  // (담당 AI 가 바뀌면 이슈 챗 작성창 안내가 새로고침 없이 바뀐다, WP-373).
+  const placeholderRef = useRef(placeholder);
+  useEffect(() => {
+    placeholderRef.current = placeholder;
+  });
+
   // 멘션 팝업 활성 여부를 인스턴스-로컬로 추적. Enter 가드에서 DOM 전역 조회 대신 사용
   // (전역 조회 시 다른 인스턴스의 팝업까지 잡혀 Enter 전송이 잘못 차단됨).
   const popupOpenRef = useRef(false);
@@ -204,7 +211,9 @@ export function RichInput({
       // macOS Chrome 한글 조합을 끝내는 Enter 로 전송해도 마지막 글자가 빠지지 않게(WP-333) — 전송 판정보다 먼저 확정 글자를 반영.
       // (멘션 팝업의 후보 목록은 비동기로 갱신돼 이 순간엔 확정 전 검색어 기준이다 — 알려진 한계.)
       ImeCommitFlush,
-      Placeholder.configure({ placeholder }),
+      // placeholderRef 는 ProseMirror 가 장식을 그릴 때(렌더 이후)에만 읽히므로 안전하다(react-hooks/refs 의 보수적 false positive).
+      // eslint-disable-next-line react-hooks/refs
+      Placeholder.configure({ placeholder: () => placeholderRef.current }),
       ...(imagesEnabled ? [RichImage] : []),
       // membersRef 는 suggestion items/render 콜백에서만 역참조된다. 이 콜백들은
       // 사용자가 '@' 를 입력할 때 ProseMirror 가 호출하며 렌더 시점에 동기 실행되지 않으므로
@@ -370,6 +379,12 @@ export function RichInput({
   useEffect(() => {
     insertImagesRef.current = insertImages;
   });
+
+  // 안내 문구가 바뀌면 빈 트랜잭션으로 Placeholder 장식을 다시 계산하게 한다.
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+    editor.view.dispatch(editor.state.tr);
+  }, [editor, placeholder]);
 
   function submit() {
     if (!editor) return;

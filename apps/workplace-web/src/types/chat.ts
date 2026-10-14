@@ -3,6 +3,7 @@
 
 import type { DriveLink } from './drive';
 import type { MessageAttachment } from './messaging';
+import type { UserSummary } from './user';
 
 export type UserKind = 'HUMAN' | 'AGENT';
 
@@ -53,6 +54,8 @@ export interface ChatThreadResponse {
   // WP-213: 내가 이 대화에 쓸 수 있는지(댓글 작성 권한과 동일 — 보내면 자동 참여). false 면 입력창 대신 안내.
   // 롤링 배포 중 구 API 응답엔 없을 수 있어 optional — 없으면 쓸 수 있는 것으로 본다.
   canPost?: boolean;
+  // WP-373: 외부 실행 AI(담당 AI 중 첫 번째)가 있으면 그 구성원, 없으면 null — 작성창 안내에 이름을 쓴다. 구 API 응답엔 없을 수 있다.
+  externalAgent?: UserSummary | null;
 }
 
 export interface ChatMessagePage {

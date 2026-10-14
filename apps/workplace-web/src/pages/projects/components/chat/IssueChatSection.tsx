@@ -24,6 +24,7 @@ import { deleteMessageWithUndo } from '../../../../lib/deleteWithUndo';
 import { ChatComposer } from './ChatComposer';
 import { ChatMessageEditor } from './ChatMessageEditor';
 import { ChatMessageList } from './ChatMessageList';
+import { agentReplyHint } from './composerHint';
 
 interface IssueChatSectionProps {
   projectKey: string;
@@ -317,6 +318,8 @@ export function IssueChatSection({
           // 드로워(embedded)로 열면 바로 입력할 수 있게 컴포저에 포커스. 터치 기기는 가상 키보드가
           // 드로워 절반을 덮으므로 정밀 포인터(마우스·트랙패드)일 때만 한다.
           autoFocus={embedded && window.matchMedia('(pointer: fine)').matches}
+          // 외부 실행 AI 가 담당한 이슈면 멘션 없이 답해도 그 AI 가 이어받는다는 안내(WP-373).
+          placeholder={agentReplyHint(thread.externalAgent?.name)}
         />
       )}
     </>
