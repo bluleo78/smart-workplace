@@ -110,3 +110,70 @@ def test_unsupported_mime():
     with pytest.raises(RenderError) as e:
         render_image(b"x", "application/zip", max_edge=1568)
     assert e.value.status == 415
+
+
+# --- 수정 라운드 1 ---------------------------------------------------------
+
+def _noise_rgba(size=(800, 800)) -> Image.Image:
+    """압축이 안 되는 랜덤 노이즈 RGBA — PNG 가 1MB 를 넘게 만든다."""
+    import os
+    return Image.frombytes("RGBA", size, os.urandom(size[0] * size[1] * 4))
+
+
+@pytest.mark.parametrize("mode", ["I;16", "I"])
+def test_16bit_grayscale_png_is_not_white(mode):
+    """16비트 회색조(중간값 30000)가 흰색(255)으로 날아가지 않고 중간 회색으로 변환된다."""
+    buf = io.BytesIO()
+    Image.new(mode, (4, 4), 30000).save(buf, "PNG")
+    out = render_image(buf.getvalue(), "image/png", max_edge=1568)
+    img = Image.open(io.BytesIO(out.data)).convert("RGB")
+    r, g, b = img.getpixel((0, 0))
+    assert abs(r - 117) <= 2 and r == g == b  # 30000 / 256 ≈ 117
+
+
+def test_pdf_page_png_over_limit_falls_back_to_jpeg():
+    """페이지 PNG 가 1MB 를 넘으면 JPEG 로 다시 인코딩한다."""
+    import os
+    noise = Image.frombytes("RGB", (1200, 1200), os.urandom(1200 * 1200 * 3))
+    buf = io.BytesIO()
+    noise.save(buf, "PNG")
+    doc = fitz.open()
+    page = doc.new_page(width=595, height=842)
+    page.insert_image(page.rect, stream=buf.getvalue())
+    out = render_pdf_page(doc.tobytes(), page=1, max_edge=1568)
+    assert out.mime == "image/jpeg" and out.page_count == 1
+
+
+def test_rgba_png_over_limit_falls_back_to_jpeg_on_white():
+    """알파 이미지의 PNG 가 1MB 를 넘으면 JPEG 로 줄이고, 투명 영역은 검정이 아닌 흰색이 된다."""
+    img = _noise_rgba()
+    img.paste((0, 0, 0, 0), (0, 0, 100, 100))  # 좌상단 완전 투명
+    buf = io.BytesIO()
+    img.save(buf, "PNG")
+    out = render_image(buf.getvalue(), "image/png", max_edge=1568)
+    assert out.mime == "image/jpeg"
+    px = Image.open(io.BytesIO(out.data)).getpixel((10, 10))
+    assert min(px) >= 240
+
+
+def test_pa_mode_treated_as_alpha(monkeypatch):
+    """PA(팔레트+알파)는 파일로 만들기 어려워 열기 단계를 대체해 알파 판정만 검증한다."""
+    monkeypatch.setattr("app.render._open_image", lambda data: Image.new("PA", (10, 10)))
+    out = render_image(b"", "image/png", max_edge=1568)
+    assert out.mime == "image/png"
+
+
+def test_truncated_jpeg_is_unreadable():
+    data = _img("RGB", size=(1200, 900))
+    with pytest.raises(RenderError) as e:
+        render_image(data[: len(data) // 3], "image/jpeg", max_edge=1568)
+    assert e.value.status == 422 and e.value.detail == {"code": "UNREADABLE"}
+
+
+def test_decompression_bomb_is_unreadable():
+    """1비트 PNG 는 파일이 작아도 픽셀 수가 한도를 넘으면 열지 않고 422."""
+    buf = io.BytesIO()
+    Image.new("1", (11000, 11000)).save(buf, "PNG")  # 1.21억 픽셀 > 1억
+    with pytest.raises(RenderError) as e:
+        render_image(buf.getvalue(), "image/png", max_edge=1568)
+    assert e.value.status == 422

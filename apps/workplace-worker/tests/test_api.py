@@ -177,3 +177,12 @@ def test_run_extract_skipped_empty_carries_page_count(monkeypatch, tmp_path):
     monkeypatch.setattr("app.callback.post_result", lambda job_id, payload, **kw: posted.append(payload))
     main._run_extract(main.ExtractTask(jobId=1, storageKey="scan.pdf", mime="application/pdf", tenantId=7))
     assert posted == [{"tenantId": 7, "status": "SKIPPED", "error": "empty", "pageCount": 3}]
+
+
+def test_render_rejects_invalid_page_and_max_edge(monkeypatch, tmp_path):
+    """page<1, maxEdge 범위 밖은 500 이 아니라 422(요청 검증)."""
+    (tmp_path / "a.pdf").write_bytes(_pdf_bytes(1))
+    c = _render_client(monkeypatch, tmp_path)
+    for bad in ({"page": 0}, {"page": 1, "maxEdge": 0}, {"page": 1, "maxEdge": 100000}):
+        r = c.post("/render", headers=_AUTH, json={"storageKey": "a.pdf", "mime": "application/pdf", **bad})
+        assert r.status_code == 422, bad

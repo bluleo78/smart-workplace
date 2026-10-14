@@ -1,6 +1,6 @@
 """범용 워커 디스패치. /tasks/{type} 로 작업 받고 백그라운드 처리 후 api 콜백."""
 from fastapi import FastAPI, Depends, BackgroundTasks, HTTPException, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from . import config, blobs, callback, embed
 from .auth import require_internal
 from .extract import extract_text
@@ -64,8 +64,8 @@ async def embed_query(q: EmbedQuery) -> dict:
 class RenderTask(BaseModel):
     storageKey: str
     mime: str
-    page: int | None = None   # PDF 만, 1부터
-    maxEdge: int = 1568       # 긴 변 상한(px)
+    page: int | None = Field(default=None, ge=1)   # PDF 만, 1부터
+    maxEdge: int = Field(default=1568, ge=64, le=4096)  # 긴 변 상한(px) — 범위 밖은 422
 
 
 @app.post("/render", dependencies=[Depends(require_internal)])
