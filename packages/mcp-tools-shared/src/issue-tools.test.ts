@@ -425,7 +425,7 @@ describe('get_issue_chat (WP-373)', () => {
   const rows = [
     { id: 11, authorId: 7, authorName: '코디', authorUsername: 'kodi', authorKind: 'AGENT', body: '질문', question: true,
       createdAt: '2026-10-14T01:00:00Z', editedAt: null, deleted: false, mentions: [], driveLinks: [],
-      attachments: [{ fileId: 900, messageId: 11, originalName: 'a.txt', mimeType: 'text/plain', sizeBytes: 12, attachedById: 7, attachedByName: '코디', attachedAt: 'x', extraction: { status: 'READY', totalChars: 12 } }] },
+      attachments: [{ fileId: 900, messageId: 11, originalName: 'a.txt', mimeType: 'text/plain', sizeBytes: 12, attachedById: 7, attachedByName: '코디', attachedAt: 'x', extraction: { status: 'READY', totalChars: 12, truncated: false, reasonCode: null } }] },
     { id: 12, authorId: 3, authorName: '양동희', authorUsername: 'dh', authorKind: 'HUMAN', body: '(삭제됨)', question: false,
       createdAt: '2026-10-14T01:01:00Z', editedAt: null, deleted: true, mentions: [], driveLinks: [], attachments: [] },
   ];
@@ -446,6 +446,24 @@ describe('get_issue_chat (WP-373)', () => {
       hasMore: false,
     });
     expect(JSON.stringify(out)).not.toMatch(/authorId|attachedById/);
+  });
+
+  it('본문의 멘션 토큰 <@id> 은 이름으로 풀어 숫자 id 를 AI 에 넘기지 않는다', async () => {
+    const c = mockClient();
+    const row = { ...rows[0], id: 13, body: '<@3> A안으로 가죠', question: false,
+      mentions: [{ id: 3, username: 'dh', name: '양동희', kind: 'HUMAN' }], attachments: [] };
+    vi.mocked(c.listIssueChatMessages).mockResolvedValue({ items: [row], nextCursor: null, hasMore: false });
+    const text = resultText(await chatTool(c).handler({ issueKey: 'WP-1' }));
+    expect(JSON.parse(text).messages[0].body).toBe('@양동희(dh) A안으로 가죠');
+    expect(text).not.toContain('<@');
+  });
+
+  it('extraction 은 {status,totalChars,reason} 만 준다(truncated·reasonCode 제외)', async () => {
+    const c = mockClient();
+    const att = { ...rows[0].attachments[0], extraction: { status: 'SKIPPED', totalChars: null, truncated: false, reasonCode: 'TOO_BIG', reason: '너무 큼' } };
+    vi.mocked(c.listIssueChatMessages).mockResolvedValue({ items: [{ ...rows[0], attachments: [att] }], nextCursor: null, hasMore: false });
+    const out = JSON.parse(resultText(await chatTool(c).handler({ issueKey: 'WP-1' })));
+    expect(out.messages[0].attachments[0].extraction).toEqual({ status: 'SKIPPED', reason: '너무 큼' });
   });
 
   it('after·limit 을 넘기고 hasMore 면 next 를 숫자로 준다', async () => {

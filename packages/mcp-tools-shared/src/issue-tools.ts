@@ -25,7 +25,15 @@ import {
   reportAgentWorkInput,
   updateIssueInput,
 } from './schemas.js';
+import { resolveMentionTokens } from './messaging-tools.js';
 import type { IssueRow, IssueToolClient } from './tool-client.js';
+
+/** 첨부 텍스트 추출 상태 → {status, totalChars?, reason?} — truncated·reasonCode 같은 내부 값은 AI 에 필요 없어 뺀다. */
+function toExtractionView(extraction: unknown) {
+  if (!extraction || typeof extraction !== 'object') return undefined;
+  const e = extraction as Record<string, unknown>;
+  return dropEmpty({ status: e.status, totalChars: e.totalChars, reason: e.reason });
+}
 
 /** 이슈 챗 메시지 → LLM 뷰(WP-373). 숫자 사용자 id(#833)·멘션·드라이브 링크 원형은 빼고, 첨부는 read_file(issue_chat) 입력 이름으로 바꾼다. */
 function toIssueChatMessageView(m: Record<string, unknown>) {
@@ -35,13 +43,14 @@ function toIssueChatMessageView(m: Record<string, unknown>) {
     id: m.id,
     author: { username: m.authorUsername, name: m.authorName, kind: m.authorKind },
     // 삭제된 글은 서버가 본문 자리에 "(삭제됨)" 을 채우므로 body 를 빼고 deleted 만 알린다.
-    body: deleted ? undefined : m.body,
+    // 본문의 멘션 토큰 <@id> 은 mentions 로 이름을 풀어 숫자 사용자 id 가 AI 에 닿지 않게 한다(#833).
+    body: deleted ? undefined : resolveMentionTokens(String(m.body ?? ''), m.mentions),
     question: m.question === true ? true : undefined,
     createdAt: m.createdAt,
     editedAt: m.editedAt ?? undefined,
     deleted: deleted ? true : undefined,
     attachments: attachments.map((a) =>
-      dropEmpty({ attachmentId: a.fileId, name: a.originalName, mimeType: a.mimeType, size: a.sizeBytes, extraction: a.extraction }),
+      dropEmpty({ attachmentId: a.fileId, name: a.originalName, mimeType: a.mimeType, size: a.sizeBytes, extraction: toExtractionView(a.extraction) }),
     ),
   });
 }
