@@ -8,7 +8,7 @@ import { createChatMember, createChatMessage, createChatThread } from '../../fac
 import { createIssue, createIssueDetail } from '../../factories/issue.factory';
 import { createMember, createProject } from '../../factories/project.factory';
 import { expect, test } from '../../fixtures/auth.fixture';
-import { mockGatedEvents } from '../../fixtures/gatedEvents';
+import { mockGatedEvents, resourceChangedFrame } from '../../fixtures/gatedEvents';
 
 const PROJECT_KEY = 'WP';
 const ISSUE_NUMBER = 1;
@@ -196,8 +196,10 @@ test.describe('이슈 챗 질문 표시', () => {
     test('외부 실행 AI 가 없으면 기존 안내 그대로', async ({ authenticatedPage: page }) => {
       await setup(page, { externalAgent: null });
       await openDrawer(page);
-      await expect(emptyLine(page)).toHaveAttribute('data-placeholder', /.+/);
-      await expect(emptyLine(page)).not.toHaveAttribute('data-placeholder', /이어받아요/);
+      await expect(emptyLine(page)).toHaveAttribute(
+        'data-placeholder',
+        '메시지 입력 (Shift+Enter 로 줄바꿈)',
+      );
     });
 
     test('담당자를 바꿔 스레드가 다시 오면 열린 작성창 안내도 바뀐다', async ({ authenticatedPage: page }) => {
@@ -234,6 +236,34 @@ test.describe('이슈 챗 질문 표시', () => {
 
       await page.getByTestId('issue-chat-open').click();
       await expect(emptyLine(page)).not.toHaveAttribute('data-placeholder', /이어받아요/);
+    });
+
+    test('열려 있는 작성창은 다시 만들어지지 않고도 스레드 응답이 바뀌면 안내가 바뀐다', async ({
+      authenticatedPage: page,
+    }) => {
+      const { agentRef } = await setup(page, { externalAgent: KODI });
+      const events = await mockGatedEvents(page);
+      await openDrawer(page);
+      await expect(emptyLine(page)).toHaveAttribute('data-placeholder', HINT);
+
+      // 에디터가 다시 만들어지지 않았음을 증명할 표식 — DOM 요소가 바뀌면 사라진다.
+      const editor = page.getByTestId('chat-composer').locator('.ProseMirror');
+      await editor.evaluate((el) => el.setAttribute('data-e2e-mounted', 'same'));
+
+      // 서버가 이슈 챗 스레드 변경을 알리는 실제 경로(resource.changed 'chat-thread' → 스레드 쿼리 무효화) —
+      // 이번엔 담당 AI 가 빠져 externalAgent=null 로 내려온다. 드로워는 닫지 않는다.
+      agentRef.current = null;
+      events.deliver(
+        resourceChangedFrame({
+          resource: 'chat-thread',
+          op: 'updated',
+          projectKey: PROJECT_KEY,
+          issueNumber: ISSUE_NUMBER,
+        }),
+      );
+
+      await expect(emptyLine(page)).not.toHaveAttribute('data-placeholder', /이어받아요/);
+      await expect(editor).toHaveAttribute('data-e2e-mounted', 'same');
     });
   });
 });
