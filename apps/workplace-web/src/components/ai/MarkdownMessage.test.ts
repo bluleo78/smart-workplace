@@ -29,4 +29,12 @@ describe('MarkdownMessage 포맷용 공백 정리', () => {
     expect(render('a  \nb')).toContain('a<br/>b')
     expect(render('**a**\n*b*')).toContain('<strong class="font-semibold">a</strong>\n<em>b</em>')
   })
+
+  it('각주(section)처럼 목록에 늦게 추가된 블록 사이에도 포맷용 공백이 남지 않는다', () => {
+    const html = render('본문[^1]\n\n[^1]: 각주 내용')
+    expect(html).toContain('<section')
+    // 블록 태그 사이에 공백 전용 텍스트가 끼지 않는다(pre-wrap 아래에서 빈 줄로 그려진다).
+    expect(html).not.toMatch(/<\/(p|ol|li|h2|section)>\s+</)
+    expect(html).not.toMatch(/<(ol|li|section)[^>]*>\s+</)
+  })
 })
