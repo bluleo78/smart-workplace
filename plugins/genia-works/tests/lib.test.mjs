@@ -1,7 +1,7 @@
 // mod 순수 함수 테스트 — $ 없이 node --test 로 돈다.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseKeyList, identityLabel, isKeyPath, toolTargets, END_CLEARS, applyMaskedInput, maskOf, initializeBody, validName, validKey } from '../hooks/lib.js';
+import { parseKeyList, identityLabel, isKeyPath, toolTargets, END_CLEARS, applyMaskedInput, maskOf, initializeBody, validName, validKey, findManualRegistrations, sameServer } from '../hooks/lib.js';
 
 test('parseKeyList: 탭 구분 줄을 이름·등록일로', () => {
   assert.deepEqual(parseKeyList('ai-dev\t10-14\nai-review\t10-12\n'), [
@@ -128,4 +128,23 @@ test('applyMaskedInput: 임의의 한 번 편집 뒤에도 ● 가 없고 길이
     assert.ok(!out.includes('●'), `${real} ${typed} -> ${out}`);
     assert.equal(out.length, typed.length, `${real} ${typed} -> ${out}`);
   }
+});
+
+test('sameServer: 같은 origin 의 /mcp 계열이면 같은 서버', () => {
+  assert.equal(sameServer('https://genia-works.iacloud.kr/mcp', 'https://genia-works.iacloud.kr/mcp/'), true);
+  assert.equal(sameServer('https://genia-works.iacloud.kr/mcp/x/issue', 'https://genia-works.iacloud.kr/mcp'), true);
+  assert.equal(sameServer('http://localhost:6190/mcp', 'https://genia-works.iacloud.kr/mcp'), false);
+  assert.equal(sameServer('not a url', 'https://genia-works.iacloud.kr/mcp'), false);
+});
+
+test('findManualRegistrations: 사용자·로컬 범위에서 같은 서버만', () => {
+  const cfg = {
+    mcpServers: {
+      'genia-works': { type: 'http', url: 'https://genia-works.iacloud.kr/mcp', headers: { Authorization: 'Bearer swp_FAKE_OLD' } },
+      other: { type: 'http', url: 'https://example.com/mcp' },
+    },
+    projects: { '/repo': { mcpServers: { gw: { type: 'http', url: 'https://genia-works.iacloud.kr/mcp/readonly' } } } },
+  };
+  const found = findManualRegistrations(cfg, '/repo', 'https://genia-works.iacloud.kr/mcp');
+  assert.deepEqual(found.map((f) => [f.scope, f.name]), [['user', 'genia-works'], ['local', 'gw']]);
 });

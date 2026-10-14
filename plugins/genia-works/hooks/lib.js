@@ -86,3 +86,28 @@ export function validName(name) {
 export function validKey(key) {
   return /^ak_[A-Za-z0-9_-]+$/.test(key)
 }
+
+// 같은 genia-works 서버인지 — origin 이 같고 경로가 /mcp 계열이면 같은 서버로 본다(범위 주소 /mcp/x/…·/readonly 포함).
+export function sameServer(a, b) {
+  try {
+    const x = new URL(a)
+    const y = new URL(b)
+    return x.origin === y.origin && x.pathname.startsWith('/mcp') && y.pathname.startsWith('/mcp')
+  } catch {
+    return false
+  }
+}
+
+// ~/.claude.json 에서 이 플러그인을 가리는 수동 등록 찾기 — 사용자 범위(mcpServers)와 이 프로젝트의 로컬 범위.
+// 프로젝트 .mcp.json(커밋되는 파일)은 여기서 다루지 않는다(경고만).
+export function findManualRegistrations(claudeJson, projectRoot, serverUrl) {
+  const out = []
+  for (const [name, config] of Object.entries(claudeJson?.mcpServers ?? {})) {
+    if (config?.url && sameServer(config.url, serverUrl)) out.push({ scope: 'user', name, config })
+  }
+  const local = claudeJson?.projects?.[projectRoot]?.mcpServers ?? {}
+  for (const [name, config] of Object.entries(local)) {
+    if (config?.url && sameServer(config.url, serverUrl)) out.push({ scope: 'local', name, config })
+  }
+  return out
+}

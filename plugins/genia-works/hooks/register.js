@@ -1,7 +1,7 @@
 // genia-works mod — 세션별 접속 신원 선택(로그인 패널·전환·로그아웃), 신원 상태 줄, 키 파일 읽기 차단,
 // 기존 수동 등록 정리. 토큰 주입은 하지 않는다(헤더 스크립트 담당 — 플러그인 MCP 가 mod 보다 먼저 연결된다).
 // 규칙: $ 를 쓰는 코드는 모두 이 파일 안에 둔다(다른 파일 함수에 $ 를 넘기면 검증이 실패). lib.js 는 순수 함수만.
-import { COMMANDS, parseKeyList, identityLabel, isKeyPath, toolTargets, END_CLEARS, applyMaskedInput, maskOf, initializeBody, validName, validKey } from './lib.js'
+import { COMMANDS, parseKeyList, identityLabel, isKeyPath, toolTargets, END_CLEARS, applyMaskedInput, maskOf, initializeBody, validName, validKey, findManualRegistrations, sameServer } from './lib.js'
 
 const SERVER = 'plugin:genia-works:genia-works'
 let opts = {}
@@ -232,6 +232,109 @@ function renderPane($, e) {
   return h(Box, { flexDirection: 'column' }, ...body.filter(Boolean))
 }
 
+// 기존 수동 등록 자동 정리(2026-10-15 사용자 결정) — 같은 주소에 사람이 손으로 등록한 서버가 있으면
+// Claude Code 가 플러그인 서버를 가려 버린다. 플러그인 토큰으로 접속 확인을 통과하면 그 등록을 지우고 알린다.
+// 세션 시작당 한 번만, 이미 도는 중이면 다시 시작하지 않는다.
+let cleanupStarted = false
+let cleanupRunning = false
+
+// 옛 설정(f.config)에는 예전 수동 토큰이 들어 있을 수 있다 — 되살리기용으로 이 함수 안 변수에만 두고 로그·토스트에 쓰지 않는다.
+async function cleanupManual($) {
+  if (cleanupStarted || cleanupRunning) return
+  cleanupStarted = true
+  cleanupRunning = true
+  try {
+    await cleanupManualInner($)
+  } finally {
+    cleanupRunning = false
+  }
+}
+
+async function cleanupManualInner($) {
+  const home = await $.env.get('HOME')
+  let cfg
+  try {
+    cfg = JSON.parse(await $.fs.read(home + '/.claude.json'))
+  } catch {
+    return // ~/.claude.json 이 없거나 읽을 수 없으면 정리할 것이 없다
+  }
+  const root = await $.session.root()
+  const found = findManualRegistrations(cfg, root, opts.server_url)
+  await warnProjectMcp($, root)
+  if (found.length === 0) return
+  if (!opts.token) {
+    $.ui.toast('기존 genia-works 등록이 있습니다 — /plugin › genia-works › 설정에 내 토큰을 넣으면 정리합니다', { timeoutMs: 10000 })
+    return
+  }
+  // 플러그인 토큰이 서버에 통하는지 먼저 확인 — 통하지 않는데 지우면 연결이 둘 다 끊긴다.
+  if (await verifyKey($, opts.token)) {
+    $.ui.toast('플러그인 토큰으로 접속하지 못했습니다 — 기존 등록을 그대로 둡니다', { timeoutMs: 10000 })
+    return
+  }
+  // 되살리기 — 이미 지운 항목을 원래 설정으로 다시 등록한다. 실패해도 더 할 수 있는 일이 없어 삼킨다.
+  const restore = async (done) => {
+    for (const f of done) {
+      try {
+        await $.process.run(['claude', 'mcp', 'add-json', f.name, JSON.stringify(f.config), '-s', f.scope])
+      } catch {}
+    }
+  }
+  const removed = []
+  for (const f of found) {
+    let r
+    try {
+      r = await $.process.run(['claude', 'mcp', 'remove', f.name, '-s', f.scope])
+    } catch {
+      await restore(removed)
+      $.ui.toast(`claude 명령을 찾지 못해 기존 등록을 지우지 못했습니다 — 터미널에서 claude mcp remove ${f.name} -s ${f.scope} 를 실행하세요`, { timeoutMs: 12000 })
+      return
+    }
+    if (r.exitCode !== 0) {
+      await restore(removed)
+      // claude mcp remove 의 stderr 에는 토큰이 없다 — 그래도 길이는 제한한다.
+      $.ui.toast(`기존 등록 ${f.name} 을 지우지 못했습니다: ${String(r.stderr ?? '').trim().slice(0, 120)}`, { timeoutMs: 12000 })
+      return
+    }
+    removed.push(f)
+  }
+  let connected = null
+  try {
+    const c = await $.mcp.connect('genia-works') // 이 플러그인 .mcp.json 의 서버 키
+    if (c.isConnected) connected = c.server
+  } catch {}
+  if (!connected) {
+    // 연결이 안 돼도 되살리지 않는다 — 되살리면 수동 등록이 플러그인 서버를 계속 가린다.
+    // 위 토큰 확인이 이 서버가 플러그인 토큰을 받아들임을 이미 보였으므로, 다음 시작부터는 플러그인 연결이 선다.
+    $.ui.toast('기존 genia-works 수동 등록을 지웠습니다 — 이 세션은 다시 시작하면 플러그인 연결로 바뀝니다', { timeoutMs: 12000 })
+    return
+  }
+  let ok = false
+  try {
+    const res = await $.mcp.call(connected, 'list_projects', {}) // 읽기 전용·인자 없음
+    ok = !res?.isError
+  } catch {}
+  if (!ok) {
+    // 연결은 됐는데 도구가 안 돈다 — 확인할 수 없는 상태로 둘 수 없어 원래 등록으로 되돌린다.
+    await restore(removed)
+    $.ui.toast('플러그인 연결 확인에 실패해 기존 등록을 되살렸습니다', { timeoutMs: 12000 })
+    return
+  }
+  const scopes = [...new Set(removed.map((f) => (f.scope === 'user' ? '사용자 범위' : '이 프로젝트')))].join('·')
+  $.ui.toast(`기존 genia-works 수동 등록(${scopes})을 지우고 플러그인 연결로 바꿨습니다. 이미 떠 있는 다른 세션은 다시 시작하면 바뀝니다.`, { timeoutMs: 12000 })
+  await refreshStatus($)
+}
+
+// 프로젝트 .mcp.json(커밋 파일)에 같은 서버가 있으면 경고만 — 자동으로 고치지 않는다.
+async function warnProjectMcp($, root) {
+  try {
+    const p = JSON.parse(await $.fs.read(root + '/.mcp.json'))
+    const hit = Object.values(p?.mcpServers ?? {}).some((c) => c?.url && sameServer(c.url, opts.server_url))
+    if (hit) $.ui.toast('이 프로젝트 .mcp.json 의 genia-works 등록이 플러그인 연결을 가립니다 — 그 항목을 지우세요', { timeoutMs: 10000 })
+  } catch {
+    // .mcp.json 없음 — 할 일 없음
+  }
+}
+
 export function register(on, options) {
   opts = options ?? {}
 
@@ -239,6 +342,9 @@ export function register(on, options) {
     try {
       await refreshStatus($)
     } catch {} // 스크립트 실패는 상태 줄만 건너뛰고 세션 시작은 막지 않는다
+    // 수동 등록 정리 — 시작을 막지 않게 타이머로 미루고, 실패는 삼킨다. 세션 시작마다 한 번 다시 허용한다.
+    cleanupStarted = false
+    $.clock.after(1500, () => cleanupManual($).catch(() => {}))
     return next(e)
   })
 
