@@ -177,6 +177,21 @@ class IssueAttachmentTextTest extends IntegrationTestBase {
     assertThat(s.nextOffset()).isEqualTo(3);
   }
 
+  /** WP-250: 목록 extraction 과 구간 읽기 응답 모두 page_count 를 싣는다. */
+  @Test
+  void 목록과_구간_읽기에_pageCount_가_실린다() {
+    long fileId = uploadPdf();
+    markDone(fileId, "가나다라마");
+    dsl.update(FILE_EXTRACTION)
+        .set(FILE_EXTRACTION.PAGE_COUNT, 9)
+        .where(FILE_EXTRACTION.FILE_ID.eq(fileId))
+        .execute();
+    assertThat(service.list(ownerId, projectKey, issueNumber).get(0).extraction().pageCount())
+        .isEqualTo(9);
+    assertThat(service.readText(ownerId, projectKey, issueNumber, fileId, 0, 2).pageCount())
+        .isEqualTo(9);
+  }
+
   @Test
   void 다른_이슈의_fileId_는_404() {
     long fileId = uploadPdf();

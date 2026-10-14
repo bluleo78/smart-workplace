@@ -170,6 +170,11 @@ public class FileExtraction extends TableImpl<FileExtractionRecord> {
      */
     public final TableField<FileExtractionRecord, String> PROFILE = createField(DSL.name("profile"), SQLDataType.VARCHAR(16).nullable(false).defaultValue(DSL.field(DSL.raw("'FULL'::character varying"), SQLDataType.VARCHAR)), this, "");
 
+    /**
+     * The column <code>public.file_extraction.page_count</code>.
+     */
+    public final TableField<FileExtractionRecord, Integer> PAGE_COUNT = createField(DSL.name("page_count"), SQLDataType.INTEGER, this, "");
+
     private FileExtraction(Name alias, Table<FileExtractionRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

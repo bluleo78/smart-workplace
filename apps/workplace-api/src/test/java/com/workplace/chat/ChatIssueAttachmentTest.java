@@ -162,6 +162,12 @@ class ChatIssueAttachmentTest extends IntegrationTestBase {
     joinThread(threadId, agentId);
     long fileId = uploadIssuePdf(s);
     markDone(fileId, "abcdef");
+    inTx(
+        () ->
+            dsl.update(FILE_EXTRACTION)
+                .set(FILE_EXTRACTION.PAGE_COUNT, 4)
+                .where(FILE_EXTRACTION.FILE_ID.eq(fileId))
+                .execute());
 
     // 기존 이슈 첨부 API 는 그대로 막혀 있다(비멤버·역할 없음) — 권한을 느슨하게 하지 않았다.
     mockMvc
@@ -181,7 +187,9 @@ class ChatIssueAttachmentTest extends IntegrationTestBase {
         .andExpect(jsonPath("$[0].fileId").value(fileId))
         .andExpect(jsonPath("$[0].issueId").value(s.issueId()))
         .andExpect(jsonPath("$[0].originalName").value("spec.pdf"))
-        .andExpect(jsonPath("$[0].extraction.status").value("READY"));
+        .andExpect(jsonPath("$[0].extraction.status").value("READY"))
+        // WP-250: 목록 extraction 에 PDF 쪽수가 실려 AI 가 페이지 이미지를 요청할 수 있다.
+        .andExpect(jsonPath("$[0].extraction.pageCount").value(4));
 
     // 텍스트 — 기존 스레드 첨부 텍스트 경로가 이슈 첨부 fileId 도 받는다.
     mockMvc

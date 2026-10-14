@@ -58,6 +58,23 @@ class HomeAttachmentReadTest extends HomeAttachmentTestSupport {
         .andExpect(jsonPath("$[2].messageId").value(s.m2()));
   }
 
+  /** WP-250: 목록의 extraction.pageCount — AI 가 첨부 안내에서 PDF 쪽수를 알려 페이지 이미지를 요청하게 한다. */
+  @Test
+  void 세션_첨부_목록_extraction_에_pageCount_가_실린다() throws Exception {
+    Seed s = seed();
+    inTx(
+        () ->
+            dsl.update(FILE_EXTRACTION)
+                .set(FILE_EXTRACTION.PAGE_COUNT, 7)
+                .where(FILE_EXTRACTION.FILE_ID.eq(s.pdf()))
+                .execute());
+    http(as(s.uid(), get("/api/v1/home/sessions/{sid}/attachments", s.sid())))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$[0].fileId").value(s.pdf()))
+        .andExpect(jsonPath("$[0].extraction.pageCount").value(7))
+        .andExpect(jsonPath("$[1].extraction.pageCount").doesNotExist());
+  }
+
   @Test
   void 구간_읽기는_READY_텍스트를_자르고_음수_offset_은_400() throws Exception {
     Seed s = seed();

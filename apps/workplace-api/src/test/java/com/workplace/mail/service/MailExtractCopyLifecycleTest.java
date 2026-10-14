@@ -90,7 +90,7 @@ class MailExtractCopyLifecycleTest extends IntegrationTestBase {
     inTenantRun(
         () ->
             pipeline.applyExtractResult(
-                jobId, new ExtractResult(TENANT, "DONE", "가나다라", 4, null, false, null)));
+                jobId, new ExtractResult(TENANT, "DONE", "가나다라", 4, null, false, null, null)));
 
     assertThat(Files.exists(fileStore.resolve(path))).isFalse();
     var slice = inTenant(() -> extractedText.read(fileId, 1, 2));
@@ -106,7 +106,7 @@ class MailExtractCopyLifecycleTest extends IntegrationTestBase {
     inTenantRun(
         () ->
             pipeline.applyExtractResult(
-                jobId, new ExtractResult(TENANT, "FAILED", null, null, null, null, "boom")));
+                jobId, new ExtractResult(TENANT, "FAILED", null, null, null, null, "boom", null)));
 
     assertThat(Files.exists(fileStore.resolve(path))).isFalse();
     assertThat(inTenant(() -> extractedText.read(fileId, 0, 10)).status()).isEqualTo("SKIPPED");
@@ -139,7 +139,7 @@ class MailExtractCopyLifecycleTest extends IntegrationTestBase {
     inTenantRun(
         () ->
             pipeline.applyExtractResult(
-                jobId, new ExtractResult(TENANT, "DONE", "본문", 2, null, false, null)));
+                jobId, new ExtractResult(TENANT, "DONE", "본문", 2, null, false, null, null)));
 
     assertThat(Files.exists(fileStore.resolve(path))).isTrue();
   }

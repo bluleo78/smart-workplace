@@ -163,7 +163,51 @@ class ExtractedTextServiceTest extends IntegrationTestBase {
     assertThat(service.info(List.of())).isEmpty();
   }
 
+  /** WP-250: 읽기 가능(READY) 응답과 스캔 PDF(SKIPPED) 응답 모두 pageCount 를 싣는다 — 후자는 AI 가 페이지 이미지를 요청하는 근거. */
+  @Test
+  void pageCount_는_READY_와_SKIPPED_응답_모두에_실린다() {
+    long ready = seed("application/pdf", "DONE", "abc", false, null);
+    long scanned = seed("application/pdf", "SKIPPED", null, false, "empty");
+    setPageCount(ready, 5);
+    setPageCount(scanned, 3);
+    assertThat(service.read(ready, 0, 10).pageCount()).isEqualTo(5);
+    ExtractedTextSlice s = service.read(scanned, 0, 10);
+    assertThat(s.status()).isEqualTo("SKIPPED");
+    assertThat(s.pageCount()).isEqualTo(3);
+    Map<Long, ExtractionInfo> m = service.info(List.of(ready, scanned));
+    assertThat(m.get(ready).pageCount()).isEqualTo(5);
+    assertThat(m.get(scanned).pageCount()).isEqualTo(3);
+  }
+
+  @Test
+  void pageCount_는_없으면_null_추출_행이_없어도_null() {
+    long text = seed("text/plain", "DONE", "abc", false, null);
+    long none = seedFileOnly("application/pdf");
+    assertThat(service.read(text, 0, 10).pageCount()).isNull();
+    assertThat(service.info(List.of(text)).get(text).pageCount()).isNull();
+    assertThat(service.pageCount(text)).isNull();
+    assertThat(service.pageCount(none)).isNull();
+    assertThat(service.read(none, 0, 10).pageCount()).isNull();
+  }
+
+  @Test
+  void pageCount_조회는_저장된_페이지_수를_돌려준다() {
+    long id = seed("application/pdf", "SKIPPED", null, false, "empty");
+    setPageCount(id, 12);
+    assertThat(service.pageCount(id)).isEqualTo(12);
+  }
+
   // ── 헬퍼 ──
+  private void setPageCount(long fileId, int pageCount) {
+    new TransactionTemplate(txManager)
+        .executeWithoutResult(
+            s ->
+                dsl.update(FILE_EXTRACTION)
+                    .set(FILE_EXTRACTION.PAGE_COUNT, pageCount)
+                    .where(FILE_EXTRACTION.FILE_ID.eq(fileId))
+                    .execute());
+  }
+
   private long seed(String mime, String status, String text, boolean truncated, String error) {
     long id = seedFileOnly(mime);
     new TransactionTemplate(txManager)

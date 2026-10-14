@@ -111,7 +111,8 @@ class DriveFileControllerTest {
   @Test
   void readText_defaults_returnsSlice() throws Exception {
     when(fileService.readText(1L, 7L, 0, 32000))
-        .thenReturn(new ExtractedTextSlice(55L, "READY", 0, 3, false, null, "본문입", null, null));
+        .thenReturn(
+            new ExtractedTextSlice(55L, "READY", 0, 3, false, null, "본문입", null, null, null));
     mockMvc
         .perform(get("/api/v1/drive/files/7/text").header("Authorization", "Bearer test-token"))
         .andExpect(status().isOk())
@@ -126,7 +127,7 @@ class DriveFileControllerTest {
   void readText_passesRange_andPendingHasNoText() throws Exception {
     when(fileService.readText(1L, 7L, 100, 50))
         .thenReturn(
-            new ExtractedTextSlice(55L, "PENDING", 100, null, null, null, null, null, null));
+            new ExtractedTextSlice(55L, "PENDING", 100, null, null, null, null, null, null, null));
     mockMvc
         .perform(
             get("/api/v1/drive/files/7/text?offset=100&limit=50")

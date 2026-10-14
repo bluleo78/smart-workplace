@@ -536,6 +536,50 @@ class ExtractionE2eTest extends IntegrationTestBase {
     }
   }
 
+  /**
+   * WP-250: 배포 전 추출분처럼 page_count 가 비어 있을 때만 채운다 — 이미 값이 있으면 덮어쓰지 않는다(이미지 보기 요청이 워커에서 받은 값으로 보충).
+   */
+  @Test
+  void fillPageCountIfMissing_fillsOnlyWhenNull() {
+    long fileId = createTextReadyFile(1L);
+    assertThat(readPageCount(1L, fileId)).isNull();
+
+    fillPageCount(1L, fileId, 5);
+    assertThat(readPageCount(1L, fileId)).isEqualTo(5);
+
+    fillPageCount(1L, fileId, 7);
+    assertThat(readPageCount(1L, fileId)).isEqualTo(5);
+  }
+
+  private void fillPageCount(long tenantId, long fileId, int pageCount) {
+    Long prev = TenantContext.get();
+    TenantContext.set(tenantId);
+    try {
+      new TransactionTemplate(txManager)
+          .executeWithoutResult(s -> jobRepo.fillPageCountIfMissing(fileId, pageCount));
+    } finally {
+      if (prev == null) TenantContext.clear();
+      else TenantContext.set(prev);
+    }
+  }
+
+  private Integer readPageCount(long tenantId, long fileId) {
+    Long prev = TenantContext.get();
+    TenantContext.set(tenantId);
+    try {
+      return new TransactionTemplate(txManager)
+          .execute(
+              s ->
+                  dsl.select(FILE_EXTRACTION.PAGE_COUNT)
+                      .from(FILE_EXTRACTION)
+                      .where(FILE_EXTRACTION.FILE_ID.eq(fileId))
+                      .fetchOne(FILE_EXTRACTION.PAGE_COUNT));
+    } finally {
+      if (prev == null) TenantContext.clear();
+      else TenantContext.set(prev);
+    }
+  }
+
   private String readSummary(long tenantId, long fileId) {
     Long prev = TenantContext.get();
     TenantContext.set(tenantId);

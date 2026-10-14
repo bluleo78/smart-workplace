@@ -167,10 +167,16 @@ public class WorkerJobRepository {
    * <p>목표 상태는 SQL CASE 로 정한다 — TEXT_ONLY(WP-242)는 요약 없이 바로 DONE, 그 외는 TEXT_READY. 프로파일을 별도 SELECT
    * 하지 않고 같은 UPDATE 안에서 결정해 콜백당 쿼리를 줄인다.
    *
+   * @param pageCount PDF 총 페이지 수(WP-250, PDF 가 아니면 null)
    * @return 전이된 새 status("TEXT_READY" 또는 "DONE"), CAS 실패(스테일)면 empty
    */
   public Optional<String> advanceToTextReady(
-      long fileId, String extractedText, int charCount, boolean truncated, String lang) {
+      long fileId,
+      String extractedText,
+      int charCount,
+      boolean truncated,
+      String lang,
+      Integer pageCount) {
     return dsl.update(FILE_EXTRACTION)
         .set(
             FILE_EXTRACTION.STATUS,
@@ -180,6 +186,7 @@ public class WorkerJobRepository {
         .set(FILE_EXTRACTION.CHAR_COUNT, charCount)
         .set(FILE_EXTRACTION.TRUNCATED, truncated)
         .set(FILE_EXTRACTION.LANG, lang)
+        .set(FILE_EXTRACTION.PAGE_COUNT, pageCount)
         .set(FILE_EXTRACTION.EXTRACTED_AT, OffsetDateTime.now())
         .where(FILE_EXTRACTION.FILE_ID.eq(fileId))
         .and(FILE_EXTRACTION.STATUS.eq("EXTRACTING"))
@@ -190,16 +197,30 @@ public class WorkerJobRepository {
   /**
    * file_extraction EXTRACTING→SKIPPED CAS (워커가 추출 불가 판정 시).
    *
+   * @param pageCount PDF 총 페이지 수(WP-250). 글자가 없는 스캔 PDF 도 쪽수는 알아야 AI 가 페이지 이미지를 요청할 수 있다
    * @return 실제로 전이된 경우 true
    */
-  public boolean advanceToSkipped(long fileId, String error) {
+  public boolean advanceToSkipped(long fileId, String error, Integer pageCount) {
     return dsl.update(FILE_EXTRACTION)
             .set(FILE_EXTRACTION.STATUS, "SKIPPED")
             .set(FILE_EXTRACTION.ERROR, truncateError(error))
+            .set(FILE_EXTRACTION.PAGE_COUNT, pageCount)
             .where(FILE_EXTRACTION.FILE_ID.eq(fileId))
             .and(FILE_EXTRACTION.STATUS.eq("EXTRACTING"))
             .execute()
         == 1;
+  }
+
+  /**
+   * page_count 가 비어 있을 때만 채운다(WP-250) — 페이지 수 저장 도입 전에 추출된 PDF 는 NULL 이므로, 이미지 보기 요청 때 워커가 알려 준 값으로
+   * 보충한다. `page_count IS NULL` 조건이라 추출 콜백이 이미 쓴 값은 덮어쓰지 않고, 동시 요청이 겹쳐도 무해하다.
+   */
+  public void fillPageCountIfMissing(long fileId, int pageCount) {
+    dsl.update(FILE_EXTRACTION)
+        .set(FILE_EXTRACTION.PAGE_COUNT, pageCount)
+        .where(FILE_EXTRACTION.FILE_ID.eq(fileId))
+        .and(FILE_EXTRACTION.PAGE_COUNT.isNull())
+        .execute();
   }
 
   /**

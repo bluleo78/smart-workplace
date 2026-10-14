@@ -120,14 +120,17 @@ public class MailAttachmentTextService {
         s.nextOffset(),
         s.text(),
         s.reasonCode(),
-        s.reason());
+        s.reason(),
+        s.pageCount());
   }
 
   /** 사본 없이 SKIPPED 응답을 만든다 — 원시 사유(image:/unsupported-mime:/oversize)를 공용 분류기로 코드·문구로 바꾼다. */
   private static ExtractedTextSlice skipped(
       long attachmentId, int offset, String rawReason, String mime) {
     return status(
-        attachmentId, offset, ExtractionInfo.of("SKIPPED", rawReason, mime, null, null, false));
+        attachmentId,
+        offset,
+        ExtractionInfo.of("SKIPPED", rawReason, mime, null, null, false, null));
   }
 
   /**
@@ -144,7 +147,8 @@ public class MailAttachmentTextService {
         null,
         null,
         info.reasonCode(),
-        info.reason());
+        info.reason(),
+        info.pageCount());
   }
 
   /**

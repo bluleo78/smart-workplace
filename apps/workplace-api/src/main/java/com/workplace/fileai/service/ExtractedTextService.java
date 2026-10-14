@@ -49,6 +49,7 @@ public class ExtractedTextService {
             FILE_EXTRACTION.ERROR,
             FILE_EXTRACTION.CHAR_COUNT,
             FILE_EXTRACTION.TRUNCATED,
+            FILE_EXTRACTION.PAGE_COUNT,
             FILE.MIME_TYPE,
             hasText)
         .from(FILE_EXTRACTION)
@@ -98,7 +99,20 @@ public class ExtractedTextService {
         r.get(FILE.MIME_TYPE),
         totalChars,
         r.get(FILE_EXTRACTION.TRUNCATED),
-        hasText);
+        hasText,
+        r.get(FILE_EXTRACTION.PAGE_COUNT));
+  }
+
+  /**
+   * PDF 총 페이지 수(없으면 null) — 페이지 이미지 보기 요청의 범위 사전 검사에 쓴다(WP-250). 추출 행이 없거나 아직 모르면 null 이라 호출자는 워커가
+   * 알려 주는 값으로 보충한다.
+   */
+  @Transactional(readOnly = true)
+  public Integer pageCount(long fileId) {
+    return dsl.select(FILE_EXTRACTION.PAGE_COUNT)
+        .from(FILE_EXTRACTION)
+        .where(FILE_EXTRACTION.FILE_ID.eq(fileId))
+        .fetchOne(FILE_EXTRACTION.PAGE_COUNT);
   }
 
   /**
@@ -122,6 +136,7 @@ public class ExtractedTextService {
                 FILE_EXTRACTION.STATUS,
                 FILE_EXTRACTION.ERROR,
                 FILE_EXTRACTION.TRUNCATED,
+                FILE_EXTRACTION.PAGE_COUNT,
                 FILE.MIME_TYPE,
                 total,
                 slice)
@@ -136,13 +151,31 @@ public class ExtractedTextService {
         r == null ? ExtractionInfo.NONE : toInfo(r, totalChars, totalChars != null);
     if (!"READY".equals(info.status())) {
       return new ExtractedTextSlice(
-          fileId, info.status(), offset, null, null, null, null, info.reasonCode(), info.reason());
+          fileId,
+          info.status(),
+          offset,
+          null,
+          null,
+          null,
+          null,
+          info.reasonCode(),
+          info.reason(),
+          info.pageCount());
     }
     String text = Objects.requireNonNullElse(r.get(slice), "");
     int returned = text.codePointCount(0, text.length());
     int end = offset + returned;
     Integer next = returned > 0 && end < totalChars ? end : null;
     return new ExtractedTextSlice(
-        fileId, "READY", offset, totalChars, info.truncated(), next, text, null, null);
+        fileId,
+        "READY",
+        offset,
+        totalChars,
+        info.truncated(),
+        next,
+        text,
+        null,
+        null,
+        info.pageCount());
   }
 }
