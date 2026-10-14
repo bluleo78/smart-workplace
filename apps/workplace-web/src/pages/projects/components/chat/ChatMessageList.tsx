@@ -43,6 +43,8 @@ interface ChatMessageListProps {
   fill?: boolean;
   /** true 면 빈 상태를 낮게(py-6) — 카드 없는 모바일 개인 작업 채팅 섹션용(WP-221). */
   compact?: boolean;
+  /** 답변을 기다리는(INPUT_REQUIRED) AI 사용자 id 집합 — 질문 열림/답변됨 판정 기준. undefined = 이슈 미로드(대기 중으로 간주). */
+  waitingAgentIds?: ReadonlySet<number>;
 }
 
 export function ChatMessageList({
@@ -58,6 +60,7 @@ export function ChatMessageList({
   renderEditor,
   fill = false,
   compact = false,
+  waitingAgentIds,
 }: ChatMessageListProps) {
   const lastRef = useRef<HTMLLIElement | null>(null);
   const scrollRootRef = useRef<HTMLDivElement | null>(null);
@@ -72,8 +75,8 @@ export function ChatMessageList({
       ),
     [messages],
   );
-  // 질문 글별 상태(열림/답변됨) — 로드된 범위에서 도출한다(questionState.ts).
-  const qStates = useMemo(() => questionStates(sorted), [sorted]);
+  // 질문 글별 상태(열림/답변됨) — 로드된 메시지와 질문한 AI 의 작업 상태에서 도출한다(questionState.ts).
+  const qStates = useMemo(() => questionStates(sorted, waitingAgentIds), [sorted, waitingAgentIds]);
   const lastId = sorted.length > 0 ? sorted[sorted.length - 1].id : null;
   const sheet = useMessageSheet(sorted);
   // 시트 작업 — 권한·순서는 messageSheetActions 가 정한다(본인·미삭제·확정 메시지만 수정·삭제 + 복사). 이슈 채팅엔 반응·스레드가 없다.

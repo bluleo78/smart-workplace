@@ -1,9 +1,10 @@
 // WP-373 — 이슈 챗 질문 표시 E2E.
-// 열린 질문(주황 강조 + 「질문」)·답변됨(「질문 ✓ 답변됨」)·SSE 로 바뀌는 상태·AI 번호 목록 간격을 검증한다.
+// 열린 질문(주황 강조 + 「질문」, 질문한 AI 가 INPUT_REQUIRED)·답변됨(「질문 ✓ 답변됨」)·AI 작업 상태 변경으로 바뀌는 상태·AI 번호 목록 간격을 검증한다.
 // 백엔드 없이 page.route 로 모킹하고, SSE 는 mockGatedEvents 로 프레임 1개를 주입한다. 시각은 시드로 고정한다.
 
 import type { Page } from '@playwright/test';
 
+import { createAgentWork } from '../../factories/agentWork.factory';
 import { createChatMember, createChatMessage, createChatThread } from '../../factories/chat.factory';
 import { createIssue, createIssueDetail } from '../../factories/issue.factory';
 import { createMember, createProject } from '../../factories/project.factory';
@@ -57,11 +58,21 @@ const HINT = '답변 입력… 멘션 없이 보내도 코디가 이어받아요
 
 async function setup(page: Page, opts: { externalAgent?: typeof KODI | null } = {}) {
   const messages = seedMessages();
+  // 질문한 AI(50)의 작업 상태 — 「답변됨」 판정 기준이므로 기본은 답변 대기. 테스트가 바꾼 뒤 이슈 상세 리페치로 반영된다.
+  const workRef: { state: 'INPUT_REQUIRED' | 'WORKING' | null } = { state: 'INPUT_REQUIRED' };
   // 스레드 응답이 싣는 외부 실행 AI — 담당자 변경 시나리오에서 테스트가 바꾼다.
   const agentRef = { current: opts.externalAgent ?? null };
-  const detail = createIssueDetail({
-    summary: createIssue({ id: 1, number: ISSUE_NUMBER, title: '질문 표시 테스트' }),
-  });
+  const detailNow = () =>
+    createIssueDetail({
+      summary: createIssue({
+        id: 1,
+        number: ISSUE_NUMBER,
+        title: '질문 표시 테스트',
+        agentWork: workRef.state
+          ? [createAgentWork({ worker: { id: AI_ID, username: 'codebot', name: '코드 봇', kind: 'AGENT' }, state: workRef.state })]
+          : [],
+      }),
+    });
   const thread = createChatThread({
     threadId: THREAD_ID,
     issueId: 1,
@@ -73,7 +84,7 @@ async function setup(page: Page, opts: { externalAgent?: typeof KODI | null } = 
   await page.route(`**/api/v1/projects/${PROJECT_KEY}/members`, (r) => r.fulfill(json([])));
   await page.route(
     (u) => u.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`,
-    (r) => r.fulfill(json(detail)),
+    (r) => r.fulfill(json(detailNow())),
   );
   for (const sub of ['watchers', 'labels', 'attachments']) {
     await page.route(
@@ -100,7 +111,7 @@ async function setup(page: Page, opts: { externalAgent?: typeof KODI | null } = 
     (u) => u.pathname === `/api/v1/chat/threads/${THREAD_ID}/read`,
     (r) => r.fulfill({ status: 204 }),
   );
-  return { agentRef };
+  return { agentRef, workRef };
 }
 
 /** 드로워를 열고 시드 메시지가 그려질 때까지 기다린다(캐시 준비 신호). */
@@ -134,12 +145,14 @@ test.describe('이슈 챗 질문 표시', () => {
     await page.screenshot({ path: 'test-results/tc/chat-question/drawer-1280-dark.png' });
   });
 
-  test('사람 답이 SSE 로 오면 열린 질문이 바로 답변됨으로 바뀐다', async ({ authenticatedPage: page }) => {
-    await setup(page);
+  test('사람 답으로 AI 가 작업 중으로 돌아오면 열린 질문이 답변됨으로 바뀐다', async ({ authenticatedPage: page }) => {
+    const { workRef } = await setup(page);
     const events = await mockGatedEvents(page);
     await openDrawer(page);
     await expect(page.getByTestId('chat-message-question-105')).toHaveText('질문');
 
+    // 사람이 답하면 서버가 AI 를 WORKING 으로 바꾸고 issue 변경 알림을 낸다 → 상세 리페치.
+    workRef.state = 'WORKING';
     events.deliver(
       frame(
         createChatMessage({
@@ -152,11 +165,38 @@ test.describe('이슈 챗 질문 표시', () => {
           question: false,
           createdAt: '2026-10-14T01:05:00Z',
         }),
-      ),
+      ) +
+        resourceChangedFrame({ resource: 'issue', op: 'updated', projectKey: PROJECT_KEY, issueNumber: ISSUE_NUMBER }),
     );
 
     await expect(page.getByTestId('chat-message-question-105')).toHaveText('질문 ✓ 답변됨');
     await expect(page.locator('[data-message-id="105"]')).toHaveAttribute('data-question', 'answered');
+  });
+
+  test('사람의 AI 도구 보고 글이 와도 AI 가 답변 대기면 열린 질문으로 남는다', async ({ authenticatedPage: page }) => {
+    await setup(page); // agentWork 는 계속 INPUT_REQUIRED
+    const events = await mockGatedEvents(page);
+    await openDrawer(page);
+
+    events.deliver(
+      frame(
+        createChatMessage({
+          id: 106,
+          threadId: THREAD_ID,
+          authorId: 7,
+          authorName: '다른 사용자',
+          authorKind: 'HUMAN',
+          body: '[보고] 작업 진행 중입니다',
+          question: false,
+          createdAt: '2026-10-14T01:05:00Z',
+        }),
+      ),
+    );
+
+    // 보고 글이 화면에 그려진 뒤에도 질문은 열린 채로.
+    await expect(page.getByTestId('chat-message-106')).toBeVisible();
+    await expect(page.getByTestId('chat-message-question-105')).toHaveText('질문');
+    await expect(page.locator('[data-message-id="105"]')).toHaveAttribute('data-question', 'open');
   });
 
   test('SSE 로 온 새 질문은 오자마자 강조된다', async ({ authenticatedPage: page }) => {

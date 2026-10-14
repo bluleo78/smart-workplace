@@ -1,5 +1,6 @@
 // WP-373 — 이슈 챗 질문·작성창 안내의 모바일(375px) E2E.
 // 긴 안내가 두 줄로 접혀도 잘리지 않는지, 열린 질문 강조가 모바일에서도 보이는지 검증한다. 백엔드는 page.route 로 모킹.
+import { createAgentWork } from '../../factories/agentWork.factory'
 import { createChatMember, createChatMessage, createChatThread } from '../../factories/chat.factory'
 import { createIssue, createIssueDetail } from '../../factories/issue.factory'
 import { createProject } from '../../factories/project.factory'
@@ -11,7 +12,11 @@ const THREAD_ID = 100
 test.use({ viewport: { width: 375, height: 800 } })
 
 test.beforeEach(async ({ authenticatedPage: page }) => {
-  const issue = createIssue({ id: 1, number: 1, projectKey: KEY, title: '질문 표시' })
+  // 질문한 AI(50)가 답변 대기(INPUT_REQUIRED) — 열린 질문 판정 기준.
+  const issue = createIssue({
+    id: 1, number: 1, projectKey: KEY, title: '질문 표시',
+    agentWork: [createAgentWork({ worker: { id: 50, username: 'codebot', name: '코드 봇', kind: 'AGENT' }, state: 'INPUT_REQUIRED' })],
+  })
   const base = `/api/v1/projects/${KEY}/issues/1`
   await page.route(`**/api/v1/projects/${KEY}`, (r) => r.fulfill(json(createProject({ key: KEY }))))
   await page.route((u) => u.pathname === base, (r) => r.fulfill(json(createIssueDetail({ summary: issue }))))
