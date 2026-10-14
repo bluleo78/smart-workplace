@@ -15,9 +15,10 @@ import {
   NO_VISION_PROMPT_RULE,
 } from './opencode-config.js';
 
-const VISION_ON = { vision: true };
-const VISION_OFF = { vision: false };
-const VISION_UNKNOWN = { vision: undefined };
+// 모델 한도는 따로 보는 테스트(WP-250)만 넣는다 — 나머지는 한도 없음(undefined).
+const VISION_ON = { vision: true, limit: undefined };
+const VISION_OFF = { vision: false, limit: undefined };
+const VISION_UNKNOWN = { vision: undefined, limit: undefined };
 import { loadSubagents } from './subagent-loader.js';
 import type { RunnerInput } from './agent-runner.js';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
@@ -123,7 +124,7 @@ describe('buildOpencodeConfig', () => {
       limit: { context: 262128, output: 0 },
     });
     expect(models({ vision: undefined, limit: { context: 65536, output: 8192 } })).toEqual({ limit: { context: 65536, output: 8192 } });
-    expect(models({ vision: undefined })).toEqual({});
+    expect(models({ vision: undefined, limit: undefined })).toEqual({});
   });
 
   it('비전 미지원: modalities 미선언 + 프롬프트 규칙 + MCP_VISION=0 + 서브에이전트 프롬프트에도 규칙(WP-241)', () => {
@@ -264,7 +265,7 @@ describe('buildOpencodeConfig', () => {
   describe('이미지 입력 env (WP-250)', () => {
     const client = {} as unknown as WorkplaceApiClient;
     const env = (vision: boolean | undefined) =>
-      (buildOpencodeConfig(baseInput({ mcp: { client, profile: 'assistant', onBehalfOfId: 1 } }), 'run-1', ['cmd'], { vision }).mcp
+      (buildOpencodeConfig(baseInput({ mcp: { client, profile: 'assistant', onBehalfOfId: 1 } }), 'run-1', ['cmd'], { vision, limit: undefined }).mcp
         ?.workplace as { environment?: Record<string, string> }).environment;
 
     it('vision true → MCP_IMAGE_TOOLS=1', () => {

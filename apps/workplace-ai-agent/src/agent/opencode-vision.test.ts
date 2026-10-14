@@ -5,7 +5,7 @@ import {
   opencodeVisionFor,
   parseModelsMeta,
   resetVisionCache,
-  resolveOpencodeModelLimit,
+  resolveOpencodeModelSettings,
   resolveOpencodeModelVision,
   resolveOpencodeVision,
   VISION_CACHE_TTL_MS,
@@ -232,9 +232,11 @@ describe('parseModelsMeta', () => {
   });
 });
 
-describe('resolveOpencodeModelLimit', () => {
+// WP-250: 비전·모델 한도를 /models 조회 한 번으로 — limitOf 는 한도만 본다.
+describe('resolveOpencodeModelSettings', () => {
   const fetchMock = vi.fn<typeof fetch>();
   const body = (models: unknown[]) => ({ data: models });
+  const limitOf = async (p: OpencodeProviderConfig, model: string) => (await resolveOpencodeModelSettings(p, model)).limit;
 
   beforeEach(() => {
     resetVisionCache();
@@ -245,37 +247,37 @@ describe('resolveOpencodeModelLimit', () => {
 
   it('컨텍스트·출력 한도를 그대로 limit 으로', async () => {
     fetchMock.mockImplementation(async () => okResponse(body([{ id: 'm', max_model_len: 262128, metadata: { limits: { max_output_tokens: 131072 } } }])));
-    expect(await resolveOpencodeModelLimit(payload(), 'custom/m')).toEqual({ context: 262128, output: 131072 });
+    expect(await limitOf(payload(), 'custom/m')).toEqual({ context: 262128, output: 131072 });
   });
 
   it('출력 한도를 모르면 models.dev 에 없는 provider(genia·custom·amazon-bedrock-openai)만 output 0(opencode 의 "모름") — 기본값을 지어내지 않는다', async () => {
     fetchMock.mockImplementation(async () => okResponse(body([{ id: 'm', max_model_len: 131072 }])));
     for (const providerId of ['genia', 'custom', 'amazon-bedrock-openai']) {
-      expect(await resolveOpencodeModelLimit(payload({ providerId }), `${providerId}/m`)).toEqual({ context: 131072, output: 0 });
+      expect(await limitOf(payload({ providerId }), `${providerId}/m`)).toEqual({ context: 131072, output: 0 });
     }
   });
 
   // opencode 1.17.18 실측: config limit 은 output 키가 필수이고(빼면 ConfigInvalidError), output 0 은 models.dev 의 출력 한도를 덮는다.
   it('models.dev 등록 provider(openai 등)·모르는 id 는 출력 한도를 모르면 limit 을 두지 않는다 — models.dev 출력 한도를 0 으로 덮지 않게', async () => {
     fetchMock.mockImplementation(async () => okResponse(body([{ id: 'm', max_model_len: 131072 }])));
-    expect(await resolveOpencodeModelLimit(payload({ providerId: 'openai' }), 'openai/m')).toBeUndefined();
-    expect(await resolveOpencodeModelLimit(payload({ providerId: 'neuralwatt' }), 'neuralwatt/m')).toBeUndefined();
+    expect(await limitOf(payload({ providerId: 'openai' }), 'openai/m')).toBeUndefined();
+    expect(await limitOf(payload({ providerId: 'neuralwatt' }), 'neuralwatt/m')).toBeUndefined();
   });
 
   it('출력 한도까지 알면 provider 와 상관없이 둘 다 선언한다', async () => {
     fetchMock.mockImplementation(async () => okResponse(body([{ id: 'm', max_model_len: 262128, metadata: { limits: { max_output_tokens: 131072 } } }])));
-    expect(await resolveOpencodeModelLimit(payload({ providerId: 'neuralwatt' }), 'neuralwatt/m')).toEqual({ context: 262128, output: 131072 });
+    expect(await limitOf(payload({ providerId: 'neuralwatt' }), 'neuralwatt/m')).toEqual({ context: 262128, output: 131072 });
   });
 
   it('컨텍스트 한도가 없거나 목록에 없는 모델·조회 실패·baseURL 없음은 undefined', async () => {
     fetchMock.mockImplementation(async () => okResponse(body([{ id: 'm', metadata: { capabilities: { vision: true } } }])));
-    expect(await resolveOpencodeModelLimit(payload(), 'custom/m')).toBeUndefined();
-    expect(await resolveOpencodeModelLimit(payload(), 'custom/missing')).toBeUndefined();
+    expect(await limitOf(payload(), 'custom/m')).toBeUndefined();
+    expect(await limitOf(payload(), 'custom/missing')).toBeUndefined();
     resetVisionCache();
     fetchMock.mockImplementation(async () => new Response('no', { status: 500 }));
-    expect(await resolveOpencodeModelLimit(payload(), 'custom/m')).toBeUndefined();
+    expect(await limitOf(payload(), 'custom/m')).toBeUndefined();
     fetchMock.mockClear();
-    expect(await resolveOpencodeModelLimit(payload({ options: { apiKey: 'k' } }), 'custom/m')).toBeUndefined();
+    expect(await limitOf(payload({ options: { apiKey: 'k' } }), 'custom/m')).toBeUndefined();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -287,21 +289,53 @@ describe('resolveOpencodeModelLimit', () => {
         { id: 'tight', max_model_len: 8192, metadata: { limits: { max_output_tokens: 8192 } } },
       ])),
     );
-    expect(await resolveOpencodeModelLimit(payload(), 'custom/small')).toBeUndefined();
-    expect(await resolveOpencodeModelLimit(payload(), 'custom/small-known-out')).toEqual({ context: 20000, output: 4000 });
-    expect(await resolveOpencodeModelLimit(payload(), 'custom/tight')).toBeUndefined();
+    expect(await limitOf(payload(), 'custom/small')).toBeUndefined();
+    expect(await limitOf(payload(), 'custom/small-known-out')).toEqual({ context: 20000, output: 4000 });
+    expect(await limitOf(payload(), 'custom/tight')).toBeUndefined();
   });
 
-  it('비전 수동 설정이 있어도 한도는 /models 로 판단하고, 비전 판단과 같은 조회 캐시를 쓴다', async () => {
+  it('비전·한도를 한 번의 조회로 함께 — 수동 비전 설정이 있어도 한도는 /models 로, 호출자가 넘긴 비전이 있으면 그 값', async () => {
     fetchMock.mockImplementation(async () => okResponse(body([{ id: 'm', max_model_len: 65536, metadata: { capabilities: { vision: true } } }])));
-    const p = payload({ vision: false });
-    expect(await resolveOpencodeModelVision(p, 'custom/m')).toBe(false);
-    expect(await resolveOpencodeModelLimit(p, 'custom/m')).toEqual({ context: 65536, output: 0 });
+    expect(await resolveOpencodeModelSettings(payload(), 'custom/m')).toEqual({ vision: true, limit: { context: 65536, output: 0 } });
+    expect(await resolveOpencodeModelSettings(payload({ vision: false }), 'custom/m')).toEqual({ vision: false, limit: { context: 65536, output: 0 } });
+    expect(await resolveOpencodeModelSettings(payload(), 'custom/m', { value: undefined })).toEqual({ vision: undefined, limit: { context: 65536, output: 0 } });
+    // 접두 키 수동 설정(providerId/modelId)도 같은 규칙으로 본다.
+    expect((await resolveOpencodeModelSettings(payload({ vision: { 'custom/m': false } }), 'custom/m')).vision).toBe(false);
+    // 비전 판단(resolveOpencodeModelVision)과도 같은 조회 캐시를 쓴다.
     expect(await resolveOpencodeModelVision(payload(), 'custom/m')).toBe(true);
     expect(fetchMock).toHaveBeenCalledOnce();
   });
 
-  it('모델 형식 오류는 던지지 않고 undefined', async () => {
-    expect(await resolveOpencodeModelLimit(payload(), 'no-slash-model')).toBeUndefined();
+  it('동시에 판단해도 /models 는 한 번만 보낸다', async () => {
+    fetchMock.mockImplementation(async () => okResponse(body([{ id: 'm', max_model_len: 65536 }])));
+    await Promise.all([resolveOpencodeModelSettings(payload(), 'custom/m'), resolveOpencodeModelVision(payload(), 'custom/m')]);
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  // 실행 경로의 지연 보장: provider 가 죽어 있어도 실패를 캐시해 TTL 동안은 다시 3초 타임아웃을 기다리지 않는다.
+  it('조회 실패(타임아웃·500)는 VISION_FAILURE_TTL_MS 동안 다시 보내지 않고 "모름"으로 끝낸다', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      fetchMock.mockRejectedValue(new DOMException('The operation was aborted due to timeout', 'TimeoutError'));
+      const unknown = { vision: undefined, limit: undefined };
+      expect(await resolveOpencodeModelSettings(payload(), 'custom/m')).toEqual(unknown);
+      vi.setSystemTime(Date.now() + VISION_FAILURE_TTL_MS - 1000);
+      expect(await resolveOpencodeModelSettings(payload(), 'custom/m')).toEqual(unknown);
+      expect(await resolveOpencodeModelSettings(payload(), 'custom/other')).toEqual(unknown);
+      expect(fetchMock).toHaveBeenCalledOnce();
+      // HTTP 오류도 같은 실패 캐시를 탄다.
+      resetVisionCache();
+      fetchMock.mockReset();
+      fetchMock.mockImplementation(async () => new Response('no', { status: 500 }));
+      await resolveOpencodeModelSettings(payload(), 'custom/m');
+      await resolveOpencodeModelSettings(payload(), 'custom/m');
+      expect(fetchMock).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('모델 형식 오류는 던진다(러너가 실행 오류로 알린다)', async () => {
+    await expect(resolveOpencodeModelSettings(payload(), 'no-slash-model')).rejects.toThrow();
   });
 });

@@ -30,11 +30,20 @@ vi.mock('./opencode-config.js', () => ({
 }));
 
 // WP-241: provider /models 조회를 막고 vision 판단을 테스트에서 고른다(기본 = 지원). WP-250: 모델 한도도(기본 = 모름).
-const { resolveOpencodeModelVision, resolveOpencodeModelLimit } = vi.hoisted(() => ({
-  resolveOpencodeModelVision: vi.fn(async () => true),
-  resolveOpencodeModelLimit: vi.fn(async (): Promise<{ context: number; output: number } | undefined> => undefined),
+const { resolveOpencodeModelSettings } = vi.hoisted(() => ({
+  // 기본: 호출자가 비전을 넘기면 그 값, 아니면 지원(true). 한도는 없음.
+  resolveOpencodeModelSettings: vi.fn(
+    async (
+      _payload: unknown,
+      _model: string,
+      known?: { value: boolean | undefined },
+    ): Promise<{ vision: boolean | undefined; limit: { context: number; output: number } | undefined }> => ({
+      vision: known ? known.value : true,
+      limit: undefined,
+    }),
+  ),
 }));
-vi.mock('./opencode-vision.js', () => ({ resolveOpencodeModelVision, resolveOpencodeModelLimit }));
+vi.mock('./opencode-vision.js', () => ({ resolveOpencodeModelSettings }));
 
 // registerBridge/releaseBridge 페어링을 정확히 카운트하기 위해 registry 자체를 모킹.
 const { registerBridge, releaseBridge } = vi.hoisted(() => ({
@@ -863,7 +872,7 @@ describe('OpencodeRunner 웜 캐시 통합', () => {
   });
 
   it('vision 판단 결과를 config 에 넘기고 풀 키에도 반영한다(WP-241)', async () => {
-    resolveOpencodeModelVision.mockResolvedValueOnce(false);
+    resolveOpencodeModelSettings.mockResolvedValueOnce({ vision: false, limit: undefined });
     const es = makeEventStream();
     eventSubscribe.mockResolvedValue({ stream: es.stream });
     es.push({ type: 'session.idle', properties: { sessionID: 'sess-1' } });
@@ -871,17 +880,18 @@ describe('OpencodeRunner 웜 캐시 통합', () => {
     const input = baseInput({ agentId: 7, model: 'openai/gpt-5', mcp: { client: {} as unknown as WorkplaceApiClient, profile: 'issue', onBehalfOfId: 42 } });
     await new OpencodeRunner().stream(input, () => {}).done;
 
-    expect(resolveOpencodeModelVision).toHaveBeenCalledWith(
+    expect(resolveOpencodeModelSettings).toHaveBeenCalledWith(
       (input.credential as { payload: unknown }).payload,
       'openai/gpt-5',
+      undefined,
     );
-    expect(buildOpencodeConfig).toHaveBeenCalledWith(input, expect.any(String), expect.any(Array), { vision: false });
+    expect(buildOpencodeConfig).toHaveBeenCalledWith(input, expect.any(String), expect.any(Array), { vision: false, limit: undefined });
     expect(acquireServer).toHaveBeenCalledWith('7:issue:42:-:openai/gpt-5:false', expect.any(Function));
   });
 
   // WP-250: provider /models 의 컨텍스트 한도가 있으면 config 의 모델 limit 으로 넘기고, 같은 한도의 서버만 재사용하도록 풀 키에 넣는다.
   it('모델 한도를 config 에 넘기고 풀 키에도 반영한다(WP-250)', async () => {
-    resolveOpencodeModelLimit.mockResolvedValueOnce({ context: 262128, output: 131072 });
+    resolveOpencodeModelSettings.mockResolvedValueOnce({ vision: true, limit: { context: 262128, output: 131072 } });
     const es = makeEventStream();
     eventSubscribe.mockResolvedValue({ stream: es.stream });
     es.push({ type: 'session.idle', properties: { sessionID: 'sess-1' } });
@@ -889,7 +899,8 @@ describe('OpencodeRunner 웜 캐시 통합', () => {
     const input = baseInput({ agentId: 7, model: 'openai/gpt-5', mcp: { client: {} as unknown as WorkplaceApiClient, profile: 'issue', onBehalfOfId: 42 } });
     await new OpencodeRunner().stream(input, () => {}).done;
 
-    expect(resolveOpencodeModelLimit).toHaveBeenCalledWith((input.credential as { payload: unknown }).payload, 'openai/gpt-5');
+    // 비전·한도는 한 번의 판단(같은 /models 조회)으로 얻는다.
+    expect(resolveOpencodeModelSettings).toHaveBeenCalledOnce();
     expect(buildOpencodeConfig).toHaveBeenCalledWith(input, expect.any(String), expect.any(Array), {
       vision: true,
       limit: { context: 262128, output: 131072 },
@@ -897,7 +908,7 @@ describe('OpencodeRunner 웜 캐시 통합', () => {
     expect(acquireServer).toHaveBeenCalledWith('7:issue:42:-:openai/gpt-5:true:262128/131072', expect.any(Function));
   });
 
-  it('호출자가 판단한 opencodeVision 을 넘기면 다시 판단하지 않고 그 값을 config 에 쓴다', async () => {
+  it('호출자가 판단한 opencodeVision 을 넘기면 그 값을 판단에 넘겨 config 에 쓴다', async () => {
     const es = makeEventStream();
     eventSubscribe.mockResolvedValue({ stream: es.stream });
     es.push({ type: 'session.idle', properties: { sessionID: 'sess-1' } });
@@ -905,12 +916,12 @@ describe('OpencodeRunner 웜 캐시 통합', () => {
     const input = baseInput({ opencodeVision: { value: undefined } });
     await new OpencodeRunner().stream(input, () => {}).done;
 
-    expect(resolveOpencodeModelVision).not.toHaveBeenCalled();
-    expect(buildOpencodeConfig).toHaveBeenCalledWith(input, expect.any(String), expect.any(Array), { vision: undefined });
+    expect(resolveOpencodeModelSettings).toHaveBeenCalledWith(expect.anything(), input.model, { value: undefined });
+    expect(buildOpencodeConfig).toHaveBeenCalledWith(input, expect.any(String), expect.any(Array), { vision: undefined, limit: undefined });
   });
 
   it('비전 판단이 throw 해도 등록한 브리지를 해제한다(try/finally 안)', async () => {
-    resolveOpencodeModelVision.mockRejectedValueOnce(new Error('boom'));
+    resolveOpencodeModelSettings.mockRejectedValueOnce(new Error('boom'));
     const hostBridge = { onProposal: vi.fn(), onSubmitResponse: vi.fn(), onUnassignResult: vi.fn() };
     const input = baseInput({ mcp: { client: {} as unknown as WorkplaceApiClient, profile: 'messaging', onBehalfOfId: 1, hostBridge } });
     await expect(new OpencodeRunner().stream(input, () => {}).done).rejects.toThrow('boom');

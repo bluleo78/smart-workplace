@@ -12,7 +12,7 @@ import { buildOpencodeConfig, resolveStdioEntryCmd, splitOpencodeModel } from '.
 import { acquireServer, evictServer, releaseServer, type OpencodeHandle, type SpawnOpencode } from './opencode-server-pool.js';
 import { createIsolatedOpencode } from './opencode-spawn.js';
 import { attachmentRootDir } from './attachment-prep.js';
-import { resolveOpencodeModelLimit, resolveOpencodeModelVision, type OpencodeModelLimit, type OpencodeVision } from './opencode-vision.js';
+import { resolveOpencodeModelSettings, type OpencodeModelSettings } from './opencode-vision.js';
 import type { McpProfile } from '../mcp/tools.js';
 import type { RunnerEvent, RunnerUsage } from './runner-events.js';
 import { RunnerLimitError } from './runner-limit.js';
@@ -51,7 +51,7 @@ const POOL_ELIGIBLE_PROFILES: ReadonlySet<McpProfile> = new Set(['assistant', 'i
 // WP-55: 하위 에이전트 프롬프트에 요청별 사용자 메모리(subagentPromptSuffix)가 실린 실행도 제외한다 — config 는 스폰 때 고정되므로
 // 재사용 서버면 앞 사용자의 메모리가 다음 사용자의 위임에 섞인다(지금은 홈 채팅이 hostBridge 로 이미 제외되지만 그 전제에 기대지 않는다).
 // WP-250: 모델 한도(limit)도 config 에 실리므로 키에 넣는다 — provider 가 한도를 바꾸면 옛 config 의 서버를 재사용하지 않게.
-function poolKeyFor(i: RunnerInput, vision: OpencodeVision, limit?: OpencodeModelLimit): string | undefined {
+function poolKeyFor(i: RunnerInput, { vision, limit }: OpencodeModelSettings): string | undefined {
   if (!i.mcp || i.mcp.hostBridge || i.mcp.homeSessionId != null || i.subagentPromptSuffix || !POOL_ELIGIBLE_PROFILES.has(i.mcp.profile)) return undefined;
   const limitKey = limit ? `:${limit.context}/${limit.output}` : '';
   return `${i.agentId}:${i.mcp.profile}:${i.mcp.onBehalfOfId}:${i.mcp.onBehalfOfTenantId ?? '-'}:${i.model}:${String(vision)}${limitKey}`;
@@ -105,13 +105,12 @@ export class OpencodeRunner implements AgentRunner {
       let timer: ReturnType<typeof setTimeout> | undefined;
       let errored = false;
       try {
-        // WP-241: 비전 판단 — try 안에서 해야 실패해도 finally 가 브리지를 해제한다. 호출자가 판단해 넘겼으면 그 값.
-        const vision = i.opencodeVision ? i.opencodeVision.value : await resolveOpencodeModelVision(payload, i.model);
-        // WP-250: 모델 컨텍스트 한도 — provider /models 가 알려 주면 opencode 가 한도에 닿기 전에 압축한다(비전 판단과 같은 조회 캐시, 예외 없음).
-        const limit = await resolveOpencodeModelLimit(payload, i.model);
-        poolKey = poolKeyFor(i, vision, limit);
+        // WP-241·WP-250: 비전 판단과 모델 컨텍스트 한도를 provider /models 조회 한 번(credential 캐시)으로 함께 얻는다 — 한도를 알면 opencode 가
+        // 한도에 닿기 전에 압축한다. 호출자가 비전을 판단해 넘겼으면 그 값. try 안에서 해야 실패해도 finally 가 브리지를 해제한다.
+        const settings = await resolveOpencodeModelSettings(payload, i.model, i.opencodeVision);
+        poolKey = poolKeyFor(i, settings);
         const stdioEntryCmd = resolveStdioEntryCmd();
-        const config = buildOpencodeConfig(i, runId, stdioEntryCmd, limit ? { vision, limit } : { vision });
+        const config = buildOpencodeConfig(i, runId, stdioEntryCmd, settings);
         // createIsolatedOpencode 는 (1) 포트 충돌 회피(port:0 → OS 할당)와 (2) 데이터 디렉터리
         // 격리(서버마다 고유 XDG_DATA_HOME → 자기 SQLite)를 함께 처리한다. 둘 다 동시 스폰 시 크래시를
         // 막기 위한 것 — 4096 포트 고정 충돌과 공유 opencode.db 'database is locked' 경합(opencode-spawn.ts).
