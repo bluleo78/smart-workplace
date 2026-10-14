@@ -399,11 +399,22 @@ describe('사용자 메모리 규칙 (WP-55)', () => {
     });
 
     it(`${name}: WP-383 search_memory — 더 있음 줄이 있고 관련돼 보이면 먼저 찾고, 블록에 있는 것은 찾지 않으며, 꺼짐이면 쓰지 않는다`, () => {
-      expect(p).toContain('`remember_memory`·`update_memory`·`forget_memory`·`search_memory` 를 쓰지 않는다');
+      expect(p).toContain('`remember_memory`·`update_memory`·`forget_memory`·`search_memory`·`search_conversations` 를 쓰지 않는다');
       expect(p).toContain('블록 끝에 "이 밖에 메모리 N개가 더 있어요" 줄이 있고');
       expect(p).toContain('`search_memory` 로 먼저 찾아본다');
       expect(p).toContain('이미 블록에 있는 내용은 찾지 않는다');
       expect(p).toContain('저장하기 전에 `search_memory` 로 같은 주제가 있는지 확인한다');
+    });
+
+    it(`${name}: WP-384 지난 대화 — 이전 얘기를 물으면 찾고, 기억나는 척하지 않으며, 출처 링크를 붙인다`, () => {
+      expect(p).toContain('## 지난 대화');
+      expect(p).toContain('"지난번에", "예전에 얘기한", "저번 대화"');
+      expect(p).toContain('`search_conversations` 로 지난 대화를 찾는다');
+      expect(p).toContain('기억나는 척하지 말고 찾은 결과로만 답한다');
+      expect(p).toContain('찾지 못하면 찾지 못했다고 말한다');
+      expect(p).toContain('`[대화 제목](/?chat=<id>)`');
+      expect(p.indexOf('## 사용자 메모리')).toBeLessThan(p.indexOf('## 지난 대화'));
+      expect(p.indexOf('## 지난 대화')).toBeLessThan(p.indexOf('## 현재 화면 맥락'));
     });
 
     it(`${name}: WP-383 고정은 사용자만 — 설정에서 핀을 누르라고 안내한다`, () => {

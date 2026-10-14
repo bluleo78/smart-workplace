@@ -76,4 +76,10 @@ describe('검색 도구 라벨 (WP-383)', () => {
     expect(isDisplayableTool('mcp__workplace__search_memory')).toBe(true);
     expect(TOOL_LABELS.search_memory).toEqual({ label: '메모리 찾기', icon: '🧠' });
   });
+
+  it('search_conversations 는 표시 대상이고 "지난 대화 찾기" 라벨이 있다(WP-384)', () => {
+    expect(isMemoryTool('search_conversations')).toBe(false);
+    expect(isDisplayableTool('workplace_search_conversations')).toBe(true);
+    expect(TOOL_LABELS.search_conversations).toEqual({ label: '지난 대화 찾기', icon: '💬' });
+  });
 });

@@ -223,6 +223,7 @@ function client(): TestClient {
     updateAiMemory: vi.fn(),
     deleteAiMemory: vi.fn(),
     searchAiMemories: vi.fn(),
+    searchConversations: vi.fn(),
   };
   return Object.assign(c, { sc });
 }
@@ -453,6 +454,21 @@ describe('프로필 구성', () => {
     expect(c.searchAiMemories).toHaveBeenCalledWith(AGENT_ID, { q: '고양이' });
   });
 
+  // WP-384: search_conversations 도 라우터 전용 로컬 읽기 도구 — 지금 대화(homeSessionId)를 도구가 묶는다.
+  it('search_conversations 는 assistant 프로필·라우터 목록에만 있고 지금 대화를 빼고 찾는다', async () => {
+    const c = client();
+    const tools = buildTools(c, AGENT_ID, 'assistant', undefined, undefined, undefined, undefined, 'sid-1');
+    const t = tools.find((x) => x.name === 'search_conversations')!;
+    expect(ASSISTANT_ROUTER_TOOLS).toContain('search_conversations');
+    expect(t.annotations).toEqual({ readOnlyHint: true });
+    for (const p of ['issue', 'chat', 'home', 'messaging'] as McpProfile[]) {
+      expect(buildTools(c, AGENT_ID, p).map((x) => x.name), p).not.toContain('search_conversations');
+    }
+    vi.mocked(c.searchConversations).mockResolvedValue({ memoryEnabled: true, items: [] });
+    await t.handler({ query: '보고서' });
+    expect(c.searchConversations).toHaveBeenCalledWith(AGENT_ID, { q: '보고서', excludeSessionId: 'sid-1' });
+  });
+
   it('routerToolsFor: assistant 만 라우터 도구로 좁히고 나머지 프로필은 undefined', () => {
     expect(routerToolsFor('assistant')).toBe(ASSISTANT_ROUTER_TOOLS);
     for (const p of ['issue', 'chat', 'home', 'messaging'] as const) expect(routerToolsFor(p)).toBeUndefined();
@@ -583,7 +599,7 @@ describe('공유 도구 패리티 (#846)', () => {
     for (const t of buildTools(c, AGENT_ID, 'assistant')) {
       const s = shared.get(t.name);
       if (s) expect(t.annotations, t.name).toEqual(toolAnnotations(s));
-      else if (t.name === 'search_memory') expect(t.annotations, t.name).toEqual({ readOnlyHint: true }); // WP-383: 로컬 읽기 도구 — 읽기 힌트만
+      else if (t.name === 'search_memory' || t.name === 'search_conversations') expect(t.annotations, t.name).toEqual({ readOnlyHint: true }); // WP-383: 로컬 읽기 도구 — 읽기 힌트만
       else expect(t.annotations, t.name).toBeUndefined();
     }
   });

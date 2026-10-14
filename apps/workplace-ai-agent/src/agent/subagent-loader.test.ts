@@ -212,8 +212,10 @@ describe('실제 서브에이전트 allowlist (#844)', () => {
     }
   });
 
-  it('WP-383: search_memory 도 라우터에만 있고 어느 서브에이전트에도 없다', () => {
-    expect(ASSISTANT_ROUTER_TOOLS).toContain('search_memory');
-    expect(subagentTools.has('mcp__workplace__search_memory')).toBe(false);
+  it('WP-383·384: 검색 도구(search_memory·search_conversations)는 라우터에만 있고 어느 서브에이전트에도 없다', () => {
+    for (const n of ['search_memory', 'search_conversations']) {
+      expect(ASSISTANT_ROUTER_TOOLS, n).toContain(n);
+      expect(subagentTools.has(`mcp__workplace__${n}`), n).toBe(false);
+    }
   });
 });
