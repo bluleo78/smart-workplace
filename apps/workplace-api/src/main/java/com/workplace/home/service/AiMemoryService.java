@@ -1,6 +1,7 @@
 package com.workplace.home.service;
 
 import com.workplace.global.ai.AiMemoryLine;
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.util.TokenEstimates;
 import com.workplace.home.dto.AiMemoryItem;
 import com.workplace.home.dto.AiMemoryListResponse;
@@ -19,11 +20,11 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -78,6 +79,14 @@ public class AiMemoryService {
   private final AiPreferenceService preferences;
   private final HomeSessionRepository sessionRepo;
   private final AiMemoryClock clock;
+  private final ApplicationEventPublisher events;
+
+  /** 내용이 새로 생기거나 바뀐 메모리의 임베딩을 커밋 뒤에 채우게 한다(WP-383) — 롤백되면 이벤트도 사라진다. */
+  private void requestEmbedding(long memoryId) {
+    events.publishEvent(
+        new TextEmbeddingService.Requested(
+            TenantContext.get(), TextEmbeddingService.Target.MEMORY, memoryId));
+  }
 
   /**
    * 본인 메모리 목록(범위 무관 최신순) + 범위마다 상한 — 웹이 범위별로 묶어 개수·가득 참을 센다. 유효 행은 모두, 만료 행(expired 표시)은 최신
@@ -142,6 +151,7 @@ public class AiMemoryService {
     // WP-383: 고정 행을 다른 범위로 옮기면 그 범위의 고정 상한을 센다(판정 1) — 범위를 바꾸는 요청이라 사용자 잠금은 이미 잡았다.
     requirePinRoomIfMoving(userId, cur, s);
     Row saved = repo.update(userId, id, k, c, s, e).orElseThrow(AiMemoryException::notFound);
+    if (!cur.content().equals(saved.content())) requestEmbedding(id);
     return toItem(saved, cur, today);
   }
 
@@ -216,6 +226,7 @@ public class AiMemoryService {
     Row saved =
         repo.update(userId, id, k, normalizeContent(before.content()), s, e)
             .orElseThrow(AiMemoryException::gone);
+    if (!cur.content().equals(saved.content())) requestEmbedding(id);
     return toItem(saved, cur, today);
   }
 
@@ -305,11 +316,11 @@ public class AiMemoryService {
       throw AiMemoryException.full(m.scope());
     }
     // 되살리기(preferredId)는 원래 id 를 먼저 시도하고, 쓸 수 없으면 새 id 로 만든다.
-    if (preferredId != null) {
-      Optional<Row> same = repo.insertWithId(preferredId, userId, m);
-      if (same.isPresent()) return same.get();
-    }
-    return repo.insert(userId, m);
+    Row saved = null;
+    if (preferredId != null) saved = repo.insertWithId(preferredId, userId, m).orElse(null);
+    if (saved == null) saved = repo.insert(userId, m);
+    requestEmbedding(saved.id());
+    return saved;
   }
 
   /** 앞뒤 공백 제거 후 1~300 코드포인트인지 — 넘으면 자르지 않고 400(뜻이 바뀌므로). */

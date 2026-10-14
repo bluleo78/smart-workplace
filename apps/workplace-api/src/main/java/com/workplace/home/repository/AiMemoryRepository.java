@@ -234,11 +234,17 @@ public class AiMemoryRepository {
   /** 종류·내용·범위·기한을 바꾸고 맨 위로 올린다(updated_at 갱신) — 없거나 남의 것이면 empty. */
   public Optional<Row> update(
       long userId, long id, String kind, String content, String scope, LocalDate expiresOn) {
+    Field<Object> keepEmbeddingIfSame =
+        DSL.field(
+            "CASE WHEN {0} IS DISTINCT FROM {1} THEN NULL ELSE {2} END",
+            Object.class, AI_MEMORY.CONTENT, DSL.val(content), AI_MEMORY.EMBEDDING);
     return dsl.update(AI_MEMORY)
         .set(AI_MEMORY.KIND, kind)
         .set(AI_MEMORY.CONTENT, content)
         .set(AI_MEMORY.SCOPE, scope)
         .set(AI_MEMORY.EXPIRES_ON, expiresOn)
+        // WP-383: 내용이 바뀌면 임베딩을 같은 UPDATE 에서 비운다(SET 안의 content 는 바꾸기 전 값) — 범위·기한·종류만 바꾸면 그대로 둔다.
+        .set(java.util.Map.<Field<?>, Object>of(AI_MEMORY.EMBEDDING, keepEmbeddingIfSame))
         .set(AI_MEMORY.UPDATED_AT, OffsetDateTime.now(ZoneOffset.UTC))
         .where(AI_MEMORY.ID.eq(id))
         .and(AI_MEMORY.USER_ID.eq(userId))
