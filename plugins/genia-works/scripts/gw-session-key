@@ -1,0 +1,5 @@
+#!/bin/sh
+# 이 세션(가장 가까운 claude 조상 프로세스)의 키 "<pid>-<시작 시각>" 을 출력한다. 헤더 스크립트와 mod 가 같은 값을 얻는다.
+. "$(dirname "$0")/gw-lib.sh"
+pid=$(gw_claude_pid) || exit 1
+gw_proc_key "$pid"

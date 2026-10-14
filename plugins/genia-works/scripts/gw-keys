@@ -1,0 +1,43 @@
+#!/bin/sh
+# AI 키 저장소 ~/.genia-works/keys/<이름> 관리 — list / add <이름>(stdin 첫 줄) / remove <이름> / has <이름>.
+# 키 값은 어떤 하위 명령도 stdout 에 내지 않는다(헤더 스크립트만 파일을 직접 읽는다).
+. "$(dirname "$0")/gw-lib.sh"
+umask 077
+cmd="${1:-}"
+name="${2:-}"
+
+case "$cmd" in
+  list)
+    [ -d "$GW_KEYS" ] || exit 0
+    for f in "$GW_KEYS"/*; do
+      [ -f "$f" ] || continue
+      n=${f##*/}
+      gw_valid_name "$n" || continue
+      printf '%s\t%s\n' "$n" "$(date -r "$f" +%m-%d)"
+    done
+    ;;
+  add)
+    gw_valid_name "$name" || { echo "이름은 영문·숫자·._@- 만 쓸 수 있습니다" >&2; exit 2; }
+    IFS= read -r key || true
+    case "$key" in
+      ak_*) ;;
+      *) echo "AI 키는 ak_ 로 시작해야 합니다" >&2; exit 3 ;;
+    esac
+    case "$key" in
+      *[!A-Za-z0-9_-]*) echo "AI 키 형식이 아닙니다" >&2; exit 3 ;;
+    esac
+    mkdir -p "$GW_KEYS" && chmod 700 "$GW_HOME" "$GW_KEYS"
+    gw_write_atomic "$GW_KEYS/$name" "$key" || exit 1
+    ;;
+  remove)
+    gw_valid_name "$name" || exit 2
+    rm -f "$GW_KEYS/$name"
+    ;;
+  has)
+    gw_valid_name "$name" && [ -f "$GW_KEYS/$name" ]
+    ;;
+  *)
+    echo "사용법: gw-keys list | add <이름> | remove <이름> | has <이름>" >&2
+    exit 2
+    ;;
+esac

@@ -1,0 +1,17 @@
+#!/bin/sh
+# 테스트용 ps — FAKE_PS_TABLE 의 "pid|ppid|lstart|args" 줄로 -o 필드를 답한다. 없는 pid 는 exit 1(진짜 ps 와 같음).
+field=""; pid=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o) field=$2; shift 2 ;;
+    -p) pid=$2; shift 2 ;;
+    *) shift ;;
+  esac
+done
+line=$(grep "^$pid|" "$FAKE_PS_TABLE") || exit 1
+case "$field" in
+  ppid=) echo "$line" | cut -d'|' -f2 ;;
+  lstart=) echo "$line" | cut -d'|' -f3 ;;
+  args=) echo "$line" | cut -d'|' -f4- ;;
+  *) exit 1 ;;
+esac

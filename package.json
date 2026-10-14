@@ -6,6 +6,7 @@
     "build": "turbo run build",
     "dev": "node scripts/free-ports.mjs 6060 6070 6080 6090 6095 6173 6174 && turbo run dev",
     "test": "turbo run test",
+    "test:plugin": "node --test plugins/genia-works/tests/*.test.mjs",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "clean": "turbo run clean",
