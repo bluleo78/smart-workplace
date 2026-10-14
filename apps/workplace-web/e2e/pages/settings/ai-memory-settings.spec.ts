@@ -1,7 +1,8 @@
 // WP-55 설정 > AI 비서 > 메모리 카드(데스크톱) — 위치·목록·배지·메타, 제자리 편집(카운트·300자 초과), 삭제 토스트 되돌리기, 직접 추가(빈 값·초과 비활성·종류),
-// 모두 지우기 확인, 스위치 꺼짐(흐림 + 편집 가능), 빈 상태, 45개 주황·50개 가득 참, 저장 실패 토스트.
-// WP-379: 범위 묶음(순서·소제목·묶음 카운트·접기), 편집·추가의 범위, 가득 찬 범위.
+// 모두 지우기 확인, 스위치 꺼짐(흐림 + 편집 가능), 빈 상태, 270개 주황·300개 가득 참, 저장 실패 토스트.
+// WP-379: 범위 묶음(순서·소제목·묶음 카운트), 편집·추가의 범위, 가득 찬 범위.
 // WP-380: 기한 표기, 만료 행(흐림·삭제 예정일·기한 연장·계속 기억), 편집·추가의 기한 고르기.
+// WP-383: 고정 토글(맨 위·메타·10개면 막힘 + 툴팁·409 토스트), 20개 초과 검색칸, 행 인피니트 스크롤(처음 30행, 끝에 닿으면 +30).
 import type { Page } from '@playwright/test'
 
 import { memoryItem, mockAiMemories, openMemorySettings } from '../../fixtures/ai-memory-mock'
@@ -35,7 +36,7 @@ test('추천 질문 카드 아래·개인 비서 위에 최신순 목록과 배�
   await expect(rows(page).nth(1).getByTestId('ai-memory-kind')).toHaveAttribute('data-variant', 'ai')
   await expect(rows(page).nth(0).getByTestId('ai-memory-meta')).toHaveText('직접 추가 · 2026-10-13')
   await expect(rows(page).nth(1).getByTestId('ai-memory-meta')).toHaveText('AI가 저장 · 2026-10-12')
-  await expect(page.getByTestId('ai-memory-group-count')).toHaveText('2 / 50')
+  await expect(page.getByTestId('ai-memory-group-count')).toHaveText('2 / 300')
   await expect(page.getByTestId('ai-memory-group-title')).toHaveText('공통 · 모든 AI 대화에 반영돼요')
   await expect(page.getByTestId('ai-memory-toggle')).toHaveAttribute('aria-checked', 'true')
 })
@@ -109,10 +110,10 @@ test('삭제 토스트의 되돌리기가 실패하면 서버 문구 토스트�
   await rows(page).first().getByTestId('ai-memory-delete').click()
   await mock.deletes.waitFor()
   await expect(rows(page)).toHaveCount(1)
-  mock.failNext(409, 'AI_MEMORY_FULL', '메모리가 가득 찼어요(최대 50개). 필요 없는 항목을 지워 주세요')
+  mock.failNext(409, 'AI_MEMORY_FULL', '메모리가 가득 찼어요(최대 300개). 필요 없는 항목을 지워 주세요')
   await page.getByRole('button', { name: '되돌리기' }).click()
   await mock.creates.waitFor()
-  await expect(page.getByText('메모리가 가득 찼어요(최대 50개). 필요 없는 항목을 지워 주세요')).toBeVisible()
+  await expect(page.getByText('메모리가 가득 찼어요(최대 300개). 필요 없는 항목을 지워 주세요')).toBeVisible()
   await expect(rows(page)).toHaveCount(1)
   await expect(rows(page).first().getByTestId('ai-memory-content')).toHaveText('둘째')
 })
@@ -142,7 +143,7 @@ test('직접 추가 폼은 목록 맨 위에 열리고, 빈 값·초과면 막�
   await expect(form).toHaveCount(0)
   await expect(rows(page).first().getByTestId('ai-memory-content')).toHaveText('주로 WP 프로젝트를 본다')
   await expect(rows(page).first().getByTestId('ai-memory-kind')).toHaveText('맥락')
-  await expect(page.getByTestId('ai-memory-group-count')).toHaveText('2 / 50')
+  await expect(page.getByTestId('ai-memory-group-count')).toHaveText('2 / 300')
 })
 
 test('모두 지우기는 개수를 알려 주는 확인 뒤에만 지우고, 지우면 빈 상태가 된다', async ({ authenticatedPage: page }) => {
@@ -211,27 +212,33 @@ test('비어 있으면 안내 문구를 보이고 묶음·모두 지우기는 �
 
 const many = (n: number) => Array.from({ length: n }, (_, i) => memoryItem(n - i))
 
-test('45개면 묶음 카운트가 주황이고 추가는 된다 — 10개 넘는 묶음은 5개만 보이다 펼치고 접는다', async ({ authenticatedPage: page }) => {
-  await mockAiMemories(page, many(45))
+test('270개면 묶음 카운트가 주황이고 추가는 된다 — 행은 처음 30개만 그리고 끝에 닿으면 30개씩 더 그린다(더 보기 버튼 없음)', async ({ authenticatedPage: page }) => {
+  await mockAiMemories(page, many(270))
   await openMemorySettings(page)
-  await expect(page.getByTestId('ai-memory-group-count')).toHaveText('45 / 50')
+  await expect(page.getByTestId('ai-memory-group-count')).toHaveText('270 / 300')
   await expect(page.getByTestId('ai-memory-group-count')).toHaveClass(/text-warning-text/)
   await expect(page.getByTestId('ai-memory-add')).toBeEnabled()
   await expect(page.getByTestId('ai-memory-group-full')).toHaveCount(0)
+  await expect(page.getByTestId('ai-memory-group-more')).toHaveCount(0)
 
-  await expect(rows(page)).toHaveCount(5)
-  await expect(page.getByTestId('ai-memory-group-more')).toHaveText('40개 더 보기')
-  await page.getByTestId('ai-memory-group-more').click()
-  await expect(rows(page)).toHaveCount(45)
-  await expect(page.getByTestId('ai-memory-group-more')).toHaveText('접기')
-  await page.getByTestId('ai-memory-group-more').click()
-  await expect(rows(page)).toHaveCount(5)
+  await expect(rows(page)).toHaveCount(30)
+  // 목록 끝 sentinel 을 화면으로 가져오면 다음 30행이 이어진다.
+  await page.getByTestId('ai-memory-sentinel').scrollIntoViewIfNeeded()
+  await expect.poll(async () => await rows(page).count()).toBeGreaterThan(30)
+  // 끝까지 내려가면 전부 그려지고 그 뒤로는 더 늘지 않는다.
+  await expect
+    .poll(async () => {
+      await page.getByTestId('ai-memory-sentinel').scrollIntoViewIfNeeded()
+      return await rows(page).count()
+    })
+    .toBe(270)
+  await expect(page.getByTestId('ai-memory-group-more')).toHaveCount(0)
 })
 
-test('공통 50개면 공통 묶음에 가득 참 경고, 추가는 열리고 기본 범위는 이슈이며 공통은 고를 수 없다', async ({ authenticatedPage: page }) => {
-  const mock = await mockAiMemories(page, many(50))
+test('공통 300개면 공통 묶음에 가득 참 경고, 추가는 열리고 기본 범위는 이슈이며 공통은 고를 수 없다', async ({ authenticatedPage: page }) => {
+  const mock = await mockAiMemories(page, many(300))
   await openMemorySettings(page)
-  await expect(page.getByTestId('ai-memory-group-count')).toHaveText('가득 참 · 50 / 50')
+  await expect(page.getByTestId('ai-memory-group-count')).toHaveText('가득 참 · 300 / 300')
   await expect(page.getByTestId('ai-memory-group-full')).toHaveText(
     '공통 메모리가 가득 찼어요. 새로 기억하려면 필요 없는 항목을 지워 주세요. (AI도 새로 저장하지 못해요)',
   )
@@ -250,11 +257,11 @@ test('공통 50개면 공통 묶음에 가득 참 경고, 추가는 열리고 �
 test('저장이 거절되면 서버 사유를 토스트로 보이고 폼을 닫지 않는다', async ({ authenticatedPage: page }) => {
   const mock = await mockAiMemories(page, [memoryItem(3)])
   await openMemorySettings(page)
-  mock.failNext(409, 'AI_MEMORY_FULL', '메모리가 가득 찼어요(최대 50개). 필요 없는 항목을 지워 주세요')
+  mock.failNext(409, 'AI_MEMORY_FULL', '메모리가 가득 찼어요(최대 300개). 필요 없는 항목을 지워 주세요')
   await page.getByTestId('ai-memory-add').click()
   await page.getByTestId('ai-memory-add-input').fill('새 메모리')
   await page.getByTestId('ai-memory-add-submit').click()
-  await expect(page.getByText('메모리가 가득 찼어요(최대 50개). 필요 없는 항목을 지워 주세요')).toBeVisible()
+  await expect(page.getByText('메모리가 가득 찼어요(최대 300개). 필요 없는 항목을 지워 주세요')).toBeVisible()
   await expect(page.getByTestId('ai-memory-add-form')).toBeVisible()
 })
 
@@ -323,7 +330,7 @@ test('범위 묶음은 공통 → 이슈 → 메일 순서이고 빈 범위는 �
     '이슈 · 이슈 화면의 AI 대화에만 반영돼요',
     '메일 · 메일 화면의 AI 대화에만 반영돼요',
   ])
-  await expect(page.getByTestId('ai-memory-group-count')).toHaveText(['2 / 50', '1 / 50', '1 / 50'])
+  await expect(page.getByTestId('ai-memory-group-count')).toHaveText(['2 / 300', '1 / 300', '1 / 300'])
   await expect(groups.nth(0).getByTestId('ai-memory-content')).toHaveText(['답은 존댓말로 한다', '백엔드 팀이다'])
 })
 
@@ -356,8 +363,8 @@ test('고치기에서 범위를 바꾸면 PATCH 에 scope 를 싣고 그 묶음�
 })
 
 test('가득 찬 범위로는 옮길 수 없지만 그 범위 안의 항목은 그대로 고칠 수 있다', async ({ authenticatedPage: page }) => {
-  const issues = Array.from({ length: 50 }, (_, i) => memoryItem(50 - i, { scope: 'ISSUE', content: `이슈 메모 ${50 - i}` }))
-  const mock = await mockAiMemories(page, [memoryItem(60, { content: '공통 하나' }), ...issues])
+  const issues = Array.from({ length: 300 }, (_, i) => memoryItem(300 - i, { scope: 'ISSUE', content: `이슈 메모 ${300 - i}` }))
+  const mock = await mockAiMemories(page, [memoryItem(400, { content: '공통 하나' }), ...issues])
   await openMemorySettings(page)
   const issueGroup = page.locator('[data-testid="ai-memory-group"][data-scope="ISSUE"]')
 
@@ -415,7 +422,7 @@ test.describe('기한 (WP-380)', () => {
     await expect(rows(page).nth(0).getByTestId('ai-memory-meta')).toHaveText('AI가 저장 · 2026-10-11 · 10월 24일까지')
     await expect(rows(page).nth(2)).toHaveAttribute('data-expired', 'true')
     await expect(rows(page).nth(2).getByTestId('ai-memory-meta')).toContainText('만료됨 · 10월 10일까지 · 11월 10일에 지워져요')
-    await expect(page.getByTestId('ai-memory-group-count')).toHaveText('2 / 50')
+    await expect(page.getByTestId('ai-memory-group-count')).toHaveText('2 / 300')
   })
 
   test('만료 행의 계속 기억은 clearExpiry, 기한 연장은 고른 날짜로 PATCH 한다', async ({ authenticatedPage: page }) => {
@@ -511,5 +518,86 @@ test.describe('기한 (WP-380)', () => {
       scope: 'ISSUE',
       expiresOn: '2026-10-24',
     })
+  })
+})
+
+test.describe('고정·검색 (WP-383)', () => {
+  test('핀을 누르면 PUT 으로 고정하고 묶음 맨 위로 올라가며 메타에 "고정"이 붙는다 — 다시 누르면 푼다', async ({ authenticatedPage: page }) => {
+    const mock = await mockAiMemories(page, [
+      memoryItem(3, { content: '가장 최신' }),
+      memoryItem(2, { content: '중간' }),
+      memoryItem(1, { content: '오래된 것' }),
+    ])
+    await openMemorySettings(page)
+    const old = rows(page).filter({ hasText: '오래된 것' })
+    await expect(old.getByTestId('ai-memory-pin')).toHaveAttribute('aria-pressed', 'false')
+    await old.getByTestId('ai-memory-pin').click()
+    await mock.pins.waitFor()
+    expect(mock.pins.lastBody()).toEqual({ pinned: true })
+    await expect(rows(page).getByTestId('ai-memory-content')).toHaveText(['오래된 것', '가장 최신', '중간'])
+    await expect(rows(page).nth(0).getByTestId('ai-memory-pinned')).toBeVisible()
+    await expect(rows(page).nth(0).getByTestId('ai-memory-meta')).toContainText('고정')
+    await expect(rows(page).nth(0).getByTestId('ai-memory-pin')).toHaveAttribute('aria-pressed', 'true')
+
+    await rows(page).nth(0).getByTestId('ai-memory-pin').click()
+    await mock.pins.waitFor(2)
+    expect(mock.pins.lastBody()).toEqual({ pinned: false })
+    await expect(rows(page).getByTestId('ai-memory-content')).toHaveText(['가장 최신', '중간', '오래된 것'])
+  })
+
+  test('범위 고정이 10개면 고정 안 된 행의 핀이 막히고 툴팁으로 이유를 알린다 — 고정 풀기는 된다', async ({ authenticatedPage: page }) => {
+    const pinnedTen = Array.from({ length: 10 }, (_, i) => memoryItem(20 - i, { pinned: true, content: `고정 ${i}` }))
+    await mockAiMemories(page, [...pinnedTen, memoryItem(5, { content: '보통' })])
+    await openMemorySettings(page)
+    const plain = rows(page).filter({ hasText: '보통' })
+    await expect(plain.getByTestId('ai-memory-pin')).toBeDisabled()
+    await plain.getByTestId('ai-memory-pin-blocked').hover()
+    await expect(page.getByRole('tooltip')).toHaveText('이 범위는 고정이 10개까지예요')
+    await expect(rows(page).nth(0).getByTestId('ai-memory-pin')).toBeEnabled()
+  })
+
+  test('고정이 서버에서 거절되면(409) 서버 문구를 토스트로 띄운다', async ({ authenticatedPage: page }) => {
+    const mock = await mockAiMemories(page, [memoryItem(2, { scope: 'ISSUE', content: '이슈 메모' })])
+    await openMemorySettings(page)
+    mock.failNext(409, 'AI_MEMORY_PIN_FULL', '이슈 메모리 고정은 최대 10개예요. 다른 고정을 풀어 주세요')
+    await rows(page).getByTestId('ai-memory-pin').click()
+    await expect(page.getByText('이슈 메모리 고정은 최대 10개예요. 다른 고정을 풀어 주세요')).toBeVisible()
+    await expect(rows(page).getByTestId('ai-memory-pin')).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  test('20개 넘으면 검색칸이 생기고 내용으로 거르며 묶음 카운트는 그대로다 — 맞는 게 없으면 안내한다', async ({ authenticatedPage: page }) => {
+    await mockAiMemories(page, [memoryItem(30, { content: '고양이를 좋아한다' }), ...many(20)])
+    await openMemorySettings(page)
+    const search = page.getByTestId('ai-memory-search')
+    await search.fill('고양이')
+    await expect(rows(page).getByTestId('ai-memory-content')).toHaveText(['고양이를 좋아한다'])
+    await expect(page.getByTestId('ai-memory-group-count')).toHaveText('21 / 300')
+    await search.fill('없는 말')
+    await expect(page.getByTestId('ai-memory-search-empty')).toBeVisible()
+    await expect(rows(page)).toHaveCount(0)
+    await search.fill('')
+    await expect(rows(page)).toHaveCount(21)
+  })
+
+  test('질의를 바꾸면 인피니트 스크롤이 처음 30행으로 돌아간다', async ({ authenticatedPage: page }) => {
+    await mockAiMemories(page, many(100))
+    await openMemorySettings(page)
+    await expect(rows(page)).toHaveCount(30)
+    await expect
+      .poll(async () => {
+        await page.getByTestId('ai-memory-sentinel').scrollIntoViewIfNeeded()
+        return await rows(page).count()
+      })
+      .toBe(100)
+    // "메모리" 는 모든 행에 맞는다 — 질의가 바뀌면 다시 30행부터.
+    await page.getByTestId('ai-memory-search').fill('메모리')
+    await expect(rows(page)).toHaveCount(30)
+  })
+
+  test('20개 이하면 검색칸이 없다', async ({ authenticatedPage: page }) => {
+    await mockAiMemories(page, many(20))
+    await openMemorySettings(page)
+    await expect(rows(page)).toHaveCount(20)
+    await expect(page.getByTestId('ai-memory-search')).toHaveCount(0)
   })
 })

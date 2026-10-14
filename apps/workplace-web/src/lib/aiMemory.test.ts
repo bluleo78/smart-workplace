@@ -5,8 +5,6 @@ import type { AiMemoryItem } from '@/types/aiMemory';
 
 import {
   canSubmitContent,
-  COLLAPSE_OVER,
-  collapsedRows,
   contentCountTone,
   defaultAddScope,
   expiryPatch,
@@ -15,15 +13,22 @@ import {
   fullScopeKeys,
   groupMemories,
   listCountTone,
+  matchesMemoryQuery,
+  MEMORY_LIMIT,
   memoryErrorMessage,
   memoryFullMessage,
   memoryLength,
   memoryNoun,
+  PIN_LIMIT,
+  pinFullHint,
+  pinnedCount,
   purgeDateKey,
+  ROWS_PAGE,
   SCOPE_LABEL,
   scopeDescription,
   scopeKeyOf,
   UNDO_FULL_MESSAGE,
+  visibleGroups,
   wasExpiredAtUndo,
 } from './aiMemory';
 
@@ -48,12 +53,13 @@ describe('메모리 길이·카운트 (WP-55)', () => {
     expect(canSubmitContent('😀'.repeat(300))).toBe(true);
     expect(canSubmitContent('😀'.repeat(301))).toBe(false);
   });
-  it('내용 카운트는 300 초과면 빨강, 목록 카운트는 45 부터 주황', () => {
+  it('내용 카운트는 300 초과면 빨강, 목록 카운트는 270 부터 주황(범위마다 300, WP-383)', () => {
     expect(contentCountTone(300)).toBe('text-muted-foreground');
     expect(contentCountTone(301)).toBe('text-destructive');
     expect(listCountTone(44)).toBe('text-muted-foreground');
-    expect(listCountTone(45)).toBe('text-warning-text');
-    expect(listCountTone(50)).toBe('text-warning-text');
+    expect(listCountTone(269)).toBe('text-muted-foreground');
+    expect(listCountTone(270)).toBe('text-warning-text');
+    expect(listCountTone(MEMORY_LIMIT)).toBe('text-warning-text');
   });
   it('메모리 오류는 서버 문구, 그 밖은 fallback', () => {
     expect(memoryErrorMessage(apiError(409, { message: '메모리가 가득 찼어요(최대 50개)', errors: { code: 'AI_MEMORY_FULL' } }), 'f')).toBe(
@@ -122,13 +128,6 @@ describe('설정 묶음 (WP-379)', () => {
     expect([...fullScopeKeys(groups, 50)]).toEqual(['COMMON']);
   });
 
-  it('10개 넘는 묶음은 접으면 5개, 펼치면 전부 — 10개 이하는 그대로', () => {
-    const eleven = Array.from({ length: COLLAPSE_OVER + 1 }, (_, i) => mem(i));
-    expect(collapsedRows(eleven, false)).toHaveLength(5);
-    expect(collapsedRows(eleven, true)).toHaveLength(11);
-    expect(collapsedRows(eleven.slice(0, 10), false)).toHaveLength(10);
-  });
-
   it('직접 추가 기본 범위 — 공통, 공통이 가득이면 첫 빈 앱 범위, 모두 가득이면 null', () => {
     expect(defaultAddScope(new Set())).toBe('COMMON');
     expect(defaultAddScope(new Set(['COMMON', 'ISSUE']))).toBe('WIKI');
@@ -190,5 +189,53 @@ describe('설정 지움 되돌리기의 기한 판정 (WP-380)', () => {
     expect(wasExpiredAtUndo('2026-10-20', '2026-10-14')).toBe(false);
     expect(wasExpiredAtUndo(null, '2026-10-14')).toBe(false);
     expect(wasExpiredAtUndo(undefined, '2026-10-14')).toBe(false);
+  });
+});
+
+describe('고정·검색·인피니트 스크롤 (WP-383)', () => {
+  const pinned = (id: number, scope: AiMemoryItem['scope'] = null): AiMemoryItem => ({ ...mem(id, scope), pinned: true });
+
+  it('묶음 안에서 고정 행이 맨 위 — 고정끼리·나머지끼리는 받은 최신순 그대로', () => {
+    const groups = groupMemories([mem(9), pinned(8), mem(7), pinned(6)]);
+    expect(groups[0].active.map((m) => m.id)).toEqual([8, 6, 9, 7]);
+  });
+
+  it('고정 수는 만료 행도 센다(서버 상한과 같은 기준)', () => {
+    const expiredPinned = { ...pinned(5), expired: true, expiresOn: '2026-10-01' };
+    const [g] = groupMemories([pinned(9), mem(8), expiredPinned]);
+    expect(pinnedCount(g)).toBe(2);
+    expect(PIN_LIMIT).toBe(10);
+  });
+
+  it('검색은 앞뒤 공백을 지운 질의의 대소문자 무시 부분 일치 — 빈 질의는 모두 맞는다', () => {
+    const m = { ...mem(1), content: '고양이를 좋아한다 (ABC)' };
+    expect(matchesMemoryQuery(m, ' 고양 ')).toBe(true);
+    expect(matchesMemoryQuery(m, 'abc')).toBe(true);
+    expect(matchesMemoryQuery(m, '')).toBe(true);
+    expect(matchesMemoryQuery(m, '강아지')).toBe(false);
+  });
+
+  it('고정 막힘 안내 문구 — 데스크톱 툴팁·터치 토스트 공용', () => {
+    expect(pinFullHint(10)).toBe('이 범위는 고정이 10개까지예요');
+  });
+
+  it('인피니트 스크롤 — 묶음을 이어 앞에서 maxRows 행만, 행이 안 남은 묶음은 뺀다', () => {
+    const groups = groupMemories([...Array.from({ length: 25 }, (_, i) => mem(i + 1)), ...Array.from({ length: 10 }, (_, i) => mem(100 + i, 'ISSUE'))]);
+    const first = visibleGroups(groups, '', ROWS_PAGE);
+    expect(first.total).toBe(35);
+    expect(first.views.map((v) => [v.group.key, v.rows.length])).toEqual([
+      ['COMMON', 25],
+      ['ISSUE', 5],
+    ]);
+    expect(visibleGroups(groups, '', 20).views.map((v) => [v.group.key, v.rows.length])).toEqual([['COMMON', 20]]);
+    expect(visibleGroups(groups, '', ROWS_PAGE * 2).views.reduce((n, v) => n + v.rows.length, 0)).toBe(35);
+  });
+
+  it('인피니트 스크롤 — 검색으로 거른 행만 세고 맞는 행이 없는 묶음은 뺀다', () => {
+    const cat = { ...mem(1, 'ISSUE'), content: '고양이' };
+    const groups = groupMemories([mem(3), mem(2), cat]);
+    const { views, total } = visibleGroups(groups, '고양', ROWS_PAGE);
+    expect(total).toBe(1);
+    expect(views.map((v) => v.group.key)).toEqual(['ISSUE']);
   });
 });

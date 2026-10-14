@@ -11,9 +11,11 @@ interface SearchInputProps {
   value: string;
   onChange: (value: string) => void;
   className?: string;
+  /** 입력칸 data-testid(E2E 가 fill 할 대상). */
+  inputTestId?: string;
 }
 
-export function SearchInput({ placeholder = '검색...', 'aria-label': ariaLabel, value, onChange, className }: SearchInputProps) {
+export function SearchInput({ placeholder = '검색...', 'aria-label': ariaLabel, value, onChange, className, inputTestId }: SearchInputProps) {
   // 값이 있을 때만 노출되는 X(clear) 버튼 — 한 번에 검색어를 비울 수 있게 한다.
   // 검색 결과 0건 화면(EmptyState)에서도 동일한 onChange('')로 초기화된다.
   const hasValue = value.length > 0;
@@ -26,6 +28,7 @@ export function SearchInput({ placeholder = '검색...', 'aria-label': ariaLabel
         // aria-label: 스크린리더에서 입력 목적을 인식할 수 있도록 aria-label 전달.
         // placeholder는 VoiceOver/NVDA에서 accessible name으로 처리되지 않으므로 명시 필요.
         aria-label={ariaLabel ?? placeholder}
+        data-testid={inputTestId}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className={cn('pl-9', hasValue && 'pr-9')}
