@@ -31,6 +31,8 @@ function mockClient(): IssueToolClient {
     unwatchIssue: vi.fn().mockResolvedValue(undefined),
     getIssueWatchers: vi.fn().mockResolvedValue([]),
     getIssueDriveLinks: vi.fn().mockResolvedValue([]),
+    getIssueChatThreadId: vi.fn().mockResolvedValue(55),
+    listIssueChatMessages: vi.fn().mockResolvedValue({ items: [], nextCursor: null, hasMore: false }),
     getProjectFields: vi.fn().mockResolvedValue([
       { id: 8, name: '고객사', type: 'SELECT', options: ['A사', 'B사'] },
       { id: 9, name: '견적', type: 'NUMBER', options: null },
@@ -42,7 +44,7 @@ function mockClient(): IssueToolClient {
 }
 
 describe('buildSharedIssueTools', () => {
-  it('정확히 10종을 반환한다', () => {
+  it('정확히 11종을 반환한다', () => {
     const names = buildSharedIssueTools(mockClient()).map((t) => t.name).sort();
     expect(names).toEqual(
       [
@@ -50,6 +52,7 @@ describe('buildSharedIssueTools', () => {
         'add_issue_dependency',
         'create_issue',
         'update_comment',
+        'get_issue_chat',
         'get_issue_detail',
         'remove_issue_dependency',
         'report_agent_work',
@@ -415,5 +418,42 @@ describe('buildSharedIssueTools', () => {
     const t = buildSharedIssueTools(c).find((x) => x.name === 'remove_issue_dependency')!;
     await expect(t.handler({ issueKey: 'WP-1', otherIssueKey: 'WP-2', direction: 'blockedBy' })).resolves.toBe('ok');
     expect(c.removeIssueDependency).toHaveBeenCalledWith('WP-1', 2, 'blockedBy');
+  });
+});
+
+describe('get_issue_chat (WP-373)', () => {
+  const rows = [
+    { id: 11, authorId: 7, authorName: '코디', authorUsername: 'kodi', authorKind: 'AGENT', body: '질문', question: true,
+      createdAt: '2026-10-14T01:00:00Z', editedAt: null, deleted: false, mentions: [], driveLinks: [],
+      attachments: [{ fileId: 900, messageId: 11, originalName: 'a.txt', mimeType: 'text/plain', sizeBytes: 12, attachedById: 7, attachedByName: '코디', attachedAt: 'x', extraction: { status: 'READY', totalChars: 12 } }] },
+    { id: 12, authorId: 3, authorName: '양동희', authorUsername: 'dh', authorKind: 'HUMAN', body: '(삭제됨)', question: false,
+      createdAt: '2026-10-14T01:01:00Z', editedAt: null, deleted: true, mentions: [], driveLinks: [], attachments: [] },
+  ];
+  const chatTool = (c: IssueToolClient) => buildSharedIssueTools(c).find((x) => x.name === 'get_issue_chat')!;
+
+  it('after 가 없으면 afterMine 경로로 읽고 author 를 username 으로 준다(숫자 사용자 id 없음)', async () => {
+    const c = mockClient();
+    vi.mocked(c.listIssueChatMessages).mockResolvedValue({ items: rows, nextCursor: null, hasMore: false });
+    const out = JSON.parse(resultText(await chatTool(c).handler({ issueKey: 'WP-1' })));
+    expect(c.getIssueChatThreadId).toHaveBeenCalledWith('WP-1');
+    expect(c.listIssueChatMessages).toHaveBeenCalledWith(55, { after: undefined, limit: 30 });
+    expect(out).toEqual({
+      messages: [
+        { id: 11, author: { username: 'kodi', name: '코디', kind: 'AGENT' }, body: '질문', question: true, createdAt: '2026-10-14T01:00:00Z',
+          attachments: [{ attachmentId: 900, name: 'a.txt', mimeType: 'text/plain', size: 12, extraction: { status: 'READY', totalChars: 12 } }] },
+        { id: 12, author: { username: 'dh', name: '양동희', kind: 'HUMAN' }, deleted: true, createdAt: '2026-10-14T01:01:00Z' },
+      ],
+      hasMore: false,
+    });
+    expect(JSON.stringify(out)).not.toMatch(/authorId|attachedById/);
+  });
+
+  it('after·limit 을 넘기고 hasMore 면 next 를 숫자로 준다', async () => {
+    const c = mockClient();
+    vi.mocked(c.listIssueChatMessages).mockResolvedValue({ items: rows.slice(0, 1), nextCursor: '11', hasMore: true });
+    const out = JSON.parse(resultText(await chatTool(c).handler({ issueKey: 'WP-1', after: 10, limit: 1 })));
+    expect(c.listIssueChatMessages).toHaveBeenCalledWith(55, { after: 10, limit: 1 });
+    expect(out.hasMore).toBe(true);
+    expect(out.next).toBe(11);
   });
 });

@@ -152,6 +152,15 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
       const data = (await http.get('/me/issues', { params: query })).data;
       return { items: data?.items ?? [], nextCursor: data?.nextCursor, hasMore: data?.hasMore };
     },
+    async getIssueChatThreadId(issueKey) {
+      return (await http.get(`${issue(issueKey)}/chat/thread`)).data.threadId;
+    },
+    async listIssueChatMessages(threadId, { after, limit }) {
+      // after 가 없으면 서버가 내 마지막 글 기준(afterMine)으로 고른다 — 새 글과 직전 맥락을 한 번에 받는다(WP-373).
+      const params = after !== undefined ? { after, limit } : { afterMine: true, limit };
+      const data = (await http.get(`/chat/threads/${threadId}/messages`, { params })).data;
+      return { items: data?.items ?? [], nextCursor: data?.nextCursor, hasMore: !!data?.hasMore };
+    },
     async getIssueDetail(issueKey) {
       return (await http.get(issue(issueKey))).data;
     },
@@ -531,6 +540,15 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     },
     async downloadIssueAttachment(issueKey, fileId) {
       return getBytes(http, `${issue(issueKey)}/attachments/${fileId}/content`);
+    },
+    async readIssueChatAttachmentText(issueKey, _messageId, fileId, range) {
+      // 텍스트 API 는 스레드 단위(메시지 id 없음) — 메시지 소속 확인은 원본 받기 경로가 한다(WP-373).
+      const threadId = (await http.get(`${issue(issueKey)}/chat/thread`)).data.threadId;
+      return (await http.get(`/chat/threads/${threadId}/attachments/${fileId}/text`, rangeParams(range))).data;
+    },
+    async downloadIssueChatAttachment(issueKey, messageId, fileId) {
+      const threadId = (await http.get(`${issue(issueKey)}/chat/thread`)).data.threadId;
+      return getBytes(http, `/chat/threads/${threadId}/messages/${messageId}/attachments/${fileId}/content`);
     },
     async readDriveFileText(driveFileId, range) {
       return (await http.get(`/drive/files/${driveFileId}/text`, rangeParams(range))).data;

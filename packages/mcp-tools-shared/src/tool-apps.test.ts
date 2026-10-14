@@ -51,7 +51,7 @@ describe('도구 앱 태그 (WP-350)', () => {
  */
 /** read_file 의 source 갈래별 id 출처 도구(설명에 적는 것). 앱 → 그 갈래의 출처 도구. */
 const ATTACHMENT_SOURCE_REFS: Record<string, string[]> = {
-  issue: ['get_issue_detail'],
+  issue: ['get_issue_detail', 'get_issue_chat'], // WP-373: issue_chat 갈래의 id 출처
   drive: [], // WP-369: driveFileId 출처는 드라이브 앱의 목록·검색이 모두 주므로 설명에서 뺐다
   wiki: [],
   messaging: ['list_channel_messages', 'list_thread_replies'],

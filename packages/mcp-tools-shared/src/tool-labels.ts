@@ -17,6 +17,7 @@ export const TOOL_LABELS: Readonly<Record<string, ToolLabel>> = {
   unassign_self: { label: '담당 해제', icon: '🙅' },
   add_comment: { label: '코멘트 작성', icon: '💬' },
   report_agent_work: { label: 'AI 작업 보고', icon: '🤖' },
+  get_issue_chat: { label: '이슈 챗 읽기', icon: '💬' },
   update_comment: { label: '코멘트 수정', icon: '✏️' },
   add_issue_dependency: { label: '이슈 의존관계 추가', icon: '🔗' },
   remove_issue_dependency: { label: '이슈 의존관계 제거', icon: '🔗' },

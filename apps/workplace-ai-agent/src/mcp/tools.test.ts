@@ -182,6 +182,10 @@ function sharedMock(): MockedShared {
     downloadMessageAttachment: vi.fn(),
     readMailAttachmentText: vi.fn(),
     downloadMailAttachment: vi.fn(),
+    getIssueChatThreadId: vi.fn(),
+    listIssueChatMessages: vi.fn(),
+    readIssueChatAttachmentText: vi.fn(),
+    downloadIssueChatAttachment: vi.fn(),
   };
 }
 
