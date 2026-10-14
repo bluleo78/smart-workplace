@@ -323,6 +323,9 @@ test('묶이지 않은 행의 부모 칩은 키를 먼저 보인다', async ({ a
   await page.goto('/me/ai-tasks')
   await expect(page.getByTestId('issue-row-431-parent')).toContainText('WP-377')
   await expect(page.getByTestId('issue-row-431-parent')).toContainText('AI 작업 기록')
+  // 1280 에서도 키 뒤에 부모 제목이 폭 0 으로 숨지 않고 앞 글자가 말줄임으로 보인다(제목 칸이 칩 몫을 남긴다).
+  const parentTitle = page.getByTestId('issue-row-431-parent').locator('span').last()
+  expect((await parentTitle.boundingBox())!.width).toBeGreaterThan(12)
 })
 
 test('다음 페이지의 하위 행은 같은 머리 아래 이어 붙는다', async ({ authenticatedPage: page }) => {

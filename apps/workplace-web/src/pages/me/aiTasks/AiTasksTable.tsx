@@ -75,10 +75,10 @@ function AiTaskRow({ it, inGroup }: { it: IssueResponse; inGroup: boolean }) {
           {it.type && (
             <span className="shrink-0"><IssueTypeBadge type={it.type} size="sm" iconOnly /></span>
           )}
-          {/* 부모 칩이 붙는 행은 제목을 줄이지 않고(칩 최소 5rem 만 남김) 칩이 남는 폭에서 말줄임된다. */}
+          {/* 부모 칩이 붙는 행은 제목을 줄이지 않고 칩 몫으로 9rem 을 남긴다 — 아이콘·키 뒤에 부모 제목 앞 글자가 말줄임으로라도 보이게(좁은 칸에선 제목 최소 6rem 이 우선). */}
           <Link
             to={`/projects/${it.projectKey}/issues/${it.number}`}
-            className={cn('min-w-[6rem] truncate font-medium hover:underline', it.parent && !inGroup && 'shrink-0 max-w-[calc(100%-5rem)]')}
+            className={cn('min-w-[6rem] truncate font-medium hover:underline', it.parent && !inGroup && 'shrink-0 max-w-[calc(100%-9rem)]')}
             title={it.title}
           >
             {it.title}
