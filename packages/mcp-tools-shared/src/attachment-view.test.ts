@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { FileTooLargeError } from './attachment-read.js';
-import { imageViewBlocks, originalImageBlocks, pageBlocks, pagesShape, viewBlocks } from './attachment-view.js';
+import { imageViewBlocks, originalImageBlocks, PAGES_NOTE_HINT, pageBlocks, pagesShape, viewBlocks } from './attachment-view.js';
 import type { McpContent } from './mcp-content.js';
 import type { FileBytes } from './tool-client.js';
 
@@ -33,7 +33,9 @@ describe('pageBlocks', () => {
     const fetch = vi.fn().mockResolvedValue(png());
     const out = (await pageBlocks('"보고서.pdf"', [7, 7, 8], fetch)) as McpContent[];
     expect(fetch.mock.calls).toEqual([[7], [8]]);
-    expect(out.map((b) => b.type)).toEqual(['text', 'image', 'text', 'image']);
+    expect(out.map((b) => b.type)).toEqual(['text', 'image', 'text', 'image', 'text']);
+    // 마지막은 본 내용을 글로 남기라는 안내 — 압축되면 이미지는 빠지고 글만 남는다.
+    expect(out[4]).toEqual({ type: 'text', text: PAGES_NOTE_HINT });
     expect(out[0]).toEqual({ type: 'text', text: expect.stringContaining('7쪽') });
     expect(out[2]).toEqual({ type: 'text', text: expect.stringContaining('8쪽') });
   });
@@ -59,6 +61,7 @@ describe('pageBlocks', () => {
       '"a.pdf" 3쪽(전체 9쪽) (image/png, 4B)',
       '"a.pdf" 1쪽 (image/png, 4B)',
       '"a.pdf" 2쪽 (image/jpeg, 4B)',
+      PAGES_NOTE_HINT,
     ]);
   });
 
@@ -74,6 +77,7 @@ describe('pageBlocks', () => {
       '"a.pdf" 4쪽 (image/png, 4B)',
       'image',
       '"a.pdf" 9쪽: 이 PDF 는 6쪽입니다.',
+      PAGES_NOTE_HINT,
     ]);
   });
 
@@ -139,8 +143,9 @@ describe('pageBlocks', () => {
       return png();
     });
     const out = (await pageBlocks('"a.pdf"', [6, 7], fetch)) as McpContent[];
-    expect(out.map((b) => b.type)).toEqual(['text', 'image', 'text']);
+    expect(out.map((b) => b.type)).toEqual(['text', 'image', 'text', 'text']);
     expect(out[2]).toEqual({ type: 'text', text: expect.stringContaining('이 PDF 는 6쪽입니다.') });
+    expect(out[3]).toEqual({ type: 'text', text: PAGES_NOTE_HINT });
   });
 });
 

@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import { FileTooLargeError, IMAGE_MAX_BYTES, READ_ATTACHMENT_DEFAULT_LIMIT } from './attachment-read.js';
 import { buildAttachmentTools, readFileInput } from './attachment-tools.js';
+import { PAGES_NOTE_HINT } from './attachment-view.js';
 import { resultText, type McpContent } from './mcp-content.js';
 import type { AttachmentToolClient, ExtractedTextSlice } from './tool-client.js';
 
@@ -386,7 +387,7 @@ describe('read_file — 페이지 이미지(pages, WP-250)', () => {
     const out = (await readAttachment(c).handler({ source: 'issue', issueKey: 'WP-1', attachmentId: 55, pages: [2] })) as McpContent[];
     expect(c.viewIssueAttachment).toHaveBeenCalledWith('WP-1', 55, 2);
     expect(c.readIssueAttachmentText).not.toHaveBeenCalled();
-    expect(out).toEqual([{ type: 'text', text: expect.stringContaining('2쪽') }, JPEG_BLOCK]);
+    expect(out).toEqual([{ type: 'text', text: expect.stringContaining('2쪽') }, JPEG_BLOCK, { type: 'text', text: PAGES_NOTE_HINT }]);
   });
 
   it('drive + pages:[1,2,3]: 쪽마다 한 번씩', async () => {
