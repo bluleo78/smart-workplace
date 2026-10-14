@@ -7,7 +7,7 @@
 // 세션 첨부는 이슈·드라이브 파일이 아니라 세션에 묶인 파일이라 공유 도구로 읽을 수 없다 — 그래서 이 도구만 ai-agent 전용으로 남는다.
 // opencode 비전 미지원 모델이면 stdio-entry 가 이미지 블록을 안내 문구로 바꾼다(WP-241).
 // WP-250: 모델이 이미지를 볼 수 있으면(images.input) PDF 는 pages:[n] 으로 쪽 이미지를 보고(그림·도표·스캔 PDF), 이미지는
-// 보낼 수 있으면 원본·아니면(HEIC·큰 이미지) 서버 변환본으로 돌려준다. 이미지 장수는 실행당 예산(images.budget)이 묶는다.
+// 보낼 수 있으면 원본·아니면(HEIC·큰 이미지) 서버 변환본으로 돌려준다.
 import {
   baseMimeType,
   canViewPages,
@@ -60,7 +60,7 @@ export function buildReadChatAttachmentTool(
   client: WorkplaceApiClient,
   onBehalfOfId: number,
   homeSessionId?: string,
-  // WP-250: 모델이 이미지를 볼 수 있는지(기본 true)와 실행당 이미지 예산(없으면 호출당 3장만). buildTools 의 images 와 같은 값이다.
+  // WP-250: 모델이 이미지를 볼 수 있는지(기본 true). buildTools 의 images 와 같은 값이다.
   images: ImageOptions = { input: true },
 ): McpTool {
   // WP-250: pages(PDF 쪽 이미지)는 이미지를 볼 수 있는 모델에만 싣는다 — 못 쓰는 인자를 스키마에 두지 않는다.
@@ -92,7 +92,6 @@ export function buildReadChatAttachmentTool(
           `첨부 PDF ${name}(fileId ${a.fileId})`,
           p.pages,
           (n) => client.viewHomeAttachment(onBehalfOfId, homeSessionId, a.fileId, n),
-          images.budget,
         );
       }
       if (fileKind(a.mimeType) === 'image') {
@@ -102,7 +101,6 @@ export function buildReadChatAttachmentTool(
           a,
           () => client.downloadHomeAttachment(onBehalfOfId, homeSessionId, a.fileId),
           () => client.viewHomeAttachment(onBehalfOfId, homeSessionId, a.fileId),
-          images.budget,
         );
       }
       if (a.extraction.status !== 'READY') return nonReadyNotice(a, images.input);

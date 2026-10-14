@@ -6,7 +6,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { buildSharedTools, ImageBudget, isDisplayableTool, MEMORY_TOOL_NAMES, toolAnnotations, toolNameViolations, TOOL_LABELS, type SharedToolClient } from '@smart-workplace/mcp-tools-shared';
+import { buildSharedTools, isDisplayableTool, MEMORY_TOOL_NAMES, toolAnnotations, toolNameViolations, TOOL_LABELS, type SharedToolClient } from '@smart-workplace/mcp-tools-shared';
 import { describe, expect, it, vi, type Mock } from 'vitest';
 import { z } from 'zod';
 
@@ -822,7 +822,7 @@ describe('chat 도구', () => {
   // WP-250: 이슈 챗 첨부 — PDF pages·이미지(원본/변환본).
   describe('read_chat_thread_attachment pages·이미지', () => {
     const png = { data: Buffer.from('PNGDATA'), mimeType: 'image/png' };
-    const chatTool = (c: WorkplaceApiClient, images?: { input: boolean; budget?: ImageBudget }, bound = 5) =>
+    const chatTool = (c: WorkplaceApiClient, images?: { input: boolean }, bound = 5) =>
       find(buildTools(c, AGENT_ID, 'chat', undefined, undefined, undefined, bound, undefined, images), 'read_chat_thread_attachment');
     const meta = (fileId: number, mimeType: string, sizeBytes = 1000) => ({ fileId, originalName: `f${fileId}`, mimeType, sizeBytes });
 
@@ -901,26 +901,6 @@ describe('chat 도구', () => {
       expect(out[1]).toMatchObject({ type: 'image', mimeType: 'image/jpeg' });
     });
 
-    it('이슈 챗 이미지 경로도 예산을 센다 — 다 쓰면 원본·변환본을 받지 않고 안내, 실패한 장수는 돌려놓는다', async () => {
-      const c = client();
-      const budget = new ImageBudget(1);
-      vi.mocked(c.readChatAttachmentText).mockResolvedValue(imageSlice(7));
-      vi.mocked(c.listThreadIssueAttachments).mockResolvedValue([meta(7, 'image/jpeg') as never]);
-      vi.mocked(c.downloadThreadIssueAttachment).mockResolvedValue({ data: Buffer.from('JPG'), mimeType: 'image/jpeg' });
-      const t = chatTool(c, { input: true, budget });
-      expect(Array.isArray(await t.handler({ threadId: 5, fileId: 7 }))).toBe(true);
-      expect(await t.handler({ threadId: 5, fileId: 7 })).toContain('다 썼습니다');
-      expect(c.downloadThreadIssueAttachment).toHaveBeenCalledTimes(1);
-      // 변환 실패(이미지를 못 줌)는 예산을 돌려놓는다 — 다음 호출이 다시 받을 수 있다.
-      const b2 = new ImageBudget(1);
-      const c2 = client();
-      vi.mocked(c2.readChatAttachmentText).mockResolvedValue(imageSlice(7));
-      vi.mocked(c2.viewChatAttachment).mockRejectedValueOnce(new Error('503')).mockResolvedValue(png);
-      const t2 = chatTool(c2, { input: true, budget: b2 });
-      expect(typeof (await t2.handler({ threadId: 5, fileId: 7 }))).toBe('string');
-      expect(Array.isArray(await t2.handler({ threadId: 5, fileId: 7 }))).toBe(true);
-    });
-
     it('이슈 첨부 목록 조회가 실패하고 메시지 창 밖이어도(메타 없음) 변환본(/view)으로 이미지를 준다', async () => {
       const c = client();
       vi.mocked(c.readChatAttachmentText).mockResolvedValue(imageSlice(7));
@@ -983,16 +963,6 @@ describe('chat 도구', () => {
       expect(chatTool(c, { input: false }).description).not.toContain('pages');
       expect(keys(chatTool(c, { input: true }))).toContain('pages');
       expect(chatTool(c).description).toContain('pages');
-    });
-
-    it('이미지 예산을 다 쓰면 /view·원본을 받지 않고 안내', async () => {
-      const c = client();
-      const budget = new ImageBudget(1);
-      vi.mocked(c.viewChatAttachment).mockResolvedValue(png);
-      const t = chatTool(c, { input: true, budget });
-      expect(Array.isArray(await t.handler({ threadId: 5, fileId: 3, pages: [1] }))).toBe(true);
-      expect(await t.handler({ threadId: 5, fileId: 3, pages: [2] })).toContain('다 썼습니다');
-      expect(c.viewChatAttachment).toHaveBeenCalledTimes(1);
     });
   });
 

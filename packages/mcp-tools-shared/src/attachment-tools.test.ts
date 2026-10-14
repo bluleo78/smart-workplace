@@ -3,7 +3,6 @@ import { z } from 'zod';
 
 import { FileTooLargeError, IMAGE_MAX_BYTES, READ_ATTACHMENT_DEFAULT_LIMIT } from './attachment-read.js';
 import { buildAttachmentTools, readFileInput } from './attachment-tools.js';
-import { ImageBudget } from './attachment-view.js';
 import { resultText, type McpContent } from './mcp-content.js';
 import type { AttachmentToolClient, ExtractedTextSlice } from './tool-client.js';
 
@@ -430,7 +429,7 @@ describe('read_file — 메일 PENDING (WP-358)', () => {
   });
 });
 
-// WP-250: PDF 페이지 이미지(pages)·스캔 PDF 안내·실행당 이미지 예산.
+// WP-250: PDF 페이지 이미지(pages)·스캔 PDF 안내.
 describe('read_file — 페이지 이미지(pages, WP-250)', () => {
   const PDF_READY = slice('READY', { totalChars: 5, truncated: false, nextOffset: null, text: '본문', pageCount: 6 });
   const SCANNED = slice('SKIPPED', { reasonCode: 'SCANNED_PDF', reason: '스캔된 PDF로 보여 읽을 수 있는 글자가 없습니다.', pageCount: 4 });
@@ -522,31 +521,5 @@ describe('read_file — 페이지 이미지(pages, WP-250)', () => {
     const c = mockClient();
     vi.mocked(c.readMailAttachmentText).mockResolvedValue(SCANNED);
     expect(JSON.parse(resultText(await readAttachment(c).handler({ source: 'mail', attachmentId: 55 })))).not.toHaveProperty('note');
-  });
-
-  it('예산은 호출 사이에 공유된다 — ImageBudget(3) 으로 pages:[1,2] 두 번이면 두 번째는 다 썼다는 안내', async () => {
-    const c = mockClient();
-    const tool = readAttachment(c, { images: { input: true, budget: new ImageBudget(3) } });
-    await tool.handler({ source: 'drive', driveFileId: 9, pages: [1, 2] });
-    expect(await tool.handler({ source: 'drive', driveFileId: 9, pages: [1, 2] })).toContain('1장 남았습니다(요청 2장)');
-    expect(c.viewDriveFile).toHaveBeenCalledTimes(2);
-  });
-
-  it('이미지 원본 보기도 예산을 1장 쓴다', async () => {
-    const c = mockClient();
-    vi.mocked(c.readDriveFileText).mockResolvedValue(IMAGE_SKIP);
-    const tool = readAttachment(c, { images: { input: true, budget: new ImageBudget(1) } });
-    await tool.handler({ source: 'drive', driveFileId: 9 });
-    expect(await tool.handler({ source: 'drive', driveFileId: 9 })).toContain('다 썼습니다(1장)');
-  });
-
-  // 리뷰 M2: 메일 이미지가 거절 안내로 끝나면(형식 불가) 예산을 쓰지 않는다.
-  it('메일 이미지가 거절 안내로 끝나면 예산을 되돌린다', async () => {
-    const c = mockClient();
-    vi.mocked(c.readMailAttachmentText).mockResolvedValue(IMAGE_SKIP);
-    vi.mocked(c.downloadMailAttachment).mockResolvedValue({ data: PNG, mimeType: 'image/heic' });
-    const budget = new ImageBudget(1);
-    expect(await readAttachment(c, { images: { input: true, budget: budget } }).handler({ source: 'mail', attachmentId: 55 })).toContain('형식(image/heic)');
-    expect(budget.take(1)).toBe(true);
   });
 });

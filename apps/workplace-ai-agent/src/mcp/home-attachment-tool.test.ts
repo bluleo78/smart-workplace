@@ -1,7 +1,7 @@
 // WP-234: 메인 AI 채팅 첨부 읽기 도구 — 세션 바인딩·문서 상태별·이미지 형식/크기 분기.
 import { describe, expect, it, vi } from 'vitest';
 
-import { IMAGE_MAX_BYTES, ImageBudget, READ_ATTACHMENT_DEFAULT_LIMIT } from '@smart-workplace/mcp-tools-shared';
+import { IMAGE_MAX_BYTES, READ_ATTACHMENT_DEFAULT_LIMIT } from '@smart-workplace/mcp-tools-shared';
 import type { z } from 'zod';
 
 import type { ExtractionInfo, HomeAttachmentMeta, WorkplaceApiClient } from '../clients/workplace-api.js';
@@ -211,20 +211,6 @@ describe('read_chat_attachment', () => {
       expect(off.description).not.toContain('pages');
       expect(Object.keys((on.inputSchema as z.ZodObject).shape)).toContain('pages');
       expect(on.description).toContain('pages');
-    });
-
-    it('이미지 예산 — 다 쓰면 이미지를 받지 않고 안내, 받은 장수만큼만 소모', async () => {
-      const budget = new ImageBudget(1);
-      const c = mockClient([att(9, 'image/png', ex('NONE'), 7), att(8, 'application/pdf', ex('READY'))]);
-      const t = buildReadChatAttachmentTool(c as unknown as WorkplaceApiClient, USER, SID, { input: true, budget });
-      expect(Array.isArray(await t.handler({ fileId: 9 }))).toBe(true);
-      const out = await t.handler({ fileId: 9 });
-      expect(typeof out).toBe('string');
-      expect(out as string).toContain('다 썼습니다');
-      expect(c.downloadHomeAttachment).toHaveBeenCalledTimes(1);
-      // 예산이 모자란 pages 호출도 /view 를 부르지 않는다.
-      expect(String(await t.handler({ fileId: 8, pages: [1] }))).toContain('다 썼습니다');
-      expect(c.viewHomeAttachment).not.toHaveBeenCalled();
     });
   });
 });

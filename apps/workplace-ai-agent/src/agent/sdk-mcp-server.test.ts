@@ -17,7 +17,7 @@ import { createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk';
 import { buildTools } from '../mcp/tools.js';
 import { adaptMcpTool, buildInProcessWorkplaceMcpServer } from './sdk-mcp-server.js';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
-import { ImageBudget, toolAnnotations, type SharedTool } from '@smart-workplace/mcp-tools-shared';
+import { toolAnnotations, type SharedTool } from '@smart-workplace/mcp-tools-shared';
 
 describe('adaptMcpTool', () => {
   it('string 반환을 CallToolResult content 로 래핑', async () => {
@@ -126,8 +126,8 @@ describe('adaptMcpTool onTool emit (#462 슬라이스4)', () => {
 });
 
 describe('buildInProcessWorkplaceMcpServer', () => {
-  // WP-250: Claude 경로는 늘 이미지를 볼 수 있고, 서버 하나가 실행 하나라 실행당 예산을 서버마다 새로 만들어 9번째 인자로 넘긴다.
-  const IMAGES = { input: true, budget: expect.any(ImageBudget) };
+  // WP-250: Claude 경로는 늘 이미지를 볼 수 있어 9번째 인자로 이미지 입력을 연다.
+  const IMAGES = { input: true };
 
   it('컨텍스트를 buildTools 로 전달하고 server 명 workplace 로 createSdkMcpServer 호출', () => {
     const client = {} as WorkplaceApiClient;
@@ -167,8 +167,8 @@ describe('buildInProcessWorkplaceMcpServer', () => {
   });
 });
 
-// WP-250: 실행당 이미지 상한 — 실제 buildTools 로 만든 서버의 read_file 이 서버(= 실행)마다 하나인 예산을 같이 쓴다.
-describe('실행당 이미지 예산 (WP-250)', () => {
+// WP-250: 이미지 장수는 실행 단위로 세지 않는다 — 긴 실행은 SDK 의 컨텍스트 자동 압축에 맡기고, 호출당 3쪽 상한만 둔다.
+describe('read_file 페이지 보기 — 실행당 상한 없음 (WP-250)', () => {
   type AdaptedTool = { name: string; handler: (args: unknown, extra: unknown) => Promise<{ content: { type: string; text?: string }[] }> };
 
   // 실제 buildTools 로 assistant 서버를 만들고, 그 read_file 호출 함수와 쪽 이미지를 돌려주는 viewDriveFile 목을 함께 돌려준다.
@@ -184,31 +184,12 @@ describe('실행당 이미지 예산 (WP-250)', () => {
     return { call, viewDriveFile };
   }
 
-  it('3장씩 6번(18장) 본 뒤 7번째 3장 요청은 남은 장수(2장)로 거절하고, 2장을 더 보면 20장째에서 다 썼다는 안내', async () => {
+  it('3쪽씩 여러 번 불러도(24장) 실행 단위로 거절하지 않는다', async () => {
     const { call, viewDriveFile } = await serverReadFile();
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 8; i++) {
       const res = await call([1, 2, 3]);
       expect(res.content.filter((b) => b.type === 'image'), `${i + 1}번째`).toHaveLength(3);
     }
-    const seventh = await call([1, 2, 3]);
-    expect(seventh.content).toHaveLength(1);
-    expect(seventh.content[0].text).toContain('2장 남았습니다');
-    // 예산은 받기 전에 잡으므로 거절된 7번째는 서버에 쪽 이미지를 요청하지 않는다.
-    expect(viewDriveFile).toHaveBeenCalledTimes(18);
-
-    // 남은 2장은 그대로 볼 수 있고, 다 쓰면(남은 0장) 실행당 상한을 다 썼다는 안내로 거절한다.
-    const eighth = await call([1, 2]);
-    expect(eighth.content.filter((b) => b.type === 'image')).toHaveLength(2);
-    const ninth = await call([1]);
-    expect(ninth.content).toEqual([{ type: 'text', text: '이번 대화에서 볼 수 있는 이미지를 다 썼습니다(20장). 볼 페이지를 좁혀 달라고 사용자에게 요청하세요.' }]);
-    expect(viewDriveFile).toHaveBeenCalledTimes(20);
-  });
-
-  it('새 서버(= 새 실행)는 예산을 새로 받는다', async () => {
-    const first = await serverReadFile();
-    for (let i = 0; i < 7; i++) await first.call([1, 2, 3]);
-    const second = await serverReadFile();
-    const res = await second.call([1, 2, 3]);
-    expect(res.content.filter((b) => b.type === 'image')).toHaveLength(3);
+    expect(viewDriveFile).toHaveBeenCalledTimes(24);
   });
 });

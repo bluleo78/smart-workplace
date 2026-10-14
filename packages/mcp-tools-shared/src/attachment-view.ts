@@ -2,7 +2,7 @@
 // read_file(공유)과 ai-agent 전용 첨부 읽기 도구가 같이 쓴다. 두 갈래가 있다:
 //  · PDF 페이지 — 모델이 pages:[n] 로 고른 쪽을 서버가 이미지로 그려 준다(그림·도표·스캔은 텍스트 추출로 못 읽어서).
 //  · 이미지 — 그대로 보낼 수 있으면(JPEG·PNG·GIF·WebP, 3.75MB 이하) 원본, 아니면(HEIC·TIFF·BMP·큰 이미지) 서버 변환본.
-// 이미지 블록은 대화 내내 매 턴 다시 실려 요청 크기(Messages API 32MB)를 키우므로 호출당·실행당 장수를 묶는다(ImageBudget).
+// 한 번의 호출로 보는 쪽수는 MAX_PAGES_PER_CALL 로 묶는다. 실행 전체의 이미지 누적은 세지 않는다 — 긴 실행은 러너의 컨텍스트 압축에 맡긴다.
 import { z } from 'zod';
 
 import { baseMimeType, FileTooLargeError, IMAGE_MAX_BYTES, imageRejectReasons, SENDABLE_IMAGE_MIMES, toBase64 } from './attachment-read.js';
@@ -17,60 +17,6 @@ export const MAX_PAGES_PER_CALL = 3;
 export const MAX_VIEW_SOURCE_BYTES = 25 * 1024 * 1024;
 /** 모델이 이미지를 볼 수 있을 때 ai-agent 첨부 도구(read_chat_attachment·read_chat_thread_attachment) 설명에 덧붙이는 pages 한 문장. */
 export const PAGES_DESCRIPTION = `PDF 는 pages:[n](최대 ${MAX_PAGES_PER_CALL}쪽)로 쪽 이미지를 볼 수 있습니다(그림·도표·스캔).`;
-/** 한 번의 실행에서 볼 수 있는 최대 이미지 수 — 이전 이미지가 매 턴 다시 실려도 요청 크기 상한에 닿지 않게. */
-export const IMAGE_BUDGET_PER_RUN = 20;
-
-/** 예산을 다 썼을 때 모델에 주는 안내 — 같은 요청을 되풀이하지 않고 사용자에게 범위를 좁혀 달라고 하게 한다. cap 은 실제 상한. */
-const usedUpNotice = (cap: number) =>
-  `이번 대화에서 볼 수 있는 이미지를 다 썼습니다(${cap}장). 볼 페이지를 좁혀 달라고 사용자에게 요청하세요.`;
-
-/**
- * 실행당 이미지 상한 — 도구 서버 인스턴스(= 한 번의 에이전트 실행)마다 하나를 만들어 도구들이 같이 쓴다.
- * 받기 전에 take 로 잡아 두고(다 썼으면 받지 않는다), 모델에 실제로 주지 못한 장수는 refund 로 돌려놓는다 —
- * 예산은 "모델에 넘긴 이미지 장수"를 센다(실패한 쪽·거절 안내로 끝난 이미지는 세지 않는다). 잡아 두기는 병렬 호출이 같이 넘치지 않게 한다.
- */
-export class ImageBudget {
-  private remaining: number;
-  constructor(readonly cap: number) {
-    this.remaining = cap;
-  }
-  /** n 장을 잡는다 — 모자라면 잡지 않고 false(더 적은 장수 요청은 여전히 받을 수 있다). */
-  take(n: number): boolean {
-    if (n > this.remaining) return false;
-    this.remaining -= n;
-    return true;
-  }
-  /** 잡았지만 주지 못한 n 장을 돌려놓는다(상한을 넘겨 늘리지는 않는다). */
-  refund(n: number): void {
-    this.remaining = Math.min(this.cap, this.remaining + Math.max(0, n));
-  }
-  /** take(requested) 가 false 일 때 모델에 줄 안내 — 남은 장수가 있으면 그만큼 줄여 다시 부르게, 없으면 실제 상한으로 다 썼다고. */
-  shortfall(requested: number): string {
-    if (this.remaining === 0) return usedUpNotice(this.cap);
-    return `이번 대화에서 볼 수 있는 이미지가 ${this.remaining}장 남았습니다(요청 ${requested}장). ${this.remaining}장 이하로 줄여 다시 요청하세요.`;
-  }
-}
-
-/**
- * 예산을 n 장 잡고 run 을 돌린 뒤, 결과에 실제로 실린 이미지 장수만 남기고 나머지는 돌려놓는다(run 이 던져도 전부 돌려놓는다).
- * 예산이 모자라면 run 을 부르지 않고 안내만 돌려준다. budget 이 없으면(외부 MCP) 그냥 run.
- */
-export async function withImageBudget(
-  budget: ImageBudget | undefined,
-  n: number,
-  run: () => Promise<McpToolResult>,
-): Promise<McpToolResult> {
-  if (!budget) return run();
-  if (!budget.take(n)) return budget.shortfall(n);
-  let delivered = 0;
-  try {
-    const out = await run();
-    if (typeof out !== 'string') delivered = out.filter((b) => b.type === 'image').length;
-    return out;
-  } finally {
-    budget.refund(n - delivered);
-  }
-}
 
 /**
  * /view 실패 사유 한 줄 — 서버 응답이 있으면 describeApiError 로 요약한다(ErrorResponse 의 한국어 message, JSON 이 아닌 본문은 300자로 자름 —
@@ -88,12 +34,11 @@ function viewErrorText(e: unknown): string {
 export const pagesShape = { pages: nullAsOmitted(z.array(z.number().int().min(1)).min(1).max(MAX_PAGES_PER_CALL)) };
 
 /**
- * 이미지 입력 옵션 — input 은 모델이 이미지를 볼 수 있는지, budget 은 실행당 이미지 예산(없으면 호출당 상한만).
+ * 이미지 입력 옵션 — input 은 모델이 이미지를 볼 수 있는지.
  * read_file(공유)과 ai-agent 첨부 도구가 같은 모양으로 받는다.
  */
 export interface ImageOptions {
   input: boolean;
-  budget?: ImageBudget;
 }
 
 /**
@@ -127,7 +72,7 @@ function collapse(blocks: McpContent[]): McpToolResult {
 }
 
 /**
- * 페이지들을 한꺼번에(병렬로) 받아 요청 순서대로 블록으로. 예산은 중복을 뺀 장수만큼 받기 전에 잡고, 실패한 쪽만큼 돌려놓는다(withImageBudget).
+ * 페이지들을 한꺼번에(병렬로) 받아 요청 순서대로 블록으로. 같은 쪽 번호가 겹치면 한 번만 받는다.
  * 쪽마다 서버 왕복(캐시가 없으면 워커 렌더)이 있어 차례로 받으면 3쪽 요청이 세 배 걸린다 — 결과는 받은 순서가 아니라 요청 순서로 싣는다.
  * 서버 오류(범위 밖 400·손상 422·렌더 실패 503 등)는 던지지 않고 그 쪽의 사유를 text 로 돌려준다 — 모델이 범위를 고쳐 다시 부르게.
  * 일부 쪽만 실패하면 받은 쪽의 이미지 뒤에 실패 사유를 붙이고, 같은 사유는 쪽 번호를 묶어 한 줄로 쓴다(403·404·415 는 모든 쪽이 같다).
@@ -136,27 +81,24 @@ export async function pageBlocks(
   label: string,
   pages: number[],
   fetch: (page: number) => Promise<FileBytes>,
-  budget?: ImageBudget,
 ): Promise<McpToolResult> {
   const unique = [...new Set(pages)];
-  return withImageBudget(budget, unique.length, async () => {
-    // allSettled — 한 쪽이 실패해도 나머지 쪽은 그대로 받는다. 결과 배열은 unique 와 같은 순서다.
-    const settled = await Promise.allSettled(unique.map((n) => fetch(n)));
-    const blocks: McpContent[] = [];
-    // 사유 → 실패한 쪽 번호(요청 순서 유지).
-    const failures = new Map<string, number[]>();
-    settled.forEach((r, i) => {
-      const n = unique[i];
-      if (r.status === 'fulfilled') {
-        blocks.push(...viewBlocks(`${label} ${n}쪽${r.value.pageCount ? `(전체 ${r.value.pageCount}쪽)` : ''}`, r.value));
-      } else {
-        const reason = viewErrorText(r.reason);
-        failures.set(reason, [...(failures.get(reason) ?? []), n]);
-      }
-    });
-    for (const [reason, failed] of failures) blocks.push({ type: 'text', text: `${label} ${failed.join('·')}쪽: ${reason}` });
-    return collapse(blocks);
+  // allSettled — 한 쪽이 실패해도 나머지 쪽은 그대로 받는다. 결과 배열은 unique 와 같은 순서다.
+  const settled = await Promise.allSettled(unique.map((n) => fetch(n)));
+  const blocks: McpContent[] = [];
+  // 사유 → 실패한 쪽 번호(요청 순서 유지).
+  const failures = new Map<string, number[]>();
+  settled.forEach((r, i) => {
+    const n = unique[i];
+    if (r.status === 'fulfilled') {
+      blocks.push(...viewBlocks(`${label} ${n}쪽${r.value.pageCount ? `(전체 ${r.value.pageCount}쪽)` : ''}`, r.value));
+    } else {
+      const reason = viewErrorText(r.reason);
+      failures.set(reason, [...(failures.get(reason) ?? []), n]);
+    }
   });
+  for (const [reason, failed] of failures) blocks.push({ type: 'text', text: `${label} ${failed.join('·')}쪽: ${reason}` });
+  return collapse(blocks);
 }
 
 /** 변환본 받기 — 서버 오류는 사유를 text 로(이미지 내용을 추측하지 않고 그대로 전하게). */
@@ -183,17 +125,6 @@ function imageNotice(label: string, reasons: string[]): string {
  * 다른 다운로드 오류(권한·없음)는 삼키지 않는다 — 도구 레이어가 API 오류로 알린다.
  */
 export async function imageBlocksFor(
-  label: string,
-  meta: { mimeType?: string; sizeBytes?: number },
-  download: () => Promise<FileBytes>,
-  view: (() => Promise<FileBytes>) | undefined,
-  budget?: ImageBudget,
-): Promise<McpToolResult> {
-  return withImageBudget(budget, 1, () => originalOrConverted(label, meta, download, view));
-}
-
-/** imageBlocksFor 의 본체(예산 밖) — 원본을 보낼 수 있으면 원본, 아니면 변환본(없으면 사유 안내). */
-async function originalOrConverted(
   label: string,
   meta: { mimeType?: string; sizeBytes?: number },
   download: () => Promise<FileBytes>,

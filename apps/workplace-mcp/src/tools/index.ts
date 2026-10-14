@@ -30,6 +30,6 @@ export function selectTools(tools: SharedTool[], scope: McpScope): SharedTool[] 
  * 노출할 도구 목록(공유 도구 중 destructive 제외 → 연결 범위로 추림). 범위를 안 주면 전체.
  */
 export function buildUserTools(client: PatApiClient, scope: McpScope = FULL_SCOPE): SharedTool[] {
-  // WP-250: 외부 MCP 클라이언트 모델은 이미지를 볼 수 있다고 본다(pages 노출). 실행 단위가 없어 실행당 예산은 두지 않는다 — 호출당 3장만.
+  // WP-250: 외부 MCP 클라이언트 모델은 이미지를 볼 수 있다고 본다(pages 노출, 호출당 3장).
   return selectTools(exposableTools(buildSharedTools(client, { images: { input: true } })), scope);
 }

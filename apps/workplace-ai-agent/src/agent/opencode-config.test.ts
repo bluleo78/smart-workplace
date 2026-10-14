@@ -15,10 +15,9 @@ import {
   NO_VISION_PROMPT_RULE,
 } from './opencode-config.js';
 
-// WP-250: pooled 는 웜 풀 재사용 서버 여부 — 실행당 이미지 예산(MCP_IMAGE_BUDGET)을 줄지 가른다. 기본은 비풀(실행별 서버).
-const VISION_ON = { vision: true, pooled: false };
-const VISION_OFF = { vision: false, pooled: false };
-const VISION_UNKNOWN = { vision: undefined, pooled: false };
+const VISION_ON = { vision: true };
+const VISION_OFF = { vision: false };
+const VISION_UNKNOWN = { vision: undefined };
 import { loadSubagents } from './subagent-loader.js';
 import type { RunnerInput } from './agent-runner.js';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
@@ -243,44 +242,28 @@ describe('buildOpencodeConfig', () => {
         MCP_ON_BEHALF_OF: '55',
         MCP_VISION: '1',
         MCP_IMAGE_TOOLS: '1',
-        MCP_IMAGE_BUDGET: '20',
         MCP_THREAD_BINDING: JSON.stringify({ channelId: 1, parentMessageId: 2 }),
         MCP_DELEGATION_CONTEXT: JSON.stringify({ actorId: 3, channelId: 1, parentMessageId: 2 }),
       },
     });
   });
 
-  // WP-250: 이미지를 볼 수 있는 모델(vision === true)에만 페이지 보기(MCP_IMAGE_TOOLS)를 열고,
-  // 실행당 예산(MCP_IMAGE_BUDGET)은 실행마다 새로 띄우는 서버에만 준다(재사용 서버는 호출당 3장만).
+  // WP-250: 이미지를 볼 수 있는 모델(vision === true)에만 페이지 보기(MCP_IMAGE_TOOLS)를 연다.
   describe('이미지 입력 env (WP-250)', () => {
     const client = {} as unknown as WorkplaceApiClient;
-    const env = (opts: { vision: boolean | undefined; pooled: boolean }) =>
-      (buildOpencodeConfig(baseInput({ mcp: { client, profile: 'assistant', onBehalfOfId: 1 } }), 'run-1', ['cmd'], opts).mcp
+    const env = (vision: boolean | undefined) =>
+      (buildOpencodeConfig(baseInput({ mcp: { client, profile: 'assistant', onBehalfOfId: 1 } }), 'run-1', ['cmd'], { vision }).mcp
         ?.workplace as { environment?: Record<string, string> }).environment;
 
-    it('vision true + 비풀 → MCP_IMAGE_TOOLS=1, MCP_IMAGE_BUDGET=20', () => {
-      const e = env({ vision: true, pooled: false });
-      expect(e?.MCP_IMAGE_TOOLS).toBe('1');
-      expect(e?.MCP_IMAGE_BUDGET).toBe('20');
+    it('vision true → MCP_IMAGE_TOOLS=1', () => {
+      expect(env(true)?.MCP_IMAGE_TOOLS).toBe('1');
     });
 
-    it('vision true + 풀 → MCP_IMAGE_TOOLS=1 만(재사용 서버는 실행 단위 예산을 둘 수 없다)', () => {
-      const e = env({ vision: true, pooled: true });
-      expect(e?.MCP_IMAGE_TOOLS).toBe('1');
-      expect(e).not.toHaveProperty('MCP_IMAGE_BUDGET');
-    });
-
-    // R9: 알 수 없음은 MCP_VISION=1 이라 이미지 블록이 그대로 가므로 실행당 상한이 필요하다(미지원이면 무해) — 페이지 보기는 열지 않는다.
     it.each([
       ['알 수 없음', undefined],
       ['미지원', false],
-    ] as const)('vision %s + 비풀 → MCP_IMAGE_BUDGET=20 만, 풀 → 둘 다 없음', (_label, vision) => {
-      const nonPooled = env({ vision, pooled: false });
-      expect(nonPooled).not.toHaveProperty('MCP_IMAGE_TOOLS');
-      expect(nonPooled?.MCP_IMAGE_BUDGET).toBe('20');
-      const pooled = env({ vision, pooled: true });
-      expect(pooled).not.toHaveProperty('MCP_IMAGE_TOOLS');
-      expect(pooled).not.toHaveProperty('MCP_IMAGE_BUDGET');
+    ] as const)('vision %s → MCP_IMAGE_TOOLS 없음', (_label, vision) => {
+      expect(env(vision)).not.toHaveProperty('MCP_IMAGE_TOOLS');
     });
   });
 

@@ -2,7 +2,7 @@
 // 텍스트는 서버가 업로드 때 추출해 둔 텍스트를 구간으로 읽는다(원본을 받지 않는다). 이미지는 추출 대상이 아니라 서버가
 // SKIPPED(reasonCode IMAGE)로 표시하므로, 그때만 원본을 받아 MCP image 블록으로 돌려준다(WP-345 McpToolResult).
 // 그대로 보낼 수 없는 이미지(HEIC·TIFF·BMP·3.75MB 초과)는 거절 안내 대신 서버가 변환한 이미지(/view)를 준다(WP-250, 메일 제외 — WP-388).
-// PDF 는 원본이 아니라 서버가 그린 페이지 이미지만 돌려준다(WP-250) — pages:[n] 로 고른 쪽만, 호출당 3장·실행당 예산 안에서.
+// PDF 는 원본이 아니라 서버가 그린 페이지 이미지만 돌려준다(WP-250) — pages:[n] 로 고른 쪽만, 호출당 3장까지.
 import { z } from 'zod';
 
 import { readRangeShape, resolveRange } from './attachment-read.js';
@@ -61,7 +61,7 @@ export function readFileInputFor(imageInput: boolean) {
 /** 기본(이미지 입력 가능) 스키마 — 테스트·외부에서 스키마 모양을 볼 때 쓴다. */
 export const readFileInput = readFileInputFor(true);
 
-/** read_file 옵션(WP-250) — 이미지 입력(images.input, 기본 true)과 실행당 이미지 예산(images.budget, 없으면 무제한). */
+/** read_file 옵션(WP-250) — 이미지 입력(images.input, 기본 true). */
 export interface AttachmentToolOptions {
   images?: ImageOptions;
 }
@@ -114,7 +114,6 @@ function noteField(...notes: (string | undefined)[]): { note?: string } {
 /** 파일·첨부 읽기 도구(read_file). kind read — 상태를 바꾸지 않는다(외부 MCP 노출). */
 export function buildAttachmentTools(client: AttachmentToolClient, opts: AttachmentToolOptions = {}): SharedTool[] {
   const imageInput = opts.images?.input ?? true;
-  const budget = opts.images?.budget;
   const input = readFileInputFor(imageInput);
 
   /**
@@ -129,7 +128,6 @@ export function buildAttachmentTools(client: AttachmentToolClient, opts: Attachm
       row ? { mimeType: row.mimeType, sizeBytes: row.sizeBytes } : {},
       () => client.downloadIssueAttachment(issueKey, attachmentId),
       () => client.viewIssueAttachment(issueKey, attachmentId, undefined),
-      budget,
     );
   }
 
@@ -141,7 +139,6 @@ export function buildAttachmentTools(client: AttachmentToolClient, opts: Attachm
       current ? { sizeBytes: current.sizeBytes } : {},
       () => client.downloadDriveFile(driveFileId),
       () => client.viewDriveFile(driveFileId, undefined),
-      budget,
     );
   }
 
@@ -149,17 +146,16 @@ export function buildAttachmentTools(client: AttachmentToolClient, opts: Attachm
   function pagesFor(p: z.infer<typeof input>, pages: number[]): Promise<McpToolResult> | string {
     switch (p.source) {
       case 'issue':
-        return pageBlocks(`이슈 ${p.issueKey} 첨부(attachmentId ${p.attachmentId})`, pages, (n) => client.viewIssueAttachment(p.issueKey!, p.attachmentId!, n), budget);
+        return pageBlocks(`이슈 ${p.issueKey} 첨부(attachmentId ${p.attachmentId})`, pages, (n) => client.viewIssueAttachment(p.issueKey!, p.attachmentId!, n));
       case 'drive':
-        return pageBlocks(`드라이브 파일(driveFileId ${p.driveFileId})`, pages, (n) => client.viewDriveFile(p.driveFileId!, n), budget);
+        return pageBlocks(`드라이브 파일(driveFileId ${p.driveFileId})`, pages, (n) => client.viewDriveFile(p.driveFileId!, n));
       case 'wiki':
-        return pageBlocks(`노트(pageId ${p.pageId}) 첨부(attachmentId ${p.attachmentId})`, pages, (n) => client.viewWikiAttachment(p.pageId!, p.attachmentId!, n), budget);
+        return pageBlocks(`노트(pageId ${p.pageId}) 첨부(attachmentId ${p.attachmentId})`, pages, (n) => client.viewWikiAttachment(p.pageId!, p.attachmentId!, n));
       case 'message':
         return pageBlocks(
           `메시지(messageId ${p.messageId}) 첨부(attachmentId ${p.attachmentId})`,
           pages,
           (n) => client.viewMessageAttachment(p.channelId!, p.messageId!, p.attachmentId!, n),
-          budget,
         );
       case 'mail':
         return MAIL_PAGES_UNSUPPORTED;
@@ -223,7 +219,6 @@ export function buildAttachmentTools(client: AttachmentToolClient, opts: Attachm
                 {},
                 () => client.downloadWikiAttachment(pageId, attachmentId),
                 () => client.viewWikiAttachment(pageId, attachmentId, undefined),
-                budget,
               );
             }
             const { fileId: _coreFileId, ...rest } = slice;
@@ -240,7 +235,6 @@ export function buildAttachmentTools(client: AttachmentToolClient, opts: Attachm
                 {},
                 () => client.downloadMessageAttachment(channelId, messageId, attachmentId),
                 () => client.viewMessageAttachment(channelId, messageId, attachmentId, undefined),
-                budget,
               );
             }
             const { fileId: _coreFileId, ...rest } = slice;
@@ -251,13 +245,12 @@ export function buildAttachmentTools(client: AttachmentToolClient, opts: Attachm
             const slice = await client.readMailAttachmentText(attachmentId, range);
             // 메일은 /view 가 없어(WP-388) 지금처럼 원본만 — 보낼 수 없으면 거절 안내. pages 안내(pdfNote)도 붙이지 않는다.
             if (isImageSkip(slice)) {
-              // 변환본이 없어 view 를 주지 않는다 — 보낼 수 없으면 사유 안내. 예산은 실제로 준 이미지만 센다(거절 안내로 끝나면 돌려놓는다).
+              // 변환본이 없어 view 를 주지 않는다 — 보낼 수 없으면 사유 안내.
               return imageBlocksFor(
                 `메일 첨부 이미지(attachmentId ${attachmentId})`,
                 {},
                 () => client.downloadMailAttachment(attachmentId),
                 undefined,
-                budget,
               );
             }
             // 메일은 서버가 요청한 attachmentId 를 fileId 로 돌려준다(내부 사본 id 는 내보내지 않는다). 첫 호출은 서버가 사본을 만들며 추출을 시작해 PENDING 이다.

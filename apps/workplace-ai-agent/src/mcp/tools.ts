@@ -379,8 +379,8 @@ export function buildTools(
   homeSessionId?: string,
   // WP-250: 이미지 입력 — input 은 모델이 이미지를 볼 수 있는지. false 면 세 첨부 도구(공유 read_file, ai-agent 전용
   // read_chat_attachment·read_chat_thread_attachment) 모두 pages(PDF 쪽 이미지)를 스키마·설명에서 빼고 스캔 PDF 안내만 바꾼다.
-  // 이미지 첨부는 input 과 상관없이 이미지로 돌려주므로(이미지를 볼 수 없는 opencode 모델이면 stdio 도구 등록이 결과 이미지를 안내 문구로 바꾼다, WP-241) budget 은 늘 걸린다.
-  // budget 은 이 실행이 볼 수 있는 이미지 장수(도구 서버 인스턴스 = 실행 하나일 때만 준다). 미지정이면 공유 기본(볼 수 있음·실행당 상한 없음 — 호출당 3장만).
+  // 이미지 첨부는 input 과 상관없이 이미지로 돌려준다(이미지를 볼 수 없는 opencode 모델이면 stdio 도구 등록이 결과 이미지를 안내 문구로 바꾼다, WP-241).
+  // 미지정이면 공유 기본(볼 수 있음).
   images?: ImageOptions,
 ): McpTool[] {
   // WP-250: 이미지 입력 여부 — 미지정이면 공유 기본과 같이 볼 수 있음(true). 세 첨부 도구가 이 값 하나를 쓴다.
@@ -493,7 +493,6 @@ export function buildTools(
               `스레드 첨부(fileId ${fileId})`,
               parsed.pages,
               (n) => client.viewChatAttachment(agentId, threadId, fileId, n),
-              images?.budget,
             );
           }
           const { offset, limit } = resolveRange(parsed);
@@ -511,7 +510,6 @@ export function buildTools(
                 {},
                 () => Promise.reject(new FileTooLargeError()),
                 view,
-                images?.budget,
               );
             }
             if (fileKind(meta.mimeType) === 'image') {
@@ -523,7 +521,6 @@ export function buildTools(
                     ? client.downloadThreadIssueAttachment(agentId, threadId, fileId)
                     : client.downloadChatAttachment(agentId, threadId, meta.origin.messageId, fileId),
                 view,
-                images?.budget,
               );
             }
           }

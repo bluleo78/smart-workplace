@@ -3,12 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { buildSharedTools, ImageBudget, toolAnnotations, type SharedTool, type SharedToolClient } from '@smart-workplace/mcp-tools-shared';
+import { buildSharedTools, toolAnnotations, type SharedTool, type SharedToolClient } from '@smart-workplace/mcp-tools-shared';
 import { z } from 'zod';
 
 import nock from 'nock';
 
-import { parseConfigFromEnv, buildHostBridge, createClientFromConfig, imageOptionsFromConfig, registerStdioTool, VISION_UNAVAILABLE_NOTICE } from './stdio-entry.js';
+import { parseConfigFromEnv, buildHostBridge, createClientFromConfig, registerStdioTool, VISION_UNAVAILABLE_NOTICE } from './stdio-entry.js';
 import type { McpTool } from './tools.js';
 
 function baseEnv(over: Record<string, string | undefined> = {}): NodeJS.ProcessEnv {
@@ -44,16 +44,6 @@ describe('parseConfigFromEnv', () => {
     expect(parseConfigFromEnv(baseEnv({ MCP_IMAGE_TOOLS: '1' })).imageInput).toBe(true);
     expect(parseConfigFromEnv(baseEnv()).imageInput).toBe(false);
     expect(parseConfigFromEnv(baseEnv({ MCP_IMAGE_TOOLS: '0' })).imageInput).toBe(false);
-  });
-
-  // WP-250: 실행당 이미지 예산 — 러너가 실행마다 새로 띄우는 서버에만 심는다. 없으면 실행당 상한 없음(호출당 3장만).
-  it('MCP_IMAGE_BUDGET 은 양의 정수로 imageBudget, 미지정이면 undefined(WP-250)', () => {
-    expect(parseConfigFromEnv(baseEnv({ MCP_IMAGE_BUDGET: '20' })).imageBudget).toBe(20);
-    expect(parseConfigFromEnv(baseEnv()).imageBudget).toBeUndefined();
-  });
-
-  it.each(['abc', '0', '-3', '1.5'])('MCP_IMAGE_BUDGET=%s 는 거부한다(WP-250)', (v) => {
-    expect(() => parseConfigFromEnv(baseEnv({ MCP_IMAGE_BUDGET: v }))).toThrow(/MCP_IMAGE_BUDGET/);
   });
 
   it('MCP_VISION=0 이면 vision=false, 1 이면 true(WP-241)', () => {
@@ -327,29 +317,6 @@ describe('registerStdioTool', () => {
       throw new Error('boom');
     });
     expect(res).toMatchObject({ isError: true, content: [{ type: 'text', text: 'boom' }] });
-  });
-});
-
-// WP-250: 설정 → buildTools 의 images 인자. 예산이 있으면 이 프로세스(= 실행별 서버)가 쓸 ImageBudget 을 하나 만든다.
-describe('imageOptionsFromConfig', () => {
-  it('MCP_IMAGE_TOOLS·MCP_IMAGE_BUDGET 이 있으면 input true + 그 장수의 예산', () => {
-    const images = imageOptionsFromConfig(parseConfigFromEnv(baseEnv({ MCP_IMAGE_TOOLS: '1', MCP_IMAGE_BUDGET: '2' })));
-    expect(images.input).toBe(true);
-    expect(images.budget).toBeInstanceOf(ImageBudget);
-    expect(images.budget!.take(2)).toBe(true);
-    expect(images.budget!.take(1)).toBe(false);
-  });
-
-  // R9: 페이지 보기를 닫아도(input false) 기존 이미지 경로(read_file·read_chat_attachment 의 이미지 첨부)는 이미지를 돌려주므로 예산은 그대로 건다.
-  it('MCP_IMAGE_TOOLS 없이 MCP_IMAGE_BUDGET 만 있으면 input false + 예산', () => {
-    const images = imageOptionsFromConfig(parseConfigFromEnv(baseEnv({ MCP_IMAGE_BUDGET: '20' })));
-    expect(images.input).toBe(false);
-    expect(images.budget).toBeInstanceOf(ImageBudget);
-  });
-
-  it('예산 env 가 없으면(재사용 서버) 예산 없음, 이미지 도구 env 가 없으면 input false', () => {
-    expect(imageOptionsFromConfig(parseConfigFromEnv(baseEnv({ MCP_IMAGE_TOOLS: '1' })))).toEqual({ input: true, budget: undefined });
-    expect(imageOptionsFromConfig(parseConfigFromEnv(baseEnv()))).toEqual({ input: false, budget: undefined });
   });
 });
 

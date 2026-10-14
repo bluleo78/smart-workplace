@@ -10,7 +10,7 @@
 // HTTP 콜백 브리지를 구성한다 — POST {MCP_BRIDGE_URL}/{runId} { kind, data }.
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { ImageBudget, replaceImagesWithNotice, toMcpContent } from '@smart-workplace/mcp-tools-shared';
+import { replaceImagesWithNotice, toMcpContent } from '@smart-workplace/mcp-tools-shared';
 import { z } from 'zod';
 
 import { createWorkplaceApiClient, type WorkplaceApiClient } from '../clients/workplace-api.js';
@@ -37,8 +37,6 @@ export interface StdioEntryConfig {
   vision: boolean;
   // WP-250: 페이지 보기(read_file pages)를 열지(MCP_IMAGE_TOOLS=1). 러너가 이미지를 볼 수 있다고 확인한 모델에만 심는다.
   imageInput: boolean;
-  // WP-250: 실행당 이미지 장수(MCP_IMAGE_BUDGET). 실행마다 새로 띄우는 서버에만 온다 — 재사용(웜 풀) 서버는 없음(호출당 3장만).
-  imageBudget?: number;
 }
 
 // 이미지를 볼 수 없는 모델에 이미지 대신 넘기는 안내. 시스템 프롬프트 규칙(NO_VISION_PROMPT_RULE)과 짝을 이룬다.
@@ -48,7 +46,7 @@ export const VISION_UNAVAILABLE_NOTICE =
 // WP-234: home_session.id 형식 — 경로 조각으로 쓰이므로 UUID 외 문자열은 부팅 단계에서 거부한다.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// 선택 env 의 양의 정수 파싱 — 없으면 undefined, 있는데 양의 정수가 아니면 throw(MCP_CHAT_THREAD_ID·MCP_ON_BEHALF_OF_TENANT·MCP_IMAGE_BUDGET).
+// 선택 env 의 양의 정수 파싱 — 없으면 undefined, 있는데 양의 정수가 아니면 throw(MCP_CHAT_THREAD_ID·MCP_ON_BEHALF_OF_TENANT).
 function optionalPositiveIntEnv(env: NodeJS.ProcessEnv, name: string): number | undefined {
   const raw = env[name];
   if (!raw) return undefined;
@@ -109,7 +107,6 @@ export function parseConfigFromEnv(env: NodeJS.ProcessEnv): StdioEntryConfig {
   }
 
   const onBehalfOfTenantId = optionalPositiveIntEnv(env, 'MCP_ON_BEHALF_OF_TENANT');
-  const imageBudget = optionalPositiveIntEnv(env, 'MCP_IMAGE_BUDGET');
 
   return {
     baseURL,
@@ -127,15 +124,6 @@ export function parseConfigFromEnv(env: NodeJS.ProcessEnv): StdioEntryConfig {
     vision: env.MCP_VISION !== '0',
     // WP-250: MCP_VISION 과 달리 미지정은 닫힘 — 이미지를 볼 수 있는지 모르는 모델에 쓸 수 없는 인자(pages)를 보이지 않는다.
     imageInput: env.MCP_IMAGE_TOOLS === '1',
-    imageBudget,
-  };
-}
-
-// 설정 → buildTools 의 images 인자(WP-250). stdio 프로세스 하나가 도구 서버 하나라, 예산이 있으면 여기서 하나 만들어 도구들이 같이 쓴다.
-export function imageOptionsFromConfig(config: StdioEntryConfig): { input: boolean; budget?: ImageBudget } {
-  return {
-    input: config.imageInput,
-    budget: config.imageBudget != null ? new ImageBudget(config.imageBudget) : undefined,
   };
 }
 
@@ -229,7 +217,7 @@ async function main(): Promise<void> {
     hostBridge,
     config.chatThreadId,
     config.homeSessionId,
-    imageOptionsFromConfig(config),
+    { input: config.imageInput },
   );
 
   // 서버명 'workplace' 고정 — mcp__workplace__* 네임스페이스 정합(sdk-mcp-server.ts 참고).

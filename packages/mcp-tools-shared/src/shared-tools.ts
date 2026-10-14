@@ -44,7 +44,7 @@ export type SharedToolClient = IssueToolClient &
   AttachmentToolClient;
 
 /**
- * 앱별 옵션 — 메시징(parentMessageIdFor)과 read_file 의 이미지 입력(WP-250: images.input 기본 true, images.budget 없으면 실행당 상한 없음).
+ * 앱별 옵션 — 메시징(parentMessageIdFor)과 read_file 의 이미지 입력(WP-250: images.input 기본 true).
  * 기본값은 예전 동작과 같아 옵션을 안 주는 호출부도 그대로 컴파일·동작한다.
  */
 export type SharedToolOptions = MessagingToolOptions & AttachmentToolOptions;
