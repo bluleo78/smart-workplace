@@ -33,28 +33,46 @@ public class ChatMessageRepository {
   private static final String DELETED_BODY = "(삭제됨)";
   private static final int MAX_LIMIT = 100;
 
+  /** 응답 매핑(toResponse)에 필요한 컬럼 — 모든 메시지 조회가 같은 목록을 쓴다. */
+  private static final org.jooq.SelectField<?>[] MESSAGE_FIELDS = {
+    CHAT_MESSAGE.ID,
+    CHAT_MESSAGE.THREAD_ID,
+    CHAT_MESSAGE.AUTHOR_ID,
+    USER.NAME,
+    USER.USERNAME,
+    USER.KIND,
+    CHAT_MESSAGE.BODY,
+    CHAT_MESSAGE.MENTIONS,
+    CHAT_MESSAGE.CREATED_AT,
+    CHAT_MESSAGE.EDITED_AT,
+    CHAT_MESSAGE.DELETED_AT,
+    CHAT_MESSAGE.IS_QUESTION
+  };
+
   private final DSLContext dsl;
   private final ObjectMapper objectMapper;
 
-  /** 작성 후 ID 반환. mentions 는 user.id 의 long[] 형태로 저장. */
+  /** 작성 후 ID 반환(일반 글 — 질문 아님). */
   public long insert(long threadId, long authorId, String body, List<Long> mentionUserIds) {
+    return insert(threadId, authorId, body, mentionUserIds, false);
+  }
+
+  /**
+   * 작성 후 ID 반환. mentions 는 user.id 의 long[] 형태로 저장. question 은 AI 구성원이 답변 필요로 멈추며 남긴 글인지(WP-373) —
+   * 생성과 같은 INSERT 에 넣어 생성 이벤트·SSE 가 저장값과 같은 값을 보게 한다(예전 사후 markQuestion 은 이벤트가 저장 전 값으로 나갔다).
+   */
+  public long insert(
+      long threadId, long authorId, String body, List<Long> mentionUserIds, boolean question) {
     JSONB jsonb = JSONB.valueOf(toJson(mentionUserIds));
     return dsl.insertInto(CHAT_MESSAGE)
         .set(CHAT_MESSAGE.THREAD_ID, threadId)
         .set(CHAT_MESSAGE.AUTHOR_ID, authorId)
         .set(CHAT_MESSAGE.BODY, body)
         .set(CHAT_MESSAGE.MENTIONS, jsonb)
+        .set(CHAT_MESSAGE.IS_QUESTION, question)
         .returning(CHAT_MESSAGE.ID)
         .fetchOne()
         .getId();
-  }
-
-  /** 글을 "답변 필요 질문"으로 표시한다(WP-377 — AI 구성원이 INPUT_REQUIRED 로 멈추며 남긴 글). */
-  public void markQuestion(long messageId) {
-    dsl.update(CHAT_MESSAGE)
-        .set(CHAT_MESSAGE.IS_QUESTION, true)
-        .where(CHAT_MESSAGE.ID.eq(messageId))
-        .execute();
   }
 
   /** body 수정 + edited_at = now + mentions 재저장. */
@@ -93,17 +111,7 @@ public class ChatMessageRepository {
 
   /** id 로 단건 조회. soft-deleted 도 body 마스킹해 반환. */
   public Optional<ChatMessageResponse> findById(long id, MentionResolver resolver) {
-    return dsl.select(
-            CHAT_MESSAGE.ID,
-            CHAT_MESSAGE.THREAD_ID,
-            CHAT_MESSAGE.AUTHOR_ID,
-            USER.NAME,
-            USER.KIND,
-            CHAT_MESSAGE.BODY,
-            CHAT_MESSAGE.MENTIONS,
-            CHAT_MESSAGE.CREATED_AT,
-            CHAT_MESSAGE.EDITED_AT,
-            CHAT_MESSAGE.DELETED_AT)
+    return dsl.select(MESSAGE_FIELDS)
         .from(CHAT_MESSAGE)
         .join(USER)
         .on(USER.ID.eq(CHAT_MESSAGE.AUTHOR_ID))
@@ -116,17 +124,7 @@ public class ChatMessageRepository {
       long threadId, String cursor, int limit, MentionResolver resolver) {
     int safeLimit = Math.min(limit, MAX_LIMIT);
     SelectConditionStep<?> query =
-        dsl.select(
-                CHAT_MESSAGE.ID,
-                CHAT_MESSAGE.THREAD_ID,
-                CHAT_MESSAGE.AUTHOR_ID,
-                USER.NAME,
-                USER.KIND,
-                CHAT_MESSAGE.BODY,
-                CHAT_MESSAGE.MENTIONS,
-                CHAT_MESSAGE.CREATED_AT,
-                CHAT_MESSAGE.EDITED_AT,
-                CHAT_MESSAGE.DELETED_AT)
+        dsl.select(MESSAGE_FIELDS)
             .from(CHAT_MESSAGE)
             .join(USER)
             .on(USER.ID.eq(CHAT_MESSAGE.AUTHOR_ID))
@@ -178,7 +176,10 @@ public class ChatMessageRepository {
         java.util.List.of(), // driveLinks — 서비스에서 하이드레이트
         created == null ? null : created.toInstant(),
         edited == null ? null : edited.toInstant(),
-        deleted);
+        deleted,
+        r.get(USER.USERNAME),
+        // 삭제된 질문은 강조하지 않는다(스펙 §3.1).
+        !deleted && Boolean.TRUE.equals(r.get(CHAT_MESSAGE.IS_QUESTION)));
   }
 
   /** 메시지가 해당 thread 소속인지 — 크로스-스레드 첨부 접근 차단용. */

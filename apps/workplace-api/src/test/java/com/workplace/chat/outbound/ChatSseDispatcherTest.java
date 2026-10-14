@@ -1,5 +1,6 @@
 package com.workplace.chat.outbound;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
@@ -13,8 +14,10 @@ import com.workplace.global.dto.UserSummary;
 import com.workplace.global.realtime.SseRegistry;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 
 class ChatSseDispatcherTest {
@@ -50,8 +53,13 @@ class ChatSseDispatcherTest {
             List.of(),
             List.of(),
             List.of(),
+            true,
             Instant.now()));
-    verify(registry).fanOut(eq(List.of(1L, 2L)), eq("chat.message.created"), any());
+    @SuppressWarnings("unchecked")
+    ArgumentCaptor<Map<String, Object>> payload = ArgumentCaptor.forClass(Map.class);
+    verify(registry).fanOut(eq(List.of(1L, 2L)), eq("chat.message.created"), payload.capture());
+    // 질문 표시가 이벤트 값 그대로 SSE 페이로드에 실린다.
+    assertThat(payload.getValue()).containsEntry("question", true);
   }
 
   @Test

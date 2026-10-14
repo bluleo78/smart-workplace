@@ -61,6 +61,7 @@ public class ChatSseDispatcher {
     // 첨부 파일·드라이브 링크를 SSE 페이로드에 포함 — 프론트 ChatMessageResponse 캐스트와 필드 일치.
     p.put("attachments", e.attachments());
     p.put("driveLinks", e.driveLinks());
+    p.put("question", e.question());
     registry.fanOut(memberRepo.findMemberIds(e.threadId()), "chat.message.created", p);
   }
 

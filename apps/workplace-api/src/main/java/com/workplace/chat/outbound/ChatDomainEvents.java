@@ -32,6 +32,8 @@ public final class ChatDomainEvents {
       // #358: 첨부 및 드라이브 링크를 이벤트에 동봉 — SSE fan-out 시 클라이언트가 추가 조회 없이 렌더링 가능.
       List<ChatMessageAttachmentResponse> attachments,
       List<DriveLinkResponse> driveLinks,
+      // WP-373: AI 질문 글인지 — 생성 직후 SSE 가 저장값 그대로 내려 화면이 바로 강조한다.
+      boolean question,
       Instant occurredAt) {}
 
   /** chat 메시지 수정 직후 (본인 수정). SSE fan-out 용. */

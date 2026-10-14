@@ -53,12 +53,32 @@ public class ChatMessageService {
   // WP-213: 이슈 토크 읽기/쓰기 접근 판정 + 보낼 때 자동 참여.
   private final ChatThreadAccess threadAccess;
 
-  /**
-   * 메시지 작성. 스레드 멤버가 아니어도 댓글 작성 권한이 있으면 이 시점에 대화에 자동 참여한다(WP-213). 빈 메시지(본문도 첨부도 드라이브링크도 없음) 거부.
-   * 첨부/드라이브링크 바인딩 후 하이드레이트된 응답 반환. mention 파싱 후 INSERT, AFTER_COMMIT 이벤트 발행.
-   */
+  /** 메시지 작성(화면·일반 API). 질문 표시는 받지 않는다 — 질문은 report_agent_work 만 만든다(스펙 §3.1). */
   @Transactional
   public ChatMessageResponse create(long callerId, long threadId, CreateChatMessageRequest req) {
+    return doCreate(callerId, threadId, req, false, false);
+  }
+
+  /**
+   * AI 작업 보고(report_agent_work)의 글(WP-373). question 을 생성과 함께 저장하고, 작성자가 사람이어도 "사람의 답"
+   * (IssueHumanReplyPosted)으로 치지 않는다 — 사람이 자기 AI 도구로 남긴 진행 보고가 다른 AI 의 답변 필요를 풀면 안 된다(스펙 §3.2).
+   */
+  @Transactional
+  public ChatMessageResponse createFromReport(
+      long callerId, long threadId, String body, boolean question) {
+    return doCreate(callerId, threadId, new CreateChatMessageRequest(body), question, true);
+  }
+
+  /**
+   * 메시지 작성 본체. 스레드 멤버가 아니어도 댓글 작성 권한이 있으면 이 시점에 대화에 자동 참여한다(WP-213). 빈 메시지(본문도 첨부도 드라이브링크도 없음) 거부.
+   * 첨부/드라이브링크 바인딩 후 하이드레이트된 응답 반환. mention 파싱 후 INSERT, AFTER_COMMIT 이벤트 발행.
+   */
+  private ChatMessageResponse doCreate(
+      long callerId,
+      long threadId,
+      CreateChatMessageRequest req,
+      boolean question,
+      boolean fromReport) {
     // 거부될 요청(권한 없음·삭제된 이슈·빈 메시지)으로는 대화에 참여시키지 않도록 쓰기 권한부터 확인하고, 참여는 검증을 모두 통과한 뒤 한다.
     var joinCtx = threadAccess.ensureCanWrite(threadId, callerId);
     // #621: 원본 이슈가 소프트삭제됐으면 스레드가 남아있어도 메시지 전송을 막는다.
@@ -87,7 +107,7 @@ public class ChatMessageService {
       memberRepo.insertIgnoreConflict(threadId, agentMentionIds);
     }
 
-    long messageId = messageRepo.insert(threadId, callerId, req.body(), mentionUserIds);
+    long messageId = messageRepo.insert(threadId, callerId, req.body(), mentionUserIds, question);
     // 선업로드 첨부 바인딩 + 영구 승격(같은 트랜잭션 — RLS 컨텍스트 공유).
     attachmentService.bindToMessage(callerId, messageId, req.fileIds());
     // 드라이브 파일 교차링크 — 발신자 thread 멤버 + 각 파일 ≥VIEWER 검증은 createLink 내부.
@@ -100,8 +120,8 @@ public class ChatMessageService {
     ChatMessageResponse saved = findOne(messageId);
     var created = buildEvent(threadId, messageId, callerId, req.body(), mentionUserIds, saved);
     publisher.publishEvent(created);
-    // WP-377: 사람이 올린 글이면 답변 필요로 멈춘 AI 구성원 작업을 작업 중으로 되돌리도록 알린다.
-    if (UserKind.HUMAN.equals(created.actor().kind())) {
+    // WP-377: 사람이 올린 글이면 답변 필요로 멈춘 AI 구성원 작업을 작업 중으로 되돌리도록 알린다. 보고 경로의 글은 제외(WP-373).
+    if (!fromReport && UserKind.HUMAN.equals(created.actor().kind())) {
       publisher.publishEvent(new IssueHumanReplyPosted(created.issueId()));
     }
     return saved;
@@ -245,6 +265,7 @@ public class ChatMessageService {
         mentions,
         saved.attachments(),
         saved.driveLinks(),
+        saved.question(),
         Instant.now());
   }
 }

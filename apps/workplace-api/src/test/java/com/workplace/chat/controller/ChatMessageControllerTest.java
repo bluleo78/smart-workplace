@@ -87,6 +87,8 @@ class ChatMessageControllerTest {
         List.of(),
         Instant.now(),
         null,
+        false,
+        "username",
         false);
   }
 
