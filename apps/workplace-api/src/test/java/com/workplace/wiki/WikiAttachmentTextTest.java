@@ -20,8 +20,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.workplace.fileai.ExtractionProfile;
+import com.workplace.fileai.dto.ViewImage;
 import com.workplace.fileai.outbound.WorkerRenderClient;
-import com.workplace.fileai.outbound.WorkerRenderClient.RenderResult;
 import com.workplace.fileai.service.FileExtractionRowWriter;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
@@ -222,7 +222,7 @@ class WikiAttachmentTextTest extends IntegrationTestBase {
   void view_는_권한_있는_사용자에게_이미지와_쪽수_헤더를_돌려준다() throws Exception {
     long fileId = seedBoundPdf();
     when(worker.render(anyString(), eq("application/pdf"), eq(1), anyInt()))
-        .thenReturn(new RenderResult(VIEW_PNG, "image/png", 3));
+        .thenReturn(new ViewImage(VIEW_PNG, "image/png", 3));
     mvc.perform(
             get("/api/v1/wiki/pages/" + pageId + "/attachments/" + fileId + "/view")
                 .param("page", "1")

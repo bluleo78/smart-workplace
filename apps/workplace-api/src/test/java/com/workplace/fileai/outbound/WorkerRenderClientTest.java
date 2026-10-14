@@ -6,8 +6,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpServer;
+import com.workplace.fileai.dto.ViewImage;
 import com.workplace.fileai.exception.AttachmentViewException;
-import com.workplace.fileai.outbound.WorkerRenderClient.RenderResult;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -80,7 +80,7 @@ class WorkerRenderClientTest {
     byte[] png = {(byte) 0x89, 'P', 'N', 'G', 1, 2, 3};
     stub = new Stub(200, "image/png", "3", png);
 
-    RenderResult r = client(true).render("t/1/a.pdf", "application/pdf", 2, 1568);
+    ViewImage r = client(true).render("t/1/a.pdf", "application/pdf", 2, 1568);
 
     assertThat(r.data()).isEqualTo(png);
     assertThat(r.contentType()).isEqualTo("image/png");
@@ -98,7 +98,7 @@ class WorkerRenderClientTest {
     // Content-Type 파라미터는 떼어 낸다.
     stub = new Stub(200, "image/jpeg; q=85", null, new byte[] {1, 2});
 
-    RenderResult r = client(true).render("t/1/a.heic", "image/heic", null, 1568);
+    ViewImage r = client(true).render("t/1/a.heic", "image/heic", null, 1568);
 
     assertThat(r.contentType()).isEqualTo("image/jpeg");
     assertThat(r.pageCount()).isNull();

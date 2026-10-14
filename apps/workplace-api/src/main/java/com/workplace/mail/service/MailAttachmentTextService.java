@@ -13,7 +13,6 @@ import com.workplace.mail.repository.ContentAttachmentRepository;
 import com.workplace.mail.repository.ContentAttachmentRepository.ExtractTarget;
 import com.workplace.mail.repository.EmailAttachmentRepository;
 import com.workplace.mail.repository.EmailAttachmentRepository.AttachmentDownloadContext;
-import java.util.Locale;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
@@ -157,12 +156,7 @@ public class MailAttachmentTextService {
    * 로 굳을 수 있다.
    */
   static String normalizeMime(String filename, String contentType) {
-    String base = null;
-    if (contentType != null) {
-      int semi = contentType.indexOf(';');
-      base =
-          (semi < 0 ? contentType : contentType.substring(0, semi)).trim().toLowerCase(Locale.ROOT);
-    }
-    return MimeNormalizer.normalize(filename, base);
+    // 기본형이 빈 값(Content-Type 없음)이면 normalize 가 null 과 같이 확장자로 보정한다.
+    return MimeNormalizer.normalize(filename, MimeNormalizer.baseMime(contentType));
   }
 }

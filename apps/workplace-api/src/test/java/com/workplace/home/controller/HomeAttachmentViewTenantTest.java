@@ -14,7 +14,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.workplace.fileai.outbound.WorkerRenderClient.RenderResult;
+import com.workplace.fileai.dto.ViewImage;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.home.HomeAttachmentTestSupport;
 import java.util.List;
@@ -97,7 +97,7 @@ class HomeAttachmentViewTenantTest extends HomeAttachmentTestSupport {
     attachmentService.appendUserMessage(uid, sid, "q", List.of(pdf));
     assertThat(pageCountOf(pdf)).as("추출이 쪽수를 아직 못 채운 상태").isNull();
     when(worker.render(anyString(), eq("application/pdf"), eq(1), anyInt()))
-        .thenReturn(new RenderResult(VIEW_PNG, "image/png", 4));
+        .thenReturn(new ViewImage(VIEW_PNG, "image/png", 4));
 
     http(asTenant2(uid, get(VIEW, sid, pdf).param("page", "1")))
         .andExpect(status().isOk())

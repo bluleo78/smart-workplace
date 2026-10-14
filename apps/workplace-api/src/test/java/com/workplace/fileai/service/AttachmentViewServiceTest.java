@@ -19,7 +19,6 @@ import com.workplace.file.storage.FileStore;
 import com.workplace.fileai.dto.ViewImage;
 import com.workplace.fileai.exception.AttachmentViewException;
 import com.workplace.fileai.outbound.WorkerRenderClient;
-import com.workplace.fileai.outbound.WorkerRenderClient.RenderResult;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.jooq.tables.Tenant;
 import com.workplace.support.IntegrationTestBase;
@@ -118,7 +117,7 @@ class AttachmentViewServiceTest extends IntegrationTestBase {
   void PDF_페이지를_그려_캐시하고_두번째는_워커를_부르지_않는다() {
     long id = seedPdf(3);
     when(worker.render(anyString(), anyString(), any(), anyInt()))
-        .thenReturn(new RenderResult(PNG, "image/png", 3));
+        .thenReturn(new ViewImage(PNG, "image/png", 3));
 
     ViewImage first = service.view(id, 2);
 
@@ -174,7 +173,7 @@ class AttachmentViewServiceTest extends IntegrationTestBase {
   void 페이지수가_비어_있으면_워커가_알려_준_값으로_채운다() {
     long id = seedPdf(null);
     when(worker.render(anyString(), anyString(), any(), anyInt()))
-        .thenReturn(new RenderResult(PNG, "image/png", 4));
+        .thenReturn(new ViewImage(PNG, "image/png", 4));
 
     ViewImage v = service.view(id, 1);
 
@@ -195,7 +194,7 @@ class AttachmentViewServiceTest extends IntegrationTestBase {
     long id = seedFile("image/png", "b.png", 1000L);
     byte[] jpg = {(byte) 0xFF, (byte) 0xD8, 1, 2, 3};
     when(worker.render(anyString(), anyString(), isNull(), anyInt()))
-        .thenReturn(new RenderResult(jpg, "image/jpeg", null));
+        .thenReturn(new ViewImage(jpg, "image/jpeg", null));
 
     ViewImage v = service.view(id, null);
 
@@ -220,7 +219,7 @@ class AttachmentViewServiceTest extends IntegrationTestBase {
     long octet = seedFile("application/octet-stream", "legacy.heic", 1000L);
     byte[] jpg = {(byte) 0xFF, (byte) 0xD8, 9};
     when(worker.render(anyString(), anyString(), isNull(), anyInt()))
-        .thenReturn(new RenderResult(jpg, "image/jpeg", null));
+        .thenReturn(new ViewImage(jpg, "image/jpeg", null));
 
     assertThat(service.view(heic, null).data()).isEqualTo(jpg);
     verify(worker).render(eq(dir + "/photo.HEIC"), eq("image/heic"), isNull(), eq(1568));
@@ -302,7 +301,7 @@ class AttachmentViewServiceTest extends IntegrationTestBase {
     long id = seedPdf(null);
     fileStore.writeAtomically(dir + "/a.pdf.view", new byte[] {1});
     when(worker.render(anyString(), anyString(), any(), anyInt()))
-        .thenReturn(new RenderResult(PNG, "image/png", 5));
+        .thenReturn(new ViewImage(PNG, "image/png", 5));
 
     ViewImage v = service.view(id, 2);
 
@@ -348,7 +347,7 @@ class AttachmentViewServiceTest extends IntegrationTestBase {
         .thenAnswer(
             inv -> {
               bothMissed.await(10, TimeUnit.SECONDS);
-              return new RenderResult(big, "image/png", 3);
+              return new ViewImage(big, "image/png", 3);
             });
 
     ExecutorService pool = Executors.newFixedThreadPool(2);
@@ -392,7 +391,7 @@ class AttachmentViewServiceTest extends IntegrationTestBase {
     tid2 = ensureFixtureTenant();
     long id = seedTenant2Pdf();
     when(worker.render(anyString(), anyString(), any(), anyInt()))
-        .thenReturn(new RenderResult(PNG, "image/png", 4));
+        .thenReturn(new ViewImage(PNG, "image/png", 4));
 
     TenantContext.set(tid2);
     ViewImage v = service.view(id, 1);

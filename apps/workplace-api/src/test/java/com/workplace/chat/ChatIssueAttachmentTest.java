@@ -26,8 +26,8 @@ import com.workplace.chat.service.ChatIssueAttachmentService;
 import com.workplace.chat.service.ChatMessageAttachmentService;
 import com.workplace.chat.service.ChatMessageService;
 import com.workplace.chat.service.ChatThreadService;
+import com.workplace.fileai.dto.ViewImage;
 import com.workplace.fileai.outbound.WorkerRenderClient;
-import com.workplace.fileai.outbound.WorkerRenderClient.RenderResult;
 import com.workplace.global.outbound.AiAgentEventClient;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.tenant.TenantContext;
@@ -391,7 +391,7 @@ class ChatIssueAttachmentTest extends IntegrationTestBase {
 
   private void mockRender(int pageCount) {
     when(worker.render(anyString(), eq("application/pdf"), eq(1), anyInt()))
-        .thenReturn(new RenderResult(VIEW_PNG, "image/png", pageCount));
+        .thenReturn(new ViewImage(VIEW_PNG, "image/png", pageCount));
   }
 
   @Test

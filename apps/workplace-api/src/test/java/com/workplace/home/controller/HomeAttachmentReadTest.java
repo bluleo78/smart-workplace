@@ -14,7 +14,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.workplace.fileai.outbound.WorkerRenderClient.RenderResult;
+import com.workplace.fileai.dto.ViewImage;
 import com.workplace.home.HomeAttachmentTestSupport;
 import java.util.List;
 import java.util.UUID;
@@ -186,7 +186,7 @@ class HomeAttachmentReadTest extends HomeAttachmentTestSupport {
   void view_는_세션_소유자에게_PDF_쪽_이미지와_쪽수_헤더를_돌려준다() throws Exception {
     Seed s = seed();
     when(worker.render(anyString(), eq("application/pdf"), eq(1), anyInt()))
-        .thenReturn(new RenderResult(VIEW_PNG, "image/png", 5));
+        .thenReturn(new ViewImage(VIEW_PNG, "image/png", 5));
     http(as(s.uid(), get(VIEW, s.sid(), s.pdf()).param("page", "1")))
         .andExpect(status().isOk())
         .andExpect(header().string("Content-Type", "image/png"))
@@ -199,7 +199,7 @@ class HomeAttachmentReadTest extends HomeAttachmentTestSupport {
   void view_는_이미지_파일을_page_없이_보여_주고_쪽수_헤더는_없다() throws Exception {
     Seed s = seed();
     when(worker.render(anyString(), eq("image/png"), isNull(), anyInt()))
-        .thenReturn(new RenderResult(VIEW_PNG, "image/png", null));
+        .thenReturn(new ViewImage(VIEW_PNG, "image/png", null));
     http(as(s.uid(), get(VIEW, s.sid(), s.png())))
         .andExpect(status().isOk())
         .andExpect(header().doesNotExist("X-Page-Count"))

@@ -1,6 +1,7 @@
 package com.workplace.file.service;
 
 import com.workplace.file.storage.FilePathBuilder;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -46,6 +47,17 @@ public final class MimeNormalizer {
           Map.entry("tif", "image/tiff"),
           Map.entry("tiff", "image/tiff"),
           Map.entry("bmp", "image/bmp"));
+
+  /**
+   * mime 기본형 — 파라미터(";" 뒤)를 떼고 앞뒤 공백을 지운 소문자. "application/pdf; charset=binary" →
+   * "application/pdf". null 이면 빈 문자열(호출자가 "모름"으로 다룬다). 보기·워커 응답·메일 파트처럼 Content-Type 원문을 비교하는 곳이 같은
+   * 규칙을 쓰게 한다.
+   */
+  public static String baseMime(String mime) {
+    if (mime == null) return "";
+    int semi = mime.indexOf(';');
+    return (semi >= 0 ? mime.substring(0, semi) : mime).trim().toLowerCase(Locale.ROOT);
+  }
 
   /**
    * 파일명·브라우저 mime 으로 정규화된 mime 을 결정한다.

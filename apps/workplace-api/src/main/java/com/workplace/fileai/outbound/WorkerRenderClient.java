@@ -2,6 +2,8 @@ package com.workplace.fileai.outbound;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.workplace.file.service.MimeNormalizer;
+import com.workplace.fileai.dto.ViewImage;
 import com.workplace.fileai.exception.AttachmentViewException;
 import com.workplace.global.outbound.InternalHttp;
 import java.io.IOException;
@@ -12,7 +14,6 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.LinkedHashMap;
-import java.util.Locale;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,9 +34,6 @@ public class WorkerRenderClient {
 
   private static final Logger log = LoggerFactory.getLogger(WorkerRenderClient.class);
 
-  /** 워커 응답 결과. pageCount 는 PDF 일 때 X-Page-Count 헤더 값(없으면 null). */
-  public record RenderResult(byte[] data, String contentType, Integer pageCount) {}
-
   private final WorkerProperties props;
   private final HttpClient http;
   private final ObjectMapper mapper = new ObjectMapper();
@@ -53,7 +51,7 @@ public class WorkerRenderClient {
   }
 
   /**
-   * 첨부 하나를 이미지로 그린다.
+   * 첨부 하나를 이미지로 그린다. 결과의 pageCount 는 PDF 일 때 {@link ViewImage#PAGE_COUNT_HEADER} 헤더 값(없으면 null).
    *
    * @param storageKey file.storage_path — 워커 저장소 루트 기준 경로(추출 디스패치와 같은 값)
    * @param mime 파라미터를 뗀 MIME
@@ -61,7 +59,7 @@ public class WorkerRenderClient {
    * @param maxEdge 결과 긴 변 픽셀
    * @throws AttachmentViewException 워커가 거절했거나 응답하지 못했을 때
    */
-  public RenderResult render(String storageKey, String mime, Integer page, int maxEdge) {
+  public ViewImage render(String storageKey, String mime, Integer page, int maxEdge) {
     if (!props.enabled()) {
       throw AttachmentViewException.workerUnavailable();
     }
@@ -103,11 +101,11 @@ public class WorkerRenderClient {
             storageKey);
         throw AttachmentViewException.workerUnavailable();
       }
-      return new RenderResult(
+      return new ViewImage(
           resp.body(),
           type,
           resp.headers()
-              .firstValue("X-Page-Count")
+              .firstValue(ViewImage.PAGE_COUNT_HEADER)
               .map(WorkerRenderClient::parseIntOrNull)
               .orElse(null));
     }
@@ -150,14 +148,8 @@ public class WorkerRenderClient {
    * 그린 응답과 캐시 적중(확장자로 정함)이 같은 값을 돌려주게 하려는 것이다. 둘 다 아니면 null.
    */
   static String imageType(String contentType) {
-    int semi = contentType.indexOf(';');
-    String base =
-        (semi >= 0 ? contentType.substring(0, semi) : contentType).trim().toLowerCase(Locale.ROOT);
-    return switch (base) {
-      case "image/png" -> "image/png";
-      case "image/jpeg", "image/jpg", "image/pjpeg" -> "image/jpeg";
-      default -> null;
-    };
+    ViewImage.Format format = ViewImage.Format.ofMime(MimeNormalizer.baseMime(contentType));
+    return format == null ? null : format.contentType();
   }
 
   /** 로그용 본문 자르기 — 예상 밖 응답이 커도 로그를 덮지 않게. */

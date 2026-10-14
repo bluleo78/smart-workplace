@@ -2,7 +2,6 @@ package com.workplace.chat.controller;
 
 import com.workplace.chat.repository.ChatMessageAttachmentRepository;
 import com.workplace.chat.service.ChatMessageAttachmentService;
-import com.workplace.fileai.controller.ViewImageResponses;
 import com.workplace.fileai.dto.ExtractedTextSlice;
 import com.workplace.fileai.service.AttachmentViewService;
 import java.io.IOException;
@@ -62,18 +61,14 @@ public class ChatMessageAttachmentController {
     return ResponseEntity.ok(service.readText(callerId, threadId, fileId, offset, limit));
   }
 
-  /**
-   * 첨부를 모델 입력용 이미지로 보여 준다(WP-250) — PDF 는 ?page=N(1부터), 이미지 파일은 page 없이. 권한은 /text 와 같다. 도메인
-   * 가드(트랜잭션)가 끝난 뒤 워커 렌더를 부르므로 이 컨트롤러는 트랜잭션을 걸지 않는다(R5).
-   */
+  /** 첨부를 모델 입력용 이미지로 보여 준다(WP-250) — 규칙·권한·트랜잭션(R5)은 {@link AttachmentViewService} 참조. */
   @GetMapping("/threads/{id}/attachments/{fileId}/view")
   public ResponseEntity<byte[]> view(
       @AuthenticationPrincipal Long callerId,
       @PathVariable("id") long threadId,
       @PathVariable long fileId,
       @RequestParam(required = false) Integer page) {
-    long id = service.resolveViewFileId(callerId, threadId, fileId);
-    return ViewImageResponses.of(attachmentView.view(id, page));
+    return attachmentView.respond(service.resolveViewFileId(callerId, threadId, fileId), page);
   }
 
   /** 다운로드(스트리밍). 스레드 멤버만 허용. 교차 스레드 접근 시 4xx 반환. */

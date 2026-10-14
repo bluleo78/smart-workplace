@@ -39,9 +39,9 @@ public record WorkerProperties(
   public record Render(int maxEdge, int timeoutSeconds) {
 
     /** 워커 /render 가 받는 긴 변 범위 — 밖이면 모든 요청이 워커 검증(422)에서 막히므로 기동 때 바로 실패시킨다. */
-    public static final int MIN_EDGE = 64;
+    private static final int MIN_EDGE = 64;
 
-    public static final int MAX_EDGE = 4096;
+    private static final int MAX_EDGE = 4096;
 
     public Render {
       if (maxEdge < MIN_EDGE || maxEdge > MAX_EDGE) {

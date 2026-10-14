@@ -22,9 +22,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.workplace.drive.exception.DriveFileNotFoundException;
 import com.workplace.drive.exception.DriveSpaceNotFoundException;
 import com.workplace.fileai.dto.ExtractedTextSlice;
+import com.workplace.fileai.dto.ViewImage;
 import com.workplace.fileai.exception.InvalidTextRangeException;
 import com.workplace.fileai.outbound.WorkerRenderClient;
-import com.workplace.fileai.outbound.WorkerRenderClient.RenderResult;
 import com.workplace.fileai.service.ExtractedTextService;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
@@ -250,7 +250,7 @@ class DriveFileTextTest extends IntegrationTestBase {
     seedFixture("DONE", null, "본문");
     assertThat(pageCountOfCore()).isNull();
     when(worker.render(anyString(), eq("application/pdf"), eq(1), anyInt()))
-        .thenReturn(new RenderResult(VIEW_PNG, "image/png", 8));
+        .thenReturn(new ViewImage(VIEW_PNG, "image/png", 8));
 
     try {
       mvc.perform(

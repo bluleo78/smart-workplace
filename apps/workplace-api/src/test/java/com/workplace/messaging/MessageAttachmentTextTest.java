@@ -16,8 +16,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.workplace.fileai.dto.ViewImage;
 import com.workplace.fileai.outbound.WorkerRenderClient;
-import com.workplace.fileai.outbound.WorkerRenderClient.RenderResult;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.messaging.dto.CreateMessageRequest;
@@ -220,7 +220,7 @@ class MessageAttachmentTextTest extends IntegrationTestBase {
   void view_는_채널_멤버에게_이미지와_쪽수_헤더를_돌려준다() throws Exception {
     long[] ids = sendPdf();
     when(worker.render(anyString(), eq("application/pdf"), eq(1), anyInt()))
-        .thenReturn(new RenderResult(VIEW_PNG, "image/png", 2));
+        .thenReturn(new ViewImage(VIEW_PNG, "image/png", 2));
     mvc.perform(
             get(viewUrl(ids))
                 .param("page", "1")

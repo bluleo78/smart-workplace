@@ -1,6 +1,5 @@
 package com.workplace.wiki.controller;
 
-import com.workplace.fileai.controller.ViewImageResponses;
 import com.workplace.fileai.dto.ExtractedTextSlice;
 import com.workplace.fileai.service.AttachmentViewService;
 import com.workplace.wiki.dto.WikiAttachmentResponse;
@@ -76,18 +75,14 @@ public class WikiAttachmentController {
     return ResponseEntity.ok(service.readText(callerId, pageId, fileId, offset, limit));
   }
 
-  /**
-   * 첨부를 모델 입력용 이미지로 보여 준다(WP-250) — PDF 는 ?page=N(1부터), 이미지 파일은 page 없이. 권한은 /text 와 같다. 도메인
-   * 가드(트랜잭션)가 끝난 뒤 워커 렌더를 부르므로 이 컨트롤러는 트랜잭션을 걸지 않는다(R5).
-   */
+  /** 첨부를 모델 입력용 이미지로 보여 준다(WP-250) — 규칙·권한·트랜잭션(R5)은 {@link AttachmentViewService} 참조. */
   @GetMapping("/{fileId}/view")
   public ResponseEntity<byte[]> view(
       @AuthenticationPrincipal Long callerId,
       @PathVariable long pageId,
       @PathVariable long fileId,
       @RequestParam(required = false) Integer page) {
-    long id = service.resolveViewFileId(callerId, pageId, fileId);
-    return ViewImageResponses.of(attachmentView.view(id, page));
+    return attachmentView.respond(service.resolveViewFileId(callerId, pageId, fileId), page);
   }
 
   @DeleteMapping("/{fileId}")

@@ -33,7 +33,6 @@ public class AttachmentViewException extends RuntimeException {
           WORKER_UNAVAILABLE,
           503);
 
-  private final int status;
   private final String code;
   private final Integer pageCount;
 
@@ -45,7 +44,6 @@ public class AttachmentViewException extends RuntimeException {
    */
   public AttachmentViewException(String code, Integer pageCount) {
     super(messageOf(code, pageCount));
-    this.status = statusOf(code);
     this.code = code;
     this.pageCount = pageCount;
   }
@@ -90,8 +88,9 @@ public class AttachmentViewException extends RuntimeException {
     };
   }
 
+  /** HTTP 상태 — 코드에서 정한다({@link #statusOf}). */
   public int status() {
-    return status;
+    return statusOf(code);
   }
 
   public String code() {
