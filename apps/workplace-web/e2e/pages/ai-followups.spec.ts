@@ -115,4 +115,9 @@ test('후속 질문은 빈 대화 추천과 같은 머리말·행 모양으로 �
     expect(boxes[i].y).toBeGreaterThanOrEqual(boxes[i - 1].y + boxes[i - 1].height - 0.5)
     expect(Math.round(boxes[i].x)).toBe(Math.round(boxes[0].x))
   }
+  // 행은 문구 폭만큼만 누른다 — 짧은 문구 오른쪽 빈 곳을 눌러도 질문이 나가지 않는다.
+  const group = await stableBox(page.getByTestId('chat-followups'))
+  expect(boxes[1].width).toBeLessThan(group.width - 40)
+  await page.mouse.click(boxes[1].x + boxes[1].width + 20, boxes[1].y + boxes[1].height / 2)
+  await expectStays(page, () => live.starts.count(), 1)
 })

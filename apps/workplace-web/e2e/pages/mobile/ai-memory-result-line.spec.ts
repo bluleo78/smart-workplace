@@ -32,7 +32,7 @@ test('되돌리기 바로 아래 6px 를 탭해도 그 줄을 되돌리고 가�
   expect(undo.lastBody()).toEqual({ messageId: 2, blockIndex: 0 })
 })
 
-// 후속 질문 칩이 바로 아래에 있어도 — 마지막 되돌리기 바로 아래 6px 탭이 칩 확장에 가로채이지 않고 되돌리기로 간다.
+// 후속 질문 목록이 바로 아래에 있어도 — 마지막 되돌리기 바로 아래 6px 탭은 후속 질문 행이 아니라 되돌리기로 간다.
 test('후속 질문이 아래 있어도 마지막 되돌리기 바로 아래 6px 탭은 후속 질문이 아닌 되돌리기다', async ({ authenticatedPage: page }) => {
   await stubChat(page)
   const undo = await mockMemoryUndo(page)

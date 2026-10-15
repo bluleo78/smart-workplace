@@ -326,9 +326,9 @@ test('빈 대화 안내는 가운데 놓이고, 영역이 낮아져도 위쪽이
   // 대화 영역이 안내+목록 높이보다 낮아지는 창 높이 — 가운데 정렬이면 아이콘이 영역 위로 밀려 스크롤로도 못 본다.
   await page.setViewportSize({ width: 1280, height: 320 })
   await expect.poll(async () => (await guide()).s.height).toBeLessThan(wide.bottom - wide.top)
-  // 스크롤 내용 좌표로 본다 — 대화 영역은 바닥 따라가기로 스크롤될 수 있어, 화면 좌표가 아니라 "위로 스크롤하면 닿는가"가 기준이다.
-  const iconOffset = await scroll.evaluate((el) => {
-    const icon = el.querySelector('[data-testid="ai-chat-empty-state"] svg')!
+  // 스크롤 내용 좌표로 본다 — 넘치면 안내 영역이 스스로 스크롤하므로(WP-398), 화면 좌표가 아니라 "위로 스크롤하면 닿는가"가 기준이다.
+  const iconOffset = await empty.evaluate((el) => {
+    const icon = el.querySelector('svg')!
     return icon.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop
   })
   expect(iconOffset).toBeGreaterThanOrEqual(0)
