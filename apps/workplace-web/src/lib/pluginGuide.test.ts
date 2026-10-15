@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+
 import { describe, expect, it } from 'vitest';
 
 import marketplace from '../../public/claude/marketplace.json';
@@ -7,7 +9,9 @@ import {
   buildSwitchCommand,
   buildTokenFallbackCommand,
   marketplaceUrl,
+  needsServerUrlSetting,
   PLUGIN_COMMANDS,
+  PLUGIN_DEFAULT_SERVER_URL,
 } from './pluginGuide';
 
 describe('pluginGuide', () => {
@@ -36,5 +40,26 @@ describe('pluginGuide', () => {
         ref: 'genia-works--v0.1.0',
       },
     });
+  });
+});
+
+describe('needsServerUrlSetting', () => {
+  it('기본 주소(끝의 / 유무 무관)면 바꿀 필요가 없다', () => {
+    expect(needsServerUrlSetting('https://genia-works.iacloud.kr/mcp')).toBe(false);
+    expect(needsServerUrlSetting('https://genia-works.iacloud.kr/mcp/')).toBe(false);
+  });
+  it('다른 배포(로컬·스테이징·compose)나 범위를 좁힌 주소면 바꿔야 한다', () => {
+    expect(needsServerUrlSetting('http://localhost:6090/mcp')).toBe(true);
+    expect(needsServerUrlSetting('https://staging.example.test/mcp')).toBe(true);
+    expect(needsServerUrlSetting('https://genia-works.iacloud.kr/mcp/readonly')).toBe(true);
+  });
+});
+
+describe('PLUGIN_DEFAULT_SERVER_URL', () => {
+  it('plugin.json 의 server_url 기본값과 같다(어긋나면 안내가 틀어진다)', () => {
+    const manifest = JSON.parse(
+      readFileSync(new URL('../../../../plugins/genia-works/.claude-plugin/plugin.json', import.meta.url), 'utf8'),
+    );
+    expect(manifest.userConfig.server_url.default).toBe(PLUGIN_DEFAULT_SERVER_URL);
   });
 });

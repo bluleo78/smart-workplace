@@ -32,3 +32,17 @@ export function buildLaunchAsCommand(username: string): string {
 export function buildTokenFallbackCommand(): string {
   return 'GENIA_WORKS_TOKEN=<발급한 키> claude';
 }
+
+/**
+ * 플러그인 userConfig `server_url` 의 기본값 — plugins/genia-works/.claude-plugin/plugin.json 의
+ * userConfig.server_url.default 와 같아야 한다(pluginGuide.test.ts 가 두 값을 대조한다).
+ */
+export const PLUGIN_DEFAULT_SERVER_URL = 'https://genia-works.iacloud.kr/mcp';
+
+/**
+ * 이 배포의 MCP 주소가 플러그인 기본 주소와 다른지 — 다르면(로컬·스테이징·compose 등) 설치한 사람이
+ * 서버 주소를 바꿔야 한다. 안 바꾸면 운영 서버에 다른 환경의 토큰으로 접속하게 된다. 끝의 '/' 는 무시한다.
+ */
+export function needsServerUrlSetting(endpoint: string): boolean {
+  return endpoint.replace(/\/+$/, '') !== PLUGIN_DEFAULT_SERVER_URL;
+}

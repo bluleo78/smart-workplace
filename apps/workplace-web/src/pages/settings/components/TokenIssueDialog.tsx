@@ -22,6 +22,7 @@ import { MCP_ENDPOINT } from '@/lib/mcpEndpoint';
 import { buildPluginInstallCommands } from '@/lib/pluginGuide';
 
 import { CopyableCommand } from '../../admin/components/CopyableCommand';
+import { PluginServerUrlStep } from '../../admin/components/PluginServerUrlStep';
 
 interface TokenIssueDialogProps {
   plaintextToken: string | null;
@@ -90,6 +91,7 @@ export function TokenIssueDialog({
                 <code className="font-mono">/plugin configure genia-works@genia-works</code> 를 실행해 붙여 넣으세요.
               </p>
             </div>
+            <PluginServerUrlStep />
             <div className="space-y-1.5">
               <p className="text-xs font-medium text-muted-foreground">3. 확인</p>
               <p className="text-xs text-muted-foreground">

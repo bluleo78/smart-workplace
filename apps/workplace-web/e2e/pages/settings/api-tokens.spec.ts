@@ -111,6 +111,10 @@ test.describe('/settings/tokens', () => {
       await expect(install).toContainText(`/plugin marketplace add ${origin}/claude/marketplace.json`);
       await expect(install).toContainText('/plugin install genia-works@genia-works');
       await expect(page.getByTestId('token-plugin-token-step')).toContainText('/plugin configure genia-works@genia-works');
+      // dev·preview 서버는 운영 기본 주소가 아니므로 서버 주소 바꾸기 안내가 보이고, 바꿀 주소는 이 배포의 MCP 주소다.
+      const serverUrlMcp = process.env.E2E_SERVER === 'preview' ? `${origin}/mcp` : 'http://localhost:6090/mcp';
+      await expect(page.getByTestId('plugin-server-url-step')).toBeVisible();
+      await expect(page.getByTestId('plugin-server-url')).toHaveText(serverUrlMcp);
       await expect(dialog).not.toContainText('claude mcp add');
       await expect(dialog).not.toContainText('--header');
 

@@ -64,6 +64,7 @@ import { AgentKeysSection } from './components/AgentKeysSection';
 import { AgentRuntimeSection } from './components/AgentRuntimeSection';
 import { CopyableCommand } from './components/CopyableCommand';
 import { NewAgentDialog } from './components/NewAgentDialog';
+import { PluginServerUrlStep } from './components/PluginServerUrlStep';
 
 // AI 아이디 복사 — 플러그인 로그인 화면의 "이름" 칸에 그대로 붙여 넣게 한다. 실패 시 직접 복사하도록 알린다.
 async function copyUsername(username: string) {
@@ -328,6 +329,7 @@ export default function AgentManagementPage() {
                         ② genia-works 플러그인 설치 (한 번만 · 설치했으면 건너뛰기)
                       </h4>
                       <CopyableCommand command={buildPluginInstallCommands()} testId="plugin-install-command" />
+                      <PluginServerUrlStep />
                     </div>
                     <div className="space-y-2">
                       <h4 className="text-xs font-medium text-muted-foreground">
