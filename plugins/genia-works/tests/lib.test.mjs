@@ -1,7 +1,7 @@
 // mod 순수 함수 테스트 — $ 없이 node --test 로 돈다.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseKeyList, identityLabel, isKeyPath, toolTargets, END_CLEARS, applyMaskedInput, maskOf, initializeBody, validName, validKey, findManualRegistrations, sameServer, isHeadless, isHeaderScriptCall, isAiKeyRegistration, mentionsHost, KEY_PATH_DENY } from '../hooks/lib.js';
+import { parseKeyList, identityLabel, isKeyPath, toolTargets, END_CLEARS, applyMaskedInput, maskOf, initializeBody, validName, validKey, findManualRegistrations, sameServer, isHeadless, isHeaderScriptCall, isAiKeyRegistration, mentionsHost, KEY_PATH_DENY, containsSecretKey } from '../hooks/lib.js';
 
 test('parseKeyList: 탭 구분 줄을 이름·등록일로', () => {
   assert.deepEqual(parseKeyList('ai-dev\t10-14\nai-review\t10-12\n'), [
@@ -234,4 +234,18 @@ test('mentionsHost: 호스트가 글자로 보일 때만 true, 주소를 해석�
   assert.equal(mentionsHost('{"url":"https://other.example/mcp"}', 'https://genia-works.iacloud.kr/mcp'), false);
   assert.equal(mentionsHost('{}', 'not a url'), true);
   assert.ok(KEY_PATH_DENY.includes('/genia-works:as'));
+});
+
+test('containsSecretKey: 43자 키·토큰 모양은 걸리고 짧은 가짜·다른 식별자는 안 걸린다', () => {
+  const b = 'aB3dE5gH7jK9mN1pQ3rS5tU7vW9xY1zA3bC5dE7fG9h'
+  assert.equal(b.length, 43);
+  for (const pre of ['ak_', 'swp_']) {
+    const k = pre + b;
+    assert.equal(containsSecretKey(k), true);
+    assert.equal(containsSecretKey(`내 키는 ${k} 입니다`), true);
+    assert.equal(containsSecretKey(`Authorization: Bearer ${k}`), true);
+  }
+  for (const t of ['ak_FAKE_ABC123', 'swp_FAKE_ME', 'ak_FAKE_PASTE_123', 'swp_sso_tx', 'task_' + b, 'x_ak_' + b, '', undefined]) {
+    assert.equal(containsSecretKey(t), false, String(t));
+  }
 });

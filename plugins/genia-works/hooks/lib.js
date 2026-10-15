@@ -165,3 +165,15 @@ export function isAiKeyRegistration(config) {
   }
   return false
 }
+
+// 프롬프트에 든 genia-works 키·토큰 모양 — 내 토큰은 swp_, AI 키는 ak_ 뒤에 base62 32바이트(약 43자).
+// 앞에 영문·숫자·밑줄이 붙으면(더 긴 식별자의 일부) 제외한다. 문서·테스트의 짧은 가짜(ak_FAKE_ABC123 등)는 32자 미만이라 걸리지 않는다.
+export const KEY_LIKE = /(?:^|[^A-Za-z0-9_])(?:swp|ak)_[A-Za-z0-9]{32,}/
+
+// 텍스트에 키·토큰 모양이 있으면 true — 키 값은 돌려주지 않는다(메시지·로그에 되울리지 않게).
+export function containsSecretKey(text) {
+  return typeof text === 'string' && KEY_LIKE.test(text)
+}
+
+// 키가 든 프롬프트를 막을 때 사람에게 보이는 안내 — 키 값은 포함하지 않는다.
+export const PROMPT_KEY_DROP = 'genia-works 키나 토큰은 대화에 넣을 수 없습니다 — 입력을 지우고(Ctrl+U) AI 키는 /genia-works:login 에, 내 토큰은 /plugin configure genia-works@genia-works 에 넣으세요'

@@ -1,7 +1,7 @@
 // genia-works mod — 세션별 접속 신원 선택(로그인 패널·전환·로그아웃), 신원 상태 줄, 키 파일 읽기 차단,
 // 기존 수동 등록 정리. 토큰 주입은 하지 않는다(헤더 스크립트 담당 — 플러그인 MCP 가 mod 보다 먼저 연결된다).
 // 규칙: $ 를 쓰는 코드는 모두 이 파일 안에 둔다(다른 파일 함수에 $ 를 넘기면 검증이 실패). lib.js 는 순수 함수만.
-import { COMMANDS, parseKeyList, identityLabel, isKeyPath, toolTargets, END_CLEARS, applyMaskedInput, maskOf, initializeBody, validName, validKey, findManualRegistrations, isAiKeyRegistration, isHeaderScriptCall, HEADER_SCRIPT_DENY, KEY_PATH_DENY, mentionsHost, sameServer, isHeadless, HEADLESS_SWITCH, HEADLESS_LOGIN } from './lib.js'
+import { COMMANDS, parseKeyList, identityLabel, isKeyPath, toolTargets, END_CLEARS, applyMaskedInput, maskOf, initializeBody, validName, validKey, findManualRegistrations, isAiKeyRegistration, isHeaderScriptCall, HEADER_SCRIPT_DENY, KEY_PATH_DENY, mentionsHost, sameServer, isHeadless, HEADLESS_SWITCH, HEADLESS_LOGIN, containsSecretKey, PROMPT_KEY_DROP } from './lib.js'
 
 const SERVER = 'plugin:genia-works:genia-works'
 let opts = {}
@@ -294,7 +294,7 @@ function renderPane($, e) {
     body = [
       // 안전장치 — 패널이 키보드를 쥐지 않은 채 추가 화면이 보이면 알린다. 이 줄이 보일 때는 붙여 넣은 키가 이미 Claude 입력창에
       // 들어가 있을 수 있으므로(Enter 와 붙여넣기가 한꺼번에 들어온 경우) 「보내지 말고 지우기」를 먼저, 다시 붙여 넣는 방법을 다음에 적는다.
-      e.props?.isFocused === false ? h(Text, { color: 'yellow' }, '⚠ 이 패널에 키보드가 없습니다 — 키가 Claude 입력창에 들어갔다면 Enter 를 누르지 말고 Ctrl+U 로 지우세요. 붙여 넣으려면 ctrl+x tab 으로 패널에 온 뒤 붙여 넣으세요') : null,
+      e.props?.isFocused === false ? h(Text, { color: 'yellow' }, '⚠ 이 패널에 키보드가 없습니다 — 키가 Claude 입력창에 들어갔다면 Enter 를 누르지 말고 Ctrl+U 로 지우세요(키 모양이 든 입력은 플러그인이 보내지 못하게 막습니다). 붙여 넣으려면 ctrl+x tab 으로 패널에 온 뒤 붙여 넣으세요') : null,
       h(Input, {
         key: 'gw-key', label: 'AI 키', placeholder: '관리자 › 에이전트에서 발급한 ak_ 키', value: pane.blank ? '' : maskOf(pane.keyBuf), ...af('gw-key'),
         onInput: (v) => { pane.keyBuf = applyMaskedInput(pane.keyBuf, v); resetConfirm(); redraw() },
@@ -526,4 +526,13 @@ export function register(on, options) {
     if (isHeaderScriptCall(e)) return { deny: HEADER_SCRIPT_DENY }
     return next(e)
   }).catch(($, e, next) => (next.called ? next(e) : { deny: 'genia-works 키 저장소 검사에 실패해 이 도구 호출을 막았습니다' }))
+
+  // 마지막 안전망 — 키·토큰 모양이 든 프롬프트는 모델·기록에 닿기 전에 막는다(drop 사유는 사람에게 보인다).
+  // 슬래시 명령(e.command)도 같은 검사를 한다: drop 은 스킬·프롬프트 명령과 모델을 부르는 내장 명령을 막는다.
+  // 모델에 가지 않는 로컬 내장 명령과 command.run 에서 끝나는 명령은 prompt.submit 이 오지 않아 이 검사가 닿지 않는다.
+  // 키 값은 사유·로그 어디에도 싣지 않는다. 핸들러가 실패하면 키 모양일 때만 막고 아니면 통과시킨다.
+  on('prompt.submit', async ($, e, next) => {
+    if (containsSecretKey(e.text)) return { drop: PROMPT_KEY_DROP }
+    return next(e)
+  }).catch(($, e, next) => (containsSecretKey(e.text) ? { drop: PROMPT_KEY_DROP } : next(e)))
 }
