@@ -1,5 +1,6 @@
 package com.workplace.issue.dto;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.workplace.global.dto.UserSummary;
 import com.workplace.issue.repository.AgentWorkRepository.AgentWorkWithWorker;
 import java.time.Instant;
@@ -20,7 +21,9 @@ public record AgentWorkView(
     Integer stepsTotal,
     Instant startedAt,
     Instant updatedAt,
-    boolean stale) {
+    boolean stale,
+    /** 종료 시각 — 종료 작업(AI 위임 작업 「완료」 보기의 대표)만 있고 진행 중이면 JSON 에서 생략(WP-396). */
+    @JsonInclude(JsonInclude.Include.NON_NULL) Instant endedAt) {
 
   /** 저장 행 + 작업자 → 뷰. stale 은 DB 시계로 조회 시 계산된 값을 그대로 쓴다(앱 서버 시계 차이 배제). */
   public static AgentWorkView of(AgentWorkWithWorker w) {
@@ -35,6 +38,7 @@ public record AgentWorkView(
         r.stepsTotal(),
         r.startedAt(),
         r.updatedAt(),
-        w.stale());
+        w.stale(),
+        r.endedAt());
   }
 }

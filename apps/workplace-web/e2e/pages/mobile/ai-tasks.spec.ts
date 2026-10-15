@@ -126,3 +126,19 @@ test('모바일 묶음 머리 — 아이콘·키·제목·하위 진행, 에픽 
   await expect(page.getByTestId('ai-row-413')).toBeVisible()
   await expectNoHorizontalOverflow(page)
 })
+
+// WP-396: 완료 보기 — 모바일 메타 줄엔 칸 제목이 없어 시간 앞에 「종료」를 붙이고, 실패 배지는 옅은 위험 tint.
+test('완료 보기 행은 「종료 n분 전」과 결과 배지를 보인다', async ({ authenticatedPage: page }) => {
+  await stubChat(page)
+  const failed = createIssue({
+    id: 602, number: 602, title: '대용량 첨부 미리보기 생성 실패 원인 조사', status: 'IN_PROGRESS', assignees: [agent],
+    agentWork: [createAgentWork({ state: 'FAILED', note: '샌드박스 메모리 한도 초과로 중단', updatedAt: minutesAgo(3 * 24 * 60), endedAt: minutesAgo(20) })],
+  })
+  await mockApi(page, 'GET', '/api/v1/me/ai-tasks', createIssueSearchResponse([failed]))
+  await mockApi(page, 'GET', '/api/v1/me/ai-tasks/counts', createAiTaskCounts({ all: 3, done: 1 }))
+  await page.goto('/me/ai-tasks?state=DONE')
+  await expect(page.getByTestId('ai-row-602-state')).toHaveText('실패')
+  await expect(page.getByTestId('ai-row-602-state')).toHaveClass(/bg-destructive\/10/)
+  await expect(page.getByTestId('ai-row-602-last')).toHaveText('종료 20분 전')
+  await expectNoHorizontalOverflow(page)
+})

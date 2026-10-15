@@ -60,6 +60,8 @@ export interface AgentWorkView {
   updatedAt: string;
   // 작업 중인데 2시간 넘게 보고가 없으면 true.
   stale: boolean;
+  // 종료 시각 — 종료 작업(완료 보기의 대표)만, 진행 중이면 서버가 생략한다(WP-396).
+  endedAt?: string | null;
 }
 
 /** AI 위임 작업 행의 에픽 묶음(WP-375) — /me/ai-tasks 만 싣는다. size 2 이상이면 화면이 묶음 머리를 그린다. */

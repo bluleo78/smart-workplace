@@ -70,7 +70,7 @@ export default function AiDelegatedTasksPage() {
         ) : isMobile ? (
           <AiTasksMobileList items={items} />
         ) : (
-          <AiTasksTable items={items} />
+          <AiTasksTable items={items} done={state === 'DONE'} />
         )}
         {/* 목록 끝 — 자동 로드, 다음 페이지 실패 시에만 다시 시도(공용 LoadMoreFooter). */}
         <LoadMoreFooter query={query} data-testid="ai-row-more" />

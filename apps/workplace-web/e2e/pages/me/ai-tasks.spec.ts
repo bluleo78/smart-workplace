@@ -196,19 +196,19 @@ test('막힘 칩은 agentState=BLOCKED,AUTH_REQUIRED 로 요청하고 blocked �
 const DONE_ROWS: IssueResponse[] = [
   createIssue({
     id: 501, number: 501, title: '결제 웹훅 재시도 정책 정리', status: 'DONE', assignees: [agent],
-    agentWork: [createAgentWork({ state: 'COMPLETED', note: 'PR #530 병합 완료', progress: 100, updatedAt: minutesAgo(20) })],
+    agentWork: [createAgentWork({ state: 'COMPLETED', note: 'PR #530 병합 완료', progress: 100, updatedAt: minutesAgo(3 * 24 * 60), endedAt: minutesAgo(20) })],
   }),
   createIssue({
     id: 502, number: 502, title: '대용량 첨부 미리보기 생성 실패 원인 조사', status: 'IN_PROGRESS', assignees: [agent],
-    agentWork: [createAgentWork({ state: 'FAILED', note: '샌드박스 메모리 한도 초과로 중단', updatedAt: minutesAgo(90) })],
+    agentWork: [createAgentWork({ state: 'FAILED', note: '샌드박스 메모리 한도 초과로 중단', updatedAt: minutesAgo(90), endedAt: minutesAgo(90) })],
   }),
   createIssue({
     id: 503, number: 503, title: '구 알림 설정 마이그레이션', status: 'CANCELED', assignees: [agent],
-    agentWork: [createAgentWork({ state: 'CANCELED', updatedAt: minutesAgo(200) })],
+    agentWork: [createAgentWork({ state: 'CANCELED', updatedAt: minutesAgo(200), endedAt: minutesAgo(200) })],
   }),
   createIssue({
     id: 504, number: 504, title: '외부 저장소 권한 없는 작업', status: 'TODO', assignees: [human],
-    agentWork: [createAgentWork({ worker: human, state: 'REJECTED', note: '권한 밖 저장소라 맡지 않아요', updatedAt: minutesAgo(300) })],
+    agentWork: [createAgentWork({ worker: human, state: 'REJECTED', note: '권한 밖 저장소라 맡지 않아요', updatedAt: minutesAgo(300), endedAt: minutesAgo(300) })],
   }),
 ]
 
@@ -229,15 +229,21 @@ test('완료 칩은 종료 상태로 요청하고 done 건수, 행 배지는 결
   await expect.poll(() => list.lastRequest()?.searchParams.get('agentState')).toBe('COMPLETED,FAILED,CANCELED,REJECTED')
   expect(cnt.requests.every((r) => !r.searchParams.has('agentState'))).toBe(true)
 
-  // 결과별 배지 — 완료 success·실패 destructive·취소·반려 중립 윤곽.
+  // 결과별 배지 — 완료 success·실패 옅은 위험 tint(진한 채움 아님)·취소·반려 중립 윤곽.
   await expect(page.getByTestId('ai-row-501-state')).toHaveText('완료')
   await expect(page.getByTestId('ai-row-501-state')).toHaveAttribute('data-variant', 'success')
   await expect(page.getByTestId('ai-row-502-state')).toHaveText('실패')
-  await expect(page.getByTestId('ai-row-502-state')).toHaveAttribute('data-variant', 'destructive')
+  await expect(page.getByTestId('ai-row-502-state')).toHaveClass(/bg-destructive\/10/)
+  await expect(page.getByTestId('ai-row-502-state')).not.toHaveAttribute('data-variant', 'destructive')
   await expect(page.getByTestId('ai-row-503-state')).toHaveText('취소')
   await expect(page.getByTestId('ai-row-503-state')).toHaveAttribute('data-variant', 'outline')
   await expect(page.getByTestId('ai-row-504-state')).toHaveText('반려')
   await expect(page.getByTestId('ai-row-504-state')).toHaveAttribute('data-variant', 'outline')
+
+  // 시간 칸은 종료 시각 — 칸 제목 「종료」, 마지막 보고(3일 전)가 아니라 종료(20분 전), 툴팁에 「종료」.
+  await expect(page.getByTestId('ai-tasks-table').locator('th').last()).toHaveText('종료')
+  await expect(page.getByTestId('ai-row-501-last')).toHaveText('20분 전')
+  await expect(page.getByTestId('ai-row-501-last')).toHaveAttribute('title', '종료 20분 전')
 })
 
 test('옛 링크의 state=WAITING 은 무시하고 미완료로 보여 준다', async ({ authenticatedPage: page }) => {

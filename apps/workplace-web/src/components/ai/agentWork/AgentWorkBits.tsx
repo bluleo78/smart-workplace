@@ -20,6 +20,13 @@ export function AgentStateBadge({
   const tone = agentStateTone(state)
   if (tone === 'action' || tone === 'info') return <AiSignalBadge variant={tone} data-testid={testId}>{label}</AiSignalBadge>
   if (tone === 'muted') return <Badge variant="outline" className="text-muted-foreground" data-testid={testId}>{label}</Badge>
+  // 실패 — Badge 에 옅은 위험 variant 가 없어 success·warning 과 같은 결(/10 바탕·/20 테두리)의 tint 를 디자인 토큰으로 입힌다(진한 destructive 채움은 과하다).
+  if (tone === 'destructive')
+    return (
+      <Badge variant="outline" className="border-destructive/20 bg-destructive/10 text-destructive" data-testid={testId}>
+        {label}
+      </Badge>
+    )
   return <Badge variant={tone} data-testid={testId}>{label}</Badge>
 }
 
@@ -72,17 +79,31 @@ export function AgentProgress({
   )
 }
 
-/** 마지막 보고 시각 — 작업 중인데 2시간 넘게 소식 없으면 경고색 + 아이콘. 시작 전(SUBMITTED)은 아직 아무 보고가 없으므로 그리지 않는다(updatedAt 은 행 생성 시각일 뿐). */
+/**
+ * 마지막 보고 시각 — 작업 중인데 2시간 넘게 소식 없으면 경고색 + 아이콘. 시작 전(SUBMITTED)은 아직 아무 보고가 없으므로 그리지 않는다(updatedAt 은 행 생성 시각일 뿐).
+ * 종료 작업(완료 보기, WP-396)은 마지막 보고 대신 종료 시각을 보인다 — 목록이 종료 시각순이라 칸과 정렬이 맞도록. 툴팁에 「종료」를 밝히고,
+ * 칸 제목이 없는 곳(모바일 메타 줄)은 endedLabel 로 글자에도 「종료」를 붙인다.
+ */
 export function AgentLastReport({
   w,
   className,
+  endedLabel,
   'data-testid': testId,
 }: {
-  w: Pick<AgentWorkView, 'updatedAt' | 'stale' | 'state'>
+  w: Pick<AgentWorkView, 'updatedAt' | 'stale' | 'state' | 'endedAt'>
   className?: string
+  endedLabel?: boolean
   'data-testid'?: string
 }) {
   if (w.state === 'SUBMITTED') return null
+  if (w.endedAt) {
+    const rel = relTime(w.endedAt)
+    return (
+      <span className={cn('text-xs text-muted-foreground', className)} title={`종료 ${rel}`} data-testid={testId}>
+        {endedLabel ? `종료 ${rel}` : rel}
+      </span>
+    )
+  }
   if (w.stale)
     return (
       <span

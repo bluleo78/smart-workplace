@@ -46,7 +46,7 @@ function MobileRow({ it }: { it: IssueResponse }) {
               {state && <AgentStateBadge state={state} data-testid={`${tid}-state`} />}
               {w && <AgentToolChip tool={w.tool} data-testid={`${tid}-tool`} />}
               {w && <AgentProgress w={w} variant="text" hideEmpty className="shrink-0" data-testid={`${tid}-progress`} />}
-              {w && <AgentLastReport w={w} className="shrink-0" data-testid={`${tid}-last`} />}
+              {w && <AgentLastReport w={w} className="shrink-0" endedLabel data-testid={`${tid}-last`} />}
             </div>
             <AiTaskAssignee issue={it} work={w} />
           </div>

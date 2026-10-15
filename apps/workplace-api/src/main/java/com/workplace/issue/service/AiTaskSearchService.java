@@ -18,6 +18,7 @@ import com.workplace.project.repository.ProjectRepository;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -49,8 +50,9 @@ public class AiTaskSearchService {
             issueRows.stream().map(IssueRow::projectId).distinct().toList());
     // assembleItems 는 입력 순서를 보존한다 — rows 와 같은 인덱스로 묶음 정보를 붙인다.
     var items =
-        withLatestEndedWork(
-            issueSearchService.assembleItems(issueRows, pid -> keyById.getOrDefault(pid, "")));
+        withEndedWork(
+            issueSearchService.assembleItems(issueRows, pid -> keyById.getOrDefault(pid, "")),
+            rows);
 
     // 에픽 묶음의 하위 진행(└ n/m) — 에픽 행이 이 페이지에 없어도 머리에 그릴 수 있게 묶음 키(에픽 id)로 한 번에 센다.
     List<Long> epicIds =
@@ -87,22 +89,21 @@ public class AiTaskSearchService {
   }
 
   /**
-   * 진행 중 작업이 없는 행(완료 보기, WP-396)에 가장 최근 종료 작업 1건을 대표로 싣는다 — 행 배지가 실제 결과(완료·실패·취소·반려)를 보이도록. 이슈 공통
-   * 조립(assembleItems)은 진행 중 작업만 싣고 다른 화면도 쓰므로, 종료 작업 보충은 이 화면에서만 한다. 입력 순서를 보존한다.
+   * 완료 보기 행(WP-396)에 목록 쿼리가 고른 대표 종료 작업을 싣는다 — 행 배지가 실제 결과(완료·실패·취소·반려)를 보이도록. 대표 id 는 종료 상태를 요청했을
+   * 때만 오고, 행을 걸리게 한 것과 같은 조건(요청한 종료 상태·나와 관련 범위)으로 골라져 있다. 그 사이 새 작업이 시작돼 진행 중 작업이 실린 행은 그대로 둔다. 이슈
+   * 공통 조립(assembleItems)은 진행 중 작업만 싣고 다른 화면도 쓰므로 이 보충은 이 화면에서만 한다. 입력 순서를 보존한다.
    */
-  private List<IssueResponse> withLatestEndedWork(List<IssueResponse> items) {
-    List<Long> idle =
-        items.stream()
-            .filter(it -> it.agentWork() == null || it.agentWork().isEmpty())
-            .map(IssueResponse::id)
-            .toList();
-    if (idle.isEmpty()) return items;
-    var latest = agentWorkService.latestEndedViewByIssueIds(idle);
+  private List<IssueResponse> withEndedWork(List<IssueResponse> items, List<AiTaskRow> rows) {
+    List<Long> workIds =
+        rows.stream().map(AiTaskRow::endedWorkId).filter(Objects::nonNull).toList();
+    if (workIds.isEmpty()) return items;
+    var ended = agentWorkService.endedViewsByIds(workIds);
     return items.stream()
         .map(
             it -> {
-              var ended = latest.get(it.id());
-              return ended == null ? it : it.withAgentWork(List.of(ended));
+              var w = ended.get(it.id());
+              boolean idle = it.agentWork() == null || it.agentWork().isEmpty();
+              return w == null || !idle ? it : it.withAgentWork(List.of(w));
             })
         .toList();
   }

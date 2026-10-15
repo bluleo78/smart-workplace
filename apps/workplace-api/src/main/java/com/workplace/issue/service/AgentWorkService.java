@@ -63,10 +63,10 @@ public class AgentWorkService {
                 e -> e.getValue().stream().map(AgentWorkView::of).sorted(URGENCY_ORDER).toList()));
   }
 
-  /** 이슈별 가장 최근 종료 작업 1건의 뷰(WP-396 — AI 위임 작업 「완료」 보기의 대표 배지). 종료 작업이 없는 이슈는 키가 없다. */
+  /** 지정한 종료 작업들의 뷰를 이슈 id 로(WP-396 — AI 위임 작업 「완료」 보기의 대표 배지, 고르는 건 목록 쿼리). */
   @Transactional(readOnly = true)
-  public Map<Long, AgentWorkView> latestEndedViewByIssueIds(Collection<Long> issueIds) {
-    return repository.findLatestEndedByIssueIds(issueIds).entrySet().stream()
+  public Map<Long, AgentWorkView> endedViewsByIds(Collection<Long> workIds) {
+    return repository.findEndedByIds(workIds).entrySet().stream()
         .collect(Collectors.toMap(Map.Entry::getKey, e -> AgentWorkView.of(e.getValue())));
   }
 

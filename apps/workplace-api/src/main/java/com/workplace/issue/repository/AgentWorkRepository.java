@@ -64,7 +64,9 @@ public class AgentWorkRepository {
       Integer stepsDone,
       Integer stepsTotal,
       Instant startedAt,
-      Instant updatedAt) {}
+      Instant updatedAt,
+      // 종료 시각 — 진행 중이면 null(WP-396 완료 보기의 시간 칸).
+      Instant endedAt) {}
 
   /** 작업 행 + 작업자 요약(목록·상세 표시용). stale 은 DB 시계로 계산한 무소식 여부. */
   public record AgentWorkWithWorker(AgentWorkRow work, UserSummary worker, boolean stale) {}
@@ -474,32 +476,25 @@ public class AgentWorkRepository {
   }
 
   /**
-   * 이슈별 가장 최근에 종료된 작업 1건(작업자 요약 포함, WP-396) — AI 위임 작업 「완료」 보기의 대표 배지용. 종료 시각 최근순, 같으면 취소가 아닌 것 →
-   * id 큰 것. 종료 작업이 없는 이슈는 키가 없다. 끝난 작업이라 stale 은 항상 false.
+   * 지정한 종료 작업들을 작업자 요약과 함께 조회해 이슈 id 로 돌려준다(WP-396) — AI 위임 작업 「완료」 보기에서 목록 쿼리가 고른 대표 종료 작업. 어떤 행을
+   * 고를지는 목록 쿼리가 행을 걸리게 한 조건으로 정하고, 여기서는 그 id 만 읽는다. 끝난 작업이라 stale 은 항상 false.
    */
-  public Map<Long, AgentWorkWithWorker> findLatestEndedByIssueIds(Collection<Long> issueIds) {
-    if (issueIds == null || issueIds.isEmpty()) return Map.of();
-    var rows =
-        dsl.select(AGENT_WORK.fields())
-            .select(USER.USERNAME, USER.NAME, USER.KIND)
-            .distinctOn(AGENT_WORK.ISSUE_ID)
-            .from(AGENT_WORK)
-            .join(USER)
-            .on(USER.ID.eq(AGENT_WORK.WORKER_ID))
-            .where(AGENT_WORK.ISSUE_ID.in(issueIds))
-            .and(AGENT_WORK.ENDED_AT.isNotNull())
-            // 같은 종료 시각(이슈 완료가 한 문장으로 닫음)이면 착수 전이라 취소된 행보다 실제 결과를 대표로 고른다.
-            .orderBy(
-                AGENT_WORK.ISSUE_ID,
-                AGENT_WORK.ENDED_AT.desc(),
-                DSL.when(AGENT_WORK.STATE.eq(AgentWorkState.CANCELED), 1).otherwise(0),
-                AGENT_WORK.ID.desc())
-            .fetch();
+  public Map<Long, AgentWorkWithWorker> findEndedByIds(Collection<Long> workIds) {
+    if (workIds == null || workIds.isEmpty()) return Map.of();
     Map<Long, AgentWorkWithWorker> result = new HashMap<>();
-    for (Record r : rows) {
-      var w = withWorker(r, false);
-      result.put(w.work().issueId(), w);
-    }
+    dsl.select(AGENT_WORK.fields())
+        .select(USER.USERNAME, USER.NAME, USER.KIND)
+        .from(AGENT_WORK)
+        .join(USER)
+        .on(USER.ID.eq(AGENT_WORK.WORKER_ID))
+        .where(AGENT_WORK.ID.in(workIds))
+        .and(AGENT_WORK.ENDED_AT.isNotNull())
+        .fetch()
+        .forEach(
+            r -> {
+              var w = withWorker(r, false);
+              result.put(w.work().issueId(), w);
+            });
     return result;
   }
 
@@ -537,6 +532,7 @@ public class AgentWorkRepository {
   private static AgentWorkRow toRow(Record r) {
     OffsetDateTime started = r.get(AGENT_WORK.STARTED_AT);
     OffsetDateTime updated = r.get(AGENT_WORK.UPDATED_AT);
+    OffsetDateTime ended = r.get(AGENT_WORK.ENDED_AT);
     return new AgentWorkRow(
         r.get(AGENT_WORK.ID),
         r.get(AGENT_WORK.ISSUE_ID),
@@ -548,6 +544,7 @@ public class AgentWorkRepository {
         r.get(AGENT_WORK.STEPS_DONE) == null ? null : r.get(AGENT_WORK.STEPS_DONE).intValue(),
         r.get(AGENT_WORK.STEPS_TOTAL) == null ? null : r.get(AGENT_WORK.STEPS_TOTAL).intValue(),
         started != null ? started.toInstant() : null,
-        updated != null ? updated.toInstant() : null);
+        updated != null ? updated.toInstant() : null,
+        ended != null ? ended.toInstant() : null);
   }
 }

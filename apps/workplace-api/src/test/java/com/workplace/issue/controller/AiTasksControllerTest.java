@@ -277,6 +277,51 @@ class AiTasksControllerTest extends IntegrationTestBase {
     assertThat(item.at("/agentWork/0/state").asText()).isEqualTo("COMPLETED");
   }
 
+  /**
+   * 대표 종료 작업은 행을 걸리게 한 조건 안에서 고른다 — 나와 관련 범위의 사람 작업 이슈면 내 작업만, 요청한 종료 상태 안에서만. 정렬 시각도 그 대표의 종료
+   * 시각이고, 응답에 종료 시각(endedAt)이 실린다.
+   */
+  @Test
+  void 대표_종료작업은_행을_걸리게_한_조건_안에서_고르고_종료시각을_싣는다() throws Exception {
+    // 남의 이슈 — 나는 반려(10-02), 다른 사람은 나중에 취소(10-06). 나와 관련에서는 내 반려가 대표.
+    long assisted = issue("assisted", other);
+    endedWork(assisted, me, "REJECTED", Instant.parse("2026-10-02T00:00:00Z"));
+    endedWork(assisted, other, "CANCELED", Instant.parse("2026-10-06T00:00:00Z"));
+    // AI 담당 — 실패(10-03) 후 재시도 완료(10-04). 실패만 요청하면 대표도 실패, 정렬도 실패 시각.
+    long retried = issue("retried", me);
+    assign(retried, agent);
+    endedWork(retried, agent, "FAILED", Instant.parse("2026-10-03T00:00:00Z"));
+    endedWork(retried, agent, "COMPLETED", Instant.parse("2026-10-04T00:00:00Z"));
+
+    JsonNode all = getJson("/api/v1/me/ai-tasks?agentState=" + DONE_STATES);
+    assertThat(titles(all)).containsExactly("retried", "assisted");
+    assertThat(all.at("/items/0/agentWork/0/state").asText()).isEqualTo("COMPLETED");
+    assertThat(all.at("/items/0/agentWork/0/endedAt").asText()).isEqualTo("2026-10-04T00:00:00Z");
+    assertThat(all.at("/items/1/agentWork/0/state").asText()).isEqualTo("REJECTED");
+    assertThat(all.at("/items/1/agentWork/0/worker/id").asLong()).isEqualTo(me);
+
+    JsonNode failed = getJson("/api/v1/me/ai-tasks?agentState=FAILED");
+    assertThat(titles(failed)).containsExactly("retried");
+    assertThat(failed.at("/items/0/agentWork/0/state").asText()).isEqualTo("FAILED");
+    assertThat(failed.at("/items/0/agentWork/0/endedAt").asText())
+        .isEqualTo("2026-10-03T00:00:00Z");
+  }
+
+  /** 미완료 보기 행은 진행 중 작업만 싣는다 — 종료 시각(endedAt)도, 예전 종료 작업도 섞이지 않는다. */
+  @Test
+  void 미완료_보기_행에는_종료작업이_섞이지_않는다() throws Exception {
+    long i = issue("i", me);
+    assign(i, agent);
+    endedWork(i, agent, "FAILED", Instant.parse("2026-10-01T00:00:00Z"));
+    work(i, agent, "WORKING");
+
+    JsonNode body = getJson("/api/v1/me/ai-tasks");
+    assertThat(titles(body)).containsExactly("i");
+    assertThat(body.at("/items/0/agentWork")).hasSize(1);
+    assertThat(body.at("/items/0/agentWork/0/state").asText()).isEqualTo("WORKING");
+    assertThat(body.at("/items/0/agentWork/0").has("endedAt")).isFalse();
+  }
+
   @Test
   void 완료_보기도_커서로_나눠_받으면_한번에_받은_순서와_같다() throws Exception {
     for (int i = 0; i < 5; i++) {

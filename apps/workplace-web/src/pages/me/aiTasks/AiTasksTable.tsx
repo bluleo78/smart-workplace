@@ -111,7 +111,8 @@ function EpicHeadRow({ epic, head }: { epic: EpicHead; head: IssueResponse | nul
   )
 }
 
-export function AiTasksTable({ items }: { items: IssueResponse[] }) {
+/** done — 완료 보기(WP-396): 마지막 칸이 마지막 보고 대신 종료 시각이라 칸 제목을 「종료」로 바꾼다. */
+export function AiTasksTable({ items, done = false }: { items: IssueResponse[]; done?: boolean }) {
   const entries = groupAiTasks(items)
   return (
     <div className="overflow-x-auto" data-testid="ai-tasks-table">
@@ -129,7 +130,7 @@ export function AiTasksTable({ items }: { items: IssueResponse[] }) {
             <th className="w-20">진행률</th>
             <th className="w-16">담당자</th>
             <th className="w-28">에이전트 유형</th>
-            <th className="w-[72px]">마지막 보고</th>
+            <th className="w-[72px]">{done ? '종료' : '마지막 보고'}</th>
           </tr>
         </thead>
         <tbody>

@@ -118,6 +118,7 @@ public class Indexes {
 
     public static final Index AGENT_WORK_ACTIVE_UQ = Internal.createIndex(DSL.name("agent_work_active_uq"), AgentWork.AGENT_WORK, new OrderField[] { AgentWork.AGENT_WORK.ISSUE_ID, AgentWork.AGENT_WORK.WORKER_ID }, true);
     public static final Index AGENT_WORK_EVENT_WORK_IDX = Internal.createIndex(DSL.name("agent_work_event_work_idx"), AgentWorkEvent.AGENT_WORK_EVENT, new OrderField[] { AgentWorkEvent.AGENT_WORK_EVENT.WORK_ID, AgentWorkEvent.AGENT_WORK_EVENT.CREATED_AT }, false);
+    public static final Index AGENT_WORK_ISSUE_ENDED_IDX = Internal.createIndex(DSL.name("agent_work_issue_ended_idx"), AgentWork.AGENT_WORK, new OrderField[] { AgentWork.AGENT_WORK.ISSUE_ID, AgentWork.AGENT_WORK.ENDED_AT.desc(), AgentWork.AGENT_WORK.ID.desc() }, false);
     public static final Index AGENT_WORK_WORKER_ACTIVE_IDX = Internal.createIndex(DSL.name("agent_work_worker_active_idx"), AgentWork.AGENT_WORK, new OrderField[] { AgentWork.AGENT_WORK.WORKER_ID }, false);
     public static final Index AI_MEMORY_EMBEDDING_PENDING_IDX = Internal.createIndex(DSL.name("ai_memory_embedding_pending_idx"), AiMemory.AI_MEMORY, new OrderField[] { AiMemory.AI_MEMORY.ID }, false);
     public static final Index AI_MEMORY_EXPIRES_IDX = Internal.createIndex(DSL.name("ai_memory_expires_idx"), AiMemory.AI_MEMORY, new OrderField[] { AiMemory.AI_MEMORY.EXPIRES_ON }, false);
