@@ -67,12 +67,19 @@ export function questionWork(list?: AgentWorkView[]): AgentWorkView | null {
   return list?.find((w) => w.state === 'INPUT_REQUIRED' && w.worker.kind === 'AGENT') ?? null
 }
 
-/** 답변을 기다리는(INPUT_REQUIRED) AI 구성원의 사용자 id, 오름차순 — questionWork 와 같은 판정. 질문 글의 「답변됨」 여부 계산에 쓴다. */
-export function waitingAgentIds(list?: AgentWorkView[]): number[] {
-  return (list ?? [])
-    .filter((w) => w.state === 'INPUT_REQUIRED' && w.worker.kind === 'AGENT')
-    .map((w) => w.worker.id)
-    .sort((a, b) => a - b)
+/** 질문 글 판정 재료(WP-391) — 그 AI 가 답변을 기다리는지(questionWork 와 같은 판정)와 작업의 마지막 갱신 시각(epoch ms). */
+export interface AgentQuestionWork {
+  waiting: boolean
+  updatedAt: number
+}
+
+/** AI 구성원(AGENT) 사용자 id → 질문 판정 재료. 사람 작업은 빼고, 이슈·작업자당 진행 중 작업은 하나라 id 가 겹치지 않는다. 질문 글의 「답변됨」 계산에 쓴다. */
+export function agentQuestionWorks(list?: AgentWorkView[]): Map<number, AgentQuestionWork> {
+  return new Map(
+    (list ?? [])
+      .filter((w) => w.worker.kind === 'AGENT')
+      .map((w) => [w.worker.id, { waiting: w.state === 'INPUT_REQUIRED', updatedAt: Date.parse(w.updatedAt) }]),
+  )
 }
 
 /** 진행률 — 막대는 progress 우선(없으면 단계 비율), 글자는 단계가 있으면 단계(3/5) 아니면 퍼센트. 둘 다 없으면 null. */

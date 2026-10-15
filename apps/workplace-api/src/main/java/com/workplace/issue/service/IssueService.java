@@ -5,6 +5,7 @@ import com.workplace.cycle.repository.CycleRepository;
 import com.workplace.drive.service.DriveLinkService;
 import com.workplace.global.dto.PageResponse;
 import com.workplace.global.dto.UserSummary;
+import com.workplace.global.security.AgentToolContext;
 import com.workplace.global.security.PermissionChecker;
 import com.workplace.issue.dto.CreateIssueRequest;
 import com.workplace.issue.dto.IssueAiContext;
@@ -369,8 +370,12 @@ public class IssueService {
             ? null
             : issueRepository.findParentRefsByIssueIds(List.of(row.id())).get(row.id());
     var labels = issueLabelRepository.findLabelsByIssue(row.id());
+    // 수행 도구 헤더가 있는 생성이면 알림의 AI 작업 자동 시작이 이슈를 진행 중으로 올렸을 수 있다(WP-393) — 응답의 상태·버전이 저장된 값과
+    // 어긋나지 않게 그때만 다시 읽는다(브라우저 생성은 자동 시작이 없다).
+    var saved =
+        AgentToolContext.current() == null ? row : issueRepository.findById(row.id()).orElse(row);
     return IssueResponse.fromWithSubtasks(
-        project.key(), row, labels, 0, type, assigneeSummaries, parentRef, 0, 0);
+        project.key(), saved, labels, 0, type, assigneeSummaries, parentRef, 0, 0);
   }
 
   /** 프로젝트 내 이슈 목록 페이지 조회. */
@@ -654,9 +659,10 @@ public class IssueService {
       }
     }
 
-    // 실시간 무효화 — 제목·본문·날짜 등 모든 필드 변경을 알린다(목록/상세가 보여주므로)
-    changeNotifier.updated(project, number, before.id(), callerId);
+    // 이력을 알림보다 먼저 남긴다 — 알림이 AI 작업 자동 시작으로 상태를 진행 중으로 올리면(WP-393) 그 이력이 이 변경 뒤에 와야 순서가 맞다.
     historyRecorder.recordChanges(callerId, before, after);
+    // 실시간 무효화 — 제목·본문·날짜 등 모든 필드 변경을 알린다(목록/상세가 보여주므로). 상태를 직접 지정한 요청이면 자동 시작이 덮지 않는다.
+    changeNotifier.updated(project, number, before.id(), callerId, req.status() != null);
 
     return get(callerId, projectKey, number);
   }

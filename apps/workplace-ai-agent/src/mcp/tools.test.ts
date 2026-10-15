@@ -751,6 +751,13 @@ describe('read_file 프로필 (WP-346)', () => {
     expect(buildTools(client(), AGENT_ID, p).map((t) => t.name)).not.toContain('read_file');
   });
 
+  // WP-392: 서버 AI 에는 get_issue_chat 이 없으므로 그 도구를 가리키는 issue_chat 안내를 싣지 않는다.
+  it('read_file 설명에 get_issue_chat 을 가리키는 issue_chat 안내가 없다', () => {
+    const t = find(buildTools(client(), AGENT_ID, 'assistant'), 'read_file');
+    expect(t.description).not.toContain('issue_chat');
+    expect(t.description).not.toContain('get_issue_chat');
+  });
+
   // WP-250: 이미지를 볼 수 없는 모델에는 페이지 보기 인자(pages)를 보이지 않는다 — 실행 쪽(imageInput)이 고른다.
   it('imageInput false 면 read_file 스키마에 pages 가 없고, true(또는 미지정)면 있다', () => {
     const props = (imageInput?: boolean) => {

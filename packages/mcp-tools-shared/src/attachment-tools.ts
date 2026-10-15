@@ -101,6 +101,14 @@ export function pdfNote(slice: Pick<ExtractedTextSlice, 'status' | 'reasonCode' 
   return undefined;
 }
 
+/**
+ * 이슈 챗 첨부의 추출 대기(PENDING) 재시도 안내(WP-392) — 방금 올라온 질문·답의 첨부를 곧바로 읽는 일이 잦아 PENDING 을 자주 만나므로, 메일 첫
+ * 호출과 같은 문구로 응답에 직접 싣는다(노트·메시지는 WP-358 대로 상태만). 응답 글이라 도구 정의 크기에 들지 않는다.
+ */
+const RETRY_LATER = '잠시(수 초~1분) 뒤 같은 인자로 다시 호출하세요.';
+const pendingNote = (slice: Pick<ExtractedTextSlice, 'status'>) =>
+  slice.status === 'PENDING' ? `텍스트를 추출하는 중입니다. ${RETRY_LATER}` : undefined;
+
 /** 여러 안내를 한 note 로 — 없는 것은 빼고, 하나도 없으면 note 를 싣지 않는다. */
 function noteField(...notes: (string | undefined)[]): { note?: string } {
   const text = notes.filter(Boolean).join(' ');
@@ -110,8 +118,10 @@ function noteField(...notes: (string | undefined)[]): { note?: string } {
 /**
  * 파일·첨부 읽기 도구(read_file). kind read — 상태를 바꾸지 않는다(외부 MCP 노출).
  * imageInput(WP-250): 모델이 이미지를 볼 수 있는지(기본 true) — false 면 pages 인자·안내를 뺀다.
+ * issueChatSource(WP-392): get_issue_chat 을 함께 받는지(기본 true) — 서버 실행 AI(ai-agent)는 그 도구가 없어(이슈 챗은 스레드 도구로 읽는다)
+ * false 로 주고, 설명에서 issue_chat 안내를 뺀다. 입력 스키마는 두 앱이 같게 두려고 그대로 둔다(안내만 없으면 모델이 고르지 않는다).
  */
-export function buildAttachmentTools(client: AttachmentToolClient, imageInput = true): SharedTool[] {
+export function buildAttachmentTools(client: AttachmentToolClient, imageInput = true, issueChatSource = true): SharedTool[] {
   const input = readFileInputFor(imageInput);
 
   /** 이슈 첨부 이미지 — 변환본(/view). 라벨은 다른 source 처럼 식별자만 싣는다(목록 조회 없음). */
@@ -152,7 +162,9 @@ export function buildAttachmentTools(client: AttachmentToolClient, imageInput = 
       // 메일 첫 호출 안내(응답 note 가 알린다)·출력 필드 나열(응답에 그대로 보인다)·"원본은 주지 않음"(원본은 create_drive_download_link) 문장을 뺐다.
       description:
         'Reads a drive (드라이브) file or an issue (이슈), wiki page (노트), chat message (메시지) or mail (메일) attachment, by ' +
-        'source: drive {driveFileId}; issue {issueKey, attachmentId from get_issue_detail}; issue_chat {issueKey, messageId, attachmentId from get_issue_chat}; wiki image {pageId, attachmentId in a body image ' +
+        'source: drive {driveFileId}; issue {issueKey, attachmentId from get_issue_detail}; ' +
+        (issueChatSource ? 'issue_chat {issueKey, messageId, attachmentId from get_issue_chat}; ' : '') +
+        'wiki image {pageId, attachmentId in a body image ' +
         'URL .../attachments/{id}/content}; message {channelId, messageId, attachmentId = attachments[].fileId from list_channel_messages/' +
         'list_thread_replies}; mail {attachmentId from get_mail}. Text comes in slices (pass nextOffset as offset); ' +
         'truncated:true = extraction capped. Only READY has text: ' +
@@ -189,7 +201,7 @@ export function buildAttachmentTools(client: AttachmentToolClient, imageInput = 
               );
             }
             const { fileId: _coreFileId, ...rest } = slice;
-            return JSON.stringify({ attachmentId, ...rest, ...noteField(pdfNote(slice, imageInput)) });
+            return JSON.stringify({ attachmentId, ...rest, ...noteField(pendingNote(slice), pdfNote(slice, imageInput)) });
           }
           case 'drive': {
             const driveFileId = p.driveFileId!;
@@ -239,7 +251,7 @@ export function buildAttachmentTools(client: AttachmentToolClient, imageInput = 
             return JSON.stringify({
               attachmentId,
               ...rest,
-              ...(slice.status === 'PENDING' && { note: '첨부를 가져와 텍스트를 추출하는 중입니다. 잠시(수 초~1분) 뒤 같은 인자로 다시 호출하세요.' }),
+              ...(slice.status === 'PENDING' && { note: `첨부를 가져와 텍스트를 추출하는 중입니다. ${RETRY_LATER}` }),
             });
           }
         }

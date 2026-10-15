@@ -392,6 +392,8 @@ export function buildTools(
     parentMessageIdFor: (channelId) =>
       threadBinding && threadBinding.channelId === channelId ? threadBinding.parentMessageId : undefined,
     imageInput,
+    // WP-392: get_issue_chat 을 싣지 않으므로(AI_AGENT_EXCLUDED_SHARED_TOOLS) read_file 설명에서 issue_chat 안내도 뺀다.
+    issueChatSource: !AI_AGENT_EXCLUDED_SHARED_TOOLS.has('get_issue_chat'),
   });
   const sharedTool = (name: string): McpTool => {
     const t = shared.find((x) => x.name === name);
