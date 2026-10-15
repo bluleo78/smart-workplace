@@ -215,34 +215,31 @@ test.describe('키보드', () => {
     expect(hit).toBe(true)
   })
 
-  // WP-139 UI 리뷰 #1 — 키보드가 열리면 빈 대화 안내를 걷고(위가 잘린 한 줄 조각 대신) 추천 목록에 높이를 준다.
-  // 첫 두 행은 온전히 보이고, 어느 행도 목록 경계에 반쯤 걸치지 않는다(넘치는 행은 목록 안에서 스크롤). 336px 는 iPhone 실제 키보드(예측 막대 포함).
+  // WP-398 — 키보드가 열리면 안내 글(아이콘·제목·부제)을 접고, 추천 머리말과 첫 행이 대화 영역 맨 위에 온전히 보인다
+  // (바깥 대화 영역의 바닥 고정에 끌려 머리말이 위로 숨지 않는다). 넘치는 행은 안내 영역 안에서 스크롤해 닿는다. 입력창은 보이는 영역 안.
+  // 336px 는 iPhone 실제 키보드(예측 막대 포함).
   for (const kb of [300, 336]) {
-    test(`키보드(${kb}px)가 열리면 안내를 걷고 추천은 첫 두 행이 온전히 보이며 반쯤 잘린 행이 없다`, async ({ authenticatedPage: page }) => {
+    test(`키보드(${kb}px)가 열리면 안내 글을 접고 추천 머리말·첫 행이 맨 위에 보이며, 나머지는 스크롤해 닿는다`, async ({ authenticatedPage: page }) => {
       await stubChat(page)
       await page.goto('/chat')
       await page.getByTestId('mobile-tab-ai').click()
       const rows = page.getByTestId('starter-suggestion')
       await expect(rows).toHaveCount(4)
-      await expect(page.getByTestId('ai-chat-empty-state')).toBeVisible() // 키보드 전에는 안내가 있다(전제)
+      const guide = page.getByText('AI 어시스턴트에게 물어보세요')
+      await expect(guide).toBeVisible() // 키보드 전에는 안내가 있다(전제)
       await page.getByTestId('chat-input').focus()
       const visible = await setKeyboard(page, true, kb)
       await expect.poll(async () => Math.round((await page.getByTestId('ai-sheet').boundingBox())!.y)).toBe(56)
-      await expect(page.getByTestId('ai-chat-empty-state')).toBeHidden()
-      const list = page.getByTestId('starter-suggestion-list')
-      // 행 경계 판정 — 목록 높이 묶음은 크기 관찰 뒤 반영되므로 조건이 설 때까지 기다린다.
-      await expect.poll(async () => {
-        const l = (await list.boundingBox())!
-        const boxes = await Promise.all((await rows.all()).map((r) => r.boundingBox()))
-        const inside = boxes.map((b) => b!.y >= l.y - 0.5 && b!.y + b!.height <= l.y + l.height + 0.5)
-        const outside = boxes.map((b) => b!.y >= l.y + l.height - 0.5)
-        return { firstTwo: inside[0] && inside[1], noHalfRow: inside.every((v, i) => v || outside[i]) }
-      }).toEqual({ firstTwo: true, noHalfRow: true })
+      await expect(guide).toBeHidden()
       const input = (await page.getByTestId('chat-input').boundingBox())!
       expect(input.y + input.height).toBeLessThanOrEqual(visible)
-      // 목록이 넘치면 안에서 스크롤해 마지막 행까지 닿는다.
+      const area = (await page.getByTestId('ai-chat-empty-state').boundingBox())!
+      const inArea = (b: { y: number; height: number }) => b.y >= area.y - 0.5 && b.y + b.height <= area.y + area.height + 0.5
+      const heading = (await page.getByTestId('starter-suggestions').getByText('추천 질문').boundingBox())!
+      expect(inArea(heading), '머리말이 보인다').toBe(true)
+      expect(inArea((await rows.first().boundingBox())!), '첫 행이 온전히 보인다').toBe(true)
       await rows.last().scrollIntoViewIfNeeded()
-      await expect(rows.last()).toBeInViewport()
+      expect(inArea((await rows.last().boundingBox())!), '마지막 행도 스크롤로 닿는다').toBe(true)
     })
   }
 })

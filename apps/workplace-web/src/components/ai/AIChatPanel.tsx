@@ -10,13 +10,12 @@ import { AiLabel } from '@/components/ai/AiLabel';
 import { AISessionItems } from '@/components/ai/AISessionList';
 import { AiStatusDot } from '@/components/ai/AiStatusDot';
 import { DeleteSessionDialog } from '@/components/ai/DeleteSessionDialog';
-import { FollowupChips } from '@/components/ai/FollowupChips';
 import { HomeMessageImage } from '@/components/ai/HomeMessageImage';
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage';
 import { MemoryResultLine } from '@/components/ai/MemoryResultLine';
 import { useAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext';
 import { ScreenContextChip } from '@/components/ai/ScreenContextChip';
-import { StarterSuggestionList } from '@/components/ai/StarterSuggestionList';
+import { SuggestionList } from '@/components/ai/SuggestionList';
 import { ToolStepList } from '@/components/ai/ToolStepList';
 import { ChatAttachmentViewerHost } from '@/components/chat/ChatAttachmentViewer';
 import { ComposerAttachmentChips } from '@/components/chat/ComposerAttachmentChips';
@@ -63,8 +62,6 @@ interface Props extends AssistantChat {
   autoFocus?: boolean;
   /** WP-190: 상한 안내의 [대화 목록 보기] — 사이드 패널은 헤더 드롭다운을 직접 연다, 풀스크린은 목록이 늘 보여 생략. */
   onShowSessions?: () => void;
-  /** WP-139: 전체화면 AI 모드 — 넓은 입력 영역에서 빈 대화 추천 목록을 입력창 시작점에 맞추고 행을 문구 폭으로 줄인다. */
-  fullscreen?: boolean;
 }
 
 /** WP-190: 중단된 답변 아래 라벨 — 시간 초과는 라이브 종결에서만 온다(저장된 STOPPED 는 다시 열면 "중단됨"). */
@@ -108,7 +105,6 @@ export function AIChatPanel({
   showSessionSwitcher = true,
   autoFocus = false,
   onShowSessions,
-  fullscreen = false,
 }: Props) {
   const current = sessions.find((s) => s.id === currentSessionId);
   const [input, setInput] = useState('');
@@ -135,7 +131,7 @@ export function AIChatPanel({
   const last = turns[turns.length - 1];
   // #843: 카드가 실패로 바뀌면 사유 줄만큼 높이가 늘어나므로 phase 도 depKey 에 포함한다.
   const cardDep = pendingActions.map((c) => c.phase).join(',');
-  // WP-139: 후속 질문 칩이 생기면 바닥 근처일 때만 따라 내려간다(같은 depKey 규칙).
+  // WP-139: 후속 질문 목록이 생기면 바닥 근처일 때만 따라 내려간다(같은 depKey 규칙).
   const followupCount = last?.role === 'assistant' ? (last.followups?.length ?? 0) : 0;
   const scrollDep = `${turns.length}:${last?.content.length ?? 0}:${last?.role === 'action' ? 0 : (last?.steps?.length ?? 0)}:${cardDep}:${followupCount}`;
   // #843: 한 카드라도 전송 중이면 카드 전체 버튼을 잠근다(중복 클릭·"모두 승인" 동시 실행 방지).
@@ -171,7 +167,7 @@ export function AIChatPanel({
   const contextActive = screenContext != null && suppressedIdentity !== screenIdentity;
 
   // WP-139: 추천 켜짐 — 설정 응답이 true 일 때만(로딩 중·실패 포함 그 밖에는 숨김). 끈 사용자에게 한 번도 보이지 않게(스펙 §10.6).
-  // 빈 대화 목록과 후속 질문 칩이 같이 쓴다. 설정은 5분 캐시라 두 번째 열기부터는 바로 보인다.
+  // 빈 대화 추천과 후속 질문이 같이 쓴다. 설정은 5분 캐시라 두 번째 열기부터는 바로 보인다.
   // WP-55: 메모리 결과 줄 되돌리기 — 줄마다 훅(뮤테이션 관찰자·navigate)을 두지 않고 패널이 하나를 공유한다. 진행 중 표시는 줄마다 따로.
   const memoryUndo = useUndoAiMemory();
   const aiPrefs = useAiPreferences();
@@ -239,8 +235,8 @@ export function AIChatPanel({
       setInput((prev) => prev || query);
     });
   };
-  /** WP-139: 추천·후속 칩 — 문구 그대로 보낸다. 입력창 초안·첨부 초안은 건드리지 않아 거절돼도 초안을 덮지 않는다. */
-  const sendChip = (query: string) => {
+  /** WP-139: 추천·후속 질문 행 — 문구 그대로 보낸다. 입력창 초안·첨부 초안은 건드리지 않아 거절돼도 초안을 덮지 않는다. */
+  const sendSuggestion = (query: string) => {
     if (!sendOpen()) return;
     void onSubmit(query, takeScreenContext(), undefined, currentApp());
   };
@@ -314,25 +310,32 @@ export function AIChatPanel({
         resetKey={currentSessionId}
         aboveAiSheet
       >
-        {/* WP-139: 키보드가 열린 모바일 시트에서 추천 목록이 보이면 빈 대화 안내와 이 영역의 여백(p-3)을 걷어 목록에 높이를 준다
-            (안내가 한 줄 조각으로 잘리고 목록이 1.5행만 보이던 문제). 대화가 있으면 여백은 그대로다. */}
-        <div
-          ref={scrollRef}
-          data-testid="chat-scroll"
-          className={cn('flex-1 overflow-auto p-3', showStarters && '[:root[data-keyboard-open]_&]:p-0')}
-        >
+        <div ref={scrollRef} data-testid="chat-scroll" className="flex-1 overflow-auto p-3">
           {turns.length === 0 ? (
-            // safe center — 영역이 안내보다 낮아지면 가운데 정렬이 위쪽을 스크롤로도 못 보는 곳으로 밀어내지 않고 위에서부터 놓는다.
-            <div
-              data-testid="ai-chat-empty-state"
-              className={cn(
-                'flex h-full flex-col items-center justify-center-safe gap-2 text-center',
-                showStarters && '[:root[data-keyboard-open]_&]:hidden',
+            // safe center — 영역이 안내보다 낮아지면(키보드가 열린 모바일 시트 등) 가운데 정렬이 위쪽을 스크롤로도 못 보는 곳으로
+            // 밀어내지 않고 위에서부터 놓는다. WP-398: 넘치면 이 안내 영역이 스스로 스크롤한다 — 바깥 대화 영역은 바닥 고정(useStickToBottom)이라
+            // 키보드로 낮아지면 바닥으로 끌려가 추천 머리말·첫 행이 위로 숨었다. 그래서 빈 대화 분기에선 이 h-full 영역이 바깥의 유일한 자식이어야
+            // 한다(형제·여백을 더하면 바깥이 다시 넘쳐 바닥 고정이 돌아온다). 키보드가 열린 동안엔 안내 글을 접어 추천이 맨 위에 보이게 한다.
+            <div data-testid="ai-chat-empty-state" className="flex h-full flex-col items-center justify-center-safe gap-2 overflow-y-auto text-center">
+              <div className={cn('flex flex-col items-center gap-2', showStarters && '[:root[data-keyboard-open]_&]:hidden')}>
+                <Sparkles className="h-9 w-9 shrink-0 text-muted-foreground/60" />
+                <p className="text-base font-medium text-foreground">AI 어시스턴트에게 물어보세요</p>
+                <p className="text-sm text-muted-foreground">무엇이든 질문해 보세요</p>
+              </div>
+              {/* WP-398: 빈 새 대화 추천 — 안내 바로 아래, 답 뒤 후속 질문과 같은 모양. 안내와 한 덩어리로 가운데, 행은 왼쪽 정렬.
+                  전송이 막히면 비활성. 꺼짐이면 목록 자체가 없다(스펙 §10.6). */}
+              {showStarters && (
+                <SuggestionList
+                  heading={starters.heading}
+                  items={starters.items}
+                  holdProps={starters.holdProps}
+                  disabled={pending || sendBlocked}
+                  onPick={sendSuggestion}
+                  testId="starter-suggestions"
+                  itemTestId="starter-suggestion"
+                  className="mt-4 w-full text-left [:root[data-keyboard-open]_&]:mt-0"
+                />
               )}
-            >
-              <Sparkles className="h-9 w-9 text-muted-foreground/60" />
-              <p className="text-base font-medium text-foreground">AI 어시스턴트에게 물어보세요</p>
-              <p className="text-sm text-muted-foreground">무엇이든 질문해 보세요</p>
             </div>
           ) : (
             <ul className="space-y-2">
@@ -455,10 +458,10 @@ export function AIChatPanel({
                     </li>
                   )}
                   {/* WP-55: 메모리 결과 줄(시안 A) — 답변 말풍선들 아래·후속 질문 위. 줄마다 따로 되돌린다. 첫 토큰 전(3-dot 중)엔 미룬다.
-                      터치 기기는 줄 간격을 넓히고 아래에 8px 를 더 둔다 — 되돌리기의 위아래 터치 확장(8px)이 이웃 줄·바로 아래 후속 질문 칩의 위쪽 확장과
-                      겹치지 않게(겹치면 뒤 형제인 칩이 이긴다). */}
+                      터치 기기는 줄 간격을 넓힌다 — 되돌리기의 위아래 터치 확장(8px)이 이웃 줄과 겹치지 않게(겹치면 뒤 형제가 이긴다).
+                      바로 아래 후속 질문은 누를 수 없는 머리말로 시작해(WP-398) 따로 여백을 두지 않는다. */}
                   {t.role === 'assistant' && (t.memoryBlocks?.length ?? 0) > 0 && !(i === turns.length - 1 && pending && t.content === '') ? (
-                    <li data-testid="chat-memory-results" className="flex flex-col gap-1 pb-0 pointer-coarse:gap-4 pointer-coarse:pb-2">
+                    <li data-testid="chat-memory-results" className="flex flex-col gap-1 pointer-coarse:gap-4">
                       {t.memoryBlocks?.map((b, mi) => (
                         <MemoryResultLine
                           key={`${mi}-${b.memoryId}`}
@@ -472,10 +475,18 @@ export function AIChatPanel({
                       ))}
                     </li>
                   ) : null}
-                  {/* WP-139: 후속 질문(시안 A) — 마지막 턴이고 답변 중·확인 카드가 아니며 추천을 끄지 않았을 때만. 새 질문을 보내면 마지막 턴이 아니게 되어 사라진다. */}
+                  {/* WP-139: 후속 질문 — 마지막 턴이고 답변 중·확인 카드가 아니며 추천을 끄지 않았을 때만. 새 질문을 보내면 마지막 턴이 아니게 되어 사라진다.
+                      WP-398: 빈 대화 추천과 같은 머리말 + 행 목록. */}
                   {i === turns.length - 1 && t.role === 'assistant' && !pending && pendingActions.length === 0 && suggestionsOn && t.followups?.length ? (
-                    <li data-testid="chat-followups-row" className="flex justify-start">
-                      <FollowupChips items={t.followups} disabled={sendBlocked} onPick={sendChip} />
+                    <li>
+                      <SuggestionList
+                        heading="이어서 물어보기"
+                        items={t.followups}
+                        disabled={sendBlocked}
+                        onPick={sendSuggestion}
+                        testId="chat-followups"
+                        itemTestId="chat-followup"
+                      />
                     </li>
                   ) : null}
                 </Fragment>
@@ -588,9 +599,7 @@ export function AIChatPanel({
           submit();
         }}
         // WP-234: 입력창 영역 전체가 파일 드롭 영역 — 오버레이 기준점이 되도록 relative.
-        // WP-139: flex-col + min-h-0 — 키보드가 열려 시트가 낮아지면 추천 목록만 줄어 안에서 스크롤하고 입력창은 밀려나지 않는다.
-        // 키보드가 열려 빈 대화 영역을 걷은 상태(위 chat-scroll)에선 헤더 아래선과 겹쳐 두 줄로 보이므로 위 테두리를 뺀다.
-        className={cn('relative flex min-h-0 flex-col border-t p-2', showStarters && '[:root[data-keyboard-open]_&]:border-t-0')}
+        className="relative border-t p-2"
         data-testid="ai-composer"
         {...dropProps}
       >
@@ -619,16 +628,6 @@ export function AIChatPanel({
             </div>
           )}
         </div>
-        {/* WP-139: 빈 새 대화 추천(시안 C) — 화면 참고 칩 바로 위. 전송이 막히면 비활성. 꺼짐이면 목록 자체가 없다(스펙 §10.6). */}
-        {showStarters && (
-          <StarterSuggestionList
-            {...starters}
-            disabled={pending || sendBlocked}
-            isMobile={isMobile}
-            alignToInput={fullscreen}
-            onPick={sendChip}
-          />
-        )}
         {/* WP-54: 현재 화면 컨텍스트 칩 — 포함/제외(이번 1회) 상태 + 되돌리기. 상세는 ScreenContextChip. */}
         <ScreenContextChip
           context={screenContext}

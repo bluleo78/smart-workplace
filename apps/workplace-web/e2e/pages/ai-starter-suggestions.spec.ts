@@ -7,6 +7,7 @@ import { mockAiPreferences, mockStarterSuggestions } from '../fixtures/ai-sugges
 import { expect, test } from '../fixtures/auth.fixture'
 import { type HomeChatStartBody, mockHomeChatGeneration } from '../fixtures/home-chat-mock'
 import { mockIssueDetail } from '../fixtures/issue-detail-mock'
+import { boxOf, expectStartAligned } from '../fixtures/layout'
 import { expectStays, gate } from '../fixtures/wait'
 
 const GENERAL = ['오늘 일정 요약해줘', '나를 멘션한 메시지 정리해줘', '내 작업 우선순위 정리해줘', '답장이 필요한 메일 알려줘']
@@ -282,27 +283,30 @@ test('40자 추천은 두 줄로 감겨 끝까지 보인다', async ({ authentic
   expect(m).toEqual({ lines: 2, clippedY: false, clippedX: false })
 })
 
-// UI 리뷰 #5 — 전체화면에서는 목록이 입력창 시작점에 맞고, 행(hover 띠·클릭 영역)은 문구 폭만큼만 차지한다.
-test('전체화면에서는 추천 행이 입력창 시작점에 맞고 문구 폭만큼만 차지한다', async ({ authenticatedPage: page }) => {
+// WP-398 — 추천은 입력 영역이 아닌 가운데 안내 바로 아래에 안내와 한 덩어리로 가운데 놓이고, 행은 왼쪽 정렬로 같은 시작점을 쓴다.
+// 넓은 전체화면에서도 목록이 화면 가로로 늘어지지 않는다(최대 28rem).
+test('추천은 가운데 안내 바로 아래에 가운데 덩어리로 놓인다(사이드 패널·전체화면)', async ({ authenticatedPage: page }) => {
   await openChatPanel(page)
   await expect(rows(page)).toHaveCount(4)
-  // 사이드 패널(전제): 행이 목록 폭 전체를 차지한다.
-  const sideRow = (await rows(page).first().boundingBox())!
-  const sideList = (await page.getByTestId('starter-suggestion-list').boundingBox())!
-  expect(Math.abs(sideRow.width - sideList.width)).toBeLessThanOrEqual(1)
-
-  await page.getByTestId('ai-mode-fullscreen').click()
-  await expect(page.getByTestId('ai-fullscreen')).toBeVisible()
-  const input = (await page.getByTestId('chat-input').boundingBox())!
-  for (const row of await rows(page).all()) {
-    const b = (await row.boundingBox())!
-    expect(Math.abs(b.x - input.x)).toBeLessThanOrEqual(1)
-    expect(b.x + b.width).toBeLessThanOrEqual(input.x + input.width)
-    expect(b.width).toBeLessThan(input.width / 2)
+  await expect(page.getByTestId('ai-composer').getByTestId('starter-suggestions')).toHaveCount(0)
+  const layout = async () => {
+    const empty = page.getByTestId('ai-chat-empty-state')
+    return Promise.all([boxOf(empty.getByText('무엇이든 질문해 보세요')), boxOf(empty.getByTestId('starter-suggestions'))])
+  }
+  for (const mode of ['side', 'fullscreen'] as const) {
+    if (mode === 'fullscreen') {
+      await page.getByTestId('ai-mode-fullscreen').click()
+      await expect(page.getByTestId('ai-fullscreen')).toBeVisible()
+    }
+    const [sub, list] = await layout()
+    expect(list.y, `${mode}: 목록이 안내 아래`).toBeGreaterThan(sub.y + sub.height)
+    expect(Math.abs(list.x + list.width / 2 - (sub.x + sub.width / 2)), `${mode}: 안내와 가운데 정렬`).toBeLessThanOrEqual(2)
+    expect(list.width, `${mode}: 가로로 늘어지지 않음`).toBeLessThanOrEqual(448)
+    for (let i = 1; i < 4; i++) await expectStartAligned(rows(page).nth(i), rows(page).first())
   }
 })
 
-// UI 리뷰 #1 — 빈 대화 안내는 공간이 넉넉하면 가운데, 영역이 안내보다 낮아지면(짧은 창) 위가 잘리지 않고 위에서부터 놓인다(safe center).
+// UI 리뷰 #1 — 빈 대화 안내(+ 추천 목록, WP-398)는 공간이 넉넉하면 가운데, 영역이 안내보다 낮아지면(짧은 창) 위가 잘리지 않고 위에서부터 놓인다(safe center).
 test('빈 대화 안내는 가운데 놓이고, 영역이 낮아져도 위쪽이 잘리지 않는다', async ({ authenticatedPage: page }) => {
   await openChatPanel(page)
   await expect(rows(page)).toHaveCount(4)
@@ -311,18 +315,18 @@ test('빈 대화 안내는 가운데 놓이고, 영역이 낮아져도 위쪽이
   const guide = async () => {
     const s = (await scroll.boundingBox())!
     const icon = (await empty.locator('svg').first().boundingBox())!
-    const sub = (await empty.locator('p').last().boundingBox())!
-    return { s, top: icon.y, bottom: sub.y + sub.height }
+    const list = (await empty.getByTestId('starter-suggestions').boundingBox())!
+    return { s, top: icon.y, bottom: list.y + list.height }
   }
   const wide = await guide()
   expect(Math.abs((wide.top + wide.bottom) / 2 - (wide.s.y + wide.s.height / 2))).toBeLessThanOrEqual(2)
 
-  // 대화 영역이 안내 높이(약 100px)보다 낮아지는 창 높이 — 가운데 정렬이면 아이콘이 영역 위로 밀려 스크롤로도 못 본다.
+  // 대화 영역이 안내+목록 높이보다 낮아지는 창 높이 — 가운데 정렬이면 아이콘이 영역 위로 밀려 스크롤로도 못 본다.
   await page.setViewportSize({ width: 1280, height: 320 })
   await expect.poll(async () => (await guide()).s.height).toBeLessThan(wide.bottom - wide.top)
-  // 스크롤 내용 좌표로 본다 — 대화 영역은 바닥 따라가기로 스크롤될 수 있어, 화면 좌표가 아니라 "위로 스크롤하면 닿는가"가 기준이다.
-  const iconOffset = await scroll.evaluate((el) => {
-    const icon = el.querySelector('[data-testid="ai-chat-empty-state"] svg')!
+  // 스크롤 내용 좌표로 본다 — 넘치면 안내 영역이 스스로 스크롤하므로(WP-398), 화면 좌표가 아니라 "위로 스크롤하면 닿는가"가 기준이다.
+  const iconOffset = await empty.evaluate((el) => {
+    const icon = el.querySelector('svg')!
     return icon.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop
   })
   expect(iconOffset).toBeGreaterThanOrEqual(0)

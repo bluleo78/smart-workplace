@@ -38,9 +38,9 @@ test('저장 결과 줄이 답 아래·후속 질문 위에 보이고, done 전�
   await expect(undoLinks(page).locator('..')).toHaveCSS('white-space', 'nowrap')
   const bubble = await stableBox(page.getByTestId('chat-block').last())
   const line = await stableBox(lines(page).first())
-  const chips = await stableBox(page.getByTestId('chat-followups'))
+  const followups = await stableBox(page.getByTestId('chat-followups'))
   expect(line.y).toBeGreaterThan(bubble.y + bubble.height - 1)
-  expect(chips.y).toBeGreaterThan(line.y + line.height - 1)
+  expect(followups.y).toBeGreaterThan(line.y + line.height - 1)
 
   await undoLinks(page).click()
   await undo.waitFor()

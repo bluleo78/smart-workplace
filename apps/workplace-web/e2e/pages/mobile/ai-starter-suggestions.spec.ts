@@ -1,4 +1,4 @@
-// WP-139 모바일 AI 시트의 빈 대화 추천 — 행 높이 44px 이상, 탭하면 전송.
+// WP-139·WP-398 모바일 AI 시트의 빈 대화 추천 — 안내 아래 행 목록, 행 높이 44px 이상, 탭하면 전송.
 import { mockStarterSuggestions } from '../../fixtures/ai-suggestions-mock'
 import { type HomeChatStartBody, mockHomeChatGeneration } from '../../fixtures/home-chat-mock'
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture'
