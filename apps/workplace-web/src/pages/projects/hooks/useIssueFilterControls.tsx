@@ -16,6 +16,7 @@ import { useIssueTypes } from '../../../hooks/queries/useIssueTypes';
 import { useLabels } from '../../../hooks/queries/useLabels';
 import { useProjectMembers } from '../../../hooks/queries/useProjectMembers';
 import { useIssueGroupBy } from '../../../hooks/useIssueGroupBy';
+import { clearFacetFilters, countActiveFacets } from '../../../lib/issueFacetFilters';
 import {
   carryBoardTab,
   filtersToParams,
@@ -298,8 +299,7 @@ export function useIssueFilterControls(
 
   // 활성 facet 수(q 제외) — 모바일 필터 버튼 배지용.
   // 담당자 「미지정」(includeUnassigned)은 filterValue 에 안 담기므로 담당자 facet 이 활성인 것으로 한 번만 센다.
-  const activeFilterCount =
-    Object.entries(filterValue).filter(([k, v]) => (v?.length ?? 0) > 0 || (k === 'assignee' && filters.includeUnassigned)).length;
+  const activeFilterCount = countActiveFacets(filterValue, filters.includeUnassigned);
 
   // 「완료 모두 보기」 토글 — 데스크톱 버튼과 모바일 뷰 시트가 공유.
   function toggleShowAllClosed() {
@@ -308,11 +308,7 @@ export function useIssueFilterControls(
 
   // facet 값만 비운다 — 모바일 필터 시트 「전체 해제」. 검색어·view·group·에픽 범위는 유지.
   function clearFacets() {
-    writeFilters(
-      { ...filters, statuses: [], priorities: [], labelIds: [], cycleIds: [], typeIds: [], assigneeIds: [], includeUnassigned: false },
-      view,
-      groupParam,
-    );
+    writeFilters(clearFacetFilters(filters), view, groupParam);
   }
 
   return {

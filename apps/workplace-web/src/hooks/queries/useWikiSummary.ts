@@ -14,7 +14,7 @@ export const wikiSummaryKey = (pageId: number) => ['wiki-summary', pageId] as co
  * 응답이 오는 사이 내 저장이 끝나 응답의 pageVersion 이 이미 낡은 경우에도 카드가 "최신 요약"처럼 보이지 않게 하기 위함이다.
  * 요약이 없는 상태(TOO_SHORT·MISSING·UNAVAILABLE)는 서버만 판정할 수 있어 그대로 둔다.
  */
-function withLatestVersion(data: WikiPageSummaryState, version: number | undefined): WikiPageSummaryState {
+export function withLatestVersion(data: WikiPageSummaryState, version: number | undefined): WikiPageSummaryState {
   if (version == null || version <= data.pageVersion) return data
   if (data.summary == null || data.summaryVersion == null || data.summaryVersion >= version) return data
   return { ...data, pageVersion: version, status: 'STALE' }
@@ -64,8 +64,14 @@ export function useGenerateWikiSummary() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (pageId: number) => (await wikiApi.generateSummary(pageId)).data,
-    onSuccess: (data, pageId) => {
-      qc.setQueryData(wikiSummaryKey(pageId), withLatestVersion(data, cachedPageVersion(qc, pageId)))
-    },
+    onSuccess: (data, pageId) => storeGeneratedSummary(qc, pageId, data),
   })
+}
+
+/**
+ * 생성된 요약을 요약 캐시에 넣는다 — 생성 중에 내가 저장해 노트 캐시 버전이 응답의 pageVersion 보다 앞서 있으면 STALE 로 넣는다.
+ * useGenerateWikiSummary 의 onSuccess 본문. 늦게 도착한 응답이 "최신 요약"처럼 보이지 않게 하는 판정을 단위 테스트하려고 분리했다.
+ */
+export function storeGeneratedSummary(qc: QueryClient, pageId: number, data: WikiPageSummaryState) {
+  qc.setQueryData(wikiSummaryKey(pageId), withLatestVersion(data, cachedPageVersion(qc, pageId)))
 }

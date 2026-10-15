@@ -270,15 +270,6 @@ test.describe('채팅 뷰어 히스토리', () => {
     await expect.poll(() => liveChatKey(page, 'teamChatPreview')).toBeNull()
     await expect(viewerOf(page)).toHaveCount(0)
   })
-
-  test('형식이 octet-stream 으로 저장된 PNG 도 썸네일로 보이고 뷰어에서 이미지로 열린다', async ({ authenticatedPage: page }) => {
-    await stubTeamChatAttachments(page)
-    await page.goto('/chat/channels/1')
-    await expect(page.getByTestId('attachment-image-804')).toBeVisible()
-    await expect(page.getByTestId('attachment-card-804')).toHaveCount(0)
-    await page.getByTestId('attachment-image-open-804').click()
-    await expect(page.getByTestId('preview-body').locator('img')).toBeVisible()
-  })
 })
 
 test.describe('메인 AI 사이드 패널과 뷰어', () => {

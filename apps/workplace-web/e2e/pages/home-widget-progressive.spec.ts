@@ -48,42 +48,4 @@ test.describe('#461 홈 챗 도크 위젯 점진 렌더', () => {
       await expect(page.getByTestId('calendar-items')).toContainText('점진 미팅');
     },
   );
-
-  test('done.widgets 가 tool 누적을 최종 덮어쓴다(중복 없이)', async ({
-    authenticatedPage: page,
-  }) => {
-    // tool 로 한 번 누적된 뒤 done 이 같은 위젯을 authoritative 로 줘도 캘린더 위젯은 1개만 렌더.
-    await mockHomeChatGeneration(page, {
-      frames: [
-        { event: 'tool', data: { seq: 1, phase: 'start', toolName: 'mcp__workplace__show_calendar', args: { params: { from: '2026-06-22', to: '2026-06-22' } } } },
-        { event: 'tool', data: { seq: 1, phase: 'result', toolName: 'mcp__workplace__show_calendar', isError: false } },
-        { event: 'done', data: { sessionId: 's-prog-2', widgets: [{ type: 'calendar', params: { from: '2026-06-22', to: '2026-06-22' } }] } },
-      ],
-    });
-    await page.route(
-      (url) => url.pathname === '/api/v1/calendar/events',
-      (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify([
-            calendarEvent({
-              id: 1,
-              title: '중복 점검 미팅',
-              startsAt: '2026-06-22T02:00:00Z',
-              endsAt: '2026-06-22T03:00:00Z',
-            }),
-          ]),
-        }),
-    );
-
-    await page.goto('/');
-    await page.getByTestId('chat-launcher').click();
-    await page.getByTestId('chat-input').fill('오늘 일정 보여줘');
-    await page.getByRole('button', { name: '보내기' }).click();
-
-    await expect(page.getByTestId('calendar-items')).toContainText('중복 점검 미팅');
-    // 캘린더 목록 위젯은 정확히 1개여야 한다(tool + done 이중 누적 금지).
-    await expect(page.getByTestId('calendar-items')).toHaveCount(1);
-  });
 });

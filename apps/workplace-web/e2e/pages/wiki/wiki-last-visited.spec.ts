@@ -153,7 +153,10 @@ test('보던 노트가 삭제돼 에러 화면이 뜨면 「노트 목록으로�
 
   wiki.pageStatus = 404
   await page.goto(`/wiki/spaces/${TEAM_SPACE_ID}/pages/${PAGE_ID}`)
+  // skeleton 에 갇히지 않고 ResourceErrorState(제목+설명+버튼)가 뜬다 — useWikiPage 가 404 를 isError 로 노출해야 한다.
   await expect(page.getByText('페이지를 불러올 수 없습니다')).toBeVisible({ timeout: 10000 })
+  await expect(page.getByTestId('wiki-page-skeleton')).toHaveCount(0)
+  await expect(page.getByText('요청한 노트 페이지가 존재하지 않거나 접근 권한이 없습니다.')).toBeVisible()
   await page.getByRole('button', { name: '노트 목록으로' }).click()
   await expect(page).toHaveURL(defaultUrl)
   await expect.poll(() => lastVisitedEntries(page)).toHaveLength(0)

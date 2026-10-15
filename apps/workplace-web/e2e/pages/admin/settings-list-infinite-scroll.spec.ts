@@ -5,9 +5,7 @@
 
 import type { Page, Route } from '@playwright/test';
 
-import { setupAdminAuth } from '../../fixtures/admin.fixture';
 import { createPageResponse } from '../../fixtures/api-mock';
-import { createAuditLog } from '../../factories/admin.factory';
 import { createMember } from '../../factories/auth.factory';
 import { expect, test } from '../../fixtures/auth.fixture';
 
@@ -109,23 +107,5 @@ test.describe('설정 › 구성원 무한 스크롤 (WP-182)', () => {
   });
 });
 
-test.describe('설정 › 감사 로그 무한 스크롤 (WP-182)', () => {
-  test('끝까지 스크롤하면 다음 페이지를 이어 붙이고, 경계에서 겹친 행은 한 번만 보인다', async ({ adminPage: page }) => {
-    await setupAdminAuth(page);
-    await stubPaged(page, '/api/v1/members', [[]]);
-    const logs = (from: number, count: number) =>
-      Array.from({ length: count }, (_, i) =>
-        createAuditLog({ id: from + i, description: `감사 로그 ${from + i}` }),
-      );
-    // 두 번째 페이지 첫 행(id 50)은 첫 페이지 마지막 행과 같다 — 사이에 새 로그가 끼어 offset 이 밀린 상황.
-    await stubPaged(page, '/api/v1/admin/audit-logs', [logs(1, PAGE_SIZE), logs(PAGE_SIZE, 3)]);
-    await page.goto('/settings/audit-logs');
-
-    await expect(page.getByText('감사 로그 1', { exact: true })).toBeVisible();
-    await page.getByText(`감사 로그 ${PAGE_SIZE}`, { exact: true }).scrollIntoViewIfNeeded();
-    await expect(page.getByText(`감사 로그 ${PAGE_SIZE + 2}`, { exact: true })).toBeVisible();
-    await expect(page.getByText(`감사 로그 ${PAGE_SIZE}`, { exact: true })).toHaveCount(1);
-    // 페이지 크기 선택기 없음
-    await expect(page.getByText('페이지당')).toHaveCount(0);
-  });
-});
+// 감사 로그 무한 스크롤의 경계 중복 제거(flattenUniquePages)·다음 페이지 판정은 offsetPaging.test 가 지키고,
+// 스크롤 → 다음 페이지 이어 붙이기(LoadMoreFooter) 배선은 위 구성원 목록 테스트가 지킨다(WP-412).

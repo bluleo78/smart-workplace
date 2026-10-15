@@ -26,19 +26,4 @@ test('이슈 상세에서 보내면 app 은 ISSUE 이고 화면 참고에는 app
   expect(body.screenContext).not.toHaveProperty('app')
 })
 
-// 화면 참고 × 는 화면 내용만 뺀다 — 내 선호 범위(app)는 그대로 보낸다.
-test('화면 정보를 빼고 보내도 app 은 실린다', async ({ authenticatedPage: page }) => {
-  const chat = await captureChat(page)
-  await mockIssueDetail(page)
-  await page.goto('/projects/WP/issues/12')
-  await page.getByTestId('chat-launcher').click()
-  await page.getByTestId('chat-context-remove').click()
-  await expect(page.getByTestId('chat-context-chip-excluded')).toBeVisible()
-  await page.getByTestId('chat-input').fill('첫 질문')
-  await page.getByRole('button', { name: '보내기' }).click()
-
-  await expect.poll(chat.count).toBe(1)
-  const body = chat.bodies<HomeChatStartBody>()[0]
-  expect(body).not.toHaveProperty('screenContext')
-  expect(body.app).toBe('ISSUE')
-})
+// 화면 참고를 × 로 빼도 app 은 실린다 — ai-screen-context.spec.ts 의 × 1회 제외 테스트가 함께 단언한다.

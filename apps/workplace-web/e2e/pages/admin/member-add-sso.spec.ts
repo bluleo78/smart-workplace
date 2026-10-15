@@ -24,17 +24,6 @@ test('SSO 전용 구성원은 비밀번호 없이 전송된다', async ({ adminP
   await expect.poll(() => post.lastRequest()?.payload).toEqual({ username: 'hong@acme.com', name: '홍', role: 'USER' })
 })
 
-test('SSO 전용은 이메일 형식 아이디만 허용한다', async ({ adminPage: page }) => {
-  await mockApi(page, 'GET', '/api/v1/members', createPageResponse([]))
-  await mockApi(page, 'GET', '/api/v1/admin/sso', sso(true))
-  await page.goto('/settings/users')
-  await page.getByRole('button', { name: '구성원 추가' }).click()
-  await page.getByTestId('add-member-username').fill('hong')
-  await page.getByTestId('add-member-name').fill('홍')
-  await page.getByTestId('add-member-submit').click()
-  await expect(page.getByText('아이디는 이메일 형식이어야 합니다')).toBeVisible()
-})
-
 test('SSO 가 꺼져 있으면 로그인 방식 선택이 없다', async ({ adminPage: page }) => {
   await mockApi(page, 'GET', '/api/v1/members', createPageResponse([]))
   await mockApi(page, 'GET', '/api/v1/admin/sso', sso(false))

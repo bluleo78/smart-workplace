@@ -2,7 +2,7 @@
 // #345: DM 도 채널이므로 백엔드가 AI 진행 progress 를 fan-out 한다 → ChannelPage 와 동일하게
 // onMessagingProgress 를 구독해 작업 중 유령 버블을 렌더(dm.id 기준).
 import { MessageSquare, Sparkles } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
@@ -23,14 +23,15 @@ import { useCreateMessage } from '@/hooks/queries/useCreateMessage'
 import { useMarkMessageRead } from '@/hooks/queries/useMarkMessageRead'
 import { useMyDms } from '@/hooks/queries/useMyDms'
 import { useAiAvailable } from '@/hooks/useAiAvailable'
+import { useAiWorkingBubbles } from '@/hooks/useAiWorkingBubbles'
 import { useAuth } from '@/hooks/useAuth'
 import { useEntryMaxMessageId } from '@/hooks/useEntryMaxMessageId'
-import { type MessagingProgressEvent, onMessagingProgress } from '@/hooks/useMessageStream'
 import { buildDmContext } from '@/lib/aiScreenContext/builders/messaging'
 import { shouldAutoShowCatchup } from '@/lib/catchupGate'
 import { catchupWatermark } from '@/lib/catchupWatermark'
 import { chatEntryAnchor } from '@/lib/chatEntryAnchor'
 import { dmDisplayName } from '@/lib/dm'
+import { channelMentionCandidates } from '@/lib/mentionCandidates'
 import { firstUnreadMessageId, unreadFromOthersCount } from '@/lib/unreadBoundary'
 import { cn } from '@/lib/utils'
 import type { DmResponse, UserKind } from '@/types/messaging'
@@ -52,64 +53,9 @@ export default function DmPage() {
   const { data } = useChannelMessages(dmId)
   const messages = data?.pages.flatMap((p) => p.items) ?? []
 
-  // AI 작업 중 유령 버블 상태 — streamId → 이벤트+타임스탬프 Map. ChannelPage 의 A9 패턴을
-  // dmId 기준으로 미러링한다(DM 채널의 channelId === dmId).
-  const [working, setWorking] = useState<Map<string, MessagingProgressEvent & { at: number }>>(
-    new Map(),
-  )
-  // 종료된(done/error) streamId 기록 — fire-and-forget progress POST 의 순서 역전으로 'done' 이후
-  // 뒤늦게 도착한 'tool'/'started' 이벤트가 유령 버블을 되살리는 것을 차단(부활 방지).
-  const endedStreamsRef = useRef<Set<string>>(new Set())
-  useEffect(() => {
-    if (dmId == null) return
-    return onMessagingProgress((e) => {
-      if (e.channelId !== dmId) return
-      setWorking((prev) => {
-        const next = new Map(prev)
-        if (e.phase === 'done' || e.phase === 'error') {
-          endedStreamsRef.current.add(e.streamId)
-          next.delete(e.streamId)
-        } else if (!endedStreamsRef.current.has(e.streamId)) {
-          next.set(e.streamId, { ...e, at: Date.now() })
-        }
-        return next
-      })
-    })
-  }, [dmId])
-
-  // 신규 AGENT 메시지가 도착하면(실제 응답 등장) 모든 유령 버블 제거 — done 이벤트 누락/순서 역전 대비 백스톱.
-  // message.id 는 서버 단조 증가 시퀀스이므로 "기준선(초기 로드 시점의 최대 AGENT id) 초과" 만 신규 도착으로 본다.
-  // → 스크롤백 페이지네이션(과거 작은 id prepend)·HUMAN 메시지·낙관적 임시 id 는 트리거하지 않는다 (#346).
+  // AI 작업 중 유령 버블 — ChannelPage 와 같은 훅(DM 채널의 channelId === dmId).
   const messagesLoaded = data !== undefined
-  const maxAgentMsgId = messages.reduce(
-    (mx, m) => (m.authorKind === 'AGENT' && m.id > mx ? m.id : mx),
-    0,
-  )
-  const agentBaselineRef = useRef<number | null>(null)
-  useEffect(() => {
-    if (!messagesLoaded) return // 첫 메시지 로드 전 — 기준선 미설정(라이브 버블 보호)
-    // 최초 로드: 기존 AGENT 메시지 최대 id 를 기준선으로 잡는다(0 이어도). 이 run 에서는 절대 제거하지 않는다.
-    if (agentBaselineRef.current === null) {
-      agentBaselineRef.current = maxAgentMsgId
-      return
-    }
-    if (maxAgentMsgId > agentBaselineRef.current) {
-      agentBaselineRef.current = maxAgentMsgId
-      setWorking(new Map())
-    }
-  }, [messagesLoaded, maxAgentMsgId])
-
-  // TTL 안전망: 60초 무수신 유령 제거 (10초마다 스위프)
-  useEffect(() => {
-    const t = setInterval(() => {
-      setWorking((prev) => {
-        const cutoff = Date.now() - 60_000
-        const next = new Map([...prev].filter(([, v]) => v.at >= cutoff))
-        return next.size === prev.size ? prev : next
-      })
-    }, 10_000)
-    return () => clearInterval(t)
-  }, [])
+  const working = useAiWorkingBubbles(dmId, messages, messagesLoaded)
 
   // ── 캐치업(L1) 배선 — ChannelPage 와 동일 로직, dmId 기준. DM 도 채널이므로 watermark·요약 API 재사용.
   const detail = useChannelDetail(dmId)
@@ -186,11 +132,9 @@ export default function DmPage() {
   }, [dm, dmId, user?.id])
   useRegisterAiScreenContext(screenContext)
   const aiAvailable = useAiAvailable()
-  // @멘션 후보 = DM 참여자. RichInput 이 기대하는 chat 멤버 형태로 매핑(username 은 name 으로 대체).
+  // @멘션 후보 = DM 참여자(채널과 같은 조립 규칙 — 비멤버 AGENT 추가는 없음).
   // 비서 비가용(aiAvailable=false)이면 AGENT 후보 제외 — AI 와의 DM 자체는 유지, 멘션만 게이트.
-  const mentionMembers: MentionCandidate[] = (dm?.participants ?? [])
-    .map((p) => ({ userId: p.userId, username: p.name, name: p.name, kind: p.kind }))
-    .filter((m) => aiAvailable || m.kind !== 'AGENT')
+  const mentionMembers: MentionCandidate[] = channelMentionCandidates(dm?.participants, undefined, aiAvailable)
 
   // DM 목록 API 오류 — 로드 실패와 실제 미존재를 구분해 사용자 오해 방지.
   if (isError) {

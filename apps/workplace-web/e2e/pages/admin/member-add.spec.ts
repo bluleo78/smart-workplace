@@ -48,33 +48,6 @@ test('관리자가 구성원을 추가한다', async ({ adminPage: page }) => {
   await expect(page.getByTestId('add-member-submit')).toHaveCount(0)
 })
 
-test('이메일 없이도 구성원을 추가한다', async ({ adminPage: page }) => {
-  await mockApi(page, 'GET', '/api/v1/members', createPageResponse([]))
-  const posts = trackRequests(page, 'POST', '/api/v1/users')
-  await page.route(
-    (url) => url.pathname === '/api/v1/users',
-    (route) => {
-      if (route.request().method() !== 'POST') return route.fallback()
-      return route.fulfill({
-        status: 201,
-        contentType: 'application/json',
-        body: JSON.stringify({ userId: 1, username: 'noemail@acme.com', name: '이름만', email: null, role: 'USER', status: 'ACTIVE' }),
-      })
-    },
-  )
-
-  await page.goto('/settings/users')
-  await page.getByRole('button', { name: '구성원 추가' }).click()
-  await page.getByTestId('add-member-username').fill('noemail@acme.com')
-  await page.getByTestId('add-member-name').fill('이름만')
-  await page.getByTestId('add-member-password').fill('Password123')
-  await page.getByTestId('add-member-submit').click()
-
-  // 이메일 빈값은 payload 에서 생략(undefined)된다 — 컴포넌트가 email:undefined 로 보낸다.
-  await expect.poll(() => posts.lastBody<{ username?: string }>()?.username).toBe('noemail@acme.com')
-  expect(posts.lastBody<{ email?: string }>()?.email).toBeUndefined()
-})
-
 test('취소 후 재오픈 시 이전 입력값이 남지 않는다', async ({ adminPage: page }) => {
   await mockApi(page, 'GET', '/api/v1/members', createPageResponse([]))
 
@@ -197,32 +170,6 @@ test('구성원 추가 — 버튼을 동기적으로 연속 클릭해도 요청�
   expect(posts.count()).toBe(1)
 })
 
-// #580 — 아이디에 공백만 입력하면 클라이언트 zod 검증(trim)이 서버 전송 전에 막아야 한다.
-test('아이디에 공백만 입력하면 클라이언트 검증에서 막힌다', async ({ adminPage: page }) => {
-  await mockApi(page, 'GET', '/api/v1/members', createPageResponse([]))
-
-  const posts = trackRequests(page, 'POST', '/api/v1/users')
-  await page.route(
-    (url) => url.pathname === '/api/v1/users',
-    (route) => {
-      if (route.request().method() !== 'POST') return route.fallback()
-      return route.fulfill({ status: 201, contentType: 'application/json', body: '{}' })
-    },
-  )
-
-  await page.goto('/settings/users')
-  await page.getByRole('button', { name: '구성원 추가' }).click()
-
-  await page.getByTestId('add-member-username').fill('  ')
-  await page.getByTestId('add-member-name').fill('테스트')
-  await page.getByTestId('add-member-password').fill('Password123')
-  await page.getByTestId('add-member-submit').click()
-
-  // 클라이언트 zod 검증(trim)이 막아 API 호출 자체가 발생하지 않아야 한다.
-  await expect(page.getByText('아이디를 입력하세요')).toBeVisible()
-  expect(posts.count()).toBe(0)
-})
-
 // #580 — 서버가 필드별 오류(errors 맵)를 내려주면 최상위 message("Validation failed" 등
 // 하드코딩된 영문)가 아니라 필드별 로컬라이즈 메시지를 우선 표시해야 한다.
 test('서버 검증 오류는 errors 필드 맵의 메시지를 우선 표시한다', async ({ adminPage: page }) => {
@@ -257,6 +204,8 @@ test('서버 검증 오류는 errors 필드 맵의 메시지를 우선 표시한
   await expect(page.getByTestId('add-member-error')).not.toHaveText('Validation failed')
 })
 
+// 공백 아이디·이메일 빈값 생략·SSO 전용 아이디 형식 규칙은 validations/member.test(addMemberSchema·toCreateMemberPayload)가 지키고,
+// 아래는 zod 규칙 위반이 UI 에러로 뜨고 전송을 막는 배선 대표 1건이다(WP-412).
 // WP-181 — 비밀번호 구성원도 아이디가 이메일이 아니면(예: max.lee) 클라이언트 검증에서 막혀 서버로 전송되지 않는다.
 test('비밀번호 구성원도 이메일이 아닌 아이디는 클라이언트 검증에서 막힌다', async ({ adminPage: page }) => {
   await mockApi(page, 'GET', '/api/v1/members', createPageResponse([]))

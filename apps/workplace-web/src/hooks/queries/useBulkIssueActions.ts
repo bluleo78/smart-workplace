@@ -8,32 +8,15 @@ import { toast } from 'sonner';
 
 import { replaceIssueAssignees } from '../../api/issueAssignees';
 import { issuesApi, updateIssueStatus } from '../../api/issues';
-import { extractApiError } from '../../lib/api-error';
+import { bulkResultToast } from '../../lib/bulkResult';
 import type { IssuePriority, IssueStatus } from '../../types/issue';
 import { chatKeys } from './chatKeys';
 import { issueKeys } from './useIssues';
 
-// 성공/실패 건수를 세어 결과 토스트를 띄우는 공통 헬퍼.
-// 실패가 있으면 rejection 사유에서 백엔드 에러 메시지를 추출해 함께 보여준다(#710) —
-// 그렇지 않으면 "N건 실패"만 뜨고 정확히 왜 막혔는지(예: EPIC 미완료 자식) 사용자가 알 수 없다.
+// 성공/실패 건수를 세어 결과 토스트를 띄우는 공통 헬퍼 — 문구·종류 판단은 bulkResultToast(실패 사유 노출, #710).
 function reportBulkResult(results: PromiseSettledResult<unknown>[], successLabel: string) {
-  const rejected = results.filter(
-    (r): r is PromiseRejectedResult => r.status === 'rejected',
-  );
-  const failed = rejected.length;
-  const succeeded = results.length - failed;
-  if (failed === 0) {
-    toast.success(`${succeeded}개 ${successLabel}`);
-    return;
-  }
-  // 실패 사유 중 첫 번째를 대표 메시지로 노출. 여러 건이 서로 다른 이유로 실패해도
-  // 사용자가 "왜 막혔는지" 최소 하나의 구체적 원인을 바로 알 수 있게 한다.
-  const firstReason = extractApiError(rejected[0].reason, `${successLabel} 실패`);
-  if (succeeded === 0) {
-    toast.error(`${successLabel} 실패 (${failed}건): ${firstReason}`);
-  } else {
-    toast.warning(`${succeeded}개 ${successLabel}, ${failed}건 실패: ${firstReason}`);
-  }
+  const { level, message } = bulkResultToast(results, successLabel);
+  toast[level](message);
 }
 
 // 공통 무효화 — 검색/상세 캐시를 모두 갱신.

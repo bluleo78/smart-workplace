@@ -2,7 +2,7 @@
 // actionType·resource 를 공통 FacetFilter 칩으로 전환한 뒤의 동작을 검증한다.
 // - facet 선택 → audit-logs API 요청 URL 에 해당 param 이 실린다(서버 쿼리 반영).
 // - 칩이 표시되고, 칩 제거 시 param 이 사라진다.
-// - 단일값 제약(백엔드 .eq()): 새 값을 고르면 이전 값을 교체한다.
+// - 단일값 제약(백엔드 .eq()): 새 값을 고르면 이전 값을 교체한다 — 규칙은 auditLogLabels.test(lastFacetValue)가 지킨다(WP-412).
 // - 회귀: 검색·날짜·userId·result 컨트롤이 그대로 렌더/동작한다.
 
 import { setupAdminAuth } from '../../fixtures/admin.fixture';
@@ -74,28 +74,6 @@ test.describe('/settings/audit-logs — actionType·resource facet 필터', () =
     },
   );
 
-  // WP-369: 드라이브 전송 링크 발급·사용 액션도 필터 옵션에 한글 라벨로 있고, 고르면 서버 쿼리에 그대로 실린다.
-  test('actionType facet 에 전송 링크 발급·사용이 있고 선택 시 API param 에 반영된다', async ({ adminPage: page }) => {
-    await setupAdminAuth(page);
-    const capture = await setupCapturedAuditLogMocks(page);
-
-    await page.goto('/settings/audit-logs');
-    await expect(page.getByRole('heading', { name: '감사 로그' })).toBeVisible();
-    await capture.waitForRequest();
-
-    await page.getByTestId('add-filter-trigger').click();
-    await page.getByTestId('add-filter-facet-actionType').click();
-    await expect(page.getByTestId('facet-value-actionType-TRANSFER_LINK_CREATE')).toContainText('전송 링크 발급');
-    await expect(page.getByTestId('facet-value-actionType-TRANSFER_LINK_USE')).toContainText('전송 링크 사용');
-    await page.getByTestId('facet-value-actionType-TRANSFER_LINK_USE').click();
-    await page.keyboard.press('Escape');
-
-    await expect
-      .poll(() => capture.lastRequest()?.searchParams.get('actionType'))
-      .toBe('TRANSFER_LINK_USE');
-    await expect(page.getByTestId('filter-chip-actionType')).toBeVisible();
-  });
-
   test('resource facet 선택 → API param 반영 + 칩 표시', async ({ adminPage: page }) => {
     await setupAdminAuth(page);
     const capture = await setupCapturedAuditLogMocks(page);
@@ -113,31 +91,6 @@ test.describe('/settings/audit-logs — actionType·resource facet 필터', () =
       .poll(() => capture.lastRequest()?.searchParams.get('resource'))
       .toBe('pipeline');
     await expect(page.getByTestId('filter-chip-resource')).toBeVisible();
-  });
-
-  test('단일값 제약: actionType 새 값 선택 시 이전 값 교체', async ({ adminPage: page }) => {
-    await setupAdminAuth(page);
-    const capture = await setupCapturedAuditLogMocks(page);
-
-    await page.goto('/settings/audit-logs');
-    await expect(page.getByRole('heading', { name: '감사 로그' })).toBeVisible();
-    await capture.waitForRequest();
-
-    // CREATE 선택
-    await page.getByTestId('add-filter-trigger').click();
-    await page.getByTestId('add-filter-facet-actionType').click();
-    await page.getByTestId('facet-value-actionType-CREATE').click();
-    await expect
-      .poll(() => capture.lastRequest()?.searchParams.get('actionType'))
-      .toBe('CREATE');
-
-    // 같은 facet 값 리스트에서 UPDATE 선택 → 단일값이므로 CREATE 를 교체
-    await page.getByTestId('facet-value-actionType-UPDATE').click();
-    await page.keyboard.press('Escape');
-
-    await expect
-      .poll(() => capture.lastRequest()?.searchParams.get('actionType'))
-      .toBe('UPDATE');
   });
 
   test(

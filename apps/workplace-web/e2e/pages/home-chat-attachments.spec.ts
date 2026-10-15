@@ -5,7 +5,7 @@ import { Buffer } from 'buffer'
 
 import type { Page } from '@playwright/test'
 
-import { PER_MESSAGE_LIMIT_MSG, PER_SESSION_LIMIT_MSG } from '../../src/lib/homeChatAttachments'
+import { PER_SESSION_LIMIT_MSG } from '../../src/lib/homeChatAttachments'
 import type { ErrorResponse } from '../../src/types/auth'
 import type { HomeMessage, HomeSessionPage, HomeUploadedFile } from '../../src/types/home'
 import { createHomeAttachment } from '../factories/homeAttachment.factory'
@@ -255,22 +255,6 @@ test.describe('메인 AI 채팅 첨부 입력창 (WP-234)', () => {
 
     await page.getByTestId('chat-send').click()
     await expect.poll(() => starts.lastBody<HomeChatStartBody>()).toMatchObject({ query: '', fileIds: [7001] })
-  })
-
-  test('메시지당 10개를 넘기면 안내하고 올리지 않는다', async ({ authenticatedPage: page }) => {
-    const uploads = trackRequests(page, 'POST', UPLOAD)
-    await openPanel(page)
-    await drop(page, Array.from({ length: 11 }, (_, i) => ({ name: `f${i}.txt`, type: 'text/plain' })))
-    await expect(toast(page, PER_MESSAGE_LIMIT_MSG)).toBeVisible()
-    await expectStays(page, uploads.count, 0)
-  })
-
-  test('25MB 를 넘는 파일은 안내하고 올리지 않는다', async ({ authenticatedPage: page }) => {
-    const uploads = trackRequests(page, 'POST', UPLOAD)
-    await openPanel(page)
-    await drop(page, [{ name: 'huge.zip', type: 'application/zip', size: 25 * 1024 * 1024 + 1 }])
-    await expect(toast(page, '25MB를 넘는 파일은 첨부할 수 없어요: huge.zip')).toBeVisible()
-    await expectStays(page, uploads.count, 0)
   })
 
   test('세션에 이미 29개가 있으면 2개 추가는 안내하고 올리지 않는다', async ({ authenticatedPage: page }) => {

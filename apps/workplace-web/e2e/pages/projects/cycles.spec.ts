@@ -163,6 +163,9 @@ test.describe('사이클 관리', () => {
       // 사이클 행이 렌더되고 이름이 표시된다.
       await expect(page.getByTestId('cycle-row-1')).toBeVisible();
       await expect(page.getByTestId('cycle-row-1')).toContainText('스프린트 1');
+      // 상태는 영문 enum 대신 한국어 라벨(매핑 전체는 cycleMeta.test 의 CYCLE_STATUS_LABEL 단위 테스트, WP-412).
+      await expect(page.getByTestId('cycle-row-1')).toContainText('진행 중');
+      await expect(page.getByTestId('cycle-row-1')).not.toContainText('ACTIVE');
 
       // 진행바가 1/4 완료 (25%) 텍스트를 표시한다.
       await expect(page.getByTestId('cycle-progress-1')).toContainText('1/4 완료 (25%)');
@@ -227,61 +230,6 @@ test.describe('사이클 관리', () => {
     await header.getByRole('button', { name: '프로젝트로 돌아가기' }).click();
     await expect(page).toHaveURL(`/projects/${KEY}`);
   });
-
-  test(
-    '상태 레이블 한국어 표시 — PLANNED/ACTIVE/COMPLETED 영문 enum 대신 한국어 표시',
-    async ({ authenticatedPage: page }) => {
-      const cycles: CycleResponse[] = [
-        createCycle({ id: 1, name: '계획 사이클', status: 'PLANNED' }),
-        createCycle({ id: 2, name: '진행 사이클', status: 'ACTIVE' }),
-        createCycle({ id: 3, name: '완료 사이클', status: 'COMPLETED' }),
-      ];
-
-      await setupCyclesPageStubs(page, cycles, []);
-      await page.goto(`/projects/${KEY}/cycles`);
-
-      // 영문 enum 값이 그대로 표시되지 않고 한국어로 변환되어 표시된다.
-      await expect(page.getByTestId('cycle-row-1')).toContainText('계획됨');
-      await expect(page.getByTestId('cycle-row-1')).not.toContainText('PLANNED');
-
-      await expect(page.getByTestId('cycle-row-2')).toContainText('진행 중');
-      await expect(page.getByTestId('cycle-row-2')).not.toContainText('ACTIVE');
-
-      await expect(page.getByTestId('cycle-row-3')).toContainText('완료됨');
-      await expect(page.getByTestId('cycle-row-3')).not.toContainText('COMPLETED');
-    },
-  );
-
-  test(
-    '사이클 폼 다이얼로그 상태 드롭다운 한국어 표시 — PLANNED/ACTIVE/COMPLETED 영문 enum 대신 한국어 옵션',
-    async ({ authenticatedPage: page }) => {
-      await setupCyclesPageStubs(page, [], []);
-      await page.goto(`/projects/${KEY}/cycles`);
-
-      // 새 사이클 다이얼로그 열기.
-      await page.getByTestId('cycle-new').click();
-      await expect(page.getByTestId('cycle-form-dialog')).toBeVisible();
-
-      const trigger = page.getByTestId('cycle-status-select');
-
-      // shadcn Select — 트리거에 초기값 한국어 표시
-      await expect(trigger).toBeVisible();
-      await expect(trigger).not.toContainText('PLANNED');
-      await expect(trigger).toContainText('계획됨');
-
-      // 드롭다운 열어 전체 옵션 한국어 확인
-      await trigger.click();
-      const content = page.locator('[role="listbox"]');
-      await expect(content.getByRole('option', { name: '계획됨' })).toBeVisible();
-      await expect(content.getByRole('option', { name: '진행 중' })).toBeVisible();
-      await expect(content.getByRole('option', { name: '완료됨' })).toBeVisible();
-      await expect(content).not.toContainText('PLANNED');
-      await expect(content).not.toContainText('ACTIVE');
-      await expect(content).not.toContainText('COMPLETED');
-      // 닫기
-      await page.keyboard.press('Escape');
-    },
-  );
 
   test(
     '새 사이클 생성 — cycle-new → 이름 입력 → 저장 → POST 요청 발생',
@@ -378,6 +326,8 @@ test.describe('사이클 관리', () => {
 
       await page.getByTestId('cycle-new').click();
       await expect(page.getByTestId('cycle-form-dialog')).toBeVisible();
+      // 상태 셀렉트도 영문 enum 대신 한국어 라벨로 그려진다(배선 확인 — 매핑은 단위 테스트).
+      await expect(page.getByTestId('cycle-status-select')).toContainText('계획됨');
 
       await page.getByTestId('cycle-name-input').fill('종료일역전테스트');
       await page.getByLabel('시작일').fill('2026-09-10');
@@ -393,11 +343,6 @@ test.describe('사이클 관리', () => {
       // eslint-disable-next-line playwright/no-force-option -- 비활성(disabled) 저장 버튼을 일부러 눌러 no-op 을 확인
       await page.getByTestId('cycle-submit').click({ force: true });
       await expectStays(page, posts.count, 0);
-
-      // 종료일을 시작일 이후로 고치면 오류가 사라지고 저장 버튼이 다시 활성화된다.
-      await page.getByLabel('종료일').fill('2026-09-15');
-      await expect(page.getByTestId('cycle-date-range-error')).toHaveCount(0);
-      await expect(page.getByTestId('cycle-submit')).toBeEnabled();
     },
   );
 

@@ -135,37 +135,19 @@ test.describe('에픽 선택과 「완료 모두 보기」 (WP-390)', () => {
     await expect(backlog(page)).not.toContainText('채팅 지난 완료 작업');
   });
 
-  test('종료된 에픽에서 벗어나면 토글이 다시 꺼진다 — 전체·미할당·진행 중 에픽·같은 에픽 재선택', async ({ authenticatedPage: page }) => {
+  // 벗어나는 경로별 판정(전체·미할당·진행 중 에픽·같은 에픽 재선택)은 epicScope.test.ts(nextShowAllClosed)가 담당 —
+  // 여기선 대표 경로(전체) 하나로 토글이 꺼지고 실제 숨김이 돌아오는 화면 연결만 본다.
+  test('종료된 에픽에서 벗어나면 토글이 다시 꺼진다 — 전체로 이동', async ({ authenticatedPage: page }) => {
     await setup(page);
     await page.goto(`/projects/${KEY}`);
     await openEpicPanel(page);
 
-    // 전체
     await selectClosedEpic(page);
     await page.getByTestId('epic-filter-all').click();
     await expect(page).not.toHaveURL(/parent=/);
     await expectToggleOff(page);
     await expect(backlog(page)).toContainText('백로그 작업');
     await expect(backlog(page)).not.toContainText('지난 사이클 완료 작업');
-
-    // 에픽 미할당
-    await selectClosedEpic(page);
-    await page.getByTestId('epic-filter-unassigned').click();
-    await expect(page).toHaveURL(/topLevel=true/);
-    await expectToggleOff(page);
-
-    // 진행 중 에픽으로 이동
-    await selectClosedEpic(page);
-    await page.getByTestId('epic-filter-10').click();
-    await expect(page).toHaveURL(/parent=10/);
-    await expectToggleOff(page);
-    await expect(backlog(page)).not.toContainText('결제 지난 완료 작업');
-
-    // 같은 종료 에픽 재선택(해제)
-    await selectClosedEpic(page);
-    await page.getByTestId('epic-closed-filter-30').click();
-    await expect(page).not.toHaveURL(/parent=/);
-    await expectToggleOff(page);
   });
 
   test('보드도 에픽을 골랐을 때 종료 이슈 숨김을 유지한다', async ({ authenticatedPage: page }) => {

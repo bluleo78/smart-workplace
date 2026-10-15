@@ -501,24 +501,6 @@ test.describe('이슈 첨부 프리뷰 (WP-203)', () => {
     await expect(body.locator('iframe')).toHaveCount(0);
   });
 
-  test('EUC-KR 로 저장된 CSV 첨부도 한글이 깨지지 않고 표로 보인다', async ({ authenticatedPage: page }) => {
-    // '이름,나이\n홍길동,30' 을 EUC-KR 로 인코딩한 바이트(한국어 엑셀 CSV 저장 형식).
-    const eucKr = Buffer.from([
-      0xc0, 0xcc, 0xb8, 0xa7, 0x2c, 0xb3, 0xaa, 0xc0, 0xcc, 0x0a, 0xc8, 0xab, 0xb1, 0xe6, 0xb5, 0xbf, 0x2c, 0x33, 0x30,
-    ]);
-    await stubAttachments(
-      page,
-      [createAttachment({ fileId: 7201, originalName: 'members.csv', mimeType: 'text/csv' })],
-      { 7201: { contentType: 'text/csv', body: eucKr } },
-    );
-    await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
-
-    await page.getByRole('button', { name: 'members.csv 미리보기' }).click();
-    const body = page.getByTestId('preview-body');
-    await expect(body.getByRole('cell', { name: '홍길동' })).toBeVisible();
-    await expect(body.getByRole('columnheader', { name: '이름' })).toBeVisible();
-  });
-
   test('미리 볼 수 없는 형식은 안내와 함께 모달에서 다운로드할 수 있다', async ({
     authenticatedPage: page,
   }) => {
@@ -538,21 +520,6 @@ test.describe('이슈 첨부 프리뷰 (WP-203)', () => {
     // 뷰어는 헤더와 안내 화면에 다운로드가 각각 있다 — 안내 화면의 버튼을 쓴다.
     await page.getByTestId('preview-body').getByRole('button', { name: '다운로드' }).click();
     expect((await download).suggestedFilename()).toBe('build.zip');
-  });
-
-  test('10MB 이하 텍스트 첨부는 묻지 않고 앞부분을 바로 보여준다', async ({ authenticatedPage: page }) => {
-    // 2MB 로그 — WP-203 초기의 1MB 차단을 없애고 앞 20만 자 미리보기로 되돌린 동작.
-    const body = Buffer.concat([Buffer.from('첫 줄 로그\n'), Buffer.alloc(2 * 1024 * 1024, 0x61)]);
-    await stubAttachments(
-      page,
-      [createAttachment({ fileId: 7401, originalName: 'mid.log', mimeType: 'text/plain', sizeBytes: body.length })],
-      { 7401: { contentType: 'text/plain', body } },
-    );
-    await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
-
-    await page.getByRole('button', { name: 'mid.log 미리보기' }).click();
-    await expect(page.getByTestId('preview-body').locator('pre')).toContainText('첫 줄 로그');
-    await expect(page.getByTestId('preview-size-confirm')).toHaveCount(0);
   });
 
   test('10MB 를 넘는 첨부는 크기를 보여주고, 미리보기를 누를 때만 내려받는다', async ({

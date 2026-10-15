@@ -63,17 +63,6 @@ test('행 구조 — 상태 아이콘·제목·메타 줄·최근 보고, 가로
   await expectNoHorizontalOverflow(page)
 })
 
-test('인증 필요 배지와, 도구를 모르는 시작 전 행(유형 칩·null 없음)', async ({ authenticatedPage: page }) => {
-  await setup(page)
-  await expect(page.getByTestId('ai-row-416-state')).toContainText('인증 필요')
-  await expect(page.getByTestId('ai-row-420-state')).toHaveText('시작 전')
-  // 도구가 null 이면 에이전트 유형 칩을 그리지 않고 "null" 글자도 없다. 시작 전은 보고가 없으니 마지막 보고도 없다.
-  await expect(page.getByTestId('ai-row-420-tool')).toHaveCount(0)
-  await expect(page.getByTestId('ai-row-420')).not.toContainText('null')
-  await expect(page.getByTestId('ai-row-420-last')).toHaveCount(0)
-  await expectNoHorizontalOverflow(page)
-})
-
 test('진행률이 있는 행도 에이전트 유형·마지막 보고가 메타 줄 안에 잘리지 않고 보인다', async ({ authenticatedPage: page }) => {
   await setup(page)
   for (const id of [415, 377]) {

@@ -215,33 +215,6 @@ test.describe('프로필 개인 비서', () => {
     expect(requests.bodies<{ model: string }>()[0].model).toBe('amazon-bedrock-openai/gpt-4o-mini')
   })
 
-  test('opencode 수동 입력에 이미 providerId/ 접두가 있으면 중복 접두하지 않는다', async ({
-    authenticatedPage: page,
-  }) => {
-    let configured = false
-    await mockStatus(page, () => (configured ? configuredStatus({ provider: 'opencode' }) : unconfiguredStatus()))
-    const requests = mockCredentialRegister(page, () => {
-      configured = true
-    })
-    mockProbe(page, { status: 502 })
-
-    await page.goto('/settings/assistant')
-    await page.getByTestId('credential-provider-opencode').click()
-
-    await page.getByTestId('credential-base-url').fill('https://api.openai.com/v1')
-    await page.getByTestId('credential-api-key').fill('sk-openai-test')
-    await page.getByTestId('credential-probe-models').click()
-
-    const manualModel = page.getByTestId('credential-model-manual')
-    await expect(manualModel).toBeVisible()
-    await manualModel.fill('amazon-bedrock-openai/gpt-4o-mini')
-    await page.getByRole('button', { name: '등록' }).click()
-
-    await expect(page.getByText('개인 비서를 등록했습니다.')).toBeVisible()
-    expect(requests.count()).toBe(1)
-    expect(requests.bodies<{ model: string }>()[0].model).toBe('amazon-bedrock-openai/gpt-4o-mini')
-  })
-
   test('opencode 이미지 입력 — 기본 자동 감지 → 볼 수 있음 선택 시 모델 id 키의 vision 이 전송된다', async ({
     authenticatedPage: page,
   }) => {
@@ -285,47 +258,6 @@ test.describe('프로필 개인 비서', () => {
     expect(
       requests.bodies<{ providerConfig: { vision?: unknown } }>()[0].providerConfig.vision,
     ).toEqual({ 'amazon-bedrock-openai/openai.gpt-oss-120b-1:0': true })
-  })
-
-  test('opencode 이미지 입력 — 모델을 바꾸면 자동 감지로 되돌아가고 vision 키가 전송되지 않는다', async ({
-    authenticatedPage: page,
-  }) => {
-    let configured = false
-    await mockStatus(page, () => (configured ? configuredStatus({ provider: 'opencode' }) : unconfiguredStatus()))
-    const requests = mockCredentialRegister(page, () => {
-      configured = true
-    })
-    mockProbe(page, {
-      status: 200,
-      models: [
-        { id: 'amazon-bedrock-openai/openai.gpt-oss-120b-1:0', label: 'GPT-OSS 120B' },
-        { id: 'amazon-bedrock-openai/anthropic.claude-3-5-sonnet', label: 'Claude 3.5 Sonnet' },
-      ],
-    })
-
-    await page.goto('/settings/assistant')
-    await page.getByTestId('credential-provider-opencode').click()
-    await page.getByTestId('credential-api-key').fill('sk-bedrock-test-key')
-    await page.getByTestId('credential-probe-models').click()
-
-    await page.getByTestId('credential-model-select').click()
-    await page.getByRole('option', { name: 'GPT-OSS 120B' }).click()
-    const vision = page.getByTestId('credential-vision')
-    await vision.click()
-    await page.getByRole('option', { name: '볼 수 없음' }).click()
-    await expect(vision).toHaveText('볼 수 없음')
-
-    await page.getByTestId('credential-model-select').click()
-    await page.getByRole('option', { name: 'Claude 3.5 Sonnet' }).click()
-    await expect(vision).toHaveText('자동 감지')
-
-    await page.getByRole('button', { name: '등록' }).click()
-    await expect(page.getByText('개인 비서를 등록했습니다.')).toBeVisible()
-
-    expect(requests.count()).toBe(1)
-    expect(requests.bodies<{ providerConfig: Record<string, unknown> }>()[0].providerConfig).not.toHaveProperty(
-      'vision',
-    )
   })
 
   // WP-250 최종 리뷰: 직접 입력 중 키를 칠 때마다 선택이 지워지지 않는다 — 선택은 그때의 모델 id 에만 적용되고,
@@ -507,27 +439,6 @@ test.describe('프로필 개인 비서', () => {
     await expect(page.getByTestId('assistant-model-current')).toBeVisible()
     await expect(page.getByTestId('assistant-model-manual-input')).toBeVisible()
     await expect(page.getByTestId('assistant-model-manual-apply')).toBeVisible()
-  })
-
-  // 직접 입력 폴백으로 모델을 변경하면 접두 없는 입력에 현재 providerId 가 자동 부여된다.
-  test('모델 직접 입력 변경 → providerId 자동 접두', async ({ authenticatedPage: page }) => {
-    await mockStatus(page, () => configuredStatus({ model: 'amazon-bedrock-openai/google.gemma-4-31b' }))
-    await mockModels(page, [])
-
-    const settingsPuts = trackRequests(page, 'PUT', '/api/v1/users/me/assistant/settings')
-    await page.route('**/api/v1/users/me/assistant/settings', (route) => {
-      if (route.request().method() === 'PUT') {
-        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({}) })
-      }
-      return route.fallback()
-    })
-
-    await page.goto('/settings/assistant')
-    await expect(page.getByTestId('assistant-model-manual-input')).toBeVisible()
-    await page.getByTestId('assistant-model-manual-input').fill('claude-4-6')
-    await page.getByTestId('assistant-model-manual-apply').click()
-
-    await expect.poll(() => settingsPuts.lastBody()).toEqual({ model: 'amazon-bedrock-openai/claude-4-6' })
   })
 
   // #192 — 자격증명 등록 API 실패 시 오류 토스트가 표시되어야 한다.
@@ -744,34 +655,8 @@ test.describe('프로필 개인 비서', () => {
     return puts
   }
 
-  test('등록 후 opencode — 이미지 입력만 바꾸면 지금 모델에, 모델을 바꾸면 vision:null 로 자동 감지에서 시작한다', async ({
-    authenticatedPage: page,
-  }) => {
-    const puts = mockOpencodeSettingsServer(page, {})
-    await mockModels(page, [
-      { id: 'openai/gpt-4.1', label: 'GPT-4.1' },
-      { id: 'openai/my-vl', label: 'My VL' },
-    ], 'opencode')
-
-    await page.goto('/settings/assistant')
-    const vision = page.getByTestId('assistant-vision')
-    await expect(vision).toHaveText('자동 감지')
-
-    await vision.click()
-    await page.getByRole('option', { name: '볼 수 있음' }).click()
-    await expect.poll(() => puts.lastBody()).toEqual({ vision: true })
-    await expect(vision).toHaveText('볼 수 있음')
-
-    await vision.scrollIntoViewIfNeeded()
-    await page.screenshot({ path: '../../test-results/tc/personal-assistant-vision/configured-vision.png' })
-
-    await page.getByRole('combobox', { name: '모델', exact: true }).click()
-    await page.getByRole('option', { name: 'My VL' }).click()
-    await expect.poll(() => puts.lastBody()).toEqual({ model: 'openai/my-vl', vision: null })
-    // 다른 모델은 자동 감지에서 시작 — 이전 모델의 '볼 수 있음' 이 옮겨지지 않는다.
-    await expect(vision).toHaveText('자동 감지')
-  })
-
+  // 선택 상자 값 ↔ 서버 지정값(visionChoiceOf·visionSettingOf)·접두 부여(withProviderPrefix)는 visionConfig.test.ts·suggestionModel.test.ts 가 담당 —
+  // 등록 후 화면의 연결(모델 변경 시 vision:null, 직접 입력 접두, 지정 저장)은 이 테스트가 대표한다.
   test('등록 후 opencode(모델 목록 없음) — 직접 입력으로 모델을 바꿔도 vision:null 로 자동 감지에서 시작한다', async ({
     authenticatedPage: page,
   }) => {
@@ -782,6 +667,8 @@ test.describe('프로필 개인 비서', () => {
     const vision = page.getByTestId('assistant-vision')
     // 지금 모델에 저장된 지정이 초깃값으로 보인다.
     await expect(vision).toHaveText('볼 수 없음')
+    await vision.scrollIntoViewIfNeeded()
+    await page.screenshot({ path: '../../test-results/tc/personal-assistant-vision/configured-vision.png' })
 
     await page.getByTestId('assistant-model-manual-input').fill('my-custom-vl')
     await page.getByTestId('assistant-model-manual-apply').click()

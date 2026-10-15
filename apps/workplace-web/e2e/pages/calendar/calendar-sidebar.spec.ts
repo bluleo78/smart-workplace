@@ -113,10 +113,13 @@ test('미니 캘린더 날짜 클릭 시 선택일(anchor)이 갱신된다', asy
 
 test('표시 토글로 일정/이슈 레이어를 끄고 켤 수 있다', async ({ authenticatedPage: page }) => {
   await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
-  // 기본 캘린더(id=1) + 6월 그리드에 보이는 일정 1건(calendarId=1).
+  // 기본 캘린더(id=1) 일정 1건 + 내 캘린더가 아닌(초대받은, calendarId=99) 일정 1건.
+  // 토글별 표시 규칙(내 캘린더/초대/마감 → 그리드·미니 점)은 calendar.test(isEventVisible·markedDays)가 지키고,
+  // 여기선 세 토글이 실제로 그리드에 이어지는지(wiring)만 본다.
   await stubCalendars(page)
   await mockApi(page, 'GET', '/api/v1/calendar/events', [
     calendarEvent({ id: 1, title: '팀 회의', calendarId: 1, startsAt: '2026-06-11T01:00:00Z', endsAt: '2026-06-11T02:00:00Z' }),
+    calendarEvent({ id: 2, title: '초대 일정', calendarId: 99, startsAt: '2026-06-11T03:00:00Z', endsAt: '2026-06-11T04:00:00Z' }),
   ])
   await stubDueIssue(page)
 
@@ -132,6 +135,12 @@ test('표시 토글로 일정/이슈 레이어를 끄고 켤 수 있다', async 
   // 이슈 마감일 레이어 끄기 → 이슈 칩만 사라지고 일정은 유지.
   await page.getByTestId('calendar-layer-issue-dues').click()
   await expect(page.getByTestId('calendar-issue-due-7')).toHaveCount(0)
+  await expect(page.getByTestId('calendar-event-1')).toBeVisible()
+
+  // "초대받은 일정" 끄기 → 초대 일정만 사라짐.
+  await expect(page.getByTestId('calendar-event-2')).toBeVisible()
+  await page.getByTestId('calendar-layer-invited').click()
+  await expect(page.getByTestId('calendar-event-2')).toHaveCount(0)
   await expect(page.getByTestId('calendar-event-1')).toBeVisible()
 
   // 캘린더 1 토글 끄기 → 일정도 사라짐.
@@ -155,88 +164,6 @@ test('미니 캘린더가 일정/마감 있는 날에 점을 표시한다', asyn
   // 6/11 셀에는 점(day-has-items), 6/15 셀에는 없음.
   await expect(mini.locator('[data-day="2026-06-11"]')).toHaveClass(/day-has-items/)
   await expect(mini.locator('[data-day="2026-06-15"]')).not.toHaveClass(/day-has-items/)
-})
-
-test('표시 토글을 끄면 미니 캘린더 점도 사라진다', async ({ authenticatedPage: page }) => {
-  await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
-  await stubCalendars(page)
-  // 6/11 에 일정만(이슈 마감 없음, calendarId=1) → 캘린더 1 끄면 점 사라져야 함.
-  await mockApi(page, 'GET', '/api/v1/calendar/events', [
-    calendarEvent({ id: 1, title: '팀 회의', calendarId: 1, startsAt: '2026-06-11T01:00:00Z', endsAt: '2026-06-11T02:00:00Z' }),
-  ])
-  await mockApi(page, 'GET', '/api/v1/me/issues', createIssueSearchResponse([]))
-
-  await page.goto('/calendar')
-  const mini = page.getByTestId('calendar-mini')
-  // react-day-picker v10: modifiersClassNames 는 Day(<td> gridcell, data-day=ISO) 에 적용.
-  const cell = mini.locator('[data-day="2026-06-11"]')
-
-  await expect(cell).toHaveClass(/day-has-items/)
-  // 캘린더 1 토글 끄기 → 점 사라짐.
-  await page.getByTestId('calendar-toggle-1').click()
-  await expect(cell).not.toHaveClass(/day-has-items/)
-})
-
-test('로컬과 연동 캘린더가 별도 섹션으로 그룹핑되고 계정 헤더·공급자 pill 이 표시된다', async ({
-  authenticatedPage: page,
-}) => {
-  await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
-  await stubCalendars(page, [
-    calendar({ id: 1, name: '개인', isDefault: true, isReadOnly: false }),
-    calendar({ id: 2, name: '프로젝트', isDefault: false, isReadOnly: false }),
-    calendar({
-      id: 10,
-      name: '캘린더',
-      isDefault: false,
-      isReadOnly: false,
-      accountEmail: 'dh.yang@iacloud.kr',
-      provider: 'M365_GRAPH',
-    }),
-    calendar({
-      id: 11,
-      name: '대한민국 공휴일',
-      isDefault: false,
-      isReadOnly: true,
-      accountEmail: 'dh.yang@iacloud.kr',
-      provider: 'M365_GRAPH',
-    }),
-  ])
-  await mockApi(page, 'GET', '/api/v1/calendar/events', [])
-  await mockApi(page, 'GET', '/api/v1/me/issues', createIssueSearchResponse([]))
-  await page.goto('/calendar')
-
-  // 계정 섹션 헤더: 이메일 + 공급자 pill('M365')
-  const acctSection = page.getByTestId('calendar-account-section-dh.yang@iacloud.kr')
-  await expect(acctSection).toContainText('dh.yang@iacloud.kr')
-  await expect(acctSection).toContainText('M365')
-
-  // 연동 캘린더(10,11)는 계정 섹션 안에 소속
-  await expect(acctSection.getByTestId('calendar-list-item-10')).toBeVisible()
-  await expect(acctSection.getByTestId('calendar-list-item-11')).toBeVisible()
-  // 읽기전용(11)은 배지 표시
-  await expect(acctSection.getByTestId('calendar-readonly-badge')).toBeVisible()
-
-  // 로컬 캘린더(1,2)는 계정 섹션 밖
-  await expect(acctSection.getByTestId('calendar-list-item-1')).toHaveCount(0)
-  await expect(acctSection.getByTestId('calendar-list-item-2')).toHaveCount(0)
-  await expect(page.getByTestId('calendar-list-item-1')).toBeVisible()
-})
-
-test('이슈 마감일 토글을 끄면 마감 점도 사라진다', async ({ authenticatedPage: page }) => {
-  await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
-  await stubCalendars(page)
-  // 6/11 에 마감 이슈만(일정 없음) → "내 이슈 마감일" 끄면 점 사라져야 함(issueDues 분기 검증).
-  await mockApi(page, 'GET', '/api/v1/calendar/events', [])
-  await stubDueIssue(page) // 6/11 마감 이슈(id 7)
-
-  await page.goto('/calendar')
-  const mini = page.getByTestId('calendar-mini')
-  const cell = mini.locator('[data-day="2026-06-11"]')
-
-  await expect(cell).toHaveClass(/day-has-items/)
-  // "내 이슈 마감일" 토글 끄기 → 점 사라짐.
-  await page.getByTestId('calendar-layer-issue-dues').click()
-  await expect(cell).not.toHaveClass(/day-has-items/)
 })
 
 test('표시 토글 상태가 새로고침 후에도 유지된다(localStorage)', async ({ authenticatedPage: page }) => {

@@ -32,6 +32,16 @@ describe('mention tokens in markdown', () => {
     expect(docToMarkdown(doc)).toBe(md)
   })
 
+  // 같은 문단에 코드 밖·안 토큰이 섞여도 코드 밖 토큰만 칩이 되고, 백틱·코드블록이 그대로 저장된다(WP-294 — 예전 클라 치환의 백틱 손실 회귀).
+  it('chips only the token outside code when code tokens share the paragraph', () => {
+    const md = '담당 <@7> 예시 `<@7>` 끝\n\n```\n<#page:55>\n```'
+    const doc = markdownToDoc(md)
+    const mentions: unknown[] = []
+    doc.descendants((n) => { if (n.type.name === 'wikiMention') mentions.push(n.attrs) })
+    expect(mentions).toEqual([{ mtype: 'USER', id: 7 }])
+    expect(docToMarkdown(doc)).toBe(md)
+  })
+
   it('parses tokens inside table cells', () => {
     const md = '| 담당 |\n| --- |\n| <@5> |\n'
     let count = 0

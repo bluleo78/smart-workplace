@@ -40,30 +40,8 @@ test.describe('외부 쓰기 캘린더 일정 작성', () => {
   const EXTERNAL_WRITE_CAL = calendar({ id: 2, name: '업무(M365)', color: 'red', isDefault: false, isReadOnly: false })
   const EXTERNAL_READONLY_CAL = calendar({ id: 3, name: '대한민국 공휴일', color: 'green', isDefault: false, isReadOnly: true })
 
-  test(
-    '쓰기 가능 외부 캘린더가 새 일정 다이얼로그 Select 에 노출된다',
-    { tag: '@smoke' },
-    async ({ authenticatedPage: page }) => {
-      await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
-
-      await stubCalendars(page, [LOCAL_CAL, EXTERNAL_WRITE_CAL, EXTERNAL_READONLY_CAL])
-      await page.goto('/calendar')
-
-      // 새 일정 생성 다이얼로그 열기
-      await page.getByTestId('calendar-new-event').click()
-      await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
-
-      // 캘린더 선택 드롭다운 열기
-      await page.getByTestId('calendar-form-calendar').click()
-
-      // 쓰기 가능 외부 캘린더(id=2)는 선택지에 있어야 한다
-      await expect(page.getByRole('option', { name: '업무(M365)' })).toBeVisible()
-
-      // 읽기전용 외부 캘린더(공휴일, id=3)는 선택지에 없어야 한다
-      await expect(page.getByRole('option', { name: '대한민국 공휴일' })).toHaveCount(0)
-    },
-  )
-
+  // 쓰기 가능 외부 캘린더가 선택지에 뜨는지는 아래 생성 테스트가, 읽기전용 캘린더가 빠지는지는
+  // calendar-external-readonly.spec.ts 「새 일정 다이얼로그 캘린더 선택에 읽기전용 컨테이너가 노출되지 않는다」가 맡는다.
   test(
     '쓰기 가능 외부 캘린더로 단일 일정 생성 → POST calendarId 검증',
     { tag: '@smoke' },

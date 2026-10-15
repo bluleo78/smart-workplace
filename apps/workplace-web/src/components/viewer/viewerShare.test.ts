@@ -2,7 +2,7 @@
 import { toast } from 'sonner'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { shareFile } from './viewerShare'
+import { canShareFiles, shareFile } from './viewerShare'
 
 vi.mock('sonner', () => ({ toast: { error: vi.fn() } }))
 
@@ -32,5 +32,33 @@ describe('shareFile', () => {
     rejectWith('NotAllowedError')
     await shareFile(file)
     expect(toast.error).toHaveBeenCalledWith('공유하지 못했습니다')
+  })
+})
+
+// 파일 공유 지원 판정(WP-278) — 거짓이면 하단 공유 칸을 비활성이 아니라 빈칸으로 둔다(WP-408 에서 E2E 반복 케이스를 옮김).
+describe('canShareFiles', () => {
+  afterEach(() => vi.unstubAllGlobals())
+  const share = async () => {}
+
+  it('share·canShare 가 있고 시험 파일을 받아들이면 true', () => {
+    vi.stubGlobal('navigator', { share, canShare: () => true })
+    expect(canShareFiles()).toBe(true)
+  })
+  it('canShare 가 없으면(데스크톱 Firefox 등) false', () => {
+    vi.stubGlobal('navigator', { share, canShare: undefined })
+    expect(canShareFiles()).toBe(false)
+  })
+  it('canShare 가 파일 공유를 거부하면(데스크톱 Chrome 등) false', () => {
+    vi.stubGlobal('navigator', { share, canShare: () => false })
+    expect(canShareFiles()).toBe(false)
+  })
+  it('canShare 가 던지면 false(예외를 밖으로 내보내지 않는다)', () => {
+    vi.stubGlobal('navigator', {
+      share,
+      canShare: () => {
+        throw new TypeError('x')
+      },
+    })
+    expect(canShareFiles()).toBe(false)
   })
 })

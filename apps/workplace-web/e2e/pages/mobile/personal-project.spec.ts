@@ -58,22 +58,14 @@ test.describe('개인 툴바', () => {
     await expectNoHorizontalOverflow(page);
   });
 
-  test('그룹 시트 = 없음·상태·우선순위, 필터 시트에 사이클·유형 없음', async ({ authenticatedPage: page }) => {
+  // 필터 facet(사이클·유형 없음)은 데스크톱 personal-project-detail E2E 가 같은 facet 목록으로 지킨다 — 여기선 모바일 그룹 시트만.
+  test('그룹 시트 = 없음·상태·우선순위', async ({ authenticatedPage: page }) => {
     await stubPersonal(page);
     await page.goto(`/projects/${KEY}`);
     await page.getByTestId('mobile-chip-group').tap();
     const group = page.getByTestId('mobile-group-sheet');
     await expect(group.getByRole('option')).toHaveCount(3);
     for (const v of ['none', 'status', 'priority']) await expect(group.getByTestId(`picker-option-${v}`)).toBeVisible();
-    await page.keyboard.press('Escape');
-    await expect(group).toBeHidden();
-
-    await page.getByTestId('mobile-chip-filter').tap();
-    const sheet = page.getByTestId('mobile-filter-sheet');
-    await sheet.getByTestId('add-filter-trigger').tap();
-    await expect(page.getByTestId('add-filter-facet-status')).toBeVisible();
-    await expect(page.getByTestId('add-filter-facet-cycle')).toHaveCount(0);
-    await expect(page.getByTestId('add-filter-facet-type')).toHaveCount(0);
   });
 });
 

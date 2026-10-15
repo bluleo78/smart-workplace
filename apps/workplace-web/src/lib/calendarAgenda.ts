@@ -39,6 +39,16 @@ export function agendaChunkRange(start: Date, index: number): { from: string; to
   return { from: from.toISOString(), to: addDays(from, AGENDA_CHUNK_DAYS).toISOString() }
 }
 
+/**
+ * 불러온 범위 안의 이슈 마감만 남긴다 — loadedTo 는 마지막 청크의 to(다음 날 자정, 배타).
+ * 마감 조회는 to 를 날짜로 바꿔 dueTo(포함)로 보내므로 그 날 마감이 섞여 온다. 남겨 두면 마지막 청크 끝 다음 날에
+ * 일정 없이 마감만 보이게 되고(상한에 닿으면 영구히), 다음 청크를 불러오면 같은 날 묶음이 뒤늦게 채워진다.
+ */
+export function duesWithinLoaded(dues: IssueDueMarker[], loadedTo: string): IssueDueMarker[] {
+  const endKey = format(new Date(loadedTo), 'yyyy-MM-dd')
+  return dues.filter((m) => m.dueDate.slice(0, 10) < endKey)
+}
+
 // 정렬 그룹 순위 — 종일 일정·이어지는 일정(0) → 이슈 마감(1) → 시간 지정 일정(2).
 function rank(item: AgendaItem): number {
   if (item.kind === 'due') return 1

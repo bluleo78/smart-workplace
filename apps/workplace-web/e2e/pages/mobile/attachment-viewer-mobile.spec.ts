@@ -820,17 +820,6 @@ test.describe('공유·저장', () => {
     await expect.poll(() => shared(page)).toEqual([{ name: 'site.png', type: 'image/png', size: solidPng(800, 600).length }])
   })
 
-  test('공유 시트를 취소해도 오류 토스트가 뜨지 않는다', async ({ authenticatedPage: page }) => {
-    await stubWebShare(page, 'abort')
-    await stubDriveFiles(page, [IMG(70)])
-    await openViewer(page, '사진70.png')
-    await page.getByTestId('viewer-slot-share').tap()
-    await expect.poll(async () => (await shared(page)).length).toBe(1)
-    // eslint-disable-next-line playwright/no-wait-for-timeout -- 취소 뒤 토스트가 "뜨지 않음" 부재 확인이라 조건 대기로 바꿀 수 없다
-    await page.waitForTimeout(500)
-    await expect(page.getByText('공유하지 못했습니다')).toHaveCount(0)
-  })
-
   test('blob 을 받지 않는 형식(미지원 zip)은 받는 중이 아니라 "공유할 수 없음"', async ({ authenticatedPage: page }) => {
     await stubWebShare(page)
     await stubDriveFiles(page, [{ id: 79, name: 'pack.zip', mimeType: 'application/zip', body: 'PK' }])
@@ -843,29 +832,24 @@ test.describe('공유·저장', () => {
     await expect(page.getByTestId('viewer-slot-share-spinner')).toHaveCount(0)
   })
 
-  for (const [label, canShare] of [
-    ['canShare 가 없는', 'absent'],
-    ['파일 공유를 거부하는(canShare 거짓)', 'false'],
-  ] as const) {
-    test(`${label} 브라우저는 공유 칸을 비활성이 아니라 빈칸으로 둔다(위치 유지)`, async ({ authenticatedPage: page }) => {
-      await page.addInitScript((mode) => {
-        // 데스크톱 Chrome·Firefox 처럼 파일 공유를 못 하는 브라우저를 흉내 낸다 — 헤드리스 기본 동작에 기대지 않는다.
-        if (mode === 'absent') Object.defineProperty(navigator, 'canShare', { configurable: true, value: undefined })
-        else Object.defineProperty(navigator, 'canShare', { configurable: true, value: () => false })
-        Object.defineProperty(navigator, 'share', { configurable: true, value: async () => {} })
-      }, canShare)
-      await stubDriveFiles(page, [IMG(70)])
-      await openViewer(page, '사진70.png')
-      await expect(page.getByRole('img', { name: '사진70.png' })).toBeVisible()
-      const bar = page.getByTestId('viewer-action-bar')
-      await expect(bar.locator('[data-slot-id="share"]')).toHaveAttribute('data-state', 'empty')
-      await expect(page.getByTestId('viewer-slot-share')).toHaveCount(0)
-      // 빈칸도 자리는 차지한다 — 저장 칸 바로 오른쪽 1/4 폭.
-      const w = page.viewportSize()!.width
-      const b = (await bar.locator('[data-slot-id="share"]').boundingBox())!
-      expect(Math.abs(b.width - w / 4)).toBeLessThan(2)
+  // canShare 부재·거짓·예외 판정은 viewerShare.test(canShareFiles)가 지킨다 — 여기선 빈칸 배치(모바일 레이아웃) 한 경우만.
+  test('파일 공유를 거부하는(canShare 거짓) 브라우저는 공유 칸을 비활성이 아니라 빈칸으로 둔다(위치 유지)', async ({ authenticatedPage: page }) => {
+    await page.addInitScript(() => {
+      // 데스크톱 Chrome 처럼 파일 공유를 못 하는 브라우저를 흉내 낸다 — 헤드리스 기본 동작에 기대지 않는다.
+      Object.defineProperty(navigator, 'canShare', { configurable: true, value: () => false })
+      Object.defineProperty(navigator, 'share', { configurable: true, value: async () => {} })
     })
-  }
+    await stubDriveFiles(page, [IMG(70)])
+    await openViewer(page, '사진70.png')
+    await expect(page.getByRole('img', { name: '사진70.png' })).toBeVisible()
+    const bar = page.getByTestId('viewer-action-bar')
+    await expect(bar.locator('[data-slot-id="share"]')).toHaveAttribute('data-state', 'empty')
+    await expect(page.getByTestId('viewer-slot-share')).toHaveCount(0)
+    // 빈칸도 자리는 차지한다 — 저장 칸 바로 오른쪽 1/4 폭.
+    const w = page.viewportSize()!.width
+    const b = (await bar.locator('[data-slot-id="share"]').boundingBox())!
+    expect(Math.abs(b.width - w / 4)).toBeLessThan(2)
+  })
 
   test('iOS 홈 화면 앱은 ⬇ 저장이 공유 시트로 간다(blob 이 있을 때) — 다운로드는 일어나지 않는다', async ({ authenticatedPage: page }) => {
     await stubWebShare(page, 'ok', { standalone: true })

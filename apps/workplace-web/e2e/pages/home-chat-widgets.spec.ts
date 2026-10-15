@@ -124,48 +124,6 @@ test.describe('#431 홈 챗 도크 인라인 위젯 렌더', () => {
     expect(mailLists.lastUrl()?.searchParams.get('unread')).toBe('true');
   });
 
-  test('#519 issue_list 위젯 — 결정적 요약(총 N건 · 마감 초과 M건)', async ({
-    authenticatedPage: page,
-  }) => {
-    // compose 는 issue_list 위젯만 지시(reporter 필터 동반).
-    await mockHomeChatGeneration(page, {
-      frames: [
-        { event: 'done', data: { sessionId: 's-i1', widgets: [{ type: 'issue_list', params: { assignee: 'me' } }] } },
-      ],
-    });
-    // 3건 중 1건만 마감 초과(과거 dueDate + 미완료), 1건은 완료(과거지만 제외), 1건은 마감 없음.
-    const issueLists = trackRequests(page, 'ANY', '/api/v1/me/issues');
-    await page.route(
-      (url) => url.pathname === '/api/v1/me/issues',
-      (route) => {
-        route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify(
-            createIssueSearchResponse([
-              createIssue({ number: 1, title: '지난 마감 미완료', status: 'IN_PROGRESS', dueDate: '2020-01-01' }),
-              createIssue({ number: 2, title: '지난 마감 완료', status: 'DONE', dueDate: '2020-01-01' }),
-              createIssue({ number: 3, title: '마감 없음', status: 'TODO', dueDate: null }),
-            ]),
-          ),
-        });
-      },
-    );
-
-    await page.goto('/');
-    await page.getByTestId('chat-launcher').click();
-    await page.getByTestId('chat-input').fill('내 이슈 보여줘');
-    await page.getByRole('button', { name: '보내기' }).click();
-
-    // 요약 줄: 총 3건 · 마감 초과 1건 (DONE 은 초과로 세지 않음).
-    const summary = page.getByTestId('issuelist-summary');
-    await expect(summary).toBeVisible();
-    await expect(summary).toHaveText(/총 3건/);
-    await expect(summary).toHaveText(/마감 초과 1건/);
-    // 필터 params 가 query 로 전달됐는지(round-trip).
-    expect(issueLists.lastUrl()?.searchParams.get('assignee')).toBe('me');
-  });
-
   test('#519 issue_list 위젯 — 0건이면 요약 없이 정직한 빈 상태', async ({
     authenticatedPage: page,
   }) => {
@@ -269,6 +227,8 @@ test.describe('#431 홈 챗 도크 인라인 위젯 렌더', () => {
     await expect(items).toBeVisible();
     await expect(items).toContainText('위젯 렌더 이슈');
     await expect(items).toContainText('WP-7');
+    // 요약 줄(총 N건) — 마감 초과 집계 규칙은 issueOverdue 단위 테스트(WP-412).
+    await expect(page.getByTestId('issuelist-summary')).toHaveText('총 1건');
 
     // 처리: assignee=me 로 호출됐는지(위젯 params 전파) 검증.
     expect(issueLists.lastUrl()?.searchParams.get('assignee')).toBe('me');

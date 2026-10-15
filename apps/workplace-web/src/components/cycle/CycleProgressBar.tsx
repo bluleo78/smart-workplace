@@ -1,4 +1,5 @@
 // 사이클 진행 막대 — 상태별 누적(stacked) 바 + 완료율 텍스트.
+import { completionPct } from '../../lib/progress';
 import type { CycleProgress } from '../../types/cycle';
 
 // 종료 상태(DONE·CANCELED)만 강조색을 갖고 나머지(TODO/IN_PROGRESS)는 트랙색으로 통일.
@@ -23,7 +24,7 @@ export function CycleProgressBar({
   compact?: boolean;
 }) {
   const { total, done, byStatus } = progress;
-  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+  const pct = completionPct(done, total);
   const bar =
     total === 0
       ? null

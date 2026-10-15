@@ -57,6 +57,11 @@ export function statusLabel(status: string): string {
   return Object.hasOwn(ISSUE_STATUS_LABEL, status) ? ISSUE_STATUS_LABEL[status as IssueStatus] : status;
 }
 
+// 우선순위 한글 라벨 — statusLabel 과 같은 규칙. 모르는 값(과거·미래 enum)은 그대로, 프로토타입 키는 hasOwn 으로 거른다.
+export function priorityLabel(priority: string): string {
+  return Object.hasOwn(ISSUE_PRIORITY_LABEL, priority) ? ISSUE_PRIORITY_LABEL[priority as IssuePriority] : priority;
+}
+
 // 종료 상태(완료·취소)인지 — 에픽 패널의 종료 배지·드롭 차단 등 종료 판정의 단일 기준.
 export function isClosedStatus(status: string): boolean {
   return status === 'DONE' || status === 'CANCELED';

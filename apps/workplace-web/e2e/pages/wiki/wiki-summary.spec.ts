@@ -113,8 +113,7 @@ async function mockSummary(
   opts: { initial: WikiPageSummaryState; post?: WikiPageSummaryState | 'fail'; delayMs?: number; pageId?: number },
 ) {
   let current = opts.initial
-  // setCurrent — 이후 GET 이 돌려줄 상태를 바꾼다(저장으로 본문이 길어진 상황 등).
-  const calls = { get: 0, post: 0, setCurrent: (s: WikiPageSummaryState) => void (current = s) }
+  const calls = { get: 0, post: 0 }
   await page.route(`**/api/v1/wiki/pages/${opts.pageId ?? PAGE_ID}/summary`, async (route) => {
     if (route.request().method() === 'GET') {
       calls.get++
@@ -225,6 +224,8 @@ for (const { status, name } of [
   })
 }
 
+// 버전 비교 분기 — 생성 중 저장한 뒤 도착한 요약의 낡음, TOO_SHORT 의 재조회, 같은 버전(제목만 바뀐 알림) 무시 — 는
+// src/hooks/queries/useWikiSummary.test.ts 가 본다(WP-410). 아래는 편집기 → 요약 캐시 → 카드 배선 확인.
 test('저장으로 노트가 바뀌면 낡음 표시가 뜨고 다시 요약하면 새 요약으로 바뀐다', async ({ authenticatedPage: page }) => {
   const wiki = await setupWikiMocks(page)
   const calls = await mockSummary(page, { initial: ready(1), post: ready(2, '새 요약') })
@@ -246,20 +247,6 @@ test('저장으로 노트가 바뀌면 낡음 표시가 뜨고 다시 요약하�
   await expect(page.getByTestId('wiki-ai-summary-stale')).toHaveCount(0)
 })
 
-test('요약 생성 중에 저장하면 도착한 요약을 낡음으로 표시한다', async ({ authenticatedPage: page }) => {
-  // 생성 응답(pageVersion 1)이 저장(version 2) 뒤에 도착 — 응답만 믿으면 최신처럼 보이므로 노트 캐시 버전에 맞춰 STALE 로 본다.
-  const wiki = await setupWikiMocks(page)
-  await mockSummary(page, { initial: missing(), post: ready(1, 'A 요약'), delayMs: 3000 })
-  await openPage(page)
-  await expect(page.getByTestId('wiki-ai-summary-loading')).toBeVisible()
-
-  await typeAtEnd(page, ' 생성 중 편집')
-  await wiki.notifyUpdated({ bumpVersion: true })
-
-  await expect(page.getByTestId('wiki-ai-summary')).toContainText('A 요약')
-  await expect(page.getByTestId('wiki-ai-summary-stale')).toBeVisible()
-})
-
 test('서버가 STALE 로 알려 주면 편집기 버전이 같아도 낡음 표시를 보여 준다', async ({ authenticatedPage: page }) => {
   // 다른 사람이 저장해 서버만 낡음을 아는 상황 — summaryVersion 이 편집기 version(1)과 같아도 status 를 따른다.
   await setupWikiMocks(page)
@@ -268,35 +255,6 @@ test('서버가 STALE 로 알려 주면 편집기 버전이 같아도 낡음 표
 
   await expect(page.getByTestId('wiki-ai-summary')).toContainText('배포를 10/9 로 확정했다.')
   await expect(page.getByTestId('wiki-ai-summary-stale')).toBeVisible()
-})
-
-test('짧던 노트가 저장으로 길어지면 상태를 다시 조회해 요약을 한 번 만든다', async ({ authenticatedPage: page }) => {
-  const wiki = await setupWikiMocks(page)
-  const calls = await mockSummary(page, { initial: tooShort(), post: ready(2, '길어진 노트 요약') })
-  await openPage(page)
-  await expect.poll(() => calls.get).toBe(1)
-  await expect(page.getByTestId('wiki-ai-summary')).toHaveCount(0)
-
-  // 저장 뒤 서버는 본문이 충분히 길어져 MISSING 으로 본다.
-  calls.setCurrent({ ...missing(), pageVersion: 2 })
-  await typeAtEnd(page, ' 내용을 더 쓴다')
-  await wiki.notifyUpdated({ bumpVersion: true })
-
-  await expect(page.getByTestId('wiki-ai-summary')).toContainText('길어진 노트 요약')
-  await expect.poll(() => calls.get).toBe(2)
-  await expectStays(page, () => calls.post, 1, { ms: 1000 })
-})
-
-test('제목만 바뀐 알림(version 그대로)은 요약을 낡음으로 만들지 않는다', async ({ authenticatedPage: page }) => {
-  // 동시 편집 도입 후 version 은 본문 파생 저장 순번이라 제목 저장은 올리지 않는다 — 재조회가 와도 같은 version 이면 READY 유지.
-  const wiki = await setupWikiMocks(page)
-  const calls = await mockSummary(page, { initial: ready(1) })
-  await openPage(page)
-  await expect(page.getByTestId('wiki-ai-summary')).toContainText('배포를 10/9 로 확정했다.')
-
-  await wiki.notifyUpdated({ bumpVersion: false })
-  await expectStays(page, () => page.getByTestId('wiki-ai-summary-stale').count(), 0, { ms: 1000 })
-  expect(calls.get).toBe(1)
 })
 
 test('요약 생성에 실패하면 한 번만 시도하고 다시 시도 버튼을 보여 준다', async ({ authenticatedPage: page }) => {

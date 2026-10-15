@@ -10,7 +10,7 @@ import { AiContent } from '@/components/ai/AiContent'
 import { AiSignalBadge } from '@/components/ai/AiSignalBadge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { isoToLocalInput } from '@/lib/calendar'
+import { isoToLocalInput, proposalTimeRange } from '@/lib/calendar'
 import type { MessageProposal } from '@/types/messaging'
 
 interface EventProposalCardProps {
@@ -162,10 +162,7 @@ export function EventProposalCard({
         >
           <div>{proposal.title}</div>
           {proposal.startsAt && (
-            <div>
-              {isoToLocalInput(proposal.startsAt).replace('T', ' ')}
-              {proposal.endsAt ? ` ~ ${isoToLocalInput(proposal.endsAt).slice(11, 16)}` : ''}
-            </div>
+            <div>{proposalTimeRange(proposal.startsAt, proposal.endsAt)}</div>
           )}
           {proposal.location && <div>장소: {proposal.location}</div>}
           <AttendeeLine proposal={proposal} />
@@ -176,10 +173,7 @@ export function EventProposalCard({
         <div className="mt-2 text-xs text-muted-foreground">
           <div>{proposal.title}</div>
           {proposal.startsAt && (
-            <div>
-              {isoToLocalInput(proposal.startsAt).replace('T', ' ')}
-              {proposal.endsAt ? ` ~ ${isoToLocalInput(proposal.endsAt).slice(11, 16)}` : ''}
-            </div>
+            <div>{proposalTimeRange(proposal.startsAt, proposal.endsAt)}</div>
           )}
           {proposal.location && <div>장소: {proposal.location}</div>}
           <AttendeeLine proposal={proposal} />

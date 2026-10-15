@@ -38,21 +38,5 @@ test.describe('프로필 설정 — 새 비밀번호 복잡도 검증', () => {
     expect(changes.count()).toBe(0)
   })
 
-  test('숫자 없이 대소문자만 입력하면 한국어 에러가 표시된다', async ({ authenticatedPage: page }) => {
-    await page.locator('#new-password').fill('NewPassword')
-    await page.locator('#new-password').blur()
-
-    await expect(page.getByText('숫자를 1자 이상 포함해야 합니다')).toBeVisible()
-  })
-
-  test('대/소문자·숫자를 모두 포함하면 복잡도 에러가 표시되지 않는다', async ({
-    authenticatedPage: page,
-  }) => {
-    await page.locator('#new-password').fill('NewPass123')
-    await page.locator('#new-password').blur()
-
-    await expect(page.getByText('대문자를 1자 이상 포함해야 합니다')).toHaveCount(0)
-    await expect(page.getByText('소문자를 1자 이상 포함해야 합니다')).toHaveCount(0)
-    await expect(page.getByText('숫자를 1자 이상 포함해야 합니다')).toHaveCount(0)
-  })
+  // 숫자·소문자 누락 문구와 규칙 충족 시 에러 없음은 validations/user.test(passwordRule)가 지킨다.
 })

@@ -4,7 +4,7 @@ import { client } from './client'
 
 // 기기 쿼리 — 모바일만 ?device=mobile 을 붙인다. 데스크톱은 서버 기본값(desktop)에 맡겨 요청 형태를 예전과 같게 유지한다
 // (기존 클라이언트·e2e 문자열 glob 목('**/api/v1/me/dashboard')이 쿼리 문자열 때문에 빗나가지 않게, WP-142).
-const deviceParams = (device: DashboardDevice) => (device === 'mobile' ? { device } : undefined)
+export const deviceParams = (device: DashboardDevice) => (device === 'mobile' ? { device } : undefined)
 
 export const dashboardApi = {
   get: (device: DashboardDevice) =>

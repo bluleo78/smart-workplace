@@ -76,22 +76,6 @@ test.describe('이슈 행 길게 누르기', () => {
     await page.getByTestId('picker-option-10').click();
     await expect.poll(() => calls().find((c) => c.path.endsWith('/issues/21/parent'))?.body).toEqual({ parentNumber: 10 });
   });
-
-  test('비멤버는 상태·에픽 행이 없다', async ({ authenticatedPage: page }) => {
-    await mock(page, { member: false });
-    await page.goto(`/projects/${KEY}?group=none`);
-    await longPressWithMouse(page, page.getByTestId('issue-row-21'));
-    await expect(page.getByTestId('mobile-action-status')).toHaveCount(0);
-    await expect(page.getByTestId('mobile-action-epic')).toHaveCount(0);
-  });
-
-  test('에픽 이슈에는 에픽 지정이 없다', async ({ authenticatedPage: page }) => {
-    await mock(page, { issues: [EPIC, LONG] });
-    await page.goto(`/projects/${KEY}?group=none`);
-    await longPressWithMouse(page, page.getByTestId('issue-row-10'));
-    await expect(page.getByTestId('mobile-action-status')).toBeVisible();
-    await expect(page.getByTestId('mobile-action-epic')).toHaveCount(0);
-  });
 });
 
 test.describe('모바일 선택 모드', () => {

@@ -9,6 +9,7 @@ import { useIssueTypes } from '../../../hooks/queries/useIssueTypes';
 import { useIssueImageUpload } from '../../../hooks/useIssueImageUpload';
 import { useUnsavedChangesWarning } from '../../../hooks/useUnsavedChangesWarning';
 import { handleApiError } from '../../../lib/api-error';
+import { resolveParentNumber } from '../../../lib/issueCreateParent';
 import { type CreateIssueFormData, createIssueSchema } from '../../../lib/validations/issue';
 
 // 이슈 생성 폼 로직 — 데스크톱 다이얼로그와 모바일 시트가 공유한다(WP-196). 렌더링은 각 컴포넌트 몫.
@@ -122,9 +123,12 @@ export function useIssueCreateForm({
       body: data.body || undefined,
       typeId: data.typeId ?? undefined,
       // SUBTASK=부모 태스크 번호, 일반 이슈=모바일 에픽 칩(R8, 백엔드는 일반 이슈 부모로 EPIC 만 허용), EPIC=부모 불가.
-      parentNumber: isSubtaskSelected
-        ? (data.parentNumber ?? undefined)
-        : !isEpicSelected && epicNumber != null ? epicNumber : undefined,
+      parentNumber: resolveParentNumber({
+        isSubtask: isSubtaskSelected,
+        isEpic: isEpicSelected,
+        formParentNumber: data.parentNumber,
+        epicNumber,
+      }),
     };
     try {
       await create.mutateAsync(payload);

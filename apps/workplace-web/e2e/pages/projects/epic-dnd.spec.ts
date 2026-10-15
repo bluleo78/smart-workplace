@@ -671,21 +671,6 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     await expectStays(page, patches, []);
   });
 
-  test('이미 진행 중 사이클 소속 종료 에픽에 속한 이슈를 끌면 그 에픽은 차단이 아니라 「현재」로 보인다 (WP-389)', async ({ authenticatedPage: page }) => {
-    const done = createIssue({ id: 12, number: 12, title: '이번 사이클 끝난 에픽', type: makeEpicType(), status: 'DONE', childCount: 1, childDoneCount: 1 });
-    await setup(page, {
-      issues: [createIssue({ id: 1, number: 1, title: '카드', status: 'DONE', parent: { number: 12, title: done.title, type: makeEpicType() } })],
-      closedEpics: [done],
-      activeCycle: [12],
-      panelOpen: true,
-    });
-    await page.goto(`/projects/${PROJECT_KEY}?view=board`);
-    await startDrag(page, 'issue-card-1');
-    await expect(page.getByTestId('epic-filter-12')).toHaveAttribute('data-drop-state', 'current');
-    await expect(page.getByTestId('epic-filter-12')).toContainText('현재');
-    await dropDnd(page);
-  });
-
   test('드래그 중에는 「종료된 에픽」 구역이 숨겨지고, 놓으면 다시 보이며 펼침 상태가 유지된다 (WP-245)', async ({ authenticatedPage: page }) => {
     await setup(page, {
       issues: [createIssue({ id: 1, number: 1, title: '카드', status: 'TODO' })],

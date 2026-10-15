@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils'
 import type { CalendarEvent } from '@/types/calendar'
 
 import { WidgetError } from '../WidgetError'
-import { eventTime, sortKey, type TimeKind } from './bodyRules'
+import { eventTime, type TimeKind, todayAgenda } from './bodyRules'
 import { WidgetEmptyState } from './WidgetEmptyState'
 
 // 종류별 리딩 점 마커 스타일(시맨틱 토큰만). 미정은 hollow(테두리만)로 구분.
@@ -53,10 +53,8 @@ export default function CalendarTodayBody({
       />
     )
 
-  // 시작 시각순 정렬(미정은 맨 뒤) 후 상위 count 건(위젯 설정 기반).
-  const top = [...events].sort((a, b) => sortKey(a) - sortKey(b)).slice(0, count)
-  // 시작시각 미정 건수 — 헤더에 함께 노출해 데이터 상태를 드러낸다.
-  const untimedCount = events.filter((ev) => eventTime(ev).kind === 'untimed').length
+  // 시작 시각순 정렬(미정은 맨 뒤) 후 상위 count 건(위젯 설정 기반) + 미정 건수(헤더에 함께 노출해 데이터 상태를 드러낸다).
+  const { top, untimedCount } = todayAgenda(events, count)
 
   return (
     <div data-testid="dash-calendar">

@@ -1099,24 +1099,6 @@ test('aiAvailable=false 이면 AIChip(chat-launcher) 이 렌더되지 않는다'
   await expect(page.getByTestId('chat-launcher')).not.toBeVisible()
 })
 
-test('칩: 패널이 닫힌 동안 생성 중이면 링 표시, 끝나면 완료 점, 열려 있으면 표시 없음 (WP-191)', async ({ authenticatedPage: page }) => {
-  await mockApi(page, 'GET', '/api/v1/projects', { content: [], page: 0, size: 20, totalElements: 0, totalPages: 0 })
-  let release!: () => void
-  const g = new Promise<void>((r) => (release = r))
-  await mockHomeChatGeneration(page, { gate: g, frames: [{ event: 'done', data: { sessionId: 's-chip' } }] })
-  await page.goto('/projects')
-  const chip = page.getByTestId('chat-launcher')
-  await chip.click() // side
-  await page.getByTestId('chat-input').fill('질문')
-  await page.getByRole('button', { name: '보내기' }).click()
-  await expect(chip).toHaveAttribute('data-ai-activity', 'idle')
-  await page.getByTestId('ai-panel-close').click()
-  await expect(chip).toHaveAttribute('data-ai-activity', 'pending')
-  release()
-  await expect(chip).toHaveAttribute('data-ai-activity', 'done')
-  await expect(chip.getByTestId('ai-trigger-dot')).toBeVisible()
-})
-
 // ── WP-261: 사이드 패널 헤더 ─────────────────────────────────────────
 
 test('사이드 패널 — 긴 대화 제목은 말줄임으로 줄고 「새 대화」 버튼은 한 줄을 지킨다 (WP-261)', async ({

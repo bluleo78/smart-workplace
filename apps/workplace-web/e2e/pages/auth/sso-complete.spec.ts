@@ -32,12 +32,7 @@ test('워크스페이스가 없으면 안내한다', async ({ page }) => {
   await expect(page.getByText('접속 가능한 워크스페이스가 없습니다. 관리자에게 문의하세요.')).toBeVisible()
 })
 
-test('외부 returnTo 는 루트로 바꾼다', async ({ page }) => {
-  await baseMocks(page, [WS(1, 'Acme')])
-  await page.goto('/login/sso/complete?returnTo=%2F%2Fevil.com')
-  await expect(page).toHaveURL(/\/$/)
-})
-
+// 외부 returnTo(//evil.com 등) → 루트 정제 규칙은 sso.test(safeReturnTo)가 지킨다.
 test('refresh 실패면 로그인으로 되돌린다', async ({ page }) => {
   await mockApi(page, 'POST', '/api/v1/auth/refresh', { message: 'x' }, { status: 401 })
   // 실패 시 착지하는 로그인 페이지의 SSO 가용성 조회 스텁 — 누수 401 이 refresh 재시도 후 쿼리 없는 /login 으로 덮어쓰지 않게.

@@ -28,6 +28,13 @@ describe('decodeTextBuffer', () => {
     const bytes = new Uint8Array([...header, ...rows])
     expect(decodeTextBuffer(bytes.buffer).startsWith('이름,나이\n1,2')).toBe(true)
   })
+  it('짧은 EUC-KR CSV(머리글+데이터 한 줄)도 한글이 깨지지 않는다', () => {
+    // '이름,나이\n홍길동,30' 의 EUC-KR 바이트 — 이슈 첨부 CSV 미리보기 E2E 에서 옮긴 케이스.
+    const bytes = new Uint8Array([
+      0xc0, 0xcc, 0xb8, 0xa7, 0x2c, 0xb3, 0xaa, 0xc0, 0xcc, 0x0a, 0xc8, 0xab, 0xb1, 0xe6, 0xb5, 0xbf, 0x2c, 0x33, 0x30,
+    ])
+    expect(decodeTextBuffer(bytes.buffer)).toBe('이름,나이\n홍길동,30')
+  })
   it('앞부분만 자른 버퍼는 끝의 반쪽 글자를 버리고 UTF-8 로 읽는다', () => {
     const full = new TextEncoder().encode('가나')
     const cut = full.slice(0, 4) // '가'(3바이트) + '나'의 첫 바이트

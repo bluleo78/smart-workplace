@@ -168,32 +168,6 @@ test.describe('이슈 챗 질문 표시', () => {
     await expect(page.locator('[data-message-id="105"]')).toHaveAttribute('data-question', 'answered');
   });
 
-  test('사람의 AI 도구 보고 글이 와도 AI 가 답변 대기면 열린 질문으로 남는다', async ({ authenticatedPage: page }) => {
-    await setup(page); // agentWork 는 계속 INPUT_REQUIRED
-    const events = await mockGatedEvents(page);
-    await openDrawer(page);
-
-    events.deliver(
-      frame(
-        createChatMessage({
-          id: 106,
-          threadId: THREAD_ID,
-          authorId: 7,
-          authorName: '다른 사용자',
-          authorKind: 'HUMAN',
-          body: '[보고] 작업 진행 중입니다',
-          question: false,
-          createdAt: '2026-10-14T01:05:00Z',
-        }),
-      ),
-    );
-
-    // 보고 글이 화면에 그려진 뒤에도 질문은 열린 채로.
-    await expect(page.getByTestId('chat-message-106')).toBeVisible();
-    await expect(page.getByTestId('chat-message-question-105')).toHaveText('질문');
-    await expect(page.locator('[data-message-id="105"]')).toHaveAttribute('data-question', 'open');
-  });
-
   test('SSE 로 온 새 질문은 오자마자 강조된다', async ({ authenticatedPage: page }) => {
     await setup(page);
     const events = await mockGatedEvents(page);
@@ -220,22 +194,6 @@ test.describe('이슈 챗 질문 표시', () => {
   test.describe('작성창 안내 (WP-373 §5.2)', () => {
     const emptyLine = (page: Page) =>
       page.getByTestId('chat-composer').locator('.ProseMirror p.is-editor-empty');
-
-    test('외부 실행 AI 가 담당한 이슈만 작성창 안내에 그 이름이 나온다', async ({ authenticatedPage: page }) => {
-      await setup(page, { externalAgent: KODI });
-      await openDrawer(page);
-      await expect(emptyLine(page)).toHaveAttribute('data-placeholder', HINT);
-      await page.screenshot({ path: 'test-results/tc/chat-question/composer-hint-1280.png' });
-    });
-
-    test('외부 실행 AI 가 없으면 기존 안내 그대로', async ({ authenticatedPage: page }) => {
-      await setup(page, { externalAgent: null });
-      await openDrawer(page);
-      await expect(emptyLine(page)).toHaveAttribute(
-        'data-placeholder',
-        '메시지 입력 (Shift+Enter 로 줄바꿈)',
-      );
-    });
 
     test('담당자를 바꿔 스레드가 다시 오면 열린 작성창 안내도 바뀐다', async ({ authenticatedPage: page }) => {
       const { agentRef } = await setup(page, { externalAgent: KODI });
@@ -280,6 +238,7 @@ test.describe('이슈 챗 질문 표시', () => {
       const events = await mockGatedEvents(page);
       await openDrawer(page);
       await expect(emptyLine(page)).toHaveAttribute('data-placeholder', HINT);
+      await page.screenshot({ path: 'test-results/tc/chat-question/composer-hint-1280.png' });
 
       // 에디터가 다시 만들어지지 않았음을 증명할 표식 — DOM 요소가 바뀌면 사라진다.
       const editor = page.getByTestId('chat-composer').locator('.ProseMirror');
@@ -297,7 +256,8 @@ test.describe('이슈 챗 질문 표시', () => {
         }),
       );
 
-      await expect(emptyLine(page)).not.toHaveAttribute('data-placeholder', /이어받아요/);
+      // 안내 문구(agentReplyHint)는 composerHint.test.ts 가 담당 — 외부 실행 AI 가 빠지면 기본 안내로 돌아오는지만 본다.
+      await expect(emptyLine(page)).toHaveAttribute('data-placeholder', '메시지 입력 (Shift+Enter 로 줄바꿈)');
       await expect(editor).toHaveAttribute('data-e2e-mounted', 'same');
     });
   });

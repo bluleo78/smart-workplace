@@ -197,17 +197,6 @@ test('대시보드 — 저장 레이아웃 순서로 5종 위젯이 렌더된다
   await expect(page.getByTestId('chat-input')).toHaveCount(0)
 })
 
-test('대시보드 — 알 수 없는 위젯 키는 조용히 스킵된다', async ({ authenticatedPage: page }) => {
-  await mockWidgets(page)
-  // 유효 2종 + 미등록 키 1종.
-  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['my_tasks', 'unknown_widget', 'unread_mail']))
-  await page.goto('/')
-
-  // 미등록 키는 무시 → 카드 2개만.
-  await expect(page.getByTestId('dashboard-widget')).toHaveCount(2)
-  await expect(page.getByTestId('dash-mail')).toContainText('월간 보고서')
-})
-
 test('대시보드 — 위젯 헤더 클릭 시 딥링크로 이동한다', async ({ authenticatedPage: page }) => {
   await mockWidgets(page)
   await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['unread_mail']))
@@ -660,30 +649,6 @@ function manyIssues(n: number) {
     ),
   )
 }
-
-test('대시보드 — 객체-배열 레이아웃: 숨김 제외 + 순서대로 렌더', async ({
-  authenticatedPage: page,
-}) => {
-  await mockWidgets(page)
-  // 순서: unread_mail → my_tasks(hidden) → calendar_today. my_tasks 는 숨김 → 일반 뷰 제외.
-  await mockApi(page, 'GET', '/api/v1/me/dashboard', {
-    widgets: [
-      { type: 'unread_mail', count: 5, hidden: false },
-      { type: 'my_tasks', count: 5, hidden: true },
-      { type: 'calendar_today', count: 5, hidden: false },
-    ],
-  })
-  await page.goto('/')
-
-  // 숨김 1개 제외 → 카드 2개.
-  await expect(page.getByTestId('dashboard-widget')).toHaveCount(2)
-  // 숨김 위젯(my_tasks)은 일반 뷰에 없다.
-  await expect(page.locator('[data-testid="dashboard-widget"][data-widget="my_tasks"]')).toHaveCount(0)
-  // DOM 순서 = 저장 순서(메일 먼저, 캘린더 다음).
-  const cards = page.getByTestId('dashboard-widget')
-  await expect(cards.nth(0)).toHaveAttribute('data-widget', 'unread_mail')
-  await expect(cards.nth(1)).toHaveAttribute('data-widget', 'calendar_today')
-})
 
 test('대시보드 — count:10 위젯은 항목 10건을 렌더한다', async ({ authenticatedPage: page }) => {
   await mockWidgets(page)
@@ -1412,60 +1377,13 @@ test('위젯 추가 모달은 좁은 뷰포트에서 프리뷰 패널이 카드 
   }).toPass()
 })
 
-// ── #339 회귀 가드 — startsAt null 시 Invalid Date 렌더 ──────────────────
-
-test('오늘 일정 — startsAt null 이벤트 시간 셀이 Invalid Date 대신 "미정"을 렌더한다 (refs #339)', async ({
-  authenticatedPage: page,
-}) => {
-  // startsAt이 null인 이벤트 — 서버가 null을 내려보내는 엣지 케이스 방어 회귀 가드.
-  const nullStartEvent: CalendarEvent[] = [
-    {
-      id: 99,
-      title: 'startsAt null 이벤트',
-      description: null,
-      // 서버가 null을 내려보낼 수 있음 — TS 타입은 string이나 런타임 방어 필요
-      startsAt: null as unknown as string,
-      endsAt: null as unknown as string,
-      allDay: false,
-      location: null,
-      color: null,
-      reminderMinutes: null,
-      recurrenceRule: null,
-      calendarId: 1,
-      calendarName: '내 캘린더',
-      effectiveColor: '#3b82f6',
-      createdAt: '2026-06-18T00:00:00Z',
-      updatedAt: '2026-06-18T00:00:00Z',
-    },
-  ]
-  await mockApi(page, 'GET', '/api/v1/calendar/events', nullStartEvent)
-  await mockApi(page, 'GET', '/api/v1/me/issues', issues())
-  await mockApi(page, 'GET', '/api/v1/me/watched-issues', issues())
-  await mockApi(page, 'GET', '/api/v1/notifications', notifications())
-  await mockApi(page, 'GET', '/api/v1/notifications/unread-count', { count: 1 })
-  await mockApi(page, 'GET', '/api/v1/messaging/channels', channels())
-  await mockApi(page, 'GET', '/api/v1/messaging/dms', emptyDms)
-  await mockApi(page, 'GET', '/api/v1/me/mail-summary', mail())
-  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['calendar_today']))
-  await page.goto('/')
-
-  // 이벤트 행이 렌더되어야 한다.
-  await expect(page.getByTestId('dash-calendar')).toContainText('startsAt null 이벤트')
-  // 시간 셀에 "Invalid Date"/'-'(무의미 placeholder)가 아닌 '미정'이 표시되어야 한다.
-  const timeCell = page
-    .getByTestId('dash-calendar')
-    .getByRole('link', { name: '일정 열기: startsAt null 이벤트' })
-    .getByTestId('cal-time')
-  await expect(timeCell).toHaveText('미정')
-  await expect(timeCell).not.toHaveText('Invalid Date')
-})
-
 // ── 오늘 일정 — 미정 정렬/헤더 힌트 ─────────────────────────────────────────
 
 test('오늘 일정 — 종일·시각·미정 혼재 시 미정은 맨 뒤로 정렬하고 헤더에 미정 건수를 표시한다', async ({
   authenticatedPage: page,
 }) => {
-  // 입력 순서를 일부러 섞어 정렬 동작을 검증한다(미정 → 종일 → 시각).
+  // 배선 검증 — 정렬·미정 건수 규칙은 bodyRules 단위 테스트(todayAgenda)가 맡고(WP-412), 여기선 헤더·행 순서로 그려지는지 본다.
+  // 입력 순서를 일부러 섞는다(미정 → 종일 → 시각).
   const mixed: CalendarEvent[] = [
     {
       id: 1,
@@ -1539,9 +1457,8 @@ test('오늘 일정 — 종일·시각·미정 혼재 시 미정은 맨 뒤로 �
   await expect(titles.nth(1)).toContainText('오후 회의')
   await expect(titles.nth(2)).toContainText('미정 일정')
 
-  // 시각 라벨은 24시간제(예: 14:00)로 렌더된다 — '오후' 등 12시간 표기 금지.
-  const timed = titles.filter({ hasText: '오후 회의' }).getByTestId('cal-time')
-  await expect(timed).toHaveText(/^\d{2}:\d{2}$/)
+  // 미정 행의 시간 셀은 Invalid Date 대신 '미정'(라벨 규칙 자체는 bodyRules 단위 테스트, WP-412).
+  await expect(titles.nth(2).getByTestId('cal-time')).toHaveText('미정')
 })
 
 // ── #653: 오늘 일정 빈 상태 — 내 작업 위젯과 동일한 4단 구성 + "새 일정" CTA ──────────
@@ -1590,38 +1507,6 @@ test('오늘 일정 — 빈 상태 "새 일정" CTA 클릭 시 캘린더로 이�
   await expect(page).toHaveURL('/calendar')
   // 새 일정 다이얼로그(EventDialog)가 자동으로 열려야 한다.
   await expect(page.getByRole('dialog').getByRole('heading', { name: '새 일정' })).toBeVisible()
-})
-
-test('합성 — 메일은 "지금 신경 쓸 일"에 끼지 않고, 최상위는 포커스 카드로 강조된다', async ({
-  authenticatedPage: page,
-}) => {
-  // mockWidgets 는 안 읽은 메일 "월간 보고서"(seen:false)를 포함한 mail-summary 를 모킹한다.
-  await mockWidgets(page)
-  // 마감 지난 이슈 1건 → 주의 최상위.
-  await mockApi(
-    page,
-    'GET',
-    '/api/v1/me/issues',
-    createIssueSearchResponse([
-      createIssue({ id: 1, projectKey: 'WP', number: 7, title: '지연된 이슈', dueDate: '2020-01-01' }),
-    ]),
-  )
-  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['synthesis', 'my_tasks']))
-  await page.goto('/')
-
-  const attention = page.getByTestId('dashboard-attention')
-  // (출력) 안 읽은 메일이 있어도 주의 영역에 메일 행이 없다 — 가짜 "중요" 제거.
-  await expect(attention).not.toContainText('월간 보고서')
-  await expect(attention).not.toContainText('중요')
-  // (출력) 최상위 항목은 포커스 카드로 강조되고, 정직한 이유("마감 지남")와 딥링크를 가진다.
-  const focus = page.getByTestId('dashboard-attention-focus')
-  await expect(focus).toBeVisible()
-  await expect(focus).toContainText('지연된 이슈')
-  await expect(focus).toContainText('마감 지남')
-  await expect(focus).toHaveAttribute('href', '/projects/WP/issues/7')
-  // (출력) 영역 용어 교체: '주의 필요' → '지금 신경 쓸 일'.
-  await expect(attention).toContainText('지금 신경 쓸 일')
-  await expect(attention).not.toContainText('주의 필요')
 })
 
 // ── #282 회귀 가드 ─────────────────────────────────────────────────────────
@@ -1839,131 +1724,6 @@ test('안 읽은 메일 위젯이 수동 동기화 없이 주기적으로 갱신
 
 // ── #474 KPI 스왑 / 메일 행 / CTA ───────────────────────────────────────────
 
-test('합성 — 분류 활성 시 "안 읽음" KPI 가 "회신 필요 N"으로 스왑된다', async ({
-  authenticatedPage: page,
-}) => {
-  await mockWidgets(page)
-  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['synthesis']))
-  await mockApi(page, 'GET', '/api/v1/me/mail-summary', {
-    unreadCount: 9,
-    needsReplyCount: 4,
-    classificationActive: true,
-    recent: [],
-  } satisfies MailSummary)
-  await page.goto('/')
-  const counts = page.getByTestId('dashboard-counts')
-  // 회신 필요 N KPI 가 렌더되어야 한다.
-  await expect(counts.getByRole('link', { name: /회신 필요 4건/ })).toBeVisible()
-  // 안 읽음 KPI 는 노출되지 않는다.
-  await expect(counts).not.toContainText('안 읽음 9건')
-})
-
-test('합성 — 회신 필요 메일은 "지금 신경 쓸 일" 행으로(이슈·멘션 뒤), pending 은 제외', async ({
-  authenticatedPage: page,
-}) => {
-  await mockWidgets(page)
-  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['synthesis']))
-  await mockApi(page, 'GET', '/api/v1/me/mail-summary', {
-    unreadCount: 3,
-    needsReplyCount: 1,
-    classificationActive: true,
-    recent: [
-      {
-        id: 100,
-        accountId: 1,
-        subject: '계약서 회신 요청',
-        fromAddress: 'a@b.com',
-        fromName: '거래처',
-        snippet: null,
-        receivedAt: '2026-06-16T00:00:00Z',
-        seen: false,
-        hasAttachment: false,
-        aiCategory: 'ACTION',
-        aiNeedsReply: true,
-      },
-      {
-        id: 101,
-        accountId: 1,
-        subject: '뉴스레터',
-        fromAddress: 'n@b.com',
-        fromName: 'NL',
-        snippet: null,
-        receivedAt: '2026-06-16T01:00:00Z',
-        seen: false,
-        hasAttachment: false,
-        aiCategory: null,
-        aiNeedsReply: null, // pending — 제외 대상
-      },
-    ],
-  } satisfies MailSummary)
-  await page.goto('/')
-  const attention = page.getByTestId('dashboard-attention')
-  // 회신 필요 메일이 행으로 진입해야 한다.
-  await expect(attention).toContainText('계약서 회신 요청')
-  await expect(attention).toContainText('회신 필요')
-  // pending(aiNeedsReply null) 메일은 제외.
-  await expect(attention).not.toContainText('뉴스레터')
-})
-
-// ── Task 11 — 정렬 키를 AI 우선순위 점수(usePriorityItems)로 교체 ─────────────────
-
-test('합성 — AI 점수가 있는 항목은 소스 고정 순위 대신 점수합산 내림차순으로 정렬된다', async ({
-  authenticatedPage: page,
-}) => {
-  await mockWidgets(page)
-  // 이슈 마감(과거 → urgency 0) + 멘션(urgency 1) — 소스 고정 순위라면 이슈가 항상 위.
-  await mockApi(
-    page,
-    'GET',
-    '/api/v1/me/issues',
-    createIssueSearchResponse([
-      createIssue({ id: 1, projectKey: 'WP', number: 7, title: '이슈 A', dueDate: '2020-01-01' }),
-    ]),
-  )
-  await mockApi(page, 'GET', '/api/v1/notifications', [
-    {
-      id: 2,
-      type: 'COMMENTED',
-      actorId: 3,
-      actorName: '홍길동',
-      actorKind: 'HUMAN',
-      issueId: 2,
-      projectKey: 'WP',
-      issueNumber: 8,
-      issueTitle: '멘션 B',
-      commentId: 1,
-      eventId: null,
-      eventTitle: null,
-      eventStartsAt: null,
-      read: false,
-      createdAt: '2026-06-16T00:00:00Z',
-    },
-  ] satisfies NotificationResponse[])
-  // priority-items 목으로 멘션 쪽에 더 높은 점수를 줘서 순서가 뒤집히는지 확인.
-  await mockApi(page, 'GET', '/api/v1/me/priority-items', {
-    items: [
-      { sourceType: 'ISSUE_DUE', sourceId: '1', title: '이슈 A', deepLink: '/x', importanceScore: 10, urgencyScore: 10, reason: '낮음' },
-      { sourceType: 'MENTION', sourceId: '2', title: '멘션 B', deepLink: '/y', importanceScore: 90, urgencyScore: 90, reason: '높음' },
-    ],
-  } satisfies PriorityItemsResponse)
-  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['synthesis']))
-  await page.goto('/')
-
-  const rows = page.getByTestId('dashboard-attention').locator('a, li a')
-  await expect(rows.first()).toContainText('멘션 B')
-})
-
-test('합성 — AI 점수가 아직 없는 신규 후보는 기존 소스 고정 순위로 폴백한다', async ({
-  authenticatedPage: page,
-}) => {
-  await mockApi(page, 'GET', '/api/v1/me/priority-items', { items: [] } satisfies PriorityItemsResponse)
-  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['synthesis']))
-  await page.goto('/')
-  // priority-items 가 빈 배열이어도(아직 배치가 못 돈 상태) 기존 "지금 신경 쓸 일" 목록이
-  // 정상 렌더되는지(폴백 정상 동작 — 정렬 실패로 전체가 깨지지 않음).
-  await expect(page.getByTestId('dashboard-attention')).toBeVisible()
-})
-
 test('합성 — 분류 OFF 면 회신 필요 CTA 가 뜨고, dismiss 하면 사라지고 재방문해도 유지', async ({
   authenticatedPage: page,
 }) => {
@@ -2094,33 +1854,6 @@ test('알림 위젯 — 같은 이슈 알림을 한 그룹으로 묶고 델타�
   await expect(rows).toHaveCount(1)
   await expect(rows.first()).toContainText('WP-9 · 배포 점검')
   await expect(rows.first()).toContainText('코멘트 2건 · 상태 변경')
-})
-
-test('알림 위젯 — ASSIGNED 는 내 차례, 그 외는 업데이트로 분류된다', async ({
-  authenticatedPage: page,
-}) => {
-  await mockWidgets(page)
-  await mockApi(page, 'GET', '/api/v1/notifications', [
-    {
-      id: 21, type: 'ASSIGNED', actorId: 2, actorName: '양동희', actorKind: 'HUMAN',
-      issueId: 1, projectKey: 'WP', issueNumber: 7, issueTitle: '리뷰 요청 이슈',
-      commentId: null, eventId: null, eventTitle: null, eventStartsAt: null,
-      read: false, createdAt: '2026-06-16T05:00:00Z',
-    },
-    {
-      id: 22, type: 'COMMENTED', actorId: 3, actorName: '김개발', actorKind: 'HUMAN',
-      issueId: 2, projectKey: 'WP', issueNumber: 8, issueTitle: '문서 정리',
-      commentId: null, eventId: null, eventTitle: null, eventStartsAt: null,
-      read: false, createdAt: '2026-06-16T06:00:00Z',
-    },
-  ])
-  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['notifications']))
-  await page.goto('/')
-
-  // 내 차례 섹션엔 ASSIGNED(리뷰 요청 이슈).
-  await expect(page.getByTestId('dash-notif-mine')).toContainText('리뷰 요청 이슈')
-  // 업데이트 섹션엔 COMMENTED(문서 정리) — 접힘 없이 바로 노출.
-  await expect(page.getByTestId('dash-notif-updates')).toContainText('문서 정리')
 })
 
 test('알림 위젯 — CALENDAR_INVITED/CALENDAR_RSVP_CHANGED 알림이 있어도 홈이 크래시하지 않고 캘린더로 딥링크한다 (#585)', async ({
@@ -2569,40 +2302,11 @@ test('메시징 — DM 회신 행이 어텐션 영역에 진입하고 DM 딥링�
   await expect(page).toHaveURL('/chat/dms/7')
 })
 
-test('메시징 — 어텐션 신호 없는 대화는 "지금 신경 쓸 일"에 나타나지 않는다', async ({
+test('합성 — 이슈·메시지·메일 행이 AI 우선순위 점수 순서로 "지금 신경 쓸 일"에 렌더된다', async ({
   authenticatedPage: page,
 }) => {
-  await mockSynthesis(page, {
-    needsReplyCount: 0,
-    aiAttentionCount: 0,
-    attentionCount: 0,
-    recent: [
-      {
-        kind: 'CHANNEL',
-        conversationId: 99,
-        label: '#잡담',
-        lastAuthorName: '동료A',
-        lastMessagePreview: '점심 뭐먹지',
-        lastMessageAt: new Date(Date.now() - 1 * 60 * 1000).toISOString(),
-        unreadCount: 0,
-        mentioned: false,
-        needsReply: false,
-        newThreadReplyCount: 0,
-        aiReason: null,
-      },
-    ],
-  })
-  await page.goto('/')
-
-  // 어텐션 영역에 #잡담 행이 없어야 한다.
-  await expect(page.getByTestId('dashboard-attention')).not.toContainText('#잡담')
-})
-
-test('합성 — 크로스앱 정렬: 이슈(urgency 0)→메시지(urgency 1)→메일(urgency 2) 순서로 렌더된다', async ({
-  authenticatedPage: page,
-}) => {
-  // 이슈(urgency 0), 메시지(urgency 1), 회신 필요 메일(urgency 2) 동시 존재 시
-  // "지금 신경 쓸 일" 리스트에서 urgency asc 정렬이 보장되어야 한다.
+  // 배선 검증(WP-412) — 행 병합·정렬 규칙 자체(urgency 폴백·메일/대화 필터 등)는 buildAttentionRows 단위 테스트가 맡는다.
+  // 여기서는 세 소스 응답과 priority-items 점수가 실제로 화면 행·순서에 반영되는지만 본다.
   await mockWidgets(page)
 
   // 마감 지난 이슈 — urgency 0.
@@ -2660,24 +2364,30 @@ test('합성 — 크로스앱 정렬: 이슈(urgency 0)→메시지(urgency 1)�
     ],
   } satisfies MessagingSummary)
 
+  // AI 점수 — 소스 고정 순위(이슈→메시지→메일)를 뒤집어 메일→이슈→메시지가 되게 준다(점수가 정렬에 쓰이는지 확인).
+  await mockApi(page, 'GET', '/api/v1/me/priority-items', {
+    items: [
+      { sourceType: 'MAIL_NEEDS_REPLY', sourceId: '200', title: '계약 검토 요청', deepLink: '/x', importanceScore: 90, urgencyScore: 90, reason: '높음' },
+      { sourceType: 'ISSUE_DUE', sourceId: '1', title: '마감 지난 이슈', deepLink: '/y', importanceScore: 50, urgencyScore: 50, reason: '중간' },
+      { sourceType: 'MESSAGE_ATTENTION', sourceId: '5', title: '#dev', deepLink: '/z', importanceScore: 10, urgencyScore: 10, reason: '낮음' },
+    ],
+  } satisfies PriorityItemsResponse)
+
   await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['synthesis']))
   await page.goto('/')
 
-  // "지금 신경 쓸 일" 영역에 세 행이 모두 있어야 한다.
   const attention = page.getByTestId('dashboard-attention')
-  await expect(attention).toContainText('마감 지난 이슈')
-  await expect(attention).toContainText('#dev')
-  await expect(attention).toContainText('계약 검토 요청')
+  // 포커스 카드(최상위) = 점수 최고 메일 — 메일 딥링크까지 확인.
+  const focus = page.getByTestId('dashboard-attention-focus')
+  await expect(focus).toContainText('계약 검토 요청')
+  await expect(focus).toContainText('회신 필요')
+  await expect(focus).toHaveAttribute('href', '/mail/1?messageId=200')
 
-  // 포커스 카드(최상위 = urgency 0 이슈)가 이슈여야 한다.
-  await expect(page.getByTestId('dashboard-attention-focus')).toContainText('마감 지난 이슈')
-
-  // 나머지 행의 DOM 순서: 메시지(urgency 1) → 메일(urgency 2).
-  // dashboard-attention 내 링크 목록에서 포커스 카드(첫 번째)를 제외한 순서 검증.
+  // links.nth(0) = 포커스 카드(메일), nth(1)·nth(2) = 나머지 리스트 행(이슈 → 메시지).
   const links = attention.getByRole('link')
-  // links.nth(0) = 포커스 카드(이슈), nth(1) = 첫 번째 리스트 행(메시지), nth(2) = 두 번째 리스트 행(메일).
-  await expect(links.nth(1)).toContainText('#dev')
-  await expect(links.nth(2)).toContainText('계약 검토 요청')
+  await expect(links).toHaveCount(3)
+  await expect(links.nth(1)).toContainText('마감 지난 이슈')
+  await expect(links.nth(2)).toContainText('#dev')
 })
 
 // ── 메시징 신선도 — 읽음 후 messaging-summary 재조회 (#476) ─────────────────
@@ -3057,15 +2767,28 @@ test('AI 우선순위 위젯 — 일부 분면만 0건이어도 위젯 전체 �
   await expect(urgentEmpty.locator('svg')).toBeVisible()
 })
 
+// wide 판정 규칙은 resolvedEntry 단위 테스트(isWideEntry)가 맡고, 여기선 실제 그리드에서 전체 폭으로 그려지는지(기하) 본다.
+// 클래스만 보면 그리드 열 정의가 바뀌어 col-span-3 이 전체 폭이 아니게 돼도 못 잡는다.
 test('wide 위젯(synthesis)은 3열 그리드 전체 폭을 차지한다', async ({ authenticatedPage: page }) => {
   await mockWidgets(page)
-  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['synthesis']))
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['synthesis', 'my_tasks']))
   await page.goto('/')
 
-  const card = page
-    .getByTestId('dashboard-widget')
-    .filter({ has: page.getByTestId('dashboard-synthesis') })
-  await expect(card).toHaveClass(/lg:col-span-3/)
+  const widgets = page.getByTestId('dashboard-widget')
+  const wide = widgets.filter({ has: page.getByTestId('dashboard-synthesis') })
+  const narrow = widgets.filter({ has: page.getByTestId('dash-mytasks') })
+  await expect(wide).toBeVisible()
+  await expect(narrow).toBeVisible()
+  // 위젯 카드의 부모 = 대시보드 그리드. wide 카드 폭 = 그리드 내용 폭, 일반 카드는 1열(1/3 남짓)이다.
+  const gridW = await wide.evaluate((el) => {
+    const grid = el.parentElement!
+    const cs = getComputedStyle(grid)
+    return grid.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)
+  })
+  const wideW = (await wide.boundingBox())!.width
+  const narrowW = (await narrow.boundingBox())!.width
+  expect(Math.abs(wideW - gridW)).toBeLessThanOrEqual(1)
+  expect(narrowW).toBeLessThan(gridW / 2)
 })
 
 test('기존 저장 레이아웃에 신규 위젯 3종이 없으면 위젯 추가 모달에 노출된다', async ({
@@ -3081,26 +2804,6 @@ test('기존 저장 레이아웃에 신규 위젯 3종이 없으면 위젯 추�
   await expect(modal.getByText('AI 우선순위')).toBeVisible()
   await expect(modal.getByText('요약')).toBeVisible()
   await expect(modal.getByText('빠른 액션')).toBeVisible()
-})
-
-test('데스크톱 — 레이아웃 조회·저장에 device 쿼리를 붙이지 않는다(WP-142)', async ({
-  authenticatedPage: page,
-}) => {
-  await mockWidgets(page)
-  // 문자열 glob 목('**/api/v1/me/dashboard')은 쿼리 문자열이 붙으면 매칭되지 않는다 — 데스크톱은 device 를 생략해야 한다.
-  const getCapture = await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['my_tasks', 'unread_mail']), {
-    capture: true,
-  })
-  const putCapture = await mockApi(page, 'PUT', '/api/v1/me/dashboard', layout(['my_tasks', 'unread_mail']), {
-    capture: true,
-  })
-  await page.goto('/')
-  const get = await getCapture.waitForRequest()
-  expect(get.searchParams.has('device')).toBe(false)
-  await page.getByTestId('dashboard-edit-toggle').click()
-  await page.getByTestId('dashboard-edit-save').click()
-  const put = await putCapture.waitForRequest()
-  expect(put.searchParams.has('device')).toBe(false)
 })
 
 test('데스크톱 — 저장본에 collapsed 가 있어도 무시하고 본문을 렌더한다(WP-142)', async ({

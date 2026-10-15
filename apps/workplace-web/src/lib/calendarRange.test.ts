@@ -33,4 +33,11 @@ describe('resolveCalendarRange', () => {
     })
     expect(resolveCalendarRange({ from: '2026-10-05', to: '2026-10-01' }).to).toBe('2026-10-05T15:00:00.000Z')
   })
+
+  it('같은 날 date-only from=to 도 빈 범위가 아니라 그날 하루(ISO datetime)로 정규화한다(#460 — date-only 그대로 보내면 400)', () => {
+    expect(resolveCalendarRange({ from: '2026-06-22', to: '2026-06-22' })).toEqual({
+      from: '2026-06-21T15:00:00.000Z',
+      to: '2026-06-22T15:00:00.000Z',
+    })
+  })
 })

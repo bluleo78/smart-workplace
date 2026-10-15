@@ -177,22 +177,6 @@ test('3개가 답변 중이면 4번째 대화는 안내와 함께 전송이 막�
   await expect(send).toBeEnabled()
 })
 
-test('서버가 429 로 거절하면 상한 안내가 뜨고 질문은 입력창에 남는다 (WP-190)', async ({ authenticatedPage: page }) => {
-  const live = await setupLiveChat(page)
-  live.queueStart({ status: 429 })
-  await openChatPanel(page)
-  // 다른 탭에서 3개가 돌고 있다 — 재동기화가 알려 준다.
-  live.setActive([
-    { sessionId: 's-x', correlationId: 'c-x', startedAt: '2026-10-05T00:00:00Z' },
-    { sessionId: 's-y', correlationId: 'c-y', startedAt: '2026-10-05T00:00:00Z' },
-    { sessionId: 's-z', correlationId: 'c-z', startedAt: '2026-10-05T00:00:00Z' },
-  ])
-  await ask(page, live, '보고서 요약해 줘')
-  await expect(page.getByTestId('chat-limit-notice')).toBeVisible()
-  await expect(page.getByTestId('chat-input')).toHaveValue('보고서 요약해 줘')
-  await expect(page.getByTestId('chat-turn')).toHaveCount(0) // 낙관적 턴은 걷혔다
-})
-
 test('서버가 409 로 거절하면 "아직 답변 중" 토스트 (WP-190)', async ({ authenticatedPage: page }) => {
   const live = await setupLiveChat(page)
   live.queueStart({ status: 409 })

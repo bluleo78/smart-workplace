@@ -31,22 +31,6 @@ test('답이 끝나고 후속 질문이 오면 마지막 답 아래에 보이고
   await expect(followups(page)).toHaveCount(0) // 새 질문으로 마지막 턴이 아니게 됨
 })
 
-test('후속 질문이 새 질문 뒤에 오면 붙지 않는다 (Review Focus 1)', async ({ authenticatedPage: page }) => {
-  const live = await setupLiveChat(page)
-  live.queueStart({ correlationId: 'corr-a', sessionId: 's-a' })
-  live.queueStart({ correlationId: 'corr-b', sessionId: 's-a' })
-  await openChatPanel(page)
-  await ask(page, live, '첫 질문')
-  await live.push('delta', { correlationId: 'corr-a', sessionId: 's-a', text: '첫 답' })
-  await live.push('done', { correlationId: 'corr-a', sessionId: 's-a', widgets: null })
-  await ask(page, live, '둘째 질문')
-  await live.push('followups', { correlationId: 'corr-a', sessionId: 's-a', messageId: 2, items: ITEMS })
-  await live.push('delta', { correlationId: 'corr-b', sessionId: 's-a', text: '둘째 답' })
-  await live.push('done', { correlationId: 'corr-b', sessionId: 's-a', widgets: null })
-  await expect(page.getByTestId('chat-panel')).toContainText('둘째 답')
-  await expectStays(page, () => followups(page).count(), 0)
-})
-
 test('이력의 마지막 답 후속 질문만 보인다 (Review Focus 5)', async ({ authenticatedPage: page }) => {
   const live = await setupLiveChat(page)
   live.setSessions([summary('s-a', TITLE_A, 1)])

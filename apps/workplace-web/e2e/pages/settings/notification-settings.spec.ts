@@ -130,7 +130,10 @@ test.describe('알림 설정', () => {
     expect(order).toEqual(['unsubscribe', 'logout'])
   })
 
+  // 타임아웃 경계(2999ms 대기·3000ms 진행·reject 전파)는 src/lib/withTimeout.test.ts 가 본다. 여기선 멈춘 구독 해제가
+  // 로그아웃을 막지 않는다는 배선만 — 실제 3초 대신 page.clock 으로 경과시킨다(WP-410).
   test('구독 해제 요청이 멈춰도 3초 후 로그아웃이 진행된다', async ({ authenticatedPage: page, context }) => {
+    await page.clock.install()
     await context.grantPermissions(['notifications'])
     await installPushManagerStub(page)
     await mockPushApis(page)
@@ -148,7 +151,16 @@ test.describe('알림 설정', () => {
 
     await page.getByRole('button', { name: '사용자 메뉴' }).click()
     await page.getByRole('menuitem', { name: '로그아웃' }).click()
-    await expect(page).toHaveURL(/\/login$/)
+    // 타임아웃 타이머 등록 시점이 클릭 직후보다 늦을 수 있어 한 번에 넘기지 않고 1초씩 전진하며 확인한다.
+    await expect
+      .poll(
+        async () => {
+          await page.clock.fastForward(1000)
+          return new URL(page.url()).pathname
+        },
+        { intervals: [100] },
+      )
+      .toBe('/login')
   })
 
   test('서버 키가 바뀐 기기는 재구독 후 재등록한다', async ({ authenticatedPage: page, context }) => {

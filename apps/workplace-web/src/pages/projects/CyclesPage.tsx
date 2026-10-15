@@ -15,7 +15,7 @@ import { CycleFormDialog } from '../../components/cycle/CycleFormDialog';
 import { CycleProgressBar } from '../../components/cycle/CycleProgressBar';
 import { useCycleProgress, useCycles, useDeleteCycle } from '../../hooks/queries/useCycles';
 import { useProject } from '../../hooks/queries/useProjects';
-import { formatDateRangeMonthDay } from '../../lib/formatters';
+import { cycleMetaText } from '../../lib/cycleMeta';
 import type { CycleProgress, CycleResponse } from '../../types/cycle';
 import { CYCLE_STATUS_LABEL } from '../../types/cycle';
 
@@ -170,14 +170,6 @@ export default function CyclesPage() {
       )}
     </Page>
   );
-}
-
-// 모바일 사이클 행 2줄째 — 「날짜 · 진행」(상태는 1줄째 배지에만, R2). 한쪽 날짜만 있으면 열린 범위로, 없으면 「—」.
-function cycleMetaText(c: CycleResponse, p: CycleProgress | undefined): string {
-  const range = formatDateRangeMonthDay(c.startDate, c.endDate, '—', { openEnded: true });
-  const total = p?.total ?? 0;
-  const progress = total > 0 ? `${Math.round(((p?.done ?? 0) / total) * 100)}%` : '이슈 없음';
-  return `${range} · ${progress}`;
 }
 
 // 모바일 행(WP-197) — Link(행 탭 = 이 사이클 이슈 목록)와 ⋯ 버튼을 형제로 둬 ⋯ 탭이 이동을 일으키지 않는다.

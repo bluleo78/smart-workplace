@@ -3,7 +3,8 @@ import { expect, test } from '../../fixtures/auth.fixture'
 
 /**
  * #526 미리보기 패널 요약 카드. /summary 응답을 라우트 모킹으로 제어해
- * DONE→요약 표시 / 진행중→스켈레톤 / 없음→숨김 3 상태를 검증한다.
+ * DONE→요약 표시 / 진행중→스켈레톤 배선을 검증한다. 요약 불가 사유 표시는 drive-summary-reason.spec,
+ * 상태→표시 판정 전체(폴백 문구 포함)는 src/lib/driveSummary.test.ts 가 맡는다(WP-410).
  * Office(미리보기 불가) 파일로 진입해 추가 콘텐츠 페치 모킹 없이 카드만 검증.
  */
 
@@ -80,21 +81,6 @@ test('추출 진행중 → 스켈레톤 표시', async ({ authenticatedPage: pag
   await openPreview(page)
   // 패널이 기본 펼침이라 클릭 없이 스켈레톤이 보인다.
   await expect(page.getByTestId('drive-summary-loading')).toBeVisible()
-})
-
-// #735: SKIPPED 는 이제 카드를 숨기지 않고 사유를 보여준다 — reason 미지정 시 폴백 문구.
-// 요약 불가 카드는 기본 펼침이라 클릭 없이도 사유가 바로 보여야 한다.
-test('요약 불가(SKIPPED, reason 없음) → 클릭 없이 사유 표시, 폴백 문구 표시', async ({
-  authenticatedPage: page,
-}) => {
-  await setupDrive(page)
-  await page.route('**/api/v1/drive/files/*/summary', (route) =>
-    route.fulfill({ json: { summary: null, status: 'SKIPPED', reason: null } }),
-  )
-  await openPreview(page)
-  const card = page.getByTestId('drive-summary-card')
-  await expect(card).toBeVisible()
-  await expect(page.getByTestId('drive-summary-reason')).toHaveText('요약을 사용할 수 없습니다.')
 })
 
 test('다운로드 버튼이 상단 헤더에 있다', async ({ authenticatedPage: page }) => {

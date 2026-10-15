@@ -120,28 +120,7 @@ test('iOS 가 보이는 영역을 아래로 옮겨도(offsetTop>0) 셸이 그 �
   await expect.poll(async () => (await shell.boundingBox())?.y).toBe(0)
 })
 
-test('주소창 높이 변화 정도(임계값 미만)로는 키보드 열림으로 보지 않는다', async ({ authenticatedPage: page }) => {
-  await stubChannelMessages(page)
-  await page.goto('/chat/channels/1')
-  await page.getByTestId('message-composer-input').click()
-  await setKeyboard(page, true, { px: 80 })
-  await expectKeyboardClosed(page)
-})
-
-test('핀치 줌으로 보이는 영역이 줄어든 것은 키보드 열림으로 보지 않는다(입력 포커스가 있어도)', async ({ authenticatedPage: page }) => {
-  await stubChannelMessages(page)
-  await page.goto('/chat/channels/1')
-  await page.getByTestId('message-composer-input').click()
-  await setKeyboard(page, true, { scale: 1.5 })
-  await expectKeyboardClosed(page)
-})
-
-test('편집 요소에 포커스가 없으면 보이는 영역이 줄어도 키보드 열림으로 보지 않는다', async ({ authenticatedPage: page }) => {
-  await page.goto('/')
-  await expect(page.getByTestId('mobile-tabbar')).toBeVisible()
-  await setKeyboard(page, true)
-  await expectKeyboardClosed(page)
-})
+// 키보드로 보지 않는 경우(임계값 미만·핀치 줌·편집 포커스 없음)는 useVisualViewport.test(detectKeyboard)가 지킨다.
 
 // 셸 밖(portal)에 그려지는 fixed 요소 — 셸 높이와 무관하므로 index.css·도크가 :root 의 키보드 값으로 보이는 영역 안에 둔다.
 test('키보드가 열리면 다이얼로그가 보이는 영역 안(키보드 위)에 들어온다', async ({ authenticatedPage: page }) => {

@@ -25,6 +25,9 @@ test('도구 호출이 인라인으로 중첩 렌더되고 상태가 done(✓) �
         data: { seq: 1, phase: 'start', toolName: 'update_issue', args: { issueKey: 'EX-2', status: '진행중' } },
       },
       { event: 'tool', data: { seq: 1, phase: 'result', toolName: 'update_issue', isError: false } },
+      // 숨김 도구(show_*) — 행을 만들지 않아야 한다(필터 배선. 숨김 규칙 자체는 aiToolLabels 단위 테스트, WP-412).
+      { event: 'tool', data: { seq: 2, phase: 'start', toolName: 'show_issue_list', args: {} } },
+      { event: 'tool', data: { seq: 2, phase: 'result', toolName: 'show_issue_list', isError: false } },
       { event: 'delta', data: { text: '상태를 변경했어요.' } },
       { event: 'done', data: { sessionId: 's-tool-1' } },
     ],
@@ -38,8 +41,9 @@ test('도구 호출이 인라인으로 중첩 렌더되고 상태가 done(✓) �
   // 위임 헤더가 라벨과 함께 렌더된다.
   await expect(page.getByTestId('tool-step-delegation')).toContainText('이슈 전문가에게 위임 중')
 
-  // 도구 행: 한국어 라벨 + 이슈키 + 완료 상태
+  // 도구 행: 한국어 라벨 + 이슈키 + 완료 상태 (show_issue_list 는 숨겨져 update_issue 한 줄뿐)
   const toolRow = page.getByTestId('tool-step-tool')
+  await expect(toolRow).toHaveCount(1)
   await expect(toolRow).toContainText('이슈 수정')
   await expect(toolRow).toContainText('EX-2')
   // result 이벤트 후 상태가 done(✓) 으로 전이
@@ -79,38 +83,6 @@ test('tool result isError:true 이면 도구 행이 오류(✗ 실패) 상태로
   const toolRow = page.getByTestId('tool-step-tool')
   await expect(toolRow).toContainText('이슈 상세 조회')
   await expect(toolRow).toContainText('✗')
-})
-
-// ── 케이스 3: 필터 — 숨김 도구는 tool-step-tool 행을 생성하지 않는다 ─────────
-
-test('숨김 도구(show_*/respond_chat) 의 tool 이벤트는 tool-step-tool 행을 렌더하지 않는다', async ({
-  authenticatedPage: page,
-}) => {
-  // show_issue_list 와 respond_chat 은 필터링 대상; 표시 가능한 add_comment 만 행을 생성해야 함.
-  await mockHomeChatGeneration(page, {
-    frames: [
-      { event: 'tool', data: { seq: 3, phase: 'start', toolName: 'show_issue_list', args: {} } },
-      { event: 'tool', data: { seq: 3, phase: 'result', toolName: 'show_issue_list', isError: false } },
-      { event: 'tool', data: { seq: 4, phase: 'start', toolName: 'respond_chat', args: {} } },
-      { event: 'tool', data: { seq: 4, phase: 'result', toolName: 'respond_chat', isError: false } },
-      { event: 'tool', data: { seq: 5, phase: 'start', toolName: 'add_comment', args: { issueKey: 'EX-3' } } },
-      { event: 'tool', data: { seq: 5, phase: 'result', toolName: 'add_comment', isError: false } },
-      { event: 'delta', data: { text: '처리했어요.' } },
-      { event: 'done', data: { sessionId: 's-tool-filter' } },
-    ],
-  })
-
-  await page.goto('/')
-  await page.getByTestId('chat-launcher').click()
-  await page.getByTestId('chat-input').fill('이슈 목록 보여줘')
-  await page.getByRole('button', { name: '보내기' }).click()
-
-  // tool-step-list 가 렌더된 후 검증 (add_comment 행 기다림)
-  await expect(page.getByTestId('tool-step-list')).toBeVisible()
-  const toolRows = page.getByTestId('tool-step-tool')
-  // show_issue_list/respond_chat 은 숨겨지고 add_comment 만 표시
-  await expect(toolRows).toHaveCount(1)
-  await expect(toolRows.first()).toContainText('코멘트 작성')
 })
 
 // ── 케이스 3a: 도구↔텍스트 인터리브 (WP-157) ───────────────────────────────
@@ -154,83 +126,6 @@ test('도구 호출과 텍스트가 도착순으로 각각 새 풍선에 분리 
   await expect(bubbles.nth(2)).toContainText('✓')
   // 4) 텍스트2 는 새 풍선
   await expect(bubbles.nth(3)).toHaveText('진행중으로 변경했어요.')
-})
-
-// ── 케이스 3b: 라벨 — 신규 도구도 한국어 라벨로 표시(#879) ─────────────────
-
-test('신규 도구(search_members·update_issue)도 원래 이름이 아닌 한국어 라벨로 표시된다 (#879)', async ({
-  authenticatedPage: page,
-}) => {
-  await mockHomeChatGeneration(page, {
-    frames: [
-      { event: 'tool', data: { seq: 6, phase: 'start', toolName: 'mcp__workplace__search_members', args: { query: '민수' } } },
-      { event: 'tool', data: { seq: 6, phase: 'result', toolName: 'mcp__workplace__search_members', isError: false } },
-      // opencode 런타임은 '<서버명>_<도구명>' 형식으로 도구 이름을 보낸다.
-      { event: 'tool', data: { seq: 7, phase: 'start', toolName: 'workplace_update_issue', args: { issueKey: 'WP-77' } } },
-      { event: 'tool', data: { seq: 7, phase: 'result', toolName: 'workplace_update_issue', isError: false } },
-      { event: 'delta', data: { text: '수정했어요.' } },
-      { event: 'done', data: { sessionId: 's-tool-labels' } },
-    ],
-  })
-
-  await page.goto('/')
-  await page.getByTestId('chat-launcher').click()
-  await page.getByTestId('chat-input').fill('WP-77 담당자 바꿔줘')
-  await page.getByRole('button', { name: '보내기' }).click()
-
-  const toolRows = page.getByTestId('tool-step-tool')
-  await expect(toolRows).toHaveCount(2)
-  await expect(toolRows.nth(0)).toContainText('구성원 검색')
-  await expect(toolRows.nth(1)).toContainText('이슈 수정')
-  await expect(toolRows.nth(1)).toContainText('WP-77')
-  // 폴백(원래 도구 이름)으로 새지 않는다.
-  await expect(page.getByTestId('tool-step-list')).not.toContainText('search_members')
-  await expect(page.getByTestId('tool-step-list')).not.toContainText('update_issue')
-})
-
-// ── 케이스 3c: 본 PDF 페이지 표시 (WP-250) ──────────────────────────────────
-// pages 인자가 있는 첨부 읽기 단계는 "📄 페이지 보기 7쪽 / 11–13쪽" 으로, 없으면 기존 "첨부 읽기" 로 보인다.
-
-test('pages 인자가 있는 첨부 읽기 단계는 "페이지 보기 N쪽" 으로 표시된다 (WP-250)', async ({
-  authenticatedPage: page,
-}) => {
-  await mockHomeChatGeneration(page, {
-    frames: [
-      { event: 'tool', data: { seq: 1, phase: 'start', toolName: 'mcp__workplace__read_chat_attachment', args: { fileId: 41 } } },
-      { event: 'tool', data: { seq: 1, phase: 'result', toolName: 'mcp__workplace__read_chat_attachment', isError: false } },
-      { event: 'tool', data: { seq: 2, phase: 'start', toolName: 'mcp__workplace__read_chat_attachment', args: { fileId: 41, pages: [7] } } },
-      { event: 'tool', data: { seq: 2, phase: 'result', toolName: 'mcp__workplace__read_chat_attachment', isError: false } },
-      // 모델이 거꾸로 보낸 쪽도 정렬해 "11–13쪽" 으로 보인다.
-      { event: 'tool', data: { seq: 3, phase: 'start', toolName: 'mcp__workplace__read_chat_attachment', args: { fileId: 41, pages: [13, 12, 11] } } },
-      { event: 'tool', data: { seq: 3, phase: 'result', toolName: 'mcp__workplace__read_chat_attachment', isError: false } },
-      // 메일 첨부는 페이지 보기를 지원하지 않아 pages 가 있어도 기존 "파일 읽기" 로 보인다.
-      { event: 'tool', data: { seq: 4, phase: 'start', toolName: 'mcp__workplace__read_file', args: { source: 'mail', attachmentId: 3, pages: [2] } } },
-      { event: 'tool', data: { seq: 4, phase: 'result', toolName: 'mcp__workplace__read_file', isError: false } },
-      { event: 'delta', data: { text: '확인했어요.' } },
-      { event: 'done', data: { sessionId: 's-tool-pages' } },
-    ],
-  })
-
-  await page.goto('/')
-  await page.getByTestId('chat-launcher').click()
-  await page.getByTestId('chat-input').fill('첨부 PDF 도표 봐줘')
-  await page.getByRole('button', { name: '보내기' }).click()
-
-  const toolRows = page.getByTestId('tool-step-tool')
-  await expect(toolRows).toHaveCount(4)
-  await expect(toolRows.nth(0)).toContainText('첨부 읽기')
-  await expect(toolRows.nth(0)).not.toContainText('쪽')
-  await expect(toolRows.nth(1)).toContainText('페이지 보기')
-  await expect(toolRows.nth(1)).toContainText('7쪽')
-  await expect(toolRows.nth(2)).toContainText('페이지 보기')
-  await expect(toolRows.nth(2)).toContainText('11–13쪽')
-  await expect(toolRows.nth(3)).toContainText('파일 읽기')
-  await expect(toolRows.nth(3)).not.toContainText('페이지 보기')
-  await expect(toolRows.nth(3)).not.toContainText('쪽')
-
-  await page.getByTestId('tool-step-list').first().screenshot({
-    path: 'test-results/tc/ai-chat-tool-steps/page-view-steps.png',
-  })
 })
 
 // ── 케이스 4: 복원 — 세션 메시지 toolCalls 가 ToolStepList 로 렌더된다 ────────
@@ -293,55 +188,4 @@ test('세션 복원 시 toolCalls 가 ToolStepList(위임+도구 행) 로 렌더
 
   // 텍스트 응답도 렌더된다.
   await expect(chatPanel).toContainText('상태를 완료로 변경했어요.')
-})
-
-// ── 케이스 4b: 복원 — contentBlocks 가 있으면 도착순 풍선을 재현 (WP-158) ──────
-
-test('세션 복원 시 contentBlocks 로 도구·텍스트 풍선을 스트리밍 때와 같은 순서로 재현한다 (WP-158)', async ({
-  authenticatedPage: page,
-}) => {
-  const sessions: HomeSessionPage = {
-    items: [{ id: 's-restore-order', title: '순서 복원', lastMessageAt: '2026-06-22T00:00:00Z', widgetCount: 0 }],
-    nextCursor: null,
-  }
-  await mockApi(page, 'GET', '/api/v1/home/sessions', sessions)
-
-  const messages: HomeMessage[] = [
-    { id: 1, role: 'USER', content: 'EX-1 확인하고 진행중으로', widgets: null, toolCalls: null, createdAt: '2026-06-22T00:00:00Z' },
-    {
-      id: 2,
-      role: 'ASSISTANT',
-      content: 'EX-1 을 확인했어요. 진행중으로 변경했어요.',
-      widgets: null,
-      toolCalls: [
-        { kind: 'tool', seq: 1, toolName: 'get_issue_detail', args: { issueKey: 'EX-1' }, status: 'done' },
-        { kind: 'tool', seq: 2, toolName: 'update_issue', args: { issueKey: 'EX-1', status: '진행중' }, status: 'done' },
-      ],
-      // 서버가 영속한 블록 순서 — 도구A → 텍스트1 → 도구B → 텍스트2 (textStart 14 = 'EX-1 을 확인했어요. ' 길이)
-      contentBlocks: [
-        { kind: 'tools', stepStart: 0 },
-        { kind: 'text', textStart: 0 },
-        { kind: 'tools', stepStart: 1 },
-        { kind: 'text', textStart: 14 },
-      ],
-      createdAt: '2026-06-22T00:00:01Z',
-    },
-  ]
-  await mockApi(page, 'GET', '/api/v1/home/sessions/s-restore-order/messages', messages)
-
-  await page.goto('/')
-  await page.getByTestId('chat-launcher').click()
-  await page.getByTestId('chat-launcher').click()
-  await expect(page.getByTestId('ai-fullscreen')).toBeVisible()
-  await page.getByTestId('ai-fs-sessions').getByTestId('chat-session-select').first().click()
-
-  const bubbles = page
-    .getByTestId('chat-panel')
-    .locator('[data-testid="chat-block-tools"], [data-testid="chat-block"]')
-  await expect(bubbles).toHaveCount(4)
-  await expect(bubbles.nth(0)).toContainText('이슈 상세 조회')
-  await expect(bubbles.nth(0)).not.toContainText('이슈 수정')
-  await expect(bubbles.nth(1)).toHaveText('EX-1 을 확인했어요.')
-  await expect(bubbles.nth(2)).toContainText('이슈 수정')
-  await expect(bubbles.nth(3)).toHaveText('진행중으로 변경했어요.')
 })

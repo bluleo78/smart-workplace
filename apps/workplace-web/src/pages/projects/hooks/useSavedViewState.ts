@@ -5,6 +5,7 @@ import { useSearchParams } from 'react-router-dom'
 
 import { useSavedViews, useUpdateSavedView } from '../../../hooks/queries/useSavedViews'
 import { useIssueGroupBy } from '../../../hooks/useIssueGroupBy'
+import { isAllIgnoringEpicScope } from '../../../lib/issueFacetFilters'
 import { filtersToParams, parseFilters, parseView } from '../../../lib/issueFilters'
 import {
   normalizeIssueQueryIgnoringViewAndGroup,
@@ -86,9 +87,7 @@ export function useSavedViewState(projectKey: string): SavedViewState {
   // 모바일 「전체」 판정(WP-194) — 모바일은 에픽 범위(parent/topLevel)를 옆의 「◆ 에픽」 칩이 따로 보여주므로,
   // 저장 뷰가 활성이 아니면서 에픽 범위만 걸린 상태도 「전체」로 본다. 뷰 칩 라벨과 뷰 시트 「전체」 ✓ 가 함께 쓴다.
   // 데스크톱 ViewChipBar·저장 뷰 매칭은 isAllActive 그대로.
-  const isAllActiveIgnoringEpic =
-    isAllActive ||
-    (!activeView && filtersToParams({ ...filters, parentNumber: null, topLevel: false }, 'list', null).toString() === '')
+  const isAllActiveIgnoringEpic = isAllActive || isAllIgnoringEpicScope(filters, !!activeView)
 
   // 전체 칩 — 모든 파라미터 제거(그룹도 화면 기본값으로).
   const applyAll = () => setParams(new URLSearchParams(), { replace: true })

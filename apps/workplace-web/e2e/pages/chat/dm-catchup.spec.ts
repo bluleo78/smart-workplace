@@ -104,18 +104,6 @@ test.describe('DM 캐치업 카드', () => {
     await expect(page.getByText('짧은 얘기')).toBeVisible();
   });
 
-  test('미읽음 0건이면 카드도 버튼도 없다', async ({ authenticatedPage: page }) => {
-    const detail = createChannel({ id: DM_ID, kind: 'DM', member: true, lastReadMessageId: 200 });
-    await setupDmStubs(page, detail);
-    await stubMessages(page, readPlusUnread(6)); // 모든 id <= 200 → 미읽음 0
-
-    await page.goto(`/chat/dms/${DM_ID}`);
-
-    await expect(page.getByTestId('message-list')).toBeVisible();
-    await expect(page.getByTestId('catchup-card')).toHaveCount(0);
-    await expect(page.getByTestId('catchup-summarize-btn')).toHaveCount(0);
-  });
-
   // #491 회귀: 다 읽은 DM 에서 내가 메시지를 보내면 유령 구분선/캐치업이 부활하면 안 된다.
   test('다 읽은 DM 에서 내가 보낸 메시지는 유령 구분선/캐치업을 만들지 않는다', async ({ authenticatedPage: page }) => {
     const detail = createChannel({ id: DM_ID, kind: 'DM', member: true, lastReadMessageId: 100 });

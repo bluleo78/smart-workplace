@@ -22,10 +22,10 @@ const B = createIssue({ id: 2, number: 8, projectKey: KEY, title: '알림 인박
 const C = createIssue({ id: 3, number: 9, projectKey: KEY, title: '첨부 미리보기 깨짐', type: makeTaskType(), status: 'IN_PROGRESS', priority: 'HIGH', reporterId: 1 });
 
 /** 목록·메타·변경 API 스텁 — 변경은 메모리 db 에 반영해 재조회에도 유지된다(settle 재조회 뒤 화면 확인용). 요청은 tracker 가 기록한다. */
-async function mock(page: Page, { members = [ME, KIM, BOT], member = true } = {}) {
+async function mock(page: Page, { members = [ME, KIM, BOT] } = {}) {
   const db = new Map([A, B, C].map((i) => [i.number, structuredClone(i)]));
   const writes = trackRequests(page, 'ANY', (u, req) => req.method() !== 'GET' && u.pathname.startsWith(`${ISSUES}/`));
-  await page.route(`**/api/v1/projects/${KEY}`, (r) => r.fulfill(json(createProject({ key: KEY, type: 'TEAM', viewerIsMember: member }))));
+  await page.route(`**/api/v1/projects/${KEY}`, (r) => r.fulfill(json(createProject({ key: KEY, type: 'TEAM', viewerIsMember: true }))));
   await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/types`, (r) => r.fulfill(json(systemTypes())));
   await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/members`, (r) => r.fulfill(json(members)));
   for (const p of ['labels', 'cycles', 'views', 'milestones']) {
@@ -190,16 +190,6 @@ test.describe('이슈 행 ⋯ 메뉴 — 목록(데스크톱)', () => {
     await page.getByRole('alertdialog').getByRole('button', { name: '삭제' }).click();
     await api.waitFor();
     expect(api.calls()).toEqual([{ method: 'DELETE', path: `${ISSUES}/7`, body: null }]);
-  });
-
-  test('비멤버는 복사·새 탭만 보인다', async ({ authenticatedPage: page }) => {
-    await mock(page, { member: false, members: [KIM] });
-    await page.goto(`/projects/${KEY}?view=list&group=none`);
-    await page.getByTestId('issue-row-7').click({ button: 'right' });
-    await expect(page.getByTestId('row-menu-copy-link')).toBeVisible();
-    for (const id of ['status', 'assignee', 'priority', 'epic', 'ai', 'delete']) {
-      await expect(page.getByTestId(`row-menu-${id}`)).toHaveCount(0);
-    }
   });
 
   test('선택된 행에서 열면 선택 전체에 적용, 선택 밖 행이면 그 행만', async ({ authenticatedPage: page }) => {

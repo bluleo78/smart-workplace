@@ -172,43 +172,7 @@ test.describe('채팅 일정 제안 카드', () => {
     },
   )
 
-  test(
-    '비위임자 읽기전용 뷰도 UTC payload 를 KST 로 표시한다',
-    async ({ authenticatedPage: page }) => {
-      const channel = createChannel({ id: CHANNEL_ID, member: true })
-      await setupChannelStubs(page, channel)
-      await stubMembers(page)
-
-      // proposedByUserId=2(≠ME) → 비위임자 → 읽기전용 "확인 대기 중" 블록(편집 폼 아님).
-      const proposalMessage = createMessage({
-        id: 301,
-        channelId: CHANNEL_ID,
-        authorId: 99,
-        authorName: 'AI 어시스턴트',
-        authorKind: 'AGENT',
-        body: '💡 일정 생성을 제안했어요',
-        proposal: { ...makeEventProposal(), proposedByUserId: 2 },
-      })
-      await page.route(
-        (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}/messages`,
-        (route) => {
-          if (route.request().method() !== 'GET') return route.fallback()
-          return route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify({ items: [proposalMessage], nextCursor: null, hasMore: false }),
-          })
-        },
-      )
-
-      await page.goto(`/chat/channels/${CHANNEL_ID}`)
-
-      // 읽기전용 블록(별도 표시 지점)도 06:00Z/07:00Z → KST 15:00 ~ 16:00. 버그면 '06:00' 이 떠 실패.
-      await expect(page.getByTestId(`event-proposal-pending-${PROPOSAL_ID}`)).toContainText(
-        '2026-07-05 15:00 ~ 16:00',
-      )
-    },
-  )
+  // 비위임자 읽기전용(확인 대기) 블록의 UTC→KST 시간 표시는 calendar.test(proposalTimeRange)가 지킨다.
 
   // #852: 승인하면 그대로 초대되므로 위임자·비위임자·확정 후 모두 누구를 부르는지 보여야 한다. 참석자 없는 카드엔 줄이 없다.
   test('초대 참석자를 편집·대기·확정 세 상태 모두에 표시한다', async ({ authenticatedPage: page }) => {

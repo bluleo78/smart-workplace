@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { isIssueImageSrc } from '../../api/issueImages';
+import { isIssueImageSrc, issueImageFileId } from '../../api/issueImages';
 import { countApiImages, splitApiImages, withImagePlaceholders } from './apiImageSegments';
 import { bodyToDoc, serializeToBody } from './mentionSerialize';
 
@@ -34,6 +34,21 @@ describe('splitApiImages', () => {
     expect(isIssueImageSrc('/api/v1/admin/users')).toBe(false);
     expect(isIssueImageSrc(`${IMG}/../x`)).toBe(false);
     expect(isIssueImageSrc('blob:http://x/1')).toBe(false);
+  });
+});
+
+// 이슈 본문 렌더러(IssueBodyImage)가 인증 blob 으로 받을 이미지만 고르는 판정 — 그 외 경로는 요청하지 않는다.
+describe('issueImageFileId', () => {
+  it('이 프로젝트 이슈 이미지 경로면 fileId 를 돌려준다', () => {
+    expect(issueImageFileId('WP', IMG)).toBe(12);
+  });
+
+  it('다른 /api/v1 경로·외부 http·다른 프로젝트·숫자가 아닌 꼬리·src 없음은 null', () => {
+    expect(issueImageFileId('WP', '/api/v1/drive/files/5/content')).toBeNull();
+    expect(issueImageFileId('WP', 'http://example.com/a.png')).toBeNull();
+    expect(issueImageFileId('WP', '/api/v1/projects/OTHER/issue-images/5')).toBeNull();
+    expect(issueImageFileId('WP', `${IMG}/../x`)).toBeNull();
+    expect(issueImageFileId('WP', undefined)).toBeNull();
   });
 });
 

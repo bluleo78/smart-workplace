@@ -11,6 +11,7 @@ import {
   agendaProgress,
   agendaTimeLabels,
   agendaTitle,
+  duesWithinLoaded,
   eventDate,
   groupAgendaDays,
   headerMonthLabel,
@@ -344,5 +345,20 @@ describe('agendaNowState', () => {
 
   it('시간 지정 일정이 없으면 선을 그리지 않는다(-1)', () => {
     expect(agendaNowState([allDay, dueItem], now)).toEqual({ nowIndex: -1, past: [false, false] })
+  })
+})
+
+// 이전 E2E mobile/calendar-agenda(회귀 — 불러온 범위 끝 다음 날 마감은 숨긴다)를 대체(WP-412).
+describe('duesWithinLoaded', () => {
+  const due = (id: number, dueDate: string): IssueDueMarker => ({ issueId: id, projectKey: 'WP', number: id, title: `d${id}`, dueDate })
+
+  it('첫 청크(10/13~, to=11/12 00:00 KST)면 11-11 마감은 남기고 dueTo 포함일 11-12 마감은 숨긴다', () => {
+    const { to } = agendaChunkRange(new Date('2026-10-13T09:00:00'), 0)
+    expect(duesWithinLoaded([due(11, '2026-11-11'), due(12, '2026-11-12')], to).map((d) => d.issueId)).toEqual([11])
+  })
+
+  it('다음 청크까지 불러오면 11-12 마감이 들어온다', () => {
+    const { to } = agendaChunkRange(new Date('2026-10-13T09:00:00'), 1)
+    expect(duesWithinLoaded([due(12, '2026-11-12')], to).map((d) => d.issueId)).toEqual([12])
   })
 })

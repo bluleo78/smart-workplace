@@ -99,26 +99,3 @@ test('시트는 최근 보고를 자르지 않고, 진행 중 작업이 모두 �
   await expect(page.getByTestId('agent-work-chip-9')).toBeVisible()
   await expectStays(page, () => sheet.isVisible(), false)
 })
-
-test('시작 전(도구 없음)·인증 필요 칩과 시트 — 에이전트 유형·null 을 그리지 않는다', async ({ authenticatedPage: page }) => {
-  await stubChat(page)
-  await mockAgentWorkDetail(
-    page,
-    [createAgentWork({ worker: aki, state: 'AUTH_REQUIRED', note: 'GitHub 권한이 필요해요' }), createAgentWork({ worker: human, state: 'SUBMITTED', tool: null })],
-    { assignees: [human, aki] },
-  )
-  await page.goto('/projects/WP/issues/12')
-
-  await expect(page.getByTestId('agent-work-chip-9')).toContainText('인증 필요')
-  await expect(page.getByTestId('agent-work-chip-1')).toContainText('시작 전')
-  await expect(page.getByTestId('agent-question-card')).toHaveCount(0)
-
-  await page.getByTestId('agent-work-chip-1').click()
-  const sheet = page.getByTestId('agent-work-sheet')
-  await expect(sheet.getByTestId('agent-work-rail-1-state')).toHaveText('시작 전')
-  await expect(sheet.getByTestId('agent-work-rail-9-state')).toContainText('인증 필요')
-  await expect(sheet.getByTestId('agent-work-rail-1')).not.toContainText('null')
-  await expect(sheet.getByTestId('agent-work-rail-1').getByTitle('Claude Code')).toHaveCount(0)
-  await expect(sheet.getByTestId('agent-work-rail-9')).toContainText('Claude Code')
-  await expectNoHorizontalOverflow(page)
-})

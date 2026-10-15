@@ -10,19 +10,9 @@ import { extractApiError } from '@/lib/api-error';
 import { IssueStatusBadge } from '@/pages/projects/components/IssueStatusBadge';
 import type { IssueSearchResponse } from '@/types/issue';
 
+import { countOverdue } from './issueOverdue';
 import { WidgetError } from './WidgetError';
 import { WidgetFrame } from './WidgetFrame';
-
-// #519: 오늘(브라우저 로컬) 기준 마감 초과 — dueDate < 오늘 && 미완료(DONE/CANCELED 제외).
-function countOverdue(items: { status: string; dueDate: string | null }[]): number {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return items.filter((it) => {
-    if (it.status === 'DONE' || it.status === 'CANCELED') return false;
-    if (!it.dueDate) return false;
-    return new Date(it.dueDate) < today;
-  }).length;
-}
 
 /** params(assignee/status/priority/due 등)로 프로젝트 횡단 이슈 목록. */
 export default function IssueListWidget({

@@ -1,8 +1,8 @@
-// WP-55 채팅 메모리 결과 줄(데스크톱) — 답 아래·후속 질문 위, done 전 되돌리기 비활성, 줄마다 되돌리기, 실패 토스트 3종, 이력 복원, 위임 답 순번,
-// 오류·■ 정지로 끝난 턴의 되돌리기(종결 이벤트의 messageId), 긴 문구 줄바꿈. WP-380: 기한 덩어리.
+// WP-55 채팅 메모리 결과 줄(데스크톱) — 답 아래·후속 질문 위, done 전 되돌리기 비활성, 줄마다 되돌리기, 실패 토스트 3종, 위임 답 순번,
+// 긴 문구 줄바꿈. WP-380: 기한 덩어리. 오류·■ 정지 턴의 messageId(chatStreams.test.ts)·이력 복원(chatTurns.test.ts)은 단위 테스트가 담당.
 import type { Page } from '@playwright/test'
 
-import { ask, msg, openChatPanel, sessionItem, setupLiveChat, summary, TITLE_A } from '../fixtures/ai-live-chat'
+import { ask, openChatPanel, setupLiveChat } from '../fixtures/ai-live-chat'
 import { memoryError, memoryTool, mockMemoryUndo } from '../fixtures/ai-memory-mock'
 import { mockAiPreferences } from '../fixtures/ai-suggestions-mock'
 import { expect, test } from '../fixtures/auth.fixture'
@@ -50,7 +50,7 @@ test('저장 결과 줄이 답 아래·후속 질문 위에 보이고, done 전�
   await expect(undoLinks(page)).toHaveCount(0)
 })
 
-test('여러 줄은 문구가 동작별로 다르고 줄마다 따로 되돌린다', async ({ authenticatedPage: page }) => {
+test('여러 줄은 동작별로 생기고 줄마다 따로 되돌린다', async ({ authenticatedPage: page }) => {
   const undo = await mockMemoryUndo(page)
   const live = await setupLiveChat(page)
   live.queueStart({ correlationId: 'corr-a', sessionId: 's-a' })
@@ -62,10 +62,11 @@ test('여러 줄은 문구가 동작별로 다르고 줄마다 따로 되돌린�
   await live.push('delta', { ...C, text: '세 가지를 정리했어요.' })
   await live.push('done', { ...C, widgets: null, messageId: 5 })
 
+  // 동작별 문구 규칙(저장함·고침·지움·범위 이름)은 aiMemory 단위 테스트(memoryActionText)가 맡는다(WP-412) — 여기선 줄이 동작대로 생기는지만 본다.
   await expect(lines(page)).toHaveCount(3)
-  await expect(lines(page).nth(0)).toContainText('메모리에 저장함: "이슈 목록은 짧은 목록으로 보여 준다"')
-  await expect(lines(page).nth(1)).toContainText('메모리를 고침: "백엔드 팀이다"')
-  await expect(lines(page).nth(2)).toContainText('메모리에서 지움: "표로 보여 준다"')
+  await expect(lines(page).nth(0)).toHaveAttribute('data-action', 'saved')
+  await expect(lines(page).nth(1)).toHaveAttribute('data-action', 'updated')
+  await expect(lines(page).nth(2)).toHaveAttribute('data-action', 'forgotten')
 
   await lines(page).nth(1).getByTestId('chat-memory-undo').click()
   await undo.waitFor()
@@ -143,94 +144,6 @@ test('고친 뒤 또 바뀐 메모리면 안내 토스트를 띄우고 줄은 �
   await expect(page.getByText('그 뒤에 바뀐 메모리라 되돌리지 않았어요')).toBeVisible()
   await expect(lines(page).first()).toHaveAttribute('data-undone', 'false')
   await expect(undoLinks(page)).toBeEnabled()
-})
-
-// CR3: 오류로 끝난 턴도 서버가 부분 답변을 저장했으면 error 의 messageId 로 되돌리기가 켜진다(다시 열지 않아도).
-test('오류로 끝난 턴도 error 의 messageId 로 되돌리기가 켜진다', async ({ authenticatedPage: page }) => {
-  const undo = await mockMemoryUndo(page)
-  const live = await setupLiveChat(page)
-  live.queueStart({ correlationId: 'corr-a', sessionId: 's-a' })
-  await openChatPanel(page)
-  await ask(page, live, '기억하고 정리해줘')
-  await live.push('delta', { ...C, text: '기억할게요. 이어서' })
-  await memoryTool(live, 1, 'remember_memory', saved)
-  await expect(undoLinks(page)).toBeDisabled()
-  await live.push('error', { ...C, message: 'AI 구성 요청에 실패했어요.', messageId: 6 })
-
-  await expect(undoLinks(page)).toBeEnabled()
-  await undoLinks(page).click()
-  await undo.waitFor()
-  expect(undo.lastBody()).toEqual({ messageId: 6, blockIndex: 0 })
-  await expect(lines(page).first()).toHaveAttribute('data-undone', 'true')
-})
-
-// S13: 텍스트 전에 오류로 끝나도 서버가 결과 줄 때문에 답을 저장해 messageId 를 준다 — 안내 문구 아래 결과 줄이 남고 되돌릴 수 있다.
-test('텍스트 전에 오류로 끝나도 결과 줄이 남고 error 의 messageId 로 되돌린다', async ({ authenticatedPage: page }) => {
-  const undo = await mockMemoryUndo(page)
-  const live = await setupLiveChat(page)
-  live.queueStart({ correlationId: 'corr-a', sessionId: 's-a' })
-  await openChatPanel(page)
-  await ask(page, live, '앞으로는 짧게 답해줘')
-  await memoryTool(live, 1, 'remember_memory', saved)
-  await live.push('error', { ...C, message: 'AI 구성 요청에 실패했어요.', messageId: 9 })
-
-  await expect(page.getByTestId('chat-panel')).toContainText('응답 생성에 실패했습니다. 다시 시도해 주세요.')
-  await expect(lines(page)).toHaveCount(1)
-  await expect(undoLinks(page)).toBeEnabled()
-  await undoLinks(page).click()
-  await undo.waitFor()
-  expect(undo.lastBody()).toEqual({ messageId: 9, blockIndex: 0 })
-  await expect(lines(page).first()).toHaveAttribute('data-undone', 'true')
-})
-
-// CR3: ■ 로 멈춘 뒤 서버 cancelled 가 저장한 부분 답변 id 를 실어 오면 멈춘 답의 되돌리기가 켜진다.
-test('■ 로 멈춘 턴도 cancelled 의 messageId 로 되돌리기가 켜진다', async ({ authenticatedPage: page }) => {
-  const undo = await mockMemoryUndo(page)
-  const live = await setupLiveChat(page)
-  live.queueStart({ correlationId: 'corr-a', sessionId: 's-a' })
-  await openChatPanel(page)
-  await ask(page, live, '기억하고 길게 정리해줘')
-  await live.push('delta', { ...C, text: '기억할게요. 이어서' })
-  await memoryTool(live, 1, 'remember_memory', saved)
-  await page.getByTestId('chat-stop').click()
-  await expect(page.getByTestId('chat-interrupted')).toHaveText('중단됨')
-  await expect(undoLinks(page)).toBeDisabled() // 서버 종결 전 — 아직 저장 id 를 모른다
-  await live.push('cancelled', { ...C, reason: 'user', messageId: 7 })
-
-  await expect(undoLinks(page)).toBeEnabled()
-  await undoLinks(page).click()
-  await undo.waitFor()
-  expect(undo.lastBody()).toEqual({ messageId: 7, blockIndex: 0 })
-  await expect(lines(page).first()).toHaveAttribute('data-undone', 'true')
-})
-
-test('이력의 결과 줄은 저장된 되돌림 상태로 보이고, 이력의 메시지 id 로 되돌린다', async ({ authenticatedPage: page }) => {
-  const undo = await mockMemoryUndo(page)
-  const live = await setupLiveChat(page)
-  live.setSessions([summary('s-a', TITLE_A, 1)])
-  live.setMessages('s-a', [
-    msg(1, 'USER', TITLE_A),
-    {
-      ...msg(2, 'ASSISTANT', '정리했어요.'),
-      // 서버는 memory 블록을 contentBlocks 에서 떼어 memoryBlocks 로 따로 싣는다(배포 중 구 웹 보호) — 웹은 그대로 결과 줄로 쓴다.
-      contentBlocks: [{ kind: 'text', textStart: 0 }],
-      memoryBlocks: [
-        { kind: 'memory', action: 'saved', memoryId: 12, memoryKind: 'PREFERENCE', content: '짧은 목록', source: 'AI', undone: true },
-        { kind: 'memory', action: 'forgotten', memoryId: 7, memoryKind: 'PREFERENCE', content: '표로 보여 준다', source: 'USER', undone: false },
-      ],
-    },
-  ])
-  await openChatPanel(page)
-  await page.getByTestId('chat-session-switcher').click()
-  await sessionItem(page, TITLE_A).getByTestId('chat-session-select').click()
-  await expect(page.getByTestId('chat-panel')).toContainText('정리했어요.')
-  await expect(lines(page).nth(0)).toHaveAttribute('data-undone', 'true')
-  await expect(lines(page).nth(1).getByTestId('chat-memory-undo')).toBeEnabled()
-  await lines(page).nth(1).getByTestId('chat-memory-undo').click()
-  await undo.waitFor()
-  expect(undo.lastBody()).toEqual({ messageId: 2, blockIndex: 1 })
-  await expect(lines(page).nth(1)).toHaveAttribute('data-undone', 'true') // 이력 줄도 되돌림으로 바뀐다
-  await expect(lines(page).nth(0)).toHaveAttribute('data-undone', 'true') // 이미 되돌린 줄은 그대로
 })
 
 // Review Focus 5: 추천을 끈 사용자(followups 없음)도 done 의 messageId 로 되돌리기가 켜지고, 위임 답(안내 문장이 버려지는 턴)에서도 순번 0 이다.

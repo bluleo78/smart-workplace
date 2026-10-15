@@ -94,15 +94,10 @@ test.describe('모바일 이슈 행 ⋯ 메뉴', () => {
     await expect.poll(calls).toEqual([{ method: 'PUT', path: `${ISSUES}/21/assignees`, body: { userIds: [2, 99] } }]);
   });
 
-  test('삭제 → 확인 → DELETE, 보고자가 아닌 이슈엔 삭제가 없다', async ({ authenticatedPage: page }) => {
+  // 보고자가 아니면 삭제 항목이 없는 규칙은 issueRowMenu.test(rowMenuItems)·데스크톱 행 메뉴 E2E 가 지킨다 — 여기선 시트 → 확인창 경로만.
+  test('삭제 → 확인 → DELETE', async ({ authenticatedPage: page }) => {
     const calls = await mock(page);
     await page.goto(`/projects/${KEY}?group=none`);
-    await page.getByTestId('issue-row-22-menu').click();
-    await expect(page.getByTestId('mobile-action-status')).toBeVisible();
-    await expect(page.getByTestId('mobile-action-delete')).toHaveCount(0);
-    await page.keyboard.press('Escape');
-    await expect(page.getByTestId('mobile-action-sheet')).toHaveCount(0);
-
     await page.getByTestId('issue-row-21-menu').click();
     await page.getByTestId('mobile-action-delete').click();
     await page.getByRole('alertdialog').getByRole('button', { name: '삭제' }).click();

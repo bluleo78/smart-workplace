@@ -42,12 +42,10 @@ async function setup(page: Page) {
   return { deletes };
 }
 
-test('2줄째 = 날짜 · 진행 — 시작만/끝만/날짜 없음/이슈 0건 문구, goal 1줄, 진행 막대 숨김, 넘침 없음', async ({ authenticatedPage: page }) => {
+// 시작만/끝만/날짜 없음/이슈 0건 문구 규칙은 cycleMeta.test(cycleMetaText)가 지킨다 — 여기선 2줄째 배선과 모바일 레이아웃만.
+test('2줄째 = 날짜 · 진행, goal 1줄, 진행 막대 숨김, 넘침 없음', async ({ authenticatedPage: page }) => {
   await setup(page);
   await expect(page.getByTestId('cycle-row-meta-1')).toHaveText('9월 29일 ~ 10월 10일 · 45%');
-  await expect(page.getByTestId('cycle-row-meta-2')).toHaveText('10월 13일 ~ · 이슈 없음');
-  await expect(page.getByTestId('cycle-row-meta-3')).toHaveText('~ 10월 31일 · 이슈 없음');
-  await expect(page.getByTestId('cycle-row-meta-4')).toHaveText('— · 이슈 없음');
   await expect(page.getByTestId('cycle-row-1')).toContainText('진행 중'); // 상태는 배지에만
   const goal = page.getByTestId('cycle-row-1').getByText(/결제 승인 실패율/);
   expect(await goal.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true); // 1줄 말줄임

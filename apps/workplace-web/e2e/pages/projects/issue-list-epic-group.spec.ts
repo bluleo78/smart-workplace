@@ -41,26 +41,17 @@ async function stubAll(page: Page) {
   );
 }
 
-const groupIds = (page: Page) =>
-  page.locator('[data-testid^="list-group-"]:not([data-testid^="list-group-toggle-"])').evaluateAll((els) =>
-    els.map((e) => e.getAttribute('data-testid')),
-  );
-
 test.describe('이슈 목록 에픽 그룹', () => {
-  test('그룹 셀렉트에서 에픽 선택 → 에픽 번호순 + 에픽 없음 마지막, 헤더 개수', async ({ authenticatedPage: page }) => {
+  // 버킷 순서·「에픽 없음」 배치(STORY 부모 포함)는 issueGrouping.test.ts 'groupIssues - epic' 이 담당 — 여기선 메뉴→URL→섹션 렌더 연결만 본다.
+  test('그룹 셀렉트에서 에픽 선택 → URL group=epic + 에픽 섹션 헤더 렌더', async ({ authenticatedPage: page }) => {
     await stubAll(page);
     await page.goto(`/projects/${KEY}?group=none`);
     await page.getByTestId('group-by-trigger').click();
     await page.getByTestId('group-by-epic').click();
 
     await expect(page).toHaveURL(/group=epic/);
-    await expect(page.getByTestId('list-group-epic-12')).toBeVisible();
-    expect(await groupIds(page)).toEqual(['list-group-epic-12', 'list-group-epic-30', 'list-group-no-epic']);
+    await expect(page.getByTestId('list-group-epic-30').getByTestId('issue-row-1')).toBeVisible();
     await expect(page.getByTestId('list-group-toggle-epic-30')).toContainText('결제 안정화');
-    await expect(page.getByTestId('list-group-toggle-epic-30')).toContainText('2');
-    // STORY 부모 자식은 「에픽 없음」 에 부모 없는 이슈와 함께 있다.
-    await expect(page.getByTestId('list-group-no-epic').getByTestId('issue-row-5')).toBeVisible();
-    await expect(page.getByTestId('list-group-no-epic').getByTestId('issue-row-4')).toBeVisible();
   });
 
   test('그룹 헤더 클릭으로 접기/펼치기', async ({ authenticatedPage: page }) => {
@@ -80,13 +71,6 @@ test.describe('이슈 목록 에픽 그룹', () => {
     await toggle.click();
     await expect(page.getByTestId('issue-row-1')).toBeVisible();
     await expect(toggle).toHaveAttribute('aria-expanded', 'true');
-  });
-
-  test('?group=epic 직접 진입(저장 뷰 복원 경로) 시 섹션 렌더', async ({ authenticatedPage: page }) => {
-    await stubAll(page);
-    await page.goto(`/projects/${KEY}?group=epic`);
-    await expect(page.getByTestId('list-group-epic-30').getByTestId('issue-row-1')).toBeVisible();
-    await expect(page.getByTestId('list-group-epic-12').getByTestId('issue-row-3')).toBeVisible();
   });
 });
 

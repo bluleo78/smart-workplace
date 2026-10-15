@@ -13,10 +13,10 @@ test.describe('#460 홈 챗 도크 캘린더 위젯 렌더', () => {
     '캘린더 위젯이 일정 목록을 렌더한다',
     { tag: '@smoke' },
     async ({ authenticatedPage: page }) => {
-      // 1) compose 는 텍스트 없이 calendar 위젯만 지시.
+      // 1) compose 는 텍스트 없이 calendar 위젯만 지시 — AI 가 실제로 주는 date-only params 로 위젯이 params 를 넘기는지도 본다.
       await mockHomeChatGeneration(page, {
         frames: [
-          { event: 'done', data: { sessionId: 's-cal-1', widgets: [{ type: 'calendar', params: {} }] } },
+          { event: 'done', data: { sessionId: 's-cal-1', widgets: [{ type: 'calendar', params: { from: '2026-06-22', to: '2026-06-22' } }] } },
         ],
       });
       // 2) 위젯이 오늘 범위로 호출하는 일정 목록.
@@ -47,48 +47,13 @@ test.describe('#460 홈 챗 도크 캘린더 위젯 렌더', () => {
       await expect(items).toContainText('팀 미팅');
       await expect(items).toContainText('점심 약속');
 
-      // 처리: from 파라미터가 전달됐는지(오늘 범위 계산) 검증.
-      expect(eventLists.lastUrl()!.searchParams.get('from')).not.toBeNull();
+      // 처리: 위젯 params 가 범위 계산(resolveCalendarRange)을 거쳐 ISO datetime 으로 실린다.
+      // 정규화 규칙 자체(오늘·이번 주·date-only)는 calendarRange.test.ts 가 담당.
+      const sp = eventLists.lastUrl()!.searchParams;
+      expect(sp.get('from')).toMatch(/^2026-06-2\dT/);
+      expect(sp.get('from')).not.toBe(sp.get('to'));
     },
   );
-
-  test('date-only params 를 ISO datetime 범위로 정규화해 호출한다', async ({
-    authenticatedPage: page,
-  }) => {
-    // AI 가 show_calendar 에 date-only("2026-06-22") 를 주는 실제 케이스. 백엔드는
-    // @DateTimeFormat(ISO.DATE_TIME) OffsetDateTime 을 요구하므로 위젯이 ISO datetime 으로
-    // 정규화해야 한다. date-only 를 그대로 보내면 400 → 위젯 에러(#460 회귀).
-    await mockHomeChatGeneration(page, {
-      frames: [
-        { event: 'done', data: { sessionId: 's-cal-3', widgets: [{ type: 'calendar', params: { from: '2026-06-22', to: '2026-06-22' } }] } },
-      ],
-    });
-    const eventLists = trackRequests(page, 'ANY', '/api/v1/calendar/events');
-    await page.route(
-      (url) => url.pathname === '/api/v1/calendar/events',
-      (route) => {
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify([]),
-        });
-      },
-    );
-
-    await page.goto('/');
-    await page.getByTestId('chat-launcher').click();
-    await page.getByTestId('chat-input').fill('오늘 일정 보여줘');
-    await page.getByRole('button', { name: '보내기' }).click();
-    await expect(page.getByTestId('calendar-empty')).toBeVisible();
-
-    // from/to 모두 ISO datetime(시각 포함, 'T' 구분자)이어야 하고, 빈 범위(from==to)가 아니어야 한다.
-    const sp = eventLists.lastUrl()!.searchParams;
-    const reqFrom = sp.get('from');
-    const reqTo = sp.get('to');
-    expect(reqFrom).toMatch(/\d{4}-\d{2}-\d{2}T/);
-    expect(reqTo).toMatch(/\d{4}-\d{2}-\d{2}T/);
-    expect(reqFrom).not.toBe(reqTo);
-  });
 
   test('일정이 없으면 빈 상태를 표시한다', async ({ authenticatedPage: page }) => {
     await mockHomeChatGeneration(page, {

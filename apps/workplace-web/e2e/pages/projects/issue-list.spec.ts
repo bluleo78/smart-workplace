@@ -82,15 +82,6 @@ test.describe('팀 리스트 뷰', () => {
     expect(lastSearch()!.searchParams.get('excludeEpics')).toBe('true');
   });
 
-  test('유형 필터를 명시하면 excludeEpics 를 보내지 않는다 (EPIC 을 직접 고를 수 있게, #874)', async ({ authenticatedPage: page }) => {
-    const lastSearch = await captureSearch(page);
-
-    await page.goto(`/projects/${KEY}?type=6`);
-    await expect(page.getByTestId('issue-row-7')).toBeVisible();
-    expect(lastSearch()!.searchParams.get('type')).toBe('6');
-    expect(lastSearch()!.searchParams.get('excludeEpics')).toBeNull();
-  });
-
   test('하위(SUBTASK)를 가진 부모 이슈 행에는 진행률(└ done/total) 배지가 표시된다', async ({ authenticatedPage: page }) => {
     // 목록에서 SUBTASK 는 숨기는 대신, 부모 행에 하위 작업 존재를 진행률로 알린다.
     const parent = createIssue({ number: 9, title: '결제 모듈 개편', childCount: 5, childDoneCount: 2 });
@@ -104,16 +95,6 @@ test.describe('팀 리스트 뷰', () => {
     await expect(badge).toContainText('2/5');
     // 하위 없는 행에는 배지 미표시.
     await expect(page.getByTestId('issue-row-10-child-progress')).toHaveCount(0);
-  });
-
-  test('topLevel=true 를 명시하면(저장뷰 등) 요청에도 그대로 실린다', async ({ authenticatedPage: page }) => {
-    // 사용자가 명시적으로 상위 이슈만 보기를 선택한 경우는 여전히 존중해야 한다.
-    const lastSearch = await captureSearch(page);
-
-    await page.goto(`/projects/${KEY}?topLevel=true`);
-    await expect(page.getByTestId('issue-row-7')).toBeVisible();
-    expect(lastSearch()).not.toBeNull();
-    expect(lastSearch()!.searchParams.get('topLevel')).toBe('true');
   });
 
   test('에픽 하위 이슈 행에는 소속 에픽 칩이 제목 오른쪽에 표시되고 클릭 시 에픽 상세로 이동한다', async ({ authenticatedPage: page }) => {

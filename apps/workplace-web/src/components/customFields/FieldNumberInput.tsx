@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { formatNumber } from '@/lib/formatters';
 
 import type { IssueFieldDef } from '../../types/customField';
+import { parseFieldNumber } from './fieldNumber';
 
 export function FieldNumberInput({
   def,
@@ -31,21 +32,20 @@ export function FieldNumberInput({
       type="number"
       value={value ?? ''}
       onChange={(e) => {
-        const v = e.target.value;
-        if (v === '') {
+        const parsed = parseFieldNumber(e.target.value);
+        if (parsed.kind === 'clear') {
           onChange(null);
           return;
         }
-        const n = Number(v);
-        if (!Number.isFinite(n)) return;
-        if (Math.abs(n) > Number.MAX_SAFE_INTEGER) {
+        if (parsed.kind === 'ignore') return;
+        if (parsed.kind === 'unsafe') {
           toast.warning(
             `안전한 정수 범위(±${formatNumber(Number.MAX_SAFE_INTEGER)})를 벗어난 값은 정밀도 손실이 발생해 반영되지 않았습니다.`,
           );
           forceSync((k) => k + 1);
           return;
         }
-        onChange(n);
+        onChange(parsed.value);
       }}
       placeholder="숫자를 입력하세요"
       data-testid={`field-input-${def.id}`}

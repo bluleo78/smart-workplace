@@ -1,6 +1,6 @@
 // 스레드 답글 작성. 낙관적: 스레드 캐시 끝(ASC)에 답글 append(id 멱등).
 // 부모 replyCount 는 SSE created 이벤트가 갱신(echo-only) — 여기서 올리지 않는다(이중 카운트 방지).
-import { type InfiniteData, useMutation, useQueryClient } from '@tanstack/react-query';
+import { type InfiniteData, type QueryClient, useMutation, useQueryClient } from '@tanstack/react-query';
 
 import { messagingApi } from '../../api/messaging';
 import { handleApiError } from '../../lib/api-error';
@@ -11,6 +11,55 @@ interface MeContext {
   id: number;
   name: string;
   kind: UserKind;
+}
+
+/**
+ * 답글 전송 직후 스레드 캐시 끝(ASC)에 임시(음수 id) 답글을 붙이고 그 임시 id 를 돌려준다.
+ *
+ * 부모 메시지의 replyCount 는 여기서 올리지 않는다 — 내 답글도 SSE created self-echo 로 돌아와
+ * handleMessagingEvent 가 +1 하므로, 여기서도 올리면 "답글 2개"로 이중 카운트된다.
+ */
+export function appendOptimisticReply(
+  qc: QueryClient,
+  channelId: number,
+  parentMessageId: number,
+  me: MeContext,
+  body: string,
+): number {
+  const tempId = -Math.floor(Math.random() * 1_000_000_000);
+  const optimistic: MessageResponse = {
+    id: tempId,
+    channelId,
+    authorId: me.id,
+    authorName: me.name,
+    authorKind: me.kind,
+    body,
+    mentions: [],
+    parentMessageId,
+    replyCount: 0,
+    unreadReplyCount: 0, // optimistic 답글은 본인 작성이므로 미읽음 아님
+    followed: false, // 답글은 부모가 아니므로 팔로우 무관
+    reactions: [],
+    attachments: [], // optimistic — 서버 응답 시 실제값으로 치환
+    driveLinks: [], // optimistic — 서버 응답 시 실제값으로 치환 (#80)
+    createdAt: new Date().toISOString(),
+    editedAt: null,
+    deleted: false,
+  };
+
+  // 스레드 캐시 끝에 append(ASC 정렬 — 첫 페이지가 가장 오래된 페이지).
+  qc.setQueryData<InfiniteData<MessagePage>>(messagingKeys.thread(parentMessageId), (old) => {
+    if (!old) {
+      return {
+        pages: [{ items: [optimistic], nextCursor: null, hasMore: false }],
+        pageParams: [undefined],
+      };
+    }
+    const last = old.pages[old.pages.length - 1];
+    const head = old.pages.slice(0, -1);
+    return { ...old, pages: [...head, { ...last, items: [...last.items, optimistic] }] };
+  });
+  return tempId;
 }
 
 export function useCreateReply(channelId: number, parentMessageId: number, me: MeContext) {
@@ -32,40 +81,8 @@ export function useCreateReply(channelId: number, parentMessageId: number, me: M
       await qc.cancelQueries({ queryKey: threadKey });
       const threadSnap = qc.getQueryData<InfiniteData<MessagePage>>(threadKey);
 
-      const tempId = -Math.floor(Math.random() * 1_000_000_000);
-      const optimistic: MessageResponse = {
-        id: tempId,
-        channelId,
-        authorId: me.id,
-        authorName: me.name,
-        authorKind: me.kind,
-        body,
-        mentions: [],
-        parentMessageId,
-        replyCount: 0,
-        unreadReplyCount: 0, // optimistic 답글은 본인 작성이므로 미읽음 아님
-        followed: false, // 답글은 부모가 아니므로 팔로우 무관
-        reactions: [],
-        attachments: [], // optimistic — 서버 응답 시 실제값으로 치환
-        driveLinks: [], // optimistic — 서버 응답 시 실제값으로 치환 (#80)
-        createdAt: new Date().toISOString(),
-        editedAt: null,
-        deleted: false,
-      };
-
-      // 스레드 캐시 끝에 append(ASC 정렬 — 첫 페이지가 가장 오래된 페이지).
-      qc.setQueryData<InfiniteData<MessagePage>>(threadKey, (old) => {
-        if (!old) {
-          return {
-            pages: [{ items: [optimistic], nextCursor: null, hasMore: false }],
-            pageParams: [undefined],
-          };
-        }
-        const last = old.pages[old.pages.length - 1];
-        const head = old.pages.slice(0, -1);
-        return { ...old, pages: [...head, { ...last, items: [...last.items, optimistic] }] };
-      });
-      // replyCount 는 SSE created 이벤트가 갱신(echo-only) — 여기서 bump 하지 않는다.
+      // 스레드 캐시에만 낙관적 답글을 넣는다 — 부모 replyCount 는 건드리지 않는다(SSE echo 가 +1).
+      const tempId = appendOptimisticReply(qc, channelId, parentMessageId, me, body);
 
       return { threadSnap, tempId };
     },

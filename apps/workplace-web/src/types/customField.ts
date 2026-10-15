@@ -4,6 +4,15 @@
 export const FIELD_TYPES = ['TEXT', 'NUMBER', 'DATE', 'SELECT', 'MULTI_SELECT'] as const;
 export type FieldType = (typeof FIELD_TYPES)[number];
 
+// 영문 enum → 한국어 레이블 매핑 (UI 표시용) — 설정 화면 필드 목록·타입 셀렉트가 공유한다.
+export const FIELD_TYPE_LABEL: Record<FieldType, string> = {
+  TEXT: '텍스트',
+  NUMBER: '숫자',
+  DATE: '날짜',
+  SELECT: '선택',
+  MULTI_SELECT: '복수 선택',
+};
+
 // 프로젝트 단위 커스텀 필드 정의. SELECT/MULTI_SELECT 만 options 사용.
 export interface IssueFieldDef {
   id: number;

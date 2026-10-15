@@ -17,6 +17,7 @@ import {
 import { clearStarterStorage } from '../lib/ai/starterStorage';
 import { clearPushOnLogout } from '../lib/push/subscription';
 import type { LoginFormData, SignupFormData } from '../lib/validations/auth';
+import { withTimeout } from '../lib/withTimeout';
 import type { Membership, UserResponse } from '../types/auth';
 import type { RoleResponse } from '../types/role';
 import { AuthContext } from './auth-context-value';
@@ -226,7 +227,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // 실패는 clearPushOnLogout 내부에서 흡수하지만, 요청 자체가 멈춰버리면(네트워크 hang) 로그아웃 전체가
       // 막혀 사용자가 로그아웃도 못 하게 된다 — 로그아웃은 즉시 끝나야 하는 동작이므로 최대 3초만 기다리고
       // 넘어간다(순서는 유지: 푸시 정리 시도가 먼저).
-      await Promise.race([clearPushOnLogout(), new Promise<void>((resolve) => setTimeout(resolve, 3000))]);
+      await withTimeout(clearPushOnLogout(), 3000);
       await authApi.logout();
     } finally {
       setAccessToken(null);

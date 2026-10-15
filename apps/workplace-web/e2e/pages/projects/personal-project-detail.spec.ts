@@ -71,7 +71,6 @@ test('체크리스트는 작업 행과 AI 진행·AI 위임 배지를 렌더한�
   await mockPersonal(page, [
     createIssue({ projectKey: KEY, number: 1, title: '블로그 초안', status: 'IN_PROGRESS', assignees: [agent] }),
     createIssue({ projectKey: KEY, number: 2, title: '운동 계획', status: 'TODO', assignees: [] }),
-    createIssue({ projectKey: KEY, number: 3, title: '주간 회고', status: 'TODO', assignees: [agent] }),
     createIssue({
       projectKey: KEY, number: 4, title: '여행 예약', status: 'IN_PROGRESS', assignees: [agent],
       // 서버는 급한 순으로 내려준다(BLOCKED 가 WORKING 보다 앞).
@@ -82,12 +81,10 @@ test('체크리스트는 작업 행과 AI 진행·AI 위임 배지를 렌더한�
 
   await expect(page.getByTestId('personal-task-row-1')).toContainText('블로그 초안');
   await expect(page.getByTestId('personal-task-row-2')).toContainText('운동 계획');
-  // AGENT 담당 + 진행 중 작업 기록 없음 → "AI 위임"(예전 "AI 처리중" 문구는 없어졌다 — 진행 상태는 작업 기록이 보여 준다).
-  await expect(page.getByTestId('ai-delegation-badge-1')).toContainText('AI 위임');
+  // 상태별 배지 판정(AI 위임·시작 전·대표 상태·없음)은 AiDelegationBadge.test.ts(delegationState)가 담당 —
+  // 여기선 체크리스트 행에 배지가 연결되는지만 대표 상태 하나와 배지 없음 하나로 본다.
   // 비위임 행엔 배지 없음.
   await expect(page.getByTestId('ai-delegation-badge-2')).toHaveCount(0);
-  // AGENT 담당 + TODO + 작업 없음 → AI 진행 "시작 전".
-  await expect(page.getByTestId('ai-delegation-badge-3')).toHaveText('시작 전');
   // 진행 중 작업이 있으면 가장 급한 상태(막힘 > 작업 중). 서버가 급한 순으로 내려주므로 화면은 첫 항목을 쓴다.
   await expect(page.getByTestId('ai-delegation-badge-4')).toHaveText('막힘');
   await expect(page.getByTestId('personal-checklist')).not.toContainText('처리중');
@@ -289,36 +286,9 @@ test('체크 토글 클릭 → PATCH { status: DONE } 호출 + 완료 스타일 
 
 // ─── 신규 테스트 ───────────────────────────────────────────────────────────────
 
-test('마감 기준 섹션 그룹화 — 과거=overdue, 먼미래=upcoming, 기한없음=noDue, 완료=done(접힘)', async ({ authenticatedPage: page }) => {
-  await mockPersonal(page, [
-    // 명확히 과거 날짜 → overdue
-    createIssue({ projectKey: KEY, number: 1, title: '지난작업', status: 'TODO', dueDate: '2020-01-01' }),
-    // 명확히 먼 미래 → upcoming
-    createIssue({ projectKey: KEY, number: 2, title: '미래작업', status: 'TODO', dueDate: '2999-12-31' }),
-    // 기한 없음 → noDue
-    createIssue({ projectKey: KEY, number: 3, title: '기한없음', status: 'TODO', dueDate: undefined }),
-    // 완료 → done 섹션(접힘)
-    createIssue({ projectKey: KEY, number: 4, title: '완료작업', status: 'DONE', dueDate: undefined }),
-    // 취소 → 숨김(어느 섹션에도 없음)
-    createIssue({ projectKey: KEY, number: 5, title: '취소작업', status: 'CANCELED', dueDate: undefined }),
-  ]);
-  await page.goto(`/projects/${KEY}`);
-
-  await expect(page.getByTestId('personal-section-overdue')).toContainText('지난작업');
-  await expect(page.getByTestId('personal-section-upcoming')).toContainText('미래작업');
-  await expect(page.getByTestId('personal-section-noDue')).toContainText('기한없음');
-  // 완료는 접혀있어 기본 비표시.
-  await expect(page.getByTestId('personal-section-done')).toBeVisible(); // 섹션 버튼은 보임
-  await expect(page.getByTestId('personal-task-row-4')).toHaveCount(0); // 행은 숨김
-  // 취소는 어느 섹션에도 없음.
-  await expect(page.getByTestId('personal-task-row-5')).toHaveCount(0);
-});
-
 test('행에 우선순위(막대)·라벨·짧은 마감 텍스트가 렌더된다', async ({ authenticatedPage: page }) => {
   const label = createLabel({ id: 5, name: '긴급' });
-  // 오늘 마감 — formatDueShort 가 "오늘" 출력하는지 확인용(고정 날짜 대신 오늘 기준).
-  const today = new Date();
-  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  // 마감 문구·색 규칙(오늘/내일/어제·연도 생략·warning)은 personalDue 단위 테스트가 맡는다(WP-412) — 여기선 행에 그려지는지만 본다.
   await mockPersonal(page, [
     createIssue({
       projectKey: KEY,
@@ -329,8 +299,6 @@ test('행에 우선순위(막대)·라벨·짧은 마감 텍스트가 렌더된�
       dueDate: '2020-01-10', // 명확히 지난 날 → "2020년 1월 10일" + text-destructive
       labels: [toLabelSummary(label)],
     }),
-    // 오늘 마감 → "오늘" 짧은 포맷.
-    createIssue({ projectKey: KEY, number: 2, title: '오늘작업', status: 'TODO', priority: 'MID', dueDate: todayStr }),
   ]);
   await page.goto(`/projects/${KEY}`);
 
@@ -342,10 +310,6 @@ test('행에 우선순위(막대)·라벨·짧은 마감 텍스트가 렌더된�
   await expect(row).not.toContainText('높음');
   // 지난 마감 → 짧은 포맷(연도 포함) + text-destructive 색.
   await expect(row.locator('span.text-destructive')).toContainText('2020년 1월 10일');
-  // 오늘 마감 행 → "오늘" 짧은 포맷, data-priority='MID'.
-  const today2 = page.getByTestId('personal-task-row-2');
-  await expect(today2).toHaveAttribute('data-priority', 'MID');
-  await expect(today2).toContainText('오늘');
 });
 
 test('행 data-status 속성이 이슈 상태와 일치한다', async ({ authenticatedPage: page }) => {
@@ -450,6 +414,7 @@ test('툴바 검색 입력 → ?q= URL 반영 + 이슈 API query param(q) 전달
 });
 
 test('그룹=상태 클릭 → 체크리스트가 상태 섹션(TODO/IN_PROGRESS/DONE)으로 재구성된다', async ({ authenticatedPage: page }) => {
+  // 배선 검증 — 섹션 구성 규칙(완료 비접힘·취소 제외·정렬)은 personalGrouping 단위 테스트가 맡는다(WP-412).
   await mockPersonal(page, [
     createIssue({ projectKey: KEY, number: 1, title: '할일A', status: 'TODO', dueDate: '2020-01-01' }),
     createIssue({ projectKey: KEY, number: 2, title: '진행B', status: 'IN_PROGRESS', dueDate: undefined }),
@@ -467,8 +432,6 @@ test('그룹=상태 클릭 → 체크리스트가 상태 섹션(TODO/IN_PROGRESS
   await expect(page).toHaveURL(/group=status/);
   await expect(page.getByTestId('personal-section-TODO')).toContainText('할일A');
   await expect(page.getByTestId('personal-section-IN_PROGRESS')).toContainText('진행B');
-  // 상태 모드에서는 완료가 접히지 않고 일반 섹션(DONE)으로 항상 표시된다.
-  await expect(page.getByTestId('personal-section-DONE')).toContainText('완료C');
   // 마감 버킷 섹션은 더 이상 없다.
   await expect(page.getByTestId('personal-section-overdue')).toHaveCount(0);
 });

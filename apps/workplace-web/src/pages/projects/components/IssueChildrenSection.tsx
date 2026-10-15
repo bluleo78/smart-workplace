@@ -30,6 +30,7 @@ import { handleApiError } from '../../../lib/api-error';
 import { isClosedStatus } from '../../../lib/issueGrouping';
 import { getIssueTypeLabel } from '../../../lib/issueTypeLabels';
 import type { IssueResponse } from '../../../types/issue';
+import { sortChildrenByCreatedAt } from './childOrder';
 import { IssueStatusBadge } from './IssueStatusBadge';
 
 export function IssueChildrenSection({
@@ -95,11 +96,8 @@ export function IssueChildrenSection({
     enabled: !!projectKey && Number.isFinite(parentNumber),
   });
 
-  // 생성 시간 오름차순 정렬 — 백엔드 기본 정렬(updatedAt desc)로 인해 신규 항목이
-  // 최상단에 삽입되는 역방향 UX 방지 (refs #166).
-  const items: IssueResponse[] = (children.data?.items ?? []).slice().sort(
-    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-  );
+  // 생성 시간 오름차순 정렬 — 신규 항목이 최상단에 끼어드는 역방향 UX 방지 (refs #166).
+  const items: IssueResponse[] = sortChildrenByCreatedAt(children.data?.items ?? []);
   const [newTitle, setNewTitle] = useState('');
   const [adding, setAdding] = useState(false);
   // 모바일(WP-196): 「＋ 하위 태스크 추가」 탭으로 입력칸을 펼치는 연속 입력 UX. 데스크톱은 입력칸이 항상 보인다.

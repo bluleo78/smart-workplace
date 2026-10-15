@@ -42,8 +42,4 @@ test('워크스페이스 관리 그룹에서 에이전트가 구성원 바로 �
   expect(labels.map((label) => label.trim())).toEqual(['구성원', '에이전트', '역할', 'SSO', '감사 로그'])
 })
 
-test('일반 사용자는 관리 사이드바에 접근할 수 없다', async ({ authenticatedPage: page }) => {
-  // AdminRoute 가 비관리자를 "/" 로 리다이렉트하므로 설정 사이드바는 마운트되지 않는다.
-  await page.goto('/settings/users')
-  await expect(page.getByTestId('settings-sidebar')).toHaveCount(0)
-})
+// 비관리자의 /settings/users 접근 차단(홈 리다이렉트)은 settings/settings-nav.spec.ts 가 맡는다.

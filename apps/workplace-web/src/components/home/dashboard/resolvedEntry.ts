@@ -37,6 +37,11 @@ export function resolveEntries(widgets: DashboardWidgetConfig[]): ResolvedEntry[
   return widgets.map(resolveEntry).filter((e): e is ResolvedEntry => e !== null)
 }
 
+/** 보기(편집 아님) 모드에 그릴 엔트리 — 숨김 위젯을 뺀다(저장 순서는 유지). 숨김은 편집 모드에서만 흐리게 보인다. */
+export function visibleEntries(entries: ResolvedEntry[]): ResolvedEntry[] {
+  return entries.filter((e) => !e.cfg.hidden)
+}
+
 /** 엔트리 표시 제목 — 카탈로그는 사용자 라벨 우선, 없으면 레지스트리 기본 제목. */
 export function entryTitle(entry: ResolvedEntry): string {
   if (entry.kind === 'catalog' && entry.cfg.label) return entry.cfg.label

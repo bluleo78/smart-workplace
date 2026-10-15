@@ -100,18 +100,7 @@ test.describe('@smoke 설정 레이아웃 일관성', () => {
     )
     expect(overflow).toBeLessThanOrEqual(1)
   })
-  // API 토큰 — 구성원/역할/감사 로그와 동일한 풀폭 목록 레이아웃(#655) + 헤더 액션으로 발급 모달 오픈
-  test('API 토큰 페이지가 공용 PageHeader + 풀폭 목록 + 발급 액션을 렌더한다', async ({
-    authenticatedPage: page,
-  }) => {
-    await mockApi(page, 'GET', '/api/v1/users/me/api-tokens', [])
-    await page.goto('/settings/tokens')
-    await expect(page.getByTestId('page-header')).toContainText('API 토큰')
-    await expect(page.getByTestId('token-issue-open')).toBeVisible()
-
-    await page.getByTestId('token-issue-open').click()
-    await expect(page.getByTestId('token-issue-form-dialog')).toBeVisible()
-  })
+  // API 토큰 페이지의 PageHeader·발급 액션·발급 모달은 settings/api-tokens.spec.ts 발급 흐름이 맡는다.
 
   // 긴 폐기 일시 문자열이 상태 컬럼을 밀어내 테이블이 컨테이너 밖으로 넘치고
   // 폐기 버튼이 잘려 보이지 않던 회귀(#655) — Badge + 짧은 날짜 표기로 방지.
