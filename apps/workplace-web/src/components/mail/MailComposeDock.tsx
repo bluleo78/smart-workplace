@@ -3,9 +3,11 @@
 
 import axios from 'axios';
 import { Minus, Send, Sparkles, X } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { AiContent } from '@/components/ai/AiContent';
+import { useMailDarkHtml } from '@/hooks/useMailDarkHtml';
+import { withComposerPreviewStyle } from '@/lib/composerPreviewHtml';
 import { cn } from '@/lib/utils';
 
 import { useCoachDraft, useSendMail } from '../../hooks/queries/useMailMessages';
@@ -33,7 +35,8 @@ export function MailComposeDock() {
   const coach = useCoachDraft();
   const [tab, setTab] = useState<'compose' | 'review'>('compose');
   const [hasBody, setHasBody] = useState(false);
-  // 마지막으로 코칭한 본문 평문 — 본문이 바뀌면(편집/개선본 교체) 재검토를 트리거하기 위한 stale 가드.
+  // 마지막으로 코칭한 본문 HTML — 본문이 바뀌면(편집/개선본 교체) 재검토를 트리거하기 위한 stale 가드.
+  // 평문이 아니라 HTML 로 비교한다(WP-404) — AI 입력이 HTML 이라, 굵게·빈 줄만 바꿔도 다시 검토해야 교체 때 그 서식이 남는다.
   const lastCoachedRef = useRef<string | null>(null);
 
   const [minimized, setMinimized] = useState(false);
@@ -68,13 +71,22 @@ export function MailComposeDock() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft]);
 
+  // 개선본 미리보기 문서(WP-404) — 에디터와 같은 문단·글자 규칙을 입히고, 다크 테마면 받은 메일 본문처럼 테마색으로 바꾼다.
+  // 그래야 미리보기에서 본 모습이 "개선본으로 교체" 후 에디터 모습과 같다.
+  const improvedHtml = coach.data?.improvedBodyHtml;
+  const styledImprovedHtml = useMemo(
+    () => (improvedHtml ? withComposerPreviewStyle(improvedHtml) : null),
+    [improvedHtml],
+  );
+  const improvedPreviewHtml = useMailDarkHtml(styledImprovedHtml);
+
   if (!draft) return null;
 
   // "AI 검토" 진입 시 호출. 본문이 직전 코칭과 같으면 캐시 재사용, 다르면 새로 코칭.
   const runCoaching = () => {
     if (coach.isPending) return;
-    if (coach.data && lastCoachedRef.current === bodyTextRef.current) return;
-    lastCoachedRef.current = bodyTextRef.current;
+    if (coach.data && lastCoachedRef.current === bodyHtmlRef.current) return;
+    lastCoachedRef.current = bodyHtmlRef.current;
     coach.reset();
     coach.mutate({
       accountId: draft.accountId,
@@ -284,15 +296,16 @@ export function MailComposeDock() {
                       ))
                     )}
                   </div>
-                  {coach.data.improvedBodyHtml && (
+                  {improvedPreviewHtml && (
                     <div className="flex flex-col gap-1.5">
                       <span className="text-xs font-semibold uppercase text-muted-foreground">다듬은 개선본</span>
                       {/* LLM 생성 HTML 은 공용 격리 iframe(SandboxedHtmlFrame, sandbox="")으로 렌더해 XSS 방지. */}
                       <SandboxedHtmlFrame
                         data-testid="mail-coaching-improved"
                         title="다듬은 개선본"
-                        html={coach.data.improvedBodyHtml}
-                        className="min-h-[8rem] w-full rounded border border-border bg-muted/40"
+                        html={improvedPreviewHtml}
+                        // 에디터 입력칸과 같은 테두리·배경.
+                        className="min-h-[8rem] w-full rounded-md border border-input bg-background"
                       />
                       <div className="flex gap-2">
                         <button

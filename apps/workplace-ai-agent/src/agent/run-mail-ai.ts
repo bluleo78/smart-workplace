@@ -30,6 +30,7 @@ interface BaseConfig {
 export interface ThreadMsg { from: string; date: string; body: string; }
 export interface ReplyDraftInput extends BaseConfig { thread: ThreadMsg[]; replyingAs: string; memories?: MemoryItem[]; }
 export interface DraftCoachingInput extends BaseConfig {
+  // WP-404: 작성 에디터의 HTML(빈 줄=빈 <p></p>) — API 가 bodyHtml 을 넘긴다(없으면 텍스트).
   draftBody: string;
   thread: ThreadMsg[];
   replyingAs: string;
@@ -101,7 +102,7 @@ export async function runMailDraftCoaching(
   const context = convo ? `원문 대화(답장 상황):\n${convo}\n\n` : '';
   const userMessage = withReadOnlyMemory(
     input.memories,
-    `${context}당신은 ${input.replyingAs} 입니다. 아래 내 초안을 코칭하세요.\n\n내 초안:\n${input.draftBody}`,
+    `${context}당신은 ${input.replyingAs} 입니다. 아래 내 초안을 코칭하세요.\n\n내 초안(HTML):\n${input.draftBody}`,
   );
   const text = await runText(MAIL_DRAFT_COACHING_PROMPT, userMessage, input, deps, 'mail-draft-coaching');
   return parseDraftCoachingJson(text);

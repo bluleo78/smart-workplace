@@ -67,6 +67,18 @@ describe('runMailDraftCoaching', () => {
     expect(out.notes).toEqual([{ dimension: 'TONE', message: '명령조' }]);
     expect(out.improvedBodyHtml).toBe('<p>개선</p>');
   });
+
+  // WP-404: 초안 HTML 을 그대로 싣고, 프롬프트가 빈 줄(빈 <p></p>)·서식 유지를 지시한다.
+  it('초안 코칭 — HTML 초안을 싣고 빈 단락·서식 유지를 지시', async () => {
+    vi.mocked(runSdkCollect).mockResolvedValue([
+      JSON.stringify({ type: 'result', subtype: 'success', result: '{"notes":[],"improvedBodyHtml":"<p>a</p>"}' }),
+    ]);
+    const draft = '<p>안녕하세요</p><p></p><p><strong>자료</strong> 보내</p>';
+    await runMailDraftCoaching({ ...cfg, replyingAs: 'me@x', draftBody: draft, thread: [] }, { client: fakeClient });
+    const arg = vi.mocked(runSdkCollect).mock.calls[0][0];
+    expect(arg.userMessage).toContain(`내 초안(HTML):\n${draft}`);
+    expect(arg.systemPrompt).toContain('빈 단락(<p></p>)');
+  });
 });
 
 describe('buildContentUserMessage', () => {

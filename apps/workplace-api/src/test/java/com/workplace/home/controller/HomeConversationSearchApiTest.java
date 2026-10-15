@@ -34,7 +34,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * WP-384 search_conversations API — 키워드·의미(가짜 임베딩, 5초 대기)로 본인 대화만, 대화마다 대표 턴 하나, 지금 대화·지운 대화·남의 대화
- * 제외, 꺼짐이면 memoryEnabled=false, 빈 질의 400, limit 기본 5·최대 10, 질문 앞 200자·답 발췌 300자, 링크 "/?aiChat=<id>".
+ * 제외, 꺼짐이면 memoryEnabled=false, 빈 질의 400, limit 기본 5·최대 10, 질문 앞 200자·답 발췌 300자, 링크
+ * "/?aiChat=<id>".
  */
 @Transactional
 @Import(FakeTextEmbedderConfig.class)
