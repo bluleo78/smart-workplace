@@ -848,3 +848,25 @@ test('덮어쓰기 확인: 제출로 비워진 이름·키 칸을 다음 차례�
   expect(await focusTargets(ui)).toEqual(['gw-switch-now'])
   await ui.unmount()
 })
+
+// prompt.submit 안전망 — 키 모양 프롬프트는 모델에 닿지 않고, 안내·로그에 키가 없다
+const B43 = 'aB3dE5gH7jK9mN1pQ3rS5tU7vW9xY1zA3bC5dE7fG9h'
+
+test('prompt.submit: 43자 ak_ 키가 든 프롬프트는 막고 키를 토스트·로그에 싣지 않는다', async ($, on) => {
+  const key = 'ak_' + B43
+  const seen: string[] = []
+  on('ui.toast', (_$: any, e: any, next: any) => { seen.push(JSON.stringify(e)); return next(e) })
+  on('prompt.submit', (_$: any, e: any) => { seen.push('REACHED ' + e.text); return { text: e.text } })
+  const r: any = await $.prompt.submit({ text: `이 키 써 줘 ${key}` })
+  expect(typeof r.drop).toBe('string')
+  expect(r.drop).toContain('Ctrl+U')
+  expect(JSON.stringify(r)).not.toContain(B43)
+  expect(seen.join('\n')).not.toContain(B43)
+  expect(seen.some((s) => s.startsWith('REACHED'))).toBe(false)
+})
+
+test('prompt.submit: 보통 프롬프트와 짧은 가짜 키는 통과한다', async ($, on) => {
+  on('prompt.submit', (_$: any, e: any) => ({ text: e.text }))
+  expect(((await $.prompt.submit({ text: 'hi' })) as any).text).toBe('hi')
+  expect(((await $.prompt.submit({ text: 'ak_FAKE_ABC123 형식' })) as any).text).toBe('ak_FAKE_ABC123 형식')
+})
