@@ -15,15 +15,26 @@ export function parseKeyList(stdout) {
     })
 }
 
-// 상태 줄 문구 — 헤더 스크립트와 같은 우선순위(세션 선택 > GENIA_WORKS_AS > 환경변수 토큰 > 내 토큰).
+// 상태 줄 문구 — 앞의 플러그인 이름(genia-works)은 Claude Code 가 붙이므로 여기서는 쓰지 않는다(두 번 나오던 결함).
+//  헤더 스크립트와 같은 우선순위(세션 선택 > GENIA_WORKS_AS > 환경변수 토큰 > 내 토큰).
 // keyMissing: 고른 이름의 키 파일이 없는 경우. 이때 서버는 "Bearer invalid" 로 받아 오류 문구가 오해를 부르므로 여기서 바로 알린다(판정 3).
 export function identityLabel({ selected, as, hasEnvToken, keyMissing }) {
   const pick = selected || as
   if (pick && pick !== 'me') {
-    return keyMissing ? `genia-works: ${pick} 키가 없습니다 — ${COMMANDS.login}` : `genia-works: ${pick}`
+    return keyMissing ? `${pick} 키가 없습니다 — ${COMMANDS.login}` : pick
   }
-  return hasEnvToken ? 'genia-works: 환경변수 토큰' : 'genia-works: 내 토큰'
+  return hasEnvToken ? '환경변수 토큰' : '내 토큰'
 }
+
+// 비대화형(claude -p·SDK) 판정 — 이런 세션에서는 연결을 다시 붙일 수 없고($.command.run 불가) 패널도 못 그린다.
+// 신호 둘: session.start 의 isInteractive(false 면 -p/SDK) 또는 명령 origin.kind === 'sdk'(-p 가 실행한 명령).
+// interactive 가 아직 모르면(undefined) 대화형으로 본다 — 모르는데 막으면 대화형 사용자가 전환을 못 한다.
+export function isHeadless({ interactive, origin }) {
+  return interactive === false || origin?.kind === 'sdk'
+}
+
+export const HEADLESS_SWITCH = '이 세션에서는 바꿀 수 없습니다 — 띄울 때 GENIA_WORKS_AS 로 지정하세요'
+export const HEADLESS_LOGIN = '로그인 화면은 대화형 세션에서만 열 수 있습니다 — 띄울 때 GENIA_WORKS_AS 로 지정하세요'
 
 // 키 저장소(~/.genia-works) 경로가 든 도구 입력인지 — 대화로 키가 새지 않게 막는다(우회는 막지 못함, README 에 명시).
 // 경로 뒤에 올 수 있는 구분자: 경로 구분·끝·따옴표·공백·셸 연산자(;&|)<>).

@@ -54,7 +54,7 @@ Claude Code 안에서 두 줄을 실행합니다. 목록 주소는 접속하는 
 
 - 바꾸면 이 세션의 genia-works 연결만 다시 붙습니다. 대화와 맥락은 그대로이고, 이후 genia-works 호출의 신원만 바뀝니다.
 - `/clear` 를 해도 고른 신원은 유지됩니다. 세션을 끝내면(`/exit` 등) 선택이 지워집니다.
-- 프롬프트 아래 상태 줄에 지금 신원이 보입니다: `genia-works: 내 토큰`, `genia-works: 환경변수 토큰`, `genia-works: <이름>`.
+- 프롬프트 아래 상태 줄에 지금 신원이 보입니다: `내 토큰`, `환경변수 토큰`, `<이름>`(앞에 플러그인 이름 genia-works 는 Claude Code 가 붙입니다).
 
 ### 띄울 때 고르기
 
@@ -125,7 +125,7 @@ GENIA_WORKS_AS=ai-dev claude
   GENIA_WORKS_TOKEN=<발급한 ak_ 키> claude
   ```
   이 방법은 셸 기록에 키가 남을 수 있습니다. 환경변수를 셸 기록이 남지 않는 방법으로 설정하세요.
-- **`claude -p`(비대화형)**: 로그인 화면을 그릴 수 없고, 연결을 다시 붙일 수 없어 `/genia-works:as` 로도 신원이 바뀌지 않습니다. 띄울 때 `GENIA_WORKS_AS=<이름>` 이나 `GENIA_WORKS_TOKEN` 으로 정하세요.
+- **`claude -p`(비대화형)**: 로그인 화면을 그릴 수 없고, 연결을 다시 붙일 수 없어 신원을 바꿀 수 없습니다. `/genia-works:as <이름>`·`logout` 은 「이 세션에서는 바꿀 수 없습니다」, `login` 은 「대화형 세션에서만 열 수 있습니다」라고 답하고 아무것도 바꾸지 않습니다. 띄울 때 `GENIA_WORKS_AS=<이름>` 이나 `GENIA_WORKS_TOKEN` 으로 정하세요.
 - 신원은 연결할 때 정해집니다. 바꾸면 이 세션의 genia-works 연결이 다시 붙습니다. Claude 가 genia-works 도구를 부르는 중에는 바꾸지 마세요.
 
 ## 업데이트

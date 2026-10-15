@@ -1,10 +1,12 @@
 // genia-works mod — 세션별 접속 신원 선택(로그인 패널·전환·로그아웃), 신원 상태 줄, 키 파일 읽기 차단,
 // 기존 수동 등록 정리. 토큰 주입은 하지 않는다(헤더 스크립트 담당 — 플러그인 MCP 가 mod 보다 먼저 연결된다).
 // 규칙: $ 를 쓰는 코드는 모두 이 파일 안에 둔다(다른 파일 함수에 $ 를 넘기면 검증이 실패). lib.js 는 순수 함수만.
-import { COMMANDS, parseKeyList, identityLabel, isKeyPath, toolTargets, END_CLEARS, applyMaskedInput, maskOf, initializeBody, validName, validKey, findManualRegistrations, sameServer } from './lib.js'
+import { COMMANDS, parseKeyList, identityLabel, isKeyPath, toolTargets, END_CLEARS, applyMaskedInput, maskOf, initializeBody, validName, validKey, findManualRegistrations, sameServer, isHeadless, HEADLESS_SWITCH, HEADLESS_LOGIN } from './lib.js'
 
 const SERVER = 'plugin:genia-works:genia-works'
 let opts = {}
+// 대화형 여부 — session.start 가 알려 준다(모르면 undefined → 대화형으로 본다). 명령의 origin 과 함께 isHeadless 로 판정.
+let interactive
 
 // 플러그인 scripts/ 의 sh 스크립트 실행 — 키 저장소·세션 선택 파일은 스크립트만 다룬다(원자적 교체·권한 규칙을 한곳에).
 async function script($, name, args, stdin) {
@@ -71,6 +73,8 @@ async function openLogin($) {
   attempt++
   pane = { view: list.length ? 'pick' : 'add', list, current, keyBuf: '', name: '', message: '', confirm: '', busy: false }
   await $.ui.open({ id: PANE, title: 'genia-works 로그인', focus: true, closeOnEscape: true })
+  // 다시 열 때 엔진이 지난 그림(settled)을 재사용하므로, 새 상태로 다시 그리라고 요청한다(안 하면 지난 화면이 남는다).
+  $.ui.invalidate('ui.render')
 }
 
 // 키 확인 — 그 키로 initialize 를 보내 401 이면 거절. 네트워크 오류·무응답(10초)은 저장하지 않고 고정 문구로 알린다(오류 원문엔 키가 섞일 수 있어 쓰지 않는다).
@@ -209,7 +213,7 @@ function renderPane($, e) {
   } else if (pane.view === 'saved') {
     body = [
       msg,
-      h(Button, { key: 'gw-switch-now', label: '바꾸기', onPress: async () => { await pickAndClose($, pane.name) } }),
+      h(Button, { key: 'gw-switch-now', label: '바꾸기', autoFocus: true, onPress: async () => { await pickAndClose($, pane.name) } }),
       h(Button, { key: 'gw-later', label: '나중에', onPress: async () => { await closePane($) } }),
     ]
   } else {
@@ -348,6 +352,7 @@ export function register(on, options) {
   opts = options ?? {}
 
   on('session.start', async ($, e, next) => {
+    interactive = e.isInteractive
     try {
       await refreshStatus($)
     } catch {} // 스크립트 실패는 상태 줄만 건너뛰고 세션 시작은 막지 않는다
@@ -361,10 +366,12 @@ export function register(on, options) {
   // 가로채기가 실패하면 명령 파일 본문이 모델 프롬프트로 가므로 .catch 로 실패 안내를 돌려준다. 문구 앞의 플러그인 이름은 Claude Code 가 붙인다.
   on('command.run', { command: 'genia-works:as' }, async ($, e) => {
     const name = e.args.trim()
+    if (name && isHeadless({ interactive, origin: e.origin })) return { text: HEADLESS_SWITCH }
     return { text: name ? await switchTo($, name) : await describe($) }
   }).catch(() => ({ text: '신원을 바꾸지 못했습니다. 잠시 뒤 다시 시도하세요' }))
 
-  on('command.run', { command: 'genia-works:logout' }, async ($) => {
+  on('command.run', { command: 'genia-works:logout' }, async ($, e) => {
+    if (isHeadless({ interactive, origin: e.origin })) return { text: HEADLESS_SWITCH }
     const r = await script($, 'gw-session', ['clear'])
     if (r.exitCode !== 0) return { text: '이 세션을 찾지 못했습니다' }
     reconnectSoon($)
@@ -372,7 +379,8 @@ export function register(on, options) {
   }).catch(() => ({ text: '로그아웃하지 못했습니다. 잠시 뒤 다시 시도하세요' }))
 
   // 로그인 패널 — 명령으로 열고, 그리기는 이 패널 id 만 맡는다(다른 패널은 그대로 넘긴다).
-  on('command.run', { command: 'genia-works:login' }, async ($) => {
+  on('command.run', { command: 'genia-works:login' }, async ($, e) => {
+    if (isHeadless({ interactive, origin: e.origin })) return { text: HEADLESS_LOGIN }
     await openLogin($)
     return {}
   }).catch(() => ({ text: '로그인 패널을 열지 못했습니다. 잠시 뒤 다시 시도하세요' }))

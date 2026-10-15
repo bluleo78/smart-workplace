@@ -519,3 +519,52 @@ for (const [label, o] of [['성공', {}], ['호출 실패', { callError: true }]
     expect(text).not.toContain(NEW_TOKEN)
   })
 }
+
+test('login: 같은 세션에서 다시 열면 다시 그리기를 요청하고 새 상태를 그린다', { options: { server_url: SERVER_URL } }, async ($, on) => {
+  const answers = { 'gw-keys list': { exitCode: 0, stdout: 'ai-dev\t10-14\n' }, 'gw-session show': { exitCode: 0, stdout: '' } }
+  loginWorld(on, answers)
+  const invalidated: string[] = []
+  on('ui.invalidate', (_$: any, e: any) => { invalidated.push(e.event); return { value: undefined } })
+  await $.command.run({ command: LOGIN_COMMAND, args: '' })
+  expect(invalidated).toContain('ui.render') // 열 때마다 요청한다
+  const ui = await mountPane($)
+  await ui.press({ key: 'gw-manage' }) // 상태를 지난 화면과 다르게 만든 뒤 닫는다
+  await ui.unmount()
+  invalidated.length = 0
+  await $.command.run({ command: LOGIN_COMMAND, args: '' })
+  expect(invalidated).toEqual(['ui.render'])
+  const again = await mountPane($)
+  expect(await again.find({ key: 'gw-pick-ai-dev' })).toBeTruthy() // 처음 화면(고르기)으로 되돌아와 있다
+  await again.unmount()
+})
+
+test('login: 저장 뒤 화면은 바꾸기에 처음 포커스를 둔다', { options: { server_url: SERVER_URL } }, async ($, on) => {
+  loginWorld(on, EMPTY)
+  const ui = await fillAndSave($, FAKE_KEY, 'ai-dev')
+  const now: any = await ui.find({ key: 'gw-switch-now' })
+  expect(JSON.stringify(now)).toContain('autoFocus')
+  const later: any = await ui.find({ key: 'gw-later' })
+  expect(JSON.stringify(later)).not.toContain('autoFocus')
+  await ui.unmount()
+})
+
+test('비대화형(-p): as·logout·login 은 바꾸지 않고 안내만 한다', async ($, on) => {
+  const calls = stubScripts(on, {})
+  const clock = mock.clock(on)
+  mock.env(on, {})
+  const reconnects: string[] = []
+  on('command.run', { command: 'mcp' }, (_$: any, e: any) => { reconnects.push(e.args); return {} })
+  on('ui.open', () => ({ value: undefined }))
+  on('ui.status', () => ({ value: undefined }))
+  on('session.start', (_$: any, e: any) => ({ cwd: e.cwd }))
+  await $.session.start({ cwd: '/tmp', surface: null, isInteractive: false })
+  const before = calls.length
+  const as = await $.command.run({ command: AS_COMMAND, args: 'ai-dev' })
+  expect(as.text).toContain('이 세션에서는 바꿀 수 없습니다')
+  expect(as.text).toContain('GENIA_WORKS_AS')
+  expect((await $.command.run({ command: LOGOUT_COMMAND, args: '' })).text).toContain('바꿀 수 없습니다')
+  expect((await $.command.run({ command: LOGIN_COMMAND, args: '' })).text).toContain('대화형')
+  await clock.advance(400)
+  expect(calls.slice(before).some((c) => c[1] === 'select' || c[1] === 'clear')).toBe(false)
+  expect(reconnects).toEqual([])
+})
