@@ -4,16 +4,13 @@
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
+import { copyText } from '@/lib/copyText';
 
 export function CopyableCommand({ command, testId }: { command: string; testId: string }) {
   // 클립보드 접근이 막힌 환경에서는 실패를 알리고 직접 선택하도록 안내한다.
   const onCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(command);
-      toast.success('명령을 복사했습니다');
-    } catch {
-      toast.error('복사에 실패했습니다. 명령을 직접 선택해 복사하세요.');
-    }
+    if (await copyText(command)) toast.success('명령을 복사했습니다');
+    else toast.error('복사에 실패했습니다. 명령을 직접 선택해 복사하세요.');
   };
   return (
     <div className="flex min-w-0 flex-col gap-2">

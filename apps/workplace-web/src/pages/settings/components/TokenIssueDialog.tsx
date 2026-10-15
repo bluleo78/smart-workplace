@@ -17,6 +17,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { copyText } from '@/lib/copyText';
 import { formatDateShort } from '@/lib/formatters';
 import { MCP_ENDPOINT } from '@/lib/mcpEndpoint';
 import { buildPluginInstallCommands } from '@/lib/pluginGuide';
@@ -39,12 +40,8 @@ export function TokenIssueDialog({
 }: TokenIssueDialogProps) {
   // 클립보드 복사 공통 — 실패 시 사용자에게 알린다.
   const copy = async (text: string, message: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      toast.success(message);
-    } catch {
-      toast.error('복사에 실패했습니다. 직접 선택해 복사하세요.');
-    }
+    if (await copyText(text)) toast.success(message);
+    else toast.error('복사에 실패했습니다. 직접 선택해 복사하세요.');
   };
 
   return (

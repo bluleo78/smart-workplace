@@ -8,6 +8,7 @@ import path from 'node:path';
 import type { Page } from '@playwright/test';
 
 import { expect, test } from '../../fixtures/auth.fixture';
+import { expectedMcpEndpoint } from '../../fixtures/mcp';
 import type { AgentResponse } from '../../../src/types/agent';
 
 const STAMP = new Date().toISOString().replace(/[:.]/g, '-');
@@ -124,9 +125,7 @@ test.describe('/settings/agents 실행 방식', () => {
     );
     // dev·preview 서버는 운영 기본 주소가 아니므로 ② 에 서버 주소 바꾸기 안내가 보인다(dev 는 MCP 6090, preview 는 접속 origin).
     await expect(page.getByTestId('plugin-server-url-step')).toBeVisible();
-    await expect(page.getByTestId('plugin-server-url')).toHaveText(
-      process.env.E2E_SERVER === 'preview' ? `${origin}/mcp` : 'http://localhost:6090/mcp',
-    );
+    await expect(page.getByTestId('plugin-server-url')).toHaveText(expectedMcpEndpoint(origin));
     await expect(page.getByTestId('agent-login-command')).toHaveText('/genia-works:login');
     await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
     await page.getByTestId('agent-username-copy').click();

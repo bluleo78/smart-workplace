@@ -43,6 +43,20 @@ describe('pluginGuide', () => {
   });
 });
 
+describe('플러그인 파일과의 일치', () => {
+  const pluginFile = (rel: string) => readFileSync(new URL(`../../../../plugins/genia-works/${rel}`, import.meta.url), 'utf8');
+  it('PLUGIN_COMMANDS 는 mod(hooks/lib.js)의 COMMANDS 와 같다', () => {
+    // lib.js 는 별도 ESM 패키지라 가져오지 않고 COMMANDS 객체 리터럴을 읽어 낸다.
+    const literal = /export const COMMANDS = (\{[^}]*\})/.exec(pluginFile('hooks/lib.js'))?.[1] ?? '';
+    const commands = Function(`return (${literal})`)();
+    expect(PLUGIN_COMMANDS).toEqual(commands);
+  });
+  it('목록 파일의 ref 는 genia-works--v + plugin.json 버전이다', () => {
+    const { version } = JSON.parse(pluginFile('.claude-plugin/plugin.json'));
+    expect((marketplace.plugins[0].source as { ref: string }).ref).toBe(`genia-works--v${version}`);
+  });
+});
+
 describe('needsServerUrlSetting', () => {
   it('기본 주소(끝의 / 유무 무관)면 바꿀 필요가 없다', () => {
     expect(needsServerUrlSetting('https://genia-works.iacloud.kr/mcp')).toBe(false);

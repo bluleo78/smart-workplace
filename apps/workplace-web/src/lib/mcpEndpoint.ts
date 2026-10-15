@@ -13,7 +13,7 @@ export function resolveMcpBaseUrl(opts: { explicit: string | undefined; dev: boo
 }
 
 // window 가 없는 환경(node 단위 테스트 등)에서도 import 가 깨지지 않게 origin 을 안전하게 읽는다.
-export const MCP_BASE_URL = resolveMcpBaseUrl({
+const MCP_BASE_URL = resolveMcpBaseUrl({
   explicit: import.meta.env['VITE_MCP_URL'] as string | undefined,
   dev: import.meta.env.DEV,
   origin: typeof window !== 'undefined' ? window.location.origin : '',

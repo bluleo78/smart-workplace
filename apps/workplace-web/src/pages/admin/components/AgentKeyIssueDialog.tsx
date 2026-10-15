@@ -13,6 +13,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 
+import { copyText } from '../../../lib/copyText';
 import { buildSwitchCommand, PLUGIN_COMMANDS } from '../../../lib/pluginGuide';
 
 interface AgentKeyIssueDialogProps {
@@ -29,15 +30,11 @@ export function AgentKeyIssueDialog({
   open,
   onOpenChange,
 }: AgentKeyIssueDialogProps) {
-  // 키 복사 — 클립보드 API 가용성을 확인하고 실패 시 사용자에게 알린다.
+  // 키 복사 — 클립보드 API 가 없으면 대체 경로(copyText)로 시도하고, 그래도 실패하면 사용자에게 알린다.
   const onCopy = async () => {
     if (!plaintextKey) return;
-    try {
-      await navigator.clipboard.writeText(plaintextKey);
-      toast.success('키를 복사했습니다');
-    } catch {
-      toast.error('복사에 실패했습니다. 키를 직접 선택해 복사하세요.');
-    }
+    if (await copyText(plaintextKey)) toast.success('키를 복사했습니다');
+    else toast.error('복사에 실패했습니다. 키를 직접 선택해 복사하세요.');
   };
 
   return (

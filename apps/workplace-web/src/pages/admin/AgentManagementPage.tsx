@@ -37,6 +37,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { copyText } from '@/lib/copyText';
 import { formatDateOnly } from '@/lib/formatters';
 import { parseId } from '@/lib/historyParam';
 import {
@@ -68,12 +69,8 @@ import { PluginServerUrlStep } from './components/PluginServerUrlStep';
 
 // AI 아이디 복사 — 플러그인 로그인 화면의 "이름" 칸에 그대로 붙여 넣게 한다. 실패 시 직접 복사하도록 알린다.
 async function copyUsername(username: string) {
-  try {
-    await navigator.clipboard.writeText(username);
-    toast.success('아이디를 복사했습니다');
-  } catch {
-    toast.error('복사에 실패했습니다. 아이디를 직접 선택해 복사하세요.');
-  }
+  if (await copyText(username)) toast.success('아이디를 복사했습니다');
+  else toast.error('복사에 실패했습니다. 아이디를 직접 선택해 복사하세요.');
 }
 
 export default function AgentManagementPage() {

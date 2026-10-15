@@ -3,6 +3,7 @@
 //          → 닫기 → 목록 반영(만료일 포함) → 폐기.
 
 import { expect, test } from '../../fixtures/auth.fixture';
+import { expectedMcpEndpoint } from '../../fixtures/mcp';
 
 interface UserApiTokenFixture {
   id: number;
@@ -112,9 +113,9 @@ test.describe('/settings/tokens', () => {
       await expect(install).toContainText('/plugin install genia-works@genia-works');
       await expect(page.getByTestId('token-plugin-token-step')).toContainText('/plugin configure genia-works@genia-works');
       // dev·preview 서버는 운영 기본 주소가 아니므로 서버 주소 바꾸기 안내가 보이고, 바꿀 주소는 이 배포의 MCP 주소다.
-      const serverUrlMcp = process.env.E2E_SERVER === 'preview' ? `${origin}/mcp` : 'http://localhost:6090/mcp';
+      const expectedMcp = expectedMcpEndpoint(origin);
       await expect(page.getByTestId('plugin-server-url-step')).toBeVisible();
-      await expect(page.getByTestId('plugin-server-url')).toHaveText(serverUrlMcp);
+      await expect(page.getByTestId('plugin-server-url')).toHaveText(expectedMcp);
       await expect(dialog).not.toContainText('claude mcp add');
       await expect(dialog).not.toContainText('--header');
 
@@ -126,7 +127,6 @@ test.describe('/settings/tokens', () => {
       );
 
       // 다른 도구로 연결(접힘) — 펼치면 연결 주소와 범위 선택 안내(WP-350)가 보인다. dev 는 MCP 6090, preview 는 접속 origin(WP-387).
-      const expectedMcp = process.env.E2E_SERVER === 'preview' ? `${origin}/mcp` : 'http://localhost:6090/mcp';
       await expect(page.getByTestId('token-connect-scope-guide')).toHaveCount(0);
       await page.getByTestId('token-other-tools').click();
       await expect(page.getByTestId('token-mcp-endpoint')).toHaveText(expectedMcp);
