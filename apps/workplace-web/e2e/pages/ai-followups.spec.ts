@@ -4,6 +4,7 @@ import type { Page } from '@playwright/test'
 import { ask, msg, openChatPanel, sessionItem, setupLiveChat, summary, TITLE_A } from '../fixtures/ai-live-chat'
 import { mockAiPreferences } from '../fixtures/ai-suggestions-mock'
 import { expect, test } from '../fixtures/auth.fixture'
+import { expectStartAligned } from '../fixtures/layout'
 import { expectStays, stableBox } from '../fixtures/wait'
 
 const ITEMS = ['내일 회의 준비할 것 정리해줘', '참석자 일정 알려줘', 'WP-12 상태 알려줘']
@@ -108,12 +109,13 @@ test('후속 질문은 빈 대화 추천과 같은 머리말·행 모양으로 �
   await live.push('followups', { correlationId: 'corr-a', sessionId: 's-a', messageId: 2, items: ITEMS })
   await expect(followups(page)).toHaveText(ITEMS)
   await expect(page.getByRole('group', { name: '이어서 물어보기' })).toBeVisible()
-  expect(await look(followups(page).first())).toEqual({ ...starterLook, icon: 1 })
+  expect(starterLook.icon).toBe(1)
+  expect(await look(followups(page).first())).toEqual(starterLook)
   // 한 줄에 하나씩 — 행이 세로로 쌓이고 시작점이 같다.
   const boxes = await Promise.all((await followups(page).all()).map((c) => stableBox(c)))
   for (let i = 1; i < boxes.length; i++) {
     expect(boxes[i].y).toBeGreaterThanOrEqual(boxes[i - 1].y + boxes[i - 1].height - 0.5)
-    expect(Math.round(boxes[i].x)).toBe(Math.round(boxes[0].x))
+    await expectStartAligned(followups(page).nth(i), followups(page).first())
   }
   // 행은 문구 폭만큼만 누른다 — 짧은 문구 오른쪽 빈 곳을 눌러도 질문이 나가지 않는다.
   const group = await stableBox(page.getByTestId('chat-followups'))
