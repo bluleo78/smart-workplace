@@ -33,7 +33,7 @@ test('되돌리기 바로 아래 6px 를 탭해도 그 줄을 되돌리고 가�
 })
 
 // 후속 질문 칩이 바로 아래에 있어도 — 마지막 되돌리기 바로 아래 6px 탭이 칩 확장에 가로채이지 않고 되돌리기로 간다.
-test('후속 질문이 아래 있어도 마지막 되돌리기 바로 아래 6px 탭은 칩이 아닌 되돌리기다', async ({ authenticatedPage: page }) => {
+test('후속 질문이 아래 있어도 마지막 되돌리기 바로 아래 6px 탭은 후속 질문이 아닌 되돌리기다', async ({ authenticatedPage: page }) => {
   await stubChat(page)
   const undo = await mockMemoryUndo(page)
   const live = await setupLiveChat(page)
@@ -52,8 +52,8 @@ test('후속 질문이 아래 있어도 마지막 되돌리기 바로 아래 6px
   const lastUndo = page.getByTestId('chat-memory-undo').last()
   await expect(lastUndo).toBeEnabled()
   const a = await stableBox(lastUndo)
-  const chip = await stableBox(page.getByTestId('chat-followup').first())
-  expect(chip.y - (a.y + a.height), '마지막 되돌리기와 칩 사이가 두 터치 확장(8px×2) 이상').toBeGreaterThanOrEqual(16)
+  const row = await stableBox(page.getByTestId('chat-followup').first())
+  expect(row.y - (a.y + a.height), '마지막 되돌리기 터치 확장(8px)이 후속 질문 행에 닿지 않는다').toBeGreaterThanOrEqual(8)
   await page.touchscreen.tap(a.x + a.width / 2, a.y + a.height + 6)
   await undo.waitFor()
   expect(undo.lastBody()).toEqual({ messageId: 2, blockIndex: 1 })

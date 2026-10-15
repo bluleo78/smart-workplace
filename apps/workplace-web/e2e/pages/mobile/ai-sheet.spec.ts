@@ -215,34 +215,28 @@ test.describe('키보드', () => {
     expect(hit).toBe(true)
   })
 
-  // WP-139 UI 리뷰 #1 — 키보드가 열리면 빈 대화 안내를 걷고(위가 잘린 한 줄 조각 대신) 추천 목록에 높이를 준다.
-  // 첫 두 행은 온전히 보이고, 어느 행도 목록 경계에 반쯤 걸치지 않는다(넘치는 행은 목록 안에서 스크롤). 336px 는 iPhone 실제 키보드(예측 막대 포함).
+  // WP-398 — 추천은 대화 영역(안내 아래)에 있으므로 키보드가 열려도 입력창은 보이는 영역 안에 남고, 추천은 대화 영역을 스크롤해
+  // 첫 행부터 마지막 행까지 입력 영역에 가리지 않고 닿는다. 336px 는 iPhone 실제 키보드(예측 막대 포함).
   for (const kb of [300, 336]) {
-    test(`키보드(${kb}px)가 열리면 안내를 걷고 추천은 첫 두 행이 온전히 보이며 반쯤 잘린 행이 없다`, async ({ authenticatedPage: page }) => {
+    test(`키보드(${kb}px)가 열려도 입력창은 보이고, 추천은 대화 영역을 스크롤해 모든 행에 닿는다`, async ({ authenticatedPage: page }) => {
       await stubChat(page)
       await page.goto('/chat')
       await page.getByTestId('mobile-tab-ai').click()
       const rows = page.getByTestId('starter-suggestion')
       await expect(rows).toHaveCount(4)
-      await expect(page.getByTestId('ai-chat-empty-state')).toBeVisible() // 키보드 전에는 안내가 있다(전제)
       await page.getByTestId('chat-input').focus()
       const visible = await setKeyboard(page, true, kb)
       await expect.poll(async () => Math.round((await page.getByTestId('ai-sheet').boundingBox())!.y)).toBe(56)
-      await expect(page.getByTestId('ai-chat-empty-state')).toBeHidden()
-      const list = page.getByTestId('starter-suggestion-list')
-      // 행 경계 판정 — 목록 높이 묶음은 크기 관찰 뒤 반영되므로 조건이 설 때까지 기다린다.
-      await expect.poll(async () => {
-        const l = (await list.boundingBox())!
-        const boxes = await Promise.all((await rows.all()).map((r) => r.boundingBox()))
-        const inside = boxes.map((b) => b!.y >= l.y - 0.5 && b!.y + b!.height <= l.y + l.height + 0.5)
-        const outside = boxes.map((b) => b!.y >= l.y + l.height - 0.5)
-        return { firstTwo: inside[0] && inside[1], noHalfRow: inside.every((v, i) => v || outside[i]) }
-      }).toEqual({ firstTwo: true, noHalfRow: true })
       const input = (await page.getByTestId('chat-input').boundingBox())!
       expect(input.y + input.height).toBeLessThanOrEqual(visible)
-      // 목록이 넘치면 안에서 스크롤해 마지막 행까지 닿는다.
-      await rows.last().scrollIntoViewIfNeeded()
-      await expect(rows.last()).toBeInViewport()
+      const scroll = (await page.getByTestId('chat-scroll').boundingBox())!
+      for (const row of [rows.first(), rows.last()]) {
+        await row.scrollIntoViewIfNeeded()
+        const b = (await row.boundingBox())!
+        // 대화 영역 안에 온전히 들어온다 — 입력 영역(아래)이나 헤더(위)에 가리지 않는다.
+        expect(b.y).toBeGreaterThanOrEqual(scroll.y - 0.5)
+        expect(b.y + b.height).toBeLessThanOrEqual(scroll.y + scroll.height + 0.5)
+      }
     })
   }
 })
