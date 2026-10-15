@@ -232,11 +232,18 @@ export type PageBodyProps =
       scrollRef?: Ref<HTMLDivElement>
       /** 안쪽 내용 div(page-body-content)에 붙는다. */
       className?: string
+      /**
+       * 본문 오른쪽 보조 열(설정 가이드 등) — 슬롯을 쓰면 [본문 | 열] 가로 배치로 같은 스크롤 안에 둔다.
+       * 열이 잠시 없을 땐 undefined 가 아니라 null 을 넘긴다 — 슬롯(가로 래퍼)이 유지돼 열이 생기고 사라져도 본문(폼)이 리마운트되지 않는다.
+       * undefined 면 슬롯을 쓰지 않는 화면이라 래퍼 없이 기존 마크업 그대로다.
+       */
+      aside?: ReactNode
     })
   | (PageBodyCommon & {
       padded: false
       inset?: never
       scrollRef?: never
+      aside?: never
       /** 바깥 flex 컨테이너에 붙는다. */
       className?: string
     })
@@ -245,24 +252,37 @@ export type PageBodyProps =
  * 페이지 본문 — padded(기본)면 스크롤 영역 + pageBodyInsetClass 여백(inset=false 면 여백 없음) + 페이지 폭 상한.
  * padded=false 는 자체 레이아웃 본문(마스터-디테일·그리드·채팅) — 스크롤·여백은 화면이 소유하고 행은 pageGutterClass 를 쓴다.
  */
-function PageBody({ padded = true, inset = true, scrollRef, className, children, 'data-testid': testId }: PageBodyProps) {
+function PageBody({ padded = true, inset = true, scrollRef, className, aside, children, 'data-testid': testId }: PageBodyProps) {
   const width = useContext(PageWidthContext)
   if (!padded) {
     return <div data-testid={testId} className={cn('flex min-h-0 flex-1', className)}>{children}</div>
   }
+  const hasAsideSlot = aside !== undefined
+  const content = (
+    <div
+      data-testid="page-body-content"
+      className={cn(
+        inset && pageBodyInsetClass,
+        width === 'reading' && pageReadingWidthClass,
+        width === 'settings' && pageSettingsWidthClass,
+        // 보조 열 슬롯이 있으면 본문이 남는 폭을 채우되(flex-1) 폭 상한(max-w-*)까지만 자란다. min-w-0 — 긴 내용이 열을 밀어내지 않게.
+        hasAsideSlot && 'min-w-0 flex-1',
+        className,
+      )}
+    >
+      {children}
+    </div>
+  )
   return (
     <div ref={scrollRef} data-testid={testId ?? 'page-body'} className="min-h-0 flex-1 overflow-y-auto">
-      <div
-        data-testid="page-body-content"
-        className={cn(
-          inset && pageBodyInsetClass,
-          width === 'reading' && pageReadingWidthClass,
-          width === 'settings' && pageSettingsWidthClass,
-          className,
-        )}
-      >
-        {children}
-      </div>
+      {/* 보조 열은 같은 스크롤 안 형제로 둔다 — 본문 div 의 @container(이름 없음)는 그대로라 섹션의 2단/스택 판정이 바뀌지 않는다.
+          items-start: 열이 sticky 로 스크롤 상단에 붙으려면 행 높이로 늘어나면 안 된다. 슬롯을 안 쓰면 기존 마크업 그대로. */}
+      {hasAsideSlot ? (
+        <div className="flex items-start gap-8">
+          {content}
+          {aside}
+        </div>
+      ) : content}
     </div>
   )
 }

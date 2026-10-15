@@ -76,12 +76,24 @@ Smart Workplace 는 이슈 트래커 + 이슈 컨텍스트 chat + 팀 채팅(mes
 | Page.Body | `layout/Page.tsx` | 페이지 본문 — 스크롤 영역 + `page-body-content` 래퍼(`px-4 py-4`) |
 | PanelHeader | `layout/PanelHeader.tsx` | 앱 공통 패널(AI 옆 패널) 헤더 — `h-14 border-b px-4`. 본문 안 보조 칸에는 쓰지 않는다 |
 | subPaneHeaderClass | `layout/Page.tsx` | 본문 안 보조 칸(채널 스레드 칼럼·개인 작업 패널) 소제목 줄 토큰 — `h-[34px]` |
+| SettingsGuide | `settings-guide/` | 폼형 설정 화면의 화면별 가이드 — `SettingsPage width="form"` 에 `guide={settingsGuides.<key>}` 로만 붙인다(직접 조립 금지). 본문 폭에 따라 열 / 데스크톱 비모달 시트 / 모바일 하단 시트로 바뀐다([03 §설정 가이드 열](03-spacing-layout.md)) |
 
 > **Page props**: `width`(`'full'`(기본) | `'reading'` | `'settings'` — reading 은 본문을 왼쪽 정렬 `max-w-3xl`(768px)로, settings 는 왼쪽 정렬 `max-w-5xl`(1024px) + `@container`(설정·관리 폼, 주석 섹션이 본문 폭으로 2단↔스택 판정)로 제한, `mx-auto` 금지) · `className` · `data-testid`.
 >
 > **Page.Header props**: `title`(선택, 좌측 제목 — `appTitleTextClass` 무게. 생략 시 제목 영역 미렌더 — 브레드크럼 등 다른 위치 표시자가 있는 페이지에 사용, 예: 드라이브) · `icon`(선택, 제목 앞 아이콘/컨트롤, 데스크톱 전용) · `leading`(선택, 제목 앞/대신 오는 위치 표시 — 이슈 ←+브레드크럼·위키 경로, 데스크톱 전용) · `meta`(선택, 제목 옆 보조 메타) · `actions`(선택, 우측 액션 슬롯) · `className` · `data-testid`(기본 `'page-header'`) · 모바일 전용 `mobilePrimaryAction`/`mobileActions`/`mobileMenuIcon`/`mobileMenuLabel`/`mobileHideSheetTrigger`/`mobileOnBack`. 데스크톱 컨테이너는 `flex h-14 shrink-0 items-center border-b` + 내부 래퍼 `pageGutterClass`(`px-4`)로 2차 사이드바 헤더(`sidebarTitleClass`)·홈 헤더와 한 선 정렬한다. AI 칩이 있으면(`useAiAvailable`) 좌측 그룹을 칩 실측 위치 앞에서 자르는 클램프(`useAiChipClamp`)를 헤더가 직접 적용하므로 화면별 우회 처리는 두지 않는다(위키·드라이브 첨부의 개별 처리 제거됨). `mobile`(`'bar'`(기본) | `'hidden'`) — `'hidden'` 이면 모바일(lg 미만)에서 헤더를 그리지도, 상세 헤더로 등록하지도 않아 모듈 레이아웃의 뒤로가기 바가 남는다(내 작업·AI 위임 작업·드라이브 첨부). 화면에서 `useIsMobile` 로 헤더를 감싸지 않는다.
 >
 > **Page.Body props**: `padded`(기본 `true` — 스크롤 영역 `page-body` + 안쪽 `page-body-content`(`px-4 py-4`, reading 이면 `max-w-3xl`). `false` 는 자체 레이아웃 본문(마스터-디테일·그리드·채팅) — 스크롤·여백은 화면이 소유하고 각 행은 `pageGutterClass` 를 쓴다) · `inset`(기본 `true` — `false` 면 스크롤·폭은 그대로 두고 `px-4 py-4` 여백만 비운다. 그룹 띠가 끝까지 닿는 목록 등, 행이 `pageGutterClass` 를 가짐. `className="p-0"` 덮어쓰기 대신 사용) · `scrollRef`(스크롤 컨테이너 ref) · `className`(content 래퍼에 적용) · `data-testid`. 폭은 `Page` 의 `width` 를 컨텍스트로 읽는다.
+>
+> **Page.Body `aside`**(`padded` 일 때만): 본문 오른쪽 보조 열 — 슬롯을 쓰면(`undefined` 가 아니면) 같은 스크롤 안 `flex items-start gap-8` 로 [본문 | 열] 을 둔다(본문 `min-w-0 flex-1`). 열이 잠시 없을 땐 `null` 을 넘겨 래퍼를 유지한다 — 열이 생기고 사라져도 본문이 리마운트되지 않게. 현재 사용처는 설정 가이드 열뿐이다.
+>
+> **SettingsGuide 구성**(`src/components/settings-guide/`):
+> - `types.ts` — `SettingsGuide { lead: string; tips: string[]; caution?: string; related?: { label: string; to: string }[] }`.
+> - `settingsGuides.ts` — `settingsGuides = {…} satisfies Record<string, SettingsGuide>`(`SettingsGuideKey = keyof typeof settingsGuides`), 여러 화면이 같은 사실을 말하는 문장은 파일 상단 상수로 공유. `projectSettingsGuide(project)` — 팀/개인 선택, 유형을 모르면 `undefined`. 키 8개: `profile` · `assistant` · `notifications` · `sso` · `roleDetail` · `userDetail` · `projectSettings` · `personalProjectSettings`(개인 프로젝트 전용 — 멤버·관리자 규칙이 달라 분리).
+> - `SettingsPage` props `guide?: SettingsGuide` — `width="form"` 일 때만 그린다.
+> - `useSettingsGuide(guide, scrollEl)` → `{ desktopButton, mobileButton, aside, desktopSheet, mobileSheet } | null` — 폭 판정(스크롤 요소 `offsetWidth`)·접힘(`usePersistentToggle`)·시트 상태를 묶어 요소로 돌려주고 `SettingsPage` 는 꽂기만 한다. guide 가 없으면 `null`(ResizeObserver 미부착). 상수 `SETTINGS_GUIDE_MIN_BODY_WIDTH = 1336`, 접힘 키 `settings-guide:collapsed`.
+> - `SettingsGuideControls.tsx` — `SettingsGuideAside({ guide, onHide })` · `SettingsGuideButton({ mobile, expanded, controls?, onClick, ref? })` · `SettingsGuideDesktopSheet({ guide, open, id, onClose, returnFocusRef })`(ui/sheet 가 아니라 Radix Dialog 프리미티브 `modal={false}` 를 Portal 없이 본문 영역 `relative` 상자 안 `absolute` 로 그린다 — AI 옆 패널을 가리지 않게) · `SettingsGuideMobileSheet({ guide, open, onClose })`.
+> - `SettingsGuidePanel({ guide, onNavigate? })` — 세 틀이 공유하는 본문. 소개·알아두기(`text-sm leading-6`, body-secondary) → 주의(`bg-warning-subtle text-warning-text` 박스) → 관련 화면(링크 + `ChevronRight`, 모바일 `min-h-11`) 순, `break-keep`. 제목 「설정 가이드」는 감싸는 쪽이 그린다.
+> - testid: `settings-guide-aside` · `settings-guide-hide` · `settings-guide-button` · `settings-guide-sheet` · `settings-guide-mobile-sheet`.
 >
 > **PanelHeader props**: `title` · `actions` · `className` · `data-testid`. 앱 공통 패널 전용이며 페이지 헤더와 같은 56px·하단선으로 정렬한다.
 >

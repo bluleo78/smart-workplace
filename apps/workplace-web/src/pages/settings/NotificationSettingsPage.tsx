@@ -4,6 +4,7 @@ import { useState } from 'react'
 
 import { SettingsPage } from '@/components/layout/SettingsPage'
 import { SettingsSection, SettingsToggleGroup, SettingsToggleRow } from '@/components/layout/SettingsSection'
+import { settingsGuides } from '@/components/settings-guide/settingsGuides'
 import { Switch } from '@/components/ui/switch'
 import {
   useDevicePush,
@@ -54,7 +55,7 @@ export default function NotificationSettingsPage() {
   }
 
   return (
-    <SettingsPage title="알림" width="form" data-testid="notification-settings-page">
+    <SettingsPage title="알림" width="form" guide={settingsGuides.notifications} data-testid="notification-settings-page">
       {config.isSuccess && !enabled && (
         <SettingsSection
           data-testid="push-disabled-notice"

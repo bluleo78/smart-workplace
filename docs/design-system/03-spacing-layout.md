@@ -297,7 +297,7 @@ export function IssueModuleLayout() {
 | 성격 | `width` | 해당 화면 |
 |---|---|---|
 | 리스트/테이블 (항목 N개, 스캔이 목적) | `full`(기본) | `/settings/users`, `/settings/tokens`, `/settings/roles`, `/settings/mail` |
-| 폼 (필드 몇 개, 입력이 목적) | `form` → `Page` settings(1024px) + 주석 섹션 | `/settings/assistant`, `/settings/notifications`, `/settings/sso`, `/settings/roles/:id`, `/settings/users/:id`, `/settings/profile`, `/projects/:key/settings`(`SettingsPage` 대신 `<Page width="settings">` 직접) |
+| 폼 (필드 몇 개, 입력이 목적) | `form` → `Page` settings(1024px) + 주석 섹션 | `/settings/assistant`, `/settings/notifications`, `/settings/sso`, `/settings/roles/:id`, `/settings/users/:id`, `/settings/profile`, `/projects/:key/settings` |
 
 새 설정 하위 페이지를 추가할 때는 이 표로 먼저 성격을 판정한 뒤 `width` 를 정한다.
 
@@ -315,6 +315,28 @@ export function IssueModuleLayout() {
 - **즉시 적용 토글은 성공 토스트를 띄우지 않는다** — 스위치 상태 자체가 피드백이다. 전역 Toaster 가 오른쪽 위(#692)라 오른쪽 끝 스위치를 가리기 때문. 실패 토스트(`handleApiError`)는 유지한다. 성공 시 UI 가 사라지는 호출처(예: `PushPromptBanner`)는 토스트를 띄워도 된다.
 
 예: SSO — 섹션 제목 "SSO 로그인", 토글 행 라벨 "SSO 로그인 사용".
+
+### 설정 가이드 열 (WP-399)
+
+폼형 설정 화면(`SettingsPage width="form"`)은 `guide` prop 으로 화면별 가이드(소개·알아두기·주의·관련 화면)를 붙인다. 1024px 폼 오른쪽에 남는 여백을 채우는 용도이며, 목록형(`width="full"`)에선 `guide` 를 넘겨도 무시한다.
+
+- **판정 기준은 뷰포트가 아니라 본문 스크롤 요소(`page-body`) 폭** — 레일 펼침·AI 옆 패널(380px)·모듈 사이드바 때문에 같은 뷰포트라도 남는 폭이 다르다. 헤더 버튼은 본문 밖이라 `@container` 로 못 맞추므로 `useSettingsGuide` 가 `ResizeObserver` 로 잰 **JS 단일 값 `wide`** 로 열·버튼을 함께 토글한다(그리기 전 `useLayoutEffect` 측정 — 버튼이 한 프레임 보였다 사라지지 않게).
+- `wide` = 스크롤 요소 `offsetWidth`(스크롤바 포함) `>= SETTINGS_GUIDE_MIN_BODY_WIDTH`(1336 = 폼 1024 + 간격 32 + 열 280. 폼 `max-w-5xl` 은 border-box 라 좌우 여백 `px-4` 가 1024 안에 들고, 열 280 도 `pr-4` 를 포함한다).
+- `clientWidth` 가 아니라 `offsetWidth` 를 재는 이유: 스크롤바 유무로 값이 바뀌면 「열 생김 → 스크롤바 생김 → 폭 줄어 열 빠짐」 진동이 생긴다. 대가로 클래식 스크롤바 환경에선 열이 있을 때 폼이 최대 약 15px 좁아질 수 있다(본문 `flex-1 min-w-0` 이라 넘치지 않음).
+- 가이드 화면은 열이 없을 때도 `aside` 슬롯에 `null` 을 넘겨 가로 래퍼를 유지한다 — 열↔버튼 전환(AI 패널 여닫기·숨기기·폭 경계) 때 폼이 리마운트되어 입력값·포커스를 잃지 않게.
+- 가이드 제목(열·데스크톱 시트)은 `text-sm leading-5 font-semibold` 하나로 통일 — 폼 섹션 제목(`text-base font-semibold`)보다 한 단계 낮다. 열 머리는 `pt-6`(본문 `py-4` + 첫 섹션 `pt-2`)으로 첫 섹션 제목과 같은 높이에 선다.
+- 열은 `Page.Body` 의 `aside` 슬롯으로 넣는다 — 같은 스크롤 안 `flex items-start gap-8` 형제(본문 `min-w-0 flex-1`, 폭 상한은 그대로). 열은 `w-[280px] sticky top-0 self-start`, 본문과 같은 면(배경·경계선 없음). 본문 div 의 `@container` 는 그대로라 주석 섹션의 2단/스택 판정이 바뀌지 않는다.
+
+| 상태 | 조건 | 표시 |
+|---|---|---|
+| 열 | 데스크톱 · `wide` · 펼침 | 오른쪽 sticky 열(`settings-guide-aside`) + 「숨기기」(`settings-guide-hide`). 헤더 버튼 없음 |
+| 데스크톱 시트 | 데스크톱 · (`wide` 아님 또는 접힘) | 헤더 「가이드」 버튼(`settings-guide-button`, 아이콘+텍스트). 좁으면 버튼이 오른쪽 **비모달** 시트(`settings-guide-sheet`, 320px)를 여닫는 토글. 시트는 뷰포트가 아니라 **본문 영역 안**(헤더 아래, 본문을 감싼 `relative` 상자에 `absolute inset-y-0 right-0`)에 떠서 AI 옆 패널이 열려 있어도 그 왼쪽에 붙고 패널을 가리지 않는다 — 오버레이·포커스 가둠 없이 폼을 편집할 수 있고, 바깥 클릭으론 닫히지 않으며(ESC·✕ — 단 포커스가 시트 밖 입력칸 등 편집 요소에 있으면 ESC 는 편집 동작으로 보고 시트를 닫지 않는다), 닫히면 버튼으로 포커스 복귀. **넓은데 접어 둔 상태면 버튼이 시트 대신 열을 다시 편다** |
+| 모바일 시트 | 모바일(lg 미만, `useIsMobile`) | 헤더 인라인 아이콘 버튼(44px, `mobilePrimaryAction`) → `MobileSheetShell` 하단 시트(`settings-guide-mobile-sheet`) |
+
+- 시트를 연 채 열 상태가 되면(창을 넓힘 등) 시트를 자동으로 닫는다 — 같은 내용이 두 번 보이지 않게. 다시 좁아져도 저절로 다시 열리지 않는다.
+- 시트 안 관련 화면 링크를 누르면 이동과 함께 시트를 닫는다. 링크는 「›」(`ChevronRight`) 이동 단서를 달고, 모바일에선 `min-h-11`(44px) 터치 영역을 가진다(`lg:min-h-0`).
+- **숨기기 기억**: 접힘은 화면별이 아닌 기기 전역 1개 — `localStorage` 키 `settings-guide:collapsed`(`usePersistentToggle` — `'1'` 접힘 / `'0'` 펼침). 저장소가 막히면 펼침으로 보고 이번 세션 상태만 유지한다.
+- 컴포넌트·props 는 [04-components §A-3](04-components.md), 문구 작성 규칙은 [09-form-patterns §M](09-form-patterns.md).
 
 근거(2026-10 조사): 설정 폼을 전체 폭으로 늘리는 사례 없음(Android 설정 패턴 "Don't allow single pane settings items to stretch to full width"), 상한 1000~1280px(Polaris 998 · Microsoft 1000~1100 · Primer 1280), 넓은 폭은 주석 섹션으로 채움(Polaris settings layout · Microsoft SettingsCard), 필드는 단일 열(Primer · Carbon · Atlassian · NN/g).
 

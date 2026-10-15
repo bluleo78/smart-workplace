@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 
 import { SettingsPage } from '@/components/layout/SettingsPage'
 import { SettingsSection, SettingsToggleRow } from '@/components/layout/SettingsSection'
+import { settingsGuides } from '@/components/settings-guide/settingsGuides'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -41,7 +42,7 @@ export default function SsoSettingsPage() {
   }
 
   return (
-    <SettingsPage title="SSO" width="form">
+    <SettingsPage title="SSO" width="form" guide={settingsGuides.sso}>
       <SettingsSection
         title="SSO 로그인"
         description='켜면 구성원이 Microsoft 계정으로 로그인할 수 있고, 비밀번호 없는 "SSO 전용" 구성원을 등록할 수 있어요.'
