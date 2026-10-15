@@ -517,6 +517,9 @@ test.describe('/admin/agents — AI 연결 및 모델', () => {
     await vision.click();
     await page.getByRole('option', { name: '볼 수 있음' }).click();
     await expect(vision).toHaveText('볼 수 있음');
+    // 드롭다운이 닫히며 포커스를 트리거로 되돌리기 전에 입력칸을 누르면, 되돌림이 포커스를 빼앗아
+    // 다음 키에서 커서가 맨 앞으로 간다(빌드본에서 간헐 실패). 닫힘이 끝난 뒤 입력한다.
+    await expect(vision).toBeFocused();
 
     // 끝 공백은 제출 id 가 같아(앞뒤 공백 정리) 선택이 그대로다 — 지울 때도 마찬가지.
     await manual.press('End');
