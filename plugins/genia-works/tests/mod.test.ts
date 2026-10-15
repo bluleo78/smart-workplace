@@ -124,19 +124,21 @@ test('as me: 내 토큰으로 전환', async ($, on) => {
   await clock.advance(400)
 })
 
-test('logout: 시간이 지나면 다시 연결하고 상태 줄을 갱신한다', async ($, on) => {
+test('logout: 시간이 지나면 다시 연결하고 상태 줄을 지운다', async ($, on) => {
   stubScripts(on, { 'gw-session show': { exitCode: 0, stdout: '' } })
   mock.env(on, {})
   const clock = mock.clock(on)
   const reconnects: string[] = []
-  const statuses: string[] = []
+  const statuses: (string | undefined)[] = []
   on('command.run', { command: 'mcp' }, (_$: any, e: any) => { reconnects.push(e.args); return {} })
-  on('ui.status', (_$: any, e: any) => { statuses.push(JSON.stringify(e)); return { value: undefined } })
+  on('ui.status', (_$: any, e: any) => { statuses.push(e.text); return { value: undefined } })
   await $.command.run({ command: LOGOUT_COMMAND, args: '' })
   expect(reconnects).toEqual([])
   await clock.advance(400)
   expect(reconnects).toEqual(['reconnect plugin:genia-works:genia-works'])
-  expect(statuses.join('|')).toContain('내 토큰')
+  // 내 토큰으로 돌아오면 상태 줄을 지운다(WP-403) — 마지막 갱신이 빈 값이다
+  expect(statuses.length).toBeGreaterThan(0)
+  expect(statuses.at(-1)).toBeUndefined()
 })
 
 test('session.end: logout 사유도 선택을 지운다', async ($, on) => {
@@ -610,29 +612,62 @@ test('헤더 스크립트 직접 실행은 거부, gw-set-key 와 README 편집�
   expect((await $.tool.call({ tool: 'Edit', file_path: '/repo/plugins/genia-works/README.md', old_string: 'a', new_string: 'gw-headers' } as any)).result).toBe('ran')
 })
 
-test('상태 줄: 내 토큰이 어디에도 없으면 설정 안내', async ($, on) => {
-  stubScripts(on, { 'gw-session show': { exitCode: 0, stdout: '' } })
+// 세션을 시작하고 상태 줄에 실린 값(text)을 차례로 돌려준다 — 상태 줄 갱신은 시작을 막지 않게 타이머로 미뤄진다.
+async function statusesAtStart($: any, on: any, env: Record<string, string> = {}) {
   const clock = mock.clock(on)
-  mock.env(on, {})
+  mock.env(on, env)
   on('session.start', (_$: any, e: any) => ({ cwd: e.cwd }))
-  const statuses: string[] = []
-  on('ui.status', (_$: any, e: any) => { statuses.push(JSON.stringify(e)); return { value: undefined } })
+  const statuses: (string | undefined)[] = []
+  on('ui.status', (_$: any, e: any) => { statuses.push(e.text); return { value: undefined } })
   await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
-  await clock.advance(10) // 상태 줄 갱신은 시작을 막지 않게 타이머로 미뤄진다
-  expect(statuses.join('|')).toContain('내 토큰 없음 — /plugin configure genia-works@genia-works')
+  await clock.advance(10)
+  return statuses
+}
+
+test('상태 줄: 내 토큰이 어디에도 없어도 상태 줄은 쓰지 않는다(WP-403 — 안내는 as 가 맡는다)', async ($, on) => {
+  stubScripts(on, { 'gw-session show': { exitCode: 0, stdout: '' } })
+  expect(await statusesAtStart($, on)).toEqual([undefined])
 })
 
-test('상태 줄: 플러그인 설정 토큰이 있으면 내 토큰', { options: { server_url: SERVER_URL, token: 'swp_FAKE_X' } }, async ($, on) => {
+test('상태 줄: 플러그인 설정 토큰(내 토큰)으로 접속하면 지운다(WP-403)', { options: { server_url: SERVER_URL, token: 'swp_FAKE_X' } }, async ($, on) => {
   stubScripts(on, { 'gw-session show': { exitCode: 0, stdout: '' } })
-  const clock = mock.clock(on)
-  mock.env(on, {})
-  on('session.start', (_$: any, e: any) => ({ cwd: e.cwd }))
-  const statuses: string[] = []
-  on('ui.status', (_$: any, e: any) => { statuses.push(JSON.stringify(e)); return { value: undefined } })
-  await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
-  await clock.advance(10) // 상태 줄 갱신은 시작을 막지 않게 타이머로 미뤄진다
-  expect(statuses.join('|')).toContain('내 토큰')
-  expect(statuses.join('|')).not.toContain('없음')
+  expect(await statusesAtStart($, on)).toEqual([undefined])
+})
+
+test('상태 줄: GENIA_WORKS_TOKEN 으로 접속하면 지운다(WP-403)', async ($, on) => {
+  stubScripts(on, { 'gw-session show': { exitCode: 0, stdout: '' } })
+  expect(await statusesAtStart($, on, { GENIA_WORKS_TOKEN: 'swp_FAKE_ENV' })).toEqual([undefined])
+})
+
+test('상태 줄: AI 신원으로 접속하면 그 이름을 보인다(WP-403)', { options: { server_url: SERVER_URL, token: 'swp_FAKE_X' } }, async ($, on) => {
+  stubScripts(on, { 'gw-session show': { exitCode: 0, stdout: 'ai-dev\n' }, 'gw-keys has': { exitCode: 0, stdout: '' } })
+  expect(await statusesAtStart($, on)).toEqual(['ai-dev'])
+})
+
+test('상태 줄: GENIA_WORKS_AS 로 띄운 세션은 그 이름을 보인다(WP-403)', { options: { token: 'swp_FAKE_X' } }, async ($, on) => {
+  stubScripts(on, { 'gw-session show': { exitCode: 0, stdout: '' }, 'gw-keys has': { exitCode: 0, stdout: '' } })
+  expect(await statusesAtStart($, on, { GENIA_WORKS_AS: 'ai-dev' })).toEqual(['ai-dev'])
+})
+
+test('상태 줄: 키 확인이 프로세스 오류면 키 없음으로 보인다(WP-403)', { options: { token: 'swp_FAKE_X' } }, async ($, on) => {
+  on('process.run', (_$: any, e: any) => {
+    if (e.argv[1] === 'has') throw new Error('스크립트 실행 실패')
+    return { value: { exitCode: 0, stdout: 'ai-dev\n', stderr: '' } }
+  })
+  expect(await statusesAtStart($, on)).toEqual(['ai-dev 키가 없습니다 — /genia-works:login'])
+})
+
+test('상태 줄: 선택 파일을 못 읽어도 GENIA_WORKS_AS 의 AI 이름은 보인다(WP-403)', { options: { token: 'swp_FAKE_X' } }, async ($, on) => {
+  on('process.run', (_$: any, e: any) => {
+    if (e.argv[1] === 'show') throw new Error('스크립트 실행 실패')
+    return { value: { exitCode: 0, stdout: '', stderr: '' } }
+  })
+  expect(await statusesAtStart($, on, { GENIA_WORKS_AS: 'ai-dev' })).toEqual(['ai-dev'])
+})
+
+test('상태 줄: 신원을 읽지 못하면 앞 문구를 남기지 않고 지운다(WP-403)', { options: { token: 'swp_FAKE_X' } }, async ($, on) => {
+  on('process.run', () => { throw new Error('스크립트 실행 실패') })
+  expect(await statusesAtStart($, on)).toEqual([undefined])
 })
 
 test('login: GENIA_WORKS_TOKEN 이 있으면 내 토큰 버튼에 환경변수를 밝힌다', { options: { server_url: SERVER_URL } }, async ($, on) => {

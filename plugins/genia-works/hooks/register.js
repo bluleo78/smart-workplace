@@ -1,7 +1,7 @@
 // genia-works mod — 세션별 접속 신원 선택(로그인 패널·전환·로그아웃), 신원 상태 줄, 키 파일 읽기 차단,
 // 기존 수동 등록 정리. 토큰 주입은 하지 않는다(헤더 스크립트 담당 — 플러그인 MCP 가 mod 보다 먼저 연결된다).
 // 규칙: $ 를 쓰는 코드는 모두 이 파일 안에 둔다(다른 파일 함수에 $ 를 넘기면 검증이 실패). lib.js 는 순수 함수만.
-import { COMMANDS, parseKeyList, identityLabel, isKeyPath, toolTargets, END_CLEARS, applyMaskedInput, maskOf, initializeBody, validName, validKey, findManualRegistrations, isAiKeyRegistration, isHeaderScriptCall, HEADER_SCRIPT_DENY, KEY_PATH_DENY, mentionsHost, sameServer, isHeadless, HEADLESS_SWITCH, HEADLESS_LOGIN, containsSecretKey } from './lib.js'
+import { COMMANDS, parseKeyList, identityLabel, statusLabel, aiPick, isKeyPath, toolTargets, END_CLEARS, applyMaskedInput, maskOf, initializeBody, validName, validKey, findManualRegistrations, isAiKeyRegistration, isHeaderScriptCall, HEADER_SCRIPT_DENY, KEY_PATH_DENY, mentionsHost, sameServer, isHeadless, HEADLESS_SWITCH, HEADLESS_LOGIN, containsSecretKey } from './lib.js'
 
 const SERVER = 'plugin:genia-works:genia-works'
 let opts = {}
@@ -19,7 +19,7 @@ async function listKeys($) {
   return parseKeyList((await script($, 'gw-keys', ['list'])).stdout)
 }
 
-// 이 세션에서 고른 이름(없으면 빈 문자열) — 종료 코드는 보지 않는다. 종료 코드가 필요한 곳(currentLabel)은 직접 부른다.
+// 이 세션에서 고른 이름(없으면 빈 문자열) — 종료 코드는 보지 않는다. 종료 코드가 필요한 곳(identityInput)은 직접 부른다.
 async function sessionSelection($) {
   return (await script($, 'gw-session', ['show'])).stdout.trim()
 }
@@ -32,21 +32,35 @@ const PROMPT_KEY_DROP = 'genia-works 키나 토큰은 대화에 넣을 수 없�
 const TOAST_LONG = { timeoutMs: 12000 }
 const TOAST_MID = { timeoutMs: 10000 }
 
-// 지금 이 세션의 신원 문구 — 상태 줄과 as(인자 없음)가 같은 입력으로 같은 문구를 얻는다.
-// 고른 이름의 키가 없으면 그 사실을 직접 보이고, 내 토큰이 어디에도 없으면 설정 안내를 보인다.
-async function currentLabel($) {
+// 지금 이 세션의 신원 판단 재료 — 상태 줄(statusLabel)과 as(인자 없음, identityLabel)가 같은 입력을 쓴다.
+// 고른 이름의 키가 없는지, 내 토큰이 어디에도 없는지도 함께 담는다.
+async function identityInput($) {
   // 서로 기대지 않는 읽기는 함께 보낸다. 고른 이름의 키 확인(has)만 그 이름에 기대므로 뒤에 한다.
-  const [shown, as, envToken] = await Promise.all([script($, 'gw-session', ['show']), $.env.get('GENIA_WORKS_AS'), $.env.get('GENIA_WORKS_TOKEN')])
+  const [shown, as, envToken] = await Promise.all([scriptOrFail($, 'gw-session', ['show']), $.env.get('GENIA_WORKS_AS'), $.env.get('GENIA_WORKS_TOKEN')])
   const selected = shown.exitCode === 0 ? shown.stdout.trim() : ''
-  const pick = selected || as
-  let keyMissing = false
-  if (pick && pick !== 'me') keyMissing = (await script($, 'gw-keys', ['has', pick])).exitCode !== 0
-  return identityLabel({ selected, as, hasEnvToken: Boolean(envToken), keyMissing, hasToken: Boolean(envToken || opts.token) })
+  const pick = aiPick({ selected, as })
+  // 키 확인이 실패하면(프로세스 오류 포함) 「키 없음」 — 키를 읽지 못하면 헤더 스크립트도 그 키로 접속하지 못한다.
+  const keyMissing = Boolean(pick) && (await scriptOrFail($, 'gw-keys', ['has', pick])).exitCode !== 0
+  return { selected, as, hasEnvToken: Boolean(envToken), keyMissing, hasToken: Boolean(envToken || opts.token) }
 }
 
-// 상태 줄 — 지금 이 세션이 어느 신원으로 접속하는지 늘 보이게 한다.
+// 스크립트 실행 자체가 실패(프로세스 오류)하면 종료 코드 실패로 바꾼다 — 신원 읽기는 헤더 스크립트처럼 「선택 없음·키 없음」으로 이어 간다.
+async function scriptOrFail($, name, args) {
+  return script($, name, args).catch(() => ({ exitCode: 1, stdout: '', stderr: '' }))
+}
+
+// 상태 줄 — AI 신원을 쓰는 중일 때만 보이고, 그 밖에는 지운다(WP-403). 부르는 쪽이 타이머 안이라 던지지 않는다.
+// 여러 갱신(시작·다시 연결·수동 등록 정리)이 겹치면 마지막에 시작한 것만 쓴다 — 늦게 끝난 옛 읽기가 내 토큰으로 돌아온 뒤 AI 이름을 다시 띄우지 않게.
+// (로그인 화면의 attempt 와 따로 둔다 — 화면을 열고 닫을 때마다 오르는 그 값을 쓰면 화면 조작이 상태 줄 갱신을 버린다.)
+// 신원을 읽지 못하면 지운다 — 사용자 결정(AI 사용 중 말고는 상태 줄을 쓰지 않는다). 현재 신원은 인자 없는 as 로 확인한다.
+let statusRev = 0
 async function refreshStatus($) {
-  $.ui.status(await currentLabel($))
+  const rev = ++statusRev
+  const text = await identityInput($).then(statusLabel, () => undefined)
+  if (rev !== statusRev) return
+  try {
+    $.ui.status(text)
+  } catch {}
 }
 
 // 다시 연결 — 명령 처리 안에서 바로 $.command.run 을 부르면 턴을 막아 거부되므로 타이머로 미룬다(3차 실험).
@@ -57,10 +71,7 @@ function reconnectSoon($) {
     } catch (err) {
       $.ui.toast('genia-works 다시 연결 실패: ' + String(err))
     }
-    // 상태 줄 갱신 실패(스크립트 오류 등)는 상태 줄만 건너뛴다.
-    try {
-      await refreshStatus($)
-    } catch {}
+    await refreshStatus($)
   })
 }
 
@@ -76,9 +87,9 @@ async function switchTo($, name) {
 
 // as 인자 없음 — 현재 신원과 등록된 이름(키 값 없이)
 async function describe($) {
-  const [list, label] = await Promise.all([listKeys($), currentLabel($)])
+  const [list, input] = await Promise.all([listKeys($), identityInput($)])
   const names = list.length ? list.map((k) => k.name).join(', ') : '(없음)'
-  return `현재: ${label} · 등록된 AI: ${names}`
+  return `현재: ${identityLabel(input)} · 등록된 AI: ${names}`
 }
 
 const PANE = 'genia-works-login'
@@ -487,8 +498,8 @@ export function register(on, options) {
 
   on('session.start', async ($, e, next) => {
     interactive = e.isInteractive
-    // 상태 줄은 시작을 막지 않게 타이머로 미룬다 — 스크립트 실패는 상태 줄만 건너뛴다.
-    $.clock.after(0, () => refreshStatus($).catch(() => {}))
+    // 상태 줄은 시작을 막지 않게 타이머로 미룬다(신원을 못 읽으면 refreshStatus 가 줄을 지운다).
+    $.clock.after(0, () => refreshStatus($))
     // 수동 등록 정리 — 시작을 막지 않게 타이머로 미루고, 실패는 삼킨다. 세션 시작마다 한 번 다시 허용한다.
     // 비대화형(-p·SDK)에서는 토스트가 버려지므로 지우고도 알릴 수 없다 — 아예 건드리지 않는다.
     if (interactive !== false) $.clock.after(1500, () => cleanupManual($).catch(() => {}))

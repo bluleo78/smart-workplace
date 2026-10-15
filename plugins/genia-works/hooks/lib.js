@@ -15,17 +15,29 @@ export function parseKeyList(stdout) {
     })
 }
 
-// 상태 줄 문구 — 앞의 플러그인 이름(genia-works)은 Claude Code 가 붙이므로 여기서는 쓰지 않는다(두 번 나오던 결함).
+// 이 세션이 고른 AI 이름(세션 선택 > GENIA_WORKS_AS), 내 토큰(me·선택 없음)이면 빈 문자열 — 신원 판단은 이 한 곳에 둔다.
+export function aiPick({ selected, as }) {
+  const pick = selected || as || ''
+  return pick === 'me' ? '' : pick
+}
+
+// 신원 문구 — 앞의 플러그인 이름(genia-works)은 Claude Code 가 붙이므로 여기서는 쓰지 않는다(두 번 나오던 결함).
 //  헤더 스크립트와 같은 우선순위(세션 선택 > GENIA_WORKS_AS > 환경변수 토큰 > 내 토큰).
 // keyMissing: 고른 이름의 키 파일이 없는 경우. 이때 서버는 "Bearer invalid" 로 받아 오류 문구가 오해를 부르므로 여기서 바로 알린다(판정 3).
 // hasToken: 내 토큰이 어디에도 없는지(환경변수·플러그인 설정 모두 비어 있음) — false 로 명시하면 안내 문구를 낸다(생략하면 있는 것으로 본다).
 export function identityLabel({ selected, as, hasEnvToken, keyMissing, hasToken }) {
-  const pick = selected || as
-  if (pick && pick !== 'me') {
+  const pick = aiPick({ selected, as })
+  if (pick) {
     return keyMissing ? `${pick} 키가 없습니다 — ${COMMANDS.login}` : pick
   }
   if (hasEnvToken) return '환경변수 토큰'
   return hasToken === false ? `내 토큰 없음 — /plugin configure genia-works@genia-works` : '내 토큰'
+}
+
+// 상태 줄에 실을 문구 — AI 신원을 쓰는 중(키가 없는 경우 포함)일 때만 보이고, 그 밖에는 undefined 로 지운다(WP-403).
+//  Claude Code 가 상태 줄을 ⚠·노란색으로 그려 평소 상태까지 경고처럼 보였다. 사용자 결정: AI 사용 중 말고는 상태 줄을 쓰지 않는다.
+export function statusLabel(input) {
+  return aiPick(input) ? identityLabel(input) : undefined
 }
 
 // 비대화형(claude -p·SDK) 판정 — 이런 세션에서는 연결을 다시 붙일 수 없고($.command.run 불가) 패널도 못 그린다.
