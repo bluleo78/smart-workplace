@@ -21,9 +21,7 @@ fi
 key=""
 if gw_valid_name "$name" && [ -f "$GW_KEYS/$name" ]; then
   key=$(head -n1 "$GW_KEYS/$name" 2>/dev/null)
-  case "$key" in
-    '' | *[![:graph:]]* | *'"'* | *\\*) key="" ;;
-  esac
+  gw_key_ok "$key" || key=""
 fi
 
 if [ -z "$key" ]; then

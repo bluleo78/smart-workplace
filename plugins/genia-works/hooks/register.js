@@ -1,7 +1,7 @@
 // genia-works mod — 세션별 접속 신원 선택(로그인 패널·전환·로그아웃), 신원 상태 줄, 키 파일 읽기 차단,
 // 기존 수동 등록 정리. 토큰 주입은 하지 않는다(헤더 스크립트 담당 — 플러그인 MCP 가 mod 보다 먼저 연결된다).
 // 규칙: $ 를 쓰는 코드는 모두 이 파일 안에 둔다(다른 파일 함수에 $ 를 넘기면 검증이 실패). lib.js 는 순수 함수만.
-import { COMMANDS, parseKeyList, identityLabel, isKeyPath, toolTargets, END_CLEARS, applyMaskedInput, maskOf, initializeBody, validName, validKey, findManualRegistrations, sameServer, isHeadless, HEADLESS_SWITCH, HEADLESS_LOGIN } from './lib.js'
+import { COMMANDS, parseKeyList, identityLabel, isKeyPath, toolTargets, END_CLEARS, applyMaskedInput, maskOf, initializeBody, validName, validKey, findManualRegistrations, isAiKeyRegistration, isHeaderScriptCall, HEADER_SCRIPT_DENY, sameServer, isHeadless, HEADLESS_SWITCH, HEADLESS_LOGIN } from './lib.js'
 
 const SERVER = 'plugin:genia-works:genia-works'
 let opts = {}
@@ -14,8 +14,9 @@ async function script($, name, args, stdin) {
   return $.process.run([$.plugin.root + '/scripts/' + name, ...args], init)
 }
 
-// 상태 줄 — 지금 이 세션이 어느 신원으로 접속하는지 늘 보이게 한다. 고른 이름의 키가 없으면 그 사실을 직접 보인다.
-async function refreshStatus($) {
+// 지금 이 세션의 신원 문구 — 상태 줄과 as(인자 없음)가 같은 입력으로 같은 문구를 얻는다.
+// 고른 이름의 키가 없으면 그 사실을 직접 보이고, 내 토큰이 어디에도 없으면 설정 안내를 보인다.
+async function currentLabel($) {
   const shown = await script($, 'gw-session', ['show'])
   const selected = shown.exitCode === 0 ? shown.stdout.trim() : ''
   const as = await $.env.get('GENIA_WORKS_AS')
@@ -23,7 +24,12 @@ async function refreshStatus($) {
   const pick = selected || as
   let keyMissing = false
   if (pick && pick !== 'me') keyMissing = (await script($, 'gw-keys', ['has', pick])).exitCode !== 0
-  $.ui.status(identityLabel({ selected, as, hasEnvToken: Boolean(envToken), keyMissing }))
+  return identityLabel({ selected, as, hasEnvToken: Boolean(envToken), keyMissing, hasToken: Boolean(envToken || opts.token) })
+}
+
+// 상태 줄 — 지금 이 세션이 어느 신원으로 접속하는지 늘 보이게 한다.
+async function refreshStatus($) {
+  $.ui.status(await currentLabel($))
 }
 
 // 다시 연결 — 명령 처리 안에서 바로 $.command.run 을 부르면 턴을 막아 거부되므로 타이머로 미룬다(3차 실험).
@@ -53,9 +59,9 @@ async function switchTo($, name) {
 // as 인자 없음 — 현재 신원과 등록된 이름(키 값 없이)
 async function describe($) {
   const list = parseKeyList((await script($, 'gw-keys', ['list'])).stdout)
-  const shown = (await script($, 'gw-session', ['show'])).stdout.trim()
+  const label = await currentLabel($)
   const names = list.length ? list.map((k) => k.name).join(', ') : '(없음)'
-  return `현재: ${shown || '기본'} · 등록된 AI: ${names}`
+  return `현재: ${label} · 등록된 AI: ${names}`
 }
 
 const PANE = 'genia-works-login'
@@ -63,7 +69,7 @@ const PANE = 'genia-works-login'
 // (덮어쓰기 확인 단계만 같은 키로 다시 누르도록 남긴다). 화면에는 maskOf(keyBuf)만 그린다.
 // attempt: 열기·이동·닫기마다 올라가는 번호 — 서버 확인 중에 화면이 바뀌었으면 늦게 온 저장을 버린다.
 let attempt = 0
-let pane = { view: 'pick', list: [], current: '', keyBuf: '', name: '', message: '', confirm: '', busy: false }
+let pane = { view: 'pick', list: [], current: '', envToken: false, keyBuf: '', name: '', message: '', confirm: '', busy: false }
 
 // 패널 열기 — 등록된 AI 가 없으면 바로 「새 AI 추가」 화면으로 간다.
 async function openLogin($) {
@@ -71,7 +77,8 @@ async function openLogin($) {
   // 현재 신원 — 세션 선택이 없으면 GENIA_WORKS_AS 가 가리키는 이름을 현재로 본다(헤더 스크립트와 같은 우선순위)
   const current = (await script($, 'gw-session', ['show'])).stdout.trim() || ((await $.env.get('GENIA_WORKS_AS')) ?? '')
   attempt++
-  pane = { view: list.length ? 'pick' : 'add', list, current, keyBuf: '', name: '', message: '', confirm: '', busy: false }
+  const envToken = Boolean(await $.env.get('GENIA_WORKS_TOKEN'))
+  pane = { view: list.length ? 'pick' : 'add', list, current, envToken, keyBuf: '', name: '', message: '', confirm: '', busy: false }
   await $.ui.open({ id: PANE, title: 'genia-works 로그인', focus: true, closeOnEscape: true })
   // 다시 열 때 엔진이 지난 그림(settled)을 재사용하므로, 새 상태로 다시 그리라고 요청한다(안 하면 지난 화면이 남는다).
   $.ui.invalidate('ui.render')
@@ -153,15 +160,15 @@ async function pickAndClose($, name) {
   await closePane($)
 }
 
-// 키 삭제 — 지금 쓰는 이름이면 세션 선택부터 풀고 다시 연결한 뒤 지운다. 이후 목록을 다시 읽는다. 스크립트가 실패하면 알리고 멈춘다.
-// 현재 이름이 GENIA_WORKS_AS 로만 정해진 경우(세션 선택 없음)는 clear 로 풀리지 않으므로 환경변수를 바꾸라고 알린다.
+// 키 삭제 — 지금 쓰는 이름이면 세션 선택을 「내 토큰」으로 돌리고(clear 가 아니라 select me — clear 면 GENIA_WORKS_AS 로 되돌아간다) 다시 연결한 뒤 지운다. 이후 목록을 다시 읽는다. 스크립트가 실패하면 알리고 멈춘다.
+// 현재 이름이 GENIA_WORKS_AS 로만 정해진 경우(세션 선택 없음)는 알림만 하고, 환경변수를 바꾸라고 알린다.
 async function removeKey($, name) {
   let note = ''
   if (pane.current === name) {
     const sel = (await script($, 'gw-session', ['show'])).stdout.trim()
     if (sel === name) {
-      const c = await script($, 'gw-session', ['clear'])
-      if (c.exitCode !== 0) return void (pane.message = '세션 선택을 풀지 못해 지우지 않았습니다')
+      const c = await script($, 'gw-session', ['select', 'me'])
+      if (c.exitCode !== 0) return void (pane.message = '세션 선택을 돌리지 못해 지우지 않았습니다')
       reconnectSoon($)
       pane.current = ''
     } else {
@@ -186,7 +193,7 @@ function renderPane($, e) {
   if (pane.view === 'pick') {
     body = [
       h(Text, null, '이 세션을 어느 신원으로 쓸까요?'),
-      h(Button, { key: 'gw-pick-me', label: '내 토큰' + (pane.current === '' || pane.current === 'me' ? '  (현재)' : ''), onPress: async () => { await pickAndClose($, 'me') } }),
+      h(Button, { key: 'gw-pick-me', label: '내 토큰' + (pane.envToken ? ' (환경변수 GENIA_WORKS_TOKEN)' : '') + (pane.current === '' || pane.current === 'me' ? '  (현재)' : ''), onPress: async () => { await pickAndClose($, 'me') } }),
       ...pane.list.map((k) =>
         h(Button, { key: 'gw-pick-' + k.name, label: `${k.name}  등록 ${k.added}` + (pane.current === k.name ? '  (현재)' : ''), onPress: async () => { await pickAndClose($, k.name) } })),
       h(Button, { key: 'gw-add', label: '＋ 새 AI 추가', onPress: go('add') }),
@@ -263,8 +270,13 @@ async function cleanupManualInner($) {
     return // ~/.claude.json 이 없거나 읽을 수 없으면 정리할 것이 없다
   }
   const root = await $.session.root()
-  const found = findManualRegistrations(cfg, root, opts.server_url)
+  const all = findManualRegistrations(cfg, root, opts.server_url)
   await warnProjectMcp($, root)
+  // AI 키(Bearer ak_)로 연결된 등록은 지우지 않는다 — 지우면 그 프로젝트가 사람 신원으로 바뀌고 키도 잃는다. 키 값은 알리지 않는다.
+  const found = all.filter((f) => !isAiKeyRegistration(f.config))
+  for (const f of all.filter((f) => isAiKeyRegistration(f.config))) {
+    $.ui.toast(`기존 genia-works 등록(${f.name})은 AI 키로 연결돼 있어 그대로 둡니다 — 이 키를 ${COMMANDS.login} 으로 등록한 뒤 claude mcp remove ${f.name} -s ${f.scope} 로 지우세요`, { timeoutMs: 12000 })
+  }
   if (found.length === 0) return
   if (!opts.token) {
     $.ui.toast('기존 genia-works 등록이 있습니다 — /plugin › genia-works › 설정에 내 토큰을 넣으면 정리합니다', { timeoutMs: 10000 })
@@ -358,7 +370,8 @@ export function register(on, options) {
     } catch {} // 스크립트 실패는 상태 줄만 건너뛰고 세션 시작은 막지 않는다
     // 수동 등록 정리 — 시작을 막지 않게 타이머로 미루고, 실패는 삼킨다. 세션 시작마다 한 번 다시 허용한다.
     cleanupStarted = false
-    $.clock.after(1500, () => cleanupManual($).catch(() => {}))
+    // 비대화형(-p·SDK)에서는 토스트가 버려지므로 지우고도 알릴 수 없다 — 아예 건드리지 않는다.
+    if (interactive !== false) $.clock.after(1500, () => cleanupManual($).catch(() => {}))
     return next(e)
   })
 
@@ -372,7 +385,8 @@ export function register(on, options) {
 
   on('command.run', { command: 'genia-works:logout' }, async ($, e) => {
     if (isHeadless({ interactive, origin: e.origin })) return { text: HEADLESS_SWITCH }
-    const r = await script($, 'gw-session', ['clear'])
+    // clear 가 아니라 select me — clear 면 GENIA_WORKS_AS 로 되돌아가 「내 토큰으로 되돌렸다」는 안내와 어긋난다(as me 와 같은 동작).
+    const r = await script($, 'gw-session', ['select', 'me'])
     if (r.exitCode !== 0) return { text: '이 세션을 찾지 못했습니다' }
     reconnectSoon($)
     return { text: '이 세션을 내 토큰으로 되돌렸습니다(등록한 키는 그대로)' }
@@ -389,7 +403,10 @@ export function register(on, options) {
 
   // 패널이 닫히면 입력해 둔 키를 즉시 비운다.
   on('ui.close', async ($, e, next) => {
-    if (e.id === PANE) pane.keyBuf = ''
+    if (e.id === PANE) {
+      attempt++ // 진행 중인 서버 확인이 있어도 늦게 와서 저장하지 않게(closePane 과 같다)
+      pane.keyBuf = ''
+    }
     return next(e)
   })
 
@@ -404,6 +421,8 @@ export function register(on, options) {
     if (toolTargets(e).some(isKeyPath)) {
       return { deny: 'genia-works 키 저장소(~/.genia-works)는 열 수 없습니다. 신원 확인은 ' + COMMANDS.as + ' 를 쓰세요.' }
     }
+    // 헤더 스크립트는 활성 키를 출력하므로 모델이 직접 돌리지 못하게 한다(gw-set-key 는 키를 출력하지 않아 허용).
+    if (isHeaderScriptCall(e)) return { deny: HEADER_SCRIPT_DENY }
     return next(e)
   }).catch(($, e, next) => (next.called ? next(e) : { deny: 'genia-works 키 저장소 검사에 실패해 이 도구 호출을 막았습니다' }))
 }

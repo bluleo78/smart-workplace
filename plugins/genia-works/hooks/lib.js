@@ -18,12 +18,14 @@ export function parseKeyList(stdout) {
 // 상태 줄 문구 — 앞의 플러그인 이름(genia-works)은 Claude Code 가 붙이므로 여기서는 쓰지 않는다(두 번 나오던 결함).
 //  헤더 스크립트와 같은 우선순위(세션 선택 > GENIA_WORKS_AS > 환경변수 토큰 > 내 토큰).
 // keyMissing: 고른 이름의 키 파일이 없는 경우. 이때 서버는 "Bearer invalid" 로 받아 오류 문구가 오해를 부르므로 여기서 바로 알린다(판정 3).
-export function identityLabel({ selected, as, hasEnvToken, keyMissing }) {
+// hasToken: 내 토큰이 어디에도 없는지(환경변수·플러그인 설정 모두 비어 있음) — false 로 명시하면 안내 문구를 낸다(생략하면 있는 것으로 본다).
+export function identityLabel({ selected, as, hasEnvToken, keyMissing, hasToken }) {
   const pick = selected || as
   if (pick && pick !== 'me') {
     return keyMissing ? `${pick} 키가 없습니다 — ${COMMANDS.login}` : pick
   }
-  return hasEnvToken ? '환경변수 토큰' : '내 토큰'
+  if (hasEnvToken) return '환경변수 토큰'
+  return hasToken === false ? `내 토큰 없음 — /plugin configure genia-works@genia-works` : '내 토큰'
 }
 
 // 비대화형(claude -p·SDK) 판정 — 이런 세션에서는 연결을 다시 붙일 수 없고($.command.run 불가) 패널도 못 그린다.
@@ -41,6 +43,15 @@ export const HEADLESS_LOGIN = '로그인 화면은 대화형 세션에서만 열
 export function isKeyPath(text) {
   return /\.genia-works(\/|\\|$|["'\s;&|)<>])/.test(text)
 }
+
+// 헤더 스크립트(gw-headers·gw-session-key)를 직접 실행하려는 Bash 명령인지 — gw-headers 는 활성 AI 키를 출력하므로 대화로 새게 된다.
+// 스크립트 이름이 경로의 한 조각이거나 독립된 단어일 때만 본다(gw-set-key·gw-headers-x·my-gw-headers 는 해당 없음).
+export function isHeaderScriptCall(input) {
+  const cmd = input && typeof input === 'object' ? input.command : undefined
+  return typeof cmd === 'string' && /(^|[\/\s"'=;&|(`])gw-(headers|session-key)($|[\s"';&|)<>`])/.test(cmd)
+}
+
+export const HEADER_SCRIPT_DENY = 'genia-works 헤더 스크립트는 직접 실행할 수 없습니다 — 신원 확인은 ' + COMMANDS.as
 
 // 도구 입력에서 경로·명령으로 쓰이는 필드의 문자열만 뽑는다 — 쓰는 내용(content·new_string 등)에 경로가 언급된 것까지 막지 않으려는 것.
 const TARGET_FIELDS = ['file_path', 'path', 'notebook_path', 'pattern', 'glob', 'command']
@@ -123,4 +134,13 @@ export function findManualRegistrations(claudeJson, projectRoot, serverUrl) {
     if (config?.url && sameServer(config.url, serverUrl)) out.push({ scope: 'local', name, config })
   }
   return out
+}
+
+// 수동 등록이 AI 키(Bearer ak_…)로 연결돼 있는지 — 이런 등록을 지우면 그 프로젝트의 신원이 사람으로 바뀌고 키도 잃는다.
+// 헤더 이름은 대소문자를 가리지 않는다. 키 값은 돌려주지 않는다.
+export function isAiKeyRegistration(config) {
+  for (const [k, v] of Object.entries(config?.headers ?? {})) {
+    if (k.toLowerCase() === 'authorization' && typeof v === 'string' && /bearer\s+ak_/i.test(v)) return true
+  }
+  return false
 }

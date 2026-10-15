@@ -1,7 +1,7 @@
 // mod 순수 함수 테스트 — $ 없이 node --test 로 돈다.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseKeyList, identityLabel, isKeyPath, toolTargets, END_CLEARS, applyMaskedInput, maskOf, initializeBody, validName, validKey, findManualRegistrations, sameServer, isHeadless } from '../hooks/lib.js';
+import { parseKeyList, identityLabel, isKeyPath, toolTargets, END_CLEARS, applyMaskedInput, maskOf, initializeBody, validName, validKey, findManualRegistrations, sameServer, isHeadless, isHeaderScriptCall, isAiKeyRegistration } from '../hooks/lib.js';
 
 test('parseKeyList: 탭 구분 줄을 이름·등록일로', () => {
   assert.deepEqual(parseKeyList('ai-dev\t10-14\nai-review\t10-12\n'), [
@@ -156,4 +156,37 @@ test('isHeadless: session.start 가 비대화형이라 했거나 명령 origin �
   assert.equal(isHeadless({ interactive: undefined, origin: { kind: 'sdk' } }), true);
   assert.equal(isHeadless({ interactive: true, origin: { kind: 'composer' } }), false);
   assert.equal(isHeadless({ interactive: undefined, origin: undefined }), false);
+});
+
+test('identityLabel: 내 토큰이 어디에도 없으면 설정 안내, 환경변수 토큰이면 그대로', () => {
+  assert.equal(identityLabel({ hasEnvToken: false, hasToken: false }), '내 토큰 없음 — /plugin configure genia-works@genia-works');
+  assert.equal(identityLabel({ selected: 'me', hasEnvToken: false, hasToken: false }), '내 토큰 없음 — /plugin configure genia-works@genia-works');
+  assert.equal(identityLabel({ hasEnvToken: false, hasToken: true }), '내 토큰');
+  assert.equal(identityLabel({ hasEnvToken: true, hasToken: true }), '환경변수 토큰');
+  assert.equal(identityLabel({ selected: 'ai-dev', hasEnvToken: false, hasToken: false }), 'ai-dev');
+});
+
+test('isHeaderScriptCall: 헤더 스크립트 직접 실행만 잡는다', () => {
+  const yes = [
+    '/Users/x/repo/plugins/genia-works/scripts/gw-headers',
+    '~/.claude/plugins/cache/genia-works/genia-works/0.1.0/scripts/gw-headers',
+    'sh /p/scripts/gw-headers',
+    '"/p/scripts/gw-headers" | cat',
+    '/p/scripts/gw-session-key',
+    'cd /p/scripts && ./gw-headers; echo',
+  ];
+  for (const command of yes) assert.equal(isHeaderScriptCall({ tool: 'Bash', command }), true, command);
+  const no = ['/p/scripts/gw-set-key ai-dev', 'ls', 'cat my-gw-headers.md', 'echo gw-headers-note'];
+  for (const command of no) assert.equal(isHeaderScriptCall({ tool: 'Bash', command }), false, command);
+  assert.equal(isHeaderScriptCall({ tool: 'Edit', file_path: '/repo/plugins/genia-works/README.md' }), false);
+  assert.equal(isHeaderScriptCall({ tool: 'Edit', file_path: '/p/scripts/gw-headers' }), false); // 명령이 아닌 필드는 보지 않는다
+});
+
+test('isAiKeyRegistration: Authorization 헤더(대소문자 무관)에 Bearer ak_ 가 있을 때만', () => {
+  assert.equal(isAiKeyRegistration({ headers: { Authorization: 'Bearer ak_FAKE_1' } }), true);
+  assert.equal(isAiKeyRegistration({ headers: { authorization: 'bearer ak_FAKE_1' } }), true);
+  assert.equal(isAiKeyRegistration({ headers: { Authorization: 'Bearer swp_FAKE_1' } }), false);
+  assert.equal(isAiKeyRegistration({ headers: { 'X-Other': 'Bearer ak_FAKE_1' } }), false);
+  assert.equal(isAiKeyRegistration({ url: 'http://x' }), false);
+  assert.equal(isAiKeyRegistration(undefined), false);
 });

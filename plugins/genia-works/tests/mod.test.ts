@@ -41,12 +41,13 @@ test('as <키 없는 이름>: 저장하지 않고 다시 연결하지 않는다'
   expect(reconnects).toEqual([])
 })
 
-test('logout: 선택을 지우고 다시 연결', async ($, on) => {
-  const calls = stubScripts(on, { 'gw-session clear': { exitCode: 0 } })
+test('logout: 내 토큰(select me)으로 돌리고 다시 연결 — clear 는 쓰지 않는다', async ($, on) => {
+  const calls = stubScripts(on, { 'gw-session select': { exitCode: 0 } })
   on('command.run', { command: 'mcp' }, () => ({}))
   const r = await $.command.run({ command: LOGOUT_COMMAND, args: '' })
   expect(r.text).toContain('내 토큰')
-  expect(calls.some((c) => c[1] === 'clear')).toBe(true)
+  expect(calls.some((c) => c[1] === 'select' && c[2] === 'me')).toBe(true)
+  expect(calls.some((c) => c[1] === 'clear')).toBe(false)
 })
 
 test('session.end: 종료면 선택을 지우고 /clear 면 두지 않는다', async ($, on) => {
@@ -91,9 +92,24 @@ test('키 저장소 가드: 내용에 경로가 언급된 Edit 은 허용', asyn
 
 test('as 인자 없음: 현재 신원과 등록된 이름을 알린다', async ($, on) => {
   stubScripts(on, { 'gw-keys list': { exitCode: 0, stdout: 'ai-dev\t10-14\nai-rev\t10-12\n' }, 'gw-session show': { exitCode: 0, stdout: 'ai-dev\n' } })
+  mock.env(on, {})
   const r = await $.command.run({ command: AS_COMMAND, args: '' })
   expect(r.text).toContain('현재: ai-dev')
   expect(r.text).toContain('ai-dev, ai-rev')
+})
+
+test('as 인자 없음: 선택이 없으면 GENIA_WORKS_AS 를, me 면 내 토큰 문구를 보인다(상태 줄과 같은 규칙)', async ($, on) => {
+  stubScripts(on, { 'gw-keys list': { exitCode: 0, stdout: 'ai-dev\t10-14\n' }, 'gw-session show': { exitCode: 0, stdout: '' } })
+  mock.env(on, { GENIA_WORKS_AS: 'ai-dev' })
+  expect((await $.command.run({ command: AS_COMMAND, args: '' })).text).toContain('현재: ai-dev')
+})
+
+test('as 인자 없음: me 선택은 날 것 me 가 아니라 내 토큰 문구, 토큰이 없으면 설정 안내', async ($, on) => {
+  stubScripts(on, { 'gw-keys list': { exitCode: 0, stdout: '' }, 'gw-session show': { exitCode: 0, stdout: 'me\n' } })
+  mock.env(on, { GENIA_WORKS_AS: 'ai-dev' })
+  const r = await $.command.run({ command: AS_COMMAND, args: '' })
+  expect(r.text).toContain('현재: 내 토큰 없음 — /plugin configure genia-works@genia-works')
+  expect(r.text).not.toContain('현재: me')
 })
 
 test('as me: 내 토큰으로 전환', async ($, on) => {
@@ -136,7 +152,7 @@ const FAKE_KEY = 'ak_FAKE_ABC'
 const PANE_PROPS = { title: 'genia-works 로그인', isFocused: true, bodyColumns: 80, placement: 'inline', scroll: { offset: 0, bodyRows: 10 }, view: {} } as const
 
 // 패널 테스트용 가짜 세계 — 스크립트(stdin 기록)·http.fetch·ui 바닥 이벤트. 서버는 절대 부르지 않는다.
-function loginWorld(on: any, answers: Record<string, { exitCode: number; stdout?: string; stderr?: string }>, fetchStatus: number | 'error' | 'hang' | 'slow' = 200) {
+function loginWorld(on: any, answers: Record<string, { exitCode: number; stdout?: string; stderr?: string }>, fetchStatus: number | 'error' | 'hang' | 'slow' = 200, env: Record<string, string> = {}) {
   const runs: { argv: string[]; stdin?: string }[] = []
   const fetches: { url: string; init: any }[] = []
   const shown: string[] = [] // 화면 밖으로 나간 문구(로그·토스트·상태 줄)
@@ -159,7 +175,7 @@ function loginWorld(on: any, answers: Record<string, { exitCode: number; stdout?
   on('ui.log', (_$: any, e: any) => { shown.push(JSON.stringify(e)); return { value: undefined } })
   on('ui.toast', (_$: any, e: any) => { shown.push(JSON.stringify(e)); return { value: undefined } })
   on('ui.status', (_$: any, e: any) => { shown.push(JSON.stringify(e)); return { value: undefined } })
-  mock.env(on, {})
+  mock.env(on, env)
   const clock = mock.clock(on)
   return { clock, runs, fetches, shown, scripts: () => runs.map((r) => r.argv.slice(1).join(' ')) }
 }
@@ -238,8 +254,9 @@ test('login: 관리 › 삭제 — 지금 쓰는 이름이면 세션 선택을 �
   await ui.press({ key: 'gw-remove-ai-dev' })
   expect(await ui.find({ key: 'gw-remove-confirm-ai-dev' })).toBeTruthy()
   await ui.press({ key: 'gw-remove-confirm-ai-dev' })
-  const order = w.runs.map((r) => r.argv[1]).filter((a) => a === 'clear' || a === 'remove')
-  expect(order).toEqual(['clear', 'remove'])
+  const order = w.runs.map((r) => r.argv[1]).filter((a) => a === 'select' || a === 'remove')
+  expect(order).toEqual(['select', 'remove'])
+  expect(w.runs.find((r) => r.argv[1] === 'select')?.argv[2]).toBe('me')
   expect(w.runs.find((r) => r.argv[1] === 'remove')?.argv[2]).toBe('ai-dev')
   await ui.unmount()
 })
@@ -422,7 +439,7 @@ function cleanupWorld(on: any, o: { claudeJson?: any; fetchStatus?: number; conn
   }
   const removes = () => runs.filter((r) => r[0] === 'claude' && r[2] === 'remove')
   const adds = () => runs.filter((r) => r[0] === 'claude' && r[2] === 'add-json')
-  return { start, runs, cwds, shown, calls, removes, adds }
+  return { start, clock, runs, cwds, shown, calls, removes, adds }
 }
 
 test('수동 등록 정리: 플러그인 토큰이 없으면 지우지 않고 안내한다', { options: { server_url: SERVER_URL } }, async ($, on) => {
@@ -567,4 +584,83 @@ test('비대화형(-p): as·logout·login 은 바꾸지 않고 안내만 한다'
   await clock.advance(400)
   expect(calls.slice(before).some((c) => c[1] === 'select' || c[1] === 'clear')).toBe(false)
   expect(reconnects).toEqual([])
+})
+
+// ---- 최종 리뷰 반영 ----
+test('헤더 스크립트 직접 실행은 거부, gw-set-key 와 README 편집은 허용', async ($, on) => {
+  on('tool.call', () => ({ result: 'ran' }))
+  const p = '/Users/x/.claude/plugins/cache/genia-works/genia-works/0.1.0/scripts'
+  for (const command of [`${p}/gw-headers`, `sh ${p}/gw-headers`, `${p}/gw-session-key`]) {
+    const r: any = await $.tool.call({ tool: 'Bash', command } as any)
+    expect(r.deny).toContain('헤더 스크립트는 직접 실행할 수 없습니다')
+    expect(r.deny).toContain('/genia-works:as')
+  }
+  expect((await $.tool.call({ tool: 'Bash', command: `${p}/gw-set-key ai-dev` } as any)).result).toBe('ran')
+  expect((await $.tool.call({ tool: 'Edit', file_path: '/repo/plugins/genia-works/README.md', old_string: 'a', new_string: 'gw-headers' } as any)).result).toBe('ran')
+})
+
+test('상태 줄: 내 토큰이 어디에도 없으면 설정 안내', async ($, on) => {
+  stubScripts(on, { 'gw-session show': { exitCode: 0, stdout: '' } })
+  mock.env(on, {})
+  on('session.start', (_$: any, e: any) => ({ cwd: e.cwd }))
+  const statuses: string[] = []
+  on('ui.status', (_$: any, e: any) => { statuses.push(JSON.stringify(e)); return { value: undefined } })
+  await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+  expect(statuses.join('|')).toContain('내 토큰 없음 — /plugin configure genia-works@genia-works')
+})
+
+test('상태 줄: 플러그인 설정 토큰이 있으면 내 토큰', { options: { server_url: SERVER_URL, token: 'swp_FAKE_X' } }, async ($, on) => {
+  stubScripts(on, { 'gw-session show': { exitCode: 0, stdout: '' } })
+  mock.env(on, {})
+  on('session.start', (_$: any, e: any) => ({ cwd: e.cwd }))
+  const statuses: string[] = []
+  on('ui.status', (_$: any, e: any) => { statuses.push(JSON.stringify(e)); return { value: undefined } })
+  await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+  expect(statuses.join('|')).toContain('내 토큰')
+  expect(statuses.join('|')).not.toContain('없음')
+})
+
+test('login: GENIA_WORKS_TOKEN 이 있으면 내 토큰 버튼에 환경변수를 밝힌다', { options: { server_url: SERVER_URL } }, async ($, on) => {
+  loginWorld(on, { 'gw-keys list': { exitCode: 0, stdout: 'ai-dev\t10-14\n' }, 'gw-session show': { exitCode: 0, stdout: '' } }, 200, { GENIA_WORKS_TOKEN: 'swp_FAKE_ENV' })
+  await $.command.run({ command: LOGIN_COMMAND, args: '' })
+  const ui = await mountPane($)
+  expect(JSON.stringify(await ui.find({ key: 'gw-pick-me' }))).toContain('내 토큰 (환경변수 GENIA_WORKS_TOKEN)')
+  await ui.unmount()
+})
+
+test('login: 환경변수 토큰이 없으면 내 토큰 버튼은 그대로', { options: { server_url: SERVER_URL } }, async ($, on) => {
+  loginWorld(on, { 'gw-keys list': { exitCode: 0, stdout: 'ai-dev\t10-14\n' }, 'gw-session show': { exitCode: 0, stdout: '' } })
+  await $.command.run({ command: LOGIN_COMMAND, args: '' })
+  const ui = await mountPane($)
+  expect(JSON.stringify(await ui.find({ key: 'gw-pick-me' }))).not.toContain('GENIA_WORKS_TOKEN')
+  await ui.unmount()
+})
+
+const AI_CONFIG = { type: 'http', url: SERVER_URL, headers: { authorization: 'Bearer ak_FAKE_KEEP' } }
+
+test('수동 등록 정리: AI 키(ak_) 등록은 지우지 않고 키 없이 안내, 나머지는 지운다', { options: { server_url: SERVER_URL, token: NEW_TOKEN } }, async ($, on) => {
+  const w = cleanupWorld(on, { claudeJson: { mcpServers: { 'ai-manual': AI_CONFIG, 'genia-works': OLD_CONFIG } } })
+  await w.start($)
+  expect(w.removes()).toEqual([['claude', 'mcp', 'remove', 'genia-works', '-s', 'user']])
+  const text = w.shown.join('|')
+  expect(text).toContain('기존 genia-works 등록(ai-manual)은 AI 키로 연결돼 있어 그대로 둡니다')
+  expect(text).toContain('claude mcp remove ai-manual -s user')
+  expect(text).not.toContain('ak_FAKE_KEEP')
+  expect(text).not.toContain(OLD_TOKEN)
+})
+
+test('수동 등록 정리: AI 키 등록뿐이면 아무것도 지우지 않는다(토큰이 없어도 안내는 AI 키 문구)', { options: { server_url: SERVER_URL } }, async ($, on) => {
+  const w = cleanupWorld(on, { claudeJson: { mcpServers: { 'ai-manual': AI_CONFIG } } })
+  await w.start($)
+  expect(w.removes()).toEqual([])
+  expect(w.shown.join('|')).toContain('AI 키로 연결돼 있어 그대로 둡니다')
+  expect(w.shown.join('|')).not.toContain('ak_FAKE_KEEP')
+})
+
+test('수동 등록 정리: 비대화형 세션에서는 건드리지 않는다', { options: { server_url: SERVER_URL, token: NEW_TOKEN } }, async ($, on) => {
+  const w = cleanupWorld(on)
+  await $.session.start({ cwd: '/repo', surface: null, isInteractive: false })
+  await w.clock.advance(1600)
+  expect(w.calls).toEqual([])
+  expect(w.removes()).toEqual([])
 })

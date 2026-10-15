@@ -207,3 +207,42 @@ test('gw-keys add: 따옴표 든 키는 exit 3', () => {
   assert.equal(r.status, 3);
   assert.equal(existsSync(join(home, '.genia-works', 'keys', 'ai-x')), false);
 });
+
+// 최종 리뷰 1: 세션 키가 지역 시간대에 좌우되면 세션 도중 TZ/DST 가 바뀔 때 신원이 조용히 뒤집힌다 — 진짜 ps 로 확인한다.
+test('gw_proc_key: 진짜 ps 로 TZ 가 달라도 같은 키', (t) => {
+  const probe = spawnSync('ps', ['-o', 'lstart=', '-p', String(process.pid)], { encoding: 'utf8' });
+  if (probe.status !== 0 || !probe.stdout.trim()) return t.skip('ps -o lstart= 를 쓸 수 없는 환경');
+  const keyUnder = (tz) =>
+    spawnSync('sh', ['-c', '. "$1/gw-lib.sh"; gw_proc_key "$2"', 'sh', scripts, String(process.pid)], {
+      encoding: 'utf8',
+      env: { PATH: process.env.PATH, HOME: home, TZ: tz },
+    });
+  const a = keyUnder('Asia/Seoul');
+  const b = keyUnder('America/New_York');
+  assert.equal(a.status, 0);
+  assert.equal(a.stdout.trim(), b.stdout.trim());
+  assert.match(a.stdout.trim(), new RegExp(`^${process.pid}-`));
+});
+
+// 최종 리뷰 2: logout = select me — GENIA_WORKS_AS 로 띄운 세션에서도 내 토큰({})으로 간다. clear 면 GENIA_WORKS_AS 로 되돌아간다.
+test('gw-headers: GENIA_WORKS_AS 세션에서 select me 하면 {} 이고 clear 하면 AS 키로 돌아간다', () => {
+  run('gw-keys', ['add', 'ai-dev'], { input: 'ak_FAKE_DEV\n' });
+  const env = { GENIA_WORKS_AS: 'ai-dev' };
+  assert.equal(run('gw-session', ['select', 'me'], { env }).status, 0);
+  assert.equal(run('gw-headers', [], { env }).stdout.trim(), '{}');
+  run('gw-session', ['clear'], { env });
+  assert.deepEqual(JSON.parse(run('gw-headers', [], { env }).stdout), { Authorization: 'Bearer ak_FAKE_DEV' });
+});
+
+// 최종 리뷰 10: has 도 헤더 스크립트와 같은 내용 검사를 한다.
+test('gw-keys has: 빈 파일·따옴표/공백/역슬래시 든 파일은 없는 키와 같다', () => {
+  const dir = join(home, '.genia-works', 'keys');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'good'), 'ak_FAKE_OK\n');
+  assert.equal(run('gw-keys', ['has', 'good']).status, 0);
+  const bad = { empty: '', blank: '   \n', quote: 'ak_FA"KE\n', space: 'ak_FA KE\n', slash: 'ak_FA\\KE\n' };
+  for (const [n, content] of Object.entries(bad)) {
+    writeFileSync(join(dir, n), content);
+    assert.notEqual(run('gw-keys', ['has', n]).status, 0, n);
+  }
+});
