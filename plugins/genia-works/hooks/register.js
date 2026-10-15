@@ -77,6 +77,7 @@ async function describe($) {
 }
 
 const PANE = 'genia-works-login'
+const PANE_TITLE = 'genia-works 로그인'
 // 패널 상태 — keyBuf(실제 키)는 저장 성공·실패, 검증·확인 실패, 화면 이동(go·키 바꾸기), 패널 닫기에서 비운다
 // (덮어쓰기 확인 단계만 같은 키로 다시 누르도록 남긴다). 화면에는 maskOf(keyBuf)만 그린다.
 // attempt: 열기·이동·닫기마다 올라가는 번호 — 서버 확인 중에 화면이 바뀌었으면 늦게 온 저장을 버린다.
@@ -84,7 +85,7 @@ let attempt = 0
 
 // 패널 상태 한 벌 — 기본값에 over 를 덮어 쓴다(필드를 한곳에서 정의).
 function blankPane(over) {
-  return { view: 'pick', list: [], current: '', envToken: false, keyBuf: '', name: '', message: '', confirm: '', rekey: '', busy: false, ...over }
+  return { view: 'pick', list: [], current: '', envToken: false, keyBuf: '', name: '', message: '', confirm: '', rekey: '', busy: false, blank: false, ...over }
 }
 let pane = blankPane()
 
@@ -100,6 +101,56 @@ function enterView(view, patch) {
   Object.assign(pane, { view, message: '', confirm: '', rekey: '' }, patch)
 }
 
+// 화면마다 포커스를 둘 첫 요소 — 화면이 바뀌면 포커스가 있던 요소가 사라지므로 여기로 직접 옮긴다.
+function focusKeyOf(p) {
+  if (p.view === 'add') return 'gw-key'
+  if (p.view === 'saved') return 'gw-switch-now'
+  if (p.view === 'pick') return 'gw-pick-me'
+  return p.list.length ? 'gw-rekey-' + p.list[0].name : 'gw-back'
+}
+
+// 다시 그리고 그 화면의 첫 요소로 포커스를 옮긴다 — 패널 안에서 화면이 바뀔 때 autoFocus 는 적용되지 않는다
+// (엔진은 사이트가 키보드를 「가져갈」 때만 autoFocus 를 쓴다). 포커스가 있던 버튼이 사라지면 키보드가 패널 밖
+// (Claude 입력창)으로 나가 붙여 넣은 키가 평문으로 들어갈 수 있으므로(결함 B), 옛 버튼이 아직 그려져 패널이 키를 쥔
+// 지금 $.ui.focus 를 먼저 걸고 그다음 다시 그리기를 요청한다 — 아직 없는 요소는 다음 그림까지(시간 제한 안에서) 기다리므로,
+// 기다림은 이 다시 그리기로 풀린다(라이브: 「＋ 새 AI 추가」 Enter 뒤 30ms 만에 붙여 넣어도 키 칸에 들어간다).
+// 거절되면(이미 키보드를 잃었다) 패널이 아직 열려 있을 때만 focus 로 다시 열어 키보드를 되찾은 뒤 한 번 더 옮긴다
+// (입력창이 비어 있을 때만 받아 준다 — 붙여 넣은 글이 이미 입력창에 있으면 되찾지 못하고, 추가 화면은 경고 줄을 보인다).
+// 포커스 실패는 저장·전환·닫기를 막지 않는다. ui.render 처리기 안에서는 부르지 않는다(자기 그림을 기다릴 수 없다).
+async function refocus($) {
+  const key = focusKeyOf(pane)
+  let moving
+  try {
+    moving = $.ui.focus({ requestId: PANE, key }) // 기다리지 않고 먼저 건다 — 다시 그리기 전에 불러야 한다
+  } catch {}
+  $.ui.invalidate('ui.render')
+  try {
+    const r = await moving
+    if (!r?.deny) return
+    if (!(await $.ui.panes()).some((p) => p.id === PANE)) return // 그사이 닫혔다 — 다시 열지 않는다
+    await $.ui.open({ id: PANE, title: PANE_TITLE, focus: true, closeOnEscape: true })
+    await $.ui.focus({ requestId: PANE, key })
+  } catch {} // 포커스가 안 돼도 새 화면은 이미 그리라고 했다
+}
+
+// 제출 뒤 입력칸 되살리기 — 엔진은 Enter 로 제출한 입력칸의 글을 비우고, 그리는 value 가 지난번과 같으면 다시 넣지 않는다
+// (덮어쓰기 확인 화면에서 이름칸이 비어 보이던 문제). 한 번 빈 값으로 그린 뒤 바로 다음 차례에 실제 값으로 다시 그려 되살린다.
+// 빈 값 그림은 onInput 을 부르지 않는다(라이브 확인) — pane.name·keyBuf 는 그대로다.
+function refillFields($) {
+  pane.blank = true
+  $.ui.invalidate('ui.render')
+  $.clock.after(0, () => {
+    pane.blank = false
+    $.ui.invalidate('ui.render')
+  })
+}
+
+// 화면 이동 + 다시 그리기 + 포커스 — 패널 안의 화면 전환은 모두 여기를 거친다.
+async function showView($, view, patch) {
+  enterView(view, patch)
+  await refocus($)
+}
+
 // 패널 열기 — 등록된 AI 가 없으면 바로 「새 AI 추가」 화면으로 간다.
 async function openLogin($) {
   const [list, selected, as, token] = await Promise.all([listKeys($), sessionSelection($), $.env.get('GENIA_WORKS_AS'), $.env.get('GENIA_WORKS_TOKEN')])
@@ -107,9 +158,10 @@ async function openLogin($) {
   const current = selected || (as ?? '')
   dropSecret() // 이전 패널의 키를 버리고 진행 중인 확인을 무효로 한다
   pane = blankPane({ view: list.length ? 'pick' : 'add', list, current, envToken: Boolean(token) })
-  await $.ui.open({ id: PANE, title: 'genia-works 로그인', focus: true, closeOnEscape: true })
-  // 다시 열 때 엔진이 지난 그림(settled)을 재사용하므로, 새 상태로 다시 그리라고 요청한다(안 하면 지난 화면이 남는다).
-  $.ui.invalidate('ui.render')
+  await $.ui.open({ id: PANE, title: PANE_TITLE, focus: true, closeOnEscape: true })
+  // 다시 열 때 엔진이 지난 그림(settled)을 재사용하고 autoFocus 도 그 지난 그림에 건다. 새 상태로 다시 그리게 하고
+  // 포커스를 새 그림의 첫 요소로 옮긴다(입력창에 글이 있어 키보드를 받지 못했으면 거절되고 그대로 둔다).
+  await refocus($)
 }
 
 // 키 확인 — 그 키로 initialize 를 보내 401 이면 거절. 네트워크 오류·무응답(10초)은 저장하지 않고 고정 문구로 알린다(오류 원문엔 키가 섞일 수 있어 쓰지 않는다).
@@ -170,11 +222,8 @@ async function saveNewKey($) {
       resetConfirm()
       return void (pane.message = '저장하지 못했습니다: ' + r.stderr.trim())
     }
-    pane.confirm = ''
-    pane.rekey = ''
-    pane.view = 'saved'
-    pane.name = name
-    pane.message = `✓ ${name} 키를 확인하고 저장했습니다. 지금 이 AI 로 바꿀까요?`
+    // 저장 화면으로 — 제출한 입력칸이 사라지므로 포커스를 「바꾸기」로 직접 옮긴다(Enter 가 「나중에」에 걸리던 결함 A).
+    await showView($, 'saved', { name, message: `✓ ${name} 키를 확인하고 저장했습니다. 지금 이 AI 로 바꿀까요?` })
   } finally {
     pane.busy = false
   }
@@ -212,22 +261,24 @@ async function removeKey($, name) {
   const r = await script($, 'gw-keys', ['remove', name])
   if (r.exitCode !== 0) return void (pane.message = '키를 지우지 못했습니다: ' + r.stderr.trim())
   pane.list = await listKeys($)
-  pane.confirm = ''
-  pane.message = `${name} 키를 지웠습니다` + note
-  if (!pane.list.length) pane.view = 'add'
+  // 누른 「지우기」 버튼이 그 줄과 함께 사라지므로 화면을 다시 세우고 포커스를 옮긴다(목록이 비면 추가 화면의 키 칸).
+  await showView($, pane.list.length ? 'manage' : 'add', { message: `${name} 키를 지웠습니다` + note })
 }
 
 // 패널 트리 — view 별(pick·add·saved·manage). 상태가 바뀌면 invalidate 로 다시 그린다.
 function renderPane($, e) {
   const { Box, Text, Button, Input } = $.ui.resolve(e)
   const redraw = () => $.ui.invalidate('ui.render')
-  const go = (view) => () => { enterView(view); redraw() }
+  const go = (view) => () => showView($, view)
+  // 이 화면의 포커스 대상에만 autoFocus — 사람이 ctrl+x tab 으로 패널을 다시 잡을 때도 refocus 와 같은 요소에서 시작한다.
+  const target = focusKeyOf(pane)
+  const af = (key) => (key === target ? { autoFocus: true } : {})
   const msg = pane.message ? h(Text, null, pane.message) : null
   let body
   if (pane.view === 'pick') {
     body = [
       h(Text, null, '이 세션을 어느 신원으로 쓸까요?'),
-      h(Button, { key: 'gw-pick-me', label: '내 토큰' + (pane.envToken ? ' (환경변수 GENIA_WORKS_TOKEN)' : '') + (pane.current === '' || pane.current === 'me' ? '  (현재)' : ''), onPress: async () => { await pickAndClose($, 'me') } }),
+      h(Button, { key: 'gw-pick-me', ...af('gw-pick-me'), label: '내 토큰' + (pane.envToken ? ' (환경변수 GENIA_WORKS_TOKEN)' : '') + (pane.current === '' || pane.current === 'me' ? '  (현재)' : ''), onPress: async () => { await pickAndClose($, 'me') } }),
       ...pane.list.map((k) =>
         h(Button, { key: 'gw-pick-' + k.name, label: `${k.name}  등록 ${k.added}` + (pane.current === k.name ? '  (현재)' : ''), onPress: async () => { await pickAndClose($, k.name) } })),
       h(Button, { key: 'gw-add', label: '＋ 새 AI 추가', onPress: go('add') }),
@@ -235,16 +286,24 @@ function renderPane($, e) {
       msg,
     ]
   } else if (pane.view === 'add') {
+    // 두 입력칸의 Enter — 저장 뒤 추가 화면에 머물면(확인·실패) 제출로 비워진 칸을 되살린다. 저장 화면으로 갔으면 showView 가 다시 그렸다.
+    const submit = async () => {
+      await saveNewKey($)
+      if (pane.view === 'add') refillFields($)
+    }
     body = [
+      // 안전장치 — 패널이 키보드를 쥐지 않은 채 추가 화면이 보이면 알린다. 이 줄이 보일 때는 붙여 넣은 키가 이미 Claude 입력창에
+      // 들어가 있을 수 있으므로(Enter 와 붙여넣기가 한꺼번에 들어온 경우) 「보내지 말고 지우기」를 먼저, 다시 붙여 넣는 방법을 다음에 적는다.
+      e.props?.isFocused === false ? h(Text, { color: 'yellow' }, '⚠ 이 패널에 키보드가 없습니다 — 키가 Claude 입력창에 들어갔다면 Enter 를 누르지 말고 Ctrl+U 로 지우세요. 붙여 넣으려면 ctrl+x tab 으로 패널에 온 뒤 붙여 넣으세요') : null,
       h(Input, {
-        key: 'gw-key', label: 'AI 키', placeholder: '관리자 › 에이전트에서 발급한 ak_ 키', value: maskOf(pane.keyBuf), autoFocus: true,
+        key: 'gw-key', label: 'AI 키', placeholder: '관리자 › 에이전트에서 발급한 ak_ 키', value: pane.blank ? '' : maskOf(pane.keyBuf), ...af('gw-key'),
         onInput: (v) => { pane.keyBuf = applyMaskedInput(pane.keyBuf, v); resetConfirm(); redraw() },
-        onSubmit: async () => { await saveNewKey($); redraw() },
+        onSubmit: submit,
       }),
       h(Input, {
-        key: 'gw-name', label: '이름', placeholder: '이 AI 의 아이디', value: pane.name, submitLabel: '확인하고 저장',
+        key: 'gw-name', label: '이름', placeholder: '이 AI 의 아이디', value: pane.blank ? '' : pane.name, submitLabel: '확인하고 저장',
         onInput: (v) => { pane.name = v; resetConfirm(); redraw() },
-        onSubmit: async () => { await saveNewKey($); redraw() },
+        onSubmit: submit,
       }),
       msg,
       h(Text, { dimColor: true }, `터미널에서 넣으려면: "${$.plugin.root}/scripts/gw-set-key" ${pane.name.trim() || '<이름>'}`),
@@ -254,7 +313,7 @@ function renderPane($, e) {
   } else if (pane.view === 'saved') {
     body = [
       msg,
-      h(Button, { key: 'gw-switch-now', label: '바꾸기', autoFocus: true, onPress: async () => { await pickAndClose($, pane.name) } }),
+      h(Button, { key: 'gw-switch-now', ...af('gw-switch-now'), label: '바꾸기', onPress: async () => { await pickAndClose($, pane.name) } }),
       h(Button, { key: 'gw-later', label: '나중에', onPress: async () => { await closePane($) } }),
     ]
   } else {
@@ -262,7 +321,7 @@ function renderPane($, e) {
       h(Text, null, '등록된 AI 관리'),
       ...pane.list.flatMap((k) => [
         h(Text, { key: 'gw-name-' + k.name }, `${k.name}  등록 ${k.added}`),
-        h(Button, { key: 'gw-rekey-' + k.name, label: `${k.name} 키 바꾸기`, onPress: () => { enterView('add', { name: k.name, rekey: k.name }); resetConfirm(); redraw() } }),
+        h(Button, { key: 'gw-rekey-' + k.name, ...af('gw-rekey-' + k.name), label: `${k.name} 키 바꾸기`, onPress: () => showView($, 'add', { name: k.name, rekey: k.name, confirm: 'overwrite-' + k.name }) }), // 키 바꾸기는 덮어쓰기를 이미 고른 것(resetConfirm 과 같은 규칙)
         h(Button, { key: 'gw-remove-' + k.name, label: `${k.name} 삭제`, onPress: () => { pane.confirm = 'remove-' + k.name; redraw() } }),
         pane.confirm === 'remove-' + k.name
           ? h(Box, { flexDirection: 'column' },
@@ -271,7 +330,7 @@ function renderPane($, e) {
           : null,
       ]),
       msg,
-      h(Button, { key: 'gw-back', label: '← 돌아가기', onPress: go(pane.list.length ? 'pick' : 'add') }),
+      h(Button, { key: 'gw-back', ...af('gw-back'), label: '← 돌아가기', onPress: go(pane.list.length ? 'pick' : 'add') }),
     ]
   }
   return h(Box, { flexDirection: 'column' }, ...body.filter(Boolean))
