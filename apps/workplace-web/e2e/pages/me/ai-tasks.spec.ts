@@ -206,6 +206,11 @@ const DONE_ROWS: IssueResponse[] = [
     id: 503, number: 503, title: '구 알림 설정 마이그레이션', status: 'CANCELED', assignees: [agent],
     agentWork: [createAgentWork({ state: 'CANCELED', updatedAt: minutesAgo(200), endedAt: minutesAgo(200) })],
   }),
+  // 조회 사이 작업이 다시 시작된 행 — 서버가 진행 중 작업을 실어 보내 endedAt 이 없다(「종료」 칸이지만 마지막 보고 시각).
+  createIssue({
+    id: 505, number: 505, title: '재시작된 작업', status: 'IN_PROGRESS', assignees: [agent],
+    agentWork: [createAgentWork({ state: 'WORKING', updatedAt: minutesAgo(5) })],
+  }),
   createIssue({
     id: 504, number: 504, title: '외부 저장소 권한 없는 작업', status: 'TODO', assignees: [human],
     agentWork: [createAgentWork({ worker: human, state: 'REJECTED', note: '권한 밖 저장소라 맡지 않아요', updatedAt: minutesAgo(300), endedAt: minutesAgo(300) })],
@@ -244,6 +249,8 @@ test('완료 칩은 종료 상태로 요청하고 done 건수, 행 배지는 결
   await expect(page.getByTestId('ai-tasks-table').locator('th').last()).toHaveText('종료')
   await expect(page.getByTestId('ai-row-501-last')).toHaveText('20분 전')
   await expect(page.getByTestId('ai-row-501-last')).toHaveAttribute('title', '종료 20분 전')
+  // 시각 표시는 행마다 — endedAt 없는 행은 툴팁으로 마지막 보고 시각임을 밝힌다.
+  await expect(page.getByTestId('ai-row-505-last')).toHaveAttribute('title', '마지막 보고 5분 전')
 })
 
 test('옛 링크의 state=WAITING 은 무시하고 미완료로 보여 준다', async ({ authenticatedPage: page }) => {

@@ -81,7 +81,8 @@ export function AgentProgress({
 
 /**
  * 마지막 보고 시각 — 작업 중인데 2시간 넘게 소식 없으면 경고색 + 아이콘. 시작 전(SUBMITTED)은 아직 아무 보고가 없으므로 그리지 않는다(updatedAt 은 행 생성 시각일 뿐).
- * 종료 작업(완료 보기, WP-396)은 마지막 보고 대신 종료 시각을 보인다 — 목록이 종료 시각순이라 칸과 정렬이 맞도록. 툴팁에 「종료」를 밝히고,
+ * 종료 작업(endedAt 있음, 완료 보기 WP-396)은 마지막 보고 대신 종료 시각을 보인다 — 목록이 종료 시각순이라 칸과 정렬이 맞도록. 판정은 행마다이고
+ * 툴팁에 「종료」/「마지막 보고」를 밝히며,
  * 칸 제목이 없는 곳(모바일 메타 줄)은 endedLabel 로 글자에도 「종료」를 붙인다.
  */
 export function AgentLastReport({
@@ -115,9 +116,11 @@ export function AgentLastReport({
         {relTime(w.updatedAt)}
       </span>
     )
+  // 종료 여부는 행마다 endedAt 으로 정한다 — 완료 보기(칸 제목 「종료」)에서도 조회 사이 다시 시작된 행은 마지막 보고 시각이라 툴팁으로 구분한다.
+  const rel = relTime(w.updatedAt)
   return (
-    <span className={cn('text-xs text-muted-foreground', className)} data-testid={testId}>
-      {relTime(w.updatedAt)}
+    <span className={cn('text-xs text-muted-foreground', className)} title={`마지막 보고 ${rel}`} data-testid={testId}>
+      {rel}
     </span>
   )
 }

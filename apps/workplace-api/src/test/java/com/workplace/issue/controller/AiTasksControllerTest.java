@@ -18,6 +18,12 @@ import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.PostgresTestContainer;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -27,6 +33,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.jooq.DSLContext;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -371,6 +378,28 @@ class AiTasksControllerTest extends IntegrationTestBase {
     assertThat(counts("/api/v1/me/ai-tasks/counts")).containsEntry("done", 2);
   }
 
+  /**
+   * 진행 중 판정은 ended_at IS NULL 이면 무조건이다(AgentWorkRepository.liveWork 와 같다) — 자바 ACTIVE 목록에 아직 없는
+   * 상태(예: DB 에 새 진행 상태가 먼저 추가된 롤링 배포)의 진행 중 행도 진행 중으로 쳐서, 종료 작업이 함께 있어도 완료 보기에 나오지 않는다. 순위는 맨 뒤.
+   */
+  @Test
+  void ACTIVE_목록에_없는_상태의_진행중_행도_진행중으로_친다() throws Exception {
+    // 상태 CHECK 를 소유자(app) 연결로 잠시 풀어 모르는 진행 상태를 심는다 — 런타임 롤(app_tenant)은 DDL 권한이 없다. 클래스
+    // 끝(@AfterAll)에서 되돌린다.
+    dropStateChecks();
+    long i = issue("future-state", me);
+    assign(i, agent);
+    endedWork(i, agent, "COMPLETED", Instant.parse("2026-10-01T00:00:00Z"));
+    work(i, other, "FUTURE_STATE");
+    work(issue("working", other), me, "WORKING");
+
+    assertThat(titles(getJson("/api/v1/me/ai-tasks?agentState=" + DONE_STATES))).isEmpty();
+    assertThat(titles(getJson("/api/v1/me/ai-tasks"))).containsExactly("working", "future-state");
+    assertThat(counts("/api/v1/me/ai-tasks/counts"))
+        .containsEntry("all", 2)
+        .containsEntry("done", 0);
+  }
+
   /** 미완료 보기 행은 진행 중 작업만 싣는다 — 종료 시각(endedAt)도, 예전 종료 작업도 섞이지 않는다. */
   @Test
   void 미완료_보기_행에는_종료작업이_섞이지_않는다() throws Exception {
@@ -672,6 +701,46 @@ class AiTasksControllerTest extends IntegrationTestBase {
   }
 
   // ---------------------------------------------------------------- helpers
+
+  /** 잠시 푼 상태 CHECK 를 되돌리는 DDL — 푼 테스트가 있을 때만 채워진다. */
+  private static final List<String> RESTORE_CHECKS = new ArrayList<>();
+
+  /**
+   * agent_work 의 상태 CHECK 제약을 소유자 연결(자동 커밋)로 내린다. 테스트 트랜잭션이 agent_work 를 건드리기 전에 불러야 잠금이 겹치지 않는다.
+   * 되돌리는 DDL 은 {@link #restoreStateChecks} 가 모든 테스트 트랜잭션이 끝난 뒤 실행한다.
+   */
+  private static void dropStateChecks() throws SQLException {
+    try (Connection c = ownerConnection();
+        Statement st = c.createStatement()) {
+      List<String[]> checks = new ArrayList<>();
+      try (ResultSet rs =
+          st.executeQuery(
+              "SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid ="
+                  + " 'agent_work'::regclass AND contype = 'c' AND pg_get_constraintdef(oid) LIKE"
+                  + " '%state%'")) {
+        while (rs.next()) checks.add(new String[] {rs.getString(1), rs.getString(2)});
+      }
+      for (String[] ck : checks) {
+        st.execute("ALTER TABLE agent_work DROP CONSTRAINT " + ck[0]);
+        RESTORE_CHECKS.add("ALTER TABLE agent_work ADD CONSTRAINT " + ck[0] + " " + ck[1]);
+      }
+    }
+  }
+
+  @AfterAll
+  static void restoreStateChecks() throws SQLException {
+    if (RESTORE_CHECKS.isEmpty()) return;
+    try (Connection c = ownerConnection();
+        Statement st = c.createStatement()) {
+      for (String ddl : RESTORE_CHECKS) st.execute(ddl);
+    }
+    RESTORE_CHECKS.clear();
+  }
+
+  private static Connection ownerConnection() throws SQLException {
+    var pg = PostgresTestContainer.INSTANCE;
+    return DriverManager.getConnection(pg.getJdbcUrl(), pg.getUsername(), pg.getPassword());
+  }
 
   /** USER 역할이 부여된 사람 사용자 시드. */
   private long createUser(String prefix) {
