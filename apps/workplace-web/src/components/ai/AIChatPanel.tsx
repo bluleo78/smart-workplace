@@ -313,11 +313,14 @@ export function AIChatPanel({
         <div ref={scrollRef} data-testid="chat-scroll" className="flex-1 overflow-auto p-3">
           {turns.length === 0 ? (
             // safe center — 영역이 안내보다 낮아지면(키보드가 열린 모바일 시트 등) 가운데 정렬이 위쪽을 스크롤로도 못 보는 곳으로
-            // 밀어내지 않고 위에서부터 놓는다.
-            <div data-testid="ai-chat-empty-state" className="flex h-full flex-col items-center justify-center-safe gap-2 text-center">
-              <Sparkles className="h-9 w-9 text-muted-foreground/60" />
-              <p className="text-base font-medium text-foreground">AI 어시스턴트에게 물어보세요</p>
-              <p className="text-sm text-muted-foreground">무엇이든 질문해 보세요</p>
+            // 밀어내지 않고 위에서부터 놓는다. WP-398: 넘치면 이 안내 영역이 스스로 스크롤한다 — 바깥 대화 영역은 바닥 고정(useStickToBottom)이라
+            // 키보드로 낮아지면 바닥으로 끌려가 추천 머리말·첫 행이 위로 숨었다. 키보드가 열린 동안엔 안내 글을 접어 추천이 맨 위에 보이게 한다.
+            <div data-testid="ai-chat-empty-state" className="flex h-full flex-col items-center justify-center-safe gap-2 overflow-y-auto text-center">
+              <div className={cn('contents', showStarters && '[:root[data-keyboard-open]_&]:hidden')}>
+                <Sparkles className="h-9 w-9 shrink-0 text-muted-foreground/60" />
+                <p className="text-base font-medium text-foreground">AI 어시스턴트에게 물어보세요</p>
+                <p className="text-sm text-muted-foreground">무엇이든 질문해 보세요</p>
+              </div>
               {/* WP-398: 빈 새 대화 추천 — 안내 바로 아래, 답 뒤 후속 질문과 같은 모양. 안내와 한 덩어리로 가운데, 행은 왼쪽 정렬.
                   전송이 막히면 비활성. 꺼짐이면 목록 자체가 없다(스펙 §10.6). */}
               {showStarters && (
@@ -326,11 +329,10 @@ export function AIChatPanel({
                   items={starters.items}
                   holdProps={starters.holdProps}
                   disabled={pending || sendBlocked}
-                  isMobile={isMobile}
                   onPick={sendChip}
                   testId="starter-suggestions"
                   itemTestId="starter-suggestion"
-                  className="mt-4 w-full max-w-md text-left"
+                  className="mt-4 w-full max-w-md text-left [:root[data-keyboard-open]_&]:mt-0"
                 />
               )}
             </div>
@@ -455,10 +457,10 @@ export function AIChatPanel({
                     </li>
                   )}
                   {/* WP-55: 메모리 결과 줄(시안 A) — 답변 말풍선들 아래·후속 질문 위. 줄마다 따로 되돌린다. 첫 토큰 전(3-dot 중)엔 미룬다.
-                      터치 기기는 줄 간격을 넓히고 아래에 8px 를 더 둔다 — 되돌리기의 위아래 터치 확장(8px)이 이웃 줄·바로 아래 후속 질문 행과
-                      겹치지 않게(겹치면 뒤 형제인 행이 이긴다). */}
+                      터치 기기는 줄 간격을 넓힌다 — 되돌리기의 위아래 터치 확장(8px)이 이웃 줄과 겹치지 않게(겹치면 뒤 형제가 이긴다).
+                      바로 아래 후속 질문은 누를 수 없는 머리말로 시작해(WP-398) 따로 여백을 두지 않는다. */}
                   {t.role === 'assistant' && (t.memoryBlocks?.length ?? 0) > 0 && !(i === turns.length - 1 && pending && t.content === '') ? (
-                    <li data-testid="chat-memory-results" className="flex flex-col gap-1 pb-0 pointer-coarse:gap-4 pointer-coarse:pb-2">
+                    <li data-testid="chat-memory-results" className="flex flex-col gap-1 pointer-coarse:gap-4">
                       {t.memoryBlocks?.map((b, mi) => (
                         <MemoryResultLine
                           key={`${mi}-${b.memoryId}`}
@@ -480,7 +482,6 @@ export function AIChatPanel({
                         heading="이어서 물어보기"
                         items={t.followups}
                         disabled={sendBlocked}
-                        isMobile={isMobile}
                         onPick={sendChip}
                         testId="chat-followups"
                         itemTestId="chat-followup"
