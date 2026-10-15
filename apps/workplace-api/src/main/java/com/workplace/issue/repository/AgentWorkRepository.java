@@ -72,15 +72,22 @@ public class AgentWorkRepository {
   public record AgentWorkWithWorker(AgentWorkRow work, UserSummary worker, boolean stale) {}
 
   /**
-   * "살아 있는 AI 작업" 의 단일 정의 — ISSUE 와 조인된 상태에서 진행 중(ended_at IS NULL)이고 이슈가 종료(DONE·CANCELED)되지 않은 행.
-   * 종료 이슈에 남은 진행 중 행은 작업으로 치지 않는다(조회·순위·건수·범위·필터 일관). 상관 서브쿼리({@code AiTaskRepository})도 이 조건을 쓴다.
+   * "살아 있는 AI 작업" 의 단일 정의 — ISSUE 와 조인된 상태에서 진행 중 행({@link #liveRow})이고 이슈가 종료되지 않은({@link
+   * #issueOpen}) 것. 종료 이슈에 남은 진행 중 행은 작업으로 치지 않는다(조회·순위·건수·범위·필터 일관). AI 위임 작업 집계({@code
+   * AiTaskRepository})는 두 조각을 따로 쓴다 — 행 조건은 집계 안, 이슈 조건은 집계 밖.
    */
   public static Condition liveWork() {
-    return AGENT_WORK
-        .ISSUE_ID
-        .eq(ISSUE.ID)
-        .and(AGENT_WORK.ENDED_AT.isNull())
-        .and(ISSUE.STATUS.notIn(IssueStatuses.CLOSED));
+    return AGENT_WORK.ISSUE_ID.eq(ISSUE.ID).and(liveRow()).and(issueOpen());
+  }
+
+  /** 진행 중 작업 행 — ended_at IS NULL 이면 상태와 무관하게 진행 중. */
+  public static Condition liveRow() {
+    return AGENT_WORK.ENDED_AT.isNull();
+  }
+
+  /** 이슈(바깥 ISSUE)가 종료(DONE·CANCELED)되지 않음 — 종료 이슈의 진행 중 행은 살아 있는 작업이 아니다. */
+  public static Condition issueOpen() {
+    return ISSUE.STATUS.notIn(IssueStatuses.CLOSED);
   }
 
   /** (이슈, 작업자)의 진행 중 작업 1건. */

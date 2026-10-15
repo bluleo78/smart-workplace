@@ -22,7 +22,6 @@ import com.workplace.issue.dto.AgentWorkState;
 import com.workplace.issue.dto.AiTaskCounts;
 import com.workplace.issue.dto.AiTaskCursor;
 import com.workplace.issue.dto.IssueRow;
-import com.workplace.issue.dto.IssueStatuses;
 import com.workplace.user.dto.UserKind;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -30,7 +29,9 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.jooq.CaseWhenStep;
 import org.jooq.Condition;
@@ -134,7 +135,7 @@ public class AiTaskRepository {
     final boolean all;
     final Condition delegated;
     final Condition issueMine;
-    final Field<Boolean> anyLive;
+    final Field<Boolean> hasLiveCol;
     final Field<Integer> liveRank;
     final Field<OffsetDateTime> liveAt;
     final Field<Boolean> humanLive;
@@ -146,17 +147,22 @@ public class AiTaskRepository {
     final Field<Long> humanDoneId;
     final Field<Long> myDoneId;
 
-    /** liveStateSets 순서대로 — 그 상태들 중 하나인 진행 중 작업이 있는지. */
-    final List<Field<Boolean>> liveIn = new ArrayList<>();
+    /** 진행 중 상태 묶음 키 → 그 상태들 중 하나인 진행 중 작업이 있는지. */
+    final Map<String, Field<Boolean>> liveIn = new LinkedHashMap<>();
 
     /**
      * @param terminal 완료 판정에 쓰는 종료 상태 집합(요청한 것, 없으면 넷 모두)
-     * @param liveStateSets 진행 중 상태 필터 묶음(목록은 요청 하나, 건수는 칩별)
+     * @param liveStateSets 진행 중 상태 필터 묶음 — 키로 찾는다(목록은 요청 하나, 건수는 칩별)
+     * @param withDoneIds 대표 종료 작업 id 를 집계할지 — 완료 보기 목록에서만(건수·미완료 목록은 정렬된 배열 집계가 필요 없다)
      */
     WorkSummary(
-        long callerId, boolean all, Collection<String> terminal, List<List<String>> liveStateSets) {
+        long callerId,
+        boolean all,
+        Collection<String> terminal,
+        Map<String, List<String>> liveStateSets,
+        boolean withDoneIds) {
       this.all = all;
-      Condition live = AGENT_WORK.ENDED_AT.isNull();
+      Condition live = AgentWorkRepository.liveRow();
       Condition ended = AGENT_WORK.ENDED_AT.isNotNull().and(AGENT_WORK.STATE.in(terminal));
       Condition human = USER.KIND.eq(UserKind.HUMAN);
       Condition mine = human.and(AGENT_WORK.WORKER_ID.eq(callerId));
@@ -164,18 +170,21 @@ public class AiTaskRepository {
       // 이슈 단위 조건 — 바깥 ISSUE 만 참조해 집계와 무관하게 LATERAL 실행당 한 번 계산된다.
       cols.add(field(agentAssigned()).as("w_agent_assigned"));
       if (!all) cols.add(field(issueMine(callerId)).as("w_issue_mine"));
-      cols.add(DSL.boolOr(live).as("w_any_live"));
+      // 살아 있는 작업 — 진행 중 행이 있고 이슈 미종료(AgentWorkRepository.liveWork 와 같은 정의). 한 번만 계산해 판정·정렬이 컬럼으로
+      // 쓴다.
+      cols.add(
+          field(DSL.condition(DSL.boolOr(live)).and(AgentWorkRepository.issueOpen()))
+              .as("w_has_live"));
       cols.add(min(stateRankCase()).filterWhere(live).as("w_live_rank"));
       cols.add(max(AGENT_WORK.UPDATED_AT).filterWhere(live).as("w_live_at"));
       cols.add(DSL.boolOr(live.and(human)).as("w_human_live"));
       if (!all) cols.add(DSL.boolOr(live.and(mine)).as("w_my_live"));
-      addDone(cols, "all", ended);
-      addDone(cols, "human", ended.and(human));
-      if (!all) addDone(cols, "my", ended.and(mine));
-      for (int i = 0; i < liveStateSets.size(); i++) {
-        cols.add(
-            DSL.boolOr(live.and(AGENT_WORK.STATE.in(liveStateSets.get(i)))).as("w_live_in_" + i));
-      }
+      addDone(cols, "all", ended, withDoneIds);
+      addDone(cols, "human", ended.and(human), withDoneIds);
+      if (!all) addDone(cols, "my", ended.and(mine), withDoneIds);
+      liveStateSets.forEach(
+          (key, states) ->
+              cols.add(DSL.boolOr(live.and(AGENT_WORK.STATE.in(states))).as("w_live_" + key)));
       table =
           DSL.lateral(
                   select(cols)
@@ -190,7 +199,7 @@ public class AiTaskRepository {
       issueMine =
           all ? DSL.trueCondition() : DSL.condition(table.field("w_issue_mine", Boolean.class));
       delegated = all ? agentAssignedCol : agentAssignedCol.and(issueMine);
-      anyLive = table.field("w_any_live", Boolean.class);
+      hasLiveCol = table.field("w_has_live", Boolean.class);
       liveRank = table.field("w_live_rank", Integer.class);
       liveAt = table.field("w_live_at", OffsetDateTime.class);
       humanLive = table.field("w_human_live", Boolean.class);
@@ -198,17 +207,19 @@ public class AiTaskRepository {
       allDoneAt = table.field("w_all_done_at", OffsetDateTime.class);
       humanDoneAt = table.field("w_human_done_at", OffsetDateTime.class);
       myDoneAt = all ? null : table.field("w_my_done_at", OffsetDateTime.class);
-      allDoneId = table.field("w_all_done_id", Long.class);
-      humanDoneId = table.field("w_human_done_id", Long.class);
-      myDoneId = all ? null : table.field("w_my_done_id", Long.class);
-      for (int i = 0; i < liveStateSets.size(); i++) {
-        liveIn.add(table.field("w_live_in_" + i, Boolean.class));
-      }
+      allDoneId = withDoneIds ? table.field("w_all_done_id", Long.class) : null;
+      humanDoneId = withDoneIds ? table.field("w_human_done_id", Long.class) : null;
+      myDoneId = withDoneIds && !all ? table.field("w_my_done_id", Long.class) : null;
+      liveStateSets
+          .keySet()
+          .forEach(key -> liveIn.put(key, table.field("w_live_" + key, Boolean.class)));
     }
 
     /** 근거 하나의 대표 종료 작업 — 최근 종료 시각과, 같은 순서(종료 시각 DESC → 취소 뒤 → id DESC)의 첫 id. */
-    private static void addDone(List<SelectField<?>> cols, String tier, Condition rows) {
+    private static void addDone(
+        List<SelectField<?>> cols, String tier, Condition rows, boolean withId) {
       cols.add(max(AGENT_WORK.ENDED_AT).filterWhere(rows).as("w_" + tier + "_done_at"));
+      if (!withId) return;
       cols.add(
           DSL.arrayGet(
                   DSL.arrayAgg(AGENT_WORK.ID)
@@ -226,7 +237,7 @@ public class AiTaskRepository {
 
     /** 살아 있는 작업이 있는지 — 진행 중 행(ended_at IS NULL, 상태 무관)이 있고 이슈가 종료(DONE·CANCELED)되지 않음. */
     Condition hasLive() {
-      return DSL.condition(anyLive).and(ISSUE.STATUS.notIn(IssueStatuses.CLOSED));
+      return DSL.condition(hasLiveCol);
     }
 
     /** 미완료 보기 — 살아 있는 작업이 있고, AI 담당이거나 / 내 이슈에서 사람 작업이 진행 중이거나 / 내 사람 작업이 진행 중. */
@@ -249,7 +260,7 @@ public class AiTaskRepository {
     /** 정렬 키 1 — 살아 있는 작업 중 가장 급한 상태의 순위, 없거나 모르는 상태뿐이면 맨 뒤(NO_WORK_RANK). */
     Field<Integer> rank() {
       Field<Integer> last = inline(AgentWorkState.NO_WORK_RANK);
-      return when(hasLive(), coalesce(liveRank, last)).otherwise(last);
+      return coalesce(when(hasLive(), liveRank), last);
     }
 
     /** 정렬 키 2 — 살아 있는 작업의 마지막 보고 시각, 없으면(완료 보기) 대표 종료 작업의 종료 시각, 그것도 없으면 이슈 수정 시각. */
@@ -299,7 +310,8 @@ public class AiTaskRepository {
             callerId,
             q.all(),
             terminal.isEmpty() ? AgentWorkState.TERMINAL : terminal,
-            active.isEmpty() ? List.of() : List.of(active));
+            active.isEmpty() ? Map.of() : Map.of(FILTER, active),
+            !terminal.isEmpty());
     Condition where = facetCondition(callerId, q).and(viewCondition(w, active, terminal));
 
     var selfType = ISSUE_TYPE_DEF.as("ai_self_type");
@@ -463,30 +475,37 @@ public class AiTaskRepository {
     return c;
   }
 
-  /** 건수 칩별 진행 중 상태 묶음 — 순서가 AiTaskCounts 의 inputRequired·review·blocked·working 과 같다. */
-  private static final List<List<String>> CHIP_STATES =
-      List.of(
-          List.of(AgentWorkState.INPUT_REQUIRED),
-          List.of(AgentWorkState.REVIEW),
-          // 막힘 칩은 BLOCKED 와 AUTH_REQUIRED(인증 필요) 를 함께 센다 — 둘 다 사람이 풀어 줘야 진행되는 멈춤.
-          List.of(AgentWorkState.BLOCKED, AgentWorkState.AUTH_REQUIRED),
-          List.of(AgentWorkState.WORKING));
+  /** 건수 칩별 진행 중 상태 묶음 — 키로 집계 컬럼(w_live_<키>)을 찾는다(위치에 기대지 않게). */
+  private static final Map<String, List<String>> CHIP_STATES = chipStates();
+
+  /** 목록 진행 상태 필터 묶음의 키(viewCondition). */
+  private static final String FILTER = "filter";
+
+  private static Map<String, List<String>> chipStates() {
+    Map<String, List<String>> m = new LinkedHashMap<>();
+    m.put("input_required", List.of(AgentWorkState.INPUT_REQUIRED));
+    m.put("review", List.of(AgentWorkState.REVIEW));
+    // 막힘 칩은 BLOCKED 와 AUTH_REQUIRED(인증 필요) 를 함께 센다 — 둘 다 사람이 풀어 줘야 진행되는 멈춤.
+    m.put("blocked", List.of(AgentWorkState.BLOCKED, AgentWorkState.AUTH_REQUIRED));
+    m.put("working", List.of(AgentWorkState.WORKING));
+    return m;
+  }
 
   /**
    * 빠른 필터 칩 건수 — 한 쿼리에서 미완료(all)·상태별·완료(done)를 FILTER WHERE 로 함께 센다. 작업 요약(LATERAL)은 이슈마다 한 번만
    * 계산한다. 범위·이슈 상태·우선순위는 목록과 같고 agentState·커서는 무시한다. 한 이슈에 여러 작업이 있으면 해당 상태 작업이 하나라도 있는 칩마다 센다.
    */
   public AiTaskCounts counts(long callerId, AiTaskQuery q) {
-    WorkSummary w = new WorkSummary(callerId, q.all(), AgentWorkState.TERMINAL, CHIP_STATES);
+    WorkSummary w = new WorkSummary(callerId, q.all(), AgentWorkState.TERMINAL, CHIP_STATES, false);
     Condition open = w.open();
     Condition done = w.done();
     var r =
         dsl.select(
                 count().filterWhere(open),
-                count().filterWhere(open.and(DSL.condition(w.liveIn.get(0)))),
-                count().filterWhere(open.and(DSL.condition(w.liveIn.get(1)))),
-                count().filterWhere(open.and(DSL.condition(w.liveIn.get(2)))),
-                count().filterWhere(open.and(DSL.condition(w.liveIn.get(3)))),
+                count().filterWhere(open.and(DSL.condition(w.liveIn.get("input_required")))),
+                count().filterWhere(open.and(DSL.condition(w.liveIn.get("review")))),
+                count().filterWhere(open.and(DSL.condition(w.liveIn.get("blocked")))),
+                count().filterWhere(open.and(DSL.condition(w.liveIn.get("working")))),
                 count().filterWhere(done))
             .from(ISSUE)
             .crossJoin(w.table)
@@ -506,15 +525,15 @@ public class AiTaskRepository {
   }
 
   /**
-   * 보기 조건(WP-396). 상태 필터가 없으면 미완료 기본 보기. 진행 상태는 그 상태의 진행 중 작업이 있는 미완료 행(w.liveIn[0]), 종료 상태는 완료
-   * 보기이며 둘이 섞이면 OR. 작업 기록이 하나도 없는 이슈는 어느 보기에도 걸리지 않아 목록 밖이다 — AI 작업 범위(DELEGATED·ASSISTED)도 이 보기 조건
-   * 안에 있다.
+   * 보기 조건(WP-396). 상태 필터가 없으면 미완료 기본 보기. 진행 상태는 그 상태의 진행 중 작업이 있는 미완료 행(w.liveIn[FILTER]), 종료 상태는
+   * 완료 보기이며 둘이 섞이면 OR. 작업 기록이 하나도 없는 이슈는 어느 보기에도 걸리지 않아 목록 밖이다 — AI 작업 범위(DELEGATED·ASSISTED)도 이 보기
+   * 조건 안에 있다.
    */
   private static Condition viewCondition(
       WorkSummary w, List<String> active, List<String> terminal) {
     if (active.isEmpty() && terminal.isEmpty()) return w.open();
     Condition c = DSL.falseCondition();
-    if (!active.isEmpty()) c = c.or(w.open().and(DSL.condition(w.liveIn.get(0))));
+    if (!active.isEmpty()) c = c.or(w.open().and(DSL.condition(w.liveIn.get(FILTER))));
     if (!terminal.isEmpty()) c = c.or(w.done());
     return c;
   }

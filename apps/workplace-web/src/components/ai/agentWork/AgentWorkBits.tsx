@@ -97,14 +97,6 @@ export function AgentLastReport({
   'data-testid'?: string
 }) {
   if (w.state === 'SUBMITTED') return null
-  if (w.endedAt) {
-    const rel = relTime(w.endedAt)
-    return (
-      <span className={cn('text-xs text-muted-foreground', className)} title={`종료 ${rel}`} data-testid={testId}>
-        {endedLabel ? `종료 ${rel}` : rel}
-      </span>
-    )
-  }
   if (w.stale)
     return (
       <span
@@ -117,10 +109,11 @@ export function AgentLastReport({
       </span>
     )
   // 종료 여부는 행마다 endedAt 으로 정한다 — 완료 보기(칸 제목 「종료」)에서도 조회 사이 다시 시작된 행은 마지막 보고 시각이라 툴팁으로 구분한다.
-  const rel = relTime(w.updatedAt)
+  const rel = relTime(w.endedAt ?? w.updatedAt)
+  const kind = w.endedAt ? '종료' : '마지막 보고'
   return (
-    <span className={cn('text-xs text-muted-foreground', className)} title={`마지막 보고 ${rel}`} data-testid={testId}>
-      {rel}
+    <span className={cn('text-xs text-muted-foreground', className)} title={`${kind} ${rel}`} data-testid={testId}>
+      {w.endedAt && endedLabel ? `종료 ${rel}` : rel}
     </span>
   )
 }
