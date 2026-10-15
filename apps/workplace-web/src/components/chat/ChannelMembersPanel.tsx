@@ -30,11 +30,9 @@ import {
   useUpdateMemberRole,
 } from '@/hooks/queries/useMemberMutations'
 import { useAuth } from '@/hooks/useAuth'
+import { assignableChannelRoles } from '@/lib/channelRoles'
 import { MemberSearchPopover } from '@/pages/projects/components/MemberSearchPopover'
 import type { ChannelRole } from '@/types/messaging'
-
-// 역할 옵션 목록 — select 에 노출할 순서.
-const ROLES: ChannelRole[] = ['OWNER', 'ADMIN', 'MEMBER']
 
 export function ChannelMembersPanel({
   channelId,
@@ -120,7 +118,7 @@ export function ChannelMembersPanel({
                       aria-label={`${m.name} 역할 변경`}
                     >
                       {/* AGENT(AI 봇)는 채널 OWNER 가 될 수 없음(사람 전용 권한, #598) — 옵션 자체를 제거해 시도를 UX 상에서 차단. */}
-                      {ROLES.filter((r) => r !== 'OWNER' || m.kind !== 'AGENT').map((r) => (
+                      {assignableChannelRoles(m.kind).map((r) => (
                         <option key={r} value={r}>
                           {r}
                         </option>

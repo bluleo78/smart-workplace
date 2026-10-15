@@ -8,30 +8,7 @@ import { useHistoryParam } from '@/hooks/useHistoryParam';
 import { cn } from '@/lib/utils';
 import type { IssueResponse } from '@/types/issue';
 
-// 마감 색 — 지남=빨강, 오늘=주황(warning). 완료/없음/이후=muted.
-function dueClass(due: string, done: boolean): string {
-  if (done) return 'text-muted-foreground';
-  const now = new Date();
-  const sToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const d = new Date(due + 'T00:00:00');
-  if (d < sToday) return 'text-destructive';
-  if (d.getTime() === sToday.getTime()) return 'text-warning';
-  return 'text-muted-foreground';
-}
-
-// 마감 짧게 — 오늘/내일/어제, 그 외 "M월 D일"(다른 해는 연도 포함).
-function formatDueShort(due: string): string {
-  const now = new Date();
-  const d = new Date(due + 'T00:00:00');
-  const sToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const diff = Math.round((d.getTime() - sToday.getTime()) / 86400000);
-  if (diff === 0) return '오늘';
-  if (diff === 1) return '내일';
-  if (diff === -1) return '어제';
-  return d.getFullYear() === now.getFullYear()
-    ? `${d.getMonth() + 1}월 ${d.getDate()}일`
-    : `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일`;
-}
+import { dueClass, formatDueShort } from './personalDue';
 
 export function PersonalChecklistRow({ projectKey, issue }: { projectKey: string; issue: IssueResponse }) {
   const taskParam = useHistoryParam('task');

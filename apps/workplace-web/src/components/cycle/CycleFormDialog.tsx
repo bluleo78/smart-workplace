@@ -17,6 +17,7 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 
 import { useCreateCycle, useUpdateCycle } from '../../hooks/queries/useCycles';
+import { isCycleDateRangeInvalid } from '../../lib/cycleMeta';
 import { CYCLE_STATUS_LABEL, CYCLE_STATUSES, type CycleResponse, type CycleStatus } from '../../types/cycle';
 
 export function CycleFormDialog({
@@ -39,7 +40,7 @@ export function CycleFormDialog({
   const [status, setStatus] = useState<CycleStatus>('PLANNED');
 
   // 종료일이 시작일보다 빠른 경우만 오류 — 둘 중 하나라도 비어있으면 검증하지 않음(#804).
-  const dateRangeInvalid = Boolean(startDate && endDate && endDate < startDate);
+  const dateRangeInvalid = isCycleDateRangeInvalid(startDate, endDate);
 
   useEffect(() => {
     if (open) {

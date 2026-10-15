@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { meFacetParams } from './meFacetParams'
 
@@ -31,5 +31,26 @@ describe('meFacetParams', () => {
     const out = meFacetParams(new URLSearchParams('dueDate=today'))
     expect(out.dueFrom).toBeDefined()
     expect(out.dueFrom).toBe(out.dueTo)
+  })
+
+  describe('dueDate=today 의 "오늘" 은 로컬 날짜(#275)', () => {
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('로컬 자정 직후에도 UTC 가 아닌 로컬 yyyy-MM-dd 로 dueFrom=dueTo 를 만든다', () => {
+      // 로컬 2026-10-15 00:30 — UTC 보다 앞선 시간대(KST 등)에선 UTC 날짜가 아직 10-14 라 toISOString 이면 하루 어긋난다.
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date(2026, 9, 15, 0, 30))
+      const out = meFacetParams(new URLSearchParams('dueDate=today'))
+      expect(out).toMatchObject({ dueFrom: '2026-10-15', dueTo: '2026-10-15' })
+    })
+
+    it('직접 준 dueFrom/dueTo 보다 dueDate=today 가 우선한다(딥링크는 오늘만)', () => {
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date(2026, 0, 5, 12, 0))
+      const out = meFacetParams(new URLSearchParams('dueDate=today&dueFrom=2025-01-01&dueTo=2025-12-31'))
+      expect(out).toMatchObject({ dueFrom: '2026-01-05', dueTo: '2026-01-05' })
+    })
   })
 })

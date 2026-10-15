@@ -150,83 +150,33 @@ test(
   },
 )
 
+// 종일 체크 → 시작/종료 자정 정규화 배선(#575). 정규화 규칙(같은 날 → 익일 자정 등)과 월 뷰 배치는
+// calendarEventForm.test(normalizeAllDayRange)·calendar.test(eventsOnDay)가 지키고, 여기선 체크박스 → 입력값·payload 연결만 본다.
 test(
-  '종일 체크 시 시작/종료가 자정 경계로 정규화되어 월 뷰에 표시된다 (#575)',
+  '종일 체크 시 시작/종료 입력이 자정으로 바뀌고 allDay 로 저장된다 (#575)',
   async ({ authenticatedPage: page }) => {
-    // 2026-06-10 03:00 UTC 고정 → 월 뷰가 2026-06 을 표시
     await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
-
-    const store: CalendarEvent[] = []
-    await stubCalendarEvents(page, store)
+    await stubCalendarEvents(page, [])
 
     await page.goto('/calendar')
-
     await page.getByTestId('calendar-new-event').click()
     await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
 
-    // 제목만 입력, 시작/종료 시각은 기본값 그대로(같은 날) 둔 채 "종일"만 체크
     await page.getByTestId('calendar-form-title').fill('종일테스트일정')
     await page.getByTestId('calendar-form-allday').click()
+    await expect(page.getByTestId('calendar-form-start')).toHaveValue(/T00:00$/)
+    await expect(page.getByTestId('calendar-form-end')).toHaveValue(/T00:00$/)
 
-    // 정규화 후 시작/종료 입력값이 자정 경계(다음날 00:00)로 바뀌었는지 확인
-    const startValue = await page.getByTestId('calendar-form-start').inputValue()
-    const endValue = await page.getByTestId('calendar-form-end').inputValue()
-    expect(startValue.endsWith('T00:00')).toBe(true)
-    expect(endValue.endsWith('T00:00')).toBe(true)
-    expect(endValue.slice(0, 10) > startValue.slice(0, 10)).toBe(true)
-
-    // POST payload 도 같은 날짜(half-open [start,end)) 대신 익일 자정 end 를 가져야 한다
     const postPromise = page.waitForRequest(
       (req) => req.method() === 'POST' && req.url().includes('/api/v1/calendar/events'),
     )
     await page.getByTestId('calendar-form-submit').click()
-    const post = await postPromise
-    const payload = post.postDataJSON() as Partial<CalendarEvent>
-    expect(payload.allDay).toBe(true)
-    expect(new Date(payload.endsAt as string).getTime()).toBeGreaterThan(
-      new Date(payload.startsAt as string).getTime(),
-    )
-    expect(new Date(payload.startsAt as string).toISOString().slice(0, 10)).not.toBe(
-      new Date(payload.endsAt as string).toISOString().slice(0, 10),
-    )
-
-    await expect(page.getByTestId('calendar-event-dialog')).toBeHidden()
-
-    // 월 뷰에서 사라지지 않고 실제로 표시되는지 확인 (핵심 회귀 방지 포인트)
-    await expect(page.getByTestId('calendar-event-999')).toBeVisible()
+    expect((await postPromise).postDataJSON()).toMatchObject({ allDay: true })
   },
 )
 
-test(
-  '새 일정 생성 시 리마인더 설정이 payload 에 포함된다',
-  async ({ authenticatedPage: page }) => {
-    await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
-
-    const store: CalendarEvent[] = []
-    await stubCalendarEvents(page, store)
-
-    await page.goto('/calendar')
-
-    await page.getByTestId('calendar-new-event').click()
-    await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
-
-    // 제목 입력 + 리마인더 '10분 전' 선택
-    await page.getByTestId('calendar-form-title').fill('스탠드업')
-    await page.getByTestId('calendar-form-reminder').click()
-    await page.getByRole('option', { name: '10분 전' }).click()
-
-    // POST payload 캡처 — reminderMinutes 가 포함되는지 검증
-    const postPromise = page.waitForRequest(
-      (req) => req.method() === 'POST' && req.url().includes('/api/v1/calendar/events'),
-    )
-    await page.getByTestId('calendar-form-submit').click()
-    const post = await postPromise
-    expect(post.postDataJSON()).toMatchObject({ reminderMinutes: 10 })
-
-    await expect(page.getByTestId('calendar-event-dialog')).toBeHidden()
-  },
-)
-
+// 리마인더/반복/참석자 → 요청 바디 변환·반복 종료일 같은 날 허용(#114)은
+// calendarEventForm.test(normalizeAllDayRange·toEventRequest·eventFormSchema)가 지킨다.
 test(
   '일정 편집',
   { tag: '@smoke' },
@@ -340,36 +290,8 @@ test(
 const MASTER_ID = 5
 const OCC_DATES = ['2026-06-08T01:00:00Z', '2026-06-15T01:00:00Z', '2026-06-22T01:00:00Z']
 
-test(
-  '반복 일정 생성 — recurrenceRule(FREQ=WEEKLY) 가 POST payload 에 포함된다',
-  async ({ authenticatedPage: page }) => {
-    await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
-
-    const store: CalendarEvent[] = []
-    await stubCalendarEvents(page, store)
-
-    await page.goto('/calendar')
-
-    await page.getByTestId('calendar-new-event').click()
-    await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
-
-    // 제목 입력 + 반복 빈도 '매주'(WEEKLY) 선택
-    await page.getByTestId('calendar-form-title').fill('주간 회의')
-    await page.getByTestId('calendar-form-recurrence-freq').click()
-    await page.getByRole('option', { name: '매주' }).click()
-
-    // POST payload 캡처 — recurrenceRule = FREQ=WEEKLY (interval=1 은 생략)
-    const postPromise = page.waitForRequest(
-      (req) => req.method() === 'POST' && req.url().includes('/api/v1/calendar/events'),
-    )
-    await page.getByTestId('calendar-form-submit').click()
-    const post = await postPromise
-    expect(post.postDataJSON()).toMatchObject({ recurrenceRule: 'FREQ=WEEKLY' })
-
-    await expect(page.getByTestId('calendar-event-dialog')).toBeHidden()
-  },
-)
-
+// 빈도·간격·종료 → RRULE 조립 규칙은 recurrence.test(buildRRule)가 지킨다 — 여기선 폼 입력(빈도·간격·횟수·리마인더)이 payload 로 이어지는지 한 번.
+// 리마인더 select → reminderMinutes 변환 규칙은 calendarEventForm.test(toEventRequest)가 지킨다(WP-412 에서 별도 테스트를 여기로 합침).
 test(
   '반복 일정 생성 — 간격/횟수 설정이 RRULE 로 조립된다',
   async ({ authenticatedPage: page }) => {
@@ -391,13 +313,15 @@ test(
     await page.getByTestId('calendar-form-recurrence-end').click()
     await page.getByRole('option', { name: '횟수' }).click()
     await page.getByTestId('calendar-form-recurrence-count').fill('3')
+    await page.getByTestId('calendar-form-reminder').click()
+    await page.getByRole('option', { name: '10분 전' }).click()
 
     const postPromise = page.waitForRequest(
       (req) => req.method() === 'POST' && req.url().includes('/api/v1/calendar/events'),
     )
     await page.getByTestId('calendar-form-submit').click()
     const post = await postPromise
-    expect(post.postDataJSON()).toMatchObject({ recurrenceRule: 'FREQ=WEEKLY;INTERVAL=2;COUNT=3' })
+    expect(post.postDataJSON()).toMatchObject({ recurrenceRule: 'FREQ=WEEKLY;INTERVAL=2;COUNT=3', reminderMinutes: 10 })
 
     await expect(page.getByTestId('calendar-event-dialog')).toBeHidden()
   },
@@ -530,42 +454,6 @@ test(
     await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
     // POST 가 전혀 발생하지 않았음(orphan 저장 차단)
     expect(posts.count()).toBe(0)
-  },
-)
-
-test(
-  '반복 종료 날짜가 시작일과 같으면 저장 허용 — RRULE 에 UNTIL 포함(이슈 #114)',
-  async ({ authenticatedPage: page }) => {
-    await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
-
-    const store: CalendarEvent[] = []
-    await stubCalendarEvents(page, store)
-
-    await page.goto('/calendar')
-
-    await page.getByTestId('calendar-new-event').click()
-    await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
-
-    await page.getByTestId('calendar-form-title').fill('당일 종료')
-    await page.getByTestId('calendar-form-start').fill('2026-06-19T09:00')
-    await page.getByTestId('calendar-form-end').fill('2026-06-19T10:00')
-    await page.getByTestId('calendar-form-recurrence-freq').click()
-    await page.getByRole('option', { name: '매주' }).click()
-    await page.getByTestId('calendar-form-recurrence-end').click()
-    await page.getByRole('option', { name: '날짜까지' }).click()
-    // 시작일과 동일한 날짜 → 1회차 발생하므로 허용되어야 함
-    await page.getByTestId('calendar-form-recurrence-until').fill('2026-06-19')
-
-    const postPromise = page.waitForRequest(
-      (req) => req.method() === 'POST' && req.url().includes('/api/v1/calendar/events'),
-    )
-    await page.getByTestId('calendar-form-submit').click()
-    const post = await postPromise
-    expect(post.postDataJSON()).toMatchObject({
-      recurrenceRule: 'FREQ=WEEKLY;UNTIL=20260619T235959Z',
-    })
-
-    await expect(page.getByTestId('calendar-event-dialog')).toBeHidden()
   },
 )
 
@@ -759,36 +647,8 @@ test(
 // 반드시 KST 로 고정한다 — UTC 호스트에서는 +9h 시프트 버그가 재현되지 않아 회귀를 못 잡는다.
 test.describe('종일 일정 타임존 렌더 (KST 고정)', () => {
   test.use({ timezoneId: 'Asia/Seoul' })
-
-  test(
-    '동기화 종일(UTC 자정 [6/6,6/7))은 월 뷰에서 6/6 셀에만 렌더된다',
-    async ({ authenticatedPage: page }) => {
-      await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
-
-      // M365 동기화 종일은 UTC 자정 half-open [6/6 00:00Z, 6/7 00:00Z) 로 저장된다.
-      // instant 겹침으로 비교하면 배타적 end(6/7 00:00Z = 6/7 09:00 KST)가 6/7 셀에 걸려 더블렌더.
-      const store: CalendarEvent[] = [
-        calendarEvent({
-          id: 1, title: '현충일', allDay: true,
-          startsAt: '2026-06-06T00:00:00Z', endsAt: '2026-06-07T00:00:00Z',
-        }),
-      ]
-      await stubCalendarEvents(page, store)
-
-      await page.goto('/calendar')
-      await expect(page.getByTestId('calendar-view-month')).toBeVisible()
-
-      // 정확히 한 셀에만 — 더블렌더면 count 2 (회귀)
-      await expect(page.getByTestId('calendar-event-1')).toHaveCount(1)
-      // 6/6 셀 안에 있고 6/7 셀엔 없다
-      await expect(
-        page.getByTestId('calendar-cell-2026-06-06').getByTestId('calendar-event-1'),
-      ).toBeVisible()
-      await expect(
-        page.getByTestId('calendar-cell-2026-06-07').getByTestId('calendar-event-1'),
-      ).toHaveCount(0)
-    },
-  )
+  // 월 뷰 셀 배치·어젠다 날짜 복원은 calendar.test(eventsOnDay)·calendarAgenda.test(eventDate)가 지킨다.
+  // 주 뷰 종일 행만 eventsOnDay 를 따로 부르는 호출부라 그 연결을 여기서 한 번 본다.
 
   test(
     '주 뷰 종일 행 — 다중일 종일 [6/8,6/10)이 8·9일 두 컬럼에 걸쳐 표시된다',
@@ -811,29 +671,6 @@ test.describe('종일 일정 타임존 렌더 (KST 고정)', () => {
 
       // 걸친 날(6/8, 6/9) 두 컬럼에 렌더 — 배타적 end 인 6/10 에는 안 찍힘
       await expect(page.getByTestId('calendar-event-1')).toHaveCount(2)
-    },
-  )
-
-  test(
-    '어젠다 — 동기화 종일(UTC 자정)이 의도한 날짜(6/6 토)로 한 줄 표시된다',
-    async ({ authenticatedPage: page }) => {
-      await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
-
-      const store: CalendarEvent[] = [
-        calendarEvent({
-          id: 1, title: '현충일', allDay: true,
-          startsAt: '2026-06-06T00:00:00Z', endsAt: '2026-06-07T00:00:00Z',
-        }),
-      ]
-      await stubCalendarEvents(page, store)
-
-      await page.goto('/calendar')
-      await page.getByTestId('calendar-view-agenda-btn').click()
-      await expect(page.getByTestId('calendar-view-agenda')).toBeVisible()
-
-      // 한 줄만(중복 없음) + 날짜 라벨이 6.6 (토) — instant 로 밀리지 않음
-      await expect(page.getByTestId('calendar-event-1')).toHaveCount(1)
-      await expect(page.getByText('6.6 (토)')).toBeVisible()
     },
   )
 })

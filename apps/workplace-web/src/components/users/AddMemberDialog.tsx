@@ -2,7 +2,6 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useEffect, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { toast } from 'sonner'
-import { z } from 'zod'
 
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -19,33 +18,8 @@ import { Label } from '@/components/ui/label'
 import { useSsoSettings } from '@/hooks/queries/useSsoSettings'
 import { useCreateMember } from '@/hooks/queries/useUsers'
 import { extractApiError } from '@/lib/api-error'
-import { passwordRule } from '@/lib/validations/user'
-
-// 구성원 추가 폼 — 아이디(로그인 ID)/이메일(선택)/이름/역할 + 로그인 방식(WP-48).
-// 아이디는 로그인 방식과 무관하게 회사 계정 주소(이메일)여야 한다(첫 SSO 로그인 매칭 키 — WP-181, 서버도 동일 검증).
-// SSO 전용이면 비밀번호를 받지 않는다.
-const addMemberSchema = z
-  .object({
-    loginMethod: z.enum(['SSO', 'PASSWORD']),
-    // trim 후 검사 — 공백만 입력한 값이 서버로 전송되는 것을 클라이언트에서 먼저 차단한다.
-    username: z
-      .string()
-      .trim()
-      .min(1, '아이디를 입력하세요')
-      .max(50, '아이디는 50자 이하여야 합니다')
-      .pipe(z.email('아이디는 이메일 형식이어야 합니다')),
-    email: z.email('올바른 이메일 형식이 아닙니다').optional().or(z.literal('')),
-    name: z.string().trim().min(1, '이름을 입력하세요').max(50, '이름은 50자 이하여야 합니다'),
-    password: z.string().optional(),
-    role: z.enum(['ADMIN', 'USER']),
-  })
-  .superRefine((v, ctx) => {
-    if (v.loginMethod === 'SSO') return
-    const r = passwordRule.safeParse(v.password ?? '')
-    if (!r.success) ctx.addIssue({ code: 'custom', path: ['password'], message: r.error.issues[0].message })
-  })
-
-type AddMemberFormData = z.infer<typeof addMemberSchema>
+// 폼 스키마·요청 조립은 순수 함수로 분리(WP-412).
+import { type AddMemberFormData, addMemberSchema, toCreateMemberPayload } from '@/lib/validations/member'
 
 interface AddMemberDialogProps {
   open: boolean
@@ -106,13 +80,7 @@ export function AddMemberDialog({ open, onOpenChange }: AddMemberDialogProps) {
     submittingRef.current = true
     setServerError('')
     // 이메일 빈 문자열은 전송에서 제외(백엔드 선택값). SSO 전용은 password 를 보내지 않는다(WP-48).
-    const { loginMethod: method, password, ...rest } = data
-    const payload = {
-      ...rest,
-      email: rest.email ? rest.email : undefined,
-      ...(method === 'PASSWORD' ? { password } : {}),
-    }
-    createMember.mutate(payload, {
+    createMember.mutate(toCreateMemberPayload(data), {
       onSuccess: () => {
         toast.success('구성원을 추가했습니다.')
         if (keepOpenAfterSubmit) {

@@ -534,47 +534,6 @@ test('대화 사이드바 — 긴 채널명이어도 미읽음 배지가 줄어�
   expect(b.x + b.width).toBeLessThanOrEqual(row.x + row.width);
 });
 
-// 회귀(#338) — 팀 채팅 멀티데이 대화에서 날짜 구분선이 렌더되어야 한다.
-test('팀 채팅 — 멀티데이 메시지 목록 → 날짜 구분선 삽입 (#338)', async ({
-  authenticatedPage: page,
-}) => {
-  const channel = createChannel({ id: CHANNEL_ID, member: true });
-
-  // 3일에 걸친 메시지 4건: day1 × 2, day2 × 1, day3 × 1
-  // MessageList는 DESC 정렬로 수신하므로 역순으로 전달(최신이 앞)
-  const messages = [
-    createMessage({ id: 13, channelId: CHANNEL_ID, body: 'day3-msg1', createdAt: '2026-06-03T06:00:00Z' }),
-    createMessage({ id: 12, channelId: CHANNEL_ID, body: 'day2-msg1', createdAt: '2026-06-02T03:00:00Z' }),
-    createMessage({ id: 11, channelId: CHANNEL_ID, body: 'day1-msg2', createdAt: '2026-06-01T10:00:00Z' }),
-    createMessage({ id: 10, channelId: CHANNEL_ID, body: 'day1-msg1', createdAt: '2026-06-01T01:00:00Z' }),
-  ]
-
-  await setupChannelStubs(page, [channel], `:\n\n`)
-
-  await page.route(
-    (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}/messages`,
-    (route) => {
-      if (route.request().method() !== 'GET') return route.fallback()
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ items: messages, nextCursor: null, hasMore: false }),
-      })
-    },
-  )
-
-  await page.goto(`/chat/channels/${CHANNEL_ID}`)
-
-  // 날짜 구분선 3개(첫 메시지 앞 + 날짜 전환 2회)
-  await expect(page.getByTestId('date-divider')).toHaveCount(3)
-
-  // 날짜 텍스트 포함 확인
-  const dividers = page.getByTestId('date-divider')
-  await expect(dividers.nth(0)).toContainText('2026년')
-  await expect(dividers.nth(1)).toContainText('2026년')
-  await expect(dividers.nth(2)).toContainText('2026년')
-});
-
 // 진입 시 첫 미읽음(구분선)으로 스크롤 — 30개 메시지(id 1~30), watermark=10 이면
 // 구분선이 뷰포트 안에 보여야 하고(맨 아래가 아님) 메시지 30개가 모두 로드된다.
 test('진입 시 첫 미읽음(구분선)으로 스크롤된다', async ({ authenticatedPage: page }) => {

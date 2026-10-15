@@ -5,7 +5,9 @@ import {
   formatPages,
   getToolDisplay,
   getToolStepDisplay,
+  isVisibleStep,
   LEGACY_TOOL_LABELS,
+  visibleSteps,
   widgetTypeFromToolName,
 } from './aiToolLabels';
 
@@ -64,6 +66,10 @@ describe('getToolDisplay — 옛 도구 이름 폴백', () => {
   it('현재 이름은 공유 TOOL_LABELS 라벨을 그대로 쓴다', () => {
     expect(getToolDisplay('update_issue')).toEqual(TOOL_LABELS.update_issue);
   });
+  it('검색 도구는 "메모리 찾기"·"지난 대화 찾기"로 보인다 (WP-383·WP-384)', () => {
+    expect(getToolDisplay('search_memory').label).toBe('메모리 찾기');
+    expect(getToolDisplay('mcp__workplace__search_conversations').label).toBe('지난 대화 찾기');
+  });
   it('모르는 이름은 원래 이름 + 🔧', () => {
     expect(getToolDisplay('mcp__workplace__no_such_tool')).toEqual({ label: 'no_such_tool', icon: '🔧' });
   });
@@ -121,7 +127,38 @@ describe('getToolStepDisplay', () => {
     });
     expect(getToolStepDisplay('read_file', { source: 'drive', driveFileId: 3, pages: [2] }).label).toBe('페이지 보기');
   });
+  it('접두(mcp__workplace__·opencode workplace_)가 붙은 신규 도구도 원래 이름이 아닌 한국어 라벨 + detail 로 보인다 (#879)', () => {
+    expect(getToolStepDisplay('mcp__workplace__search_members', { query: '민수' })).toEqual({
+      label: '구성원 검색',
+      icon: '👥',
+      detail: '민수',
+    });
+    expect(getToolStepDisplay('workplace_update_issue', { issueKey: 'WP-77' })).toEqual({
+      label: '이슈 수정',
+      icon: '✏️',
+      detail: 'WP-77',
+    });
+  });
   it('pages 를 받는 도구가 아니면 pages 가 있어도 기존 라벨', () => {
     expect(getToolStepDisplay('update_issue', { issueKey: 'EX-1', pages: [3] }).label).toBe('이슈 수정');
+  });
+});
+
+// 도구 단계 표시 필터(WP-412 — ai-chat-tool-steps E2E 에서 이관). 위젯 렌더용 show_* 와 응답 전달용 respond_chat 은
+// 사용자에게 보일 "작업"이 아니라 숨기고, 위임(delegation) 단계는 항상 보인다.
+describe('isVisibleStep / visibleSteps', () => {
+  it('show_*·respond_chat 은 숨기고 일반 도구·위임은 남긴다', () => {
+    const steps = [
+      { kind: 'tool' as const, seq: 3, toolName: 'show_issue_list' },
+      { kind: 'tool' as const, seq: 4, toolName: 'respond_chat' },
+      { kind: 'tool' as const, seq: 5, toolName: 'add_comment' },
+      { kind: 'delegation' as const, label: '이슈 에이전트' },
+    ];
+    expect(visibleSteps(steps).map((s) => s.toolName ?? s.label)).toEqual(['add_comment', '이슈 에이전트']);
+  });
+
+  it('접두가 붙은 숨김 도구도 숨긴다', () => {
+    expect(isVisibleStep({ kind: 'tool', toolName: 'mcp__workplace__show_issue_list' })).toBe(false);
+    expect(isVisibleStep({ kind: 'tool', toolName: 'mcp__workplace__add_comment' })).toBe(true);
   });
 });

@@ -60,17 +60,7 @@ async function setup(page: Page, role: WikiRole) {
   await expect(page.locator('.ProseMirror')).toContainText(BODY)
 }
 
-test('VIEWER 는 본문을 편집할 수 없다', async ({ authenticatedPage: page }) => {
-  await setup(page, 'VIEWER')
-
-  const body = page.locator('.ProseMirror')
-  await expect(body).toHaveAttribute('contenteditable', 'false')
-
-  // 실제 입력 시도 — 한 글자도 들어가면 안 된다.
-  await body.click()
-  await page.keyboard.type('침입')
-  await expect(body).toHaveText(BODY)
-})
+// VIEWER 읽기 전용(contenteditable=false + 실제 타이핑이 본문을 바꾸지 않음)은 wiki-collab.spec.ts 「보기 권한은 읽기 전용 칩…」이 맡는다.
 
 test('EDITOR 는 본문을 편집할 수 있다', async ({ authenticatedPage: page }) => {
   await setup(page, 'EDITOR')

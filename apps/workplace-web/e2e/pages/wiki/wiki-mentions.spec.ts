@@ -314,33 +314,6 @@ test('위키 @ 멘션 — 토큰 포함 본문 로드 시 칩 렌더 + 무편집
   await expect.poll(() => savedMarkdown(page, PAGE_ID)).toBe('담당 <@7> 은 <#page:55> 문서를 본다!')
 })
 
-test('위키 @ 멘션 — 코드 안의 토큰은 칩이 되지 않고 글자 그대로 저장된다', async ({
-  authenticatedPage: page,
-}) => {
-  // 인라인 코드·코드블록 안 토큰은 문서 예시일 뿐 멘션이 아니다. 예전 클라 치환은 코드블록에서 RangeError,
-  // 인라인 코드에서 백틱 손실을 냈다(WP-294) — 이제 마크다운 파서가 코드 밖 토큰만 칩으로 만든다.
-  const BODY = '담당 <@7> 예시 `<@7>` 끝\n\n```\n<#page:55>\n```'
-  const MENTIONS: WikiMentionRef[] = [
-    { type: 'USER', id: 7, label: '앨리스', spaceId: null, projectKey: null, number: null },
-  ]
-  await setupWikiMocks(page, { role: 'EDITOR', body: BODY, mentions: MENTIONS })
-  await setupSearchMocks(page)
-
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror span[data-mtype="USER"]')).toHaveText('@앨리스')
-  // 코드 밖 토큰 하나만 칩 — 코드 안 토큰은 글자로 보인다.
-  await expect(page.locator('.ProseMirror [data-mtype]')).toHaveCount(1)
-  await expect(page.locator('.ProseMirror code').first()).toHaveText('<@7>')
-  await expect(page.locator('.ProseMirror pre')).toContainText('<#page:55>')
-
-  // 편집 후 저장 본문에서 코드 안 토큰·백틱이 그대로 보존된다.
-  await page.locator('.ProseMirror p').first().click()
-  await page.keyboard.press('End')
-  await page.keyboard.type('!')
-  await expect.poll(() => savedMarkdown(page, PAGE_ID)).toContain('담당 <@7> 예시 `<@7>` 끝!')
-  expect(await savedMarkdown(page, PAGE_ID)).toContain('```\n<#page:55>\n```')
-})
-
 test('위키 @ 멘션 — 검색 결과 없을 때 결과 없음 메시지 표시(피드백)', async ({
   authenticatedPage: page,
 }) => {

@@ -15,6 +15,7 @@ import {
   listCountTone,
   matchesMemoryQuery,
   MEMORY_LIMIT,
+  memoryActionText,
   memoryErrorMessage,
   memoryFullMessage,
   memoryLength,
@@ -243,5 +244,19 @@ describe('고정·검색·인피니트 스크롤 (WP-383)', () => {
     expect(total).toBe(1);
     expect(hasMore).toBe(false);
     expect(views.map((v) => [v.group.key, v.matched])).toEqual([['ISSUE', 1]]);
+  });
+});
+
+// 채팅 메모리 결과 줄 동작 문구(WP-412 — ai-memory-result-line E2E 에서 이관).
+describe('memoryActionText', () => {
+  it('동작별 문구 — 저장함·고침·지움', () => {
+    expect(memoryActionText('saved', undefined)).toBe('메모리에 저장함');
+    expect(memoryActionText('updated', null)).toBe('메모리를 고침');
+    expect(memoryActionText('forgotten', undefined)).toBe('메모리에서 지움');
+  });
+
+  it('앱 범위면 범위 이름을 붙인다(WP-379)', () => {
+    expect(memoryActionText('saved', 'ISSUE')).toBe('이슈 메모리에 저장함');
+    expect(memoryActionText('forgotten', 'ISSUE')).toBe('이슈 메모리에서 지움');
   });
 });

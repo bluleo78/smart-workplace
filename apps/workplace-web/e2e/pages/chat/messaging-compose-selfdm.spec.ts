@@ -67,28 +67,6 @@ async function stubUserSearch(
 // ── test suite ─────────────────────────────────────────────────────────────────
 
 test.describe('messaging 인라인 compose + self-DM', () => {
-  // (A) 받는 사람 후보 목록 자기 자신 제외 검증
-  test(
-    '피커가 본인(id=1)을 검색 결과에서 제외한다',
-    async ({ authenticatedPage: page }) => {
-      await stubSidebarLists(page)
-      // API 응답에 본인(id=1)과 타인(id=2)을 함께 반환 → 컴포넌트의 excludeUserIds 필터 확인.
-      await stubUserSearch(page, [
-        { userId: MY_ID, name: MY_NAME, username: 'testuser', kind: 'HUMAN' },
-        { userId: 2, name: '밥', username: 'bob', kind: 'HUMAN' },
-      ])
-
-      await page.goto('/chat/new')
-      await expect(page.getByTestId('new-message-page')).toBeVisible()
-      await page.getByPlaceholder('이름·아이디·이메일로 검색').fill('사용자')
-
-      // 본인 row 는 렌더되지 않아야 한다.
-      await expect(page.getByTestId(`member-search-row-${MY_ID}`)).toHaveCount(0)
-      // 타인 row 는 렌더된다.
-      await expect(page.getByTestId('member-search-row-2')).toBeVisible()
-    },
-  )
-
   // 레이아웃 회귀: 데스크톱 새 메시지도 페이지 표준 헤더(h-14, 하단선 56) — 받는 사람 입력은 본문 첫 줄로 헤더 제목과 같은 축.
   test('데스크톱 새 메시지 — 헤더 하단선 56, 받는 사람 입력이 헤더 제목과 같은 시작선', async ({ authenticatedPage: page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })

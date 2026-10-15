@@ -38,6 +38,14 @@ describe('copyText', () => {
     await expect(copyText('x')).resolves.toBe(false)
   })
 
+  // 클립보드 API 가 없는 브라우저에서 대체 복사까지 실패 — 호출부가 "복사하지 못했습니다" 토스트를 띄우는 근거(WP-408, E2E 에서 옮김).
+  it('Clipboard API 가 없고 execCommand 도 실패하면 false', async () => {
+    setClipboard(undefined)
+    document.execCommand = vi.fn(() => false)
+    await expect(copyText('x')).resolves.toBe(false)
+    expect(document.querySelector('textarea')).toBeNull()
+  })
+
   it('execCommand 가 던져도 false(예외를 밖으로 내보내지 않는다)', async () => {
     setClipboard(undefined)
     document.execCommand = vi.fn(() => {

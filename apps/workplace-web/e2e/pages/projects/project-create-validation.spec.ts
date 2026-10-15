@@ -25,30 +25,4 @@ test.describe('프로젝트 생성 폼 유효성 검사 (#177)', () => {
     await expect(page.getByText('이름은 120자 이하여야 합니다')).toBeVisible()
     await expect(page.getByText('Too big')).not.toBeVisible()
   })
-
-  test('이름 120자 이하에서는 유효성 오류가 없다', async ({ authenticatedPage: page }) => {
-    await mockApi(page, 'GET', '/api/v1/projects', createPageResponse([createProject()]))
-    const createCapture = await mockApi(
-      page,
-      'POST',
-      '/api/v1/projects',
-      createProject({ name: '가'.repeat(120) }),
-      { capture: true },
-    )
-
-    await page.goto('/projects')
-    await page.getByRole('button', { name: '+ 새 프로젝트' }).click()
-    await expect(page.getByRole('dialog', { name: '새 프로젝트' })).toBeVisible()
-
-    // 정확히 120자 입력 — 경계값
-    await page.getByLabel('key (예: WP)').fill('TEST')
-    await page.getByLabel('이름').fill('가'.repeat(120))
-    await page.getByRole('button', { name: '생성' }).click()
-
-    // 유효성 오류 없음 — API 요청이 발송되어야 함
-    const created = await createCapture.waitForRequest()
-    expect(created.payload).toMatchObject({ name: '가'.repeat(120) })
-    await expect(page.getByText('이름은 120자 이하여야 합니다')).not.toBeVisible()
-    await expect(page.getByText('Too big')).not.toBeVisible()
-  })
 })

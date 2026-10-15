@@ -23,22 +23,11 @@ test.describe('Microsoft 로그인', () => {
     await expect(page.getByRole('link', { name: 'Microsoft 계정으로 로그인' })).toHaveCount(0)
   })
 
-  for (const [code, text] of [
-    ['denied', '등록되지 않은 Microsoft 계정입니다. 관리자에게 등록을 요청하세요.'],
-    ['consent', '조직 관리자의 앱 승인이 필요합니다.'],
-    ['retry', '로그인 처리 중 문제가 발생했습니다. 다시 시도해 주세요.'],
-  ] as const) {
-    test(`sso_error=${code} 배너`, async ({ page }) => {
-      await mockApi(page, 'GET', '/api/v1/auth/sso/status', { m365: true })
-      await page.goto(`/login?sso_error=${code}`)
-      await expect(page.getByRole('alert')).toHaveText(text)
-    })
-  }
-
-  test('알 수 없는 오류 코드는 배너를 띄우지 않는다', async ({ page }) => {
+  // 코드별 문구(consent·retry)와 모르는 코드 무시는 sso.test(ssoErrorMessage)가 지킨다 — 여기선 URL → 배너 배선 한 번.
+  test('sso_error=denied 배너', async ({ page }) => {
     await mockApi(page, 'GET', '/api/v1/auth/sso/status', { m365: true })
-    await page.goto('/login?sso_error=unavailable')
-    await expect(page.getByRole('alert')).toHaveCount(0)
+    await page.goto('/login?sso_error=denied')
+    await expect(page.getByRole('alert')).toHaveText('등록되지 않은 Microsoft 계정입니다. 관리자에게 등록을 요청하세요.')
   })
 
   test('관리자 동의 완료 안내', async ({ page }) => {

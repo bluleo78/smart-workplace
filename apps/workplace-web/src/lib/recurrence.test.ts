@@ -14,6 +14,18 @@ test('build daily count', () => {
   )
 })
 
+// 캘린더 폼 "매주"만 고른 기본값 — interval 1 은 생략해 FREQ 만 남는다(E2E 에서 옮겨 온 판정).
+test('build weekly interval1 no end', () => {
+  expect(buildRRule({ freq: 'WEEKLY', interval: 1, end: { type: 'none' } })).toBe('FREQ=WEEKLY')
+})
+
+// 폼 "매주 · 간격 2 · 횟수 3" — INTERVAL 다음 COUNT 순서(E2E 에서 옮겨 온 판정).
+test('build weekly interval2 count3', () => {
+  expect(buildRRule({ freq: 'WEEKLY', interval: 2, end: { type: 'count', count: 3 } })).toBe(
+    'FREQ=WEEKLY;INTERVAL=2;COUNT=3',
+  )
+})
+
 test('build none → null', () => {
   expect(buildRRule({ freq: 'NONE', interval: 1, end: { type: 'none' } })).toBeNull()
 })

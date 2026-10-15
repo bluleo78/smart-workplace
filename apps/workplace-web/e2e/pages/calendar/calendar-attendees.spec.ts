@@ -366,31 +366,6 @@ test(
 )
 
 test(
-  '주최자에게는 RSVP 컨트롤이 노출되지 않는다',
-  async ({ authenticatedPage: page }) => {
-    await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
-
-    // 현재 사용자(id=1) 가 ORGANIZER
-    const store: CalendarEvent[] = [calendarEvent({ id: 100, title: '주최자 테스트' })]
-    const detail = makeDetailEvent({
-      attendees: [
-        { ...ORGANIZER_ATTENDEE, userId: 1 }, // 현재 사용자가 주최자
-        ATTENDEE_USER,
-      ],
-      myRsvpStatus: 'ACCEPTED',
-    })
-    await stubCalendar(page, store, detail)
-
-    await page.goto('/calendar')
-    await page.getByTestId('calendar-event-100').first().click()
-    await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
-
-    // 주최자이므로 RSVP 컨트롤 없음
-    await expect(page.getByTestId('rsvp-controls')).toHaveCount(0)
-  },
-)
-
-test(
   '외부 참석자 이메일이 칩으로 표시된다 (#547)',
   async ({ authenticatedPage: page }) => {
     await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
@@ -426,37 +401,4 @@ test(
   },
 )
 
-test(
-  '외부(external) 일정에서는 RSVP 컨트롤이 노출되지 않는다 (#547)',
-  async ({ authenticatedPage: page }) => {
-    await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
-
-    // 현재 사용자(id=1)는 ATTENDEE(not organizer), 외부 일정
-    const myAttendee: Attendee = {
-      userId: 1,
-      username: 'user1',
-      name: '나',
-      kind: 'HUMAN',
-      role: 'ATTENDEE',
-      rsvpStatus: 'NEEDS_ACTION',
-      invitedByUserId: null,
-      externalEmail: null,
-    }
-
-    const store: CalendarEvent[] = [calendarEvent({ id: 100, title: '외부 일정' })]
-    const detail = makeDetailEvent({
-      attendees: [{ ...ORGANIZER_ATTENDEE, userId: 10 }, myAttendee],
-      myRsvpStatus: 'NEEDS_ACTION',
-      // external=true: M365 동기화 일정 — RSVP 컨트롤 숨김
-      external: true,
-    })
-    await stubCalendar(page, store, detail)
-
-    await page.goto('/calendar')
-    await page.getByTestId('calendar-event-100').first().click()
-    await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
-
-    // 외부 일정이므로 RSVP 컨트롤 없음
-    await expect(page.getByTestId('rsvp-controls')).toHaveCount(0)
-  },
-)
+// 주최자·외부(external) 일정의 RSVP 미노출 판정은 calendarEventForm.test(shouldShowRsvp)가 지킨다.

@@ -511,25 +511,6 @@ test('⑨ 이슈 마감 행 — ⚑ 마감·이슈 키, 탭하면 이슈 상세�
   await expect(page).toHaveURL(/\/projects\/WP\/issues\/136$/)
 })
 
-test('회귀 — 불러온 범위 끝 다음 날(dueTo 포함일) 마감은 숨긴다', async ({ authenticatedPage: page }) => {
-  // 첫 청크 to = 11/12 00:00 KST → 마감 조회 dueTo = 11-12(포함). 11-11 마감은 보이고 11-12 마감은 아직 숨긴다.
-  await stubCalendar(page, {
-    issues: [
-      createIssue({ id: 11, projectKey: 'WP', number: 1, title: '안쪽 마감', status: 'IN_PROGRESS', dueDate: '2026-11-11' }),
-      createIssue({ id: 12, projectKey: 'WP', number: 2, title: '경계 마감', status: 'IN_PROGRESS', dueDate: '2026-11-12' }),
-    ],
-  })
-  await page.goto('/calendar')
-  const list = agendaList(page)
-  await expect(list.getByTestId('calendar-agenda-day-2026-10-13')).toBeVisible()
-  await expect(list.getByTestId('calendar-issue-due-11')).toHaveCount(1)
-  await expect(list.getByTestId('calendar-issue-due-12')).toHaveCount(0)
-  // 다음 청크를 불러오면 11-12 마감이 제 날 묶음에 들어온다.
-  await list.evaluate((el) => el.scrollTo({ top: el.scrollHeight }))
-  await expect(list.getByTestId('calendar-issue-due-12')).toHaveCount(1)
-  await expect(list.locator('[data-day-key="2026-11-12"]')).toContainText('경계 마감')
-})
-
 // 시작일 전에 시작해 이어지는 일정(WP-136 A1) — 10/11~10/16 종일 학회(동기화 UTC 자정, 끝 배타 10/17)·어제 밤부터 오늘 09:00 까지의 점검.
 // 끝이 정확히 오늘 자정인 일정(시간·종일)은 오늘 묶음에 들어오지 않는다.
 function ongoingEvents(): CalendarEvent[] {
@@ -629,27 +610,6 @@ test('열어 둔 채 시간이 흐르면 지금 선이 따라가고, 자정을 �
   await expect(list.locator('[data-day-key]').first()).toHaveAttribute('data-day-key', '2026-10-14')
   await expect(list.getByTestId('calendar-agenda-day-2026-10-14')).toContainText('오늘 · 10월 14일 (수)')
   await expect(list.getByTestId('calendar-agenda-day-2026-10-13')).toHaveCount(0)
-})
-
-test('시간 칸 끝 표시 — 여러 날 종일은 시작일 행에도 "~마지막 날", 하루 종일은 "종일"만, 다음 날 00:00 끝은 "24:00"', async ({ authenticatedPage: page }) => {
-  await stubCalendar(page, {
-    events: [
-      ...baseEvents(),
-      // 10/21~10/23 종일(동기화 UTC 자정, 끝 배타 10/24) — 목록 범위 안에서 시작
-      calendarEvent({ id: 500, title: '가을 워크숍', allDay: true, startsAt: '2026-10-21T00:00:00Z', endsAt: '2026-10-24T00:00:00Z' }),
-      calendarEvent({ id: 501, title: '야간 작업', startsAt: kst('2026-10-22', '22:00'), endsAt: kst('2026-10-23', '00:00') }),
-      calendarEvent({ id: 502, title: '밤샘 배포', startsAt: kst('2026-10-22', '23:00'), endsAt: kst('2026-10-23', '02:00') }),
-    ],
-  })
-  await page.goto('/calendar')
-  const list = agendaList(page)
-  await expect(list.getByTestId('calendar-agenda-day-2026-10-13')).toBeVisible()
-  await expect(list.getByRole('button', { name: /^종일\s+~10\/23\s*,\s*가을 워크숍/ })).toBeAttached()
-  await expect(list.getByRole('button', { name: /^종일\s*,\s*모바일 에픽 마감 주간/ })).toBeAttached()
-  await expect(list.getByRole('button', { name: /^22:00\s*~\s*24:00\s*,\s*야간 작업/ })).toBeAttached()
-  await expect(list.getByRole('button', { name: /^23:00\s+~10\/23\s*,\s*밤샘 배포/ })).toBeAttached()
-  // 여러 날 일정은 시작일 묶음에만 나온다.
-  await expect(list.getByTestId('calendar-event-500')).toHaveCount(1)
 })
 
 test('자정을 넘길 때 목록을 아래로 읽는 중이면 그대로 두고(오늘 강조만 옮김), 화면에 돌아오면 새 오늘부터 다시', async ({ authenticatedPage: page }) => {

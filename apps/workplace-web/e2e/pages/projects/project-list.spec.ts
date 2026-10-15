@@ -15,14 +15,10 @@ test.beforeEach(async ({ authenticatedPage: page }) => {
   await mockApi(page, 'GET', '/api/v1/projects', createPageResponse(projects))
 })
 
-test('진행률 라벨이 상태별로 정확히 표시된다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
+test('진행률 라벨이 행에 표시된다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
   await page.goto('/projects')
-  const ex = page.getByTestId('project-row-EX')
-  // round(11/18*100)=61 → "18개 중 61% 완료"
-  await expect(ex).toContainText('18개 중 61% 완료')
-  await expect(page.getByTestId('project-row-EMP')).toContainText('이슈 없음')
-  // 12/12=100% → "모두 완료"
-  await expect(page.getByTestId('project-row-DONE1')).toContainText('모두 완료')
+  // round(11/18*100)=61 → "18개 중 61% 완료". 상태별 문구(이슈 없음·모두 완료)는 projectProgress 단위 테스트(WP-412).
+  await expect(page.getByTestId('project-row-EX')).toContainText('18개 중 61% 완료')
 })
 
 test('컬러 배지와 유형 칩이 보인다', async ({ authenticatedPage: page }) => {

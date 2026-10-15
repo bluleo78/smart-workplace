@@ -56,21 +56,6 @@ test.describe('C3 복사 실패는 안내한다', () => {
     await expect(page.getByText('메시지를 복사하지 못했습니다')).toBeVisible()
   })
 
-  test('writeText 가 거부되고 대체 복사도 실패하면 "메시지를 복사하지 못했습니다" 토스트', async ({ authenticatedPage: page }) => {
-    await page.addInitScript(() => {
-      Object.defineProperty(navigator, 'clipboard', {
-        configurable: true,
-        get: () => ({ writeText: () => Promise.reject(new Error('denied')) }),
-      })
-      document.execCommand = () => false
-    })
-    await stubChannelMessages(page)
-    await page.goto('/chat/channels/1')
-    await longPress(page, page.getByTestId('message-body-11'))
-    await page.getByTestId('message-action-copy').tap()
-    await expect(page.getByText('메시지를 복사하지 못했습니다')).toBeVisible()
-  })
-
   test('writeText 성공 시 멘션은 @이름 평문으로 복사된다', async ({ authenticatedPage: page }) => {
     await page.addInitScript(() => {
       const w = window as unknown as { __copied?: string }

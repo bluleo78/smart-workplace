@@ -90,6 +90,20 @@ export function memoryNoun(scope: AiMemoryScope | null | undefined): string {
   return scope ? `${SCOPE_LABEL[scope]} 메모리` : '메모리';
 }
 
+/**
+ * 채팅 메모리 결과 줄의 동작 문구(WP-55·WP-379) — 앱 범위면 "이슈 메모리에 저장함", 공통이면 "메모리에 저장함".
+ * MemoryResultLine 이 쓰고, 화면 없이 문구 규칙을 단위 테스트로 고정하려고 여기 둔다(WP-412).
+ */
+export function memoryActionText(
+  action: 'saved' | 'updated' | 'forgotten',
+  scope: AiMemoryScope | null | undefined,
+): string {
+  const noun = memoryNoun(scope);
+  if (action === 'saved') return `${noun}에 저장함`;
+  if (action === 'updated') return `${noun}를 고침`;
+  return `${noun}에서 지움`;
+}
+
 /** 앱 범위 키인가(서버가 준 문자열 검사용). */
 function isAppScope(v: string | null | undefined): v is AiMemoryScope {
   return !!v && (MEMORY_SCOPES as readonly string[]).includes(v);

@@ -49,6 +49,7 @@ test('폴더 생성·업로드·다운로드·삭제 흐름', { tag: '@smoke' },
   await stubItems(page, () => state)
 
   // 폴더 생성
+  const folderPosts = trackRequests(page, 'POST', `/api/v1/drive/spaces/${SPACE_ID}/folders`)
   await page.route(
     (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/folders`,
     (route) => {
@@ -101,8 +102,12 @@ test('폴더 생성·업로드·다운로드·삭제 흐름', { tag: '@smoke' },
   await page.getByRole('button', { name: '새 폴더' }).click()
   await expect(page.getByTestId('folder-name-input')).toBeVisible()
   await page.getByTestId('folder-name-input').fill('문서')
+  // 확인 버튼은 모드별 동사+명사 라벨을 써야 한다 — 모호한 "확인" 금지 (#635)
+  await expect(page.getByTestId('folder-name-confirm')).toHaveText('만들기')
   await page.getByTestId('folder-name-confirm').click()
   await expect(page.getByRole('button', { name: '문서' })).toBeVisible()
+  // POST body — 입력한 이름이 정확히 전달된다.
+  expect(folderPosts.lastBody<{ name?: string }>()?.name).toBe('문서')
 
   // 업로드(숨김 input 에 파일 주입)
   await page.getByTestId('file-input').setInputFiles({
@@ -863,40 +868,6 @@ test('빈 폴더 진입 시 empty state 4요소가 표시되고 업로드 CTA가
 
 // #135 — window.prompt/confirm → shadcn Dialog/AlertDialog 교체 검증
 
-test('폴더 생성 — Dialog 표시, 이름 입력 후 확인 시 POST 호출', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
-  const state = { folders: [] as unknown[], files: [] as unknown[] }
-  await stubSpaces(page)
-  await stubItems(page, () => state)
-
-  const folderPosts = trackRequests(page, 'POST', `/api/v1/drive/spaces/${SPACE_ID}/folders`)
-  await page.route(
-    (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/folders`,
-    (route) => {
-      if (route.request().method() !== 'POST') return route.fallback()
-      const body = route.request().postDataJSON() as { name?: string }
-      const folder = createFolder({ name: body.name ?? '' })
-      state.folders = [folder]
-      return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(folder) })
-    },
-  )
-
-  await page.goto(`/drive/spaces/${SPACE_ID}`)
-  await expect(page.getByTestId('drive-page')).toBeVisible()
-
-  await page.getByTestId('drive-new-folder').click()
-  // window.prompt 가 아닌 Dialog 가 나타나야 한다 (#135)
-  await expect(page.getByTestId('folder-name-input')).toBeVisible()
-  await page.getByTestId('folder-name-input').fill('보고서')
-  // 확인 버튼은 모드별 동사+명사 라벨을 써야 한다 — 모호한 "확인" 금지 (#635)
-  await expect(page.getByTestId('folder-name-confirm')).toHaveText('만들기')
-  await page.getByTestId('folder-name-confirm').click()
-
-  // POST body 검증 — 이름이 정확히 전달됐는지
-  expect(folderPosts.lastBody<{ name?: string }>()?.name).toBe('보고서')
-  // UI 갱신 확인
-  await expect(page.getByRole('button', { name: '보고서' })).toBeVisible()
-})
-
 test('폴더 이름변경 — Dialog에 현재 이름 사전 입력, 확인 시 PATCH body 검증', async ({ authenticatedPage: page }) => {
   const folder = createFolder({ id: 10, name: '문서' })
   const state = { folders: [folder], files: [] as unknown[] }
@@ -1246,31 +1217,6 @@ test('FolderPickerModal — 오버레이(배경) 클릭으로 닫힌다', async 
   // Radix 는 바깥 클릭 리스너를 마운트 직후가 아니라 setTimeout(0) 뒤에 붙인다 — 부하가 걸리면 모달이 보인 직후의
   // 클릭이 리스너보다 먼저 들어가 무시되므로(전체 스위트에서만 실패), 닫힐 때까지 클릭을 다시 시도한다.
   await dismissByOutsideClick(page, page.getByTestId('folder-picker'), { x: 10, y: 10 })
-})
-
-// 용량 초과(409) 업로드 거부 토스트 — 서버 메시지가 그대로 표시돼야 한다.
-test('용량 초과 업로드는 거부 메시지를 보여준다', async ({ authenticatedPage: page }) => {
-  await stubSpaces(page)
-  await stubItems(page, () => ({ folders: [], files: [] }))
-  // 파일 업로드 API 가 409 + 서버 메시지를 반환하도록 모킹한다.
-  await page.route(
-    (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/files`,
-    (route) =>
-      route.fulfill({
-        status: 409,
-        contentType: 'application/json',
-        body: JSON.stringify({ message: '저장 용량을 초과했습니다 (사용 10 / 한도 10 바이트).' }),
-      }),
-  )
-  await page.goto(`/drive/spaces/${SPACE_ID}`)
-  // 파일 인풋에 파일을 설정해 업로드를 트리거한다.
-  await page.getByTestId('file-input').setInputFiles({
-    name: 'big.bin',
-    mimeType: 'application/octet-stream',
-    buffer: Buffer.from('x'),
-  })
-  // handleApiError → extractApiError 가 서버 message 를 추출해 토스트에 표시해야 한다.
-  await expect(page.getByText('저장 용량을 초과했습니다', { exact: false })).toBeVisible()
 })
 
 test('풀페이지에서 폴더 진입은 URL folderId 쿼리를 갱신한다', async ({ authenticatedPage: page }) => {

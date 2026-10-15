@@ -5,7 +5,6 @@ import '@fontsource/inter/700.css'
 import './index.css'
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { isAxiosError } from 'axios'
 import { ThemeProvider } from 'next-themes'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -15,17 +14,13 @@ import App from './App.tsx'
 import { PwaUpdatePrompt } from './components/PwaUpdatePrompt.tsx'
 import { Toaster } from './components/ui/sonner.tsx'
 import { AuthProvider } from './hooks/AuthContext'
+import { shouldRetryQuery } from './lib/queryRetry'
 
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      // 4xx 클라이언트 오류(404·403·422 등)는 재시도해도 결과가 같으므로 즉시 실패시켜
-      // 오류 표시 지연(기본 backoff ~1초)을 없앤다. 5xx·네트워크 오류만 1회 재시도.
-      retry: (failureCount, error) => {
-        const status = isAxiosError(error) ? error.response?.status : undefined
-        if (status !== undefined && status < 500) return false
-        return failureCount < 1
-      },
+      // 4xx 는 즉시 실패, 5xx·네트워크 오류만 1회 재시도(정책은 shouldRetryQuery).
+      retry: shouldRetryQuery,
       staleTime: 30_000,
       refetchOnWindowFocus: false,
     },

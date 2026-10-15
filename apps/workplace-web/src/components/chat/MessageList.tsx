@@ -27,8 +27,7 @@ import { useMessageSheet } from '@/hooks/useMessageSheet'
 import { useToolbarReveal } from '@/hooks/useToolbarReveal'
 import { CATCHUP_TOP_ANCHOR_ID } from '@/lib/chatEntryAnchor'
 import { deleteMessageWithUndo } from '@/lib/deleteWithUndo'
-import { getDateKey } from '@/lib/formatters'
-import { shouldStartNewGroup } from '@/lib/messageGrouping'
+import { shouldStartNewGroup, startsNewDay } from '@/lib/messageGrouping'
 import type { MessageResponse } from '@/types/messaging'
 
 /** 팀 채팅 첨부 뷰어 열림 router state 키(WP-279) — 이슈 채팅·메인 AI 채팅 키와 나눠 서로의 열림을 자기 것으로 읽지 않게. */
@@ -155,7 +154,7 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
           const prev = idx > 0 ? ordered[idx - 1] : null
           const startsGroup = shouldStartNewGroup(prev, m)
           // 날짜가 바뀌는 지점(또는 첫 메시지) 앞에 날짜 구분선 삽입.
-          const showDateDivider = !prev || getDateKey(m.createdAt) !== getDateKey(prev.createdAt)
+          const showDateDivider = startsNewDay(prev, m)
 
           return (
             <Fragment key={m.id}>

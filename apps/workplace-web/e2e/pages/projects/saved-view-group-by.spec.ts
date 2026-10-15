@@ -11,14 +11,9 @@ import {
   createIssueSearchResponse,
 } from '../../factories/issue.factory';
 import { createProject } from '../../factories/project.factory';
-import { expectToggleLook } from '../../fixtures/selection';
 
 const KEY = 'WP';
 const ISSUES_PATH = `/api/v1/projects/${KEY}/issues`;
-
-function user(id: number, name: string) {
-  return { id, username: `u${id}`, name, kind: 'HUMAN' as const };
-}
 
 async function stubProjectMeta(page: Page) {
   await mockApi(page, 'GET', `/api/v1/projects/${KEY}`, createProject());
@@ -48,33 +43,6 @@ function fulfillIssues(route: Route, issues: ReturnType<typeof createIssue>[]) {
 }
 
 test.describe('Saved View group-by', () => {
-  test(
-    '담당자 그룹 보드 — 담당자별 컬럼 + 미지정 컬럼에 카드 배치',
-    { tag: '@smoke' },
-    async ({ authenticatedPage: page }) => {
-      await stubProjectMeta(page);
-      const issues = [
-        createIssue({ id: 1, number: 1, title: 'A', assignees: [user(10, '가람')] }),
-        createIssue({ id: 2, number: 2, title: 'B', assignees: [] }),
-      ];
-      await routeIssueSearch(page, (route) => fulfillIssues(route, issues));
-
-      await page.goto(`/projects/${KEY}?view=board&group=assignee`);
-
-      // 담당자 컬럼에 카드 1, 미지정 컬럼에 카드 2 (셀 단위 검증)
-      await expect(
-        page.getByTestId('board-col-u-10').getByTestId('issue-card-1'),
-      ).toBeVisible();
-      await expect(
-        page.getByTestId('board-col-unassigned').getByTestId('issue-card-2'),
-      ).toBeVisible();
-      // 카드 1 은 미지정 컬럼에 없어야 한다
-      await expect(
-        page.getByTestId('board-col-unassigned').getByTestId('issue-card-1'),
-      ).toHaveCount(0);
-    },
-  );
-
   test('우선순위 그룹 리스트 — 그룹 섹션별 행 배치 + 빈 그룹 숨김', async ({
     authenticatedPage: page,
   }) => {
@@ -121,7 +89,7 @@ test.describe('Saved View group-by', () => {
     await expect(page).not.toHaveURL(/group=assignee/);
   });
 
-  test('group 설정 상태에서 뷰 저장 → POST query 에 group 영속', async ({
+  test('group 설정 상태에서 뷰 저장 → POST query 에 group 영속', { tag: '@smoke' }, async ({
     authenticatedPage: page,
   }) => {
     await stubProjectMeta(page);
@@ -159,23 +127,5 @@ test.describe('Saved View group-by', () => {
     await page.getByTestId('save-view-submit').click();
 
     await expect.poll(() => viewPosts.lastBody<{ query: string }>()?.query).toContain('group=assignee');
-  });
-
-  // #773 — 필터 없이 그룹만 바꾸면 "전체" 칩 활성 표시가 사라지던 회귀 방지.
-  test('필터 없이 그룹만 변경해도 "전체" 칩이 계속 활성 상태를 유지한다 (#773)', async ({
-    authenticatedPage: page,
-  }) => {
-    await stubProjectMeta(page);
-    await routeIssueSearch(page, (route) => fulfillIssues(route, []));
-
-    await page.goto(`/projects/${KEY}`);
-    await expectToggleLook(page.getByTestId('view-chip-all'), true)
-
-    await page.getByTestId('group-by-trigger').click();
-    await page.getByTestId('group-by-status').click();
-    await expect(page).toHaveURL(/group=status/);
-
-    // 필터는 여전히 없으므로 "전체"는 그룹 변경과 무관하게 활성 상태를 유지해야 한다.
-    await expectToggleLook(page.getByTestId('view-chip-all'), true)
   });
 });

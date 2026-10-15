@@ -24,7 +24,7 @@ import { cn } from '@/lib/utils'
 import type { UserGroupDetail, UserGroupNode, UserGroupVisibility } from '@/types/userGroup'
 
 import { GroupForm } from './GroupForm'
-import { collectDescendantIds, findNode, flattenGroups } from './groupTree.helpers'
+import { findNode, flattenGroups, parentGroupOptions } from './groupTree.helpers'
 
 interface NodeProps {
   node: UserGroupNode
@@ -144,12 +144,10 @@ export function GroupTree({ selectedId, onSelect }: Props) {
   // 생성 다이얼로그가 개인/공유 중 무엇을 만드는지 — 헤더의 어느 + 를 눌렀는지로 결정.
   const [createVisibility, setCreateVisibility] = useState<UserGroupVisibility>('PERSONAL')
 
-  const personalOptions = flattenGroups(data?.personal ?? [])
   const sharedOptions = flattenGroups(data?.shared ?? [])
 
   // 편집 대상(항상 개인 그룹)의 자손은 상위 그룹 후보에서 제외 — 선택 시 백엔드가 항상 400(사이클) 거부.
-  const editTargetNode = editTarget ? findNode(data?.personal ?? [], editTarget.id) : null
-  const descendantIds = editTargetNode ? collectDescendantIds(editTargetNode) : new Set<number>()
+  const personalParentOptions = parentGroupOptions(data?.personal ?? [], editTarget?.id ?? null)
 
   // 같은 노드를 다시 클릭하면 선택 해제(통합 목록 복원).
   const handleSelect = (id: number) => onSelect(selectedId === id ? null : id)
@@ -254,7 +252,7 @@ export function GroupTree({ selectedId, onSelect }: Props) {
         parentOptions={
           createVisibility === 'SHARED'
             ? sharedOptions
-            : personalOptions.filter((o) => !descendantIds.has(o.id))
+            : personalParentOptions
         }
       />
 

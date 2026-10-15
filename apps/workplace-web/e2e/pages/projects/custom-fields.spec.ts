@@ -351,13 +351,9 @@ test.describe('커스텀 필드', () => {
       // shadcn SelectTrigger는 button role로 렌더됨 — native select(combobox)가 아님.
       await expect(trigger).toHaveRole('combobox');
 
-      // 드롭다운 열어서 한국어 옵션 확인.
+      // 드롭다운 열어서 한국어 옵션으로 그려지는지(배선) — 타입별 라벨 전체는 fieldNumber.test 의 FIELD_TYPE_LABEL 단위 테스트(WP-412).
       await trigger.click();
-      await expect(page.getByTestId('cf-type-option-TEXT')).toContainText('텍스트');
-      await expect(page.getByTestId('cf-type-option-NUMBER')).toContainText('숫자');
       await expect(page.getByTestId('cf-type-option-DATE')).toContainText('날짜');
-      await expect(page.getByTestId('cf-type-option-SELECT')).toContainText('선택');
-      await expect(page.getByTestId('cf-type-option-MULTI_SELECT')).toContainText('복수 선택');
 
       // 옵션 선택 → 폼 상태 반영.
       await page.getByTestId('cf-type-option-DATE').click();

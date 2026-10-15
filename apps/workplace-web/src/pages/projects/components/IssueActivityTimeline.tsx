@@ -23,6 +23,7 @@ import { Badge } from '@/components/ui/badge';
 
 import { formatDateTimeMinute } from '../../../lib/formatters';
 import type { IssueHistoryEntry, IssueHistoryEventType } from '../../../types/issue';
+import { historyPriorityLabel, historyStatusLabel } from './issueHistoryLabels';
 
 // 이벤트 타입별 Lucide 아이콘 매핑 — 타임라인 스캔 가독성 향상 (#313).
 const EVENT_ICON: Record<IssueHistoryEventType, LucideIcon> = {
@@ -201,31 +202,6 @@ function formatCustomFieldChanged(toValue: string | null): string {
   }
 }
 
-// STATUS_CHANGED: 백엔드 enum → 한국어 상태명. 매핑 없는 값은 원문 폴백.
-const STATUS_LABEL: Record<string, string> = {
-  TODO: '할 일',
-  IN_PROGRESS: '진행 중',
-  DONE: '완료',
-  CANCELED: '취소',
-};
-
-// PRIORITY_CHANGED: 백엔드 enum → 한국어 우선순위명. 매핑 없는 값은 원문 폴백.
-const PRIORITY_LABEL: Record<string, string> = {
-  HIGH: '높음',
-  MID: '보통',
-  LOW: '낮음',
-};
-
-function mapStatusLabel(v: string | null): string {
-  if (!v) return '없음';
-  return STATUS_LABEL[v] ?? v;
-}
-
-function mapPriorityLabel(v: string | null): string {
-  if (!v) return '없음';
-  return PRIORITY_LABEL[v] ?? v;
-}
-
 // 접기 기본값: 최근 5건만 표시. "이전 N건 더 보기" 토글로 전체 펼침 (#341).
 const MAX_VISIBLE = 5;
 
@@ -296,11 +272,11 @@ export function IssueActivityTimeline({ entries }: { entries: IssueHistoryEntry[
                   <span className="font-medium">{EVENT_LABEL[e.eventType]}</span>:{' '}
                   {e.eventType === 'STATUS_CHANGED' ? (
                     <span>
-                      {mapStatusLabel(e.fromValue)} → {mapStatusLabel(e.toValue)}
+                      {historyStatusLabel(e.fromValue)} → {historyStatusLabel(e.toValue)}
                     </span>
                   ) : e.eventType === 'PRIORITY_CHANGED' ? (
                     <span>
-                      {mapPriorityLabel(e.fromValue)} → {mapPriorityLabel(e.toValue)}
+                      {historyPriorityLabel(e.fromValue)} → {historyPriorityLabel(e.toValue)}
                     </span>
                   ) : e.eventType === 'LABELS_CHANGED' ? (
                     <span>{formatLabelsChanged(e.toValue)}</span>

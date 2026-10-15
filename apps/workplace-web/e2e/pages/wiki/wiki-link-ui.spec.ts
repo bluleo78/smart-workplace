@@ -273,7 +273,10 @@ test('보기 전용은 바뀌지 않는다 — 버블·⌘K 입력 없이 클릭
   const popupPromise = page.context().waitForEvent('page')
   await page.locator('.ProseMirror a', { hasText: '설계 문서' }).click()
   const popup = await popupPromise
+  await popup.waitForLoadState()
   expect(popup.url()).toBe(LINK_URL)
+  // noopener — 열린 탭이 이 탭을 조작할 수 없다(WP-300).
+  expect(await popup.evaluate(() => window.opener)).toBeNull()
   await popup.close()
   await expect(page.getByTestId('wiki-link-bubble')).toHaveCount(0)
   await expect(page.getByTestId('wiki-format-tb-link')).toHaveCount(0)

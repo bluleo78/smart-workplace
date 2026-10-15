@@ -244,32 +244,8 @@ test('드라이브 AI Overview — 카드 unmount 시 진행 중인 생성을 �
   await expect.poll(() => cancels.urls().slice(cancelsBefore).at(-1)?.pathname.split('/').pop()).toBe('corr-pending')
 })
 
-test('드라이브 AI Overview — GET 시작 요청은 StrictMode 이중 mount 에도 정확히 1회만 나간다(#681)', async ({
-  authenticatedPage: page,
-}) => {
-  await setupDriveMocks(page)
-
-  const starts = trackRequests(page, 'GET', OVERVIEW_START)
-  const cancels = trackRequests(page, 'DELETE', OVERVIEW_CANCEL)
-  await mockOverviewGeneration(page, {
-    deltas: ['핵심 요약'],
-  })
-
-  await page.goto(`/drive/spaces/${SPACE_ID}`)
-  await expect(page.getByTestId('drive-page')).toBeVisible()
-
-  await page.getByLabel('파일명 및 콘텐츠 검색').fill('기획서')
-  await expect(page.getByTestId('drive-content-results')).toBeVisible()
-
-  await page.getByTestId('drive-overview-btn').click()
-  await expect(page.getByTestId('drive-overview-card')).toContainText('핵심 요약')
-
-  // StrictMode(dev) 이중 mount 의 phantom 인스턴스가 실제 시작 요청 전에 걸러져야 한다 — 두 번째(실제)
-  // mount 만 GET 을 보내고, phantom 인스턴스는 취소(DELETE) 도 유발하지 않아야 한다(원인 (i) 재발 방지).
-  expect(starts.count()).toBe(1)
-  expect(cancels.count()).toBe(0)
-})
-
+// StrictMode 이중 mount 에도 시작 요청 1회·취소 0회(#681)는 src/api/overviewStream.test.ts 가 본다 —
+// preview 빌드엔 StrictMode 가 없어 E2E 로는 그 경로를 지나지 않았다(WP-410).
 test('드라이브 AI Overview — SSE 유실로 done/error 가 도착하지 않으면 클라이언트 타임아웃으로 에러 상태로 전환된다(#681)', async ({
   authenticatedPage: page,
 }) => {
@@ -329,7 +305,9 @@ test('드라이브 AI Overview — SSE 유실로 done/error 가 도착하지 않
         await page.clock.fastForward(10_000)
         return card.textContent()
       },
-      { timeout: 30_000 },
+      // 기본 폴링 백오프(최대 1초 간격)로는 13회 전진에 10초 넘게 걸린다 — 가상 시계라 짧은 간격으로 충분하다(WP-410).
+      // 125초 경계 자체는 src/api/overviewStream.test.ts 가 가짜 타이머로 본다. 여기선 타임아웃 → 카드 에러 배선만 확인.
+      { timeout: 30_000, intervals: [100] },
     )
     .toContain('생성 시간이 초과되었습니다.')
 })

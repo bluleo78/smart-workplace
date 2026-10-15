@@ -101,6 +101,15 @@ export function isoToLocalInput(iso: string | null | undefined): string {
   return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
 }
 
+/**
+ * 일정 제안 카드의 읽기전용 시간 표시 — 'YYYY-MM-DD HH:mm ~ HH:mm'(종료 없으면 시작만).
+ * UTC 로 저장된 제안 시각을 브라우저 로컬(KST)로 바꿔 보여 준다 — 확인 대기·확정 블록이 같은 규칙을 쓴다.
+ */
+export function proposalTimeRange(startsAt: string, endsAt: string | null | undefined): string {
+  const start = isoToLocalInput(startsAt).replace('T', ' ')
+  return endsAt ? `${start} ~ ${isoToLocalInput(endsAt).slice(11, 16)}` : start
+}
+
 export { addDays, endOfMonth, startOfMonth }
 
 // 사이드바 표시 토글 상태.
@@ -152,6 +161,35 @@ export function toggleCalendar(layers: CalendarLayers, calendarId: number): Cale
       ? [...layers.hiddenCalendarIds, calendarId]
       : layers.hiddenCalendarIds.filter((id) => id !== calendarId),
   }
+}
+
+/**
+ * 일정 표시 여부 — 사이드바 표시 토글을 존중한다.
+ * 내 캘린더의 일정이면 캘린더별 토글을, 아니면(초대받아 보이는 다른 사람 캘린더 일정) '초대받은 일정' 토글을 따른다.
+ */
+export function isEventVisible(
+  layers: CalendarLayers,
+  myCalendarIds: ReadonlySet<number>,
+  event: Pick<CalendarEvent, 'calendarId'>,
+): boolean {
+  return myCalendarIds.has(event.calendarId) ? isCalendarVisible(layers, event.calendarId) : layers.invited
+}
+
+/**
+ * 미니 캘린더에 점을 찍을 날 — month 의 6주 그리드 중 보이는 일정이 있거나, 마감 레이어가 켜져 있고 마감 이슈가 있는 날.
+ * 표시 토글을 끈 캘린더·레이어는 점에서도 빠져야 그리드와 어긋나지 않는다.
+ */
+export function markedDays(
+  month: Date,
+  events: CalendarEvent[],
+  dues: IssueDueMarker[],
+  showIssueDues: boolean,
+  isVisible: (e: CalendarEvent) => boolean,
+): Date[] {
+  const visible = events.filter(isVisible)
+  return monthMatrix(month).filter(
+    (day) => eventsOnDay(visible, day).length > 0 || (showIssueDues && issueDuesOnDay(dues, day).length > 0),
+  )
 }
 
 // 내가 이 일정의 주최자가 아닌지(WP-200) — 상세(GET /events/{id}) 응답 기준. 백엔드 수정·삭제 가드(requireOrganizer)와 같은 규칙:

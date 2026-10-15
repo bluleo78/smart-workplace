@@ -113,14 +113,6 @@ test.describe('모바일 보드 상태 탭', () => {
     await expect(page.getByTestId('issue-card-31')).toBeVisible();
   });
 
-  test('진행 중이 비면 기본 탭은 할 일, 빈 탭은 빈 상태', async ({ authenticatedPage: page }) => {
-    await mock(page, { issues: [LONG, TODO2, DONE1] });
-    await page.goto(`/projects/${KEY}?view=board&group=none`);
-    await expect(page.getByTestId('board-tab-TODO')).toHaveAttribute('aria-selected', 'true');
-    await page.getByTestId('board-tab-CANCELED').click();
-    await expect(page.getByTestId('board-col-empty-CANCELED')).toBeVisible();
-  });
-
   test('기본 탭은 첫 로드 후 URL 에 고정 — 마지막 진행 중 카드를 완료로 옮겨도 탭이 튀지 않는다', async ({ authenticatedPage: page }) => {
     await mock(page);
     await page.goto(`/projects/${KEY}?view=board&group=none`);

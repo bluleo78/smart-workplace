@@ -31,16 +31,7 @@ import {
   useCustomFields,
   useDeleteCustomField,
 } from '../../../hooks/queries/useCustomFields';
-import { FIELD_TYPES, type FieldType } from '../../../types/customField';
-
-// 영문 enum → 한국어 레이블 매핑 (UI 표시용).
-const FIELD_TYPE_LABEL: Record<FieldType, string> = {
-  TEXT: '텍스트',
-  NUMBER: '숫자',
-  DATE: '날짜',
-  SELECT: '선택',
-  MULTI_SELECT: '복수 선택',
-};
+import { FIELD_TYPE_LABEL, FIELD_TYPES, type FieldType } from '../../../types/customField';
 
 export function CustomFieldManagement({
   projectKey,

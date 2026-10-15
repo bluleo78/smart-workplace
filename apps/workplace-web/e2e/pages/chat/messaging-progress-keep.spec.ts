@@ -216,3 +216,98 @@ test(
     await expect(page.getByText('AI 최종 답변')).toBeVisible();
   },
 );
+
+// 채널 전환 회귀 가드 — Channel/DmPage 라우트는 key 없이 재사용돼 useAiWorkingBubbles 상태가 채널을 넘어 남았다.
+// A 채널에서 뜬 유령 버블이 B 채널로 옮겨 가도 그대로 보이면 안 된다(전환 즉시 비워져야 한다).
+test('AI 작업 중 다른 채널로 옮기면 이전 채널의 유령 버블이 따라오지 않는다', async ({
+  authenticatedPage: page,
+}) => {
+  const OTHER_CHANNEL_ID = 52;
+  const channelA = createChannel({ id: CHANNEL_ID, name: '잡담', memberCount: 2 });
+  const channelB = createChannel({ id: OTHER_CHANNEL_ID, name: '공지', memberCount: 2 });
+  const byId = new Map([
+    [CHANNEL_ID, channelA],
+    [OTHER_CHANNEL_ID, channelB],
+  ]);
+  const json = (body: unknown) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+
+  await page.route(
+    (url) => url.pathname === '/api/v1/messaging/channels',
+    (route) => (route.request().method() === 'GET' ? route.fulfill(json([channelA, channelB])) : route.fallback()),
+  );
+  await page.route(
+    (url) => url.pathname === '/api/v1/messaging/dms',
+    (route) => (route.request().method() === 'GET' ? route.fulfill(json([])) : route.fallback()),
+  );
+  // 두 채널의 상세·구성원·메시지·읽음을 한 핸들러로 — 메시지는 빈 목록(기준선 0, 새 AGENT 메시지 없음).
+  let resolveChannelReady!: () => void;
+  const channelReady = new Promise<void>((resolve) => {
+    resolveChannelReady = resolve;
+  });
+  await page.route(/\/api\/v1\/messaging\/channels\/\d+(\/[a-z]+)?(\?.*)?$/, (route) => {
+    const req = route.request();
+    const m = new URL(req.url()).pathname.match(/\/channels\/(\d+)(?:\/([a-z]+))?$/);
+    const channel = m ? byId.get(Number(m[1])) : undefined;
+    if (!m || !channel) return route.fallback();
+    const sub = m[2];
+    if (sub === 'read' && req.method() === 'POST') return route.fulfill({ status: 204, body: '' });
+    if (req.method() !== 'GET') return route.fallback();
+    if (sub === undefined) {
+      const res = route.fulfill(json(channel));
+      if (channel.id === CHANNEL_ID) res.then(() => resolveChannelReady());
+      return res;
+    }
+    if (sub === 'members')
+      return route.fulfill(
+        json([
+          createChannelMember({ userId: ME_ID, name: '나', kind: 'HUMAN' }),
+          createChannelMember({ userId: AGENT_ID, name: 'AI', kind: 'AGENT' }),
+        ]),
+      );
+    if (sub === 'messages') return route.fulfill(json({ items: [], nextCursor: null, hasMore: false }));
+    return route.fallback();
+  });
+  await page.route(
+    (url) => url.pathname === '/api/v1/members',
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill(
+            json(
+              createPageResponse(
+                [createMember({ userId: AGENT_ID, username: 'aibot', name: 'AI', kind: 'AGENT' })],
+                { size: 100 },
+              ),
+            ),
+          )
+        : route.fallback(),
+  );
+
+  // A 채널 진행 이벤트만 전달 — 끝(done)도 AGENT 메시지도 오지 않아 A 에선 버블이 남아 있는 상태.
+  const progress = {
+    channelId: CHANNEL_ID,
+    streamId: 'stream-switch-1',
+    agentName: 'AI',
+    phase: 'tool',
+    steps: [{ label: '문서 검색', status: 'running' }],
+  };
+  await page.route(
+    (url) => url.pathname === '/api/v1/events',
+    async (route) => {
+      await channelReady;
+      return route.fulfill({
+        status: 200,
+        contentType: 'text/event-stream',
+        headers: { 'cache-control': 'no-cache' },
+        body: `event: messaging.message.progress\ndata: ${JSON.stringify(progress)}\n\n`,
+      });
+    },
+  );
+
+  await page.goto(`/chat/channels/${CHANNEL_ID}`);
+  await expect(page.getByTestId('ai-working-bubble')).toBeVisible();
+
+  // B 로 전환 — 같은 ChannelPage 인스턴스가 재사용된다. 버블은 즉시 사라져야 한다.
+  await page.getByTestId(`channel-link-${OTHER_CHANNEL_ID}`).click();
+  await expect(page).toHaveURL(`/chat/channels/${OTHER_CHANNEL_ID}`);
+  await expect(page.getByTestId('ai-working-bubble')).toHaveCount(0);
+});

@@ -377,22 +377,7 @@ test.describe('/admin/agents', () => {
     await expect.poll(counts.deletes.count).toBe(1);
   });
 
-  // #136: AGENT 삭제 AlertDialog 취소 → DELETE 없음.
-  test('AGENT 삭제 AlertDialog 취소 → DELETE 호출 없음', async ({ adminPage: page }) => {
-    const counts = await setupStatic(page);
-    await page.goto('/settings/agents');
-    await page.getByTestId(`agent-row-${AGENT_ID}`).click();
-    const deleteBtn = page.getByTestId(`agent-delete-${AGENT_ID}`);
-    await expect(deleteBtn).toBeVisible();
-
-    await deleteBtn.click();
-    await expect(page.getByTestId('agent-confirm-dialog')).toBeVisible();
-    await page.getByTestId('agent-confirm-cancel').click();
-    await expect(page.getByTestId('agent-confirm-dialog')).not.toBeVisible();
-
-    expect(counts.deletes.count()).toBe(0);
-    await expect(deleteBtn).toBeVisible();
-  });
+  // AGENT 삭제의 취소 경로는 키 회수와 같은 확인 다이얼로그(confirmDialog 상태 하나)를 쓰므로 위 「API 키 회수 … 취소」가 맡는다.
 
   // 에이전트 이름/아이디 변경 → PUT payload 검증 + 성공 토스트.
   test('에이전트 이름·아이디 변경 → PUT payload + 성공 토스트', async ({ adminPage: page }) => {

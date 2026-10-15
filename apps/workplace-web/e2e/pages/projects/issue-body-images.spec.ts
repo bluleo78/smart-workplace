@@ -143,16 +143,6 @@ test.describe('이슈 본문 이미지 — 생성 다이얼로그', () => {
     await expect(page.locator('#issue-body')).not.toHaveValue(/업로드 중/)
     expect(uploads.count()).toBe(0)
   })
-
-  test('10MB 초과·비이미지 파일은 버튼 선택 시 토스트로 거부된다', async ({ authenticatedPage: page }) => {
-    await stubProjectList(page)
-    await page.goto(`/projects/${KEY}`)
-    await page.getByRole('button', { name: '+ 새 태스크' }).click()
-    await page.getByTestId('issue-body-image-input').setInputFiles({
-      name: 'doc.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4'),
-    })
-    await expect(page.getByText('PNG·JPEG·GIF·WebP 이미지만 10MB 까지 올릴 수 있습니다.')).toBeVisible()
-  })
 })
 
 test.describe('이슈 본문 이미지 — 상세 편집', () => {
@@ -241,17 +231,6 @@ test.describe('이슈 본문 이미지 — 표시', () => {
     await page.route(`**${IMG_URL}`, (r) => r.fulfill({ status: 404, contentType: 'application/json', body: '{}' }))
     await page.goto(`/projects/${KEY}/issues/1`)
     await expect(page.getByText('이미지를 불러올 수 없음')).toBeVisible()
-  })
-
-  test('다른 경로의 /api/v1 이미지나 http 이미지는 요청하지 않는다', async ({ authenticatedPage: page }) => {
-    const driveImages = trackRequests(page, 'ANY', '/api/v1/drive/files/5/content')
-    await page.route('**/api/v1/drive/files/5/content', (r) =>
-      r.fulfill({ status: 200, contentType: 'image/png', body: PNG }),
-    )
-    await setupDetailStubs(page, '![x](/api/v1/drive/files/5/content) ![y](http://example.com/a.png)')
-    await page.goto(`/projects/${KEY}/issues/1`)
-    await expect(page.getByText('x', { exact: true })).toBeVisible()
-    expect(driveImages.count()).toBe(0)
   })
 
   test('복원된 초안에 업로드 중 토큰이 남아 있으면 저장 시 안내 토스트를 띄운다', async ({ authenticatedPage: page }) => {

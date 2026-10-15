@@ -172,7 +172,7 @@ test.describe('에픽 왼쪽 패널', () => {
     await expect(page.getByTestId('epic-panel-count')).toHaveText('2');
   });
 
-  test('에픽 미할당 클릭 시 topLevel+excludeEpics 로 조회하고(유형 필터 불변), 재클릭 시 해제된다 (#874)', async ({
+  test('에픽 미할당 클릭 시 topLevel+excludeEpics 로 조회한다(유형 필터 불변) (#874)', async ({
     authenticatedPage: page,
   }) => {
     await stubProjectMeta(page);
@@ -211,64 +211,7 @@ test.describe('에픽 왼쪽 패널', () => {
     await expect(page).toHaveURL(/topLevel=true/);
     await expect(page.getByTestId('epic-filter-unassigned')).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByTestId('epic-filter-all')).toHaveAttribute('aria-pressed', 'false');
-
-    // 재클릭 → 해제(전체 이슈 상태 복귀: 기본 범위 = 에픽 하위 노출).
-    await page.getByTestId('epic-filter-unassigned').click();
-    await expect.poll(() => lastBodyIssuesUrl()?.searchParams.get('topLevel')).toBeNull();
-    expect(lastBodyIssuesUrl()!.searchParams.get('excludeEpics')).toBe('true');
-    await expect(page.getByTestId('epic-filter-all')).toHaveAttribute('aria-pressed', 'true');
-  });
-
-  test('미할당 → 특정 에픽 → 전체 이슈 순서로 클릭해도 상호 배타성이 깨지지 않는다', async ({
-    authenticatedPage: page,
-  }) => {
-    // 「에픽 미할당」(topLevel) → 특정 에픽 클릭(parent 지정, 미할당 해제) → 「전체 이슈」 클릭 시
-    // 미할당으로 되돌아가지 않고 parent/topLevel 모두 해제되는지 검증한다.
-    await stubProjectMeta(page);
-    await mockApi(page, 'GET', `/api/v1/projects/${PROJECT_KEY}/types`, systemTypes());
-
-    const bodySearches = trackRequests(
-      page,
-      'GET',
-      (u) =>
-        u.pathname === ISSUES_PATH &&
-        !(u.searchParams.get('type') === String(makeEpicType().id) && !u.searchParams.get('parent')),
-    );
-    const lastBodyIssuesUrl = () => bodySearches.lastUrl();
-    await routeIssueSearch(page, async (route, url) => {
-      if (url.searchParams.get('type') === String(makeEpicType().id) && !url.searchParams.get('parent')) {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify(createIssueSearchResponse([epic(10, '결제 리뉴얼', 6, 10)])),
-        });
-        return;
-      }
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(createIssueSearchResponse([])),
-      });
-    });
-
-    await page.goto(`/projects/${PROJECT_KEY}`);
-    await openEpicPanel(page);
-
-    // 1) 「에픽 미할당」 클릭 → topLevel=true.
-    await page.getByTestId('epic-filter-unassigned').click();
-    await expect.poll(() => lastBodyIssuesUrl()?.searchParams.get('topLevel')).toBe('true');
-
-    // 2) 특정 에픽 클릭 → parent=10, 미할당 해제.
-    await page.getByTestId('epic-filter-10').click();
-    await expect.poll(() => lastBodyIssuesUrl()?.searchParams.get('parent')).toBe('10');
-    await expect(page.getByTestId('epic-filter-unassigned')).toHaveAttribute('aria-pressed', 'false');
-
-    // 3) 「전체 이슈」 클릭 → parent/topLevel 모두 해제되어야 한다(에픽 미할당으로 되돌아가면 안 됨).
-    await page.getByTestId('epic-filter-all').click();
-    await expect.poll(() => lastBodyIssuesUrl()?.searchParams.get('parent')).toBeNull();
-    expect(lastBodyIssuesUrl()!.searchParams.get('topLevel')).toBeNull();
-    await expect(page.getByTestId('epic-filter-all')).toHaveAttribute('aria-pressed', 'true');
-    await expect(page.getByTestId('epic-filter-unassigned')).toHaveAttribute('aria-pressed', 'false');
+    // 재클릭 해제·선택지 간 상호 배타 전환은 epicScope.test.ts(nextEpicScope)가 담당.
   });
 
   test('열림 상태는 새로고침 후에도 프로젝트별로 유지된다', async ({ authenticatedPage: page }) => {

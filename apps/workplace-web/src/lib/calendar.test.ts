@@ -1,7 +1,22 @@
 import { describe, expect, it } from 'vitest'
 
-import type { Attendee, CalendarEvent } from '../types/calendar'
-import { allDayLocalDate, eventsOnDay, isNotEventOrganizer, monthMatrix, visibleRange, weekDays } from './calendar'
+import type { Attendee, Calendar, CalendarEvent, IssueDueMarker } from '../types/calendar'
+import {
+  allDayLocalDate,
+  type CalendarLayers,
+  eventsOnDay,
+  groupCalendarsBySource,
+  isEventVisible,
+  isNotEventOrganizer,
+  isoToLocalInput,
+  markedDays,
+  monthMatrix,
+  proposalTimeRange,
+  providerLabel,
+  toggleCalendar,
+  visibleRange,
+  weekDays,
+} from './calendar'
 
 describe('isNotEventOrganizer (WP-200)', () => {
   const att = (role: Attendee['role'], userId: number | null): Attendee => ({
@@ -98,5 +113,89 @@ describe('eventsOnDay', () => {
     expect(eventsOnDay([span], new Date('2026-06-06T00:00:00')).map((e) => e.id)).toEqual([3])
     expect(eventsOnDay([span], new Date('2026-06-07T00:00:00')).map((e) => e.id)).toEqual([3])
     expect(eventsOnDay([span], new Date('2026-06-08T00:00:00')).map((e) => e.id)).toEqual([])
+  })
+})
+
+// ── 사이드바 표시 토글 → 그리드·미니 캘린더 점 (WP-412: 이전 E2E calendar-containers·calendar-sidebar 일부를 대체) ──
+describe('isEventVisible', () => {
+  const mine = new Set([1])
+  const layers: CalendarLayers = { hiddenCalendarIds: [], issueDues: true, invited: true }
+
+  it('내 캘린더 일정은 캘린더별 토글을 따른다', () => {
+    expect(isEventVisible(layers, mine, { calendarId: 1 })).toBe(true)
+    expect(isEventVisible(toggleCalendar(layers, 1), mine, { calendarId: 1 })).toBe(false)
+    // 다시 켜면 복귀
+    expect(isEventVisible(toggleCalendar(toggleCalendar(layers, 1), 1), mine, { calendarId: 1 })).toBe(true)
+  })
+
+  it('내 캘린더가 아닌(초대받은) 일정은 "초대받은 일정" 토글만 따른다', () => {
+    const off = { ...layers, invited: false }
+    expect(isEventVisible(layers, mine, { calendarId: 99 })).toBe(true)
+    expect(isEventVisible(off, mine, { calendarId: 99 })).toBe(false)
+    // 초대 토글을 꺼도 내 일정은 유지
+    expect(isEventVisible(off, mine, { calendarId: 1 })).toBe(true)
+  })
+})
+
+describe('markedDays', () => {
+  const june = new Date('2026-06-10T00:00:00')
+  const due: IssueDueMarker = { issueId: 7, projectKey: 'P', number: 7, title: 'd', dueDate: '2026-06-11' }
+  const meeting = ev(1, '2026-06-11T01:00:00Z', '2026-06-11T02:00:00Z')
+  const keys = (days: Date[]) => days.map((d) => `${d.getMonth() + 1}/${d.getDate()}`)
+
+  it('일정·마감이 있는 날에만 점', () => {
+    expect(keys(markedDays(june, [meeting], [], true, () => true))).toEqual(['6/11'])
+    expect(keys(markedDays(june, [], [due], true, () => true))).toEqual(['6/11'])
+  })
+
+  it('표시 토글로 숨긴 캘린더의 일정은 점에서도 빠진다', () => {
+    expect(markedDays(june, [meeting], [], true, () => false)).toEqual([])
+  })
+
+  it('이슈 마감일 레이어를 끄면 마감 점도 사라진다', () => {
+    expect(markedDays(june, [], [due], false, () => true)).toEqual([])
+  })
+})
+
+describe('providerLabel / groupCalendarsBySource', () => {
+  const cal = (id: number, over: Partial<Calendar> = {}): Calendar => ({
+    id, name: `c${id}`, color: 'blue', isDefault: false, position: id, isReadOnly: false, ...over,
+  })
+
+  it('공급자 raw 문자열을 pill 라벨로(모르는 값은 그대로, 없으면 빈 문자열)', () => {
+    expect(providerLabel('M365_GRAPH')).toBe('M365')
+    expect(providerLabel('IMAP')).toBe('IMAP')
+    expect(providerLabel('GOOGLE')).toBe('GOOGLE')
+    expect(providerLabel(null)).toBe('')
+  })
+
+  it('로컬과 연동 캘린더를 나누고 계정별로 첫 등장 순서대로 묶는다', () => {
+    const acct = { accountEmail: 'a@x.kr', provider: 'M365_GRAPH' }
+    const g = groupCalendarsBySource([
+      cal(1, { isDefault: true }),
+      cal(10, acct),
+      cal(2),
+      cal(11, { ...acct, isReadOnly: true }),
+      cal(20, { accountEmail: 'b@x.kr', provider: 'M365_GRAPH' }),
+    ])
+    expect(g.local.map((c) => c.id)).toEqual([1, 2])
+    expect(g.accounts.map((a) => [a.email, a.provider, a.calendars.map((c) => c.id)])).toEqual([
+      ['a@x.kr', 'M365_GRAPH', [10, 11]],
+      ['b@x.kr', 'M365_GRAPH', [20]],
+    ])
+  })
+})
+
+describe('isoToLocalInput / proposalTimeRange (KST)', () => {
+  it('UTC instant 를 로컬(KST) datetime-local 로 — 오프셋 무시 slice(06시 버그) 금지', () => {
+    expect(isoToLocalInput('2026-07-05T06:00:00Z')).toBe('2026-07-05T15:00')
+    expect(isoToLocalInput('2026-07-05T06:00:00+00:00')).toBe('2026-07-05T15:00')
+    expect(isoToLocalInput(null)).toBe('')
+    expect(isoToLocalInput('잘못된값')).toBe('')
+  })
+
+  it('제안 카드 읽기전용 시간은 KST 날짜·시각 ~ 종료 시각', () => {
+    expect(proposalTimeRange('2026-07-05T06:00:00Z', '2026-07-05T07:00:00Z')).toBe('2026-07-05 15:00 ~ 16:00')
+    expect(proposalTimeRange('2026-07-05T06:00:00Z', null)).toBe('2026-07-05 15:00')
   })
 })

@@ -72,6 +72,8 @@ test.describe('AI 채팅 화면 컨텍스트 — 공통', () => {
     await page.getByRole('button', { name: '보내기' }).click()
     await expect.poll(chat.count).toBe(1)
     expect(chat.bodies<HomeChatStartBody>()[0]).not.toHaveProperty('screenContext')
+    // WP-379: × 는 화면 내용만 뺀다 — 지금 화면 앱(app)은 그대로 보낸다.
+    expect(chat.bodies<HomeChatStartBody>()[0].app).toBe('ISSUE')
 
     // 전송 후 칩 복원 → 두 번째 전송은 컨텍스트 포함.
     await expect(page.getByTestId('chat-context-chip')).toBeVisible()
@@ -766,23 +768,6 @@ test.describe('AI 채팅 화면 컨텍스트 — 채팅', () => {
       scope: { label: '채널 #dev', refs: { channelId: '5' } },
     })
     expect(chat.bodies<HomeChatStartBody>()[0].screenContext!.scope!.facts).toContainEqual({ label: '멤버', value: '8' })
-  })
-
-  test('채널 — 스레드 없이 채널만 실린다', async ({ authenticatedPage: page }) => {
-    const chat = await captureChat(page)
-    const channel = createChannel({ id: 5, name: 'dev', memberCount: 8 })
-    await mockChatSidebar(page, [channel], [])
-    await mockApi(page, 'GET', '/api/v1/messaging/channels/5', channel)
-    await mockApi(page, 'GET', '/api/v1/messaging/channels/5/members', [createChannelMember({ userId: 1, name: '나' })])
-    await mockApi(page, 'GET', '/api/v1/messaging/channels/5/messages', { items: [], nextCursor: null, hasMore: false })
-    await page.goto('/chat/channels/5')
-    await page.getByTestId('chat-launcher').click()
-    await expect(page.getByTestId('chat-context-chip')).toContainText('채널 #dev')
-    await page.getByTestId('chat-input').fill('요약해줘')
-    await page.getByTestId('chat-panel').getByRole('button', { name: '보내기' }).click()
-    await expect.poll(chat.count).toBe(1)
-    expect(chat.bodies<HomeChatStartBody>()[0].screenContext).toMatchObject({ view: '채널', scope: { label: '채널 #dev', refs: { channelId: '5' } } })
-    expect(chat.bodies<HomeChatStartBody>()[0].screenContext).not.toHaveProperty('focus')
   })
 
   test('DM 은 상대 이름과 channelId 가 실린다', async ({ authenticatedPage: page }) => {

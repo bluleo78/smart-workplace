@@ -45,11 +45,9 @@ import { buildCalendarContext } from '@/lib/aiScreenContext/builders/calendar'
 import {
   CALENDAR_VIEWS,
   type CalendarLayers,
-  eventsOnDay,
-  isCalendarVisible,
-  issueDuesOnDay,
+  isEventVisible,
   loadLayers,
-  monthMatrix,
+  markedDays,
   saveLayers,
   toggleCalendar,
   visibleRange,
@@ -155,8 +153,7 @@ export function CalendarPage() {
   // 캘린더 표시 토글 + 초대받은 일정 토글 존중.
   // 내 캘린더(myCalendarIds) 면 캘린더별 토글, 아니면 invited 토글.
   const filterByCalendar = useMemo(
-    () => (e: CalendarEvent) =>
-      myCalendarIds.has(e.calendarId) ? isCalendarVisible(layers, e.calendarId) : layers.invited,
+    () => (e: CalendarEvent) => isEventVisible(layers, myCalendarIds, e),
     [myCalendarIds, layers],
   )
 
@@ -233,13 +230,8 @@ export function CalendarPage() {
 
   // 점 찍을 날 — 미니 캘린더가 보여 주는 달 기준, 표시 토글을 존중.
   const markedDates = useMemo(
-    () =>
-      monthMatrix(miniMonth).filter(
-        (day) =>
-          eventsOnDay(miniEvents.filter(filterByCalendar), day).length > 0 ||
-          (layers.issueDues && issueDuesOnDay(miniDues, day).length > 0),
-      ),
-    [miniMonth, layers, miniEvents, miniDues, filterByCalendar],
+    () => markedDays(miniMonth, miniEvents, miniDues, layers.issueDues, filterByCalendar),
+    [miniMonth, layers.issueDues, miniEvents, miniDues, filterByCalendar],
   )
 
   const create = useCreateEvent()

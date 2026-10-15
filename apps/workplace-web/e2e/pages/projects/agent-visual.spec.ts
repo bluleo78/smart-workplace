@@ -89,6 +89,8 @@ test('AGENT 가 일으킨 이력은 시각적으로 구분된다', async ({ auth
   const userRow = timeline.locator('li').filter({ hasText: 'Alice' });
   await expect(userRow).toBeVisible();
   await expect(userRow).not.toHaveAttribute('data-agent', 'true');
+  // #311 회귀: HUMAN 행도 border-l-border 로 보더가 보여야 한다(투명 보더 방지).
+  await expect(userRow).toHaveClass(/border-l-border/);
 
   const agentRow = timeline.locator('li[data-agent="true"]').filter({ hasText: 'AI Agent' });
   await expect(agentRow).toBeVisible();

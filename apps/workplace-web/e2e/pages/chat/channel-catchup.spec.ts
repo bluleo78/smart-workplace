@@ -116,19 +116,6 @@ test.describe('채널 캐치업 카드', () => {
     await expect(page.getByText('짧은 논의')).toBeVisible();
   });
 
-  test('미읽음 0건이면 카드도 버튼도 없다', async ({ authenticatedPage: page }) => {
-    // watermark 가 최신 이상 → 미읽음 0.
-    const channel = createChannel({ id: CHANNEL_ID, member: true, lastReadMessageId: 200 });
-    await setupChannelStubs(page, channel);
-    await stubMessages(page, readPlusUnread(6)); // 모든 id <= 200 이므로 미읽음 0
-
-    await page.goto(`/chat/channels/${CHANNEL_ID}`);
-
-    await expect(page.getByTestId('message-list')).toBeVisible();
-    await expect(page.getByTestId('catchup-card')).toHaveCount(0);
-    await expect(page.getByTestId('catchup-summarize-btn')).toHaveCount(0);
-  });
-
   // #491 회귀: 다 읽은 방에서 내가 메시지를 보내면(진입-고정 watermark < 내 메시지 id)
   // 유령 미읽음 구분선/캐치업이 부활하면 안 된다. 내 메시지는 미읽음 대상에서 제외돼야 한다.
   test('다 읽은 방에서 내가 보낸 메시지는 유령 구분선/캐치업을 만들지 않는다', async ({ authenticatedPage: page }) => {

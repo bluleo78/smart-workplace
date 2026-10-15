@@ -432,27 +432,6 @@ test.describe('태스크 보드/검색', () => {
     await expect(humanAvatar).not.toHaveAttribute('data-agent');
   });
 
-  test('보드 기본 검색은 에픽 카드를 빼고 에픽 하위 이슈를 노출한다 (excludeEpics·excludeSubtasks, topLevel 미송신) (#874)', async ({
-    authenticatedPage: page,
-  }) => {
-    await stubProjectMeta(page);
-    const searches = trackRequests(page, 'GET', ISSUES_PATH);
-    await routeIssueSearch(page, (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(createIssueSearchResponse([createIssue({ id: 1, number: 7 })])),
-      }),
-    );
-
-    await page.goto(`/projects/WP?view=board`);
-    await expect(page.getByTestId('issue-card-7')).toBeVisible();
-    const searchUrl = searches.lastUrl()!;
-    expect(searchUrl.searchParams.get('excludeEpics')).toBe('true');
-    expect(searchUrl.searchParams.get('excludeSubtasks')).toBe('true');
-    expect(searchUrl.searchParams.get('topLevel')).toBeNull();
-  });
-
   test('보드 카드: 에픽 하위 이슈는 소속 에픽 배지를 표시하고, 긴 제목도 카드 폭을 넘지 않는다 (#874)', async ({
     authenticatedPage: page,
   }) => {
@@ -958,7 +937,8 @@ test.describe('종료 이슈 숨김 (#876)', () => {
     expect(searches.lastUrl()!.searchParams.get('hideInactiveClosed')).toBeNull();
   });
 
-  test('목록도 기본 숨김이며, 상태 필터를 명시하면 숨김 파라미터를 보내지 않는다', async ({
+  // 숨김 해제 판정(overridesClosedHiding·withDefaultIssueScope)은 issueFilters.test.ts 가 담당 — 여기선 토글 UI 반영만 본다.
+  test('목록에서 상태 필터를 명시하면 숨김 파라미터를 보내지 않고 토글이 눌린 채 비활성화된다', async ({
     authenticatedPage: page,
   }) => {
     await stubProjectMeta(page);
@@ -971,12 +951,8 @@ test.describe('종료 이슈 숨김 (#876)', () => {
       }),
     );
 
-    await page.goto(`/projects/WP`);
-    await searches.waitFor();
-    expect(searches.lastUrl()!.searchParams.get('hideInactiveClosed')).toBe('true');
-
     await page.goto(`/projects/WP?status=DONE`);
-    await expect.poll(() => searches.lastUrl()!.searchParams.get('status')).toBe('DONE');
+    await expect.poll(() => searches.lastUrl()?.searchParams.get('status')).toBe('DONE');
     expect(searches.lastUrl()!.searchParams.get('hideInactiveClosed')).toBeNull();
     // 명시 필터가 이미 숨김을 해제했으므로 토글은 눌린 상태로 비활성화된다.
     const toggle = page.getByTestId('show-all-closed-toggle');

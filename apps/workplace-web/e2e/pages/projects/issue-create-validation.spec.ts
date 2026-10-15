@@ -1,5 +1,6 @@
 // IssueCreateDialog 폼 유효성 검사 회귀 테스트 (#163).
-// 제목 200자 초과 시 Zod 영문 기본 메시지 대신 한국어 오류 메시지가 표시되는지 검증.
+// 검증 규칙 자체(trim·200자 경계 등)는 src/lib/validations/issue.test.ts 단위 테스트가 맡고(WP-412),
+// 여기서는 검증 오류가 UI 에 뜨고 서버 요청이 막히는지만 본다.
 
 import { expect, test } from '../../fixtures/auth.fixture'
 import { mockApi } from '../../fixtures/api-mock'
@@ -38,24 +39,6 @@ async function stubProject(page: import('@playwright/test').Page) {
 }
 
 test.describe('IssueCreateDialog 유효성 검사 (#163)', () => {
-  test('제목 200자 초과 시 한국어 오류 메시지가 표시된다', async ({ authenticatedPage: page }) => {
-    await stubProject(page)
-    await page.goto(`/projects/${PROJECT_KEY}`)
-
-    // 이슈 생성 다이얼로그 오픈
-    await page.getByRole('button', { name: '+ 새 태스크' }).click()
-    await expect(page.getByRole('dialog', { name: '새 이슈' })).toBeVisible()
-
-    // 201자 입력 — 200자 한도 초과
-    const longTitle = 'A'.repeat(201)
-    await page.getByLabel('제목').fill(longTitle)
-    await page.getByRole('button', { name: '생성' }).click()
-
-    // 한국어 오류 메시지 표시 검증 (영문 Zod 원시 메시지 없어야 함)
-    await expect(page.getByText('제목은 200자 이하여야 합니다')).toBeVisible()
-    await expect(page.getByText('Too big')).not.toBeVisible()
-  })
-
   test('제목이 공백뿐이면 서버 요청 없이 클라이언트에서 막는다 (#612)', async ({
     authenticatedPage: page,
   }) => {
@@ -86,54 +69,6 @@ test.describe('IssueCreateDialog 유효성 검사 (#163)', () => {
     await expect(page.getByRole('dialog', { name: '새 이슈' })).toBeVisible()
   })
 
-  test('제목 앞뒤 공백은 trim 되어 제출된다 (#612)', async ({ authenticatedPage: page }) => {
-    await stubProject(page)
-
-    const creates = trackRequests(page, 'POST', `/api/v1/projects/${PROJECT_KEY}/issues`)
-    await page.route(`**/api/v1/projects/${PROJECT_KEY}/issues`, (route) => {
-      if (route.request().method() === 'POST') {
-        return route.fulfill({
-          status: 201,
-          contentType: 'application/json',
-          body: JSON.stringify(createIssue({ title: 'trimmed title' })),
-        })
-      }
-      return route.fallback()
-    })
-
-    await page.goto(`/projects/${PROJECT_KEY}`)
-    await page.getByRole('button', { name: '+ 새 태스크' }).click()
-    await expect(page.getByRole('dialog', { name: '새 이슈' })).toBeVisible()
-
-    await page.getByLabel('제목').fill('  trimmed title  ')
-    await page.getByRole('button', { name: '생성' }).click()
-
-    await expect.poll(() => creates.lastBody<{ title: string }>()?.title).toBe('trimmed title')
-  })
-
-  test('제목 200자 이하에서는 유효성 오류가 없다', async ({ authenticatedPage: page }) => {
-    await stubProject(page)
-
-    // POST 이슈 생성 스텁
-    await mockApi(
-      page,
-      'POST',
-      `/api/v1/projects/${PROJECT_KEY}/issues`,
-      createIssue({ title: 'B'.repeat(200) }),
-    )
-
-    await page.goto(`/projects/${PROJECT_KEY}`)
-    await page.getByRole('button', { name: '+ 새 태스크' }).click()
-    await expect(page.getByRole('dialog', { name: '새 이슈' })).toBeVisible()
-
-    // 정확히 200자 입력 — 경계값
-    await page.getByLabel('제목').fill('B'.repeat(200))
-    await page.getByRole('button', { name: '생성' }).click()
-
-    // 유효성 오류 없음 — dialog 가 닫히거나 오류 메시지 없음
-    await expect(page.getByText('제목은 200자 이하여야 합니다')).not.toBeVisible()
-    await expect(page.getByText('Too big')).not.toBeVisible()
-  })
 })
 
 test.describe('IssueCreateDialog 새로고침 유실 경고 (#620)', () => {

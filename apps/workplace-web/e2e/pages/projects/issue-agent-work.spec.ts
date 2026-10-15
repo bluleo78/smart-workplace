@@ -93,15 +93,6 @@ test('진행 중 AI 작업이 없으면 레일 AI 진행과 질문 카드를 그
   await expect(page.getByTestId('agent-question-card')).toHaveCount(0)
 })
 
-test('사람의 답변 필요는 질문 카드 없이 레일 배지만 보여 준다', async ({ authenticatedPage: page }) => {
-  await mockAgentWorkDetail(page, [createAgentWork({ worker: human, state: 'INPUT_REQUIRED', note: '터미널에서 확인 필요' })], { assignees: [human] })
-  await page.goto(URL)
-
-  await expect(page.getByTestId('agent-work-rail-1-state')).toContainText('답변 필요')
-  await expect(page.getByTestId('agent-work-rail-1')).toContainText('터미널에서 확인 필요')
-  await expect(page.getByTestId('agent-question-card')).toHaveCount(0)
-})
-
 test('인증 필요는 레일에 인증 필요 배지로 보이고 질문 카드는 없다', async ({ authenticatedPage: page }) => {
   await mockAgentWorkDetail(page, [createAgentWork({ worker: aki, state: 'AUTH_REQUIRED', note: 'GitHub 권한이 필요해요' })], { assignees: [aki] })
   await page.goto(URL)

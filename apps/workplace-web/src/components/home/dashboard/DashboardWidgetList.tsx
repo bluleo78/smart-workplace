@@ -21,7 +21,7 @@ import { MobileWidgetCard } from '../widgets/mobile/MobileWidgetCard'
 import { EditableWidgetCard } from './EditableWidgetCard'
 import { EntryBody } from './EntryBody'
 import { MobileEditableWidgetCard } from './MobileEditableWidgetCard'
-import { entryDeepLink, entryTitle, type ResolvedEntry } from './resolvedEntry'
+import { entryDeepLink, entryTitle, type ResolvedEntry, visibleEntries } from './resolvedEntry'
 import type { DashboardEditDraft } from './useDashboardEditDraft'
 import { WidgetCard } from './WidgetCard'
 
@@ -95,7 +95,7 @@ export function DashboardWidgetList({ isMobile, savedEntries, edit }: Props) {
     edit.reorderWidget(String(active.id), String(over.id))
   }
   const sortableIds = draftEntries.map((e) => e.cfg.id)
-  const visibleSaved = savedEntries.filter((e) => !e.cfg.hidden)
+  const visibleSaved = visibleEntries(savedEntries)
 
   if (isMobile) {
     // 모바일(WP-142): 세로 한 줄 목록(카드 간격 12px). 본문형은 접기 가능, 타일형은 한 줄 링크.

@@ -115,16 +115,14 @@ test.describe('모바일 이슈 목록 2줄 행', () => {
     expect(await scroll.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
   });
 
-  test('그룹 「에픽」 안의 행은 에픽 메타를 생략한다', async ({ authenticatedPage: page }) => {
+  // 두 경로(그룹 「에픽」·특정 에픽 필터)를 한 테스트에서 본다 — 페이지 셋업 1회로 줄였다(WP-412).
+  test('그룹 「에픽」 안의 행과 특정 에픽으로 필터된 목록은 에픽 메타를 생략한다', async ({ authenticatedPage: page }) => {
     await mock(page);
     await page.goto(`/projects/${KEY}?group=epic`);
     await expect(page.getByTestId('list-group-epic-30')).toBeVisible();
     await expect(page.getByTestId('issue-row-21')).toBeVisible(); // 양성 대조 — 행은 렌더됨
     await expect(page.getByTestId('issue-row-21-epic')).toHaveCount(0);
-  });
 
-  test('특정 에픽으로 필터된 목록은 에픽 메타를 생략한다', async ({ authenticatedPage: page }) => {
-    await mock(page);
     await page.goto(`/projects/${KEY}?group=none&parent=30`);
     await expect(page.getByTestId('issue-row-21')).toBeVisible();
     await expect(page.getByTestId('issue-row-21-epic')).toHaveCount(0);
@@ -147,17 +145,6 @@ test.describe('모바일 툴바', () => {
     await expect(page.getByTestId('epic-panel-toggle')).toHaveCount(0);
     expect((await page.getByTestId('issue-row-21').boundingBox())!.y).toBeLessThanOrEqual(150);
     await expectNoHorizontalOverflow(page);
-  });
-
-  test('담당자 미지정 필터(assignee=null) — 필터 개수 1, 시트의 전체 해제로 URL 에서 제거', async ({ authenticatedPage: page }) => {
-    await mock(page);
-    await page.goto(`/projects/${KEY}?group=none&assignee=null`);
-    await expect(page.getByTestId('mobile-chip-filter')).toContainText('필터 1');
-    await page.getByTestId('mobile-chip-filter').click();
-    await expect(page.getByTestId('mobile-filter-clear')).toBeEnabled();
-    await expect(page.getByTestId('mobile-filter-empty')).toHaveCount(0);
-    await page.getByTestId('mobile-filter-clear').click();
-    await expect(page).not.toHaveURL(/assignee=/);
   });
 
   test('검색 — 줄 전체가 검색창으로, 취소해도 검색어 유지 + 점 표시', async ({ authenticatedPage: page }) => {
@@ -368,19 +355,11 @@ test.describe('모바일 에픽 시트', () => {
     expect((await page.getByTestId('mobile-issue-toolbar').boundingBox())!.height).toBeLessThanOrEqual(52);
   });
 
-  test('에픽 범위만 걸리면 뷰 칩은 「전체」', async ({ authenticatedPage: page }) => {
-    await mock(page);
-    await page.goto(`/projects/${KEY}?group=none&parent=30`);
-    await expect(page.getByTestId('mobile-chip-epic')).toContainText('결제 안정화');
-    await expect(page.getByTestId('mobile-chip-view')).toHaveText('전체');
-    // 대조 — 에픽 외 조건이 더해지면 「사용자 조건」.
-    await page.goto(`/projects/${KEY}?group=none&parent=30&status=TODO`);
-    await expect(page.getByTestId('mobile-chip-view')).toHaveText('사용자 조건');
-  });
-
   test('에픽 범위만 걸린 상태에서 뷰 시트 「전체」 를 눌러도 에픽 필터가 유지된다', async ({ authenticatedPage: page }) => {
     await mock(page);
     await page.goto(`/projects/${KEY}?group=none&parent=30`);
+    // 에픽 범위만 걸리면 뷰 칩은 「전체」 — 판정 규칙(에픽 외 조건이 더해지면 「사용자 조건」)은 issueFacetFilters.test 가 지킨다.
+    await expect(page.getByTestId('mobile-chip-view')).toHaveText('전체');
     await page.getByTestId('mobile-chip-view').click();
     await page.getByTestId('mobile-view-option-all').click();
     await expect(page.getByTestId('mobile-view-sheet')).toBeHidden();

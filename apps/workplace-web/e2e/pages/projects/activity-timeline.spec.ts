@@ -3,7 +3,6 @@
 
 import { expect, test } from '../../fixtures/auth.fixture';
 import {
-  createAgentHistoryEntry,
   createHistoryEntry,
   createIssueDetail,
 } from '../../factories/issue.factory';
@@ -50,52 +49,6 @@ async function setupCommonStubs(page: import('@playwright/test').Page) {
     },
   );
 }
-
-test.describe('IssueActivityTimeline — 액터 보더 색상', () => {
-  // #311 회귀: HUMAN 항목에 border-l-border, AGENT 항목에 border-l-ai-accent 가 적용되는지 검증
-  test(
-    'HUMAN 항목에는 border-l-border, AGENT 항목에는 border-l-ai-accent 보더 색상이 적용됨',
-    { tag: '@smoke' },
-    async ({ authenticatedPage: page }) => {
-      await setupCommonStubs(page);
-
-      const detail = createIssueDetail({
-        history: [
-          createHistoryEntry({ id: 1, actorKind: 'HUMAN', actorName: '사람 사용자' }),
-          createAgentHistoryEntry({ id: 2 }),
-        ],
-      });
-
-      await page.route(
-        (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1`,
-        (route) => {
-          if (route.request().method() !== 'GET') return route.fallback();
-          return route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify(detail),
-          });
-        },
-      );
-
-      await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
-      // 활동 섹션은 '이력' 탭 안에 있으므로 먼저 탭 클릭 (Task 3 — #343)
-      await page.getByRole('tab', { name: /이력/ }).click();
-
-      const timeline = page.getByRole('list', { name: '활동 타임라인' });
-      await expect(timeline).toBeVisible();
-
-      // HUMAN 항목: border-l-border 클래스가 있어야 함 (투명 보더 방지)
-      // data-agent 속성이 없는 li = HUMAN 항목
-      const humanItem = timeline.locator('li:not([data-agent])').first();
-      await expect(humanItem).toHaveClass(/border-l-border/);
-
-      // AGENT 항목: border-l-ai-accent 클래스가 있어야 함
-      const agentItem = timeline.locator('li[data-agent="true"]').first();
-      await expect(agentItem).toHaveClass(/border-l-ai-accent/);
-    },
-  );
-});
 
 test.describe('IssueActivityTimeline 날짜 포맷 (#320)', () => {
   test(
@@ -148,9 +101,11 @@ test.describe('IssueActivityTimeline 날짜 포맷 (#320)', () => {
 
 test.describe('IssueActivityTimeline — 한국어 enum 매핑', () => {
   test(
-    'STATUS_CHANGED 이벤트: TODO→IN_PROGRESS 가 "할 일 → 진행 중" 으로 표시됨',
+    '상태·우선순위 변경 이력이 한국어 표시명("할 일 → 진행 중", "낮음 → 높음")으로 렌더됨',
     { tag: '@smoke' },
     async ({ authenticatedPage: page }) => {
+      // 매핑 규칙 자체(DONE·CANCELED·MID·모르는 값 폴백·null)는 issueHistoryLabels 단위 테스트가 맡는다(WP-412).
+      // 여기서는 두 이벤트 분기가 실제로 매핑 함수를 거쳐 화면에 그려지는지만 본다.
       await setupCommonStubs(page);
 
       const detail = createIssueDetail({
@@ -160,6 +115,12 @@ test.describe('IssueActivityTimeline — 한국어 enum 매핑', () => {
             eventType: 'STATUS_CHANGED',
             fromValue: 'TODO',
             toValue: 'IN_PROGRESS',
+          }),
+          createHistoryEntry({
+            id: 4,
+            eventType: 'PRIORITY_CHANGED',
+            fromValue: 'LOW',
+            toValue: 'HIGH',
           }),
         ],
       });
@@ -190,139 +151,7 @@ test.describe('IssueActivityTimeline — 한국어 enum 매핑', () => {
 
       // 한국어 표시명이 렌더되어야 함
       await expect(timeline).toContainText('할 일 → 진행 중');
-    },
-  );
-
-  test(
-    'STATUS_CHANGED 이벤트: 여러 상태값(DONE, CANCELED) 한국어 매핑 검증',
-    async ({ authenticatedPage: page }) => {
-      await setupCommonStubs(page);
-
-      const detail = createIssueDetail({
-        history: [
-          createHistoryEntry({
-            id: 2,
-            eventType: 'STATUS_CHANGED',
-            fromValue: 'IN_PROGRESS',
-            toValue: 'DONE',
-          }),
-          createHistoryEntry({
-            id: 3,
-            eventType: 'STATUS_CHANGED',
-            fromValue: 'DONE',
-            toValue: 'CANCELED',
-          }),
-        ],
-      });
-
-      await page.route(
-        (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1`,
-        (route) => {
-          if (route.request().method() !== 'GET') return route.fallback();
-          return route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify(detail),
-          });
-        },
-      );
-
-      await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
-      // 활동 섹션은 '이력' 탭 안에 있으므로 먼저 탭 클릭 (Task 3 — #343)
-      await page.getByRole('tab', { name: /이력/ }).click();
-
-      const timeline = page.getByRole('list', { name: '활동 타임라인' });
-      await expect(timeline).toBeVisible();
-
-      await expect(timeline).not.toContainText('IN_PROGRESS');
-      await expect(timeline).not.toContainText('DONE');
-      await expect(timeline).not.toContainText('CANCELED');
-
-      await expect(timeline).toContainText('진행 중 → 완료');
-      await expect(timeline).toContainText('완료 → 취소');
-    },
-  );
-
-  test(
-    'PRIORITY_CHANGED 이벤트: LOW→HIGH 가 "낮음 → 높음" 으로 표시됨',
-    { tag: '@smoke' },
-    async ({ authenticatedPage: page }) => {
-      await setupCommonStubs(page);
-
-      const detail = createIssueDetail({
-        history: [
-          createHistoryEntry({
-            id: 4,
-            eventType: 'PRIORITY_CHANGED',
-            fromValue: 'LOW',
-            toValue: 'HIGH',
-          }),
-        ],
-      });
-
-      await page.route(
-        (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1`,
-        (route) => {
-          if (route.request().method() !== 'GET') return route.fallback();
-          return route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify(detail),
-          });
-        },
-      );
-
-      await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
-      // 활동 섹션은 '이력' 탭 안에 있으므로 먼저 탭 클릭 (Task 3 — #343)
-      await page.getByRole('tab', { name: /이력/ }).click();
-
-      const timeline = page.getByRole('list', { name: '활동 타임라인' });
-      await expect(timeline).toBeVisible();
-
-      await expect(timeline).not.toContainText('LOW');
-      await expect(timeline).not.toContainText('HIGH');
-
       await expect(timeline).toContainText('낮음 → 높음');
-    },
-  );
-
-  test(
-    'PRIORITY_CHANGED 이벤트: MID 값이 "보통" 으로 표시됨',
-    async ({ authenticatedPage: page }) => {
-      await setupCommonStubs(page);
-
-      const detail = createIssueDetail({
-        history: [
-          createHistoryEntry({
-            id: 5,
-            eventType: 'PRIORITY_CHANGED',
-            fromValue: 'MID',
-            toValue: 'HIGH',
-          }),
-        ],
-      });
-
-      await page.route(
-        (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1`,
-        (route) => {
-          if (route.request().method() !== 'GET') return route.fallback();
-          return route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify(detail),
-          });
-        },
-      );
-
-      await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
-      // 활동 섹션은 '이력' 탭 안에 있으므로 먼저 탭 클릭 (Task 3 — #343)
-      await page.getByRole('tab', { name: /이력/ }).click();
-
-      const timeline = page.getByRole('list', { name: '활동 타임라인' });
-      await expect(timeline).toBeVisible();
-
-      await expect(timeline).not.toContainText('MID');
-      await expect(timeline).toContainText('보통 → 높음');
     },
   );
 
@@ -387,46 +216,6 @@ test.describe('IssueActivityTimeline — 한국어 enum 매핑', () => {
     },
   );
 
-  test(
-    '매핑 없는 알 수 없는 상태값은 원문 그대로 폴백 렌더됨',
-    async ({ authenticatedPage: page }) => {
-      await setupCommonStubs(page);
-
-      // 미래에 추가될 수 있는 알 수 없는 enum 값에 대한 안전한 폴백 검증.
-      const detail = createIssueDetail({
-        history: [
-          createHistoryEntry({
-            id: 6,
-            eventType: 'STATUS_CHANGED',
-            fromValue: 'UNKNOWN_STATUS',
-            toValue: 'ANOTHER_STATUS',
-          }),
-        ],
-      });
-
-      await page.route(
-        (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1`,
-        (route) => {
-          if (route.request().method() !== 'GET') return route.fallback();
-          return route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify(detail),
-          });
-        },
-      );
-
-      await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
-      // 활동 섹션은 '이력' 탭 안에 있으므로 먼저 탭 클릭 (Task 3 — #343)
-      await page.getByRole('tab', { name: /이력/ }).click();
-
-      const timeline = page.getByRole('list', { name: '활동 타임라인' });
-      await expect(timeline).toBeVisible();
-
-      // 매핑 없는 값은 원문 그대로 표시되어야 함 (안전한 폴백).
-      await expect(timeline).toContainText('UNKNOWN_STATUS → ANOTHER_STATUS');
-    },
-  );
 });
 
 // #341: 활동 이력 접기 — MAX=5 초과 시 "이전 N건 더 보기" 토글

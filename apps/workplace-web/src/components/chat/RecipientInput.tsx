@@ -21,6 +21,7 @@ import type { MemberPickerCandidate } from '@/hooks/queries/useUserSearch'
 import { useUserSearch } from '@/hooks/queries/useUserSearch'
 import { useDebounceValue } from '@/hooks/useDebounceValue'
 import { isImeComposing } from '@/lib/imeKey'
+import { recipientCandidates } from '@/lib/recipientCandidates'
 import type { UserKind } from '@/types/user'
 
 type KindFilter = 'ALL' | UserKind
@@ -62,9 +63,7 @@ export function RecipientInput({
   const selectedIds = new Set(selected.map((u) => u.id))
   const isFull = selected.length >= max
   // 백엔드가 kind/검색어로 이미 좁혔으므로 제외 대상·비활성·이미 고른 상대만 걸러낸다.
-  const items = (search.data?.content ?? []).filter(
-    (u) => !excludeUserIds?.has(u.id) && u.isActive !== false && !selectedIds.has(u.id),
-  )
+  const items = recipientCandidates(search.data?.content ?? [], excludeUserIds, selectedIds)
   // 방금 고른 후보는 목록에서 사라지므로 하이라이트가 허공을 가리키게 된다 — 그러면 Enter 연속 선택이
   // 끊기므로 첫 후보로 되돌린다.
   const activeValue = items.some((u) => String(u.id) === highlighted)

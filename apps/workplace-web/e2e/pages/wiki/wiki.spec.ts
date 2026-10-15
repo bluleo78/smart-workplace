@@ -379,75 +379,6 @@ test('위키 — 제목 입력 중 Enter 시 본문 에디터로 포커스 이�
 })
 
 // 삭제 UI — 사이드바 트리 노드 삭제 → 트리에서 사라짐(에러 경로 아님, 단순 동작 → 미태그).
-// 제목 저장이 일시 실패하면 같은 제목을 간격을 두고 다시 보내 결국 저장한다 — 예전엔 실패 뒤 아무도 다시 보내지 않아
-// 서버엔 옛 제목이 남고, 화면은 '보내기 대기'로 남아 다른 사람의 제목 변경도 영영 반영되지 않았다. 실패 토스트는 한 번만.
-test('위키 — 제목 저장이 일시 실패하면 다시 보내 저장하고 실패 토스트는 한 번만 뜬다', async ({
-  authenticatedPage: page,
-}) => {
-  const PAGE_ID = 401
-  await page.route(
-    (url) => url.pathname === '/api/v1/wiki/spaces',
-    (route) =>
-      route.request().method() === 'GET'
-        ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([personalSpace()]) })
-        : route.fallback(),
-  )
-  await page.route(
-    (url) => url.pathname === `/api/v1/wiki/spaces/${SPACE_ID}/pages`,
-    (route) =>
-      route.request().method() === 'GET'
-        ? route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify([{ id: PAGE_ID, parentId: null, title: '제목 없음', position: 0 } as WikiPageSummary]),
-          })
-        : route.fallback(),
-  )
-  const detail = (title: string): WikiPageDetail => ({ ...pageDetail(title, 1), id: PAGE_ID })
-  // 처음 두 번의 제목 저장은 503(일시 장애), 그 뒤는 성공.
-  const puts = trackRequests(page, 'PUT', `/api/v1/wiki/pages/${PAGE_ID}`)
-  let putCalls = 0
-  await page.route(
-    (url) => url.pathname === `/api/v1/wiki/pages/${PAGE_ID}`,
-    (route) => {
-      const method = route.request().method()
-      if (method === 'GET') {
-        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(detail('제목 없음')) })
-      }
-      if (method === 'PUT') {
-        putCalls += 1
-        if (putCalls <= 2) {
-          return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ message: '잠시 후 다시 시도해 주세요' }) })
-        }
-        const body = route.request().postDataJSON() as { title: string }
-        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(detail(body.title)) })
-      }
-      return route.fallback()
-    },
-  )
-  await page.route(
-    (url) => url.pathname === `/api/v1/wiki/pages/${PAGE_ID}/backlinks`,
-    (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [] }) }),
-  )
-  await page.route(
-    (url) => url.pathname === `/api/v1/wiki/pages/${PAGE_ID}/mentions`,
-    (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
-  )
-
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror[contenteditable="true"]')).toBeVisible()
-  const titleInput = page.getByPlaceholder('제목 없음')
-  await titleInput.fill('다시 보낼 제목')
-  await titleInput.blur()
-
-  // 실패 두 번 뒤 세 번째 시도로 저장된다(재시도 간격 1s → 2s).
-  await expect.poll(() => puts.count(), { timeout: 10_000 }).toBe(3)
-  expect(puts.bodies<{ title: string }>().map((b) => b.title)).toEqual(['다시 보낼 제목', '다시 보낼 제목', '다시 보낼 제목'])
-  await expect(titleInput).toHaveValue('다시 보낼 제목')
-  // 같은 제목의 연속 실패는 토스트 한 번.
-  await expect(page.locator('[data-sonner-toast]')).toHaveCount(1)
-})
-
 test('위키 — 사이드바 페이지 삭제: 노드가 트리에서 사라진다', async ({
   authenticatedPage: page,
 }) => {
@@ -605,62 +536,7 @@ test('위키 — 페이지 로딩 중 skeleton이 표시되고 로드 후 에디
   await expect(page.locator('.ProseMirror')).toBeVisible({ timeout: 5000 })
 })
 
-// 회귀 #788: 존재하지 않는 페이지 ID 진입 시 skeleton 이 영구 고착되지 않고
-// ResourceErrorState(아이콘+제목+설명+버튼)가 표시되며, 버튼 클릭 시 /wiki 로 이동한다.
-// (useWikiPage 가 404 를 isError 로 노출하지 못하면 WikiPageView 의 `isLoading || !page`
-// 분기가 계속 true 로 남아 skeleton 이 영원히 사라지지 않는다.)
-test('위키 — 존재하지 않는 페이지 ID 접근 시 에러 상태 표시 후 노트 목록으로 이동', async ({
-  authenticatedPage: page,
-}) => {
-  const MISSING_PAGE_ID = 999
-
-  // 스페이스 목록
-  await page.route(
-    (url) => url.pathname === '/api/v1/wiki/spaces',
-    (route) =>
-      route.request().method() === 'GET'
-        ? route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify([personalSpace()]),
-          })
-        : route.fallback(),
-  )
-
-  // 트리 — 빈 목록 (요청한 페이지가 존재하지 않는 상황)
-  await page.route(
-    (url) => url.pathname === `/api/v1/wiki/spaces/${SPACE_ID}/pages`,
-    (route) =>
-      route.request().method() === 'GET'
-        ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) })
-        : route.fallback(),
-  )
-
-  // 페이지 상세 — 404
-  await page.route(
-    (url) => url.pathname === `/api/v1/wiki/pages/${MISSING_PAGE_ID}`,
-    (route) =>
-      route.request().method() === 'GET'
-        ? route.fulfill({
-            status: 404,
-            contentType: 'application/json',
-            body: JSON.stringify({ status: 404, error: 'Not Found', message: '페이지를 찾을 수 없습니다' }),
-          })
-        : route.fallback(),
-  )
-
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${MISSING_PAGE_ID}`)
-
-  // skeleton 이 아니라 에러 상태가 표시되어야 한다 (react-query retry 유예를 감안해 넉넉한 timeout).
-  await expect(page.getByTestId('wiki-page-skeleton')).toHaveCount(0, { timeout: 10000 })
-  await expect(page.getByText('페이지를 불러올 수 없습니다')).toBeVisible({ timeout: 10000 })
-  await expect(page.getByText('요청한 노트 페이지가 존재하지 않거나 접근 권한이 없습니다.')).toBeVisible()
-
-  // navigate('/wiki') 후 WikiIndexRedirect 가 첫 스페이스로 다시 리다이렉트하므로
-  // 최종 URL 은 페이지 상세(/pages/:id) 가 아닌 스페이스 루트여야 한다.
-  await page.getByRole('button', { name: '노트 목록으로' }).click()
-  await expect(page).toHaveURL(new RegExp(`/wiki/spaces/${SPACE_ID}$`))
-})
+// 존재하지 않는 페이지(404) 의 에러 상태·「노트 목록으로」 이동은 wiki-last-visited.spec.ts 가 맡는다.
 
 // 회귀: WikiSidebar 스페이스 선택기 — native <select> → shadcn/ui Select (refs #244)
 // native <select>가 쓰이면 role="combobox"가 없고 대신 role 없는 select 요소가 DOM에 존재.

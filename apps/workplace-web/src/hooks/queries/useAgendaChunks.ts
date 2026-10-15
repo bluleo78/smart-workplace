@@ -4,11 +4,11 @@
 // CalendarPage 가 무조건 호출하고(enabled 로 목록 보기일 때만 조회), 결과를 MobileAgendaView 에 넘기며
 // loadedRange·count 는 AI 화면 컨텍스트에 그대로 싣는다.
 import { useQueries, type UseQueryResult } from '@tanstack/react-query'
-import { format, startOfDay } from 'date-fns'
+import { startOfDay } from 'date-fns'
 import { useCallback, useMemo, useState } from 'react'
 
 import { useResetOnChange } from '@/hooks/useResetOnChange'
-import { agendaChunkRange, type AgendaDay, agendaProgress, groupAgendaDays } from '@/lib/calendarAgenda'
+import { agendaChunkRange, type AgendaDay, agendaProgress, duesWithinLoaded, groupAgendaDays } from '@/lib/calendarAgenda'
 import type { CalendarEvent, IssueDueMarker } from '@/types/calendar'
 
 import { calendarEventsQueryOptions } from './useCalendarEvents'
@@ -114,17 +114,16 @@ export function useAgendaChunks(start: Date, { enabled, filter, showIssueDues }:
   })
 
   // 필터·레이어 적용 후 날짜별 묶음. 겹침 조회라 시작일 전에 시작한 일정도 섞여 오므로 from 으로 잘라낸다.
-  // 마감 조회는 to(다음 날 자정, 배타)를 날짜로 바꿔 dueTo 로 보내 그 날이 포함돼 올 수 있다 — 마지막 청크 끝 다음 날은
-  // 일정은 없이 마감만 보이게 되므로(상한에 닿으면 영구히) 불러온 범위 끝 날짜 이전 마감만 남긴다. 쿼리 키는 그대로(캐시 공유).
-  const endKey = format(new Date(ranges[ranges.length - 1].to), 'yyyy-MM-dd')
+  // 마감은 불러온 범위 끝 날짜 이전 것만 남긴다(duesWithinLoaded — dueTo 포함일 누수 방지). 쿼리 키는 그대로(캐시 공유).
+  const loadedTo = ranges[ranges.length - 1].to
   const days = useMemo(
     () =>
       groupAgendaDays(
         events.data.filter(filter),
-        showIssueDues ? dues.data.filter((m) => m.dueDate.slice(0, 10) < endKey) : [],
+        showIssueDues ? duesWithinLoaded(dues.data, loadedTo) : [],
         { from: startDate },
       ),
-    [events.data, dues.data, filter, showIssueDues, startDate, endKey],
+    [events.data, dues.data, filter, showIssueDues, startDate, loadedTo],
   )
 
   // 청크별 진행 — 확정(settled) = 일정·마감(켜져 있으면) 모두 성공. 마감이 아직 오는 중인 청크를 "빈 청크"로 세지 않게.

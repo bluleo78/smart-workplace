@@ -9,7 +9,6 @@ import {
   createReaction,
 } from '../../factories/messaging.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
-import { mockGatedEvents } from '../../fixtures/gatedEvents'
 import { boxOf, expectBelowHeader, expectHeaderBottomAt56, expectStartAligned } from '../../fixtures/layout'
 import { trackRequests } from '../../fixtures/requests'
 
@@ -420,88 +419,6 @@ test.describe('messaging Phase 5 — 스레드·리액션', () => {
       await expect(panel.getByTestId(`message-body-${REPLY_ID}`)).toContainText(EDITED_BODY)
     },
   )
-
-  // 5) self-echo 답글: 내가 쓴 답글의 created self-echo 가 와도 replyCount 가 이중 카운트되지 않는다.
-  //    useCreateReply.onMutate 는 replyCount 를 낙관적으로 bump 하지 않고,
-  //    SSE created 이벤트가 bumpReplyCount 를 단 한 번 수행(+1). 결과: 정확히 1개.
-  test('내 답글 self-echo 시 replyCount 가 정확히 1 증가한다(이중 카운트 없음)', async ({
-    authenticatedPage: page,
-  }) => {
-    const CHANNEL_ID = 504
-    const PARENT_ID = 9500
-    const REPLY_ID = 9501
-    const channel = createChannel({ id: CHANNEL_ID, name: 'echo채널' })
-    const parent = createMessage({ id: PARENT_ID, channelId: CHANNEL_ID, body: '부모', replyCount: 0 })
-
-    // POST 답글 → 서버가 REPLY_ID 로 응답 + 같은 메시지를 created self-echo 로 스트림에 흘린다.
-    const sse =
-      `event: messaging.message.created\n` +
-      `data: ${JSON.stringify(
-        createMessage({
-          id: REPLY_ID,
-          channelId: CHANNEL_ID,
-          parentMessageId: PARENT_ID,
-          authorId: ME_ID,
-          authorName: '나',
-          body: '내 답글',
-        }),
-      )}\n\n`
-
-    await stubChannelsList(page, [channel])
-    await stubDmsList(page)
-    // 게이트 SSE(WP-59): deliver() 전 도착한 연결(StrictMode 로 취소되는 것 포함)은 보류했다가 답글 제출 후 self-echo 를
-    // 1회 흘린다. 이 연결이 '첫 연결'이 되므로 재연결 catch-up 이 돌지 않는다 — 예전처럼 재연결마다 heartbeat 를 주고
-    // 재연결 시 이벤트를 싣던 방식은 catch-up 이 정적 스텁(replyCount 0)으로 messages 를 재조회해 bump 를 덮어썼다.
-    const events = await mockGatedEvents(page)
-    await stubChannelDetail(page, channel)
-    await stubMembers(page, CHANNEL_ID, [createChannelMember({ userId: ME_ID, name: '나' })])
-    await stubMessages(page, CHANNEL_ID, [parent])
-    await stubReplies(page, PARENT_ID, [])
-
-    // POST 답글 응답.
-    await page.route(
-      (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}/messages`,
-      (route) => {
-        if (route.request().method() !== 'POST') return route.fallback()
-        return route.fulfill({
-          status: 201,
-          contentType: 'application/json',
-          body: JSON.stringify(
-            createMessage({
-              id: REPLY_ID,
-              channelId: CHANNEL_ID,
-              parentMessageId: PARENT_ID,
-              authorId: ME_ID,
-              authorName: '나',
-              body: '내 답글',
-            }),
-          ),
-        })
-      },
-    )
-
-    await page.goto(`/chat/channels/${CHANNEL_ID}`)
-
-    // message-reply-{id} 는 group-hover 영역 → 반드시 hover 후 클릭.
-    // parent.replyCount=0 이므로 message-thread-link-{PARENT_ID} 는 아직 없음 → reply 버튼으로 오픈.
-    await page.getByTestId(`message-${PARENT_ID}`).hover()
-    await page.getByTestId(`message-reply-${PARENT_ID}`).click()
-
-    // 스레드 패널 오픈 확인.
-    await expect(page.getByTestId('thread-panel')).toBeVisible()
-
-    // 패널 컴포저로 답글 작성.
-    const composer = page.getByTestId('thread-panel').getByTestId('message-composer-input')
-    await composer.click()
-    await composer.fill('내 답글')
-    await page.getByTestId('thread-panel').getByTestId('message-composer-submit').click()
-
-    // 답글 제출 후 self-echo 이벤트를 정확히 1회 발화(이때 messages 캐시가 채워져 있어 bumpReplyCount 가 동작).
-    events.deliver(sse)
-
-    // SSE self-echo 적용 후 "답글 1개" (2개 아님 — 이중 카운트 없음).
-    await expect(page.getByTestId(`message-thread-link-${PARENT_ID}`)).toHaveText('답글 1개')
-  })
 
   // 회귀 #291: 스레드 패널 — 답글 0건 시 빈 상태 메시지("아직 답글이 없어요.") 표시.
   test('스레드 패널 — 답글이 없을 때 빈 상태 메시지가 표시된다(#291 회귀)', async ({

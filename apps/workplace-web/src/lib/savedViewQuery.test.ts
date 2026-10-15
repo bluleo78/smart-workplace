@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   normalizeIssueQuery,
   normalizeIssueQueryIgnoringView,
+  normalizeIssueQueryIgnoringViewAndGroup,
   queriesEqual,
   queriesEqualIgnoringView,
   savedViewQueryToParams,
@@ -79,5 +80,17 @@ describe('savedViewQueryToParams (#878)', () => {
   it('group 이 있으면 그대로 둔다', () => {
     expect(savedViewQueryToParams('group=cycle').get('group')).toBe('cycle');
     expect(savedViewQueryToParams('group=assignee').get('group')).toBe('assignee');
+  });
+});
+
+// #773 — "전체" 칩 활성 판정용. group 은 표시 옵션이라 필터가 없으면 그룹만 바꿔도 빈 정규형이어야 한다(WP-412 에서 E2E 이관).
+describe('normalizeIssueQueryIgnoringViewAndGroup (#773)', () => {
+  it('group·view 만 있으면 빈 정규형("전체" 활성)', () => {
+    expect(normalizeIssueQueryIgnoringViewAndGroup('group=status')).toBe('');
+    expect(normalizeIssueQueryIgnoringViewAndGroup('group=priority&view=board')).toBe('');
+  });
+
+  it('필터가 있으면 group 과 무관하게 비지 않는다', () => {
+    expect(normalizeIssueQueryIgnoringViewAndGroup('group=status&status=TODO')).toBe('status=TODO');
   });
 });

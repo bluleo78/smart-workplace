@@ -14,6 +14,7 @@ import { useUpdateIssueLabels } from '../../hooks/queries/useUpdateIssueLabels';
 import { useSingleLineEnter } from '../../hooks/useSingleLineEnter';
 import { DEFAULT_LABEL_COLOR, type LabelSummary } from '../../types/label';
 import { LabelChip } from './LabelChip';
+import { filterLabelsByName, labelNameToCreate } from './labelSearch';
 
 export function LabelPickerPopover({
   projectKey,
@@ -33,24 +34,16 @@ export function LabelPickerPopover({
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<number[]>(() => current.map((l) => l.id));
 
-  const filtered = useMemo(
-    () =>
-      (labels.data ?? []).filter((l) =>
-        l.name.toLowerCase().includes(search.toLowerCase()),
-      ),
-    [labels.data, search],
-  );
+  const filtered = useMemo(() => filterLabelsByName(labels.data ?? [], search), [labels.data, search]);
 
-  // 만들 이름 — 서버 유일 제약(project_id, name)이 대소문자를 구분하므로 정확 일치일 때만 「이미 있음」으로 본다.
-  const newName = search.trim();
-  const canCreate =
-    newName.length > 0 && labels.isSuccess && !labels.data.some((l) => l.name === newName);
+  // 만들 이름 — 정확 일치(대소문자 구분)만 「이미 있음」(labelNameToCreate). 목록을 받기 전엔 판정하지 않는다.
+  const toCreate = labels.isSuccess ? labelNameToCreate(search, labels.data) : null;
 
   // 새 라벨을 만들고 선택 집합에 넣는다 — 이슈 부착은 기존 흐름대로 팝오버가 닫힐 때 한 번에 PUT.
   function createAndSelect() {
-    if (!canCreate || create.isPending) return;
+    if (toCreate === null || create.isPending) return;
     create.mutate(
-      { name: newName, colorToken: DEFAULT_LABEL_COLOR },
+      { name: toCreate, colorToken: DEFAULT_LABEL_COLOR },
       {
         onSuccess: (label) => {
           setSelected((prev) => [...prev, label.id]);
@@ -123,11 +116,11 @@ export function LabelPickerPopover({
               <LabelChip label={{ id: l.id, name: l.name, colorToken: l.colorToken }} />
             </label>
           ))}
-          {filtered.length === 0 && !canCreate && (
+          {filtered.length === 0 && toCreate === null && (
             <p className="text-xs text-muted-foreground py-2 text-center">결과 없음</p>
           )}
         </div>
-        {canCreate && (
+        {toCreate !== null && (
           <button
             type="button"
             onClick={createAndSelect}
@@ -137,7 +130,7 @@ export function LabelPickerPopover({
           >
             <Plus className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
             <span className="min-w-0 truncate">
-              <span className="font-medium">「{newName}」</span> 라벨 만들기
+              <span className="font-medium">「{toCreate}」</span> 라벨 만들기
             </span>
           </button>
         )}

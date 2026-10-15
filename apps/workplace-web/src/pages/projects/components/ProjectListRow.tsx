@@ -4,17 +4,12 @@ import { Link } from 'react-router-dom'
 
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { formatRelativeTime } from '@/lib/formatters'
+import { completionPct } from '@/lib/progress'
 import { nameColor, nameInitial, projectColor, projectInitial } from '@/lib/project-color'
 import { cn } from '@/lib/utils'
 import type { ProjectResponse } from '@/types/project'
 
-// 완료율 라벨 — 정직 신호: 이슈 0=이슈 없음, 100%=축하, 그 외 N개 중 X% 완료.
-// pct 는 호출부에서 계산해 전달(바 너비와 라벨이 동일 값을 쓰도록 단일화).
-function progressLabel(p: ProjectResponse, pct: number): string {
-  if (p.issueTotal === 0) return '이슈 없음'
-  if (pct >= 100) return `${p.issueTotal}개 모두 완료 🎉`
-  return `${p.issueTotal}개 중 ${pct}% 완료`
-}
+import { progressLabel } from './projectProgress'
 
 type RowProps = {
   project: ProjectResponse
@@ -26,7 +21,7 @@ type RowProps = {
 function rowBasics(p: ProjectResponse) {
   return {
     c: projectColor(p.key),
-    pct: p.issueTotal === 0 ? 0 : Math.round((p.issueDone / p.issueTotal) * 100),
+    pct: completionPct(p.issueDone, p.issueTotal),
     isPersonal: p.type === 'PERSONAL',
   }
 }

@@ -210,28 +210,6 @@ test.describe('이슈 목록 사이클 그룹 (#878)', () => {
     expect(active?.get('excludeSubtasks')).toBe('true');
   });
 
-  test('「완료 모두 보기」를 켜면 백로그도 종료 이슈 숨김을 해제한다', async ({ authenticatedPage: page }) => {
-    const requests = await setup(page);
-    await page.goto(`/projects/${KEY}?closed=all`);
-    await expect(section(page, 'backlog').getByTestId('issue-row-41')).toBeVisible();
-    const backlog = requests().find((p) => p.get('cycle') === 'null');
-    expect(backlog?.get('hideInactiveClosed')).toBeNull();
-  });
-
-  test('필터(담당자·검색어)는 모든 구간 요청에 함께 실린다', async ({ authenticatedPage: page }) => {
-    const requests = await setup(page);
-    await page.goto(`/projects/${KEY}?assignee=10&q=${encodeURIComponent('결제')}`);
-    await expect(section(page, 'backlog').getByTestId('issue-row-41')).toBeVisible();
-    await expect(section(page, 'cycle-1').getByTestId('issue-row-11')).toBeVisible();
-
-    const cycleParams = requests().map((p) => p.get('cycle'));
-    expect(cycleParams).toEqual(expect.arrayContaining(['1', '2', 'null']));
-    for (const p of requests()) {
-      expect(p.get('assignee')).toBe('10');
-      expect(p.get('q')).toBe('결제');
-    }
-  });
-
   test('예정 구간은 접혀 있고 펼칠 때 요청한다 — 빈 구간은 하위 이슈 안내', async ({ authenticatedPage: page }) => {
     const requests = await setup(page);
     await page.goto(`/projects/${KEY}`);
@@ -255,31 +233,6 @@ test.describe('이슈 목록 사이클 그룹 (#878)', () => {
     await expect(page.getByTestId('list-cycle-empty-cycle-4')).toHaveText(
       '표시할 상위 작업이 없습니다 (하위 이슈 2건 포함)',
     );
-  });
-
-  test('사이클 facet 으로 고르면 그 구간만 보이고 백로그는 숨긴다', async ({ authenticatedPage: page }) => {
-    const requests = await setup(page);
-    await page.goto(`/projects/${KEY}?cycle=3`);
-    await expect(section(page, 'cycle-3').getByTestId('issue-row-31')).toBeVisible();
-    await expect(page.locator('[data-testid^="list-cycle-section-"]')).toHaveCount(1);
-    await expect(section(page, 'backlog')).toHaveCount(0);
-    expect(requests().map((p) => p.get('cycle'))).toEqual(['3']);
-  });
-
-  test('사이클 없는 프로젝트(완료 사이클만 포함)는 평면 목록', async ({ authenticatedPage: page }) => {
-    const requests = await setup(page, { cycles: [CYCLES[4]] });
-    await page.goto(`/projects/${KEY}`);
-    await expect(page.getByTestId('issue-row-90')).toBeVisible();
-    await expect(page.locator('[data-testid^="list-cycle-section-"]')).toHaveCount(0);
-    expect(requests().every((p) => !p.has('cycle'))).toBe(true);
-    await expect(page.getByTestId('group-by-trigger')).toHaveText('없음');
-  });
-
-  test('group=none 이면 사이클이 있어도 평면 목록', async ({ authenticatedPage: page }) => {
-    await setup(page);
-    await page.goto(`/projects/${KEY}?group=none`);
-    await expect(page.getByTestId('issue-row-90')).toBeVisible();
-    await expect(page.locator('[data-testid^="list-cycle-section-"]')).toHaveCount(0);
   });
 
   test('그룹 메뉴에서 없음 ↔ 사이클 전환이 URL 에 반영된다', async ({ authenticatedPage: page }) => {

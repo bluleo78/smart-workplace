@@ -28,10 +28,15 @@ function isEditableFocused(): boolean {
  * 키보드 열림 판정. 기준 높이는 innerHeight 가 아니라 '이 폭에서 지금까지 본 가장 큰 높이'다 —
  * iOS 홈 화면 앱(standalone)·Android 는 키보드와 함께 innerHeight 도 줄어 innerHeight 비교로는 놓친다(ghostly#651).
  * 핀치 줌도 visualViewport.height 를 줄이므로 배율이 1 일 때만 본다 — 줌을 키보드로 오인하면 셸이 줄고 패닝마다 튕긴다.
+ * 편집 요소 포커스(editableFocused)가 없으면 보이는 영역이 줄어도 키보드가 아니다(DOM 조회는 호출자가 해 순수 함수로 둔다).
  */
-function detectKeyboard(vv: VisualViewport, baseHeight: number): boolean {
+export function detectKeyboard(
+  vv: Pick<VisualViewport, 'height' | 'scale'>,
+  baseHeight: number,
+  editableFocused: boolean,
+): boolean {
   if (Math.abs(vv.scale - 1) > 0.01) return false
-  return baseHeight - vv.height > KEYBOARD_THRESHOLD_PX && isEditableFocused()
+  return baseHeight - vv.height > KEYBOARD_THRESHOLD_PX && editableFocused
 }
 
 /**
@@ -74,7 +79,7 @@ export function useVisualViewport(): void {
     const sync = () => {
       if (window.innerWidth !== base.width) base = { width: window.innerWidth, height: 0 }
       base.height = Math.max(base.height, window.innerHeight, vv.height)
-      if (!detectKeyboard(vv, base.height)) return clear()
+      if (!detectKeyboard(vv, base.height, isEditableFocused())) return clear()
       // iOS 가 입력창을 보이려고 문서를 밀어 올린 것을 되돌린다 — 셸이 보이는 높이에 맞춰지므로 밀 필요가 없다.
       if (window.scrollY !== 0) window.scrollTo(0, 0)
       // 되돌린 뒤에도 남은 이동량(보이는 영역 자체의 이동)만큼 셸을 내려 보이는 영역을 따라가게 한다.

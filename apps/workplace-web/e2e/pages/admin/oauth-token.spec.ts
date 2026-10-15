@@ -346,31 +346,6 @@ test.describe('/admin/agents — AI 연결 및 모델', () => {
     expect((state.posts.bodies()[0] as { model: string }).model).toBe('amazon-bedrock-openai/gpt-4o-mini');
   });
 
-  test('opencode 수동 입력에 이미 providerId/ 접두가 있으면 중복 접두하지 않는다', async ({
-    adminPage: page,
-  }) => {
-    await setupBase(page);
-    const state = await setupCredential(page, { initial: 'absent' });
-    setupProbe(page, { status: 502 });
-
-    await enterAndSelect(page);
-    await page.getByTestId('oauth-token-register').click();
-    await page.getByTestId('credential-provider-opencode').click();
-
-    await page.getByTestId('credential-base-url').fill('https://api.openai.com/v1');
-    await page.getByTestId('credential-api-key').fill('sk-openai-test');
-    await page.getByTestId('credential-probe-models').click();
-
-    const manualModel = page.getByTestId('credential-model-manual');
-    await expect(manualModel).toBeVisible();
-    await manualModel.fill('amazon-bedrock-openai/gpt-4o-mini');
-    await page.getByRole('button', { name: '연결하기' }).click();
-
-    await expect(page.getByText('AI에 연결했습니다.')).toBeVisible();
-    expect(state.posts.count()).toBe(1);
-    expect((state.posts.bodies()[0] as { model: string }).model).toBe('amazon-bedrock-openai/gpt-4o-mini');
-  });
-
   test(
     'opencode 이미지 입력 — 기본 자동 감지 → 볼 수 있음 선택 시 모델 id 키의 vision 이 전송된다',
     async ({ adminPage: page }) => {
@@ -424,46 +399,6 @@ test.describe('/admin/agents — AI 연결 및 모델', () => {
     },
   );
 
-  test('opencode 이미지 입력 — 모델을 바꾸면 자동 감지로 되돌아가고 vision 키가 전송되지 않는다', async ({
-    adminPage: page,
-  }) => {
-    await setupBase(page);
-    const state = await setupCredential(page, { initial: 'absent' });
-    setupProbe(page, {
-      status: 200,
-      models: [
-        { id: 'amazon-bedrock-openai/openai.gpt-oss-120b-1:0', label: 'GPT-OSS 120B' },
-        { id: 'amazon-bedrock-openai/anthropic.claude-3-5-sonnet', label: 'Claude 3.5 Sonnet' },
-      ],
-    });
-
-    await enterAndSelect(page);
-    await page.getByTestId('oauth-token-register').click();
-    await page.getByTestId('credential-provider-opencode').click();
-    await page.getByTestId('credential-api-key').fill('sk-bedrock-test-key');
-    await page.getByTestId('credential-probe-models').click();
-
-    // 모델 A 선택 → "볼 수 있음" 지정.
-    await page.getByTestId('credential-model-select').click();
-    await page.getByRole('option', { name: 'GPT-OSS 120B' }).click();
-    const vision = page.getByTestId('credential-vision');
-    await vision.click();
-    await page.getByRole('option', { name: '볼 수 있음' }).click();
-    await expect(vision).toHaveText('볼 수 있음');
-
-    // 모델 B 로 바꾸면 지정이 사라지고 자동 감지로 돌아온다.
-    await page.getByTestId('credential-model-select').click();
-    await page.getByRole('option', { name: 'Claude 3.5 Sonnet' }).click();
-    await expect(vision).toHaveText('자동 감지');
-
-    await page.getByRole('button', { name: '연결하기' }).click();
-    await expect(page.getByText('AI에 연결했습니다.')).toBeVisible();
-
-    expect(state.posts.count()).toBe(1);
-    const body = state.posts.bodies()[0] as { providerConfig: Record<string, unknown> };
-    expect(body.providerConfig).not.toHaveProperty('vision');
-  });
-
   test('opencode 프로브 실패 → 수동 입력 모델에도 이미지 입력이 보이고 접두가 붙은 id 로 키가 잡힌다', async ({
     adminPage: page,
   }) => {
@@ -492,54 +427,6 @@ test.describe('/admin/agents — AI 연결 및 모델', () => {
 
     expect(state.posts.count()).toBe(1);
     const body = state.posts.bodies()[0] as { providerConfig: { vision?: unknown } };
-    expect(body.providerConfig.vision).toEqual({ 'amazon-bedrock-openai/gpt-4o-mini': false });
-  });
-
-  // WP-250 최종 리뷰: 직접 입력 중 키를 칠 때마다 선택이 지워지지 않는다 — 선택은 그때의 모델 id 에만 적용되고,
-  // 같은 id 로 정리되는 입력(끝 공백)에는 유지, 다른 id 가 되면 자동 감지로 보인다.
-  test('opencode 수동 입력 — 이미지 입력 선택은 그 모델 id 에만 적용되고 같은 id 로 정리되는 입력에는 유지된다', async ({
-    adminPage: page,
-  }) => {
-    await setupBase(page);
-    const state = await setupCredential(page, { initial: 'absent' });
-    setupProbe(page, { status: 502 });
-
-    await enterAndSelect(page);
-    await page.getByTestId('oauth-token-register').click();
-    await page.getByTestId('credential-provider-opencode').click();
-    await page.getByTestId('credential-base-url').fill('https://api.openai.com/v1');
-    await page.getByTestId('credential-api-key').fill('sk-openai-test');
-    await page.getByTestId('credential-probe-models').click();
-
-    const manual = page.getByTestId('credential-model-manual');
-    await manual.fill('gpt-4o');
-    const vision = page.getByTestId('credential-vision');
-    await vision.click();
-    await page.getByRole('option', { name: '볼 수 있음' }).click();
-    await expect(vision).toHaveText('볼 수 있음');
-    // 드롭다운이 닫히며 포커스를 트리거로 되돌리기 전에 입력칸을 누르면, 되돌림이 포커스를 빼앗아
-    // 다음 키에서 커서가 맨 앞으로 간다(빌드본에서 간헐 실패). 닫힘이 끝난 뒤 입력한다.
-    await expect(vision).toBeFocused();
-
-    // 끝 공백은 제출 id 가 같아(앞뒤 공백 정리) 선택이 그대로다 — 지울 때도 마찬가지.
-    await manual.press('End');
-    await manual.pressSequentially(' ');
-    await expect(vision).toHaveText('볼 수 있음');
-    await manual.press('Backspace');
-    await expect(vision).toHaveText('볼 수 있음');
-
-    // 다른 모델 id 가 되면 자동 감지로 보인다(이전 모델의 지정이 따라가지 않는다).
-    await manual.pressSequentially('-mini');
-    await expect(vision).toHaveText('자동 감지');
-    await vision.click();
-    await page.getByRole('option', { name: '볼 수 없음' }).click();
-
-    await page.getByRole('button', { name: '연결하기' }).click();
-    await expect(page.getByText('AI에 연결했습니다.')).toBeVisible();
-
-    expect(state.posts.count()).toBe(1);
-    const body = state.posts.bodies()[0] as { model: string; providerConfig: { vision?: unknown } };
-    expect(body.model).toBe('amazon-bedrock-openai/gpt-4o-mini');
     expect(body.providerConfig.vision).toEqual({ 'amazon-bedrock-openai/gpt-4o-mini': false });
   });
 

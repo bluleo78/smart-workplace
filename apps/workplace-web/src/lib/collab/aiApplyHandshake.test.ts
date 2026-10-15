@@ -83,6 +83,8 @@ describe('requestAiApply', () => {
   })
 
   it('ack 가 오지 않으면 시간 초과(기본 3000ms) 뒤 acked=false 로 끝나고 리스너를 거둔다', async () => {
+    // 상한은 동기화 서버의 적용 저장 하한(APPLY_STORE_MIN_MS)과 같은 3초로 고정한다 — 값이 바뀌면 E2E 대신 여기서 깨진다(WP-409).
+    expect(AI_APPLY_ACK_TIMEOUT_MS).toBe(3000)
     const { provider, listeners } = fakeProvider()
     let result: { acked: boolean } | null = null
     void requestAiApply(() => provider).then((r) => {

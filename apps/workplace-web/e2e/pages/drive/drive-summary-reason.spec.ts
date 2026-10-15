@@ -3,8 +3,9 @@ import { expect, test } from '../../fixtures/auth.fixture'
 
 /**
  * #735 요약 카드 사유 표시. /summary 응답의 reason 필드를 라우트 모킹으로 제어해
- * SKIPPED(사유 표시) / PENDING(스켈레톤) / DONE(요약 본문) / PENDING 폴링 상한 초과(지연 안내)
- * 4 상태를 검증한다.
+ * 서버 사유가 평문 그대로 카드에 닿는지(SKIPPED) 검증한다.
+ * 상태→표시 판정(스켈레톤·지연 안내·폴백 문구)과 폴링 상한(40회)은 src/lib/driveSummary.test.ts 가 맡는다(WP-410) —
+ * 상한 초과 지연 안내는 40회 왕복이 필요해 E2E 로는 수 초가 걸렸다. 스켈레톤·DONE 표시는 drive-preview-summary.spec 이 본다.
  * drive-preview-summary.spec 의 셋업(Office 파일, drive-content-search.spec 미러)을 그대로 따른다.
  */
 
@@ -60,57 +61,4 @@ test('SKIPPED(사유 있음) → 클릭 없이 카드가 보임, 사유 평문 �
   await expect(page.getByTestId('drive-summary-reason')).toHaveText(
     '이 형식은 텍스트 추출을 지원하지 않습니다.',
   )
-})
-
-test('PENDING → 스켈레톤 표시(폴링 상한 이전)', async ({ authenticatedPage: page }) => {
-  await setupDrive(page)
-  await page.route('**/api/v1/drive/files/*/summary', (route) =>
-    route.fulfill({ json: { summary: null, status: 'PENDING', reason: null } }),
-  )
-  await openPreview(page)
-  const card = page.getByTestId('drive-summary-card')
-  await expect(card).toBeVisible()
-  await expect(page.getByTestId('drive-summary-loading')).toBeVisible()
-})
-
-// #735: 워커 미가동 등으로 status 가 영원히 PENDING 이면(V124 백필 재개방 행 포함),
-// IN_PROGRESS_POLLS(40회 = 3초×40 ≈ 2분) 를 넘긴 뒤 스켈레톤 대신 지연 안내로 전환해야 한다.
-// 실시간 2분 대기 대신 page.clock 으로 react-query refetchInterval 타이머를 가상 시간에서 진행시킨다.
-// (검증됨: clock.fastForward(3000) 1회당 /summary 요청이 정확히 1회씩 발생 — Date.now() 도
-// 함께 가상화되어 tanstack-query 의 refetchInterval 스케줄링과 어긋나지 않는다.)
-test('PENDING 무한 지속 → 폴링 상한 초과 시 지연 안내로 전환', async ({ authenticatedPage: page }) => {
-  await page.clock.install()
-  await setupDrive(page)
-  await page.route('**/api/v1/drive/files/*/summary', (route) =>
-    route.fulfill({ json: { summary: null, status: 'PENDING', reason: null } }),
-  )
-  await openPreview(page)
-  const card = page.getByTestId('drive-summary-card')
-  await expect(card).toBeVisible()
-  await expect(page.getByTestId('drive-summary-loading')).toBeVisible()
-
-  // 안내가 뜰 때까지 시계 3초 전진→fetch 처리 시간 확보→확인을 반복해 IN_PROGRESS_POLLS(40) 회에 도달한다(WP-225).
-  const reason = page.getByTestId('drive-summary-reason')
-  await expect
-    .poll(
-      async () => {
-        await page.clock.fastForward(3000)
-        return (await reason.count()) > 0 ? reason.textContent() : null
-      },
-      { timeout: 15_000, intervals: [100] },
-    )
-    .toBe('요약 생성이 지연되고 있습니다. 잠시 후 다시 열어 주세요.')
-  await expect(page.getByTestId('drive-summary-loading')).toHaveCount(0)
-})
-
-test('DONE → 요약 본문 표시', async ({ authenticatedPage: page }) => {
-  await setupDrive(page)
-  await page.route('**/api/v1/drive/files/*/summary', (route) =>
-    route.fulfill({ json: { summary: '요약 본문', status: 'DONE', reason: null } }),
-  )
-  await openPreview(page)
-  const card = page.getByTestId('drive-summary-card')
-  await expect(card).toBeVisible()
-  await expect(card).toContainText('요약 본문')
-  await expect(page.getByTestId('drive-summary-reason')).toHaveCount(0)
 })

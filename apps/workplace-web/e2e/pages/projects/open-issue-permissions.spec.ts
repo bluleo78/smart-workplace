@@ -139,67 +139,7 @@ async function setupBoardMocks(
   );
 }
 
-// ─── 이슈 상세 — OPEN reporter (비멤버) 시나리오 ────────────────────────────────
-
-test(
-  'OPEN reporter: 제목 편집 버튼 활성, 상태 select 비활성',
-  async ({ authenticatedPage: page }) => {
-    // reporter (viewerCanEditContent=true, viewerCanEditWorkflow=false)
-    await setupOpenProjectMocks(page, {
-      viewerCanEditContent: true,
-      viewerCanEditWorkflow: false,
-      viewerCanDelete: false,
-      viewerIsMember: false,
-    });
-    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
-
-    // 제목 편집 연필 버튼 — 활성(reporter 본인 이슈이므로 편집 허용)
-    await expect(page.getByTestId('issue-title-edit')).toBeEnabled();
-
-    // 상태 변경 select 트리거 버튼 — 비활성(워크플로 수정 불가)
-    await expect(page.getByTestId('issue-status-select')).toBeDisabled();
-  },
-);
-
-test(
-  'OPEN reporter: 삭제 버튼 미표시 (viewerCanDelete=false)',
-  async ({ authenticatedPage: page }) => {
-    await setupOpenProjectMocks(page, {
-      viewerCanEditContent: true,
-      viewerCanEditWorkflow: false,
-      viewerCanDelete: false,
-      viewerIsMember: false,
-    });
-    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
-
-    // 삭제 버튼 미표시
-    await expect(page.getByTestId('issue-delete')).not.toBeVisible();
-  },
-);
-
-// ─── 이슈 상세 — 멤버 시나리오 ─────────────────────────────────────────────────
-
-test(
-  '멤버: 제목 편집·상태 select·삭제 버튼 모두 활성',
-  async ({ authenticatedPage: page }) => {
-    await setupOpenProjectMocks(page, {
-      viewerCanEditContent: true,
-      viewerCanEditWorkflow: true,
-      viewerCanDelete: true,
-      viewerIsMember: true,
-    });
-    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
-
-    // 제목 편집 연필 버튼 활성
-    await expect(page.getByTestId('issue-title-edit')).toBeEnabled();
-
-    // 상태 select 활성
-    await expect(page.getByTestId('issue-status-select')).toBeEnabled();
-
-    // 삭제 버튼 표시
-    await expect(page.getByTestId('issue-delete')).toBeVisible();
-  },
-);
+// 이슈 상세 reporter·멤버 권한 분기(제목 편집·상태 select·삭제 버튼)는 open-project-flow.spec.ts 가 맡는다.
 
 // ─── 보드 — 비멤버(OPEN reporter) 시나리오 ──────────────────────────────────────
 

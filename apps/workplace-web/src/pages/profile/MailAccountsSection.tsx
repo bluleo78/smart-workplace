@@ -23,15 +23,10 @@ import {
   useSetMailAiEnabled,
 } from '@/hooks/queries/useMailAccounts';
 import { formatRelativeTime } from '@/lib/formatters';
+import { mailAccountProviderLabel } from '@/lib/mailAccountProvider';
 import type { MailAccountResponse } from '@/types/mailAccount';
 
 const COLUMN_COUNT = 5;
-
-/** 공급자 라벨 — IMAP은 IMAP 호스트, M365_GRAPH는 'Outlook (Microsoft 365)' */
-function providerLabel(acc: MailAccountResponse): string {
-  if (acc.provider === 'M365_GRAPH') return 'Outlook (Microsoft 365)';
-  return acc.imapHost || 'IMAP';
-}
 
 interface MailAccountsSectionProps {
   /** 수정 다이얼로그를 여는 콜백 — 상태는 MailSettingsPage 소유 */
@@ -105,8 +100,8 @@ export function MailAccountsSection({ onEdit }: MailAccountsSectionProps) {
                   <TableCell className="max-w-[280px] truncate font-medium" title={acc.emailAddress}>
                     {acc.emailAddress}
                   </TableCell>
-                  <TableCell className="max-w-[220px] truncate text-xs text-muted-foreground" title={providerLabel(acc)}>
-                    {providerLabel(acc)}
+                  <TableCell className="max-w-[220px] truncate text-xs text-muted-foreground" title={mailAccountProviderLabel(acc)}>
+                    {mailAccountProviderLabel(acc)}
                   </TableCell>
                   <TableCell>
                     <Badge variant={acc.lastTestedAt ? 'default' : 'secondary'}>

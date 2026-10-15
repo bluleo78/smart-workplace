@@ -5,19 +5,11 @@
 // 되돌리기 요청(뮤테이션)은 패널(AIChatPanel)이 하나를 두고 줄마다 넘긴다 — 줄 수만큼 관찰자를 만들지 않게.
 // WP-379: 앱 범위 결과는 "이슈 메모리에 저장함" 처럼 범위 이름을 붙인다.
 // WP-380: 기한이 있으면 문구 뒤에 " · 10월 24일까지" 를 한 덩어리(nowrap)로 붙인다(지움 줄 제외). 한국어 단어 중간에서 끊지 않는다(break-keep).
-import { MEMORY_LINK, memoryNoun } from '@/lib/aiMemory';
+import { MEMORY_LINK, memoryActionText } from '@/lib/aiMemory';
 import { formatDateOnlyMonthDay } from '@/lib/formatters';
 import { cn } from '@/lib/utils';
 import type { UndoAiMemoryRequest } from '@/types/aiMemory';
 import type { MemoryBlock } from '@/types/home';
-
-/** 동작 문구 — 앱 범위면 "이슈 메모리에 저장함", 공통이면 WP-55 문구 그대로("메모리에 저장함"). */
-function prefixOf(block: MemoryBlock): string {
-  const noun = memoryNoun(block.scope);
-  if (block.action === 'saved') return `${noun}에 저장함`;
-  if (block.action === 'updated') return `${noun}를 고침`;
-  return `${noun}에서 지움`;
-}
 
 interface Props {
   block: MemoryBlock;
@@ -44,7 +36,7 @@ export function MemoryResultLine({ block, blockIndex, messageId, onUndo, pending
       <span aria-hidden className="shrink-0 leading-4">🧠</span>
       <span className="min-w-0 flex-1 break-keep leading-4 [overflow-wrap:anywhere]">
         <span className={cn(block.undone && 'line-through opacity-60')}>
-          {prefixOf(block)}: "{block.content}"
+          {memoryActionText(block.action, block.scope)}: "{block.content}"
           {/* WP-380: 기한은 구분점과 한 덩어리(nowrap) — 지움 줄엔 싣지 않는다. 되돌린 뒤엔 바깥 span 의 취소선·흐림을 함께 받는다. */}
           {block.action !== 'forgotten' && block.expiresOn && (
             <span data-testid="chat-memory-expiry" className="whitespace-nowrap">

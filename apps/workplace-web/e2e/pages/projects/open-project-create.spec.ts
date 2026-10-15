@@ -80,23 +80,4 @@ test.describe('OPEN 프로젝트 생성', () => {
       expect(created.payload).toMatchObject({ type: 'OPEN', key: 'OPNQA', name: '공개 접수함' })
     },
   )
-
-  test('OPEN 프로젝트 key 유효성 검사 — 소문자 입력 시 오류 표시', async ({ authenticatedPage: page }) => {
-    await mockApi(page, 'GET', '/api/v1/projects', createPageResponse([createProject()]))
-
-    await page.goto('/projects')
-    await page.getByRole('button', { name: '+ 새 프로젝트' }).click()
-    await expect(page.getByRole('dialog', { name: '새 프로젝트' })).toBeVisible()
-
-    // 공개 탭 선택
-    await page.getByRole('tab', { name: '공개' }).click()
-
-    // 소문자 key 입력 (유효성 규칙 위반)
-    await page.getByLabel('key (예: WP)').fill('opnqa')
-    await page.getByLabel('이름').fill('공개 접수함')
-    await page.getByRole('button', { name: '생성' }).click()
-
-    // 오류 메시지 표시 검증
-    await expect(page.getByText('대문자/숫자 2~10자, 첫 글자는 대문자여야 합니다')).toBeVisible()
-  })
 })

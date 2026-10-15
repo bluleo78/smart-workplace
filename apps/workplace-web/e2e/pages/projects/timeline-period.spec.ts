@@ -231,17 +231,4 @@ test.describe('타임라인 완료·취소 에픽 표시 (WP-247)', () => {
     const bgImage = await summary(page, 70).evaluate((el) => getComputedStyle(el).backgroundImage);
     expect(bgImage).toContain('repeating-linear-gradient');
   });
-
-  test('응답에 없는 취소 에픽 — 하위의 parent.status 가 취소면 진행 중 하위는 「에픽 없음」에 원래 에픽 이름과 함께', async ({ authenticatedPage: page }) => {
-    // 담당자·라벨 등 필터로 취소 에픽 70 자체는 응답에서 빠지고 진행 중 하위만 왔다.
-    const list = [
-      createIssue({ number: 71, title: '녹음 업로드 API', status: 'IN_PROGRESS', parent: parent(70, '음성 메모', 'CANCELED'), startDate: '2026-10-05', dueDate: '2026-10-08' }),
-    ];
-    await setup(page, list);
-    await expect(gridRow(page, '에픽 없음')).toBeVisible();
-    // 부모 요약으로 「음성 메모」 묶음을 합성하지 않는다
-    await expect(summary(page, 70)).toHaveCount(0);
-    await gridRow(page, '에픽 없음').locator('.wx-toggle-icon, [class*="toggle"]').first().click();
-    await expect(gridRow(page, '녹음 업로드 API')).toContainText('← 음성 메모');
-  });
 });

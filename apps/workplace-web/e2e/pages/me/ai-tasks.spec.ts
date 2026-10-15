@@ -60,20 +60,6 @@ async function setup(page: Page, items: IssueResponse[] = ROWS, counts = createA
   return { list, cnt }
 }
 
-test('기본은 나와 관련(scope=MINE) — reporter 파라미터 없이 /me/ai-tasks 를 부른다', async ({ authenticatedPage: page }) => {
-  const { list, cnt } = await setup(page)
-  await page.goto('/me/ai-tasks')
-
-  const req = await list.waitForRequest()
-  expect(req.searchParams.get('scope')).toBe('MINE')
-  expect(req.searchParams.has('reporter')).toBe(false)
-  expect(req.searchParams.has('agentState')).toBe(false)
-  expect((await cnt.waitForRequest()).searchParams.get('scope')).toBe('MINE')
-  await expect(page.getByTestId('ai-scope-mine')).toHaveAttribute('aria-pressed', 'true')
-  await expect(page.getByTestId('ai-scope-all')).toHaveAttribute('aria-pressed', 'false')
-  await expect(page.getByTestId('ai-quick-all')).toHaveAttribute('aria-pressed', 'true')
-})
-
 test('행에 AI 진행·최근 보고·진행률·담당자·에이전트 유형·마지막 보고를 서버 순서대로 보인다', async ({ authenticatedPage: page }) => {
   await setup(page)
   await page.goto('/me/ai-tasks')
@@ -179,19 +165,6 @@ test('전체 범위·빠른 필터 칩이 URL 과 요청에 반영되고, 칩 �
   await expect.poll(() => new URL(page.url()).searchParams.has('scope')).toBe(false)
 })
 
-// 막힘 칩은 막힘(BLOCKED)과 인증 필요(AUTH_REQUIRED)를 함께 본다 — 요청은 쉼표 목록, 건수는 서버가 준 합(blocked).
-test('막힘 칩은 agentState=BLOCKED,AUTH_REQUIRED 로 요청하고 blocked 건수를 보여 준다', async ({ authenticatedPage: page }) => {
-  const { list } = await setup(page)
-  await page.goto('/me/ai-tasks')
-  await list.waitForRequest()
-  await expect(page.getByTestId('ai-quick-count-blocked')).toHaveText('3')
-
-  await page.getByTestId('ai-quick-blocked').click()
-  await expect(page).toHaveURL(/[?&]state=BLOCKED/)
-  await expect(page.getByTestId('ai-quick-blocked')).toHaveAttribute('aria-pressed', 'true')
-  await expect.poll(() => list.lastRequest()?.searchParams.get('agentState')).toBe('BLOCKED,AUTH_REQUIRED')
-})
-
 // WP-396: 완료 칩 — 미완료와 배타인 별도 보기. 종료 상태 넷을 쉼표 목록으로 요청하고, 행 배지는 실제 결과(완료·실패·취소·반려)를 톤으로 구분한다.
 const DONE_ROWS: IssueResponse[] = [
   createIssue({
@@ -253,30 +226,6 @@ test('완료 칩은 종료 상태로 요청하고 done 건수, 행 배지는 결
   await expect(page.getByTestId('ai-row-505-last')).toHaveAttribute('title', '마지막 보고 5분 전')
 })
 
-test('옛 링크의 state=WAITING 은 무시하고 미완료로 보여 준다', async ({ authenticatedPage: page }) => {
-  const { list } = await setup(page)
-  await page.goto('/me/ai-tasks?state=WAITING')
-  const req = await list.waitForRequest()
-  expect(req.searchParams.has('agentState')).toBe(false)
-  await expect(page.getByTestId('ai-quick-all')).toHaveAttribute('aria-pressed', 'true')
-  await expect(page.getByTestId('ai-quick-inputRequired')).toHaveAttribute('aria-pressed', 'false')
-})
-
-test('상태 facet 이 목록·건수 요청 모두에 status 로 합쳐진다', async ({ authenticatedPage: page }) => {
-  const { list, cnt } = await setup(page)
-  await page.goto('/me/ai-tasks?state=REVIEW')
-  await list.waitForRequest()
-
-  await page.getByTestId('add-filter-trigger').click()
-  await page.getByTestId('add-filter-facet-status').click()
-  await page.getByTestId('facet-value-status-DONE').click()
-
-  await expect.poll(() => list.lastRequest()?.searchParams.get('status')).toBe('DONE')
-  await expect.poll(() => cnt.lastRequest()?.searchParams.get('status')).toBe('DONE')
-  // facet 을 바꿔도 빠른 필터는 유지된다.
-  expect(list.lastRequest()?.searchParams.get('agentState')).toBe('REVIEW')
-})
-
 test('비어 있으면 안내 문구, 빠른 필터 중이면 조건 문구', async ({ authenticatedPage: page }) => {
   await setup(page, [], createAiTaskCounts())
   await page.goto('/me/ai-tasks')
@@ -310,21 +259,6 @@ test('facet 만 걸려도 조건 문구 — 필터 초기화는 빠른 필터·f
   await expect(empty).toContainText('AI가 진행 중인 작업이 없어요')
   await expect(page.getByTestId('ai-quick-all')).toHaveAttribute('aria-pressed', 'true')
   await expect(page.getByTestId('ai-scope-all')).toHaveAttribute('aria-pressed', 'true')
-})
-
-// 마감·막힘은 /me/ai-tasks 가 무시하는 facet — 요청에 싣지 않고, 걸려 있어도 "조건 문구"가 아니라 기본 안내를 보인다.
-test('서버가 무시하는 마감·막힘 facet 은 보내지 않고 필터로 보지 않는다', async ({ authenticatedPage: page }) => {
-  const { list, cnt } = await setup(page, [], createAiTaskCounts())
-  await page.goto('/me/ai-tasks?blocked=true&dueTo=2026-10-31&dueDate=today')
-  const empty = page.getByTestId('ai-row-empty')
-  await expect(empty).toContainText('AI가 진행 중인 작업이 없어요')
-  await expect(page.getByTestId('ai-empty-reset')).toHaveCount(0)
-  for (const req of [await list.waitForRequest(), await cnt.waitForRequest()]) {
-    const keys = [...req.searchParams.keys()]
-    expect(keys).not.toContain('blocked')
-    expect(keys).not.toContain('dueFrom')
-    expect(keys).not.toContain('dueTo')
-  }
 })
 
 test('첫 페이지 실패는 빈 상태가 아니라 오류 + 다시 시도', async ({ authenticatedPage: page }) => {

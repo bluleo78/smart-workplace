@@ -2,7 +2,7 @@
 // Phase 5: 우측 스레드 패널(ThreadPanel) — URL ?thread 로 토글(WP-207, 모바일은 전체폭).
 // A9: AI 에이전트 작업 중 유령 버블 — onMessagingProgress 구독으로 채널별 진행 상태 렌더.
 import { Hash, Sparkles } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useParams } from 'react-router-dom'
 
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
@@ -28,16 +28,17 @@ import { useCreateMessage } from '@/hooks/queries/useCreateMessage'
 import { useMarkMessageRead } from '@/hooks/queries/useMarkMessageRead'
 import { useMentionAgents } from '@/hooks/queries/useMentionAgents'
 import { useAiAvailable } from '@/hooks/useAiAvailable'
+import { useAiWorkingBubbles } from '@/hooks/useAiWorkingBubbles'
 import { useAuth } from '@/hooks/useAuth'
 import { useEntryMaxMessageId } from '@/hooks/useEntryMaxMessageId'
 import { useHistoryParam } from '@/hooks/useHistoryParam'
 import { useIsMobile } from '@/hooks/useIsMobile'
-import { type MessagingProgressEvent, onMessagingProgress } from '@/hooks/useMessageStream'
 import { buildChannelContext } from '@/lib/aiScreenContext/builders/messaging'
 import { shouldAutoShowCatchup } from '@/lib/catchupGate'
 import { catchupWatermark } from '@/lib/catchupWatermark'
 import { chatEntryAnchor } from '@/lib/chatEntryAnchor'
 import { parseId } from '@/lib/historyParam'
+import { channelMentionCandidates } from '@/lib/mentionCandidates'
 import { firstUnreadMessageId, unreadFromOthersCount } from '@/lib/unreadBoundary'
 import { cn } from '@/lib/utils'
 import type { ChannelResponse, MessageResponse, UserKind } from '@/types/messaging'
@@ -86,16 +87,8 @@ export default function ChannelPage() {
   const { data: channelMembers } = useChannelMembers(channelId)
   const { data: agentCandidates } = useMentionAgents()
   const aiAvailable = useAiAvailable()
-  // @멘션 후보 = 채널 멤버 ∪ 워크스페이스 AGENT(비멤버 AGENT 초대용). userId 로 dedup.
-  // 비서 비가용(aiAvailable=false)이면 AGENT(=AI) 후보를 제외 — 멘션으로 AI 를 트리거하지 않도록 게이트.
-  const mentionMembers: MentionCandidate[] = (() => {
-    const byId = new Map<number, MentionCandidate>()
-    for (const m of channelMembers ?? [])
-      byId.set(m.userId, { userId: m.userId, username: m.name, name: m.name, kind: m.kind })
-    for (const a of agentCandidates ?? []) if (!byId.has(a.userId)) byId.set(a.userId, a)
-    const all = [...byId.values()]
-    return aiAvailable ? all : all.filter((m) => m.kind !== 'AGENT')
-  })()
+  // @멘션 후보 = 채널 멤버 ∪ 워크스페이스 AGENT, 비서 비가용이면 AGENT 제외(게이트).
+  const mentionMembers: MentionCandidate[] = channelMentionCandidates(channelMembers, agentCandidates, aiAvailable)
   const [membersOpen, setMembersOpen] = useState(false)
   const [renameOpen, setRenameOpen] = useState(false)
 
@@ -123,65 +116,9 @@ export default function ChannelPage() {
   // WP-54: 채널 화면 컨텍스트 등록 — 채널 + 열린 스레드(루트 메시지).
   useChannelScreenContext(channelId, detail.data, openThreadParent)
 
-  // AI 작업 중 유령 버블 상태 관리 — streamId → 이벤트+타임스탬프 Map.
-  // phase done/error 이벤트 수신 시 해당 항목 제거, 신규 AGENT 메시지 도착 시 전체 초기화.
-  // IssueChatSection 의 패턴을 channelId 기준으로 동일하게 미러링.
-  const [working, setWorking] = useState<Map<string, MessagingProgressEvent & { at: number }>>(
-    new Map(),
-  )
-  // 종료된(done/error) streamId 기록 — fire-and-forget progress POST 의 순서 역전으로 'done' 이후
-  // 뒤늦게 도착한 'tool'/'started' 이벤트가 유령 버블을 되살리는 것을 차단(부활 방지).
-  const endedStreamsRef = useRef<Set<string>>(new Set())
-  useEffect(() => {
-    if (channelId == null) return
-    return onMessagingProgress((e) => {
-      if (e.channelId !== channelId) return
-      setWorking((prev) => {
-        const next = new Map(prev)
-        if (e.phase === 'done' || e.phase === 'error') {
-          endedStreamsRef.current.add(e.streamId)
-          next.delete(e.streamId)
-        } else if (!endedStreamsRef.current.has(e.streamId)) {
-          next.set(e.streamId, { ...e, at: Date.now() })
-        }
-        return next
-      })
-    })
-  }, [channelId])
-
-  // 신규 AGENT 메시지가 도착하면(실제 응답 등장) 모든 유령 버블 제거 — done 이벤트 누락/순서 역전 대비 백스톱.
-  // message.id 는 서버 단조 증가 시퀀스이므로 "기준선(초기 로드 시점의 최대 AGENT id) 초과" 만 신규 도착으로 본다.
-  // → 스크롤백 페이지네이션(과거 작은 id prepend)·HUMAN 메시지·낙관적 임시 id 는 트리거하지 않는다 (#346).
+  // AI 작업 중 유령 버블 — 진행 이벤트·새 AGENT 메시지·TTL 규칙은 useAiWorkingBubbles(DmPage 와 공용).
   const messagesLoaded = data !== undefined
-  const maxAgentMsgId = messages.reduce(
-    (mx, m) => (m.authorKind === 'AGENT' && m.id > mx ? m.id : mx),
-    0,
-  )
-  const agentBaselineRef = useRef<number | null>(null)
-  useEffect(() => {
-    if (!messagesLoaded) return // 첫 메시지 로드 전 — 기준선 미설정(라이브 버블 보호)
-    // 최초 로드: 기존 AGENT 메시지 최대 id 를 기준선으로 잡는다(0 이어도). 이 run 에서는 절대 제거하지 않는다.
-    if (agentBaselineRef.current === null) {
-      agentBaselineRef.current = maxAgentMsgId
-      return
-    }
-    if (maxAgentMsgId > agentBaselineRef.current) {
-      agentBaselineRef.current = maxAgentMsgId
-      setWorking(new Map())
-    }
-  }, [messagesLoaded, maxAgentMsgId])
-
-  // TTL 안전망: 60초 무수신 유령 제거 (10초마다 스위프)
-  useEffect(() => {
-    const t = setInterval(() => {
-      setWorking((prev) => {
-        const cutoff = Date.now() - 60_000
-        const next = new Map([...prev].filter(([, v]) => v.at >= cutoff))
-        return next.size === prev.size ? prev : next
-      })
-    }, 10_000)
-    return () => clearInterval(t)
-  }, [])
+  const working = useAiWorkingBubbles(channelId, messages, messagesLoaded)
 
   // 채널 상세 워터마크는 방문 중 무효화되지 않아(detail 키 invalidate 없음) 자연히 안정적 → 스냅샷 불필요.
   // watermark = 서버 원본(null 가능: 빈 채널 가입·비멤버) — 구분선 전용. 캐치업은 catchupSince 를 쓴다(WP-256).

@@ -50,3 +50,13 @@ export function collectDescendantIds(node: UserGroupNode): Set<number> {
   walk(node.children)
   return ids
 }
+
+/**
+ * 그룹 편집 폼의 상위 그룹 후보 — 트리 전체를 평면화하되 편집 대상의 자손은 뺀다(#694).
+ * 자손을 상위로 고르면 백엔드가 사이클로 항상 400 을 내므로 미리 숨긴다. 생성 모드(editTargetId=null)는 전체.
+ */
+export function parentGroupOptions(nodes: UserGroupNode[], editTargetId: number | null): { id: number; name: string }[] {
+  const target = editTargetId != null ? findNode(nodes, editTargetId) : null
+  const descendantIds = target ? collectDescendantIds(target) : new Set<number>()
+  return flattenGroups(nodes).filter((o) => !descendantIds.has(o.id))
+}

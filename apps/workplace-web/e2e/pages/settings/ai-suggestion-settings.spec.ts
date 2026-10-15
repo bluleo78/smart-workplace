@@ -56,20 +56,11 @@ test('저장된 추천 모델에서 자동으로 되돌리면 null 을 보낸다
   expect(puts.lastBody()).toEqual({ suggestionModel: null })
 })
 
+// 직접 입력에 providerId/ 접두가 없으면 비서 모델의 providerId 를 붙여 저장한다(접두 규칙 자체는 src/lib/ai/suggestionModel.test.ts).
 test('목록 조회를 지원하지 않는 연결은 직접 입력, 자동 라벨은 비서 모델', async ({ authenticatedPage: page }) => {
   const puts = await mockPersonal(page, status({ provider: 'opencode', model: 'amazon-bedrock-openai/gpt-oss', suggestionModelAuto: 'amazon-bedrock-openai/gpt-oss' }), [])
   await page.goto('/settings/assistant')
   await expect(page.getByTestId('assistant-suggestion-model-current')).toContainText('자동 (amazon-bedrock-openai/gpt-oss)')
-  await page.getByTestId('assistant-suggestion-model-input').fill('amazon-bedrock-openai/small')
-  await page.getByTestId('assistant-suggestion-model-apply').click()
-  await puts.waitFor(1)
-  expect(puts.lastBody()).toEqual({ suggestionModel: 'amazon-bedrock-openai/small' })
-})
-
-// 접두 없이 저장하면 실행 시점에 조용히 실패하므로 비서 모델 직접 입력과 같은 규칙으로 providerId/ 를 붙인다.
-test('직접 입력한 추천 모델에 providerId/ 접두가 없으면 붙여 저장한다', async ({ authenticatedPage: page }) => {
-  const puts = await mockPersonal(page, status({ provider: 'opencode', model: 'amazon-bedrock-openai/gpt-oss', suggestionModelAuto: 'amazon-bedrock-openai/gpt-oss' }), [])
-  await page.goto('/settings/assistant')
   await page.getByTestId('assistant-suggestion-model-input').fill('small')
   await page.getByTestId('assistant-suggestion-model-apply').click()
   await puts.waitFor(1)

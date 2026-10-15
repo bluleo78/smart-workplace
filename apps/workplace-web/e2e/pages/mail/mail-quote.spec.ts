@@ -130,19 +130,6 @@ test.describe('메일 인용문 보존', () => {
     await expect(quote).toContainText('박지원')
   })
 
-  test('연접된 다중 문서의 본문이 모두 보존된다', async ({ authenticatedPage: page }) => {
-    // IMAP 파서가 모든 text/html 파트를 한 버퍼에 연접하므로 실제로 발생하는 형태다.
-    await mockInbox(
-      page,
-      '<html><body><p>첫째</p></body></html><html><body><p>둘째</p></body></html>',
-    )
-    await page.getByTestId('mail-reply').click()
-    await page.getByTestId('mail-compose-quote-toggle').click()
-    const srcDoc = await page.getByTestId('mail-compose-quote-frame').getAttribute('srcdoc')
-    expect(srcDoc).toContain('첫째')
-    expect(srcDoc).toContain('둘째')
-  })
-
   test('발송 payload 는 에디터 본문 + 인용문 순서이고 원문이 무손실이다', async ({
     authenticatedPage: page,
   }) => {

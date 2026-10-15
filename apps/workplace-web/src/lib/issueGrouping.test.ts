@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { IssueResponse } from '../types/issue';
-import { groupIssues } from './issueGrouping';
+import { groupIssues, priorityLabel, statusLabel } from './issueGrouping';
 
 // 필수 필드가 많은 IssueResponse 를 최소 오버라이드로 생성하는 테스트 팩토리.
 function mk(over: Partial<IssueResponse>): IssueResponse {
@@ -130,5 +130,20 @@ describe('groupIssues - epic', () => {
   it('에픽 없는 이슈가 없으면 「에픽 없음」 버킷을 만들지 않는다', () => {
     const groups = groupIssues([mk({ id: 1, number: 1, parent: ep(3, 'A') })], 'epic');
     expect(groups.map((g) => g.key)).toEqual(['epic-3']);
+  });
+});
+
+// statusLabel/priorityLabel — 그룹 헤더·이력 등 버킷 밖 표시명. 모르는 값·프로토타입 키는 원문 그대로여야 한다.
+describe('statusLabel / priorityLabel', () => {
+  it('enum 을 한국어로 바꾼다', () => {
+    expect(['TODO', 'IN_PROGRESS', 'DONE', 'CANCELED'].map(statusLabel)).toEqual(['할 일', '진행 중', '완료', '취소']);
+    expect(['HIGH', 'MID', 'LOW'].map(priorityLabel)).toEqual(['높음', '보통', '낮음']);
+  });
+
+  it('매핑 없는 값과 프로토타입 키는 원문 그대로다', () => {
+    expect(statusLabel('UNKNOWN_STATUS')).toBe('UNKNOWN_STATUS');
+    expect(statusLabel('toString')).toBe('toString');
+    expect(priorityLabel('URGENT')).toBe('URGENT');
+    expect(priorityLabel('constructor')).toBe('constructor');
   });
 });

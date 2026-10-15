@@ -108,16 +108,6 @@ test('내 코멘트 — 삭제는 확인창에서 취소하면 유지, 확인하
   await expect(page.getByText('내 코멘트 원본')).toBeHidden();
 });
 
-test('타인·AGENT 코멘트에는 ⋯ 가 없다', async ({ authenticatedPage: page }) => {
-  await setup(page, [
-    createComment({ id: 11, issueId: ISSUE_ID, authorId: ME_ID + 999, authorName: '다른 사용자', body: '타인의 코멘트' }),
-    createAgentComment({ id: 12, issueId: ISSUE_ID }),
-  ]);
-  await expect(page.getByText('타인의 코멘트')).toBeVisible();
-  await expect(page.getByTestId('issue-comment-more-11')).toHaveCount(0);
-  await expect(page.getByTestId('issue-comment-more-12')).toHaveCount(0);
-});
-
 // WP-228 — 공백 없는 긴 URL 은 카드 폭에서 줄바꿈되고, 긴 작성자명은 말줄임되어 날짜가 한 줄로 남는다.
 test('긴 URL·긴 작성자명 코멘트도 카드 폭 안에 머문다', async ({ authenticatedPage: page }) => {
   const LONG_URL = `https://drive.example.com/share/${'a1b2c3d4e5'.repeat(12)}?ref=${'x'.repeat(40)}`;

@@ -1,11 +1,9 @@
 // WP-384 대화 딥링크(데스크톱) — /?aiChat=<id> 로 사이드 패널을 열고 대화를 복원한 뒤 파라미터를 지운다. 없는 대화는 토스트, 모양이 틀린 id 는
-// 서버에 묻지 않는다. AI 답 안 내부 링크는 같은 탭(라우터)으로 다른 대화를 열고 외부 링크는 새 탭. 검색 도구 단계 라벨.
+// 서버에 묻지 않는다(isSessionId — aiChatLink.test.ts). AI 답 안 내부 링크는 같은 탭(라우터)으로 다른 대화를 열고 외부 링크는 새 탭.
 import type { Page } from '@playwright/test'
 
 import { expect, test } from '../fixtures/auth.fixture'
 import { mockApi } from '../fixtures/api-mock'
-import { mockHomeChatGeneration } from '../fixtures/home-chat-mock'
-import { trackRequests } from '../fixtures/requests'
 import { stableBox } from '../fixtures/wait'
 import type { HomeMessage } from '../../src/types/home'
 
@@ -41,13 +39,6 @@ test('없거나 남의 대화면 "대화를 찾을 수 없어요" 토스트를 �
   await expect(page).not.toHaveURL(/aiChat=/)
 })
 
-test('모양이 틀린 id 는 서버에 묻지 않고 토스트만 띄운다', async ({ authenticatedPage: page }) => {
-  const calls = trackRequests(page, 'GET', /^\/api\/v1\/home\/sessions\/[^/]+\/messages$/)
-  await page.goto('/?aiChat=not-a-uuid')
-  await expect(page.getByText('대화를 찾을 수 없어요')).toBeVisible()
-  expect(calls.count()).toBe(0)
-})
-
 test('AI 답 안 대화 링크는 같은 탭에서 그 대화를 열고, 외부 링크는 새 탭 링크다', async ({ authenticatedPage: page }) => {
   await mockSession(page, ID, turn('지난번 고양이 얘기 찾아 줘', `[고양이 사진 정리](/?aiChat=${OTHER}) 에서 얘기했어요. [참고](https://example.com)`))
   await mockSession(page, OTHER, turn('고양이 사진 어디 둘까', '사진/고양이 폴더에 모으세요'))
@@ -66,15 +57,11 @@ test('AI 답 안 대화 링크는 같은 탭에서 그 대화를 열고, 외부 
 })
 
 test('딥링크로 연 대화가 첫 30개 목록 밖이어도 헤더에 그 대화 제목(첫 질문)이 보인다', async ({ authenticatedPage: page }) => {
-  await mockSession(page, ID, turn('지난번 고양이 사진 얘기 찾아 줘', `[고양이 사진 정리](/?aiChat=${OTHER}) 에서 얘기했어요.`))
-  await mockSession(page, OTHER, turn('  고양이 사진은 어디에 모아 두면 좋을까? 폴더 이름도 같이 정해 줘  ', '사진/고양이 폴더에 모으세요'))
+  await mockSession(page, ID, turn('지난번 고양이 사진 얘기 찾아 줘', '사진/고양이 폴더에 모으기로 했어요.'))
   await page.goto(`/?aiChat=${ID}`)
   const title = page.getByTestId('chat-session-title')
   await expect(title).toHaveText('지난번 고양이 사진 얘기 찾아 줘')
-  // 답 안 대화 링크로 다른 대화를 열면 그 대화의 첫 질문(앞뒤 공백 없이 40자)으로 바뀐다 — 링크 글자가 아니다.
-  await page.getByTestId('markdown-internal-link').click()
-  await expect(page.getByTestId('chat-panel')).toContainText('사진/고양이 폴더에 모으세요')
-  await expect(title).toHaveText('고양이 사진은 어디에 모아 두면 좋을까? 폴더 이름도 같이 정해 줘'.slice(0, 40))
+  // 제목 규칙(첫 질문, 앞뒤 공백 없이 40자)·목록 덧붙이기는 aiChatLink.test.ts(linkedSessionSummary·withLinkedSession)가 담당.
 })
 
 test('대화 링크는 지금 화면의 다른 쿼리를 지우지 않고 히스토리를 늘리지 않는다', async ({ authenticatedPage: page }) => {
@@ -125,24 +112,4 @@ test('말풍선 안 단계 줄은 본문 왼쪽 선에 맞고 ✓ 는 라벨 바
   // 넓은 패널에서도 상태가 라벨 곁에 있다(행 끝으로 밀리지 않는다).
   expect(check.x).toBeGreaterThan(label.x + label.width)
   expect(check.x - (label.x + label.width)).toBeLessThan(120)
-})
-
-test('검색 도구 단계는 "메모리 찾기"·"지난 대화 찾기"로 보인다', async ({ authenticatedPage: page }) => {
-  await mockHomeChatGeneration(page, {
-    frames: [
-      { event: 'tool', data: { seq: 1, phase: 'start', toolName: 'search_memory', args: { query: '고양이' } } },
-      { event: 'tool', data: { seq: 1, phase: 'result', toolName: 'search_memory', isError: false } },
-      { event: 'tool', data: { seq: 2, phase: 'start', toolName: 'search_conversations', args: { query: '고양이' } } },
-      { event: 'tool', data: { seq: 2, phase: 'result', toolName: 'search_conversations', isError: false } },
-      { event: 'delta', data: { text: '찾았어요.' } },
-      { event: 'done', data: { sessionId: 's-search-1' } },
-    ],
-  })
-  await page.goto('/')
-  await page.getByTestId('chat-launcher').click()
-  await page.getByTestId('chat-input').fill('지난번 고양이 얘기')
-  await page.getByRole('button', { name: '보내기' }).click()
-  await expect(page.getByTestId('tool-step-tool')).toHaveCount(2)
-  await expect(page.getByTestId('tool-step-tool').nth(0)).toContainText('메모리 찾기')
-  await expect(page.getByTestId('tool-step-tool').nth(1)).toContainText('지난 대화 찾기')
 })

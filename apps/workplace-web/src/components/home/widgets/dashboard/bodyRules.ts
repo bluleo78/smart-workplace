@@ -32,6 +32,17 @@ export function sortKey(ev: CalendarEvent): number {
   return Number.isNaN(t) ? Number.POSITIVE_INFINITY : t
 }
 
+/**
+ * 오늘 일정 위젯 표시분 — 시작 시각순(미정은 맨 뒤) 상위 count 건 + 시작시각 미정 건수(헤더 힌트).
+ * 미정 건수는 잘리기 전 전체 기준이다(헤더의 "오늘 N건" 과 같은 모집단).
+ */
+export function todayAgenda(events: CalendarEvent[], count: number): { top: CalendarEvent[]; untimedCount: number } {
+  return {
+    top: [...events].sort((a, b) => sortKey(a) - sortKey(b)).slice(0, count),
+    untimedCount: events.filter((ev) => eventTime(ev).kind === 'untimed').length,
+  }
+}
+
 // ── AI 우선순위 사분면 ────────────────────────────────────────────────────
 
 /** 사분면 키 — PriorityQuadrantBody 의 분면 data-testid 접미사와 같다. */

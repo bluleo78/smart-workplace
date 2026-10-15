@@ -2,7 +2,7 @@
 // 그룹의 첫 줄에만 아바타/이름/시각을 표시하고, 후속 줄은 본문만 들여쓴다.
 import type { MessageResponse } from '@/types/messaging'
 
-import { parseUtcDate } from './formatters'
+import { getDateKey, parseUtcDate } from './formatters'
 
 // 같은 그룹으로 인정하는 최대 간격(분).
 const GROUP_GAP_MINUTES = 5
@@ -17,4 +17,15 @@ export function shouldStartNewGroup(
   // 서버 LocalDateTime(UTC) 파싱은 formatters.parseUtcDate 로 단일화(중복 제거).
   const gapMs = parseUtcDate(curr.createdAt).getTime() - parseUtcDate(prev.createdAt).getTime()
   return gapMs > GROUP_GAP_MINUTES * 60_000
+}
+
+/**
+ * curr 앞에 날짜 구분선을 넣을지 — 첫 메시지이거나 직전 메시지와 KST 날짜가 다르면 true(#338).
+ * 서버 시각은 UTC 라 그대로 날짜를 자르면 KST 자정~09시 메시지가 전날로 묶인다 — getDateKey 가 KST 로 변환한다.
+ */
+export function startsNewDay(
+  prev: Pick<MessageResponse, 'createdAt'> | null,
+  curr: Pick<MessageResponse, 'createdAt'>,
+): boolean {
+  return !prev || getDateKey(curr.createdAt) !== getDateKey(prev.createdAt)
 }

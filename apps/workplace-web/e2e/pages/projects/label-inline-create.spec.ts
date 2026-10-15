@@ -115,25 +115,6 @@ test.describe('이슈 라벨 즉석 만들기', () => {
     expect(puts.count()).toBe(1);
   });
 
-  test('정확히 같은 이름이 있으면 만들기 없음, 대소문자가 다르거나 일부만 겹치면 보인다', async ({ authenticatedPage: page }) => {
-    await stubIssueWithLabels(page);
-    const picker = await openPicker(page);
-    const search = picker.getByLabel('라벨 검색');
-
-    await search.fill('bug');
-    await expect(picker.getByTestId('label-option-1')).toBeVisible();
-    await expect(picker.getByTestId('label-create-option')).toHaveCount(0);
-
-    // 서버 유일 제약이 대소문자를 구분하므로 「Bug」는 새 라벨이다.
-    await search.fill('Bug');
-    await expect(picker.getByTestId('label-create-option')).toHaveText('「Bug」 라벨 만들기');
-
-    // 일부만 겹치면 기존 라벨과 만들기가 함께 보인다.
-    await search.fill('severity');
-    await expect(picker.getByTestId('label-option-2')).toBeVisible();
-    await expect(picker.getByTestId('label-create-option')).toHaveText('「severity」 라벨 만들기');
-  });
-
   test('Enter 로 만들고, 한글 조합 중 Enter 는 만들지 않는다', async ({ authenticatedPage: page }) => {
     await stubIssueWithLabels(page);
     const posts = trackRequests(page, 'POST', LABELS_PATH);

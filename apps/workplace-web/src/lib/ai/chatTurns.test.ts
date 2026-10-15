@@ -70,6 +70,13 @@ describe('스트림 누적', () => {
     expect(applyDoneWidgets(t, [])).toBe(t);
     expect(applyDoneWidgets(t, null)).toBe(t);
   });
+  it('done 위젯이 있으면 tool 로 누적한 같은 위젯을 덮어써 한 번만 남긴다(#461 — 중복 렌더 금지)', () => {
+    const params = { from: '2026-06-22', to: '2026-06-22' };
+    const t = applyTool(base(), { seq: 1, phase: 'start', toolName: 'mcp__workplace__show_calendar', args: { params } });
+    const last = applyDoneWidgets(t, [{ type: 'calendar', params }])[1] as MessageTurn;
+    expect(last.widgets).toEqual([{ type: 'calendar', params }]);
+    expect(last.contentBlocks?.filter((b) => b.kind === 'widget')).toHaveLength(1);
+  });
   it('마지막 턴이 어시스턴트가 아니면 그대로', () => {
     const t: ChatTurn[] = [{ role: 'user', content: 'q' }];
     expect(appendDelta(t, 'x')).toBe(t);

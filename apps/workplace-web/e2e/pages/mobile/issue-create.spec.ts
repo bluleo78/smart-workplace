@@ -345,23 +345,6 @@ test.describe('생성 칩 줄', () => {
     await expect(priority).toContainText('낮음');
   });
 
-  test('에픽을 고른 뒤 유형을 에픽으로 바꾸면 페이로드에 parentNumber 가 없다', async ({ authenticatedPage: page }) => {
-    const posts = await mockCreate(page);
-    await openSheet(page);
-    await page.getByTestId('issue-create-title').fill('새 에픽');
-    await page.getByTestId('create-chip-epic').click();
-    await page.getByTestId('create-epic-sheet').getByTestId('picker-option-50').click();
-    await expect(page.getByTestId('create-chip-epic')).toContainText('결제 개편 에픽');
-    await page.getByTestId('create-chip-type').click();
-    // systemTypes() 의 EPIC = id 6.
-    await page.getByTestId('create-type-sheet').getByTestId('picker-option-6').click();
-    await expect(page.getByTestId('create-chip-epic')).toHaveCount(0);
-    await page.getByTestId('issue-create-submit').click();
-    await expect.poll(posts.count).toBe(1);
-    expect(posts.bodies<Record<string, unknown>>()[0]).toMatchObject({ typeId: 6 });
-    expect(posts.bodies<Record<string, unknown>>()[0]).not.toHaveProperty('parentNumber');
-  });
-
   test('개인 프로젝트는 유형·에픽 칩이 없다', async ({ authenticatedPage: page }) => {
     const PKEY = 'PME';
     await stubChat(page);

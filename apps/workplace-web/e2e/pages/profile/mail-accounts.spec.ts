@@ -81,6 +81,8 @@ test.describe('메일 계정 설정', () => {
     // 저장 클릭 → 다이얼로그 닫힘 → 목록 행 표시
     await page.getByTestId('mail-save-button').click();
     await expect(page.getByTestId('mail-account-row-1')).toContainText('me@example.com');
+    // 공급자 칸 — IMAP 은 호스트(M365_GRAPH 의 Outlook 라벨 규칙은 mailAccountProvider.test 가 지킨다).
+    await expect(page.getByTestId('mail-account-row-1')).toContainText('imap.gmail.com');
   });
 
   test('연결 테스트 실패 → 에러 표시 + 저장 비활성', async ({ authenticatedPage: page }) => {
@@ -344,15 +346,4 @@ test.describe('메일 계정 설정', () => {
       await expect(page.getByText('팝업이 차단되었습니다')).toBeHidden()
     })
   })
-
-  // #499 — M365_GRAPH provider 계정 행에 'Outlook' 라벨 표시
-  test('M365_GRAPH 계정 행에 Outlook 라벨 표시', async ({ authenticatedPage: page }) => {
-    await mockApi(page, 'GET', '/api/v1/mail/accounts', [
-      account({ provider: 'M365_GRAPH', imapHost: '', lastTestedAt: null }),
-    ]);
-    await page.goto('/settings/mail');
-    const row = page.getByTestId('mail-account-row-1');
-    await expect(row).toBeVisible();
-    await expect(row).toContainText('Outlook');
-  });
 });

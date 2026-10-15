@@ -841,3 +841,17 @@ describe('메모리 결과 줄 (WP-55)', () => {
     expect(s.getSnapshot().entries.get('s-a')?.correlationId).toBe(correlationId);
   });
 });
+
+// WP-55 S13: 텍스트 전에 오류로 끝나도 서버가 결과 줄 때문에 답을 저장해 messageId 를 준다 — 결과 줄이 남고 되돌릴 수 있다.
+// (본문 뒤 오류·시간 초과·■ 정지의 messageId 는 위 'error·시간 초과 cancelled'·'■ 뒤 서버 cancelled' 테스트가 담당)
+describe('종결 이벤트의 messageId — 텍스트 전 오류 (WP-55)', () => {
+  const memory = { action: 'saved', memoryId: 12, kind: 'PREFERENCE', content: '짧은 목록', source: 'AI' };
+
+  it('텍스트 전에 오류로 끝나도 결과 줄이 남고 오류 종결의 messageId 를 싣는다', () => {
+    const { s } = setup();
+    ask(s, 'A', 'corr-a', 's-a');
+    ev(s, 'tool', { correlationId: 'corr-a', sessionId: 's-a', seq: 1, phase: 'result', toolName: 'remember_memory', isError: false, memory });
+    ev(s, 'error', { correlationId: 'corr-a', sessionId: 's-a', message: '실패', messageId: 9 });
+    expect(turnsOf(s, 's-a')?.at(-1)).toMatchObject({ messageId: 9, memoryBlocks: [expect.objectContaining({ memoryId: 12, undone: false })] });
+  });
+});
