@@ -105,7 +105,8 @@ test('빠른 필터 칩은 가로 스크롤로 마지막 칩까지 닿는다', a
   const { scrollWidth, clientWidth } = await chips.evaluate((el) => ({ scrollWidth: el.scrollWidth, clientWidth: el.clientWidth }))
   expect(scrollWidth).toBeGreaterThan(clientWidth)
   await expectNoHorizontalOverflow(page)
-  const last = page.getByTestId('ai-quick-working')
+  // 마지막 칩은 완료(WP-396).
+  const last = page.getByTestId('ai-quick-done')
   await chips.evaluate((el) => el.scrollTo({ left: el.scrollWidth }))
   await expect.poll(() => chips.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0)
   await expect(last).toBeInViewport({ ratio: 1 })

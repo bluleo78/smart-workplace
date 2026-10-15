@@ -4,11 +4,11 @@ import { AlertTriangle } from 'lucide-react'
 import { AiSignalBadge } from '@/components/ai/AiSignalBadge'
 import { relTime } from '@/components/ai/relTime'
 import { Badge } from '@/components/ui/badge'
-import { AGENT_STATE_LABEL, agentToolLabel, progressView, STALE_TOOLTIP } from '@/lib/agentWork'
+import { AGENT_STATE_LABEL, agentStateTone, agentToolLabel, progressView, STALE_TOOLTIP } from '@/lib/agentWork'
 import { cn } from '@/lib/utils'
 import type { AgentWorkState, AgentWorkView } from '@/types/issue'
 
-/** AI 진행 배지 — 사용자 행동이 필요한 상태(답변·인증·검토)는 AI 판단신호 action(채움), 진행 정보는 info, 막힘은 경고, 그 외(일시 중지·시작 전)는 흐린 윤곽. */
+/** AI 진행 배지 — 톤은 agentStateTone: 사람이 할 일은 AI 판단신호 action(채움), 작업 중 info, 막힘 경고, 완료 성공·실패 위험(WP-396), 그 외(일시 중지·시작 전·취소·반려)는 흐린 윤곽. */
 export function AgentStateBadge({
   state,
   'data-testid': testId,
@@ -17,11 +17,10 @@ export function AgentStateBadge({
   'data-testid'?: string
 }) {
   const label = AGENT_STATE_LABEL[state]
-  if (state === 'INPUT_REQUIRED' || state === 'AUTH_REQUIRED' || state === 'REVIEW')
-    return <AiSignalBadge variant="action" data-testid={testId}>{label}</AiSignalBadge>
-  if (state === 'WORKING') return <AiSignalBadge variant="info" data-testid={testId}>{label}</AiSignalBadge>
-  if (state === 'BLOCKED') return <Badge variant="warning" data-testid={testId}>{label}</Badge>
-  return <Badge variant="outline" className="text-muted-foreground" data-testid={testId}>{label}</Badge>
+  const tone = agentStateTone(state)
+  if (tone === 'action' || tone === 'info') return <AiSignalBadge variant={tone} data-testid={testId}>{label}</AiSignalBadge>
+  if (tone === 'muted') return <Badge variant="outline" className="text-muted-foreground" data-testid={testId}>{label}</Badge>
+  return <Badge variant={tone} data-testid={testId}>{label}</Badge>
 }
 
 /** 에이전트 유형 칩 — Claude Code·Cursor 등 실제로 일하는 AI 도구. 도구를 아직 모르면(시작 전) 아무것도 그리지 않는다.

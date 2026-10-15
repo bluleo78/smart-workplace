@@ -64,6 +64,9 @@ class AiTasksControllerTest extends IntegrationTestBase {
   /** 다음 이슈 번호. */
   private int nextNumber = 1;
 
+  /** 웹 「완료」 칩이 보내는 종료 상태 묶음(WP-396). */
+  private static final String DONE_STATES = "COMPLETED,FAILED,CANCELED,REJECTED";
+
   @BeforeEach
   void seedUsersAndProject() {
     me = createUser("ai-me");
@@ -80,15 +83,17 @@ class AiTasksControllerTest extends IntegrationTestBase {
   void MINE_은_내가_만든_AI담당_이슈와_내가_AI도구로_작업중인_이슈() throws Exception {
     long a = issue("a", me);
     assign(a, agent);
+    work(a, agent, "WORKING");
     long b = issue("b", other);
     work(b, me, "WORKING");
     long c = issue("c", other);
     assign(c, agent);
+    work(c, agent, "WORKING");
     long d = issue("d", me);
     assign(d, me);
     long e = issue("e", other);
     work(e, other, "WORKING");
-    // 내 작업이 이미 끝난 이슈는 진행 중이 아니므로 빠진다.
+    // 내 작업이 이미 끝난 이슈는 진행 중이 아니므로 미완료(기본)에서 빠진다(완료 보기에 나온다).
     long f = issue("f", other);
     work(f, me, "WORKING");
     endWork(f);
@@ -96,14 +101,36 @@ class AiTasksControllerTest extends IntegrationTestBase {
     assertThat(titles(getJson("/api/v1/me/ai-tasks"))).containsExactlyInAnyOrder("a", "b");
   }
 
+  /** WP-396: 작업 기록(agent_work)이 하나도 없는 AI 담당 이슈는 미완료에도 완료에도 나오지 않는다 — 열린 이슈든 닫힌 이슈든. */
+  @Test
+  void 작업기록이_없는_AI담당_이슈는_미완료에도_완료에도_없다() throws Exception {
+    long open = issue("open-no-record", me);
+    assign(open, agent);
+    long closed = issue("closed-no-record", me);
+    assign(closed, agent);
+    setStatus(closed, "DONE");
+    long live = issue("live", me);
+    assign(live, agent);
+    work(live, agent, "WORKING");
+
+    assertThat(titles(getJson("/api/v1/me/ai-tasks?scope=ALL"))).containsExactly("live");
+    assertThat(titles(getJson("/api/v1/me/ai-tasks?scope=ALL&agentState=" + DONE_STATES)))
+        .isEmpty();
+    assertThat(counts("/api/v1/me/ai-tasks/counts?scope=ALL"))
+        .containsEntry("all", 1)
+        .containsEntry("done", 0);
+  }
+
   @Test
   void ALL_은_접근가능한_모든_AI_이슈_접근불가_프로젝트_제외() throws Exception {
     long a = issue("a", me);
     assign(a, agent);
+    work(a, agent, "WORKING");
     long b = issue("b", other);
     work(b, me, "WORKING");
     long c = issue("c", other);
     assign(c, agent);
+    work(c, agent, "WORKING");
     long d = issue("d", me);
     assign(d, me);
     long e = issue("e", other);
@@ -113,6 +140,7 @@ class AiTasksControllerTest extends IntegrationTestBase {
         projectService.create(other, new CreateProjectRequest(uniqueKey("PV"), "P-priv", "x"));
     var x = issueRepository.insert(priv.id(), 1, "priv-x", null, "MID", null, other);
     assign(x.id(), agent);
+    work(x.id(), agent, "WORKING");
     var y = issueRepository.insert(priv.id(), 2, "priv-y", null, "MID", null, other);
     work(y.id(), other, "INPUT_REQUIRED");
 
@@ -123,8 +151,8 @@ class AiTasksControllerTest extends IntegrationTestBase {
   // ---------------------------------------------------------------- 정렬·필터
 
   @Test
-  void 급한순_정렬_답변필요_검토필요_막힘_작업중_일시중지_작업없음() throws Exception {
-    // 일부러 급한 순과 다른 순서로 만든다.
+  void 급한순_정렬_답변필요_검토필요_막힘_작업중_일시중지() throws Exception {
+    // 일부러 급한 순과 다른 순서로 만든다. 작업 기록 없는 AI 담당 이슈(none)는 목록 밖(WP-396).
     long none = issue("none", me);
     assign(none, agent);
     work(issue("paused", other), me, "PAUSED");
@@ -137,12 +165,11 @@ class AiTasksControllerTest extends IntegrationTestBase {
     List<String> states = new ArrayList<>();
     items.forEach(
         it -> states.add(it.has("agentWork") ? it.at("/agentWork/0/state").asText() : null));
-    assertThat(states)
-        .containsExactly("INPUT_REQUIRED", "REVIEW", "BLOCKED", "WORKING", "PAUSED", null);
+    assertThat(states).containsExactly("INPUT_REQUIRED", "REVIEW", "BLOCKED", "WORKING", "PAUSED");
   }
 
   @Test
-  void 같은_순위는_마지막_보고_최근순_작업없는_이슈는_이슈_수정시각_최근순() throws Exception {
+  void 같은_순위는_마지막_보고_최근순() throws Exception {
     long older = issue("older", other);
     work(older, me, "WORKING", Instant.parse("2026-10-01T00:00:00Z"));
     long newer = issue("newer", other);
@@ -152,15 +179,8 @@ class AiTasksControllerTest extends IntegrationTestBase {
     assign(mixed, agent);
     work(mixed, me, "WORKING");
     work(mixed, agent, "INPUT_REQUIRED");
-    long idleOld = issue("idle-old", me);
-    assign(idleOld, agent);
-    long idleNew = issue("idle-new", me);
-    assign(idleNew, agent);
-    setIssueUpdatedAt(idleOld, Instant.parse("2026-09-01T00:00:00Z"));
-    setIssueUpdatedAt(idleNew, Instant.parse("2026-09-02T00:00:00Z"));
 
-    assertThat(titles(getJson("/api/v1/me/ai-tasks")))
-        .containsExactly("mixed", "newer", "older", "idle-new", "idle-old");
+    assertThat(titles(getJson("/api/v1/me/ai-tasks"))).containsExactly("mixed", "newer", "older");
   }
 
   @Test
@@ -168,13 +188,117 @@ class AiTasksControllerTest extends IntegrationTestBase {
     work(issue("inputRequired", other), me, "INPUT_REQUIRED");
     work(issue("review", other), me, "REVIEW");
     work(issue("working", other), me, "WORKING");
-    long none = issue("none", me);
-    assign(none, agent);
+    long done = issue("done", other);
+    work(done, me, "WORKING");
+    endWork(done);
 
     assertThat(titles(getJson("/api/v1/me/ai-tasks?agentState=INPUT_REQUIRED, REVIEW")))
         .containsExactlyInAnyOrder("inputRequired", "review");
+    // 모르는 값만 오면 필터 없음(=미완료 기본 보기) — 종료된 작업만 있는 이슈는 빠진다.
     assertThat(titles(getJson("/api/v1/me/ai-tasks?agentState=NOPE")))
-        .containsExactlyInAnyOrder("inputRequired", "review", "working", "none");
+        .containsExactlyInAnyOrder("inputRequired", "review", "working");
+  }
+
+  // ---------------------------------------------------------------- 완료 보기(WP-396)
+
+  /**
+   * 완료 보기 = 진행 중 작업이 없고 종료 작업이 있는 이슈. 대표 작업(agentWork[0])은 가장 최근 종료 1건이고, 최근 종료순으로 정렬한다. 진행 중 작업이
+   * 하나라도 남은 이슈는 종료 작업이 있어도 미완료 쪽에만 나온다(두 보기는 배타적).
+   */
+  @Test
+  void 완료_보기는_진행중_작업이_없고_종료작업이_있는_이슈만_최근종료순() throws Exception {
+    long completed = issue("completed", me);
+    assign(completed, agent);
+    endedWork(completed, agent, "COMPLETED", Instant.parse("2026-10-03T00:00:00Z"));
+    long failed = issue("failed", me);
+    assign(failed, agent);
+    endedWork(failed, agent, "FAILED", Instant.parse("2026-10-05T00:00:00Z"));
+    // 먼저 실패했다가 나중에 다시 일해 완료 — 대표는 가장 최근 종료(COMPLETED).
+    long retried = issue("retried", me);
+    assign(retried, agent);
+    endedWork(retried, agent, "FAILED", Instant.parse("2026-10-01T00:00:00Z"));
+    endedWork(retried, agent, "COMPLETED", Instant.parse("2026-10-04T00:00:00Z"));
+    // 반려(REJECTED) — 사람 작업자(나)가 AI 도구로 하다 끝낸 이슈도 "나와 관련" 완료에 든다.
+    long rejected = issue("rejected", other);
+    endedWork(rejected, me, "REJECTED", Instant.parse("2026-10-02T00:00:00Z"));
+    // 취소 — 남의 사람 작업은 MINE 범위 밖.
+    long othersCanceled = issue("others-canceled", other);
+    endedWork(othersCanceled, other, "CANCELED", Instant.parse("2026-10-06T00:00:00Z"));
+    // 종료 작업 + 진행 중 작업이 함께 있으면 미완료.
+    long mixed = issue("mixed", me);
+    assign(mixed, agent);
+    endedWork(mixed, agent, "COMPLETED", Instant.parse("2026-10-07T00:00:00Z"));
+    work(mixed, me, "WORKING");
+
+    JsonNode body = getJson("/api/v1/me/ai-tasks?agentState=" + DONE_STATES);
+    assertThat(titles(body)).containsExactly("failed", "retried", "completed", "rejected");
+    List<String> states = new ArrayList<>();
+    body.get("items").forEach(it -> states.add(it.at("/agentWork/0/state").asText()));
+    assertThat(states).containsExactly("FAILED", "COMPLETED", "COMPLETED", "REJECTED");
+    // 종료 작업은 대표 1건만 싣는다.
+    body.get("items").forEach(it -> assertThat(it.get("agentWork")).hasSize(1));
+
+    assertThat(titles(getJson("/api/v1/me/ai-tasks"))).containsExactly("mixed");
+    assertThat(titles(getJson("/api/v1/me/ai-tasks?scope=ALL&agentState=" + DONE_STATES)))
+        .containsExactly("others-canceled", "failed", "retried", "completed", "rejected");
+    assertThat(counts("/api/v1/me/ai-tasks/counts"))
+        .containsEntry("all", 1)
+        .containsEntry("done", 4);
+  }
+
+  /**
+   * 나와 관련(ASSISTED)은 보기의 현재 국면에 맞는 내 작업으로 판정한다 — 내가 예전에 끝낸 이슈를 지금 남이 작업 중이면 내 미완료가 아니고(남의 일), 완료로도
+   * 보이지 않는다(진행 중 작업이 있으므로).
+   */
+  @Test
+  void 내가_끝낸_이슈를_남이_다시_작업중이면_나와_관련_어느_보기에도_없다() throws Exception {
+    long x = issue("x", other);
+    endedWork(x, me, "COMPLETED", Instant.parse("2026-10-01T00:00:00Z"));
+    work(x, other, "WORKING");
+
+    assertThat(titles(getJson("/api/v1/me/ai-tasks"))).isEmpty();
+    assertThat(titles(getJson("/api/v1/me/ai-tasks?agentState=" + DONE_STATES))).isEmpty();
+    assertThat(counts("/api/v1/me/ai-tasks/counts")).isEqualTo(counts(0, 0, 0, 0, 0, 0));
+    // 전체 범위에서는 남의 진행 중 작업으로 미완료에 보인다.
+    assertThat(titles(getJson("/api/v1/me/ai-tasks?scope=ALL"))).containsExactly("x");
+  }
+
+  /** 이슈 완료가 한 문장으로 닫은 작업(같은 종료 시각) — 착수 전이라 취소된 행보다 실제 결과(완료)를 대표로 고른다. */
+  @Test
+  void 같은_시각에_닫힌_작업이면_취소보다_실제_결과를_대표로() throws Exception {
+    long i = issue("i", me);
+    assign(i, agent);
+    Instant at = Instant.parse("2026-10-05T00:00:00Z");
+    endedWork(i, agent, "COMPLETED", at);
+    // id 가 더 큰 취소 행 — id 동률 깨기만으로는 이쪽이 대표가 된다.
+    endedWork(i, other, "CANCELED", at);
+
+    var item = getJson("/api/v1/me/ai-tasks?agentState=" + DONE_STATES).get("items").get(0);
+    assertThat(item.at("/agentWork/0/state").asText()).isEqualTo("COMPLETED");
+  }
+
+  @Test
+  void 완료_보기도_커서로_나눠_받으면_한번에_받은_순서와_같다() throws Exception {
+    for (int i = 0; i < 5; i++) {
+      long t = issue("d" + i, me);
+      assign(t, agent);
+      // 둘씩 같은 종료 시각 — id 로 동률을 깬다.
+      endedWork(t, agent, "COMPLETED", Instant.parse("2026-10-0" + (1 + i / 2) + "T00:00:00Z"));
+    }
+    String base = "/api/v1/me/ai-tasks?agentState=" + DONE_STATES;
+    List<String> all = titles(getJson(base + "&size=100"));
+    assertThat(all).hasSize(5);
+
+    List<String> paged = new ArrayList<>();
+    String cursor = null;
+    int pages = 0;
+    do {
+      JsonNode page = getJson(base + "&size=2" + (cursor == null ? "" : "&cursor=" + cursor));
+      paged.addAll(titles(page));
+      cursor = page.get("hasMore").asBoolean() ? page.get("nextCursor").asText() : null;
+      assertThat(++pages).as("페이지 순회가 끝나지 않는다").isLessThan(10);
+    } while (cursor != null);
+    assertThat(paged).isEqualTo(all);
   }
 
   @Test
@@ -198,16 +322,13 @@ class AiTasksControllerTest extends IntegrationTestBase {
     work(issue("w1", other), me, "INPUT_REQUIRED");
     work(issue("r1", other), me, "REVIEW");
     work(issue("k1", other), me, "WORKING");
-    // 뒤쪽 5행: 작업 없는 AI 담당 — 같은 순위·같은 정렬 시각(마이크로초 포함). 두 번째 경계가 이들 사이를 자른다(id 동률 깨기).
-    List<Long> tied = new ArrayList<>();
+    // 뒤쪽 5행: 일시 중지 AI 작업 — 같은 순위·같은 마지막 보고 시각(마이크로초 포함). 두 번째 경계가 이들 사이를 자른다(id 동률 깨기).
+    Instant same = Instant.parse("2026-10-14T01:02:03.123456Z");
     for (int i = 0; i < 5; i++) {
       long t = issue("t" + i, me);
       assign(t, agent);
-      tied.add(t);
+      work(t, agent, "PAUSED", same);
     }
-    // 시드가 모두 끝난 뒤 시각을 고정한다 — 앞선 시드가 updated_at 을 건드려도 동률이 유지되도록.
-    Instant same = Instant.parse("2026-10-14T01:02:03.123456Z");
-    tied.forEach(t -> setIssueUpdatedAt(t, same));
 
     List<String> expected = titles(getJson("/api/v1/me/ai-tasks?scope=ALL&size=100"));
     assertThat(expected).hasSize(8);
@@ -368,13 +489,15 @@ class AiTasksControllerTest extends IntegrationTestBase {
     setStatus(working, "IN_PROGRESS");
     // 남의 작업 — MINE 건수에서는 빠지고 ALL 에서는 잡힌다.
     work(issue("others", other), other, "INPUT_REQUIRED");
+    // 종료 작업만 있는 이슈 — 미완료(all)가 아니라 완료(done)로 센다.
+    long done = issue("done", other);
+    endedWork(done, me, "COMPLETED", Instant.parse("2026-10-01T00:00:00Z"));
 
     assertThat(counts("/api/v1/me/ai-tasks/counts?agentState=INPUT_REQUIRED"))
-        .isEqualTo(Map.of("all", 4, "inputRequired", 1, "review", 1, "blocked", 1, "working", 1));
-    assertThat(counts("/api/v1/me/ai-tasks/counts?scope=ALL"))
-        .isEqualTo(Map.of("all", 5, "inputRequired", 2, "review", 1, "blocked", 1, "working", 1));
+        .isEqualTo(counts(4, 1, 1, 1, 1, 1));
+    assertThat(counts("/api/v1/me/ai-tasks/counts?scope=ALL")).isEqualTo(counts(5, 2, 1, 1, 1, 1));
     assertThat(counts("/api/v1/me/ai-tasks/counts?status=IN_PROGRESS"))
-        .isEqualTo(Map.of("all", 1, "inputRequired", 0, "review", 0, "blocked", 0, "working", 1));
+        .isEqualTo(counts(1, 0, 0, 0, 1, 0));
   }
 
   /** 막힘 칩은 BLOCKED + AUTH_REQUIRED 합. SUBMITTED·PAUSED 는 칩이 없고 전체(all)에만 든다. */
@@ -385,8 +508,7 @@ class AiTasksControllerTest extends IntegrationTestBase {
     work(issue("paused", other), me, "PAUSED");
     work(issue("submitted", other), me, "SUBMITTED");
 
-    assertThat(counts("/api/v1/me/ai-tasks/counts"))
-        .isEqualTo(Map.of("all", 4, "inputRequired", 0, "review", 0, "blocked", 2, "working", 0));
+    assertThat(counts("/api/v1/me/ai-tasks/counts")).isEqualTo(counts(4, 0, 0, 2, 0, 0));
     // 목록 필터는 값 하나하나로 거른다 — 칩(막힘)은 클라이언트가 두 값을 함께 보낸다.
     assertThat(titles(getJson("/api/v1/me/ai-tasks?agentState=BLOCKED,AUTH_REQUIRED")))
         .containsExactlyInAnyOrder("blocked", "auth");
@@ -409,25 +531,23 @@ class AiTasksControllerTest extends IntegrationTestBase {
 
   @Test
   void 종료된_이슈에_남은_진행중_행은_순위_건수_범위에_반영되지_않는다() throws Exception {
-    // AI 담당 + 고아 INPUT_REQUIRED 행이 남은 DONE 이슈 — 목록에는 남되 작업 기반 순위·건수는 0.
+    // AI 담당 + 고아 INPUT_REQUIRED 행이 남은 DONE 이슈 — 진행 중 작업으로 치지 않고, 종료 기록도 없어 어느 보기에도 없다.
     long closed = issue("closed", me);
     assign(closed, agent);
     work(closed, agent, "INPUT_REQUIRED");
     setStatus(closed, "DONE");
-    setIssueUpdatedAt(closed, Instant.parse("2026-09-01T00:00:00Z"));
-    long open = issue("open", me);
-    assign(open, agent);
-    setIssueUpdatedAt(open, Instant.parse("2026-09-02T00:00:00Z"));
-    // 사람 고아 행만 있는 DONE 이슈 — 내 작업(ASSISTED)으로 MINE 에 들어오면 안 된다.
+    // 사람 고아 행만 있는 DONE 이슈 — 내 작업(ASSISTED)이어도 미완료로 들어오면 안 된다.
     long humanOrphan = issue("human-orphan", other);
     work(humanOrphan, me, "WORKING");
     setStatus(humanOrphan, "DONE");
+    long open = issue("open", me);
+    assign(open, agent);
+    work(open, agent, "WORKING");
 
-    // 고아 INPUT_REQUIRED 이 순위 0 이면 closed 가 앞서지만, 작업 없음으로 취급되어 최근 수정순(open 먼저).
-    assertThat(titles(getJson("/api/v1/me/ai-tasks"))).containsExactly("open", "closed");
+    assertThat(titles(getJson("/api/v1/me/ai-tasks"))).containsExactly("open");
     assertThat(titles(getJson("/api/v1/me/ai-tasks?agentState=INPUT_REQUIRED"))).isEmpty();
-    assertThat(counts("/api/v1/me/ai-tasks/counts"))
-        .isEqualTo(Map.of("all", 2, "inputRequired", 0, "review", 0, "blocked", 0, "working", 0));
+    assertThat(titles(getJson("/api/v1/me/ai-tasks?agentState=" + DONE_STATES))).isEmpty();
+    assertThat(counts("/api/v1/me/ai-tasks/counts")).isEqualTo(counts(1, 0, 0, 0, 1, 0));
   }
 
   @Test
@@ -493,18 +613,23 @@ class AiTasksControllerTest extends IntegrationTestBase {
         .execute();
   }
 
+  /** 종료된 작업 시드 — 종료 상태·종료 시각을 지정한다(마지막 보고 시각도 같게). */
+  private void endedWork(long issueId, long workerId, String state, Instant endedAt) {
+    dsl.insertInto(AGENT_WORK)
+        .set(AGENT_WORK.ISSUE_ID, issueId)
+        .set(AGENT_WORK.WORKER_ID, workerId)
+        .set(AGENT_WORK.TOOL, "claude-code")
+        .set(AGENT_WORK.STATE, state)
+        .set(AGENT_WORK.UPDATED_AT, endedAt.atOffset(ZoneOffset.UTC))
+        .set(AGENT_WORK.ENDED_AT, endedAt.atOffset(ZoneOffset.UTC))
+        .execute();
+  }
+
   private void endWork(long issueId) {
     dsl.update(AGENT_WORK)
         .set(AGENT_WORK.STATE, "COMPLETED")
         .set(AGENT_WORK.ENDED_AT, OffsetDateTime.now())
         .where(AGENT_WORK.ISSUE_ID.eq(issueId))
-        .execute();
-  }
-
-  private void setIssueUpdatedAt(long issueId, Instant at) {
-    dsl.update(ISSUE)
-        .set(ISSUE.UPDATED_AT, at.atOffset(ZoneOffset.UTC))
-        .where(ISSUE.ID.eq(issueId))
         .execute();
   }
 
@@ -559,6 +684,18 @@ class AiTasksControllerTest extends IntegrationTestBase {
     List<String> out = new ArrayList<>();
     page.get("items").forEach(it -> out.add(it.get("title").asText()));
     return out;
+  }
+
+  /** 기대 건수 맵 — 응답 필드 순서(미완료 all·답변·검토·막힘·작업 중·완료 done). */
+  private static Map<String, Integer> counts(
+      int all, int inputRequired, int review, int blocked, int working, int done) {
+    return Map.of(
+        "all", all,
+        "inputRequired", inputRequired,
+        "review", review,
+        "blocked", blocked,
+        "working", working,
+        "done", done);
   }
 
   @SuppressWarnings("unchecked")

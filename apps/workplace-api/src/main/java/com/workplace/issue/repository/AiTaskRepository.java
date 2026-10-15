@@ -28,6 +28,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.jooq.CaseWhenStep;
@@ -36,6 +37,7 @@ import org.jooq.DSLContext;
 import org.jooq.Field;
 import org.jooq.SelectField;
 import org.jooq.Table;
+import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
 /**
@@ -44,6 +46,9 @@ import org.springframework.stereotype.Repository;
  * 이슈(ASSISTED)" 로 좁히고, 사람이 할 일이 먼저 보이도록 급한 순(진행 중 작업 상태) → 마지막 보고 최근순 → id 로 정렬한다. WP-375 부터 이 정렬을
  * 에픽 묶음 단위로 감싸 한 에픽의 행이 연속으로 나온다 — 정렬 키 7개(묶음 순위, 묶음 최근 시각, 묶음 키, 머리 순서, rank, sortAt, id)를 같은 7개로
  * 된 복합 커서({@link AiTaskCursor})로 넘긴다.
+ *
+ * <p>WP-396 부터 보기가 둘로 나뉜다 — 미완료(기본: 진행 중 작업이 있는 이슈)와 완료(진행 중 작업 없이 종료 작업이 있는 이슈, 최근 종료순). 작업
+ * 기록(agent_work)이 하나도 없는 이슈는 AI 담당이어도 어느 보기에도 나오지 않는다.
  */
 @Repository
 @RequiredArgsConstructor
@@ -93,6 +98,11 @@ public class AiTaskRepository {
     return AgentWorkRepository.liveWork();
   }
 
+  /** 이 이슈(바깥 ISSUE 행)의 종료된 작업(ended_at 설정) — 완료 보기·정렬 시각용 상관 서브쿼리 조건(WP-396). */
+  private static Condition endedWorkOfIssue() {
+    return AGENT_WORK.ISSUE_ID.eq(ISSUE.ID).and(AGENT_WORK.ENDED_AT.isNotNull());
+  }
+
   /**
    * 작업 상태 → 급한 순위 CASE. 순서는 {@link AgentWorkState#ACTIVE} 에서 만든다 — 상태 목록을 SQL 에 따로 적으면 자바 쪽 순위와 어긋날
    * 수 있어서. 모르는 값은 ELSE 없이 NULL(→ MIN 에서 무시).
@@ -103,7 +113,7 @@ public class AiTaskRepository {
       Field<Integer> rank = inline(AgentWorkState.rank(state));
       c =
           c == null
-              ? org.jooq.impl.DSL.choose(AGENT_WORK.STATE).when(inline(state), rank)
+              ? DSL.choose(AGENT_WORK.STATE).when(inline(state), rank)
               : c.when(inline(state), rank);
     }
     return c;
@@ -115,10 +125,13 @@ public class AiTaskRepository {
           field(select(min(stateRankCase())).from(AGENT_WORK).where(activeWorkOfIssue())),
           inline(AgentWorkState.NO_WORK_RANK));
 
-  /** 정렬 키 2 — 진행 중 작업의 마지막 보고 시각(가장 최근), 작업이 없으면 이슈 수정 시각. */
+  /**
+   * 정렬 키 2 — 진행 중 작업의 마지막 보고 시각(가장 최근). 진행 중 작업이 없으면(완료 보기, WP-396) 가장 최근 종료 시각, 그것도 없으면 이슈 수정 시각.
+   */
   private static final Field<OffsetDateTime> SORT_AT =
       coalesce(
           field(select(max(AGENT_WORK.UPDATED_AT)).from(AGENT_WORK).where(activeWorkOfIssue())),
+          field(select(max(AGENT_WORK.ENDED_AT)).from(AGENT_WORK).where(endedWorkOfIssue())),
           ISSUE.UPDATED_AT);
 
   /**
@@ -130,10 +143,7 @@ public class AiTaskRepository {
    * 조건·RANK·SORT_AT 은 1단 FROM 의 ISSUE 를 참조한다(파생 테이블은 바깥 ISSUE 를 볼 수 없다).
    */
   public List<AiTaskRow> search(long callerId, AiTaskQuery q) {
-    Condition where = baseCondition(callerId, q);
-    if (q.agentStates() != null && !q.agentStates().isEmpty()) {
-      where = where.and(hasActiveWorkIn(q.agentStates()));
-    }
+    Condition where = baseCondition(callerId, q).and(stateCondition(q.agentStates()));
 
     var selfType = ISSUE_TYPE_DEF.as("ai_self_type");
     var parent = ISSUE.as("ai_parent");
@@ -280,13 +290,13 @@ public class AiTaskRepository {
   }
 
   /**
-   * 빠른 필터 칩 건수 — 한 쿼리에서 전체와 상태별(FILTER WHERE)을 함께 센다. 범위·이슈 상태·우선순위는 목록과 같고 agentState·커서는 무시한다. 한
-   * 이슈에 여러 작업이 있으면 해당 상태 작업이 하나라도 있는 칩마다 센다(목록의 agentState 필터와 같은 의미).
+   * 빠른 필터 칩 건수 — 한 쿼리에서 미완료(all)·상태별·완료(done)를 FILTER WHERE 로 함께 센다. 범위·이슈 상태·우선순위는 목록과 같고
+   * agentState·커서는 무시한다. 한 이슈에 여러 작업이 있으면 해당 상태 작업이 하나라도 있는 칩마다 센다(목록의 agentState 필터와 같은 의미).
    */
   public AiTaskCounts counts(long callerId, AiTaskQuery q) {
     var r =
         dsl.select(
-                count(),
+                count().filterWhere(hasLiveWork()),
                 count().filterWhere(hasActiveWorkIn(List.of(AgentWorkState.INPUT_REQUIRED))),
                 count().filterWhere(hasActiveWorkIn(List.of(AgentWorkState.REVIEW))),
                 // 막힘 칩은 BLOCKED 와 AUTH_REQUIRED(인증 필요) 를 함께 센다 — 둘 다 사람이 풀어 줘야 진행되는 멈춤.
@@ -294,11 +304,45 @@ public class AiTaskRepository {
                     .filterWhere(
                         hasActiveWorkIn(
                             List.of(AgentWorkState.BLOCKED, AgentWorkState.AUTH_REQUIRED))),
-                count().filterWhere(hasActiveWorkIn(List.of(AgentWorkState.WORKING))))
+                count().filterWhere(hasActiveWorkIn(List.of(AgentWorkState.WORKING))),
+                count().filterWhere(doneIn(AgentWorkState.TERMINAL)))
             .from(ISSUE)
             .where(baseCondition(callerId, q))
             .fetchOne();
-    return new AiTaskCounts(r.value1(), r.value2(), r.value3(), r.value4(), r.value5());
+    return new AiTaskCounts(r.value1(), r.value2(), r.value3(), r.value4(), r.value5(), r.value6());
+  }
+
+  /**
+   * AI 진행 상태 조건(WP-396). 비어 있으면 미완료 기본 보기 = 진행 중 작업이 있는 이슈. 진행 상태는 그 상태의 진행 중 작업이 있는 이슈, 종료 상태는 완료
+   * 보기 조건({@link #doneIn})이며 둘이 섞이면 OR. 작업 기록이 하나도 없는 이슈는 어느 조건에도 걸리지 않아 목록 밖이다.
+   */
+  private static Condition stateCondition(List<String> states) {
+    if (states == null || states.isEmpty()) return hasLiveWork();
+    List<String> active = states.stream().filter(AgentWorkState::isActive).toList();
+    List<String> terminal = states.stream().filter(AgentWorkState::isTerminal).toList();
+    Condition c = DSL.falseCondition();
+    if (!active.isEmpty()) c = c.or(hasActiveWorkIn(active));
+    if (!terminal.isEmpty()) c = c.or(doneIn(terminal));
+    return c;
+  }
+
+  /** 진행 중 작업이 하나라도 있는 이슈 — 미완료 보기. */
+  private static Condition hasLiveWork() {
+    return exists(selectOne().from(AGENT_WORK).where(activeWorkOfIssue()));
+  }
+
+  /**
+   * 완료 보기 — 진행 중 작업이 없고, 지정한 종료 상태의 종료 작업이 있는 이슈. 진행 중 작업이 하나라도 남으면 미완료 쪽이라 여기서 뺀다(두 보기는 배타적). 대표
+   * 배지는 가장 최근 종료 1건이라, 일부 종료 상태만 고르면 배지와 필터가 다를 수 있다(웹 칩은 종료 상태 넷을 함께 보낸다).
+   */
+  private static Condition doneIn(Collection<String> terminalStates) {
+    return DSL.not(hasLiveWork())
+        .and(
+            exists(
+                selectOne()
+                    .from(AGENT_WORK)
+                    .where(endedWorkOfIssue())
+                    .and(AGENT_WORK.STATE.in(terminalStates))));
   }
 
   /** 목록·건수 공용 조건 — 접근 범위 AND AI 작업 범위 AND 이슈 상태·우선순위 필터. */
@@ -315,8 +359,9 @@ public class AiTaskRepository {
   }
 
   /**
-   * AI 작업 범위 — DELEGATED(담당자에 AI 구성원) OR ASSISTED(사람의 진행 중 작업). "나와 관련"이면 DELEGATED 는 내가 만든 이슈만(기존
-   * 웹 규칙), ASSISTED 는 작업자가 나인 것만.
+   * AI 작업 범위 — DELEGATED(담당자에 AI 구성원) OR ASSISTED(사람의 AI 도구 작업 — 진행 중 국면이면 진행 중 작업, 완료 국면이면 종료 작업.
+   * WP-396: 끝낸 작업이 완료 보기에 나오도록). "나와 관련"이면 DELEGATED 는 내가 만든 이슈만(기존 웹 규칙), ASSISTED 는 작업자가 나인 것만.
+   * 작업 기록 존재는 보기 조건({@link #stateCondition})이 요구한다.
    */
   private static Condition aiScope(long callerId, boolean all) {
     Condition delegated =
@@ -327,19 +372,23 @@ public class AiTaskRepository {
                 .on(USER.ID.eq(ISSUE_ASSIGNEE.USER_ID))
                 .where(ISSUE_ASSIGNEE.ISSUE_ID.eq(ISSUE.ID))
                 .and(USER.KIND.eq(UserKind.AGENT)));
-    Condition humanWork = activeWorkOfIssue().and(USER.KIND.eq(UserKind.HUMAN));
+    Condition humanWork = AGENT_WORK.ISSUE_ID.eq(ISSUE.ID).and(USER.KIND.eq(UserKind.HUMAN));
     if (!all) {
       delegated = delegated.and(ISSUE.REPORTER_ID.eq(callerId));
       humanWork = humanWork.and(AGENT_WORK.WORKER_ID.eq(callerId));
     }
+    // ASSISTED 는 이슈의 현재 국면에 맞는 사람 작업으로 판정한다 — 진행 중 작업이 있으면 (나의) 진행 중 작업, 없으면(완료 국면) (나의) 종료 작업.
+    // 그냥 "기록 존재"로 보면 내가 예전에 끝낸 이슈를 남이 다시 작업할 때 내 미완료로 잡힌다.
     Condition assisted =
-        exists(
-            selectOne()
-                .from(AGENT_WORK)
-                .join(USER)
-                .on(USER.ID.eq(AGENT_WORK.WORKER_ID))
-                .where(humanWork));
+        humanWorkWhere(humanWork.and(activeWorkOfIssue()))
+            .or(DSL.not(hasLiveWork()).and(humanWorkWhere(humanWork.and(endedWorkOfIssue()))));
     return delegated.or(assisted);
+  }
+
+  /** 작업자(USER)와 조인한 작업 행 중 조건에 맞는 것이 있는 이슈 — ASSISTED 판정용. */
+  private static Condition humanWorkWhere(Condition c) {
+    return exists(
+        selectOne().from(AGENT_WORK).join(USER).on(USER.ID.eq(AGENT_WORK.WORKER_ID)).where(c));
   }
 
   /** 진행 중 작업 중 지정 상태가 하나라도 있는 이슈. */

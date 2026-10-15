@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { aiTaskParams } from './aiTaskParams'
+import { aiTaskParams, QUICK_STATE_META, QUICK_STATES } from './aiTaskParams'
 
 // URL → /me/ai-tasks 목록·건수 요청 파라미터. 건수는 빠른 필터(agentState)를 빼야 칩마다 전체 건수를 보여 줄 수 있다.
 describe('aiTaskParams', () => {
@@ -19,7 +19,21 @@ describe('aiTaskParams', () => {
     expect(out.counts).toEqual({ scope: 'MINE' })
   })
 
-  it('아무것도 없으면 나와 관련(MINE)·전체 상태', () => {
+  it('완료 칩(state=DONE)은 종료 상태 넷을 함께 요청하고 건수 요청엔 싣지 않는다(WP-396)', () => {
+    const out = aiTaskParams(new URLSearchParams('state=DONE&scope=all'))
+    expect(out.state).toBe('DONE')
+    expect(out.list).toEqual({ scope: 'ALL', agentState: 'COMPLETED,FAILED,CANCELED,REJECTED' })
+    expect(out.counts).toEqual({ scope: 'ALL' })
+    expect(out.filtered).toBe(true)
+  })
+
+  it('칩 순서는 미완료 다음 답변·검토·막힘·작업 중, 마지막이 완료 — 칩 라벨·건수 키', () => {
+    expect(QUICK_STATES).toEqual(['INPUT_REQUIRED', 'REVIEW', 'BLOCKED', 'WORKING', 'DONE'])
+    expect(QUICK_STATE_META.DONE).toMatchObject({ countKey: 'done', label: '완료' })
+    expect(QUICK_STATE_META.INPUT_REQUIRED.label).toBe('답변 필요')
+  })
+
+  it('아무것도 없으면 나와 관련(MINE)·미완료(state 없음)', () => {
     const out = aiTaskParams(new URLSearchParams(''))
     expect(out.list).toEqual({ scope: 'MINE' })
     expect(out.counts).toEqual({ scope: 'MINE' })

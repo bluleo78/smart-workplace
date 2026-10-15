@@ -11,6 +11,40 @@ export const AGENT_STATE_LABEL: Record<AgentWorkState | 'NOT_STARTED', string> =
   PAUSED: '일시 중지',
   SUBMITTED: '시작 전',
   NOT_STARTED: '시작 전',
+  // 종료 상태 — AI 위임 작업 「완료」 보기의 행 배지(WP-396). 반려 = 작업자가 맡기를 거절.
+  COMPLETED: '완료',
+  FAILED: '실패',
+  CANCELED: '취소',
+  REJECTED: '반려',
+}
+
+/** 종료 상태 — 서버 AgentWorkState.TERMINAL 과 같은 넷. AI 위임 작업 「완료」 칩이 이 묶음으로 요청한다(WP-396). */
+export const TERMINAL_AGENT_STATES: AgentWorkState[] = ['COMPLETED', 'FAILED', 'CANCELED', 'REJECTED']
+
+/** 배지 톤 — action/info 는 AI 판단신호 배지, 나머지는 일반 Badge variant(muted = 흐린 윤곽). */
+export type AgentStateTone = 'action' | 'info' | 'warning' | 'success' | 'destructive' | 'muted'
+
+/**
+ * 상태별 배지 톤 — 사람이 할 일(답변·인증·검토)은 action, 작업 중은 info, 막힘은 경고.
+ * 종료 결과는 실제 결과가 구분되게: 완료 성공·실패 위험, 취소·반려는 중립(일시 중지·시작 전과 같은 흐린 윤곽).
+ */
+export function agentStateTone(state: AgentWorkState | 'NOT_STARTED'): AgentStateTone {
+  switch (state) {
+    case 'INPUT_REQUIRED':
+    case 'AUTH_REQUIRED':
+    case 'REVIEW':
+      return 'action'
+    case 'WORKING':
+      return 'info'
+    case 'BLOCKED':
+      return 'warning'
+    case 'COMPLETED':
+      return 'success'
+    case 'FAILED':
+      return 'destructive'
+    default:
+      return 'muted'
+  }
 }
 
 /** 2시간 넘게 보고가 없을 때(stale) 툴팁. */

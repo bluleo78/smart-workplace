@@ -29,9 +29,9 @@ export function createAgentWork(overrides: Partial<AgentWorkView> = {}): AgentWo
   }
 }
 
-/** 상태별 건수 응답 — 기본 모두 0(blocked 는 막힘 + 인증 필요 합). */
+/** 상태별 건수 응답 — 기본 모두 0(all 은 미완료, blocked 는 막힘 + 인증 필요 합, done 은 완료). */
 export function createAiTaskCounts(overrides: Partial<AiTaskCounts> = {}): AiTaskCounts {
-  return { all: 0, inputRequired: 0, review: 0, blocked: 0, working: 0, ...overrides }
+  return { all: 0, inputRequired: 0, review: 0, blocked: 0, working: 0, done: 0, ...overrides }
 }
 
 /**

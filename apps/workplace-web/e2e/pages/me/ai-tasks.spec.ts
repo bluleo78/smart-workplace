@@ -152,6 +152,8 @@ test('전체 범위·빠른 필터 칩이 URL 과 요청에 반영되고, 칩 �
   await expect(page.getByTestId('ai-quick-count-blocked')).toHaveText('3')
   await expect(page.getByTestId('ai-quick-count-working')).toHaveText('2')
   await expect(page.getByTestId('ai-quick-inputRequired')).toContainText('답변 필요')
+  // 기본 칩은 「미완료」(옛 「전체」 자리) — 범위 버튼 「전체」와도 겹치지 않는다(WP-396).
+  await expect(page.getByTestId('ai-quick-all')).toContainText('미완료')
 
   await page.getByTestId('ai-scope-all').click()
   await expect(page).toHaveURL(/[?&]scope=all/)
@@ -168,7 +170,7 @@ test('전체 범위·빠른 필터 칩이 URL 과 요청에 반영되고, 칩 �
   expect(list.lastRequest()?.searchParams.get('scope')).toBe('ALL')
   expect(cnt.requests.every((r) => !r.searchParams.has('agentState'))).toBe(true)
 
-  // 전체 칩 → state 제거, 나와 관련 → scope 제거(이미 받은 조합은 캐시로 그려 요청이 다시 안 날 수 있어 URL·눌림으로 본다).
+  // 미완료 칩 → state 제거, 나와 관련 → scope 제거(이미 받은 조합은 캐시로 그려 요청이 다시 안 날 수 있어 URL·눌림으로 본다).
   await page.getByTestId('ai-quick-all').click()
   await expect(page.getByTestId('ai-quick-all')).toHaveAttribute('aria-pressed', 'true')
   await expect.poll(() => new URL(page.url()).searchParams.has('state')).toBe(false)
@@ -190,7 +192,55 @@ test('막힘 칩은 agentState=BLOCKED,AUTH_REQUIRED 로 요청하고 blocked �
   await expect.poll(() => list.lastRequest()?.searchParams.get('agentState')).toBe('BLOCKED,AUTH_REQUIRED')
 })
 
-test('옛 링크의 state=WAITING 은 무시하고 전체로 보여 준다', async ({ authenticatedPage: page }) => {
+// WP-396: 완료 칩 — 미완료와 배타인 별도 보기. 종료 상태 넷을 쉼표 목록으로 요청하고, 행 배지는 실제 결과(완료·실패·취소·반려)를 톤으로 구분한다.
+const DONE_ROWS: IssueResponse[] = [
+  createIssue({
+    id: 501, number: 501, title: '결제 웹훅 재시도 정책 정리', status: 'DONE', assignees: [agent],
+    agentWork: [createAgentWork({ state: 'COMPLETED', note: 'PR #530 병합 완료', progress: 100, updatedAt: minutesAgo(20) })],
+  }),
+  createIssue({
+    id: 502, number: 502, title: '대용량 첨부 미리보기 생성 실패 원인 조사', status: 'IN_PROGRESS', assignees: [agent],
+    agentWork: [createAgentWork({ state: 'FAILED', note: '샌드박스 메모리 한도 초과로 중단', updatedAt: minutesAgo(90) })],
+  }),
+  createIssue({
+    id: 503, number: 503, title: '구 알림 설정 마이그레이션', status: 'CANCELED', assignees: [agent],
+    agentWork: [createAgentWork({ state: 'CANCELED', updatedAt: minutesAgo(200) })],
+  }),
+  createIssue({
+    id: 504, number: 504, title: '외부 저장소 권한 없는 작업', status: 'TODO', assignees: [human],
+    agentWork: [createAgentWork({ worker: human, state: 'REJECTED', note: '권한 밖 저장소라 맡지 않아요', updatedAt: minutesAgo(300) })],
+  }),
+]
+
+test('완료 칩은 종료 상태로 요청하고 done 건수, 행 배지는 결과별 톤', async ({ authenticatedPage: page }) => {
+  const { list, cnt } = await setup(page, DONE_ROWS, createAiTaskCounts({ all: 6, done: 4 }))
+  await page.goto('/me/ai-tasks')
+  await list.waitForRequest()
+  // 칩 순서 — 미완료·답변 필요·검토 필요·막힘·작업 중·완료.
+  const chipIds = await page.getByTestId('ai-quick-chips').locator('button').evaluateAll((els) => els.map((e) => e.getAttribute('data-testid')))
+  expect(chipIds).toEqual(['ai-quick-all', 'ai-quick-inputRequired', 'ai-quick-review', 'ai-quick-blocked', 'ai-quick-working', 'ai-quick-done'])
+  await expect(page.getByTestId('ai-quick-done')).toContainText('완료')
+  await expect(page.getByTestId('ai-quick-count-done')).toHaveText('4')
+
+  await page.getByTestId('ai-quick-done').click()
+  await expect(page).toHaveURL(/[?&]state=DONE/)
+  await expect(page.getByTestId('ai-quick-done')).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByTestId('ai-quick-all')).toHaveAttribute('aria-pressed', 'false')
+  await expect.poll(() => list.lastRequest()?.searchParams.get('agentState')).toBe('COMPLETED,FAILED,CANCELED,REJECTED')
+  expect(cnt.requests.every((r) => !r.searchParams.has('agentState'))).toBe(true)
+
+  // 결과별 배지 — 완료 success·실패 destructive·취소·반려 중립 윤곽.
+  await expect(page.getByTestId('ai-row-501-state')).toHaveText('완료')
+  await expect(page.getByTestId('ai-row-501-state')).toHaveAttribute('data-variant', 'success')
+  await expect(page.getByTestId('ai-row-502-state')).toHaveText('실패')
+  await expect(page.getByTestId('ai-row-502-state')).toHaveAttribute('data-variant', 'destructive')
+  await expect(page.getByTestId('ai-row-503-state')).toHaveText('취소')
+  await expect(page.getByTestId('ai-row-503-state')).toHaveAttribute('data-variant', 'outline')
+  await expect(page.getByTestId('ai-row-504-state')).toHaveText('반려')
+  await expect(page.getByTestId('ai-row-504-state')).toHaveAttribute('data-variant', 'outline')
+})
+
+test('옛 링크의 state=WAITING 은 무시하고 미완료로 보여 준다', async ({ authenticatedPage: page }) => {
   const { list } = await setup(page)
   await page.goto('/me/ai-tasks?state=WAITING')
   const req = await list.waitForRequest()

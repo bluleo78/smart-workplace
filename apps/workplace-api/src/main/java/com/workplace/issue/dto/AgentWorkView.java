@@ -5,8 +5,9 @@ import com.workplace.issue.repository.AgentWorkRepository.AgentWorkWithWorker;
 import java.time.Instant;
 
 /**
- * 이슈 응답에 싣는 진행 중 AI 작업 1건(WP-377). stale 은 "무소식" 표시용 — 작업 중인데 일정 시간 보고가 없는 경우만 true(답변 필요·검토 필요 등
- * 사람이 기다리는 상태는 보고가 없는 게 정상이라 경고하지 않는다). tool 은 아직 착수 전(SUBMITTED)이라 도구를 모르면 null 일 수 있다.
+ * 이슈 응답에 싣는 AI 작업 1건(WP-377) — 보통 진행 중 작업이고, AI 위임 작업 「완료」 보기에서만 가장 최근 종료 작업이 대표로 실린다(WP-396).
+ * stale 은 "무소식" 표시용 — 작업 중인데 일정 시간 보고가 없는 경우만 true(답변 필요·검토 필요 등 사람이 기다리는 상태는 보고가 없는 게 정상이라 경고하지
+ * 않는다). tool 은 아직 착수 전(SUBMITTED)이라 도구를 모르면 null 일 수 있다.
  */
 public record AgentWorkView(
     UserSummary worker,

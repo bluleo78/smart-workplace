@@ -16,6 +16,7 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -466,14 +467,48 @@ public class AgentWorkRepository {
             .fetch();
     Map<Long, List<AgentWorkWithWorker>> result = new LinkedHashMap<>();
     for (Record r : rows) {
-      var row = toRow(r);
-      var worker =
-          new UserSummary(row.workerId(), r.get(USER.USERNAME), r.get(USER.NAME), r.get(USER.KIND));
-      result
-          .computeIfAbsent(row.issueId(), k -> new ArrayList<>())
-          .add(new AgentWorkWithWorker(row, worker, Boolean.TRUE.equals(r.get(staleField))));
+      var w = withWorker(r, Boolean.TRUE.equals(r.get(staleField)));
+      result.computeIfAbsent(w.work().issueId(), k -> new ArrayList<>()).add(w);
     }
     return result;
+  }
+
+  /**
+   * 이슈별 가장 최근에 종료된 작업 1건(작업자 요약 포함, WP-396) — AI 위임 작업 「완료」 보기의 대표 배지용. 종료 시각 최근순, 같으면 취소가 아닌 것 →
+   * id 큰 것. 종료 작업이 없는 이슈는 키가 없다. 끝난 작업이라 stale 은 항상 false.
+   */
+  public Map<Long, AgentWorkWithWorker> findLatestEndedByIssueIds(Collection<Long> issueIds) {
+    if (issueIds == null || issueIds.isEmpty()) return Map.of();
+    var rows =
+        dsl.select(AGENT_WORK.fields())
+            .select(USER.USERNAME, USER.NAME, USER.KIND)
+            .distinctOn(AGENT_WORK.ISSUE_ID)
+            .from(AGENT_WORK)
+            .join(USER)
+            .on(USER.ID.eq(AGENT_WORK.WORKER_ID))
+            .where(AGENT_WORK.ISSUE_ID.in(issueIds))
+            .and(AGENT_WORK.ENDED_AT.isNotNull())
+            // 같은 종료 시각(이슈 완료가 한 문장으로 닫음)이면 착수 전이라 취소된 행보다 실제 결과를 대표로 고른다.
+            .orderBy(
+                AGENT_WORK.ISSUE_ID,
+                AGENT_WORK.ENDED_AT.desc(),
+                DSL.when(AGENT_WORK.STATE.eq(AgentWorkState.CANCELED), 1).otherwise(0),
+                AGENT_WORK.ID.desc())
+            .fetch();
+    Map<Long, AgentWorkWithWorker> result = new HashMap<>();
+    for (Record r : rows) {
+      var w = withWorker(r, false);
+      result.put(w.work().issueId(), w);
+    }
+    return result;
+  }
+
+  /** AGENT_WORK 컬럼 + 작업자(USERNAME·NAME·KIND) 를 가진 Record → 작업 행 + 작업자 요약. */
+  private static AgentWorkWithWorker withWorker(Record r, boolean stale) {
+    var row = toRow(r);
+    var worker =
+        new UserSummary(row.workerId(), r.get(USER.USERNAME), r.get(USER.NAME), r.get(USER.KIND));
+    return new AgentWorkWithWorker(row, worker, stale);
   }
 
   /**

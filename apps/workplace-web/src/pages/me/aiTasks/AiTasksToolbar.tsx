@@ -1,29 +1,30 @@
-// AI 위임 작업 툴바(WP-377) — 1줄: 범위(나와 관련/전체) + 기존 facet 필터, 2줄: AI 진행 빠른 필터 칩(건수).
+// AI 위임 작업 툴바(WP-377) — 1줄: 범위(나와 관련/전체) + 기존 facet 필터, 2줄: AI 진행 빠른 필터 칩(건수) — 미완료·상태 넷·완료(WP-396).
 // 모든 선택은 URL(scope·state)에 쓰고 읽는다 — 새로고침·링크 공유에도 같은 화면, 다른 쿼리 키(status/priority)는 보존.
 import { useSearchParams } from 'react-router-dom'
 
 import type { AiTaskCounts } from '@/api/aiTasks'
 import { Button } from '@/components/ui/button'
-import { AGENT_STATE_LABEL } from '@/lib/agentWork'
 import { TOGGLE_ON_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
 import { HIDE_SCROLLBAR } from '@/pages/projects/components/mobile/chipStyles'
 
 import { MeTaskFilterBar } from '../MeTaskFilterBar'
-import { QUICK_STATE_META, QUICK_STATES, type QuickState } from './aiTaskParams'
+import { QUICK_STATE_META, QUICK_STATES, type QuickCountKey, type QuickState } from './aiTaskParams'
 
-/** 칩 키 — testid·건수 키로 함께 쓴다(counts 응답 필드명과 같다). */
-type ChipKey = 'all' | 'inputRequired' | 'review' | 'blocked' | 'working'
+/** 칩 키 — testid·건수 키로 함께 쓴다(counts 응답 필드명과 같다). 미완료 칩은 옛 「전체」 자리라 키 all 을 그대로 쓴다. */
+type ChipKey = 'all' | QuickCountKey
 
 const SCOPES = [
   { key: 'mine', label: '나와 관련' },
   { key: 'all', label: '전체' },
 ] as const
 
-// 전체 칩 + 상태 칩 — 상태 칩의 키는 counts 필드명과 같다.
+// 미완료 칩 + 상태 칩 + 완료 칩(WP-396) — 상태 칩의 키는 counts 필드명과 같다. 모두 배타적 단일 선택.
+// 기본 칩 라벨은 「미완료」(진행 중 작업이 있는 이슈 전부). 「진행 중」이 아닌 이유: 하위 칩 「작업 중」(WORKING)과 헷갈리고,
+// 이슈 상태 facet(할 일/진행 중/완료/취소)의 「진행 중」과도 단어가 겹친다.
 const CHIPS: { key: ChipKey; label: string; state: QuickState | null }[] = [
-  { key: 'all', label: '전체', state: null },
-  ...QUICK_STATES.map((s) => ({ key: QUICK_STATE_META[s].countKey, label: AGENT_STATE_LABEL[s], state: s })),
+  { key: 'all', label: '미완료', state: null },
+  ...QUICK_STATES.map((s) => ({ key: QUICK_STATE_META[s].countKey, label: QUICK_STATE_META[s].label, state: s })),
 ]
 
 export function AiTasksToolbar({
@@ -38,7 +39,7 @@ export function AiTasksToolbar({
 }) {
   const [params, setParams] = useSearchParams()
 
-  // 한 키만 바꾸고 나머지 쿼리(facet 등)는 보존. 기본값(나와 관련·전체 칩)은 키를 지워 URL 을 짧게 둔다.
+  // 한 키만 바꾸고 나머지 쿼리(facet 등)는 보존. 기본값(나와 관련·미완료 칩)은 키를 지워 URL 을 짧게 둔다.
   const setParam = (key: 'scope' | 'state', value: string | null) => {
     const next = new URLSearchParams(params)
     if (value) next.set(key, value)

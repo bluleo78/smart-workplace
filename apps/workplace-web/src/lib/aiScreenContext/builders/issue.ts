@@ -132,7 +132,7 @@ export function buildAiTasksContext(input: {
   facets: Record<string, string>;
   count?: number;
   scope?: 'mine' | 'all';
-  /** 켜진 빠른 필터 칩 라벨(답변 필요 등) — 전체 칩이면 없음. */
+  /** 켜진 빠른 필터 칩 라벨(답변 필요·완료 등) — 미완료(기본) 칩이면 없음. */
   stateLabel?: string | null;
 }): AiScreenContext {
   const facts = buildFacts([

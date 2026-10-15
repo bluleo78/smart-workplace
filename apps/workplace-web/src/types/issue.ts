@@ -30,8 +30,9 @@ export interface IssueLinkSummary {
   dueDate: string | null;
 }
 
-// AI 에이전트 작업 상태(진행 중인 행만) — 서버 AgentWorkState 의 ACTIVE 와 1:1, A2A 1.0 어휘 + 플랫폼 확장(REVIEW·BLOCKED·PAUSED) (WP-377).
-// 종료 상태(COMPLETED·FAILED·CANCELED·REJECTED)는 목록에 내려오지 않는다.
+// AI 에이전트 작업 상태 — 서버 AgentWorkState 와 1:1, A2A 1.0 어휘 + 플랫폼 확장(REVIEW·BLOCKED·PAUSED) (WP-377).
+// 진행 상태 7종은 어디서나 내려오고, 종료 상태(COMPLETED·FAILED·CANCELED·REJECTED)는 AI 위임 작업 「완료」 보기의
+// 대표 작업(진행 중 작업이 없는 이슈의 가장 최근 종료 1건)으로만 내려온다(WP-396).
 export type AgentWorkState =
   | 'SUBMITTED'
   | 'WORKING'
@@ -39,9 +40,13 @@ export type AgentWorkState =
   | 'AUTH_REQUIRED'
   | 'REVIEW'
   | 'BLOCKED'
-  | 'PAUSED';
+  | 'PAUSED'
+  | 'COMPLETED'
+  | 'FAILED'
+  | 'CANCELED'
+  | 'REJECTED';
 
-// 이슈에 걸린 AI 작업 한 건 — 서버가 급한 순(대표 먼저)으로 내려준다.
+// 이슈에 걸린 AI 작업 한 건 — 서버가 급한 순(대표 먼저)으로 내려준다. 종료 작업은 /me/ai-tasks 완료 보기의 대표 1건뿐(WP-396).
 export interface AgentWorkView {
   worker: UserSummary;
   // 시작 전(SUBMITTED) 행은 아직 도구를 몰라 null.

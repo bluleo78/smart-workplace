@@ -63,6 +63,13 @@ public class AgentWorkService {
                 e -> e.getValue().stream().map(AgentWorkView::of).sorted(URGENCY_ORDER).toList()));
   }
 
+  /** 이슈별 가장 최근 종료 작업 1건의 뷰(WP-396 — AI 위임 작업 「완료」 보기의 대표 배지). 종료 작업이 없는 이슈는 키가 없다. */
+  @Transactional(readOnly = true)
+  public Map<Long, AgentWorkView> latestEndedViewByIssueIds(Collection<Long> issueIds) {
+    return repository.findLatestEndedByIssueIds(issueIds).entrySet().stream()
+        .collect(Collectors.toMap(Map.Entry::getKey, e -> AgentWorkView.of(e.getValue())));
+  }
+
   /**
    * 보고 — (이슈, 작업자)의 진행 중 작업이 없으면 만들고(상태 미지정 시 WORKING) 있으면 보낸 필드만 갱신한다. tool 은 항상 최신 값으로 덮는다. 변경
    * 알림을 낸다.

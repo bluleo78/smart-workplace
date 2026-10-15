@@ -36,6 +36,7 @@ public class AiTaskSearchService {
   private final IssueSearchService issueSearchService;
   private final ProjectRepository projectRepository;
   private final IssueRepository issueRepository;
+  private final AgentWorkService agentWorkService;
 
   /** 에픽 묶음 단위 급한 순 한 페이지(WP-375). 마지막 행의 정렬 키 7개가 다음 커서, 에픽 묶음 행에는 aiGroup 을 싣는다. */
   public IssueSearchResponse search(long callerId, Map<String, String> params) {
@@ -47,7 +48,9 @@ public class AiTaskSearchService {
         projectRepository.keysByIds(
             issueRows.stream().map(IssueRow::projectId).distinct().toList());
     // assembleItems 는 입력 순서를 보존한다 — rows 와 같은 인덱스로 묶음 정보를 붙인다.
-    var items = issueSearchService.assembleItems(issueRows, pid -> keyById.getOrDefault(pid, ""));
+    var items =
+        withLatestEndedWork(
+            issueSearchService.assembleItems(issueRows, pid -> keyById.getOrDefault(pid, "")));
 
     // 에픽 묶음의 하위 진행(└ n/m) — 에픽 행이 이 페이지에 없어도 머리에 그릴 수 있게 묶음 키(에픽 id)로 한 번에 센다.
     List<Long> epicIds =
@@ -83,6 +86,27 @@ public class AiTaskSearchService {
     return new IssueSearchResponse(withGroups, nextCursor, hasMore);
   }
 
+  /**
+   * 진행 중 작업이 없는 행(완료 보기, WP-396)에 가장 최근 종료 작업 1건을 대표로 싣는다 — 행 배지가 실제 결과(완료·실패·취소·반려)를 보이도록. 이슈 공통
+   * 조립(assembleItems)은 진행 중 작업만 싣고 다른 화면도 쓰므로, 종료 작업 보충은 이 화면에서만 한다. 입력 순서를 보존한다.
+   */
+  private List<IssueResponse> withLatestEndedWork(List<IssueResponse> items) {
+    List<Long> idle =
+        items.stream()
+            .filter(it -> it.agentWork() == null || it.agentWork().isEmpty())
+            .map(IssueResponse::id)
+            .toList();
+    if (idle.isEmpty()) return items;
+    var latest = agentWorkService.latestEndedViewByIssueIds(idle);
+    return items.stream()
+        .map(
+            it -> {
+              var ended = latest.get(it.id());
+              return ended == null ? it : it.withAgentWork(List.of(ended));
+            })
+        .toList();
+  }
+
   /** 빠른 필터 칩 건수. agentState·cursor·size 는 무시된다. */
   public AiTaskCounts counts(long callerId, Map<String, String> params) {
     return aiTaskRepository.counts(callerId, parse(params));
@@ -90,12 +114,15 @@ public class AiTaskSearchService {
 
   /**
    * 파라미터 정규화. scope 는 대소문자 무시 ALL 만 전체(그 외 "나와 관련"), size 기본 30·최대 100, CSV 는 trim·빈 값 제외,
-   * agentState 는 진행 중 상태만 남기고 모르는 값은 무시한다. 잘못된 cursor 는 InvalidCursorException(400).
+   * agentState 는 진행 중·종료 상태만 남기고(종료 상태 = 완료 보기, WP-396) 모르는 값은 무시한다. 잘못된 cursor 는
+   * InvalidCursorException(400).
    */
   AiTaskQuery parse(Map<String, String> p) {
     boolean all = "ALL".equalsIgnoreCase(trimToNull(p.get("scope")));
     List<String> agentStates =
-        csv(p.get("agentState")).stream().filter(AgentWorkState::isActive).toList();
+        csv(p.get("agentState")).stream()
+            .filter(s -> AgentWorkState.isActive(s) || AgentWorkState.isTerminal(s))
+            .toList();
 
     String cursorStr = trimToNull(p.get("cursor"));
     AiTaskCursor cursor = cursorStr == null ? null : AiTaskCursor.decode(cursorStr);

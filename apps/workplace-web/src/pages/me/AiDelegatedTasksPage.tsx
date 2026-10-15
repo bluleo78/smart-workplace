@@ -11,7 +11,6 @@ import { Button } from '@/components/ui/button'
 import { LoadMoreFooter } from '@/components/ui/load-more-footer'
 import { useAiTaskCounts, useAiTasks } from '@/hooks/queries/useAiTasks'
 import { useIsMobile } from '@/hooks/useIsMobile'
-import { AGENT_STATE_LABEL } from '@/lib/agentWork'
 import { buildAiTasksContext } from '@/lib/aiScreenContext/builders/issue'
 import { cn } from '@/lib/utils'
 
@@ -29,14 +28,14 @@ export default function AiDelegatedTasksPage() {
   const countsQuery = useAiTaskCounts(counts)
   const isMobile = useIsMobile()
 
-  // WP-54: AI 화면 컨텍스트 — 범위·켜진 칩·facet + 보이는 집합의 서버 건수(칩이 켜졌으면 그 칩 건수, 아니면 all).
+  // WP-54: AI 화면 컨텍스트 — 범위·켜진 칩·facet + 보이는 집합의 서버 건수(칩이 켜졌으면 그 칩 건수, 아니면 미완료 all).
   // 건수를 받기 전·이전 조건의 자리채움(keepPreviousData) 값일 땐 생략(현재 조건으로 로드 안 된 값은 보내지 않는다).
   const visibleCount = countsQuery.data && !countsQuery.isPlaceholderData
     ? state
       ? countsQuery.data[QUICK_STATE_META[state].countKey]
       : countsQuery.data.all
     : undefined
-  const stateLabel = state ? AGENT_STATE_LABEL[state] : null
+  const stateLabel = state ? QUICK_STATE_META[state].label : null
   useRegisterAiScreenContext(
     useMemo(
       () => buildAiTasksContext({ facets, count: visibleCount, scope, stateLabel }),
