@@ -4,8 +4,10 @@
 
 import { useState } from 'react';
 
+import { settingsFieldClass, SettingsSection } from '@/components/layout/SettingsSection';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { cn } from '@/lib/utils';
 
 import { LabelChip } from '../../../components/labels/LabelChip';
 import { DeleteConfirmDialog } from '../../../components/ui/delete-confirm-dialog';
@@ -56,8 +58,7 @@ export function LabelManagement({
   }
 
   return (
-    <section className="space-y-3" aria-label="라벨 관리">
-      <h2 className="text-lg font-semibold">라벨</h2>
+    <SettingsSection title="라벨" description="이슈를 분류하는 색 꼬리표예요.">
 
       {canCreate && (
         <form
@@ -68,7 +69,7 @@ export function LabelManagement({
           className="flex flex-wrap gap-2 items-end"
           data-testid="label-create-form"
         >
-          <div className="flex-1 min-w-[160px] space-y-1">
+          <div className={cn('flex-1 min-w-[160px] space-y-1', settingsFieldClass)}>
             <label className="text-sm font-medium" htmlFor="new-label-name">
               이름
             </label>
@@ -80,9 +81,10 @@ export function LabelManagement({
               placeholder="예: 버그"
             />
           </div>
+          {/* 견본 줄을 입력(h-9) 높이에 맞춰야 items-end 정렬에서 '색상' 라벨이 '이름' 라벨과 같은 줄에 선다(WP-397). */}
           <div className="space-y-1">
             <span className="text-sm font-medium">색상</span>
-            <div role="group" aria-label="라벨 색상" className="flex gap-1 flex-wrap">
+            <div role="group" aria-label="라벨 색상" className="flex min-h-9 items-center gap-1 flex-wrap">
               {COLOR_TOKENS.map((tok) => (
                 <button
                   key={tok}
@@ -164,6 +166,6 @@ export function LabelManagement({
         }}
         onClose={() => setRenameTarget(null)}
       />
-    </section>
+    </SettingsSection>
   );
 }

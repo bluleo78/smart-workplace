@@ -3,8 +3,10 @@
 
 import { useState } from 'react';
 
+import { settingsFieldClass, SettingsSection } from '@/components/layout/SettingsSection';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { cn } from '@/lib/utils';
 
 import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
 import { DeleteConfirmDialog } from '../../../components/ui/delete-confirm-dialog';
@@ -57,8 +59,7 @@ export function IssueTypeManagement({
   }
 
   return (
-    <section className="space-y-3" aria-label="이슈 유형 관리">
-      <h2 className="text-lg font-semibold">이슈 유형</h2>
+    <SettingsSection title="이슈 유형" description="이슈를 만들 때 고르는 종류예요.">
 
       {isOwner && (
         <form
@@ -69,8 +70,8 @@ export function IssueTypeManagement({
           className="flex flex-wrap gap-3 items-end"
           data-testid="issue-type-create-form"
         >
-          <div className="flex-1 min-w-[160px] space-y-1">
-            <label className="text-sm font-medium" htmlFor="new-type-name">
+          <div className={cn('flex-1 min-w-[160px] space-y-1', settingsFieldClass)}>
+            <label className="text-sm font-medium block" htmlFor="new-type-name">
               이름
             </label>
             <Input
@@ -81,9 +82,10 @@ export function IssueTypeManagement({
               aria-label="이름"
             />
           </div>
+          {/* 견본 줄을 입력(h-9) 높이에 맞춰야 items-end 정렬에서 '색상' 라벨이 '이름' 라벨과 같은 줄에 선다(WP-397). */}
           <div className="space-y-1">
             <span className="text-sm font-medium block">색상</span>
-            <div role="group" aria-label="유형 색상" className="flex gap-1">
+            <div role="group" aria-label="유형 색상" className="flex min-h-9 items-center gap-1">
               {COLOR_TOKENS.map((tok) => (
                 <button
                   key={tok}
@@ -100,7 +102,7 @@ export function IssueTypeManagement({
           </div>
           <div className="space-y-1">
             <span className="text-sm font-medium block">아이콘</span>
-            <div role="group" aria-label="유형 아이콘" className="flex gap-1">
+            <div role="group" aria-label="유형 아이콘" className="flex min-h-9 items-center gap-1">
               {ICON_NAMES.map((n) => {
                 const I = ISSUE_TYPE_ICONS[n];
                 return (
@@ -197,6 +199,6 @@ export function IssueTypeManagement({
         }}
         onClose={() => setRenameTarget(null)}
       />
-    </section>
+    </SettingsSection>
   );
 }

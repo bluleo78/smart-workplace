@@ -6,8 +6,8 @@ import { expect, test } from '../../fixtures/auth.fixture'
 test.describe('프로필 설정 — 비밀번호 표시/숨김 토글', () => {
   test.beforeEach(async ({ authenticatedPage: page }) => {
     await page.goto('/settings/profile')
-    // 비밀번호 변경 카드 헤더가 렌더링될 때까지 대기 (CardTitle: div[data-slot=card-title])
-    await expect(page.locator('[data-slot="card-title"]:has-text("비밀번호 변경")')).toBeVisible()
+    // 비밀번호 변경 섹션 제목(h2)이 렌더링될 때까지 대기 (WP-397 주석 섹션)
+    await expect(page.getByRole('heading', { level: 2, name: '비밀번호 변경', exact: true })).toBeVisible()
   })
 
   // 각 필드의 초기 상태(password), 토글 후 상태(text), 재토글(password) 파이프라인 검증

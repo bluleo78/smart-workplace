@@ -3,7 +3,7 @@
 import { useState } from 'react'
 
 import { SettingsPage } from '@/components/layout/SettingsPage'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { SettingsSection, SettingsToggleGroup, SettingsToggleRow } from '@/components/layout/SettingsSection'
 import { Switch } from '@/components/ui/switch'
 import {
   useDevicePush,
@@ -30,7 +30,8 @@ export default function NotificationSettingsPage() {
   const prefs = usePushPreferences(enabled)
   const updatePref = useUpdatePushPreference()
   const device = useDevicePush()
-  const enablePush = useEnablePush()
+  // 즉시 적용 토글이라 스위치 상태가 피드백 — 성공 토스트는 끈다(오른쪽 끝 토글을 가림).
+  const enablePush = useEnablePush({ successToast: false })
   const disablePush = useDisablePush()
   // 권한 요청 결과로 바뀌므로 상태로 들고 클릭 후 다시 읽는다.
   const [support, setSupport] = useState<PushSupport>(() => getPushSupport())
@@ -55,24 +56,19 @@ export default function NotificationSettingsPage() {
   return (
     <SettingsPage title="알림" width="form" data-testid="notification-settings-page">
       {config.isSuccess && !enabled && (
-        <Card data-testid="push-disabled-notice">
-          <CardHeader>
-            <CardTitle>푸시 알림을 사용할 수 없습니다</CardTitle>
-            <CardDescription>이 서버에서는 푸시 알림이 꺼져 있습니다. 앱을 열어 둔 동안에는 인박스로 알림을 받습니다.</CardDescription>
-          </CardHeader>
-        </Card>
+        <SettingsSection
+          data-testid="push-disabled-notice"
+          title="푸시 알림을 사용할 수 없습니다"
+          description="이 서버에서는 푸시 알림이 꺼져 있어요. 앱을 열어 둔 동안에는 인박스로 알림을 받아요."
+        />
       )}
 
       {enabled && (
         <>
-          <Card>
-            <CardHeader>
-              <CardTitle>이 기기</CardTitle>
-              <CardDescription>앱을 닫아도 이 기기로 알림을 받습니다.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between gap-4">
-                <span className="text-sm">이 기기에서 푸시 받기</span>
+          <SettingsSection title="이 기기" description="앱을 닫아도 이 기기로 알림을 받아요.">
+            <SettingsToggleRow
+              label="이 기기에서 푸시 받기"
+              control={
                 <Switch
                   data-testid="push-device-toggle"
                   checked={subscribed}
@@ -80,52 +76,50 @@ export default function NotificationSettingsPage() {
                   onCheckedChange={onToggleDevice}
                   aria-label="이 기기에서 푸시 받기"
                 />
-              </div>
-              {support === 'ios-needs-install' && (
-                <p className="rounded-md bg-muted p-3 text-sm" data-testid="push-ios-install-guide">
-                  iPhone·iPad 에서는 홈 화면에 추가한 앱에서만 알림을 받을 수 있습니다. Safari 의 공유 버튼 → “홈 화면에 추가”를 누른
-                  뒤, 홈 화면의 Gen:iA 앱에서 다시 켜 주세요.
-                </p>
-              )}
-              {(support === 'denied' || deniedNow) && (
-                <p className="rounded-md bg-muted p-3 text-sm" data-testid="push-denied-guide">
-                  알림 권한이 차단되어 있습니다. 브라우저 주소창의 사이트 설정(또는 OS 설정 &gt; 알림)에서 이 사이트의 알림을 허용해 주세요.
-                </p>
-              )}
-              {support === 'unsupported' && (
-                <p className="text-sm text-muted-foreground" data-testid="push-unsupported">
-                  이 브라우저는 푸시 알림을 지원하지 않습니다.
-                </p>
-              )}
-            </CardContent>
-          </Card>
+              }
+            />
+            {support === 'ios-needs-install' && (
+              <p className="rounded-md bg-muted p-3 text-sm" data-testid="push-ios-install-guide">
+                iPhone·iPad 에서는 홈 화면에 추가한 앱에서만 알림을 받을 수 있습니다. Safari 의 공유 버튼 → “홈 화면에 추가”를 누른
+                뒤, 홈 화면의 Gen:iA 앱에서 다시 켜 주세요.
+              </p>
+            )}
+            {(support === 'denied' || deniedNow) && (
+              <p className="rounded-md bg-muted p-3 text-sm" data-testid="push-denied-guide">
+                알림 권한이 차단되어 있습니다. 브라우저 주소창의 사이트 설정(또는 OS 설정 &gt; 알림)에서 이 사이트의 알림을 허용해 주세요.
+              </p>
+            )}
+            {support === 'unsupported' && (
+              <p className="text-sm text-muted-foreground" data-testid="push-unsupported">
+                이 브라우저는 푸시 알림을 지원하지 않습니다.
+              </p>
+            )}
+          </SettingsSection>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>알림 종류</CardTitle>
-              <CardDescription>모든 기기에 공통으로 적용됩니다.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
+          <SettingsSection title="알림 종류" description="모든 기기에 똑같이 적용돼요.">
+            {/* 종류별 토글 행 — 연속 행 사이 구분선·여백은 SettingsToggleGroup 이 긋는다. */}
+            <SettingsToggleGroup>
               {CATEGORIES.map((c) => (
-                <div key={c.key} className="flex items-center justify-between gap-4">
-                  <div>
-                    <p className="text-sm font-medium">{c.label}</p>
-                    <p className="text-xs text-muted-foreground">{c.description}</p>
-                  </div>
-                  <Switch
-                    data-testid={`push-pref-${c.key}`}
-                    checked={prefs.data?.[c.key] ?? true}
-                    // 저장 요청이 진행 중이면 전부 비활성화 — 하나의 뮤테이션(updatePref)을 네 토글이 공유하므로,
-                    // 응답 오기 전에 다른 종류를 또 누르면 부분 업데이트(PUT body 는 바뀐 필드만)가 겹쳐 순서에 따라
-                    // 먼저 보낸 요청의 결과가 나중 응답으로 덮어써질 수 있다.
-                    disabled={!prefs.isSuccess || updatePref.isPending}
-                    onCheckedChange={(v) => updatePref.mutate({ category: c.key, enabled: v })}
-                    aria-label={c.label}
-                  />
-                </div>
+                <SettingsToggleRow
+                  key={c.key}
+                  label={c.label}
+                  description={c.description}
+                  control={
+                    <Switch
+                      data-testid={`push-pref-${c.key}`}
+                      checked={prefs.data?.[c.key] ?? true}
+                      // 저장 요청이 진행 중이면 전부 비활성화 — 하나의 뮤테이션(updatePref)을 네 토글이 공유하므로,
+                      // 응답 오기 전에 다른 종류를 또 누르면 부분 업데이트(PUT body 는 바뀐 필드만)가 겹쳐 순서에 따라
+                      // 먼저 보낸 요청의 결과가 나중 응답으로 덮어써질 수 있다.
+                      disabled={!prefs.isSuccess || updatePref.isPending}
+                      onCheckedChange={(v) => updatePref.mutate({ category: c.key, enabled: v })}
+                      aria-label={c.label}
+                    />
+                  }
+                />
               ))}
-            </CardContent>
-          </Card>
+            </SettingsToggleGroup>
+          </SettingsSection>
         </>
       )}
     </SettingsPage>

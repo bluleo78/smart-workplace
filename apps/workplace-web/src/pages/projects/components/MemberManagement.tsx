@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
+import { SettingsSection } from '@/components/layout/SettingsSection';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -88,9 +89,11 @@ export function MemberManagement({ projectKey, agentOnly = false }: MemberManage
 
   return (
     <>
-    <section className="space-y-3">
-      {/* agentOnly 모드(개인 프로젝트)면 "AI 어시스턴트" 헤딩, 팀 프로젝트면 "멤버" */}
-      <h2 className="text-lg font-semibold">{agentOnly ? 'AI 어시스턴트' : '멤버'}</h2>
+    {/* agentOnly 모드(개인 프로젝트)면 "AI 어시스턴트" 섹션, 팀 프로젝트면 "멤버" — 주석 섹션(WP-397) */}
+    <SettingsSection
+      title={agentOnly ? 'AI 어시스턴트' : '멤버'}
+      description={agentOnly ? '이 개인 프로젝트에서 함께 일할 AI 예요.' : '이 프로젝트에 참여하는 사람과 AI 예요.'}
+    >
 
       <div className="flex gap-2 items-end">
         {/* agentOnly 모드면 역할 Select 숨김 — 항상 MEMBER 로 고정. */}
@@ -132,11 +135,13 @@ export function MemberManagement({ projectKey, agentOnly = false }: MemberManage
       {members.isLoading ? (
         <p className="text-muted-foreground">로딩 중…</p>
       ) : (
+        // 좁은 본문(@container 640 미만, 모바일·AI 패널)에서는 이메일 열을 숨기고 이름 아래에 이메일을 쌓는다 —
+        // 공백 없는 긴 이메일이 열 폭을 차지해 이름이 한 글자 폭으로 접히고 본문이 가로로 넘치던 문제(WP-397 D1).
         <table className="w-full text-sm" role="table">
           <thead>
             <tr className="text-left text-muted-foreground border-b">
-              <th className="py-2">이름</th>
-              <th>이메일</th>
+              <th className="py-2 min-w-32">이름</th>
+              <th className="hidden @min-[640px]:table-cell">이메일</th>
               <th>역할</th>
               <th className="w-24"></th>
             </tr>
@@ -144,8 +149,12 @@ export function MemberManagement({ projectKey, agentOnly = false }: MemberManage
           <tbody>
             {members.data?.map((m) => (
               <tr key={m.userId} className="border-b hover:bg-accent/50 transition-colors cursor-pointer" role="row">
-                <td className="py-2">{m.name}</td>
-                <td className="text-muted-foreground">{m.username}</td>
+                {/* 이름 열 최소 폭(min-w-32)으로 긴 이메일에 밀려 세로로 쌓이지 않게 — 긴 값 줄바꿈은 섹션 입력 열의 wrap-anywhere 를 물려받는다. */}
+                <td className="py-2 pr-3">
+                  {m.name}
+                  <div className="text-xs text-muted-foreground @min-[640px]:hidden">{m.username}</div>
+                </td>
+                <td className="hidden pr-3 text-muted-foreground @min-[640px]:table-cell">{m.username}</td>
                 <td>
                   {/* shadcn Select — native <select> 대신 사용(다크모드 스타일 일관성 #270) */}
                   <Select
@@ -184,7 +193,7 @@ export function MemberManagement({ projectKey, agentOnly = false }: MemberManage
           </tbody>
         </table>
       )}
-    </section>
+    </SettingsSection>
     {/* 멤버 제거 확인 AlertDialog — window.confirm() 대체. */}
     <AlertDialog open={!!confirmRemove} onOpenChange={(open) => !open && setConfirmRemove(null)}>
       <AlertDialogContent>

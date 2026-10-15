@@ -42,15 +42,20 @@ export function useDevicePush() {
   })
 }
 
-/** 호출자는 클릭 핸들러에서 requestPushPermission() 을 먼저 호출해 permission 으로 넘긴다. */
-export function useEnablePush() {
+/**
+ * 호출자는 클릭 핸들러에서 requestPushPermission() 을 먼저 호출해 permission 으로 넘긴다.
+ * successToast(기본 true): 성공 토스트를 훅 수준 onSuccess 에서 띄운다 — 호출 컴포넌트(인박스 배너 등)가 구독 도중
+ * 언마운트돼도 토스트가 사라지지 않게. 설정 화면 토글은 스위치 상태 자체가 피드백이고(즉시 적용 설정 패턴)
+ * 우상단 토스트가 오른쪽 끝 토글을 가리므로 false 로 끈다.
+ */
+export function useEnablePush({ successToast = true }: { successToast?: boolean } = {}) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ vapidPublicKey, permission }: { vapidPublicKey: string; permission: Promise<NotificationPermission> }) =>
       enablePush(vapidPublicKey, permission),
     onSuccess: () => {
       qc.setQueryData(pushKeys.device, { subscribed: true })
-      toast.success('이 기기에서 알림을 받습니다')
+      if (successToast) toast.success('이 기기에서 알림을 받습니다')
     },
     onError: (e) => {
       if (e instanceof Error && e.message === 'PERMISSION_DENIED') return // 화면이 거부 안내를 보여준다

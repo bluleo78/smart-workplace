@@ -9,14 +9,14 @@ import { toast } from 'sonner';
 import { permissionsApi } from '../../api/permissions';
 import { rolesApi } from '../../api/roles';
 import { SettingsPage } from '../../components/layout/SettingsPage';
+import { settingsFieldClass, SettingsSection } from '../../components/layout/SettingsSection';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Checkbox } from '../../components/ui/checkbox';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
-import { Separator } from '../../components/ui/separator';
 import { Skeleton } from '../../components/ui/skeleton';
+import { cn } from '../../lib/utils';
 import type { UpdateRoleFormData } from '../../lib/validations/role';
 import { updateRoleSchema } from '../../lib/validations/role';
 import type { ErrorResponse } from '../../types/auth';
@@ -131,7 +131,7 @@ export default function RoleDetailPage() {
     }
   };
 
-  // 뒤로가기 버튼 — 제목 왼쪽에 배치하는 관례 준수 (#102)
+  // 뒤로가기 버튼 — 제목 왼쪽에 배치하는 관례 준수 (#102).
   const backButton = (
     <Button variant="ghost" size="icon" onClick={() => navigate('/settings/roles')} aria-label="목록으로 돌아가기" title="목록으로 돌아가기">
       <ArrowLeft className="h-4 w-4" />
@@ -140,125 +140,104 @@ export default function RoleDetailPage() {
 
   if (isLoading) {
     return (
-      <SettingsPage
-        title={
-          <span className="flex items-center gap-2">
-            {backButton}
-            역할 상세
-          </span>
-        }
-        width="form"
-      >
-        <Card>
-          <CardContent className="space-y-4 pt-6">
-            <Skeleton className="h-4 w-64" />
-            <Skeleton className="h-4 w-48" />
-          </CardContent>
-        </Card>
+      <SettingsPage title="역할 상세" icon={backButton} width="form">
+        <div className="space-y-4 py-6">
+          <Skeleton className="h-4 w-64" />
+          <Skeleton className="h-4 w-48" />
+        </div>
       </SettingsPage>
     );
   }
 
   if (!role) return null;
 
-  // 시스템 역할 배지를 제목 옆에 배치하고 뒤로가기 버튼을 좌측에 포함한 title 슬롯
+  // 시스템 역할 배지를 제목 옆에 배치한 title 슬롯
   const pageTitle = (
     <span className="flex items-center gap-2">
-      {backButton}
       역할 상세
       {role.isSystem && <Badge variant="outline">시스템 역할</Badge>}
     </span>
   );
 
   return (
-    <SettingsPage title={pageTitle} width="form">
-      <Card>
-        <CardHeader>
-          <CardTitle>역할 정보</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {/* 시스템 역할 잠금 안내 — 폼 필드가 disabled인 이유를 명시 (#676) */}
-          {role.isSystem && (
-            <div className="mb-4 flex items-center gap-2 rounded-md border bg-muted p-3 text-sm text-muted-foreground">
-              <Lock className="h-4 w-4 shrink-0" />
-              시스템 역할은 이름·설명·권한을 수정할 수 없습니다.
-            </div>
-          )}
-          <form onSubmit={form.handleSubmit(onRoleSubmit)} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="role-name">역할 이름</Label>
-              <Input
-                id="role-name"
-                {...form.register('name')}
-                disabled={role.isSystem}
-                className="disabled:bg-muted disabled:text-muted-foreground"
-              />
-              {form.formState.errors.name && (
-                <p className="text-sm text-destructive">{form.formState.errors.name.message}</p>
-              )}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="role-description">설명</Label>
-              <Input
-                id="role-description"
-                {...form.register('description')}
-                disabled={role.isSystem}
-                className="disabled:bg-muted disabled:text-muted-foreground"
-              />
-            </div>
-            {roleError && (
-              <p className="text-sm text-destructive">{roleError}</p>
+    <SettingsPage title={pageTitle} icon={backButton} width="form">
+      {/* 역할 정보 — 이름·설명 수정. 시스템 역할은 잠금 안내와 함께 비활성 */}
+      <SettingsSection title="역할 정보" description="목록과 구성원 화면에 보이는 이름과 설명이에요.">
+        {/* 시스템 역할 잠금 안내 — 폼 필드가 disabled인 이유를 명시 (#676) */}
+        {role.isSystem && (
+          <div className="flex items-center gap-2 rounded-md border bg-muted p-3 text-sm text-muted-foreground">
+            <Lock className="h-4 w-4 shrink-0" />
+            시스템 역할은 이름·설명·권한을 수정할 수 없습니다.
+          </div>
+        )}
+        <form onSubmit={form.handleSubmit(onRoleSubmit)} className="space-y-4">
+          <div className={cn('space-y-2', settingsFieldClass)}>
+            <Label htmlFor="role-name">역할 이름</Label>
+            <Input
+              id="role-name"
+              {...form.register('name')}
+              disabled={role.isSystem}
+              className="disabled:bg-muted disabled:text-muted-foreground"
+            />
+            {form.formState.errors.name && (
+              <p className="text-sm text-destructive">{form.formState.errors.name.message}</p>
             )}
-            {/* 시스템 역할은 수정 불가 — isSystem 플래그로 저장 버튼도 비활성화 */}
-            <Button type="submit" disabled={isSavingRole || role.isSystem}>
-              {isSavingRole ? '저장 중...' : '저장'}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
-
-      <Separator />
-
-      <Card>
-        <CardHeader>
-          <CardTitle>권한 할당</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {Object.entries(permissionsByCategory).map(([category, perms]) => (
-            <div key={category} className="space-y-3">
-              <h3 className="text-sm font-semibold uppercase text-muted-foreground">{category}</h3>
-              <div className="space-y-2">
-                {perms.map((perm) => (
-                  <div key={perm.id} className="flex items-center gap-3">
-                    <Checkbox
-                      id={`perm-${perm.id}`}
-                      checked={selectedPermissionIds.includes(perm.id)}
-                      onCheckedChange={(checked) => handlePermissionToggle(perm.id, checked === true)}
-                      disabled={role.isSystem}
-                      className="disabled:bg-muted"
-                    />
-                    <Label
-                      htmlFor={`perm-${perm.id}`}
-                      className={`text-sm ${role.isSystem ? 'text-muted-foreground' : ''}`}
-                    >
-                      {perm.code}
-                    </Label>
-                    {perm.description && (
-                      <span className="text-sm text-muted-foreground">- {perm.description}</span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-          {allPermissions.length === 0 && (
-            <p className="text-sm text-muted-foreground">등록된 권한이 없습니다.</p>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="role-description">설명</Label>
+            <Input
+              id="role-description"
+              {...form.register('description')}
+              disabled={role.isSystem}
+              className="disabled:bg-muted disabled:text-muted-foreground"
+            />
+          </div>
+          {roleError && (
+            <p className="text-sm text-destructive">{roleError}</p>
           )}
-          <Button onClick={handleSavePermissions} disabled={isSavingPermissions || role.isSystem}>
-            {isSavingPermissions ? '저장 중...' : '권한 저장'}
+          {/* 시스템 역할은 수정 불가 — isSystem 플래그로 저장 버튼도 비활성화 */}
+          <Button type="submit" disabled={isSavingRole || role.isSystem}>
+            {isSavingRole ? '저장 중...' : '저장'}
           </Button>
-        </CardContent>
-      </Card>
+        </form>
+      </SettingsSection>
+
+      {/* 권한 할당 — 카테고리별 체크박스(h3)는 섹션 제목(h2) 아래 계층 */}
+      <SettingsSection title="권한 할당" description="이 역할을 가진 구성원이 할 수 있는 일이에요.">
+        {Object.entries(permissionsByCategory).map(([category, perms]) => (
+          <div key={category} className="space-y-3">
+            <h3 className="text-sm font-semibold uppercase text-muted-foreground">{category}</h3>
+            <div className="space-y-2">
+              {perms.map((perm) => (
+                <div key={perm.id} className="flex items-center gap-3">
+                  <Checkbox
+                    id={`perm-${perm.id}`}
+                    checked={selectedPermissionIds.includes(perm.id)}
+                    onCheckedChange={(checked) => handlePermissionToggle(perm.id, checked === true)}
+                    disabled={role.isSystem}
+                    className="disabled:bg-muted"
+                  />
+                  <Label
+                    htmlFor={`perm-${perm.id}`}
+                    className={`text-sm ${role.isSystem ? 'text-muted-foreground' : ''}`}
+                  >
+                    {perm.code}
+                  </Label>
+                  {perm.description && (
+                    <span className="text-sm text-muted-foreground">- {perm.description}</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+        {allPermissions.length === 0 && (
+          <p className="text-sm text-muted-foreground">등록된 권한이 없습니다.</p>
+        )}
+        <Button onClick={handleSavePermissions} disabled={isSavingPermissions || role.isSystem}>
+          {isSavingPermissions ? '저장 중...' : '권한 저장'}
+        </Button>
+      </SettingsSection>
     </SettingsPage>
   );
 }

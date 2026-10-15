@@ -5,7 +5,8 @@ import { useForm } from 'react-hook-form';
 import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 
-import { Page } from '@/components/layout/Page';
+import { SettingsPage } from '@/components/layout/SettingsPage';
+import { settingsFieldClass, SettingsSection } from '@/components/layout/SettingsSection';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -19,6 +20,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { cn } from '@/lib/utils';
 
 import { useProjectMembers } from '../../hooks/queries/useProjectMembers';
 import { useDeleteProject, useProject, useUpdateProject } from '../../hooks/queries/useProjects';
@@ -88,81 +90,81 @@ export default function ProjectSettingsPage() {
     }
   };
 
-  if (project.isLoading) return <p className="container mx-auto p-6 text-muted-foreground">로딩 중…</p>;
-
+  // 헤더는 로딩 중에도 같은 모양으로 먼저 보여, 데이터 도착 시 헤더가 뒤늦게 튀어나오지 않게 한다 — 로딩 분기는 본문 안에서만.
+  // 설정 폼 폭 + 주석 섹션 — 다른 설정 화면과 같은 폭 체계(WP-397).
   return (
-    <div className="flex h-full flex-col overflow-hidden" data-testid="project-settings-page">
-      <Page.Header
-        icon={
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label="프로젝트로 돌아가기"
-            onClick={() => navigate(`/projects/${key}`)}
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-        }
-        title="프로젝트 설정"
-        meta={<span className="text-muted-foreground">{project.data?.key}</span>}
-      />
-    <div className="flex-1 overflow-y-auto">
-    <div className="container mx-auto p-6 space-y-8 max-w-3xl">
-
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-        <div className="space-y-1">
-          <label className="text-sm font-medium" htmlFor="settings-name">이름</label>
-          <Input id="settings-name" {...register('name')} />
-          {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
-        </div>
-        <div className="space-y-1">
-          <label className="text-sm font-medium" htmlFor="settings-desc">설명</label>
-          <Textarea id="settings-desc" {...register('description')} rows={4} />
-        </div>
-        <Button type="submit" disabled={update.isPending}>{update.isPending ? '저장 중…' : '저장'}</Button>
-      </form>
-
-      {/* 개인 프로젝트는 AI 어시스턴트만 추가 가능(agentOnly), 팀 프로젝트는 일반 멤버 관리 */}
-      {isPersonal
-        ? <MemberManagement projectKey={key} agentOnly />
-        : <MemberManagement projectKey={key} />}
-
-      <LabelManagement
-        projectKey={key}
-        canCreate={isMember || (isAdmin && !isPersonal)}
-        isOwner={isOwner}
-      />
-
-      <IssueTypeManagement projectKey={key} isOwner={isOwner} />
-
-      <CustomFieldManagement projectKey={key} isOwner={isOwner} />
-
-      <section className="border border-destructive rounded p-4 space-y-2">
-        <h2 className="text-lg font-semibold text-destructive">위험 구역</h2>
-        <p className="text-sm text-muted-foreground">
-          프로젝트를 삭제하면 태스크/코멘트도 함께 숨겨집니다 (soft delete).
-        </p>
-        <Button variant="destructive" onClick={onDelete} disabled={remove.isPending} data-testid="project-delete">
-          프로젝트 삭제
+    <SettingsPage
+      width="form"
+      data-testid="project-settings-page"
+      icon={
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="프로젝트로 돌아가기"
+          onClick={() => navigate(`/projects/${key}`)}
+        >
+          <ArrowLeft className="h-4 w-4" />
         </Button>
-      </section>
-    </div>
-    </div>
-    {/* 프로젝트 삭제 확인 AlertDialog — window.confirm() 대체. */}
-    <AlertDialog open={deletePending} onOpenChange={setDeletePending}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>프로젝트 삭제</AlertDialogTitle>
-          <AlertDialogDescription>
-            프로젝트 {key}를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>취소</AlertDialogCancel>
-          <AlertDialogAction variant="destructive" onClick={onDeleteConfirm}>삭제</AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
-    </div>
+      }
+      title="프로젝트 설정"
+      meta={<span className="text-muted-foreground">{project.data?.key}</span>}
+    >
+      {project.isLoading ? (
+        <p className="py-6 text-muted-foreground">로딩 중…</p>
+      ) : (
+        <>
+          <SettingsSection title="기본 정보" description="프로젝트 목록과 상단에 보이는 이름과 설명이에요.">
+            <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+              <div className={cn('space-y-1', settingsFieldClass)}>
+                <label className="text-sm font-medium" htmlFor="settings-name">이름</label>
+                <Input id="settings-name" {...register('name')} />
+                {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
+              </div>
+              <div className="space-y-1">
+                <label className="text-sm font-medium" htmlFor="settings-desc">설명</label>
+                <Textarea id="settings-desc" {...register('description')} rows={4} />
+              </div>
+              <Button type="submit" disabled={update.isPending}>{update.isPending ? '저장 중…' : '저장'}</Button>
+            </form>
+          </SettingsSection>
+
+          {/* 개인 프로젝트는 AI 어시스턴트만 추가 가능(agentOnly), 팀 프로젝트는 일반 멤버 관리 */}
+          {isPersonal
+            ? <MemberManagement projectKey={key} agentOnly />
+            : <MemberManagement projectKey={key} />}
+
+          <LabelManagement
+            projectKey={key}
+            canCreate={isMember || (isAdmin && !isPersonal)}
+            isOwner={isOwner}
+          />
+
+          <IssueTypeManagement projectKey={key} isOwner={isOwner} />
+
+          <CustomFieldManagement projectKey={key} isOwner={isOwner} />
+
+          <SettingsSection tone="danger" title="위험 구역" description="프로젝트를 삭제하면 이슈와 코멘트도 함께 숨겨져요.">
+            <Button variant="destructive" onClick={onDelete} disabled={remove.isPending} data-testid="project-delete">
+              프로젝트 삭제
+            </Button>
+          </SettingsSection>
+        </>
+      )}
+      {/* 프로젝트 삭제 확인 AlertDialog — window.confirm() 대체. */}
+      <AlertDialog open={deletePending} onOpenChange={setDeletePending}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>프로젝트 삭제</AlertDialogTitle>
+            <AlertDialogDescription>
+              프로젝트 {key}를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>취소</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={onDeleteConfirm}>삭제</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </SettingsPage>
   );
 }

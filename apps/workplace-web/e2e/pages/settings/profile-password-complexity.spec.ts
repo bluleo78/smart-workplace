@@ -7,7 +7,7 @@ import { trackRequests } from '../../fixtures/requests'
 test.describe('프로필 설정 — 새 비밀번호 복잡도 검증', () => {
   test.beforeEach(async ({ authenticatedPage: page }) => {
     await page.goto('/settings/profile')
-    await expect(page.locator('[data-slot="card-title"]:has-text("비밀번호 변경")')).toBeVisible()
+    await expect(page.getByRole('heading', { level: 2, name: '비밀번호 변경', exact: true })).toBeVisible()
   })
 
   // 입력 → 클라이언트 검증(zod) → UI 에러 반영 파이프라인 검증

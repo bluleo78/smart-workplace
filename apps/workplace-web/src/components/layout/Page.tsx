@@ -18,7 +18,7 @@ import { useIsMobile } from '@/hooks/useIsMobile'
 import { isTabRoot } from '@/lib/mobile/routes'
 import { cn } from '@/lib/utils'
 
-type PageWidth = 'full' | 'reading'
+type PageWidth = 'full' | 'reading' | 'settings'
 
 /** 페이지 좌우 여백 — 헤더·본문·자체 레이아웃 본문의 행이 공유하는 유일한 값. */
 export const pageGutterClass = 'px-4'
@@ -29,11 +29,14 @@ export const pageBodyInsetClass = `${pageGutterClass} py-4`
 /** reading 폭 — 왼쪽 정렬 768px 제한(mx-auto 금지: 헤더 시작선과 맞추기 위해). */
 export const pageReadingWidthClass = 'max-w-3xl'
 
+/** settings 폭 — 설정·관리 폼 전용 왼쪽 정렬 1024px 제한(mx-auto 금지 — reading 과 같은 이유). @container 라 주석 섹션이 본문 폭(뷰포트 아님)으로 2단↔스택을 정한다. */
+export const pageSettingsWidthClass = 'max-w-5xl @container'
+
 /** 본문 안 보조 칸(스레드·개인 작업 패널) 상단 소제목 줄 — 페이지 헤더가 아니므로 낮고 옅은 선. */
 export const subPaneHeaderClass =
   `flex h-[34px] shrink-0 items-center justify-between gap-2 border-b border-border/60 ${pageGutterClass} text-xs font-semibold`
 
-/** 페이지 폭 기준 — Page 가 정하고 Page.Body 가 읽는다(reading = 왼쪽 정렬 768px 제한). */
+/** 페이지 폭 기준 — Page 가 정하고 Page.Body 가 읽는다(각 폭은 pageReadingWidthClass·pageSettingsWidthClass 참고). */
 const PageWidthContext = createContext<PageWidth>('full')
 
 /**
@@ -239,7 +242,7 @@ export type PageBodyProps =
     })
 
 /**
- * 페이지 본문 — padded(기본)면 스크롤 영역 + pageBodyInsetClass 여백(inset=false 면 여백 없음), reading 폭이면 왼쪽 정렬 max-w-3xl.
+ * 페이지 본문 — padded(기본)면 스크롤 영역 + pageBodyInsetClass 여백(inset=false 면 여백 없음) + 페이지 폭 상한.
  * padded=false 는 자체 레이아웃 본문(마스터-디테일·그리드·채팅) — 스크롤·여백은 화면이 소유하고 행은 pageGutterClass 를 쓴다.
  */
 function PageBody({ padded = true, inset = true, scrollRef, className, children, 'data-testid': testId }: PageBodyProps) {
@@ -249,8 +252,15 @@ function PageBody({ padded = true, inset = true, scrollRef, className, children,
   }
   return (
     <div ref={scrollRef} data-testid={testId ?? 'page-body'} className="min-h-0 flex-1 overflow-y-auto">
-      {/* reading: 왼쪽 정렬 + 768px 제한(mx-auto 금지 — 헤더 시작선과 맞추기 위해). */}
-      <div data-testid="page-body-content" className={cn(inset && pageBodyInsetClass, width === 'reading' && pageReadingWidthClass, className)}>
+      <div
+        data-testid="page-body-content"
+        className={cn(
+          inset && pageBodyInsetClass,
+          width === 'reading' && pageReadingWidthClass,
+          width === 'settings' && pageSettingsWidthClass,
+          className,
+        )}
+      >
         {children}
       </div>
     </div>

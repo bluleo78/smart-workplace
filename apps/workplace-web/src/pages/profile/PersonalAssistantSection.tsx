@@ -3,7 +3,7 @@
 // 미설정 상태의 등록 폼은 admin ProviderCredentialDialog(Task 12)와 동일한 2모드 UX를 따른다.
 // - anthropic: 토큰을 직접 입력한다(자동 채움 금지). 평문 토큰은 등록 시점에만 전송하고 즉시 비운다.
 // - opencode: 프리셋 선택 → baseURL/apiKey 입력 → 모델 프로브(실패 시 수동 입력 폴백) → 등록.
-// 별도 다이얼로그가 아닌 카드 내 인라인 폼으로 둔다 — 소비처가 1곳뿐이라 다이얼로그 추출은 과설계(YAGNI).
+// 별도 다이얼로그가 아닌 섹션 내 인라인 폼으로 둔다 — 소비처가 1곳뿐이라 다이얼로그 추출은 과설계(YAGNI).
 
 import { useMutation } from '@tanstack/react-query';
 import { useState } from 'react';
@@ -12,9 +12,9 @@ import { toast } from 'sonner';
 import { probeMyAssistantModels } from '../../api/models';
 import { SuggestionModelField } from '../../components/ai/SuggestionModelField';
 import { VisionInputSelect } from '../../components/ai/VisionInputSelect';
+import { settingsFieldClass, SettingsSection } from '../../components/layout/SettingsSection';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { PasswordInput } from '../../components/ui/password-input';
@@ -42,6 +42,7 @@ import { providerIdOf, withProviderPrefix } from '../../lib/ai/suggestionModel';
 import { visionConfigFor } from '../../lib/ai/visionConfig';
 import { handleApiError } from '../../lib/api-error';
 import { OPENCODE_PRESETS, type OpencodePresetKey, presetLabelFor } from '../../lib/opencode-presets';
+import { cn } from '../../lib/utils';
 import type { ThinkingDepth } from '../../types/assistant';
 import type { CredentialProvider, ModelOption } from '../../types/providerCredential';
 
@@ -276,19 +277,12 @@ export function PersonalAssistantSection() {
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>개인 비서</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <p className="text-sm text-muted-foreground mb-4">
-          개인 비서를 설정하면 홈을 공통 비서 대신 내 비서가 담당해요.
-        </p>
+    <SettingsSection title="개인 비서" description="개인 비서를 설정하면 홈을 공통 비서 대신 내 비서가 담당해요.">
 
         {status?.configured ? (
           <div className="space-y-4">
-            {/* 이름 — 비서를 식별하는 정보라 맨 앞에 둔다. */}
-            <div className="space-y-2">
+            {/* 이름 — 비서를 식별하는 정보라 맨 앞에 둔다. 값 길이에 맞춘 폭 상한(settingsFieldClass). */}
+            <div className={cn('space-y-2', settingsFieldClass)}>
               <label className="text-sm font-medium" htmlFor="assistant-name">
                 이름
               </label>
@@ -341,105 +335,108 @@ export function PersonalAssistantSection() {
               </div>
             </div>
 
-            <div className="space-y-2">
-              <label className="text-sm font-medium" htmlFor="assistant-model">
-                모델
-              </label>
-              {/* 프로바이더가 모델 목록 조회(GET /models)를 지원하지 않으면(예: 일부 opencode
-                  베이스URL) modelOptions 가 항상 비어 있다 — 이는 오류가 아니라 그 프로바이더의
-                  정상적인 특성이므로, Select 대신 현재 값 표시 + 직접 입력으로 대체한다. */}
-              {modelsLoading ? (
-                <Skeleton className="h-9 w-full" data-testid="assistant-model-loading" />
-              ) : modelOptions.length > 0 ? (
-                <Select value={status.model ?? ''} onValueChange={handleModelChange}>
-                  <SelectTrigger id="assistant-model" data-testid="assistant-model">
-                    <SelectValue placeholder="선택…" />
+            {/* 모델·이미지 입력·생각의 깊이·추천 질문 모델 select 묶음 — 넓은 입력 열에서 늘어나지 않게 폭 상한. */}
+            <div className={cn('space-y-4', settingsFieldClass)}>
+              <div className="space-y-2">
+                <label className="text-sm font-medium" htmlFor="assistant-model">
+                  모델
+                </label>
+                {/* 프로바이더가 모델 목록 조회(GET /models)를 지원하지 않으면(예: 일부 opencode
+                    베이스URL) modelOptions 가 항상 비어 있다 — 이는 오류가 아니라 그 프로바이더의
+                    정상적인 특성이므로, Select 대신 현재 값 표시 + 직접 입력으로 대체한다. */}
+                {modelsLoading ? (
+                  <Skeleton className="h-9 w-full" data-testid="assistant-model-loading" />
+                ) : modelOptions.length > 0 ? (
+                  <Select value={status.model ?? ''} onValueChange={handleModelChange}>
+                    <SelectTrigger id="assistant-model" data-testid="assistant-model">
+                      <SelectValue placeholder="선택…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {modelOptions.map((m) => (
+                        <SelectItem key={m.id} value={m.id}>
+                          {m.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <>
+                    <p className="text-sm" data-testid="assistant-model-current">
+                      현재: {status.model ?? '(설정 안 됨)'}
+                    </p>
+                    <p
+                      data-testid="assistant-model-empty"
+                      className="text-xs text-muted-foreground"
+                    >
+                      이 연결은 모델 목록 조회를 지원하지 않아요 — 정상입니다. 아래에서 모델
+                      id를 직접 입력해 변경하세요.
+                    </p>
+                    <div className="flex gap-2">
+                      <Input
+                        id="assistant-model"
+                        data-testid="assistant-model-manual-input"
+                        placeholder={currentProviderId ? `${currentProviderId}/model-id` : 'providerId/model-id'}
+                        value={modelChangeInput}
+                        onChange={(e) => setModelChangeInput(e.target.value)}
+                      />
+                      <Button
+                        data-testid="assistant-model-manual-apply"
+                        onClick={handleModelChangeManual}
+                        disabled={!modelChangeInput.trim() || updateSettings.isPending}
+                      >
+                        변경
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* WP-250: 모델 바로 아래 — 지금 모델의 이미지 입력 지정. 고르면 바로 저장되고, 모델을 바꾸면 자동 감지로 돌아간다(OpenAI 호환 연결만). */}
+              {isOpencode ? (
+                <VisionInputSelect
+                  id="assistant-vision"
+                  settingsSpacing="space-y-2"
+                  testId="assistant-vision"
+                  value={currentVision}
+                  onChange={(v) => void handleVisionChange(v)}
+                  disabled={updateSettings.isPending}
+                />
+              ) : null}
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium" htmlFor="assistant-depth">
+                  생각의 깊이
+                </label>
+                {/* 앱 디자인 시스템 일관성 — shadcn Select 사용 (native <select> 금지) */}
+                <Select
+                  value={status.thinkingDepth ?? 'NORMAL'}
+                  onValueChange={(v) => handleDepthChange(v as ThinkingDepth)}
+                >
+                  <SelectTrigger id="assistant-depth">
+                    <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {modelOptions.map((m) => (
-                      <SelectItem key={m.id} value={m.id}>
-                        {m.label}
+                    {DEPTHS.map((d) => (
+                      <SelectItem key={d.value} value={d.value}>
+                        {d.label}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-              ) : (
-                <>
-                  <p className="text-sm" data-testid="assistant-model-current">
-                    현재: {status.model ?? '(설정 안 됨)'}
-                  </p>
-                  <p
-                    data-testid="assistant-model-empty"
-                    className="text-xs text-muted-foreground"
-                  >
-                    이 연결은 모델 목록 조회를 지원하지 않아요 — 정상입니다. 아래에서 모델
-                    id를 직접 입력해 변경하세요.
-                  </p>
-                  <div className="flex gap-2">
-                    <Input
-                      id="assistant-model"
-                      data-testid="assistant-model-manual-input"
-                      placeholder={currentProviderId ? `${currentProviderId}/model-id` : 'providerId/model-id'}
-                      value={modelChangeInput}
-                      onChange={(e) => setModelChangeInput(e.target.value)}
-                    />
-                    <Button
-                      data-testid="assistant-model-manual-apply"
-                      onClick={handleModelChangeManual}
-                      disabled={!modelChangeInput.trim() || updateSettings.isPending}
-                    >
-                      변경
-                    </Button>
-                  </div>
-                </>
-              )}
-            </div>
+              </div>
 
-            {/* WP-250: 모델 바로 아래 — 지금 모델의 이미지 입력 지정. 고르면 바로 저장되고, 모델을 바꾸면 자동 감지로 돌아간다(OpenAI 호환 연결만). */}
-            {isOpencode ? (
-              <VisionInputSelect
-                id="assistant-vision"
-                settingsSpacing="space-y-2"
-                testId="assistant-vision"
-                value={currentVision}
-                onChange={(v) => void handleVisionChange(v)}
-                disabled={updateSettings.isPending}
+              {/* WP-139: 추천 질문 모델 — 생각의 깊이 아래, 연결 해제 위. */}
+              <SuggestionModelField
+                id="assistant-suggestion-model"
+                autoModel={status.suggestionModelAuto}
+                value={status.suggestionModel}
+                options={modelOptions}
+                loading={modelsLoading}
+                saving={updateSettings.isPending}
+                providerId={currentProviderId}
+                onChange={(v) => void handleSuggestionModelChange(v)}
               />
-            ) : null}
-
-            <div className="space-y-2">
-              <label className="text-sm font-medium" htmlFor="assistant-depth">
-                생각의 깊이
-              </label>
-              {/* 앱 디자인 시스템 일관성 — shadcn Select 사용 (native <select> 금지) */}
-              <Select
-                value={status.thinkingDepth ?? 'NORMAL'}
-                onValueChange={(v) => handleDepthChange(v as ThinkingDepth)}
-              >
-                <SelectTrigger id="assistant-depth">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {DEPTHS.map((d) => (
-                    <SelectItem key={d.value} value={d.value}>
-                      {d.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
             </div>
-
-            {/* WP-139: 추천 질문 모델 — 생각의 깊이 아래, 연결 해제 위. */}
-            <SuggestionModelField
-              id="assistant-suggestion-model"
-              autoModel={status.suggestionModelAuto}
-              value={status.suggestionModel}
-              options={modelOptions}
-              loading={modelsLoading}
-              saving={updateSettings.isPending}
-              providerId={currentProviderId}
-              onChange={(v) => void handleSuggestionModelChange(v)}
-            />
 
             <Button variant="destructive" onClick={handleDisable}>
               연결 해제
@@ -480,8 +477,9 @@ export function PersonalAssistantSection() {
               </RadioGroup>
             </div>
 
+            {/* 토큰·Base URL·API Key 입력 묶음은 폭 상한(라디오 카드·버튼은 제한 없음). */}
             {connectionType === 'anthropic' ? (
-              <div className="space-y-2">
+              <div className={cn('space-y-2', settingsFieldClass)}>
                 <label className="text-sm font-medium" htmlFor="assistant-token-input">
                   토큰
                 </label>
@@ -495,7 +493,7 @@ export function PersonalAssistantSection() {
                 />
               </div>
             ) : (
-              <div className="space-y-3">
+              <div className={cn('space-y-3', settingsFieldClass)}>
                 <div className="space-y-1.5">
                   <Label htmlFor="credential-preset">프리셋</Label>
                   <Select
@@ -603,7 +601,6 @@ export function PersonalAssistantSection() {
             </Button>
           </div>
         )}
-      </CardContent>
-    </Card>
+    </SettingsSection>
   );
 }

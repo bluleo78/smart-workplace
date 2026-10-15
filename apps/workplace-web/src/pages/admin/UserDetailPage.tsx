@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { rolesApi } from '../../api/roles';
 import { usersApi } from '../../api/users';
 import { SettingsPage } from '../../components/layout/SettingsPage';
+import { SettingsSection, SettingsToggleRow } from '../../components/layout/SettingsSection';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -19,10 +20,8 @@ import {
 } from '../../components/ui/alert-dialog';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Checkbox } from '../../components/ui/checkbox';
 import { Label } from '../../components/ui/label';
-import { Separator } from '../../components/ui/separator';
 import { Skeleton } from '../../components/ui/skeleton';
 import { Switch } from '../../components/ui/switch';
 import { useAuth } from '../../hooks/useAuth';
@@ -113,8 +112,8 @@ export default function UserDetailPage() {
     setIsTogglingActive(true);
     try {
       await usersApi.setUserActive(user.id, { active: !user.isActive });
+      // 성공 토스트는 두지 않는다 — 스위치·라벨·상태 배지가 곧 피드백이고, 우상단 토스트가 오른쪽 끝 스위치를 가린다(WP-397).
       setUser({ ...user, isActive: !user.isActive });
-      toast.success(user.isActive ? '사용자가 비활성화되었습니다.' : '사용자가 활성화되었습니다.');
     } catch (error) {
       if (axios.isAxiosError(error) && error.response?.data) {
         const errData = error.response.data as ErrorResponse;
@@ -142,31 +141,21 @@ export default function UserDetailPage() {
     }
   };
 
-  // 뒤로가기 버튼 — 제목 왼쪽에 배치하는 관례 준수 (#102)
+  // 뒤로가기 버튼 — 제목 왼쪽에 배치하는 관례 준수 (#102).
   const backButton = (
     <Button variant="ghost" size="icon" onClick={() => navigate('/settings/users')} aria-label="목록으로 돌아가기" title="목록으로 돌아가기">
       <ArrowLeft className="h-4 w-4" />
     </Button>
   );
 
-  // 뒤로가기 버튼을 제목 왼쪽에 포함한 title 슬롯 — 좌측 상단 관례 적용
-  const pageTitle = (
-    <span className="flex items-center gap-2">
-      {backButton}
-      사용자 상세
-    </span>
-  );
-
   if (isLoading) {
     return (
-      <SettingsPage title={pageTitle} width="form">
-        <Card>
-          <CardContent className="space-y-4 pt-6">
-            <Skeleton className="h-4 w-64" />
-            <Skeleton className="h-4 w-48" />
-            <Skeleton className="h-4 w-56" />
-          </CardContent>
-        </Card>
+      <SettingsPage title="사용자 상세" icon={backButton} width="form">
+        <div className="space-y-4 py-6">
+          <Skeleton className="h-4 w-64" />
+          <Skeleton className="h-4 w-48" />
+          <Skeleton className="h-4 w-56" />
+        </div>
       </SettingsPage>
     );
   }
@@ -174,30 +163,28 @@ export default function UserDetailPage() {
   if (!user) return null;
 
   return (
-    <SettingsPage title={pageTitle} width="form">
-      <Card>
-        <CardHeader>
-          <CardTitle>기본 정보</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="grid grid-cols-[120px_1fr] gap-2 text-sm">
-            <span className="text-muted-foreground">아이디</span>
-            <span>{user.username}</span>
-            <span className="text-muted-foreground">이름</span>
-            <span>{user.name}</span>
-            <span className="text-muted-foreground">이메일</span>
-            <span>{user.email ?? '-'}</span>
-            <span className="text-muted-foreground">가입일</span>
-            <span>{formatDateShort(user.createdAt)}</span>
-            <span className="text-muted-foreground">상태</span>
-            <span>
-              <Badge variant={user.isActive ? 'default' : 'secondary'}>
-                {user.isActive ? '활성' : '비활성'}
-              </Badge>
-            </span>
-          </div>
-        </CardContent>
-      </Card>
+    <SettingsPage title="사용자 상세" icon={backButton} width="form">
+      {/* 기본 정보 — 읽기 전용(가입 정보는 본인만 수정) */}
+      <SettingsSection title="기본 정보" description="가입 정보는 구성원 본인만 바꿀 수 있어요.">
+        {/* 값 열은 minmax(0,1fr) — 섹션 입력 열의 wrap-anywhere 와 함께, 공백 없는 긴 아이디·이메일이 min-content 로 열을 늘려 모바일 본문을 가로로 넘기지 않게(WP-397 D2).
+            라벨 열은 좁은 본문(@container 640 미만)에서 80px 로 줄여 값 폭을 확보한다. */}
+        <div className="grid grid-cols-[80px_minmax(0,1fr)] gap-2 text-sm @min-[640px]:grid-cols-[120px_minmax(0,1fr)]">
+          <span className="text-muted-foreground">아이디</span>
+          <span>{user.username}</span>
+          <span className="text-muted-foreground">이름</span>
+          <span>{user.name}</span>
+          <span className="text-muted-foreground">이메일</span>
+          <span>{user.email ?? '-'}</span>
+          <span className="text-muted-foreground">가입일</span>
+          <span>{formatDateShort(user.createdAt)}</span>
+          <span className="text-muted-foreground">상태</span>
+          <span>
+            <Badge variant={user.isActive ? 'default' : 'secondary'}>
+              {user.isActive ? '활성' : '비활성'}
+            </Badge>
+          </span>
+        </div>
+      </SettingsSection>
 
       {/* 비활성화 확인 AlertDialog — 활성→비활성 방향 토글 시에만 표시된다 (#50) */}
       <AlertDialog open={isDeactivateDialogOpen} onOpenChange={setIsDeactivateDialogOpen}>
@@ -223,60 +210,54 @@ export default function UserDetailPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>활성 상태</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-center gap-3">
+      {/* 활성 상태 — 토글 행(라벨 왼쪽·스위치 오른쪽 끝). 비활성화는 확인 다이얼로그를 거친다 */}
+      <SettingsSection title="활성 상태" description="비활성 구성원은 로그인할 수 없어요.">
+        <SettingsToggleRow
+          label={user.isActive ? '활성' : '비활성'}
+          control={
             <Switch
               checked={user.isActive}
               onCheckedChange={handleSwitchChange}
               disabled={isTogglingActive}
+              aria-label="활성 상태"
             />
-            <Label>{user.isActive ? '활성' : '비활성'}</Label>
-          </div>
-        </CardContent>
-      </Card>
+          }
+        />
+      </SettingsSection>
 
-      <Separator />
-
-      <Card>
-        <CardHeader>
-          <CardTitle>역할 할당</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-3">
-            {allRoles.map((role) => {
-              // 자기 자신의 ADMIN 역할 제거 차단 (#57)
-              const isSelf = currentUser?.id === Number(id);
-              const isOwnAdminRole = isSelf && role.name === 'ADMIN';
-              return (
-              <div key={role.id} className="flex items-center gap-3">
-                <Checkbox
-                  id={`role-${role.id}`}
-                  checked={selectedRoleIds.includes(role.id)}
-                  disabled={isOwnAdminRole}
-                  onCheckedChange={(checked) => handleRoleToggle(role.id, checked === true)}
-                />
-                <Label htmlFor={`role-${role.id}`} className="flex items-center gap-2">
-                  {role.name}
-                  {role.isSystem && (
-                    <Badge variant="outline" className="text-xs">시스템</Badge>
-                  )}
-                </Label>
-                {role.description && (
-                  <span className="text-sm text-muted-foreground">{role.description}</span>
+      {/* 역할 할당 — 체크한 역할을 '역할 저장'으로 한 번에 반영 */}
+      <SettingsSection title="역할 할당" description="이 구성원에게 줄 역할을 골라요.">
+        <div className="space-y-3">
+          {allRoles.map((role) => {
+            // 자기 자신의 ADMIN 역할 제거 차단 (#57)
+            const isSelf = currentUser?.id === Number(id);
+            const isOwnAdminRole = isSelf && role.name === 'ADMIN';
+            return (
+            // flex-wrap+min-w-0 — 긴 역할명·설명이 한 줄을 넘기면 설명을 다음 줄로 내려 본문 가로 넘침을 막는다(WP-397 D2).
+            <div key={role.id} className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+              <Checkbox
+                id={`role-${role.id}`}
+                checked={selectedRoleIds.includes(role.id)}
+                disabled={isOwnAdminRole}
+                onCheckedChange={(checked) => handleRoleToggle(role.id, checked === true)}
+              />
+              <Label htmlFor={`role-${role.id}`} className="flex min-w-0 items-center gap-2">
+                {role.name}
+                {role.isSystem && (
+                  <Badge variant="outline" className="text-xs">시스템</Badge>
                 )}
-              </div>
-            );
-            })}
-          </div>
-          <Button onClick={handleSaveRoles} disabled={isSavingRoles}>
-            {isSavingRoles ? '저장 중...' : '역할 저장'}
-          </Button>
-        </CardContent>
-      </Card>
+              </Label>
+              {role.description && (
+                <span className="min-w-0 text-sm break-words text-muted-foreground">{role.description}</span>
+              )}
+            </div>
+          );
+          })}
+        </div>
+        <Button onClick={handleSaveRoles} disabled={isSavingRoles}>
+          {isSavingRoles ? '저장 중...' : '역할 저장'}
+        </Button>
+      </SettingsSection>
     </SettingsPage>
   );
 }

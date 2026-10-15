@@ -49,7 +49,7 @@ Smart Workplace 디자인 시스템의 간격(spacing)과 레이아웃(layout) �
 | Form — label + input 간 | `space-y-2` |
 | Page section 간 | `space-y-6` |
 | 페이지 여백(헤더·본문 공통) | `px-4` 16px 단일 값 — `pageGutterClass`(`layout/Page.tsx`). 본문 콘텐츠는 `page-body-content` 래퍼가 `px-4 py-4` 를 갖는다 |
-| 페이지 폭 | `full`(기본) / `reading`(왼쪽 정렬 `max-w-3xl` 768px, `mx-auto` 금지) — 2종뿐 |
+| 페이지 폭 | `full`(기본) / `reading`(왼쪽 정렬 `max-w-3xl` 768px) / `settings`(왼쪽 정렬 `max-w-5xl` 1024px, 설정·관리 폼) — 3종, `mx-auto` 금지 |
 | 본문 안 보조 칸 소제목 | `h-[34px]` `border-b border-border/60` `px-4` — `subPaneHeaderClass` |
 
 ---
@@ -113,8 +113,8 @@ Smart Workplace 디자인 시스템의 간격(spacing)과 레이아웃(layout) �
 **Zone 3 — Main Content (`<main>` in AppLayout)**
 - `relative flex min-w-0 flex-1 flex-col overflow-hidden pt-12 lg:pt-0`.
 - `pt-12`는 모바일 햄버거(`top-3`) 공간 확보용 — 데스크톱(lg)에서는 0.
-- 페이지가 자체 헤더 + 본문을 렌더한다(전역 상단 GNB 없음). 표준 본문 padding 은 `Page.Body` 의 `px-4 py-4`(설정 영역은 아직 `p-6` — [13-migration-backlog.md](./13-migration-backlog.md) 후속 과제), 섹션 간격 `space-y-6`.
-- **페이지 틀은 `Page`**(`src/components/layout/Page.tsx`)다: `<Page width="full|reading">` 안에 `Page.Header`(`h-14 border-b` 고정 바로 사이드바 헤더 `sidebarTitleClass` 와 한 선 정렬, 옵션) + `Page.Body`. 헤더·본문은 **좌우 여백 16px 단일 값(`pageGutterClass` = `px-4`)** 을 공유하고, 폭은 **full / reading(왼쪽 정렬 768px, `mx-auto` 금지) 2종**만 쓴다. 본문 시작 x 는 콘텐츠 기준으로 헤더 시작선과 맞춘다(본문 안쪽 `page-body-content` 래퍼가 `px-4 py-4`). 헤더 바(`h-14` + `border-b`)를 화면에서 직접 만들지 않는다(ESLint `headerBarRule`, [04-components.md](./04-components.md) 참조). 헤더 바를 쓰지 않는 문서/설정형 페이지의 인-플로우 제목은 `pageTitleClass`(`text-[28px] leading-[36px] font-semibold tracking-tight`)로 통일한다.
+- 페이지가 자체 헤더 + 본문을 렌더한다(전역 상단 GNB 없음). 표준 본문 padding 은 `Page.Body` 의 `px-4 py-4`(설정 영역도 `SettingsPage` 가 `Page` 위 래퍼라 동일 — WP-397), 섹션 간격 `space-y-6`(설정 폼은 `SettingsSection` 이 자체 `py-6` + 구분선).
+- **페이지 틀은 `Page`**(`src/components/layout/Page.tsx`)다: `<Page width="full|reading|settings">` 안에 `Page.Header`(`h-14 border-b` 고정 바로 사이드바 헤더 `sidebarTitleClass` 와 한 선 정렬, 옵션) + `Page.Body`. 헤더·본문은 **좌우 여백 16px 단일 값(`pageGutterClass` = `px-4`)** 을 공유하고, 폭은 **full / reading(왼쪽 정렬 768px) / settings(왼쪽 정렬 1024px, 설정·관리 폼) 3종**만 쓴다(`mx-auto` 금지). 본문 시작 x 는 콘텐츠 기준으로 헤더 시작선과 맞춘다(본문 안쪽 `page-body-content` 래퍼가 `px-4 py-4`). 헤더 바(`h-14` + `border-b`)를 화면에서 직접 만들지 않는다(ESLint `headerBarRule`, [04-components.md](./04-components.md) 참조). 헤더 바를 쓰지 않는 문서/설정형 페이지의 인-플로우 제목은 `pageTitleClass`(`text-[28px] leading-[36px] font-semibold tracking-tight`)로 통일한다.
 
 **AI 챗 도크 (`GlobalChatDock` → `FloatingChat`)** — 우측 패널 아님, 전역 오버레이.
 - 런처 칩: `createPortal`로 body 에. `fixed top-2 z-[70]`, 가로 중앙(`left-1/2 -translate-x-1/2`), 데스크톱은 레일 56px 절반만큼 보정해 콘텐츠 중앙(`lg:left-[calc(50%+28px)]`). 활성 시 `border-ai-accent` 강조.
@@ -254,18 +254,15 @@ export function IssueModuleLayout() {
 
 ## Content Area 최대 너비
 
-앱 셸 안 페이지의 본문 폭은 `Page` 의 `width` 로 **2종만** 쓴다 — 개별 화면이 `max-w-*`/`mx-auto` 를 직접 두지 않는다.
-읽기 폭(reading)은 **왼쪽 정렬** `max-w-3xl` 이다 — 가운데 정렬(`mx-auto`)은 헤더 시작선과 본문 시작선을 어긋나게 하므로 쓰지 않는다.
+앱 셸 안 페이지의 본문 폭은 `Page` 의 `width` 로 **3종만** 쓴다 — 개별 화면이 `max-w-*`/`mx-auto` 를 직접 두지 않는다.
+읽기 폭(reading)은 **왼쪽 정렬** `max-w-3xl`, 설정 폭(settings)은 **왼쪽 정렬** `max-w-5xl`(+`@container`) 이다 — 가운데 정렬(`mx-auto`)은 헤더 시작선과 본문 시작선을 어긋나게 하므로 쓰지 않는다.
 
 | 페이지 유형 | 지정 | 최대 너비 |
 |------------|------|-----------|
 | Tables / Boards / Lists / 분할형 | `<Page>`(기본 `width="full"`) | 제한 없음 |
 | 문서·상세·폼(읽기 폭) | `<Page width="reading">` → `Page.Body` 안쪽이 왼쪽 정렬 `max-w-3xl` | 768px |
-| 설정 영역(후속 이전 전) 현행 | `SettingsPage width="form"` → 왼쪽 정렬 `max-w-2xl` + `p-6` | 672px |
+| 설정·관리 폼 | `<Page width="settings">` (`SettingsPage width="form"`) | 1024px |
 | 인증(로그인/가입) — 앱 셸 밖 | `max-w-md mx-auto` (화면 가운데 카드, `Page` 대상 아님) | 448px |
-
-> 설정 영역(`SettingsPage`·설정/관리자 라우트·`ProjectSettingsPage`)은 아직 `Page` 로 옮기기 전이라 672px·`p-6` 이 현행이다.
-> `Page`(reading 768px·`px-4`)로의 이전은 [13-migration-backlog.md](./13-migration-backlog.md) 후속 과제.
 
 ```tsx
 {/* 칸반 보드 / 이슈 목록 — 전체 너비 */}
@@ -294,15 +291,32 @@ export function IssueModuleLayout() {
 "Forms / Settings" 한 줄로 뭉뚱그리면 설정 하위 페이지끼리도 폭이 갈린다는 점을 놓친다.
 설정 하위 페이지의 콘텐츠 폭은 **화면 성격**(리스트/스캔 목적 vs 폼/입력 목적)으로 결정한다 —
 "설정이니까 좁게"가 아니라 "리스트니까 풀폭, 폼이니까 좁게"가 기준이다.
-공용 셸 `SettingsPage`(`src/components/layout/SettingsPage.tsx`)의 `width` prop(`'form' | 'full'`, 기본 `'full'`)이
-이 규칙을 컴포넌트 레벨로 강제한다 — 개별 페이지가 `max-w-2xl` 을 직접 하드코딩하지 않는다.
+공용 셸 `SettingsPage`(`src/components/layout/SettingsPage.tsx`, `Page` 위 얇은 래퍼)의 `width` prop(`'form' | 'full'`, 기본 `'full'`)이
+이 규칙을 컴포넌트 레벨로 강제한다 — `form` 은 `Page width="settings"`(왼쪽 정렬 1024px)로, `full` 은 `Page` 전체 폭으로 바뀐다. 개별 페이지가 `max-w-*` 를 직접 하드코딩하지 않는다.
 
 | 성격 | `width` | 해당 화면 |
 |---|---|---|
 | 리스트/테이블 (항목 N개, 스캔이 목적) | `full`(기본) | `/settings/users`, `/settings/tokens`, `/settings/roles`, `/settings/mail` |
-| 폼 (필드 몇 개, 입력이 목적) | `form` | `/settings/assistant`, `/settings/roles/:id`, `/settings/profile` |
+| 폼 (필드 몇 개, 입력이 목적) | `form` → `Page` settings(1024px) + 주석 섹션 | `/settings/assistant`, `/settings/notifications`, `/settings/sso`, `/settings/roles/:id`, `/settings/users/:id`, `/settings/profile`, `/projects/:key/settings`(`SettingsPage` 대신 `<Page width="settings">` 직접) |
 
 새 설정 하위 페이지를 추가할 때는 이 표로 먼저 성격을 판정한 뒤 `width` 를 정한다.
+
+### 설정 폼 = 주석 섹션 (WP-397)
+
+설정·관리 폼 화면은 `SettingsSection`(`src/components/layout/SettingsSection.tsx`)으로 섹션을 쌓는다.
+
+- 왼쪽 240px 제목(h2)·설명 / 오른쪽 입력. 섹션 사이 1px 구분선, **Card 를 쓰지 않는다**.
+- 섹션 제목(h2)은 heading-group 위계 `text-base leading-6 font-semibold`(16/24px, [02-typography §2.1](02-typography.md)) — 필드 라벨(`text-sm font-medium`)과 한 단계 구분한다.
+- 본문 컨테이너 폭 768px 미만(AI 패널 연 노트북·모바일)이면 세로 스택 — 뷰포트가 아닌 `@container` 기준.
+- 필드는 한 줄 하나·라벨 위. 텍스트 입력 묶음은 `settingsFieldClass`(`max-w-md` 448px), 설명·URL·textarea 는 입력 열 전체 폭.
+  - 예외: 목록 관리 섹션(라벨·이슈 유형·사용자 정의 필드)의 **인라인 추가 줄**(이름 + 색상/타입 + 추가)은 한 줄에 여러 필드를 둔다. 줄은 `items-end`, 각 필드는 라벨 위, 입력이 아닌 컨트롤(색상 견본 등)은 `min-h-9 items-center` 로 입력 높이(h-9)에 맞추고, 필드 열은 `flex flex-col gap-1`(또는 라벨 `block`)로 둬 inline 라벨·`SelectTrigger`(inline-flex)의 줄 상자 여백 없이 라벨 기준선을 맞춘다.
+- 토글은 `SettingsToggleRow`(제목·설명 왼쪽, 스위치 오른쪽 끝, 행 자체 세로 여백 없음 · 스위치는 `::after -inset-3` 로 터치 영역 40px 이상 — [10-accessibility §I](10-accessibility.md)), 연속 행은 `SettingsToggleGroup`(행 사이에만 `divide-y`·위아래 12px)으로 감싼다.
+- 위험 구역은 `tone="danger"`.
+- **즉시 적용 토글은 성공 토스트를 띄우지 않는다** — 스위치 상태 자체가 피드백이다. 전역 Toaster 가 오른쪽 위(#692)라 오른쪽 끝 스위치를 가리기 때문. 실패 토스트(`handleApiError`)는 유지한다. 성공 시 UI 가 사라지는 호출처(예: `PushPromptBanner`)는 토스트를 띄워도 된다.
+
+예: SSO — 섹션 제목 "SSO 로그인", 토글 행 라벨 "SSO 로그인 사용".
+
+근거(2026-10 조사): 설정 폼을 전체 폭으로 늘리는 사례 없음(Android 설정 패턴 "Don't allow single pane settings items to stretch to full width"), 상한 1000~1280px(Polaris 998 · Microsoft 1000~1100 · Primer 1280), 넓은 폭은 주석 섹션으로 채움(Polaris settings layout · Microsoft SettingsCard), 필드는 단일 열(Primer · Carbon · Atlassian · NN/g).
 
 ---
 
@@ -312,6 +326,6 @@ export function IssueModuleLayout() {
 |------|------------|------------|
 | 임의 간격 값 | 페이지 padding 이 `p-6`/`p-4`/`p-8` 혼용 | 표준 `p-6`, compact 만 `p-4`, 넓은 화면만 `p-8` |
 | Card padding | shadcn 기본 `p-6` 일관 | 유지, compact 변형만 `p-4` |
-| 콘텐츠 최대 너비 | `max-w-md`/`2xl`/`3xl` 혼재 | `Page` 폭 full / reading(왼쪽 정렬 `max-w-3xl`) 2종 — 설정 영역은 후속 이전 |
+| 콘텐츠 최대 너비 | `max-w-md`/`2xl`/`3xl` 혼재 | 완료 — `Page` 폭 full / reading(왼쪽 정렬 `max-w-3xl`) / settings(왼쪽 정렬 `max-w-5xl`) 3종 |
 | 그리드 패턴 | 페이지마다 임의 grid | 위 5가지 패턴 재사용 |
-| 페이지 헤더 | 전역 GNB 없이 페이지마다 자체 헤더 | 완료 — `Page`/`Page.Header`/`Page.Body` 로 공통화(높이 `h-14`·여백 16px·폭 full/reading) |
+| 페이지 헤더 | 전역 GNB 없이 페이지마다 자체 헤더 | 완료 — `Page`/`Page.Header`/`Page.Body` 로 공통화(높이 `h-14`·여백 16px·폭 full/reading/settings) |

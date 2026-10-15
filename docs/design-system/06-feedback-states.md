@@ -208,6 +208,8 @@ await createIssue(data);
 toast.success("이슈가 생성되었습니다");
 ```
 
+> **예외 — 즉시 적용 설정 토글(WP-397)**: `SettingsToggleRow` 의 스위치처럼 바로 저장되는 설정은 성공 토스트를 띄우지 않는다(스위치 상태가 피드백, 오른쪽 위 Toaster 가 오른쪽 끝 스위치를 가림). 실패 토스트는 유지. 상세는 [03 — 설정 폼 = 주석 섹션](./03-spacing-layout.md#설정-폼--주석-섹션-wp-397).
+
 ### 3. Page Error Boundary (페이지 에러 바운더리)
 
 lazy-loaded 페이지에서 uncaught 렌더링 에러가 나면 흰 화면(WSOD) 대신 복구 UI 를 보여준다. 워크플레이스는 클래스 컴포넌트 `PageErrorBoundary`(`components/PageErrorBoundary.tsx`)를 제공한다.

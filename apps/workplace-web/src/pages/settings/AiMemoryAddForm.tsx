@@ -21,7 +21,7 @@ export function AiMemoryAddForm({ onClose, fullScopes }: { onClose: () => void; 
   const create = useCreateAiMemory();
   const [kind, setKind] = useState<AiMemoryKind>('PREFERENCE');
   const [content, setContent] = useState('');
-  // 카드는 모든 범위가 가득이면 폼을 열지 않는다 — null 은 방어용으로 공통.
+  // 섹션은 모든 범위가 가득이면 폼을 열지 않는다 — null 은 방어용으로 공통.
   const [scope, setScope] = useState<AiMemoryScopeKey>(() => defaultAddScope(fullScopes) ?? 'COMMON');
   const [expiresOn, setExpiresOn] = useState<string | null>(null);
   return (

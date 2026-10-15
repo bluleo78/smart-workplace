@@ -3,6 +3,7 @@
 
 import { useState } from 'react';
 
+import { settingsFieldClass, SettingsSection } from '@/components/layout/SettingsSection';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -23,6 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { cn } from '@/lib/utils';
 
 import {
   useCreateCustomField,
@@ -80,8 +82,7 @@ export function CustomFieldManagement({
   }
 
   return (
-    <section className="space-y-3" aria-label="프로젝트 필드">
-      <h2 className="text-lg font-semibold">프로젝트 필드</h2>
+    <SettingsSection title="프로젝트 필드" description="이슈에 붙일 이 프로젝트만의 입력 항목이에요.">
       {isOwner && (
         <form
           onSubmit={(e) => {
@@ -91,7 +92,7 @@ export function CustomFieldManagement({
           className="flex flex-wrap gap-2 items-end"
           data-testid="custom-field-create-form"
         >
-          <div className="flex-1 min-w-[160px] space-y-1">
+          <div className={cn('flex min-w-[160px] flex-1 flex-col gap-1', settingsFieldClass)}>
             <label className="text-sm font-medium" htmlFor="cf-name">
               이름
             </label>
@@ -102,7 +103,8 @@ export function CustomFieldManagement({
               maxLength={40}
             />
           </div>
-          <div className="space-y-1">
+          {/* 열을 flex-col 로 — SelectTrigger(inline-flex)가 줄 상자 기준선에 앉아 생기는 아래 여백(≈4px) 때문에 '타입' 라벨이 '이름'보다 떠 있었다(WP-397). */}
+          <div className="flex flex-col gap-1">
             <label className="text-sm font-medium" htmlFor="cf-type">
               타입
             </label>
@@ -129,7 +131,7 @@ export function CustomFieldManagement({
             </Select>
           </div>
           {needsOptions && (
-            <div className="flex-1 min-w-[160px] space-y-1">
+            <div className="flex min-w-[160px] flex-1 flex-col gap-1">
               <label className="text-sm font-medium" htmlFor="cf-options">
                 옵션 (콤마 구분)
               </label>
@@ -213,6 +215,6 @@ export function CustomFieldManagement({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </section>
+    </SettingsSection>
   );
 }

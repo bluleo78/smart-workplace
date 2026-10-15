@@ -40,6 +40,20 @@ export async function expectNoHorizontalOverflow(page: Page) {
 }
 
 /**
+ * 본문 스크롤 영역(page-body-content 의 부모) 안에서 가로 넘침이 없는지.
+ * 왜: 문서(document) 폭은 390 이어도 overflow-y-auto 스크롤러 안에서 내용이 가로로 넘칠 수 있다(WP-397 D1·D2).
+ */
+export async function expectBodyNoHorizontalOverflow(page: Page) {
+  const content = page.getByTestId('page-body-content')
+  await expect(content).toBeVisible()
+  const { scrollWidth, clientWidth } = await content.evaluate((el) => {
+    const scroller = el.parentElement!
+    return { scrollWidth: scroller.scrollWidth, clientWidth: scroller.clientWidth }
+  })
+  expect(scrollWidth, `page-body scrollWidth ${scrollWidth} vs clientWidth ${clientWidth}`).toBeLessThanOrEqual(clientWidth + 1)
+}
+
+/**
  * 대상 요소가 실제로 맨 위에 있는지(가려지지 않았는지) — toBeVisible 은 가림을 보지 않는다.
  * Radix 모달은 body 에 pointer-events:none 을 걸어 가린 층(시트)이 히트 테스트에서 빠지므로,
  * 판정하는 순간만 body 의 pointer-events 를 되돌려 쌓임 순서 그대로 elementFromPoint 를 읽는다.

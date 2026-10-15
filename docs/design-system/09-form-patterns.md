@@ -6,6 +6,8 @@
 
 > 관련 문서: [04. Components](./04-components.md) · [06. Feedback States](./06-feedback-states.md) · [07. Iconography](./07-iconography.md)
 
+> 설정·관리 화면의 폼 배치는 [03-spacing-layout.md — 설정 폼 = 주석 섹션](./03-spacing-layout.md#설정-폼--주석-섹션-wp-397) 을 따른다.
+
 ---
 
 ## A. Field Anatomy (필드 구조)

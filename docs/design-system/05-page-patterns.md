@@ -35,14 +35,14 @@ Smart Workplace 프론트엔드(`apps/workplace-web`)에서 실제로 반복되�
 - `<main>` 은 `flex flex-col overflow-hidden` — 즉 **부모 높이가 고정**되어 있다.
   따라서 마스터-디테일·채팅처럼 내부에서 스크롤을 나눠야 하는 페이지는 `h-full min-h-0` 로 높이를 이어받는다.
 - 페이지 최상위 컨테이너는 두 갈래로 나뉜다(아래 As-Is 참고):
-  - **콘텐츠 폭 제한형**: `container mx-auto p-6` (projects / issues) 또는 `mx-auto max-w-2xl p-6` (설정 폼)
+  - **콘텐츠 폭 제한형**: `container mx-auto p-6` (projects / issues) / 설정 폼은 `Page width="settings"` + 주석 섹션(WP-397)
   - **풀-블리드 분할형**: `flex h-full min-h-0` (메일 / 채팅 / 모듈 레이아웃)
 
 > **As-Is 주의 — 최상위 컨테이너 불일치**
 > `ProjectListPage`·`IssueDetailPage` 는 `container mx-auto p-6`,
 > `UserListPage` 는 `space-y-6`(패딩 없음, 모듈 레이아웃이 스크롤 담당),
-> `ProfileSettingsPage` 는 `mx-auto max-w-2xl ... p-6` 를 쓴다.
-> 신규 페이지는 "리스트/상세 = `p-6 space-y-*`", "폼 = `max-w-2xl`" 규칙으로 통일을 권장한다.
+> 설정 폼은 `Page width="settings"`(왼쪽 정렬 `max-w-5xl`) + `SettingsSection` 으로 이전됐다(WP-397).
+> 신규 페이지는 "리스트/상세 = `Page`", "설정 폼 = `Page width="settings"` + 주석 섹션" 규칙으로 통일한다.
 
 ### 페이지 틀(Page) — 헤더 + 본문이 여백·폭을 공유
 
@@ -69,7 +69,7 @@ Smart Workplace 프론트엔드(`apps/workplace-web`)에서 실제로 반복되�
 ```
 
 - **여백은 16px 단일 값**: 헤더·본문·자체 레이아웃 행 모두 `pageGutterClass`(`px-4`). 본문 시작 x 는 콘텐츠 기준으로 헤더와 맞고, `Page.Body` 안쪽 `page-body-content` 래퍼가 `px-4 py-4` 를 갖는다.
-- **폭은 full / reading 2종**: reading 은 왼쪽 정렬 `max-w-3xl`(768px) — 가운데 정렬(`mx-auto`)은 쓰지 않는다(헤더 시작선과 맞추기 위해).
+- **폭은 full / reading / settings 3종**: reading 은 왼쪽 정렬 `max-w-3xl`(768px), settings 는 왼쪽 정렬 `max-w-5xl`(1024px)+`@container` — 가운데 정렬(`mx-auto`)은 쓰지 않는다(헤더 시작선과 맞추기 위해). 설정 폼 규칙은 [03-spacing-layout.md](./03-spacing-layout.md#설정-폼--주석-섹션-wp-397).
 - **헤더 바는 직접 만들지 않는다**: `h-14` + `border-b` 조합은 ESLint `headerBarRule` 이 막는다(예외는 layout·mobile 구현부). 사이드바 헤더(`sidebarTitleClass`)와 같은 `h-14` 로 한 선 정렬된다.
 - **본문 안 보조 칸**(채널 스레드 칼럼·개인 작업 패널 등)은 페이지 헤더 **아래**에 놓이므로 56px 헤더를 또 두지 않고 `subPaneHeaderClass`(`h-[34px]`·옅은 `border-border/60`·`text-xs font-semibold`) 소제목 줄을 쓴다. **앱 공통 패널(AI 옆 패널)만** `PanelHeader`(`h-14`)를 쓴다.
 - **AI 칩 클램프는 헤더가 처리**한다: AI 칩(fixed)은 레일 폭·AI 옆 패널 폭에 따라 움직이므로 `Page.Header` 가 칩의 실제 좌측 경계를 재서(`useAiChipClamp`) 좌측 그룹 max-width 를 `칩 좌측 − 그룹 좌측 − 16px`(최소 120px)로 둔다. 제목·위치 표시가 먼저 잘리고 icon 슬롯은 줄지 않는다 — 화면별 우회 코드를 두지 않는다.
