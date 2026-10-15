@@ -1,15 +1,15 @@
 // 무한 스크롤 sentinel — 반환한 ref 를 목록 끝 요소에 달면, 화면(여유 200px)에 들어올 때 다음 페이지를 받는다.
 // 목록 뷰·보드 컬럼·위임 작업 목록이 같은 규칙을 쓰도록 공용화했다(#875).
 
-import type { InfiniteData, UseInfiniteQueryResult } from '@tanstack/react-query';
+import type { FetchNextPageOptions, InfiniteData, UseInfiniteQueryResult } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 
-// fetchNextPage 는 반환값을 쓰지 않으므로 () => unknown 으로 넓힌다 — 무한 쿼리가 아닌 목록(캘린더 목록의 청크 늘리기, WP-136)도
-// 같은 sentinel 을 쓸 수 있게. 무한 쿼리의 fetchNextPage 는 그대로 대입된다.
+// fetchNextPage 는 반환값을 쓰지 않으므로 unknown 으로 넓힌다 — 무한 쿼리가 아닌 목록(캘린더 목록의 청크 늘리기, WP-136)도
+// 같은 sentinel 을 쓸 수 있게. 무한 쿼리의 fetchNextPage 와 인자를 무시하는 함수 모두 그대로 대입된다.
 export type LoadMoreQuery = Pick<
   UseInfiniteQueryResult<InfiniteData<unknown>, Error>,
   'hasNextPage' | 'isFetching' | 'isFetchNextPageError'
-> & { fetchNextPage: () => unknown };
+> & { fetchNextPage: (options?: FetchNextPageOptions) => unknown };
 
 // root: sentinel 을 감싼 스크롤 컨테이너(목록/보드가 자체 스크롤할 때). 생략·null 이면 뷰포트.
 // 왜 명시적으로 받나: 뷰포트를 root 로 두면 rootMargin(선행 로드 여유)이 컨테이너 클리핑에 먹혀
@@ -31,7 +31,10 @@ export function useLoadMoreSentinel<T extends HTMLElement = HTMLDivElement>(
     if (!enabled || !node || !hasNextPage || isFetchNextPageError) return;
     const io = new IntersectionObserver(
       (entries) => {
-        if (entries[0]?.isIntersecting && !isFetching) void fetchNextPage();
+        // cancelRefetch: false — 콜백의 isFetching 은 observer 를 만든 렌더의 값이라, 요청 시작 직후 effect 가 observer 를
+        // 바꾸기 전에 다시 불리면 false 로 보인다. 기본값(true)이면 그 재호출이 진행 중(재시도 대기 포함) 요청을 취소하고
+        // 새로 보내 중복 요청·재시도 횟수 초기화가 생긴다(10-15 설정 목록 E2E 플래키의 원인). 이미 받는 중이면 그 요청에 합류만 한다.
+        if (entries[0]?.isIntersecting && !isFetching) void fetchNextPage({ cancelRefetch: false });
       },
       { root, rootMargin: '200px' },
     );
