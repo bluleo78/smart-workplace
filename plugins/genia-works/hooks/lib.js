@@ -165,3 +165,14 @@ export function isAiKeyRegistration(config) {
   }
   return false
 }
+
+// 프롬프트에 든 genia-works 키·토큰 모양 — 내 토큰은 swp_, AI 키는 ak_ 뒤에 base62 32바이트(약 43자).
+// 앞 글자는 보지 않는다 — URL 인코딩(%20swp_…)·JSON 이스케이프(\nak_…)처럼 영문·숫자 바로 뒤에 붙은 키도 잡기 위해서다.
+// 대가로 받아들인 오탐: 이름이 ak·swp 로 끝나는 식별자 뒤에 영문·숫자 32자 이상이 오면(예: break_<32자+>, leak_<32자+>) 걸린다.
+// 문서·테스트의 짧은 가짜(ak_FAKE_ABC123 등)는 32자 미만이라 걸리지 않는다.
+export const KEY_LIKE = /(?:swp|ak)_[A-Za-z0-9]{32,}/
+
+// 텍스트에 키·토큰 모양이 있으면 true — 키 값은 돌려주지 않는다(메시지·로그에 되울리지 않게).
+export function containsSecretKey(text) {
+  return typeof text === 'string' && (text.includes('ak_') || text.includes('swp_')) && KEY_LIKE.test(text) // 싼 선검사 — 정규식은 접두가 보일 때만
+}

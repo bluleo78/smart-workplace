@@ -1,7 +1,7 @@
 // genia-works mod — 세션별 접속 신원 선택(로그인 패널·전환·로그아웃), 신원 상태 줄, 키 파일 읽기 차단,
 // 기존 수동 등록 정리. 토큰 주입은 하지 않는다(헤더 스크립트 담당 — 플러그인 MCP 가 mod 보다 먼저 연결된다).
 // 규칙: $ 를 쓰는 코드는 모두 이 파일 안에 둔다(다른 파일 함수에 $ 를 넘기면 검증이 실패). lib.js 는 순수 함수만.
-import { COMMANDS, parseKeyList, identityLabel, isKeyPath, toolTargets, END_CLEARS, applyMaskedInput, maskOf, initializeBody, validName, validKey, findManualRegistrations, isAiKeyRegistration, isHeaderScriptCall, HEADER_SCRIPT_DENY, KEY_PATH_DENY, mentionsHost, sameServer, isHeadless, HEADLESS_SWITCH, HEADLESS_LOGIN } from './lib.js'
+import { COMMANDS, parseKeyList, identityLabel, isKeyPath, toolTargets, END_CLEARS, applyMaskedInput, maskOf, initializeBody, validName, validKey, findManualRegistrations, isAiKeyRegistration, isHeaderScriptCall, HEADER_SCRIPT_DENY, KEY_PATH_DENY, mentionsHost, sameServer, isHeadless, HEADLESS_SWITCH, HEADLESS_LOGIN, containsSecretKey } from './lib.js'
 
 const SERVER = 'plugin:genia-works:genia-works'
 let opts = {}
@@ -23,6 +23,10 @@ async function listKeys($) {
 async function sessionSelection($) {
   return (await script($, 'gw-session', ['show'])).stdout.trim()
 }
+
+// 키 모양이 든 명령 인자·프롬프트를 막을 때 사람에게 보이는 고정 문구 — 키 값은 포함하지 않는다(명령 결과는 대화 기록에 남는다).
+const ARGS_KEY_REFUSE = '키는 명령에 넣을 수 없습니다 — ' + COMMANDS.login + ' 의 「새 AI 추가」에 붙여 넣으세요'
+const PROMPT_KEY_DROP = 'genia-works 키나 토큰은 대화에 넣을 수 없습니다 — 입력을 지우고(Ctrl+U) AI 키는 /genia-works:login 에, 내 토큰은 /plugin configure genia-works@genia-works 에 넣으세요'
 
 // 토스트 표시 시간 — 길게 읽어야 하는 안내(12초)와 보통 안내(10초).
 const TOAST_LONG = { timeoutMs: 12000 }
@@ -61,6 +65,7 @@ function reconnectSoon($) {
 }
 
 // 신원 전환 — 선택 파일을 쓰고 다시 연결한다. 키 없는 이름은 저장하지 않는다.
+// 답에 name 을 되울리므로, 키 모양 인자는 부르는 쪽(as 명령)에서 먼저 거절한다.
 async function switchTo($, name) {
   const r = await script($, 'gw-session', ['select', name])
   if (r.exitCode === 4) return `${name} 키가 없습니다 — ${COMMANDS.login} 에서 「새 AI 추가」로 등록하세요`
@@ -77,10 +82,17 @@ async function describe($) {
 }
 
 const PANE = 'genia-works-login'
+const PANE_TITLE = 'genia-works 로그인'
 // 패널 상태 — keyBuf(실제 키)는 저장 성공·실패, 검증·확인 실패, 화면 이동(go·키 바꾸기), 패널 닫기에서 비운다
 // (덮어쓰기 확인 단계만 같은 키로 다시 누르도록 남긴다). 화면에는 maskOf(keyBuf)만 그린다.
 // attempt: 열기·이동·닫기마다 올라가는 번호 — 서버 확인 중에 화면이 바뀌었으면 늦게 온 저장을 버린다.
 let attempt = 0
+// formRev: 추가 화면 두 입력칸의 세대 번호 — 칸의 key(gw-key-<번호>·gw-name-<번호>)에 들어가 제출·열기마다 올라간다.
+// 엔진은 Enter 로 제출한 칸의 글을 비우고, 같은 value 를 다시 그려도 되살리지 않는다. 그래서 제출 때마다 새 칸을 세워
+// 실제 값(이름, 가린 키)을 보인 채로 새로 그린다. 패널 상태와 따로 두어 다시 열어도 줄지 않는다(지난 그림의 칸을 재사용하지 않게).
+// (attempt 와 formRev 를 합치지 않는다: attempt 는 키를 버릴 때마다 올라 늦은 저장을 무효로 하고, formRev 는 칸을 새로 세울 때만 올라 열기·제출에서만 바뀐다 — 수명이 다르다.)
+let formRev = 0
+const fieldKey = (kind) => 'gw-' + kind + '-' + formRev // kind: 'key'|'name'
 
 // 패널 상태 한 벌 — 기본값에 over 를 덮어 쓴다(필드를 한곳에서 정의).
 function blankPane(over) {
@@ -95,9 +107,54 @@ function dropSecret() {
 }
 
 // 화면 이동 — 키를 버리고 메시지·확인·키 바꾸기 표시를 지운 뒤 patch 를 적용한다.
+// field: 추가 화면에서 포커스를 둘 칸('name' 이면 이름 칸, 그 밖에는 키 칸) — 제출한 칸으로 포커스를 돌려주려 submitForm 이 쓴다.
 function enterView(view, patch) {
   dropSecret()
-  Object.assign(pane, { view, message: '', confirm: '', rekey: '' }, patch)
+  Object.assign(pane, { view, message: '', confirm: '', rekey: '', field: 'key' }, patch)
+}
+
+// 화면마다 포커스를 둘 첫 요소 — 화면이 바뀌면 포커스가 있던 요소가 사라지므로 여기로 직접 옮긴다.
+function focusKeyOf(p) {
+  if (p.view === 'add') return fieldKey(p.field === 'name' ? 'name' : 'key')
+  if (p.view === 'saved') return 'gw-switch-now'
+  if (p.view === 'pick') return 'gw-pick-me'
+  return p.list.length ? 'gw-rekey-' + p.list[0].name : 'gw-back'
+}
+
+// 다시 그리고 target 요소로 포커스를 옮긴다 — 패널 안에서 화면이 바뀔 때 autoFocus 는 적용되지 않는다
+// (엔진은 사이트가 키보드를 「가져갈」 때만 autoFocus 를 쓴다). 포커스가 있던 요소가 사라지면 키보드가 패널 밖
+// (Claude 입력창)으로 나가 붙여 넣은 키가 평문으로 들어갈 수 있으므로(결함 B), 옛 요소가 아직 그려져 패널이 키를 쥔
+// 지금 $.ui.focus 를 먼저 걸고 그다음 다시 그리기를 요청한다 — 아직 없는 요소는 다음 그림까지(시간 제한 안에서) 기다리므로,
+// 기다림은 이 다시 그리기로 풀린다(라이브: 「＋ 새 AI 추가」 Enter 뒤 30ms 만에 붙여 넣어도 키 칸에 들어간다).
+// reclaim: 패널 안의 누름·제출이 곧바로 일으킨 전환일 때만 true(reclaimPane 참조).
+// 서버 확인·삭제처럼 늦게 끝나는 전환은 reclaim 없이 $.ui.focus 만 해 본다 — 그사이 사람이 일부러 입력창으로 옮겼다면
+// 키보드를 도로 뺏지 않는다(패널은 새 화면을 그대로 보인다).
+// 포커스 실패는 저장·전환·닫기를 막지 않는다. ui.render 처리기 안에서는 부르지 않는다(자기 그림을 기다릴 수 없다).
+async function refocus($, target, reclaim) {
+  let moving
+  try {
+    moving = $.ui.focus({ requestId: PANE, key: target }) // 기다리지 않고 먼저 건다 — 다시 그리기 전에 불러야 한다
+  } catch {}
+  $.ui.invalidate('ui.render')
+  try {
+    const r = await moving
+    if (r?.deny && reclaim) await reclaimPane($, target)
+  } catch {} // 포커스가 안 돼도 새 화면은 이미 그리라고 했다
+}
+
+// 포커스가 거절됐을 때(누름과 함께 키보드를 잃었다) 패널이 아직 열려 있으면 focus 로 다시 열어 키보드를 되찾고 한 번 더 옮긴다
+// (입력창이 비어 있을 때만 엔진이 받아 준다).
+async function reclaimPane($, target) {
+  if (focusKeyOf(pane) !== target) return // 그사이 화면이 또 바뀌었다(예: 저장이 끝나 저장 화면) — 그 전환이 포커스를 맡는다
+  if (!(await $.ui.panes()).some((p) => p.id === PANE)) return // 그사이 닫혔다 — 다시 열지 않는다
+  await $.ui.open({ id: PANE, title: PANE_TITLE, focus: true, closeOnEscape: true })
+  await $.ui.focus({ requestId: PANE, key: target })
+}
+
+// 화면 이동 + 다시 그리기 + 포커스 — 패널 안의 화면 전환은 모두 여기를 거친다. reclaim 은 refocus 에 그대로 넘긴다.
+async function showView($, view, patch, reclaim = false) {
+  enterView(view, patch)
+  await refocus($, focusKeyOf(pane), reclaim)
 }
 
 // 패널 열기 — 등록된 AI 가 없으면 바로 「새 AI 추가」 화면으로 간다.
@@ -106,10 +163,13 @@ async function openLogin($) {
   // 현재 신원 — 세션 선택이 없으면 GENIA_WORKS_AS 가 가리키는 이름을 현재로 본다(헤더 스크립트와 같은 우선순위)
   const current = selected || (as ?? '')
   dropSecret() // 이전 패널의 키를 버리고 진행 중인 확인을 무효로 한다
+  formRev++ // 지난 패널의 입력칸을 재사용하지 않는다
   pane = blankPane({ view: list.length ? 'pick' : 'add', list, current, envToken: Boolean(token) })
-  await $.ui.open({ id: PANE, title: 'genia-works 로그인', focus: true, closeOnEscape: true })
-  // 다시 열 때 엔진이 지난 그림(settled)을 재사용하므로, 새 상태로 다시 그리라고 요청한다(안 하면 지난 화면이 남는다).
-  $.ui.invalidate('ui.render')
+  // 한 번만 연다(focus 는 요청일 뿐 — 입력창에 글이 있으면 엔진이 거절한다). 다시 열 때 엔진은 지난 그림(settled)을
+  // 재사용하고 autoFocus 도 그 지난 그림에 걸므로, 연 뒤 새 상태로 다시 그리게 하고 포커스를 새 그림의 첫 요소로
+  // 한 번 옮겨 본다(reclaim 없음 — 거절되면 두 번째로 열지 않고 그대로 둔다).
+  await $.ui.open({ id: PANE, title: PANE_TITLE, focus: true, closeOnEscape: true })
+  await refocus($, focusKeyOf(pane))
 }
 
 // 키 확인 — 그 키로 initialize 를 보내 401 이면 거절. 네트워크 오류·무응답(10초)은 저장하지 않고 고정 문구로 알린다(오류 원문엔 키가 섞일 수 있어 쓰지 않는다).
@@ -143,7 +203,7 @@ function resetConfirm() {
 
 // 새 키 저장 — 이름·형식 검사 → (덮어쓰기면 한 번 더 확인) → 서버 확인 → gw-keys add(stdin).
 // 저장 성공·실패와 검증 실패에서는 keyBuf 를 비운다(키를 메모리에 오래 두지 않는다). 덮어쓰기 확인 단계만 같은 키로 다시 누르도록 남긴다.
-// 진행 중(busy)에는 다시 눌러도 무시한다.
+// 진행 중(busy)에는 다시 눌러도 무시한다. 저장 화면으로의 전환은 포커스 이동을 기다리지 않는다 — busy 를 포커스 기다림 동안 쥐지 않게.
 async function saveNewKey($) {
   if (pane.busy) return
   pane.busy = true
@@ -170,14 +230,25 @@ async function saveNewKey($) {
       resetConfirm()
       return void (pane.message = '저장하지 못했습니다: ' + r.stderr.trim())
     }
-    pane.confirm = ''
-    pane.rekey = ''
-    pane.view = 'saved'
-    pane.name = name
-    pane.message = `✓ ${name} 키를 확인하고 저장했습니다. 지금 이 AI 로 바꿀까요?`
+    // 저장 화면으로 — 제출한 입력칸이 사라지므로 포커스를 「바꾸기」로 옮겨 본다(Enter 가 「나중에」에 걸리던 결함 A).
+    // 서버 확인 뒤의 늦은 전환이라 reclaim 없이, 기다리지 않고 건다(refocus 는 실패를 스스로 삼킨다).
+    void showView($, 'saved', { name, message: `✓ ${name} 키를 확인하고 저장했습니다. 지금 이 AI 로 바꿀까요?` })
   } finally {
     pane.busy = false
   }
+}
+
+// 추가 화면 입력칸의 Enter — field: 제출한 칸('key'|'name').
+// 엔진이 제출한 칸을 비우므로, 기다리기 전에 곧바로 새 세대의 칸(실제 값을 든)을 세우고 포커스를 그 칸으로 옮긴다
+// (제출로 키보드를 쥔 칸이 사라지므로 이 이동은 누름이 일으킨 것 — reclaim). 그 뒤의 저장·실패는 같은 칸에서 값만 바뀐다.
+// 포커스 기다림과 저장은 함께 진행한다(포커스를 기다리느라 저장이 늦지 않게).
+async function submitForm($, field) {
+  pane.field = field
+  formRev++
+  const focusing = refocus($, focusKeyOf(pane), true)
+  await saveNewKey($)
+  if (pane.view === 'add') $.ui.invalidate('ui.render') // 확인 문구·실패 문구를 그린다(성공해 저장 화면으로 갔으면 showView 가 이미 그렸다)
+  await focusing
 }
 
 // 패널 닫기 — 플러그인이 스스로 닫을 때는 자기 ui.close 처리기가 불리지 않으므로 여기서 키를 먼저 비운다.
@@ -212,22 +283,25 @@ async function removeKey($, name) {
   const r = await script($, 'gw-keys', ['remove', name])
   if (r.exitCode !== 0) return void (pane.message = '키를 지우지 못했습니다: ' + r.stderr.trim())
   pane.list = await listKeys($)
-  pane.confirm = ''
-  pane.message = `${name} 키를 지웠습니다` + note
-  if (!pane.list.length) pane.view = 'add'
+  // 누른 「지우기」 버튼이 그 줄과 함께 사라지므로 화면을 다시 세우고 포커스를 옮긴다(목록이 비면 추가 화면의 키 칸).
+  // 스크립트를 거친 늦은 전환이라 reclaim 없이 — 그사이 입력창으로 옮겼으면 키보드를 뺏지 않는다.
+  await showView($, pane.list.length ? 'manage' : 'add', { message: `${name} 키를 지웠습니다` + note })
 }
 
 // 패널 트리 — view 별(pick·add·saved·manage). 상태가 바뀌면 invalidate 로 다시 그린다.
 function renderPane($, e) {
   const { Box, Text, Button, Input } = $.ui.resolve(e)
   const redraw = () => $.ui.invalidate('ui.render')
-  const go = (view) => () => { enterView(view); redraw() }
+  const go = (view) => () => showView($, view, undefined, true)
+  // 이 화면의 포커스 대상에만 autoFocus — 사람이 ctrl+x tab 으로 패널을 다시 잡을 때도 refocus 와 같은 요소에서 시작한다.
+  const target = focusKeyOf(pane)
+  const af = (key) => (key === target ? { autoFocus: true } : {})
   const msg = pane.message ? h(Text, null, pane.message) : null
   let body
   if (pane.view === 'pick') {
     body = [
       h(Text, null, '이 세션을 어느 신원으로 쓸까요?'),
-      h(Button, { key: 'gw-pick-me', label: '내 토큰' + (pane.envToken ? ' (환경변수 GENIA_WORKS_TOKEN)' : '') + (pane.current === '' || pane.current === 'me' ? '  (현재)' : ''), onPress: async () => { await pickAndClose($, 'me') } }),
+      h(Button, { key: 'gw-pick-me', ...af('gw-pick-me'), label: '내 토큰' + (pane.envToken ? ' (환경변수 GENIA_WORKS_TOKEN)' : '') + (pane.current === '' || pane.current === 'me' ? '  (현재)' : ''), onPress: async () => { await pickAndClose($, 'me') } }),
       ...pane.list.map((k) =>
         h(Button, { key: 'gw-pick-' + k.name, label: `${k.name}  등록 ${k.added}` + (pane.current === k.name ? '  (현재)' : ''), onPress: async () => { await pickAndClose($, k.name) } })),
       h(Button, { key: 'gw-add', label: '＋ 새 AI 추가', onPress: go('add') }),
@@ -235,16 +309,22 @@ function renderPane($, e) {
       msg,
     ]
   } else if (pane.view === 'add') {
+    // 이 그림의 칸 세대 — 제출로 세대가 바뀐 뒤 옛 칸에서 늦게 온 입력은 버린다(새 칸이 실제 값을 들고 있다).
+    const rev = formRev
+    const live = () => rev === formRev
     body = [
+      // 안전장치 — 패널이 키보드를 쥐지 않은 채 추가 화면이 보이면 알린다. 이 줄이 보일 때는 붙여 넣은 키가 이미 Claude 입력창에
+      // 들어가 있을 수 있으므로(Enter 와 붙여넣기가 한꺼번에 들어온 경우) 「보내지 말고 지우기」를 먼저, 다시 붙여 넣는 방법을 다음에 적는다.
+      e.props?.isFocused === false ? h(Text, { color: 'yellow' }, '⚠ 이 패널에 키보드가 없습니다 — 키가 Claude 입력창에 들어갔다면 Enter 를 누르지 말고 Ctrl+U 로 지우세요(키 모양이 든 입력은 플러그인이 보내지 못하게 막습니다). 붙여 넣으려면 ctrl+x tab 으로 패널에 온 뒤 붙여 넣으세요') : null,
       h(Input, {
-        key: 'gw-key', label: 'AI 키', placeholder: '관리자 › 에이전트에서 발급한 ak_ 키', value: maskOf(pane.keyBuf), autoFocus: true,
-        onInput: (v) => { pane.keyBuf = applyMaskedInput(pane.keyBuf, v); resetConfirm(); redraw() },
-        onSubmit: async () => { await saveNewKey($); redraw() },
+        key: fieldKey('key'), label: 'AI 키', placeholder: '관리자 › 에이전트에서 발급한 ak_ 키', value: maskOf(pane.keyBuf), ...af(fieldKey('key')),
+        onInput: (v) => { if (!live()) return; pane.keyBuf = applyMaskedInput(pane.keyBuf, v); resetConfirm(); redraw() },
+        onSubmit: () => (live() ? submitForm($, 'key') : undefined),
       }),
       h(Input, {
-        key: 'gw-name', label: '이름', placeholder: '이 AI 의 아이디', value: pane.name, submitLabel: '확인하고 저장',
-        onInput: (v) => { pane.name = v; resetConfirm(); redraw() },
-        onSubmit: async () => { await saveNewKey($); redraw() },
+        key: fieldKey('name'), label: '이름', placeholder: '이 AI 의 아이디', value: pane.name, submitLabel: '확인하고 저장', ...af(fieldKey('name')),
+        onInput: (v) => { if (!live()) return; pane.name = v; resetConfirm(); redraw() },
+        onSubmit: () => (live() ? submitForm($, 'name') : undefined),
       }),
       msg,
       h(Text, { dimColor: true }, `터미널에서 넣으려면: "${$.plugin.root}/scripts/gw-set-key" ${pane.name.trim() || '<이름>'}`),
@@ -254,15 +334,15 @@ function renderPane($, e) {
   } else if (pane.view === 'saved') {
     body = [
       msg,
-      h(Button, { key: 'gw-switch-now', label: '바꾸기', autoFocus: true, onPress: async () => { await pickAndClose($, pane.name) } }),
+      h(Button, { key: 'gw-switch-now', ...af('gw-switch-now'), label: '바꾸기', onPress: async () => { await pickAndClose($, pane.name) } }),
       h(Button, { key: 'gw-later', label: '나중에', onPress: async () => { await closePane($) } }),
     ]
   } else {
     body = [
       h(Text, null, '등록된 AI 관리'),
       ...pane.list.flatMap((k) => [
-        h(Text, { key: 'gw-name-' + k.name }, `${k.name}  등록 ${k.added}`),
-        h(Button, { key: 'gw-rekey-' + k.name, label: `${k.name} 키 바꾸기`, onPress: () => { enterView('add', { name: k.name, rekey: k.name }); resetConfirm(); redraw() } }),
+        h(Text, { key: 'gw-row-' + k.name }, `${k.name}  등록 ${k.added}`),
+        h(Button, { key: 'gw-rekey-' + k.name, ...af('gw-rekey-' + k.name), label: `${k.name} 키 바꾸기`, onPress: () => showView($, 'add', { name: k.name, rekey: k.name, confirm: 'overwrite-' + k.name }, true) }), // 키 바꾸기는 덮어쓰기를 이미 고른 것(resetConfirm 과 같은 규칙)
         h(Button, { key: 'gw-remove-' + k.name, label: `${k.name} 삭제`, onPress: () => { pane.confirm = 'remove-' + k.name; redraw() } }),
         pane.confirm === 'remove-' + k.name
           ? h(Box, { flexDirection: 'column' },
@@ -271,7 +351,7 @@ function renderPane($, e) {
           : null,
       ]),
       msg,
-      h(Button, { key: 'gw-back', label: '← 돌아가기', onPress: go(pane.list.length ? 'pick' : 'add') }),
+      h(Button, { key: 'gw-back', ...af('gw-back'), label: '← 돌아가기', onPress: go(pane.list.length ? 'pick' : 'add') }),
     ]
   }
   return h(Box, { flexDirection: 'column' }, ...body.filter(Boolean))
@@ -417,6 +497,10 @@ export function register(on, options) {
 
   // 플러그인 명령 파일(commands/*.md)의 실행을 가로채 모델 턴 없이 처리한다(판정 8).
   // 가로채기가 실패하면 명령 파일 본문이 모델 프롬프트로 가므로 .catch 로 실패 안내를 돌려준다. 문구 앞의 플러그인 이름은 Claude Code 가 붙인다.
+  // 세 명령 모두 인자에 키 모양이 있으면 먼저 고정 문구로 거절한다 — 명령 결과는 대화 기록에 남으므로 인자를 되울리지 않는다.
+  // 한 경계에서 처리하려고 아래 명령 처리기보다 먼저 등록한다(거절하면 next 를 부르지 않아 명령이 돌지 않는다).
+  on('command.run', { command: /^genia-works:/ }, async ($, e, next) => (containsSecretKey(e.args) ? { text: ARGS_KEY_REFUSE } : next(e)))
+
   on('command.run', { command: 'genia-works:as' }, async ($, e) => {
     const name = e.args.trim()
     if (name && isHeadless({ interactive, origin: e.origin })) return { text: HEADLESS_SWITCH }
@@ -467,4 +551,15 @@ export function register(on, options) {
     if (isHeaderScriptCall(e)) return { deny: HEADER_SCRIPT_DENY }
     return next(e)
   }).catch(($, e, next) => (next.called ? next(e) : { deny: 'genia-works 키 저장소 검사에 실패해 이 도구 호출을 막았습니다' }))
+
+  // 마지막 안전망 — 키·토큰 모양이 든 프롬프트는 모델·기록에 닿기 전에 막는다(drop 사유는 사람에게 보인다).
+  // 슬래시 명령(e.command)도 같은 검사를 한다(e.text 가 명령 줄 전체): drop 은 스킬·프롬프트 명령과 모델을 부르는 내장 명령을 막는다.
+  // 모델에 가지 않는 로컬 내장 명령과 command.run 에서 끝나는 명령(이 플러그인의 세 명령은 위에서 따로 거절)은
+  // prompt.submit 이 오지 않아 이 검사가 닿지 않는다.
+  // 키 값은 사유·로그 어디에도 싣지 않는다. 핸들러가 실패하면: 이미 next 를 불렀으면 그 결과를 그대로 잇고(다시 돌리지 않음),
+  // 부르기 전이면 키 모양일 때만 막고 아니면 통과시킨다.
+  on('prompt.submit', async ($, e, next) => {
+    if (containsSecretKey(e.text)) return { drop: PROMPT_KEY_DROP }
+    return next(e)
+  }).catch(($, e, next) => (next.called ? next(e) : containsSecretKey(e.text) ? { drop: PROMPT_KEY_DROP } : next(e)))
 }
