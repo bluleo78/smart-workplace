@@ -1,4 +1,5 @@
-// 개인 체크리스트 행의 AI 배지(WP-377) — 진행 중 AI 작업이 있으면 AI 진행 배지, 없고 AI 담당이면 「AI 위임」.
+// 이슈 행의 AI 배지(WP-377) — 진행 중 AI 작업이 있으면 AI 진행 배지, 없고 AI 담당이면 「AI 위임」.
+// 개인 체크리스트 행·이슈 상세 하위 태스크 행(WP-374)이 같은 판정을 쓴다.
 // 예전 「AI 처리중」(AI 담당 + 이슈 진행 중) 문구는 없앴다 — 실제 진행 상태는 작업 기록(agentWork)이 보여 준다.
 import { AgentStateBadge } from '@/components/ai/agentWork/AgentWorkBits';
 import { AiSignalBadge } from '@/components/ai/AiSignalBadge';

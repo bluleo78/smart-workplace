@@ -189,9 +189,11 @@ test.describe('SUBTASK', () => {
       // 추가 후 자식 리스트 갱신 (invalidate → refetch).
       await expect(page.getByTestId('child-row-100')).toBeVisible();
       await expect(page.getByTestId('child-row-100')).toContainText('첫 자식');
-      // 열린 행(TODO) + AI 작업 없음 — 배지 없음(WP-374, 상태배지는 끝난 행에서만). 끝난 행의
-      // 시맨틱 StatusBadge(#668 회귀 방지)는 아래 WP-374 전용 테스트의 완료 행에서 검증한다.
-      await expect(page.getByTestId('child-row-100').locator('[data-status]')).toHaveCount(0);
+      // 상태 배지는 raw Badge variant 대신 시맨틱 StatusBadge(type=pending)를 사용해야 함 (#668).
+      await expect(page.getByTestId('child-row-100').locator('[data-status]')).toHaveAttribute(
+        'data-status',
+        'pending',
+      );
     },
   );
 
@@ -523,13 +525,13 @@ test.describe('SUBTASK', () => {
     await expect(page.getByTestId('parent-badge-15')).toBeVisible();
   });
 
-  // 하위 태스크 행 AI 진행 배지(WP-374) — 행당 배지는 최대 1개: 끝난 행(완료·취소)은 상태배지,
-  // 열린 행은 AI 작업이 있으면 AI배지로 대체하고 없으면 둘 다 생략(비주얼 시안 합의).
+  // 하위 태스크 행 AI 진행 배지(WP-374) — 행당 배지는 최대 1개: 열린 행에 AI 배지가 있으면 상태배지 대신 그것,
+  // 그 외(끝난 행·AI 관여 없는 열린 행)는 상태배지.
   for (const viewport of [
     { name: '데스크톱', width: 1280, height: 800 },
     { name: '모바일 375px', width: 375, height: 800 },
   ]) {
-    test(`하위 태스크 행 — 열린 행은 AI 배지, 끝난 행은 상태배지, 둘 다 없으면 생략 (${viewport.name})`, async ({
+    test(`하위 태스크 행 — AI 관여 열린 행은 AI 배지, 그 외는 상태배지 (${viewport.name})`, async ({
       authenticatedPage: page,
     }) => {
       await page.setViewportSize(viewport);
@@ -650,10 +652,10 @@ test.describe('SUBTASK', () => {
       await expect(waitingRow.getByTestId('ai-delegation-badge-10')).toContainText('답변 필요');
       await expect(waitingRow.locator('[data-status]')).toHaveCount(0);
 
-      // 열린 행 + AI 작업 없음 — 배지 자체가 없음.
+      // 열린 행 + AI 관여 없음 — 상태배지(할 일), AI 배지는 없음.
       const plainRow = page.getByTestId('child-row-20');
       await expect(plainRow.locator('[data-testid^="ai-delegation-badge-"]')).toHaveCount(0);
-      await expect(plainRow.locator('[data-status]')).toHaveCount(0);
+      await expect(plainRow.locator('[data-status]')).toHaveAttribute('data-status', 'pending');
 
       // 열린 행 + AI 담당(아직 작업 시작 전, TODO) — 시작 전 배지(AiDelegationBadge, 개인 체크리스트와 단일 기준).
       const notStartedRow = page.getByTestId('child-row-40');
@@ -668,7 +670,6 @@ test.describe('SUBTASK', () => {
       // 끝난 행 — agentWork 가 있어도 상태배지(완료)가 우선, AI 배지는 없음.
       const doneRow = page.getByTestId('child-row-30');
       await expect(doneRow.locator('[data-status]')).toHaveAttribute('data-status', 'success');
-      await expect(doneRow.locator('[data-testid^="ai-delegation-badge-"]')).toHaveCount(0);
-    });
+      await expect(doneRow.locator('[data-testid^="ai-delegation-badge-"]')).toHaveCount(0);    });
   }
 });

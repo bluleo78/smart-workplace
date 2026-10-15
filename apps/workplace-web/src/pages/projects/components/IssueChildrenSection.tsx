@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 
+import { AiDelegationBadge, delegationState } from '@/components/ai/agentWork/AiDelegationBadge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -29,7 +30,6 @@ import { handleApiError } from '../../../lib/api-error';
 import { isClosedStatus } from '../../../lib/issueGrouping';
 import { getIssueTypeLabel } from '../../../lib/issueTypeLabels';
 import type { IssueResponse } from '../../../types/issue';
-import { AiDelegationBadge } from '../personal/aiDelegation';
 import { IssueStatusBadge } from './IssueStatusBadge';
 
 export function IssueChildrenSection({
@@ -169,10 +169,9 @@ export function IssueChildrenSection({
       ) : items.length === 0 ? null : (
         <ul className="space-y-1">
           {items.map((it) => {
-            // 행당 배지는 최대 1개(시안 합의, WP-374) — 끝난 행(완료·취소)은 상태배지,
-            // 열린 행은 AI 배지(진행·시작 전·위임)로 대체(없으면 생략, 진행률 바가 이미 n/n 을 보여줌).
-            // AI 배지 판정은 AiDelegationBadge 와 단일 기준(개인 체크리스트 행과 동일, WP-377).
-            const closed = isClosedStatus(it.status);
+            // 행당 배지는 최대 1개(WP-374) — 열린 행에 AI 배지(진행·시작 전·위임)가 있으면 상태배지 대신 그것,
+            // 그 외(끝난 행·AI 관여 없는 열린 행)는 상태배지. 할 일/진행 중 구분은 진행률 바로 알 수 없어 남긴다.
+            const showAi = !isClosedStatus(it.status) && delegationState(it) !== null;
             return (
               <li
                 key={it.id}
@@ -187,7 +186,7 @@ export function IssueChildrenSection({
                 >
                   {it.title}
                 </Link>
-                {closed ? <IssueStatusBadge status={it.status} /> : <AiDelegationBadge issue={it} />}
+                {showAi ? <AiDelegationBadge issue={it} /> : <IssueStatusBadge status={it.status} />}
               </li>
             );
           })}

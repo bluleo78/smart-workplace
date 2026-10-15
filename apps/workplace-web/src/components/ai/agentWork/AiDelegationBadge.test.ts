@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
-import type { AgentWorkView } from '../../../types/issue'
-import { delegationState } from './aiDelegation'
+import type { AgentWorkView } from '@/types/issue'
+
+import { delegationState } from './AiDelegationBadge'
 
 const agent = { id: 9, username: 'aki', name: '아키', kind: 'AGENT' as const }
 const human = { id: 1, username: 'me', name: '나', kind: 'HUMAN' as const }
