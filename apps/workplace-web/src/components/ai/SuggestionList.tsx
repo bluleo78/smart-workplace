@@ -1,6 +1,6 @@
 // AI 대화 추천 질문 목록(WP-139 → WP-398) — 빈 대화 추천과 답 뒤 후속 질문이 같은 모양으로 쓴다.
 // 둘 다 대화 영역 안에 놓인다: 빈 대화는 가운데 안내 바로 아래, 후속 질문은 마지막 답 바로 아래.
-// 작은 머리말 + 한 줄에 하나씩 세로 목록. 행: 앞에 ai-accent 아이콘, 화살표·강조 배경 없음, hover 시 bg-muted.
+// 작은 머리말 + 한 줄에 하나씩 세로 목록(두 곳 폭을 같게 최대 28rem — 넓은 전체화면에서 가로로 늘어지지 않게). 행: 앞에 ai-accent 아이콘, 화살표·강조 배경 없음, hover 시 bg-muted.
 // 행은 문구 폭만큼만 누른다 — 짧은 문구 오른쪽 빈 곳(텍스트 선택 해제 등)을 눌렀다가 질문이 나가지 않게.
 // 터치 기기(pointer-coarse)는 화면 폭과 무관하게 44px 이상(10-accessibility) — 큰 터치 화면(태블릿 가로)도 같은 타깃을 받는다.
 // 긴 문구(최대 40자)는 두 줄까지 감는다. 목록이 바뀌면 짧게 페이드인(동작 줄이기 존중).
@@ -26,7 +26,7 @@ interface Props {
 export function SuggestionList({ heading, items, disabled, onPick, testId, itemTestId, holdProps, className }: Props) {
   const headingId = useId();
   return (
-    <div data-testid={testId} role="group" aria-labelledby={headingId} className={cn('flex flex-col', className)} {...holdProps}>
+    <div data-testid={testId} role="group" aria-labelledby={headingId} className={cn('flex max-w-md flex-col', className)} {...holdProps}>
       <p id={headingId} className="mb-0.5 px-2 text-xs font-medium text-muted-foreground">{heading}</p>
       {/* key 로 목록이 바뀔 때만 다시 마운트해 페이드인 — 같은 목록에서는 깜빡이지 않는다. */}
       <ul key={items.join('\u0001')} className="animate-in fade-in-0 duration-150 motion-reduce:animate-none">

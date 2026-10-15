@@ -7,6 +7,7 @@ import { mockAiPreferences, mockStarterSuggestions } from '../fixtures/ai-sugges
 import { expect, test } from '../fixtures/auth.fixture'
 import { type HomeChatStartBody, mockHomeChatGeneration } from '../fixtures/home-chat-mock'
 import { mockIssueDetail } from '../fixtures/issue-detail-mock'
+import { boxOf, expectStartAligned } from '../fixtures/layout'
 import { expectStays, gate } from '../fixtures/wait'
 
 const GENERAL = ['오늘 일정 요약해줘', '나를 멘션한 메시지 정리해줘', '내 작업 우선순위 정리해줘', '답장이 필요한 메일 알려줘']
@@ -290,21 +291,18 @@ test('추천은 가운데 안내 바로 아래에 가운데 덩어리로 놓인�
   await expect(page.getByTestId('ai-composer').getByTestId('starter-suggestions')).toHaveCount(0)
   const layout = async () => {
     const empty = page.getByTestId('ai-chat-empty-state')
-    const sub = (await empty.getByText('무엇이든 질문해 보세요').boundingBox())!
-    const list = (await empty.getByTestId('starter-suggestions').boundingBox())!
-    const xs = await Promise.all((await rows(page).all()).map(async (r) => (await r.boundingBox())!.x))
-    return { sub, list, xs }
+    return Promise.all([boxOf(empty.getByText('무엇이든 질문해 보세요')), boxOf(empty.getByTestId('starter-suggestions'))])
   }
   for (const mode of ['side', 'fullscreen'] as const) {
     if (mode === 'fullscreen') {
       await page.getByTestId('ai-mode-fullscreen').click()
       await expect(page.getByTestId('ai-fullscreen')).toBeVisible()
     }
-    const { sub, list, xs } = await layout()
+    const [sub, list] = await layout()
     expect(list.y, `${mode}: 목록이 안내 아래`).toBeGreaterThan(sub.y + sub.height)
     expect(Math.abs(list.x + list.width / 2 - (sub.x + sub.width / 2)), `${mode}: 안내와 가운데 정렬`).toBeLessThanOrEqual(2)
     expect(list.width, `${mode}: 가로로 늘어지지 않음`).toBeLessThanOrEqual(448)
-    expect(new Set(xs.map(Math.round)).size, `${mode}: 행 시작점이 같다`).toBe(1)
+    for (let i = 1; i < 4; i++) await expectStartAligned(rows(page).nth(i), rows(page).first())
   }
 })
 

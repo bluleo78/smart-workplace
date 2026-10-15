@@ -236,7 +236,7 @@ export function AIChatPanel({
     });
   };
   /** WP-139: 추천·후속 질문 행 — 문구 그대로 보낸다. 입력창 초안·첨부 초안은 건드리지 않아 거절돼도 초안을 덮지 않는다. */
-  const sendChip = (query: string) => {
+  const sendSuggestion = (query: string) => {
     if (!sendOpen()) return;
     void onSubmit(query, takeScreenContext(), undefined, currentApp());
   };
@@ -314,9 +314,10 @@ export function AIChatPanel({
           {turns.length === 0 ? (
             // safe center — 영역이 안내보다 낮아지면(키보드가 열린 모바일 시트 등) 가운데 정렬이 위쪽을 스크롤로도 못 보는 곳으로
             // 밀어내지 않고 위에서부터 놓는다. WP-398: 넘치면 이 안내 영역이 스스로 스크롤한다 — 바깥 대화 영역은 바닥 고정(useStickToBottom)이라
-            // 키보드로 낮아지면 바닥으로 끌려가 추천 머리말·첫 행이 위로 숨었다. 키보드가 열린 동안엔 안내 글을 접어 추천이 맨 위에 보이게 한다.
+            // 키보드로 낮아지면 바닥으로 끌려가 추천 머리말·첫 행이 위로 숨었다. 그래서 빈 대화 분기에선 이 h-full 영역이 바깥의 유일한 자식이어야
+            // 한다(형제·여백을 더하면 바깥이 다시 넘쳐 바닥 고정이 돌아온다). 키보드가 열린 동안엔 안내 글을 접어 추천이 맨 위에 보이게 한다.
             <div data-testid="ai-chat-empty-state" className="flex h-full flex-col items-center justify-center-safe gap-2 overflow-y-auto text-center">
-              <div className={cn('contents', showStarters && '[:root[data-keyboard-open]_&]:hidden')}>
+              <div className={cn('flex flex-col items-center gap-2', showStarters && '[:root[data-keyboard-open]_&]:hidden')}>
                 <Sparkles className="h-9 w-9 shrink-0 text-muted-foreground/60" />
                 <p className="text-base font-medium text-foreground">AI 어시스턴트에게 물어보세요</p>
                 <p className="text-sm text-muted-foreground">무엇이든 질문해 보세요</p>
@@ -329,10 +330,10 @@ export function AIChatPanel({
                   items={starters.items}
                   holdProps={starters.holdProps}
                   disabled={pending || sendBlocked}
-                  onPick={sendChip}
+                  onPick={sendSuggestion}
                   testId="starter-suggestions"
                   itemTestId="starter-suggestion"
-                  className="mt-4 w-full max-w-md text-left [:root[data-keyboard-open]_&]:mt-0"
+                  className="mt-4 w-full text-left [:root[data-keyboard-open]_&]:mt-0"
                 />
               )}
             </div>
@@ -475,17 +476,16 @@ export function AIChatPanel({
                     </li>
                   ) : null}
                   {/* WP-139: 후속 질문 — 마지막 턴이고 답변 중·확인 카드가 아니며 추천을 끄지 않았을 때만. 새 질문을 보내면 마지막 턴이 아니게 되어 사라진다.
-                      WP-398: 빈 대화 추천과 같은 머리말 + 행 목록(폭도 같게). */}
+                      WP-398: 빈 대화 추천과 같은 머리말 + 행 목록. */}
                   {i === turns.length - 1 && t.role === 'assistant' && !pending && pendingActions.length === 0 && suggestionsOn && t.followups?.length ? (
-                    <li data-testid="chat-followups-row">
+                    <li>
                       <SuggestionList
                         heading="이어서 물어보기"
                         items={t.followups}
                         disabled={sendBlocked}
-                        onPick={sendChip}
+                        onPick={sendSuggestion}
                         testId="chat-followups"
                         itemTestId="chat-followup"
-                        className="max-w-md"
                       />
                     </li>
                   ) : null}
