@@ -236,8 +236,7 @@ test('login: 키 확인이 401 이면 저장하지 않고 안내한다', { optio
   const w = loginWorld(on, { 'gw-keys list': { exitCode: 0, stdout: '' }, 'gw-session show': { exitCode: 0, stdout: '' } }, 401)
   await $.command.run({ command: LOGIN_COMMAND, args: '' })
   const ui = await mountPane($)
-  await typeIn(ui, 'key', FAKE_KEY, 'change')
-  await typeIn(ui, 'name', 'ai-dev', 'change')
+  await fill(ui, FAKE_KEY, 'ai-dev')
   await typeIn(ui, 'name', 'ai-dev', 'submit')
   expect(w.runs.some((r) => r.argv[1] === 'add')).toBe(false)
   expect(JSON.stringify(await ui.findAll({}))).toContain('키가 맞지 않습니다')
@@ -271,12 +270,17 @@ test('login: 관리 › 삭제 — 지금 쓰는 이름이면 세션 선택을 �
   await ui.unmount()
 })
 
+// 키·이름 칸 채우기(바꿈 입력) — 제출은 하지 않는다.
+async function fill(ui: any, key: string, name: string) {
+  await typeIn(ui, 'key', key, 'change')
+  await typeIn(ui, 'name', name, 'change')
+}
+
 // 키 입력 후 저장까지 한 번에 — 반환은 패널
 async function fillAndSave($: any, key: string, name: string) {
   await $.command.run({ command: LOGIN_COMMAND, args: '' })
   const ui = await mountPane($)
-  await typeIn(ui, 'key', key, 'change')
-  await typeIn(ui, 'name', name, 'change')
+  await fill(ui, key, name)
   await typeIn(ui, 'name', name, 'submit')
   return ui
 }
@@ -336,8 +340,7 @@ test('login: 이미 있는 이름은 한 번 더 눌러야 덮어쓴다', { opti
   await $.command.run({ command: LOGIN_COMMAND, args: '' })
   const ui = await mountPane($)
   await ui.press({ key: 'gw-add' })
-  await typeIn(ui, 'key', FAKE_KEY, 'change')
-  await typeIn(ui, 'name', 'ai-dev', 'change')
+  await fill(ui, FAKE_KEY, 'ai-dev')
   await typeIn(ui, 'name', 'ai-dev', 'submit')
   expect(w.fetches.length).toBe(0)
   expect(JSON.stringify(await ui.findAll({}))).toContain('바꿀까요')
@@ -384,8 +387,7 @@ test('login: 서버가 응답하지 않으면 10초 뒤 안내하고 저장하�
   const clock = w.clock
   await $.command.run({ command: LOGIN_COMMAND, args: '' })
   const ui = await mountPane($)
-  await typeIn(ui, 'key', FAKE_KEY, 'change')
-  await typeIn(ui, 'name', 'ai-dev', 'change')
+  await fill(ui, FAKE_KEY, 'ai-dev')
   const sent = typeIn(ui, 'name', 'ai-dev', 'submit')
   await clock.advance(10_500)
   await sent
@@ -398,8 +400,7 @@ test('login: 서버 확인 중에 취소하면 늦게 와도 저장하지 않는
   const w = loginWorld(on, EMPTY, 'slow')
   await $.command.run({ command: LOGIN_COMMAND, args: '' })
   const ui = await mountPane($)
-  await typeIn(ui, 'key', FAKE_KEY, 'change')
-  await typeIn(ui, 'name', 'ai-dev', 'change')
+  await fill(ui, FAKE_KEY, 'ai-dev')
   const sent = typeIn(ui, 'name', 'ai-dev', 'submit')
   for (let i = 0; i < 50 && w.fetches.length === 0; i++) await new Promise((r) => setTimeout(r, 2)) // 확인 요청이 나간 뒤에 취소
   expect(w.fetches.length).toBe(1)
@@ -695,8 +696,7 @@ test('login: 확인에 실패하면 덮어쓰기 확인도 풀려 다른 키는 
   await $.command.run({ command: LOGIN_COMMAND, args: '' })
   const ui = await mountPane($)
   await ui.press({ key: 'gw-add' })
-  await typeIn(ui, 'key', FAKE_KEY, 'change')
-  await typeIn(ui, 'name', 'ai-dev', 'change')
+  await fill(ui, FAKE_KEY, 'ai-dev')
   await typeIn(ui, 'name', 'ai-dev', 'submit') // 첫 저장: 덮어쓸지 묻는다
   await typeIn(ui, 'name', 'ai-dev', 'submit') // 두 번째: 서버 확인(500)에서 실패
   expect(w.fetches.length).toBe(1)
@@ -712,8 +712,7 @@ test('login: 첫 저장 뒤 키나 이름을 고치면 덮어쓰기 확인이 �
   await $.command.run({ command: LOGIN_COMMAND, args: '' })
   const ui = await mountPane($)
   await ui.press({ key: 'gw-add' })
-  await typeIn(ui, 'key', FAKE_KEY, 'change')
-  await typeIn(ui, 'name', 'ai-dev', 'change')
+  await fill(ui, FAKE_KEY, 'ai-dev')
   await typeIn(ui, 'name', 'ai-dev', 'submit') // 묻는다
   await typeIn(ui, 'key', '●'.repeat(FAKE_KEY.length) + 'X', 'change') // 키를 고침
   await typeIn(ui, 'name', 'ai-dev', 'submit')
@@ -744,8 +743,7 @@ test('login: 키 바꾸기에서 이름을 다른 기존 이름으로 바꾸면 
   const ui = await mountPane($)
   await ui.press({ key: 'gw-manage' })
   await ui.press({ key: 'gw-rekey-ai-dev' })
-  await typeIn(ui, 'key', FAKE_KEY, 'change')
-  await typeIn(ui, 'name', 'ai-rev', 'change')
+  await fill(ui, FAKE_KEY, 'ai-rev')
   await typeIn(ui, 'name', 'ai-rev', 'submit')
   expect(w.fetches.length).toBe(0)
   expect(JSON.stringify(await ui.findAll({}))).toContain('바꿀까요')
@@ -842,8 +840,7 @@ test('덮어쓰기 확인: 제출하면 새 세대의 칸이 실제 값(이름·
   await $.command.run({ command: LOGIN_COMMAND, args: '' })
   const ui = await mountPane($)
   await ui.press({ key: 'gw-add' })
-  await typeIn(ui, 'key', FAKE_KEY, 'change')
-  await typeIn(ui, 'name', 'ai-dev', 'change')
+  await fill(ui, FAKE_KEY, 'ai-dev')
   const before = { key: await fieldKey(ui, 'key'), name: await fieldKey(ui, 'name') }
   await typeIn(ui, 'name', 'ai-dev', 'submit')
   expect(JSON.stringify(await ui.findAll({}))).toContain('바꿀까요')
@@ -889,19 +886,15 @@ const ARG_KEY = 'ak_' + 'aB3dE5gH7jK9mN1pQ3rS5tU7vW9xY1zA3bC5dE7fG9h'
 
 for (const command of [AS_COMMAND, LOGIN_COMMAND, LOGOUT_COMMAND]) {
   test(`${command}: 인자에 키 모양이 있으면 되울리지 않고 고정 문구로 거절하며 아무것도 바꾸지 않는다`, { options: { server_url: SERVER_URL } }, async ($, on) => {
-    const calls = stubScripts(on, {})
-    const clock = mock.clock(on)
-    mock.env(on, {})
-    const opens: unknown[] = []
+    const w = loginWorld(on, {})
     const reconnects: string[] = []
-    on('ui.open', (_$: any, e: any) => { opens.push(e); return { value: undefined } })
     on('command.run', { command: 'mcp' }, (_$: any, e: any) => { reconnects.push(e.args); return {} })
     const r = await $.command.run({ command, args: ARG_KEY })
     expect(r.text).toBe('키는 명령에 넣을 수 없습니다 — /genia-works:login 의 「새 AI 추가」에 붙여 넣으세요')
     expect(JSON.stringify(r)).not.toContain(ARG_KEY.slice(3))
-    await clock.advance(400)
-    expect(calls).toEqual([])
-    expect(opens).toEqual([])
+    await w.clock.advance(400)
+    expect(w.runs).toEqual([])
+    expect(w.opens).toEqual([])
     expect(reconnects).toEqual([])
   })
 }

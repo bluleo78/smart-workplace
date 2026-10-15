@@ -1,7 +1,7 @@
 // mod 순수 함수 테스트 — $ 없이 node --test 로 돈다.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseKeyList, identityLabel, isKeyPath, toolTargets, END_CLEARS, applyMaskedInput, maskOf, initializeBody, validName, validKey, findManualRegistrations, sameServer, isHeadless, isHeaderScriptCall, isAiKeyRegistration, mentionsHost, KEY_PATH_DENY, containsSecretKey, ARGS_KEY_REFUSE } from '../hooks/lib.js';
+import { parseKeyList, identityLabel, isKeyPath, toolTargets, END_CLEARS, applyMaskedInput, maskOf, initializeBody, validName, validKey, findManualRegistrations, sameServer, isHeadless, isHeaderScriptCall, isAiKeyRegistration, mentionsHost, KEY_PATH_DENY, containsSecretKey } from '../hooks/lib.js';
 
 test('parseKeyList: 탭 구분 줄을 이름·등록일로', () => {
   assert.deepEqual(parseKeyList('ai-dev\t10-14\nai-review\t10-12\n'), [
@@ -254,8 +254,4 @@ test('containsSecretKey: 43자 키·토큰 모양은 걸리고 짧은 가짜·�
   for (const t of ['ak_FAKE_ABC123', 'swp_FAKE_ME', 'ak_FAKE_PASTE_123', 'swp_sso_tx', 'task_' + b, 'ak_' + b.slice(0, 31), '', undefined]) {
     assert.equal(containsSecretKey(t), false, String(t));
   }
-});
-
-test('ARGS_KEY_REFUSE: 명령 인자 거절 문구는 고정이고 로그인 명령을 안내한다', () => {
-  assert.equal(ARGS_KEY_REFUSE, '키는 명령에 넣을 수 없습니다 — /genia-works:login 의 「새 AI 추가」에 붙여 넣으세요');
 });
