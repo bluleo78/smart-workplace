@@ -174,9 +174,24 @@ test('isHeaderScriptCall: 헤더 스크립트 직접 실행만 잡는다', () =>
     '"/p/scripts/gw-headers" | cat',
     '/p/scripts/gw-session-key',
     'cd /p/scripts && ./gw-headers; echo',
+    'bash -c "/p/scripts/gw-headers"',
+    'X=$(/p/scripts/gw-headers)',
+    'GW_START_PID=1 /p/scripts/gw-headers',
+    'env -i /p/scripts/gw-headers',
   ];
   for (const command of yes) assert.equal(isHeaderScriptCall({ tool: 'Bash', command }), true, command);
-  const no = ['/p/scripts/gw-set-key ai-dev', 'ls', 'cat my-gw-headers.md', 'echo gw-headers-note'];
+  // 인자로 이름만 나오는 명령(읽기·git)은 실행이 아니므로 막지 않는다.
+  const no = [
+    '/p/scripts/gw-set-key ai-dev',
+    'ls',
+    'cat my-gw-headers.md',
+    'echo gw-headers-note',
+    'cat plugins/genia-works/scripts/gw-headers',
+    'git diff -- plugins/genia-works/scripts/gw-headers',
+    'git add plugins/genia-works/scripts/gw-headers',
+    'shellcheck scripts/gw-headers',
+    'git commit -m "gw-headers 를 고친다"',
+  ];
   for (const command of no) assert.equal(isHeaderScriptCall({ tool: 'Bash', command }), false, command);
   assert.equal(isHeaderScriptCall({ tool: 'Edit', file_path: '/repo/plugins/genia-works/README.md' }), false);
   assert.equal(isHeaderScriptCall({ tool: 'Edit', file_path: '/p/scripts/gw-headers' }), false); // 명령이 아닌 필드는 보지 않는다

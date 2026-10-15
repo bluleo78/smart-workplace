@@ -649,6 +649,15 @@ test('수동 등록 정리: AI 키(ak_) 등록은 지우지 않고 키 없이 �
   expect(text).not.toContain(OLD_TOKEN)
 })
 
+test('수동 등록 정리: AI 키 등록을 남기고 연결이 아직이면 「다시 시작하면 바뀝니다」를 약속하지 않는다', { options: { server_url: SERVER_URL, token: NEW_TOKEN } }, async ($, on) => {
+  const w = cleanupWorld(on, { claudeJson: { mcpServers: { 'ai-manual': AI_CONFIG, 'genia-works': OLD_CONFIG } }, connect: { isConnected: true, server: 'ai-manual' } })
+  await w.start($)
+  const text = w.shown.join('|')
+  expect(text).toContain('남겨 둔 AI 키 등록(ai-manual)을 지운 뒤 다시 시작해야 플러그인 연결로 바뀝니다')
+  expect(text).not.toContain('이 세션은 다시 시작하면 플러그인 연결로 바뀝니다')
+  expect(text).not.toContain('ak_FAKE_KEEP')
+})
+
 test('수동 등록 정리: AI 키 등록뿐이면 아무것도 지우지 않는다(토큰이 없어도 안내는 AI 키 문구)', { options: { server_url: SERVER_URL } }, async ($, on) => {
   const w = cleanupWorld(on, { claudeJson: { mcpServers: { 'ai-manual': AI_CONFIG } } })
   await w.start($)

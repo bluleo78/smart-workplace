@@ -96,6 +96,9 @@ test('gw-keys add: 이름·키 형식 검사, 임시 파일이 남지 않는다'
 test('gw-session select/show/clear: 키가 있는 이름만, me 는 언제나', () => {
   run('gw-keys', ['add', 'ai-dev'], { input: 'ak_FAKE_ABC123\n' });
   assert.equal(run('gw-session', ['select', 'nobody']).status, 4);
+  // 내용이 깨진 키 파일은 헤더 스크립트가 거부하므로 고를 수도 없다(같은 기준 gw_key_ok).
+  writeFileSync(join(home, '.genia-works', 'keys', 'broken'), 'ak_FAKE "x"\n');
+  assert.equal(run('gw-session', ['select', 'broken']).status, 4);
   assert.equal(run('gw-session', ['select', 'ai-dev']).status, 0);
   assert.equal(run('gw-session', ['show']).stdout.trim(), 'ai-dev');
   const f = join(home, '.genia-works', 'sessions', '400-Thu_Oct_15_06_00_00_2026');

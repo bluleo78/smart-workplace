@@ -274,7 +274,8 @@ async function cleanupManualInner($) {
   await warnProjectMcp($, root)
   // AI 키(Bearer ak_)로 연결된 등록은 지우지 않는다 — 지우면 그 프로젝트가 사람 신원으로 바뀌고 키도 잃는다. 키 값은 알리지 않는다.
   const found = all.filter((f) => !isAiKeyRegistration(f.config))
-  for (const f of all.filter((f) => isAiKeyRegistration(f.config))) {
+  const kept = all.filter((f) => isAiKeyRegistration(f.config))
+  for (const f of kept) {
     $.ui.toast(`기존 genia-works 등록(${f.name})은 AI 키로 연결돼 있어 그대로 둡니다 — 이 키를 ${COMMANDS.login} 으로 등록한 뒤 claude mcp remove ${f.name} -s ${f.scope} 로 지우세요`, { timeoutMs: 12000 })
   }
   if (found.length === 0) return
@@ -331,7 +332,13 @@ async function cleanupManualInner($) {
   if (!connected) {
     // 연결이 안 돼도 되살리지 않는다 — 되살리면 수동 등록이 플러그인 서버를 계속 가린다(세션 시작마다 되풀이).
     // 위 토큰 확인이 이 서버가 플러그인 토큰을 받아들임을 이미 보였으므로, 다음 시작부터는 플러그인 연결이 선다.
-    $.ui.toast('기존 genia-works 수동 등록을 지웠습니다 — 이 세션은 다시 시작하면 플러그인 연결로 바뀝니다', { timeoutMs: 12000 })
+    // AI 키 등록을 남겨 두었다면 그것이 계속 플러그인 연결을 가리므로 「다시 시작하면 바뀝니다」를 약속하지 않는다.
+    $.ui.toast(
+      kept.length
+        ? `기존 genia-works 수동 등록을 지웠습니다 — 남겨 둔 AI 키 등록(${kept.map((f) => f.name).join(', ')})을 지운 뒤 다시 시작해야 플러그인 연결로 바뀝니다`
+        : '기존 genia-works 수동 등록을 지웠습니다 — 이 세션은 다시 시작하면 플러그인 연결로 바뀝니다',
+      { timeoutMs: 12000 },
+    )
     return
   }
   let ok = false
