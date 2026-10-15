@@ -1,0 +1,16 @@
+#!/bin/sh
+# 터미널에서 AI 키를 화면·셸 기록에 남기지 않고 넣는다: gw-set-key <이름>
+here=$(cd "$(dirname "$0")" && pwd)
+name="${1:-}"
+[ -n "$name" ] || { echo "사용법: gw-set-key <이름>" >&2; exit 2; }
+printf '%s 의 AI 키(ak_…)를 붙여 넣고 Enter: ' "$name" >&2
+if [ -t 0 ]; then
+  old=$(stty -g)
+  trap 'stty "$old"' EXIT
+  trap 'exit 130' INT TERM
+  stty -echo
+fi
+IFS= read -r key
+[ -t 0 ] && stty "$old"
+echo >&2
+printf '%s\n' "$key" | "$here/gw-keys" add "$name" && echo "$name 키를 저장했습니다" >&2

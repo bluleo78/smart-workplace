@@ -1,0 +1,32 @@
+#!/bin/sh
+# MCP headersHelper — 이 세션의 신원(세션 선택 > GENIA_WORKS_AS)을 정해 Authorization 헤더 JSON 한 줄을 낸다.
+# 내 토큰은 헤더 스크립트가 읽을 수 없으므로(플러그인 설정값이 전달되지 않음) {} 를 내서
+# 고정 헤더 Bearer ${GENIA_WORKS_TOKEN:-${user_config.token}} 를 쓰게 한다. 키 값은 어디에도 기록하지 않는다.
+here=$(cd "$(dirname "$0")" && pwd)
+. "$here/gw-lib.sh"
+
+gw_prune_sessions
+
+name=""
+sk=$("$here/gw-session-key" 2>/dev/null) && [ -f "$GW_SESSIONS/$sk" ] && name=$(head -n1 "$GW_SESSIONS/$sk")
+[ -n "$name" ] || name="${GENIA_WORKS_AS:-}"
+
+if [ -z "$name" ] || [ "$name" = me ]; then
+  printf '{}\n'
+  exit 0
+fi
+
+# 키가 비었거나 JSON 을 깨는 문자(따옴표·역슬래시)·공백·제어 문자가 있으면 없는 키와 똑같이 다룬다.
+# 헤더가 깨지면 Claude Code 가 고정 헤더(내 토큰)로 폴백해 신원이 조용히 바뀐다.
+key=$(gw_read_key "$name") || key=""
+
+if [ -z "$key" ]; then
+  # 조용히 내 토큰으로 접속하면 AI 로 일하는 줄 알지만 기록은 내 이름으로 남는다.
+  # 그런데 스크립트가 실패(exit 1)하면 Claude Code 가 고정 헤더로 폴백하고 stderr 도 보여주지 않는다(실측).
+  # 그래서 무효 토큰을 내 서버가 인증을 거부하게 한다(exit 0).
+  echo "genia-works: '$name' 키가 없습니다 — /genia-works:login 으로 등록하세요" >&2
+  printf '{"Authorization":"Bearer invalid"}\n'
+  exit 0
+fi
+
+printf '{"Authorization":"Bearer %s"}\n' "$key"

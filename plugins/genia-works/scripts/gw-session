@@ -1,0 +1,30 @@
+#!/bin/sh
+# 이 세션의 신원 선택 — select <이름|me> / clear / show. 파일은 ~/.genia-works/sessions/<세션 키>.
+here=$(cd "$(dirname "$0")" && pwd)
+. "$here/gw-lib.sh"
+umask 077
+sk=$("$here/gw-session-key") || { echo "이 세션을 찾지 못했습니다" >&2; exit 1; }
+f="$GW_SESSIONS/$sk"
+
+case "${1:-}" in
+  select)
+    name="${2:-}"
+    if [ "$name" != me ]; then
+      # 헤더 스크립트와 같은 기준(gw_read_key)으로 본다 — 깨진 키 파일을 골랐다고 답한 뒤 연결은 실패하는 어긋남을 막는다.
+      gw_read_key "$name" > /dev/null \
+        || { echo "$name 키가 없습니다" >&2; exit 4; }
+    fi
+    mkdir -p "$GW_SESSIONS" && chmod 700 "$GW_HOME" "$GW_SESSIONS"
+    gw_write_atomic "$f" "$name"
+    ;;
+  clear)
+    rm -f "$f"
+    ;;
+  show)
+    [ -f "$f" ] && head -n1 "$f" || echo ""
+    ;;
+  *)
+    echo "사용법: gw-session select <이름|me> | clear | show" >&2
+    exit 2
+    ;;
+esac
