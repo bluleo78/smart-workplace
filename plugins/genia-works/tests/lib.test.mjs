@@ -1,7 +1,7 @@
 // mod 순수 함수 테스트 — $ 없이 node --test 로 돈다.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseKeyList, identityLabel, isKeyPath, toolTargets, END_CLEARS, applyMaskedInput, maskOf, initializeBody, validName, validKey, findManualRegistrations, sameServer, isHeadless, isHeaderScriptCall, isAiKeyRegistration, mentionsHost, KEY_PATH_DENY, containsSecretKey } from '../hooks/lib.js';
+import { parseKeyList, identityLabel, statusLabel, aiPick, isKeyPath, toolTargets, END_CLEARS, applyMaskedInput, maskOf, initializeBody, validName, validKey, findManualRegistrations, sameServer, isHeadless, isHeaderScriptCall, isAiKeyRegistration, mentionsHost, KEY_PATH_DENY, containsSecretKey } from '../hooks/lib.js';
 
 test('parseKeyList: 탭 구분 줄을 이름·등록일로', () => {
   assert.deepEqual(parseKeyList('ai-dev\t10-14\nai-review\t10-12\n'), [
@@ -254,4 +254,23 @@ test('containsSecretKey: 43자 키·토큰 모양은 걸리고 짧은 가짜·�
   for (const t of ['ak_FAKE_ABC123', 'swp_FAKE_ME', 'ak_FAKE_PASTE_123', 'swp_sso_tx', 'task_' + b, 'ak_' + b.slice(0, 31), '', undefined]) {
     assert.equal(containsSecretKey(t), false, String(t));
   }
+});
+
+test('statusLabel: AI 신원을 쓰는 중일 때만 보이고 그 밖에는 지운다(WP-403)', () => {
+  // AI 신원 — 세션 선택·GENIA_WORKS_AS 모두, 키가 없는 경우도 보인다
+  assert.equal(statusLabel({ selected: 'ai-rev', hasEnvToken: false, hasToken: true }), 'ai-rev');
+  assert.equal(statusLabel({ as: 'ai-dev', hasEnvToken: false, hasToken: true }), 'ai-dev');
+  assert.equal(statusLabel({ selected: 'ghost', hasEnvToken: false, keyMissing: true, hasToken: true }), 'ghost 키가 없습니다 — /genia-works:login');
+  // 내 토큰·환경변수 토큰·as me·내 토큰 없음 — 모두 지운다
+  assert.equal(statusLabel({ hasEnvToken: false, hasToken: true }), undefined);
+  assert.equal(statusLabel({ hasEnvToken: true, hasToken: true }), undefined);
+  assert.equal(statusLabel({ selected: 'me', as: 'ai-dev', hasEnvToken: false, hasToken: true }), undefined);
+  assert.equal(statusLabel({ hasEnvToken: false, hasToken: false }), undefined);
+});
+
+test('aiPick: 세션 선택 > GENIA_WORKS_AS, me·선택 없음은 빈 문자열', () => {
+  assert.equal(aiPick({ selected: 'ai-rev', as: 'ai-dev' }), 'ai-rev');
+  assert.equal(aiPick({ as: 'ai-dev' }), 'ai-dev');
+  assert.equal(aiPick({ selected: 'me', as: 'ai-dev' }), '');
+  assert.equal(aiPick({}), '');
 });

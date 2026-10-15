@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 
 import { SettingsPage } from '@/components/layout/SettingsPage';
 import { settingsFieldClass, SettingsSection } from '@/components/layout/SettingsSection';
+import { projectSettingsGuide } from '@/components/settings-guide/settingsGuides';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -95,6 +96,7 @@ export default function ProjectSettingsPage() {
   return (
     <SettingsPage
       width="form"
+      guide={projectSettingsGuide(project.data)}
       data-testid="project-settings-page"
       icon={
         <Button

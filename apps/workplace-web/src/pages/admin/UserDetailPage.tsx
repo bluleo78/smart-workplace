@@ -8,6 +8,7 @@ import { rolesApi } from '../../api/roles';
 import { usersApi } from '../../api/users';
 import { SettingsPage } from '../../components/layout/SettingsPage';
 import { SettingsSection, SettingsToggleRow } from '../../components/layout/SettingsSection';
+import { settingsGuides } from '../../components/settings-guide/settingsGuides';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -150,7 +151,7 @@ export default function UserDetailPage() {
 
   if (isLoading) {
     return (
-      <SettingsPage title="사용자 상세" icon={backButton} width="form">
+      <SettingsPage title="사용자 상세" icon={backButton} width="form" guide={settingsGuides.userDetail}>
         <div className="space-y-4 py-6">
           <Skeleton className="h-4 w-64" />
           <Skeleton className="h-4 w-48" />
@@ -163,7 +164,7 @@ export default function UserDetailPage() {
   if (!user) return null;
 
   return (
-    <SettingsPage title="사용자 상세" icon={backButton} width="form">
+    <SettingsPage title="사용자 상세" icon={backButton} width="form" guide={settingsGuides.userDetail}>
       {/* 기본 정보 — 읽기 전용(가입 정보는 본인만 수정) */}
       <SettingsSection title="기본 정보" description="가입 정보는 구성원 본인만 바꿀 수 있어요.">
         {/* 값 열은 minmax(0,1fr) — 섹션 입력 열의 wrap-anywhere 와 함께, 공백 없는 긴 아이디·이메일이 min-content 로 열을 늘려 모바일 본문을 가로로 넘기지 않게(WP-397 D2).

@@ -6,6 +6,8 @@
 import type { Page, Route } from '@playwright/test';
 
 import { createPageResponse } from '../../fixtures/api-mock';
+import { trackRequests } from '../../fixtures/requests';
+import { expectStays } from '../../fixtures/wait';
 import { createMember } from '../../factories/auth.factory';
 import { expect, test } from '../../fixtures/auth.fixture';
 
@@ -13,7 +15,10 @@ const PAGE_SIZE = 50;
 
 /**
  * page 쿼리 파라미터별로 다른 응답을 돌려주는 offset 페이징 스텁.
- * failSecondPage 면 page=1 요청을 처음 2회(최초 + QueryClient 기본 retry 1회) 500 → 이후 정상.
+ * failSecondPage 면 page=1 요청을 돌려준 allowSecondPage() 가 불릴 때까지 매번 500 으로 실패시킨다.
+ * 실패 횟수를 "최초 + retry 1회 = 2회"로 고정하면, 부하로 retry 가 밀려 자동 로드가 한 번 더 나갈 때
+ * 그 요청이 성공해 「다시 시도」 없이 이어 붙어 버린다(10-15 pre-push 플래키) — 그래서 테스트가 직접 연다.
+ * secondPageRequests 는 브라우저가 보낸 page=1 요청 수(trackRequests) — 자동 로드가 실패 뒤 멈췄는지 본다.
  */
 async function stubPaged<T>(
   page: Page,
@@ -22,14 +27,18 @@ async function stubPaged<T>(
   { failSecondPage = false } = {},
 ) {
   const totalElements = pages.reduce((n, p) => n + p.length, 0);
-  let failures = 0;
+  let secondPageAllowed = false;
+  const secondPageRequests = trackRequests(
+    page,
+    'GET',
+    (url) => url.pathname === path && url.searchParams.get('page') === '1',
+  );
   await page.route(
     (url) => url.pathname === path,
     (route: Route) => {
       if (route.request().method() !== 'GET') return route.fallback();
       const n = Number(new URL(route.request().url()).searchParams.get('page') ?? 0);
-      if (n === 1 && failSecondPage && failures < 2) {
-        failures += 1;
+      if (n === 1 && failSecondPage && !secondPageAllowed) {
         return route.fulfill({ status: 500, contentType: 'application/json', body: '{}' });
       }
       const body = createPageResponse(pages[n] ?? [], {
@@ -41,6 +50,13 @@ async function stubPaged<T>(
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
     },
   );
+  return {
+    secondPageRequests,
+    /** 이후 page=1 요청을 정상 응답한다 — 「다시 시도」를 누르기 직전에 부른다. */
+    allowSecondPage: () => {
+      secondPageAllowed = true;
+    },
+  };
 }
 
 function members(from: number, count: number) {
@@ -70,7 +86,7 @@ test.describe('설정 › 구성원 무한 스크롤 (WP-182)', () => {
   });
 
   test('다음 페이지 실패 시 다시 시도 버튼이 나오고, 누르면 이어 붙는다', async ({ adminPage: page }) => {
-    await stubPaged(page, '/api/v1/members', [members(1, PAGE_SIZE), members(1001, 2)], {
+    const stub = await stubPaged(page, '/api/v1/members', [members(1, PAGE_SIZE), members(1001, 2)], {
       failSecondPage: true,
     });
     await page.goto('/settings/users');
@@ -82,6 +98,10 @@ test.describe('설정 › 구성원 무한 스크롤 (WP-182)', () => {
     await expect(page.getByRole('button', { name: '사용자 구성원 1 상세 보기' })).toBeAttached();
     await expect(page.getByText('데이터를 불러오는데 실패했습니다.')).toHaveCount(0);
 
+    // 실패 뒤 자동 로드는 멈춘다 — 최초 + QueryClient retry 1회 = 2회에서 늘지 않는다(센티널 재발화가 요청을 다시 보내지 않음)
+    await expectStays(page, stub.secondPageRequests.count, 2);
+
+    stub.allowSecondPage();
     await retry.click();
     await expect(page.getByRole('button', { name: '사용자 구성원 1002 상세 보기' })).toBeVisible();
     await expect(retry).toHaveCount(0);

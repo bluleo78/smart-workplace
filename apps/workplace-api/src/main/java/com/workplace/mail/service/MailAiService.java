@@ -233,7 +233,11 @@ public class MailAiService {
     DraftCoachingResult r =
         mailClient.coachDraft(
             new DraftCoachingRequest(
-                nz(req.bodyText()),
+                // WP-404: 초안은 HTML 로 넘긴다 — 텍스트(getText)는 문단 경계가 모두 \n\n 이 되어
+                // 빈 줄·굵게·목록·링크 구조가 사라지고, 개선본이 원래 서식을 따를 수 없다. HTML 이 없을 때만 텍스트.
+                req.bodyHtml() == null || req.bodyHtml().isBlank()
+                    ? nz(req.bodyText())
+                    : req.bodyHtml(),
                 in.thread(),
                 nz(in.selfAddress()),
                 in.spec().agentUserId(),

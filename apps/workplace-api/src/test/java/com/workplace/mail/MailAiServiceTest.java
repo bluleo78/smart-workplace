@@ -525,8 +525,24 @@ class MailAiServiceTest extends IntegrationTestBase {
     ArgumentCaptor<DraftCoachingRequest> cap = ArgumentCaptor.forClass(DraftCoachingRequest.class);
     verify(mailClient).coachDraft(cap.capture());
     assertThat(cap.getValue().thread()).isEmpty();
-    assertThat(cap.getValue().draftBody()).isEqualTo("빨리");
+    // WP-404: 서식(빈 줄·굵게 등)을 보존하도록 초안은 HTML 로 넘긴다.
+    assertThat(cap.getValue().draftBody()).isEqualTo("<p>빨리</p>");
     assertThat(cap.getValue().replyingAs()).isEqualTo("ai@test.local");
+  }
+
+  /** WP-404: HTML 이 비어 있으면 텍스트로 대체한다. */
+  @Test
+  void coachDraft_HTML_없으면_텍스트로_대체() {
+    stubAssistant();
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = createAccount(userId, "ai@test.local", true);
+    when(mailClient.coachDraft(any())).thenReturn(new DraftCoachingResult(List.of(), "<p>개선</p>"));
+
+    mailAiService.coachDraft(userId, new MailDraftCoachingRequest(accountId, "", "빨리", null));
+
+    ArgumentCaptor<DraftCoachingRequest> cap = ArgumentCaptor.forClass(DraftCoachingRequest.class);
+    verify(mailClient).coachDraft(cap.capture());
+    assertThat(cap.getValue().draftBody()).isEqualTo("빨리");
   }
 
   /** 답장 초안(inReplyToMessageId 지정): 원문 스레드가 동봉되어 호출된다. */

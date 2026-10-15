@@ -10,6 +10,7 @@ import { permissionsApi } from '../../api/permissions';
 import { rolesApi } from '../../api/roles';
 import { SettingsPage } from '../../components/layout/SettingsPage';
 import { settingsFieldClass, SettingsSection } from '../../components/layout/SettingsSection';
+import { settingsGuides } from '../../components/settings-guide/settingsGuides';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import { Checkbox } from '../../components/ui/checkbox';
@@ -140,7 +141,7 @@ export default function RoleDetailPage() {
 
   if (isLoading) {
     return (
-      <SettingsPage title="역할 상세" icon={backButton} width="form">
+      <SettingsPage title="역할 상세" icon={backButton} width="form" guide={settingsGuides.roleDetail}>
         <div className="space-y-4 py-6">
           <Skeleton className="h-4 w-64" />
           <Skeleton className="h-4 w-48" />
@@ -160,7 +161,7 @@ export default function RoleDetailPage() {
   );
 
   return (
-    <SettingsPage title={pageTitle} icon={backButton} width="form">
+    <SettingsPage title={pageTitle} icon={backButton} width="form" guide={settingsGuides.roleDetail}>
       {/* 역할 정보 — 이름·설명 수정. 시스템 역할은 잠금 안내와 함께 비활성 */}
       <SettingsSection title="역할 정보" description="목록과 구성원 화면에 보이는 이름과 설명이에요.">
         {/* 시스템 역할 잠금 안내 — 폼 필드가 disabled인 이유를 명시 (#676) */}
