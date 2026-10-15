@@ -18,11 +18,7 @@ fi
 
 # 키가 비었거나 JSON 을 깨는 문자(따옴표·역슬래시)·공백·제어 문자가 있으면 없는 키와 똑같이 다룬다.
 # 헤더가 깨지면 Claude Code 가 고정 헤더(내 토큰)로 폴백해 신원이 조용히 바뀐다.
-key=""
-if gw_valid_name "$name" && [ -f "$GW_KEYS/$name" ]; then
-  key=$(head -n1 "$GW_KEYS/$name" 2>/dev/null)
-  gw_key_ok "$key" || key=""
-fi
+key=$(gw_read_key "$name") || key=""
 
 if [ -z "$key" ]; then
   # 조용히 내 토큰으로 접속하면 AI 로 일하는 줄 알지만 기록은 내 이름으로 남는다.

@@ -69,11 +69,13 @@ test('키 저장소를 읽는 도구 호출은 거부', async ($, on) => {
 
 test('세션 시작: 고른 이름의 키가 없으면 상태 줄이 직접 알린다', async ($, on) => {
   stubScripts(on, { 'gw-session show': { exitCode: 0, stdout: 'ghost\n' }, 'gw-keys has': { exitCode: 1 } })
+  const clock = mock.clock(on)
   mock.env(on, {})
   on('session.start', (_$: any, e: any) => ({ cwd: e.cwd }))
   const statuses: string[] = []
   on('ui.status', (_$: any, e: any) => { statuses.push(JSON.stringify(e)); return { value: undefined } })
   await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+  await clock.advance(10) // 상태 줄 갱신은 시작을 막지 않게 타이머로 미뤄진다
   expect(statuses.join('|')).toContain('ghost 키가 없습니다 — /genia-works:login')
 })
 
@@ -601,21 +603,25 @@ test('헤더 스크립트 직접 실행은 거부, gw-set-key 와 README 편집�
 
 test('상태 줄: 내 토큰이 어디에도 없으면 설정 안내', async ($, on) => {
   stubScripts(on, { 'gw-session show': { exitCode: 0, stdout: '' } })
+  const clock = mock.clock(on)
   mock.env(on, {})
   on('session.start', (_$: any, e: any) => ({ cwd: e.cwd }))
   const statuses: string[] = []
   on('ui.status', (_$: any, e: any) => { statuses.push(JSON.stringify(e)); return { value: undefined } })
   await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+  await clock.advance(10) // 상태 줄 갱신은 시작을 막지 않게 타이머로 미뤄진다
   expect(statuses.join('|')).toContain('내 토큰 없음 — /plugin configure genia-works@genia-works')
 })
 
 test('상태 줄: 플러그인 설정 토큰이 있으면 내 토큰', { options: { server_url: SERVER_URL, token: 'swp_FAKE_X' } }, async ($, on) => {
   stubScripts(on, { 'gw-session show': { exitCode: 0, stdout: '' } })
+  const clock = mock.clock(on)
   mock.env(on, {})
   on('session.start', (_$: any, e: any) => ({ cwd: e.cwd }))
   const statuses: string[] = []
   on('ui.status', (_$: any, e: any) => { statuses.push(JSON.stringify(e)); return { value: undefined } })
   await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+  await clock.advance(10) // 상태 줄 갱신은 시작을 막지 않게 타이머로 미뤄진다
   expect(statuses.join('|')).toContain('내 토큰')
   expect(statuses.join('|')).not.toContain('없음')
 })

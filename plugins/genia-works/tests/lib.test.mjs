@@ -1,7 +1,7 @@
 // mod 순수 함수 테스트 — $ 없이 node --test 로 돈다.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseKeyList, identityLabel, isKeyPath, toolTargets, END_CLEARS, applyMaskedInput, maskOf, initializeBody, validName, validKey, findManualRegistrations, sameServer, isHeadless, isHeaderScriptCall, isAiKeyRegistration } from '../hooks/lib.js';
+import { parseKeyList, identityLabel, isKeyPath, toolTargets, END_CLEARS, applyMaskedInput, maskOf, initializeBody, validName, validKey, findManualRegistrations, sameServer, isHeadless, isHeaderScriptCall, isAiKeyRegistration, mentionsHost, KEY_PATH_DENY } from '../hooks/lib.js';
 
 test('parseKeyList: 탭 구분 줄을 이름·등록일로', () => {
   assert.deepEqual(parseKeyList('ai-dev\t10-14\nai-review\t10-12\n'), [
@@ -62,17 +62,17 @@ test('toolTargets: 경로·명령 필드의 문자열만', () => {
 
 test('applyMaskedInput: 치기·붙여넣기·지우기·전체 바꾸기', () => {
   // 빈 필드에 붙여넣기
-  assert.equal(applyMaskedInput('', '', 'ak_FAKE_ABC'), 'ak_FAKE_ABC');
+  assert.equal(applyMaskedInput('', 'ak_FAKE_ABC'), 'ak_FAKE_ABC');
   // ●●● 뒤에 한 글자 치기
-  assert.equal(applyMaskedInput('ak_', '●●●', '●●●F'), 'ak_F');
+  assert.equal(applyMaskedInput('ak_', '●●●F'), 'ak_F');
   // 끝에서 하나 지우기
-  assert.equal(applyMaskedInput('ak_F', '●●●●', '●●●'), 'ak_');
+  assert.equal(applyMaskedInput('ak_F', '●●●'), 'ak_');
   // 전부 지우기
-  assert.equal(applyMaskedInput('ak_F', '●●●●', ''), '');
+  assert.equal(applyMaskedInput('ak_F', ''), '');
   // 전체 선택 후 새로 붙여넣기(● 없이 새 글자만)
-  assert.equal(applyMaskedInput('ak_OLD', '●●●●●●', 'ak_NEW'), 'ak_NEW');
+  assert.equal(applyMaskedInput('ak_OLD', 'ak_NEW'), 'ak_NEW');
   // 중간에 끼워 치기(커서 이동) — 위치를 알 수 없으니 ● 이 아닌 글자를 그 자리에 넣는다
-  assert.equal(applyMaskedInput('ak_', '●●●', '●X●●'), 'aXk_');
+  assert.equal(applyMaskedInput('ak_', '●X●●'), 'aXk_');
   assert.equal(maskOf('ak_F'), '●●●●');
 });
 
@@ -90,12 +90,12 @@ test('validName', () => {
 });
 
 test('applyMaskedInput: 다시 그리기 전에 연달아 온 입력(필드에 평문이 남음)', () => {
-  assert.equal(applyMaskedInput('ak_F', '●●●●', '●●●FG'), 'ak_FG');
-  assert.equal(applyMaskedInput('ak_FAKE', '●●●●●●●', '●●●FAKE_ABC'), 'ak_FAKE_ABC');
+  assert.equal(applyMaskedInput('ak_F', '●●●FG'), 'ak_FG');
+  assert.equal(applyMaskedInput('ak_FAKE', '●●●FAKE_ABC'), 'ak_FAKE_ABC');
   // 가운데에 평문이 남은 채 앞에 끼워 치기
-  assert.equal(applyMaskedInput('ak_FAKE', '●●●●●●●', '●X●●F●●●'), 'aXk_FAKE');
+  assert.equal(applyMaskedInput('ak_FAKE', '●X●●F●●●'), 'aXk_FAKE');
   // 평문이 남은 채 끝에서 지우기
-  assert.equal(applyMaskedInput('ak_FAKE', '●●●●●●●', '●●●FAK'), 'ak_FAK');
+  assert.equal(applyMaskedInput('ak_FAKE', '●●●FAK'), 'ak_FAK');
 });
 
 test('validKey', () => {
@@ -104,10 +104,10 @@ test('validKey', () => {
 });
 
 test('applyMaskedInput: 새로 친 글자가 그 자리의 실제 글자와 같아도 ● 가 남지 않는다', () => {
-  assert.equal(applyMaskedInput('ak_AA', '●●●●●', '●●●●A●'), 'ak_AAA');
-  assert.equal(applyMaskedInput('ak_FAKE_ABC', maskOf('ak_FAKE_ABC'), 'a' + maskOf('ak_FAKE_ABC')), 'aak_FAKE_ABC');
+  assert.equal(applyMaskedInput('ak_AA', '●●●●A●'), 'ak_AAA');
+  assert.equal(applyMaskedInput('ak_FAKE_ABC', 'a' + maskOf('ak_FAKE_ABC')), 'aak_FAKE_ABC');
   // 반복되는 글자 한가운데에 끼워 치기
-  assert.equal(applyMaskedInput('ak_AAA', '●●●●●●', '●●●●A●●'), 'ak_AAAA');
+  assert.equal(applyMaskedInput('ak_AAA', '●●●●A●●'), 'ak_AAAA');
 });
 
 test('applyMaskedInput: 임의의 한 번 편집 뒤에도 ● 가 없고 길이가 필드와 같다', () => {
@@ -124,7 +124,7 @@ test('applyMaskedInput: 임의의 한 번 편집 뒤에도 ● 가 없고 길이
     if (kind === 0) typed = m.slice(0, at) + str(1) + m.slice(at); // 한 글자 끼워 치기
     else if (kind === 1) typed = m.slice(0, at) + str(1 + rnd(5)) + m.slice(at); // 붙여넣기
     else typed = m.slice(0, Math.max(0, m.length - 1)); // 끝에서 지우기
-    const out = applyMaskedInput(real, m, typed);
+    const out = applyMaskedInput(real, typed);
     assert.ok(!out.includes('●'), `${real} ${typed} -> ${out}`);
     assert.equal(out.length, typed.length, `${real} ${typed} -> ${out}`);
   }
@@ -227,4 +227,11 @@ test('isAiKeyRegistration: Authorization 헤더(대소문자 무관)에 Bearer a
   assert.equal(isAiKeyRegistration({ headers: { 'X-Other': 'Bearer ak_FAKE_1' } }), false);
   assert.equal(isAiKeyRegistration({ url: 'http://x' }), false);
   assert.equal(isAiKeyRegistration(undefined), false);
+});
+
+test('mentionsHost: 호스트가 글자로 보일 때만 true, 주소를 해석할 수 없으면 true', () => {
+  assert.equal(mentionsHost('{"url":"https://Genia-Works.iacloud.kr/mcp"}', 'https://genia-works.iacloud.kr/mcp'), true);
+  assert.equal(mentionsHost('{"url":"https://other.example/mcp"}', 'https://genia-works.iacloud.kr/mcp'), false);
+  assert.equal(mentionsHost('{}', 'not a url'), true);
+  assert.ok(KEY_PATH_DENY.includes('/genia-works:as'));
 });

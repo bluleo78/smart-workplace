@@ -31,6 +31,16 @@ gw_key_ok() {
   return 0
 }
 
+# 키 읽기 — 이름이 유효하고 파일이 있고 첫 줄이 gw_key_ok 를 통과하면 키를 출력하고 0, 아니면 아무것도 내지 않고 1.
+# 헤더 스크립트·존재 확인(gw-keys has)·세션 선택이 같은 기준을 한 함수로 쓴다(호출 쪽에서 존재 확인만 할 때는 출력을 버린다).
+gw_read_key() {
+  gw_valid_name "$1" && [ -f "$GW_KEYS/$1" ] || return 1
+  _gw_k=""
+  { IFS= read -r _gw_k || true; } 2>/dev/null < "$GW_KEYS/$1"
+  gw_key_ok "$_gw_k" || return 1
+  printf '%s\n' "$_gw_k"
+}
+
 # claude 실행 파일로 보이는 단어인지 — 네이티브(claude, …/claude, …/claude/versions/x)와 npm(node …/bin/claude) 모두.
 gw_is_claude_word() {
   case "$1" in

@@ -10,8 +10,8 @@ case "${1:-}" in
   select)
     name="${2:-}"
     if [ "$name" != me ]; then
-      # 헤더 스크립트와 같은 기준(gw_key_ok)으로 본다 — 깨진 키 파일을 골랐다고 답한 뒤 연결은 실패하는 어긋남을 막는다.
-      gw_valid_name "$name" && [ -f "$GW_KEYS/$name" ] && gw_key_ok "$(head -n1 "$GW_KEYS/$name" 2>/dev/null)" \
+      # 헤더 스크립트와 같은 기준(gw_read_key)으로 본다 — 깨진 키 파일을 골랐다고 답한 뒤 연결은 실패하는 어긋남을 막는다.
+      gw_read_key "$name" > /dev/null \
         || { echo "$name 키가 없습니다" >&2; exit 4; }
     fi
     mkdir -p "$GW_SESSIONS" && chmod 700 "$GW_HOME" "$GW_SESSIONS"

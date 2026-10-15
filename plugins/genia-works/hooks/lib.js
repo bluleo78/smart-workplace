@@ -41,6 +41,7 @@ export const HEADLESS_LOGIN = '로그인 화면은 대화형 세션에서만 열
 // 키 저장소(~/.genia-works) 경로가 든 도구 입력인지 — 대화로 키가 새지 않게 막는다(우회는 막지 못함, README 에 명시).
 // 경로 뒤에 올 수 있는 구분자: 경로 구분·끝·따옴표·공백·셸 연산자(;&|)<>).
 export function isKeyPath(text) {
+  if (!text.includes('.genia-works')) return false // 싼 선검사 — 대부분의 도구 입력은 여기서 끝난다
   return /\.genia-works(\/|\\|$|["'\s;&|)<>])/.test(text)
 }
 
@@ -55,10 +56,14 @@ const HEADER_SCRIPT = String.raw`["']?(?:[^\s"';&|()<>\x60]*\/)?gw-(?:headers|se
 const HEADER_SCRIPT_CALL = new RegExp(CMD_POS + HEADER_SCRIPT)
 export function isHeaderScriptCall(input) {
   const cmd = input && typeof input === 'object' ? input.command : undefined
-  return typeof cmd === 'string' && HEADER_SCRIPT_CALL.test(cmd)
+  if (typeof cmd !== 'string') return false
+  if (!cmd.includes('gw-headers') && !cmd.includes('gw-session-key')) return false // 싼 선검사 — 정규식은 이름이 보일 때만
+  return HEADER_SCRIPT_CALL.test(cmd)
 }
 
 export const HEADER_SCRIPT_DENY = 'genia-works 헤더 스크립트는 직접 실행할 수 없습니다 — 신원 확인은 ' + COMMANDS.as
+
+export const KEY_PATH_DENY = 'genia-works 키 저장소(~/.genia-works)는 열 수 없습니다. 신원 확인은 ' + COMMANDS.as + ' 를 쓰세요.'
 
 // 도구 입력에서 경로·명령으로 쓰이는 필드의 문자열만 뽑는다 — 쓰는 내용(content·new_string 등)에 경로가 언급된 것까지 막지 않으려는 것.
 const TARGET_FIELDS = ['file_path', 'path', 'notebook_path', 'pattern', 'glob', 'command']
@@ -75,7 +80,7 @@ export const END_CLEARS = new Set(['prompt_input_exit', 'logout', 'other'])
 // 다시 그리기 전에 입력이 연달아 오면 필드에 방금 친 평문이 남아 있다 — 그 글자는 실제 값과 같은 글자이므로,
 // 앞·뒤에서 「● 이거나 실제 글자와 같은」 구간을 공통 접두·접미로 보고 가운데(새로 바뀐 부분)만 typed 에서 가져온다.
 // 피할 수 없는 모호함: 가운데 글자를 Backspace/Delete 로 지우면 끝에서 지운 것과 구별되지 않는다(키 확인에서 걸러진다).
-export function applyMaskedInput(real, _drawn, typed) {
+export function applyMaskedInput(real, typed) {
   if (typed === '') return ''
   const same = (t, r) => t === '●' || t === r
   let p = 0
@@ -126,6 +131,15 @@ export function sameServer(a, b) {
     return x.origin === y.origin && path(x) === path(y)
   } catch {
     return false
+  }
+}
+
+// 원문에 서버 호스트가 글자로 나오는지 — 큰 JSON 을 파싱하기 전의 싼 선검사. 주소를 해석할 수 없으면 판단하지 않고 true(정상 경로로 이어 간다).
+export function mentionsHost(raw, serverUrl) {
+  try {
+    return raw.toLowerCase().includes(new URL(serverUrl).host.toLowerCase())
+  } catch {
+    return true
   }
 }
 

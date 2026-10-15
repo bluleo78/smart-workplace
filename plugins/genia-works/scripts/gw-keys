@@ -34,8 +34,8 @@ case "$cmd" in
     rm -f "$GW_KEYS/$name"
     ;;
   has)
-    # 파일이 있고 내용도 헤더 스크립트가 받아들이는 형식이어야 한다(gw_key_ok 공용).
-    gw_valid_name "$name" && [ -f "$GW_KEYS/$name" ] && gw_key_ok "$(head -n1 "$GW_KEYS/$name" 2>/dev/null)"
+    # 파일이 있고 내용도 헤더 스크립트가 받아들이는 형식이어야 한다(gw_read_key 공용).
+    gw_read_key "$name" > /dev/null
     ;;
   *)
     echo "사용법: gw-keys list | add <이름> | remove <이름> | has <이름>" >&2
