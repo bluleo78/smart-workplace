@@ -15,6 +15,9 @@ import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.ai.AiMemoryLine;
 import com.workplace.global.ai.AiMemoryReader;
+import com.workplace.global.ai.SharedAiMemoryReader;
+import com.workplace.global.ai.SharedMemories;
+import com.workplace.global.ai.SharedMemoryLine;
 import com.workplace.global.security.EncryptionService;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.mail.dto.EmailAccountRequest;
@@ -81,6 +84,9 @@ class MailAiServiceTest extends IntegrationTestBase {
 
   /** 메일 메모리(WP-381) — 목 기본값은 빈 목록이라 다른 테스트는 메모리 없이 그대로 동작한다. */
   @MockitoBean AiMemoryReader memoryReader;
+
+  /** 공용 메모리(WP-386) — 목 기본값(null)은 서비스가 빈 묶음으로 바꾼다. */
+  @MockitoBean SharedAiMemoryReader sharedReader;
 
   private void stubAssistant() {
     AssistantSpec spec = new AssistantSpec(5L, "claude-sonnet-4-6", "NORMAL", 8, 60000);
@@ -627,6 +633,44 @@ class MailAiServiceTest extends IntegrationTestBase {
     ArgumentCaptor<ReplyDraftRequest> cap = ArgumentCaptor.forClass(ReplyDraftRequest.class);
     verify(mailClient).replyDraft(cap.capture());
     assertThat(cap.getValue().memories()).isEqualTo(lines);
+  }
+
+  /** WP-386: 메일 답장 초안은 조직 공용 메모리를 싣는다(메일은 공간이 없다). */
+  @Test
+  void replyDraft_조직_공용_메모리를_요청에_싣는다() {
+    stubAssistant();
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = createAccount(userId, "shared1@test.local", true);
+    long folderId = folderRepo.ensureFolder(accountId, "INBOX").id();
+    long msgId = insertMessage(accountId, folderId, "shared-msg-1@test.local", "shared-thread-1");
+    var shared = new SharedMemories(List.of(new SharedMemoryLine("조직", "메일 끝인사는 감사합니다로 맺는다")), 3);
+    when(sharedReader.readForUser(userId, null, null)).thenReturn(shared);
+    when(mailClient.replyDraft(any())).thenReturn(new ReplyDraftResult("초안"));
+
+    mailAiService.replyDraft(userId, msgId);
+
+    ArgumentCaptor<ReplyDraftRequest> cap = ArgumentCaptor.forClass(ReplyDraftRequest.class);
+    verify(mailClient).replyDraft(cap.capture());
+    assertThat(cap.getValue().sharedMemories()).isEqualTo(shared.items());
+    assertThat(cap.getValue().sharedMemoryMoreCount()).isEqualTo(3);
+  }
+
+  /** WP-386: 초안 코칭도 조직 공용 메모리를 싣는다. */
+  @Test
+  void coachDraft_조직_공용_메모리를_요청에_싣는다() {
+    stubAssistant();
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = createAccount(userId, "shared2@test.local", true);
+    var shared = new SharedMemories(List.of(new SharedMemoryLine("조직", "메일 끝인사는 감사합니다로 맺는다")), 0);
+    when(sharedReader.readForUser(userId, null, null)).thenReturn(shared);
+    when(mailClient.coachDraft(any())).thenReturn(new DraftCoachingResult(List.of(), "<p>개선</p>"));
+
+    mailAiService.coachDraft(
+        userId, new MailDraftCoachingRequest(accountId, "<p>빨리</p>", "빨리", null));
+
+    ArgumentCaptor<DraftCoachingRequest> cap = ArgumentCaptor.forClass(DraftCoachingRequest.class);
+    verify(mailClient).coachDraft(cap.capture());
+    assertThat(cap.getValue().sharedMemories()).isEqualTo(shared.items());
   }
 
   /** WP-383: 답장 코칭은 원메일 제목(+요약)으로 메모리를 고른다 — 새 메일이면 질의 없음(고정 + 최신). */

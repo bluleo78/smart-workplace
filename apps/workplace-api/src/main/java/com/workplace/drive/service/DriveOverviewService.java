@@ -7,6 +7,9 @@ import com.workplace.drive.outbound.DriveOverviewStreamClient;
 import com.workplace.drive.repository.DriveExcerptRepository;
 import com.workplace.global.ai.AiMemoryLine;
 import com.workplace.global.ai.AiMemoryReader;
+import com.workplace.global.ai.SharedAiMemoryReader;
+import com.workplace.global.ai.SharedMemories;
+import com.workplace.global.ai.SharedMemoryLine;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.realtime.StreamingGenerationRegistry;
 import java.io.InterruptedIOException;
@@ -48,6 +51,9 @@ public class DriveOverviewService {
   /** WP-381: 드라이브 개요에 싣는 읽기 전용 메모리(공통 + 드라이브). */
   private final AiMemoryReader memoryReader;
 
+  /** WP-386: 드라이브 개요에 싣는 조직 공용 메모리 리더(드라이브는 공간 범위가 없다). */
+  private final SharedAiMemoryReader sharedReader;
+
   /**
    * 발췌 조회를 트랜잭션으로 감싸 RLS GUC 를 주입하기 위한 읽기전용 TransactionTemplate.
    *
@@ -65,7 +71,8 @@ public class DriveOverviewService {
       PlatformTransactionManager txManager,
       StreamingGenerationRegistry registry,
       SseRegistry sseRegistry,
-      AiMemoryReader memoryReader) {
+      AiMemoryReader memoryReader,
+      SharedAiMemoryReader sharedReader) {
     this.search = search;
     this.excerpts = excerpts;
     this.assistantResolver = assistantResolver;
@@ -76,6 +83,7 @@ public class DriveOverviewService {
     this.registry = registry;
     this.sseRegistry = sseRegistry;
     this.memoryReader = memoryReader;
+    this.sharedReader = sharedReader;
   }
 
   /**
@@ -105,9 +113,19 @@ public class DriveOverviewService {
 
     // WP-381: 공통 + 드라이브 메모리(읽기 전용, 실패해도 빈 목록). WP-383: 질의 없음(고정 + 최신) — 스펙 3.5.
     List<AiMemoryLine> memories = memoryReader.readForEntry(callerId, AiMemoryReader.DRIVE, null);
+    // WP-386: 드라이브는 공간이 없어 조직 공용 메모리만(메모리 꺼짐과 무관).
+    SharedMemories shared = SharedMemories.orEmpty(sharedReader.readForUser(callerId, null, null));
     AgentBody body =
         new AgentBody(
-            q, ex, spec.agentUserId(), spec.model(), spec.maxTurns(), spec.timeoutMs(), memories);
+            q,
+            ex,
+            spec.agentUserId(),
+            spec.model(),
+            spec.maxTurns(),
+            spec.timeoutMs(),
+            memories,
+            shared.items(),
+            shared.moreCount());
 
     // 4) 펌프를 레지스트리에 등록 — correlationId 는 클로저로 각 이벤트 payload 에 실린다.
     return registry.start(
@@ -175,7 +193,11 @@ public class DriveOverviewService {
       int maxTurns,
       int timeoutMs,
       /** WP-381: 공통 + 드라이브 메모리. null 이면 생략. */
-      List<AiMemoryLine> memories) {}
+      List<AiMemoryLine> memories,
+      /** WP-386: 조직 공용 메모리 줄. */
+      List<SharedMemoryLine> sharedMemories,
+      /** WP-386: 예산 때문에 싣지 못한 공용 메모리 개수. */
+      int sharedMemoryMoreCount) {}
 
   /** 발췌 1건(파일명 + 텍스트). */
   record Excerpt(String name, String text) {}

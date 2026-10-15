@@ -3,6 +3,8 @@ package com.workplace.mail.service;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.ai.AiMemoryReader;
+import com.workplace.global.ai.SharedAiMemoryReader;
+import com.workplace.global.ai.SharedMemories;
 import com.workplace.global.util.Texts;
 import com.workplace.mail.dto.CoachingNote;
 import com.workplace.mail.dto.EmailAccountResponse;
@@ -52,6 +54,9 @@ public class MailAiService {
   /** WP-381: 답장 초안·초안 코칭에 싣는 읽기 전용 메모리(공통 + 메일). */
   private final AiMemoryReader memoryReader;
 
+  /** WP-386: 답장 초안·초안 코칭에 싣는 조직 공용 메모리 리더(메일은 공간이 없다). */
+  private final SharedAiMemoryReader sharedReader;
+
   /**
    * 답장 초안·초안 코칭의 짧은 읽기 트랜잭션 — @Primary TenantAwareTransactionManager 로 구성해 진입 시 RLS
    * GUC(app.tenant_id) 가 주입된다. 소유권·ai_enabled·스레드 조회만 감싸고 메모리 읽기·LLM 호출은 밖에서 한다.
@@ -65,13 +70,15 @@ public class MailAiService {
       EmailAccountRepository accountRepo,
       AssistantResolver assistantResolver,
       AiMemoryReader memoryReader,
-      PlatformTransactionManager txManager) {
+      PlatformTransactionManager txManager,
+      SharedAiMemoryReader sharedReader) {
     this.analysis = analysis;
     this.mailClient = mailClient;
     this.messageRepo = messageRepo;
     this.accountRepo = accountRepo;
     this.assistantResolver = assistantResolver;
     this.memoryReader = memoryReader;
+    this.sharedReader = sharedReader;
     this.readTx = new TransactionTemplate(txManager);
     this.readTx.setReadOnly(true);
   }
@@ -181,6 +188,8 @@ public class MailAiService {
                   messageRepo.findThreadByIdAndUser(userId, messageId),
                   memoryQuery(ctx));
             });
+    // WP-386: 메일은 공간이 없어 조직 공용 메모리만(메모리 꺼짐과 무관).
+    SharedMemories shared = SharedMemories.orEmpty(sharedReader.readForUser(userId, null, null));
     ReplyDraftResult r =
         mailClient.replyDraft(
             new ReplyDraftRequest(
@@ -190,7 +199,9 @@ public class MailAiService {
                 in.spec().model(),
                 MAX_TURNS,
                 in.spec().timeoutMs(),
-                memoryReader.readForEntry(userId, AiMemoryReader.MAIL, in.memoryQuery())));
+                memoryReader.readForEntry(userId, AiMemoryReader.MAIL, in.memoryQuery()),
+                shared.items(),
+                shared.moreCount()));
     return new MailReplyDraft(r.draftBody());
   }
 
@@ -230,6 +241,8 @@ public class MailAiService {
                           .orElse(null);
               return new TxInput(acct.emailAddress(), spec, thread, memoryQuery);
             });
+    // WP-386: 메일은 공간이 없어 조직 공용 메모리만(메모리 꺼짐과 무관).
+    SharedMemories shared = SharedMemories.orEmpty(sharedReader.readForUser(userId, null, null));
     DraftCoachingResult r =
         mailClient.coachDraft(
             new DraftCoachingRequest(
@@ -244,7 +257,9 @@ public class MailAiService {
                 in.spec().model(),
                 MAX_TURNS,
                 in.spec().timeoutMs(),
-                memoryReader.readForEntry(userId, AiMemoryReader.MAIL, in.memoryQuery())));
+                memoryReader.readForEntry(userId, AiMemoryReader.MAIL, in.memoryQuery()),
+                shared.items(),
+                shared.moreCount()));
     List<CoachingNote> notes =
         r.notes() == null
             ? List.of()

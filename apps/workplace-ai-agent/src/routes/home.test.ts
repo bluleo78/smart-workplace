@@ -21,6 +21,15 @@ vi.mock('../agent/run-suggestions.js', async (orig) => ({
 }));
 
 const logMock = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() }));
+vi.mock('../agent/run-memory-cleanup.js', async (orig) => ({
+  ...(await orig<typeof import('../agent/run-memory-cleanup.js')>()),
+  runMemoryCleanup: vi.fn(),
+}));
+vi.mock('../agent/run-shared-memory.js', async (orig) => ({
+  ...(await orig<typeof import('../agent/run-shared-memory.js')>()),
+  runSharedMemoryCheck: vi.fn(),
+  runSharedMemoryExtract: vi.fn(),
+}));
 vi.mock('../logger.js', () => ({ log: logMock }));
 
 import { createHomeRouter, chatSchema } from './home.js';
@@ -29,6 +38,8 @@ import { runAiChatStream } from '../agent/run-ai-chat.js';
 import { runHomePriorityClassify } from '../agent/run-home-priority-classify.js';
 import { runHomeContextSummary } from '../agent/run-home-context-summary.js';
 import { runSuggestions } from '../agent/run-suggestions.js';
+import { runMemoryCleanup } from '../agent/run-memory-cleanup.js';
+import { runSharedMemoryCheck, runSharedMemoryExtract } from '../agent/run-shared-memory.js';
 
 // 비서 필드를 포함한 유효 페이로드(요청 본문 계약).
 function validBody(over: Record<string, unknown> = {}) {
@@ -73,6 +84,21 @@ describe('chatSchema', () => {
     expect(chatSchema.parse(validBody({ today: '10/14' })).today).toBeNull();
     const memories = [{ id: 12, kind: 'PREFERENCE', content: '짧게', expiresOn: '2026-10-19' }];
     expect(chatSchema.parse(validBody({ memories, memoryEnabled: true })).memories.items).toEqual(memories);
+  });
+
+  it('WP-386: 공용 메모리·지금 공간 — 없으면 빈 배열·0·없음, 모르는 공간 종류는 null', () => {
+    const shared = [{ space: '조직', content: '고객 이름은 쓰지 않는다' }];
+    const parsed = chatSchema.parse(
+      validBody({ sharedMemories: [...shared, 'x'], sharedMemoryMoreCount: 1, currentSpace: { type: 'PROJECT', name: 'A(A)' } }),
+    );
+    expect(parsed.sharedMemories).toEqual(shared);
+    expect(parsed.sharedMemoryMoreCount).toBe(1);
+    expect(parsed.currentSpace).toEqual({ type: 'PROJECT', name: 'A(A)' });
+    const old = chatSchema.parse(validBody());
+    expect(old.sharedMemories).toEqual([]);
+    expect(old.sharedMemoryMoreCount).toBe(0);
+    expect(old.currentSpace).toBeUndefined();
+    expect(chatSchema.parse(validBody({ currentSpace: { type: 'ORG', name: '조직' } })).currentSpace).toBeNull();
   });
 
   it('WP-379: 메모리 항목의 scope 를 보존한다', () => {
@@ -224,6 +250,19 @@ describe('POST /ai/chat', () => {
     const res = await request(buildApp()).post('/ai/chat').send(validBody());
     const tools = [...res.text.matchAll(/event: tool\ndata: (.*)\n/g)].map((m) => JSON.parse(m[1]) as Record<string, unknown>);
     expect(tools[0].memory).toEqual(updated);
+  });
+
+  it('WP-386: remember_shared_memory 의 성공 결과도 tool SSE memory 필드로 싣는다', async () => {
+    const shared = { action: 'shared', changeId: 5, memoryId: 9, spaceName: 'Smart Workplace(WP)', content: '배포는 API 먼저 한다' };
+    vi.mocked(runAiChatStream).mockImplementation(async (_i, _d, _t, _s, _p, onTool) => {
+      onTool?.({ seq: 1, event: 'tool_result', toolName: 'mcp__workplace__remember_shared_memory', isError: false, result: JSON.stringify(shared) });
+      onTool?.({ seq: 2, event: 'tool_result', toolName: 'remember_shared_memory', isError: false, result: '지금은 공용 메모리에 저장하지 못했어요 …' });
+      return { fullText: '기억했어요.', widgets: null, pendingActions: [], source: 'router_prose', usage: null };
+    });
+    const res = await request(buildApp()).post('/ai/chat').send(validBody());
+    const tools = [...res.text.matchAll(/event: tool\ndata: (.*)\n/g)].map((m) => JSON.parse(m[1]) as Record<string, unknown>);
+    expect(tools[0].memory).toEqual(shared);
+    expect(tools[1].memory).toBeUndefined();
   });
 
   it('WP-55: memories·memoryEnabled 를 runAiChatStream 입력으로 전달', async () => {
@@ -566,5 +605,93 @@ describe('POST /home/suggestions (WP-139)', () => {
     const res = await request(buildApp()).post('/home/suggestions').send(body);
     expect(res.status).toBe(502);
     expect(res.body).toEqual({ error: 'home_suggestions_failed' });
+  });
+});
+
+describe('POST /home/memory-cleanup (WP-385)', () => {
+  const body = {
+    agentId: 7, model: null, timeoutMs: 30_000, today: '2026-10-15',
+    utterances: ['배포 체크리스트 만들어줘'], assistantNotes: null, memories: [],
+  };
+  it('성공 → 200 { ops }', async () => {
+    const ops = [{ op: 'FORGET', targetIds: [3], content: null, kind: null, scope: null, expiresOn: null, evidence: 0, reason: 'r' }];
+    vi.mocked(runMemoryCleanup).mockResolvedValue({ ops } as never);
+    const res = await request(buildApp()).post('/home/memory-cleanup').send(body);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ops });
+    expect(vi.mocked(runMemoryCleanup).mock.calls[0][0]).toMatchObject({ agentId: 7, assistantNotes: [], memories: [] });
+  });
+  it('스키마 위반 → 400 (실행 안 함)', async () => {
+    const res = await request(buildApp()).post('/home/memory-cleanup').send({ ...body, utterances: [] });
+    expect(res.status).toBe(400);
+    expect(runMemoryCleanup).not.toHaveBeenCalled();
+  });
+  it('실행 실패 → 502', async () => {
+    vi.mocked(runMemoryCleanup).mockRejectedValue(new Error('timeout'));
+    const res = await request(buildApp()).post('/home/memory-cleanup').send(body);
+    expect(res.status).toBe(502);
+    expect(res.body).toEqual({ error: 'home_memory_cleanup_failed' });
+  });
+});
+
+describe('POST /home/shared-memory-check · /home/shared-memory-extract (WP-386)', () => {
+  const check = { agentId: 7, model: null, timeoutMs: 12_000, spaceType: 'PROJECT', spaceName: 'A(A)', candidates: ['배포는 API 먼저 한다'] };
+  const extract = {
+    agentId: 7, model: null, timeoutMs: 30_000, today: '2026-10-15', spaceType: 'PROJECT', spaceName: 'A(A)',
+    utterances: ['배포는 API 먼저 하자'], memories: null,
+  };
+
+  it('검사 성공 → 200 { results }', async () => {
+    const results = [{ teamWide: true, personal: false, reason: 'r' }];
+    vi.mocked(runSharedMemoryCheck).mockResolvedValue({ results });
+    const res = await request(buildApp()).post('/home/shared-memory-check').send(check);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ results });
+  });
+  it('검사 스키마 위반(후보 0개·조직) → 400, 실행 안 함', async () => {
+    expect((await request(buildApp()).post('/home/shared-memory-check').send({ ...check, candidates: [] })).status).toBe(400);
+    expect((await request(buildApp()).post('/home/shared-memory-check').send({ ...check, spaceType: 'ORG' })).status).toBe(400);
+    expect(runSharedMemoryCheck).not.toHaveBeenCalled();
+  });
+  it('검사 실행 실패 → 502', async () => {
+    vi.mocked(runSharedMemoryCheck).mockRejectedValue(new Error('timeout'));
+    const res = await request(buildApp()).post('/home/shared-memory-check').send(check);
+    expect(res.status).toBe(502);
+    expect(res.body).toEqual({ error: 'home_shared_memory_check_failed' });
+  });
+  it('검사 출력이 깨져 빈 results 이면 502 (API 가 모두 불통과로 본다)', async () => {
+    vi.mocked(runSharedMemoryCheck).mockResolvedValue({ results: [] });
+    const res = await request(buildApp()).post('/home/shared-memory-check').send(check);
+    expect(res.status).toBe(502);
+    expect(res.body).toEqual({ error: 'home_shared_memory_check_failed' });
+  });
+  it('추출 성공 → 200 { ops }, memories null 은 빈 배열로', async () => {
+    const ops = [{ op: 'ADD', targetIds: [], content: '배포는 API 먼저 한다', evidence: 0, reason: 'r' }];
+    vi.mocked(runSharedMemoryExtract).mockResolvedValue({ ops } as never);
+    const res = await request(buildApp()).post('/home/shared-memory-extract').send(extract);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ops });
+    expect(vi.mocked(runSharedMemoryExtract).mock.calls[0][0]).toMatchObject({ memories: [] });
+  });
+  it('추출 깨진 출력(빈 ops)은 200 그대로', async () => {
+    vi.mocked(runSharedMemoryExtract).mockResolvedValue({ ops: [] });
+    const res = await request(buildApp()).post('/home/shared-memory-extract').send(extract);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ops: [] });
+  });
+  it('추출 스키마 위반 → 400, 실행 실패 → 502', async () => {
+    expect((await request(buildApp()).post('/home/shared-memory-extract').send({ ...extract, utterances: [] })).status).toBe(400);
+    vi.mocked(runSharedMemoryExtract).mockRejectedValue(new Error('boom'));
+    const res = await request(buildApp()).post('/home/shared-memory-extract').send(extract);
+    expect(res.status).toBe(502);
+    expect(res.body).toEqual({ error: 'home_shared_memory_extract_failed' });
+  });
+  it('오류 로그에 agentId 를 남기지 않는다', async () => {
+    vi.mocked(runSharedMemoryExtract).mockRejectedValue(new Error('boom'));
+    vi.mocked(runSharedMemoryCheck).mockRejectedValue(new Error('boom'));
+    await request(buildApp()).post('/home/shared-memory-extract').send(extract);
+    await request(buildApp()).post('/home/shared-memory-check').send(check);
+    expect(logMock.error).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(logMock.error.mock.calls)).not.toContain('agentId');
   });
 });

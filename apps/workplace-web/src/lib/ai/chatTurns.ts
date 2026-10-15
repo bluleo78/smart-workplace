@@ -12,6 +12,7 @@ import type {
   MessageTurn,
   PendingAction,
   ProposalCard,
+  SharedMemoryEventDto,
   ToolEventDto,
   ToolStep,
   WidgetSpec,
@@ -41,6 +42,17 @@ const INTERRUPTED_BY_STATUS: Partial<Record<NonNullable<HomeMessage['status']>, 
   STOPPED: 'stopped',
   FAILED: 'failed',
 };
+
+/**
+ * WP-386: 그릴 수 있는 결과 줄인가 — 공용 줄은 양의 changeId·memoryId 와 공간 이름·내용을 갖춰야 한다(서버 ChatBlockRecorder.SharedMemory.from 과
+ * 같은 규칙; 손상·구 데이터 방어). 목록에서 빼지 않고 그릴 때만 거른다 — 빼면 뒤 줄의 순번이 밀려 되돌리기 blockIndex 가 다른 줄을 가리킨다.
+ * 개인 줄은 늘 그린다.
+ */
+export function isRenderableMemoryBlock(b: MemoryBlock): boolean {
+  if (b.action !== 'shared') return true;
+  const isPositiveInt = (v: unknown) => typeof v === 'number' && Number.isInteger(v) && v > 0;
+  return isPositiveInt(b.changeId) && isPositiveInt(b.memoryId) && !!b.spaceName?.trim() && !!b.content?.trim();
+}
 
 /**
  * 영속 메시지 → 화면 턴. 스트리밍 결과·세션 복원이 같은 규칙을 쓴다. WP-234: 첨부 복원.
@@ -153,8 +165,11 @@ export function applyDoneMessageId(turns: ChatTurn[], messageId: unknown): ChatT
   return updateLastAssistant(turns, (last) => ({ ...last, messageId }));
 }
 
-/** WP-55: tool result 의 memory → 결과 줄 블록(API ChatBlockRecorder.Memory 와 같은 모양). source 가 없으면 AI(서버와 같은 기본값). */
-export function toMemoryBlock(m: MemoryEventDto): MemoryBlock {
+/** WP-55: tool result 의 memory → 결과 줄 블록(API ChatBlockRecorder.Memory 와 같은 모양). source 가 없으면 AI(서버와 같은 기본값). WP-386: shared 는 공용 블록. */
+export function toMemoryBlock(m: MemoryEventDto | SharedMemoryEventDto): MemoryBlock {
+  if (m.action === 'shared') {
+    return { kind: 'memory', action: 'shared', changeId: m.changeId, memoryId: m.memoryId, spaceName: m.spaceName, content: m.content, undone: false };
+  }
   return {
     kind: 'memory',
     action: m.action,

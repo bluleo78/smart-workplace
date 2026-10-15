@@ -1,6 +1,7 @@
 package com.workplace.home;
 
 import static com.workplace.jooq.Tables.AI_MEMORY;
+import static com.workplace.jooq.Tables.AI_MEMORY_FORGOTTEN;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -49,20 +50,32 @@ public final class AiMemoryTestFixtures {
   /**
    * 한 범위(null = 공통)에 USER 메모리 n 개를 SQL 한 번으로 넣는다(WP-383 — 상한 300 을 채우는 테스트가 300 번 왕복하지 않게). 내용은
    * "m1"… 이고 모두 유효·고정 아님. 시각은 DB now() 가 아닌 앱 시각(저장소와 같은 기준)으로 넣는다 — DB 컨테이너 시계가 어긋나도 뒤에 만든 행이
-   * 최신순에서 앞선다. 테넌트는 GUC 가 정하므로 테넌트 트랜잭션 안에서 부른다. scope 는 타입을 알 수 없는 null 바인딩이 되지 않게 cast 한다.
+   * 최신순에서 앞선다(WP-385: 사용 시각 last_used_at 도 같은 앱 시각 — 최근 순서가 사용 시각 기준이라 DB 시계 차가 끼지 않게). 테넌트는 GUC 가
+   * 정하므로 테넌트 트랜잭션 안에서 부른다. scope 는 타입을 알 수 없는 null 바인딩이 되지 않게 cast 한다.
    */
   public static void fill(DSLContext dsl, long userId, String scope, int n) {
     OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
     dsl.execute(
-        "INSERT INTO ai_memory (user_id, kind, content, source, scope, created_at, updated_at) "
+        "INSERT INTO ai_memory (user_id, kind, content, source, scope, created_at, updated_at,"
+            + " last_used_at) "
             + "SELECT cast(? as bigint), 'PREFERENCE', 'm' || g, 'USER', cast(? as varchar), "
-            + "cast(? as timestamptz), cast(? as timestamptz) "
+            + "cast(? as timestamptz), cast(? as timestamptz), cast(? as timestamptz) "
             + "FROM generate_series(1, cast(? as int)) g",
         userId,
         scope,
         now,
         now,
+        now,
         n);
+  }
+
+  /** 본인 지운 기록 내용(id 순, WP-385) — 테스트 확인용 직접 조회. 테넌트 트랜잭션 안에서 부른다(RLS). */
+  public static List<String> forgottenContents(DSLContext dsl, long userId) {
+    return dsl.select(AI_MEMORY_FORGOTTEN.CONTENT)
+        .from(AI_MEMORY_FORGOTTEN)
+        .where(AI_MEMORY_FORGOTTEN.USER_ID.eq(userId))
+        .orderBy(AI_MEMORY_FORGOTTEN.ID.asc())
+        .fetch(AI_MEMORY_FORGOTTEN.CONTENT);
   }
 
   /** 본인 메모리 전체 개수(범위·기한 무관) — 테스트 확인용. 테넌트 트랜잭션 안에서 부른다(RLS). */

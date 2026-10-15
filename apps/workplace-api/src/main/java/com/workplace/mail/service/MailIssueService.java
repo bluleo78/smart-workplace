@@ -3,6 +3,8 @@ package com.workplace.mail.service;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.ai.AiMemoryReader;
+import com.workplace.global.ai.SharedAiMemoryReader;
+import com.workplace.global.ai.SharedMemories;
 import com.workplace.issue.dto.CreateIssueRequest;
 import com.workplace.issue.dto.IssueResponse;
 import com.workplace.issue.repository.IssueRepository;
@@ -53,6 +55,9 @@ public class MailIssueService {
   /** WP-381: 메일 → 이슈 초안에 싣는 읽기 전용 메모리(공통 + 메일 — 이슈 범위 메모리는 싣지 않는다). */
   private final AiMemoryReader memoryReader;
 
+  /** WP-386: 메일 → 이슈 초안에 싣는 조직 공용 메모리 리더(메일은 공간이 없다). */
+  private final SharedAiMemoryReader sharedReader;
+
   /**
    * 짧은-트랜잭션용 TransactionTemplate — @Primary {@code TenantAwareTransactionManager} 로 구성해 트랜잭션 진입 시
    * RLS GUC(app.tenant_id) 가 주입된다.
@@ -68,7 +73,8 @@ public class MailIssueService {
       ProjectService projectService,
       MailChangeNotifier notifier,
       PlatformTransactionManager txManager,
-      AiMemoryReader memoryReader) {
+      AiMemoryReader memoryReader,
+      SharedAiMemoryReader sharedReader) {
     this.issueService = issueService;
     this.issueRepository = issueRepository;
     this.messageRepo = messageRepo;
@@ -78,6 +84,7 @@ public class MailIssueService {
     this.notifier = notifier;
     this.txTemplate = new TransactionTemplate(txManager);
     this.memoryReader = memoryReader;
+    this.sharedReader = sharedReader;
   }
 
   /**
@@ -156,6 +163,8 @@ public class MailIssueService {
         candidates.stream()
             .map(c -> new MailAiMessages.CandidateProject(c.key(), c.name()))
             .toList();
+    // WP-386: 메일은 공간이 없어 조직 공용 메모리만(메모리 꺼짐과 무관).
+    SharedMemories shared = SharedMemories.orEmpty(sharedReader.readForUser(callerId, null, null));
     MailAiMessages.IssueDraftResult r =
         mailClient.issueDraft(
             new MailAiMessages.IssueDraftRequest(
@@ -172,7 +181,9 @@ public class MailIssueService {
                     AiMemoryReader.MAIL,
                     ctx.subject() == null || ctx.subject().isBlank()
                         ? null
-                        : ctx.subject().strip())));
+                        : ctx.subject().strip()),
+                shared.items(),
+                shared.moreCount()));
 
     // AI 추천 projectKey 가 후보에 없으면 무시(null) — 프론트가 개인 프로젝트로 폴백.
     String suggested =

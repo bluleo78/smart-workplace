@@ -9,6 +9,8 @@ import com.workplace.jooq.tables.AgentWork;
 import com.workplace.jooq.tables.AgentWorkEvent;
 import com.workplace.jooq.tables.AiAgentCredential;
 import com.workplace.jooq.tables.AiMemory;
+import com.workplace.jooq.tables.AiMemoryChange;
+import com.workplace.jooq.tables.AiMemoryForgotten;
 import com.workplace.jooq.tables.AssistantConfig;
 import com.workplace.jooq.tables.AuditLog;
 import com.workplace.jooq.tables.Calendar;
@@ -87,6 +89,9 @@ import com.workplace.jooq.tables.RefreshToken;
 import com.workplace.jooq.tables.Role;
 import com.workplace.jooq.tables.RolePermission;
 import com.workplace.jooq.tables.SavedView;
+import com.workplace.jooq.tables.SharedAiMemory;
+import com.workplace.jooq.tables.SharedAiMemoryChange;
+import com.workplace.jooq.tables.SharedAiMemoryForgotten;
 import com.workplace.jooq.tables.Shedlock;
 import com.workplace.jooq.tables.Tenant;
 import com.workplace.jooq.tables.TenantCanary;
@@ -141,6 +146,16 @@ public class Tables {
      * The table <code>public.ai_memory</code>.
      */
     public static final AiMemory AI_MEMORY = AiMemory.AI_MEMORY;
+
+    /**
+     * The table <code>public.ai_memory_change</code>.
+     */
+    public static final AiMemoryChange AI_MEMORY_CHANGE = AiMemoryChange.AI_MEMORY_CHANGE;
+
+    /**
+     * The table <code>public.ai_memory_forgotten</code>.
+     */
+    public static final AiMemoryForgotten AI_MEMORY_FORGOTTEN = AiMemoryForgotten.AI_MEMORY_FORGOTTEN;
 
     /**
      * The table <code>public.assistant_config</code>.
@@ -532,6 +547,21 @@ public class Tables {
      * The table <code>public.saved_view</code>.
      */
     public static final SavedView SAVED_VIEW = SavedView.SAVED_VIEW;
+
+    /**
+     * The table <code>public.shared_ai_memory</code>.
+     */
+    public static final SharedAiMemory SHARED_AI_MEMORY = SharedAiMemory.SHARED_AI_MEMORY;
+
+    /**
+     * The table <code>public.shared_ai_memory_change</code>.
+     */
+    public static final SharedAiMemoryChange SHARED_AI_MEMORY_CHANGE = SharedAiMemoryChange.SHARED_AI_MEMORY_CHANGE;
+
+    /**
+     * The table <code>public.shared_ai_memory_forgotten</code>.
+     */
+    public static final SharedAiMemoryForgotten SHARED_AI_MEMORY_FORGOTTEN = SharedAiMemoryForgotten.SHARED_AI_MEMORY_FORGOTTEN;
 
     /**
      * The table <code>public.shedlock</code>.

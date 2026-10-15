@@ -224,6 +224,7 @@ function client(): TestClient {
     deleteAiMemory: vi.fn(),
     searchAiMemories: vi.fn(),
     searchConversations: vi.fn(),
+    requestSharedMemory: vi.fn(), // WP-386
   };
   return Object.assign(c, { sc });
 }
@@ -421,7 +422,7 @@ describe('프로필 구성', () => {
 
   // WP-55: 메모리 도구는 "라우터는 쓰기 도구 없음" 규칙의 이름 붙은 예외 — assistant 프로필·라우터 목록에만 있고(로컬 도구라 힌트 없음),
   // 이 대화 세션과 요청자 신원에 묶인다.
-  it('메모리 도구 3종은 assistant 프로필과 라우터 목록에만 있고 요청자·세션으로 호출한다', async () => {
+  it('메모리 도구(MEMORY_TOOL_NAMES)는 assistant 프로필과 라우터 목록에만 있고 요청자·세션으로 호출한다', async () => {
     const c = client();
     const tools = buildTools(c, AGENT_ID, 'assistant', undefined, undefined, undefined, undefined, 'sid-1');
     for (const n of MEMORY_TOOL_NAMES) {
@@ -437,6 +438,21 @@ describe('프로필 구성', () => {
     });
     await tools.find((t) => t.name === 'remember_memory')!.handler({ kind: 'CONTEXT', content: 'c' });
     expect(c.createAiMemory).toHaveBeenCalledWith(AGENT_ID, { kind: 'CONTEXT', content: 'c', source: 'AI', sessionId: 'sid-1' });
+  });
+
+  // WP-386: 공용 메모리 직접 요청도 라우터 전용 쓰기 예외 — assistant 프로필에만 있고 요청자·이 대화 세션으로 부른다.
+  it('remember_shared_memory 는 assistant 프로필과 라우터 목록에만 있고 요청자·세션으로 호출한다', async () => {
+    const c = client();
+    const tools = buildTools(c, AGENT_ID, 'assistant', undefined, undefined, undefined, undefined, 'sid-1');
+    expect(ASSISTANT_ROUTER_TOOLS).toContain('remember_shared_memory');
+    for (const p of ['issue', 'chat', 'home', 'messaging'] as McpProfile[]) {
+      expect(buildTools(c, AGENT_ID, p).map((t) => t.name), p).not.toContain('remember_shared_memory');
+    }
+    vi.mocked(c.requestSharedMemory).mockResolvedValue({
+      changeId: 1, memoryId: 2, spaceType: 'PROJECT', spaceId: 3, spaceName: 'WP', content: 'c',
+    });
+    await tools.find((t) => t.name === 'remember_shared_memory')!.handler({ content: 'c' });
+    expect(c.requestSharedMemory).toHaveBeenCalledWith(AGENT_ID, { content: 'c', sessionId: 'sid-1' });
   });
 
   // WP-383: search_memory 는 라우터 전용 로컬 읽기 도구 — 힌트 readOnly 라 "쓰기"·"힌트 없음" 목록을 바꾸지 않는다.

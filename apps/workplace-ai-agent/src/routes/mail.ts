@@ -4,6 +4,7 @@ import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 
 import { readOnlyMemoriesField } from '../agent/memory-block.js';
+import { sharedMemoryFields } from '../agent/shared-memory-block.js';
 import { type RunAgentDeps } from '../agent/run-agent.js';
 import {
   runMailAnalyzeContent,
@@ -28,6 +29,7 @@ export const replyDraftSchema = z.object({
   ...baseConfig,
   // WP-381: 공통 + 메일 메모리(읽기 전용). 구 API 는 생략 → 빈 배열.
   memories: readOnlyMemoriesField,
+  ...sharedMemoryFields, // WP-386 조직 공용 메모리
 });
 export const coachDraftSchema = z.object({
   draftBody: z.string(),
@@ -36,6 +38,7 @@ export const coachDraftSchema = z.object({
   ...baseConfig,
   // WP-381: 공통 + 메일 메모리(읽기 전용). 구 API 는 생략 → 빈 배열.
   memories: readOnlyMemoriesField,
+  ...sharedMemoryFields, // WP-386 조직 공용 메모리
 });
 export const issueDraftSchema = z.object({
   subject: z.string(),
@@ -44,6 +47,7 @@ export const issueDraftSchema = z.object({
   ...baseConfig,
   // WP-381: 공통 + 메일 메모리(읽기 전용). 구 API 는 생략 → 빈 배열.
   memories: readOnlyMemoriesField,
+  ...sharedMemoryFields, // WP-386 조직 공용 메모리
 });
 
 // WP-149 받을 항목이 하나도 없으면 호출 자체가 무의미 — 400.

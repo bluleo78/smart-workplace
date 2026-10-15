@@ -202,6 +202,34 @@ public class HomeMessageRecord extends UpdatableRecordImpl<HomeMessageRecord> {
         return get(11);
     }
 
+    /**
+     * Setter for <code>public.home_message.space_type</code>.
+     */
+    public void setSpaceType(String value) {
+        set(12, value);
+    }
+
+    /**
+     * Getter for <code>public.home_message.space_type</code>.
+     */
+    public String getSpaceType() {
+        return (String) get(12);
+    }
+
+    /**
+     * Setter for <code>public.home_message.space_id</code>.
+     */
+    public void setSpaceId(Long value) {
+        set(13, value);
+    }
+
+    /**
+     * Getter for <code>public.home_message.space_id</code>.
+     */
+    public Long getSpaceId() {
+        return (Long) get(13);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -225,7 +253,7 @@ public class HomeMessageRecord extends UpdatableRecordImpl<HomeMessageRecord> {
     /**
      * Create a detached, initialised HomeMessageRecord
      */
-    public HomeMessageRecord(Long id, UUID sessionId, String role, String content, JSONB widgets, OffsetDateTime createdAt, Long tenantId, JSONB toolCalls, JSONB contentBlocks, String status, JSONB followups, Object embedding) {
+    public HomeMessageRecord(Long id, UUID sessionId, String role, String content, JSONB widgets, OffsetDateTime createdAt, Long tenantId, JSONB toolCalls, JSONB contentBlocks, String status, JSONB followups, Object embedding, String spaceType, Long spaceId) {
         super(HomeMessage.HOME_MESSAGE);
 
         setId(id);
@@ -240,6 +268,8 @@ public class HomeMessageRecord extends UpdatableRecordImpl<HomeMessageRecord> {
         setStatus(status);
         setFollowups(followups);
         setEmbedding(embedding);
+        setSpaceType(spaceType);
+        setSpaceId(spaceId);
         resetChangedOnNotNull();
     }
 }

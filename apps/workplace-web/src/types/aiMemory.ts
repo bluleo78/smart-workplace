@@ -29,6 +29,8 @@ export interface AiMemoryItem {
   previousExpiresOn?: string;
   /** WP-383: 사용자가 고정했는가 — 고정 행은 묶음 맨 위·채팅에 먼저 실린다(토큰 예산 안에서). 구 API 응답엔 없다. */
   pinned?: boolean;
+  /** WP-385: 대화가 끝난 뒤 AI 정리로 생기거나 바뀐 뒤 그대로면 그 정리 시각 — 행 메타가 「AI가 정리」. 사용자가 고치면 빠진다. */
+  cleanedAt?: string;
 }
 
 /** GET /users/me/ai-memories — updatedAt 최신순 + 범위마다 상한(300) + 범위마다 고정 상한(10, WP-383 — 구 API 엔 없다). */
@@ -50,4 +52,43 @@ export interface UndoAiMemoryResponse {
   blockIndex: number;
   undone: boolean;
   memory?: AiMemoryItem;
+}
+
+/** WP-385 정리 기록 동작 — 새로 기억·합침·고침·대화와 맞지 않아 지움·90일 동안 안 써서 지움. */
+export type AiMemoryChangeAction = 'ADDED' | 'MERGED' | 'UPDATED' | 'FORGOTTEN' | 'DECAYED';
+
+/** 기록 안의 메모리 스냅숏(서버 MemorySnapshot). */
+export interface AiMemorySnapshot {
+  id: number;
+  content: string;
+  kind: AiMemoryKind;
+  scope: AiMemoryScope | null;
+  expiresOn: string | null;
+  source: AiMemorySource;
+  pinned: boolean;
+  lastUsedAt: string | null;
+}
+
+/** 「AI가 정리한 기록」 1건 — memory 는 결과(지움이면 null), before 는 원본들(새로 기억이면 빈 배열). source 는 출처 대화(지워졌으면 없음). */
+export interface AiMemoryChange {
+  id: number;
+  action: AiMemoryChangeAction;
+  createdAt: string;
+  memory: AiMemorySnapshot | null;
+  before: AiMemorySnapshot[];
+  source?: { id: string; title: string | null };
+  reason?: string;
+  undoneAt: string | null;
+}
+
+/** GET /users/me/ai-memories/changes — 최신순 묶음 + 지난 30일 횟수(0 이면 안내 줄을 숨긴다). */
+export interface AiMemoryChangePage {
+  items: AiMemoryChange[];
+  nextCursor: string | null;
+  count30d: number;
+}
+
+/** POST /users/me/ai-memories/changes/{id}/undo 결과 — 되돌림 표시가 붙은 기록. */
+export interface UndoAiMemoryChangeResponse {
+  change: AiMemoryChange;
 }

@@ -4,6 +4,7 @@
 // 도구 미사용 텍스트 in/out. runDriveSummarize 는 run-mail-ai 의 공용 runText 를 그대로 쓴다.
 import { runnerFor } from './agent-runner.js';
 import { type MemoryItem, withReadOnlyMemory } from './memory-block.js';
+import { type SharedMemoryInput, withSharedMemory } from './shared-memory-block.js';
 import { runText } from './run-mail-ai.js';
 import { extractTextDelta } from './wiki-delta-parser.js';
 import { DRIVE_SUMMARIZE_PROMPT } from './prompts/drive.js';
@@ -30,7 +31,7 @@ const DRIVE_OVERVIEW_PROMPT = `당신은 사용자의 Drive 문서 검색 결과
 답변에는 근거가 된 파일명을 [파일명] 형식으로 인용하세요.
 발췌에 답이 없으면 모른다고 솔직하게 답하세요.`;
 
-export interface DriveOverviewInput {
+export interface DriveOverviewInput extends SharedMemoryInput {
   query: string;
   excerpts: { name: string; text: string }[];
   assistantAgentId: number;
@@ -54,7 +55,11 @@ export async function runDriveOverview(
   const excerptsBlock = input.excerpts
     .map((e) => `<excerpt name="${e.name}">\n${e.text.slice(0, 2000)}\n</excerpt>`)
     .join('\n');
-  const userMessage = withReadOnlyMemory(input.memories, `질문: ${input.query}\n\n<excerpts>\n${excerptsBlock}\n</excerpts>`);
+  // WP-381: 읽기 전용 메모리 블록을 요청문 맨 앞에. WP-386: 그 뒤에 공용 블록.
+  const userMessage = withReadOnlyMemory(
+    input.memories,
+    withSharedMemory(input, `질문: ${input.query}\n\n<excerpts>\n${excerptsBlock}\n</excerpts>`),
+  );
 
   const handle = runnerFor(credential).stream(
     {

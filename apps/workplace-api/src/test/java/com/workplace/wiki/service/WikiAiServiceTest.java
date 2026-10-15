@@ -17,6 +17,9 @@ import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.ai.AiMemoryLine;
 import com.workplace.global.ai.AiMemoryReader;
+import com.workplace.global.ai.SharedAiMemoryReader;
+import com.workplace.global.ai.SharedMemories;
+import com.workplace.global.ai.SharedMemoryLine;
 import com.workplace.global.realtime.DefaultStreamingGenerationRegistry;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.realtime.StreamingGenerationRegistry;
@@ -58,6 +61,7 @@ class WikiAiServiceTest {
   private StreamingGenerationRegistry registry;
   private WikiPageService pageService;
   private AiMemoryReader memoryReader;
+  private SharedAiMemoryReader sharedReader;
   private WikiAiService service;
 
   private static final long CALLER = 7L;
@@ -74,6 +78,7 @@ class WikiAiServiceTest {
     registry = new DefaultStreamingGenerationRegistry();
     pageService = mock(WikiPageService.class);
     memoryReader = mock(AiMemoryReader.class);
+    sharedReader = mock(SharedAiMemoryReader.class);
     service =
         new WikiAiService(
             pages,
@@ -84,7 +89,8 @@ class WikiAiServiceTest {
             registry,
             sseRegistry,
             pageService,
-            memoryReader);
+            memoryReader,
+            sharedReader);
   }
 
   private WikiPageDetail page() {
@@ -129,6 +135,38 @@ class WikiAiServiceTest {
     assertThat(((WikiAiService.AgentBody) bodyCaptor.getValue()).memories()).isEqualTo(lines);
   }
 
+  /** WP-386: 노트 AI 는 조직 + 그 스페이스 공용 메모리를 싣는다(스페이스 권한은 리더가 다시 본다). */
+  @Test
+  void startCompose_조직과_그_스페이스_공용_메모리를_싣는다() throws Exception {
+    when(pages.findDetail(PAGE_ID)).thenReturn(Optional.of(page()));
+    when(perms.requireRole(eq(SPACE_ID), eq(CALLER), eq("EDITOR"))).thenReturn("EDITOR");
+    when(assistantResolver.resolve(CALLER)).thenReturn(spec());
+    var shared = new SharedMemories(List.of(new SharedMemoryLine("개발팀 노트", "용어집은 이 스페이스에 둔다")), 2);
+    when(sharedReader.readForUser(CALLER, "WIKI_SPACE", SPACE_ID)).thenReturn(shared);
+
+    ArgumentCaptor<Object> bodyCaptor = ArgumentCaptor.forClass(Object.class);
+    service.startCompose(CALLER, PAGE_ID, continueAction());
+
+    verify(agent).stream(bodyCaptor.capture(), any(), any());
+    var body = (WikiAiService.AgentBody) bodyCaptor.getValue();
+    assertThat(body.sharedMemories()).isEqualTo(shared.items());
+    assertThat(body.sharedMemoryMoreCount()).isEqualTo(2);
+  }
+
+  /** WP-386: 리더가 null 을 줘도(목 기본값) 빈 목록으로 진행한다. */
+  @Test
+  void startCompose_공용_메모리가_없으면_빈_목록() throws Exception {
+    when(pages.findDetail(PAGE_ID)).thenReturn(Optional.of(page()));
+    when(perms.requireRole(eq(SPACE_ID), eq(CALLER), eq("EDITOR"))).thenReturn("EDITOR");
+    when(assistantResolver.resolve(CALLER)).thenReturn(spec());
+
+    ArgumentCaptor<Object> bodyCaptor = ArgumentCaptor.forClass(Object.class);
+    service.startCompose(CALLER, PAGE_ID, continueAction());
+
+    verify(agent).stream(bodyCaptor.capture(), any(), any());
+    assertThat(((WikiAiService.AgentBody) bodyCaptor.getValue()).sharedMemories()).isEmpty();
+  }
+
   /** WP-383: 노트 작성은 지시문으로 메모리를 고른다(이어 쓰기처럼 지시문이 없으면 null — 고정 + 최신). */
   @Test
   void startCompose_지시문으로_메모리를_고른다() throws Exception {
@@ -162,7 +200,8 @@ class WikiAiServiceTest {
             registry,
             sseRegistry,
             pageService,
-            memoryReader);
+            memoryReader,
+            sharedReader);
 
     svc.startCompose(CALLER, PAGE_ID, continueAction());
 
@@ -365,7 +404,8 @@ class WikiAiServiceTest {
             realRegistry,
             sseRegistry,
             pageService,
-            memoryReader);
+            memoryReader,
+            sharedReader);
 
     CountDownLatch started = new CountDownLatch(1);
     doAnswer(
@@ -414,7 +454,8 @@ class WikiAiServiceTest {
             mockRegistry,
             sseRegistry,
             pageService,
-            memoryReader);
+            memoryReader,
+            sharedReader);
 
     svc.cancelCompose("corr-1", CALLER);
 

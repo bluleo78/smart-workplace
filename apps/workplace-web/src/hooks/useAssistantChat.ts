@@ -12,6 +12,7 @@ import { withLinkedSession } from '@/lib/aiChatLink';
 import type { AiMemoryScope } from '@/types/aiMemory';
 import type { AiScreenContext } from '@/types/aiScreenContext';
 import type { ChatTurn, HomeSessionSummary, ProposalCard, TurnAttachment } from '@/types/home';
+import type { ChatSpace } from '@/types/sharedAiMemory';
 
 /** 목록 응답 전 — 렌더마다 새 배열을 만들지 않게. */
 const NO_SESSIONS: HomeSessionSummary[] = [];
@@ -33,6 +34,8 @@ export interface AssistantChat {
     attachments?: TurnAttachment[],
     /** WP-379: 지금 화면 앱(화면 참고를 뺐어도 보낸다). */
     app?: AiMemoryScope | null,
+    /** WP-386: 지금 화면 공간(화면 참고를 뺐어도 보낸다). */
+    space?: ChatSpace | null,
   ) => Promise<boolean>;
   /** WP-234: 실제 대화 전환(새 대화·대화 선택·현재 대화 삭제) 신호 — 증가 시 패널이 첨부 초안을 비운다. */
   attachmentResetNonce: number;

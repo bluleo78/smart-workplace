@@ -99,7 +99,10 @@ class HomeChatMemoryFallbackTest {
             true,
             null,
             null,
-            0);
+            0,
+            List.of(),
+            0,
+            null);
     String json = new ObjectMapper().writeValueAsString(req);
     assertThat(json)
         .contains(
@@ -142,7 +145,10 @@ class HomeChatMemoryFallbackTest {
             true,
             "ISSUE",
             null,
-            0);
+            0,
+            List.of(),
+            0,
+            null);
     String json = new ObjectMapper().writeValueAsString(req);
     assertThat(json)
         .contains("{\"id\":12,\"kind\":\"PREFERENCE\",\"content\":\"짧게\",\"scope\":\"ISSUE\"}")
@@ -174,7 +180,10 @@ class HomeChatMemoryFallbackTest {
             true,
             null,
             "2026-10-14",
-            0);
+            0,
+            List.of(),
+            0,
+            null);
     String json = new ObjectMapper().writeValueAsString(req);
     assertThat(json)
         .contains(
@@ -229,7 +238,10 @@ class HomeChatMemoryFallbackTest {
             true,
             null,
             "2026-10-14",
-            7);
+            7,
+            List.of(),
+            0,
+            null);
     String json = new ObjectMapper().writeValueAsString(req);
     assertThat(json)
         .contains("{\"id\":12,\"kind\":\"PREFERENCE\",\"content\":\"짧게\",\"pinned\":true}")

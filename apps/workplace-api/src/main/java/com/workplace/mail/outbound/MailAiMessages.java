@@ -1,6 +1,7 @@
 package com.workplace.mail.outbound;
 
 import com.workplace.global.ai.AiMemoryLine;
+import com.workplace.global.ai.SharedMemoryLine;
 import java.util.List;
 
 /** ai-agent /mail/* 요청·응답 계약. assistant 설정(agentId/model/maxTurns/timeoutMs)은 요청 본문으로 전달. */
@@ -18,7 +19,10 @@ public final class MailAiMessages {
       String model,
       int maxTurns,
       int timeoutMs,
-      List<AiMemoryLine> memories) {}
+      List<AiMemoryLine> memories,
+      /** WP-386 조직 공용 메모리. */
+      List<SharedMemoryLine> sharedMemories,
+      int sharedMemoryMoreCount) {}
 
   public record ReplyDraftResult(String draftBody) {}
 
@@ -37,7 +41,10 @@ public final class MailAiMessages {
       String model,
       int maxTurns,
       int timeoutMs,
-      List<AiMemoryLine> memories) {}
+      List<AiMemoryLine> memories,
+      /** WP-386 조직 공용 메모리. */
+      List<SharedMemoryLine> sharedMemories,
+      int sharedMemoryMoreCount) {}
 
   /** 초안 코칭 결과: 코칭 노트 목록 + 다듬은 개선본 HTML. */
   public record DraftCoachingResult(List<CoachingNoteWire> notes, String improvedBodyHtml) {}
@@ -54,7 +61,10 @@ public final class MailAiMessages {
       String model,
       int maxTurns,
       int timeoutMs,
-      List<AiMemoryLine> memories) {}
+      List<AiMemoryLine> memories,
+      /** WP-386 조직 공용 메모리. */
+      List<SharedMemoryLine> sharedMemories,
+      int sharedMemoryMoreCount) {}
 
   /** 후보 프로젝트(key+name) — ai-agent 전송용. */
   public record CandidateProject(String key, String name) {}

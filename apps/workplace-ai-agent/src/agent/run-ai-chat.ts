@@ -21,6 +21,12 @@ import type { HostBridge } from '../mcp/tools.js';
 import { formatScreenContext, type ScreenContext } from './screen-context.js';
 import { opencodeVisionFor } from './opencode-vision.js';
 import { formatMemoryBlock, type MemoryItem, type MemoryScope, subagentMemorySuffix } from './memory-block.js';
+import {
+  type CurrentSpace,
+  formatSharedMemoryBlock,
+  normalizeSharedMemory,
+  subagentSharedMemorySuffix,
+} from './shared-memory-block.js';
 import { FINALIZE_PROGRESS_LABEL, FINALIZE_TIMEOUT_MS, finalizeAfterLimit, ToolResultCollector } from './ai-chat-finalize.js';
 import { RunnerLimitError } from './runner-limit.js';
 import { awaitHomeExtraction, DEFAULT_ATTACHMENT_QUERY, EXTRACTION_WAIT_LABEL, formatHomeAttachmentsBlock, type HomeChatAttachment } from './home-attachments.js';
@@ -77,6 +83,10 @@ export interface ChatInput {
   today?: string | null;
   // WP-383: 블록에 넣지 않은 유효 메모리 수 — 0 보다 크면 블록 끝에 "더 있음" 줄(search_memory 단서). 없으면(구 API) 0.
   memoryMoreCount?: number;
+  // WP-386: 공용 메모리(조직 + 그 메시지의 공간)·넘친 개수·지금 공간. 구 API 는 없음 → 블록 없음(바이트 동일).
+  sharedMemories?: readonly unknown[] | null;
+  sharedMemoryMoreCount?: number | null;
+  currentSpace?: CurrentSpace | null;
 }
 
 // #404: show_issue_detail 위젯에서 존재하지 않는 이슈 번호를 결정론적으로 차단한다.
@@ -131,13 +141,13 @@ export function contextLabel(m: ContextMessage): string {
 }
 
 // recentContext·화면 컨텍스트·첨부를 단발 프롬프트에 임베드(CLI 는 멀티턴 배열을 받지 않음).
-// 순서: (사용자 메모리, WP-55) → 이전 대화 요약(WP-232) → 이전 대화 → 현재 화면 → 이 대화의 첨부(WP-234) → (미확인 승인 결과) → 현재 요청.
+// 순서: (사용자 메모리, WP-55) → (공용 메모리, WP-386) → 이전 대화 요약(WP-232) → 이전 대화 → 현재 화면 → 이 대화의 첨부(WP-234) → (미확인 승인 결과) → 현재 요청.
 // 메모리는 맨 앞에만 붙인다 — 자주 안 바뀌는 것이 앞이어야 한 턴 안 도구 왕복에서 앞부분 캐시가 재사용된다. 기존 순서는 바꾸지 않는다.
 // 모두 없으면 query 원문. imageVision 은 실행당 1회 판단한 값(러너 config 와 같은 값)이다. memoryBlock 은 턴마다 한 번 만든
-// 메모리 블록(꺼짐이면 꺼짐 한 줄, 켜짐 + 0개면 '') — 하위 에이전트 접미사와 같은 값을 쓴다.
-function buildChatUserMessage(input: ChatInput, imageVision: boolean, memoryBlock: string): string {
+// 메모리 블록(꺼짐이면 꺼짐 한 줄, 켜짐 + 0개면 '') — 하위 에이전트 접미사와 같은 값을 쓴다. sharedBlock 은 턴마다 한 번 만든 공용 블록(없으면 '').
+function buildChatUserMessage(input: ChatInput, imageVision: boolean, memoryBlock: string, sharedBlock: string): string {
   const ctx = input.recentContext ?? [];
-  const memoryPrefix = memoryBlock ? `${memoryBlock}\n\n` : '';
+  const memoryPrefix = [memoryBlock, sharedBlock].filter(Boolean).map((b) => `${b}\n\n`).join('');
   const summary = input.contextSummary ? `이전 대화 요약:\n${input.contextSummary}\n\n` : '';
   const screen = input.screenContext ? `${formatScreenContext(input.screenContext)}\n\n` : '';
   const attachments = formatHomeAttachmentsBlock(input.attachments ?? [], imageVision);
@@ -271,7 +281,12 @@ export async function runAiChatStream(
     moreCount: input.memoryMoreCount ?? 0,
   });
   const subagentMemoryBlock = formatMemoryBlock(input.memories ?? [], input.memoryEnabled, memoryCtx);
-  const userMessage = buildChatUserMessage({ ...input, attachments }, imageVision, memoryBlock);
+  // WP-386: 공용 블록도 턴마다 한 번 — 라우터는 지금 공간 줄(remember_shared_memory 의 기본 대상)을 싣고, 하위 에이전트엔 그 줄 없이 붙인다.
+  const { items: sharedItems, moreCount } = normalizeSharedMemory(input);
+  const sharedCtx = { moreCount };
+  const sharedBlock = formatSharedMemoryBlock(sharedItems, { ...sharedCtx, home: true, currentSpace: input.currentSpace });
+  const subagentSharedBlock = formatSharedMemoryBlock(sharedItems, sharedCtx);
+  const userMessage = buildChatUserMessage({ ...input, attachments }, imageVision, memoryBlock, sharedBlock);
 
   const events: RunnerEvent[] = [];
   // 한도 도달 시 마무리 답의 근거 — 라이브 발행(onTool)과 함께 도구 결과를 모은다.
@@ -321,7 +336,10 @@ export async function runAiChatStream(
       opencodeVision, // WP-234: 첨부 블록 문구에 쓴 판단을 러너 config 에도 그대로
       // WP-55: 하위 에이전트 프롬프트 끝에 같은 메모리 블록 — 켜짐 + 1개 이상일 때만(하위 에이전트엔 메모리 도구가 없어 꺼짐 줄은 붙이지 않는다,
       // 판정 13). 요청마다 다르므로 opencode 러너는 이 값이 있으면 웜 풀을 쓰지 않는다(opencode-runner poolKeyFor).
-      subagentPromptSuffix: subagentMemorySuffix(subagentMemoryBlock, input.memoryEnabled, (input.memories ?? []).length > 0),
+      // WP-386: 개인 블록(켜짐 + 1개 이상) 뒤에 공용 블록 — 공용은 개인 메모리가 꺼져도 붙인다.
+      subagentPromptSuffix:
+        subagentMemorySuffix(subagentMemoryBlock, input.memoryEnabled, (input.memories ?? []).length > 0) +
+        subagentSharedMemorySuffix(subagentSharedBlock),
       mcp: {
         client: mcpClient,
         onBehalfOfId: input.userId ?? agentId,

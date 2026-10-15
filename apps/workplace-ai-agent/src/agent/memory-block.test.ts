@@ -40,10 +40,16 @@ describe('formatMemoryBlock (WP-55)', () => {
   });
 
   it('꺼짐·구 API(없음) → 꺼짐 한 줄, 받은 메모리는 싣지 않는다', () => {
-    expect(MEMORY_OFF_LINE).toBe('메모리 꺼짐 — 메모리 도구를 쓰지 말 것');
+    expect(MEMORY_OFF_LINE).toBe('메모리 꺼짐 — 개인 메모리 도구(remember_memory·update_memory·forget_memory·search_memory·search_conversations)를 쓰지 말 것');
     expect(formatMemoryBlock(M, false)).toBe(MEMORY_OFF_LINE);
     expect(formatMemoryBlock(M, null)).toBe(MEMORY_OFF_LINE);
     expect(formatMemoryBlock([], undefined)).toBe(MEMORY_OFF_LINE);
+  });
+
+  // WP-386 판정 P6: 꺼짐은 개인 메모리 도구만 막는다 — 공용 저장 도구를 쓰지 말라고 하면 라우터 규칙과 어긋난다.
+  it('꺼짐 줄은 개인 메모리 도구만 이름으로 막고 공용 저장 도구는 막지 않는다', () => {
+    expect(MEMORY_OFF_LINE).not.toContain('remember_shared_memory');
+    expect(MEMORY_OFF_LINE).toContain('개인 메모리 도구');
   });
 
   // Review Focus 4: 설정의 여러 줄 입력이 블록을 깨거나 가짜 머리글(## …)을 만들지 못한다.

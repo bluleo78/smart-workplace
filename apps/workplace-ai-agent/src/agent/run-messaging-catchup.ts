@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { type MemoryItem, withReadOnlyMemory } from './memory-block.js'
+import { type SharedMemoryInput, withSharedMemory } from './shared-memory-block.js'
 import { type RunAgentDeps } from './run-agent.js'
 import { runText } from './run-messaging-ai.js'
 
@@ -16,7 +17,7 @@ export const messagingCatchupInput = z.object({
     .array(z.object({ id: z.number(), authorName: z.string(), body: z.string() }))
     .min(1),
 })
-export type MessagingCatchupInput = z.infer<typeof messagingCatchupInput> & BaseConfig & { memories?: MemoryItem[] }
+export type MessagingCatchupInput = z.infer<typeof messagingCatchupInput> & BaseConfig & { memories?: MemoryItem[] } & SharedMemoryInput
 
 export interface CatchupGroup {
   text: string
@@ -67,7 +68,8 @@ export async function runMessagingCatchup(
   const messageList = input.messages
     .map((m) => `- [${m.id}] ${m.authorName}: ${m.body}`)
     .join('\n')
-  const userMessage = withReadOnlyMemory(input.memories, `안 읽은 메시지:\n${messageList}`)
+  // WP-381: 읽기 전용 메모리 블록을 요청문 맨 앞에. WP-386: 그 뒤에 공용 블록.
+  const userMessage = withReadOnlyMemory(input.memories, withSharedMemory(input, `안 읽은 메시지:\n${messageList}`))
   return parseCatchupJson(
     await runText(CATCHUP_PROMPT, userMessage, input, deps, 'messaging-catchup'),
   )

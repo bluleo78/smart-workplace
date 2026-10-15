@@ -145,7 +145,7 @@ class HomeChatMemoryInjectionTest extends HomeAttachmentTestSupport {
     createScoped(uid, "메일은 세 줄로 요약한다", "MAIL");
     CountDownLatch latch = stubDone("네");
 
-    chatService.startChat(uid, null, "이슈 보여줘", null, List.of(), null, "ISSUE");
+    chatService.startChat(uid, null, "이슈 보여줘", null, List.of(), null, "ISSUE", null);
     assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
 
     ChatRequest req = sentRequest();
@@ -164,7 +164,7 @@ class HomeChatMemoryInjectionTest extends HomeAttachmentTestSupport {
     createScoped(uid, "이슈 목록은 짧게 보여 준다", "ISSUE");
     CountDownLatch latch = stubDone("네");
 
-    chatService.startChat(uid, null, "안녕", null, List.of(), null, "CONTACTS");
+    chatService.startChat(uid, null, "안녕", null, List.of(), null, "CONTACTS", null);
     assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
 
     ChatRequest req = sentRequest();

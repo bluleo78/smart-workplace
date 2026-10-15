@@ -5,6 +5,9 @@ import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.ai.AiMemoryLine;
 import com.workplace.global.ai.AiMemoryReader;
+import com.workplace.global.ai.SharedAiMemoryReader;
+import com.workplace.global.ai.SharedMemories;
+import com.workplace.global.ai.SharedMemoryLine;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.realtime.StreamingGenerationRegistry;
 import com.workplace.wiki.dto.WikiAiAction;
@@ -53,6 +56,9 @@ public class WikiAiService {
   /** WP-381: 노트 AI 작성에 싣는 읽기 전용 메모리(공통 + 노트). */
   private final AiMemoryReader memoryReader;
 
+  /** WP-386: 노트 AI 작성에 싣는 공용 메모리(조직 + 이 페이지 스페이스) 리더. 스페이스 권한은 리더가 다시 본다. */
+  private final SharedAiMemoryReader sharedReader;
+
   public WikiAiService(
       WikiPageRepository pages,
       WikiPermissions perms,
@@ -62,7 +68,8 @@ public class WikiAiService {
       StreamingGenerationRegistry registry,
       SseRegistry sseRegistry,
       WikiPageService pageService,
-      AiMemoryReader memoryReader) {
+      AiMemoryReader memoryReader,
+      SharedAiMemoryReader sharedReader) {
     this.pages = pages;
     this.perms = perms;
     this.assistantResolver = assistantResolver;
@@ -72,6 +79,7 @@ public class WikiAiService {
     this.sseRegistry = sseRegistry;
     this.pageService = pageService;
     this.memoryReader = memoryReader;
+    this.sharedReader = sharedReader;
   }
 
   /**
@@ -106,6 +114,10 @@ public class WikiAiService {
                       callerId,
                       AiMemoryReader.WIKI,
                       req.prompt() == null || req.prompt().isBlank() ? null : req.prompt());
+              // WP-386: 조직 + 이 페이지 스페이스 공용 메모리(팀 스페이스이고 구성원일 때만 — 리더가 권한을 다시 본다).
+              SharedMemories shared =
+                  SharedMemories.orEmpty(
+                      sharedReader.readForUser(callerId, "WIKI_SPACE", page.spaceId()));
               AgentBody body =
                   new AgentBody(
                       req.action(),
@@ -118,7 +130,9 @@ public class WikiAiService {
                       spec.thinkingDepth(),
                       spec.maxTurns(),
                       spec.timeoutMs(),
-                      memories);
+                      memories,
+                      shared.items(),
+                      shared.moreCount());
               // #736: 델타가 한 번이라도 전달됐으면(부분 텍스트가 이미 에디터에 삽입·자동저장 예정) 정상
               // 완료/취소/에러 어느 경로로 끝나든 attribution 을 기록한다 — "정상 종료만 기록"하면 취소·
               // 타임아웃으로 끝난 스트림도 실제로는 AI 텍스트가 남는데 신호가 빠지는 false negative 가 생긴다.
@@ -213,5 +227,9 @@ public class WikiAiService {
       int maxTurns,
       int timeoutMs,
       /** WP-381: 공통 + 노트 메모리 — ai-agent 가 요청문 맨 앞 읽기 전용 블록으로 싣는다. null 이면 생략. */
-      List<AiMemoryLine> memories) {}
+      List<AiMemoryLine> memories,
+      /** WP-386: 조직 + 이 스페이스 공용 메모리 줄 — ai-agent 가 「공용 메모리」 블록으로 싣는다. */
+      List<SharedMemoryLine> sharedMemories,
+      /** WP-386: 예산 때문에 싣지 못한 공용 메모리 개수. */
+      int sharedMemoryMoreCount) {}
 }

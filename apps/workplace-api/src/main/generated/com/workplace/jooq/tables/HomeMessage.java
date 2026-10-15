@@ -131,6 +131,16 @@ public class HomeMessage extends TableImpl<HomeMessageRecord> {
     @Deprecated
     public final TableField<HomeMessageRecord, Object> EMBEDDING = createField(DSL.name("embedding"), DefaultDataType.getDefaultDataType("\"public\".\"vector\""), this, "");
 
+    /**
+     * The column <code>public.home_message.space_type</code>.
+     */
+    public final TableField<HomeMessageRecord, String> SPACE_TYPE = createField(DSL.name("space_type"), SQLDataType.VARCHAR(16), this, "");
+
+    /**
+     * The column <code>public.home_message.space_id</code>.
+     */
+    public final TableField<HomeMessageRecord, Long> SPACE_ID = createField(DSL.name("space_id"), SQLDataType.BIGINT, this, "");
+
     private HomeMessage(Name alias, Table<HomeMessageRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

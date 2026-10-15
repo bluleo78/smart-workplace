@@ -56,10 +56,12 @@ class AiMemorySelectorTest extends IntegrationTestBase {
     return repo.insert(uid, new NewMemory("PREFERENCE", content, "USER", null, scope, null)).id();
   }
 
-  /** 오래된 행으로 만든다 — fill 로 넣은 최신 행들보다 뒤로 밀어 "최신순이면 빠지는" 행을 만든다. */
+  /** 오래된 행으로 만든다 — fill 로 넣은 최신 행들보다 뒤로 밀어 "최신순이면 빠지는" 행을 만든다(WP-385: 최신은 사용 시각이라 둘 다 옮긴다). */
   private void age(long id) {
+    OffsetDateTime old = OffsetDateTime.parse("2020-01-01T00:00:00Z");
     dsl.update(AI_MEMORY)
-        .set(AI_MEMORY.UPDATED_AT, OffsetDateTime.parse("2020-01-01T00:00:00Z"))
+        .set(AI_MEMORY.UPDATED_AT, old)
+        .set(AI_MEMORY.LAST_USED_AT, old)
         .where(AI_MEMORY.ID.eq(id))
         .execute();
   }

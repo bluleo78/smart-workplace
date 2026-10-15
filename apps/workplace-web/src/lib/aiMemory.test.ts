@@ -16,6 +16,7 @@ import {
   matchesMemoryQuery,
   MEMORY_LIMIT,
   memoryActionText,
+  memoryBlockActionText,
   memoryErrorMessage,
   memoryFullMessage,
   memoryLength,
@@ -258,5 +259,11 @@ describe('memoryActionText', () => {
   it('앱 범위면 범위 이름을 붙인다(WP-379)', () => {
     expect(memoryActionText('saved', 'ISSUE')).toBe('이슈 메모리에 저장함');
     expect(memoryActionText('forgotten', 'ISSUE')).toBe('이슈 메모리에서 지움');
+  });
+
+  it('공용 저장 결과 줄은 공간 이름을 붙인다(WP-386)', () => {
+    expect(
+      memoryBlockActionText({ kind: 'memory', action: 'shared', changeId: 1, memoryId: 2, spaceName: 'WP 프로젝트', content: 'x', undone: false }),
+    ).toBe('WP 프로젝트 공용 메모리에 기억했어요');
   });
 });

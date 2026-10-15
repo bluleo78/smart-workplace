@@ -1,7 +1,9 @@
 package com.workplace.home.outbound;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.workplace.fileai.dto.ExtractionInfo;
 import com.workplace.global.ai.AiMemoryLine;
+import com.workplace.global.ai.SharedMemoryLine;
 import com.workplace.home.dto.AiScreenContext;
 import com.workplace.home.dto.HomeAttachment;
 import java.util.List;
@@ -18,7 +20,8 @@ public final class ChatMessages {
    * screenContext — 현재 화면 컨텍스트(WP-54, nullable). ai-agent 가 user 메시지 prefix 로 임베드. contextSummary —
    * 누적 요약(WP-232, nullable). sessionId·attachments — WP-234 메인 채팅 첨부. memories·memoryEnabled —
    * WP-55 사용자 메모리. app — WP-379 지금 화면 앱. today — WP-380 메모리를 고른 서버 오늘(yyyy-MM-dd, 메모리 꺼짐·조회 실패면
-   * null).
+   * null). WP-386 sharedMemories·sharedMemoryMoreCount·currentSpace — 조직 + 지금 공간 공용 메모리와 서버가 확인한 지금
+   * 공간.
    */
   public record ChatRequest(
       String query,
@@ -46,7 +49,16 @@ public final class ChatMessages {
       /** WP-380: 서버 오늘(Asia/Seoul, yyyy-MM-dd) — 블록의 "오늘:" 줄과 AI 의 기한 계산 근거. */
       String today,
       /** WP-383: 블록에 넣지 않은 유효 메모리 수(다른 범위 포함) — ai-agent 가 0 보다 크면 "이 밖에 메모리 N개…" 줄을 붙인다. */
-      int memoryMoreCount) {}
+      int memoryMoreCount,
+      /** WP-386: 조직 + 지금 공간 공용 메모리(예산 안, 조직 → 공간 순). 메모리 꺼짐과 무관하다. */
+      List<SharedMemoryLine> sharedMemories,
+      /** WP-386: 예산 때문에 싣지 못한 공용 메모리 수. */
+      int sharedMemoryMoreCount,
+      /** WP-386: 서버가 확인한 지금 공간(없으면 null) — 공용 메모리 요청 도구의 기본 대상 안내. */
+      @JsonInclude(JsonInclude.Include.NON_NULL) CurrentSpace currentSpace) {}
+
+  /** WP-386 지금 공간 — type PROJECT·WIKI_SPACE, name 은 라벨. */
+  public record CurrentSpace(String type, String name) {}
 
   /**
    * ai-agent 로 보내는 세션 첨부 한 건(WP-234). current = 이번 턴 USER 메시지에 붙은 파일. java.time 타입을 두지 않는다 —

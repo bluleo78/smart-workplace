@@ -51,7 +51,9 @@ class AiAgentCatchupClientTest {
                 "claude-sonnet-4-6",
                 3,
                 60_000L,
-                null));
+                null,
+                null,
+                0));
 
     // then: 결정 항목 + sourceMessageIds 정확 파싱
     assertThat(res.decisions()).hasSize(1);

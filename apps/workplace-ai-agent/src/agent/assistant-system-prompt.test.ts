@@ -366,6 +366,24 @@ describe('사용자 메모리 규칙 (WP-55)', () => {
       expect(p).toContain("scope 를 'COMMON'");
     });
 
+    it(`${name}: WP-386 공용 메모리 — 참고만, 직접 요청 때만 저장, 공간 묻기, 조직 거절, 422·503 처리`, () => {
+      expect(p).toContain('## 공용 메모리');
+      expect(p).toContain('"이건 팀·프로젝트·스페이스 규칙으로 기억해"');
+      expect(p).toContain('그냥 "기억해"는 개인 메모리');
+      expect(p).toContain('"지금 공간: 없음"');
+      expect(p).toContain('어느 프로젝트·노트 스페이스인지 묻는다');
+      expect(p).toContain('조직 지침은 관리자가 설정에서 직접 추가해요');
+      expect(p).toContain('"메모리 꺼짐" 줄이 있으면 개인 메모리에도 저장하지 않고');
+      expect(p).toContain('개인 메모리로 대신 저장하지 않는다');
+      expect(p).toContain('공용 메모리를 고치거나 지우는 도구는 없다');
+    });
+
+    // 통제자 판정 P6: 메모리 꺼짐은 개인 메모리 도구만 막는다 — 공용 저장은 허용하고, 꺼짐에서 개인 판정이면 개인으로 돌리지 않는다.
+    it(`${name}: WP-386 메모리 꺼짐이어도 공용 저장은 쓰고, 꺼짐에서 개인 판정이면 개인 메모리로 돌리지 않는다`, () => {
+      expect(p).toContain('"메모리 꺼짐" 줄이 있어도 `remember_shared_memory` 는 쓸 수 있다(막히는 것은 개인 메모리 도구뿐이다)');
+      expect(p).toContain('개인적인 내용 같고 개인 메모리가 꺼져 있어 아무것도 저장하지 않았어요');
+    });
+
     it(`${name}: WP-380 기한 규칙(기간이 드러날 때만·오늘 줄로 계산·불분명하면 없이)과 가득 참 안내`, () => {
       expect(p).toContain('기간이 드러날 때만 `expiresOn`');
       expect(p).toContain('블록의 "오늘:" 줄로 계산한다');
@@ -436,6 +454,24 @@ describe('사용자 메모리 규칙 (WP-55)', () => {
       expect(p).toContain('"오늘 점심 뭐 먹지"');
       expect(p).toContain('건강·종교·정치 성향·금융 같은 민감한 개인 정보');
     });
+
+    // WP-385 스펙 4: 대화 중 바로 저장은 셋(본인이 밝힌 선호·사실, 「기억해」, 분명한 교정)뿐 — 짐작한 업무 맥락은 대화가 끝난 뒤 정리가 맡는다.
+    it(`${name}: WP-385 대화 중 바로 저장은 셋뿐이고, 짐작한 업무 맥락은 대화가 끝난 뒤 따로 정리된다`, () => {
+      expect(p).toContain('대화 중 바로 저장(`remember_memory`)하는 것은 **사용자 본인 발화**의 셋뿐이다');
+      expect(p).toContain('(1) 분명한 교정·선호');
+      expect(p).toContain('(2) 「기억해」 요청');
+      expect(p).toContain('(3) **사용자가 자기 자신에 대해 밝힌 오래 갈 취향·관심사·습관·사실**');
+      expect(p).toContain('사용자가 직접 말하지 않은 추정');
+      expect(p).toContain('대화가 끝난 뒤 따로 정리된다');
+      expect(p).not.toContain('(2) 오래 유지될 업무 맥락(팀·역할·주로 보는 프로젝트)');
+      // 본인이 직접 말한 팀·역할·주로 보는 프로젝트는 (3) 바로 저장, 추정 예시는 「짐작한」 것만.
+      expect(p).toContain('본인이 말한 팀·역할·주로 보는 프로젝트');
+      expect(p).toContain('사용자가 직접 말하지 않은 추정(대화 흐름으로 짐작한 팀·역할·담당 프로젝트 같은 업무 맥락)');
+      expect(p).not.toContain('짐작한 팀·역할·주로 보는 프로젝트');
+      // 묻지 않는다·고치기·잊기 규칙은 그대로(스펙 4).
+      expect(p).toContain('**저장할지 묻지 않는다**');
+      expect(p).toContain('"잊어줘", "이제 상관없어"면 `forget_memory`');
+    });
   }
 
   // F-f: 위임과 함께 불러도 된다는 문장은 위임이 있는 Claude 라우터에만 — opencode primary 는 위임 도구가 꺼져 있다.
@@ -449,6 +485,6 @@ describe('사용자 메모리 규칙 (WP-55)', () => {
 
   it('claude: 라우터 직접 쓰기 예외에 메모리 도구를 이름으로 적는다(규칙 자체는 그대로)', () => {
     expect(ASSISTANT_SYSTEM_PROMPT).toMatch(/라우터에는 쓰기·확인 카드\(`propose_\*`\) 도구가 없습니다/);
-    expect(ASSISTANT_SYSTEM_PROMPT).toContain('쓰기는 알림 읽음 처리와 메모리 도구(remember_memory·update_memory·forget_memory)만 직접 하고');
+    expect(ASSISTANT_SYSTEM_PROMPT).toContain('쓰기는 알림 읽음 처리와 메모리 도구(remember_memory·update_memory·forget_memory·remember_shared_memory)만 직접 하고');
   });
 });

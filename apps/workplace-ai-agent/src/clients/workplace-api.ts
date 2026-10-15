@@ -51,6 +51,16 @@ export interface HomeAttachmentMeta {
   extraction: ExtractionInfo;
 }
 
+/** WP-386 공용 메모리 직접 요청 결과(API SharedAiMemoryRequestResult). */
+interface SharedMemoryRequestDto {
+  changeId: number;
+  memoryId: number;
+  spaceType: 'PROJECT' | 'WIKI_SPACE';
+  spaceId: number;
+  spaceName: string;
+  content: string;
+}
+
 // WP-55: 사용자 메모리 항목(API AiMemoryItem). previousContent·previousKind 는 PATCH 응답에만 온다(구 API 는 previousKind 없음).
 export interface AiMemoryDto {
   id: number;
@@ -221,6 +231,9 @@ export interface WorkplaceApiClient {
     onBehalfOfId: number,
     params: { q: string; excludeSessionId?: string; limit?: number },
   ): Promise<ConversationSearchDto>;
+  // WP-386: 공용 메모리 직접 요청 — 요청자(onBehalfOfId=userId) 대행. space 를 비우면 API 가 이 대화의 마지막 사용자 메시지 공간을 쓴다.
+  // 오류(422 개인적 내용·503 검사 불가·400 공간 못 정함·403·409)는 AxiosError 로 던진다 — 도구가 코드를 읽어 안내로 바꾼다.
+  requestSharedMemory(onBehalfOfId: number, body: { content: string; space?: string; sessionId?: string }): Promise<SharedMemoryRequestDto>;
   // #719: 요청자의 active-tenant 를 X-On-Behalf-Of-Tenant 로 싣는 스코프 클라이언트를 반환한다.
   // 인-프로세스 MCP 서버는 이 인스턴스를 서브에이전트까지 공유하므로, run 당 1회 스코프하면
   // 위임 도구 호출까지 전부 동일하게 적용된다(다중/무 멤버십 요청자의 AgentTenantResolver
@@ -456,6 +469,10 @@ export function createWorkplaceApiClient(opts: {
     async searchConversations(onBehalfOfId, params) {
       const r = await http.get('/home/sessions/search', { ...onBehalfOf(onBehalfOfId), params });
       return r.data as ConversationSearchDto;
+    },
+    async requestSharedMemory(onBehalfOfId, body) {
+      const r = await http.post('/shared-ai-memories/requests', body, onBehalfOf(onBehalfOfId));
+      return r.data as SharedMemoryRequestDto;
     },
   };
 }

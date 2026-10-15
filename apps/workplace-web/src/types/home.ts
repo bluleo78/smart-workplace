@@ -2,6 +2,7 @@
 
 import type { AiMemoryKind, AiMemoryScope, AiMemorySource } from './aiMemory';
 import type { AiScreenContext } from './aiScreenContext';
+import type { ChatSpace } from './sharedAiMemory';
 
 // 위젯 타입(WidgetLayout/WidgetType/WidgetSpec)은 AI 비서 응답(show_* 도구)이 지시하는
 // 표시 위젯 계약이다. #431 에서 챗 도크 인라인 렌더로 부활(chatWidgetRegistry).
@@ -35,6 +36,8 @@ export interface ChatRequest {
   fileIds?: number[];
   /** WP-379: 지금 화면 앱 — 공통 + 이 앱 메모리를 싣는다. 앱이 없는 화면(홈·연락처)이면 키 생략. */
   app?: AiMemoryScope;
+  /** WP-386: 지금 화면 공간(프로젝트 키·노트 스페이스 id) — 서버가 권한을 확인해 그 메시지에 저장한다. 공간 화면이 아니면 키 생략. */
+  space?: ChatSpace;
 }
 
 /** AI 도구 호출/위임 단계 — 어시스턴트 턴 인라인 표시 + 복원. */
@@ -55,7 +58,7 @@ export interface ToolEventDto {
   args?: Record<string, unknown>;
   isError?: boolean;
   /** WP-55: 메모리 도구 성공 결과(phase=result) — 결과 줄(되돌리기)의 근거. API 가 거른 것은 오지 않는다. */
-  memory?: MemoryEventDto;
+  memory?: MemoryEventDto | SharedMemoryEventDto;
 }
 
 /** WP-55: tool 이벤트의 memory 필드(ai-agent memoryEventSchema 와 같은 모양). */
@@ -77,12 +80,21 @@ export interface MemoryEventDto {
   previousExpiresOn?: string | null;
 }
 
+/** WP-386: 공용 메모리 직접 요청 결과(ai-agent sharedMemoryEventSchema 와 같은 모양) — 되돌리기는 그 공간 기록(changeId)으로. */
+export interface SharedMemoryEventDto {
+  action: 'shared';
+  changeId: number;
+  memoryId: number;
+  spaceName: string;
+  content: string;
+}
+
 /**
  * WP-55: 메모리 결과 줄 블록 — API ChatBlockRecorder.Memory 와 같은 모양. 판별자 kind 와 겹치지 않게 메모리 종류는 memoryKind.
  * 표시 블록(ContentBlock)이 아니다 — 턴의 memoryBlocks 에 도착순으로 따로 모이고(배열 순번 = 되돌리기 blockIndex), 답변 말풍선들 아래·후속
  * 질문 위에 따로 그린다. undone 은 되돌린 뒤 true.
  */
-export interface MemoryBlock {
+interface PersonalMemoryBlock {
   kind: 'memory';
   action: MemoryEventDto['action'];
   memoryId: number;
@@ -100,6 +112,20 @@ export interface MemoryBlock {
   expiresOn?: string;
   previousExpiresOn?: string;
 }
+
+/** WP-386: 공용 저장 결과 줄 블록 — API ChatBlockRecorder.SharedMemory 와 같은 모양. 개인 결과 줄과 같은 목록·순번(blockIndex)을 쓴다. */
+interface SharedMemoryBlock {
+  kind: 'memory';
+  action: 'shared';
+  changeId: number;
+  memoryId: number;
+  spaceName: string;
+  content: string;
+  undone: boolean;
+}
+
+/** 결과 줄 블록 — 판별은 action('shared' 면 공용). */
+export type MemoryBlock = PersonalMemoryBlock | SharedMemoryBlock;
 
 /**
  * #463: 어시스턴트 응답 인터리브 블록 — 텍스트 델타와 위젯이 도착 순서를 유지하도록

@@ -56,4 +56,11 @@ describe('catchup 스키마 — 읽기 전용 메모리 (WP-381)', () => {
     expect(catchupSchema.parse({ ...base, memories: [ok, 'x'] }).memories).toEqual([ok]);
     expect(catchupSchema.parse(base).memories).toEqual([]);
   });
+
+  it('WP-386: sharedMemories 를 걸러 받는다', () => {
+    const base = { messages: [{ id: 1, authorName: 'a', body: 'b' }], assistantAgentId: 7, model: 'm', maxTurns: 1, timeoutMs: 1000 };
+    const s = { space: '조직', content: '장애는 #incident' };
+    expect(catchupSchema.parse({ ...base, sharedMemories: [s, 'x'] }).sharedMemories).toEqual([s]);
+    expect(catchupSchema.parse(base).sharedMemoryMoreCount).toBe(0);
+  });
 });

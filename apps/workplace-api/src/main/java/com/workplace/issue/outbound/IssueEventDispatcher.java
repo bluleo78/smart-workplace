@@ -1,5 +1,7 @@
 package com.workplace.issue.outbound;
 
+import com.workplace.global.ai.SharedAiMemoryReader;
+import com.workplace.global.ai.SharedMemories;
 import com.workplace.global.dto.UserSummary;
 import com.workplace.global.outbound.AiAgentEventClient;
 import com.workplace.global.outbound.AiAgentProperties;
@@ -36,6 +38,9 @@ public class IssueEventDispatcher {
   private final AiAgentEventClient client;
   private final AiAgentProperties props;
   private final ServerAgentResolver agentResolver;
+
+  /** WP-386: 이슈 AI 담당자 이벤트에 싣는 공용 메모리 리더(조직 + 이 프로젝트). */
+  private final SharedAiMemoryReader sharedReader;
 
   @Async("aiAgentEventExecutor")
   @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
@@ -128,6 +133,12 @@ public class IssueEventDispatcher {
     p.put("occurredAt", occurredAt.toString());
     // WP-371: 서버가 실행할 에이전트(첫 INTERNAL AGENT 담당자). ai-agent 는 이 id 로 실행 주체를 정한다.
     p.put("actingAgentId", actingAgentId);
+    // WP-386: 조직 + 이 프로젝트 공용 메모리 — 대행 에이전트가 읽을 수 있는 TEAM·OPEN 프로젝트일 때만(PERSONAL 은 조직만).
+    // 이 핸들러는 aiAgentEventExecutor(테넌트 전파) 스레드라 리더가 새 읽기 트랜잭션을 연다.
+    SharedMemories shared =
+        SharedMemories.orEmpty(sharedReader.readForProjectAgent(projectKey, actingAgentId));
+    p.put("sharedMemories", shared.items());
+    p.put("sharedMemoryMoreCount", shared.moreCount());
     return p;
   }
 

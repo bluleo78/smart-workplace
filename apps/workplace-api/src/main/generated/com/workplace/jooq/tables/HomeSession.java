@@ -8,6 +8,7 @@ import com.workplace.jooq.Indexes;
 import com.workplace.jooq.Keys;
 import com.workplace.jooq.Public;
 import com.workplace.jooq.tables.AiMemory.AiMemoryPath;
+import com.workplace.jooq.tables.AiMemoryChange.AiMemoryChangePath;
 import com.workplace.jooq.tables.HomeActionProposal.HomeActionProposalPath;
 import com.workplace.jooq.tables.HomeMessage.HomeMessagePath;
 import com.workplace.jooq.tables.Tenant.TenantPath;
@@ -109,6 +110,16 @@ public class HomeSession extends TableImpl<HomeSessionRecord> {
      */
     public final TableField<HomeSessionRecord, Long> SUMMARY_UPTO_MESSAGE_ID = createField(DSL.name("summary_upto_message_id"), SQLDataType.BIGINT, this, "");
 
+    /**
+     * The column <code>public.home_session.memory_processed_message_id</code>.
+     */
+    public final TableField<HomeSessionRecord, Long> MEMORY_PROCESSED_MESSAGE_ID = createField(DSL.name("memory_processed_message_id"), SQLDataType.BIGINT, this, "");
+
+    /**
+     * The column <code>public.home_session.memory_cleanup_failures</code>.
+     */
+    public final TableField<HomeSessionRecord, Short> MEMORY_CLEANUP_FAILURES = createField(DSL.name("memory_cleanup_failures"), SQLDataType.SMALLINT.nullable(false).defaultValue(DSL.field(DSL.raw("0"), SQLDataType.SMALLINT)), this, "");
+
     private HomeSession(Name alias, Table<HomeSessionRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }
@@ -178,7 +189,7 @@ public class HomeSession extends TableImpl<HomeSessionRecord> {
 
     @Override
     public List<Index> getIndexes() {
-        return Arrays.asList(Indexes.IDX_HOME_SESSION_TENANT, Indexes.IDX_HOME_SESSION_USER);
+        return Arrays.asList(Indexes.HOME_SESSION_MEMORY_CLEANUP_IDX, Indexes.IDX_HOME_SESSION_TENANT, Indexes.IDX_HOME_SESSION_USER);
     }
 
     @Override
@@ -213,6 +224,19 @@ public class HomeSession extends TableImpl<HomeSessionRecord> {
             _user = new UserPath(this, Keys.HOME_SESSION__HOME_SESSION_USER_ID_FKEY, null);
 
         return _user;
+    }
+
+    private transient AiMemoryChangePath _aiMemoryChange;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.ai_memory_change</code> table
+     */
+    public AiMemoryChangePath aiMemoryChange() {
+        if (_aiMemoryChange == null)
+            _aiMemoryChange = new AiMemoryChangePath(this, null, Keys.AI_MEMORY_CHANGE__AI_MEMORY_CHANGE_SOURCE_SESSION_ID_FKEY.getInverseKey());
+
+        return _aiMemoryChange;
     }
 
     private transient AiMemoryPath _aiMemory;

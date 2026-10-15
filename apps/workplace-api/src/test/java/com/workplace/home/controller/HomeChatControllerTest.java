@@ -23,6 +23,7 @@ import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.security.UserTokenAuthenticationFilter;
 import com.workplace.home.dto.AiScreenContext;
 import com.workplace.home.dto.HomeChatActiveResponse;
+import com.workplace.home.dto.HomeChatRequest;
 import com.workplace.home.dto.HomeChatStartedResponse;
 import com.workplace.home.exception.HomeChatConcurrencyLimitException;
 import com.workplace.home.exception.HomeChatSessionBusyException;
@@ -84,7 +85,7 @@ class HomeChatControllerTest {
   @Test
   void chat_시작하면_correlationId_와_sessionId_를_즉시_반환() throws Exception {
     when(chatService.startChat(
-            eq(1L), isNull(), eq("내 할 일"), isNull(), eq(List.of()), isNull(), isNull()))
+            eq(1L), isNull(), eq("내 할 일"), isNull(), eq(List.of()), isNull(), isNull(), isNull()))
         .thenReturn(new HomeChatStartedResponse("corr-1", SID));
     mockMvc
         .perform(
@@ -117,7 +118,7 @@ class HomeChatControllerTest {
 
   @Test
   void 같은_대화가_생성_중이면_409_CHAT_SESSION_BUSY() throws Exception {
-    when(chatService.startChat(eq(1L), any(), any(), any(), any(), any(), any()))
+    when(chatService.startChat(eq(1L), any(), any(), any(), any(), any(), any(), any()))
         .thenThrow(new HomeChatSessionBusyException());
     mockMvc
         .perform(
@@ -131,7 +132,7 @@ class HomeChatControllerTest {
 
   @Test
   void 동시_생성_상한이면_429_CHAT_CONCURRENCY_LIMIT() throws Exception {
-    when(chatService.startChat(eq(1L), any(), any(), any(), any(), any(), any()))
+    when(chatService.startChat(eq(1L), any(), any(), any(), any(), any(), any(), any()))
         .thenThrow(new HomeChatConcurrencyLimitException(3));
     mockMvc
         .perform(
@@ -147,7 +148,7 @@ class HomeChatControllerTest {
   @Test
   void chat_화면_컨텍스트를_서비스로_전달한다() throws Exception {
     when(chatService.startChat(
-            eq(1L), isNull(), eq("이거 요약"), any(), eq(List.of()), isNull(), isNull()))
+            eq(1L), isNull(), eq("이거 요약"), any(), eq(List.of()), isNull(), isNull(), isNull()))
         .thenReturn(new HomeChatStartedResponse("corr-2", SID));
     String body =
         """
@@ -166,7 +167,14 @@ class HomeChatControllerTest {
     var captor = org.mockito.ArgumentCaptor.forClass(AiScreenContext.class);
     verify(chatService)
         .startChat(
-            eq(1L), isNull(), eq("이거 요약"), captor.capture(), eq(List.of()), isNull(), isNull());
+            eq(1L),
+            isNull(),
+            eq("이거 요약"),
+            captor.capture(),
+            eq(List.of()),
+            isNull(),
+            isNull(),
+            isNull());
     assertThat(captor.getValue().focus().refs()).containsEntry("issueKey", "WP-12");
     assertThat(captor.getValue().scope().count()).isEqualTo(3);
   }
@@ -241,7 +249,7 @@ class HomeChatControllerTest {
   @Test
   void 첨부만_보내면_fileIds_를_서비스로_전달한다() throws Exception {
     when(chatService.startChat(
-            eq(1L), isNull(), eq(""), isNull(), eq(List.of(7L, 8L)), isNull(), isNull()))
+            eq(1L), isNull(), eq(""), isNull(), eq(List.of(7L, 8L)), isNull(), isNull(), isNull()))
         .thenReturn(new HomeChatStartedResponse("corr-3", SID));
     mockMvc
         .perform(
@@ -258,7 +266,7 @@ class HomeChatControllerTest {
   void chat_웹이_정한_correlationId_를_서비스로_전달한다() throws Exception {
     UUID cid = UUID.fromString("00000000-0000-0000-0000-0000000000c1");
     when(chatService.startChat(
-            eq(1L), isNull(), eq("q"), isNull(), eq(List.of()), eq(cid), isNull()))
+            eq(1L), isNull(), eq("q"), isNull(), eq(List.of()), eq(cid), isNull(), isNull()))
         .thenReturn(new HomeChatStartedResponse(cid.toString(), SID));
     mockMvc
         .perform(
@@ -281,7 +289,7 @@ class HomeChatControllerTest {
                 .content("{\"query\":\"q\",\"correlationId\":\"not-a-uuid\"}"))
         .andExpect(status().isBadRequest());
     verify(chatService, org.mockito.Mockito.never())
-        .startChat(any(Long.class), any(), any(), any(), any(), any(), any());
+        .startChat(any(Long.class), any(), any(), any(), any(), any(), any(), any());
   }
 
   @Test
@@ -297,7 +305,7 @@ class HomeChatControllerTest {
   @Test
   void 요청_본문의_app_을_서비스에_넘긴다() throws Exception {
     when(chatService.startChat(
-            eq(1L), isNull(), eq("메일 정리"), isNull(), eq(List.of()), isNull(), eq("MAIL")))
+            eq(1L), isNull(), eq("메일 정리"), isNull(), eq(List.of()), isNull(), eq("MAIL"), isNull()))
         .thenReturn(new HomeChatStartedResponse("corr-1", SID));
     mockMvc
         .perform(
@@ -305,6 +313,29 @@ class HomeChatControllerTest {
                 .header("Authorization", "Bearer v")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"query\":\"메일 정리\",\"app\":\"MAIL\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.correlationId").value("corr-1"));
+  }
+
+  /** WP-386: 본문의 space(화면 공간)를 그대로 서비스에 넘긴다 — 검증은 서비스가 한다. */
+  @Test
+  void 요청_본문의_space_를_서비스에_넘긴다() throws Exception {
+    when(chatService.startChat(
+            eq(1L),
+            isNull(),
+            eq("배포 순서"),
+            isNull(),
+            eq(List.of()),
+            isNull(),
+            isNull(),
+            eq(new HomeChatRequest.Space("PROJECT", "WP", null))))
+        .thenReturn(new HomeChatStartedResponse("corr-1", SID));
+    mockMvc
+        .perform(
+            post("/api/v1/ai/chat")
+                .header("Authorization", "Bearer v")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"query\":\"배포 순서\",\"space\":{\"type\":\"PROJECT\",\"key\":\"WP\"}}"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.correlationId").value("corr-1"));
   }

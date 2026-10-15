@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { ChatTurn, HomeMessage, MessageTurn, ToolStep } from '@/types/home';
+import type { ChatTurn, HomeMessage, MemoryBlock, MessageTurn, ToolStep } from '@/types/home';
 
 import {
   appendDelta,
@@ -9,6 +9,7 @@ import {
   applyDoneWidgets,
   applyTool,
   FAILED_EMPTY,
+  isRenderableMemoryBlock,
   markInterrupted,
   markMemoryUndone,
   messageToTurn,
@@ -114,6 +115,11 @@ describe('메모리 결과 줄 (WP-55)', () => {
     expect(toMemoryBlock(memory)).not.toHaveProperty('previousKind');
   });
 
+  it('WP-386 toMemoryBlock: 공용 결과는 공용 블록(changeId·공간 이름, 개인 필드 없음)', () => {
+    const shared = { action: 'shared' as const, changeId: 41, memoryId: 9, spaceName: 'Smart Workplace(WP)', content: '배포는 API 먼저 한다' };
+    expect(toMemoryBlock(shared)).toEqual({ kind: 'memory', ...shared, undone: false });
+  });
+
   it('WP-379 toMemoryBlock: 범위·이전 범위는 앱일 때만 싣는다(null = 공통 → 키 없음, 서버 블록과 같은 모양)', () => {
     expect(toMemoryBlock({ ...memory, scope: 'ISSUE' })).toEqual({ ...savedBlock, scope: 'ISSUE' });
     expect(toMemoryBlock({ ...memory, scope: null })).toEqual(savedBlock);
@@ -140,6 +146,24 @@ describe('메모리 결과 줄 (WP-55)', () => {
     const t = messageToTurn(msg({ contentBlocks: null, memoryBlocks: [savedBlock] })) as MessageTurn;
     expect(t.contentBlocks).toBeUndefined();
     expect(t.memoryBlocks).toEqual([savedBlock]);
+  });
+
+  it('WP-386: 깨진 공용 결과 줄은 그리지 않되 목록에서 빼지 않아 뒤 줄의 되돌리기 순번이 그대로다', () => {
+    const sharedOk = { kind: 'memory', action: 'shared', changeId: 41, memoryId: 9, spaceName: 'Smart Workplace(WP)', content: '배포는 API 먼저 한다', undone: false } as const;
+    const broken = [
+      { ...sharedOk, changeId: undefined },
+      { ...sharedOk, memoryId: 0 },
+      { ...sharedOk, spaceName: '  ' },
+      { ...sharedOk, content: '' },
+    ] as unknown as MemoryBlock[];
+    for (const b of broken) expect(isRenderableMemoryBlock(b)).toBe(false);
+    expect(isRenderableMemoryBlock(sharedOk as MemoryBlock)).toBe(true);
+    expect(isRenderableMemoryBlock(savedBlock as MemoryBlock)).toBe(true);
+    // 목록은 서버 순번 그대로 — 깨진 줄 뒤의 온전한 줄은 원래 자리(5번)에 남는다.
+    const all = [savedBlock, ...broken, sharedOk] as unknown as HomeMessage['memoryBlocks'];
+    const t = messageToTurn(msg({ memoryBlocks: all })) as MessageTurn;
+    expect(t.memoryBlocks).toBe(all);
+    expect(t.memoryBlocks?.[5]).toEqual(sharedOk);
   });
 
   it('memoryBlocks 가 없으면 기존과 같다', () => {

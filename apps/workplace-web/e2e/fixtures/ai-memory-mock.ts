@@ -2,7 +2,7 @@
 // 메모리 도구 이벤트 push·설정 화면 진입 도우미(데스크톱·모바일 스펙 공용).
 import { expect, type Page } from '@playwright/test'
 
-import type { AiMemoryItem, UndoAiMemoryRequest } from '../../src/types/aiMemory'
+import type { AiMemoryChange, AiMemoryItem, AiMemorySnapshot, UndoAiMemoryRequest } from '../../src/types/aiMemory'
 import type { LiveChat } from './ai-live-chat'
 import { mockMyAssistantStatus } from './my-assistant-mock'
 import { type RequestTracker, trackRequests } from './requests'
@@ -183,5 +183,90 @@ export async function mockAiMemories(page: Page, initial: AiMemoryItem[]): Promi
     pins,
     failNext: (status, code, message) => void (failure = { status, code, message }),
     holdNextList: (until) => void (listHold = until),
+  }
+}
+
+/** 기록 스냅숏 팩토리(WP-385). */
+export const memorySnap = (id: number, content: string): AiMemorySnapshot => ({
+  id,
+  content,
+  kind: 'PREFERENCE',
+  scope: null,
+  expiresOn: null,
+  source: 'AI',
+  pinned: false,
+  lastUsedAt: '2026-10-15T00:00:00Z',
+})
+
+/** 기록 팩토리(WP-385) — 기본은 2026-10-15 11:40 KST 의 「새로 기억함」. */
+export const memoryChange = (id: number, over: Partial<AiMemoryChange> = {}): AiMemoryChange => ({
+  id,
+  action: 'ADDED',
+  createdAt: '2026-10-15T02:40:00Z',
+  memory: memorySnap(500 + id, `기억 ${id}`),
+  before: [],
+  undoneAt: null,
+  ...over,
+})
+
+export interface MemoryChangesMock {
+  /** GET /changes 요청(cursor 쿼리 확인). */
+  lists: RequestTracker
+  /** POST /changes/{id}/undo 요청(경로의 id 확인). */
+  undos: RequestTracker
+  /** 다음 되돌리기 1건을 이 오류로 거절한다. */
+  refuseNext: (status: number, code: string) => void
+  /** 요청 없이 서버 상태만 되돌림으로 바꾼다 — 다른 탭·기기에서 되돌린 것 흉내(다음 목록 GET 부터 보인다). */
+  markUndone: (id: number) => void
+}
+
+/** 되돌린 시각 — 화면 "되돌림 · 오후 12:00"(KST)을 결정적으로 만든다. */
+export const UNDONE_AT = '2026-10-15T03:00:00Z'
+
+/**
+ * 「AI가 정리한 기록」 목(WP-385) — pages[i] 를 cursor "c<i>" 로 잇는다(첫 묶음은 cursor 없음, 마지막 묶음의 nextCursor 는 null).
+ * 되돌리면 그 항목에 undoneAt(UNDONE_AT)을 붙여 { change } 로 돌려준다. auth.fixture 의 빈 기본 스텁보다 나중에 등록돼 우선한다(LIFO).
+ */
+export async function mockMemoryChanges(
+  page: Page,
+  pages: AiMemoryChange[][],
+  count30d = pages.flat().length,
+): Promise<MemoryChangesMock> {
+  const state = pages.map((p) => [...p])
+  let refusal: { status: number; code: string } | null = null
+  const lists = trackRequests(page, 'GET', '/api/v1/users/me/ai-memories/changes')
+  const undos = trackRequests(page, 'POST', /^\/api\/v1\/users\/me\/ai-memories\/changes\/\d+\/undo$/)
+  const json = (status: number, body: unknown) => ({ status, contentType: 'application/json', body: JSON.stringify(body) })
+  // 그 기록에 되돌린 시각을 붙이고 바뀐 기록을 돌려준다(없으면 undefined).
+  const markUndone = (id: number): AiMemoryChange | undefined => {
+    for (const p of state) {
+      const i = p.findIndex((c) => c.id === id)
+      if (i < 0) continue
+      p[i] = { ...p[i], undoneAt: UNDONE_AT }
+      return p[i]
+    }
+    return undefined
+  }
+  await page.route((u) => u.pathname === '/api/v1/users/me/ai-memories/changes', (route) => {
+    if (route.request().method() !== 'GET') return route.fallback()
+    const cursor = new URL(route.request().url()).searchParams.get('cursor')
+    const i = cursor ? Number(cursor.slice(1)) : 0
+    return route.fulfill(json(200, { items: state[i] ?? [], nextCursor: i + 1 < state.length ? `c${i + 1}` : null, count30d }))
+  })
+  await page.route((u) => /^\/api\/v1\/users\/me\/ai-memories\/changes\/\d+\/undo$/.test(u.pathname), (route) => {
+    if (refusal) {
+      const r = refusal
+      refusal = null
+      return route.fulfill(json(r.status, errorBody(r.status, r.code, '오류')))
+    }
+    const id = Number(new URL(route.request().url()).pathname.split('/')[7])
+    const undone = markUndone(id)
+    return undone ? route.fulfill(json(200, { change: undone })) : route.fulfill(json(404, errorBody(404, 'AI_MEMORY_NOT_FOUND', '없음')))
+  })
+  return {
+    lists,
+    undos,
+    refuseNext: (status, code) => void (refusal = { status, code }),
+    markUndone: (id) => void markUndone(id),
   }
 }

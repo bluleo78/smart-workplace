@@ -1,5 +1,14 @@
 // WP-55 AI 메모리 엔드포인트. 실패 토스트는 훅이 정한다(오류 코드별 문구).
-import type { AiMemoryItem, AiMemoryKind, AiMemoryList, AiMemoryScope, UndoAiMemoryRequest, UndoAiMemoryResponse } from '../types/aiMemory';
+import type {
+  AiMemoryChangePage,
+  AiMemoryItem,
+  AiMemoryKind,
+  AiMemoryList,
+  AiMemoryScope,
+  UndoAiMemoryChangeResponse,
+  UndoAiMemoryRequest,
+  UndoAiMemoryResponse,
+} from '../types/aiMemory';
 import { client } from './client';
 
 /** 채팅 결과 줄 되돌리기. */
@@ -48,5 +57,20 @@ export async function clearAiMemories(): Promise<void> {
 /** 고정 켜기·끄기(WP-383) — 사용자 전용. 범위 고정이 가득이면 409 AI_MEMORY_PIN_FULL(서버 문구에 범위 이름). updatedAt 은 바뀌지 않는다. */
 export async function pinAiMemory(id: number, pinned: boolean): Promise<AiMemoryItem> {
   const { data } = await client.put<AiMemoryItem>(`/users/me/ai-memories/${id}/pin`, { pinned });
+  return data;
+}
+
+/** 「AI가 정리한 기록」 한 묶음(WP-385) — cursor 가 null 이면 처음부터. */
+export async function listAiMemoryChanges(cursor: string | null, size = 30): Promise<AiMemoryChangePage> {
+  const sp = new URLSearchParams();
+  if (cursor) sp.set('cursor', cursor);
+  sp.set('size', String(size));
+  const { data } = await client.get<AiMemoryChangePage>(`/users/me/ai-memories/changes?${sp.toString()}`);
+  return data;
+}
+
+/** 기록 하나 되돌리기(WP-385) — 그 뒤 바뀌었으면 409 AI_MEMORY_CHANGED, 이미 되돌렸으면 409 AI_MEMORY_CHANGE_UNDONE. */
+export async function undoAiMemoryChange(id: number): Promise<UndoAiMemoryChangeResponse> {
+  const { data } = await client.post<UndoAiMemoryChangeResponse>(`/users/me/ai-memories/changes/${id}/undo`);
   return data;
 }

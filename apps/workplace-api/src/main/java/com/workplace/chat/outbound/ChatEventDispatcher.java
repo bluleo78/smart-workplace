@@ -1,6 +1,8 @@
 package com.workplace.chat.outbound;
 
 import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageCreatedEvent;
+import com.workplace.global.ai.SharedAiMemoryReader;
+import com.workplace.global.ai.SharedMemories;
 import com.workplace.global.dto.UserSummary;
 import com.workplace.global.outbound.AiAgentEventClient;
 import com.workplace.global.outbound.AiAgentProperties;
@@ -36,8 +38,12 @@ public class ChatEventDispatcher {
   private final AiAgentProperties props;
   private final ServerAgentResolver agentResolver;
 
+  /** WP-386: 이슈 채팅 이벤트에 싣는 공용 메모리 리더(조직 + 이 프로젝트). */
+  private final SharedAiMemoryReader sharedReader;
+
   // ChatSseDispatcher 와 달리 @Transactional(REQUIRES_NEW) 가 필요 없다 — 이 핸들러가 읽는 DB 는 대행 에이전트 선택 시의
-  // 전역(RLS 비대상) "user" 테이블뿐이라 GUC/트랜잭션 없이도 올바르게 읽힌다. 나머지는 이벤트 payload 만으로 outbound HTTP 발사.
+  // 전역(RLS 비대상) "user" 테이블뿐이라 GUC/트랜잭션 없이도 올바르게 읽힌다(WP-386 공용 메모리는 리더가 자체 읽기 트랜잭션을 연다). 나머지는 이벤트
+  // payload 만으로 outbound HTTP 발사.
   @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
   @Async("aiAgentEventExecutor")
   public void onChatMessageCreated(ChatMessageCreatedEvent e) {
@@ -65,6 +71,11 @@ public class ChatEventDispatcher {
     p.put("mentions", e.mentions().stream().map(this::toMap).toList());
     p.put("occurredAt", e.occurredAt().toString());
     p.put("actingAgentId", actingAgentId);
+    // WP-386: 조직 + 이 프로젝트 공용 메모리 — 대행 에이전트가 읽을 수 있는 TEAM·OPEN 프로젝트일 때만(PERSONAL 은 조직만).
+    SharedMemories shared =
+        SharedMemories.orEmpty(sharedReader.readForProjectAgent(e.projectKey(), actingAgentId));
+    p.put("sharedMemories", shared.items());
+    p.put("sharedMemoryMoreCount", shared.moreCount());
     return p;
   }
 

@@ -2,7 +2,7 @@
 // 긴 문구 줄바꿈. WP-380: 기한 덩어리. 오류·■ 정지 턴의 messageId(chatStreams.test.ts)·이력 복원(chatTurns.test.ts)은 단위 테스트가 담당.
 import type { Page } from '@playwright/test'
 
-import { ask, openChatPanel, setupLiveChat } from '../fixtures/ai-live-chat'
+import { ask, msg, openChatPanel, sessionItem, setupLiveChat, summary, TITLE_A, TITLE_B } from '../fixtures/ai-live-chat'
 import { memoryError, memoryTool, mockMemoryUndo } from '../fixtures/ai-memory-mock'
 import { mockAiPreferences } from '../fixtures/ai-suggestions-mock'
 import { expect, test } from '../fixtures/auth.fixture'
@@ -228,4 +228,96 @@ test.describe('기한 (WP-380)', () => {
     await expect(lines(page).nth(0)).toHaveAttribute('data-undone', 'true')
     await expect(lines(page).nth(0).getByTestId('chat-memory-expiry').locator('..')).toHaveCSS('text-decoration-line', 'line-through')
   })
+})
+
+// WP-386 공용 메모리 결과 줄 — 「{공간} 공용 메모리에 기억했어요: "…" · 되돌리기」, 같은 되돌리기 경로(blockIndex), 409 두 종 안내.
+const shared = { action: 'shared' as const, changeId: 41, memoryId: 9, spaceName: 'Smart Workplace(WP)', content: '배포는 API 먼저 한다' }
+
+test('공용 저장 결과 줄이 공간 이름과 함께 보이고 같은 경로로 되돌린다', async ({ authenticatedPage: page }) => {
+  const undo = await mockMemoryUndo(page)
+  const live = await setupLiveChat(page)
+  live.queueStart({ correlationId: 'corr-a', sessionId: 's-a' })
+  await openChatPanel(page)
+  await ask(page, live, '이건 팀 규칙으로 기억해')
+  await memoryTool(live, 1, 'mcp__workplace__remember_memory', saved)
+  await memoryTool(live, 2, 'mcp__workplace__remember_shared_memory', shared)
+  await live.push('done', { ...C, widgets: null, messageId: 8 })
+  await expect(lines(page)).toHaveCount(2)
+  await expect(lines(page).nth(1)).toHaveAttribute('data-action', 'shared')
+  await expect(lines(page).nth(1)).toContainText('Smart Workplace(WP) 공용 메모리에 기억했어요: "배포는 API 먼저 한다" · 되돌리기')
+  await lines(page).nth(1).getByTestId('chat-memory-undo').click()
+  await undo.waitFor()
+  expect(undo.lastBody()).toEqual({ messageId: 8, blockIndex: 1 })
+  await expect(lines(page).nth(1)).toHaveAttribute('data-undone', 'true')
+})
+
+test('공용 결과 줄 되돌리기가 그 뒤 바뀜·이미 되돌림이면 안내한다', async ({ authenticatedPage: page }) => {
+  await mockMemoryUndo(page, [memoryError(409, 'SHARED_MEMORY_CHANGED'), memoryError(409, 'SHARED_MEMORY_CHANGE_UNDONE')])
+  const live = await setupLiveChat(page)
+  live.queueStart({ correlationId: 'corr-a', sessionId: 's-a' })
+  await openChatPanel(page)
+  await ask(page, live, '기억해')
+  await memoryTool(live, 1, 'remember_shared_memory', shared)
+  await live.push('done', { ...C, widgets: null, messageId: 8 })
+  await undoLinks(page).click()
+  await expect(page.getByText('그 뒤에 메모리가 바뀌어 되돌릴 수 없어요')).toBeVisible()
+  await expect(lines(page)).toHaveAttribute('data-undone', 'false')
+  await undoLinks(page).click()
+  await expect(page.getByText('이미 되돌린 기록이에요')).toBeVisible()
+})
+
+// 최종 리뷰 T17·M5: 권한이 없으면(403) 안내하고, 기록이 사라진 뒤(보관 기간·프로젝트 삭제 → 404)에도 안내하며, 어느 쪽이든 줄은 되돌리지 않은 채 둔다.
+test('공용 결과 줄 되돌리기가 권한 없음(403)·기록 사라짐(404)이면 안내하고 줄은 그대로 둔다', async ({ authenticatedPage: page }) => {
+  const undo = await mockMemoryUndo(page, [memoryError(403, 'SHARED_MEMORY_FORBIDDEN'), memoryError(404, 'SHARED_MEMORY_NOT_FOUND')])
+  const live = await setupLiveChat(page)
+  live.queueStart({ correlationId: 'corr-a', sessionId: 's-a' })
+  await openChatPanel(page)
+  await ask(page, live, '기억해')
+  await memoryTool(live, 1, 'remember_shared_memory', shared)
+  await live.push('done', { ...C, widgets: null, messageId: 8 })
+  await undoLinks(page).click()
+  await undo.waitFor()
+  await expect(page.getByText('되돌릴 권한이 없어요')).toBeVisible()
+  await expect(lines(page)).toHaveAttribute('data-undone', 'false')
+  await expect(undoLinks(page)).toBeEnabled()
+  await undoLinks(page).click()
+  await expect(page.getByText('이 기록은 더 이상 되돌릴 수 없어요')).toBeVisible()
+  await expect(lines(page)).toHaveAttribute('data-undone', 'false')
+})
+
+test('이력의 공용 결과 줄도 복원된다', async ({ authenticatedPage: page }) => {
+  const live = await setupLiveChat(page)
+  live.setSessions([summary('s-a', TITLE_A, 1)])
+  live.setMessages('s-a', [
+    msg(1, 'USER', TITLE_A),
+    {
+      ...msg(2, 'ASSISTANT', '기억했어요.'),
+      contentBlocks: [{ kind: 'text', textStart: 0 }],
+      memoryBlocks: [{ kind: 'memory', ...shared, undone: true }],
+    },
+  ])
+  await openChatPanel(page)
+  await page.getByTestId('chat-session-switcher').click()
+  await sessionItem(page, TITLE_A).getByTestId('chat-session-select').click()
+  await expect(lines(page)).toContainText('Smart Workplace(WP) 공용 메모리에 기억했어요')
+  await expect(lines(page)).toHaveAttribute('data-undone', 'true')
+})
+
+// 그릴 수 있는 줄이 하나도 없으면(깨진 공용 줄뿐) 빈 래퍼(여백)도 내지 않고, 하나라도 있으면 래퍼를 낸다.
+test('깨진 공용 줄뿐이면 결과 줄 래퍼를 그리지 않고, 정상 줄이 섞이면 그 줄만 그린다', async ({ authenticatedPage: page }) => {
+  const live = await setupLiveChat(page)
+  live.setSessions([summary('s-a', TITLE_A, 1), summary('s-b', TITLE_B, 2)])
+  const broken = { kind: 'memory' as const, action: 'shared' as const, changeId: 0, memoryId: 9, spaceName: '', content: '', undone: false }
+  live.setMessages('s-a', [msg(1, 'USER', TITLE_A), { ...msg(2, 'ASSISTANT', '기억했어요.'), contentBlocks: [{ kind: 'text', textStart: 0 }], memoryBlocks: [broken, broken] }])
+  live.setMessages('s-b', [msg(1, 'USER', TITLE_B), { ...msg(2, 'ASSISTANT', '기억했어요.'), contentBlocks: [{ kind: 'text', textStart: 0 }], memoryBlocks: [broken, { kind: 'memory' as const, ...shared, undone: false }] }])
+  await openChatPanel(page)
+  await page.getByTestId('chat-session-switcher').click()
+  await sessionItem(page, TITLE_A).getByTestId('chat-session-select').click()
+  await expect(page.getByText('기억했어요.')).toBeVisible()
+  await expect(page.getByTestId('chat-memory-results')).toHaveCount(0)
+
+  await page.getByTestId('chat-session-switcher').click()
+  await sessionItem(page, TITLE_B).getByTestId('chat-session-select').click()
+  await expect(page.getByTestId('chat-memory-results')).toHaveCount(1)
+  await expect(lines(page)).toHaveCount(1) // 깨진 줄(순번 0)은 빠지고 정상 줄(순번 1)만
 })

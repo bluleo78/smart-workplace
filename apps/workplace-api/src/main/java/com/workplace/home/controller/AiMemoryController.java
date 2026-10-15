@@ -1,14 +1,17 @@
 package com.workplace.home.controller;
 
 import com.workplace.global.security.InternalOnBehalfOf;
+import com.workplace.home.dto.AiMemoryChangePage;
 import com.workplace.home.dto.AiMemoryItem;
 import com.workplace.home.dto.AiMemoryListResponse;
 import com.workplace.home.dto.AiMemorySearchResponse;
 import com.workplace.home.dto.CreateAiMemoryRequest;
 import com.workplace.home.dto.PinAiMemoryRequest;
+import com.workplace.home.dto.UndoAiMemoryChangeResponse;
 import com.workplace.home.dto.UndoAiMemoryRequest;
 import com.workplace.home.dto.UndoAiMemoryResponse;
 import com.workplace.home.dto.UpdateAiMemoryRequest;
+import com.workplace.home.service.AiMemoryChangeService;
 import com.workplace.home.service.AiMemoryService;
 import com.workplace.home.service.AiMemoryUndoService;
 import lombok.RequiredArgsConstructor;
@@ -38,6 +41,7 @@ public class AiMemoryController {
 
   private final AiMemoryService service;
   private final AiMemoryUndoService undoService;
+  private final AiMemoryChangeService changeService;
 
   /** 목록(최신순 전부) + 범위 상한·고정 상한. */
   @GetMapping
@@ -110,5 +114,28 @@ public class AiMemoryController {
   public UndoAiMemoryResponse undo(
       @AuthenticationPrincipal Long callerId, @RequestBody UndoAiMemoryRequest req) {
     return undoService.undo(callerId, req);
+  }
+
+  /**
+   * 「AI가 정리한 기록」(WP-385) — 최신순 묶음(cursor·size=30) + 지난 30일 횟수. 경로가 {@code /{id}} 보다 구체적이라 겹치지 않는다.
+   */
+  @GetMapping("/changes")
+  public AiMemoryChangePage changes(
+      @AuthenticationPrincipal Long callerId,
+      @RequestParam(value = "cursor", required = false) String cursor,
+      @RequestParam(value = "size", required = false) Integer size) {
+    return changeService.list(callerId, cursor, size);
+  }
+
+  /**
+   * 기록 하나 되돌리기(WP-385) — 본인 것만, 사용자 전용(Internal 대행이면 403 AI_MEMORY_CHANGE_USER_ONLY — 고정과 같은 방식).
+   * 409 AI_MEMORY_CHANGED(그 뒤 바뀜)·AI_MEMORY_CHANGE_UNDONE(이미 되돌림).
+   */
+  @PostMapping("/changes/{id}/undo")
+  public UndoAiMemoryChangeResponse undoChange(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable("id") long id,
+      Authentication authentication) {
+    return changeService.undo(callerId, id, InternalOnBehalfOf.isInternal(authentication));
   }
 }

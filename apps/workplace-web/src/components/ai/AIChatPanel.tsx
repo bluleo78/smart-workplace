@@ -41,12 +41,14 @@ import { useIsMobile } from '@/hooks/useIsMobile';
 import { useStarterSuggestions } from '@/hooks/useStarterSuggestions';
 import { useStickToBottom } from '@/hooks/useStickToBottom';
 import { sessionListLabel } from '@/lib/ai/aiActivity';
+import { isRenderableMemoryBlock } from '@/lib/ai/chatTurns';
 import { contextIdentity } from '@/lib/aiScreenContext/common';
 import { visibleSteps } from '@/lib/aiToolLabels';
 import { sliceRange } from '@/lib/chatBlocks';
 import { filesFromPaste } from '@/lib/clipboardFiles';
 import { countSessionAttachments } from '@/lib/homeChatAttachments';
 import { keepFocusProps } from '@/lib/keepFocus';
+import { spaceOfScreenContext } from '@/lib/sharedAiMemory';
 import { isSubmitEnter } from '@/lib/submitEnter';
 import { cn } from '@/lib/utils';
 import type { MessageTurn } from '@/types/home';
@@ -215,6 +217,8 @@ export function AIChatPanel({
 
   // WP-379: 지금 화면 앱 — 화면 참고 칩 × 와 무관하게 보낸다(화면 내용이 아니라 내 선호 범위 선택용).
   const currentApp = () => screenContext?.app ?? null;
+  // WP-386: 지금 화면 공간 — app 과 같이 화면 참고 칩 × 와 무관하게 보낸다(내용이 아니라 공용 메모리 공간 선택용, 서버가 권한을 확인한다).
+  const currentSpace = () => spaceOfScreenContext(screenContext);
 
   /** 입력창 전송 — 초안 글·첨부를 보내고, 거절되면 초안으로 돌려놓는다. */
   const submit = () => {
@@ -223,7 +227,7 @@ export function AIChatPanel({
     const ctx = takeScreenContext();
     const attachments = attach.snapshot();
     setInput('');
-    void onSubmit(query, ctx, attachments, currentApp()).then((accepted) => {
+    void onSubmit(query, ctx, attachments, currentApp(), currentSpace()).then((accepted) => {
       // 서버가 받아들였을 때만 보낸 파일을 초안에서 뺀다(WP-234) — 거절(400)이면 칩을 남겨 사유 토스트를 보고 고칠 수 있게.
       if (accepted) {
         attach.commitSent(attachments);
@@ -238,7 +242,7 @@ export function AIChatPanel({
   /** WP-139: 추천·후속 질문 행 — 문구 그대로 보낸다. 입력창 초안·첨부 초안은 건드리지 않아 거절돼도 초안을 덮지 않는다. */
   const sendSuggestion = (query: string) => {
     if (!sendOpen()) return;
-    void onSubmit(query, takeScreenContext(), undefined, currentApp());
+    void onSubmit(query, takeScreenContext(), undefined, currentApp(), currentSpace());
   };
 
   return (
@@ -460,7 +464,8 @@ export function AIChatPanel({
                   {/* WP-55: 메모리 결과 줄(시안 A) — 답변 말풍선들 아래·후속 질문 위. 줄마다 따로 되돌린다. 첫 토큰 전(3-dot 중)엔 미룬다.
                       터치 기기는 줄 간격을 넓힌다 — 되돌리기의 위아래 터치 확장(8px)이 이웃 줄과 겹치지 않게(겹치면 뒤 형제가 이긴다).
                       바로 아래 후속 질문은 누를 수 없는 머리말로 시작해(WP-398) 따로 여백을 두지 않는다. */}
-                  {t.role === 'assistant' && (t.memoryBlocks?.length ?? 0) > 0 && !(i === turns.length - 1 && pending && t.content === '') ? (
+                  {/* WP-386: 그릴 수 있는 줄이 하나도 없으면(깨진 공용 줄뿐) 빈 래퍼(여백)도 내지 않는다. 줄 순번(mi)은 걸러내지 않은 원본 그대로. */}
+                  {t.role === 'assistant' && t.memoryBlocks?.some(isRenderableMemoryBlock) && !(i === turns.length - 1 && pending && t.content === '') ? (
                     <li data-testid="chat-memory-results" className="flex flex-col gap-1 pointer-coarse:gap-4">
                       {t.memoryBlocks?.map((b, mi) => (
                         <MemoryResultLine

@@ -45,6 +45,11 @@ describe('buildMemoryTools (WP-55)', () => {
     expect(d).toContain('건강·종교·정치·금융');
     expect(rememberMemoryInput.shape.kind.description).toContain('본인의 취향·관심사');
     expect(rememberMemoryInput.shape.kind.description).toContain('본인에 관한 사실·습관');
+    // WP-385: 도구 설명도 프롬프트와 같게 — 짐작한 업무 맥락은 바로 저장하지 않는다.
+    expect(d).not.toContain('오래 유지될 업무 맥락');
+    expect(d).toContain('사용자가 직접 말하지 않은 추정은 저장하지 않습니다');
+    expect(rememberMemoryInput.shape.kind.description).not.toContain('오래 유지될 업무 맥락');
+    expect(rememberMemoryInput.shape.kind.description).toContain('본인이 밝힌 팀·역할');
   });
 
   it('remember_memory → 대행 POST(source AI + 이 대화 세션) → saved 결과', async () => {
@@ -105,7 +110,7 @@ describe('buildMemoryTools (WP-55)', () => {
       previousKind: 'PREFERENCE',
       source: 'AI',
     });
-    expect(parseMemoryToolResult(out as string)?.previousKind).toBe('PREFERENCE');
+    expect(parseMemoryToolResult(out as string)).toMatchObject({ action: 'updated', previousKind: 'PREFERENCE' });
   });
 
   it('forget_memory → DELETE → forgotten 결과(지운 항목의 source 포함)', async () => {
@@ -329,5 +334,17 @@ describe('search_memory (WP-383)', () => {
     c.searchAiMemories.mockRejectedValueOnce(httpError(500));
     await expect(tool.handler({ query: '고양이' })).rejects.toThrow('API 오류 500');
     expect(isEndpointMissing(new Error('x'))).toBe(false);
+  });
+});
+
+describe('parseMemoryToolResult — 공용 저장 결과 (WP-386)', () => {
+  it('shared 이벤트를 받고, 모양이 틀리면 null', () => {
+    const shared = { action: 'shared', changeId: 5, memoryId: 9, spaceName: 'WP', content: '배포는 API 먼저 한다' };
+    expect(parseMemoryToolResult(JSON.stringify(shared))).toEqual(shared);
+    expect(parseMemoryToolResult(JSON.stringify({ ...shared, changeId: 0 }))).toBeNull();
+    expect(parseMemoryToolResult(JSON.stringify({ ...shared, spaceName: '' }))).toBeNull();
+    // 개인 결과는 그대로 받는다.
+    const saved = { action: 'saved', memoryId: 12, kind: 'PREFERENCE', content: '짧게', source: 'AI' };
+    expect(parseMemoryToolResult(JSON.stringify(saved))).toEqual(saved);
   });
 });

@@ -42,6 +42,8 @@ export type HomeChatStartBody = {
   fileIds?: number[]
   /** WP-379: 지금 화면 앱 — 없는 화면이면 키 없음. */
   app?: string
+  /** WP-386: 화면 공간(프로젝트 키 또는 노트 스페이스 id) — 공간 화면이 아니면 키 없음. */
+  space?: { type: string; key?: string; id?: number }
 }
 
 /** 실제 서버처럼 웹이 보낸 correlationId 를 그대로 쓴다(WP-267). */

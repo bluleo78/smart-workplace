@@ -249,4 +249,12 @@ describe('읽기 전용 메모리 스키마 (WP-381)', () => {
     expect(replyDraftSchema.parse({ ...cfg, thread: [], replyingAs: 'me' }).memories).toEqual([]);
     expect(replyDraftSchema.safeParse({ ...cfg, thread: [], replyingAs: 'me', memories: 'x' }).success).toBe(false);
   });
+
+  it('WP-386: 세 초안 스키마가 sharedMemories 를 걸러 받는다', () => {
+    const s = { space: '조직', content: '코드명 금지' };
+    const shared = { sharedMemories: [s, 1], sharedMemoryMoreCount: 2 };
+    expect(replyDraftSchema.parse({ ...cfg, thread: [], replyingAs: 'me', ...shared }).sharedMemories).toEqual([s]);
+    expect(coachDraftSchema.parse({ ...cfg, thread: [], replyingAs: 'me', draftBody: 'd', ...shared }).sharedMemories).toEqual([s]);
+    expect(issueDraftSchema.parse({ ...cfg, subject: 's', body: 'b', candidateProjects: [], ...shared }).sharedMemoryMoreCount).toBe(2);
+  });
 });

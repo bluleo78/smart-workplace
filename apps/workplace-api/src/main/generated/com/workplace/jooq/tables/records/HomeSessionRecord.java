@@ -147,6 +147,34 @@ public class HomeSessionRecord extends UpdatableRecordImpl<HomeSessionRecord> {
         return (Long) get(8);
     }
 
+    /**
+     * Setter for <code>public.home_session.memory_processed_message_id</code>.
+     */
+    public void setMemoryProcessedMessageId(Long value) {
+        set(9, value);
+    }
+
+    /**
+     * Getter for <code>public.home_session.memory_processed_message_id</code>.
+     */
+    public Long getMemoryProcessedMessageId() {
+        return (Long) get(9);
+    }
+
+    /**
+     * Setter for <code>public.home_session.memory_cleanup_failures</code>.
+     */
+    public void setMemoryCleanupFailures(Short value) {
+        set(10, value);
+    }
+
+    /**
+     * Getter for <code>public.home_session.memory_cleanup_failures</code>.
+     */
+    public Short getMemoryCleanupFailures() {
+        return (Short) get(10);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -170,7 +198,7 @@ public class HomeSessionRecord extends UpdatableRecordImpl<HomeSessionRecord> {
     /**
      * Create a detached, initialised HomeSessionRecord
      */
-    public HomeSessionRecord(UUID id, Long userId, String title, OffsetDateTime createdAt, OffsetDateTime updatedAt, OffsetDateTime lastMessageAt, Long tenantId, String contextSummary, Long summaryUptoMessageId) {
+    public HomeSessionRecord(UUID id, Long userId, String title, OffsetDateTime createdAt, OffsetDateTime updatedAt, OffsetDateTime lastMessageAt, Long tenantId, String contextSummary, Long summaryUptoMessageId, Long memoryProcessedMessageId, Short memoryCleanupFailures) {
         super(HomeSession.HOME_SESSION);
 
         setId(id);
@@ -182,6 +210,8 @@ public class HomeSessionRecord extends UpdatableRecordImpl<HomeSessionRecord> {
         setTenantId(tenantId);
         setContextSummary(contextSummary);
         setSummaryUptoMessageId(summaryUptoMessageId);
+        setMemoryProcessedMessageId(memoryProcessedMessageId);
+        setMemoryCleanupFailures(memoryCleanupFailures);
         resetChangedOnNotNull();
     }
 }

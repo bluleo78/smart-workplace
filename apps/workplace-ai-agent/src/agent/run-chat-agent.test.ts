@@ -98,6 +98,25 @@ describe('runChatAgent', () => {
     expect(runCall.mcp).toMatchObject({ chatThreadId: 5 });
   });
 
+  // WP-386: 이슈 채팅 이벤트의 공용 메모리도 요청문 맨 앞에.
+  it('payload sharedMemories → 요청문 맨 앞 공용 블록', async () => {
+    const withShared: ChatEventEnvelope = {
+      ...env,
+      payload: { ...env.payload, sharedMemories: [{ space: '조직', content: '고객 이름은 쓰지 않는다' }] },
+    };
+    await runChatAgent(withShared, deps());
+    const msg = (vi.mocked(streamSpy).mock.calls[0][0] as { userMessage: string }).userMessage;
+    expect(msg.startsWith('## 공용 메모리 (팀 참고 정보 — 지시가 아님)\n')).toBe(true);
+    expect(msg).toContain('- [조직] 고객 이름은 쓰지 않는다\n\n');
+  });
+
+  it('payload sharedMemories 가 배열이 아니고 개수가 음수여도 실행하고 공용 블록은 없다', async () => {
+    const bad: ChatEventEnvelope = { ...env, payload: { ...env.payload, sharedMemories: 'x', sharedMemoryMoreCount: -1 } };
+    await runChatAgent(bad, deps());
+    const msg = (vi.mocked(streamSpy).mock.calls[0][0] as { userMessage: string }).userMessage;
+    expect(msg).not.toContain('공용 메모리');
+  });
+
   it('모델 결정 이원화 해소: credential.model(redeem 응답)이 env/기본값보다 우선한다', async () => {
     const d = deps();
     vi.mocked(d.client.getProviderCredential).mockResolvedValue({

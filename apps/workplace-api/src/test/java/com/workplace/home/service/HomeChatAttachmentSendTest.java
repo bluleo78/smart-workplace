@@ -46,7 +46,7 @@ class HomeChatAttachmentSendTest extends HomeAttachmentTestSupport {
     long png = upload(uid, "b.png", "image/png", new byte[] {1});
     CountDownLatch latch = stubDone("확인했어요");
 
-    chatService.startChat(uid, null, "요약해 줘", null, List.of(pdf, png));
+    chatService.startChat(uid, null, "요약해 줘", null, List.of(pdf, png), null, null, null);
     assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
 
     UUID sid = onlySession(uid);
@@ -66,7 +66,7 @@ class HomeChatAttachmentSendTest extends HomeAttachmentTestSupport {
     long pdf = upload(uid, "회의록.pdf", "application/pdf", "%PDF".getBytes());
     CountDownLatch latch = stubDone("읽었어요");
 
-    chatService.startChat(uid, null, "   ", null, List.of(pdf));
+    chatService.startChat(uid, null, "   ", null, List.of(pdf), null, null, null);
     assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
 
     UUID sid = onlySession(uid);
@@ -100,7 +100,8 @@ class HomeChatAttachmentSendTest extends HomeAttachmentTestSupport {
     int before = sessionCount(uid);
 
     for (long id : new long[] {foreign, expired, permanent, bound, Long.MAX_VALUE}) {
-      assertThatThrownBy(() -> chatService.startChat(uid, null, "봐 줘", null, List.of(id)))
+      assertThatThrownBy(
+              () -> chatService.startChat(uid, null, "봐 줘", null, List.of(id), null, null, null))
           .isInstanceOf(HomeAttachmentInvalidException.class)
           .hasMessage(INVALID);
     }
@@ -123,7 +124,8 @@ class HomeChatAttachmentSendTest extends HomeAttachmentTestSupport {
     long pdf = upload(uid, "a.pdf", "application/pdf", "%PDF".getBytes());
     StreamingGenerationRegistry.Reservation busy = hold(uid, sid.toString());
     try {
-      assertThatThrownBy(() -> chatService.startChat(uid, sid, "봐 줘", null, List.of(pdf)))
+      assertThatThrownBy(
+              () -> chatService.startChat(uid, sid, "봐 줘", null, List.of(pdf), null, null, null))
           .isInstanceOf(HomeChatSessionBusyException.class);
     } finally {
       busy.release();
@@ -141,7 +143,8 @@ class HomeChatAttachmentSendTest extends HomeAttachmentTestSupport {
     List<StreamingGenerationRegistry.Reservation> held = new ArrayList<>();
     try {
       for (int i = 0; i < 3; i++) held.add(hold(uid, UUID.randomUUID().toString()));
-      assertThatThrownBy(() -> chatService.startChat(uid, null, "봐 줘", null, List.of(pdf)))
+      assertThatThrownBy(
+              () -> chatService.startChat(uid, null, "봐 줘", null, List.of(pdf), null, null, null))
           .isInstanceOf(HomeChatConcurrencyLimitException.class);
     } finally {
       held.forEach(StreamingGenerationRegistry.Reservation::release);
@@ -158,16 +161,21 @@ class HomeChatAttachmentSendTest extends HomeAttachmentTestSupport {
     List<Long> eleven = new ArrayList<>();
     for (long i = 1; i <= 11; i++) eleven.add(i);
 
-    assertThatThrownBy(() -> chatService.startChat(uid, null, "q", null, eleven))
+    assertThatThrownBy(() -> chatService.startChat(uid, null, "q", null, eleven, null, null, null))
         .hasMessage("한 번에 첨부할 수 있는 파일은 최대 10개예요.");
-    assertThatThrownBy(() -> chatService.startChat(uid, null, "q", null, List.of(f, f)))
+    assertThatThrownBy(
+            () -> chatService.startChat(uid, null, "q", null, List.of(f, f), null, null, null))
         .hasMessage("같은 파일이 두 번 첨부됐어요.");
-    assertThatThrownBy(() -> chatService.startChat(uid, null, "q", null, Arrays.asList(f, null)))
+    assertThatThrownBy(
+            () ->
+                chatService.startChat(
+                    uid, null, "q", null, Arrays.asList(f, null), null, null, null))
         .hasMessage(INVALID);
-    assertThatThrownBy(() -> chatService.startChat(uid, null, " ", null, List.of()))
+    assertThatThrownBy(
+            () -> chatService.startChat(uid, null, " ", null, List.of(), null, null, null))
         .isInstanceOf(HomeAttachmentInvalidException.class)
         .hasMessage(HomeAttachmentService.MSG_EMPTY);
-    assertThatThrownBy(() -> chatService.startChat(uid, null, null, null, null))
+    assertThatThrownBy(() -> chatService.startChat(uid, null, null, null, null, null, null, null))
         .hasMessage(HomeAttachmentService.MSG_EMPTY);
     assertThat(sessionCount(uid)).isZero();
     assertThat(expiresAtOf(f)).isNotNull();

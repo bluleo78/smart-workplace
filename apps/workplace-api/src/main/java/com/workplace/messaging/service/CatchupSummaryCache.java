@@ -1,6 +1,8 @@
 package com.workplace.messaging.service;
 
 import com.workplace.global.ai.AiMemoryLine;
+import com.workplace.global.ai.SharedMemories;
+import com.workplace.global.ai.SharedMemoryLine;
 import com.workplace.messaging.outbound.dto.CatchupSummarizeResult;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -49,8 +51,12 @@ public class CatchupSummaryCache {
 
   /** 같은 메모리·채널·미읽음 구간의 유효 요약. 없거나 TTL 이 지났으면 null. */
   public CatchupSummarizeResult get(
-      List<AiMemoryLine> memories, long channelId, long watermark, long maxMessageId) {
-    Key key = new Key(fingerprint(memories), channelId, watermark, maxMessageId);
+      List<AiMemoryLine> memories,
+      SharedMemories shared,
+      long channelId,
+      long watermark,
+      long maxMessageId) {
+    Key key = new Key(fingerprint(memories, shared), channelId, watermark, maxMessageId);
     var e = map.get(key);
     if (e == null) {
       return null;
@@ -65,6 +71,7 @@ public class CatchupSummaryCache {
   /** 그 메모리로 만든 요약을 TTL 과 함께 저장한다. 상한에 닿으면 전부 비운다. */
   public void put(
       List<AiMemoryLine> memories,
+      SharedMemories shared,
       long channelId,
       long watermark,
       long maxMessageId,
@@ -73,26 +80,37 @@ public class CatchupSummaryCache {
       map.clear(); // 단순 상한 — 캐치업은 재생성 저렴.
     }
     map.put(
-        new Key(fingerprint(memories), channelId, watermark, maxMessageId),
+        new Key(fingerprint(memories, shared), channelId, watermark, maxMessageId),
         new Entry(value, clock.instant().plus(TTL)));
   }
 
   /**
-   * 메모리 줄 목록의 지문 — 빈 목록이면 {@link #NO_MEMORY}, 아니면 줄마다 id·종류·내용·범위·기한·고정(WP-383)을 차례로 넣은
-   * SHA-256(16진).
+   * 개인 메모리 줄 + 공용 메모리 줄(WP-386)의 지문 — 둘 다 비면 {@link #NO_MEMORY}, 아니면 개인 줄마다
+   * id·종류·내용·범위·기한·고정(WP-383)을, 이어 공용 줄마다 라벨·내용을 차례로 넣은 SHA-256(16진). 개인·공용 경계 표지를 두어 한쪽 줄이 다른 쪽으로
+   * 넘어가도 같은 지문이 되지 않게 한다. 공용 메모리가 바뀌면 지문이 바뀌어 캐시된 요약을 쓰지 않는다.
    */
-  static String fingerprint(List<AiMemoryLine> memories) {
-    if (memories == null || memories.isEmpty()) {
+  static String fingerprint(List<AiMemoryLine> memories, SharedMemories shared) {
+    boolean noShared = shared == null || shared.items().isEmpty();
+    if ((memories == null || memories.isEmpty()) && noShared) {
       return NO_MEMORY;
     }
     MessageDigest md = sha256();
-    for (AiMemoryLine m : memories) {
-      field(md, Long.toString(m.id()));
-      field(md, m.kind());
-      field(md, m.content());
-      field(md, m.scope());
-      field(md, m.expiresOn());
-      field(md, Boolean.TRUE.equals(m.pinned()) ? "1" : null);
+    if (memories != null) {
+      for (AiMemoryLine m : memories) {
+        field(md, Long.toString(m.id()));
+        field(md, m.kind());
+        field(md, m.content());
+        field(md, m.scope());
+        field(md, m.expiresOn());
+        field(md, Boolean.TRUE.equals(m.pinned()) ? "1" : null);
+      }
+    }
+    field(md, "--shared--");
+    if (!noShared) {
+      for (SharedMemoryLine l : shared.items()) {
+        field(md, l.space());
+        field(md, l.content());
+      }
     }
     return HexFormat.of().formatHex(md.digest());
   }

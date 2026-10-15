@@ -18,7 +18,9 @@ const { opencodeVisionFor } = vi.hoisted(() => ({
 vi.mock('./opencode-vision.js', () => ({ opencodeVisionFor }));
 
 import { runAiChatStream, type ChatInput } from './run-ai-chat.js';
+import { MEMORY_OFF_LINE } from './memory-block.js';
 import { RunnerLimitError } from './runner-limit.js';
+import { SHARED_MEMORY_BLOCK_HEADER } from './shared-memory-block.js';
 
 // #846: 이슈 상세 조회는 공유 도구용 클라이언트(toolClient(agentId)) 경유 — 테스트가 getIssueDetail 을 교체·단언한다.
 const fakeTools: { getIssueDetail: ReturnType<typeof vi.fn> } = {
@@ -1698,13 +1700,13 @@ describe('runAiChatStream — 사용자 메모리 블록 (WP-55)', () => {
 
   it('꺼짐이면 받은 메모리 대신 꺼짐 한 줄', async () => {
     expect((await run({ memories, memoryEnabled: false })).userMessage).toBe(
-      '메모리 꺼짐 — 메모리 도구를 쓰지 말 것\n\n현재 요청: 내 할 일',
+      '메모리 꺼짐 — 개인 메모리 도구(remember_memory·update_memory·forget_memory·search_memory·search_conversations)를 쓰지 말 것\n\n현재 요청: 내 할 일',
     );
   });
 
   it('구 API(memoryEnabled 없음)도 꺼짐으로 다룬다', async () => {
     expect((await run({ memories: undefined, memoryEnabled: undefined })).userMessage).toBe(
-      '메모리 꺼짐 — 메모리 도구를 쓰지 말 것\n\n현재 요청: 내 할 일',
+      '메모리 꺼짐 — 개인 메모리 도구(remember_memory·update_memory·forget_memory·search_memory·search_conversations)를 쓰지 말 것\n\n현재 요청: 내 할 일',
     );
   });
 
@@ -1722,5 +1724,55 @@ describe('runAiChatStream — 사용자 메모리 블록 (WP-55)', () => {
     const more = '이 밖에 메모리 4개가 더 있어요(다른 앱 범위 포함). 필요하면 search_memory 로 찾아 보세요.';
     expect(input.userMessage).toBe(`${block}\n${more}\n\n현재 요청: 내 할 일`);
     expect(input.subagentPromptSuffix).toBe(`\n\n${block}`);
+  });
+});
+
+// WP-386: 공용 메모리 블록은 개인 블록 바로 뒤, 개인 메모리가 꺼져도 싣고, 하위 에이전트에는 지금 공간 줄 없이 붙인다.
+describe('runAiChatStream — 공용 메모리 (WP-386)', () => {
+  const shared = [{ space: '조직', content: '고객 이름은 문서에 쓰지 않는다' }, { space: 'Smart Workplace(WP)', content: '배포는 API 먼저 한다' }];
+  const currentSpace = { type: 'PROJECT' as const, name: 'Smart Workplace(WP)' };
+  type Passed = { userMessage: string; subagentPromptSuffix?: string };
+
+  it('개인 블록 → 공용 블록 → 현재 요청 순, 지금 공간 줄이 있다', async () => {
+    streamSpy.mockImplementation(makeRunnerImpl([result('')]));
+    await runAiChatStream(
+      baseInput({ memories: [{ id: 1, kind: 'PREFERENCE', content: '짧게' }], sharedMemories: shared, sharedMemoryMoreCount: 2, currentSpace }),
+      { client: fakeClient },
+      () => {},
+      new AbortController().signal,
+    );
+    const prompt = (streamSpy.mock.calls[0][0] as Passed).userMessage;
+    expect(prompt.indexOf('## 사용자 메모리')).toBe(0);
+    expect(prompt.indexOf('## 사용자 메모리')).toBeLessThan(prompt.indexOf(SHARED_MEMORY_BLOCK_HEADER));
+    expect(prompt.indexOf(SHARED_MEMORY_BLOCK_HEADER)).toBeLessThan(prompt.indexOf('현재 요청: 내 할 일'));
+    expect(prompt).toContain('지금 공간: Smart Workplace(WP) (프로젝트)\n- [조직] 고객 이름은 문서에 쓰지 않는다');
+    expect(prompt).toContain('이 밖에 공용 메모리 2개가 더 있다.');
+  });
+
+  it('개인 메모리가 꺼져도 공용 블록은 싣고, 하위 에이전트 접미사엔 공용 블록만(지금 공간 줄 없음)', async () => {
+    streamSpy.mockImplementation(makeRunnerImpl([result('')]));
+    await runAiChatStream(
+      baseInput({ memoryEnabled: false, sharedMemories: shared, currentSpace }),
+      { client: fakeClient },
+      () => {},
+      new AbortController().signal,
+    );
+    const passed = streamSpy.mock.calls[0][0] as Passed;
+    expect(passed.userMessage.startsWith(`${MEMORY_OFF_LINE}\n\n${SHARED_MEMORY_BLOCK_HEADER}`)).toBe(true);
+    expect(passed.subagentPromptSuffix).toContain(SHARED_MEMORY_BLOCK_HEADER);
+    expect(passed.subagentPromptSuffix).toContain('- [Smart Workplace(WP)] 배포는 API 먼저 한다');
+    expect(passed.subagentPromptSuffix).not.toContain('지금 공간');
+    expect(passed.subagentPromptSuffix).not.toContain(MEMORY_OFF_LINE);
+  });
+
+  it('공용 메모리 0개 + 공간 화면 → 지금 공간 두 줄만, 공간 화면도 아니면 바이트 동일', async () => {
+    streamSpy.mockImplementation(makeRunnerImpl([result('')]));
+    await runAiChatStream(baseInput({ sharedMemories: [], currentSpace }), { client: fakeClient }, () => {}, new AbortController().signal);
+    expect((streamSpy.mock.calls[0][0] as Passed).userMessage).toBe(
+      `${SHARED_MEMORY_BLOCK_HEADER}\n실린 공용 메모리는 없다. 지금 공간: Smart Workplace(WP) (프로젝트)\n\n현재 요청: 내 할 일`,
+    );
+    await runAiChatStream(baseInput({ sharedMemories: [] }), { client: fakeClient }, () => {}, new AbortController().signal);
+    expect((streamSpy.mock.calls[1][0] as Passed).userMessage).toBe('내 할 일');
+    expect((streamSpy.mock.calls[1][0] as Passed).subagentPromptSuffix ?? '').toBe('');
   });
 });

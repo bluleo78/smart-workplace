@@ -3,6 +3,7 @@ import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 
 import { readOnlyMemoriesField } from '../agent/memory-block.js';
+import { sharedMemoryFields } from '../agent/shared-memory-block.js';
 import { type RunAgentDeps } from '../agent/run-agent.js';
 import { runMessagingClassify, messagingClassifyInput } from '../agent/run-messaging-ai.js';
 import { runMessagingCatchup, messagingCatchupInput } from '../agent/run-messaging-catchup.js';
@@ -17,7 +18,7 @@ const baseConfig = {
 
 export const classifySchema = messagingClassifyInput.extend(baseConfig);
 // WP-381: catchup 은 요청자의 공통 + 메신저 메모리(읽기 전용)를 받는다. 구 API 는 생략 → 빈 배열.
-export const catchupSchema = messagingCatchupInput.extend({ ...baseConfig, memories: readOnlyMemoriesField });
+export const catchupSchema = messagingCatchupInput.extend({ ...baseConfig, memories: readOnlyMemoriesField, ...sharedMemoryFields });
 
 // 공통 핸들러 팩토리 — zod 검증 → 러너 호출 → 400/200/502 응답. mail.ts 미러.
 function handler<T>(

@@ -1,6 +1,7 @@
 // Wiki S3(A2): 인에디터 /ai 컴포즈 — 시스템 프롬프트 + 액션별 user 메시지 빌더.
 // 도구를 쓰지 않는 순수 텍스트 생성이라 컨텍스트(본문/선택/지시문)는 모두 프롬프트에 임베드한다.
 import type { MemoryItem } from './memory-block.js';
+import type { SharedMemoryInput } from './shared-memory-block.js';
 
 export type WikiAiAction =
   | 'draft'
@@ -11,7 +12,7 @@ export type WikiAiAction =
   | 'condense'
   | 'polish';
 
-export interface WikiComposeInput {
+export interface WikiComposeInput extends SharedMemoryInput {
   // 비서 설정 — workplace-api 가 요청별로 해석해 전달(env 미사용).
   assistantAgentId: number;
   model: string;

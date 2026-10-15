@@ -3,7 +3,11 @@ package com.workplace.home.repository;
 import static com.workplace.jooq.Tables.HOME_MESSAGE;
 import static com.workplace.jooq.Tables.HOME_SESSION;
 
+import com.workplace.home.service.SharedSpace.SpaceKey;
+import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -121,6 +125,45 @@ public class HomeMessageRepository {
         .set(HOME_MESSAGE.CONTENT_BLOCKS, JSONB.valueOf(contentBlocksJson))
         .where(HOME_MESSAGE.ID.eq(messageId))
         .execute();
+  }
+
+  /** WP-386: 사용자 메시지의 확인된 화면 공간을 남긴다 — 그 대화의 메시지일 때만(소유 확인은 대화 단위라 메시지 소속도 함께 본다). */
+  public int setSpace(UUID sessionId, long messageId, SpaceKey k) {
+    return dsl.update(HOME_MESSAGE)
+        .set(HOME_MESSAGE.SPACE_TYPE, k.type())
+        .set(HOME_MESSAGE.SPACE_ID, k.id())
+        .where(HOME_MESSAGE.ID.eq(messageId))
+        .and(HOME_MESSAGE.SESSION_ID.eq(sessionId))
+        .and(HOME_MESSAGE.ROLE.eq("USER"))
+        .execute();
+  }
+
+  /** WP-386: 메시지 id → 공간(공간이 없는 메시지는 빠진다) — 배경 추출이 발화를 공간별로 묶는다. */
+  public Map<Long, SpaceKey> spacesOf(Collection<Long> messageIds) {
+    Map<Long, SpaceKey> out = new HashMap<>();
+    if (messageIds.isEmpty()) return out;
+    dsl.select(HOME_MESSAGE.ID, HOME_MESSAGE.SPACE_TYPE, HOME_MESSAGE.SPACE_ID)
+        .from(HOME_MESSAGE)
+        .where(HOME_MESSAGE.ID.in(messageIds))
+        .and(HOME_MESSAGE.SPACE_TYPE.isNotNull())
+        .forEach(
+            r -> {
+              SpaceKey k = SpaceKey.of(r.value2(), r.value3());
+              if (k != null) out.put(r.value1(), k);
+            });
+    return out;
+  }
+
+  /** WP-386: 대화의 마지막 사용자 메시지 공간(없으면 empty) — 공용 메모리 요청 도구의 「지금 공간」. */
+  public Optional<SpaceKey> latestUserSpace(UUID sessionId) {
+    return dsl.select(HOME_MESSAGE.SPACE_TYPE, HOME_MESSAGE.SPACE_ID)
+        .from(HOME_MESSAGE)
+        .where(HOME_MESSAGE.SESSION_ID.eq(sessionId))
+        .and(HOME_MESSAGE.ROLE.eq("USER"))
+        .orderBy(HOME_MESSAGE.ID.desc())
+        .limit(1)
+        .fetchOptional()
+        .map(r -> r.value1() == null ? null : SpaceKey.of(r.value1(), r.value2()));
   }
 
   /** 잠근 메시지의 표시 블록 JSON(null 가능). */

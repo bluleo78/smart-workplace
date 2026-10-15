@@ -79,6 +79,12 @@ public final class TenantPurgePlan {
           CHANNEL_MEMBER,
           CHANNEL,
           // 홈·비서 (ai_memory 는 home_session 을 SET NULL 로 참조 — 세션보다 먼저, WP-55)
+          // 메모리 기록·지운 기록(WP-385)과 공용 메모리 3표(WP-386)는 서로·세션과 FK 가 없다 — 메모리 표와 함께.
+          SHARED_AI_MEMORY_CHANGE,
+          SHARED_AI_MEMORY_FORGOTTEN,
+          SHARED_AI_MEMORY,
+          AI_MEMORY_CHANGE,
+          AI_MEMORY_FORGOTTEN,
           AI_MEMORY,
           HOME_ACTION_PROPOSAL,
           HOME_MESSAGE_ATTACHMENT,

@@ -146,6 +146,10 @@ export async function setupAuthMocks(page: Page, user: UserResponse, roles: Role
   // WP-55: 메모리 사용(기본 켜짐) + 빈 메모리 목록 — 설정 화면이 목록을 부른다. 검증 spec 은 ai-memory-mock 으로 나중에 등록(LIFO 우선).
   await mockApi(page, 'GET', '/api/v1/users/me/ai-preferences', { suggestionsEnabled: true, memoryEnabled: true })
   await mockApi(page, 'GET', '/api/v1/users/me/ai-memories', { items: [], limit: 50 })
+  // WP-385: 설정 메모리 카드가 「AI가 정리한 기록」 첫 묶음(지난 30일 횟수)을 부른다 — 기본은 0번(안내 줄 숨김). 검증 spec 은 mockMemoryChanges 로 나중에 등록(LIFO 우선).
+  await mockApi(page, 'GET', '/api/v1/users/me/ai-memories/changes', { items: [], nextCursor: null, count30d: 0 })
+  // WP-386: 프로젝트 설정의 공용 메모리 링크·설정 공용 탭이 공간 목록을 부른다 — 기본은 빈 목록(링크 숨김). 검증 spec 은 shared-memory-mock 으로 나중에 등록(LIFO 우선).
+  await mockApi(page, 'GET', '/api/v1/shared-ai-memories/spaces', { items: [] })
   await mockApi(page, 'POST', '/api/v1/ai/suggestions', { items: [], enabled: true })
   // #843: 세션 복원 시 미처리 확인카드(/home/sessions/:id/proposals)도 함께 페치한다 — 빈 기본 스텁.
   // 카드 복원을 검증하는 spec 은 더 구체적 응답을 나중에 등록 → LIFO 로 그쪽이 우선한다.

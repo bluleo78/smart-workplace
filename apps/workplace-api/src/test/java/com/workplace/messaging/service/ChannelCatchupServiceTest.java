@@ -18,6 +18,9 @@ import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.ai.AiMemoryLine;
 import com.workplace.global.ai.AiMemoryReader;
+import com.workplace.global.ai.SharedAiMemoryReader;
+import com.workplace.global.ai.SharedMemories;
+import com.workplace.global.ai.SharedMemoryLine;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.messaging.dto.CreateMessageRequest;
 import com.workplace.messaging.outbound.AiAgentCatchupClient;
@@ -65,6 +68,9 @@ class ChannelCatchupServiceTest extends IntegrationTestBase {
 
   /** 요청자 메모리(WP-381) — 목 기본값은 빈 목록이라 다른 테스트는 메모리 없이 그대로 동작한다. */
   @MockitoBean AiMemoryReader memoryReader;
+
+  /** 조직 공용 메모리(WP-386) — 목 기본값(null)은 서비스가 빈 묶음으로 바꾼다. */
+  @MockitoBean SharedAiMemoryReader sharedReader;
 
   /** 해석될 비서 사양 — 하드코딩 id(2) 가 아닌 이 값이 AI 요청에 실려야 한다(WP-110). */
   private static final AssistantSpec SPEC =
@@ -223,6 +229,30 @@ class ChannelCatchupServiceTest extends IntegrationTestBase {
     assertThat(cap.getAllValues().get(1).memories()).isEmpty();
     // 캐시 키가 메모리 지문이라 캐시 확인 전에 매번 메모리를 읽는다.
     verify(memoryReader, times(2)).readForEntry(callerA, AiMemoryReader.MESSAGING, null);
+  }
+
+  /** WP-386: 요약 요청에 조직 공용 메모리를 싣고, 공용 메모리가 바뀌면 캐시된 요약을 쓰지 않고 다시 만든다. */
+  @Test
+  void 공용_메모리를_싣고_바뀌면_다시_요약한다() {
+    long channelId = seedChannelWithMembers();
+    long m1 = postByB(channelId, "배포 일정 공유합니다", null);
+    long since = m1 - 1;
+    var first = new SharedMemories(List.of(new SharedMemoryLine("조직", "결정은 굵게")), 1);
+    var second = new SharedMemories(List.of(new SharedMemoryLine("조직", "결정은 표로")), 0);
+    when(sharedReader.readForUser(callerA, null, null)).thenReturn(first, first, second);
+    when(catchupClient.summarize(any()))
+        .thenReturn(new CatchupSummarizeResult(List.of(), List.of()));
+
+    service.summarize(callerA, channelId, since);
+    service.summarize(callerA, channelId, since); // 같은 공용 메모리 — 캐시 적중
+    service.summarize(callerA, channelId, since); // 공용 메모리가 바뀜 — 다시 요약
+
+    ArgumentCaptor<CatchupSummarizeRequest> cap =
+        ArgumentCaptor.forClass(CatchupSummarizeRequest.class);
+    verify(catchupClient, times(2)).summarize(cap.capture());
+    assertThat(cap.getAllValues().get(0).sharedMemories()).isEqualTo(first.items());
+    assertThat(cap.getAllValues().get(0).sharedMemoryMoreCount()).isEqualTo(1);
+    assertThat(cap.getAllValues().get(1).sharedMemories()).isEqualTo(second.items());
   }
 
   /** 메모리가 없는 사용자끼리는 같은 채널·같은 미읽음 요약을 함께 쓴다 — 요약에 개인 메모리가 실리지 않았으니 나눠 써도 된다. */

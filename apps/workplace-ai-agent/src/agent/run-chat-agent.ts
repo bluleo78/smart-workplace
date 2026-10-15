@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 
 import { CHAT_SYSTEM_PROMPT } from './chat-system-prompt.js';
 import { buildChatUserMessage } from './chat-user-message.js';
+import { withSharedMemory } from './shared-memory-block.js';
 import { createAttachmentWorkDir } from './attachment-prep.js';
 import { fetchIssueAttachments, mergeAttachments, type CollectedAttachments } from './attachment-source.js';
 import { presentAttachments, readsLocally, type AttachmentReader } from './attachment-presenter.js';
@@ -195,7 +196,8 @@ export async function runChatAgent(
         agentId,
         workDir,
       });
-      const userMessage = buildChatUserMessage(p, recent, presented);
+      // WP-386: 공용 메모리(조직 + 그 프로젝트) 블록을 요청문 맨 앞에.
+      const userMessage = withSharedMemory(p, buildChatUserMessage(p, recent, presented));
 
       const maxTurns = Number(process.env.WORKPLACE_AI_MAX_TURNS ?? DEFAULT_MAX_TURNS);
       const timeoutMs = Number(process.env.WORKPLACE_AI_TIMEOUT_MS ?? DEFAULT_TIMEOUT_MS);

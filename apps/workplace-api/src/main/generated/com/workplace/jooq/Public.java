@@ -9,6 +9,8 @@ import com.workplace.jooq.tables.AgentWork;
 import com.workplace.jooq.tables.AgentWorkEvent;
 import com.workplace.jooq.tables.AiAgentCredential;
 import com.workplace.jooq.tables.AiMemory;
+import com.workplace.jooq.tables.AiMemoryChange;
+import com.workplace.jooq.tables.AiMemoryForgotten;
 import com.workplace.jooq.tables.AssistantConfig;
 import com.workplace.jooq.tables.AuditLog;
 import com.workplace.jooq.tables.Calendar;
@@ -87,6 +89,9 @@ import com.workplace.jooq.tables.RefreshToken;
 import com.workplace.jooq.tables.Role;
 import com.workplace.jooq.tables.RolePermission;
 import com.workplace.jooq.tables.SavedView;
+import com.workplace.jooq.tables.SharedAiMemory;
+import com.workplace.jooq.tables.SharedAiMemoryChange;
+import com.workplace.jooq.tables.SharedAiMemoryForgotten;
 import com.workplace.jooq.tables.Shedlock;
 import com.workplace.jooq.tables.Tenant;
 import com.workplace.jooq.tables.TenantCanary;
@@ -156,6 +161,16 @@ public class Public extends SchemaImpl {
      * The table <code>public.ai_memory</code>.
      */
     public final AiMemory AI_MEMORY = AiMemory.AI_MEMORY;
+
+    /**
+     * The table <code>public.ai_memory_change</code>.
+     */
+    public final AiMemoryChange AI_MEMORY_CHANGE = AiMemoryChange.AI_MEMORY_CHANGE;
+
+    /**
+     * The table <code>public.ai_memory_forgotten</code>.
+     */
+    public final AiMemoryForgotten AI_MEMORY_FORGOTTEN = AiMemoryForgotten.AI_MEMORY_FORGOTTEN;
 
     /**
      * The table <code>public.assistant_config</code>.
@@ -549,6 +564,21 @@ public class Public extends SchemaImpl {
     public final SavedView SAVED_VIEW = SavedView.SAVED_VIEW;
 
     /**
+     * The table <code>public.shared_ai_memory</code>.
+     */
+    public final SharedAiMemory SHARED_AI_MEMORY = SharedAiMemory.SHARED_AI_MEMORY;
+
+    /**
+     * The table <code>public.shared_ai_memory_change</code>.
+     */
+    public final SharedAiMemoryChange SHARED_AI_MEMORY_CHANGE = SharedAiMemoryChange.SHARED_AI_MEMORY_CHANGE;
+
+    /**
+     * The table <code>public.shared_ai_memory_forgotten</code>.
+     */
+    public final SharedAiMemoryForgotten SHARED_AI_MEMORY_FORGOTTEN = SharedAiMemoryForgotten.SHARED_AI_MEMORY_FORGOTTEN;
+
+    /**
      * The table <code>public.shedlock</code>.
      */
     public final Shedlock SHEDLOCK = Shedlock.SHEDLOCK;
@@ -686,6 +716,8 @@ public class Public extends SchemaImpl {
             AgentWorkEvent.AGENT_WORK_EVENT,
             AiAgentCredential.AI_AGENT_CREDENTIAL,
             AiMemory.AI_MEMORY,
+            AiMemoryChange.AI_MEMORY_CHANGE,
+            AiMemoryForgotten.AI_MEMORY_FORGOTTEN,
             AssistantConfig.ASSISTANT_CONFIG,
             AuditLog.AUDIT_LOG,
             Calendar.CALENDAR,
@@ -764,6 +796,9 @@ public class Public extends SchemaImpl {
             Role.ROLE,
             RolePermission.ROLE_PERMISSION,
             SavedView.SAVED_VIEW,
+            SharedAiMemory.SHARED_AI_MEMORY,
+            SharedAiMemoryChange.SHARED_AI_MEMORY_CHANGE,
+            SharedAiMemoryForgotten.SHARED_AI_MEMORY_FORGOTTEN,
             Shedlock.SHEDLOCK,
             Tenant.TENANT,
             TenantCanary.TENANT_CANARY,

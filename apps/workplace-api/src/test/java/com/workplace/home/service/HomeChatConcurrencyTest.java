@@ -133,13 +133,17 @@ class HomeChatConcurrencyTest extends IntegrationTestBase {
   void 웹이_정한_correlationId_로_시작하고_진행중_id_재사용은_409() {
     long uid = user();
     UUID cid = UUID.randomUUID();
-    assertThat(chatService.startChat(uid, null, "첫 질문", null, List.of(), cid, null).correlationId())
+    assertThat(
+            chatService
+                .startChat(uid, null, "첫 질문", null, List.of(), cid, null, null)
+                .correlationId())
         .isEqualTo(cid.toString());
     assertThat(chatService.active(uid).items())
         .extracting(HomeChatActiveResponse.Item::correlationId)
         .containsExactly(cid.toString());
 
-    assertThatThrownBy(() -> chatService.startChat(uid, null, "둘째", null, List.of(), cid, null))
+    assertThatThrownBy(
+            () -> chatService.startChat(uid, null, "둘째", null, List.of(), cid, null, null))
         .isInstanceOf(HomeChatSessionBusyException.class);
     assertThat(sessionService.list(uid, null, 10).items()).hasSize(1);
   }
