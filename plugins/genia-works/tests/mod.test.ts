@@ -673,3 +673,75 @@ test('수동 등록 정리: 비대화형 세션에서는 건드리지 않는다'
   expect(w.calls).toEqual([])
   expect(w.removes()).toEqual([])
 })
+
+const HAS_AI_DEV = { 'gw-keys list': { exitCode: 0, stdout: 'ai-dev\t10-14\n' }, 'gw-session show': { exitCode: 0, stdout: '' } }
+
+test('login: 확인에 실패하면 덮어쓰기 확인도 풀려 다른 키는 다시 확인을 거친다', { options: { server_url: SERVER_URL } }, async ($, on) => {
+  const w = loginWorld(on, HAS_AI_DEV, 500)
+  await $.command.run({ command: LOGIN_COMMAND, args: '' })
+  const ui = await mountPane($)
+  await ui.press({ key: 'gw-add' })
+  await ui.input({ key: 'gw-key', text: FAKE_KEY, kind: 'change' })
+  await ui.input({ key: 'gw-name', text: 'ai-dev', kind: 'change' })
+  await ui.input({ key: 'gw-name', text: 'ai-dev', kind: 'submit' }) // 첫 저장: 덮어쓸지 묻는다
+  await ui.input({ key: 'gw-name', text: 'ai-dev', kind: 'submit' }) // 두 번째: 서버 확인(500)에서 실패
+  expect(w.fetches.length).toBe(1)
+  await ui.input({ key: 'gw-key', text: 'ak_FAKE_OTHER', kind: 'change' })
+  await ui.input({ key: 'gw-name', text: 'ai-dev', kind: 'submit' }) // 다른 키 — 다시 물어야 하고 서버도 부르지 않는다
+  expect(w.fetches.length).toBe(1)
+  expect(JSON.stringify(await ui.findAll({}))).toContain('바꿀까요')
+  await ui.unmount()
+})
+
+test('login: 첫 저장 뒤 키나 이름을 고치면 덮어쓰기 확인이 풀린다', { options: { server_url: SERVER_URL } }, async ($, on) => {
+  const w = loginWorld(on, HAS_AI_DEV)
+  await $.command.run({ command: LOGIN_COMMAND, args: '' })
+  const ui = await mountPane($)
+  await ui.press({ key: 'gw-add' })
+  await ui.input({ key: 'gw-key', text: FAKE_KEY, kind: 'change' })
+  await ui.input({ key: 'gw-name', text: 'ai-dev', kind: 'change' })
+  await ui.input({ key: 'gw-name', text: 'ai-dev', kind: 'submit' }) // 묻는다
+  await ui.input({ key: 'gw-key', text: '●'.repeat(FAKE_KEY.length) + 'X', kind: 'change' }) // 키를 고침
+  await ui.input({ key: 'gw-name', text: 'ai-dev', kind: 'submit' })
+  expect(w.fetches.length).toBe(0) // 다시 물었다
+  await ui.input({ key: 'gw-name', text: 'ai-dev2', kind: 'change' })
+  await ui.input({ key: 'gw-name', text: 'ai-dev', kind: 'change' }) // 이름을 바꿨다 되돌려도 확인은 풀린다
+  await ui.input({ key: 'gw-name', text: 'ai-dev', kind: 'submit' })
+  expect(w.fetches.length).toBe(0)
+  await ui.unmount()
+})
+
+test('login: 관리 › 키 바꾸기는 이미 바꾸기로 골랐으므로 덮어쓰기를 다시 묻지 않는다', { options: { server_url: SERVER_URL } }, async ($, on) => {
+  const w = loginWorld(on, HAS_AI_DEV)
+  await $.command.run({ command: LOGIN_COMMAND, args: '' })
+  const ui = await mountPane($)
+  await ui.press({ key: 'gw-manage' })
+  await ui.press({ key: 'gw-rekey-ai-dev' })
+  await ui.input({ key: 'gw-key', text: FAKE_KEY, kind: 'change' })
+  await ui.input({ key: 'gw-name', text: 'ai-dev', kind: 'submit' })
+  expect(w.fetches.length).toBe(1)
+  expect(w.runs.find((r) => r.argv[1] === 'add')?.argv[2]).toBe('ai-dev')
+  await ui.unmount()
+})
+
+test('login: 키 바꾸기에서 이름을 다른 기존 이름으로 바꾸면 다시 묻는다', { options: { server_url: SERVER_URL } }, async ($, on) => {
+  const w = loginWorld(on, { 'gw-keys list': { exitCode: 0, stdout: 'ai-dev\t10-14\nai-rev\t10-12\n' }, 'gw-session show': { exitCode: 0, stdout: '' } })
+  await $.command.run({ command: LOGIN_COMMAND, args: '' })
+  const ui = await mountPane($)
+  await ui.press({ key: 'gw-manage' })
+  await ui.press({ key: 'gw-rekey-ai-dev' })
+  await ui.input({ key: 'gw-key', text: FAKE_KEY, kind: 'change' })
+  await ui.input({ key: 'gw-name', text: 'ai-rev', kind: 'change' })
+  await ui.input({ key: 'gw-name', text: 'ai-rev', kind: 'submit' })
+  expect(w.fetches.length).toBe(0)
+  expect(JSON.stringify(await ui.findAll({}))).toContain('바꿀까요')
+  await ui.unmount()
+})
+
+test('session.end: 정리 스크립트가 던져도 종료 흐름(next)은 이어진다', async ($, on) => {
+  on('process.run', () => { throw new Error('spawn boom') })
+  let reached = false
+  on('session.end', (_$: any, e: any) => { reached = true; return { sessionId: e.sessionId } })
+  await $.session.end({ reason: 'prompt_input_exit', sessionId: 's', resume: { id: 's' } })
+  expect(reached).toBe(true)
+})

@@ -57,8 +57,16 @@ gw_claude_pid() {
   return 1
 }
 
+# 프로세스가 살아 있는지 — kill -0 이 성공하거나(다른 사용자 프로세스는 EPERM 으로 실패하므로) ps 가 그 pid 를 보여 주면 산 것으로 본다.
+# GW_PRUNE_PS_ONLY 는 테스트 전용 훅(가짜 pid 가 진짜 프로세스와 겹치지 않게 kill 검사를 건너뛰고 가짜 ps 표만 본다) — 운영에서는 설정하지 않는다.
+gw_pid_alive() {
+  [ -n "${GW_PRUNE_PS_ONLY:-}" ] || ! kill -0 "$1" 2>/dev/null || return 0
+  [ -n "$(ps -o pid= -p "$1" 2>/dev/null | tr -d ' ')" ]
+}
+
 # 끝난 세션의 선택 파일 정리 — 비정상 종료하면 mod 의 session.end 가 돌지 않으므로 헤더 스크립트가 접속 때마다 치운다.
-# pid 가 살아 있어도 시작 시각이 다르면(pid 재사용) 지운다.
+# 프로세스가 끝났거나(pid 없음) 재사용됐을 때(시작 시각을 읽었고 다름)만 지운다.
+# 시작 시각을 읽지 못하면(ps 일시 실패) pid 가 살아 있는 한 둔다 — 살아 있는 세션의 선택을 지우면 신원이 조용히 내 토큰으로 뒤집힌다.
 gw_prune_sessions() {
   [ -d "$GW_SESSIONS" ] || return 0
   for f in "$GW_SESSIONS"/*; do
@@ -66,8 +74,9 @@ gw_prune_sessions() {
     k=${f##*/}
     pid=${k%%-*}
     case "$pid" in '' | *[!0-9]*) rm -f "$f"; continue ;; esac
+    if ! gw_pid_alive "$pid"; then rm -f "$f"; continue; fi
     cur=$(gw_proc_key "$pid" 2>/dev/null) || cur=""
-    [ "$cur" = "$k" ] || rm -f "$f"
+    [ -z "$cur" ] || [ "$cur" = "$k" ] || rm -f "$f"
   done
 }
 

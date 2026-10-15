@@ -178,6 +178,25 @@ test('isHeaderScriptCall: 헤더 스크립트 직접 실행만 잡는다', () =>
     'X=$(/p/scripts/gw-headers)',
     'GW_START_PID=1 /p/scripts/gw-headers',
     'env -i /p/scripts/gw-headers',
+    // 새 줄·셸 키워드 뒤·변수 경로
+    'echo x\n"$CLAUDE_PLUGIN_ROOT/scripts/gw-headers"',
+    'echo x\r\n/p/scripts/gw-headers',
+    'if true; then /p/scripts/gw-headers; fi',
+    'for i in 1; do /p/scripts/gw-headers; done',
+    'if false; then :; else /p/scripts/gw-headers; fi',
+    'if false; then :; elif true; then /p/scripts/gw-headers; fi',
+    '{ /p/scripts/gw-headers; }',
+    '! /p/scripts/gw-headers',
+    'if /p/scripts/gw-headers; then :; fi',
+    'while /p/scripts/gw-headers; do :; done',
+    'until /p/scripts/gw-session-key; do :; done',
+    'time /p/scripts/gw-headers',
+    'echo a | xargs /p/scripts/gw-headers',
+    'true && /p/scripts/gw-headers',
+    'false || /p/scripts/gw-headers',
+    '$CLAUDE_PLUGIN_ROOT/scripts/gw-headers',
+    '"${CLAUDE_PLUGIN_ROOT}/scripts/gw-headers"',
+    'sh "${CLAUDE_PLUGIN_ROOT}/scripts/gw-session-key"',
   ];
   for (const command of yes) assert.equal(isHeaderScriptCall({ tool: 'Bash', command }), true, command);
   // 인자로 이름만 나오는 명령(읽기·git)은 실행이 아니므로 막지 않는다.
@@ -191,6 +210,10 @@ test('isHeaderScriptCall: 헤더 스크립트 직접 실행만 잡는다', () =>
     'git add plugins/genia-works/scripts/gw-headers',
     'shellcheck scripts/gw-headers',
     'git commit -m "gw-headers 를 고친다"',
+    'echo x\ncat "$CLAUDE_PLUGIN_ROOT/scripts/gw-headers"',
+    'if true; then cat /p/scripts/gw-headers; fi',
+    'echo then /p/x/gw-headers-note',
+    '"${CLAUDE_PLUGIN_ROOT}/scripts/gw-set-key" ai-dev',
   ];
   for (const command of no) assert.equal(isHeaderScriptCall({ tool: 'Bash', command }), false, command);
   assert.equal(isHeaderScriptCall({ tool: 'Edit', file_path: '/repo/plugins/genia-works/README.md' }), false);

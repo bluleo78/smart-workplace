@@ -45,10 +45,12 @@ export function isKeyPath(text) {
 }
 
 // 헤더 스크립트(gw-headers·gw-session-key)를 직접 실행하려는 Bash 명령인지 — gw-headers 는 활성 AI 키를 출력하므로 대화로 새게 된다.
-// 명령 자리(맨 앞·; & | ( ` $( 뒤, sh/bash/exec/env 같은 실행기·VAR=값 뒤)에 그 스크립트가 올 때만 실행으로 본다.
+// 명령 자리(맨 앞·줄바꿈·; & | ( ` $( 뒤, sh/bash/exec/env 같은 실행기·VAR=값 뒤)에 그 스크립트가 올 때만 실행으로 본다.
 // cat·git diff·git add 처럼 인자로 이름만 나오는 명령은 막지 않는다(이 저장소에서 플러그인을 개발할 때 방해되지 않게).
 // gw-set-key·gw-headers-x·my-gw-headers 는 해당 없음.
-const CMD_POS = String.raw`(?:^|[;&|(\x60]|\$\()\s*(?:\w+=\S*\s+)*(?:(?:sh|bash|dash|zsh|ksh|exec|env|command|nohup|time|source|\.)\s+(?:-\S+\s+)*)*`
+// 명령 자리 앞 구분자에 줄바꿈(\n·\r)을 포함한다 — 새 줄의 명령도 실행 자리다.
+// 실행기 단어에 셸 키워드(then·do·else·elif·{·!·if·while·until)와 xargs 를 더해 `if x; then <스크립트>` 같은 자리도 잡는다(각각 뒤에 공백).
+const CMD_POS = String.raw`(?:^|[;&|\n\r(\x60]|\$\()\s*(?:\w+=\S*\s+)*(?:(?:sh|bash|dash|zsh|ksh|exec|env|command|nohup|time|xargs|source|\.|then|do|else|elif|\{|!|if|while|until)\s+(?:-\S+\s+)*)*`
 const HEADER_SCRIPT = String.raw`["']?(?:[^\s"';&|()<>\x60]*\/)?gw-(?:headers|session-key)["']?(?=$|[\s;&|)<>\x60])`
 const HEADER_SCRIPT_CALL = new RegExp(CMD_POS + HEADER_SCRIPT)
 export function isHeaderScriptCall(input) {

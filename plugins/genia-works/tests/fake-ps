@@ -10,6 +10,7 @@ while [ $# -gt 0 ]; do
 done
 line=$(grep "^$pid|" "$FAKE_PS_TABLE") || exit 1
 case "$field" in
+  pid=) echo "$pid" ;;
   ppid=) echo "$line" | cut -d'|' -f2 ;;
   lstart=) echo "$line" | cut -d'|' -f3 ;;
   args=) echo "$line" | cut -d'|' -f4- ;;

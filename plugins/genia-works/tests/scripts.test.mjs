@@ -131,13 +131,49 @@ test('gw_prune_sessions: 시작 시각이 다른 세션 파일은 지우고 같�
   writeFileSync(reused, 'me\n');
   const r = spawnSync('sh', ['-c', '. "$1/gw-lib.sh"; gw_prune_sessions', 'sh', scripts], {
     encoding: 'utf8',
-    env: { PATH: `${bin}:${process.env.PATH}`, HOME: home, FAKE_PS_TABLE: table },
+    env: { PATH: `${bin}:${process.env.PATH}`, HOME: home, FAKE_PS_TABLE: table, GW_PRUNE_PS_ONLY: '1' },
   });
   assert.equal(r.status, 0);
   assert.equal(existsSync(good), true);
   assert.equal(existsSync(stale), false);
   assert.equal(existsSync(dead), false);
   assert.equal(existsSync(reused), false);
+});
+
+// 정리만 따로 돌린다 — kill 검사는 건너뛰고(GW_PRUNE_PS_ONLY) 가짜 ps 표만 본다.
+function prune() {
+  return spawnSync('sh', ['-c', '. "$1/gw-lib.sh"; gw_prune_sessions', 'sh', scripts], {
+    encoding: 'utf8',
+    env: { PATH: `${bin}:${process.env.PATH}`, HOME: home, FAKE_PS_TABLE: table, GW_PRUNE_PS_ONLY: '1' },
+  });
+}
+
+test('gw_prune_sessions: ps 가 시작 시각을 일시적으로 못 읽어도 살아 있는 세션 파일은 지우지 않는다', () => {
+  const dir = join(home, '.genia-works', 'sessions');
+  mkdirSync(dir, { recursive: true });
+  const f = join(dir, '400-Thu_Oct_15_06_00_00_2026');
+  writeFileSync(f, 'ai-dev\n');
+  // pid 400 은 표에 있지만(살아 있음) lstart 칸이 비어 있다 — ps 일시 실패 모사
+  setTable([['400', '1', '', 'claude --plugin-dir x']]);
+  assert.equal(prune().status, 0);
+  assert.equal(existsSync(f), true);
+});
+
+test('gw_prune_sessions: 끝난 프로세스(pid 없음)의 파일은 지우고 pid 재사용(시작 시각 다름)도 지운다', () => {
+  const dir = join(home, '.genia-works', 'sessions');
+  mkdirSync(dir, { recursive: true });
+  const dead = join(dir, '777-Thu_Oct_15_06_00_00_2026');
+  const reused = join(dir, '400-Wed_Oct_14_01_00_00_2026');
+  const live = join(dir, '401-Thu_Oct_15_06_00_00_2026');
+  for (const f of [dead, reused, live]) writeFileSync(f, 'ai-dev\n');
+  setTable([
+    ['400', '1', 'Thu Oct 15 06:00:00 2026', 'claude'],
+    ['401', '1', 'Thu Oct 15 06:00:00 2026', 'claude'],
+  ]);
+  assert.equal(prune().status, 0);
+  assert.equal(existsSync(dead), false);
+  assert.equal(existsSync(reused), false);
+  assert.equal(existsSync(live), true);
 });
 
 test('gw-headers: 선택 없음·GENIA_WORKS_AS 없음 → {} (고정 헤더 사용)', () => {

@@ -69,7 +69,7 @@ const PANE = 'genia-works-login'
 // (덮어쓰기 확인 단계만 같은 키로 다시 누르도록 남긴다). 화면에는 maskOf(keyBuf)만 그린다.
 // attempt: 열기·이동·닫기마다 올라가는 번호 — 서버 확인 중에 화면이 바뀌었으면 늦게 온 저장을 버린다.
 let attempt = 0
-let pane = { view: 'pick', list: [], current: '', envToken: false, keyBuf: '', name: '', message: '', confirm: '', busy: false }
+let pane = { view: 'pick', list: [], current: '', envToken: false, keyBuf: '', name: '', message: '', confirm: '', rekey: '', busy: false }
 
 // 패널 열기 — 등록된 AI 가 없으면 바로 「새 AI 추가」 화면으로 간다.
 async function openLogin($) {
@@ -78,7 +78,7 @@ async function openLogin($) {
   const current = (await script($, 'gw-session', ['show'])).stdout.trim() || ((await $.env.get('GENIA_WORKS_AS')) ?? '')
   attempt++
   const envToken = Boolean(await $.env.get('GENIA_WORKS_TOKEN'))
-  pane = { view: list.length ? 'pick' : 'add', list, current, envToken, keyBuf: '', name: '', message: '', confirm: '', busy: false }
+  pane = { view: list.length ? 'pick' : 'add', list, current, envToken, keyBuf: '', name: '', message: '', confirm: '', rekey: '', busy: false }
   await $.ui.open({ id: PANE, title: 'genia-works 로그인', focus: true, closeOnEscape: true })
   // 다시 열 때 엔진이 지난 그림(settled)을 재사용하므로, 새 상태로 다시 그리라고 요청한다(안 하면 지난 화면이 남는다).
   $.ui.invalidate('ui.render')
@@ -120,10 +120,16 @@ async function saveNewKey($) {
   }
 }
 
+// 덮어쓰기 확인 상태 되돌리기 — 확인은 「그 이름·그 시도」에만 유효하다. 실패하거나 키·이름 입력이 바뀌면 다시 묻는다.
+// 단, 관리 화면의 「키 바꾸기」(rekey)로 들어온 같은 이름은 사용자가 이미 바꾸기로 골랐으므로 확인을 미리 켜 둔다(두 번 묻지 않음).
+function resetConfirm() {
+  pane.confirm = pane.rekey && pane.rekey === pane.name.trim() ? 'overwrite-' + pane.rekey : ''
+}
+
 async function saveNewKeyInner($) {
   const key = pane.keyBuf.trim()
   const name = pane.name.trim()
-  const fail = (m) => { pane.keyBuf = ''; pane.message = m }
+  const fail = (m) => { pane.keyBuf = ''; pane.message = m; resetConfirm() }
   if (!validName(name)) return fail('이름은 영문·숫자·._@- 만 쓸 수 있습니다(me 는 예약)')
   if (key.startsWith('swp_')) return fail('내 토큰(swp_)은 /plugin › genia-works › 설정에 넣으세요')
   if (!validKey(key)) return fail('AI 키는 ak_ 로 시작하고 영문·숫자·_- 로만 이뤄집니다')
@@ -139,7 +145,12 @@ async function saveNewKeyInner($) {
   if (bad) return fail(bad)
   const r = await script($, 'gw-keys', ['add', name], key + '\n')
   pane.keyBuf = ''
-  if (r.exitCode !== 0) return void (pane.message = '저장하지 못했습니다: ' + r.stderr.trim())
+  if (r.exitCode !== 0) {
+    resetConfirm()
+    return void (pane.message = '저장하지 못했습니다: ' + r.stderr.trim())
+  }
+  pane.confirm = ''
+  pane.rekey = ''
   pane.view = 'saved'
   pane.name = name
   pane.message = `✓ ${name} 키를 확인하고 저장했습니다. 지금 이 AI 로 바꿀까요?`
@@ -187,7 +198,7 @@ async function removeKey($, name) {
 function renderPane($, e) {
   const { Box, Text, Button, Input } = $.ui.resolve(e)
   const redraw = () => $.ui.invalidate('ui.render')
-  const go = (view) => () => { attempt++; pane.view = view; pane.keyBuf = ''; pane.message = ''; pane.confirm = ''; redraw() }
+  const go = (view) => () => { attempt++; pane.view = view; pane.keyBuf = ''; pane.message = ''; pane.confirm = ''; pane.rekey = ''; redraw() }
   const msg = pane.message ? h(Text, null, pane.message) : null
   let body
   if (pane.view === 'pick') {
@@ -204,12 +215,12 @@ function renderPane($, e) {
     body = [
       h(Input, {
         key: 'gw-key', label: 'AI 키', placeholder: '관리자 › 에이전트에서 발급한 ak_ 키', value: maskOf(pane.keyBuf), autoFocus: true,
-        onInput: (v) => { pane.keyBuf = applyMaskedInput(pane.keyBuf, maskOf(pane.keyBuf), v); redraw() },
+        onInput: (v) => { pane.keyBuf = applyMaskedInput(pane.keyBuf, maskOf(pane.keyBuf), v); resetConfirm(); redraw() },
         onSubmit: async () => { await saveNewKey($); redraw() },
       }),
       h(Input, {
         key: 'gw-name', label: '이름', placeholder: '이 AI 의 아이디', value: pane.name, submitLabel: '확인하고 저장',
-        onInput: (v) => { pane.name = v; redraw() },
+        onInput: (v) => { pane.name = v; resetConfirm(); redraw() },
         onSubmit: async () => { await saveNewKey($); redraw() },
       }),
       msg,
@@ -228,7 +239,7 @@ function renderPane($, e) {
       h(Text, null, '등록된 AI 관리'),
       ...pane.list.flatMap((k) => [
         h(Text, { key: 'gw-name-' + k.name }, `${k.name}  등록 ${k.added}`),
-        h(Button, { key: 'gw-rekey-' + k.name, label: `${k.name} 키 바꾸기`, onPress: () => { attempt++; pane.view = 'add'; pane.name = k.name; pane.keyBuf = ''; pane.message = ''; pane.confirm = ''; redraw() } }),
+        h(Button, { key: 'gw-rekey-' + k.name, label: `${k.name} 키 바꾸기`, onPress: () => { attempt++; pane.view = 'add'; pane.name = k.name; pane.keyBuf = ''; pane.message = ''; pane.rekey = k.name; resetConfirm(); redraw() } }),
         h(Button, { key: 'gw-remove-' + k.name, label: `${k.name} 삭제`, onPress: () => { pane.confirm = 'remove-' + k.name; redraw() } }),
         pane.confirm === 'remove-' + k.name
           ? h(Box, { flexDirection: 'column' },
@@ -419,7 +430,10 @@ export function register(on, options) {
 
   // 세션 끝 — 종료·로그아웃일 때만 선택을 지운다. 예산 1.5초라 파일 하나만 지운다.
   on('session.end', async ($, e, next) => {
-    if (END_CLEARS.has(e.reason)) await script($, 'gw-session', ['clear'])
+    // 정리 스크립트가 실패해도 종료 흐름(next)은 반드시 이어 간다 — 남은 파일은 헤더 스크립트의 정리가 치운다.
+    try {
+      if (END_CLEARS.has(e.reason)) await script($, 'gw-session', ['clear'])
+    } catch {}
     return next(e)
   })
 
