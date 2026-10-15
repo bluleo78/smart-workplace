@@ -751,3 +751,100 @@ test('session.end: 정리 스크립트가 던져도 종료 흐름(next)은 이�
   await $.session.end({ reason: 'prompt_input_exit', sessionId: 's', resume: { id: 's' } })
   expect(reached).toBe(true)
 })
+
+// ---- 화면 전환과 포커스(결함 A·B) ----
+// 테스트 키트에는 ui.focus 구현이 없어($.ui.focus 가 「no implementation」으로 실패) 이동 요청 자체는 볼 수 없다.
+// 대신 포커스 대상은 한 함수(focusKeyOf)가 정해 $.ui.focus 와 autoFocus 에 같이 쓰므로, 화면마다 autoFocus 가 붙은
+// 요소가 정확히 그 하나인지 본다. 포커스 실패가 화면 전환을 막지 않는다는 것도 함께 확인된다(실패해도 새 화면이 그려진다).
+const focusTargets = async (ui: any) => (await ui.findAll({})).filter((el: any) => el.props?.autoFocus).map((el: any) => el.key)
+const TWO_KEYS = { 'gw-keys list': { exitCode: 0, stdout: 'ai-dev\t10-14\nai-rev\t10-12\n' }, 'gw-session show': { exitCode: 0, stdout: '' } }
+
+test('포커스: 고르기 → 새 AI 추가 → 돌아가기 → 관리, 화면마다 첫 요소 하나만 포커스 대상이다', { options: { server_url: SERVER_URL } }, async ($, on) => {
+  loginWorld(on, TWO_KEYS)
+  await $.command.run({ command: LOGIN_COMMAND, args: '' })
+  const ui = await mountPane($)
+  expect(await focusTargets(ui)).toEqual(['gw-pick-me'])
+  await ui.press({ key: 'gw-add' }) // 결함 B — 누른 버튼이 사라져도 키 칸이 포커스 대상
+  expect(await focusTargets(ui)).toEqual(['gw-key'])
+  await ui.press({ key: 'gw-back' })
+  expect(await focusTargets(ui)).toEqual(['gw-pick-me'])
+  await ui.press({ key: 'gw-manage' })
+  expect(await focusTargets(ui)).toEqual(['gw-rekey-ai-dev'])
+  await ui.press({ key: 'gw-rekey-ai-rev' }) // 관리 › 키 바꾸기도 추가 화면이다 — 키 칸
+  expect(await focusTargets(ui)).toEqual(['gw-key'])
+  expect((await ui.find({ key: 'gw-name' }))?.text).toBe('ai-rev')
+  await ui.unmount()
+})
+
+test('포커스: 저장 화면은 바꾸기 하나만 포커스 대상이다(결함 A — Enter 가 나중에 로 가지 않게)', { options: { server_url: SERVER_URL } }, async ($, on) => {
+  loginWorld(on, EMPTY)
+  const ui = await fillAndSave($, FAKE_KEY, 'ai-dev')
+  expect(await focusTargets(ui)).toEqual(['gw-switch-now'])
+  expect(JSON.stringify(await ui.findAll({}))).toContain('✓ ai-dev 키를 확인하고 저장했습니다')
+  await ui.unmount()
+})
+
+test('포커스: 관리에서 하나를 지우면 메시지를 남기고 남은 첫 줄로, 다 지우면 추가 화면의 키 칸으로', { options: { server_url: SERVER_URL } }, async ($, on) => {
+  const answers = { 'gw-keys list': { exitCode: 0, stdout: 'ai-dev\t10-14\nai-rev\t10-12\n' }, 'gw-session show': { exitCode: 0, stdout: '' } }
+  loginWorld(on, answers) // 응답 표를 그대로 들고 있으므로 지운 뒤의 목록은 여기를 바꿔 흉내 낸다
+  await $.command.run({ command: LOGIN_COMMAND, args: '' })
+  const ui = await mountPane($)
+  await ui.press({ key: 'gw-manage' })
+  await ui.press({ key: 'gw-remove-ai-dev' })
+  answers['gw-keys list'].stdout = 'ai-rev\t10-12\n'
+  await ui.press({ key: 'gw-remove-confirm-ai-dev' })
+  expect(JSON.stringify(await ui.findAll({}))).toContain('ai-dev 키를 지웠습니다')
+  expect(await focusTargets(ui)).toEqual(['gw-rekey-ai-rev'])
+  await ui.press({ key: 'gw-remove-ai-rev' })
+  answers['gw-keys list'].stdout = ''
+  await ui.press({ key: 'gw-remove-confirm-ai-rev' })
+  expect(await ui.find({ key: 'gw-key' })).toBeTruthy()
+  expect(await focusTargets(ui)).toEqual(['gw-key'])
+  expect(JSON.stringify(await ui.findAll({}))).toContain('ai-rev 키를 지웠습니다')
+  await ui.unmount()
+})
+
+test('포커스: 다시 열면 지난 화면이 아니라 새 고르기 화면의 첫 요소가 대상이다(작은 관찰 1)', { options: { server_url: SERVER_URL } }, async ($, on) => {
+  loginWorld(on, { 'gw-keys list': { exitCode: 0, stdout: 'ai-dev\t10-14\n' }, 'gw-session show': { exitCode: 0, stdout: '' } })
+  await $.command.run({ command: LOGIN_COMMAND, args: '' })
+  const ui = await mountPane($)
+  await ui.press({ key: 'gw-add' })
+  await ui.unmount()
+  await $.command.run({ command: LOGIN_COMMAND, args: '' })
+  const again = await mountPane($)
+  expect(await focusTargets(again)).toEqual(['gw-pick-me'])
+  await again.unmount()
+})
+
+test('안전장치: 패널이 키보드를 쥐지 않은 채 추가 화면이면 붙여 넣지 말라고 먼저 알린다', { options: { server_url: SERVER_URL } }, async ($, on) => {
+  loginWorld(on, EMPTY)
+  await $.command.run({ command: LOGIN_COMMAND, args: '' })
+  const unfocused = await $.ui.mount({ plugin: 'genia-works', surface: 'terminal', component: 'Pane', requestId: PANE_ID, props: { ...PANE_PROPS, isFocused: false } })
+  expect(JSON.stringify(await unfocused.findAll({}))).toContain('이 패널에 키보드가 없습니다')
+  await unfocused.unmount()
+  const focused = await mountPane($)
+  expect(JSON.stringify(await focused.findAll({}))).not.toContain('이 패널에 키보드가 없습니다')
+  await focused.unmount()
+})
+
+test('덮어쓰기 확인: 제출로 비워진 이름·키 칸을 다음 차례에 되살린다(작은 관찰 2)', { options: { server_url: SERVER_URL } }, async ($, on) => {
+  const w = loginWorld(on, { 'gw-keys list': { exitCode: 0, stdout: 'ai-dev\t10-14\n' }, 'gw-session show': { exitCode: 0, stdout: '' } })
+  await $.command.run({ command: LOGIN_COMMAND, args: '' })
+  const ui = await mountPane($)
+  await ui.press({ key: 'gw-add' })
+  await ui.input({ key: 'gw-key', text: FAKE_KEY, kind: 'change' })
+  await ui.input({ key: 'gw-name', text: 'ai-dev', kind: 'change' })
+  await ui.input({ key: 'gw-name', text: 'ai-dev', kind: 'submit' })
+  expect(JSON.stringify(await ui.findAll({}))).toContain('바꿀까요')
+  // 엔진은 같은 value 를 다시 넣지 않으므로 한 번 빈 값으로 그린 뒤
+  expect((await ui.find({ key: 'gw-name' }))?.text ?? '').toBe('')
+  await w.clock.advance(1)
+  // 바로 다음 차례에 실제 값으로 다시 그린다 — 이름은 보이고 키는 가림 문자로만
+  expect((await ui.find({ key: 'gw-name' }))?.text).toBe('ai-dev')
+  expect((await ui.find({ key: 'gw-key' }))?.text).toBe('●'.repeat(FAKE_KEY.length))
+  // 확인 상태는 그대로 — 한 번 더 저장하면 덮어쓴다
+  await ui.input({ key: 'gw-name', text: 'ai-dev', kind: 'submit' })
+  expect(w.runs.find((r) => r.argv[1] === 'add')?.stdin).toBe(FAKE_KEY + '\n')
+  expect(await focusTargets(ui)).toEqual(['gw-switch-now'])
+  await ui.unmount()
+})
