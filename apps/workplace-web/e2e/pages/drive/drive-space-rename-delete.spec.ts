@@ -75,8 +75,9 @@ test.describe('드라이브 TEAM 공간 이름 변경/삭제', () => {
     await expect.poll(() => patches.lastBody()).toEqual({ name: '제품팀' })
   })
 
-  // 메뉴는 닫힘 애니메이션 뒤 타이머로 트리거에 포커스를 되돌린다 — 부하로 그게 늦으면 다이얼로그에 이미 친 글자를 포커스 트랩이
-  // 되찾으며 전체 선택해 다음 글자가 덮어썼다. 페이지 시계를 멈춰 그 순서를 고정한다.
+  // 닫히는 중인 메뉴가 포커스를 되가져가면 다이얼로그 포커스 트랩이 입력칸으로 되찾으며 값 전체를 선택해, 이미 친 뒤의 다음 글자가
+  // 전부 덮어썼다. 가져가는 길은 두 가지 — 오버레이가 항목을 덮을 때의 pointerleave(항목 → content, WP-401)와 닫힘 애니메이션 뒤
+  // 트리거로 되돌리는 타이머. 페이지 시계를 멈춰 타이머를 입력 도중에 돌린다(pointerleave 는 preview 번들에서 입력 도중에 겹친다).
   test('⋯ 메뉴의 포커스 되돌리기가 늦게 돌아도 이름 변경 칸에 친 글자가 덮어써지지 않는다', async ({ authenticatedPage: page }) => {
     await mockBaseRoutes(page)
     await page.goto('/drive')

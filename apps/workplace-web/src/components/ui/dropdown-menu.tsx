@@ -70,10 +70,28 @@ function DropdownMenuGroup({
   )
 }
 
+// 닫히는 중인 메뉴(퇴장 애니메이션 동안 남아 있는 content)의 항목이 포인터 이벤트로 포커스를 되가져가지 못하게 막는다.
+// Radix 는 포인터가 항목을 떠나면 content 로, 항목 위에서 움직이면 그 항목으로 포커스를 옮긴다. 항목이 연 다이얼로그의
+// 오버레이가 그 위를 덮는 순간 pointerleave 가 와 입력칸 포커스를 빼앗았고, 다이얼로그 포커스 트랩이 되찾으며 값 전체를
+// 선택해 입력 도중이면 다음 글자가 전부 덮어썼다(번들이 빠른 preview 에서 입력 도중에 겹쳤다, WP-401).
+// preventDefault 하면 Radix 의 composeEventHandlers 가 자기 처리(포커스 이동)를 건너뛴다.
+// 포커스를 옮기는 모든 항목(Item·CheckboxItem·RadioItem·SubTrigger)에 같은 가드를 건다 — 하나라도 빠지면 그 항목이 연 다이얼로그에서 같은 증상이 난다.
+function guardClosingMenuPointer(
+  handler?: React.PointerEventHandler<HTMLDivElement>
+): React.PointerEventHandler<HTMLDivElement> {
+  return (event) => {
+    handler?.(event)
+    const menu = event.currentTarget.closest('[role="menu"]')
+    if (menu?.getAttribute("data-state") === "closed") event.preventDefault()
+  }
+}
+
 function DropdownMenuItem({
   className,
   inset,
   variant = "default",
+  onPointerLeave,
+  onPointerMove,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Item> & {
   inset?: boolean
@@ -84,6 +102,8 @@ function DropdownMenuItem({
       data-slot="dropdown-menu-item"
       data-inset={inset}
       data-variant={variant}
+      onPointerLeave={guardClosingMenuPointer(onPointerLeave)}
+      onPointerMove={guardClosingMenuPointer(onPointerMove)}
       className={cn(
         "focus:bg-accent focus:text-accent-foreground data-[variant=destructive]:text-destructive data-[variant=destructive]:focus:bg-destructive/10 dark:data-[variant=destructive]:focus:bg-destructive/20 data-[variant=destructive]:focus:text-destructive data-[variant=destructive]:*:[svg]:!text-destructive [&_svg:not([class*='text-'])]:text-muted-foreground relative flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 data-[inset]:pl-8 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         className
@@ -97,11 +117,15 @@ function DropdownMenuCheckboxItem({
   className,
   children,
   checked,
+  onPointerLeave,
+  onPointerMove,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.CheckboxItem>) {
   return (
     <DropdownMenuPrimitive.CheckboxItem
       data-slot="dropdown-menu-checkbox-item"
+      onPointerLeave={guardClosingMenuPointer(onPointerLeave)}
+      onPointerMove={guardClosingMenuPointer(onPointerMove)}
       className={cn(
         "focus:bg-accent focus:text-accent-foreground relative flex cursor-default items-center gap-2 rounded-sm py-1.5 pr-2 pl-8 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         className
@@ -133,11 +157,15 @@ function DropdownMenuRadioGroup({
 function DropdownMenuRadioItem({
   className,
   children,
+  onPointerLeave,
+  onPointerMove,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.RadioItem>) {
   return (
     <DropdownMenuPrimitive.RadioItem
       data-slot="dropdown-menu-radio-item"
+      onPointerLeave={guardClosingMenuPointer(onPointerLeave)}
+      onPointerMove={guardClosingMenuPointer(onPointerMove)}
       className={cn(
         "focus:bg-accent focus:text-accent-foreground relative flex cursor-default items-center gap-2 rounded-sm py-1.5 pr-2 pl-8 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         className
@@ -213,6 +241,8 @@ function DropdownMenuSubTrigger({
   className,
   inset,
   children,
+  onPointerLeave,
+  onPointerMove,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.SubTrigger> & {
   inset?: boolean
@@ -221,6 +251,8 @@ function DropdownMenuSubTrigger({
     <DropdownMenuPrimitive.SubTrigger
       data-slot="dropdown-menu-sub-trigger"
       data-inset={inset}
+      onPointerLeave={guardClosingMenuPointer(onPointerLeave)}
+      onPointerMove={guardClosingMenuPointer(onPointerMove)}
       className={cn(
         "focus:bg-accent focus:text-accent-foreground data-[state=open]:bg-accent data-[state=open]:text-accent-foreground [&_svg:not([class*='text-'])]:text-muted-foreground flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none data-[inset]:pl-8 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         className
