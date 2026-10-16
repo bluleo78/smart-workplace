@@ -3,7 +3,7 @@
 // MailQuoteBlock 이 표시하며, 발송 시 bodyHtml = 에디터 본문 + quote.html 로 합쳐진다.
 // 저장된 원문은 완전 HTML 문서이므로 표·서식 보존과 <style> 누출 차단을 함께
 // 단정한다 — 존재 단언만으로는 누출 버그를 놓친다.
-import { THIN_SCROLLBAR_STYLE } from '../../../src/lib/sandboxedHtml'
+import { SANDBOX_HEAD } from '../../../src/lib/sandboxedHtml'
 import { detail, mailAccount, summary } from '../../factories/mail.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
@@ -80,9 +80,9 @@ test.describe('메일 인용문 보존', () => {
     expect(srcDoc).toContain('bgcolor="#eeeeee"')
     expect(srcDoc).toContain('style="color:#0000ff"')
     expect(srcDoc).toContain('<font color="red">')
-    // 누출 차단: 원문 스타일시트와 문서 래퍼. 공용 격리 프레임이 넣는 슬림 스크롤바 스타일(WP-275)은
+    // 누출 차단: 원문 스타일시트와 문서 래퍼. 공용 격리 프레임이 넣는 머리말(슬림 스크롤바 WP-275·링크 base WP-427)은
     // 정확히 그 문자열 하나만 빼고 본다 — 원문 <style> 이 새면 여전히 잡힌다.
-    const original = srcDoc!.replace(THIN_SCROLLBAR_STYLE, '')
+    const original = srcDoc!.replace(SANDBOX_HEAD, '')
     expect(original).not.toContain('<style')
     expect(original).not.toContain('Papyrus')
     expect(original).not.toContain('<html')
