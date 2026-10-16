@@ -1,5 +1,6 @@
 """범용 워커 디스패치. /tasks/{type} 로 작업 받고 백그라운드 처리 후 api 콜백."""
-from fastapi import FastAPI, Depends, BackgroundTasks, HTTPException, Response
+from fastapi import FastAPI, Depends, BackgroundTasks, HTTPException, Query, Request, Response
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 from . import config, blobs, callback, embed
 from .auth import require_internal
@@ -84,15 +85,47 @@ def render(t: RenderTask) -> Response:
         raise HTTPException(status_code=404, detail={"code": "NOT_FOUND"})
     if size > config.MAX_BYTES:
         raise HTTPException(status_code=413, detail={"code": "TOO_LARGE"})
+    # PDF 는 경로로 연다(MuPDF 가 필요한 부분만 읽는다). 이미지는 어차피 통째로 디코딩하므로 바이트로.
+    return _render_response(t.mime, t.page, t.maxEdge, pdf_source=path, image_bytes=path.read_bytes)
+
+
+@app.post("/render/bytes", dependencies=[Depends(require_internal)])
+async def render_bytes(
+    request: Request,
+    mime: str = Query(...),
+    page: int | None = Query(default=None, ge=1),
+    maxEdge: int = Query(default=1568, ge=64, le=4096),
+) -> Response:
+    """요청 본문(원본 바이트)을 /render 와 같이 그린다(WP-388). 저장소에 두지 않는 원본 — 메일 첨부 — 용이다.
+
+    메일 원본은 복호화한 평문을 디스크에 남기지 않으려고 공유 볼륨을 거치지 않고 본문으로 받는다. 한도·오류 코드·응답 모양은 /render 와 같다
+    (BAD_KEY·NOT_FOUND 는 경로가 없어 생기지 않는다). 본문은 MAX_BYTES 를 넘는 순간 읽기를 멈추고 413 — 거대한 본문을 메모리에 다 올리지 않는다.
+    인증은 /render 와 같은 Internal 토큰(require_internal).
+    """
+    declared = request.headers.get("content-length")
+    if declared is not None and declared.isdigit() and int(declared) > config.MAX_BYTES:
+        raise HTTPException(status_code=413, detail={"code": "TOO_LARGE"})
+    buf = bytearray()
+    async for chunk in request.stream():
+        buf.extend(chunk)
+        if len(buf) > config.MAX_BYTES:  # Content-Length 없이(chunked) 온 경우도 막는다
+            raise HTTPException(status_code=413, detail={"code": "TOO_LARGE"})
+    data = bytes(buf)
+    # 렌더는 CPU 작업·PDF 잠금 대기가 있어 이벤트 루프를 막지 않게 스레드풀에서(동기 /render 와 같은 실행 모델).
+    return await run_in_threadpool(_render_response, mime, page, maxEdge, pdf_source=data, image_bytes=lambda: data)
+
+
+def _render_response(mime: str, page: int | None, max_edge: int, *, pdf_source, image_bytes) -> Response:
+    """/render·/render/bytes 공통 — page 규칙 확인 → 그리기 → 응답(PDF 면 X-Page-Count). 오류는 detail={code,...}."""
     try:
-        if t.mime == "application/pdf":
-            if t.page is None:
+        if mime == "application/pdf":
+            if page is None:
                 raise RenderError(400, {"code": "PAGE_REQUIRED"})
-            r = render_pdf_page(path, t.page, t.maxEdge)
+            r = render_pdf_page(pdf_source, page, max_edge)
         else:
-            if t.page is not None:
+            if page is not None:
                 raise RenderError(400, {"code": "PAGE_NOT_ALLOWED"})
-            r = render_image(path.read_bytes(), t.mime, t.maxEdge)
+            r = render_image(image_bytes(), mime, max_edge)
     except RenderError as e:
         raise HTTPException(status_code=e.status, detail=e.detail)
     # PDF 만 전체 페이지 수를 헤더로 알려 api 가 범위를 안내하게 한다.

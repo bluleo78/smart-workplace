@@ -600,7 +600,7 @@ export interface DriveBacklinkRow {
 
 /**
  * 첨부·파일 내용 읽기(WP-346) — read_file 이 쓴다. 텍스트는 서버가 추출해 둔 구간을 읽고, 이미지는 서버 변환본(/view, WP-250)을 받는다
- * (이미지 블록으로 모델에 넘기려고 — 변환본이 없는 메일만 원본). 권한은 서버가 강제한다(이슈: 프로젝트 멤버, 드라이브: 스페이스 VIEWER).
+ * (이미지 블록으로 모델에 넘기려고 — 메일 첨부도 같다, WP-388). 권한은 서버가 강제한다(이슈: 프로젝트 멤버, 드라이브: 스페이스 VIEWER).
  */
 export interface AttachmentToolClient {
   /** GET /projects/{key}/issues/{n}/attachments/{fileId}/text. */
@@ -613,12 +613,10 @@ export interface AttachmentToolClient {
   readMessageAttachmentText(channelId: number, messageId: number, fileId: number, range: TextRange): Promise<ExtractedTextSlice>;
   /** GET /mail/attachments/{attachmentId}/text(WP-358) — 본인 소유 첨부만(아니면 404). 응답 fileId 는 요청한 attachmentId 다. 첫 호출은 PENDING. */
   readMailAttachmentText(attachmentId: number, range: TextRange): Promise<ExtractedTextSlice>;
-  /** GET /mail/attachments/{attachmentId}/content — 원본 바이트(IMAP·Graph 에서 가져온다). */
-  downloadMailAttachment(attachmentId: number): Promise<FileBytes>;
   /** 이슈 챗 첨부 텍스트(WP-373) — 스레드 id 는 이슈 키로 구한다. GET /chat/threads/{id}/attachments/{fileId}/text. */
   readIssueChatAttachmentText(issueKey: string, messageId: number, fileId: number, range: TextRange): Promise<ExtractedTextSlice>;
   // ── 모델 입력용 이미지(WP-250) — GET …/view. page(1부터)는 PDF 쪽이고 쿼리로, 없으면 이미지 변환본(HEIC·큰 이미지 등).
-  //    서버 4xx·5xx 는 한국어 사유가 message 에 실린 오류로 던진다(예: 범위 밖 쪽 400, 손상 422, 렌더 실패 503). 메일은 아직 없다(WP-388).
+  //    서버 4xx·5xx 는 한국어 사유가 message 에 실린 오류로 던진다(예: 범위 밖 쪽 400, 손상 422, 렌더 실패 503).
   /** GET /projects/{key}/issues/{n}/attachments/{fileId}/view[?page=N]. */
   viewIssueAttachment(issueKey: string, fileId: number, page?: number): Promise<FileBytes>;
   /** GET /drive/files/{id}/view[?page=N]. */
@@ -629,6 +627,8 @@ export interface AttachmentToolClient {
   viewMessageAttachment(channelId: number, messageId: number, fileId: number, page?: number): Promise<FileBytes>;
   /** 이슈 챗 첨부(WP-373) — 스레드 id 는 이슈 키로 구한다. GET /chat/threads/{id}/attachments/{fileId}/view[?page=N]. */
   viewIssueChatAttachment(issueKey: string, fileId: number, page?: number): Promise<FileBytes>;
+  /** 메일 첨부(WP-388) — 본인 소유만(아니면 404). 서버가 요청마다 원본을 받아 그린다. GET /mail/attachments/{attachmentId}/view[?page=N]. */
+  viewMailAttachment(attachmentId: number, page?: number): Promise<FileBytes>;
 }
 
 /** 휴지통 항목 — type 에 따라 id 가 drive_file.id(FILE) 또는 폴더 id(FOLDER)다. 뷰가 이름을 나눠 붙이므로 그 필드를 고정한다. */

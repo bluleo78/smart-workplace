@@ -259,9 +259,9 @@ class MailAttachmentTextTest extends IntegrationTestBase {
 
   @Test
   void 파라미터가_붙은_대문자_Content_Type_도_정규화() {
-    assertThat(MailAttachmentTextService.normalizeMime("a.pdf", "Application/PDF; name=\"a.pdf\""))
+    assertThat(MailAttachmentResolver.normalizeMime("a.pdf", "Application/PDF; name=\"a.pdf\""))
         .isEqualTo("application/pdf");
-    assertThat(MailAttachmentTextService.normalizeMime("보고서.hwp", "application/octet-stream"))
+    assertThat(MailAttachmentResolver.normalizeMime("보고서.hwp", "application/octet-stream"))
         .isEqualTo("application/x-hwp");
   }
 

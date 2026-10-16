@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 
-import { FileTooLargeError, IMAGE_MAX_BYTES, READ_ATTACHMENT_DEFAULT_LIMIT } from './attachment-read.js';
+import { READ_ATTACHMENT_DEFAULT_LIMIT } from './attachment-read.js';
 import { buildAttachmentTools, readFileInput } from './attachment-tools.js';
 import { PAGES_NOTE_HINT } from './attachment-view.js';
 import { describeApiError } from './parse.js';
@@ -30,7 +30,7 @@ const issueView = ({ fileId, ...rest }: ExtractedTextSlice) => ({ attachmentId: 
 const READY = slice('READY', { totalChars: 11, truncated: false, nextOffset: 6, text: '가나다라마😀' });
 const IMAGE_SKIP = slice('SKIPPED', { reasonCode: 'IMAGE', reason: '이미지 파일은 글자를 추출하지 않습니다.' });
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
-/** 서버 /view 응답(WP-250) — 원본(메일 첨부만 받는다)과 구분되게 JPEG 로 둔다. */
+/** 서버 /view 응답(WP-250) — 변환본은 JPEG 로 둔다. */
 const JPEG = new Uint8Array([0xff, 0xd8, 0xff]);
 const VIEW = { data: JPEG, mimeType: 'image/jpeg' };
 const JPEG_BLOCK = { type: 'image', data: Buffer.from(JPEG).toString('base64'), mimeType: 'image/jpeg' };
@@ -43,13 +43,13 @@ function mockClient(): AttachmentToolClient {
     readWikiAttachmentText: vi.fn().mockResolvedValue(READY),
     readMessageAttachmentText: vi.fn().mockResolvedValue(READY),
     readMailAttachmentText: vi.fn().mockResolvedValue(READY),
-    downloadMailAttachment: vi.fn().mockResolvedValue({ data: PNG, mimeType: 'image/png' }),
     readIssueChatAttachmentText: vi.fn().mockResolvedValue(READY),
     viewIssueAttachment: vi.fn().mockResolvedValue(VIEW),
     viewDriveFile: vi.fn().mockResolvedValue(VIEW),
     viewWikiAttachment: vi.fn().mockResolvedValue(VIEW),
     viewMessageAttachment: vi.fn().mockResolvedValue(VIEW),
     viewIssueChatAttachment: vi.fn().mockResolvedValue(VIEW),
+    viewMailAttachment: vi.fn().mockResolvedValue(VIEW),
   };
 }
 
@@ -73,11 +73,12 @@ describe('read_file 입력 스키마', () => {
     expect(on.description).toContain('pages:[n]');
   });
 
-  // WP-250 최종 리뷰: 변환본(/view)·pages 는 메일 첨부에 없다(WP-388) — 설명이 메일 제외를 밝힌다.
-  it('설명은 큰 이미지·HEIC 변환과 pages 가 메일 첨부에는 없다고 밝힌다', () => {
-    expect(readAttachment(mockClient()).description).toContain('large/HEIC converted; not mail');
-    expect(readAttachment(mockClient()).description).toContain('PDF (not mail): pages:[n]');
-    expect(readAttachment(mockClient(), false).description).toContain('not mail');
+  // WP-388: 메일 첨부도 변환본(/view)·pages 를 지원한다 — 설명에서 메일 제외 단서를 뺐다.
+  it('설명은 큰 이미지·HEIC 변환과 pages 를 모든 source 공통으로 밝힌다(메일 제외 없음)', () => {
+    expect(readAttachment(mockClient()).description).toContain('large/HEIC converted).');
+    expect(readAttachment(mockClient()).description).toContain('PDF: pages:[n]');
+    expect(readAttachment(mockClient()).description).not.toContain('not mail');
+    expect(readAttachment(mockClient(), false).description).not.toContain('not mail');
   });
 
   it('JSON 스키마로 직렬화된다(MCP 클라이언트가 받는 형식) — 최상위 type object, source 만 필수', () => {
@@ -237,7 +238,7 @@ describe('read_file — 드라이브 파일', () => {
 
 /**
  * 노트·메시지·메일 — 추출 슬라이스와 이미지 처리가 같은 모양이라 같은 시나리오를 소스별로 돌린다(WP-358).
- * image 는 이미지를 받는 호출이다 — 노트·메시지는 변환본(/view), 메일은 /view 가 없어(WP-388) 원본(/content).
+ * image 는 이미지를 받는 호출이다 — 모두 변환본(/view, 메일은 WP-388).
  */
 const NEW_SOURCES = [
   {
@@ -262,10 +263,10 @@ const NEW_SOURCES = [
     name: '메일(mail)',
     args: { source: 'mail', attachmentId: 55 },
     readText: (c: AttachmentToolClient) => c.readMailAttachmentText,
-    image: (c: AttachmentToolClient) => c.downloadMailAttachment,
+    image: (c: AttachmentToolClient) => c.viewMailAttachment,
     textArgs: [55],
-    imageArgs: [55],
-    block: PNG_BLOCK,
+    imageArgs: [55, undefined],
+    block: JPEG_BLOCK,
   },
 ] as const;
 
@@ -290,7 +291,7 @@ describe.each(NEW_SOURCES)('read_file — $name (WP-358)', ({ args, readText, im
     expect(image(c)).not.toHaveBeenCalled();
   });
 
-  it('이미지(SKIPPED·IMAGE): [설명, image] 블록으로 — 노트·메시지는 변환본, 메일은 원본', async () => {
+  it('이미지(SKIPPED·IMAGE): 변환본을 [설명, image] 블록으로', async () => {
     const c = mockClient();
     vi.mocked(readText(c)).mockResolvedValue(IMAGE_SKIP);
     const out = (await readAttachment(c).handler(args)) as McpContent[];
@@ -310,25 +311,21 @@ describe('read_file — 노트·메시지 변환 실패 (WP-250)', () => {
   });
 });
 
-describe('read_file — 메일 원본 이미지 (WP-388: 변환본 없음)', () => {
-  it('원본 Content-Type 파라미터를 떼어 image 블록으로', async () => {
+describe('read_file — 메일 이미지 변환본 (WP-388)', () => {
+  it('HEIC·큰 이미지도 서버 변환본(/view)을 받아 image 블록으로 — 원본 형식·크기 제한이 없다', async () => {
     const c = mockClient();
     vi.mocked(c.readMailAttachmentText).mockResolvedValue(IMAGE_SKIP);
-    vi.mocked(c.downloadMailAttachment).mockResolvedValue({ data: PNG, mimeType: 'image/png;charset=UTF-8' });
+    vi.mocked(c.viewMailAttachment).mockResolvedValue({ data: PNG, mimeType: 'image/png;charset=UTF-8' });
     const out = (await readAttachment(c).handler({ source: 'mail', attachmentId: 55 })) as McpContent[];
+    expect(c.viewMailAttachment).toHaveBeenCalledWith(55, undefined);
     expect(out).toEqual([{ type: 'text', text: '메일 첨부 이미지(attachmentId 55) (image/png, 4B)' }, PNG_BLOCK]);
   });
 
-  it('크기 초과(FileTooLargeError)·형식 불가(HEIC)는 사유 안내, 다른 오류는 삼키지 않는다', async () => {
+  it('서버가 변환하지 못하면(사유) 던지지 않고 그 사유를 text 로', async () => {
     const c = mockClient();
-    const args = { source: 'mail', attachmentId: 55 };
     vi.mocked(c.readMailAttachmentText).mockResolvedValue(IMAGE_SKIP);
-    vi.mocked(c.downloadMailAttachment).mockRejectedValue(new FileTooLargeError());
-    expect(await readAttachment(c).handler(args)).toContain(`크기(${IMAGE_MAX_BYTES}B 초과)`);
-    vi.mocked(c.downloadMailAttachment).mockResolvedValue({ data: PNG, mimeType: 'image/heic' });
-    expect(await readAttachment(c).handler(args)).toContain('형식(image/heic)');
-    vi.mocked(c.downloadMailAttachment).mockRejectedValue(new Error('boom'));
-    await expect(readAttachment(c).handler(args)).rejects.toThrow('boom');
+    vi.mocked(c.viewMailAttachment).mockRejectedValue(new Error('파일을 열 수 없습니다(손상·암호).'));
+    expect(await readAttachment(c).handler({ source: 'mail', attachmentId: 55 })).toContain('파일을 열 수 없습니다');
   });
 });
 
@@ -358,7 +355,7 @@ describe('read_file — 노트 NONE (WP-358)', () => {
     await readAttachment(c).handler({ source: 'message', channelId: 3, messageId: 40, attachmentId: 55 });
     await readAttachment(c).handler({ source: 'mail', attachmentId: 55 });
     expect(c.viewMessageAttachment).not.toHaveBeenCalled();
-    expect(c.downloadMailAttachment).not.toHaveBeenCalled();
+    expect(c.viewMailAttachment).not.toHaveBeenCalled();
   });
 });
 
@@ -369,7 +366,7 @@ describe('read_file — 메일 PENDING (WP-358)', () => {
     const out = JSON.parse(resultText(await readAttachment(c).handler({ source: 'mail', attachmentId: 55 })));
     expect(out).toMatchObject({ attachmentId: 55, status: 'PENDING', text: null });
     expect(out.note).toContain('다시 호출');
-    expect(c.downloadMailAttachment).not.toHaveBeenCalled();
+    expect(c.viewMailAttachment).not.toHaveBeenCalled();
   });
 
   it('노트·메시지의 PENDING 은 상태만(안내 없음)', async () => {
@@ -409,11 +406,36 @@ describe('read_file — 페이지 이미지(pages, WP-250)', () => {
     expect(c.viewMessageAttachment).toHaveBeenCalledWith(3, 40, 55, 5);
   });
 
-  it('mail + pages: 던지지 않고 아직 지원하지 않는다는 문구', async () => {
+  it('mail + pages: 메일 /view?page 로 쪽 이미지를 준다(WP-388)', async () => {
     const c = mockClient();
-    const out = await readAttachment(c).handler({ source: 'mail', attachmentId: 55, pages: [1] });
-    expect(out).toContain('메일 첨부는 아직 페이지 보기를 지원하지 않습니다');
+    const out = (await readAttachment(c).handler({ source: 'mail', attachmentId: 55, pages: [1, 3] })) as McpContent[];
+    expect(vi.mocked(c.viewMailAttachment).mock.calls).toEqual([[55, 1], [55, 3]]);
     expect(c.readMailAttachmentText).not.toHaveBeenCalled();
+    expect(out.filter((b) => b.type === 'image')).toHaveLength(2);
+    expect(out[0]).toEqual({ type: 'text', text: expect.stringContaining('메일 첨부(attachmentId 55) 1쪽') });
+  });
+
+  it('mail + pages: 쪽을 차례로 받는다(앞 쪽이 끝나야 다음 쪽 — 서버 첨부 캐시를 채우게), 한 쪽 실패는 다른 쪽을 막지 않는다', async () => {
+    const c = mockClient();
+    const order: string[] = [];
+    vi.mocked(c.viewMailAttachment).mockImplementation(async (_id, n) => {
+      order.push(`start ${n}`);
+      await new Promise((r) => setTimeout(r, 5));
+      order.push(`end ${n}`);
+      if (n === 2) throw new Error('파일을 열 수 없습니다(손상·암호).');
+      return VIEW;
+    });
+    const out = (await readAttachment(c).handler({ source: 'mail', attachmentId: 55, pages: [1, 2, 3] })) as McpContent[];
+    expect(order).toEqual(['start 1', 'end 1', 'start 2', 'end 2', 'start 3', 'end 3']);
+    expect(out.filter((b) => b.type === 'image')).toHaveLength(2);
+    expect(out.some((b) => b.type === 'text' && b.text.includes('2쪽: 파일을 열 수 없습니다'))).toBe(true);
+  });
+
+  it('mail + pages: 범위 밖 쪽(서버 400)은 던지지 않고 사유를 text 로', async () => {
+    const c = mockClient();
+    vi.mocked(c.viewMailAttachment).mockRejectedValue(new Error('API 오류 400: 이 PDF 는 2쪽입니다. 1~2 사이 페이지를 지정하세요.'));
+    const out = await readAttachment(c).handler({ source: 'mail', attachmentId: 55, pages: [5] });
+    expect(out).toContain('이 PDF 는 2쪽입니다');
   });
 
   it('pages 는 1~3개, 1부터 — 4쪽 이상·0쪽은 스키마가 거절', async () => {
@@ -468,10 +490,16 @@ describe('read_file — 페이지 이미지(pages, WP-250)', () => {
     expect(out.note).toBe('글자가 없는 스캔 PDF 입니다. pages 로 페이지 이미지를 읽으세요.');
   });
 
-  it('메일 첨부에는 pages 안내를 붙이지 않는다(메일은 페이지 보기를 지원하지 않는다)', async () => {
+  it('메일 첨부도 pages 안내를 붙인다(WP-388) — 스캔 PDF·READY PDF, imageInput:false 면 READY 는 note 없음', async () => {
     const c = mockClient();
     vi.mocked(c.readMailAttachmentText).mockResolvedValue(SCANNED);
-    expect(JSON.parse(resultText(await readAttachment(c).handler({ source: 'mail', attachmentId: 55 })))).not.toHaveProperty('note');
+    const scanned = JSON.parse(resultText(await readAttachment(c).handler({ source: 'mail', attachmentId: 55 })));
+    expect(scanned.note).toBe('글자가 없는 스캔 PDF(4쪽)입니다. pages 로 페이지 이미지를 읽으세요.');
+    vi.mocked(c.readMailAttachmentText).mockResolvedValue(PDF_READY);
+    const ready = JSON.parse(resultText(await readAttachment(c).handler({ source: 'mail', attachmentId: 55 })));
+    expect(ready).toMatchObject({ attachmentId: 55, pageCount: 6, note: '그림·도표·스캔 페이지는 pages 로 이미지를 볼 수 있습니다.' });
+    const off = JSON.parse(resultText(await readAttachment(c, false).handler({ source: 'mail', attachmentId: 55 })));
+    expect(off).not.toHaveProperty('note');
   });
 
   it('issue_chat + pages: 스레드 /view?page 로 쪽 이미지를 준다', async () => {

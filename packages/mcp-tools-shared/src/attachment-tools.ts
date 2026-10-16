@@ -1,12 +1,13 @@
 // src/attachment-tools.ts — 이슈·노트·메시지·메일 첨부와 드라이브 파일 내용 읽기 도구 read_file(WP-346, WP-358, WP-369 에서 read_attachment 를 바꿈). 두 앱 공유.
 // 텍스트는 서버가 업로드 때 추출해 둔 텍스트를 구간으로 읽는다(원본을 받지 않는다). 이미지는 추출 대상이 아니라 서버가
 // SKIPPED(reasonCode IMAGE)로 표시하므로, 그때만 이미지를 MCP image 블록으로 돌려준다(WP-345 McpToolResult).
-// 이미지는 원본이 아니라 서버가 줄인 변환본(/view)을 준다 — HEIC·TIFF·BMP·큰 이미지도 같은 길이다(WP-250). 메일은 변환본이 없어 원본만(WP-388).
+// 이미지는 원본이 아니라 서버가 줄인 변환본(/view)을 준다 — HEIC·TIFF·BMP·큰 이미지도 같은 길이다(WP-250). 메일 첨부도 같다(WP-388 — 서버가
+// 요청마다 원본을 받아 그린다).
 // PDF 는 원본이 아니라 서버가 그린 페이지 이미지만 돌려준다(WP-250) — pages:[n] 로 고른 쪽만, 호출당 3장까지.
 import { z } from 'zod';
 
 import { readRangeShape, resolveRange } from './attachment-read.js';
-import { imageViewBlocks, MAX_PAGES_PER_CALL, originalImageBlocks, pageBlocks, withPages } from './attachment-view.js';
+import { imageViewBlocks, MAX_PAGES_PER_CALL, pageBlocks, withPages } from './attachment-view.js';
 import type { McpToolResult } from './mcp-content.js';
 import type { SharedTool } from './mcp-tool.js';
 import { nullAsOmitted } from './tool-definitions.js';
@@ -29,8 +30,7 @@ const IDENTIFIER_FIELDS = ['issueKey', 'attachmentId', 'driveFileId', 'pageId', 
  * superRefine 이 확인하고, 핸들러가 parse 로 다시 검사한다(SDK 는 shape 만 검증한다).
  * WP-358: source 가 5개(issue·drive·wiki·message·mail)로 늘었다. 정의 크기(도구 설명·입력 설명)를 아끼려고 첨부 id 는 attachmentId 하나를
  * 이슈·노트·메시지·메일이 같이 쓰고, 새 식별자는 pageId·channelId·messageId 뿐이다(이름은 다른 도구의 입력 이름과 같다).
- * WP-250: imageInput 이면 pages(PDF 쪽 이미지)를 더한다 — 이미지를 볼 수 없는 모델에는 못 쓰는 인자를 보이지 않는다.
- * mail + pages 는 여기서 막지 않고 핸들러가 안내 문구로 돌려준다(던지면 모델이 오류로 보고 같은 호출을 되풀이한다).
+ * WP-250: imageInput 이면 pages(PDF 쪽 이미지)를 더한다 — 이미지를 볼 수 없는 모델에는 못 쓰는 인자를 보이지 않는다(메일도 WP-388 부터 같다).
  */
 export function readFileInputFor(imageInput: boolean) {
   const base = z.object({
@@ -62,10 +62,7 @@ export function readFileInputFor(imageInput: boolean) {
 /** 기본(이미지 입력 가능) 스키마 — 테스트·외부에서 스키마 모양을 볼 때 쓴다. */
 export const readFileInput = readFileInputFor(true);
 
-/** 메일 첨부 + pages — 메일은 /view 가 없다(WP-388). 던지지 않고 텍스트 읽기로 돌아가게 안내한다. */
-const MAIL_PAGES_UNSUPPORTED = '메일 첨부는 아직 페이지 보기를 지원하지 않습니다. pages 없이 텍스트로 읽으세요.';
-
-/** 서버가 이미지로 판정해 추출을 건너뛴 파일인지 — 이때만 이미지(변환본, 메일은 원본)를 받는다. */
+/** 서버가 이미지로 판정해 추출을 건너뛴 파일인지 — 이때만 이미지(변환본)를 받는다. */
 export const isImageSkip = (s: Pick<ExtractedTextSlice, 'status' | 'reasonCode'>) => s.status === 'SKIPPED' && s.reasonCode === 'IMAGE';
 
 /**
@@ -129,8 +126,8 @@ export function buildAttachmentTools(client: AttachmentToolClient, imageInput = 
     return imageViewBlocks(`이슈 ${issueKey} 첨부 이미지(attachmentId ${attachmentId})`, () => client.viewIssueAttachment(issueKey, attachmentId, undefined));
   }
 
-  /** pages 요청 — source 별 /view 로 쪽 이미지를 받는다. 메일은 아직 없어 안내 문구(WP-388). superRefine 이 식별자를 확인했다. */
-  function pagesFor(p: z.infer<typeof input>, pages: number[]): Promise<McpToolResult> | string {
+  /** pages 요청 — source 별 /view 로 쪽 이미지를 받는다(메일은 WP-388). superRefine 이 식별자를 확인했다. */
+  function pagesFor(p: z.infer<typeof input>, pages: number[]): Promise<McpToolResult> {
     switch (p.source) {
       case 'issue':
         return pageBlocks(`이슈 ${p.issueKey} 첨부(attachmentId ${p.attachmentId})`, pages, (n) => client.viewIssueAttachment(p.issueKey!, p.attachmentId!, n));
@@ -149,7 +146,8 @@ export function buildAttachmentTools(client: AttachmentToolClient, imageInput = 
           (n) => client.viewMessageAttachment(p.channelId!, p.messageId!, p.attachmentId!, n),
         );
       case 'mail':
-        return MAIL_PAGES_UNSUPPORTED;
+        // 차례로 — 쪽마다 서버가 원본을 메일 서버에서 받으므로 첫 쪽이 첨부 캐시를 채우게 한다(동시 IMAP/Graph 왕복 방지).
+        return pageBlocks(`메일 첨부(attachmentId ${p.attachmentId})`, pages, (n) => client.viewMailAttachment(p.attachmentId!, n), { sequential: true });
     }
   }
 
@@ -170,9 +168,9 @@ export function buildAttachmentTools(client: AttachmentToolClient, imageInput = 
         'truncated:true = extraction capped. Only READY has text: ' +
         'PENDING = extracting (retry soon), SKIPPED/FAILED = unreadable (relay reason), NONE = never extracted; never guess. ' +
         // WP-250: 정의 크기 상한(16,000토큰) 때문에 한 문장씩만 — 이미지를 볼 수 없는 모델에는 pages 문장을 싣지 않는다.
-        // 변환본(/view)·pages 는 메일 첨부에 없다(WP-388) — 모델이 메일에 pages 를 시도하거나 HEIC 를 기대하지 않게 밝힌다.
-        'Images return as images (large/HEIC converted; not mail).' +
-        (imageInput ? ` PDF (not mail): pages:[n] (max ${MAX_PAGES_PER_CALL}) returns page images (figures, charts, scans).` : ''),
+        // WP-388: 메일 첨부도 변환본·pages 를 지원해 "not mail" 단서를 뺐다(모든 source 공통).
+        'Images return as images (large/HEIC converted).' +
+        (imageInput ? ` PDF: pages:[n] (max ${MAX_PAGES_PER_CALL}) returns page images (figures, charts, scans).` : ''),
       inputSchema: input,
       async handler(args) {
         const p = input.parse(args);
@@ -242,16 +240,17 @@ export function buildAttachmentTools(client: AttachmentToolClient, imageInput = 
           case 'mail': {
             const attachmentId = p.attachmentId!;
             const slice = await client.readMailAttachmentText(attachmentId, range);
-            // 메일은 /view 가 없어(WP-388) 지금처럼 원본만 — 보낼 수 없으면 거절 안내. pages 안내(pdfNote)도 붙이지 않는다.
+            // WP-388: 메일도 다른 source 처럼 서버 변환본(/view) — 서버가 원본을 받아 줄이고 HEIC 를 바꿔 준다(원본 크기·형식 제한이 없다).
             if (isImageSkip(slice)) {
-              return originalImageBlocks(`메일 첨부 이미지(attachmentId ${attachmentId})`, () => client.downloadMailAttachment(attachmentId));
+              return imageViewBlocks(`메일 첨부 이미지(attachmentId ${attachmentId})`, () => client.viewMailAttachment(attachmentId, undefined));
             }
             // 메일은 서버가 요청한 attachmentId 를 fileId 로 돌려준다(내부 사본 id 는 내보내지 않는다). 첫 호출은 서버가 사본을 만들며 추출을 시작해 PENDING 이다.
+            // WP-388: 메일 PDF 도 pages 로 볼 수 있어 pages 안내(pdfNote)를 함께 싣는다.
             const { fileId: _requestedId, ...rest } = slice;
             return JSON.stringify({
               attachmentId,
               ...rest,
-              ...(slice.status === 'PENDING' && { note: `첨부를 가져와 텍스트를 추출하는 중입니다. ${RETRY_LATER}` }),
+              ...noteField(slice.status === 'PENDING' ? `첨부를 가져와 텍스트를 추출하는 중입니다. ${RETRY_LATER}` : undefined, pdfNote(slice, imageInput)),
             });
           }
         }

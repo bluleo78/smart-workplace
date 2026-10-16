@@ -8,6 +8,7 @@ import com.workplace.fileai.exception.AttachmentViewException;
 import com.workplace.global.outbound.InternalHttp;
 import java.io.IOException;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -63,7 +64,7 @@ public class WorkerRenderClient {
     if (!props.enabled()) {
       throw AttachmentViewException.workerUnavailable();
     }
-    HttpResponse<byte[]> resp;
+    byte[] json;
     try {
       // page 가 null(이미지)이어도 키를 보낸다 — Map.of 는 null 을 못 받으므로 LinkedHashMap.
       Map<String, Object> body = new LinkedHashMap<>();
@@ -71,13 +72,55 @@ public class WorkerRenderClient {
       body.put("mime", mime);
       body.put("page", page);
       body.put("maxEdge", maxEdge);
+      json = mapper.writeValueAsBytes(body);
+    } catch (IOException e) {
+      throw new IllegalStateException("render 요청 직렬화 실패", e);
+    }
+    return send(URI.create(props.baseUrl() + "/render"), "application/json", json, storageKey);
+  }
+
+  /**
+   * 저장소에 두지 않는 원본 바이트를 본문으로 보내 그린다(WP-388, 워커 {@code POST /render/bytes}) — 메일 첨부처럼 복호화한 원본을 공유 볼륨에
+   * 쓰지 않기 위해서다. 응답·오류 매핑은 {@link #render} 와 같다.
+   *
+   * @param data 원본 바이트(호출자가 25MB 상한을 먼저 확인한다 — 워커도 넘으면 413)
+   * @param mime 파라미터를 뗀 MIME
+   * @param page PDF 면 1부터 센 쪽 번호, 이미지면 null(쿼리에서 뺀다)
+   * @param maxEdge 결과 긴 변 픽셀
+   * @throws AttachmentViewException 워커가 거절했거나 응답하지 못했을 때
+   */
+  public ViewImage renderBytes(byte[] data, String mime, Integer page, int maxEdge) {
+    if (!props.enabled()) {
+      throw AttachmentViewException.workerUnavailable();
+    }
+    String query =
+        "mime="
+            + URLEncoder.encode(mime, StandardCharsets.UTF_8)
+            + (page == null ? "" : "&page=" + page)
+            + "&maxEdge="
+            + maxEdge;
+    // 로그 식별자 — 경로가 없으므로 형식·크기로 남긴다(원본 내용은 남기지 않는다).
+    String logKey = "bytes(" + mime + ", " + data.length + "B)";
+    return send(
+        URI.create(props.baseUrl() + "/render/bytes?" + query),
+        "application/octet-stream",
+        data,
+        logKey);
+  }
+
+  /**
+   * /render·/render/bytes 공통 — 보내고 응답을 {@link ViewImage} 또는 {@link AttachmentViewException} 으로 바꾼다.
+   */
+  private ViewImage send(URI uri, String contentType, byte[] body, String storageKey) {
+    HttpResponse<byte[]> resp;
+    try {
       HttpRequest req =
           HttpRequest.newBuilder()
-              .uri(URI.create(props.baseUrl() + "/render"))
+              .uri(uri)
               .timeout(Duration.ofSeconds(props.render().timeoutSeconds()))
               .header("Authorization", "Internal " + props.internalToken())
-              .header("Content-Type", "application/json")
-              .POST(HttpRequest.BodyPublishers.ofByteArray(mapper.writeValueAsBytes(body)))
+              .header("Content-Type", contentType)
+              .POST(HttpRequest.BodyPublishers.ofByteArray(body))
               .build();
       resp = http.send(req, HttpResponse.BodyHandlers.ofByteArray());
     } catch (InterruptedException e) {

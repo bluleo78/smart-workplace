@@ -1,11 +1,11 @@
 // src/attachment-view.ts — 서버가 그린 "모델 입력용 이미지"(/view, WP-250)를 MCP 블록으로 바꾸는 공통 헬퍼.
 // read_file(공유)과 ai-agent 전용 첨부 읽기 도구가 같이 쓴다. 두 갈래가 있다:
 //  · PDF 페이지 — 모델이 pages:[n] 로 고른 쪽을 서버가 이미지로 그려 준다(그림·도표·스캔은 텍스트 추출로 못 읽어서).
-//  · 이미지 — 늘 서버 변환본(긴 변 1568px 이하로 줄인 JPEG·PNG). 변환본이 없는 메일 첨부(WP-388)만 보낼 수 있는 원본을 그대로 쓴다.
+//  · 이미지 — 늘 서버 변환본(긴 변 1568px 이하로 줄인 JPEG·PNG). 메일 첨부도 같다(WP-388).
 // 한 번의 호출로 보는 쪽수는 MAX_PAGES_PER_CALL 로 묶는다. 실행 전체의 이미지 누적은 세지 않는다 — 긴 실행은 러너의 컨텍스트 압축에 맡긴다.
 import { z } from 'zod';
 
-import { baseMimeType, FileTooLargeError, IMAGE_MAX_BYTES, imageRejectReasons, toBase64 } from './attachment-read.js';
+import { baseMimeType, FileTooLargeError, toBase64 } from './attachment-read.js';
 import type { McpContent, McpToolResult } from './mcp-content.js';
 import { describeApiError } from './parse.js';
 import { nullAsOmitted } from './tool-definitions.js';
@@ -70,15 +70,18 @@ function collapse(blocks: McpContent[]): McpToolResult {
  * 쪽마다 서버 왕복(캐시가 없으면 워커 렌더)이 있어 차례로 받으면 3쪽 요청이 세 배 걸린다 — 결과는 받은 순서가 아니라 요청 순서로 싣는다.
  * 서버 오류(범위 밖 400·손상 422·렌더 실패 503 등)는 던지지 않고 그 쪽의 사유를 text 로 돌려준다 — 모델이 범위를 고쳐 다시 부르게.
  * 일부 쪽만 실패하면 받은 쪽의 이미지 뒤에 실패 사유를 붙이고, 같은 사유는 쪽 번호를 묶어 한 줄로 쓴다(403·404·415 는 모든 쪽이 같다).
+ * sequential(WP-388 메일): 쪽마다 서버가 원본을 메일 서버에서 다시 받으므로, 병렬이면 캐시가 비었을 때 IMAP/Graph 를 동시에 여러 번 부른다.
+ * 차례로 받으면 첫 쪽이 서버의 첨부 캐시를 채우고 다음 쪽은 캐시에서 읽는다. 쪽별 실패 격리는 같다.
  */
 export async function pageBlocks(
   label: string,
   pages: number[],
   fetch: (page: number) => Promise<FileBytes>,
+  opts: { sequential?: boolean } = {},
 ): Promise<McpToolResult> {
   const unique = [...new Set(pages)];
   // allSettled — 한 쪽이 실패해도 나머지 쪽은 그대로 받는다. 결과 배열은 unique 와 같은 순서다.
-  const settled = await Promise.allSettled(unique.map((n) => fetch(n)));
+  const settled = opts.sequential ? await settleInOrder(unique, fetch) : await Promise.allSettled(unique.map((n) => fetch(n)));
   const blocks: McpContent[] = [];
   // 사유 → 실패한 쪽 번호(요청 순서 유지).
   const failures = new Map<string, number[]>();
@@ -98,6 +101,19 @@ export async function pageBlocks(
   return collapse(blocks);
 }
 
+/** 쪽을 하나씩 차례로 받아 allSettled 와 같은 모양으로 돌려준다 — 실패한 쪽이 있어도 다음 쪽을 계속 받는다. */
+async function settleInOrder(pages: number[], fetch: (page: number) => Promise<FileBytes>): Promise<PromiseSettledResult<FileBytes>[]> {
+  const out: PromiseSettledResult<FileBytes>[] = [];
+  for (const n of pages) {
+    try {
+      out.push({ status: 'fulfilled', value: await fetch(n) });
+    } catch (reason) {
+      out.push({ status: 'rejected', reason });
+    }
+  }
+  return out;
+}
+
 /**
  * 이미지 파일 → 서버 변환본(/view) 블록. 원본이 보낼 수 있는 형식·크기(JPEG·PNG·GIF·WebP, 3.75MB 이하)여도 변환본을 쓴다 —
  * 원본은 해상도를 줄이지 않아 4000×3000 사진이 그대로 가고, 한 요청에 이미지가 20장을 넘으면 Anthropic Messages API 가 긴 변 2000px 넘는
@@ -111,29 +127,4 @@ export async function imageViewBlocks(label: string, view: () => Promise<FileByt
   } catch (e) {
     return `${label}: ${viewErrorText(e)}`;
   }
-}
-
-/** 보낼 수 없는 이미지 안내(변환본이 없는 메일 첨부, WP-388) — 실제 사유만 말하고, 내용을 추측하지 않게 한다. label 은 JSON 으로 감싸 제어문자를 무력화한 이름·식별자. */
-function imageNotice(label: string, reasons: string[]): string {
-  return (
-    `${label}: 이 이미지의 ${reasons.join('과 ')}는 모델에 보낼 수 없습니다(JPEG·PNG·GIF·WebP, ${IMAGE_MAX_BYTES}B 이하만 가능). ` +
-    '이미지 내용을 추측하지 말고, 사용자에게 직접 확인해 달라고 안내하세요.'
-  );
-}
-
-/**
- * 변환본(/view)이 없는 이미지(메일 첨부, WP-388) — 원본을 받아 보낼 수 있는 형식·크기면 그대로, 아니면 사유를 안내한다.
- * 크기 메타가 없어 다운로드 상한(IMAGE_MAX_BYTES)으로 보고, 넘으면(FileTooLargeError) 크기 사유로 안내한다.
- * 다른 다운로드 오류(권한·없음)는 삼키지 않는다 — 도구 레이어가 API 오류로 알린다.
- */
-export async function originalImageBlocks(label: string, download: () => Promise<FileBytes>): Promise<McpToolResult> {
-  let bytes: FileBytes;
-  try {
-    bytes = await download();
-  } catch (e) {
-    if (e instanceof FileTooLargeError) return imageNotice(label, [`크기(${IMAGE_MAX_BYTES}B 초과)`]);
-    throw e;
-  }
-  const reasons = imageRejectReasons(baseMimeType(bytes.mimeType), bytes.data.byteLength);
-  return reasons.length > 0 ? imageNotice(label, reasons) : viewBlocks(label, bytes);
 }

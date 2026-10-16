@@ -7,8 +7,8 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 
 /**
- * {@link ViewImage} 를 HTTP 응답으로 바꾼다(WP-250) — 도메인 컨트롤러 6곳(이슈·챗·노트·메시지·드라이브·홈)의 {@code GET .../view}
- * 가 공유한다. HTTP 타입은 컨트롤러 계층에만 두려고 서비스({@code AttachmentViewService}) 밖에 둔다.
+ * {@link ViewImage} 를 HTTP 응답으로 바꾼다(WP-250) — 도메인 컨트롤러 7곳(이슈·챗·노트·메시지·드라이브·홈·메일)의 {@code GET
+ * .../view} 가 공유한다. HTTP 타입은 컨트롤러 계층에만 두려고 서비스({@code AttachmentViewService}) 밖에 둔다.
  */
 public final class ViewImageResponses {
 

@@ -30,10 +30,13 @@ import org.springframework.transaction.support.TransactionTemplate;
  * 잡지 않기 위해서다. RLS 테넌트 GUC 는 트랜잭션이 시작될 때만 걸리므로 파일 행 읽기는 {@link #readOnlyTx}, page_count 채우기는 {@link
  * #writeTx} 로 각각 짧게 감싼다. 호출자도 트랜잭션 밖에서 불러야 이 의도가 지켜진다.
  *
- * <p><b>응답</b>: 도메인 컨트롤러 6곳(이슈·챗·노트·메시지·드라이브·홈)의 {@code GET .../view} 는 모두 {@code return
+ * <p><b>응답</b>: 도메인 컨트롤러 7곳(이슈·챗·노트·메시지·드라이브·홈·메일)의 {@code GET .../view} 가 {@code
+ * ViewImageResponses.of(...)} 로 같은 응답을 낸다. 코어 file 행이 있는 6곳(이슈·챗·노트·메시지·드라이브·홈)은 {@code return
  * ViewImageResponses.of(attachmentView.view(service.resolveViewFileId(...), page));} 한 줄이다 — PDF 는
  * {@code ?page=N}(1부터), 이미지 파일은 page 없이 부르고, 권한은 그 도메인의 {@code /text} 와 같다. 도메인 가드({@code
- * resolveViewFileId}, 읽기 전용 트랜잭션)가 끝난 뒤 이 서비스를 부르므로 컨트롤러는 트랜잭션을 걸지 않는다(R5).
+ * resolveViewFileId}, 읽기 전용 트랜잭션)가 끝난 뒤 이 서비스를 부르므로 컨트롤러는 트랜잭션을 걸지 않는다(R5). file 행이 없는 메일 첨부
+ * (WP-388)는 MailAttachmentViewService 가 원본을 받아 {@link #viewTransient} 로 저장 없이 그린다(캐시·page_count 보충
+ * 없음).
  *
  * <p><b>캐시 실패</b>: 캐시는 성능용일 뿐이라 읽기·쓰기 실패(디스크 오류·권한 등)로 요청을 실패시키지 않는다 — 읽기 실패는 캐시 없음으로 보고 워커를 부르고,
  * 쓰기 실패는 경고만 남기고 워커가 준 바이트를 그대로 돌려준다.
@@ -96,20 +99,10 @@ public class AttachmentViewService {
     String storagePath = f.value1();
     // 저장된 mime 만 본다 — 옛 octet-stream HEIC·TIFF·BMP 는 V174 가 데이터에서 이미지 mime 으로 바로잡았다.
     String mime = MimeNormalizer.baseMime(f.value2());
-    boolean pdf = "application/pdf".equals(mime);
 
-    // ② 워커에 가기 전에 거를 수 있는 것은 모두 거른다 — 워커 왕복·FastAPI 검증 실패(엉뚱한 안내)를 피한다.
-    // SVG 는 image/* 지만 벡터 문서라 워커(Pillow)가 열지 못해 "손상·암호" 안내로 돌아오므로 여기서 형식 미지원으로 막는다.
-    if (!pdf && (!mime.startsWith("image/") || "image/svg+xml".equals(mime))) {
-      throw new AttachmentViewException("UNSUPPORTED");
-    }
-    if (pdf && page == null) throw new AttachmentViewException("PAGE_REQUIRED");
-    if (!pdf && page != null) throw new AttachmentViewException("PAGE_NOT_ALLOWED");
-    if (f.value3() > MAX_SOURCE_BYTES) throw new AttachmentViewException("TOO_LARGE");
+    // ② 워커에 가기 전에 거를 수 있는 것은 모두 거른다(validate 참조). 쪽수는 PDF 일 때만 쓴다.
+    boolean pdf = validate(mime, page, f.value3(), f.value4());
     Integer known = pdf ? f.value4() : null;
-    if (pdf && (page < 1 || (known != null && page > known))) {
-      throw new AttachmentViewException("PAGE_OUT_OF_RANGE", known);
-    }
 
     // ③ 캐시 — 워커가 PNG 를 1MB 넘으면 JPEG 로 바꿔 주므로 확장자를 미리 모른다. 있는 쪽을 읽는다.
     int maxEdge = props.render().maxEdge();
@@ -141,6 +134,54 @@ public class AttachmentViewService {
     // ⑤ 추출이 아직 쪽수를 못 채웠으면(배포 전 추출·스캔 PDF) 워커가 알려 준 값으로 보충한다.
     Integer pageCount = pdf ? learnPageCount(fileId, known, r.pageCount()) : null;
     return new ViewImage(r.data(), r.contentType(), pageCount);
+  }
+
+  /**
+   * 워커에 가기 전에 거를 수 있는 입력을 모두 거른다 — 워커 왕복·FastAPI 검증 실패(엉뚱한 안내)를 피한다. {@link #view} 와 저장하지 않는 보기
+   * ({@link #viewTransient}, 메일 첨부)가 같은 규칙·오류 코드를 쓰게 한 곳에 둔다. 메일은 원본을 provider 에서 가져오기 전에도 부른다(크기 0
+   * 으로 형식·page 만 먼저 확인 — 고칠 수 없는 요청이 IMAP/Graph 왕복을 일으키지 않게).
+   *
+   * <p>SVG 는 image/* 지만 벡터 문서라 워커(Pillow)가 열지 못해 "손상·암호" 안내로 돌아오므로 여기서 형식 미지원으로 막는다.
+   *
+   * @param mime 파라미터를 뗀 소문자 mime
+   * @param page PDF 면 1부터 센 쪽 번호(필수), 이미지면 null(필수)
+   * @param sizeBytes 원본 바이트 수 — 25MB 를 넘으면 TOO_LARGE
+   * @param knownPageCount 이미 아는 PDF 쪽수(모르면 null — 그때 상한 검사는 워커가 한다). PDF 가 아니면 무시한다
+   * @return PDF 인지(아니면 이미지) — 호출자가 mime 을 다시 판정하지 않게
+   * @throws AttachmentViewException 형식·page·크기가 맞지 않을 때
+   */
+  public static boolean validate(
+      String mime, Integer page, long sizeBytes, Integer knownPageCount) {
+    boolean pdf = "application/pdf".equals(mime);
+    if (!pdf && (!mime.startsWith("image/") || "image/svg+xml".equals(mime))) {
+      throw new AttachmentViewException("UNSUPPORTED");
+    }
+    if (pdf && page == null) throw new AttachmentViewException("PAGE_REQUIRED");
+    if (!pdf && page != null) throw new AttachmentViewException("PAGE_NOT_ALLOWED");
+    if (sizeBytes > MAX_SOURCE_BYTES) throw new AttachmentViewException("TOO_LARGE");
+    if (pdf && (page < 1 || (knownPageCount != null && page > knownPageCount))) {
+      throw new AttachmentViewException("PAGE_OUT_OF_RANGE", knownPageCount);
+    }
+    return pdf;
+  }
+
+  /**
+   * 코어 file 행이 없는 원본 바이트(메일 첨부, WP-388)를 이미지로 그린다 — 아무것도 남기지 않는다. 바이트를 워커 {@code /render/bytes}
+   * 본문으로 보내 그리게 한다: 메일 원본은 복호화한 평문이라 공유 저장소에 임시 파일로도 쓰지 않는다(렌더 중 프로세스가 죽으면 평문 사본이 남는다).
+   *
+   * <p>{@link #view} 와 달리 ".view" 렌더 캐시를 쓰지 않고 page_count 도 채우지 않는다(채울 file 행이 없다). 쪽수 상한은 워커가 거절하며
+   * 알려 준다(PAGE_OUT_OF_RANGE + pageCount — 다른 source 의 첫 요청과 같은 응답).
+   *
+   * <p>트랜잭션 밖에서 불러야 한다(R5 — 워커 호출 동안 DB 연결을 잡지 않게). DB·디스크를 읽지도 쓰지도 않는다.
+   *
+   * @param data 원본 바이트 — 호출자가 권한을 확인하고 가져온 값
+   * @param mime 파라미터를 뗀 소문자 mime(호출자가 파일명 보정까지 마친 값)
+   * @param page PDF 면 1부터 센 쪽 번호(필수), 이미지면 null(필수)
+   * @throws AttachmentViewException 입력이 맞지 않거나 워커가 그리지 못했을 때
+   */
+  public ViewImage viewTransient(byte[] data, String mime, Integer page) {
+    validate(mime, page, data.length, null);
+    return worker.renderBytes(data, mime, page, props.render().maxEdge());
   }
 
   /**
