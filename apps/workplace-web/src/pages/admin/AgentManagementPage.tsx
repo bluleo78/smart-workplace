@@ -45,7 +45,10 @@ import {
   buildPluginInstallCommands,
   buildSwitchCommand,
   buildTokenFallbackCommand,
+  buildWorkLoopLaunchCommand,
+  buildWorkLoopStartCommand,
   PLUGIN_COMMANDS,
+  PLUGIN_SKILLS,
 } from '@/lib/pluginGuide';
 
 import { AgentBadge } from '../../components/users/AgentBadge';
@@ -356,6 +359,27 @@ export default function AgentManagementPage() {
                       <p className="text-xs text-muted-foreground">
                         그 세션만 이 AI로 바뀌고, 다른 세션은 내 계정 그대로예요.{' '}
                         <code className="font-mono">{PLUGIN_COMMANDS.logout}</code> 하면 내 계정으로 돌아옵니다.
+                      </p>
+                    </div>
+                    <div className="space-y-2" data-testid="agent-work-loop">
+                      <h4 className="text-xs font-medium text-muted-foreground">⑤ 자동으로 이슈 처리</h4>
+                      <p className="text-xs text-muted-foreground">이 AI 전용 터미널에서 띄우기</p>
+                      <CopyableCommand
+                        command={buildWorkLoopLaunchCommand(selected.username)}
+                        testId="agent-work-loop-launch-command"
+                      />
+                      <p className="text-xs text-muted-foreground">Claude Code 안에서 시작하기</p>
+                      <CopyableCommand command={buildWorkLoopStartCommand()} testId="agent-work-loop-start-command" />
+                      <p className="text-xs text-muted-foreground">
+                        이 AI 에게 할당된 이슈를 하나씩 가져와 구현·검증·main 머지까지 하고 검토 대기로 올립니다. push·배포는
+                        하지 않아요.
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        권한을 묻지 않는 모드라 이 AI 전용 터미널에서만 쓰세요. Claude Code 가 열려 있는 동안만 돌고 7일 뒤
+                        다시 켜야 해요.
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        이슈 하나만 맡길 때는 <code className="font-mono">{PLUGIN_SKILLS.workOn} 이슈키</code> 를 쓰세요.
                       </p>
                     </div>
                     {/* 플러그인 전환을 못 쓰는 환경용 — 기본은 접어 둔다. */}

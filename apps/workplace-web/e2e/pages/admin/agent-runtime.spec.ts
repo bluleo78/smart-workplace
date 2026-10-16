@@ -132,6 +132,18 @@ test.describe('/settings/agents 실행 방식', () => {
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('ai-dev');
     await expect(page.getByTestId('agent-switch-command')).toHaveText('/genia-works:as ai-dev');
     await expect(page.getByTestId('agent-launch-as-command')).toHaveText('GENIA_WORKS_AS=ai-dev claude');
+    // ⑤ 자동으로 이슈 처리(WP-376) — work-loop 시작 명령 두 줄과 이슈 하나만 맡기는 안내.
+    await expect(page.getByTestId('agent-work-loop-launch-command')).toHaveText(
+      'GENIA_WORKS_AS=ai-dev claude --permission-mode bypassPermissions',
+    );
+    await expect(page.getByTestId('agent-work-loop-start-command')).toHaveText('/loop /genia-works:work-loop <프로젝트 키>');
+    await expect(page.getByTestId('agent-work-loop')).toContainText('/genia-works:work-on');
+    // 아이디 복사 토스트가 ⑤ 위를 덮으므로 사라질 때까지 기다린 뒤, 드로어 내부 스크롤로 접힌 ⑤ 를 보이게 하고 ⑤ 영역만 찍는다.
+    await expect(page.locator('[data-sonner-toast]')).toHaveCount(0, { timeout: 15_000 });
+    await page.getByTestId('agent-work-loop').scrollIntoViewIfNeeded();
+    await page
+      .getByTestId('agent-work-loop')
+      .screenshot({ path: path.join(SHOT_DIR, 'external-connect-card-work-loop-desktop.png') });
     // 다른 방법(접힘) — 펼쳐야 키를 직접 넘기는 명령이 보인다.
     await expect(page.getByTestId('agent-fallback-command')).toHaveCount(0);
     await page.getByTestId('agent-fallback').click();

@@ -5,12 +5,12 @@
   "plugins": [
     {
       "name": "genia-works",
-      "description": "genia-works MCP 연결, 세션별 접속 신원 선택, 이슈 작업 보고 스킬",
+      "description": "genia-works MCP 연결, 세션별 접속 신원 선택, 이슈 작업 보고·자동 이슈 처리 스킬",
       "source": {
         "source": "git-subdir",
         "url": "https://github.com/bluleo78/smart-workplace.git",
         "path": "plugins/genia-works",
-        "ref": "genia-works--v0.1.3"
+        "ref": "genia-works--v0.1.4"
       }
     }
   ]

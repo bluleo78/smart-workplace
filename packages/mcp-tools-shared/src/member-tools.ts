@@ -7,6 +7,7 @@
 import { z } from 'zod';
 import { cursorPageView, numberedPageView } from './compact.js';
 import type { SharedTool } from './mcp-tool.js';
+import { isMeAlias, type CurrentUserClient } from './resolve.js';
 import type { MemberRow, MemberToolClient } from './tool-client.js';
 
 /** 연락처 목록 항목 원형 — type 에 따라 id 의 의미가 다르다(MEMBER=user.id, EXTERNAL=contact_entry.id). */
@@ -144,7 +145,7 @@ async function channelMembersView(client: MemberToolClient, input: z.infer<typeo
 }
 
 /** 구성원 3종 + 연락처 2종 읽기 도구. */
-export function buildMemberTools(client: MemberToolClient): SharedTool[] {
+export function buildMemberTools(client: MemberToolClient & CurrentUserClient): SharedTool[] {
   return [
     {
       name: 'search_members',
@@ -170,10 +171,14 @@ export function buildMemberTools(client: MemberToolClient): SharedTool[] {
       app: 'member',
       kind: 'read',
       description:
-        'Returns one member by username (from search_members): name, email, title, kind, active, membershipRole, membershipStatus.',
+        'Returns one member by username (from search_members; "me" = the caller): name, email, title, kind, active, membershipRole, membershipStatus.',
       inputSchema: memberInput,
       async handler(args) {
         const { username } = memberInput.parse(args);
+        // "me" 는 호출자 본인 — 접속 신원(사람/AI, kind)을 스스로 확인할 때 쓴다(work-loop 1번). getMe 는 PAT·ak_ 키의 주인을 돌려준다.
+        // username 으로 다시 검색하지 않고 id 로 단건을 읽는다 — 부분일치 검색은 첫 페이지(50건)만 보므로 짧은 username 이면 밖으로 밀려
+        // "없음" 이 될 수 있고, 그러면 work-loop 가 신원 확인에서 매번 멈춘다.
+        if (isMeAlias(username)) return JSON.stringify(toMemberView(await client.getMember((await client.getMe()).id)));
         const found = await findMemberByUsername(client, username);
         // 성공 문자열로 돌려주면 "없음" 이 정상 결과로 읽힌다 — contact-tools 처럼 throw 해 isError 로 전달되게 한다.
         if (!found) throw memberNotFound(username);

@@ -402,6 +402,9 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
       return (await searchMembersPage(params)).items;
     },
     searchMembersPage,
+    async getMember(userId) {
+      return (await http.get(`/members/${userId}`)).data;
+    },
     async getMemberContact(userId) {
       return (await http.get(`/contacts/members/${userId}`)).data;
     },

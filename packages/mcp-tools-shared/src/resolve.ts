@@ -56,7 +56,7 @@ export interface CurrentUserClient {
 export type AssigneeResolverClient = Pick<ProjectMetaClient, 'getProjectMembers'> & CurrentUserClient;
 
 /** 담당자 값이 "me"(호출자 본인) 별칭인지 — list_issues 의 assignee="me" 와 같은 어휘. 대소문자·앞뒤 공백 무시. */
-const isMeAlias = (u: string) => u.trim().toLowerCase() === 'me';
+export const isMeAlias = (u: string) => u.trim().toLowerCase() === 'me';
 
 /**
  * username 배열 → userId 배열. 하나라도 없으면 사용 가능한 username 을 담아 throw.
