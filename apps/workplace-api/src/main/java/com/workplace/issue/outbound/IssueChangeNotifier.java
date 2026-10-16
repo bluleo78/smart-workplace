@@ -33,7 +33,7 @@ public class IssueChangeNotifier {
     changed(project, issueNumber, issueId, ResourceChangedEvent.OP_CREATED, actorId);
     // 위에서 이슈 이벤트를 이미 냈으므로 터치 리스너는 알림을 다시 내지 않는다(issueNotified=true).
     // promoteOnly — 생성만으로 새 작업을 열지 않는다. 담당자 추가가 만든 시작 전 작업이 있을 때만 착수로 잇는다(사람·담당자 아닌 쓰기에 유령 작업 방지).
-    AgentToolWriteEvent.publishIfAgentTool(publisher, issueId, actorId, true, true);
+    AgentToolWriteEvent.publishIfAgentTool(publisher, issueId, actorId, true, true, false);
   }
 
   /**
@@ -41,9 +41,18 @@ public class IssueChangeNotifier {
    * 쓰기 서비스가 모두 이 메서드를 거치므로 쓰기 지점마다 따로 넣지 않는다.
    */
   public void updated(ProjectRow project, int issueNumber, long issueId, Long actorId) {
+    updated(project, issueNumber, issueId, actorId, false);
+  }
+
+  /**
+   * {@link #updated(ProjectRow, int, long, Long)} 와 같고, statusWritten 이면 이 쓰기가 이슈 상태를 직접 지정했다는 뜻이다
+   * — AI 작업이 이때 시작돼도 요청한 상태를 진행 중으로 덮지 않는다(WP-393).
+   */
+  public void updated(
+      ProjectRow project, int issueNumber, long issueId, Long actorId, boolean statusWritten) {
     changed(project, issueNumber, issueId, ResourceChangedEvent.OP_UPDATED, actorId);
     // 위에서 이슈 이벤트를 이미 냈으므로 터치 리스너는 알림을 다시 내지 않는다(issueNotified=true).
-    AgentToolWriteEvent.publishIfAgentTool(publisher, issueId, actorId, true, false);
+    AgentToolWriteEvent.publishIfAgentTool(publisher, issueId, actorId, true, false, statusWritten);
   }
 
   /**

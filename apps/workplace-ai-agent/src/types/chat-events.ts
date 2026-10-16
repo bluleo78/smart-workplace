@@ -1,5 +1,6 @@
 // 6c: workplace-api 가 발사하는 chat.message.posted 이벤트 envelope 의 zod 스키마.
 import { z } from 'zod';
+import { sharedMemoriesRawField, sharedMoreCountRawField } from '../agent/shared-memory-block.js';
 
 const userSummary = z.object({
   id: z.number(),
@@ -25,6 +26,9 @@ export const chatMessagePostedPayload = z.object({
   occurredAt: z.string(),
   // WP-371: API 가 멘션된 서버 실행(INTERNAL) AI 중 골라 보내는 대행 AI id. 필수 — 없으면 400 거절(fail-closed).
   actingAgentId: z.number().int().positive(),
+  // WP-386: 조직 + 그 프로젝트 공용 메모리 — 이슈 이벤트와 같은 규칙(모양 검사 없음, 배열 확인·항목 거르기는 withSharedMemory).
+  sharedMemories: sharedMemoriesRawField,
+  sharedMemoryMoreCount: sharedMoreCountRawField,
 });
 
 export const chatEventEnvelope = z.object({

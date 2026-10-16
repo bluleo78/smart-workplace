@@ -32,7 +32,7 @@ class HomeChatAttachmentContextTest extends HomeAttachmentTestSupport {
 
   private ChatRequest send(long uid, UUID sid, String query, List<Long> fileIds) throws Exception {
     CountDownLatch latch = stubDone("네");
-    chatService.startChat(uid, sid, query, null, fileIds);
+    chatService.startChat(uid, sid, query, null, fileIds, null, null, null);
     assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
     return sentRequest();
   }

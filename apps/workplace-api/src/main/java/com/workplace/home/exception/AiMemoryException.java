@@ -20,6 +20,8 @@ public class AiMemoryException extends RuntimeException {
   public static final String CHANGED = "AI_MEMORY_CHANGED";
   public static final String PIN_FULL = "AI_MEMORY_PIN_FULL";
   public static final String PIN_USER_ONLY = "AI_MEMORY_PIN_USER_ONLY";
+  public static final String CHANGE_UNDONE = "AI_MEMORY_CHANGE_UNDONE";
+  public static final String CHANGE_USER_ONLY = "AI_MEMORY_CHANGE_USER_ONLY";
 
   private final HttpStatus status;
   private final String code;
@@ -91,6 +93,17 @@ public class AiMemoryException extends RuntimeException {
   /** 되돌릴 고침 뒤에 메모리가 다시 바뀌었다(409) — 되돌리면 그 뒤의 수정을 조용히 덮으므로 거절한다. */
   public static AiMemoryException changed() {
     return new AiMemoryException(HttpStatus.CONFLICT, CHANGED, "그 뒤에 바뀐 메모리라 되돌리지 않았어요");
+  }
+
+  /** 이미 되돌린 정리 기록(409, WP-385) — 같은 기록을 두 번 되돌리지 않는다. */
+  public static AiMemoryException changeUndone() {
+    return new AiMemoryException(HttpStatus.CONFLICT, CHANGE_UNDONE, "이미 되돌린 기록이에요");
+  }
+
+  /** 403 — 「AI가 정리한 기록」 되돌리기는 사용자 전용(AI 대행이 사용자 대신 정리를 뒤집지 못하게, 고정과 같은 규칙). */
+  public static AiMemoryException changeUserOnly() {
+    return new AiMemoryException(
+        HttpStatus.FORBIDDEN, CHANGE_USER_ONLY, "AI가 정리한 기록은 사용자가 설정에서만 되돌릴 수 있어요");
   }
 
   /** 응답에 쓸 HTTP 상태. */

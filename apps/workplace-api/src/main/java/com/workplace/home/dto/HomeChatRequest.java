@@ -16,6 +16,8 @@ import java.util.UUID;
  * <p>WP-379: app(선택)은 지금 화면 앱(ISSUE·WIKI·MAIL·DRIVE·MESSAGING·CALENDAR) — 공통 + 그 앱 메모리를 고르는 데만 쓴다.
  * 화면 참고 칩을 꺼도 웹이 보낸다(화면 내용이 아니라 내 선호 선택용). 모르는 값은 서비스가 400 대신 "앱 없음"으로 다룬다 — 구·신 웹이 엇갈려도 메모리 부가 기능
  * 때문에 채팅을 막지 않는다.
+ *
+ * <p>WP-386: space(선택)는 화면 맥락의 공간 — PROJECT 는 key, WIKI_SPACE 는 id. 서버가 다시 확인해 맞을 때만 쓴다.
  */
 public record HomeChatRequest(
     UUID sessionId,
@@ -23,7 +25,14 @@ public record HomeChatRequest(
     @Valid AiScreenContext screenContext,
     List<Long> fileIds,
     UUID correlationId,
-    String app) {
+    String app,
+    @Valid Space space) {
+
+  /** WP-386 화면 공간(클라이언트 값 — 서버가 SharedMemorySpaces.verifyForMessage 로 다시 확인한다). */
+  public record Space(
+      @jakarta.validation.constraints.Size(max = 16) String type,
+      @jakarta.validation.constraints.Size(max = 10) String key,
+      Long id) {}
 
   /** 보낼 내용이 있는지 — 공백 아닌 본문 또는 첨부 1개 이상. */
   public boolean hasContent() {

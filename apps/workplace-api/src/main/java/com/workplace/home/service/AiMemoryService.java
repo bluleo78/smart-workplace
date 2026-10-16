@@ -1,7 +1,7 @@
 package com.workplace.home.service;
 
 import com.workplace.global.ai.AiMemoryLine;
-import com.workplace.global.tenant.TenantContext;
+import com.workplace.global.ai.MemoryTextNormalizer;
 import com.workplace.global.util.TokenEstimates;
 import com.workplace.home.dto.AiMemoryItem;
 import com.workplace.home.dto.AiMemoryListResponse;
@@ -9,6 +9,7 @@ import com.workplace.home.dto.AiMemorySearchResponse;
 import com.workplace.home.dto.CreateAiMemoryRequest;
 import com.workplace.home.dto.UpdateAiMemoryRequest;
 import com.workplace.home.exception.AiMemoryException;
+import com.workplace.home.repository.AiMemoryChangeRepository;
 import com.workplace.home.repository.AiMemoryRepository;
 import com.workplace.home.repository.AiMemoryRepository.NewMemory;
 import com.workplace.home.repository.AiMemoryRepository.Row;
@@ -16,11 +17,15 @@ import com.workplace.home.repository.HomeSessionRepository;
 import com.workplace.home.repository.ScopeFilter;
 import com.workplace.user.service.AiPreferenceService;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
@@ -82,12 +87,14 @@ public class AiMemoryService {
   private final AiMemoryClock clock;
   private final ApplicationEventPublisher events;
   private final AiMemorySelector selector;
+  private final AiMemoryUsageRecorder usage;
+  private final AiMemoryForgottenService forgotten;
+  private final AiMemoryChangeRepository changeRepo;
+  private final AiMemoryChangeLog changeLog;
 
   /** 내용이 새로 생기거나 바뀐 메모리의 임베딩을 커밋 뒤에 채우게 한다(WP-383) — 롤백되면 이벤트도 사라진다. */
   private void requestEmbedding(long memoryId) {
-    events.publishEvent(
-        new TextEmbeddingService.Requested(
-            TenantContext.get(), TextEmbeddingService.Target.MEMORY, memoryId));
+    events.publishEvent(TextEmbeddingService.Requested.memory(memoryId));
   }
 
   /**
@@ -100,8 +107,29 @@ public class AiMemoryService {
     List<Row> rows = new ArrayList<>(repo.listActive(userId, today));
     rows.addAll(repo.listExpired(userId, today, EXPIRED_LIST_CAP));
     rows.sort(AiMemoryRanker.NEWEST);
+    Map<Long, Instant> cleaned = cleanedAt(userId, rows);
     return new AiMemoryListResponse(
-        rows.stream().map(r -> toItem(r, null, today)).toList(), LIMIT, PIN_LIMIT);
+        rows.stream().map(r -> toItem(r, null, today, cleaned.get(r.id()))).toList(),
+        LIMIT,
+        PIN_LIMIT);
+  }
+
+  /**
+   * 「AI가 정리」 표시(WP-385 스펙 8.2) — 메모리마다 되돌리지 않은 최신 ADDED·UPDATED·MERGED 기록의 after 가 지금 행과
+   * "그대로"(MemorySnapshot.sameAs — 되돌리기와 같은 술어)일 때만 그 기록 시각. 사용자가 그 뒤 고쳤으면 빠진다.
+   */
+  private Map<Long, Instant> cleanedAt(long userId, List<Row> rows) {
+    Map<Long, Row> byId = new HashMap<>();
+    for (Row r : rows) byId.put(r.id(), r);
+    Map<Long, Instant> out = new HashMap<>();
+    for (AiMemoryChangeRepository.LatestCleanup c :
+        changeRepo.latestCleanups(userId, byId.keySet())) {
+      Row r = byId.get(c.memoryId());
+      if (r == null) continue;
+      MemorySnapshot after = changeLog.readAfter(c.afterJson());
+      if (after != null && after.sameAs(r)) out.put(r.id(), c.createdAt());
+    }
+    return out;
   }
 
   /**
@@ -157,12 +185,15 @@ public class AiMemoryService {
     return toItem(saved, cur, today);
   }
 
-  /** 지우기 — 대행이면 꺼짐 409. 지운 항목을 돌려준다(forget_memory 결과·설정 "되돌리기" 토스트 근거 — 범위 포함). */
+  /**
+   * 지우기 — 대행이면 꺼짐 409. 지운 항목을 돌려준다(forget_memory 결과·설정 "되돌리기" 토스트 근거 — 범위 포함). WP-385: 지운 기록에 남긴다.
+   */
   @Transactional
   public AiMemoryItem delete(long userId, long id, boolean internal) {
     if (internal) requireEnabled(userId);
-    return toItem(
-        repo.delete(userId, id).orElseThrow(AiMemoryException::notFound), null, clock.today());
+    Row gone = repo.delete(userId, id).orElseThrow(AiMemoryException::notFound);
+    forgotten.remember(userId, List.of(gone.content()));
+    return toItem(gone, null, clock.today());
   }
 
   /**
@@ -189,10 +220,12 @@ public class AiMemoryService {
     return toItem(insertChecked(userId, m, memoryId, today), null, today);
   }
 
-  /** 되돌리기용 삭제(saved) — 이미 없으면 false(그대로 진행). */
+  /** 되돌리기용 삭제(saved) — 이미 없으면 false(그대로 진행). WP-385: 지웠으면 지운 기록에 남긴다(같은 대화를 다시 읽는 정리가 되살리지 않게). */
   @Transactional
   public boolean deleteIfExists(long userId, long id) {
-    return repo.delete(userId, id).isPresent();
+    Optional<Row> gone = repo.delete(userId, id);
+    gone.ifPresent(r -> forgotten.remember(userId, List.of(r.content())));
+    return gone.isPresent();
   }
 
   /**
@@ -251,10 +284,10 @@ public class AiMemoryService {
     return toItem(saved, null, clock.today());
   }
 
-  /** 모두 지우기 — 본인 것만(모든 범위). */
+  /** 모두 지우기 — 본인 것만(모든 범위). WP-385: 지운 내용을 지운 기록에 남긴다(상한 500). */
   @Transactional
   public void clear(long userId) {
-    repo.deleteAll(userId);
+    forgotten.remember(userId, repo.deleteAllContents(userId));
   }
 
   /** 대행 쓰기 전 꺼짐 확인 — 꺼져 있으면 409 AI_MEMORY_DISABLED. */
@@ -283,11 +316,28 @@ public class AiMemoryService {
    */
   private void requireRoomIfActivating(
       long userId, Row cur, String targetScope, LocalDate targetExpiry, LocalDate today) {
-    if (!isActive(targetExpiry, today)) return;
-    if (isActive(cur.expiresOn(), today) && Objects.equals(cur.scope(), targetScope)) return;
-    if (repo.countInScope(userId, targetScope, today) >= LIMIT) {
+    if (activatesInto(cur, targetScope, targetExpiry, today)
+        && overLimit(repo, userId, targetScope, targetExpiry, today)) {
       throw AiMemoryException.full(targetScope);
     }
+  }
+
+  /**
+   * 새로 만들 행이 그 범위에서 한도를 넘기는가 — 유효로 들어가고 그 범위 유효 개수가 이미 LIMIT 이상일 때. 만료 상태로 만드는 행은 한도에 들지 않는다. 호출자가
+   * 사용자 잠금을 이미 잡았다(생성·되돌리기·배경 정리가 같은 판정을 쓴다 — 결과를 각자 자기 방식(예외·op 버리기)으로 옮긴다).
+   */
+  static boolean overLimit(
+      AiMemoryRepository repo, long userId, String scope, LocalDate expiresOn, LocalDate today) {
+    return isActive(expiresOn, today) && repo.countInScope(userId, scope, today) >= LIMIT;
+  }
+
+  /**
+   * 기존 행을 고친 결과가 "그 범위에서 새로 유효해지는가" — 결과가 유효하고, 고치기 전에 같은 범위에서 이미 유효하던 행이 아닐 때(다른 범위로 옮기거나 만료 행이
+   * 되살아남). 같은 범위에서 이미 유효하던 행의 고치기와 만료인 채 남는 고치기는 false.
+   */
+  static boolean activatesInto(Row cur, String scope, LocalDate expiresOn, LocalDate today) {
+    if (!isActive(expiresOn, today)) return false;
+    return !(isActive(cur.expiresOn(), today) && Objects.equals(cur.scope(), scope));
   }
 
   /** 고정 행이 다른 범위로 옮겨 갈 때 대상 범위의 고정 상한(만료 포함)을 센다 — 호출자가 사용자 잠금을 이미 잡았다. */
@@ -314,20 +364,25 @@ public class AiMemoryService {
             raw.scope(),
             raw.expiresOn());
     repo.lockUser(userId);
-    if (isActive(m.expiresOn(), today) && repo.countInScope(userId, m.scope(), today) >= LIMIT) {
+    if (overLimit(repo, userId, m.scope(), m.expiresOn(), today)) {
       throw AiMemoryException.full(m.scope());
     }
     // 되살리기(preferredId)는 원래 id 를 먼저 시도하고, 쓸 수 없으면 새 id 로 만든다.
     Row saved = null;
     if (preferredId != null) saved = repo.insertWithId(preferredId, userId, m).orElse(null);
     if (saved == null) saved = repo.insert(userId, m);
+    // WP-385: 사용자가 직접 (다시) 저장한 내용 — 겹치는 지운 기록을 지운다(정규화는 지금, 의미는 커밋 뒤).
+    forgotten.release(userId, m.content());
     requestEmbedding(saved.id());
     return saved;
   }
 
-  /** 앞뒤 공백 제거 후 1~300 코드포인트인지 — 넘으면 자르지 않고 400(뜻이 바뀌므로). */
+  /**
+   * 앞뒤 공백 제거 후 1~300 코드포인트인지 — 넘으면 자르지 않고 400(뜻이 바뀌므로). WP-385: 줄바꿈·탭이 아닌 제어 문자(NUL 등)는 먼저 지운다 —
+   * Postgres 가 NUL 을 받지 않아 DB 오류가 되고, 배경 정리에서는 한 op 때문에 적용 트랜잭션 전체가 깨진다.
+   */
   static String normalizeContent(String raw) {
-    String c = raw == null ? "" : raw.strip();
+    String c = raw == null ? "" : MemoryTextNormalizer.stripControl(raw).strip();
     int n = c.codePointCount(0, c.length());
     if (n == 0 || n > MAX_CHARS) {
       throw AiMemoryException.invalid("메모리 내용은 1~" + MAX_CHARS + "자여야 해요");
@@ -397,8 +452,16 @@ public class AiMemoryService {
     }
   }
 
-  /** 저장 행 → 응답 항목. before 가 있으면(고치기·고침 복원) 이전 내용·종류·범위·기한을 싣는다. expired 는 today 기준. */
+  /** 저장 행 → 응답 항목(정리 표시 없음). */
   static AiMemoryItem toItem(Row r, Row before, LocalDate today) {
+    return toItem(r, before, today, null);
+  }
+
+  /**
+   * 저장 행 → 응답 항목. before 가 있으면(고치기·고침 복원) 이전 내용·종류·범위·기한을 싣는다. expired 는 today 기준. cleanedAt 은 목록만
+   * 싣는다.
+   */
+  static AiMemoryItem toItem(Row r, Row before, LocalDate today, Instant cleanedAt) {
     return new AiMemoryItem(
         r.id(),
         r.kind(),
@@ -413,7 +476,8 @@ public class AiMemoryService {
         r.expiresOn(),
         !isActive(r.expiresOn(), today),
         before == null ? null : before.expiresOn(),
-        r.pinned());
+        r.pinned(),
+        cleanedAt);
   }
 
   /**
@@ -465,14 +529,16 @@ public class AiMemoryService {
    * @param queryText 이번 사용자 메시지 — 비면 고정 + 최신
    */
   public ChatMemories loadForChat(long userId, String app, String queryText) {
-    return toChatMemories(
+    AiMemorySelector.Selection s =
         selector.select(
             userId,
             ScopeFilter.chat(app),
             queryText,
             CHAT_EMBED_WAIT,
             MEMORY_BLOCK_TOKEN_BUDGET,
-            false));
+            false);
+    recordUsage(userId, s.rows());
+    return toChatMemories(s);
   }
 
   /**
@@ -480,14 +546,16 @@ public class AiMemoryService {
    * 않는다(검색 도구가 없다).
    */
   public ChatMemories loadForEntry(long userId, String app, String queryText) {
-    return toChatMemories(
+    AiMemorySelector.Selection s =
         selector.select(
             userId,
             ScopeFilter.chat(app),
             queryText,
             CHAT_EMBED_WAIT,
             MEMORY_BLOCK_TOKEN_BUDGET,
-            true));
+            true);
+    recordUsage(userId, s.rows());
+    return toChatMemories(s);
   }
 
   /** 검색(search_memory) 질의 임베딩 대기 — 도구 호출이라 채팅 첫 토큰보다 덜 급하다. */
@@ -512,6 +580,7 @@ public class AiMemoryService {
     ScopeFilter filter = searchScope(scope);
     int n = limit == null ? SEARCH_DEFAULT_LIMIT : Math.max(1, Math.min(limit, SEARCH_MAX_LIMIT));
     AiMemorySelector.Found found = selector.search(userId, filter, q, SEARCH_EMBED_WAIT, n);
+    recordUsage(userId, found.rows());
     return new AiMemorySearchResponse(
         found.enabled(), found.rows().stream().map(AiMemoryService::toMemoryLine).toList());
   }
@@ -523,6 +592,17 @@ public class AiMemoryService {
     if (AiMemoryScope.isApp(scope)) return ScopeFilter.app(scope);
     throw AiMemoryException.invalid(
         "scope 는 ALL·COMMON·앱 코드(" + String.join("·", AiMemoryScope.APPS) + ") 중 하나예요");
+  }
+
+  /**
+   * 실린 메모리의 사용 시각을 올리게 한다(WP-385) — 커밋 뒤 비동기. 읽은 행의 사용 시각이 1시간 안이면 저장소도 다시 쓰지 않으므로 여기서 미리 거르고, 남는
+   * 행이 없으면(꺼짐 포함) 실행기 작업·트랜잭션을 만들지 않는다.
+   */
+  private void recordUsage(long userId, List<Row> rows) {
+    Instant staleBefore = Instant.now().minus(AiMemoryUsageRecorder.MIN_INTERVAL);
+    List<Long> stale =
+        rows.stream().filter(r -> r.lastUsedAt().isBefore(staleBefore)).map(Row::id).toList();
+    if (!stale.isEmpty()) usage.record(userId, stale);
   }
 
   private static ChatMemories toChatMemories(AiMemorySelector.Selection s) {

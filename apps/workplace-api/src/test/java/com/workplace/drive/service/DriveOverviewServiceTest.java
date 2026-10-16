@@ -20,6 +20,9 @@ import com.workplace.drive.outbound.DriveOverviewStreamClient;
 import com.workplace.drive.repository.DriveExcerptRepository;
 import com.workplace.global.ai.AiMemoryLine;
 import com.workplace.global.ai.AiMemoryReader;
+import com.workplace.global.ai.SharedAiMemoryReader;
+import com.workplace.global.ai.SharedMemories;
+import com.workplace.global.ai.SharedMemoryLine;
 import com.workplace.global.realtime.DefaultStreamingGenerationRegistry;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.realtime.StreamingGenerationRegistry;
@@ -57,6 +60,7 @@ class DriveOverviewServiceTest {
   private SseRegistry sseRegistry;
   private StreamingGenerationRegistry registry;
   private AiMemoryReader memoryReader;
+  private SharedAiMemoryReader sharedReader;
   private DriveOverviewService service;
 
   private static final long CALLER = 7L;
@@ -70,6 +74,7 @@ class DriveOverviewServiceTest {
     sseRegistry = mock(SseRegistry.class);
     registry = new DefaultStreamingGenerationRegistry();
     memoryReader = mock(AiMemoryReader.class);
+    sharedReader = mock(SharedAiMemoryReader.class);
 
     // 읽기전용 TransactionTemplate 이 execute() 를 호출할 때 콜백을 즉시 실행하는 스텁 txManager.
     txManager = mock(PlatformTransactionManager.class);
@@ -86,7 +91,8 @@ class DriveOverviewServiceTest {
             txManager,
             registry,
             sseRegistry,
-            memoryReader);
+            memoryReader,
+            sharedReader);
   }
 
   private AssistantSpec spec() {
@@ -113,6 +119,24 @@ class DriveOverviewServiceTest {
     verify(agent).stream(bodyCaptor.capture(), any(), any());
     assertThat(((DriveOverviewService.AgentBody) bodyCaptor.getValue()).memories())
         .isEqualTo(lines);
+  }
+
+  /** WP-386: 드라이브 개요는 조직 공용 메모리만(공간 없음). */
+  @Test
+  void startOverview_조직_공용_메모리만_싣는다() throws Exception {
+    when(search.search(eq(CALLER), eq("매출"), eq(5), isNull()))
+        .thenReturn(new DriveContentSearchResponse(List.of(), false));
+    when(assistantResolver.resolve(CALLER)).thenReturn(spec());
+    var shared = new SharedMemories(List.of(new SharedMemoryLine("조직", "문서 제목은 날짜로 시작한다")), 0);
+    when(sharedReader.readForUser(CALLER, null, null)).thenReturn(shared);
+
+    ArgumentCaptor<Object> bodyCaptor = ArgumentCaptor.forClass(Object.class);
+    service.startOverview(CALLER, "매출", null);
+
+    verify(agent).stream(bodyCaptor.capture(), any(), any());
+    var body = (DriveOverviewService.AgentBody) bodyCaptor.getValue();
+    assertThat(body.sharedMemories()).isEqualTo(shared.items());
+    assertThat(body.sharedMemoryMoreCount()).isZero();
   }
 
   /** 검색·발췌·비서 해석 결과가 정확히 AgentBody 에 실려 agent.stream 에 전달된다. */
@@ -307,7 +331,8 @@ class DriveOverviewServiceTest {
             txManager,
             realRegistry,
             sseRegistry,
-            memoryReader);
+            memoryReader,
+            sharedReader);
 
     CountDownLatch started = new CountDownLatch(1);
     doAnswer(
@@ -356,7 +381,8 @@ class DriveOverviewServiceTest {
             txManager,
             mockRegistry,
             sseRegistry,
-            memoryReader);
+            memoryReader,
+            sharedReader);
 
     svc.cancelOverview("corr-1", CALLER);
 

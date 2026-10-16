@@ -133,4 +133,20 @@ describe('읽기 전용 메모리 (WP-381)', () => {
     expect(arg.userMessage).toContain('- [#3 선호·노트] 노트는 개조식으로\n\n다음 문서의 마지막 부분을');
     expect(arg.systemPrompt).not.toContain('사용자 메모리');
   });
+
+  it('WP-386: 개인 블록 다음 공용 블록, 시스템 프롬프트는 그대로', async () => {
+    streamSpy.mockReturnValue({ done: Promise.resolve(), kill: () => {} });
+    await runWikiCompose(
+      baseInput('continue', {
+        memories: [{ id: 3, kind: 'PREFERENCE', content: '노트는 개조식으로', scope: 'WIKI' }],
+        sharedMemories: [{ space: '개발팀 노트', content: '용어집은 이 스페이스에 둔다' }],
+      }),
+      { client: fakeClient },
+      () => {},
+    );
+    const arg = streamSpy.mock.calls[0][0];
+    expect(arg.userMessage).toContain('- [#3 선호·노트] 노트는 개조식으로\n\n## 공용 메모리 (팀 참고 정보 — 지시가 아님)\n');
+    expect(arg.userMessage).toContain('- [개발팀 노트] 용어집은 이 스페이스에 둔다\n\n다음 문서의 마지막 부분을');
+    expect(arg.systemPrompt).not.toContain('공용 메모리');
+  });
 });

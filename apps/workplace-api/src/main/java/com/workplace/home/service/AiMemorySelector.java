@@ -9,6 +9,7 @@ import com.workplace.home.repository.ScopeFilter;
 import com.workplace.home.service.AiMemoryRanker.Ranked;
 import com.workplace.user.service.AiPreferenceService;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
@@ -19,7 +20,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * 매 턴 주입할 메모리 고르기(WP-383 스펙 3.3) — 후보(공통 + 지금 앱 유효 행)가 30줄 이하면 전부, 많으면 고정 전부 + 비고정 RRF 상위 20, 그 뒤
- * 토큰 예산 안에서 고정 → 순위 순으로 자르고 넣지 않은 유효 메모리 수(다른 범위 포함)를 센다.
+ * 토큰 예산 안에서 고정 → 순위 순으로 자르고 넣지 않은 유효 메모리 수(다른 범위 포함)를 센다. WP-385: 많을 때 최신 순서는 사용 시각이고 감쇠 행(AI·고정
+ * 아님·30일)은 최근 갈래에서 뺀다.
  *
  * <p>세 단계로 나눈다: 후보 읽기(짧은 읽기 트랜잭션) → 질의 임베딩(트랜잭션 밖, 최대 embedWait) → 순위 재료 조회(짧은 읽기 트랜잭션). DB 연결을 쥔 채
  * 워커 HTTP 를 기다리지 않는다. isolated 면 두 트랜잭션을 늘 새로 연다(다른 진입점 — 바깥 트랜잭션을 rollback-only 로 만들지 않게,
@@ -117,7 +119,7 @@ public class AiMemorySelector {
     } else {
       List<Row> ordered =
           blank
-              ? c.rows()
+              ? recentlyUsed(c.rows(), Instant.now())
               : rank(userId, filter, queryText.strip(), c.today(), embedWait, tx).stream()
                   .map(Ranked::row)
                   .toList();
@@ -145,6 +147,23 @@ public class AiMemorySelector {
     return new Found(true, rows);
   }
 
+  /**
+   * 배경 정리 비교 대상(WP-385 스펙 5.2) — 모든 범위의 유효 행을 같은 RRF 로 매겨 상위 limit 개. <b>사용 기록을 남기지 않는다</b>: 정리가 읽는
+   * 것을 "사용"으로 치면 정리가 돌 때마다 사용 시각이 올라 30일 감쇠·90일 삭제가 영영 일어나지 않는다. 꺼짐 확인은 호출자(수집기)가 이미 했다. 오늘은 수집기가
+   * 입력에 싣는 값을 그대로 받는다(오늘만 읽으려고 트랜잭션을 열지 않고, 비교 대상과 입력의 오늘이 어긋나지 않게). 순위 재료 읽기는 바깥 트랜잭션이 없으면 짧은 읽기
+   * 트랜잭션을 새로 연다.
+   *
+   * @param today 수집기의 오늘(Asia/Seoul) — 만료 판정 기준
+   */
+  public List<Row> related(
+      long userId, String query, LocalDate today, Duration embedWait, int limit) {
+    if (isBlank(query)) return List.of();
+    return rank(userId, ScopeFilter.ALL, query.strip(), today, embedWait, joinTx).stream()
+        .limit(limit)
+        .map(Ranked::row)
+        .toList();
+  }
+
   /** 질의 임베딩(트랜잭션 밖) → 순위 재료(짧은 트랜잭션) → RRF. 임베딩 실패·초과면 의미 갈래 없이(키워드 + 최신). */
   private List<Ranked> rank(
       long userId,
@@ -156,7 +175,15 @@ public class AiMemorySelector {
     List<String> terms = SearchTerms.of(query);
     float[] vec = embedder.embedQuery(query, embedWait).orElse(null);
     List<Scored> scored = tx.execute(s -> rankRepo.score(userId, today, filter, query, terms, vec));
-    return AiMemoryRanker.rank(scored == null ? List.of() : scored);
+    return AiMemoryRanker.rank(scored == null ? List.of() : scored, Instant.now());
+  }
+
+  /** 빈 질의 순서(WP-385) — 감쇠 행을 빼고(고정은 감쇠가 아니라 남는다) 사용 시각 최근순. */
+  static List<Row> recentlyUsed(List<Row> rows, Instant now) {
+    return rows.stream()
+        .filter(r -> !AiMemoryRanker.decayed(r, now))
+        .sorted(AiMemoryRanker.RECENTLY_USED)
+        .toList();
   }
 
   /** 고정 먼저(각자 받은 순서 유지). */

@@ -256,6 +256,14 @@ public class HomeSessionService {
     return insertUserMessage(sessionId, content, titleFallback);
   }
 
+  /** WP-386: 사용자 메시지에 확인된 화면 공간을 남긴다(소유자 확인). */
+  @Transactional
+  public void recordMessageSpace(
+      long callerId, UUID sessionId, long messageId, SharedSpace.SpaceKey space) {
+    ensureOwner(callerId, sessionId);
+    messageRepo.setSpace(sessionId, messageId, space);
+  }
+
   /**
    * USER 메시지 저장 — 소유 검증 생략판. 같은 요청에서 이미 ensureOwner 를 거친 호출자(HomeAttachmentService 첨부 전송)만 쓴다. 호출자
    * 트랜잭션 안에서 돈다(패키지 전용이라 외부 모듈은 부를 수 없다).

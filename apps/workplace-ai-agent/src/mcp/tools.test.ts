@@ -6,7 +6,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { buildSharedTools, isDisplayableTool, MEMORY_TOOL_NAMES, toolAnnotations, toolNameViolations, TOOL_LABELS, type SharedToolClient } from '@smart-workplace/mcp-tools-shared';
+import { AGENT_TOOL_NAME_MAX_LENGTH, buildSharedTools, isDisplayableTool, MEMORY_TOOL_NAMES, toolAnnotations, toolNameViolations, TOOL_LABELS, type SharedToolClient } from '@smart-workplace/mcp-tools-shared';
 import { describe, expect, it, vi, type Mock } from 'vitest';
 import { z } from 'zod';
 
@@ -224,6 +224,7 @@ function client(): TestClient {
     deleteAiMemory: vi.fn(),
     searchAiMemories: vi.fn(),
     searchConversations: vi.fn(),
+    requestSharedMemory: vi.fn(), // WP-386
   };
   return Object.assign(c, { sc });
 }
@@ -421,7 +422,7 @@ describe('프로필 구성', () => {
 
   // WP-55: 메모리 도구는 "라우터는 쓰기 도구 없음" 규칙의 이름 붙은 예외 — assistant 프로필·라우터 목록에만 있고(로컬 도구라 힌트 없음),
   // 이 대화 세션과 요청자 신원에 묶인다.
-  it('메모리 도구 3종은 assistant 프로필과 라우터 목록에만 있고 요청자·세션으로 호출한다', async () => {
+  it('메모리 도구(MEMORY_TOOL_NAMES)는 assistant 프로필과 라우터 목록에만 있고 요청자·세션으로 호출한다', async () => {
     const c = client();
     const tools = buildTools(c, AGENT_ID, 'assistant', undefined, undefined, undefined, undefined, 'sid-1');
     for (const n of MEMORY_TOOL_NAMES) {
@@ -437,6 +438,21 @@ describe('프로필 구성', () => {
     });
     await tools.find((t) => t.name === 'remember_memory')!.handler({ kind: 'CONTEXT', content: 'c' });
     expect(c.createAiMemory).toHaveBeenCalledWith(AGENT_ID, { kind: 'CONTEXT', content: 'c', source: 'AI', sessionId: 'sid-1' });
+  });
+
+  // WP-386: 공용 메모리 직접 요청도 라우터 전용 쓰기 예외 — assistant 프로필에만 있고 요청자·이 대화 세션으로 부른다.
+  it('remember_shared_memory 는 assistant 프로필과 라우터 목록에만 있고 요청자·세션으로 호출한다', async () => {
+    const c = client();
+    const tools = buildTools(c, AGENT_ID, 'assistant', undefined, undefined, undefined, undefined, 'sid-1');
+    expect(ASSISTANT_ROUTER_TOOLS).toContain('remember_shared_memory');
+    for (const p of ['issue', 'chat', 'home', 'messaging'] as McpProfile[]) {
+      expect(buildTools(c, AGENT_ID, p).map((t) => t.name), p).not.toContain('remember_shared_memory');
+    }
+    vi.mocked(c.requestSharedMemory).mockResolvedValue({
+      changeId: 1, memoryId: 2, spaceType: 'PROJECT', spaceId: 3, spaceName: 'WP', content: 'c',
+    });
+    await tools.find((t) => t.name === 'remember_shared_memory')!.handler({ content: 'c' });
+    expect(c.requestSharedMemory).toHaveBeenCalledWith(AGENT_ID, { content: 'c', sessionId: 'sid-1' });
   });
 
   // WP-383: search_memory 는 라우터 전용 로컬 읽기 도구 — 힌트 readOnly 라 "쓰기"·"힌트 없음" 목록을 바꾸지 않는다.
@@ -696,7 +712,7 @@ describe('ai-agent 전용 도구 명명 규칙 (WP-347)', () => {
   it('예외 목록 밖의 ai-agent 전용 도구 이름은 규칙(snake_case·46자 이하·edit_/save_/set_ 금지)을 지킨다', () => {
     const violations = [...localNames]
       .filter((n) => !LOCAL_NAMING_EXCEPTIONS.includes(n))
-      .map((n) => ({ name: n, violations: toolNameViolations(n) }))
+      .map((n) => ({ name: n, violations: toolNameViolations(n, AGENT_TOOL_NAME_MAX_LENGTH) }))
       .filter((v) => v.violations.length > 0);
     expect(violations).toEqual([]);
   });
@@ -749,6 +765,13 @@ describe('read_file 프로필 (WP-346)', () => {
 
   it.each(['issue', 'chat', 'home', 'messaging'] as McpProfile[])('%s 프로필에는 없다', (p) => {
     expect(buildTools(client(), AGENT_ID, p).map((t) => t.name)).not.toContain('read_file');
+  });
+
+  // WP-392: 서버 AI 에는 get_issue_chat 이 없으므로 그 도구를 가리키는 issue_chat 안내를 싣지 않는다.
+  it('read_file 설명에 get_issue_chat 을 가리키는 issue_chat 안내가 없다', () => {
+    const t = find(buildTools(client(), AGENT_ID, 'assistant'), 'read_file');
+    expect(t.description).not.toContain('issue_chat');
+    expect(t.description).not.toContain('get_issue_chat');
   });
 
   // WP-250: 이미지를 볼 수 없는 모델에는 페이지 보기 인자(pages)를 보이지 않는다 — 실행 쪽(imageInput)이 고른다.

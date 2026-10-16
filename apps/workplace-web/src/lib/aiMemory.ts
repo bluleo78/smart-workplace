@@ -7,6 +7,7 @@ import { formatDateKey, parseDateKey } from '@/lib/formatters';
 import { HIT_AREA_Y_COARSE } from '@/lib/hitArea';
 import { cn } from '@/lib/utils';
 import type { AiMemoryItem, AiMemoryScope } from '@/types/aiMemory';
+import type { MemoryBlock } from '@/types/home';
 
 /** 되돌릴 대상이 이미 없을 때(GONE·NOT_FOUND). */
 export const UNDO_GONE_MESSAGE = '이미 지워진 메모리예요';
@@ -102,6 +103,12 @@ export function memoryActionText(
   if (action === 'saved') return `${noun}에 저장함`;
   if (action === 'updated') return `${noun}를 고침`;
   return `${noun}에서 지움`;
+}
+
+/** 결과 줄 블록의 동작 문구 — 공용 저장(WP-386)은 「{공간} 공용 메모리에 기억했어요」, 개인 메모리는 memoryActionText 규칙. */
+export function memoryBlockActionText(block: MemoryBlock): string {
+  if (block.action === 'shared') return `${block.spaceName} 공용 메모리에 기억했어요`;
+  return memoryActionText(block.action, block.scope);
 }
 
 /** 앱 범위 키인가(서버가 준 문자열 검사용). */

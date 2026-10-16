@@ -21,12 +21,13 @@ import { useUpdateChatMessage } from '../../../../hooks/queries/useUpdateChatMes
 import { useAiWorkingBubbles } from '../../../../hooks/useAiWorkingBubbles';
 import { useAuth } from '../../../../hooks/useAuth';
 import { onChatTyping, onThreadProgress } from '../../../../hooks/useChatStream';
-import { waitingAgentIds } from '../../../../lib/agentWork';
+import { agentQuestionWorks } from '../../../../lib/agentWork';
 import { deleteMessageWithUndo } from '../../../../lib/deleteWithUndo';
 import { ChatComposer } from './ChatComposer';
 import { ChatMessageEditor } from './ChatMessageEditor';
 import { ChatMessageList } from './ChatMessageList';
 import { agentReplyHint } from './composerHint';
+import type { QuestionWorks } from './questionState';
 
 interface IssueChatSectionProps {
   projectKey: string;
@@ -64,14 +65,17 @@ function IssueChatSectionBody({
 
   const threadQ = useChatThread(projectKey, issueNumber);
 
-  // 질문 「답변됨」 판정용 — 이슈의 AI 작업 중 답변 대기(INPUT_REQUIRED)인 AI id. 이슈 상세와 같은 쿼리 키라 캐시를 공유하고,
-  // AI 작업 상태가 바뀌면 서버의 issue 변경 알림이 상세를 무효화해 다시 불러온다. 미로드면 undefined(대기 중으로 간주).
+  // 질문 「답변됨」 판정용 — 이슈의 AI 작업(답변 대기 여부·마지막 갱신 시각). 이슈 상세와 같은 쿼리 키라 캐시를 공유하고,
+  // AI 작업 상태가 바뀌면 서버의 issue 변경 알림이 상세를 무효화해 다시 불러온다. 받는 중이면 'loading'(대기 중으로 간주),
+  // 마지막 조회가 실패했으면 'failed' — 실패한 리페치 뒤에도 쿼리는 이전 데이터를 들고 있어, 그 사이 답이 달린 질문을 옛 상태로 단정하게 되므로(WP-391).
   const issueQ = useIssue(projectKey, issueNumber);
-  const waitingKey = issueQ.data ? waitingAgentIds(issueQ.data.summary.agentWork).join(',') : undefined;
-  // 문자열 키로 메모해 상세가 리페치돼도 집합 내용이 같으면 질문 상태를 다시 계산하지 않는다.
-  const waitingIds = useMemo(
-    () => (waitingKey === undefined ? undefined : new Set(waitingKey === '' ? [] : waitingKey.split(',').map(Number))),
-    [waitingKey],
+  // 쿼리의 구조 공유로 내용이 같으면 agentWork 참조가 그대로라, 리페치돼도 질문 상태를 다시 계산하지 않는다.
+  const issueFailed = issueQ.isError;
+  const hasIssue = issueQ.data !== undefined;
+  const agentWork = issueQ.data?.summary.agentWork;
+  const questionWorks = useMemo<QuestionWorks>(
+    () => (issueFailed ? 'failed' : hasIssue ? agentQuestionWorks(agentWork) : 'loading'),
+    [issueFailed, hasIssue, agentWork],
   );
 
   // 스레드 응답의 최근 메시지를 다음 페이지 정보와 함께 첫 페이지로 시드한다(WP-365).
@@ -231,7 +235,7 @@ function IssueChatSectionBody({
       editingMessageId={editingId}
       fill={embedded}
       compact={plain}
-      waitingAgentIds={waitingIds}
+      questionWorks={questionWorks}
       renderEditor={(m) => (
         <ChatMessageEditor
           initialBody={m.body}

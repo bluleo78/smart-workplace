@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { AgentWorkView } from '../types/issue'
-import { AGENT_STATE_LABEL, agentStateTone, agentToolLabel, displayState, primaryWork, progressView, questionWork } from './agentWork'
+import { AGENT_STATE_LABEL, agentQuestionWorks, agentStateTone, agentToolLabel, displayState, primaryWork, progressView, questionWork } from './agentWork'
 
 const w = (state: AgentWorkView['state'], extra: Partial<AgentWorkView> = {}): AgentWorkView => ({
   worker: { id: 1, username: 'me', name: '나', kind: 'HUMAN' }, tool: 'claude-code', state, note: null,
@@ -72,4 +72,19 @@ describe('questionWork', () => {
   it('AI 구성원의 인증 필요는 질문 카드에 올리지 않는다', () => expect(questionWork([w('AUTH_REQUIRED', { worker: agent })])).toBeNull())
   it('사람의 답변 필요만 있으면 null', () => expect(questionWork([w('INPUT_REQUIRED')])).toBeNull())
   it('없으면 null', () => expect(questionWork(undefined)).toBeNull())
+})
+
+describe('agentQuestionWorks (WP-391)', () => {
+  const agent = (id: number) => ({ id, username: `a${id}`, name: 'AI', kind: 'AGENT' as const })
+  it('AI 구성원만 id → 답변 대기 여부·갱신 시각(ms)으로, 사람 작업은 뺀다', () => {
+    const m = agentQuestionWorks([
+      w('INPUT_REQUIRED'),
+      w('INPUT_REQUIRED', { worker: agent(9), updatedAt: '2026-10-14T00:00:05Z' }),
+      w('WORKING', { worker: agent(10) }),
+    ])
+    expect([...m.keys()]).toEqual([9, 10])
+    expect(m.get(9)).toEqual({ waiting: true, updatedAt: Date.parse('2026-10-14T00:00:05Z') })
+    expect(m.get(10)?.waiting).toBe(false)
+  })
+  it('목록이 없으면 빈 맵', () => expect(agentQuestionWorks(undefined).size).toBe(0))
 })

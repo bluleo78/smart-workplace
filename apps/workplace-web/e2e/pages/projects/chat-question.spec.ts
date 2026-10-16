@@ -54,7 +54,10 @@ const HINT = '답변 입력… 멘션 없이 보내도 코디가 이어받아요
 async function setup(page: Page, opts: { externalAgent?: typeof KODI | null } = {}) {
   const messages = seedMessages();
   // 질문한 AI(50)의 작업 상태 — 「답변됨」 판정 기준이므로 기본은 답변 대기. 테스트가 바꾼 뒤 이슈 상세 리페치로 반영된다.
-  const workRef: { state: 'INPUT_REQUIRED' | 'WORKING' | null } = { state: 'INPUT_REQUIRED' };
+  // updatedAt 을 주면 작업의 마지막 갱신 시각을 고정한다(WP-391 — 질문 글보다 이른지 비교), fail 이면 이슈 상세가 500 을 돌려준다.
+  const workRef: { state: 'INPUT_REQUIRED' | 'WORKING' | null; updatedAt?: string; fail?: boolean } = {
+    state: 'INPUT_REQUIRED',
+  };
   // 스레드 응답이 싣는 외부 실행 AI — 담당자 변경 시나리오에서 테스트가 바꾼다.
   const agentRef = { current: opts.externalAgent ?? null };
   const detailNow = () =>
@@ -64,7 +67,13 @@ async function setup(page: Page, opts: { externalAgent?: typeof KODI | null } = 
         number: ISSUE_NUMBER,
         title: '질문 표시 테스트',
         agentWork: workRef.state
-          ? [createAgentWork({ worker: { id: AI_ID, username: 'codebot', name: '코드 봇', kind: 'AGENT' }, state: workRef.state })]
+          ? [
+              createAgentWork({
+                worker: { id: AI_ID, username: 'codebot', name: '코드 봇', kind: 'AGENT' },
+                state: workRef.state,
+                ...(workRef.updatedAt && { updatedAt: workRef.updatedAt }),
+              }),
+            ]
           : [],
       }),
     });
@@ -79,7 +88,7 @@ async function setup(page: Page, opts: { externalAgent?: typeof KODI | null } = 
   await page.route(`**/api/v1/projects/${PROJECT_KEY}/members`, (r) => r.fulfill(json([])));
   await page.route(
     (u) => u.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`,
-    (r) => r.fulfill(json(detailNow())),
+    (r) => (workRef.fail ? r.fulfill({ status: 500, body: '{}' }) : r.fulfill(json(detailNow()))),
   );
   for (const sub of ['watchers', 'labels', 'attachments']) {
     await page.route(
@@ -177,6 +186,46 @@ test.describe('이슈 챗 질문 표시', () => {
 
     await expect(page.locator('[data-message-id="107"]')).toHaveAttribute('data-question', 'open');
     await expect(page.getByTestId('chat-message-question-107')).toHaveText('질문');
+  });
+
+  // WP-391: 질문 글은 실시간으로 먼저 오고 이슈(작업 상태)는 그 뒤 다시 받는다 — 그 사이 작업 상태가 질문 전(WORKING)이어도 「답변됨」으로 깜빡이지 않는다.
+  test('작업 상태가 아직 질문 전 값이면 새 질문은 답변됨으로 깜빡이지 않고 열린 질문이다', async ({ authenticatedPage: page }) => {
+    const { workRef } = await setup(page);
+    // 105 의 답을 받아 작업 중으로 돌아온 뒤(01:05:30)의 상태 — 105 는 답변됨.
+    workRef.state = 'WORKING';
+    workRef.updatedAt = '2026-10-14T01:05:30Z';
+    const events = await mockGatedEvents(page);
+    await openDrawer(page);
+    await expect(page.locator('[data-message-id="105"]')).toHaveAttribute('data-question', 'answered');
+
+    // 새 질문만 오고 이슈 변경 알림은 아직 — 화면의 작업 상태는 질문보다 이른 WORKING 그대로다.
+    events.deliver(frame(ai(107, '2026-10-14T01:06:00Z', '하나 더 여쭙니다.', true)));
+
+    await expect(page.getByTestId('chat-message-107')).toBeVisible();
+    await expect(page.locator('[data-message-id="107"]')).toHaveAttribute('data-question', 'open');
+    await expect(page.getByTestId('chat-message-question-107')).toHaveText('질문');
+  });
+
+  // WP-391: 이슈 리페치가 실패하면 쿼리는 옛 데이터(답변 대기)를 들고 있다 — 그 사이 답이 달렸을 수 있어 열림·답변됨 어느 쪽도 단정하지 않는다.
+  test('이슈를 다시 받지 못하면 질문을 무채색 「질문」으로 두고 주황 강조를 하지 않는다', async ({ authenticatedPage: page }) => {
+    const { workRef } = await setup(page);
+    const events = await mockGatedEvents(page);
+    await openDrawer(page);
+    await expect(page.locator('[data-message-id="105"]')).toHaveAttribute('data-question', 'open');
+
+    // 사람이 답했고 서버가 이슈 변경 알림을 냈지만, 다시 받기가 실패한다.
+    workRef.fail = true;
+    events.deliver(
+      resourceChangedFrame({ resource: 'issue', op: 'updated', projectKey: PROJECT_KEY, issueNumber: ISSUE_NUMBER }),
+    );
+
+    const row = page.locator('[data-message-id="105"]');
+    await expect(row).toHaveAttribute('data-question', 'unknown');
+    await expect(page.getByTestId('chat-message-question-105')).toHaveText('질문');
+    await expect(row).not.toHaveClass(/bg-caution-subtle/);
+    // 앞선 질문(102)은 같은 AI 의 뒤 질문이 있어 이슈 정보와 상관없이 답변됨이다.
+    await expect(page.getByTestId('chat-message-question-102')).toHaveText('질문 ✓ 답변됨');
+    await page.screenshot({ path: 'test-results/tc/chat-question/unknown-1280-light.png' });
   });
 
   test('AI 메시지의 번호 목록은 항목 사이가 벌어지지 않는다', async ({ authenticatedPage: page }) => {

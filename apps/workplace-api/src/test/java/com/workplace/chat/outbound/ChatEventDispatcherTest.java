@@ -8,7 +8,12 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageCreatedEvent;
+import com.workplace.global.ai.SharedAiMemoryReader;
+import com.workplace.global.ai.SharedMemories;
+import com.workplace.global.ai.SharedMemoryLine;
 import com.workplace.global.dto.UserSummary;
 import com.workplace.global.outbound.AiAgentEventClient;
 import com.workplace.global.outbound.AiAgentProperties;
@@ -27,6 +32,7 @@ class ChatEventDispatcherTest {
   private AiAgentEventClient client;
   private AiAgentProperties props;
   private ServerAgentResolver resolver;
+  private SharedAiMemoryReader sharedReader;
   private ChatEventDispatcher dispatcher;
 
   @BeforeEach
@@ -35,9 +41,10 @@ class ChatEventDispatcherTest {
     props = Mockito.mock(AiAgentProperties.class);
     when(props.enabled()).thenReturn(true);
     resolver = Mockito.mock(ServerAgentResolver.class);
+    sharedReader = Mockito.mock(SharedAiMemoryReader.class);
     // 기본: 멘션된 AGENT 는 내부(INTERNAL) 실행으로 취급 — 외부 케이스는 internalAgents(...) 로 따로 지정.
     internalAgents(AGENT.id());
-    dispatcher = new ChatEventDispatcher(client, props, resolver);
+    dispatcher = new ChatEventDispatcher(client, props, resolver, sharedReader);
   }
 
   /**
@@ -56,6 +63,18 @@ class ChatEventDispatcherTest {
                     .orElse(null))
         .when(resolver)
         .pickActingAgent(any());
+  }
+
+  /** WP-386: 이슈 채팅 이벤트에 조직 + 그 프로젝트 공용 메모리를 싣는다. */
+  @Test
+  void 공용_메모리를_payload_에_싣는다() {
+    var shared = new SharedMemories(List.of(new SharedMemoryLine("조직", "답은 존댓말로")), 0);
+    when(sharedReader.readForProjectAgent("WP", AGENT.id())).thenReturn(shared);
+    dispatcher.onChatMessageCreated(event(HUMAN, List.of(AGENT)));
+    var captor = ArgumentCaptor.forClass(EventEnvelope.class);
+    verify(client).publish(captor.capture());
+    assertThat(captor.getValue().payload()).containsEntry("sharedMemories", shared.items());
+    assertThat(captor.getValue().payload()).containsEntry("sharedMemoryMoreCount", 0);
   }
 
   private static final UserSummary HUMAN = new UserSummary(1L, "alice", "Alice", "HUMAN");
@@ -86,6 +105,30 @@ class ChatEventDispatcherTest {
     ArgumentCaptor<EventEnvelope> captor = ArgumentCaptor.forClass(EventEnvelope.class);
     verify(client, times(1)).publish(captor.capture());
     assertThat(captor.getValue().type()).isEqualTo("chat.message.posted");
+  }
+
+  /**
+   * WP-386: 이슈 채팅 envelope 을 실제 Jackson 으로 직렬화한 와이어 모양을 잠근다(AiAgentEventClient 의 RestClient 가
+   * envelope 을 그대로 JSON 으로 보낸다) — sharedMemories 는 {space, content} 객체 배열, sharedMemoryMoreCount 는
+   * 숫자.
+   */
+  @Test
+  void 공용_메모리는_와이어에서_space_content_배열과_숫자다() throws Exception {
+    var shared = new SharedMemories(List.of(new SharedMemoryLine("조직", "답은 존댓말로")), 3);
+    when(sharedReader.readForProjectAgent("WP", AGENT.id())).thenReturn(shared);
+    dispatcher.onChatMessageCreated(event(HUMAN, List.of(AGENT)));
+    ArgumentCaptor<EventEnvelope> captor = ArgumentCaptor.forClass(EventEnvelope.class);
+    verify(client).publish(captor.capture());
+
+    JsonNode payload =
+        new ObjectMapper()
+            .readTree(new ObjectMapper().writeValueAsString(captor.getValue()))
+            .get("payload");
+
+    assertThat(payload.get("sharedMemories").toString())
+        .isEqualTo("[{\"space\":\"조직\",\"content\":\"답은 존댓말로\"}]");
+    assertThat(payload.get("sharedMemoryMoreCount").isNumber()).isTrue();
+    assertThat(payload.get("sharedMemoryMoreCount").asInt()).isEqualTo(3);
   }
 
   /** #368: payload 에 이슈 컨텍스트(title·status·body)가 동봉되어 AI 가 이슈를 인지할 수 있어야 한다. */

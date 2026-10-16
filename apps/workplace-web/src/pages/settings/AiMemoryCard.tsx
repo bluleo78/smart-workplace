@@ -5,7 +5,9 @@
 // WP-383: 범위마다 300개 — 전체 20개 초과면 검색칸(내용 부분 일치, 클라이언트 필터), 행은 인피니트 스크롤(처음 30행, 목록 끝 sentinel 이 보일 때마다 +30).
 // 묶음 카운트 n / 300 은 거르기 전 그대로(검색 중엔 앞에 "N개 일치"). 고정 상한(pinLimit)을 묶음에 넘기고, 툴팁(고정 막힘)용 Provider 를 목록에 둔다.
 // 직접 추가·모두 지우기는 목록 위 도구 줄(검색칸 오른쪽)에 둔다 — 인피니트 스크롤로 행이 늘 때마다 섹션 맨 아래 버튼이 밀려나지 않게.
+// WP-386: 탭 「내 메모리 · 공용 메모리」(?memoryTab=shared&space=PROJECT:12 로 열 수 있다). 스위치·WP-385 안내 줄·목록은 「내 메모리」 탭 안, 섹션 설명은 탭마다.
 import { useCallback, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 
 import { useSettingsScrollRoot } from '@/components/layout/settingsScrollRoot';
 import { SettingsSection, SettingsToggleRow } from '@/components/layout/SettingsSection';
@@ -23,14 +25,18 @@ import { Button } from '@/components/ui/button';
 import { SearchInput } from '@/components/ui/search-input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { useAiMemories, useClearAiMemories } from '@/hooks/queries/useAiMemories';
 import { useAiPreferences, useUpdateAiPreferences } from '@/hooks/queries/useAiPreferences';
 import { useLoadMoreSentinel } from '@/hooks/useLoadMoreSentinel';
 import { fullScopeKeys, groupMemories, MEMORY_LIMIT, PIN_LIMIT, ROWS_PAGE, SCOPE_ORDER, SEARCH_OVER, visibleGroups } from '@/lib/aiMemory';
+import { MEMORY_TAB_PARAM, SPACE_PARAM } from '@/lib/sharedAiMemory';
 import { cn } from '@/lib/utils';
 import { AiMemoryAddForm } from '@/pages/settings/AiMemoryAddForm';
+import { AiMemoryCleanupNotice } from '@/pages/settings/AiMemoryCleanupLog';
 import { AiMemoryScopeGroup } from '@/pages/settings/AiMemoryScopeGroup';
+import { SharedMemoryTab } from '@/pages/settings/shared/SharedMemoryTab';
 import type { AiMemoryItem } from '@/types/aiMemory';
 
 /** 응답 전 빈 목록 — 렌더마다 새 배열을 만들지 않아 묶음 계산 memo 가 유지된다. */
@@ -47,6 +53,22 @@ export function AiMemoryCard() {
   // 인피니트 스크롤 — 지금까지 그리기로 한 행 수(처음 30, sentinel 이 보일 때마다 +30).
   const [shown, setShown] = useState(ROWS_PAGE);
   const scrollRoot = useSettingsScrollRoot();
+  // WP-386 탭 — 쿼리로 연다(프로젝트 설정 링크·채팅 결과 줄에서 그 공간을 고른 채). 내 메모리로 돌아오면 탭·공간 쿼리를 함께 뺀다.
+  const [params, setParams] = useSearchParams();
+  const tab = params.get(MEMORY_TAB_PARAM) === 'shared' ? 'shared' : 'mine';
+  const setTab = (v: string) =>
+    setParams(
+      (p) => {
+        const n = new URLSearchParams(p);
+        if (v === 'shared') n.set(MEMORY_TAB_PARAM, 'shared');
+        else {
+          n.delete(MEMORY_TAB_PARAM);
+          n.delete(SPACE_PARAM);
+        }
+        return n;
+      },
+      { replace: true },
+    );
 
   // 응답 전·구 API(필드 없음)는 켜짐으로 그린다 — 서버 기본(NULL = 켜짐)과 같다.
   const enabled = prefs.data?.memoryEnabled ?? true;
@@ -78,115 +100,137 @@ export function AiMemoryCard() {
     <SettingsSection
       data-testid="ai-memory-card"
       title="메모리"
-      description="대화에서 알려 준 선호·교정과 업무 맥락을 기억해 다음 대화에 반영해요. 나만 볼 수 있어요."
+      description={
+        tab === 'mine'
+          ? '대화에서 알려 준 선호·교정과 업무 맥락을 기억해 다음 대화에 반영해요. 나만 볼 수 있어요.'
+          : '팀이 함께 쓰는 메모리예요. 그 공간에서 일하는 모든 AI가 읽어요.'
+      }
     >
-      <SettingsToggleRow
-        label="메모리 사용"
-        description={
-          <span data-testid="ai-memory-toggle-hint">
-            {enabled ? '끄면 저장도 반영도 하지 않아요 (목록은 남아요)' : '꺼져 있어요 — 새로 저장하지 않고 대화에도 반영하지 않아요'}
-          </span>
-        }
-        control={
-          <Switch
-            data-testid="ai-memory-toggle"
-            checked={enabled}
-            // 응답 전 연타로 요청 순서가 엇갈리지 않게 저장 중엔 잠근다(추천 질문 스위치와 같은 이유).
-            disabled={!prefs.isSuccess || updatePrefs.isPending}
-            onCheckedChange={(v) => updatePrefs.mutate({ memoryEnabled: v })}
-            aria-label="메모리 사용"
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabsList data-testid="ai-memory-tabs" className="mb-2">
+          <TabsTrigger value="mine" data-testid="ai-memory-tab-mine" className="pointer-coarse:min-h-11">
+            내 메모리
+          </TabsTrigger>
+          <TabsTrigger value="shared" data-testid="ai-memory-tab-shared" className="pointer-coarse:min-h-11">
+            공용 메모리
+          </TabsTrigger>
+        </TabsList>
+        <TabsContent value="mine" className="space-y-4">
+          <SettingsToggleRow
+            label="메모리 사용"
+            description={
+              <span data-testid="ai-memory-toggle-hint">
+                {enabled ? '끄면 저장도 반영도 하지 않아요 (목록은 남아요)' : '꺼져 있어요 — 새로 저장하지 않고 대화에도 반영하지 않아요'}
+              </span>
+            }
+            control={
+              <Switch
+                data-testid="ai-memory-toggle"
+                checked={enabled}
+                // 응답 전 연타로 요청 순서가 엇갈리지 않게 저장 중엔 잠근다(추천 질문 스위치와 같은 이유).
+                disabled={!prefs.isSuccess || updatePrefs.isPending}
+                onCheckedChange={(v) => updatePrefs.mutate({ memoryEnabled: v })}
+                aria-label="메모리 사용"
+              />
+            }
           />
-        }
-      />
 
-      {/* 도구 줄 — 검색칸(20개 초과) · 직접 추가 · 모두 지우기. 목록 위에 있어 행이 늘어도 자리가 그대로다. 좁으면 버튼이 다음 줄로 내려간다. */}
-      <div data-testid="ai-memory-toolbar" className="flex flex-wrap items-center gap-2">
-        {searchable && (
-          <SearchInput
-            value={query}
-            onChange={onQueryChange}
-            placeholder="메모리 검색"
-            className="min-w-48 max-w-none flex-1 pointer-coarse:[&_input]:h-11"
-            inputTestId="ai-memory-search"
-          />
-        )}
-        <Button
-          variant="outline"
-          size="sm"
-          data-testid="ai-memory-add"
-          className="pointer-coarse:min-h-11"
-          disabled={allFull || adding || !memories.isSuccess}
-          onClick={() => setAdding(true)}
-        >
-          ＋ 직접 추가
-        </Button>
-        {items.length > 0 && (
-          <Button
-            variant="ghost"
-            size="sm"
-            data-testid="ai-memory-clear"
-            className={cn('text-destructive hover:text-destructive pointer-coarse:min-h-11', !searchable && 'ml-auto')}
-            onClick={() => setConfirmOpen(true)}
-          >
-            모두 지우기
-          </Button>
-        )}
-      </div>
+          {/* WP-385: 지난 30일 AI 정리 횟수 + 기록 보기(0번이면 숨김). */}
+          <AiMemoryCleanupNotice />
 
-      {/* 꺼짐: 목록만 흐리게 — 편집·삭제·추가는 그대로(사용자가 직접 하는 정리). */}
-      <div data-testid="ai-memory-list-area" className={cn('space-y-2 transition-opacity', !enabled && 'opacity-60')}>
-        {adding && <AiMemoryAddForm fullScopes={fullScopes} onClose={() => setAdding(false)} />}
-        {memories.isPending ? (
-          <Skeleton className="h-16 w-full" />
-        ) : memories.isError ? (
-          <p className="text-sm text-destructive">메모리를 불러오지 못했어요.</p>
-        ) : items.length === 0 ? (
-          !adding && (
-            <p data-testid="ai-memory-empty" className="text-sm text-muted-foreground">
-              아직 기억한 내용이 없어요. 대화에서 '앞으로는 ~해줘'라고 말하거나 직접 추가해 보세요.
-            </p>
-          )
-        ) : searching && total === 0 ? (
-          <p data-testid="ai-memory-search-empty" className="text-sm text-muted-foreground">
-            '{activeQuery.trim()}'와 일치하는 메모리가 없어요.
-          </p>
-        ) : (
-          <TooltipProvider>
-            <div className="space-y-4 pt-2">
-              {views.map((v) => (
-                <AiMemoryScopeGroup
-                  key={v.group.key}
-                  group={v.group}
-                  rows={v.rows}
-                  matched={searching ? v.matched : null}
-                  limit={limit}
-                  pinLimit={pinLimit}
-                  fullScopes={fullScopes}
-                />
-              ))}
-              {/* 인피니트 스크롤 sentinel — 목록 끝이 보이면 30행 더. 더 없으면 observer 가 꺼진다. */}
-              <div ref={sentinelRef} data-testid="ai-memory-sentinel" aria-hidden className="h-px" />
-            </div>
-          </TooltipProvider>
-        )}
-      </div>
+          {/* 도구 줄 — 검색칸(20개 초과) · 직접 추가 · 모두 지우기. 목록 위에 있어 행이 늘어도 자리가 그대로다. 좁으면 버튼이 다음 줄로 내려간다. */}
+          <div data-testid="ai-memory-toolbar" className="flex flex-wrap items-center gap-2">
+            {searchable && (
+              <SearchInput
+                value={query}
+                onChange={onQueryChange}
+                placeholder="메모리 검색"
+                className="min-w-48 max-w-none flex-1 pointer-coarse:[&_input]:h-11"
+                inputTestId="ai-memory-search"
+              />
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              data-testid="ai-memory-add"
+              className="pointer-coarse:min-h-11"
+              disabled={allFull || adding || !memories.isSuccess}
+              onClick={() => setAdding(true)}
+            >
+              ＋ 직접 추가
+            </Button>
+            {items.length > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                data-testid="ai-memory-clear"
+                className={cn('text-destructive hover:text-destructive pointer-coarse:min-h-11', !searchable && 'ml-auto')}
+                onClick={() => setConfirmOpen(true)}
+              >
+                모두 지우기
+              </Button>
+            )}
+          </div>
 
-      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <AlertDialogContent data-testid="ai-memory-clear-dialog">
-          <AlertDialogHeader>
-            <AlertDialogTitle>메모리를 모두 지울까요?</AlertDialogTitle>
-            <AlertDialogDescription>
-              모든 범위의 메모리 {items.length}개가 삭제되고 되돌릴 수 없어요. 다음 대화부터 반영되지 않아요.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>취소</AlertDialogCancel>
-            <AlertDialogAction variant="destructive" data-testid="ai-memory-clear-confirm" disabled={clear.isPending} onClick={() => clear.mutate()}>
-              모두 지우기
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+          {/* 꺼짐: 목록만 흐리게 — 편집·삭제·추가는 그대로(사용자가 직접 하는 정리). */}
+          <div data-testid="ai-memory-list-area" className={cn('space-y-2 transition-opacity', !enabled && 'opacity-60')}>
+            {adding && <AiMemoryAddForm fullScopes={fullScopes} onClose={() => setAdding(false)} />}
+            {memories.isPending ? (
+              <Skeleton className="h-16 w-full" />
+            ) : memories.isError ? (
+              <p className="text-sm text-destructive">메모리를 불러오지 못했어요.</p>
+            ) : items.length === 0 ? (
+              !adding && (
+                <p data-testid="ai-memory-empty" className="text-sm text-muted-foreground">
+                  아직 기억한 내용이 없어요. 대화에서 '앞으로는 ~해줘'라고 말하거나 직접 추가해 보세요.
+                </p>
+              )
+            ) : searching && total === 0 ? (
+              <p data-testid="ai-memory-search-empty" className="text-sm text-muted-foreground">
+                '{activeQuery.trim()}'와 일치하는 메모리가 없어요.
+              </p>
+            ) : (
+              <TooltipProvider>
+                <div className="space-y-4 pt-2">
+                  {views.map((v) => (
+                    <AiMemoryScopeGroup
+                      key={v.group.key}
+                      group={v.group}
+                      rows={v.rows}
+                      matched={searching ? v.matched : null}
+                      limit={limit}
+                      pinLimit={pinLimit}
+                      fullScopes={fullScopes}
+                    />
+                  ))}
+                  {/* 인피니트 스크롤 sentinel — 목록 끝이 보이면 30행 더. 더 없으면 observer 가 꺼진다. */}
+                  <div ref={sentinelRef} data-testid="ai-memory-sentinel" aria-hidden className="h-px" />
+                </div>
+              </TooltipProvider>
+            )}
+          </div>
+
+          <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+            <AlertDialogContent data-testid="ai-memory-clear-dialog">
+              <AlertDialogHeader>
+                <AlertDialogTitle>메모리를 모두 지울까요?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  모든 범위의 메모리 {items.length}개가 삭제되고 되돌릴 수 없어요. 다음 대화부터 반영되지 않아요.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>취소</AlertDialogCancel>
+                <AlertDialogAction variant="destructive" data-testid="ai-memory-clear-confirm" disabled={clear.isPending} onClick={() => clear.mutate()}>
+                  모두 지우기
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </TabsContent>
+        <TabsContent value="shared">
+          <SharedMemoryTab />
+        </TabsContent>
+      </Tabs>
     </SettingsSection>
   );
 }

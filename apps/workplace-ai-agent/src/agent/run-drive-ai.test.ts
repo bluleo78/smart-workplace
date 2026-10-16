@@ -27,4 +27,14 @@ describe('runDriveOverview — 읽기 전용 메모리 (WP-381)', () => {
     await runDriveOverview(base, { client: fakeClient }, () => {});
     expect(streamSpy.mock.calls[1][0].userMessage.startsWith('질문: 일정은?')).toBe(true);
   });
+
+  it('WP-386: 공용 블록 다음 질문', async () => {
+    streamSpy.mockReturnValue({ done: Promise.resolve(), kill: () => {} });
+    await runDriveOverview(
+      { query: '일정은?', excerpts: [{ name: 'plan.pdf', text: '1분기' }], assistantAgentId: 7, sharedMemories: [{ space: '조직', content: '분기는 4월에 시작한다' }] },
+      { client: fakeClient },
+      () => {},
+    );
+    expect(streamSpy.mock.calls[0][0].userMessage).toContain('- [조직] 분기는 4월에 시작한다\n\n질문: 일정은?');
+  });
 });

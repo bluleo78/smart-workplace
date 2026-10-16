@@ -181,7 +181,9 @@ export function AiMemoryRow({
                     {' · '}
                   </span>
                 )}
-                {item.source === 'AI' ? 'AI가 저장' : '직접 추가'} · <span className="whitespace-nowrap">{formatDateOnly(item.updatedAt)}</span>
+                {/* WP-385: 정리 뒤 그대로인 메모리는 「AI가 정리 · 정리 날짜」 — 사용자가 고치면 서버가 cleanedAt 을 빼 원래 메타로 돌아온다. */}
+                {item.cleanedAt ? 'AI가 정리' : item.source === 'AI' ? 'AI가 저장' : '직접 추가'} ·{' '}
+                <span className="whitespace-nowrap">{formatDateOnly(item.cleanedAt ?? item.updatedAt)}</span>
                 {expiry && (
                   <>
                     {' · '}

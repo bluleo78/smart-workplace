@@ -1,9 +1,20 @@
 // WP-55 AI 메모리 쿼리·뮤테이션 — 설정 카드 목록과 채팅 결과 줄 되돌리기가 같은 캐시를 본다(되돌리면 목록을 다시 읽는다).
-import { useMutation, useMutationState, useQuery, useQueryClient } from '@tanstack/react-query';
+import { type InfiniteData, useInfiniteQuery, useMutation, useMutationState, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 
-import { clearAiMemories, createAiMemory, deleteAiMemory, listAiMemories, pinAiMemory, undoAiMemory, updateAiMemory } from '../../api/aiMemories';
+import {
+  clearAiMemories,
+  createAiMemory,
+  deleteAiMemory,
+  listAiMemories,
+  listAiMemoryChanges,
+  pinAiMemory,
+  undoAiMemory,
+  undoAiMemoryChange,
+  updateAiMemory,
+} from '../../api/aiMemories';
+import { CHANGE_UNDO_REFUSED_MESSAGE } from '../../components/ai/memoryChangeLogEntry';
 import { chatStreams } from '../../lib/ai/chatStreams';
 import {
   extractApiErrorScope,
@@ -17,8 +28,10 @@ import {
 } from '../../lib/aiMemory';
 import { extractApiErrorCode, handleApiError } from '../../lib/api-error';
 import { kstDateKey } from '../../lib/formatters';
-import type { AiMemoryItem, AiMemoryKind, AiMemoryScope, UndoAiMemoryRequest } from '../../types/aiMemory';
+import { SHARED_UNDO_ERROR } from '../../lib/sharedAiMemory';
+import type { AiMemoryChangePage, AiMemoryItem, AiMemoryKind, AiMemoryScope, UndoAiMemoryRequest } from '../../types/aiMemory';
 import { useAuth } from '../useAuth';
+import { sharedMemoryKeys } from './useSharedAiMemories';
 
 /** 가득 참 토스트 지속 시간(ms) — action(설정 열기)을 누를 여유. */
 const UNDO_FULL_TOAST_MS = 10_000;
@@ -27,13 +40,25 @@ const UNDO_FULL_TOAST_MS = 10_000;
 export const aiMemoryKeys = {
   all: ['aiMemories'] as const,
   list: (userId: number | null | undefined) => ['aiMemories', 'list', userId ?? null] as const,
+  /** WP-385 「AI가 정리한 기록」(무한 목록) — 아래 횟수 키의 앞부분이라 이 키로 무효화하면 둘 다 다시 읽는다. */
+  changes: (userId: number | null | undefined) => ['aiMemories', 'changes', userId ?? null] as const,
+  /** WP-385 안내 줄의 지난 30일 정리 횟수(한 건짜리 묶음의 count30d). */
+  changesCount: (userId: number | null | undefined) => ['aiMemories', 'changes', userId ?? null, 'count'] as const,
 };
 
-/** 이 사용자의 목록 키로 다시 읽는 함수. */
+/**
+ * 이 사용자의 메모리 목록과 「AI가 정리한 기록」(목록·안내 줄 횟수 — 같은 키 앞부분)을 함께 다시 읽는 함수 — 메모리가 바뀌면(고치기·지우기·고정·추가·
+ * 모두 지우기·되돌리기) 기록의 되돌리기 가능 여부·안내 줄 숫자도 바뀔 수 있어 둘을 늘 같이 무효화한다(한 곳에서만). 닫혀 있는 기록 목록은 비활성
+ * 질의라 지금 받지 않고 다음에 열 때 다시 읽는다. 돌려주는 프라미스는 목록 다시 읽기만 기다린다 —
+ * 부르는 쪽이 목록이 바뀔 때까지 pending 을 유지하는데, 기록(무한 목록 전체)을 기다리면 그만큼 늦어진다.
+ */
 function useInvalidateMemories() {
   const qc = useQueryClient();
   const { user } = useAuth();
-  return () => qc.invalidateQueries({ queryKey: aiMemoryKeys.list(user?.id) });
+  return () => {
+    void qc.invalidateQueries({ queryKey: aiMemoryKeys.changes(user?.id) });
+    return qc.invalidateQueries({ queryKey: aiMemoryKeys.list(user?.id) });
+  };
 }
 
 /** 채팅 결과 줄 되돌리기 뮤테이션 키 — 진행 중인 줄을 뮤테이션 캐시에서 찾는다(useMutationState). */
@@ -49,6 +74,7 @@ const UNDO_MUTATION_KEY = ['aiMemories', 'undo'] as const;
  */
 export function useUndoAiMemory() {
   const invalidate = useInvalidateMemories();
+  const qc = useQueryClient();
   const navigate = useNavigate();
   const pending = useMutationState({
     filters: { mutationKey: UNDO_MUTATION_KEY, status: 'pending' },
@@ -60,6 +86,8 @@ export function useUndoAiMemory() {
     onSuccess: (_data, body) => {
       chatStreams.markMemoryUndone(body.messageId, body.blockIndex);
       void invalidate();
+      // WP-386: 공용 결과 줄을 되돌렸으면 설정 공용 탭의 목록·기록·개수도 다시 읽는다(개인 줄이면 해당 쿼리가 없어 비용 없음).
+      void qc.invalidateQueries({ queryKey: sharedMemoryKeys.all });
     },
     onError: (e) => {
       const code = extractApiErrorCode(e);
@@ -73,6 +101,9 @@ export function useUndoAiMemory() {
         toast.error(UNDO_GONE_MESSAGE);
       } else if (code === 'AI_MEMORY_CHANGED') {
         toast.error(UNDO_CHANGED_MESSAGE);
+      } else if (code && SHARED_UNDO_ERROR[code]) {
+        // WP-386: 공용 결과 줄 — 그 뒤 바뀜·이미 되돌림·권한 없음·가득 참.
+        toast.error(SHARED_UNDO_ERROR[code]);
       } else {
         handleApiError(e, '메모리를 되돌리지 못했어요');
       }
@@ -188,4 +219,87 @@ export function useClearAiMemories() {
     onSuccess: () => invalidate(),
     onError: (e) => handleApiError(e, '메모리를 지우지 못했어요'),
   });
+}
+
+/**
+ * 안내 줄의 지난 30일 정리 횟수(WP-385) — 기록 한 건짜리 묶음(size=1)의 count30d 만 읽는다(설정 화면에 들어올 때 기록 30건을 받지 않게).
+ * 실패해도 토스트를 띄우지 않는다(안내 줄이 숨는다 — 설정 화면에 들어올 때마다 오류 토스트가 뜨지 않게).
+ */
+export function useAiMemoryChangeCount() {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: aiMemoryKeys.changesCount(user?.id),
+    queryFn: async () => (await listAiMemoryChanges(null, 1)).count30d,
+    enabled: user != null,
+  });
+}
+
+/**
+ * 「AI가 정리한 기록」(WP-385) — 커서 무한 목록. 기록 대화상자·시트가 열렸을 때만 읽는다(open). 실패해도 토스트를 띄우지 않는다
+ * (기록 대화상자는 다시 시도 버튼을 보인다).
+ */
+export function useAiMemoryChanges(open: boolean) {
+  const { user } = useAuth();
+  return useInfiniteQuery<AiMemoryChangePage, Error, InfiniteData<AiMemoryChangePage>, readonly unknown[], string | null>({
+    queryKey: aiMemoryKeys.changes(user?.id),
+    initialPageParam: null,
+    queryFn: ({ pageParam }) => listAiMemoryChanges(pageParam),
+    getNextPageParam: (last) => last.nextCursor,
+    enabled: user != null && open,
+  });
+}
+
+/** 기록 되돌리기 뮤테이션 키 — 진행 중인 항목을 뮤테이션 캐시에서 찾는다(채팅 결과 줄 되돌리기와 같은 방식). */
+const UNDO_CHANGE_MUTATION_KEY = ['aiMemories', 'changes', 'undo'] as const;
+
+/**
+ * 기록 하나 되돌리기(WP-385). 성공하면 그 항목을 응답(되돌림 표시)으로 바꿔 끼우고 설정 목록·기록을 다시 읽는다.
+ * 그 뒤 메모리가 바뀌었으면(AI_MEMORY_CHANGED) "그 뒤에 메모리가 바뀌어 되돌릴 수 없어요" + 목록·기록 다시 읽기. 이미 되돌렸거나 없으면 기록을 다시 읽어 맞춘다.
+ */
+export function useUndoAiMemoryChange() {
+  const qc = useQueryClient();
+  const { user } = useAuth();
+  const invalidateList = useInvalidateMemories();
+  const key = aiMemoryKeys.changes(user?.id);
+  const pending = useMutationState({
+    filters: { mutationKey: UNDO_CHANGE_MUTATION_KEY, status: 'pending' },
+    select: (m) => m.state.variables as number,
+  });
+  const mutation = useMutation({
+    mutationKey: UNDO_CHANGE_MUTATION_KEY,
+    mutationFn: (id: number) => undoAiMemoryChange(id),
+    onSuccess: ({ change }) => {
+      qc.setQueryData<InfiniteData<AiMemoryChangePage>>(key, (data) =>
+        data && {
+          ...data,
+          pages: data.pages.map((p) => ({ ...p, items: p.items.map((c) => (c.id === change.id ? change : c)) })),
+        },
+      );
+      toast.success('되돌렸어요');
+      void invalidateList();
+    },
+    onError: (e) => {
+      const code = extractApiErrorCode(e);
+      if (code === 'AI_MEMORY_CHANGED') {
+        // 그 뒤에 메모리가 바뀌었다 — 메모리 목록과 기록을 서버 상태로 맞춘다(다른 탭에서 바꿨을 수 있다).
+        toast.error(CHANGE_UNDO_REFUSED_MESSAGE);
+        void invalidateList();
+      } else if (code === 'AI_MEMORY_CHANGE_UNDONE' || code === 'AI_MEMORY_NOT_FOUND') {
+        // 다른 탭에서 이미 되돌렸거나 기록이 사라졌다 — 서버 상태로 맞춘다.
+        toast.error('이미 되돌린 기록이에요');
+        void qc.invalidateQueries({ queryKey: key });
+      } else {
+        handleApiError(e, '되돌리지 못했어요');
+      }
+    },
+  });
+  return {
+    /**
+     * 되돌리기 요청 — 실패하면 거부되는 프라미스(토스트는 위 onError 가 띄운다). 기록 목록이 거부를 받아 이 항목의 "누름" 표시를 지운다
+     * (MemoryChangeLog) — 부르는 쪽은 거부를 잡아야 한다.
+     */
+    undo: mutation.mutateAsync,
+    /** 그 항목의 되돌리기가 진행 중인가. */
+    isUndoing: (id: number) => pending.includes(id),
+  };
 }

@@ -20,7 +20,8 @@ import java.util.Set;
  *   <li>text: 직전 블록이 text 가 아닐 때만 새 블록. textStart 는 그 시점까지 누적된 delta 문자 수.
  *   <li>tools: 직전 블록이 tools 가 아닐 때만 새 블록. stepStart 는 영속 steps(tool_calls) 인덱스.
  *   <li>widget: show_* 도구마다 1블록(웹 WidgetSpec 과 같은 {type, params, layout?}).
- *   <li>memory: 메모리 도구 결과 줄(WP-55) — 도착순으로 따로 모아 finish 결과 끝에 붙인다(판정 4·5).
+ *   <li>memory: 메모리 도구 결과 줄(WP-55, 개인 Memory + WP-386 공용 SharedMemory) — 도착순으로 따로 모아 finish 결과 끝에
+ *       붙인다(판정 4·5).
  * </ul>
  *
  * <p>펌프 스레드에서 쓰고 done 핸들러에서 읽으므로 메서드를 동기화한다(호출 빈도가 낮아 경합 비용 무시 가능).
@@ -32,7 +33,7 @@ class ChatBlockRecorder {
    * List&lt;?&gt; 로 직렬화하면 Jackson 다형 타입 정보가 붙지 않으므로 @JsonTypeInfo 대신 명시 프로퍼티를 쓴다).
    */
   @JsonPropertyOrder("kind")
-  sealed interface Block permits Text, Tools, Widget, Memory {
+  sealed interface Block permits Text, Tools, Widget, Memory, SharedMemory {
     @JsonProperty("kind")
     String kind();
   }
@@ -85,7 +86,11 @@ class ChatBlockRecorder {
       @JsonInclude(JsonInclude.Include.NON_NULL) String expiresOn,
       @JsonInclude(JsonInclude.Include.NON_NULL) String previousExpiresOn)
       implements Block {
-    private static final Set<String> ACTIONS = Set.of("saved", "updated", "forgotten");
+    /**
+     * 개인 메모리 결과 줄의 action 허용 목록 — 공용 결과 줄("shared")은 SharedMemory 가 따로 다룬다. 정리 수집기도 이 목록으로 개인 줄만
+     * 읽는다.
+     */
+    static final Set<String> ACTIONS = Set.of("saved", "updated", "forgotten");
 
     @Override
     public String kind() {
@@ -152,9 +157,50 @@ class ChatBlockRecorder {
     }
   }
 
+  /**
+   * 공용 메모리 저장 결과 줄(WP-386 스펙 6.2) — 판별자는 개인 결과 줄과 같은 "memory" 라 같은 목록·같은 순번(되돌리기 blockIndex)을 쓴다.
+   * action 은 늘 "shared". changeId 는 되돌릴 공간 기록, spaceName 은 결과 줄 문구 「{공간} 공용 메모리에 기억했어요」의 공간 라벨.
+   * undone 은 되돌리기가 같은 트랜잭션에서 true 로 바꾼다(AiMemoryUndoService — 레코드가 아니라 JSON 트리로 고친다).
+   */
+  @JsonPropertyOrder({"kind", "action", "changeId", "memoryId", "spaceName", "content", "undone"})
+  record SharedMemory(
+      String action, long changeId, long memoryId, String spaceName, String content, boolean undone)
+      implements Block {
+
+    @Override
+    public String kind() {
+      return "memory";
+    }
+
+    /**
+     * tool 이벤트의 memory 필드(action=shared) → 블록. 양의 정수 id 둘과 비지 않은 공간 라벨·내용이 아니면 null(결과 줄을 만들지 않는다 —
+     * ai-agent zod 스키마와 같은 규칙).
+     */
+    static SharedMemory from(JsonNode m) {
+      JsonNode change = m.path("changeId");
+      JsonNode id = m.path("memoryId");
+      String space = m.path("spaceName").asText("");
+      String content = m.path("content").asText("");
+      if (!change.isIntegralNumber() || !change.canConvertToLong() || change.asLong() <= 0)
+        return null;
+      if (!id.isIntegralNumber() || !id.canConvertToLong() || id.asLong() <= 0) return null;
+      if (space.isBlank() || content.isBlank()) return null;
+      return new SharedMemory("shared", change.asLong(), id.asLong(), space, content, false);
+    }
+  }
+
+  /**
+   * tool 이벤트의 memory 필드 → 결과 줄 블록(WP-386: action=shared 는 공용, 그 밖은 개인 Memory.from). 모양이 틀리면 null —
+   * 던지지 않는다.
+   */
+  static Block memoryBlockOf(JsonNode m) {
+    if (m == null || !m.isObject()) return null;
+    return "shared".equals(m.path("action").asText()) ? SharedMemory.from(m) : Memory.from(m);
+  }
+
   private final List<Block> blocks = new ArrayList<>();
   private final StringBuilder streamed = new StringBuilder();
-  private final List<Memory> memories = new ArrayList<>();
+  private final List<Block> memories = new ArrayList<>();
 
   /** 텍스트 delta 도착. */
   synchronized void onDelta(String delta) {
@@ -177,7 +223,7 @@ class ChatBlockRecorder {
   }
 
   /** 메모리 도구 결과 줄(WP-55) — 표시 블록과 따로 모은다(위임 답 보정·오프셋 불일치에도 버려지지 않게, 판정 5). */
-  synchronized void onMemory(Memory memory) {
+  synchronized void onMemory(Block memory) {
     memories.add(memory);
   }
 

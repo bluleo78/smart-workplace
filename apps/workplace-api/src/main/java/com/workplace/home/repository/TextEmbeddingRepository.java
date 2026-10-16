@@ -1,7 +1,10 @@
 package com.workplace.home.repository;
 
 import static com.workplace.jooq.Tables.AI_MEMORY;
+import static com.workplace.jooq.Tables.AI_MEMORY_FORGOTTEN;
 import static com.workplace.jooq.Tables.HOME_MESSAGE;
+import static com.workplace.jooq.Tables.SHARED_AI_MEMORY;
+import static com.workplace.jooq.Tables.SHARED_AI_MEMORY_FORGOTTEN;
 
 import com.workplace.global.util.Texts;
 import java.util.List;
@@ -48,6 +51,93 @@ public class TextEmbeddingRepository {
         .orderBy(AI_MEMORY.ID.asc())
         .limit(limit)
         .fetch(AI_MEMORY.ID);
+  }
+
+  /** 임베딩이 빈 지운 기록의 내용(WP-385) — 이미 채웠거나 지워졌으면 null. */
+  public String forgottenText(long id) {
+    return dsl.select(AI_MEMORY_FORGOTTEN.CONTENT)
+        .from(AI_MEMORY_FORGOTTEN)
+        .where(AI_MEMORY_FORGOTTEN.ID.eq(id))
+        .and(AI_MEMORY_FORGOTTEN.EMBEDDING.isNull())
+        .fetchOne(AI_MEMORY_FORGOTTEN.CONTENT);
+  }
+
+  /** 지운 기록 임베딩 쓰기 — 내용이 그대로이고 아직 비어 있을 때만. 쓴 행 수. */
+  public int writeForgotten(long id, String content, String vectorLiteral) {
+    return dsl.execute(
+        "UPDATE ai_memory_forgotten SET embedding = cast(? as vector)"
+            + " WHERE id = ? AND content = ? AND embedding IS NULL",
+        vectorLiteral,
+        id,
+        content);
+  }
+
+  /** 임베딩이 빈 지운 기록 id 오래된 순 limit 개 — 부분 인덱스 ai_memory_forgotten_embedding_pending_idx. */
+  public List<Long> pendingForgottenIds(int limit) {
+    return dsl.select(AI_MEMORY_FORGOTTEN.ID)
+        .from(AI_MEMORY_FORGOTTEN)
+        .where(AI_MEMORY_FORGOTTEN.EMBEDDING.isNull())
+        .orderBy(AI_MEMORY_FORGOTTEN.ID.asc())
+        .limit(limit)
+        .fetch(AI_MEMORY_FORGOTTEN.ID);
+  }
+
+  /** 임베딩이 빈 공용 메모리의 내용(WP-386) — 이미 채웠거나 지워졌으면 null. */
+  public String sharedMemoryText(long id) {
+    return dsl.select(SHARED_AI_MEMORY.CONTENT)
+        .from(SHARED_AI_MEMORY)
+        .where(SHARED_AI_MEMORY.ID.eq(id))
+        .and(SHARED_AI_MEMORY.EMBEDDING.isNull())
+        .fetchOne(SHARED_AI_MEMORY.CONTENT);
+  }
+
+  /** 공용 메모리 임베딩 쓰기 — 내용이 그대로이고 아직 비어 있을 때만. 쓴 행 수. */
+  public int writeSharedMemory(long id, String content, String vectorLiteral) {
+    return dsl.execute(
+        "UPDATE shared_ai_memory SET embedding = cast(? as vector)"
+            + " WHERE id = ? AND content = ? AND embedding IS NULL",
+        vectorLiteral,
+        id,
+        content);
+  }
+
+  /** 임베딩이 빈 공용 메모리 id 오래된 순 limit 개 — 부분 인덱스 shared_ai_memory_embedding_pending_idx. */
+  public List<Long> pendingSharedMemoryIds(int limit) {
+    return dsl.select(SHARED_AI_MEMORY.ID)
+        .from(SHARED_AI_MEMORY)
+        .where(SHARED_AI_MEMORY.EMBEDDING.isNull())
+        .orderBy(SHARED_AI_MEMORY.ID.asc())
+        .limit(limit)
+        .fetch(SHARED_AI_MEMORY.ID);
+  }
+
+  /** 임베딩이 빈 공간 지운 기록의 내용(WP-386) — 이미 채웠거나 지워졌으면 null. */
+  public String sharedForgottenText(long id) {
+    return dsl.select(SHARED_AI_MEMORY_FORGOTTEN.CONTENT)
+        .from(SHARED_AI_MEMORY_FORGOTTEN)
+        .where(SHARED_AI_MEMORY_FORGOTTEN.ID.eq(id))
+        .and(SHARED_AI_MEMORY_FORGOTTEN.EMBEDDING.isNull())
+        .fetchOne(SHARED_AI_MEMORY_FORGOTTEN.CONTENT);
+  }
+
+  /** 공간 지운 기록 임베딩 쓰기 — 내용이 그대로이고 아직 비어 있을 때만. 쓴 행 수. */
+  public int writeSharedForgotten(long id, String content, String vectorLiteral) {
+    return dsl.execute(
+        "UPDATE shared_ai_memory_forgotten SET embedding = cast(? as vector)"
+            + " WHERE id = ? AND content = ? AND embedding IS NULL",
+        vectorLiteral,
+        id,
+        content);
+  }
+
+  /** 임베딩이 빈 공간 지운 기록 id 오래된 순 limit 개 — 부분 인덱스 shared_ai_memory_forgotten_embedding_pending_idx. */
+  public List<Long> pendingSharedForgottenIds(int limit) {
+    return dsl.select(SHARED_AI_MEMORY_FORGOTTEN.ID)
+        .from(SHARED_AI_MEMORY_FORGOTTEN)
+        .where(SHARED_AI_MEMORY_FORGOTTEN.EMBEDDING.isNull())
+        .orderBy(SHARED_AI_MEMORY_FORGOTTEN.ID.asc())
+        .limit(limit)
+        .fetch(SHARED_AI_MEMORY_FORGOTTEN.ID);
   }
 
   /** 대화 턴 임베딩 입력 상한(WP-384) — 답이 길어도 앞부분이 질문과 답의 주제를 담는다. */

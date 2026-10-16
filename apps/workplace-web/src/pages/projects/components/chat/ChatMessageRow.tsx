@@ -29,7 +29,7 @@ import { ChatMessageImage } from './ChatMessageImage';
 import { formatChatTimestamp } from './formatChatTimestamp';
 import type { QuestionState } from './questionState';
 
-/** 질문 태그 모양 — 열린 질문은 주황 「질문」, 답변된 질문은 초록 「질문 ✓ 답변됨」(WP-373). */
+/** 질문 태그 모양 — 열린 질문은 주황 「질문」, 답변된 질문은 초록 「질문 ✓ 답변됨」(WP-373), 이슈를 못 받아 모를 때는 무채색 「질문」(WP-391). */
 const QUESTION_TAG: Record<QuestionState, { className: string; label: string }> = {
   open: {
     className: 'rounded-full border border-caution/60 bg-background px-1.5 text-[11px] font-semibold leading-4 text-caution-text',
@@ -38,6 +38,10 @@ const QUESTION_TAG: Record<QuestionState, { className: string; label: string }> 
   answered: {
     className: 'rounded-full bg-success-subtle px-1.5 text-[11px] font-medium leading-4 text-success-text',
     label: '질문 ✓ 답변됨',
+  },
+  unknown: {
+    className: 'rounded-full border border-border bg-background px-1.5 text-[11px] font-medium leading-4 text-muted-foreground',
+    label: '질문',
   },
 };
 
@@ -52,7 +56,7 @@ interface ChatMessageRowProps {
   // 작업 시트 열기 — 스크린리더용 "메시지 작업" 버튼(A1)이 쓴다. 터치 셸이 아니거나 허용된 작업이 없으면 미전달.
   // 길게 누르기 자체는 목록이 위임으로 판정한다(useMessageListLongPress, 행의 data-message-id — 팀 채팅과 같은 규칙).
   onOpenActions?: () => void;
-  // 질문 메시지 상태(WP-373) — open: 주황 강조 + 「질문」 태그, answered: 강조 없이 「질문 ✓ 답변됨」 태그.
+  // 질문 메시지 상태(WP-373) — open: 주황 강조 + 「질문」 태그, answered: 강조 없이 「질문 ✓ 답변됨」 태그, unknown: 강조 없이 무채색 「질문」 태그(WP-391).
   questionState?: QuestionState;
 }
 

@@ -141,4 +141,12 @@ describe('compose 스키마 — 읽기 전용 메모리 (WP-381)', () => {
     expect(wikiComposeSchema.parse(validBody({ memories: [ok, 'x'] })).memories).toEqual([ok]);
     expect(wikiComposeSchema.parse(validBody()).memories).toEqual([]);
   });
+
+  it('WP-386: sharedMemories 를 걸러 받고, 없으면 빈 배열·0', () => {
+    const ok = { space: '개발팀 노트', content: '용어집은 이 스페이스에' };
+    const parsed = wikiComposeSchema.parse(validBody({ sharedMemories: [ok, 'x'], sharedMemoryMoreCount: 1 }));
+    expect(parsed.sharedMemories).toEqual([ok]);
+    expect(parsed.sharedMemoryMoreCount).toBe(1);
+    expect(wikiComposeSchema.parse(validBody()).sharedMemories).toEqual([]);
+  });
 });

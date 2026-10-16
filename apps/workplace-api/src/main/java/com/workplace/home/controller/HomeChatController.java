@@ -46,7 +46,8 @@ public class HomeChatController {
         request.screenContext(),
         request.fileIdsOrEmpty(),
         request.correlationId(),
-        request.app());
+        request.app(),
+        request.space());
   }
 
   /** GET /api/v1/ai/chat/active — 호출자의 생성 중 대화와 상한(WP-190). 새로고침·SSE 재연결 뒤 웹이 상태를 복원한다. */

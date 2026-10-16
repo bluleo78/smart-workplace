@@ -129,6 +129,32 @@ describe('POST /events', () => {
     expect(runAgent).toHaveBeenCalledOnce();
   });
 
+  it('WP-386: 공용 메모리가 실린 이벤트는 그 필드를 남긴 채 runAgent 로 넘긴다(모양 틀린 항목이 있어도 거절하지 않는다)', async () => {
+    const sharedMemories = [{ space: '조직', content: 'x' }, 'bad'];
+    const res = await request(buildApp())
+      .post('/events')
+      .set('Authorization', AUTH)
+      .send({ type: 'issue.created', payload: { ...validCreatedPayload, sharedMemories, sharedMemoryMoreCount: 0 } });
+    expect(res.status).toBe(202);
+    expect(vi.mocked(runAgent).mock.calls[0][0].payload).toEqual(expect.objectContaining({ sharedMemories, sharedMemoryMoreCount: 0 }));
+  });
+
+  it('WP-386: 공용 메모리 필드의 모양이 틀려도(배열 아님·음수 개수) 이슈·채팅 이벤트를 거절하지 않는다', async () => {
+    const bad = { sharedMemories: 'x', sharedMemoryMoreCount: -1 };
+    const issue = await request(buildApp())
+      .post('/events')
+      .set('Authorization', AUTH)
+      .send({ type: 'issue.created', payload: { ...validCreatedPayload, ...bad } });
+    expect(issue.status).toBe(202);
+    expect(runAgent).toHaveBeenCalledOnce();
+    const chat = await request(buildApp())
+      .post('/events')
+      .set('Authorization', AUTH)
+      .send({ type: 'chat.message.posted', payload: { ...validChatPayload, ...bad } });
+    expect(chat.status).toBe(202);
+    expect(handleChatEvent).toHaveBeenCalledOnce();
+  });
+
   it('runAgent 가 느려도 즉시 202 응답', async () => {
     let resolveAgent: (() => void) | null = null;
     vi.mocked(runAgent).mockReturnValueOnce(

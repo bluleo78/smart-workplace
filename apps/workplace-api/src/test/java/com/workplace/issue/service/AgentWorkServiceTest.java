@@ -175,7 +175,8 @@ class AgentWorkServiceTest extends IntegrationTestBase {
         humanId,
         "claude-code",
         new AgentWorkPatch(null, "INPUT_REQUIRED", "질문", false, null, null, null));
-    service.onAgentToolWrite(new AgentToolWriteEvent(issueId, humanId, "claude-code", true, false));
+    service.onAgentToolWrite(
+        new AgentToolWriteEvent(issueId, humanId, "claude-code", true, false, false));
     var row = repo.findActive(issueId, humanId).orElseThrow();
     assertThat(row.state()).isEqualTo("WORKING");
     assertThat(row.note()).isNull();
@@ -190,7 +191,8 @@ class AgentWorkServiceTest extends IntegrationTestBase {
         humanId,
         "claude-code",
         new AgentWorkPatch(null, "BLOCKED", "권한 없음", false, null, null, null));
-    service.onAgentToolWrite(new AgentToolWriteEvent(issueId, humanId, "claude-code", true, false));
+    service.onAgentToolWrite(
+        new AgentToolWriteEvent(issueId, humanId, "claude-code", true, false, false));
     var row = repo.findActive(issueId, humanId).orElseThrow();
     assertThat(row.state()).isEqualTo("WORKING");
     assertThat(row.note()).isEqualTo("권한 없음");
@@ -249,7 +251,8 @@ class AgentWorkServiceTest extends IntegrationTestBase {
         humanId,
         "claude-code",
         new AgentWorkPatch(null, "AUTH_REQUIRED", "토큰 필요", false, null, null, null));
-    service.onAgentToolWrite(new AgentToolWriteEvent(issueId, humanId, "claude-code", true, false));
+    service.onAgentToolWrite(
+        new AgentToolWriteEvent(issueId, humanId, "claude-code", true, false, false));
     var row = repo.findActive(issueId, humanId).orElseThrow();
     assertThat(row.state()).isEqualTo("WORKING");
     assertThat(row.note()).isNull();
@@ -260,7 +263,8 @@ class AgentWorkServiceTest extends IntegrationTestBase {
   void 터치_SUBMITTED_는_같은_행을_WORKING_으로() {
     assigneeRepository.add(issueId, agentId, humanId);
     var submitted = insert(issueId, agentId, null, "SUBMITTED").orElseThrow();
-    service.onAgentToolWrite(new AgentToolWriteEvent(issueId, agentId, "claude-code", true, false));
+    service.onAgentToolWrite(
+        new AgentToolWriteEvent(issueId, agentId, "claude-code", true, false, false));
     var row = repo.findActive(issueId, agentId).orElseThrow();
     assertThat(row.id()).isEqualTo(submitted.id());
     assertThat(row.state()).isEqualTo("WORKING");
@@ -337,7 +341,8 @@ class AgentWorkServiceTest extends IntegrationTestBase {
     assigneeRepository.add(issueId, agentId, humanId);
     var submitted = insert(issueId, agentId, null, "SUBMITTED").orElseThrow();
     doReturn(Optional.empty()).doCallRealMethod().when(repo).findActive(issueId, agentId);
-    service.onAgentToolWrite(new AgentToolWriteEvent(issueId, agentId, "claude-code", true, false));
+    service.onAgentToolWrite(
+        new AgentToolWriteEvent(issueId, agentId, "claude-code", true, false, false));
     var row = repo.findActive(issueId, agentId).orElseThrow();
     assertThat(row.id()).isEqualTo(submitted.id());
     assertThat(row.state()).isEqualTo("WORKING");

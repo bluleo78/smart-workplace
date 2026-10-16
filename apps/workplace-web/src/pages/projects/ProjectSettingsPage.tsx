@@ -5,6 +5,7 @@ import { useForm } from 'react-hook-form';
 import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 
+import { SharedMemoryLink } from '@/components/ai/SharedMemoryLink';
 import { SettingsPage } from '@/components/layout/SettingsPage';
 import { settingsFieldClass, SettingsSection } from '@/components/layout/SettingsSection';
 import { projectSettingsGuide } from '@/components/settings-guide/settingsGuides';
@@ -129,6 +130,9 @@ export default function ProjectSettingsPage() {
               <Button type="submit" disabled={update.isPending}>{update.isPending ? '저장 중…' : '저장'}</Button>
             </form>
           </SettingsSection>
+
+          {/* WP-386: 공용 AI 메모리 — 설정 › AI 비서 › 메모리 「공용 메모리」에서 관리(개인 프로젝트는 공유 대상이 아니라 숨김). */}
+          {!isPersonal && project.data && <SharedMemoryLink projectId={project.data.id} />}
 
           {/* 개인 프로젝트는 AI 어시스턴트만 추가 가능(agentOnly), 팀 프로젝트는 일반 멤버 관리 */}
           {isPersonal

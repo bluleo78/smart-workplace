@@ -11,6 +11,8 @@ import com.workplace.jooq.tables.AgentApiKey.AgentApiKeyPath;
 import com.workplace.jooq.tables.AgentWork.AgentWorkPath;
 import com.workplace.jooq.tables.AiAgentCredential.AiAgentCredentialPath;
 import com.workplace.jooq.tables.AiMemory.AiMemoryPath;
+import com.workplace.jooq.tables.AiMemoryChange.AiMemoryChangePath;
+import com.workplace.jooq.tables.AiMemoryForgotten.AiMemoryForgottenPath;
 import com.workplace.jooq.tables.AssistantConfig.AssistantConfigPath;
 import com.workplace.jooq.tables.AuditLog.AuditLogPath;
 import com.workplace.jooq.tables.Calendar.CalendarPath;
@@ -57,6 +59,8 @@ import com.workplace.jooq.tables.PushSubscription.PushSubscriptionPath;
 import com.workplace.jooq.tables.RefreshToken.RefreshTokenPath;
 import com.workplace.jooq.tables.Role.RolePath;
 import com.workplace.jooq.tables.SavedView.SavedViewPath;
+import com.workplace.jooq.tables.SharedAiMemory.SharedAiMemoryPath;
+import com.workplace.jooq.tables.SharedAiMemoryChange.SharedAiMemoryChangePath;
 import com.workplace.jooq.tables.Tenant.TenantPath;
 import com.workplace.jooq.tables.ThreadReadState.ThreadReadStatePath;
 import com.workplace.jooq.tables.User.UserPath;
@@ -365,6 +369,32 @@ public class User extends TableImpl<UserRecord> {
             _aiAgentCredentialUserIdFkey = new AiAgentCredentialPath(this, null, Keys.AI_AGENT_CREDENTIAL__AI_AGENT_CREDENTIAL_USER_ID_FKEY.getInverseKey());
 
         return _aiAgentCredentialUserIdFkey;
+    }
+
+    private transient AiMemoryChangePath _aiMemoryChange;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.ai_memory_change</code> table
+     */
+    public AiMemoryChangePath aiMemoryChange() {
+        if (_aiMemoryChange == null)
+            _aiMemoryChange = new AiMemoryChangePath(this, null, Keys.AI_MEMORY_CHANGE__AI_MEMORY_CHANGE_USER_ID_FKEY.getInverseKey());
+
+        return _aiMemoryChange;
+    }
+
+    private transient AiMemoryForgottenPath _aiMemoryForgotten;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.ai_memory_forgotten</code> table
+     */
+    public AiMemoryForgottenPath aiMemoryForgotten() {
+        if (_aiMemoryForgotten == null)
+            _aiMemoryForgotten = new AiMemoryForgottenPath(this, null, Keys.AI_MEMORY_FORGOTTEN__AI_MEMORY_FORGOTTEN_USER_ID_FKEY.getInverseKey());
+
+        return _aiMemoryForgotten;
     }
 
     private transient AiMemoryPath _aiMemory;
@@ -979,6 +1009,62 @@ public class User extends TableImpl<UserRecord> {
             _savedView = new SavedViewPath(this, null, Keys.SAVED_VIEW__SAVED_VIEW_OWNER_ID_FKEY.getInverseKey());
 
         return _savedView;
+    }
+
+    private transient SharedAiMemoryPath _sharedAiMemoryAuthorUserIdFkey;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.shared_ai_memory</code> table, via the
+     * <code>shared_ai_memory_author_user_id_fkey</code> key
+     */
+    public SharedAiMemoryPath sharedAiMemoryAuthorUserIdFkey() {
+        if (_sharedAiMemoryAuthorUserIdFkey == null)
+            _sharedAiMemoryAuthorUserIdFkey = new SharedAiMemoryPath(this, null, Keys.SHARED_AI_MEMORY__SHARED_AI_MEMORY_AUTHOR_USER_ID_FKEY.getInverseKey());
+
+        return _sharedAiMemoryAuthorUserIdFkey;
+    }
+
+    private transient SharedAiMemoryChangePath _sharedAiMemoryChangeActorUserIdFkey;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.shared_ai_memory_change</code> table, via the
+     * <code>shared_ai_memory_change_actor_user_id_fkey</code> key
+     */
+    public SharedAiMemoryChangePath sharedAiMemoryChangeActorUserIdFkey() {
+        if (_sharedAiMemoryChangeActorUserIdFkey == null)
+            _sharedAiMemoryChangeActorUserIdFkey = new SharedAiMemoryChangePath(this, null, Keys.SHARED_AI_MEMORY_CHANGE__SHARED_AI_MEMORY_CHANGE_ACTOR_USER_ID_FKEY.getInverseKey());
+
+        return _sharedAiMemoryChangeActorUserIdFkey;
+    }
+
+    private transient SharedAiMemoryChangePath _sharedAiMemoryChangeUndoneByFkey;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.shared_ai_memory_change</code> table, via the
+     * <code>shared_ai_memory_change_undone_by_fkey</code> key
+     */
+    public SharedAiMemoryChangePath sharedAiMemoryChangeUndoneByFkey() {
+        if (_sharedAiMemoryChangeUndoneByFkey == null)
+            _sharedAiMemoryChangeUndoneByFkey = new SharedAiMemoryChangePath(this, null, Keys.SHARED_AI_MEMORY_CHANGE__SHARED_AI_MEMORY_CHANGE_UNDONE_BY_FKEY.getInverseKey());
+
+        return _sharedAiMemoryChangeUndoneByFkey;
+    }
+
+    private transient SharedAiMemoryPath _sharedAiMemoryUpdatedByFkey;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.shared_ai_memory</code> table, via the
+     * <code>shared_ai_memory_updated_by_fkey</code> key
+     */
+    public SharedAiMemoryPath sharedAiMemoryUpdatedByFkey() {
+        if (_sharedAiMemoryUpdatedByFkey == null)
+            _sharedAiMemoryUpdatedByFkey = new SharedAiMemoryPath(this, null, Keys.SHARED_AI_MEMORY__SHARED_AI_MEMORY_UPDATED_BY_FKEY.getInverseKey());
+
+        return _sharedAiMemoryUpdatedByFkey;
     }
 
     private transient ThreadReadStatePath _threadReadState;

@@ -11,6 +11,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
+import com.workplace.global.ai.SharedAiMemoryReader;
+import com.workplace.global.ai.SharedMemories;
 import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.global.realtime.DefaultStreamingGenerationRegistry;
 import com.workplace.global.realtime.SseRegistry;
@@ -125,6 +127,9 @@ class HomeChatServiceForwardTest extends IntegrationTestBase {
         .fanOut(any(), any(), any());
 
     StreamingGenerationRegistry registry = new DefaultStreamingGenerationRegistry();
+    // WP-386: 공용 메모리는 이 테스트의 관심사가 아니다 — 늘 빈 묶음.
+    SharedAiMemoryReader sharedReader = mock(SharedAiMemoryReader.class);
+    when(sharedReader.readForUser(anyLong(), any(), any())).thenReturn(SharedMemories.EMPTY);
     return new HomeChatService(
         sessionService,
         proposalService,
@@ -139,7 +144,9 @@ class HomeChatServiceForwardTest extends IntegrationTestBase {
         capturingSseRegistry,
         chatProperties,
         followupService,
-        memoryService);
+        memoryService,
+        mock(SharedMemorySpaces.class),
+        sharedReader);
   }
 
   private void stubAssistant() {
@@ -174,7 +181,8 @@ class HomeChatServiceForwardTest extends IntegrationTestBase {
                 Map.of("issueKey", "WP-12"),
                 List.of(new AiScreenContext.Fact("상태", "진행 중"))),
             null);
-    serviceCapturing(new ArrayList<>()).startChat(uid, null, "이거 요약", ctx);
+    serviceCapturing(new ArrayList<>())
+        .startChat(uid, null, "이거 요약", ctx, List.of(), null, null, null);
 
     assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
     org.mockito.Mockito.verify(chatClient)

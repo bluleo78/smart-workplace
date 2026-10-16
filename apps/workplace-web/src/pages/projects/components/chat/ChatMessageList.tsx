@@ -23,7 +23,7 @@ import { ScrollArea } from '../../../../components/ui/scroll-area';
 import { getDateKey } from '../../../../lib/formatters';
 import type { ChatMessageResponse } from '../../../../types/chat';
 import { ChatMessageRow } from './ChatMessageRow';
-import { questionStates } from './questionState';
+import { questionStates, type QuestionWorks } from './questionState';
 
 /** 이슈 채팅 첨부 뷰어 열림 router state 키(WP-279) — 팀 채팅·메인 AI 채팅 키와 나눈다(이슈 상세의 ?preview 첨부 뷰어와도 별개). */
 const ISSUE_CHAT_PREVIEW_KEY = 'issueChatPreview';
@@ -43,8 +43,8 @@ interface ChatMessageListProps {
   fill?: boolean;
   /** true 면 빈 상태를 낮게(py-6) — 카드 없는 모바일 개인 작업 채팅 섹션용(WP-221). */
   compact?: boolean;
-  /** 답변을 기다리는(INPUT_REQUIRED) AI 사용자 id 집합 — 질문 열림/답변됨 판정 기준. undefined = 이슈 미로드(대기 중으로 간주). */
-  waitingAgentIds?: ReadonlySet<number>;
+  /** 질문 열림/답변됨 판정 재료(questionState.ts) — 이슈 받는 중·조회 실패·AI 작업 맵. */
+  questionWorks: QuestionWorks;
 }
 
 export function ChatMessageList({
@@ -60,7 +60,7 @@ export function ChatMessageList({
   renderEditor,
   fill = false,
   compact = false,
-  waitingAgentIds,
+  questionWorks,
 }: ChatMessageListProps) {
   const lastRef = useRef<HTMLLIElement | null>(null);
   const scrollRootRef = useRef<HTMLDivElement | null>(null);
@@ -76,7 +76,7 @@ export function ChatMessageList({
     [messages],
   );
   // 질문 글별 상태(열림/답변됨) — 로드된 메시지와 질문한 AI 의 작업 상태에서 도출한다(questionState.ts).
-  const qStates = useMemo(() => questionStates(sorted, waitingAgentIds), [sorted, waitingAgentIds]);
+  const qStates = useMemo(() => questionStates(sorted, questionWorks), [sorted, questionWorks]);
   const lastId = sorted.length > 0 ? sorted[sorted.length - 1].id : null;
   const sheet = useMessageSheet(sorted);
   // 시트 작업 — 권한·순서는 messageSheetActions 가 정한다(본인·미삭제·확정 메시지만 수정·삭제 + 복사). 이슈 채팅엔 반응·스레드가 없다.

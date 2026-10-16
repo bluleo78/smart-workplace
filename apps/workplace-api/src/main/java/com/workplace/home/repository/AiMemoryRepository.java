@@ -7,7 +7,10 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -15,6 +18,7 @@ import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.jooq.Field;
 import org.jooq.Record;
+import org.jooq.UpdateSetMoreStep;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
@@ -60,13 +64,14 @@ public class AiMemoryRepository {
           AI_MEMORY.UPDATED_AT,
           AI_MEMORY.SCOPE,
           AI_MEMORY.EXPIRES_ON,
-          AI_MEMORY.PINNED);
+          AI_MEMORY.PINNED,
+          AI_MEMORY.LAST_USED_AT);
 
   private final DSLContext dsl;
 
   /**
    * 메모리 1건. scope 는 null = 공통(WP-379), expiresOn 은 null = 기한 없음(WP-380), pinned 는 사용자가 설정에서
-   * 고정했는가(WP-383).
+   * 고정했는가(WP-383), lastUsedAt 은 대화·검색·다른 진입점에 실제로 실린 마지막 시각(WP-385 — 감쇠 기준, 편집으로는 바뀌지 않는다).
    */
   public record Row(
       long id,
@@ -78,7 +83,8 @@ public class AiMemoryRepository {
       Instant updatedAt,
       String scope,
       LocalDate expiresOn,
-      boolean pinned) {}
+      boolean pinned,
+      Instant lastUsedAt) {}
 
   /**
    * 저장할 메모리 1건(id·시각 제외) — insert·insertWithId 가 받는다. sessionId 는 AI 대행 저장의 출처 대화(없으면 null), scope
@@ -91,6 +97,9 @@ public class AiMemoryRepository {
       UUID sessionId,
       String scope,
       LocalDate expiresOn) {}
+
+  /** 사용자 id 가 붙은 행 — 테넌트 전체를 훑는 배치(감쇠 삭제)가 사용자별 기록을 남길 때 쓴다(WP-385). */
+  public record Owned(long userId, Row row) {}
 
   /** 범위 조건 — null 은 공통(IS NULL). 순위 저장소도 같은 규칙을 쓴다. */
   static Condition inScope(String scope) {
@@ -162,6 +171,18 @@ public class AiMemoryRepository {
         .from(AI_MEMORY)
         .where(AI_MEMORY.USER_ID.eq(userId))
         .and(filter.condition())
+        .and(active(today))
+        .orderBy(AI_MEMORY.UPDATED_AT.desc(), AI_MEMORY.ID.desc())
+        .fetch(AiMemoryRepository::toRow);
+  }
+
+  /** 지정한 본인 유효 메모리(WP-385 — 이 대화가 저장·수정한 비교 대상) 최신순. ids 가 비면 빈 목록. */
+  public List<Row> findActiveByIds(long userId, Collection<Long> ids, LocalDate today) {
+    if (ids.isEmpty()) return List.of();
+    return dsl.select(ROW_FIELDS)
+        .from(AI_MEMORY)
+        .where(AI_MEMORY.USER_ID.eq(userId))
+        .and(AI_MEMORY.ID.in(ids))
         .and(active(today))
         .orderBy(AI_MEMORY.UPDATED_AT.desc(), AI_MEMORY.ID.desc())
         .fetch(AiMemoryRepository::toRow);
@@ -241,29 +262,76 @@ public class AiMemoryRepository {
     r.setExpiresOn(m.expiresOn());
     r.setCreatedAt(now);
     r.setUpdatedAt(now);
+    // WP-385: 새로 만든 메모리는 지금 쓰인 것으로 본다(만든 직후 감쇠 대상이 되지 않게) — created_at 과 같은 앱 시각.
+    r.setLastUsedAt(now);
     return r;
   }
 
-  /** 종류·내용·범위·기한을 바꾸고 맨 위로 올린다(updated_at 갱신) — 없거나 남의 것이면 empty. */
-  public Optional<Row> update(
-      long userId, long id, String kind, String content, String scope, LocalDate expiresOn) {
-    Field<Object> keepEmbeddingIfSame =
-        DSL.field(
-            "CASE WHEN {0} IS DISTINCT FROM {1} THEN NULL ELSE {2} END",
-            Object.class, AI_MEMORY.CONTENT, DSL.val(content), AI_MEMORY.EMBEDDING);
+  /** 내용이 바뀌면 임베딩을 같은 UPDATE 에서 비우는 식(WP-383) — SET 안의 content 는 바꾸기 전 값이다. */
+  private static Field<Object> keepEmbeddingIfSame(String content) {
+    return keepEmbeddingIfSame(AI_MEMORY.CONTENT, AI_MEMORY.EMBEDDING, content);
+  }
+
+  /** 표·컬럼을 받는 같은 식 — 공용 메모리 저장소(WP-386)도 쓴다. */
+  static Field<Object> keepEmbeddingIfSame(
+      Field<String> contentField, Field<?> embeddingField, String content) {
+    return DSL.field(
+        "CASE WHEN {0} IS DISTINCT FROM {1} THEN NULL ELSE {2} END",
+        Object.class, contentField, DSL.val(content), embeddingField);
+  }
+
+  /**
+   * 종류·내용·범위·기한 SET 과 수정 시각(updatedAt) — 고치기·배경 정리 공용. 내용이 바뀌면 임베딩을 같은 UPDATE 에서 비운다(WP-383 — SET
+   * 안의 content 는 바꾸기 전 값이라 범위·기한·종류만 바꾸면 그대로 둔다).
+   */
+  private UpdateSetMoreStep<AiMemoryRecord> setContent(
+      String kind, String content, String scope, LocalDate expiresOn, OffsetDateTime updatedAt) {
     return dsl.update(AI_MEMORY)
         .set(AI_MEMORY.KIND, kind)
         .set(AI_MEMORY.CONTENT, content)
         .set(AI_MEMORY.SCOPE, scope)
         .set(AI_MEMORY.EXPIRES_ON, expiresOn)
-        // WP-383: 내용이 바뀌면 임베딩을 같은 UPDATE 에서 비운다(SET 안의 content 는 바꾸기 전 값) — 범위·기한·종류만 바꾸면 그대로 둔다.
-        .set(java.util.Map.<Field<?>, Object>of(AI_MEMORY.EMBEDDING, keepEmbeddingIfSame))
-        .set(AI_MEMORY.UPDATED_AT, OffsetDateTime.now(ZoneOffset.UTC))
-        .where(AI_MEMORY.ID.eq(id))
+        .set(Map.<Field<?>, Object>of(AI_MEMORY.EMBEDDING, keepEmbeddingIfSame(content)))
+        .set(AI_MEMORY.UPDATED_AT, updatedAt);
+  }
+
+  /** 본인 행 하나에 UPDATE 를 걸고 바뀐 행을 돌려준다 — 없거나 남의 것이면 empty. */
+  private Optional<Row> updateOwn(UpdateSetMoreStep<AiMemoryRecord> set, long userId, long id) {
+    return set.where(AI_MEMORY.ID.eq(id))
         .and(AI_MEMORY.USER_ID.eq(userId))
         .returning(ROW_FIELDS)
         .fetchOptional()
         .map(AiMemoryRepository::toRow);
+  }
+
+  /** 종류·내용·범위·기한을 바꾸고 맨 위로 올린다(updated_at 갱신) — 없거나 남의 것이면 empty. */
+  public Optional<Row> update(
+      long userId, long id, String kind, String content, String scope, LocalDate expiresOn) {
+    return updateOwn(
+        setContent(kind, content, scope, expiresOn, OffsetDateTime.now(ZoneOffset.UTC)),
+        userId,
+        id);
+  }
+
+  /**
+   * 배경 정리의 고치기·합치기 결과(WP-385 스펙 5.5) — 종류·내용·범위·기한을 바꾸고 출처 대화를 이 대화로, 수정·사용 시각을 at 으로 둔다(정리 결과는 방금
+   * 쓰인 것으로 본다). 내용이 바뀌면 임베딩을 비운다. 없거나 남의 것이면 empty.
+   */
+  public Optional<Row> applyCleanup(
+      long userId,
+      long id,
+      String kind,
+      String content,
+      String scope,
+      LocalDate expiresOn,
+      UUID sessionId,
+      OffsetDateTime at) {
+    return updateOwn(
+        setContent(kind, content, scope, expiresOn, at)
+            .set(AI_MEMORY.SOURCE_SESSION_ID, sessionId)
+            .set(AI_MEMORY.LAST_USED_AT, at),
+        userId,
+        id);
   }
 
   /** 고정 켜기·끄기(WP-383) — updated_at·임베딩은 그대로 둔다(고정 토글이 최신 순위를 바꾸지 않게, 판정 2). 없거나 남의 것이면 empty. */
@@ -277,6 +345,21 @@ public class AiMemoryRepository {
         .map(AiMemoryRepository::toRow);
   }
 
+  /**
+   * 사용 시각 갱신(WP-385) — ids 중 사용 시각이 staleBefore 보다 오래된 행만 now 로 올린다(같은 시간대 반복 쓰기 생략).
+   * updated_at·임베딩은 건드리지 않는다(사용은 편집이 아니다). 본인 행만 고치고(user_id 조건), 테넌트는 RLS 가 거른다. 고친 행 수.
+   */
+  public int touchUsed(
+      long userId, Collection<Long> ids, OffsetDateTime now, OffsetDateTime staleBefore) {
+    if (ids.isEmpty()) return 0;
+    return dsl.update(AI_MEMORY)
+        .set(AI_MEMORY.LAST_USED_AT, now)
+        .where(AI_MEMORY.ID.in(ids))
+        .and(AI_MEMORY.USER_ID.eq(userId))
+        .and(AI_MEMORY.LAST_USED_AT.lt(staleBefore))
+        .execute();
+  }
+
   /** 지운 행(없으면 empty) — 응답·도구 결과가 지운 kind·content·source·scope 를 돌려준다. */
   public Optional<Row> delete(long userId, long id) {
     return dsl.deleteFrom(AI_MEMORY)
@@ -287,9 +370,21 @@ public class AiMemoryRepository {
         .map(AiMemoryRepository::toRow);
   }
 
-  /** 본인 메모리를 모두 지우고 지운 개수를 돌려준다. */
-  public int deleteAll(long userId) {
-    return dsl.deleteFrom(AI_MEMORY).where(AI_MEMORY.USER_ID.eq(userId)).execute();
+  /** 본인 메모리 여러 건을 한 번에 지운다(WP-385 — 합치기의 나머지 대상) — 지운 수. 남의 id 는 지우지 않는다. */
+  public int deleteByIds(long userId, Collection<Long> ids) {
+    if (ids.isEmpty()) return 0;
+    return dsl.deleteFrom(AI_MEMORY)
+        .where(AI_MEMORY.ID.in(ids))
+        .and(AI_MEMORY.USER_ID.eq(userId))
+        .execute();
+  }
+
+  /** 본인 메모리를 모두 지우고 지운 내용을 돌려준다(WP-385 — 지운 기록에 남긴다). 순서는 정하지 않는다. */
+  public List<String> deleteAllContents(long userId) {
+    return dsl.deleteFrom(AI_MEMORY)
+        .where(AI_MEMORY.USER_ID.eq(userId))
+        .returning(AI_MEMORY.CONTENT)
+        .fetch(AI_MEMORY.CONTENT);
   }
 
   /**
@@ -298,6 +393,21 @@ public class AiMemoryRepository {
    */
   public int deleteExpiredBefore(LocalDate cutoff) {
     return dsl.deleteFrom(AI_MEMORY).where(AI_MEMORY.EXPIRES_ON.lt(cutoff)).execute();
+  }
+
+  /**
+   * 감쇠 삭제(WP-385 스펙 7) — AI 저장 + 고정 아님 + 사용 시각이 cutoff 보다 앞선 행을 지우고 지운 행을 사용자 id 와 함께 돌려준다(DECAYED
+   * 기록용). 테넌트 안 모든 사용자 — TenantScopedRunner 트랜잭션 안에서만 부른다. 부분 인덱스 ai_memory_last_used_idx 를 탄다.
+   */
+  public List<Owned> deleteDecayed(OffsetDateTime cutoff) {
+    List<Field<?>> fields = new ArrayList<>(ROW_FIELDS);
+    fields.add(AI_MEMORY.USER_ID);
+    return dsl.deleteFrom(AI_MEMORY)
+        .where(AI_MEMORY.SOURCE.eq("AI"))
+        .and(AI_MEMORY.PINNED.isFalse())
+        .and(AI_MEMORY.LAST_USED_AT.lt(cutoff))
+        .returning(fields)
+        .fetch(r -> new Owned(r.get(AI_MEMORY.USER_ID), toRow(r)));
   }
 
   /** {@link #ROW_FIELDS} 를 고른 레코드 → Row — 순위 쿼리·테스트 픽스처도 같은 변환을 쓴다. */
@@ -312,6 +422,7 @@ public class AiMemoryRepository {
         r.get(AI_MEMORY.UPDATED_AT).toInstant(),
         r.get(AI_MEMORY.SCOPE),
         r.get(AI_MEMORY.EXPIRES_ON),
-        Boolean.TRUE.equals(r.get(AI_MEMORY.PINNED)));
+        Boolean.TRUE.equals(r.get(AI_MEMORY.PINNED)),
+        r.get(AI_MEMORY.LAST_USED_AT).toInstant());
   }
 }

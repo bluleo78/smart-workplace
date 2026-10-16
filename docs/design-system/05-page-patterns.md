@@ -240,6 +240,15 @@ export default function ProjectListPage() {
 > **As-Is 주의**: A-1(테이블)은 `space-y-6` + 패딩 없음, A-2(카드)는 `container mx-auto p-6 space-y-4` 로 간격 스케일이 다르다.
 > 같은 "리스트" 의미인데 토큰이 갈리므로 신규 페이지는 한쪽으로 맞추는 것을 권장한다.
 
+### A-3. 긴 목록 — 인피니트 스크롤
+
+길어질 수 있는 목록은 **스크롤 끝에서 자동으로 다음 묶음을 불러온다**(인피니트 스크롤). 「N개 더 보기」 버튼은 쓰지 않는다.
+
+- 목록 끝에 높이 1px sentinel 을 두고 `useLoadMoreSentinel(query, scrollRoot)` 를 단다. 목록이 자기 스크롤 안에 있으면(설정 본문·대화상자·바텀시트) 그 스크롤 요소를 `root` 로 넘긴다 — 뷰포트로 두면 끝에 닿아야 불러온다.
+- 불러오는 중에는 목록 아래 「불러오는 중…」(muted, 가운데), 다음 묶음이 실패하면 「다시 시도」 버튼 한 줄(sentinel 은 실패 뒤 멈춘다). 끝에 닿으면 아무것도 붙이지 않는다.
+- 검색 중에는 서버가 맞는 것 전부를 한 묶음으로 줄 수 있다(`nextCursor` 없음) — 같은 sentinel 이 그대로 멈춘다.
+- 예: 설정 › AI 비서 › 메모리 — 개인 메모리 행(`AiMemoryCard`, 그릴 행 수 늘리기), 공용 메모리 목록(`SharedMemoryList`, 커서 무한 쿼리), AI가 정리한 기록(`AiMemoryCleanupLog`, 대화상자 스크롤 root).
+
 ---
 
 ## B. 모듈 셸 + 2차 사이드바

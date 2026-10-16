@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { FileTooLargeError, IMAGE_MAX_BYTES, READ_ATTACHMENT_DEFAULT_LIMIT } from './attachment-read.js';
 import { buildAttachmentTools, readFileInput } from './attachment-tools.js';
 import { PAGES_NOTE_HINT } from './attachment-view.js';
+import { describeApiError } from './parse.js';
 import { resultText, type McpContent } from './mcp-content.js';
 import type { AttachmentToolClient, ExtractedTextSlice } from './tool-client.js';
 
@@ -498,6 +499,35 @@ describe('read_file — 이슈 챗 첨부 (WP-373)', () => {
     const out = await readAttachment(c).handler(args);
     expect(c.viewIssueChatAttachment).toHaveBeenCalledWith('WP-1', 55, undefined);
     expect(Array.isArray(out) && out.some((b) => b.type === 'image')).toBe(true);
+  });
+
+  // WP-392: 메일 첫 호출처럼 PENDING 이면 같은 인자로 다시 부르라고 알린다(AI 가 재시도할지 모르던 틈).
+  it('추출 중(PENDING)이면 잠시 뒤 같은 인자로 다시 호출하라는 note 를 붙인다', async () => {
+    const c = mockClient();
+    vi.mocked(c.readIssueChatAttachmentText).mockResolvedValue(slice('PENDING'));
+    const out = JSON.parse(resultText(await readAttachment(c).handler(args)));
+    expect(out).toMatchObject({ attachmentId: 55, status: 'PENDING', text: null });
+    expect(out.note).toContain('같은 인자로 다시 호출');
+  });
+
+  // WP-392: 예전에는 원본 받기가 메시지 경로라 다른 메시지의 첨부를 주면 사유 없이 400 이었다. 지금은 텍스트·변환본 모두 스레드 경로라 첨부
+  // id 로 읽고, 스레드에 없는 첨부는 서버 사유(404 "채팅 첨부를 찾을 수 없습니다")가 그대로 서버 레이어로 올라가 요약된다.
+  it('스레드에 없는 첨부의 서버 오류는 삼키지 않고 그대로 던진다', async () => {
+    const c = mockClient();
+    const notFound = Object.assign(new Error('Request failed with status code 404'), {
+      response: { status: 404, data: { message: '채팅 첨부를 찾을 수 없습니다: 55' } },
+    });
+    vi.mocked(c.readIssueChatAttachmentText).mockRejectedValue(notFound);
+    await expect(readAttachment(c).handler(args)).rejects.toBe(notFound);
+    expect(describeApiError(notFound.response.status, notFound.response.data)).toBe('API 오류 404: 채팅 첨부를 찾을 수 없습니다: 55');
+  });
+
+  // WP-392: 서버 실행 AI(ai-agent)는 get_issue_chat 이 없어 issue_chat 안내를 설명에서 뺀다 — 기본(외부 MCP)은 그대로 싣는다.
+  it('issueChatSource false 면 설명에서 issue_chat 안내를 뺀다', () => {
+    expect(readAttachment(mockClient()).description).toContain('issue_chat {issueKey, messageId, attachmentId from get_issue_chat}');
+    const [off] = buildAttachmentTools(mockClient(), true, false);
+    expect(off.description).not.toContain('issue_chat');
+    expect(off.description).not.toContain('get_issue_chat');
   });
 
   it('channelId 를 주거나 messageId 가 없으면 거부한다', () => {

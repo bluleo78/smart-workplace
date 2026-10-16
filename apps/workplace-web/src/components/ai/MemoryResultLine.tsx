@@ -4,8 +4,10 @@
 // 되돌리기는 평소에도 링크로 보이게(primary + 밑줄, 시안) 하고, " · 되돌리기"/" · 되돌림" 은 한 덩어리(nowrap)로 묶어 "·" 만 줄 끝에 남지 않게 한다.
 // 되돌리기 요청(뮤테이션)은 패널(AIChatPanel)이 하나를 두고 줄마다 넘긴다 — 줄 수만큼 관찰자를 만들지 않게.
 // WP-379: 앱 범위 결과는 "이슈 메모리에 저장함" 처럼 범위 이름을 붙인다.
+// WP-386: 공용 저장 결과는 「{공간} 공용 메모리에 기억했어요: "…"」(기한 없음) — 되돌리기는 같은 경로(API 가 그 공간 기록을 요청자 권한으로 되돌린다).
 // WP-380: 기한이 있으면 문구 뒤에 " · 10월 24일까지" 를 한 덩어리(nowrap)로 붙인다(지움 줄 제외). 한국어 단어 중간에서 끊지 않는다(break-keep).
-import { MEMORY_LINK, memoryActionText } from '@/lib/aiMemory';
+import { isRenderableMemoryBlock } from '@/lib/ai/chatTurns';
+import { MEMORY_LINK, memoryBlockActionText } from '@/lib/aiMemory';
 import { formatDateOnlyMonthDay } from '@/lib/formatters';
 import { cn } from '@/lib/utils';
 import type { UndoAiMemoryRequest } from '@/types/aiMemory';
@@ -25,6 +27,8 @@ interface Props {
 
 /** 메모리 결과 한 줄 — 동작 문구 + 되돌리기(또는 되돌림 표시). */
 export function MemoryResultLine({ block, blockIndex, messageId, onUndo, pending }: Props) {
+  // WP-386: 깨진 공용 줄은 그리지 않는다(순번은 부모가 그대로 넘기므로 다른 줄의 되돌리기가 어긋나지 않는다).
+  if (!isRenderableMemoryBlock(block)) return null;
   const ready = messageId != null && !pending;
   return (
     <div
@@ -36,9 +40,9 @@ export function MemoryResultLine({ block, blockIndex, messageId, onUndo, pending
       <span aria-hidden className="shrink-0 leading-4">🧠</span>
       <span className="min-w-0 flex-1 break-keep leading-4 [overflow-wrap:anywhere]">
         <span className={cn(block.undone && 'line-through opacity-60')}>
-          {memoryActionText(block.action, block.scope)}: "{block.content}"
+          {memoryBlockActionText(block)}: "{block.content}"
           {/* WP-380: 기한은 구분점과 한 덩어리(nowrap) — 지움 줄엔 싣지 않는다. 되돌린 뒤엔 바깥 span 의 취소선·흐림을 함께 받는다. */}
-          {block.action !== 'forgotten' && block.expiresOn && (
+          {block.action !== 'shared' && block.action !== 'forgotten' && block.expiresOn && (
             <span data-testid="chat-memory-expiry" className="whitespace-nowrap">
               {' · '}
               {formatDateOnlyMonthDay(block.expiresOn)}까지

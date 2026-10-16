@@ -44,4 +44,24 @@ describe('runMessagingCatchup — 읽기 전용 메모리 (WP-381)', () => {
     )
     expect(vi.mocked(runText).mock.calls[0][1]).toContain('- [#5 선호·메신저] 요약은 세 줄로\n\n안 읽은 메시지:\n- [1] 양동희: 배포 일정')
   })
+
+  it('WP-386: 개인 블록 다음 공용 블록', async () => {
+    vi.mocked(runText).mockClear() // 앞 테스트의 호출이 calls[0] 에 남지 않게
+    vi.mocked(runText).mockResolvedValue('{"decisions":[],"discussion":[]}')
+    await runMessagingCatchup(
+      {
+        messages: [{ id: 1, authorName: '양동희', body: '배포 일정' }],
+        assistantAgentId: 7,
+        model: 'm',
+        maxTurns: 1,
+        timeoutMs: 1000,
+        memories: [{ id: 5, kind: 'PREFERENCE', content: '요약은 세 줄로', scope: 'MESSAGING' }],
+        sharedMemories: [{ space: '조직', content: '장애 공유는 #incident 채널에서 한다' }],
+      },
+      { client: {} as never },
+    )
+    const msg = vi.mocked(runText).mock.calls[0][1] as string
+    expect(msg.indexOf('- [#5 선호·메신저] 요약은 세 줄로')).toBeLessThan(msg.indexOf('## 공용 메모리'))
+    expect(msg).toContain('- [조직] 장애 공유는 #incident 채널에서 한다\n\n안 읽은 메시지:')
+  })
 })

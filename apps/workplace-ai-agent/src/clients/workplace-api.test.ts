@@ -438,6 +438,18 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
     expect(r.memoryEnabled).toBe(true);
   });
 
+  it('WP-386: requestSharedMemory → POST /shared-ai-memories/requests + 대행 헤더 + 본문 그대로', async () => {
+    const body = { content: '배포는 API 먼저 한다', sessionId: SID };
+    const scope = nock(BASE)
+      .matchHeader('authorization', 'Internal tk-internal')
+      .matchHeader('x-on-behalf-of', '42')
+      .post(`${PREFIX}/shared-ai-memories/requests`, body)
+      .reply(201, { changeId: 5, memoryId: 9, spaceType: 'PROJECT', spaceId: 3, spaceName: 'Smart Workplace(WP)', content: '배포는 API 먼저 한다' });
+    const r = await newClient().requestSharedMemory(42, body);
+    expect(scope.isDone()).toBe(true);
+    expect(r).toMatchObject({ changeId: 5, memoryId: 9, spaceName: 'Smart Workplace(WP)' });
+  });
+
   it('메모리 오류 코드는 Error.message 에 실린다(도구 오류 → AI 안내)', async () => {
     nock(BASE)
       .post(`${PREFIX}/users/me/ai-memories`)

@@ -15,6 +15,9 @@ import java.time.LocalDate;
  * 기한 없음).
  *
  * <p>WP-383: pinned — 사용자가 설정에서 고정했는가(고정 행은 설정 묶음 맨 위·채팅 주입에 먼저 실린다 — 토큰 예산 안에서).
+ *
+ * <p>WP-385: cleanedAt — 대화가 끝난 뒤 AI 정리로 생기거나 바뀐 뒤 그대로인 메모리의 그 정리 시각(행 메타 「AI가 정리」). 아니면 JSON 에서
+ * 빠진다.
  */
 public record AiMemoryItem(
     long id,
@@ -30,4 +33,5 @@ public record AiMemoryItem(
     LocalDate expiresOn,
     boolean expired,
     @JsonInclude(JsonInclude.Include.NON_NULL) LocalDate previousExpiresOn,
-    boolean pinned) {}
+    boolean pinned,
+    @JsonInclude(JsonInclude.Include.NON_NULL) Instant cleanedAt) {}

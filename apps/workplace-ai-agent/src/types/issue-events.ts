@@ -1,6 +1,7 @@
 // 5b-1 이 발사하는 이슈 도메인 이벤트 envelope 의 zod 스키마.
 // envelope-only 검증(events.ts) 통과 후 type 별 payload 형태를 재검증한다.
 import { z } from 'zod';
+import { sharedMemoriesRawField, sharedMoreCountRawField } from '../agent/shared-memory-block.js';
 
 const userSummary = z.object({
   id: z.number(),
@@ -20,6 +21,10 @@ const common = {
   // WP-371: API 가 서버 실행(INTERNAL) 에이전트 중 이벤트 원인에 맞춰 골라 보내는 대행 AI id.
   // 필수 — 없으면(구버전 API·잘못된 이벤트) 스키마 검증에서 400 으로 거절한다(fail-closed, 폴백 없음).
   actingAgentId: z.number().int().positive(),
+  // WP-386: 조직 + 그 프로젝트 공용 메모리(대행 AI 가 그 프로젝트를 읽을 수 있을 때만 프로젝트 몫 — API 가 고른다)와 넘친 개수.
+  // 구 API 는 생략. 모양은 검사하지 않고(틀려도 실행을 막지 않는다) run-agent 의 withSharedMemory 가 배열 확인·항목 거르기를 한다(이벤트 리터럴 타입을 깨지 않게 transform 없음).
+  sharedMemories: sharedMemoriesRawField,
+  sharedMemoryMoreCount: sharedMoreCountRawField,
 };
 
 export const issueCreatedPayload = z.object({

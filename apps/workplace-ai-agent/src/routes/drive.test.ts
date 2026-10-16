@@ -87,6 +87,13 @@ describe('POST /drive/overview', () => {
     expect(vi.mocked(runDriveOverview).mock.calls[0][0]).toEqual(expect.objectContaining({ memories: [ok] }));
   });
 
+  it('WP-386: sharedMemories 를 걸러 runDriveOverview 입력으로 넘긴다', async () => {
+    vi.mocked(runDriveOverview).mockResolvedValue();
+    const s = { space: '조직', content: '분기는 4월에 시작한다' };
+    await request(app()).post('/drive/overview').send({ ...validOverview, sharedMemories: [s, { space: '' }], sharedMemoryMoreCount: 1 });
+    expect(vi.mocked(runDriveOverview).mock.calls[0][0]).toEqual(expect.objectContaining({ sharedMemories: [s], sharedMemoryMoreCount: 1 }));
+  });
+
   it('러너 실패 시 event:error 발행', async () => {
     vi.mocked(runDriveOverview).mockRejectedValue(new Error('llm fail'));
     const res = await request(app()).post('/drive/overview').send(validOverview);

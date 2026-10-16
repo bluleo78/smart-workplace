@@ -10,12 +10,15 @@ import com.workplace.issue.exception.AgentToolRequiredException;
 import com.workplace.issue.exception.AgentWorkIssueClosedException;
 import com.workplace.issue.exception.AgentWorkNotAssigneeException;
 import com.workplace.issue.exception.IssueNotFoundException;
+import com.workplace.issue.outbound.AgentWorkAutoStarted;
 import com.workplace.issue.outbound.IssueChatPoster;
 import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.project.repository.ProjectRepository;
 import com.workplace.project.service.ProjectAccessGuard;
 import com.workplace.user.dto.UserKind;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -34,6 +37,7 @@ public class AgentWorkReportService {
   private final IssueService issueService;
   private final IssueRepository issueRepository;
   private final IssueAssigneeRepository assigneeRepository;
+  private final ProjectRepository projectRepository;
   private final ProjectAccessGuard accessGuard;
   private final IssueChatPoster chatPoster;
 
@@ -114,6 +118,24 @@ public class AgentWorkReportService {
       chatPoster.post(callerId, projectKey, number, req.message(), question);
     }
     return new AgentWorkReportResponse(view, false);
+  }
+
+  /**
+   * MCP 쓰기로 할 일 이슈의 AI 작업이 자동 시작됐으면(WP-393) 명시 보고와 같은 규칙으로 진행 중으로 올린다(이력·상태 변경 알림 포함). 쓰기와 같은 트랜잭션의
+   * 동기 리스너다. 명시 보고와 달리 멤버가 아니면 건너뛴다 — 상태는 멤버만 바꿀 수 있어 403 이 나면 AI 가 한 원래 쓰기까지 함께 롤백되기 때문. 상태 변경 알림이
+   * 다시 자동 터치를 일으켜 작업 이벤트를 한 번 더 남기지 않게 터치 억제 구간에서 바꾼다. 그 사이 프로젝트가 사라졌으면 건너뛴다.
+   */
+  @EventListener
+  public void onAgentWorkAutoStarted(AgentWorkAutoStarted e) {
+    projectRepository
+        .findById(e.projectId())
+        .filter(project -> accessGuard.isMemberOrAdmin(project, e.actorId()))
+        .ifPresent(
+            project ->
+                AgentToolContext.suppressTouch(
+                    () ->
+                        issueService.updateStatus(
+                            e.actorId(), project.key(), e.issueNumber(), "IN_PROGRESS")));
   }
 
   /** 보고의 note: 빈 문자열은 지우기(null + clearNote), 미지정이면 message 첫 줄(최대 120자)로 대체, 둘 다 없으면 null(유지). */

@@ -6,6 +6,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 
 import { readOnlyMemoriesField } from '../agent/memory-block.js';
+import { sharedMemoryFields } from '../agent/shared-memory-block.js';
 import { type RunAgentDeps } from '../agent/run-agent.js';
 import { runWikiCompose } from '../agent/run-wiki-compose.js';
 import { runWikiSummarize } from '../agent/run-wiki-summarize.js';
@@ -43,6 +44,7 @@ export const wikiComposeSchema = z.object({
   timeoutMs: z.number().int().positive(),
   // WP-381: 공통 + 노트 메모리(읽기 전용). 구 API 는 생략 → 빈 배열.
   memories: readOnlyMemoriesField,
+  ...sharedMemoryFields, // WP-386 조직 + 그 스페이스 공용 메모리
 });
 
 export function createWikiRouter(deps: RunAgentDeps): Router {

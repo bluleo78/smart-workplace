@@ -30,6 +30,7 @@ import { handleApiError, isNotFoundError } from '@/lib/api-error';
 import type { AiMemoryScope } from '@/types/aiMemory';
 import type { AiScreenContext } from '@/types/aiScreenContext';
 import type { ChatTurn, HomeSessionSummary, PendingAction, ProposalCard, TurnAttachment } from '@/types/home';
+import type { ChatSpace } from '@/types/sharedAiMemory';
 
 const EMPTY_TURNS: ChatTurn[] = [];
 /** WP-268: 이력 조회가 이만큼 끝나지 않으면 실패로 보고 전송 잠금을 푼다(응답 없는 요청에 입력이 영영 막히지 않게). */
@@ -75,11 +76,13 @@ export function useChatSession() {
 
   // WP-379: 마지막 전송의 화면 앱 — 승인 실패 재요청(화면 참고 없이 보내는 내부 전송)도 같은 범위 메모리를 쓰게.
   const lastAppRef = useRef<AiMemoryScope | null>(null);
+  const lastSpaceRef = useRef<ChatSpace | null>(null); // WP-386: 실패 카드 재요청도 같은 공간으로
 
   /**
    * 질문 전송. 낙관적으로 두 턴을 붙이고(correlationId 도 이때 정해 라우팅에 올린다, WP-267) POST 에 실어 보낸다.
    * WP-234: attachments — 이번 메시지 첨부(낙관적 사용자 턴에 미리보기와 함께 붙이고, fileIds 로 POST 본문에 싣는다).
    * WP-379: app — 지금 화면 앱(화면 참고를 뺐어도 보낸다). 없으면 키 생략 → 공통 메모리만.
+   * WP-386: space — 지금 화면 공간(화면 참고를 뺐어도 보낸다). 없으면 키 생략.
    * @returns 서버가 요청을 받아들였는지. false(409·429·400·네트워크 오류 등)면 패널이 입력·첨부 초안을 되돌린다(R17·WP-234).
    */
   const submitQuery = useCallback(
@@ -88,13 +91,15 @@ export function useChatSession() {
       screenContext?: AiScreenContext,
       attachments?: TurnAttachment[],
       app?: AiMemoryScope | null,
+      space?: ChatSpace | null,
     ): Promise<boolean> => {
       lastAppRef.current = app ?? null;
+      lastSpaceRef.current = space ?? null;
       const { key, gen, correlationId, userTurn } = chatStreams.startTurn(query, attachments);
       const sessionId = key.startsWith(DRAFT_PREFIX) ? null : key;
       const fileIds = attachments?.map((a) => a.fileId) ?? [];
       try {
-        // WP-54: screenContext 는 있을 때만 키를 싣는다(app 은 빼고). WP-234: fileIds 도 있을 때만. WP-379: app 도 있을 때만.
+        // WP-54: screenContext 는 있을 때만 키를 싣는다(app 은 빼고). WP-234: fileIds 도 있을 때만. WP-379: app 도 있을 때만. WP-386: space 도 있을 때만.
         const { data } = await homeApi.startChat({
           sessionId,
           query,
@@ -102,6 +107,7 @@ export function useChatSession() {
           ...(screenContext ? { screenContext: screenContextPayload(screenContext) } : {}),
           ...(fileIds.length ? { fileIds } : {}),
           ...(app ? { app } : {}),
+          ...(space ? { space } : {}),
         });
         // 응답 전에 ■ 를 눌렀다면 서버가 받은 지금 취소한다(그때는 서버가 몰라 취소를 보내지 않았다).
         const cancelNow = chatStreams.attach(correlationId, data.correlationId, data.sessionId);
@@ -231,7 +237,7 @@ export function useChatSession() {
   /** #843: 실패 카드 → AI 에게 사유를 반영해 다시 제안 요청(화면 컨텍스트 없이). */
   const requestProposalFix = useCallback(
     (card: ProposalCard) => {
-      void submitQuery(`「${card.summary}」 승인이 실패했어요. 실패 사유를 반영해서 다시 제안해 줘.`, undefined, undefined, lastAppRef.current);
+      void submitQuery(`「${card.summary}」 승인이 실패했어요. 실패 사유를 반영해서 다시 제안해 줘.`, undefined, undefined, lastAppRef.current, lastSpaceRef.current);
     },
     [submitQuery],
   );

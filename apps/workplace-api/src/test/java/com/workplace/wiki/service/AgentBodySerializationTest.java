@@ -30,11 +30,14 @@ class AgentBodySerializationTest {
             "NORMAL",
             5,
             60_000,
-            null);
+            null,
+            null,
+            0);
 
     JsonNode json = mapper.readTree(mapper.writeValueAsString(body));
 
-    // 키 집합이 정확히 8개(필수)여야 한다 — selection/prompt 는 생략.
+    // 키 집합이 정확히 9개(필수)여야 한다 — selection/prompt/memories/sharedMemories 는 생략, sharedMemoryMoreCount
+    // 는 항상.
     assertThat(json.fieldNames())
         .toIterable()
         .containsExactlyInAnyOrder(
@@ -45,7 +48,8 @@ class AgentBodySerializationTest {
             "model",
             "thinkingDepth",
             "maxTurns",
-            "timeoutMs");
+            "timeoutMs",
+            "sharedMemoryMoreCount");
     // action 은 소문자 와이어.
     assertThat(json.get("action").asText()).isEqualTo("continue");
     assertThat(json.get("assistantAgentId").asLong()).isEqualTo(900L);
@@ -68,7 +72,9 @@ class AgentBodySerializationTest {
             "DEEP",
             3,
             30_000,
-            null);
+            null,
+            null,
+            0);
 
     JsonNode json = mapper.readTree(mapper.writeValueAsString(body));
 
@@ -84,7 +90,8 @@ class AgentBodySerializationTest {
             "model",
             "thinkingDepth",
             "maxTurns",
-            "timeoutMs");
+            "timeoutMs",
+            "sharedMemoryMoreCount");
     assertThat(json.get("action").asText()).isEqualTo("draft");
     assertThat(json.get("selection").asText()).isEqualTo("선택된 텍스트");
     assertThat(json.get("prompt").asText()).isEqualTo("이 주제로 써줘");
@@ -108,8 +115,9 @@ class AgentBodySerializationTest {
             java.util.List.of(
                 new com.workplace.global.ai.AiMemoryLine(
                     3L, "PREFERENCE", "개조식", "WIKI", "2026-10-24", null),
-                new com.workplace.global.ai.AiMemoryLine(
-                    1L, "CONTEXT", "백엔드 팀", null, null, null)));
+                new com.workplace.global.ai.AiMemoryLine(1L, "CONTEXT", "백엔드 팀", null, null, null)),
+            null,
+            0);
 
     JsonNode json = mapper.readTree(mapper.writeValueAsString(body));
 
@@ -118,5 +126,32 @@ class AgentBodySerializationTest {
             "{\"id\":3,\"kind\":\"PREFERENCE\",\"content\":\"개조식\",\"scope\":\"WIKI\",\"expiresOn\":\"2026-10-24\"}");
     assertThat(json.get("memories").get(1).toString())
         .isEqualTo("{\"id\":1,\"kind\":\"CONTEXT\",\"content\":\"백엔드 팀\"}");
+  }
+
+  /** WP-386: 공용 메모리는 {space, content} 줄 목록 + 넘친 개수로 나간다(ai-agent 가 같은 이름으로 받는다). */
+  @Test
+  void serialize_sharedMemories_spaceAndContentWithMoreCount() throws Exception {
+    WikiAiService.AgentBody body =
+        new WikiAiService.AgentBody(
+            WikiAiAction.CONTINUE,
+            "제목",
+            "본문",
+            null,
+            null,
+            900L,
+            "claude-opus",
+            "NORMAL",
+            5,
+            60_000,
+            null,
+            java.util.List.of(
+                new com.workplace.global.ai.SharedMemoryLine("개발팀 노트", "용어집은 이 스페이스에 둔다")),
+            2);
+
+    JsonNode json = mapper.readTree(mapper.writeValueAsString(body));
+
+    assertThat(json.get("sharedMemories").toString())
+        .isEqualTo("[{\"space\":\"개발팀 노트\",\"content\":\"용어집은 이 스페이스에 둔다\"}]");
+    assertThat(json.get("sharedMemoryMoreCount").asInt()).isEqualTo(2);
   }
 }

@@ -373,6 +373,14 @@ public class GlobalExceptionHandler {
         .body(buildError(ex.status(), ex.getMessage(), ex.errors(), request));
   }
 
+  /** WP-386 공용 AI 메모리 — 예외가 정한 상태와 errors.code 를 그대로. */
+  @ExceptionHandler(com.workplace.home.exception.SharedAiMemoryException.class)
+  public ResponseEntity<ErrorResponse> handleSharedAiMemory(
+      com.workplace.home.exception.SharedAiMemoryException ex, HttpServletRequest request) {
+    return ResponseEntity.status(ex.status())
+        .body(buildError(ex.status(), ex.getMessage(), ex.errors(), request));
+  }
+
   // 드라이브 도메인 — 미존재(404) / 권한미달(403) / 잘못된 입력(400)
   @ExceptionHandler({
     com.workplace.drive.exception.DriveSpaceNotFoundException.class,

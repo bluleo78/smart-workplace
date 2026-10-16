@@ -7,6 +7,7 @@ import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.dto.IssueStatuses;
 import com.workplace.issue.exception.AgentWorkIssueClosedException;
 import com.workplace.issue.outbound.AgentToolWriteEvent;
+import com.workplace.issue.outbound.AgentWorkAutoStarted;
 import com.workplace.issue.outbound.IssueChangeNotifier;
 import com.workplace.issue.outbound.IssueHumanReplyPosted;
 import com.workplace.issue.repository.AgentWorkRepository;
@@ -26,6 +27,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -50,6 +52,8 @@ public class AgentWorkService {
   private final IssueRepository issueRepository;
   private final ProjectRepository projectRepository;
   private final IssueChangeNotifier notifier;
+  // 자동 시작을 알려 이슈 상태(TODO → 진행 중)를 맞추게 한다 — IssueService 를 직접 쓰면 순환 의존이라 이벤트로 넘긴다(WP-393).
+  private final ApplicationEventPublisher publisher;
 
   /** 이슈들의 진행 중 작업을 급한 순으로 정렬해 이슈별로 돌려준다. 작업 없는 이슈는 키가 없다. */
   @Transactional(readOnly = true)
@@ -225,6 +229,10 @@ public class AgentWorkService {
       existing = outcome.map(InsertOutcome::row);
       valuesWritten = outcome.map(InsertOutcome::inserted).orElse(false);
     }
+    // 이번 쓰기로 작업이 막 시작됐는지 — 새 행을 넣었거나 시작 전(SUBMITTED)을 이었을 때만. 이미 일하던 작업의 터치·중단 상태 복귀는 시작이 아니다.
+    boolean started =
+        valuesWritten
+            || existing.map(r -> AgentWorkState.SUBMITTED.equals(r.state())).orElse(false);
     if (existing.isPresent() && !valuesWritten) {
       String state = existing.get().state();
       // 답변 필요·인증 필요·막힘·일시 중지·시작 전(SUBMITTED)에서 다시 쓰기 시작했으면 움직인 것으로 보고 작업 중으로 되돌린다. 검토 필요·작업 중은 그대로
@@ -237,6 +245,12 @@ public class AgentWorkService {
       repository.update(
           existing.get().id(),
           new AgentWorkPatch(e.tool(), next, null, clearNote, null, null, null));
+    }
+    // 시작했으면 이슈가 할 일(TODO)일 때 진행 중으로 올린다 — 명시 보고와 같은 규칙(이력·알림 포함, WP-393). 이 쓰기가 상태를 직접 지정했으면
+    // 요청한 상태가 우선이라 올리지 않는다. 위에서 읽은 이슈 행으로 TODO 를 먼저 거른다.
+    if (started && !e.statusWritten() && "TODO".equals(issue.status())) {
+      publisher.publishEvent(
+          new AgentWorkAutoStarted(issue.projectId(), issue.number(), e.actorId()));
     }
     // 발행 쪽이 이슈 변경 알림을 이미 냈으면(이슈 updated 경유) 같은 알림을 다시 내지 않는다.
     if (!e.issueNotified()) notifyChanged(issue, e.actorId());

@@ -2,6 +2,7 @@
 // 원본/개인 분석·답장·코칭·이슈 초안 모두 도구 미사용 텍스트 in/out. MCP 서버·임시 config 불필요.
 import { runnerFor } from './agent-runner.js';
 import { type MemoryItem, withReadOnlyMemory } from './memory-block.js';
+import { type SharedMemoryInput, withSharedMemory } from './shared-memory-block.js';
 import { finalText } from './runner-events.js';
 import {
   parseClassifyBatchJson,
@@ -28,8 +29,8 @@ interface BaseConfig {
   timeoutMs: number;
 }
 export interface ThreadMsg { from: string; date: string; body: string; }
-export interface ReplyDraftInput extends BaseConfig { thread: ThreadMsg[]; replyingAs: string; memories?: MemoryItem[]; }
-export interface DraftCoachingInput extends BaseConfig {
+export interface ReplyDraftInput extends BaseConfig, SharedMemoryInput { thread: ThreadMsg[]; replyingAs: string; memories?: MemoryItem[]; }
+export interface DraftCoachingInput extends BaseConfig, SharedMemoryInput {
   // WP-404: 작성 에디터의 HTML(빈 줄=빈 <p></p>) — API 가 bodyHtml 을 넘긴다(없으면 텍스트).
   draftBody: string;
   thread: ThreadMsg[];
@@ -69,16 +70,19 @@ export async function runMailReplyDraft(
   deps: RunAgentDeps,
 ): Promise<{ draftBody: string }> {
   const convo = input.thread.map((m) => `--- ${m.from} (${m.date})\n${m.body}`).join('\n\n');
-  // WP-381: 읽기 전용 메모리 블록을 요청문 맨 앞에(시스템 프롬프트는 그대로).
-  const userMessage = withReadOnlyMemory(input.memories, `당신은 ${input.replyingAs} 로서 아래 대화의 마지막 메일에 답장합니다.\n\n${convo}`);
+  // WP-381: 읽기 전용 메모리 블록을 요청문 맨 앞에(시스템 프롬프트는 그대로). WP-386: 그 뒤에 공용 블록.
+  const userMessage = withReadOnlyMemory(
+    input.memories,
+    withSharedMemory(input, `당신은 ${input.replyingAs} 로서 아래 대화의 마지막 메일에 답장합니다.\n\n${convo}`),
+  );
   return { draftBody: (await runText(MAIL_REPLY_DRAFT_PROMPT, userMessage, input, deps, 'mail-reply-draft')).trim() };
 }
 
-export interface IssueDraftInput extends BaseConfig {
+export interface IssueDraftInput extends BaseConfig, SharedMemoryInput {
   subject: string;
   body: string;
   candidateProjects: { key: string; name: string }[];
-  memories?: MemoryItem[]; // WP-381 읽기 전용 메모리
+  memories?: MemoryItem[]; // WP-381 읽기 전용 메모리 (WP-386 공용 메모리는 SharedMemoryInput)
 }
 
 // #520 메일→이슈 초안: 제목·본문·우선순위 + 후보 중 추천 projectKey.
@@ -87,7 +91,10 @@ export async function runMailIssueDraft(
   deps: RunAgentDeps,
 ): Promise<{ title: string; body: string; priority: string; projectKey?: string }> {
   const projects = input.candidateProjects.map((p) => `- ${p.key}: ${p.name}`).join('\n') || '- (없음)';
-  const userMessage = withReadOnlyMemory(input.memories, `제목: ${input.subject}\n\n본문:\n${input.body}\n\n후보 프로젝트:\n${projects}`);
+  const userMessage = withReadOnlyMemory(
+    input.memories,
+    withSharedMemory(input, `제목: ${input.subject}\n\n본문:\n${input.body}\n\n후보 프로젝트:\n${projects}`),
+  );
   return parseIssueDraftJson(
     await runText(MAIL_ISSUE_DRAFT_PROMPT, userMessage, input, deps, 'mail-issue-draft'),
   );
@@ -102,7 +109,7 @@ export async function runMailDraftCoaching(
   const context = convo ? `원문 대화(답장 상황):\n${convo}\n\n` : '';
   const userMessage = withReadOnlyMemory(
     input.memories,
-    `${context}당신은 ${input.replyingAs} 입니다. 아래 내 초안을 코칭하세요.\n\n내 초안(HTML):\n${input.draftBody}`,
+    withSharedMemory(input, `${context}당신은 ${input.replyingAs} 입니다. 아래 내 초안을 코칭하세요.\n\n내 초안(HTML):\n${input.draftBody}`),
   );
   const text = await runText(MAIL_DRAFT_COACHING_PROMPT, userMessage, input, deps, 'mail-draft-coaching');
   return parseDraftCoachingJson(text);

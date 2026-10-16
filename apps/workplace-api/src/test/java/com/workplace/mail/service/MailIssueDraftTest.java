@@ -14,6 +14,9 @@ import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.ai.AiMemoryLine;
 import com.workplace.global.ai.AiMemoryReader;
+import com.workplace.global.ai.SharedAiMemoryReader;
+import com.workplace.global.ai.SharedMemories;
+import com.workplace.global.ai.SharedMemoryLine;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.mail.dto.MailIssueDraft;
 import com.workplace.mail.exception.EmailMessageNotFoundException;
@@ -49,6 +52,9 @@ class MailIssueDraftTest extends IntegrationTestBase {
 
   /** 메일 메모리(WP-381) — 목 기본값은 빈 목록이라 다른 테스트는 메모리 없이 그대로 동작한다. */
   @MockitoBean AiMemoryReader memoryReader;
+
+  /** 공용 메모리(WP-386) — 목 기본값(null)은 서비스가 빈 묶음으로 바꾼다. */
+  @MockitoBean SharedAiMemoryReader sharedReader;
 
   /** 테스트용 고정 AssistantSpec. */
   private static final AssistantSpec MOCK_SPEC =
@@ -204,5 +210,22 @@ class MailIssueDraftTest extends IntegrationTestBase {
         ArgumentCaptor.forClass(MailAiMessages.IssueDraftRequest.class);
     verify(mailClient).issueDraft(cap.capture());
     assertThat(cap.getValue().memories()).isEqualTo(lines);
+  }
+
+  /** WP-386: 메일 → 이슈 초안에도 조직 공용 메모리를 싣는다. */
+  @Test
+  void draftIssue_조직_공용_메모리를_요청에_싣는다() {
+    long messageId = seedMailMessage(callerId);
+    var shared = new SharedMemories(List.of(new SharedMemoryLine("조직", "이슈 제목은 동사로 끝낸다")), 0);
+    when(sharedReader.readForUser(callerId, null, null)).thenReturn(shared);
+    when(mailClient.issueDraft(any()))
+        .thenReturn(new MailAiMessages.IssueDraftResult("정산 검토", "- 5월 자료", "HIGH", projectKey));
+
+    mailIssueService.draftIssue(callerId, messageId);
+
+    ArgumentCaptor<MailAiMessages.IssueDraftRequest> cap =
+        ArgumentCaptor.forClass(MailAiMessages.IssueDraftRequest.class);
+    verify(mailClient).issueDraft(cap.capture());
+    assertThat(cap.getValue().sharedMemories()).isEqualTo(shared.items());
   }
 }

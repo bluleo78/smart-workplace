@@ -1,6 +1,7 @@
 import { format, isSameDay, subDays } from 'date-fns'
 
 import { formatDateMonthDay, parseUtcDate } from '@/lib/formatters'
+import { groupConsecutive } from '@/lib/groupConsecutive'
 
 import type { WikiRevisionPerson } from '../../types/wiki'
 
@@ -49,12 +50,5 @@ export function revisionEditorsLabel(editors: WikiRevisionPerson[]): string {
  * at 은 항목의 편집 시각(ISO).
  */
 export function groupRevisionsByDay<T>(entries: T[], at: (e: T) => string, now: Date = new Date()): { label: string; entries: T[] }[] {
-  const groups: { label: string; entries: T[] }[] = []
-  for (const e of entries) {
-    const label = revisionDayLabel(at(e), now)
-    const last = groups.at(-1)
-    if (last && last.label === label) last.entries.push(e)
-    else groups.push({ label, entries: [e] })
-  }
-  return groups
+  return groupConsecutive(entries, (e) => revisionDayLabel(at(e), now))
 }

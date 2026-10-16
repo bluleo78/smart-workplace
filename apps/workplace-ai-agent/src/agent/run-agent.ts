@@ -2,6 +2,7 @@
 // 이 앱의 마지막 CLI 의존 기능 경로를 sdk-runner + 인-프로세스 MCP 로 전환. 모든 호출에 agentId 명시.
 import { SYSTEM_PROMPT } from './system-prompt.js';
 import { buildUserMessage } from './user-message.js';
+import { withSharedMemory } from './shared-memory-block.js';
 import { runnerFor } from './agent-runner.js';
 import { pickActingAgentId } from './agent-resolver.js';
 import { DEFAULT_MODEL } from './model-defaults.js';
@@ -42,7 +43,8 @@ export async function runAgent(
   const maxTurns = Number(process.env.WORKPLACE_AI_MAX_TURNS ?? DEFAULT_MAX_TURNS);
   const timeoutMs = Number(process.env.WORKPLACE_AI_TIMEOUT_MS ?? DEFAULT_TIMEOUT_MS);
 
-  const userMessage = buildUserMessage(envelope);
+  // WP-386: 공용 메모리(조직 + 그 프로젝트) 블록을 요청문 맨 앞에 — 개인 메모리는 싣지 않는다(WP-381 원칙).
+  const userMessage = withSharedMemory(envelope.payload, buildUserMessage(envelope));
   const logTag = `agent:${envelope.type}:${envelope.payload.issueKey}:${agentId}`;
 
   // fire-and-forget — 델타 미소비. collect 가 완료까지 순회하고 timeout/result.is_error 시 throw →

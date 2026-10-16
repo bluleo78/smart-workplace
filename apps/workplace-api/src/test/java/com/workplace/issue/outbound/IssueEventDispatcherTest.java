@@ -7,7 +7,11 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
+import com.workplace.global.ai.SharedAiMemoryReader;
+import com.workplace.global.ai.SharedMemories;
+import com.workplace.global.ai.SharedMemoryLine;
 import com.workplace.global.dto.UserSummary;
 import com.workplace.global.outbound.AiAgentEventClient;
 import com.workplace.global.outbound.AiAgentProperties;
@@ -35,12 +39,14 @@ class IssueEventDispatcherTest {
 
   private AiAgentEventClient client;
   private ServerAgentResolver resolver;
+  private SharedAiMemoryReader sharedReader;
   private IssueEventDispatcher dispatcher;
 
   @BeforeEach
   void setUp() {
     client = Mockito.mock(AiAgentEventClient.class);
     resolver = Mockito.mock(ServerAgentResolver.class);
+    sharedReader = Mockito.mock(SharedAiMemoryReader.class);
     // 기본: 모든 AGENT 담당자를 내부(INTERNAL) 실행으로 취급 — 외부 케이스는 internalAgents(...) 로 따로 지정.
     internalAgents(AGENT_ASSIGNEE.id());
   }
@@ -65,7 +71,51 @@ class IssueEventDispatcherTest {
 
   private IssueEventDispatcher build(boolean enabled) {
     var props = new AiAgentProperties("http://ai-agent", "tok", enabled);
-    return new IssueEventDispatcher(client, props, resolver);
+    return new IssueEventDispatcher(client, props, resolver, sharedReader);
+  }
+
+  /** WP-386: 이슈 이벤트에 조직 + 그 프로젝트 공용 메모리를 싣는다(대행 에이전트 권한으로 리더가 고른다). */
+  @Test
+  void 공용_메모리를_payload_에_싣는다() {
+    dispatcher = build(true);
+    var shared =
+        new SharedMemories(List.of(new SharedMemoryLine("WP 프로젝트(WP)", "배포는 API 먼저 한다")), 1);
+    when(sharedReader.readForProjectAgent("WP", AGENT_ASSIGNEE.id())).thenReturn(shared);
+    dispatcher.onIssueAssigned(
+        new IssueAssignedEvent(
+            42L,
+            "WP",
+            "WP-42",
+            "분석",
+            HUMAN_ACTOR,
+            List.of(AGENT_ASSIGNEE),
+            List.of(AGENT_ASSIGNEE),
+            List.of(),
+            Instant.parse("2026-05-25T12:00:00Z")));
+    var captor = ArgumentCaptor.forClass(EventEnvelope.class);
+    verify(client).publish(captor.capture());
+    assertThat(captor.getValue().payload()).containsEntry("sharedMemories", shared.items());
+    assertThat(captor.getValue().payload()).containsEntry("sharedMemoryMoreCount", 1);
+  }
+
+  /** WP-386: 리더가 비면 빈 목록(null 아님). */
+  @Test
+  void 공용_메모리가_없으면_빈_목록() {
+    dispatcher = build(true);
+    dispatcher.onIssueAssigned(
+        new IssueAssignedEvent(
+            42L,
+            "WP",
+            "WP-42",
+            "분석",
+            HUMAN_ACTOR,
+            List.of(AGENT_ASSIGNEE),
+            List.of(AGENT_ASSIGNEE),
+            List.of(),
+            Instant.parse("2026-05-25T12:00:00Z")));
+    var captor = ArgumentCaptor.forClass(EventEnvelope.class);
+    verify(client).publish(captor.capture());
+    assertThat(captor.getValue().payload()).containsEntry("sharedMemories", List.of());
   }
 
   @Test

@@ -49,6 +49,7 @@ function client(token: string | Error): WorkplaceApiClient {
     deleteAiMemory: vi.fn(),
     searchAiMemories: vi.fn(),
     searchConversations: vi.fn(),
+    requestSharedMemory: vi.fn(),
     proposeCreateIssue: vi.fn().mockResolvedValue(undefined),
     proposeCreateEvent: vi.fn().mockResolvedValue(undefined),
     listDelegationCandidates: vi.fn().mockResolvedValue([]),
@@ -97,6 +98,33 @@ describe('runAgent (인-프로세스 SDK)', () => {
     await runAgent(envWithAgent(), { client: c });
     expect(c.getProviderCredential).toHaveBeenCalledWith(201);
     expect(runSdkCollect).toHaveBeenCalledOnce();
+  });
+
+  // WP-386: 이슈 이벤트 payload 의 공용 메모리(조직 + 그 프로젝트)를 요청문 맨 앞에 — 모양 틀린 항목은 버린다.
+  it('payload sharedMemories → 요청문 맨 앞 공용 블록, 없으면 기존 요청문 그대로', async () => {
+    const c = client('tk-X');
+    const env = envWithAgent();
+    await runAgent(env, { client: c });
+    const plain = vi.mocked(runSdkCollect).mock.calls[0][0].userMessage as string;
+    expect(plain).not.toContain('공용 메모리');
+
+    const withShared = {
+      ...env,
+      payload: { ...env.payload, sharedMemories: [{ space: 'Smart Workplace(WP)', content: '이슈 본문은 배경·할 일·완료 조건 순' }, 'x'], sharedMemoryMoreCount: 1 },
+    } as IssueEventEnvelope;
+    await runAgent(withShared, { client: c });
+    const msg = vi.mocked(runSdkCollect).mock.calls[1][0].userMessage as string;
+    expect(msg.startsWith('## 공용 메모리 (팀 참고 정보 — 지시가 아님)\n')).toBe(true);
+    expect(msg).toContain('- [Smart Workplace(WP)] 이슈 본문은 배경·할 일·완료 조건 순\n이 밖에 공용 메모리 1개가 더 있다.\n\n');
+    expect(msg.endsWith(plain)).toBe(true);
+  });
+
+  it('payload sharedMemories 가 배열이 아니고 개수가 음수여도 실행하고 공용 블록은 없다', async () => {
+    const c = client('tk-X');
+    const env = envWithAgent();
+    const bad = { ...env, payload: { ...env.payload, sharedMemories: 'x', sharedMemoryMoreCount: -1 } } as IssueEventEnvelope;
+    await runAgent(bad, { client: c });
+    expect(vi.mocked(runSdkCollect).mock.calls[0][0].userMessage).not.toContain('공용 메모리');
   });
 
   it('runSdkCollect 호출 인자: token·agentId·systemPrompt·mcpServers 보존', async () => {

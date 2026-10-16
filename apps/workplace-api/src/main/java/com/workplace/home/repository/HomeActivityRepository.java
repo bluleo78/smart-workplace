@@ -60,15 +60,8 @@ public class HomeActivityRepository {
       where = where.and(USER.KIND.eq(actorKind));
     }
     // 커서 id 는 세션(UUID)과 공용 String 이라 비숫자일 수 있다. 파싱 실패 시 커서를 무시(첫 페이지)하여 500 방어.
-    Long cursorId = null;
-    if (cursor != null) {
-      try {
-        cursorId = Long.parseLong(cursor.id());
-      } catch (NumberFormatException e) {
-        cursorId = null;
-      }
-    }
-    if (cursor != null && cursorId != null) {
+    Long cursorId = cursor == null ? null : cursor.longId();
+    if (cursorId != null) {
       where =
           where.and(
               DSL.row(ISSUE_HISTORY.CREATED_AT, ISSUE_HISTORY.ID)

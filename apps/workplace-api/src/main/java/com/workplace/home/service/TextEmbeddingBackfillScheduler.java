@@ -20,10 +20,10 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
- * 임베딩 백필(WP-383·384) — 1분마다 활성 테넌트마다 embedding IS NULL 행을 오래된 순 50개씩(메모리 → 대화 턴 순) 채운다. 커밋 뒤 작업이 놓친
- * 행(큐 넘침·워커 장애·롤링 배포 중 구 파드의 저장)과 기존 데이터를 천천히 채운다. 빈 행 id 는 테넌트 트랜잭션에서 모으고, 임베딩·쓰기는 그 밖에서 행마다 따로
- * 한다. 워커가 연달아 실패하면 이번 주기를 멈추고 다음 주기에 다시 한다 — 실패한 행은 다음 주기 맨 끝으로 미뤄 늘 실패하는 행이 다른 행을 막지 않는다. 여러 파드는
- * ShedLock 으로 한 번만 돈다.
+ * 임베딩 백필(WP-383·384) — 1분마다 활성 테넌트마다 embedding IS NULL 행을 오래된 순 50개씩(메모리 → 대화 턴 → 지운 기록 순) 채운다. 커밋
+ * 뒤 작업이 놓친 행(큐 넘침·워커 장애·롤링 배포 중 구 파드의 저장)과 기존 데이터를 천천히 채운다. 빈 행 id 는 테넌트 트랜잭션에서 모으고, 임베딩·쓰기는 그 밖에서
+ * 행마다 따로 한다. 워커가 연달아 실패하면 이번 주기를 멈추고 다음 주기에 다시 한다 — 실패한 행은 다음 주기 맨 끝으로 미뤄 늘 실패하는 행이 다른 행을 막지 않는다.
+ * 여러 파드는 ShedLock 으로 한 번만 돈다.
  */
 @Slf4j
 @Component
@@ -99,6 +99,9 @@ public class TextEmbeddingBackfillScheduler {
     Map<Target, List<Long>> m = new EnumMap<>(Target.class);
     m.put(Target.MEMORY, repo.pendingMemoryIds(BATCH));
     m.put(Target.TURN, repo.pendingTurnIds(BATCH));
+    m.put(Target.FORGOTTEN, repo.pendingForgottenIds(BATCH));
+    m.put(Target.SHARED_MEMORY, repo.pendingSharedMemoryIds(BATCH));
+    m.put(Target.SHARED_FORGOTTEN, repo.pendingSharedForgottenIds(BATCH));
     return m;
   }
 }

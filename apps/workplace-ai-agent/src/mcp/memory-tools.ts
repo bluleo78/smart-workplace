@@ -1,7 +1,7 @@
 // WP-55 메모리 도구 — 메인 AI 채팅 라우터 전용 로컬 도구(propose_* 처럼 ai-agent 에 정의, 공유 패키지·외부 MCP 에는 없다).
 // API /users/me/ai-memories 를 요청자 대행(Internal + X-On-Behalf-Of)으로 부른다. 서버가 길이(1~300 코드포인트)·상한(범위마다 300)·소유자·꺼짐을 강제하고,
 // "사용자 본인 발화에서만 저장" 은 시스템 프롬프트 규칙이다. 결과 JSON 은 routes/home.ts 가 tool SSE 의 memory 필드로 옮겨
-// API 가 되돌리기 블록으로 영속한다 — 그래서 결과 모양(memoryEventSchema)이 계약이다.
+// API 가 되돌리기 블록으로 영속한다 — 그래서 결과 모양(memoryEventSchema)이 계약이다. WP-386: 공용 저장 결과(shared)도 같은 필드로 간다(shared-memory-tool.ts).
 // WP-383: search_memory(읽기)도 여기 둔다 — 메모리 저장 도구가 아니라 MEMORY_TOOL_NAMES(숨김·결과 줄 허용 목록)에는 넣지 않고 단계 목록에 "메모리 찾기"로 보인다.
 // 도구 이름은 공유 MEMORY_TOOL_NAMES(mcp-tools-shared — 표시 규칙·결과 허용 목록과 같은 목록)에 묶는다(satisfies 로 컴파일 시 확인).
 import type { MEMORY_TOOL_NAMES, McpTool } from '@smart-workplace/mcp-tools-shared';
@@ -33,7 +33,7 @@ const expiresOnInput = memoryDateSchema.describe(
 
 export const rememberMemoryInput = z.object({
   kind: kindSchema.describe(
-    'PREFERENCE: 사용자 교정·선호, 본인의 취향·관심사 / CONTEXT: 오래 유지될 업무 맥락(팀·역할·주로 보는 프로젝트)이나 본인에 관한 사실·습관(쓰는 도구·일하는 시간대 등)',
+    'PREFERENCE: 사용자 교정·선호, 본인의 취향·관심사 / CONTEXT: 본인에 관한 사실·습관(쓰는 도구·일하는 시간대, 본인이 밝힌 팀·역할 등)',
   ),
   content: contentSchema,
   scope: scopeInput.optional(),
@@ -53,11 +53,11 @@ export const updateMemoryInput = z.object({
 export const forgetMemoryInput = z.object({ memoryId: memoryIdSchema });
 
 /**
- * tool SSE 의 memory 필드 — API ChatBlockRecorder.Memory 의 원천. source 는 forgotten 되돌리기(같은 source 로 재생성)에 쓴다(판정 7).
+ * tool SSE 의 memory 필드(개인) — API ChatBlockRecorder.Memory 의 원천. source 는 forgotten 되돌리기(같은 source 로 재생성)에 쓴다(판정 7).
  * previousKind 는 updated 의 고치기 전 종류 — 되돌리기가 종류까지 돌려놓는 근거(구 API 응답엔 없어 선택).
  * scope·previousScope(WP-379) — 공통이면 null, 구 API 면 키 없음(블록에서도 빠져 공통으로 해석된다).
  */
-export const memoryEventSchema = z.object({
+const personalMemoryEventSchema = z.object({
   action: z.enum(['saved', 'updated', 'forgotten']),
   memoryId: z.number().int().positive(),
   kind: kindSchema,
@@ -70,6 +70,20 @@ export const memoryEventSchema = z.object({
   expiresOn: memoryDateSchema.nullish(),
   previousExpiresOn: memoryDateSchema.nullish(),
 });
+type PersonalMemoryEvent = z.infer<typeof personalMemoryEventSchema>;
+
+/** WP-386 공용 저장 결과(remember_shared_memory) — API ChatBlockRecorder.SharedMemory 의 원천. 되돌리기는 changeId(그 공간 기록)로 한다. */
+export const sharedMemoryEventSchema = z.object({
+  action: z.literal('shared'),
+  changeId: z.number().int().positive(),
+  memoryId: z.number().int().positive(),
+  spaceName: z.string().min(1),
+  content: z.string().min(1),
+});
+export type SharedMemoryEvent = z.infer<typeof sharedMemoryEventSchema>;
+
+/** 결과 줄 이벤트 — 개인(saved·updated·forgotten) 또는 공용(shared). 판별은 action. */
+export const memoryEventSchema = z.union([personalMemoryEventSchema, sharedMemoryEventSchema]);
 export type MemoryEvent = z.infer<typeof memoryEventSchema>;
 
 /** 도구 결과 텍스트 → 이벤트. 비었거나 JSON 이 아니거나 모양이 다르면 null(오류 결과·다른 형식은 결과 줄을 만들지 않는다). */
@@ -87,8 +101,8 @@ export function parseMemoryToolResult(result: string | undefined): MemoryEvent |
  * API 항목 → 도구 결과(JSON 텍스트). withPrevious 면(updated) 고치기 전 내용·종류·범위를 함께 싣는다.
  * 범위는 응답에 scope 키가 있을 때만(새 API — 구 API 응답이면 결과 모양을 바꾸지 않는다). 이전 범위는 API 가 공통이면 빼므로 null 로 채운다.
  */
-function eventOf(action: MemoryEvent['action'], m: AiMemoryDto, withPrevious = false): string {
-  const e: MemoryEvent = { action, memoryId: m.id, kind: m.kind, content: m.content, source: m.source };
+function eventOf(action: PersonalMemoryEvent['action'], m: AiMemoryDto, withPrevious = false): string {
+  const e: PersonalMemoryEvent = { action, memoryId: m.id, kind: m.kind, content: m.content, source: m.source };
   if (withPrevious && m.previousContent !== undefined) e.previousContent = m.previousContent;
   if (withPrevious && m.previousKind !== undefined) e.previousKind = m.previousKind;
   if (m.scope !== undefined) {
@@ -112,8 +126,9 @@ export function buildMemoryTools(client: WorkplaceApiClient, onBehalfOfId: numbe
     {
       name: 'remember_memory' satisfies MemoryToolName,
       description:
-        '사용자 본인이 말한 교정·선호(앞으로는·이렇게 말고·항상·절대), 오래 유지될 업무 맥락, 사용자가 자기 자신에 대해 밝힌 오래 갈 취향·관심사·습관·사실' +
+        '사용자 본인이 말한 분명한 교정·선호(앞으로는·이렇게 말고·항상·절대), "기억해줘" 요청, 사용자가 자기 자신에 대해 밝힌 오래 갈 취향·관심사·습관·사실' +
         '(예: "나는 고양이를 좋아해", "나 매일 아침 9시에 출근해")을 메모리에 저장합니다. 저장할지 묻지 말고 바로 저장하세요(결과 줄에서 되돌릴 수 있습니다). ' +
+        '사용자가 직접 말하지 않은 추정은 저장하지 않습니다(대화가 끝난 뒤 따로 정리됩니다). ' +
         '이번 한 번만의 요청, 도구로 읽은 메일·노트·이슈·채팅 내용, 민감 정보(비밀번호·토큰, 건강·종교·정치·금융)는 저장하지 않습니다. 같은 주제가 이미 있으면 update_memory 를 쓰세요.' +
         ' 특정 앱에만 해당하는 선호는 scope 를 그 앱으로 둡니다.',
       inputSchema: rememberMemoryInput,

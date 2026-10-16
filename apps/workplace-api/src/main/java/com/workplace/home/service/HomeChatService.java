@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
+import com.workplace.global.ai.SharedAiMemoryReader;
+import com.workplace.global.ai.SharedMemories;
 import com.workplace.global.exception.StreamingGenerationRejectedException;
 import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.global.realtime.SseRegistry;
@@ -11,6 +13,7 @@ import com.workplace.global.realtime.StreamingGenerationRegistry;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.home.dto.AiScreenContext;
 import com.workplace.home.dto.HomeChatActiveResponse;
+import com.workplace.home.dto.HomeChatRequest;
 import com.workplace.home.dto.HomeChatStartedResponse;
 import com.workplace.home.exception.HomeChatConcurrencyLimitException;
 import com.workplace.home.exception.HomeChatSessionBusyException;
@@ -18,6 +21,7 @@ import com.workplace.home.exception.HomeChatUnavailableException;
 import com.workplace.home.outbound.AiAgentChatClient;
 import com.workplace.home.outbound.ChatMessages.ChatAttachment;
 import com.workplace.home.outbound.ChatMessages.ChatRequest;
+import com.workplace.home.outbound.ChatMessages.CurrentSpace;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -73,9 +77,12 @@ public class HomeChatService {
    */
   private static final Pattern MCP_PREFIX = Pattern.compile("^(?:mcp__[^_]+__|workplace_)");
 
-  /** WP-55: 메모리 도구 이름(접두 제외) — 공유 isMemoryTool 과 같은 집합. */
+  /**
+   * WP-55: 메모리 도구 이름(접두 제외) — 공유 isMemoryTool 과 같은 집합. WP-386 공용 요청 도구(remember_shared_memory)도 결과
+   * 줄로 보이고 도구 단계에 넣지 않는다.
+   */
   private static final Set<String> MEMORY_TOOLS =
-      Set.of("remember_memory", "update_memory", "forget_memory");
+      Set.of("remember_memory", "update_memory", "forget_memory", "remember_shared_memory");
 
   /** WP-158: 위젯 도구 이름 → 위젯 타입(show_issue_list → issue_list). 웹 widgetTypeFromToolName 과 같은 규칙. */
   private static final Pattern SHOW_TOOL = Pattern.compile("show_([a-z_]+)$");
@@ -105,6 +112,12 @@ public class HomeChatService {
   /** WP-55: 매 턴 메모리 조회(꺼짐·실패 처리 포함). */
   private final AiMemoryService memoryService;
 
+  /** WP-386: 화면 공간을 서버가 다시 확인(요청 스레드). */
+  private final SharedMemorySpaces sharedSpaces;
+
+  /** WP-386: 조직 + 지금 공간 공용 메모리 읽기(매 턴, 메모리 스위치와 무관). */
+  private final SharedAiMemoryReader sharedReader;
+
   public HomeChatService(
       HomeSessionService sessionService,
       HomeProposalService proposalService,
@@ -119,7 +132,9 @@ public class HomeChatService {
       SseRegistry sseRegistry,
       HomeChatProperties chatProperties,
       HomeFollowupService followupService,
-      AiMemoryService memoryService) {
+      AiMemoryService memoryService,
+      SharedMemorySpaces sharedSpaces,
+      SharedAiMemoryReader sharedReader) {
     this.sessionService = sessionService;
     this.proposalService = proposalService;
     this.contextService = contextService;
@@ -134,6 +149,8 @@ public class HomeChatService {
     this.chatProperties = chatProperties;
     this.followupService = followupService;
     this.memoryService = memoryService;
+    this.sharedSpaces = sharedSpaces;
+    this.sharedReader = sharedReader;
   }
 
   /** 홈 채팅 레지스트리 scope 접두 — 대화(sessionId) 단위로 동시 생성을 추적한다(WP-190). */
@@ -149,25 +166,9 @@ public class HomeChatService {
     return SCOPE + ":" + (tenantId == null ? "-" : tenantId);
   }
 
-  /** 화면 컨텍스트 없는 호출(기존 호출부·테스트 호환) — null 컨텍스트, 첨부 없음으로 위임. */
+  /** 질문만 보내는 간단 호출 — 화면 컨텍스트·첨부·생성 id·앱·공간 없이 8-인자 본체에 위임한다. */
   public HomeChatStartedResponse startChat(long callerId, UUID sessionId, String query) {
-    return startChat(callerId, sessionId, query, null, List.of());
-  }
-
-  /** 첨부 없는 호출(기존 호출부·테스트 호환) — 첨부 없음으로 위임. */
-  public HomeChatStartedResponse startChat(
-      long callerId, UUID sessionId, String query, AiScreenContext screenContext) {
-    return startChat(callerId, sessionId, query, screenContext, List.of());
-  }
-
-  /** 생성 id 를 서버가 발급하는 호출(기존 호출부·테스트 호환). */
-  public HomeChatStartedResponse startChat(
-      long callerId,
-      UUID sessionId,
-      String query,
-      AiScreenContext screenContext,
-      List<Long> fileIds) {
-    return startChat(callerId, sessionId, query, screenContext, fileIds, null, null);
+    return startChat(callerId, sessionId, query, null, List.of(), null, null, null);
   }
 
   /**
@@ -183,6 +184,7 @@ public class HomeChatService {
    * @param fileIds 선업로드한 첨부 id(WP-234, null·빈 목록 허용) — USER 메시지와 같은 트랜잭션에서 연결·승격된다
    * @param correlationId 웹이 정한 생성 id(WP-267, nullable) — 없으면 서버가 발급한다. 진행 중인 생성과 겹치면 409
    * @param app 지금 화면 앱(WP-379, nullable) — 공통 + 그 앱 메모리를 고른다. 모르는 값은 앱 없음
+   * @param space 화면 공간(WP-386, nullable) — 클라이언트 값이라 서버가 다시 확인한 것만 쓴다
    * @return correlationId(이벤트 필터·취소) + sessionId(새 대화면 만든 id)
    */
   public HomeChatStartedResponse startChat(
@@ -192,7 +194,8 @@ public class HomeChatService {
       AiScreenContext screenContext,
       List<Long> fileIds,
       UUID correlationId,
-      String app) {
+      String app,
+      HomeChatRequest.Space space) {
     // 1) enabled 확인 — 비활성이면 시작 전 예외로 단락.
     if (!aiAgentProperties.enabled()) {
       throw new HomeChatUnavailableException("AI 채팅 기능이 현재 비활성화되어 있어요.");
@@ -232,6 +235,7 @@ public class HomeChatService {
           fileIds,
           screenContext,
           AiMemoryScope.appOrNull(app),
+          space,
           reservation);
     } catch (Throwable e) {
       reservation.release();
@@ -248,9 +252,18 @@ public class HomeChatService {
       List<Long> fileIds,
       AiScreenContext screenContext,
       String memoryApp,
+      HomeChatRequest.Space space,
       StreamingGenerationRegistry.Reservation reservation) {
     // 3) 비서 해석 — 세션 생성보다 먼저(미설정이면 503 이고 빈 세션을 남기지 않는다).
     AssistantSpec spec = assistantResolver.resolve(callerId);
+
+    // WP-386 6.1: 화면 공간은 서버가 다시 확인한 것만 쓴다(위조·권한 없음은 null).
+    SharedSpace verifiedSpace =
+        space == null
+            ? null
+            : sharedSpaces
+                .verifyForMessage(callerId, space.type(), space.key(), space.id())
+                .orElse(null);
 
     // 4) 세션 ensure — 새 대화면 예약한 id 로 만든다.
     if (newSession) sessionService.create(callerId, sid);
@@ -260,6 +273,16 @@ public class HomeChatService {
 
     // 6) USER 메시지 영속 + 첨부 연결(WP-234) — 한 트랜잭션(세션 잠금·상한·승격·추출 요청 포함). 예약 뒤라 거절된 요청은 여기 오지 않는다.
     long userMessageId = attachmentService.appendUserMessage(callerId, sid, text, fileIds);
+
+    // WP-386: 배경 추출이 발화를 공간별로 묶는 근거 — 확인된 공간만 사용자 메시지에 남긴다.
+    // 이미 USER 메시지가 커밋된 뒤라 실패해도 채팅을 막지 않는다(답 없는 질문을 남기지 않게) — 공간 기록은 부가 기능이다.
+    if (verifiedSpace != null) {
+      try {
+        sessionService.recordMessageSpace(callerId, sid, userMessageId, verifiedSpace.spaceKey());
+      } catch (RuntimeException e) {
+        log.warn("화면 공간 기록 실패 — 기록 없이 진행: {}", e.getClass().getSimpleName());
+      }
+    }
 
     // 6-1) WP-234: 세션 전체 첨부(요약 경계 이전 포함)를 매 턴 DB 에서 만든다 — 앞부분이 요약으로 바뀌어도 AI 가 파일을 안다.
     List<ChatAttachment> attachments = attachmentService.listForChat(callerId, sid, userMessageId);
@@ -292,7 +315,8 @@ public class HomeChatService {
                 snapshot,
                 spec,
                 tenantId,
-                memoryApp),
+                memoryApp,
+                verifiedSpace),
         // R4: 큐(core 4·queue 16) 대기 중 취소·타임아웃되면 태스크는 돌지 않는다 — 누적 텍스트가 없으니 저장 없이 cancelled 만 나가
         // 웹이 "생성 중" 에 갇히지 않는다.
         turn::cancel);
@@ -304,6 +328,7 @@ public class HomeChatService {
    * 처리한다(영속 → 반납 → 이벤트).
    *
    * @param memoryApp 지금 화면 앱(검증됨, null = 공통만)
+   * @param space 서버가 확인한 화면 공간(WP-386, 없으면 null)
    */
   private void pump(
       HomeChatTurn turn,
@@ -316,12 +341,18 @@ public class HomeChatService {
       HomeContextSummaryService.ContextSnapshot snapshot,
       AssistantSpec spec,
       Long tenantId,
-      String memoryApp) {
+      String memoryApp,
+      SharedSpace space) {
     try {
       // WP-55: 메모리는 매 턴 읽는다(턴 중 저장·수정은 다음 턴부터 반영). 예산 맞춤 전에 읽어야 블록 몫을 뺄 수 있다.
       AiMemoryService.ChatMemories memories =
           memoriesOrUnavailable(
               () -> memoryService.loadForChat(callerId, memoryApp, query), callerId);
+      // WP-386 5.1: 조직 + 지금 공간 공용 메모리 — 메모리 꺼짐과 무관하게 싣는다(실패하면 빈 묶음). 권한은 매 턴 다시 본다.
+      SharedMemories shared =
+          space == null
+              ? sharedReader.readForUser(callerId, null, null)
+              : sharedReader.readForUser(callerId, space.type().name(), space.id());
       // WP-232: 예산 초과 시 이 턴에서 동기 요약(진행 라벨 표시) — 요청 스레드를 막지 않도록 pump 에서 수행.
       HomeContextSummaryService.ContextSnapshot ctx =
           contextService.fitToBudget(
@@ -329,7 +360,8 @@ public class HomeChatService {
               sid,
               snapshot,
               spec,
-              AiMemoryService.estimateBlockTokens(memories),
+              AiMemoryService.estimateBlockTokens(memories)
+                  + SharedAiMemoryEntryReader.estimateTokens(shared),
               () -> turn.emit("home.chat.progress", Map.of("label", COMPACTING_LABEL)));
       // userId: 요청 사용자 ID — ai-agent 의 MCP 도구가 assistantAgentId 아닌 실제 요청자 컨텍스트로
       // 드라이브·캘린더 등 사용자 귀속 리소스를 조회·수정하게 한다(refs #376).
@@ -363,7 +395,11 @@ public class HomeChatService {
               memoryApp,
               memories.today(),
               // WP-383: 블록에 넣지 않은 유효 메모리 수 — "더 있음" 줄.
-              memories.moreCount());
+              memories.moreCount(),
+              // WP-386: 공용 메모리 + 지금 공간(서버가 확인한 것만).
+              shared.items(),
+              shared.moreCount(),
+              space == null ? null : new CurrentSpace(space.type().name(), space.label()));
       chatClient.composeStream(
           req,
           // delta: 블록 순서 기록 + 즉시 발행(done 본문은 ai-agent 가 준 fullText, 부분 저장은 누적 텍스트).
@@ -468,9 +504,9 @@ public class HomeChatService {
     }
     // WP-55: 메모리 도구 성공 결과(result) → 결과 줄 블록(되돌리기 근거). ai-agent 가 이미 거르지만 API 도 다시 거른다.
     // start 단계, 오류 결과, 메모리가 아닌 도구, 모양이 틀린 memory 는 블록을 만들지 않는다.
-    ChatBlockRecorder.Memory memory =
+    ChatBlockRecorder.Block memory =
         !"start".equals(phase) && !isError && isMemoryTool(toolNode.path("toolName").asText())
-            ? ChatBlockRecorder.Memory.from(toolNode.get("memory"))
+            ? ChatBlockRecorder.memoryBlockOf(toolNode.get("memory"))
             : null;
     @SuppressWarnings("unchecked")
     Map<String, Object> toolPayload = objectMapper.convertValue(toolNode, Map.class);

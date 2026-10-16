@@ -15,7 +15,7 @@ workplace-mcp(사용자 PAT 원격 MCP)와 workplace-ai-agent(AI 비서 인-프�
 | `attachment-read.ts` | 첨부·파일 내용 읽기의 공통 계약 — 구간 범위(`readRangeShape`)·기본 길이·이미지 형식/크기 판정. 공유 `read_file` 과 ai-agent 전용 채팅 첨부 읽기 도구가 같이 쓴다 |
 | `shared-tools.ts` | `buildSharedTools(client, opts)` — 공유 도구 전체 |
 | `tool-apps.ts` | `TOOL_APPS`·`ToolApp`·`toolApps()` — 도구를 앱으로 묶는 분류(WP-350, 아래 "앱 분류")와 서버 `instructions` 에 쓰는 앱별 안내(`TOOL_APP_GUIDES`) |
-| `tool-naming.ts` | `toolNameViolations(name)` — 도구 이름 규칙 검사(아래 "도구 명명 규칙"). 두 앱의 테스트가 쓴다 |
+| `tool-naming.ts` | `toolNameViolations(name, maxLength)` — 도구 이름 규칙 검사(상한은 공유 `SHARED_TOOL_NAME_MAX_LENGTH`·ai-agent 전용 `AGENT_TOOL_NAME_MAX_LENGTH`)(아래 "도구 명명 규칙"). 두 앱의 테스트가 쓴다 |
 | `tool-definitions.ts` | `toolDefinition(tool)`·`wireInputSchema`·`toolDefinitionsSize`·`estimateTokens`·`nullAsOmitted` — 외부 MCP 가 tools/list 로 내보내는 도구 정의와 그 크기(아래 "도구 수와 정의 크기") |
 
 LLM 에 보여줄 형태로 가공하는 일은 **도구 핸들러**가 맡는다. 식별자 이름 바꾸기나 숫자 id 제거가 여기에 해당한다. 클라이언트에 가공을 두면 앱마다 규칙이 달라진다.
@@ -277,7 +277,12 @@ AI Chat 에는 라벨·마일스톤·사이클 생성·수정 확인 카드가 �
 
 ## 도구 명명 규칙 (WP-347)
 
-형식은 `동사_명사[_한정어]` snake_case 이고 **46자 이내**다(Anthropic API 도구 이름 64자 − 외부 MCP 접두 `mcp__genia-works__` 18자). `tool-naming.ts` 의 `toolNameViolations` 가 형식·길이·금지 접두를 검사한다.
+형식은 `동사_명사[_한정어]` snake_case 다. 길이는 Anthropic API 도구 이름 상한 64자에서 클라이언트가 붙이는 접두를 뺀 만큼이다.
+
+- **공유 도구(외부 MCP 로 나감)는 27자 이내**: 가장 긴 접두인 genia-works 플러그인 연결 `mcp__plugin_genia-works_genia-works__`(37자)를 뺀 값이다(WP-419). 직접 등록 접두 `mcp__genia-works__`(18자)는 이보다 짧다.
+- **ai-agent 전용 도구는 46자 이내**: ai-agent 안의 `workplace` 서버(`mcp__workplace__` 16자)로만 나간다.
+
+`tool-naming.ts` 의 `toolNameViolations(name, maxLength)` 가 형식·길이·금지 접두를 검사한다(상한은 인자로 고른다 — 기본값이 없다).
 
 | 구분 | 접두 | 쓰임 |
 |---|---|---|

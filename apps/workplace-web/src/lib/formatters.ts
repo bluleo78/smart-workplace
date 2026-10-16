@@ -483,6 +483,14 @@ function kstParts(date: Date): Ymdhm {
 
 const sameDay = (a: Ymdhm, b: Ymdhm) => a.y === b.y && a.m === b.m && a.d === b.d
 
+/** KST 날짜 t 가 now 기준 오늘·어제인가(아니면 null) — 목록 시간·날짜 묶음 이름이 같은 판정을 쓴다. */
+function kstDayRelative(t: Ymdhm, now: Date): 'today' | 'yesterday' | null {
+  if (sameDay(t, kstParts(now))) return 'today'
+  // Asia/Seoul 은 DST 가 없으므로 24시간 전의 날짜 = 어제.
+  if (sameDay(t, kstParts(new Date(now.getTime() - 86_400_000)))) return 'yesterday'
+  return null
+}
+
 /**
  * 목록 행 오른쪽 시간 — 오늘은 시각, 어제는 "어제", 올해는 "M월 D일", 그 이전은 "YYYY. M. D.".
  * 메신저 목록 관례(최근일수록 정밀). 무효 입력이면 빈 문자열(칸을 비운다).
@@ -491,13 +499,29 @@ export function formatListTime(at: string, now: Date = new Date()): string {
   const date = parseUtcDate(at)
   if (Number.isNaN(date.getTime())) return ''
   const t = kstParts(date)
-  const n = kstParts(now)
-  if (sameDay(t, n)) {
+  const rel = kstDayRelative(t, now)
+  if (rel === 'today') {
     const h12 = t.h % 12 === 0 ? 12 : t.h % 12
     return `${t.h < 12 ? '오전' : '오후'} ${h12}:${String(t.min).padStart(2, '0')}`
   }
-  // Asia/Seoul 은 DST 가 없으므로 24시간 전의 날짜 = 어제.
-  if (sameDay(t, kstParts(new Date(now.getTime() - 86_400_000)))) return '어제'
-  if (t.y === n.y) return `${t.m}월 ${t.d}일`
+  if (rel === 'yesterday') return '어제'
+  if (t.y === kstParts(now).y) return `${t.m}월 ${t.d}일`
   return `${t.y}. ${t.m}. ${t.d}.`
+}
+
+const WEEKDAY_KO = ['일', '월', '화', '수', '목', '금', '토'] as const
+
+/**
+ * 기록 목록의 날짜 묶음 이름(WP-385) — 오늘·어제, 올해면 "10월 9일 금요일", 다른 해면 "2025년 10월 9일 목요일" (Asia/Seoul).
+ * 요일은 KST 연·월·일로 직접 계산한다(ICU 로케일 데이터에 기대지 않는다 — formatListTime 과 같은 이유). 무효 입력이면 빈 문자열.
+ */
+export function formatDayGroupLabel(at: string, now: Date = new Date()): string {
+  const date = parseUtcDate(at)
+  if (Number.isNaN(date.getTime())) return ''
+  const t = kstParts(date)
+  const rel = kstDayRelative(t, now)
+  if (rel) return rel === 'today' ? '오늘' : '어제'
+  const weekday = WEEKDAY_KO[new Date(Date.UTC(t.y, t.m - 1, t.d)).getUTCDay()]
+  const day = `${t.m}월 ${t.d}일 ${weekday}요일`
+  return t.y === kstParts(now).y ? day : `${t.y}년 ${day}`
 }

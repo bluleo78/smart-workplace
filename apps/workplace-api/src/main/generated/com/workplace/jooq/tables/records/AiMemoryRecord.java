@@ -242,6 +242,20 @@ public class AiMemoryRecord extends UpdatableRecordImpl<AiMemoryRecord> {
         return get(13);
     }
 
+    /**
+     * Setter for <code>public.ai_memory.last_used_at</code>.
+     */
+    public void setLastUsedAt(OffsetDateTime value) {
+        set(14, value);
+    }
+
+    /**
+     * Getter for <code>public.ai_memory.last_used_at</code>.
+     */
+    public OffsetDateTime getLastUsedAt() {
+        return (OffsetDateTime) get(14);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -265,7 +279,7 @@ public class AiMemoryRecord extends UpdatableRecordImpl<AiMemoryRecord> {
     /**
      * Create a detached, initialised AiMemoryRecord
      */
-    public AiMemoryRecord(Long id, Long userId, String kind, String content, String source, UUID sourceSessionId, OffsetDateTime createdAt, OffsetDateTime updatedAt, Long tenantId, String scope, LocalDate expiresOn, Boolean pinned, Object searchTv, Object embedding) {
+    public AiMemoryRecord(Long id, Long userId, String kind, String content, String source, UUID sourceSessionId, OffsetDateTime createdAt, OffsetDateTime updatedAt, Long tenantId, String scope, LocalDate expiresOn, Boolean pinned, Object searchTv, Object embedding, OffsetDateTime lastUsedAt) {
         super(AiMemory.AI_MEMORY);
 
         setId(id);
@@ -282,6 +296,7 @@ public class AiMemoryRecord extends UpdatableRecordImpl<AiMemoryRecord> {
         setPinned(pinned);
         setSearchTv(searchTv);
         setEmbedding(embedding);
+        setLastUsedAt(lastUsedAt);
         resetChangedOnNotNull();
     }
 }

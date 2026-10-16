@@ -4,6 +4,8 @@ import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.ai.AiMemoryLine;
 import com.workplace.global.ai.AiMemoryReader;
+import com.workplace.global.ai.SharedAiMemoryReader;
+import com.workplace.global.ai.SharedMemories;
 import com.workplace.messaging.dto.ChannelCatchupResponse;
 import com.workplace.messaging.dto.ChannelCatchupResponse.MentionItem;
 import com.workplace.messaging.dto.ChannelCatchupResponse.SummaryGroup;
@@ -47,6 +49,9 @@ public class ChannelCatchupService {
   /** WP-381: 요약에 싣는 요청자의 읽기 전용 메모리(공통 + 메신저). */
   private final AiMemoryReader memoryReader;
 
+  /** WP-386: 요약에 싣는 조직 공용 메모리 리더(채널 캐치업은 공간 범위가 없다). */
+  private final SharedAiMemoryReader sharedReader;
+
   /**
    * 멤버십·미읽음·내 차례 조회의 짧은 읽기 트랜잭션 — @Primary TenantAwareTransactionManager 로 구성해 진입 시 RLS
    * GUC(app.tenant_id) 가 주입된다.
@@ -60,13 +65,15 @@ public class ChannelCatchupService {
       CatchupSummaryCache cache,
       AssistantResolver assistantResolver,
       AiMemoryReader memoryReader,
-      PlatformTransactionManager txManager) {
+      PlatformTransactionManager txManager,
+      SharedAiMemoryReader sharedReader) {
     this.messageRepo = messageRepo;
     this.memberRepo = memberRepo;
     this.catchupClient = catchupClient;
     this.cache = cache;
     this.assistantResolver = assistantResolver;
     this.memoryReader = memoryReader;
+    this.sharedReader = sharedReader;
     this.readTx = new TransactionTemplate(txManager);
     this.readTx.setReadOnly(true);
   }
@@ -86,7 +93,9 @@ public class ChannelCatchupService {
     // 함께 쓴다. WP-383: 질의 없음(고정 + 최신) — 스펙 3.5.
     List<AiMemoryLine> memories =
         memoryReader.readForEntry(callerId, AiMemoryReader.MESSAGING, null);
-    CatchupSummarizeResult ai = cache.get(memories, channelId, since, snap.maxId());
+    // WP-386: 조직 공용 메모리 — 지문에 함께 들어가 공용 메모리가 바뀌면 캐시된 요약을 쓰지 않는다.
+    SharedMemories shared = SharedMemories.orEmpty(sharedReader.readForUser(callerId, null, null));
+    CatchupSummarizeResult ai = cache.get(memories, shared, channelId, since, snap.maxId());
     if (ai == null) {
       // caller 의 비서(개인 → 공용, 토큰 보유)로 요약한다. 예전엔 id 2 를 하드코딩해 운영에서 HUMAN 계정을 가리켜
       // 토큰 발급 400 → 매 진입 502 였다(WP-110). 캐시 적중이면 해석하지 않는다.
@@ -105,9 +114,11 @@ public class ChannelCatchupService {
               spec.model(),
               CATCHUP_MAX_TURNS,
               CATCHUP_TIMEOUT_MS,
-              memories);
+              memories,
+              shared.items(),
+              shared.moreCount());
       ai = catchupClient.summarize(req);
-      cache.put(memories, channelId, since, snap.maxId(), ai);
+      cache.put(memories, shared, channelId, since, snap.maxId(), ai);
     }
 
     // 근거 정직성: AI 가 돌려준 id 중 입력 미읽음 집합에 있는 것만 유지.

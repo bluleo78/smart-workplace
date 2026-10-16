@@ -48,8 +48,8 @@ describe('stripMcpPrefix / isDisplayableTool', () => {
 
 // WP-55: 메모리 도구는 결과 줄(🧠)로 따로 보이므로 숨김 도구다 — show_*·propose_* 처럼 라벨이 없다(ai-agent tools.test.ts 의 숨김 도구 무라벨 불변식).
 describe('isMemoryTool (WP-55)', () => {
-  it('세 메모리 도구를 런타임 접두와 무관하게 알아본다', () => {
-    expect(MEMORY_TOOL_NAMES).toEqual(['remember_memory', 'update_memory', 'forget_memory']);
+  it('네 메모리 도구를 런타임 접두와 무관하게 알아본다(WP-386 공용 저장 포함)', () => {
+    expect(MEMORY_TOOL_NAMES).toEqual(['remember_memory', 'update_memory', 'forget_memory', 'remember_shared_memory']);
     for (const n of MEMORY_TOOL_NAMES) {
       expect(isMemoryTool(n)).toBe(true);
       expect(isMemoryTool(`mcp__workplace__${n}`)).toBe(true);

@@ -55,4 +55,4 @@ export { CREATE_DRIVE_FILE_CONTENT_DESCRIPTION } from './drive-tools.js';
 export { buildSharedTools, type SharedToolClient, type SharedToolOptions } from './shared-tools.js';
 export { createSharedToolClient, decodeErrorBody, getBytes, type HttpLike, type HttpRequestConfig, viewUrl } from './rest-client.js';
 export { MEMORY_TOOL_NAMES, TOOL_LABELS, isDisplayableTool, isMemoryTool, stripMcpPrefix, type ToolLabel } from './tool-labels.js';
-export { TOOL_NAME_MAX_LENGTH, toolNameViolations } from './tool-naming.js';
+export { AGENT_TOOL_NAME_MAX_LENGTH, SHARED_TOOL_NAME_MAX_LENGTH, toolNameViolations } from './tool-naming.js';

@@ -16,9 +16,9 @@ import org.springframework.transaction.event.TransactionalEventListener;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * 메모리·대화 턴 임베딩 채우기(WP-383·384) — 저장·내용 수정 커밋 뒤 전용 단일 스레드에서 워커 임베딩을 받아 그 행에 쓴다. 임베딩 HTTP(최대 5초)는 DB
- * 트랜잭션 밖에서 한다(읽기 → 임베딩 → 쓰기, 읽기·쓰기는 각각 짧은 독립 트랜잭션). 쓰기는 그사이 내용이 바뀌지 않았고 아직 비어 있을 때만 — 늦게 끝난 옛 임베딩이
- * 새 내용을 덮지 않는다.
+ * 메모리·대화 턴·지운 기록·공용 메모리 임베딩 채우기(WP-383·384·385·386) — 저장·내용 수정 커밋 뒤 전용 단일 스레드에서 워커 임베딩을 받아 그 행에 쓴다.
+ * 임베딩 HTTP(최대 5초)는 DB 트랜잭션 밖에서 한다(읽기 → 임베딩 → 쓰기, 읽기·쓰기는 각각 짧은 독립 트랜잭션). 쓰기는 그사이 내용이 바뀌지 않았고 아직 비어
+ * 있을 때만 — 늦게 끝난 옛 임베딩이 새 내용을 덮지 않는다.
  *
  * <p>실패(워커 장애·큐 넘침)는 버린다 — {@link TextEmbeddingBackfillScheduler} 가 embedding IS NULL 행을 다시 채운다.
  */
@@ -27,14 +27,41 @@ import org.springframework.transaction.support.TransactionTemplate;
 public class TextEmbeddingService {
 
   /** 임베딩을 채울 행 — 커밋 뒤 이벤트로 받는다. tenantId 는 발행 스레드의 활성 테넌트(실행기 스레드가 RLS GUC 를 다시 세운다). */
-  public record Requested(Long tenantId, Target target, long id) {}
+  public record Requested(Long tenantId, Target target, long id) {
+
+    /** 메모리(ai_memory) 행의 임베딩 요청 — 지금 스레드의 활성 테넌트로 만든다(생성·고치기·배경 정리가 같은 모양을 쓴다). */
+    public static Requested memory(long memoryId) {
+      return new Requested(TenantContext.get(), Target.MEMORY, memoryId);
+    }
+
+    /** 지운 기록(ai_memory_forgotten) 행의 임베딩 요청 — 지금 스레드의 활성 테넌트로 만든다. */
+    public static Requested forgotten(long forgottenId) {
+      return new Requested(TenantContext.get(), Target.FORGOTTEN, forgottenId);
+    }
+
+    /** 공용 메모리(shared_ai_memory, WP-386) 행의 임베딩 요청 — 지금 스레드의 활성 테넌트로 만든다. */
+    public static Requested sharedMemory(long memoryId) {
+      return new Requested(TenantContext.get(), Target.SHARED_MEMORY, memoryId);
+    }
+
+    /** 공간 지운 기록(shared_ai_memory_forgotten, WP-386) 행의 임베딩 요청 — 지금 스레드의 활성 테넌트로 만든다. */
+    public static Requested sharedForgotten(long forgottenId) {
+      return new Requested(TenantContext.get(), Target.SHARED_FORGOTTEN, forgottenId);
+    }
+  }
 
   /** 대상 테이블 — 선언 순서가 백필 순서다(메모리 먼저). */
   public enum Target {
     /** ai_memory(WP-383). */
     MEMORY,
     /** home_message 완료 답(WP-384) — 직전 질문과 함께. */
-    TURN
+    TURN,
+    /** ai_memory_forgotten(WP-385) — 배경 정리의 의미 겹침 판정용. */
+    FORGOTTEN,
+    /** shared_ai_memory(WP-386) — 공용 메모리 검색. */
+    SHARED_MEMORY,
+    /** shared_ai_memory_forgotten(WP-386) — 공용 배경 결과의 의미 겹침 판정용. */
+    SHARED_FORGOTTEN
   }
 
   /** 한 행 채우기 결과 — FAILED(워커 실패)면 백필이 이번 주기를 멈춘다. */
@@ -80,6 +107,9 @@ public class TextEmbeddingService {
                 switch (target) {
                   case MEMORY -> repo.memoryText(id);
                   case TURN -> repo.turnText(id);
+                  case FORGOTTEN -> repo.forgottenText(id);
+                  case SHARED_MEMORY -> repo.sharedMemoryText(id);
+                  case SHARED_FORGOTTEN -> repo.sharedForgottenText(id);
                 });
     if (text == null) return Result.SKIPPED;
     Optional<float[]> vec = embedder.embedDocument(text);
@@ -91,22 +121,20 @@ public class TextEmbeddingService {
                 switch (target) {
                   case MEMORY -> repo.writeMemory(id, text, literal);
                   case TURN -> repo.writeTurn(id, literal);
+                  case FORGOTTEN -> repo.writeForgotten(id, text, literal);
+                  case SHARED_MEMORY -> repo.writeSharedMemory(id, text, literal);
+                  case SHARED_FORGOTTEN -> repo.writeSharedForgotten(id, text, literal);
                 });
     return written != null && written > 0 ? Result.FILLED : Result.SKIPPED;
   }
 
   /** 발행 테넌트로 실행하고 끝나면 되돌린다(풀 스레드에 남지 않게). 실패는 로그만 — 백필이 다시 채운다. */
   static Result inTenant(long tenantId, Supplier<Result> work) {
-    Long prev = TenantContext.get();
-    TenantContext.set(tenantId);
     try {
-      return work.get();
+      return TenantContext.callAs(tenantId, work);
     } catch (RuntimeException ex) {
       log.warn("임베딩 채우기 실패(백필로 미룸): tenant={} {}", tenantId, ex.getMessage());
       return Result.FAILED;
-    } finally {
-      if (prev == null) TenantContext.clear();
-      else TenantContext.set(prev);
     }
   }
 

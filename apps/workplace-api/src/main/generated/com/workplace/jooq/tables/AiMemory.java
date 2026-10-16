@@ -149,6 +149,11 @@ public class AiMemory extends TableImpl<AiMemoryRecord> {
     @Deprecated
     public final TableField<AiMemoryRecord, Object> EMBEDDING = createField(DSL.name("embedding"), DefaultDataType.getDefaultDataType("\"public\".\"vector\""), this, "");
 
+    /**
+     * The column <code>public.ai_memory.last_used_at</code>.
+     */
+    public final TableField<AiMemoryRecord, OffsetDateTime> LAST_USED_AT = createField(DSL.name("last_used_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6).nullable(false).defaultValue(DSL.field(DSL.raw("now()"), SQLDataType.TIMESTAMPWITHTIMEZONE)), this, "");
+
     private AiMemory(Name alias, Table<AiMemoryRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }
@@ -218,7 +223,7 @@ public class AiMemory extends TableImpl<AiMemoryRecord> {
 
     @Override
     public List<Index> getIndexes() {
-        return Arrays.asList(Indexes.AI_MEMORY_EMBEDDING_PENDING_IDX, Indexes.AI_MEMORY_EXPIRES_IDX, Indexes.AI_MEMORY_SEARCH_TV_IDX, Indexes.AI_MEMORY_USER_IDX, Indexes.AI_MEMORY_USER_SCOPE_IDX, Indexes.IDX_AI_MEMORY_SOURCE_SESSION);
+        return Arrays.asList(Indexes.AI_MEMORY_EMBEDDING_PENDING_IDX, Indexes.AI_MEMORY_EXPIRES_IDX, Indexes.AI_MEMORY_LAST_USED_IDX, Indexes.AI_MEMORY_SEARCH_TV_IDX, Indexes.AI_MEMORY_USER_IDX, Indexes.AI_MEMORY_USER_SCOPE_IDX, Indexes.IDX_AI_MEMORY_SOURCE_SESSION);
     }
 
     @Override

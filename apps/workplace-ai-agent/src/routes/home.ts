@@ -14,10 +14,18 @@ import { type RunAgentDeps } from '../agent/run-agent.js';
 import { runAiChatStream } from '../agent/run-ai-chat.js';
 import { homeContextSummaryInput, runHomeContextSummary } from '../agent/run-home-context-summary.js';
 import { runHomePriorityClassify } from '../agent/run-home-priority-classify.js';
+import { memoryCleanupInput, runMemoryCleanup } from '../agent/run-memory-cleanup.js';
+import {
+  runSharedMemoryCheck,
+  runSharedMemoryExtract,
+  sharedMemoryCheckInput,
+  sharedMemoryExtractInput,
+} from '../agent/run-shared-memory.js';
 import { runSuggestions, suggestionsInput } from '../agent/run-suggestions.js';
 import { log } from '../logger.js';
 import { parseMemoryToolResult } from '../mcp/memory-tools.js';
 import { screenContextSchema } from '../agent/screen-context.js';
+import { currentSpaceField, sharedMemoryFields } from '../agent/shared-memory-block.js';
 
 // 홈 우선순위 분류 요청 바디 검증 — workplace-api AiAgentPriorityClient 가 보내는 계약과 필드명이 정확히 일치해야 한다.
 const priorityClassifySchema = z.object({
@@ -86,6 +94,10 @@ export const chatSchema = z
       .nullish()
       .catch(null)
       .transform((v) => v ?? 0),
+    // WP-386: 공용 메모리(조직 + 그 메시지의 공간, API 예산 안)와 넘친 개수 — 메모리 사용이 꺼져도 온다. 구 API 는 생략 → 빈 배열·0.
+    ...sharedMemoryFields,
+    // WP-386: 그 메시지의 공간(API 가 권한을 확인해 저장한 값) — 블록의 "지금 공간" 줄. 구 API 는 생략, 모르는 값은 null.
+    currentSpace: currentSpaceField,
   })
   .refine((d) => d.query.length > 0 || d.attachments.some((a) => a.current), {
     message: 'query 가 비어 있으면 이번 메시지 첨부가 있어야 합니다',
@@ -253,6 +265,64 @@ export function createHomeRouter(deps: RunAgentDeps): Router {
         error: e instanceof Error ? e.message : String(e),
       });
       res.status(502).json({ error: 'home_suggestions_failed' });
+    }
+  });
+
+  // WP-385: 대화가 끝난 뒤 메모리 정리 — workplace-api 예약 작업이 동기 호출. 400(스키마)/200(깨진 출력은 빈 ops)/502(실행 실패 → API 가 실패 횟수를 센다).
+  router.post('/home/memory-cleanup', async (req, res) => {
+    const parsed = memoryCleanupInput.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'invalid_payload', issues: parsed.error.issues });
+      return;
+    }
+    try {
+      res.status(200).json(await runMemoryCleanup(parsed.data, deps));
+    } catch (e) {
+      log.error('memory-cleanup', 'error', {
+        agentId: parsed.data.agentId,
+        error: e instanceof Error ? e.message : String(e),
+      });
+      res.status(502).json({ error: 'home_memory_cleanup_failed' });
+    }
+  });
+
+  // WP-386: 공용성 검사 — workplace-api 가 직접 요청(15초)·배경 추출(40초)에서 동기 호출. 400/200/502.
+  // 깨진 출력(빈 results — 후보는 늘 1개 이상이다)도 실행 실패와 같이 502 — API 는 502 를 모두 불통과로 본다.
+  // 로그에 agentId(사용자 비서)를 남기지 않는다 — 발화자 추적 금지(스펙 6.3).
+  router.post('/home/shared-memory-check', async (req, res) => {
+    const parsed = sharedMemoryCheckInput.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'invalid_payload', issues: parsed.error.issues });
+      return;
+    }
+    try {
+      const out = await runSharedMemoryCheck(parsed.data, deps);
+      if (out.results.length === 0) throw new Error('판정 출력이 깨졌습니다');
+      res.status(200).json(out);
+    } catch (e) {
+      log.error('shared-memory', 'check_error', {
+        spaceType: parsed.data.spaceType,
+        error: e instanceof Error ? e.message : String(e),
+      });
+      res.status(502).json({ error: 'home_shared_memory_check_failed' });
+    }
+  });
+
+  // WP-386: 공용 추출 — 배경 정리 예약 작업이 공간마다 동기 호출. 400/200(깨진 출력은 빈 ops)/502(API 가 그 공간만 건너뛴다).
+  router.post('/home/shared-memory-extract', async (req, res) => {
+    const parsed = sharedMemoryExtractInput.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'invalid_payload', issues: parsed.error.issues });
+      return;
+    }
+    try {
+      res.status(200).json(await runSharedMemoryExtract(parsed.data, deps));
+    } catch (e) {
+      log.error('shared-memory', 'extract_error', {
+        spaceType: parsed.data.spaceType,
+        error: e instanceof Error ? e.message : String(e),
+      });
+      res.status(502).json({ error: 'home_shared_memory_extract_failed' });
     }
   });
 
