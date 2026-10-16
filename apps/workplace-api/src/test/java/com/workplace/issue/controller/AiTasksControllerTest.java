@@ -613,6 +613,124 @@ class AiTasksControllerTest extends IntegrationTestBase {
             .withoutPadding()
             .encodeToString(("1|" + REF + "|5").getBytes(java.nio.charset.StandardCharsets.UTF_8));
     assertThat(status("/api/v1/me/ai-tasks?cursor=" + old)).isEqualTo(400);
+    // WP-426: 프로젝트 3키가 붙기 전 7부분 커서(WP-375)도 400.
+    String sevenParts =
+        java.util.Base64.getUrlEncoder()
+            .withoutPadding()
+            .encodeToString(
+                ("1|" + REF + "|5|0|1|" + REF + "|9")
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    assertThat(status("/api/v1/me/ai-tasks?cursor=" + sevenParts)).isEqualTo(400);
+  }
+
+  // ---------------------------------------------------------------- 프로젝트 묶음(WP-426)
+
+  /**
+   * 프로젝트 자리는 "그 프로젝트의 첫 행이 지금 정렬에서 서는 자리" — 프로젝트 안 최소 묶음 순위, 그 순위 묶음들의 최근 시각. 프로젝트 전체 max(sort_at)
+   * 를 쓰면 A(1분 전 작업 중)가 위로 잘못 올라간다.
+   */
+  @Test
+  void 프로젝트는_그_프로젝트_첫_행의_자리로_정렬되고_연속이다() throws Exception {
+    Instant now = Instant.parse("2026-10-10T12:00:00Z");
+    long a1 = issue("A-old-input", other); // 기본 프로젝트(A)
+    work(a1, me, "INPUT_REQUIRED", now.minusSeconds(7200));
+    long a2 = issue("A-new-working", other);
+    work(a2, me, "WORKING", now.minusSeconds(60));
+    long pb = otherProject("P-b");
+    long b1 = issueIn(pb, "B-input", other);
+    work(b1, me, "INPUT_REQUIRED", now.minusSeconds(600));
+    // 프로젝트 전체 max(sort_at) 를 쓰면 A 가 위로 잘못 올라간다 — 첫 행 자리(같은 순위에서 더 최근) 기준이면 B 가 위.
+    assertThat(titles(getJson("/api/v1/me/ai-tasks")))
+        .containsExactly("B-input", "A-old-input", "A-new-working");
+  }
+
+  /**
+   * 세 프로젝트에 급한 정도가 엇갈리는 행 8개(A 에 에픽 묶음 포함) — 크기 1·2·3 으로 커서를 끝까지 따라가도 한 번에 받은 id 순서와 같고, 프로젝트 키
+   * 순서열에서 한 번 끝난 프로젝트가 다시 나오지 않는다(지금 정렬 그대로면 B 의 일시 중지 행이 맨 뒤로 떨어져 B 가 다시 나온다).
+   */
+  @Test
+  void 프로젝트_묶음은_커서로_나눠_받아도_한번에_받은_순서와_같고_다시_나타나지_않는다() throws Exception {
+    // A(기본 프로젝트): E 묶음(E·C1·C2, 묶음 순위 0·최근 t-30분)·S2(답변 필요 t-60분)·S1(막힘 t-5분).
+    seedEpicGroup();
+    // B: 답변 필요 t-20분(A 의 첫 행 t-30분보다 최근 → B 가 위) + 일시 중지 t-1분(지금 정렬이면 맨 뒤).
+    long pb = otherProject("P-b");
+    work(issueIn(pb, "B1", other), me, "INPUT_REQUIRED", REF.minus(Duration.ofMinutes(20)));
+    work(issueIn(pb, "B2", other), me, "PAUSED", REF.minus(Duration.ofMinutes(1)));
+    // C: 검토 필요 t-10분 — 순위 2 라 답변 필요가 있는 A·B 뒤.
+    long pc = otherProject("P-c");
+    work(issueIn(pc, "C-review", other), me, "REVIEW", REF.minus(Duration.ofMinutes(10)));
+
+    JsonNode one = getJson("/api/v1/me/ai-tasks?size=100");
+    assertThat(titles(one)).containsExactly("B1", "B2", "E", "C1", "C2", "S2", "S1", "C-review");
+    List<String> all = field(one.get("items"), "id");
+    List<String> keys = field(one.get("items"), "projectKey");
+    // 한 번 끝난 프로젝트 키가 다시 나오지 않는다 — 연속 구간 수 = 서로 다른 키 수.
+    List<String> runs = new ArrayList<>();
+    for (String k : keys) if (runs.isEmpty() || !runs.get(runs.size() - 1).equals(k)) runs.add(k);
+    assertThat(runs).doesNotHaveDuplicates().hasSize(3);
+
+    for (int size : List.of(1, 2, 3)) {
+      List<String> paged = field(walk(size), "id");
+      assertThat(paged).as("size=" + size).doesNotHaveDuplicates().isEqualTo(all);
+    }
+  }
+
+  /**
+   * 완료 보기는 모든 행의 순위가 같고 정렬 시각이 종료 시각이라, 같은 정의로 가장 최근 종료가 있는 프로젝트가 먼저다 — 그 프로젝트의 오래된 종료 행도 다른 프로젝트
+   * 행보다 앞에 붙는다.
+   */
+  @Test
+  void 완료_보기는_가장_최근_종료가_있는_프로젝트가_먼저() throws Exception {
+    endedWork(issue("A-done", other), me, "COMPLETED", REF.minusSeconds(3600));
+    long pb = otherProject("P-b");
+    endedWork(issueIn(pb, "B-done", other), me, "COMPLETED", REF.minusSeconds(60));
+    endedWork(issueIn(pb, "B-old-done", other), me, "COMPLETED", REF.minusSeconds(7200));
+
+    assertThat(titles(getJson("/api/v1/me/ai-tasks?agentState=" + DONE_STATES)))
+        .containsExactly("B-done", "B-old-done", "A-done");
+  }
+
+  /**
+   * 프로젝트 머리(WP-426)가 이름과 "필터 적용 후 그 프로젝트의 행 수"를 한 행에서 읽을 수 있어야 한다. 건수는 커서(seek) 앞에서 세므로 어느 페이지에서
+   * 받아도 같다.
+   */
+  @Test
+  void aiProject_는_프로젝트_이름과_필터적용후_그_프로젝트_행수를_모든_페이지에서_같게() throws Exception {
+    // 기본 프로젝트("P-ai") INPUT_REQUIRED 1 + WORKING 2, P-b WORKING 1.
+    work(issue("A-input", other), me, "INPUT_REQUIRED", REF.minusSeconds(600));
+    work(issue("A-w1", other), me, "WORKING", REF.minusSeconds(120));
+    work(issue("A-w2", other), me, "WORKING", REF.minusSeconds(60));
+    long pb = otherProject("P-b");
+    work(issueIn(pb, "B-w", other), me, "WORKING", REF.minusSeconds(30));
+
+    // 1) size=1 로 끝까지 — 모든 페이지의 행이 같은 프로젝트 건수를 싣는다.
+    List<JsonNode> rows = walk(1);
+    assertThat(rows).hasSize(4);
+    for (JsonNode row : rows) {
+      boolean inB = row.get("title").asText().startsWith("B-");
+      assertThat(row.at("/aiProject/name").asText()).isEqualTo(inB ? "P-b" : "P-ai");
+      assertThat(row.at("/aiProject/size").asInt()).isEqualTo(inB ? 1 : 3);
+    }
+
+    // 2) agentState=WORKING — 필터를 통과한 행만 센다(A 는 3 -> 2).
+    JsonNode working = getJson("/api/v1/me/ai-tasks?agentState=WORKING");
+    assertThat(working.get("items")).hasSize(3);
+    for (JsonNode row : working.get("items")) {
+      boolean inB = row.get("title").asText().startsWith("B-");
+      assertThat(row.at("/aiProject/name").asText()).isEqualTo(inB ? "P-b" : "P-ai");
+      assertThat(row.at("/aiProject/size").asInt()).isEqualTo(inB ? 1 : 2);
+    }
+  }
+
+  /** aiProject 는 /me/ai-tasks 전용 — 같은 이슈를 다른 목록(프로젝트 이슈 목록)으로 받으면 키 자체가 없다(IssueResponse 오염 방지). */
+  @Test
+  void aiProject_는_다른_이슈_목록_응답에는_없다() throws Exception {
+    work(issue("only", other), me, "WORKING");
+    String key = getJson("/api/v1/me/ai-tasks").get("items").get(0).get("projectKey").asText();
+
+    JsonNode list = getJson("/api/v1/projects/" + key + "/issues");
+    assertThat(list.get("items")).isNotEmpty();
+    assertThat(list.get("items").get(0).has("aiProject")).isFalse();
   }
 
   // ---------------------------------------------------------------- 건수·응답
@@ -765,6 +883,16 @@ class AiTasksControllerTest extends IntegrationTestBase {
 
   /** 호출자 프로젝트에 이슈를 만든다(제목으로 식별). */
   private long issue(String title, long reporter) {
+    return issueIn(projectId, title, reporter);
+  }
+
+  /** 호출자 소유의 새 프로젝트(WP-426 프로젝트 묶음 시드) — id. */
+  private long otherProject(String name) {
+    return projectService.create(me, new CreateProjectRequest(uniqueKey("AB"), name, "x")).id();
+  }
+
+  /** 지정한 프로젝트에 이슈를 만든다(제목으로 식별). */
+  private long issueIn(long projectId, String title, long reporter) {
     return issueRepository.insert(projectId, nextNumber++, title, null, "MID", null, reporter).id();
   }
 
@@ -862,6 +990,28 @@ class AiTasksControllerTest extends IntegrationTestBase {
     List<String> out = new ArrayList<>();
     page.get("items").forEach(it -> out.add(it.get("title").asText()));
     return out;
+  }
+
+  /** 행들의 한 필드 값(문자열) — 순서 비교용. */
+  private static List<String> field(Iterable<JsonNode> rows, String name) {
+    List<String> out = new ArrayList<>();
+    rows.forEach(it -> out.add(it.get(name).asText()));
+    return out;
+  }
+
+  /** 기본 목록을 size 단위로 커서를 따라 끝까지 받은 행(WP-426) — 순회가 끝나지 않으면 실패. */
+  private List<JsonNode> walk(int size) throws Exception {
+    List<JsonNode> rows = new ArrayList<>();
+    String cursor = null;
+    int pages = 0;
+    do {
+      JsonNode page =
+          getJson("/api/v1/me/ai-tasks?size=" + size + (cursor == null ? "" : "&cursor=" + cursor));
+      page.get("items").forEach(rows::add);
+      cursor = page.get("hasMore").asBoolean() ? page.get("nextCursor").asText() : null;
+      assertThat(++pages).as("페이지 순회가 끝나지 않는다").isLessThan(20);
+    } while (cursor != null);
+    return rows;
   }
 
   /** 기대 건수 맵 — 응답 필드 순서(미완료 all·답변·검토·막힘·작업 중·완료 done). */

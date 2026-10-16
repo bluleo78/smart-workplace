@@ -4,10 +4,10 @@ import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
 
 import { sidebarLinkClass, sidebarTitleClass } from '@/components/layout/sidebar-link'
+import { ProjectBadge } from '@/components/ProjectBadge'
 import { useProjects } from '@/hooks/queries/useProjects'
 import { useMyPinnedViews } from '@/hooks/queries/useSavedViews'
 import { useProjectFavorites } from '@/hooks/useProjectFavorites'
-import { projectColor, projectInitial } from '@/lib/project-color'
 import { savedViewQueryToParams } from '@/lib/savedViewQuery'
 import { ProjectCreateDialog } from '@/pages/projects/components/ProjectCreateDialog'
 
@@ -81,8 +81,6 @@ export function IssueSidebar() {
             </div>
             <nav className="mt-2 space-y-1">
               {personal.map((p) => {
-                // 백엔드에 색상 필드가 없어 key 해시로 결정적 컬러 식별자 생성(아이콘 일관성).
-                const c = projectColor(p.key)
                 return (
                   <NavLink
                     key={p.id}
@@ -90,14 +88,7 @@ export function IssueSidebar() {
                     data-testid={`personal-project-${p.key}`}
                     className={sidebarLinkClass}
                   >
-                    <span
-                      aria-hidden="true"
-                      data-testid={`project-badge-${p.key}`}
-                      className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-xs font-bold"
-                      style={{ backgroundColor: c.bg, color: c.fg }}
-                    >
-                      {projectInitial(p.key)}
-                    </span>
+                    <ProjectBadge projectKey={p.key} />
                     <span className="truncate">{p.name}</span>
                   </NavLink>
                 )
@@ -135,8 +126,6 @@ export function IssueSidebar() {
             </NavLink>
             {/* 즐겨찾기한 팀 프로젝트만 노출(전체는 위 "전체 보기"). 개인 프로젝트는 위 "개인" 섹션에 항상 노출. */}
             {favTeam.map((p) => {
-              // 백엔드에 색상 필드가 없어 key 해시로 결정적 컬러 식별자 생성(아이콘 일관성).
-              const c = projectColor(p.key)
               return (
                 <NavLink
                   key={p.id}
@@ -144,14 +133,7 @@ export function IssueSidebar() {
                   className={sidebarLinkClass}
                   data-testid={`team-project-${p.key}`}
                 >
-                  <span
-                    aria-hidden="true"
-                    data-testid={`project-badge-${p.key}`}
-                    className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-xs font-bold"
-                    style={{ backgroundColor: c.bg, color: c.fg }}
-                  >
-                    {projectInitial(p.key)}
-                  </span>
+                  <ProjectBadge projectKey={p.key} />
                   <span className="truncate">{p.name}</span>
                 </NavLink>
               )
