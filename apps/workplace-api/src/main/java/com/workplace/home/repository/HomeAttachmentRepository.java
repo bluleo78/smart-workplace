@@ -14,17 +14,13 @@ import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
-import org.jooq.Record;
-import org.jooq.Record7;
-import org.jooq.SelectConditionStep;
 import org.springframework.stereotype.Repository;
 
 /**
  * 메인 AI 채팅(홈) 메시지 첨부 정션(home_message_attachment, WP-234) 접근.
  *
- * <p>이슈 챗 ChatMessageAttachmentRepository 와 같은 역할이지만 바인딩 후보 판정 입력이 다르다 — 홈은 "아직 임시(expires_at 있음)인
- * 내 ATTACHMENT"만 받으므로 file 행의 category·expires_at 을 함께 돌려준다. 이슈 챗 판정은 chat 정션만 보아 다른 곳에 붙어 영구가 된
- * 파일을 미연결로 보기 때문에 재사용하지 않는다.
+ * <p>붙일 수 있는 파일 판정·잠금·영구 승격은 공용 스테이징 클레임({@link com.workplace.file.api.StagedFileClaimer})이
+ * 맡는다(WP-423) — 여기에는 정션 쓰기·조회만 둔다.
  */
 @Repository
 @RequiredArgsConstructor
@@ -32,68 +28,12 @@ public class HomeAttachmentRepository {
 
   private final DSLContext dsl;
 
-  /** 바인딩 후보 판정 입력 — file 행 상태 + 홈 정션에 이미 붙었는지(bound). */
-  public record Candidate(
-      long fileId,
-      Long uploadedBy,
-      String category,
-      OffsetDateTime expiresAt,
-      boolean bound,
-      String mimeType,
-      String originalName) {}
-
   /** 세션 첨부 목록 행(추출 상태는 서비스가 붙인다). */
   public record Row(
       long fileId, long messageId, String originalName, String mimeType, long sizeBytes) {}
 
   /** 원본 스트리밍용 저장 정보 — path 는 FILE.STORAGE_PATH(상대경로) 그대로, 절대경로 복원은 서비스가 FileStore 로 한다. */
   public record StoredFile(String path, String originalName, String mimeType, long sizeBytes) {}
-
-  /** 바인딩 후보 조회(잠금 없음) — 세션을 만들기 전 사전 검증용. 없는 id 는 결과에 없다. */
-  public List<Candidate> findCandidates(Collection<Long> fileIds) {
-    if (fileIds.isEmpty()) return List.of();
-    return candidateQuery(fileIds).fetch(this::toCandidate);
-  }
-
-  /**
-   * 바인딩 후보를 file 행 잠금과 함께 조회한다. 같은 fileId 를 두 요청이 동시에 붙이려 하면 뒤 요청은 앞 요청 커밋까지 기다린 뒤 잠근 file 행만 다시
-   * 읽는다(READ COMMITTED) — LEFT JOIN 한 정션은 대기 전 스냅샷이라 bound 는 false 로 남을 수 있지만, 앞 요청이 같은 트랜잭션에서 승격해
-   * expires_at 이 NULL 이 되었으므로 "임시 아님"으로 거절된다(PK 위반 500 대신 400). id 순으로 잠가 교착을 피하고, 잠금 중엔
-   * FileCleanupService(SKIP LOCKED)도 이 행을 건너뛴다.
-   */
-  public List<Candidate> lockCandidates(Collection<Long> fileIds) {
-    if (fileIds.isEmpty()) return List.of();
-    return candidateQuery(fileIds).orderBy(FILE.ID).forUpdate().of(FILE).fetch(this::toCandidate);
-  }
-
-  /** 후보 조회 공통 SELECT — 홈 정션 LEFT JOIN 으로 연결 여부를 함께 읽는다. */
-  private SelectConditionStep<Record7<Long, Long, String, OffsetDateTime, String, String, Long>>
-      candidateQuery(Collection<Long> fileIds) {
-    return dsl.select(
-            FILE.ID,
-            FILE.UPLOADED_BY,
-            FILE.CATEGORY,
-            FILE.EXPIRES_AT,
-            FILE.MIME_TYPE,
-            FILE.ORIGINAL_NAME,
-            HOME_MESSAGE_ATTACHMENT.MESSAGE_ID)
-        .from(FILE)
-        .leftJoin(HOME_MESSAGE_ATTACHMENT)
-        .on(HOME_MESSAGE_ATTACHMENT.FILE_ID.eq(FILE.ID))
-        .where(FILE.ID.in(fileIds));
-  }
-
-  /** 조회 행 → 후보. 정션 message_id 가 있으면 이미 홈 메시지에 연결된 파일. */
-  private Candidate toCandidate(Record r) {
-    return new Candidate(
-        r.get(FILE.ID),
-        r.get(FILE.UPLOADED_BY),
-        r.get(FILE.CATEGORY),
-        r.get(FILE.EXPIRES_AT),
-        r.get(HOME_MESSAGE_ATTACHMENT.MESSAGE_ID) != null,
-        r.get(FILE.MIME_TYPE),
-        r.get(FILE.ORIGINAL_NAME));
-  }
 
   /**
    * 정션 INSERT — 파일을 홈 USER 메시지에 연결한다. attached_at·tenant_id 는 컬럼 DEFAULT(NOW()·GUC)로 채워 같은 트랜잭션 행은
@@ -105,12 +45,6 @@ public class HomeAttachmentRepository {
         .set(HOME_MESSAGE_ATTACHMENT.MESSAGE_ID, messageId)
         .set(HOME_MESSAGE_ATTACHMENT.ATTACHED_BY, attachedBy)
         .execute();
-  }
-
-  /** 연결된 파일을 영구로 승격(expires_at = NULL) — 임시 파일 정리 대상에서 뺀다. */
-  public void promoteToPermanent(Collection<Long> fileIds) {
-    if (fileIds.isEmpty()) return;
-    dsl.update(FILE).setNull(FILE.EXPIRES_AT).where(FILE.ID.in(fileIds)).execute();
   }
 
   /** 세션에 이미 붙은 첨부 수 — 세션당 상한 검사용(세션 행 잠금 뒤에 호출해야 경합에 뚫리지 않는다). */

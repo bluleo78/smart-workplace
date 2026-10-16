@@ -4,13 +4,15 @@ import com.workplace.chat.exception.ChatAttachmentNotFoundException;
 import com.workplace.chat.exception.InvalidChatAttachmentException;
 import com.workplace.chat.repository.ChatMessageAttachmentRepository;
 import com.workplace.chat.repository.ChatMessageRepository;
+import com.workplace.file.api.StagedFile;
+import com.workplace.file.api.StagedFileClaimer;
+import com.workplace.file.exception.StagedFileUnusableException;
 import com.workplace.file.storage.FileStore;
 import com.workplace.fileai.ExtractionProfile;
 import com.workplace.fileai.dto.ExtractedTextSlice;
 import com.workplace.fileai.inbound.FileExtractionRequestedEvent;
 import com.workplace.fileai.service.ExtractedTextService;
 import java.io.IOException;
-import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
@@ -48,6 +50,9 @@ public class ChatMessageAttachmentService {
   /** 스레드가 딸린 이슈의 첨부 판정(WP-244) — 텍스트 읽기 경로가 이슈 첨부도 받게 한다. */
   private final ChatIssueAttachmentService issueAttachments;
 
+  /** 전송 시 스테이징 파일 클레임(WP-423) — 소유·임시·미바인딩 검증과 영구 승격을 한곳에서 한다. */
+  private final StagedFileClaimer claimer;
+
   /** 파일 1개당 최대 크기(바이트). 기본 25MB. */
   @Value("${workplace.storage.attachment.max-file-size-bytes:26214400}")
   private long maxFileSize;
@@ -64,7 +69,8 @@ public class ChatMessageAttachmentService {
       ChatThreadAccess threadAccess,
       ApplicationEventPublisher eventPublisher,
       ExtractedTextService extractedText,
-      ChatIssueAttachmentService issueAttachments) {
+      ChatIssueAttachmentService issueAttachments,
+      StagedFileClaimer claimer) {
     this.storage = storage;
     this.repo = repo;
     this.messageRepo = messageRepo;
@@ -73,6 +79,7 @@ public class ChatMessageAttachmentService {
     this.eventPublisher = eventPublisher;
     this.extractedText = extractedText;
     this.issueAttachments = issueAttachments;
+    this.claimer = claimer;
   }
 
   /**
@@ -107,7 +114,8 @@ public class ChatMessageAttachmentService {
   }
 
   /**
-   * 전송 시 바인딩: 각 fileId 가 callerId 소유 + 미바인딩 + 미만료인지 검증 후 정션 INSERT + 영구 승격. 메시지 생성과 동일 트랜잭션에서 호출한다.
+   * 전송 시 바인딩: 공용 스테이징 클레임({@link StagedFileClaimer}, WP-423)으로 각 fileId 가 callerId 가 올린 미바인딩·미만료 임시
+   * 첨부인지 검증하고 영구로 바꾼 뒤 정션을 INSERT 한다. 이미 영구가 된 파일이나 다른 도메인에 묶인 파일은 거절한다. 메시지 생성과 동일 트랜잭션에서 호출한다.
    */
   public void bindToMessage(long callerId, long messageId, List<Long> fileIds) {
     if (fileIds == null || fileIds.isEmpty()) return;
@@ -115,28 +123,20 @@ public class ChatMessageAttachmentService {
       // 바인딩 요청 첨부 개수 초과.
       throw new InvalidChatAttachmentException();
     }
-    OffsetDateTime now = OffsetDateTime.now();
-    // 1차 패스: 전부 유효한지 검증. 이벤트 발행용으로 후보를 모아 둔다.
-    List<ChatMessageAttachmentRepository.Bindable> bindables = new ArrayList<>();
-    for (Long fileId : fileIds) {
-      var b = repo.findBindable(fileId).orElseThrow(InvalidChatAttachmentException::new);
-      // 소유자 불일치, 이미 바인딩됨, 만료된 임시 파일이면 거부.
-      boolean ownedByCaller = b.uploadedBy() != null && b.uploadedBy() == callerId;
-      boolean expired = b.expiresAt() != null && b.expiresAt().isBefore(now);
-      if (!ownedByCaller || b.bound() || expired) {
-        throw new InvalidChatAttachmentException();
-      }
-      bindables.add(b);
+    List<StagedFile> claimed;
+    try {
+      claimed = claimer.claim(callerId, fileIds, StagedFileClaimer.Retention.PERMANENT);
+    } catch (StagedFileUnusableException e) {
+      // 웹 경로의 기존 응답(InvalidChatAttachmentException, 400)을 그대로 유지한다.
+      throw new InvalidChatAttachmentException();
     }
-    // 2차 패스: 정션 INSERT + 임시 만료 해제(영구 승격).
     for (Long fileId : fileIds) {
       repo.bind(fileId, messageId, callerId);
     }
-    repo.promoteToPermanent(fileIds);
     // 메시지에 붙어 영구 파일이 된 시점에 텍스트 추출을 요청한다(WP-242). 버려진 임시 업로드는 여기 오지 않아 추출하지 않는다.
-    for (var b : bindables) {
+    for (StagedFile f : claimed) {
       eventPublisher.publishEvent(
-          FileExtractionRequestedEvent.of(b.fileId(), b.mimeType(), ExtractionProfile.TEXT_ONLY));
+          FileExtractionRequestedEvent.of(f.fileId(), f.mimeType(), ExtractionProfile.TEXT_ONLY));
     }
   }
 

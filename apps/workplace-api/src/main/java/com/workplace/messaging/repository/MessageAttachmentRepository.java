@@ -14,7 +14,7 @@ import java.util.stream.Collectors;
 import org.jooq.DSLContext;
 import org.springframework.stereotype.Repository;
 
-/** 메시지 첨부 정션 CRUD + 바인딩 검증 + 영구 승격. */
+/** 메시지 첨부 정션 CRUD — 바인딩 검증·영구 승격은 공용 스테이징 클레임(StagedFileClaimer)이 한다. */
 @Repository
 public class MessageAttachmentRepository {
 
@@ -22,41 +22,6 @@ public class MessageAttachmentRepository {
 
   public MessageAttachmentRepository(DSLContext dsl) {
     this.dsl = dsl;
-  }
-
-  /** 바인딩 검증용 파일 상태(소유자/만료/이미 바인딩 여부) + 추출 요청용 저장 mime(WP-358). */
-  public record Bindable(
-      Long fileId, Long uploadedBy, OffsetDateTime expiresAt, boolean bound, String mimeType) {}
-
-  /**
-   * 파일 존재 시 바인딩 후보 정보를 반환. 없으면 empty.
-   *
-   * <p>message_attachment 를 LEFT JOIN 해 이미 바인딩됐는지 여부(bound)도 함께 반환한다.
-   */
-  public Optional<Bindable> findBindable(Long fileId) {
-    var r =
-        dsl.select(
-                FILE.ID,
-                FILE.UPLOADED_BY,
-                FILE.EXPIRES_AT,
-                MESSAGE_ATTACHMENT.MESSAGE_ID,
-                FILE.MIME_TYPE)
-            .from(FILE)
-            .leftJoin(MESSAGE_ATTACHMENT)
-            .on(MESSAGE_ATTACHMENT.FILE_ID.eq(FILE.ID))
-            .where(FILE.ID.eq(fileId))
-            // 첨부 선업로드(ATTACHMENT)만 바인딩 후보 — 내부 사본(MAIL_EXTRACT 등)이 메시지에 붙어 영구 파일이 되는 것을
-            // 막는다(WP-358).
-            .and(FILE.CATEGORY.eq("ATTACHMENT"))
-            .fetchOne();
-    if (r == null) return Optional.empty();
-    return Optional.of(
-        new Bindable(
-            r.get(FILE.ID),
-            r.get(FILE.UPLOADED_BY),
-            r.get(FILE.EXPIRES_AT),
-            r.get(MESSAGE_ATTACHMENT.MESSAGE_ID) != null,
-            r.get(FILE.MIME_TYPE)));
   }
 
   /**
@@ -73,16 +38,6 @@ public class MessageAttachmentRepository {
         .set(MESSAGE_ATTACHMENT.ATTACHED_BY, attachedBy)
         .set(MESSAGE_ATTACHMENT.ATTACHED_AT, OffsetDateTime.now())
         .execute();
-  }
-
-  /**
-   * 바인딩된 파일을 영구로 승격(expires_at = NULL).
-   *
-   * <p>메시지 전송 완료 후 호출해 임시 파일이 FileCleanupService 에 의해 삭제되지 않게 한다.
-   */
-  public void promoteToPermanent(List<Long> fileIds) {
-    if (fileIds.isEmpty()) return;
-    dsl.update(FILE).setNull(FILE.EXPIRES_AT).where(FILE.ID.in(fileIds)).execute();
   }
 
   /**

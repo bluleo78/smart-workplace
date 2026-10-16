@@ -11,7 +11,7 @@ import { describe, expect, it, vi, type Mock } from 'vitest';
 import { z } from 'zod';
 
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
-import { AI_AGENT_EXCLUDED_SHARED_TOOLS, ASSISTANT_ROUTER_TOOLS, buildTools, CARD_ONLY_SHARED_TOOLS, routerToolsFor, type HostBridge, type McpProfile } from './tools.js';
+import { AGENT_IDENTITY_OMITTED_FIELDS, AI_AGENT_EXCLUDED_SHARED_TOOLS, ASSISTANT_ROUTER_TOOLS, buildTools, CARD_ONLY_SHARED_TOOLS, routerToolsFor, type HostBridge, type McpProfile } from './tools.js';
 
 // #842: 서버가 응답한 검증 실패(4xx)를 흉내 낸다 — 인터셉터가 message 를 서버 사유로 채운 AxiosError 형태.
 function apiError(status: number, message: string): Error {
@@ -235,6 +235,8 @@ function client(): TestClient {
 }
 
 const AGENT_ID = 201;
+/** 첨부 없는 add_channel_message 호출의 4번째 인자(WP-423) — 빈 첨부는 클라이언트가 요청 본문에 싣지 않는다. */
+const NO_ATTACHMENTS = { fileIds: undefined, driveFileIds: undefined };
 
 function find(tools: ReturnType<typeof buildTools>, name: string) {
   const t = tools.find((x) => x.name === name);
@@ -576,7 +578,13 @@ describe('공유 도구 패리티 (#846)', () => {
         // 서버 레이어(sdk-mcp-server·stdio-entry)가 inputSchema.shape 를 쓰므로 반드시 ZodObject 여야 한다.
         expect(t.inputSchema, t.name).toBeInstanceOf(z.ZodObject);
         const s = shared.get(t.name);
-        if (s) expect(z.toJSONSchema(t.inputSchema), t.name).toEqual(z.toJSONSchema(s.inputSchema));
+        if (!s) continue;
+        // WP-423: 에이전트 신원 프로필(messaging)은 정해 둔 필드만 뺀 공유 스키마여야 한다 — 나머지는 공유본 그대로.
+        const omitted = v.label.startsWith('messaging') ? AGENT_IDENTITY_OMITTED_FIELDS[t.name] : undefined;
+        const expected = omitted
+          ? z.object(Object.fromEntries(Object.entries((s.inputSchema as z.ZodObject<z.ZodRawShape>).shape).filter(([k]) => !omitted.includes(k))))
+          : s.inputSchema;
+        expect(z.toJSONSchema(t.inputSchema), t.name).toEqual(z.toJSONSchema(expected));
       }
     });
   }
@@ -1089,7 +1097,7 @@ describe('threadBinding — add_channel_message 스레드 mirror', () => {
       channelId: 9,
       body: '답',
     });
-    expect(c.sc.addChannelMessage).toHaveBeenCalledWith(9, '답', 210);
+    expect(c.sc.addChannelMessage).toHaveBeenCalledWith(9, '답', 210, NO_ATTACHMENTS);
   });
 
   it('다른 채널이면 parentMessageId 없이(인라인) 넘긴다', async () => {
@@ -1098,13 +1106,44 @@ describe('threadBinding — add_channel_message 스레드 mirror', () => {
       channelId: 5,
       body: '딴채널',
     });
-    expect(c.sc.addChannelMessage).toHaveBeenCalledWith(5, '딴채널', undefined);
+    expect(c.sc.addChannelMessage).toHaveBeenCalledWith(5, '딴채널', undefined, NO_ATTACHMENTS);
   });
 
   it('바인딩이 없으면 항상 인라인이다', async () => {
     const c = client();
     await find(buildTools(c, 2, 'messaging'), 'add_channel_message').handler({ channelId: 9, body: '답' });
-    expect(c.sc.addChannelMessage).toHaveBeenCalledWith(9, '답', undefined);
+    expect(c.sc.addChannelMessage).toHaveBeenCalledWith(9, '답', undefined, NO_ATTACHMENTS);
+  });
+});
+
+// WP-423: 첨부(fileIds·driveFileIds)는 요청자 신원(assistant)에만 — 에이전트 신원(messaging)의 add_channel_message 는 첨부 없이.
+describe('WP-423 add_channel_message 첨부는 요청자 신원에만', () => {
+  const shapeKeys = (t: { inputSchema: unknown }) => Object.keys((t.inputSchema as z.ZodObject<z.ZodRawShape>).shape);
+
+  it('messaging 프로필: 입력·설명에 첨부가 없고, 들어와도 버린 채 보낸다', async () => {
+    const c = client();
+    const t = find(buildTools(c, 2, 'messaging'), 'add_channel_message');
+    expect(shapeKeys(t)).not.toContain('fileIds');
+    expect(shapeKeys(t)).not.toContain('driveFileIds');
+    expect(t.description).not.toContain('fileIds');
+    await t.handler({ channelId: 9, body: '답', fileIds: [11], driveFileIds: [5] });
+    expect(c.sc.addChannelMessage).toHaveBeenCalledWith(9, '답', undefined, NO_ATTACHMENTS);
+  });
+
+  it('messaging 프로필: 첨부만 있고 본문이 없으면 보내지 않는다', async () => {
+    const c = client();
+    const t = find(buildTools(c, 2, 'messaging'), 'add_channel_message');
+    await expect(t.handler({ channelId: 9, fileIds: [11] })).rejects.toThrow('본문');
+    await expect(t.handler({ channelId: 9, body: '  ' })).rejects.toThrow('본문');
+    expect(c.sc.addChannelMessage).not.toHaveBeenCalled();
+  });
+
+  it('assistant 프로필: 첨부 입력을 그대로 두고 서버에 싣는다', async () => {
+    const c = client();
+    const t = find(buildTools(c, 2, 'assistant'), 'add_channel_message');
+    expect(shapeKeys(t)).toEqual(expect.arrayContaining(['fileIds', 'driveFileIds']));
+    await t.handler({ channelId: 9, body: '첨부', fileIds: [11], driveFileIds: [5] });
+    expect(c.sc.addChannelMessage).toHaveBeenCalledWith(9, '첨부', undefined, { fileIds: [11], driveFileIds: [5] });
   });
 });
 

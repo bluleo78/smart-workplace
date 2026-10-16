@@ -76,35 +76,6 @@ class HomeAttachmentRepositoryTest extends IntegrationTestBase {
   }
 
   @Test
-  void 후보_조회는_홈_정션_연결_여부와_임시_상태를_돌려주고_잠금_조회도_같은_값이다() {
-    long uid = TestFixtures.createHuman(dsl);
-    UUID sid = sessionService.create(uid).id();
-    long m = sessionService.appendMessage(uid, sid, "USER", "q", null, null, null);
-    long temp = file(uid, "t.pdf", "application/pdf", later());
-    long permanent = file(uid, "p.pdf", "application/pdf", null);
-    long bound = file(uid, "b.pdf", "application/pdf", later());
-    repo.bind(bound, m, uid);
-
-    var byId =
-        repo.findCandidates(List.of(temp, permanent, bound, Long.MAX_VALUE)).stream()
-            .collect(
-                java.util.stream.Collectors.toMap(
-                    HomeAttachmentRepository.Candidate::fileId, c -> c));
-    assertThat(byId).doesNotContainKey(Long.MAX_VALUE);
-    assertThat(byId.get(temp).bound()).isFalse();
-    assertThat(byId.get(temp).expiresAt()).isNotNull();
-    assertThat(byId.get(temp).uploadedBy()).isEqualTo(uid);
-    assertThat(byId.get(temp).category()).isEqualTo("ATTACHMENT");
-    assertThat(byId.get(permanent).expiresAt()).isNull();
-    assertThat(byId.get(bound).bound()).isTrue();
-
-    assertThat(repo.lockCandidates(List.of(bound, temp)))
-        .extracting(HomeAttachmentRepository.Candidate::fileId)
-        .containsExactly(temp, bound);
-    assertThat(repo.findCandidates(List.of())).isEmpty();
-  }
-
-  @Test
   void 저장정보는_그_세션에_연결된_파일만_돌려준다() {
     long uid = TestFixtures.createHuman(dsl);
     UUID sid = sessionService.create(uid).id();
@@ -121,18 +92,17 @@ class HomeAttachmentRepositoryTest extends IntegrationTestBase {
   }
 
   @Test
-  void 승격과_세션_파일_만료는_대상_파일만_바꾼다() {
+  void 세션_파일_만료는_대상_파일만_바꾼다() {
     long uid = TestFixtures.createHuman(dsl);
     UUID sid = sessionService.create(uid).id();
     UUID other = sessionService.create(uid).id();
     long m = sessionService.appendMessage(uid, sid, "USER", "q", null, null, null);
     long mo = sessionService.appendMessage(uid, other, "USER", "q", null, null, null);
-    long mine = file(uid, "a.pdf", "application/pdf", later());
-    long theirs = file(uid, "b.pdf", "application/pdf", later());
+    // 메시지에 붙어 영구가 된 파일(승격은 공용 클레임이 한다 — WP-423)
+    long mine = file(uid, "a.pdf", "application/pdf", null);
+    long theirs = file(uid, "b.pdf", "application/pdf", null);
     repo.bind(mine, m, uid);
     repo.bind(theirs, mo, uid);
-    repo.promoteToPermanent(List.of(mine, theirs));
-    assertThat(expiresAt(mine)).isNull();
 
     assertThat(repo.expireSessionFiles(sid)).isEqualTo(1);
     assertThat(expiresAt(mine)).isNotNull().isBeforeOrEqualTo(OffsetDateTime.now());

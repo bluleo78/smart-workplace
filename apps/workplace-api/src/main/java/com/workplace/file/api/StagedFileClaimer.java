@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import org.jooq.DSLContext;
 import org.springframework.stereotype.Component;
@@ -73,19 +74,11 @@ public class StagedFileClaimer {
             .forUpdate()
             .of(FILE)
             .fetchMap(FILE.ID);
+    requireAllClaimable(callerId, fileIds, rows);
 
-    Set<Long> bound = new HashSet<>();
-    for (AttachmentBindingLookup lookup : lookups) {
-      bound.addAll(lookup.boundAmong(fileIds));
-    }
-
-    OffsetDateTime now = OffsetDateTime.now();
     List<StagedFile> claimed = new ArrayList<>(fileIds.size());
     for (Long id : fileIds) {
       FileRecord row = rows.get(id);
-      if (row == null || !isClaimable(row, callerId, now) || bound.contains(id)) {
-        throw new StagedFileUnusableException(id);
-      }
       claimed.add(
           new StagedFile(
               row.getId(),
@@ -101,9 +94,41 @@ public class StagedFileClaimer {
     return claimed;
   }
 
+  /**
+   * 클레임 사전 검사(잠금·쓰기 없음) — {@link #claim} 과 같은 규칙으로 판정만 한다. 실제로 묶기 전에(예: 홈이 새 세션을 만들기 전에) 잘못된 파일을 먼저
+   * 거르려는 호출자가 쓴다. 잠그지 않으므로 통과해도 뒤이은 {@link #claim} 이 다시 판정한다.
+   *
+   * @throws IllegalArgumentException 목록 형태 오류(400)
+   * @throws StagedFileUnusableException 클레임할 수 없는 파일이 있음(400) — 입력 순서상 첫 위반 id
+   */
+  public void requireClaimable(long callerId, List<Long> fileIds) {
+    requireWellFormed(fileIds);
+    if (fileIds.isEmpty()) {
+      return;
+    }
+    requireAllClaimable(
+        callerId, fileIds, dsl.selectFrom(FILE).where(FILE.ID.in(fileIds)).fetchMap(FILE.ID));
+  }
+
+  /** 읽은 FILE 행과 도메인 정션으로 각 id 를 판정한다 — 입력 순서상 첫 위반 id 로 예외. */
+  private void requireAllClaimable(long callerId, List<Long> fileIds, Map<Long, FileRecord> rows) {
+    Set<Long> bound = new HashSet<>();
+    for (AttachmentBindingLookup lookup : lookups) {
+      bound.addAll(lookup.boundAmong(fileIds));
+    }
+    OffsetDateTime now = OffsetDateTime.now();
+    for (Long id : fileIds) {
+      FileRecord row = rows.get(id);
+      if (row == null || !isClaimable(row, callerId, now) || bound.contains(id)) {
+        throw new StagedFileUnusableException(id);
+      }
+    }
+  }
+
   /** 내 파일·ATTACHMENT·임시·아직 살아 있음. 만료 판정은 잠근 뒤의 행으로 한다(동시 PERMANENT 클레임의 두 번째를 거르는 근거). */
   private static boolean isClaimable(FileRecord row, long callerId, OffsetDateTime now) {
-    return row.getUploadedBy() == callerId
+    // 업로더가 지워져 NULL 일 수 있다 — 언박싱 NPE 대신 "남의 파일"로 거절한다.
+    return Objects.equals(row.getUploadedBy(), callerId)
         && CATEGORY_ATTACHMENT.equals(row.getCategory())
         && row.getExpiresAt() != null
         && row.getExpiresAt().isAfter(now);

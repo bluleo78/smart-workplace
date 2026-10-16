@@ -1,5 +1,7 @@
 package com.workplace.chat;
 
+import static com.workplace.jooq.Tables.CHAT_MESSAGE;
+import static com.workplace.jooq.Tables.FILE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
@@ -9,11 +11,13 @@ import com.workplace.chat.dto.ChatMessageResponse;
 import com.workplace.chat.dto.CreateChatMessageRequest;
 import com.workplace.chat.exception.ChatThreadNotMemberException;
 import com.workplace.chat.exception.EmptyChatMessageException;
+import com.workplace.chat.exception.InvalidChatAttachmentException;
 import com.workplace.chat.repository.ChatMessageAttachmentRepository;
 import com.workplace.chat.service.ChatFixtures;
 import com.workplace.chat.service.ChatMessageAttachmentService;
 import com.workplace.chat.service.ChatMessageService;
 import com.workplace.chat.service.ChatThreadService;
+import com.workplace.file.service.StagedUploadService;
 import com.workplace.file.storage.FileStore;
 import com.workplace.global.outbound.AiAgentEventClient;
 import com.workplace.global.realtime.SseRegistry;
@@ -45,6 +49,7 @@ class ChatMessageAttachmentIntegrationTest extends IntegrationTestBase {
   @Autowired ChatFixtures fx;
   @Autowired DSLContext dsl;
   @Autowired FileStore fileStore;
+  @Autowired StagedUploadService stagedUploadService;
 
   // SSE / ai-agent 외부 호출 차단 — 실제 네트워크 없이 테스트 가능.
   @MockitoBean SseRegistry sseRegistry;
@@ -193,7 +198,7 @@ class ChatMessageAttachmentIntegrationTest extends IntegrationTestBase {
     long callerId = s.reporterId();
     byte[] content = "round-trip-content".getBytes();
 
-    // when: 업로드 후 메시지에 바인딩(promoteToPermanent 호출됨).
+    // when: 업로드 후 메시지에 바인딩(스테이징 클레임이 영구로 승격).
     var uploaded =
         attachmentService.upload(
             callerId, threadId, List.of(mockMultipart("rt.txt", "text/plain", content)));
@@ -211,6 +216,59 @@ class ChatMessageAttachmentIntegrationTest extends IntegrationTestBase {
         .isTrue(); // 절대경로여야 FileSystemResource 가 동작
     byte[] actual = Files.readAllBytes(java.nio.file.Path.of(row.path()));
     assertThat(actual).isEqualTo(content);
+  }
+
+  /**
+   * WP-423: 이미 영구가 된 파일(이슈 첨부 등)의 id 로는 챗 메시지를 만들 수 없다 — 400 이고 메시지도 남지 않는다(바인딩 실패가 메시지 생성 트랜잭션을
+   * 되돌린다).
+   */
+  @Test
+  void 영구_파일_id_로_메시지를_만들면_400_메시지도_생기지_않음() throws Exception {
+    ChatFixtures.Setup s = fx.setup();
+    long threadId =
+        threadService.getOrCreate(s.reporterId(), s.projectKey(), s.issueNumber()).threadId();
+    long callerId = s.reporterId();
+    long fileId =
+        attachmentService
+            .upload(
+                callerId, threadId, List.of(mockMultipart("p.txt", "text/plain", "x".getBytes())))
+            .get(0)
+            .fileId();
+    // 다른 기능에 묶여 영구가 된 파일을 흉내 낸다.
+    dsl.update(FILE).setNull(FILE.EXPIRES_AT).where(FILE.ID.eq(fileId)).execute();
+
+    assertThatThrownBy(
+            () ->
+                chatMessageService.create(
+                    callerId,
+                    threadId,
+                    new CreateChatMessageRequest("본문", List.of(fileId), List.of())))
+        .isInstanceOf(InvalidChatAttachmentException.class);
+
+    assertThat(dsl.fetchCount(CHAT_MESSAGE, CHAT_MESSAGE.THREAD_ID.eq(threadId))).isZero();
+  }
+
+  /** WP-423: 공용 스테이징 업로드로 올린 파일도 챗 메시지에 묶이고 영구가 된다. */
+  @Test
+  void 스테이징_파일로도_메시지를_만들_수_있다() throws Exception {
+    ChatFixtures.Setup s = fx.setup();
+    long threadId =
+        threadService.getOrCreate(s.reporterId(), s.projectKey(), s.issueNumber()).threadId();
+    long callerId = s.reporterId();
+    long fileId = stagedUploadService.createText(callerId, "staged.md", "# 메모").fileId();
+
+    var resp =
+        chatMessageService.create(
+            callerId, threadId, new CreateChatMessageRequest("본문", List.of(fileId), List.of()));
+
+    assertThat(resp.attachments()).hasSize(1);
+    assertThat(resp.attachments().get(0).originalName()).isEqualTo("staged.md");
+    assertThat(
+            dsl.select(FILE.EXPIRES_AT)
+                .from(FILE)
+                .where(FILE.ID.eq(fileId))
+                .fetchOne(FILE.EXPIRES_AT))
+        .isNull();
   }
 
   @Test

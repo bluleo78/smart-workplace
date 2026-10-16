@@ -427,8 +427,11 @@ export interface MessagingToolClient {
   listChannels(): Promise<unknown>;
   /** GET /messaging/channels/{id}/messages — 최신순 커서 페이지. cursor 는 이전 응답의 nextCursor(WP-352). */
   listChannelMessages(channelId: number, params: { limit: number; cursor?: string }): Promise<CursorPage<unknown>>;
-  /** parentMessageId 가 있으면 그 스레드에 답한다. */
-  addChannelMessage(channelId: number, body: string, parentMessageId?: number): Promise<unknown>;
+  /**
+   * parentMessageId 가 있으면 그 스레드에 답한다. body 는 첨부만 보낼 때 생략한다(서버가 본문도 첨부도 없으면 400).
+   * attachments.fileIds 는 upload_file 로 스테이징한 파일(서버 공용 클레임이 검증), driveFileIds 는 연결할 드라이브 파일이다(WP-423).
+   */
+  addChannelMessage(channelId: number, body: string | undefined, parentMessageId?: number, attachments?: { fileIds?: number[]; driveFileIds?: number[] }): Promise<unknown>;
   /**
    * GET /messaging/messages/{id}/replies — 오래된 순 커서 페이지 원형(#850).
    * 래퍼를 벗기지 않는다: hasMore 를 버리면 긴 스레드의 최신 답글이 잘린 걸 모른 채 요약하게 된다.

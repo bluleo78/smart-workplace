@@ -50,6 +50,8 @@ export { findMemberByUsername, requireActiveMember, requireMember, type Required
 export { addProjectMemberInput, createProjectInput, toCreateProjectBody } from './project-tools.js';
 // WP-352·353: ai-agent 의 메시징 prefetch 가 이벤트 본문·최근 메시지의 `<@id>` 토큰을 도구 출력과 같은 `@이름(username)` 으로 푼다.
 export { addChannelMemberInput, resolveMentionTokens } from './messaging-tools.js';
+// WP-423: ai-agent 에이전트 신원 messaging 프로필의 add_channel_message 는 첨부 입력을 빼고 본문 설명만 쓴다.
+export { ADD_CHANNEL_MESSAGE_DESCRIPTION } from './messaging-tools.js';
 // WP-369: AI Chat 의 create_drive_file 판이 업로드 링크 안내를 뺀 content 모드 설명만 쓴다(ai-agent mcp/tools.ts).
 export { CREATE_DRIVE_FILE_CONTENT_DESCRIPTION } from './drive-tools.js';
 export { buildSharedTools, type SharedToolClient, type SharedToolOptions } from './shared-tools.js';

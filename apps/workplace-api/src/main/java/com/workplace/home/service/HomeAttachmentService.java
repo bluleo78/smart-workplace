@@ -1,6 +1,9 @@
 package com.workplace.home.service;
 
 import com.workplace.chat.service.ChatMessageAttachmentStorage;
+import com.workplace.file.api.StagedFile;
+import com.workplace.file.api.StagedFileClaimer;
+import com.workplace.file.exception.StagedFileUnusableException;
 import com.workplace.file.storage.FileStore;
 import com.workplace.file.storage.StorageDomain;
 import com.workplace.fileai.ExtractionProfile;
@@ -14,19 +17,15 @@ import com.workplace.home.exception.HomeAttachmentNotFoundException;
 import com.workplace.home.exception.HomeSessionNotFoundException;
 import com.workplace.home.outbound.ChatMessages.ChatAttachment;
 import com.workplace.home.repository.HomeAttachmentRepository;
-import com.workplace.home.repository.HomeAttachmentRepository.Candidate;
 import com.workplace.home.repository.HomeAttachmentRepository.StoredFile;
 import com.workplace.home.repository.HomeSessionRepository;
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
-import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
@@ -80,6 +79,12 @@ public class HomeAttachmentService {
   /** 원본 절대경로 복원. */
   private final FileStore fileStore;
 
+  /**
+   * 공용 스테이징 클레임(WP-423) — 붙일 수 있는 파일 판정(내 업로드·ATTACHMENT·임시·미만료·어느 도메인에도 미연결)과 FILE 행 잠금·영구 승격을
+   * 이슈·메시징·이슈 챗과 같은 규칙으로 한다. 거절은 홈 문구({@link #MSG_INVALID_FILE})로 바꿔 웹 오류 형태를 그대로 둔다.
+   */
+  private final StagedFileClaimer claimer;
+
   /** 파일 1개당 최대 크기(바이트) — 이슈 챗과 같은 설정. */
   @Value("${workplace.storage.attachment.max-file-size-bytes:26214400}")
   private long maxFileSize;
@@ -119,8 +124,8 @@ public class HomeAttachmentService {
    * 전송 전 사전 검증(잠금 없음) — 세션을 만들기 전에 불러, 잘못된 fileId 로 빈 새 세션이 남지 않게 한다. 실제 연결은 appendUserMessage 가
    * 잠금을 잡고 다시 검증한다.
    *
-   * <p>형태 검사(빈 전송·개수·null·중복)는 항상 한다. 존재·소유 판정(findCandidates)은 새 세션을 만들 때만 한다 — 기존 세션이면 남길 빈 세션이
-   * 없고, appendUserMessage 의 잠금 경로가 같은 문구(400)로 거절한다.
+   * <p>형태 검사(빈 전송·개수·null·중복)는 항상 한다. 존재·소유 판정(공용 클레임의 잠금 없는 사전 검사)은 새 세션을 만들 때만 한다 — 기존 세션이면 남길 빈
+   * 세션이 없고, appendUserMessage 의 잠금 경로가 같은 문구(400)로 거절한다.
    *
    * @param newSession 이번 전송이 새 세션을 만드는지(sessionId 미지정)
    */
@@ -129,7 +134,13 @@ public class HomeAttachmentService {
     List<Long> ids = normalizeIds(fileIds);
     requireContentOrFiles(query, ids);
     validateIds(ids);
-    if (newSession) checkBindable(callerId, ids, repo.findCandidates(ids));
+    if (newSession) {
+      try {
+        claimer.requireClaimable(callerId, ids);
+      } catch (StagedFileUnusableException e) {
+        throw new HomeAttachmentInvalidException(MSG_INVALID_FILE);
+      }
+    }
   }
 
   /**
@@ -137,9 +148,8 @@ public class HomeAttachmentService {
    *
    * <ol>
    *   <li>세션 행 잠금 → 세션 첨부 수 + 이번 개수 ≤ 30 확인(동시 전송은 잠금에서 줄 선다)
-   *   <li>file 행 잠금 후 각 파일이 호출자 소유·임시·미만료·미연결 ATTACHMENT 인지 확인
-   *   <li>USER 메시지 저장 → 정션 INSERT → 영구 승격 → 추출 요청 이벤트(TEXT_ONLY, 트랜잭션 안 — fileai 리스너가 같은 트랜잭션에서 행을
-   *       만든다)
+   *   <li>공용 클레임: file 행 잠금 → 각 파일이 호출자 소유·임시·미만료·어느 도메인에도 미연결 ATTACHMENT 인지 확인 → 영구 승격
+   *   <li>USER 메시지 저장 → 정션 INSERT → 추출 요청 이벤트(TEXT_ONLY, 트랜잭션 안 — fileai 리스너가 같은 트랜잭션에서 행을 만든다)
    * </ol>
    *
    * @param query 본문(null·공백이면 ""로 저장)
@@ -158,19 +168,22 @@ public class HomeAttachmentService {
     if (repo.countBySession(sessionId) + ids.size() > MAX_PER_SESSION) {
       throw new HomeAttachmentInvalidException(MSG_SESSION_LIMIT);
     }
-    Map<Long, Candidate> byId = checkBindable(callerId, ids, repo.lockCandidates(ids));
+    // FILE 행을 id 순으로 잠그고 판정한 뒤 영구로 승격한다 — 승격이 이 트랜잭션 안이라 같은 파일을 동시에 붙이려는 뒤 요청(이 도메인이든 다른
+    // 도메인이든)은 잠금 대기 후 expires_at(NULL)을 보고 거절된다(정션 PK 위반 500 대신 400).
+    List<StagedFile> claimed;
+    try {
+      claimed = claimer.claim(callerId, ids, StagedFileClaimer.Retention.PERMANENT);
+    } catch (StagedFileUnusableException e) {
+      throw new HomeAttachmentInvalidException(MSG_INVALID_FILE);
+    }
     // 소유는 위에서 확인했다 — 같은 요청에서 세션 조회를 다시 하지 않는 검증 생략 경로로 저장한다.
     long messageId =
-        sessionService.insertUserMessage(sessionId, content, byId.get(ids.get(0)).originalName());
-    for (Long id : ids) repo.bind(id, messageId, callerId);
-    // 승격은 반드시 이 트랜잭션 안에 둔다 — 같은 파일을 동시에 붙이려는 뒤 요청은 잠금 대기 후 file 행의 expires_at(NULL)을 보고 거절된다.
-    // 승격을 커밋 뒤로 미루면 뒤 요청이 "임시"로 보고 정션 INSERT 에서 PK 위반(500)이 난다.
-    repo.promoteToPermanent(ids);
+        sessionService.insertUserMessage(sessionId, content, claimed.get(0).originalName());
+    for (StagedFile f : claimed) repo.bind(f.fileId(), messageId, callerId);
     // 메시지에 붙어 영구가 된 시점에 텍스트 추출을 요청한다(이슈 챗 bindToMessage 와 같은 흐름). 이미지는 리스너가 SKIPPED 로 남긴다.
-    for (Long id : ids) {
+    for (StagedFile f : claimed) {
       eventPublisher.publishEvent(
-          FileExtractionRequestedEvent.of(
-              id, byId.get(id).mimeType(), ExtractionProfile.TEXT_ONLY));
+          FileExtractionRequestedEvent.of(f.fileId(), f.mimeType(), ExtractionProfile.TEXT_ONLY));
     }
     return messageId;
   }
@@ -247,7 +260,7 @@ public class HomeAttachmentService {
     if (count > maxPerMessage) throw new HomeAttachmentInvalidException(tooManyMessage());
   }
 
-  /** 입력 형태 검사 — 개수 상한·null 요소·중복. 존재·소유 판정은 checkBindable. */
+  /** 입력 형태 검사 — 개수 상한·null 요소·중복. 존재·소유 판정은 공용 클레임({@link StagedFileClaimer})이 한다. */
   private void validateIds(List<Long> ids) {
     checkCount(ids.size());
     if (ids.stream().anyMatch(Objects::isNull)) {
@@ -256,30 +269,6 @@ public class HomeAttachmentService {
     if (new HashSet<>(ids).size() != ids.size()) {
       throw new HomeAttachmentInvalidException(MSG_DUPLICATE);
     }
-  }
-
-  /**
-   * 각 fileId 가 붙일 수 있는 파일인지 판정한다 — 호출자 업로드·ATTACHMENT·아직 임시(expires_at 있음)·미만료·홈 미연결. 임시 조건으로 다른
-   * 기능에 붙어 영구가 된 파일을 거른다. 없는·남의·만료된 파일은 같은 문구로 거절해 존재를 드러내지 않는다.
-   *
-   * @return fileId → 후보
-   */
-  private Map<Long, Candidate> checkBindable(long callerId, List<Long> ids, List<Candidate> found) {
-    Map<Long, Candidate> byId = found.stream().collect(Collectors.toMap(Candidate::fileId, c -> c));
-    OffsetDateTime now = OffsetDateTime.now();
-    for (Long id : ids) {
-      Candidate c = byId.get(id);
-      boolean usable =
-          c != null
-              && c.uploadedBy() != null
-              && c.uploadedBy() == callerId
-              && "ATTACHMENT".equals(c.category())
-              && c.expiresAt() != null
-              && c.expiresAt().isAfter(now)
-              && !c.bound();
-      if (!usable) throw new HomeAttachmentInvalidException(MSG_INVALID_FILE);
-    }
-    return byId;
   }
 
   /** 개수 초과 문구 — 설정값을 그대로 보여 준다. */

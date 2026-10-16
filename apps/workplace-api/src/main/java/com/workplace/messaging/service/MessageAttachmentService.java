@@ -1,5 +1,8 @@
 package com.workplace.messaging.service;
 
+import com.workplace.file.api.StagedFile;
+import com.workplace.file.api.StagedFileClaimer;
+import com.workplace.file.exception.StagedFileUnusableException;
 import com.workplace.file.storage.FileStore;
 import com.workplace.fileai.ExtractionProfile;
 import com.workplace.fileai.dto.ExtractedTextSlice;
@@ -13,7 +16,6 @@ import com.workplace.messaging.repository.ChannelMemberRepository;
 import com.workplace.messaging.repository.MessageAttachmentRepository;
 import com.workplace.messaging.repository.MessageRepository;
 import java.io.IOException;
-import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
@@ -31,6 +33,9 @@ public class MessageAttachmentService {
   private final MessageAttachmentRepository repo;
   private final ChannelMemberRepository memberRepo;
   private final MessageRepository messageRepo;
+
+  /** 전송 시 스테이징 파일 클레임(WP-423) — 소유·임시·미바인딩 검증과 영구 승격을 한곳에서 한다. */
+  private final StagedFileClaimer claimer;
 
   /** 상대경로→절대경로 복원용 코어 파일 저장소. 다운로드 시 FileSystemResource 에 전달하기 전에 resolve() 호출. */
   private final FileStore fileStore;
@@ -54,7 +59,8 @@ public class MessageAttachmentService {
       MessageRepository messageRepo,
       FileStore fileStore,
       ApplicationEventPublisher eventPublisher,
-      ExtractedTextService extractedText) {
+      ExtractedTextService extractedText,
+      StagedFileClaimer claimer) {
     this.storage = storage;
     this.repo = repo;
     this.memberRepo = memberRepo;
@@ -62,6 +68,7 @@ public class MessageAttachmentService {
     this.fileStore = fileStore;
     this.eventPublisher = eventPublisher;
     this.extractedText = extractedText;
+    this.claimer = claimer;
   }
 
   /** 선업로드: 채널 멤버 검증 + 크기/개수 게이트 후 임시 저장. fileId 메타 반환. */
@@ -94,7 +101,8 @@ public class MessageAttachmentService {
   }
 
   /**
-   * 전송 시 바인딩: 각 fileId 가 callerId 소유 + 미바인딩 + 미만료인지 검증 후 정션 INSERT + 영구 승격.
+   * 전송 시 바인딩: 공용 스테이징 클레임({@link StagedFileClaimer}, WP-423)으로 각 fileId 가 callerId 가 올린 미바인딩·미만료 임시
+   * 첨부인지 검증하고 영구로 바꾼 뒤 정션을 INSERT 한다. 이미 영구가 된 파일(이슈 첨부 등)이나 노트에 묶인 임시 이미지는 거절한다.
    *
    * <p>호출 측(MessageService) 트랜잭션에 합류한다.
    */
@@ -103,30 +111,21 @@ public class MessageAttachmentService {
     if (fileIds.size() > maxPerMessage) {
       throw new MessageAttachmentLimitExceededException(fileIds.size(), maxPerMessage);
     }
-    OffsetDateTime now = OffsetDateTime.now();
-    // 1차 패스: 전부 유효한지 검증. 추출 요청 발행용으로 후보(mime 포함)를 모아 둔다.
-    List<MessageAttachmentRepository.Bindable> bindables = new ArrayList<>();
-    for (Long fileId : fileIds) {
-      var b =
-          repo.findBindable(fileId)
-              .orElseThrow(() -> new InvalidMessageAttachmentException(fileId));
-      // uploadedBy null 체크: DB 컬럼이 nullable 인 경우 방어
-      boolean ownedByCaller = b.uploadedBy() != null && b.uploadedBy() == callerId;
-      boolean expired = b.expiresAt() != null && b.expiresAt().isBefore(now);
-      if (!ownedByCaller || b.bound() || expired) {
-        throw new InvalidMessageAttachmentException(fileId);
-      }
-      bindables.add(b);
+    List<StagedFile> claimed;
+    try {
+      claimed = claimer.claim(callerId, fileIds, StagedFileClaimer.Retention.PERMANENT);
+    } catch (StagedFileUnusableException e) {
+      // 웹 경로의 기존 응답(400, 첨부할 수 없는 파일입니다)을 그대로 유지한다.
+      throw new InvalidMessageAttachmentException(e.fileId());
     }
     for (Long fileId : fileIds) {
       repo.bind(fileId, messageId, callerId);
     }
-    repo.promoteToPermanent(fileIds);
     // WP-358: 메시지에 붙어 영구 파일이 된 시점에 텍스트 추출을 요청한다(이슈 챗 첨부와 같은 시점). 선업로드만 하고 버려진 임시 파일은
     // 여기 오지 않아 추출 비용을 쓰지 않는다. 메시지 생성과 같은 트랜잭션이라 추출 행도 함께 커밋·롤백된다.
-    for (var b : bindables) {
+    for (StagedFile f : claimed) {
       eventPublisher.publishEvent(
-          FileExtractionRequestedEvent.of(b.fileId(), b.mimeType(), ExtractionProfile.TEXT_ONLY));
+          FileExtractionRequestedEvent.of(f.fileId(), f.mimeType(), ExtractionProfile.TEXT_ONLY));
     }
   }
 

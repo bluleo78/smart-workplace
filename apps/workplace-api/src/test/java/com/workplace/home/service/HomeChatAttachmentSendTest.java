@@ -2,6 +2,9 @@ package com.workplace.home.service;
 
 import static com.workplace.jooq.Tables.FILE;
 import static com.workplace.jooq.Tables.HOME_SESSION;
+import static com.workplace.jooq.Tables.WIKI_PAGE;
+import static com.workplace.jooq.Tables.WIKI_PAGE_ATTACHMENT;
+import static com.workplace.jooq.Tables.WIKI_SPACE;
 import static com.workplace.support.RowLockWaits.awaitLockWaiter;
 import static com.workplace.support.RowLockWaits.awaitQuietly;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -107,6 +110,60 @@ class HomeChatAttachmentSendTest extends HomeAttachmentTestSupport {
     }
     assertThat(sessionCount(uid)).isEqualTo(before);
     verify(chatClient, never()).composeStream(any(), any(), any(), any(), any(), any(), any());
+  }
+
+  /**
+   * WP-423: 노트에 묶인 임시 이미지(업로드 때 묶고도 임시로 두는 노트 첨부)는 홈 메시지에 묶이지 않는다 — 홈 자체 조건(임시·미연결)만으로는 못 거르므로 공용
+   * 바인딩 조회로 거절한다. 같은 문구의 400 이고 새 세션도 만들지 않는다.
+   */
+  @Test
+  void 내_노트_이미지_임시_노트에_묶임은_홈_메시지에_묶이지_않음() {
+    long uid = user();
+    long file = upload(uid, "wiki.png", "image/png", "png".getBytes());
+    inTx(
+        () -> {
+          long spaceId =
+              dsl.insertInto(WIKI_SPACE)
+                  .set(WIKI_SPACE.TYPE, "TEAM")
+                  .set(WIKI_SPACE.NAME, "홈 거절 공간")
+                  .set(WIKI_SPACE.OWNER_ID, uid)
+                  .set(WIKI_SPACE.TENANT_ID, 1L)
+                  .returning(WIKI_SPACE.ID)
+                  .fetchOne()
+                  .getId();
+          long pageId =
+              dsl.insertInto(WIKI_PAGE)
+                  .set(WIKI_PAGE.SPACE_ID, spaceId)
+                  .set(WIKI_PAGE.TITLE, "홈 거절 페이지")
+                  .set(WIKI_PAGE.TENANT_ID, 1L)
+                  .returning(WIKI_PAGE.ID)
+                  .fetchOne()
+                  .getId();
+          return dsl.insertInto(WIKI_PAGE_ATTACHMENT)
+              .set(WIKI_PAGE_ATTACHMENT.FILE_ID, file)
+              .set(WIKI_PAGE_ATTACHMENT.PAGE_ID, pageId)
+              .set(WIKI_PAGE_ATTACHMENT.ATTACHED_BY, uid)
+              .execute();
+        });
+    try {
+      int before = sessionCount(uid);
+      assertThatThrownBy(
+              () -> chatService.startChat(uid, null, "봐 줘", null, List.of(file), null, null, null))
+          .isInstanceOf(HomeAttachmentInvalidException.class)
+          .hasMessage(INVALID);
+      assertThat(sessionCount(uid)).isEqualTo(before);
+      assertThat(messageIdOf(file)).isNull();
+    } finally {
+      // 노트 시드는 file 정리 전에 지운다(space.owner → user FK).
+      inTx(
+          () -> {
+            dsl.deleteFrom(WIKI_PAGE_ATTACHMENT)
+                .where(WIKI_PAGE_ATTACHMENT.FILE_ID.eq(file))
+                .execute();
+            dsl.deleteFrom(WIKI_PAGE).where(WIKI_PAGE.TITLE.eq("홈 거절 페이지")).execute();
+            return dsl.deleteFrom(WIKI_SPACE).where(WIKI_SPACE.OWNER_ID.eq(uid)).execute();
+          });
+    }
   }
 
   @Autowired StreamingGenerationRegistry registry;

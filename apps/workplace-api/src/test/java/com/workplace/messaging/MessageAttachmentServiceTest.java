@@ -1,15 +1,20 @@
 package com.workplace.messaging;
 
+import static com.workplace.jooq.Tables.FILE;
+import static com.workplace.jooq.Tables.MESSAGE_ATTACHMENT;
 import static com.workplace.jooq.Tables.USER;
+import static com.workplace.jooq.Tables.WIKI_PAGE;
+import static com.workplace.jooq.Tables.WIKI_PAGE_ATTACHMENT;
+import static com.workplace.jooq.Tables.WIKI_SPACE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.workplace.file.service.StagedUploadService;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.messaging.dto.CreateMessageRequest;
 import com.workplace.messaging.exception.InvalidMessageAttachmentException;
 import com.workplace.messaging.exception.MessageAttachmentTooLargeException;
 import com.workplace.messaging.repository.ChannelRepository;
-import com.workplace.messaging.repository.MessageAttachmentRepository;
 import com.workplace.messaging.service.ChannelService;
 import com.workplace.messaging.service.MessageAttachmentService;
 import com.workplace.messaging.service.MessageAttachmentStorage;
@@ -36,8 +41,8 @@ class MessageAttachmentServiceTest extends IntegrationTestBase {
   @Autowired ChannelService channelService;
   @Autowired MessageService messageService;
   @Autowired MessageAttachmentStorage storage;
-  @Autowired MessageAttachmentRepository attachmentRepo;
   @Autowired MessageAttachmentService attachmentService;
+  @Autowired StagedUploadService stagedUploadService;
 
   /** FilePathBuilder 가 TenantContext 를 읽어 경로를 생성하므로 테스트 실행 전 테넌트(1) 세팅. */
   @BeforeEach
@@ -49,6 +54,24 @@ class MessageAttachmentServiceTest extends IntegrationTestBase {
   @AfterEach
   void clearTenant() {
     TenantContext.clear();
+  }
+
+  /** 파일이 그 메시지에 묶였고(정션 행) 영구(expires_at NULL)가 됐는지. */
+  private void assertBoundAndPermanent(long fileId, long messageId) {
+    assertThat(
+            dsl.fetchExists(
+                MESSAGE_ATTACHMENT,
+                MESSAGE_ATTACHMENT
+                    .FILE_ID
+                    .eq(fileId)
+                    .and(MESSAGE_ATTACHMENT.MESSAGE_ID.eq(messageId))))
+        .isTrue();
+    assertThat(
+            dsl.select(FILE.EXPIRES_AT)
+                .from(FILE)
+                .where(FILE.ID.eq(fileId))
+                .fetchOne(FILE.EXPIRES_AT))
+        .isNull();
   }
 
   /** 테스트 격리용 유니크 유저 INSERT. */
@@ -84,6 +107,76 @@ class MessageAttachmentServiceTest extends IntegrationTestBase {
     // 유저B가 유저A 소유 파일을 바인딩 시도 → 거부
     assertThatThrownBy(() -> attachmentService.bindToMessage(userB, msg.id(), List.of(fileId)))
         .isInstanceOf(InvalidMessageAttachmentException.class);
+  }
+
+  /**
+   * bindToMessage_내_이슈_첨부(영구)는_거절: 내가 올렸어도 이미 영구가 된 파일(이슈 첨부 등)은 메시지에 다시 묶을 수 없다(WP-423) — 스테이징
+   * 클레임은 임시 파일만 받는다.
+   */
+  @Test
+  void bindToMessage_내_이슈_첨부_영구는_거절() throws Exception {
+    long userId = seedUser();
+    long channelId = channelRepo.insertPublic("test-perm-reject", userId);
+    channelService.join(userId, channelId);
+    var mf = new MockMultipartFile("files", "issue.txt", "text/plain", "x".getBytes());
+    Long fileId = storage.storeTemporary(mf, userId);
+    // 이슈 첨부로 묶이며 영구가 된 상태를 흉내 낸다.
+    dsl.update(FILE).setNull(FILE.EXPIRES_AT).where(FILE.ID.eq(fileId)).execute();
+    var msg = messageService.create(userId, channelId, new CreateMessageRequest("hi"));
+
+    assertThatThrownBy(() -> attachmentService.bindToMessage(userId, msg.id(), List.of(fileId)))
+        .isInstanceOf(InvalidMessageAttachmentException.class)
+        .hasMessageContaining(String.valueOf(fileId));
+  }
+
+  /** bindToMessage_내_노트_이미지(임시·노트에_묶임)는_거절: 노트는 묶고도 파일을 임시로 두므로 만료만으로는 못 거른다 — 정션 조회로 거절한다. */
+  @Test
+  void bindToMessage_내_노트_이미지_임시_노트에_묶임은_거절() throws Exception {
+    long userId = seedUser();
+    long channelId = channelRepo.insertPublic("test-wiki-reject", userId);
+    channelService.join(userId, channelId);
+    var mf = new MockMultipartFile("files", "wiki.png", "image/png", "png".getBytes());
+    Long fileId = storage.storeTemporary(mf, userId);
+    long spaceId =
+        dsl.insertInto(WIKI_SPACE)
+            .set(WIKI_SPACE.TYPE, "TEAM")
+            .set(WIKI_SPACE.NAME, "메시징 거절 공간")
+            .set(WIKI_SPACE.OWNER_ID, userId)
+            .set(WIKI_SPACE.TENANT_ID, 1L)
+            .returning(WIKI_SPACE.ID)
+            .fetchOne()
+            .getId();
+    long pageId =
+        dsl.insertInto(WIKI_PAGE)
+            .set(WIKI_PAGE.SPACE_ID, spaceId)
+            .set(WIKI_PAGE.TITLE, "메시징 거절 페이지")
+            .set(WIKI_PAGE.TENANT_ID, 1L)
+            .returning(WIKI_PAGE.ID)
+            .fetchOne()
+            .getId();
+    dsl.insertInto(WIKI_PAGE_ATTACHMENT)
+        .set(WIKI_PAGE_ATTACHMENT.FILE_ID, fileId)
+        .set(WIKI_PAGE_ATTACHMENT.PAGE_ID, pageId)
+        .set(WIKI_PAGE_ATTACHMENT.ATTACHED_BY, userId)
+        .execute();
+    var msg = messageService.create(userId, channelId, new CreateMessageRequest("hi"));
+
+    assertThatThrownBy(() -> attachmentService.bindToMessage(userId, msg.id(), List.of(fileId)))
+        .isInstanceOf(InvalidMessageAttachmentException.class);
+  }
+
+  /** bindToMessage_스테이징_파일은_묶이고_영구: 공용 스테이징 업로드로 만든 파일도 메시지에 묶이고 영구가 된다. */
+  @Test
+  void bindToMessage_스테이징_파일은_묶이고_영구() {
+    long userId = seedUser();
+    long channelId = channelRepo.insertPublic("test-staged-ok", userId);
+    channelService.join(userId, channelId);
+    long fileId = stagedUploadService.createText(userId, "staged.md", "# 메모").fileId();
+    var msg = messageService.create(userId, channelId, new CreateMessageRequest("hi"));
+
+    attachmentService.bindToMessage(userId, msg.id(), List.of(fileId));
+
+    assertBoundAndPermanent(fileId, msg.id());
   }
 
   /** upload_rejectsOversizeFile: 26_214_401 바이트 파일 업로드 시 MessageAttachmentTooLargeException 발생. */
@@ -122,10 +215,7 @@ class MessageAttachmentServiceTest extends IntegrationTestBase {
     attachmentService.bindToMessage(userId, msg.id(), List.of(fileId));
 
     // 바인딩 후 영구 승격 확인: bound=true, expiresAt=null
-    var bindable = attachmentRepo.findBindable(fileId);
-    assertThat(bindable).isPresent();
-    assertThat(bindable.get().bound()).isTrue();
-    assertThat(bindable.get().expiresAt()).isNull();
+    assertBoundAndPermanent(fileId, msg.id());
   }
 
   /**

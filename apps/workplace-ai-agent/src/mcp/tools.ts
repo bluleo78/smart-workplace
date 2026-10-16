@@ -4,6 +4,7 @@ import { z } from 'zod';
 import {
   addChannelMemberInput,
   addProjectMemberInput,
+  ADD_CHANNEL_MESSAGE_DESCRIPTION,
   buildSharedTools,
   CREATE_DRIVE_FILE_CONTENT_DESCRIPTION,
   createProjectInput,
@@ -63,6 +64,16 @@ export const CARD_ONLY_SHARED_TOOLS: Readonly<Record<string, readonly string[]>>
  * tools.test.ts 의 "공유 도구 전부 노출" 검사도 이 목록만 빼고 본다. CARD_ONLY_SHARED_TOOLS 와 달리 대체 도구(확인 카드)는 없다.
  */
 export const AI_AGENT_EXCLUDED_SHARED_TOOLS: ReadonlySet<string> = new Set(['report_agent_work', 'get_issue_chat']);
+
+/**
+ * WP-423: 에이전트 신원 프로필(messaging)에서 입력을 좁혀 싣는 공유 도구 — 도구 이름 → 뺀 입력 필드.
+ * add_channel_message 의 첨부(fileIds·driveFileIds)는 요청자 신원(assistant)에만 싣는다 — 에이전트 신원 프로필의 기능 확대는
+ * README WP-355 절이 보류한 제품 결정이고(upload_file 도 assistant 전용), 에이전트 신원으로는 드라이브 파일을 대신 링크할 수 없게 한다.
+ * tools.test.ts 의 패리티 검사가 이 목록의 필드만 빠졌는지 확인한다.
+ */
+export const AGENT_IDENTITY_OMITTED_FIELDS: Readonly<Record<string, readonly string[]>> = {
+  add_channel_message: ['fileIds', 'driveFileIds'],
+};
 
 const issueKey = z.object({ issueKey: z.string().min(1) });
 // 6c: chat 프로필 도구 입력.
@@ -541,10 +552,28 @@ export function buildTools(
   }
 
   if (profile === 'messaging') {
+    // WP-423: 에이전트 신원으로 쓰는 add_channel_message 는 첨부 없이 — 입력 스키마에서 fileIds·driveFileIds 를 빼고(모델에 보이지 않게),
+    // 핸들러도 그 값을 버린 뒤 공유본에 넘긴다(스키마 밖 값이 들어와도 붙지 않게). 설명의 첨부 안내도 뺀다.
+    const sharedAddMessage = sharedTool('add_channel_message');
+    const omitted = new Set(AGENT_IDENTITY_OMITTED_FIELDS.add_channel_message);
+    const addMessageShape = Object.fromEntries(
+      Object.entries((sharedAddMessage.inputSchema as z.ZodObject<z.ZodRawShape>).shape).filter(([k]) => !omitted.has(k)),
+    );
+    const addChannelMessageTool: McpTool = {
+      ...sharedAddMessage,
+      description: ADD_CHANNEL_MESSAGE_DESCRIPTION,
+      inputSchema: z.object(addMessageShape),
+      async handler(args) {
+        const rest = Object.fromEntries(Object.entries((args ?? {}) as Record<string, unknown>).filter(([k]) => !omitted.has(k)));
+        // 첨부가 없으니 본문이 있어야 한다 — 공유본의 "본문이나 첨부" 문구 대신 이 프로필에 맞는 문구로 거절한다.
+        if (typeof rest.body !== 'string' || !rest.body.trim()) throw new Error('보낼 본문(body)이 비어 있습니다.');
+        return sharedAddMessage.handler(rest);
+      },
+    };
     const tools: McpTool[] = [
       sharedTool('list_channel_messages'),
       sharedTool('list_thread_replies'), // #850: 스레드 답글 조회(스레드 요약)
-      sharedTool('add_channel_message'),
+      addChannelMessageTool,
       sharedTool('list_channels'), // #350: 채널 목록·탐색(q — 이름 → channelId)
     ];
     // L3 위임: 위임 컨텍스트가 있을 때만 노출. channelId·위임자·parent 는 코드가 스탬프(AI 입력 아님).

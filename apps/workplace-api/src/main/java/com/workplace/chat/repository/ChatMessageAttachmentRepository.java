@@ -14,7 +14,10 @@ import java.util.stream.Collectors;
 import org.jooq.DSLContext;
 import org.springframework.stereotype.Repository;
 
-/** chat 메시지 첨부 정션 CRUD + 바인딩 검증 + 영구 승격. (MessageAttachmentRepository 미러) */
+/**
+ * chat 메시지 첨부 정션 CRUD. 바인딩 검증·영구 승격은 공용 스테이징 클레임({@link com.workplace.file.api.StagedFileClaimer})이
+ * 맡는다(WP-423).
+ */
 @Repository
 public class ChatMessageAttachmentRepository {
 
@@ -22,37 +25,6 @@ public class ChatMessageAttachmentRepository {
 
   public ChatMessageAttachmentRepository(DSLContext dsl) {
     this.dsl = dsl;
-  }
-
-  /** 바인딩 검증용 파일 상태(소유자/만료/이미 바인딩 여부). */
-  public record Bindable(
-      Long fileId, Long uploadedBy, OffsetDateTime expiresAt, boolean bound, String mimeType) {}
-
-  /** 파일 존재 시 바인딩 후보 정보 반환. chat_message_attachment LEFT JOIN 으로 bound 여부 포함. */
-  public Optional<Bindable> findBindable(Long fileId) {
-    var r =
-        dsl.select(
-                FILE.ID,
-                FILE.UPLOADED_BY,
-                FILE.EXPIRES_AT,
-                FILE.MIME_TYPE,
-                CHAT_MESSAGE_ATTACHMENT.MESSAGE_ID)
-            .from(FILE)
-            .leftJoin(CHAT_MESSAGE_ATTACHMENT)
-            .on(CHAT_MESSAGE_ATTACHMENT.FILE_ID.eq(FILE.ID))
-            .where(FILE.ID.eq(fileId))
-            // 첨부 선업로드(ATTACHMENT)만 바인딩 후보 — 내부 사본(MAIL_EXTRACT 등)이 메시지에 붙어 영구 파일이 되는 것을
-            // 막는다(WP-358).
-            .and(FILE.CATEGORY.eq("ATTACHMENT"))
-            .fetchOne();
-    if (r == null) return Optional.empty();
-    return Optional.of(
-        new Bindable(
-            r.get(FILE.ID),
-            r.get(FILE.UPLOADED_BY),
-            r.get(FILE.EXPIRES_AT),
-            r.get(CHAT_MESSAGE_ATTACHMENT.MESSAGE_ID) != null,
-            r.get(FILE.MIME_TYPE)));
   }
 
   /** fileId 가 이 스레드의 어떤 메시지에 바인딩된 첨부인지(WP-242 — 구간 읽기 소속 확인). */
@@ -74,12 +46,6 @@ public class ChatMessageAttachmentRepository {
         .set(CHAT_MESSAGE_ATTACHMENT.ATTACHED_BY, attachedBy)
         .set(CHAT_MESSAGE_ATTACHMENT.ATTACHED_AT, OffsetDateTime.now())
         .execute();
-  }
-
-  /** 바인딩된 파일을 영구로 승격(expires_at = NULL). */
-  public void promoteToPermanent(List<Long> fileIds) {
-    if (fileIds.isEmpty()) return;
-    dsl.update(FILE).setNull(FILE.EXPIRES_AT).where(FILE.ID.in(fileIds)).execute();
   }
 
   /** 여러 메시지의 첨부 배치 조회(N+1 회피). messageId → 첨부 목록, attached_at ASC. */

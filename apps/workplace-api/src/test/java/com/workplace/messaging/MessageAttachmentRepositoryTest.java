@@ -3,7 +3,10 @@ package com.workplace.messaging;
 import static com.workplace.jooq.Tables.FILE;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.workplace.file.api.StagedFileClaimer;
+import com.workplace.file.exception.StagedFileUnusableException;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.messaging.dto.CreateMessageRequest;
 import com.workplace.messaging.dto.MessageAttachmentResponse;
@@ -24,7 +27,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.transaction.annotation.Transactional;
 
-/** MessageAttachmentRepository 통합 테스트 — 바인딩/영구 승격/배치 조회/다운로드 조회 검증. */
+/** MessageAttachmentRepository 통합 테스트 — 바인딩(클레임과의 상호작용)/배치 조회/다운로드 조회 검증. */
 @Transactional
 class MessageAttachmentRepositoryTest extends IntegrationTestBase {
 
@@ -34,6 +37,7 @@ class MessageAttachmentRepositoryTest extends IntegrationTestBase {
   @Autowired ChannelRepository channelRepo;
   @Autowired MessageAttachmentStorage storage;
   @Autowired MessageAttachmentRepository repo;
+  @Autowired StagedFileClaimer claimer;
 
   private long userId;
   private long channelId;
@@ -70,27 +74,15 @@ class MessageAttachmentRepositoryTest extends IntegrationTestBase {
     TenantContext.clear();
   }
 
-  /** findBindable — 임시 파일 존재 시 업로더·미바인딩 상태를 반환해야 한다. */
+  /** 선업로드한 임시 파일은 업로더가 클레임할 수 있고, PERMANENT 클레임 뒤 file.expires_at 이 NULL 이 된다(영구 승격). */
   @Test
-  void findBindable_returnsUploaderAndUnbound() throws Exception {
-    var mf = new MockMultipartFile("file", "test.png", "image/png", new byte[] {1, 2, 3});
-    Long fileId = storage.storeTemporary(mf, userId);
-
-    var bindable = repo.findBindable(fileId);
-
-    assertThat(bindable).isPresent();
-    assertThat(bindable.get().uploadedBy()).isEqualTo(userId);
-    assertThat(bindable.get().bound()).isFalse();
-  }
-
-  /** bind 후 promoteToPermanent → file.expires_at 이 NULL 이어야 한다(영구 파일로 승격). */
-  @Test
-  void bind_thenPromote_setsExpiresAtNull() throws Exception {
+  void storeTemporary_isClaimable_andPermanentClaimClearsExpiry() throws Exception {
     var mf = new MockMultipartFile("file", "promote.png", "image/png", new byte[] {4, 5, 6});
     Long fileId = storage.storeTemporary(mf, userId);
 
+    claimer.requireClaimable(userId, List.of(fileId));
+    claimer.claim(userId, List.of(fileId), StagedFileClaimer.Retention.PERMANENT);
     repo.bind(fileId, messageId, userId);
-    repo.promoteToPermanent(List.of(fileId));
 
     var expiresAt =
         dsl.select(FILE.EXPIRES_AT).from(FILE).where(FILE.ID.eq(fileId)).fetchOne(FILE.EXPIRES_AT);
@@ -111,17 +103,15 @@ class MessageAttachmentRepositoryTest extends IntegrationTestBase {
     assertThat(result.get(messageId).get(0).originalName()).isEqualTo("batch.pdf");
   }
 
-  /** bind 후 findBindable → bound == true 이어야 한다. */
+  /** bind 뒤에는(임시인 채라도) 메시지 정션에 묶인 파일이라 다시 클레임할 수 없다. */
   @Test
-  void findBindable_afterBind_returnsBound() throws Exception {
+  void bind_thenClaim_rejectsBoundFile() throws Exception {
     var mf = new MockMultipartFile("file", "bound.png", "image/png", new byte[] {9});
     Long fileId = storage.storeTemporary(mf, userId);
     repo.bind(fileId, messageId, userId);
 
-    var bindable = repo.findBindable(fileId);
-
-    assertThat(bindable).isPresent();
-    assertThat(bindable.get().bound()).isTrue();
+    assertThatThrownBy(() -> claimer.requireClaimable(userId, List.of(fileId)))
+        .isInstanceOf(StagedFileUnusableException.class);
   }
 
   /** findStoredFile → 바인딩된 파일의 storagePath 와 mimeType 을 반환해야 한다. */

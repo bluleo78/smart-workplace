@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { cursorPageView, dropEmpty, omitKeys, truncatedView } from './compact.js';
 import type { SharedTool } from './mcp-tool.js';
 import { findMemberByUsername, requireActiveMember, searchMembersByTerm } from './member-tools.js';
+import { stagedFileIdsInput } from './schemas.js';
 import { nullAsOmitted } from './tool-definitions.js';
 import type { MemberRow, MemberToolClient, MessagingToolClient } from './tool-client.js';
 
@@ -248,10 +249,19 @@ async function collectThreadReplies(client: MessagingToolClient, messageId: numb
     cursor = page.nextCursor;
   }
 }
-export const addChannelMessageInput = z.object({
-  channelId: z.number().int().positive(),
-  body: z.string().min(1),
-});
+// WP-423: 첨부만 있는 메시지도 보낼 수 있다 — 서버(MessageService)가 "본문 공백 + 첨부 없음 + 드라이브 링크 없음" 만 400 으로 막으므로 같은 규칙으로 맞춘다.
+// 모델은 쓰지 않는 값을 null 로 채워 보내기도 해 세 값 모두 nullAsOmitted 다(공백뿐인 본문은 없는 것과 같게 센다).
+// 본문 길이(4000자)는 여기서 보지 않는다 — 서버 @Size 는 linkMentions 가 멘션을 바꿔 쓴 뒤의 본문에 걸리므로 판정은 서버에 맡긴다.
+export const addChannelMessageInput = z
+  .object({
+    channelId: z.number().int().positive(),
+    body: nullAsOmitted(z.string()),
+    fileIds: nullAsOmitted(stagedFileIdsInput),
+    driveFileIds: nullAsOmitted(z.array(z.number().int().positive()).max(10).describe('Drive files to link')),
+  })
+  .refine((v) => Boolean(v.body?.trim()) || Boolean(v.fileIds?.length) || Boolean(v.driveFileIds?.length), {
+    message: '본문이나 첨부(fileIds·driveFileIds) 중 하나는 있어야 합니다.',
+  });
 
 export const createChannelInput = z.object({
   name: z.string().trim().min(1).max(80),
@@ -294,6 +304,17 @@ export interface MessagingToolOptions {
   /** 이 채널에 쓸 때 답을 달 스레드 parent. ai-agent 가 스레드 안에서 호출됐을 때만 값을 준다(그 외 인라인). */
   parentMessageIdFor?(channelId: number): number | undefined;
 }
+
+/**
+ * add_channel_message 설명(WP-423) — 본문 부분과 첨부 부분을 나눠 둔다. 첨부 입력을 싣지 않는 판(ai-agent 에이전트 신원 messaging 프로필)이 본문
+ * 부분만 쓴다.
+ */
+export const ADD_CHANNEL_MESSAGE_DESCRIPTION =
+  'Posts a Markdown message to a channel or DM I belong to; call it once. Mention with @username (from search_members), not the ' +
+  '"@name(username)" form shown when reading. Mentioned people and DM members get a push notification.';
+/** add_channel_message 설명의 첨부 부분(fileIds·driveFileIds). */
+export const ADD_CHANNEL_MESSAGE_ATTACHMENTS_DESCRIPTION =
+  'fileIds: staged files from upload_file; driveFileIds: drive files to link (VIEWER needed). Body may be empty with attachments.';
 
 /** 메시징 도구(list_channels/list_channel_messages/list_thread_replies/add_channel_message/create_channel/open_dm/leave_channel/join_channel/react_to_message/update_channel_message/mark_channel_read/add_channel_member). */
 export function buildMessagingTools(
@@ -354,13 +375,17 @@ export function buildMessagingTools(
       app: 'messaging',
       kind: 'write',
       hints: { destructive: false, idempotent: false },
-      description:
-        'Posts a Markdown message to a channel or DM I belong to; call it once. Mention with @username (from search_members), not the ' +
-        '"@name(username)" form shown when reading. Mentioned people and DM members get a push notification.',
+      description: `${ADD_CHANNEL_MESSAGE_DESCRIPTION} ${ADD_CHANNEL_MESSAGE_ATTACHMENTS_DESCRIPTION}`,
       inputSchema: addChannelMessageInput,
       async handler(args) {
-        const { channelId, body } = addChannelMessageInput.parse(args);
-        await client.addChannelMessage(channelId, await linkMentions(client, body), opts.parentMessageIdFor?.(channelId));
+        const { channelId, body, fileIds, driveFileIds } = addChannelMessageInput.parse(args);
+        // 본문이 있을 때만 멘션을 변환한다(첨부만 보내면 검색 호출도 없다). 공백뿐인 본문은 서버가 빈 본문으로 보므로 보내지 않는다.
+        const text = body?.trim() ? await linkMentions(client, body) : undefined;
+        // null 로 온 목록(nullAsOmitted 는 null 을 그대로 둔다)은 생략과 같다. 빈 목록은 클라이언트가 싣지 않는다.
+        await client.addChannelMessage(channelId, text, opts.parentMessageIdFor?.(channelId), {
+          fileIds: fileIds ?? undefined,
+          driveFileIds: driveFileIds ?? undefined,
+        });
         return 'ok';
       },
     },

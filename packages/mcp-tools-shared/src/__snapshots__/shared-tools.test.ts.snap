@@ -126,18 +126,57 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       "additionalProperties": false,
       "properties": {
         "body": {
-          "minLength": 1,
-          "type": "string",
+          "anyOf": [
+            {
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
         },
         "channelId": {
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991,
           "type": "integer",
         },
+        "driveFileIds": {
+          "anyOf": [
+            {
+              "description": "Drive files to link",
+              "items": {
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991,
+                "type": "integer",
+              },
+              "maxItems": 10,
+              "type": "array",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "fileIds": {
+          "anyOf": [
+            {
+              "description": "Staged files from upload_file to attach",
+              "items": {
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991,
+                "type": "integer",
+              },
+              "maxItems": 10,
+              "type": "array",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
       },
       "required": [
         "channelId",
-        "body",
       ],
       "type": "object",
     },

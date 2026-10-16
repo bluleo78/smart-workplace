@@ -102,4 +102,11 @@ describe('messaging-agent 정의', () => {
     expect(prompt).toContain('upload_file(name, content)');
     expect(prompt).toContain('업로드 링크는 만들 수 없습니다');
   });
+  // WP-423: 첨부는 upload_file 의 fileId → fileIds, 드라이브 파일은 driveFileIds 로 안내한다.
+  it('add_channel_message 첨부(fileIds·driveFileIds) 안내가 있다 (WP-423)', () => {
+    const prompt = loaded['messaging-agent'].prompt;
+    expect(prompt).toContain('add_channel_message(channelId, body?, fileIds?, driveFileIds?)');
+    expect(prompt).toContain('`fileIds` 에');
+    expect(prompt).toContain('`driveFileIds`');
+  });
 });

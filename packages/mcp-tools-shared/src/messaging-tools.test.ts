@@ -27,6 +27,8 @@ function mockClient(): Client {
   };
 }
 
+/** 첨부 없는 add_channel_message 호출의 4번째 인자(WP-423) — 빈 첨부는 클라이언트가 요청 본문에 싣지 않는다. */
+const NO_ATTACHMENTS = { fileIds: undefined, driveFileIds: undefined };
 const tool = (c: Client, name: string, opts?: MessagingToolOptions) =>
   buildMessagingTools(c, opts).find((x) => x.name === name)!;
 
@@ -160,7 +162,7 @@ describe('buildMessagingTools', () => {
   it('add_channel_message → 멘션 없는 본문은 그대로, 옵션 없으면 parentMessageId undefined 로 호출 후 ok', async () => {
     const c = mockClient();
     const out = await tool(c, 'add_channel_message').handler({ channelId: 7, body: '안녕하세요' });
-    expect(c.addChannelMessage).toHaveBeenCalledWith(7, '안녕하세요', undefined);
+    expect(c.addChannelMessage).toHaveBeenCalledWith(7, '안녕하세요', undefined, NO_ATTACHMENTS);
     expect(c.searchMembers).not.toHaveBeenCalled();
     expect(out).toBe('ok');
   });
@@ -169,6 +171,43 @@ describe('buildMessagingTools', () => {
     const c = mockClient();
     await expect(tool(c, 'add_channel_message').handler({ channelId: 7 })).rejects.toThrow();
     expect(c.addChannelMessage).not.toHaveBeenCalled();
+  });
+
+  // WP-423: 스테이징 파일(fileIds)·드라이브 파일(driveFileIds)을 서버 본문에 그대로 싣는다.
+  it('add_channel_message: fileIds·driveFileIds 를 서버 본문에 싣는다', async () => {
+    const c = mockClient();
+    await tool(c, 'add_channel_message').handler({ channelId: 7, body: '첨부', fileIds: [11, 12], driveFileIds: [5] });
+    expect(c.addChannelMessage).toHaveBeenCalledWith(7, '첨부', undefined, { fileIds: [11, 12], driveFileIds: [5] });
+  });
+
+  it('add_channel_message: 본문 없이 첨부만 보낼 수 있다(linkMentions 미호출)', async () => {
+    const c = mockClient();
+    expect(await tool(c, 'add_channel_message').handler({ channelId: 7, fileIds: [11] })).toBe('ok');
+    expect(c.addChannelMessage).toHaveBeenCalledWith(7, undefined, undefined, { fileIds: [11], driveFileIds: undefined });
+    expect(c.searchMembers).not.toHaveBeenCalled();
+    // 공백뿐인 본문도 없는 것과 같다 — 서버 isBlank 규칙과 맞춘다. null 도 생략과 같게 받는다.
+    await tool(c, 'add_channel_message').handler({ channelId: 7, body: '  ', driveFileIds: [5], fileIds: null });
+    expect(c.addChannelMessage).toHaveBeenLastCalledWith(7, undefined, undefined, { fileIds: undefined, driveFileIds: [5] });
+  });
+
+  it('add_channel_message: 본문도 첨부도 없으면 거절', async () => {
+    const c = mockClient();
+    await expect(tool(c, 'add_channel_message').handler({ channelId: 7 })).rejects.toThrow('본문이나 첨부');
+    await expect(tool(c, 'add_channel_message').handler({ channelId: 7, body: '   ', fileIds: [], driveFileIds: [] })).rejects.toThrow('본문이나 첨부');
+    expect(c.addChannelMessage).not.toHaveBeenCalled();
+  });
+
+  it('add_channel_message: 본문 길이는 클라이언트가 자르지 않고 서버에 맡긴다(멘션 변환 뒤 길이가 서버 기준)', async () => {
+    const c = mockClient();
+    const long = 'x'.repeat(4001);
+    await tool(c, 'add_channel_message').handler({ channelId: 7, body: long });
+    expect(c.addChannelMessage).toHaveBeenCalledWith(7, long, undefined, NO_ATTACHMENTS);
+  });
+
+  it('add_channel_message: 첨부 id 는 양의 정수 10개까지', async () => {
+    const c = mockClient();
+    await expect(tool(c, 'add_channel_message').handler({ channelId: 7, body: 'x', fileIds: Array.from({ length: 11 }, (_, i) => i + 1) })).rejects.toThrow();
+    await expect(tool(c, 'add_channel_message').handler({ channelId: 7, body: 'x', driveFileIds: [0] })).rejects.toThrow();
   });
 });
 
@@ -179,13 +218,19 @@ describe('parentMessageIdFor — add_channel_message 스레드 mirror', () => {
   it('바인딩 채널과 일치하면 parentMessageId 를 넘긴다', async () => {
     const c = mockClient();
     await tool(c, 'add_channel_message', opts).handler({ channelId: 9, body: '답' });
-    expect(c.addChannelMessage).toHaveBeenCalledWith(9, '답', 210);
+    expect(c.addChannelMessage).toHaveBeenCalledWith(9, '답', 210, NO_ATTACHMENTS);
   });
 
   it('다른 채널이면 parentMessageId 없이(인라인) 넘긴다', async () => {
     const c = mockClient();
     await tool(c, 'add_channel_message', opts).handler({ channelId: 5, body: '딴채널' });
-    expect(c.addChannelMessage).toHaveBeenCalledWith(5, '딴채널', undefined);
+    expect(c.addChannelMessage).toHaveBeenCalledWith(5, '딴채널', undefined, NO_ATTACHMENTS);
+  });
+
+  it('스레드 답글(parentMessageIdFor)에도 첨부가 실린다', async () => {
+    const c = mockClient();
+    await tool(c, 'add_channel_message', opts).handler({ channelId: 9, fileIds: [11] });
+    expect(c.addChannelMessage).toHaveBeenCalledWith(9, undefined, 210, { fileIds: [11], driveFileIds: undefined });
   });
 });
 

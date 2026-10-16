@@ -467,8 +467,14 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
       const data = (await http.get(`/messaging/channels/${channelId}/messages`, { params: { limit, ...(cursor && { cursor }) } })).data;
       return { items: data?.items ?? [], nextCursor: data?.nextCursor, hasMore: data?.hasMore };
     },
-    async addChannelMessage(channelId, body, parentMessageId) {
-      await http.post(`/messaging/channels/${channelId}/messages`, { body, parentMessageId });
+    async addChannelMessage(channelId, body, parentMessageId, attachments) {
+      // 빈 배열은 싣지 않는다 — 서버가 null/빈 목록을 같게 보지만 요청 본문을 최소로 둔다(WP-423).
+      await http.post(`/messaging/channels/${channelId}/messages`, {
+        body,
+        parentMessageId,
+        ...(attachments?.fileIds?.length && { fileIds: attachments.fileIds }),
+        ...(attachments?.driveFileIds?.length && { driveFileIds: attachments.driveFileIds }),
+      });
     },
     async getThreadReplies(messageId, params) {
       return (await http.get(`/messaging/messages/${messageId}/replies`, { params })).data;

@@ -293,6 +293,15 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(http.post).toHaveBeenCalledWith('/messaging/channels/9/messages', { body: '답', parentMessageId: 210 });
   });
 
+  // WP-423: 첨부 id 는 서버 CreateMessageRequest 에 그대로 싣고, 빈 배열·본문 없음은 생략한다.
+  it('addChannelMessage 는 fileIds·driveFileIds 를 싣고 빈 배열은 생략한다', async () => {
+    const { http, client } = mockHttp();
+    await client.addChannelMessage(9, undefined, 210, { fileIds: [11], driveFileIds: [] });
+    expect(http.post).toHaveBeenLastCalledWith('/messaging/channels/9/messages', { parentMessageId: 210, fileIds: [11] });
+    await client.addChannelMessage(9, '글', undefined, { fileIds: [], driveFileIds: [5, 6] });
+    expect(http.post).toHaveBeenLastCalledWith('/messaging/channels/9/messages', { body: '글', driveFileIds: [5, 6] });
+  });
+
   it('listDriveItems 는 parentId 가 없으면 params undefined, 있으면 {parentId}', async () => {
     const { http, client } = mockHttp();
     await client.listDriveItems(3);
