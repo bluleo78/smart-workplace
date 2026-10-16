@@ -685,7 +685,7 @@ class PublicDriveTransferControllerIntegrationTest extends IntegrationTestBase {
   void put_expiredToken_isGone_andNotConsumed() throws Exception {
     String path = issueUploadPath(owner, "{\"name\":\"만료.txt\"}");
     String hash =
-        com.workplace.drive.service.DriveShareLinkService.sha256Hex(
+        com.workplace.global.util.CapabilityTokens.sha256Hex(
             path.substring(path.lastIndexOf('/') + 1));
     cleanupInTenant(
         1L,
@@ -855,7 +855,7 @@ class PublicDriveTransferControllerIntegrationTest extends IntegrationTestBase {
             .getResponse()
             .getContentAsString();
     String token = objectMapper.readTree(body).get("url").asText().replaceAll(".*/", "");
-    String hash = com.workplace.drive.service.DriveShareLinkService.sha256Hex(token);
+    String hash = com.workplace.global.util.CapabilityTokens.sha256Hex(token);
     cleanupInTenant(
         1L,
         () -> {

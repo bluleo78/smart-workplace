@@ -91,8 +91,8 @@ const EXPECTED: Record<string, readonly [kind: string, destructive: boolean | nu
   // WP-355: 참여·리액션 추가는 추가만 하고 서버가 이미 있으면 그대로 둬(ON CONFLICT DO NOTHING·이벤트 없음) 멱등이다. 리액션 제거는 없던 것도 오류 없이 같은 결과,
   // 읽음 처리는 위치가 후퇴하지 않아(GREATEST), 메시지 수정은 같은 본문을 다시 보내도 저장 상태가 같고 알림이 없어(SSE 만) 멱등이다. 제거·읽음·수정은 지우거나 덮어쓴다.
   join_channel: ['write', false, true, false],
-  add_reaction: ['write', false, true, false],
-  remove_reaction: ['write', true, true, false],
+  // WP-421: 추가·제거를 합친 도구는 최종 상태(reacted·watching)를 받아 멱등이고, 제거 갈래가 있어 destructive 다.
+  react_to_message: ['write', true, true, false],
   update_channel_message: ['write', true, true, false],
   mark_channel_read: ['write', true, true, false],
   search_drive: ['read', R, R, R],
@@ -100,7 +100,8 @@ const EXPECTED: Record<string, readonly [kind: string, destructive: boolean | nu
   search_members: ['read', R, R, R],
   search_wiki: ['read', R, R, R],
   sync_mail: ['write', true, false, true],
-  unwatch_issue: ['write', true, true, false],
+  // WP-421: 첨부용 파일을 올려 둔다 — 추가만 하고 부를 때마다 새 파일·링크가 생겨 비멱등.
+  upload_file: ['write', false, false, false],
   update_comment: ['write', true, true, false],
   update_external_contact: ['write', true, true, false],
   update_issue: ['write', true, true, false],
@@ -108,7 +109,7 @@ const EXPECTED: Record<string, readonly [kind: string, destructive: boolean | nu
   update_project_meta: ['write', true, true, false],
   update_user_group: ['write', true, true, false],
   update_wiki_page: ['write', true, false, false],
-  watch_issue: ['write', false, true, false],
+  watch_issue: ['write', true, true, false],
 };
 
 describe('도구 연산 성격 표(WP-342)', () => {

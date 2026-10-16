@@ -13,6 +13,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.drive.dto.CreateShareLinkRequest;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.global.util.CapabilityTokens;
 import com.workplace.support.IntegrationTestBase;
 import java.util.ArrayList;
 import java.util.List;
@@ -97,7 +98,7 @@ class DriveShareLinkDownloadTest extends IntegrationTestBase {
     long fileId = seedFile(seedSpace(owner));
     var created =
         service.create(owner, fileId, new CreateShareLinkRequest("EXTERNAL", "secret", null));
-    String tokenHash = DriveShareLinkService.sha256Hex(created.token());
+    String tokenHash = CapabilityTokens.sha256Hex(created.token());
     createdTokenHashes.add(tokenHash);
     dsl.update(TENANT).set(TENANT.STATUS, "DELETED").where(TENANT.ID.eq(1L)).execute();
     TenantContext.clear();
@@ -117,7 +118,7 @@ class DriveShareLinkDownloadTest extends IntegrationTestBase {
     long fileId = seedFile(seedSpace(owner));
     var created =
         service.create(owner, fileId, new CreateShareLinkRequest("EXTERNAL", "secret", null));
-    String tokenHash = DriveShareLinkService.sha256Hex(created.token());
+    String tokenHash = CapabilityTokens.sha256Hex(created.token());
     createdTokenHashes.add(tokenHash);
     TenantContext.clear();
 
@@ -150,7 +151,7 @@ class DriveShareLinkDownloadTest extends IntegrationTestBase {
     long fileId = seedFile(seedSpace(owner));
     var created =
         service.create(owner, fileId, new CreateShareLinkRequest("EXTERNAL", "secret", null));
-    createdTokenHashes.add(DriveShareLinkService.sha256Hex(created.token()));
+    createdTokenHashes.add(CapabilityTokens.sha256Hex(created.token()));
     TenantContext.clear();
 
     for (int i = 0; i < 3; i++) {

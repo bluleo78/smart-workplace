@@ -63,6 +63,13 @@ describe('getToolDisplay — 옛 도구 이름 폴백', () => {
     expect(getToolDisplay('workplace_move_drive_file').label).toBe('파일 이동');
     expect(getToolDisplay('rename_drive_item')).toEqual(TOOL_LABELS.rename_drive_item);
     expect(getToolDisplay('move_drive_item')).toEqual(TOOL_LABELS.move_drive_item);
+    // WP-421: 구독·리액션 도구를 하나씩으로 합침 — 옛 이름은 LEGACY 폴백(옛 라벨 그대로), 새 이름은 공유 TOOL_LABELS.
+    expect(getToolDisplay('mcp__workplace__unwatch_issue')).toEqual({ label: '이슈 구독 해제', icon: '👀' });
+    expect(getToolDisplay('add_reaction')).toEqual({ label: '리액션 추가', icon: '👍' });
+    expect(getToolDisplay('remove_reaction')).toEqual({ label: '리액션 제거', icon: '👍' });
+    expect(getToolDisplay('watch_issue')).toEqual(TOOL_LABELS.watch_issue);
+    expect(getToolDisplay('react_to_message')).toEqual(TOOL_LABELS.react_to_message);
+    expect(getToolDisplay('upload_file')).toEqual({ label: '파일 올리기', icon: '📤' });
     // 새 이름은 공유 TOOL_LABELS 에서 같은 라벨을 쓴다.
     expect(getToolDisplay('update_comment').label).toBe('코멘트 수정');
     expect(getToolDisplay('list_thread_replies').label).toBe('스레드 답글 조회');

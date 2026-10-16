@@ -49,6 +49,32 @@ public final class MimeNormalizer {
           Map.entry("bmp", "image/bmp"));
 
   /**
+   * 텍스트로 만드는 파일(드라이브 텍스트 파일·스테이징 텍스트 업로드)의 확장자 → MIME. 이 넷 밖은 모두 text/plain 이다 — html 등이 저장 MIME 으로
+   * 인라인 서빙돼 문서로 렌더링·실행되지 않게 한다.
+   */
+  private static final Map<String, String> TEXT_MIME_BY_EXTENSION =
+      Map.of(
+          "md", "text/markdown",
+          "txt", "text/plain",
+          "csv", "text/csv",
+          "json", "application/json");
+
+  /**
+   * 텍스트 내용으로 만드는 파일의 MIME 을 이름 확장자로 정한다(WP-421, drive R4 규칙을 옮겨 공유). md→text/markdown,
+   * txt→text/plain, csv→text/csv, json→application/json, 그 밖(확장자 없음·html·null 포함)은 text/plain.
+   */
+  public static String textMimeOf(String name) {
+    String ext = FilePathBuilder.extensionOf(name == null ? "" : name).toLowerCase(Locale.ROOT);
+    return TEXT_MIME_BY_EXTENSION.getOrDefault(ext, "text/plain");
+  }
+
+  /** 텍스트 내용으로 만드는 파일에 명시할 수 있는 MIME 인지 — {@link #textMimeOf} 의 확장자 표에 있는 넷. null 은 아니다. */
+  public static boolean isTextMime(String mime) {
+    // Map.of 의 containsValue(null) 은 NPE 라 먼저 거른다.
+    return mime != null && TEXT_MIME_BY_EXTENSION.containsValue(mime);
+  }
+
+  /**
    * mime 기본형 — 파라미터(";" 뒤)를 떼고 앞뒤 공백을 지운 소문자. "application/pdf; charset=binary" →
    * "application/pdf". null 이면 빈 문자열(호출자가 "모름"으로 다룬다). 보기·워커 응답·메일 파트처럼 Content-Type 원문을 비교하는 곳이 같은
    * 규칙을 쓰게 한다.

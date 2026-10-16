@@ -5,6 +5,14 @@ import { AGENT_WORK_STATE_INPUTS } from './tool-client.js';
 /** issueKey 만 받는 최소 입력. */
 export const issueKeyInput = z.object({ issueKey: z.string().min(1) });
 
+/**
+ * watch_issue 입력(WP-421) — 구독·해제를 한 도구로 합쳤다. watching 은 최종 상태라 필수다(빠뜨리면 어느 쪽인지 모호해 거절,
+ * 같은 값을 다시 보내도 결과가 같아 멱등).
+ */
+export const watchIssueInput = issueKeyInput.extend({
+  watching: z.boolean().describe('true watches, false stops watching'),
+});
+
 /** get_issue_detail 입력 — issueKey 에 코멘트 전체 읽기(allComments)를 더했다(WP-353: 기본은 최근 30건, allComments 는 최근 200건까지). */
 export const getIssueDetailInput = issueKeyInput.extend({
   allComments: z.boolean().optional(),

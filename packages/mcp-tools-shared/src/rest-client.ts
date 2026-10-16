@@ -580,6 +580,14 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
       return (await http.post(`/drive/files/${driveFileId}/upload-link`)).data;
     },
 
+    // ── 스테이징 업로드(WP-421) ── 첨부용 파일을 먼저 올려 두고 도메인 쓰기의 fileIds 로 붙인다. 링크 바이트는 MCP 가 아니라 curl 이 공개 경로로 보낸다.
+    async createStagedTextFile(name, content) {
+      return (await http.post('/staged-files/text', { name, content })).data;
+    },
+    async createStagedUploadLink(name) {
+      return (await http.post('/staged-files/upload-link', { name })).data;
+    },
+
     // ── 첨부·파일 내용 읽기(WP-346) ── 이슈 첨부는 프로젝트 멤버, 드라이브는 스페이스 VIEWER 를 서버가 확인한다.
     async readIssueAttachmentText(issueKey, fileId, range) {
       return (await http.get(`${issue(issueKey)}/attachments/${fileId}/text`, rangeParams(range))).data;

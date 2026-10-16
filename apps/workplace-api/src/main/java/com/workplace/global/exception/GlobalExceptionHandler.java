@@ -22,6 +22,7 @@ import com.workplace.cycle.exception.InvalidCycleStatusException;
 import com.workplace.file.exception.FileBlobMissingException;
 import com.workplace.file.exception.FileNotFoundException;
 import com.workplace.file.exception.FileSizeLimitExceededException;
+import com.workplace.file.exception.StagedFileUnusableException;
 import com.workplace.file.exception.UnsupportedUploadFileTypeException;
 import com.workplace.fileai.exception.AttachmentViewException;
 import com.workplace.fileai.exception.InvalidTextRangeException;
@@ -470,6 +471,17 @@ public class GlobalExceptionHandler {
   public ResponseEntity<ErrorResponse> handleTransferUploadRejected(
       com.workplace.drive.exception.DriveTransferUploadRejectedException ex,
       HttpServletRequest request) {
+    ErrorResponse response = buildError(ex.status(), ex.getMessage(), null, request);
+    return ResponseEntity.status(ex.status()).body(response);
+  }
+
+  /**
+   * 스테이징 업로드 링크(WP-421) 거부 — 상태는 예외가 정한다: 없음·잘못된 토큰·비활성 테넌트 404, 만료·사용됨 410, 발급자 권한 상실 403, PUT 본문
+   * 거부 400·415·500. 문구에 내부 id 없음(새 링크 발급을 안내한다).
+   */
+  @ExceptionHandler(com.workplace.file.exception.StagedUploadRejectedException.class)
+  public ResponseEntity<ErrorResponse> handleStagedUploadRejected(
+      com.workplace.file.exception.StagedUploadRejectedException ex, HttpServletRequest request) {
     ErrorResponse response = buildError(ex.status(), ex.getMessage(), null, request);
     return ResponseEntity.status(ex.status()).body(response);
   }
@@ -1200,6 +1212,20 @@ public class GlobalExceptionHandler {
       AttachmentTooLargeException ex, HttpServletRequest request) {
     return ResponseEntity.badRequest()
         .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
+  }
+
+  /**
+   * 스테이징 파일 클레임 거절(WP-421) — 400. 없는·남의·영구·만료·다른 곳에 묶인 파일을 같은 문구로 알려 존재·상태를 드러내지 않는다. 어느 id 인지는 응답에
+   * 넣지 않고 debug 로그에만 남긴다(추적용).
+   */
+  @ExceptionHandler(StagedFileUnusableException.class)
+  public ResponseEntity<ErrorResponse> handleStagedFileUnusable(
+      StagedFileUnusableException ex, HttpServletRequest request) {
+    log.debug("스테이징 파일 클레임 거절 fileId={}", ex.fileId());
+    return ResponseEntity.badRequest()
+        .body(
+            buildError(
+                HttpStatus.BAD_REQUEST, StagedFileUnusableException.USER_MESSAGE, null, request));
   }
 
   /** Drive/파일 업로드 시 허용되지 않은 MIME 타입 — 400. */

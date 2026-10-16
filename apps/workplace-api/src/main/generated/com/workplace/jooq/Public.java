@@ -93,6 +93,7 @@ import com.workplace.jooq.tables.SharedAiMemory;
 import com.workplace.jooq.tables.SharedAiMemoryChange;
 import com.workplace.jooq.tables.SharedAiMemoryForgotten;
 import com.workplace.jooq.tables.Shedlock;
+import com.workplace.jooq.tables.StagedUploadLink;
 import com.workplace.jooq.tables.Tenant;
 import com.workplace.jooq.tables.TenantCanary;
 import com.workplace.jooq.tables.ThreadReadState;
@@ -584,6 +585,11 @@ public class Public extends SchemaImpl {
     public final Shedlock SHEDLOCK = Shedlock.SHEDLOCK;
 
     /**
+     * The table <code>public.staged_upload_link</code>.
+     */
+    public final StagedUploadLink STAGED_UPLOAD_LINK = StagedUploadLink.STAGED_UPLOAD_LINK;
+
+    /**
      * 테넌트(고객사 워크스페이스) — 글로벌
      */
     public final Tenant TENANT = Tenant.TENANT;
@@ -800,6 +806,7 @@ public class Public extends SchemaImpl {
             SharedAiMemoryChange.SHARED_AI_MEMORY_CHANGE,
             SharedAiMemoryForgotten.SHARED_AI_MEMORY_FORGOTTEN,
             Shedlock.SHEDLOCK,
+            StagedUploadLink.STAGED_UPLOAD_LINK,
             Tenant.TENANT,
             TenantCanary.TENANT_CANARY,
             ThreadReadState.THREAD_READ_STATE,

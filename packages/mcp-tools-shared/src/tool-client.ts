@@ -170,7 +170,7 @@ export interface IssueToolClient extends ProjectMetaClient, CurrentUserClient {
   replaceIssueCycles(issueKey: string, cycleIds: number[]): Promise<unknown>;
   /** GET .../cycles — 이슈에 연결된 사이클 요약(id·name·status). get_issue_detail 동봉용(WP-176). */
   getIssueCycles(issueKey: string): Promise<{ id: number; name: string; status: string }[]>;
-  /** POST/DELETE .../watch — 멱등(이미 워치 중이면 no-op). */
+  /** POST/DELETE .../watch — 멱등(이미 워치 중이면 no-op). 도구는 watch_issue 하나이고 watching 값으로 핸들러가 둘 중 하나를 고른다(WP-421). */
   watchIssue(issueKey: string): Promise<void>;
   unwatchIssue(issueKey: string): Promise<void>;
   /** GET .../watchers — 워처 목록(WatcherResponse: userId·username·name). get_issue_detail 동봉용(WP-356). */
@@ -447,7 +447,7 @@ export interface MessagingToolClient {
   addChannelMember(channelId: number, userId: number): Promise<void>;
   /** POST /messaging/channels/{id}/join — 공개 채널만(비공개 403), 이미 멤버면 no-op(WP-355). */
   joinChannel(channelId: number): Promise<void>;
-  /** POST /messaging/messages/{id}/reactions — 이미 눌렀으면 no-op(멱등), 채널 멤버만. emoji 1~32자(WP-355). */
+  /** POST /messaging/messages/{id}/reactions — 이미 눌렀으면 no-op(멱등), 채널 멤버만. emoji 1~32자(WP-355). 도구는 react_to_message 가 reacted 로 고른다(WP-421). */
   addReaction(messageId: number, emoji: string): Promise<void>;
   /** DELETE /messaging/messages/{id}/reactions?emoji= — 누른 적 없으면 no-op(멱등)(WP-355). */
   removeReaction(messageId: number, emoji: string): Promise<void>;
@@ -524,6 +524,36 @@ export interface DriveToolClient {
    * PUT 은 이름 검색 없이 그 파일의 새 버전이 되고, 이름·폴더는 그대로다(발급 뒤 이름이 바뀌어도 같은 파일).
    */
   createDriveVersionUploadLink(driveFileId: number): Promise<DriveUploadLink>;
+}
+
+/**
+ * 스테이징 파일(WP-421) — 이슈·메시지·노트 쓰기 도구의 fileIds 에 넘길 임시 첨부를 먼저 올려 둔다. 어느 도메인에 붙일지는 클레임(fileIds) 때
+ * 그 도메인이 자기 권한으로 정하므로 여기서는 인증만 필요하다. 24시간(expiresAt) 안에 붙이지 않으면 서버 만료 정리가 지운다.
+ */
+export interface FileToolClient {
+  /** POST /staged-files/text — 201. UTF-8 텍스트로 저장(MIME 은 서버가 이름으로: md·txt·csv·json, 그 밖은 text/plain). StagedFileResponse 원형. */
+  createStagedTextFile(name: string, content: string): Promise<StagedFile>;
+  /** POST /staged-files/upload-link — 201. 10분짜리 일회용 PUT 링크(평문 토큰은 이 응답에서만). StagedUploadLinkResponse 원형. */
+  createStagedUploadLink(name: string): Promise<StagedUploadLink>;
+}
+
+/** 스테이징 파일 응답(WP-421 서버 계약 StagedFileResponse) — 텍스트 만들기와 링크 PUT 이 같은 모양으로 준다. */
+export interface StagedFile {
+  fileId: number;
+  name: string;
+  sizeBytes: number;
+  mimeType: string;
+  expiresAt: string;
+}
+
+/** 스테이징 업로드 링크 응답(WP-421 서버 계약 StagedUploadLinkResponse). maxBytes 는 일률 25MB(목적지 상한은 클레임에서 다시 본다). */
+export interface StagedUploadLink {
+  url: string;
+  method: 'PUT';
+  expiresAt: string;
+  maxBytes: number;
+  name: string;
+  singleUse: boolean;
 }
 
 /** 다운로드 링크 발급 응답(WP-369 서버 계약). 사용자 id 는 없다. */

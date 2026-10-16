@@ -22,9 +22,9 @@ import com.workplace.drive.repository.DriveFileRepository;
 import com.workplace.drive.repository.DriveFileVersionRepository;
 import com.workplace.drive.repository.DriveQuotaRepository;
 import com.workplace.drive.repository.DriveTransferLinkRepository.TransferLinkRow;
-import com.workplace.drive.service.DriveTransferLinkService.ReceivedBody;
 import com.workplace.file.service.UploadSource;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.global.util.BoundedBody;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import java.nio.charset.StandardCharsets;
@@ -300,7 +300,8 @@ class DriveFileVersionLockRaceTest extends IntegrationTestBase {
             OffsetDateTime.now().plusMinutes(10),
             OffsetDateTime.now());
 
-    try (ReceivedBody received = new ReceivedBody(body, Files.size(body), "text/markdown")) {
+    try (BoundedBody.Received received =
+        new BoundedBody.Received(body, Files.size(body), "text/markdown")) {
       assertThatThrownBy(() -> transfers.completeUpload(link, received, "127.0.0.1", "test"))
           .isInstanceOfSatisfying(
               DriveTransferUploadRejectedException.class,

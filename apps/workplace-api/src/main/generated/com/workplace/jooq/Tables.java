@@ -93,6 +93,7 @@ import com.workplace.jooq.tables.SharedAiMemory;
 import com.workplace.jooq.tables.SharedAiMemoryChange;
 import com.workplace.jooq.tables.SharedAiMemoryForgotten;
 import com.workplace.jooq.tables.Shedlock;
+import com.workplace.jooq.tables.StagedUploadLink;
 import com.workplace.jooq.tables.Tenant;
 import com.workplace.jooq.tables.TenantCanary;
 import com.workplace.jooq.tables.ThreadReadState;
@@ -567,6 +568,11 @@ public class Tables {
      * The table <code>public.shedlock</code>.
      */
     public static final Shedlock SHEDLOCK = Shedlock.SHEDLOCK;
+
+    /**
+     * The table <code>public.staged_upload_link</code>.
+     */
+    public static final StagedUploadLink STAGED_UPLOAD_LINK = StagedUploadLink.STAGED_UPLOAD_LINK;
 
     /**
      * 테넌트(고객사 워크스페이스) — 글로벌

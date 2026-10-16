@@ -21,8 +21,7 @@ export const TOOL_LABELS: Readonly<Record<string, ToolLabel>> = {
   update_comment: { label: '코멘트 수정', icon: '✏️' },
   add_issue_dependency: { label: '이슈 의존관계 추가', icon: '🔗' },
   remove_issue_dependency: { label: '이슈 의존관계 제거', icon: '🔗' },
-  watch_issue: { label: '이슈 구독', icon: '👀' },
-  unwatch_issue: { label: '이슈 구독 해제', icon: '👀' },
+  watch_issue: { label: '이슈 구독 변경', icon: '👀' }, // WP-421: watch_issue·unwatch_issue 통합(watching)
   // 프로젝트
   list_projects: { label: '프로젝트 목록', icon: '🗂️' },
   get_project: { label: '프로젝트 조회', icon: '🗂️' },
@@ -57,11 +56,12 @@ export const TOOL_LABELS: Readonly<Record<string, ToolLabel>> = {
   leave_channel: { label: '채널 나가기', icon: '🚪' },
   add_channel_member: { label: '채널 초대', icon: '👥' },
   join_channel: { label: '채널 참여', icon: '🚪' },
-  add_reaction: { label: '리액션 추가', icon: '👍' },
-  remove_reaction: { label: '리액션 제거', icon: '👍' },
+  react_to_message: { label: '리액션', icon: '👍' }, // WP-421: add_reaction·remove_reaction 통합(reacted)
   update_channel_message: { label: '채널 메시지 수정', icon: '✏️' },
   mark_channel_read: { label: '채널 읽음 처리', icon: '✅' },
   open_dm: { label: 'DM 열기', icon: '✉️' },
+  // 첨부용 파일(이슈·메시지·노트 공용)
+  upload_file: { label: '파일 올리기', icon: '📤' }, // WP-421
   // 캘린더
   list_events: { label: '일정 조회', icon: '📅' },
   get_event: { label: '일정 상세', icon: '📅' },

@@ -37,6 +37,11 @@ export const LEGACY_TOOL_LABELS: Record<string, ToolLabel> = {
   move_drive_folder: { label: '폴더 이동', icon: '📦' },
   move_drive_file: { label: '파일 이동', icon: '📦' },
   read_attachment: { label: '첨부·파일 읽기', icon: '📎' },
+  // WP-421: 앱당 도구 15개 상한 안에 upload_file 자리를 만들려고 구독·해제를 watch_issue(watching), 리액션 추가·제거를
+  // react_to_message(reacted) 하나씩으로 합침(옛 라벨 값 그대로).
+  unwatch_issue: { label: '이슈 구독 해제', icon: '👀' },
+  add_reaction: { label: '리액션 추가', icon: '👍' },
+  remove_reaction: { label: '리액션 제거', icon: '👍' },
 };
 
 export function getToolDisplay(toolName: string): ToolLabel {

@@ -68,9 +68,14 @@ export function toDriveDownloadLinkView({ url, expiresAt, name, sizeBytes, mimeT
   return { url, expiresAt, name, sizeBytes, mimeType, singleUse };
 }
 
-/** 업로드 링크 note 의 공통 앞부분 — 한 번만·원시 바이트·Content-Type 금지(이유는 toDriveUploadLinkView 주석). */
-const UPLOAD_LINK_NOTE_COMMON =
+/** 업로드 링크 note 의 공통 앞부분 — 한 번만·원시 바이트·Content-Type 금지(이유는 toDriveUploadLinkView 주석). 스테이징 링크(WP-421)도 같은 PUT 규칙이라 함께 쓴다. */
+export const UPLOAD_LINK_NOTE_COMMON =
   '링크는 만료(expiresAt) 전에 한 번만 쓸 수 있습니다. 위 명령 그대로 원시 바이트로 보내고 -H Content-Type·--data-binary·폼은 쓰지 마세요. ';
+
+/** 업로드 링크에 그대로 붙여 쓸 curl 명령(원시 바이트 PUT) — 드라이브·스테이징(WP-421) 업로드 링크 뷰의 howTo 가 같이 쓴다. */
+export function curlPutHowTo(url: string): string {
+  return `curl -T <local file> "${url}"`;
+}
 
 /**
  * 업로드 링크 발급 응답 → LLM 뷰(WP-369). 서버 url 을 uploadUrl 로 바꿔 다운로드 링크(url)와 헷갈리지 않게 하고, 그대로 붙여 쓸
@@ -88,7 +93,7 @@ export function toDriveUploadLinkView({ url, method, expiresAt, maxBytes, name, 
     maxBytes,
     name,
     singleUse,
-    howTo: `curl -T <local file> "${url}"`,
+    howTo: curlPutHowTo(url),
     note:
       driveFileId == null
         ? UPLOAD_LINK_NOTE_COMMON +

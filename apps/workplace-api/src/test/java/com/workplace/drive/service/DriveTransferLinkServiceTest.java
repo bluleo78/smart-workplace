@@ -25,10 +25,11 @@ import com.workplace.drive.exception.DriveTransferLinkNotFoundException;
 import com.workplace.drive.exception.DriveTransferUploadRejectedException;
 import com.workplace.drive.repository.DriveTransferLinkRepository;
 import com.workplace.drive.repository.DriveTransferLinkRepository.TransferLinkRow;
-import com.workplace.drive.service.DriveTransferLinkService.ReceivedBody;
 import com.workplace.file.service.FileUploadService.FileContentResult;
 import com.workplace.file.storage.FileStore;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.global.util.BoundedBody;
+import com.workplace.global.util.CapabilityTokens;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import java.io.ByteArrayInputStream;
@@ -123,7 +124,7 @@ class DriveTransferLinkServiceTest extends IntegrationTestBase {
     String token = tokenOf(r);
     var row =
         dsl.selectFrom(DRIVE_TRANSFER_LINK)
-            .where(DRIVE_TRANSFER_LINK.TOKEN_HASH.eq(DriveShareLinkService.sha256Hex(token)))
+            .where(DRIVE_TRANSFER_LINK.TOKEN_HASH.eq(CapabilityTokens.sha256Hex(token)))
             .fetchOne();
     assertThat(row).isNotNull();
     assertThat(row.getKind()).isEqualTo("DOWNLOAD");
@@ -309,7 +310,7 @@ class DriveTransferLinkServiceTest extends IntegrationTestBase {
     assertThat(used.getUserAgent()).isEqualTo("curl/8.5");
     assertThat(used.getMetadata().data())
         .doesNotContain(token)
-        .doesNotContain(DriveShareLinkService.sha256Hex(token));
+        .doesNotContain(CapabilityTokens.sha256Hex(token));
   }
 
   /** 익명 요청의 X-Forwarded-For 가 열 길이(45)를 넘어도 감사 기록이 실패하지 않는다(잘라 넣음). */
@@ -362,7 +363,7 @@ class DriveTransferLinkServiceTest extends IntegrationTestBase {
     String token = r.url().substring(r.url().lastIndexOf('/') + 1);
     var row =
         dsl.selectFrom(DRIVE_TRANSFER_LINK)
-            .where(DRIVE_TRANSFER_LINK.TOKEN_HASH.eq(DriveShareLinkService.sha256Hex(token)))
+            .where(DRIVE_TRANSFER_LINK.TOKEN_HASH.eq(CapabilityTokens.sha256Hex(token)))
             .fetchOne();
     assertThat(row.getKind()).isEqualTo("UPLOAD");
     assertThat(row.getFolderId()).isEqualTo(folder.id());
@@ -512,7 +513,7 @@ class DriveTransferLinkServiceTest extends IntegrationTestBase {
     assertThat(tempPartFiles()).isEqualTo(before);
 
     byte[] small = "작은 본문".getBytes(StandardCharsets.UTF_8);
-    ReceivedBody body =
+    BoundedBody.Received body =
         transfers.receiveBody(link, new ByteArrayInputStream(small), "Text/Plain; charset=UTF-8");
     assertThat(body.size()).isEqualTo(small.length);
     assertThat(body.mimeType()).isEqualTo("text/plain");
@@ -653,7 +654,7 @@ class DriveTransferLinkServiceTest extends IntegrationTestBase {
         .set(
             DRIVE_TRANSFER_LINK.EXPIRES_AT,
             DSL.field("now() - interval '1 hour'", OffsetDateTime.class))
-        .where(DRIVE_TRANSFER_LINK.TOKEN_HASH.eq(DriveShareLinkService.sha256Hex(token)))
+        .where(DRIVE_TRANSFER_LINK.TOKEN_HASH.eq(CapabilityTokens.sha256Hex(token)))
         .execute();
   }
 
@@ -681,7 +682,7 @@ class DriveTransferLinkServiceTest extends IntegrationTestBase {
     assertThat(
             dsl.select(DRIVE_TRANSFER_LINK.USED_AT)
                 .from(DRIVE_TRANSFER_LINK)
-                .where(DRIVE_TRANSFER_LINK.TOKEN_HASH.eq(DriveShareLinkService.sha256Hex(token)))
+                .where(DRIVE_TRANSFER_LINK.TOKEN_HASH.eq(CapabilityTokens.sha256Hex(token)))
                 .fetchOne(DRIVE_TRANSFER_LINK.USED_AT))
         .isNull();
   }
@@ -704,8 +705,8 @@ class DriveTransferLinkServiceTest extends IntegrationTestBase {
     TransferLinkRow link = transfers.consumeUpload(token, null, 3);
     TenantContext.set(1L);
     // 받아 둔 임시 파일이 사라진 상황 — FileStore.storeFrom 의 복사가 실패한다
-    ReceivedBody gone =
-        new ReceivedBody(
+    BoundedBody.Received gone =
+        new BoundedBody.Received(
             java.nio.file.Path.of(tempDir, "drive-transfer-missing-" + UUID.randomUUID() + ".part"),
             3,
             null);
@@ -809,7 +810,7 @@ class DriveTransferLinkServiceTest extends IntegrationTestBase {
     TenantContext.set(1L);
     transfers.requireIssuerCanUpload(link);
     long before = tempPartFiles();
-    try (ReceivedBody body =
+    try (BoundedBody.Received body =
         transfers.receiveBody(link, new ByteArrayInputStream(new byte[] {'x'}), null)) {
       fileService.delete(owner, driveFileId);
       assertThatThrownBy(() -> transfers.completeUpload(link, body, null, null))
@@ -830,7 +831,9 @@ class DriveTransferLinkServiceTest extends IntegrationTestBase {
       Files.setPosixFilePermissions(
           base, java.nio.file.attribute.PosixFilePermissions.fromString("r-xr-xr-x"));
       org.junit.jupiter.api.Assumptions.assumeFalse(Files.isWritable(base), "권한을 무시하는 환경(root 등)");
-      assertThatThrownBy(() -> DriveTransferLinkService.prepareTempDir(base.toString()))
+      assertThatThrownBy(
+              () ->
+                  BoundedBody.prepareTempDir(base.toString(), "workplace.drive.transfer-temp-dir"))
           .isInstanceOf(IllegalStateException.class)
           .hasMessageContaining("workplace.drive.transfer-temp-dir")
           .hasMessageContaining("쓸 수 없습니다");
@@ -847,11 +850,11 @@ class DriveTransferLinkServiceTest extends IntegrationTestBase {
     java.nio.file.Path base = Files.createTempDirectory("drive-transfer-dir-test-");
     try {
       java.nio.file.Path nested = base.resolve("a/b");
-      assertThat(DriveTransferLinkService.prepareTempDir(nested.toString()))
+      assertThat(BoundedBody.prepareTempDir(nested.toString(), "workplace.drive.transfer-temp-dir"))
           .isEqualTo(nested.toAbsolutePath().normalize());
       assertThat(Files.isDirectory(nested)).isTrue();
 
-      assertThat(DriveTransferLinkService.prepareTempDir("  "))
+      assertThat(BoundedBody.prepareTempDir("  ", "workplace.drive.transfer-temp-dir"))
           .isEqualTo(
               java.nio.file.Path.of(System.getProperty("java.io.tmpdir"))
                   .toAbsolutePath()
@@ -859,7 +862,9 @@ class DriveTransferLinkServiceTest extends IntegrationTestBase {
 
       java.nio.file.Path file = Files.createFile(base.resolve("not-a-dir"));
       assertThatThrownBy(
-              () -> DriveTransferLinkService.prepareTempDir(file.resolve("sub").toString()))
+              () ->
+                  BoundedBody.prepareTempDir(
+                      file.resolve("sub").toString(), "workplace.drive.transfer-temp-dir"))
           .isInstanceOf(IllegalStateException.class)
           .hasMessageContaining("workplace.drive.transfer-temp-dir");
     } finally {
@@ -898,7 +903,8 @@ class DriveTransferLinkServiceTest extends IntegrationTestBase {
     TransferLinkRow link = transfers.consumeUpload(token, null, bytes.length);
     TenantContext.set(link.tenantId());
     transfers.requireIssuerCanUpload(link);
-    try (ReceivedBody body = transfers.receiveBody(link, new ByteArrayInputStream(bytes), null)) {
+    try (BoundedBody.Received body =
+        transfers.receiveBody(link, new ByteArrayInputStream(bytes), null)) {
       return transfers.completeUpload(link, body, "198.51.100.1", "curl/8.5");
     }
   }
@@ -920,7 +926,7 @@ class DriveTransferLinkServiceTest extends IntegrationTestBase {
   }
 
   private static String hash() {
-    return DriveShareLinkService.sha256Hex(UUID.randomUUID().toString());
+    return CapabilityTokens.sha256Hex(UUID.randomUUID().toString());
   }
 
   private boolean exists(long id) {

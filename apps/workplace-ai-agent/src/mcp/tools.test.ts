@@ -158,6 +158,9 @@ function sharedMock(): MockedShared {
     // WP-369 Task 3: 기존 파일의 새 버전(텍스트 갱신·파일에 묶인 업로드 링크)
     updateDriveTextFile: vi.fn().mockResolvedValue({ id: 8, fileId: 902, folderId: null, name: 'a.md', versionCount: 2 }),
     createDriveVersionUploadLink: vi.fn().mockResolvedValue({ url: 'https://w.example/ul2', method: 'PUT', expiresAt: 't', maxBytes: 10485760, name: 'a.md', singleUse: true }),
+    // WP-421: 첨부용 파일 스테이징(텍스트·일회용 링크)
+    createStagedTextFile: vi.fn().mockResolvedValue({ fileId: 950, name: '요약.md', sizeBytes: 8, mimeType: 'text/markdown', expiresAt: 't' }),
+    createStagedUploadLink: vi.fn().mockResolvedValue({ url: 'https://w.example/su', method: 'PUT', expiresAt: 't', maxBytes: 26214400, name: 'a.pdf', singleUse: true }),
     // 알림
     listNotifications: vi.fn().mockResolvedValue([]),
     countUnreadNotifications: vi.fn().mockResolvedValue(0),
@@ -309,8 +312,9 @@ describe('프로필 구성', () => {
   });
 
   // WP-355: 리액션·메시지 수정·읽음 처리·채널 참여는 사용자 신원(assistant)에만 싣는다 — 채널에서 멘션된 에이전트 신원(messaging)에는 주지 않는다(정책 보류).
+  // WP-421: 리액션 추가·제거는 react_to_message 하나로 합쳐졌다.
   it('WP-355: 채널 참여·리액션·메시지 수정·읽음 처리는 assistant 에만 있고 messaging 프로필·라우터 목록에는 없다', () => {
-    const added = ['join_channel', 'add_reaction', 'remove_reaction', 'update_channel_message', 'mark_channel_read'];
+    const added = ['join_channel', 'react_to_message', 'update_channel_message', 'mark_channel_read'];
     const assistant = buildTools(client(), AGENT_ID, 'assistant').map((t) => t.name);
     for (const n of added) {
       expect(assistant, n).toContain(n);
@@ -1787,6 +1791,37 @@ describe('공유로 옮긴 쓰기 도구는 에이전트 신원(toolClient(agent
     expect(t.description).not.toMatch(/curl|uploadUrl|one-time upload link|maxBytes/);
   });
 
+  // WP-421 결정 8: AI Chat 의 upload_file 은 텍스트 전용 — 웹 사용자에게는 셸이 없어 업로드 링크를 쓸 수 없다. 요청자 신원(assistant)에만 싣고
+  // 쓰기라 라우터 목록이 아니라 담당 subagent(issue-agent·messaging-agent frontmatter)에만 둔다.
+  it('upload_file 은 assistant 에만 있고(라우터 목록에는 없음) content 가 없으면 API 를 부르지 않고 오류', async () => {
+    const c = client();
+    const t = find(buildTools(c, 7, 'assistant'), 'upload_file');
+    expect(ASSISTANT_ROUTER_TOOLS).not.toContain('upload_file');
+    const out = await t.handler({ name: '요약.md', content: '# 요약' });
+    expect(c.toolClient).toHaveBeenCalledWith(7);
+    expect(c.sc.createStagedTextFile).toHaveBeenCalledWith('요약.md', '# 요약');
+    expect(JSON.parse(out as string)).toMatchObject({ fileId: 950, name: '요약.md' });
+    // 빈 문자열은 빈 파일(content 모드)이다.
+    await t.handler({ name: '빈.txt', content: '' });
+    expect(c.sc.createStagedTextFile).toHaveBeenLastCalledWith('빈.txt', '');
+    await expect(t.handler({ name: '보고서.pdf' })).rejects.toThrow(/AI Chat 에서는 업로드 링크를 만들 수 없습니다/);
+    await expect(t.handler({ name: '보고서.pdf', content: null })).rejects.toThrow(/AI Chat 에서는 업로드 링크를 만들 수 없습니다/);
+    expect(c.sc.createStagedUploadLink).not.toHaveBeenCalled();
+    // 설명은 한국어 머리말 + 공유 설명의 content 모드 부분만 — 링크·curl 안내는 싣지 않는다.
+    expect(t.description).toMatch(/^AI Chat 에서는/);
+    expect(t.description).toContain('Stages a file to attach');
+    expect(t.description).not.toMatch(/curl|uploadUrl|one-time upload link|maxBytes/);
+    // 스키마·힌트는 공유본 그대로(패리티).
+    expect(t.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: false, idempotentHint: false });
+  });
+
+  it('upload_file 은 에이전트 신원 issue·messaging·chat·home 프로필에는 없다(WP-421 결정 8)', () => {
+    for (const p of ['issue', 'chat', 'home', 'messaging'] as McpProfile[]) {
+      expect(buildTools(client(), AGENT_ID, p).map((t) => t.name), p).not.toContain('upload_file');
+    }
+    expect(buildTools(client(), AGENT_ID, 'messaging', undefined, { actorId: 7, channelId: 9 }).map((t) => t.name)).not.toContain('upload_file');
+  });
+
   it('create_drive_download_link(assistant) — 요청자 신원의 공유 클라이언트로 링크를 만든다', async () => {
     const c = client();
     const out = await find(buildTools(c, 7, 'assistant'), 'create_drive_download_link').handler({ driveFileId: 5 });
@@ -1795,10 +1830,12 @@ describe('공유로 옮긴 쓰기 도구는 에이전트 신원(toolClient(agent
     expect(JSON.parse(out as string)).toMatchObject({ url: 'https://w.example/dl', singleUse: true });
   });
 
-  it('옛 이름(create_folder·rename_folder·move_folder·move_file, WP-369 의 rename/move_drive_file·folder·read_attachment)은 어떤 프로필에도 없다', () => {
+  it('옛 이름(create_folder·rename_folder·move_folder·move_file, WP-369 의 rename/move_drive_file·folder·read_attachment, WP-421 의 unwatch_issue·add/remove_reaction)은 어떤 프로필에도 없다', () => {
     const old = [
       'create_folder', 'rename_folder', 'move_folder', 'move_file',
       'rename_drive_file', 'rename_drive_folder', 'move_drive_file', 'move_drive_folder', 'read_attachment',
+      // WP-421: watch_issue·react_to_message 로 합쳐진 이름
+      'unwatch_issue', 'add_reaction', 'remove_reaction',
     ];
     for (const p of ['issue', 'chat', 'home', 'messaging', 'assistant'] as McpProfile[]) {
       const names = buildTools(client(), AGENT_ID, p).map((t) => t.name);

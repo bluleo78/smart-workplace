@@ -23,10 +23,10 @@ describe('messaging-agent 정의', () => {
       'mcp__workplace__leave_channel',
       // WP-355: 채널 참여·리액션·내 메시지 수정·읽음 처리(사용자 신원, 직접 실행)
       'mcp__workplace__join_channel',
-      'mcp__workplace__add_reaction',
-      'mcp__workplace__remove_reaction',
+      'mcp__workplace__react_to_message', // WP-421: add_reaction·remove_reaction 통합
       'mcp__workplace__update_channel_message',
       'mcp__workplace__mark_channel_read',
+      'mcp__workplace__upload_file', // WP-421: 첨부용 텍스트 파일 올려 두기(AI Chat 은 content 모드만)
       'mcp__workplace__propose_add_channel_member', // #856: 채널 초대 제안
       'mcp__workplace__propose_leave_channel', // #860: 비공개 채널 나가기 제안
       'mcp__workplace__search_members', // #844: 이름 → 멘션 userId
@@ -93,5 +93,13 @@ describe('messaging-agent 정의', () => {
     expect(prompt).toContain('read_file(source="message", channelId, messageId, attachmentId, offset?, limit?)');
     expect(prompt).toContain('`attachments[].fileId`');
     expect(prompt).toMatch(/READY.*내용을 추측하지 말고/s);
+  });
+  // WP-421: 리액션 추가·제거가 react_to_message(reacted) 하나로 합쳐졌고, 첨부용 텍스트는 upload_file 의 content 로만 올린다.
+  it('react_to_message(reacted)·upload_file(content 전용) 안내가 있고 옛 add/remove_reaction 은 없다 (WP-421)', () => {
+    const prompt = loaded['messaging-agent'].prompt;
+    expect(prompt).toContain('react_to_message(messageId, emoji, reacted)');
+    expect(prompt).not.toMatch(/add_reaction|remove_reaction/);
+    expect(prompt).toContain('upload_file(name, content)');
+    expect(prompt).toContain('업로드 링크는 만들 수 없습니다');
   });
 });

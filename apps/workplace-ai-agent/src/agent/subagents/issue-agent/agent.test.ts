@@ -12,7 +12,7 @@ describe('issue-agent 정의', () => {
     expect(loaded['issue-agent']).toBeDefined();
   });
 
-  it('tools 는 이슈 MCP 도구 + #371 list_issues + 신규 create/update_issue/update_comment + watch/unwatch_issue + 이슈·코멘트 삭제 제안(#856) 을 포함한다', () => {
+  it('tools 는 이슈 MCP 도구 + #371 list_issues + 신규 create/update_issue/update_comment + watch_issue + upload_file + 이슈·코멘트 삭제 제안(#856) 을 포함한다', () => {
     expect(loaded['issue-agent'].tools).toEqual([
       'mcp__workplace__list_issues',
       'mcp__workplace__get_issue_detail',
@@ -25,9 +25,10 @@ describe('issue-agent 정의', () => {
       // #844: 의존관계 쓰기 + 쓰기 값 조달용 조회(유형·라벨, 사람 username)
       'mcp__workplace__add_issue_dependency',
       'mcp__workplace__remove_issue_dependency',
-      // #854: 이슈 워치/해제(멱등)
+      // #854: 이슈 워치/해제(멱등) — WP-421 에서 watch_issue(watching) 하나로 합쳐졌다
       'mcp__workplace__watch_issue',
-      'mcp__workplace__unwatch_issue',
+      // WP-421: 첨부용 텍스트 파일 올려 두기(AI Chat 은 content 모드만)
+      'mcp__workplace__upload_file',
       // #856: 이슈·코멘트 삭제 제안(확인 카드)
       'mcp__workplace__propose_delete_issue',
       'mcp__workplace__propose_delete_comment',
@@ -98,5 +99,13 @@ describe('issue-agent 정의', () => {
     expect(prompt).toContain('commentsOmitted');
     expect(prompt).toContain('allComments=true');
     expect(prompt).toContain('최근 200건');
+  });
+  // WP-421: 구독·해제가 watch_issue(watching) 하나로 합쳐졌고, 첨부용 텍스트는 upload_file 의 content 로만 올린다(AI Chat 은 업로드 링크 불가).
+  it('watch_issue(watching)·upload_file(content 전용) 안내가 있고 옛 unwatch_issue 는 없다 (WP-421)', () => {
+    const prompt = loaded['issue-agent'].prompt;
+    expect(prompt).toContain('watch_issue(issueKey, watching)');
+    expect(prompt).not.toContain('unwatch_issue');
+    expect(prompt).toContain('upload_file(name, content)');
+    expect(prompt).toContain('업로드 링크는 만들 수 없습니다');
   });
 });

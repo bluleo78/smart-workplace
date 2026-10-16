@@ -10,6 +10,8 @@ import java.util.stream.Stream;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
 
 /**
@@ -99,6 +101,26 @@ public class FileStore {
     } catch (IOException e) {
       throw new UncheckedIOException("파일 삭제 실패: " + stored, e);
     }
+  }
+
+  /**
+   * 현재 트랜잭션이 롤백되면 방금 저장한 바이너리를 지운다 — 저장 뒤 DB 쓰기·커밋이 실패하면 FILE 행이 없어 만료 스윕이 찾지 못하는 고아 blob 이 남기
+   * 때문이다. 트랜잭션 밖이면 등록하지 않는다. 삭제 실패는 경고만 남긴다(롤백 결과를 바꾸지 않는다).
+   */
+  public void deleteOnRollback(String relativePath) {
+    if (!TransactionSynchronizationManager.isSynchronizationActive()) return;
+    TransactionSynchronizationManager.registerSynchronization(
+        new TransactionSynchronization() {
+          @Override
+          public void afterCompletion(int status) {
+            if (status != STATUS_ROLLED_BACK) return;
+            try {
+              deleteIfExists(relativePath);
+            } catch (RuntimeException e) {
+              log.warn("롤백 바이너리 정리 실패(무시) path={}", relativePath, e);
+            }
+          }
+        });
   }
 
   /**

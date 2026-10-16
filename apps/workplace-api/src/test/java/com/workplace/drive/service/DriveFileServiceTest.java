@@ -849,12 +849,9 @@ class DriveFileServiceTest extends IntegrationTestBase {
     assertThat(DriveFileService.isTextLike(null, "a.txt")).isFalse();
   }
 
-  /** 공용 bareMime — 매개변수를 떼고 소문자, 비거나 본체가 없으면 null. 명시 mimeType 이 ";x" 여도 NPE 가 아니라 400(IAE). */
+  /** 명시 mimeType 이 ";x"(본체가 빈 값)여도 NPE 가 아니라 400(IAE). 정규화 자체는 RawUploadContentTypesTest 가 본다. */
   @Test
-  void bareMime_andTextMimeOf_handleEmptyBody() {
-    assertThat(DriveFileService.bareMime("Text/Plain; charset=UTF-8")).isEqualTo("text/plain");
-    assertThat(DriveFileService.bareMime("  ")).isNull();
-    assertThat(DriveFileService.bareMime("; charset=utf-8")).isNull();
+  void textMimeOf_handlesEmptyBody() {
     assertThatThrownBy(() -> DriveFileService.textMimeOf("a.md", "; charset=utf-8"))
         .isInstanceOf(IllegalArgumentException.class);
   }

@@ -21,6 +21,7 @@ import com.workplace.file.exception.FileBlobMissingException;
 import com.workplace.file.exception.FileSizeLimitExceededException;
 import com.workplace.file.service.FileUploadService;
 import com.workplace.file.service.FileUploadService.FileContentResult;
+import com.workplace.file.service.MimeNormalizer;
 import com.workplace.file.service.UploadSource;
 import com.workplace.file.storage.FilePathBuilder;
 import com.workplace.fileai.ExtractionProfile;
@@ -30,6 +31,7 @@ import com.workplace.fileai.dto.ExtractionInfo;
 import com.workplace.fileai.inbound.FileExtractionRequestedEvent;
 import com.workplace.fileai.service.ExtractedTextService;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.global.util.RawUploadContentTypes;
 import com.workplace.global.util.SafeFileNames;
 import com.workplace.user.repository.UserRepository;
 import java.io.IOException;
@@ -87,17 +89,6 @@ public class DriveFileService {
   /** 텍스트로 만드는 파일의 크기 상한 — TEXT 카테고리 상한(10MB)과 같다. csv 는 DATA(256MB) 카테고리라 따로 막는다(WP-369). */
   public static final long TEXT_FILE_MAX_BYTES = FileUploadService.sizeLimitOf("TEXT");
 
-  /**
-   * 텍스트로 만들 때 확장자 → MIME(WP-369, R4). 이 넷만 허용하고 나머지 확장자는 text/plain 이다 — AI 가 쓴(주입됐을 수도 있는) HTML 이
-   * {@code /content} 로 text/html 그대로 서빙되지 않게 html 은 넣지 않는다.
-   */
-  private static final Map<String, String> TEXT_MIME_BY_EXTENSION =
-      Map.of(
-          "md", "text/markdown",
-          "txt", "text/plain",
-          "csv", "text/csv",
-          "json", "application/json");
-
   /** 텍스트로 읽는 application MIME(WP-369 텍스트 갱신 판정) — csv·json·xml·yaml·javascript·셸. */
   private static final Set<String> TEXT_APPLICATION_MIMES =
       Set.of(
@@ -153,19 +144,21 @@ public class DriveFileService {
         new TextRewrite(mimeType));
   }
 
-  /** 텍스트 파일 MIME 결정(R4) — 명시값은 허용 목록만(매개변수 제거·소문자), 없으면 확장자, 모르면 text/plain. */
+  /**
+   * 텍스트 파일 MIME 결정(R4) — 명시값은 허용 목록만(매개변수 제거·소문자), 없으면 확장자({@link MimeNormalizer#textMimeOf}), 모르면
+   * text/plain.
+   */
   static String textMimeOf(String name, String requested) {
     if (requested != null && !requested.isBlank()) {
-      String mime = bareMime(requested);
-      // ";x" 처럼 본체가 빈 값은 null — Map.of 의 containsValue(null) 은 NPE 라 먼저 거른다(400 유지).
-      if (mime == null || !TEXT_MIME_BY_EXTENSION.containsValue(mime)) {
+      String mime = RawUploadContentTypes.bare(requested);
+      // 명시값은 확장자 표의 넷만 — html 은 text/html 로 서빙되지 않게 뺐다. ";x" 처럼 본체가 빈 값(null)도 400.
+      if (!MimeNormalizer.isTextMime(mime)) {
         throw new IllegalArgumentException(
             "mimeType 은 text/markdown, text/plain, text/csv, application/json 중 하나여야 합니다.");
       }
       return mime;
     }
-    String ext = FilePathBuilder.extensionOf(name == null ? "" : name).toLowerCase(Locale.ROOT);
-    return TEXT_MIME_BY_EXTENSION.getOrDefault(ext, "text/plain");
+    return MimeNormalizer.textMimeOf(name);
   }
 
   /**
@@ -293,7 +286,7 @@ public class DriveFileService {
    * <p>blob 이 유실됐으면(행은 있고 바이트가 없음) 잃을 원문이 없으므로 크기·UTF-8 검사를 건너뛴다 — 추출 텍스트로 되살리는 것이 유일한 복구 길이다.
    */
   private RewriteBlocker rewriteBlockerOf(long fileId, String currentMime) throws IOException {
-    String bare = bareMime(currentMime);
+    String bare = RawUploadContentTypes.bare(currentMime);
     if (bare != null && MARKUP_STRIPPED_MIMES.contains(bare)) {
       return RewriteBlocker.HTML;
     }
@@ -347,7 +340,7 @@ public class DriveFileService {
     if (requested != null && !requested.isBlank()) {
       return textMimeOf(name, requested);
     }
-    String current = bareMime(currentMime);
+    String current = RawUploadContentTypes.bare(currentMime);
     if (current != null && isTextMime(current) && !isHtmlLike(current)) {
       return current;
     }
@@ -360,7 +353,7 @@ public class DriveFileService {
    * pdf·docx·이미지·모르는 바이너리는 아니다.
    */
   static boolean isTextLike(String mime, String name) {
-    String bare = bareMime(mime);
+    String bare = RawUploadContentTypes.bare(mime);
     if (bare == null) {
       return false;
     }
@@ -387,18 +380,6 @@ public class DriveFileService {
         || bare.equals("text/xml")
         || bare.equals("application/xml")
         || bare.endsWith("+xml");
-  }
-
-  /**
-   * Content-Type·MIME 에서 매개변수(charset 등)를 떼고 소문자로 — "text/plain; charset=utf-8" 이 범주표·허용 목록에서 빠지지
-   * 않게. 없거나 본체가 비면 null. 업로드 링크(Content-Type)와 텍스트 갱신(저장 MIME)이 같이 쓴다.
-   */
-  static String bareMime(String contentType) {
-    if (contentType == null || contentType.isBlank()) {
-      return null;
-    }
-    String mime = contentType.split(";", 2)[0].strip().toLowerCase(Locale.ROOT);
-    return mime.isEmpty() ? null : mime;
   }
 
   /**

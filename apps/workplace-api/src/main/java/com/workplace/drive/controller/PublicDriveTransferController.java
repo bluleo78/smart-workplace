@@ -3,9 +3,9 @@ package com.workplace.drive.controller;
 import com.workplace.drive.dto.DriveFileResponse;
 import com.workplace.drive.repository.DriveTransferLinkRepository.TransferLinkRow;
 import com.workplace.drive.service.DriveTransferLinkService;
-import com.workplace.drive.service.DriveTransferLinkService.ReceivedBody;
 import com.workplace.file.service.FileUploadService.FileContentResult;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.global.util.BoundedBody;
 import com.workplace.global.util.ClientIpExtractor;
 import jakarta.servlet.http.HttpServletRequest;
 import java.io.IOException;
@@ -93,7 +93,8 @@ public class PublicDriveTransferController {
     try {
       TenantContext.set(link.tenantId());
       transfers.requireIssuerCanUpload(link);
-      try (ReceivedBody body = transfers.receiveBody(link, request.getInputStream(), contentType)) {
+      try (BoundedBody.Received body =
+          transfers.receiveBody(link, request.getInputStream(), contentType)) {
         DriveFileResponse saved =
             transfers.completeUpload(
                 link,

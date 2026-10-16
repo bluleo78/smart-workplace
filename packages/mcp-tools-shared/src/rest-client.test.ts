@@ -439,6 +439,17 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(http.post).toHaveBeenLastCalledWith('/drive/files/8/upload-link');
   });
 
+  // WP-421: 스테이징 업로드 — 텍스트·링크 모두 JSON 본문이고 어느 도메인에 붙일지는 클레임(fileIds) 때 정한다.
+  it('WP-421 스테이징 텍스트 파일·업로드 링크 경로', async () => {
+    const { http, client } = mockHttp();
+    http.post.mockResolvedValueOnce({ data: { fileId: 9 } });
+    expect(await client.createStagedTextFile('요약.md', '# 요약')).toEqual({ fileId: 9 });
+    expect(http.post).toHaveBeenLastCalledWith('/staged-files/text', { name: '요약.md', content: '# 요약' });
+    http.post.mockResolvedValueOnce({ data: { url: 'u' } });
+    expect(await client.createStagedUploadLink('보고서.pdf')).toEqual({ url: 'u' });
+    expect(http.post).toHaveBeenLastCalledWith('/staged-files/upload-link', { name: '보고서.pdf' });
+  });
+
   it('WP-147: getMail 은 AI 조회라 항상 markSeen=false 로 부른다(읽음 처리 안 함)', async () => {
     const { http, client } = mockHttp();
     await client.getMail(3);

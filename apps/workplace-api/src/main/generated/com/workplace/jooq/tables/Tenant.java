@@ -76,6 +76,7 @@ import com.workplace.jooq.tables.SavedView.SavedViewPath;
 import com.workplace.jooq.tables.SharedAiMemory.SharedAiMemoryPath;
 import com.workplace.jooq.tables.SharedAiMemoryChange.SharedAiMemoryChangePath;
 import com.workplace.jooq.tables.SharedAiMemoryForgotten.SharedAiMemoryForgottenPath;
+import com.workplace.jooq.tables.StagedUploadLink.StagedUploadLinkPath;
 import com.workplace.jooq.tables.ThreadReadState.ThreadReadStatePath;
 import com.workplace.jooq.tables.User.UserPath;
 import com.workplace.jooq.tables.UserApiToken.UserApiTokenPath;
@@ -1245,6 +1246,19 @@ public class Tenant extends TableImpl<TenantRecord> {
             _sharedAiMemory = new SharedAiMemoryPath(this, null, Keys.SHARED_AI_MEMORY__SHARED_AI_MEMORY_TENANT_ID_FKEY.getInverseKey());
 
         return _sharedAiMemory;
+    }
+
+    private transient StagedUploadLinkPath _stagedUploadLink;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.staged_upload_link</code> table
+     */
+    public StagedUploadLinkPath stagedUploadLink() {
+        if (_stagedUploadLink == null)
+            _stagedUploadLink = new StagedUploadLinkPath(this, null, Keys.STAGED_UPLOAD_LINK__STAGED_UPLOAD_LINK_TENANT_ID_FKEY.getInverseKey());
+
+        return _stagedUploadLink;
     }
 
     private transient ThreadReadStatePath _threadReadState;

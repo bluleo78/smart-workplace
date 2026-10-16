@@ -178,7 +178,7 @@ describe('ASSISTANT_SYSTEM_PROMPT — 동사 기반 라우팅(#460)', () => {
     expect(p).toContain('내 메시지 수정, 리액션, 채널 읽음 처리, 채널 생성·참여');
     expect(p).toContain('search_members({channelId})');
     // 쓰기 도구는 라우터 목록(읽기 전용)에 직접 있지 않다.
-    expect(ASSISTANT_ROUTER_TOOLS).not.toContain('add_reaction');
+    expect(ASSISTANT_ROUTER_TOOLS).not.toContain('react_to_message');
   });
 
   // WP-357: "오늘 뭐부터?" 같은 현황 질문은 라우터가 get_home_overview 로 직접 읽고, 화면 표시 위젯(show_activity·show_my_tasks)과 구분한다.

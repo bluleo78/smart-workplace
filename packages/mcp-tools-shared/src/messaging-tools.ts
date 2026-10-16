@@ -2,7 +2,8 @@
 // 채널 초대(add_channel_member, WP-349)는 외부 MCP 에 직접 실행 도구로 노출하고, AI Chat 은 같은 작업을 propose_add_channel_member
 // 확인 카드로 한다(경로마다 도구 하나 — ai-agent 프로필에는 싣지 않는다). 두 경로가 입력 스키마(addChannelMemberInput)와 대상 해석
 // (requireActiveMember)을 같이 쓴다. 비공개 채널 나가기는 계속 확인 카드(propose_leave_channel)만 한다.
-// WP-355: 채널 참여(join_channel)·리액션(add_reaction·remove_reaction)·내 메시지 수정(update_channel_message)·채널 읽음 처리(mark_channel_read)를 더했다.
+// WP-355: 채널 참여(join_channel)·리액션·내 메시지 수정(update_channel_message)·채널 읽음 처리(mark_channel_read)를 더했다.
+// WP-421: 리액션 추가·제거(add_reaction·remove_reaction)를 react_to_message 하나로 합쳤다(앱당 도구 15개 상한 안에 upload_file 자리를 만들려고).
 // 메시지 삭제는 되돌릴 수 없어 도구로 두지 않는다(AI Chat 확인 카드도 아직 없음). 채널 멤버 목록은 search_members 의 channelId 옵션(member-tools.ts)이다.
 import { z } from 'zod';
 import { cursorPageView, dropEmpty, omitKeys, truncatedView } from './compact.js';
@@ -263,7 +264,7 @@ export const leaveChannelInput = z.object({ channelId: z.number().int().positive
 export const joinChannelInput = z.object({ channelId: z.number().int().positive() });
 export const markChannelReadInput = joinChannelInput;
 /**
- * 리액션 추가·제거 입력(WP-355). 서버는 이모지를 1~32자 문자열로만 검사하고(ReactionRequest) 웹 선택기는 유니코드 문자를 보낸다.
+ * 리액션 입력(WP-355). 서버는 이모지를 1~32자 문자열로만 검사하고(ReactionRequest) 웹 선택기는 유니코드 문자를 보낸다.
  * 제거는 추가한 것과 같은 문자열이어야 한다 — 읽기 출력 reactions 의 키 그대로다. messageId 는 메시지 행의 id 다(출력 이름은 id).
  */
 const messageIdField = z.number().int().positive().describe('from list_channel_messages or list_thread_replies');
@@ -271,6 +272,8 @@ export const reactionInput = z.object({
   messageId: messageIdField,
   emoji: z.string().min(1).max(32).describe('Unicode emoji such as 👍, as in reactions'),
 });
+/** react_to_message 입력(WP-421) — reacted 는 최종 상태라 필수다(빠뜨리면 추가인지 제거인지 모호해 거절, 같은 값을 다시 보내도 결과가 같아 멱등). */
+export const reactToMessageInput = reactionInput.extend({ reacted: z.boolean() });
 /** 내 메시지 수정 입력(WP-355) — 서버 UpdateMessageRequest 와 같은 1~4000자. */
 export const updateChannelMessageInput = z.object({
   messageId: messageIdField,
@@ -292,7 +295,7 @@ export interface MessagingToolOptions {
   parentMessageIdFor?(channelId: number): number | undefined;
 }
 
-/** 메시징 도구(list_channels/list_channel_messages/list_thread_replies/add_channel_message/create_channel/open_dm/leave_channel/join_channel/add_reaction/remove_reaction/update_channel_message/mark_channel_read/add_channel_member). */
+/** 메시징 도구(list_channels/list_channel_messages/list_thread_replies/add_channel_message/create_channel/open_dm/leave_channel/join_channel/react_to_message/update_channel_message/mark_channel_read/add_channel_member). */
 export function buildMessagingTools(
   client: MessagingToolClient & Pick<MemberToolClient, 'searchMembers'>,
   opts: MessagingToolOptions = {},
@@ -437,30 +440,18 @@ export function buildMessagingTools(
       },
     },
     {
-      name: 'add_reaction',
+      name: 'react_to_message',
       app: 'messaging',
       kind: 'write',
-      // 서버가 이미 있는 리액션은 이벤트 없이 무시한다(ReactionService.add) — 멱등. 누른 사람에게 알림은 가지 않는다.
-      hints: { destructive: false, idempotent: true },
-      description: 'Adds my emoji reaction to a message in a channel or DM I belong to; repeating is a no-op.',
-      inputSchema: reactionInput,
-      async handler(args) {
-        const { messageId, emoji } = reactionInput.parse(args);
-        await client.addReaction(messageId, emoji);
-        return 'ok';
-      },
-    },
-    {
-      name: 'remove_reaction',
-      app: 'messaging',
-      kind: 'write',
-      // 제거는 destructive(README 노출 기준) — 없던 리액션을 지워도 오류 없이 같은 결과(ReactionService.remove)라 멱등이다.
+      // WP-421: 추가·제거를 합쳤다. 서버가 이미 있는 추가·없는 제거를 이벤트 없이 무시해(ReactionService.add·remove) 멱등이고,
+      // 제거 갈래가 있어 destructive 다(README 노출 기준). 누른 사람에게 알림은 가지 않는다.
       hints: { destructive: true, idempotent: true },
-      description: 'Removes my own emoji reaction from a message; no-op if absent.',
-      inputSchema: reactionInput,
+      description: 'Adds (reacted: true) or removes (false) my emoji reaction on a message in a channel or DM I belong to; repeating is a no-op.',
+      inputSchema: reactToMessageInput,
       async handler(args) {
-        const { messageId, emoji } = reactionInput.parse(args);
-        await client.removeReaction(messageId, emoji);
+        const { messageId, emoji, reacted } = reactToMessageInput.parse(args);
+        if (reacted) await client.addReaction(messageId, emoji);
+        else await client.removeReaction(messageId, emoji);
         return 'ok';
       },
     },

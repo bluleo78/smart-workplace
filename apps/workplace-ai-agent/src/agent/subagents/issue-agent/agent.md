@@ -13,7 +13,7 @@ tools:
   - mcp__workplace__add_issue_dependency
   - mcp__workplace__remove_issue_dependency
   - mcp__workplace__watch_issue
-  - mcp__workplace__unwatch_issue
+  - mcp__workplace__upload_file
   - mcp__workplace__propose_delete_issue
   - mcp__workplace__propose_delete_comment
   - mcp__workplace__get_project
@@ -44,7 +44,8 @@ maxTurns: 20
   - 드라이브 파일 연결: `driveFileId` — 드라이브 파일을 이슈에 연결합니다(이미 연결돼 있으면 그대로). 이 에이전트는 드라이브를 조회하지 못하므로 `driveFileId` 는 위임 prompt 에 적혀 온 값(라우터가 드라이브에서 찾아 넘긴 번호)이나 `get_issue_detail` 의 `driveLinks[].driveFileId` 만 씁니다 — 없으면 지어내지 말고 어느 파일인지 알 수 없다고 알립니다. 연결된 파일은 `get_issue_detail` 의 `driveLinks` 에 나옵니다.
 - 담당 해제: `unassign_self(issueKey)` — 작업 완료·반려 시.
 - 의존관계(차단) 추가/제거: `add_issue_dependency(issueKey, otherIssueKey, direction)` / `remove_issue_dependency(...)` — direction="blocks" 면 issueKey 가 otherIssueKey 를 차단, "blockedBy" 면 반대. 두 이슈는 같은 프로젝트여야 합니다.
-- 이슈 워치/해제: `watch_issue(issueKey)` / `unwatch_issue(issueKey)` — 이슈 변경 알림 구독·해제. 이미 워치 중(또는 해제 상태)이어도 그대로 성공하는 멱등 동작이며, 프로젝트 멤버만 가능합니다.
+- 이슈 워치/해제: `watch_issue(issueKey, watching)` — `watching=true` 면 이슈 변경 알림 구독, `false` 면 해제. 이미 워치 중(또는 해제 상태)이어도 그대로 성공하는 멱등 동작이며, 프로젝트 멤버만 가능합니다.
+- 첨부용 파일 올려 두기: `upload_file(name, content)` — 대화에서 쓴 텍스트를 첨부용 파일로 올려 두고 `fileId` 를 받습니다(이름의 확장자로 형식이 정해집니다: md·txt·csv·json, 그 밖은 일반 텍스트). 24시간 안에 붙이지 않으면 사라집니다. **`content` 를 반드시 넘깁니다** — AI Chat 에서는 업로드 링크는 만들 수 없습니다. 사용자의 로컬 파일은 웹 화면에서 직접 첨부하라고 안내합니다.
 - 이슈/코멘트 삭제 **제안**: `propose_delete_issue(issueKey, summary)` / `propose_delete_comment(issueKey, commentId, summary)` — 직접 삭제하지 않고 확인 카드용 제안만 만듭니다. 복원 불가, 이슈 삭제 시 하위 이슈도 함께 삭제(카드에 자동 표기). commentId 는 `get_issue_detail` 의 comments 에서 확인합니다(대상이 안 보이면 `allComments=true`).
 - 프로젝트 유형·라벨 확인: `get_project(projectKey)`, 사람 찾기: `search_members(search)` — 아래 식별자 규칙 참조.
 

@@ -26,15 +26,16 @@ import com.workplace.file.service.MimeNormalizer;
 import com.workplace.file.service.UploadSource;
 import com.workplace.global.tenant.MembershipGuard;
 import com.workplace.global.tenant.TenantStatusChecker;
+import com.workplace.global.util.BoundedBody;
+import com.workplace.global.util.CapabilityTokens;
+import com.workplace.global.util.ClientIpExtractor;
+import com.workplace.global.util.RawUploadContentTypes;
 import com.workplace.global.util.SafeFileNames;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.io.UncheckedIOException;
-import java.math.BigInteger;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -44,8 +45,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.InvalidMediaTypeException;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.unit.DataSize;
@@ -90,12 +89,6 @@ public class DriveTransferLinkService {
   /** 감사 action — 링크 사용 성공(R11). 무인증 접근이라 요청 IP·User-Agent 를 함께 남긴다. */
   public static final String AUDIT_LINK_USE = "TRANSFER_LINK_USE";
 
-  /** audit_log.ip_address 열 길이 — 익명 요청의 X-Forwarded-For 는 임의 길이라 잘라 넣는다. */
-  private static final int AUDIT_IP_MAX = 45;
-
-  private static final String BASE62 =
-      "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-
   private final DriveTransferLinkRepository links;
   private final DriveFileRepository files;
   private final DrivePermissions perms;
@@ -104,7 +97,6 @@ public class DriveTransferLinkService {
   private final TenantStatusChecker tenantStatusChecker;
   private final DriveFileService fileService;
   private final AuditLogService auditLogService;
-  private final SecureRandom secureRandom = new SecureRandom();
 
   /**
    * PUT 본문 임시 파일 디렉터리(기본·공백이면 java.io.tmpdir). 생성자에서 한 번 만들어 두고 요청마다 만들지 않는다. 테스트는 Gradle 워커별로 나눠
@@ -138,33 +130,9 @@ public class DriveTransferLinkService {
     this.tenantStatusChecker = tenantStatusChecker;
     this.fileService = fileService;
     this.auditLogService = auditLogService;
-    this.tempDir = prepareTempDir(tempDir);
-    this.publicBaseUrl = stripTrailingSlash(publicBaseUrl);
+    this.tempDir = BoundedBody.prepareTempDir(tempDir, "workplace.drive.transfer-temp-dir");
+    this.publicBaseUrl = CapabilityTokens.normalizeBaseUrl(publicBaseUrl);
     this.multipartMaxBytes = DataSize.parse(multipartMaxFileSize).toBytes();
-  }
-
-  /**
-   * 임시 디렉터리를 정하고 만든다. 값이 비면 java.io.tmpdir 로 대신한다. 만들 수 없거나 쓸 수 없으면 기동을 멈춘다 — 첫 업로드에서야 500 이 나는 것보다
-   * 설정 오류를 바로 드러낸다. 읽기 전용 디렉터리면 기동은 되지만 모든 PUT 이 링크를 태우고 500 이 되므로 쓰기 가능 여부도 본다.
-   *
-   * @throws IllegalStateException 디렉터리를 만들 수 없음(경로가 파일이거나 권한 없음 등) · 쓸 수 없음
-   */
-  static Path prepareTempDir(String configured) {
-    String value =
-        configured == null || configured.isBlank()
-            ? System.getProperty("java.io.tmpdir")
-            : configured.strip();
-    Path dir = Path.of(value).toAbsolutePath().normalize();
-    try {
-      Files.createDirectories(dir);
-    } catch (IOException e) {
-      throw new IllegalStateException(
-          "workplace.drive.transfer-temp-dir 디렉터리를 만들 수 없습니다: " + dir, e);
-    }
-    if (!Files.isWritable(dir)) {
-      throw new IllegalStateException("workplace.drive.transfer-temp-dir 디렉터리에 쓸 수 없습니다: " + dir);
-    }
-    return dir;
   }
 
   /**
@@ -181,12 +149,12 @@ public class DriveTransferLinkService {
     FileContentResult meta = fileUpload.getFileContentTrusted(row.fileId()).withName(row.name());
 
     links.deleteExpiredByUser(callerId);
-    String token = generateToken("dl_");
+    String token = CapabilityTokens.generate("dl_");
     OffsetDateTime expiresAt = OffsetDateTime.now(ZoneOffset.UTC).plus(TTL);
     long linkId =
         links.insert(
             KIND_DOWNLOAD,
-            DriveShareLinkService.sha256Hex(token),
+            CapabilityTokens.sha256Hex(token),
             callerId,
             row.spaceId(),
             null,
@@ -232,12 +200,12 @@ public class DriveTransferLinkService {
     String name = SafeFileNames.sanitize(req.name(), "file");
 
     links.deleteExpiredByUser(callerId);
-    String token = generateToken("ul_");
+    String token = CapabilityTokens.generate("ul_");
     OffsetDateTime expiresAt = OffsetDateTime.now(ZoneOffset.UTC).plus(TTL);
     long linkId =
         links.insert(
             KIND_UPLOAD,
-            DriveShareLinkService.sha256Hex(token),
+            CapabilityTokens.sha256Hex(token),
             callerId,
             spaceId,
             req.folderId(),
@@ -282,12 +250,12 @@ public class DriveTransferLinkService {
     DriveFileRepository.DriveFileRow row = fileService.validateVersionTarget(callerId, driveFileId);
 
     links.deleteExpiredByUser(callerId);
-    String token = generateToken("ul_");
+    String token = CapabilityTokens.generate("ul_");
     OffsetDateTime expiresAt = OffsetDateTime.now(ZoneOffset.UTC).plus(TTL);
     long linkId =
         links.insert(
             KIND_UPLOAD,
-            DriveShareLinkService.sha256Hex(token),
+            CapabilityTokens.sha256Hex(token),
             callerId,
             row.spaceId(),
             null,
@@ -404,38 +372,20 @@ public class DriveTransferLinkService {
    */
   public TransferLinkRow consumeUpload(String token, String contentType, long contentLength) {
     TransferLinkRow pending = requireUsable(tokenHashFor(token, KIND_UPLOAD), KIND_UPLOAD);
-    String mime = DriveFileService.bareMime(contentType);
-    if (mime != null
-        && (mime.equals("application/x-www-form-urlencoded") || mime.startsWith("multipart/"))) {
-      throw new DriveTransferUploadRejectedException(
-          HttpStatus.UNSUPPORTED_MEDIA_TYPE,
-          "파일을 원시 바이트로 보내세요(curl -T 파일 URL). 폼·멀티파트 본문은 받지 않습니다");
-    }
-    if (contentType != null && !contentType.isBlank() && !isServableMediaType(contentType)) {
-      throw new DriveTransferUploadRejectedException(
-          HttpStatus.UNSUPPORTED_MEDIA_TYPE,
-          "Content-Type 형식이 올바르지 않습니다. Content-Type 없이 원시 바이트로 보내세요(curl -T 파일 URL)");
-    }
+    // 폼·멀티파트·깨진·와일드카드 Content-Type 거부 — 스테이징 업로드 링크와 같은 규칙(RawUploadContentTypes)
+    RawUploadContentTypes.rejectReason(contentType)
+        .ifPresent(
+            r -> {
+              throw new DriveTransferUploadRejectedException(
+                  HttpStatus.UNSUPPORTED_MEDIA_TYPE, r.message());
+            });
+    String mime = RawUploadContentTypes.bare(contentType);
     long cap = uploadCapFor(pending.fileName(), mime);
     if (contentLength > cap) {
       throw new DriveTransferUploadRejectedException(
-          HttpStatus.BAD_REQUEST, "파일이 너무 큽니다 (최대 " + toMb(cap) + "MB)");
+          HttpStatus.BAD_REQUEST, "파일이 너무 큽니다 (최대 " + BoundedBody.toMb(cap) + "MB)");
     }
     return consume(token, KIND_UPLOAD);
-  }
-
-  /**
-   * 저장해도 내려받을 수 있는 Content-Type 인지(최종 리뷰 M1) — 이 값이 FILE.mime_type 으로 저장되고 다운로드·{@code /content} 가
-   * {@link MediaType#parseMediaType} 로 응답 헤더를 만든다. 형식이 깨졌거나("text") 와일드카드(모든 형식·모든 하위 형식)면 그때마다 500
-   * 이 나므로 소비 전에 막는다(링크는 그대로 쓸 수 있다).
-   */
-  private static boolean isServableMediaType(String contentType) {
-    try {
-      MediaType type = MediaType.parseMediaType(contentType);
-      return !type.isWildcardType() && !type.isWildcardSubtype();
-    } catch (InvalidMediaTypeException e) {
-      return false;
-    }
   }
 
   /** 토큰 접두사가 종류와 맞는지 보고 해시를 돌려준다. 다르거나 없으면 404(DB 를 건드리지 않는다). */
@@ -444,7 +394,7 @@ public class DriveTransferLinkService {
     if (token == null || !token.startsWith(prefix)) {
       throw new DriveTransferLinkNotFoundException();
     }
-    return DriveShareLinkService.sha256Hex(token);
+    return CapabilityTokens.sha256Hex(token);
   }
 
   /**
@@ -504,8 +454,9 @@ public class DriveTransferLinkService {
    * @return 받은 본문(닫으면 임시 파일을 지운다)
    * @throws DriveTransferUploadRejectedException 크기 초과·본문 중단(400), 임시 파일 생성·쓰기 실패(500). 링크는 이미 소비됐다
    */
-  public ReceivedBody receiveBody(TransferLinkRow link, InputStream body, String contentType) {
-    String mime = DriveFileService.bareMime(contentType);
+  public BoundedBody.Received receiveBody(
+      TransferLinkRow link, InputStream body, String contentType) {
+    String mime = RawUploadContentTypes.bare(contentType);
     long cap = uploadCapFor(link.fileName(), mime);
     Path temp;
     try {
@@ -514,39 +465,15 @@ public class DriveTransferLinkService {
       throw storageFailed(link.id(), e);
     }
     try {
-      long size = copyWithCap(link.id(), body, temp, cap);
-      return new ReceivedBody(temp, size, mime);
-    } catch (RuntimeException e) {
-      deleteQuietly(temp);
-      throw e;
-    }
-  }
-
-  /** 본문을 상한까지 복사한다. 읽기 실패(클라이언트 중단)는 400, 쓰기 실패(서버 디스크)는 500(로그엔 링크 id). */
-  private static long copyWithCap(long linkId, InputStream in, Path target, long cap) {
-    byte[] buf = new byte[64 * 1024];
-    long total = 0;
-    try (OutputStream out = Files.newOutputStream(target)) {
-      while (true) {
-        int n;
-        try {
-          n = in.read(buf);
-        } catch (IOException e) {
-          throw new DriveTransferUploadRejectedException(
-              HttpStatus.BAD_REQUEST, "업로드 본문을 끝까지 받지 못했습니다. 새 링크를 발급받으세요");
-        }
-        if (n < 0) {
-          return total;
-        }
-        total += n;
-        if (total > cap) {
-          throw new DriveTransferUploadRejectedException(
-              HttpStatus.BAD_REQUEST, "파일이 너무 큽니다 (최대 " + toMb(cap) + "MB). 새 링크를 발급받으세요");
-        }
-        out.write(buf, 0, n);
-      }
+      long size =
+          BoundedBody.copyWithCap(body, temp, cap, DriveTransferUploadRejectedException::new);
+      return new BoundedBody.Received(temp, size, mime);
     } catch (IOException e) {
-      throw storageFailed(linkId, e);
+      BoundedBody.deleteQuietly(temp);
+      throw storageFailed(link.id(), e);
+    } catch (RuntimeException e) {
+      BoundedBody.deleteQuietly(temp);
+      throw e;
     }
   }
 
@@ -570,7 +497,7 @@ public class DriveTransferLinkService {
    */
   @Transactional
   public DriveFileResponse completeUpload(
-      TransferLinkRow link, ReceivedBody body, String clientIp, String userAgent) {
+      TransferLinkRow link, BoundedBody.Received body, String clientIp, String userAgent) {
     DriveFileResponse saved;
     try {
       UploadSource source =
@@ -634,9 +561,7 @@ public class DriveTransferLinkService {
         "drive",
         String.valueOf(driveFileId),
         (upload ? "드라이브 업로드 링크 사용: " : "드라이브 다운로드 링크 사용: ") + name,
-        clientIp == null || clientIp.length() <= AUDIT_IP_MAX
-            ? clientIp
-            : clientIp.substring(0, AUDIT_IP_MAX),
+        ClientIpExtractor.forAudit(clientIp),
         userAgent,
         "SUCCESS",
         null,
@@ -661,55 +586,8 @@ public class DriveTransferLinkService {
     return new DriveTransferLinkNotFoundException("올릴 폴더를 찾을 수 없습니다. 새 링크를 발급받으세요");
   }
 
-  private static long toMb(long bytes) {
-    return bytes / (1024 * 1024);
-  }
-
-  private static void deleteQuietly(Path p) {
-    try {
-      Files.deleteIfExists(p);
-    } catch (IOException ignored) {
-      // 임시 파일 정리 실패는 응답을 바꾸지 않는다(OS 임시 디렉터리 정리에 맡긴다).
-    }
-  }
-
-  /**
-   * 업로드 링크 PUT 본문을 받아 둔 임시 파일. 닫으면(try-with-resources) 지운다 — 저장소에는 복사본이 들어간다.
-   *
-   * @param mimeType 매개변수를 뗀 Content-Type(없으면 null — 확장자로 정한다)
-   */
-  public record ReceivedBody(Path path, long size, String mimeType) implements AutoCloseable {
-    @Override
-    public void close() {
-      deleteQuietly(path);
-    }
-  }
-
   /** 공개 링크 URL — {publicBaseUrl}/api/v1/public/drive/transfer/{token}. */
   public String publicUrl(String token) {
     return publicBaseUrl + PUBLIC_PATH + token;
-  }
-
-  /** 접두사({@code dl_}·{@code ul_}) + base62(32 랜덤 바이트). 공유 링크·PAT 생성기와 같은 방식. */
-  public String generateToken(String prefix) {
-    byte[] bytes = new byte[32];
-    secureRandom.nextBytes(bytes);
-    BigInteger n = new BigInteger(1, bytes);
-    BigInteger base = BigInteger.valueOf(62);
-    StringBuilder sb = new StringBuilder();
-    while (n.signum() > 0) {
-      BigInteger[] qr = n.divideAndRemainder(base);
-      sb.insert(0, BASE62.charAt(qr[1].intValue()));
-      n = qr[0];
-    }
-    return prefix + (sb.length() > 0 ? sb.toString() : "0");
-  }
-
-  private static String stripTrailingSlash(String url) {
-    String s = url == null ? "" : url.trim();
-    while (s.endsWith("/")) {
-      s = s.substring(0, s.length() - 1);
-    }
-    return s;
   }
 }

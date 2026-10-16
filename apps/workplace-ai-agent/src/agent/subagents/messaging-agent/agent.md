@@ -11,10 +11,10 @@ tools:
   - mcp__workplace__open_dm
   - mcp__workplace__leave_channel
   - mcp__workplace__join_channel
-  - mcp__workplace__add_reaction
-  - mcp__workplace__remove_reaction
+  - mcp__workplace__react_to_message
   - mcp__workplace__update_channel_message
   - mcp__workplace__mark_channel_read
+  - mcp__workplace__upload_file
   - mcp__workplace__propose_add_channel_member
   - mcp__workplace__propose_leave_channel
   - mcp__workplace__search_members
@@ -35,7 +35,8 @@ maxTurns: 20
 - 첨부 읽기: `read_file(source="message", channelId, messageId, attachmentId, offset?, limit?)` — 메시지의 첨부 내용을 볼 때 씁니다. `messageId` 는 `list_channel_messages`·`list_thread_replies` 항목의 `id`, `attachmentId` 는 그 항목 `attachments[].fileId`, `channelId` 는 그 메시지를 읽은 채널입니다(스레드 답글도 같은 채널). 문서는 전송할 때 추출한 텍스트가 구간 단위로 오고(`limit` 생략 시 12000자, 최대 32000) `nextOffset` 이 있으면 `offset` 으로 이어 읽습니다. 이미지(JPEG·PNG·GIF·WebP, 3.75MB 이하)는 이미지 그대로 옵니다. `status` 가 `READY` 가 아니면(PENDING 추출 중, SKIPPED·FAILED 읽을 수 없음, NONE 추출 기록 없음 — 이 기능 전에 올린 첨부) **내용을 추측하지 말고 상태와 `reason` 을 그대로 알립니다.** 채널 멤버만 읽을 수 있고, 첨부 이름·종류만으로 충분하면 읽지 않습니다.
 - 메시지 작성: `add_channel_message(channelId, body)` — 본문은 마크다운. **정확히 한 번만** 호출합니다.
 - 내 메시지 수정: `update_channel_message(messageId, body)` — **내가 쓴 메시지만** 수정됩니다(남의 메시지는 오류). 시간 제한은 없고 스레드 답글도 됩니다. 본문이 통째로 바뀌고 이전 내용은 사라지며 "수정됨" 으로 표시됩니다(알림은 가지 않습니다). messageId 는 `list_channel_messages`·`list_thread_replies` 결과 항목의 `id` 입니다. 어느 메시지인지 모호하면 되묻고, 사용자가 고칠 문구를 분명히 줬을 때만 호출합니다. 메시지 삭제는 지원하지 않습니다 — 그렇게 안내합니다.
-- 리액션: `add_reaction(messageId, emoji)` / `remove_reaction(messageId, emoji)` — 내 리액션만 추가·제거합니다(이미 같은 리액션이면 그대로). emoji 는 유니코드 이모지 문자 하나(예: 👍)이고, 제거할 때는 `list_channel_messages` 의 `reactions` 키와 정확히 같은 문자열이어야 합니다. 누가 눌렀는지는 도구가 알려주지 않습니다.
+- 리액션: `react_to_message(messageId, emoji, reacted)` — 내 리액션만 `reacted=true` 면 추가, `false` 면 제거합니다(이미 그 상태면 그대로). emoji 는 유니코드 이모지 문자 하나(예: 👍)이고, 제거할 때는 `list_channel_messages` 의 `reactions` 키와 정확히 같은 문자열이어야 합니다. 누가 눌렀는지는 도구가 알려주지 않습니다.
+- 첨부용 파일 올려 두기: `upload_file(name, content)` — 대화에서 쓴 텍스트를 첨부용 파일로 올려 두고 `fileId` 를 받습니다(이름의 확장자로 형식이 정해집니다: md·txt·csv·json, 그 밖은 일반 텍스트). 24시간 안에 붙이지 않으면 사라집니다. **`content` 를 반드시 넘깁니다** — AI Chat 에서는 업로드 링크는 만들 수 없습니다. 사용자의 로컬 파일은 웹 화면에서 직접 첨부하라고 안내합니다.
 - 읽음 처리: `mark_channel_read(channelId)` — 그 채널·DM 의 가장 최근 메시지까지 읽음으로 표시해 `unreadCount` 를 지웁니다. 스레드 답글의 안 읽음(`hasUnreadThreads`)은 따로라 그대로입니다. 사용자가 요청했을 때만 호출합니다.
 - 채널 생성: `create_channel(name, visibility?)` — visibility 는 PUBLIC(기본) / PRIVATE.
 - DM 열기: `open_dm(usernames)` — username 배열로 DM(1:1·그룹)을 열거나 기존 DM 을 찾아 `{channelId, participants}` 를 돌려받습니다. 이어서 메시지를 보낼 때는 그 `channelId` 로 `add_channel_message` 를 호출합니다.

@@ -36,4 +36,15 @@ public final class ClientIpExtractor {
     }
     return request.getRemoteAddr();
   }
+
+  /** audit_log.ip_address 열 길이. */
+  public static final int AUDIT_IP_MAX = 45;
+
+  /**
+   * 감사 로그에 넣을 IP — 열 길이({@link #AUDIT_IP_MAX})로 자른다. 익명 공개 링크 요청의 X-Forwarded-For 는 임의 길이라 그대로 넣으면
+   * INSERT 가 실패한다. null 은 그대로.
+   */
+  public static String forAudit(String ip) {
+    return ip == null || ip.length() <= AUDIT_IP_MAX ? ip : ip.substring(0, AUDIT_IP_MAX);
+  }
 }

@@ -128,6 +128,8 @@ public final class TenantPurgePlan {
           DRIVE_SPACE_MEMBER,
           DRIVE_SPACE,
           WORKER_JOB,
+          // 스테이징 업로드 링크(WP-421) — user·tenant 만 참조하고 file 과 FK 가 없다. 파일을 다루는 표라 file 과 함께 둔다.
+          STAGED_UPLOAD_LINK,
           FILE,
           // 연락처·그룹
           CONTACT_FAVORITE,

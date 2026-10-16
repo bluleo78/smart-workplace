@@ -1,4 +1,4 @@
-// src/issue-tools.ts — 두 앱 공유 이슈 도구 11종. 핸들러는 IssueToolClient(issueKey 기준)만 호출.
+// src/issue-tools.ts — 두 앱 공유 이슈 도구 10종(WP-421: watch_issue·unwatch_issue 를 watch_issue 하나로 합침). 핸들러는 IssueToolClient(issueKey 기준)만 호출.
 import { dropEmpty } from './compact.js';
 import { errText, parseIssueKey } from './parse.js';
 import type { SharedTool } from './mcp-tool.js';
@@ -23,9 +23,9 @@ import {
   editCommentInput,
   getIssueChatInput,
   getIssueDetailInput,
-  issueKeyInput,
   reportAgentWorkInput,
   updateIssueInput,
+  watchIssueInput,
 } from './schemas.js';
 import { resolveMentionTokens } from './messaging-tools.js';
 import type { IssueRow, IssueToolClient } from './tool-client.js';
@@ -348,27 +348,16 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       name: 'watch_issue',
       app: 'issue',
       kind: 'write',
-      hints: { destructive: false, idempotent: true },
-      description:
-        'Watches an issue so the caller is notified of its comments and status/priority changes. Project members only; already watching is a no-op.',
-      inputSchema: issueKeyInput,
-      async handler(args) {
-        const { issueKey } = issueKeyInput.parse(args);
-        await client.watchIssue(issueKey);
-        return 'ok';
-      },
-    },
-    {
-      name: 'unwatch_issue',
-      app: 'issue',
-      kind: 'write',
+      // WP-421: 구독·해제를 합쳤다 — watching 이 최종 상태라 멱등이고(서버 POST·DELETE 모두 이미 그 상태면 no-op), 해제 갈래가 있어 destructive.
       hints: { destructive: true, idempotent: true },
       description:
-        'Stops watching an issue. Succeeds when not watching.',
-      inputSchema: issueKeyInput,
+        'Watches or stops watching an issue; watchers are notified of its comments and status/priority changes. Project members only; ' +
+        'repeating is a no-op.',
+      inputSchema: watchIssueInput,
       async handler(args) {
-        const { issueKey } = issueKeyInput.parse(args);
-        await client.unwatchIssue(issueKey);
+        const { issueKey, watching } = watchIssueInput.parse(args);
+        if (watching) await client.watchIssue(issueKey);
+        else await client.unwatchIssue(issueKey);
         return 'ok';
       },
     },

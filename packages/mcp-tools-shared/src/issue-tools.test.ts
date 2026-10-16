@@ -44,7 +44,7 @@ function mockClient(): IssueToolClient {
 }
 
 describe('buildSharedIssueTools', () => {
-  it('정확히 11종을 반환한다', () => {
+  it('정확히 10종을 반환한다', () => {
     const names = buildSharedIssueTools(mockClient()).map((t) => t.name).sort();
     expect(names).toEqual(
       [
@@ -56,7 +56,6 @@ describe('buildSharedIssueTools', () => {
         'get_issue_detail',
         'remove_issue_dependency',
         'report_agent_work',
-        'unwatch_issue',
         'update_issue',
         'watch_issue',
       ].sort(),
@@ -434,13 +433,25 @@ describe('buildSharedIssueTools', () => {
     expect(c.updateIssueContent).not.toHaveBeenCalled();
   });
 
-  it('watch_issue / unwatch_issue 는 issueKey 로 호출 (#854)', async () => {
+  // WP-421: 구독·해제를 watch_issue 하나로 합쳤다 — watching 이 최종 상태라 멱등이고, 빠뜨리면 어느 쪽인지 모호해 거절한다.
+  it('watch_issue: watching true 면 watchIssue, false 면 unwatchIssue', async () => {
     const c = mockClient();
-    const tools = buildSharedIssueTools(c);
-    await expect(tools.find((x) => x.name === 'watch_issue')!.handler({ issueKey: 'WP-3' })).resolves.toBe('ok');
-    await expect(tools.find((x) => x.name === 'unwatch_issue')!.handler({ issueKey: 'WP-3' })).resolves.toBe('ok');
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'watch_issue')!;
+    await expect(t.handler({ issueKey: 'WP-3', watching: true })).resolves.toBe('ok');
     expect(c.watchIssue).toHaveBeenCalledWith('WP-3');
+    expect(c.unwatchIssue).not.toHaveBeenCalled();
+    await expect(t.handler({ issueKey: 'WP-3', watching: false })).resolves.toBe('ok');
     expect(c.unwatchIssue).toHaveBeenCalledWith('WP-3');
+    expect(c.watchIssue).toHaveBeenCalledTimes(1);
+  });
+
+  it('watch_issue: watching 이 없으면 거절', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'watch_issue')!;
+    await expect(t.handler({ issueKey: 'WP-3' })).rejects.toThrow();
+    await expect(t.handler({ issueKey: 'WP-3', watching: null })).rejects.toThrow();
+    expect(c.watchIssue).not.toHaveBeenCalled();
+    expect(c.unwatchIssue).not.toHaveBeenCalled();
   });
 
   it('add_issue_dependency 는 다른 프로젝트면 클라이언트측 거부', async () => {

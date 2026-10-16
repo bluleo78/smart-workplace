@@ -67,4 +67,16 @@ class MimeNormalizerTest {
     // 브라우저가 구체적 mime 을 주면 그대로 신뢰한다.
     assertThat(MimeNormalizer.normalize("a.heic", "image/heic")).isEqualTo("image/heic");
   }
+
+  @Test
+  @DisplayName("텍스트 파일 MIME 은 md·txt·csv·json 만 고유값, 나머지(html 포함)는 text/plain (WP-421)")
+  void textMimeOfMapsOnlyFourExtensions() {
+    assertThat(MimeNormalizer.textMimeOf("노트.MD")).isEqualTo("text/markdown");
+    assertThat(MimeNormalizer.textMimeOf("a.txt")).isEqualTo("text/plain");
+    assertThat(MimeNormalizer.textMimeOf("a.csv")).isEqualTo("text/csv");
+    assertThat(MimeNormalizer.textMimeOf("a.json")).isEqualTo("application/json");
+    assertThat(MimeNormalizer.textMimeOf("a.html")).isEqualTo("text/plain");
+    assertThat(MimeNormalizer.textMimeOf("README")).isEqualTo("text/plain");
+    assertThat(MimeNormalizer.textMimeOf(null)).isEqualTo("text/plain");
+  }
 }

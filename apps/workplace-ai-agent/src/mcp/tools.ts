@@ -395,6 +395,9 @@ export function buildTools(
     imageInput,
     // WP-392: get_issue_chat 을 싣지 않으므로(AI_AGENT_EXCLUDED_SHARED_TOOLS) read_file 설명에서 issue_chat 안내도 뺀다.
     issueChatSource: !AI_AGENT_EXCLUDED_SHARED_TOOLS.has('get_issue_chat'),
+    // WP-421 결정 8: upload_file 은 content 모드만 — 웹 AI Chat 사용자에게는 셸이 없어 업로드 링크를 쓸 수 없다(설명·거절은 공유본이 만든다).
+    // 요청자 신원(assistant)에만 싣는다 — 에이전트 신원 프로필(issue·messaging·chat)의 기능 확대는 README WP-355 절이 보류한 제품 결정이다.
+    allowUploadLink: false,
   });
   const sharedTool = (name: string): McpTool => {
     const t = shared.find((x) => x.name === name);
@@ -1262,14 +1265,18 @@ export function buildTools(
       proposeUpdateProjectMemberRoleTool, proposeRemoveProjectMemberTool, proposeAddChannelMemberTool, proposeLeaveChannelTool,
       proposeDeleteIssueTool, proposeDeleteCommentTool, proposeDeleteWikiPageTool,
       // #854·#855: 되돌릴 수 있는 쓰기(공유) — 이슈 워치·프로젝트 수정·노트 이동·휴지통 복원·RSVP·채널/DM·메일 AI.
-      sharedTool('watch_issue'), sharedTool('unwatch_issue'), sharedTool('update_project'), sharedTool('move_wiki_page'),
+      // WP-421: 이슈 워치·해제는 watch_issue(watching) 하나로 합쳐졌다.
+      sharedTool('watch_issue'), sharedTool('update_project'), sharedTool('move_wiki_page'),
       // WP-356: 라벨·마일스톤·사이클 생성·수정 — 대응 확인 카드가 없는 되돌릴 수 있는 쓰기라 직접 실행(project-agent 전용). 삭제는 도구로 두지 않는다.
       sharedTool('create_project_meta'), sharedTool('update_project_meta'),
       sharedTool('list_drive_trash'), sharedTool('restore_drive_item'), sharedTool('rsvp_event'),
       sharedTool('create_channel'), sharedTool('open_dm'), sharedTool('leave_channel'),
       // WP-355: 채널 참여·리액션·내 메시지 수정·채널 읽음 처리 — 사용자 신원으로 하는 되돌릴 수 있는 쓰기(직접 실행, 확인 카드 없음). 메시지 삭제는 되돌릴 수 없어 도구로 두지 않는다(확인 카드도 아직 없음).
       // 채널에서 멘션된 에이전트 신원의 messaging 프로필에는 싣지 않는다(에이전트가 사람 이름으로 리액션·수정하는 정책은 별도 결정).
-      sharedTool('join_channel'), sharedTool('add_reaction'), sharedTool('remove_reaction'), sharedTool('update_channel_message'), sharedTool('mark_channel_read'),
+      // WP-421: 리액션 추가·제거는 react_to_message(reacted) 하나로 합쳐졌다.
+      sharedTool('join_channel'), sharedTool('react_to_message'), sharedTool('update_channel_message'), sharedTool('mark_channel_read'),
+      // WP-421: 첨부용 텍스트 파일 올려 두기(content 모드만) — 쓰기라 라우터가 아니라 issue-agent·messaging-agent 에만 둔다(wiki-agent 는 텍스트가 노트 이미지가 될 수 없어 싣지 않는다).
+      sharedTool('upload_file'),
       sharedTool('get_mail_summary'), sharedTool('draft_mail_reply'), sharedTool('draft_issue_from_mail'),
       sharedTool('create_issue_from_mail'), sharedTool('mark_mail_read'),
       buildReadChatAttachmentTool(client, agentId, homeSessionId, imageInput), // WP-234: 메인 AI 채팅 첨부 읽기(세션 바인딩)

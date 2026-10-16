@@ -85,6 +85,10 @@ public class SecurityConfig {
                     // 토큰이 곧 권한이며 쓸 때 발급자 권한을 다시 확인한다.
                     .requestMatchers("/api/v1/public/drive/transfer/**")
                     .permitAll()
+                    // 스테이징 업로드 링크(WP-421) — 외부 MCP 클라이언트가 curl 로 임시 첨부를 올리는 10분짜리 일회용 PUT 링크.
+                    // 토큰이 곧 권한이며 쓸 때 발급자 멤버십을 다시 확인한다.
+                    .requestMatchers("/api/v1/public/staged-files/**")
+                    .permitAll()
                     // 운영자 콘솔(workplace-admin) 전용 평면. 로그인/리프레시만 공개, 그 외는 플랫폼 토큰(ROLE_PLATFORM) 필수.
                     // 일반 테넌트/에이전트 토큰으로는 접근 불가(권한상승 차단). 매칭 안 된 /api/platform 경로가
                     // anyRequest().permitAll() 로 새지 않도록 와일드카드로 전부 덮는다.

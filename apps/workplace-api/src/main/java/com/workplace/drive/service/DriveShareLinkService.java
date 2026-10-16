@@ -10,15 +10,10 @@ import com.workplace.drive.exception.DriveShareLinkNotFoundException;
 import com.workplace.drive.repository.DriveFileRepository;
 import com.workplace.drive.repository.DriveShareLinkRepository;
 import com.workplace.global.tenant.TenantStatusChecker;
+import com.workplace.global.util.CapabilityTokens;
 import com.workplace.user.repository.UserRepository;
-import java.math.BigInteger;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.security.SecureRandom;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -31,15 +26,12 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @RequiredArgsConstructor
 public class DriveShareLinkService {
-  private static final String BASE62 =
-      "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
   private static final Set<String> AUDIENCES = Set.of("EXTERNAL", "INTERNAL");
 
   private final DriveShareLinkRepository links;
   private final DriveFileRepository files;
   private final DrivePermissions perms;
   private final PasswordEncoder passwordEncoder;
-  private final SecureRandom secureRandom = new SecureRandom();
 
   /** 공유 링크 비밀번호 브루트포스 방어(#700). */
   private final DriveShareLinkAttemptService attemptService;
@@ -65,8 +57,8 @@ public class DriveShareLinkService {
     if (audience == null || !AUDIENCES.contains(audience)) {
       throw new DriveInvalidTargetException("공유 대상이 올바르지 않습니다.");
     }
-    String token = generateToken();
-    String tokenHash = sha256Hex(token);
+    String token = CapabilityTokens.generate("sl_");
+    String tokenHash = CapabilityTokens.sha256Hex(token);
     String pwHash =
         (req.password() == null || req.password().isBlank())
             ? null
@@ -124,7 +116,7 @@ public class DriveShareLinkService {
    */
   public ResolvedTarget resolveForDownload(
       String token, String password, Long requesterTenantId, boolean authenticated) {
-    String tokenHash = sha256Hex(token);
+    String tokenHash = CapabilityTokens.sha256Hex(token);
     var link =
         links
             .resolve(tokenHash)
@@ -194,31 +186,5 @@ public class DriveShareLinkService {
         .findById(userId)
         .map(com.workplace.user.dto.UserResponse::username)
         .orElse(String.valueOf(userId));
-  }
-
-  /** sl_ + base62(32 random bytes). */
-  private String generateToken() {
-    byte[] bytes = new byte[32];
-    secureRandom.nextBytes(bytes);
-    BigInteger n = new BigInteger(1, bytes);
-    BigInteger base = BigInteger.valueOf(62);
-    StringBuilder sb = new StringBuilder();
-    while (n.signum() > 0) {
-      BigInteger[] qr = n.divideAndRemainder(base);
-      sb.insert(0, BASE62.charAt(qr[1].intValue()));
-      n = qr[0];
-    }
-    return "sl_" + (sb.length() > 0 ? sb.toString() : "0");
-  }
-
-  /** SHA-256 hex(저장/조회 키). 공개 resolve(Task 5)도 동일 해시 사용. */
-  public static String sha256Hex(String plaintext) {
-    try {
-      MessageDigest md = MessageDigest.getInstance("SHA-256");
-      byte[] hash = md.digest(plaintext.getBytes(StandardCharsets.UTF_8));
-      return HexFormat.of().formatHex(hash);
-    } catch (NoSuchAlgorithmException e) {
-      throw new IllegalStateException("SHA-256 미지원", e);
-    }
   }
 }

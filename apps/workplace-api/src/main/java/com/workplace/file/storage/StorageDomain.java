@@ -11,7 +11,10 @@ public enum StorageDomain {
   // 백스톱이 tenant-{id}/mail 아래에서 mail_attachment_blob 에 없는 파일을 1시간 뒤 지운다.
   MAIL_EXTRACT("mail-extract"),
   WIKI("wiki"), // 노트 본문 이미지 첨부
-  HOME("home"); // 메인 AI 채팅 첨부(WP-234)
+  HOME("home"), // 메인 AI 채팅 첨부(WP-234)
+  // WP-421 스테이징 첨부 — MCP·AI 가 먼저 올려 두고 이슈·메시지·노트 등이 fileIds 로 가져가 묶는 임시 ATTACHMENT 파일.
+  // 클레임 뒤에도 경로는 그대로다(행만 영구가 된다).
+  STAGED("staged");
 
   private final String segment;
 

@@ -5,6 +5,7 @@ import { buildAttachmentTools } from './attachment-tools.js';
 import { buildCalendarTools } from './calendar-tools.js';
 import { buildContactTools } from './contact-tools.js';
 import { buildDriveTools } from './drive-tools.js';
+import { buildFileTools, type FileToolOptions } from './file-tools.js';
 import { buildHomeTools } from './home-tools.js';
 import type { IssueToolClient } from './tool-client.js';
 import { buildSharedIssueTools } from './issue-tools.js';
@@ -19,6 +20,7 @@ import type {
   CalendarToolClient,
   ContactToolClient,
   DriveToolClient,
+  FileToolClient,
   HomeToolClient,
   MailToolClient,
   MemberToolClient,
@@ -41,15 +43,17 @@ export type SharedToolClient = IssueToolClient &
   DriveToolClient &
   NotificationToolClient &
   HomeToolClient &
-  AttachmentToolClient;
+  AttachmentToolClient &
+  FileToolClient;
 
 /**
  * 앱별 옵션 — 메시징(parentMessageIdFor)과 read_file 의 이미지 입력(WP-250: imageInput 기본 true)·이슈 챗 출처 안내(WP-392: issueChatSource
- * 기본 true, get_issue_chat 을 싣지 않는 앱은 false). 기본값은 예전 동작과 같아 옵션을 안 주는 호출부도 그대로 컴파일·동작한다.
+ * 기본 true, get_issue_chat 을 싣지 않는 앱은 false)·upload_file 업로드 링크(WP-421: allowUploadLink 기본 true, AI Chat 은 false).
+ * 기본값은 예전 동작과 같아 옵션을 안 주는 호출부도 그대로 컴파일·동작한다.
  */
-export type SharedToolOptions = MessagingToolOptions & { imageInput?: boolean; issueChatSource?: boolean };
+export type SharedToolOptions = MessagingToolOptions & FileToolOptions & { imageInput?: boolean; issueChatSource?: boolean };
 
-/** 공유 도구 전체(이슈·프로젝트·노트·캘린더·메일·구성원/연락처·연락처 그룹·메시징·드라이브·알림·홈 개요·첨부 읽기). 이름 목록은 스냅샷 테스트가 고정한다. */
+/** 공유 도구 전체(이슈·프로젝트·노트·캘린더·메일·구성원/연락처·연락처 그룹·메시징·드라이브·알림·홈 개요·첨부 읽기·첨부용 파일 올리기). 이름 목록은 스냅샷 테스트가 고정한다. */
 export function buildSharedTools(client: SharedToolClient, opts: SharedToolOptions = {}): SharedTool[] {
   return [
     ...buildSharedIssueTools(client),
@@ -64,5 +68,6 @@ export function buildSharedTools(client: SharedToolClient, opts: SharedToolOptio
     ...buildNotifyTools(client),
     ...buildHomeTools(client),
     ...buildAttachmentTools(client, opts.imageInput, opts.issueChatSource),
+    ...buildFileTools(client, opts),
   ];
 }
