@@ -427,7 +427,19 @@ describe('메시징 보강 (WP-355)', () => {
     expect(out).toMatchObject({ id: 40, authorName: '앨리스', editedAt: '2026-10-13T00:00:00Z' });
     expect(out).not.toHaveProperty('authorId');
     expect(out.mentions).toEqual([{ username: 'minsu', name: '김민수' }]);
-    await expect(tool(c, 'update_channel_message').handler({ messageId: 40, body: 'x'.repeat(4001) })).rejects.toThrow();
+  });
+
+  it('update_channel_message → 길이 상한은 서버가 멘션 변환 뒤 본문으로 판정한다 — 도구는 빈 본문만 막는다(WP-435)', async () => {
+    const c = mockClient();
+    vi.mocked(c.searchMembers).mockResolvedValue([{ userId: 5, username: 'minsu', name: '김민수', active: true }] as MemberRow[]);
+    // 변환 전 4000자를 넘는 본문도 zod 에서 거절하지 않고, 멘션을 토큰으로 바꿔 서버로 보낸다.
+    const long = '@minsu ' + 'x'.repeat(3995);
+    await tool(c, 'update_channel_message').handler({ messageId: 40, body: long });
+    expect(c.updateChannelMessage).toHaveBeenCalledWith(40, '<@5> ' + 'x'.repeat(3995));
+    // 서버의 400(변환 뒤 4000자 초과)을 핸들러가 삼키지 않고 도구 오류로 넘긴다(문구 요약은 rest-client·describeApiError 테스트 몫).
+    vi.mocked(c.updateChannelMessage).mockRejectedValueOnce(new Error('API 오류 400: 입력값 검증에 실패했습니다. — body: 크기가 0에서 4000 사이여야 합니다'));
+    await expect(tool(c, 'update_channel_message').handler({ messageId: 40, body: 'x'.repeat(4001) })).rejects.toThrow('API 오류 400');
+    await expect(tool(c, 'update_channel_message').handler({ messageId: 40, body: '' })).rejects.toThrow();
   });
 
   it('update_channel_message → 답글 행을 고쳐도 답글 뷰(replyCount 등 생략)로 돌려준다', async () => {

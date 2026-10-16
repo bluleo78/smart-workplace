@@ -2590,7 +2590,6 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       "additionalProperties": false,
       "properties": {
         "body": {
-          "maxLength": 4000,
           "minLength": 1,
           "type": "string",
         },

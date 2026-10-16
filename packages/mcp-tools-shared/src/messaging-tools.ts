@@ -284,10 +284,14 @@ export const reactionInput = z.object({
 });
 /** react_to_message 입력(WP-421) — reacted 는 최종 상태라 필수다(빠뜨리면 추가인지 제거인지 모호해 거절, 같은 값을 다시 보내도 결과가 같아 멱등). */
 export const reactToMessageInput = reactionInput.extend({ reacted: z.boolean() });
-/** 내 메시지 수정 입력(WP-355) — 서버 UpdateMessageRequest 와 같은 1~4000자. */
+/**
+ * 내 메시지 수정 입력(WP-355). 길이 상한(4000자)은 서버 UpdateMessageRequest 가 판정한다(WP-435, add_channel_message 와 같은 꼴).
+ * 서버가 재는 것은 멘션 변환(@username → <@id>) 뒤 본문이라, 변환 전 본문을 여기서 재면 변환으로 길이가 달라지는 한도 근처 수정을
+ * 서버와 다르게 판정한다(변환 뒤엔 맞는 수정을 거절하거나, 통과시켜 놓고 서버 400). 빈 본문만 여기서 막는다.
+ */
 export const updateChannelMessageInput = z.object({
   messageId: messageIdField,
-  body: z.string().min(1).max(4000),
+  body: z.string().min(1),
 });
 /** 채널 초대 입력(WP-349) — add_channel_member 와 확인 카드 propose_add_channel_member(이 스키마 + summary)가 같이 쓴다. */
 export const addChannelMemberInput = z.object({
