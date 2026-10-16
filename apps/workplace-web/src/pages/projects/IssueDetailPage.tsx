@@ -53,6 +53,8 @@ import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import { questionWork } from '../../lib/agentWork';
 import { buildIssueDetailContext } from '../../lib/aiScreenContext/builders/issue';
 import { isNotFoundError } from '../../lib/api-error';
+import { isBodyDraftDirty } from '../../lib/issueDraft';
+import { isProjectOwner } from '../../lib/projectPermissions';
 import type { UpdateIssueRequest } from '../../types/issue';
 import { IssueChatButton } from './components/chat/IssueChatButton';
 import { IssueChatDrawer } from './components/chat/IssueChatDrawer';
@@ -173,7 +175,7 @@ function InlineEditableBody({
   // 저장 없이 새로고침/탭 닫기로 이탈 시 경고(#823) — 코멘트 작성창(#620)·이슈 생성
   // 다이얼로그와 동일 패턴. beforeunload 만 커버하므로 SPA 내부 네비게이션(사이드바 링크·
   // 뒤로가기)은 아래 localStorage 초안 자동저장(#824)으로 보완한다. 이 경고는 그대로 유지.
-  useUnsavedChangesWarning(editing && draft !== (body ?? ''));
+  useUnsavedChangesWarning(isBodyDraftDirty(editing, draft, body));
 
   // 편집 중 draft 변경을 디바운스(600ms)로 localStorage 에 저장(#824) — 라우터에 의존하지
   // 않으므로 사이드바 링크·뒤로가기·탭 종료·브라우저 크래시까지 전부 커버한다.
@@ -433,8 +435,7 @@ export default function IssueDetailPage() {
   const { open: chatOpen, openChat, closeChat } = useIssueChatDrawerParam();
   // 첨부 삭제 권한 UI 토글용 — 첨부자 또는 OWNER. 백엔드 가드가 최종 검증.
   const members = useProjectMembers(key);
-  const isOwner =
-    members.data?.some((m) => m.userId === user?.id && m.role === 'OWNER') ?? false;
+  const isOwner = isProjectOwner(members.data, user?.id);
 
   // WP-54: AI 채팅 화면 컨텍스트 — 이 이슈를 "보고 있는 대상"으로 등록(데이터 로딩 전엔 미등록).
   // Rules of Hooks: 아래 조기 반환 이전에 호출한다. 개인 프로젝트 리다이렉트 경로에선 곧 언마운트되어 해제된다.

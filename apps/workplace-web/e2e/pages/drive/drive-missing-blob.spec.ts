@@ -1,5 +1,6 @@
 // #739: 드라이브 원본 유실(blob missing) 파일 가시화 E2E.
 // 정상 파일과 available:false 파일이 섞인 목록에서 배지·클릭 차단·오버플로 메뉴 비활성을 검증한다.
+// 행 작업 비활성 판정 규칙의 경우의 수는 src/lib/driveRowActions.test.ts 가 맡고, 여기선 그 판정이 실제 버튼·메뉴에 닿는지 한 번만 본다(WP-413).
 import type { Page } from '@playwright/test'
 
 import { createFile, createSpace, personalSpace } from '../../factories/drive.factory'

@@ -85,6 +85,13 @@ export default defineConfig([
       'no-restricted-syntax': ['error', toLocaleRule, srcDocIframeRule],
     },
   },
+  // 컴포넌트 테스트·테스트 헬퍼 — HMR 경계가 아니므로 컴포넌트 외 export(헬퍼·픽스처)를 허용한다(WP-413).
+  {
+    files: ['src/test/**', 'src/**/*.test.tsx'],
+    rules: {
+      'react-refresh/only-export-components': 'off',
+    },
+  },
   // 서비스워커 — clients·registration 등 SW 전역 사용. React 규칙 무관.
   {
     files: ['src/sw.ts'],

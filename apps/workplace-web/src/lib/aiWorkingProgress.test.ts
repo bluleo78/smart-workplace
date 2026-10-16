@@ -1,8 +1,9 @@
-// AI 작업 중 유령 버블 상태 전이 단위 테스트(WP-412).
+// AI 작업 중 유령 버블 상태 전이 단위 테스트(WP-412). 이슈 채팅 이벤트 모양도 같은 함수로 다룬다(WP-418).
 // 이전 E2E messaging-progress-keep(HUMAN 도착엔 유지, #346)를 대체한다. SSE → 버블 표시/제거 배선은
 // messaging-progress(.dm).spec, done 뒤 늦은 이벤트가 훅의 종료 기록(ref)을 거치는 배선은 messaging-progress-stale.spec 이 지킨다.
 import { describe, expect, it } from 'vitest'
 
+import type { ChatProgressEvent } from '@/hooks/useChatStream'
 import type { MessagingProgressEvent } from '@/hooks/useMessageStream'
 
 import {
@@ -24,7 +25,7 @@ const ev = (phase: MessagingProgressEvent['phase'], streamId = 's1'): MessagingP
 describe('applyProgressEvent', () => {
   it('started/tool 은 버블을 만들고 최신 이벤트로 갱신한다', () => {
     const ended = new Set<string>()
-    let w: WorkingMap = new Map()
+    let w: WorkingMap<MessagingProgressEvent> = new Map()
     w = applyProgressEvent(w, ended, ev('started'), 1)
     w = applyProgressEvent(w, ended, ev('tool'), 2)
     expect(w.size).toBe(1)
@@ -33,7 +34,7 @@ describe('applyProgressEvent', () => {
 
   it('done/error 는 해당 스트림 버블만 지운다', () => {
     const ended = new Set<string>()
-    let w: WorkingMap = new Map()
+    let w: WorkingMap<MessagingProgressEvent> = new Map()
     w = applyProgressEvent(w, ended, ev('tool', 'a'), 1)
     w = applyProgressEvent(w, ended, ev('tool', 'b'), 1)
     w = applyProgressEvent(w, ended, ev('done', 'a'), 2)
@@ -44,7 +45,7 @@ describe('applyProgressEvent', () => {
 
   it('종료된 스트림의 뒤늦은 tool 이벤트는 버블을 부활시키지 않는다(순서 역전)', () => {
     const ended = new Set<string>()
-    let w: WorkingMap = applyProgressEvent(new Map(), ended, ev('tool'), 1)
+    let w: WorkingMap<MessagingProgressEvent> = applyProgressEvent(new Map(), ended, ev('tool'), 1)
     w = applyProgressEvent(w, ended, ev('done'), 2)
     w = applyProgressEvent(w, ended, ev('tool'), 3)
     w = applyProgressEvent(w, ended, ev('started'), 4)
@@ -54,9 +55,40 @@ describe('applyProgressEvent', () => {
   })
 
   it('이전 맵을 변경하지 않는다(React 상태 불변)', () => {
-    const prev: WorkingMap = new Map()
+    const prev: WorkingMap<MessagingProgressEvent> = new Map()
     applyProgressEvent(prev, new Set(), ev('tool'), 1)
     expect(prev.size).toBe(0)
+  })
+})
+
+// 이슈 채팅(ChatProgressEvent: channelId 대신 threadId)도 같은 순수 함수를 쓴다(WP-418) — 예전 이슈 채팅 사본 리듀서엔
+// 종료 스트림 기록이 없어 done 뒤 늦은 tool 이 버블을 60초간 되살렸다.
+describe('applyProgressEvent — 이슈 채팅 이벤트(WP-418)', () => {
+  const chatEv = (phase: ChatProgressEvent['phase'], streamId = 'c1'): ChatProgressEvent => ({
+    threadId: 100,
+    streamId,
+    agentName: 'AI',
+    phase,
+    steps: [{ label: '위키 검색', status: 'running' }],
+  })
+
+  it('threadId·steps 를 그대로 실어 버블을 만든다', () => {
+    const w: WorkingMap<ChatProgressEvent> = applyProgressEvent(new Map(), new Set(), chatEv('tool'), 7)
+    expect(w.get('c1')).toEqual({ ...chatEv('tool'), at: 7 })
+  })
+
+  it('done 뒤 늦게 도착한 tool·started 는 무시한다', () => {
+    const ended = new Set<string>()
+    let w: WorkingMap<ChatProgressEvent> = applyProgressEvent(new Map(), ended, chatEv('started'), 1)
+    w = applyProgressEvent(w, ended, chatEv('done'), 2)
+    w = applyProgressEvent(w, ended, chatEv('tool'), 3)
+    w = applyProgressEvent(w, ended, chatEv('started'), 4)
+    expect(w.size).toBe(0)
+  })
+
+  it('TTL 스위프도 같은 규칙으로 동작한다', () => {
+    const w: WorkingMap<ChatProgressEvent> = applyProgressEvent(new Map(), new Set(), chatEv('tool'), 0)
+    expect(sweepStaleWorking(w, 60_001).size).toBe(0)
   })
 })
 
@@ -91,7 +123,7 @@ describe('maxAgentMessageId / nextAgentBaseline (#346)', () => {
 describe('sweepStaleWorking', () => {
   it('TTL 넘게 무수신인 버블만 빼고, 바뀐 게 없으면 같은 참조를 돌려준다', () => {
     const ended = new Set<string>()
-    let w: WorkingMap = applyProgressEvent(new Map(), ended, ev('tool', 'old'), 0)
+    let w: WorkingMap<MessagingProgressEvent> = applyProgressEvent(new Map(), ended, ev('tool', 'old'), 0)
     w = applyProgressEvent(w, ended, ev('tool', 'fresh'), 50_000)
     expect(sweepStaleWorking(w, 59_000)).toBe(w)
     expect([...sweepStaleWorking(w, 60_001).keys()]).toEqual(['fresh'])

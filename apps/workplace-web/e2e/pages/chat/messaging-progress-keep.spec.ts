@@ -217,7 +217,8 @@ test(
   },
 );
 
-// 채널 전환 회귀 가드 — Channel/DmPage 라우트는 key 없이 재사용돼 useAiWorkingBubbles 상태가 채널을 넘어 남았다.
+// 채널 전환 회귀 가드 — Channel/DmPage 라우트가 key 없이 재사용되던 때 useAiWorkingBubbles 상태가 채널을 넘어 남았다.
+// 지금은 App.tsx 가 채널 id 를 key 로 페이지를 새로 마운트해 막는다(WP-418).
 // A 채널에서 뜬 유령 버블이 B 채널로 옮겨 가도 그대로 보이면 안 된다(전환 즉시 비워져야 한다).
 test('AI 작업 중 다른 채널로 옮기면 이전 채널의 유령 버블이 따라오지 않는다', async ({
   authenticatedPage: page,

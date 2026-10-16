@@ -2,7 +2,7 @@
 // Phase 5: 우측 스레드 패널(ThreadPanel) — URL ?thread 로 토글(WP-207, 모바일은 전체폭).
 // A9: AI 에이전트 작업 중 유령 버블 — onMessagingProgress 구독으로 채널별 진행 상태 렌더.
 import { Hash, Sparkles } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useLocation, useParams } from 'react-router-dom'
 
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
@@ -33,6 +33,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { useEntryMaxMessageId } from '@/hooks/useEntryMaxMessageId'
 import { useHistoryParam } from '@/hooks/useHistoryParam'
 import { useIsMobile } from '@/hooks/useIsMobile'
+import { onChannelProgress } from '@/hooks/useMessageStream'
 import { buildChannelContext } from '@/lib/aiScreenContext/builders/messaging'
 import { shouldAutoShowCatchup } from '@/lib/catchupGate'
 import { catchupWatermark } from '@/lib/catchupWatermark'
@@ -118,7 +119,7 @@ export default function ChannelPage() {
 
   // AI 작업 중 유령 버블 — 진행 이벤트·새 AGENT 메시지·TTL 규칙은 useAiWorkingBubbles(DmPage 와 공용).
   const messagesLoaded = data !== undefined
-  const working = useAiWorkingBubbles(channelId, messages, messagesLoaded)
+  const working = useAiWorkingBubbles(channelId, onChannelProgress, messages, messagesLoaded)
 
   // 채널 상세 워터마크는 방문 중 무효화되지 않아(detail 키 invalidate 없음) 자연히 안정적 → 스냅샷 불필요.
   // watermark = 서버 원본(null 가능: 빈 채널 가입·비멤버) — 구분선 전용. 캐치업은 catchupSince 를 쓴다(WP-256).
@@ -134,11 +135,6 @@ export default function ChannelPage() {
   const unreadCount = unreadFromOthersCount(messages, catchupSince, user?.id, entryMaxId)
   const [catchupManual, setCatchupManual] = useState(false)
   const [catchupDismissed, setCatchupDismissed] = useState(false)
-  // 채널 전환 시 카드 상태 리셋(이전 채널의 트리거/닫힘이 새 채널로 새지 않도록).
-  useEffect(() => {
-    setCatchupManual(false)
-    setCatchupDismissed(false)
-  }, [channelId])
 
   const showCatchupCard =
     !catchupDismissed && catchupSince != null && (shouldAutoShowCatchup(unreadCount) || catchupManual)

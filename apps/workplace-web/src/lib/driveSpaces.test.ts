@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { DriveSpace } from '../types/drive'
-import { partitionSpaces } from './driveSpaces'
+import { canManageDriveSpace, partitionSpaces } from './driveSpaces'
 
 function space(id: number, type: DriveSpace['type'], name: string): DriveSpace {
   return { id, type, name, ownerId: 1, role: 'EDITOR', archived: false, createdAt: '2026-06-01T00:00:00Z' }
@@ -22,5 +22,21 @@ describe('partitionSpaces', () => {
 
   it('빈 입력은 빈 배열 둘을 반환한다', () => {
     expect(partitionSpaces([])).toEqual({ primary: [], channel: [] })
+  })
+})
+
+describe('canManageDriveSpace — 사이드바 ⋯(이름 변경/삭제) 노출', () => {
+  it('TEAM 공간 OWNER 에게만 true', () => {
+    expect(canManageDriveSpace({ type: 'TEAM', role: 'OWNER' })).toBe(true)
+  })
+
+  it('TEAM 이라도 OWNER 가 아니면 false', () => {
+    expect(canManageDriveSpace({ type: 'TEAM', role: 'EDITOR' })).toBe(false)
+    expect(canManageDriveSpace({ type: 'TEAM', role: 'VIEWER' })).toBe(false)
+  })
+
+  it('개인·채널 공간은 OWNER 여도 false', () => {
+    expect(canManageDriveSpace({ type: 'PERSONAL', role: 'OWNER' })).toBe(false)
+    expect(canManageDriveSpace({ type: 'CHANNEL', role: 'OWNER' })).toBe(false)
   })
 })

@@ -17,3 +17,11 @@ export function partitionSpaces(spaces: DriveSpace[]): {
   }
   return { primary, channel }
 }
+
+/**
+ * 사이드바 공간 행에 이름 변경/삭제 ⋯ 메뉴를 보일지 — TEAM 공간의 OWNER 만.
+ * 개인 공간은 이름·삭제 대상이 아니고, 채널 연동 공간은 채널 수명주기를 따른다.
+ */
+export function canManageDriveSpace(space: Pick<DriveSpace, 'type' | 'role'>): boolean {
+  return space.type === 'TEAM' && space.role === 'OWNER'
+}

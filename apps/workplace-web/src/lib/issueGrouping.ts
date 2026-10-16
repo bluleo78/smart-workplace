@@ -2,6 +2,7 @@
 // 보드 뷰와 리스트 뷰가 동일한 그룹 결과를 공유한다.
 
 import type { IssueClientGroupBy, IssueGroupBy, IssuePriority, IssueResponse, IssueStatus } from '../types/issue';
+import { ownLookup } from './ownLookup';
 
 // 하나의 그룹 — key 는 React key·data-testid·droppable id 에 사용, label 은 헤더 표시.
 export interface IssueGroup {
@@ -54,12 +55,12 @@ export const ISSUE_STATUSES = Object.keys(ISSUE_STATUS_LABEL) as IssueStatus[];
 
 // 상태 한글 라벨 — 버킷 밖에서 상태명을 읽을 때(드래그 스크린리더 안내 등). 모르는 값은 그대로.
 export function statusLabel(status: string): string {
-  return Object.hasOwn(ISSUE_STATUS_LABEL, status) ? ISSUE_STATUS_LABEL[status as IssueStatus] : status;
+  return ownLookup(ISSUE_STATUS_LABEL, status) ?? status;
 }
 
-// 우선순위 한글 라벨 — statusLabel 과 같은 규칙. 모르는 값(과거·미래 enum)은 그대로, 프로토타입 키는 hasOwn 으로 거른다.
+// 우선순위 한글 라벨 — statusLabel 과 같은 규칙. 모르는 값(과거·미래 enum)은 그대로, 프로토타입 키는 ownLookup 으로 거른다.
 export function priorityLabel(priority: string): string {
-  return Object.hasOwn(ISSUE_PRIORITY_LABEL, priority) ? ISSUE_PRIORITY_LABEL[priority as IssuePriority] : priority;
+  return ownLookup(ISSUE_PRIORITY_LABEL, priority) ?? priority;
 }
 
 // 종료 상태(완료·취소)인지 — 에픽 패널의 종료 배지·드롭 차단 등 종료 판정의 단일 기준.

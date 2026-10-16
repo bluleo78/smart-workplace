@@ -21,6 +21,7 @@ import { useEpicPanelOpen } from '../../hooks/useEpicPanelOpen';
 import { useIssueGroupBy } from '../../hooks/useIssueGroupBy';
 import { buildIssueListContext } from '../../lib/aiScreenContext/builders/issue';
 import { parseFilters, parseView, toClientGroupBy, withDefaultIssueScope } from '../../lib/issueFilters';
+import { canCreateIssueIn } from '../../lib/projectPermissions';
 import { EpicSidePanel } from './components/EpicSidePanel';
 import { IssueBoardView } from './components/IssueBoardView';
 import { IssueCreateDialog } from './components/IssueCreateDialog';
@@ -60,10 +61,8 @@ export default function ProjectDetailPage() {
     return <PersonalProjectDetail project={project.data} />;
   }
 
-  // OPEN 프로젝트: 테넌트 전원 이슈 생성 허용. TEAM 은 멤버만.
-  // viewerIsMember 는 서버 플래그 — 클라이언트에서 재파생하지 않는다.
-  const isOpenProject = project.data?.type === 'OPEN';
-  const canCreateIssue = isOpenProject || (project.data?.viewerIsMember ?? false);
+  // OPEN 프로젝트: 테넌트 전원 이슈 생성 허용. TEAM 은 멤버만(canCreateIssueIn).
+  const canCreateIssue = canCreateIssueIn(project.data);
   // 모바일은 드래그 대신 길게 누르기 액션(WP-193) — dnd-kit PointerSensor(distance 5)가 터치 스크롤과 충돌한다.
   // 길게 누르기 액션 권한은 드래그가 아니라 멤버 여부(isMember)다.
   const isMember = project.data?.viewerIsMember ?? false;

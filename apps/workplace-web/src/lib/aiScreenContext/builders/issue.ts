@@ -2,7 +2,8 @@
 // 필터 id 는 이미 로드된 라벨/멤버/유형/사이클/마일스톤 목록으로 이름 해석(AI 도구가 이름을 받음). 모르는 id 는 #id.
 // 상태·우선순위·그룹 라벨은 화면(보드 헤더·필터 바)과 같은 공용 맵을 쓴다 — 사용자와 AI 가 같은 단어로 말하게.
 // WP-379: app 은 홈 채팅 메모리 범위 선택용(서버로 보내는 screenContext 에선 빠진다).
-import { ISSUE_GROUP_BY_LABEL, ISSUE_PRIORITY_LABEL, ISSUE_STATUS_LABEL } from '@/lib/issueGrouping';
+import { ISSUE_GROUP_BY_LABEL, ISSUE_PRIORITY_LABEL, ISSUE_STATUS_LABEL, priorityLabel, statusLabel } from '@/lib/issueGrouping';
+import { ownLookup } from '@/lib/ownLookup';
 import { MY_TASKS_TAB_LABEL } from '@/pages/me/myTasksTabs';
 import type { AiScreenContext } from '@/types/aiScreenContext';
 import type { IssueFilters, IssueGroupBy, IssueResponse, IssueView } from '@/types/issue';
@@ -11,7 +12,8 @@ import { buildFacts, buildRefs, clip, LIMITS, withListState } from '../common';
 
 
 // enum 밖 값(facet CSV 의 오타 등)은 원문 그대로 표시한다.
-const joinMapped = (vals: string[], map: Readonly<Record<string, string>>) => vals.map((v) => map[v] ?? v).join(', ');
+const joinMapped = (vals: string[], map: Readonly<Record<string, string>>) =>
+  vals.map((v) => ownLookup(map, v) ?? v).join(', ');
 const csv = (s: string | undefined) => (s ? s.split(',').filter(Boolean) : []);
 
 /** 마감 범위 표시 — 'from ~ to' / '~ to' / 'from ~'. */
@@ -30,8 +32,8 @@ export function buildIssueDetailContext({ projectKey, issue }: { projectKey: str
       label: clip(`${issueKey} ${issue.title}`, LIMITS.label),
       refs: buildRefs({ issueKey }),
       facts: buildFacts([
-        ['상태', ISSUE_STATUS_LABEL[issue.status] ?? issue.status],
-        ['우선순위', ISSUE_PRIORITY_LABEL[issue.priority] ?? issue.priority],
+        ['상태', statusLabel(issue.status)],
+        ['우선순위', priorityLabel(issue.priority)],
         ['담당', issue.assignees.length ? issue.assignees.map((a) => a.name).join(', ') : '미할당'],
         ['유형', issue.type?.name],
         ['마감', issue.dueDate],

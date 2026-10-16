@@ -494,6 +494,8 @@ test.describe('AI 사이드패널 + 2구역 레이아웃 (#354)', () => {
 });
 
 test.describe('InlineEditableBody 새로고침 유실 경고 (#823)', () => {
+  // 켜짐 조건(편집 중·draft≠원본)은 src/lib/issueDraft.test.ts, 리스너 등록·해제는 useUnsavedChangesWarning.test.tsx 가
+  // 맡는다(WP-413). 여기서는 본문 편집 → 경고 켜짐 → 취소 → 해제의 실제 배선 한 줄기만 본다.
   // 실제 beforeunload 확인창은 headless 브라우저가 표시하지 않으므로, window 에 이벤트를
   // 직접 dispatch 해 리스너가 등록돼 preventDefault() 를 호출하는지로 검증한다 (#620 과 동일 기법).
   async function dispatchBeforeUnload(page: import('@playwright/test').Page) {
@@ -503,36 +505,6 @@ test.describe('InlineEditableBody 새로고침 유실 경고 (#823)', () => {
       return event.defaultPrevented;
     });
   }
-
-  test('본문 편집 진입 전에는 beforeunload 경고가 없다', async ({ authenticatedPage: page }) => {
-    await mockIssueDetail(page);
-    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
-    await expect(page.getByRole('button', { name: '본문 편집' })).toBeVisible();
-
-    expect(await dispatchBeforeUnload(page)).toBe(false);
-  });
-
-  test('본문 편집 중 변경사항이 있으면 beforeunload 경고가 뜬다', async ({ authenticatedPage: page }) => {
-    await mockIssueDetail(page);
-    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
-
-    await page.getByRole('button', { name: '본문 편집' }).click();
-    const textarea = page.getByTestId('issue-body-textarea');
-    await textarea.fill('저장하지 않은 본문 변경');
-
-    expect(await dispatchBeforeUnload(page)).toBe(true);
-  });
-
-  test('draft 가 원본과 동일하면(편집 진입만) beforeunload 경고가 없다', async ({ authenticatedPage: page }) => {
-    await mockIssueDetail(page);
-    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
-
-    await page.getByRole('button', { name: '본문 편집' }).click();
-    await expect(page.getByTestId('issue-body-textarea')).toBeVisible();
-
-    // 변경 없이 편집 모드만 진입 — 원본과 draft 가 같으므로 경고 불필요.
-    expect(await dispatchBeforeUnload(page)).toBe(false);
-  });
 
   test('취소하면 beforeunload 경고가 해제된다', async ({ authenticatedPage: page }) => {
     await mockIssueDetail(page);

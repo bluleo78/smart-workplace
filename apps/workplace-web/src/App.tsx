@@ -1,5 +1,5 @@
-import { lazy, type ReactNode, Suspense } from 'react'
-import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { type ComponentType, lazy, type ReactNode, Suspense } from 'react'
+import { Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom'
 
 import { AdminRoute } from './components/AdminRoute'
 import { IssueModuleLayout } from './components/issue/IssueModuleLayout'
@@ -116,6 +116,14 @@ function AdminRedirect() {
   return <Navigate to={target} replace />
 }
 
+// 채널/DM 화면은 채널 id 마다 새로 마운트한다(WP-418). key 없이 재사용하면 AI 유령 버블·캐치업 카드 열림/닫힘·진입 시점 스냅샷 같은
+// 채널별 상태가 다음 채널로 넘어가, 화면·훅마다 채널 전환 리셋을 손수 둬야 했다(하나라도 빠지면 이전 채널 상태가 샌다).
+// 라우트 파라미터 값을 key 로 Page 를 그린다 — 채널·DM 라우트가 같은 래퍼를 쓴다.
+function KeyedByParam({ component: Page, param }: { component: ComponentType; param: string }) {
+  const params = useParams()
+  return <Page key={params[param]} />
+}
+
 function PageLoader() {
   return (
     <div className="container mx-auto p-8">
@@ -177,10 +185,10 @@ export default function App() {
               <Route element={<ChatModuleLayout />}>
                 <Route path="chat" element={<ChannelListPage />} />
                 <Route path="chat/new" element={<NewMessagePage />} />
-                <Route path="chat/channels/:id" element={<ChannelPage />} />
+                <Route path="chat/channels/:id" element={<KeyedByParam component={ChannelPage} param="id" />} />
                 <Route path="chat/threads/inbox" element={<ThreadsInboxPage />} />
                 <Route path="chat/dms/self" element={<SelfDmRedirect />} />
-                <Route path="chat/dms/:id" element={<DmPage />} />
+                <Route path="chat/dms/:id" element={<KeyedByParam component={DmPage} param="id" />} />
               </Route>
 
               {/* 드라이브 모듈 — 2차 사이드바(공간 목록) 가 감싼다 */}
