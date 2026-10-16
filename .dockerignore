@@ -41,6 +41,9 @@ snapshots/
 # Test files
 **/*.test.ts
 **/*.spec.ts
+# 컴포넌트 테스트(RTL, WP-413)도 뺀다 — src/test/ 헬퍼가 빠진 채 남으면 웹 빌드의 tsc -b 가 실패한다
+**/*.test.tsx
+**/*.spec.tsx
 **/src/test/
 
 # Java artifacts
