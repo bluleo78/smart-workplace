@@ -681,7 +681,12 @@ public class IssueService {
     // 이력을 알림보다 먼저 남긴다 — 알림이 AI 작업 자동 시작으로 상태를 진행 중으로 올리면(WP-393) 그 이력이 이 변경 뒤에 와야 순서가 맞다.
     historyRecorder.recordChanges(callerId, before, after);
     // 실시간 무효화 — 제목·본문·날짜 등 모든 필드 변경을 알린다(목록/상세가 보여주므로). 상태를 직접 지정한 요청이면 자동 시작이 덮지 않는다.
-    changeNotifier.updated(project, number, before.id(), callerId, req.status() != null);
+    // 제목·본문·상태 없이 우선순위·날짜·마일스톤만 바꾼 요청은 정리성 쓰기라 AI 작업을 시작·터치하지 않는다(WP-425).
+    if (isOrganizingOnly(req)) {
+      changeNotifier.updatedWithoutTouch(project, number, before.id(), callerId);
+    } else {
+      changeNotifier.updated(project, number, before.id(), callerId, req.status() != null);
+    }
 
     return get(callerId, projectKey, number);
   }
@@ -778,8 +783,17 @@ public class IssueService {
         issue.id(),
         new IssueTypeSummary(oldType.id(), oldType.name(), oldType.colorToken(), oldType.icon()),
         new IssueTypeSummary(newType.id(), newType.name(), newType.colorToken(), newType.icon()));
-    changeNotifier.updated(project, number, issue.id(), callerId);
+    // 유형 변경은 정리성 쓰기 — AI 작업을 시작·터치하지 않는다(WP-425).
+    changeNotifier.updatedWithoutTouch(project, number, issue.id(), callerId);
     return get(callerId, projectKey, number);
+  }
+
+  /**
+   * 정리성 수정인지 — 제목·본문·상태를 하나도 바꾸지 않는 요청(우선순위·날짜·마일스톤·version 만)이다(WP-425). 이런 수정은 이슈를 정리할 뿐 그 일을 한
+   * 것이 아니라 MCP 경유라도 AI 작업을 시작하지 않는다.
+   */
+  private static boolean isOrganizingOnly(UpdateIssueRequest req) {
+    return req.title() == null && req.body() == null && req.status() == null;
   }
 
   /**
@@ -900,7 +914,8 @@ public class IssueService {
 
     issueRepository.updateParent(row.id(), newParentId);
     historyRecorder.recordParentChanged(callerId, row.id(), oldRef, newRef);
-    changeNotifier.updated(project, number, row.id(), callerId);
+    // 부모 변경은 정리성 쓰기 — AI 작업을 시작·터치하지 않는다(WP-425).
+    changeNotifier.updatedWithoutTouch(project, number, row.id(), callerId);
     return get(callerId, projectKey, number);
   }
 

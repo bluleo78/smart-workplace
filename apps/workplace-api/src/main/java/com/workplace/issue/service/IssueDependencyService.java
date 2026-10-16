@@ -108,11 +108,11 @@ public class IssueDependencyService {
   }
 
   /**
-   * 의존성은 양쪽 이슈 상세(차단/피차단)가 모두 바뀌므로 두 이슈 각각 알린다. 단 AI 작업 터치는 호출자가 쓴 이슈(this)에만 — 상대 이슈는 링크로 화면만 바뀐
-   * 것이라 그쪽 AI 작업을 시작·재개하지 않는다(WP-377).
+   * 의존성은 양쪽 이슈 상세(차단/피차단)가 모두 바뀌므로 두 이슈 각각 알린다. 의존성 추가·제거는 정리성 쓰기라 어느 쪽 AI 작업도 시작·재개하지 않는다 (WP-425
+   * — 전에는 호출자가 쓴 이슈만 터치했다).
    */
   private void notifyBoth(ProjectRow project, IssueRow thisRow, IssueRow otherRow, Long callerId) {
-    changeNotifier.updated(project, thisRow.number(), thisRow.id(), callerId);
+    changeNotifier.updatedWithoutTouch(project, thisRow.number(), thisRow.id(), callerId);
     changeNotifier.updatedWithoutTouch(project, otherRow.number(), otherRow.id(), callerId);
   }
 

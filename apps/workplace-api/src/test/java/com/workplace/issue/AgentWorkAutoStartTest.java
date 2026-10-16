@@ -24,7 +24,7 @@ class AgentWorkAutoStartTest extends AgentWorkTestSupport {
 
   @Test
   void PAT_헤더있는_쓰기_담당자면_WORKING_생성() {
-    assertOk(patch(patToken, Map.of("priority", "HIGH"), TOOL));
+    assertOk(patch(patToken, Map.of("title", "진행"), TOOL));
     assertThat(activeWork(issueId, humanId))
         .hasValueSatisfying(
             w -> {
@@ -41,19 +41,19 @@ class AgentWorkAutoStartTest extends AgentWorkTestSupport {
 
   @Test
   void 헤더없는_PAT_쓰기는_안만듦() {
-    assertOk(patch(patToken, Map.of("priority", "HIGH"), null));
+    assertOk(patch(patToken, Map.of("title", "진행"), null));
     assertThat(activeWork(issueId, humanId)).isEmpty();
   }
 
   @Test
   void JWT_에_헤더가_있어도_안만듦() {
-    assertOk(patch(jwtToken, Map.of("priority", "HIGH"), TOOL));
+    assertOk(patch(jwtToken, Map.of("title", "진행"), TOOL));
     assertThat(activeWork(issueId, humanId)).isEmpty();
   }
 
   @Test
   void 담당자가_아니면_안만듦() {
-    assertOk(patch(otherPatToken, Map.of("priority", "HIGH"), TOOL));
+    assertOk(patch(otherPatToken, Map.of("title", "진행"), TOOL));
     assertThat(activeWork(issueId, otherId)).isEmpty();
     assertThat(activeCount(issueId)).isZero();
   }
@@ -66,7 +66,7 @@ class AgentWorkAutoStartTest extends AgentWorkTestSupport {
 
   @Test
   void ak_쓰기도_자동시작() {
-    assertOk(patch(akToken, Map.of("priority", "LOW"), TOOL));
+    assertOk(patch(akToken, Map.of("title", "진행"), TOOL));
     assertThat(activeWork(issueId, agentId))
         .hasValueSatisfying(w -> assertThat(w.state()).isEqualTo("WORKING"));
     // 쓴 사람(AI 구성원)만 — 같은 이슈의 다른 담당자 작업은 만들지 않는다.
@@ -85,7 +85,7 @@ class AgentWorkAutoStartTest extends AgentWorkTestSupport {
     for (String s :
         List.of("INPUT_REQUIRED", "AUTH_REQUIRED", "BLOCKED", "PAUSED", "SUBMITTED", "REVIEW")) {
       seedActive(issueId, humanId, s);
-      assertOk(patch(patToken, Map.of("priority", "HIGH"), "cursor"));
+      assertOk(patch(patToken, Map.of("title", "진행"), "cursor"));
       var w = activeWork(issueId, humanId).orElseThrow();
       assertThat(w.state()).as(s).isEqualTo(s.equals("REVIEW") ? "REVIEW" : "WORKING");
       // 수행 도구는 최신 요청 값으로 덮는다.
@@ -98,7 +98,7 @@ class AgentWorkAutoStartTest extends AgentWorkTestSupport {
   void 경고없는_쓰기는_updated_at_갱신() {
     var seeded = OffsetDateTime.now().minusHours(3);
     seedActive(issueId, humanId, "WORKING", seeded);
-    assertOk(patch(patToken, Map.of("priority", "HIGH"), TOOL));
+    assertOk(patch(patToken, Map.of("title", "진행"), TOOL));
     // 실시간 데드라인 대신 "시드 시각보다 뒤로 움직였고, 무소식이 풀렸다" 로만 본다(부하에서도 결정적).
     var w = activeView(issueId, humanId);
     assertThat(w.updatedAt()).isAfter(seeded.toInstant());
@@ -115,9 +115,9 @@ class AgentWorkAutoStartTest extends AgentWorkTestSupport {
     assertThat(activeWork(issueId, humanId)).isEmpty();
   }
 
-  /** 의존성 추가는 호출자가 쓴 이슈(A)만 터치한다 — 상대 이슈(B)는 링크로 화면만 바뀐 것이라 담당자여도 작업을 만들지 않는다. */
+  /** 의존성 추가는 정리성 쓰기라(WP-425) 호출자가 쓴 이슈(A)도, 링크로 화면만 바뀐 상대 이슈(B)도 담당자의 작업을 만들지 않는다. */
   @Test
-  void 의존성_추가는_호출한_이슈에만_작업을_만듦() {
+  void 의존성_추가는_어느_이슈에도_작업을_만들지_않음() {
     var other =
         inTenant(
             () -> {
@@ -137,7 +137,7 @@ class AgentWorkAutoStartTest extends AgentWorkTestSupport {
             patToken,
             Map.of("otherNumber", other.number(), "direction", "blocks"),
             TOOL));
-    assertThat(activeWork(issueId, humanId)).isPresent();
+    assertThat(activeWork(issueId, humanId)).isEmpty();
     assertThat(activeWork(other.id(), humanId)).isEmpty();
   }
 
@@ -159,7 +159,7 @@ class AgentWorkAutoStartTest extends AgentWorkTestSupport {
   void 터치_억제_중_쓰기는_상태를_되돌리지_않음() {
     seedActive(issueId, humanId, "INPUT_REQUIRED");
     var req =
-        new UpdateIssueRequest(null, null, null, "HIGH", null, null, null, null, null, null, null);
+        new UpdateIssueRequest("진행", null, null, null, null, null, null, null, null, null, null);
     AgentToolContext.set(TOOL);
     try {
       inTenant(

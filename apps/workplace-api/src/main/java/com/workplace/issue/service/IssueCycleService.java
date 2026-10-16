@@ -80,7 +80,7 @@ public class IssueCycleService {
 
     // 실시간 무효화 — diff 가 있을 때만(no-op 은 미발행)
     if (!toAdd.isEmpty() || !toRemove.isEmpty()) {
-      changeNotifier.updated(project, number, issue.id(), callerId);
+      changeNotifier.updatedWithoutTouch(project, number, issue.id(), callerId);
     }
 
     return issueCycleRepository.findCyclesByIssue(issue.id());
@@ -127,7 +127,7 @@ public class IssueCycleService {
     boolean addedTo = toCycleId != null && issueCycleRepository.add(issue.id(), toCycleId) > 0;
     // 실시간 무효화 — 실제 변경이 있을 때만(no-op 은 미발행)
     if (removedFrom || addedTo) {
-      changeNotifier.updated(project, number, issue.id(), callerId);
+      changeNotifier.updatedWithoutTouch(project, number, issue.id(), callerId);
     }
 
     return new MoveResult(issueCycleRepository.findCyclesByIssue(issue.id()), removedFrom, addedTo);

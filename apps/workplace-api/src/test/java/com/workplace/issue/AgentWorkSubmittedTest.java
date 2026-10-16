@@ -140,7 +140,7 @@ class AgentWorkSubmittedTest extends AgentWorkTestSupport {
   void MCP_쓰기는_SUBMITTED_를_WORKING_으로_이어_쓰고_도구를_채움() {
     makeExternal(agentId);
     addAgentAsAssignee();
-    assertOk(patch(akToken, Map.of("priority", "HIGH"), TOOL));
+    assertOk(patch(akToken, Map.of("title", "진행"), TOOL));
     assertThat(allStates(issueId, agentId)).containsExactly("WORKING");
     assertThat(activeWork(issueId, agentId).orElseThrow().tool()).isEqualTo(TOOL);
     assertThat(eventStates(issueId, agentId)).containsExactly("SUBMITTED", "WORKING");

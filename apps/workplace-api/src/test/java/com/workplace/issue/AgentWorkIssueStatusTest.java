@@ -17,7 +17,7 @@ class AgentWorkIssueStatusTest extends AgentWorkTestSupport {
 
   @Test
   void 도구_헤더_쓰기로_작업이_시작되면_TODO_이슈는_진행_중_이력_하나_작업_이벤트도_하나() {
-    assertOk(patch(patToken, Map.of("priority", "HIGH"), TOOL));
+    assertOk(patch(patToken, Map.of("title", "진행"), TOOL));
     assertThat(issueStatus()).isEqualTo("IN_PROGRESS");
     assertThat(statusHistory(issueId)).containsExactly("TODO→IN_PROGRESS");
     // 상태 변경 알림이 다시 터치를 일으켜 작업 이벤트를 한 번 더 남기지 않는다.
@@ -44,7 +44,7 @@ class AgentWorkIssueStatusTest extends AgentWorkTestSupport {
   @Test
   void 시작_전_작업을_MCP_쓰기로_이으면_진행_중() {
     seedSubmitted(issueId, agentId);
-    assertOk(patch(akToken, Map.of("priority", "HIGH"), TOOL));
+    assertOk(patch(akToken, Map.of("title", "진행"), TOOL));
     assertThat(activeWork(issueId, agentId).orElseThrow().state()).isEqualTo("WORKING");
     assertThat(issueStatus()).isEqualTo("IN_PROGRESS");
   }
@@ -69,14 +69,14 @@ class AgentWorkIssueStatusTest extends AgentWorkTestSupport {
   @Test
   void 이미_일하던_작업의_터치는_사람이_되돌린_TODO_를_바꾸지_않음() {
     seedActive(issueId, humanId, "WORKING");
-    assertOk(patch(patToken, Map.of("priority", "HIGH"), TOOL));
+    assertOk(patch(patToken, Map.of("title", "진행"), TOOL));
     assertThat(issueStatus()).isEqualTo("TODO");
   }
 
   @Test
   void 이미_진행_중이면_이력을_더_남기지_않음() {
     assertOk(patch(jwtToken, Map.of("status", "IN_PROGRESS"), null));
-    assertOk(patch(patToken, Map.of("priority", "HIGH"), TOOL));
+    assertOk(patch(patToken, Map.of("title", "진행"), TOOL));
     assertThat(statusHistory(issueId)).containsExactly("TODO→IN_PROGRESS");
   }
 
@@ -92,13 +92,13 @@ class AgentWorkIssueStatusTest extends AgentWorkTestSupport {
 
   @Test
   void 자동_시작의_상태_이력은_그것을_일으킨_변경_뒤에_남는다() {
-    assertOk(patch(patToken, Map.of("priority", "HIGH"), TOOL));
-    assertThat(historyTypes(issueId)).containsExactly("PRIORITY_CHANGED", "STATUS_CHANGED");
+    assertOk(patch(patToken, Map.of("title", "진행"), TOOL));
+    assertThat(historyTypes(issueId)).containsExactly("TITLE_CHANGED", "STATUS_CHANGED");
   }
 
   @Test
   void 도구_헤더_없는_쓰기는_상태를_바꾸지_않음() {
-    assertOk(patch(patToken, Map.of("priority", "HIGH"), null));
+    assertOk(patch(patToken, Map.of("title", "진행"), null));
     assertThat(issueStatus()).isEqualTo("TODO");
   }
 

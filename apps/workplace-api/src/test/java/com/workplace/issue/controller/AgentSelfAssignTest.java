@@ -72,7 +72,7 @@ class AgentSelfAssignTest extends AgentWorkTestSupport {
           makeExternal(agentId);
           return null;
         });
-    // 수행 도구 헤더를 싣지 않는다 — 헤더가 있으면 쓰기 요청이 곧바로 작업을 WORKING 으로 시작시켜 "시작 전" 상태를 볼 수 없다.
+    // 수행 도구 헤더 없이 보낸다 — 담당자 추가가 "시작 전" 작업을 만드는지만 본다(담당자 변경은 정리성 쓰기라 헤더가 있어도 시작하지 않는다, WP-425).
     var r =
         call(
             HttpMethod.PUT,

@@ -90,7 +90,7 @@ public class IssueFieldValueService {
 
     // 실시간 무효화 — 실제로 바뀐 필드가 있을 때만
     if (changed) {
-      changeNotifier.updated(project, number, issue.id(), callerId);
+      changeNotifier.updatedWithoutTouch(project, number, issue.id(), callerId);
     }
 
     return issueService.get(callerId, projectKey, number);
