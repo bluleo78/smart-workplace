@@ -113,14 +113,6 @@ class MailReadSyncOrderingTest extends IntegrationTestBase {
     return id;
   }
 
-  /**
-   * DB 시계 기준 시각 — 리스·다음 시도 시각은 앱이 DB now() 로 찍고 비교하므로 테스트도 DB 시계로 넣고 비교한다. JVM 시계를 쓰면 Docker VM 시계가
-   * 호스트보다 앞설 때(부하에서 수 초) "1초 전"이 DB 에겐 아직 미래라 재시도 대상에서 빠진다.
-   */
-  private OffsetDateTime dbNow() {
-    return dsl.select(DSL.currentOffsetDateTime()).fetchOne().value1();
-  }
-
   /** DB now() + d 를 SQL 식으로 — 저장 순간의 DB 시계를 쓴다(EmailAccountRepository.nowPlus 와 같은 꼴, 음수면 과거). */
   private static Field<OffsetDateTime> dbNowPlus(Duration d) {
     return DSL.field(

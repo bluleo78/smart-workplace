@@ -16,7 +16,6 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.List;
 import org.jooq.DSLContext;
-import org.jooq.impl.DSL;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
@@ -71,14 +70,6 @@ class EmailMessageReadStateRepositoryTest extends IntegrationTestBase {
         .where(EMAIL_MESSAGE.ID.eq(env))
         .execute();
     return env;
-  }
-
-  /**
-   * asOf 기준 시각 — DB 시계(now() = 트랜잭션 시작)를 쓴다. created_at 도 DB now() 라 JVM 시계를 쓰면 컨테이너 DB 와의 시계 차이로
-   * 방금 넣은 행이 asOf 뒤로 판정될 수 있다(서비스도 asOf 를 DB 시각으로 잡아야 한다).
-   */
-  private OffsetDateTime dbNow() {
-    return dsl.select(DSL.currentOffsetDateTime()).fetchOne(0, OffsetDateTime.class);
   }
 
   private boolean seen(long id) {

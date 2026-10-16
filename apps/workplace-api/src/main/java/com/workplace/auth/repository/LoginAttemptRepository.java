@@ -2,9 +2,9 @@ package com.workplace.auth.repository;
 
 import static com.workplace.jooq.Tables.LOGIN_ATTEMPTS;
 
-import java.time.LocalDateTime;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
+import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -13,7 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
  * 로그인 실패 카운터 영속 저장소(#144).
  *
  * <p>{@link #incrementAttempts(String)}는 UPSERT + RETURNING으로 동시 실패 요청의 카운터 증가를 원자적으로 처리한다. 잠금
- * 기간(15분)은 SQL의 {@code interval '15 minutes'}로 인라인된다 — 변경 시 V58 마이그레이션 주석과 본 클래스 SQL을 함께 동기화한다.
+ * 기간(15분)은 SQL의 {@code interval '15 minutes'}로 인라인된다 — 변경 시 V3 마이그레이션 주석과 본 클래스 SQL을 함께 동기화한다.
  */
 @Repository
 @RequiredArgsConstructor
@@ -41,13 +41,16 @@ public class LoginAttemptRepository {
     return dsl.fetchOne(INCREMENT_SQL, username).get(0, Integer.class);
   }
 
-  /** 만료되지 않은 시도 카운터. row가 없거나 만료됐으면 0. */
+  /**
+   * 만료되지 않은 시도 카운터. row가 없거나 만료됐으면 0. 만료 비교는 UPSERT 가 expires_at 을 쓸 때와 같은 DB 시계로 한다 — JVM 시계로 하면
+   * DB 와 시계가 어긋날 때(멀티 인스턴스, 컨테이너 VM 시계 지연) 잠금이 일찍·늦게 풀린다(WP-434).
+   */
   public int getAttempts(String username) {
     Integer attempts =
         dsl.select(LOGIN_ATTEMPTS.ATTEMPTS)
             .from(LOGIN_ATTEMPTS)
             .where(LOGIN_ATTEMPTS.USERNAME.eq(username))
-            .and(LOGIN_ATTEMPTS.EXPIRES_AT.gt(LocalDateTime.now()))
+            .and(LOGIN_ATTEMPTS.EXPIRES_AT.gt(DSL.currentLocalDateTime()))
             .fetchOne(LOGIN_ATTEMPTS.ATTEMPTS);
     return attempts == null ? 0 : attempts;
   }
@@ -58,11 +61,11 @@ public class LoginAttemptRepository {
     dsl.deleteFrom(LOGIN_ATTEMPTS).where(LOGIN_ATTEMPTS.USERNAME.eq(username)).execute();
   }
 
-  /** 만료된 row를 일괄 삭제하고 삭제 건수를 반환한다(스케줄러용). */
+  /** 만료된 row(DB 시계 기준)를 일괄 삭제하고 삭제 건수를 반환한다(스케줄러용). */
   @Transactional
   public int deleteExpired() {
     return dsl.deleteFrom(LOGIN_ATTEMPTS)
-        .where(LOGIN_ATTEMPTS.EXPIRES_AT.lt(LocalDateTime.now()))
+        .where(LOGIN_ATTEMPTS.EXPIRES_AT.lt(DSL.currentLocalDateTime()))
         .execute();
   }
 }

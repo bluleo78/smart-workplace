@@ -6,10 +6,12 @@ import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
 
 import com.workplace.global.tenant.TenantContext;
+import java.time.OffsetDateTime;
 import java.util.UUID;
 import java.util.function.Consumer;
 import org.assertj.core.api.SoftAssertions;
 import org.jooq.DSLContext;
+import org.jooq.impl.DSL;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -76,6 +78,15 @@ public abstract class IntegrationTestBase {
    */
   protected Long defaultTenantId() {
     return 1L;
+  }
+
+  /**
+   * DB 시계 기준 현재 시각({@code current_timestamp}). 앱이 DB {@code now()} 로 찍거나 비교하는 시각(리마인더 due·리스·asOf
+   * 등)은 테스트도 이 값으로 넣고 비교한다 — JVM 시계를 쓰면 Docker VM 시계가 부하에서 호스트와 어긋날 때 판정이
+   * 뒤집힌다(WP-434). @Transactional 테스트 안에서는 트랜잭션 시작 시각으로 고정된다.
+   */
+  protected OffsetDateTime dbNow() {
+    return baseDsl.select(DSL.currentOffsetDateTime()).fetchOne(0, OffsetDateTime.class);
   }
 
   /**

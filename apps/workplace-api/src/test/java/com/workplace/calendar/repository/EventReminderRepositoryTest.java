@@ -84,7 +84,7 @@ class EventReminderRepositoryTest extends IntegrationTestBase {
   @Test
   void upsert_isIdempotentPerEvent_replacesLeadAndSchedule() {
     long u = user();
-    OffsetDateTime start = OffsetDateTime.now().plusHours(2);
+    OffsetDateTime start = dbNow().plusHours(2);
     long e = event(u, start);
 
     repo.upsert(e, 10, start.minusMinutes(10));
@@ -102,11 +102,11 @@ class EventReminderRepositoryTest extends IntegrationTestBase {
   void findDue_returnsOnlyPastDueUnfired_withOwner() {
     long u = user();
     // 발화 시점 도달(시작 5분 전, 시작이 3분 후 → 이미 due)
-    OffsetDateTime dueStart = OffsetDateTime.now().plusMinutes(3);
+    OffsetDateTime dueStart = dbNow().plusMinutes(3);
     long dueEvent = event(u, dueStart);
     repo.upsert(dueEvent, 5, dueStart.minusMinutes(5));
     // 아직 멀었음(시작 2시간 후, 10분 전 리마인더 → 미도달)
-    OffsetDateTime futureStart = OffsetDateTime.now().plusHours(2);
+    OffsetDateTime futureStart = dbNow().plusHours(2);
     long futureEvent = event(u, futureStart);
     repo.upsert(futureEvent, 10, futureStart.minusMinutes(10));
 
@@ -122,7 +122,7 @@ class EventReminderRepositoryTest extends IntegrationTestBase {
   @Test
   void findDue_excludesReminderWithNullNextFireAt() {
     long u = user();
-    long e = event(u, OffsetDateTime.now().plusMinutes(1));
+    long e = event(u, dbNow().plusMinutes(1));
     // next_fire_at 이 null 이면(단발 완료 등) due 대상에서 제외.
     repo.upsert(e, 10, null);
 
@@ -132,8 +132,8 @@ class EventReminderRepositoryTest extends IntegrationTestBase {
   @Test
   void rearm_singleEvent_clearsNextFireAt() {
     long u = user();
-    long e = event(u, OffsetDateTime.now().plusMinutes(1));
-    repo.upsert(e, 10, OffsetDateTime.now().minusMinutes(1));
+    long e = event(u, dbNow().plusMinutes(1));
+    repo.upsert(e, 10, dbNow().minusMinutes(1));
     long rid = reminderId(e);
 
     repo.rearm(List.of(new Rearm(rid, null)));
@@ -145,9 +145,9 @@ class EventReminderRepositoryTest extends IntegrationTestBase {
   @Test
   void rearm_recurringEvent_advancesToNextOccurrence() {
     long u = user();
-    OffsetDateTime start = OffsetDateTime.now().minusDays(7);
+    OffsetDateTime start = dbNow().minusDays(7);
     long e = event(u, start, "FREQ=WEEKLY");
-    repo.upsert(e, 10, OffsetDateTime.now().minusMinutes(1)); // 이번 회차 due
+    repo.upsert(e, 10, dbNow().minusMinutes(1)); // 이번 회차 due
     long rid = reminderId(e);
 
     OffsetDateTime nextOccurrence = start.plusDays(14); // 다음(2회차 이후) 시각으로 재무장 가정
@@ -159,8 +159,8 @@ class EventReminderRepositoryTest extends IntegrationTestBase {
   @Test
   void deleteByEvent_removesReminder() {
     long u = user();
-    long e = event(u, OffsetDateTime.now().plusHours(1));
-    repo.upsert(e, 10, OffsetDateTime.now().plusMinutes(50));
+    long e = event(u, dbNow().plusHours(1));
+    repo.upsert(e, 10, dbNow().plusMinutes(50));
 
     repo.deleteByEvent(e);
 

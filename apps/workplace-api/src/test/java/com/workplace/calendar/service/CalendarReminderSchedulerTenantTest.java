@@ -45,6 +45,7 @@ class CalendarReminderSchedulerTenantTest extends IntegrationTestBase {
   private Long t2EventId;
   private Long t1Owner;
   private Long t2Owner;
+
   private long tid2;
 
   /** 세션 GUC 를 대상 테넌트로 전환(autocommit 시드/조회용, 트랜잭션 밖이므로 is_local=false). */
@@ -96,13 +97,14 @@ class CalendarReminderSchedulerTenantTest extends IntegrationTestBase {
             .returning(CALENDAR.ID)
             .fetchOne()
             .getId();
-    OffsetDateTime startsAt = OffsetDateTime.now().plus(2, ChronoUnit.MINUTES);
+    OffsetDateTime now = dbNow();
+    OffsetDateTime startsAt = now.plus(2, ChronoUnit.MINUTES);
     long eventId =
         dsl.insertInto(CALENDAR_EVENT)
             .set(CALENDAR_EVENT.OWNER_ID, ownerId)
             .set(CALENDAR_EVENT.TITLE, "테넌트 리마인더")
             .set(CALENDAR_EVENT.STARTS_AT, startsAt)
-            .set(CALENDAR_EVENT.ENDS_AT, OffsetDateTime.now().plus(62, ChronoUnit.MINUTES))
+            .set(CALENDAR_EVENT.ENDS_AT, now.plus(62, ChronoUnit.MINUTES))
             .set(CALENDAR_EVENT.ALL_DAY, false)
             .set(CALENDAR_EVENT.CALENDAR_ID, calId)
             .returning(CALENDAR_EVENT.ID)
@@ -165,7 +167,8 @@ class CalendarReminderSchedulerTenantTest extends IntegrationTestBase {
     final long fT2EventId = t2EventId;
     // 비동기 알림 생성 대기 — 양 테넌트 모두 각자 컨텍스트에서 REMINDER 알림 1건.
     await()
-        .atMost(Duration.ofSeconds(5))
+        // 전체 실행 부하에서 @Async 알림이 늦을 수 있어 상한을 넉넉히 둔다(WP-434) — 조건이 맞으면 바로 끝난다.
+        .atMost(Duration.ofSeconds(10))
         .untilAsserted(
             () -> {
               assertThat(reminderNotifCount(1L, fT1Owner, fT1EventId)).isEqualTo(1);

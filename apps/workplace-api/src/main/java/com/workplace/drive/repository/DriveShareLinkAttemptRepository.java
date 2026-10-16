@@ -2,9 +2,9 @@ package com.workplace.drive.repository;
 
 import static com.workplace.jooq.Tables.DRIVE_SHARE_LINK_ATTEMPTS;
 
-import java.time.LocalDateTime;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
+import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -42,13 +42,16 @@ public class DriveShareLinkAttemptRepository {
     return dsl.fetchOne(INCREMENT_SQL, tokenHash).get(0, Integer.class);
   }
 
-  /** 만료되지 않은 시도 카운터. row가 없거나 만료됐으면 0. */
+  /**
+   * 만료되지 않은 시도 카운터. row가 없거나 만료됐으면 0. 만료 비교는 UPSERT 가 expires_at 을 쓸 때와 같은 DB 시계로 한다 — JVM 시계로 하면
+   * DB 와 시계가 어긋날 때(멀티 인스턴스, 컨테이너 VM 시계 지연) 잠금이 일찍·늦게 풀린다(WP-434).
+   */
   public int getAttempts(String tokenHash) {
     Integer attempts =
         dsl.select(DRIVE_SHARE_LINK_ATTEMPTS.ATTEMPTS)
             .from(DRIVE_SHARE_LINK_ATTEMPTS)
             .where(DRIVE_SHARE_LINK_ATTEMPTS.TOKEN_HASH.eq(tokenHash))
-            .and(DRIVE_SHARE_LINK_ATTEMPTS.EXPIRES_AT.gt(LocalDateTime.now()))
+            .and(DRIVE_SHARE_LINK_ATTEMPTS.EXPIRES_AT.gt(DSL.currentLocalDateTime()))
             .fetchOne(DRIVE_SHARE_LINK_ATTEMPTS.ATTEMPTS);
     return attempts == null ? 0 : attempts;
   }
@@ -61,11 +64,11 @@ public class DriveShareLinkAttemptRepository {
         .execute();
   }
 
-  /** 만료된 row를 일괄 삭제하고 삭제 건수를 반환한다(스케줄러용). */
+  /** 만료된 row(DB 시계 기준)를 일괄 삭제하고 삭제 건수를 반환한다(스케줄러용). */
   @Transactional
   public int deleteExpired() {
     return dsl.deleteFrom(DRIVE_SHARE_LINK_ATTEMPTS)
-        .where(DRIVE_SHARE_LINK_ATTEMPTS.EXPIRES_AT.lt(LocalDateTime.now()))
+        .where(DRIVE_SHARE_LINK_ATTEMPTS.EXPIRES_AT.lt(DSL.currentLocalDateTime()))
         .execute();
   }
 }

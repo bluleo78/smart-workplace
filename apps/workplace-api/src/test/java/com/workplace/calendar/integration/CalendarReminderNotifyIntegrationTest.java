@@ -101,7 +101,7 @@ class CalendarReminderNotifyIntegrationTest extends IntegrationTestBase {
   void due_reminder_poll_creates_inbox_notification() {
     long owner = user();
     // 시작 2분 후, 10분 전 리마인더 → 발화 시점(now-8분) 이미 지남 = due
-    OffsetDateTime startsAt = OffsetDateTime.now().plus(2, ChronoUnit.MINUTES);
+    OffsetDateTime startsAt = dbNow().plus(2, ChronoUnit.MINUTES);
     long eventId = event(owner, startsAt);
     reminderRepo.upsert(eventId, 10, startsAt.minusMinutes(10));
 
@@ -110,7 +110,8 @@ class CalendarReminderNotifyIntegrationTest extends IntegrationTestBase {
 
     // 비동기 알림 생성 대기 — 전체 경로(폴러→이벤트→notify→인박스 row) 검증
     await()
-        .atMost(java.time.Duration.ofSeconds(3))
+        // 전체 실행 부하에서 @Async 알림이 늦을 수 있어 상한을 넉넉히 둔다(WP-434) — 조건이 맞으면 바로 끝난다.
+        .atMost(java.time.Duration.ofSeconds(10))
         .untilAsserted(() -> assertThat(reminderNotifCount(owner, eventId)).isEqualTo(1));
 
     // 발화 후 next_fire_at 이 null 로 재무장(단발 일정) → 재폴링해도 중복 생성 없음

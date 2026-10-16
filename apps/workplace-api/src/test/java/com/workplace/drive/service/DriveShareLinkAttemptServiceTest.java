@@ -12,6 +12,9 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import org.jooq.DSLContext;
+import org.jooq.DatePart;
+import org.jooq.Field;
+import org.jooq.impl.DSL;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -30,6 +33,13 @@ class DriveShareLinkAttemptServiceTest extends IntegrationTestBase {
   @Autowired private DSLContext dsl;
 
   private String uniqueTokenHash;
+
+  /**
+   * DB 시계 기준 1분 전(WP-434). 만료 판정이 DB 시계 기준이므로 강제 만료도 같은 시계로 넣는다 — JVM 시계로 넣으면 DB 컨테이너 시계와 어긋날 때 아직
+   * 만료되지 않은 값이 된다.
+   */
+  private static final Field<LocalDateTime> ONE_MINUTE_AGO_DB =
+      DSL.localDateTimeSub(DSL.currentLocalDateTime(), 1, DatePart.MINUTE);
 
   // attemptFailed 는 REQUIRES_NEW 로 커밋되어 롤백되지 않으므로, 사용한 token_hash 를 추적해 @AfterEach 에서 회수.
   private final List<String> createdHashes = new ArrayList<>();
@@ -94,7 +104,7 @@ class DriveShareLinkAttemptServiceTest extends IntegrationTestBase {
   void getAttempts_returnsZero_whenExpired() {
     for (int i = 0; i < 5; i++) attemptService.attemptFailed(uniqueTokenHash);
     dsl.update(DRIVE_SHARE_LINK_ATTEMPTS)
-        .set(DRIVE_SHARE_LINK_ATTEMPTS.EXPIRES_AT, LocalDateTime.now().minusMinutes(1))
+        .set(DRIVE_SHARE_LINK_ATTEMPTS.EXPIRES_AT, ONE_MINUTE_AGO_DB)
         .where(DRIVE_SHARE_LINK_ATTEMPTS.TOKEN_HASH.eq(uniqueTokenHash))
         .execute();
 
@@ -130,9 +140,8 @@ class DriveShareLinkAttemptServiceTest extends IntegrationTestBase {
     attemptService.attemptFailed(expired2);
     attemptService.attemptFailed(fresh);
 
-    LocalDateTime past = LocalDateTime.now().minusMinutes(1);
     dsl.update(DRIVE_SHARE_LINK_ATTEMPTS)
-        .set(DRIVE_SHARE_LINK_ATTEMPTS.EXPIRES_AT, past)
+        .set(DRIVE_SHARE_LINK_ATTEMPTS.EXPIRES_AT, ONE_MINUTE_AGO_DB)
         .where(DRIVE_SHARE_LINK_ATTEMPTS.TOKEN_HASH.in(expired1, expired2))
         .execute();
 
