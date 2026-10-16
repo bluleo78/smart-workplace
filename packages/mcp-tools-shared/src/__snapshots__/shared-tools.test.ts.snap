@@ -592,6 +592,16 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
           "type": "string",
         },
+        "fileIds": {
+          "description": "Staged files from upload_file to attach",
+          "items": {
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer",
+          },
+          "maxItems": 10,
+          "type": "array",
+        },
         "labels": {
           "items": {
             "type": "string",
@@ -2855,6 +2865,16 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
             "type": "string",
           },
           "type": "object",
+        },
+        "fileIds": {
+          "description": "Staged files from upload_file to attach",
+          "items": {
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer",
+          },
+          "maxItems": 10,
+          "type": "array",
         },
         "issueKey": {
           "minLength": 1,

@@ -126,7 +126,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       description:
         'Creates an issue (이슈) in projectKey and returns it. type, milestone, cycles and assignees (usernames, "me" = caller) are names ' +
         'from get_project; unknown ones fail before creating, listing allowed values. labels are names too, but unknown label names are ' +
-        'created (gray) and listed in createdLabels. New assignees are notified; an assigned AI agent starts working.',
+        'created (gray) and listed in createdLabels. fileIds attach staged files. New assignees are notified; an assigned AI agent starts working.',
       inputSchema: createIssueInput,
       async handler(args) {
         const { projectKey, type, assignees, parent, labels, milestone, cycles, ...rest } = createIssueInput.parse(args);
@@ -166,11 +166,11 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       description:
         'Updates an issue (이슈); only given fields change. assignees (usernames, "me" = caller), labels and cycles replace the set ([] clears). ' +
         'Names (type, milestone, cycles, fields) come from get_project; unknown ones fail before any write. Unknown label names are created ' +
-        '(gray) and listed in createdLabels. Then each part saves on its own: {ok, results, createdLabels?}. Status/priority changes notify ' +
+        '(gray) and listed in createdLabels. fileIds attach staged files. Then each part saves on its own: {ok, results, createdLabels?}. Status/priority changes notify ' +
         'assignees and watchers, new assignees too.',
       inputSchema: updateIssueInput,
       async handler(args) {
-        const { issueKey, type, parent, assignees, labels, milestone, cycles, fields, driveFileId, ...rest } = updateIssueInput.parse(args);
+        const { issueKey, type, parent, assignees, labels, milestone, cycles, fields, driveFileId, fileIds, ...rest } = updateIssueInput.parse(args);
         const { projectKey } = parseIssueKey(issueKey);
 
         // 1) 리졸브를 쓰기 이전에 모두 수행 — 하나라도 실패하면 아무것도 쓰지 않고 throw.
@@ -208,6 +208,12 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
           }
         };
 
+        // 작업 쓰기(첨부 클레임·드라이브 링크)는 내용(상태 포함) PATCH 보다 먼저 한다 — 이들도 서버에서 이슈 수정 알림(상태 미기재)을 내
+        // 담당 AI 작업의 자동 상태 전환을 일으킬 수 있다. 같은 호출에서 명시한 status 가 마지막에 저장되어 그 전환에 덮이지 않게 한다.
+        // WP-422: 스테이징 파일 첨부 — 빈 배열이면 서버를 부르지 않는다. 실패(만료 등)는 attachments 결과로만 알린다.
+        if (fileIds?.length) await run('attachments', () => client.claimIssueAttachments(issueKey, fileIds));
+        if (driveFileId !== undefined) await run('driveLink', () => client.addIssueDriveLink(issueKey, driveFileId));
+
         // 마일스톤은 이슈 PATCH 본문의 필드다(milestoneId 설정 / clearMilestone 해제).
         const content: Record<string, unknown> = { ...rest };
         if (milestoneId !== undefined) content.milestoneId = milestoneId;
@@ -225,7 +231,6 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
         }
         if (cycleIds !== undefined) await run('cycles', () => client.replaceIssueCycles(issueKey, cycleIds));
         if (fieldValues !== undefined) await run('fields', () => client.updateIssueFields(issueKey, fieldValues));
-        if (driveFileId !== undefined) await run('driveLink', () => client.addIssueDriveLink(issueKey, driveFileId));
 
         const ok = Object.values(results).every((v) => v === 'ok');
         // 라벨 교체가 실패했으면 라벨도 만들어지지 않았다 — 성공했을 때만 새 라벨을 알린다.

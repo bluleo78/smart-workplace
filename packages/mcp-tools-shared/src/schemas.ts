@@ -2,6 +2,9 @@
 import { z } from 'zod';
 import { AGENT_WORK_STATE_INPUTS } from './tool-client.js';
 
+/** upload_file 로 스테이징한 파일 id 목록(WP-422) — 이슈·메시지 쓰기 도구가 첨부 입력(fileIds)으로 같이 쓴다. 한 요청 10개는 서버 상한과 같다. */
+export const stagedFileIdsInput = z.array(z.number().int().positive()).max(10).describe('Staged files from upload_file to attach');
+
 /** issueKey 만 받는 최소 입력. */
 export const issueKeyInput = z.object({ issueKey: z.string().min(1) });
 
@@ -33,6 +36,7 @@ export const createIssueInput = z.object({
   labels: z.array(z.string()).optional(),
   milestone: z.string().min(1).optional(),
   cycles: z.array(z.string()).optional(),
+  fileIds: stagedFileIdsInput.optional(), // WP-422: 생성은 같은 트랜잭션, 수정은 클레임 API 로 붙는다
 });
 
 /** 이슈 부분 수정 입력 — 전달 필드만 변경. */
@@ -59,6 +63,7 @@ export const updateIssueInput = z.object({
     .optional(),
   // WP-356: 드라이브 파일 연결(POST .../drive-links). 이미 연결돼 있으면 서버가 무시한다.
   driveFileId: z.number().int().positive().describe('Drive (드라이브) file to link').optional(),
+  fileIds: stagedFileIdsInput.optional(), // WP-422: 생성은 같은 트랜잭션, 수정은 클레임 API 로 붙는다
 });
 
 /** 코멘트 작성 입력. */

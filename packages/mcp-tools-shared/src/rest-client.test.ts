@@ -356,6 +356,8 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(http.put).toHaveBeenCalledWith('/projects/WP/issues/3/fields', { values: [{ defId: 8, value: 'A' }] });
     await client.addIssueDriveLink('WP-3', 77);
     expect(http.post).toHaveBeenCalledWith('/projects/WP/issues/3/drive-links', { driveFileId: 77 });
+    await client.claimIssueAttachments('WP-3', [5, 6]);
+    expect(http.post).toHaveBeenCalledWith('/projects/WP/issues/3/attachments/claim', { fileIds: [5, 6] });
     await client.createProjectMeta('WP', 'label', { name: 'bug', colorToken: 'RED' });
     expect(http.post).toHaveBeenCalledWith('/projects/WP/labels', { name: 'bug', colorToken: 'RED' });
     await client.createProjectMeta('WP', 'milestone', { name: 'M', dueDate: '2026-12-01' });

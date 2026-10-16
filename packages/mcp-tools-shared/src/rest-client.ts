@@ -268,6 +268,9 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     async addIssueDriveLink(issueKey, driveFileId) {
       await http.post(`${issue(issueKey)}/drive-links`, { driveFileId });
     },
+    async claimIssueAttachments(issueKey, fileIds) {
+      return (await http.post(`${issue(issueKey)}/attachments/claim`, { fileIds })).data;
+    },
 
     // ── 노트 ──
     async listWikiSpaces() {

@@ -1,5 +1,7 @@
 package com.workplace.issue;
 
+import static com.workplace.jooq.Tables.FILE;
+import static com.workplace.jooq.Tables.ISSUE_ATTACHMENT;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.cycle.dto.CreateCycleRequest;
@@ -54,6 +56,20 @@ class AgentWorkOrganizingWriteTest extends AgentWorkTestSupport {
           }
         };
     context.addApplicationListener(listener);
+  }
+
+  /** 스테이징·첨부 테스트가 남긴 파일 — 사용자 삭제(FK) 전에 지운다. 하위 클래스 @AfterEach 가 기반 정리보다 먼저 돈다. */
+  @AfterEach
+  void deleteStagedFiles() {
+    inTenant(
+        () -> {
+          dsl.deleteFrom(ISSUE_ATTACHMENT)
+              .where(
+                  ISSUE_ATTACHMENT.FILE_ID.in(
+                      dsl.select(FILE.ID).from(FILE).where(FILE.UPLOADED_BY.eq(humanId))))
+              .execute();
+          return dsl.deleteFrom(FILE).where(FILE.UPLOADED_BY.eq(humanId)).execute();
+        });
   }
 
   @AfterEach
@@ -177,6 +193,65 @@ class AgentWorkOrganizingWriteTest extends AgentWorkTestSupport {
   void 본문과_우선순위를_함께_바꾸면_작업_쓰기() {
     assertOk(patch(patToken, Map.of("body", "x", "priority", "HIGH"), TOOL));
     assertThat(activeWork(issueId, humanId).orElseThrow().state()).isEqualTo("WORKING");
+  }
+
+  /**
+   * 생성 중 첨부(WP-422)는 생성 트랜잭션 안에서 묶는다 — 만든 뒤 따로 클레임하면 그 클레임이 작업 쓰기라 자기 담당 이슈의 작업을 시작해 버린다. 생성은 담당자라도
+   * 새 작업을 열지 않는다(promoteOnly).
+   */
+  @Test
+  void PAT_로_자기를_담당자로_첨부와_함께_이슈를_만들어도_작업을_시작하지_않음() {
+    long fileId = stageText("created.txt");
+
+    var res =
+        call(
+            HttpMethod.POST,
+            "/api/v1/projects/" + projectKey + "/issues",
+            patToken,
+            Map.of("title", "첨부와 함께", "assigneeIds", List.of(humanId), "fileIds", List.of(fileId)),
+            TOOL);
+
+    assertOk(res);
+    long newIssueId = json(res).get("id").asLong();
+    assertThat(activeWork(newIssueId, humanId)).isEmpty();
+    assertThat(
+            json(call(HttpMethod.GET, issuePath(json(res)) + "/attachments", patToken, null, null))
+                .findValuesAsText("fileId"))
+        .containsExactly(String.valueOf(fileId));
+    assertThat(json(res).get("status").asText()).isEqualTo("TODO");
+  }
+
+  @Test
+  void 첨부_클레임은_작업_쓰기라_담당_이슈의_작업을_시작() {
+    long fileId = stageText("claimed.txt");
+
+    assertOk(
+        call(
+            HttpMethod.POST,
+            issuePath() + "/attachments/claim",
+            patToken,
+            Map.of("fileIds", List.of(fileId)),
+            TOOL));
+
+    assertThat(activeWork(issueId, humanId).orElseThrow().state()).isEqualTo("WORKING");
+  }
+
+  /** 사람 JWT 로 텍스트 스테이징 파일을 만들고 fileId 를 돌려준다. */
+  private long stageText(String name) {
+    var res =
+        call(
+            HttpMethod.POST,
+            "/api/v1/staged-files/text",
+            jwtToken,
+            Map.of("name", name, "content", "내용"),
+            null);
+    assertOk(res);
+    return json(res).get("fileId").asLong();
+  }
+
+  /** 응답 JSON 의 이슈 경로 — 새 이슈의 번호로 만든다. */
+  private String issuePath(com.fasterxml.jackson.databind.JsonNode issue) {
+    return "/api/v1/projects/" + projectKey + "/issues/" + issue.get("number").asInt();
   }
 
   /** 라벨 이름 하나로 이슈 라벨을 교체한다(없으면 즉석 생성) — 도구 헤더 PAT. */

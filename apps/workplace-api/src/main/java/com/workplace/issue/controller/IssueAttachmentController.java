@@ -4,9 +4,11 @@ import com.workplace.fileai.controller.ViewImageResponses;
 import com.workplace.fileai.dto.ExtractedTextSlice;
 import com.workplace.fileai.service.AttachmentViewService;
 import com.workplace.global.security.RequirePermission;
+import com.workplace.issue.dto.ClaimAttachmentsRequest;
 import com.workplace.issue.dto.IssueAttachmentResponse;
 import com.workplace.issue.service.IssueAttachmentService;
 import com.workplace.issue.service.IssueAttachmentStorage;
+import jakarta.validation.Valid;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +23,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -50,6 +53,20 @@ public class IssueAttachmentController {
       @PathVariable int number,
       @RequestParam("files") List<MultipartFile> files) {
     return ResponseEntity.ok(service.upload((Long) auth.getPrincipal(), key, number, files));
+  }
+
+  /**
+   * 스테이징 파일 클레임(WP-422) — 먼저 올려 둔 파일(POST /staged-files/…)의 fileIds 를 이 이슈의 첨부로 묶는다. 권한·한도는
+   * multipart 업로드와 같다.
+   */
+  @PostMapping("/claim")
+  @RequirePermission("issue:write")
+  public ResponseEntity<List<IssueAttachmentResponse>> claim(
+      Authentication auth,
+      @PathVariable String key,
+      @PathVariable int number,
+      @Valid @RequestBody ClaimAttachmentsRequest req) {
+    return ResponseEntity.ok(service.claim((Long) auth.getPrincipal(), key, number, req.fileIds()));
   }
 
   /** 첨부 목록 — 멤버만. */

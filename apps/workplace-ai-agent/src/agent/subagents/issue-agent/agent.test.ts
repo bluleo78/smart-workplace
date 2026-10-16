@@ -107,5 +107,8 @@ describe('issue-agent 정의', () => {
     expect(prompt).not.toContain('unwatch_issue');
     expect(prompt).toContain('upload_file(name, content)');
     expect(prompt).toContain('업로드 링크는 만들 수 없습니다');
+    // WP-422: 받은 fileId 는 fileIds 로 이슈에 붙이고, update_issue 첨부 실패는 results.attachments 로 확인한다.
+    expect(prompt).toContain('`fileIds`');
+    expect(prompt).toContain('results.attachments');
   });
 });

@@ -13,6 +13,10 @@ import java.util.List;
  * <p>WP-356: labelIds·milestoneId·cycleIds 는 생성과 같은 트랜잭션에서 붙인다 — 생성 후 PUT 을 따로 부르면 중간 실패 시 라벨 없는
  * 이슈만 남는다(비원자적). 모두 같은 프로젝트 소속이어야 하고, 프로젝트 멤버(또는 ADMIN)만 지정할 수 있다(수정 경로와 같은 규칙).
  *
+ * <p>WP-422: fileIds 는 먼저 올려 둔 스테이징 파일(WP-421) — 이슈를 만드는 같은 트랜잭션에서 첨부로 묶는다(잘못된 id 면 이슈도 생기지 않는다).
+ * 생성 뒤 따로 클레임하면 그 클레임이 작업 쓰기라 담당 AI 작업을 시작해 버려서 생성 요청 안에 둔다. 한 요청은 10개까지(400), 이슈당 한도(10개)를 넘으면
+ * 409.
+ *
  * <p>WP-394: labelNames 는 이름으로 붙일 라벨 — 프로젝트에 없는 이름은 같은 트랜잭션에서 기본 색으로 만들어 붙인다(labelIds 와 합친다).
  */
 public record CreateIssueRequest(
@@ -27,7 +31,38 @@ public record CreateIssueRequest(
     List<Long> labelIds,
     Long milestoneId,
     List<Long> cycleIds,
-    List<String> labelNames) {
+    List<String> labelNames,
+    @Size(max = 10) List<Long> fileIds) {
+
+  /** WP-422 이전의 12-인자 호환 생성자 — 첨부(fileIds) 없이 만든다. 기존 호출부(JSON 역직렬화는 정식 생성자)가 그대로 쓴다. */
+  public CreateIssueRequest(
+      String title,
+      String body,
+      String priority,
+      LocalDate dueDate,
+      List<Long> assigneeIds,
+      Long typeId,
+      Integer parentNumber,
+      LocalDate startDate,
+      List<Long> labelIds,
+      Long milestoneId,
+      List<Long> cycleIds,
+      List<String> labelNames) {
+    this(
+        title,
+        body,
+        priority,
+        dueDate,
+        assigneeIds,
+        typeId,
+        parentNumber,
+        startDate,
+        labelIds,
+        milestoneId,
+        cycleIds,
+        labelNames,
+        null);
+  }
 
   /** 라벨·마일스톤·사이클 없이 만드는 기존 8-인자 호환 생성자 — 기존 호출부(메일 승격 외 시드·테스트)가 그대로 쓴다. */
   public CreateIssueRequest(
@@ -48,6 +83,7 @@ public record CreateIssueRequest(
         typeId,
         parentNumber,
         startDate,
+        null,
         null,
         null,
         null,

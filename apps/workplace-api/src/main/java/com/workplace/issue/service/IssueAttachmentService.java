@@ -1,5 +1,7 @@
 package com.workplace.issue.service;
 
+import com.workplace.file.api.StagedFile;
+import com.workplace.file.api.StagedFileClaimer;
 import com.workplace.fileai.ExtractionProfile;
 import com.workplace.fileai.dto.ExtractedTextSlice;
 import com.workplace.fileai.inbound.FileExtractionRequestedEvent;
@@ -12,10 +14,13 @@ import com.workplace.issue.exception.IssueNotFoundException;
 import com.workplace.issue.outbound.IssueChangeNotifier;
 import com.workplace.issue.repository.IssueAttachmentRepository;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.project.dto.ProjectRow;
 import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.service.ProjectAccessGuard;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
@@ -37,6 +42,7 @@ public class IssueAttachmentService {
   private final IssueChangeNotifier changeNotifier;
   private final ApplicationEventPublisher eventPublisher;
   private final ExtractedTextService extractedText;
+  private final StagedFileClaimer stagedFileClaimer;
 
   @Value("${workplace.storage.attachment.max-file-size-bytes:26214400}")
   private long maxFileSize;
@@ -96,6 +102,80 @@ public class IssueAttachmentService {
     historyRecorder.recordAttachmentsChanged(callerId, issue.id(), added, List.of());
     changeNotifier.updated(project, number, issue.id(), callerId);
 
+    return added;
+  }
+
+  /**
+   * 먼저 올려 둔 스테이징 파일(WP-421)을 이 이슈의 첨부로 가져온다(WP-422) — upload 와 같은 권한(본문 편집)·한도·크기 규칙, 같은 이력·알림. 외부
+   * MCP 가 파일을 올려 두고 붙이는 경로다. 알림은 작업 쓰기({@code updated})라 MCP 경유면 담당 AI 작업이 시작된다 — 이슈를 만드는 중의 첨부는 이
+   * 메서드가 아니라 {@link #attachStaged} 를 직접 불러 알림을 내지 않는다.
+   *
+   * @throws com.workplace.file.exception.StagedFileUnusableException 남의 파일·만료·이미 묶인 파일 등(400)
+   */
+  public List<IssueAttachmentResponse> claim(
+      Long callerId, String projectKey, int number, List<Long> fileIds) {
+    var project = accessGuard.resolve(projectKey);
+    var issue =
+        issueRepository
+            .findByProjectAndNumber(project.id(), number)
+            .orElseThrow(() -> new IssueNotFoundException(projectKey, number));
+    accessGuard.assertContentWritable(project, issue.reporterId(), callerId);
+
+    // 요청은 비어 있을 수 없고(@NotEmpty) 클레임은 하나라도 못 묶으면 예외라, 여기까지 오면 늘 묶인 첨부가 있다.
+    List<IssueAttachmentResponse> added = attachStaged(project, issue.id(), callerId, fileIds);
+    changeNotifier.updated(project, number, issue.id(), callerId);
+    return added;
+  }
+
+  /**
+   * 스테이징 파일을 이슈 첨부로 묶는다. <b>권한 판정과 알림을 하지 않는다</b> — 호출자 몫이다({@link #claim} 은 본문 편집 권한 + 작업 쓰기 알림,
+   * 이슈 생성은 생성 권한 + 생성 알림). 호출자의 쓰기 트랜잭션 안에서 불러야 한다.
+   *
+   * <p>순서: 이슈 단위 advisory lock(동시 업로드·클레임 직렬화, upload 와 같은 #625) → 누적 한도 → 클레임(파일 잠금·소유/만료/중복 바인딩
+   * 검사·영구화) → 크기 상한 → 매핑 INSERT. 어느 검사든 실패하면 예외로 트랜잭션이 롤백돼 아무것도 묶이지 않는다.
+   */
+  public List<IssueAttachmentResponse> attachStaged(
+      ProjectRow project, long issueId, long callerId, List<Long> fileIds) {
+    if (fileIds == null || fileIds.isEmpty()) {
+      return List.of();
+    }
+
+    repo.advisoryLockIssue(issueId);
+    int current = repo.countByIssue(issueId);
+    if (current + fileIds.size() > maxPerIssue) {
+      throw new AttachmentLimitExceededException(current, fileIds.size(), maxPerIssue);
+    }
+
+    List<StagedFile> staged =
+        stagedFileClaimer.claim(callerId, fileIds, StagedFileClaimer.Retention.PERMANENT);
+    // 스테이징 상한(링크 25MB 등)과 이슈 첨부 상한이 어긋날 수 있어 목적지 상한을 다시 본다. 예외로 클레임(영구화)도 함께 롤백된다.
+    for (StagedFile f : staged) {
+      if (f.sizeBytes() > maxFileSize) {
+        throw new AttachmentTooLargeException(f.sizeBytes(), maxFileSize);
+      }
+    }
+
+    for (StagedFile f : staged) {
+      repo.insert(f.fileId(), issueId, callerId);
+    }
+    // 방금 묶은 행(첨부자 이름·시각 포함)을 한 번에 읽는다 — 이슈 첨부는 한도(maxPerIssue) 안이라 이슈 전체를 읽어 입력 순서로 고른다.
+    Map<Long, IssueAttachmentResponse> byId = new HashMap<>();
+    for (IssueAttachmentResponse r : repo.findByIssue(issueId)) {
+      byId.put(r.fileId(), r);
+    }
+    List<IssueAttachmentResponse> added = new ArrayList<>(staged.size());
+    for (StagedFile f : staged) {
+      IssueAttachmentResponse r = byId.get(f.fileId());
+      if (r == null) {
+        throw new AttachmentNotFoundException(f.fileId());
+      }
+      added.add(r);
+      // 클레임은 추출 이벤트를 내지 않는다 — 업로드와 같이 바인딩한 쪽이 TEXT_ONLY 추출을 요청한다(WP-242).
+      eventPublisher.publishEvent(
+          FileExtractionRequestedEvent.of(f.fileId(), f.mimeType(), ExtractionProfile.TEXT_ONLY));
+    }
+
+    historyRecorder.recordAttachmentsChanged(callerId, issueId, added, List.of());
     return added;
   }
 

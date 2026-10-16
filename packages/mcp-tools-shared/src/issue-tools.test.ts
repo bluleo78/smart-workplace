@@ -40,6 +40,7 @@ function mockClient(): IssueToolClient {
     ]),
     updateIssueFields: vi.fn().mockResolvedValue({}),
     addIssueDriveLink: vi.fn().mockResolvedValue(undefined),
+    claimIssueAttachments: vi.fn().mockResolvedValue([]),
   };
 }
 
@@ -303,6 +304,77 @@ describe('buildSharedIssueTools', () => {
     const out = JSON.parse(resultText(await t.handler({ issueKey: 'WP-12', status: 'DONE', driveFileId: 78 })));
     expect(out.ok).toBe(false);
     expect(out.results).toEqual({ content: 'ok', driveLink: 'failed: 드라이브 권한 없음' });
+  });
+
+  // WP-422: 외부 MCP 가 upload_file 로 스테이징한 파일을 이슈에 붙인다 — 생성은 본문에 실어 한 번에, 수정은 클레임 API 한 번.
+  it('WP-422: create_issue: fileIds 는 생성 본문에 실려 한 번에 붙는다(클레임 호출 없음)', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'create_issue')!;
+    await t.handler({ projectKey: 'WP', title: '새 이슈', fileIds: [5, 6] });
+    expect(c.createIssue).toHaveBeenCalledTimes(1);
+    expect(c.createIssue).toHaveBeenCalledWith('WP', expect.objectContaining({ fileIds: [5, 6] }));
+    expect(c.claimIssueAttachments).not.toHaveBeenCalled();
+  });
+
+  it('WP-422: update_issue: fileIds 는 attachments 단계로 저장되고 실패는 results.attachments 에 담긴다', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    const ok = JSON.parse(resultText(await t.handler({ issueKey: 'WP-12', fileIds: [5, 6] })));
+    expect(c.claimIssueAttachments).toHaveBeenCalledWith('WP-12', [5, 6]);
+    expect(ok).toEqual({ ok: true, results: { attachments: 'ok' } });
+    vi.mocked(c.claimIssueAttachments).mockRejectedValueOnce(new Error('만료된 파일'));
+    const out = JSON.parse(resultText(await t.handler({ issueKey: 'WP-12', status: 'DONE', fileIds: [7] })));
+    expect(out.ok).toBe(false);
+    expect(out.results).toEqual({ content: 'ok', attachments: 'failed: 만료된 파일' });
+  });
+
+  it('WP-422: update_issue: fileIds 와 status 를 함께 주면 첨부 클레임을 먼저, 내용(상태) 저장을 나중에 한다', async () => {
+    // 첨부 클레임이 서버에서 일으키는 이슈 수정 알림(상태 미기재)이 같은 호출의 명시 status 를 덮지 않게 — 상태가 마지막에 저장돼야 한다.
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    await t.handler({ issueKey: 'WP-12', status: 'TODO', fileIds: [5] });
+    const claimOrder = vi.mocked(c.claimIssueAttachments).mock.invocationCallOrder[0];
+    const contentOrder = vi.mocked(c.updateIssueContent).mock.invocationCallOrder[0];
+    expect(c.updateIssueContent).toHaveBeenCalledWith('WP-12', { status: 'TODO' });
+    expect(claimOrder).toBeLessThan(contentOrder);
+  });
+
+  it('update_issue: driveFileId 와 status 를 함께 주면 드라이브 링크를 먼저, 내용(상태) 저장을 나중에 한다', async () => {
+    // 드라이브 링크도 작업 쓰기라 같은 이유로 명시 status 보다 먼저 저장한다 — 첨부·링크·상태를 함께 줘도 상태가 마지막이다.
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    await t.handler({ issueKey: 'WP-12', status: 'TODO', driveFileId: 77, fileIds: [5] });
+    const linkOrder = vi.mocked(c.addIssueDriveLink).mock.invocationCallOrder[0];
+    const claimOrder = vi.mocked(c.claimIssueAttachments).mock.invocationCallOrder[0];
+    const contentOrder = vi.mocked(c.updateIssueContent).mock.invocationCallOrder[0];
+    expect(c.addIssueDriveLink).toHaveBeenCalledWith('WP-12', 77);
+    expect(linkOrder).toBeLessThan(contentOrder);
+    expect(claimOrder).toBeLessThan(contentOrder);
+  });
+
+  it('WP-422: update_issue: 빈 fileIds 는 부르지 않는다', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    const out = JSON.parse(resultText(await t.handler({ issueKey: 'WP-12', status: 'DONE', fileIds: [] })));
+    expect(c.claimIssueAttachments).not.toHaveBeenCalled();
+    expect(out).toEqual({ ok: true, results: { content: 'ok' } });
+  });
+
+  it('WP-422: get_issue_detail 은 클레임된 첨부를 기존 attachments 뷰 그대로 보여 준다', async () => {
+    const c = mockClient();
+    vi.mocked(c.getIssueDetail).mockResolvedValue({
+      issueKey: 'WP-12',
+      summary: { projectKey: 'WP', number: 12, title: 'T', status: 'TODO', priority: 'MID', assignees: [] },
+      body: 'b',
+      comments: [],
+      attachments: [
+        { fileId: 11, issueId: 5, originalName: 'a.md', mimeType: 'text/markdown', sizeBytes: 100, attachedById: 3, attachedByName: 'Bob', attachedByUsername: 'bob', attachedAt: '2026-10-01T00:00:00Z' },
+      ],
+    });
+    const out = JSON.parse(resultText(await buildSharedIssueTools(c).find((t) => t.name === 'get_issue_detail')!.handler({ issueKey: 'WP-12' })));
+    expect(out.attachments).toEqual([
+      { attachmentId: 11, name: 'a.md', mimeType: 'text/markdown', sizeBytes: 100, attachedBy: { username: 'bob', name: 'Bob', kind: null }, attachedAt: '2026-10-01T09:00:00+09:00' },
+    ]);
   });
 
   it('create_issue 는 type/assignees 를 리졸브 후 createIssue 호출', async () => {

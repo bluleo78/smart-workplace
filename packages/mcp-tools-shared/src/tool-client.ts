@@ -181,6 +181,8 @@ export interface IssueToolClient extends ProjectMetaClient, CurrentUserClient {
   updateIssueFields(issueKey: string, values: { defId: number; value: unknown }[]): Promise<unknown>;
   /** POST .../drive-links — 이미 연결돼 있으면 서버가 무시한다(멱등). 드라이브 스페이스 VIEWER 이상 필요(WP-356). */
   addIssueDriveLink(issueKey: string, driveFileId: number): Promise<void>;
+  /** POST .../attachments/claim — upload_file 로 스테이징한 파일을 이슈 첨부로 붙인다(WP-422). 만료·남의 파일이면 서버가 거절한다. */
+  claimIssueAttachments(issueKey: string, fileIds: number[]): Promise<unknown>;
 }
 
 /** 노트 페이지 요약 행(GET /wiki/spaces/{id}/pages) — 트리 조립에 쓰는 필드만 고정한다. */

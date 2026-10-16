@@ -46,6 +46,7 @@ function sharedMock(): MockedShared {
     getIssueDriveLinks: vi.fn().mockResolvedValue([]),
     updateIssueFields: vi.fn().mockResolvedValue({}),
     addIssueDriveLink: vi.fn().mockResolvedValue(undefined),
+    claimIssueAttachments: vi.fn().mockResolvedValue([]),
     // 프로젝트 메타·목록(ProjectToolClient)
     getProjectTypes: vi.fn().mockResolvedValue([]),
     getProjectMembers: vi.fn().mockResolvedValue([]),

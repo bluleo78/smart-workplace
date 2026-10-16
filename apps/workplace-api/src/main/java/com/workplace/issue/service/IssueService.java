@@ -78,6 +78,10 @@ public class IssueService {
   private final IssueHistoryRepository historyRepository;
   private final IssueLabelRepository issueLabelRepository;
   private final IssueAttachmentRepository issueAttachmentRepository;
+
+  /** WP-422: 생성 요청의 스테이징 첨부를 같은 트랜잭션에서 묶는다. */
+  private final IssueAttachmentService issueAttachmentService;
+
   private final IssueAssigneeRepository assigneeRepository;
   private final IssueTypeRepository typeRepository;
   private final IssueDependencyRepository dependencyRepository;
@@ -153,6 +157,11 @@ public class IssueService {
     // WP-199 본문 이미지 연결 — 생성 권한(planCreate)을 통과한 뒤라 별도 가드 없이 같은 트랜잭션에서 연결한다.
     // 이미지 참조가 없는 본문(대부분)은 syncIssueImages 가 쿼리 없이 돌아간다.
     bodyImageService.syncIssueImages(project, row.id(), callerId, null, req.body());
+    // WP-422 스테이징 첨부 — 같은 트랜잭션에서 묶는다(실패하면 이슈도 롤백). 작업 쓰기 알림(updated)은 내지 않고 아래 finishCreate 의
+    // 생성 알림(created)만 나가므로, 수행 도구(MCP) 경유 생성이 첨부 때문에 담당 AI 작업을 시작하지 않는다.
+    if (req.fileIds() != null && !req.fileIds().isEmpty()) {
+      issueAttachmentService.attachStaged(project, row.id(), callerId, req.fileIds());
+    }
     return finishCreate(callerId, project, row, number, assigneeIds, plan.assignees());
   }
 
