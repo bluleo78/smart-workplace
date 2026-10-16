@@ -48,6 +48,8 @@ export const updateWikiPageInput = z.object({
   version: z.number().int().min(1),
   title: z.string().max(255).optional(),
   body: z.string().optional(),
+  // WP-424: upload_file 로 스테이징한 이미지 — 저장 전에 이 페이지 첨부로 묶고, 응답 images 의 url 을 본문에 쓴다.
+  fileIds: z.array(z.number().int().positive()).max(10).optional(),
 });
 
 // parentId 는 생략이 아닌 명시(null=최상위)로 받는다 — 생략을 루트로 해석하면 위치만 바꾸려던 호출이 페이지를 루트로 끌어올린다.
@@ -266,11 +268,16 @@ export function buildWikiTools(client: WikiToolClient): SharedTool[] {
         'Saves a wiki page (노트) title and/or body; omitted fields stay. body replaces the whole Markdown document (anything left out is deleted): ' +
         'for a partial edit send the full body, copying untouched blocks byte-for-byte from get_wiki_page (no rewording or normalizing). ' +
         'version: from get_wiki_page or the last save; others\' edits since then are merged (this ' +
-        'request wins on overlap). 409: version unusable (over 1 hour old, unknown or newer than current): re-read and reapply.',
+        'request wins on overlap). 409: version unusable (over 1 hour old, unknown or newer than current): re-read and reapply. ' +
+        'fileIds: staged images (PNG/JPEG/GIF/WebP) from upload_file, attached before saving; reference each as ![alt](/api/v1/wiki/pages/{pageId}/attachments/{fileId}/content) in body.',
       inputSchema: updateWikiPageInput,
       async handler(args) {
-        const { pageId, ...body } = updateWikiPageInput.parse(args);
-        return JSON.stringify(toWikiPageView((await client.updateWikiPage(pageId, body)) as Record<string, unknown>));
+        const { pageId, fileIds, ...body } = updateWikiPageInput.parse(args);
+        // WP-424: 이미지는 본문 저장 전에 묶는다 — 본문 저장이 참조된 첨부를 영구화하므로 순서가 바뀌면 이미지가 만료로 지워진다.
+        // 클레임이 실패하면(만료·이미지 아님 등) 본문을 저장하지 않고 오류를 그대로 전한다.
+        const claimed = fileIds?.length ? await client.claimWikiImages(pageId, fileIds) : undefined;
+        const saved = toWikiPageView((await client.updateWikiPage(pageId, body)) as Record<string, unknown>);
+        return JSON.stringify(claimed ? { ...saved, images: claimed.map(({ fileId, url }) => ({ fileId, url })) } : saved);
       },
     },
     {

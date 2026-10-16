@@ -69,6 +69,7 @@ function sharedMock(): MockedShared {
     getWikiPage: vi.fn().mockResolvedValue({}),
     createWikiPage: vi.fn().mockResolvedValue({}),
     updateWikiPage: vi.fn().mockResolvedValue({}),
+    claimWikiImages: vi.fn().mockResolvedValue([]),
     listWikiPages: vi.fn().mockResolvedValue([]),
     getWikiBacklinks: vi.fn().mockResolvedValue([]),
     // WP-357: 노트 요약·판 기록·복원

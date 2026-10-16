@@ -3187,6 +3187,15 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
         "body": {
           "type": "string",
         },
+        "fileIds": {
+          "items": {
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer",
+          },
+          "maxItems": 10,
+          "type": "array",
+        },
         "pageId": {
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991,

@@ -2,6 +2,9 @@ package com.workplace.wiki.service;
 
 import com.workplace.drive.service.DriveQuotaService;
 import com.workplace.file.api.ImageSniffer;
+import com.workplace.file.api.StagedFile;
+import com.workplace.file.api.StagedFileClaimer;
+import com.workplace.file.exception.StagedFileUnusableException;
 import com.workplace.fileai.ExtractionProfile;
 import com.workplace.fileai.dto.ExtractedTextSlice;
 import com.workplace.fileai.inbound.FileExtractionRequestedEvent;
@@ -18,9 +21,12 @@ import com.workplace.wiki.repository.WikiAttachmentRepository;
 import com.workplace.wiki.repository.WikiPageRepository;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -63,6 +69,8 @@ public class WikiAttachmentService {
   // WP-358: 업로드 시 텍스트 추출 요청 발행 + 추출 텍스트 구간 읽기(공용 fileai).
   private final ApplicationEventPublisher eventPublisher;
   private final ExtractedTextService extractedText;
+  // WP-424: 스테이징 파일 클레임(소유·만료·중복 바인딩 검사와 파일 잠금).
+  private final StagedFileClaimer stagedFileClaimer;
 
   @Value("${workplace.storage.wiki.max-image-size-bytes:10485760}")
   private long maxImageSizeBytes;
@@ -80,6 +88,10 @@ public class WikiAttachmentService {
   /** #759 참조가 빠진 첨부를 몇 시간 뒤 만료로 재무장할지. autosave·undo·페이지 간 이동이 이 창 안에서 왕복하면 원상 복구된다. */
   @Value("${workplace.storage.wiki.demote-grace-hours:168}")
   private int demoteGraceHours;
+
+  /** 스테이징 클레임으로 묶은 임시 이미지의 수명(시) — 업로드(storeTemporary)와 같은 설정을 쓴다. */
+  @Value("${workplace.storage.attachment.temp-expiry-hours:24}")
+  private int tempExpiryHours;
 
   /** 업로드 — EDITOR 이상. 매직바이트로 이미지 판별하고 임시 파일로 저장한다. */
   public WikiAttachmentResponse upload(long callerId, long pageId, MultipartFile file) {
@@ -100,33 +112,7 @@ public class WikiAttachmentService {
         ImageSniffer.detectUpload(file)
             .orElseThrow(() -> new WikiAttachmentRejectedException("지원하지 않는 이미지 형식입니다."));
 
-    // #759 (A) 매핑 총개수 하드 실링 — 아래의 해소 가능한 상한과 직교한다. 참조를 지우면 아래 상한은 풀리지만
-    // 매핑과 blob 은 강등 유예(demote-grace-hours)가 끝날 때까지 남으므로, 그 창 안에서의 폭주를 막을
-    // 상한이 따로 필요하다. 정상 사용자는 닿지 않는 값이다.
-    if (attachments.countByPage(pageId) >= maxMappingsPerPage) {
-      throw WikiAttachmentLimitException.ceiling(pageId, maxMappingsPerPage);
-    }
-
-    // 상한은 "이 페이지가 실제로 붙잡고 있는 첨부" 를 센다 — 저장된 본문에 아직 참조가 남아 있는 것과,
-    // 아직 임시라 본문에 실릴 기회조차 없었던 것의 합집합이다. 단순 countByPage 는 본문에서 지운 뒤에도
-    // 매핑이 남아 카운트가 줄지 않아 사용자가 풀 방법이 없는 409 를 만든다(#757).
-    // 두 집합은 겹칠 수 있으므로 반드시 합집합 — 더하면 이중 계산된다.
-    // "본문" 은 저장된 본문이라 autosave 디바운스(800ms) 창에서 일시적으로 과다 계산될 수 있으나
-    // 저장되면 자연 해소된다.
-    // 강등된 첨부(demoted_at NOT NULL)는 tempFileIdsOfPage 가 제외하므로 여기 안 잡힌다 — #757 이 만든
-    // "본문에서 지우고 저장하면 다시 올릴 수 있다" 를 만료 재무장이 되돌리지 않게 하는 지점이다(V127).
-    Set<Long> bound = new HashSet<>(attachments.fileIdsOfPage(pageId));
-    Set<Long> held = new HashSet<>(referencedFileIds(pageId, detail.body()));
-    held.retainAll(bound);
-    held.addAll(attachments.tempFileIdsOfPage(pageId));
-    if (held.size() >= maxPerPage) {
-      throw WikiAttachmentLimitException.resolvable(pageId, maxPerPage);
-    }
-
-    // #759 (B) 테넌트 쿼터 — 위키 첨부도 이제 집계에 포함된다. 드라이브 업로드와 같은 advisory lock 을
-    // 공유해야 한다(다른 클래스를 쓰면 위키·드라이브 업로드가 같은 한도를 나란히 통과한다) — 락+검사가
-    // 한 메서드로 묶여 있어 순서를 조립할 여지가 없다.
-    quota.assertWithinQuotaLocked(file.getSize());
+    guardNewAttachments(pageId, detail.body(), 1, file.getSize());
 
     Long fileId = storage.storeTemporary(file, callerId, detectedMime);
     attachments.bind(fileId, pageId, callerId);
@@ -147,6 +133,142 @@ public class WikiAttachmentService {
         originalName,
         detectedMime,
         file.getSize());
+  }
+
+  /**
+   * 새 첨부 {@code count}개(합계 {@code totalBytes})를 이 페이지에 더해도 되는지 상한을 본다 — 업로드(1개)와 스테이징 클레임(WP-424,
+   * 여러 개)이 같은 판정을 쓴다. 묶음으로 보므로 현재 + count 가 상한을 넘으면 거절한다(count=1 이면 "현재 >= 상한" 과 같다). 쿼터는 드라이브+노트
+   * 매핑 바이트만 세므로 아직 안 묶인 새 바이트를 이 시점에 더해 본다.
+   */
+  private void guardNewAttachments(long pageId, String body, int count, long totalBytes) {
+    guardNewAttachments(
+        pageId, body, new HashSet<>(attachments.fileIdsOfPage(pageId)), count, totalBytes);
+  }
+
+  /**
+   * {@link #guardNewAttachments(long, String, int, long)} — 이 페이지에 묶인 파일 id({@code bound})를 이미 읽어 둔
+   * 호출자용.
+   */
+  private void guardNewAttachments(
+      long pageId, String body, Set<Long> bound, int count, long totalBytes) {
+    // #759 (A) 매핑 총개수 하드 실링 — 아래의 해소 가능한 상한과 직교한다. 참조를 지우면 아래 상한은 풀리지만
+    // 매핑과 blob 은 강등 유예(demote-grace-hours)가 끝날 때까지 남으므로, 그 창 안에서의 폭주를 막을
+    // 상한이 따로 필요하다. 정상 사용자는 닿지 않는 값이다.
+    if (attachments.countByPage(pageId) + count > maxMappingsPerPage) {
+      throw WikiAttachmentLimitException.ceiling(pageId, maxMappingsPerPage);
+    }
+
+    // 상한은 "이 페이지가 실제로 붙잡고 있는 첨부" 를 센다 — 저장된 본문에 아직 참조가 남아 있는 것과,
+    // 아직 임시라 본문에 실릴 기회조차 없었던 것의 합집합이다. 단순 countByPage 는 본문에서 지운 뒤에도
+    // 매핑이 남아 카운트가 줄지 않아 사용자가 풀 방법이 없는 409 를 만든다(#757).
+    // 두 집합은 겹칠 수 있으므로 반드시 합집합 — 더하면 이중 계산된다.
+    // "본문" 은 저장된 본문이라 autosave 디바운스(800ms) 창에서 일시적으로 과다 계산될 수 있으나
+    // 저장되면 자연 해소된다.
+    // 강등된 첨부(demoted_at NOT NULL)는 tempFileIdsOfPage 가 제외하므로 여기 안 잡힌다 — #757 이 만든
+    // "본문에서 지우고 저장하면 다시 올릴 수 있다" 를 만료 재무장이 되돌리지 않게 하는 지점이다(V127).
+    Set<Long> held = new HashSet<>(referencedFileIds(pageId, body));
+    held.retainAll(bound);
+    held.addAll(attachments.tempFileIdsOfPage(pageId));
+    if (held.size() + count > maxPerPage) {
+      throw WikiAttachmentLimitException.resolvable(pageId, maxPerPage);
+    }
+
+    // #759 (B) 테넌트 쿼터 — 위키 첨부도 이제 집계에 포함된다. 드라이브 업로드와 같은 advisory lock 을
+    // 공유해야 한다(다른 클래스를 쓰면 위키·드라이브 업로드가 같은 한도를 나란히 통과한다) — 락+검사가
+    // 한 메서드로 묶여 있어 순서를 조립할 여지가 없다.
+    quota.assertWithinQuotaLocked(totalBytes);
+  }
+
+  /**
+   * 먼저 올려 둔 스테이징 이미지(WP-421)를 이 페이지의 첨부로 가져온다(WP-424) — EDITOR 이상. 외부 MCP 가 파일을 올려 두고 노트 본문에 넣는
+   * 경로다.
+   *
+   * <p>순서: ① 이미 이 페이지에 묶인 id 는 호출자가 올린 것이면 성공으로 건너뛰고(재시도 멱등 — 응답을 못 받고 다시 보내도 안전) 남이 올린 것이면 거절한다.
+   * 클레임은 어느 도메인에든 묶인 파일을 거절하므로 이 구분을 먼저 해야 한다. ② 나머지를 KEEP_TEMPORARY 로 클레임 — 노트는 본문 참조로 수명을 관리하므로
+   * 만료를 그대로 둔다. ③ 파일마다 크기·이미지 여부(매직바이트)를 모두 확인한 뒤 ④ 상한({@link #guardNewAttachments})을 보고 ⑤ MIME 을
+   * 판정값으로 고치고 만료를 새로 세워 정션에 묶는다. ⑤는 클레임과 같은 트랜잭션이라 동시 클레임이 정션 행을 보고 거절된다. 묶인 파일은 임시로 남고 본문 저장의
+   * {@link #syncReferences} 가 참조된 것만 영구화한다 — 참조하지 않으면 만료로 지워진다.
+   *
+   * @return 입력 순서대로의 응답. url 은 본문에 쓸 정본 경로
+   * @throws com.workplace.file.exception.StagedFileUnusableException 남의 파일·만료·이미 다른 곳에 묶인 파일 등(400)
+   */
+  public List<WikiAttachmentResponse> claimStaged(long callerId, long pageId, List<Long> fileIds) {
+    var detail = pages.findDetail(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
+    long spaceId = detail.spaceId();
+    perms.requireRole(spaceId, callerId, "EDITOR");
+
+    Set<Long> onPage = new HashSet<>(attachments.fileIdsOfPage(pageId));
+    List<Long> retried = new ArrayList<>();
+    List<Long> toClaim = new ArrayList<>();
+    for (Long id : fileIds) {
+      if (id != null && onPage.contains(id)) {
+        retried.add(id);
+      } else {
+        toClaim.add(id);
+      }
+    }
+
+    // 입력 id → 응답. 이미 묶여 있던 파일(재시도)과 새로 묶은 파일을 같은 모양으로 모아 입력 순서로 돌려준다.
+    Map<Long, WikiAttachmentResponse> byId = new HashMap<>();
+    Map<Long, WikiAttachmentRepository.FileMeta> already = attachments.metaOf(retried);
+    for (Long id : retried) {
+      var meta = already.get(id);
+      if (meta == null || meta.uploadedBy() == null || meta.uploadedBy() != callerId) {
+        throw new StagedFileUnusableException(id);
+      }
+      byId.put(
+          id,
+          claimResponse(
+              pageId, meta.fileId(), meta.originalName(), meta.mimeType(), meta.sizeBytes()));
+    }
+
+    if (!toClaim.isEmpty()) {
+      List<StagedFile> staged =
+          stagedFileClaimer.claim(callerId, toClaim, StagedFileClaimer.Retention.KEEP_TEMPORARY);
+      long totalBytes = 0;
+      Map<Long, String> sniffed = new HashMap<>();
+      for (StagedFile f : staged) {
+        if (f.sizeBytes() > maxImageSizeBytes) {
+          throw new WikiAttachmentRejectedException(
+              "파일 크기가 한도를 초과했습니다: " + f.sizeBytes() + " > " + maxImageSizeBytes);
+        }
+        byte[] head = storage.readHead(f.fileId(), f.storagePath(), ImageSniffer.HEAD_BYTES);
+        sniffed.put(
+            f.fileId(),
+            ImageSniffer.detect(head)
+                .orElseThrow(
+                    () ->
+                        new WikiAttachmentRejectedException(
+                            "이미지 파일(PNG·JPEG·GIF·WebP)만 노트에 넣을 수 있습니다: " + f.originalName())));
+        totalBytes += f.sizeBytes();
+      }
+      // 이 페이지에 묶인 파일은 위에서 읽은 그대로다(새 파일은 아래에서야 묶는다) — 다시 조회하지 않는다.
+      guardNewAttachments(pageId, detail.body(), onPage, staged.size(), totalBytes);
+
+      OffsetDateTime expiresAt = OffsetDateTime.now(ZoneOffset.UTC).plusHours(tempExpiryHours);
+      for (StagedFile f : staged) {
+        String mime = sniffed.get(f.fileId());
+        attachments.updateMimeAndExpiry(f.fileId(), mime, expiresAt);
+        attachments.bind(f.fileId(), pageId, callerId);
+        // 업로드와 같이 바인딩한 쪽이 공용 추출 파이프라인에 태운다(클레임은 추출 이벤트를 내지 않는다).
+        eventPublisher.publishEvent(
+            FileExtractionRequestedEvent.of(f.fileId(), mime, ExtractionProfile.TEXT_ONLY));
+        byId.put(
+            f.fileId(),
+            claimResponse(
+                pageId, f.fileId(), UnicodeNames.toNfc(f.originalName()), mime, f.sizeBytes()));
+      }
+      notifier.attachmentChanged(ResourceChangedEvent.OP_CREATED, spaceId, pageId, callerId);
+    }
+
+    return fileIds.stream().map(byId::get).toList();
+  }
+
+  /** 클레임 응답 한 건 — url 은 본문에 쓸 정본 경로. 새로 묶은 파일과 이미 묶여 있던 파일(재시도)이 같은 모양으로 돌려준다. */
+  private static WikiAttachmentResponse claimResponse(
+      long pageId, long fileId, String name, String mimeType, long sizeBytes) {
+    return new WikiAttachmentResponse(
+        fileId, WikiAttachmentResponse.urlOf(pageId, fileId), name, mimeType, sizeBytes);
   }
 
   /** 본문 표시용 조회 — 페이지를 읽을 수 있으면(VIEWER) 이미지도 보여야 한다. */

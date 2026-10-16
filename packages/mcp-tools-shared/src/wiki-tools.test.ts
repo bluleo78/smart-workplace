@@ -14,6 +14,7 @@ function mockClient(): WikiToolClient {
     restoreWikiRevision: vi.fn().mockResolvedValue({}),
     createWikiPage: vi.fn().mockResolvedValue({}),
     updateWikiPage: vi.fn().mockResolvedValue({}),
+    claimWikiImages: vi.fn().mockResolvedValue([]),
     listWikiPages: vi.fn().mockResolvedValue([]),
     getWikiBacklinks: vi.fn().mockResolvedValue([]),
     moveWikiPage: vi.fn().mockResolvedValue(undefined),
@@ -207,6 +208,50 @@ describe('buildWikiTools', () => {
     await expect(tool(c, 'update_wiki_page').handler({ pageId: 1, body: '수정본', version: 1 })).rejects.toThrow(
       'conflict',
     );
+  });
+
+  // WP-424: 스테이징 이미지는 PUT 전에 클레임해야 본문 저장이 참조를 영구화한다. 클레임이 실패하면 본문을 저장하지 않는다.
+  it('update_wiki_page: fileIds 가 있으면 PUT 전에 claimWikiImages 를 부르고 실패하면 PUT 하지 않는다', async () => {
+    const c = mockClient();
+    const order: string[] = [];
+    vi.mocked(c.claimWikiImages).mockImplementation(async () => {
+      order.push('claim');
+      return [{ fileId: 9, url: '/api/v1/wiki/pages/1/attachments/9/content' }];
+    });
+    vi.mocked(c.updateWikiPage).mockImplementation(async () => {
+      order.push('put');
+      return { id: 1, version: 4 };
+    });
+    await tool(c, 'update_wiki_page').handler({ pageId: 1, version: 3, body: '![a](/api/v1/wiki/pages/1/attachments/9/content)', fileIds: [9] });
+    expect(c.claimWikiImages).toHaveBeenCalledWith(1, [9]);
+    expect(order).toEqual(['claim', 'put']);
+    // fileIds 는 PUT 본문에 실리지 않는다.
+    expect(vi.mocked(c.updateWikiPage).mock.calls[0]).toStrictEqual([1, { version: 3, body: '![a](/api/v1/wiki/pages/1/attachments/9/content)' }]);
+
+    const failing = mockClient();
+    vi.mocked(failing.claimWikiImages).mockRejectedValue(new Error('쓸 수 없는 파일'));
+    await expect(tool(failing, 'update_wiki_page').handler({ pageId: 1, version: 3, body: 'x', fileIds: [9] })).rejects.toThrow('쓸 수 없는 파일');
+    expect(failing.updateWikiPage).not.toHaveBeenCalled();
+  });
+
+  it('update_wiki_page: 응답에 images 가 실린다', async () => {
+    const c = mockClient();
+    vi.mocked(c.claimWikiImages).mockResolvedValue([
+      { fileId: 9, url: '/api/v1/wiki/pages/1/attachments/9/content', originalName: 'a.png', mimeType: 'image/png', sizeBytes: 16 } as never,
+    ]);
+    vi.mocked(c.updateWikiPage).mockResolvedValue({ id: 1, version: 4 });
+    const out = JSON.parse(resultText(await tool(c, 'update_wiki_page').handler({ pageId: 1, version: 3, body: 'x', fileIds: [9] })));
+    expect(out).toMatchObject({ id: 1, version: 4, images: [{ fileId: 9, url: '/api/v1/wiki/pages/1/attachments/9/content' }] });
+    expect(out.images[0]).toStrictEqual({ fileId: 9, url: '/api/v1/wiki/pages/1/attachments/9/content' });
+  });
+
+  it('update_wiki_page: fileIds 가 없으면(또는 빈 배열이면) claim 을 부르지 않고 images 도 없다', async () => {
+    const c = mockClient();
+    for (const extra of [{}, { fileIds: [] }]) {
+      const out = JSON.parse(resultText(await tool(c, 'update_wiki_page').handler({ pageId: 1, version: 2, title: '제목', ...extra })));
+      expect(out).not.toHaveProperty('images');
+    }
+    expect(c.claimWikiImages).not.toHaveBeenCalled();
   });
 
   // WP-309: body 는 전체 대체라 모델이 범위 밖 블록을 다시 쓰거나 정규화하면 사람이 쓴 텍스트가 지워진다 — 설명이 이를 막는 문구를 유지해야 한다.

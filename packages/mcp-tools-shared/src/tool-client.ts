@@ -208,6 +208,8 @@ export interface WikiToolClient {
   createWikiPage(spaceId: number, body: { parentId: number | null; title: string }): Promise<unknown>;
   /** 부분 수정 — title/body 생략 시 서버가 현재 값을 유지한다(version 만 필수, 불일치면 409). */
   updateWikiPage(pageId: number, body: { version: number; title?: string; body?: string }): Promise<unknown>;
+  /** POST /wiki/pages/{id}/attachments/claim — upload_file 로 스테이징한 이미지를 노트 첨부로 묶는다(WP-424). 응답 url 을 본문에 쓴다. */
+  claimWikiImages(pageId: number, fileIds: number[]): Promise<{ fileId: number; url: string }[]>;
   /** GET /wiki/spaces/{id}/pages — 평면 목록(parentId·position). 트리 조립은 핸들러(#850). */
   listWikiPages(spaceId: number): Promise<WikiPageRow[]>;
   /** GET /wiki/pages/{id}/backlinks — 래퍼 { items } 를 벗긴 배열. */

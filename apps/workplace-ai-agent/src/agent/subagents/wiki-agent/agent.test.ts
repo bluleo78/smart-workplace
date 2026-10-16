@@ -66,4 +66,10 @@ describe('wiki-agent 정의', () => {
     expect(prompt).toContain('/api/v1/wiki/pages/{pageId}/attachments/{attachmentId}/content');
     expect(prompt).toContain('추측하지 말고');
   });
+
+  // WP-424: update_wiki_page 의 fileIds 는 upload_file 로 스테이징한 이미지를 받는데, AI Chat 의 upload_file 은 텍스트 전용이라 이미지를 넣을 수 없다.
+  it('AI Chat 에서는 이미지를 넣을 수 없다고 안내하고 upload_file 은 싣지 않는다 (WP-424)', () => {
+    expect(loaded['wiki-agent'].prompt).toContain('AI Chat 에서는 이미지를 넣을 수 없습니다');
+    expect(loaded['wiki-agent'].tools).not.toContain('mcp__workplace__upload_file');
+  });
 });

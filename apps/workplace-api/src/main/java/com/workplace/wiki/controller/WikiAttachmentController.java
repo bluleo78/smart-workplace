@@ -3,9 +3,12 @@ package com.workplace.wiki.controller;
 import com.workplace.fileai.controller.ViewImageResponses;
 import com.workplace.fileai.dto.ExtractedTextSlice;
 import com.workplace.fileai.service.AttachmentViewService;
+import com.workplace.wiki.dto.ClaimWikiImagesRequest;
 import com.workplace.wiki.dto.WikiAttachmentResponse;
 import com.workplace.wiki.service.WikiAttachmentService;
+import jakarta.validation.Valid;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
@@ -19,6 +22,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -40,6 +44,18 @@ public class WikiAttachmentController {
       @PathVariable long pageId,
       @RequestParam("file") MultipartFile file) {
     return ResponseEntity.status(HttpStatus.CREATED).body(service.upload(callerId, pageId, file));
+  }
+
+  /**
+   * 스테이징 이미지 클레임(WP-424) — 먼저 올려 둔 파일(POST /staged-files/…)의 fileIds 를 이 페이지의 첨부로 묶는다.
+   * 권한(EDITOR)·한도는 업로드와 같고, 응답의 url 을 본문에 쓰면 저장 때 영구화된다.
+   */
+  @PostMapping("/claim")
+  public ResponseEntity<List<WikiAttachmentResponse>> claim(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable long pageId,
+      @Valid @RequestBody ClaimWikiImagesRequest req) {
+    return ResponseEntity.ok(service.claimStaged(callerId, pageId, req.fileIds()));
   }
 
   /**

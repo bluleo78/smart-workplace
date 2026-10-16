@@ -10,6 +10,7 @@ import java.time.ZoneOffset;
 import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import org.jooq.DSLContext;
@@ -228,5 +229,39 @@ public class WikiAttachmentRepository {
         .and(FILE.EXPIRES_AT.isNotNull())
         .and(WIKI_PAGE_ATTACHMENT.DEMOTED_AT.isNull())
         .fetch(WIKI_PAGE_ATTACHMENT.FILE_ID);
+  }
+
+  /**
+   * 파일 MIME 을 바로잡고 만료를 다시 세운다(WP-424 스테이징 클레임). 스테이징 때 MIME 은 업로더가 선언한 값이라 매직바이트로 판정한 값으로 덮고, 만료는
+   * 클레임 시점부터 임시 첨부 창을 새로 준다(남은 시간이 짧은 파일이 본문에 넣기도 전에 수거되지 않게).
+   */
+  public void updateMimeAndExpiry(long fileId, String mime, OffsetDateTime expiresAt) {
+    dsl.update(FILE)
+        .set(FILE.MIME_TYPE, mime)
+        .set(FILE.EXPIRES_AT, expiresAt)
+        .where(FILE.ID.eq(fileId))
+        .execute();
+  }
+
+  /** 클레임 응답용 파일 메타. */
+  public record FileMeta(
+      long fileId, String originalName, String mimeType, long sizeBytes, Long uploadedBy) {}
+
+  /** 파일 id → 메타(없는 id 는 빠진다). 이미 이 페이지에 묶인 파일의 재시도 응답과 소유자 판정에 쓴다. */
+  public Map<Long, FileMeta> metaOf(Collection<Long> fileIds) {
+    if (fileIds.isEmpty()) return Map.of();
+    return dsl.select(
+            FILE.ID, FILE.ORIGINAL_NAME, FILE.MIME_TYPE, FILE.SIZE_BYTES, FILE.UPLOADED_BY)
+        .from(FILE)
+        .where(FILE.ID.in(fileIds))
+        .fetchMap(
+            FILE.ID,
+            r ->
+                new FileMeta(
+                    r.get(FILE.ID),
+                    r.get(FILE.ORIGINAL_NAME),
+                    r.get(FILE.MIME_TYPE),
+                    r.get(FILE.SIZE_BYTES),
+                    r.get(FILE.UPLOADED_BY)));
   }
 }

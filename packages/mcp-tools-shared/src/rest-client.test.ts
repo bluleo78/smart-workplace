@@ -207,6 +207,13 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(http.put.mock.calls[0]).toStrictEqual(['/wiki/pages/5', { version: 3, title: 't', snapshot: false }]);
   });
 
+  it('claimWikiImages 는 페이지 첨부 claim 경로로 fileIds 를 POST 하고 응답을 돌려준다 (WP-424)', async () => {
+    const { http, client } = mockHttp();
+    http.post.mockResolvedValue({ data: [{ fileId: 9, url: '/u' }] });
+    await expect(client.claimWikiImages(5, [9])).resolves.toEqual([{ fileId: 9, url: '/u' }]);
+    expect(http.post).toHaveBeenCalledWith('/wiki/pages/5/attachments/claim', { fileIds: [9] });
+  });
+
   it('createWikiPage 는 스페이스 경로로 POST', async () => {
     const { http, client } = mockHttp();
     await client.createWikiPage(2, { parentId: null, title: 't' });

@@ -298,6 +298,9 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
       // version = 병합 기준(읽은 판). 409(기준본 만료)는 호출자(도구)에 그대로 전파한다. 직전 판 스냅샷은 동기화 서버가 AI 적용 때 남기므로 요청하지 않는다(WP-289).
       return (await http.put(`/wiki/pages/${pageId}`, { ...body, snapshot: false })).data;
     },
+    async claimWikiImages(pageId, fileIds) {
+      return (await http.post(`/wiki/pages/${pageId}/attachments/claim`, { fileIds })).data;
+    },
     async listWikiPages(spaceId) {
       return (await http.get(`/wiki/spaces/${spaceId}/pages`)).data ?? [];
     },

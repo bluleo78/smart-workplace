@@ -8,6 +8,9 @@ import com.workplace.file.storage.FileStore;
 import com.workplace.file.storage.StorageDomain;
 import com.workplace.global.util.UnicodeNames;
 import com.workplace.wiki.exception.WikiAttachmentNotFoundException;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.OffsetDateTime;
 import java.util.Optional;
@@ -76,6 +79,21 @@ public class WikiAttachmentStorage {
         .returning(FILE.ID)
         .fetchOne()
         .getId();
+  }
+
+  /**
+   * 저장된 파일의 앞 {@code n}바이트 — 스테이징 파일의 이미지 판정(매직바이트)용. 전체를 읽지 않는다. blob 이 없으면 {@link
+   * FileBlobMissingException}.
+   */
+  public byte[] readHead(long fileId, String storagePath, int n) {
+    if (!fileStore.exists(storagePath)) {
+      throw new FileBlobMissingException(fileId);
+    }
+    try (var in = Files.newInputStream(fileStore.resolve(storagePath))) {
+      return in.readNBytes(n);
+    } catch (IOException e) {
+      throw new UncheckedIOException(e);
+    }
   }
 
   /** 다운로드/렌더용 메타 + 디스크 경로. */
