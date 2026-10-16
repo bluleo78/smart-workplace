@@ -55,7 +55,8 @@ class MemberCreateControllerTest extends IntegrationTestBase {
             .getId();
     Long roleId = dsl.select(ROLE.ID).from(ROLE).where(ROLE.NAME.eq(roleName)).fetchOne(ROLE.ID);
     dsl.insertInto(USER_ROLE).set(USER_ROLE.USER_ID, id).set(USER_ROLE.ROLE_ID, roleId).execute();
-    return id;
+    // WP-420: tenant 1 토큰은 ACTIVE 멤버십이 있어야 인증된다 — 실제 구성원처럼 멤버십을 준다.
+    return withMembership(id);
   }
 
   /** WP-181: 사람 구성원 아이디는 이메일이어야 하므로 테스트별 고유 이메일 아이디를 만든다. */

@@ -15,6 +15,7 @@ import com.workplace.action.ActionService;
 import com.workplace.calendar.dto.CalendarEventResponse;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.TestFixtures;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -120,6 +121,8 @@ class ActionConfirmRlsGuardTest extends IntegrationTestBase {
                   .set(USER_ROLE.USER_ID, userId)
                   .set(USER_ROLE.ROLE_ID, roleId)
                   .execute();
+              // WP-420: 역할 권한은 같은 테넌트의 ACTIVE 멤버일 때만 유효하다.
+              TestFixtures.activeMemberOfCurrentTenant(dsl, userId);
               return null; // 커밋(롤백 안 함)
             });
   }

@@ -17,6 +17,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.workplace.fileai.dto.ViewImage;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.home.HomeAttachmentTestSupport;
+import com.workplace.support.TestFixtures;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
@@ -70,6 +71,8 @@ class HomeAttachmentViewTenantTest extends HomeAttachmentTestSupport {
   }
 
   private MockHttpServletRequestBuilder asTenant2(long uid, MockHttpServletRequestBuilder req) {
+    // WP-420: tenant 토큰은 그 테넌트 ACTIVE 멤버일 때만 인증된다 — 실제 워크스페이스 선택과 같은 전제를 맞춘다.
+    TestFixtures.ensureActiveMember(baseDsl, uid, tid2);
     return req.header(
         "Authorization", "Bearer " + jwtTokenProvider.generateAccessToken(uid, "u" + uid, tid2));
   }

@@ -56,6 +56,8 @@ class ActionControllerValidateTest extends IntegrationTestBase {
         .set(USER_ROLE.USER_ID, callerId)
         .set(USER_ROLE.ROLE_ID, userRoleId)
         .execute();
+    // WP-420: 역할 권한은 같은 테넌트의 ACTIVE 멤버일 때만 유효하다.
+    TestFixtures.activeMemberOfCurrentTenant(dsl, callerId);
     projectKey = uniqueKey("AV");
     projectService.create(
         callerId, new CreateProjectRequest(projectKey, "Validate Test Project", null));

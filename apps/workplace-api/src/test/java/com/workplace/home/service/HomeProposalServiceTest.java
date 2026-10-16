@@ -272,6 +272,8 @@ class HomeProposalServiceTest extends IntegrationTestBase {
                   .set(USER_ROLE.USER_ID, uid)
                   .set(USER_ROLE.ROLE_ID, roleId)
                   .execute();
+              // WP-420: 역할 권한은 같은 테넌트의 ACTIVE 멤버일 때만 유효하다.
+              TestFixtures.activeMemberOfCurrentTenant(dsl, uid);
               return null;
             });
     return uid;

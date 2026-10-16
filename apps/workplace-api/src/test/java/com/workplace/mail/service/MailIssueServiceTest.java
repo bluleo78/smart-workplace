@@ -178,6 +178,8 @@ class MailIssueServiceTest extends IntegrationTestBase {
   void promoteToIssue_withLabelNames_createsLabelOnlyWhenIssueIsCreated() {
     // 실제 사용자처럼 USER 역할(label:manage 포함)을 준다 — 이름 라벨로 새 라벨을 만드는 경로가 이 권한을 본다.
     grantUserRole(callerId);
+    // WP-420: 역할 권한(label:manage)은 테넌트 ACTIVE 멤버일 때만 유효하다.
+    withMembership(callerId);
     long messageId = seedMailMessage(callerId);
     var req =
         new PromoteToIssueRequest(

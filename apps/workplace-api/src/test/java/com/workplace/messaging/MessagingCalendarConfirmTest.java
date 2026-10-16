@@ -55,6 +55,10 @@ class MessagingCalendarConfirmTest extends IntegrationTestBase {
     human = seedUser("calc_human", "HUMAN");
     otherHuman = seedUser("calc_other", "HUMAN");
     agentId = seedUser("calc_agent", "AGENT");
+    // WP-420: 역할 권한(calendar:write)은 테넌트 ACTIVE 멤버일 때만 유효하다 — 위임자(human)·에이전트는 실제처럼 멤버로 둔다.
+    // otherHuman 은 비멤버 참석자 거부 테스트를 위해 테스트별로만 멤버십을 준다.
+    withMembership(human);
+    withMembership(agentId);
     channelId = channelRepo.insertPublic("calc-ch-" + UUID.randomUUID(), human);
     createdChannelIds.add(channelId);
     memberRepo.add(channelId, human, "MEMBER");

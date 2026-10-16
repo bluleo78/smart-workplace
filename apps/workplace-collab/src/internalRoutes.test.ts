@@ -1202,6 +1202,29 @@ describe('internal routes', () => {
       expect(a.disconnects).toEqual([])
     })
 
+    it('re-checks every connection of the user in the tenant regardless of space when only userId is given (WP-420 membership suspension)', async () => {
+      // 워크스페이스 멤버십 정지 — API 는 스페이스를 모르고 tenantId+userId 만 보낸다. 정지된 멤버십의 JWT 는 collab-access 401 이다.
+      api.page(2, { tenantId: TENANT, body: '다른 노트', version: 1, spaceId: 3 }) // 다른 스페이스의 문서도 대상이어야 한다
+      const a = connect('editor-token')
+      const elsewhere = connect('editor-token', 'wiki-page:2')
+      const other = connect('editor2-token')
+      await synced(a)
+      await synced(elsewhere)
+      await synced(other)
+      api.token('editor-token', null)
+      // 다른 테넌트의 같은 사용자 요청은 대상이 없다.
+      const before = api.accessCalls.length
+      expect((await postInternal('/internal/docs/revalidate', { tenantId: 99, userId: 5 })).status).toBe(204)
+      expect(api.accessCalls.length).toBe(before)
+      const res = await postInternal('/internal/docs/revalidate', { tenantId: TENANT, userId: 5 })
+      expect(res.status).toBe(204)
+      // 그 사용자의 모든 문서 연결이 토큰 만료 경로(4401)로 닫힌다 — 웹이 갱신을 시도하고 정지된 워크스페이스에서 빠진다.
+      await expect.poll(() => a.disconnects.map((d) => d.code), ARRIVAL).toContain(CLOSE_TOKEN_EXPIRED.code)
+      await expect.poll(() => elsewhere.disconnects.map((d) => d.code), ARRIVAL).toContain(CLOSE_TOKEN_EXPIRED.code)
+      // 다른 사용자는 영향 없음.
+      expect(other.disconnects).toEqual([])
+    })
+
     it('keeps connections when the access check itself fails (API error)', async () => {
       const a = connect('editor-token')
       const observer = connect('editor2-token')

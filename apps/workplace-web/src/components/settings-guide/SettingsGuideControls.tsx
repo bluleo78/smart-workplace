@@ -18,14 +18,25 @@ const GUIDE_DESCRIPTION = '이 설정 화면에서 알아두면 좋은 내용이
 const guideTitleClass = 'text-sm leading-5 font-semibold'
 
 /** 오른쪽 sticky 열 — 본문과 같은 면(배경·경계선 없음)이고 폼과는 간격으로만 구분한다. */
-export function SettingsGuideAside({ guide, onHide }: { guide: SettingsGuide; onHide: () => void }) {
+export function SettingsGuideAside({
+  guide,
+  maxHeight,
+  onHide,
+}: {
+  guide: SettingsGuide
+  /** WP-414: 본문 스크롤 영역의 보이는 높이 — 열이 이보다 길면 열 안에서 스크롤해 끝(「AI에게 묻기」)까지 닿게 한다. */
+  maxHeight?: number
+  onHide: () => void
+}) {
   return (
     <aside
       aria-label={GUIDE_TITLE}
       data-testid="settings-guide-aside"
       // self-start: flex 행 높이로 늘어나지 않아야 sticky 가 스크롤 컨테이너 상단에 붙는다.
       // pt-6: 본문 py-4 + 첫 섹션 pt-2 와 같아 열 머리가 첫 섹션 제목과 같은 높이에 선다.
-      className="sticky top-0 w-[280px] shrink-0 self-start pt-6 pr-4 pb-4"
+      // WP-414: 최대 높이 = 본문 보이는 높이 + 넘치면 열 자체 스크롤 — 열이 길어도 폼을 끝까지 내리지 않고 열 끝 버튼에 닿는다.
+      style={maxHeight != null ? { maxHeight } : undefined}
+      className="sticky top-0 w-[280px] shrink-0 self-start overflow-y-auto pt-6 pr-4 pb-4"
     >
       <div className="mb-3 flex items-center justify-between gap-2">
         <h2 className={guideTitleClass}>{GUIDE_TITLE}</h2>
@@ -94,6 +105,11 @@ export function SettingsGuideDesktopSheet({
   returnFocusRef: RefObject<HTMLElement | null>
 }) {
   const contentRef = useRef<HTMLDivElement>(null)
+  // 포커스가 시트 밖 편집 요소(폼 입력·AI 입력창)에 있는지 — ESC 무시와 닫힘 포커스 복귀 생략이 같은 술어를 쓴다.
+  const focusInOutsideEditable = () => {
+    const active = document.activeElement
+    return active != null && !contentRef.current?.contains(active) && isKeyboardEditable(active)
+  }
   return (
     <DialogPrimitive.Root open={open} onOpenChange={(o) => !o && onClose()} modal={false}>
       <DialogPrimitive.Content
@@ -104,10 +120,14 @@ export function SettingsGuideDesktopSheet({
         ref={contentRef}
         onInteractOutside={(e) => e.preventDefault()}
         onEscapeKeyDown={(e) => {
-          const active = document.activeElement
-          if (active && !contentRef.current?.contains(active) && isKeyboardEditable(active)) e.preventDefault()
+          if (focusInOutsideEditable()) e.preventDefault()
         }}
         onCloseAutoFocus={(e) => {
+          // WP-414: 「AI 에게 묻기」로 닫히면 닫힘 애니메이션(300ms) 사이에 AI 입력창이 포커스를 받는다 — 헤더 버튼으로 되돌려 빼앗지 않는다.
+          if (focusInOutsideEditable()) {
+            e.preventDefault()
+            return
+          }
           const target = returnFocusRef.current
           if (target) {
             e.preventDefault()

@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.util.Collection;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicReference;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
@@ -34,24 +35,32 @@ public class SseRegistry {
       new ConcurrentHashMap<>();
   private final ObjectMapper objectMapper;
 
-  /** 유저의 새 SSE 연결 등록. 한도 초과 시 가장 오래된 연결을 complete. */
+  /**
+   * 유저의 새 SSE 연결 등록. 한도 초과 시 가장 오래된 연결을 complete.
+   *
+   * <p>WP-420: 목록 조회와 추가를 {@code compute} 한 번으로 묶는다 — computeIfAbsent 로 목록을 얻은 뒤 add 하면 그 사이 {@link
+   * #closeAll}(멤버십 정지)이 목록을 떼어 내 닫을 때 새 emitter 가 맵에 없는 목록에 붙어 닫히지도, 이벤트를 받지도 않는 채 남았다. 퇴출 대상
+   * complete 는 compute 밖에서 한다 — complete 콜백(remove)이 같은 키의 compute 를 다시 부르면 재귀 갱신 예외가 날 수 있다.
+   */
   public SseEmitter register(Long userId) {
-    CopyOnWriteArrayList<SseEmitter> list =
-        emitters.computeIfAbsent(userId, k -> new CopyOnWriteArrayList<>());
-    if (list.size() >= MAX_EMITTERS_PER_USER && !list.isEmpty()) {
-      SseEmitter oldest = list.get(0);
-      list.remove(oldest);
-      try {
-        oldest.complete();
-      } catch (Exception ignored) {
-        // 퇴출 중 complete 오류는 무시
-      }
-    }
     SseEmitter emitter = new SseEmitter(EMITTER_TIMEOUT);
     emitter.onCompletion(() -> remove(userId, emitter));
     emitter.onTimeout(() -> remove(userId, emitter));
     emitter.onError(e -> remove(userId, emitter));
-    list.add(emitter);
+    // compute 람다 밖으로 퇴출 대상을 꺼내기 위한 holder.
+    AtomicReference<SseEmitter> evicted = new AtomicReference<>();
+    emitters.compute(
+        userId,
+        (k, list) -> {
+          CopyOnWriteArrayList<SseEmitter> target =
+              list != null ? list : new CopyOnWriteArrayList<>();
+          if (target.size() >= MAX_EMITTERS_PER_USER) {
+            evicted.set(target.remove(0));
+          }
+          target.add(emitter);
+          return target;
+        });
+    if (evicted.get() != null) completeQuietly(evicted.get());
     // 연결 직후 초기 코멘트로 응답 헤더를 즉시 flush 한다 (WP-156). 서블릿 응답은 첫 전송 전까지 커밋되지 않아, 이게 없으면
     // 클라이언트 fetch 가 다음 heartbeat(최대 30s)까지 헤더를 받지 못해 "실시간 연결 중" 상태로 머문다.
     // 컨트롤러가 emitter 를 반환하기 전의 send 는 SseEmitter 가 버퍼링했다가 초기화 시 내보낸다.
@@ -73,12 +82,17 @@ public class SseRegistry {
     }
   }
 
+  /**
+   * emitter 를 목록에서 빼고, 비면 키를 지운다. WP-420: 빼기와 빈 목록 정리를 한 번의 computeIfPresent 로 묶어 같은 키의
+   * register(compute)와 직렬화한다 — 따로 하면 정리 직전에 붙은 새 emitter 의 목록이 맵에서 떨어져 나갈 수 있었다.
+   */
   private void remove(Long userId, SseEmitter emitter) {
-    CopyOnWriteArrayList<SseEmitter> list = emitters.get(userId);
-    if (list != null) {
-      list.remove(emitter);
-      emitters.computeIfPresent(userId, (k, v) -> v.isEmpty() ? null : v);
-    }
+    emitters.computeIfPresent(
+        userId,
+        (k, v) -> {
+          v.remove(emitter);
+          return v.isEmpty() ? null : v;
+        });
   }
 
   /** 지정 유저들의 연결된 emitter 로 이벤트 전송 (미연결 유저는 skip). best-effort. */
@@ -93,6 +107,29 @@ public class SseRegistry {
             emitter,
             SseEmitter.event().name(eventName).data(json, MediaType.APPLICATION_JSON));
       }
+    }
+  }
+
+  /**
+   * 유저의 모든 SSE 연결을 서버 쪽에서 닫는다(WP-420 — 워크스페이스 멤버십 정지 시 열린 스트림이 계속 이벤트를 받지 않게).
+   *
+   * <p>키가 userId 뿐이라 테넌트를 가려 닫을 수 없어 그 유저의 모든 스트림을 닫는다. 클라이언트는 새(갱신된) 토큰으로 재연결하므로 다른 워크스페이스 세션은 잠깐
+   * 끊겼다 다시 붙고, 정지된 워크스페이스 토큰은 인증 필터에서 401 이 나 재연결되지 않는다. 목록을 먼저 맵에서 떼어 낸 뒤 complete 한다 — complete
+   * 콜백(remove)이나 같은 순간의 재연결이 새 목록을 만들어도 이번에 닫을 대상과 섞이지 않는다. register 는 목록 추가를 compute 안에서 하므로 떼어 내기
+   * 전에 붙은 연결은 이번에 닫히고, 뒤에 붙은 연결은 맵의 새 목록에 남는다(떨어진 목록에 붙는 일은 없다).
+   */
+  public void closeAll(Long userId) {
+    CopyOnWriteArrayList<SseEmitter> list = emitters.remove(userId);
+    if (list == null) return;
+    list.forEach(SseRegistry::completeQuietly);
+  }
+
+  /** emitter 를 서버 쪽에서 닫는다. 이미 끊긴 연결의 complete 오류는 무시한다 — 호출부가 이미 목록에서 뺀 대상이다. */
+  private static void completeQuietly(SseEmitter emitter) {
+    try {
+      emitter.complete();
+    } catch (Exception ignored) {
+      // best-effort
     }
   }
 

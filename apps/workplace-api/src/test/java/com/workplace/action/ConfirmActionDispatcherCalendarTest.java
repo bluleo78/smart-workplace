@@ -10,6 +10,7 @@ import com.workplace.calendar.service.CalendarService;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.jooq.Tables;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.TestFixtures;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
@@ -71,6 +72,8 @@ class ConfirmActionDispatcherCalendarTest extends IntegrationTestBase {
         .set(Tables.USER_ROLE.USER_ID, id)
         .set(Tables.USER_ROLE.ROLE_ID, roleId)
         .execute();
+    // WP-420: 역할 권한은 같은 테넌트의 ACTIVE 멤버일 때만 유효하다.
+    TestFixtures.activeMemberOfCurrentTenant(dsl, id);
     return id;
   }
 

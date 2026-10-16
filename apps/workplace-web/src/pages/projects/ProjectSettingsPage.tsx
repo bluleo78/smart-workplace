@@ -30,10 +30,14 @@ import { useAuth } from '../../hooks/useAuth';
 import { handleApiError } from '../../lib/api-error';
 import { isProjectOwner } from '../../lib/projectPermissions';
 import { type UpdateProjectFormData,updateProjectSchema } from '../../lib/validations/project';
+import type { ProjectType } from '../../types/project';
 import { CustomFieldManagement } from './components/CustomFieldManagement';
 import { IssueTypeManagement } from './components/IssueTypeManagement';
 import { LabelManagement } from './components/LabelManagement';
 import { MemberManagement } from './components/MemberManagement';
+
+/** WP-414: AI 화면 맥락에 싣는 프로젝트 종류 표시 문구. */
+const PROJECT_TYPE_LABEL: Record<ProjectType, string> = { TEAM: '팀', PERSONAL: '개인', OPEN: '접수함' };
 
 // 프로젝트 설정 — 기본 정보 수정 + 멤버 관리 + 위험 구역(삭제).
 export default function ProjectSettingsPage() {
@@ -98,6 +102,18 @@ export default function ProjectSettingsPage() {
     <SettingsPage
       width="form"
       guide={projectSettingsGuide(project.data)}
+      // WP-414: AI 화면 맥락 — 프로젝트 키·이름·종류(로드된 뒤에만).
+      aiContext={project.data ? {
+        focus: {
+          type: '프로젝트',
+          label: project.data.name,
+          refs: { projectKey: project.data.key },
+          facts: [
+            ['키', project.data.key],
+            ['종류', PROJECT_TYPE_LABEL[project.data.type]],
+          ],
+        },
+      } : null}
       data-testid="project-settings-page"
       icon={
         <Button

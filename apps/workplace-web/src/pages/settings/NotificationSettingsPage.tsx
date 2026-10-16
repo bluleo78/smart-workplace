@@ -55,7 +55,19 @@ export default function NotificationSettingsPage() {
   }
 
   return (
-    <SettingsPage title="알림" width="form" guide={settingsGuides.notifications} data-testid="notification-settings-page">
+    <SettingsPage
+      title="알림"
+      width="form"
+      guide={settingsGuides.notifications}
+      // WP-414: AI 화면 맥락 — 서버 푸시 사용 여부·이 기기 푸시 켜짐(로드된 값만). 구독 키 등은 싣지 않는다.
+      aiContext={{
+        facts: [
+          ['푸시 알림(서버)', config.isSuccess ? (enabled ? '사용 가능' : '꺼져 있음') : null],
+          ['이 기기 푸시', enabled && device.isSuccess ? (subscribed ? '켜짐' : '꺼짐') : null],
+        ],
+      }}
+      data-testid="notification-settings-page"
+    >
       {config.isSuccess && !enabled && (
         <SettingsSection
           data-testid="push-disabled-notice"

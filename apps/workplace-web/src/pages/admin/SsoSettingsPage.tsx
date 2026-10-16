@@ -42,7 +42,13 @@ export default function SsoSettingsPage() {
   }
 
   return (
-    <SettingsPage title="SSO" width="form" guide={settingsGuides.sso}>
+    <SettingsPage
+      title="SSO"
+      width="form"
+      guide={settingsGuides.sso}
+      // WP-414: AI 화면 맥락 — 사용 여부만(관리자 동의 링크 등 다른 값은 싣지 않는다). 로드 전엔 보내지 않는다.
+      aiContext={data ? { facts: [['SSO 로그인', data.enabled ? '켜짐' : '꺼짐']] } : null}
+    >
       <SettingsSection
         title="SSO 로그인"
         description='켜면 구성원이 Microsoft 계정으로 로그인할 수 있고, 비밀번호 없는 "SSO 전용" 구성원을 등록할 수 있어요.'

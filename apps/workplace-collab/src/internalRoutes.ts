@@ -55,7 +55,7 @@ export interface ApplyRequest {
   docName?: string
 }
 
-/** revalidate 요청 — pageIds 가 있으면 그 페이지들, 없으면 spaceId 의 모든 문서. userId 가 있으면 그 사용자 연결만. */
+/** revalidate 요청 — 대상 선택 규칙은 parseRevalidate 참고. */
 export interface RevalidateRequest {
   tenantId: number
   spaceId?: number
@@ -162,7 +162,10 @@ function parseApply(raw: unknown, pageId: number, testMode: boolean): ApplyReque
   return out
 }
 
-/** revalidate 본문 검증 — spaceId 나 pageIds 중 하나는 있어야 대상이 정해진다. */
+/**
+ * revalidate 본문 검증 — spaceId·pageIds·userId 중 하나는 있어야 대상이 정해진다. tenantId 만으로는 거절한다 — 한 호출이 테넌트의
+ * 모든 연결을 재판정하는 일을 막는다. userId 만 있으면(WP-420 멤버십 정지) 그 테넌트의 그 사용자 연결 전부가 대상이다.
+ */
 function parseRevalidate(raw: unknown): RevalidateRequest {
   const b = (raw ?? {}) as Record<string, unknown>
   if (!isPosInt(b.tenantId)) throw bad('invalid tenantId')
@@ -184,7 +187,7 @@ function parseRevalidate(raw: unknown): RevalidateRequest {
     // 모르는 사유(새 API·옛 동기화 서버가 섞인 배포)는 사유 없음으로 본다 — 400 으로 거절하면 접근을 잃은 연결이 열린 채 남는다(fail-open).
     console.warn(`[collab] unknown revalidate reason ${JSON.stringify(b.reason)} — treating as no reason (4403)`)
   }
-  if (out.spaceId == null && out.pageIds == null) throw bad('spaceId or pageIds required')
+  if (out.spaceId == null && out.pageIds == null && out.userId == null) throw bad('spaceId, pageIds or userId required')
   return out
 }
 

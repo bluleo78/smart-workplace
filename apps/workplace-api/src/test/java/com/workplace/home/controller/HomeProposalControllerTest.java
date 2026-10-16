@@ -160,7 +160,8 @@ class HomeProposalControllerTest extends IntegrationTestBase {
 
   /** 전역 USER + 테넌트#1 USER 역할(calendar:write 포함) 커밋. */
   private long seedUser() {
-    long uid = TestFixtures.createHuman(dsl);
+    // WP-420: 역할 권한은 테넌트#1 ACTIVE 멤버일 때만 유효하다 — 멤버십도 함께 준다(user 삭제 시 CASCADE).
+    long uid = withMembership(TestFixtures.createHuman(dsl));
     userIds.add(uid);
     TenantContext.set(1L);
     new TransactionTemplate(txManager)
