@@ -9,6 +9,7 @@ import static org.jooq.impl.DSL.coalesce;
 import static org.jooq.impl.DSL.count;
 import static org.jooq.impl.DSL.exists;
 import static org.jooq.impl.DSL.field;
+import static org.jooq.impl.DSL.firstValue;
 import static org.jooq.impl.DSL.inline;
 import static org.jooq.impl.DSL.max;
 import static org.jooq.impl.DSL.min;
@@ -46,8 +47,9 @@ import org.springframework.stereotype.Repository;
  * AI 위임 작업 목록·건수 조회(WP-377 §5.2). 범위는 /me/issues 와 같은 접근 범위({@link
  * IssueRepository#memberScopeCondition}) 안에서 "AI 에게 맡긴 이슈(DELEGATED) 또는 사람이 AI 도구로 작업 중인
  * 이슈(ASSISTED)" 로 좁히고, 사람이 할 일이 먼저 보이도록 급한 순(진행 중 작업 상태) → 마지막 보고 최근순 → id 로 정렬한다. WP-375 부터 이 정렬을
- * 에픽 묶음 단위로 감싸 한 에픽의 행이 연속으로 나온다 — 정렬 키 7개(묶음 순위, 묶음 최근 시각, 묶음 키, 머리 순서, rank, sortAt, id)를 같은 7개로
- * 된 복합 커서({@link AiTaskCursor})로 넘긴다.
+ * 에픽 묶음 단위로 감싸 한 에픽의 행이 연속으로 나오고, WP-426 부터 다시 프로젝트 단위로 감싸 한 프로젝트의 행이 페이지를 넘어서도 연속으로 나온다(가장 급한 행을
+ * 가진 프로젝트가 먼저 — 그래서 뒤 프로젝트의 답변 필요 행은 앞 프로젝트의 작업 중 행 뒤에 온다) — 정렬 키 10개(프로젝트 순위, 프로젝트 최근 시각, 프로젝트 id,
+ * 묶음 순위, 묶음 최근 시각, 묶음 키, 머리 순서, rank, sortAt, id)를 같은 10개로 된 복합 커서({@link AiTaskCursor})로 넘긴다.
  *
  * <p>WP-396 부터 보기가 둘로 나뉜다 — 미완료(기본: 진행 중 작업이 있는 이슈)와 완료(진행 중 작업 없이 종료 작업이 있는 이슈, 최근 종료순). 작업
  * 기록(agent_work)이 하나도 없는 이슈는 AI 담당이어도 어느 보기에도 나오지 않는다.
@@ -72,11 +74,16 @@ public class AiTaskRepository {
       int size) {}
 
   /**
-   * 목록 행 — 다음 커서를 만들 수 있게 정렬 키 7개와 묶음 정보를 함께 싣는다. epicNumber 는 묶음 키가 에픽일 때만(그 밖은 null), groupSize 는
-   * 필터 적용 후 묶음 행 수. endedWorkId 는 완료 보기를 요청했을 때만 — 행의 대표 종료 작업 id(WP-396), 그 밖은 null.
+   * 목록 행 — 다음 커서를 만들 수 있게 정렬 키 10개와 묶음 정보를 함께 싣는다. epicNumber 는 묶음 키가 에픽일 때만(그 밖은 null), groupSize
+   * 는 필터 적용 후 묶음 행 수, projectSize 는 필터 적용 후 그 프로젝트의 행 수(WP-426 — 페이지와 무관하게 같은 값). endedWorkId 는 완료
+   * 보기를 요청했을 때만 — 행의 대표 종료 작업 id(WP-396), 그 밖은 null.
    */
   public record AiTaskRow(
       IssueRow row,
+      int projectRank,
+      Instant projectSortAt,
+      long projectId,
+      int projectSize,
       int rank,
       Instant sortAt,
       long groupKey,
@@ -87,9 +94,19 @@ public class AiTaskRepository {
       Integer epicNumber,
       Long endedWorkId) {
 
-    /** 이 행 다음부터 이어 읽는 커서 — 정렬 키 7개를 그대로 옮긴다. */
+    /** 이 행 다음부터 이어 읽는 커서 — 정렬 키 10개를 그대로 옮긴다. */
     public AiTaskCursor toCursor() {
-      return new AiTaskCursor(groupRank, groupSortAt, groupKey, headOrder, rank, sortAt, row.id());
+      return new AiTaskCursor(
+          projectRank,
+          projectSortAt,
+          projectId,
+          groupRank,
+          groupSortAt,
+          groupKey,
+          headOrder,
+          rank,
+          sortAt,
+          row.id());
     }
   }
 
@@ -295,12 +312,18 @@ public class AiTaskRepository {
   }
 
   /**
-   * 에픽 묶음 단위 급한 순 한 페이지(WP-375 §3.6). 묶음 키 = 에픽이면 자기 id, 부모가 에픽이면 부모 id, 그 밖은 자기 id. 정렬: 묶음 안 최소 순위
-   * ASC → 묶음 안 최근 보고 DESC → 묶음 키 DESC → 머리(에픽 행) 먼저 → 순위 ASC, 정렬 시각 DESC, id DESC.
+   * 프로젝트·에픽 묶음 단위 급한 순 한 페이지(WP-375 §3.6, WP-426 §4.1). 묶음 키 = 에픽이면 자기 id, 부모가 에픽이면 부모 id, 그 밖은 자기
+   * id. 정렬: 프로젝트 순위 ASC → 프로젝트 최근 시각 DESC → 프로젝트 id DESC → 묶음 안 최소 순위 ASC → 묶음 안 최근 보고 DESC → 묶음 키
+   * DESC → 머리(에픽 행) 먼저 → 순위 ASC, 정렬 시각 DESC, id DESC.
    *
-   * <p>파생 테이블 두 단(1단: 필터 통과 행의 기본 키·묶음 키, 2단: 묶음 창 함수)으로 계산하고 바깥에서 seek 한다. 창 함수는 필터를 적용한 행만으로 커서
-   * 조건 <b>전</b>에 계산한다 — 빠른 필터를 켜면 걸러진 행끼리 묶이고, 페이지가 달라도 묶음 값이 같아 묶음이 페이지 경계를 넘어도 이어진다. 1단 안의 범위
-   * 조건·작업 요약(LATERAL)은 1단 FROM 의 ISSUE 를 참조한다(파생 테이블은 바깥 ISSUE 를 볼 수 없다).
+   * <p>프로젝트 자리는 "그 프로젝트의 첫 행이 프로젝트 키 없는 정렬에서 서는 자리"다 — 프로젝트 순위 = 프로젝트 안 최소 묶음 순위, 프로젝트 최근 시각 = 그
+   * 순위인 묶음들의 최근 시각 중 가장 최근((묶음 순위 ASC, 묶음 최근 시각 DESC) 첫 값). 프로젝트 전체의 최근 시각을 쓰면 덜 급한 최근 행이 프로젝트를 위로
+   * 끌어올린다. 완료 보기는 순위가 모두 같아 "가장 최근 종료가 있는 프로젝트가 위"가 된다. 에픽 묶음은 프로젝트를 넘지 않는다(부모는 같은 프로젝트에서만 지정).
+   *
+   * <p>파생 테이블 세 단(1단: 필터 통과 행의 기본 키·묶음 키·프로젝트, 2단: 묶음 창 함수, 3단: 프로젝트 순위·크기·최근 시각 창 함수 — 2단의 묶음 값에
+   * 기대므로 같은 단에서 못 구한다)으로 계산하고 바깥에서 seek 한다. 창 함수는 필터를 적용한 행만으로 커서 조건 <b>전</b>에 계산한다 — 빠른 필터를 켜면 걸러진
+   * 행끼리 묶이고, 페이지가 달라도 묶음·프로젝트 값이 같아 묶음·프로젝트가 페이지 경계를 넘어도 이어진다. 1단 안의 범위 조건·작업 요약(LATERAL)은 1단 FROM
+   * 의 ISSUE 를 참조한다(파생 테이블은 바깥 ISSUE 를 볼 수 없다).
    */
   public List<AiTaskRow> search(long callerId, AiTaskQuery q) {
     List<String> active = activeStates(q.agentStates());
@@ -325,10 +348,11 @@ public class AiTaskRepository {
     Field<Integer> epicNumber =
         when(selfType.NAME.eq(EPIC), ISSUE.NUMBER).when(parentType.NAME.eq(EPIC), parent.NUMBER);
 
-    // 1단: 필터를 통과한 행의 기본 정렬 키·묶음 키.
+    // 1단: 필터를 통과한 행의 기본 정렬 키·묶음 키·프로젝트.
     Table<?> base =
         dsl.select(
                 ISSUE.ID.as("b_id"),
+                ISSUE.PROJECT_ID.as("b_project"),
                 w.rank().as("b_rank"),
                 w.sortAt().as("b_sort_at"),
                 groupKey.as("b_group"),
@@ -347,6 +371,7 @@ public class AiTaskRepository {
             .where(where)
             .asTable("ai_base");
     Field<Long> bId = base.field("b_id", Long.class);
+    Field<Long> bProject = base.field("b_project", Long.class);
     Field<Integer> bRank = base.field("b_rank", Integer.class);
     Field<OffsetDateTime> bSortAt = base.field("b_sort_at", OffsetDateTime.class);
     Field<Long> bGroup = base.field("b_group", Long.class);
@@ -357,6 +382,7 @@ public class AiTaskRepository {
     Table<?> ranked =
         dsl.select(
                 bId.as("r_id"),
+                bProject.as("r_project"),
                 bRank.as("r_rank"),
                 bSortAt.as("r_sort_at"),
                 bGroup.as("r_group"),
@@ -368,20 +394,45 @@ public class AiTaskRepository {
                 when(bGroup.eq(bId), inline(0)).otherwise(inline(1)).as("r_head"))
             .from(base)
             .asTable("ai_ranked");
-    Field<Long> rId = ranked.field("r_id", Long.class);
-    Field<Integer> rRank = ranked.field("r_rank", Integer.class);
-    Field<OffsetDateTime> rSortAt = ranked.field("r_sort_at", OffsetDateTime.class);
-    Field<Long> rGroup = ranked.field("r_group", Long.class);
-    Field<Integer> rEpic = ranked.field("r_epic", Integer.class);
-    Field<Integer> rGroupRank = ranked.field("r_group_rank", Integer.class);
-    Field<OffsetDateTime> rGroupSortAt = ranked.field("r_group_sort_at", OffsetDateTime.class);
-    Field<Integer> rGroupSize = ranked.field("r_group_size", Integer.class);
-    Field<Integer> rHead = ranked.field("r_head", Integer.class);
-    Field<Long> rEndedWork = ranked.field("r_ended_work", Long.class);
+    Field<Long> rProject0 = ranked.field("r_project", Long.class);
+
+    // 3단(WP-426): 프로젝트 순위(프로젝트 안 최소 묶음 순위)·크기(필터 적용 후 행 수)·최근 시각. 2단 열은 그대로 넘긴다.
+    // 최근 시각은 (묶음 순위 ASC, 묶음 최근 시각 DESC) 첫 값 — 최소 순위 묶음들 중 가장 최근(그 프로젝트 첫 행의 자리)이다. 프로젝트 전체 max 가
+    // 아니다(덜 급한 최근 행이 프로젝트를 끌어올리면 안 된다). 묶음 최근 시각은 coalesce(…, updated_at) 의 max 라 NULL 이 아니다.
+    Field<Integer> rGroupRank0 = ranked.field("r_group_rank", Integer.class);
+    Field<OffsetDateTime> rGroupSortAt0 = ranked.field("r_group_sort_at", OffsetDateTime.class);
+    List<SelectField<?>> projCols = new ArrayList<>(Arrays.asList(ranked.fields()));
+    projCols.add(min(rGroupRank0).over(partitionBy(rProject0)).as("p_rank"));
+    projCols.add(count().over(partitionBy(rProject0)).as("p_size"));
+    projCols.add(
+        firstValue(rGroupSortAt0)
+            .over(partitionBy(rProject0).orderBy(rGroupRank0.asc(), rGroupSortAt0.desc()))
+            .as("p_sort_at"));
+    Table<?> sorted = dsl.select(projCols).from(ranked).asTable("ai_project");
+
+    // 바깥 select·seek·ORDER BY 는 가장 바깥 단(3단)의 열만 볼 수 있다.
+    Field<Long> rId = sorted.field("r_id", Long.class);
+    Field<Long> rProject = sorted.field("r_project", Long.class);
+    Field<Integer> rRank = sorted.field("r_rank", Integer.class);
+    Field<OffsetDateTime> rSortAt = sorted.field("r_sort_at", OffsetDateTime.class);
+    Field<Long> rGroup = sorted.field("r_group", Long.class);
+    Field<Integer> rEpic = sorted.field("r_epic", Integer.class);
+    Field<Integer> rGroupRank = sorted.field("r_group_rank", Integer.class);
+    Field<OffsetDateTime> rGroupSortAt = sorted.field("r_group_sort_at", OffsetDateTime.class);
+    Field<Integer> rGroupSize = sorted.field("r_group_size", Integer.class);
+    Field<Integer> rHead = sorted.field("r_head", Integer.class);
+    Field<Long> rEndedWork = sorted.field("r_ended_work", Long.class);
+    Field<Integer> pRank = sorted.field("p_rank", Integer.class);
+    Field<Integer> pSize = sorted.field("p_size", Integer.class);
+    Field<OffsetDateTime> pSortAt = sorted.field("p_sort_at", OffsetDateTime.class);
 
     List<SelectField<?>> fields = new ArrayList<>(Arrays.asList(IssueRepository.ROW_FIELDS));
     fields.addAll(
         List.of(
+            pRank,
+            pSortAt,
+            rProject,
+            pSize,
             rRank,
             rSortAt,
             rGroup,
@@ -398,6 +449,9 @@ public class AiTaskRepository {
       seek =
           after(
               List.of(
+                  SeekKey.asc(pRank, c.projectRank()),
+                  SeekKey.desc(pSortAt, utc(c.projectSortAt())),
+                  SeekKey.desc(rProject, c.projectId()),
                   SeekKey.asc(rGroupRank, c.groupRank()),
                   SeekKey.desc(rGroupSortAt, utc(c.groupSortAt())),
                   SeekKey.desc(rGroup, c.groupKey()),
@@ -409,10 +463,13 @@ public class AiTaskRepository {
 
     return dsl.select(fields)
         .from(ISSUE)
-        .join(ranked)
+        .join(sorted)
         .on(rId.eq(ISSUE.ID))
         .where(seek)
         .orderBy(
+            pRank.asc(),
+            pSortAt.desc(),
+            rProject.desc(),
             rGroupRank.asc(),
             rGroupSortAt.desc(),
             rGroup.desc(),
@@ -425,6 +482,10 @@ public class AiTaskRepository {
             r ->
                 new AiTaskRow(
                     issueRepository.mapToRow(r),
+                    r.get(pRank),
+                    r.get(pSortAt).toInstant(),
+                    r.get(rProject),
+                    r.get(pSize),
                     r.get(rRank),
                     r.get(rSortAt).toInstant(),
                     r.get(rGroup),

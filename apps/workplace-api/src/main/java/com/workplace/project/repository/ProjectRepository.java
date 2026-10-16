@@ -49,6 +49,18 @@ public class ProjectRepository {
         .fetchMap(PROJECT.ID, PROJECT.KEY);
   }
 
+  /**
+   * id 목록 → 이름 일괄 해석(WP-426 — AI 위임 작업 프로젝트 머리). {@link #keysByIds} 와 같은 모양으로 soft-deleted 는 제외하고,
+   * 빈 목록이면 빈 맵.
+   */
+  public java.util.Map<Long, String> namesByIds(List<Long> ids) {
+    if (ids == null || ids.isEmpty()) return java.util.Map.of();
+    return dsl.select(PROJECT.ID, PROJECT.NAME)
+        .from(PROJECT)
+        .where(PROJECT.ID.in(ids).and(PROJECT.DELETED_AT.isNull()))
+        .fetchMap(PROJECT.ID, PROJECT.NAME);
+  }
+
   /** key 로 활성 프로젝트 조회 (soft-deleted 제외). */
   public Optional<ProjectRow> findByKey(String key) {
     return dsl.select(

@@ -7,6 +7,7 @@ import { mockApi } from '../../fixtures/api-mock'
 import { agentWorker as agent, createAgentWork, createAiTaskCounts, minutesAgo } from '../../factories/agentWork.factory'
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory'
 import { GROUPED_ROWS } from '../../fixtures/ai-tasks-groups'
+import { projectRows } from '../../fixtures/ai-tasks-projects'
 import { DESKTOP_WIDTHS, expectHeaderBottomAt56, expectStartAligned } from '../../fixtures/layout'
 import type { IssueResponse } from '../../../src/types/issue'
 import type { UserSummary } from '../../../src/types/user'
@@ -344,4 +345,37 @@ test('다음 페이지의 하위 행은 같은 머리 아래 이어 붙는다', 
   const order = await page.locator('[data-testid^="ai-row-"], [data-testid^="ai-epic-"]').evaluateAll((els) =>
     els.map((e) => e.getAttribute('data-testid')).filter((t) => /^ai-(row|epic)-\d+$/.test(t ?? '')))
   expect(order).toEqual(['ai-epic-420', 'ai-row-421', 'ai-row-422', 'ai-row-430'])
+})
+
+// WP-426: 서버가 프로젝트 단위로 이어 준 행을 프로젝트 머리 줄 아래에 묶는다. 머리 건수는 서버 값(aiProject.size).
+test('프로젝트별 머리 줄 아래에 그 프로젝트 행이 서버 순서대로 온다', async ({ authenticatedPage: page }) => {
+  await setup(page, projectRows())
+  await page.goto('/me/ai-tasks')
+  await expect(page.getByTestId('ai-row-2061')).toBeVisible()
+
+  // 머리 줄 순서 — 서버가 준 프로젝트 순서(WP → HR → MKT).
+  const heads = await page.locator('[data-testid^="ai-project-"]').evaluateAll(
+    (els) => els.map((e) => e.getAttribute('data-testid')).filter((t) => /^ai-project-[A-Z]+-head$/.test(t ?? '')),
+  )
+  expect(heads).toEqual(['ai-project-WP-head', 'ai-project-HR-head', 'ai-project-MKT-head'])
+
+  // 이름 링크·건수 — 건수는 불러온 2행이 아니라 서버가 준 4.
+  const name = page.getByTestId('ai-project-HR-head-name')
+  await expect(name).toHaveText('인사팀')
+  await expect(name).toHaveAttribute('href', '/projects/HR')
+  await expect(page.getByTestId('ai-project-HR-head-count')).toHaveText('HR · 4')
+  await expect(page.getByTestId('ai-project-WP-head-count')).toHaveText('WP · 5')
+
+  // 구간 안에는 그 프로젝트 행만.
+  const hrRows = await page.getByTestId('ai-project-HR').locator('[data-testid^="ai-row-"]').evaluateAll(
+    (els) => els.map((e) => e.getAttribute('data-testid')).filter((t) => /^ai-row-\d+$/.test(t ?? '')),
+  )
+  expect(hrRows).toEqual(['ai-row-1012', 'ai-row-1015'])
+
+  // 에픽 묶음은 프로젝트 구간 안에서 그대로 — 머리 아래 하위 행이 이어진다.
+  const wp = page.getByTestId('ai-project-WP')
+  await expect(wp.getByTestId('ai-epic-412')).toBeVisible()
+  const wpOrder = await wp.locator('[data-testid^="ai-row-"], [data-testid^="ai-epic-"]').evaluateAll((els) =>
+    els.map((e) => e.getAttribute('data-testid')).filter((t) => /^ai-(row|epic)-\d+$/.test(t ?? '')))
+  expect(wpOrder).toEqual(['ai-epic-412', 'ai-row-413', 'ai-row-414', 'ai-row-418', 'ai-row-430'])
 })

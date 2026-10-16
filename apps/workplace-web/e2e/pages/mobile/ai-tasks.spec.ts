@@ -6,6 +6,7 @@ import type { Page } from '@playwright/test'
 import { agentWorker as agent, createAgentWork, createAiTaskCounts, minutesAgo } from '../../factories/agentWork.factory'
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory'
 import { GROUPED_ROWS } from '../../fixtures/ai-tasks-groups'
+import { projectRows } from '../../fixtures/ai-tasks-projects'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture'
 
@@ -129,5 +130,22 @@ test('완료 보기 행은 「종료 n분 전」과 결과 배지를 보인다',
   await expect(page.getByTestId('ai-row-602-state')).toHaveText('실패')
   await expect(page.getByTestId('ai-row-602-state')).toHaveClass(/bg-destructive\/10/)
   await expect(page.getByTestId('ai-row-602-last')).toHaveText('종료 20분 전')
+  await expectNoHorizontalOverflow(page)
+})
+
+// WP-426: 모바일은 프로젝트 머리가 목록 맨 앞과 프로젝트가 바뀌는 자리에 한 줄씩 온다.
+test('프로젝트 머리 줄이 목록 맨 앞과 프로젝트가 바뀌는 자리에 온다', async ({ authenticatedPage: page }) => {
+  await stubChat(page)
+  await mockApi(page, 'GET', '/api/v1/me/ai-tasks', createIssueSearchResponse(projectRows()))
+  await mockApi(page, 'GET', '/api/v1/me/ai-tasks/counts', createAiTaskCounts({ all: 11 }))
+  await page.goto('/me/ai-tasks')
+  await expect(page.getByTestId('ai-row-2061')).toBeVisible()
+
+  const ids = await page.locator('ul > li').evaluateAll((els) => els.map((e) => e.getAttribute('data-testid')))
+  expect(ids[0]).toBe('ai-project-WP-head')
+  // WP 마지막 행(430) 바로 다음이 HR 머리, HR 마지막 행(1015) 바로 다음이 MKT 머리.
+  expect(ids[ids.indexOf('ai-row-430') + 1]).toBe('ai-project-HR-head')
+  expect(ids[ids.indexOf('ai-row-1015') + 1]).toBe('ai-project-MKT-head')
+  await expect(page.getByTestId('ai-project-HR-head-count')).toHaveText('HR · 4')
   await expectNoHorizontalOverflow(page)
 })
