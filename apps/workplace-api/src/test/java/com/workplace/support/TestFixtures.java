@@ -48,6 +48,48 @@ public final class TestFixtures {
         .execute();
   }
 
+  /** WP-417: (user, tenant) 멤버십을 정지(SUSPENDED)로 바꾼다 — 워크스페이스 관리자가 「활성 상태」를 끈 상태를 직접 시드할 때. */
+  public static void suspendMember(DSLContext dsl, long userId, long tenantId) {
+    dsl.update(MEMBERSHIP)
+        .set(MEMBERSHIP.STATUS, "SUSPENDED")
+        .where(MEMBERSHIP.USER_ID.eq(userId).and(MEMBERSHIP.TENANT_ID.eq(tenantId)))
+        .execute();
+  }
+
+  /** WP-417: (user, tenant) 멤버십 상태(ACTIVE/SUSPENDED). 멤버가 아니면 null. */
+  public static String membershipStatus(DSLContext dsl, long userId, long tenantId) {
+    return dsl.select(MEMBERSHIP.STATUS)
+        .from(MEMBERSHIP)
+        .where(MEMBERSHIP.USER_ID.eq(userId).and(MEMBERSHIP.TENANT_ID.eq(tenantId)))
+        .fetchOne(MEMBERSHIP.STATUS);
+  }
+
+  /** 비밀번호 로그인이 가능한 HUMAN 사용자 — id 와 로그인 아이디. */
+  public record LoginableHuman(long id, String username) {}
+
+  /**
+   * 비밀번호 로그인이 가능한 HUMAN 사용자 1명 생성(멤버십 없음). 로그인이 검증하는 인코더로 미리 인코딩한 비밀번호를 받는다 — {@link #createHuman}
+   * 은 평문 더미라 로그인 테스트에 못 쓴다.
+   */
+  public static LoginableHuman createLoginableHuman(DSLContext dsl, String encodedPassword) {
+    while (true) {
+      String username = "login-" + SEQ.incrementAndGet() + "@example.com";
+      var rec =
+          dsl.insertInto(USER)
+              .set(USER.USERNAME, username)
+              .set(USER.NAME, username)
+              .set(USER.EMAIL, username)
+              .set(USER.PASSWORD, encodedPassword)
+              .set(USER.KIND, UserKind.HUMAN)
+              .onConflictDoNothing()
+              .returning(USER.ID)
+              .fetchOne();
+      if (rec != null) {
+        return new LoginableHuman(rec.getId(), username);
+      }
+    }
+  }
+
   /**
    * HUMAN 사용자 1명 생성 (password 더미). admin/reporter 등 행위 주체 용도.
    *

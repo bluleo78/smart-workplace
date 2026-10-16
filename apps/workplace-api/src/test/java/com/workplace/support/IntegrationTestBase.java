@@ -78,6 +78,16 @@ public abstract class IntegrationTestBase {
     return 1L;
   }
 
+  /**
+   * 테스트 트랜잭션 안에서 요청의 active 테넌트(TenantContext)와 RLS GUC(app.tenant_id, 트랜잭션-로컬)를 함께 전환한다. 트랜잭션 도중
+   * TenantContext 만 바꾸면 GUC 는 doBegin 시점 값에 머물러 role/user_role 등 RLS 표가 따라오지 않는다 — 여러 워크스페이스를 오가는
+   * 테스트용.
+   */
+  protected void useTenant(long tenantId) {
+    TenantContext.set(tenantId);
+    baseDsl.execute("SELECT set_config('app.tenant_id', '" + tenantId + "', true)");
+  }
+
   /** 테스트 트랜잭션 종료 후 TenantContext(ThreadLocal) 정리 — 스레드 재사용 시 누수 방지. */
   @AfterTransaction
   void clearTenantAfterTransaction() {

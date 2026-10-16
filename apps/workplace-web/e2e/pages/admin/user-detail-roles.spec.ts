@@ -155,3 +155,32 @@ test.describe('/settings/users/:id — 역할 할당', () => {
     },
   );
 });
+
+// WP-417 — 활성 상태 끄기는 이 워크스페이스 멤버십 정지다. 섹션 설명·확인 다이얼로그가 계정 전역 차단처럼 읽히지 않고
+// "이 워크스페이스" 범위로 안내하는지, 확인 후 PUT /users/:id/active 에 active=false 가 실리는지 본다.
+test.describe('/settings/users/:id — 활성 상태 (WP-417)', () => {
+  test('비활성화 문구가 이 워크스페이스 범위로 보이고, 확인하면 active=false 로 저장된다', async ({ adminPage: page }) => {
+    await setupPage(page);
+    // PUT /users/4/active — 확인 후 1회 불리고 payload 는 active=false
+    let activePayload: unknown;
+    await page.route(/\/api\/v1\/users\/4\/active$/, (route) => {
+      activePayload = route.request().postDataJSON();
+      return route.fulfill({ status: 204 });
+    });
+
+    await page.goto(`/settings/users/${USER_ID}`);
+    await expect(
+      page.getByText('비활성 구성원은 이 워크스페이스에 들어올 수 없어요. 다른 워크스페이스에는 영향이 없어요.'),
+    ).toBeVisible();
+
+    await page.getByRole('switch', { name: '활성 상태' }).click();
+    const dialog = page.getByRole('alertdialog');
+    await expect(
+      dialog.getByText('비활성화하면 이 사용자는 이 워크스페이스에 들어올 수 없어요. 다른 워크스페이스와 계정은 그대로예요. 계속할까요?'),
+    ).toBeVisible();
+
+    await dialog.getByRole('button', { name: '비활성화' }).click();
+    await expect.poll(() => activePayload).toEqual({ active: false });
+    await expect(page.getByRole('switch', { name: '활성 상태' })).not.toBeChecked();
+  });
+});

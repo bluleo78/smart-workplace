@@ -16,6 +16,7 @@ import com.workplace.platform.exception.TenantMemberAlreadyExistsException;
 import com.workplace.platform.exception.TenantStateConflictException;
 import com.workplace.platform.repository.PlatformTenantRepository;
 import com.workplace.platform.util.IdentityMasking;
+import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.repository.UserRepository;
 import java.text.Normalizer;
@@ -353,8 +354,14 @@ public class PlatformTenantService {
         userRepository
             .findById(req.userId())
             .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 사용자입니다: " + req.userId()));
-    if (platformTenantRepository.hasActiveMembership(user.id(), tenantId)) {
-      throw new TenantMemberAlreadyExistsException("이미 이 테넌트의 멤버입니다: " + user.id());
+    // WP-417: 멤버십은 (user, tenant) UNIQUE 라 정지(SUSPENDED) 행이 있어도 INSERT 가 충돌(500)한다.
+    // 그래서 상태와 무관하게 먼저 거르고, 정지된 구성원은 "추가" 대신 워크스페이스 관리자가 다시 활성화하도록 안내한다.
+    var existing = platformTenantRepository.findMembershipStatus(user.id(), tenantId);
+    if (existing.isPresent()) {
+      throw new TenantMemberAlreadyExistsException(
+          MembershipRepository.STATUS_SUSPENDED.equals(existing.get())
+              ? "이 워크스페이스에서 정지된 구성원이에요. 워크스페이스 관리자가 설정 > 사용자에서 다시 활성화할 수 있어요."
+              : "이미 이 테넌트의 멤버입니다: " + user.id());
     }
 
     boolean isOwner = "OWNER".equals(req.role());

@@ -15,6 +15,7 @@ import com.workplace.project.exception.ProjectConflictException;
 import com.workplace.project.exception.ProjectNotFoundException;
 import com.workplace.project.repository.ProjectIssueSequenceRepository;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.TestFixtures;
 import com.workplace.user.exception.UserNotFoundException;
 import java.util.List;
 import java.util.UUID;
@@ -355,6 +356,22 @@ class ProjectServiceTest extends IntegrationTestBase {
             () ->
                 projectService.addMember(ownerId, key, new AddMemberRequest(otherUserId, "MEMBER")))
         .isInstanceOf(ProjectConflictException.class);
+  }
+
+  /**
+   * WP-417: 이 워크스페이스에서 정지(멤버십 SUSPENDED)된 구성원은 "없는 사용자(404)"가 아니라 비활성 409 로 거부한다(테넌트 비멤버는 그대로 404).
+   */
+  @Test
+  void addMember_workspaceSuspendedUser_throwsConflictNotNotFound() {
+    String key = uniqueKey("SU");
+    projectService.create(ownerId, new CreateProjectRequest(key, "Pjt", null));
+    TestFixtures.suspendMember(dsl, otherUserId, 1L);
+
+    assertThatThrownBy(
+            () ->
+                projectService.addMember(ownerId, key, new AddMemberRequest(otherUserId, "MEMBER")))
+        .isInstanceOf(ProjectConflictException.class)
+        .hasMessageContaining("비활성화된 사용자는 멤버로 추가할 수 없습니다");
   }
 
   /** listMembers 응답 MemberResponse 에 active 필드가 사용자의 실제 is_active 값을 반영한다 (#624). */

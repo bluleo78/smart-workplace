@@ -7,6 +7,7 @@ import com.workplace.global.dto.PageResponse;
 import com.workplace.global.dto.UserSummary;
 import com.workplace.global.security.AgentToolContext;
 import com.workplace.global.security.PermissionChecker;
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.dto.CreateIssueRequest;
 import com.workplace.issue.dto.IssueAiContext;
 import com.workplace.issue.dto.IssueDetailResponse;
@@ -152,7 +153,7 @@ public class IssueService {
     // WP-199 본문 이미지 연결 — 생성 권한(planCreate)을 통과한 뒤라 별도 가드 없이 같은 트랜잭션에서 연결한다.
     // 이미지 참조가 없는 본문(대부분)은 syncIssueImages 가 쿼리 없이 돌아간다.
     bodyImageService.syncIssueImages(project, row.id(), callerId, null, req.body());
-    return finishCreate(callerId, project, row, number, assigneeIds);
+    return finishCreate(callerId, project, row, number, assigneeIds, plan.assignees());
   }
 
   /**
@@ -184,6 +185,7 @@ public class IssueService {
   record CreateIssuePlan(
       ProjectRow project,
       List<Long> assigneeIds,
+      List<AssigneeInfo> assignees,
       Long typeId,
       Long parentIssueId,
       List<Long> labelIds,
@@ -198,11 +200,16 @@ public class IssueService {
 
     // 1) 담당자 검증 — 개인·팀 공통으로 프로젝트 멤버만 담당 가능 (정책 통일 #418)
     List<Long> assigneeIds = req.assigneeIds() == null ? List.of() : req.assigneeIds();
+    List<AssigneeInfo> assignees = List.of();
     if (!assigneeIds.isEmpty()) {
       var allowed = AssigneePolicy.allowedAssigneeIds(project, memberRepository);
       if (!allowed.containsAll(assigneeIds)) {
         throw new InvalidAssigneeForProjectException();
       }
+      // 담당자는 이 워크스페이스에서 활성이어야 한다(전역 비활성·WP-417 정지 거부) — 담당자 교체와 같은 규칙(AssigneePolicy). 읽은 정보는
+      // 실행 후속부(작업 생성·이벤트 요약)가 그대로 재사용한다.
+      assignees = userRepository.findAssigneeInfos(assigneeIds, TenantContext.get());
+      AssigneePolicy.requireActive(assignees);
     }
 
     // 2) typeId 결정 — 지정 시 같은 프로젝트 검증, 아니면 TASK fallback. typeRow 는 이후 SUBTASK 분기 판정에 재사용.
@@ -297,7 +304,15 @@ public class IssueService {
     }
 
     return new CreateIssuePlan(
-        project, assigneeIds, typeId, parentIssueId, labelIds, milestoneId, cycleIds, labelNames);
+        project,
+        assigneeIds,
+        assignees,
+        typeId,
+        parentIssueId,
+        labelIds,
+        milestoneId,
+        cycleIds,
+        labelNames);
   }
 
   /** null·중복을 걸러 순서를 지킨 목록으로 — 같은 id 를 두 번 주면 소속 검증의 개수 비교가 어긋나므로. */
@@ -307,13 +322,17 @@ public class IssueService {
 
   /** 생성 실행 후속부 — 담당자 매핑·워처 등록·도메인 이벤트 발행. 검증은 planCreate 가 이미 끝냈다. */
   private IssueResponse finishCreate(
-      Long callerId, ProjectRow project, IssueRow row, int number, List<Long> assigneeIds) {
+      Long callerId,
+      ProjectRow project,
+      IssueRow row,
+      int number,
+      List<Long> assigneeIds,
+      List<AssigneeInfo> assignees) {
     // 3) issue_assignee 매핑 INSERT
     for (Long uid : assigneeIds) {
       assigneeRepository.add(row.id(), uid, callerId);
     }
-    // 담당자 사용자 정보는 한 번만 읽어 시작 전 작업 판별과 이벤트용 요약에 함께 쓴다.
-    List<AssigneeInfo> assignees = userRepository.findAssigneeInfos(assigneeIds);
+    // 담당자 사용자 정보(planCreate 가 한 번 읽음)를 시작 전 작업 판별과 이벤트용 요약에 함께 쓴다.
     // 외부 실행 AI 구성원이 담당자로 들어오면 "시작 전" 작업을 만든다(WP-377). 종료 상태로 만든 이슈에는 만들지 않는다.
     agentWorkService.submitForAssignees(row.id(), row.status(), assignees);
 

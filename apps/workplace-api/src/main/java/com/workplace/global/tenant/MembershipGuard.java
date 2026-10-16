@@ -3,6 +3,7 @@ package com.workplace.global.tenant;
 import com.workplace.tenant.repository.MembershipRepository;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -39,5 +40,15 @@ public class MembershipGuard {
     if (tenantId == null) return List.copyOf(targetUserIds);
     Set<Long> members = membershipRepository.findActiveUserIds(targetUserIds, tenantId);
     return targetUserIds.stream().filter(id -> !members.contains(id)).toList();
+  }
+
+  /**
+   * WP-417: 대상의 현재 active 테넌트 멤버십 상태(ACTIVE/SUSPENDED). 멤버가 아니면 빈 값 — 컨텍스트가 없으면 fail-closed 로 빈
+   * 값(비멤버 취급). 정지된 구성원을 "여기 없는 사용자(404)"가 아니라 "비활성(409)"으로 안내해야 하는 경로가 쓴다.
+   */
+  public Optional<String> membershipStatus(long targetUserId) {
+    Long tenantId = TenantContext.get();
+    if (tenantId == null) return Optional.empty();
+    return membershipRepository.findStatus(targetUserId, tenantId);
   }
 }

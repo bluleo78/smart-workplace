@@ -187,13 +187,13 @@ export default function UserDetailPage() {
         </div>
       </SettingsSection>
 
-      {/* 비활성화 확인 AlertDialog — 활성→비활성 방향 토글 시에만 표시된다 (#50) */}
+      {/* 비활성화 확인 AlertDialog — 활성→비활성 방향 토글 시에만 표시된다 (#50). 정지 범위는 이 워크스페이스뿐(WP-417) */}
       <AlertDialog open={isDeactivateDialogOpen} onOpenChange={setIsDeactivateDialogOpen}>
         <AlertDialogContent size="sm">
           <AlertDialogHeader>
             <AlertDialogTitle>사용자 비활성화</AlertDialogTitle>
             <AlertDialogDescription>
-              이 사용자를 비활성화하면 로그인이 불가합니다. 계속하시겠습니까?
+              비활성화하면 이 사용자는 이 워크스페이스에 들어올 수 없어요. 다른 워크스페이스와 계정은 그대로예요. 계속할까요?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -211,8 +211,12 @@ export default function UserDetailPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* 활성 상태 — 토글 행(라벨 왼쪽·스위치 오른쪽 끝). 비활성화는 확인 다이얼로그를 거친다 */}
-      <SettingsSection title="활성 상태" description="비활성 구성원은 로그인할 수 없어요.">
+      {/* 활성 상태 — 토글 행(라벨 왼쪽·스위치 오른쪽 끝). 비활성화는 확인 다이얼로그를 거친다.
+          WP-417: 비활성은 이 워크스페이스 멤버십 정지라 문구도 워크스페이스 범위로 쓴다(계정 전역 차단 아님). */}
+      <SettingsSection
+        title="활성 상태"
+        description="비활성 구성원은 이 워크스페이스에 들어올 수 없어요. 다른 워크스페이스에는 영향이 없어요."
+      >
         <SettingsToggleRow
           label={user.isActive ? '활성' : '비활성'}
           control={

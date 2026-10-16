@@ -66,7 +66,7 @@ class IssueEventDispatcherTest {
                     .findFirst()
                     .orElse(null))
         .when(resolver)
-        .pickActingAgent(any());
+        .pickActingAgent(any(), any());
   }
 
   private IssueEventDispatcher build(boolean enabled) {

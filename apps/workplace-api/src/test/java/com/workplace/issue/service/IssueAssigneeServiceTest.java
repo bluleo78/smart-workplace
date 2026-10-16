@@ -21,8 +21,10 @@ import com.workplace.project.dto.AddMemberRequest;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.exception.ProjectAccessDeniedException;
+import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.TestFixtures;
 import com.workplace.user.repository.UserRepository;
 import com.workplace.watcher.repository.IssueWatcherRepository;
 import java.util.List;
@@ -45,6 +47,7 @@ class IssueAssigneeServiceTest extends IntegrationTestBase {
   @Autowired ProjectService projectService;
   @Autowired UserRepository userRepository;
   @Autowired IssueService issueService;
+  @Autowired ProjectMemberRepository memberRepository;
 
   private Long createUser(String prefix) {
     String suffix = UUID.randomUUID().toString().substring(0, 8);
@@ -271,6 +274,52 @@ class IssueAssigneeServiceTest extends IntegrationTestBase {
     dsl.update(USER).set(USER.IS_ACTIVE, false).where(USER.ID.eq(member)).execute();
 
     assertThatThrownBy(() -> service.replace(owner, p.key(), 1, List.of(member)))
+        .isInstanceOf(InvalidAssigneeForProjectException.class);
+  }
+
+  /**
+   * WP-417: 이 워크스페이스에서 정지(멤버십 SUSPENDED)된 구성원은 전역 계정이 활성이어도 신규 담당자로 지정할 수 없다 — 관리자의 「활성 상태」 끄기는 이제
+   * 멤버십만 바꾼다.
+   */
+  @Test
+  void workspace_suspended_member_cannot_be_newly_assigned() {
+    Long owner = createUser("susp-owner");
+    Long member = createUser("susp-member");
+    ProjectResponse p = newProject(owner, "SUSP1");
+    projectService.addMember(owner, p.key(), new AddMemberRequest(member, "MEMBER"));
+    issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    TestFixtures.suspendMember(dsl, member, 1L);
+
+    assertThatThrownBy(() -> service.replace(owner, p.key(), 1, List.of(member)))
+        .isInstanceOf(InvalidAssigneeForProjectException.class);
+    // 프로젝트 멤버 목록의 active 도 이 워크스페이스 기준(정지 → false), 다른 멤버는 그대로 true.
+    var members = memberRepository.findAllByProject(p.id());
+    assertThat(members)
+        .filteredOn(m -> m.userId().equals(member))
+        .singleElement()
+        .satisfies(m -> assertThat(m.active()).isFalse());
+    assertThat(members)
+        .filteredOn(m -> m.userId().equals(owner))
+        .singleElement()
+        .satisfies(m -> assertThat(m.active()).isTrue());
+  }
+
+  /** WP-417: 이슈를 만들 때도 이 워크스페이스에서 정지된 구성원은 담당자로 지정할 수 없다(교체 경로와 같은 규칙). */
+  @Test
+  void workspace_suspended_member_cannot_be_assigned_on_create() {
+    Long owner = createUser("susp-c-owner");
+    Long member = createUser("susp-c-member");
+    ProjectResponse p = newProject(owner, "SUSPC");
+    projectService.addMember(owner, p.key(), new AddMemberRequest(member, "MEMBER"));
+    TestFixtures.suspendMember(dsl, member, 1L);
+
+    assertThatThrownBy(
+            () ->
+                issueService.create(
+                    owner,
+                    p.key(),
+                    new CreateIssueRequest(
+                        "t", null, null, null, List.of(member), null, null, null)))
         .isInstanceOf(InvalidAssigneeForProjectException.class);
   }
 

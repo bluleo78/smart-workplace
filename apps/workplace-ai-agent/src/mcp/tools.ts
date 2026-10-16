@@ -923,7 +923,8 @@ export function buildTools(
   const proposeSetMemberActiveTool: McpTool = {
     name: 'propose_update_member_active',
     description:
-      '사내 구성원 계정의 활성/비활성 전환을 제안합니다(비활성화는 사실상 퇴사 처리). 직접 변경하지 않고 확인 카드용 제안만 만듭니다. ' +
+      '이 워크스페이스에서 사내 구성원의 활성/비활성 전환을 제안합니다(비활성화는 이 워크스페이스 멤버십 정지 — 사실상 퇴사 처리이며, 다른 워크스페이스와 계정 자체에는 영향이 없습니다). ' +
+      '직접 변경하지 않고 확인 카드용 제안만 만듭니다. ' +
       'active=false 면 비활성화, true 면 재활성화. summary 에 대상과 이유를 한 줄로 넣으세요. username 은 search_members 로 확보하세요.',
     inputSchema: proposeSetMemberActiveInput,
     async handler(args) {

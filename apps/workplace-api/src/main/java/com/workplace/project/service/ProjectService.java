@@ -7,6 +7,7 @@ import static com.workplace.global.realtime.ResourceChangedEvent.OP_UPDATED;
 import com.workplace.global.dto.PageResponse;
 import com.workplace.global.security.PermissionChecker;
 import com.workplace.global.tenant.MembershipGuard;
+import com.workplace.global.tenant.WorkspaceActive;
 import com.workplace.issue.dto.AgentWorkState;
 import com.workplace.issue.repository.AgentWorkRepository;
 import com.workplace.issue.repository.IssueAssigneeRepository;
@@ -278,14 +279,17 @@ public class ProjectService {
     // #843: 없는 사용자와 타 테넌트 사용자를 같은 404 로 응답한다. 예전엔 멤버십 검사가 먼저라 없는 id 도 403
     // "테넌트 멤버가 아닙니다" 가 되어 AI 가 권한 문제로 오해했다. 테넌트 입장에선 둘 다 "여기 없는 사용자" 이고,
     // 타 테넌트 사용자 존재를 403/404 차이로 드러내지 않는 편이 격리에도 맞다.
+    // WP-417: 테넌트 멤버 여부는 상태 무관으로 본다 — 정지(SUSPENDED)된 구성원은 "여기 없는 사용자(404)"가 아니라 아래 비활성 409 로
+    // 안내한다(테넌트 비멤버는 그대로 404).
+    var membershipStatus = membershipGuard.membershipStatus(req.userId());
     var added =
         userRepository
             .findById(req.userId())
-            .filter(u -> !membershipGuard.isForeignUser(req.userId()))
+            .filter(u -> membershipStatus.isPresent())
             .orElseThrow(() -> new UserNotFoundException("현재 테넌트에 해당 사용자가 없습니다: " + req.userId()));
-    // 비활성 사용자는 신규 멤버 추가 chokepoint에서 차단 (#624) — 담당자 지정 경로는
-    // IssueAssigneeService 에서 별도 검증.
-    if (!added.isActive()) {
+    // 비활성 사용자는 신규 멤버 추가 chokepoint에서 차단 (#624) — 전역 비활성·이 워크스페이스 정지(WP-417) 모두. 담당자 지정 경로는
+    // AssigneePolicy 에서 별도 검증.
+    if (!WorkspaceActive.of(added.isActive(), membershipStatus.get())) {
       throw new ProjectConflictException("비활성화된 사용자는 멤버로 추가할 수 없습니다");
     }
     // 개인 프로젝트: AGENT 만 멤버로 추가 허용 (담당자 지정용). HUMAN 은 비공개 유지 정책으로 차단.

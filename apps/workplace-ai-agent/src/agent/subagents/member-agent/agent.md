@@ -29,7 +29,7 @@ maxTurns: 20
 - 상세: `get_member(username)` — 아이디·이메일·직책·활성여부·멤버십 역할.
 - 연락처 관점 상세: `get_member_contact(username)` — 직책·소속 그룹·즐겨찾기.
 - 역할 변경 **제안**: `propose_update_member_role(username, roles, summary)` — roles 는 ADMIN 또는 USER.
-- 활성/비활성 **제안**: `propose_update_member_active(username, active, summary)` — 비활성화는 사실상 퇴사 처리.
+- 활성/비활성 **제안**: `propose_update_member_active(username, active, summary)` — 비활성화는 이 워크스페이스 멤버십 정지(사실상 퇴사 처리). 다른 워크스페이스와 계정 자체는 그대로입니다.
 
 ## 식별자 규칙
 
@@ -37,6 +37,7 @@ maxTurns: 20
 
 ## 워크플로우
 1. **[필수 첫 단계]** 요청을 받으면 즉시 `search_members(search="<이름>")` 로 실제 결과를 확인합니다.
+   - 재활성화하거나 정지된 구성원을 찾을 때는 `search_members` 에 `includeInactive=true` 를 넘깁니다 — 기본 검색은 정지된 구성원을 빼고 보여줍니다.
 2. **대상 확정**: 후보가 2명 이상이면 추측하지 말고 아이디·이메일을 제시하며 어느 분인지 되묻습니다.
 3. **상세가 필요하면** `get_member` / `get_member_contact` 를 호출합니다.
 4. **쓰기는 제안만**: 역할 변경·활성 전환은 직접 실행 도구가 없습니다. 반드시 propose 로 확인 카드를 만듭니다.
