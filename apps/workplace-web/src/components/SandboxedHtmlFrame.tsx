@@ -1,12 +1,16 @@
 import { type ComponentProps, useMemo, useState } from 'react'
 
-import { withThinScrollbar } from '../lib/sandboxedHtml'
+import { withSandboxHead } from '../lib/sandboxedHtml'
 
 /**
  * 신뢰할 수 없는 HTML(메일 원문·업로드 파일·LLM 생성물)을 렌더하는 공용 격리 iframe(WP-275).
  *
- * - sandbox="" 고정: 스크립트·폼·same-origin·네비게이션을 전면 차단한다(#486 XSS 패턴). 호출부가 바꿀 수 없다.
- * - srcDoc 에 슬림 스크롤바 스타일을 주입한다 — srcDoc 문서는 앱 CSS 를 상속하지 않아
+ * - sandbox 고정: 스크립트·폼·same-origin 을 차단한다(#486 XSS 패턴). 호출부가 바꿀 수 없다.
+ *   팝업만 허용하고(allow-popups) 새 창은 sandbox 를 벗어나게 한다(allow-popups-to-escape-sandbox) —
+ *   srcDoc 의 `<base target="_blank">` 와 함께 링크를 새 탭에서 연다(WP-427). 빈 sandbox 는 iframe 자체 이동을
+ *   막지 못해, 링크가 iframe 안에서 열리고 SharePoint 등 프레임 표시를 거부하는 사이트는 '연결할 수 없음'이 됐다.
+ *   새 탭은 opener 없이 열린다(target=_blank 는 표준상 noopener 를 함축 — 링크를 연 사이트가 본문 프레임을 조작하지 못한다).
+ * - srcDoc 에 링크 대상 `<base>` 와 슬림 스크롤바 스타일을 주입한다 — srcDoc 문서는 앱 CSS 를 상속하지 않아
  *   그대로 두면 OS 기본 두꺼운 스크롤바가 보인다(WP-274 에서 드라이브만 고쳤던 것을 한 곳으로 모음).
  * 주입은 html 이 바뀔 때만 한다 — 수 MB 문서를 렌더마다(폴링·호버 등) 다시 잇지 않게.
  * - 내용이 바뀌면 iframe 을 새로 만든다(key) — 같은 iframe 의 srcDoc 을 바꾸면 iframe 안 이동이 되어 상위 창
@@ -18,11 +22,11 @@ export function SandboxedHtmlFrame({
   html,
   ...props
 }: { html: string; title: string } & Omit<ComponentProps<'iframe'>, 'srcDoc' | 'sandbox' | 'src'>) {
-  const doc = useMemo(() => withThinScrollbar(html), [html])
+  const doc = useMemo(() => withSandboxHead(html), [html])
   // 문서가 바뀔 때마다 올리는 세대 번호 — iframe key. 수 MB 문서 자체를 key 로 쓰지 않으려고 렌더 중에 번호만 갱신한다.
   const [frame, setFrame] = useState({ doc, generation: 0 })
   if (frame.doc !== doc) setFrame({ doc, generation: frame.generation + 1 })
   // 공용 구현부 — srcDoc iframe 직접 사용 금지 규칙(eslint.config.js)의 유일한 예외.
   // eslint-disable-next-line no-restricted-syntax
-  return <iframe key={frame.generation} {...props} sandbox="" srcDoc={doc} />
+  return <iframe key={frame.generation} {...props} sandbox="allow-popups allow-popups-to-escape-sandbox" srcDoc={doc} />
 }
