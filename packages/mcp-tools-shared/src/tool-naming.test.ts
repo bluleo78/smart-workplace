@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { buildSharedTools, type SharedToolClient } from './shared-tools.js';
 import { TOOL_APPS, toolApps } from './tool-apps.js';
 import { toolDefinitionsSize } from './tool-definitions.js';
-import { TOOL_NAME_MAX_LENGTH, toolNameViolations } from './tool-naming.js';
+import { AGENT_TOOL_NAME_MAX_LENGTH, PLUGIN_TOOL_PREFIX, SHARED_TOOL_NAME_MAX_LENGTH, toolNameViolations } from './tool-naming.js';
 
 /**
  * 기본 연결 도구 정의 크기 상한(근사 토큰, 근사식은 tool-definitions.ts estimateTokens·README). 사용자 결정(2026-10-13).
@@ -25,10 +25,10 @@ const names = tools.map((t) => t.name);
 const SHARED_NAMING_EXCEPTIONS: string[] = [];
 
 describe('공유 도구 명명 규칙 (WP-347)', () => {
-  it('예외 목록 밖의 공유 도구 이름은 규칙(snake_case·46자 이하·edit_/save_/set_ 금지)을 지킨다', () => {
+  it(`예외 목록 밖의 공유 도구 이름은 규칙(snake_case·${SHARED_TOOL_NAME_MAX_LENGTH}자 이하·edit_/save_/set_ 금지)을 지킨다`, () => {
     const violations = names
       .filter((n) => !SHARED_NAMING_EXCEPTIONS.includes(n))
-      .map((n) => ({ name: n, violations: toolNameViolations(n) }))
+      .map((n) => ({ name: n, violations: toolNameViolations(n, SHARED_TOOL_NAME_MAX_LENGTH) }))
       .filter((v) => v.violations.length > 0);
     expect(violations).toEqual([]);
   });
@@ -66,28 +66,36 @@ describe('외부 MCP 노출 상한 (WP-340 웨이브 5)', () => {
 describe('toolNameViolations', () => {
   it('규칙을 지키는 이름은 위반이 없다', () => {
     for (const n of ['list_issues', 'get_issue_detail', 'mark_all_notifications_read', 'move_drive_item', 'propose_delete_event', 'show_my_tasks']) {
-      expect(toolNameViolations(n), n).toEqual([]);
+      expect(toolNameViolations(n, AGENT_TOOL_NAME_MAX_LENGTH), n).toEqual([]);
     }
   });
 
   it('snake_case 가 아닌 이름을 잡는다', () => {
     for (const n of ['listIssues', 'List_issues', 'list-issues', 'list__issues', '_list_issues', 'list_issues_', '1_list', '']) {
-      expect(toolNameViolations(n), n).not.toEqual([]);
+      expect(toolNameViolations(n, AGENT_TOOL_NAME_MAX_LENGTH), n).not.toEqual([]);
     }
   });
 
-  it(`${TOOL_NAME_MAX_LENGTH}자 경계: 46자는 통과, 47자는 위반`, () => {
-    const at = 'a'.repeat(TOOL_NAME_MAX_LENGTH);
-    expect(toolNameViolations(at)).toEqual([]);
-    expect(toolNameViolations(`${at}a`)).toHaveLength(1);
+  it(`ai-agent 전용 상한 ${AGENT_TOOL_NAME_MAX_LENGTH}자 경계: 46자는 통과, 47자는 위반`, () => {
+    const at = 'a'.repeat(AGENT_TOOL_NAME_MAX_LENGTH);
+    expect(toolNameViolations(at, AGENT_TOOL_NAME_MAX_LENGTH)).toEqual([]);
+    expect(toolNameViolations(`${at}a`, AGENT_TOOL_NAME_MAX_LENGTH)).toHaveLength(1);
+  });
+
+  it('공유 도구 상한은 플러그인 접두를 붙여 API 상한 64자에 딱 맞는 27자다', () => {
+    expect(SHARED_TOOL_NAME_MAX_LENGTH).toBe(27);
+    const at = 'a'.repeat(SHARED_TOOL_NAME_MAX_LENGTH);
+    expect(`${PLUGIN_TOOL_PREFIX}${at}`).toHaveLength(64);
+    expect(toolNameViolations(at, SHARED_TOOL_NAME_MAX_LENGTH)).toEqual([]);
+    expect(toolNameViolations(`${at}a`, SHARED_TOOL_NAME_MAX_LENGTH)).toEqual(['27자 초과(28자)']);
   });
 
   it('edit_·save_·set_ 접두를 잡고, propose_ 뒤의 원 도구명에도 적용한다', () => {
     for (const n of ['edit_comment', 'save_draft', 'set_role', 'propose_set_member_role', 'propose_edit_comment']) {
-      expect(toolNameViolations(n), n).toHaveLength(1);
+      expect(toolNameViolations(n, AGENT_TOOL_NAME_MAX_LENGTH), n).toHaveLength(1);
     }
     // 접두가 아니라 토큰 중간에 있으면 위반이 아니다.
-    expect(toolNameViolations('update_asset_name')).toEqual([]);
-    expect(toolNameViolations('reset_password')).toEqual([]);
+    expect(toolNameViolations('update_asset_name', AGENT_TOOL_NAME_MAX_LENGTH)).toEqual([]);
+    expect(toolNameViolations('reset_password', AGENT_TOOL_NAME_MAX_LENGTH)).toEqual([]);
   });
 });

@@ -1,8 +1,8 @@
 {
   "name": "genia-works",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "displayName": "Gen:iA Works",
-  "description": "genia-works MCP 연결과 세션별 접속 신원(내 토큰 / AI 키) 선택",
+  "description": "genia-works MCP 연결, 세션별 접속 신원(내 토큰 / AI 키) 선택, 이슈 작업 보고 스킬",
   "author": { "name": "Gen:iA Works" },
   "homepage": "https://genia-works.iacloud.kr",
   "repository": "https://github.com/bluleo78/smart-workplace",

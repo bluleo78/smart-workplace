@@ -1,8 +1,19 @@
 // src/tool-naming.ts — 도구 이름 규칙 검사(WP-347). 규칙의 근거와 설명은 패키지 README "도구 명명 규칙" 절.
 // 공유 도구(이 패키지 tool-naming.test.ts)와 ai-agent 전용 도구(ai-agent tools.test.ts)가 같은 판정을 쓰도록 한 곳에 둔다.
 
-/** 이름 길이 상한 — Anthropic API 의 도구 이름 64자 − 외부 MCP 접두 `mcp__genia-works__`(18자). */
-export const TOOL_NAME_MAX_LENGTH = 46;
+/** Anthropic API 의 도구 이름 상한. 클라이언트가 붙이는 `mcp__<서버>__` 접두까지 이 길이에 든다. */
+const API_TOOL_NAME_LIMIT = 64;
+
+/**
+ * 공유 도구(외부 MCP 로 나간다) 이름 상한 — 클라이언트 접두 중 가장 긴 genia-works 플러그인 연결 접두
+ * `mcp__plugin_genia-works_genia-works__`(37자)를 뺀 27자(WP-419). 직접 등록 접두 `mcp__genia-works__`(18자)만 보고 46자로 두면
+ * 28자 이상 도구가 검사는 통과하고 플러그인 사용자에게는 64자를 넘어 빠진다.
+ */
+export const PLUGIN_TOOL_PREFIX = 'mcp__plugin_genia-works_genia-works__';
+export const SHARED_TOOL_NAME_MAX_LENGTH = API_TOOL_NAME_LIMIT - PLUGIN_TOOL_PREFIX.length;
+
+/** ai-agent 전용 도구 이름 상한 — ai-agent 안의 `workplace` 서버(접두 `mcp__workplace__` 16자)로만 나가 48자까지 되지만, 처음 정한 46자를 유지한다. */
+export const AGENT_TOOL_NAME_MAX_LENGTH = 46;
 
 /** snake_case: 소문자로 시작하고, `_` 로 이은 토큰은 소문자·숫자(`동사_명사[_한정어]`). */
 const TOOL_NAME_PATTERN = /^[a-z]+(_[a-z0-9]+)*$/;
@@ -16,11 +27,12 @@ const AGENT_ONLY_PREFIX = 'propose_';
 /**
  * 이름이 기계적으로 검사 가능한 규칙을 어기는 부분을 사유 목록으로 돌려준다(위반 없으면 빈 배열).
  * `get_` 이 여러 건을 돌려주는지 같은 의미 규칙은 기계로 가릴 수 없어 여기서 다루지 않는다(각 테스트의 예외 배열에서 손으로 관리).
+ * maxLength 는 도구가 나가는 곳에 따라 고른다 — 공유 도구 SHARED_TOOL_NAME_MAX_LENGTH, ai-agent 전용 AGENT_TOOL_NAME_MAX_LENGTH. 기본값을 두지 않아 잘못된 상한이 조용히 쓰이지 않게 한다.
  */
-export function toolNameViolations(name: string): string[] {
+export function toolNameViolations(name: string, maxLength: number): string[] {
   const violations: string[] = [];
   if (!TOOL_NAME_PATTERN.test(name)) violations.push('snake_case(`^[a-z]+(_[a-z0-9]+)*$`) 가 아님');
-  if (name.length > TOOL_NAME_MAX_LENGTH) violations.push(`${TOOL_NAME_MAX_LENGTH}자 초과(${name.length}자)`);
+  if (name.length > maxLength) violations.push(`${maxLength}자 초과(${name.length}자)`);
   const verbPart = name.startsWith(AGENT_ONLY_PREFIX) ? name.slice(AGENT_ONLY_PREFIX.length) : name;
   const forbidden = FORBIDDEN_VERB_PREFIXES.find((p) => verbPart.startsWith(p));
   if (forbidden) violations.push(`금지 접두 \`${forbidden}\``);
