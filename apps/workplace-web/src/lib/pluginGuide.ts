@@ -8,6 +8,12 @@ export const PLUGIN_COMMANDS = {
   logout: '/genia-works:logout',
 } as const;
 
+/** 플러그인 스킬 표기 — plugins/genia-works/skills/ 의 폴더 이름과 같아야 한다(COMMANDS 와 별개라 따로 둔다). */
+export const PLUGIN_SKILLS = {
+  workOn: '/genia-works:work-on',
+  workLoop: '/genia-works:work-loop',
+} as const;
+
 /** 웹이 정적으로 내주는 마켓플레이스 목록 파일 주소(nginx location = /claude/marketplace.json). */
 export function marketplaceUrl(origin: string = window.location.origin): string {
   return `${origin}/claude/marketplace.json`;
@@ -26,6 +32,16 @@ export function buildSwitchCommand(username: string): string {
 /** 처음부터 그 AI 로 띄우는 명령 — 환경변수에는 이름만 있어 비밀이 아니다. */
 export function buildLaunchAsCommand(username: string): string {
   return `GENIA_WORKS_AS=${username} claude`;
+}
+
+/** work-loop 용 시작 명령 — 그 AI 로 띄우는 명령에 권한을 묻지 않는 모드를 더한다(이 AI 전용 터미널에서만 쓴다). */
+export function buildWorkLoopLaunchCommand(username: string): string {
+  return `${buildLaunchAsCommand(username)} --permission-mode bypassPermissions`;
+}
+
+/** Claude Code 안에서 할당된 이슈를 하나씩 처리하게 하는 반복 명령 — 프로젝트 키는 사용자가 채운다. */
+export function buildWorkLoopStartCommand(projectKey: string = '<프로젝트 키>'): string {
+  return `/loop ${PLUGIN_SKILLS.workLoop} ${projectKey}`;
 }
 
 /** 플러그인 전환을 쓸 수 없는 환경(Windows 등)의 대체 실행 — 키 자리는 비워 둔다. */

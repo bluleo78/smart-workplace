@@ -85,6 +85,9 @@ apps/workplace-api/data/
 .worktrees/
 .claire/
 
+# work-loop 실행 상태(잠금·notes·근거·라이브 스택 상태) — 로컬 전용 (WP-376). .work-loop/project.md 는 추적한다
+.work-loop/state/
+
 # Superpowers brainstorm visual companion
 .superpowers/
 

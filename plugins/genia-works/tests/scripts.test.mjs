@@ -2,7 +2,7 @@
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, statSync, existsSync, readdirSync, chmodSync, symlinkSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, statSync, existsSync, readdirSync, chmodSync, symlinkSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -284,4 +284,184 @@ test('gw-keys has: 빈 파일·따옴표/공백/역슬래시 든 파일은 없�
     writeFileSync(join(dir, n), content);
     assert.notEqual(run('gw-keys', ['has', n]).status, 0, n);
   }
+});
+
+// WP-376 work-loop 잠금(loop-lock) — 가짜 ps 표의 400 이 이 세션의 claude 다. kill 검사는 건너뛴다(GW_PRUNE_PS_ONLY).
+function lock(cmd, main) {
+  return run('loop-lock', [cmd, main], { env: { GW_PRUNE_PS_ONLY: '1' } });
+}
+function lockMain(line) {
+  const main = mkdtempSync(join(tmpdir(), 'gw-main-'));
+  const f = join(main, '.work-loop', 'state', 'loop.lock');
+  if (line !== undefined) {
+    mkdirSync(dirname(f), { recursive: true });
+    writeFileSync(f, line + '\n');
+  }
+  return { main, f, read: () => readFileSync(f, 'utf8').trim() };
+}
+const MY_KEY = '400-Thu_Oct_15_06_00_00_2026';
+
+test('loop-lock acquire: 잠금이 없으면 내 claude 의 pid-시작시각으로 쓰고 ok, 다시 불러도 ok', () => {
+  const { main, read } = lockMain();
+  const r = lock('acquire', main);
+  assert.equal(r.status, 0);
+  assert.equal(r.stdout.trim(), 'ok');
+  assert.equal(read(), MY_KEY);
+  assert.equal(lock('acquire', main).stdout.trim(), 'ok');
+  assert.equal(read(), MY_KEY);
+});
+
+test('loop-lock acquire: 다른 살아 있는 claude 가 시작 시각도 맞게 쥐고 있으면 held <pid> 로 exit 1, 파일은 그대로', () => {
+  setTable([
+    ['500', '400', 'Thu Oct 15 06:40:01 2026', 'sh loop-lock'],
+    ['400', '1', 'Thu Oct 15 06:00:00 2026', 'claude --plugin-dir x'],
+    ['300', '1', 'Wed Oct 14 09:00:00 2026', 'node /opt/homebrew/bin/claude'],
+  ]);
+  const { main, read } = lockMain('300-Wed_Oct_14_09_00_00_2026');
+  const r = lock('acquire', main);
+  assert.equal(r.status, 1);
+  assert.equal(r.stdout.trim(), 'held 300');
+  assert.equal(read(), '300-Wed_Oct_14_09_00_00_2026');
+});
+
+test('loop-lock acquire: 죽은 pid·시작 시각이 다른 pid(재사용)·claude 아닌 pid·예전 모양 줄은 넘겨받는다', () => {
+  setTable([
+    ['500', '400', 'Thu Oct 15 06:40:01 2026', 'sh loop-lock'],
+    ['400', '1', 'Thu Oct 15 06:00:00 2026', 'claude --plugin-dir x'],
+    ['300', '1', 'Thu Oct 15 05:00:00 2026', 'claude'],
+    ['301', '1', 'Wed Oct 14 09:00:00 2026', 'vim notes.md'],
+  ]);
+  for (const line of [
+    '999-Wed_Oct_14_09_00_00_2026', // 죽음
+    '300-Wed_Oct_14_09_00_00_2026', // 살아 있는 claude 지만 시작 시각이 다름
+    '301-Wed_Oct_14_09_00_00_2026', // 시작 시각은 맞지만 claude 가 아님
+    '300 2026-10-14T09:00:00Z', // 예전 「<pid> <ISO 시각>」 줄
+  ]) {
+    const { main, read } = lockMain(line);
+    const r = lock('acquire', main);
+    assert.equal(r.status, 0, line);
+    assert.equal(r.stdout.trim(), 'ok', line);
+    assert.equal(read(), MY_KEY, line);
+  }
+});
+
+test('loop-lock release: 내 잠금만 지우고 남의 잠금은 둔다', () => {
+  const mine = lockMain(MY_KEY);
+  assert.equal(lock('release', mine.main).status, 0);
+  assert.equal(existsSync(mine.f), false);
+  const other = lockMain('300-Wed_Oct_14_09_00_00_2026');
+  assert.equal(lock('release', other.main).status, 0);
+  assert.equal(other.read(), '300-Wed_Oct_14_09_00_00_2026');
+});
+
+test('loop-lock: 인자가 모자라거나 모르는 명령이면 exit 2', () => {
+  assert.equal(run('loop-lock', ['acquire']).status, 2);
+  assert.equal(run('loop-lock', ['steal', '/x']).status, 2);
+});
+
+// WP-376 main 머지 전 확인(merge-ready) — 임시 저장소: main 에 a.txt·b.txt, ai/WP-1 은 a.txt 를 고치고 c.txt 를 더한다.
+function git(cwd, ...args) {
+  const r = spawnSync('git', args, {
+    cwd,
+    encoding: 'utf8',
+    env: {
+      PATH: process.env.PATH,
+      HOME: home,
+      GIT_CONFIG_NOSYSTEM: '1',
+      GIT_AUTHOR_NAME: 't',
+      GIT_AUTHOR_EMAIL: 't@t',
+      GIT_COMMITTER_NAME: 't',
+      GIT_COMMITTER_EMAIL: 't@t',
+    },
+  });
+  assert.equal(r.status, 0, `git ${args.join(' ')}: ${r.stderr}`);
+  return r.stdout.trim();
+}
+function mergeRepo() {
+  const main = mkdtempSync(join(tmpdir(), 'gw-merge-'));
+  git(main, 'init', '-q', '-b', 'main');
+  writeFileSync(join(main, 'a.txt'), 'a\n');
+  writeFileSync(join(main, 'b.txt'), 'b\n');
+  git(main, 'add', '.');
+  git(main, 'commit', '-q', '-m', 'init');
+  git(main, 'switch', '-q', '-c', 'ai/WP-1');
+  writeFileSync(join(main, 'a.txt'), 'a2\n');
+  writeFileSync(join(main, 'c.txt'), 'c\n');
+  git(main, 'add', '.');
+  git(main, 'commit', '-q', '-m', 'work');
+  git(main, 'switch', '-q', 'main');
+  git(main, 'branch', 'feature/x', 'ai/WP-1');
+  return main;
+}
+const ready = (main, branch = 'ai/WP-1') => run('merge-ready', [main, branch]);
+
+test('merge-ready: 깨끗한 main 이면(겹치지 않는 수정 중 파일이 있어도) 아무것도 내지 않고 0', () => {
+  const main = mergeRepo();
+  let r = ready(main);
+  assert.equal(r.status, 0);
+  assert.equal(r.stdout, '');
+  writeFileSync(join(main, 'b.txt'), 'b-dirty\n');
+  writeFileSync(join(main, 'd.txt'), 'new\n');
+  r = ready(main);
+  assert.equal(r.status, 0);
+  assert.equal(r.stdout, '');
+});
+
+test('merge-ready: main 이 아니거나·진행 중 머지·스테이징한 변경이 있으면 막는다', () => {
+  const main = mergeRepo();
+  git(main, 'switch', '-q', '-c', 'human');
+  let r = ready(main);
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /^main 작업 폴더가 main 이 아니다: human$/m);
+  git(main, 'switch', '-q', 'main');
+
+  writeFileSync(join(main, '.git', 'MERGE_HEAD'), git(main, 'rev-parse', 'ai/WP-1') + '\n');
+  r = ready(main);
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /^진행 중: MERGE_HEAD$/m);
+  rmSync(join(main, '.git', 'MERGE_HEAD'));
+
+  // 진행 중인 rebase 는 rebase-merge 폴더로 안다.
+  mkdirSync(join(main, '.git', 'rebase-merge'));
+  r = ready(main);
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /^진행 중: rebase-merge$/m);
+  rmSync(join(main, '.git', 'rebase-merge'), { recursive: true });
+
+  // 끝난 rebase(pull --rebase 등)가 남긴 REBASE_HEAD 만 있으면 막지 않는다 — 막으면 그 저장소에선 영원히 머지 대기가 된다.
+  writeFileSync(join(main, '.git', 'REBASE_HEAD'), git(main, 'rev-parse', 'main') + '\n');
+  r = ready(main);
+  assert.equal(r.status, 0, r.stdout);
+  rmSync(join(main, '.git', 'REBASE_HEAD'));
+
+  writeFileSync(join(main, 'b.txt'), 'b-staged\n');
+  git(main, 'add', 'b.txt');
+  r = ready(main);
+  assert.equal(r.status, 1);
+  assert.equal(r.stdout.trim(), '스테이징한 변경이 있다');
+});
+
+test('merge-ready: 브랜치가 바꾼 파일을 MAIN 에서 고치는 중이거나 같은 이름의 새 파일이 있으면 그 파일을 내고 막는다', () => {
+  const main = mergeRepo();
+  writeFileSync(join(main, 'a.txt'), 'a-human\n');
+  let r = ready(main);
+  assert.equal(r.status, 1);
+  assert.equal(r.stdout.trim(), '겹치는 파일: a.txt');
+  git(main, 'checkout', '--', 'a.txt');
+
+  writeFileSync(join(main, 'c.txt'), 'human c\n'); // 추적 안 된 새 파일
+  r = ready(main);
+  assert.equal(r.status, 1);
+  assert.equal(r.stdout.trim(), '겹치는 파일: c.txt');
+});
+
+test('merge-ready: ai/* 가 아닌 브랜치·없는 브랜치는 막는다, 인자가 모자라면 exit 2', () => {
+  const main = mergeRepo();
+  let r = ready(main, 'feature/x');
+  assert.equal(r.status, 1);
+  assert.equal(r.stdout.trim(), 'ai/* 브랜치가 아니다: feature/x');
+  r = ready(main, 'ai/WP-404');
+  assert.equal(r.status, 1);
+  assert.equal(r.stdout.trim(), '브랜치가 없다: ai/WP-404');
+  assert.equal(run('merge-ready', [main]).status, 2);
 });
