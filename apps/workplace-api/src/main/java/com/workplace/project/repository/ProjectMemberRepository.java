@@ -1,9 +1,11 @@
 package com.workplace.project.repository;
 
+import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.PROJECT_MEMBER;
 import static com.workplace.jooq.Tables.USER;
 import static org.jooq.impl.DSL.count;
 
+import com.workplace.global.tenant.WorkspaceActive;
 import com.workplace.project.dto.MemberResponse;
 import com.workplace.project.dto.MemberRow;
 import java.time.OffsetDateTime;
@@ -11,6 +13,7 @@ import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
+import org.jooq.Field;
 import org.jooq.Record;
 import org.springframework.stereotype.Repository;
 
@@ -53,8 +56,14 @@ public class ProjectMemberRepository {
         r.get(USER.KIND),
         r.get(PROJECT_MEMBER.ROLE),
         created != null ? created.toInstant() : null,
-        r.get(USER.IS_ACTIVE));
+        r.get(MEMBER_ACTIVE));
   }
+
+  /**
+   * WP-417: 프로젝트 멤버의 active = 이 워크스페이스에서 활성({@link WorkspaceActive}) — 관리자의 「활성 상태」 끄기는 멤버십만 바꾸므로
+   * 전역 값만 보면 정지된 구성원이 활성으로 보인다. 멤버십은 프로젝트의 테넌트로 붙인다.
+   */
+  private static final Field<Boolean> MEMBER_ACTIVE = WorkspaceActive.field();
 
   /** 프로젝트의 전체 멤버를 USER JOIN 하여 username/name/kind/active 포함된 응답으로 조회. created_at 오름차순. */
   public List<MemberResponse> findAllByProject(Long projectId) {
@@ -65,10 +74,12 @@ public class ProjectMemberRepository {
             USER.KIND,
             PROJECT_MEMBER.ROLE,
             PROJECT_MEMBER.CREATED_AT,
-            USER.IS_ACTIVE)
+            MEMBER_ACTIVE)
         .from(PROJECT_MEMBER)
         .join(USER)
         .on(USER.ID.eq(PROJECT_MEMBER.USER_ID))
+        .leftJoin(MEMBERSHIP)
+        .on(WorkspaceActive.join(PROJECT_MEMBER.USER_ID, PROJECT_MEMBER.TENANT_ID))
         .where(PROJECT_MEMBER.PROJECT_ID.eq(projectId))
         .orderBy(PROJECT_MEMBER.CREATED_AT.asc())
         .fetch(this::mapToMemberResponse);
@@ -83,10 +94,12 @@ public class ProjectMemberRepository {
             USER.KIND,
             PROJECT_MEMBER.ROLE,
             PROJECT_MEMBER.CREATED_AT,
-            USER.IS_ACTIVE)
+            MEMBER_ACTIVE)
         .from(PROJECT_MEMBER)
         .join(USER)
         .on(USER.ID.eq(PROJECT_MEMBER.USER_ID))
+        .leftJoin(MEMBERSHIP)
+        .on(WorkspaceActive.join(PROJECT_MEMBER.USER_ID, PROJECT_MEMBER.TENANT_ID))
         .where(PROJECT_MEMBER.PROJECT_ID.eq(projectId).and(PROJECT_MEMBER.USER_ID.eq(userId)))
         .fetchOptional(this::mapToMemberResponse);
   }

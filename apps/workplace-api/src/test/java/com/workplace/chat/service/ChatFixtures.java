@@ -133,33 +133,29 @@ public class ChatFixtures {
         });
   }
 
-  /** USER 테이블에 최소 컬럼만 INSERT (kind/is_active 는 default). 비밀번호는 더미. */
+  /** USER 테이블에 최소 컬럼만 INSERT (is_active 는 default). 비밀번호는 더미. */
   private long insertUser(String username) {
-    long id =
-        dsl.insertInto(USER)
-            .set(USER.USERNAME, username)
-            .set(USER.PASSWORD, "pw")
-            .set(USER.NAME, username)
-            .set(USER.EMAIL, username + "@example.com")
-            .returning(USER.ID)
-            .fetchOne()
-            .getId();
-    createdUserIds.add(id);
-    return id;
+    return insertUser(username, "HUMAN");
   }
 
   /** insertUser 와 동일하지만 kind="AGENT" 로 등록. */
   private long insertAgentUser(String username) {
+    return insertUser(username, "AGENT");
+  }
+
+  private long insertUser(String username, String kind) {
     long id =
         dsl.insertInto(USER)
             .set(USER.USERNAME, username)
             .set(USER.PASSWORD, "pw")
             .set(USER.NAME, username)
             .set(USER.EMAIL, username + "@example.com")
-            .set(USER.KIND, "AGENT")
+            .set(USER.KIND, kind)
             .returning(USER.ID)
             .fetchOne()
             .getId();
+    // WP-417: 담당자·서버 에이전트 판정에 필요한 테넌트#1 멤버십(실데이터와 같게).
+    com.workplace.support.TestFixtures.addMember(dsl, id, 1L);
     createdUserIds.add(id);
     return id;
   }

@@ -25,6 +25,7 @@ import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.repository.ProjectRepository;
 import com.workplace.project.service.PersonalProjectProvisioner;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.TestFixtures;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -172,6 +173,8 @@ class MessagingProposalConfirmTest extends IntegrationTestBase {
             .where(com.workplace.jooq.Tables.ROLE.NAME.eq("USER"))
             .fetchOne(com.workplace.jooq.Tables.ROLE.ID);
     dsl.insertInto(USER_ROLE).set(USER_ROLE.USER_ID, id).set(USER_ROLE.ROLE_ID, roleId).execute();
+    // WP-417: 담당자·서버 에이전트 판정에 필요한 테넌트#1 멤버십(실데이터와 같게).
+    TestFixtures.addMember(dsl, id, 1L);
     createdUserIds.add(id);
     return id;
   }

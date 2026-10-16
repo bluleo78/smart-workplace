@@ -11,6 +11,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.TestFixtures;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
@@ -102,9 +103,11 @@ class ConfirmActionDispatcherMemberTest extends IntegrationTestBase {
 
     dispatcher.confirm(admin, "user.set_active", p);
 
-    Boolean active =
+    // WP-417: 끄기는 전역 계정(user.is_active)이 아니라 이 워크스페이스(테넌트#1) 멤버십 정지다.
+    assertThat(TestFixtures.membershipStatus(dsl, target, 1L)).isEqualTo("SUSPENDED");
+    Boolean globalActive =
         dsl.select(USER.IS_ACTIVE).from(USER).where(USER.ID.eq(target)).fetchOne(0, Boolean.class);
-    assertThat(active).isFalse();
+    assertThat(globalActive).isTrue();
   }
 
   @Test

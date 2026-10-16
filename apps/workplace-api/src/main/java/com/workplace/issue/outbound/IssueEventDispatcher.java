@@ -6,6 +6,7 @@ import com.workplace.global.dto.UserSummary;
 import com.workplace.global.outbound.AiAgentEventClient;
 import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.global.outbound.EventEnvelope;
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueAssignedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueStatusChangedEvent;
@@ -110,7 +111,9 @@ public class IssueEventDispatcher {
   private Long actingAgentOrSkip(UserSummary actor, List<UserSummary> assignees) {
     if (!props.enabled()) return null;
     if (actor != null && UserKind.isAgent(actor.kind())) return null; // self-loop 차단
-    return agentResolver.pickActingAgent(assignees);
+    // WP-417: aiAgentEventExecutor 의 TenantContextTaskDecorator 가 발행 스레드의 테넌트를 전파한다 — GUC 없이 그 값을
+    // 명시해 넘긴다.
+    return agentResolver.pickActingAgent(assignees, TenantContext.get());
   }
 
   /** 공통 payload 필드 — 변경 가능한 HashMap 으로 추가 필드 합성 가능. */

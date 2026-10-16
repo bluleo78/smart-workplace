@@ -6,6 +6,7 @@ import static org.jooq.impl.DSL.lower;
 import static org.jooq.impl.DSL.trueCondition;
 import static org.jooq.impl.DSL.val;
 
+import com.workplace.global.tenant.WorkspaceActive;
 import com.workplace.global.util.LikePatternUtils;
 import com.workplace.user.dto.AgentResponse;
 import com.workplace.user.dto.AgentRuntime;
@@ -24,6 +25,7 @@ import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.jooq.Field;
 import org.jooq.Record;
+import org.jooq.RecordMapper;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
@@ -33,16 +35,26 @@ public class UserRepository {
 
   private final DSLContext dsl;
 
-  private UserResponse mapToUserResponse(Record r) {
-    // Phase 5a: kind 컬럼을 마지막 인자로 함께 노출 (HUMAN | AGENT)
-    return new UserResponse(
-        r.get(USER.ID),
-        r.get(USER.USERNAME),
-        r.get(USER.EMAIL),
-        r.get(USER.NAME),
-        r.get(USER.IS_ACTIVE),
-        r.get(USER.CREATED_AT),
-        r.get(USER.KIND));
+  /**
+   * WP-417: 테넌트 스코프 목록의 active — "이 워크스페이스에서 활성"의 공용 정의({@link WorkspaceActive}). MEMBERSHIP 을 대상
+   * 테넌트로 조인한 쿼리에서만 쓴다.
+   */
+  private static final Field<Boolean> WORKSPACE_ACTIVE = WorkspaceActive.field();
+
+  /**
+   * UserResponse 매퍼. active 는 어느 컬럼으로 채울지 고른다 — 전역 조회는 {@code USER.IS_ACTIVE}, 테넌트 스코프 목록은 {@link
+   * #WORKSPACE_ACTIVE}. Phase 5a: kind 컬럼을 마지막 인자로 함께 노출 (HUMAN | AGENT).
+   */
+  private static RecordMapper<Record, UserResponse> userMapper(Field<Boolean> active) {
+    return r ->
+        new UserResponse(
+            r.get(USER.ID),
+            r.get(USER.USERNAME),
+            r.get(USER.EMAIL),
+            r.get(USER.NAME),
+            Boolean.TRUE.equals(r.get(active)),
+            r.get(USER.CREATED_AT),
+            r.get(USER.KIND));
   }
 
   public Optional<UserResponse> findByUsername(String username) {
@@ -56,7 +68,7 @@ public class UserRepository {
             USER.KIND)
         .from(USER)
         .where(USER.USERNAME.eq(username))
-        .fetchOptional(this::mapToUserResponse);
+        .fetchOptional(userMapper(USER.IS_ACTIVE));
   }
 
   /** 이메일로 사용자 조회 (대소문자 무시). */
@@ -72,7 +84,7 @@ public class UserRepository {
         .from(USER)
         .where(USER.EMAIL.equalIgnoreCase(email))
         .limit(1)
-        .fetchOptional(this::mapToUserResponse);
+        .fetchOptional(userMapper(USER.IS_ACTIVE));
   }
 
   /** id 집합으로 일괄 조회 (N+1 회피). 빈 입력은 빈 리스트 반환. */
@@ -88,7 +100,7 @@ public class UserRepository {
             USER.KIND)
         .from(USER)
         .where(USER.ID.in(ids))
-        .fetch(this::mapToUserResponse);
+        .fetch(userMapper(USER.IS_ACTIVE));
   }
 
   /**
@@ -114,7 +126,7 @@ public class UserRepository {
             USER.KIND)
         .from(USER)
         .where(USER.ID.eq(id))
-        .fetchOptional(this::mapToUserResponse);
+        .fetchOptional(userMapper(USER.IS_ACTIVE));
   }
 
   /** kind 별 사용자 목록 (예: 모든 AGENT). 이름 오름차순. */
@@ -123,21 +135,21 @@ public class UserRepository {
    * 거른다(다른 테넌트 AGENT 누출 방지). membership.(user_id, tenant_id) 는 유일하므로 행 중복 없음.
    */
   public List<UserResponse> findByKind(Long tenantId, String kind) {
+    // WP-417: active 는 이 워크스페이스 기준(전역 && 멤버십 ACTIVE) — 우선순위 분류 스케줄러 등이 정지된 구성원을 건너뛴다.
     return dsl.select(
             USER.ID,
             USER.USERNAME,
             USER.EMAIL,
             USER.NAME,
-            USER.IS_ACTIVE,
+            WORKSPACE_ACTIVE,
             USER.CREATED_AT,
             USER.KIND)
         .from(USER)
         .join(MEMBERSHIP)
-        .on(USER.ID.eq(MEMBERSHIP.USER_ID))
-        .where(MEMBERSHIP.TENANT_ID.eq(tenantId))
-        .and(USER.KIND.eq(kind))
+        .on(WorkspaceActive.join(tenantId))
+        .where(USER.KIND.eq(kind))
         .orderBy(USER.NAME.asc(), USER.ID.asc())
-        .fetch(this::mapToUserResponse);
+        .fetch(userMapper(WORKSPACE_ACTIVE));
   }
 
   /**
@@ -166,7 +178,8 @@ public class UserRepository {
             USER.USERNAME,
             USER.EMAIL,
             USER.NAME,
-            USER.IS_ACTIVE,
+            // WP-417: 이 워크스페이스 기준 활성(전역 && 멤버십 ACTIVE).
+            WORKSPACE_ACTIVE,
             USER.CREATED_AT,
             USER.AGENT_RUNTIME,
             keyLastUsed,
@@ -201,7 +214,7 @@ public class UserRepository {
                   username,
                   r.get(USER.EMAIL),
                   r.get(USER.NAME),
-                  Boolean.TRUE.equals(r.get(USER.IS_ACTIVE)),
+                  Boolean.TRUE.equals(r.get(WORKSPACE_ACTIVE)),
                   r.get(USER.CREATED_AT),
                   type,
                   isPersonal ? ownerName : null,
@@ -323,12 +336,22 @@ public class UserRepository {
     dsl.select(USER.ID).from(USER).where(USER.ID.eq(id)).forUpdate().fetch();
   }
 
-  /** 담당자 지정 처리용 사용자 정보를 한 번에 조회(활성 여부·AI 실행 방식 포함). 없는 id 는 빠진다. */
-  public List<AssigneeInfo> findAssigneeInfos(Collection<Long> ids) {
+  /**
+   * 담당자 지정 처리용 사용자 정보를 한 번에 조회(활성 여부·AI 실행 방식 포함). 없는 id 는 빠진다.
+   *
+   * <p>WP-417: isActive 는 tenantId 워크스페이스 기준(전역 && 그 테넌트 멤버십 ACTIVE) — 정지된 구성원·에이전트가 담당자 처리·서버 실행
+   * 에이전트 선택에서 활성으로 취급되지 않게 한다. 테넌트는 인자로 받는다 — 트랜잭션 없는 비동기 디스패처 등에서도 GUC 없이 맞게 판정해야 하기 때문이다.
+   * tenantId 가 null 이면(판정할 워크스페이스를 모름) 전역 값만 본다 — 조용히 모두 비활성으로 떨어뜨리지 않는다.
+   */
+  public List<AssigneeInfo> findAssigneeInfos(Collection<Long> ids, Long tenantId) {
     if (ids == null || ids.isEmpty()) return List.of();
-    return dsl.select(
-            USER.ID, USER.USERNAME, USER.NAME, USER.KIND, USER.IS_ACTIVE, USER.AGENT_RUNTIME)
+    Field<Boolean> active = tenantId == null ? USER.IS_ACTIVE : WORKSPACE_ACTIVE;
+    Condition membershipJoin =
+        tenantId == null ? DSL.falseCondition() : WorkspaceActive.join(tenantId);
+    return dsl.select(USER.ID, USER.USERNAME, USER.NAME, USER.KIND, active, USER.AGENT_RUNTIME)
         .from(USER)
+        .leftJoin(MEMBERSHIP)
+        .on(membershipJoin)
         .where(USER.ID.in(ids))
         .fetch(
             r ->
@@ -337,7 +360,7 @@ public class UserRepository {
                     r.get(USER.USERNAME),
                     r.get(USER.NAME),
                     r.get(USER.KIND),
-                    Boolean.TRUE.equals(r.get(USER.IS_ACTIVE)),
+                    Boolean.TRUE.equals(r.get(active)),
                     r.get(USER.AGENT_RUNTIME)));
   }
 
@@ -432,7 +455,7 @@ public class UserRepository {
             USER.IS_ACTIVE,
             USER.CREATED_AT,
             USER.KIND)
-        .fetchOne(this::mapToUserResponse);
+        .fetchOne(userMapper(USER.IS_ACTIVE));
   }
 
   /**
@@ -455,7 +478,7 @@ public class UserRepository {
             USER.IS_ACTIVE,
             USER.CREATED_AT,
             USER.KIND)
-        .fetchOne(this::mapToUserResponse);
+        .fetchOne(userMapper(USER.IS_ACTIVE));
   }
 
   /** 개인 비서용 AGENT user 생성(로그인 불가, password NULL). 생성된 id 반환. */
@@ -482,12 +505,13 @@ public class UserRepository {
    */
   public List<UserResponse> findAllPaginated(
       Long tenantId, String search, int page, int size, String kind) {
+    // WP-417: 정지(SUSPENDED) 멤버도 목록에 남겨(관리자가 다시 활성화할 수 있게) active=false 로 내보낸다.
     return dsl.select(
             USER.ID,
             USER.USERNAME,
             USER.EMAIL,
             USER.NAME,
-            USER.IS_ACTIVE,
+            WORKSPACE_ACTIVE,
             USER.CREATED_AT,
             USER.KIND)
         .from(USER)
@@ -497,7 +521,7 @@ public class UserRepository {
         .orderBy(USER.ID.asc())
         .limit(size)
         .offset(page * size)
-        .fetch(this::mapToUserResponse);
+        .fetch(userMapper(WORKSPACE_ACTIVE));
   }
 
   /** active 테넌트 멤버 수(사용자 목록 페이지네이션용). kind 의미는 {@link #findAllPaginated} 와 동일. */
@@ -572,6 +596,11 @@ public class UserRepository {
     dsl.deleteFrom(USER).where(USER.ID.eq(id)).execute();
   }
 
+  /**
+   * 전역 계정 활성 여부(user.is_active)를 바꾼다. WP-417 이후 워크스페이스 관리자의 「활성 상태」 토글은 이 메서드가 아니라 멤버십 상태
+   * (MembershipRepository#updateStatus)를 바꾼다 — 전역 값은 모든 워크스페이스·운영자 콘솔 로그인을 막으므로 테넌트 범위 API 에서 쓰지
+   * 않는다.
+   */
   public void setActive(Long id, boolean active) {
     dsl.update(USER)
         .set(USER.IS_ACTIVE, active)
@@ -581,34 +610,47 @@ public class UserRepository {
   }
 
   /**
-   * 활성 ADMIN 사용자 수를 반환한다. 마지막 ADMIN 비활성화 방지 체크에 사용 (#146).
+   * 워크스페이스의 활성 ADMIN 사용자 수를 반환한다. 마지막 ADMIN 비활성화 방지 체크에 사용 (#146).
    *
-   * @return is_active=true 이고 ADMIN 역할을 가진 사용자 수
+   * <p>WP-417: "활성"은 이 워크스페이스 기준 — 전역 is_active 이면서 <b>이 테넌트 멤버십이 ACTIVE</b> 인 ADMIN 만 센다.
+   * membership 은 RLS 비대상 전역 테이블이라 tenant_id 조건을 명시해야 다른 워크스페이스의 멤버십 행이 섞이지 않는다. user_role/role 은
+   * RLS 로 현재 테넌트만 보이지만 의도를 드러내려 user_role.tenant_id 도 명시한다.
+   *
+   * @return 이 워크스페이스에서 활성인 ADMIN 수
    */
-  public int countActiveAdmins() {
+  public int countActiveAdmins(Long tenantId) {
     return dsl.select(count())
         .from(USER)
         .join(USER_ROLE)
         .on(USER_ROLE.USER_ID.eq(USER.ID))
         .join(ROLE)
         .on(ROLE.ID.eq(USER_ROLE.ROLE_ID))
-        .where(ROLE.NAME.eq("ADMIN").and(USER.IS_ACTIVE.isTrue()))
+        .join(MEMBERSHIP)
+        .on(WorkspaceActive.join(tenantId))
+        .where(ROLE.NAME.eq("ADMIN"))
+        .and(USER_ROLE.TENANT_ID.eq(tenantId))
+        .and(WorkspaceActive.condition())
         .fetchOne(0, Integer.class);
   }
 
   /**
-   * 특정 사용자가 ADMIN 역할을 갖고 있는지 확인한다. 마지막 ADMIN 비활성화 방지 체크에 사용 (#146).
-   *
-   * @param userId 확인할 사용자 ID
-   * @return 해당 사용자가 ADMIN 역할을 보유하면 true
+   * WP-417: 대상이 이 워크스페이스의 활성 ADMIN 인지(ADMIN 역할 && 전역 활성 && 이 테넌트 멤버십 ACTIVE) — 대상 정지가 활성 ADMIN 수를
+   * 줄이는지 판정하는 한 번의 쿼리. {@link #countActiveAdmins} 와 같은 조인·술어를 대상 한 명에 건다.
    */
-  public boolean hasAdminRole(Long userId) {
+  public boolean isWorkspaceActiveAdmin(Long userId, Long tenantId) {
     return dsl.fetchExists(
         dsl.selectOne()
-            .from(USER_ROLE)
+            .from(USER)
+            .join(USER_ROLE)
+            .on(USER_ROLE.USER_ID.eq(USER.ID))
             .join(ROLE)
             .on(ROLE.ID.eq(USER_ROLE.ROLE_ID))
-            .where(USER_ROLE.USER_ID.eq(userId).and(ROLE.NAME.eq("ADMIN"))));
+            .join(MEMBERSHIP)
+            .on(WorkspaceActive.join(tenantId))
+            .where(USER.ID.eq(userId))
+            .and(ROLE.NAME.eq("ADMIN"))
+            .and(USER_ROLE.TENANT_ID.eq(tenantId))
+            .and(WorkspaceActive.condition()));
   }
 
   public void addRole(Long userId, Long roleId) {

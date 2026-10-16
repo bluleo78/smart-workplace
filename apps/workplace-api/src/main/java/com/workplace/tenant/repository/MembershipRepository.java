@@ -6,6 +6,7 @@ import static com.workplace.jooq.Tables.TENANT;
 import com.workplace.tenant.dto.MembershipResponse;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
@@ -17,6 +18,11 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class MembershipRepository {
 
+  /** WP-417: 워크스페이스 관리자가 정지한 멤버십 상태(V44 CHECK ACTIVE/SUSPENDED). */
+  public static final String STATUS_ACTIVE = "ACTIVE";
+
+  public static final String STATUS_SUSPENDED = "SUSPENDED";
+
   private final DSLContext dsl;
 
   /** WP-48: SSO 세션용 — ACTIVE 멤버십 중 테넌트가 ACTIVE 이고 SSO 가 켜진 것만. */
@@ -27,7 +33,7 @@ public class MembershipRepository {
         .join(TENANT)
         .on(TENANT.ID.eq(MEMBERSHIP.TENANT_ID))
         .where(MEMBERSHIP.USER_ID.eq(userId))
-        .and(MEMBERSHIP.STATUS.eq("ACTIVE"))
+        .and(MEMBERSHIP.STATUS.eq(STATUS_ACTIVE))
         .and(TENANT.STATUS.eq("ACTIVE"))
         .and(TENANT.SSO_ENABLED.isTrue())
         .fetch(r -> new MembershipResponse(r.value1(), r.value2(), r.value3()));
@@ -41,7 +47,7 @@ public class MembershipRepository {
         .join(TENANT)
         .on(TENANT.ID.eq(MEMBERSHIP.TENANT_ID))
         .where(MEMBERSHIP.USER_ID.eq(userId))
-        .and(MEMBERSHIP.STATUS.eq("ACTIVE"))
+        .and(MEMBERSHIP.STATUS.eq(STATUS_ACTIVE))
         .and(TENANT.STATUS.eq("ACTIVE"))
         .fetch(r -> new MembershipResponse(r.value1(), r.value2(), r.value3()));
   }
@@ -52,7 +58,7 @@ public class MembershipRepository {
     return dsl.select(MEMBERSHIP.USER_ID)
         .from(MEMBERSHIP)
         .where(MEMBERSHIP.TENANT_ID.eq(tenantId))
-        .and(MEMBERSHIP.STATUS.eq("ACTIVE"))
+        .and(MEMBERSHIP.STATUS.eq(STATUS_ACTIVE))
         .fetch(MEMBERSHIP.USER_ID);
   }
 
@@ -81,14 +87,45 @@ public class MembershipRepository {
         .execute();
   }
 
-  /** 해당 (user, tenant) 멤버십이 ACTIVE 인지. */
+  /**
+   * 해당 (user, tenant) 멤버십이 ACTIVE 인지. 멤버십 ACTIVE 만 본다(전역 is_active 미포함) — 워크스페이스 활성은 {@link
+   * com.workplace.global.tenant.WorkspaceActive} 참고.
+   */
   @Transactional(readOnly = true)
   public boolean hasActiveMembership(Long userId, Long tenantId) {
     return dsl.fetchExists(
         dsl.selectFrom(MEMBERSHIP)
             .where(MEMBERSHIP.USER_ID.eq(userId))
             .and(MEMBERSHIP.TENANT_ID.eq(tenantId))
-            .and(MEMBERSHIP.STATUS.eq("ACTIVE")));
+            .and(MEMBERSHIP.STATUS.eq(STATUS_ACTIVE)));
+  }
+
+  /**
+   * WP-417: (user, tenant) 멤버십 상태(ACTIVE/SUSPENDED). 멤버가 아니면 빈 값. {@link #hasActiveMembership} 와 달리
+   * 정지된 멤버도 "멤버"로 본다 — 관리자가 정지한 구성원을 계속 조회·재활성화하고, 재추가를 명확히 거절하는 데 쓴다.
+   */
+  @Transactional(readOnly = true)
+  public Optional<String> findStatus(Long userId, Long tenantId) {
+    return dsl.select(MEMBERSHIP.STATUS)
+        .from(MEMBERSHIP)
+        .where(MEMBERSHIP.USER_ID.eq(userId))
+        .and(MEMBERSHIP.TENANT_ID.eq(tenantId))
+        .fetchOptional(MEMBERSHIP.STATUS);
+  }
+
+  /**
+   * WP-417: (user, tenant) 멤버십 상태를 바꾼다(ACTIVE↔SUSPENDED). 워크스페이스 관리자의 「활성 상태」 토글이 전역
+   * 계정(user.is_active) 대신 이 워크스페이스 소속만 정지·재개하게 하는 쓰기 경로. membership 은 전역 테이블(RLS 비대상)이라 tenantId 를
+   * 반드시 명시한다.
+   *
+   * @return 갱신된 행 수(멤버가 아니면 0)
+   */
+  public int updateStatus(Long userId, Long tenantId, String status) {
+    return dsl.update(MEMBERSHIP)
+        .set(MEMBERSHIP.STATUS, status)
+        .where(MEMBERSHIP.USER_ID.eq(userId))
+        .and(MEMBERSHIP.TENANT_ID.eq(tenantId))
+        .execute();
   }
 
   /**
@@ -102,7 +139,7 @@ public class MembershipRepository {
         .from(MEMBERSHIP)
         .where(MEMBERSHIP.USER_ID.in(userIds))
         .and(MEMBERSHIP.TENANT_ID.eq(tenantId))
-        .and(MEMBERSHIP.STATUS.eq("ACTIVE"))
+        .and(MEMBERSHIP.STATUS.eq(STATUS_ACTIVE))
         .fetchSet(MEMBERSHIP.USER_ID);
   }
 }

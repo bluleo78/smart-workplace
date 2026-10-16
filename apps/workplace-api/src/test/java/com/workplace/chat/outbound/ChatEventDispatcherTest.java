@@ -62,7 +62,7 @@ class ChatEventDispatcherTest {
                     .findFirst()
                     .orElse(null))
         .when(resolver)
-        .pickActingAgent(any());
+        .pickActingAgent(any(), any());
   }
 
   /** WP-386: 이슈 채팅 이벤트에 조직 + 그 프로젝트 공용 메모리를 싣는다. */

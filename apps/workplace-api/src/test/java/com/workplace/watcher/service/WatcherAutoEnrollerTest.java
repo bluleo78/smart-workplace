@@ -45,6 +45,8 @@ class WatcherAutoEnrollerTest extends IntegrationTestBase {
             .getId();
     Long roleId = dsl.select(ROLE.ID).from(ROLE).where(ROLE.NAME.eq("USER")).fetchOne(ROLE.ID);
     dsl.insertInto(USER_ROLE).set(USER_ROLE.USER_ID, id).set(USER_ROLE.ROLE_ID, roleId).execute();
+    // WP-417: 담당자·서버 에이전트 판정에 필요한 테넌트#1 멤버십(실데이터와 같게).
+    com.workplace.support.TestFixtures.addMember(dsl, id, 1L);
     return id;
   }
 

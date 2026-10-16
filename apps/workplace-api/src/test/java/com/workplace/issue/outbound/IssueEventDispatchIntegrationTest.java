@@ -24,6 +24,7 @@ import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.TestFixtures;
 import com.workplace.user.repository.UserRepository;
 import java.util.ArrayList;
 import java.util.List;
@@ -102,6 +103,12 @@ class IssueEventDispatchIntegrationTest extends IntegrationTestBase {
             .getId();
     Long roleId = dsl.select(ROLE.ID).from(ROLE).where(ROLE.NAME.eq("USER")).fetchOne(ROLE.ID);
     dsl.insertInto(USER_ROLE).set(USER_ROLE.USER_ID, id).set(USER_ROLE.ROLE_ID, roleId).execute();
+    return track(id);
+  }
+
+  /** 만든 사용자에 테넌트#1 멤버십을 붙이고(WP-417: 담당자·서버 에이전트 판정에 필요, 실데이터와 같게) @AfterEach 회수 대상으로 등록한다. */
+  private Long track(Long id) {
+    TestFixtures.addMember(dsl, id, 1L);
     createdUserIds.add(id);
     return id;
   }
@@ -113,8 +120,7 @@ class IssueEventDispatchIntegrationTest extends IntegrationTestBase {
         userRepository
             .createAgent(prefix + "-" + suffix, prefix + "-" + suffix + "@example.com", prefix)
             .id();
-    createdUserIds.add(id);
-    return id;
+    return track(id);
   }
 
   /** key 는 2~10자 대문자/숫자. 충돌 회피 위해 UUID 4자 접미사. */

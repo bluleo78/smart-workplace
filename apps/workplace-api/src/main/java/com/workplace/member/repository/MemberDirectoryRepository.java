@@ -3,6 +3,7 @@ package com.workplace.member.repository;
 import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.USER;
 
+import com.workplace.global.tenant.WorkspaceActive;
 import com.workplace.global.util.LikePatternUtils;
 import com.workplace.member.dto.MemberSummary;
 import com.workplace.user.dto.UserKind;
@@ -64,7 +65,7 @@ public class MemberDirectoryRepository {
   private Condition scope(long tenantId, String search, String kind, boolean includeInactive) {
     Condition condition = MEMBERSHIP.TENANT_ID.eq(tenantId);
     if (!includeInactive) {
-      condition = condition.and(MEMBERSHIP.STATUS.eq("ACTIVE")).and(USER.IS_ACTIVE.isTrue());
+      condition = condition.and(WorkspaceActive.condition());
     }
     if (kind != null && !kind.isBlank() && !UserKind.ALL_FILTER.equals(kind)) {
       condition = condition.and(USER.KIND.eq(kind));
@@ -162,7 +163,8 @@ public class MemberDirectoryRepository {
         r.get(USER.EMAIL),
         r.get(USER.TITLE),
         r.get(USER.KIND),
-        Boolean.TRUE.equals(r.get(USER.IS_ACTIVE)),
+        // WP-417: active = 이 워크스페이스에서 활성(공용 정의 — 관리자 정지는 멤버십만 SUSPENDED 로 바꾼다).
+        WorkspaceActive.of(Boolean.TRUE.equals(r.get(USER.IS_ACTIVE)), r.get(MEMBERSHIP.STATUS)),
         r.get(MEMBERSHIP.ROLE),
         r.get(MEMBERSHIP.STATUS));
   }

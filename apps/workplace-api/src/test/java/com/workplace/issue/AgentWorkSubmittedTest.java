@@ -113,7 +113,7 @@ class AgentWorkSubmittedTest extends AgentWorkTestSupport {
     inTenant(
         () -> {
           agentWorkService.submitForAssignees(
-              issueId, "TODO", userRepository.findAssigneeInfos(List.of(agentId)));
+              issueId, "TODO", userRepository.findAssigneeInfos(List.of(agentId), TENANT_ID));
           return null;
         });
     assertThat(allStates(issueId, agentId)).containsExactly("SUBMITTED");

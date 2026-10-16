@@ -173,6 +173,8 @@ public class MessageService {
     if (!aiAgentProps.enabled()) return;
     if ("AGENT".equals(saved.authorKind())) return; // self-loop 가드 (1:1 DM 의 유일한 가드)
     String kind = channelRepo.findKind(channelId);
+    // WP-417: 서버 응답 에이전트는 이 워크스페이스에서 활성이어야 한다 — 요청 테넌트를 명시해 넘긴다.
+    Long tenantId = TenantContext.get();
     Long respondAsAgentId;
     if ("DM".equals(kind)) {
       java.util.List<ChannelMemberResponse> members = memberRepo.listMembers(channelId);
@@ -184,7 +186,8 @@ public class MessageService {
                 members.stream()
                     .filter(m -> m.userId() != callerId && UserKind.isAgent(m.kind()))
                     .map(ChannelMemberResponse::userId)
-                    .toList());
+                    .toList(),
+                tenantId);
       } else {
         // 그룹 DM: 멤버가 고정 — 멘션된 AGENT 가 이미 멤버일 때만.
         java.util.Set<Long> memberIds =
@@ -196,7 +199,8 @@ public class MessageService {
                 saved.mentions().stream()
                     .filter(m -> UserKind.isAgent(m.kind()) && memberIds.contains(m.id()))
                     .map(MentionResponse::id)
-                    .toList());
+                    .toList(),
+                tenantId);
       }
     } else {
       // 채널: 멘션된 AGENT 를 add-only 멤버추가 후 첫 AGENT 를 응답자로.
@@ -205,7 +209,6 @@ public class MessageService {
               .filter(m -> "AGENT".equals(m.kind()))
               .map(MentionResponse::id)
               .toList();
-      Long tenantId = TenantContext.get();
       // 멘션된 AGENT 중 현재 테넌트의 활성 멤버만 채널에 추가·트리거 — 교차테넌트 에이전트 멘션은 조용히 무시(메시지 전송은 막지 않음).
       // (tenantId == null 이면 어떤 에이전트도 추가하지 않음 — fail-closed)
       java.util.List<Long> eligibleAgentIds =
@@ -214,7 +217,7 @@ public class MessageService {
               .toList();
       for (Long agentId : eligibleAgentIds) memberRepo.add(channelId, agentId, "MEMBER");
       // 외부(EXTERNAL) 에이전트도 채널 멤버로는 추가하되(외부 AI 가 API 로 읽고 답하도록), 서버 응답자는 내부(INTERNAL) 에이전트만 고른다.
-      respondAsAgentId = agentResolver.pickActingAgentId(eligibleAgentIds);
+      respondAsAgentId = agentResolver.pickActingAgentId(eligibleAgentIds, tenantId);
     }
     if (respondAsAgentId == null) return;
     publisher.publishEvent(

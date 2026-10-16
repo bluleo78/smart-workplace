@@ -1,6 +1,7 @@
 package com.workplace.issue.service;
 
 import com.workplace.global.dto.UserSummary;
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.dto.IssueStatuses;
 import com.workplace.issue.exception.InvalidAssigneeForProjectException;
@@ -99,12 +100,12 @@ public class IssueAssigneeService {
     Set<Long> toRemove = new HashSet<>(current);
     toRemove.removeAll(target);
 
-    // 2-b) 신규 추가 대상 중 비활성화(is_active=false)된 사용자는 담당자로 지정 불가 (#624)
-    // 추가 대상 사용자는 한 번만 읽어 비활성 검사·외부 AI 작업 생성·이력 요약에 함께 쓴다.
-    List<AssigneeInfo> addedUsers = userRepository.findAssigneeInfos(toAdd);
-    if (addedUsers.stream().anyMatch(u -> !u.isActive())) {
-      throw new InvalidAssigneeForProjectException();
-    }
+    // 2-b) 신규 추가 대상은 이 워크스페이스에서 활성이어야 한다 — 전역 비활성(#624)·워크스페이스 정지(WP-417) 모두 거부. 이슈 생성과 같은
+    // 규칙(AssigneePolicy). 기존 담당자는 유지(제거만 허용)하도록 추가분만 본다.
+    // 추가 대상 사용자는 한 번만 읽어 활성 검사·외부 AI 작업 생성·이력 요약에 함께 쓴다. 테넌트는 요청 컨텍스트(이 프로젝트는 RLS 로 그
+    // 테넌트 것만 보인다) — 컨텍스트 없는 내부 호출이면 findAssigneeInfos 가 전역 활성만 본다.
+    List<AssigneeInfo> addedUsers = userRepository.findAssigneeInfos(toAdd, TenantContext.get());
+    AssigneePolicy.requireActive(addedUsers);
 
     // 3) 제거 대상의 사용자 요약을 먼저 조회 (삭제 후에는 USER JOIN 으로 못 가져옴)
     List<UserSummary> removedSummaries = List.of();

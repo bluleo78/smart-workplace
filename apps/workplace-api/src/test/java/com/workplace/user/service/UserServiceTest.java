@@ -406,12 +406,12 @@ class UserServiceTest extends IntegrationTestBase {
             .set(USER.PASSWORD, passwordEncoder.encode("Password123"))
             .set(USER.NAME, "Admin 2")
             .set(USER.EMAIL, "admin2@example.com")
-            .set(USER.IS_ACTIVE, false)
             .returning(USER.ID)
             .fetchOne()
             .getId();
-    // #811 — setUserActive 는 이제 대상이 active 테넌트 멤버인지 검증하므로 직접 insert 한 사용자에도 멤버십을 부여해야 한다.
-    membershipRepository.create(adminUserId, TENANT_ID, "ACTIVE");
+    // #811 — setUserActive 는 대상이 active 테넌트 멤버인지 검증한다. WP-417 — 「비활성」은 이제 전역 is_active 가 아니라 이
+    // 워크스페이스 멤버십 정지(SUSPENDED)이므로 정지된 멤버십으로 시드한다(정지된 멤버도 멤버로 보아 재활성화 가능).
+    membershipRepository.create(adminUserId, TENANT_ID, "SUSPENDED");
 
     dsl.insertInto(USER_ROLE)
         .set(USER_ROLE.USER_ID, adminUserId)
@@ -445,6 +445,8 @@ class UserServiceTest extends IntegrationTestBase {
             .returning(USER.ID)
             .fetchOne()
             .getId();
+    // WP-417 — 활성 ADMIN 수는 이 워크스페이스 멤버십이 ACTIVE 인 ADMIN 만 센다.
+    membershipRepository.create(secondAdminId, TENANT_ID, "ACTIVE");
 
     dsl.insertInto(USER_ROLE)
         .set(USER_ROLE.USER_ID, secondAdminId)

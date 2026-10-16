@@ -7,6 +7,7 @@ import com.workplace.global.dto.UserSummary;
 import com.workplace.global.outbound.AiAgentEventClient;
 import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.global.outbound.EventEnvelope;
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.user.dto.UserKind;
 import com.workplace.user.service.ServerAgentResolver;
 import java.util.LinkedHashMap;
@@ -50,7 +51,10 @@ public class ChatEventDispatcher {
     if (!props.enabled()) return;
     if (UserKind.isAgent(e.actor().kind())) return;
     // WP-371: 서버가 실행할 (INTERNAL) 에이전트 멘션이 하나도 없으면 발사하지 않는다 — 외부 에이전트는 자기 API 키로 직접 일한다.
-    Long acting = agentResolver.pickActingAgent(e.mentions());
+    // WP-417: 정지된 에이전트를 빼려면 워크스페이스가 필요하다 — aiAgentEventExecutor 의 TenantContextTaskDecorator 가 발행
+    // 스레드의 테넌트를
+    // 전파하므로 그 값을 명시해 넘긴다(트랜잭션 GUC 에 의존하지 않는다).
+    Long acting = agentResolver.pickActingAgent(e.mentions(), TenantContext.get());
     if (acting == null) return;
     client.publish(new EventEnvelope("chat.message.posted", buildPayload(e, acting)));
   }

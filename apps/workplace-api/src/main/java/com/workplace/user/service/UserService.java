@@ -7,6 +7,7 @@ import com.workplace.auth.service.AssistantResolver;
 import com.workplace.global.dto.PageResponse;
 import com.workplace.global.security.AuthDetails;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.global.tenant.WorkspaceActive;
 import com.workplace.role.dto.RoleResponse;
 import com.workplace.role.repository.RoleRepository;
 import com.workplace.tenant.repository.MembershipRepository;
@@ -82,14 +83,22 @@ public class UserService {
 
   /**
    * 단건 조회/변경계 API(getUserById/setUserRoles/setUserActive) 공통 가드 (#811). user 는 전역 테이블이라 id 만으로는 다른
-   * 테넌트 사용자에도 접근 가능하므로, 대상이 현재 active 테넌트의 ACTIVE 멤버인지 명시 검증한다. 비멤버는 존재 자체를 노출하지 않도록 404(Not
-   * Found)로 응답한다 — project 도메인의 멤버십 가드와 동일 패턴.
+   * 테넌트 사용자에도 접근 가능하므로, 대상이 현재 active 테넌트의 멤버인지 명시 검증한다. 비멤버는 존재 자체를 노출하지 않도록 404(Not Found)로 응답한다
+   * — project 도메인의 멤버십 가드와 동일 패턴.
+   *
+   * <p>WP-417: 정지(SUSPENDED)된 멤버도 멤버로 본다 — 관리자가 정지한 구성원을 사용자 목록·상세에서 계속 보고 다시 활성화할 수 있어야 한다.
+   *
+   * @return 대상의 이 워크스페이스 멤버십 상태(ACTIVE/SUSPENDED)
    */
-  private void requireMember(Long userId) {
-    Long tenantId = requireTenant();
-    if (!membershipRepository.hasActiveMembership(userId, tenantId)) {
-      throw UserNotFoundException.ofId(userId);
-    }
+  private String requireMember(Long userId) {
+    return requireMember(userId, requireTenant());
+  }
+
+  /** {@link #requireMember(Long)} 의 테넌트를 이미 받은 호출용. */
+  private String requireMember(Long userId, Long tenantId) {
+    return membershipRepository
+        .findStatus(userId, tenantId)
+        .orElseThrow(() -> UserNotFoundException.ofId(userId));
   }
 
   /**
@@ -97,8 +106,10 @@ public class UserService {
    */
   @Transactional(readOnly = true)
   public UserDetailResponse getUserById(Long id) {
-    requireMember(id);
-    return loadUserDetail(id);
+    // WP-417: 관리 화면의 active 는 "이 워크스페이스에서 활성"(공용 정의) — 정지된 멤버도 조회는 된다.
+    String status = requireMember(id);
+    UserResponse user = loadUser(id);
+    return loadUserDetail(user, WorkspaceActive.of(user.isActive(), status));
   }
 
   /**
@@ -107,12 +118,27 @@ public class UserService {
    */
   @Transactional(readOnly = true)
   public UserDetailResponse getMyProfile(Long userId) {
-    return loadUserDetail(userId);
+    // WP-417: active 테넌트가 있으면 그 워크스페이스 기준(실제 멤버십 상태, 비멤버면 비활성), 없으면(테넌트 없는 AGENT 등) 판정할
+    // 워크스페이스가 없어 전역 값.
+    UserResponse user = loadUser(userId);
+    Long tenantId = TenantContext.get();
+    boolean active =
+        tenantId == null
+            ? user.isActive()
+            : WorkspaceActive.of(
+                user.isActive(), membershipRepository.findStatus(userId, tenantId).orElse(null));
+    return loadUserDetail(user, active);
   }
 
-  private UserDetailResponse loadUserDetail(Long id) {
-    UserResponse user =
-        userRepository.findById(id).orElseThrow(() -> UserNotFoundException.ofId(id));
+  private UserResponse loadUser(Long id) {
+    return userRepository.findById(id).orElseThrow(() -> UserNotFoundException.ofId(id));
+  }
+
+  /**
+   * @param active 응답 isActive — 호출측이 워크스페이스 기준(WP-417)으로 계산해 넘긴다.
+   */
+  private UserDetailResponse loadUserDetail(UserResponse user, boolean active) {
+    Long id = user.id();
     List<RoleResponse> roles = roleRepository.findByUserId(id);
     // AI 가용성 — 개인 또는 공통 비서(active token) 보유 여부. 프론트가 AI affordance 게이트에 사용.
     boolean aiAvailable = assistantResolver.resolveOrEmpty(id).isPresent();
@@ -121,7 +147,7 @@ public class UserService {
         user.username(),
         user.email(),
         user.name(),
-        user.isActive(),
+        active,
         user.createdAt(),
         roles,
         user.kind(),
@@ -541,28 +567,41 @@ public class UserService {
     return roleIds;
   }
 
+  /**
+   * WP-417: 워크스페이스 관리자의 「활성 상태」 토글 — 전역 계정(user.is_active)이 아니라 <b>현재 워크스페이스 멤버십</b>만
+   * 정지(SUSPENDED)·재개(ACTIVE)한다. 전역 값을 바꾸면 한 워크스페이스에서 끈 사용자가 다른 워크스페이스·운영자 콘솔 로그인까지 막혔다. 정지된 멤버는 이
+   * 워크스페이스 선택·토큰 갱신·구성원 검색·담당자 지정에서 빠지고(ACTIVE 멤버십 술어), 다른 워크스페이스는 그대로 쓴다.
+   */
   @Transactional
   public void setUserActive(Long userId, boolean active) {
     validateSetActive(userId, active);
-    userRepository.setActive(userId, active);
+    membershipRepository.updateStatus(
+        userId,
+        requireTenant(),
+        active ? MembershipRepository.STATUS_ACTIVE : MembershipRepository.STATUS_SUSPENDED);
   }
 
   /**
    * 활성/비활성 전환 가능 여부만 판정한다(쓰기 없음). #842 — 확인 카드 사전검증(dry-run)과 실행 경로가 공유하는 술어. {@link
    * #setUserActive} 가 그대로 호출하므로 술어 포크가 없다.
    *
-   * @throws UserNotFoundException 사용자 없음 · 현재 테넌트 비멤버
+   * @throws UserNotFoundException 사용자 없음 · 현재 테넌트 비멤버(정지된 멤버는 멤버로 본다 — 재활성화 가능, WP-417)
    * @throws IllegalStateException 마지막 활성 ADMIN 을 비활성화하려 함
    */
   @Transactional(readOnly = true)
   public void validateSetActive(Long userId, boolean active) {
+    Long tenantId = requireTenant();
     if (!userRepository.existsById(userId)) {
       throw UserNotFoundException.ofId(userId);
     }
     // 대상이 현재 테넌트 멤버가 아니면 타 테넌트 사용자를 비활성화할 수 없다 (#811).
-    requireMember(userId);
-    // 마지막 활성 ADMIN 비활성화 방지 — 모든 ADMIN이 잠기면 시스템 관리 불가 (#146)
-    if (!active && userRepository.hasAdminRole(userId) && userRepository.countActiveAdmins() <= 1) {
+    requireMember(userId, tenantId);
+    // 마지막 활성 ADMIN 비활성화 방지 — 모든 ADMIN이 잠기면 시스템 관리 불가 (#146).
+    // WP-417: 활성 ADMIN 수는 현재 워크스페이스 기준 — 다른 워크스페이스의 정지는 영향 없다. 대상이 지금 이 워크스페이스의 활성 ADMIN 일 때만
+    // 끄기가 그 수를 줄이므로 그때만 검사한다(이미 정지된 대상을 다시 끄는 것은 멱등 no-op).
+    if (!active
+        && userRepository.isWorkspaceActiveAdmin(userId, tenantId)
+        && userRepository.countActiveAdmins(tenantId) <= 1) {
       throw new IllegalStateException("마지막 활성 ADMIN 계정은 비활성화할 수 없습니다");
     }
   }

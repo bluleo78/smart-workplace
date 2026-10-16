@@ -144,10 +144,13 @@ public class PlatformTenantRepository {
     membershipRepository.createWithRole(userId, tenantId, "ACTIVE", role);
   }
 
-  /** 해당 (user, tenant) 멤버십이 ACTIVE 인지 — 기존 사용자 추가 전 중복 체크에 사용. */
+  /**
+   * 해당 (user, tenant) 멤버십 상태(ACTIVE/SUSPENDED) — 기존 사용자 추가 전 중복 체크에 사용. WP-417: 정지된 멤버십도 UNIQUE 충돌
+   * 대상이라 ACTIVE 여부만이 아니라 존재·상태를 돌려준다.
+   */
   @Transactional(readOnly = true)
-  public boolean hasActiveMembership(Long userId, Long tenantId) {
-    return membershipRepository.hasActiveMembership(userId, tenantId);
+  public Optional<String> findMembershipStatus(Long userId, Long tenantId) {
+    return membershipRepository.findStatus(userId, tenantId);
   }
 
   /**
