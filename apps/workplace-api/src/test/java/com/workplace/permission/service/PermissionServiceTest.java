@@ -77,6 +77,11 @@ class PermissionServiceTest extends IntegrationTestBase {
             .fetchOne()
             .get(DSL.field(DSL.name("user", "id"), Long.class));
 
+    // WP-420: 역할 권한은 현재 테넌트(#1)의 ACTIVE 멤버일 때만 유효하다 — 역할 있는 두 사용자에게 멤버십을 준다.
+    // noRoleUserId 는 비멤버로 두어 "역할 없음/비멤버 → 빈 집합"을 함께 본다.
+    withMembership(adminUserId);
+    withMembership(userUserId);
+
     // adminUserId에 ADMIN 역할(id=1) 할당
     dsl.insertInto(DSL.table(DSL.name("user_role")))
         .set(DSL.field(DSL.name("user_role", "user_id"), Long.class), adminUserId)
@@ -259,5 +264,17 @@ class PermissionServiceTest extends IntegrationTestBase {
     // Set이므로 size와 stream distinct count가 일치해야 함
     long distinctCount = result.stream().distinct().count();
     assertThat(distinctCount).isEqualTo(result.size());
+  }
+
+  /** WP-420: 역할이 남아 있어도 현재 테넌트 멤버십이 정지되면 역할 권한까지 비고, 멤버십 판정은 empty(비활성)다. */
+  @Test
+  void getUserPermissions_suspendedMembership_dropsRolePermissions() {
+    assertThat(permissionService.getActiveMemberPermissions(adminUserId).orElseThrow())
+        .contains("user:read", "member:read");
+
+    com.workplace.support.TestFixtures.suspendMember(dsl, adminUserId, 1L);
+
+    assertThat(permissionService.getUserPermissions(adminUserId)).isEmpty();
+    assertThat(permissionService.getActiveMemberPermissions(adminUserId)).isEmpty();
   }
 }

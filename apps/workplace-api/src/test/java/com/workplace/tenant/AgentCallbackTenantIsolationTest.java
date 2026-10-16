@@ -1,15 +1,23 @@
 package com.workplace.tenant;
 
+import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.TENANT;
 import static com.workplace.jooq.Tables.TENANT_CANARY;
+import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.workplace.auth.repository.AgentApiKeyRepository;
 import com.workplace.global.security.AgentTenantResolver;
+import com.workplace.global.security.ApiKeyAuthenticationFilter;
 import com.workplace.global.security.JwtAuthenticationFilter;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.tenant.repository.MembershipRepository;
 import jakarta.servlet.FilterChain;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.HexFormat;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
@@ -17,6 +25,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -39,6 +49,8 @@ class AgentCallbackTenantIsolationTest extends IntegrationTestBase {
   private static final String INTERNAL_TOKEN = "test-token";
 
   @Autowired private JwtAuthenticationFilter filter;
+  @Autowired private ApiKeyAuthenticationFilter apiKeyFilter;
+  @Autowired private AgentApiKeyRepository agentKeys;
   @Autowired private DSLContext dsl;
   @Autowired private MembershipRepository membershipRepository;
 
@@ -53,6 +65,8 @@ class AgentCallbackTenantIsolationTest extends IntegrationTestBase {
   @AfterEach
   void clearTenant() {
     TenantContext.clear();
+    // 필터를 직접 구동하면 인증 컨텍스트가 같은 스레드의 다음 테스트로 샐 수 있다(WP-420 인증 단언 추가).
+    SecurityContextHolder.clearContext();
   }
 
   /** ACTIVE 테넌트 1행 삽입(글로벌/RLS 비대상 테이블 → 직접 insert) 후 생성 id 반환. */
@@ -82,20 +96,30 @@ class AgentCallbackTenantIsolationTest extends IntegrationTestBase {
 
   /** Internal 토큰 + X-On-Behalf-Of(+선택적 tenant 헤더)로 필터를 구동, 체인 내부에서 해석된 테넌트를 캡처해 반환. */
   private Long driveFilterAndCaptureTenant(Long agentId, String tenantHeader) throws Exception {
+    // 필터의 finally 가 TenantContext.clear() 하므로 doFilter 가 반환된 뒤엔 null 이다 — 체인 람다 안에서 캡처한다. doFilter
+    // 는 인증
+    // 분기 밖이라 fail-closed(미해석) 케이스에서도 항상 실행되어 null 을 캡처한다.
+    return driveFilter(agentId, tenantHeader).tenantId();
+  }
+
+  /** 체인 안에서 본 테넌트와 인증(없으면 null). WP-420: 테넌트뿐 아니라 인증이 세워졌는지도 단언한다. */
+  private record FilterOutcome(Long tenantId, Authentication authentication) {}
+
+  private FilterOutcome driveFilter(Long agentId, String tenantHeader) throws Exception {
+    SecurityContextHolder.clearContext();
     MockHttpServletRequest request = new MockHttpServletRequest();
     request.addHeader("Authorization", "Internal " + INTERNAL_TOKEN);
     request.addHeader("X-On-Behalf-Of", String.valueOf(agentId));
     if (tenantHeader != null) {
       request.addHeader(AgentTenantResolver.TENANT_HEADER, tenantHeader);
     }
-    MockHttpServletResponse response = new MockHttpServletResponse();
-
-    // 필터의 finally 가 TenantContext.clear() 하므로 doFilter 가 반환된 뒤엔 null 이다.
-    // 반드시 체인 람다 내부에서 TenantContext.get() 을 캡처한다. doFilter 는 인증 분기 밖이라
-    // fail-closed(미해석) 케이스에서도 항상 실행되어 null 을 캡처한다.
-    AtomicReference<Long> captured = new AtomicReference<>();
-    FilterChain chain = (req, res) -> captured.set(TenantContext.get());
-    filter.doFilter(request, response, chain);
+    AtomicReference<FilterOutcome> captured = new AtomicReference<>();
+    FilterChain chain =
+        (req, res) ->
+            captured.set(
+                new FilterOutcome(
+                    TenantContext.get(), SecurityContextHolder.getContext().getAuthentication()));
+    filter.doFilter(request, new MockHttpServletResponse(), chain);
     return captured.get();
   }
 
@@ -137,8 +161,11 @@ class AgentCallbackTenantIsolationTest extends IntegrationTestBase {
     seedCanary(tenantB, "B-row");
 
     // 비멤버 tenantB 를 명시 → 헤더 불신뢰 → fail-closed(null)
-    Long resolved = driveFilterAndCaptureTenant(agentId, String.valueOf(tenantB));
+    FilterOutcome outcome = driveFilter(agentId, String.valueOf(tenantB));
+    Long resolved = outcome.tenantId();
     assertThat(resolved).isNull();
+    // WP-420: 명시한 테넌트를 해석하지 못하면 테넌트 없는 인증으로 넘어가지 않고 인증 자체를 세우지 않는다(→ 401).
+    assertThat(outcome.authentication()).isNull();
 
     // 해석 실패 → 권한 테넌트 없음. GUC 를 빈 문자열(미설정 모델)로 두면 RLS 가 모든 행 차단.
     setGuc("");
@@ -168,5 +195,124 @@ class AgentCallbackTenantIsolationTest extends IntegrationTestBase {
     setGuc(String.valueOf(resolved));
     assertThat(dsl.select(TENANT_CANARY.VAL).from(TENANT_CANARY).fetch(TENANT_CANARY.VAL))
         .containsExactly("B-row");
+  }
+
+  /**
+   * WP-420: A 는 ACTIVE, B 는 정지(SUSPENDED)인 사용자가 X-On-Behalf-Of-Tenant 로 B 를 명시 → B 로 해석되지 않고, A 로
+   * 갈아타거나 테넌트 없는 인증으로 넘어가지도 않는다 — 인증 자체를 세우지 않는다(401).
+   */
+  @Test
+  @Transactional
+  void agentCallback_explicitTenant_suspendedMembership_rejected() throws Exception {
+    Long tenantA = seedTenant("A");
+    Long tenantB = seedTenant("B");
+    Long userId = createAgentUser("agent-suspended");
+    membershipRepository.create(userId, tenantA, "ACTIVE");
+    membershipRepository.create(userId, tenantB, "SUSPENDED");
+
+    FilterOutcome outcome = driveFilter(userId, String.valueOf(tenantB));
+
+    assertThat(outcome.tenantId()).isNull();
+    assertThat(outcome.authentication()).isNull();
+  }
+
+  /**
+   * WP-420 유지 케이스: 헤더 없이 ACTIVE 멤버십이 0개인 개인 비서 AGENT(처음 만든 테넌트가 정지·삭제됨, V163)는 테넌트 없는 인증으로 남는다 —
+   * 주인의 다른 워크스페이스에서 자기 LLM 자격(전역 테이블)을 꺼내야 하기 때문. 단 다른 테넌트에 남은 역할(ADMIN)이 있어도 GUC 가 비어 RLS 가 막으므로
+   * 권한은 하나도 붙지 않는다.
+   */
+  @Test
+  @Transactional
+  void agentCallback_noActiveMembership_noHeader_tenantlessWithoutAuthorities() throws Exception {
+    Long agentId = createAgentUser("agent-orphan");
+    // 테넌트 1 멤버십은 정지 상태 — ACTIVE 멤버십 0개. 그 테넌트의 ADMIN 역할은 남아 있다.
+    membershipRepository.create(agentId, 1L, "SUSPENDED");
+    setGuc("1");
+    Long adminRole = dsl.select(ROLE.ID).from(ROLE).where(ROLE.NAME.eq("ADMIN")).fetchOne(ROLE.ID);
+    dsl.insertInto(USER_ROLE)
+        .set(USER_ROLE.USER_ID, agentId)
+        .set(USER_ROLE.ROLE_ID, adminRole)
+        .execute();
+    // 운영과 같이 테넌트 없는 요청은 GUC 가 비어 있다(테스트 트랜잭션은 필터의 중첩 트랜잭션이 GUC 를 다시 넣지 않으므로 직접 비운다).
+    setGuc("");
+
+    FilterOutcome outcome = driveFilter(agentId, null);
+
+    assertThat(outcome.tenantId()).isNull();
+    assertThat(outcome.authentication()).isNotNull();
+    assertThat(outcome.authentication().getAuthorities()).isEmpty();
+  }
+
+  /** AGENT 에 ak_ 키를 실제로 발급(해시 저장)하고 평문을 돌려준다. */
+  private String issueApiKey(Long agentId) throws Exception {
+    String key = "ak_wp420" + UUID.randomUUID().toString().replace("-", "");
+    String hash =
+        HexFormat.of()
+            .formatHex(
+                MessageDigest.getInstance("SHA-256").digest(key.getBytes(StandardCharsets.UTF_8)));
+    agentKeys.insert(agentId, key.substring(0, 12), hash, "wp420", agentId);
+    return key;
+  }
+
+  /** 실제 ApiKeyAuthenticationFilter 빈을 ak_ 키(+선택적 테넌트 헤더)로 구동해 체인 안의 테넌트·인증을 캡처한다. */
+  private FilterOutcome driveApiKeyFilter(String key, String tenantHeader) throws Exception {
+    SecurityContextHolder.clearContext();
+    MockHttpServletRequest request = new MockHttpServletRequest();
+    request.addHeader("Authorization", "Bearer " + key);
+    if (tenantHeader != null) {
+      request.addHeader(AgentTenantResolver.TENANT_HEADER, tenantHeader);
+    }
+    AtomicReference<FilterOutcome> captured = new AtomicReference<>();
+    FilterChain chain =
+        (req, res) ->
+            captured.set(
+                new FilterOutcome(
+                    TenantContext.get(), SecurityContextHolder.getContext().getAuthentication()));
+    apiKeyFilter.doFilter(request, new MockHttpServletResponse(), chain);
+    return captured.get();
+  }
+
+  /**
+   * WP-420: ak_ 키 경로도 Internal 과 같다 — A ACTIVE·B SUSPENDED 인 AGENT 가 헤더로 B 를 명시하면 테넌트 없는 인증으로 넘어가지
+   * 않고 인증을 세우지 않는다(401). 대조로 같은 키가 A 를 명시하면 정상 인증된다.
+   */
+  @Test
+  @Transactional
+  void apiKey_explicitTenant_suspendedMembership_rejected() throws Exception {
+    Long tenantA = seedTenant("A");
+    Long tenantB = seedTenant("B");
+    Long agentId = createAgentUser("agent-ak-suspended");
+    membershipRepository.create(agentId, tenantA, "ACTIVE");
+    membershipRepository.create(agentId, tenantB, "SUSPENDED");
+    String key = issueApiKey(agentId);
+
+    FilterOutcome rejected = driveApiKeyFilter(key, String.valueOf(tenantB));
+    assertThat(rejected.tenantId()).isNull();
+    assertThat(rejected.authentication()).isNull();
+
+    FilterOutcome accepted = driveApiKeyFilter(key, String.valueOf(tenantA));
+    assertThat(accepted.tenantId()).isEqualTo(tenantA);
+    assertThat(accepted.authentication()).isNotNull();
+  }
+
+  /** WP-420 유지 케이스(ak_): 헤더 없이 다중 ACTIVE 멤버십이면 기존대로 테넌트 없는 인증(ROLE_AGENT 마커 외 권한 없음)으로 둔다. */
+  @Test
+  @Transactional
+  void apiKey_noHeader_multipleMemberships_staysTenantless() throws Exception {
+    Long tenantA = seedTenant("A");
+    Long tenantB = seedTenant("B");
+    Long agentId = createAgentUser("agent-ak-multi");
+    membershipRepository.create(agentId, tenantA, "ACTIVE");
+    membershipRepository.create(agentId, tenantB, "ACTIVE");
+    String key = issueApiKey(agentId);
+    setGuc("");
+
+    FilterOutcome outcome = driveApiKeyFilter(key, null);
+
+    assertThat(outcome.tenantId()).isNull();
+    assertThat(outcome.authentication()).isNotNull();
+    assertThat(outcome.authentication().getAuthorities())
+        .extracting(Object::toString)
+        .containsExactly("ROLE_AGENT");
   }
 }

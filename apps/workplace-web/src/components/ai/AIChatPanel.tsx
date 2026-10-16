@@ -2,7 +2,7 @@
 // AI 어시스턴트 공유 채팅 본문 — 세션 스위처 헤더 + 메시지 이력 + 입력바.
 // side(AISidePanel) / fullscreen(AIFullscreen) 모두 재사용. 컨테이너(폭/포지션)는 호출측 책임.
 import { ArrowUp, ChevronDown, CircleAlert, Loader2, MessageSquare, Plus, Sparkles, Square } from 'lucide-react';
-import { Fragment, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { ActionResultLine } from '@/components/ai/ActionResultLine';
 import { useAssistant } from '@/components/ai/AIAssistantContext';
@@ -42,6 +42,7 @@ import { useStarterSuggestions } from '@/hooks/useStarterSuggestions';
 import { useStickToBottom } from '@/hooks/useStickToBottom';
 import { sessionListLabel } from '@/lib/ai/aiActivity';
 import { isRenderableMemoryBlock } from '@/lib/ai/chatTurns';
+import { applyPromptSeed } from '@/lib/ai/promptSeed';
 import { contextIdentity } from '@/lib/aiScreenContext/common';
 import { visibleSteps } from '@/lib/aiToolLabels';
 import { sliceRange } from '@/lib/chatBlocks';
@@ -115,7 +116,7 @@ export function AIChatPanel({
   const isMobile = useIsMobile();
   // WP-384: 답 안 다른 화면 링크 — 전체 화면(모바일 시트 포함)이 이동한 화면을 덮지 않게 내린다. 앱 레일 이동(#454)과 같은 규칙:
   // 히스토리를 건드리지 않는 dismiss(데스크톱은 사이드로, 모바일은 닫기). close() 는 history.go(-1) 로 방금 한 이동을 되돌린다.
-  const { mode: aiMode, dismiss: dismissAi } = useAssistant();
+  const { mode: aiMode, dismiss: dismissAi, promptSeed, consumePromptSeed } = useAssistant();
   const onPageLink = useCallback(() => {
     if (aiMode === 'fullscreen') dismissAi(isMobile ? 'closed' : 'side');
   }, [aiMode, dismissAi, isMobile]);
@@ -152,6 +153,26 @@ export function AIChatPanel({
   useEffect(() => {
     if (newSessionNonce > 0) setInput('');
   }, [newSessionNonce]);
+
+  // WP-414: 「AI 에게 묻기」가 맡긴 문구를 입력창에 채운다 — 위 '새 대화' 초기화 effect 뒤에 선언해야 마운트 때 nonce>0 이어도
+  // 비우기가 채우기를 덮지 않는다. 마운트 전에 맡긴 값(닫힌 패널을 연 경우)과 열린 채 새로 맡긴 값 모두 seed 변화로 반영되고,
+  // 쓰던 초안이 있으면 덮지 않는다(값은 항상 소비해 다음 열기·재마운트에 남지 않게).
+  const [caretNonce, setCaretNonce] = useState(0);
+  useEffect(() => {
+    if (!promptSeed) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 위 '새 대화' 초기화 effect 뒤에 채워야 해 렌더 중 조정으로 못 옮긴다.
+    setInput((prev) => applyPromptSeed(prev, promptSeed.text));
+    setCaretNonce((n) => n + 1);
+    consumePromptSeed();
+  }, [promptSeed, consumePromptSeed]);
+  // 채운 뒤 그리기 전에 포커스 + 커서를 끝으로 — 사용자가 바로 이어서 질문을 쓰게 한다.
+  useLayoutEffect(() => {
+    if (caretNonce === 0) return;
+    const el = inputRef.current;
+    if (!el) return;
+    el.focus();
+    el.setSelectionRange(el.value.length, el.value.length);
+  }, [caretNonce]);
 
   // WP-54: 현재 화면 컨텍스트 + 칩 × 상태. × 는 그 시점 화면 정체성(contextIdentity)을 기억해 다음 1회 전송만 뺀다.
   // 정체성은 건수·facts 같은 휘발 값을 제외하므로, 같은 화면에서 목록 건수가 바뀌어도 × 가 유지된다.

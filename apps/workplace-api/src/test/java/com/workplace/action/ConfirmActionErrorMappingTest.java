@@ -147,6 +147,8 @@ class ConfirmActionErrorMappingTest extends IntegrationTestBase {
         .set(USER_ROLE.USER_ID, admin)
         .set(USER_ROLE.ROLE_ID, adminRole)
         .execute();
+    // WP-420: 역할 권한은 같은 테넌트의 ACTIVE 멤버일 때만 유효하다.
+    TestFixtures.activeMemberOfCurrentTenant(dsl, admin);
     ObjectNode p = objectMapper.createObjectNode();
     p.put("userId", owner);
     p.put("active", "yes");

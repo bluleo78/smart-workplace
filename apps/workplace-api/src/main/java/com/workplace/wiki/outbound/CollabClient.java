@@ -209,8 +209,9 @@ public class CollabClient {
 
   /**
    * revalidate 요청 본문. spaceId·pageIds·userId·reason 은 선택 — null 이면 키를 생략한다. 의미: pageIds 가 있으면 그 페이지
-   * 연결, 없으면 spaceId 의 모든 연결; userId 가 있으면 그 사용자 연결로 한정. reason 이 {@link #REASON_DELETED} 면 접근을 잃은
-   * 연결을 권한 회수(4403)가 아닌 삭제(4404)로 닫아 웹이 "이 노트가 삭제되었습니다"를 보인다(WP-296).
+   * 연결, 없으면 spaceId 의 모든 연결(둘 다 없으면 userId 필수 — 그 테넌트의 그 사용자 연결 전부, WP-420 멤버십 정지); userId 가 있으면 그
+   * 사용자 연결로 한정. reason 이 {@link #REASON_DELETED} 면 접근을 잃은 연결을 권한 회수(4403)가 아닌 삭제(4404)로 닫아 웹이 "이
+   * 노트가 삭제되었습니다"를 보인다(WP-296).
    */
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public record RevalidateRequest(

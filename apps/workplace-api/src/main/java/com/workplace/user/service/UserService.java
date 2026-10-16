@@ -24,6 +24,7 @@ import com.workplace.user.dto.UserResponse;
 import com.workplace.user.exception.PersonalAssistantRenameForbiddenException;
 import com.workplace.user.exception.UserNotFoundException;
 import com.workplace.user.outbound.AgentRuntimeChanged;
+import com.workplace.user.outbound.WorkspaceMembershipSuspended;
 import com.workplace.user.repository.UserRepository;
 import java.util.List;
 import java.util.Locale;
@@ -480,31 +481,59 @@ public class UserService {
 
   @Transactional
   public void setUserRoles(Long userId, List<Long> roleIds, Long callerId) {
-    checkSetRoles(userId, roleIds, callerId);
+    // WP-420: 판정 전에 테넌트 관리자 잠금(동시 정지·역할 변경과 직렬화).
+    Long tenantId = lockTenantAdmins();
+    checkSetRoles(userId, roleIds, callerId, tenantId);
     userRepository.setRoles(userId, roleIds);
   }
 
-  /** 역할 교체 술어 본체(쓰기 없음) — 존재·테넌트 멤버십·자기 잠금 방지. 실행/사전검증 양쪽이 공유한다 (#842). */
-  private void checkSetRoles(Long userId, List<Long> roleIds, Long callerId) {
+  /**
+   * WP-420: 현재 테넌트를 확정하고 테넌트 관리자 잠금을 잡은 뒤 그 테넌트 id 를 돌려준다. 마지막 활성 ADMIN 판정 전에 실행 경로(역할 교체·활성 전환)의
+   * 첫머리에서 부른다 — 두 관리자가 서로를 동시에 정지·강등하면 둘 다 "2명"을 보고 통과해 0명이 되던 write skew 를 직렬화로 막는다. 사전검증(확인 카드
+   * 미리보기)은 잠금 없이 판정한다.
+   */
+  private Long lockTenantAdmins() {
+    Long tenantId = requireTenant();
+    userRepository.acquireTenantAdminLock(tenantId);
+    return tenantId;
+  }
+
+  /**
+   * WP-420: 대상이 이 워크스페이스의 활성 ADMIN 이고 그런 ADMIN 이 그 하나뿐인지. 정지·ADMIN 역할 제거가 활성 ADMIN 수를 0으로 만드는지 판정하는
+   * 공용 술어 — 대상이 지금 활성 ADMIN 일 때만 수가 줄어드므로 그때만 센다.
+   */
+  private boolean isLastActiveAdmin(Long userId, Long tenantId) {
+    return userRepository.isWorkspaceActiveAdmin(userId, tenantId)
+        && userRepository.countActiveAdmins(tenantId) <= 1;
+  }
+
+  /**
+   * 역할 교체 술어 본체(쓰기 없음) — 존재·테넌트 멤버십·자기 잠금 방지·마지막 활성 ADMIN 보호. 실행/사전검증 양쪽이 공유한다 (#842). 잠금은 실행 경로만
+   * 잡는다(사전검증은 확인 카드 미리보기라 잠금 없이 판정한다).
+   */
+  private void checkSetRoles(Long userId, List<Long> roleIds, Long callerId, Long tenantId) {
     if (!userRepository.existsById(userId)) {
       throw UserNotFoundException.ofId(userId);
     }
     // 대상이 현재 테넌트 멤버가 아니면 타 테넌트 사용자의 전역 역할을 바꿀 수 없다 (#811).
-    requireMember(userId);
+    requireMember(userId, tenantId);
+    Optional<RoleResponse> adminRole = roleRepository.findByName("ADMIN");
+    if (adminRole.isEmpty()) return;
+    boolean wouldRemoveAdmin = roleIds == null || !roleIds.contains(adminRole.get().id());
+    if (!wouldRemoveAdmin) return;
     // 자기 자신의 ADMIN 역할 제거 차단 — 자기 잠금(self-lockout) 방지 (#57)
     if (userId.equals(callerId)) {
-      roleRepository
-          .findByName("ADMIN")
-          .ifPresent(
-              adminRole -> {
-                List<RoleResponse> currentRoles = roleRepository.findByUserId(userId);
-                boolean hasAdminNow =
-                    currentRoles.stream().anyMatch(r -> r.id().equals(adminRole.id()));
-                boolean wouldRemoveAdmin = roleIds == null || !roleIds.contains(adminRole.id());
-                if (hasAdminNow && wouldRemoveAdmin) {
-                  throw new IllegalArgumentException("자신의 ADMIN 역할은 제거할 수 없습니다");
-                }
-              });
+      boolean hasAdminNow =
+          roleRepository.findByUserId(userId).stream()
+              .anyMatch(r -> r.id().equals(adminRole.get().id()));
+      if (hasAdminNow) {
+        throw new IllegalArgumentException("자신의 ADMIN 역할은 제거할 수 없습니다");
+      }
+    }
+    // WP-420: 다른 사람이 마지막 활성 ADMIN 의 ADMIN 역할을 빼도 워크스페이스 관리가 불가능해진다 — 정지와 같은 규칙(409).
+    // 대상이 지금 이 워크스페이스의 활성 ADMIN 일 때만 수가 줄어드므로 그때만 센다(정지된 ADMIN 의 역할 정리는 허용).
+    if (isLastActiveAdmin(userId, tenantId)) {
+      throw new IllegalStateException("마지막 활성 ADMIN 의 ADMIN 역할은 제거할 수 없습니다");
     }
   }
 
@@ -514,7 +543,9 @@ public class UserService {
    */
   @Transactional
   public void setUserRolesByNames(Long userId, List<String> roleNames, Long callerId) {
-    List<Long> roleIds = resolveRolesByNames(userId, roleNames, callerId);
+    // WP-420: 실행 경로만 판정 전에 테넌트 관리자 잠금(사전검증 validateSetRolesByNames 는 잠금 없음).
+    Long tenantId = lockTenantAdmins();
+    List<Long> roleIds = resolveRolesByNames(userId, roleNames, callerId, tenantId);
     userRepository.setRoles(userId, roleIds);
   }
 
@@ -524,15 +555,17 @@ public class UserService {
    * 술어가 두 벌이 되지 않는다.
    *
    * @throws IllegalArgumentException 역할 목록 비어 있음 · 다룰 수 없는 역할 손실 · 역할명 해석 실패 · 자기 ADMIN 제거
+   * @throws IllegalStateException 마지막 활성 ADMIN 의 ADMIN 역할 제거 (WP-420)
    * @throws UserNotFoundException 사용자 없음 · 현재 테넌트 비멤버
    */
   @Transactional(readOnly = true)
   public void validateSetRolesByNames(Long userId, List<String> roleNames, Long callerId) {
-    resolveRolesByNames(userId, roleNames, callerId);
+    resolveRolesByNames(userId, roleNames, callerId, requireTenant());
   }
 
   /** 역할명 → roleId 해석 + 전체 검증(쓰기 없음). 실행 경로는 반환된 roleIds 로 setRoles 만 수행한다 (#842). */
-  private List<Long> resolveRolesByNames(Long userId, List<String> roleNames, Long callerId) {
+  private List<Long> resolveRolesByNames(
+      Long userId, List<String> roleNames, Long callerId, Long tenantId) {
     if (roleNames == null || roleNames.isEmpty()) {
       throw new IllegalArgumentException("역할이 비어 있습니다");
     }
@@ -563,7 +596,7 @@ public class UserService {
                         .id())
             .toList();
     // 존재·멤버십·자기 잠금 검증은 실행 경로(setUserRoles)와 동일한 술어를 공유한다.
-    checkSetRoles(userId, roleIds, callerId);
+    checkSetRoles(userId, roleIds, callerId, tenantId);
     return roleIds;
   }
 
@@ -574,23 +607,34 @@ public class UserService {
    */
   @Transactional
   public void setUserActive(Long userId, boolean active) {
-    validateSetActive(userId, active);
-    membershipRepository.updateStatus(
-        userId,
-        requireTenant(),
-        active ? MembershipRepository.STATUS_ACTIVE : MembershipRepository.STATUS_SUSPENDED);
+    // WP-420: 판정 전에 테넌트 관리자 잠금(사전검증 validateSetActive 는 잠금 없음).
+    Long tenantId = lockTenantAdmins();
+    checkSetActive(userId, active, tenantId);
+    int changed =
+        membershipRepository.updateStatus(
+            userId,
+            tenantId,
+            active ? MembershipRepository.STATUS_ACTIVE : MembershipRepository.STATUS_SUSPENDED);
+    // WP-420: 실제로 ACTIVE→SUSPENDED 로 바뀐 경우에만 커밋 후 그 사용자의 열린 연결(SSE·노트 공동편집)을 닫거나 재검증하게 알린다.
+    // 이미 정지된 멤버를 다시 끄는 멱등 호출은 아무것도 내보내지 않는다. 새 요청은 JWT 필터가 멤버십으로 막는다.
+    if (!active && changed > 0)
+      publisher.publishEvent(new WorkspaceMembershipSuspended(tenantId, userId));
   }
 
   /**
    * 활성/비활성 전환 가능 여부만 판정한다(쓰기 없음). #842 — 확인 카드 사전검증(dry-run)과 실행 경로가 공유하는 술어. {@link
-   * #setUserActive} 가 그대로 호출하므로 술어 포크가 없다.
+   * #setUserActive} 도 같은 본체(checkSetActive)를 호출하므로 술어 포크가 없다.
    *
    * @throws UserNotFoundException 사용자 없음 · 현재 테넌트 비멤버(정지된 멤버는 멤버로 본다 — 재활성화 가능, WP-417)
    * @throws IllegalStateException 마지막 활성 ADMIN 을 비활성화하려 함
    */
   @Transactional(readOnly = true)
   public void validateSetActive(Long userId, boolean active) {
-    Long tenantId = requireTenant();
+    checkSetActive(userId, active, requireTenant());
+  }
+
+  /** {@link #validateSetActive} 술어 본체 — 실행 경로는 잠금과 함께 이미 확정한 테넌트를 넘긴다. */
+  private void checkSetActive(Long userId, boolean active, Long tenantId) {
     if (!userRepository.existsById(userId)) {
       throw UserNotFoundException.ofId(userId);
     }
@@ -599,9 +643,7 @@ public class UserService {
     // 마지막 활성 ADMIN 비활성화 방지 — 모든 ADMIN이 잠기면 시스템 관리 불가 (#146).
     // WP-417: 활성 ADMIN 수는 현재 워크스페이스 기준 — 다른 워크스페이스의 정지는 영향 없다. 대상이 지금 이 워크스페이스의 활성 ADMIN 일 때만
     // 끄기가 그 수를 줄이므로 그때만 검사한다(이미 정지된 대상을 다시 끄는 것은 멱등 no-op).
-    if (!active
-        && userRepository.isWorkspaceActiveAdmin(userId, tenantId)
-        && userRepository.countActiveAdmins(tenantId) <= 1) {
+    if (!active && isLastActiveAdmin(userId, tenantId)) {
       throw new IllegalStateException("마지막 활성 ADMIN 계정은 비활성화할 수 없습니다");
     }
   }

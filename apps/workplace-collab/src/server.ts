@@ -705,7 +705,7 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
 
   /**
    * 권한 재판정 — 대상 연결마다 보관한 사용자 토큰으로 다시 판정한다.
-   * - 대상: 같은 테넌트 + (pageIds 있으면 그 페이지들, 없으면 spaceId) + (userId 있으면 그 사용자).
+   * - 대상: 같은 테넌트 + (pageIds 있으면 그 페이지들, 없으면 spaceId, 둘 다 없으면 스페이스 무관) + (userId 있으면 그 사용자).
    * - 토큰 거절(401, JWT 만료) → 4401(만료와 같은 경로) — 권한 회수로 오판해 웹이 미전송 입력을 버리지 않게.
    * - 확정된 접근 없음(판정 null = collab-access 404·403) → 소켓을 4403 으로 닫는다(요청 사유가 deleted 면 4404 — 웹이 삭제 안내를 보인다). Connection.close() 는 provider 에 코드 1000 만 보내고 재접속도 하지 않아
    *   웹이 회수를 구분할 수 없다(4401 과 같은 이유). 소켓의 다른 문서도 함께 끊기지만 provider 가 재접속해 권한 있는 문서는 다시 붙는다.
@@ -719,7 +719,7 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
       for (const conn of doc.getConnections() as Array<Connection<CollabContext>>) {
         const c = conn.context
         if (c.tenantId !== req.tenantId || c.pageId == null) continue
-        if (pageIds ? !pageIds.has(c.pageId) : c.spaceId !== req.spaceId) continue
+        if (pageIds ? !pageIds.has(c.pageId) : req.spaceId != null && c.spaceId !== req.spaceId) continue
         if (req.userId != null && c.userId !== req.userId) continue
         targets.push({ doc, conn })
       }

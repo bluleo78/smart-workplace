@@ -76,7 +76,13 @@ export default function ProfileSettingsPage() {
   }
 
   return (
-    <SettingsPage title="프로필" width="form" guide={settingsGuides.profile}>
+    <SettingsPage
+      title="프로필"
+      width="form"
+      guide={settingsGuides.profile}
+      // WP-414: AI 화면 맥락 — 저장된 이름만(비밀번호 입력값은 절대 싣지 않는다).
+      aiContext={user ? { facts: [['이름', user.name]] } : null}
+    >
       {/* 주석 섹션: 넓은 화면에선 왼쪽 제목·설명 / 오른쪽 입력(448px 상한), 좁으면 세로로 쌓인다(WP-397). */}
       <SettingsSection title="프로필 정보" description="다른 구성원에게 보이는 이름과 연락 이메일이에요.">
         <form onSubmit={profileForm.handleSubmit(onProfileSubmit)} className={cn('space-y-4', settingsFieldClass)}>

@@ -107,6 +107,8 @@ class ActionValidateRlsGuardTest extends IntegrationTestBase {
                   .set(USER_ROLE.USER_ID, userId)
                   .set(USER_ROLE.ROLE_ID, roleId)
                   .execute();
+              // WP-420: 역할 권한은 같은 테넌트의 ACTIVE 멤버일 때만 유효하다.
+              TestFixtures.activeMemberOfCurrentTenant(dsl, userId);
               return null; // 커밋(롤백 안 함)
             });
   }

@@ -441,6 +441,22 @@ public class UserRepository {
     dsl.execute("SELECT pg_advisory_xact_lock({0})", val(1L));
   }
 
+  /**
+   * WP-420: 테넌트 관리자 판정 잠금 전용 classId — 2-인자 pg_advisory_xact_lock(classId, tenantId) 형태에서 사용. 다른
+   * 도메인 잠금과 겹치지 않게 「classId = 이슈 번호」 관례를 따른다. 2-인자 잠금은 1-인자 {@link #acquireFirstUserLock} 와 별개
+   * 네임스페이스다.
+   */
+  private static final int TENANT_ADMIN_LOCK_CLASS = 420;
+
+  /**
+   * WP-420: 워크스페이스 단위 "활성 ADMIN 수" 판정 직렬화 잠금(트랜잭션 종료 시 자동 해제). 멤버십 정지·역할 변경이 각자 다른 트랜잭션에서 "활성 ADMIN
+   * 이 2명"을 동시에 보고 통과하면 READ COMMITTED 에선 둘 다 커밋돼 활성 ADMIN 이 0명이 된다(write skew). 판정 전에 이 잠금을 잡으면 뒤
+   * 트랜잭션은 앞 트랜잭션 커밋 뒤의 수를 보고 거부된다. 판정·쓰기보다 먼저, 트랜잭션 첫머리에서 잡아야 한다.
+   */
+  public void acquireTenantAdminLock(long tenantId) {
+    dsl.execute("SELECT pg_advisory_xact_lock(?, ?)", TENANT_ADMIN_LOCK_CLASS, (int) tenantId);
+  }
+
   public UserResponse save(String username, String email, String password, String name) {
     return dsl.insertInto(USER)
         .set(USER.USERNAME, username)
@@ -657,12 +673,6 @@ public class UserRepository {
     dsl.insertInto(USER_ROLE)
         .set(USER_ROLE.USER_ID, userId)
         .set(USER_ROLE.ROLE_ID, roleId)
-        .execute();
-  }
-
-  public void removeRole(Long userId, Long roleId) {
-    dsl.deleteFrom(USER_ROLE)
-        .where(USER_ROLE.USER_ID.eq(userId).and(USER_ROLE.ROLE_ID.eq(roleId)))
         .execute();
   }
 

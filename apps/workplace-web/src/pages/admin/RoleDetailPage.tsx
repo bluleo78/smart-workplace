@@ -161,7 +161,23 @@ export default function RoleDetailPage() {
   );
 
   return (
-    <SettingsPage title={pageTitle} icon={backButton} width="form" guide={settingsGuides.roleDetail}>
+    <SettingsPage
+      title={pageTitle}
+      icon={backButton}
+      width="form"
+      guide={settingsGuides.roleDetail}
+      // WP-414: AI 화면 맥락 — 저장된 역할 이름·권한 수(체크만 바꾼 미저장 권한은 싣지 않는다).
+      aiContext={{
+        focus: {
+          type: '역할',
+          label: role.name,
+          facts: [
+            ['권한 수', `${role.permissions.length}개`],
+            ['시스템 역할', role.isSystem],
+          ],
+        },
+      }}
+    >
       {/* 역할 정보 — 이름·설명 수정. 시스템 역할은 잠금 안내와 함께 비활성 */}
       <SettingsSection title="역할 정보" description="목록과 구성원 화면에 보이는 이름과 설명이에요.">
         {/* 시스템 역할 잠금 안내 — 폼 필드가 disabled인 이유를 명시 (#676) */}
