@@ -262,6 +262,7 @@ export const driveApi = {
 
   /**
    * 서버 변환 PDF 미리보기(WP-431). path 는 ViewerItem.previewPath(필요하면 `?start=true` 를 붙여서).
+   * 드라이브·메일 공용 경로다(WP-432) — 두 엔드포인트가 같은 200/202/422/404 계약이라 경로만 다르다.
    * 202·404·422 도 정상 응답으로 받아 상태로 돌려주고(404 는 NOT_APPLICABLE 본문만 404, 나머지는 'error'),
    * 그 밖의 상태·네트워크 오류·abort 는 throw 한다.
    */

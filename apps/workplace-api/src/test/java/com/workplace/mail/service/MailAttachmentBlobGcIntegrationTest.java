@@ -3,18 +3,24 @@ package com.workplace.mail.service;
 import static com.workplace.jooq.Tables.CONTENT_ATTACHMENT;
 import static com.workplace.jooq.Tables.EMAIL_CONTENT;
 import static com.workplace.jooq.Tables.MAIL_ATTACHMENT_BLOB;
+import static com.workplace.jooq.Tables.MAIL_ATTACHMENT_PREVIEW;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.mail.repository.ContentAttachmentRepository;
 import com.workplace.mail.repository.MailAttachmentBlobRepository;
+import com.workplace.mail.repository.MailAttachmentPreviewRepository;
+import com.workplace.mail.repository.MailPreviewKey;
 import com.workplace.support.IntegrationTestBase;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
+import java.time.Duration;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
@@ -42,6 +48,12 @@ class MailAttachmentBlobGcIntegrationTest extends IntegrationTestBase {
   @Autowired private MailAttachmentBlobStore blobStore;
   @Autowired private ContentAttachmentRepository contentAttachmentRepo;
   @Autowired private DSLContext dsl;
+  @Autowired private MailAttachmentPreviewRepository previewRepo;
+
+  /**
+   * @AfterEach 에서 정리할 미리보기 해시(행 + 파일).
+   */
+  private final List<String> seededPreviewHashes = new ArrayList<>();
 
   /**
    * @AfterEach 에서 정리할 content_hash 목록.
@@ -92,6 +104,19 @@ class MailAttachmentBlobGcIntegrationTest extends IntegrationTestBase {
                   .execute();
             }
           });
+    }
+    // 미리보기 행·파일 정리
+    if (!seededPreviewHashes.isEmpty()) {
+      cleanupInTenant(
+          T,
+          () ->
+              dsl.deleteFrom(MAIL_ATTACHMENT_PREVIEW)
+                  .where(MAIL_ATTACHMENT_PREVIEW.CONTENT_HASH.in(seededPreviewHashes))
+                  .execute());
+      for (String h : seededPreviewHashes) {
+        seededFileRefs.add(new MailPreviewKey(T, h).previewRef());
+      }
+      seededPreviewHashes.clear();
     }
     // 디스크 파일 best-effort 정리
     for (String ref : seededFileRefs) {
@@ -291,5 +316,124 @@ class MailAttachmentBlobGcIntegrationTest extends IntegrationTestBase {
 
     seededHashes.remove("ttl-expired-gc-hash");
     seededFileRefs.remove(ref);
+  }
+
+  // ── 미리보기 PDF(WP-432) ──
+
+  /**
+   * 미리보기 PDF 는 mail 세그먼트 밖({@code mail-preview})이라 고아 파일 스윕(mail_attachment_blob 에 없는 파일 삭제)이 지우지
+   * 않는다. 지우면 READY 행이 "PDF 유실 → 재변환"을 끝없이 반복한다.
+   *
+   * <p>Teeth: mtime 을 유예(1시간) 밖으로 backdate.
+   */
+  @Test
+  void 고아_파일_스윕은_미리보기_파일을_지우지_않는다() throws Exception {
+    TenantContext.clear();
+    String h = newPreviewHash();
+    blobStore.storePreview(new MailPreviewKey(T, h), "%PDF-1.7 keep".getBytes());
+    Path file = blobStore.resolve(new MailPreviewKey(T, h).previewRef());
+    Files.setLastModifiedTime(file, FileTime.from(Instant.now().minusSeconds(7200)));
+
+    TenantContext.set(T);
+    try {
+      sweeper.sweepOrphanFiles(T);
+    } finally {
+      TenantContext.clear();
+    }
+
+    assertThat(file).as("고아 파일 스윕이 미리보기 파일을 지우면 안 됨 (teeth)").exists();
+  }
+
+  @Test
+  void 참조가_없어진_해시의_미리보기는_GC_가_행과_파일을_지운다() {
+    TenantContext.clear();
+    String h = newPreviewHash();
+    seedReadyPreview(h, false);
+    Path file = blobStore.resolve(new MailPreviewKey(T, h).previewRef());
+    assertThat(file).exists();
+
+    sweep();
+
+    assertThat(previewRow(h)).as("참조 없는 미리보기 행 삭제").isFalse();
+    assertThat(file).as("참조 없는 미리보기 파일 삭제 (teeth)").doesNotExist();
+  }
+
+  @Test
+  void 참조가_남은_해시의_미리보기는_GC_가_남긴다() {
+    TenantContext.clear();
+    String h = newPreviewHash();
+    seedReadyPreview(h, true);
+    Path file = blobStore.resolve(new MailPreviewKey(T, h).previewRef());
+
+    sweep();
+
+    assertThat(previewRow(h)).as("참조가 남은 미리보기 행 보존").isTrue();
+    assertThat(file).as("참조가 남은 미리보기 파일 보존").exists();
+  }
+
+  /** 테스트마다 다른 64자 hex 해시 — 정리 목록에 올린다. */
+  private String newPreviewHash() {
+    String h = (UUID.randomUUID().toString() + UUID.randomUUID()).replace("-", "");
+    seededPreviewHashes.add(h);
+    return h;
+  }
+
+  /**
+   * READY 미리보기 행 + 암호화 파일을 만든다. {@code referenced} 면 같은 트랜잭션에서 해시를 참조하는 content_attachment 도
+   * 만든다(동시에 도는 다른 GC 가 사이에 지우지 못하게).
+   */
+  private void seedReadyPreview(String h, boolean referenced) {
+    MailPreviewKey key = new MailPreviewKey(T, h);
+    blobStore.storePreview(new MailPreviewKey(T, h), "%PDF-1.7 preview".getBytes());
+    TenantContext.set(T);
+    try {
+      new TransactionTemplate(txManager)
+          .executeWithoutResult(
+              status -> {
+                if (referenced) {
+                  long contentId =
+                      dsl.insertInto(EMAIL_CONTENT)
+                          .set(EMAIL_CONTENT.TENANT_ID, T)
+                          .set(EMAIL_CONTENT.MESSAGE_ID, "msg-pv-" + h + "@test.local")
+                          .set(EMAIL_CONTENT.THREAD_ID, "thread-pv-" + h)
+                          .returning(EMAIL_CONTENT.ID)
+                          .fetchOne()
+                          .getId();
+                  seededEmailContentIds.add(contentId);
+                  long caId =
+                      contentAttachmentRepo.findOrCreate(
+                          contentId, 0, "보고서.hwp", "application/x-hwp", 100L, null);
+                  contentAttachmentRepo.setContentHashIfNull(caId, h);
+                  seededContentAttachmentIds.add(caId);
+                }
+                OffsetDateTime token =
+                    previewRepo
+                        .claim(key, T, "v1", Duration.ofMinutes(3), 3, Duration.ofMinutes(10), true)
+                        .orElseThrow();
+                assertThat(previewRepo.markReady(key, token, 1)).isTrue();
+              });
+    } finally {
+      TenantContext.clear();
+    }
+  }
+
+  private boolean previewRow(String h) {
+    TenantContext.set(T);
+    try {
+      return Boolean.TRUE.equals(
+          new TransactionTemplate(txManager)
+              .execute(status -> previewRepo.find(new MailPreviewKey(T, h)).isPresent()));
+    } finally {
+      TenantContext.clear();
+    }
+  }
+
+  private void sweep() {
+    TenantContext.set(T);
+    try {
+      sweeper.sweepTenant();
+    } finally {
+      TenantContext.clear();
+    }
   }
 }

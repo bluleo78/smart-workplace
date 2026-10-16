@@ -1,6 +1,6 @@
 package com.workplace.filepreview.service;
 
-import java.nio.file.Path;
+import org.springframework.core.io.Resource;
 
 /**
  * 미리보기 열람 한 번의 응답(WP-431) — 컨트롤러가 200(PDF)·202·422·404 로 그대로 옮긴다.
@@ -16,10 +16,12 @@ public sealed interface PreviewOutcome
   /**
    * 변환 PDF 준비됨 → 200 application/pdf.
    *
-   * @param engineVersion 이 PDF 를 만든 변환 엔진 버전(ETag 재료)
-   * @param lastModifiedMillis preview.pdf 의 수정 시각(ETag·Last-Modified 재료) — 다시 변환하면 바뀐다
+   * @param body PDF 본문 — 드라이브는 {@code FileSystemResource}, 메일은 복호화한 {@code ByteArrayResource}
+   * @param sizeBytes PDF 크기(Content-Length)
+   * @param etag 따옴표 없는 ETag 값 — 대상이 만든다(원본·엔진·재변환 중 하나라도 바뀌면 달라진다)
+   * @param lastModifiedMillis 결과의 수정 시각(Last-Modified) — 다시 변환하면 바뀐다
    */
-  record Ready(Path pdf, long sizeBytes, String engineVersion, long lastModifiedMillis)
+  record Ready(Resource body, long sizeBytes, String etag, long lastModifiedMillis)
       implements PreviewOutcome {}
 
   /** 변환 중(방금 선점했거나 다른 작업이 리스를 쥐고 있음) → 202. */

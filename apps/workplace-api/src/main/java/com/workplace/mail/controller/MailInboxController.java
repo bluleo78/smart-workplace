@@ -2,6 +2,7 @@ package com.workplace.mail.controller;
 
 import com.workplace.fileai.controller.ViewImageResponses;
 import com.workplace.fileai.dto.ExtractedTextSlice;
+import com.workplace.filepreview.PreviewResponses;
 import com.workplace.mail.dto.AttachmentCacheUsage;
 import com.workplace.mail.dto.EmailMessageDetail;
 import com.workplace.mail.dto.EmailMessageSummary;
@@ -10,6 +11,7 @@ import com.workplace.mail.dto.MailSyncStatus;
 import com.workplace.mail.dto.MailUnreadCounts;
 import com.workplace.mail.dto.MarkAllReadRequest;
 import com.workplace.mail.service.MailAttachmentMeteringService;
+import com.workplace.mail.service.MailAttachmentPreviewService;
 import com.workplace.mail.service.MailAttachmentService;
 import com.workplace.mail.service.MailAttachmentService.AttachmentDownload;
 import com.workplace.mail.service.MailAttachmentTextService;
@@ -47,6 +49,7 @@ public class MailInboxController {
   private final MailAttachmentMeteringService meteringService;
   private final MailAttachmentTextService attachmentTextService;
   private final MailAttachmentViewService attachmentViewService;
+  private final MailAttachmentPreviewService attachmentPreviewService;
 
   /** 계정의 INBOX 를 증분 동기화(수동 트리거). */
   @PostMapping("/accounts/{accountId}/sync")
@@ -209,5 +212,20 @@ public class MailInboxController {
       @PathVariable long attachmentId,
       @RequestParam(required = false) Integer page) {
     return ViewImageResponses.of(attachmentViewService.view(callerId, attachmentId, page));
+  }
+
+  /**
+   * 첨부 문서 미리보기(서버 변환 PDF, WP-432) — HWP·HWPX·PPTX·PPT·DOC 첨부를 첫 열람 때 PDF 로 변환해 원래 모양 그대로 보여 준다. 응답
+   * 계약(200·202·422·404 NOT_APPLICABLE, ETag·304)은 드라이브와 같은 {@link PreviewResponses} 가 맡는다. 본인 소유가
+   * 아니거나 없으면 {@code /content} 와 같은 존재 은닉 404(예외 봉투)다. 변환·원본 받기 동안 DB 연결을 잡지 않게 트랜잭션을 걸지 않는다(R5).
+   *
+   * @param start 시도의 첫 요청(뷰어 열기·[다시 시도])이면 true — 이때만 실패 행을 다시 선점한다. 폴링은 생략
+   */
+  @GetMapping("/attachments/{attachmentId}/preview")
+  public ResponseEntity<?> previewAttachment(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable long attachmentId,
+      @RequestParam(defaultValue = "false") boolean start) {
+    return PreviewResponses.of(attachmentPreviewService.open(callerId, attachmentId, start));
   }
 }

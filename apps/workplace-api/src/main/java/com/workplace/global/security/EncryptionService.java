@@ -109,6 +109,14 @@ public class EncryptionService {
     }
   }
 
+  /**
+   * {@link #encryptBytes} 결과 길이로 평문 길이를 구한다 — GCM 은 암호문 길이가 평문과 같고 앞 IV(12)·뒤 태그(16)만 붙는다. 복호화하지 않고
+   * Content-Length 를 알아야 할 때 쓴다(WP-432 미리보기).
+   */
+  public static long plainLengthOfEncryptedBytes(long encryptedLength) {
+    return encryptedLength - IV_LENGTH - GCM_TAG_LENGTH / 8;
+  }
+
   /** {@link #encryptBytes} 의 역 — 앞 12바이트를 IV 로 읽어 복호화한다. 변조 시 GCM 태그 검증 실패로 예외. */
   public byte[] decryptBytes(byte[] data) {
     try {

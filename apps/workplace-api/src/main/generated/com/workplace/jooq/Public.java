@@ -67,6 +67,7 @@ import com.workplace.jooq.tables.IssueWatcher;
 import com.workplace.jooq.tables.Label;
 import com.workplace.jooq.tables.LoginAttempts;
 import com.workplace.jooq.tables.MailAttachmentBlob;
+import com.workplace.jooq.tables.MailAttachmentPreview;
 import com.workplace.jooq.tables.MailInbox;
 import com.workplace.jooq.tables.Membership;
 import com.workplace.jooq.tables.Message;
@@ -455,6 +456,11 @@ public class Public extends SchemaImpl {
     public final MailAttachmentBlob MAIL_ATTACHMENT_BLOB = MailAttachmentBlob.MAIL_ATTACHMENT_BLOB;
 
     /**
+     * The table <code>public.mail_attachment_preview</code>.
+     */
+    public final MailAttachmentPreview MAIL_ATTACHMENT_PREVIEW = MailAttachmentPreview.MAIL_ATTACHMENT_PREVIEW;
+
+    /**
      * envelope-first 메일 받은편지함 뷰: email_content 직접 조회 금지 표면. account 소유 필터는 소비
      * 쿼리에서 account_id 조건으로 추가한다.
      */
@@ -786,6 +792,7 @@ public class Public extends SchemaImpl {
             Label.LABEL,
             LoginAttempts.LOGIN_ATTEMPTS,
             MailAttachmentBlob.MAIL_ATTACHMENT_BLOB,
+            MailAttachmentPreview.MAIL_ATTACHMENT_PREVIEW,
             MailInbox.MAIL_INBOX,
             Membership.MEMBERSHIP,
             Message.MESSAGE,

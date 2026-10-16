@@ -116,6 +116,8 @@ public final class TenantPurgePlan {
           EMAIL_ACCOUNT,
           CONTENT_ATTACHMENT,
           EMAIL_CONTENT,
+          // 메일 첨부 변환 미리보기 상태(WP-432) — FK 없음. 파일은 테넌트 디렉터리 삭제로 함께 지워진다.
+          MAIL_ATTACHMENT_PREVIEW,
           MAIL_ATTACHMENT_BLOB,
           // 드라이브 → 파일 (drive_file·drive_file_version.file_id NO ACTION)
           DRIVE_SHARE_LINK,

@@ -124,6 +124,26 @@ public class FileStore {
   }
 
   /**
+   * 최선 노력 삭제 — 실패(경로 거부 포함)는 경고만 남긴다. 트랜잭션·결과 기록 같은 원래 흐름을 정리 실패가 가리지 않게 할 때 쓴다(purge·GC·미리보기 정리).
+   */
+  public void deleteQuietly(String stored) {
+    try {
+      deleteIfExists(stored);
+    } catch (RuntimeException e) {
+      log.warn("파일 삭제 실패(무시): {}", stored, e);
+    }
+  }
+
+  /** 루트 밖 경로(예: 시스템 임시 파일)의 최선 노력 삭제 — 실패는 경고만 남긴다. */
+  public static void deleteQuietly(Path path) {
+    try {
+      Files.deleteIfExists(path);
+    } catch (IOException e) {
+      log.warn("파일 삭제 실패(무시): {}", path, e);
+    }
+  }
+
+  /**
    * 임시 파일에 다 쓴 뒤 이름 바꾸기로 한 번에 놓는다(WP-250 렌더 캐시). 같은 경로를 여러 요청이 동시에 써도 읽는 쪽은 언제나 온전한 파일 하나만 본다 — 마지막
    * 이름 바꾸기가 이기고, 반쯤 쓴 파일이 보이는 순간이 없다. 임시 파일은 같은 디렉터리에 둬야 원자적 이름 바꾸기가 된다(다른 파일시스템이면 안 된다).
    */

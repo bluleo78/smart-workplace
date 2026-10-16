@@ -7,13 +7,21 @@ import static com.workplace.jooq.Tables.EMAIL_ACCOUNT;
 import static com.workplace.jooq.Tables.EMAIL_CONTENT;
 import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
 import static com.workplace.jooq.Tables.MAIL_ATTACHMENT_BLOB;
+import static com.workplace.jooq.Tables.MAIL_ATTACHMENT_PREVIEW;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.mail.repository.MailAttachmentPreviewRepository;
+import com.workplace.mail.repository.MailPreviewKey;
 import com.workplace.mail.service.AccountPurgeService;
+import com.workplace.mail.service.MailAttachmentBlobStore;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Duration;
 import java.time.OffsetDateTime;
+import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -27,6 +35,8 @@ class AccountPurgeServiceTest extends IntegrationTestBase {
   @Autowired DSLContext dsl;
   @Autowired AccountPurgeService purgeService;
   @Autowired org.springframework.transaction.PlatformTransactionManager txManager;
+  @Autowired MailAttachmentPreviewRepository previewRepo;
+  @Autowired MailAttachmentBlobStore blobStore;
 
   private static final long TENANT_ID = 1L;
 
@@ -148,6 +158,77 @@ class AccountPurgeServiceTest extends IntegrationTestBase {
               .where(MAIL_ATTACHMENT_BLOB.CONTENT_HASH.in(soloHash, sharedHash))
               .execute();
         });
+  }
+
+  /**
+   * 미리보기(WP-432) 는 해시를 참조하는 content_attachment 가 하나도 없을 때만 지운다. 계정 A·B 가 서로 다른 메일(본문)로 같은 바이트의 첨부를
+   * 받았으면 A 를 purge 해도 B 가 참조하므로 남고, B 까지 purge 하면 행과 파일이 함께 사라진다.
+   */
+  @Test
+  void 계정_purge_는_마지막_참조일_때만_미리보기를_지운다() throws Exception {
+    var tx = new org.springframework.transaction.support.TransactionTemplate(txManager);
+    String hash = (UUID.randomUUID().toString() + UUID.randomUUID()).replace("-", "");
+    MailPreviewKey key = new MailPreviewKey(TENANT_ID, hash);
+    Path file = blobStore.resolve(key.previewRef());
+    blobStore.storePreview(new MailPreviewKey(TENANT_ID, hash), "%PDF-1.7 shared".getBytes());
+
+    // 참조(첨부 2벌)와 READY 행을 한 트랜잭션에서 커밋 — 시간별 GC 가 사이에 끼어 지우지 못하게.
+    long[] ids =
+        tx.execute(
+            status -> {
+              long owner = TestFixtures.createHuman(dsl);
+              long accA = insertAccount(owner, OffsetDateTime.now());
+              long accB = insertAccount(owner, OffsetDateTime.now());
+              long contentA = insertContent("pv-a");
+              long contentB = insertContent("pv-b");
+              insertMessage(accA, insertFolder(accA), contentA);
+              insertMessage(accB, insertFolder(accB), contentB);
+              insertAttachment(contentA, 0, hash);
+              insertAttachment(contentB, 0, hash);
+              OffsetDateTime token =
+                  previewRepo
+                      .claim(
+                          key,
+                          TENANT_ID,
+                          "v1",
+                          Duration.ofMinutes(3),
+                          3,
+                          Duration.ofMinutes(10),
+                          true)
+                      .orElseThrow();
+              assertThat(previewRepo.markReady(key, token, 1)).isTrue();
+              return new long[] {owner, accA, accB, contentA, contentB};
+            });
+    long owner = ids[0], accA = ids[1], accB = ids[2];
+
+    try {
+      purgeService.purgeAccount(owner, accA);
+
+      assertThat(Boolean.TRUE.equals(tx.execute(s -> previewRepo.find(key).isPresent())))
+          .as("B 가 아직 참조 — 미리보기 행 보존")
+          .isTrue();
+      assertThat(file).as("B 가 아직 참조 — 미리보기 파일 보존").exists();
+
+      purgeService.purgeAccount(owner, accB);
+
+      assertThat(Boolean.TRUE.equals(tx.execute(s -> previewRepo.find(key).isPresent())))
+          .as("마지막 참조 소멸 — 미리보기 행 삭제")
+          .isFalse();
+      assertThat(file).as("마지막 참조 소멸 — 미리보기 파일 삭제 (teeth)").doesNotExist();
+    } finally {
+      cleanupInTenant(
+          TENANT_ID,
+          () -> {
+            dsl.deleteFrom(com.workplace.jooq.Tables.USER)
+                .where(com.workplace.jooq.Tables.USER.ID.eq(owner))
+                .execute();
+            dsl.deleteFrom(EMAIL_CONTENT).where(EMAIL_CONTENT.ID.in(ids[3], ids[4])).execute();
+            dsl.deleteFrom(MAIL_ATTACHMENT_PREVIEW)
+                .where(MAIL_ATTACHMENT_PREVIEW.CONTENT_HASH.eq(hash))
+                .execute();
+          });
+      Files.deleteIfExists(file);
+    }
   }
 
   // --- fixtures ---

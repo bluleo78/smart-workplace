@@ -22,8 +22,8 @@ import com.workplace.filepreview.outbound.ConverterProperties;
 import com.workplace.filepreview.repository.FilePreviewRepository;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.PreviewAwait;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.OffsetDateTime;
@@ -32,6 +32,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import org.jooq.DSLContext;
 import org.jooq.impl.DSL;
@@ -130,7 +131,7 @@ class FilePreviewServiceTest extends IntegrationTestBase {
     PreviewOutcome second = open(id, false);
     assertThat(second).isInstanceOf(PreviewOutcome.Ready.class);
     PreviewOutcome.Ready ready = (PreviewOutcome.Ready) second;
-    assertThat(Files.readAllBytes(ready.pdf())).isEqualTo(PDF);
+    assertThat(ready.body().getContentAsByteArray()).isEqualTo(PDF);
     assertThat(ready.sizeBytes()).isEqualTo(PDF.length);
     verify(converter, times(1)).convertPdf(any(), anyString());
   }
@@ -321,6 +322,32 @@ class FilePreviewServiceTest extends IntegrationTestBase {
   }
 
   @Test
+  void 쓴_뒤_다른_작업이_다시_선점했으면_리스를_잃어도_그_결과_파일은_지우지_않는다() {
+    when(converter.convertPdf(any(), anyString())).thenReturn(new ConvertOutcome.Success(PDF, 1));
+    long id = createFile("보고서.hwp", HWP, 100L);
+    String previewPath = PreviewTypes.previewPath(storagePathOf(id));
+    // 쓰기와 READY 기록 사이에 리스가 만료돼 다른 작업이 다시 선점(살아 있는 리스로 CONVERTING) — 같은 위치에 그 작업이 결과를 쓴다.
+    AtomicReference<OffsetDateTime> otherToken = new AtomicReference<>();
+    doAnswer(
+            inv -> {
+              inv.callRealMethod();
+              expireLease(id);
+              otherToken.set(claim(id));
+              return null;
+            })
+        .when(fileStore)
+        .writeAtomically(eq(previewPath), any());
+    OffsetDateTime token = claim(id);
+
+    service.convertClaimed(tid2, id, token, null);
+
+    // 완료 기록 CAS 는 실패했지만, 행은 다른 작업의 살아 있는 리스라 결과 파일을 남긴다.
+    assertThat(row(id).status()).isEqualTo("CONVERTING");
+    assertThat(row(id).leasedUntil()).isEqualTo(otherToken.get());
+    assertThat(fileStore.exists(previewPath)).isTrue();
+  }
+
+  @Test
   void READY_인데_PDF_가_없으면_다시_변환한다() {
     when(converter.convertPdf(any(), anyString())).thenReturn(new ConvertOutcome.Success(PDF, 1));
     long id = createFile("보고서.hwp", HWP, 100L);
@@ -369,7 +396,12 @@ class FilePreviewServiceTest extends IntegrationTestBase {
             props.preview());
     FilePreviewService disabled =
         new FilePreviewService(
-            repo, converter, off, fileStore, txManager, interactiveExecutor, backgroundExecutor);
+            repo,
+            off,
+            fileStore,
+            txManager,
+            new PreviewEngine(converter, off, txManager, interactiveExecutor),
+            backgroundExecutor);
     long id = createFile("보고서.hwp", HWP, 100L);
 
     PreviewOutcome outcome = TenantContext.callAs(tid2, () -> disabled.open(id, true));
@@ -527,19 +559,14 @@ class FilePreviewServiceTest extends IntegrationTestBase {
     return inTenantTx(() -> repo.find(fileId).orElse(null));
   }
 
-  /** 비동기 변환이 목표 상태에 이를 때까지 기다린다(상한 5초·50ms 간격). */
+  /** 비동기 변환이 목표 상태에 이를 때까지 기다린다. */
   private void awaitStatus(long fileId, String status) {
-    long deadline = System.currentTimeMillis() + 5_000;
-    String last = null;
-    while (System.currentTimeMillis() < deadline) {
-      FilePreviewRepository.Row r = row(fileId);
-      last = r == null ? null : r.status();
-      if (status.equals(last)) {
-        return;
-      }
-      sleep(50);
-    }
-    throw new AssertionError("상태 " + status + " 를 기다리다 시간 초과 — 마지막 상태: " + last);
+    PreviewAwait.awaitStatus(
+        () -> {
+          FilePreviewRepository.Row r = row(fileId);
+          return r == null ? null : r.status();
+        },
+        status);
   }
 
   /**

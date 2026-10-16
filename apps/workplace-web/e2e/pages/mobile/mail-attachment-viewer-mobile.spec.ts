@@ -4,7 +4,7 @@ import type { Page } from '@playwright/test'
 
 import { detail } from '../../factories/mail.factory'
 import { mockApi } from '../../fixtures/api-mock'
-import { stubMailWithAttachments } from '../../fixtures/mail-viewer-mock'
+import { DOC_MAIL_ID, stubMailWithAttachments, stubMailWithDocAttachments } from '../../fixtures/mail-viewer-mock'
 import { expect, test } from '../../fixtures/mobile.fixture'
 import { centerOf, touchDrag } from '../../fixtures/touch'
 
@@ -95,4 +95,27 @@ test('360px 에서 긴 첨부 이름은 한 줄로 앞부분만 말줄임하고 
   // 꼬리(확장자)와 크기는 잘리지 않고 보인다.
   await expect(chip.getByText('12.pdf', { exact: true })).toBeInViewport({ ratio: 1 })
   await expect(chip.getByText('2.2 MB', { exact: true })).toBeInViewport({ ratio: 1 })
+})
+
+test('모바일에서도 메일 HWP 첨부가 변환 중 → PDF 로 바뀐다', async ({ authenticatedPage: page }) => {
+  const name = '2026년 언택트 AI R&D 과제기획 전담반 회의 참석안내.hwp'
+  // WP-432 — 변환 대상 첨부는 원본(/content) 대신 변환 PDF 를 폴링한다.
+  const contents = await stubMailWithDocAttachments(page, [
+    { id: 46, filename: name, contentType: 'application/x-hwp', preview: [{ status: 202 }, { status: 200 }] },
+  ])
+  await page.goto('/mail/1')
+  await page.getByTestId(`mail-row-${DOC_MAIL_ID}`).click()
+  await expect(page.getByTestId('mail-detail')).toBeVisible()
+  await page.getByTestId('mail-attachment-open-46').tap()
+  await expect(page.getByTestId('attachment-viewer')).toBeVisible()
+
+  await expect(page.getByTestId('preview-converting')).toContainText('원래 모양으로 여는 중…')
+  await expect(page.getByTestId('pdf-page-1')).toBeVisible()
+  await expect(page.getByTestId('preview-converting')).toHaveCount(0)
+  // 화면 가로 넘침이 없다 — 변환 PDF·긴 파일명이 뷰포트 폭을 밀어내지 않는다.
+  const width = page.viewportSize()!.width
+  const stage = (await page.getByTestId('viewer-stage').boundingBox())!
+  expect(stage.x + stage.width).toBeLessThanOrEqual(width)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
+  expect(contents.count()).toBe(0)
 })

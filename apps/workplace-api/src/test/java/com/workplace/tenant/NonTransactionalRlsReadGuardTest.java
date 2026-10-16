@@ -4,7 +4,6 @@ import static com.workplace.jooq.Tables.CHANNEL;
 import static com.workplace.jooq.Tables.CHANNEL_MEMBER;
 import static com.workplace.jooq.Tables.FILE;
 import static com.workplace.jooq.Tables.MESSAGE;
-import static com.workplace.jooq.Tables.TENANT;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -102,7 +101,7 @@ class NonTransactionalRlsReadGuardTest extends IntegrationTestBase {
 
   /** fixture 테넌트 + 임시 USER 를 커밋(USER 는 RLS 비대상). */
   private void seedCommonFixture() {
-    tid2 = ensureFixtureTenant();
+    tid2 = ensureFixtureTenant(FIXTURE_TENANT_SLUG);
     String suffix = String.valueOf(System.nanoTime() % 1_000_000_000L);
     userId =
         dsl.insertInto(USER)
@@ -168,25 +167,6 @@ class NonTransactionalRlsReadGuardTest extends IntegrationTestBase {
                       .getId();
               return null; // 커밋(롤백 안 함)
             });
-  }
-
-  /** 고정 슬러그로 fixture 테넌트를 find-or-create(커밋). app_tenant 는 tenant DELETE 불가(V46) → 1행 누적 방지. */
-  private long ensureFixtureTenant() {
-    Long existing =
-        dsl.select(TENANT.ID)
-            .from(TENANT)
-            .where(TENANT.SLUG.eq(FIXTURE_TENANT_SLUG))
-            .fetchOne(TENANT.ID);
-    if (existing != null) {
-      return existing;
-    }
-    return dsl.insertInto(TENANT)
-        .set(TENANT.SLUG, FIXTURE_TENANT_SLUG)
-        .set(TENANT.NAME, "RLS Guard Fixture Tenant")
-        .set(TENANT.STATUS, "ACTIVE")
-        .returning(TENANT.ID)
-        .fetchOne()
-        .getId();
   }
 
   /** 트랜잭션-로컬 GUC 직접 설정 헬퍼. */

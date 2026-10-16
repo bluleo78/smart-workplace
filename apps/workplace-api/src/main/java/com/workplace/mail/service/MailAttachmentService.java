@@ -20,7 +20,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * 메일 첨부 파일 다운로드 서비스. DB 에 저장된 첨부 메타(ordinal)를 기반으로 IMAP 또는 Graph API 에서 바이너리를 재조회해 반환한다.
@@ -43,6 +45,7 @@ public class MailAttachmentService {
   private final MailAttachmentBlobRepository blobRepo;
   private final MailAttachmentBlobStore blobStore;
   private final ContentAttachmentRepository contentAttachmentRepo;
+  private final PlatformTransactionManager txManager;
 
   /** 첨부 캐시 최대 크기(바이트). 초과하는 첨부는 매번 provider 에서 재fetch 하고 blob 에 저장하지 않는다. 기본값 25MiB(26214400). */
   @Value("${workplace.storage.mail.max-cache-bytes:26214400}")
@@ -50,6 +53,12 @@ public class MailAttachmentService {
 
   /** 다운로드 결과 캐리어. */
   public record AttachmentDownload(byte[] content, String filename, String contentType) {}
+
+  /** IMAP 접속 정보 — 짧은 트랜잭션에서 읽어 두고 접속·받기는 트랜잭션 밖에서 한다. Graph 는 null(토큰 서비스가 자기 트랜잭션으로 읽는다). */
+  private record ImapLogin(EmailAccountResponse account, String password) {}
+
+  /** 캐시 조회 결과 — 적중이면 fileRef, 아니면 provider 접속 정보(Graph 는 null). */
+  private record Lookup(String cachedFileRef, ImapLogin login) {}
 
   /**
    * 첨부 파일 바이너리 다운로드. 소유 검증 포함. 캐시 hit 시 blob 에서 즉시 반환, miss 시 provider fetch 후 캐시에 등록한다.
@@ -79,7 +88,6 @@ public class MailAttachmentService {
    */
   @Transactional
   public AttachmentDownload download(long userId, AttachmentDownloadContext ctx) {
-    long attachmentId = ctx.attachmentId();
     String filename = ctx.filename() != null ? ctx.filename() : "attachment";
     String contentType = ctx.contentType() != null ? ctx.contentType() : "application/octet-stream";
 
@@ -95,36 +103,112 @@ public class MailAttachmentService {
     }
 
     // 2) miss: 요청자(caller) 좌표로 provider 에서 fetch.
-    byte[] content = fetchFromProvider(userId, ctx, attachmentId);
+    byte[] content = fetchWith(providerLogin(userId, ctx), userId, ctx);
 
     // 3) 25MB knob: 대용량은 캐시하지 않고 그대로 서빙(blob 미영속).
     //    legacy unmanifested row(contentAttachmentId==0)도 캐시하지 않는다.
-    if (content.length <= maxCacheBytes && ctx.contentAttachmentId() != 0) {
+    if (cacheable(ctx, content)) {
       String hash = sha256Hex(content);
-      long tenantId = TenantContext.get();
-      String fileRef = blobStore.store(tenantId, hash, content);
-      // ON CONFLICT DO NOTHING — 동시 경쟁 흡수. 패배 시 fileRef 는 orphan → GC 스윕 처리.
-      blobRepo.insertIfAbsent(hash, fileRef, content.length);
-      // 불변 content_hash 1회 기록(이미 non-null 이면 NO-OP).
-      contentAttachmentRepo.setContentHashIfNull(ctx.contentAttachmentId(), hash);
+      registerCache(ctx, hash, storeBlob(hash, content), content.length);
     }
 
     return new AttachmentDownload(content, filename, contentType);
   }
 
   /**
-   * provider 분기 — IMAP 또는 Graph 에서 바이트를 가져온다. 404 가드(imapUid==0, providerMessageId==null 등)는 내부에서
-   * 처리한다.
+   * {@link #download(long, AttachmentDownloadContext)} 와 같은 캐시·provider 경로를, provider 를 부르는 동안 DB
+   * 연결을 잡지 않고 한다 (WP-432 미리보기 — 해시 채우기와 변환 작업이 원본을 받는다). 호출자가 트랜잭션 밖에서 불러야 의미가 있다.
+   *
+   * <ol>
+   *   <li>짧은 트랜잭션: 캐시 조회(+TTL 갱신) 또는 IMAP 접속 정보 읽기(RLS — 트랜잭션 밖이면 빈 결과로 거짓 404).
+   *   <li>트랜잭션 없음: 캐시 blob 복호화 또는 provider 받기.
+   *   <li>짧은 트랜잭션: 캐시 등록(blob 행·content_hash) — blob 파일은 그 전에 트랜잭션 밖에서 쓴다.
+   * </ol>
+   *
+   * @param ctx 이 userId 로 소유를 확인한 컨텍스트(호출자 책임)
+   * @throws EmailAttachmentNotFoundException 원본이 provider 에 없을 때
    */
-  private byte[] fetchFromProvider(long userId, AttachmentDownloadContext ctx, long attachmentId) {
+  public AttachmentDownload downloadForPreview(long userId, AttachmentDownloadContext ctx) {
+    String filename = ctx.filename() != null ? ctx.filename() : "attachment";
+    String contentType = ctx.contentType() != null ? ctx.contentType() : "application/octet-stream";
+    TransactionTemplate tx = new TransactionTemplate(txManager);
+
+    Lookup lookup =
+        tx.execute(
+            s -> {
+              if (ctx.contentHash() != null) {
+                var hit = blobRepo.findByHash(ctx.contentHash());
+                if (hit.isPresent()) {
+                  blobRepo.touch(ctx.contentHash());
+                  return new Lookup(hit.get().fileRef(), null);
+                }
+              }
+              return new Lookup(null, providerLogin(userId, ctx));
+            });
+    if (lookup.cachedFileRef() != null) {
+      return new AttachmentDownload(blobStore.load(lookup.cachedFileRef()), filename, contentType);
+    }
+
+    byte[] content = fetchWith(lookup.login(), userId, ctx);
+
+    if (cacheable(ctx, content)) {
+      String hash = sha256Hex(content);
+      String fileRef = storeBlob(hash, content);
+      tx.executeWithoutResult(s -> registerCache(ctx, hash, fileRef, content.length));
+    }
+    return new AttachmentDownload(content, filename, contentType);
+  }
+
+  /** 캐시 대상인지 — 상한 이하이고 manifest 가 있는 첨부만(레거시 contentAttachmentId==0 은 기록할 곳이 없다). */
+  private boolean cacheable(AttachmentDownloadContext ctx, byte[] content) {
+    return content.length <= maxCacheBytes && ctx.contentAttachmentId() != 0;
+  }
+
+  /** 캐시 blob 파일을 암호화해 쓴다(디스크 I/O — 트랜잭션 밖이어도 된다). */
+  private String storeBlob(String hash, byte[] content) {
+    return blobStore.store(TenantContext.get(), hash, content);
+  }
+
+  /** 캐시 blob 행·content_hash 를 기록한다(트랜잭션 안). */
+  private void registerCache(
+      AttachmentDownloadContext ctx, String hash, String fileRef, long sizeBytes) {
+    // ON CONFLICT DO NOTHING — 동시 경쟁 흡수. 패배 시 fileRef 는 orphan → GC 스윕 처리.
+    blobRepo.insertIfAbsent(hash, fileRef, sizeBytes);
+    // 불변 content_hash 1회 기록(이미 non-null 이면 NO-OP).
+    contentAttachmentRepo.setContentHashIfNull(ctx.contentAttachmentId(), hash);
+  }
+
+  /**
+   * provider 받기 전 DB 에서 읽을 것(트랜잭션 안) — IMAP 은 계정·비밀번호, Graph 는 없음(null). 받을 수 없는 좌표(로컬 작성 보낸메일
+   * imap_uid=0)는 여기서 404 로 끊는다.
+   */
+  private ImapLogin providerLogin(long userId, AttachmentDownloadContext ctx) {
+    long attachmentId = ctx.attachmentId();
     if ("M365_GRAPH".equals(ctx.provider())) {
-      return graphBytes(userId, ctx, attachmentId);
+      return null;
     }
     // 로컬에서 작성한 보낸메일(imap_uid=0) — IMAP 에 파트 없으므로 404.
     if (ctx.imapUid() == 0L) {
       throw new EmailAttachmentNotFoundException(attachmentId);
     }
-    return imapBytes(userId, ctx, attachmentId);
+    EmailAccountResponse account =
+        accountRepo
+            .findByIdAndUser(userId, ctx.accountId())
+            .orElseThrow(() -> new EmailAttachmentNotFoundException(attachmentId));
+    String password =
+        accountRepo
+            .findEncryptedPassword(userId, ctx.accountId())
+            .map(encryption::decrypt)
+            .orElseThrow(() -> new EmailAttachmentNotFoundException(attachmentId));
+    return new ImapLogin(account, password);
+  }
+
+  /** provider 분기 — IMAP 또는 Graph 에서 바이트를 가져온다(접속·받기만 — 트랜잭션 밖에서 불러도 된다). */
+  private byte[] fetchWith(ImapLogin login, long userId, AttachmentDownloadContext ctx) {
+    if ("M365_GRAPH".equals(ctx.provider())) {
+      return graphBytes(userId, ctx, ctx.attachmentId());
+    }
+    return imapBytes(login, ctx, ctx.attachmentId());
   }
 
   /**
@@ -162,22 +246,12 @@ public class MailAttachmentService {
     }
   }
 
-  /** IMAP 에서 첨부 바이트를 가져온다. */
-  private byte[] imapBytes(long userId, AttachmentDownloadContext ctx, long attachmentId) {
-    EmailAccountResponse account =
-        accountRepo
-            .findByIdAndUser(userId, ctx.accountId())
-            .orElseThrow(() -> new EmailAttachmentNotFoundException(attachmentId));
-    String password =
-        accountRepo
-            .findEncryptedPassword(userId, ctx.accountId())
-            .map(encryption::decrypt)
-            .orElseThrow(() -> new EmailAttachmentNotFoundException(attachmentId));
-
+  /** IMAP 에서 첨부 바이트를 가져온다(접속 정보는 {@link #providerLogin} 이 미리 읽었다). */
+  private byte[] imapBytes(ImapLogin login, AttachmentDownloadContext ctx, long attachmentId) {
     Store store = null;
     Folder folder = null;
     try {
-      store = imapConnector.connect(account, password);
+      store = imapConnector.connect(login.account(), login.password());
       folder = store.getFolder(ctx.folderName());
       folder.open(Folder.READ_ONLY);
       Message msg = ((UIDFolder) folder).getMessageByUID(ctx.imapUid());

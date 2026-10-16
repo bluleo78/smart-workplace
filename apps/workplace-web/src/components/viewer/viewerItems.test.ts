@@ -161,6 +161,30 @@ describe('mailAttachmentItem', () => {
     expect(mailAttachmentItem(att({ filename: 'p.jpg', contentType: 'image/pjpeg' })).mimeType).toBe('image/jpeg')
   })
 
+  it('메일 한글 첨부는 변환 PDF 경로를 갖고 CONVERTED_PDF — 형식 별칭은 정규형으로(WP-432)', () => {
+    const it = mailAttachmentItem(att({ filename: '회의.hwp', contentType: 'application/haansofthwp' }))
+    expect(it.previewPath).toBe('/mail/attachments/7/preview')
+    expect(it.mimeType).toBe('application/x-hwp')
+    expect(itemPreviewKind(it)).toBe('CONVERTED_PDF')
+    // 내려받기는 원본 그대로다.
+    expect(it.downloadPath).toBe('/mail/attachments/7/content')
+  })
+
+  it('범용 형식 오피스 첨부도 파일명으로 변환 대상을 알아본다(octet-stream + pptx)', () => {
+    const it = mailAttachmentItem(att({ filename: '발표.pptx', contentType: 'application/octet-stream' }))
+    expect(it.previewPath).toBe('/mail/attachments/7/preview')
+    expect(itemPreviewKind(it)).toBe('CONVERTED_PDF')
+  })
+
+  it('변환 대상이 아닌 메일 첨부(PDF·DOCX)는 previewPath 가 없고 원래 렌더러로 연다', () => {
+    expect(mailAttachmentItem(att()).previewPath).toBeUndefined()
+    const docx = mailAttachmentItem(att({
+      filename: 'a.docx', contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    }))
+    expect(docx.previewPath).toBeUndefined()
+    expect(itemPreviewKind(docx)).toBe('DOCX')
+  })
+
   it('형식·파일명이 없으면 octet-stream·attachment-{id} 로 채운다(예전 다운로드 파일명 규칙)', () => {
     const it = mailAttachmentItem(att({ filename: null, contentType: null }))
     expect(it.mimeType).toBe('application/octet-stream')
@@ -343,13 +367,11 @@ describe('itemPreviewKind — 변환 미리보기 판정(WP-431)', () => {
     expect(it.mimeType).toBe('application/x-hwp')
     expect(itemPreviewKind(it)).toBe('CONVERTED_PDF')
   })
-  it('드라이브 밖(이슈 첨부·메일 첨부·이슈 드라이브 링크)의 HWP 는 변환 경로가 없어 UNSUPPORTED', () => {
+  it('드라이브·메일 밖(이슈 첨부·이슈 드라이브 링크)의 HWP 는 변환 경로가 없어 UNSUPPORTED', () => {
     const a = { fileId: 6, originalName: '보고서.hwp', mimeType: 'application/x-hwp', sizeBytes: 3 } as IssueAttachment
     const issue = issueAttachmentItem('WP', 12, a)
     expect(issue.previewPath).toBeUndefined()
     expect(itemPreviewKind(issue)).toBe('UNSUPPORTED')
-    const mail = mailAttachmentItem({ id: 9, filename: '보고서.hwp', contentType: 'application/x-hwp', sizeBytes: 3 } as EmailAttachmentMeta)
-    expect(itemPreviewKind(mail)).toBe('UNSUPPORTED')
     const l = { driveFileId: 81, fileId: 301, name: '보고서.hwp', mimeType: 'application/x-hwp', sizeBytes: 3, spaceId: 1, availability: 'ACTIVE' } as DriveLink
     const link = issueDriveLinkItem('WP', 12, l)
     expect(link.previewPath).toBeUndefined()

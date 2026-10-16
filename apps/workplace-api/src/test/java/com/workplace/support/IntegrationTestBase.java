@@ -2,6 +2,7 @@ package com.workplace.support;
 
 import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.ROLE;
+import static com.workplace.jooq.Tables.TENANT;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
 
@@ -223,6 +224,34 @@ public abstract class IntegrationTestBase {
         .onConflictDoNothing()
         .execute();
     return userId;
+  }
+
+  /**
+   * 고정 슬러그로 fixture 테넌트를 find-or-create 한다(커밋) — app_tenant 는 tenant DELETE 불가(V46)라 고정 슬러그로 행 누적을
+   * 막는다. 이미 트랜잭션 안이면 거기에 합류하고(REQUIRED), 아니면 짧은 트랜잭션을 연다.
+   */
+  protected long ensureFixtureTenant(String slug) {
+    return new TransactionTemplate(txManager)
+        .execute(
+            status -> {
+              Long existing =
+                  baseDsl
+                      .select(TENANT.ID)
+                      .from(TENANT)
+                      .where(TENANT.SLUG.eq(slug))
+                      .fetchOne(TENANT.ID);
+              if (existing != null) {
+                return existing;
+              }
+              return baseDsl
+                  .insertInto(TENANT)
+                  .set(TENANT.SLUG, slug)
+                  .set(TENANT.NAME, "Test Fixture " + slug)
+                  .set(TENANT.STATUS, "ACTIVE")
+                  .returning(TENANT.ID)
+                  .fetchOne()
+                  .getId();
+            });
   }
 
   /** 테넌트#1 롤백 트랜잭션 안에서 시나리오를 실행하고 soft 단언을 모아 검증한다(시드가 다른 테스트에 남지 않는다). */

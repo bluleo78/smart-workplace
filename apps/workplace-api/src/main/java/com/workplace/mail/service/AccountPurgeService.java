@@ -7,6 +7,8 @@ import com.workplace.file.storage.FileStore;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailContentRepository;
 import com.workplace.mail.repository.MailAttachmentBlobRepository;
+import com.workplace.mail.repository.MailAttachmentPreviewRepository;
+import java.util.ArrayList;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -21,8 +23,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  * <p>화면에서는 disabled_at + 조회 필터로 이미 숨겨진 상태이며, 이 서비스는 백그라운드에서 실제 데이터를 완전히 제거한다.
  *
  * <p>절차: (1) 삭제 전 content_id·blob 해시 후보 수집 → (2) 단일 트랜잭션에서 계정 하드삭제(cascade) + 고아 본문 GC + 고아 blob DB
- * 행 삭제 → (3) 커밋 후 디스크 파일 best-effort 삭제. 모든 DB 단계는 호출 시점 TenantContext GUC 안에서 실행되어야 한다(스케줄러가 테넌트별로
- * set).
+ * 행·참조 없는 미리보기 행 삭제 → (3) 커밋 후 디스크 파일 best-effort 삭제. 모든 DB 단계는 호출 시점 TenantContext GUC 안에서 실행되어야
+ * 한다(스케줄러가 테넌트별로 set).
  */
 @Slf4j
 @Service
@@ -33,6 +35,7 @@ public class AccountPurgeService {
   private final EmailAccountRepository accountRepo;
   private final EmailContentRepository contentRepo;
   private final MailAttachmentBlobRepository blobRepo;
+  private final MailAttachmentPreviewRepository previewRepo;
   private final FileStore fileStore;
   private final PlatformTransactionManager txManager;
 
@@ -49,7 +52,8 @@ public class AccountPurgeService {
     // 이 조용히 누수된다(#492/#517/#525/#444 동일 함정). 따라서 후보 수집(SELECT)도 트랜잭션 안에서.
     //
     // 순서: (1) 삭제 전 content_id·blob 해시 후보 수집 → (2) 계정 하드삭제(cascade: 메시지·첨부·캘린더·일정)
-    //       → (3) 고아 본문 GC(→content_attachment cascade) → (4) 고아 blob DB 행 삭제(+fileRef 수집).
+    //       → (3) 고아 본문 GC(→content_attachment cascade) → (4) 고아 blob DB 행 삭제(+fileRef 수집)
+    //       → (5) 참조가 0 이 된 미리보기 행 삭제 + 같은 트랜잭션에서 그 파일 삭제(WP-432). 다른 계정이 같은 해시를 아직 참조하면 남는다.
     List<String> orphanFileRefs =
         new TransactionTemplate(txManager)
             .execute(
@@ -70,18 +74,17 @@ public class AccountPurgeService {
                               .fetch(CONTENT_ATTACHMENT.CONTENT_HASH);
                   accountRepo.hardDelete(accountId);
                   contentRepo.deleteOrphans(contentIds);
-                  return blobRepo.deleteOrphanBlobsByHash(candidateHashes);
+                  List<String> refs =
+                      new ArrayList<>(blobRepo.deleteOrphanBlobsByHash(candidateHashes));
+                  // 미리보기 파일은 행 잠금을 쥔 이 트랜잭션 안에서 지운다 — 커밋 뒤에 지우면 그 사이 같은 해시를 다시 선점·변환한
+                  // 작업의 결과(결정적 경로라 같은 위치)를 지울 수 있다. 선점 업서트는 이 커밋까지 기다린다.
+                  previewRepo.deleteUnreferenced(candidateHashes).forEach(fileStore::deleteQuietly);
+                  return refs;
                 });
 
-    // 커밋 후 디스크 파일 삭제 — best-effort(롤백 위험 제거). 실패해도 데이터 무결성엔 영향 없음(고아 파일만 잔존).
+    // 커밋 후 캐시 blob 파일 삭제 — best-effort(롤백 위험 제거). 실패해도 데이터 무결성엔 영향 없음(고아 파일만 잔존).
     if (orphanFileRefs != null) {
-      for (String ref : orphanFileRefs) {
-        try {
-          fileStore.deleteIfExists(ref);
-        } catch (RuntimeException e) {
-          log.warn("purge 디스크 blob 삭제 실패(무시) fileRef={} accountId={}", ref, accountId, e);
-        }
-      }
+      orphanFileRefs.forEach(fileStore::deleteQuietly);
     }
     log.info(
         "계정 purge 완료 accountId={} userId={} blob삭제={}",

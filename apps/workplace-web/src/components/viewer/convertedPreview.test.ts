@@ -29,6 +29,15 @@ describe('toConvertedState', () => {
     })
   })
 
+  // 메일 첨부의 원본이 provider 에서 사라짐(WP-432) — 코드별 분기 없이 transient=false 가 영구 실패 화면(다운로드만)을 고른다.
+  it('422 SOURCE_MISSING → 영구 실패', () => {
+    expect(toConvertedState({ status: 422, code: 'SOURCE_MISSING', transient: false })).toEqual({
+      s: 'failed',
+      code: 'SOURCE_MISSING',
+      transient: false,
+    })
+  })
+
   it('404 → unsupported', () => {
     expect(toConvertedState({ status: 404 })).toEqual({ s: 'unsupported' })
   })

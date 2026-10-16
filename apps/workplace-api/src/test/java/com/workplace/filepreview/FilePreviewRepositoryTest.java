@@ -7,7 +7,7 @@ import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.filepreview.repository.FilePreviewRepository;
-import com.workplace.filepreview.repository.FilePreviewRepository.Row;
+import com.workplace.filepreview.repository.PreviewStateStore.Row;
 import com.workplace.support.IntegrationTestBase;
 import java.time.Duration;
 import java.time.OffsetDateTime;

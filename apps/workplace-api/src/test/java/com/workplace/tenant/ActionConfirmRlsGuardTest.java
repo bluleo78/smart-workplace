@@ -4,7 +4,6 @@ import static com.workplace.jooq.Tables.CALENDAR_EVENT;
 import static com.workplace.jooq.Tables.PERMISSION;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.ROLE_PERMISSION;
-import static com.workplace.jooq.Tables.TENANT;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -85,7 +84,7 @@ class ActionConfirmRlsGuardTest extends IntegrationTestBase {
     new TransactionTemplate(txManager)
         .execute(
             status -> {
-              tid2 = ensureFixtureTenant();
+              tid2 = ensureFixtureTenant(FIXTURE_TENANT_SLUG);
               String suffix = String.valueOf(System.nanoTime() % 1_000_000_000L);
               // USER 는 전역(RLS 비대상) — GUC 무관하게 삽입.
               userId =
@@ -125,25 +124,6 @@ class ActionConfirmRlsGuardTest extends IntegrationTestBase {
               TestFixtures.activeMemberOfCurrentTenant(dsl, userId);
               return null; // 커밋(롤백 안 함)
             });
-  }
-
-  /** 고정 슬러그로 fixture 테넌트를 find-or-create(커밋). app_tenant 는 tenant DELETE 불가(V46) → 1행 누적 방지. */
-  private long ensureFixtureTenant() {
-    Long existing =
-        dsl.select(TENANT.ID)
-            .from(TENANT)
-            .where(TENANT.SLUG.eq(FIXTURE_TENANT_SLUG))
-            .fetchOne(TENANT.ID);
-    if (existing != null) {
-      return existing;
-    }
-    return dsl.insertInto(TENANT)
-        .set(TENANT.SLUG, FIXTURE_TENANT_SLUG)
-        .set(TENANT.NAME, "RLS Guard Home Confirm Tenant")
-        .set(TENANT.STATUS, "ACTIVE")
-        .returning(TENANT.ID)
-        .fetchOne()
-        .getId();
   }
 
   /** 트랜잭션-로컬 GUC 직접 설정 헬퍼. */

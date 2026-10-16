@@ -3,7 +3,8 @@
 import type { Page } from '@playwright/test'
 
 import { createSpace, personalSpace } from '../factories/drive.factory'
-import { SAMPLE_MP3, SAMPLE_PDF, SAMPLE_WEBM } from './samples'
+import { type PreviewStub, routePreviewSequence } from './preview-stub'
+import { SAMPLE_MP3, SAMPLE_WEBM } from './samples'
 
 /** 요약 응답 본문. */
 export interface DriveSummaryStub {
@@ -12,15 +13,8 @@ export interface DriveSummaryStub {
   reason?: string
 }
 
-/**
- * 변환 미리보기(/preview) 응답 하나(WP-431) — 200 = 변환 PDF(SAMPLE_PDF), 202 = 변환 중, 422 = 실패(code·transient),
- * 404 = notApplicable 이면 서버의 "대상 아님" 본문(`{"status":"NOT_APPLICABLE"}`), 아니면 예외 봉투(휴지통·권한·원본 유실과 같은 모양).
- */
-export type PreviewStub =
-  | { status: 200 }
-  | { status: 202 }
-  | { status: 422; code: string; transient: boolean }
-  | { status: 404; notApplicable: boolean }
+/** 변환 미리보기 응답 순서 — 공용 fixture(preview-stub)로 옮겼고, 기존 import 경로를 위해 다시 내보낸다. */
+export type { PreviewStub }
 
 /** 모킹할 드라이브 파일 하나. */
 export interface DriveStubFile {
@@ -98,34 +92,7 @@ export async function stubDriveFiles(page: Page, files: DriveStubFile[], opts: S
         r.fulfill({ status: 200, contentType: f.mimeType, body: f.body }),
       )
     }
-    if (f.preview?.length) {
-      const seq = f.preview
-      let next = 0
-      // pathname 일치라 ?start=true 가 붙어도 같은 순서를 탄다.
-      await page.route((u) => u.pathname === `/api/v1/drive/files/${f.id}/preview`, async (r) => {
-        const stub = seq[Math.min(next, seq.length - 1)]
-        const res =
-          stub.status === 200
-            ? { status: 200, contentType: 'application/pdf', body: SAMPLE_PDF }
-            : stub.status === 202
-              ? { status: 202, json: { status: 'CONVERTING' } }
-              : stub.status === 404
-                ? {
-                    status: 404,
-                    json: stub.notApplicable
-                      ? { status: 'NOT_APPLICABLE' }
-                      : { status: 404, error: 'Not Found', message: '파일을 찾을 수 없습니다' },
-                  }
-                : { status: 422, json: { status: 'FAILED', code: stub.code, transient: stub.transient } }
-        // 응답이 실제로 나간 요청만 순서를 넘긴다 — 개발 모드 StrictMode 이중 마운트로 곧바로 abort 된 첫 요청이 순서를 먹지 않게.
-        try {
-          await r.fulfill(res)
-          next++
-        } catch {
-          // abort 된 요청 — 무시한다.
-        }
-      })
-    }
+    if (f.preview?.length) await routePreviewSequence(page, `/api/v1/drive/files/${f.id}/preview`, f.preview)
     await page.route((u) => u.pathname === `/api/v1/drive/files/${f.id}/thumbnail`, (r) => r.fulfill({ status: 404 }))
     await page.route((u) => u.pathname === `/api/v1/drive/files/${f.id}/summary`, (r) =>
       typeof f.summary === 'number'

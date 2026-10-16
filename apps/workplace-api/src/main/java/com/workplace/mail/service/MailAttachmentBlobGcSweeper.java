@@ -4,6 +4,7 @@ import static com.workplace.jooq.Tables.CONTENT_ATTACHMENT;
 import static com.workplace.jooq.Tables.MAIL_ATTACHMENT_BLOB;
 
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.mail.repository.MailAttachmentPreviewRepository;
 import com.workplace.tenant.repository.TenantRepository;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -58,6 +59,7 @@ public class MailAttachmentBlobGcSweeper {
   private final DSLContext dsl;
   private final TransactionTemplate txTemplate;
   private final MailAttachmentBlobStore blobStore;
+  private final MailAttachmentPreviewRepository previewRepo;
   private final long ttlDays;
 
   public MailAttachmentBlobGcSweeper(
@@ -65,12 +67,14 @@ public class MailAttachmentBlobGcSweeper {
       DSLContext dsl,
       PlatformTransactionManager txManager,
       MailAttachmentBlobStore blobStore,
+      MailAttachmentPreviewRepository previewRepo,
       @Value("${workplace.storage.mail.ttl-days:7}") long ttlDays) {
     this.tenantRepository = tenantRepository;
     this.dsl = dsl;
     // @Primary TenantAwareTransactionManager 사용 — 트랜잭션 진입 시 GUC 주입
     this.txTemplate = new TransactionTemplate(txManager);
     this.blobStore = blobStore;
+    this.previewRepo = previewRepo;
     this.ttlDays = ttlDays;
   }
 
@@ -115,6 +119,7 @@ public class MailAttachmentBlobGcSweeper {
    *   <li>DB 행 id 로 삭제 (트랜잭션).
    *   <li>디스크 파일 삭제 (커밋 후 best-effort).
    *   <li>orphan-file 백스톱 스윕.
+   *   <li>참조가 0 인 미리보기(WP-432) 행 삭제와 파일 삭제(같은 트랜잭션 — 행 잠금을 쥔 채).
    * </ol>
    */
   public void sweepTenant() {
@@ -142,6 +147,7 @@ public class MailAttachmentBlobGcSweeper {
 
     if (doomed == null || doomed.isEmpty()) {
       sweepOrphanFiles(tenantId);
+      sweepUnreferencedPreviews(tenantId);
       return;
     }
 
@@ -162,6 +168,29 @@ public class MailAttachmentBlobGcSweeper {
 
     // 4) orphan-file 백스톱: 디스크 파일 중 DB 행 없는 것 정리.
     sweepOrphanFiles(tenantId);
+
+    // 5) 미리보기 refcount-0 정리.
+    sweepUnreferencedPreviews(tenantId);
+  }
+
+  /**
+   * 어떤 content_attachment 도 해시를 참조하지 않는 미리보기 행을 지우고, <b>같은 트랜잭션 안에서</b> 파일도 지운다(WP-432).
+   *
+   * <p>커밋 뒤에 지우면, 그 사이 같은 해시를 새로 선점·변환한 작업의 결과 파일(결정적 경로라 같은 위치)을 지울 수 있다. DELETE 로 잡은 행 잠금을 쥔 채
+   * 파일을 지우면 같은 키의 선점 업서트는 커밋까지 기다린다. 행을 먼저 지우므로 진행 중이던 변환 작업은 READY 기록(CAS)에 실패해 스스로 결과를 지운다. 유효
+   * 리스의 CONVERTING 행은 저장소가 남긴다. 파일 삭제 실패는 건별로 삼킨다 — 행 삭제까지 롤백되지 않게.
+   */
+  private void sweepUnreferencedPreviews(Long tenantId) {
+    Integer count =
+        txTemplate.execute(
+            status -> {
+              List<String> paths = previewRepo.deleteAllUnreferenced();
+              paths.forEach(blobStore::deleteQuietly);
+              return paths.size();
+            });
+    if (count != null && count > 0) {
+      log.info("테넌트 {} 참조 없는 미리보기 {} 건 정리", tenantId, count);
+    }
   }
 
   /**

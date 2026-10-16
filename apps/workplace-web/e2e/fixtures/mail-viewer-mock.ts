@@ -1,12 +1,14 @@
 // 메일 첨부 뷰어 E2E 모킹(WP-280) — 데스크톱·모바일 spec 이 같은 메일·첨부 구성을 쓴다.
 // 10번 메일: HTML 본문에 cid 인라인 이미지(5) 1개 + 일반 첨부 PDF(6)·텍스트(7).
 // 인라인 이미지는 본문에 표시되므로 첨부 목록·뷰어 묶음에서 빠져야 한다(묶음 = 6·7, "n / 2").
+// 13번 메일(stubMailWithDocAttachments, WP-432): 한글·오피스 문서 첨부만 — /preview 응답 순서를 첨부별로 준다.
 // 12번 메일: 메일 클라이언트가 형식을 octet-stream·빈 값으로 보낸 PDF(8)·Markdown(9) — 파일명 확장자로 추론해 미리 봐야 한다.
 import type { Page } from '@playwright/test'
 
 import { detail, mailAccount, summary } from '../factories/mail.factory'
 import { mockApi } from './api-mock'
 import { solidPng } from './png'
+import { type PreviewStub, routePreviewSequence } from './preview-stub'
 import { SAMPLE_PDF } from './samples'
 import { trackRequests } from './requests'
 
@@ -84,5 +86,57 @@ export async function stubMailWithAttachments(page: Page) {
       })
     },
   )
+  return contents
+}
+
+/** 변환 미리보기 대상 문서 첨부(WP-432) — preview 가 있으면 /preview 를 그 순서로 응답한다. */
+export interface MailDocAttachmentStub {
+  id: number
+  filename: string
+  contentType: string
+  preview?: PreviewStub[]
+}
+
+/** 문서 첨부 메일 id — 기존 10·11·12 묶음(순서·개수 단언)과 겹치지 않게 따로 둔다. */
+export const DOC_MAIL_ID = 13
+/** 문서 첨부 원본 바이트 — 변환 항목은 받지 않아야 하고, 다운로드는 이 원본을 저장한다. */
+const DOC_BODY = Buffer.from('HWP')
+
+/**
+ * 계정·13번(문서 첨부)만 담은 목록·상세·첨부 콘텐츠·변환 미리보기를 모킹하고, /content 요청만 세는 tracker 를 돌려준다.
+ * /content 는 실제 서버처럼 Content-Disposition: attachment 로 원본을 준다.
+ */
+export async function stubMailWithDocAttachments(page: Page, atts: MailDocAttachmentStub[]) {
+  await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
+  await mockApi(page, 'GET', '/api/v1/mail/accounts/1/messages', [summary({ id: DOC_MAIL_ID, subject: '문서 첨부' })])
+  await mockApi(
+    page,
+    'GET',
+    `/api/v1/mail/messages/${DOC_MAIL_ID}`,
+    detail({
+      id: DOC_MAIL_ID,
+      subject: '문서 첨부',
+      attachments: atts.map((a) => ({
+        id: a.id,
+        filename: a.filename,
+        contentType: a.contentType,
+        sizeBytes: 48_128,
+        contentId: null,
+      })),
+    }),
+  )
+  const contents = trackRequests(page, 'GET', (url) => /^\/api\/v1\/mail\/attachments\/\d+\/content$/.test(url.pathname))
+  for (const a of atts) {
+    await page.route(
+      (u) => u.pathname === `/api/v1/mail/attachments/${a.id}/content`,
+      (r) =>
+        r.fulfill({
+          status: 200,
+          headers: { 'content-type': a.contentType, 'content-disposition': `attachment; filename="file-${a.id}"` },
+          body: DOC_BODY,
+        }),
+    )
+    if (a.preview?.length) await routePreviewSequence(page, `/api/v1/mail/attachments/${a.id}/preview`, a.preview)
+  }
   return contents
 }

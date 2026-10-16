@@ -60,25 +60,29 @@ export function attachmentMime(contentType: string | null | undefined, filename:
 export const mailAttachmentName = (a: EmailAttachmentMeta) => a.filename || `attachment-${a.id}`
 
 /**
- * 메일 첨부 — 소유자 전용 콘텐츠 경로로 받고 내려받기도 같은 경로다.
+ * 메일 첨부 — 소유자 전용 콘텐츠 경로로 받고 내려받기도 같은 경로다(변환 대상이어도 원본을 내려받는다).
  * ✨(요약)·☁(메일 첨부 가져오기 API 없음)·원본 이동(이미 메일 안)은 두지 않는다.
  * 이름이 없으면 예전 다운로드 버튼과 같은 `attachment-{id}` 로 저장되게 한다.
+ * 한글·오피스(변환 대상) 형식이면 서버 변환 PDF 경로(previewPath)를 단다(WP-432).
+ * 드라이브와 달리 변환 대상일 때만 두는 이유: 그 밖의 첨부 객체를 지금과 똑같이 유지하려고.
  */
 export function mailAttachmentItem(a: EmailAttachmentMeta): ViewerItem {
   const path = `/mail/attachments/${a.id}/content`
+  const mimeType = mailAttachmentMime(a)
   return {
     key: mailViewerKey(a.id),
     name: mailAttachmentName(a),
-    mimeType: mailAttachmentMime(a),
+    mimeType,
     sizeBytes: a.sizeBytes,
     contentPath: path,
     downloadPath: path,
+    ...(CONVERTIBLE_MIMES.has(mimeType) ? { previewPath: `/mail/attachments/${a.id}/preview` } : {}),
   }
 }
 
 /**
  * 항목의 미리보기 종류 — 변환 PDF 경로가 있고 변환 대상 형식이면 CONVERTED_PDF, 아니면 mime 기준(resolvePreviewKind).
- * 왜: 변환 경로는 드라이브 파일에만 있어(WP-431 범위), 이슈·메일·채팅의 같은 HWP 는 지금처럼 미지원 안내로 둔다.
+ * 왜: 변환 경로는 드라이브 파일(WP-431)·메일 첨부(WP-432)에만 있어, 이슈·채팅의 같은 HWP 는 지금처럼 미지원 안내로 둔다.
  */
 export function itemPreviewKind(item: ViewerItem): PreviewKind {
   if (item.previewPath && CONVERTIBLE_MIMES.has(item.mimeType)) return 'CONVERTED_PDF'

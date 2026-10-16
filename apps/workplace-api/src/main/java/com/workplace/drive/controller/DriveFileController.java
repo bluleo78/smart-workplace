@@ -3,7 +3,6 @@ package com.workplace.drive.controller;
 import com.workplace.drive.dto.CreateTextFileRequest;
 import com.workplace.drive.dto.DriveFileResponse;
 import com.workplace.drive.dto.DriveFileVersionResponse;
-import com.workplace.drive.dto.DrivePreviewStatusResponse;
 import com.workplace.drive.dto.FileSummaryResponse;
 import com.workplace.drive.dto.RenameFileRequest;
 import com.workplace.drive.dto.TargetFolderRequest;
@@ -13,14 +12,13 @@ import com.workplace.file.service.FileUploadService.FileContentResult;
 import com.workplace.fileai.controller.ViewImageResponses;
 import com.workplace.fileai.dto.ExtractedTextSlice;
 import com.workplace.fileai.service.AttachmentViewService;
+import com.workplace.filepreview.PreviewResponses;
 import com.workplace.filepreview.service.FilePreviewService;
-import com.workplace.filepreview.service.PreviewOutcome;
 import jakarta.validation.Valid;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
-import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
@@ -193,13 +191,9 @@ public class DriveFileController {
    * 문서 미리보기(서버 변환 PDF, WP-431) — HWP·HWPX·PPTX·PPT·DOC 를 원래 모양 그대로 보여 준다. 권한은 /view 와 같은 가드(VIEWER
    * 이상, 비멤버는 존재 은닉 404)를 거친 현재 버전 core file.id 로 판정한다.
    *
-   * <p>응답: 200 PDF / 202 {@code {"status":"CONVERTING"}} / 422 {@code
-   * {"status":"FAILED","code","transient"}} / 404 {@code {"status":"NOT_APPLICABLE"}} 대상 형식 아님·변환
-   * 꺼짐. 202·422·NOT_APPLICABLE 은 정상 흐름이라 예외 봉투(GlobalExceptionHandler)를 거치지 않고 본문을 직접 만든다 — 웹이 이
-   * 404 만 "미지원"으로 보고, 다른 404(휴지통·권한 없음·원본 유실)는 오류 화면으로 보이게 본문으로 구분한다.
-   *
-   * <p>200 은 ETag({@code "<file id>-<엔진 버전>-<PDF 수정 시각>"})·Last-Modified 를 단다. 같은 결과면 {@code
-   * If-None-Match} 에 304 — 판정은 ResponseEntity 반환 처리(HttpEntityMethodProcessor)의 조건부 GET 이 맡는다.
+   * <p>응답 계약(200·202·422·404 NOT_APPLICABLE, ETag·304)은 {@link PreviewResponses} 가 맡는다. ETag 는
+   * {@code "<core file id>-<엔진 버전>-<PDF 수정 시각>"} — 원본 새 버전이면 drive 파일 id 가 같아도 달라진다. 휴지통·권한 없음·원본
+   * 유실은 예외 봉투의 다른 404 다.
    *
    * @param start 시도의 첫 요청(뷰어 열기·[다시 시도])이면 true — 이때만 실패 행을 다시 선점한다. 폴링은 생략
    */
@@ -209,29 +203,7 @@ public class DriveFileController {
       @PathVariable("id") long driveFileId,
       @RequestParam(defaultValue = "false") boolean start) {
     long fileId = fileService.resolveViewFileId(callerId, driveFileId);
-    PreviewOutcome outcome = previewService.open(fileId, start);
-    return switch (outcome) {
-      case PreviewOutcome.Ready ready -> {
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_PDF);
-        headers.setContentLength(ready.sizeBytes());
-        // 원본이 새 버전이면 drive 파일 id 가 같아도 결과가 바뀌므로 매번 재검증한다.
-        headers.setCacheControl("private, no-cache");
-        // 재검증용 — 원본 버전(core file id)·엔진·재변환(PDF 수정 시각) 중 하나라도 바뀌면 다른 값이 된다.
-        headers.setETag(
-            "\"" + fileId + "-" + ready.engineVersion() + "-" + ready.lastModifiedMillis() + "\"");
-        headers.setLastModified(ready.lastModifiedMillis());
-        yield ResponseEntity.ok().headers(headers).body(new FileSystemResource(ready.pdf()));
-      }
-      case PreviewOutcome.Converting c ->
-          ResponseEntity.status(HttpStatus.ACCEPTED).body(DrivePreviewStatusResponse.converting());
-      case PreviewOutcome.Failed failed ->
-          ResponseEntity.unprocessableEntity()
-              .body(DrivePreviewStatusResponse.failed(failed.code(), failed.transientFailure()));
-      case PreviewOutcome.NotApplicable n ->
-          ResponseEntity.status(HttpStatus.NOT_FOUND)
-              .body(DrivePreviewStatusResponse.notApplicable());
-    };
+    return PreviewResponses.of(previewService.open(fileId, start));
   }
 
   /** 버전 이력 목록(#79). */
