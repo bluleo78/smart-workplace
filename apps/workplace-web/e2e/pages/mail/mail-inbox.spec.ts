@@ -449,6 +449,44 @@ test.describe('받은편지함', () => {
     expect(contents.count()).toBeGreaterThanOrEqual(1)
   })
 
+  // WP-427 — 본문 링크가 iframe 안에서 열리면 SharePoint 등 프레임 표시를 거부하는 사이트는 '연결할 수 없음'이 된다.
+  // 링크는 새 탭(opener 없음)에서 열리고 본문은 그대로 남아야 한다. 문서가 자기 base target 을 둬도 마찬가지.
+  test('본문 링크는 새 탭에서 열리고 본문 프레임은 그대로다', async ({ authenticatedPage: page }) => {
+    const shareUrl = 'https://contoso.sharepoint.com/:w:/r/sites/team/doc.docx'
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
+    await stubMessages(page)
+    await mockApi(
+      page,
+      'GET',
+      '/api/v1/mail/messages/10',
+      detail({
+        bodyText: null,
+        bodyHtml: `<html><head><base target="_self"></head><body><p id="intro">공유 문서</p><a id="share" href="${shareUrl}">문서 열기</a></body></html>`,
+      }),
+    )
+    // 실제 SharePoint 처럼 프레임 표시를 거부하는 응답 — iframe 안에서 열리면 '연결할 수 없음'이 된다.
+    await page.context().route(
+      (url) => url.hostname === 'contoso.sharepoint.com',
+      (route) =>
+        route.fulfill({ status: 200, contentType: 'text/html', headers: { 'x-frame-options': 'DENY' }, body: '<p>SharePoint</p>' }),
+    )
+
+    await page.goto('/mail/1')
+    await page.getByTestId('mail-row-10').click()
+    const frame = page.frameLocator('[data-testid="mail-body-html"]')
+
+    const popupPromise = page.waitForEvent('popup')
+    await frame.locator('#share').click()
+    const popup = await popupPromise
+    await popup.waitForLoadState()
+    expect(popup.url()).toBe(shareUrl)
+    // target=_blank 는 noopener 를 함축 — 연 사이트가 본문 프레임을 조작할 수 없다.
+    expect(await popup.evaluate(() => window.opener)).toBeNull()
+    await expect(popup.locator('p')).toHaveText('SharePoint')
+    // 본문 프레임은 이동하지 않았다.
+    await expect(frame.locator('#intro')).toHaveText('공유 문서')
+  })
+
   // WP-103·WP-159 — 다크 테마에서 HTML 메일은 종류와 관계없이 색 단위로 변환한다: 밝은 배경은 어둡게(흰색은 투명),
   // 어두운 글자는 밝게. 테마를 바꾸면 본문도 즉시 따라간다(html.dark class 관찰).
   test.describe('다크 테마 메일 본문', () => {
