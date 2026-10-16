@@ -67,7 +67,19 @@ public class MailAttachmentService {
         attachmentRepo
             .findContextForDownload(userId, attachmentId)
             .orElseThrow(() -> new EmailAttachmentNotFoundException(attachmentId));
+    return download(userId, ctx);
+  }
 
+  /**
+   * 이미 소유를 확인한 컨텍스트로 바이너리를 받는다(WP-388) — 호출자(보기)가 같은 요청에서 {@link
+   * EmailAttachmentRepository#findContextForDownload} 로 소유·메타를 읽었으면 다시 조회하지 않게 한다. 캐시·provider 경로는
+   * {@link #download(long, long)} 과 같다.
+   *
+   * @param ctx 이 userId 로 조회한 컨텍스트(다른 사용자의 컨텍스트를 넘기면 소유 검증을 우회한다 — 호출자 책임)
+   */
+  @Transactional
+  public AttachmentDownload download(long userId, AttachmentDownloadContext ctx) {
+    long attachmentId = ctx.attachmentId();
     String filename = ctx.filename() != null ? ctx.filename() : "attachment";
     String contentType = ctx.contentType() != null ? ctx.contentType() : "application/octet-stream";
 

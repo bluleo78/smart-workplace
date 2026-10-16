@@ -29,6 +29,9 @@ class WorkerRenderClientTest {
   private HttpServer server;
   private final AtomicReference<String> body = new AtomicReference<>();
   private final AtomicReference<String> auth = new AtomicReference<>();
+  private final AtomicReference<byte[]> rawBody = new AtomicReference<>();
+  private final AtomicReference<String> uri = new AtomicReference<>();
+  private final AtomicReference<String> reqContentType = new AtomicReference<>();
   private final AtomicInteger hits = new AtomicInteger();
 
   /** 다음 응답 — 상태·Content-Type·X-Page-Count·본문. 테스트마다 바꾼다. */
@@ -43,7 +46,11 @@ class WorkerRenderClientTest {
         "/render",
         ex -> {
           hits.incrementAndGet();
-          body.set(new String(ex.getRequestBody().readAllBytes()));
+          // "/render" 컨텍스트는 접두 일치라 /render/bytes(WP-388)도 여기로 온다 — 경로·쿼리·본문 바이트를 함께 기록한다.
+          rawBody.set(ex.getRequestBody().readAllBytes());
+          body.set(new String(rawBody.get()));
+          uri.set(ex.getRequestURI().toString());
+          reqContentType.set(ex.getRequestHeaders().getFirst("Content-Type"));
           auth.set(ex.getRequestHeaders().getFirst("Authorization"));
           Stub s = stub;
           ex.getResponseHeaders().add("Content-Type", s.contentType());
@@ -207,5 +214,70 @@ class WorkerRenderClientTest {
               assertThat(e.code()).isEqualTo("WORKER_UNAVAILABLE");
               assertThat(e.getMessage()).isEqualTo("페이지 이미지를 만들지 못했습니다. 잠시 후 다시 시도하세요.");
             });
+  }
+
+  /** WP-388: 저장소 경로 대신 원본 바이트를 본문으로 보낸다 — 쿼리에 mime·page·maxEdge, 이미지는 page 를 뺀다. */
+  @Test
+  void renderBytes_는_원본을_본문으로_보내고_같은_응답_매핑을_쓴다() {
+    byte[] pdf = "%PDF-1.4 x".getBytes();
+    stub = new Stub(200, "image/png", "4", new byte[] {1});
+
+    ViewImage r = client(true).renderBytes(pdf, "application/pdf", 2, 1568);
+
+    assertThat(r.pageCount()).isEqualTo(4);
+    assertThat(uri.get()).isEqualTo("/render/bytes?mime=application%2Fpdf&page=2&maxEdge=1568");
+    assertThat(rawBody.get()).isEqualTo(pdf);
+    assertThat(reqContentType.get()).isEqualTo("application/octet-stream");
+    assertThat(auth.get()).isEqualTo("Internal tok");
+
+    stub = new Stub(200, "image/jpeg", null, new byte[] {1});
+    client(true).renderBytes(new byte[] {9}, "image/heic", null, 1568);
+    assertThat(uri.get()).isEqualTo("/render/bytes?mime=image%2Fheic&maxEdge=1568");
+
+    json(400, "{\"detail\":{\"code\":\"PAGE_OUT_OF_RANGE\",\"pageCount\":3}}");
+    assertThatThrownBy(() -> client(true).renderBytes(pdf, "application/pdf", 9, 1568))
+        .isInstanceOfSatisfying(
+            AttachmentViewException.class,
+            e -> {
+              assertThat(e.code()).isEqualTo("PAGE_OUT_OF_RANGE");
+              assertThat(e.pageCount()).isEqualTo(3);
+            });
+
+    int before = hits.get();
+    assertThatThrownBy(() -> client(false).renderBytes(pdf, "application/pdf", 1, 1568))
+        .isInstanceOfSatisfying(
+            AttachmentViewException.class,
+            e -> assertThat(e.code()).isEqualTo("WORKER_UNAVAILABLE"));
+    assertThat(hits.get()).isEqualTo(before);
+  }
+
+  /**
+   * WP-388 계약 확인: 실제 워커 {@code /render/bytes} 가 돌려준 본문 그대로(로컬 워커에 curl 로 받은 값) — 범위 밖은 쪽수와 함께
+   * PAGE_OUT_OF_RANGE(400, 503 아님), 손상은 UNREADABLE(422), 토큰 거절(detail 이 문자열)은 API 쪽 결함이라 503.
+   */
+  @Test
+  void renderBytes_실제_워커_오류_본문을_같은_코드로_매핑한다() {
+    byte[] pdf = "%PDF-1.4 x".getBytes();
+
+    json(400, "{\"detail\":{\"code\":\"PAGE_OUT_OF_RANGE\",\"pageCount\":3}}");
+    assertThatThrownBy(() -> client(true).renderBytes(pdf, "application/pdf", 9, 1568))
+        .isInstanceOfSatisfying(
+            AttachmentViewException.class,
+            e -> {
+              assertThat(e.status()).isEqualTo(400);
+              assertThat(e.code()).isEqualTo("PAGE_OUT_OF_RANGE");
+              assertThat(e.getMessage()).isEqualTo("이 PDF 는 3쪽입니다. 1~3 사이 페이지를 지정하세요.");
+            });
+
+    json(422, "{\"detail\":{\"code\":\"UNREADABLE\"}}");
+    assertThatThrownBy(() -> client(true).renderBytes(pdf, "application/pdf", 1, 1568))
+        .isInstanceOfSatisfying(
+            AttachmentViewException.class, e -> assertThat(e.status()).isEqualTo(422));
+
+    json(401, "{\"detail\":\"unauthorized\"}");
+    assertThatThrownBy(() -> client(true).renderBytes(pdf, "application/pdf", 1, 1568))
+        .isInstanceOfSatisfying(
+            AttachmentViewException.class,
+            e -> assertThat(e.code()).isEqualTo(AttachmentViewException.WORKER_UNAVAILABLE));
   }
 }

@@ -602,10 +602,11 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     async readMailAttachmentText(attachmentId, range) {
       return (await http.get(`/mail/attachments/${attachmentId}/text`, rangeParams(range))).data;
     },
-    async downloadMailAttachment(attachmentId) {
-      return getBytes(http, `/mail/attachments/${attachmentId}/content`);
+    // WP-250: 모델 입력용 이미지(PDF 쪽·이미지 변환본). 권한 게이트는 /text 와 같다.
+    // WP-388: 메일 첨부 — 서버가 요청마다 원본을 받아 그린다(본인 소유 아니면 404).
+    async viewMailAttachment(attachmentId, page) {
+      return getBytes(http, viewUrl(`/mail/attachments/${attachmentId}`, page));
     },
-    // WP-250: 모델 입력용 이미지(PDF 쪽·이미지 변환본). 권한 게이트는 /text 와 같다. 메일은 아직 없다(WP-388).
     async viewIssueAttachment(issueKey, fileId, page) {
       return getBytes(http, viewUrl(`${issue(issueKey)}/attachments/${fileId}`, page));
     },

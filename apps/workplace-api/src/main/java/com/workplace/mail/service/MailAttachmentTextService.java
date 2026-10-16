@@ -1,6 +1,5 @@
 package com.workplace.mail.service;
 
-import com.workplace.file.service.MimeNormalizer;
 import com.workplace.fileai.ExtractableTypes;
 import com.workplace.fileai.ExtractionProfile;
 import com.workplace.fileai.dto.ExtractedTextSlice;
@@ -8,11 +7,9 @@ import com.workplace.fileai.dto.ExtractionInfo;
 import com.workplace.fileai.exception.InvalidTextRangeException;
 import com.workplace.fileai.inbound.FileExtractionRequestedEvent;
 import com.workplace.fileai.service.ExtractedTextService;
-import com.workplace.mail.exception.EmailAttachmentNotFoundException;
 import com.workplace.mail.repository.ContentAttachmentRepository;
 import com.workplace.mail.repository.ContentAttachmentRepository.ExtractTarget;
-import com.workplace.mail.repository.EmailAttachmentRepository;
-import com.workplace.mail.repository.EmailAttachmentRepository.AttachmentDownloadContext;
+import com.workplace.mail.service.MailAttachmentResolver.Resolved;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
@@ -33,7 +30,7 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class MailAttachmentTextService {
 
-  private final EmailAttachmentRepository attachmentRepo;
+  private final MailAttachmentResolver resolver;
   private final ContentAttachmentRepository contentAttachmentRepo;
   private final MailAttachmentService attachmentService;
   private final MailExtractCopyStore copyStore;
@@ -54,19 +51,16 @@ public class MailAttachmentTextService {
    */
   @Transactional
   public ExtractedTextSlice readText(long userId, long attachmentId, int offset, int limit) {
-    AttachmentDownloadContext ctx =
-        attachmentRepo
-            .findContextForDownload(userId, attachmentId)
-            .orElseThrow(() -> new EmailAttachmentNotFoundException(attachmentId));
+    // 소유 확인(아니면 404)·판정용 mime·manifest 사본 링크 — /view 와 같은 해석(MailAttachmentResolver).
+    Resolved r = resolver.resolve(userId, attachmentId);
     // 사본 생성·fetch 전에 구간을 먼저 검증한다 — 잘못된 요청이 provider 왕복을 일으키지 않게.
     if (offset < 0) throw new InvalidTextRangeException("offset 은 0 이상이어야 합니다.");
     if (limit < 1) throw new InvalidTextRangeException("limit 은 1 이상이어야 합니다.");
 
-    long caId = ctx.contentAttachmentId();
-    // manifest 없는 레거시 행(V100 이전 동기화)은 사본 링크를 둘 곳이 없다 — 추출 없음(NONE).
-    if (caId == 0L) return status(attachmentId, offset, ExtractionInfo.NONE);
-    ExtractTarget target = contentAttachmentRepo.findExtractTarget(caId).orElse(null);
+    // manifest 없는 레거시 행(V100 이전 동기화)이나 manifest 행이 없으면 사본 링크를 둘 곳이 없다 — 추출 없음(NONE).
+    ExtractTarget target = r.target();
     if (target == null) return status(attachmentId, offset, ExtractionInfo.NONE);
+    long caId = r.ctx().contentAttachmentId();
 
     // 1) 유효한 사본이 있으면 바로 읽는다(빠른 경로 — 잠금·fetch 없음). 만료는 연장하지 않는다(생성 기준 고정 수명).
     if (target.extractFileId() != null && copyStore.isLive(target.extractFileId())) {
@@ -74,12 +68,12 @@ public class MailAttachmentTextService {
     }
 
     // 2) 추출 불가 형식·과대 파일은 바이트를 가져오지 않고 바로 SKIPPED — 사유 문구는 공용 ExtractionReasons 를 그대로 쓴다.
-    String mime = normalizeMime(ctx.filename(), ctx.contentType());
+    String mime = r.mime();
     if (!ExtractableTypes.supports(mime)) {
       return skipped(attachmentId, offset, ExtractableTypes.skipReason(mime), mime);
     }
-    // size_bytes 는 IMAP 에선 전송 인코딩(base64) 기준이라 실제보다 약 4/3 크다 — 사전 차단은 그만큼 여유를 두고, 정확한 판정은 fetch 후.
-    if (target.sizeBytes() != null && target.sizeBytes() > maxFileSize / 3 * 4 + 4096) {
+    // 사전 크기 차단(IMAP 은 base64 여유, Graph 는 정확) — 정확한 판정은 fetch 후.
+    if (r.exceedsBeforeFetch(maxFileSize)) {
       return skipped(attachmentId, offset, "oversize", mime);
     }
 
@@ -98,7 +92,7 @@ public class MailAttachmentTextService {
     if (content.length > maxFileSize) {
       return skipped(attachmentId, offset, "oversize", mime);
     }
-    String filename = ctx.filename() != null ? ctx.filename() : "attachment";
+    String filename = r.ctx().filename() != null ? r.ctx().filename() : "attachment";
     long fileId = copyStore.store(content, filename, mime, userId);
     contentAttachmentRepo.linkExtractFile(caId, fileId);
     // 같은 트랜잭션에서 추출 행(PENDING)이 생기고, 커밋 후 워커로 디스패치된다(실패해도 FileExtractionScheduler 백스톱이 재시도).
@@ -148,15 +142,5 @@ public class MailAttachmentTextService {
         info.reasonCode(),
         info.reason(),
         info.pageCount());
-  }
-
-  /**
-   * 메일 파트 Content-Type 을 추출 판정용 mime 으로 정규화한다. 파라미터(; name=…)를 떼고 소문자로 맞춘 뒤, 비었거나 octet-stream 이면
-   * 파일명 확장자로 보정한다(이슈·챗 업로드와 같은 MimeNormalizer). ExtractableTypes 는 정확 일치라 이 정규화가 없으면 PDF 가 SKIPPED
-   * 로 굳을 수 있다.
-   */
-  static String normalizeMime(String filename, String contentType) {
-    // 기본형이 빈 값(Content-Type 없음)이면 normalize 가 null 과 같이 확장자로 보정한다.
-    return MimeNormalizer.normalize(filename, MimeNormalizer.baseMime(contentType));
   }
 }

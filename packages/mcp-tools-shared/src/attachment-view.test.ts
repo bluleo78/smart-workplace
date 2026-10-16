@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { FileTooLargeError } from './attachment-read.js';
-import { imageViewBlocks, originalImageBlocks, PAGES_NOTE_HINT, pageBlocks, pagesShape, viewBlocks } from './attachment-view.js';
+import { imageViewBlocks, PAGES_NOTE_HINT, pageBlocks, pagesShape, viewBlocks } from './attachment-view.js';
 import type { McpContent } from './mcp-content.js';
 import type { FileBytes } from './tool-client.js';
 
@@ -164,28 +164,5 @@ describe('imageViewBlocks', () => {
     const view = vi.fn().mockRejectedValue(new Error('PDF·이미지만 페이지 이미지로 볼 수 있습니다.'));
     expect(await imageViewBlocks('"x"', view)).toBe('"x": PDF·이미지만 페이지 이미지로 볼 수 있습니다.');
     expect(await imageViewBlocks('"x"', vi.fn().mockRejectedValue(new FileTooLargeError(10)))).toBe('"x": 변환한 이미지가 10B 를 넘어 받지 않았습니다.');
-  });
-});
-
-// 변환본이 없는 메일 첨부(WP-388)만 쓴다 — 원본을 보낼 수 있으면 그대로, 아니면 사유 안내.
-describe('originalImageBlocks', () => {
-  const MB = 1024 * 1024;
-
-  it('보낼 수 있는 원본은 그대로 [설명, image] 블록으로', async () => {
-    const out = (await originalImageBlocks('"a.jpg"', vi.fn().mockResolvedValue(png({ mimeType: 'image/jpeg' })))) as McpContent[];
-    expect(out[1]).toMatchObject({ type: 'image', mimeType: 'image/jpeg' });
-  });
-
-  it('형식(HEIC)·크기(상한 초과)는 사유를 안내하고 내용을 추측하지 말라고 한다', async () => {
-    const heic = await originalImageBlocks('"a.heic"', vi.fn().mockResolvedValue(png({ mimeType: 'image/heic' })));
-    expect(heic).toContain('형식(image/heic)');
-    expect(heic).toContain('추측하지 말고');
-    const big = await originalImageBlocks('"big.png"', vi.fn().mockResolvedValue(png({ data: new Uint8Array(4 * MB) })));
-    expect(big).toContain(`크기(${4 * MB}B)`);
-  });
-
-  it('다운로드 상한 초과(FileTooLargeError)는 크기 사유, 다른 다운로드 오류는 삼키지 않는다', async () => {
-    expect(await originalImageBlocks('"x"', vi.fn().mockRejectedValue(new FileTooLargeError()))).toContain('B 초과)');
-    await expect(originalImageBlocks('"x"', vi.fn().mockRejectedValue(new Error('boom')))).rejects.toThrow('boom');
   });
 });

@@ -1,5 +1,6 @@
 package com.workplace.mail.controller;
 
+import com.workplace.fileai.controller.ViewImageResponses;
 import com.workplace.fileai.dto.ExtractedTextSlice;
 import com.workplace.mail.dto.AttachmentCacheUsage;
 import com.workplace.mail.dto.EmailMessageDetail;
@@ -12,6 +13,7 @@ import com.workplace.mail.service.MailAttachmentMeteringService;
 import com.workplace.mail.service.MailAttachmentService;
 import com.workplace.mail.service.MailAttachmentService.AttachmentDownload;
 import com.workplace.mail.service.MailAttachmentTextService;
+import com.workplace.mail.service.MailAttachmentViewService;
 import com.workplace.mail.service.MailMessageService;
 import com.workplace.mail.service.MailSyncService;
 import java.nio.charset.StandardCharsets;
@@ -44,6 +46,7 @@ public class MailInboxController {
   private final MailAttachmentService attachmentService;
   private final MailAttachmentMeteringService meteringService;
   private final MailAttachmentTextService attachmentTextService;
+  private final MailAttachmentViewService attachmentViewService;
 
   /** 계정의 INBOX 를 증분 동기화(수동 트리거). */
   @PostMapping("/accounts/{accountId}/sync")
@@ -192,5 +195,19 @@ public class MailInboxController {
       @RequestParam(defaultValue = "0") int offset,
       @RequestParam(defaultValue = "32000") int limit) {
     return attachmentTextService.readText(callerId, attachmentId, offset, limit);
+  }
+
+  /**
+   * 첨부를 모델 입력용 이미지로 보기(WP-388) — 다른 source 의 {@code GET .../view}(WP-250)와 같은 응답(PNG/JPEG, PDF 면
+   * {@code X-Page-Count}). PDF 는 {@code ?page=N}(1부터), 이미지는 page 없이 부른다. 권한은 /content·/text 와 같다(본인
+   * 소유 아니면 404). 요청마다 원본을 받아 그리고 아무것도 저장하지 않는다. 워커 호출 동안 DB 연결을 잡지 않게 트랜잭션을 걸지 않는다(R5 — 서비스가 짧은
+   * 트랜잭션으로 나눈다).
+   */
+  @GetMapping("/attachments/{attachmentId}/view")
+  public ResponseEntity<byte[]> viewAttachment(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable long attachmentId,
+      @RequestParam(required = false) Integer page) {
+    return ViewImageResponses.of(attachmentViewService.view(callerId, attachmentId, page));
   }
 }

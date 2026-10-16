@@ -186,3 +186,68 @@ def test_render_rejects_invalid_page_and_max_edge(monkeypatch, tmp_path):
     for bad in ({"page": 0}, {"page": 1, "maxEdge": 0}, {"page": 1, "maxEdge": 100000}):
         r = c.post("/render", headers=_AUTH, json={"storageKey": "a.pdf", "mime": "application/pdf", **bad})
         assert r.status_code == 422, bad
+
+
+# ---------------------------------------------------------------------------
+# /render/bytes (WP-388) — 저장소에 두지 않는 원본(메일 첨부)을 본문으로 받아 /render 와 같이 그린다
+# ---------------------------------------------------------------------------
+def _bytes_url(**q) -> str:
+    from urllib.parse import urlencode
+    return "/render/bytes?" + urlencode(q)
+
+
+def test_render_bytes_pdf_page_returns_png_and_page_count(monkeypatch, tmp_path):
+    c = _render_client(monkeypatch, tmp_path)
+    r = c.post(_bytes_url(mime="application/pdf", page=2, maxEdge=800), headers=_AUTH, content=_pdf_bytes(3))
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "image/png"
+    assert r.headers["x-page-count"] == "3"
+    assert list(tmp_path.iterdir()) == []  # 공유 볼륨을 쓰지 않는다
+
+
+def test_render_bytes_image_has_no_page_count_header(monkeypatch, tmp_path):
+    buf = io.BytesIO()
+    Image.new("RGB", (100, 80)).save(buf, "JPEG")
+    c = _render_client(monkeypatch, tmp_path)
+    r = c.post(_bytes_url(mime="image/jpeg"), headers=_AUTH, content=buf.getvalue())
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "image/jpeg"
+    assert "x-page-count" not in r.headers
+
+
+def test_render_bytes_same_errors_as_render(monkeypatch, tmp_path):
+    """page 규칙·범위 밖·손상은 /render 와 같은 코드."""
+    c = _render_client(monkeypatch, tmp_path)
+    pdf = _pdf_bytes(3)
+    r = c.post(_bytes_url(mime="application/pdf"), headers=_AUTH, content=pdf)
+    assert r.status_code == 400 and r.json()["detail"]["code"] == "PAGE_REQUIRED"
+    r = c.post(_bytes_url(mime="image/jpeg", page=1), headers=_AUTH, content=pdf)
+    assert r.status_code == 400 and r.json()["detail"]["code"] == "PAGE_NOT_ALLOWED"
+    r = c.post(_bytes_url(mime="application/pdf", page=9), headers=_AUTH, content=pdf)
+    assert r.status_code == 400 and r.json()["detail"] == {"code": "PAGE_OUT_OF_RANGE", "pageCount": 3}
+    r = c.post(_bytes_url(mime="application/pdf", page=1), headers=_AUTH, content=b"not a pdf")
+    assert r.status_code == 422 and r.json()["detail"]["code"] == "UNREADABLE"
+
+
+def test_render_bytes_requires_auth(monkeypatch, tmp_path):
+    c = _render_client(monkeypatch, tmp_path)
+    r = c.post(_bytes_url(mime="application/pdf", page=1), content=_pdf_bytes(1))
+    assert r.status_code == 401
+
+
+def test_render_bytes_oversize_is_413(monkeypatch, tmp_path):
+    from app import config
+    c = _render_client(monkeypatch, tmp_path)
+    monkeypatch.setattr(config, "MAX_BYTES", 10)
+    r = c.post(_bytes_url(mime="application/pdf", page=1), headers=_AUTH, content=_pdf_bytes(1))
+    assert r.status_code == 413 and r.json()["detail"]["code"] == "TOO_LARGE"
+    # Content-Length 없이(chunked) 와도 읽는 도중 끊는다.
+    r = c.post(_bytes_url(mime="application/pdf", page=1), headers=_AUTH, content=iter([b"x" * 8, b"x" * 8]))
+    assert r.status_code == 413 and r.json()["detail"]["code"] == "TOO_LARGE"
+
+
+def test_render_bytes_rejects_invalid_params(monkeypatch, tmp_path):
+    c = _render_client(monkeypatch, tmp_path)
+    for q in ({"mime": "application/pdf", "page": 0}, {"mime": "application/pdf", "page": 1, "maxEdge": 0}, {"page": 1}):
+        r = c.post(_bytes_url(**q), headers=_AUTH, content=b"x")
+        assert r.status_code == 422, q

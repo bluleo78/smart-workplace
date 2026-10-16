@@ -176,7 +176,6 @@ function sharedMock(): MockedShared {
     readWikiAttachmentText: vi.fn(),
     readMessageAttachmentText: vi.fn(),
     readMailAttachmentText: vi.fn(),
-    downloadMailAttachment: vi.fn(),
     getIssueChatThreadId: vi.fn(),
     listIssueChatMessages: vi.fn(),
     readIssueChatAttachmentText: vi.fn(),
@@ -186,6 +185,7 @@ function sharedMock(): MockedShared {
     viewWikiAttachment: vi.fn(),
     viewMessageAttachment: vi.fn(),
     viewIssueChatAttachment: vi.fn(),
+    viewMailAttachment: vi.fn(),
   };
 }
 
