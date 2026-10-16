@@ -53,6 +53,7 @@ import { useSingleLineEnter } from '@/hooks/useSingleLineEnter'
 import { buildDriveContext } from '@/lib/aiScreenContext/builders/drive'
 import { extractApiError, handleApiError } from '@/lib/api-error'
 import { dragItemsFor, type DriveDragItem, driveDragItem, type DriveDropData, moveToastMessage } from '@/lib/driveDnd'
+import { driveFileActionDisabled } from '@/lib/driveRowActions'
 import { fileStemLength } from '@/lib/fileName'
 import { formatDateOnly, formatDateShort, formatFileSize } from '@/lib/formatters'
 import { parseId } from '@/lib/historyParam'
@@ -813,6 +814,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   // 행 작업 목록 — 휴대폰 ⋮ 시트(WP-216)·터치 태블릿 ⋯(WP-237)·데스크톱 hover 묶음(WP-363)이 모두 이 목록 하나를 쓴다.
   // 보관된 공간은 쓰기 작업, 원본 유실 파일은 바이트가 필요한 작업(다운로드·공유·복사)을 막는다.
   function rowActionsFor(target: RowTarget): MobileSheetAction[] {
+    // 폴더는 보관 여부 하나로 모두 막힌다. 파일 비활성 판정은 driveRowActions 순수 함수가 맡는다(단위 테스트로 지킴, WP-413).
     const archived = !!space?.archived
     if (target.kind === 'folder') {
       const f = target.item
@@ -824,15 +826,15 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
       ]
     }
     const f = target.item
-    const missing = isMissingBlob(f)
+    const off = driveFileActionDisabled({ archived, missing: isMissingBlob(f) })
     return [
-      { key: 'download', label: '다운로드', icon: <Download />, onSelect: () => driveApi.downloadFile(f.id, f.name), disabled: missing },
-      { key: 'share', label: '공유 링크', icon: <Link2 />, onSelect: () => setShareFile(f), disabled: missing },
-      { key: 'rename', label: '이름 변경', icon: <Pencil />, onSelect: () => setRenameFile(f), disabled: archived },
-      { key: 'move', label: '이동', icon: <FolderInput />, onSelect: () => setPicker({ mode: 'move', kind: 'file', id: f.id, name: f.name }), disabled: archived },
-      { key: 'copy', label: '복사', icon: <Copy />, onSelect: () => setPicker({ mode: 'copy', kind: 'file', id: f.id, name: f.name }), disabled: archived || missing },
-      { key: 'versions', label: '버전 이력', icon: <History />, onSelect: () => setVersionFile(f) },
-      { key: 'delete', label: '삭제', icon: <Trash2 />, onSelect: () => onDeleteFile(f.id), disabled: archived, destructive: true },
+      { key: 'download', label: '다운로드', icon: <Download />, onSelect: () => driveApi.downloadFile(f.id, f.name), disabled: off.download },
+      { key: 'share', label: '공유 링크', icon: <Link2 />, onSelect: () => setShareFile(f), disabled: off.share },
+      { key: 'rename', label: '이름 변경', icon: <Pencil />, onSelect: () => setRenameFile(f), disabled: off.rename },
+      { key: 'move', label: '이동', icon: <FolderInput />, onSelect: () => setPicker({ mode: 'move', kind: 'file', id: f.id, name: f.name }), disabled: off.move },
+      { key: 'copy', label: '복사', icon: <Copy />, onSelect: () => setPicker({ mode: 'copy', kind: 'file', id: f.id, name: f.name }), disabled: off.copy },
+      { key: 'versions', label: '버전 이력', icon: <History />, onSelect: () => setVersionFile(f), disabled: off.versions },
+      { key: 'delete', label: '삭제', icon: <Trash2 />, onSelect: () => onDeleteFile(f.id), disabled: off.delete, destructive: true },
     ]
   }
 

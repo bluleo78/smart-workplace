@@ -1,6 +1,6 @@
 // 이슈 상세 inline chat section.
 // thread lazy fetch → messages infinite query (recentMessages seed). 실시간은 SSE(useChatStream).
-// 타이핑: 입력 시 typing 송신 + 다른 멤버 typing 표시. mark-read 는 debounce 게이팅.
+// 타이핑: 입력 시 typing 송신 + 다른 멤버 typing 표시. mark-read 디바운스는 useMarkChatRead 가 맡는다.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -18,9 +18,9 @@ import { useDeleteChatMessage } from '../../../../hooks/queries/useDeleteChatMes
 import { useIssue } from '../../../../hooks/queries/useIssue';
 import { useMarkChatRead } from '../../../../hooks/queries/useMarkChatRead';
 import { useUpdateChatMessage } from '../../../../hooks/queries/useUpdateChatMessage';
+import { useAiWorkingBubbles } from '../../../../hooks/useAiWorkingBubbles';
 import { useAuth } from '../../../../hooks/useAuth';
-import { type ChatProgressEvent,onChatProgress, onChatTyping } from '../../../../hooks/useChatStream';
-import { useDebounceValue } from '../../../../hooks/useDebounceValue';
+import { onChatTyping, onThreadProgress } from '../../../../hooks/useChatStream';
 import { waitingAgentIds } from '../../../../lib/agentWork';
 import { deleteMessageWithUndo } from '../../../../lib/deleteWithUndo';
 import { ChatComposer } from './ChatComposer';
@@ -42,7 +42,16 @@ interface IssueChatSectionProps {
   plain?: boolean;
 }
 
-export function IssueChatSection({
+/**
+ * 이슈 채팅 섹션 — 이슈(projectKey/issueNumber)마다 본문을 새로 마운트한다(WP-418).
+ * 부모(이슈 상세 드로워·개인 작업 상세)가 이슈를 바꿔도 같은 자리에 재사용하므로, key 가 없으면 AI 유령 버블·편집 중 메시지·
+ * 읽음 디바운스 같은 스레드별 상태가 다음 이슈로 넘어간다. 부모 세 곳에 key 를 기억시키는 대신 여기 한 곳에서 보장한다.
+ */
+export function IssueChatSection(props: IssueChatSectionProps) {
+  return <IssueChatSectionBody key={`${props.projectKey}/${props.issueNumber}`} {...props} />;
+}
+
+function IssueChatSectionBody({
   projectKey,
   issueNumber,
   embedded = false,
@@ -101,18 +110,10 @@ export function IssueChatSection({
   );
   const updateMutation = useUpdateChatMessage(threadId);
   const deleteMutation = useDeleteChatMessage(threadId);
-  const markReadMutation = useMarkChatRead(threadId);
+  // 읽음 표시 — 1초 디바운스·중복 억제·언마운트 시 남은 읽음 flush 는 훅이 맡는다.
+  const markRead = useMarkChatRead(threadId);
 
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [pendingReadId, setPendingReadId] = useState<number | null>(null);
-  const debouncedReadId = useDebounceValue(pendingReadId, 1000);
-
-  useEffect(() => {
-    if (debouncedReadId !== null && threadId > 0) {
-      markReadMutation.mutate({ uptoMessageId: debouncedReadId });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedReadId, threadId]);
 
   // 다른 멤버의 타이핑 표시 (SSE typing 버스 구독, 4초 TTL). 본인 이벤트는 무시.
   const [typingNames, setTypingNames] = useState<Map<number, { name: string; at: number }>>(
@@ -140,56 +141,10 @@ export function IssueChatSection({
     };
   }, [threadId, me?.id]);
 
-  // AI 작업 중 유령 버블 상태 관리 — streamId → 이벤트+타임스탬프 Map.
-  // phase done/error 이벤트 수신 시 해당 항목 제거, 신규 AGENT 메시지 도착 시 전체 초기화.
-  const [working, setWorking] = useState<Map<string, ChatProgressEvent & { at: number }>>(
-    new Map(),
-  );
-  useEffect(() => {
-    return onChatProgress((e) => {
-      if (e.threadId !== threadId) return;
-      setWorking((prev) => {
-        const next = new Map(prev);
-        if (e.phase === 'done' || e.phase === 'error') next.delete(e.streamId);
-        else next.set(e.streamId, { ...e, at: Date.now() });
-        return next;
-      });
-    });
-  }, [threadId]);
-
-  // 신규 AGENT 메시지가 도착하면(실제 응답 등장) 모든 유령 버블 제거 — done 이벤트 누락/순서 역전 대비 백스톱.
-  // message.id 는 서버 단조 증가 시퀀스이므로 "기준선(초기 로드 시점의 최대 AGENT id) 초과" 만 신규 도착으로 본다.
-  // → 스크롤백 페이지네이션(과거 작은 id prepend)·HUMAN 메시지·낙관적 임시 id 는 트리거하지 않는다 (#346).
+  // AI 작업 중 유령 버블 — 진행 이벤트·새 AGENT 메시지·TTL·종료 스트림 부활 차단 규칙은 채널/DM 과 같은 useAiWorkingBubbles(WP-418).
+  // 키는 스레드 로드 전 undefined(구독 안 함). 이슈가 바뀌면 바깥 IssueChatSection 이 key 로 리마운트해 상태가 비워진다.
   const messagesLoaded = messagesQ.data !== undefined;
-  const maxAgentMsgId = messages.reduce(
-    (mx, m) => (m.authorKind === 'AGENT' && m.id > mx ? m.id : mx),
-    0,
-  );
-  const agentBaselineRef = useRef<number | null>(null);
-  useEffect(() => {
-    if (!messagesLoaded) return; // 첫 메시지 로드 전 — 기준선 미설정(라이브 버블 보호)
-    // 최초 로드: 기존 AGENT 메시지 최대 id 를 기준선으로 잡는다(0 이어도). 이 run 에서는 절대 제거하지 않는다.
-    if (agentBaselineRef.current === null) {
-      agentBaselineRef.current = maxAgentMsgId;
-      return;
-    }
-    if (maxAgentMsgId > agentBaselineRef.current) {
-      agentBaselineRef.current = maxAgentMsgId;
-      setWorking(new Map());
-    }
-  }, [messagesLoaded, maxAgentMsgId]);
-
-  // TTL 안전망: 60초 무수신 유령 제거 (10초마다 스위프)
-  useEffect(() => {
-    const t = setInterval(() => {
-      setWorking((prev) => {
-        const cutoff = Date.now() - 60_000;
-        const next = new Map([...prev].filter(([, v]) => v.at >= cutoff));
-        return next.size === prev.size ? prev : next;
-      });
-    }, 10_000);
-    return () => clearInterval(t);
-  }, []);
+  const working = useAiWorkingBubbles(threadQ.data?.threadId, onThreadProgress, messages, messagesLoaded);
 
   // 입력 중 3초 throttle 로 typing 송신.
   const lastTypingRef = useRef(0);
@@ -272,7 +227,7 @@ export function IssueChatSection({
       onLoadMore={() => messagesQ.fetchNextPage()}
       onEdit={(id) => setEditingId(id)}
       onDelete={(id) => deleteMessageWithUndo(() => deleteMutation.mutate(id))}
-      onMarkRead={(id) => setPendingReadId(id)}
+      onMarkRead={markRead}
       editingMessageId={editingId}
       fill={embedded}
       compact={plain}

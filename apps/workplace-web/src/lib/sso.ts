@@ -1,4 +1,5 @@
 // WP-48 SSO 로그인 공용 유틸 — start 링크, 오류 코드 → 배너 문구, returnTo 정제.
+import { ownLookup } from './ownLookup'
 
 export const SSO_START_PATH = '/api/v1/auth/sso/start'
 
@@ -13,9 +14,13 @@ const ERROR_MESSAGES: Record<string, string> = {
   retry: '로그인 처리 중 문제가 발생했습니다. 다시 시도해 주세요.',
 }
 
-/** 서버가 붙인 sso_error 코드 → 배너 문구. 모르는 코드(unavailable 포함)는 null — 배너를 띄우지 않는다. */
+/**
+ * 서버가 붙인 sso_error 코드 → 배너 문구. 모르는 코드(unavailable 포함)는 null — 배너를 띄우지 않는다.
+ * 코드는 주소의 ?error= 값이라 아무 문자열이나 올 수 있다 — 자기 키만 조회해 toString·constructor 같은
+ * 프로토타입 키가 함수로 새어 나오지 않게 한다(WP-416).
+ */
 export function ssoErrorMessage(code: string | null): string | null {
-  return code ? (ERROR_MESSAGES[code] ?? null) : null
+  return code ? (ownLookup(ERROR_MESSAGES, code) ?? null) : null
 }
 
 /** same-origin 상대경로만 통과(서버 ReturnToSanitizer 와 같은 규칙) — 클라이언트에서도 한 번 더 막는다. */

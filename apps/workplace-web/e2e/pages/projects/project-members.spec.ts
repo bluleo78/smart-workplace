@@ -1,8 +1,7 @@
 // 개인 프로젝트 AI 어시스턴트 멤버 추가 E2E — #418 assignee-membership.
-// 시나리오:
-//  1) @smoke 개인 프로젝트 설정 → "AI 어시스턴트 추가" 버튼 + AGENT only picker → POST payload + 목록 갱신
-//  2) agentOnly 모드 — kind 토글 미노출 (HUMAN 토글 숨김 검증)
-//  3) 팀 프로젝트는 기존 "멤버 추가" 버튼 + kind 토글 보임 (회귀 방지)
+// 시나리오: @smoke 개인 프로젝트 설정 → "AI 어시스턴트 추가" 버튼 + AGENT only picker → POST payload + 목록 갱신.
+// 모드 분기(agentOnly 헤딩·버튼 라벨·kind 탭 숨김·kind=AGENT 조회, 팀 프로젝트 탭 노출)는 컴포넌트 테스트
+// MemberManagement.test.tsx·MemberSearchPopover.test.tsx 가 맡는다(WP-413). 팀 프로젝트 picker 배선은 member-search.spec.ts.
 
 import { expect, test } from '../../fixtures/auth.fixture';
 import { trackRequests } from '../../fixtures/requests';
@@ -173,111 +172,4 @@ test.describe('개인 프로젝트 AI 어시스턴트 추가', () => {
       await expect(page.getByRole('row', { name: /Workplace AI/ })).toBeVisible();
     },
   );
-
-  test('agentOnly 모드 — kind 토글(전체/사람/에이전트) 미노출', async ({ authenticatedPage: page }) => {
-    const membersRef: { current: StubMember[] } = { current: [] };
-    await setupPersonalProjectStubs(page, membersRef);
-
-    await page.goto(SETTINGS_URL);
-    await page.getByTestId('member-add-trigger').click();
-    await expect(page.getByTestId('member-search-popover')).toBeVisible();
-
-    // kind 토글 버튼이 없어야 함
-    await expect(page.getByTestId('member-search-filter-ALL')).toHaveCount(0);
-    await expect(page.getByTestId('member-search-filter-HUMAN')).toHaveCount(0);
-    await expect(page.getByTestId('member-search-filter-AGENT')).toHaveCount(0);
-  });
-
-  test('agentOnly 모드 — 검색 결과에 HUMAN 미노출, AGENT만 노출', async ({ authenticatedPage: page }) => {
-    const membersRef: { current: StubMember[] } = { current: [] };
-    await setupPersonalProjectStubs(page, membersRef);
-
-    await page.goto(SETTINGS_URL);
-    await page.getByTestId('member-add-trigger').click();
-
-    // 검색어 입력 — AGENT + HUMAN 혼재 응답
-    await page.getByPlaceholder('이름·아이디·이메일로 검색').fill('work');
-
-    // AGENT 후보는 노출
-    await expect(page.getByTestId(`member-search-row-${AGENT_USER.userId}`)).toBeVisible();
-    // HUMAN 후보는 필터되어 미노출
-    await expect(page.getByTestId(`member-search-row-${HUMAN_USER.userId}`)).toHaveCount(0);
-  });
-
-  test('개인 프로젝트 설정 — 헤딩 "AI 어시스턴트" 표시', async ({ authenticatedPage: page }) => {
-    const membersRef: { current: StubMember[] } = { current: [] };
-    await setupPersonalProjectStubs(page, membersRef);
-
-    await page.goto(SETTINGS_URL);
-
-    // agentOnly 모드 헤딩 확인
-    await expect(page.getByRole('heading', { name: 'AI 어시스턴트' })).toBeVisible();
-    // 일반 "멤버" 헤딩 미노출
-    await expect(page.getByRole('heading', { name: '멤버' })).toHaveCount(0);
-  });
-});
-
-test.describe('팀 프로젝트 멤버 관리 (회귀 방지)', () => {
-  const TEAM_KEY = 'WP';
-  const TEAM_SETTINGS_URL = `/projects/${TEAM_KEY}/settings`;
-
-  async function setupTeamProjectStubs(page: import('@playwright/test').Page) {
-    await page.route(`**/api/v1/projects/${TEAM_KEY}`, (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          id: 1,
-          key: TEAM_KEY,
-          name: 'Workplace',
-          description: '',
-          ownerId: 1,
-          type: 'TEAM',
-          isDefault: false,
-          createdAt: '2026-01-01T00:00:00Z',
-          updatedAt: '2026-01-01T00:00:00Z',
-          issueTotal: 0,
-          issueDone: 0,
-          memberCount: 1,
-          memberNames: ['Tester'],
-        }),
-      }),
-    );
-    await page.route(`**/api/v1/projects/${TEAM_KEY}/members`, (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify([
-          { userId: 1, username: 'tester', name: 'Tester', kind: 'HUMAN', role: 'OWNER', createdAt: '2026-01-01T00:00:00Z' },
-        ]),
-      }),
-    );
-    await page.route(`**/api/v1/projects/${TEAM_KEY}/labels`, (route) =>
-      route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
-    );
-    await page.route(`**/api/v1/projects/${TEAM_KEY}/types`, (route) =>
-      route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
-    );
-    await page.route(`**/api/v1/projects/${TEAM_KEY}/fields`, (route) =>
-      route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
-    );
-  }
-
-  test('팀 프로젝트 — "멤버 추가" 버튼 + kind 토글 표시 (agentOnly 아님)', async ({ authenticatedPage: page }) => {
-    await setupTeamProjectStubs(page);
-
-    await page.goto(TEAM_SETTINGS_URL);
-
-    // "멤버 추가" 버튼 (agentOnly 가 아닌 기본 라벨)
-    await expect(page.getByTestId('member-add-trigger')).toContainText('멤버 추가');
-
-    // picker 열기
-    await page.getByTestId('member-add-trigger').click();
-    await expect(page.getByTestId('member-search-popover')).toBeVisible();
-
-    // kind 토글이 표시되어야 함 (회귀 방지)
-    await expect(page.getByTestId('member-search-filter-ALL')).toBeVisible();
-    await expect(page.getByTestId('member-search-filter-HUMAN')).toBeVisible();
-    await expect(page.getByTestId('member-search-filter-AGENT')).toBeVisible();
-  });
 });

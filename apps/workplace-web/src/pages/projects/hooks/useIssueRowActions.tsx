@@ -26,6 +26,7 @@ import { useUpdateIssueStatus } from '../../../hooks/queries/useUpdateIssueStatu
 import { epicDragBlockReason } from '../../../lib/epicDnd';
 import { ISSUE_PRIORITY_LABEL, ISSUE_PRIORITY_OPTIONS, ISSUE_STATUS_LABEL, ISSUE_STATUSES } from '../../../lib/issueGrouping';
 import { rowMenuItems, toggleAssigneeIds, toSummary } from '../../../lib/issueRowMenu';
+import { isProjectOwner } from '../../../lib/projectPermissions';
 import type { IssuePriority, IssueResponse, IssueStatus } from '../../../types/issue';
 import type { MemberResponse } from '../../../types/project';
 import type { UserSummary } from '../../../types/user';
@@ -90,7 +91,7 @@ export function useIssueRowActions({
   const { user } = useAuth();
   const members = useProjectMembers(projectKey).data ?? [];
   const agents = members.filter((m) => m.kind === 'AGENT');
-  const viewerIsOwner = members.some((m) => m.userId === user?.id && m.role === 'OWNER');
+  const viewerIsOwner = isProjectOwner(members, user?.id);
 
   const updateStatus = useUpdateIssueStatus(projectKey);
   const updatePriority = useUpdateIssuePriority(projectKey);

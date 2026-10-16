@@ -46,13 +46,7 @@ async function mockBaseRoutes(page: Page) {
 }
 
 test.describe('드라이브 TEAM 공간 이름 변경/삭제', () => {
-  test('TEAM(OWNER) 행에만 메뉴 노출, PERSONAL 에는 없음', async ({ authenticatedPage: page }) => {
-    await mockBaseRoutes(page)
-    await page.goto('/drive')
-    await expect(page.getByTestId('drive-space-menu-2')).toBeAttached()
-    await expect(page.getByTestId('drive-space-menu-1')).toHaveCount(0)
-  })
-
+  // ⋯ 노출 판정(TEAM·OWNER 만)은 src/lib/driveSpaces.test.ts 가 맡는다(WP-413) — 아래는 OWNER 행 ⋯ 배선·동작.
   test('이름 변경 → PATCH payload 검증 → 목록 반영', async ({ authenticatedPage: page }) => {
     await mockBaseRoutes(page)
     const patches = trackRequests(page, 'PATCH', '/api/v1/drive/spaces/2')

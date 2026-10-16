@@ -50,6 +50,10 @@ describe('progressView', () => {
 describe('agentToolLabel', () => {
   it('알려진 이름', () => expect(agentToolLabel('claude-code')).toBe('Claude Code'))
   it('모르면 원문', () => expect(agentToolLabel('mcp')).toBe('mcp'))
+  it('프로토타입 키도 원문(WP-416)', () => {
+    expect(agentToolLabel('constructor')).toBe('constructor')
+    expect(agentToolLabel('toString')).toBe('toString')
+  })
 })
 describe('displayState', () => {
   const agent = { id: 9, username: 'aki', name: '아키', kind: 'AGENT' as const }

@@ -27,6 +27,7 @@ import { useProjectMembers } from '../../hooks/queries/useProjectMembers';
 import { useDeleteProject, useProject, useUpdateProject } from '../../hooks/queries/useProjects';
 import { useAuth } from '../../hooks/useAuth';
 import { handleApiError } from '../../lib/api-error';
+import { isProjectOwner } from '../../lib/projectPermissions';
 import { type UpdateProjectFormData,updateProjectSchema } from '../../lib/validations/project';
 import { CustomFieldManagement } from './components/CustomFieldManagement';
 import { IssueTypeManagement } from './components/IssueTypeManagement';
@@ -43,8 +44,7 @@ export default function ProjectSettingsPage() {
   // 멤버 목록 기반으로 현재 사용자의 프로젝트 권한을 도출 — 라벨 편집 UI 게이팅에 사용.
   const members = useProjectMembers(key);
   const { user, isAdmin } = useAuth();
-  const isOwner =
-    members.data?.some((m) => m.userId === user?.id && m.role === 'OWNER') ?? false;
+  const isOwner = isProjectOwner(members.data, user?.id);
   // 라벨은 멤버면 만들 수 있다(WP-394). ADMIN 은 멤버가 아니어도 서버가 통과시킨다(개인 프로젝트 제외).
   const isMember = members.data?.some((m) => m.userId === user?.id) ?? false;
   // 개인 프로젝트는 멤버 개념이 없어 멤버 관리 섹션을 숨긴다.

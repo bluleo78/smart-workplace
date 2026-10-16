@@ -14,11 +14,11 @@ const SPACE_ID = 1
 const json = (body: unknown, status = 200) => ({ status, contentType: 'application/json', body: JSON.stringify(body) })
 
 /** 공간·목록 모킹 — 목록은 state 를 그대로 돌려줘 이름 변경 후 재조회에 반영된다. */
-async function stubDrive(page: Page, state: { files: DriveFile[]; folders?: unknown[] }, { archived = false } = {}) {
+async function stubDrive(page: Page, state: { files: DriveFile[]; folders?: unknown[] }) {
   await page.route((u) => u.pathname === '/api/v1/drive/spaces', (r) =>
-    r.request().method() === 'GET' ? r.fulfill(json([personalSpace(), createSpace({ archived })])) : r.fallback())
+    r.request().method() === 'GET' ? r.fulfill(json([personalSpace(), createSpace()])) : r.fallback())
   await page.route((u) => u.pathname === `/api/v1/drive/spaces/${SPACE_ID}`, (r) =>
-    r.request().method() === 'GET' ? r.fulfill(json(createSpace({ archived }))) : r.fallback())
+    r.request().method() === 'GET' ? r.fulfill(json(createSpace())) : r.fallback())
   await page.route((u) => u.pathname === `/api/v1/drive/spaces/${SPACE_ID}/items`, (r) =>
     r.request().method() === 'GET' ? r.fulfill(json({ folders: state.folders ?? [], files: state.files })) : r.fallback())
   await page.route(/\/api\/v1\/drive\/files\/\d+\/thumbnail/, (r) => r.fulfill({ status: 404 }))
@@ -198,15 +198,6 @@ test('한글 조합을 끝내는 Enter 는 저장하지 않고, 그 다음 Enter
   await input.press('Enter')
   await patches.waitFor()
   expect(patches.lastBody<{ name: string }>()).toEqual({ name: '회의록.txt' })
-})
-
-test('보관된 공간에서는 ⋯ 메뉴의 이름 변경이 비활성', async ({ authenticatedPage: page }) => {
-  await stubDrive(page, { files: [createFile({ id: 70, name: 'memo.txt' })] }, { archived: true })
-  await page.goto(`/drive/spaces/${SPACE_ID}`)
-  const row = page.getByRole('listitem').filter({ hasText: 'memo.txt' })
-  await row.hover()
-  await row.getByRole('button', { name: /더보기/ }).click()
-  await expect(page.getByRole('menuitem', { name: '이름 변경' })).toHaveAttribute('data-disabled', '')
 })
 
 test('폴더 이름 칸도 한글 조합을 끝내는 Enter 로는 저장하지 않는다', async ({ authenticatedPage: page }) => {

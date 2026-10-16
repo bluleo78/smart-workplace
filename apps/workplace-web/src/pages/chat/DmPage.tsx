@@ -2,7 +2,7 @@
 // #345: DM 도 채널이므로 백엔드가 AI 진행 progress 를 fan-out 한다 → ChannelPage 와 동일하게
 // onMessagingProgress 를 구독해 작업 중 유령 버블을 렌더(dm.id 기준).
 import { MessageSquare, Sparkles } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
@@ -26,6 +26,7 @@ import { useAiAvailable } from '@/hooks/useAiAvailable'
 import { useAiWorkingBubbles } from '@/hooks/useAiWorkingBubbles'
 import { useAuth } from '@/hooks/useAuth'
 import { useEntryMaxMessageId } from '@/hooks/useEntryMaxMessageId'
+import { onChannelProgress } from '@/hooks/useMessageStream'
 import { buildDmContext } from '@/lib/aiScreenContext/builders/messaging'
 import { shouldAutoShowCatchup } from '@/lib/catchupGate'
 import { catchupWatermark } from '@/lib/catchupWatermark'
@@ -55,7 +56,7 @@ export default function DmPage() {
 
   // AI 작업 중 유령 버블 — ChannelPage 와 같은 훅(DM 채널의 channelId === dmId).
   const messagesLoaded = data !== undefined
-  const working = useAiWorkingBubbles(dmId, messages, messagesLoaded)
+  const working = useAiWorkingBubbles(dmId, onChannelProgress, messages, messagesLoaded)
 
   // ── 캐치업(L1) 배선 — ChannelPage 와 동일 로직, dmId 기준. DM 도 채널이므로 watermark·요약 API 재사용.
   const detail = useChannelDetail(dmId)
@@ -69,11 +70,6 @@ export default function DmPage() {
   const unreadCount = unreadFromOthersCount(messages, catchupSince, user?.id, entryMaxId)
   const [catchupManual, setCatchupManual] = useState(false)
   const [catchupDismissed, setCatchupDismissed] = useState(false)
-  // DM 전환 시 카드 상태 리셋(이전 DM 의 트리거/닫힘이 새 DM 으로 새지 않도록).
-  useEffect(() => {
-    setCatchupManual(false)
-    setCatchupDismissed(false)
-  }, [dmId])
   const showCatchupCard =
     !catchupDismissed && catchupSince != null && (shouldAutoShowCatchup(unreadCount) || catchupManual)
   const showCatchupButton =

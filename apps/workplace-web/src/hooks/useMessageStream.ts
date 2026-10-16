@@ -5,6 +5,7 @@
 
 import { type InfiniteData, type QueryClient } from '@tanstack/react-query';
 
+import { keyedSubscribe } from '../lib/aiWorkingProgress';
 import { applyReaction } from '../lib/reactions';
 import type { MessagePage, MessageResponse } from '../types/messaging';
 import { messagingKeys } from './queries/messagingKeys';
@@ -28,6 +29,8 @@ export function onMessagingProgress(listener: MessagingProgressListener): () => 
     messagingProgressListeners.delete(listener);
   };
 }
+/** 한 채널(=DM, channelId)의 진행 이벤트만 받는 구독 — useAiWorkingBubbles 의 subscribe 인자(WP-418). */
+export const onChannelProgress = keyedSubscribe(onMessagingProgress, (e) => e.channelId);
 function emitMessagingProgress(e: MessagingProgressEvent) {
   messagingProgressListeners.forEach((l) => l(e));
 }

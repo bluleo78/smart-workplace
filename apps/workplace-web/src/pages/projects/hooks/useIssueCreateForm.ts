@@ -10,6 +10,7 @@ import { useIssueImageUpload } from '../../../hooks/useIssueImageUpload';
 import { useUnsavedChangesWarning } from '../../../hooks/useUnsavedChangesWarning';
 import { handleApiError } from '../../../lib/api-error';
 import { resolveParentNumber } from '../../../lib/issueCreateParent';
+import { hasIssueDraftContent } from '../../../lib/issueDraft';
 import { type CreateIssueFormData, createIssueSchema } from '../../../lib/validations/issue';
 
 // 이슈 생성 폼 로직 — 데스크톱 다이얼로그와 모바일 시트가 공유한다(WP-196). 렌더링은 각 컴포넌트 몫.
@@ -82,7 +83,7 @@ export function useIssueCreateForm({
   const titleValue = watch('title');
   const bodyValue = watch('body');
   // hasContent 는 모바일 시트의 버림 확인에도 쓰인다.
-  const hasContent = !!((titleValue ?? '').trim() || (bodyValue ?? '').trim());
+  const hasContent = hasIssueDraftContent(titleValue, bodyValue);
   useUnsavedChangesWarning(open && hasContent);
 
   // AI 제안 핸들러 — 현재 폼 제목·본문으로 분류 요청.

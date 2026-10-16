@@ -13,6 +13,12 @@ describe('ssoErrorMessage', () => {
   it('모르는 코드(unavailable 포함)·코드 없음은 null — 배너를 띄우지 않는다', () => {
     expect(ssoErrorMessage('unavailable')).toBeNull()
     expect(ssoErrorMessage(null)).toBeNull()
+    expect(ssoErrorMessage('')).toBeNull()
+  })
+  it('프로토타입 키(toString·constructor·__proto__)는 함수가 아니라 null — 모르는 코드로 본다 (WP-416)', () => {
+    expect(ssoErrorMessage('toString')).toBeNull()
+    expect(ssoErrorMessage('constructor')).toBeNull()
+    expect(ssoErrorMessage('__proto__')).toBeNull()
   })
 })
 

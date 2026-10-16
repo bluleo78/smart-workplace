@@ -14,7 +14,7 @@ pnpm build            # tsc 검증 + Vite production 빌드
 pnpm preview          # production 빌드 미리보기
 pnpm lint             # ESLint
 pnpm typecheck        # tsc -b --noEmit
-pnpm test             # vitest 단위 테스트 (src/**/*.test.ts, 수 초)
+pnpm test             # vitest 단위·컴포넌트 테스트 (src/**/*.test.ts · *.test.tsx, 수 초)
 pnpm test:e2e         # Playwright E2E (Vite dev 자동 기동)
 E2E_SERVER=preview pnpm test:e2e  # 빌드 결과물 서빙 (전체 스위트용)
 pnpm test:e2e:ui      # Playwright UI 모드
@@ -61,10 +61,11 @@ src/
 
 ## 단위 테스트 (vitest)
 
-- 설정: `vitest.config.ts`. 대상: `src/**/*.test.ts` (기본 node 환경, DOM 이 필요한 파일만 `// @vitest-environment jsdom`)
-- pre-commit(web 변경 시)·pre-push 게이트가 **항상 전체 실행**한다(400여 건, 수 초) — 게이트에 없던 동안 3건이 깨진 채 방치됐었다(WP-79)
-- 브라우저 없이 검증되는 순수 로직(포매터·그룹핑·파서·zod 스키마·상태 분기 함수)은 vitest 로 쓴다
-- 화면 반영·payload 왕복·레이아웃·상호작용은 E2E 에 둔다 — 아래 E2E 품질 기준(유효성 검사가 **UI 에러로 반영**되는지 등)은 그대로 E2E 가 담당
+- 설정: `vitest.config.ts` — 프로젝트 둘. **node**: `src/**/*.test.ts`(DOM 이 필요한 파일만 `// @vitest-environment jsdom`). **dom**: `src/**/*.test.tsx`(jsdom + React Testing Library, 셋업 `src/test/setup.ts`)
+- pre-commit(web 변경 시)·pre-push 게이트가 **항상 전체 실행**한다(2천여 건, 수 초) — 게이트에 없던 동안 3건이 깨진 채 방치됐었다(WP-79). 그래서 무거운 페이지 컴포넌트를 통째로 렌더하지 않는다
+- 브라우저 없이 검증되는 순수 로직(포매터·그룹핑·파서·zod 스키마·상태 분기 함수)은 `*.test.ts` 로 쓴다. 화면 안의 한 줄짜리 권한·비활성 판정도 순수 함수로 꺼내 여기서 지킨다(예: `lib/projectPermissions`·`lib/driveRowActions`·`lib/issueDraft`)
+- **컴포넌트 테스트(`*.test.tsx`, WP-413)**: JSX 조건부 렌더로 갈리는 권한 분기·모드별 노출·폼이 넘기는 payload 처럼 **레이아웃이 필요 없는 화면 로직**. `renderWithProviders`(`src/test/renderWithProviders.tsx` — QueryClient(재시도 끔)·MemoryRouter·고정 AuthContext·TooltipProvider)로 렌더하고, 데이터 훅은 `vi.mock` 으로 끊는다(예: `IssueAttachmentStrip.test.tsx`·`MemberSearchPopover.test.tsx`). 훅은 `renderHook`
+- 레이아웃·기하(폭·겹침·스크롤)·실제 브라우저 이벤트(포커스 이동·IME·드래그·호버)·route → page → API 배선은 E2E 에 둔다. 판정을 단위/컴포넌트 테스트로 옮겨도 **화면마다 실제 배선을 증명하는 E2E 1건은 남긴다**. 아래 E2E 품질 기준(유효성 검사가 **UI 에러로 반영**되는지 등)도 그대로 E2E 가 담당
 
 ## E2E Testing (Playwright)
 
@@ -105,6 +106,7 @@ test('로그인 페이지가 보인다', { tag: '@smoke' }, async ({ page }) => 
 ### 테스트 작성 의무
 
 프론트엔드 코드 수정/신규 기능에는 **반드시 해당 UI 및 로직에 대한 E2E 회귀 테스트** 동반. 테스트 없는 변경은 완료로 간주하지 않는다.
+단, 권한·조건부 렌더·비활성 판정의 경우의 수는 위 단위/컴포넌트 테스트로 쓰고, E2E 는 화면당 실제 배선 1건만 둔다(WP-413).
 
 품질 기준 — **입력 → 처리 → 출력 전체 파이프라인** 검증 (요소 존재만 보면 안 됨):
 1. 폼 입력 → API payload 검증 (`route.request().postDataJSON()`)

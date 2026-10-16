@@ -7,6 +7,7 @@ import {
   type ToolLabel,
 } from '@smart-workplace/mcp-tools-shared/tool-labels';
 
+import { ownLookup } from '@/lib/ownLookup';
 import type { ToolStep } from '@/types/home';
 
 // WP-340: 이름이 바뀌거나 없어진 도구의 옛 이름 라벨 — 이전에 저장된 AI Chat 세션의 toolName 이 원래 이름 + 🔧 로 보이지 않게 하는
@@ -40,7 +41,8 @@ export const LEGACY_TOOL_LABELS: Record<string, ToolLabel> = {
 
 export function getToolDisplay(toolName: string): ToolLabel {
   const name = strip(toolName);
-  return TOOL_LABELS[name] ?? LEGACY_TOOL_LABELS[name] ?? { label: name, icon: '🔧' };
+  // 도구명은 AI 응답에서 오므로 프로토타입 키('constructor' 등)가 라벨로 새지 않게 자기 키만 조회한다(WP-416).
+  return ownLookup(TOOL_LABELS, name) ?? ownLookup(LEGACY_TOOL_LABELS, name) ?? { label: name, icon: '🔧' };
 }
 
 // #461: show_* 도구명에서 위젯 타입 추출(점진 렌더용). 백엔드 compose-parser 와 동일 규칙.

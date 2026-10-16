@@ -4,6 +4,7 @@
 
 import { type InfiniteData, type QueryClient } from '@tanstack/react-query';
 
+import { keyedSubscribe } from '../lib/aiWorkingProgress';
 import type { ChatMessagePage, ChatMessageResponse } from '../types/chat';
 import { chatKeys } from './queries/chatKeys';
 
@@ -42,6 +43,8 @@ export function onChatProgress(listener: ProgressListener): () => void {
     progressListeners.delete(listener);
   };
 }
+/** 한 이슈 채팅 스레드(threadId)의 진행 이벤트만 받는 구독 — useAiWorkingBubbles 의 subscribe 인자(WP-418). */
+export const onThreadProgress = keyedSubscribe(onChatProgress, (e) => e.threadId);
 function emitProgress(e: ChatProgressEvent) {
   progressListeners.forEach((l) => l(e));
 }

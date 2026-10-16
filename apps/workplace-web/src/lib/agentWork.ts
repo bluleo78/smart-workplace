@@ -1,5 +1,6 @@
 // AI 작업 진행(WP-377) 순수 로직 — 라벨·정렬·대표 작업·진행률 계산. 컴포넌트는 이 모듈만 호출한다(vitest 로 검증 가능).
 import type { AgentWorkState, AgentWorkView, IssueResponse } from '../types/issue'
+import { ownLookup } from './ownLookup'
 
 /** 사용자 관점 라벨 — "내가 할 일"이 드러나게(답변 필요·검토 필요), 메일의 "회신 필요"와 같은 어휘. */
 export const AGENT_STATE_LABEL: Record<AgentWorkState | 'NOT_STARTED', string> = {
@@ -52,9 +53,9 @@ export const STALE_TOOLTIP = '2시간 넘게 보고가 없어요'
 
 const TOOL_LABEL: Record<string, string> = { 'claude-code': 'Claude Code', cursor: 'Cursor' }
 
-/** 도구 식별자의 표시 이름 — 모르는 도구는 원문 그대로. */
+/** 도구 식별자의 표시 이름 — 모르는 도구(프로토타입 키 포함, WP-416)는 원문 그대로. */
 export function agentToolLabel(tool: string): string {
-  return TOOL_LABEL[tool] ?? tool
+  return ownLookup(TOOL_LABEL, tool) ?? tool
 }
 
 /** 이슈의 대표 작업 — 서버가 급한 순(상태 순위 → 최근 보고)으로 내려주므로 첫 건. 없으면 null. */

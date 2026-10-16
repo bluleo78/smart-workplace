@@ -72,6 +72,8 @@ test.describe('IssueCreateDialog 유효성 검사 (#163)', () => {
 })
 
 test.describe('IssueCreateDialog 새로고침 유실 경고 (#620)', () => {
+  // 켜짐 조건(제목/본문·공백)은 src/lib/issueDraft.test.ts, 리스너 등록·해제는 useUnsavedChangesWarning.test.tsx 가
+  // 맡는다(WP-413). 여기서는 다이얼로그 입력 → 경고 켜짐 → 닫힘 → 해제의 실제 배선 한 줄기만 본다.
   // 실제 beforeunload 확인창은 headless 브라우저가 표시하지 않으므로, window 에 이벤트를
   // 직접 dispatch 해 리스너가 등록돼 preventDefault() 를 호출하는지로 검증한다.
   async function dispatchBeforeUnload(page: import('@playwright/test').Page) {
@@ -81,37 +83,6 @@ test.describe('IssueCreateDialog 새로고침 유실 경고 (#620)', () => {
       return event.defaultPrevented
     })
   }
-
-  test('제목/본문 미입력 상태에서는 beforeunload 경고가 없다', async ({ authenticatedPage: page }) => {
-    await stubProject(page)
-    await page.goto(`/projects/${PROJECT_KEY}`)
-    await page.getByRole('button', { name: '+ 새 태스크' }).click()
-    await expect(page.getByRole('dialog', { name: '새 이슈' })).toBeVisible()
-
-    expect(await dispatchBeforeUnload(page)).toBe(false)
-  })
-
-  test('제목 입력 중 새로고침 시도 → beforeunload 경고가 뜬다', async ({ authenticatedPage: page }) => {
-    await stubProject(page)
-    await page.goto(`/projects/${PROJECT_KEY}`)
-    await page.getByRole('button', { name: '+ 새 태스크' }).click()
-    await expect(page.getByRole('dialog', { name: '새 이슈' })).toBeVisible()
-
-    await page.getByLabel('제목').fill('작성 중인 제목')
-
-    expect(await dispatchBeforeUnload(page)).toBe(true)
-  })
-
-  test('본문만 입력해도 beforeunload 경고가 뜬다', async ({ authenticatedPage: page }) => {
-    await stubProject(page)
-    await page.goto(`/projects/${PROJECT_KEY}`)
-    await page.getByRole('button', { name: '+ 새 태스크' }).click()
-    await expect(page.getByRole('dialog', { name: '새 이슈' })).toBeVisible()
-
-    await page.locator('#issue-body').fill('작성 중인 본문')
-
-    expect(await dispatchBeforeUnload(page)).toBe(true)
-  })
 
   test('모달을 닫으면 beforeunload 경고가 해제된다', async ({ authenticatedPage: page }) => {
     await stubProject(page)

@@ -142,6 +142,7 @@ async function setupBoardMocks(
 // 이슈 상세 reporter·멤버 권한 분기(제목 편집·상태 select·삭제 버튼)는 open-project-flow.spec.ts 가 맡는다.
 
 // ─── 보드 — 비멤버(OPEN reporter) 시나리오 ──────────────────────────────────────
+// 판정(OPEN·TEAM × 멤버 여부)은 src/lib/projectPermissions.test.ts 가 맡고, 여기서는 서버 플래그 → 버튼 배선만 본다(WP-413).
 
 test(
   'OPEN 비멤버: 보드에서 "새 태스크" 버튼 표시 (OPEN 프로젝트는 테넌트 전원 생성 가능)',
@@ -150,20 +151,7 @@ test(
     // board 뷰로 이동 (URL param 으로 board 뷰 지정)
     await page.goto(`/projects/${PROJECT_KEY}?view=board`);
 
-    // OPEN 비멤버도 이슈 생성 가능 — canCreateIssue = isOpenProject || viewerIsMember
-    await expect(page.getByRole('button', { name: '+ 새 태스크' })).toBeVisible();
-  },
-);
-
-// ─── 보드 — OPEN 프로젝트 비멤버도 이슈 생성 허용 확인 ─────────────────────────
-
-test(
-  'OPEN 멤버: 보드에서 "새 태스크" 버튼 표시',
-  async ({ authenticatedPage: page }) => {
-    await setupBoardMocks(page, true);
-    await page.goto(`/projects/${PROJECT_KEY}?view=board`);
-
-    // 멤버는 이슈 생성 버튼 표시
+    // OPEN 비멤버도 이슈 생성 가능 — canCreateIssueIn(project)
     await expect(page.getByRole('button', { name: '+ 새 태스크' })).toBeVisible();
   },
 );
@@ -171,6 +159,7 @@ test(
 // ─── 이슈 상세 — 첨부 드롭존 노출 (WP-202) ─────────────────────────────────────
 // 왜: 첨부 업로드 권한은 본문 편집 권한과 같다. 편집 가능한 OPEN reporter 에겐 드롭존을 보여주고,
 //     편집 불가 열람자에겐 숨겨 클릭 후 403("프로젝트 멤버가 아닙니다")을 받는 일이 없게 한다.
+//     열람자 숨김 분기는 IssueAttachmentStrip.test.tsx(컴포넌트 테스트)가 맡는다(WP-413).
 
 test(
   'OPEN reporter(비멤버): 첨부 드롭존 표시 + 파일 선택 시 업로드 POST',
@@ -208,28 +197,6 @@ test(
     });
     // multipart 본문에 선택한 파일이 files 필드로 실려 간다.
     expect((await uploadReq).postData() ?? '').toContain('filename="photo.png"');
-  },
-);
-
-test(
-  'OPEN 열람자(비멤버·비reporter): 첨부 드롭존·드라이브 링크 버튼 미표시',
-  async ({ authenticatedPage: page }) => {
-    await setupOpenProjectMocks(page, {
-      viewerCanEditContent: false,
-      viewerCanEditWorkflow: false,
-      viewerCanDelete: false,
-      viewerIsMember: false,
-    });
-    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
-
-    // 권한 로드 완료의 양성 신호 — 본문 편집 버튼은 viewerCanEditContent 가 정해져야 비활성으로 렌더된다.
-    // 그 뒤에 부재를 단언해야 로딩 중이라 없는 것과 권한이 없어 없는 것을 구분한다(WP-219).
-    await expect(page.getByRole('button', { name: '본문 편집' })).toBeDisabled();
-    // 첨부 스트립 자체는 렌더(목록 열람 가능)되지만 업로드 드롭존·링크 버튼은 없다.
-    // 첨부 0건·편집 불가면 스트립은 내용 없는 0px 섹션이라 toBeVisible 은 로딩 문구가 보이는 순간에만 우연히 통과한다.
-    await expect(page.getByTestId('issue-attachment-strip')).toBeAttached();
-    await expect(page.getByTestId('attachment-dropzone')).toHaveCount(0);
-    await expect(page.getByTestId('issue-drive-link-add-btn')).toHaveCount(0);
   },
 );
 

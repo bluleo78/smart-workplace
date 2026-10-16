@@ -29,6 +29,11 @@ describe('widgetTypeFromToolName', () => {
 
 // WP-340: 이름이 바뀐 도구의 옛 toolName(이전에 저장된 세션)도 한글 라벨로 보인다. 현재 이름은 영향 없다.
 describe('getToolDisplay — 옛 도구 이름 폴백', () => {
+  it('프로토타입 키는 모르는 도구처럼 원문 + 🔧 (WP-416)', () => {
+    expect(getToolDisplay('constructor')).toEqual({ label: 'constructor', icon: '🔧' });
+    expect(getToolDisplay('mcp__workplace__toString')).toEqual({ label: 'toString', icon: '🔧' });
+  });
+
   it('옛 이름은 한글 라벨과 아이콘을 돌려준다(mcp 프리픽스 포함)', () => {
     expect(getToolDisplay('update_status')).toEqual({ label: '상태 변경', icon: '✏️' });
     expect(getToolDisplay('mcp__workplace__list_project_members')).toEqual({ label: '멤버 조회', icon: '👥' });

@@ -32,7 +32,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { RenameDialog } from '@/components/ui/rename-dialog'
 import { extractApiError } from '@/lib/api-error'
-import { partitionSpaces } from '@/lib/driveSpaces'
+import { canManageDriveSpace, partitionSpaces } from '@/lib/driveSpaces'
 import { formatFileSize } from '@/lib/formatters'
 import { SELECTED_NAV_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
@@ -187,7 +187,7 @@ export function DriveSidebar() {
         <nav className="mt-2 space-y-1" data-testid="drive-space-list">
           {primary.map((s) => {
             // TEAM 공간 + OWNER 만 이름 변경/삭제 메뉴 노출(개인·채널 공간 제외).
-            const hasMenu = s.type === 'TEAM' && s.role === 'OWNER'
+            const hasMenu = canManageDriveSpace(s)
             return (
               <div key={s.id} className="group/space relative flex items-center">
                 {/* 메뉴가 있는 행은 ⋯ 자리를 비운다 — 터치 기기(pointer: coarse)는 ⋯ 가 상시 44px 라 더 넓게(WP-237). */}
