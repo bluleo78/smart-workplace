@@ -105,6 +105,9 @@ services:
       WORKPLACE_API_BASE_URL: http://api:9090
       # api 의 WORKPLACE_AI_AGENT_TOKEN 과 동일 시크릿을 재사용(내부 서비스 공통 토큰).
       INTERNAL_SERVICE_TOKEN: ${WORKPLACE_AI_AGENT_TOKEN:?WORKPLACE_AI_AGENT_TOKEN is required}
+      # 문서 변환 서비스 주소(WP-433). 레거시 .doc/.ppt/.xls·.hwp 텍스트 추출에 필요하다 — 비우면 그 형식만 추출이 보류되고
+      # 나머지는 정상 동작한다. 기본값을 두지 않는다(converter 는 K8S 에서만 운영 — 이 compose 는 폐기 상태).
+      WORKPLACE_CONVERTER_URL: ${WORKPLACE_CONVERTER_URL}
     volumes:
       - ./storage-data:/data/storage-data:ro
     depends_on:

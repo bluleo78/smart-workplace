@@ -5,3 +5,4 @@ import os
 os.environ.setdefault("WORKER_BLOB_BASE", "/tmp/worker-test-blobs")
 os.environ.setdefault("WORKPLACE_API_BASE_URL", "http://localhost:9090/api/v1")
 os.environ.setdefault("INTERNAL_SERVICE_TOKEN", "secret")
+os.environ.setdefault("WORKPLACE_CONVERTER_URL", "http://converter.test")

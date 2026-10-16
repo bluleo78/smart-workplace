@@ -1,11 +1,16 @@
 """범용 워커 디스패치. /tasks/{type} 로 작업 받고 백그라운드 처리 후 api 콜백."""
+import logging
+
 from fastapi import FastAPI, Depends, BackgroundTasks, HTTPException, Query, Request, Response
 from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 from . import config, blobs, callback, embed
+from .converter import ConverterUnavailable
 from .auth import require_internal
 from .extract import extract_text
 from .render import RenderError, render_image, render_pdf_page
+
+log = logging.getLogger(__name__)
 
 app = FastAPI()
 
@@ -150,5 +155,10 @@ def _run_extract(t: ExtractTask) -> None:
                                            "pageCount": r.get("pageCount")})
             return
         callback.post_result(t.jobId, {**base_payload, "status": "DONE", **r})
+    except ConverterUnavailable as e:
+        # converter 일시 오류(BUSY·연결 실패·503·read 타임아웃·오설정·URL 미설정 등): 콜백을 보내지 않는다.
+        # api 는 FAILED/SKIPPED 콜백을 종결 처리하므로, 콜백 없이 EXTRACTING 리스 만료(10분) 후 재클레임에 맡긴다(WP-433).
+        log.warning("converter 일시 오류로 추출 보류 jobId=%s mime=%s: %s", t.jobId, t.mime, e)
+        return
     except Exception as e:  # noqa: BLE001 — 어떤 실패든 api 로 보고(잡 멈춤 방지)
         callback.post_result(t.jobId, {**base_payload, "status": "FAILED", "error": str(e)[:500]})

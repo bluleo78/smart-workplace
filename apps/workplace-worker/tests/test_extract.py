@@ -169,3 +169,29 @@ def test_non_pdf_page_count_is_none():
     buf = io.BytesIO(); d.save(buf)
     r = extract_text(buf.getvalue(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document", max_chars=10_000)
     assert r["pageCount"] is None
+
+
+@pytest.mark.parametrize(
+    "mime",
+    ["application/msword", "application/vnd.ms-powerpoint", "application/vnd.ms-excel", "application/x-hwp"],
+)
+def test_legacy_mimes_go_through_converter(mime, monkeypatch):
+    """레거시 OLE·.hwp 4종은 converter HTTP 로 텍스트를 받는다(WP-433)."""
+    calls = []
+    monkeypatch.setattr("app.converter.convert_to_text", lambda d, m: calls.append(m) or "본문")
+    r = extract_text(b"raw", mime, 1000)
+    assert r["text"] == "본문" and calls == [mime] and r["pageCount"] is None
+
+
+def test_hwpx_never_calls_converter(monkeypatch):
+    """HWPX 는 ZIP/XML 직접 파싱 — converter 장애의 영향을 받지 않아야 한다."""
+    import zipfile, io
+    monkeypatch.setattr("app.converter.convert_to_text", lambda *a: pytest.fail("converter 호출 금지"))
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr(
+            "Contents/section0.xml",
+            '<?xml version="1.0"?><root xmlns:hp="x"><hp:t>한글 문서 본문</hp:t></root>',
+        )
+    out = extract_text(buf.getvalue(), "application/hwp+zip", 10_000)
+    assert "한글 문서 본문" in out["text"]

@@ -1,4 +1,8 @@
-"""파일 바이트에서 평문 텍스트를 추출. mime 별 라이브러리 분기. 순수 함수(외부 IO 없음).
+"""파일 바이트에서 평문 텍스트를 추출. mime 별 라이브러리 분기.
+
+대부분 순수 함수(외부 IO 없음)지만 레거시 OLE(.doc/.ppt/.xls)·.hwp 4종은 문서 변환 서비스
+(workplace-converter) `POST /convert/text` HTTP 호출을 탄다(WP-433). converter 예외는 여기서
+잡지 않고 호출측(main._run_extract)으로 올려 일시/영구 오류를 구분하게 한다.
 
 지원 mime 목록은 api `com.workplace.fileai.ExtractableTypes` 와 1:1 미러다 —
 한쪽만 고치면 드리프트(#735). 목록 변경 시 양쪽을 함께 수정한다.
@@ -8,7 +12,7 @@ from html.parser import HTMLParser
 from xml.etree import ElementTree
 from zipfile import ZipFile
 
-from . import soffice
+from . import converter
 
 
 class _HtmlTextStripper(HTMLParser):
@@ -83,14 +87,6 @@ def _extract_hwpx(data: bytes) -> str:
                     parts.append(elem.text.strip())
     return "\n".join(parts).strip()
 
-
-# 레거시 OLE·한글(.hwp) → soffice 변환 시 사용할 확장자 매핑.
-_SOFFICE_SUFFIX_BY_MIME = {
-    "application/msword": ".doc",
-    "application/vnd.ms-powerpoint": ".ppt",
-    "application/vnd.ms-excel": ".xls",
-    "application/x-hwp": ".hwp",
-}
 
 # 텍스트 계열 범용 처리에 포함되는 application/* mime(Global Constraints 표와 동일).
 _TEXT_LIKE_APPLICATION_MIMES = (
@@ -178,10 +174,9 @@ def _dispatch(data: bytes, mime: str, page_markers: bool) -> tuple[str, int | No
         # HWPX: ZIP+XML 표준 라이브러리 파싱
         return _extract_hwpx(data), None
 
-    suffix = _SOFFICE_SUFFIX_BY_MIME.get(mime)
-    if suffix is not None:
-        # 레거시 OLE(.doc/.ppt/.xls)·.hwp: LibreOffice headless 변환
-        return soffice.convert_to_text(data, suffix), None
+    if mime in converter.CONVERTER_MIMES:
+        # 레거시 OLE(.doc/.ppt/.xls)·.hwp: 문서 변환 서비스에 텍스트 변환 위임(예외는 호출측이 분류)
+        return converter.convert_to_text(data, mime), None
 
     if mime == "text/html":
         # HTML: 범용 text/ 분기보다 먼저 처리 — 마크업 제거 후 텍스트만 남긴다.

@@ -251,3 +251,52 @@ def test_render_bytes_rejects_invalid_params(monkeypatch, tmp_path):
     for q in ({"mime": "application/pdf", "page": 0}, {"mime": "application/pdf", "page": 1, "maxEdge": 0}, {"page": 1}):
         r = c.post(_bytes_url(**q), headers=_AUTH, content=b"x")
         assert r.status_code == 422, q
+
+
+def _extract_env(monkeypatch, tmp_path):
+    """_run_extract 직접 호출용 — blob 파일을 만들고 콜백을 기록한다.
+
+    `run(convert)` 는 converter.convert_to_text 를 `convert` 로 바꿔 끼우고 a.hwp 추출 잡(jobId=7)을 한 번 돌린다.
+    """
+    (tmp_path / "a.hwp").write_bytes(b"\xd0\xcf")
+    from app import config, converter, main
+    monkeypatch.setattr(config, "BLOB_BASE", str(tmp_path))  # config 는 import 시점 고정이라 직접 패치
+    posted = []
+    monkeypatch.setattr("app.callback.post_result", lambda job_id, payload, **kw: posted.append((job_id, payload)))
+
+    def run(convert):
+        monkeypatch.setattr(converter, "convert_to_text", convert)
+        main._run_extract(main.ExtractTask(jobId=7, storageKey="a.hwp", mime="application/x-hwp", tenantId=1))
+
+    return run, posted
+
+
+def test_run_extract_transient_sends_no_callback(monkeypatch, tmp_path):
+    """converter 일시 오류(연결 거부·BUSY 소진)는 콜백 없이 끝나 api 추출 리스 만료 재시도에 맡긴다."""
+    from app import converter
+    run, posted = _extract_env(monkeypatch, tmp_path)
+
+    def boom(d, m):
+        raise converter.ConverterUnavailable("down")
+
+    run(boom)
+    assert posted == []
+
+
+def test_run_extract_rejected_posts_failed_with_code(monkeypatch, tmp_path):
+    """converter 영구 오류는 FAILED converter:<CODE> 로 콜백한다."""
+    from app import converter
+    run, posted = _extract_env(monkeypatch, tmp_path)
+
+    def reject(d, m):
+        raise converter.ConverterRejected("TIMEOUT")
+
+    run(reject)
+    assert posted == [(7, {"tenantId": 1, "status": "FAILED", "error": "converter:TIMEOUT"})]
+
+
+def test_run_extract_empty_converter_text_is_skipped_empty(monkeypatch, tmp_path):
+    """converter 가 200 + 빈 본문이면 기존처럼 SKIPPED empty 로 종결한다(무한 재시도 아님)."""
+    run, posted = _extract_env(monkeypatch, tmp_path)
+    run(lambda d, m: "")
+    assert posted[0][1]["status"] == "SKIPPED" and posted[0][1]["error"] == "empty"

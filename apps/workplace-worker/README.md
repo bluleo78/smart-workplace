@@ -18,7 +18,7 @@ workplace-worker 는 Python 서비스이므로 pnpm/turbo 워크스페이스 밖
 cd apps/workplace-worker
 pip install -e ".[dev]"   # pyproject.toml extras
 # 또는
-pip install fastapi "uvicorn[standard]" pymupdf python-docx openpyxl httpx
+pip install fastapi "uvicorn[standard]" pymupdf python-docx openpyxl httpx python-pptx pillow pillow-heif
 ```
 
 ### 환경변수
@@ -28,6 +28,12 @@ pip install fastapi "uvicorn[standard]" pymupdf python-docx openpyxl httpx
 | `WORKER_BLOB_BASE` | api 가 파일을 저장하는 uploadDir 절대 경로 | `/Users/yourname/project/upload-data` |
 | `WORKPLACE_API_BASE_URL` | api 루트 URL(콜백 `/internal/worker/**` 는 루트 경로 — `/api/v1` 을 붙이면 콜백이 거부돼 추출이 EXTRACTING 에서 멈춘다) | `http://localhost:6060` |
 | `INTERNAL_SERVICE_TOKEN` | api / ai-agent 와 동일한 내부 서비스 토큰 | *(비밀값 — .env 에만 기록)* |
+| `WORKPLACE_CONVERTER_URL` | 문서 변환 서비스(workplace-converter) 루트 URL — 레거시 형식 추출에 필요. 비우면 기동은 되고 `.doc/.ppt/.xls/.hwp` 추출만 에러 로그와 함께 보류(콜백 없음 → api 리스 재시도) | `http://localhost:6085` |
+| `WORKER_CONVERTER_CONCURRENCY` | 워커 → converter 동시 호출 상한(기본 1, 1 이상 — 아니면 기동 실패) | `1` |
+| `WORKER_CONVERTER_ACQUIRE_TIMEOUT_SEC` | converter 동시 호출 슬롯 대기 상한 초(기본 30 — 넘기면 일시 오류로 보류) | `30` |
+| `WORKER_CONVERTER_READ_TIMEOUT_SEC` | converter 호출 read 타임아웃 초(기본 90 — converter 변환 타임아웃 60s 보다 길게) | `90` |
+
+레거시 `.doc/.ppt/.xls`·`.hwp` 텍스트 추출은 워커가 직접 하지 않고 converter `POST /convert/text` 를 경유한다(워커 이미지에 LibreOffice 없음).
 
 로컬 `.env` 예시:
 
@@ -35,6 +41,7 @@ pip install fastapi "uvicorn[standard]" pymupdf python-docx openpyxl httpx
 WORKER_BLOB_BASE=/Users/yourname/git/smart-workplace/upload-data
 WORKPLACE_API_BASE_URL=http://localhost:6060
 INTERNAL_SERVICE_TOKEN=dev-secret-token
+WORKPLACE_CONVERTER_URL=http://localhost:6085
 ```
 
 ### 실행
@@ -63,17 +70,13 @@ api  ──rw──► [uploads-data volume] ◄──ro── worker
 - worker → api 콜백에 `WORKPLACE_API_BASE_URL=http://api:9090` 사용(루트 — 콜백 경로 `/internal/worker/**` 에 `/api/v1` 이 붙지 않는다)
 - `INTERNAL_SERVICE_TOKEN` 은 api 의 `WORKPLACE_AI_AGENT_TOKEN` 과 **동일 값** 사용
 
-운영 `docker-compose.prod.yml` 에 `worker` 서비스와 `uploads-data` 명명 볼륨이 이미 선언되어 있다.
+운영은 K8S 로 배포한다(이미지 빌드는 ghcr 푸시만, 옛 compose·deploy.sh 배포는 폐기). worker 쪽 K8S 주의:
 
-### ghcr 이미지 빌드
-
-```bash
-# scripts/deploy.sh 에 worker 이미지 빌드 추가 필요:
-docker buildx build --platform linux/amd64,linux/arm64 \
-  -t ghcr.io/bluleo78/smart-workplace/worker:latest \
-  --push \
-  apps/workplace-worker
-```
+- env `WORKPLACE_CONVERTER_URL=http://converter:7085` 주입 — 없으면 레거시 `.doc/.ppt/.xls/.hwp` 텍스트 추출이 보류된다.
+- `INTERNAL_SERVICE_TOKEN` 은 converter 와도 **동일 값** 사용(converter 가 `Authorization: Internal <token>` 을 검사 — 불일치면 401 → 추출 보류).
+- converter 의 NetworkPolicy 가 worker 파드로부터의 ingress 를 허용해야 한다(막히면 연결 실패 → 추출 보류).
+- 배포 순서 **converter → worker → api**. api 의 V184 마이그레이션(HWP 추출 재큐)은 일회성이라, 새 worker 보다 먼저 나가면
+  구 LibreOffice 워커가 재큐 행을 다시 실패시키고 재큐가 소모된다.
 
 ## 라이브 스모크 테스트
 
