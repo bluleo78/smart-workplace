@@ -1,11 +1,11 @@
 ---
-name: genia-works-work-on
-description: Use when the user asks you to work on a genia-works issue (e.g. "WP-377 작업해", "/genia-works-work-on WP-377") — reports your progress with report_agent_work so the issue shows up under AI 위임 작업 with its state, note and progress.
+name: work-on
+description: Use when the user asks you to work on a genia-works issue (e.g. "WP-377 작업해", "/genia-works:work-on WP-377") — reports state, note and progress with report_agent_work so the issue shows under AI 위임 작업.
 ---
 
 # genia-works 이슈 작업 보고
 
-인자: 이슈 키(예: `WP-377`). genia-works MCP 가 연결돼 있어야 한다.
+인자: 이슈 키(예: `WP-377`). 아래 도구는 모두 genia-works MCP 서버의 도구다(이름 앞의 `mcp__…__` 는 연결 방식에 따라 다르다).
 
 1. `get_issue_detail` 로 이슈를 읽는다. `agentWork` 에 내 진행 중 작업이 있으면 그 note·진행률을 이어받는다. 내가 담당자가 아니면 사용자에게 담당자로 지정할지 묻는다(보고는 담당자만 가능).
 2. `report_agent_work({ issueKey, state: 'WORKING', note: '<한 줄 요약>' })` — 시작. 이슈가 TODO 면 서버가 진행 중으로 바꾼다.

@@ -37,7 +37,7 @@ describe('pluginGuide', () => {
         source: 'git-subdir',
         url: 'https://github.com/bluleo78/smart-workplace.git',
         path: 'plugins/genia-works',
-        ref: 'genia-works--v0.1.2',
+        ref: 'genia-works--v0.1.3',
       },
     });
   });

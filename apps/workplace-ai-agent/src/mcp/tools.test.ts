@@ -6,7 +6,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { buildSharedTools, isDisplayableTool, MEMORY_TOOL_NAMES, toolAnnotations, toolNameViolations, TOOL_LABELS, type SharedToolClient } from '@smart-workplace/mcp-tools-shared';
+import { AGENT_TOOL_NAME_MAX_LENGTH, buildSharedTools, isDisplayableTool, MEMORY_TOOL_NAMES, toolAnnotations, toolNameViolations, TOOL_LABELS, type SharedToolClient } from '@smart-workplace/mcp-tools-shared';
 import { describe, expect, it, vi, type Mock } from 'vitest';
 import { z } from 'zod';
 
@@ -712,7 +712,7 @@ describe('ai-agent 전용 도구 명명 규칙 (WP-347)', () => {
   it('예외 목록 밖의 ai-agent 전용 도구 이름은 규칙(snake_case·46자 이하·edit_/save_/set_ 금지)을 지킨다', () => {
     const violations = [...localNames]
       .filter((n) => !LOCAL_NAMING_EXCEPTIONS.includes(n))
-      .map((n) => ({ name: n, violations: toolNameViolations(n) }))
+      .map((n) => ({ name: n, violations: toolNameViolations(n, AGENT_TOOL_NAME_MAX_LENGTH) }))
       .filter((v) => v.violations.length > 0);
     expect(violations).toEqual([]);
   });
