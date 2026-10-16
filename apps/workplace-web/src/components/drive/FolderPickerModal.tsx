@@ -90,7 +90,7 @@ export function FolderPickerModal({
                   className="flex w-full items-center gap-2 py-1.5 text-left text-sm hover:bg-accent/50"
                   data-testid={`file-picker-file-${f.id}`}
                 >
-                  <DriveThumbnail fileId={f.fileId} category={f.category} />
+                  <DriveThumbnail fileId={f.fileId} category={f.category} mimeType={f.mimeType} />
                   <span className="truncate">{f.name}</span>
                 </button>
               </li>

@@ -9,7 +9,6 @@ import { useResetOnChange } from '../../hooks/useResetOnChange'
 import { elementBackgroundRgb, useThemeColor } from '../../hooks/useThemeColor'
 import { formatFileSize } from '../../lib/formatters'
 import { isIOSStandalone } from '../../lib/platform'
-import { resolvePreviewKind } from '../../lib/previewKind'
 import { ghostToggleClass } from '../../lib/selectionStyles'
 import { cn } from '../../lib/utils'
 import { isInAiPanelDom } from '../ai/aiPanelSurface'
@@ -31,6 +30,7 @@ import { actionSlots, resolveSaveMethod, resolveShareState, type SlotId } from '
 import { ViewerBacklinks } from './ViewerBacklinks'
 import { ViewerBody } from './ViewerBody'
 import { anchoredScroll, roundZoom, stageTouchAction } from './viewerGestures'
+import { itemPreviewKind } from './viewerItems'
 import { ViewerActionBar, ViewerMobileTopBar, ViewerTitle } from './ViewerMobileBars'
 import { ViewerMoreMenu } from './ViewerMoreMenu'
 import { isControl, navState, resolvePending, routeKey } from './viewerNav'
@@ -122,8 +122,9 @@ export function AttachmentViewer({
   const idx = Math.min(Math.max(index, 0), items.length - 1)
   const item = items[idx]
   const nav = navState(idx, items.length)
-  const kind = resolvePreviewKind(item.mimeType)
-  const zoomable = !item.unavailable && (kind === 'IMAGE' || kind === 'PDF')
+  // 변환 PDF(WP-431)도 PDF 와 같이 확대·축소한다 — 본문이 같은 PdfPages 로 그린다.
+  const kind = itemPreviewKind(item)
+  const zoomable = !item.unavailable && (kind === 'IMAGE' || kind === 'PDF' || kind === 'CONVERTED_PDF')
   // 형식(MIME)상 영상·오디오인가(WP-281). 실제 판정에 쓰는 media 는 재생 불가 보고를 반영해 아래에서 정한다.
   const mimeMedia = item.unavailable ? null : kind === 'VIDEO' ? 'video' : kind === 'AUDIO' ? 'audio' : null
   const itemKey = item.key

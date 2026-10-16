@@ -9,9 +9,11 @@ import {
   FileText,
   FileVideo,
   Image as ImageIcon,
+  Presentation,
 } from 'lucide-react'
 
-import { resolvePreviewKind } from '../../lib/previewKind'
+import { canonicalMime } from '../../lib/mimeFromFilename'
+import { CONVERTIBLE_MIMES, isPresentationMime, resolvePreviewKind } from '../../lib/previewKind'
 import { cn } from '../../lib/utils'
 
 /** 압축 파일 mime — 프리뷰 종류와 별개로 아이콘만 구분한다. */
@@ -29,6 +31,11 @@ const ARCHIVE_MIMES = new Set([
 export function FileTypeIcon({ mimeType, className }: { mimeType: string; className?: string }) {
   const cls = cn('h-4 w-4 shrink-0 text-muted-foreground', className)
   if (ARCHIVE_MIMES.has(mimeType)) return <FileArchive className={cls} aria-hidden />
+  // 변환 미리보기 문서(WP-431) — 발표 자료는 슬라이드 아이콘, 한글·워드는 문서 아이콘(미리보기 종류로는 UNSUPPORTED 라 기타로 떨어지지 않게).
+  // 구형 엑셀(XLS)은 XLSX 종류로 판정돼 아래 표 아이콘을 쓴다. 한글 별칭(haansofthwp 등)도 같은 아이콘이 되게 정규형으로 비교한다.
+  const canonical = canonicalMime(mimeType)
+  if (isPresentationMime(canonical)) return <Presentation className={cls} aria-hidden />
+  if (CONVERTIBLE_MIMES.has(canonical)) return <FileText className={cls} aria-hidden />
   switch (resolvePreviewKind(mimeType)) {
     case 'IMAGE':
       return <ImageIcon className={cls} aria-hidden />

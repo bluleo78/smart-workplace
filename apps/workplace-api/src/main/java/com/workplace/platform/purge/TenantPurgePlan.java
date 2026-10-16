@@ -123,6 +123,8 @@ public final class TenantPurgePlan {
           DRIVE_FILE_REF,
           DRIVE_FILE_VERSION,
           FILE_EXTRACTION,
+          // 변환 미리보기 상태(WP-431) — file 을 CASCADE 로 참조하지만 RLS 아래 명시 삭제로 file 보다 먼저 비운다.
+          FILE_PREVIEW,
           DRIVE_FILE,
           DRIVE_FOLDER,
           DRIVE_SPACE_MEMBER,

@@ -14,6 +14,8 @@ export interface ViewerItem {
   contentPath: string
   /** 다운로드 경로 — 드라이브는 /download(감사 로그), 나머지는 contentPath 와 같다. */
   downloadPath: string
+  /** 서버 변환 PDF 경로(드라이브 파일만). 있으면 HWP·PPT·DOC 를 원래 모양으로 본다(WP-431). */
+  previewPath?: string
   /** 있으면 ✨ AI 요약(드라이브 파일·드라이브 링크). */
   summaryDriveFileId?: number
   /** 있으면 "참조된 곳"(드라이브 화면에서 연 파일만). */

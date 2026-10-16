@@ -2,6 +2,7 @@
 import { attachmentContentPath } from '../../api/issueAttachments'
 import { homeAttachmentContentPath } from '../../lib/homeChatAttachments'
 import { canonicalMime, isGenericMime, mimeFromFilename } from '../../lib/mimeFromFilename'
+import { CONVERTIBLE_MIMES, type PreviewKind, resolvePreviewKind } from '../../lib/previewKind'
 import type { IssueAttachment } from '../../types/attachment'
 import type { DriveFile, DriveLink, VirtualAttachment } from '../../types/drive'
 import type { HomeUploadedFile } from '../../types/home'
@@ -75,15 +76,29 @@ export function mailAttachmentItem(a: EmailAttachmentMeta): ViewerItem {
   }
 }
 
-/** 드라이브 화면의 파일 — 요약·참조된 곳을 쓰고, 이미 드라이브라 가져오기는 없다. */
+/**
+ * 항목의 미리보기 종류 — 변환 PDF 경로가 있고 변환 대상 형식이면 CONVERTED_PDF, 아니면 mime 기준(resolvePreviewKind).
+ * 왜: 변환 경로는 드라이브 파일에만 있어(WP-431 범위), 이슈·메일·채팅의 같은 HWP 는 지금처럼 미지원 안내로 둔다.
+ */
+export function itemPreviewKind(item: ViewerItem): PreviewKind {
+  if (item.previewPath && CONVERTIBLE_MIMES.has(item.mimeType)) return 'CONVERTED_PDF'
+  return resolvePreviewKind(item.mimeType)
+}
+
+/**
+ * 드라이브 화면의 파일 — 요약·참조된 곳을 쓰고, 이미 드라이브라 가져오기는 없다.
+ * 형식은 별칭을 정규형으로 맞춘다(haansofthwp → x-hwp) — 변환 대상 판정이 정확 일치라서.
+ * previewPath 는 모든 드라이브 파일에 두고, 실제로 쓸지는 itemPreviewKind 가 형식으로 고른다.
+ */
 export function driveFileItem(f: DriveFile): ViewerItem {
   return {
     key: driveViewerKey(f.id),
     name: f.name,
-    mimeType: f.mimeType,
+    mimeType: canonicalMime(f.mimeType),
     sizeBytes: f.sizeBytes,
     contentPath: `/drive/files/${f.id}/content`,
     downloadPath: `/drive/files/${f.id}/download`,
+    previewPath: `/drive/files/${f.id}/preview`,
     summaryDriveFileId: f.id,
     backlinksDriveFileId: f.id,
   }

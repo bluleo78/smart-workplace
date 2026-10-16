@@ -629,6 +629,22 @@
   .ai-ring::before { display: none; }
 }
 
+/* 문서 변환 중 불확정 진행 막대(WP-431, ConvertingNotice) — 진행률을 모르므로 40% 폭 막대가 왼쪽 밖에서 오른쪽 밖으로 흐른다.
+   동작 줄이기면 흐르지 않고 폭 100% 맥박(animate-pulse 와 같은 애니메이션)으로 "진행 중"만 알린다. */
+@keyframes convert-indeterminate {
+  0% { margin-left: -40%; }
+  100% { margin-left: 100%; }
+}
+@utility animate-convert-indeterminate {
+  width: 40%;
+  animation: convert-indeterminate 1.4s ease-in-out infinite;
+  @media (prefers-reduced-motion: reduce) {
+    width: 100%;
+    margin-left: 0;
+    animation: var(--animate-pulse);
+  }
+}
+
 /* AI 표면 확인창(대화 전환 보호·대화 삭제, WP-191) — 모바일 AI 시트 레이어(z-[60])보다 위에 뜬다.
  * 콘텐츠는 className 으로 z-[80] 을 받지만, shadcn AlertDialogContent 가 내부에서 그리는 딤(overlay, z-50)은
  * 호출부에서 바꿀 수 없어(ui/* 는 CLI 관리) 바로 뒤 형제인 콘텐츠 표식(data-ai-confirm)으로 함께 올린다.

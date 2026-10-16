@@ -22,7 +22,8 @@ import {
   touchSwipeThenSecondFinger,
   touchTap,
 } from '../../fixtures/touch'
-import { nextFrame } from '../../fixtures/wait'
+import { trackRequests } from '../../fixtures/requests'
+import { expectStays, nextFrame } from '../../fixtures/wait'
 import { expectToggle } from '../../fixtures/selection'
 
 const SPACE_ID = 1
@@ -830,6 +831,26 @@ test.describe('공유·저장', () => {
     await expect(page.getByTestId('viewer-slot-share')).toBeDisabled()
     await expect(page.getByTestId('viewer-slot-share')).toHaveText('공유')
     await expect(page.getByTestId('viewer-slot-share-spinner')).toHaveCount(0)
+  })
+
+  test('모바일에서도 변환 중 → PDF 로 바뀌고 공유는 원본을 받는다', async ({ authenticatedPage: page }) => {
+    // WP-431: 변환 PDF 는 뷰어 밖으로 내보내지 않는다 — 공유 칸은 "받는 중"이 아니라 미지원 형식과 같은 "공유할 수 없음".
+    await stubWebShare(page)
+    const name = '2026년 언택트 AI R&D 과제기획 전담반 회의 참석안내.hwp'
+    await stubDriveFiles(page, [
+      { id: 86, name, mimeType: 'application/x-hwp', body: 'HWP Document File', preview: [{ status: 202 }, { status: 200 }] },
+    ])
+    const contents = trackRequests(page, 'GET', '/api/v1/drive/files/86/content')
+    await openViewer(page, name)
+    await expect(page.getByTestId('preview-converting')).toContainText('원래 모양으로 여는 중…')
+    await expect(page.getByTestId('pdf-page-1')).toBeVisible()
+    await expect(page.getByTestId('preview-converting')).toHaveCount(0)
+    const share = page.getByTestId('viewer-slot-share')
+    await expect(share).toHaveAccessibleName('공유할 수 없음')
+    await expect(share).toBeDisabled()
+    await expect(share).toHaveText('공유')
+    await expect(page.getByTestId('viewer-slot-share-spinner')).toHaveCount(0)
+    await expectStays(page, contents.count, 0)
   })
 
   // canShare 부재·거짓·예외 판정은 viewerShare.test(canShareFiles)가 지킨다 — 여기선 빈칸 배치(모바일 레이아웃) 한 경우만.

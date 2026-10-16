@@ -42,6 +42,7 @@ import com.workplace.jooq.tables.EventAttendee.EventAttendeePath;
 import com.workplace.jooq.tables.EventReminder.EventReminderPath;
 import com.workplace.jooq.tables.File.FilePath;
 import com.workplace.jooq.tables.FileExtraction.FileExtractionPath;
+import com.workplace.jooq.tables.FilePreview.FilePreviewPath;
 import com.workplace.jooq.tables.HomeActionProposal.HomeActionProposalPath;
 import com.workplace.jooq.tables.HomeMessage.HomeMessagePath;
 import com.workplace.jooq.tables.HomeMessageAttachment.HomeMessageAttachmentPath;
@@ -432,6 +433,19 @@ public class Tenant extends TableImpl<TenantRecord> {
             _fileExtraction = new FileExtractionPath(this, null, Keys.FILE_EXTRACTION__FILE_EXTRACTION_TENANT_ID_FKEY.getInverseKey());
 
         return _fileExtraction;
+    }
+
+    private transient FilePreviewPath _filePreview;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.file_preview</code> table
+     */
+    public FilePreviewPath filePreview() {
+        if (_filePreview == null)
+            _filePreview = new FilePreviewPath(this, null, Keys.FILE_PREVIEW__FILE_PREVIEW_TENANT_ID_FKEY.getInverseKey());
+
+        return _filePreview;
     }
 
     private transient AssistantConfigPath _assistantConfig;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { resolvePreviewKind } from './previewKind'
+import { CONVERTIBLE_MIMES, isPresentationMime, resolvePreviewKind, XLS_MIME } from './previewKind'
 
 describe('resolvePreviewKind', () => {
   it('이미지 mime(svg 포함)는 IMAGE', () => {
@@ -40,5 +40,26 @@ describe('resolvePreviewKind', () => {
   it('미지원/공백은 UNSUPPORTED', () => {
     expect(resolvePreviewKind('application/zip')).toBe('UNSUPPORTED')
     expect(resolvePreviewKind('')).toBe('UNSUPPORTED')
+  })
+  it('구형 엑셀(XLS)은 XLSX 시트 미리보기로 연다(WP-431)', () => {
+    expect(XLS_MIME).toBe('application/vnd.ms-excel')
+    expect(resolvePreviewKind('application/vnd.ms-excel')).toBe('XLSX')
+  })
+  it('변환 대상 5종은 mime 만으로는 UNSUPPORTED — 변환 미리보기는 드라이브 항목(previewPath)만 판정한다(WP-431)', () => {
+    const convertible = [
+      'application/x-hwp',
+      'application/hwp+zip',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      'application/vnd.ms-powerpoint',
+      'application/msword',
+    ]
+    expect([...CONVERTIBLE_MIMES].sort()).toEqual([...convertible].sort())
+    for (const t of convertible) expect([t, resolvePreviewKind(t)]).toEqual([t, 'UNSUPPORTED'])
+  })
+  it('isPresentationMime 은 pptx·ppt 만 참', () => {
+    expect(isPresentationMime('application/vnd.openxmlformats-officedocument.presentationml.presentation')).toBe(true)
+    expect(isPresentationMime('application/vnd.ms-powerpoint')).toBe(true)
+    expect(isPresentationMime('application/x-hwp')).toBe(false)
+    expect(isPresentationMime('application/msword')).toBe(false)
   })
 })

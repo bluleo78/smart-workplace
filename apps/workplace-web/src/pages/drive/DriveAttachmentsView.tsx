@@ -179,7 +179,7 @@ export function DriveAttachmentsView() {
                           data-testid={`drive-attachment-row-${a.fileId}`}
                           className={cn('group flex items-center gap-3 py-2 pl-10 text-sm hover:bg-accent/40', pageGutterClass)}
                         >
-                          <DriveThumbnail fileId={a.fileId} category={mimeToCategory(a.mimeType)} />
+                          <DriveThumbnail fileId={a.fileId} category={mimeToCategory(a.mimeType)} mimeType={a.mimeType} />
 
                           {/* 파일명 — 클릭 시 미리보기 */}
                           <button

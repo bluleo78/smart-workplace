@@ -45,6 +45,7 @@ import com.workplace.jooq.tables.EventAttendee;
 import com.workplace.jooq.tables.EventReminder;
 import com.workplace.jooq.tables.File;
 import com.workplace.jooq.tables.FileExtraction;
+import com.workplace.jooq.tables.FilePreview;
 import com.workplace.jooq.tables.HomeActionProposal;
 import com.workplace.jooq.tables.HomeMessage;
 import com.workplace.jooq.tables.HomeMessageAttachment;
@@ -342,6 +343,11 @@ public class Public extends SchemaImpl {
      * The table <code>public.file_extraction</code>.
      */
     public final FileExtraction FILE_EXTRACTION = FileExtraction.FILE_EXTRACTION;
+
+    /**
+     * The table <code>public.file_preview</code>.
+     */
+    public final FilePreview FILE_PREVIEW = FilePreview.FILE_PREVIEW;
 
     /**
      * The table <code>public.home_action_proposal</code>.
@@ -758,6 +764,7 @@ public class Public extends SchemaImpl {
             EventReminder.EVENT_REMINDER,
             File.FILE,
             FileExtraction.FILE_EXTRACTION,
+            FilePreview.FILE_PREVIEW,
             HomeActionProposal.HOME_ACTION_PROPOSAL,
             HomeMessage.HOME_MESSAGE,
             HomeMessageAttachment.HOME_MESSAGE_ATTACHMENT,

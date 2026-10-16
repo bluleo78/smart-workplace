@@ -100,6 +100,22 @@ workplace:
     base-url: ${WORKPLACE_COLLAB_URL:http://localhost:6095}
     internal-token: ${INTERNAL_SERVICE_TOKEN:${WORKPLACE_AI_AGENT_TOKEN:}}
     enabled: ${WORKPLACE_COLLAB_ENABLED:true}
+  # WP-431 문서 변환 서비스(workplace-converter, WP-430) — 드라이브 HWP·오피스 문서 미리보기 PDF 변환.
+  converter:
+    base-url: ${WORKPLACE_CONVERTER_URL:http://localhost:6085}
+    internal-token: ${INTERNAL_SERVICE_TOKEN:${WORKPLACE_AI_AGENT_TOKEN:}}  # 워커와 같은 단일 내부 토큰
+    enabled: ${WORKPLACE_CONVERTER_ENABLED:true}
+    timeout-seconds: 75         # 변환 상한 60초 + 여유. 연결 타임아웃은 2초(코드 고정)
+    max-bytes: 104857600        # 100MB — 넘으면 호출 없이 TOO_LARGE
+    busy-retries: 2             # 429 BUSY 일 때만 같은 작업 안에서 500ms·1000ms 뒤 재시도
+    busy-backoff-ms: 500
+    preview:
+      engine-version: ${WORKPLACE_CONVERTER_ENGINE_VERSION:rhwp-0.8.7+lo-25.2}
+      lease: 4m                 # 최악 (busy-retries+1)×timeout-seconds + BUSY 대기 합(기본 226.5초)보다 길어야 한다(기동 검증)
+      max-attempts: 3
+      transient-cooldown: 10m   # 일시 실패가 상한(max-attempts)에 닿은 뒤 이만큼 지나면 다시 시도할 수 있다
+      interactive-concurrency: 4
+      background-concurrency: 1
   worker:
     base-url: ${WORKPLACE_WORKER_URL:http://localhost:7080}
     internal-token: ${INTERNAL_SERVICE_TOKEN:${WORKPLACE_AI_AGENT_TOKEN:}}  # 단일 내부 토큰 — ai-agent 와 동일

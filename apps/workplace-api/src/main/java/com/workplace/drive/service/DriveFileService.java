@@ -30,6 +30,7 @@ import com.workplace.fileai.dto.ExtractedTextSlice;
 import com.workplace.fileai.dto.ExtractionInfo;
 import com.workplace.fileai.inbound.FileExtractionRequestedEvent;
 import com.workplace.fileai.service.ExtractedTextService;
+import com.workplace.filepreview.inbound.FilePreviewRequestedEvent;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.util.RawUploadContentTypes;
 import com.workplace.global.util.SafeFileNames;
@@ -551,6 +552,10 @@ public class DriveFileService {
     eventPublisher.publishEvent(
         FileExtractionRequestedEvent.of(
             uploaded.id(), uploaded.mimeType(), ExtractionProfile.FULL));
+    // 문서 미리 변환(WP-431) — 드라이브 업로드·새 버전만. 커밋 후 리스너가 백그라운드 실행기에 넘긴다(첫 열람을 빠르게).
+    // 롤백·복사로 생긴 버전은 발행하지 않는다 — 첫 열람 때 변환한다.
+    eventPublisher.publishEvent(
+        FilePreviewRequestedEvent.of(uploaded.id(), uploaded.mimeType(), uploaded.originalName()));
 
     // 새 버전 흡수도 created 로 둔다(프론트는 op 구분 없이 목록을 갱신).
     notifier.itemsChanged(OP_CREATED, spaceId, List.of(driveFileId), callerId);

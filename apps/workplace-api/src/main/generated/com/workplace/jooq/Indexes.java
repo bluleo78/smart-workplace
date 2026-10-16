@@ -45,6 +45,7 @@ import com.workplace.jooq.tables.EventAttendee;
 import com.workplace.jooq.tables.EventReminder;
 import com.workplace.jooq.tables.File;
 import com.workplace.jooq.tables.FileExtraction;
+import com.workplace.jooq.tables.FilePreview;
 import com.workplace.jooq.tables.HomeActionProposal;
 import com.workplace.jooq.tables.HomeMessage;
 import com.workplace.jooq.tables.HomeMessageAttachment;
@@ -221,6 +222,7 @@ public class Indexes {
     public static final Index IDX_FIELD_DEF_PROJECT = Internal.createIndex(DSL.name("idx_field_def_project"), IssueFieldDef.ISSUE_FIELD_DEF, new OrderField[] { IssueFieldDef.ISSUE_FIELD_DEF.PROJECT_ID }, false);
     public static final Index IDX_FIELD_VALUE_DEF = Internal.createIndex(DSL.name("idx_field_value_def"), IssueFieldValue.ISSUE_FIELD_VALUE, new OrderField[] { IssueFieldValue.ISSUE_FIELD_VALUE.FIELD_DEF_ID }, false);
     public static final Index IDX_FILE_EXPIRES_AT = Internal.createIndex(DSL.name("idx_file_expires_at"), File.FILE, new OrderField[] { File.FILE.EXPIRES_AT }, false);
+    public static final Index IDX_FILE_PREVIEW_TENANT = Internal.createIndex(DSL.name("idx_file_preview_tenant"), FilePreview.FILE_PREVIEW, new OrderField[] { FilePreview.FILE_PREVIEW.TENANT_ID }, false);
     public static final Index IDX_FILE_TENANT = Internal.createIndex(DSL.name("idx_file_tenant"), File.FILE, new OrderField[] { File.FILE.TENANT_ID }, false);
     public static final Index IDX_FILE_UPLOADED_BY = Internal.createIndex(DSL.name("idx_file_uploaded_by"), File.FILE, new OrderField[] { File.FILE.UPLOADED_BY }, false);
     public static final Index IDX_HOME_ACTION_PROPOSAL_SESSION = Internal.createIndex(DSL.name("idx_home_action_proposal_session"), HomeActionProposal.HOME_ACTION_PROPOSAL, new OrderField[] { HomeActionProposal.HOME_ACTION_PROPOSAL.SESSION_ID, HomeActionProposal.HOME_ACTION_PROPOSAL.STATUS }, false);

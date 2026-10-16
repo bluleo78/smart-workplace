@@ -77,6 +77,10 @@ workplace:
     base-url: http://localhost:6095
     internal-token: test-token
     enabled: false
+  converter:
+    base-url: http://localhost:6085
+    internal-token: test-token
+    enabled: false
   worker:
     base-url: http://localhost:7080
     internal-token: test-token

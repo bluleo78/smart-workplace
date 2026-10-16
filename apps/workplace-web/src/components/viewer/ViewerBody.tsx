@@ -4,7 +4,6 @@ import { memo, useEffect, useRef, useState } from 'react'
 import { blobToText, toVerifiedPdfBlob } from '../../api/blobContent'
 import { useObservedBox } from '../../hooks/useObservedBox'
 import { formatFileSize } from '../../lib/formatters'
-import { resolvePreviewKind } from '../../lib/previewKind'
 import { SCROLL_REGION_RING_INSET, scrollRegionProps } from '../../lib/scrollRegion'
 import { cn } from '../../lib/utils'
 import { MarkdownMessage } from '../ai/MarkdownMessage'
@@ -14,11 +13,14 @@ import { DocxPreview } from '../drive/preview/DocxPreview'
 import { SheetPreview } from '../drive/preview/SheetPreview'
 import { SandboxedHtmlFrame } from '../SandboxedHtmlFrame'
 import { Button } from '../ui/button'
+import { ConvertFailedNotice, ConvertingNotice } from './ConvertStateNotice'
 import { fitImageWidth } from './imageFit'
 import { MediaPlayer, type MediaSession } from './MediaPlayer'
 import { PdfPages } from './PdfPages'
 import type { ViewerItem } from './types'
-import { type PreviewProgress, usePreviewBlob } from './usePreviewBlob'
+import { useConvertedSource } from './useConvertedSource'
+import { type PreviewProgress, type PreviewSource, usePreviewBlob } from './usePreviewBlob'
+import { itemPreviewKind } from './viewerItems'
 
 /** 텍스트 미리보기 최대 길이(과대 파일 보호). */
 const TEXT_PREVIEW_LIMIT = 200_000
@@ -47,7 +49,7 @@ function UnsupportedNotice({ item, onDownload }: { item: ViewerItem; onDownload:
     // m-auto·w-full — 이미지·영상·오디오 본문은 flex 라 이것이 없으면 내용 폭만큼 왼쪽 위에 붙는다.
     <div className="m-auto flex w-full flex-col items-center gap-3 px-4 py-12 text-center" data-testid="preview-unsupported">
       <FileTypeIcon mimeType={item.mimeType} className="h-16 w-16" />
-      <p className="text-sm font-medium break-all">{item.name}</p>
+      <p className="text-sm font-medium break-keep wrap-break-word">{item.name}</p>
       {item.sizeBytes != null && <p className="text-xs text-muted-foreground">{formatFileSize(item.sizeBytes)}</p>}
       <p className="text-sm text-muted-foreground">이 형식은 미리 볼 수 없어요</p>
       <Button variant="outline" onClick={onDownload}>
@@ -138,14 +140,21 @@ export const ViewerBody = memo(function ViewerBody({
   /** 모바일에서 ‹ › 가 있을 때 영상 좌우를 그 폭만큼 비운다(화살표가 영상·컨트롤을 덮지 않게). */
   sideInset?: boolean
 }) {
-  const kind = resolvePreviewKind(item.mimeType)
+  const kind = itemPreviewKind(item)
+  // 서버 변환 PDF(WP-431) — 원본 대신 변환 결과를 받아 PDF 경로로 그린다. 원본은 받지 않으므로 10MB 확인도 건너뛴다.
+  const converted = kind === 'CONVERTED_PDF'
   const textLike = kind === 'MARKDOWN' || kind === 'HTML' || kind === 'TEXT' || kind === 'CSV'
   const parsed = kind === 'XLSX' || kind === 'DOCX'
   const isMedia = kind === 'VIDEO' || kind === 'AUDIO'
-  const renderable = kind === 'IMAGE' || kind === 'PDF' || textLike || parsed || isMedia
-  // 원본 blob 받기·10MB 초과 확인은 훅이 맡고, 여기서는 종류별 변환만 한다. 영상·오디오는 받는 중 % 를 보여 주려고 진행도 든다.
-  const source = usePreviewBlob(item, renderable, { trackProgress: isMedia })
-  const { blob, confirmSize } = source
+  const renderable = kind === 'IMAGE' || kind === 'PDF' || converted || textLike || parsed || isMedia
+  // 그릴 내용의 출처 — 형식으로 하나를 고르고, 아래는 출처를 몰라도 같은 방식으로 그린다. 훅 규칙상 둘 다 부르되 고르지 않은 쪽은 꺼 둔다
+  // (항목(key) 동안 형식·사용 가능 여부는 바뀌지 않아 enabled 도 고정이다). 원본 blob 받기·10MB 초과 확인은 원본 출처가, 변환 폴링은
+  // 변환 출처가 맡는다. 영상·오디오는 받는 중 % 를 보여 주려고 진행도 든다.
+  const originalSource = usePreviewBlob(item, renderable && !converted, { trackProgress: isMedia })
+  const convertedSource = useConvertedSource(item, converted)
+  const source: PreviewSource = converted ? convertedSource : originalSource
+  const { blob, confirmSize, retry } = source
+  const download = () => void source.download()
   // 변환 결과(없으면 아직 변환 전). WP-203: pdf 는 toVerifiedPdfBlob 을 통과한 blob 만 담아 pdf.js 로 넘긴다.
   const [content, setContent] = useState<BodyContent | null>(null)
   const [convertError, setConvertError] = useState(false)
@@ -162,11 +171,13 @@ export const ViewerBody = memo(function ViewerBody({
   useEffect(() => {
     onSourceRef.current = onSource
   })
-  const fetches = renderable && !item.unavailable && confirmSize == null && !error
+  // 원본이 아닌 blob(변환 PDF)은 보고하지 않는다 — 모바일 ⤴ 공유·저장이 변환 PDF 를 원본(.hwp) 이름으로 내보내지 않게.
+  const fetches = source.isOriginal && renderable && !item.unavailable && confirmSize == null && !error
+  const reportedBlob = source.isOriginal ? blob : null
   // unplayable — 재생 불가로 미지원 화면이 된 영상·오디오. 뷰어가 이 항목을 미디어로 다루지 않게(키·터치 규칙) 함께 알린다.
   useEffect(() => {
-    onSourceRef.current?.({ blob, fetches, unplayable })
-  }, [item.key, blob, fetches, unplayable])
+    onSourceRef.current?.({ blob: reportedBlob, fetches, unplayable })
+  }, [item.key, reportedBlob, fetches, unplayable])
   // #775: 에러도 아니고 콘텐츠도 아직 없는 렌더 가능 상태 = 비동기 페치 진행 중 — 빈 화면 대신 스켈레톤.
   const loading =
     !item.unavailable &&
@@ -174,10 +185,13 @@ export const ViewerBody = memo(function ViewerBody({
     renderable &&
     content == null &&
     confirmSize == null
+  // 변환 항목의 로딩(변환 중 + 받은 PDF 검증 중)은 스켈레톤 대신 변환 중 안내. 실패·미지원 응답이면 각자의 화면으로.
+  const { failed: convertFailed, unsupported: convertUnsupported } = source
+  const converting = converted && loading && !convertFailed && !convertUnsupported
   // iframe(PDF·HTML·DOCX)은 캔버스를 가득 채우고, 그 외(텍스트·표·안내 문구)는 안쪽 여백을 둔다.
   const fillsFrame =
     !error &&
-    ((kind === 'PDF' && content?.k === 'pdf') ||
+    (((kind === 'PDF' || converted) && content?.k === 'pdf') ||
       (kind === 'HTML' && content?.k === 'text') ||
       (kind === 'DOCX' && content?.k === 'buffer'))
 
@@ -208,8 +222,8 @@ export const ViewerBody = memo(function ViewerBody({
       }
       // 이미지·영상·오디오는 object URL 로 그린다(해제는 아래 정리 — 언마운트 = 닫기·넘김 때).
       if (kind === 'IMAGE' || isMedia) showUrl(blob)
-      // PDF 는 시그니처 검증 + application/pdf 재래핑을 통과해야만 뷰어로 넘긴다.
-      else if (kind === 'PDF') {
+      // PDF(변환 PDF 포함)는 시그니처 검증 + application/pdf 재래핑을 통과해야만 뷰어로 넘긴다.
+      else if (kind === 'PDF' || kind === 'CONVERTED_PDF') {
         const verified = await toVerifiedPdfBlob(blob)
         if (alive) setContent({ k: 'pdf', blob: verified })
       }
@@ -266,7 +280,7 @@ export const ViewerBody = memo(function ViewerBody({
       {item.unavailable && (
         <div className="m-auto flex w-full flex-col items-center gap-3 px-4 py-12 text-center" data-testid="preview-unavailable">
           <FileX className="h-16 w-16 text-muted-foreground" aria-hidden />
-          <p className="text-sm font-medium break-all">{item.name}</p>
+          <p className="text-sm font-medium break-keep wrap-break-word">{item.name}</p>
           <p className="text-sm text-muted-foreground">원본 파일을 사용할 수 없습니다.</p>
         </div>
       )}
@@ -274,17 +288,22 @@ export const ViewerBody = memo(function ViewerBody({
         <div className="m-auto flex w-full flex-col items-center gap-3 px-4 py-12 text-center" data-testid="preview-error">
           <p className="text-sm text-destructive">미리보기를 불러오지 못했습니다.</p>
           <div className="flex gap-2">
-            <Button variant="outline" onClick={source.retry}>
+            <Button variant="outline" onClick={retry}>
               다시 시도
             </Button>
-            <Button variant="outline" onClick={() => void source.download()}>
+            <Button variant="outline" onClick={download}>
               다운로드
             </Button>
           </div>
         </div>
       )}
-      {!item.unavailable && !error && (!renderable || unplayable) && (
-        <UnsupportedNotice item={item} onDownload={() => void source.download()} />
+      {!item.unavailable && !error && (!renderable || unplayable || convertUnsupported) && (
+        <UnsupportedNotice item={item} onDownload={download} />
+      )}
+      {/* 변환 PDF(WP-431) — 변환 중은 불확정 막대 안내, 실패는 영구(다운로드만)·일시(다시 시도 + 다운로드). */}
+      {converting && <ConvertingNotice item={item} />}
+      {!error && convertFailed && (
+        <ConvertFailedNotice item={item} transient={convertFailed.transient} onRetry={retry} onDownload={download} />
       )}
       {/* #775: 콘텐츠 페치 중(로딩) — AI 요약 카드와 같은 animate-pulse 스켈레톤 패턴 재사용. */}
       {/* 영상·오디오 상태 알림 — 받는 중 → 재생 준비(매 % 가 아니라 전환 때만, polite). 재생 불가는 미지원 화면이 그대로 읽힌다. */}
@@ -294,7 +313,7 @@ export const ViewerBody = memo(function ViewerBody({
         </p>
       )}
       {loading && isMedia && <MediaProgress item={item} video={kind === 'VIDEO'} progress={source.progress} />}
-      {loading && !isMedia && (
+      {loading && !isMedia && !converted && (
         <div className="m-auto w-full max-w-md space-y-2" data-testid="preview-loading">
           <div className="h-3 w-full animate-pulse rounded bg-muted" />
           <div className="h-3 w-5/6 animate-pulse rounded bg-muted" />
@@ -327,7 +346,7 @@ export const ViewerBody = memo(function ViewerBody({
           sideInset={sideInset}
         />
       )}
-      {!error && kind === 'PDF' && content?.k === 'pdf' && (
+      {!error && (kind === 'PDF' || converted) && content?.k === 'pdf' && (
         <PdfPages blob={content.blob} zoom={zoom} onPage={onPage} onError={() => setConvertError(true)} />
       )}
       {!error && kind === 'MARKDOWN' && text != null && (
@@ -368,7 +387,7 @@ export const ViewerBody = memo(function ViewerBody({
           </p>
           <div className="flex gap-2">
             <Button onClick={source.confirm}>미리보기</Button>
-            <Button variant="outline" onClick={() => void source.download()}>
+            <Button variant="outline" onClick={download}>
               다운로드
             </Button>
           </div>

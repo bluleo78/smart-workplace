@@ -522,6 +522,26 @@ test.describe('이슈 첨부 프리뷰 (WP-203)', () => {
     expect((await download).suggestedFilename()).toBe('build.zip');
   });
 
+  test('이슈 첨부 HWP 는 지금처럼 미리 볼 수 없고 변환을 요청하지 않는다', async ({
+    authenticatedPage: page,
+  }) => {
+    // WP-431: 변환 미리보기는 드라이브만 — 이슈 첨부는 미지원 안내 그대로, /preview 도 묻지 않는다.
+    const previews = trackRequests(page, 'ANY', (url) => url.pathname.endsWith('/preview'));
+    const name = '2026년 언택트 AI R&D 과제기획 전담반 회의 참석안내.hwp';
+    const requested = await stubAttachments(
+      page,
+      [createAttachment({ fileId: 7302, originalName: name, mimeType: 'application/x-hwp' })],
+      { 7302: { contentType: 'application/x-hwp', body: Buffer.from('HWP Document File') } },
+    );
+    await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+
+    await page.getByRole('button', { name: `${name} 미리보기` }).click();
+    await expect(page.getByTestId('preview-body')).toContainText('이 형식은 미리 볼 수 없어요');
+    await expect(page.getByTestId('preview-converting')).toHaveCount(0);
+    await expectStays(page, previews.count, 0);
+    expect(requested[7302]).toBeUndefined();
+  });
+
   test('10MB 를 넘는 첨부는 크기를 보여주고, 미리보기를 누를 때만 내려받는다', async ({
     authenticatedPage: page,
   }) => {

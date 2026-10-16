@@ -14,6 +14,31 @@ export interface PreviewProgress {
   percent: number | null
 }
 
+/**
+ * 뷰어 본문이 그릴 내용의 출처(원본 blob·서버 변환 PDF 등) — 출처마다 훅 하나가 이 모양을 돌려주고, 본문은 형식으로 출처를 고른 뒤
+ * 출처를 몰라도 같은 방식으로 그린다(메일 등 새 출처도 훅만 더하면 된다).
+ */
+export interface PreviewSource {
+  /** 그릴 blob(아직 없으면 null). */
+  blob: Blob | null
+  /** 받기 실패 — 뷰어의 오류 화면([다시 시도]·다운로드). */
+  error: boolean
+  /** 받는 중 진행(영상·오디오만). */
+  progress: PreviewProgress | null
+  /** 10MB 초과 확인을 기다리는 크기(아니면 null). */
+  confirmSize: number | null
+  confirm: () => void
+  /** 원본 다운로드. */
+  download: () => Promise<void> | void
+  retry: () => void
+  /** blob 이 원본 파일 그대로인가 — 아니면(변환 PDF) 모바일 공유·저장에 넘기지 않는다(원본 이름으로 다른 내용이 나가지 않게). */
+  isOriginal: boolean
+  /** 변환 실패(서버 변환 출처만) — transient 면 [다시 시도]. */
+  failed: { code: string; transient: boolean } | null
+  /** 출처가 이 파일을 그릴 수 없다고 답함(변환 대상 아님) — 미지원 화면. */
+  unsupported: boolean
+}
+
 /** % 를 모를 때 화면을 다시 그리는 간격(바이트) — 받은 크기 표시만 1MB 단위로 갱신한다. */
 const UNKNOWN_TOTAL_STEP = 1024 * 1024
 
@@ -24,7 +49,11 @@ const UNKNOWN_TOTAL_STEP = 1024 * 1024
  * trackProgress(WP-281 영상·오디오) — 통째로 받아야 재생되므로 스켈레톤 대신 % 를 보여 주려고 진행을 상태로 든다.
  * 진행 이벤트는 자주 오므로 정수 %(모르면 1MB 단위)가 바뀔 때만 상태를 바꾼다(재렌더 폭주 방지).
  */
-export function usePreviewBlob(item: ViewerItem, enabled: boolean, { trackProgress = false }: { trackProgress?: boolean } = {}) {
+export function usePreviewBlob(
+  item: ViewerItem,
+  enabled: boolean,
+  { trackProgress = false }: { trackProgress?: boolean } = {},
+): PreviewSource {
   const [blob, setBlob] = useState<Blob | null>(null)
   const [error, setError] = useState(false)
   const [progress, setProgress] = useState<PreviewProgress | null>(null)
@@ -82,5 +111,8 @@ export function usePreviewBlob(item: ViewerItem, enabled: boolean, { trackProgre
     // 이미 받은 blob 이 있으면 다시 받지 않는다(감사 경로가 따로 없는 항목) — 판단은 downloadViewerItem.
     download: () => downloadViewerItem(item, blob),
     retry: () => setAttempt((n) => n + 1),
+    isOriginal: true,
+    failed: null,
+    unsupported: false,
   }
 }

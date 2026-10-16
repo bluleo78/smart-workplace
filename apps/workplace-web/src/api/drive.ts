@@ -20,6 +20,35 @@ import type {
 import { fetchBlobByPath, stripApiPrefix } from './blobContent'
 import { client, getAccessToken } from './client'
 
+/**
+ * 변환 미리보기 응답(WP-431) — 200 변환 PDF / 202 변환 중 / 422 실패(code·transient) / 404 변환 대상 아님·변환 꺼짐.
+ * 404 는 본문이 `{"status":"NOT_APPLICABLE"}` 일 때만 "대상 아님"이다. 그 밖의 404(휴지통·권한 없음·원본 유실 — 예외 봉투)는
+ * 'error' 로 돌려 뷰어의 오류 화면을 보인다 — 미지원 안내로 보이면 지워진·볼 수 없는 파일을 "형식이 안 맞다"고 오도한다.
+ * 상태별로 갈라 두어 호출부(useConvertedPreview)가 axios 응답 모양을 몰라도 되게 한다.
+ */
+export type ConvertedPreviewResponse =
+  | { status: 200; blob: Blob }
+  | { status: 202 }
+  | { status: 422; code: string; transient: boolean }
+  | { status: 404 }
+  | { status: 'error' }
+
+/** 변환 미리보기가 정상 흐름으로 쓰는 상태 — 이 밖(401·5xx 등)은 axios 가 throw 한다. */
+const CONVERTED_PREVIEW_STATUSES = [200, 202, 404, 422]
+
+/**
+ * 202 가 아닌 정상 흐름 응답(404·422) 본문(blob)을 JSON 객체로 읽는다. responseType 이 blob 이라 오류 본문도 blob 으로 온다.
+ * 못 읽으면(프록시 HTML 등) null — 호출부가 안전한 기본값(404 는 다른 404, 422 는 일시 실패)으로 본다.
+ */
+async function readJsonBody(data: Blob): Promise<Record<string, unknown> | null> {
+  try {
+    const body: unknown = JSON.parse(await data.text())
+    return body != null && typeof body === 'object' ? (body as Record<string, unknown>) : null
+  } catch {
+    return null
+  }
+}
+
 // 공유 링크 타입은 types/drive 에 정의(DTO 단일 출처). 기존 import 처를 위해 재노출.
 export type { CreatedShareLink, ShareLink } from '../types/drive'
 
@@ -230,6 +259,29 @@ export const driveApi = {
 
   // 임의 콘텐츠 경로의 원본 Blob. 구현은 api/blobContent.ts 공용 모듈(wiki 등 타 도메인과 공유).
   fetchBlobByPath,
+
+  /**
+   * 서버 변환 PDF 미리보기(WP-431). path 는 ViewerItem.previewPath(필요하면 `?start=true` 를 붙여서).
+   * 202·404·422 도 정상 응답으로 받아 상태로 돌려주고(404 는 NOT_APPLICABLE 본문만 404, 나머지는 'error'),
+   * 그 밖의 상태·네트워크 오류·abort 는 throw 한다.
+   */
+  fetchConvertedPreview: async (path: string, signal?: AbortSignal): Promise<ConvertedPreviewResponse> => {
+    const { status, data } = await client.get<Blob>(stripApiPrefix(path), {
+      responseType: 'blob',
+      signal,
+      validateStatus: (s) => CONVERTED_PREVIEW_STATUSES.includes(s),
+    })
+    if (status === 200) return { status: 200, blob: data }
+    if (status === 202) return { status: 202 }
+    const body = await readJsonBody(data)
+    // 404 는 서버의 "변환 대상 아님" 표시(NOT_APPLICABLE)일 때만 — 그 밖의 404 는 오류 화면.
+    if (status === 404) return body?.status === 'NOT_APPLICABLE' ? { status: 404 } : { status: 'error' }
+    // 422 실패 코드 — 못 읽으면 일시 실패로 본다(다시 시도할 길을 남긴다).
+    if (typeof body?.code === 'string' && typeof body.transient === 'boolean') {
+      return { status: 422, code: body.code, transient: body.transient }
+    }
+    return { status: 422, code: 'UNAVAILABLE', transient: true }
+  },
 
   // 임의 콘텐츠 경로 다운로드 → a[download] 트리거. URL 해제 지연은 downloadBlob 이 맡는다(iOS 저장 실패 방지, WP-278).
   downloadByPath: async (path: string, fileName: string) => {

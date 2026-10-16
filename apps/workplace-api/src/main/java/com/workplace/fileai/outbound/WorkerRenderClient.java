@@ -6,6 +6,7 @@ import com.workplace.file.service.MimeNormalizer;
 import com.workplace.fileai.dto.ViewImage;
 import com.workplace.fileai.exception.AttachmentViewException;
 import com.workplace.global.outbound.InternalHttp;
+import com.workplace.global.outbound.InternalResponses;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URLEncoder;
@@ -144,13 +145,7 @@ public class WorkerRenderClient {
             storageKey);
         throw AttachmentViewException.workerUnavailable();
       }
-      return new ViewImage(
-          resp.body(),
-          type,
-          resp.headers()
-              .firstValue(ViewImage.PAGE_COUNT_HEADER)
-              .map(WorkerRenderClient::parseIntOrNull)
-              .orElse(null));
+      return new ViewImage(resp.body(), type, InternalResponses.pageCount(resp));
     }
     if (status >= 400 && status < 500) {
       throw toException(status, resp.body(), storageKey);
@@ -161,19 +156,11 @@ public class WorkerRenderClient {
 
   /** 4xx 본문 {"detail":{"code":..,"pageCount":..}} 해석. 전할 수 없는 코드·형식은 503 으로 모은다. */
   private AttachmentViewException toException(int status, byte[] body, String storageKey) {
-    String code = null;
-    Integer pageCount = null;
-    try {
-      JsonNode detail = mapper.readTree(body).path("detail");
-      // FastAPI 요청 검증 실패는 detail 이 목록이다 — 객체일 때만 코드로 읽는다.
-      if (detail.isObject()) {
-        code = detail.path("code").asText(null);
-        JsonNode pc = detail.path("pageCount");
-        pageCount = pc.isInt() ? pc.asInt() : null;
-      }
-    } catch (IOException e) {
-      // JSON 이 아니면 code 없음 → 아래에서 503
-    }
+    // JSON 이 아니거나 detail 이 목록(FastAPI 요청 검증 실패)이면 code 없음 → 아래에서 503
+    JsonNode detail = InternalResponses.errorDetail(body);
+    String code = detail == null ? null : detail.path("code").asText(null);
+    JsonNode pc = detail == null ? null : detail.path("pageCount");
+    Integer pageCount = pc != null && pc.isInt() ? pc.asInt() : null;
     if (AttachmentViewException.isPassThrough(code)) {
       return new AttachmentViewException(code, "PAGE_OUT_OF_RANGE".equals(code) ? pageCount : null);
     }
@@ -182,7 +169,7 @@ public class WorkerRenderClient {
         status,
         code,
         storageKey,
-        abbreviate(new String(body, StandardCharsets.UTF_8)));
+        InternalResponses.abbreviate(body));
     return AttachmentViewException.workerUnavailable();
   }
 
@@ -193,18 +180,5 @@ public class WorkerRenderClient {
   static String imageType(String contentType) {
     ViewImage.Format format = ViewImage.Format.ofMime(MimeNormalizer.baseMime(contentType));
     return format == null ? null : format.contentType();
-  }
-
-  /** 로그용 본문 자르기 — 예상 밖 응답이 커도 로그를 덮지 않게. */
-  private static String abbreviate(String s) {
-    return s.length() <= 500 ? s : s.substring(0, 500) + "…";
-  }
-
-  private static Integer parseIntOrNull(String s) {
-    try {
-      return Integer.valueOf(s.trim());
-    } catch (NumberFormatException e) {
-      return null;
-    }
   }
 }

@@ -4,10 +4,13 @@ import {
   FileText,
   FileType,
   Image as ImageIcon,
+  Presentation,
 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
 import { useDriveThumbnail } from '../../hooks/queries/useDriveThumbnail'
+import { canonicalMime } from '../../lib/mimeFromFilename'
+import { isPresentationMime } from '../../lib/previewKind'
 
 /**
  * 파일 셀 썸네일. IMAGE 는 썸네일 blob(objectURL)을 표시하고, 썸네일이 없거나(생성실패/webp 등)
@@ -25,9 +28,12 @@ export function DriveThumbnail({
   fileId,
   category,
   available = true,
+  mimeType,
 }: {
   fileId: number
   category: string
+  /** 파일 형식(서버 값 그대로 — 여기서 정규화한다) — 카테고리로는 구분되지 않는 발표 자료(pptx·ppt, WP-431)를 슬라이드 아이콘으로 보이려고 쓴다. */
+  mimeType?: string
   // #739: 원본 blob 이 유실된 파일 — false 면 썸네일 요청 자체를 보내지 않고 플레이스홀더만 표시.
   available?: boolean
 }) {
@@ -87,16 +93,19 @@ export function DriveThumbnail({
 
   // 알려진 포맷은 포맷별 아이콘으로: 문서(PDF/DOCX)→문서, 표(CSV/XLSX)→스프레드시트,
   // 텍스트→텍스트, 이미지→이미지. 미지(UNKNOWN 등)만 제네릭 파일 아이콘.
+  // 발표 자료(pptx·ppt)는 카테고리(DOCUMENT)와 무관하게 슬라이드 아이콘으로 먼저 구분한다(WP-431).
   const Icon =
-    category === 'PDF' || category === 'DOCUMENT'
-      ? FileText
-      : category === 'DATA'
-        ? FileSpreadsheet
-        : category === 'TEXT'
-          ? FileType
-          : category === 'IMAGE'
-            ? ImageIcon
-            : FileIcon
+    mimeType != null && isPresentationMime(canonicalMime(mimeType))
+      ? Presentation
+      : category === 'PDF' || category === 'DOCUMENT'
+        ? FileText
+        : category === 'DATA'
+          ? FileSpreadsheet
+          : category === 'TEXT'
+            ? FileType
+            : category === 'IMAGE'
+              ? ImageIcon
+              : FileIcon
   return (
     <div ref={elRef} className="h-8 w-8 shrink-0">
       <Icon className="h-8 w-8 p-1 text-muted-foreground" aria-hidden />

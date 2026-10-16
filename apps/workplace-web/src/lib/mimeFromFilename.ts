@@ -1,7 +1,7 @@
 // 첨부 형식 정규화·파일명 확장자 → 미리보기 형식 추론(WP-280).
 // 왜: 메일 클라이언트가 첨부를 application/octet-stream·force-download 같은 범용 형식이나 빈 형식으로 보내는 일이 많아,
 //     서버 형식만 믿으면 PDF·이미지·문서가 "미리 볼 수 없는 형식"으로 떨어진다. resolvePreviewKind 가 정확 일치로 고르는 소문자 형식만 돌려준다.
-import { DOCX_MIME, XLSX_MIME } from './previewKind'
+import { DOC_MIME, DOCX_MIME, HWP_MIME, HWPX_MIME, PPT_MIME, PPTX_MIME, XLS_MIME, XLSX_MIME } from './previewKind'
 
 /**
  * 확장자(소문자) → 형식. 미리보기 렌더러가 있는 형식만 둔다.
@@ -29,6 +29,13 @@ const EXT_MIME: Record<string, string> = {
   htm: 'text/html',
   xlsx: XLSX_MIME,
   docx: DOCX_MIME,
+  xls: XLS_MIME,
+  // 한글·오피스 변환 대상(WP-431) — 드라이브에서만 변환 PDF 로 보고, 그 밖의 화면은 정규형만 맞춰 둔다(미지원 안내).
+  hwp: HWP_MIME,
+  hwpx: HWPX_MIME,
+  pptx: PPTX_MIME,
+  ppt: PPT_MIME,
+  doc: DOC_MIME,
   // 영상·오디오(WP-281) — resolvePreviewKind 가 video/·audio/ 계열로 받는다. 재생 가능 여부는 브라우저 코덱 몫(못 틀면 미지원 화면).
   mp4: 'video/mp4',
   m4v: 'video/mp4',
@@ -61,6 +68,11 @@ const MIME_ALIASES: Record<string, string> = {
   'audio/x-wav': 'audio/wav',
   'audio/mp3': 'audio/mpeg',
   'audio/x-m4a': 'audio/mp4',
+  // 한글 문서 별칭(브라우저·한컴 오피스 업로드) → 변환 서비스가 받는 정규형(WP-431, API 와 같은 규칙).
+  'application/haansofthwp': HWP_MIME,
+  'application/vnd.hancom.hwp': HWP_MIME,
+  'application/haansofthwpx': HWPX_MIME,
+  'application/vnd.hancom.hwpx': HWPX_MIME,
 }
 
 /** `;` 뒤 파라미터를 떼고 소문자·별칭 정규화. 비면 ''. */

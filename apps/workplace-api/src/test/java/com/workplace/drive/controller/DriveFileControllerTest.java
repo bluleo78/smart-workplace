@@ -19,6 +19,7 @@ import com.workplace.drive.service.DriveFileService;
 import com.workplace.file.service.FileUploadService.FileContentResult;
 import com.workplace.fileai.dto.ExtractedTextSlice;
 import com.workplace.fileai.service.AttachmentViewService;
+import com.workplace.filepreview.service.FilePreviewService;
 import com.workplace.global.config.SecurityConfig;
 import com.workplace.global.security.ApiKeyAuthenticationFilter;
 import com.workplace.global.security.JwtAuthenticationFilter;
@@ -61,6 +62,9 @@ class DriveFileControllerTest {
 
   /** WP-250: 컨트롤러가 /view 용으로 주입받는 공통 서비스 — 슬라이스 컨텍스트에 빈이 있어야 한다. */
   @MockitoBean private AttachmentViewService attachmentView;
+
+  /** WP-431: 컨트롤러 생성자 의존 — 미리보기 계약은 DriveFilePreviewTest 가 종단으로 본다. */
+  @MockitoBean private FilePreviewService previewService;
 
   @MockitoBean private JwtTokenProvider jwtTokenProvider;
   @MockitoBean private JwtProperties jwtProperties;

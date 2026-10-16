@@ -18,6 +18,7 @@ import {
   issueBodyImageItem,
   issueChatBundle,
   issueDriveLinkItem,
+  itemPreviewKind,
   mailAttachmentItem,
   mailViewerKey,
   normalizeAttachmentPreviewKey,
@@ -327,5 +328,39 @@ describe('parseChatViewerKey / findChatBundle / findHomeChatBundle', () => {
     expect(findHomeChatBundle('home:3', 's', turns)?.length).toBe(1)
     expect(findHomeChatBundle('home:9', 's', turns)).toBeNull()
     expect(findHomeChatBundle('home:1', null, turns)).toBeNull()
+  })
+})
+
+describe('itemPreviewKind — 변환 미리보기 판정(WP-431)', () => {
+  const hwp = { id: 80, fileId: 300, name: '보고서.hwp', mimeType: 'application/x-hwp', sizeBytes: 10 } as DriveFile
+  it('드라이브 HWP 는 변환 PDF 경로를 갖고 CONVERTED_PDF', () => {
+    const it = driveFileItem(hwp)
+    expect(it.previewPath).toBe('/drive/files/80/preview')
+    expect(itemPreviewKind(it)).toBe('CONVERTED_PDF')
+  })
+  it('드라이브 파일 형식 별칭은 정규형으로 맞춘다(haansofthwp → x-hwp)', () => {
+    const it = driveFileItem({ ...hwp, mimeType: 'application/haansofthwp' })
+    expect(it.mimeType).toBe('application/x-hwp')
+    expect(itemPreviewKind(it)).toBe('CONVERTED_PDF')
+  })
+  it('드라이브 밖(이슈 첨부·메일 첨부·이슈 드라이브 링크)의 HWP 는 변환 경로가 없어 UNSUPPORTED', () => {
+    const a = { fileId: 6, originalName: '보고서.hwp', mimeType: 'application/x-hwp', sizeBytes: 3 } as IssueAttachment
+    const issue = issueAttachmentItem('WP', 12, a)
+    expect(issue.previewPath).toBeUndefined()
+    expect(itemPreviewKind(issue)).toBe('UNSUPPORTED')
+    const mail = mailAttachmentItem({ id: 9, filename: '보고서.hwp', contentType: 'application/x-hwp', sizeBytes: 3 } as EmailAttachmentMeta)
+    expect(itemPreviewKind(mail)).toBe('UNSUPPORTED')
+    const l = { driveFileId: 81, fileId: 301, name: '보고서.hwp', mimeType: 'application/x-hwp', sizeBytes: 3, spaceId: 1, availability: 'ACTIVE' } as DriveLink
+    const link = issueDriveLinkItem('WP', 12, l)
+    expect(link.previewPath).toBeUndefined()
+    expect(itemPreviewKind(link)).toBe('UNSUPPORTED')
+  })
+  it('변환 대상이 아닌 드라이브 파일(docx)은 previewPath 가 있어도 원래 렌더러(DOCX)', () => {
+    const it = driveFileItem({ ...hwp, name: 'a.docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' })
+    expect(it.previewPath).toBeDefined()
+    expect(itemPreviewKind(it)).toBe('DOCX')
+  })
+  it('범용 형식 첨부도 파일명 확장자로 HWP 를 알아본다', () => {
+    expect(attachmentMime('application/octet-stream', '보고서.hwp')).toBe('application/x-hwp')
   })
 })

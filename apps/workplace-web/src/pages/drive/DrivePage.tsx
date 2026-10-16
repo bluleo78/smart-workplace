@@ -1430,7 +1430,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                     >
                       {/* #588: 파일 행 체크박스 — 멀티셀렉트용. */}
                       {renderRowCheck('file', f.id, f.name)}
-                      <DriveThumbnail fileId={f.id} category={f.category} available={!isMissingBlob(f)} />
+                      <DriveThumbnail fileId={f.id} category={f.category} mimeType={f.mimeType} available={!isMissingBlob(f)} />
                       <button
                         type="button"
                         onClick={() => (isMissingBlob(f) ? onUnavailableClick() : viewer.open(f))}
@@ -1607,7 +1607,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
               >
                 {/* #82: 파일 행 체크박스 — 멀티셀렉트용. 모바일은 선택 모드에서만 보인다(WP-216). */}
                 {renderRowCheck('file', f.id, f.name)}
-                <DriveThumbnail fileId={f.id} category={f.category} available={!isMissingBlob(f)} />
+                <DriveThumbnail fileId={f.id} category={f.category} mimeType={f.mimeType} available={!isMissingBlob(f)} />
                 <button
                   type="button"
                   onClick={() => (isMissingBlob(f) ? onUnavailableClick() : viewer.open(f))}

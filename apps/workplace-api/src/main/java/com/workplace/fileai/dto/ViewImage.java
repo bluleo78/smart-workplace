@@ -1,5 +1,7 @@
 package com.workplace.fileai.dto;
 
+import com.workplace.global.outbound.InternalResponses;
+
 /**
  * 모델 입력용으로 그린 첨부 이미지(WP-250) — 워커 렌더 응답과 보기 서비스 결과가 같은 모양이라 이 하나를 같이 쓴다.
  *
@@ -10,7 +12,7 @@ package com.workplace.fileai.dto;
 public record ViewImage(byte[] data, String contentType, Integer pageCount) {
 
   /** 쪽수 헤더 이름 — 워커 응답에서 읽고, /view 응답으로 웹·ai-agent 에 같은 이름으로 내보낸다. */
-  public static final String PAGE_COUNT_HEADER = "X-Page-Count";
+  public static final String PAGE_COUNT_HEADER = InternalResponses.PAGE_COUNT_HEADER;
 
   /**
    * 보기 이미지 형식 — 워커 계약은 PNG·JPEG 둘뿐이다. 캐시 파일 확장자와 Content-Type 을 이 표 하나로 오가게 해, 새로 그린 응답과 캐시 적중이 같은
