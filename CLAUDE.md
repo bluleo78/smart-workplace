@@ -15,7 +15,7 @@ v1: AI를 Assignee로 둘 수 있는 이슈 트래커(+이슈 컨텍스트 chat)
 - 커밋 컨벤션: [docs/COMMIT_CONVENTION.md](docs/COMMIT_CONVENTION.md)
 - 코딩 컨벤션: [docs/CODING_CONVENTION.md](docs/CODING_CONVENTION.md)
 - 로컬 DB: 포트 5434(dev). 컨테이너 `smart-workplace-db-1`. 테스트는 Testcontainers 가 격리 DB 를 자동 기동(Docker 데몬만 필요, 별도 컨테이너 상시 기동 불요)
-- 로컬 서버 포트는 6000번대로 통일: API 6060 · AI Agent 6070 · Worker 6080 · MCP 6090 · Web 6173 · Admin 6174
+- 로컬 서버 포트는 6000번대로 통일: API 6060 · AI Agent 6070 · Worker 6080 · Converter 6085 · MCP 6090 · Web 6173 · Admin 6174
 - (운영 compose 는 내부 포트를 별도 명시 주입 — 로컬 포트 변경과 무관)
 
 ## 이슈 관리
@@ -50,7 +50,7 @@ v1: AI를 Assignee로 둘 수 있는 이슈 트래커(+이슈 컨텍스트 chat)
   - core: identity / thread / search / file / notify / ai
   - domain: issue(v1, 완료) · chat(이슈 컨텍스트, 완료) · messaging(팀 채팅 — Phase 1·2 완료, 3~7 백로그 #60–64) · notify(인박스/알림, 진행 중 #54) → 노트 / drive (이후)
 - **프론트엔드**: Vite + React 19 + TS + Tailwind 4 + shadcn/ui
-- **별도 서비스**: workplace-ai-agent (Claude Agent SDK, 스캐폴딩 완료 — 5b/5c 에서 로직 채움), workplace-channel (실시간, 향후 추가)
+- **별도 서비스**: workplace-ai-agent (Claude Agent SDK, 스캐폴딩 완료 — 5b/5c 에서 로직 채움), workplace-converter (문서 → PDF/텍스트 변환, Python/FastAPI, WP-430), workplace-channel (실시간, 향후 추가)
 
 ## Conventions
 

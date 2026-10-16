@@ -1,0 +1,13 @@
+# 이미지 빌드 컨텍스트에서 제외 — 로컬 venv·캐시가 이미지에 섞이지 않게
+.venv/
+**/__pycache__/
+**/*.py[cod]
+.pytest_cache/
+dist/
+*.egg-info/
+node_modules/
+package.json
+README.md
+Dockerfile
+.dockerignore
+dev.sh

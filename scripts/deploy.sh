@@ -3,14 +3,16 @@ set -euo pipefail
 
 # Smart Workplace 운영 배포 스크립트
 # 이미지를 multiplatform 으로 빌드해 ghcr.io 에 푸시하고, 운영 디렉터리에서 pull+재기동한다.
-# Usage: ./scripts/deploy.sh [api|ai-agent|web|admin|worker|mcp|collab|db|all]
-# all = api + collab + ai-agent + web + admin + worker + mcp (7개 앱 전부).
+# Usage: ./scripts/deploy.sh [api|ai-agent|web|admin|worker|converter|mcp|collab|db|all]
+# all = api + collab + ai-agent + web + admin + worker + converter + mcp (8개 앱 전부).
 # db = DHI postgres18 + pgvector 커스텀 이미지(db/Dockerfile). all 에는 포함하지 않는다 —
 #      db 재기동은 named volume·데이터 마이그레이션(pg16→18)을 수반하므로 반드시 명시적으로만 처리한다.
 #      권장 사용: BUILD_ONLY=1 ./scripts/deploy.sh db (이미지만 multi-arch 빌드·푸시).
 # mcp 이미지 태그도 다른 앱과 동일하게 짧은 이름(mcp)으로 통일 — Dockerfile 경로만 apps/workplace-mcp.
 # collab(노트 동기화 서버, WP-288)도 같은 규칙 — 이미지 collab, Dockerfile apps/workplace-collab.
 #   K8S 배포는 이 저장소 밖(docs/ops/collab-k8s-handoff.md). 배포 순서 api → collab → web.
+# converter(문서 변환 서비스, WP-430)도 같은 규칙 — 이미지 converter, context apps/workplace-converter.
+#   K8S 로만 배포(compose 서비스 없음) — 운영 노트는 apps/workplace-converter/README.md.
 #
 # 환경변수:
 #   BUILD_ONLY=1 — 빌드+푸시만 수행하고 배포(pull+재기동)·검증 단계는 건너뛴다.
@@ -68,6 +70,12 @@ build_and_push() {
       log "Building + pushing $app (context: apps/workplace-worker/)"
       docker buildx build --platform "$PLATFORM" -t "$REGISTRY/worker:latest" --push apps/workplace-worker/
       ;;
+    converter)
+      # converter: context = apps/workplace-converter/ (Python, 자기 디렉터리만 COPY). 기본 타깃 = runtime 스테이지.
+      # rhwp 바이너리는 Dockerfile 이 TARGETARCH(amd64·arm64)별로 받아 sha256 검증한다.
+      log "Building + pushing $app (context: apps/workplace-converter/)"
+      docker buildx build --platform "$PLATFORM" -t "$REGISTRY/converter:latest" --push apps/workplace-converter/
+      ;;
     mcp)
       log "Building + pushing $app (context: project root)"
       docker buildx build --platform "$PLATFORM" -t "$REGISTRY/mcp:latest" -f apps/workplace-mcp/Dockerfile --push .
@@ -83,15 +91,16 @@ build_and_push() {
       docker buildx build --platform "$PLATFORM" -t "$REGISTRY/postgres:latest" --push db/
       ;;
     *)
-      error "Unknown app: $app (valid: api, ai-agent, web, admin, worker, mcp, collab, db)"
+      error "Unknown app: $app (valid: api, ai-agent, web, admin, worker, converter, mcp, collab, db)"
       ;;
   esac
 }
 
 # compose 서비스가 없는 앱 — 빌드·푸시만 하고 compose 배포·검증은 건너뛴다.
-# collab 은 K8S 로만 배포한다(docs/ops/collab-k8s-handoff.md). BUILD_ONLY 없이 `all` 을 돌려도 compose 단계에서 실패하지 않게.
+# collab·converter 는 K8S 로만 배포한다(docs/ops/collab-k8s-handoff.md, apps/workplace-converter/README.md).
+# BUILD_ONLY 없이 `all` 을 돌려도 compose 단계에서 실패하지 않게.
 is_build_only_app() {
-  [ "$1" = "collab" ]
+  [ "$1" = "collab" ] || [ "$1" = "converter" ]
 }
 
 deploy_app() {
@@ -127,7 +136,7 @@ fi
 
 if [ "$TARGET" = "all" ]; then
   # collab 은 api 다음·web 앞(노트 동시 편집 배포 순서 api → collab → web).
-  APPS=("api" "collab" "ai-agent" "web" "admin" "worker" "mcp")
+  APPS=("api" "collab" "ai-agent" "web" "admin" "worker" "converter" "mcp")
 else
   APPS=("$TARGET")
 fi

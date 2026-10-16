@@ -1,0 +1,11 @@
+{
+  "name": "@smart-workplace/workplace-converter",
+  "version": "0.0.1",
+  "private": true,
+  "description": "문서 변환 서비스 (Python/FastAPI) — HWP·HWPX·PPTX·PPT·DOC 를 PDF/텍스트로 바꾼다. 상태 없음(DB·스토리지·콜백 없음). pnpm 은 래퍼만, 실제 런타임은 uv/uvicorn.",
+  "scripts": {
+    "dev": "sh dev.sh",
+    "test": "uv run pytest -q -m \"not engine\"",
+    "test:engine": "docker build --target test -t workplace-converter-test ."
+  }
+}
