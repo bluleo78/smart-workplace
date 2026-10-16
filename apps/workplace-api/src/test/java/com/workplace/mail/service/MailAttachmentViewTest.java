@@ -333,6 +333,8 @@ class MailAttachmentViewTest extends IntegrationTestBase {
   }
 
   private String bearer(long uid) {
+    // WP-420: tenant 토큰은 그 테넌트 ACTIVE 멤버일 때만 인증된다 — 실제 워크스페이스 선택과 같은 전제를 맞춘다.
+    TestFixtures.ensureActiveMember(dsl, uid, T);
     return "Bearer " + jwtTokenProvider.generateAccessToken(uid, "user-" + uid, T);
   }
 

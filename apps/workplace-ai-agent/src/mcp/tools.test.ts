@@ -99,6 +99,7 @@ function sharedMock(): MockedShared {
     // 구성원·연락처
     searchMembers: vi.fn().mockResolvedValue([]),
     searchMembersPage: vi.fn().mockResolvedValue({ items: [], hasMore: false, page: 0 }),
+    getMember: vi.fn().mockResolvedValue({ userId: 1, username: 'me-user', name: '나' }),
     getMemberContact: vi.fn().mockResolvedValue({}),
     listContacts: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
     getExternalContact: vi.fn().mockResolvedValue({}),

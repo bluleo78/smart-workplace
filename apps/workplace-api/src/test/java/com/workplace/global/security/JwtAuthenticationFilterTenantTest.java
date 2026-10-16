@@ -1,6 +1,7 @@
 package com.workplace.global.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 import com.workplace.global.tenant.TenantContext;
@@ -8,6 +9,7 @@ import com.workplace.tenant.dto.MembershipResponse;
 import com.workplace.tenant.repository.MembershipRepository;
 import jakarta.servlet.FilterChain;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
@@ -18,6 +20,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 /**
  * JwtAuthenticationFilter 의 Internal(AI 에이전트) 토큰 경로가 TenantContext 를 올바르게 설정/미설정함을 검증.
@@ -49,13 +52,16 @@ class JwtAuthenticationFilterTenantTest {
             membershipRepository,
             INTERNAL_TOKEN,
             tenantStatusChecker);
-    // 권한 조회는 빈 Set 반환으로 충분 (테스트 대상은 TenantContext)
-    when(permissionService.getUserPermissions(USER_ID)).thenReturn(Set.of());
+    // 권한 조회는 빈 Set 반환으로 충분 (테스트 대상은 TenantContext). Internal 경로만 쓰므로 lenient —
+    // WP-420 이후 tenant 있는 Bearer 경로는 getActiveMemberPermissions 를 부른다.
+    lenient().when(permissionService.getUserPermissions(USER_ID)).thenReturn(Set.of());
   }
 
   @AfterEach
   void tearDown() {
     TenantContext.clear();
+    // 필터가 세운 인증이 다음 테스트로 새지 않게 한다(WP-420 — 인증 미설정을 단언하는 테스트가 앞 테스트의 인증을 보지 않도록).
+    SecurityContextHolder.clearContext();
   }
 
   /**
@@ -135,7 +141,8 @@ class JwtAuthenticationFilterTenantTest {
     when(jwtTokenProvider.getTenantIdFromToken("valid.jwt.token")).thenReturn(TENANT_ID);
     // WP-341: JWT 경로는 테넌트가 ACTIVE 일 때만 인증·TenantContext 를 세운다.
     when(tenantStatusChecker.isActive(TENANT_ID)).thenReturn(true);
-    when(permissionService.getUserPermissions(USER_ID)).thenReturn(Set.of());
+    // WP-420: tenant 있는 JWT 는 멤버십 판정과 권한을 한 번에 얻는다 — ACTIVE 멤버(권한 없음).
+    when(permissionService.getActiveMemberPermissions(USER_ID)).thenReturn(Optional.of(Set.of()));
 
     AtomicReference<Long> captured = new AtomicReference<>();
     FilterChain capturingChain = (req, res) -> captured.set(TenantContext.get());
@@ -147,6 +154,34 @@ class JwtAuthenticationFilterTenantTest {
 
     assertThat(captured.get()).isEqualTo(TENANT_ID);
     // MembershipRepository 는 호출되지 않아야 함 (Mockito strict: 미설정 stub 호출 시 예외 발생)
+  }
+
+  /**
+   * WP-420: 서명이 유효한 tenant 토큰이라도 그 tenant 멤버십이 ACTIVE 가 아니면(정지·비멤버) 인증을 세우지 않고(→ 401) TenantContext
+   * 도 되돌린다 — 정지된 테넌트로 permitAll 엔드포인트가 실행되지 않게.
+   */
+  @Test
+  void bearerToken_inactiveMembership_noAuthenticationAndNoTenantContext() throws Exception {
+    when(jwtTokenProvider.validateAccessToken("valid.jwt.token")).thenReturn(true);
+    when(jwtTokenProvider.getUserIdFromToken("valid.jwt.token")).thenReturn(USER_ID);
+    when(jwtTokenProvider.getTenantIdFromToken("valid.jwt.token")).thenReturn(TENANT_ID);
+    when(tenantStatusChecker.isActive(TENANT_ID)).thenReturn(true);
+    when(permissionService.getActiveMemberPermissions(USER_ID)).thenReturn(Optional.empty());
+
+    AtomicReference<Long> capturedTenant = new AtomicReference<>(Long.MIN_VALUE);
+    AtomicReference<Object> capturedAuth = new AtomicReference<>("unset");
+    FilterChain capturingChain =
+        (req, res) -> {
+          capturedTenant.set(TenantContext.get());
+          capturedAuth.set(SecurityContextHolder.getContext().getAuthentication());
+        };
+    MockHttpServletRequest request = new MockHttpServletRequest();
+    request.addHeader("Authorization", "Bearer valid.jwt.token");
+    SecurityContextHolder.clearContext();
+    filter.doFilter(request, new MockHttpServletResponse(), capturingChain);
+
+    assertThat(capturedAuth.get()).as("정지된 멤버십 → 인증 미설정(401)").isNull();
+    assertThat(capturedTenant.get()).as("정지된 멤버십 → TenantContext 되돌림").isNull();
   }
 
   /** 명시 테넌트 헤더가 에이전트의 ACTIVE 멤버십에 포함되면 그 테넌트로 설정. */

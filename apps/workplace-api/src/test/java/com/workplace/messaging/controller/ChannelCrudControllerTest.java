@@ -23,6 +23,7 @@ import com.workplace.messaging.service.ChannelMemberService;
 import com.workplace.messaging.service.ChannelService;
 import com.workplace.permission.service.PermissionService;
 import com.workplace.support.AlwaysActiveTenantStatusChecker;
+import com.workplace.support.PermissionMocks;
 import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.repository.UserRepository;
 import java.util.Set;
@@ -55,6 +56,12 @@ class ChannelCrudControllerTest {
   @MockitoBean JwtTokenProvider jwt;
   @MockitoBean JwtProperties jwtProps;
   @MockitoBean PermissionService permissionService;
+
+  /** WP-420: JWT tenant 경로가 기존 getUserPermissions 스텁을 따르게 한다(PermissionMocks 참고). */
+  @BeforeEach
+  void mirrorActiveMemberPermissions() {
+    PermissionMocks.mirrorActiveMember(permissionService);
+  }
 
   @MockitoBean MembershipRepository membershipRepository;
 

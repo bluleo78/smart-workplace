@@ -257,6 +257,13 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(http.get).toHaveBeenCalledWith('/members', { params });
   });
 
+  it('getMember 는 구성원 단건 /members/{userId} 를 읽는다(WP-376 — get_member 의 me)', async () => {
+    const { http, client } = mockHttp();
+    http.get.mockResolvedValueOnce({ data: { userId: 7, username: 'ai-dev', name: 'AI', kind: 'AGENT' } });
+    expect(await client.getMember(7)).toEqual({ userId: 7, username: 'ai-dev', name: 'AI', kind: 'AGENT' });
+    expect(http.get).toHaveBeenCalledWith('/members/7');
+  });
+
   it('연락처 경로 — 구성원은 /contacts/members/{userId}, 외부는 /contacts/external/{id}', async () => {
     const { http, client } = mockHttp();
     await client.getMemberContact(3);

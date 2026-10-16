@@ -20,6 +20,7 @@ import { useHistoryParam, useStripStaleStateMark } from '@/hooks/useHistoryParam
 import { getIsMobile, useIsMobile } from '@/hooks/useIsMobile';
 import { type AiActivity } from '@/lib/ai/aiActivity';
 import { chatStreams } from '@/lib/ai/chatStreams';
+import { type PromptSeed } from '@/lib/ai/promptSeed';
 import { hasLiveStateMark } from '@/lib/historyParam';
 
 /** AI 어시스턴트 표시 모드. closed=닫힘, side=우측 도킹, fullscreen=콘텐츠 영역 2단. */
@@ -53,6 +54,15 @@ interface AIAssistantValue {
   resize: (width: number, persist?: boolean) => void;
   /** 진입 버튼 표시 상태 — 표면이 열려 있으면 항상 idle(WP-191). */
   triggerActivity: AiActivity;
+  /**
+   * WP-414: 입력창에 문구를 채운 채 AI 를 연다(데스크톱 옆 패널, 모바일은 자동 전체화면).
+   * 이미 쓰던 초안이 있으면 패널이 덮지 않는다 — 문구는 promptSeed 로 두고 열린 패널이 한 번 꺼내 쓴다.
+   */
+  askWithPrompt: (text: string) => void;
+  /** WP-414: 입력창에 채울 대기 문구(없으면 null) — 패널이 닫혀(언마운트) 있어도 Provider 가 들고 있다가 열린 패널이 소비한다. */
+  promptSeed: PromptSeed | null;
+  /** WP-414: 패널이 seed 를 입력창에 반영한 뒤 비운다 — 한 번만 소비(패널 재마운트·모드 전환에 다시 채워지지 않게). */
+  consumePromptSeed: () => void;
 }
 
 // 초기 모드 — 항상 closed 로 시작(직전 모드는 toggle 복원용으로만 기억).
@@ -147,6 +157,20 @@ export function AIAssistantProvider({ children, hotkeysEnabled }: { children: Re
     [transition],
   );
   const close = useCallback(() => transition('closed'), [transition]);
+  // WP-414: 대기 프롬프트 — 패널이 닫혀(언마운트) 있어도 맡겨 둘 수 있게 Provider 상태로 둔다. 매번 새 객체라 같은 문구를 다시 물어도 패널이 다시 반영한다.
+  const [promptSeed, setPromptSeed] = useState<PromptSeed | null>(null);
+  const consumePromptSeed = useCallback(() => setPromptSeed(null), []);
+  // 표면이 닫히면 소비되지 않은 문구를 버린다 — 패널이 마운트되지 못한 채 닫혔을 때 다음의 무관한 열기에 옛 문구가 채워지지 않게.
+  // 「묻기」는 맡김과 열기를 한 핸들러에서 하므로 seed 가 생긴 렌더는 이미 열린 상태다. 렌더 중 상태 조정(React 공식 패턴).
+  if (!isOpen && promptSeed) setPromptSeed(null);
+  // 이미 열려 있으면(side·fullscreen) 모드는 그대로 두고 문구만 맡긴다 — 전체화면을 옆 패널로 내리지 않게.
+  const askWithPrompt = useCallback(
+    (text: string) => {
+      setPromptSeed({ text });
+      if (latestRef.current.rawMode === 'closed') open('side');
+    },
+    [open],
+  );
   const dismiss = useCallback((next: 'closed' | 'side' = 'closed') => {
     if (next !== 'closed') persist(next);
     setMode(next);
@@ -203,8 +227,8 @@ export function AIAssistantProvider({ children, hotkeysEnabled }: { children: Re
   }, [mode, sidePanelWidth]);
 
   const value = useMemo<AIAssistantValue>(
-    () => ({ mode, sidePanelWidth, open, close, dismiss, historyOpen, cycleMode, toggle, resize, triggerActivity }),
-    [mode, sidePanelWidth, open, close, dismiss, historyOpen, cycleMode, toggle, resize, triggerActivity],
+    () => ({ mode, sidePanelWidth, open, close, dismiss, historyOpen, cycleMode, toggle, resize, triggerActivity, askWithPrompt, promptSeed, consumePromptSeed }),
+    [mode, sidePanelWidth, open, close, dismiss, historyOpen, cycleMode, toggle, resize, triggerActivity, askWithPrompt, promptSeed, consumePromptSeed],
   );
   return <AIAssistantContext value={value}>{children}</AIAssistantContext>;
 }

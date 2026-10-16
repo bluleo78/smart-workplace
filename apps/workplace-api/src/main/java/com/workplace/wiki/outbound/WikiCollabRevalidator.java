@@ -1,5 +1,6 @@
 package com.workplace.wiki.outbound;
 
+import com.workplace.user.outbound.WorkspaceMembershipSuspended;
 import com.workplace.wiki.outbound.CollabClient.RevalidateRequest;
 import com.workplace.wiki.outbound.WikiDomainEvents.WikiPageAccessRevokedEvent;
 import com.workplace.wiki.outbound.WikiDomainEvents.WikiSpaceMembershipChangedEvent;
@@ -28,6 +29,17 @@ public class WikiCollabRevalidator {
   @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
   public void onMembership(WikiSpaceMembershipChangedEvent e) {
     send(new RevalidateRequest(e.tenantId(), e.spaceId(), null, e.userId()));
+  }
+
+  /**
+   * 워크스페이스 멤버십 정지(WP-420) — 그 테넌트의 그 사용자 연결 전부(스페이스 무관)를 재판정한다. 동기화 서버는 연결에 보관한 사용자 토큰으로
+   * collab-access 를 다시 부르고, 정지된 멤버십의 토큰은 이제 401 이라 4401(토큰 만료와 같은 경로)로 닫힌다 — 웹은 토큰을 갱신하려다 정지된
+   * 워크스페이스에서 빠진다.
+   */
+  @Async("wikiCollabRevalidateExecutor")
+  @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+  public void onWorkspaceMembershipSuspended(WorkspaceMembershipSuspended e) {
+    send(new RevalidateRequest(e.tenantId(), null, null, e.userId()));
   }
 
   /** 페이지 삭제(서브트리) — 그 페이지들에 열린 모든 연결을 재판정한다. 삭제 사유를 실어 웹이 "삭제됨"으로 안내하게 한다. */

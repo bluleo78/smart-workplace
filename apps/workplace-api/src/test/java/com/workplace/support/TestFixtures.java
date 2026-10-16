@@ -39,6 +39,33 @@ public final class TestFixtures {
         .getId();
   }
 
+  /**
+   * WP-420: 사용자에게 <b>현재 GUC 테넌트</b>(app.tenant_id)의 ACTIVE 멤버십을 준다(이미 있으면 그대로). 역할 권한은 그 테넌트의
+   * ACTIVE 멤버일 때만 유효하므로, user_role 을 직접 시드하는 테스트가 같은 GUC 아래에서 함께 부른다 — user_role 이 귀속되는 테넌트와 같은
+   * 테넌트가 보장된다. user 삭제 시 membership 은 FK CASCADE 로 함께 지워진다.
+   *
+   * @return userId(시드 식에 그대로 감쌀 수 있게)
+   */
+  public static long activeMemberOfCurrentTenant(DSLContext dsl, long userId) {
+    long tenantId =
+        ((Number) dsl.fetchValue("SELECT current_setting('app.tenant_id')::bigint")).longValue();
+    ensureActiveMember(dsl, userId, tenantId);
+    return userId;
+  }
+
+  /**
+   * WP-420: (user, tenant) ACTIVE 멤버십을 보장한다(이미 있으면 그대로). tenant 토큰은 그 테넌트의 ACTIVE 멤버일 때만 인증되므로, 토큰을
+   * 직접 발급하는 테스트가 실제 로그인·선택 흐름과 같은 전제를 맞출 때 쓴다.
+   */
+  public static void ensureActiveMember(DSLContext dsl, long userId, long tenantId) {
+    dsl.insertInto(MEMBERSHIP)
+        .set(MEMBERSHIP.USER_ID, userId)
+        .set(MEMBERSHIP.TENANT_ID, tenantId)
+        .set(MEMBERSHIP.STATUS, "ACTIVE")
+        .onConflictDoNothing()
+        .execute();
+  }
+
   /** 사용자를 테넌트 MEMBER 로 추가한다(membership 직접 INSERT). */
   public static void addMember(DSLContext dsl, long userId, long tenantId) {
     dsl.insertInto(MEMBERSHIP)

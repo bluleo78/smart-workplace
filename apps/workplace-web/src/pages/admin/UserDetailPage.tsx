@@ -164,7 +164,25 @@ export default function UserDetailPage() {
   if (!user) return null;
 
   return (
-    <SettingsPage title="사용자 상세" icon={backButton} width="form" guide={settingsGuides.userDetail}>
+    <SettingsPage
+      title="사용자 상세"
+      icon={backButton}
+      width="form"
+      guide={settingsGuides.userDetail}
+      // WP-414: AI 화면 맥락 — 저장된 값(이름·역할·활성)만. 체크만 바꾼 미저장 역할은 싣지 않는다.
+      aiContext={{
+        focus: {
+          type: '사용자',
+          label: user.name,
+          refs: { username: user.username },
+          facts: [
+            ['아이디', user.username],
+            ['역할', user.roles.map((r) => r.name).join(', ')],
+            ['활성 상태', user.isActive ? '활성' : '비활성'],
+          ],
+        },
+      }}
+    >
       {/* 기본 정보 — 읽기 전용(가입 정보는 본인만 수정) */}
       <SettingsSection title="기본 정보" description="가입 정보는 구성원 본인만 바꿀 수 있어요.">
         {/* 값 열은 minmax(0,1fr) — 섹션 입력 열의 wrap-anywhere 와 함께, 공백 없는 긴 아이디·이메일이 min-content 로 열을 늘려 모바일 본문을 가로로 넘기지 않게(WP-397 D2).

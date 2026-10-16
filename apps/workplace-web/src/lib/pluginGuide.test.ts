@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 
 import { describe, expect, it } from 'vitest';
 
@@ -8,10 +8,13 @@ import {
   buildPluginInstallCommands,
   buildSwitchCommand,
   buildTokenFallbackCommand,
+  buildWorkLoopLaunchCommand,
+  buildWorkLoopStartCommand,
   marketplaceUrl,
   needsServerUrlSetting,
   PLUGIN_COMMANDS,
   PLUGIN_DEFAULT_SERVER_URL,
+  PLUGIN_SKILLS,
 } from './pluginGuide';
 
 describe('pluginGuide', () => {
@@ -37,9 +40,19 @@ describe('pluginGuide', () => {
         source: 'git-subdir',
         url: 'https://github.com/bluleo78/smart-workplace.git',
         path: 'plugins/genia-works',
-        ref: 'genia-works--v0.1.3',
+        ref: 'genia-works--v0.1.4',
       },
     });
+  });
+});
+
+describe('work-loop 명령', () => {
+  it('시작 명령은 권한을 묻지 않는 모드로 그 AI 로 띄운다', () => {
+    expect(buildWorkLoopLaunchCommand('ai-dev')).toBe('GENIA_WORKS_AS=ai-dev claude --permission-mode bypassPermissions');
+  });
+  it('반복 명령은 프로젝트 키 자리를 기본으로 둔다', () => {
+    expect(buildWorkLoopStartCommand()).toBe('/loop /genia-works:work-loop <프로젝트 키>');
+    expect(buildWorkLoopStartCommand('WP')).toBe('/loop /genia-works:work-loop WP');
   });
 });
 
@@ -50,6 +63,11 @@ describe('플러그인 파일과의 일치', () => {
     const literal = /export const COMMANDS = (\{[^}]*\})/.exec(pluginFile('hooks/lib.js'))?.[1] ?? '';
     const commands = Function(`return (${literal})`)();
     expect(PLUGIN_COMMANDS).toEqual(commands);
+  });
+  it('PLUGIN_SKILLS 는 plugins/genia-works/skills/ 의 폴더 이름과 맞는다', () => {
+    const dirs = readdirSync(new URL('../../../../plugins/genia-works/skills/', import.meta.url));
+    expect(dirs).toContain(PLUGIN_SKILLS.workOn.replace('/genia-works:', ''));
+    expect(dirs).toContain(PLUGIN_SKILLS.workLoop.replace('/genia-works:', ''));
   });
   it('목록 파일의 ref 는 genia-works--v + plugin.json 버전이다', () => {
     const { version } = JSON.parse(pluginFile('.claude-plugin/plugin.json'));

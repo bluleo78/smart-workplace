@@ -23,20 +23,33 @@ const COLLAPSED_KEY = 'settings-guide:collapsed'
  * offsetWidth(스크롤바 포함)를 잰다 — clientWidth 는 스크롤바 유무로 바뀌어 「열 생김 → 본문 길어져 스크롤바 생김 → 폭 줄어
  * 열 빠짐 → 스크롤바 사라짐」으로 진동한다. 대가로 클래식 스크롤바 환경에선 열이 있을 때 폼이 최대 약 15px 좁아질 수 있다
  * (본문이 flex-1 min-w-0 이라 넘치지 않는다).
- * scrollEl 이 없으면(마운트 전·가이드 없는 화면) 재지 않고 false.
+ * scrollEl 이 없으면(마운트 전·가이드 없는 화면) 재지 않고 wide=false.
+ *
+ * WP-414: 같은 관찰에서 본문 스크롤 영역의 보이는 높이(clientHeight)도 함께 잰다 — 열이 그보다 길면(「AI에게 묻기」 버튼만큼 길어짐) sticky 라도
+ * 열 끝이 화면 밖에 남으므로, 열 최대 높이를 이 값으로 묶고 열 안에서 따로 스크롤하게 한다. 높이는 CSS 만으로 못 얻는다 — 열의 부모는 본문 내용
+ * 높이로 자라는 행이라 max-h-full 이 스크롤 영역 높이가 되지 않는다. 높이는 열이 나올 수 있을 때(trackHeight·wide)만 갱신한다 —
+ * 모바일·시트 모드에서 본문 높이 변화(키보드·주소창 등)마다 페이지 전체가 다시 그려지지 않게.
  */
-function useWideBody(scrollEl: HTMLElement | null): boolean {
+function useBodyBox(
+  scrollEl: HTMLElement | null,
+  trackHeight: boolean,
+): { wide: boolean; height: number | undefined } {
   const [wide, setWide] = useState(false)
+  const [height, setHeight] = useState<number | undefined>(undefined)
   // useLayoutEffect: 그리기 전에 재야 넓은 화면 진입 때 버튼이 한 프레임 보였다가 열로 바뀌지 않는다.
   useLayoutEffect(() => {
     if (!scrollEl) return
-    const measure = () => setWide(scrollEl.offsetWidth >= SETTINGS_GUIDE_MIN_BODY_WIDTH)
+    const measure = () => {
+      const isWide = scrollEl.offsetWidth >= SETTINGS_GUIDE_MIN_BODY_WIDTH
+      setWide(isWide)
+      if (trackHeight && isWide) setHeight(scrollEl.clientHeight)
+    }
     measure()
     const ro = new ResizeObserver(measure)
     ro.observe(scrollEl)
     return () => ro.disconnect()
-  }, [scrollEl])
-  return wide
+  }, [scrollEl, trackHeight])
+  return { wide, height }
 }
 
 export interface SettingsGuideUi {
@@ -57,9 +70,10 @@ export interface SettingsGuideUi {
  * guide 가 없으면 null — 이때 scrollEl 을 재지 않아 ResizeObserver 도 달지 않는다.
  */
 export function useSettingsGuide(guide: SettingsGuide | undefined, scrollEl: HTMLElement | null): SettingsGuideUi | null {
-  const wide = useWideBody(guide ? scrollEl : null)
   const [collapsed, , setCollapsed] = usePersistentToggle(COLLAPSED_KEY, false)
   const isMobile = useIsMobile()
+  // 열 후보(데스크톱·펼침)일 때만 높이를 잰다 — 열이 실제로 나오는지(wide)는 같은 측정에서 함께 판정한다.
+  const { wide, height: bodyHeight } = useBodyBox(guide ? scrollEl : null, !isMobile && !collapsed)
   const showAside = guide != null && !isMobile && wide && !collapsed
   const [sheetOpen, setSheetOpen] = useState(false)
   // 시트를 연 채 열 상태가 되면(창을 넓힘 등) 시트를 닫는다 — 같은 내용이 두 번 보이지 않게.
@@ -86,7 +100,7 @@ export function useSettingsGuide(guide: SettingsGuide | undefined, scrollEl: HTM
   return {
     desktopButton: !isMobile && !showAside ? button : null,
     mobileButton: isMobile ? button : null,
-    aside: showAside ? <SettingsGuideAside guide={guide} onHide={() => setCollapsed(true)} /> : null,
+    aside: showAside ? <SettingsGuideAside guide={guide} maxHeight={bodyHeight} onHide={() => setCollapsed(true)} /> : null,
     desktopSheet: isMobile ? null : (
       <SettingsGuideDesktopSheet guide={guide} open={sheetOpen} id={sheetId} onClose={closeSheet} returnFocusRef={buttonRef} />
     ),

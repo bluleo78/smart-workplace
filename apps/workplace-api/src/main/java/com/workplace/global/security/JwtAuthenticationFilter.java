@@ -97,14 +97,28 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
       if (tenantId != null && !tenantStatusChecker.isActive(tenantId)) {
         return;
       }
-      if (tenantId != null) {
-        TenantContext.set(tenantId);
-      }
       // WP-48: 브라우저 JWT 세션은 항상 인증 수단을 details 로 운반한다(amr 없으면 비밀번호 세션).
       // select-tenant/memberships 는 details 가 없는 PAT·API 키·Internal 인증을 거부하고, SSO 세션은 SSO 켜진
       // 워크스페이스로 제한한다.
       String amr = jwtTokenProvider.getAuthMethodFromToken(token);
-      setSecurityContext(userId, new AuthDetails(amr != null ? amr : AuthDetails.PASSWORD));
+      AuthDetails details = new AuthDetails(amr != null ? amr : AuthDetails.PASSWORD);
+      if (tenantId == null) {
+        // tenant 없는 토큰(소속 없음 안내·워크스페이스 선택 전)은 판정할 멤버십이 없으므로 기존 그대로.
+        setSecurityContext(userId, details);
+        return;
+      }
+      // TenantContext 를 먼저 설정해야 권한 조회(@Transactional doBegin)가 GUC 를 주입받아 RLS 하에서 조회한다.
+      TenantContext.set(tenantId);
+      // WP-420: 이 tenant 의 멤버십이 ACTIVE 가 아니면(관리자가 정지) 이미 발급된 토큰도 즉시 인증을 세우지 않는다(→ 401).
+      // 멤버십 판정과 권한 조회는 한 왕복이다. WP-341 과 같이 응답 바디는 쓰지 않는다 — 웹은 401 에서 refresh 를 시도하고, refresh 는
+      // ACTIVE 멤버십만 다시 고르므로 다른 워크스페이스로 옮기거나 로그아웃 흐름으로 이어진다. 정지된 tenant 로 permitAll 엔드포인트가
+      // 실행되지 않도록 TenantContext 도 되돌린다.
+      var permissions = permissionService.getActiveMemberPermissions(userId);
+      if (permissions.isEmpty()) {
+        TenantContext.clear();
+        return;
+      }
+      setAuthentication(userId, permissions.get(), details);
     }
   }
 
@@ -131,17 +145,19 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     try {
       Long userId = Long.parseLong(onBehalfOf);
       // Internal(AI 에이전트) 경로도 active-tenant 를 요청 스코프에 설정해야 RLS GUC 가 주입된다.
-      // 토큰에 tenant 가 없으므로, 선택적 X-On-Behalf-Of-Tenant 헤더(멤버십 검증) 또는 단일 멤버십으로 해석한다.
-      // 비멤버 테넌트 헤더/0/다중·미해석이면 미설정 → fail-closed. (ApiKey 필터와 동일 불변식)
+      // 토큰에 tenant 가 없으므로, 선택적 X-On-Behalf-Of-Tenant 헤더(ACTIVE 멤버십 검증) 또는 단일 멤버십으로 해석한다.
       // TenantContext 를 먼저 설정해야 setSecurityContext→getUserPermissions(@Transactional doBegin)가
       // GUC 를 주입받아 RLS 하에서 권한을 정상 조회한다.
       var memberships = membershipRepository.findActiveByUser(userId);
-      Long resolved =
-          AgentTenantResolver.resolve(
-              memberships, request.getHeader(AgentTenantResolver.TENANT_HEADER));
-      if (resolved != null) {
-        TenantContext.set(resolved);
+      switch (AgentTenantResolver.resolve(
+          memberships, request.getHeader(AgentTenantResolver.TENANT_HEADER))) {
+        case AgentTenantResolver.Rejected() -> {
+          return; // 명시 테넌트 미해석 → 401 (WP-420)
+        }
+        case AgentTenantResolver.NoTenant() -> {}
+        case AgentTenantResolver.Resolved(long tenantId) -> TenantContext.set(tenantId);
       }
+      // NoTenant(헤더 없이 0/다중)는 테넌트 없는 인증 — 3상태 의미는 AgentTenantResolver.Resolution 참고.
       // WP-55: Internal 대행 표식 — AuthDetails 가 아니므로 브라우저 세션으로 오인되지 않는다(InternalOnBehalfOf 참고).
       setSecurityContext(userId, InternalOnBehalfOf.INSTANCE);
     } catch (NumberFormatException ignored) {
@@ -154,7 +170,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
    * null).
    */
   private void setSecurityContext(Long userId, Object details) {
-    Set<String> permissions = permissionService.getUserPermissions(userId);
+    setAuthentication(userId, permissionService.getUserPermissions(userId), details);
+  }
+
+  /** 이미 조회한 권한으로 인증 컨텍스트를 세운다(WP-420: JWT tenant 경로는 멤버십 판정과 함께 얻은 권한을 그대로 쓴다). */
+  private void setAuthentication(Long userId, Set<String> permissions, Object details) {
     List<SimpleGrantedAuthority> authorities =
         permissions.stream().map(SimpleGrantedAuthority::new).toList();
     UsernamePasswordAuthenticationToken authentication =

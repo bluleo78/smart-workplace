@@ -71,6 +71,8 @@ describe('멤버', () => {
   const client = {
     searchMembers: vi.fn().mockResolvedValue([searchRow]),
     searchMembersPage: vi.fn().mockResolvedValue({ items: [searchRow], total: 1, hasMore: false, page: 0 }),
+    getMember: vi.fn().mockResolvedValue(searchRow),
+    getMe: vi.fn().mockResolvedValue({ id: 3, username: 'minsu' }),
     getMemberContact: vi.fn().mockResolvedValue({ id: 3, username: 'minsu', name: '김민수', email: 'm@x.com', title: '팀장', kind: 'HUMAN', groups: ['팀A'], isFavorite: false }),
     // 서버 ContactPage → ContactSummary(MEMBER 행은 username 을 싣고, EXTERNAL 은 null).
     listContacts: vi.fn().mockResolvedValue({
@@ -92,6 +94,7 @@ describe('멤버', () => {
       ['search_members', { search: '김' }],
       ['search_members', { channelId: 5 }], // WP-355: 채널 멤버 — 서버 행의 숫자 userId 를 뺀다
       ['get_member', { username: 'minsu' }],
+      ['get_member', { username: 'me' }], // WP-376: 단건 /members/{id} 응답의 숫자 userId 도 뺀다
       ['get_member_contact', { username: 'minsu' }],
       ['list_contacts', {}],
     ] as const) {

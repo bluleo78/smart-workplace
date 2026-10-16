@@ -71,6 +71,32 @@ test.describe('설정 가이드 — 넓은 화면 열', () => {
     const a = await boxOf(aside)
     expect(a.y).toBeGreaterThanOrEqual(0)
     expect(a.y).toBeLessThan(500)
+    // WP-414: 열이 본문 보이는 높이보다 길어도 열 끝이 뷰포트 밖으로 나가지 않는다(최대 높이 = 본문 높이, 넘치면 열 안 스크롤).
+    expect(a.y + a.height).toBeLessThanOrEqual(500)
+  })
+
+  test('짧은 데스크톱(1920×500): 폼을 내리지 않고 열 안에서 스크롤해 「AI에게 묻기」에 닿는다', async ({ authenticatedPage: page }) => {
+    // WP-414: 1440 폭은 열이 아니라 헤더 버튼(시트)이라, 열이 보이는 1920 폭에서 높이를 줄여 「열 > 본문 높이」를 만든다.
+    await page.setViewportSize({ width: 1920, height: 500 })
+    await page.goto('/settings/profile')
+    const aside = page.getByTestId('settings-guide-aside')
+    await expect(aside).toBeVisible()
+    const scroller = page.getByTestId('page-body')
+    // 전제: 열 내용이 본문 보이는 높이보다 길어 열 자체가 스크롤된다 — 아니면 이 테스트가 아무것도 검증하지 않는다.
+    expect(await aside.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true)
+    const asideBox = await boxOf(aside)
+    const bodyBox = await boxOf(scroller)
+    expect(asideBox.y + asideBox.height).toBeLessThanOrEqual(bodyBox.y + bodyBox.height + 1)
+
+    // 열만 끝까지 스크롤 — 폼(본문 스크롤)은 그대로 맨 위다.
+    await aside.evaluate((el) => { el.scrollTop = el.scrollHeight })
+    await expect.poll(() => aside.evaluate((el) => el.scrollTop)).toBeGreaterThan(0)
+    expect(await scroller.evaluate((el) => el.scrollTop)).toBe(0)
+    const ask = aside.getByTestId('settings-guide-ask-ai')
+    await expect(ask).toBeInViewport()
+    const b = await boxOf(ask)
+    expect(b.y).toBeGreaterThanOrEqual(asideBox.y)
+    expect(b.y + b.height).toBeLessThanOrEqual(asideBox.y + asideBox.height + 1)
   })
 
   test('1920: 숨기기 → 버튼, 새로고침 후 유지, 버튼은 시트가 아니라 열을 다시 편다', async ({ authenticatedPage: page }) => {

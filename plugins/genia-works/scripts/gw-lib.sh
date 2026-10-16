@@ -13,13 +13,20 @@ gw_valid_name() {
   return 0
 }
 
+# 프로세스 시작 시각을 늘 같은 모양으로 — 예: Thu_Oct_15_06_00_00_2026. 못 읽으면(프로세스 없음 등) 아무것도 내지 않고 1.
+# 시작 시각 문자열은 지역 시간대(TZ·DST)에 따라 달라진다 — 세션 도중 시간대가 바뀌면 키가 어긋나
+# 헤더가 {}(내 토큰)로 나가고 선택 파일이 지워져 신원이 조용히 뒤집힌다. 그래서 UTC·C 로캘로 고정한다.
+gw_lstart() {
+  _gw_ls=$(TZ=UTC0 LC_ALL=C ps -o lstart= -p "$1" 2>/dev/null | tr -s ' :' '__' | sed 's/^_//;s/_$//')
+  [ -n "$_gw_ls" ] || return 1
+  printf '%s\n' "$_gw_ls"
+}
+
 # 프로세스 하나의 세션 키 "<pid>-<시작 시각>". pid 가 다시 쓰여도 시작 시각이 달라 키가 겹치지 않는다.
+# 세션 선택 파일 이름(gw-session)과 work-loop 잠금(loop-lock)이 같은 키를 쓴다.
 gw_proc_key() {
-  # 시작 시각 문자열은 지역 시간대(TZ·DST)에 따라 달라진다 — 세션 도중 시간대가 바뀌면 키가 어긋나
-  # 헤더가 {}(내 토큰)로 나가고 선택 파일이 지워져 신원이 조용히 뒤집힌다. 그래서 UTC·C 로캘로 고정한다.
-  lstart=$(TZ=UTC0 LC_ALL=C ps -o lstart= -p "$1" 2>/dev/null | tr -s ' :' '__' | sed 's/^_//;s/_$//')
-  [ -n "$lstart" ] || return 1
-  printf '%s-%s\n' "$1" "$lstart"
+  _gw_ls=$(gw_lstart "$1") || return 1
+  printf '%s-%s\n' "$1" "$_gw_ls"
 }
 
 # 키 파일 내용 검사 — 비어 있지 않고, 보이는 문자(공백·제어 문자 없음)만이며, JSON 을 깨는 따옴표·역슬래시가 없어야 한다.
@@ -49,16 +56,21 @@ gw_is_claude_word() {
   return 1
 }
 
+# 프로세스의 명령줄이 claude 실행으로 보이는지 — 앞 두 단어만 본다(node …/bin/claude 처럼 둘째 단어일 수 있다).
+# 위치 인자를 바꾸므로 하위 셸에서 돌린다(부르는 쪽의 $1… 를 건드리지 않게).
+gw_is_claude_proc() (
+  set -f
+  # shellcheck disable=SC2046 — args 를 단어로 나눠 앞 두 단어만 본다.
+  set -- $(ps -o args= -p "$1" 2>/dev/null)
+  gw_is_claude_word "${1:-}" || gw_is_claude_word "${2:-}"
+)
+
 # 가장 가까운 claude 조상 프로세스 번호 — 환경변수(CLAUDE_PID 등)는 부모 세션에서 상속돼 믿을 수 없어 ps 로 찾는다(3차 실험).
 gw_claude_pid() {
   # GW_START_PID 는 테스트 전용 훅(가짜 ps 표에서 시작 프로세스를 고정) — 운영에서는 설정하지 않는다.
   p="${GW_START_PID:-$PPID}"
   while [ -n "$p" ] && [ "$p" -gt 1 ] 2>/dev/null; do
-    set -f
-    # shellcheck disable=SC2046 — args 를 단어로 나눠 앞 두 단어만 본다.
-    set -- $(ps -o args= -p "$p" 2>/dev/null)
-    set +f
-    if gw_is_claude_word "${1:-}" || gw_is_claude_word "${2:-}"; then
+    if gw_is_claude_proc "$p"; then
       echo "$p"
       return 0
     fi

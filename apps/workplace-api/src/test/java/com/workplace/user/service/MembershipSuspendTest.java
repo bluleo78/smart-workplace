@@ -24,6 +24,7 @@ import com.workplace.tenant.dto.MembershipResponse;
 import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.dto.UserKind;
 import com.workplace.user.dto.UserResponse;
+import com.workplace.user.outbound.WorkspaceMembershipSuspended;
 import java.util.List;
 import java.util.Optional;
 import org.jooq.DSLContext;
@@ -32,6 +33,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.test.context.event.ApplicationEvents;
+import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -42,6 +45,7 @@ import org.springframework.transaction.annotation.Transactional;
  * GUC(app.tenant_id)가 따라오지 않으므로 {@code useTenant} 로 둘을 함께 바꾼다.
  */
 @Transactional
+@RecordApplicationEvents
 class MembershipSuspendTest extends IntegrationTestBase {
 
   private static final String PASSWORD = "Password123";
@@ -54,6 +58,8 @@ class MembershipSuspendTest extends IntegrationTestBase {
   @Autowired private JwtTokenProvider jwtTokenProvider;
   @Autowired private PasswordEncoder passwordEncoder;
   @Autowired private DSLContext dsl;
+  // WP-420: 정지 이벤트(열린 연결 닫기)가 실제 전환일 때만 나가는지 본다.
+  @Autowired private ApplicationEvents events;
 
   private long tenantA;
   private long tenantB;
@@ -203,6 +209,58 @@ class MembershipSuspendTest extends IntegrationTestBase {
     useTenant(tenantA);
     userService.setUserActive(x, false);
     assertThat(membershipStatus(x, tenantA)).isEqualTo("SUSPENDED");
+    // WP-420: 상태가 바뀌지 않았으니 열린 연결을 닫으라는 정지 이벤트도 나가지 않는다.
+    assertThat(events.stream(WorkspaceMembershipSuspended.class)).isEmpty();
+  }
+
+  @Test
+  void suspendingActiveMember_publishesSuspendedEventOnce() {
+    // WP-420: ACTIVE→SUSPENDED 실제 전환이면 그 (테넌트, 사용자) 로 정지 이벤트가 정확히 한 번 나간다.
+    createAdminInA(); // 마지막 ADMIN 가드에 걸리지 않게 활성 ADMIN 을 하나 둔다
+    long target = createLoginableHuman().id();
+    membershipRepository.create(target, tenantA, "ACTIVE");
+
+    useTenant(tenantA);
+    userService.setUserActive(target, false);
+
+    assertThat(events.stream(WorkspaceMembershipSuspended.class))
+        .containsExactly(new WorkspaceMembershipSuspended(tenantA, target));
+  }
+
+  @Test
+  void roleChange_removingAdminFromOneOfTwoActiveAdmins_isAllowed() {
+    // WP-420: 활성 ADMIN 이 둘이면 한 명의 ADMIN 을 빼도 하나가 남는다 — 허용.
+    long x = createAdminInA();
+    long y = createAdminInA();
+
+    useTenant(tenantA);
+    userService.setUserRoles(y, List.of(), x);
+    assertThat(roleIdsOf(y)).isEmpty();
+  }
+
+  @Test
+  void roleChange_removingAdminFromLastActiveAdmin_isRejectedAndSuspendedAdminNotCounted() {
+    // WP-420: 활성 ADMIN 은 X 하나, Z 는 ADMIN 이지만 이 워크스페이스에서 정지 — 다른 사람(W)이 X 의 ADMIN 을 빼면
+    // 활성 ADMIN 이 0명이 되므로 409(IllegalStateException). 자기 잠금 검사(자기 자신만)로는 이 경로를 못 막았다.
+    long x = createAdminInA();
+    long z = createAdminInA();
+    TestFixtures.suspendMember(dsl, z, tenantA);
+    long w = createLoginableHuman().id();
+    membershipRepository.create(w, tenantA, "ACTIVE");
+
+    useTenant(tenantA);
+    assertThatThrownBy(() -> userService.setUserRoles(x, List.of(), w))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("마지막 활성 ADMIN");
+    assertThat(roleIdsOf(x)).containsExactly(adminRoleA);
+  }
+
+  /** 대상의 현재 테넌트 역할 id 목록(GUC 테넌트 기준, RLS). */
+  private List<Long> roleIdsOf(long userId) {
+    return dsl.select(USER_ROLE.ROLE_ID)
+        .from(USER_ROLE)
+        .where(USER_ROLE.USER_ID.eq(userId))
+        .fetch(USER_ROLE.ROLE_ID);
   }
 
   @Test

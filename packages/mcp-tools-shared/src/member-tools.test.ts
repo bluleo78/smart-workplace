@@ -1,13 +1,16 @@
 import { describe, expect, it, vi } from 'vitest';
 import { buildMemberTools, findMemberByUsername, toContactView } from './member-tools.js';
+import type { CurrentUserClient } from './resolve.js';
 import type { MemberToolClient } from './tool-client.js';
 import { resultText } from './mcp-content.js';
 
 /** 구성원·연락처 클라이언트 mock. */
-function mockClient(): MemberToolClient {
+function mockClient(): MemberToolClient & CurrentUserClient {
   return {
+    getMe: vi.fn().mockResolvedValue({ id: 1, username: 'me-user' }),
     searchMembers: vi.fn().mockResolvedValue([]),
     searchMembersPage: vi.fn().mockResolvedValue({ items: [], hasMore: false, page: 0 }),
+    getMember: vi.fn().mockRejectedValue({ response: { status: 404 } }),
     getMemberContact: vi.fn().mockResolvedValue({}),
     listContacts: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
     getExternalContact: vi.fn().mockResolvedValue({}),
@@ -15,7 +18,55 @@ function mockClient(): MemberToolClient {
   };
 }
 
-const tool = (c: MemberToolClient, name: string) => buildMemberTools(c).find((x) => x.name === name)!;
+const tool = (c: MemberToolClient & CurrentUserClient, name: string) => buildMemberTools(c).find((x) => x.name === name)!;
+
+describe('get_member 의 me (WP-376)', () => {
+  const aiRow = { userId: 7, username: 'ai-dev', name: 'AI 개발', kind: 'AGENT' };
+
+  it("get_member: username 'me' 는 호출자(getMe)의 id 로 단건을 읽는다 — username 검색을 거치지 않는다", async () => {
+    const c = mockClient();
+    vi.mocked(c.getMe).mockResolvedValue({ id: 7, username: 'ai-dev' });
+    vi.mocked(c.getMember).mockResolvedValue(aiRow);
+    const out = JSON.parse(resultText(await tool(c, 'get_member').handler({ username: 'me' })));
+    expect(out).toEqual({ username: 'ai-dev', name: 'AI 개발', kind: 'AGENT' });
+    expect(c.getMe).toHaveBeenCalledTimes(1);
+    expect(c.getMember).toHaveBeenCalledWith(7);
+    expect(c.searchMembers).not.toHaveBeenCalled();
+  });
+
+  it("get_member: 'me' 는 username 이 짧아 부분일치 검색 첫 페이지(50건)에 들지 않아도 찾는다", async () => {
+    const c = mockClient();
+    vi.mocked(c.getMe).mockResolvedValue({ id: 99, username: 'ai' });
+    // 'ai' 를 포함한 다른 구성원 50명으로 첫 페이지가 찬다 — 이전 구현(username 재검색)은 여기서 "없음" 이었다.
+    vi.mocked(c.searchMembers).mockResolvedValue(
+      Array.from({ length: 50 }, (_, i) => ({ userId: i + 1, username: `ai-bot-${i}`, name: `AI ${i}`, kind: 'AGENT' })),
+    );
+    vi.mocked(c.getMember).mockResolvedValue({ userId: 99, username: 'ai', name: 'AI', kind: 'AGENT', active: true });
+    const out = JSON.parse(resultText(await tool(c, 'get_member').handler({ username: 'me' })));
+    expect(out).toEqual({ username: 'ai', name: 'AI', kind: 'AGENT', active: true });
+  });
+
+  it("get_member: ' ME ' 도 호출자다", async () => {
+    const c = mockClient();
+    vi.mocked(c.getMe).mockResolvedValue({ id: 7, username: 'ai-dev' });
+    vi.mocked(c.getMember).mockResolvedValue(aiRow);
+    const out = JSON.parse(resultText(await tool(c, 'get_member').handler({ username: ' ME ' })));
+    expect(out.username).toBe('ai-dev');
+  });
+
+  it("get_member: 'me' 단건 조회 오류는 그대로 전파한다(없음으로 뭉개지 않는다)", async () => {
+    const c = mockClient();
+    await expect(tool(c, 'get_member').handler({ username: 'me' })).rejects.toEqual({ response: { status: 404 } });
+  });
+
+  it("get_member: 'me' 가 아니면 getMe 를 부르지 않는다", async () => {
+    const c = mockClient();
+    vi.mocked(c.searchMembers).mockResolvedValue([aiRow]);
+    await tool(c, 'get_member').handler({ username: 'ai-dev' });
+    expect(c.getMe).not.toHaveBeenCalled();
+    expect(c.getMember).not.toHaveBeenCalled();
+  });
+});
 
 describe('buildMemberTools (#833)', () => {
   it('정확히 5종을 반환하고 쓰기 도구는 노출하지 않는다', () => {

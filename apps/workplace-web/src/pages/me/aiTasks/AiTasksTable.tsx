@@ -1,6 +1,7 @@
 // AI 위임 작업 데스크톱 표(WP-377) — 공유 IssueListTable 대신 이 화면 전용(내 작업 화면 무영향).
 // 이 화면은 분류 화면: 이슈 상태·우선순위는 프로젝트 이슈 목록처럼 앞쪽 아이콘으로 낮추고, AI 진행 정보를 본문으로 둔다.
 // 행 순서는 서버가 준 급한 순 그대로(클라이언트 재정렬 금지 — 무한 스크롤 페이지 경계와 어긋나지 않게).
+// 프로젝트별 구간(WP-426): 서버가 프로젝트 단위로 이어 준 행을 머리 줄(배지·이름·키 · 건수) 아래에 묶어 그린다.
 // 에픽 묶음은 서버가 묶음 단위로 정렬해 연속으로 준다(WP-375) — 화면은 묶음 머리 + 들여쓴 하위 행으로 그린다.
 import { Fragment } from 'react'
 import { Link } from 'react-router-dom'
@@ -21,8 +22,9 @@ import { displayState, primaryWork } from '@/lib/agentWork'
 import { cn } from '@/lib/utils'
 import type { AgentWorkView, IssueResponse } from '@/types/issue'
 
-import { type EpicHead, groupAiTasks } from './aiTaskGroups'
+import { type EpicHead, groupAiTasks, splitByProject } from './aiTaskGroups'
 import { EpicHeadTitle } from './EpicHeadTitle'
+import { ProjectHeadTitle } from './ProjectHeadTitle'
 
 const DASH = <span className="text-muted-foreground">—</span>
 
@@ -113,7 +115,6 @@ function EpicHeadRow({ epic, head }: { epic: EpicHead; head: IssueResponse | nul
 
 /** done — 완료 보기(WP-396): 마지막 칸이 마지막 보고 대신 종료 시각이라 칸 제목을 「종료」로 바꾼다. */
 export function AiTasksTable({ items, done = false }: { items: IssueResponse[]; done?: boolean }) {
-  const entries = groupAiTasks(items)
   return (
     <div className="overflow-x-auto" data-testid="ai-tasks-table">
       {/* table-fixed — 제목·최근 보고 두 칸이 남는 폭을 나눠 갖고 말줄임한다(긴 글이 표를 밀어내지 않게). */}
@@ -133,18 +134,29 @@ export function AiTasksTable({ items, done = false }: { items: IssueResponse[]; 
             <th className="w-[72px]">{done ? '종료' : '마지막 보고'}</th>
           </tr>
         </thead>
-        <tbody>
-          {entries.map((e) =>
-            e.kind === 'row' ? (
-              <AiTaskRow key={e.issue.id} it={e.issue} inGroup={false} />
-            ) : (
-              <Fragment key={e.key}>
-                <EpicHeadRow epic={e.epic} head={e.head} />
-                {e.children.map((c) => <AiTaskRow key={c.id} it={c} inGroup />)}
-              </Fragment>
-            ),
-          )}
-        </tbody>
+        {/* 구간 key 는 키 + 첫 행 id — 같은 프로젝트가 떨어져 두 번 나와도(이론상) 중복되지 않게. */}
+        {splitByProject(items).map((run, i) => {
+          const tid = `ai-project-${run.key}-head`
+          return (
+            <tbody key={`${run.key}-${run.items[0].id}`} data-testid={`ai-project-${run.key}`}>
+              <tr className="border-b" data-testid={tid}>
+                <td colSpan={10} className={cn('pb-2', i === 0 ? 'pt-3' : 'pt-6')}>
+                  <ProjectHeadTitle run={run} tid={tid} />
+                </td>
+              </tr>
+              {groupAiTasks(run.items).map((e) =>
+                e.kind === 'row' ? (
+                  <AiTaskRow key={e.issue.id} it={e.issue} inGroup={false} />
+                ) : (
+                  <Fragment key={e.key}>
+                    <EpicHeadRow epic={e.epic} head={e.head} />
+                    {e.children.map((c) => <AiTaskRow key={c.id} it={c} inGroup />)}
+                  </Fragment>
+                ),
+              )}
+            </tbody>
+          )
+        })}
       </table>
     </div>
   )

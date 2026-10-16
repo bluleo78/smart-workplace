@@ -72,6 +72,12 @@ export interface AiTaskGroup {
   epicChildDoneCount: number
 }
 
+/** AI 위임 작업 행의 프로젝트 정보(WP-426) — /me/ai-tasks 만 싣는다. size 는 필터 적용 후 그 프로젝트의 전체 행 수(불러온 수가 아님). */
+export interface AiTaskProject {
+  name: string
+  size: number
+}
+
 export interface IssueResponse {
   id: number;
   projectKey: string;
@@ -120,6 +126,8 @@ export interface IssueResponse {
   agentWork?: AgentWorkView[];
   // AI 위임 작업(WP-375) — 에픽 묶음 정보. 묶이지 않은 단독 행은 생략.
   aiGroup?: AiTaskGroup | null;
+  // AI 위임 작업(WP-426) — 프로젝트 이름·건수. 이 목록 밖에서는 생략.
+  aiProject?: AiTaskProject | null;
 }
 
 export interface IssueCommentResponse {

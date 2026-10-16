@@ -3,8 +3,10 @@
 // 폼형에 guide 가 있으면 화면별 설정 가이드를 붙인다 — 상태·요소는 useSettingsGuide 가 만들고 여기선 제자리에 꽂기만 한다(WP-399).
 import { type ReactNode, useState } from 'react'
 
+import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
 import type { SettingsGuide } from '@/components/settings-guide/types'
 import { useSettingsGuide } from '@/components/settings-guide/useSettingsGuide'
+import { buildSettingsScreenContext, type SettingsAiContextInput } from '@/lib/aiScreenContext/builders/settings'
 
 import { Page } from './Page'
 import { SettingsScrollRootContext } from './settingsScrollRoot'
@@ -19,14 +21,22 @@ interface SettingsPageProps {
   width?: 'form' | 'full'
   /** 화면별 설정 가이드 — width='form' 일 때만 그린다(목록형엔 남는 여백이 없어 무시). */
   guide?: SettingsGuide
+  /**
+   * WP-414: 화면 핵심 값 — 가이드가 그려지는 화면의 AI 화면 맥락에 덧붙인다(대상은 focus, 상태 값은 facts).
+   * 로드된 값만 넘기고, 비밀번호·토큰·시크릿은 넘기지 않는다.
+   */
+  aiContext?: SettingsAiContextInput | null
   'data-testid'?: string
   children: ReactNode
 }
 
-export function SettingsPage({ title, icon, meta, actions, width = 'full', guide, children, ...rest }: SettingsPageProps) {
+export function SettingsPage({ title, icon, meta, actions, width = 'full', guide, aiContext, children, ...rest }: SettingsPageProps) {
   // 본문 스크롤 요소 — 콜백 ref(useState)라 마운트 후 하위 무한 스크롤 sentinel 이 root 로 다시 붙는다.
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null)
-  const guideUi = useSettingsGuide(width === 'form' ? guide : undefined, scrollEl)
+  const shownGuide = width === 'form' ? guide : undefined
+  const guideUi = useSettingsGuide(shownGuide, scrollEl)
+  // WP-414: 가이드가 보이는 설정 화면은 AI 화면 맥락(설정 · 제목 + 가이드 요약 + 화면 값)을 등록한다 — 「AI 에게 묻기」가 이 맥락으로 묻는다.
+  useRegisterAiScreenContext(shownGuide ? buildSettingsScreenContext(shownGuide, aiContext) : null)
   // 데스크톱: 가이드 버튼을 기존 actions 앞에. 모바일: 가이드 버튼은 ⋯ 밖 인라인(mobilePrimaryAction)이고 ⋯ 엔 기존 actions 만 담긴다.
   const headerActions = guideUi?.desktopButton ? <>{guideUi.desktopButton}{actions}</> : actions
 

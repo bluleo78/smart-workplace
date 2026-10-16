@@ -2,6 +2,7 @@
 // 1줄 상태 아이콘 + 제목(2줄) / 2줄 메타(키 · AI 진행 · 에이전트 유형 · 진행률 · 마지막 보고 … 담당자) / 3줄 최근 보고(한 줄).
 // 메타 줄은 잘리지도 말줄임되지도 않는다 — 진행률은 막대 없이 글자만 두고, 그래도 폭이 모자라면(긴 상태+진행률+시각)
 // 뒤쪽 항목이 다음 줄로 넘어간다(에이전트 유형·마지막 보고는 항상 전체 글자).
+// 프로젝트 구간(WP-426): 서버가 프로젝트 단위로 이어 준 행을 프로젝트 머리(배지·이름·키 · 건수) 아래에 묶어 그린다.
 // 에픽 묶음(WP-375): 서버가 묶음 단위로 정렬해 준 행을 머리(아이콘·키·제목·└ n/m) 아래에 이어 그린다. 하위 행은 기존 행 그대로.
 import { Fragment } from 'react'
 import { Link } from 'react-router-dom'
@@ -14,11 +15,13 @@ import {
 } from '@/components/ai/agentWork/AgentWorkBits'
 import { IssueStatusIcon } from '@/components/issues/IssueStatusIcon'
 import { displayState, primaryWork } from '@/lib/agentWork'
+import { cn } from '@/lib/utils'
 import type { IssueResponse } from '@/types/issue'
 
-import { type EpicHead, groupAiTasks } from './aiTaskGroups'
+import { type EpicHead, groupAiTasks, splitByProject } from './aiTaskGroups'
 import { AiTaskAssignee } from './AiTasksTable'
 import { EpicHeadTitle } from './EpicHeadTitle'
+import { ProjectHeadTitle } from './ProjectHeadTitle'
 
 /** 기존 모바일 행 그대로(묶음 안에서도 같은 모양). */
 function MobileRow({ it }: { it: IssueResponse }) {
@@ -85,16 +88,26 @@ function MobileEpicHead({ epic, head }: { epic: EpicHead; head: IssueResponse | 
 export function AiTasksMobileList({ items }: { items: IssueResponse[] }) {
   return (
     <ul className="text-sm">
-      {groupAiTasks(items).map((e) =>
-        e.kind === 'row' ? (
-          <MobileRow key={e.issue.id} it={e.issue} />
-        ) : (
-          <Fragment key={e.key}>
-            <MobileEpicHead epic={e.epic} head={e.head} />
-            {e.children.map((c) => <MobileRow key={c.id} it={c} />)}
+      {splitByProject(items).map((run, i) => {
+        const tid = `ai-project-${run.key}-head`
+        return (
+          <Fragment key={`${run.key}-${run.items[0].id}`}>
+            <li className={cn('border-b px-1 pb-2', i === 0 ? 'pt-1' : 'pt-6')} data-testid={tid}>
+              <ProjectHeadTitle run={run} tid={tid} />
+            </li>
+            {groupAiTasks(run.items).map((e) =>
+              e.kind === 'row' ? (
+                <MobileRow key={e.issue.id} it={e.issue} />
+              ) : (
+                <Fragment key={e.key}>
+                  <MobileEpicHead epic={e.epic} head={e.head} />
+                  {e.children.map((c) => <MobileRow key={c.id} it={c} />)}
+                </Fragment>
+              ),
+            )}
           </Fragment>
-        ),
-      )}
+        )
+      })}
     </ul>
   )
 }

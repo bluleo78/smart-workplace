@@ -30,10 +30,12 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
+import com.workplace.user.service.UserService;
 import com.workplace.wiki.dto.CreatePageRequest;
 import com.workplace.wiki.dto.SavePageRequest;
 import com.workplace.wiki.dto.StoreCollabDocRequest;
@@ -94,6 +96,9 @@ class WikiCollabSaveIntegrationTest extends IntegrationTestBase {
   @Autowired WikiBodyHistoryCleanupScheduler bodyCleanup;
 
   @MockitoBean CollabClient collab;
+  // WP-420: 멤버십 정지 후 SSE 종료 관찰용 스파이(기본은 실제 동작).
+  @MockitoSpyBean SseRegistry sse;
+  @Autowired UserService userService;
 
   private final List<Long> seededUserIds = new ArrayList<>();
   private long userId;
@@ -817,6 +822,31 @@ class WikiCollabSaveIntegrationTest extends IntegrationTestBase {
 
     inRollbackTx(soft -> spaceService.removeMember(userId, spaceId, otherUserId));
     verify(collab, after(500).never()).revalidate(any());
+  }
+
+  /**
+   * WP-420: 워크스페이스 멤버십 정지 — 커밋 후 그 테넌트의 그 사용자 노트 연결 전부(스페이스 무관)를 재검증하고 SSE 스트림을 닫는다. 롤백된 정지는 둘 다 하지
+   * 않는다.
+   */
+  @Test
+  void suspendingWorkspaceMembershipRevalidatesCollabAndClosesSseAfterCommit() {
+    clearInvocations(collab, sse);
+    inRollbackTx(soft -> userService.setUserActive(otherUserId, false));
+    verify(collab, after(500).never()).revalidate(any());
+    verify(sse, never()).closeAll(otherUserId);
+
+    tenant1();
+    userService.setUserActive(otherUserId, false);
+    verify(collab, timeout(2000))
+        .revalidate(
+            argThat(
+                r ->
+                    r.tenantId() == 1L
+                        && r.spaceId() == null
+                        && r.pageIds() == null
+                        && r.userId() == otherUserId
+                        && r.reason() == null));
+    verify(sse).closeAll(otherUserId);
   }
 
   /** 페이지 삭제 — 자식까지 CASCADE 로 사라지므로 서브트리 전체 id 로 재검증한다. */

@@ -85,20 +85,22 @@ public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
                             user -> {
                               // AGENT 경로도 active-tenant 를 요청 스코프에 설정해야 RLS GUC 가 주입되어
                               // user_role/role_permission 조회(getUserPermissions)가 권한을 반환한다. API 키에는
-                              // tenant 가 없으므로 X-On-Behalf-Of-Tenant 헤더(멤버십 검증) 또는 단일 멤버십으로 해석한다.
-                              // 비멤버 헤더/0/다중·미해석이면 미설정 → fail-closed. 반드시 getUserPermissions 호출 전에
-                              // 설정.
+                              // tenant 가 없으므로 X-On-Behalf-Of-Tenant 헤더(멤버십 검증) 또는 단일 멤버십으로 해석한다
+                              // (3상태 의미는 AgentTenantResolver.Resolution). 반드시 getUserPermissions 호출
+                              // 전에 설정.
                               var memberships = membershipRepository.findActiveByUser(user.id());
-                              Long resolved =
-                                  AgentTenantResolver.resolve(
-                                      memberships,
-                                      request.getHeader(AgentTenantResolver.TENANT_HEADER));
-                              // 해석된 테넌트가 비활성(정지·삭제·영구 삭제 중)이면 인증하지 않는다 — fail-closed(401).
-                              if (resolved != null && !tenantStatusChecker.isActive(resolved)) {
-                                return;
-                              }
-                              if (resolved != null) {
-                                TenantContext.set(resolved);
+                              switch (AgentTenantResolver.resolve(
+                                  memberships,
+                                  request.getHeader(AgentTenantResolver.TENANT_HEADER))) {
+                                case AgentTenantResolver.Rejected() -> {
+                                  return; // 명시 테넌트 미해석 → 401
+                                }
+                                case AgentTenantResolver.NoTenant() -> {}
+                                case AgentTenantResolver.Resolved(long tenantId) -> {
+                                  // 해석된 테넌트가 비활성(정지·삭제·영구 삭제 중)이면 인증하지 않는다 — fail-closed(401).
+                                  if (!tenantStatusChecker.isActive(tenantId)) return;
+                                  TenantContext.set(tenantId);
+                                }
                               }
 
                               // AGENT 의 명시적 권한 + ROLE_AGENT 마커

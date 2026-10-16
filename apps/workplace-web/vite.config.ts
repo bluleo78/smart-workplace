@@ -14,7 +14,16 @@ const IS_E2E = process.env.E2E === '1' || !!process.env.CI
 // E2E 는 모킹 누락 요청이 항상 즉시 503 이 되도록 닫힌 포트(9, discard)로 보낸다 — 6060 으로 보내면
 // 병렬 세션이 띄운 실제 API 가 있을 때만 401·토큰 refresh 재시도가 끼어들어 결과가 환경에 따라 달라졌다(WP-82).
 const API_HOST = 'localhost'
-const API_PORT = IS_E2E ? 9 : 6060
+
+// 개발 서버 전용 포트 환경변수 — 비었거나 숫자가 아니면 기본값을 쓴다.
+// 이름을 VITE_* 로 두지 않는다: VITE_* 는 클라이언트 코드(import.meta.env)에도 노출된다(WP-376).
+function devPort(name: string, fallback: number): number {
+  const raw = process.env[name]?.trim() ?? ''
+  return /^\d+$/.test(raw) ? Number(raw) : fallback
+}
+
+// DEV_API_PORT: 격리 라이브 스택(scripts/live-stack.sh)이 다른 포트의 API 에 붙일 때만 준다 — 없으면 기존대로 6060(WP-376).
+const API_PORT = IS_E2E ? 9 : devPort('DEV_API_PORT', 6060)
 const API_TARGET = `http://${API_HOST}:${API_PORT}`
 
 // 콜드스타트 재시도 설정.
@@ -55,7 +64,8 @@ function waitForApi(timeoutMs: number): Promise<boolean> {
 // - 개발 서버 /api → workplace-api(6060) 프록시
 // 노트 동시 편집 동기화 서버(workplace-collab). E2E 는 테스트가 띄운 서버 포트(E2E_COLLAB_PORT)를 쓰고,
 // 없으면 /api 와 같은 이유로 닫힌 포트(9)로 보내 즉시 실패시킨다.
-const COLLAB_TARGET = `ws://localhost:${IS_E2E ? (process.env.E2E_COLLAB_PORT ?? 9) : 6095}`
+// DEV_COLLAB_PORT: 격리 라이브 스택이 9(닫힌 포트)를 줘 다른 세션의 collab(6095)에 붙지 않게 한다 — 없으면 기존대로 6095(WP-376).
+const COLLAB_TARGET = `ws://localhost:${IS_E2E ? (process.env.E2E_COLLAB_PORT ?? 9) : devPort('DEV_COLLAB_PORT', 6095)}`
 
 export default defineConfig({
   // 빌드 상수 — E2E 빌드에서만 동기화 문서 이름에 테스트 네임스페이스를 붙인다(collabSession.docNameFor).

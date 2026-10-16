@@ -118,13 +118,17 @@ public class MembershipRepository {
    * 계정(user.is_active) 대신 이 워크스페이스 소속만 정지·재개하게 하는 쓰기 경로. membership 은 전역 테이블(RLS 비대상)이라 tenantId 를
    * 반드시 명시한다.
    *
-   * @return 갱신된 행 수(멤버가 아니면 0)
+   * <p>WP-420: 이미 같은 상태인 행은 건드리지 않는다 — 반환값이 「실제로 상태가 바뀐 행 수」가 되어, 호출자가 진짜 전환(ACTIVE→SUSPENDED)일 때만
+   * 후속 이벤트를 내게 한다.
+   *
+   * @return 상태가 실제로 바뀐 행 수(멤버가 아니거나 이미 그 상태면 0)
    */
   public int updateStatus(Long userId, Long tenantId, String status) {
     return dsl.update(MEMBERSHIP)
         .set(MEMBERSHIP.STATUS, status)
         .where(MEMBERSHIP.USER_ID.eq(userId))
         .and(MEMBERSHIP.TENANT_ID.eq(tenantId))
+        .and(MEMBERSHIP.STATUS.ne(status))
         .execute();
   }
 

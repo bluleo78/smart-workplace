@@ -301,6 +301,11 @@ export interface MemberToolClient {
   searchMembers(params: MemberSearchParams): Promise<MemberRow[]>;
   /** search_members 도구용 — 전체 건수·다음 페이지 여부를 함께 돌려준다(WP-352). */
   searchMembersPage(params: MemberSearchParams): Promise<PageResult<MemberRow>>;
+  /**
+   * GET /members/{userId} — 구성원 단건(비활성·AI 포함, 다른 테넌트면 404). get_member 의 "me" 가 쓴다(WP-376) — 호출자 id 로 바로 읽어,
+   * 짧은 username 이 부분일치 검색 첫 페이지 밖으로 밀려 "없음" 이 되는 일을 막는다.
+   */
+  getMember(userId: number): Promise<MemberRow>;
   getMemberContact(userId: number): Promise<unknown>;
   /** 응답 래퍼 { items, nextCursor } 를 그대로 반환(가공은 핸들러). */
   listContacts(params: ContactListParams): Promise<unknown>;

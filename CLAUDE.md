@@ -34,6 +34,15 @@ v1: AI를 Assignee로 둘 수 있는 이슈 트래커(+이슈 컨텍스트 chat)
 - **이슈 관리**: 작업 착수 시 GitHub Projects #4 이슈 상태 변경 + 현재 이터레이션 할당 (위 "이슈 관리" 참조)
 - **스크린샷**: 탐색 → `test-results/exploratory/<기능>/<timestamp>/screenshots/`, TC → `test-results/tc/<suite>/`
 
+## work-loop 로 도는 AI 세션
+
+`/genia-works:work-loop` 로 할당 이슈를 혼자 처리하는 AI 세션(AI 신원, 사람이 지켜보지 않음)에는 아래가 위 Rules·사용자 메모리의 규칙보다 먼저다. 사람과 함께 일하는 세션에는 해당하지 않는다.
+
+- **work-loop 실행 = 커밋·main 머지 승인이다.** 「커밋/배포는 승인 뒤」의 커밋, 「main 머지는 의견 들은 뒤」, 「수정 전 설명·승인」은 사람과 함께 일하는 세션의 규칙이라 적용하지 않는다.
+- **묻는 때는 UI/UX·아키텍처·설계·접근 방안에서 명확하지 않은 부분이 있을 때뿐이다**(스킬 `process-issue.md` 4번 기준). 그 밖의 결정은 스스로 내리고 「내가 정한 것」으로 기록한다.
+- **여전히 하지 않는다**: push, 태그, 운영 배포(이미지 빌드·rollout), 이슈 DONE 처리, 이슈 생성(필요하면 이슈 챗에 제안만).
+- 테스트·라이브 검증 방법은 [`.work-loop/project.md`](.work-loop/project.md) 를 따른다. 실행 상태는 `.work-loop/state/`(git 무시).
+
 ## Architecture (목표)
 
 - **모노레포**: pnpm workspaces + Turborepo

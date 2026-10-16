@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { buildSharedTools, type SharedToolClient } from './shared-tools.js';
 import { wireInputSchema } from './tool-definitions.js';
@@ -9,36 +9,58 @@ import { wireInputSchema } from './tool-definitions.js';
  */
 // 도구 구성 시점에는 클라이언트 메서드를 부르지 않으므로 빈 객체로 충분하다.
 const tools = new Map(buildSharedTools({} as unknown as SharedToolClient).map((t) => [t.name, t]));
-const skill = (name: string) => readFileSync(new URL(`../../../plugins/genia-works/skills/${name}/SKILL.md`, import.meta.url), 'utf8');
+// 스킬 폴더의 모든 .md(SKILL.md + 참고 파일)를 이어 붙인다 — 스킬이 참고 파일에 적은 도구도 함께 검사하려는 것(WP-376).
+const skill = (name: string) => {
+  const dir = new URL(`../../../plugins/genia-works/skills/${name}/`, import.meta.url);
+  return readdirSync(dir)
+    .filter((f) => f.endsWith('.md'))
+    .sort()
+    .map((f) => readFileSync(new URL(f, dir), 'utf8'))
+    .join('\n');
+};
+
+// 백틱 안에서 `도구(…)` 로 부르거나 `도구` 로만 적은 snake_case 이름 — 스킬이 부르라고 한 도구.
+const calledTools = (body: string) => new Set([...body.matchAll(/`([a-z]+(?:_[a-z0-9]+)+)[`(]/g)].map((m) => m[1]));
 
 /** 도구의 입력 필드 이름(외부 MCP 에 나가는 JSON 스키마 기준). */
 const inputFields = (name: string) => Object.keys((wireInputSchema(tools.get(name)!.inputSchema).properties ?? {}) as object);
 
-describe('work-on 스킬', () => {
-  const body = skill('work-on');
+/** 스킬이 적은 도구가 모두 외부로 나가는 공유 도구인지, 표에 적은 인자가 그 도구의 입력에 있는지 — 스킬마다 같은 두 검사. */
+function describeSkillTools(name: string, uses: Record<string, string[]>) {
+  describe(`${name} 스킬`, () => {
+    it('스킬이 적은 도구는 모두 외부 MCP 로 나가는 공유 도구다', () => {
+      const called = calledTools(skill(name));
+      expect(called.size).toBeGreaterThan(0);
+      expect([...called].filter((n) => !tools.has(n))).toEqual([]);
+      // workplace-mcp 는 destructive 도구를 내보내지 않는다(exposableTools) — 스킬이 그런 도구를 부르면 외부 사용자에게는 없다.
+      expect([...called].filter((n) => tools.get(n)?.kind === 'destructive')).toEqual([]);
+    });
 
-  // 백틱 안에서 `도구(…)` 로 부르거나 `도구` 로만 적은 snake_case 이름 — 스킬이 부르라고 한 도구.
-  const called = new Set([...body.matchAll(/`([a-z]+(?:_[a-z0-9]+)+)[`(]/g)].map((m) => m[1]));
-
-  it('스킬이 적은 도구는 모두 외부 MCP 로 나가는 공유 도구다', () => {
-    expect(called.size).toBeGreaterThan(0);
-    expect([...called].filter((n) => !tools.has(n))).toEqual([]);
-    // workplace-mcp 는 destructive 도구를 내보내지 않는다(exposableTools) — 스킬이 그런 도구를 부르면 외부 사용자에게는 없다.
-    expect([...called].filter((n) => tools.get(n)?.kind === 'destructive')).toEqual([]);
+    it('스킬이 쓰는 인자는 그 도구의 입력에 있다', () => {
+      const called = calledTools(skill(name));
+      for (const [tool, fields] of Object.entries(uses)) {
+        expect(called.has(tool), tool).toBe(true);
+        expect(inputFields(tool), tool).toEqual(expect.arrayContaining(fields));
+      }
+    });
   });
+}
 
-  it('스킬이 쓰는 인자는 그 도구의 입력에 있다', () => {
-    const uses: Record<string, string[]> = {
-      get_issue_detail: ['issueKey'],
-      list_issues: ['parent', 'assignee', 'pendingForMe'],
-      report_agent_work: ['issueKey', 'state', 'note', 'message', 'stepsDone', 'stepsTotal'],
-      update_issue: ['issueKey', 'assignees', 'status'],
-      get_issue_chat: ['issueKey', 'after'],
-      read_file: ['source', 'issueKey', 'messageId', 'attachmentId'],
-    };
-    for (const [tool, fields] of Object.entries(uses)) {
-      expect(called.has(tool), tool).toBe(true);
-      expect(inputFields(tool), tool).toEqual(expect.arrayContaining(fields));
-    }
-  });
+describeSkillTools('work-on', {
+  get_issue_detail: ['issueKey'],
+  list_issues: ['parent', 'assignee', 'pendingForMe'],
+  report_agent_work: ['issueKey', 'state', 'note', 'message', 'stepsDone', 'stepsTotal'],
+  update_issue: ['issueKey', 'assignees', 'status'],
+  get_issue_chat: ['issueKey', 'after'],
+  read_file: ['source', 'issueKey', 'messageId', 'attachmentId'],
+});
+
+// WP-376: 할당된 이슈를 하나씩 처리하는 스킬 — 신원 확인(get_member me)·후보 고르기·하위 맡기·질문과 답에 쓰는 도구.
+describeSkillTools('work-loop', {
+  get_member: ['username'],
+  list_issues: ['projectKey', 'assignee', 'status', 'parent', 'pendingForMe'],
+  report_agent_work: ['issueKey', 'state', 'note', 'message', 'stepsDone', 'stepsTotal'],
+  get_issue_chat: ['issueKey', 'after'],
+  update_issue: ['issueKey', 'assignees'],
+  get_issue_detail: ['issueKey'],
 });

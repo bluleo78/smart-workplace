@@ -7,6 +7,7 @@ import com.workplace.issue.dto.AgentWorkState;
 import com.workplace.issue.dto.AiTaskCounts;
 import com.workplace.issue.dto.AiTaskCursor;
 import com.workplace.issue.dto.AiTaskGroup;
+import com.workplace.issue.dto.AiTaskProject;
 import com.workplace.issue.dto.IssueResponse;
 import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.dto.IssueSearchResponse;
@@ -39,15 +40,19 @@ public class AiTaskSearchService {
   private final IssueRepository issueRepository;
   private final AgentWorkService agentWorkService;
 
-  /** 에픽 묶음 단위 급한 순 한 페이지(WP-375). 마지막 행의 정렬 키 7개가 다음 커서, 에픽 묶음 행에는 aiGroup 을 싣는다. */
+  /**
+   * 프로젝트 → 에픽 묶음 단위 급한 순 한 페이지(WP-375, WP-426). 마지막 행의 정렬 키 10개가 다음 커서, 에픽 묶음 행에는 aiGroup 을, 모든 행에는
+   * 프로젝트 머리용 aiProject 를 싣는다.
+   */
   public IssueSearchResponse search(long callerId, Map<String, String> params) {
     AiTaskQuery query = parse(params);
     List<AiTaskRow> rows = aiTaskRepository.search(callerId, query);
     List<IssueRow> issueRows = rows.stream().map(AiTaskRow::row).toList();
     // 횡단 조회라 projectId → key 를 한 번에 해석한다.
-    var keyById =
-        projectRepository.keysByIds(
-            issueRows.stream().map(IssueRow::projectId).distinct().toList());
+    List<Long> projectIds = issueRows.stream().map(IssueRow::projectId).distinct().toList();
+    var keyById = projectRepository.keysByIds(projectIds);
+    // 프로젝트 머리(WP-426)용 이름 — 키와 같은 id 목록으로 한 번에 해석한다.
+    var nameById = projectRepository.namesByIds(projectIds);
     // assembleItems 는 입력 순서를 보존한다 — rows 와 같은 인덱스로 묶음 정보를 붙인다.
     var items =
         withEndedWork(
@@ -74,7 +79,11 @@ public class AiTaskSearchService {
                   r.groupSize(),
                   childCount.getOrDefault(r.groupKey(), 0),
                   childDone.getOrDefault(r.groupKey(), 0));
-      withGroups.add(items.get(i).withAiGroup(g));
+      // 이름이 없으면(이론상 없음 — 활성 프로젝트만 조회됨) 키로 대신한다(웹 밖 소비자도 빈 머리를 받지 않게). size 는 필터 후 그 프로젝트 행 수.
+      String pName =
+          nameById.getOrDefault(r.row().projectId(), keyById.getOrDefault(r.row().projectId(), ""));
+      withGroups.add(
+          items.get(i).withAiGroup(g).withAiProject(new AiTaskProject(pName, r.projectSize())));
     }
 
     // 기존 이슈 검색과 같은 규칙 — 꽉 찬 페이지면 다음이 있다고 본다(마지막 페이지가 정확히 size 면 빈 페이지 한 번 더).

@@ -29,6 +29,7 @@ import com.workplace.fileai.service.ExtractedTextService;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.TestFixtures;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
@@ -230,6 +231,8 @@ class DriveFileTextTest extends IntegrationTestBase {
   private static final byte[] VIEW_PNG = {(byte) 0x89, 'P', 'N', 'G', 9, 9, 9};
 
   private String tokenFor(long userId) {
+    // WP-420: tenant 토큰은 그 테넌트 ACTIVE 멤버일 때만 인증된다 — 실제 워크스페이스 선택과 같은 전제를 맞춘다.
+    TestFixtures.ensureActiveMember(dsl, userId, tid2);
     return "Bearer " + jwtTokenProvider.generateAccessToken(userId, "u" + userId, tid2);
   }
 
