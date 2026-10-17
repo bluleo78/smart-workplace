@@ -2,10 +2,10 @@
 // 순수 함수다 — git·파일시스템·네트워크에 접근하지 않고, 호출자가 넘긴 변경 파일 목록과 기준 매니페스트만으로 결정한다.
 // 그래서 같은 입력이면 항상 같은 결과이고, 테스트가 합성 데이터만으로 모든 분기를 덮는다.
 import { posix } from 'node:path';
-import { isPlainObject, matchesPath } from './catalog.mjs';
+import { cmp, isPlainObject, matchesPath } from './catalog.mjs';
 
 /** buildArgs 를 키 정렬 JSON 으로 — 키 순서가 달라도 같은 인자 집합이면 같은 문자열. */
-const canonicalArgs = (args) => JSON.stringify(Object.entries(args).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+const canonicalArgs = (args) => JSON.stringify(Object.entries(args).sort(([a], [b]) => cmp(a, b)));
 
 /**
  * 카탈로그 순서 그대로 `{ id, action: 'build'|'carry', reasons: string[] }` 목록을 돌려준다.

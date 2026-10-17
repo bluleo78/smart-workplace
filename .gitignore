@@ -100,3 +100,6 @@ deploy/helm/tls/
 
 # 릴리스 이미지 빌드 CLI 의 기본 출력(dry-run 포함) — 남아 있으면 다음 실행의 깨끗한 작업 트리 검사가 실패한다(WP-440)
 /release-manifest.json
+
+# 배포 체크리스트 CLI 의 기본 출력 — 릴리스마다 다시 만드는 파생물이라 커밋하지 않는다(WP-441)
+/release-checklist.md

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { defaultManifestPath, finishManifest, isMainModule, isoSeconds, tolerate, writeManifestReport } from '../lib/cli.mjs';
+import { defaultManifestPath, defaultOutPath, finishManifest, isMainModule, isoSeconds, tolerate, writeManifestReport } from '../lib/cli.mjs';
 import { serializeManifest } from '../lib/manifest-store.mjs';
 import { REPO, fakeDigest, makeTmp } from './helpers.mjs';
 
@@ -56,6 +56,7 @@ test('isoSeconds: 밀리초 없는 UTC ISO8601', () => {
 
 test('defaultManifestPath: 저장소 루트의 release-manifest.json, 루트 .gitignore 가 무시한다', () => {
   assert.equal(defaultManifestPath('/r'), '/r/release-manifest.json');
+  assert.equal(defaultOutPath('/r', 'release-checklist.md'), '/r/release-checklist.md');
   assert.ok(readFileSync(join(REPO, '.gitignore'), 'utf8').split('\n').includes('/release-manifest.json'));
 });
 

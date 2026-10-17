@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
-import { runRelease, findBase, findVersionTags, checkAlreadyPublished, validateBaseManifest, imagetoolsCreateArgs } from '../lib/build.mjs';
+import { runRelease, findBase, findVersionTags, checkAlreadyPublished, validateBaseManifest, imagetoolsCreateArgs, assertNotShallow, nulSplit } from '../lib/build.mjs';
 import { REPO, SHA, catalog, deps, NOW, repoOf, fakeDigest, baseManifest, makeExec, buildCalls, createCalls } from './helpers.mjs';
 
 // runRelease 는 기준(base)과 기준 매니페스트를 호출자가 정해 넘긴다(CLI main 이 한 번에 결정). 테스트는 기본으로 v0.8.0 기준 + 전체 기준 매니페스트를 준다.
@@ -134,6 +134,23 @@ test('findBase: 얕은 clone 이면 throw(GIT_DEPTH 언급), docker 호출 없�
   const exec = makeExec({ shallow: true });
   assert.throws(() => findBase({ exec, repoRoot: REPO, version: '0.9.0' }), /GIT_DEPTH/);
   assert.equal(exec.docker().length, 0);
+});
+
+test('findBase: 얕은 clone 오류는 「기준 태그」를 판정할 수 없다고 밝힌다', () => {
+  assert.throws(() => findBase({ exec: makeExec({ shallow: true }), repoRoot: REPO, version: '0.9.0' }), /^Error: 얕은 clone 에서는 기준 태그를 판정할 수 없다\. 전체 이력을 받아라 \(CI: GIT_DEPTH: 0, 로컬: git fetch --unshallow --tags\)$/);
+});
+
+test('assertNotShallow: 얕으면 what 을 담아 throw, 아니면 조용히 지나간다(git 질의 한 번)', () => {
+  const shallow = makeExec({ shallow: true });
+  assert.throws(() => assertNotShallow(shallow, REPO, '비교 범위'), /얕은 clone 에서는 비교 범위를 판정할 수 없다.*GIT_DEPTH: 0/);
+  const full = makeExec({ shallow: false });
+  assert.doesNotThrow(() => assertNotShallow(full, REPO, '비교 범위'));
+  assert.deepEqual(full.calls.map((c) => [c.cmd, c.args, c.opts]), [['git', ['rev-parse', '--is-shallow-repository'], { cwd: REPO }]]);
+});
+
+test('nulSplit: NUL 구분 출력을 목록으로 — 끝의 NUL·빈 항목은 버리고 공백·한글 경로는 그대로 둔다', () => {
+  assert.deepEqual(nulSplit('a b.txt\0앱/한글.ts\0 trailing \0'), ['a b.txt', '앱/한글.ts', ' trailing ']);
+  assert.deepEqual(nulSplit(''), []);
 });
 
 test('기준 태그가 없으면(NO_BASE) 기준 매니페스트가 주어져도 전부 build(no-base), 기준 버전은 null', () => {
