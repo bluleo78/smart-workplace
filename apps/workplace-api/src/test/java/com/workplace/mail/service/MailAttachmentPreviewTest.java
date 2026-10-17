@@ -270,8 +270,10 @@ class MailAttachmentPreviewTest extends MailAttachmentPreviewTestSupport {
         .andExpect(jsonPath("$.code").value("SOURCE_MISSING"))
         .andExpect(jsonPath("$.transient").value(false));
     // 공유 (tenant, hash) 행에는 실패를 쓰지 않는다 — 선점만 반납(PENDING, 시도 횟수 미소모).
+    // 요청자 한정 표시(→ 422)는 sourceFailure 안에서 먼저 남고 반납은 그 뒤라, 422 를 본 직후엔 아직 CONVERTING 일 수 있다.
+    // 422 이후 이 행을 다시 선점하는 주체가 없으므로 PENDING 이 될 때까지 기다리면 결정적이다.
+    awaitStatus(hash, "PENDING");
     Row r = row(hash);
-    assertThat(r.status()).isEqualTo("PENDING");
     assertThat(r.attempts()).isZero();
     verify(converter, never()).convertPdf(any(), anyString());
 
