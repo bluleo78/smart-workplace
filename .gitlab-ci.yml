@@ -1,0 +1,152 @@
+# Smart Workplace(Gen:iA Works) 릴리스 파이프라인 (WP-442)
+#
+# vX.Y.Z 태그 push 에서만 돈다. main push 에는 파이프라인이 없다 — origin pre-push 훅이 이미 전체 회귀를 통과시킨 커밋이다.
+# 빌드 정의의 정본은 deploy/release/(이미지 카탈로그·스크립트)이고 CI 는 그 스크립트를 부르기만 한다.
+#   verify-tag → build-images → checklist → gitlab-release   (+ trivy-scan: 릴리스를 막지 않음)
+# 카탈로그(deploy/release/image-catalog.json)가 없는 커밋의 태그(기준 릴리스 v0.8.0)는 파이프라인을 만들지 않는다 —
+# 그 이미지는 seed-baseline.mjs 가 운영 digest 를 복사해 만든다(빌드하면 운영과 다른 바이트가 된다).
+#
+# 프로젝트 CI/CD 변수(Protected — v* 는 Protected tag 라 태그 파이프라인에서만 보인다):
+#   DOCKERHUB_USERNAME · DOCKERHUB_TOKEN  Docker Hub iacloudops 저장소 push(Read & Write 토큰)
+#   DHI_USERNAME · DHI_TOKEN              dhi.io 베이스 이미지 pull
+# 매니페스트 업로드·다운로드는 CI_JOB_TOKEN(GitLab 패키지 저장소)으로 한다 — 추가 변수 없음.
+# 러너: Docker executor + privileged dind(buildrunner, smart-dcim 과 같은 러너). 운영 반영은 여기서 하지 않는다(deploy/release/release.mjs deploy, WP-443).
+
+workflow:
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
+      exists: [deploy/release/image-catalog.json]
+
+stages: [verify, build, release]
+
+variables:
+  # 기준 릴리스(조상 중 가장 높은 vX.Y.Z)와 범위 diff 에 전체 이력·태그가 필요하다 — 얕으면 스크립트가 멈춘다.
+  GIT_DEPTH: "0"
+  GIT_STRATEGY: clone
+  # 태그 파이프라인은 기본으로 자기 태그만 받는다 — 기준 릴리스(조상 v*)를 찾으려면 태그를 전부 받는다.
+  GIT_FETCH_EXTRA_FLAGS: "--prune --quiet --tags"
+
+# gitlab.iacloud.kr 는 자체 서명 인증서다. 러너가 넘겨주는 CA(CI_SERVER_TLS_CA_FILE)를 작업 안의 git·node 도 믿게 한다
+# (러너의 소스 받기는 통과하지만 작업 컨테이너 안의 git fetch·매니페스트 fetch 는 따로 검증한다).
+.trust-gitlab-ca: &trust-gitlab-ca
+  - |
+    if [ -n "$CI_SERVER_TLS_CA_FILE" ]; then
+      git config --global http.sslCAInfo "$CI_SERVER_TLS_CA_FILE"
+      export NODE_EXTRA_CA_CERTS="$CI_SERVER_TLS_CA_FILE"
+    fi
+
+default:
+  retry:
+    max: 1
+    when: [api_failure, runner_system_failure, scheduler_failure]
+
+verify-tag:
+  stage: verify
+  image: node:24-alpine
+  before_script:
+    - apk add --no-cache git >/dev/null
+    - *trust-gitlab-ca
+    # 태그 커밋이 main·hotfix/* 에 포함됐는지 보려면 원격 브랜치가 있어야 한다(태그 파이프라인은 브랜치를 받지 않는다).
+    - git fetch --quiet origin '+refs/heads/main:refs/remotes/origin/main' '+refs/heads/hotfix/*:refs/remotes/origin/hotfix/*'
+  script:
+    - node deploy/release/verify-tag.mjs --tag "$CI_COMMIT_TAG" --env-out release.env
+  artifacts:
+    reports:
+      dotenv: release.env
+
+build-images:
+  stage: build
+  image: docker:27
+  services: ["docker:27-dind"]
+  needs: [verify-tag]
+  # 같은 저장소의 태그 파이프라인이 동시에 레지스트리 태그를 옮기지 않게 한 줄로 세운다.
+  resource_group: release-images
+  timeout: 3h
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+    DOCKER_HOST: tcp://docker:2376
+    DOCKER_TLS_VERIFY: "1"
+    DOCKER_CERT_PATH: "/certs/client"
+  before_script:
+    - apk add --no-cache git nodejs >/dev/null
+    - *trust-gitlab-ca
+    - echo "$DOCKERHUB_TOKEN" | docker login docker.io -u "$DOCKERHUB_USERNAME" --password-stdin
+    - echo "$DHI_TOKEN" | docker login dhi.io -u "$DHI_USERNAME" --password-stdin
+  script:
+    # 바뀐 앱만 :sha- 로 빌드 → 전부 성공하면 :<버전> 태그(승계 포함) → 검증 → release-manifest.json 을 GitLab 패키지에 올린다.
+    - node deploy/release/build-images.mjs --version "$VERSION" --upload
+  artifacts:
+    paths: [release-manifest.json]
+    expire_in: 1 year
+
+checklist:
+  stage: release
+  image: node:24-alpine
+  needs: [verify-tag, build-images]
+  before_script:
+    - apk add --no-cache git >/dev/null
+    - *trust-gitlab-ca
+  script:
+    # 기준 릴리스 대비 「배포 전 확인할 것」 — GitLab Release 본문이 된다. 반영 때는 release deploy 가 운영 릴리스 대비로 다시 만든다.
+    - node deploy/release/checklist.mjs --from "$BASE_TAG" --to "$CI_COMMIT_SHA" --base-version "$BASE_VERSION" --manifest release-manifest.json > /dev/null
+  artifacts:
+    paths: [release-checklist.md]
+    expire_in: 1 year
+
+gitlab-release:
+  stage: release
+  image: registry.gitlab.com/gitlab-org/release-cli:v0.18.0
+  needs: [verify-tag, checklist]
+  variables:
+    # release-cli 도 자체 서명 인증서를 믿어야 API 를 부른다 — 이 변수는 CA 파일 경로와 PEM 내용 둘 다 받는다.
+    ADDITIONAL_CA_CERT_BUNDLE: $CI_SERVER_TLS_CA_FILE
+  script:
+    - echo "GitLab Release $CI_COMMIT_TAG 생성"
+  release:
+    tag_name: $CI_COMMIT_TAG
+    name: $CI_COMMIT_TAG
+    description: ./release-checklist.md
+    assets:
+      links:
+        - name: release-manifest.json
+          url: $CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/generic/release-manifest/$VERSION/release-manifest.json
+          link_type: package
+        - name: 릴리스 노트
+          url: $CI_PROJECT_URL/-/blob/$CI_COMMIT_TAG/releases/$VERSION.md
+          link_type: other
+
+trivy-scan:
+  stage: release
+  # 스캐너도 digest 로 고정한다 — 멀티 아키텍처 index digest 여야 러너(amd64)가 맞는 이미지를 고른다(플랫폼별 digest 를 넣으면 exec format error).
+  image:
+    name: ghcr.io/aquasecurity/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969
+    entrypoint: [""]
+  needs: [build-images]
+  # 취약점·SBOM 은 기록용 — 릴리스를 막지 않는다(설계 §5.6).
+  allow_failure: true
+  variables:
+    TRIVY_USERNAME: $DOCKERHUB_USERNAME
+    TRIVY_PASSWORD: $DOCKERHUB_TOKEN
+    TRIVY_NO_PROGRESS: "true"
+    TRIVY_CACHE_DIR: .trivycache
+  cache:
+    key: trivy-db
+    paths: [.trivycache]
+  script:
+    - apk add --no-cache jq >/dev/null
+    - mkdir -p security
+    - jq -r '.images | to_entries[] | "\(.key) \(.value.repository)@\(.value.digest)"' release-manifest.json > security/images.txt
+    - |
+      # 한 이미지가 실패해도(일시적 pull 실패 등) 나머지 이미지의 검사·SBOM 은 남기고, 잡은 끝에서 실패로 표시한다.
+      failed=0
+      while read -r id ref; do
+        trivy image --scanners vuln --severity HIGH,CRITICAL --format table --output "security/$id-vuln.txt" "$ref" || failed=1
+        trivy image --format cyclonedx --output "security/$id.cdx.json" "$ref" || failed=1
+      done < security/images.txt
+      exit $failed
+  artifacts:
+    when: always
+    paths: [security/]
+    reports:
+      cyclonedx: security/*.cdx.json
+    expire_in: 1 year

@@ -7,11 +7,12 @@ const ENV = { CI_API_V4_URL: 'https://gitlab.example/api/v4', CI_PROJECT_ID: '42
 const PROJECT_URL = 'https://gitlab.example/api/v4/projects/42';
 const URL_090 = 'https://gitlab.example/api/v4/projects/42/packages/generic/release-manifest/0.9.0/release-manifest.json';
 
-/** 호출을 기록하고 정해 둔 응답을 돌려주는 가짜 fetch. */
-function fakeFetch(response) {
+/** 호출을 기록하고 정해 둔 응답을 돌려주는 가짜 fetch. 앞의 failures 번은 연결 오류(TypeError)로 throw 한다. */
+function fakeFetch(response, failures = 0) {
   const calls = [];
   const fn = async (url, init) => {
     calls.push({ url, init });
+    if (calls.length <= failures) throw new TypeError('fetch failed');
     return response;
   };
   fn.calls = calls;
@@ -85,12 +86,40 @@ test('업로드: PUT, 같은 URL, JSON 본문', async () => {
   assert.equal(init.headers['JOB-TOKEN'], 'jt');
 });
 
-test('업로드 실패(비 2xx)는 throw', async () => {
-  await assert.rejects(uploadManifest('0.9.0', {}, { fetch: fakeFetch(res(500)), env: { ...ENV, GITLAB_TOKEN: 'pt' } }), /500/);
+test('업로드 실패(비 2xx)는 throw — 서버가 응답한 실패는 다시 보내지 않는다', async () => {
+  const fetch = fakeFetch(res(500));
+  await assert.rejects(uploadManifest('0.9.0', {}, { fetch, env: { ...ENV, GITLAB_TOKEN: 'pt' } }), /500/);
+  assert.equal(fetch.calls.length, 1);
+});
+
+test('업로드: 연결 오류(닫힌 keep-alive 등)는 한 번 다시 보낸다', async () => {
+  const fetch = fakeFetch(res(201), 1);
+  await uploadManifest('0.9.0', { version: '0.9.0' }, { fetch, env: { ...ENV, GITLAB_TOKEN: 'pt' } });
+  assert.equal(fetch.calls.length, 2);
+  assert.deepEqual(JSON.parse(fetch.calls[1].init.body), { version: '0.9.0' });
+});
+
+test('업로드: 연결 오류가 두 번이면 throw', async () => {
+  const fetch = fakeFetch(res(201), 2);
+  await assert.rejects(uploadManifest('0.9.0', {}, { fetch, env: { ...ENV, GITLAB_TOKEN: 'pt' } }), /fetch failed/);
+  assert.equal(fetch.calls.length, 2);
 });
 
 test('CI 잡 토큰이면 404 를 프로젝트 조회 없이 null 로 본다(잡 토큰은 GET /projects/<id> 를 허용하지 않는다)', async () => {
   const fetch = routedFetch({ pkg: res(404), project: res(403) });
   assert.equal(await downloadManifest('0.9.0', { fetch, env: { ...ENV, CI_JOB_TOKEN: 'jt' } }), null);
   assert.equal(fetch.calls.length, 1);
+});
+
+test('다운로드: 연결 오류도 한 번 다시 보낸다', async () => {
+  const fetch = fakeFetch(res(200, '{"version":"0.9.0"}'), 1);
+  assert.deepEqual(await downloadManifest('0.9.0', { fetch, env: { ...ENV, CI_JOB_TOKEN: 'jt' } }), { version: '0.9.0' });
+  assert.equal(fetch.calls.length, 2);
+});
+
+test('연결 오류가 아닌 throw(코드 오류 등)는 다시 보내지 않는다', async () => {
+  const calls = [];
+  const fetch = async () => { calls.push(1); throw new RangeError('bug'); };
+  await assert.rejects(uploadManifest('0.9.0', {}, { fetch, env: { ...ENV, GITLAB_TOKEN: 'pt' } }), /bug/);
+  assert.equal(calls.length, 1);
 });
