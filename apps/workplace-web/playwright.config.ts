@@ -1,5 +1,6 @@
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import { defineConfig, devices } from '@playwright/test'
 
@@ -117,7 +118,15 @@ export default defineConfig({
         : `pnpm dev --port ${PORT} --strictPort`,
       // E2E 는 백엔드 없이 page.route() 모킹으로 동작 → 프록시 콜드스타트 대기를 끄도록 신호를 내린다.
       // E2E_COLLAB_PORT — vite 의 /collab 웹소켓 프록시가 위 동기화 서버로 가게 한다(vite.config.ts COLLAB_TARGET).
-      env: { E2E: '1', E2E_COLLAB_PORT: String(COLLAB_PORT) },
+      // APP_VERSION·GIT_SHA — 「새 소식」(WP-439) 이 실행 중 버전으로 노트를 고르므로 픽스처 노트와 맞는 값을 고정한다.
+      // E2E_RELEASE_NOTES_DIR — 노트 별칭을 픽스처 폴더로 돌린다(vite.config.ts RELEASE_NOTES_DIR).
+      env: {
+        E2E: '1',
+        E2E_COLLAB_PORT: String(COLLAB_PORT),
+        APP_VERSION: '0.9.0',
+        GIT_SHA: 'a5d66d0e1234',
+        E2E_RELEASE_NOTES_DIR: fileURLToPath(new URL('./e2e/fixtures/releases', import.meta.url)),
+      },
       url: HOST,
       // 병렬 세션 격리를 위해 로컬에서도 기존 서버 재사용 금지(매 런 자체 서버 기동).
       reuseExistingServer: false,

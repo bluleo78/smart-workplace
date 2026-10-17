@@ -1,0 +1,10 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "build": {
+      "env": ["APP_VERSION", "GIT_SHA"],
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/scripts/vite-app-version.*"]
+    }
+  }
+}

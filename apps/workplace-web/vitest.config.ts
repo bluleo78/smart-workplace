@@ -6,13 +6,18 @@
 import path from 'path'
 import { defineConfig } from 'vitest/config';
 
+import { appVersionDefine } from '../../scripts/vite-app-version.mjs'
+
 export default defineConfig({
   // 빌드 상수 — vite.config.ts 와 같은 이름을 정의해야 이를 참조하는 모듈(collabSession 등)을 불러올 수 있다.
   // 단위 테스트는 운영 빌드와 같은 경로(E2E 네임스페이스 없음)를 검증한다.
-  define: { __E2E__: 'false' },
+  // 버전 표기 상수(__APP_VERSION__ 등)도 함께 정의해 이를 참조하는 모듈을 불러올 수 있게 한다(WP-439).
+  define: { __E2E__: 'false', ...appVersionDefine() },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      // vite.config.ts 와 같은 별칭 — 단위 테스트는 운영 빌드와 같은 저장소 루트 releases/ 를 본다(WP-439).
+      '@release-notes': path.resolve(__dirname, '../../releases'),
     },
   },
   test: {

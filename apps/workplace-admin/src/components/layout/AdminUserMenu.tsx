@@ -14,6 +14,9 @@ import {
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu'
 
+/** 커밋 앞 7자리 — 로컬 빌드('dev')는 빈 문자열이라 title 을 달지 않는다(undefined). 라벨·짧은 커밋은 web 과 같은 빌드 상수를 쓴다. */
+const COMMIT_TITLE = __GIT_SHA_SHORT__ || undefined
+
 export function AdminUserMenu() {
   const navigate = useNavigate()
   const { resolvedTheme, setTheme } = useTheme()
@@ -52,6 +55,15 @@ export function AdminUserMenu() {
         <DropdownMenuItem onSelect={handleLogout}>
           <LogOut className="h-4 w-4" /> 로그아웃
         </DropdownMenuItem>
+        {/* 운영자가 지금 보는 콘솔 빌드 확인용 — 새 소식·링크 없이 표기만, 커밋은 title 로 */}
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel
+          data-testid="admin-version"
+          title={COMMIT_TITLE}
+          className="text-xs font-normal text-muted-foreground"
+        >
+          {__APP_VERSION_LABEL__}
+        </DropdownMenuLabel>
       </DropdownMenuContent>
     </DropdownMenu>
   )

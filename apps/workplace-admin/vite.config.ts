@@ -6,6 +6,8 @@ import react from '@vitejs/plugin-react'
 import path from 'path'
 import { defineConfig } from 'vite'
 
+import { appVersionDefine, versionJsonPlugin } from '../../scripts/vite-app-version.mjs'
+
 // 개발 프록시 대상(workplace-api).
 const API_HOST = 'localhost'
 const API_PORT = 6060
@@ -48,7 +50,10 @@ function waitForApi(timeoutMs: number): Promise<boolean> {
 // - 개발 서버 /api → workplace-api(6060) 프록시
 // - admin 전용 포트 6174 (web 6173 과 분리)
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  // 릴리스 버전·커밋 상수(Docker 빌드 인자 APP_VERSION·GIT_SHA, 없으면 'dev') — WP-439.
+  define: appVersionDefine(),
+  // versionJsonPlugin: 산출물 루트에 version.json({version, commit}) 을 내보낸다.
+  plugins: [react(), tailwindcss(), versionJsonPlugin()],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),

@@ -2,7 +2,7 @@
 // 아이콘을 길게 누르면(또는 우클릭) 액션 메뉴 — 탭바에 고정(꽉 찼으면 바꿀 탭 선택)·다른 앱으로 교체·열기.
 // 계정·워크스페이스는 본문에서 빼 우상단 아바타 → 하단 시트로 분리했다(Teams·Slack 방식). 모바일 전용.
 import { Hand, type LucideIcon, Pin, Settings, X } from 'lucide-react'
-import { type ReactNode, useEffect, useState } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 
@@ -12,6 +12,9 @@ import { MobileListHeader } from '@/components/mobile/MobileListHeader'
 import { NotificationBell } from '@/components/mobile/NotificationBell'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
+import { useWhatsNew } from '@/components/whats-new/useWhatsNew'
+import { WhatsNewDialog } from '@/components/whats-new/WhatsNewDialog'
+import { WhatsNewDot } from '@/components/whats-new/WhatsNewDot'
 import { useAuth } from '@/hooks/useAuth'
 import { useLongPress } from '@/hooks/useLongPress'
 import { presenceStyle } from '@/lib/collab/presence'
@@ -126,6 +129,10 @@ export default function AppsPage() {
   const navigate = useNavigate()
   const { user } = useAuth()
   const [accountOpen, setAccountOpen] = useState(false)
+  // 새 소식 — 아바타 점·계정 시트의 새 소식 줄·릴리스 노트 창이 한 상태를 공유한다(WP-439).
+  const whatsNew = useWhatsNew()
+  // 아바타 버튼 — 새 소식 창을 닫을 때 포커스를 돌려줄 곳.
+  const avatarRef = useRef<HTMLButtonElement>(null)
   // 액션 메뉴가 열린 앱. null 이면 닫힘. 메뉴 단계는 AppActionMenu 가 스스로 가진다.
   const [menuFor, setMenuFor] = useState<MobileTabId | null>(null)
   const closeMenu = () => setMenuFor(null)
@@ -153,6 +160,7 @@ export default function AppsPage() {
 
   const avatar = (
     <button
+      ref={avatarRef}
       type="button"
       data-testid="apps-account"
       aria-label="내 계정"
@@ -162,9 +170,14 @@ export default function AppsPage() {
       className="mr-1.5 flex h-11 w-11 shrink-0 items-center justify-center"
     >
       {/* 내 아바타 — 다른 사람 아바타와 같은 사람 색(WP-318). */}
-      <Avatar style={user ? presenceStyle(user.id) : undefined}>
-        <AvatarFallback className="bg-presence font-semibold text-presence-foreground">{initialOf(displayNameOf(user))}</AvatarFallback>
-      </Avatar>
+      {/* 점 기준 박스 — 버튼(44px)이 아니라 아바타 원(32px)의 우상단에 붙인다. */}
+      <span className="relative">
+        <Avatar style={user ? presenceStyle(user.id) : undefined}>
+          <AvatarFallback className="bg-presence font-semibold text-presence-foreground">{initialOf(displayNameOf(user))}</AvatarFallback>
+        </Avatar>
+        {/* 안 읽은 새 소식 점 — 배경색 링으로 아바타와 분리한다. */}
+        {whatsNew.unread && <WhatsNewDot testId="apps-account-avatar-dot" className="absolute right-0 top-0 ring-2 ring-background" />}
+      </span>
     </button>
   )
 
@@ -208,7 +221,18 @@ export default function AppsPage() {
       </p>
       {/* 메뉴가 열린 동안 페이지·탭바를 어둡게(들린 칸과 메뉴만 위에). 누르면 Popover 바깥 누름으로 닫힌다. */}
       {menuFor && <div data-testid="apps-scrim" aria-hidden className="fixed inset-0 z-40 bg-black/35 animate-in fade-in duration-150" />}
-      <AccountSheet open={accountOpen} onOpenChange={setAccountOpen} />
+      <AccountSheet open={accountOpen} onOpenChange={setAccountOpen} whatsNew={whatsNew} />
+      <WhatsNewDialog
+        open={whatsNew.open}
+        onOpenChange={whatsNew.setOpen}
+        // 창은 계정 시트의 「새 소식」 줄에서 시트를 닫으며 열린다 — 닫을 즈음 그 줄은 이미 사라져 공용 복원이 body 로 빠지므로
+        // 시트를 연 아바타 버튼으로 직접 돌려준다(공용 복원은 preventDefault 로 건너뛴다).
+        onCloseAutoFocus={(e) => {
+          if (!avatarRef.current) return
+          e.preventDefault()
+          avatarRef.current.focus()
+        }}
+      />
     </div>
   )
 }
