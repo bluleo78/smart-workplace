@@ -7,7 +7,7 @@
 > 전환 뒤에는 이 차트만 쓰고 `~/k8s` 는 고치지 않는다.
 
 - `values.yaml` 기본값 + `values.prod.yaml` 운영 오버라이드.
-- 앱 이미지(`images.<앱 id>`)는 values 파일에 두지 않는다. 반영 스크립트(`deploy/release/release.sh`, WP-443)가 릴리스 매니페스트의 `repository`·`digest` 를 주입하고, 값이 없으면 렌더가 실패한다. 스크립트 없이 반영해야 하면 `tests/images.fixture.yaml` 과 같은 모양의 values 파일에 실제 digest 를 적어 `-f` 로 넘긴다.
+- 앱 이미지(`images.<앱 id>`)는 values 파일에 두지 않는다. 반영 도구(`deploy/release/release.mjs`, WP-443)가 릴리스 매니페스트의 `repository`·`digest` 를 주입하고, 값이 없으면 렌더가 실패한다. 도구 없이 반영해야 하면 `tests/images.fixture.yaml` 과 같은 모양의 values 파일에 실제 digest 를 적어 `-f` 로 넘긴다.
 - 비밀값·pull 자격·TLS 는 차트가 만들지 않는다 — 아래 Secret 을 클러스터에 먼저 만든다.
 
 ## 클러스터에 미리 있어야 하는 Secret (Helm 밖)
@@ -37,7 +37,7 @@ kubectl $NS create secret tls genia-works-internal-tls --cert=swp-prod-internal.
 
 ## Helm 이 만들던 Secret 을 넘겨받기 (첫 반영 한 번만)
 
-리비전 10 까지는 차트가 `smart-workplace-secrets` 를 만들었다. 이 차트로 처음 `helm upgrade` 하면 Helm 은 차트에서 빠진 Secret 을 **지운다** — 그 전에 아래를 실행해 둔다.
+전환 이전 리비전(values 에 `release.version` 이 없는 리비전)은 차트가 `smart-workplace-secrets` 를 만들었다. 이 차트로 처음 `helm upgrade` 하면 Helm 은 차트에서 빠진 Secret 을 **지운다** — 그 전에 아래를 실행해 둔다.
 
 ```sh
 NS="--context iacloud-prod-public -n smart-workplace"
@@ -48,7 +48,9 @@ kubectl $NS annotate secret smart-workplace-secrets meta.helm.sh/release-name- m
 kubectl $NS label secret smart-workplace-secrets app.kubernetes.io/managed-by- helm.sh/chart-
 ```
 
-**전환 리비전보다 앞(리비전 10 이하)으로 `helm rollback` 하지 않는다.** 그 리비전들은 Secret 을 차트 값으로 들고 있어, rollback 이 클러스터 Secret 을 옛 값으로 덮거나 다시 Helm 소유로 가져갈 수 있다(이후 업그레이드에서 지워질 위험). 이미지도 `:latest` 라 되돌릴 대상이 정해지지 않는다. 되돌리기는 새 체계 릴리스끼리만 한다.
+**전환 이전 리비전(values 에 `release.version` 이 없는 리비전)으로 `helm rollback` 하지 않는다.** 그 리비전들은 Secret 을 차트 값으로 들고 있어, rollback 이 클러스터 Secret 을 옛 값으로 덮거나 다시 Helm 소유로 가져갈 수 있다(이후 업그레이드에서 지워질 위험). 이미지도 `:latest` 라 되돌릴 대상이 정해지지 않는다. 되돌리기는 새 체계 릴리스끼리만 한다.
+
+`release.mjs deploy` 는 매 실행 전에 이 인계 여부(Secret 의 `meta.helm.sh/release-name` 주석)와 필수 Secret 존재를 읽기 전용으로 확인하고, 안 맞으면 반영하지 않는다.
 
 이 절차는 운영 전에 임시 namespace 의 작은 차트로 한 번 리허설한다(Helm 4 에서 keep 주석·소유권 제거 뒤 upgrade 가 Secret 을 남기는지).
 
