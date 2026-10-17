@@ -1,0 +1,29 @@
+{{- /*
+  converter 격리(WP-430). ingress 는 api·worker Pod 에서 7085 만, egress 는 전면 차단 —
+  변환에 외부 통신이 필요 없고, 문서 안 외부 링크·매크로가 밖으로 나가지 못하게 한다(DNS 도 막힘).
+  kubelet probe(호스트 → Pod)는 Cilium 기본 설정상 정책과 무관하게 허용된다.
+*/ -}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: converter
+  labels:
+    {{- include "swp.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: converter
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values: ["api", "worker"]
+      ports:
+        - port: 7085
+          protocol: TCP
+  egress: []

@@ -1,7 +1,7 @@
 # 노트 동기화 서버(workplace-collab) K8S 인계 메모 (WP-288)
 
-이 저장소에는 K8S 매니페스트가 없다. 이미지는 `scripts/deploy.sh` 로 ghcr 에 빌드·푸시만 하고(`BUILD_ONLY=1 ./scripts/deploy.sh collab`),
-클러스터 반영은 인프라 저장소에서 한다. 아래는 인프라 쪽에 전달할 값이다. 설계: 노트 동시 편집 스펙 §4.2·§9.
+K8S 매니페스트는 `deploy/helm`(WP-438, 첫 릴리스 전환 전까지는 `~/k8s/smart-workplace` 에서 반영 — deploy/helm/README.md).
+이미지는 `scripts/deploy.sh` 로 ghcr 에 빌드·푸시한다(`BUILD_ONLY=1 ./scripts/deploy.sh collab`, 전환 뒤에는 릴리스 파이프라인). 아래는 인프라 쪽에 전달할 값이다. 설계: 노트 동시 편집 스펙 §4.2·§9.
 
 ## 1. 이미지·워크로드
 

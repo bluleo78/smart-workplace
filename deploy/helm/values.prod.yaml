@@ -1,0 +1,45 @@
+# prod 클러스터(kubecontext iacloud-prod-public, smart-prod-*)용 오버라이드. 2026-09-30 PoC→prod 이관(WP-116).
+# 반영은 deploy/release/release.sh 가 이 파일과 릴리스 매니페스트의 이미지 값으로 helm upgrade 한다(README).
+# ⚠️ 비밀 Secret(existingSecret)의 ENCRYPTION_MASTER_KEY 는 PoC 에서 이관한 값 그대로여야 한다 — 다르면 DB 의
+#    암호화 컬럼·메일 첨부 캐시(.enc)를 복호화할 수 없다.
+
+# prod 유일 StorageClass (NFS 10.0.10.4:/mnt/nfs, 200G 공유, Retain, 확장 불가).
+# nfs-csi 는 PVC 크기를 강제하지 않는다(파드에 공유 전체가 보임) → 아래 크기는 예상 사용량 명목값.
+storageClass: smart-storage
+
+ingress:
+  # web 만 공개 도메인(DNS→218.232.70.219). admin·mcp 는 당분간 내부 진입점(192.168.100.72) nip.io.
+  webHost: genia-works.iacloud.kr
+  adminHost: genia-works-admin.192.168.100.72.nip.io
+  mcpHost: genia-works-mcp.192.168.100.72.nip.io
+  # MCP 를 공개 도메인 경로(https://genia-works.iacloud.kr/mcp)로도 제공. 위 nip.io 호스트는 전환 기간 병행 유지.
+  mcpPathOnWeb: true
+  tls:
+    enabled: true
+    secretName: genia-works-tls
+    # admin·mcp 내부 호스트용 자체서명 Secret(tls/swp-prod-internal.{crt,key} 로 수동 생성).
+    # MCP 클라이언트는 이 crt 를 ~/.claude/certs/smart-workplace-mcp.pem(NODE_EXTRA_CA_CERTS) 에 넣어 신뢰한다.
+    internalSecretName: genia-works-internal-tls
+    certManager:
+      enabled: true
+      clusterIssuer: letsencrypt-production
+      dnsNames:
+        - genia-works.iacloud.kr
+
+db:
+  # PoC 실측 226MB(메일이 90%, ~130MB/월) — 사용자 증가 여유 포함.
+  storage: 20Gi
+
+storage:
+  # 드라이브·첨부 파일(단일 25MB 상한). 가장 크게 늘어날 볼륨.
+  size: 50Gi
+
+api:
+  corsAllowedOrigins: "https://genia-works.iacloud.kr,https://genia-works-admin.192.168.100.72.nip.io"
+
+config:
+  # 두 Entra 앱(메일 m365ClientId, SSO ssoM365ClientId)의 redirect URI 에 동일하게 등록돼 있어야 한다.
+  m365RedirectUri: "https://genia-works.iacloud.kr/oauth/m365/callback"
+  ssoM365RedirectUri: "https://genia-works.iacloud.kr/api/v1/auth/sso/callback"
+  webBaseUrl: "https://genia-works.iacloud.kr"
+  pushSubject: "mailto:dh.yang@iacloud.kr"

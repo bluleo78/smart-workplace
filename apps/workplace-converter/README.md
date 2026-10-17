@@ -48,7 +48,7 @@ pnpm test:engine  # docker build --target test — 이미지 안에서 engine �
 
 ## 운영 배포 노트 (K8S)
 
-compose 서비스는 없고 K8S 로만 배포한다(매니페스트는 이 저장소 밖).
+compose 서비스는 없고 K8S 로만 배포한다(매니페스트는 `deploy/helm/templates/converter-*.yaml`, WP-438).
 
 - **Deployment**: replicas ≥ 2. 컨테이너 포트 7085, 환경변수 `INTERNAL_SERVICE_TOKEN`(필수, api·worker 와 같은 값).
   - resources: memory request `768Mi` / limit `1.5Gi`, cpu request `1`.

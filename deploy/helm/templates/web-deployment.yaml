@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  labels:
+    {{- include "swp.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.appReplicas }}
+  # 과거 ReplicaSet 보관 개수 — rollout restart 반복 시 0-replica RS 누적 방지
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
+  {{- include "swp.rollingStrategy" . | nindent 2 }}
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+        app.kubernetes.io/part-of: smart-workplace
+    spec:
+      {{- include "swp.imagePullSecrets" . | nindent 6 }}
+      terminationGracePeriodSeconds: {{ .Values.rollout.terminationGracePeriodSeconds }}
+      containers:
+        - name: web
+          image: {{ include "swp.image" (dict "root" $ "id" "web") | quote }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          {{- include "swp.preStop" . | nindent 10 }}
+          ports:
+            - containerPort: 8080
+              name: http
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            periodSeconds: 15
+            failureThreshold: 5
+          resources:
+            {{- toYaml .Values.web.resources | nindent 12 }}

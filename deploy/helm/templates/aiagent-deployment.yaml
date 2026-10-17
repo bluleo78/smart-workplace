@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-agent
+  labels:
+    {{- include "swp.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.appReplicas }}
+  # 과거 ReplicaSet 보관 개수 — rollout restart 반복 시 0-replica RS 누적 방지
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
+  # 무중단 롤링(WP-167). 예전 Recreate 는 RWO PVC 단일 점유 때문이었으나, 그 PVC 는 앱 HOME(/home/node)과 다른 경로
+  # (/home/appuser/.claude)에 마운트돼 실제로 쓰이지 않았다(비어 있음) → 마운트를 빼고 롤링으로 전환.
+  {{- include "swp.rollingStrategy" . | nindent 2 }}
+  selector:
+    matchLabels:
+      app: ai-agent
+  template:
+    metadata:
+      labels:
+        app: ai-agent
+        app.kubernetes.io/part-of: smart-workplace
+    spec:
+      {{- include "swp.imagePullSecrets" . | nindent 6 }}
+      # preStop 10s + 앱 종료 대기(SHUTDOWN_DRAIN_MS 기본 330s — 진행 중 채팅·에이전트 실행 완료 대기) + 여유
+      terminationGracePeriodSeconds: {{ .Values.rollout.aiAgentTerminationGracePeriodSeconds }}
+      containers:
+        - name: ai-agent
+          image: {{ include "swp.image" (dict "root" $ "id" "ai-agent") | quote }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          ports:
+            - containerPort: 7070
+              name: http
+          env:
+            - name: PORT
+              value: "7070"
+            - name: WORKPLACE_API_BASE_URL
+              value: http://api:9090/api/v1
+            - name: INTERNAL_SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: WORKPLACE_AI_AGENT_TOKEN
+          {{- include "swp.preStop" . | nindent 10 }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 7070
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 7070
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 5
+          resources:
+            {{- toYaml .Values.aiAgent.resources | nindent 12 }}

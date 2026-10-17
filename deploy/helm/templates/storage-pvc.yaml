@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: storage-data
+  labels:
+    {{- include "swp.labels" . | nindent 4 }}
+spec:
+  # api(rw) + worker(ro) 가 동시에 마운트 → ReadWriteMany 필요 (NFS smart-fs1 지원)
+  accessModes: ["ReadWriteMany"]
+  storageClassName: {{ .Values.storageClass | quote }}
+  resources:
+    requests:
+      storage: {{ .Values.storage.size }}

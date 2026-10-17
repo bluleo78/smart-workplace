@@ -1,0 +1,126 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: smart-workplace
+  labels:
+    {{- include "swp.labels" . | nindent 4 }}
+  annotations:
+    # ingress-nginx 기본 proxy-body-size 는 1MiB 라, 이 값이 없으면 1MiB 초과 업로드가 api 에 닿기도 전에
+    # nginx 가 413 으로 자른다(2026-08-04 드라이브 업로드 장애). 앱 상한(max-request-size 275MB,
+    # 단일 파일 25MB)에 맞춰 두어 크기 검증은 앱이 제대로 된 에러 메시지와 함께 수행하게 한다.
+    nginx.ingress.kubernetes.io/proxy-body-size: {{ .Values.ingress.proxyBodySize | quote }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    {{- /*
+      internalSecretName 이 있으면 admin·mcp(내부 nip.io 호스트)를 별도 TLS 항목(자체서명 Secret)으로 분리한다.
+      공개 인증서(Let's Encrypt)엔 nip.io 가 없어, 같은 항목에 두면 nginx 가 기본 가짜 인증서를 내보내
+      MCP 클라이언트(NODE_EXTRA_CA_CERTS 로 자체서명만 신뢰)가 접속하지 못한다. (2026-09-30 prod 이관 WP-116)
+    */}}
+    {{- if .Values.ingress.tls.internalSecretName }}
+    - hosts:
+        - {{ .Values.ingress.adminHost | quote }}
+        - {{ .Values.ingress.mcpHost | quote }}
+      secretName: {{ .Values.ingress.tls.internalSecretName }}
+    {{- end }}
+    - hosts:
+        - {{ .Values.ingress.webHost | quote }}
+        {{- if not .Values.ingress.tls.internalSecretName }}
+        - {{ .Values.ingress.adminHost | quote }}
+        - {{ .Values.ingress.mcpHost | quote }}
+        {{- end }}
+        {{- if .Values.ingress.webAltHost }}
+        - {{ .Values.ingress.webAltHost | quote }}
+        {{- end }}
+        {{- if .Values.ingress.adminAltHost }}
+        - {{ .Values.ingress.adminAltHost | quote }}
+        {{- end }}
+      secretName: {{ .Values.ingress.tls.secretName }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.webHost | quote }}
+      http:
+        paths:
+          {{- /*
+            mcpPathOnWeb 이면 공개 web 호스트의 /mcp 를 mcp 서비스로 보낸다. 앱이 이미 /mcp 로 받으므로 rewrite 불필요.
+            공개 인증서(Let's Encrypt)를 그대로 쓰므로 클라이언트에 자체서명 CA(NODE_EXTRA_CA_CERTS) 가 필요 없다.
+            인증은 PAT Bearer — 외부 노출을 감수할 때만 켠다. 기존 mcpHost 는 병행 유지(전환 기간 호환).
+          */}}
+          {{- if .Values.ingress.mcpPathOnWeb }}
+          - path: /mcp
+            pathType: Exact
+            backend:
+              service:
+                name: mcp
+                port:
+                  number: 7090
+          {{- /* WP-350: 읽기 전용(/mcp/readonly)·앱 선택(/mcp/x/{apps}[/readonly]) 경로도 mcp 로 보낸다. /mcp/x 는 경로 세그먼트 Prefix. */}}
+          - path: /mcp/readonly
+            pathType: Exact
+            backend:
+              service:
+                name: mcp
+                port:
+                  number: 7090
+          - path: /mcp/x
+            pathType: Prefix
+            backend:
+              service:
+                name: mcp
+                port:
+                  number: 7090
+          {{- end }}
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: web
+                port:
+                  number: 80
+    - host: {{ .Values.ingress.adminHost | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: admin
+                port:
+                  number: 80
+    - host: {{ .Values.ingress.mcpHost | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: mcp
+                port:
+                  number: 7090
+    {{- if .Values.ingress.webAltHost }}
+    - host: {{ .Values.ingress.webAltHost | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: web
+                port:
+                  number: 80
+    {{- end }}
+    {{- if .Values.ingress.adminAltHost }}
+    - host: {{ .Values.ingress.adminAltHost | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: admin
+                port:
+                  number: 80
+    {{- end }}
+{{- end }}

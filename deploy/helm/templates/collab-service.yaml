@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: collab
+  labels:
+    {{- include "swp.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: collab
+  ports:
+    - port: 7095
+      targetPort: 7095
+      name: http

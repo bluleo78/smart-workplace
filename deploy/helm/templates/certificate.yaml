@@ -1,0 +1,21 @@
+{{- /*
+  cert-manager Certificate — 공개 도메인만 Let's Encrypt 로 발급해 ingress TLS Secret 에 채운다.
+  ingress 의 tls.hosts 에는 내부(nip.io) 호스트도 함께 있지만, 그 호스트들은 인증서 SAN 에 없어 브라우저 경고가 난다.
+  (prod 의 ia-eis 와 같은 방식. 2026-09-30 prod 이관 WP-116)
+*/ -}}
+{{- if and .Values.ingress.enabled .Values.ingress.tls.enabled .Values.ingress.tls.certManager.enabled }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ .Values.ingress.tls.secretName }}
+  labels:
+    {{- include "swp.labels" . | nindent 4 }}
+spec:
+  secretName: {{ .Values.ingress.tls.secretName }}
+  issuerRef:
+    group: cert-manager.io
+    kind: ClusterIssuer
+    name: {{ .Values.ingress.tls.certManager.clusterIssuer }}
+  dnsNames:
+    {{- required "ingress.tls.certManager.dnsNames 가 필요합니다" .Values.ingress.tls.certManager.dnsNames | toYaml | nindent 4 }}
+{{- end }}

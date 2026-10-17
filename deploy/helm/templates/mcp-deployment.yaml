@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp
+  labels:
+    {{- include "swp.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.appReplicas }}
+  # 과거 ReplicaSet 보관 개수 — rollout restart 반복 시 0-replica RS 누적 방지
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
+  {{- include "swp.rollingStrategy" . | nindent 2 }}
+  selector:
+    matchLabels:
+      app: mcp
+  template:
+    metadata:
+      labels:
+        app: mcp
+        app.kubernetes.io/part-of: smart-workplace
+    spec:
+      {{- include "swp.imagePullSecrets" . | nindent 6 }}
+      terminationGracePeriodSeconds: {{ .Values.rollout.terminationGracePeriodSeconds }}
+      containers:
+        - name: mcp
+          image: {{ include "swp.image" (dict "root" $ "id" "mcp") | quote }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          {{- include "swp.preStop" . | nindent 10 }}
+          ports:
+            - containerPort: 7090
+              name: http
+          env:
+            - name: PORT
+              value: "7090"
+            # ai-agent와 동일 형태 (/api/v1 포함)
+            - name: WORKPLACE_API_BASE_URL
+              value: http://api:9090/api/v1
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 7090
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 7090
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 5
+          resources:
+            {{- toYaml .Values.mcp.resources | nindent 12 }}

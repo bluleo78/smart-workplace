@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+  labels:
+    {{- include "swp.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.appReplicas }}
+  # 과거 ReplicaSet 보관 개수 — rollout restart 반복 시 0-replica RS 누적 방지
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
+  {{- include "swp.rollingStrategy" . | nindent 2 }}
+  selector:
+    matchLabels:
+      app: worker
+  template:
+    metadata:
+      labels:
+        app: worker
+        app.kubernetes.io/part-of: smart-workplace
+    spec:
+      {{- include "swp.imagePullSecrets" . | nindent 6 }}
+      terminationGracePeriodSeconds: {{ .Values.rollout.terminationGracePeriodSeconds }}
+      containers:
+        - name: worker
+          image: {{ include "swp.image" (dict "root" $ "id" "worker") | quote }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          {{- include "swp.preStop" . | nindent 10 }}
+          ports:
+            - containerPort: 7080
+              name: http
+          env:
+            # api 파일 저장 볼륨 마운트 경로 (api의 WORKPLACE_STORAGE_ROOT_DIR과 동일)
+            - name: WORKER_BLOB_BASE
+              value: /data/storage-data
+            # 콜백 대상 /internal/worker/** 는 루트 경로 → /api/v1 붙이면 404. ai-agent와 다름.
+            - name: WORKPLACE_API_BASE_URL
+              value: http://api:9090
+            # 문서 변환 서비스(WP-433 레거시 .doc·.ppt·.xls·.hwp 텍스트 추출) — 비우면 해당 형식 추출이 보류된다
+            - name: WORKPLACE_CONVERTER_URL
+              value: http://converter:7085
+            # 내부 서비스 공통 토큰 (= aiAgentToken)
+            - name: INTERNAL_SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: WORKPLACE_AI_AGENT_TOKEN
+            # 임베딩 서버·모델 (WP-383·384 메모리·대화 의미 검색, 문서 임베딩)
+            - name: OLLAMA_BASE_URL
+              value: {{ .Values.worker.ollamaBaseUrl | quote }}
+            - name: WORKER_EMBED_MODEL
+              value: {{ .Values.worker.embedModel | quote }}
+          volumeMounts:
+            # api가 파일을 기록하는 동일 저장 볼륨을 읽기 전용으로 마운트
+            - name: storage
+              mountPath: /data/storage-data
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 7080
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 7080
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 5
+          resources:
+            {{- toYaml .Values.worker.resources | nindent 12 }}
+      volumes:
+        - name: storage
+          persistentVolumeClaim:
+            claimName: storage-data

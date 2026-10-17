@@ -1,0 +1,78 @@
+{{- /*
+  문서 변환 서비스(workplace-converter, WP-430) — HWP·HWPX·오피스 원본을 PDF/텍스트로 변환. 상태 없음(DB·스토리지 없음).
+  - 호출자는 api(미리보기 PDF, WP-431·432)·worker(레거시 텍스트 추출, WP-433) 뿐 — Service 는 ClusterIP, Ingress 없음.
+  - Pod 당 soffice 동시 1건이라 바쁘면 429 BUSY → 호출자가 재시도해 다른 Pod 로 가도록 replicas ≥ 2.
+    HPA(CPU 70%, 2~6)는 클러스터에 metrics-server 가 없어 두지 않는다 — 고정 replicas.
+  - appReplicas=0(PoC 동결 등)이면 0.
+  - 읽기 전용 루트 FS, 쓰기는 /tmp(메모리 emptyDir)만 — LibreOffice 프로필·fontconfig 캐시·요청 임시 파일.
+  - /health 는 soffice 가 죽어 있으면 그 자리에서 재기동(최대 ~20s)하므로 probe timeout 을 25s 로 넉넉히.
+  운영 노트 원본: 저장소 apps/workplace-converter/README.md
+*/ -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: converter
+  labels:
+    {{- include "swp.labels" . | nindent 4 }}
+spec:
+  replicas: {{ mul (min .Values.appReplicas 1) .Values.converter.replicas }}
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
+  {{- include "swp.rollingStrategy" . | nindent 2 }}
+  selector:
+    matchLabels:
+      app: converter
+  template:
+    metadata:
+      labels:
+        app: converter
+        app.kubernetes.io/part-of: smart-workplace
+    spec:
+      {{- include "swp.imagePullSecrets" . | nindent 6 }}
+      terminationGracePeriodSeconds: {{ .Values.converter.terminationGracePeriodSeconds }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+      containers:
+        - name: converter
+          image: {{ include "swp.image" (dict "root" $ "id" "converter") | quote }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          {{- include "swp.preStop" . | nindent 10 }}
+          ports:
+            - containerPort: 7085
+              name: http
+          env:
+            # 내부 서비스 공통 토큰 (= aiAgentToken, api·worker 와 같은 값). 비면 기동 실패.
+            - name: INTERNAL_SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: WORKPLACE_AI_AGENT_TOKEN
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 7085
+            periodSeconds: 10
+            timeoutSeconds: 25
+            failureThreshold: 3
+          # 재기동 중(~20s) 오판으로 죽이지 않도록 느슨하게 — 오래 503 이 이어질 때만 재시작
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 7085
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 25
+            failureThreshold: 5
+          resources:
+            {{- toYaml .Values.converter.resources | nindent 12 }}
+      volumes:
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Gi

@@ -1,0 +1,61 @@
+{{- /*
+  노트 실시간 동시 편집 동기화 서버(workplace-collab, WP-288).
+  - 문서 상태를 프로세스 메모리에 들고 있어 다중 파드 불가 → replicas 는 최대 1(appReplicas=0 이면 0).
+  - 같은 이유로 RollingUpdate 대신 Recreate(두 파드가 같은 문서를 따로 들고 서로 덮어쓰는 것 방지).
+  - preStop sleep 은 두지 않는다 — 종료 시 미저장 문서 저장(최대 20s)에 유예 시간을 온전히 쓰게.
+  - distroless(셸 없음) → probe 는 httpGet /health.
+*/ -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: collab
+  labels:
+    {{- include "swp.labels" . | nindent 4 }}
+spec:
+  replicas: {{ min .Values.appReplicas 1 }}
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: collab
+  template:
+    metadata:
+      labels:
+        app: collab
+        app.kubernetes.io/part-of: smart-workplace
+    spec:
+      {{- include "swp.imagePullSecrets" . | nindent 6 }}
+      terminationGracePeriodSeconds: {{ .Values.collab.terminationGracePeriodSeconds }}
+      containers:
+        - name: collab
+          image: {{ include "swp.image" (dict "root" $ "id" "collab") | quote }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          ports:
+            - containerPort: 7095
+              name: http
+          env:
+            - name: PORT
+              value: "7095"
+            # 노트 문서 로드·저장 대상 API (루트 경로 — 내부 엔드포인트)
+            - name: WORKPLACE_API_URL
+              value: http://api:9090
+            # api↔collab 양방향 내부 토큰 (= aiAgentToken, api·worker 와 공용). 없으면 부트 거부.
+            - name: INTERNAL_SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: WORKPLACE_AI_AGENT_TOKEN
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 7095
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 7095
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.collab.resources | nindent 12 }}

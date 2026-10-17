@@ -1,0 +1,6 @@
+apiVersion: v2
+name: smart-workplace
+description: Gen:iA Works(smart-workplace) — api·ai-agent·worker·converter·mcp·collab·web·admin·postgres
+type: application
+# 차트 자체의 버전. 앱 릴리스 버전은 여기 두지 않고 helm 리비전 설명과 values release.version 에 남긴다(WP-438).
+version: 0.2.0
