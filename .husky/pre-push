@@ -1,2 +1,2 @@
-# husky 디스패처 — 실제 로직은 scripts/husky/pre-push.sh 참조
-exec ./scripts/husky/pre-push.sh
+# husky 디스패처 — 실제 로직은 scripts/husky/pre-push.sh 참조(원격 이름 인자·stdin 을 그대로 넘긴다)
+exec ./scripts/husky/pre-push.sh "$@"

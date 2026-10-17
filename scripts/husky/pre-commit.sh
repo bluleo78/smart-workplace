@@ -31,8 +31,9 @@ if [ -z "$PRECOMMIT_CHANGED_FILES" ]; then
   pnpm exec lint-staged
 fi
 
-# 3) 비코드만? → skip
-NEEDS_REGRESSION=$(printf '%s\n' "$CHANGED" | grep -vE '^(docs/|.*\.md$|LICENSE.*|\.gitignore$|\.gitattributes$|\.vscode/|\.idea/|\.editorconfig$|\.github/(ISSUE_TEMPLATE|PULL_REQUEST_TEMPLATE))' || true)
+# 3) 비코드만? → skip (규칙은 pre-push 와 공유 — noncode.sh, WP-446)
+. "$(dirname "$0")/noncode.sh"
+NEEDS_REGRESSION=$(code_files "$CHANGED")
 if [ -z "$NEEDS_REGRESSION" ]; then
   echo "[pre-commit] 비코드 변경만 감지 — E2E + gradle test skip"
   exit 0

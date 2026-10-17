@@ -9,28 +9,11 @@ set -e
 cd "$(dirname "$0")/../.."  # repo 루트로 이동(스크립트가 루트 기준 상대경로 사용)
 
 SCRIPT="scripts/husky/pre-commit.sh"
-PASS=0
-FAIL=0
+. scripts/husky/test-helpers.sh
 
 # run_case <설명> <CHANGED> <기대substring> <금지substring(선택)>
 run_case() {
-  desc="$1"; changed="$2"; expect="$3"; forbid="${4:-}"
-  out=$(PRECOMMIT_DRY_RUN=1 PRECOMMIT_CHANGED_FILES="$changed" sh "$SCRIPT" 2>&1 || true)
-  ok=1
-  case "$out" in
-    *"$expect"*) : ;;
-    *) ok=0; echo "  기대 미포함: '$expect'" ;;
-  esac
-  if [ -n "$forbid" ]; then
-    case "$out" in
-      *"$forbid"*) ok=0; echo "  금지 포함됨: '$forbid'" ;;
-    esac
-  fi
-  if [ "$ok" -eq 1 ]; then
-    PASS=$((PASS + 1)); echo "PASS: $desc"
-  else
-    FAIL=$((FAIL + 1)); echo "FAIL: $desc"; echo "----- 출력 -----"; echo "$out"; echo "----------------"
-  fi
+  check "$1" "$(PRECOMMIT_DRY_RUN=1 PRECOMMIT_CHANGED_FILES="$2" sh "$SCRIPT" 2>&1 || true)" "$3" "${4:-}"
 }
 
 # 1) 테스트 파일 변경 → 그 클래스 자신
@@ -108,6 +91,11 @@ run_case "api 만 변경 → vitest 미실행" \
   '--tests "*AuthServiceTest"' \
   "vitest 단위 테스트 실행"
 
-echo
-echo "=== 결과: PASS=$PASS FAIL=$FAIL ==="
-[ "$FAIL" -eq 0 ]
+# 13) 비코드만(문서·릴리스 노트) → 회귀 skip — 규칙은 pre-push 와 공유(noncode.sh, WP-446)
+run_case "docs·releases 노트만 → skip" \
+  "docs/ops/release.md
+releases/0.9.0.md" \
+  "비코드 변경만 감지" \
+  "vitest"
+
+finish

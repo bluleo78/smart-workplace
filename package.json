@@ -9,6 +9,8 @@
     "test:plugin": "node --test plugins/genia-works/tests/*.test.mjs",
     "test:helm": "node --test deploy/helm/tests/*.test.mjs",
     "test:release": "node --test deploy/release/tests/*.test.mjs",
+    "test:hooks": "for t in scripts/husky/*.test.sh; do sh \"$t\" || exit 1; done",
+    "test:full": "sh scripts/husky/full-regression.sh",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "clean": "turbo run clean",
