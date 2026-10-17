@@ -79,14 +79,21 @@ node deploy/release/release.mjs rollback    # 마지막 정상 리비전으로(�
 
 복구: 변수 값을 파일로 받아 README 의 `kubectl create secret …` 를 실행한다. 값을 바꿨으면 GitLab 변수도 함께 고친다(둘이 어긋나면 복구 때 옛 값이 살아난다). `ENCRYPTION_MASTER_KEY` 는 절대 새로 만들지 않는다.
 
-## 첫 전환 (v0.8.0 → v0.9.0, WP-445)
+## 첫 전환 기록 (v0.8.0 → v0.9.0, WP-445, 2026-10-17 완료)
 
-지금 운영은 `~/k8s/smart-workplace` 차트 + ghcr `:latest` 이미지(리비전 13). 전환 순서 *(WP-445 에서 리허설 결과로 확정)*:
+전환 전 운영은 `~/k8s/smart-workplace` 차트 + ghcr `:latest` 이미지(Helm 리비전 13)였다. 한 일:
 
-1. 기준 릴리스 시드: `v0.8.0` 태그(지금 운영 이미지를 빌드한 커밋 — 10-17 기준 a5d66d059, converter 만 76c64fc5c. WP-445 에서 확정) + `node deploy/release/seed-baseline.mjs --upload` 로 현재 운영 digest 를 Docker Hub `:0.8.0` 으로 복사·매니페스트 업로드.
-2. `/release prepare` 로 v0.9.0 노트·태그 → CI 빌드.
-3. 전환 전 확인: 운영 매니페스트와 이 차트 렌더 비교(`deploy/helm/README.md` 「렌더·검증」), Secret 생성·인계(README), 모든 digest 를 클러스터에서 `dockerhub-pull` 로 받아 보기(db 파드가 한 번 재시작된다).
-4. `node deploy/release/release.mjs deploy 0.9.0 --current 0.8.0`.
-5. 되돌리기 리허설은 새 체계 릴리스끼리만. 전환 자체를 되돌려야 하면 이 도구가 아니라 `~/k8s` 차트로 수동 복구한다(전환 이전 리비전 rollback 금지).
+1. 기준 릴리스 시드: `v0.8.0` = a5d66d059(전환 전 운영 이미지를 빌드한 커밋, converter 만 76c64fc5c 빌드). 운영 파드의 imageID 9개를 `seed-baseline.mjs --upload` 로 Docker Hub `:0.8.0` 에 재빌드 없이 복사.
+2. `/release prepare` 로 v0.9.0 노트·태그 → GitLab 빌드(8개 빌드, db 승계).
+3. 전환 전 확인: 리비전 13 매니페스트 ↔ 이 차트 렌더 비교(차이는 이미지 주소·pull 정책·pull secret·Secret 제외뿐 — selector·volumeClaimTemplates·env 동일), `dockerhub-pull` 생성 뒤 모든 v0.9.0 digest 를 각 앱 노드에서 임시 파드로 받아 봄(미리 받아 두기도 겸함).
+4. 임시 namespace 리허설(Helm 4.2): Secret 인계 뒤 Secret 없는 차트 upgrade 에도 Secret 이 남음, Certificate·PVC 가 있어도 `--wait` 정상.
+5. Secret 인계 → `release.mjs deploy 0.9.0 --current 0.8.0` → 리비전 14, 약 1분. db 가 처음으로 이미지가 바뀌어 한 번 재시작했고, 그 사이 api 새 파드가 DB 연결 실패로 3번 재시작한 뒤 정상 기동했다(이후 db 가 바뀌지 않는 릴리스에서는 재시작 없음).
 
-전환이 끝나면 옛 배포 경로(`scripts/deploy.sh`·`scripts/update.sh`·ghcr 이미지)를 지운다.
+**전환 자체를 되돌려야 할 때(비상, v0.9.0 이 운영일 때만)**: `node deploy/release/release.mjs rollback --force` — 리비전 14 → 13(전환 전)으로 간다(확인 질문·경고·15분 대기 포함, 맨 `helm rollback` 은 쓰지 않는다). 리허설에서 이 rollback 이 인계한 Secret 을 다시 Helm 소유로 가져가며(keep 주석은 남음) 정상 동작함을 확인했다. 알아 둘 것:
+- Secret 값이 **리비전 13 의 차트 값으로 덮인다** — 10-17 이후 `smart-workplace-secrets` 값을 바꿨다면(WP-447 등) 옛 값으로 돌아가므로 rollback 뒤 새 값을 다시 넣는다.
+- db 이미지가 ghcr 로 돌아가 db 가 한 번 재시작한다(전환 때처럼 DB 잠깐 중단, api 재시작 몇 번).
+- 다시 전환하려면 README 「Secret 인계」를 다시 실행하고 `release.mjs deploy 0.9.0 --current 0.8.0`(리비전 13 계열에는 release.version 이 없다).
+- **v0.9.0 다음 릴리스가 반영되면 이 경로는 금지**다 — 그 사이 마이그레이션이 생기면 옛 api 가 새 스키마에서 돈다. 그때부터는 새 체계 릴리스끼리만 `release.mjs rollback`.
+- 옛 `~/k8s` 차트로 `helm upgrade` 하는 것은 인계한 Secret 의 소유권 오류로 실패한다.
+
+옛 배포 경로(`scripts/deploy.sh`·`scripts/update.sh`·`docker-compose.prod.yml`)는 전환 뒤 지웠다. ghcr 의 옛 이미지 패키지는 비상 rollback(리비전 13 이 참조) 때문에 다음 릴리스가 안정될 때까지 둔다.

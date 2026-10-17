@@ -2,9 +2,7 @@
 
 운영(prod, kubecontext `iacloud-prod-public`, namespace `smart-workplace`) 배포 차트. 2026-10-17 `~/k8s/smart-workplace` 에서 옮겨 왔다(WP-438).
 
-> **첫 릴리스 전환(WP-445) 전까지** 운영은 여전히 `~/k8s/smart-workplace` + `scripts/deploy.sh`(ghcr `:latest`)로 반영된다.
-> 그 사이 차트를 바꿔야 하면 두 곳에 같이 반영하고, 전환 직전에 `helm get manifest` 와 이 차트 렌더를 다시 비교한다(아래 「렌더·검증」).
-> 전환 뒤에는 이 차트만 쓰고 `~/k8s` 는 고치지 않는다.
+> 2026-10-17 v0.9.0 으로 전환(WP-445, 리비전 14)한 뒤 운영은 이 차트로만 반영한다(`deploy/release/release.mjs`). `~/k8s/smart-workplace` 와 ghcr `:latest` 는 쓰지 않는다.
 
 - `values.yaml` 기본값 + `values.prod.yaml` 운영 오버라이드.
 - 앱 이미지(`images.<앱 id>`)는 values 파일에 두지 않는다. 반영 도구(`deploy/release/release.mjs`, WP-443)가 릴리스 매니페스트의 `repository`·`digest` 를 주입하고, 값이 없으면 렌더가 실패한다. 도구 없이 반영해야 하면 `tests/images.fixture.yaml` 과 같은 모양의 values 파일에 실제 digest 를 적어 `-f` 로 넘긴다.
@@ -61,11 +59,11 @@ kubectl $NS label secret smart-workplace-secrets app.kubernetes.io/managed-by- h
 helm template smart-workplace deploy/helm -n smart-workplace -f deploy/helm/values.prod.yaml -f deploy/helm/tests/images.fixture.yaml
 # 차트 테스트 — digest 고정·pull secret·Secret 미생성·converter 연결·릴리스 정보가 파드에 안 들어가는지
 node --test deploy/helm/tests/*.test.mjs
-# 운영과 비교 — 기대 차이: 이미지(ghcr :latest → Docker Hub @digest)·IfNotPresent·imagePullSecrets·Secret 제외·converter·WORKPLACE_CONVERTER_URL·차트 라벨
+# 운영과 비교 — 차트를 바꿨다면 렌더와 지금 운영 매니페스트의 차이가 의도한 것뿐인지 본다(이미지 digest 차이는 릴리스마다 정상)
 helm --kube-context iacloud-prod-public get manifest smart-workplace -n smart-workplace
 ```
 
 ## 주의
 
-- db 이미지 참조도 `images.db` 로 바뀌므로, ghcr 에서 Docker Hub 로 처음 넘어가는 반영 때 db 파드가 한 번 재시작된다(이후 db 가 바뀌지 않는 릴리스에서는 재시작 없음). StatefulSet 은 옛 파드를 먼저 내리므로, pull 이 실패하면 그동안 DB 가 내려가 있다 — **반영 전에** `dockerhub-pull` 로 모든 digest 를 클러스터 안에서 받아 보는 확인(임시 파드)을 한다.
+- db 이미지(`images.db`)가 바뀌는 릴리스는 db 파드가 재시작한다(StatefulSet 은 옛 파드를 먼저 내린다 — 그동안 DB 중단, api 가 몇 번 재시작할 수 있다). pull 이 실패하면 DB 가 계속 내려가 있으므로, db 가 바뀌는 릴리스는 **반영 전에** 새 db digest 를 db 노드에서 임시 파드로 받아 본다(10-17 전환 때 한 방법 — `docs/ops/release.md` 「첫 전환 기록」). db 가 그대로면(승계) 재시작 없음.
 - `--atomic` 을 쓰지 않는다 — 실패 시 자동 롤백이 Flyway 마이그레이션 뒤의 스키마와 어긋날 수 있어, 롤백은 사람이 판단해 `helm rollback` 한다.

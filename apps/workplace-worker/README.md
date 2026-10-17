@@ -70,7 +70,7 @@ api  ──rw──► [uploads-data volume] ◄──ro── worker
 - worker → api 콜백에 `WORKPLACE_API_BASE_URL=http://api:9090` 사용(루트 — 콜백 경로 `/internal/worker/**` 에 `/api/v1` 이 붙지 않는다)
 - `INTERNAL_SERVICE_TOKEN` 은 api 의 `WORKPLACE_AI_AGENT_TOKEN` 과 **동일 값** 사용
 
-운영은 K8S 로 배포한다(이미지 빌드는 ghcr 푸시만, 옛 compose·deploy.sh 배포는 폐기). worker 쪽 K8S 주의:
+운영은 K8S 로 배포한다(릴리스 태그 → GitLab 이 이미지 빌드, `docs/ops/release.md`). worker 쪽 K8S 주의:
 
 - env `WORKPLACE_CONVERTER_URL=http://converter:7085` 주입 — 없으면 레거시 `.doc/.ppt/.xls/.hwp` 텍스트 추출이 보류된다.
 - `INTERNAL_SERVICE_TOKEN` 은 converter 와도 **동일 값** 사용(converter 가 `Authorization: Internal <token>` 을 검사 — 불일치면 401 → 추출 보류).

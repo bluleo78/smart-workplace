@@ -105,8 +105,7 @@ Node.js 22 + TypeScript(ES2022/NodeNext), Express 4, `@modelcontextprotocol/sdk`
 ## Ports
 
 - 로컬: 6090 (`PORT` env, 기본값도 6090)
-- 운영: 호스트 공개 포트 10002 → 컨테이너 7090 (`docker-compose.prod.yml` 의 `mcp` 서비스,
-  web 10000 / admin 10001 다음 번호)
+- 운영: K8S(`deploy/helm`) — 컨테이너 7090, 공개 경로 `https://genia-works.iacloud.kr/mcp` 와 내부 호스트(`ingress.mcpHost`)
 
 ## Conventions
 

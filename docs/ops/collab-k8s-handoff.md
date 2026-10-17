@@ -1,13 +1,13 @@
 # 노트 동기화 서버(workplace-collab) K8S 인계 메모 (WP-288)
 
-K8S 매니페스트는 `deploy/helm`(WP-438, 첫 릴리스 전환 전까지는 `~/k8s/smart-workplace` 에서 반영 — deploy/helm/README.md).
-이미지는 `scripts/deploy.sh` 로 ghcr 에 빌드·푸시한다(`BUILD_ONLY=1 ./scripts/deploy.sh collab`, 전환 뒤에는 릴리스 파이프라인). 아래는 인프라 쪽에 전달할 값이다. 설계: 노트 동시 편집 스펙 §4.2·§9.
+K8S 매니페스트는 `deploy/helm`(WP-438). 2026-10-17 릴리스 체계 전환(WP-445) 뒤 반영은 `deploy/release/release.mjs` 로만 한다.
+이미지는 릴리스 파이프라인(`vX.Y.Z` 태그 → GitLab, `docs/ops/release.md`)이 Docker Hub 에 빌드·푸시한다. 아래는 인프라 쪽에 전달할 값이다. 설계: 노트 동시 편집 스펙 §4.2·§9.
 
 ## 1. 이미지·워크로드
 
 | 항목 | 값 |
 |---|---|
-| 이미지 | `ghcr.io/bluleo78/smart-workplace/collab:latest` (linux/amd64·arm64, DHI distroless node 24, UID 1000) |
+| 이미지 | `docker.io/iacloudops/genia-works-collab@<digest>` (릴리스 매니페스트가 정함, DHI distroless node 24, UID 1000) |
 | 컨테이너 포트 | `7095` (HTTP + WebSocket 한 포트) |
 | replicas | **1** — 문서 상태를 프로세스 메모리에 들고 있어 다중 파드는 불가(Redis 확장은 범위 밖). HPA 금지 |
 | 업데이트 전략 | `Recreate` 권장 — RollingUpdate 면 잠깐 두 파드가 같은 문서를 따로 들고 서로 덮어쓴다 |
