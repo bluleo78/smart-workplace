@@ -46,8 +46,8 @@ function focusNearest(el: HTMLElement) {
  * 항상 JSX 트리에 존재하므로(Presence 로 내부 DOM 만 열고 닫음) 래퍼의 useLayoutEffect 는 최초 마운트 시 한 번만 돈다.
  * onOpenAutoFocus 는 Radix FocusScope 가 "다이얼로그 안으로 포커스를 옮기기 직전"에 매 open 마다 동기 호출한다.
  *
- * 사용처가 넘긴 onOpenAutoFocus·onCloseAutoFocus 를 먼저 실행하고, 닫을 때 사용처가 preventDefault() 로 포커스를 직접
- * 처리했으면 복원을 건너뛴다.
+ * 열 때는 포커스를 먼저 캡처한 뒤 사용처의 onOpenAutoFocus 를 실행한다(사용처가 포커스를 옮겨도 복원 대상은 유지).
+ * 닫을 때는 사용처의 onCloseAutoFocus 를 먼저 실행하고, 사용처가 preventDefault() 로 포커스를 직접 처리했으면 복원을 건너뛴다.
  */
 export function useDialogFocusRestore(
   onOpenAutoFocus?: (event: Event) => void,
@@ -57,11 +57,13 @@ export function useDialogFocusRestore(
 
   const handleOpenAutoFocus = useCallback(
     (event: Event) => {
-      onOpenAutoFocus?.(event);
+      // 사용처 콜백보다 먼저 캡처한다 — 콜백이 포커스를 다이얼로그 안으로 직접 옮기면(preventDefault + focus()) 뒤에 읽은
+      // activeElement 가 다이얼로그 자신이 되어 닫을 때 트리거로 돌아가지 못한다.
       const active = document.activeElement;
       // document.body 는 유효한 복원 대상이 아니다(포커스가 이미 없던 상태). 순수 관찰이라 defaultPrevented 와 무관하게 캡처.
       previouslyFocusedElementRef.current =
         active instanceof HTMLElement && active !== document.body ? restoreTargetOf(active) : null;
+      onOpenAutoFocus?.(event);
     },
     [onOpenAutoFocus],
   );

@@ -1,7 +1,7 @@
 // src/components/layout/AppRailUserMenu.tsx
 // 앱 레일 하단의 유저 메뉴 — 프로필/테마 토글/로그아웃.
 // 아이콘 레일이므로 데스크톱(lg)은 아바타만, 모바일 드로어는 아바타+이름.
-import { LogOut, Moon, Sun, User as UserIcon } from 'lucide-react'
+import { LogOut, Moon, Sparkles, Sun, User as UserIcon } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 
 import {
@@ -13,6 +13,9 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { useWhatsNew } from '@/components/whats-new/useWhatsNew'
+import { WhatsNewDialog } from '@/components/whats-new/WhatsNewDialog'
+import { WhatsNewDot } from '@/components/whats-new/WhatsNewDot'
 import { useAuth } from '@/hooks/useAuth'
 import { useSignOut } from '@/hooks/useSignOut'
 import { useThemeToggle } from '@/hooks/useThemeToggle'
@@ -25,6 +28,8 @@ export function AppRailUserMenu({ expanded = false }: { expanded?: boolean }) {
   const { user } = useAuth()
   // 로그아웃 — 서버 세션 종료 후 로그인 페이지로 이동(모바일 계정 시트와 공용 훅)
   const handleLogout = useSignOut()
+  // 새 소식 — 안 읽음 점(아바타·항목)과 릴리스 노트 창(WP-439).
+  const whatsNew = useWhatsNew()
 
   return (
     <DropdownMenu>
@@ -45,12 +50,16 @@ export function AppRailUserMenu({ expanded = false }: { expanded?: boolean }) {
               <span
                 data-testid="rail-user-avatar"
                 className={cn(
-                  'flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold',
+                  'relative flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold',
                   user ? 'bg-presence text-presence-foreground' : 'bg-muted text-muted-foreground',
                 )}
                 style={user ? presenceStyle(user.id) : undefined}
               >
                 {user ? initialOf(displayNameOf(user)) : <UserIcon className="h-4 w-4" />}
+                {/* 안 읽은 새 소식 — 아바타 우상단 점. 배경색 링으로 아바타와 분리한다. */}
+                {whatsNew.unread && (
+                  <WhatsNewDot testId="rail-user-avatar-dot" className="absolute -right-0.5 -top-0.5 ring-2 ring-background" />
+                )}
               </span>
               {/* 모바일 드로어에서는 항상, 데스크톱은 max-width+opacity 전환으로 부드럽게 숨김/표시. */}
               <span
@@ -80,6 +89,16 @@ export function AppRailUserMenu({ expanded = false }: { expanded?: boolean }) {
         <DropdownMenuItem onSelect={() => navigate('/settings/profile')}>
           <UserIcon className="h-4 w-4" /> 프로필
         </DropdownMenuItem>
+        <DropdownMenuItem
+          data-testid="whats-new-menu-item"
+          // 커밋은 보조 정보라 항목 본문 대신 툴팁으로(로컬 빌드는 커밋이 없어 생략).
+          title={__GIT_SHA_SHORT__ ? `커밋 ${__GIT_SHA_SHORT__}` : undefined}
+          onSelect={() => whatsNew.setOpen(true)}
+        >
+          <Sparkles className="h-4 w-4" /> 새 소식
+          {whatsNew.unread && <WhatsNewDot testId="whats-new-dot" />}
+          <span className="ml-auto text-xs text-muted-foreground">{__APP_VERSION_LABEL__}</span>
+        </DropdownMenuItem>
         <DropdownMenuItem onSelect={toggle}>
           {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
           테마 전환
@@ -88,6 +107,11 @@ export function AppRailUserMenu({ expanded = false }: { expanded?: boolean }) {
           <LogOut className="h-4 w-4" /> 로그아웃
         </DropdownMenuItem>
       </DropdownMenuContent>
+      {/* 창은 메뉴 항목이 아니라 DropdownMenu 의 형제 자리에 둔다(DOM 을 만들지 않는 루트라 포털로 뜬다) — 항목 선택으로 메뉴가 닫혀도 창은 유지된다. */}
+      <WhatsNewDialog
+        open={whatsNew.open}
+        onOpenChange={whatsNew.setOpen}
+      />
     </DropdownMenu>
   )
 }

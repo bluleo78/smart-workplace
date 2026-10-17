@@ -40,4 +40,13 @@ USER 1000
 ENV PORT=7095
 EXPOSE 7095
 
+# 릴리스 버전·커밋(WP-436) — 빌드 인자가 바뀌어도 위 레이어 캐시가 깨지지 않도록 스테이지 맨 끝에 둔다.
+# ENV 는 앱이 버전을 알려줄 때 읽고, LABEL 은 이미지 메타데이터로 버전을 식별한다.
+ARG APP_VERSION=dev
+ARG GIT_SHA=dev
+ENV APP_VERSION=$APP_VERSION GIT_SHA=$GIT_SHA
+LABEL org.opencontainers.image.version=$APP_VERSION \
+      org.opencontainers.image.revision=$GIT_SHA \
+      org.opencontainers.image.source=https://gitlab.iacloud.kr/iacloud/smart-workplace
+
 CMD ["node", "dist/index.js"]

@@ -23,11 +23,21 @@ COPY packages/mcp-tools-shared/src/tool-apps.ts ./packages/mcp-tools-shared/src/
 # 노트 에디터 공용 스키마(WP-284) — 마찬가지로 소스 TS 를 Vite 가 직접 번들한다(빌드 불요).
 COPY packages/wiki-editor-schema/src/ ./packages/wiki-editor-schema/src/
 COPY apps/workplace-web/ ./apps/workplace-web/
+# vite.config 가 import 하는 버전 상수·version.json 헬퍼(WP-439) — 빌드가 tsc -b 로 vite.config.ts 를 타입 검사하므로 .d.mts 선언도 함께 복사한다(없으면 TS7016)
+COPY scripts/vite-app-version.mjs scripts/vite-app-version.d.mts ./scripts/
+# 앱 안 릴리스 노트(What's New)를 vite glob 으로 번들한다 — 저장소 루트 releases/ (WP-439)
+COPY releases ./releases
 
 # 운영 도메인에서 MCP 연결 명령이 localhost 로 안내되지 않도록 빌드 시점에 주입.
 # Vite 는 import.meta.env.VITE_* 를 빌드 시점 정적 인라인하므로 런타임 env 로는 불가.
 ARG VITE_MCP_URL
 ENV VITE_MCP_URL=$VITE_MCP_URL
+
+# 릴리스 버전·커밋(WP-436) — vite 가 빌드 상수(__APP_VERSION__ 등)와 version.json 으로 번들에 박는다.
+# VITE_* 가 아닌 일반 env 로 받는다(클라이언트 env 노출 방지). 소스 COPY 뒤에 두어 의존성 레이어 캐시는 지킨다.
+ARG APP_VERSION=dev
+ARG GIT_SHA=dev
+ENV APP_VERSION=$APP_VERSION GIT_SHA=$GIT_SHA
 
 RUN pnpm --filter @smart-workplace/workplace-web build
 
@@ -41,3 +51,11 @@ COPY --from=build /app/apps/workplace-web/dist /usr/share/nginx/html
 COPY apps/workplace-web/nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 8080
+
+# 릴리스 버전·커밋(WP-436) — 빌드 인자가 바뀌어도 위 레이어 캐시가 깨지지 않도록 스테이지 맨 끝에 둔다.
+# LABEL 은 이미지 메타데이터로 버전을 식별한다(번들 안의 버전은 빌드 스테이지에서 주입).
+ARG APP_VERSION=dev
+ARG GIT_SHA=dev
+LABEL org.opencontainers.image.version=$APP_VERSION \
+      org.opencontainers.image.revision=$GIT_SHA \
+      org.opencontainers.image.source=https://gitlab.iacloud.kr/iacloud/smart-workplace

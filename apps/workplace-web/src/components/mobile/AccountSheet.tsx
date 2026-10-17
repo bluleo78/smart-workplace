@@ -2,12 +2,14 @@
 // 데스크톱 레일의 WorkspaceSwitcher·AppRailUserMenu 가 하던 일(워크스페이스 전환·프로필·로그아웃)을
 // 드롭다운 대신 터치에 맞는 목록으로 보여준다(테마 전환 포함 — 모바일에서 기능이 사라지지 않게). 모바일 앱 목록(/apps) 전용.
 // 멤버십 lazy fetch·로그아웃·테마 전환은 데스크톱 컴포넌트와 같은 공용 훅을 쓴다.
-import { Building2, Check, LogOut, Moon, Sun, User as UserIcon } from 'lucide-react'
+import { Building2, Check, LogOut, Moon, Sparkles, Sun, User as UserIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet'
+import type { WhatsNewState } from '@/components/whats-new/useWhatsNew'
+import { WhatsNewDot } from '@/components/whats-new/WhatsNewDot'
 import { useAuth } from '@/hooks/useAuth'
 import { useSignOut } from '@/hooks/useSignOut'
 import { useThemeToggle } from '@/hooks/useThemeToggle'
@@ -15,7 +17,7 @@ import { useWorkspaceOptions } from '@/hooks/useWorkspaceOptions'
 import { presenceStyle } from '@/lib/collab/presence'
 import { cn, displayNameOf, initialOf } from '@/lib/utils'
 
-/** 시트의 한 줄 동작(프로필·테마·로그아웃) — 위 구분선 + 44px 전폭 버튼. */
+/** 시트의 한 줄 동작(프로필·새 소식·테마·로그아웃) — 위 구분선 + 44px 전폭 버튼. */
 function SheetRow({ testId, onClick, className, children }: {
   testId: string
   onClick: () => void
@@ -75,8 +77,15 @@ function WorkspaceList({ open }: { open: boolean }) {
   )
 }
 
-/** 계정 하단 시트 — 사용자 이름·아이디/이메일, 워크스페이스 목록, 프로필, 테마 전환, 로그아웃. */
-export function AccountSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+/**
+ * 계정 하단 시트 — 사용자 이름·아이디/이메일, 워크스페이스 목록, 프로필, 새 소식, 테마 전환, 로그아웃.
+ * whatsNew — 새 소식 상태. 아바타 점과 창이 시트 밖(AppsPage)에 있어 호출자가 훅을 가지고 내려 준다(WP-439).
+ */
+export function AccountSheet({ open, onOpenChange, whatsNew }: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  whatsNew: Pick<WhatsNewState, 'unread' | 'setOpen'>
+}) {
   const navigate = useNavigate()
   const { user } = useAuth()
   // 테마 전환 — 시트는 닫지 않아 결과를 바로 본다.
@@ -112,6 +121,12 @@ export function AccountSheet({ open, onOpenChange }: { open: boolean; onOpenChan
         <WorkspaceList open={open} />
         <SheetRow testId="apps-profile" onClick={() => { onOpenChange(false); navigate('/settings/profile') }}>
           <UserIcon className="h-4 w-4" /> 프로필
+        </SheetRow>
+        {/* 새 소식 — 시트를 먼저 닫고 창을 연다(창이 시트 위에 겹쳐 뜨지 않게). */}
+        <SheetRow testId="apps-whats-new" onClick={() => { onOpenChange(false); whatsNew.setOpen(true) }}>
+          <Sparkles className="h-4 w-4" /> 새 소식
+          {whatsNew.unread && <WhatsNewDot testId="whats-new-dot" />}
+          <span className="ml-auto text-xs text-muted-foreground">{__APP_VERSION_LABEL__}</span>
         </SheetRow>
         <SheetRow testId="apps-account-theme" onClick={toggle}>
           {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />} 테마 전환

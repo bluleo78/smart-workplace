@@ -7,8 +7,13 @@ import path from 'path'
 import { defineConfig } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
+import { appVersionDefine, versionJsonPlugin } from '../../scripts/vite-app-version.mjs'
+
 // E2E(Playwright)·CI 에서는 백엔드를 띄우지 않고 page.route() 로 /api 를 모킹한다.
 const IS_E2E = process.env.E2E === '1' || !!process.env.CI
+// 릴리스 노트 위치 — Playwright 가 E2E_RELEASE_NOTES_DIR 로 픽스처 폴더를 명시할 때만 바꾼다. IS_E2E 로 고르면
+// CI 만 켜져도 참이라 CI 릴리스 빌드가 테스트 픽스처 노트를 번들에 담아 배포한다.
+const RELEASE_NOTES_DIR = process.env.E2E_RELEASE_NOTES_DIR || path.resolve(__dirname, '../../releases')
 
 // 개발 프록시 대상(workplace-api).
 // E2E 는 모킹 누락 요청이 항상 즉시 503 이 되도록 닫힌 포트(9, discard)로 보낸다 — 6060 으로 보내면
@@ -69,10 +74,13 @@ const COLLAB_TARGET = `ws://localhost:${IS_E2E ? (process.env.E2E_COLLAB_PORT ??
 
 export default defineConfig({
   // 빌드 상수 — E2E 빌드에서만 동기화 문서 이름에 테스트 네임스페이스를 붙인다(collabSession.docNameFor).
-  define: { __E2E__: JSON.stringify(IS_E2E) },
+  // appVersionDefine 은 릴리스 버전·커밋(Docker 빌드 인자 APP_VERSION·GIT_SHA, 없으면 'dev')에서 계산한 표기 상수다(WP-439).
+  define: { __E2E__: JSON.stringify(IS_E2E), ...appVersionDefine() },
   plugins: [
     react(),
     tailwindcss(),
+    // 산출물 루트에 version.json({version, commit}) 을 내보낸다(WP-439).
+    versionJsonPlugin(),
     // PWA — injectManifest: SW 코드(src/sw.ts)는 직접 작성하고 플러그인은 precache 목록 주입·manifest 생성만 한다.
     // dev SW 는 E2E=1 일 때만 켠다(E2E 가 mock 기반 dev 서버에서 SW 등록·push 를 검증). 일반 개발에선 캐시 혼선 방지로 끈다.
     VitePWA({
@@ -113,6 +121,9 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      // 릴리스 노트(.md) 위치 — 기본은 저장소 루트 releases/, E2E 서버는 고정 픽스처로 바꿔
+      // 실제 릴리스 노트가 늘어도 E2E 기대값이 흔들리지 않게 한다(WP-439).
+      '@release-notes': RELEASE_NOTES_DIR,
     },
     // 공용 스키마 패키지(@smart-workplace/wiki-editor-schema)와 웹이 tiptap·prosemirror·yjs 를
     // 반드시 같은 인스턴스로 쓰게 한다 — 둘로 갈리면 스키마 노드 타입·플러그인 키가 어긋난다(WP-284).

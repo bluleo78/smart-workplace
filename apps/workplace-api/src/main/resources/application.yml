@@ -156,3 +156,15 @@ management:
   endpoint:
     health:
       show-details: when-authorized
+  info:
+    env:
+      # info.* 속성을 /actuator/info 에 노출한다(아래 info.app).
+      enabled: true
+
+# 실행 중인 앱의 릴리스 버전·커밋 (WP-439). 이미지 빌드 시 APP_VERSION·GIT_SHA 가 ENV 로 박히며,
+# 배포 후 새 이미지가 실제로 반영됐는지 /actuator/info 의 app.version 으로 확인한다.
+# 빌드 인자가 없는 로컬·테스트에서는 dev.
+info:
+  app:
+    version: ${APP_VERSION:dev}
+    commit: ${GIT_SHA:dev}
