@@ -4,12 +4,12 @@
 //     재빌드 없이 `imagetools create` 로 docker.io 의 `<repo>:<버전>` 태그만 원본 digest 에 붙인다(바이트 동일).
 //
 //   1) 입력 파일 — 줄마다 `<id> <저장소>@sha256:<64hex>` (태그 ref 는 거부). 운영 파드 imageID 에서 만든다. 앱 라벨 `db` 는 id `db`, 나머지는 라벨 = id.
-//      converter 는 운영에 없으니 뺀다(→ v0.9.0 에서 `new-app`). db 의 원본 저장소는 ghcr.io/bluleo78/smart-workplace/postgres.
+//      converter 도 10-17(WP-437)부터 운영에 있으니 포함한다(9개). db 의 원본 저장소는 ghcr.io/bluleo78/smart-workplace/postgres.
 //        kubectl --context iacloud-prod-public -n smart-workplace get pods \
 //          -o jsonpath='{range .items[*]}{.metadata.labels.app}{" "}{.status.containerStatuses[0].imageID}{"\n"}{end}' \
 //          | sed 's#docker-pullable://##' | sort -u > /tmp/baseline-images.txt
 //   2) 시드 (docker.io 푸시 권한 필요 — 먼저 `docker login`; 먼저 --dry-run 권장)
-//        node deploy/release/seed-baseline.mjs --version 0.8.0 --commit $(git rev-parse 699ddce2e) --images /tmp/baseline-images.txt [--dry-run | --upload] [--force] [--out <file>]
+//        node deploy/release/seed-baseline.mjs --version 0.8.0 --commit $(git rev-parse a5d66d059) --images /tmp/baseline-images.txt [--dry-run | --upload] [--force] [--out <file>]
 // 필요 환경(--upload · 게시 여부 확인): CI_API_V4_URL · CI_PROJECT_ID + CI_JOB_TOKEN 또는 GITLAB_TOKEN.
 // 그 버전이 이미 게시돼 있으면 --force 없이 거부한다. --upload 일 때 게시 여부를 확인하지 못하면 중단한다(로컬 시드·dry-run 은 경고 후 진행).
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -43,7 +43,7 @@ export function parseSources(text) {
 /**
  * 원본 이미지들을 `<repo>:<version>` 으로 복사하고 기준 릴리스 매니페스트를 돌려준다.
  * 입력은 첫 create 전에 전부 검증한다(일부만 태그가 붙은 채 멈추지 않게). 복사 뒤 다시 읽은 digest 가 원본과 다르면 해당 id 를 담아 throw.
- * 카탈로그에 있어도 sources 에 없는 앱(converter)은 매니페스트에서 빠진다.
+ * 카탈로그에 있어도 sources 에 없는 앱은 매니페스트에서 빠진다(다음 릴리스에서 new-app 으로 빌드). converter 는 10-17 부터 운영에 있으니 sources 에 넣는다.
  */
 export function seedBaseline({ catalog, version, commit, sources, exec = defaultExec, now = new Date() }) {
   assertVersion(version);
