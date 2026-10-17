@@ -39,10 +39,11 @@ pnpm --filter @smart-workplace/mcp-tools-shared build   # dist 는 git 무시라
 
 ```sh
 pnpm lint && pnpm typecheck && pnpm test:plugin
-sh scripts/husky/pre-push.sh   # web vitest → web E2E 전체(preview) → admin E2E → api gradle 전체. push 게이트와 같다(10분 이상)
+pnpm test:full   # web vitest → web E2E 전체(preview) → admin E2E → api gradle 전체. push 게이트와 같다(10분 이상)
 ```
 
-- `pre-push.sh` 는 저장소 전역 락을 잡는다 — 다른 세션의 게이트가 돌고 있으면 기다린다. 락 파일을 지우거나 그 프로세스를 끝내지 않는다.
+- 통과하면 그 커밋 트리를 「검증 완료」로 기록해, 같은 트리(스쿼시·`--no-ff` 머지 결과가 같을 때)를 push 할 때 pre-push 가 회귀를 다시 돌지 않는다 — 커밋한 상태에서 돌려야 기록된다.
+- `test:full` 은 저장소 전역 락을 잡는다 — 다른 세션의 게이트가 돌고 있으면 기다린다. 락 파일을 지우거나 그 프로세스를 끝내지 않는다.
 - 병렬·부하에서만 깨지는 테스트는 제외하지 말고 원인을 고친다(시간 단언·실시간 데드라인을 없애 결정적으로).
 
 ## 4. 격리 라이브 스택 (`process-issue.md` 8·10번)
