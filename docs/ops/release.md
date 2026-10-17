@@ -16,7 +16,7 @@ Gen:iA Works 운영(prod, kubecontext `iacloud-prod-public`, namespace `smart-wo
 
 ## ① 준비
 
-Claude 세션에서 `/release prepare` — 범위 수집·버전 제안(`deploy/release/prepare.mjs plan`), 이슈 본문으로 노트 초안, 사람 확정, `releases/<버전>.md` 커밋·머지·push, 마지막 확인 뒤 태그 push. 절차와 노트 쓰는 법은 `.claude/skills/release/SKILL.md` 가 정본이다.
+Claude 세션에서 `/release prepare` — 범위 수집·버전 제안(`deploy/release/prepare.mjs plan`), 이슈 본문으로 노트 초안, 사람 확정, `releases/<버전>.md` 커밋·머지·push, 마지막 확인 뒤 태그 push. 절차는 `.claude/skills/release/SKILL.md`, 노트 형식·문장은 `docs/ops/release-notes.md`(릴리스 노트 작성 가이드)가 정본이다.
 
 노트만 바뀐 push 와 태그 push 는 pre-push 회귀를 건너뛴다(`scripts/husky/pre-push.sh`). 코드 머지는 워크트리에서 머지 전에 `pnpm test:full` 을 통과시켜 두면, 같은 트리의 main push 에서 회귀를 다시 돌지 않는다.
 
