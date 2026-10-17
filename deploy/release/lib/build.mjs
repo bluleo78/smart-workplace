@@ -2,25 +2,29 @@
 // 흐름: 사전 검사 → 변경 감지(selectImages) → 변경된 앱만 빌드(+push) → 전부 성공한 뒤에만 `:<버전>` 태그 → 태그 digest 검증 → 매니페스트.
 // 외부 명령(git·docker)은 전부 주입된 `exec(cmd, args, opts?)`(동기, 실패 시 throw, `{ stdout }` 반환)로만 부른다 — 테스트가 실제 git·docker 없이 검증한다.
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { isPlainObject, loadCatalog, workspaceDeps } from './catalog.mjs';
-import { isoSeconds } from './cli.mjs';
+import { isoSeconds, withTempDir } from './cli.mjs';
 import { findBaseTag, isVersionTag, parseVersion } from './semver.mjs';
 import { selectImages } from './select.mjs';
 
-const DIGEST_RE = /^sha256:[0-9a-f]{64}$/;
+/** 이미지 digest `sha256:<64hex>` — 빌드·승계·기준 매니페스트 검증과 반영 도구(deploy.mjs 의 imageID 추출)가 함께 쓴다. */
+export const DIGEST_RE = /^sha256:[0-9a-f]{64}$/;
+/** git 커밋 SHA(40자 소문자 hex) — GIT_SHA·매니페스트 commit 검사에 함께 쓴다. */
+export const SHA_RE = /^[0-9a-f]{40}$/;
 /** dry-run 이 build 결과로 내는 가짜 digest — 실제 이미지가 없다는 게 한눈에 보이게 전부 0. */
 const DRY_RUN_DIGEST = `sha256:${'0'.repeat(64)}`;
 
 /**
  * 실제 실행기. 기본은 stdout 을 잡아 돌려주고, `{ capture: false }` 면 자식의 출력을 그대로 흘린다(긴 docker 빌드 로그를 실시간으로 보려고).
+ * `toStderr: true`(capture: false 와 함께)면 자식의 stdout 도 우리 stderr 로 흘려 보낸다 — 호출 도구의 stdout 은 체크리스트·상태 표 전용으로 남긴다(helm 요약 등이 섞이지 않게).
  * 종료 코드가 0 이 아니면 명령과 stderr 를 담아 throw 한다.
  */
-export function defaultExec(cmd, args, { capture = true, cwd } = {}) {
+export function defaultExec(cmd, args, { capture = true, cwd, toStderr = false } = {}) {
   // maxBuffer: 기본 1MB 면 릴리스 범위 전체 `git diff -U0`(WP-441, 수백 KB~수 MB)가 ENOBUFS 로 잘린다. 넉넉히 256MB.
-  const r = spawnSync(cmd, args, { cwd, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, stdio: capture ? ['ignore', 'pipe', 'pipe'] : 'inherit' });
+  const r = spawnSync(cmd, args, { cwd, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, stdio: capture ? ['ignore', 'pipe', 'pipe'] : toStderr ? ['inherit', 2, 'inherit'] : 'inherit' });
   if (r.error) throw new Error(`${cmd} 실행 실패: ${r.error.message}`);
   if (r.status !== 0) throw new Error(`${cmd} ${args.join(' ')} 실패 (종료 코드 ${r.status})${r.stderr ? `\n${r.stderr.trim()}` : ''}`);
   return { stdout: r.stdout ?? '' };
@@ -134,7 +138,7 @@ export function findVersionTags({ exec, repoRoot, catalog, version }) {
 export function validateBaseManifest({ manifest, baseVersion, exec, repoRoot, source = '기준 매니페스트' }) {
   if (!isPlainObject(manifest)) throw new Error(`${source}: 매니페스트가 객체가 아니다`);
   if (manifest.schemaVersion !== 1) throw new Error(`${source}: schemaVersion 은 1 이어야 한다 (${JSON.stringify(manifest.schemaVersion)})`);
-  if (manifest.version !== baseVersion) throw new Error(`${source}: version(${JSON.stringify(manifest.version)})이 기준 릴리스(${baseVersion})와 다르다`);
+  if (manifest.version !== baseVersion) throw new Error(`${source}: version(${JSON.stringify(manifest.version)})이 기대한 릴리스(v${baseVersion})와 다르다`);
   if (!isPlainObject(manifest.images)) throw new Error(`${source}: images 가 객체가 아니다`);
   for (const [id, entry] of Object.entries(manifest.images)) {
     if (!isPlainObject(entry)) throw new Error(`${source}: images.${id} 가 객체가 아니다`);
@@ -184,7 +188,7 @@ export function runRelease({ repoRoot, version, base, baseManifest = null, catal
   // 1. 사전 검사: 작업 트리가 깨끗해야 "이 커밋의 이미지"라는 말이 성립한다.
   if (git('status', '--porcelain').trim() !== '') throw new Error('작업 트리가 깨끗하지 않다 (git status --porcelain 결과가 비어 있어야 한다)');
   const gitSha = git('rev-parse', 'HEAD').trim();
-  if (!/^[0-9a-f]{40}$/.test(gitSha)) throw new Error(`GIT_SHA 는 40자 hex 여야 한다: ${JSON.stringify(gitSha)}`);
+  if (!SHA_RE.test(gitSha)) throw new Error(`GIT_SHA 는 40자 hex 여야 한다: ${JSON.stringify(gitSha)}`);
   // 릴리스 태그 `v<버전>` 이 HEAD 를 가리켜야 한다 — 태그 없이/다른 커밋에서 돌리면 :<버전> 이 태그와 무관한 코드를 가리키는 릴리스가 된다.
   // dry-run 은 아무것도 게시하지 않으므로(태그를 만들기 전에 미리 돌려 볼 수 있게) 건너뛴다.
   if (!dryRun) {
@@ -218,8 +222,7 @@ export function runRelease({ repoRoot, version, base, baseManifest = null, catal
   // 3. 빌드. 하나라도 실패하면 `:<버전>` 태그가 하나도 없는 상태로 중단한다(릴리스가 반쪽으로 보이지 않게).
   const created = isoSeconds(now);
   const shaTag = `sha-${gitSha.slice(0, 12)}`;
-  const workDir = mkdtempSync(join(tmpdir(), 'release-build-'));
-  try {
+  withTempDir(tmpdir(), 'release-build-', (workDir) => {
     for (const { id } of plan.filter((p) => p.action === 'build')) {
       const image = byId.get(id);
       const metadataFile = join(workDir, `${id}.json`);
@@ -237,9 +240,7 @@ export function runRelease({ repoRoot, version, base, baseManifest = null, catal
       if (!DIGEST_RE.test(digest ?? '')) throw new Error(`${id}: 빌드 메타데이터에서 digest 를 읽지 못했다 (${JSON.stringify(digest)})`);
       digests.set(id, digest);
     }
-  } finally {
-    rmSync(workDir, { recursive: true, force: true });
-  }
+  });
 
   // 4. 모든 앱에 `:<버전>` 태그 — 빌드 앱은 새 digest, 승계 앱은 기준 digest. 중간 실패 시 일부 앱에만 태그가 남을 수 있고,
   //    다시 돌리면 빌드 앱은 `created` 라벨이 달라 새로 빌드된다. 그래서 CLI 가 이미 게시된 릴리스는 --force 없이 막는다.

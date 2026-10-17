@@ -1,10 +1,10 @@
 // CLI 공용 도구(lib/cli.mjs) 테스트 (WP-440) — 임시 폴더만 쓰고 네트워크·docker 는 쓰지 않는다.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { defaultManifestPath, defaultOutPath, finishManifest, isMainModule, isoSeconds, tolerate, writeManifestReport } from '../lib/cli.mjs';
+import { defaultManifestPath, defaultOutPath, finishManifest, isMainModule, isoSeconds, tolerate, withTempDir, writeManifestReport } from '../lib/cli.mjs';
 import { serializeManifest } from '../lib/manifest-store.mjs';
 import { REPO, fakeDigest, makeTmp } from './helpers.mjs';
 
@@ -95,4 +95,46 @@ test('finishManifest: 파일을 쓰고 표를 낸 뒤 --upload 이고 dry-run �
   assert.equal(dry.uploads.length, 0);
   assert.equal(dry.logs.at(-1), '[dry-run] 매니페스트 업로드는 건너뛴다');
   rmSync(dir, { recursive: true, force: true });
+});
+
+test('withTempDir: baseDir 아래 <prefix>XXXXXX 를 만들어 넘기고, 동기 fn 이면 동기로 결과를 돌려준 뒤 지운다(던져도 지운다)', () => {
+  const base = makeTmp('cli-tempdir-');
+  try {
+    let seen;
+    const r = withTempDir(base, 'work-', (dir) => {
+      seen = dir;
+      assert.ok(dir.startsWith(join(base, 'work-')));
+      assert.ok(existsSync(dir));
+      return 42;
+    });
+    assert.equal(r, 42, 'Promise 가 아니라 값 그대로');
+    assert.ok(!existsSync(seen));
+    assert.throws(() => withTempDir(base, 'work-', () => {
+      throw new Error('boom');
+    }), /boom/);
+    assert.deepEqual(readdirSync(base), []);
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test('withTempDir: fn 이 Promise 를 돌려주면 끝난 뒤(성공·실패 모두) 지운다', async () => {
+  const base = makeTmp('cli-tempdir-');
+  try {
+    let seen;
+    const p = withTempDir(base, 'work-', async (dir) => {
+      seen = dir;
+      await new Promise((r) => setImmediate(r));
+      assert.ok(existsSync(dir), '끝나기 전에는 남아 있다');
+      return 'ok';
+    });
+    assert.equal(await p, 'ok');
+    assert.ok(!existsSync(seen));
+    await assert.rejects(withTempDir(base, 'work-', async () => {
+      throw new Error('async boom');
+    }), /async boom/);
+    assert.deepEqual(readdirSync(base), []);
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
 });

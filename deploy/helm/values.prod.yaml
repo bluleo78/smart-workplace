@@ -1,5 +1,5 @@
 # prod 클러스터(kubecontext iacloud-prod-public, smart-prod-*)용 오버라이드. 2026-09-30 PoC→prod 이관(WP-116).
-# 반영은 deploy/release/release.sh 가 이 파일과 릴리스 매니페스트의 이미지 값으로 helm upgrade 한다(README).
+# 반영은 deploy/release/release.mjs 가 이 파일과 릴리스 매니페스트의 이미지 값으로 helm upgrade 한다(README).
 # ⚠️ 비밀 Secret(existingSecret)의 ENCRYPTION_MASTER_KEY 는 PoC 에서 이관한 값 그대로여야 한다 — 다르면 DB 의
 #    암호화 컬럼·메일 첨부 캐시(.enc)를 복호화할 수 없다.
 

@@ -1,5 +1,5 @@
-// 두 CLI(build-images · seed-baseline)가 함께 쓰는 작은 도구 (WP-440).
-import { realpathSync, writeFileSync } from 'node:fs';
+// 릴리스 CLI(build-images · seed-baseline · release)가 함께 쓰는 작은 도구 (WP-440).
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { serializeManifest } from './manifest-store.mjs';
@@ -20,6 +20,26 @@ export const defaultOutPath = (repoRoot, name) => join(repoRoot, name);
 
 /** 매니페스트의 기본 출력 경로 — 저장소 루트의 `release-manifest.json`. */
 export const defaultManifestPath = (repoRoot) => defaultOutPath(repoRoot, 'release-manifest.json');
+
+/**
+ * `baseDir` 아래에 `<prefix>XXXXXX` 임시 디렉터리를 만들어 `fn(dir)` 에 넘기고, 끝나면(성공·실패 모두) 지운다.
+ * fn 이 동기면 동기로 끝내고(호출자가 동기 함수로 남을 수 있게) 결과를 그대로 돌려주며, Promise(thenable)를 돌려주면 그것이 끝난 뒤 지운다.
+ * baseDir 를 받는 이유: 테스트가 임시 디렉터리 위치를 바꿔 끼워 「끝에 비었는가」를 확인한다.
+ */
+export function withTempDir(baseDir, prefix, fn) {
+  const dir = mkdtempSync(join(baseDir, prefix));
+  const cleanup = () => rmSync(dir, { recursive: true, force: true });
+  let result;
+  try {
+    result = fn(dir);
+  } catch (err) {
+    cleanup();
+    throw err;
+  }
+  if (typeof result?.then === 'function') return Promise.resolve(result).finally(cleanup);
+  cleanup();
+  return result;
+}
 
 /**
  * `fn()` 의 실패를 `when` 일 때만 경고(`경고: <what> (<사유>)`)로 삼키고 `fallback` 을 돌려준다. `when` 이 아니면 그대로 던진다.
