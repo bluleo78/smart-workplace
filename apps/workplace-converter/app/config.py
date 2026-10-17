@@ -30,7 +30,7 @@ RHWP_SLOTS = int(os.environ.get("CONVERTER_RHWP_SLOTS", "4"))
 # 외부 실행 파일 경로 — 이미지에서는 PATH 에 있으므로 기본은 이름만.
 RHWP_BIN = os.environ.get("CONVERTER_RHWP_BIN", "rhwp")
 RSVG_BIN = os.environ.get("CONVERTER_RSVG_BIN", "rsvg-convert")
-# UNO 헬퍼를 돌릴 파이썬 — python3-uno 는 시스템 파이썬에만 설치되므로 앱 파이썬과 분리.
+# UNO 헬퍼를 돌릴 파이썬 — python3-uno 는 시스템 파이썬 site-packages 에만 있어 격리된 앱 venv 에서는 import 할 수 없다.
 UNO_PYTHON = os.environ.get("CONVERTER_UNO_PYTHON", "/usr/bin/python3")
 SOFFICE_BIN = os.environ.get("CONVERTER_SOFFICE_BIN", "soffice")
 # 상주 soffice 의 UNO 소켓 포트(Pod 내부 루프백 전용).
