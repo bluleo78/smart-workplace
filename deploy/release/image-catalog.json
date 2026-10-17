@@ -1,0 +1,125 @@
+{
+  "schemaVersion": 1,
+  "platform": "linux/amd64",
+  "images": [
+    {
+      "id": "api",
+      "repository": "docker.io/iacloudops/genia-works-api",
+      "context": "apps/workplace-api",
+      "dockerfile": "apps/workplace-api/Dockerfile",
+      "paths": [
+        "apps/workplace-api/"
+      ]
+    },
+    {
+      "id": "ai-agent",
+      "repository": "docker.io/iacloudops/genia-works-ai-agent",
+      "context": ".",
+      "dockerfile": "apps/workplace-ai-agent/Dockerfile",
+      "paths": [
+        "apps/workplace-ai-agent/",
+        "pnpm-lock.yaml",
+        "pnpm-workspace.yaml",
+        "package.json",
+        ".npmrc",
+        "patches/",
+        ".dockerignore"
+      ]
+    },
+    {
+      "id": "worker",
+      "repository": "docker.io/iacloudops/genia-works-worker",
+      "context": "apps/workplace-worker",
+      "dockerfile": "apps/workplace-worker/Dockerfile",
+      "paths": [
+        "apps/workplace-worker/"
+      ]
+    },
+    {
+      "id": "converter",
+      "repository": "docker.io/iacloudops/genia-works-converter",
+      "context": "apps/workplace-converter",
+      "dockerfile": "apps/workplace-converter/Dockerfile",
+      "paths": [
+        "apps/workplace-converter/"
+      ]
+    },
+    {
+      "id": "mcp",
+      "repository": "docker.io/iacloudops/genia-works-mcp",
+      "context": ".",
+      "dockerfile": "apps/workplace-mcp/Dockerfile",
+      "paths": [
+        "apps/workplace-mcp/",
+        "pnpm-lock.yaml",
+        "pnpm-workspace.yaml",
+        "package.json",
+        ".npmrc",
+        "patches/",
+        ".dockerignore"
+      ]
+    },
+    {
+      "id": "collab",
+      "repository": "docker.io/iacloudops/genia-works-collab",
+      "context": ".",
+      "dockerfile": "apps/workplace-collab/Dockerfile",
+      "paths": [
+        "apps/workplace-collab/",
+        "pnpm-lock.yaml",
+        "pnpm-workspace.yaml",
+        "package.json",
+        ".npmrc",
+        "patches/",
+        ".dockerignore"
+      ]
+    },
+    {
+      "id": "web",
+      "repository": "docker.io/iacloudops/genia-works-web",
+      "context": ".",
+      "dockerfile": "apps/workplace-web/Dockerfile",
+      "buildArgs": {
+        "VITE_MCP_URL": ""
+      },
+      "paths": [
+        "apps/workplace-web/",
+        "pnpm-lock.yaml",
+        "pnpm-workspace.yaml",
+        "package.json",
+        ".npmrc",
+        "patches/",
+        ".dockerignore",
+        "scripts/vite-app-version.mjs",
+        "scripts/vite-app-version.d.mts",
+        "releases/"
+      ]
+    },
+    {
+      "id": "admin",
+      "repository": "docker.io/iacloudops/genia-works-admin",
+      "context": ".",
+      "dockerfile": "apps/workplace-admin/Dockerfile",
+      "paths": [
+        "apps/workplace-admin/",
+        "pnpm-lock.yaml",
+        "pnpm-workspace.yaml",
+        "package.json",
+        ".npmrc",
+        "patches/",
+        ".dockerignore",
+        "scripts/vite-app-version.mjs",
+        "scripts/vite-app-version.d.mts"
+      ]
+    },
+    {
+      "id": "db",
+      "repository": "docker.io/iacloudops/genia-works-db",
+      "context": "db",
+      "dockerfile": "db/Dockerfile",
+      "paths": [
+        "db/"
+      ]
+    }
+  ]
+}
