@@ -30,36 +30,20 @@ node deploy/release/prepare.mjs plan            # 기준 = 조상 중 가장 높
 
 ## 2. 노트 초안
 
-`issues` 의 키마다 genia-works MCP `get_issue_detail` 로 **이슈 제목·본문을 읽고** 쓴다(커밋 제목을 옮겨 적지 않는다). `internal: true`(테스트·리팩터·인프라 전용) 이슈도 본문을 한 번 훑어 사용자 체감 변경이 정말 없는지 확인한다. 키 없는 커밋(`unkeyed`)도 본다.
+**형식·문장 규칙은 `docs/ops/release-notes.md`(릴리스 노트 작성 가이드)가 기준이다 — 먼저 읽고 그대로 쓴다.**
 
-쓰는 법(독자는 팀원·고객사 사용자):
-- 화면 영역별 `##` 제목으로 묶는다 — 이슈·메일·드라이브·노트·채팅·캘린더·홈·AI·설정 등 앱 메뉴 이름.
-- 항목은 「무엇을 할 수 있게 됐는지」를 사용자 말투(「~할 수 있습니다」·「~합니다」)로 한 줄. 예: `- 한글·오피스 문서를 내려받지 않고 바로 미리볼 수 있습니다`
-- 넣지 않는 것: 이슈 키, 기술 이름(Helm·컨테이너·converter·마이그레이션 등), 테스트·리팩터·CI·문서·배포 도구 변경, 사용자가 알아챌 수 없는 내부 수정.
-- 버그 수정은 사용자가 겪던 증상 기준으로(「~가 안 되던 문제를 고쳤습니다」).
-- 사용자 체감 변경이 하나도 없으면 `hidden: true` + 본문 `사용자에게 보이는 변경 없음` 한 줄(새 소식 목록·안 읽음 점에서 빠진다).
+`issues` 의 키마다 genia-works MCP `get_issue_detail` 로 **이슈 제목·본문을 읽고** 쓴다(커밋 제목을 옮겨 적지 않는다). `internal: true`(테스트·리팩터·인프라 전용) 이슈도 본문을 한 번 훑어 사용자 체감 변경이 정말 없는지 확인한다. 키 없는 커밋(`unkeyed`)도 본다.
 
 초안과 제안 버전을 사용자에게 보여 주고 **버전과 문장을 확정받는다**. 고치라는 데는 고쳐 다시 보여 준다.
 
 ## 3. 노트 커밋 → 머지 → push → 태그
 
 ```sh
-# releases/<버전>.md — 형식은 앱이 읽는 것과 같다(apps/workplace-web/e2e/fixtures/releases 참고)
-cat > releases/0.9.0.md <<'NOTE'
----
-version: 0.9.0
-date: 2026-10-20
-range: v0.8.0..4257f9e1f718
----
-
-## 드라이브
-- 한글·오피스 문서를 내려받지 않고 바로 미리볼 수 있습니다
-NOTE
+# releases/<버전>.md 를 쓴다 — 머리 정보(version·date·range·hidden)와 본문 형식은 docs/ops/release-notes.md
 node deploy/release/prepare.mjs check-note releases/0.9.0.md --base-version <baseVersion>
 git add releases/0.9.0.md && git commit -m "docs(repo): v0.9.0 릴리스 노트를 추가한다"
 ```
 
-- `date` 는 태그 찍는 날(KST), `range` 는 plan 결과 그대로, `hidden` 은 숨길 때만.
 - 노트 커밋의 부모가 plan 의 `to` 인지 확인한다(`git rev-parse release/next^`). 그 사이 main 이 움직였어도 노트 커밋은 그대로 둔다 — 태그는 노트 커밋에 찍으므로 새 머지는 이번 릴리스에 들지 않는다.
 - main 작업 폴더에서 `git merge --no-ff release/next` 로 머지(머지 메시지 `merge: v0.9.0 릴리스 노트`). 노트만 바뀐 커밋이라 pre-commit·pre-push 회귀는 생략된다.
 - **push 는 사용자 확인 뒤**: `git push origin main` → `git push --no-verify gitlab main`(GitLab 이 태그 파이프라인을 돌리는 곳, 미러라 훅 생략).
