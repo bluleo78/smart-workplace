@@ -8,6 +8,7 @@
     "test": "turbo run test",
     "test:plugin": "node --test plugins/genia-works/tests/*.test.mjs",
     "test:helm": "node --test deploy/helm/tests/*.test.mjs",
+    "test:release": "node --test deploy/release/tests/*.test.mjs",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "clean": "turbo run clean",
