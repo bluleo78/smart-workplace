@@ -16,7 +16,7 @@ v1: AI를 Assignee로 둘 수 있는 이슈 트래커(+이슈 컨텍스트 chat)
 - 코딩 컨벤션: [docs/CODING_CONVENTION.md](docs/CODING_CONVENTION.md)
 - 로컬 DB: 포트 5434(dev). 컨테이너 `smart-workplace-db-1`. 테스트는 Testcontainers 가 격리 DB 를 자동 기동(Docker 데몬만 필요, 별도 컨테이너 상시 기동 불요)
 - 로컬 서버 포트는 6000번대로 통일: API 6060 · AI Agent 6070 · Worker 6080 · Converter 6085 · MCP 6090 · Web 6173 · Admin 6174
-- (운영 compose 는 내부 포트를 별도 명시 주입 — 로컬 포트 변경과 무관)
+- (운영은 Helm 차트 `deploy/helm` 이 컨테이너 포트를 따로 정한다 — 로컬 포트 변경과 무관. 릴리스·반영 절차는 `docs/ops/release.md`)
 
 ## 이슈 관리
 

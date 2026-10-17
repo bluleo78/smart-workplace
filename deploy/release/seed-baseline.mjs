@@ -66,7 +66,7 @@ export function seedBaseline({ catalog, version, commit, sources, exec = default
     exec('docker', imagetoolsCreateArgs(target, sources.get(id)));
     const actual = inspectDigest(exec, target);
     if (actual !== digests.get(id)) throw new Error(`${id}: ${target} 의 digest 가 원본과 다르다 (원본 ${digests.get(id)}, 실제 ${actual})`);
-    // buildArgs: 기준 이미지는 deploy.sh 가 카탈로그와 같은 인자(web 은 VITE_MCP_URL 빈 값)로 빌드했다 — 다음 릴리스가 인자 변경을 감지하는 기준이 된다.
+    // buildArgs: 기준 이미지는 옛 scripts/deploy.sh(v0.8.0 = a5d66d059 시점, 전환 뒤 삭제)가 카탈로그와 같은 인자(web 은 VITE_MCP_URL 빈 값)로 빌드했다 — 다음 릴리스가 인자 변경을 감지하는 기준이 된다.
     images[id] = { repository, digest: digests.get(id), action: 'carry', reasons: ['baseline'], builtVersion: version, builtCommit: commit, buildArgs: byId.get(id).buildArgs ?? {} };
   }
   return { schemaVersion: 1, version, commit, baseVersion: null, createdAt: isoSeconds(now), images };
