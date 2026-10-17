@@ -15,8 +15,11 @@ export function isMainModule(importMetaUrl) {
 /** 밀리초 없는 UTC ISO8601 (`2026-10-17T01:02:03Z`). */
 export const isoSeconds = (date) => date.toISOString().replace(/\.\d{3}Z$/, 'Z');
 
-/** 매니페스트의 기본 출력 경로 — 저장소 루트의 `release-manifest.json`(루트 .gitignore 가 무시). 실행 위치(cwd)와 무관하게 같은 곳에 쓰려고 루트 기준으로 못 박는다. */
-export const defaultManifestPath = (repoRoot) => join(repoRoot, 'release-manifest.json');
+/** 기본 출력 경로 — 저장소 루트의 `<name>`(루트 .gitignore 가 무시). 실행 위치(cwd)와 무관하게 같은 곳에 쓰려고 루트 기준으로 못 박는다. */
+export const defaultOutPath = (repoRoot, name) => join(repoRoot, name);
+
+/** 매니페스트의 기본 출력 경로 — 저장소 루트의 `release-manifest.json`. */
+export const defaultManifestPath = (repoRoot) => defaultOutPath(repoRoot, 'release-manifest.json');
 
 /**
  * `fn()` 의 실패를 `when` 일 때만 경고(`경고: <what> (<사유>)`)로 삼키고 `fallback` 을 돌려준다. `when` 이 아니면 그대로 던진다.

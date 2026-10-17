@@ -14,8 +14,17 @@ imagePullSecrets:
   - name: dockerhub-pull
 
 # 앱이 envFrom·secretKeyRef 로 읽는 비밀값 Secret 이름(Helm 밖에서 생성·관리).
-# 키: POSTGRES_PASSWORD, JWT_SECRET, ENCRYPTION_MASTER_KEY, WORKPLACE_AI_AGENT_TOKEN, M365_CLIENT_SECRET, SSO_M365_CLIENT_SECRET
 existingSecret: smart-workplace-secrets
+# existingSecret 이 담고 있어야 하는 키 — 템플릿은 쓰지 않는 문서용 목록이다.
+# 사람에게는 Secret 에 무엇을 넣어야 하는지 알려 주고, 릴리스 체크리스트(deploy/release/checklist.mjs)는
+# 이 키들을 「이미 배포 설정에 있는 환경변수」로 취급한다(템플릿에 이름이 안 나와도 envFrom 으로 주입되므로).
+existingSecretKeys:
+  - POSTGRES_PASSWORD
+  - JWT_SECRET
+  - ENCRYPTION_MASTER_KEY
+  - WORKPLACE_AI_AGENT_TOKEN
+  - M365_CLIENT_SECRET
+  - SSO_M365_CLIENT_SECRET
 
 # 반영한 릴리스 정보 — release.sh 가 --set 으로 넣고 `release status` 가 helm get values 로 읽는다.
 # 파드 템플릿에는 쓰지 않는다(넣으면 릴리스마다 모든 앱이 재기동된다).

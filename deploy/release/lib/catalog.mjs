@@ -12,6 +12,9 @@ const RESERVED_BUILD_ARGS = ['APP_VERSION', 'GIT_SHA'];
 /** null·배열이 아닌 일반 객체인가 — JSON 으로 읽은 값의 모양을 검사할 때 쓴다. */
 export const isPlainObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 
+/** 문자열 비교자(UTF-16 코드 단위 순) — 로케일에 따라 달라지는 localeCompare 대신, 어디서 정렬해도 같은 순서가 나오게 한다. */
+export const cmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+
 /**
  * 카탈로그 객체를 검사한다 — 잘못되면 throw, 맞으면 그대로 돌려준다.
  * 막는 것: 스키마·플랫폼 불일치, id 중복, 저장소 이름 규칙 위반(id 와 어긋나면 Helm images 키와 이미지가 달라진다),

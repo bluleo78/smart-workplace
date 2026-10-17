@@ -19,7 +19,7 @@
 | `genia-works-internal-tls` | tls | admin·mcp 내부 호스트(자체서명) | GitLab CI file 변수 `TLS_INTERNAL_CRT`·`TLS_INTERNAL_KEY` |
 | `genia-works-tls` | tls | 공개 도메인 — cert-manager 가 발급·갱신 | 불필요 |
 
-`smart-workplace-secrets` 키: `POSTGRES_PASSWORD`, `JWT_SECRET`, `ENCRYPTION_MASTER_KEY`, `WORKPLACE_AI_AGENT_TOKEN`, `M365_CLIENT_SECRET`, `SSO_M365_CLIENT_SECRET`.
+`smart-workplace-secrets` 가 담아야 하는 키는 `values.yaml` 의 `existingSecretKeys` 에 있다(템플릿은 쓰지 않는 문서용 목록 — 릴리스 체크리스트가 이 키들을 「이미 설정된 환경변수」로 본다). 키를 늘리거나 줄이면 그 목록도 함께 고친다.
 `ENCRYPTION_MASTER_KEY` 는 이관해 온 값 그대로여야 한다(다르면 DB 암호화 컬럼·메일 첨부 캐시를 못 푼다).
 
 ```sh
