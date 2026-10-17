@@ -1,6 +1,6 @@
 """상주 soffice 에 UNO 소켓으로 붙어 문서 1건을 변환하는 독립 스크립트.
 
-시스템 파이썬(/usr/bin/python3, python3-uno 설치)으로 실행된다 — 앱 파이썬에서는 `import uno` 가 안 되므로
+시스템 파이썬(/usr/bin/python3, python3-uno 설치)으로 실행된다 — 격리된 앱 venv 에서는 `import uno` 가 안 되므로
 app 패키지를 import 하지 않는다(표준 라이브러리 + uno 만).
 
 사용: python3 uno_helper.py --port 2002 --in <원본> --out <결과> --target pdf|txt [--filter <가져오기 필터>]

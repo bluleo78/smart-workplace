@@ -42,8 +42,8 @@ pnpm test:engine  # docker build --target test — 이미지 안에서 engine �
 
 ## 이미지
 
-- `Dockerfile` 스테이지: `build`(런타임 venv) · `build-dev`(+dev 그룹) · `rhwp`(TARGETARCH 별 바이너리 + sha256 검증) · `base`(LibreOffice·python3-uno·rsvg-convert·폰트·nonroot) · `test` · `runtime`(기본 타깃).
-- 런타임: `python:3.12-slim-trixie`, uid 65532, `HOME=/tmp`·`TMPDIR=/tmp`(쓰기는 `/tmp` 만), 포트 7085.
+- `Dockerfile` 스테이지: `lock`(빌드 머신 네이티브에서 uv.lock → 해시 고정 requirements — 에뮬레이션 대상에서 uv 를 돌리지 않음, WP-437) · `build`(런타임 venv, pip 해시 검증 설치) · `build-dev`(+dev 그룹) · `rhwp`(TARGETARCH 별 바이너리 + sha256 검증) · `os`(DHI 데비안 베이스 + python3·LibreOffice·python3-uno·rsvg-convert·폰트) · `base`(os + rhwp + 실행 환경) · `test` · `runtime`(기본 타깃).
+- 런타임: `dhi.io/debian-base:trixie-dev`(Docker Hardened Images 의 셸·apt 포함 -dev 변형 — distroless 아님, apt 로 LibreOffice 등 설치) + 시스템 python3(데비안 3.13 — 앱 venv·UNO 헬퍼 공용), uid 65532, `HOME=/tmp`·`TMPDIR=/tmp`(쓰기는 `/tmp` 만), 포트 7085.
 - 배포 이미지: `ghcr.io/bluleo78/smart-workplace/converter:latest` — `BUILD_ONLY=1 ./scripts/deploy.sh converter`(amd64·arm64).
 
 ## 운영 배포 노트 (K8S)

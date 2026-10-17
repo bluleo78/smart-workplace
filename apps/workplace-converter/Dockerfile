@@ -1,35 +1,71 @@
 # workplace-converter 이미지 (WP-430).
 #
 # 스테이지:
-#   build     — uv.lock 기준 런타임 의존만 venv(/app/.venv)에 설치
+#   lock      — 빌드 머신 네이티브 플랫폼에서 uv.lock 을 해시 고정 requirements 로 내보낸다(런타임·dev 두 벌)
+#   os        — DHI 데비안 베이스 + 시스템 python3·LibreOffice·python3-uno·rsvg-convert·폰트(build·runtime·test 공통)
+#   build     — os + pip 로 lock 의 런타임 requirements 를 venv(/app/.venv)에 설치(해시 검증)
 #   build-dev — build venv 에 dev 그룹(pytest·httpx·python-pptx·python-docx·openpyxl) 추가
 #   rhwp      — TARGETARCH 에 맞는 rhwp v0.8.7 Linux 바이너리를 받아 sha256 검증
-#   base      — LibreOffice·python3-uno·rsvg-convert·폰트·rhwp·nonroot 사용자(runtime·test 공통)
+#   base      — os + rhwp + 실행 환경(runtime·test 공통)
 #   test      — base + dev 의존 venv + tests/ 로 `pytest -q`(engine 마커 포함 전체) — 빌드 성공 = 전체 통과
 #   runtime   — base + 런타임 venv + app/. 맨 끝에 두어 `docker build` 기본 타깃이 된다
 #
-# 왜 distroless 가 아닌가: LibreOffice(soffice)·python3-uno·rsvg-convert·폰트를 apt 로 깔아야 해서
-# 워커와 같은 python:3.12-slim-trixie 를 쓴다. venv 는 인터프리터 경로(/usr/local/bin/python3.12)에 종속되므로
-# 빌드·런타임 베이스를 같은 이미지로 맞춘다.
+# 왜 DHI debian-base(-dev)인가(WP-437): 다른 앱처럼 Docker Hardened Images 로 CVE 를 줄이되, LibreOffice(soffice)·
+# python3-uno·rsvg-convert·폰트를 apt 로 깔아야 해서 셸·apt 가 있는 -dev 변형을 런타임으로 쓴다.
+# dhi.io/python 이 아닌 이유: python3-uno 가 데비안 python3(3.13)을 끌어오면서 DHI 의 python 3.12 패키지를 지운다.
+# 그래서 시스템 python3(데비안 3.13) 하나로 앱 venv 와 UNO 헬퍼를 모두 돌린다. venv 는 인터프리터 경로(/usr/bin/python3)에
+# 종속되므로 build·runtime 을 같은 os 스테이지에서 만든다.
 
-# === build: 런타임 의존 venv ===
-FROM python:3.12-slim-trixie AS build
+# === lock: uv.lock → 해시 고정 requirements (빌드 머신 네이티브 플랫폼에서만 실행) ===
+# 왜 uv 를 대상 플랫폼에서 돌리지 않나(WP-437): Apple Silicon 맥에서 amd64 를 qemu 로 에뮬레이션하면
+# uv 0.6 이상이 `--version` 만으로도 세그폴트(exit 139)라 multi-arch 빌드가 깨진다. uv 는 lock 해석만 네이티브로 하고,
+# 대상 플랫폼 설치는 pip 가 맡는다. 고정 버전·해시가 그대로 넘어가므로 로컬(uv sync)과 같은 버전이 깔린다.
+FROM --platform=$BUILDPLATFORM dhi.io/python:3.12-debian13-dev AS lock
 
 WORKDIR /app
 
-# uv 로 lock 파일 그대로 설치해 로컬(uv sync)과 같은 버전을 보장한다
 RUN pip install --no-cache-dir uv==0.11.10
-ENV UV_PROJECT_ENVIRONMENT=/app/.venv UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never UV_COMPILE_BYTECODE=1
 
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev --no-install-project
+# --no-emit-project: 이 프로젝트 자체는 패키지가 아니라 설치 대상이 아니다(app/ 은 소스 그대로 복사)
+RUN uv export --frozen --no-dev --no-emit-project -o requirements.txt \
+    && uv export --frozen --only-dev --no-emit-project -o requirements-dev.txt
+
+# === os: 런타임 시스템 구성 (build·runtime·test 공통) ===
+FROM dhi.io/debian-base:trixie-dev AS os
+
+# 시스템 python3(앱 venv·UNO 헬퍼 공용) + LibreOffice(Writer·Impress·Calc 가져오기) + python3-uno + rsvg-convert(SVG→PDF)
+# + fontconfig + tini + 폰트. fonts-noto-cjk 는 크기(수백 MB) 때문에 금지 — 한글은 나눔, MS 기본 서체는 메트릭 호환 대체.
+RUN apt-get update && apt-get install --no-install-recommends -y \
+      python3 libreoffice-core libreoffice-writer libreoffice-impress libreoffice-calc python3-uno \
+      librsvg2-bin fontconfig tini \
+      fonts-nanum fonts-crosextra-carlito fonts-crosextra-caladea fonts-liberation fonts-noto-color-emoji \
+    && rm -rf /var/lib/apt/lists/* \
+    && fc-cache -f
+
+# === build: 런타임 의존 venv ===
+FROM os AS build
+
+WORKDIR /app
+
+# pip 는 이 빌드 스테이지에만 둔다(runtime 은 os 에서 갈라지므로 pip 가 들어가지 않는다).
+RUN apt-get update && apt-get install --no-install-recommends -y python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+
+# --require-hashes: lock 의 해시와 다른 배포물을 거부하고, lock 에 없는(해시 없는) 의존이 끼면 설치를 실패시킨다.
+# venv 에는 pip 를 넣지 않고(--without-pip) 시스템 pip 로 설치한다 — runtime 으로 복사되는 venv 에 쓰지 않는 pip 가 남지 않게.
+COPY --from=lock /app/requirements.txt ./
+RUN python3 -m venv --without-pip /app/.venv \
+    && pip --python /app/.venv/bin/python install --no-cache-dir --require-hashes -r requirements.txt
 
 # === build-dev: test 스테이지용 dev 의존 추가 ===
 FROM build AS build-dev
-RUN uv sync --frozen --no-install-project
+COPY --from=lock /app/requirements-dev.txt ./
+RUN pip --python /app/.venv/bin/python install --no-cache-dir --require-hashes -r requirements-dev.txt
 
 # === rhwp: 아키텍처별 바이너리 다운로드 + 무결성 검증 ===
-FROM python:3.12-slim-trixie AS rhwp
+# 받은 파일을 검증·복사만 하므로 빌드 머신 네이티브로 돈다(에뮬레이션 아래 apt·curl 회피). 대상 아키는 TARGETARCH 로 고른다.
+FROM --platform=$BUILDPLATFORM dhi.io/debian-base:trixie-dev AS rhwp
 
 # buildx 가 채우는 대상 아키텍처(amd64·arm64). 단독 `docker build` 에서도 호스트 아키로 채워진다.
 ARG TARGETARCH
@@ -57,23 +93,13 @@ RUN set -eu; \
 
 # === base: runtime·test 공통 레이어 ===
 # test 가 runtime 과 같은 시스템 구성을 쓰면서도 기본 타깃(마지막 스테이지)은 runtime 이 되도록 공통부를 분리한다.
-FROM python:3.12-slim-trixie AS base
+FROM os AS base
 
 WORKDIR /app
 
-# LibreOffice(Writer·Impress·Calc 가져오기) + python3-uno(시스템 파이썬용 UNO 헬퍼) + rsvg-convert(SVG→PDF)
-# + fontconfig + 폰트. fonts-noto-cjk 는 크기(수백 MB) 때문에 금지 — 한글은 나눔, MS 기본 서체는 메트릭 호환 대체.
-RUN apt-get update && apt-get install --no-install-recommends -y \
-      libreoffice-core libreoffice-writer libreoffice-impress libreoffice-calc python3-uno \
-      librsvg2-bin fontconfig tini \
-      fonts-nanum fonts-crosextra-carlito fonts-crosextra-caladea fonts-liberation fonts-noto-color-emoji \
-    && rm -rf /var/lib/apt/lists/* \
-    && fc-cache -f
-
 COPY --from=rhwp /dl/rhwp-bin /usr/local/bin/rhwp
 
-# 워커와 동일한 nonroot(UID 65532)
-RUN useradd --uid 65532 --no-create-home --shell /usr/sbin/nologin nonroot
+# nonroot(UID 65532)는 DHI 베이스에 이미 있다(워커와 동일 UID)
 
 # 운영은 readOnlyRootFilesystem + /tmp tmpfs(emptyDir) 전제 — 홈(LibreOffice 프로필·fontconfig 캐시)과
 # 임시 파일을 모두 /tmp 로 몰아 쓰기 가능한 곳은 /tmp 하나뿐이게 한다.

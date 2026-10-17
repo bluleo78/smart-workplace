@@ -1,7 +1,7 @@
 """상주 LibreOffice(soffice) 관리 — Pod 안에 soffice 하나를 띄워 두고 UNO 헬퍼로 변환한다.
 
 왜 상주인가: 요청마다 soffice 를 새로 띄우면 4~8초, 떠 있는 인스턴스에 소켓으로 붙으면 ~1.2초.
-왜 헬퍼 프로세스인가: python3-uno 는 시스템 파이썬(/usr/bin/python3)에만 설치되어 앱 파이썬(3.12)에서
+왜 헬퍼 프로세스인가: python3-uno 는 시스템 파이썬(/usr/bin/python3) site-packages 에만 설치되어 격리된 앱 venv 에서
 `import uno` 가 안 된다. 그래서 변환 1건마다 시스템 파이썬으로 `uno_helper.py` 를 실행해 소켓에 붙인다.
 
 동시성: soffice 는 한 번에 1건만 처리한다. 바쁘면 기다리지 않고 즉시 429 BUSY — 호출자가 재시도.
