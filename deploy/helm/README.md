@@ -15,7 +15,7 @@
 | Secret | 종류 | 쓰는 곳 | 원본 백업 |
 |---|---|---|---|
 | `smart-workplace-secrets` (`existingSecret`) | generic | 앱 env(`envFrom`·`secretKeyRef`) | GitLab CI file 변수 `HELM_APP_SECRETS_ENV` |
-| `dockerhub-pull` (`imagePullSecrets`) | docker-registry | 모든 파드의 이미지 pull | GitLab CI 변수 `DOCKERHUB_USER`·`DOCKERHUB_TOKEN` |
+| `dockerhub-pull` (`imagePullSecrets`) | docker-registry | 모든 파드의 이미지 pull | GitLab CI 변수 `DOCKERHUB_USERNAME`·`DOCKERHUB_TOKEN` |
 | `genia-works-internal-tls` | tls | admin·mcp 내부 호스트(자체서명) | GitLab CI file 변수 `TLS_INTERNAL_CRT`·`TLS_INTERNAL_KEY` |
 | `genia-works-tls` | tls | 공개 도메인 — cert-manager 가 발급·갱신 | 불필요 |
 
@@ -28,7 +28,7 @@ NS="--context iacloud-prod-public -n smart-workplace"
 kubectl $NS create secret generic smart-workplace-secrets --from-env-file=app-secrets.env
 # Docker Hub pull — 읽기 권한 토큰
 kubectl $NS create secret docker-registry dockerhub-pull \
-  --docker-server=https://index.docker.io/v1/ --docker-username="$DOCKERHUB_USER" --docker-password="$DOCKERHUB_TOKEN"
+  --docker-server=https://index.docker.io/v1/ --docker-username="$DOCKERHUB_USERNAME" --docker-password="$DOCKERHUB_TOKEN"
 # 내부 호스트 TLS
 kubectl $NS create secret tls genia-works-internal-tls --cert=swp-prod-internal.crt --key=swp-prod-internal.key
 ```
@@ -50,7 +50,7 @@ kubectl $NS label secret smart-workplace-secrets app.kubernetes.io/managed-by- h
 
 **전환 이전 리비전(values 에 `release.version` 이 없는 리비전)으로 `helm rollback` 하지 않는다.** 그 리비전들은 Secret 을 차트 값으로 들고 있어, rollback 이 클러스터 Secret 을 옛 값으로 덮거나 다시 Helm 소유로 가져갈 수 있다(이후 업그레이드에서 지워질 위험). 이미지도 `:latest` 라 되돌릴 대상이 정해지지 않는다. 되돌리기는 새 체계 릴리스끼리만 한다.
 
-`release.mjs deploy` 는 매 실행 전에 이 인계 여부(Secret 의 `meta.helm.sh/release-name` 주석)와 필수 Secret 존재를 읽기 전용으로 확인하고, 안 맞으면 반영하지 않는다.
+`release.mjs deploy` 는 매 실행 전에 이 인계 여부(Secret 의 `helm.sh/resource-policy: keep` 주석이 있고 `meta.helm.sh/release-name` 주석이 없는지)와 필수 Secret 존재를 읽기 전용으로 확인하고, 안 맞으면 반영하지 않는다.
 
 이 절차는 운영 전에 임시 namespace 의 작은 차트로 한 번 리허설한다(Helm 4 에서 keep 주석·소유권 제거 뒤 upgrade 가 Secret 을 남기는지).
 
