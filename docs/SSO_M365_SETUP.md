@@ -8,7 +8,7 @@
 3. 토큰 구성 → 선택적 클레임 추가 → ID 토큰: `upn` 만. "OpenID Connect 범위 구성 필요" 안내가 나오면 API 권한에서 `profile` 을 추가하면 된다
    (`email`·`xms_edov` 는 쓰지 않는다 — 계정 매칭은 upn 만 사용)
 4. API 권한: Microsoft Graph 위임 `openid`, `profile`
-5. env 주입: `SSO_M365_CLIENT_ID`(애플리케이션 ID), `SSO_M365_CLIENT_SECRET`, `SSO_M365_REDIRECT_URI` — compose `.env` 와 Helm 차트 values(`~/k8s/smart-workplace`) 모두. 적용 후 api 재시작.
+5. env 주입: `SSO_M365_CLIENT_ID`(애플리케이션 ID), `SSO_M365_CLIENT_SECRET`, `SSO_M365_REDIRECT_URI` — compose `.env` 와 Helm 차트(`deploy/helm` — ID·URI 는 values, 시크릿은 Secret `smart-workplace-secrets`, deploy/helm/README.md) 모두. 적용 후 api 재시작.
 
 ## 2. 워크스페이스 관리자
 1. 설정 › SSO → "SSO 로그인 사용" 켜기

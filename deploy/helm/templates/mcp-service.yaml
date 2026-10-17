@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp
+  labels:
+    {{- include "swp.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: mcp
+  ports:
+    - port: 7090
+      targetPort: 7090
+      name: http

@@ -1,0 +1,11 @@
+# 테스트용 이미지 값 — 실제 반영 때는 릴리스 매니페스트가 같은 모양으로 주입한다(WP-438).
+images:
+  api: { repository: docker.io/iacloudops/genia-works-api, digest: "sha256:0000000000000000000000000000000000000000000000000000000000000001" }
+  ai-agent: { repository: docker.io/iacloudops/genia-works-ai-agent, digest: "sha256:0000000000000000000000000000000000000000000000000000000000000002" }
+  worker: { repository: docker.io/iacloudops/genia-works-worker, digest: "sha256:0000000000000000000000000000000000000000000000000000000000000003" }
+  converter: { repository: docker.io/iacloudops/genia-works-converter, digest: "sha256:0000000000000000000000000000000000000000000000000000000000000004" }
+  mcp: { repository: docker.io/iacloudops/genia-works-mcp, digest: "sha256:0000000000000000000000000000000000000000000000000000000000000005" }
+  collab: { repository: docker.io/iacloudops/genia-works-collab, digest: "sha256:0000000000000000000000000000000000000000000000000000000000000006" }
+  web: { repository: docker.io/iacloudops/genia-works-web, digest: "sha256:0000000000000000000000000000000000000000000000000000000000000007" }
+  admin: { repository: docker.io/iacloudops/genia-works-admin, digest: "sha256:0000000000000000000000000000000000000000000000000000000000000008" }
+  db: { repository: docker.io/iacloudops/genia-works-db, digest: "sha256:0000000000000000000000000000000000000000000000000000000000000009" }

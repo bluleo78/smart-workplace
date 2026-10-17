@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: converter
+  labels:
+    {{- include "swp.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: converter
+  ports:
+    - port: 7085
+      targetPort: 7085
+      name: http

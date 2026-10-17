@@ -93,3 +93,7 @@ apps/workplace-api/data/
 
 # Superpowers 플랜/스펙 (로컬 전용 — 저장소에 추적 안 함)
 docs/superpowers/
+
+# Helm 비밀값·인증서는 저장소에 두지 않는다(백업은 GitLab CI file 변수, WP-438)
+deploy/helm/values.secret*.yaml
+deploy/helm/tls/

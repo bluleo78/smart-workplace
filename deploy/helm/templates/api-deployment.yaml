@@ -1,0 +1,108 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  labels:
+    {{- include "swp.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.appReplicas }}
+  # 과거 ReplicaSet 보관 개수 — rollout restart 반복 시 0-replica RS 누적 방지
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
+  {{- include "swp.rollingStrategy" . | nindent 2 }}
+  selector:
+    matchLabels:
+      app: api
+  template:
+    metadata:
+      labels:
+        app: api
+        app.kubernetes.io/part-of: smart-workplace
+    spec:
+      {{- include "swp.imagePullSecrets" . | nindent 6 }}
+      terminationGracePeriodSeconds: {{ .Values.rollout.apiTerminationGracePeriodSeconds }}
+      initContainers:
+        # api 컨테이너는 nonroot(uid 65532)로 실행되나 NFS 저장 볼륨이
+        # root:root 소유라 쓰기가 막힘 → root로 마운트 소유권을 맞춰줌.
+        - name: fix-storage-perms
+          image: {{ .Values.api.initImage | quote }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          securityContext:
+            runAsUser: 0
+          command:
+            - sh
+            - -c
+            - chown -R 65532:65532 /data/storage-data
+          volumeMounts:
+            - name: storage
+              mountPath: /data/storage-data
+      containers:
+        - name: api
+          image: {{ include "swp.image" (dict "root" $ "id" "api") | quote }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          {{- include "swp.preStop" . | nindent 10 }}
+          ports:
+            - containerPort: 9090
+              name: http
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: prod
+            - name: WORKPLACE_AI_AGENT_URL
+              value: http://ai-agent:7070
+            - name: WORKPLACE_WORKER_URL
+              value: http://worker:7080
+            # 노트 동기화 서버(WP-288) — 미지정 시 기본값 localhost:6095 라 운영에선 반드시 지정
+            - name: WORKPLACE_COLLAB_URL
+              value: http://collab:7095
+            - name: WORKPLACE_COLLAB_ENABLED
+              value: "true"
+            # 문서 변환 서비스(WP-430~432 미리보기 PDF) — 미지정 시 기본값 localhost:6085 라 운영에선 반드시 지정
+            - name: WORKPLACE_CONVERTER_URL
+              value: http://converter:7085
+            # worker 콜백 인증용 내부 서비스 토큰 (= aiAgentToken)
+            - name: INTERNAL_SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: WORKPLACE_AI_AGENT_TOKEN
+            # worker가 ro로 마운트하는 동일 공유 파일 저장 루트 경로
+            - name: WORKPLACE_STORAGE_ROOT_DIR
+              value: /data/storage-data
+            - name: CORS_ALLOWED_ORIGINS
+              value: {{ .Values.api.corsAllowedOrigins | quote }}
+          envFrom:
+            # POSTGRES_DB/USER/HOST/PORT
+            - configMapRef:
+                name: smart-workplace-config
+            # POSTGRES_PASSWORD, JWT_SECRET, ENCRYPTION_MASTER_KEY, WORKPLACE_AI_AGENT_TOKEN
+            - secretRef:
+                name: {{ .Values.existingSecret }}
+          startupProbe:
+            httpGet:
+              path: /actuator/health
+              port: 9090
+            periodSeconds: 10
+            failureThreshold: 18   # 최대 ~180s 기동 대기 (compose start_period 120s 대응)
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 9090
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 9090
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 5
+          volumeMounts:
+            # worker가 ro로 마운트하는 동일 파일 저장 볼륨을 api는 rw로 마운트
+            - name: storage
+              mountPath: /data/storage-data
+          resources:
+            {{- toYaml .Values.api.resources | nindent 12 }}
+      volumes:
+        - name: storage
+          persistentVolumeClaim:
+            claimName: storage-data

@@ -1,0 +1,191 @@
+# smart-workplace Helm values
+# 비밀값은 차트가 만들지 않는다 — 클러스터에 미리 만든 Secret(existingSecret)을 참조한다(README 참조, WP-438).
+# 아래 값들은 모두 helm upgrade 로 나중에 변경 가능합니다.
+
+# 앱 이미지 — 릴리스 매니페스트(release-manifest.json)가 반영 시 주입한다. 여기에 기본값을 두지 않는다
+# (값이 없으면 렌더가 실패해 :latest 같은 떠다니는 태그로 새지 않는다). 키는 이미지 카탈로그의 앱 id.
+#   images:
+#     api: { repository: docker.io/iacloudops/genia-works-api, digest: "sha256:<64자 hex>" }
+images: {}
+# digest 로 고정하므로 노드에 있으면 다시 받지 않는다.
+imagePullPolicy: IfNotPresent
+# Docker Hub private 저장소 pull 자격. Secret 은 Helm 밖에서 만든다(README).
+imagePullSecrets:
+  - name: dockerhub-pull
+
+# 앱이 envFrom·secretKeyRef 로 읽는 비밀값 Secret 이름(Helm 밖에서 생성·관리).
+# 키: POSTGRES_PASSWORD, JWT_SECRET, ENCRYPTION_MASTER_KEY, WORKPLACE_AI_AGENT_TOKEN, M365_CLIENT_SECRET, SSO_M365_CLIENT_SECRET
+existingSecret: smart-workplace-secrets
+
+# 반영한 릴리스 정보 — release.sh 가 --set 으로 넣고 `release status` 가 helm get values 로 읽는다.
+# 파드 템플릿에는 쓰지 않는다(넣으면 릴리스마다 모든 앱이 재기동된다).
+release:
+  version: ""
+  commit: ""
+
+# Deployment 가 보관할 과거 ReplicaSet 개수. 기본값(10)이면 rollout restart 를 반복할수록
+# 0-replica RS 가 무한정 쌓여(2026-08-13 기준 앱당 11개, 총 66개) `kubectl get all` 출력을 뒤덮는다.
+# 3 이면 직전 3개 리비전까지 롤백 가능하면서 잔여물이 정리된다.
+revisionHistoryLimit: 3
+
+# 앱 Deployment 6개(api·ai-agent·web·admin·worker·mcp)의 replicas. db StatefulSet 은 제외.
+# 2026-09-30 prod 이관(WP-116): 신규 클러스터에 설치할 때 --set appReplicas=0 으로 db 만 먼저 띄워,
+# api 의 Flyway 가 빈 DB 를 초기화하기 전에 pg_restore 를 끝내기 위해 둔 값.
+appReplicas: 1
+
+# 무중단 롤링 배포(WP-164). preStop 대기 동안 Endpoint 에서 빠지고, 그 뒤 앱이 graceful 종료한다.
+# terminationGracePeriodSeconds 는 preStop 대기 + 앱 종료 시간보다 커야 한다(넘으면 SIGKILL).
+#  - api: Spring Boot 3.5 기본 graceful(timeout-per-shutdown-phase 30s) — SSE 등 긴 요청이 있으면 최대 30s 대기
+rollout:
+  maxSurge: 1
+  maxUnavailable: 0
+  preStopSleepSeconds: 10
+  terminationGracePeriodSeconds: 30   # web·admin·mcp·worker
+  apiTerminationGracePeriodSeconds: 50  # preStop 10s + Spring graceful 최대 30s + 여유
+  aiAgentTerminationGracePeriodSeconds: 350  # preStop 10s + 진행 중 실행 대기 최대 330s(SHUTDOWN_DRAIN_MS) + 여유(WP-167)
+
+# PVC가 사용할 StorageClass (현재 클러스터 유일: NFS 기반)
+storageClass: smart-fs1
+
+ingress:
+  enabled: true
+  className: nginx
+  # 2026-07-07: 구 190.73 클러스터 폐기 후 cloudia(179.60)로 전환, web/admin은 실도메인을 주 호스트로 사용.
+  # mcp는 아직 실도메인이 없어 nip.io 유지.
+  webHost: collaboria-demo.iacloud.kr
+  adminHost: collaboria-admin-demo.iacloud.kr
+  mcpHost: mcp.192.168.179.60.nip.io
+  webAltHost: ""
+  adminAltHost: ""
+  # true 면 webHost 의 /mcp 경로도 mcp 서비스로 라우팅한다(공개 도메인 경로 방식). mcpHost 와 병행.
+  mcpPathOnWeb: false
+  # 업로드 본문 크기 상한. api 의 spring.servlet.multipart.max-request-size(275MB)와 맞춘다.
+  # 기본값(1MiB)이면 1MiB 초과 업로드가 413 으로 잘려 api 로그에 흔적조차 남지 않는다.
+  proxyBodySize: 275m
+  tls:
+    enabled: true
+    # 자체서명 인증서 Secret. 재생성: smart-workplace/tls/ 의 crt/key로
+    #   kubectl create secret tls smart-workplace-tls -n smart-workplace --cert=... --key=...
+    secretName: smart-workplace-tls
+    # cert-manager 로 공개 인증서를 발급할 때만 켠다(prod). 끄면 위 secretName 의 Secret 을 수동으로 만든다(PoC 자체서명).
+    # dnsNames 는 외부에서 80 으로 도달 가능한 공개 도메인만(HTTP-01) — nip.io 내부 호스트를 넣으면 발급 전체가 실패한다.
+    # 비우면 admin·mcp 도 위 secretName 항목에 함께 들어간다(PoC). prod 는 내부 호스트용 자체서명 Secret 이름.
+    internalSecretName: ""
+    certManager:
+      enabled: false
+      clusterIssuer: letsencrypt-production
+      dnsNames: []
+
+db:
+  # 이미지는 images.db(PG18 + pgvector 커스텀 하드닝, nonroot uid 70, PGDATA=/var/lib/postgresql/18/data).
+  # 2026-07-11 PG16→PG18 dump/restore 마이그레이션 완료. 구 pgvector/pgvector:pg16에서 이관.
+  storage: 10Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+
+api:
+  # 볼륨 권한 init 컨테이너 — 공개 이미지지만 앱 이미지처럼 digest 로 고정(노드마다 다른 빌드·rollback 어긋남 방지)
+  initImage: busybox:1.36@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
+  # 접속이 HTTPS(http→https 308 리다이렉트)라 브라우저 Origin은 https. 호스트 바뀌면 같이 수정.
+  corsAllowedOrigins: "https://collaboria-demo.iacloud.kr,https://collaboria-admin-demo.iacloud.kr"
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      memory: 1536Mi
+
+aiAgent:
+  # 2026-08-04: limit 1Gi에서 반복 OOMKilled(파드당 ~9분 주기, 8일간 누적 재시작 18회+) → 2Gi로 상향.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 2Gi
+
+# 신규 worker 서비스 (api 파일 처리). api와 storage 볼륨 공유.
+worker:
+  # 임베딩(BGE-M3) 서버 — 미지정 시 워커 기본값 localhost:11434 로 붙어 Connection refused (WP-383·384)
+  ollamaBaseUrl: http://bluelion.iptime.org:11434
+  embedModel: bge-m3
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+
+# api(rw)·worker(ro) 공유 파일 저장 볼륨 (RWX, NFS). 마운트 경로 /data/storage-data
+storage:
+  size: 10Gi
+
+# 신규 mcp 서비스 (외부 MCP 클라이언트용, 7090). Ingress로 노출.
+mcp:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+
+# 문서 변환 서비스(WP-430). replicas 는 appReplicas=0 이면 0. HPA 없음(metrics-server 미설치).
+converter:
+  replicas: 2
+  terminationGracePeriodSeconds: 90   # preStop 10s + 진행 중 변환(상한 60s) + 여유
+  resources:
+    requests:
+      cpu: "1"
+      memory: 768Mi
+    limits:
+      memory: 1536Mi
+
+# 노트 실시간 동시 편집 동기화 서버(workplace-collab, WP-288, 7095). 문서 상태를 메모리에 들고 있어 파드는 최대 1개.
+# 웹과 같은 호스트의 /collab 경로로만 노출(collab-ingress.yaml). 인계 메모: 저장소 docs/ops/collab-k8s-handoff.md
+collab:
+  # 종료 시 미저장 문서 저장을 최대 20s 기다린다(shutdownTimeoutMs) — 그보다 넉넉하게.
+  terminationGracePeriodSeconds: 45
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+
+web:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+
+admin:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+
+# 비밀 아닌 공통 설정 (compose의 POSTGRES_DB/POSTGRES_USER)
+config:
+  postgresDb: workplace
+  postgresUser: app
+  # Microsoft 365 연동 (CLIENT_ID/TENANT_ID는 비밀 아님)
+  m365ClientId: "aa9c80a9-d5f1-4638-8931-29b3d625076f"
+  m365TenantId: "122340c0-0b83-4105-a701-facbbfdbfa90"
+  # OAuth 콜백 URI (접속 호스트 바뀌면 같이 수정, Azure 앱 등록의 redirect URI와 일치해야 함)
+  m365RedirectUri: "https://collaboria-demo.iacloud.kr/oauth/m365/callback"
+  # M365 SSO 로그인(WP-48) — 메일 연동 앱과 별개인 멀티테넌트 Entra 앱. 테넌트 ID 불필요(/organizations).
+  # redirect URI 는 Entra 앱 등록(플랫폼 Web)에 동일하게 등록돼 있어야 함. clientId 가 비면 SSO 버튼이 숨겨진다.
+  ssoM365ClientId: "7253f22e-ca9e-477a-97ee-9434c8403f5e"
+  ssoM365RedirectUri: "https://collaboria-demo.iacloud.kr/api/v1/auth/sso/callback"
+  # 웹 기본 URL (접속 호스트 바뀌면 같이 수정)
+  webBaseUrl: "https://collaboria-demo.iacloud.kr"
+  # Web Push VAPID 연락처 — 비우면 앱 기본값(mailto:admin@localhost)이라 iPhone(Apple) 푸시가 거부된다
+  pushSubject: ""

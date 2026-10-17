@@ -1,0 +1,82 @@
+{{- /* init·본 컨테이너가 같은 이미지 */ -}}
+{{- $dbImage := include "swp.image" (dict "root" $ "id" "db") }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: db
+  labels:
+    {{- include "swp.labels" . | nindent 4 }}
+spec:
+  serviceName: db
+  replicas: 1
+  selector:
+    matchLabels:
+      app: db
+  template:
+    metadata:
+      labels:
+        app: db
+        app.kubernetes.io/part-of: smart-workplace
+    spec:
+      {{- include "swp.imagePullSecrets" . | nindent 6 }}
+      # PG18 커스텀 이미지는 nonroot(uid 70)로 실행 → NFS 볼륨 권한 위해 fsGroup 필요.
+      # OnRootMismatch: 이미 소유권이 맞으면 재귀 chmod 생략(기존 pgdata의 0700을 열어버리는 문제 방지).
+      securityContext:
+        fsGroup: 70
+        fsGroupChangePolicy: OnRootMismatch
+      initContainers:
+        # postgres는 데이터 디렉토리 권한이 정확히 0700/0750이 아니면 기동 거부.
+        # fsGroup이 권한을 열어놓는 경우를 대비해 소유자(uid 70)로 0700 복구(멱등, 자가치유).
+        - name: fix-pgdata-perms
+          image: {{ $dbImage | quote }}
+          command: ["sh", "-c", "if [ -d \"$PGDATA\" ]; then chmod 0700 \"$PGDATA\"; echo \"chmod 0700 $PGDATA done\"; else echo \"no pgdata yet (fresh init)\"; fi"]
+          env:
+            - name: PGDATA
+              value: /var/lib/postgresql/18/data/pgdata
+          volumeMounts:
+            - name: db-data-v18
+              mountPath: /var/lib/postgresql/18/data
+      containers:
+        - name: postgres
+          image: {{ $dbImage | quote }}
+          ports:
+            - containerPort: 5432
+              name: postgres
+          env:
+            # NFS 볼륨 루트에 데이터를 직접 두지 않도록 하위 디렉토리 사용
+            # PG18 이미지 기본 PGDATA=/var/lib/postgresql/18/data → 그 아래 pgdata 서브디렉토리 사용
+            - name: PGDATA
+              value: /var/lib/postgresql/18/data/pgdata
+          envFrom:
+            - configMapRef:
+                name: smart-workplace-config
+            - secretRef:
+                name: {{ .Values.existingSecret }}
+          volumeMounts:
+            - name: db-data-v18
+              mountPath: /var/lib/postgresql/18/data
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 10
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+          resources:
+            {{- toYaml .Values.db.resources | nindent 12 }}
+  volumeClaimTemplates:
+    # PG16→PG18 마이그레이션: 새 볼륨(db-data-v18)에 dump/restore, 구 db-data(pg16)는 롤백용 보존
+    - metadata:
+        name: db-data-v18
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: {{ .Values.storageClass | quote }}
+        resources:
+          requests:
+            storage: {{ .Values.db.storage }}
