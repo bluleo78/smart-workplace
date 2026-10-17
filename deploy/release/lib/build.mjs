@@ -66,15 +66,18 @@ export function assertNotShallow(exec, repoRoot, what) {
 }
 
 /**
- * 변경 비교의 기준 릴리스 → `{ baseTag: 'v0.8.0'|null, baseVersion: '0.8.0'|null }`. 기준 = HEAD 조상 태그 중 자기 자신(`v<version>`)을 뺀 최고 semver.
+ * 변경 비교의 기준 릴리스 → `{ baseTag: 'v0.8.0'|null, baseVersion: '0.8.0'|null }`. 기준 = ref(기본 HEAD) 조상 태그 중 자기 자신(`v<version>`)과 exclude 를 뺀 최고 semver.
+ * 릴리스 준비(prepare.mjs)는 버전을 아직 모르므로 version 없이 ref·exclude(ref 에 이미 붙은 태그)로 부른다.
  * 「기준 없음」으로 오인하면 전부 재빌드되므로 두 경우는 실패시킨다: 얕은 clone(조상 태그를 못 봄), 조상에 기준이 없는데 저장소에 `vX.Y.Z` 태그가 있음(태그 미수신).
  * 후자는 자기 태그도 세므로 첫 릴리스는 늘 allowNoBase 가 필요하고, 시드된 기준 릴리스의 태그를 다시 push 해도 덮어쓰지 못하고 멈춘다(의도).
  */
-export function findBase({ exec, repoRoot, version, allowNoBase = false }) {
-  assertVersion(version);
+export function findBase({ exec, repoRoot, version, ref = 'HEAD', exclude = [], allowNoBase = false }) {
+  if (version !== undefined) assertVersion(version);
   const git = (...args) => exec('git', args, { cwd: repoRoot }).stdout;
   assertNotShallow(exec, repoRoot, '기준 태그');
-  const baseTag = findBaseTag(lines(git('tag', '--merged', 'HEAD', '--list', 'v*')), `v${version}`);
+  const skip = new Set(exclude);
+  const ancestors = lines(git('tag', '--merged', ref, '--list', 'v*')).filter((t) => !skip.has(t));
+  const baseTag = findBaseTag(ancestors, version === undefined ? null : `v${version}`);
   if (baseTag === null && !allowNoBase && lines(git('tag', '--list', 'v*')).filter(isVersionTag).length > 0) {
     throw new Error('HEAD 의 조상에 기준 릴리스 태그가 없는데 저장소에는 v* 태그가 있다(자기 태그 포함). 태그를 받지 못했을 수 있다 (CI: GIT_DEPTH: 0 과 태그 fetch 확인). 의도한 것(첫 릴리스)이면 --allow-no-base');
   }
