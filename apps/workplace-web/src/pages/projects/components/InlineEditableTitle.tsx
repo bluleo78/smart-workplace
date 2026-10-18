@@ -4,7 +4,7 @@
 // 왜: 오타·제목 수정을 위해 이슈를 삭제·재생성해야 하는 불편 해소 (#117).
 //     이슈 상세 페이지와 개인 작업 드로어가 동일 편집 UI 를 공유하도록 공용화 (#718).
 import { Pencil } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { Input } from '@/components/ui/input';
 import { useAutoGrowTextarea } from '@/hooks/useAutoGrowTextarea';
@@ -16,6 +16,9 @@ import { cn } from '@/lib/utils';
 import { HIT_EXPAND } from './mobile/chipStyles';
 import type { EditBarControls } from './mobile/MobileEditBar';
 import { useEditBarControls } from './mobile/useEditBarControls';
+
+// 서버 제목 길이 상한(updateIssueSchema max 200)과 같다 — 입력 단계에서 막아 400 토스트로 알게 되지 않게(WP-459).
+const TITLE_MAX_LENGTH = 200;
 
 export function InlineEditableTitle({
   title,
@@ -73,6 +76,13 @@ export function InlineEditableTitle({
 
   const cancel = () => setEditing(false);
 
+  // 입력 포커스 — 저장 실패로 편집을 다시 열 때는 아직 저장 중(disabled)이라 autoFocus 가 먹지 않아
+  // 포커스가 body 로 빠지고, 그 상태의 Esc 가 편집 취소 대신 「뒤로」로 상세를 떠났다(WP-459). 입력이 풀리면 다시 맞춘다.
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    if (editing && !disabled) (inputRef.current ?? textareaRef.current)?.focus();
+  }, [editing, disabled]);
+
   // Enter 저장 — 한글 조합 Enter·macOS Chrome 확정 직후 꼬리 Enter 는 저장으로 보지 않는다(WP-331).
   const enterKey = useSingleLineEnter();
 
@@ -112,6 +122,8 @@ export function InlineEditableTitle({
         autoFocus
         rows={1}
         enterKeyHint="done"
+        maxLength={TITLE_MAX_LENGTH}
+        aria-label="이슈 제목"
         data-testid="issue-title-input"
         className="block w-full resize-none overflow-hidden rounded-md border border-input bg-transparent px-3 py-1 text-2xl! leading-8 outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
         value={draft}
@@ -130,7 +142,10 @@ export function InlineEditableTitle({
 
   return (
     <Input
+      ref={inputRef}
       autoFocus
+      maxLength={TITLE_MAX_LENGTH}
+      aria-label="이슈 제목"
       data-testid="issue-title-input"
       className="h-8 max-w-md"
       value={draft}

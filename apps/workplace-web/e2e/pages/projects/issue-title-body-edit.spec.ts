@@ -122,6 +122,39 @@ test.describe('이슈 상세 제목·본문 인라인 수정 (#117)', () => {
     await expect(page.getByTestId('issue-title-heading').getByText('수정된 제목')).toBeVisible();
   });
 
+  // WP-459: 입력 단계에서 200자로 막고, 저장이 실패해 편집이 다시 열리면 포커스가 입력에 돌아와 Esc 가 편집만 취소한다.
+  test('제목은 200자까지만 입력되고, 저장 실패 뒤에도 입력에 포커스가 남아 Esc 는 편집만 취소한다(WP-459)', async ({
+    authenticatedPage: page,
+  }) => {
+    await setupStubs(page);
+    // 나중에 등록한 route 가 먼저 — PATCH 를 실패시킨다(나머지는 setupStubs 로 넘긴다).
+    await page.route(
+      (url) => url.pathname === ISSUE_DETAIL_PATH,
+      (route) =>
+        route.request().method() === 'PATCH'
+          ? route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ message: '저장 실패' }) })
+          : route.fallback(),
+    );
+    const detailUrl = `/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`;
+    await page.goto(detailUrl);
+
+    await page.getByRole('button', { name: '제목 편집' }).click();
+    const input = page.getByRole('textbox', { name: '이슈 제목' });
+    await input.fill('나'.repeat(205));
+    await expect(input).toHaveValue('나'.repeat(200));
+
+    await input.fill('실패할 제목');
+    await input.press('Enter');
+    await expect(page.getByText('저장 실패')).toBeVisible();
+    // 다시 열린 입력에 포커스가 돌아온다(저장 중 비활성이 풀린 뒤).
+    await expect(input).toBeFocused();
+    await expect(input).toHaveValue('실패할 제목');
+
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('issue-title-heading').getByText('원본 제목')).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`${detailUrl}$`));
+  });
+
   test('macOS Chrome 한글 IME — 조합 Enter 와 확정 직후 꼬리 Enter 로는 저장하지 않고, 다음 Enter 에 저장(WP-331)', async ({
     authenticatedPage: page,
   }) => {
