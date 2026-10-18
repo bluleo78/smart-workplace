@@ -67,7 +67,8 @@ class AgentWorkRepositoryTest extends IntegrationTestBase {
       Integer progress,
       Integer stepsDone,
       Integer stepsTotal) {
-    return repo.insertOutcome(issue, worker, tool, state, note, progress, stepsDone, stepsTotal)
+    return repo.insertOutcome(
+            issue, worker, tool, state, note, progress, stepsDone, stepsTotal, null)
         .map(InsertOutcome::row);
   }
 

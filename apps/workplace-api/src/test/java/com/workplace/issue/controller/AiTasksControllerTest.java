@@ -194,12 +194,13 @@ class AiTasksControllerTest extends IntegrationTestBase {
   // ---------------------------------------------------------------- 정렬·필터
 
   @Test
-  void 급한순_정렬_답변필요_검토필요_막힘_작업중_일시중지() throws Exception {
+  void 급한순_정렬_답변필요_검토필요_막힘_작업중_다음회차대기_일시중지() throws Exception {
     // 일부러 급한 순과 다른 순서로 만든다. 작업 기록 없는 AI 담당 이슈(none)는 목록 밖(WP-396).
     long none = issue("none", me);
     assign(none, agent);
     work(issue("paused", other), me, "PAUSED");
     work(issue("working", other), me, "WORKING");
+    work(issue("scheduled", other), me, "SCHEDULED");
     work(issue("blocked", other), me, "BLOCKED");
     work(issue("review", other), me, "REVIEW");
     work(issue("inputRequired", other), me, "INPUT_REQUIRED");
@@ -208,7 +209,20 @@ class AiTasksControllerTest extends IntegrationTestBase {
     List<String> states = new ArrayList<>();
     items.forEach(
         it -> states.add(it.has("agentWork") ? it.at("/agentWork/0/state").asText() : null));
-    assertThat(states).containsExactly("INPUT_REQUIRED", "REVIEW", "BLOCKED", "WORKING", "PAUSED");
+    assertThat(states)
+        .containsExactly("INPUT_REQUIRED", "REVIEW", "BLOCKED", "WORKING", "SCHEDULED", "PAUSED");
+  }
+
+  /** WP-450: 다음 회차 대기 칩 — 건수에 잡히고 agentState=SCHEDULED 로 목록이 걸러진다(미완료에도 포함). */
+  @Test
+  void 다음회차대기_칩_건수와_agentState_필터() throws Exception {
+    work(issue("scheduled", other), me, "SCHEDULED");
+    work(issue("working", other), me, "WORKING");
+
+    assertThat(counts("/api/v1/me/ai-tasks/counts")).isEqualTo(counts(2, 0, 0, 0, 1, 1, 0));
+    assertThat(titles(getJson("/api/v1/me/ai-tasks?agentState=SCHEDULED")))
+        .containsExactly("scheduled");
+    assertThat(titles(getJson("/api/v1/me/ai-tasks"))).containsExactly("working", "scheduled");
   }
 
   @Test
@@ -1014,15 +1028,21 @@ class AiTasksControllerTest extends IntegrationTestBase {
     return rows;
   }
 
-  /** 기대 건수 맵 — 응답 필드 순서(미완료 all·답변·검토·막힘·작업 중·완료 done). */
+  /** 기대 건수 맵(다음 회차 대기 0) — 응답 필드 순서(미완료 all·답변·검토·막힘·작업 중·다음 회차 대기·완료 done). */
   private static Map<String, Integer> counts(
       int all, int inputRequired, int review, int blocked, int working, int done) {
+    return counts(all, inputRequired, review, blocked, working, 0, done);
+  }
+
+  private static Map<String, Integer> counts(
+      int all, int inputRequired, int review, int blocked, int working, int scheduled, int done) {
     return Map.of(
         "all", all,
         "inputRequired", inputRequired,
         "review", review,
         "blocked", blocked,
         "working", working,
+        "scheduled", scheduled,
         "done", done);
   }
 

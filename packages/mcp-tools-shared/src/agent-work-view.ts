@@ -4,7 +4,7 @@ import { toPersonView, toSeoulIso, type PersonView } from './issue-view.js';
 
 type Raw = Record<string, unknown>;
 
-/** LLM 에 내보내는 AI 작업 한 건. 빈 값은 키째 빠지고 stale 은 true 일 때만 있다. */
+/** LLM 에 내보내는 AI 작업 한 건. 빈 값은 키째 빠지고 stale·overdue 는 true 일 때만 있다. */
 export interface AgentWorkOut {
   worker: PersonView;
   /** 시작 전(SUBMITTED) 행은 도구를 아직 몰라 키째 없다. */
@@ -15,8 +15,12 @@ export interface AgentWorkOut {
   stepsDone?: unknown;
   stepsTotal?: unknown;
   updatedAt: string | null;
-  /** 2시간 넘게 보고가 없는 WORKING — true 일 때만 싣는다. */
+  /** 다음 회차 대기(SCHEDULED)에서 정한 다음 실행 시각(KST) — 없으면 키째 없다(WP-450). */
+  nextRunAt?: string;
+  /** 2시간 넘게 보고가 없는 WORKING 만 — true 일 때만 싣는다. */
   stale?: true;
+  /** 예정 시각(nextRunAt)이 2시간 넘게 지났는데 시작하지 않은 SCHEDULED — true 일 때만 싣는다(WP-450). */
+  overdue?: true;
 }
 
 /**
@@ -34,6 +38,8 @@ export function toAgentWorkView(raw: unknown): AgentWorkOut {
     stepsDone: w.stepsDone,
     stepsTotal: w.stepsTotal,
     updatedAt: toSeoulIso(w.updatedAt),
+    nextRunAt: toSeoulIso(w.nextRunAt),
     ...(w.stale === true && { stale: true }),
+    ...(w.overdue === true && { overdue: true }),
   }) as unknown as AgentWorkOut;
 }

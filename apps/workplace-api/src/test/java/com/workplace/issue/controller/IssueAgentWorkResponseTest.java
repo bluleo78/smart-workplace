@@ -16,6 +16,7 @@ import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
+import java.time.Instant;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
@@ -82,6 +83,35 @@ class IssueAgentWorkResponseTest extends IntegrationTestBase {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.items[?(@.number == 1)].agentWork[0].tool").value("claude-code"))
         .andExpect(jsonPath("$.items[?(@.number == 2)].agentWork").isEmpty());
+  }
+
+  /** WP-450: 다음 회차 대기(SCHEDULED)의 nextRunAt 은 응답에 실리고, 다른 상태에서는 키가 생략된다. */
+  @Test
+  void SCHEDULED_작업의_nextRunAt_이_응답에_실리고_작업중이면_생략() throws Exception {
+    long userId = createUser();
+    String key =
+        "AW" + UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 6);
+    var proj = projectService.create(userId, new CreateProjectRequest(key, "P", "x"));
+    var issue = issueRepository.insert(proj.id(), 1, "예약", null, "MID", null, userId);
+    var next = Instant.parse("2026-10-19T00:00:00Z");
+    agentWorkService.startOrUpdate(
+        issue.id(),
+        userId,
+        "claude-code",
+        AgentWorkPatch.empty().withTool("claude-code").withState("SCHEDULED").withNextRunAt(next));
+
+    mvc.perform(
+            get("/api/v1/projects/" + key + "/issues/1").header("Authorization", bearer(userId)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.summary.agentWork[0].state").value("SCHEDULED"))
+        .andExpect(jsonPath("$.summary.agentWork[0].nextRunAt").value("2026-10-19T00:00:00Z"));
+
+    agentWorkService.startOrUpdate(
+        issue.id(), userId, "claude-code", AgentWorkPatch.empty().withState("WORKING"));
+    mvc.perform(
+            get("/api/v1/projects/" + key + "/issues/1").header("Authorization", bearer(userId)))
+        .andExpect(jsonPath("$.summary.agentWork[0].state").value("WORKING"))
+        .andExpect(jsonPath("$.summary.agentWork[0].nextRunAt").doesNotExist());
   }
 
   /**

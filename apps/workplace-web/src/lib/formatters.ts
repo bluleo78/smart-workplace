@@ -154,8 +154,8 @@ export function formatDateTime(dateStr: string | null | undefined): string {
 }
 
 /**
- * 절대시간 포맷(분 단위) — `YYYY-MM-DD HH:mm` (KST).
- * 목록 화면의 hover 툴팁에 적합 (초 단위 정밀도 불필요).
+ * 절대시간 포맷(분 단위) — `YYYY-MM-DD HH:mm` (브라우저 로컬 타임존).
+ * 목록 화면의 hover 툴팁에 적합 (초 단위 정밀도 불필요). KST 고정이 필요하면 kstParts 로 직접 조립한다.
  */
 export function formatDateTimeMinute(dateStr: string | null | undefined): string {
   if (!dateStr) return '-';
@@ -472,16 +472,16 @@ const listTimeParts = new Intl.DateTimeFormat('en-US', {
   timeZone: LIST_TZ, year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit', hourCycle: 'h23',
 })
 
-type Ymdhm = { y: number; m: number; d: number; h: number; min: number }
+export type Ymdhm = { y: number; m: number; d: number; h: number; min: number }
 
 /** Asia/Seoul 기준 연·월·일·시·분 숫자 부품. */
-function kstParts(date: Date): Ymdhm {
+export function kstParts(date: Date): Ymdhm {
   const o: Record<string, number> = {}
   for (const p of listTimeParts.formatToParts(date)) if (p.type !== 'literal') o[p.type] = Number(p.value)
   return { y: o.year, m: o.month, d: o.day, h: o.hour % 24, min: o.minute }
 }
 
-const sameDay = (a: Ymdhm, b: Ymdhm) => a.y === b.y && a.m === b.m && a.d === b.d
+export const sameDay = (a: Ymdhm, b: Ymdhm) => a.y === b.y && a.m === b.m && a.d === b.d
 
 /** KST 날짜 t 가 now 기준 오늘·어제인가(아니면 null) — 목록 시간·날짜 묶음 이름이 같은 판정을 쓴다. */
 function kstDayRelative(t: Ymdhm, now: Date): 'today' | 'yesterday' | null {
@@ -511,6 +511,11 @@ export function formatListTime(at: string, now: Date = new Date()): string {
 
 const WEEKDAY_KO = ['일', '월', '화', '수', '목', '금', '토'] as const
 
+/** KST 연·월·일 부품의 요일 한 글자(일~토) — ICU 로케일 데이터에 기대지 않고 직접 계산한다. */
+export function kstWeekday(t: Pick<Ymdhm, 'y' | 'm' | 'd'>): string {
+  return WEEKDAY_KO[new Date(Date.UTC(t.y, t.m - 1, t.d)).getUTCDay()]
+}
+
 /**
  * 기록 목록의 날짜 묶음 이름(WP-385) — 오늘·어제, 올해면 "10월 9일 금요일", 다른 해면 "2025년 10월 9일 목요일" (Asia/Seoul).
  * 요일은 KST 연·월·일로 직접 계산한다(ICU 로케일 데이터에 기대지 않는다 — formatListTime 과 같은 이유). 무효 입력이면 빈 문자열.
@@ -521,7 +526,6 @@ export function formatDayGroupLabel(at: string, now: Date = new Date()): string 
   const t = kstParts(date)
   const rel = kstDayRelative(t, now)
   if (rel) return rel === 'today' ? '오늘' : '어제'
-  const weekday = WEEKDAY_KO[new Date(Date.UTC(t.y, t.m - 1, t.d)).getUTCDay()]
-  const day = `${t.m}월 ${t.d}일 ${weekday}요일`
+  const day = `${t.m}월 ${t.d}일 ${kstWeekday(t)}요일`
   return t.y === kstParts(now).y ? day : `${t.y}년 ${day}`
 }

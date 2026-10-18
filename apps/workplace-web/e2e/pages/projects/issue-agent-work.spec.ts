@@ -1,6 +1,6 @@
 // 이슈 상세 AI 진행(WP-377) — 레일 「AI 진행」 섹션 · 답변 필요 질문 카드 · 「채팅에서 답하기」로 채팅 드로워 열기.
 // 전 구간 page.route 모킹(백엔드 무관). agentWork 는 서버가 급한 순(상태 순위 → 마지막 보고 최근순)으로 내려주고, 화면은 그 순서를 그대로 지킨다.
-import { agentWorker as aki, createAgentWork, humanWorker as human, minutesAgo, twoWorks } from '../../factories/agentWork.factory'
+import { agentWorker as aki, createAgentWork, humanWorker as human, KST_1430, minutesAgo, twoWorks } from '../../factories/agentWork.factory'
 import { mockAgentWorkDetail } from '../../fixtures/issue-detail-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { boxOf } from '../../fixtures/layout'
@@ -119,4 +119,40 @@ test('시작 전(도구 없음) 작업은 레일에 시작 전 배지만 보이�
   // 보일 게 없는 메타 줄은 빈 줄로도 남지 않는다 — 한 덩어리의 직계 자식은 아바타·이름·배지 줄 하나뿐.
   await expect(row.locator(':scope > div')).toHaveCount(1)
   await expect(page.getByTestId('agent-question-card')).toHaveCount(0)
+})
+
+// WP-450: 다음 회차 대기 — 레일에 언제 이어지는지 한 줄. 기준 시각 고정(2026-10-18 14:30 KST).
+test('다음 회차 대기 작업은 레일에 예정 시각 한 줄, 예정이 없으면 다른 작업 뒤 이어서', async ({ authenticatedPage: page }) => {
+  await page.clock.setFixedTime(new Date(KST_1430))
+  await mockAgentWorkDetail(
+    page,
+    [
+      createAgentWork({ worker: aki, state: 'SCHEDULED', note: '다른 작업에 양보했어요', nextRunAt: '2026-10-19T00:00:00Z' }),
+      createAgentWork({ worker: human, state: 'SCHEDULED', nextRunAt: null }),
+    ],
+    { assignees: [human, aki] },
+  )
+  await page.goto(URL)
+
+  await expect(page.getByTestId('agent-work-rail-9-state')).toHaveText('다음 회차 대기')
+  const next = page.getByTestId('agent-work-rail-9-next-run')
+  await expect(next).toHaveText('내일 09:00 이후 시작')
+  await expect(next).toHaveAttribute('title', '예정 2026-10-19 09:00')
+  await expect(page.getByTestId(`agent-work-rail-${human.id}-next-run`)).toHaveText('다른 작업 뒤 이어서')
+  await expect(page.getByTestId(`agent-work-rail-${human.id}-next-run`)).not.toHaveAttribute('title', /.+/)
+})
+
+// WP-450: 예정 시각이 2시간 넘게 지났는데 시작하지 않으면(서버 overdue) 경고 툴팁 + 「곧 시작」.
+test('예정 시각이 한참 지난 다음 회차 대기는 경고 툴팁을 보인다', async ({ authenticatedPage: page }) => {
+  await page.clock.setFixedTime(new Date(KST_1430))
+  await mockAgentWorkDetail(
+    page,
+    [createAgentWork({ worker: aki, state: 'SCHEDULED', nextRunAt: '2026-10-18T01:00:00Z', overdue: true })],
+    { assignees: [human, aki] },
+  )
+  await page.goto(URL)
+
+  const next = page.getByTestId('agent-work-rail-9-next-run')
+  await expect(next).toHaveText('곧 시작')
+  await expect(next).toHaveAttribute('title', '예정 시각이 2시간 넘게 지났어요')
 })

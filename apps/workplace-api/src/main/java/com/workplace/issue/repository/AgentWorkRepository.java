@@ -14,6 +14,7 @@ import com.workplace.user.dto.UserKind;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -47,7 +48,7 @@ import org.springframework.stereotype.Repository;
 @RequiredArgsConstructor
 public class AgentWorkRepository {
 
-  /** 무소식 판정 기준 — WORKING 인데 마지막 보고가 이 시간 이상 지났으면 stale. */
+  /** 무소식 판정 기준 — WORKING 인데 마지막 보고가 이 시간 이상 지났으면 stale. 다음 회차 예정 시각이 이만큼 지나면 overdue. */
   public static final Duration STALE_AFTER = Duration.ofHours(2);
 
   private final DSLContext dsl;
@@ -66,10 +67,13 @@ public class AgentWorkRepository {
       Instant startedAt,
       Instant updatedAt,
       // 종료 시각 — 진행 중이면 null(WP-396 완료 보기의 시간 칸).
-      Instant endedAt) {}
+      Instant endedAt,
+      // 다음 실행 시각 — 다음 회차 대기(SCHEDULED)에서 AI 가 정했을 때만 값이 있다(WP-450).
+      Instant nextRunAt) {}
 
-  /** 작업 행 + 작업자 요약(목록·상세 표시용). stale 은 DB 시계로 계산한 무소식 여부. */
-  public record AgentWorkWithWorker(AgentWorkRow work, UserSummary worker, boolean stale) {}
+  /** 작업 행 + 작업자 요약(목록·상세 표시용). stale·overdue 는 DB 시계로 계산한 무소식·예정 지연 여부. */
+  public record AgentWorkWithWorker(
+      AgentWorkRow work, UserSummary worker, boolean stale, boolean overdue) {}
 
   /**
    * "살아 있는 AI 작업" 의 단일 정의 — ISSUE 와 조인된 상태에서 진행 중 행({@link #liveRow})이고 이슈가 종료되지 않은({@link
@@ -109,7 +113,7 @@ public class AgentWorkRepository {
   /** 상태만 정해 진행 중 작업을 만든다 — note·진행률·단계 없이 시작하는 경우(터치 자동 시작·시드 등). */
   public Optional<InsertOutcome> insertOutcome(
       long issueId, long workerId, String tool, String state) {
-    return insertOutcome(issueId, workerId, tool, state, null, null, null, null);
+    return insertOutcome(issueId, workerId, tool, state, null, null, null, null, null);
   }
 
   /**
@@ -126,7 +130,8 @@ public class AgentWorkRepository {
       String note,
       Integer progress,
       Integer stepsDone,
-      Integer stepsTotal) {
+      Integer stepsTotal,
+      Instant nextRunAt) {
     var inserted =
         recordEventRows(
             dsl.insertInto(AGENT_WORK)
@@ -138,6 +143,10 @@ public class AgentWorkRepository {
                 .set(AGENT_WORK.PROGRESS, progress == null ? null : progress.shortValue())
                 .set(AGENT_WORK.STEPS_DONE, stepsDone == null ? null : stepsDone.shortValue())
                 .set(AGENT_WORK.STEPS_TOTAL, stepsTotal == null ? null : stepsTotal.shortValue())
+                // 다음 회차 대기(SCHEDULED) 첫 보고가 시각을 함께 보낼 수 있다. 그 외 상태는 호출부가 null 을 넘긴다.
+                .set(
+                    AGENT_WORK.NEXT_RUN_AT,
+                    nextRunAt == null ? null : nextRunAt.atOffset(ZoneOffset.UTC))
                 .onConflictDoNothing()
                 .returning(AGENT_WORK.fields()),
             false,
@@ -219,6 +228,16 @@ public class AgentWorkRepository {
       step = step.set(AGENT_WORK.STEPS_DONE, patch.stepsDone().shortValue());
     if (patch.stepsTotal() != null)
       step = step.set(AGENT_WORK.STEPS_TOTAL, patch.stepsTotal().shortValue());
+    // 다음 실행 시각은 상태와 한 규칙 — 상태를 보내면 SCHEDULED 일 때만 값(없으면 NULL), 그 외는 NULL. 상태가 없으면 유지.
+    if (patch.state() != null) {
+      boolean scheduled = AgentWorkState.SCHEDULED.equals(patch.state());
+      step =
+          step.set(
+              AGENT_WORK.NEXT_RUN_AT,
+              scheduled && patch.nextRunAt() != null
+                  ? patch.nextRunAt().atOffset(ZoneOffset.UTC)
+                  : null);
+    }
     // PostgreSQL 18 의 RETURNING OLD/NEW — 이 문장이 실제로 덮어쓴 갱신 전 행(old)과 갱신 후 행(수식 없는 컬럼 = new)을 비교한다.
     // 자기 조인으로 읽은 사본은 동시 갱신 시 오래된 버전일 수 있어(이벤트 누락·중복) 쓰지 않는다.
     Field<Boolean> changed =
@@ -339,7 +358,9 @@ public class AgentWorkRepository {
     var step =
         dsl.update(AGENT_WORK)
             .set(AGENT_WORK.STATE, terminalState)
-            .set(AGENT_WORK.ENDED_AT, DSL.currentOffsetDateTime());
+            .set(AGENT_WORK.ENDED_AT, DSL.currentOffsetDateTime())
+            // 끝난 행에는 다음 실행 시각이 남지 않는다(WP-450).
+            .setNull(AGENT_WORK.NEXT_RUN_AT);
     if (values != null) {
       // 도구를 모르는 행(SUBMITTED)에 요청의 도구를 채운다 — 이미 값이 있으면 유지.
       if (values.tool() != null) {
@@ -450,21 +471,28 @@ public class AgentWorkRepository {
   public Map<Long, List<AgentWorkWithWorker>> findActiveByIssueIds(Collection<Long> issueIds) {
     if (issueIds == null || issueIds.isEmpty()) return Map.of();
     // 무소식(stale) 은 JVM 이 아니라 DB 시계로 판정 — updated_at 을 찍는 시계와 같아야 서버 간 시계 차이에 흔들리지 않는다.
+    Field<OffsetDateTime> staleBefore =
+        DSL.field(
+            "now() - make_interval(secs => {0})", OffsetDateTime.class, STALE_AFTER.toSeconds());
     Field<Boolean> staleField =
         DSL.field(
                 AGENT_WORK
                     .STATE
                     .eq(AgentWorkState.WORKING)
-                    .and(
-                        AGENT_WORK.UPDATED_AT.le(
-                            DSL.field(
-                                "now() - make_interval(secs => {0})",
-                                OffsetDateTime.class, STALE_AFTER.toSeconds()))))
+                    .and(AGENT_WORK.UPDATED_AT.le(staleBefore)))
             .as("is_stale");
+    // 예정 지연(overdue, WP-450) — 다음 회차 대기인데 예정 시각이 지났다. 시각 없는 양보형(next_run_at null)은 대상이 아니다.
+    Field<Boolean> overdueField =
+        DSL.field(
+                AGENT_WORK
+                    .STATE
+                    .eq(AgentWorkState.SCHEDULED)
+                    .and(AGENT_WORK.NEXT_RUN_AT.le(staleBefore)))
+            .as("is_overdue");
     var rows =
         dsl.select(AGENT_WORK.fields())
             .select(USER.USERNAME, USER.NAME, USER.KIND)
-            .select(staleField)
+            .select(staleField, overdueField)
             .from(AGENT_WORK)
             .join(USER)
             .on(USER.ID.eq(AGENT_WORK.WORKER_ID))
@@ -476,7 +504,9 @@ public class AgentWorkRepository {
             .fetch();
     Map<Long, List<AgentWorkWithWorker>> result = new LinkedHashMap<>();
     for (Record r : rows) {
-      var w = withWorker(r, Boolean.TRUE.equals(r.get(staleField)));
+      var w =
+          withWorker(
+              r, Boolean.TRUE.equals(r.get(staleField)), Boolean.TRUE.equals(r.get(overdueField)));
       result.computeIfAbsent(w.work().issueId(), k -> new ArrayList<>()).add(w);
     }
     return result;
@@ -499,18 +529,18 @@ public class AgentWorkRepository {
         .fetch()
         .forEach(
             r -> {
-              var w = withWorker(r, false);
+              var w = withWorker(r, false, false);
               result.put(w.work().issueId(), w);
             });
     return result;
   }
 
   /** AGENT_WORK 컬럼 + 작업자(USERNAME·NAME·KIND) 를 가진 Record → 작업 행 + 작업자 요약. */
-  private static AgentWorkWithWorker withWorker(Record r, boolean stale) {
+  private static AgentWorkWithWorker withWorker(Record r, boolean stale, boolean overdue) {
     var row = toRow(r);
     var worker =
         new UserSummary(row.workerId(), r.get(USER.USERNAME), r.get(USER.NAME), r.get(USER.KIND));
-    return new AgentWorkWithWorker(row, worker, stale);
+    return new AgentWorkWithWorker(row, worker, stale, overdue);
   }
 
   /**
@@ -540,6 +570,7 @@ public class AgentWorkRepository {
     OffsetDateTime started = r.get(AGENT_WORK.STARTED_AT);
     OffsetDateTime updated = r.get(AGENT_WORK.UPDATED_AT);
     OffsetDateTime ended = r.get(AGENT_WORK.ENDED_AT);
+    OffsetDateTime nextRun = r.get(AGENT_WORK.NEXT_RUN_AT);
     return new AgentWorkRow(
         r.get(AGENT_WORK.ID),
         r.get(AGENT_WORK.ISSUE_ID),
@@ -552,6 +583,7 @@ public class AgentWorkRepository {
         r.get(AGENT_WORK.STEPS_TOTAL) == null ? null : r.get(AGENT_WORK.STEPS_TOTAL).intValue(),
         started != null ? started.toInstant() : null,
         updated != null ? updated.toInstant() : null,
-        ended != null ? ended.toInstant() : null);
+        ended != null ? ended.toInstant() : null,
+        nextRun != null ? nextRun.toInstant() : null);
   }
 }

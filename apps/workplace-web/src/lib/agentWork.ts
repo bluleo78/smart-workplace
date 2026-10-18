@@ -1,5 +1,6 @@
 // AI 작업 진행(WP-377) 순수 로직 — 라벨·정렬·대표 작업·진행률 계산. 컴포넌트는 이 모듈만 호출한다(vitest 로 검증 가능).
 import type { AgentWorkState, AgentWorkView, IssueResponse } from '../types/issue'
+import { kstParts, kstWeekday, parseUtcDate, sameDay } from './formatters'
 import { ownLookup } from './ownLookup'
 
 /** 사용자 관점 라벨 — "내가 할 일"이 드러나게(답변 필요·검토 필요), 메일의 "회신 필요"와 같은 어휘. */
@@ -10,6 +11,8 @@ export const AGENT_STATE_LABEL: Record<AgentWorkState | 'NOT_STARTED', string> =
   BLOCKED: '막힘',
   WORKING: '작업 중',
   PAUSED: '일시 중지',
+  // 양보 후 예정 시각 뒤 이어서 하는 작업(WP-450) — 사람이 할 일이 없어 톤은 흐린 윤곽(일시 중지와 같음).
+  SCHEDULED: '다음 회차 대기',
   SUBMITTED: '시작 전',
   NOT_STARTED: '시작 전',
   // 종료 상태 — AI 위임 작업 「완료」 보기의 행 배지(WP-396). 반려 = 작업자가 맡기를 거절.
@@ -50,6 +53,39 @@ export function agentStateTone(state: AgentWorkState | 'NOT_STARTED'): AgentStat
 
 /** 2시간 넘게 보고가 없을 때(stale) 툴팁. */
 export const STALE_TOOLTIP = '2시간 넘게 보고가 없어요'
+
+/** 다음 회차 예정 시각이 2시간 넘게 지났는데 시작하지 않았을 때(overdue) 툴팁. */
+export const OVERDUE_TOOLTIP = '예정 시각이 2시간 넘게 지났어요'
+
+/** 다음 회차 시작 예정 라벨(WP-450). kind: none=시각 없음/해석 불가, due=이미 지남, at=아직 남음(text 가 「… 이후」). absolute 는 KST 「YYYY-MM-DD HH:mm」(시각이 있을 때). */
+export type NextRunLabel = { kind: 'none' | 'due' | 'at'; text: string; absolute: string | null }
+
+/**
+ * SCHEDULED 작업이 언제 이어지는지 사람 말로. 날짜 경계는 KST 기준(다른 KST 포매터와 같다), 시각은 24시간제 zero-pad.
+ * 「이후」는 정확한 시작이 아니라 그 시각부터 가능하다는 뜻.
+ * - 없음 → 「다른 작업 뒤 이어서」 · 이미 지남 → 「곧 시작」
+ * - 오늘 → 「오늘 15:00 이후」 · 내일 → 「내일 09:00 이후」 · 올해 → 「10/21(수) 09:00 이후」 · 다른 해 → 「2027/1/5(화) 09:00 이후」
+ */
+export function nextRunLabel(nextRunAt: string | null | undefined, now: Date = new Date()): NextRunLabel {
+  const none: NextRunLabel = { kind: 'none', text: '다른 작업 뒤 이어서', absolute: null }
+  if (!nextRunAt) return none
+  const at = parseUtcDate(nextRunAt)
+  if (Number.isNaN(at.getTime())) return none
+  const t = kstParts(at)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const clock = `${pad(t.h)}:${pad(t.min)}`
+  const absolute = `${t.y}-${pad(t.m)}-${pad(t.d)} ${clock}`
+  if (at.getTime() <= now.getTime()) return { kind: 'due', text: '곧 시작', absolute }
+  const n = kstParts(now)
+  if (sameDay(t, n)) return { kind: 'at', text: `오늘 ${clock} 이후`, absolute }
+  // Asia/Seoul 은 DST 가 없어 달력상 다음 날 = 내일.
+  const next = new Date(Date.UTC(n.y, n.m - 1, n.d + 1))
+  if (sameDay(t, { ...n, y: next.getUTCFullYear(), m: next.getUTCMonth() + 1, d: next.getUTCDate() })) {
+    return { kind: 'at', text: `내일 ${clock} 이후`, absolute }
+  }
+  const year = t.y === n.y ? '' : `${t.y}/`
+  return { kind: 'at', text: `${year}${t.m}/${t.d}(${kstWeekday(t)}) ${clock} 이후`, absolute }
+}
 
 const TOOL_LABEL: Record<string, string> = { 'claude-code': 'Claude Code', cursor: 'Cursor' }
 

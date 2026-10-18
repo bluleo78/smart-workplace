@@ -155,16 +155,53 @@ describe('buildSharedIssueTools', () => {
       expect(out).toEqual({ ended: true });
     });
 
-    it('A2A 상태 10종을 받고 옛 WAITING·ENDED 는 거절한다', async () => {
+    it('A2A 상태 11종을 받고 옛 WAITING·ENDED 는 거절한다', async () => {
       const c = mockClient();
-      for (const state of ['WORKING', 'INPUT_REQUIRED', 'AUTH_REQUIRED', 'BLOCKED', 'PAUSED', 'REVIEW', 'COMPLETED', 'FAILED', 'CANCELED', 'REJECTED']) {
+      for (const state of ['WORKING', 'INPUT_REQUIRED', 'AUTH_REQUIRED', 'BLOCKED', 'PAUSED', 'REVIEW', 'SCHEDULED', 'COMPLETED', 'FAILED', 'CANCELED', 'REJECTED']) {
         await reportTool(c).handler({ issueKey: 'WP-12', state });
       }
-      expect(c.reportAgentWork).toHaveBeenCalledTimes(10);
+      expect(c.reportAgentWork).toHaveBeenCalledTimes(11);
       for (const state of ['WAITING', 'ENDED']) {
         await expect(reportTool(c).handler({ issueKey: 'WP-12', state })).rejects.toThrow();
       }
-      expect(c.reportAgentWork).toHaveBeenCalledTimes(10);
+      expect(c.reportAgentWork).toHaveBeenCalledTimes(11);
+    });
+
+    it('SCHEDULED 보고는 nextRunAt 을 그대로 넘기고 응답 시각은 KST 로 바꾼다', async () => {
+      const c = mockClient();
+      vi.mocked(c.reportAgentWork).mockResolvedValue({
+        work: { worker: { id: 7, username: 'claude', name: 'Claude', kind: 'AI' }, tool: 'mcp', state: 'SCHEDULED', updatedAt: '2026-10-14T00:00:00Z', nextRunAt: '2026-10-19T00:00:00Z' },
+        ended: false,
+      });
+      const out = JSON.parse(resultText(await reportTool(c).handler({ issueKey: 'WP-12', state: 'SCHEDULED', nextRunAt: '2026-10-19T09:00:00+09:00' })));
+      expect(c.reportAgentWork).toHaveBeenCalledWith('WP-12', { state: 'SCHEDULED', nextRunAt: '2026-10-19T09:00:00+09:00' });
+      expect(out.work.nextRunAt).toBe('2026-10-19T09:00:00+09:00');
+    });
+
+    it.each([
+      ['2026-10-19T09:00:00+09:00', '2026-10-19T09:00:00+09:00'],
+      ['2026-10-19T00:00:00Z', '2026-10-19T00:00:00Z'],
+      ['2026-10-19T00:00Z', '2026-10-19T00:00Z'],
+      ['2026-10-19T00:00:00.123Z', '2026-10-19T00:00:00.123Z'],
+      ['2026-10-19T09:00:00', '2026-10-19T09:00:00+09:00'],
+      ['2026-10-19T09:00', '2026-10-19T09:00+09:00'],
+    ])('nextRunAt %s 는 허용되고 %s 로 전송된다(오프셋 없으면 +09:00)', async (nextRunAt, sent) => {
+      const c = mockClient();
+      vi.mocked(c.reportAgentWork).mockResolvedValue({ work: null, ended: false });
+      await reportTool(c).handler({ issueKey: 'WP-12', state: 'SCHEDULED', nextRunAt });
+      expect(c.reportAgentWork).toHaveBeenCalledWith('WP-12', { state: 'SCHEDULED', nextRunAt: sent });
+    });
+
+    it.each([
+      ['SCHEDULED 가 아닌 상태 + nextRunAt', { state: 'WORKING', nextRunAt: '2026-10-19T09:00:00+09:00' }],
+      ['상태 없이 nextRunAt', { nextRunAt: '2026-10-19T09:00:00+09:00' }],
+      ['RFC 2822 형식 nextRunAt', { state: 'SCHEDULED', nextRunAt: 'Mon, 19 Oct 2026 09:00:00 +09:00' }],
+      ['공백 구분 nextRunAt', { state: 'SCHEDULED', nextRunAt: '2026-10-19 09:00' }],
+      ['날짜가 아닌 nextRunAt', { state: 'SCHEDULED', nextRunAt: 'tomorrow' }],
+    ])('nextRunAt 검증 실패: %s', async (_label, extra) => {
+      const c = mockClient();
+      await expect(reportTool(c).handler({ issueKey: 'WP-12', ...extra })).rejects.toThrow();
+      expect(c.reportAgentWork).not.toHaveBeenCalled();
     });
 
     it.each([

@@ -38,6 +38,17 @@ describe('toAgentWorkView', () => {
     expect(v.stale).toBe(true);
   });
 
+  it('nextRunAt 은 있으면 +09:00 로, 없거나 null 이면 키째 빠진다', () => {
+    expect(toAgentWorkView({ ...raw, state: 'SCHEDULED', nextRunAt: '2026-10-19T00:00:00Z' }).nextRunAt).toBe('2026-10-19T09:00:00+09:00');
+    expect(toAgentWorkView(raw)).not.toHaveProperty('nextRunAt');
+    expect(toAgentWorkView({ ...raw, nextRunAt: null })).not.toHaveProperty('nextRunAt');
+  });
+
+  it('overdue 는 true 일 때만 실리고 stale 과 별개다', () => {
+    expect(toAgentWorkView({ ...raw, state: 'SCHEDULED', overdue: true }).overdue).toBe(true);
+    expect(toAgentWorkView({ ...raw, overdue: false })).not.toHaveProperty('overdue');
+  });
+
   it('tool 이 null(시작 전 행)이면 키째 빠진다', () => {
     const v = toAgentWorkView({ ...raw, tool: null, state: 'SUBMITTED' });
     expect(v).not.toHaveProperty('tool');

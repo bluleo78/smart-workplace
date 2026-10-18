@@ -130,6 +130,11 @@ public class AgentWork extends TableImpl<AgentWorkRecord> {
      */
     public final TableField<AgentWorkRecord, OffsetDateTime> ENDED_AT = createField(DSL.name("ended_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "");
 
+    /**
+     * The column <code>public.agent_work.next_run_at</code>.
+     */
+    public final TableField<AgentWorkRecord, OffsetDateTime> NEXT_RUN_AT = createField(DSL.name("next_run_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "");
+
     private AgentWork(Name alias, Table<AgentWorkRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }
@@ -271,9 +276,9 @@ public class AgentWork extends TableImpl<AgentWorkRecord> {
         return Arrays.asList(
             Internal.createCheck(this, DSL.name("agent_work_check"), "(((steps_done IS NULL) = (steps_total IS NULL)))", true),
             Internal.createCheck(this, DSL.name("agent_work_check1"), "(((steps_total IS NULL) OR ((steps_total > 0) AND ((steps_done >= 0) AND (steps_done <= steps_total)))))", true),
-            Internal.createCheck(this, DSL.name("agent_work_check2"), "(((ended_at IS NULL) = ((state)::text = ANY ((ARRAY['SUBMITTED'::character varying, 'WORKING'::character varying, 'INPUT_REQUIRED'::character varying, 'AUTH_REQUIRED'::character varying, 'REVIEW'::character varying, 'BLOCKED'::character varying, 'PAUSED'::character varying])::text[]))))", true),
+            Internal.createCheck(this, DSL.name("agent_work_ended_state_check"), "(((ended_at IS NULL) = ((state)::text = ANY ((ARRAY['SUBMITTED'::character varying, 'WORKING'::character varying, 'INPUT_REQUIRED'::character varying, 'AUTH_REQUIRED'::character varying, 'REVIEW'::character varying, 'BLOCKED'::character varying, 'SCHEDULED'::character varying, 'PAUSED'::character varying])::text[]))))", true),
             Internal.createCheck(this, DSL.name("agent_work_progress_check"), "(((progress >= 0) AND (progress <= 100)))", true),
-            Internal.createCheck(this, DSL.name("agent_work_state_check"), "(((state)::text = ANY ((ARRAY['SUBMITTED'::character varying, 'WORKING'::character varying, 'INPUT_REQUIRED'::character varying, 'AUTH_REQUIRED'::character varying, 'REVIEW'::character varying, 'BLOCKED'::character varying, 'PAUSED'::character varying, 'COMPLETED'::character varying, 'FAILED'::character varying, 'CANCELED'::character varying, 'REJECTED'::character varying])::text[])))", true)
+            Internal.createCheck(this, DSL.name("agent_work_state_check"), "(((state)::text = ANY ((ARRAY['SUBMITTED'::character varying, 'WORKING'::character varying, 'INPUT_REQUIRED'::character varying, 'AUTH_REQUIRED'::character varying, 'REVIEW'::character varying, 'BLOCKED'::character varying, 'SCHEDULED'::character varying, 'PAUSED'::character varying, 'COMPLETED'::character varying, 'FAILED'::character varying, 'CANCELED'::character varying, 'REJECTED'::character varying])::text[])))", true)
         );
     }
 

@@ -1,4 +1,5 @@
 // src/issue-tools.ts — 두 앱 공유 이슈 도구 10종(WP-421: watch_issue·unwatch_issue 를 watch_issue 하나로 합침). 핸들러는 IssueToolClient(issueKey 기준)만 호출.
+import { normalizeTimezone } from './calendar-tools.js';
 import { dropEmpty } from './compact.js';
 import { errText, parseIssueKey } from './parse.js';
 import type { SharedTool } from './mcp-tool.js';
@@ -244,11 +245,13 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       hints: { destructive: false, idempotent: false },
       description:
         'Reports work on your assigned issue (이슈) at start/on change: INPUT_REQUIRED before asking the user, AUTH_REQUIRED if you need ' +
-        'credentials/permission, REVIEW done awaiting review, BLOCKED + why, PAUSED if told to stop; COMPLETED/FAILED/CANCELED/REJECTED end the ' +
+        'credentials/permission, REVIEW done awaiting review, BLOCKED + why, SCHEDULED yield until nextRunAt (resend each time; none = resume after other work), PAUSED if told to stop; COMPLETED/FAILED/CANCELED/REJECTED end the ' +
         'work. message posts to issue chat.',
       inputSchema: reportAgentWorkInput,
       async handler(args) {
-        const { issueKey, ...body } = reportAgentWorkInput.parse(args);
+        const { issueKey, nextRunAt, ...rest } = reportAgentWorkInput.parse(args);
+        // 오프셋 없는 시각은 서버가 못 읽어 캘린더 도구처럼 +09:00 로 보정해 보낸다.
+        const body = nextRunAt === undefined ? rest : { ...rest, nextRunAt: normalizeTimezone(nextRunAt) };
         const { work, ended } = await client.reportAgentWork(issueKey, body);
         // 서버 뷰의 숫자 id 는 빼고 사람을 username 으로만 가리킨다(#833). 끝났으면 work 는 null 이라 ended 만 남는다.
         return JSON.stringify(dropEmpty({ work: work ? toAgentWorkView(work) : null, ended }));

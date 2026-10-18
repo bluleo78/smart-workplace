@@ -93,7 +93,8 @@ public class AgentWorkService {
                 patch.clearNote() ? null : patch.note(),
                 patch.progress(),
                 patch.stepsDone(),
-                patch.stepsTotal())
+                patch.stepsTotal(),
+                patch.nextRunAt())
             .orElseThrow(AgentWorkIssueClosedException::new);
     var row = outcome.row();
     // 첫 보고는 위 insert 가 값(도구·상태·note·진행률)을 이미 담았으므로 같은 값을 다시 쓰지 않는다 — 이력도 보고당 한 번만 남는다.

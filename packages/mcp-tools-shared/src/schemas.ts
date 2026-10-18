@@ -82,9 +82,19 @@ export const reportAgentWorkInput = z
     stepsDone: z.number().int().min(0).optional(),
     stepsTotal: z.number().int().min(1).optional(),
     message: z.string().min(1).max(4000).optional(),
+    // 다음 실행 시각(WP-450) — z.iso.datetime 은 긴 pattern 을 JSON Schema 에 싣는 탓에 문자열 + refine. 오프셋 생략 허용(핸들러가 +09:00 보정).
+    nextRunAt: z
+      .string()
+      .refine((v) => /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})?$/.test(v) && !Number.isNaN(Date.parse(v)), {
+        message: 'nextRunAt must be ISO 8601 date-time (offset optional, default +09:00)',
+      })
+      .optional()
+      .describe('SCHEDULED only; ISO 8601, offset optional (KST). Resend on every SCHEDULED report; omitted = no time'),
   })
   .refine((v) => (v.stepsDone === undefined) === (v.stepsTotal === undefined), { message: 'stepsDone and stepsTotal go together' })
-  .refine((v) => v.stepsDone === undefined || v.stepsDone <= (v.stepsTotal ?? 0), { message: 'stepsDone must not exceed stepsTotal' });
+  .refine((v) => v.stepsDone === undefined || v.stepsDone <= (v.stepsTotal ?? 0), { message: 'stepsDone must not exceed stepsTotal' })
+  // 서버(ReportAgentWorkRequest)와 같은 규칙 — 시각은 SCHEDULED 일 때만.
+  .refine((v) => v.nextRunAt === undefined || v.state === 'SCHEDULED', { message: 'nextRunAt is only allowed with state SCHEDULED' });
 
 /** 코멘트 수정 입력. */
 export const editCommentInput = z.object({

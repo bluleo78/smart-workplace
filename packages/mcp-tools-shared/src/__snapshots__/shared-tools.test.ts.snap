@@ -2310,6 +2310,10 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "minLength": 1,
           "type": "string",
         },
+        "nextRunAt": {
+          "description": "SCHEDULED only; ISO 8601, offset optional (KST). Resend on every SCHEDULED report; omitted = no time",
+          "type": "string",
+        },
         "note": {
           "description": "one-line status; "" clears",
           "maxLength": 120,
@@ -2328,6 +2332,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
             "BLOCKED",
             "PAUSED",
             "REVIEW",
+            "SCHEDULED",
             "COMPLETED",
             "FAILED",
             "CANCELED",

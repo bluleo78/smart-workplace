@@ -3,7 +3,7 @@
 // 메타 줄은 자르거나 말줄임하지 않는다 — 진행률은 글자만, 폭이 모자라면 뒤쪽 항목이 다음 줄로 넘어간다.
 import type { Page } from '@playwright/test'
 
-import { agentWorker as agent, createAgentWork, createAiTaskCounts, minutesAgo } from '../../factories/agentWork.factory'
+import { agentWorker as agent, createAgentWork, createAiTaskCounts, createScheduledIssue, KST_1430, minutesAgo } from '../../factories/agentWork.factory'
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory'
 import { GROUPED_ROWS } from '../../fixtures/ai-tasks-groups'
 import { projectRows } from '../../fixtures/ai-tasks-projects'
@@ -147,5 +147,22 @@ test('프로젝트 머리 줄이 목록 맨 앞과 프로젝트가 바뀌는 자
   expect(ids[ids.indexOf('ai-row-430') + 1]).toBe('ai-project-HR-head')
   expect(ids[ids.indexOf('ai-row-1015') + 1]).toBe('ai-project-MKT-head')
   await expect(page.getByTestId('ai-project-HR-head-count')).toHaveText('HR · 4')
+  await expectNoHorizontalOverflow(page)
+})
+
+// WP-450: 다음 회차 대기 행 — 메타 줄에 배지 옆으로 예정 시각 라벨. 기준 시각 고정(2026-10-18 14:30 KST).
+test('다음 회차 대기 행은 메타 줄에 배지와 예정 시각을 보이고 가로 넘침이 없다', async ({ authenticatedPage: page }) => {
+  await page.clock.setFixedTime(new Date(KST_1430))
+  await stubChat(page)
+  const rows = [createScheduledIssue(601, '주간 리포트 생성', { note: '다른 작업에 양보했어요' })]
+  await mockApi(page, 'GET', '/api/v1/me/ai-tasks', createIssueSearchResponse(rows))
+  await mockApi(page, 'GET', '/api/v1/me/ai-tasks/counts', createAiTaskCounts({ all: 1, scheduled: 1 }))
+  await page.goto('/me/ai-tasks')
+  await expect(page.getByTestId('ai-row-601')).toBeVisible()
+
+  await expect(page.getByTestId('ai-row-601-state')).toContainText('다음 회차 대기')
+  await expect(page.getByTestId('ai-row-601-next-run')).toHaveText('내일 09:00 이후')
+  await expect(page.getByTestId('ai-row-601-meta')).toContainText('내일 09:00 이후')
+  await expect(page.getByTestId('ai-row-601-note')).toHaveText('다른 작업에 양보했어요')
   await expectNoHorizontalOverflow(page)
 })
