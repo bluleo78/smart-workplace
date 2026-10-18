@@ -15,9 +15,9 @@ description: Use when the user runs /genia-works:work-loop <프로젝트 키> (u
 - **하지 않는다**: push, 태그, 운영 배포, 이슈 DONE 처리, 이슈 생성(필요하면 이슈 챗에 제안만 남긴다).
 - **검증을 통과하기 전에는 main 에 머지하지 않는다**(`process-issue.md` 8번).
 - 상태는 매번 서버(이슈·챗·agentWork)와 git(워크트리·브랜치)에서 다시 읽는다. 대화 기억에 기대지 않는다(대화 요약이 일어나도 이어지게).
-- 보고 규칙(상태·note·질문·되돌리기)은 work-on 과 같다: 이 스킬 폴더 기준 `../work-on/SKILL.md` 의 4~6번을 읽고 따른다(하위 맡기는 3번 — 아래 3번에서 쓴다). 다만 work-loop 는 두 가지가 다르다.
-  - 5번의 「사용자에게 완료 처리 / 검토 대기를 묻기」와 DONE 처리는 하지 않는다 — 다 끝나면 늘 검토 대기(REVIEW)다.
-  - 6번의 끝내는 상태(COMPLETED·CANCELED·REJECTED·FAILED)는 **보고하지 않는다**. 끝난 작업은 목록에 내 행이 없는 것으로 보여 새 작업으로 다시 골라지기 때문이다. 사람이 그만두라고 하면 `PAUSED` + note 에 이유, 받은 말을 `message` 한 줄로 확인한다. 할 수 없는 일이거나 시도했지만 실패했으면 `BLOCKED` + `message` 에 이유를 적는다.
+- 보고 규칙(상태·note·질문·되돌리기)은 work-on 과 같다: 이 스킬 폴더 기준 `../work-on/SKILL.md` 의 4번을 읽고 따른다(하위 맡기는 3번 — 아래 3번에서 쓴다). 다만 마무리는 work-on 5번(work-done)을 따르지 않는다 — 두 가지가 다르다.
+  - 끝낼 방식을 묻지 않고 DONE 처리도 하지 않는다. 다 끝나면 늘 검토 대기(REVIEW)이고, 마무리·리소스 정리는 `process-issue.md` 11번대로 한다.
+  - 끝내는 상태(COMPLETED·CANCELED·REJECTED·FAILED)는 **보고하지 않는다**. 끝난 작업은 목록에 내 행이 없는 것으로 보여 새 작업으로 다시 골라지기 때문이다. 사람이 그만두라고 하면 `PAUSED` + note 에 이유, 받은 말을 `message` 한 줄로 확인한다. 할 수 없는 일이거나 시도했지만 실패했으면 `BLOCKED` + `message` 에 이유를 적는다.
 - **근거 이미지**(시안·스크린샷)는 워크트리를 지워도 남게 `MAIN/.work-loop/state/evidence/<이슈 키>/` 에 저장하고, 이슈 챗에는 그 경로와 각 장면에서 보이는 것을 글로 적는다(이미지는 올리지 않는다).
 - **격리 라이브 스택은 늘 이름 `work-loop` 로** 띄우고 확인하고 내린다(이 저장소는 `LIVE_STACK_NAME=work-loop` — `.work-loop/project.md` 4번). 이름이 다르면 상태 파일이 갈려, 사람이 같은 스크립트로 띄운 스택을 보거나 내리게 된다. 내리는 것도 그 이름의 스택, 곧 내가 띄운 프로세스·컨테이너뿐이다.
 - **MAIN** = main 작업 폴더 = `git rev-parse --path-format=absolute --git-common-dir` 의 부모 폴더. 워크트리 안에 있어도 이 값은 같다. 실행 상태는 `MAIN/.work-loop/state/`(git 무시), 저장소 안내는 `MAIN/.work-loop/project.md` 다. 이슈마다 이어 할 기록은 notes 파일 `MAIN/.work-loop/state/notes/<이슈 키>.md` 다.

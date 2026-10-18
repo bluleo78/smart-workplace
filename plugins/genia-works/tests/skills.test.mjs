@@ -10,6 +10,7 @@ test('스킬 폴더마다 SKILL.md 의 name 이 폴더 이름과 같고 descript
   const dirs = readdirSync(skillsDir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name);
   assert.ok(dirs.includes('work-on'));
   assert.ok(dirs.includes('work-loop'));
+  assert.ok(dirs.includes('work-done'));
   for (const dir of dirs) {
     const head = /^---\r?\n([\s\S]*?)\r?\n---\r?\n/.exec(readFileSync(new URL(`${dir}/SKILL.md`, skillsDir), 'utf8'))?.[1] ?? '';
     assert.equal(/^name: ["']?([^"'\r\n]+)["']?\r?$/m.exec(head)?.[1], dir);
