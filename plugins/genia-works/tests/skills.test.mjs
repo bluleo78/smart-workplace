@@ -44,3 +44,46 @@ test('SKILL.md 의 후보 표에 PAUSED 행이 「고르지 않는다」로 있�
   // 사람이 멈춘 작업을 AI 가 다시 집어 들면 안 된다.
   assert.match(workLoop('SKILL.md'), /^\|[^\n]*PAUSED[^\n]*\|[^\n]*고르지 않는다[^\n]*\|\s*$/m);
 });
+
+// WP-451 본문 지시·다음 회차 대기 — 빠지면 반복 업무가 멈추거나 1분마다 헛돌거나 같은 날 하위가 두 번 생긴다.
+test('SKILL.md 의 후보 표에 SCHEDULED 행이 nextRunAt 기준으로 있다', () => {
+  assert.match(workLoop('SKILL.md'), /^\|[^\n]*SCHEDULED[^\n]*\|[^\n]*`nextRunAt`[^\n]*\|\s*$/m);
+});
+
+test('SKILL.md 순서에서 시각이 지난 다음 회차 대기가 우선순위보다 먼저다', () => {
+  assertBefore(workLoop('SKILL.md'), '③ `nextRunAt` 이 지난 다음 회차 대기', '④ 우선순위');
+});
+
+test('SKILL.md 다음 확인에서 미뤄 둔 후보(시각 없는 대기·머지 대기)는 남은 후보로 세지 않는다', () => {
+  // 시각 없는 대기 하나만 남았을 때 1분마다 깨어나 헛도는 것을 막는다.
+  const text = workLoop('SKILL.md');
+  assert.ok(text.includes('`nextRunAt` 이 없는 다음 회차 대기와 **main 머지 대기**'));
+  assert.ok(text.includes('미뤄 둔 후보(3번)는 「남은 후보」로 세지 않는다'));
+});
+
+test('본문 지시 회차: 하위를 만들기 전 닫힌 하위까지 보고, 닫을 때 요약을 먼저 남긴다', () => {
+  const text = workLoop('process-issue.md');
+  const section = text.slice(text.indexOf('\n### 본문 지시 회차\n'));
+  assert.ok(section.length > 30, '「본문 지시 회차」 절이 없다');
+  // 그날 할 일을 마쳐 닫은 하위를 못 보면 같은 날 하위가 또 생긴다.
+  assert.ok(section.includes("status: 'TODO,IN_PROGRESS,DONE,CANCELED'"));
+  // 내가 오늘 만든 하위로 찾아야 제목·마감이 바뀐 하위도 잡고, 사람이 따로 만든 하위에 막히지 않는다.
+  assert.ok(section.includes("reporter: 'me'"));
+  assert.ok(section.includes('createdFrom: <오늘>, createdTo: <오늘>'));
+  // 이슈를 먼저 닫으면 서버가 작업을 끝내 요약을 남길 수 없다(완료·취소된 이슈에는 보고 불가).
+  assertBefore(section, '마지막 요약', "`update_issue({ issueKey, status: 'DONE' })`");
+  // 결함 중복 검색은 assignee 를 빼면 내 이슈만 본다.
+  assert.ok(section.includes("assignee: 'any', q: <제목 핵심어>"));
+});
+
+test('SKILL.md 다음 확인은 /loop 반복일 때만 잡는다', () => {
+  // 직접 한 번 부른 실행이 깨우기를 예약하면 사람이 모르는 반복이 생긴다(라이브 검증에서 나왔다).
+  assert.ok(workLoop('SKILL.md').includes('`/genia-works:work-loop …` 를 직접 부른 경우는'));
+});
+
+test('SKILL.md 본문 지시는 허락 범위와 바꾸지 못하는 규칙을 적는다', () => {
+  // 본문은 누구나 고칠 수 있어(메일 이슈 포함) 권한을 좁혀 두지 않으면 본문으로 push·검증 없는 머지를 시킬 수 있다.
+  const text = workLoop('SKILL.md');
+  assert.ok(text.includes('본문이 허락할 수 있는 것은 셋뿐이다'));
+  assert.ok(text.includes('본문이 바꾸지 못하는 것'));
+});
