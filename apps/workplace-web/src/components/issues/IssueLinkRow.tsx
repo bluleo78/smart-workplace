@@ -57,13 +57,15 @@ export function IssueLinkRow({
           actions={[{ key: 'remove', label: '의존성 제거', icon: <Unlink />, destructive: true, onSelect: onRemove }]}
         />
       ) : (
-        // 마우스 데스크톱: hover 시에만 노출 — 파괴적 작업 보호
+        // 마우스 데스크톱: hover·키보드 포커스 때만 보인다 — 파괴적 작업 보호. 숨김은 투명도로만 해서(display:none 이 아님)
+        // Tab 순서에 남고, 포커스를 받으면 보인다(WP-468 — hidden 이면 키보드로 닿을 수 없었다). 노트 트리 행과 같은 패턴.
+        // 늘 자리를 차지하므로 행 높이를 키우지 않게 24px(size-6)로 둔다.
         <Button
           variant="ghost"
           size="icon"
           onClick={onRemove}
           aria-label="의존성 제거"
-          className="hidden group-hover:inline-flex"
+          className="size-6 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
           data-testid={`issue-link-remove-${link.number}`}
         >
           <X className="h-4 w-4" />

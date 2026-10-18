@@ -251,7 +251,8 @@ test.describe('의존성', () => {
   });
 
   // #312 — 의존성 행 삭제 버튼 hover-reveal 패턴 회귀 테스트.
-  test('의존성 행 삭제 버튼은 hover 전 숨겨지고 hover 후 표시된다', async ({
+  // WP-468 — 숨김은 투명도로만 한다: 키보드(Tab)로도 닿고, 포커스를 받으면 보이며 Enter 로 제거된다.
+  test('의존성 행 삭제 버튼은 hover·키보드 포커스 때만 보이고 키보드로 제거할 수 있다', async ({
     authenticatedPage: page,
   }) => {
     const taskType = makeTaskType();
@@ -296,12 +297,28 @@ test.describe('의존성', () => {
     const row = page.getByTestId('issue-link-row-99');
     const removeBtn = page.getByTestId('issue-link-remove-99');
 
-    // hover 전: 삭제 버튼이 DOM에 있지만 숨겨진 상태.
-    await expect(removeBtn).toBeHidden();
+    // hover 전: 삭제 버튼이 보이지 않는다(투명).
+    await expect(removeBtn).toHaveCSS('opacity', '0');
 
     // hover 후: 삭제 버튼이 표시됨.
     await row.hover();
-    await expect(removeBtn).toBeVisible();
+    await expect(removeBtn).toHaveCSS('opacity', '1');
+    await page.mouse.move(0, 0);
+    await expect(removeBtn).toHaveCSS('opacity', '0');
+
+    // 키보드: 행의 이슈 링크에서 Tab 하면 제거 버튼으로 포커스가 가고 보인다.
+    const removes = trackRequests(page, 'DELETE', `${ISSUES_BASE}/1/dependencies`);
+    await page.route(
+      (url) => url.pathname === `${ISSUES_BASE}/1/dependencies`,
+      (route) => route.fulfill({ status: 204, body: '' }),
+    );
+    await row.getByRole('link', { name: '선행 이슈' }).focus();
+    await page.keyboard.press('Tab');
+    await expect(removeBtn).toBeFocused();
+    await expect(removeBtn).toHaveCSS('opacity', '1');
+    await page.keyboard.press('Enter');
+    await removes.waitFor(1);
+    expect(removes.lastUrl()?.searchParams.get('otherNumber')).toBe('99');
   });
 
   // #669 — 미완료 선행(blockedBy) 이슈의 마감일보다 이른 날짜를 시작일/마감일에 선택하면
