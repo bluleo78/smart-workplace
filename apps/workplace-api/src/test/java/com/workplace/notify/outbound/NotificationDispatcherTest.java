@@ -7,6 +7,8 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 import com.workplace.calendar.outbound.CalendarReminderEvents.CalendarReminderDueEvent;
+import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageCreatedEvent;
+import com.workplace.chat.outbound.ChatMessageOrigin;
 import com.workplace.global.dto.UserSummary;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueAssignedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentedEvent;
@@ -203,5 +205,71 @@ class NotificationDispatcherTest {
 
     dispatcher.onIssueAssigned(e); // 예외가 전파되지 않아야 한다
     verify(service, never()).markAllRead(Mockito.anyLong());
+  }
+
+  // ── 이슈 챗 글 → 알림(WP-452) ──
+
+  private static ChatMessageCreatedEvent chatEvent(
+      UserSummary actor, List<UserSummary> mentions, ChatMessageOrigin origin) {
+    return new ChatMessageCreatedEvent(
+        1L,
+        77L,
+        20L,
+        "WP",
+        "WP-20",
+        "t",
+        "TODO",
+        "b",
+        actor,
+        "body",
+        mentions,
+        List.of(),
+        List.of(),
+        origin == ChatMessageOrigin.REPORT_QUESTION,
+        origin,
+        Instant.now());
+  }
+
+  /** AI 질문: 멘션 중 HUMAN 만 골라 AI_QUESTION 경로(관계자는 서비스 트랜잭션에서 조회)로 넘긴다. */
+  @Test
+  void onChatMessageCreated_question_delegatesWithHumanMentionsOnly() {
+    dispatcher.onChatMessageCreated(
+        chatEvent(
+            AGENT_ACTOR,
+            List.of(ASSIGNEE_A, AGENT_ACTOR, ASSIGNEE_A),
+            ChatMessageOrigin.REPORT_QUESTION));
+
+    verify(service).createAiQuestionAndFanOut(eq(20L), eq(List.of(2L)), eq(9L));
+    verify(service, never()).createAndFanOut(any(), any(), any(), Mockito.anyLong(), any());
+  }
+
+  /** 화면 글(USER): 멘션된 HUMAN 에게만 ISSUE_CHAT_MENTION. AGENT 멘션은 제외(작성자 본인 제외는 서비스가 한다). */
+  @Test
+  void onChatMessageCreated_userPost_mentionsHumansOnly() {
+    dispatcher.onChatMessageCreated(
+        chatEvent(HUMAN_ACTOR, List.of(ASSIGNEE_B, AGENT_ACTOR), ChatMessageOrigin.USER));
+
+    verify(service)
+        .createAndFanOut(
+            eq(NotificationType.ISSUE_CHAT_MENTION), eq(List.of(3L)), eq(1L), eq(20L), eq(null));
+    verify(service, never()).createAiQuestionAndFanOut(Mockito.anyLong(), any(), any());
+  }
+
+  /** 화면 글인데 사람 멘션이 없으면(AGENT 만 멘션) 알림 없음. */
+  @Test
+  void onChatMessageCreated_userPost_agentOnlyMention_noNotification() {
+    dispatcher.onChatMessageCreated(
+        chatEvent(HUMAN_ACTOR, List.of(AGENT_ACTOR), ChatMessageOrigin.USER));
+
+    Mockito.verifyNoInteractions(service);
+  }
+
+  /** AI 진행 보고(REPORT)는 사람 멘션이 있어도 알림 없음. */
+  @Test
+  void onChatMessageCreated_report_noNotificationEvenWithMentions() {
+    dispatcher.onChatMessageCreated(
+        chatEvent(AGENT_ACTOR, List.of(ASSIGNEE_A), ChatMessageOrigin.REPORT));
+
+    Mockito.verifyNoInteractions(service);
   }
 }

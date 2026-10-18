@@ -1,4 +1,4 @@
-import { Bell, Calendar, MessageSquare, RefreshCw, UserPlus } from 'lucide-react'
+import { AtSign, Bell, Calendar, MessageCircleQuestion, MessageSquare, RefreshCw, UserPlus } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 import { hasAiToken } from '@/lib/aiToken'
@@ -15,6 +15,8 @@ const TYPE_ICON: Record<NotificationResponse['type'], typeof UserPlus> = {
   REMINDER: Calendar,
   CALENDAR_INVITED: Calendar,
   CALENDAR_RSVP_CHANGED: Calendar,
+  AI_QUESTION: MessageCircleQuestion, // 이슈 챗 AI 질문(WP-452)
+  ISSUE_CHAT_MENTION: AtSign, // 이슈 챗 멘션(WP-452)
 }
 
 // 백엔드가 유니온에 없는 새 타입을 보내더라도(#585 재발 방지) 크래시 대신 폴백 아이콘을 렌더한다.

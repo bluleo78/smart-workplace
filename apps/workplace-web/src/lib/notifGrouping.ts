@@ -1,6 +1,6 @@
 // 홈 알림 위젯 "캐치업" 로직 — 최근 알림을 객체별로 묶고 '내 차례/업데이트'로 분류한다.
 // 전부 순수 함수(클라이언트 파생) — 백엔드 변경 없음. (내 작업 위젯 myTasks.ts 선례)
-import { isCalendarType, notifTarget } from '@/components/home/notifTarget'
+import { isCalendarType, isIssueChatType, notifTarget } from '@/components/home/notifTarget'
 import type { NotificationResponse } from '@/types/notification'
 
 // 알림 섹션 — 행동 필요(mine) vs 참고(updates).
@@ -28,11 +28,10 @@ export interface GroupedNotifs {
   updates: NotifGroup[]
 }
 
-// 알림 단건 섹션 분류. ASSIGNED(나에게 직접 배정) = 행동 필요.
+// 알림 단건 섹션 분류. ASSIGNED(나에게 직접 배정)·이슈 챗 AI 질문·이슈 챗 멘션(WP-452) = 행동 필요.
 // COMMENTED 는 담당자∪워처 공통 수신이라 "나를 멘션"인지 구분 불가 → 보수적으로 updates.
-// (백엔드에 MENTION 타입이 생기면 여기서 mine 으로 승격.)
 export function notifSection(n: NotificationResponse): NotifSection {
-  return n.type === 'ASSIGNED' ? 'mine' : 'updates'
+  return n.type === 'ASSIGNED' || isIssueChatType(n) ? 'mine' : 'updates'
 }
 
 // 그룹 키 — 같은 대상 객체를 한 줄로 묶는다.
@@ -56,6 +55,8 @@ function repLabel(n: NotificationResponse): string {
 
 // 델타 요약 문자열 — 종류별 건수를 고정 순서로 합친다.
 const TYPE_ORDER: NotificationResponse['type'][] = [
+  'AI_QUESTION',
+  'ISSUE_CHAT_MENTION',
   'ASSIGNED',
   'COMMENTED',
   'STATUS_CHANGED',
@@ -71,13 +72,15 @@ function deltaSummary(group: NotificationResponse[]): string {
   for (const t of TYPE_ORDER) {
     const c = counts.get(t)
     if (!c) continue
-    if (t === 'ASSIGNED') parts.push(c > 1 ? `배정 ${c}건` : '배정')
+    if (t === 'AI_QUESTION') parts.push(c > 1 ? `AI 질문 ${c}건` : 'AI 질문')
+    else if (t === 'ISSUE_CHAT_MENTION') parts.push(c > 1 ? `멘션 ${c}건` : '멘션')
+    else if (t === 'ASSIGNED') parts.push(c > 1 ? `배정 ${c}건` : '배정')
     else if (t === 'COMMENTED') parts.push(`코멘트 ${c}건`)
     else if (t === 'STATUS_CHANGED') parts.push(c > 1 ? `상태 변경 ${c}건` : '상태 변경')
     else if (t === 'PRIORITY_CHANGED') parts.push(c > 1 ? `우선순위 변경 ${c}건` : '우선순위 변경')
     else if (t === 'CALENDAR_INVITED') parts.push('일정 초대')
     else if (t === 'CALENDAR_RSVP_CHANGED') parts.push('참석 응답 변경')
-    else parts.push('일정 알림')
+    else if (t === 'REMINDER') parts.push('일정 알림')
   }
   return parts.join(' · ')
 }
@@ -97,8 +100,8 @@ export function groupNotifications(list: NotificationResponse[]): GroupedNotifs 
     // 최신순 정렬 후 대표(최신) 알림 결정.
     const sorted = [...arr].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     const rep = sorted[0]
-    // 그룹에 ASSIGNED 가 하나라도 있으면 '내 차례'.
-    const section: NotifSection = arr.some((n) => n.type === 'ASSIGNED') ? 'mine' : 'updates'
+    // 그룹에 행동 필요 알림(배정·이슈 챗 질문/멘션)이 하나라도 있으면 '내 차례'.
+    const section: NotifSection = arr.some((n) => notifSection(n) === 'mine') ? 'mine' : 'updates'
     groups.push({
       key,
       section,

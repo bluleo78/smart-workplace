@@ -9,6 +9,9 @@ export interface NotificationResponse {
     | 'REMINDER'
     | 'CALENDAR_INVITED'
     | 'CALENDAR_RSVP_CHANGED'
+    // WP-452: 이슈 챗 알림 — AI 가 답변 필요 질문을 올림 / 이슈 챗 글에서 나를 멘션.
+    | 'AI_QUESTION'
+    | 'ISSUE_CHAT_MENTION'
   actorId: number | null
   actorName: string | null
   actorKind: string | null // 'HUMAN' | 'AGENT' | null

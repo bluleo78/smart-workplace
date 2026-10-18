@@ -4,6 +4,7 @@ import type { Page } from '@playwright/test'
 
 import { createMembership } from '../../factories/auth.factory'
 import { mockApi } from '../../fixtures/api-mock'
+import { mockAgentWorkDetail } from '../../fixtures/issue-detail-mock'
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture'
 
 const ALL_APPS = ['home', 'chat', 'mail', 'calendar', 'tasks', 'drive', 'wiki', 'contacts', 'notifications', 'settings']
@@ -232,4 +233,37 @@ test('알림 화면: 빈 상태', async ({ authenticatedPage: page }) => {
   await expect(page.getByTestId('mobile-tabbar')).toHaveCount(0)
   await expect(page.getByTestId('mobile-back')).toBeVisible()
   await expectNoHorizontalOverflow(page)
+})
+
+// WP-452 — 모바일 알림 화면에서도 이슈 챗 AI 질문 알림을 같은 행으로 보이고, 누르면 이슈 챗 드로워가 열린 이슈로 간다.
+test('알림 화면: 이슈 챗 AI 질문 알림 → 이슈 챗 드로워로 이동 (WP-452)', async ({ authenticatedPage: page }) => {
+  await mockApi(page, 'GET', '/api/v1/notifications/unread-count', { count: 1 })
+  await mockApi(page, 'GET', '/api/v1/notifications', [
+    {
+      id: 31,
+      type: 'AI_QUESTION',
+      actorId: 9,
+      actorName: '개발 에이전트',
+      actorKind: 'AGENT',
+      issueId: 7,
+      projectKey: 'WP',
+      issueNumber: 12,
+      issueTitle: '알림 연결',
+      commentId: null,
+      eventId: null,
+      eventTitle: null,
+      eventStartsAt: null,
+      read: false,
+      createdAt: new Date().toISOString(),
+    },
+  ])
+  await mockApi(page, 'POST', '/api/v1/notifications/31/read', {}, { status: 204 })
+  await mockAgentWorkDetail(page, undefined)
+  await page.goto('/notifications')
+  const item = page.getByTestId('inbox-item').first()
+  await expect(item).toContainText('님이 이슈 챗에서 질문했습니다')
+  await expectNoHorizontalOverflow(page)
+  await item.click()
+  await expect(page).toHaveURL(/\/projects\/WP\/issues\/12\?chat=1$/)
+  await expect(page.getByTestId('issue-chat-drawer')).toBeVisible()
 })

@@ -96,6 +96,7 @@ class ChatEventDispatcherTest {
         List.of(),
         List.of(),
         false,
+        ChatMessageOrigin.USER,
         Instant.now());
   }
 

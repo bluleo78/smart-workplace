@@ -34,6 +34,11 @@ describe('notifSection', () => {
     expect(notifSection(notif({ type: 'PRIORITY_CHANGED' }))).toBe('updates')
     expect(notifSection(notif({ type: 'REMINDER' }))).toBe('updates')
   })
+
+  it('이슈 챗 AI 질문·멘션은 내 차례 (WP-452)', () => {
+    expect(notifSection(notif({ type: 'AI_QUESTION' }))).toBe('mine')
+    expect(notifSection(notif({ type: 'ISSUE_CHAT_MENTION' }))).toBe('mine')
+  })
 })
 
 describe('groupNotifications', () => {
@@ -130,5 +135,20 @@ describe('groupNotifications', () => {
     expect(updates2[0].key).toBe('event:7')
     expect(updates2[0].deltaSummary).toBe('참석 응답 변경')
     expect(updates2[0].target).toBe('/calendar?eventId=7')
+  })
+
+  it('이슈 챗 알림은 내 차례로 묶고, 델타를 따로 세고, 챗 드로워로 딥링크한다 (WP-452)', () => {
+    const { mine, updates } = groupNotifications([
+      notif({ id: 1, type: 'COMMENTED', createdAt: '2026-06-16T01:00:00Z' }),
+      notif({ id: 2, type: 'AI_QUESTION', actorKind: 'AGENT', createdAt: '2026-06-16T02:00:00Z' }),
+      notif({ id: 3, type: 'ISSUE_CHAT_MENTION', createdAt: '2026-06-16T03:00:00Z' }),
+      notif({ id: 4, type: 'ISSUE_CHAT_MENTION', createdAt: '2026-06-16T04:00:00Z' }),
+    ])
+    expect(updates).toHaveLength(0)
+    expect(mine).toHaveLength(1)
+    // 마지막 else 폴백('일정 알림')으로 새지 않는다.
+    expect(mine[0].deltaSummary).toBe('AI 질문 · 멘션 2건 · 코멘트 1건')
+    expect(mine[0].target).toBe('/projects/WP/issues/7?chat=1')
+    expect(mine[0].hasAgent).toBe(true)
   })
 })

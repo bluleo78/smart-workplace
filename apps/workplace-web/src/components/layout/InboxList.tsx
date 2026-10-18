@@ -29,6 +29,9 @@ const ACTION_LABEL: Record<NotificationResponse['type'], string> = {
   REMINDER: '일정 알림',
   CALENDAR_INVITED: '님이 일정에 초대했습니다',
   CALENDAR_RSVP_CHANGED: '님이 참석 응답을 변경했습니다',
+  // WP-452 이슈 챗 알림 — 클릭하면 이슈 챗 드로워가 열린 이슈 상세로 간다(notifTarget).
+  AI_QUESTION: '님이 이슈 챗에서 질문했습니다',
+  ISSUE_CHAT_MENTION: '님이 이슈 챗에서 회원님을 멘션했습니다',
 }
 
 /**

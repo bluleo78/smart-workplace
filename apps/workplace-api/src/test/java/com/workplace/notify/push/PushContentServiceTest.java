@@ -107,4 +107,40 @@ class PushContentServiceTest extends IntegrationTestBase {
                     1L, NotificationType.REMINDER, List.of(1L), null, null, -1L)))
         .isNull();
   }
+
+  /** 이슈 챗 AI 질문(WP-452) — MENTION 카테고리여도 이슈 문구로 조립되고, 이동 경로는 챗 드로워(?chat=1). */
+  @Test
+  void forInbox_aiQuestion_mentionCategory_buildsIssueChatMessage() {
+    seedIssue();
+    PushMessage m =
+        content.forInbox(
+            new InboxPushRequestedEvent(
+                1L,
+                NotificationType.AI_QUESTION,
+                PushCategory.MENTION,
+                List.of(99L),
+                actor,
+                issueId,
+                null));
+
+    assertThat(m).isNotNull();
+    assertThat(m.category()).isEqualTo(PushCategory.MENTION);
+    assertThat(m.title()).isEqualTo(key + "-7 로그인 버그");
+    assertThat(m.body()).isEqualTo("박민수님이 이슈 챗에서 질문했습니다");
+    assertThat(m.url()).isEqualTo("/projects/" + key + "/issues/7?chat=1");
+  }
+
+  /** 이슈 챗 멘션(WP-452) — 기본 카테고리 MENTION, 챗 드로워 경로. */
+  @Test
+  void forInbox_issueChatMention_buildsMentionMessage() {
+    seedIssue();
+    PushMessage m =
+        content.forInbox(
+            new InboxPushRequestedEvent(
+                1L, NotificationType.ISSUE_CHAT_MENTION, List.of(99L), actor, issueId, null));
+
+    assertThat(m.category()).isEqualTo(PushCategory.MENTION);
+    assertThat(m.body()).isEqualTo("박민수님이 이슈 챗에서 회원님을 멘션했습니다");
+    assertThat(m.url()).isEqualTo("/projects/" + key + "/issues/7?chat=1");
+  }
 }

@@ -15,6 +15,7 @@ import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageUpdatedEvent;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatThreadProgressEvent;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatThreadReadEvent;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatThreadTypingEvent;
+import com.workplace.chat.outbound.ChatMessageOrigin;
 import com.workplace.chat.repository.ChatMessageRepository;
 import com.workplace.chat.repository.ChatThreadMemberRepository;
 import com.workplace.chat.repository.IssueStakeholderLookup;
@@ -56,7 +57,7 @@ public class ChatMessageService {
   /** 메시지 작성(화면·일반 API). 질문 표시는 받지 않는다 — 질문은 report_agent_work 만 만든다(스펙 §3.1). */
   @Transactional
   public ChatMessageResponse create(long callerId, long threadId, CreateChatMessageRequest req) {
-    return doCreate(callerId, threadId, req, Origin.USER);
+    return doCreate(callerId, threadId, req, ChatMessageOrigin.USER);
   }
 
   /**
@@ -70,27 +71,7 @@ public class ChatMessageService {
         callerId,
         threadId,
         new CreateChatMessageRequest(body),
-        question ? Origin.REPORT_QUESTION : Origin.REPORT);
-  }
-
-  /** 글이 만들어진 경로 — 질문 표시와 "사람의 답" 취급 여부를 한 값으로 정한다. */
-  private enum Origin {
-    /** 화면·일반 API 로 사람이 쓴 글. */
-    USER,
-    /** AI 작업 보고(report_agent_work)의 일반 진행 글. */
-    REPORT,
-    /** AI 작업 보고의 답변 필요 질문 글. */
-    REPORT_QUESTION;
-
-    /** 질문(답변 필요) 글인지. */
-    boolean question() {
-      return this == REPORT_QUESTION;
-    }
-
-    /** 보고 경로의 글인지 — 사람이 작성자여도 "사람의 답"으로 치지 않는다. */
-    boolean fromReport() {
-      return this != USER;
-    }
+        question ? ChatMessageOrigin.REPORT_QUESTION : ChatMessageOrigin.REPORT);
   }
 
   /**
@@ -98,7 +79,7 @@ public class ChatMessageService {
    * 첨부/드라이브링크 바인딩 후 하이드레이트된 응답 반환. mention 파싱 후 INSERT, AFTER_COMMIT 이벤트 발행.
    */
   private ChatMessageResponse doCreate(
-      long callerId, long threadId, CreateChatMessageRequest req, Origin origin) {
+      long callerId, long threadId, CreateChatMessageRequest req, ChatMessageOrigin origin) {
     // 거부될 요청(권한 없음·삭제된 이슈·빈 메시지)으로는 대화에 참여시키지 않도록 쓰기 권한부터 확인하고, 참여는 검증을 모두 통과한 뒤 한다.
     var joinCtx = threadAccess.ensureCanWrite(threadId, callerId);
     // #621: 원본 이슈가 소프트삭제됐으면 스레드가 남아있어도 메시지 전송을 막는다.
@@ -139,7 +120,8 @@ public class ChatMessageService {
 
     // 첨부·드라이브 링크 하이드레이트 포함 응답 생성(같은 트랜잭션 내 — RLS 안전).
     ChatMessageResponse saved = findOne(messageId);
-    var created = buildEvent(threadId, messageId, callerId, req.body(), mentionUserIds, saved);
+    var created =
+        buildEvent(threadId, messageId, callerId, req.body(), mentionUserIds, saved, origin);
     publisher.publishEvent(created);
     // WP-377: 사람이 올린 글이면 답변 필요로 멈춘 AI 구성원 작업을 작업 중으로 되돌리도록 알린다. 보고 경로의 글은 제외(WP-373).
     if (!origin.fromReport() && UserKind.HUMAN.equals(created.actor().kind())) {
@@ -294,7 +276,8 @@ public class ChatMessageService {
       long actorId,
       String body,
       List<Long> mentionUserIds,
-      ChatMessageResponse saved) {
+      ChatMessageResponse saved,
+      ChatMessageOrigin origin) {
     var context = contextResolver.resolve(threadId);
     UserSummary actor = hydrator.summaryOf(actorId);
     List<UserSummary> mentions = hydrator.summariesOf(mentionUserIds);
@@ -313,6 +296,7 @@ public class ChatMessageService {
         saved.attachments(),
         saved.driveLinks(),
         saved.question(),
+        origin,
         Instant.now());
   }
 }

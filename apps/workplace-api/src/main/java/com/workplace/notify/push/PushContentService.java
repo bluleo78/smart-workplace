@@ -22,8 +22,10 @@ public class PushContentService {
   public PushMessage forInbox(InboxPushRequestedEvent e) {
     // 행위자 없음/탈퇴 등으로 이름 조회 실패 시 "시스템" — 프론트 InboxPanel 의 `n.actorName ?? '시스템'` 과 표기 통일.
     String actor = e.actorId() == null ? "시스템" : repo.findUserName(e.actorId()).orElse("시스템");
-    PushCategory category = PushCategory.of(e.type());
-    if (category == PushCategory.ISSUE) {
+    // 카테고리는 이벤트가 정한 값(수신자 묶음별 — AI_QUESTION 의 멘션 수신자는 MENTION). 이슈/일정 분기는 카테고리가 아니라 유형으로
+    // 가른다 — MENTION 카테고리의 이슈 챗 알림이 일정 분기로 빠져 푸시가 사라지지 않게(WP-452).
+    PushCategory category = e.category();
+    if (PushCategory.of(e.type()) != PushCategory.CALENDAR) {
       if (e.issueId() == null) return null;
       return repo.findIssue(e.issueId())
           .map(
@@ -34,7 +36,7 @@ public class PushContentService {
                       Texts.truncateCodePoints(
                           i.projectKey() + "-" + i.number() + " " + i.title(), 120),
                       actor + label(e.type()),
-                      "/projects/" + i.projectKey() + "/issues/" + i.number(),
+                      issueUrl(i.projectKey(), i.number(), e.type()),
                       "issue-" + e.issueId(),
                       "normal",
                       INBOX_TTL))
@@ -58,6 +60,20 @@ public class PushContentService {
         .orElse(null);
   }
 
+  /**
+   * 이슈 알림 이동 경로. 이슈 챗 알림(AI_QUESTION·ISSUE_CHAT_MENTION)은 이슈 챗 드로워를 연 채로 연다(`?chat=1` — 웹
+   * useIssueChatDrawerParam 과 같은 딥링크, 프론트 notifTarget 과 같은 규칙).
+   */
+  static String issueUrl(String projectKey, int number, NotificationType type) {
+    String base = "/projects/" + projectKey + "/issues/" + number;
+    return isIssueChat(type) ? base + "?chat=1" : base;
+  }
+
+  /** 이슈 챗에서 생긴 알림인지(WP-452). */
+  private static boolean isIssueChat(NotificationType t) {
+    return t == NotificationType.AI_QUESTION || t == NotificationType.ISSUE_CHAT_MENTION;
+  }
+
   /** 행위 문구(행위자 이름 뒤에 붙음). */
   private static String label(NotificationType t) {
     return switch (t) {
@@ -68,6 +84,8 @@ public class PushContentService {
       case CALENDAR_INVITED -> "님이 일정에 초대했습니다";
       case CALENDAR_RSVP_CHANGED -> "님이 참석 응답을 변경했습니다";
       case REMINDER -> "일정 알림";
+      case AI_QUESTION -> "님이 이슈 챗에서 질문했습니다";
+      case ISSUE_CHAT_MENTION -> "님이 이슈 챗에서 회원님을 멘션했습니다";
     };
   }
 }

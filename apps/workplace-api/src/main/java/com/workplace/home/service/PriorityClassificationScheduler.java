@@ -247,10 +247,12 @@ public class PriorityClassificationScheduler {
       }
     }
 
-    // 멘션(안읽은 COMMENTED 알림) — 프론트 notifTarget.ts 의 isMentionLike() 와 동일 규칙(전용 MENTION 타입이 없어
-    // COMMENTED 를 멘션 프록시로 사용). notifTarget() 라우팅 규칙도 그대로 포팅(projectKey+issueNumber 딥링크).
+    // 멘션(안읽은 COMMENTED·이슈 챗 멘션·AI 질문 알림) — 프론트 notifTarget.ts 의 isMentionLike() 와 동일 규칙(COMMENTED 는
+    // 멘션 프록시, 이슈 챗 알림은 WP-452 의 전용 유형). notifTarget() 라우팅 규칙도 그대로 포팅(projectKey+issueNumber 딥링크,
+    // 이슈 챗 알림은 ?chat=1 로 챗 드로워를 연다).
     for (var n : notificationService.listRecent(userId, SOURCE_LIMIT, 0)) {
-      if (!n.read() && "COMMENTED".equals(n.type())) {
+      boolean issueChat = "AI_QUESTION".equals(n.type()) || "ISSUE_CHAT_MENTION".equals(n.type());
+      if (!n.read() && ("COMMENTED".equals(n.type()) || issueChat)) {
         out.add(
             new PriorityCandidate(
                 userId,
@@ -259,8 +261,12 @@ public class PriorityClassificationScheduler {
                 // issueTitle 은 LEFT JOIN 이라 원본 이슈가 삭제된 경우 null 일 수 있다 — MAIL_NEEDS_REPLY
                 // 분기와 동일한 폴백으로 user_priority_item.title NOT NULL 위반을 막는다.
                 n.issueTitle() != null ? n.issueTitle() : "(제목 없음)",
-                "멘션",
-                "/projects/" + n.projectKey() + "/issues/" + n.issueNumber()));
+                "AI_QUESTION".equals(n.type()) ? "AI 질문" : "멘션",
+                "/projects/"
+                    + n.projectKey()
+                    + "/issues/"
+                    + n.issueNumber()
+                    + (issueChat ? "?chat=1" : "")));
       }
     }
 

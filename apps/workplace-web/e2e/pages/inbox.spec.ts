@@ -1,4 +1,5 @@
 import { mockApi } from '../fixtures/api-mock'
+import { mockAgentWorkDetail } from '../fixtures/issue-detail-mock'
 import { expect, test } from '../fixtures/auth.fixture'
 import type { NotificationResponse } from '../../src/types/notification'
 
@@ -293,4 +294,44 @@ test('패널 바닥까지 스크롤하면 offset 다음 페이지를 요청해 �
   // 두 번째 페이지의 첫 항목(issueNumber 100, 21번째 행)이 실제로 이어붙었는지 확인 — 요소 존재만이 아닌 데이터 파이프라인 검증.
   await expect(page.getByTestId('inbox-item').nth(20)).toContainText('WP-100')
   await expect(page.getByTestId('inbox-item').last()).toContainText('WP-96')
+})
+
+// WP-452 — 이슈 챗 AI 질문·멘션 알림은 기존 행 레이아웃 그대로 문구만 다르고, 클릭하면 이슈 챗 드로워가 열린 이슈 상세로 간다.
+test('이슈 챗 AI 질문·멘션 알림을 렌더하고, 클릭하면 이슈 챗 드로워가 열린 이슈로 이동한다 (WP-452)', async ({
+  authenticatedPage: page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await mockApi(page, 'GET', '/api/v1/notifications/unread-count', { count: 2 })
+  await mockApi(page, 'GET', '/api/v1/notifications', [
+    notif({ id: 21, type: 'AI_QUESTION', actorName: '개발 에이전트', commentId: null, issueNumber: 12, issueTitle: '알림 연결' }),
+    notif({
+      id: 22,
+      type: 'ISSUE_CHAT_MENTION',
+      actorName: '박민수',
+      actorKind: 'HUMAN',
+      commentId: null,
+      issueNumber: 12,
+      issueTitle: '알림 연결',
+    }),
+  ])
+  const readCapture = await mockApi(page, 'POST', '/api/v1/notifications/21/read', {}, {
+    status: 204,
+    capture: true,
+  })
+  // 이동한 이슈 상세(WP-12)와 그 이슈 챗 스레드 모킹.
+  await mockAgentWorkDetail(page, undefined)
+  await page.goto('/')
+  await page.getByTestId('inbox-trigger').click()
+
+  const items = page.getByTestId('inbox-item')
+  // AGENT 행위자는 이름 뒤에 AI 배지가 붙는다 — 이름·문구를 따로 확인.
+  await expect(items.nth(0)).toContainText('개발 에이전트')
+  await expect(items.nth(0)).toContainText('님이 이슈 챗에서 질문했습니다')
+  await expect(items.nth(0)).toContainText('WP-12 알림 연결')
+  await expect(items.nth(1)).toContainText('박민수님이 이슈 챗에서 회원님을 멘션했습니다')
+
+  await items.nth(0).click()
+  await readCapture.waitForRequest()
+  await expect(page).toHaveURL(/\/projects\/WP\/issues\/12\?chat=1$/)
+  await expect(page.getByTestId('issue-chat-drawer')).toBeVisible()
 })

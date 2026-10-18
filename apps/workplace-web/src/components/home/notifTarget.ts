@@ -11,8 +11,17 @@ export function isCalendarType(n: NotificationResponse): boolean {
 }
 
 /**
+ * 이슈 챗에서 생긴 알림 판별(WP-452) — AI 질문·이슈 챗 멘션. 이슈 상세를 챗 드로워가 열린 채로(`?chat=1`,
+ * useIssueChatDrawerParam 과 같은 딥링크) 연다. 서버 푸시 url(PushContentService.issueUrl)과 같은 규칙.
+ */
+export function isIssueChatType(n: NotificationResponse): boolean {
+  return n.type === 'AI_QUESTION' || n.type === 'ISSUE_CHAT_MENTION'
+}
+
+/**
  * 알림 대상 라우트 해소 — InboxPanel/알림 위젯과 동일 규칙.
  * 캘린더 알림(REMINDER/CALENDAR_INVITED/CALENDAR_RSVP_CHANGED)은 캘린더로, 그 외 이슈 타입은 이슈 상세로.
+ * 이슈 챗 알림(AI_QUESTION/ISSUE_CHAT_MENTION)은 이슈 상세 + 챗 드로워(`?chat=1`)로.
  * 식별 정보가 없으면 인박스 대용(내 작업)으로 폴백(데드 클릭 방지).
  *
  * 캘린더 알림은 메일 알림(`/mail/:accountId?messageId=N`)과 동일 수준으로 해당 일정까지
@@ -21,8 +30,10 @@ export function isCalendarType(n: NotificationResponse): boolean {
  */
 export function notifTarget(n: NotificationResponse): string {
   if (isCalendarType(n)) return n.eventId != null ? `/calendar?eventId=${n.eventId}` : '/calendar'
-  if (n.projectKey && n.issueNumber != null)
-    return `/projects/${n.projectKey}/issues/${n.issueNumber}`
+  if (n.projectKey && n.issueNumber != null) {
+    const base = `/projects/${n.projectKey}/issues/${n.issueNumber}`
+    return isIssueChatType(n) ? `${base}?chat=1` : base
+  }
   return '/me/tasks/assigned'
 }
 
@@ -32,10 +43,9 @@ export function notifLabel(n: NotificationResponse): string {
 }
 
 /**
- * "나를 호출한" 알림 판별 — 전용 MENTION 타입이 없어 COMMENTED(코멘트)를 멘션 프록시로 사용.
- * (백엔드 NotificationType: ASSIGNED|COMMENTED|STATUS_CHANGED|PRIORITY_CHANGED|REMINDER — 멘션 타입 부재.)
- * 합성 레이어의 멘션 카운트/주의 필요 필터가 동일 규칙을 공유한다.
+ * "나를 호출한" 알림 판별 — 이슈 챗 멘션·AI 질문(WP-452 전용 유형)과, 코멘트 멘션 전용 유형이 없어 프록시로 쓰는 COMMENTED.
+ * 합성 레이어의 멘션 카운트/주의 필요 필터가 동일 규칙을 공유한다(백엔드 PriorityClassificationScheduler 도 같은 규칙).
  */
 export function isMentionLike(n: NotificationResponse): boolean {
-  return n.type === 'COMMENTED'
+  return n.type === 'COMMENTED' || isIssueChatType(n)
 }

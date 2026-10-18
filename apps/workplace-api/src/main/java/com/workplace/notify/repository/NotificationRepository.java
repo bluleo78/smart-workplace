@@ -2,6 +2,8 @@ package com.workplace.notify.repository;
 
 import static com.workplace.jooq.Tables.CALENDAR_EVENT;
 import static com.workplace.jooq.Tables.ISSUE;
+import static com.workplace.jooq.Tables.ISSUE_ASSIGNEE;
+import static com.workplace.jooq.Tables.ISSUE_WATCHER;
 import static com.workplace.jooq.Tables.NOTIFICATION;
 import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.USER;
@@ -21,6 +23,30 @@ import org.springframework.stereotype.Repository;
 public class NotificationRepository {
 
   private final DSLContext dsl;
+
+  /**
+   * 이슈의 사람(HUMAN) 관계자 id — 보고자 ∪ 담당자 ∪ 워처 중 kind=HUMAN 만(WP-452 AI 질문 알림 수신 후보). AGENT 는 알림을 읽을 사람이
+   * 아니라 뺀다. issue·issue_assignee·issue_watcher 는 RLS 대상이라 테넌트 GUC 가 주입된 트랜잭션 안에서 호출해야 한다.
+   */
+  public List<Long> findHumanStakeholderIds(long issueId) {
+    var stakeholders =
+        dsl.select(ISSUE.REPORTER_ID)
+            .from(ISSUE)
+            .where(ISSUE.ID.eq(issueId))
+            .union(
+                dsl.select(ISSUE_ASSIGNEE.USER_ID)
+                    .from(ISSUE_ASSIGNEE)
+                    .where(ISSUE_ASSIGNEE.ISSUE_ID.eq(issueId)))
+            .union(
+                dsl.select(ISSUE_WATCHER.USER_ID)
+                    .from(ISSUE_WATCHER)
+                    .where(ISSUE_WATCHER.ISSUE_ID.eq(issueId)));
+    return dsl.select(USER.ID)
+        .from(USER)
+        .where(USER.ID.in(stakeholders).and(USER.KIND.eq("HUMAN")))
+        .orderBy(USER.ID)
+        .fetch(USER.ID);
+  }
 
   /** 수신자별 1행씩 batch insert. created_at 은 DB default, read_at 은 null(안읽음). */
   public void insertBatch(

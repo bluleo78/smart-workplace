@@ -12,6 +12,7 @@ import com.workplace.chat.exception.ChatThreadNotMemberException;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageCreatedEvent;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageUpdatedEvent;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatThreadTypingEvent;
+import com.workplace.chat.outbound.ChatMessageOrigin;
 import com.workplace.chat.repository.ChatThreadMemberRepository;
 import com.workplace.issue.outbound.IssueHumanReplyPosted;
 import com.workplace.issue.repository.IssueRepository;
@@ -168,6 +169,8 @@ class ChatMessageServiceTest extends IntegrationTestBase {
     var created = events.stream(ChatMessageCreatedEvent.class).toList();
     assertThat(created).hasSize(1);
     assertThat(created.get(0).question()).isTrue();
+    // WP-452: 알림이 질문 글을 가려내도록 경로가 이벤트에 실린다.
+    assertThat(created.get(0).origin()).isEqualTo(ChatMessageOrigin.REPORT_QUESTION);
     // 보고 경로는 작성자가 사람이어도 "사람의 답"이 아니다.
     assertThat(events.stream(IssueHumanReplyPosted.class).count()).isZero();
   }
@@ -180,5 +183,17 @@ class ChatMessageServiceTest extends IntegrationTestBase {
     assertThat(events.stream(IssueHumanReplyPosted.class).count()).isEqualTo(1L);
     assertThat(events.stream(ChatMessageCreatedEvent.class).findFirst().orElseThrow().question())
         .isFalse();
+    assertThat(events.stream(ChatMessageCreatedEvent.class).findFirst().orElseThrow().origin())
+        .isEqualTo(ChatMessageOrigin.USER);
+  }
+
+  @Test
+  void createFromReport_진행보고는_REPORT_경로로_이벤트에_싣는다() {
+    ChatFixtures.Setup s = fx.setup();
+    var thread = threadService.getOrCreate(s.reporterId(), s.projectKey(), s.issueNumber());
+    messageService.createFromReport(s.reporterId(), thread.threadId(), "진행 보고", false);
+    var e = events.stream(ChatMessageCreatedEvent.class).findFirst().orElseThrow();
+    assertThat(e.origin()).isEqualTo(ChatMessageOrigin.REPORT);
+    assertThat(e.question()).isFalse();
   }
 }

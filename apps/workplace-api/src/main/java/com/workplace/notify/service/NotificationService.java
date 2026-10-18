@@ -7,12 +7,15 @@ import com.workplace.notify.dto.NotificationResponse;
 import com.workplace.notify.dto.NotificationType;
 import com.workplace.notify.outbound.NotificationChangeNotifier;
 import com.workplace.notify.push.InboxPushRequestedEvent;
+import com.workplace.notify.push.PushCategory;
 import com.workplace.notify.repository.NotificationRepository;
 import com.workplace.watcher.repository.IssueWatcherRepository;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -37,26 +40,71 @@ public class NotificationService {
   @Transactional
   public void createAndFanOut(
       NotificationType type, List<Long> recipientIds, Long actorId, long issueId, Long commentId) {
+    List<Long> recipients = insertAndFanOut(type, recipientIds, actorId, issueId, commentId);
+    if (recipients.isEmpty()) return;
+    publishPush(type, PushCategory.of(type), recipients, actorId, issueId, null);
+  }
+
+  /**
+   * 이슈 챗 AI 질문 알림(WP-452). 수신자 = 이슈의 사람 관계자(보고자 ∪ 담당자 ∪ 워처, HUMAN) ∪ 질문 글에서 멘션된 사람 — 작성자 제외·중복 제거로
+   * 한 사람에 AI_QUESTION 1건만 만든다. 푸시는 멘션된 사람만 MENTION 카테고리, 나머지는 ISSUE 카테고리로 나눠 보낸다(사용자가 멘션 푸시만 켜 둔
+   * 경우에도 "나를 부른 질문"은 받게).
+   *
+   * <p>관계자 조회(RLS 대상)는 이 트랜잭션 안에서 실행 — createWithWatchersAndFanOut 과 같은 이유(@Async 워커 스레드에서 GUC 주입 후
+   * 조회).
+   *
+   * @param mentionedHumanIds 질문 글에서 멘션된 HUMAN 사용자 id(호출측이 kind 로 거른 값)
+   */
+  @Transactional
+  public void createAiQuestionAndFanOut(long issueId, List<Long> mentionedHumanIds, Long actorId) {
+    List<Long> ids = new ArrayList<>(repo.findHumanStakeholderIds(issueId));
+    ids.addAll(mentionedHumanIds);
+    List<Long> recipients =
+        insertAndFanOut(NotificationType.AI_QUESTION, ids, actorId, issueId, null);
+    if (recipients.isEmpty()) return;
+    Set<Long> mentioned = new HashSet<>(mentionedHumanIds);
+    List<Long> toMention = recipients.stream().filter(mentioned::contains).toList();
+    List<Long> toIssue = recipients.stream().filter(id -> !mentioned.contains(id)).toList();
+    if (!toMention.isEmpty())
+      publishPush(
+          NotificationType.AI_QUESTION, PushCategory.MENTION, toMention, actorId, issueId, null);
+    if (!toIssue.isEmpty())
+      publishPush(
+          NotificationType.AI_QUESTION, PushCategory.ISSUE, toIssue, actorId, issueId, null);
+  }
+
+  /**
+   * 수신자 확정(null·actor 제외, 중복 제거) → batch insert → SSE fan-out. 실제 insert 한 수신자를 돌려준다(빈 목록이면 아무것도 안
+   * 함).
+   */
+  private List<Long> insertAndFanOut(
+      NotificationType type, List<Long> recipientIds, Long actorId, long issueId, Long commentId) {
     List<Long> recipients =
         recipientIds.stream()
             .filter(Objects::nonNull)
             .distinct()
             .filter(id -> !id.equals(actorId))
             .toList();
-    if (recipients.isEmpty()) return;
+    if (recipients.isEmpty()) return recipients;
     repo.insertBatch(recipients, type, actorId, issueId, commentId);
     // 페이로드는 경량(클라가 수신 즉시 쿼리 invalidate). 상세는 REST 재조회.
     registry.fanOut(recipients, "notify.created", Map.of("type", type.name(), "issueId", issueId));
-    publishPush(type, recipients, actorId, issueId, null);
+    return recipients;
   }
 
   /** 테넌트가 없으면(비정상 경로) 푸시만 건너뛴다. 푸시 때문에 인박스 insert 가 롤백되면 안 되므로 require() 금지. */
   private void publishPush(
-      NotificationType type, List<Long> recipients, Long actorId, Long issueId, Long eventId) {
+      NotificationType type,
+      PushCategory category,
+      List<Long> recipients,
+      Long actorId,
+      Long issueId,
+      Long eventId) {
     Long tenantId = TenantContext.get();
     if (tenantId == null) return;
     publisher.publishEvent(
-        new InboxPushRequestedEvent(tenantId, type, recipients, actorId, issueId, eventId));
+        new InboxPushRequestedEvent(
+            tenantId, type, category, recipients, actorId, issueId, eventId));
   }
 
   /**
@@ -94,7 +142,7 @@ public class NotificationService {
     repo.insertEventNotification(recipientId, type, actorId, eventId);
     registry.fanOut(
         List.of(recipientId), "notify.created", Map.of("type", type.name(), "eventId", eventId));
-    publishPush(type, List.of(recipientId), actorId, null, eventId);
+    publishPush(type, PushCategory.of(type), List.of(recipientId), actorId, null, eventId);
   }
 
   /**
@@ -106,7 +154,13 @@ public class NotificationService {
     repo.insertReminder(recipientId, eventId);
     registry.fanOut(
         List.of(recipientId), "notify.created", Map.of("type", "REMINDER", "eventId", eventId));
-    publishPush(NotificationType.REMINDER, List.of(recipientId), null, null, eventId);
+    publishPush(
+        NotificationType.REMINDER,
+        PushCategory.CALENDAR,
+        List.of(recipientId),
+        null,
+        null,
+        eventId);
   }
 
   @Transactional(readOnly = true)

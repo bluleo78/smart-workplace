@@ -3,6 +3,7 @@ package com.workplace.notify.outbound;
 import com.workplace.calendar.outbound.CalendarAttendeeEvents.CalendarAttendeeInvitedEvent;
 import com.workplace.calendar.outbound.CalendarAttendeeEvents.CalendarRsvpChangedEvent;
 import com.workplace.calendar.outbound.CalendarReminderEvents.CalendarReminderDueEvent;
+import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageCreatedEvent;
 import com.workplace.global.dto.UserSummary;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueAssignedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentedEvent;
@@ -143,6 +144,56 @@ public class NotificationDispatcher {
           NotificationType.PRIORITY_CHANGED, e.issueId(), e.assignees(), actorId(e.actor()), null);
     } catch (Exception ex) {
       log.warn("[notify] priority_changed 알림 실패 issueId={}: {}", e.issueId(), ex.getMessage());
+    }
+  }
+
+  /**
+   * 이슈 챗 글 → 알림(WP-452). 글 경로(origin)로 가른다.
+   *
+   * <ul>
+   *   <li>REPORT(AI 진행 보고) — 알림 없음. 멘션이 있어도 진행 보고는 인박스를 채우지 않는다.
+   *   <li>REPORT_QUESTION(AI 답변 필요 질문) — 이슈의 사람 관계자 ∪ 멘션된 사람에게 AI_QUESTION 1건씩. 관계자 조회는 서비스 트랜잭션
+   *       안(RLS).
+   *   <li>USER(화면 글·AI 채팅 답글) — 멘션된 사람에게 ISSUE_CHAT_MENTION. 작성자 본인은 서비스가 뺀다.
+   * </ul>
+   *
+   * <p>AGENT 는 알림을 읽을 사람이 아니라 멘션에서도 뺀다(AGENT 멘션은 ChatEventDispatcher 가 AI 호출로 처리).
+   */
+  @Async("notifyEventExecutor")
+  @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+  public void onChatMessageCreated(ChatMessageCreatedEvent e) {
+    try {
+      if (e.origin() == null) return;
+      List<Long> mentionedHumans =
+          e.mentions() == null
+              ? List.of()
+              : e.mentions().stream()
+                  .filter(u -> "HUMAN".equals(u.kind()))
+                  .map(UserSummary::id)
+                  .distinct()
+                  .toList();
+      switch (e.origin()) {
+        case REPORT_QUESTION ->
+            service.createAiQuestionAndFanOut(e.issueId(), mentionedHumans, actorId(e.actor()));
+        case USER -> {
+          if (!mentionedHumans.isEmpty())
+            service.createAndFanOut(
+                NotificationType.ISSUE_CHAT_MENTION,
+                mentionedHumans,
+                actorId(e.actor()),
+                e.issueId(),
+                null);
+        }
+        case REPORT -> {
+          // AI 진행 보고 — 알림 없음.
+        }
+      }
+    } catch (Exception ex) {
+      log.warn(
+          "[notify] 이슈 챗 알림 실패 issueId={} messageId={}: {}",
+          e.issueId(),
+          e.messageId(),
+          ex.getMessage());
     }
   }
 

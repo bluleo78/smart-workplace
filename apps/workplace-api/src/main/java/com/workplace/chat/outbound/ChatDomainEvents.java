@@ -34,6 +34,8 @@ public final class ChatDomainEvents {
       List<DriveLinkResponse> driveLinks,
       // WP-373: AI 질문 글인지 — 생성 직후 SSE 가 저장값 그대로 내려 화면이 바로 강조한다.
       boolean question,
+      // WP-452: 글이 만들어진 경로 — 알림이 화면 글(멘션 알림)·AI 진행 보고(알림 없음)·AI 질문(질문 알림)을 구분한다.
+      ChatMessageOrigin origin,
       Instant occurredAt) {}
 
   /** chat 메시지 수정 직후 (본인 수정). SSE fan-out 용. */
