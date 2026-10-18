@@ -1,11 +1,12 @@
 #!/usr/bin/env sh
-# scripts/live-stack.sh 의 작은 함수들(포트 고르기·스택 이름·상태 파일 읽고 쓰기)만 따로 시험한다.
-# 스택 전체(up/down)는 DB·빌드가 필요해 여기서 돌리지 않는다 — 이 시험은 수 초 안에 끝나야 한다.
+# scripts/live-stack.sh 의 작은 함수들(포트 고르기·스택 이름·상태 파일 읽고 쓰기·DB 컨테이너 지우기)을 따로 시험한다.
+# up 은 DB·빌드가 필요해 돌리지 않고, down 은 가짜 docker 로 웹·API 끄기를 건너뛰고 돌린다 — 이 시험은 수 초 안에 끝나야 한다.
 # - 후보 포트가 비어 있으면 그대로 고른다.
 # - 후보가 쓰는 중이면 +1 한 포트를 고른다.
 # - 다른 세션 포트(6060 등)는 후보로 받아도 절대 고르지 않는다.
 # - 스택 이름은 영문·숫자·_·- 만 받는다.
 # - 상태 파일 값은 공백·$·`·' 가 있어도 그대로 되읽히고, 사람이 `. ` 로 읽어도 실행되지 않는다.
+# - DB 컨테이너는 docker 에 닿지 않거나 지우지 못하면 실패로 알린다(down 이 상태 파일을 남기도록).
 # 실행: sh scripts/live-stack.test.sh
 
 DIR=$(cd "$(dirname "$0")" && pwd)
@@ -118,6 +119,45 @@ check "없는 키는 빈 값" "" "$(state_get NOPE)"
 check "사람이 . 로 읽어도 같은 값" "same" "$(cat "$tmp/sourced")"
 check ". 로 읽어도 \$() 가 실행되지 않는다" "no" "$([ -e "$tmp/pwned" ] && echo yes || echo no)"
 check ". 로 읽어도 백틱이 실행되지 않는다" "no" "$([ -e "$tmp/pwned2" ] && echo yes || echo no)"
+
+# 7) DB 컨테이너 지우기 — 가짜 docker 로 「닿지 않음 · 없음 · 지움 · rm 실패」를 보고, down 이 지우지 못하면 상태 파일을 남기는지 본다.
+fakebin="$tmp/bin"
+mkdir -p "$fakebin"
+cat >"$fakebin/docker" <<'FAKE'
+#!/bin/sh
+# FAKE_DOCKER: down(닿지 않음) · missing(컨테이너 없음) · ok(지움) · rmfail(rm 실패)
+case "$FAKE_DOCKER:$1" in
+  down:*) echo "Cannot connect to the Docker daemon" >&2; exit 1 ;;
+  missing:container) echo "Error: No such container: $3" >&2; exit 1 ;;
+  rmfail:rm) echo "Error: container is in use" >&2; exit 1 ;;
+  *) exit 0 ;;
+esac
+FAKE
+chmod +x "$fakebin/docker"
+# 마지막 절이라 이 뒤로는 가짜 docker 만 쓴다.
+PATH="$fakebin:$PATH"
+for case_ in "down 1" "missing 0" "ok 0" "rmfail 1"; do
+  set -- $case_
+  got=$(FAKE_DOCKER=$1 remove_db_container wl-1-db >/dev/null 2>&1 && echo 0 || echo 1)
+  check "DB 컨테이너 지우기 — docker $1 이면 $2" "$2" "$got"
+done
+check "우리 이름 규칙이 아니면 docker 를 부르지 않고 성공" "0" \
+  "$(FAKE_DOCKER=down remove_db_container smart-workplace-db-1 >/dev/null 2>&1 && echo 0 || echo 1)"
+
+# down — 웹·API 끄기와 포트 기다리기는 이 시험에서 건너뛴다(가짜로 바꿔 둔다).
+stop_pid() { :; }
+wait_until() { return 0; }
+down_case() {
+  # $1 = FAKE_DOCKER → 「종료코드 상태파일남음(yes/no)」
+  : >"$STATE_FILE"
+  state_put DB_CONTAINER wl-1-db
+  FAKE_DOCKER=$1 cmd_down >/dev/null 2>&1
+  echo "$? $([ -f "$STATE_FILE" ] && echo yes || echo no)"
+}
+check "down — docker 에 닿지 않으면 1 을 내고 상태 파일을 남긴다" "1 yes" "$(down_case down)"
+check "down — rm 이 실패하면 1 을 내고 상태 파일을 남긴다" "1 yes" "$(down_case rmfail)"
+check "down — 지우면 0 을 내고 상태 파일을 지운다" "0 no" "$(down_case ok)"
+check "down — 컨테이너가 이미 없으면 0 을 내고 상태 파일을 지운다" "0 no" "$(down_case missing)"
 
 echo "통과 $pass · 실패 $fail"
 [ "$fail" -eq 0 ]
