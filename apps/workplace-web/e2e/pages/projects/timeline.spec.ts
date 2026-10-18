@@ -413,7 +413,8 @@ test('일정 미정 섹션 — 접이식 + 배치', async ({ authenticatedPage: 
     const issues = [
       createIssue({ number: 1, title: '기간 이슈', startDate: '2026-07-01', dueDate: '2026-07-05' }),
       createIssue({ number: 5, title: '미정 이슈A' }),
-      createIssue({ number: 6, title: '미정 이슈B' }),
+      // WP-483: 시작일만 있는 미정 이슈 — 배치해도 시작일은 지키고 마감일만 채운다.
+      createIssue({ number: 6, title: '미정 이슈B', startDate: '2026-07-20' }),
     ];
     return route.fulfill({
       status: 200,
@@ -448,6 +449,22 @@ test('일정 미정 섹션 — 접이식 + 배치', async ({ authenticatedPage: 
   const diffDays =
     (new Date(body.dueDate).getTime() - new Date(body.startDate).getTime()) / (1000 * 60 * 60 * 24);
   expect(diffDays).toBe(7);
+
+  // WP-483: 시작일이 있으면 그 시작일을 건드리지 않고(PATCH 에 startDate 없음) 시작일 +7일을 마감으로.
+  const patches6 = trackRequests(page, 'PATCH', `/api/v1/projects/${KEY}/issues/6`);
+  await page.route(`**/api/v1/projects/${KEY}/issues/6`, (route) => {
+    if (route.request().method() === 'PATCH') {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(createIssue({ number: 6, title: '미정 이슈B', startDate: '2026-07-20', dueDate: '2026-07-27' })),
+      });
+    }
+    return route.fallback();
+  });
+  await page.getByTestId('unscheduled-schedule-6').click();
+  await patches6.waitFor();
+  expect(patches6.lastBody()).toEqual({ dueDate: '2026-07-27' });
 });
 
 test('주/월 줌 토글', async ({ authenticatedPage: page }) => {

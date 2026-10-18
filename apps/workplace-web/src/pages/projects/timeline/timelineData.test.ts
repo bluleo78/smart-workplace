@@ -127,6 +127,11 @@ describe('defaultScheduleRange', () => {
       dueDate: '2026-07-11',
     });
   });
+  it('시작일이 있으면 시작일은 그대로 두고 시작일 +7일을 마감으로만 채운다 (WP-483)', () => {
+    expect(defaultScheduleRange(new Date('2026-07-04T00:00:00Z'), '2026-07-20')).toEqual({
+      dueDate: '2026-07-27',
+    });
+  });
 });
 
 // IssueTypeSummary 실제 필드명은 icon (iconName 아님) — src/types/issueType.ts 참조.

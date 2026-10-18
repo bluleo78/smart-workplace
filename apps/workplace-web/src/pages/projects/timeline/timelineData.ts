@@ -47,8 +47,18 @@ export function filterRenderableDependencies(
   );
 }
 
-/** 일정 미정 이슈를 타임라인에 배치할 때 쓸 기본 기간 — 오늘부터 7일. */
-export function defaultScheduleRange(today: Date): { startDate: string; dueDate: string } {
+/**
+ * 일정 미정 이슈를 타임라인에 배치할 때 보낼 날짜 — 기본은 오늘부터 7일.
+ * 시작일이 이미 있으면(마감만 비어 미정) 그 시작일은 건드리지 않고 시작일 +7일을 마감으로만 채운다
+ * (WP-483 — 전에는 기존 시작일을 오늘로 말없이 덮어썼다). 이때는 startDate 를 보내지 않아 이력에도 남지 않는다.
+ */
+export function defaultScheduleRange(
+  today: Date,
+  existingStart?: string | null,
+): { startDate?: string; dueDate: string } {
+  if (existingStart) {
+    return { dueDate: format(addDays(parseISO(existingStart), 7), 'yyyy-MM-dd') };
+  }
   return {
     startDate: format(today, 'yyyy-MM-dd'),
     dueDate: format(addDays(today, 7), 'yyyy-MM-dd'),

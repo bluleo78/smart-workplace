@@ -138,7 +138,10 @@ export function TimelineGanttBody({
         onSchedule={(issueNumber) =>
           updateIssue.mutate({
             number: issueNumber,
-            data: defaultScheduleRange(new Date()),
+            data: defaultScheduleRange(
+              new Date(),
+              unscheduled.find((i) => i.number === issueNumber)?.startDate,
+            ),
           })
         }
       />
