@@ -26,6 +26,7 @@ import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import com.workplace.user.dto.AgentRuntime;
 import com.workplace.user.outbound.AgentRuntimeChanged;
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -86,6 +87,52 @@ class AgentWorkServiceTest extends IntegrationTestBase {
     assertThat(v2.state()).isEqualTo("REVIEW");
     assertThat(v2.tool()).isEqualTo("cursor");
     assertThat(v2.note()).isEqualTo("PR 올림");
+  }
+
+  /** NEXT_RUN_AT 을 작업자 행에 직접 심는다(DB 시계 기준 과거 시각 재현용). */
+  private void setNextRunAt(long workerId, OffsetDateTime at) {
+    dsl.update(AGENT_WORK)
+        .set(AGENT_WORK.NEXT_RUN_AT, at)
+        .where(AGENT_WORK.WORKER_ID.eq(workerId))
+        .execute();
+  }
+
+  /**
+   * WP-450: 다음 회차 대기(SCHEDULED)는 예정 시각이 2시간 넘게 지났을 때만 overdue — 미래·최근·시각 없음은 아니고 stale 은 항상 아니다.
+   */
+  @Test
+  void viewsByIssueIds_SCHEDULED_예정시각이_2시간_넘게_지나면_overdue() {
+    service.startOrUpdate(
+        issueId,
+        humanId,
+        "claude-code",
+        AgentWorkPatch.empty()
+            .withState("SCHEDULED")
+            .withNextRunAt(Instant.now().plusSeconds(3600)));
+    service.startOrUpdate(
+        issueId, agentId, "claude-code", AgentWorkPatch.empty().withState("SCHEDULED"));
+
+    // 미래 예정 + 시각 없음 — 둘 다 overdue 아님(시각 없음은 updated_at 이 오래돼도 아니다).
+    dsl.update(AGENT_WORK)
+        .set(AGENT_WORK.UPDATED_AT, OffsetDateTime.now().minusHours(5))
+        .where(AGENT_WORK.WORKER_ID.eq(agentId))
+        .execute();
+    assertThat(service.viewsByIssueIds(List.of(issueId)).get(issueId))
+        .extracting(AgentWorkView::overdue)
+        .containsOnly(false);
+
+    // 예정 시각이 1시간 전 — 아직 아님, 3시간 전 — overdue.
+    setNextRunAt(humanId, OffsetDateTime.now().minusHours(1));
+    assertThat(service.viewsByIssueIds(List.of(issueId)).get(issueId))
+        .extracting(AgentWorkView::overdue)
+        .containsOnly(false);
+    setNextRunAt(humanId, OffsetDateTime.now().minusHours(3));
+    var list = service.viewsByIssueIds(List.of(issueId)).get(issueId);
+    assertThat(list)
+        .filteredOn(AgentWorkView::overdue)
+        .extracting(v -> v.worker().id())
+        .containsExactly(humanId);
+    assertThat(list).extracting(AgentWorkView::stale).containsOnly(false);
   }
 
   @Test
@@ -215,7 +262,7 @@ class AgentWorkServiceTest extends IntegrationTestBase {
   void startOrUpdate_충돌한_행이_그사이_종료되면_409_AgentWorkIssueClosedException() {
     doReturn(Optional.empty())
         .when(repo)
-        .insertOutcome(anyLong(), anyLong(), any(), any(), any(), any(), any(), any());
+        .insertOutcome(anyLong(), anyLong(), any(), any(), any(), any(), any(), any(), any());
     assertThatThrownBy(
             () -> service.startOrUpdate(issueId, humanId, "claude-code", AgentWorkPatch.empty()))
         .isInstanceOf(AgentWorkIssueClosedException.class);

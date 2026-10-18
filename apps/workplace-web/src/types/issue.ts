@@ -30,8 +30,8 @@ export interface IssueLinkSummary {
   dueDate: string | null;
 }
 
-// AI 에이전트 작업 상태 — 서버 AgentWorkState 와 1:1, A2A 1.0 어휘 + 플랫폼 확장(REVIEW·BLOCKED·PAUSED) (WP-377).
-// 진행 상태 7종은 어디서나 내려오고, 종료 상태(COMPLETED·FAILED·CANCELED·REJECTED)는 AI 위임 작업 「완료」 보기의
+// AI 에이전트 작업 상태 — 서버 AgentWorkState 와 1:1, A2A 1.0 어휘 + 플랫폼 확장(REVIEW·BLOCKED·PAUSED·SCHEDULED) (WP-377·WP-450).
+// 진행 상태 8종은 어디서나 내려오고, 종료 상태(COMPLETED·FAILED·CANCELED·REJECTED)는 AI 위임 작업 「완료」 보기의
 // 대표 작업(진행 중 작업이 없는 이슈의 가장 최근 종료 1건)으로만 내려온다(WP-396).
 export type AgentWorkState =
   | 'SUBMITTED'
@@ -41,6 +41,7 @@ export type AgentWorkState =
   | 'REVIEW'
   | 'BLOCKED'
   | 'PAUSED'
+  | 'SCHEDULED'
   | 'COMPLETED'
   | 'FAILED'
   | 'CANCELED'
@@ -58,8 +59,12 @@ export interface AgentWorkView {
   stepsTotal: number | null;
   startedAt: string;
   updatedAt: string;
-  // 작업 중인데 2시간 넘게 보고가 없으면 true.
+  // 작업 중(WORKING)인데 2시간 넘게 보고가 없으면 true.
   stale: boolean;
+  // 다음 회차 대기(SCHEDULED)인데 예정 시각이 2시간 넘게 지나도록 시작하지 않았으면 true(WP-450).
+  overdue?: boolean;
+  // 다음 회차 시작 예정 시각(ISO) — SCHEDULED 에서만 의미가 있다. 없으면 「다른 작업 뒤 이어서」(WP-450).
+  nextRunAt?: string | null;
   // 종료 시각 — 종료 작업(완료 보기의 대표)만, 진행 중이면 서버가 생략한다(WP-396).
   endedAt?: string;
 }

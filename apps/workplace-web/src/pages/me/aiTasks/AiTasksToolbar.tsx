@@ -1,4 +1,4 @@
-// AI 위임 작업 툴바(WP-377) — 1줄: 범위(나와 관련/전체) + 기존 facet 필터, 2줄: AI 진행 빠른 필터 칩(건수) — 미완료·상태 넷·완료(WP-396).
+// AI 위임 작업 툴바(WP-377) — 1줄: 범위(나와 관련/전체) + 기존 facet 필터, 2줄: AI 진행 빠른 필터 칩(건수) — 미완료·상태 다섯·완료(WP-396).
 // 모든 선택은 URL(scope·state)에 쓰고 읽는다 — 새로고침·링크 공유에도 같은 화면, 다른 쿼리 키(status/priority)는 보존.
 import { useSearchParams } from 'react-router-dom'
 

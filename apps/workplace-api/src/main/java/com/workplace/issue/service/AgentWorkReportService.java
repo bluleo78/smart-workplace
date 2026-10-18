@@ -89,7 +89,9 @@ public class AgentWorkReportService {
     }
 
     // 작업을 시작했으면 TODO 이슈는 진행 중으로 — 상태 변경이 자동 터치로 보고를 덮지 않게 이미 억제 구간 안이다.
-    if ("TODO".equals(issue.status())) {
+    // 단, 다음 회차 대기(SCHEDULED) 보고는 아직 착수 전(「월요일 9시에 시작」)이라 이슈 상태를 바꾸지 않는다(WP-450).
+    boolean scheduled = AgentWorkState.SCHEDULED.equals(req.state());
+    if ("TODO".equals(issue.status()) && !scheduled) {
       issueService.updateStatus(callerId, projectKey, number, "IN_PROGRESS");
     }
 
@@ -107,7 +109,8 @@ public class AgentWorkReportService {
                 clearNote,
                 req.progress(),
                 req.stepsDone(),
-                req.stepsTotal()));
+                req.stepsTotal(),
+                req.nextRunAt()));
 
     // 갱신된 상태가 답변 필요(INPUT_REQUIRED)이고 작업자가 AI 구성원일 때만 질문으로 저장한다(사람 글·인증 필요 글은 일반 글).
     // 질문 여부를 생성과 함께 저장하려고 작업 갱신 뒤에 글을 올린다 — 같은 트랜잭션이라 이벤트는 커밋 뒤 함께 나간다.

@@ -102,7 +102,8 @@ export type IssueListQuery = Record<string, string | number | boolean>;
 /**
  * AI 작업 보고 입력 상태 목록(WP-377, A2A 1.0 어휘) — 단일 정의. zod 스키마(`schemas.ts`)와 아래 타입이 모두 여기서 나온다.
  * 뒤 네 값(COMPLETED·FAILED·CANCELED·REJECTED)은 종료 상태라 보고하면 작업 기록이 끝난다.
- * 조회 뷰에는 진행 중 상태 7종(여기 입력의 앞 6종 + SUBMITTED=시작 전)만 나온다.
+ * SCHEDULED(다음 회차 대기, WP-450)는 `nextRunAt` 을 함께 보낼 수 있는 유일한 상태다.
+ * 조회 뷰에는 진행 중 상태 8종(여기 입력의 앞 7종 + SUBMITTED=시작 전)만 나온다.
  */
 export const AGENT_WORK_STATE_INPUTS = [
   'WORKING',
@@ -111,6 +112,7 @@ export const AGENT_WORK_STATE_INPUTS = [
   'BLOCKED',
   'PAUSED',
   'REVIEW',
+  'SCHEDULED',
   'COMPLETED',
   'FAILED',
   'CANCELED',
@@ -128,6 +130,8 @@ export interface ReportAgentWorkBody {
   stepsDone?: number;
   stepsTotal?: number;
   message?: string;
+  /** 다음 실행 시각(ISO 날짜시각, 오프셋 포함) — state 가 SCHEDULED 일 때만(WP-450). */
+  nextRunAt?: string;
 }
 
 /** PUT .../agent-work 응답 — work 는 raw AgentWorkView(끝났으면 null), ended 는 이번 보고로 기록이 끝났는지. */

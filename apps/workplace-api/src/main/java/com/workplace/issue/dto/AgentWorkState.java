@@ -7,7 +7,8 @@ import java.util.Set;
  * AI 작업 상태 상수(WP-377). 상태 어휘는 A2A 1.0 TaskState 에 맞춘다(이슈 = contextId, agent_work 한 행 = task). 문자열
  * 컬럼이라 enum 대신 상수 + 급한 순위로 다룬다.
  *
- * <p>진행(ended_at IS NULL) 7종과 종료(ended_at 설정) 4종으로 나뉜다. REVIEW·BLOCKED·PAUSED 는 A2A 에 없는 플랫폼 확장이다.
+ * <p>진행(ended_at IS NULL) 8종과 종료(ended_at 설정) 4종으로 나뉜다. REVIEW·BLOCKED·SCHEDULED·PAUSED 는 A2A 에 없는
+ * 플랫폼 확장이다. SCHEDULED(다음 회차 대기, WP-450)는 AI 가 스스로 양보하고 정한 시각 이후에 이어 가는 상태다.
  */
 public final class AgentWorkState {
   // 진행 상태
@@ -17,6 +18,7 @@ public final class AgentWorkState {
   public static final String AUTH_REQUIRED = "AUTH_REQUIRED";
   public static final String REVIEW = "REVIEW";
   public static final String BLOCKED = "BLOCKED";
+  public static final String SCHEDULED = "SCHEDULED";
   public static final String PAUSED = "PAUSED";
 
   // 종료 상태 — 작업 행이 끝났음(ended_at 설정)을 뜻한다.
@@ -27,14 +29,16 @@ public final class AgentWorkState {
 
   /** 진행 중 상태를 급한 순(사람이 할 일 먼저)으로. 목록 정렬·대표 작업 선택에 쓴다. */
   public static final List<String> ACTIVE =
-      List.of(INPUT_REQUIRED, AUTH_REQUIRED, REVIEW, BLOCKED, WORKING, PAUSED, SUBMITTED);
+      List.of(
+          INPUT_REQUIRED, AUTH_REQUIRED, REVIEW, BLOCKED, WORKING, SCHEDULED, PAUSED, SUBMITTED);
 
   /** 종료 상태 집합 — 보고로 작업을 끝낼 때 쓰는 값. */
   public static final Set<String> TERMINAL = Set.of(COMPLETED, FAILED, CANCELED, REJECTED);
 
   /**
    * 이슈 쓰기(MCP 수행 도구 헤더)로 다시 움직이기 시작했을 때 작업 중으로 되돌아가는 진행 상태. 검토 필요(REVIEW)는 검토 대기 중 PR 링크 코멘트 등이 흔해
-   * 유지하고, 작업 중(WORKING)은 이미 그 상태라 제외한다.
+   * 유지하고, 작업 중(WORKING)은 이미 그 상태라 제외한다. 다음 회차 대기(SCHEDULED)도 넣지 않는다 — 에픽 회차에서 하위를 만들다 에픽이 작업 중으로
+   * 뒤집히면 매 회차 다시 집히므로, 재개는 AI 의 명시 보고로만 한다(WP-450).
    */
   public static final Set<String> RESUMES_TO_WORKING =
       Set.of(INPUT_REQUIRED, AUTH_REQUIRED, BLOCKED, PAUSED, SUBMITTED);

@@ -27,8 +27,9 @@ describe('aiTaskParams', () => {
     expect(out.filtered).toBe(true)
   })
 
-  it('칩 순서는 미완료 다음 답변·검토·막힘·작업 중, 마지막이 완료 — 칩 라벨·건수 키', () => {
-    expect(QUICK_STATES).toEqual(['INPUT_REQUIRED', 'REVIEW', 'BLOCKED', 'WORKING', 'DONE'])
+  it('칩 순서는 미완료 다음 답변·검토·막힘·작업 중·다음 회차 대기, 마지막이 완료 — 칩 라벨·건수 키', () => {
+    expect(QUICK_STATES).toEqual(['INPUT_REQUIRED', 'REVIEW', 'BLOCKED', 'WORKING', 'SCHEDULED', 'DONE'])
+    expect(QUICK_STATE_META.SCHEDULED).toMatchObject({ countKey: 'scheduled', label: '다음 회차 대기', agentState: 'SCHEDULED' })
     expect(QUICK_STATE_META.DONE).toMatchObject({ countKey: 'done', label: '완료' })
     expect(QUICK_STATE_META.INPUT_REQUIRED.label).toBe('답변 필요')
   })

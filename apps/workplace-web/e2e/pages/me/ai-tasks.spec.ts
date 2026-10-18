@@ -4,7 +4,7 @@ import type { Page } from '@playwright/test'
 
 import { expect, test } from '../../fixtures/auth.fixture'
 import { mockApi } from '../../fixtures/api-mock'
-import { agentWorker as agent, createAgentWork, createAiTaskCounts, minutesAgo } from '../../factories/agentWork.factory'
+import { agentWorker as agent, createAgentWork, createAiTaskCounts, createScheduledIssue, KST_1430, minutesAgo } from '../../factories/agentWork.factory'
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory'
 import { GROUPED_ROWS } from '../../fixtures/ai-tasks-groups'
 import { projectRows } from '../../fixtures/ai-tasks-projects'
@@ -195,9 +195,10 @@ test('완료 칩은 종료 상태로 요청하고 done 건수, 행 배지는 결
   const { list, cnt } = await setup(page, DONE_ROWS, createAiTaskCounts({ all: 6, done: 4 }))
   await page.goto('/me/ai-tasks')
   await list.waitForRequest()
-  // 칩 순서 — 미완료·답변 필요·검토 필요·막힘·작업 중·완료.
+  // 칩 순서 — 미완료·답변 필요·검토 필요·막힘·작업 중·다음 회차 대기·완료.
   const chipIds = await page.getByTestId('ai-quick-chips').locator('button').evaluateAll((els) => els.map((e) => e.getAttribute('data-testid')))
-  expect(chipIds).toEqual(['ai-quick-all', 'ai-quick-inputRequired', 'ai-quick-review', 'ai-quick-blocked', 'ai-quick-working', 'ai-quick-done'])
+  expect(chipIds).toEqual(['ai-quick-all', 'ai-quick-inputRequired', 'ai-quick-review', 'ai-quick-blocked', 'ai-quick-working', 'ai-quick-scheduled', 'ai-quick-done'])
+  await expect(page.getByTestId('ai-quick-scheduled')).toContainText('다음 회차 대기')
   await expect(page.getByTestId('ai-quick-done')).toContainText('완료')
   await expect(page.getByTestId('ai-quick-count-done')).toHaveText('4')
 
@@ -324,6 +325,9 @@ test('묶이지 않은 행의 부모 칩은 키를 먼저 보인다', async ({ a
   // 1280 에서도 키 뒤에 부모 제목이 폭 0 으로 숨지 않고 앞 글자가 말줄임으로 보인다(제목 칸이 칩 몫을 남긴다).
   const parentTitle = page.getByTestId('issue-row-431-parent').locator('span').last()
   expect((await parentTitle.boundingBox())!.width).toBeGreaterThan(12)
+  // 1440 부터는 최근 보고 칸이 넓어진다(WP-450) — 그래도 부모 제목 몫이 남는다.
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await expect.poll(async () => (await parentTitle.boundingBox())!.width).toBeGreaterThan(12)
 })
 
 test('다음 페이지의 하위 행은 같은 머리 아래 이어 붙는다', async ({ authenticatedPage: page }) => {
@@ -378,4 +382,38 @@ test('프로젝트별 머리 줄 아래에 그 프로젝트 행이 서버 순서
   const wpOrder = await wp.locator('[data-testid^="ai-row-"], [data-testid^="ai-epic-"]').evaluateAll((els) =>
     els.map((e) => e.getAttribute('data-testid')).filter((t) => /^ai-(row|epic)-\d+$/.test(t ?? '')))
   expect(wpOrder).toEqual(['ai-epic-412', 'ai-row-413', 'ai-row-414', 'ai-row-418', 'ai-row-430'])
+})
+
+// WP-450: 다음 회차 대기 — 칩이 SCHEDULED 로 요청하고, 행은 배지 + 예정 시각 라벨을 최근 보고 앞에 둔다.
+// 기준 시각은 고정(2026-10-18 14:30 KST) — 「내일 09:00 이후」가 실행 시각과 무관하게 같다.
+test('다음 회차 대기 칩은 SCHEDULED 로 요청하고, 행은 배지와 예정 시각을 최근 보고 앞에 보인다', async ({ authenticatedPage: page }) => {
+  await page.clock.setFixedTime(new Date(KST_1430))
+  const rows = [
+    createScheduledIssue(601, '주간 리포트 생성', { note: '다른 작업에 양보했어요' }),
+    createScheduledIssue(602, '로그 정리', { note: '예정 없이 양보', nextRunAt: null }),
+  ]
+  const { list } = await setup(page, rows, createAiTaskCounts({ all: 5, scheduled: 2 }))
+  await page.goto('/me/ai-tasks')
+  await list.waitForRequest()
+  await expect(page.getByTestId('ai-quick-count-scheduled')).toHaveText('2')
+
+  await page.getByTestId('ai-quick-scheduled').click()
+  await expect(page).toHaveURL(/[?&]state=SCHEDULED/)
+  await expect(page.getByTestId('ai-quick-scheduled')).toHaveAttribute('aria-pressed', 'true')
+  await expect.poll(() => list.lastRequest()?.searchParams.get('agentState')).toBe('SCHEDULED')
+
+  await expect(page.getByTestId('ai-row-601-state')).toHaveText('다음 회차 대기')
+  const next = page.getByTestId('ai-row-601-next-run')
+  await expect(next).toHaveText('내일 09:00 이후')
+  await expect(next).toHaveAttribute('title', '예정 2026-10-19 09:00')
+  await expect(page.getByTestId('ai-row-601-note')).toHaveText('다른 작업에 양보했어요')
+  // 예정 라벨이 최근 보고보다 앞(왼쪽)에 놓인다.
+  const nb = (await next.boundingBox())!
+  const tb = (await page.getByTestId('ai-row-601-note').boundingBox())!
+  expect(nb.x + nb.width).toBeLessThanOrEqual(tb.x + 0.5)
+  // 예정 시각이 없으면 라벨만 있고 title 은 없다.
+  await expect(page.getByTestId('ai-row-602-next-run')).toHaveText('다른 작업 뒤 이어서')
+  await expect(page.getByTestId('ai-row-602-next-run')).not.toHaveAttribute('title', /.+/)
+  // 다른 상태 행에는 예정 라벨이 없다.
+  await expect(page.getByTestId('ai-row-412-next-run')).toHaveCount(0)
 })

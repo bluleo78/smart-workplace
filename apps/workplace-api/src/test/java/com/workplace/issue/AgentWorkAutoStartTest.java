@@ -1,5 +1,6 @@
 package com.workplace.issue;
 
+import static com.workplace.jooq.Tables.AGENT_WORK;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.global.security.AgentToolContext;
@@ -92,6 +93,23 @@ class AgentWorkAutoStartTest extends AgentWorkTestSupport {
       assertThat(w.tool()).as(s).isEqualTo("cursor");
     }
     assertThat(activeCount(issueId)).isEqualTo(1);
+  }
+
+  /** WP-450: 다음 회차 대기(SCHEDULED)는 이슈 쓰기로 작업 중으로 되돌리지 않는다 — 상태와 다음 실행 시각 모두 그대로, tool 만 갱신. */
+  @Test
+  void SCHEDULED_는_MCP_쓰기에도_상태와_시각을_유지() {
+    seedActive(issueId, humanId, "SCHEDULED");
+    var next = OffsetDateTime.parse("2026-10-19T09:00:00+09:00");
+    dsl.update(AGENT_WORK)
+        .set(AGENT_WORK.NEXT_RUN_AT, next)
+        .where(AGENT_WORK.ISSUE_ID.eq(issueId))
+        .and(AGENT_WORK.WORKER_ID.eq(humanId))
+        .execute();
+    assertOk(patch(patToken, Map.of("title", "진행"), "cursor"));
+    var w = activeWork(issueId, humanId).orElseThrow();
+    assertThat(w.state()).isEqualTo("SCHEDULED");
+    assertThat(w.nextRunAt()).isEqualTo(next.toInstant());
+    assertThat(w.tool()).isEqualTo("cursor");
   }
 
   @Test

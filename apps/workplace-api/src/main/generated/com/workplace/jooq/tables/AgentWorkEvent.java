@@ -222,7 +222,7 @@ public class AgentWorkEvent extends TableImpl<AgentWorkEventRecord> {
     @Override
     public List<Check<AgentWorkEventRecord>> getChecks() {
         return Arrays.asList(
-            Internal.createCheck(this, DSL.name("agent_work_event_state_check"), "(((state)::text = ANY ((ARRAY['SUBMITTED'::character varying, 'WORKING'::character varying, 'INPUT_REQUIRED'::character varying, 'AUTH_REQUIRED'::character varying, 'REVIEW'::character varying, 'BLOCKED'::character varying, 'PAUSED'::character varying, 'COMPLETED'::character varying, 'FAILED'::character varying, 'CANCELED'::character varying, 'REJECTED'::character varying])::text[])))", true)
+            Internal.createCheck(this, DSL.name("agent_work_event_state_check"), "(((state)::text = ANY ((ARRAY['SUBMITTED'::character varying, 'WORKING'::character varying, 'INPUT_REQUIRED'::character varying, 'AUTH_REQUIRED'::character varying, 'REVIEW'::character varying, 'BLOCKED'::character varying, 'SCHEDULED'::character varying, 'PAUSED'::character varying, 'COMPLETED'::character varying, 'FAILED'::character varying, 'CANCELED'::character varying, 'REJECTED'::character varying])::text[])))", true)
         );
     }
 

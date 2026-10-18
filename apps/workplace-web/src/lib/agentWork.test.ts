@@ -13,6 +13,7 @@ describe('AGENT_STATE_LABEL', () => {
     expect(AGENT_STATE_LABEL.INPUT_REQUIRED).toBe('답변 필요')
     expect(AGENT_STATE_LABEL.AUTH_REQUIRED).toBe('인증 필요')
     expect(AGENT_STATE_LABEL.SUBMITTED).toBe('시작 전')
+    expect(AGENT_STATE_LABEL.SCHEDULED).toBe('다음 회차 대기')
   })
   it('종료 상태 라벨(WP-396 완료 보기)', () => {
     expect(AGENT_STATE_LABEL.COMPLETED).toBe('완료')

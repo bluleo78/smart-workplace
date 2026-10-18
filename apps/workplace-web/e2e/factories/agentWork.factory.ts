@@ -1,7 +1,8 @@
 // AI 작업 진행(WP-377) 모킹 데이터 팩토리 — 이슈 응답의 agentWork 한 건과 /me/ai-tasks/counts 응답.
 import type { AiTaskCounts } from '../../src/api/aiTasks'
-import type { AgentWorkView } from '../../src/types/issue'
+import type { AgentWorkView, IssueResponse } from '../../src/types/issue'
 import type { UserSummary } from '../../src/types/user'
+import { createIssue } from './issue.factory'
 
 /** 기본 작업자 — AI 구성원(아바타에 에이전트 표식이 붙는다). */
 export const agentWorker: UserSummary = { id: 9, username: 'aki', name: '아키', kind: 'AGENT' }
@@ -31,7 +32,7 @@ export function createAgentWork(overrides: Partial<AgentWorkView> = {}): AgentWo
 
 /** 상태별 건수 응답 — 기본 모두 0(all 은 미완료, blocked 는 막힘 + 인증 필요 합, done 은 완료). */
 export function createAiTaskCounts(overrides: Partial<AiTaskCounts> = {}): AiTaskCounts {
-  return { all: 0, inputRequired: 0, review: 0, blocked: 0, working: 0, done: 0, ...overrides }
+  return { all: 0, inputRequired: 0, review: 0, blocked: 0, working: 0, scheduled: 0, done: 0, ...overrides }
 }
 
 /**
@@ -42,3 +43,14 @@ export const twoWorks = (akiNote: string): AgentWorkView[] => [
   createAgentWork({ worker: agentWorker, state: 'INPUT_REQUIRED', note: akiNote, updatedAt: minutesAgo(62) }),
   createAgentWork({ worker: humanWorker, state: 'WORKING', note: 'MCP 헤더 처리 중', stepsDone: 3, stepsTotal: 5, updatedAt: minutesAgo(5) }),
 ]
+
+/** 고정 기준 시각 2026-10-18 14:30 KST — page.clock.setFixedTime 에 넘겨 「내일 09:00 이후」 같은 라벨이 실행 시각과 무관하게 같게 한다. */
+export const KST_1430 = '2026-10-18T05:30:00Z'
+
+/** 다음 회차 대기(SCHEDULED) 이슈 한 건 — AI 담당자 + SCHEDULED 작업(WP-450). nextRunAt 기본은 KST_1430 다음 날 09:00. */
+export function createScheduledIssue(id: number, title: string, work: Partial<AgentWorkView> = {}): IssueResponse {
+  return createIssue({
+    id, number: id, title, status: 'IN_PROGRESS', assignees: [agentWorker],
+    agentWork: [createAgentWork({ state: 'SCHEDULED', nextRunAt: '2026-10-19T00:00:00Z', ...work })],
+  })
+}

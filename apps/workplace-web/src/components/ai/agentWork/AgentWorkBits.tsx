@@ -1,10 +1,10 @@
 // AI 작업 진행 표시 부품(WP-377) — 상태 배지·도구 칩·진행률·마지막 보고. 계산은 lib/agentWork.ts 에 있다.
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle, Clock } from 'lucide-react'
 
 import { AiSignalBadge } from '@/components/ai/AiSignalBadge'
 import { relTime } from '@/components/ai/relTime'
 import { Badge } from '@/components/ui/badge'
-import { AGENT_STATE_LABEL, agentStateTone, agentToolLabel, progressView, STALE_TOOLTIP } from '@/lib/agentWork'
+import { AGENT_STATE_LABEL, agentStateTone, agentToolLabel, nextRunLabel, OVERDUE_TOOLTIP, progressView, STALE_TOOLTIP } from '@/lib/agentWork'
 import { cn } from '@/lib/utils'
 import type { AgentWorkState, AgentWorkView } from '@/types/issue'
 
@@ -114,6 +114,40 @@ export function AgentLastReport({
   return (
     <span className={cn('text-xs text-muted-foreground', className)} title={`${kind} ${rel}`} data-testid={testId}>
       {w.endedAt && endedLabel ? `종료 ${rel}` : rel}
+    </span>
+  )
+}
+
+/**
+ * 다음 회차 시작 예정(WP-450) — 다음 회차 대기(SCHEDULED) 작업에서만 시계 아이콘 + 「내일 09:00 이후」 같은 한 줄을 그린다.
+ * 정확한 시각은 마우스 올리면(title) 절대시간으로. suffix 가 있으면 라벨 뒤에 붙인다(레일: 「… 이후」 뒤 「시작」).
+ * 한 줄을 지키도록 whitespace-nowrap — 좁은 곳은 호출부가 shrink 를 정한다.
+ */
+export function AgentNextRun({
+  w,
+  suffix,
+  className,
+  'data-testid': testId,
+}: {
+  w: Pick<AgentWorkView, 'state' | 'nextRunAt' | 'overdue'>
+  suffix?: string
+  className?: string
+  'data-testid'?: string
+}) {
+  if (w.state !== 'SCHEDULED') return null
+  const label = nextRunLabel(w.nextRunAt)
+  // 툴팁: 예정 시각이 2시간 넘게 지났는데 시작 안 했으면(overdue) 경고 문구, 아니면 정확한 시각.
+  let tip: string | undefined
+  if (w.overdue) tip = OVERDUE_TOOLTIP
+  else if (label.absolute) tip = `예정 ${label.absolute}`
+  return (
+    <span
+      className={cn('inline-flex items-center gap-1 whitespace-nowrap text-xs', w.overdue ? 'text-warning-text' : 'text-muted-foreground', className)}
+      title={tip}
+      data-testid={testId}
+    >
+      {w.overdue ? <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden /> : <Clock className="h-3 w-3 shrink-0" aria-hidden />}
+      {suffix && label.kind === 'at' ? `${label.text} ${suffix}` : label.text}
     </span>
   )
 }

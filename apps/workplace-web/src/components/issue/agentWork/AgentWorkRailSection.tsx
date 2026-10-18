@@ -1,6 +1,6 @@
 // 이슈 상세 「AI 진행」 섹션(WP-377) — 데스크톱 속성 레일(담당자 아래)과 모바일 「AI 진행」 시트가 같은 내용을 쓴다.
 // 작업자별 한 덩어리: [아바타 · 이름 · AI 진행 배지] / 최근 보고 / [에이전트 유형 · 진행률(있을 때만) · 마지막 보고].
-import { AgentLastReport, AgentProgress, AgentStateBadge, AgentToolChip } from '@/components/ai/agentWork/AgentWorkBits';
+import { AgentLastReport, AgentNextRun, AgentProgress, AgentStateBadge, AgentToolChip } from '@/components/ai/agentWork/AgentWorkBits';
 import { UserAvatar } from '@/components/users/UserAvatar';
 import { progressView } from '@/lib/agentWork';
 import { cn } from '@/lib/utils';
@@ -47,6 +47,8 @@ export function AgentWorkRailSection({
                   {w.note}
                 </p>
               )}
+              {/* 다음 회차 대기 — 언제 이어지는지 한 줄(「내일 09:00 이후 시작」). 예정 없음·곧 시작은 라벨 그대로. */}
+              <AgentNextRun w={w} suffix="시작" className="flex pl-6" data-testid={`${id}-next-run`} />
               {/* 메타 줄 — 유형 칩이 먼저 줄어들고 진행률·마지막 보고는 한 줄을 지킨다(시제품에서 "5분 전"이 세로로 쪼개지던 문제). */}
               {/* 시작 전(SUBMITTED)은 도구도 진행률도 보고도 없어 줄이 비므로 그리지 않는다 — space-y 간격만 남는 빈 줄 방지. */}
               {(w.tool || progressView(w) || w.state !== 'SUBMITTED') && (

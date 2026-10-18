@@ -9,6 +9,7 @@ import { Link } from 'react-router-dom'
 
 import {
   AgentLastReport,
+  AgentNextRun,
   AgentProgress,
   AgentStateBadge,
   AgentToolChip,
@@ -47,6 +48,7 @@ function MobileRow({ it }: { it: IssueResponse }) {
             >
               <span className="shrink-0 font-mono">{it.projectKey}-{it.number}</span>
               {state && <AgentStateBadge state={state} data-testid={`${tid}-state`} />}
+              {w && <AgentNextRun w={w} className="shrink-0" data-testid={`${tid}-next-run`} />}
               {w && <AgentToolChip tool={w.tool} data-testid={`${tid}-tool`} />}
               {w && <AgentProgress w={w} variant="text" hideEmpty className="shrink-0" data-testid={`${tid}-progress`} />}
               {w && <AgentLastReport w={w} className="shrink-0" endedLabel data-testid={`${tid}-last`} />}
@@ -78,6 +80,7 @@ function MobileEpicHead({ epic, head }: { epic: EpicHead; head: IssueResponse | 
       {head && state && (
         <div className="mt-1 flex min-w-0 items-center gap-1.5 pl-[22px] text-xs text-muted-foreground" data-testid={`${tid}-meta`}>
           <AgentStateBadge state={state} />
+          {w && <AgentNextRun w={w} className="shrink-0" data-testid={`${tid}-next-run`} />}
           {w?.note && <span className="min-w-0 truncate" title={w.note}>{w.note}</span>}
         </div>
       )}

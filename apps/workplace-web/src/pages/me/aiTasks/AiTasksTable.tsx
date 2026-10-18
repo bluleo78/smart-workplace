@@ -8,6 +8,7 @@ import { Link } from 'react-router-dom'
 
 import {
   AgentLastReport,
+  AgentNextRun,
   AgentProgress,
   AgentStateBadge,
   AgentToolChip,
@@ -52,9 +53,13 @@ function AiCells({ it, tid }: { it: IssueResponse | null; tid: string }) {
     <>
       <td>{state ? <AgentStateBadge state={state} data-testid={`${tid}-state`} /> : DASH}</td>
       <td className="pr-4">
-        <p className="truncate font-normal text-muted-foreground" title={w?.note ?? undefined} data-testid={`${tid}-note`}>
-          {w?.note ?? '—'}
-        </p>
+        {/* 다음 회차 대기 — 예정 라벨을 최근 보고 앞에 두고 보고는 남는 폭에서 말줄임(한 줄). */}
+        <div className="flex min-w-0 items-center gap-1.5">
+          {w && <AgentNextRun w={w} className="shrink-0" data-testid={`${tid}-next-run`} />}
+          <p className="min-w-0 truncate font-normal text-muted-foreground" title={w?.note ?? undefined} data-testid={`${tid}-note`}>
+            {w?.note ?? '—'}
+          </p>
+        </div>
       </td>
       <td>{w ? <AgentProgress w={w} data-testid={`${tid}-progress`} /> : DASH}</td>
       <td className="pr-2"><AiTaskAssignee issue={it} work={w} /></td>
@@ -126,8 +131,8 @@ export function AiTasksTable({ items, done = false }: { items: IssueResponse[]; 
             <th className="w-[72px]">ID</th>
             <th>제목</th>
             <th className="w-[92px]">AI 진행</th>
-            {/* 묶음 들여쓰기·부모 칩이 들어오는 제목 칸에 폭을 더 준다 — 최근 보고는 고정 폭(말줄임 + title 툴팁). */}
-            <th className="w-44">최근 보고</th>
+            {/* 묶음 들여쓰기·부모 칩이 들어오는 제목 칸에 폭을 더 준다 — 최근 보고는 고정 폭(말줄임 + title 툴팁). 1440px 이상은 예정 라벨 몫만큼 넓힌다. */}
+            <th className="w-44 min-[1440px]:w-64">최근 보고</th>
             <th className="w-20">진행률</th>
             <th className="w-16">담당자</th>
             <th className="w-28">에이전트 유형</th>

@@ -5,6 +5,8 @@ import static com.workplace.jooq.Tables.AGENT_WORK_EVENT;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.issue.AgentWorkTestSupport;
+import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -325,6 +327,90 @@ class AgentWorkControllerTest extends AgentWorkTestSupport {
   void 헤더없으면_400() {
     assertThat(putReport(patToken, null, Map.of()).getStatusCode())
         .isEqualTo(HttpStatus.BAD_REQUEST);
+  }
+
+  // ---------------------------------------------------------------- 다음 회차 대기(WP-450)
+
+  private static final String NEXT_RUN = "2026-10-19T09:00:00+09:00";
+  private static final Instant NEXT_RUN_INSTANT = OffsetDateTime.parse(NEXT_RUN).toInstant();
+
+  @Test
+  void nextRunAt_은_SCHEDULED_일_때만_받는다_그_외는_400() {
+    for (String state : new String[] {"WORKING", "REVIEW", "COMPLETED"}) {
+      assertThat(
+              putReport(patToken, TOOL, Map.of("state", state, "nextRunAt", NEXT_RUN))
+                  .getStatusCode())
+          .as(state)
+          .isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+    // 상태 미지정 + nextRunAt 도 어느 상태의 시각인지 모호해 거절.
+    assertThat(putReport(patToken, TOOL, Map.of("nextRunAt", NEXT_RUN)).getStatusCode())
+        .isEqualTo(HttpStatus.BAD_REQUEST);
+    assertThat(activeCount(issueId)).isZero();
+  }
+
+  @Test
+  void SCHEDULED_는_시각_없이도_보고되고_시각이_있으면_저장되어_응답에_왕복() {
+    var none = putReport(patToken, TOOL, Map.of("state", "SCHEDULED"));
+    assertThat(none.getStatusCode()).isEqualTo(HttpStatus.OK);
+    assertThat(json(none).at("/work/state").asText()).isEqualTo("SCHEDULED");
+    assertThat(json(none).at("/work").has("nextRunAt")).isFalse();
+
+    var r = putReport(patToken, TOOL, Map.of("state", "SCHEDULED", "nextRunAt", NEXT_RUN));
+    assertThat(r.getStatusCode()).isEqualTo(HttpStatus.OK);
+    assertThat(activeWork(issueId, humanId).orElseThrow().nextRunAt()).isEqualTo(NEXT_RUN_INSTANT);
+    // 응답은 Instant(UTC) 로 나간다 — 같은 시점이다.
+    assertThat(Instant.parse(json(r).at("/work/nextRunAt").asText())).isEqualTo(NEXT_RUN_INSTANT);
+  }
+
+  @Test
+  void SCHEDULED_보고는_시각을_그대로_덮고_null_이면_비운다() {
+    putReport(patToken, TOOL, Map.of("state", "SCHEDULED", "nextRunAt", NEXT_RUN));
+    putReport(patToken, TOOL, Map.of("state", "SCHEDULED", "nextRunAt", "2026-10-20T01:00:00Z"));
+    assertThat(activeWork(issueId, humanId).orElseThrow().nextRunAt())
+        .isEqualTo(Instant.parse("2026-10-20T01:00:00Z"));
+    // 시각 없이 다시 SCHEDULED — 어제 시각이 남지 않는다.
+    putReport(patToken, TOOL, Map.of("state", "SCHEDULED"));
+    var w = activeWork(issueId, humanId).orElseThrow();
+    assertThat(w.state()).isEqualTo("SCHEDULED");
+    assertThat(w.nextRunAt()).isNull();
+  }
+
+  @Test
+  void 다른_상태로_바꾸거나_행이_끝나면_시각을_비운다() {
+    putReport(patToken, TOOL, Map.of("state", "SCHEDULED", "nextRunAt", NEXT_RUN));
+    putReport(patToken, TOOL, Map.of("state", "WORKING"));
+    var w = activeWork(issueId, humanId).orElseThrow();
+    assertThat(w.state()).isEqualTo("WORKING");
+    assertThat(w.nextRunAt()).isNull();
+
+    putReport(patToken, TOOL, Map.of("state", "SCHEDULED", "nextRunAt", NEXT_RUN));
+    putReport(patToken, TOOL, Map.of("state", "COMPLETED"));
+    assertThat(activeWork(issueId, humanId)).isEmpty();
+    assertThat(
+            dsl.select(AGENT_WORK.NEXT_RUN_AT)
+                .from(AGENT_WORK)
+                .where(AGENT_WORK.ISSUE_ID.eq(issueId))
+                .and(AGENT_WORK.WORKER_ID.eq(humanId))
+                .fetch(AGENT_WORK.NEXT_RUN_AT))
+        .containsOnlyNulls();
+  }
+
+  @Test
+  void 상태미지정_보고는_SCHEDULED_와_시각을_건드리지_않는다() {
+    putReport(patToken, TOOL, Map.of("state", "SCHEDULED", "nextRunAt", NEXT_RUN));
+    putReport(patToken, TOOL, Map.of("note", "메모만"));
+    var w = activeWork(issueId, humanId).orElseThrow();
+    assertThat(w.state()).isEqualTo("SCHEDULED");
+    assertThat(w.nextRunAt()).isEqualTo(NEXT_RUN_INSTANT);
+  }
+
+  @Test
+  void TODO_이슈에_SCHEDULED_보고는_이슈_상태를_바꾸지_않고_WORKING_은_진행중으로() {
+    putReport(patToken, TOOL, Map.of("state", "SCHEDULED", "nextRunAt", NEXT_RUN));
+    assertThat(issueStatus()).isEqualTo("TODO");
+    putReport(patToken, TOOL, Map.of("state", "WORKING"));
+    assertThat(issueStatus()).isEqualTo("IN_PROGRESS");
   }
 
   @Test

@@ -549,6 +549,7 @@ public class AiTaskRepository {
     // 막힘 칩은 BLOCKED 와 AUTH_REQUIRED(인증 필요) 를 함께 센다 — 둘 다 사람이 풀어 줘야 진행되는 멈춤.
     m.put("blocked", List.of(AgentWorkState.BLOCKED, AgentWorkState.AUTH_REQUIRED));
     m.put("working", List.of(AgentWorkState.WORKING));
+    m.put("scheduled", List.of(AgentWorkState.SCHEDULED));
     return m;
   }
 
@@ -567,12 +568,14 @@ public class AiTaskRepository {
                 count().filterWhere(open.and(DSL.condition(w.liveIn.get("review")))),
                 count().filterWhere(open.and(DSL.condition(w.liveIn.get("blocked")))),
                 count().filterWhere(open.and(DSL.condition(w.liveIn.get("working")))),
+                count().filterWhere(open.and(DSL.condition(w.liveIn.get("scheduled")))),
                 count().filterWhere(done))
             .from(ISSUE)
             .crossJoin(w.table)
             .where(facetCondition(callerId, q).and(open.or(done)))
             .fetchOne();
-    return new AiTaskCounts(r.value1(), r.value2(), r.value3(), r.value4(), r.value5(), r.value6());
+    return new AiTaskCounts(
+        r.value1(), r.value2(), r.value3(), r.value4(), r.value5(), r.value6(), r.value7());
   }
 
   /** agentState 중 진행 상태. */
