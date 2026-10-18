@@ -3,6 +3,9 @@ package com.workplace.issue.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.workplace.auth.service.AssistantResolver;
@@ -14,7 +17,8 @@ import com.workplace.issue.outbound.dto.IssueClassifyResult;
 import com.workplace.label.dto.LabelRow;
 import com.workplace.label.repository.LabelRepository;
 import com.workplace.project.dto.ProjectRow;
-import com.workplace.project.repository.ProjectRepository;
+import com.workplace.project.exception.ProjectAccessDeniedException;
+import com.workplace.project.service.ProjectAccessGuard;
 import com.workplace.support.IntegrationTestBase;
 import java.util.List;
 import java.util.Optional;
@@ -29,7 +33,7 @@ class IssueAiClassifyServiceTest extends IntegrationTestBase {
 
   @MockitoBean private AiAgentIssueClient aiClient;
 
-  @MockitoBean private ProjectRepository projectRepository;
+  @MockitoBean private ProjectAccessGuard accessGuard;
 
   @MockitoBean private LabelRepository labelRepository;
 
@@ -40,7 +44,7 @@ class IssueAiClassifyServiceTest extends IntegrationTestBase {
     // given
     ProjectRow project =
         new ProjectRow(10L, "TEST", "테스트 프로젝트", null, 1L, "TEAM", false, null, null);
-    when(projectRepository.findByKey("TEST")).thenReturn(Optional.of(project));
+    when(accessGuard.assertIssueCreatable("TEST", 1L)).thenReturn(project);
     when(labelRepository.findByProject(10L))
         .thenReturn(
             List.of(
@@ -67,7 +71,7 @@ class IssueAiClassifyServiceTest extends IntegrationTestBase {
     // given
     ProjectRow project =
         new ProjectRow(10L, "TEST", "테스트 프로젝트", null, 1L, "TEAM", false, null, null);
-    when(projectRepository.findByKey("TEST")).thenReturn(Optional.of(project));
+    when(accessGuard.assertIssueCreatable("TEST", 1L)).thenReturn(project);
     when(labelRepository.findByProject(10L)).thenReturn(List.of());
     when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.empty());
 
@@ -81,7 +85,7 @@ class IssueAiClassifyServiceTest extends IntegrationTestBase {
     // given — 개인 프로젝트: ownerId=1, type="PERSONAL"
     ProjectRow project =
         new ProjectRow(11L, "PERSONAL", "개인", null, 1L, "PERSONAL", false, null, null);
-    when(projectRepository.findByKey("PERSONAL")).thenReturn(Optional.of(project));
+    when(accessGuard.assertIssueCreatable("PERSONAL", 1L)).thenReturn(project);
     when(labelRepository.findByProject(11L)).thenReturn(List.of());
     AssistantSpec spec = new AssistantSpec(2L, "claude-sonnet-4-6", "NONE", 6, 30_000);
     when(assistantResolver.resolveOrEmpty(1L)).thenReturn(Optional.of(spec));
@@ -95,5 +99,20 @@ class IssueAiClassifyServiceTest extends IntegrationTestBase {
     // then
     assertThat(result.type()).isNull();
     assertThat(result.priority()).isEqualTo("MID");
+  }
+
+  /**
+   * WP-478 — 프로젝트를 볼 수 없는 사람은 403. 라벨 목록·어시스턴트(개인 프로젝트면 소유자 개인 비서)에 닿기 전에 막아야 한다 — 전에는 멤버 검사 없이
+   * 어시스턴트 조회(422)까지 갔다.
+   */
+  @Test
+  void classify_프로젝트_접근권한없음_403_라벨_어시스턴트_조회안함() {
+    when(accessGuard.assertIssueCreatable("SEC", 99L))
+        .thenThrow(new ProjectAccessDeniedException("프로젝트 멤버가 아닙니다"));
+
+    assertThatThrownBy(() -> classifyService.classify(99L, "SEC", "x", ""))
+        .isInstanceOf(ProjectAccessDeniedException.class);
+    verifyNoInteractions(labelRepository, assistantResolver);
+    verify(aiClient, never()).classify(any());
   }
 }

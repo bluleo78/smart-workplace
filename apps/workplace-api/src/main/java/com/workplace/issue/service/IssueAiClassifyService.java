@@ -9,15 +9,13 @@ import com.workplace.issue.outbound.dto.IssueClassifyRequest;
 import com.workplace.issue.outbound.dto.IssueClassifyResult;
 import com.workplace.label.repository.LabelRepository;
 import com.workplace.project.dto.ProjectRow;
-import com.workplace.project.repository.ProjectRepository;
+import com.workplace.project.service.ProjectAccessGuard;
 import java.util.List;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.springframework.web.server.ResponseStatusException;
 
 /**
  * 이슈 AI 분류 서비스.
@@ -25,7 +23,7 @@ import org.springframework.web.server.ResponseStatusException;
  * <p><b>3단계 구조:</b>
  *
  * <ol>
- *   <li>TX1(TransactionTemplate readOnly): 프로젝트 조회 + 라벨 목록 + AssistantResolver — RLS/GUC 필요
+ *   <li>TX1(TransactionTemplate readOnly): 프로젝트 접근 확인 + 라벨 목록 + AssistantResolver — RLS/GUC 필요
  *   <li>HTTP(TX 밖): ai-agent classify 호출 — 커넥션 고갈 방지(#232 패턴)
  *   <li>응답 바로 반환 — DB 저장 없음(Migration-0)
  * </ol>
@@ -40,19 +38,19 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 public class IssueAiClassifyService {
 
-  private final ProjectRepository projectRepository;
+  private final ProjectAccessGuard accessGuard;
   private final LabelRepository labelRepository;
   private final AssistantResolver assistantResolver;
   private final AiAgentIssueClient aiClient;
   private final TransactionTemplate txTemplate;
 
   public IssueAiClassifyService(
-      ProjectRepository projectRepository,
+      ProjectAccessGuard accessGuard,
       LabelRepository labelRepository,
       AssistantResolver assistantResolver,
       AiAgentIssueClient aiClient,
       PlatformTransactionManager txManager) {
-    this.projectRepository = projectRepository;
+    this.accessGuard = accessGuard;
     this.labelRepository = labelRepository;
     this.assistantResolver = assistantResolver;
     this.aiClient = aiClient;
@@ -80,12 +78,9 @@ public class IssueAiClassifyService {
     Gathered gathered =
         txTemplate.execute(
             status -> {
-              ProjectRow project =
-                  projectRepository
-                      .findByKey(projectKey)
-                      .orElseThrow(
-                          () ->
-                              new ResponseStatusException(HttpStatus.NOT_FOUND, "프로젝트를 찾을 수 없습니다"));
+              // 이슈를 만들 수 있는 사람만(OPEN 은 테넌트 전원, TEAM·PERSONAL 은 멤버) — 분류는 새 이슈 화면의 보조 기능이다.
+              // 라벨 목록·어시스턴트(개인 프로젝트면 소유자 개인 비서)에 닿기 전에 막는다(WP-478). 없으면 404, 권한 없으면 403.
+              ProjectRow project = accessGuard.assertIssueCreatable(projectKey, callerId);
 
               // 프로젝트 라벨 이름 목록 — allowlist 로 ai-agent 에 전달.
               List<String> projectLabels =
