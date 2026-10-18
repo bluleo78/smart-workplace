@@ -63,6 +63,19 @@ node deploy/release/release.mjs rollback    # 마지막 정상 리비전으로(�
 - 전환 이전 리비전(values 에 `release.version` 이 없는, `:latest` 시대)으로는 되돌리지 않는다(`--force` 없이는 거부). 이유는 `deploy/helm/README.md`.
 - 롤백한 뒤 다시 `rollback` 하면 방금 되돌린 새 릴리스로 앞으로 간다(Helm 기본 동작) — 출력의 ⚠ 를 확인한다.
 
+## 빌드가 실패한 태그
+
+태그 파이프라인이 실패하면(이미지 `:<버전>`·매니페스트·Release 가 없음) 태그는 지우거나 옮기지 않고 **버린 릴리스**로 적은 뒤 다음 patch 로 다시 낸다(WP-454).
+
+1. 원인을 고친다(예: v0.9.1 — db 빌드 이미지의 apt 의존성 충돌 → 빌드 이미지 digest 갱신).
+2. `deploy/release/abandoned-releases.json` 에 `"<버전>": "<날짜·사유>"` 를 더한다. 이 파일에 적힌 버전은 verify-tag·build-images·`prepare plan` 이 기준에서 빼고(그 위에서 승계할 digest 가 없다), 다시 태그할 수 없으며, plan 은 그 번호를 제안하지 않는다.
+3. 노트 `releases/<버린 버전>.md` 는 다음 버전 이름으로 옮긴다(나가지 않은 버전이 「새 소식」에 남지 않게).
+4. `/release prepare` 로 다음 버전을 낸다.
+
+실패한 태그의 파이프라인은 다시 돌리지 않는다(그 커밋에는 이 목록이 없어 막히지 않는다). verify-tag 는 버린 버전의 노트(`releases/<버린 버전>.md`)가 남은 태그도 거부한다.
+
+이 기록 없이 다음 태그를 찍으면 기준이 실패한 태그가 되고, 그 매니페스트가 없어 build-images 가 멈춘다.
+
 ## 핫픽스
 
 운영 릴리스에 급한 수정만 얹을 때: `hotfix/<새 버전>` 브랜치를 운영 태그에서 만들어 수정 → 노트 → 태그(스킬 4절). CI 는 `hotfix/*` 의 태그도 받는다. 노트 파일은 main 에도 cherry-pick 한다.

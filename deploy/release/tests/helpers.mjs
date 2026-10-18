@@ -4,6 +4,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ABANDONED_FILE } from '../lib/build.mjs';
 import { loadCatalog, workspaceDeps } from '../lib/catalog.mjs';
 
 export const REPO = fileURLToPath(new URL('../../..', import.meta.url));
@@ -35,7 +36,7 @@ export function baseManifest() {
  * - imagetools create: 태그 → digest 를 기억하고, inspect 는 그 digest 를 돌려준다(inspectOverride 로 어긋나게 할 수 있다).
  */
 export function makeExec(o = {}) {
-  const { dirty = false, sha = SHA, shallow = false, merged = ['v0.8.0'], allTags = merged, diff = [], failBuildAt = 0, inspectOverride = {}, tagCommits = {} } = o;
+  const { dirty = false, sha = SHA, shallow = false, merged = ['v0.8.0'], allTags = merged, diff = [], failBuildAt = 0, inspectOverride = {}, tagCommits = {}, abandoned = null } = o;
   const tagMap = { 'v0.9.0': sha, 'v0.8.0': '1'.repeat(40), ...tagCommits };
   const calls = [];
   const tags = new Map();
@@ -49,6 +50,8 @@ export function makeExec(o = {}) {
       if (line === 'rev-parse --is-shallow-repository') return { stdout: `${shallow}\n` };
       if (line === 'tag --merged HEAD --list v*') return { stdout: merged.join('\n') };
       if (line === 'tag --list v*') return { stdout: allTags.join('\n') };
+      const a = answerAbandoned(line, abandoned);
+      if (a) return a;
       const rev = /^rev-parse (v\d+\.\d+\.\d+)\^\{commit\}$/.exec(line);
       if (rev) {
         if (!tagMap[rev[1]]) throw new Error(`fatal: ambiguous argument '${rev[1]}^{commit}'`);
@@ -87,3 +90,12 @@ export function makeExec(o = {}) {
 export const buildCalls = (exec) => exec.calls.filter((c) => c.cmd === 'docker' && c.args[1] === 'build');
 export const createCalls = (exec) => exec.calls.filter((c) => c.cmd === 'docker' && c.args[1] === 'imagetools' && c.args[2] === 'create');
 
+/**
+ * 가짜 exec 가 버린 릴리스 목록(WP-454) 질의에 답한다 — abandoned 가 null 이면 그 ref 에 파일이 없다(ls-tree 빈 출력).
+ * 목록 질의가 아니면 undefined 를 돌려 호출자가 다른 분기로 넘어가게 한다.
+ */
+export function answerAbandoned(line, abandoned) {
+  if (line.startsWith('ls-tree --name-only ') && line.endsWith(` -- ${ABANDONED_FILE}`)) return { stdout: abandoned === null ? '' : `${ABANDONED_FILE}\n` };
+  if (line.startsWith('show ') && line.endsWith(`:${ABANDONED_FILE}`)) return { stdout: JSON.stringify({ versions: abandoned }) };
+  return undefined;
+}

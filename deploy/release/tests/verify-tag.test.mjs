@@ -4,10 +4,10 @@ import assert from 'node:assert/strict';
 import { readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { isReleaseBranch, main, verifyTag } from '../verify-tag.mjs';
-import { REPO, SHA, makeTmp } from './helpers.mjs';
+import { REPO, SHA, answerAbandoned, makeTmp } from './helpers.mjs';
 
 /** 태그 검증에 필요한 git 질의만 답하는 가짜 exec. */
-function gitFake({ branches = ['origin/main'], hasNote = true, merged = ['v0.8.0', 'v0.9.0'], allTags = merged, shallow = false } = {}) {
+function gitFake({ branches = ['origin/main'], hasNote = true, merged = ['v0.8.0', 'v0.9.0'], allTags = merged, shallow = false, abandoned = null, leftNotes = [] } = {}) {
   const calls = [];
   const exec = (cmd, args) => {
     calls.push(args.join(' '));
@@ -15,10 +15,19 @@ function gitFake({ branches = ['origin/main'], hasNote = true, merged = ['v0.8.0
     if (line === 'rev-parse v0.9.0^{commit}') return { stdout: `${SHA}\n` };
     if (line.startsWith('branch -r --contains')) return { stdout: branches.join('\n') };
     if (line.startsWith('cat-file -e')) {
+      // 버린 버전의 노트는 leftNotes 에 든 것만 남아 있다.
+      const abandonedNote = /:releases\/(\d+\.\d+\.\d+)\.md$/.exec(line)?.[1];
+      // 검증하는 태그 자신(v0.9.0)의 노트는 hasNote 를 따른다.
+      if (abandonedNote && abandonedNote !== '0.9.0' && abandoned?.[abandonedNote] !== undefined) {
+        if (!leftNotes.includes(abandonedNote)) throw new Error('fatal: path does not exist');
+        return { stdout: '' };
+      }
       if (!hasNote) throw new Error('fatal: path does not exist');
       return { stdout: '' };
     }
     if (line === 'rev-parse --is-shallow-repository') return { stdout: `${shallow}\n` };
+    const a = answerAbandoned(line, abandoned);
+    if (a) return a;
     if (line === `tag --merged ${SHA} --list v*`) return { stdout: merged.join('\n') };
     if (line === 'tag --list v*') return { stdout: allTags.join('\n') };
     throw new Error(`예상 못한 git 호출: ${line}`);
@@ -86,4 +95,16 @@ test('main: --env-out 에 VERSION·BASE_TAG·BASE_VERSION 을 dotenv 로 쓴다'
 
 test('main: --tag 가 없으면 거부한다', async () => {
   await assert.rejects(main([], { repoRoot: REPO, exec: gitFake(), log: () => {} }), /--tag 가 필요하다/);
+});
+
+test('버린 릴리스(WP-454): 기준에서 빠지고, 그 버전 자체는 다시 태그할 수 없다', () => {
+  // v0.9.0 태그를 검증하는데 조상에 버린 v0.8.1 이 있으면 기준은 그 아래 v0.8.0
+  const exec = gitFake({ merged: ['v0.8.0', 'v0.8.1', 'v0.9.0'], abandoned: { '0.8.1': '빌드 실패' } });
+  assert.equal(verifyTag({ tag: 'v0.9.0', exec, repoRoot: REPO }).baseTag, 'v0.8.0');
+  assert.throws(() => verifyTag({ tag: 'v0.9.0', exec: gitFake({ abandoned: { '0.9.0': '빌드 실패' } }), repoRoot: REPO }), /버린 릴리스로 적혀 있다/);
+});
+
+test('버린 릴리스(WP-454): 그 버전의 노트가 태그 커밋에 남아 있으면 거부', () => {
+  const base = gitFake({ merged: ['v0.8.0', 'v0.8.1', 'v0.9.0'], abandoned: { '0.8.1': '빌드 실패' }, leftNotes: ['0.8.1'] });
+  assert.throws(() => verifyTag({ tag: 'v0.9.0', exec: base, repoRoot: REPO }), /releases\/0\.8\.1\.md/);
 });

@@ -5,7 +5,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { bumpOf, checkNote, nextVersion, parseCommits, summarize } from '../lib/prepare.mjs';
 import { main, plan } from '../prepare.mjs';
-import { REPO, makeTmp } from './helpers.mjs';
+import { REPO, answerAbandoned, makeTmp } from './helpers.mjs';
 
 /** `git log --format=%H%x1f%s%x1f%b%x1e` 출력 모양을 만든다. */
 const logOf = (...commits) => commits.map(([sha, subject, body = '']) => `${sha}\x1f${subject}\x1f${body}\x1e\n`).join('');
@@ -82,12 +82,14 @@ test('checkNote: 파일명·frontmatter·version·date·hidden·range·본문 �
 });
 
 /** plan 에 필요한 git 질의만 답하는 가짜 exec. */
-function gitFake({ tags = ['v0.8.0', 'v0.9.0', 'v0.9.1'], allTags = tags, pointsAt = [], branch = 'main', log = logOf([sha('a'), 'feat(web): x (WP-1)']) } = {}) {
+function gitFake({ tags = ['v0.8.0', 'v0.9.0', 'v0.9.1'], allTags = tags, pointsAt = [], branch = 'main', log = logOf([sha('a'), 'feat(web): x (WP-1)']), abandoned = null } = {}) {
   const calls = [];
   const exec = (cmd, args) => {
     const line = args.join(' ');
     calls.push(line);
     if (line === 'rev-parse --is-shallow-repository') return { stdout: 'false\n' };
+    const a = answerAbandoned(line, abandoned);
+    if (a) return a;
     if (line.startsWith('tag --merged')) return { stdout: tags.join('\n') };
     // 브랜치 이름 — HEAD 는 branch 옵션, 그 밖에는 받은 ref 그대로
     if (line.startsWith('rev-parse --abbrev-ref')) return { stdout: `${args[2] === 'HEAD' ? branch : args[2]}\n` };
@@ -167,4 +169,15 @@ test('main: plan 은 JSON 을 stdout 으로, check-note 는 문제를 모아 thr
   await assert.rejects(main(['check-note'], { log: () => {} }), /노트 파일 하나/);
   await assert.rejects(main(['plan', 'extra'], { exec: gitFake(), log: () => {} }), /위치 인자/);
   await assert.rejects(main(['publish'], { log: () => {} }), /사용법/);
+});
+
+test('plan: 버린 릴리스(WP-454)는 기준에서 빠지고, 제안 버전도 그 번호를 건너뛴다', () => {
+  const r = plan({ exec: gitFake({ abandoned: { '0.9.1': '빌드 실패' }, log: logOf([sha('a'), 'fix(web): x (WP-1)']) }), repoRoot: REPO });
+  assert.equal(r.base, 'v0.9.0');
+  assert.equal(r.suggestedVersion, '0.9.2');
+  assert.equal(r.conflict, null);
+});
+
+test('plan: --base-version 으로 버린 릴리스를 주면 거부', () => {
+  assert.throws(() => plan({ base: 'v0.9.1', baseVersion: '0.9.1', exec: gitFake({ abandoned: { '0.9.1': '빌드 실패' } }), repoRoot: REPO }), /버린 릴리스라 기준이 될 수 없다/);
 });

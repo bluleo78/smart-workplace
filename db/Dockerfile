@@ -5,8 +5,8 @@
 # 떠다니는 18-debian13 태그는 2026-09 에 설치 레이아웃이 /opt/postgresql/18 → /usr/lib/postgresql/18
 # 로 바뀌었고, 두 이미지를 다른 시점에 받으면 레이아웃·ABI 가 어긋날 수 있다.
 # 올릴 때는 두 값을 같은 릴리스로 함께 교체한다(digest: docker buildx imagetools inspect <image>).
-ARG PG_BUILD_IMAGE=dhi.io/postgres:18.6-debian13-dev@sha256:890cb7b12cf5064455c7a9830c1a9e02517d038349c577418b417c0e7c7ca06b
-ARG PG_RUNTIME_IMAGE=dhi.io/postgres:18.6-debian13@sha256:63836d2fab4781db2f073b4e64c6f4cf1ce8042d2d894f62df54bf4ba2b63daf
+ARG PG_BUILD_IMAGE=dhi.io/postgres:18.6-debian13-dev@sha256:5fed59d06ad7cb0aebe8a34d9fc12aaa6b39651c2fc97a25e01ec6e6925e4a1f
+ARG PG_RUNTIME_IMAGE=dhi.io/postgres:18.6-debian13@sha256:54ab795a6eaa17beed55bf3943db8e189f6a799c63f5e51d1130bdef87a1884b
 
 FROM ${PG_BUILD_IMAGE} AS build
 
