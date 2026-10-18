@@ -46,4 +46,24 @@ test.describe('프로젝트 생성 폼 유효성 검사 (#177)', () => {
     await expect(page.getByText('공백일 수 없습니다')).toHaveCount(0)
     expect(posted).toBe(0)
   })
+
+  // WP-466: 검증 오류가 입력과 이어져 스크린리더가 알린다 — aria-invalid·aria-describedby → role=alert 오류.
+  test('빈 값으로 생성하면 key·이름 입력이 오류와 접근성으로 이어진다(WP-466)', async ({ authenticatedPage: page }) => {
+    await mockApi(page, 'GET', '/api/v1/projects', createPageResponse([createProject()]))
+    await page.goto('/projects')
+    await page.getByRole('button', { name: '+ 새 프로젝트' }).click()
+    await page.getByRole('button', { name: '생성' }).click()
+
+    for (const [id, message] of [
+      ['project-key', '대문자/숫자 2~10자, 첫 글자는 대문자여야 합니다'],
+      ['project-name', '이름은 필수입니다'],
+    ] as const) {
+      const input = page.locator(`#${id}`)
+      await expect(input).toHaveAttribute('aria-invalid', 'true')
+      const describedBy = await input.getAttribute('aria-describedby')
+      const error = page.locator(`#${describedBy}`)
+      await expect(error).toHaveText(message)
+      await expect(error).toHaveAttribute('role', 'alert')
+    }
+  })
 })

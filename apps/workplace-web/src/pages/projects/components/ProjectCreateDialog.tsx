@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
+import { FormField } from '@/components/ui/form-field';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 
@@ -83,21 +84,17 @@ export function ProjectCreateDialog({
           </div>
           {/* key 는 TEAM·OPEN 모두 필요(공유 프로젝트). PERSONAL 만 서버 자동 생성. */}
           {(type === 'TEAM' || type === 'OPEN') && (
-            <div className="space-y-1">
-              <label className="text-sm font-medium" htmlFor="project-key">key (예: WP)</label>
+            // 공용 FormField — 오류가 있으면 입력에 aria-invalid·aria-describedby 를 잇고 오류를 role=alert 로 알린다(WP-466, 새 이슈 다이얼로그와 같은 패턴).
+            <FormField label="key (예: WP)" htmlFor="project-key" required error={errors.key?.message}>
               <Input id="project-key" {...register('key')} placeholder="WP" />
-              {errors.key && <p className="text-sm text-destructive">{errors.key.message}</p>}
-            </div>
+            </FormField>
           )}
-          <div className="space-y-1">
-            <label className="text-sm font-medium" htmlFor="project-name">이름</label>
+          <FormField label="이름" htmlFor="project-name" required error={errors.name?.message}>
             <Input id="project-name" {...register('name')} />
-            {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
-          </div>
-          <div className="space-y-1">
-            <label className="text-sm font-medium" htmlFor="project-desc">설명</label>
+          </FormField>
+          <FormField label="설명" htmlFor="project-desc" error={errors.description?.message}>
             <Textarea id="project-desc" {...register('description')} />
-          </div>
+          </FormField>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>취소</Button>
             <Button type="submit" disabled={create.isPending}>{create.isPending ? '생성 중…' : '생성'}</Button>
