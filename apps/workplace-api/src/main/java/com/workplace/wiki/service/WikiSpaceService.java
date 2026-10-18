@@ -7,6 +7,7 @@ import com.workplace.wiki.dto.WikiSpaceResponse;
 import com.workplace.wiki.exception.WikiForbiddenException;
 import com.workplace.wiki.exception.WikiSpaceNameDuplicatedException;
 import com.workplace.wiki.exception.WikiSpaceNotFoundException;
+import com.workplace.wiki.exception.WikiSpaceTypeNotEditableException;
 import com.workplace.wiki.outbound.WikiChangeNotifier;
 import com.workplace.wiki.outbound.WikiDomainEvents.WikiSpaceMembershipChangedEvent;
 import com.workplace.wiki.repository.WikiSpaceMemberRepository;
@@ -91,6 +92,7 @@ public class WikiSpaceService {
   @Transactional
   public void addMember(long callerId, long spaceId, long userId, String role) {
     perms.requireRole(spaceId, callerId, "OWNER");
+    requireTeamSpace(spaceId);
     perms.validateRole(role);
     if (membershipGuard.isForeignUser(userId)) {
       throw new WikiForbiddenException(spaceId, userId);
@@ -103,6 +105,7 @@ public class WikiSpaceService {
   @Transactional
   public void changeRole(long callerId, long spaceId, long userId, String role) {
     perms.requireRole(spaceId, callerId, "OWNER");
+    requireTeamSpace(spaceId);
     perms.validateRole(role);
     members.changeRole(spaceId, userId, role);
     notifier.spaceChanged(spaceId, callerId, Set.of());
@@ -113,11 +116,24 @@ public class WikiSpaceService {
   @Transactional
   public void removeMember(long callerId, long spaceId, long userId) {
     perms.requireRole(spaceId, callerId, "OWNER");
+    requireTeamSpace(spaceId);
     members.remove(spaceId, userId);
     // 제거된 멤버는 커밋 후 명단에서 빠지므로 extra 로 넘겨 자기 화면에서도 스페이스가 사라지게 한다.
     notifier.spaceChanged(spaceId, callerId, List.of(userId));
     // 제거된 사용자가 열어 둔 편집 연결을 끊게 한다.
     publishMembershipChanged(spaceId, userId);
+  }
+
+  /**
+   * TEAM 공간이 아니면 멤버 변경을 거부한다(WP-495) — 개인 공간 멤버를 바꾸면 남에게 넘기거나 소유자가 빠져 공간 목록이 영구히 열리지 않는다. 드라이브 공간의
+   * 같은 가드(DriveSpaceService.requireTeamSpace)와 같은 규칙.
+   */
+  private void requireTeamSpace(long spaceId) {
+    String type =
+        spaces.findType(spaceId).orElseThrow(() -> new WikiSpaceNotFoundException(spaceId));
+    if (!"TEAM".equals(type)) {
+      throw new WikiSpaceTypeNotEditableException(spaceId, type);
+    }
   }
 
   /** 동기화 서버 연결 재검증 이벤트 발행. 테넌트는 지금(요청 스레드) 담는다 — 리스너는 커밋 후 별도 스레드에서 돌아 TenantContext 를 볼 수 없다. */

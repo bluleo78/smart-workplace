@@ -93,6 +93,7 @@ public class DriveSpaceService {
   @Transactional
   public void addMember(long callerId, long spaceId, long userId, String role) {
     perms.requireRole(spaceId, callerId, "OWNER");
+    requireTeamSpace(spaceId);
     perms.validateRole(role);
     if (membershipGuard.isForeignUser(userId)) {
       throw new DriveForbiddenException(spaceId, userId);
@@ -104,6 +105,7 @@ public class DriveSpaceService {
   @Transactional
   public void changeRole(long callerId, long spaceId, long userId, String role) {
     perms.requireRole(spaceId, callerId, "OWNER");
+    requireTeamSpace(spaceId);
     perms.validateRole(role);
     members.changeRole(spaceId, userId, role);
     notifier.spaceChanged(OP_UPDATED, spaceId, callerId, Set.of());
@@ -112,12 +114,16 @@ public class DriveSpaceService {
   @Transactional
   public void removeMember(long callerId, long spaceId, long userId) {
     perms.requireRole(spaceId, callerId, "OWNER");
+    requireTeamSpace(spaceId);
     members.remove(spaceId, userId);
     // 제거된 멤버는 커밋 후 명단에 없으므로 extra 로 넘겨 목록에서 사라지게 한다.
     notifier.spaceChanged(OP_UPDATED, spaceId, callerId, List.of(userId));
   }
 
-  /** TEAM 공간이 아니면 거부 — PERSONAL("내 드라이브")/CHANNEL(채널 소유) 보호. rename·delete 가 공유하는 단일 타입 가드. */
+  /**
+   * TEAM 공간이 아니면 거부 — PERSONAL("내 드라이브")/CHANNEL(채널 소유) 보호. rename·delete·멤버 변경이 공유하는 단일 타입 가드. 개인
+   * 공간 멤버를 바꾸면 남에게 넘기거나 소유자가 빠져 영구히 열리지 않고, 채널 공간 멤버는 채널 멤버십을 따른다(WP-495).
+   */
   private void requireTeamSpace(long spaceId) {
     String type =
         spaces.findType(spaceId).orElseThrow(() -> new DriveSpaceNotFoundException(spaceId));

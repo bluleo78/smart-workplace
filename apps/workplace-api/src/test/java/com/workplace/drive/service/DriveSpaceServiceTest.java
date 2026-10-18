@@ -271,4 +271,22 @@ class DriveSpaceServiceTest extends IntegrationTestBase {
     DriveSpaceResponse renamed = spaceService.renameTeamSpace(u, target.id(), "그대로유지");
     assertThat(renamed.name()).isEqualTo("그대로유지");
   }
+
+  /** WP-495 — 개인 공간은 멤버 추가·역할 변경·제거를 거부한다(rename·delete 와 같은 TEAM 전용 가드). */
+  @Test
+  void personalSpace_memberChanges_areRejected() {
+    long owner = seedUser();
+    long other = seedUser();
+    DriveSpaceResponse personal = spaceService.ensurePersonalSpace(owner);
+
+    assertThatThrownBy(() -> spaceService.addMember(owner, personal.id(), other, "OWNER"))
+        .isInstanceOf(DriveSpaceTypeNotEditableException.class);
+    assertThatThrownBy(() -> spaceService.changeRole(owner, personal.id(), owner, "VIEWER"))
+        .isInstanceOf(DriveSpaceTypeNotEditableException.class);
+    assertThatThrownBy(() -> spaceService.removeMember(owner, personal.id(), owner))
+        .isInstanceOf(DriveSpaceTypeNotEditableException.class);
+    assertThat(spaceService.listMembers(owner, personal.id()))
+        .singleElement()
+        .satisfies(m -> assertThat(m.userId()).isEqualTo(owner));
+  }
 }

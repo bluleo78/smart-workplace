@@ -578,6 +578,15 @@ public class GlobalExceptionHandler {
         .body(buildError(HttpStatus.BAD_GATEWAY, ex.getMessage(), null, request));
   }
 
+  /** 개인 노트 공간 멤버 변경 시도 — 409(WP-495, 드라이브의 DriveSpaceTypeNotEditableException 과 같은 응답). */
+  @ExceptionHandler(com.workplace.wiki.exception.WikiSpaceTypeNotEditableException.class)
+  public ResponseEntity<ErrorResponse> handleWikiSpaceTypeNotEditable(
+      com.workplace.wiki.exception.WikiSpaceTypeNotEditableException ex,
+      HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.CONFLICT, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
+  }
+
   /** 위키 TEAM 공간 이름 중복 — 409(컨테이너류 이름 하드 차단 정책, #696). */
   @ExceptionHandler(com.workplace.wiki.exception.WikiSpaceNameDuplicatedException.class)
   public ResponseEntity<ErrorResponse> handleWikiSpaceNameDuplicated(

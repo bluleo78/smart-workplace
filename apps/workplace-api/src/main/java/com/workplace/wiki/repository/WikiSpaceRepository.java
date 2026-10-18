@@ -39,6 +39,14 @@ public class WikiSpaceRepository {
     return dsl.fetchExists(dsl.selectOne().from(WIKI_SPACE).where(cond));
   }
 
+  /** 공간 유형(PERSONAL·TEAM). 없으면 empty — 멤버 변경 가드(WP-495)용. */
+  public Optional<String> findType(long spaceId) {
+    return dsl.select(WIKI_SPACE.TYPE)
+        .from(WIKI_SPACE)
+        .where(WIKI_SPACE.ID.eq(spaceId))
+        .fetchOptional(WIKI_SPACE.TYPE);
+  }
+
   public Optional<Long> findPersonalSpaceId(long ownerId) {
     return dsl.select(WIKI_SPACE.ID)
         .from(WIKI_SPACE)

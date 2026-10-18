@@ -12,6 +12,7 @@ import com.workplace.wiki.dto.WikiSpaceResponse;
 import com.workplace.wiki.exception.WikiForbiddenException;
 import com.workplace.wiki.exception.WikiSpaceNameDuplicatedException;
 import com.workplace.wiki.exception.WikiSpaceNotFoundException;
+import com.workplace.wiki.exception.WikiSpaceTypeNotEditableException;
 import java.util.List;
 import java.util.UUID;
 import org.jooq.DSLContext;
@@ -155,4 +156,28 @@ class WikiSpaceServiceTest extends IntegrationTestBase {
   // 검증한다 — @Transactional 단일 트랜잭션 테스트에서는 GUC 가 트랜잭션 시작 시 1회만 주입되므로(TenantContext
   // 를 테스트 본문 중간에 바꿔도 세션 GUC 는 갱신되지 않음, TenantAwareTransactionManager) 이 테스트 클래스
   // 안에서 테넌트를 전환하는 케이스는 만들지 않는다.
+
+  /** WP-495 — 개인 공간은 멤버 추가·역할 변경·제거를 거부한다(남에게 넘기거나 소유자가 빠져 영구히 열리지 않게 되는 것 차단). */
+  @Test
+  void personalSpace_memberChanges_areRejected() {
+    long owner = seedUser();
+    long other = seedUser();
+    long personal =
+        spaceService.listMySpaces(owner).stream()
+            .filter(sp -> "PERSONAL".equals(sp.type()))
+            .findFirst()
+            .orElseThrow()
+            .id();
+
+    assertThatThrownBy(() -> spaceService.addMember(owner, personal, other, "OWNER"))
+        .isInstanceOf(WikiSpaceTypeNotEditableException.class);
+    assertThatThrownBy(() -> spaceService.changeRole(owner, personal, owner, "VIEWER"))
+        .isInstanceOf(WikiSpaceTypeNotEditableException.class);
+    assertThatThrownBy(() -> spaceService.removeMember(owner, personal, owner))
+        .isInstanceOf(WikiSpaceTypeNotEditableException.class);
+    // 소유자는 그대로 남아 공간 목록이 계속 열린다.
+    assertThat(spaceService.listMembers(owner, personal))
+        .singleElement()
+        .satisfies(m -> assertThat(m.userId()).isEqualTo(owner));
+  }
 }

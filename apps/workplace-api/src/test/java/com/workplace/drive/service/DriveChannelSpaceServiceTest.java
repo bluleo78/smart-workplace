@@ -3,9 +3,11 @@ package com.workplace.drive.service;
 import static com.workplace.jooq.Tables.CHANNEL;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.drive.api.DriveChannelSpacePort.ChannelMemberSnapshot;
 import com.workplace.drive.dto.DriveSpaceResponse;
+import com.workplace.drive.exception.DriveSpaceTypeNotEditableException;
 import com.workplace.drive.repository.DriveSpaceMemberRepository;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
@@ -25,6 +27,7 @@ class DriveChannelSpaceServiceTest extends IntegrationTestBase {
   @Autowired DSLContext dsl;
   @Autowired DriveChannelSpaceService service;
   @Autowired DriveSpaceMemberRepository members;
+  @Autowired DriveSpaceService spaceService;
 
   @BeforeEach
   void setTenant() {
@@ -124,5 +127,21 @@ class DriveChannelSpaceServiceTest extends IntegrationTestBase {
         service.ensureChannelSpace(
             owner, channelId, "채널", List.of(new ChannelMemberSnapshot(owner, "OWNER")));
     assertThat(after.archived()).isTrue();
+  }
+
+  /** WP-495 — 채널 공간의 멤버는 채널 멤버십을 따른다. 공간 멤버 API 로 직접 바꾸지 못한다(rename·delete 와 같은 TEAM 전용 가드). */
+  @Test
+  void channelSpace_memberChanges_areRejected() {
+    long owner = seedUser();
+    long outsider = seedUser();
+    long channelId = seedChannel(owner);
+    DriveSpaceResponse space =
+        service.ensureChannelSpace(
+            owner, channelId, "채널", List.of(new ChannelMemberSnapshot(owner, "OWNER")));
+
+    assertThatThrownBy(() -> spaceService.addMember(owner, space.id(), outsider, "VIEWER"))
+        .isInstanceOf(DriveSpaceTypeNotEditableException.class);
+    assertThatThrownBy(() -> spaceService.removeMember(owner, space.id(), owner))
+        .isInstanceOf(DriveSpaceTypeNotEditableException.class);
   }
 }
