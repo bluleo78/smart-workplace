@@ -18,7 +18,11 @@ import org.springframework.stereotype.Component;
  * project 서비스를 import 하지 않는 원칙의 의도된 예외다. 스레드 멤버가 아니어도 쓰기 권한이 있으면 메시지를 보내는 순간 대화에 자동 참여한다(댓글을 달면 자동
  * 구독되는 것과 같은 흐름).
  *
- * <p>읽기 권한은 {@link ChatThreadService#getOrCreate} 와 같다 — 프로젝트 멤버이거나 OPEN 프로젝트.
+ * <p>읽기 권한은 {@link ChatThreadService#getOrCreate} 와 같다 — 프로젝트 조회 규칙({@link
+ * ProjectAccessGuard#canRead}).
+ *
+ * <p>스레드 멤버십만으로는 통과시키지 않는다(WP-475) — 멤버십은 추가만 되던 기록이라 프로젝트에서 빠진 사람도 남아 있을 수 있다. 예외는 멘션으로 대화에 들어온
+ * AGENT(프로젝트 비멤버)뿐이다 — 이슈 첨부 열람({@link ChatIssueAttachmentService})과 같은 규칙.
  */
 @Component
 @RequiredArgsConstructor
@@ -35,9 +39,14 @@ public class ChatThreadAccess {
     return accessGuard.canWriteContent(projectId, reporterId, userId);
   }
 
-  /** 읽기 권한 규칙 — 프로젝트 멤버이거나 OPEN 프로젝트. 스레드 조회(getOrCreate)와 메시지 목록이 이 한 규칙을 공유한다. */
+  /** 읽기 권한 규칙 — 프로젝트 조회 규칙(OPEN·멤버·ADMIN). 스레드 조회(getOrCreate)와 메시지 목록이 이 한 규칙을 공유한다. */
   public boolean canRead(long projectId, long userId) {
-    return lookup.isProjectMember(projectId, userId) || lookup.isOpenProject(projectId);
+    return accessGuard.canRead(projectId, userId);
+  }
+
+  /** 프로젝트 권한 없이도 스레드 멤버십으로 통과하는 사용자 — 멘션으로 대화에 들어온 AGENT. 사람은 늘 프로젝트 권한으로 판정한다(WP-475). */
+  public boolean isAgentThreadMember(long threadId, long userId) {
+    return memberRepo.isMember(threadId, userId) && lookup.isAgentUser(userId);
   }
 
   /**
@@ -47,12 +56,12 @@ public class ChatThreadAccess {
    * @return 이미 스레드 멤버면 null, 아니면 {@link #join} 에 넘길 스레드 컨텍스트(참여가 필요한 쓰기 권한자)
    */
   public ChatThreadContextResolver.Context ensureCanWrite(long threadId, long userId) {
-    if (memberRepo.isMember(threadId, userId)) return null;
     var ctx = contextResolver.resolve(threadId);
-    if (ctx == null || !canWriteContent(ctx.projectId(), ctx.reporterId(), userId)) {
-      throw new ChatThreadNotMemberException(threadId, userId);
+    if (ctx != null && canWriteContent(ctx.projectId(), ctx.reporterId(), userId)) {
+      return memberRepo.isMember(threadId, userId) ? null : ctx;
     }
-    return ctx;
+    if (isAgentThreadMember(threadId, userId)) return null;
+    throw new ChatThreadNotMemberException(threadId, userId);
   }
 
   /**
@@ -66,12 +75,11 @@ public class ChatThreadAccess {
         ctx.projectId(), ctx.projectKey(), ctx.issueNumber(), threadId, userId, Set.of());
   }
 
-  /** 읽기 권한 확인 — 스레드 멤버이거나 {@link #canRead}. 없으면 ChatThreadNotMemberException(403). */
+  /** 읽기 권한 확인 — {@link #canRead} 이거나 스레드 멤버인 AGENT. 없으면 ChatThreadNotMemberException(403). */
   public void ensureCanRead(long threadId, long userId) {
-    if (memberRepo.isMember(threadId, userId)) return;
     var ctx = contextResolver.resolve(threadId);
-    if (ctx == null || !canRead(ctx.projectId(), userId)) {
-      throw new ChatThreadNotMemberException(threadId, userId);
-    }
+    if (ctx != null && canRead(ctx.projectId(), userId)) return;
+    if (isAgentThreadMember(threadId, userId)) return;
+    throw new ChatThreadNotMemberException(threadId, userId);
   }
 }

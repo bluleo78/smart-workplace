@@ -20,12 +20,15 @@ public class ChatMembershipService {
   private final ChatThreadContextResolver contextResolver;
   private final IssueStakeholderLookup lookup;
   private final ChatThreadChangeNotifier notifier;
+  private final ChatThreadAccess threadAccess;
 
-  /** caller 가 thread 멤버여야 add 가능. target 은 프로젝트 멤버여야 add 가능. add-only auto 정책의 수동 보강. */
+  /** caller 가 thread 멤버이고 쓰기 권한이 있어야 add 가능. target 은 프로젝트 멤버여야 add 가능. add-only auto 정책의 수동 보강. */
   @Transactional
   public void add(long callerId, long threadId, long targetUserId) {
     if (!memberRepo.isMember(threadId, callerId))
       throw new ChatThreadNotMemberException(threadId, callerId);
+    // 스레드 멤버로 남아 있어도 지금 쓰기 권한이 있어야 한다 — 프로젝트에서 빠진 사람이 남을 끌어들이지 못하게(WP-475).
+    threadAccess.ensureCanWrite(threadId, callerId);
     var ctx = contextResolver.resolve(threadId);
     long projectId = ctx.projectId();
     if (!lookup.isProjectMember(projectId, targetUserId))

@@ -138,6 +138,8 @@ public class ChatMessageService {
             .findAuthorId(messageId)
             .orElseThrow(() -> new ChatMessageNotFoundException(messageId));
     if (authorId != callerId) throw new ChatMessageAuthorMismatchException(messageId, callerId);
+    // 작성자여도 지금 쓰기 권한이 있어야 한다 — 프로젝트에서 빠진 뒤 옛 글을 고치지 못하게(WP-475).
+    threadAccess.ensureCanWrite(threadIdOf(messageId), callerId);
     List<Long> mentionUserIds =
         userMentionHydrator.filterExistingUserIds(MentionParser.parse(req.body()));
     messageRepo.update(messageId, req.body(), mentionUserIds);
@@ -162,10 +164,9 @@ public class ChatMessageService {
             .orElseThrow(() -> new ChatMessageNotFoundException(messageId));
     if (authorId != callerId) throw new ChatMessageAuthorMismatchException(messageId, callerId);
     // soft-delete 전 threadId 를 조회해 둔다 (이벤트 fan-out 에 필요).
-    long threadId =
-        messageRepo
-            .findThreadId(messageId)
-            .orElseThrow(() -> new ChatMessageNotFoundException(messageId));
+    long threadId = threadIdOf(messageId);
+    // 작성자여도 지금 쓰기 권한이 있어야 한다(WP-475).
+    threadAccess.ensureCanWrite(threadId, callerId);
     messageRepo.softDelete(messageId);
     publisher.publishEvent(new ChatMessageDeletedEvent(threadId, messageId));
   }
@@ -251,17 +252,24 @@ public class ChatMessageService {
   }
 
   /**
-   * 스레드 멤버가 메시지에 링크된 드라이브 파일 콘텐츠를 조회한다. 멤버십 검증 + 메시지-스레드 정합성 확인 후 DriveLinkService 에 위임. messaging
-   * 의 MessageService.driveLinkContent 미러.
+   * 대화를 읽을 수 있는 사용자가 메시지에 링크된 드라이브 파일 콘텐츠를 조회한다. 읽기 권한 검증 + 메시지-스레드 정합성 확인 후 DriveLinkService 에 위임.
+   * messaging 의 MessageService.driveLinkContent 미러.
    */
   @Transactional(readOnly = true)
   public com.workplace.file.service.FileUploadService.FileContentResult driveLinkContent(
       long callerId, long threadId, long messageId, long driveFileId) throws java.io.IOException {
-    ensureMember(threadId, callerId);
+    // 메시지 첨부 다운로드와 같은 읽기 규칙 — 스레드 멤버십만으로는 통과하지 않는다(WP-475).
+    threadAccess.ensureCanRead(threadId, callerId);
     if (!messageRepo.belongsToThread(messageId, threadId)) {
       throw new ChatMessageNotFoundException(messageId);
     }
     return driveLinkService.getLinkContent(ChatMessageHydrator.SOURCE_TYPE, messageId, driveFileId);
+  }
+
+  private long threadIdOf(long messageId) {
+    return messageRepo
+        .findThreadId(messageId)
+        .orElseThrow(() -> new ChatMessageNotFoundException(messageId));
   }
 
   private void ensureMember(long threadId, long userId) {

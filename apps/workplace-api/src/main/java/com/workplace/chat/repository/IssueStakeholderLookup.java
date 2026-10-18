@@ -63,15 +63,6 @@ public class IssueStakeholderLookup {
             .where(PROJECT_MEMBER.PROJECT_ID.eq(projectId).and(PROJECT_MEMBER.USER_ID.eq(userId))));
   }
 
-  /**
-   * 프로젝트가 OPEN 유형인지 — 채팅 스레드 조회 개방 판정용. chat 모듈이 project 도메인을 import 하지 않도록 jOOQ 로 직접 조회한다(모듈 경계
-   * 유지). 조회 개방일 뿐, 메시지 작성은 여전히 스레드 멤버십(ChatMessageService.ensureMember)으로 제어된다.
-   */
-  public boolean isOpenProject(long projectId) {
-    return dsl.fetchExists(
-        dsl.selectOne().from(PROJECT).where(PROJECT.ID.eq(projectId).and(PROJECT.TYPE.eq("OPEN"))));
-  }
-
   /** 사용자가 AGENT(kind) 인지 — 스레드 경유 이슈 첨부 조회에서 멘션돼 참여한 에이전트만 허용하는 판정용(WP-244). */
   public boolean isAgentUser(long userId) {
     return dsl.fetchExists(

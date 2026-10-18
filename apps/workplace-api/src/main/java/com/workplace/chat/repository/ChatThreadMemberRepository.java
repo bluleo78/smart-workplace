@@ -1,6 +1,8 @@
 package com.workplace.chat.repository;
 
+import static com.workplace.jooq.Tables.CHAT_THREAD;
 import static com.workplace.jooq.Tables.CHAT_THREAD_MEMBER;
+import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.USER;
 import static org.jooq.impl.DSL.greatest;
 import static org.jooq.impl.DSL.val;
@@ -53,6 +55,20 @@ public class ChatThreadMemberRepository {
                     .and(CHAT_THREAD_MEMBER.USER_ID.eq(userId)))
             .execute()
         > 0;
+  }
+
+  /** 한 프로젝트의 모든 이슈 대화에서 이 사용자를 뺀다 — 프로젝트 멤버 제거 때 실시간 알림·참여 기록이 남지 않게(WP-475). */
+  public int deleteFromProjectThreads(long projectId, long userId) {
+    return dsl.deleteFrom(CHAT_THREAD_MEMBER)
+        .where(CHAT_THREAD_MEMBER.USER_ID.eq(userId))
+        .and(
+            CHAT_THREAD_MEMBER.THREAD_ID.in(
+                dsl.select(CHAT_THREAD.ID)
+                    .from(CHAT_THREAD)
+                    .join(ISSUE)
+                    .on(ISSUE.ID.eq(CHAT_THREAD.ISSUE_ID))
+                    .where(ISSUE.PROJECT_ID.eq(projectId))))
+        .execute();
   }
 
   /** 본인 last_read_message_id 를 max(기존, upto) 로 갱신. */

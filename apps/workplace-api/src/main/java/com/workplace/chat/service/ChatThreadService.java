@@ -56,10 +56,9 @@ public class ChatThreadService {
     ChatMessagePage recent =
         messageHydrator.hydrate(messageRepo.findPage(threadId, null, RECENT_LIMIT, resolver));
     var threadRow = threadRepo.findByIssueId(issue.id()).orElseThrow();
-    // 이미 로드한 멤버 목록·이슈 정보로 판정 — 멤버면 그대로, 아니면 댓글과 같은 쓰기 권한(보내면 자동 참여).
-    boolean canPost =
-        members.stream().anyMatch(m -> m.userId() == callerId)
-            || threadAccess.canWriteContent(issue.projectId(), issue.reporterId(), callerId);
+    // 댓글과 같은 쓰기 권한(보내면 자동 참여). 스레드 멤버십만으로는 쓸 수 없다 — 프로젝트에서 빠진 사람도 남아 있을 수 있다(WP-475).
+    // 이 경로는 canRead 를 통과한 호출자만 오므로 멘션 AGENT 예외는 따로 보지 않는다(AGENT 는 화면을 쓰지 않는다).
+    boolean canPost = threadAccess.canWriteContent(issue.projectId(), issue.reporterId(), callerId);
     return new ChatThreadResponse(
         threadId,
         issue.id(),
