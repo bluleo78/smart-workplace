@@ -107,10 +107,14 @@ async function typeAtEnd(page: Page, text: string) {
   await page.keyboard.type(text)
 }
 
-/** summary 모킹: 초기 GET 응답과 POST 응답(또는 실패)을 지정. 호출 수를 센다. */
+/**
+ * summary 모킹: 초기 GET 응답과 POST 응답(또는 실패)을 지정. 호출 수를 센다.
+ * hold 를 주면 POST 응답을 그 Promise 가 풀릴 때까지 붙잡는다 — 「생성 중」 화면을 시간이 아니라 테스트가 정한 시점까지 유지해,
+ * 부하로 노트가 늦게 열려도 로딩 표시가 먼저 사라지지 않게 한다.
+ */
 async function mockSummary(
   page: Page,
-  opts: { initial: WikiPageSummaryState; post?: WikiPageSummaryState | 'fail'; delayMs?: number; pageId?: number },
+  opts: { initial: WikiPageSummaryState; post?: WikiPageSummaryState | 'fail'; hold?: Promise<void>; pageId?: number },
 ) {
   let current = opts.initial
   const calls = { get: 0, post: 0 }
@@ -120,7 +124,7 @@ async function mockSummary(
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(current) })
     }
     calls.post++
-    if (opts.delayMs) await new Promise((r) => setTimeout(r, opts.delayMs))
+    if (opts.hold) await opts.hold
     if (opts.post === 'fail' || !opts.post) {
       return route.fulfill({
         status: 502,
@@ -132,6 +136,13 @@ async function mockSummary(
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(current) })
   })
   return calls
+}
+
+/** 테스트가 직접 푸는 Promise — mockSummary 의 hold 로 POST 응답 시점을 정한다. */
+function gate() {
+  let release!: () => void
+  const held = new Promise<void>((r) => (release = r))
+  return { held, release }
 }
 
 /** 요약 상태 빌더 — 기본은 요약 없는 version 1 상태, over 로 필드를 덮는다. */
@@ -155,11 +166,13 @@ async function openPage(page: Page, id = PAGE_ID) {
 
 test('긴 노트를 열면 자동으로 요약을 만들어 제목 아래·본문 위에 카드로 보여 준다', async ({ authenticatedPage: page }) => {
   await setupWikiMocks(page)
-  const calls = await mockSummary(page, { initial: missing(), post: ready(), delayMs: 500 })
+  const post = gate()
+  const calls = await mockSummary(page, { initial: missing(), post: ready(), hold: post.held })
   await openPage(page)
 
   const card = page.getByTestId('wiki-ai-summary')
   await expect(page.getByTestId('wiki-ai-summary-loading')).toBeVisible()
+  post.release()
   await expect(card).toContainText('배포를 10/9 로 확정했다.')
   await expect(card).toContainText('10/8')
   await expect(page.getByTestId('wiki-ai-summary-loading')).toHaveCount(0)
@@ -288,7 +301,8 @@ test('요약 실패 뒤 노트가 삭제되면 다시 시도 버튼을 거두고
 
 test('생성 중 다른 노트로 이동하면 이전 노트의 요약·로딩이 새 노트에 새지 않는다', async ({ authenticatedPage: page }) => {
   await setupWikiMocks(page)
-  const callsA = await mockSummary(page, { initial: missing(), post: ready(1, 'A 요약'), delayMs: 1500 })
+  const postA = gate()
+  const callsA = await mockSummary(page, { initial: missing(), post: ready(1, 'A 요약'), hold: postA.held })
   await mockSummary(page, { initial: tooShort(), pageId: OTHER_ID })
   await openPage(page)
 
@@ -297,7 +311,9 @@ test('생성 중 다른 노트로 이동하면 이전 노트의 요약·로딩�
   await expect(page).toHaveURL(new RegExp(`/pages/${OTHER_ID}$`))
   await expect(page.getByPlaceholder('제목 없음')).toHaveValue(TITLES[OTHER_ID])
 
-  // A 의 POST 가 끝날 때까지(1.5s) 지켜보며 OTHER 화면에 카드·A 요약이 나타나지 않는지 확인한다.
+  // 이동을 마친 뒤에야 A 의 POST 를 끝내고, 그 응답이 OTHER 화면에 카드·A 요약으로 새지 않는지 지켜본다.
+  postA.release()
+  await expect.poll(() => callsA.post).toBe(1)
   await expectStays(page, () => page.getByTestId('wiki-ai-summary').count(), 0, { ms: 2000 })
   await expect(page.getByText('A 요약')).toHaveCount(0)
   expect(callsA.post).toBe(1)
