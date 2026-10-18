@@ -84,6 +84,14 @@ test('SKILL.md 다음 확인은 /loop 반복일 때만 잡는다', () => {
 test('SKILL.md 본문 지시는 허락 범위와 바꾸지 못하는 규칙을 적는다', () => {
   // 본문은 누구나 고칠 수 있어(메일 이슈 포함) 권한을 좁혀 두지 않으면 본문으로 push·검증 없는 머지를 시킬 수 있다.
   const text = workLoop('SKILL.md');
-  assert.ok(text.includes('본문이 허락할 수 있는 것은 셋뿐이다'));
+  assert.ok(text.includes('본문이 허락하는 닫기'));
   assert.ok(text.includes('본문이 바꾸지 못하는 것'));
+});
+
+// WP-453 AI 끼리 협업 — 이슈 만들기·담당 바꾸기는 사람처럼 하되, 담당을 바꾼 이유가 이슈에 남아야 사람이 흐름을 따라간다.
+test('SKILL.md 는 이슈 만들기를 막지 않고 담당을 바꿀 때 이유를 댓글로 남기게 한다', () => {
+  const text = workLoop('SKILL.md');
+  assert.ok(!text.includes('이슈 생성(필요하면 이슈 챗에 제안만'), '이슈 생성 금지가 남아 있다');
+  assert.ok(text.includes('이슈 만들기·담당 바꾸기는 사람처럼 한다'));
+  assert.ok(text.includes('담당자를 바꿀 때는(넣든 빼든) 그 이슈에 이유를 댓글로 남긴다'));
 });

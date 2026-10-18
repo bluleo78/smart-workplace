@@ -395,6 +395,24 @@ public abstract class AgentWorkTestSupport extends IntegrationTestBase {
     inTenant(() -> agentWorkRepository.insertOutcome(issueId, workerId, null, "SUBMITTED"));
   }
 
+  /** 워크스페이스 구성원인 AI 를 하나 더 시드한다(정리 대상에 넣는다) — 프로젝트 구성원은 아니다. */
+  protected long addAgent(String prefix) {
+    long id = createAgentUserWithMembership(prefix);
+    userIds.add(id);
+    return id;
+  }
+
+  /** 프로젝트 구성원인 AI 를 하나 더 시드한다 — AI 가 다른 AI 에게 일을 맡기는 흐름(WP-453)의 받는 쪽. */
+  protected long addAgentMember(String prefix) {
+    long id = addAgent(prefix);
+    inTenant(
+        () -> {
+          projectMemberRepository.insert(projectId, id, "MEMBER");
+          return null;
+        });
+    return id;
+  }
+
   /** AI 구성원을 외부 실행(EXTERNAL)으로 바꾼다 — 담당자로 들어올 때 "시작 전" 작업이 만들어지는 대상. 기본은 내부 실행(INTERNAL). */
   protected void makeExternal(long agentUserId) {
     dsl.update(USER).set(USER.AGENT_RUNTIME, "EXTERNAL").where(USER.ID.eq(agentUserId)).execute();
