@@ -99,7 +99,6 @@ export function IssueChildrenSection({
   // 생성 시간 오름차순 정렬 — 신규 항목이 최상단에 끼어드는 역방향 UX 방지 (refs #166).
   const items: IssueResponse[] = sortChildrenByCreatedAt(children.data?.items ?? []);
   const [newTitle, setNewTitle] = useState('');
-  const [adding, setAdding] = useState(false);
   // 모바일(WP-196): 「＋ 하위 태스크 추가」 탭으로 입력칸을 펼치는 연속 입력 UX. 데스크톱은 입력칸이 항상 보인다.
   const isMobile = useIsMobile();
   const [addOpen, setAddOpen] = useState(false);
@@ -108,27 +107,28 @@ export function IssueChildrenSection({
   useEffect(() => () => window.clearTimeout(scrollTimerRef.current), []);
 
   // 인라인 추가 — 제목 입력, 유형은 EPIC 부모면 선택된 값/일반 부모면 SUBTASK 고정, parentNumber 동봉.
+  // 보낸 제목은 요청 전에 바로 비운다 — 응답을 기다리는 동안 친 다음 제목을 응답 처리가 지우지 않게 하고(WP-467),
+  // 응답을 기다리지 않고 이어서 Enter 로 다음 제목을 보낼 수 있게 한다(제출 버튼을 잠그면 Enter 제출도 막힌다).
   async function onAdd() {
     const t = newTitle.trim();
     const typeId = isEpicParent ? epicChildTypeId : subtaskTypeId;
     if (!t || !typeId) return;
-    setAdding(true);
+    // 모바일 연속 입력 — 추가 버튼은 포커스를 빼앗지 않으므로(keepFocusProps) 입력칸·키보드가 그대로 남는다.
+    setNewTitle('');
     try {
       await issuesApi.create(projectKey, {
         title: t,
         typeId,
         parentNumber,
       });
-      // 모바일 연속 입력 — 추가 버튼은 포커스를 빼앗지 않으므로(keepFocusProps) 입력칸·키보드가 그대로 남는다.
-      setNewTitle('');
       // 자식 목록, 검색 캐시, 부모 detail 의 childCount 모두 갱신.
       qc.invalidateQueries({ queryKey: ['issues', 'search', projectKey] });
       qc.invalidateQueries({ queryKey: ['issues', projectKey, 'detail'] });
       toast.success(isEpicParent ? '하위 이슈를 추가했습니다' : '하위 태스크를 추가했습니다');
     } catch (e) {
+      // 실패한 제목을 되돌려 다시 보낼 수 있게 한다 — 그 사이 다음 제목을 치고 있었다면 그것을 지우지 않는다.
+      setNewTitle((cur) => (cur ? cur : t));
       handleApiError(e, '하위 이슈 추가에 실패했습니다');
-    } finally {
-      setAdding(false);
     }
   }
 
@@ -278,7 +278,7 @@ export function IssueChildrenSection({
           size="sm"
           // 모바일: 버튼 탭이 입력칸 blur 를 일으키지 않게(iOS 키보드 유지).
           {...(isMobile ? keepFocusProps : undefined)}
-          disabled={!newTitle.trim() || !(isEpicParent ? epicChildTypeId : subtaskTypeId) || adding}
+          disabled={!newTitle.trim() || !(isEpicParent ? epicChildTypeId : subtaskTypeId)}
         >
           추가
         </Button>

@@ -545,3 +545,78 @@ test.describe('SUBTASK', () => {
       await expect(doneRow.locator('[data-testid^="ai-delegation-badge-"]')).toHaveCount(0);    });
   }
 });
+
+// WP-467 — 응답을 기다리는 동안 친 다음 제목을 첫 생성 응답이 지우면 안 된다.
+test.describe('하위 태스크 연속 추가', () => {
+  test('첫 생성 응답 전에 입력한 다음 제목이 그대로 남아 이어서 추가된다', async ({
+    authenticatedPage: page,
+  }) => {
+    const taskSummary = { id: 1, name: 'TASK', colorToken: 'BLUE' as const, icon: 'Circle' as const };
+    const parentIssue = { ...createIssue({ id: 1, number: 1, title: '부모 TASK' }), type: taskSummary };
+    const creates = trackRequests(page, 'POST', ISSUES_BASE);
+    // 첫 POST 응답을 붙잡아 두는 관문 — 그 사이 사용자가 다음 제목을 친다.
+    let releaseFirst: () => void = () => {};
+    const firstGate = new Promise<void>((r) => (releaseFirst = r));
+    let created = 0;
+
+    await setupCommonStubs(page);
+    await page.route(
+      (url) => url.pathname === `${ISSUES_BASE}/1`,
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            summary: { ...parentIssue, childCount: 0, childDoneCount: 0, parent: null, labels: [], attachmentCount: 0, assignees: [] },
+            body: '',
+            comments: [],
+            history: [],
+            attachments: [],
+          }),
+        }),
+    );
+    for (const sub of ['watchers', 'attachments']) {
+      await page.route(
+        (url) => url.pathname === `${ISSUES_BASE}/1/${sub}`,
+        (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+      );
+    }
+    await page.route(
+      (url) => url.pathname === ISSUES_BASE,
+      async (route) => {
+        const req = route.request();
+        if (req.method() !== 'POST') {
+          return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(createIssueSearchResponse([], null)),
+          });
+        }
+        const { title } = req.postDataJSON() as { title: string };
+        const n = 100 + created++;
+        if (n === 100) await firstGate;
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ...createIssue({ id: n, number: n, title }), type: makeSubtaskType() }),
+        });
+      },
+    );
+
+    await page.goto(`/projects/${KEY}/issues/1`);
+    const input = page.getByTestId('child-add-input');
+    await input.fill('Alpha');
+    await input.press('Enter');
+    await creates.waitFor(1);
+    // 첫 응답 전에 다음 제목을 친다.
+    await input.pressSequentially('Bravo');
+    releaseFirst();
+    await expect(page.getByText('하위 태스크를 추가했습니다')).toBeVisible();
+    // 첫 응답이 와도 입력 중이던 다음 제목은 지워지지 않는다.
+    await expect(input).toHaveValue('Bravo');
+    await input.press('Enter');
+    await creates.waitFor(2);
+    expect(creates.bodies<{ title: string }>().map((b) => b.title)).toEqual(['Alpha', 'Bravo']);
+    await expect(input).toHaveValue('');
+  });
+});
