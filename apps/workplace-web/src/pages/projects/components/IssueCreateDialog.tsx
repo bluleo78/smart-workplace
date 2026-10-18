@@ -74,8 +74,9 @@ function DesktopIssueCreateDialog({ projectKey, open, onOpenChange, personal = f
             reason={classifyReason}
             onClick={f.handleClassify}
           />
-          {/* 유형(팀만)/우선순위/시작일/마감일 — 필드 수에 맞춰 컬럼 수를 맞춰 마지막 줄이 혼자 남지 않게 한다. */}
-          <div className={personal ? 'grid grid-cols-3 gap-3' : 'grid grid-cols-4 gap-3'}>
+          {/* 유형(팀만)/우선순위/시작일/마감일 — 필드 수에 맞춰 컬럼 수를 맞춰 마지막 줄이 혼자 남지 않게 한다.
+              팀은 4칸 한 줄이면 칸이 약 106px 라 날짜 입력의 연도가 잘려(WP-463) 2×2(유형·우선순위 / 시작일·마감일)로 둔다. */}
+          <div className={personal ? 'grid grid-cols-3 gap-3' : 'grid grid-cols-2 gap-3'}>
             {/* 개인 프로젝트는 TASK 단일 유형(#226) — 유형 select 를 숨긴다(typeId 는 effect 가 TASK 로 채움). */}
             {!personal && (
               <div className="space-y-1">

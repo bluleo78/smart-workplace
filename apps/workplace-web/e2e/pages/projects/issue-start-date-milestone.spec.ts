@@ -213,6 +213,22 @@ test.describe('IssueCreateDialog 시작일 입력 (#620)', () => {
     await expect.poll(() => creates.lastBody<{ startDate?: string }>()?.startDate).toBe('2026-07-01');
   });
 
+  // WP-463: 4칸 한 줄이면 날짜 칸이 약 106px 라 연도가 잘렸다 — 2×2 로 두어 날짜 칸이 날짜 전체를 담을 폭을 갖는다.
+  test('새 이슈 다이얼로그의 시작일·마감일 칸은 날짜 전체가 보일 만큼 넓다(WP-463)', async ({ authenticatedPage: page }) => {
+    await stubProject(page);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`/projects/${PROJECT_KEY}`);
+    await page.getByRole('button', { name: '+ 새 태스크' }).click();
+    await expect(page.getByRole('dialog', { name: '새 이슈' })).toBeVisible();
+
+    for (const id of ['#issue-start', '#issue-due']) {
+      const input = page.locator(id);
+      await input.fill('2026-10-01');
+      const box = await input.boundingBox();
+      expect(box!.width).toBeGreaterThanOrEqual(160);
+    }
+  });
+
   test('시작일 > 마감일이면 클라이언트 검증 에러로 제출이 막힌다', async ({ authenticatedPage: page }) => {
     await stubProject(page);
 
