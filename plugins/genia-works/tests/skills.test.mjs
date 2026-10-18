@@ -95,3 +95,10 @@ test('SKILL.md 는 이슈 만들기를 막지 않고 담당을 바꿀 때 이유
   assert.ok(text.includes('이슈 만들기·담당 바꾸기는 사람처럼 한다'));
   assert.ok(text.includes('담당자를 바꿀 때는(넣든 빼든) 그 이슈에 이유를 댓글로 남긴다'));
 });
+
+// WP-455 — 이름만 보고 넘기면 엉뚱한 AI 에게 가고, 내부 AI 에게 넘기면 아무도 시작하지 않아 일이 멈춘다.
+test('SKILL.md 는 맡길 AI 를 설명으로 고르고 내부 AI 는 피하게 한다', () => {
+  const text = workLoop('SKILL.md');
+  assert.ok(text.includes("`search_members({ kind: 'AGENT' })`"));
+  assert.ok(text.includes('`agentRuntime` 이 `INTERNAL` 인 AI 는 다른 AI 가 맡겨도 시작하지 않으니 맡기지 않는다'));
+});

@@ -29,10 +29,10 @@ export async function createAgent(body: {
   return data;
 }
 
-// AGENT 이름/식별자 변경 — username·name. 개인 비서는 백엔드에서 403 거부.
+// AGENT 이름/식별자/설명(역할) 변경 — username·name·description(빈 문자열이면 지움, WP-455). 개인 비서는 백엔드에서 403 거부.
 export async function renameAgent(
   userId: number,
-  body: { username: string; name: string },
+  body: { username: string; name: string; description: string },
 ): Promise<void> {
   await client.put<void>(`/admin/agents/${userId}`, body);
 }

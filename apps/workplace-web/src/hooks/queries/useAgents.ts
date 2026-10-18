@@ -1,15 +1,21 @@
 // AGENT 유저 목록 + 생성/삭제 mutation. queryKey 는 ['agents'] 단일.
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { toast } from 'sonner';
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 
-import { createAgent, deleteAgent, listAgents, renameAgent, setAgentRuntime } from '../../api/agents';
-import { handleApiError } from '../../lib/api-error';
-import type { AgentRuntime } from '../../types/agent';
+import {
+  createAgent,
+  deleteAgent,
+  listAgents,
+  renameAgent,
+  setAgentRuntime,
+} from "../../api/agents";
+import { handleApiError } from "../../lib/api-error";
+import type { AgentRuntime } from "../../types/agent";
 
 export const agentKeys = {
-  all: ['agents'] as const,
-  list: (includePersonal: boolean) => ['agents', { includePersonal }] as const,
+  all: ["agents"] as const,
+  list: (includePersonal: boolean) => ["agents", { includePersonal }] as const,
 };
 
 // includePersonal=true 면 개인 비서(자동 생성 AGENT)까지 포함해 조회한다.
@@ -26,9 +32,9 @@ export function useCreateAgent() {
     mutationFn: createAgent,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: agentKeys.all });
-      toast.success('에이전트를 추가했습니다');
+      toast.success("에이전트를 추가했습니다");
     },
-    onError: (e) => handleApiError(e, '에이전트 추가에 실패했습니다'),
+    onError: (e) => handleApiError(e, "에이전트 추가에 실패했습니다"),
   });
 }
 
@@ -38,18 +44,14 @@ export function useRenameAgent() {
   return useMutation({
     mutationFn: ({
       userId,
-      username,
-      name,
-    }: {
-      userId: number;
-      username: string;
-      name: string;
-    }) => renameAgent(userId, { username, name }),
+      ...body
+    }: { userId: number } & Parameters<typeof renameAgent>[1]) =>
+      renameAgent(userId, body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: agentKeys.all });
-      toast.success('에이전트를 변경했습니다');
+      toast.success("에이전트를 변경했습니다");
     },
-    onError: (e) => handleApiError(e, '에이전트 변경에 실패했습니다'),
+    onError: (e) => handleApiError(e, "에이전트 변경에 실패했습니다"),
   });
 }
 
@@ -59,9 +61,9 @@ export function useDeleteAgent() {
     mutationFn: deleteAgent,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: agentKeys.all });
-      toast.success('에이전트를 삭제했습니다');
+      toast.success("에이전트를 삭제했습니다");
     },
-    onError: (e) => handleApiError(e, '에이전트 삭제에 실패했습니다'),
+    onError: (e) => handleApiError(e, "에이전트 삭제에 실패했습니다"),
   });
 }
 
@@ -69,12 +71,17 @@ export function useDeleteAgent() {
 export function useSetAgentRuntime() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ userId, runtime }: { userId: number; runtime: AgentRuntime }) =>
-      setAgentRuntime(userId, runtime),
+    mutationFn: ({
+      userId,
+      runtime,
+    }: {
+      userId: number;
+      runtime: AgentRuntime;
+    }) => setAgentRuntime(userId, runtime),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: agentKeys.all });
-      toast.success('실행 방식을 변경했습니다');
+      toast.success("실행 방식을 변경했습니다");
     },
-    onError: (e) => handleApiError(e, '실행 방식 변경에 실패했습니다'),
+    onError: (e) => handleApiError(e, "실행 방식 변경에 실패했습니다"),
   });
 }

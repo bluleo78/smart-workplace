@@ -10,6 +10,9 @@ package com.workplace.member.dto;
  * 식별자(contact_entry.id)와는 다른 네임스페이스다.
  *
  * @param membershipRole 멤버십 역할 OWNER/ADMIN/MEMBER — RBAC 역할(ADMIN/USER/AGENT)과 다른 축이다.
+ * @param description AI 의 설명(역할) — 무엇을 맡고 어떻게 일하는지. 다른 AI 가 일을 맡길 상대를 고를 때 읽는다(WP-455). 사람·미입력은
+ *     null.
+ * @param agentRuntime AI 의 실행 방식 INTERNAL(서버에서 실행)/EXTERNAL(외부 에이전트) — 사람은 null.
  */
 public record MemberSummary(
     long userId,
@@ -20,4 +23,6 @@ public record MemberSummary(
     String kind,
     boolean active,
     String membershipRole,
-    String membershipStatus) {}
+    String membershipStatus,
+    String description,
+    String agentRuntime) {}

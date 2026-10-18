@@ -182,6 +182,7 @@ public class UserRepository {
             WORKSPACE_ACTIVE,
             USER.CREATED_AT,
             USER.AGENT_RUNTIME,
+            USER.DESCRIPTION,
             keyLastUsed,
             owner.NAME,
             WORKSPACE_ASSISTANT.AGENT_USER_ID)
@@ -219,7 +220,8 @@ public class UserRepository {
                   type,
                   isPersonal ? ownerName : null,
                   r.get(USER.AGENT_RUNTIME),
-                  r.get(keyLastUsed) != null ? r.get(keyLastUsed).toInstant() : null);
+                  r.get(keyLastUsed) != null ? r.get(keyLastUsed).toInstant() : null,
+                  r.get(USER.DESCRIPTION));
             });
   }
 
@@ -265,15 +267,22 @@ public class UserRepository {
   }
 
   /**
-   * AGENT 의 식별자(username)와 표시 이름(name)만 변경한다. email/password 등 다른 필드는 절대 건드리지 않는다(관리자 rename 전용).
+   * AGENT 의 식별자(username)·표시 이름(name)·설명(description)만 변경한다. email/password 등 다른 필드는 절대 건드리지
+   * 않는다(관리자 rename 전용). description 이 null 이면 지운다.
    */
-  public void renameAgentIdentity(Long id, String username, String name) {
+  public void renameAgentIdentity(Long id, String username, String name, String description) {
     dsl.update(USER)
         .set(USER.USERNAME, username)
         .set(USER.NAME, name)
+        .set(USER.DESCRIPTION, description)
         .set(USER.UPDATED_AT, LocalDateTime.now())
         .where(USER.ID.eq(id))
         .execute();
+  }
+
+  /** AGENT 설명(역할) 조회 (WP-455) — 관리자 변경 감사 로그에 설명이 바뀌었는지 남기려고 이전 값을 읽는다. 없거나 비었으면 null. */
+  public String findDescription(Long id) {
+    return dsl.select(USER.DESCRIPTION).from(USER).where(USER.ID.eq(id)).fetchOne(USER.DESCRIPTION);
   }
 
   /**

@@ -5,7 +5,7 @@
 // 외부 연락처 생성·수정·삭제와 구성원 역할·활성 변경은 ai-agent 쪽에만 있다(삭제·구성원 변경은 확인 카드).
 // 즐겨찾기·facets·사용자 그룹(#839)은 contact-tools.ts — 사용자 본인 범위의 되돌릴 수 있는 쓰기라 공유 도구로 둔다.
 import { z } from 'zod';
-import { cursorPageView, numberedPageView } from './compact.js';
+import { cursorPageView, dropEmpty, numberedPageView } from './compact.js';
 import type { SharedTool } from './mcp-tool.js';
 import { isMeAlias, type CurrentUserClient } from './resolve.js';
 import type { MemberRow, MemberToolClient } from './tool-client.js';
@@ -26,9 +26,10 @@ export interface ContactRow {
 /**
  * 구성원 행 → LLM 뷰. 숫자 userId 는 빼고 사람을 가리키는 username 만 준다(#833, WP-353). 쓰기 도구는 username 을 받아
  * 서버 쪽 id 로 해석하므로(requireMember 등) LLM 이 userId 를 알 필요가 없다. 나머지 필드(kind·active·email 등)는 그대로 둔다.
+ * AI 의 설명(역할)·실행 방식(WP-455)은 값이 있을 때만 싣는다 — 사람 행마다 빈 칸 두 개가 붙지 않게 한다.
  */
-export function toMemberView({ userId: _userId, ...rest }: MemberRow): Omit<MemberRow, 'userId'> {
-  return rest;
+export function toMemberView({ userId: _userId, description, agentRuntime, ...rest }: MemberRow): Omit<MemberRow, 'userId'> {
+  return { ...rest, ...dropEmpty({ description, agentRuntime }) };
 }
 
 /**
@@ -156,8 +157,9 @@ export function buildMemberTools(client: MemberToolClient & CurrentUserClient): 
       description:
         'Searches workspace members (구성원) by name, username or email. Pass username to tools that take a person (no numeric ids). kind HUMAN ' +
         '(default), AGENT (AI) or ALL; active only unless includeInactive. With channelId (a channel I belong to), lists its members with ' +
-        'role; search matches name or username, includeInactive is ignored. Returns {items, total, hasMore?, nextPage?}; if hasMore, pass ' +
-        'nextPage as page, narrow search, or say the list is partial.',
+        'role; search matches name or username, includeInactive is ignored. Without channelId, AI rows add description (its role — read it ' +
+        'to choose whom to hand work to) and agentRuntime (INTERNAL|EXTERNAL). Returns {items, total, hasMore?, nextPage?}; if hasMore, ' +
+        'pass nextPage as page, narrow search, or say the list is partial.',
       inputSchema: searchMembersInput,
       async handler(args) {
         const { channelId, ...query } = searchMembersInput.parse(args);
@@ -171,7 +173,8 @@ export function buildMemberTools(client: MemberToolClient & CurrentUserClient): 
       app: 'member',
       kind: 'read',
       description:
-        'Returns one member by username (from search_members; "me" = the caller): name, email, title, kind, active, membershipRole, membershipStatus.',
+        'Returns one member by username (from search_members; "me" = the caller): name, email, title, kind, active, membershipRole, ' +
+        'membershipStatus; AI members add description and agentRuntime (see search_members).',
       inputSchema: memberInput,
       async handler(args) {
         const { username } = memberInput.parse(args);

@@ -63,7 +63,8 @@ class UserRenameAgentTest extends IntegrationTestBase {
         userService.createAgent(
             callerId, new CreateAgentRequest("r-bot", "R Bot", "r-bot@example.com"));
 
-    userService.renameAgent(callerId, agent.id(), new RenameAgentRequest("r-bot2", "R Bot 2"));
+    userService.renameAgent(
+        callerId, agent.id(), new RenameAgentRequest("r-bot2", "R Bot 2", null));
 
     var row =
         dsl.select(USER.USERNAME, USER.NAME, USER.EMAIL)
@@ -83,7 +84,8 @@ class UserRenameAgentTest extends IntegrationTestBase {
         userService.createAgent(
             callerId, new CreateAgentRequest("keep-id", "Old Name", "keep-id@example.com"));
 
-    userService.renameAgent(callerId, agent.id(), new RenameAgentRequest("keep-id", "New Name"));
+    userService.renameAgent(
+        callerId, agent.id(), new RenameAgentRequest("keep-id", "New Name", null));
 
     String name =
         dsl.select(USER.NAME).from(USER).where(USER.ID.eq(agent.id())).fetchOne(USER.NAME);
@@ -107,7 +109,7 @@ class UserRenameAgentTest extends IntegrationTestBase {
     assertThatThrownBy(
             () ->
                 userService.renameAgent(
-                    callerId, personalAgentId, new RenameAgentRequest("hacked", "Hacked")))
+                    callerId, personalAgentId, new RenameAgentRequest("hacked", "Hacked", null)))
         .isInstanceOf(PersonalAssistantRenameForbiddenException.class);
   }
 
@@ -121,7 +123,9 @@ class UserRenameAgentTest extends IntegrationTestBase {
     assertThatThrownBy(
             () ->
                 userService.renameAgent(
-                    callerId, agent.id(), new RenameAgentRequest("__assistant_u999", "Sneaky")))
+                    callerId,
+                    agent.id(),
+                    new RenameAgentRequest("__assistant_u999", "Sneaky", null)))
         .isInstanceOf(IllegalArgumentException.class);
   }
 
@@ -137,7 +141,7 @@ class UserRenameAgentTest extends IntegrationTestBase {
     assertThatThrownBy(
             () ->
                 userService.renameAgent(
-                    callerId, agent2.id(), new RenameAgentRequest("taken", "Free2")))
+                    callerId, agent2.id(), new RenameAgentRequest("taken", "Free2", null)))
         .isInstanceOf(UsernameAlreadyExistsException.class);
   }
 
@@ -151,7 +155,8 @@ class UserRenameAgentTest extends IntegrationTestBase {
         userService.createAgent(
             callerId, new CreateAgentRequest("code-bot", "코드리뷰어", "code-bot@example.com"));
 
-    userService.renameAgent(callerId, agent.id(), new RenameAgentRequest("code-bot", "코드리뷰어2"));
+    userService.renameAgent(
+        callerId, agent.id(), new RenameAgentRequest("code-bot", "코드리뷰어2", null));
 
     List<AuditLogResponse> logs =
         auditLogService.findByResource("AGENT_RENAMED", "user", String.valueOf(agent.id()));
@@ -169,7 +174,8 @@ class UserRenameAgentTest extends IntegrationTestBase {
         userService.createAgent(
             callerId, new CreateAgentRequest("old-id", "Same Name", "old-id@example.com"));
 
-    userService.renameAgent(callerId, agent.id(), new RenameAgentRequest("new-id", "Same Name"));
+    userService.renameAgent(
+        callerId, agent.id(), new RenameAgentRequest("new-id", "Same Name", null));
 
     List<AuditLogResponse> logs =
         auditLogService.findByResource("AGENT_RENAMED", "user", String.valueOf(agent.id()));
@@ -186,7 +192,8 @@ class UserRenameAgentTest extends IntegrationTestBase {
         userService.createAgent(
             callerId, new CreateAgentRequest("both-old", "Old Name", "both-old@example.com"));
 
-    userService.renameAgent(callerId, agent.id(), new RenameAgentRequest("both-new", "New Name"));
+    userService.renameAgent(
+        callerId, agent.id(), new RenameAgentRequest("both-new", "New Name", null));
 
     List<AuditLogResponse> logs =
         auditLogService.findByResource("AGENT_RENAMED", "user", String.valueOf(agent.id()));
@@ -196,11 +203,37 @@ class UserRenameAgentTest extends IntegrationTestBase {
     assertThat(description).contains("이름 Old Name → New Name");
   }
 
+  /** 설명(역할)이 바뀌면 감사 로그에 내용 대신 「설명 변경」만 남는다(WP-455) — 같은 값으로 다시 저장하면 남지 않는다. */
+  @Test
+  void rename_description_change_reflects_in_audit_log_description() {
+    UserResponse agent =
+        userService.createAgent(
+            callerId, new CreateAgentRequest("desc-bot", "리뷰봇", "desc-bot@example.com"));
+
+    userService.renameAgent(
+        callerId, agent.id(), new RenameAgentRequest("desc-bot", "리뷰봇", "코드 리뷰를 맡습니다"));
+    userService.renameAgent(
+        callerId, agent.id(), new RenameAgentRequest("desc-bot", "리뷰봇", "코드 리뷰를 맡습니다"));
+
+    List<AuditLogResponse> logs =
+        auditLogService.findByResource("AGENT_RENAMED", "user", String.valueOf(agent.id()));
+    assertThat(logs)
+        .extracting(AuditLogResponse::description)
+        .containsExactlyInAnyOrder("AGENT 유저 변경: 설명 변경", "AGENT 유저 변경: 변경 없음");
+    // 전후 설명은 메타에 남는다 — 무엇에서 무엇으로 바뀌었는지 나중에 찾을 수 있게.
+    assertThat(logs)
+        .filteredOn(l -> l.description().endsWith("설명 변경"))
+        .singleElement()
+        .satisfies(l -> assertThat(l.metadata()).contains("코드 리뷰를 맡습니다"));
+  }
+
   /** 존재하지 않는 유저 → 404. */
   @Test
   void rename_nonexistent_throws() {
     assertThatThrownBy(
-            () -> userService.renameAgent(callerId, 99_999_999L, new RenameAgentRequest("x", "X")))
+            () ->
+                userService.renameAgent(
+                    callerId, 99_999_999L, new RenameAgentRequest("x", "X", null)))
         .isInstanceOf(UserNotFoundException.class);
   }
 
@@ -210,7 +243,7 @@ class UserRenameAgentTest extends IntegrationTestBase {
     assertThatThrownBy(
             () ->
                 userService.renameAgent(
-                    callerId, callerId, new RenameAgentRequest("human-new", "Human New")))
+                    callerId, callerId, new RenameAgentRequest("human-new", "Human New", null)))
         .isInstanceOf(IllegalArgumentException.class);
   }
 }

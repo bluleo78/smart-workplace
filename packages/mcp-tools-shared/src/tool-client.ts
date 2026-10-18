@@ -13,6 +13,9 @@ export interface MemberRow {
   name: string;
   kind?: string;
   active?: boolean;
+  /** AI 의 설명(역할)·실행 방식 INTERNAL|EXTERNAL(WP-455). 사람은 null. */
+  description?: string | null;
+  agentRuntime?: string | null;
   [key: string]: unknown;
 }
 

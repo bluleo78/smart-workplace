@@ -18,4 +18,8 @@ export interface MemberSummary {
   active: boolean
   membershipRole: MembershipRole | null
   membershipStatus: string | null
+  /** AI 의 설명(역할) — 다른 AI 가 일을 맡길 상대를 고를 때 읽는다(WP-455). 사람·미입력은 null. */
+  description?: string | null
+  /** AI 의 실행 방식(INTERNAL=서버에서 실행 · EXTERNAL=외부 에이전트). 사람은 null. */
+  agentRuntime?: 'INTERNAL' | 'EXTERNAL' | null
 }

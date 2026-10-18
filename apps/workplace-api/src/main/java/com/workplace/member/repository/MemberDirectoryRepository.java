@@ -49,7 +49,9 @@ public class MemberDirectoryRepository {
           USER.KIND,
           USER.IS_ACTIVE,
           MEMBERSHIP.ROLE,
-          MEMBERSHIP.STATUS);
+          MEMBERSHIP.STATUS,
+          USER.DESCRIPTION,
+          USER.AGENT_RUNTIME);
 
   /** 목록/단건 공용 select + join. */
   private SelectOnConditionStep<Record> base() {
@@ -156,6 +158,7 @@ public class MemberDirectoryRepository {
   }
 
   private MemberSummary map(Record r) {
+    boolean isAgent = UserKind.isAgent(r.get(USER.KIND));
     return new MemberSummary(
         r.get(USER.ID),
         r.get(USER.USERNAME),
@@ -166,6 +169,9 @@ public class MemberDirectoryRepository {
         // WP-417: active = 이 워크스페이스에서 활성(공용 정의 — 관리자 정지는 멤버십만 SUSPENDED 로 바꾼다).
         WorkspaceActive.of(Boolean.TRUE.equals(r.get(USER.IS_ACTIVE)), r.get(MEMBERSHIP.STATUS)),
         r.get(MEMBERSHIP.ROLE),
-        r.get(MEMBERSHIP.STATUS));
+        r.get(MEMBERSHIP.STATUS),
+        // 설명(역할)·실행 방식은 AI 에만 뜻이 있다 — 사람 행의 컬럼 값(실행 방식 기본값 INTERNAL 등)은 내보내지 않는다.
+        isAgent ? r.get(USER.DESCRIPTION) : null,
+        isAgent ? r.get(USER.AGENT_RUNTIME) : null);
   }
 }

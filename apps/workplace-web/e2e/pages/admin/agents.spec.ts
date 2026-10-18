@@ -379,8 +379,8 @@ test.describe('/admin/agents', () => {
 
   // AGENT 삭제의 취소 경로는 키 회수와 같은 확인 다이얼로그(confirmDialog 상태 하나)를 쓰므로 위 「API 키 회수 … 취소」가 맡는다.
 
-  // 에이전트 이름/아이디 변경 → PUT payload 검증 + 성공 토스트.
-  test('에이전트 이름·아이디 변경 → PUT payload + 성공 토스트', async ({ adminPage: page }) => {
+  // 에이전트 이름/아이디/설명(역할) 변경 → PUT payload 검증 + 성공 토스트(설명은 WP-455).
+  test('에이전트 이름·아이디·설명 변경 → PUT payload + 성공 토스트', async ({ adminPage: page }) => {
     await setupStatic(page);
     // PUT 응답 — setupStatic 의 DELETE 핸들러보다 나중에 등록해 PUT 을 가로채고, 그 외는 fallback.
     const puts = trackRequests(page, 'PUT', /^\/api\/v1\/admin\/agents\/\d+$/);
@@ -398,9 +398,15 @@ test.describe('/admin/agents', () => {
     await expect(page.getByTestId('agent-identity-section')).toBeVisible();
     await page.getByTestId('agent-name-input').fill('Claude 봇 v2');
     await page.getByTestId('agent-username-input').fill('claude_bot_v2');
+    // 설명은 앞뒤 공백을 걷어 보낸다 — 다른 AI 가 MCP 로 읽는 글이다.
+    await page.getByLabel('설명(역할)').fill('  코드 리뷰를 맡습니다.  ');
     await page.getByTestId('agent-identity-save').click();
 
     await expect(page.getByText('에이전트를 변경했습니다')).toBeVisible();
-    expect(puts.lastBody()).toEqual({ username: 'claude_bot_v2', name: 'Claude 봇 v2' });
+    expect(puts.lastBody()).toEqual({
+      username: 'claude_bot_v2',
+      name: 'Claude 봇 v2',
+      description: '코드 리뷰를 맡습니다.',
+    });
   });
 });

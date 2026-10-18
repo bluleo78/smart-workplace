@@ -216,6 +216,20 @@ public class UserRecord extends UpdatableRecordImpl<UserRecord> {
         return (Boolean) get(13);
     }
 
+    /**
+     * Setter for <code>public.user.description</code>.
+     */
+    public void setDescription(String value) {
+        set(14, value);
+    }
+
+    /**
+     * Getter for <code>public.user.description</code>.
+     */
+    public String getDescription() {
+        return (String) get(14);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -239,7 +253,7 @@ public class UserRecord extends UpdatableRecordImpl<UserRecord> {
     /**
      * Create a detached, initialised UserRecord
      */
-    public UserRecord(Long id, String username, String email, String password, String name, Boolean isActive, LocalDateTime createdAt, LocalDateTime updatedAt, String kind, Long personalAssistantAgentId, String title, String agentRuntime, Boolean aiSuggestionsEnabled, Boolean aiMemoryEnabled) {
+    public UserRecord(Long id, String username, String email, String password, String name, Boolean isActive, LocalDateTime createdAt, LocalDateTime updatedAt, String kind, Long personalAssistantAgentId, String title, String agentRuntime, Boolean aiSuggestionsEnabled, Boolean aiMemoryEnabled, String description) {
         super(User.USER);
 
         setId(id);
@@ -256,6 +270,7 @@ public class UserRecord extends UpdatableRecordImpl<UserRecord> {
         setAgentRuntime(agentRuntime);
         setAiSuggestionsEnabled(aiSuggestionsEnabled);
         setAiMemoryEnabled(aiMemoryEnabled);
+        setDescription(description);
         resetChangedOnNotNull();
     }
 }

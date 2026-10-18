@@ -199,6 +199,11 @@ public class User extends TableImpl<UserRecord> {
      */
     public final TableField<UserRecord, Boolean> AI_MEMORY_ENABLED = createField(DSL.name("ai_memory_enabled"), SQLDataType.BOOLEAN, this, "");
 
+    /**
+     * The column <code>public.user.description</code>.
+     */
+    public final TableField<UserRecord, String> DESCRIPTION = createField(DSL.name("description"), SQLDataType.VARCHAR(500), this, "");
+
     private User(Name alias, Table<UserRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

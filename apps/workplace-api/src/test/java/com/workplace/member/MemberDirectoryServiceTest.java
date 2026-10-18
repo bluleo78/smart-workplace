@@ -170,4 +170,30 @@ class MemberDirectoryServiceTest extends IntegrationTestBase {
     // 존재 자체를 숨긴다 — 빈 값이어야 하며 예외로 "있긴 있다"를 알려주면 안 된다.
     assertThat(service.get(outsider)).isEmpty();
   }
+
+  @Test
+  void AI_는_설명과_실행_방식을_함께_돌려주고_사람은_실행_방식이_비어_있다() {
+    // WP-455: 다른 AI 가 일을 맡길 상대를 고르려면 설명(역할)과, 맡겨도 시작하는지(실행 방식)를 알아야 한다.
+    long reviewer = seedUser("dir_reviewer", "AGENT", true);
+    linkMembership(reviewer, 1L, "ACTIVE");
+    dsl.update(USER)
+        .set(USER.DESCRIPTION, "코드 리뷰를 맡습니다")
+        .set(USER.AGENT_RUNTIME, "EXTERNAL")
+        .where(USER.ID.eq(reviewer))
+        .execute();
+
+    MemberSummary ai = service.get(reviewer).orElseThrow();
+    assertThat(ai.description()).isEqualTo("코드 리뷰를 맡습니다");
+    assertThat(ai.agentRuntime()).isEqualTo("EXTERNAL");
+    // 목록도 같은 칸을 준다(MCP search_members 가 쓰는 경로).
+    assertThat(service.list("dir_reviewer", "AGENT", false, 0, 50).content())
+        .filteredOn(m -> m.userId() == reviewer)
+        .singleElement()
+        .satisfies(m -> assertThat(m.description()).isEqualTo("코드 리뷰를 맡습니다"));
+
+    // 사람 행의 컬럼 기본값(INTERNAL)은 내보내지 않는다 — 실행 방식은 AI 에만 뜻이 있다.
+    MemberSummary human = service.get(insider).orElseThrow();
+    assertThat(human.agentRuntime()).isNull();
+    assertThat(human.description()).isNull();
+  }
 }
