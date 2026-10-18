@@ -17,7 +17,7 @@
 #   서로 겹쳐 띄우기를 막거나 서로를 내리지 않는다. up·status·down 은 그 이름의 스택만 다룬다.
 # - 모든 포트는 127.0.0.1 에만 연다 — DB 계정이 app/app 이고 API 는 개발 프로필이라 다른 기기에서 닿으면 안 된다.
 #
-# 시험: scripts/live-stack.test.sh 가 LIVE_STACK_LIB=1 로 이 파일을 읽어 pick_port·valid_stack_name·state_put/state_get 을 확인한다.
+# 시험: scripts/live-stack.test.sh 가 LIVE_STACK_LIB=1 로 이 파일을 읽어 pick_port·valid_stack_name·state_put/state_get·remove_db_container 를 확인한다.
 
 # ---------------------------------------------------------------------------
 # 포트 고르기
@@ -311,6 +311,28 @@ cmd_up() {
 # down — 상태 파일에 적힌 것만 내린다
 # ---------------------------------------------------------------------------
 
+# 우리 이름 규칙(wl-*-db)의 DB 컨테이너만 지운다. 지웠거나 원래 없으면 0, 지우지 못했으면 docker 의 오류를 stderr 에 내고 1.
+# 「없음」은 docker 가 No such container 라고 답할 때만이다 — docker 에 닿지 않는 실패까지 없음으로 보면
+# 컨테이너를 남긴 채 상태 파일을 지워 그 이름을 잃는다.
+remove_db_container() {
+  case "$1" in
+    wl-*-db) ;;
+    *) return 0 ;;
+  esac
+  if ! _err=$(docker container inspect "$1" 2>&1 >/dev/null); then
+    case "$_err" in
+      *"No such"* | *"no such"*) return 0 ;;
+    esac
+    echo "[live-stack] DB 컨테이너 $1 를 확인하지 못했다: $_err" >&2
+    return 1
+  fi
+  log "DB 컨테이너 삭제($1)"
+  if ! _err=$(docker rm -f "$1" 2>&1 >/dev/null); then
+    echo "[live-stack] DB 컨테이너 $1 를 지우지 못했다: $_err" >&2
+    return 1
+  fi
+}
+
 cmd_down() {
   if [ ! -f "$STATE_FILE" ]; then
     log "스택 '$LIVE_STACK_NAME' 의 상태 파일이 없다 — 내릴 것이 없다($STATE_FILE)"
@@ -325,22 +347,23 @@ cmd_down() {
   # 명령줄에 있어야 한다(up 이 넘긴 인자 순서 그대로).
   stop_pid 웹 "$WEB_PID" "--port $WEB_PORT --strictPort --host 127.0.0.1"
   stop_pid API "$API_PID" "--server.port=$API_PORT --server.address=127.0.0.1"
-  # 컨테이너는 우리 이름 규칙(wl-*-db)일 때만 지운다.
-  case "$DB_CONTAINER" in
-    wl-*-db)
-      if docker container inspect "$DB_CONTAINER" >/dev/null 2>&1; then
-        log "DB 컨테이너 삭제($DB_CONTAINER)"
-        docker rm -f "$DB_CONTAINER" >/dev/null 2>&1 || true
-      fi
-      ;;
-  esac
+  remove_db_container "$DB_CONTAINER"
+  db_rc=$?
 
   # 포트가 비었는지 확인(최대 30초) — 남아 있으면 알리기만 한다(남의 것일 수 있어 강제로 죽이지 않는다).
-  for _p in $API_PORT $WEB_PORT $DB_PORT; do
+  # 컨테이너를 지우지 못했으면 DB 포트는 그 컨테이너가 쥐고 있으니 기다리지 않는다.
+  _ports="$API_PORT $WEB_PORT"
+  [ "$db_rc" -eq 0 ] && _ports="$_ports $DB_PORT"
+  for _p in $_ports; do
     if ! wait_until 30 sh -c "! lsof -nP -iTCP:$_p -sTCP:LISTEN" ; then
       echo "[live-stack] 경고: 포트 $_p 가 아직 쓰는 중이다" >&2
     fi
   done
+  # DB 컨테이너를 지우지 못했으면 상태 파일을 남긴다(다시 down 할 수 있게).
+  if [ "$db_rc" -ne 0 ]; then
+    echo "[live-stack] 오류: 상태 파일을 남긴다 — docker 가 돌아오면 'LIVE_STACK_NAME=$LIVE_STACK_NAME $0 down' 을 다시 하라" >&2
+    return 1
+  fi
   rm -f "$STATE_FILE"
   log "스택 '$LIVE_STACK_NAME' 내림 완료"
 }

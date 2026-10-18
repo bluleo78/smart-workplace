@@ -73,6 +73,7 @@ LIVE_STACK_NAME=work-loop scripts/live-stack.sh down                 # 이 이�
 - 사용자를 더 만들려면 ADMIN 토큰으로 `POST /api/v1/users` `{username(이메일), email, name, password(대·소문자·숫자 8자 이상), role}`. signup 은 첫 계정에만 열린다.
 - 이 스택에는 ai-agent·worker·collab 이 없고, API 의 연동(`workplace.{ai-agent,worker,collab}.enabled=false`)과 웹의 collab ws 프록시(닫힌 포트 9)도 끊어 둔다 — 그대로 두면 다른 세션의 6070·6080·6095 에 붙는다. AI 응답·첨부 추출·노트 동시 편집에 기대는 완료 기준은 여기서 확인할 수 없다 — 「로컬에서 검증할 수 없음」과 이유를 근거에 적는다.
 - 다 쓰면 `LIVE_STACK_NAME=work-loop scripts/live-stack.sh down`. 내린 뒤 포트가 아직 쓰는 중이라고 경고하면 남의 것일 수 있으니 직접 죽이지 않는다.
+- `down` 이 DB 컨테이너를 지우지 못하면(docker 에 닿지 않음 등) 오류로 끝나고 상태 파일을 남긴다 — 그동안 같은 이름의 `up` 은 막힌다. docker 가 돌아오면 같은 `down` 을 다시 한다. docker 는 공유 런타임이라 재시작하지 않고 막힘으로 남긴다.
 
 ## 5. 지켜야 할 것
 
