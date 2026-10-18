@@ -2,6 +2,7 @@
 // - 데스크톱(WP-273 시안 A): 행 끝 「⋯」·우클릭 → IssueRowMenu 드롭다운. 다중 선택된 행에서 열면 선택 전체에 적용.
 // - 모바일(WP-273 시안 M1): 「⋯」·길게 누르기 → 액션 시트(줄마다 현재 값) → 상태·담당자·우선순위·에픽·AI 선택 시트.
 // 시트는 한 번에 하나만 연다. 변경은 낙관적 mutation(상태·에픽은 드래그와 같은 경로)을 재사용한다.
+import { useQueryClient } from '@tanstack/react-query';
 import { Bot, Check, CheckSquare, CircleDot, Layers, Link2, SignalHigh, Trash2, UserRound } from 'lucide-react';
 import { type MouseEvent, type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
@@ -17,6 +18,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { copyText } from '@/lib/copyText';
 
+import { findIssueInSearchCache } from '../../../hooks/queries/issueSearchCache';
 import { useBulkAssign, useBulkDeleteIssues, useBulkUpdatePriority, useBulkUpdateStatus } from '../../../hooks/queries/useBulkIssueActions';
 import { useRemoveIssue, useSetIssueAssignees, useUpdateIssuePriority } from '../../../hooks/queries/useIssueRowMutations';
 import { useMoveIssueEpic } from '../../../hooks/queries/useMoveIssueEpic';
@@ -24,6 +26,7 @@ import { useProjectEpics } from '../../../hooks/queries/useProjectEpics';
 import { useProjectMembers } from '../../../hooks/queries/useProjectMembers';
 import { useUpdateIssueStatus } from '../../../hooks/queries/useUpdateIssueStatus';
 import { epicDragBlockReason } from '../../../lib/epicDnd';
+import { bulkDeleteDescription, countCascadedChildren } from '../../../lib/issueBulkDelete';
 import { ISSUE_PRIORITY_LABEL, ISSUE_PRIORITY_OPTIONS, ISSUE_STATUS_LABEL, ISSUE_STATUSES } from '../../../lib/issueGrouping';
 import { rowMenuItems, toggleAssigneeIds, toSummary } from '../../../lib/issueRowMenu';
 import { isProjectOwner } from '../../../lib/projectPermissions';
@@ -102,6 +105,7 @@ export function useIssueRowActions({
   const bulkPriority = useBulkUpdatePriority(projectKey);
   const bulkAssign = useBulkAssign(projectKey);
   const bulkDelete = useBulkDeleteIssues(projectKey);
+  const qc = useQueryClient();
   // 에픽 목록은 에픽 항목을 쓸 때만 필요 — 메뉴·시트가 열렸을 때만 조회(훅 순서 고정). 프로젝트 화면이 미리 데워 두어 보통 캐시 적중.
   const { epics, epicType, loading: epicsLoading } = useProjectEpics(projectKey, canEdit && state != null);
   // openMenu 는 최신 선택 집합을 읽어야 하지만, deps 에 넣으면 선택이 바뀔 때마다 모든 행 memo 가 깨진다(#716) — ref 로 읽는다.
@@ -212,7 +216,13 @@ export function useIssueRowActions({
       onConfirm={confirmDelete}
       description={
         deleteCount > 1
-          ? `선택한 ${deleteCount}개 태스크를 삭제할까요? 이 작업은 되돌릴 수 없습니다.`
+          ? bulkDeleteDescription(
+              deleteCount,
+              // WP-482: 함께 지워질 하위 수 — 선택된 행은 화면에 있으니 검색 캐시에서 찾는다.
+              countCascadedChildren(
+                (pendingDelete?.numbers ?? []).map((n) => findIssueInSearchCache(qc, projectKey, n)),
+              ),
+            )
           : deleteChildren > 0
             ? `「${pendingDelete?.issue.title}」에는 하위 태스크가 ${deleteChildren}개 있습니다. 함께 삭제됩니다. 이 작업은 되돌릴 수 없습니다.`
             : undefined

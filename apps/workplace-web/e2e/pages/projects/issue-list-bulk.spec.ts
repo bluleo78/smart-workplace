@@ -155,7 +155,8 @@ test.describe('팀 리스트 뷰 — 벌크 작업 (#606)', () => {
 
   test('벌크 삭제 — 확인 다이얼로그 후 선택 항목 각각에 DELETE 요청을 보낸다', async ({ authenticatedPage: page }) => {
     await mock(page, [
-      createIssue({ id: 1, number: 7, title: '이슈A' }),
+      // WP-482: 하위 태스크가 있는 부모 — 확인창이 함께 지워질 하위 수를 알려야 한다.
+      createIssue({ id: 1, number: 7, title: '이슈A', childCount: 2 }),
       createIssue({ id: 2, number: 8, title: '이슈B' }),
     ]);
 
@@ -176,6 +177,9 @@ test.describe('팀 리스트 뷰 — 벌크 작업 (#606)', () => {
 
     await page.getByTestId('bulk-delete').click();
     await expect(page.getByTestId('issue-bulk-delete-dialog')).toBeVisible();
+    await expect(page.getByTestId('issue-bulk-delete-dialog')).toContainText(
+      '선택한 2개 태스크를 삭제할까요? 하위 태스크 2개도 함께 삭제됩니다.',
+    );
     await page.getByTestId('issue-bulk-delete-confirm').click();
 
     await expect.poll(() => withIssueNumber(deletes).map((d) => d.number).sort()).toEqual([7, 8]);

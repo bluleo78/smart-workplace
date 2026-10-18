@@ -2,6 +2,7 @@
 // #606 에서 Drive DrivePage.tsx 의 체크박스+벌크 툴바 패턴을 가져왔고, 평면 목록(IssueListView)과
 // 사이클 구간 목록(IssueCycleGroupedList, #878)이 같은 동작을 쓰도록 분리했다.
 
+import { useQueryClient } from '@tanstack/react-query';
 import { UserPlus, X } from 'lucide-react';
 import { useState } from 'react';
 
@@ -25,6 +26,7 @@ import {
 } from '../../../components/ui/dropdown-menu';
 import { AgentBadge } from '../../../components/users/AgentBadge';
 import { UserAvatar } from '../../../components/users/UserAvatar';
+import { findIssueInSearchCache } from '../../../hooks/queries/issueSearchCache';
 import {
   useBulkAssign,
   useBulkDeleteIssues,
@@ -32,6 +34,7 @@ import {
 } from '../../../hooks/queries/useBulkIssueActions';
 import { useProjectMembers } from '../../../hooks/queries/useProjectMembers';
 import { useIsMobile } from '../../../hooks/useIsMobile';
+import { bulkDeleteDescription, countCascadedChildren } from '../../../lib/issueBulkDelete';
 import { ISSUE_STATUS_LABEL, ISSUE_STATUSES } from '../../../lib/issueGrouping';
 import type { IssueStatus } from '../../../types/issue';
 
@@ -70,6 +73,7 @@ export function IssueBulkActions({
   const bulkStatus = useBulkUpdateStatus(projectKey);
   const bulkAssign = useBulkAssign(projectKey);
   const bulkDelete = useBulkDeleteIssues(projectKey);
+  const qc = useQueryClient();
   const selectedNumbers = [...selected];
   // 모바일은 터치 타깃 44px 확보 + 눌림 피드백, 데스크톱은 기존 hover 밑줄 유지.
   // 색은 버튼별로 따로 지정한다(삭제는 text-destructive) — 공통 클래스에 넣으면 두 색이 충돌해 회색이 이긴다.
@@ -229,7 +233,11 @@ export function IssueBulkActions({
           <AlertDialogHeader>
             <AlertDialogTitle>태스크 일괄 삭제</AlertDialogTitle>
             <AlertDialogDescription>
-              선택한 {selected.size}개 태스크를 삭제할까요? 이 작업은 되돌릴 수 없습니다.
+              {/* WP-482: 부모를 지우면 하위도 함께 지워진다 — 단건 확인창처럼 그 수를 알린다(행은 화면에 있으니 검색 캐시에서 찾는다). */}
+              {bulkDeleteDescription(
+                selected.size,
+                countCascadedChildren(selectedNumbers.map((n) => findIssueInSearchCache(qc, projectKey, n))),
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
