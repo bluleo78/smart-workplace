@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { checkAlreadyPublished, defaultExec, findBase, findVersionTags, runRelease, validateBaseManifest } from './lib/build.mjs';
+import { ABANDONED_FILE, checkAlreadyPublished, defaultExec, findBase, findVersionTags, runRelease, validateBaseManifest } from './lib/build.mjs';
 import { loadCatalog, workspaceDeps } from './lib/catalog.mjs';
 import { defaultManifestPath, finishManifest, isMainModule, tolerate } from './lib/cli.mjs';
 import { downloadManifest, uploadManifest } from './lib/manifest-store.mjs';
@@ -32,7 +32,7 @@ async function resolveBaseManifest({ baseFile, baseTag, baseVersion, allowNoBase
     : await tolerate({ when: dryRun, log, what: `기준 릴리스 ${baseVersion} 의 매니페스트를 받지 못해 기준 없이 미리 본다 — 전부 build 로 나온다` }, () => download(baseVersion), undefined);
   if (manifest === undefined) return null;
   if (manifest === null) {
-    if (!allowNoBase) throw new Error(`기준 릴리스 ${baseTag} 의 매니페스트를 찾지 못했다. 의도한 것이면 --allow-no-base (전부 새로 빌드)`);
+    if (!allowNoBase) throw new Error(`기준 릴리스 ${baseTag} 의 매니페스트를 찾지 못했다. 그 태그의 빌드가 실패했으면 ${ABANDONED_FILE} 에 적어 기준에서 뺀다(docs/ops/release.md 「빌드가 실패한 태그」). 의도한 것이면 --allow-no-base (전부 새로 빌드)`);
     return null;
   }
   validateBaseManifest({ manifest, baseVersion, exec, repoRoot, source: baseFile ?? `GitLab 패키지 ${baseVersion}` });

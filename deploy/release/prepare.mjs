@@ -10,7 +10,7 @@ import { readFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { defaultExec, findBase } from './lib/build.mjs';
+import { abandonedReleases, defaultExec, findBase } from './lib/build.mjs';
 import { isMainModule } from './lib/cli.mjs';
 import { LOG_FORMAT, bumpOf, checkNote, nextVersion, parseCommits, summarize } from './lib/prepare.mjs';
 import { compareVersions, isVersionTag, parseVersion } from './lib/semver.mjs';
@@ -18,14 +18,15 @@ import { compareVersions, isVersionTag, parseVersion } from './lib/semver.mjs';
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
 /** 기준 지점·버전을 정한다 — 명시(--base/--base-version)가 우선, 없으면 --to 의 조상 태그 중 가장 높은 것(--to 자신에 붙은 태그는 뺀다). */
-function resolveBase({ git, exec, repoRoot, to, base, baseVersion }) {
+function resolveBase({ git, exec, repoRoot, to, base, baseVersion, abandoned }) {
   if (base || baseVersion) {
     if (!base || !baseVersion) throw new Error('--base 와 --base-version 은 함께 준다');
     if (!parseVersion(baseVersion)) throw new Error(`잘못된 --base-version: ${baseVersion} (x.y.z)`);
+    if (Object.hasOwn(abandoned, baseVersion)) throw new Error(`${baseVersion} 은 버린 릴리스라 기준이 될 수 없다(이미지·매니페스트 없음)`);
     return { baseRef: base, baseVersion };
   }
   const own = git('tag', '--points-at', to, '--list', 'v*').split('\n').map((t) => t.trim());
-  const { baseTag } = findBase({ exec, repoRoot, ref: to, exclude: own, allowNoBase: true });
+  const { baseTag } = findBase({ exec, repoRoot, ref: to, exclude: own, allowNoBase: true, abandoned });
   if (baseTag === null) throw new Error(`${to} 의 조상에 릴리스 태그(vX.Y.Z)가 없다 — 첫 전환 전이면 --base <커밋> --base-version 0.8.0`);
   return { baseRef: baseTag, baseVersion: baseTag.slice(1) };
 }
@@ -33,7 +34,8 @@ function resolveBase({ git, exec, repoRoot, to, base, baseVersion }) {
 /** plan — 기준 이후 커밋을 해석해 제안을 돌려준다. */
 export function plan({ to = 'HEAD', base, baseVersion, exec = defaultExec, repoRoot = REPO_ROOT, log = () => {} }) {
   const git = (...args) => exec('git', args, { cwd: repoRoot }).stdout;
-  const resolved = resolveBase({ git, exec, repoRoot, to, base, baseVersion });
+  const abandoned = abandonedReleases({ exec, repoRoot, ref: to });
+  const resolved = resolveBase({ git, exec, repoRoot, to, base, baseVersion, abandoned });
   const toSha = git('rev-parse', '--verify', `${to}^{commit}`).trim();
   const baseSha = git('rev-parse', '--verify', `${resolved.baseRef}^{commit}`).trim();
   // 머지 커밋은 빼고 실제 변경 커밋만 — 스쿼시 커밋 제목에 이슈 키가 붙어 있다.
@@ -43,6 +45,8 @@ export function plan({ to = 'HEAD', base, baseVersion, exec = defaultExec, repoR
   const hotfix = /^(origin\/)?hotfix\//.test(git('rev-parse', '--abbrev-ref', to).trim());
   const bump = hotfix && commits.length > 0 ? 'patch' : bumpOf(commits);
   let suggestedVersion = bump === null ? null : nextVersion(resolved.baseVersion, bump);
+  // 버린 릴리스 번호는 다시 쓰지 않는다 — 비는 patch 까지 올린다(WP-454).
+  while (suggestedVersion !== null && Object.hasOwn(abandoned, suggestedVersion)) suggestedVersion = nextVersion(suggestedVersion, 'patch');
   // 제안 버전의 태그가 이미 있으면 제안하지 않는다 — to 가 그 태그를 품지 않은 것(뒤처진 로컬 main·핫픽스 라인)이라 사람이 정한다.
   let conflict = null;
   if (suggestedVersion !== null && git('tag', '--list', `v${suggestedVersion}`).trim() !== '') {

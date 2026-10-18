@@ -61,6 +61,10 @@ git push --no-verify gitlab v0.9.0      # GitLab 파이프라인 시작
 
 - 끝나면 GitLab 파이프라인 주소와 다음 단계(사람이 체크리스트 확인 → `node deploy/release/release.mjs deploy 0.9.0`)를 알려 주고, 워크트리·`release/next` 브랜치를 지운다.
 
+## 빌드가 실패했을 때
+
+태그 파이프라인이 실패하면 태그를 지우거나 다시 찍지 않는다. 원인을 고치고, `deploy/release/abandoned-releases.json` 에 그 버전을 적고, 노트를 다음 patch 이름으로 옮겨 다시 낸다 — 절차는 `docs/ops/release.md` 「빌드가 실패한 태그」.
+
 ## 4. 핫픽스
 
 운영 릴리스(예: v0.9.0)에 급한 수정만 얹어 v0.9.1 을 낸다.

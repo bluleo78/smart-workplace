@@ -71,17 +71,43 @@ export function assertNotShallow(exec, repoRoot, what) {
  * 「기준 없음」으로 오인하면 전부 재빌드되므로 두 경우는 실패시킨다: 얕은 clone(조상 태그를 못 봄), 조상에 기준이 없는데 저장소에 `vX.Y.Z` 태그가 있음(태그 미수신).
  * 후자는 자기 태그도 세므로 첫 릴리스는 늘 allowNoBase 가 필요하고, 시드된 기준 릴리스의 태그를 다시 push 해도 덮어쓰지 못하고 멈춘다(의도).
  */
-export function findBase({ exec, repoRoot, version, ref = 'HEAD', exclude = [], allowNoBase = false }) {
+export function findBase({ exec, repoRoot, version, ref = 'HEAD', exclude = [], allowNoBase = false, abandoned }) {
   if (version !== undefined) assertVersion(version);
   const git = (...args) => exec('git', args, { cwd: repoRoot }).stdout;
   assertNotShallow(exec, repoRoot, '기준 태그');
-  const skip = new Set(exclude);
+  abandoned ??= abandonedReleases({ exec, repoRoot, ref });
+  // 버린 릴리스(빌드가 실패해 이미지·매니페스트가 없는 태그)는 기준이 될 수 없다 — 그 위에서 승계할 digest 가 없다(WP-454).
+  // abandoned 는 같은 ref 의 목록을 이미 읽은 호출자가 넘겨 다시 읽지 않게 한다.
+  const skip = new Set([...exclude, ...Object.keys(abandoned).map((v) => `v${v}`)]);
   const ancestors = lines(git('tag', '--merged', ref, '--list', 'v*')).filter((t) => !skip.has(t));
   const baseTag = findBaseTag(ancestors, version === undefined ? null : `v${version}`);
-  if (baseTag === null && !allowNoBase && lines(git('tag', '--list', 'v*')).filter(isVersionTag).length > 0) {
+  if (baseTag === null && !allowNoBase && lines(git('tag', '--list', 'v*')).filter((t) => isVersionTag(t) && !skip.has(t)).length > 0) {
     throw new Error('HEAD 의 조상에 기준 릴리스 태그가 없는데 저장소에는 v* 태그가 있다(자기 태그 포함). 태그를 받지 못했을 수 있다 (CI: GIT_DEPTH: 0 과 태그 fetch 확인). 의도한 것(첫 릴리스)이면 --allow-no-base');
   }
   return { baseTag, baseVersion: baseTag === null ? null : baseTag.slice(1) };
+}
+
+/** 버린 릴리스 목록 파일 — 저장소 루트 기준. `{ "versions": { "<x.y.z>": "<사유>" } }`. */
+export const ABANDONED_FILE = 'deploy/release/abandoned-releases.json';
+
+/**
+ * ref 시점의 버린 릴리스 목록 `{ <버전>: <사유> }` 를 돌려준다(WP-454). 태그는 옮기지 않으므로, 빌드가 실패한 태그는 지우지 않고
+ * 이 파일에 적어 다음 릴리스의 기준·제안에서 뺀다. 그 ref 에 파일이 없으면(이 기능 이전 커밋) 빈 목록, 형식이 틀리면 throw.
+ */
+export function abandonedReleases({ exec, repoRoot, ref = 'HEAD' }) {
+  const git = (...args) => exec('git', args, { cwd: repoRoot }).stdout;
+  // 있는지는 ls-tree 로 따로 본다 — git 오류를 「파일 없음」으로 삼키면 실패한 태그가 기준이 된다.
+  if (git('ls-tree', '--name-only', ref, '--', ABANDONED_FILE).trim() === '') return {};
+  let versions;
+  try {
+    versions = JSON.parse(git('show', `${ref}:${ABANDONED_FILE}`))?.versions;
+  } catch {
+    // 깨진 JSON 은 아래 형식 검사에서 같은 오류로 알린다.
+  }
+  if (!isPlainObject(versions) || Object.entries(versions).some(([v, why]) => !parseVersion(v) || typeof why !== 'string')) {
+    throw new Error(`${ABANDONED_FILE}(${ref}) 형식이 틀렸다 — { "versions": { "<x.y.z>": "<사유>" } }`);
+  }
+  return versions;
 }
 
 /** 이미 게시된 릴리스를 다시 돌릴 때의 안내 문구 — 빌드와 시드는 `:<버전>` 태그가 옮겨 가는 이유가 달라 문구를 따로 둔다. */

@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
-import { runRelease, findBase, findVersionTags, checkAlreadyPublished, validateBaseManifest, imagetoolsCreateArgs, assertNotShallow, nulSplit } from '../lib/build.mjs';
+import { runRelease, findBase, abandonedReleases, findVersionTags, checkAlreadyPublished, validateBaseManifest, imagetoolsCreateArgs, assertNotShallow, nulSplit } from '../lib/build.mjs';
 import { REPO, SHA, catalog, deps, NOW, repoOf, fakeDigest, baseManifest, makeExec, buildCalls, createCalls } from './helpers.mjs';
 
 // runRelease 는 기준(base)과 기준 매니페스트를 호출자가 정해 넘긴다(CLI main 이 한 번에 결정). 테스트는 기본으로 v0.8.0 기준 + 전체 기준 매니페스트를 준다.
@@ -357,4 +357,29 @@ test('승계한 앱의 매니페스트 buildArgs 는 기준 항목의 것을 복
   assert.notStrictEqual(manifest.images.collab.buildArgs, base.images.collab.buildArgs, '참조를 공유하지 않고 복사한다');
   assert.equal(manifest.images.web.action, 'build');
   assert.deepEqual(manifest.images.web.buildArgs, { VITE_MCP_URL: '' });
+});
+
+// ── 버린 릴리스(WP-454): 빌드가 실패한 태그는 abandoned-releases.json 에 적어 기준에서 뺀다 ──
+
+test('findBase: 버린 릴리스(v0.9.1)는 건너뛰고 그 아래 가장 높은 태그를 기준으로 한다', () => {
+  const exec = makeExec({ merged: ['v0.8.0', 'v0.9.0', 'v0.9.1'], abandoned: { '0.9.1': '빌드 실패' } });
+  assert.deepEqual(findBase({ exec, repoRoot: REPO, version: '0.9.2' }), { baseTag: 'v0.9.0', baseVersion: '0.9.0' });
+});
+
+test('findBase: 목록 파일이 없는 ref 는 버린 릴리스가 없는 것으로 본다', () => {
+  const exec = makeExec({ merged: ['v0.8.0', 'v0.9.0', 'v0.9.1'] });
+  assert.deepEqual(findBase({ exec, repoRoot: REPO, version: '0.9.2' }), { baseTag: 'v0.9.1', baseVersion: '0.9.1' });
+});
+
+test('abandonedReleases: 형식이 틀리면(버전이 아닌 키) throw', () => {
+  const exec = makeExec({ abandoned: { 'v0.9.1': 'x' } });
+  assert.throws(() => abandonedReleases({ exec, repoRoot: REPO }), /형식이 틀렸다/);
+});
+
+test('abandonedReleases: 파일 있는지 보는 git 오류는 삼키지 않고, 깨진 JSON·문자열 아닌 사유는 형식 오류', () => {
+  const failing = () => { throw new Error('git ls-tree 실패 (종료 코드 128)\nfatal: not a git repository'); };
+  assert.throws(() => abandonedReleases({ exec: failing, repoRoot: REPO }), /not a git repository/);
+  const raw = (stdout) => (cmd, args) => ({ stdout: args[0] === 'ls-tree' ? 'deploy/release/abandoned-releases.json\n' : stdout });
+  assert.throws(() => abandonedReleases({ exec: raw('{ "versions": { "0.9.1": "x", } }'), repoRoot: REPO }), /형식이 틀렸다/);
+  assert.throws(() => abandonedReleases({ exec: raw('{ "versions": { "0.9.1": {} } }'), repoRoot: REPO }), /형식이 틀렸다/);
 });

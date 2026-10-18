@@ -5,13 +5,13 @@
 // - 형식: vX.Y.Z
 // - 위치: 태그 커밋이 origin/main 또는 origin/hotfix/* 에 포함(설계 §5.1) — 리뷰를 거치지 않은 브랜치 커밋을 내보내지 않게.
 // - 노트: 태그 커밋에 releases/<버전>.md 가 있어야 한다(앱 「새 소식」이 이 파일을 번들에 넣는다).
-// - 기준: 태그 커밋의 조상 중 가장 높은 vX.Y.Z(findBase). 없으면 실패(첫 릴리스 v0.9.0 의 기준은 v0.8.0). 태그 버전은 기준보다 높아야 한다.
+// - 기준: 태그 커밋의 조상 중 가장 높은 vX.Y.Z(findBase — 버린 릴리스 abandoned-releases.json 은 뺀다). 없으면 실패(첫 릴리스 v0.9.0 의 기준은 v0.8.0). 태그 버전은 기준보다 높아야 한다.
 // 원격 브랜치는 호출 전에 받아 둬야 한다(CI 는 main·hotfix/* 를 refs/remotes/origin 으로 fetch). 종료 코드 0 = 통과, 1 = 실패(stderr `오류: …`).
 import { writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { defaultExec, findBase } from './lib/build.mjs';
+import { ABANDONED_FILE, abandonedReleases, defaultExec, findBase } from './lib/build.mjs';
 import { isMainModule } from './lib/cli.mjs';
 import { compareVersions, isVersionTag } from './lib/semver.mjs';
 
@@ -41,8 +41,24 @@ export function verifyTag({ tag, exec, repoRoot }) {
     throw new Error(`${tag} 커밋에 releases/${version}.md 가 없다 — 릴리스 노트를 태그 전에 커밋한다(사용자에게 보이는 변경이 없으면 frontmatter hidden: true)`);
   }
 
+  // 버린 릴리스로 적힌 버전은 다시 내보내지 않는다 — 태그를 지우지 않고 버린 것이라 같은 이름이 두 커밋을 가리키게 된다(WP-454).
+  const abandoned = abandonedReleases({ exec, repoRoot, ref: commit });
+  if (Object.hasOwn(abandoned, version)) {
+    throw new Error(`${tag} 는 ${ABANDONED_FILE} 에 버린 릴리스로 적혀 있다 — 다음 버전으로 태그한다`);
+  }
+  // 버린 버전의 노트가 남아 있으면 나가지 않은 버전이 「새 소식」에 보인다(web 은 releases/*.md 를 모두 번들한다).
+  const leftover = Object.keys(abandoned).filter((v) => {
+    try {
+      git('cat-file', '-e', `${commit}:releases/${v}.md`);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+  if (leftover.length > 0) throw new Error(`버린 릴리스의 노트가 남아 있다: ${leftover.map((v) => `releases/${v}.md`).join(', ')} — 다음 버전 노트로 옮긴다`);
+
   // 기준은 태그 커밋에서 찾는다(HEAD 가 아니라). 태그 자신이 늘 있어 findBase 의 「태그 미수신」 판정은 맞지 않으므로 allowNoBase 로 받고 사유는 여기서 말한다.
-  const { baseTag, baseVersion } = findBase({ exec, repoRoot, version, ref: commit, allowNoBase: true });
+  const { baseTag, baseVersion } = findBase({ exec, repoRoot, version, ref: commit, allowNoBase: true, abandoned });
   if (baseTag === null) throw new Error(`${tag} 의 조상에 기준 릴리스 태그(vX.Y.Z)가 없다 — 기준 릴리스(v0.8.0)를 먼저 태그·시드한다`);
   // 조상에 같거나 더 높은 버전이 있으면 순서가 뒤집힌 태그다 — 그대로 내보내면 낮은 버전 번호가 더 새 코드를 담는다.
   if (compareVersions(version, baseVersion) <= 0) throw new Error(`${tag} 가 기준 릴리스 ${baseTag} 보다 높지 않다 — 조상에 이미 ${baseTag} 가 있으니 그보다 높은 버전을 붙인다`);
