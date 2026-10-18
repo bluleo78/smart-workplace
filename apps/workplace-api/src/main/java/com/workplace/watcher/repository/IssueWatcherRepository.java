@@ -1,5 +1,6 @@
 package com.workplace.watcher.repository;
 
+import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_WATCHER;
 
 import java.util.List;
@@ -29,6 +30,16 @@ public class IssueWatcherRepository {
   public void remove(Long issueId, Long userId) {
     dsl.deleteFrom(ISSUE_WATCHER)
         .where(ISSUE_WATCHER.ISSUE_ID.eq(issueId).and(ISSUE_WATCHER.USER_ID.eq(userId)))
+        .execute();
+  }
+
+  /** 한 프로젝트의 모든 이슈에서 이 사용자의 워처 등록을 지운다 — 프로젝트에서 빠져 더 볼 수 없게 된 사람의 정리용(WP-476). */
+  public int removeFromProject(long projectId, long userId) {
+    return dsl.deleteFrom(ISSUE_WATCHER)
+        .where(ISSUE_WATCHER.USER_ID.eq(userId))
+        .and(
+            ISSUE_WATCHER.ISSUE_ID.in(
+                dsl.select(ISSUE.ID).from(ISSUE).where(ISSUE.PROJECT_ID.eq(projectId))))
         .execute();
   }
 
