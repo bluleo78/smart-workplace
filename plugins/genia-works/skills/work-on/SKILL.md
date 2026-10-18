@@ -22,6 +22,7 @@ description: Use when the user asks you to work on a genia-works issue (e.g. "WP
    - 할 일 목록을 세우거나 바뀌면 `stepsDone`/`stepsTotal` 갱신, 큰 단계마다 note 갱신. `stepsDone` 은 항상 `stepsTotal` 과 함께 보낸다(`stepsDone` 만 보내면 서버가 거부한다).
    - 막히면 `state: 'BLOCKED'` + note 에 이유.
    - 사용자가 멈추라고 하면 `state: 'PAUSED'`.
+   - 다른 일에 양보하고 정한 시각 이후에 이어 하려면 `state: 'SCHEDULED'` + `nextRunAt`(ISO 시각, 오프셋이 없으면 KST). 시각은 보낼 때마다 다시 넣는다 — 빼면 지워져 「다른 일 다음에 이어서」가 된다. 이어 할 때는 `WORKING` 으로 보고한다(다른 쓰기로는 다음 회차 대기가 풀리지 않는다).
    - 사용자가 답하거나 필요한 인증·권한을 받아 다시 진행할 수 있게 되면 바로 `report_agent_work({ issueKey, state: 'WORKING', note: '<이어서 할 일 한 줄, 예: A안으로 진행>' })` 로 작업 중으로 되돌린다(작업 쓰기(본문·상태·코멘트·첨부)를 하기 전까지는 "답변 필요"·"인증 필요" 로 남고(라벨·담당자·우선순위 같은 정리는 상태를 바꾸지 않는다), 특히 인증 필요는 사용자 답 글로도 풀리지 않는다). 새 note 를 함께 보내야 한다 — 없으면 앞의 note 가 지워져 빈 채로 남는다. 답을 읽고 되돌릴 때는 `message` 로 받은 답을 한 줄로 확인해 남긴다(예: 「1, 2번을 맡았어요」) — 내 글이 남아야 그 이슈가 `pendingForMe` 에서 빠진다.
    - `message` 를 붙인 호출은 호출할 때마다 이슈 채팅에 새 메시지를 남긴다. 재시도할 때 같은 `message` 를 반복해 보내지 않는다. `message` 는 4000자까지다 — 넘으면 나눠 보낸다.
 5. 마무리(검토 대기·완료·취소·반려·실패로 끝내기와 워크트리·브랜치 같은 리소스 정리)는 이 스킬 폴더 기준 `../work-done/SKILL.md` 절차를 따른다.

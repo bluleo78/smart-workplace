@@ -65,11 +65,13 @@ describeSkillTools('work-done', {
 });
 
 // WP-376: 할당된 이슈를 하나씩 처리하는 스킬 — 신원 확인(get_member me)·후보 고르기·하위 맡기·질문과 답에 쓰는 도구.
+// WP-451: 본문 지시 회차 — 다음 회차 대기(nextRunAt), 만들기 전 찾기(reporter·createdFrom·createdTo·q), 하위·결함 만들기, 닫기(status).
 describeSkillTools('work-loop', {
   get_member: ['username'],
-  list_issues: ['projectKey', 'assignee', 'status', 'parent', 'pendingForMe'],
-  report_agent_work: ['issueKey', 'state', 'note', 'message', 'stepsDone', 'stepsTotal'],
+  list_issues: ['projectKey', 'assignee', 'status', 'parent', 'pendingForMe', 'reporter', 'createdFrom', 'createdTo', 'q'],
+  report_agent_work: ['issueKey', 'state', 'note', 'message', 'stepsDone', 'stepsTotal', 'nextRunAt'],
   get_issue_chat: ['issueKey', 'after'],
-  update_issue: ['issueKey', 'assignees'],
+  update_issue: ['issueKey', 'assignees', 'status'],
   get_issue_detail: ['issueKey'],
+  create_issue: ['projectKey', 'title', 'body', 'priority', 'dueDate', 'assignees', 'parent'],
 });
