@@ -105,6 +105,23 @@ test.describe('이슈 상세 제목·본문 인라인 수정 (#117)', () => {
     await expect(page.getByRole('heading', { level: 1, name: '원본 제목', exact: true })).toBeVisible();
   });
 
+  // WP-462: 데스크톱 상세 제목은 한 줄 말줄임 없이 줄바꿈해 전부 보인다.
+  test('데스크톱 상세의 긴 제목은 잘리지 않고 여러 줄로 전부 보인다(WP-462)', async ({ authenticatedPage: page }) => {
+    const stub = await setupStubs(page);
+    stub.title = '사용자 인증 토큰 만료 시 자동 갱신 실패 문제 수정 및 리프레시 흐름 정리와 함께 세션 만료 안내 문구를 다듬고 재로그인 경로를 단순화하는 작업 — 모바일·데스크톱 공통';
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+
+    const text = page.getByTestId('issue-title-heading').getByText(stub.title, { exact: true });
+    await expect(text).toBeVisible();
+    const m = await text.evaluate((el) => ({
+      clipped: el.scrollWidth > el.clientWidth,
+      lines: Math.round(el.getBoundingClientRect().height / parseFloat(getComputedStyle(el).lineHeight)),
+    }));
+    expect(m.clipped).toBe(false);
+    expect(m.lines).toBeGreaterThan(1);
+  });
+
   test('제목 편집 → Enter → PATCH {title} 호출 + 새 제목 렌더', async ({ authenticatedPage: page }) => {
     const stub = await setupStubs(page);
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);

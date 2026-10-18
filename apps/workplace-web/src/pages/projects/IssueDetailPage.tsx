@@ -713,6 +713,7 @@ export default function IssueDetailPage() {
                     }}
                     disabled={!canEditContent || update.isPending}
                     commitOnBlur={!isMobile}
+                    wrap
                     onEditingChange={isMobile ? setTitleControls : undefined}
                   />
                 </h1>

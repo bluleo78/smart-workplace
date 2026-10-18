@@ -26,6 +26,7 @@ export function InlineEditableTitle({
   disabled,
   onEditStart,
   commitOnBlur = true,
+  wrap = false,
   onEditingChange,
 }: {
   title: string;
@@ -36,6 +37,8 @@ export function InlineEditableTitle({
   onEditStart?: () => void;
   /** false 면 blur 로 저장하지 않는다 — 모바일 편집 바가 저장 경로(WP-196 R5). Enter 저장·Esc 취소는 유지. */
   commitOnBlur?: boolean;
+  /** 데스크톱 표시 모드에서 제목을 한 줄 말줄임 대신 줄바꿈해 전부 보인다 — 이슈 상세 본문 제목(WP-462). 드로어 헤더 등 좁은 한 줄 자리는 기본(false). */
+  wrap?: boolean;
   /** 편집 시작/종료 알림 — 편집 중엔 저장·취소 컨트롤을, 끝나면 null 을 넘긴다(모바일 편집 바). */
   onEditingChange?: (controls: EditBarControls | null) => void;
 }) {
@@ -92,8 +95,9 @@ export function InlineEditableTitle({
   if (!editing) {
     return (
       // 모바일은 긴 제목을 3줄까지 보여준다(한 줄 말줄임이면 편집에 들어가야만 전체를 읽을 수 있었다). 연필은 첫 줄 높이에 맞춘다.
-      <span className={cn('flex min-w-0 gap-1', commitOnBlur ? 'items-center' : 'items-start')}>
-        <span className={commitOnBlur ? 'truncate' : 'line-clamp-3 break-words'}>{title}</span>
+      // 데스크톱 wrap(WP-462)은 줄 수 제한 없이 전부 보이고, 연필은 첫 줄 가운데(leading-8 32px 기준 mt-1.5)에 맞춘다.
+      <span className={cn('flex min-w-0 gap-1', commitOnBlur && !wrap ? 'items-center' : 'items-start')}>
+        <span className={cn(!commitOnBlur ? 'line-clamp-3 break-words' : wrap ? 'min-w-0 break-words' : 'truncate')}>{title}</span>
         <button
           type="button"
           onClick={enter}
@@ -104,6 +108,7 @@ export function InlineEditableTitle({
           className={cn(
             'shrink-0 rounded p-1 text-muted-foreground hover:text-foreground disabled:opacity-50',
             !commitOnBlur && [HIT_EXPAND, 'px-4 -mx-3'],
+            commitOnBlur && wrap && 'mt-1.5',
           )}
         >
           <Pencil className="h-3.5 w-3.5" />
