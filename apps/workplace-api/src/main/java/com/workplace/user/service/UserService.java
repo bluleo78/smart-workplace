@@ -26,9 +26,12 @@ import com.workplace.user.exception.UserNotFoundException;
 import com.workplace.user.outbound.AgentRuntimeChanged;
 import com.workplace.user.outbound.WorkspaceMembershipSuspended;
 import com.workplace.user.repository.UserRepository;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
@@ -334,8 +337,8 @@ public class UserService {
   }
 
   /**
-   * Phase 5a — ADMIN 의 AGENT 이름/식별자 변경. 공통 비서·일반 AGENT 만 대상이며, 개인 비서는 거부(403)한다(소유자만 프로필에서 변경).
-   * email 은 변경하지 않는다.
+   * Phase 5a — ADMIN 의 AGENT 이름/식별자/설명(역할, WP-455) 변경. 공통 비서·일반 AGENT 만 대상이며, 개인 비서는 거부(403)한다(소유자만
+   * 프로필에서 변경). email 은 변경하지 않는다. 설명은 앞뒤 공백을 걷고, 비었으면 지운다(null).
    *
    * <p>가드 순서: 존재 → AGENT 종류 → 개인 비서 거부 → 예약 접두어(__assistant_u) 차단 → username 중복(자신 제외).
    */
@@ -362,36 +365,41 @@ public class UserService {
         && userRepository.existsByUsernameExcludingUser(req.username(), userId)) {
       throw new UsernameAlreadyExistsException("이미 사용 중인 아이디입니다.");
     }
-    userRepository.renameAgentIdentity(userId, req.username(), req.name());
+    // 설명: 빠지면(null) 그대로 둔다 — 설명 칸을 모르는 옛 화면(배포 중·캐시된 PWA)이 이름만 바꿔도 지워지지 않게. 공백뿐이면 지운다.
+    String oldDescription = userRepository.findDescription(userId);
+    String description =
+        req.description() == null
+            ? oldDescription
+            : (req.description().isBlank() ? null : req.description().strip());
+    userRepository.renameAgentIdentity(userId, req.username(), req.name(), description);
     // 감사 로그 — AGENT_RENAMED (이전/이후 username·name 메타).
     // 설명 문구엔 실제로 바뀐 필드만 반영한다 — username 이 그대로인 채 name 만 바뀌면
     // "username → 동일 username" 만 찍혀 변경이 없었던 것처럼 보이는 오해를 방지(#796).
-    StringBuilder renameDesc = new StringBuilder("AGENT 유저 변경: ");
-    boolean usernameChanged = !user.username().equals(req.username());
-    boolean nameChanged = !user.name().equals(req.name());
-    if (usernameChanged) {
-      renameDesc.append("아이디 ").append(user.username()).append(" → ").append(req.username());
+    List<String> changes = new ArrayList<>();
+    Map<String, String> meta = new LinkedHashMap<>();
+    meta.put("oldUsername", user.username());
+    meta.put("newUsername", req.username());
+    meta.put("oldName", user.name());
+    meta.put("newName", req.name());
+    if (!user.username().equals(req.username())) {
+      changes.add("아이디 " + user.username() + " → " + req.username());
     }
-    if (nameChanged) {
-      if (usernameChanged) {
-        renameDesc.append(", ");
-      }
-      renameDesc.append("이름 ").append(user.name()).append(" → ").append(req.name());
+    if (!user.name().equals(req.name())) {
+      changes.add("이름 " + user.name() + " → " + req.name());
     }
-    if (!usernameChanged && !nameChanged) {
-      renameDesc.append("변경 없음");
+    // 설명은 길어서 문구엔 바뀌었다는 사실만 남기고, 전후 값(없으면 빈 문자열)은 메타에 둔다.
+    if (!Objects.equals(oldDescription, description)) {
+      changes.add("설명 변경");
+      meta.put("oldDescription", Objects.requireNonNullElse(oldDescription, ""));
+      meta.put("newDescription", Objects.requireNonNullElse(description, ""));
     }
     auditAgent(
         callerId,
         resolveUsername(callerId),
         "AGENT_RENAMED",
         userId,
-        renameDesc.toString(),
-        Map.of(
-            "oldUsername", user.username(),
-            "newUsername", req.username(),
-            "oldName", user.name(),
-            "newName", req.name()));
+        "AGENT 유저 변경: " + (changes.isEmpty() ? "변경 없음" : String.join(", ", changes)),
+        meta);
   }
 
   /**

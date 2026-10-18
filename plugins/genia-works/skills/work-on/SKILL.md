@@ -12,7 +12,7 @@ description: Use when the user asks you to work on a genia-works issue (e.g. "WP
 3. 하위 항목 확인: `list_issues({ parent: <이슈 키>, assignee: 'null' })` 로 담당자 없는 바로 아래 하위를 찾고(`get_issue_detail` 의 `children` 은 개수만 준다), 그중 열린 항목(DONE·CANCELED 제외)이 있으면 목록(번호·키·제목, 에픽이면 각 항목의 하위 수 `children.total`)을 만들어
    `report_agent_work({ issueKey, state: 'INPUT_REQUIRED', note: '담당자 없는 하위 n개 — 맡을지 확인', message: '<목록>\n\n함께 맡을까요? 「맡아」라고 하시면 전부, 번호로 답하시면 그것만 맡을게요.' })` 로 묻는다.
    - 이미 이 이슈 챗에 같은 하위 항목 질문을 남겼거나 답을 받았으면 다시 묻지 않는다(`get_issue_chat` 으로 확인).
-   - 답이 「맡아」면 전부, 번호면 그 항목만 `update_issue({ issueKey: <하위 키>, assignees: ['me'] })` 로 맡는다. 서버는 담당자가 비어 있는 바로 아래 하위만 허용한다 — 사람이 담당한 하위는 묻지도 건드리지도 않는다.
+   - 답이 「맡아」면 전부, 번호면 그 항목만 `update_issue({ issueKey: <하위 키>, assignees: ['me'] })` 로 맡는다. 담당자가 이미 있는 하위는 묻지도 건드리지도 않는다.
    - 맡은 뒤 `report_agent_work({ issueKey, state: 'WORKING', note: '<맡은 항목 요약>' })` 로 되돌린다.
 4. 작업 중 규칙
    - 사용자에게 질문하기 **직전** `state: 'INPUT_REQUIRED'`, note 에 질문 한 줄.

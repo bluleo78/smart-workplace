@@ -95,6 +95,26 @@ describe('buildMemberTools (#833)', () => {
     expect(tool(c, 'search_members').description).toContain('say the list is partial');
   });
 
+  it('WP-455: search_members 는 AI 행에 설명·실행 방식을 싣고, 사람 행에는 빈 칸을 붙이지 않는다', async () => {
+    const c = mockClient();
+    vi.mocked(c.searchMembersPage).mockResolvedValue({
+      items: [
+        { userId: 7, username: 'review-ai', name: '리뷰봇', kind: 'AGENT', description: '코드 리뷰를 맡습니다', agentRuntime: 'EXTERNAL' },
+        { userId: 3, username: 'minsu', name: '김민수', kind: 'HUMAN', description: null, agentRuntime: null },
+      ],
+      total: 2,
+      hasMore: false,
+      page: 0,
+    });
+    const out = JSON.parse(resultText(await tool(c, 'search_members').handler({ kind: 'ALL' })));
+    expect(out.items).toEqual([
+      { username: 'review-ai', name: '리뷰봇', kind: 'AGENT', description: '코드 리뷰를 맡습니다', agentRuntime: 'EXTERNAL' },
+      { username: 'minsu', name: '김민수', kind: 'HUMAN' },
+    ]);
+    // 넘기는 AI 가 설명으로 상대를 고르고, 내부 AI 는 맡겨도 시작하지 않는다는 것을 도구 설명에서 알 수 있어야 한다.
+    expect(tool(c, 'search_members').description).toContain('agentRuntime (INTERNAL|EXTERNAL)');
+  });
+
   describe('search_members 의 channelId (WP-355)', () => {
     const roster = [
       { userId: 1, username: 'owner', name: '양동희', kind: 'HUMAN', role: 'OWNER', joinedAt: 't' },

@@ -26,6 +26,7 @@ const base = {
   createdAt: '2026-05-20T09:00:00Z',
   ownerName: null,
   lastKeyUsedAt: null,
+  description: null,
 } as const;
 
 function makeAgents(): AgentResponse[] {

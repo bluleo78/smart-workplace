@@ -127,7 +127,8 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       description:
         'Creates an issue (이슈) in projectKey and returns it. type, milestone, cycles and assignees (usernames, "me" = caller) are names ' +
         'from get_project; unknown ones fail before creating, listing allowed values. labels are names too, but unknown label names are ' +
-        'created (gray) and listed in createdLabels. fileIds attach staged files. New assignees are notified; an assigned AI agent starts working.',
+        'created (gray) and listed in createdLabels. fileIds attach staged files. New assignees are notified; an assigned AI agent starts working, ' +
+        'except one whose agentRuntime is INTERNAL — it does not react to anything another AI does (assigning, comments, status).',
       inputSchema: createIssueInput,
       async handler(args) {
         const { projectKey, type, assignees, parent, labels, milestone, cycles, ...rest } = createIssueInput.parse(args);
@@ -168,7 +169,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
         'Updates an issue (이슈); only given fields change. assignees (usernames, "me" = caller), labels and cycles replace the set ([] clears). ' +
         'Names (type, milestone, cycles, fields) come from get_project; unknown ones fail before any write. Unknown label names are created ' +
         '(gray) and listed in createdLabels. fileIds attach staged files. Then each part saves on its own: {ok, results, createdLabels?}. Status/priority changes notify ' +
-        'assignees and watchers, new assignees too.',
+        'assignees and watchers, new assignees too. An AI whose agentRuntime is INTERNAL does not react to anything another AI does (assigning, comments, status).',
       inputSchema: updateIssueInput,
       async handler(args) {
         const { issueKey, type, parent, assignees, labels, milestone, cycles, fields, driveFileId, fileIds, ...rest } = updateIssueInput.parse(args);

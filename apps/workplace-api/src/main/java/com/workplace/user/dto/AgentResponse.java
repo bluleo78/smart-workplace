@@ -12,6 +12,8 @@ import java.time.LocalDateTime;
  *
  * <p>WP-371: runtime 은 실행 방식(INTERNAL|EXTERNAL), lastKeyUsedAt 은 폐기되지 않은 API 키의 last_used_at 최댓값(키가
  * 없거나 한 번도 안 쓰였으면 null) — 외부 에이전트가 실제로 접속 중인지 가늠하는 용도.
+ *
+ * <p>WP-455: description 은 설명(역할) — 다른 AI 가 일을 맡길 상대를 고를 때 읽는다. 비어 있으면 null.
  */
 public record AgentResponse(
     Long id,
@@ -23,7 +25,8 @@ public record AgentResponse(
     String type,
     String ownerName,
     String runtime,
-    Instant lastKeyUsedAt) {
+    Instant lastKeyUsedAt,
+    String description) {
 
   public static final String TYPE_PERSONAL = "PERSONAL";
   public static final String TYPE_WORKSPACE = "WORKSPACE";
