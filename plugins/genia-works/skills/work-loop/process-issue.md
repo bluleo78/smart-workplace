@@ -1,6 +1,6 @@
 # 이슈 하나 처리 (work-loop)
 
-`SKILL.md` 3번에서 고른 이슈 하나를 처리한다. MAIN·notes 파일·보고 규칙(work-on 4~6번과 그 예외)·하지 않는 일·근거 이미지·스택 이름은 `SKILL.md` 「우선순위」대로다(아래에서 「우선순위」라고 부른다). 아래에는 work-loop 에서 더하는 것만 적는다.
+`SKILL.md` 3번에서 고른 이슈 하나를 처리한다. MAIN·notes 파일·보고 규칙(work-on 4번과 그 예외)·하지 않는 일·근거 이미지·스택 이름은 `SKILL.md` 「우선순위」대로다(아래에서 「우선순위」라고 부른다). 아래에는 work-loop 에서 더하는 것만 적는다.
 
 순서: 시작 → 워크트리 → 이해 → 질문 판단 → 설계·구현 → 리뷰 → 커밋 하나로 합치기 → 브랜치 라이브 검증 → 머지 → main 재확인 → 검토 대기.
 
@@ -76,7 +76,7 @@
 
 ### 11. 검토 대기
 
-- `report_agent_work({ issueKey, state: 'REVIEW', note: '<머지 커밋> main 머지 — 검토 대기', message: '<보고>' })` 로 올린다. 보고에는 머지 커밋, 완료 기준별 확인 결과(스크린샷·요청/응답 요약), 「내가 정한 것」 목록, 남은 위험을 적는다. `message` 는 4000자까지다 — 넘으면 나눠 보낸다(같은 글을 되풀이하지 않는 것은 work-on 5번).
+- `report_agent_work({ issueKey, state: 'REVIEW', note: '<머지 커밋> main 머지 — 검토 대기', message: '<보고>' })` 로 올린다. 보고에는 머지 커밋, 완료 기준별 확인 결과(스크린샷·요청/응답 요약), 「내가 정한 것」 목록, 남은 위험을 적는다. `message` 길이·나눠 보내기·되풀이 금지는 work-on 4번.
 - 그 뒤 이 이슈의 워크트리·브랜치와 notes 파일을 지운다(main 에 들어갔고 보고에 다 담았으므로). 먼저 `cd MAIN` 으로 워크트리 밖에 나온 뒤 `git -C MAIN worktree remove .claude/worktrees/<이슈 키>`, `git -C MAIN branch -d ai/<이슈 키>`.
 - DONE·push·배포는 「우선순위」대로 하지 않는다 — 사람이 한다.
 

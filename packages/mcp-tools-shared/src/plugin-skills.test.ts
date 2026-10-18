@@ -50,9 +50,18 @@ describeSkillTools('work-on', {
   get_issue_detail: ['issueKey'],
   list_issues: ['parent', 'assignee', 'pendingForMe'],
   report_agent_work: ['issueKey', 'state', 'note', 'message', 'stepsDone', 'stepsTotal'],
-  update_issue: ['issueKey', 'assignees', 'status'],
+  update_issue: ['issueKey', 'assignees'],
   get_issue_chat: ['issueKey', 'after'],
   read_file: ['source', 'issueKey', 'messageId', 'attachmentId'],
+});
+
+// WP-449: work-on 의 짝 — 결과 요약을 남기며 작업을 끝내고(검토 대기·완료 뒤 DONE·취소·반려·실패) 리소스를 정리하는 스킬.
+describeSkillTools('work-done', {
+  get_issue_detail: ['issueKey'],
+  get_issue_chat: ['issueKey'],
+  list_issues: ['parent', 'assignee', 'status'],
+  report_agent_work: ['issueKey', 'state', 'note', 'message'],
+  update_issue: ['issueKey', 'status'],
 });
 
 // WP-376: 할당된 이슈를 하나씩 처리하는 스킬 — 신원 확인(get_member me)·후보 고르기·하위 맡기·질문과 답에 쓰는 도구.
