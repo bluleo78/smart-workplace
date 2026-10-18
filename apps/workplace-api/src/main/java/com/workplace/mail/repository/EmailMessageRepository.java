@@ -8,6 +8,7 @@ import static com.workplace.jooq.Tables.EMAIL_FOLDER;
 import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
 
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.global.util.LikePatternUtils;
 import com.workplace.jooq.tables.records.EmailMessageRecord;
 import com.workplace.mail.dto.BodyTarget;
 import com.workplace.mail.dto.ContentSource;
@@ -424,7 +425,8 @@ public class EmailMessageRepository {
       // 발신자(from_address/from_name) 검색은 LIKE 로 보존(FTS 토크나이저가 이메일 주소를 토큰 분리하지 않아
       // "user@domain.com" 같은 패턴은 FTS 로 매칭이 불가함).
       String q = query.trim();
-      String like = "%" + q + "%";
+      // 발신자·제목 LIKE 는 %·_·\ 를 글자 그대로 찾는다(WP-471).
+      String like = LikePatternUtils.containsPattern(q);
       // WP-130: 본문 FTS 는 자기 사본을 적재·검증한 envelope 에만 — 검증 전 매칭 여부로 공유 본문 단어를 추론하지 못하게 한다
       Condition ftsCond =
           DSL.condition("email_content.search_tv @@ plainto_tsquery('simple', {0})", q)
@@ -432,11 +434,11 @@ public class EmailMessageRepository {
       Condition envelopeCond =
           EMAIL_MESSAGE
               .FROM_ADDRESS
-              .likeIgnoreCase(like)
-              .or(EMAIL_MESSAGE.FROM_NAME.likeIgnoreCase(like));
+              .likeIgnoreCase(like, '\\')
+              .or(EMAIL_MESSAGE.FROM_NAME.likeIgnoreCase(like, '\\'));
       // 검증 전 envelope 는 본문 FTS 대신 제목(동기화 지문의 공개 헤더)만 부분 일치로 찾는다 — 적재 전 새 메일도 제목 검색 가능
       Condition unverifiedSubjectCond =
-          EMAIL_MESSAGE.FETCHED_AT.isNull().and(EMAIL_CONTENT.SUBJECT.likeIgnoreCase(like));
+          EMAIL_MESSAGE.FETCHED_AT.isNull().and(EMAIL_CONTENT.SUBJECT.likeIgnoreCase(like, '\\'));
       where = where.and(ftsCond.or(unverifiedSubjectCond).or(envelopeCond));
     }
     return where;

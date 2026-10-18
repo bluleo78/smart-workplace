@@ -16,6 +16,7 @@ import static org.jooq.impl.DSL.notExists;
 import static org.jooq.impl.DSL.row;
 import static org.jooq.impl.DSL.selectOne;
 
+import com.workplace.global.util.LikePatternUtils;
 import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.dto.IssueSearchQuery;
 import com.workplace.issue.dto.IssueStatuses;
@@ -411,8 +412,14 @@ public class IssueRepository {
     org.jooq.Condition where = ISSUE.PROJECT_ID.eq(projectId).and(ISSUE.DELETED_AT.isNull());
 
     if (query.q() != null && !query.q().isBlank()) {
-      String pattern = "%" + query.q().trim() + "%";
-      where = where.and(ISSUE.TITLE.likeIgnoreCase(pattern).or(ISSUE.BODY.likeIgnoreCase(pattern)));
+      // 검색어의 %·_·\ 는 글자 그대로 찾는다(WP-471 — 그대로 넣으면 와일드카드가 돼 전체가 나왔다).
+      String pattern = LikePatternUtils.containsPattern(query.q().trim());
+      where =
+          where.and(
+              ISSUE
+                  .TITLE
+                  .likeIgnoreCase(pattern, '\\')
+                  .or(ISSUE.BODY.likeIgnoreCase(pattern, '\\')));
     }
     if (query.statuses() != null && !query.statuses().isEmpty()) {
       where = where.and(ISSUE.STATUS.in(query.statuses()));
@@ -746,8 +753,14 @@ public class IssueRepository {
     org.jooq.Condition where = memberScopeCondition(memberUserId);
 
     if (query.q() != null && !query.q().isBlank()) {
-      String pattern = "%" + query.q().trim() + "%";
-      where = where.and(ISSUE.TITLE.likeIgnoreCase(pattern).or(ISSUE.BODY.likeIgnoreCase(pattern)));
+      // 검색어의 %·_·\ 는 글자 그대로 찾는다(WP-471 — 그대로 넣으면 와일드카드가 돼 전체가 나왔다).
+      String pattern = LikePatternUtils.containsPattern(query.q().trim());
+      where =
+          where.and(
+              ISSUE
+                  .TITLE
+                  .likeIgnoreCase(pattern, '\\')
+                  .or(ISSUE.BODY.likeIgnoreCase(pattern, '\\')));
     }
     if (query.statuses() != null && !query.statuses().isEmpty()) {
       where = where.and(ISSUE.STATUS.in(query.statuses()));

@@ -100,6 +100,37 @@ class IssueRepositorySearchTest extends IntegrationTestBase {
     assertThat(result).extracting("title").contains("Login bug", "Other");
   }
 
+  /** WP-471 — 검색어의 %·_·\ 는 LIKE 와일드카드가 아니라 글자 그대로 찾는다. */
+  @Test
+  void q_treats_like_wildcards_literally() {
+    var s = seed("w");
+    issueRepository.insert(s.projectId, 1, "100% 완료", null, "MID", null, s.userId);
+    issueRepository.insert(s.projectId, 2, "snake_case 이름", null, "MID", null, s.userId);
+    issueRepository.insert(s.projectId, 3, "C:\\temp 경로", null, "MID", null, s.userId);
+    issueRepository.insert(s.projectId, 4, "평범한 제목", null, "MID", null, s.userId);
+
+    assertThat(searchTitles(s, "%")).containsExactly("100% 완료");
+    assertThat(searchTitles(s, "_")).containsExactly("snake_case 이름");
+    assertThat(searchTitles(s, "\\")).containsExactly("C:\\temp 경로");
+    // 프로젝트 횡단 검색(홈 내 이슈)도 같은 규칙.
+    assertThat(
+            issueRepository.searchMemberOf(s.userId, titleQuery("_")).stream()
+                .map(r -> r.title())
+                .toList())
+        .containsExactly("snake_case 이름");
+  }
+
+  private static IssueSearchQuery titleQuery(String q) {
+    return new IssueSearchQuery(
+        q, List.of(), List.of(), false, List.of(), null, null, null, 30, List.of(), List.of(), null,
+        null, null, null, null, null, List.of(), false, List.of(), null, null, null, false, null,
+        null, null, null);
+  }
+
+  private List<String> searchTitles(Seed s, String q) {
+    return issueRepository.search(s.projectId, titleQuery(q)).stream().map(r -> r.title()).toList();
+  }
+
   @Test
   void status_csv_or_matching() {
     var s = seed("c");

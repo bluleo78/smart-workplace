@@ -6,6 +6,7 @@ import static com.workplace.jooq.Tables.MESSAGE;
 import static com.workplace.jooq.Tables.THREAD_READ_STATE;
 import static com.workplace.jooq.Tables.USER;
 
+import com.workplace.global.util.LikePatternUtils;
 import com.workplace.messaging.dto.ChannelResponse;
 import com.workplace.messaging.dto.DmParticipant;
 import com.workplace.messaging.dto.DmResponse;
@@ -138,7 +139,8 @@ public class ChannelRepository {
     Condition filtered =
         (q == null || q.isBlank())
             ? base
-            : base.and(CHANNEL.NAME.likeIgnoreCase("%" + q.trim() + "%"));
+            : base.and(
+                CHANNEL.NAME.likeIgnoreCase(LikePatternUtils.containsPattern(q.trim()), '\\'));
     return dsl.select(
             CHANNEL.ID,
             CHANNEL.KIND,

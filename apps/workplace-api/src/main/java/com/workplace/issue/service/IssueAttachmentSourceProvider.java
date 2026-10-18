@@ -10,6 +10,7 @@ import static org.jooq.impl.DSL.exists;
 import static org.jooq.impl.DSL.selectOne;
 
 import com.workplace.drive.api.AttachmentSourceProvider;
+import com.workplace.global.util.LikePatternUtils;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -71,7 +72,8 @@ public class IssueAttachmentSourceProvider implements AttachmentSourceProvider {
 
     // 파일명 부분일치 필터 (선택)
     if (q != null && !q.isBlank()) {
-      query = query.and(FILE.ORIGINAL_NAME.likeIgnoreCase("%" + q + "%"));
+      query =
+          query.and(FILE.ORIGINAL_NAME.likeIgnoreCase(LikePatternUtils.containsPattern(q), '\\'));
     }
 
     // 커서 기반 페이지네이션 (attached_at < beforeAt)

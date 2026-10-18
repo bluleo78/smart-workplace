@@ -12,6 +12,7 @@ import com.workplace.contacts.dto.ContactSummary;
 import com.workplace.contacts.dto.ExternalContactDetail;
 import com.workplace.contacts.dto.ExternalContactRequest;
 import com.workplace.contacts.dto.MemberDetail;
+import com.workplace.global.util.LikePatternUtils;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -118,8 +119,9 @@ public class ContactRepository {
 
     Condition where = DSL.noCondition();
     if (search != null && !search.isBlank()) {
-      String q = "%" + search.trim() + "%";
-      where = where.and(dName.likeIgnoreCase(q).or(dEmail.likeIgnoreCase(q)));
+      // %·_·\ 는 글자 그대로 찾는다(WP-471).
+      String q = LikePatternUtils.containsPattern(search.trim());
+      where = where.and(dName.likeIgnoreCase(q, '\\').or(dEmail.likeIgnoreCase(q, '\\')));
     }
     if (!"ALL".equals(type)) {
       where = where.and(dType.eq(type));
