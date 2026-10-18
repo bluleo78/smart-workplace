@@ -25,4 +25,25 @@ test.describe('프로젝트 생성 폼 유효성 검사 (#177)', () => {
     await expect(page.getByText('이름은 120자 이하여야 합니다')).toBeVisible()
     await expect(page.getByText('Too big')).not.toBeVisible()
   })
+
+  // WP-465: 이름에 공백만 넣으면 서버로 보내지 않고 이름 필드 아래 「필수」 오류를 보인다.
+  test('이름이 공백뿐이면 서버 요청 없이 이름 필드에 필수 오류를 보인다(WP-465)', async ({ authenticatedPage: page }) => {
+    await mockApi(page, 'GET', '/api/v1/projects', createPageResponse([createProject()]))
+    let posted = 0
+    await page.route('**/api/v1/projects', (route) => {
+      if (route.request().method() !== 'POST') return route.fallback()
+      posted += 1
+      return route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ message: '공백일 수 없습니다' }) })
+    })
+
+    await page.goto('/projects')
+    await page.getByRole('button', { name: '+ 새 프로젝트' }).click()
+    await page.getByLabel('key (예: WP)').fill('SPACE')
+    await page.getByLabel('이름').fill('   ')
+    await page.getByRole('button', { name: '생성' }).click()
+
+    await expect(page.getByText('이름은 필수입니다')).toBeVisible()
+    await expect(page.getByText('공백일 수 없습니다')).toHaveCount(0)
+    expect(posted).toBe(0)
+  })
 })

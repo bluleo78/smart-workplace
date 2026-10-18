@@ -18,6 +18,12 @@ describe('createProjectSchema — 이름', () => {
     expect(createProjectSchema.safeParse({ key: 'TEST', name: '가'.repeat(120) }).success).toBe(true);
     expect(errorOf({ key: 'TEST', name: '가'.repeat(121) }, 'name')).toBe('이름은 120자 이하여야 합니다');
   });
+
+  // WP-465: 공백만이면 필수 오류, 앞뒤 공백은 빼고 보낸다.
+  it('공백뿐인 이름은 필수 오류이고, 앞뒤 공백은 잘라서 넘긴다', () => {
+    expect(errorOf({ key: 'TEST', name: '   ' }, 'name')).toBe('이름은 필수입니다');
+    expect(createProjectSchema.parse({ key: 'TEST', name: '  플랫폼  ' }).name).toBe('플랫폼');
+  });
 });
 
 describe('createProjectSchema — key', () => {
