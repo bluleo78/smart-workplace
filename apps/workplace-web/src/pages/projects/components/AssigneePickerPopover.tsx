@@ -108,12 +108,16 @@ export function AssigneePickerPopover({
           {filtered.map((m) => (
             <label
               key={m.userId}
-              className="flex items-center gap-2 cursor-pointer p-1 rounded hover:bg-accent"
+              // WP-461: 이름·아이디는 각자 한 줄 말줄임(멤버 검색 팝오버와 같은 규칙) — 긴 이름이 글자 단위로 여러 줄 쪼개지던 문제.
+              // 이름이 먼저 자기 폭을 갖고, 아이디는 남는 자리만 쓴다(basis-0 flex-1) — 짧은 이름이 긴 아이디 때문에 잘리지 않게. 전체 값은 title 로 본다.
+              className="flex min-w-0 items-center gap-2 cursor-pointer p-1 rounded hover:bg-accent"
               data-testid={`assignee-option-${m.userId}`}
               data-agent={m.kind === 'AGENT' ? 'true' : undefined}
+              title={`${m.name} @${m.username}`}
             >
               <input
                 type="checkbox"
+                className="shrink-0"
                 checked={selected.includes(m.userId)}
                 onChange={() => toggle(m.userId)}
                 aria-label={m.name}
@@ -122,8 +126,8 @@ export function AssigneePickerPopover({
                 user={{ id: m.userId, username: m.username, name: m.name }}
                 size="xs"
               />
-              <span className="text-sm">{m.name}</span>
-              <span className="text-xs text-muted-foreground">@{m.username}</span>
+              <span className="min-w-0 truncate text-sm">{m.name}</span>
+              <span className="min-w-0 flex-1 basis-0 truncate text-xs text-muted-foreground">@{m.username}</span>
               {m.kind === 'AGENT' && <AgentBadge size="xs" />}
             </label>
           ))}

@@ -263,4 +263,49 @@ test.describe('이슈 담당자(다중)', () => {
     await expect(agentOption).toHaveAttribute('data-agent', 'true');
     await expect(agentOption.getByTestId('agent-badge')).toBeVisible();
   });
+
+  // WP-461: 긴 이름·긴 아이디도 한 줄 — 이름이 글자 단위로 여러 줄 쪼개지지 않고, 아이디가 먼저 말줄임된다.
+  test('긴 이름·아이디의 멤버도 픽커에서 한 줄로 보이고 전체 값은 title 로 남는다', async ({ authenticatedPage: page }) => {
+    const LONG = { id: 7, username: 'kim.minsu.platform-infra@example.com', name: '김민수 선임연구원 (플랫폼개발본부 인프라팀)' };
+    // 짧은 이름 + 긴 아이디 — 아이디가 남는 자리만 써서 이름은 잘리지 않아야 한다.
+    const SHORT = { id: 8, username: 'admin.operations.longname@work-loop.example.com', name: 'Work Loop Admin' };
+    const detailRef = {
+      current: createIssueDetail({ summary: createIssue({ id: 1, number: 1, title: '담당자 테스트', assignees: [] }) }),
+    };
+    await setupCommonStubs(page, detailRef);
+    // 나중에 등록한 route 가 먼저 — 멤버 목록만 긴 이름 멤버로 바꾼다.
+    await page.route(`**/api/v1/projects/${PROJECT_KEY}/members`, (route) =>
+      route.request().method() !== 'GET'
+        ? route.fallback()
+        : route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify([
+              createMember({ userId: USER1.id, username: USER1.username, name: USER1.name, role: 'OWNER' }),
+              createMember({ userId: LONG.id, username: LONG.username, name: LONG.name, role: 'MEMBER' }),
+              createMember({ userId: SHORT.id, username: SHORT.username, name: SHORT.name, role: 'MEMBER' }),
+            ]),
+          }),
+    );
+
+    await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+    await page.getByTestId('assignee-picker-trigger').click();
+    const option = page.getByTestId(`assignee-option-${LONG.id}`);
+    await expect(option).toBeVisible();
+    await expect(option).toHaveAttribute('title', `${LONG.name} @${LONG.username}`);
+
+    // 이름·아이디 모두 한 줄 — 줄 높이를 넘지 않고, 행이 픽커 밖으로 넘치지 않는다.
+    const lines = await option.evaluate((row) =>
+      Array.from(row.querySelectorAll('span'))
+        .filter((s) => s.textContent === row.getAttribute('title')?.split(' @')[0] || s.textContent?.startsWith('@'))
+        .map((s) => Math.round(s.getBoundingClientRect().height / parseFloat(getComputedStyle(s).lineHeight))),
+    );
+    expect(lines).toEqual([1, 1]);
+    const [rowBox, pickerBox] = await Promise.all([option.boundingBox(), page.getByTestId('assignee-picker').boundingBox()]);
+    expect(rowBox!.x + rowBox!.width).toBeLessThanOrEqual(pickerBox!.x + pickerBox!.width);
+
+    // 짧은 이름은 말줄임 없이 다 보인다(아이디만 줄어든다).
+    const shortName = page.getByTestId(`assignee-option-${SHORT.id}`).getByText(SHORT.name, { exact: true });
+    expect(await shortName.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+  });
 });
