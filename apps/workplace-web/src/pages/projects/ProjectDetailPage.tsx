@@ -152,6 +152,8 @@ function ProjectIssuesSection({
   // 길게 누르기 액션(상태·에픽) 권한 = 멤버 여부 — 모바일에선 canDragStatus 가 꺼져도 유지된다.
   canEdit: boolean;
 }) {
+  // 에픽 만들기는 유형 지정이라 멤버 전용(WP-477) — OPEN 비멤버는 접수(TASK)만 하므로 진입점을 숨긴다.
+  const canCreateEpic = onOpenCreate != null && canEdit;
   const [params] = useSearchParams();
   // params 가 바뀔 때만 새 필터 객체 — 매 렌더 새 객체면 아래 화면 컨텍스트 useMemo 가 매번 재계산된다.
   const filters = useMemo(() => parseFilters(params), [params]);
@@ -216,7 +218,7 @@ function ProjectIssuesSection({
   return (
     <section aria-label="태스크" className="flex min-h-0 flex-1 items-stretch gap-4">
       {/* 모바일엔 패널 토글이 없으므로 저장된 열림 상태(데스크톱용)를 무시한다 — 닫을 수 없는 패널이 목록을 좁히지 않게. */}
-      {epicPanelOpen && !isMobile && <EpicSidePanel projectKey={projectKey} canCreateIssue={onOpenCreate != null} />}
+      {epicPanelOpen && !isMobile && <EpicSidePanel projectKey={projectKey} canCreateIssue={canCreateEpic} />}
       {/* 우측 영역: 뷰 칩바·필터바는 고정, 아래 콘텐츠 슬롯에서 목록/보드가 스스로 스크롤한다
           (목록=테이블 영역, 보드=컬럼 행 — 각자 가로·세로 스크롤 + 헤더 sticky). 에픽 패널은 따로 고정. */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -225,7 +227,7 @@ function ProjectIssuesSection({
           {isMobile ? (
             <MobileIssueToolbar
               projectKey={projectKey}
-              epicSlot={<MobileEpicChip projectKey={projectKey} canCreateIssue={onOpenCreate != null} />}
+              epicSlot={<MobileEpicChip projectKey={projectKey} canCreateIssue={canCreateEpic} />}
             />
           ) : (
             <>

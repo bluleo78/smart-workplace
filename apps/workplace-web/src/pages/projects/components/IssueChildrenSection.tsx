@@ -25,10 +25,12 @@ import { keepFocusProps } from '@/lib/keepFocus';
 import { issuesApi, searchIssues } from '../../../api/issues';
 import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
 import { useIssueTypes } from '../../../hooks/queries/useIssueTypes';
+import { useProject } from '../../../hooks/queries/useProjects';
 import { useIsMobile } from '../../../hooks/useIsMobile';
 import { handleApiError } from '../../../lib/api-error';
 import { isClosedStatus } from '../../../lib/issueGrouping';
 import { getIssueTypeLabel } from '../../../lib/issueTypeLabels';
+import { isIntakeOnly } from '../../../lib/projectPermissions';
 import type { IssueResponse } from '../../../types/issue';
 import { sortChildrenByCreatedAt } from './childOrder';
 import { IssueStatusBadge } from './IssueStatusBadge';
@@ -49,6 +51,8 @@ export function IssueChildrenSection({
   const qc = useQueryClient();
   const types = useIssueTypes(projectKey);
   const isEpicParent = parentTypeName === 'EPIC';
+  // OPEN 프로젝트 비멤버는 하위를 만들 수 없다(WP-477 — 부모·유형 지정은 멤버 전용, 서버 403) — 추가 입력을 숨긴다.
+  const intakeOnly = isIntakeOnly(useProject(projectKey).data);
   // 일반 이슈(비EPIC) 부모 — SUBTASK 시스템 유형의 id (인라인 생성에 필요).
   const subtaskTypeId =
     (types.data ?? []).find((t) => t.name === 'SUBTASK')?.id ?? null;
@@ -191,7 +195,7 @@ export function IssueChildrenSection({
         </ul>
       )}
 
-      {isMobile && !addOpen ? (
+      {intakeOnly ? null : isMobile && !addOpen ? (
         <button
           type="button"
           data-testid="child-add-open"

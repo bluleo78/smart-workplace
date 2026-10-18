@@ -11,6 +11,14 @@ export function canCreateIssueIn(project: Pick<ProjectResponse, 'type' | 'viewer
 }
 
 /**
+ * 이 프로젝트에 접수만 할 수 있는가(WP-477) — OPEN 프로젝트의 비멤버는 제목·본문만 보내고, 우선순위·일정·담당자·유형·부모는 처리팀이 정한다
+ * (서버가 기본값이 아닌 값을 403 으로 거부). 프로젝트를 아직 못 불러왔으면 false.
+ */
+export function isIntakeOnly(project: Pick<ProjectResponse, 'type' | 'viewerIsMember'> | undefined): boolean {
+  return project?.type === 'OPEN' && !project.viewerIsMember
+}
+
+/**
  * userId 가 이 프로젝트의 OWNER 인가 — 설정 화면·이슈 상세(첨부 삭제)·행 메뉴가 같은 판정을 쓴다. 백엔드 가드가 최종 검증.
  * 멤버 목록 미로드(undefined)·비로그인(userId 없음)이면 false.
  */

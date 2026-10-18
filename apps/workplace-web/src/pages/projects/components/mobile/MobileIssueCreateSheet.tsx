@@ -111,7 +111,7 @@ export function MobileIssueCreateSheet({ projectKey, open, onOpenChange, persona
                 onPaste={f.images.onPaste}
                 className="w-full resize-none overflow-hidden bg-transparent text-base leading-6 outline-none placeholder:text-muted-foreground"
               />
-              {parentVisible && (
+              {parentVisible && !f.intakeOnly && (
                 <div className="space-y-1">
                   <label htmlFor="create-parent-number" className="text-xs font-medium text-muted-foreground">상위 이슈 번호</label>
                   <input
@@ -131,7 +131,12 @@ export function MobileIssueCreateSheet({ projectKey, open, onOpenChange, persona
               {f.classifyReason && <p data-testid="create-ai-reason" className="line-clamp-2 text-xs text-muted-foreground">✦ {f.classifyReason}</p>}
             </div>
             <div className="min-h-14 shrink-0 border-t bg-background" data-testid="issue-create-chips">
-              <CreateIssueChips projectKey={projectKey} personal={personal} f={f} focusReturn={focusReturn} onFocusParent={focusParent} />
+              {/* OPEN 프로젝트 비멤버는 접수만 한다(WP-477) — 속성 칩 대신 안내 한 줄. */}
+              {f.intakeOnly ? (
+                <p className="px-4 py-4 text-sm text-muted-foreground" data-testid="create-intake-notice">우선순위·일정은 처리팀이 정합니다</p>
+              ) : (
+                <CreateIssueChips projectKey={projectKey} personal={personal} f={f} focusReturn={focusReturn} onFocusParent={focusParent} />
+              )}
             </div>
           </form>
         </DialogPrimitive.Content>

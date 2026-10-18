@@ -174,6 +174,10 @@ test(
     // 삭제 버튼 미표시
     await expect(page.getByTestId('issue-delete')).not.toBeVisible();
 
+    // 하위 태스크 추가 칸 미표시 — 부모·유형 지정은 멤버 전용(WP-477, 서버 403)
+    await expect(page.getByTestId('issue-children-section')).toBeVisible();
+    await expect(page.getByTestId('child-add-form')).toHaveCount(0);
+
     // 채팅 버튼이 렌더되어야 함(chat thread fetch 403 → 버튼 자체 미렌더 방지)
     await expect(page.getByTestId('issue-chat-open')).toBeVisible();
 

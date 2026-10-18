@@ -206,6 +206,14 @@ public class IssueService {
   CreateIssuePlan planCreate(Long callerId, String projectKey, CreateIssueRequest req) {
     // OPEN 프로젝트는 테넌트 전원이 이슈를 생성할 수 있다(assertIssueCreatable). TEAM/PERSONAL 은 멤버만.
     var project = accessGuard.assertIssueCreatable(projectKey, callerId);
+    boolean memberOrAdmin = accessGuard.isMemberOrAdmin(project, callerId);
+
+    // 0) OPEN 프로젝트 비멤버의 멤버 전용 값(WP-477) — 우선순위·시작일·마감일·담당자·유형·부모는 수정 경로에서 멤버 전용이라, 생성이 그 변경의
+    //    우회로가 되면 안 된다. 접수 분류(유형·우선순위·일정·담당)는 처리팀 몫이다. 기본값(우선순위 MID·유형 TASK)·빈 담당자는 지정하지 않은 것과
+    //    같아 받아 준다. 다른 검증보다 먼저 막아, 비멤버는 담당자·부모의 존재 여부도 알 수 없다.
+    if (!memberOrAdmin && specifiesMemberOnlyFields(project, req)) {
+      throw new ProjectAccessDeniedException("우선순위·일정·담당자·유형·부모는 프로젝트 멤버만 지정할 수 있습니다");
+    }
 
     // 1) 담당자 검증 — 개인·팀 공통으로 프로젝트 멤버만 담당 가능 (정책 통일 #418)
     List<Long> assigneeIds = req.assigneeIds() == null ? List.of() : req.assigneeIds();
@@ -290,7 +298,7 @@ public class IssueService {
             || !labelNames.isEmpty()
             || !cycleIds.isEmpty()
             || req.milestoneId() != null)
-        && !accessGuard.isMemberOrAdmin(project, callerId)) {
+        && !memberOrAdmin) {
       throw new ProjectAccessDeniedException("라벨·마일스톤·사이클은 프로젝트 멤버만 지정할 수 있습니다");
     }
     if (!labelIds.isEmpty()) {
@@ -322,6 +330,18 @@ public class IssueService {
         milestoneId,
         cycleIds,
         labelNames);
+  }
+
+  /** 요청이 기본값이 아닌 멤버 전용 값(우선순위≠MID·날짜·담당자·유형≠TASK·부모)을 지정했는지 — WP-477 비멤버 생성 검사. */
+  private boolean specifiesMemberOnlyFields(ProjectRow project, CreateIssueRequest req) {
+    if (req.priority() != null && !"MID".equals(req.priority())) return true;
+    if (req.startDate() != null || req.dueDate() != null || req.parentNumber() != null) return true;
+    if (req.assigneeIds() != null && !req.assigneeIds().isEmpty()) return true;
+    return req.typeId() != null
+        && typeRepository
+            .findById(req.typeId())
+            .map(t -> !t.projectId().equals(project.id()) || !"TASK".equals(t.name()))
+            .orElse(true);
   }
 
   /** null·중복을 걸러 순서를 지킨 목록으로 — 같은 id 를 두 번 주면 소속 검증의 개수 비교가 어긋나므로. */

@@ -36,7 +36,7 @@ export function IssueCreateDialog(props: Props) {
 function DesktopIssueCreateDialog({ projectKey, open, onOpenChange, personal = false, initialTypeId }: Props) {
   const f = useIssueCreateForm({ projectKey, open, onOpenChange, initialTypeId });
   const { register, watch, setValue, formState: { errors } } = f.form;
-  const { types, images, bodyField, bodyRef, classify, classifyReason, isSubtaskSelected } = f;
+  const { types, images, bodyField, bodyRef, classify, classifyReason, isSubtaskSelected, intakeOnly } = f;
   const currentTypeId = watch('typeId');
 
   return (
@@ -67,6 +67,10 @@ function DesktopIssueCreateDialog({ projectKey, open, onOpenChange, personal = f
               onDragOver={images.onDragOver}
             />
           </div>
+          {/* OPEN 프로젝트 비멤버는 접수만 한다(WP-477) — 유형·우선순위·일정·부모 칸과 AI 분류(유형·우선순위 제안) 대신 안내 한 줄. */}
+          {intakeOnly ? (
+            <p className="text-sm text-muted-foreground" data-testid="create-intake-notice">우선순위·일정은 처리팀이 정합니다</p>
+          ) : (<>
           {/* AI 분류 제안 버튼 — 제목이 있을 때만 활성화. */}
           <AiClassifyButton
             hasTitle={!!(watch('title') ?? '').trim()}
@@ -153,6 +157,7 @@ function DesktopIssueCreateDialog({ projectKey, open, onOpenChange, personal = f
               )}
             </div>
           )}
+          </>)}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>취소</Button>
             <Button type="submit" disabled={f.isSubmitting}>{f.isCreating ? '생성 중…' : '생성'}</Button>

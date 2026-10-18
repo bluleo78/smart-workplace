@@ -6,11 +6,13 @@ import { toast } from 'sonner';
 import { useIssueAiClassify } from '../../../hooks/queries/useIssueAiClassify';
 import { useCreateIssue } from '../../../hooks/queries/useIssues';
 import { useIssueTypes } from '../../../hooks/queries/useIssueTypes';
+import { useProject } from '../../../hooks/queries/useProjects';
 import { useIssueImageUpload } from '../../../hooks/useIssueImageUpload';
 import { useUnsavedChangesWarning } from '../../../hooks/useUnsavedChangesWarning';
 import { handleApiError } from '../../../lib/api-error';
 import { resolveParentNumber } from '../../../lib/issueCreateParent';
 import { hasIssueDraftContent } from '../../../lib/issueDraft';
+import { isIntakeOnly } from '../../../lib/projectPermissions';
 import { type CreateIssueFormData, createIssueSchema } from '../../../lib/validations/issue';
 
 // 이슈 생성 폼 로직 — 데스크톱 다이얼로그와 모바일 시트가 공유한다(WP-196). 렌더링은 각 컴포넌트 몫.
@@ -26,6 +28,8 @@ export function useIssueCreateForm({
   // AI 제안 이유 — 제안 후 버튼 아래 표시.
   const [classifyReason, setClassifyReason] = useState<string | null>(null);
   const types = useIssueTypes(projectKey);
+  // OPEN 프로젝트 비멤버는 접수만 한다(WP-477) — 화면은 유형·우선순위·일정·담당자·부모 칸을 숨기고 송신도 제목·본문만 한다.
+  const intakeOnly = isIntakeOnly(useProject(projectKey).data);
   // 모바일 에픽 칩 값(R8) — 폼 스키마 밖 별도 상태. 일반 이슈의 parentNumber 로 송신되고, EPIC·SUBTASK 유형이면 해제된다.
   const [epicNumber, setEpicNumber] = useState<number | null>(null);
   const form = useForm<CreateIssueFormData>({
@@ -117,7 +121,7 @@ export function useIssueCreateForm({
       toast.error('이미지 업로드가 끝난 뒤 등록해 주세요');
       return;
     }
-    const payload = {
+    const payload = intakeOnly ? { title: data.title, body: data.body || undefined } : {
       ...data,
       dueDate: data.dueDate || undefined,
       startDate: data.startDate || undefined,
@@ -142,7 +146,7 @@ export function useIssueCreateForm({
   };
 
   return {
-    form, types, selectedType, isSubtaskSelected, isEpicSelected,
+    form, types, intakeOnly, selectedType, isSubtaskSelected, isEpicSelected,
     classify, classifyReason, handleClassify, images, bodyRef, bodyField,
     onSubmit: handleSubmit(submit),
     // 버튼 비활성 = 생성 요청 중 또는 이미지 업로드 중. 「생성 중…」 문구는 실제 생성 요청 중일 때만(isCreating) — 업로드 중엔 「생성」 유지.

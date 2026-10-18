@@ -6,6 +6,7 @@ import static com.workplace.jooq.Tables.CHAT_THREAD_MEMBER;
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_TYPE_DEF;
 import static com.workplace.jooq.Tables.PROJECT;
+import static com.workplace.jooq.Tables.PROJECT_MEMBER;
 import static com.workplace.jooq.Tables.TENANT;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -245,6 +246,12 @@ class ChatDomainRlsTest extends IntegrationTestBase {
             .returning(PROJECT.ID)
             .fetchOne()
             .getId();
+    // 실제 프로젝트 생성처럼 소유자를 OWNER 멤버로 — 대화 읽기는 프로젝트 읽기 권한을 요구한다(WP-475).
+    dsl.insertInto(PROJECT_MEMBER)
+        .set(PROJECT_MEMBER.PROJECT_ID, pid)
+        .set(PROJECT_MEMBER.USER_ID, userId)
+        .set(PROJECT_MEMBER.ROLE, "OWNER")
+        .execute();
 
     long typeId =
         dsl.insertInto(ISSUE_TYPE_DEF)

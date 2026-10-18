@@ -199,6 +199,73 @@ class IssueCreateWithMetaTest extends IntegrationTestBase {
         .isNotNull();
   }
 
+  /** 우선순위·날짜·담당자·유형·부모만 지정한 생성 요청(WP-477). */
+  private static CreateIssueRequest withFields(
+      String priority,
+      LocalDate startDate,
+      LocalDate dueDate,
+      List<Long> assigneeIds,
+      Long typeId,
+      Integer parentNumber) {
+    return new CreateIssueRequest(
+        "x",
+        null,
+        priority,
+        dueDate,
+        assigneeIds,
+        typeId,
+        parentNumber,
+        startDate,
+        null,
+        null,
+        null,
+        null);
+  }
+
+  /**
+   * WP-477 — OPEN 프로젝트 비멤버는 우선순위·시작일·마감일·담당자·유형·부모도 지정할 수 없다(수정 경로에서 멤버 전용인 값). 생성이 그 변경의 우회로가 되면 안
+   * 된다. 기본값(우선순위 MID·유형 TASK)이나 빈 담당자 목록은 지정하지 않은 것과 같아 받아 준다.
+   */
+  @Test
+  void create_openProjectNonMember_withMemberOnlyFields_isDenied() {
+    var s = OpenScenario.create(dsl, issueTypeService, issueRepository, sequenceRepository, 1L);
+    Long taskId = typeIdOf(s.project().id(), "TASK");
+    Long bugId = typeIdOf(s.project().id(), "BUG");
+    LocalDate day = LocalDate.of(2026, 10, 20);
+
+    for (var req :
+        List.of(
+            withFields("HIGH", null, null, null, null, null),
+            withFields("LOW", null, null, null, null, null),
+            withFields(null, day, null, null, null, null),
+            withFields(null, null, day, null, null, null),
+            withFields(null, null, null, List.of(s.ownerId()), null, null),
+            withFields(null, null, null, null, bugId, null),
+            withFields(null, null, null, null, null, s.issueNumber()))) {
+      assertThatThrownBy(() -> issueService.create(s.strangerId(), s.projectKey(), req))
+          .isInstanceOf(ProjectAccessDeniedException.class);
+    }
+    // 기본값과 같은 값은 지정하지 않은 것과 같다.
+    assertThat(
+            issueService.create(
+                s.strangerId(),
+                s.projectKey(),
+                withFields("MID", null, null, List.of(), taskId, null)))
+        .isNotNull();
+    // 멤버는 그대로 지정할 수 있다.
+    assertThat(
+            issueService.create(
+                s.memberId(), s.projectKey(), withFields("HIGH", day, day, null, bugId, null)))
+        .isNotNull();
+  }
+
+  private Long typeIdOf(Long pid, String name) {
+    return dsl.select(ISSUE_TYPE_DEF.ID)
+        .from(ISSUE_TYPE_DEF)
+        .where(ISSUE_TYPE_DEF.PROJECT_ID.eq(pid), ISSUE_TYPE_DEF.NAME.eq(name))
+        .fetchOne(ISSUE_TYPE_DEF.ID);
+  }
+
   /** 같은 id 를 두 번 줘도 한 번만 붙는다(소속 검증의 개수 비교가 어긋나지 않는다). */
   @Test
   void create_duplicateLabelIds_attachOnce() {

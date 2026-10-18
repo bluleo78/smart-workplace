@@ -156,6 +156,38 @@ test(
   },
 );
 
+// WP-477 — OPEN 비멤버는 접수만 한다: 새 이슈 다이얼로그가 유형·우선순위·일정 칸 대신 안내를 보이고, 제목·본문만 보낸다
+// (서버는 기본값이 아닌 멤버 전용 값을 403 으로 거부). 판정은 projectPermissions.test.ts 의 isIntakeOnly 가 맡는다.
+test('OPEN 비멤버: 새 이슈 다이얼로그는 접수 칸만 보이고 제목·본문만 보낸다', async ({ authenticatedPage: page }) => {
+  await setupBoardMocks(page, false);
+  let posted: Record<string, unknown> | undefined;
+  await page.route(
+    (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues`,
+    async (route) => {
+      if (route.request().method() !== 'POST') return route.fallback();
+      posted = route.request().postDataJSON() as Record<string, unknown>;
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify(createIssue({ projectKey: PROJECT_KEY, number: 2, title: '접수 건의' })),
+      });
+    },
+  );
+  await page.goto(`/projects/${PROJECT_KEY}?view=board`);
+  await page.getByRole('button', { name: '+ 새 태스크' }).click();
+
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByTestId('create-intake-notice')).toHaveText('우선순위·일정은 처리팀이 정합니다');
+  await expect(dialog.getByLabel('우선순위')).toHaveCount(0);
+  await expect(dialog.getByLabel('시작일')).toHaveCount(0);
+  await expect(dialog.getByTestId('create-type-select')).toHaveCount(0);
+
+  await dialog.getByLabel('제목').fill('접수 건의');
+  await dialog.getByLabel('본문').fill('내용');
+  await dialog.getByRole('button', { name: '생성' }).click();
+  await expect.poll(() => posted).toEqual({ title: '접수 건의', body: '내용' });
+});
+
 // ─── 이슈 상세 — 첨부 드롭존 노출 (WP-202) ─────────────────────────────────────
 // 왜: 첨부 업로드 권한은 본문 편집 권한과 같다. 편집 가능한 OPEN reporter 에겐 드롭존을 보여주고,
 //     편집 불가 열람자에겐 숨겨 클릭 후 403("프로젝트 멤버가 아닙니다")을 받는 일이 없게 한다.
