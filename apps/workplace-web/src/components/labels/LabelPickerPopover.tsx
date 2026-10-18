@@ -3,7 +3,7 @@
 // WP-394: 검색어와 이름이 정확히 같은 라벨이 없으면 「만들기」 행으로 그 자리에서 만들어 바로 선택한다.
 
 import { Plus, Tag } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -40,14 +40,21 @@ export function LabelPickerPopover({
   const toCreate = labels.isSuccess ? labelNameToCreate(search, labels.data) : null;
 
   // 새 라벨을 만들고 선택 집합에 넣는다 — 이슈 부착은 기존 흐름대로 팝오버가 닫힐 때 한 번에 PUT.
+  // WP-458: 빠른 두 번 클릭은 다시 그리기 전이라 create.isPending 이 아직 false 다 — 같은 틱에서 바로 막히는 ref 로 거른다.
+  // 그대로 두면 두 번째 요청이 409 로 실패하고, TanStack Query 는 마지막 mutate 의 콜백만 부르므로 첫 요청의 선택 반영까지 버려진다.
+  const creatingRef = useRef(false);
   function createAndSelect() {
-    if (toCreate === null || create.isPending) return;
+    if (toCreate === null || creatingRef.current) return;
+    creatingRef.current = true;
     create.mutate(
       { name: toCreate, colorToken: DEFAULT_LABEL_COLOR },
       {
         onSuccess: (label) => {
           setSelected((prev) => [...prev, label.id]);
           setSearch('');
+        },
+        onSettled: () => {
+          creatingRef.current = false;
         },
       },
     );
@@ -63,7 +70,7 @@ export function LabelPickerPopover({
   // 닫힐 때: 정렬 후 비교해 변경된 경우만 mutate — 동일하면 네트워크 호출 X.
   function onOpenChange(next: boolean) {
     // 만드는 중에 닫으면 새 라벨이 선택 집합에 들기 전에 PUT 되어 이슈에 안 붙는다 — 생성이 끝날 때까지 열어 둔다.
-    if (!next && create.isPending) return;
+    if (!next && (create.isPending || creatingRef.current)) return;
     if (next) {
       setSelected(current.map((l) => l.id));
       setSearch('');

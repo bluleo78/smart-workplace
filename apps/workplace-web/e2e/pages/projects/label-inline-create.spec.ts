@@ -115,6 +115,25 @@ test.describe('이슈 라벨 즉석 만들기', () => {
     expect(puts.count()).toBe(1);
   });
 
+  // WP-458: 두 번 클릭은 다시 그리기 전에 들어와 isPending 으로는 못 막는다 — 요청 한 번, 만든 라벨은 체크된 채 부착.
+  test('만들기를 빠르게 두 번 눌러도 POST 는 한 번이고 만든 라벨이 이슈에 붙는다', async ({ authenticatedPage: page }) => {
+    await stubIssueWithLabels(page);
+    const posts = trackRequests(page, 'POST', LABELS_PATH);
+    const puts = trackRequests(page, 'PUT', ISSUE_LABELS_PATH);
+    const picker = await openPicker(page);
+
+    await picker.getByLabel('라벨 검색').fill('infra');
+    await picker.getByTestId('label-create-option').dblclick();
+
+    await posts.waitFor();
+    await expect(picker.getByLabel('infra')).toBeChecked();
+    expect(posts.count()).toBe(1);
+
+    await page.keyboard.press('Escape');
+    await puts.waitFor();
+    expect(puts.lastBody()).toEqual({ labelIds: [1, 99] });
+  });
+
   test('Enter 로 만들고, 한글 조합 중 Enter 는 만들지 않는다', async ({ authenticatedPage: page }) => {
     await stubIssueWithLabels(page);
     const posts = trackRequests(page, 'POST', LABELS_PATH);
