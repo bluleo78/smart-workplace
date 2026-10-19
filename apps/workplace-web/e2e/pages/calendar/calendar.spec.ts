@@ -756,3 +756,27 @@ test(
     await expect(todaySpanDay).toBeVisible()
   },
 )
+
+// WP-556: 모바일 주 보기의 좁은 날짜 열에서 오늘 배지가 고정 높이(h-7)라 두 줄로 접힌 「6.16 (화)」 위아래가 잘렸다 —
+// 배지가 글자 높이만큼 늘어나 넘치지 않고, 열 폭 안에 들어와야 한다.
+test('모바일 주 보기 — 오늘 날짜 배지가 좁은 열에서 잘리지 않는다', async ({ authenticatedPage: page }) => {
+  await page.clock.setFixedTime(new Date('2026-06-16T03:00:00Z'))
+  await stubCalendarEvents(page, [])
+  await page.setViewportSize({ width: 390, height: 844 })
+
+  await page.goto('/calendar')
+  // 모바일은 보기 전환이 셀렉트다.
+  await page.getByTestId('calendar-view-select').selectOption('week')
+  const badge = page.getByTestId('calendar-view-week').getByTestId('calendar-today-badge')
+  await expect(badge).toHaveText('6.16 (화)')
+
+  const m = await badge.evaluate((el) => {
+    const cell = el.closest('[data-testid="calendar-day-header"]') as HTMLElement
+    const b = el.getBoundingClientRect()
+    const c = cell.getBoundingClientRect()
+    return { overflowY: el.scrollHeight - el.clientHeight, overflowX: el.scrollWidth - el.clientWidth, inCell: b.left >= c.left - 0.5 && b.right <= c.right + 0.5 }
+  })
+  expect(m.overflowY, '배지 세로 넘침').toBeLessThanOrEqual(0)
+  expect(m.overflowX, '배지 가로 넘침').toBeLessThanOrEqual(0)
+  expect(m.inCell, '배지가 날짜 열 안').toBe(true)
+})

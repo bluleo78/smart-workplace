@@ -58,9 +58,12 @@ export function TimeGrid({
               className="flex-1 min-w-0 text-center text-sm py-2 font-medium border-l"
             >
               <span
+                data-testid={todayCol ? 'calendar-today-badge' : undefined}
+                // 고정 높이(h-7) 대신 최소 높이 — 모바일 주 보기처럼 좁은 열에서 「M.d (요일)」이 두 줄로 접히면
+                // 배지가 글자만큼 늘어나야 위아래가 잘리지 않는다(WP-556). 한 줄일 때는 지금과 같은 28px 원형이다.
                 className={
                   todayCol
-                    ? 'inline-flex items-center justify-center rounded-full bg-primary text-primary-foreground px-2 h-7 font-bold'
+                    ? 'inline-flex max-w-full min-h-7 items-center justify-center rounded-2xl bg-primary px-2 py-0.5 font-bold leading-tight text-primary-foreground'
                     : ''
                 }
               >
