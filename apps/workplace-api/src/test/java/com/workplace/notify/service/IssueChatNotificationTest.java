@@ -6,6 +6,9 @@ import static com.workplace.jooq.Tables.ISSUE_TYPE_DEF;
 import static com.workplace.jooq.Tables.ISSUE_WATCHER;
 import static com.workplace.jooq.Tables.NOTIFICATION;
 import static com.workplace.jooq.Tables.PROJECT;
+import static com.workplace.jooq.Tables.PROJECT_MEMBER;
+import static com.workplace.jooq.Tables.ROLE;
+import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.notify.dto.NotificationType;
@@ -34,14 +37,23 @@ class IssueChatNotificationTest extends IntegrationTestBase {
   @Autowired NotificationService service;
   @Autowired ApplicationEvents events;
 
-  /** project + issue_type_def + issue 1건 시드 후 issueId 반환(reporter 지정). */
+  /**
+   * project + issue_type_def + issue 1건 시드 후 issueId 반환(reporter 지정). 알림 수신자는 프로젝트 조회 권한을
+   * 따진다(WP-501) — 권한과 무관한 테스트라 누구나 보는 OPEN 으로 둔다.
+   */
   private long seedIssue(long reporterId) {
+    return seedIssue(reporterId, "OPEN");
+  }
+
+  /** 프로젝트 유형을 정해 시드한다. 멤버 행은 만들지 않는다 — 필요한 테스트가 {@link #member} 로 넣는다. */
+  private long seedIssue(long reporterId, String projectType) {
     String s = UUID.randomUUID().toString().replace("-", "").substring(0, 5);
     long projectId =
         dsl.insertInto(PROJECT)
             .set(PROJECT.KEY, "Q" + s)
             .set(PROJECT.NAME, "P" + s)
             .set(PROJECT.OWNER_ID, reporterId)
+            .set(PROJECT.TYPE, projectType)
             .returning(PROJECT.ID)
             .fetchOne()
             .getId();
@@ -63,6 +75,29 @@ class IssueChatNotificationTest extends IntegrationTestBase {
         .returning(ISSUE.ID)
         .fetchOne()
         .getId();
+  }
+
+  /** 이슈가 속한 프로젝트에 멤버로 넣는다. */
+  private void member(long issueId, long userId) {
+    long projectId =
+        dsl.select(ISSUE.PROJECT_ID)
+            .from(ISSUE)
+            .where(ISSUE.ID.eq(issueId))
+            .fetchOne(ISSUE.PROJECT_ID);
+    dsl.insertInto(PROJECT_MEMBER)
+        .set(PROJECT_MEMBER.PROJECT_ID, projectId)
+        .set(PROJECT_MEMBER.USER_ID, userId)
+        .set(PROJECT_MEMBER.ROLE, "MEMBER")
+        .execute();
+  }
+
+  /** 시스템 ADMIN 역할을 준다. */
+  private void grantAdmin(long userId) {
+    Long roleId = dsl.select(ROLE.ID).from(ROLE).where(ROLE.NAME.eq("ADMIN")).fetchOne(ROLE.ID);
+    dsl.insertInto(USER_ROLE)
+        .set(USER_ROLE.USER_ID, userId)
+        .set(USER_ROLE.ROLE_ID, roleId)
+        .execute();
   }
 
   private void assign(long issueId, long userId, long by) {
@@ -181,5 +216,51 @@ class IssueChatNotificationTest extends IntegrationTestBase {
         events.stream(InboxPushRequestedEvent.class).findFirst().orElseThrow();
     assertThat(push.category()).isEqualTo(PushCategory.MENTION);
     assertThat(push.recipientIds()).containsExactly(mentioned);
+  }
+
+  @Test
+  void aiQuestion_skipsPeopleWhoCannotReadTeamProject_noInboxNoPush() {
+    // WP-501: 프로젝트에서 빠진 보고자·워처, 멤버가 아닌 사람 멘션은 알림도 푸시도 받지 않는다. 멤버와 ADMIN 은 받는다.
+    long removedReporter = TestFixtures.createHuman(dsl);
+    long memberAssignee = TestFixtures.createHuman(dsl);
+    long removedWatcher = TestFixtures.createHuman(dsl);
+    long outsiderMentioned = TestFixtures.createHuman(dsl);
+    long adminMentioned = TestFixtures.createHuman(dsl);
+    long aiActor = TestFixtures.createAgentNoToken(dsl);
+    long issueId = seedIssue(removedReporter, "TEAM");
+    member(issueId, memberAssignee);
+    assign(issueId, memberAssignee, memberAssignee);
+    watch(issueId, removedWatcher);
+    grantAdmin(adminMentioned);
+
+    service.createAiQuestionAndFanOut(issueId, List.of(outsiderMentioned, adminMentioned), aiActor);
+
+    assertThat(recipientsOf(issueId, NotificationType.AI_QUESTION))
+        .containsExactlyInAnyOrder(memberAssignee, adminMentioned);
+    assertThat(
+            events.stream(InboxPushRequestedEvent.class)
+                .flatMap(p -> p.recipientIds().stream())
+                .toList())
+        .containsExactlyInAnyOrder(memberAssignee, adminMentioned);
+  }
+
+  @Test
+  void issueChatMention_ofNonMemberInPersonalProject_isDropped_evenForAdmin() {
+    // 개인 프로젝트는 소유자(멤버)만 본다 — ADMIN 이어도 멘션 알림·푸시를 만들지 않는다(WP-501).
+    long owner = TestFixtures.createHuman(dsl);
+    long admin = TestFixtures.createHuman(dsl);
+    grantAdmin(admin);
+    long issueId = seedIssue(owner, "PERSONAL");
+    member(issueId, owner);
+
+    service.createAndFanOut(
+        NotificationType.ISSUE_CHAT_MENTION, List.of(admin, owner), null, issueId, null);
+
+    assertThat(recipientsOf(issueId, NotificationType.ISSUE_CHAT_MENTION)).containsExactly(owner);
+    assertThat(
+            events.stream(InboxPushRequestedEvent.class)
+                .flatMap(p -> p.recipientIds().stream())
+                .toList())
+        .containsExactly(owner);
   }
 }

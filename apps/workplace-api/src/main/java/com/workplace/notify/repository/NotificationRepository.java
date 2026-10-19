@@ -7,15 +7,19 @@ import static com.workplace.jooq.Tables.ISSUE_WATCHER;
 import static com.workplace.jooq.Tables.NOTIFICATION;
 import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.PROJECT_MEMBER;
+import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
+import static com.workplace.jooq.Tables.USER_ROLE;
 
 import com.workplace.notify.dto.NotificationResponse;
 import com.workplace.notify.dto.NotificationType;
 import java.time.OffsetDateTime;
+import java.util.Collection;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
+import org.jooq.Field;
 import org.jooq.Query;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
@@ -195,15 +199,51 @@ public class NotificationRepository {
    * LEFT JOIN 해야 한다.
    */
   private Condition readableByRecipient(long recipientId, boolean recipientIsAdmin) {
+    return NOTIFICATION
+        .ISSUE_ID
+        .isNull()
+        .or(
+            projectReadableBy(
+                DSL.val(recipientId),
+                recipientIsAdmin ? DSL.trueCondition() : DSL.falseCondition()));
+  }
+
+  /**
+   * 이슈 알림을 새로 만들 수신자 중 그 이슈의 프로젝트를 지금 볼 수 있는 사람만 남긴다(WP-501). 규칙은 목록 숨김(WP-491)과 같다 — 빠진 사람에게 알림 행을
+   * 만들면 웹 푸시가 생성 시점의 이슈 제목을 그대로 실어 보낸다.
+   */
+  public List<Long> filterCanReadIssue(long issueId, Collection<Long> userIds) {
+    if (userIds.isEmpty()) return List.of();
+    Condition admin =
+        DSL.exists(
+            DSL.selectOne()
+                .from(USER_ROLE)
+                .join(ROLE)
+                .on(ROLE.ID.eq(USER_ROLE.ROLE_ID))
+                .where(USER_ROLE.USER_ID.eq(USER.ID), ROLE.NAME.eq("ADMIN")));
+    return dsl.select(USER.ID)
+        .from(USER)
+        .join(ISSUE)
+        .on(ISSUE.ID.eq(issueId))
+        .join(PROJECT)
+        .on(PROJECT.ID.eq(ISSUE.PROJECT_ID))
+        .where(USER.ID.in(userIds), projectReadableBy(USER.ID, admin))
+        .fetch(USER.ID);
+  }
+
+  /**
+   * ISSUE·PROJECT 가 조인된 쿼리에서 userId 가 그 프로젝트를 볼 수 있는가 — ProjectAccessGuard.isReadable 과 같은 규칙: OPEN
+   * 은 전원, TEAM 은 멤버 또는 ADMIN, PERSONAL 은 멤버(소유자)만.
+   */
+  private static Condition projectReadableBy(Field<Long> userId, Condition isAdmin) {
     Condition member =
         DSL.exists(
             DSL.selectOne()
                 .from(PROJECT_MEMBER)
                 .where(
                     PROJECT_MEMBER.PROJECT_ID.eq(ISSUE.PROJECT_ID),
-                    PROJECT_MEMBER.USER_ID.eq(recipientId)));
-    Condition admin = recipientIsAdmin ? PROJECT.TYPE.ne("PERSONAL") : DSL.falseCondition();
-    return NOTIFICATION.ISSUE_ID.isNull().or(PROJECT.TYPE.eq("OPEN")).or(admin).or(member);
+                    PROJECT_MEMBER.USER_ID.eq(userId)));
+    return PROJECT.TYPE.eq("OPEN").or(PROJECT.TYPE.ne("PERSONAL").and(isAdmin)).or(member);
   }
 
   /** 단건 읽음 — recipient 스코프 + 이미 읽은 건 제외. 영향 행 수 반환(타인 id 면 0). */

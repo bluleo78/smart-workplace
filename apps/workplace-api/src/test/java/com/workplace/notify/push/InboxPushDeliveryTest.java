@@ -90,6 +90,8 @@ class InboxPushDeliveryTest extends IntegrationTestBase {
                           .set(PROJECT.KEY, k)
                           .set(PROJECT.NAME, "P")
                           .set(PROJECT.OWNER_ID, actor)
+                          // 수신자는 이슈의 프로젝트를 볼 수 있어야 알림·푸시가 간다(WP-501) — 멤버 행 없이 누구나 보는 OPEN.
+                          .set(PROJECT.TYPE, "OPEN")
                           .returning(PROJECT.ID)
                           .fetchOne()
                           .getId();

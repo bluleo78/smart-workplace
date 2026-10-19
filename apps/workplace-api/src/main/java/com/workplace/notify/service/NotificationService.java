@@ -76,17 +76,24 @@ public class NotificationService {
   }
 
   /**
-   * 수신자 확정(null·actor 제외, 중복 제거) → batch insert → SSE fan-out. 실제 insert 한 수신자를 돌려준다(빈 목록이면 아무것도 안
-   * 함).
+   * 수신자 확정(null·actor 제외, 중복 제거, 이슈의 프로젝트를 볼 수 없는 사람 제외) → batch insert → SSE fan-out. 실제 insert 한
+   * 수신자를 돌려준다(빈 목록이면 아무것도 안 함).
+   *
+   * <p>조회 권한 필터(WP-501)는 여기 한 곳에서 건다 — 보고자·워처·멘션 등 어느 경로로 들어온 수신자든, 프로젝트에서 빠졌거나 처음부터 볼 수 없는 사람에게 알림
+   * 행과 웹 푸시(이슈 제목 포함)를 만들지 않는다.
    */
   private List<Long> insertAndFanOut(
       NotificationType type, List<Long> recipientIds, Long actorId, long issueId, Long commentId) {
-    List<Long> recipients =
+    List<Long> candidates =
         recipientIds.stream()
             .filter(Objects::nonNull)
             .distinct()
             .filter(id -> !id.equals(actorId))
             .toList();
+    if (candidates.isEmpty()) return candidates;
+    Set<Long> readable = new HashSet<>(repo.filterCanReadIssue(issueId, candidates));
+    // 후보 순서를 유지한다(푸시 묶음·테스트가 수신자 순서에 기대지 않지만 결정적으로 두려고).
+    List<Long> recipients = candidates.stream().filter(readable::contains).toList();
     if (recipients.isEmpty()) return recipients;
     repo.insertBatch(recipients, type, actorId, issueId, commentId);
     // 페이로드는 경량(클라가 수신 즉시 쿼리 invalidate). 상세는 REST 재조회.
