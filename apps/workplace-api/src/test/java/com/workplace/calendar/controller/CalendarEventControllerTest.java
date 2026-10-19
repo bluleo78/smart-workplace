@@ -288,4 +288,23 @@ class CalendarEventControllerTest {
 
     verify(service).inviteAttendees(1L, 1L, List.of(2L), false);
   }
+
+  /**
+   * WP-542: 상태 없는 RSVP({})는 DB NOT NULL 위반(409 「Data integrity violation」)까지 내려가지 않고 입력 오류 400 이어야
+   * 한다. 잘못된 값도 400 이며, 안내는 한국어다.
+   */
+  @Test
+  void rsvp_missingOrInvalidStatus_returns400() throws Exception {
+    for (String body : List.of("{}", "{\"status\":\"accepted\"}")) {
+      mockMvc
+          .perform(
+              patch("/api/v1/calendar/events/1/rsvp")
+                  .header("Authorization", "Bearer v")
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content(body))
+          .andExpect(status().isBadRequest())
+          .andExpect(
+              jsonPath("$.errors.status").value("참석 응답(ACCEPTED·DECLINED·TENTATIVE)을 골라 주세요"));
+    }
+  }
 }
