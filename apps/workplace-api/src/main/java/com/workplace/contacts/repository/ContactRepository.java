@@ -225,6 +225,9 @@ public class ContactRepository {
             .on(USER_GROUP.ID.eq(USER_GROUP_MEMBER.GROUP_ID))
             .where(USER_GROUP_MEMBER.TARGET_TYPE.eq("MEMBER"))
             .and(USER_GROUP_MEMBER.TARGET_ID.eq(userId))
+            // 공유 그룹과 호출자 본인의 개인 그룹만 — 남의 PERSONAL 그룹 이름(사용자 메모 성격)이 카드로 새지 않게(WP-545).
+            // 그룹 트리 조회(UserGroupRepository.findAccessible)와 같은 술어다.
+            .and(USER_GROUP.OWNER_ID.isNull().or(USER_GROUP.OWNER_ID.eq(callerId)))
             .orderBy(USER_GROUP.NAME.asc())
             .fetch(USER_GROUP.NAME);
 

@@ -258,6 +258,40 @@ class ContactRepositoryTest extends IntegrationTestBase {
     assertThat(d.get().groups()).anyMatch(n -> n.startsWith("개발팀_"));
   }
 
+  /** WP-545: 남의 PERSONAL 그룹 이름은 소속 그룹에 실리지 않는다 — 공유 그룹·호출자 본인의 개인 그룹만. */
+  @Test
+  void getMember_groups_excludeOthersPersonalGroups() {
+    long target = seedUser("Tgt" + tag(), "HUMAN");
+    long other = seedUser("Oth" + tag(), "HUMAN");
+    long caller = seedUser("Clr" + tag(), "HUMAN");
+    String t = tag();
+    long shared = seedGroup("공유팀_" + t, "SHARED", null);
+    long othersPersonal = seedGroup("남의비공개_" + t, "PERSONAL", other);
+    long callersPersonal = seedGroup("내그룹_" + t, "PERSONAL", caller);
+    for (long g : new long[] {shared, othersPersonal, callersPersonal}) {
+      dsl.insertInto(USER_GROUP_MEMBER)
+          .set(USER_GROUP_MEMBER.GROUP_ID, g)
+          .set(USER_GROUP_MEMBER.TARGET_TYPE, "MEMBER")
+          .set(USER_GROUP_MEMBER.TARGET_ID, target)
+          .execute();
+    }
+
+    List<String> groups = repo.findMember(TENANT_ID, caller, target).orElseThrow().groups();
+
+    assertThat(groups).containsExactlyInAnyOrder("공유팀_" + t, "내그룹_" + t);
+  }
+
+  /** 그룹 시드 — ownerId null 이면 공유(SHARED) 그룹. */
+  private long seedGroup(String name, String visibility, Long ownerId) {
+    return dsl.insertInto(USER_GROUP)
+        .set(USER_GROUP.NAME, name)
+        .set(USER_GROUP.VISIBILITY, visibility)
+        .set(USER_GROUP.OWNER_ID, ownerId)
+        .returning(USER_GROUP.ID)
+        .fetchOne()
+        .getId();
+  }
+
   @Test
   void getMember_agentOrMissing_empty() {
     long agent = seedUser("ag_" + tag(), "AGENT");
