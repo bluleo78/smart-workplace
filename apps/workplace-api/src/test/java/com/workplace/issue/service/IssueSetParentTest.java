@@ -167,7 +167,9 @@ class IssueSetParentTest extends IntegrationTestBase {
             new CreateIssueRequest("s", null, null, null, null, subId, task.number(), null));
 
     assertThatThrownBy(() -> issueService.setParent(owner, p.key(), sub.number(), epic.number()))
-        .isInstanceOf(SubtaskParentCannotBeEpicException.class);
+        .isInstanceOf(SubtaskParentCannotBeEpicException.class)
+        // WP-470 — 토스트로 그대로 보이므로 내부 코드(SUBTASK·EPIC) 없이 화면 용어로 알린다.
+        .hasMessage("하위 태스크는 에픽 바로 아래에 둘 수 없습니다. 에픽 안의 태스크·버그 아래에 만들어 주세요");
   }
 
   @Test

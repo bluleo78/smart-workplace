@@ -45,12 +45,12 @@ public class IssueDependencyService {
             .findByProjectAndNumber(project.id(), number)
             .orElseThrow(() -> new IssueNotFoundException(projectKey, number));
     if (otherNumber == number) {
-      throw new InvalidDependencyException("자기 자신");
+      throw new InvalidDependencyException("자기 자신과는 연결할 수 없습니다");
     }
     var otherRow =
         issueRepository
             .findByProjectAndNumber(project.id(), otherNumber)
-            .orElseThrow(() -> new InvalidDependencyException("없는 이슈 또는 다른 프로젝트"));
+            .orElseThrow(() -> new InvalidDependencyException("이 프로젝트에 없는 이슈 번호입니다"));
 
     Long fromId;
     Long toId;
@@ -87,7 +87,7 @@ public class IssueDependencyService {
     var otherRow =
         issueRepository
             .findByProjectAndNumber(project.id(), otherNumber)
-            .orElseThrow(() -> new InvalidDependencyException("없는 이슈 또는 다른 프로젝트"));
+            .orElseThrow(() -> new InvalidDependencyException("이 프로젝트에 없는 이슈 번호입니다"));
 
     Long fromId;
     Long toId;

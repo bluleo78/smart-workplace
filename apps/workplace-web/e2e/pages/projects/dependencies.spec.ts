@@ -212,10 +212,12 @@ test.describe('의존성', () => {
     );
 
     // POST → 409 DEPENDENCY_CYCLE.
+    let posts = 0;
     await page.route(
       (url) => url.pathname === `${ISSUES_BASE}/1/dependencies`,
       (route: Route) => {
         if (route.request().method() === 'POST') {
+          posts += 1;
           return route.fulfill({
             status: 409,
             contentType: 'application/json',
@@ -236,6 +238,11 @@ test.describe('의존성', () => {
 
     // 차단 중 picker — 번호 입력 후 저장 시도.
     await page.getByTestId('issue-link-picker-trigger-blocks').click();
+    // WP-470 — 번호 범위를 넘으면 요청 없이 화면 문구로 알린다(예전엔 「요청 본문을 해석할 수 없습니다」).
+    await page.getByTestId('issue-link-picker-input-blocks').fill('99999999999');
+    await page.getByTestId('issue-link-picker-save-blocks').click();
+    await expect(page.getByText('이 프로젝트에 없는 이슈 번호입니다')).toBeVisible();
+    expect(posts).toBe(0);
     await page.getByTestId('issue-link-picker-input-blocks').fill('7');
     await page.getByTestId('issue-link-picker-save-blocks').click();
 

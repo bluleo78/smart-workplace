@@ -263,11 +263,11 @@ public class IssueService {
       var parent =
           issueRepository
               .findByProjectAndNumber(project.id(), req.parentNumber())
-              .orElseThrow(() -> new InvalidParentException("부모 이슈 없음"));
+              .orElseThrow(() -> new InvalidParentException("부모로 지정한 이슈를 찾을 수 없습니다"));
       var parentType =
           typeRepository
               .findById(parent.typeId())
-              .orElseThrow(() -> new InvalidParentException("부모 유형 없음"));
+              .orElseThrow(() -> new InvalidParentException("부모로 지정한 이슈의 유형을 확인할 수 없습니다"));
       boolean parentIsSubtask = "SUBTASK".equals(parentType.name());
       boolean parentIsEpic = "EPIC".equals(parentType.name());
       if (isSubtask) {
@@ -910,15 +910,16 @@ public class IssueService {
     Long newParentId = null;
     ParentRef newRef = null;
     if (newParentNumber != null) {
-      if (newParentNumber == row.number()) throw new InvalidParentException("자기 자신");
+      if (newParentNumber == row.number())
+        throw new InvalidParentException("자기 자신을 부모로 지정할 수 없습니다");
       var newParent =
           issueRepository
               .findByProjectAndNumber(project.id(), newParentNumber)
-              .orElseThrow(() -> new InvalidParentException("부모 이슈 없음"));
+              .orElseThrow(() -> new InvalidParentException("부모로 지정한 이슈를 찾을 수 없습니다"));
       var newParentType =
           typeRepository
               .findById(newParent.typeId())
-              .orElseThrow(() -> new InvalidParentException("부모 유형 없음"));
+              .orElseThrow(() -> new InvalidParentException("부모로 지정한 이슈의 유형을 확인할 수 없습니다"));
       boolean newParentIsSubtask = "SUBTASK".equals(newParentType.name());
       boolean newParentIsEpic = "EPIC".equals(newParentType.name());
       if (isSubtask) {

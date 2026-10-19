@@ -1,8 +1,8 @@
 package com.workplace.issue.exception;
 
-/** SUBTASK 의 부모로 EPIC 을 지정 — 2단계 초과 계층 금지. 400. */
+/** 하위 태스크의 부모가 에픽(2단계 초과) — 400. 문구는 화면 용어(하위 태스크·에픽)로 — 토스트로 그대로 보인다(WP-470). */
 public class SubtaskParentCannotBeEpicException extends RuntimeException {
   public SubtaskParentCannotBeEpicException() {
-    super("SUBTASK 는 EPIC 을 부모로 가질 수 없습니다 (2단계 초과 금지)");
+    super("하위 태스크는 에픽 바로 아래에 둘 수 없습니다. 에픽 안의 태스크·버그 아래에 만들어 주세요");
   }
 }

@@ -1,8 +1,8 @@
 package com.workplace.issue.exception;
 
-/** 일반 이슈(비SUBTASK, 비EPIC)가 부모로 EPIC 이 아닌 이슈를 지정한 경우 — 400. */
+/** 일반 이슈의 부모가 에픽이 아님 — 400. 문구는 화면 용어(하위 태스크·에픽)로 — 토스트로 그대로 보인다(WP-470). */
 public class ParentNotAllowedException extends RuntimeException {
   public ParentNotAllowedException() {
-    super("일반 이슈는 EPIC 만 부모로 지정할 수 있습니다");
+    super("일반 이슈는 에픽 아래에만 둘 수 있습니다");
   }
 }

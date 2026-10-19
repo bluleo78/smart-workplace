@@ -3,6 +3,7 @@
 // direction prop 으로 blocks/blockedBy 두 모드 재사용.
 
 import { useState } from 'react';
+import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,6 +11,9 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 
 import type { DependencyDirection } from '../../../api/issueDependencies';
 import { useAddIssueDependency } from '../../../hooks/queries/useIssueDependencies';
+
+/** 이슈 번호 상한 — 서버가 int 로 받는다. */
+const MAX_ISSUE_NUMBER = 2_147_483_647;
 
 export function IssueLinkPicker({
   projectKey,
@@ -29,6 +33,11 @@ export function IssueLinkPicker({
     const trimmed = value.trim();
     const n = Number(trimmed);
     if (!Number.isFinite(n) || n <= 0 || !Number.isInteger(n)) return;
+    // 서버 번호 범위(int)를 넘으면 요청 본문을 읽지 못해 「요청 본문을 해석할 수 없습니다」가 떴다(WP-470) — 보내기 전에 화면 문구로 알린다.
+    if (n > MAX_ISSUE_NUMBER) {
+      toast.error('이 프로젝트에 없는 이슈 번호입니다');
+      return;
+    }
     try {
       await add.mutateAsync({ otherNumber: n, direction });
       setValue('');
