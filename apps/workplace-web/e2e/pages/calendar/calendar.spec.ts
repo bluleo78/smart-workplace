@@ -673,6 +673,36 @@ test.describe('종일 일정 타임존 렌더 (KST 고정)', () => {
       await expect(page.getByTestId('calendar-event-1')).toHaveCount(2)
     },
   )
+
+  // WP-538: 종일 칸이 날짜 헤더 열과 같은 폭이어야 한다 — 줄바꿈 없는 긴 제목이 칸 최소 폭을 키워 칸이 어긋나면, 여러 날 일정이
+  // 엉뚱한 날짜 열에 걸쳐 보였다(헤더 159px 인데 종일 칸 113/220px).
+  test(
+    '주 뷰 종일 행 — 긴 제목이어도 종일 칸이 날짜 헤더 열과 같은 위치·폭이다',
+    async ({ authenticatedPage: page }) => {
+      await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+      await stubCalendarEvents(page, [
+        calendarEvent({
+          id: 1, allDay: true,
+          title: '제주 오프사이트 워크숍 — 2027 전략 수립 및 조직 개편안 최종 검토(전 팀장 참석)',
+          startsAt: '2026-06-08T00:00:00+09:00', endsAt: '2026-06-11T00:00:00+09:00',
+        }),
+      ])
+
+      await page.goto('/calendar')
+      await page.getByTestId('calendar-view-week-btn').click()
+      await expect(page.getByTestId('calendar-event-1')).toHaveCount(3)
+
+      const headers = page.getByTestId('calendar-day-header')
+      const cells = page.getByTestId('calendar-allday-cell')
+      await expect(cells).toHaveCount(7)
+      for (let i = 0; i < 7; i++) {
+        const h = await headers.nth(i).boundingBox()
+        const c = await cells.nth(i).boundingBox()
+        expect(Math.abs(c!.x - h!.x), `${i}번째 칸 x`).toBeLessThan(1)
+        expect(Math.abs(c!.width - h!.width), `${i}번째 칸 폭`).toBeLessThan(1)
+      }
+    },
+  )
 })
 
 test(

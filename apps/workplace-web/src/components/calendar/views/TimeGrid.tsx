@@ -66,7 +66,8 @@ export function TimeGrid({
           return (
             <div
               key={day.toISOString()}
-              className="flex-1 text-center text-sm py-2 font-medium border-l"
+              data-testid="calendar-day-header"
+              className="flex-1 min-w-0 text-center text-sm py-2 font-medium border-l"
             >
               <span
                 className={
@@ -92,9 +93,11 @@ export function TimeGrid({
           // 마감일은 날짜 단위라 종일 줄에 함께 표시.
           const dayDues = issueDuesOnDay(issueDues, day)
           return (
+            // min-w-0: 줄바꿈 없는 긴 제목(truncate)이 flex 항목 최소 폭을 키우면 칸이 날짜 헤더 열과 어긋난다(WP-538).
             <div
               key={day.toISOString()}
-              className="flex-1 border-l min-h-[28px] p-0.5 space-y-0.5"
+              data-testid="calendar-allday-cell"
+              className="flex-1 min-w-0 border-l min-h-[28px] p-0.5 space-y-0.5"
             >
               {allDayEvts.map((e) => (
                 <button
