@@ -240,21 +240,39 @@ public class UserGroupRepository {
     return dsl.fetchExists(dsl.selectOne().from(USER_GROUP).where(cond));
   }
 
+  /** MEMBER 편입 대상의 상태(WP-553) — 거절 이유를 사람이 알아볼 수 있게 갈라 돌려준다. */
+  public enum MemberTarget {
+    /** 이 워크스페이스의 활성 사람 구성원 — 편입 가능. */
+    OK,
+    /** 이 워크스페이스 구성원이지만 정지(멤버십 SUSPENDED) 또는 계정 비활성. */
+    SUSPENDED,
+    /** 이 워크스페이스 구성원이지만 사람이 아님(AI). */
+    NOT_HUMAN,
+    /** 없는 사용자이거나 이 워크스페이스 구성원이 아님(타 테넌트 포함 — 존재를 드러내지 않는다). */
+    NOT_MEMBER
+  }
+
   /**
    * MEMBER 대상 검증 — 현재 테넌트의 ACTIVE 멤버십을 가진 활성 HUMAN 인지(#832). user 는 tenant_id/RLS 가 없는 전역 테이블이라
-   * membership 조인 없이는 타 테넌트 사용자를 그룹에 편입시킬 수 있다.
+   * membership 조인 없이는 타 테넌트 사용자를 그룹에 편입시킬 수 있다. 정지·AI 는 이유를 갈라 돌려준다(WP-553).
    */
-  public boolean memberUserExists(long tenantId, long userId) {
-    return dsl.fetchExists(
-        dsl.selectOne()
+  public MemberTarget memberTarget(long tenantId, long userId) {
+    var row =
+        dsl.select(USER.KIND, USER.IS_ACTIVE, MEMBERSHIP.STATUS)
             .from(USER)
             .join(MEMBERSHIP)
             .on(USER.ID.eq(MEMBERSHIP.USER_ID))
             .where(USER.ID.eq(userId))
             .and(MEMBERSHIP.TENANT_ID.eq(tenantId))
-            .and(MEMBERSHIP.STATUS.eq("ACTIVE"))
-            .and(USER.KIND.eq("HUMAN"))
-            .and(USER.IS_ACTIVE.isTrue()));
+            .and(MEMBERSHIP.STATUS.in("ACTIVE", "SUSPENDED"))
+            .fetchOne();
+    if (row == null) return MemberTarget.NOT_MEMBER;
+    if (!"HUMAN".equals(row.get(USER.KIND))) return MemberTarget.NOT_HUMAN;
+    if (!"ACTIVE".equals(row.get(MEMBERSHIP.STATUS))
+        || !Boolean.TRUE.equals(row.get(USER.IS_ACTIVE))) {
+      return MemberTarget.SUSPENDED;
+    }
+    return MemberTarget.OK;
   }
 
   /** EXTERNAL 대상 검증 — 호출자가 읽을 수 있는 contact_entry 존재 여부(SHARED|owner|admin). */

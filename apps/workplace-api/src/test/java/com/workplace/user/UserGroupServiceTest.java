@@ -203,6 +203,34 @@ class UserGroupServiceTest extends IntegrationTestBase {
         .isInstanceOf(InvalidUserGroupException.class);
   }
 
+  /** WP-553: 정지된 구성원은 「존재하지 않음」이 아니라 정지라는 실제 이유로 거절하고, 안내에 내부 id 를 붙이지 않는다. */
+  @Test
+  void addMember_suspendedMember_rejectedWithSuspendedReason() {
+    long caller = user();
+    long suspended = user();
+    dsl.update(MEMBERSHIP)
+        .set(MEMBERSHIP.STATUS, "SUSPENDED")
+        .where(MEMBERSHIP.USER_ID.eq(suspended))
+        .and(MEMBERSHIP.TENANT_ID.eq(1L))
+        .execute();
+    UserGroupDetail g = service.create(caller, req("내 그룹", null, "PERSONAL"));
+    assertThatThrownBy(
+            () -> service.addMember(caller, g.id(), new AddMemberRequest("MEMBER", suspended)))
+        .isInstanceOf(InvalidUserGroupException.class)
+        .hasMessage("정지된 구성원은 그룹에 넣을 수 없습니다");
+  }
+
+  /** WP-553: 없는 사용자(타 테넌트 포함)는 id 없이 「이 워크스페이스의 구성원이 아닙니다」로 거절한다. */
+  @Test
+  void addMember_unknownMember_rejectedWithoutInternalId() {
+    long caller = user();
+    UserGroupDetail g = service.create(caller, req("내 그룹", null, "PERSONAL"));
+    assertThatThrownBy(
+            () -> service.addMember(caller, g.id(), new AddMemberRequest("MEMBER", 987654321L)))
+        .isInstanceOf(InvalidUserGroupException.class)
+        .hasMessage("이 워크스페이스의 구성원이 아닙니다");
+  }
+
   @Test
   void addMember_duplicate_isIdempotent() {
     long caller = user();

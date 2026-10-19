@@ -156,8 +156,12 @@ public class UserGroupService {
   public UserGroupDetail addMember(long callerId, long id, AddMemberRequest req) {
     FlatGroup g = requireWritable(callerId, id);
     if ("MEMBER".equals(req.targetType())) {
-      if (!repo.memberUserExists(TenantContext.require(), req.targetId())) {
-        throw new InvalidUserGroupException("존재하지 않는 멤버입니다: " + req.targetId());
+      // 거절 이유를 갈라 안내한다(WP-553) — 정지된 사람을 「존재하지 않음」으로 안내하지 않고, 내부 id 도 붙이지 않는다.
+      switch (repo.memberTarget(TenantContext.require(), req.targetId())) {
+        case OK -> {}
+        case SUSPENDED -> throw new InvalidUserGroupException("정지된 구성원은 그룹에 넣을 수 없습니다");
+        case NOT_HUMAN -> throw new InvalidUserGroupException("AI 는 그룹에 넣을 수 없습니다");
+        case NOT_MEMBER -> throw new InvalidUserGroupException("이 워크스페이스의 구성원이 아닙니다");
       }
     } else { // EXTERNAL
       boolean admin = permissionChecker.userHasRole(callerId, "ADMIN");
