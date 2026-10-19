@@ -179,7 +179,7 @@ export function EventDialog({
     if (!event) setSelectedAttendees([])
 
     // 반복 규칙(RRULE) → 평탄한 폼 필드로 변환. 생성 모드(이벤트 없음)면 NONE 기본값.
-    const rec = parseRRule(event?.recurrenceRule ?? null)
+    const rec = parseRRule(event?.recurrenceRule ?? null, event?.startsAt)
     const recFields = {
       recurrenceFreq: rec.freq,
       recurrenceInterval: rec.interval,

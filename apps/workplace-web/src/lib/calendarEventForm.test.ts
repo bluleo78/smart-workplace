@@ -196,7 +196,7 @@ describe('toEventRequest', () => {
       { ...base, recurrenceFreq: 'WEEKLY', recurrenceEnd: 'until', recurrenceUntil: '2026-06-19' },
       { isEdit: false, defaultCalendarId: 1, attendeeUserIds: [] },
     )
-    expect(body.recurrenceRule).toBe('FREQ=WEEKLY;UNTIL=20260619T235959Z')
+    expect(body.recurrenceRule).toBe('FREQ=WEEKLY;UNTIL=20260619T145959Z')
   })
 })
 

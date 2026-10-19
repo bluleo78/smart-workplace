@@ -14,6 +14,34 @@ export interface RecurrenceForm {
   end: RecurrenceEnd
 }
 
+// 반복 회차를 펼치는 기준 시간대 — 서버(RecurrenceExpander, WP-534)와 같은 한국 시간(+09:00, 일광절약 없음). 종료일
+// 「YYYY-MM-DD 까지」는 이 시간대의 그날 끝을 뜻한다(WP-535).
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000
+const DAY_MS = 24 * 60 * 60 * 1000
+
+// 'YYYY-MM-DD'(한국 날짜) → 그날 23:59:59 KST 를 RRULE UNTIL(UTC 절대 시각, 'YYYYMMDDTHHMMSSZ')로.
+function kstEndOfDayUntil(date: string): string {
+  const endUtc = new Date(Date.parse(`${date}T23:59:59Z`) - KST_OFFSET_MS)
+  return endUtc.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')
+}
+
+// RRULE UNTIL('YYYYMMDDTHHMMSSZ' 또는 날짜만) → 마지막 회차가 생기는 한국 날짜 'YYYY-MM-DD'.
+// UNTIL 의 한국 시각이 일정 시작 시각(하루 중 시각)보다 이르면 그날 회차는 생기지 않으므로 전날이다 — 예전 형식(UTC 하루 끝)과
+// 「이후 모두」 분할이 만든 UNTIL(다음 회차 1초 전)을 다시 저장해도 회차가 늘지 않게 한다. 시작 시각을 모르면 UNTIL 의 한국 날짜.
+function untilToKstDate(until: string, startsAt?: string): string {
+  const m = /^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})Z?)?$/.exec(until)
+  if (!m) return `${until.slice(0, 4)}-${until.slice(4, 6)}-${until.slice(6, 8)}`
+  // 날짜만(시각 없음)이면 그 날짜 그대로
+  if (m[4] === undefined) return `${m[1]}-${m[2]}-${m[3]}`
+  const untilKst = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]) + KST_OFFSET_MS
+  let dayStart = untilKst - (untilKst % DAY_MS)
+  if (startsAt) {
+    const startKst = Date.parse(startsAt) + KST_OFFSET_MS
+    if (Number.isFinite(startKst) && untilKst - dayStart < startKst % DAY_MS) dayStart -= DAY_MS
+  }
+  return new Date(dayStart).toISOString().slice(0, 10)
+}
+
 // 반복 없음 기본값 — parse 실패/null 시 공통 반환.
 const NONE_FORM: RecurrenceForm = { freq: 'NONE', interval: 1, end: { type: 'none' } }
 
@@ -27,9 +55,8 @@ export function buildRRule(form: RecurrenceForm): string | null {
   if (form.interval > 1) parts.push(`INTERVAL=${form.interval}`)
 
   if (form.end.type === 'until') {
-    // 'YYYY-MM-DD' → 'YYYYMMDDT235959Z' (대시 제거 + UTC 당일 끝)
-    const compact = form.end.date.replace(/-/g, '')
-    parts.push(`UNTIL=${compact}T235959Z`)
+    // 'YYYY-MM-DD' → 한국 시간 그날 끝의 UTC 시각(예: 2026-11-18 → 20261118T145959Z)
+    parts.push(`UNTIL=${kstEndOfDayUntil(form.end.date)}`)
   } else if (form.end.type === 'count') {
     parts.push(`COUNT=${form.end.count}`)
   }
@@ -38,7 +65,8 @@ export function buildRRule(form: RecurrenceForm): string | null {
 }
 
 // RRULE 문자열 → 폼 모델. null/빈 문자열/미지원 FREQ 는 반복 없음으로.
-export function parseRRule(rrule: string | null): RecurrenceForm {
+// startsAt(일정 시작 시각, ISO)을 주면 종료일을 「마지막 회차가 생기는 한국 날짜」로 복원한다(untilToKstDate).
+export function parseRRule(rrule: string | null, startsAt?: string): RecurrenceForm {
   if (!rrule) return { ...NONE_FORM }
 
   // "KEY=VALUE;KEY=VALUE" 를 맵으로 파싱
@@ -63,9 +91,7 @@ export function parseRRule(rrule: string | null): RecurrenceForm {
   const until = map.get('UNTIL')
   const count = map.get('COUNT')
   if (until) {
-    // 'YYYYMMDD...'(compact) → 'YYYY-MM-DD' 로 복원
-    const date = `${until.slice(0, 4)}-${until.slice(4, 6)}-${until.slice(6, 8)}`
-    end = { type: 'until', date }
+    end = { type: 'until', date: untilToKstDate(until, startsAt) }
   } else if (count) {
     end = { type: 'count', count: Number(count) }
   }
