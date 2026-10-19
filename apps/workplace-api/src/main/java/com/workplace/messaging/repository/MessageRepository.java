@@ -53,21 +53,26 @@ public class MessageRepository {
         .getId();
   }
 
-  /** 메시지 body·mentions·edited_at 수정. */
-  public void update(long id, String body, java.util.List<Long> mentionUserIds) {
-    dsl.update(MESSAGE)
+  /**
+   * 메시지 body·mentions·edited_at 수정. 삭제된 메시지는 건드리지 않는다(WP-509 — 삭제 뒤 수정 요청이 가려진 본문을 덮어썼다). 바뀐 행 수를
+   * 돌려준다(0 = 없거나 삭제됨).
+   */
+  public int update(long id, String body, java.util.List<Long> mentionUserIds) {
+    return dsl.update(MESSAGE)
         .set(MESSAGE.BODY, body)
         .set(MESSAGE.MENTIONS, JSONB.valueOf(toJson(mentionUserIds)))
         .set(MESSAGE.EDITED_AT, java.time.OffsetDateTime.now())
         .where(MESSAGE.ID.eq(id))
+        .and(MESSAGE.DELETED_AT.isNull())
         .execute();
   }
 
-  /** soft-delete: deleted_at 설정. */
-  public void softDelete(long id) {
-    dsl.update(MESSAGE)
+  /** soft-delete: deleted_at 설정. 이미 삭제된 메시지는 처음 삭제 시각을 지킨다. 바뀐 행 수를 돌려준다(0 = 이미 삭제됨). */
+  public int softDelete(long id) {
+    return dsl.update(MESSAGE)
         .set(MESSAGE.DELETED_AT, java.time.OffsetDateTime.now())
         .where(MESSAGE.ID.eq(id))
+        .and(MESSAGE.DELETED_AT.isNull())
         .execute();
   }
 

@@ -255,7 +255,10 @@ public class MessageService {
     // 보관된 채널은 읽기 전용 — 새 메시지와 같이 수정도 막는다(WP-508).
     if (channelRepo.isArchived(channelId)) throw new ChannelArchivedException(channelId);
     List<Long> mentionIds = mentionHydrator.filterExistingUserIds(MentionParser.parse(req.body()));
-    messageRepo.update(messageId, req.body(), mentionIds);
+    // 삭제된 메시지는 수정 대상이 아니다 — 없는 메시지와 같게 404(WP-509).
+    if (messageRepo.update(messageId, req.body(), mentionIds) == 0) {
+      throw new MessageNotFoundException(messageId);
+    }
     MessageResponse saved = findOne(messageId, callerId);
     publisher.publishEvent(
         new MessageUpdatedEvent(
@@ -282,7 +285,8 @@ public class MessageService {
     ensureMember(channelId, callerId);
     // 보관된 채널은 읽기 전용 — 삭제도 막는다(WP-508).
     if (channelRepo.isArchived(channelId)) throw new ChannelArchivedException(channelId);
-    messageRepo.softDelete(messageId);
+    // 이미 삭제된 메시지면 아무것도 하지 않는다(멱등 — 삭제 시각·이벤트를 다시 만들지 않음).
+    if (messageRepo.softDelete(messageId) == 0) return;
     // 메시지 삭제 시 연결된 드라이브 ref 정리 (source_id 는 비-FK 이므로 명시적 purge 필요)
     driveLinkService.purgeSource("MESSAGE", messageId);
     publisher.publishEvent(new MessageDeletedEvent(channelId, messageId));

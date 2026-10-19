@@ -10,6 +10,7 @@ import com.workplace.messaging.dto.MessageResponse;
 import com.workplace.messaging.dto.UpdateMessageRequest;
 import com.workplace.messaging.exception.ChannelArchivedException;
 import com.workplace.messaging.exception.ChannelNotMemberException;
+import com.workplace.messaging.exception.MessageNotFoundException;
 import com.workplace.messaging.repository.ChannelRepository;
 import com.workplace.support.IntegrationTestBase;
 import java.util.UUID;
@@ -91,5 +92,32 @@ class MessageServiceTest extends IntegrationTestBase {
         .isInstanceOf(ChannelNotMemberException.class);
     assertThatThrownBy(() -> messageService.delete(uid, messageId))
         .isInstanceOf(ChannelNotMemberException.class);
+  }
+
+  /** WP-509: 삭제된 메시지는 수정할 수 없고(404), DB 본문도 바뀌지 않는다. 다시 삭제해도 삭제 시각이 바뀌지 않는다. */
+  @Test
+  void update_deletedMessage_throws404_andKeepsBody() {
+    long uid = seedUser();
+    long chId = channelService.create(uid, "삭제수정-" + UUID.randomUUID(), "PUBLIC").id();
+    long messageId = messageService.create(uid, chId, new CreateMessageRequest("원래 본문")).id();
+    messageService.delete(uid, messageId);
+    var deletedAt =
+        dsl.select(com.workplace.jooq.Tables.MESSAGE.DELETED_AT)
+            .from(com.workplace.jooq.Tables.MESSAGE)
+            .where(com.workplace.jooq.Tables.MESSAGE.ID.eq(messageId))
+            .fetchOne(com.workplace.jooq.Tables.MESSAGE.DELETED_AT);
+
+    assertThatThrownBy(
+            () -> messageService.update(uid, messageId, new UpdateMessageRequest("삭제 뒤 새 본문")))
+        .isInstanceOf(MessageNotFoundException.class);
+    messageService.delete(uid, messageId);
+
+    var row =
+        dsl.selectFrom(com.workplace.jooq.Tables.MESSAGE)
+            .where(com.workplace.jooq.Tables.MESSAGE.ID.eq(messageId))
+            .fetchOne();
+    assertThat(row.getBody()).isEqualTo("원래 본문");
+    assertThat(row.getEditedAt()).isNull();
+    assertThat(row.getDeletedAt()).isEqualTo(deletedAt);
   }
 }
