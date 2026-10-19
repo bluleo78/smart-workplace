@@ -229,6 +229,18 @@ public class UserGroupRepository {
   }
 
   /**
+   * 같은 코드를 쓰는 공유 그룹 존재 여부(WP-549) — 인덱스 {@code idx_user_group_code_shared} 와 같은 범위(SHARED, 테넌트는
+   * RLS)로 정확 일치 비교한다. excludeId 는 본인 수정 시 자기 자신을 제외하기 위함.
+   */
+  public boolean existsSharedCode(String code, Long excludeId) {
+    var cond = USER_GROUP.VISIBILITY.eq("SHARED").and(USER_GROUP.CODE.eq(code));
+    if (excludeId != null) {
+      cond = cond.and(USER_GROUP.ID.ne(excludeId));
+    }
+    return dsl.fetchExists(dsl.selectOne().from(USER_GROUP).where(cond));
+  }
+
+  /**
    * MEMBER 대상 검증 — 현재 테넌트의 ACTIVE 멤버십을 가진 활성 HUMAN 인지(#832). user 는 tenant_id/RLS 가 없는 전역 테이블이라
    * membership 조인 없이는 타 테넌트 사용자를 그룹에 편입시킬 수 있다.
    */

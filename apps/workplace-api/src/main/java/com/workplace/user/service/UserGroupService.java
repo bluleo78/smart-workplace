@@ -59,6 +59,19 @@ public class UserGroupService {
     return toDetail(callerId, g);
   }
 
+  /**
+   * 공유 그룹 코드 중복 사전 확인(WP-549). 코드 유니크 인덱스(테넌트·SHARED 한정)에 걸리면 무결성 위반 일반 처리로 영어 409 가 나가므로, 저장 전에 같은
+   * 코드의 다른 공유 그룹이 있는지 보고 한국어 안내로 거절한다. 개인 그룹·빈 코드는 제약이 없어 확인하지 않는다.
+   */
+  private void requireUniqueCode(String visibility, String code, Long excludeId) {
+    if ("SHARED".equals(visibility)
+        && code != null
+        && !code.isBlank()
+        && repo.existsSharedCode(code, excludeId)) {
+      throw new InvalidUserGroupException("이미 존재하는 그룹 코드입니다: " + code);
+    }
+  }
+
   /** 그룹 생성. SHARED→manage 권한, PERSONAL→owner=caller. parent 검증 포함. */
   @Transactional
   public UserGroupDetail create(long callerId, CreateUserGroupRequest req) {
@@ -73,6 +86,7 @@ public class UserGroupService {
     if (repo.existsSiblingName(req.parentId(), req.visibility(), ownerId, req.name(), null)) {
       throw new InvalidUserGroupException("이미 존재하는 그룹 이름입니다: " + req.name());
     }
+    requireUniqueCode(req.visibility(), req.code(), null);
     long id = repo.insert(req, ownerId);
     return toDetail(
         callerId, repo.findById(id).orElseThrow(() -> new UserGroupNotFoundException(id)));
@@ -112,6 +126,7 @@ public class UserGroupService {
     if (repo.existsSiblingName(parentId, g.visibility(), g.ownerId(), name, id)) {
       throw new InvalidUserGroupException("이미 존재하는 그룹 이름입니다: " + name);
     }
+    requireUniqueCode(g.visibility(), code, id);
     repo.update(id, name, parentId, code, sortOrder);
     return toDetail(
         callerId, repo.findById(id).orElseThrow(() -> new UserGroupNotFoundException(id)));

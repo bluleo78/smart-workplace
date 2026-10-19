@@ -434,6 +434,65 @@ class UserGroupServiceTest extends IntegrationTestBase {
   }
 
   @Test
+  void create_duplicateSharedCode_throwsInvalidWithKoreanMessage() {
+    // WP-549: 공유 그룹 코드 중복은 DB 제약 위반(영어 409) 전에 한국어 안내로 거절한다.
+    long admin = user();
+    makeAdmin(admin);
+    String code = "DUP-" + UUID.randomUUID();
+    service.create(
+        admin, new CreateUserGroupRequest("코드A" + UUID.randomUUID(), null, "SHARED", code, 0));
+    assertThatThrownBy(
+            () ->
+                service.create(
+                    admin,
+                    new CreateUserGroupRequest("코드B" + UUID.randomUUID(), null, "SHARED", code, 0)))
+        .isInstanceOf(InvalidUserGroupException.class)
+        .hasMessageContaining("이미 존재하는 그룹 코드입니다");
+  }
+
+  @Test
+  void update_toExistingSharedCode_throwsInvalid_keepingOwnCodeSucceeds() {
+    long admin = user();
+    makeAdmin(admin);
+    String taken = "TAKEN-" + UUID.randomUUID();
+    service.create(
+        admin, new CreateUserGroupRequest("선점" + UUID.randomUUID(), null, "SHARED", taken, 0));
+    String own = "OWN-" + UUID.randomUUID();
+    UserGroupDetail target =
+        service.create(
+            admin, new CreateUserGroupRequest("대상" + UUID.randomUUID(), null, "SHARED", own, 0));
+    assertThatThrownBy(
+            () ->
+                service.update(
+                    admin,
+                    target.id(),
+                    new UpdateUserGroupRequest(null, null, null, taken, null, null)))
+        .isInstanceOf(InvalidUserGroupException.class)
+        .hasMessageContaining("이미 존재하는 그룹 코드입니다");
+    // 자기 코드를 그대로 두고 이름만 바꾸는 수정은 통과한다.
+    UserGroupDetail renamed =
+        service.update(
+            admin,
+            target.id(),
+            new UpdateUserGroupRequest("새이름" + UUID.randomUUID(), null, null, null, null, null));
+    assertThat(renamed.code()).isEqualTo(own);
+  }
+
+  @Test
+  void create_sameCode_personal_succeeds() {
+    // 코드 유니크는 공유 그룹에만 있다 — 개인 그룹은 코드가 겹쳐도 된다.
+    long caller = user();
+    String code = "MINE-" + UUID.randomUUID();
+    service.create(
+        caller, new CreateUserGroupRequest("개인A" + UUID.randomUUID(), null, "PERSONAL", code, 0));
+    UserGroupDetail g =
+        service.create(
+            caller,
+            new CreateUserGroupRequest("개인B" + UUID.randomUUID(), null, "PERSONAL", code, 0));
+    assertThat(g.code()).isEqualTo(code);
+  }
+
+  @Test
   void create_sameName_differentParent_succeeds() {
     long admin = user();
     makeAdmin(admin);
