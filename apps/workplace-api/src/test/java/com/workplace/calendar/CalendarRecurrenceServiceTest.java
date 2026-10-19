@@ -385,4 +385,30 @@ class CalendarRecurrenceServiceTest extends IntegrationTestBase {
     assertThat(r).hasSize(4);
     assertThat(r).allSatisfy(e -> assertThat(e.recurrenceRule()).isEqualTo("FREQ=WEEKLY"));
   }
+
+  /**
+   * WP-541: 반복 규칙에 없는 회차 날짜로 「이 일정만」·「이후 모두」 수정·삭제는 400 으로 거절한다 — 그대로 받으면 수정은 엉뚱한 날짜에 독립 일정을 만들고,
+   * 삭제는 아무 회차에도 닿지 않는 예외 행만 남겼다.
+   */
+  @Test
+  void scopedEditOrDelete_withNonOccurrenceDate_isRejected() {
+    long u = user();
+    CalendarEventResponse master =
+        service.create(u, recurringReq("FREQ=WEEKLY", BASE, BASE.plusHours(1)));
+    OffsetDateTime fake = BASE.plusDays(1).plusMinutes(33);
+
+    for (EditScope scope : List.of(EditScope.THIS, EditScope.THIS_AND_FOLLOWING)) {
+      assertThatThrownBy(
+              () ->
+                  service.update(
+                      u, master.id(), editReq("가짜 회차", "FREQ=WEEKLY", fake), scope, fake))
+          .isInstanceOf(IllegalArgumentException.class);
+      assertThatThrownBy(() -> service.delete(u, master.id(), scope, fake))
+          .isInstanceOf(IllegalArgumentException.class);
+    }
+    assertThat(overrideEventId(master.id())).isNull();
+    assertThat(service.list(u, BASE.minusDays(1), BASE.plusWeeks(2)))
+        .extracting(CalendarEventResponse::title)
+        .containsOnly("회의");
+  }
 }
