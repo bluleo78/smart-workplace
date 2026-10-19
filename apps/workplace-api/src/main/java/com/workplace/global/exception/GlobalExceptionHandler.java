@@ -943,14 +943,31 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(response);
   }
 
-  /** 업로드 파일 크기가 제한을 초과했을 때 400 대신 명확한 메시지를 반환한다. Spring Boot 기본 동작은 500 또는 비구조화된 에러이므로 여기서 통일한다. */
+  /**
+   * 업로드 파일 크기가 제한을 초과했을 때 400 대신 명확한 메시지를 반환한다. Spring Boot 기본 동작은 500 또는 비구조화된 에러이므로 여기서 통일한다.
+   *
+   * <p>Tomcat 은 파트 머리글(파일명 포함) 한도 초과도 같은 예외로 올린다 — 그때는 크기가 아니라 파일 이름이 너무 길다고 안내한다(WP-560).
+   */
   @ExceptionHandler(MaxUploadSizeExceededException.class)
   public ResponseEntity<ErrorResponse> handleMaxUploadSizeExceeded(
       MaxUploadSizeExceededException ex, HttpServletRequest request) {
-    ErrorResponse response =
-        buildError(
-            HttpStatus.BAD_REQUEST, "파일 크기가 허용 한도를 초과했습니다. 더 작은 파일을 업로드해주세요.", null, request);
+    String message =
+        isPartHeaderTooLarge(ex)
+            ? "파일 이름이 너무 깁니다. 이름을 줄여 다시 올려 주세요."
+            : "파일 크기가 허용 한도를 초과했습니다. 더 작은 파일을 업로드해주세요.";
+    ErrorResponse response = buildError(HttpStatus.BAD_REQUEST, message, null, request);
     return ResponseEntity.badRequest().body(response);
+  }
+
+  /** 원인 사슬에 Tomcat 의 파트 머리글 한도 초과(「Header section has more than N bytes」)가 있는지. */
+  private static boolean isPartHeaderTooLarge(Throwable ex) {
+    for (Throwable t = ex; t != null; t = t.getCause()) {
+      String m = t.getMessage();
+      if (m != null && m.contains("Header section has more than")) {
+        return true;
+      }
+    }
+    return false;
   }
 
   @ExceptionHandler(IllegalArgumentException.class)
