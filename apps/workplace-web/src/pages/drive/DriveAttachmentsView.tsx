@@ -195,13 +195,14 @@ export function DriveAttachmentsView() {
                             {formatFileSize(a.sizeBytes)}
                           </span>
 
-                          {/* 다운로드(호버) — downloadUrl 사용 */}
+                          {/* 다운로드(호버·키보드 포커스) — downloadUrl 사용. display:none 이면 Tab 순서에서 빠지므로 투명도로 감춘다(WP-498).
+                              터치 기기는 예전처럼 감춘다(행 눌러 미리보기에서 받는다). */}
                           <Button
                             variant="ghost"
                             size="xs"
                             onClick={() => void driveApi.downloadByPath(a.downloadUrl, a.name)}
                             data-testid={`drive-attachment-download-${a.fileId}`}
-                            className="hidden shrink-0 group-hover:inline-flex"
+                            className="shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:hidden"
                           >
                             다운로드
                           </Button>

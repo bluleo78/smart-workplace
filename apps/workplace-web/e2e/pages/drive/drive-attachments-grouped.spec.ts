@@ -98,6 +98,18 @@ test('다운로드 액션은 downloadUrl(첨부 콘텐츠 경로)을 요청', as
   await downloads.waitFor()
 })
 
+// WP-498 — 다운로드 버튼은 hover 뿐 아니라 키보드 포커스로도 닿는다(display:none 이면 Tab 순서에서 빠졌다).
+test('다운로드 버튼은 키보드 Tab 으로 포커스를 받고 보인다', async ({ authenticatedPage: page }) => {
+  await stubAttachments(page)
+  await page.goto('/drive/attachments')
+  const row = page.getByTestId('drive-attachment-row-1')
+  await row.getByRole('button').first().focus()
+  await page.keyboard.press('Tab')
+  const download = row.getByTestId('drive-attachment-download-1')
+  await expect(download).toBeFocused()
+  await expect(download).toHaveCSS('opacity', '1')
+})
+
 // #576: 전역 AIChip(fixed left-1/2 top-2)이 데스크톱 표준 해상도(1440x900)에서 상단 필터 바를
 // 겹쳐 가려 클릭을 가로채던 회귀. force 없이(실제 pointer-events 경로) 클릭이 통과하고,
 // 실제 쿼리 파라미터까지 반영되는지 입력→처리→출력 전체를 검증한다.

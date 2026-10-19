@@ -191,6 +191,15 @@ test(
     await expect(trashedRow).toBeVisible()
     await expect(trashedRow).toHaveClass(/opacity-50/)
     await expect(page.getByTestId(`issue-drive-link-location-${trashedFileId}`)).toContainText('휴지통에 있음')
+
+    // WP-498 — 링크 제거 X 는 키보드로도 닿는다: 다운로드에서 Tab 하면 포커스를 받고 보이며, Enter 로 확인창이 열린다.
+    await page.getByRole('button', { name: 'spec.md 다운로드' }).focus()
+    await page.keyboard.press('Tab')
+    const remove = page.getByTestId(`issue-drive-link-remove-${activeFileId}`)
+    await expect(remove).toBeFocused()
+    await expect(remove).toHaveCSS('opacity', '1')
+    await page.keyboard.press('Enter')
+    await expect(page.getByTestId('drive-link-remove-confirm')).toBeVisible()
   },
 )
 
