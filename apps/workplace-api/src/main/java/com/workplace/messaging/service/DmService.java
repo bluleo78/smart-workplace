@@ -60,10 +60,11 @@ public class DmService {
     Long tenantId = TenantContext.get();
     for (Long uid : members) {
       if (!userRepo.existsById(uid)) {
-        throw new InvalidDmRequestException("존재하지 않는 사용자: " + uid);
+        throw new InvalidDmRequestException("존재하지 않는 사용자가 포함되어 있습니다");
       }
       if (tenantId == null || !membershipRepo.hasActiveMembership(uid, tenantId)) {
-        throw new InvalidDmRequestException("현재 워크스페이스(테넌트)의 멤버가 아닌 사용자: " + uid);
+        // 토스트로 보이는 문구라 사용자 id 는 싣지 않는다(WP-510).
+        throw new InvalidDmRequestException("현재 워크스페이스의 멤버가 아닌 사용자가 포함되어 있습니다");
       }
     }
     String memberKey =

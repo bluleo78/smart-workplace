@@ -126,7 +126,7 @@ class MessageAttachmentServiceTest extends IntegrationTestBase {
 
     assertThatThrownBy(() -> attachmentService.bindToMessage(userId, msg.id(), List.of(fileId)))
         .isInstanceOf(InvalidMessageAttachmentException.class)
-        .hasMessageContaining(String.valueOf(fileId));
+        .hasMessage("첨부할 수 없는 파일입니다");
   }
 
   /** bindToMessage_내_노트_이미지(임시·노트에_묶임)는_거절: 노트는 묶고도 파일을 임시로 두므로 만료만으로는 못 거른다 — 정션 조회로 거절한다. */
