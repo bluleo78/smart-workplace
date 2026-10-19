@@ -166,7 +166,8 @@ export function Dashboard() {
                 type="button"
                 size="sm"
                 data-testid="dashboard-edit-save"
-                disabled={edit.isSaving}
+                // 위젯이 하나도 없으면 서버가 거부하므로 미리 막는다 — 안내는 목록 자리의 빈 상태가 한다(WP-520).
+                disabled={edit.isSaving || draft.length === 0}
                 onClick={edit.saveEdit}
               >
                 {edit.isSaving ? '저장 중…' : '저장'}

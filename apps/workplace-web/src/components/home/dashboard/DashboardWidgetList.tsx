@@ -18,6 +18,7 @@ import { useInboxPanel } from '@/components/layout/InboxContext'
 import { useToggleWidgetCollapsed } from '@/hooks/queries/useDashboard'
 
 import { MobileWidgetCard } from '../widgets/mobile/MobileWidgetCard'
+import { DashboardEmptyState } from './DashboardEmptyState'
 import { EditableWidgetCard } from './EditableWidgetCard'
 import { EntryBody } from './EntryBody'
 import { MobileEditableWidgetCard } from './MobileEditableWidgetCard'
@@ -96,6 +97,19 @@ export function DashboardWidgetList({ isMobile, savedEntries, edit }: Props) {
   }
   const sortableIds = draftEntries.map((e) => e.cfg.id)
   const visibleSaved = visibleEntries(savedEntries)
+
+  // 빈 상태(WP-520) — 보기 모드에서 모두 숨김이거나, 편집 초안에서 모두 지웠으면 빈 캔버스 대신 안내와 다음 행동을 준다.
+  if (editing ? draftEntries.length === 0 : visibleSaved.length === 0) {
+    return (
+      <div data-testid="dashboard">
+        <DashboardEmptyState
+          isMobile={isMobile}
+          mode={editing ? 'edit' : 'view'}
+          onAction={editing ? () => edit.setAddModalOpen(true) : edit.enterEdit}
+        />
+      </div>
+    )
+  }
 
   if (isMobile) {
     // 모바일(WP-142): 세로 한 줄 목록(카드 간격 12px). 본문형은 접기 가능, 타일형은 한 줄 링크.

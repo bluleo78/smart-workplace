@@ -349,6 +349,60 @@ test('카탈로그 위젯 — 긴 표시 이름에도 헤더 아이콘은 16px �
   await expect(input).toHaveValue('가'.repeat(40))
 })
 
+test('대시보드 — 위젯을 모두 숨기면 빈 상태 안내가 보이고 「홈 편집」으로 편집에 들어간다 (WP-520)', async ({
+  authenticatedPage: page,
+}) => {
+  await mockWidgets(page)
+  await mockApi(
+    page,
+    'GET',
+    '/api/v1/me/dashboard',
+    layout([
+      { id: 'my_tasks', type: 'my_tasks', count: 5, hidden: true },
+      { id: 'calendar_today', type: 'calendar_today', count: 5, hidden: true },
+    ]),
+  )
+  await page.goto('/')
+
+  const empty = page.getByTestId('dashboard-empty')
+  await expect(empty).toContainText('보이는 위젯이 없습니다')
+  await expect(page.getByTestId('dashboard-widget')).toHaveCount(0)
+  await empty.getByTestId('dashboard-empty-action').click()
+  // 편집 모드에선 숨긴 위젯도 카드로 보여 다시 켤 수 있다.
+  await expect(page.getByTestId('dashboard-edit-banner')).toBeVisible()
+  await expect(page.getByTestId('dashboard-widget')).toHaveCount(2)
+})
+
+test('대시보드 — 편집에서 위젯을 모두 지우면 저장이 막히고 안내에서 위젯 추가를 연다 (WP-520)', async ({
+  authenticatedPage: page,
+}) => {
+  await mockWidgets(page)
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout([{ id: 'my_tasks', type: 'my_tasks', count: 5, hidden: false }]))
+  const puts = trackRequests(page, 'PUT', '/api/v1/me/dashboard')
+  await page.goto('/')
+  await page.getByTestId('dashboard-edit-toggle').click()
+  await page.getByTestId('dashboard-widget').getByTestId('widget-remove').click()
+
+  const empty = page.getByTestId('dashboard-empty')
+  await expect(empty).toContainText('위젯이 하나 이상 있어야 저장할 수 있습니다')
+  await expect(page.getByTestId('dashboard-edit-save')).toBeDisabled()
+  await empty.getByTestId('dashboard-empty-action').click()
+  await expect(page.getByTestId('add-widget-modal')).toBeVisible()
+  expect(puts.count()).toBe(0)
+})
+
+test('모바일 홈 — 위젯을 모두 숨기면 빈 상태 안내가 보인다 (WP-520)', async ({ authenticatedPage: page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await mockWidgets(page)
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout([{ id: 'my_tasks', type: 'my_tasks', count: 3, hidden: true }]))
+  await page.goto('/')
+
+  const empty = page.getByTestId('dashboard-empty')
+  await expect(empty).toContainText('보이는 위젯이 없습니다')
+  await empty.getByTestId('dashboard-empty-action').click()
+  await expect(page.getByTestId('dashboard-add-widget-open')).toBeVisible()
+})
+
 test('대시보드 — 알림 위젯 헤더 클릭 시 라우팅 대신 인박스 패널이 열린다 (refs #274)', async ({
   authenticatedPage: page,
 }) => {
