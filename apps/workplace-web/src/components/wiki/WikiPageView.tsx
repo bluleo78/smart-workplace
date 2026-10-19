@@ -21,6 +21,8 @@ import { useCreateWikiPageAndOpen } from './useCreateWikiPageAndOpen'
 import { WikiEditor } from './WikiEditor'
 import { WikiPageSkeleton } from './WikiPageSkeleton'
 import { type ConfirmedLoadState, trackConfirmedLoad, wikiPageViewMode } from './wikiPageViewMode'
+import { isWikiSpaceUnavailable } from './wikiSpaceUnavailable'
+import { WikiSpaceUnavailableState } from './WikiSpaceUnavailableState'
 
 /** 선택된 페이지를 로드해 에디터를 마운트. 미선택 시 DS §2.5 빈 상태(4요소) 표시. */
 export function WikiPageView({ pageId, spaceId }: { pageId: number | null; spaceId: number }) {
@@ -63,6 +65,11 @@ export function WikiPageView({ pageId, spaceId }: { pageId: number | null; space
 
   // 본문 자리 분기 — 이 화면에서 불러온 노트는 재조회가 실패해도(삭제 SSE 뒤 404) 에디터를 유지한다(WP-296).
   const mode = wikiPageViewMode({ pageId, isLoading, isError, dataId: page?.id, loadedInThisView: nextConfirm.confirmed })
+  // 공간 주소만 열었는데 내 공간 목록에 없으면(남의·없는 공간) 「새 페이지 만들기」 빈 상태 대신 안내만 둔다(WP-559) —
+  // 만들기를 눌러도 404 라 쓸모없고, 페이지 주소의 접근 불가 안내와 같은 모양으로 맞춘다.
+  if (mode === 'empty' && isWikiSpaceUnavailable(spaces, spaceId)) {
+    return <WikiSpaceUnavailableState onBack={() => navigate('/wiki')} />
+  }
   if (mode === 'empty') {
     /** 빈 상태 — DS §2.5: 아이콘 + 제목 + 설명 + CTA 버튼 4요소(데스크톱 본문. 모바일 목록은 WikiNoPages, WP-179) */
     return (

@@ -42,6 +42,8 @@ import { WikiDeletePageDialog } from './WikiDeletePageDialog'
 import { WikiNoPages } from './WikiNoPages'
 import { WikiNoSpaces } from './WikiNoSpaces'
 import { WikiSpaceMemberDialog } from './WikiSpaceMemberDialog'
+import { isWikiSpaceUnavailable } from './wikiSpaceUnavailable'
+import { WikiSpaceUnavailableState } from './WikiSpaceUnavailableState'
 import { WikiTreeRow } from './WikiTreeRow'
 
 // 들여쓰기 1단계 폭(px). 투영(projection) 시 가로 오프셋을 이 값으로 나눠 depth 변화를 계산한다.
@@ -170,7 +172,8 @@ export function WikiSidebar() {
   const spaceId = spaceIdParam ? Number(spaceIdParam) : null
   const activePageId = pageIdParam ? Number(pageIdParam) : null
 
-  const { data: spaces } = useWikiSpaces()
+  const spacesQuery = useWikiSpaces()
+  const spaces = spacesQuery.data
   const { data: pages } = useWikiTree(spaceId)
   const { create: createPage, isPending: createPending } = useCreateWikiPageAndOpen(spaceId)
   const deletePage = useDeletePage(spaceId ?? 0)
@@ -222,6 +225,9 @@ export function WikiSidebar() {
   const isTeamSpace = selectedSpace?.type === 'TEAM'
   // 모바일 빈 공간(페이지 0개) — 트리 대신 생성 진입점 빈 상태(WP-179). 데스크톱은 본문(WikiPageView)이 빈 상태를 그린다.
   const showNoPages = isMobile && pages?.length === 0
+  // 볼 수 없거나 없는 공간 주소(WP-559) — 만들어도 404 라 ＋ 를 숨기고, 모바일은 목록이 화면 전체라 여기서 안내한다(데스크톱은 본문이 그린다).
+  const spaceUnavailable = isWikiSpaceUnavailable(spacesQuery, spaceId)
+  const showSpaceUnavailable = isMobile && spaceUnavailable
 
   const openPage = (id: number) => navigate(`/wiki/spaces/${spaceId}/pages/${id}`)
 
@@ -376,18 +382,22 @@ export function WikiSidebar() {
               멤버
             </Button>
           )}
-          <button
-            type="button"
-            onClick={() => createPage(null)}
-            className="rounded px-1.5 text-sm text-muted-foreground hover:bg-accent"
-            aria-label="새 페이지"
-          >
-            ＋
-          </button>
+          {!spaceUnavailable && (
+            <button
+              type="button"
+              onClick={() => createPage(null)}
+              className="rounded px-1.5 text-sm text-muted-foreground hover:bg-accent"
+              aria-label="새 페이지"
+            >
+              ＋
+            </button>
+          )}
         </div>
       </div>
       {/* 모바일은 공간 화면이 목록이라 본문 빈 상태가 없다 — 페이지 0개면 트리 대신 생성 진입점을 준다(WP-179). */}
-      {showNoPages ? (
+      {showSpaceUnavailable ? (
+        <WikiSpaceUnavailableState onBack={() => navigate('/wiki')} />
+      ) : showNoPages ? (
         <WikiNoPages className="flex-1" onCreate={(withAiDraft) => createPage(null, withAiDraft)} pending={createPending} />
       ) : (
         <nav className="min-h-0 flex-1 overflow-y-auto px-1 pb-4">
