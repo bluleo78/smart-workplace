@@ -4,6 +4,7 @@ import com.workplace.drive.api.DriveChannelSpacePort;
 import com.workplace.drive.api.DriveChannelSpacePort.ChannelMemberSnapshot;
 import com.workplace.messaging.outbound.MessagingDomainEvents.ChannelArchivedEvent;
 import com.workplace.messaging.outbound.MessagingDomainEvents.ChannelMembershipChangedEvent;
+import com.workplace.messaging.outbound.MessagingDomainEvents.ChannelRenamedEvent;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -32,6 +33,13 @@ public class ChannelDriveListener {
     List<ChannelMemberSnapshot> roster =
         e.members().stream().map(m -> new ChannelMemberSnapshot(m.userId(), m.role())).toList();
     port.syncChannelMembers(e.channelId(), roster);
+  }
+
+  /** 채널 이름 변경 → 연동 공간 이름 동기화(WP-532). */
+  @EventListener
+  @Transactional
+  public void onChannelRenamed(ChannelRenamedEvent e) {
+    port.renameChannelSpace(e.channelId(), e.name());
   }
 
   /** 채널 보관 토글 → 연동 공간 읽기전용 반영. */

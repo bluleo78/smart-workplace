@@ -70,6 +70,9 @@ public final class MessagingDomainEvents {
     public record Member(long userId, String role) {}
   }
 
+  /** 채널 이름 변경 — 연동 드라이브 공간 이름 동기화 소스(WP-532). name 은 바뀐 뒤 이름. */
+  public record ChannelRenamedEvent(long channelId, String name, Instant occurredAt) {}
+
   /** 채널 보관 토글 — 연동 공간 읽기전용 반영 소스. */
   public record ChannelArchivedEvent(long channelId, boolean archived, Instant occurredAt) {}
 

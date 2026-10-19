@@ -19,6 +19,9 @@ public interface DriveChannelSpacePort {
   /** 멤버 동기화 — 연동 공간이 있으면 roster 로 reconcile, 없으면 no-op(이벤트 투영용). */
   void syncChannelMembers(long channelId, List<ChannelMemberSnapshot> members);
 
+  /** 이름 동기화 — 연동 공간이 있으면 채널의 새 이름으로 바꾸고, 없으면 no-op(WP-532). */
+  void renameChannelSpace(long channelId, String channelName);
+
   /** 보관 상태 동기화 — 연동 공간이 있으면 archived 반영, 없으면 no-op. */
   void setChannelSpaceArchived(long channelId, boolean archived);
 }

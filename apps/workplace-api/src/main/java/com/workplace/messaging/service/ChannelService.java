@@ -8,6 +8,7 @@ import com.workplace.messaging.exception.ChannelNameDuplicatedException;
 import com.workplace.messaging.exception.ChannelNotFoundException;
 import com.workplace.messaging.outbound.ChannelChangeNotifier;
 import com.workplace.messaging.outbound.MessagingDomainEvents.ChannelArchivedEvent;
+import com.workplace.messaging.outbound.MessagingDomainEvents.ChannelRenamedEvent;
 import com.workplace.messaging.repository.ChannelMemberRepository;
 import com.workplace.messaging.repository.ChannelRepository;
 import java.time.Instant;
@@ -114,6 +115,8 @@ public class ChannelService {
       throw new ChannelNameDuplicatedException(name);
     }
     channelRepo.rename(channelId, name);
+    // 연동 드라이브 공간 이름도 따라 바꾼다(WP-532) — 공간이 없으면 drive 쪽에서 no-op.
+    publisher.publishEvent(new ChannelRenamedEvent(channelId, name, Instant.now()));
     ChannelResponse renamed =
         channelRepo
             .findDetail(channelId, callerId)

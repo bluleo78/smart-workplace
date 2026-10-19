@@ -8,6 +8,7 @@ import com.workplace.global.tenant.TenantContext;
 import com.workplace.messaging.dto.ChannelResponse;
 import com.workplace.messaging.outbound.MessagingDomainEvents.ChannelArchivedEvent;
 import com.workplace.messaging.outbound.MessagingDomainEvents.ChannelMembershipChangedEvent;
+import com.workplace.messaging.outbound.MessagingDomainEvents.ChannelRenamedEvent;
 import com.workplace.support.IntegrationTestBase;
 import java.util.UUID;
 import org.jooq.DSLContext;
@@ -107,6 +108,21 @@ class ChannelMembershipEventTest extends IntegrationTestBase {
                 .map(ChannelMembershipChangedEvent.Member::userId))
         .contains(owner, joiner);
     assertThat(driveMembers.findRole(space.id(), joiner)).contains("EDITOR");
+  }
+
+  // WP-532 — 이름 변경은 연동 드라이브 공간 이름 동기화의 소스다.
+  @Test
+  void rename_publishesChannelRenamed() {
+    long owner = seedUser();
+    ChannelResponse ch = channelService.create(owner, "이름전" + UUID.randomUUID(), "PRIVATE");
+    String newName = "이름후" + UUID.randomUUID();
+
+    channelService.rename(owner, ch.id(), newName);
+
+    assertThat(
+            events.stream(ChannelRenamedEvent.class)
+                .filter(e -> e.channelId() == ch.id() && e.name().equals(newName)))
+        .isNotEmpty();
   }
 
   @Test

@@ -43,9 +43,18 @@ public class DriveChannelSpaceService implements DriveChannelSpacePort {
             .orElseGet(() -> createChannelSpace(channelId, channelName, roster));
     // 기존 공간이어도 roster 재투영(self-heal) — 멱등.
     members.reconcileMembers(spaceId, rosterToRoles(roster));
-    return spaces
-        .findForUser(spaceId, callerId)
-        .orElseThrow(() -> new DriveSpaceNotFoundException(spaceId));
+    DriveSpaceResponse space =
+        spaces
+            .findForUser(spaceId, callerId)
+            .orElseThrow(() -> new DriveSpaceNotFoundException(spaceId));
+    // 이름도 self-heal — 이름 동기화가 없던 때 바뀐 채널은 옛 이름으로 남아 있다(WP-532).
+    if (channelName != null && !channelName.isBlank() && !channelName.equals(space.name())) {
+      spaces.rename(spaceId, channelName);
+      return spaces
+          .findForUser(spaceId, callerId)
+          .orElseThrow(() -> new DriveSpaceNotFoundException(spaceId));
+    }
+    return space;
   }
 
   /** owner_id 는 채널 OWNER(없으면 roster 첫 멤버) — 출처 표기용. */
@@ -74,6 +83,15 @@ public class DriveChannelSpaceService implements DriveChannelSpacePort {
     spaces
         .findIdByLinkedChannel(channelId)
         .ifPresent(spaceId -> members.reconcileMembers(spaceId, rosterToRoles(roster)));
+  }
+
+  @Override
+  @Transactional
+  public void renameChannelSpace(long channelId, String channelName) {
+    if (channelName == null || channelName.isBlank()) return;
+    spaces
+        .findIdByLinkedChannel(channelId)
+        .ifPresent(spaceId -> spaces.rename(spaceId, channelName));
   }
 
   @Override

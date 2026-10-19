@@ -10,6 +10,7 @@ import com.workplace.drive.repository.DriveSpaceMemberRepository;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.messaging.outbound.MessagingDomainEvents.ChannelArchivedEvent;
 import com.workplace.messaging.outbound.MessagingDomainEvents.ChannelMembershipChangedEvent;
+import com.workplace.messaging.outbound.MessagingDomainEvents.ChannelRenamedEvent;
 import com.workplace.support.IntegrationTestBase;
 import java.time.Instant;
 import java.util.List;
@@ -99,5 +100,39 @@ class ChannelDriveListenerTest extends IntegrationTestBase {
         port.ensureChannelSpace(
             owner, channelId, "채널", List.of(new ChannelMemberSnapshot(owner, "OWNER")));
     assertThat(after.archived()).isTrue();
+  }
+
+  // WP-532 — 채널 이름을 바꾸면 연동 공간 이름도 바뀐다(드라이브 검색·첨부 모아보기·MCP 에 옛 이름이 남던 결함).
+  @Test
+  void renamedEvent_renamesLinkedSpace() {
+    long owner = seedUser();
+    long channelId = seedChannel(owner);
+    DriveSpaceResponse sp =
+        port.ensureChannelSpace(
+            owner, channelId, "옛이름", List.of(new ChannelMemberSnapshot(owner, "OWNER")));
+
+    publisher.publishEvent(new ChannelRenamedEvent(channelId, "새이름", Instant.now()));
+
+    assertThat(
+            dsl.select(com.workplace.jooq.Tables.DRIVE_SPACE.NAME)
+                .from(com.workplace.jooq.Tables.DRIVE_SPACE)
+                .where(com.workplace.jooq.Tables.DRIVE_SPACE.ID.eq(sp.id()))
+                .fetchOne(com.workplace.jooq.Tables.DRIVE_SPACE.NAME))
+        .isEqualTo("새이름");
+  }
+
+  // 이미 옛 이름으로 남은 공간(수정 전 이름 변경분)은 「파일」 탭이 ensure 할 때 지금 채널 이름으로 맞춘다.
+  @Test
+  void ensure_healsStaleSpaceName() {
+    long owner = seedUser();
+    long channelId = seedChannel(owner);
+    port.ensureChannelSpace(
+        owner, channelId, "옛이름", List.of(new ChannelMemberSnapshot(owner, "OWNER")));
+
+    DriveSpaceResponse after =
+        port.ensureChannelSpace(
+            owner, channelId, "지금이름", List.of(new ChannelMemberSnapshot(owner, "OWNER")));
+
+    assertThat(after.name()).isEqualTo("지금이름");
   }
 }
