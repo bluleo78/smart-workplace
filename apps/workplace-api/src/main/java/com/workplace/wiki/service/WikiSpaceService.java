@@ -2,6 +2,7 @@ package com.workplace.wiki.service;
 
 import com.workplace.global.tenant.MembershipGuard;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.global.util.UnicodeNames;
 import com.workplace.wiki.dto.WikiMemberResponse;
 import com.workplace.wiki.dto.WikiSpaceResponse;
 import com.workplace.wiki.exception.WikiForbiddenException;
@@ -55,7 +56,9 @@ public class WikiSpaceService {
    * 이름은 식별자" 정책).
    */
   @Transactional
-  public WikiSpaceResponse createTeamSpace(long callerId, String name) {
+  public WikiSpaceResponse createTeamSpace(long callerId, String rawName) {
+    // 앞뒤 공백을 다듬고 NFC 로 맞춰 저장·중복 판정한다(WP-562) — 공백만 다른 이름이 목록에 같은 이름으로 두 번 보이지 않게.
+    String name = UnicodeNames.toNfc(rawName.strip());
     if (spaces.existsTeamSpaceName(name, null)) {
       throw new WikiSpaceNameDuplicatedException(name);
     }

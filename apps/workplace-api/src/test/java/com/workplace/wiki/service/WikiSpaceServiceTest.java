@@ -3,6 +3,7 @@ package com.workplace.wiki.service;
 import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.TENANT;
 import static com.workplace.jooq.Tables.USER;
+import static com.workplace.jooq.Tables.WIKI_SPACE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -150,6 +151,25 @@ class WikiSpaceServiceTest extends IntegrationTestBase {
         .isInstanceOf(WikiSpaceNameDuplicatedException.class);
     // 대소문자만 다른 이름도 동일 취급.
     assertThatThrownBy(() -> spaceService.createTeamSpace(u, "중복스페이스".toUpperCase()))
+        .isInstanceOf(WikiSpaceNameDuplicatedException.class);
+  }
+
+  /** WP-562 — 앞뒤 공백은 다듬어 저장하고 중복 판정한다. 다듬기 전 공백째 저장된 옛 행도 같은 이름으로 본다. */
+  @Test
+  void createTeamSpace_stripsNameAndTreatsPaddedNameAsDuplicate() {
+    long u = seedUser();
+    String suffix = UUID.randomUUID().toString().substring(0, 8);
+    WikiSpaceResponse created = spaceService.createTeamSpace(u, "  디자인 위원회-" + suffix + " ");
+    assertThat(created.name()).isEqualTo("디자인 위원회-" + suffix);
+    assertThatThrownBy(() -> spaceService.createTeamSpace(u, " 디자인 위원회-" + suffix + "\t"))
+        .isInstanceOf(WikiSpaceNameDuplicatedException.class);
+
+    // 옛 데이터 — 다듬지 않고 공백째 저장된 공간
+    dsl.update(WIKI_SPACE)
+        .set(WIKI_SPACE.NAME, " 옛공간-" + suffix + " ")
+        .where(WIKI_SPACE.ID.eq(created.id()))
+        .execute();
+    assertThatThrownBy(() -> spaceService.createTeamSpace(u, "옛공간-" + suffix))
         .isInstanceOf(WikiSpaceNameDuplicatedException.class);
   }
 

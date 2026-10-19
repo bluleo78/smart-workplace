@@ -32,7 +32,12 @@ public class WikiSpaceRepository {
    * API 가 없어 항상 null).
    */
   public boolean existsTeamSpaceName(String name, Long excludeId) {
-    var cond = WIKI_SPACE.TYPE.eq("TEAM").and(DSL.lower(WIKI_SPACE.NAME).eq(name.toLowerCase()));
+    // 저장값도 다듬어 비교한다 — WP-562 이전에 공백째 저장된 옛 이름도 같은 이름으로 본다.
+    var cond =
+        WIKI_SPACE
+            .TYPE
+            .eq("TEAM")
+            .and(DSL.lower(DSL.trim(WIKI_SPACE.NAME)).eq(name.strip().toLowerCase()));
     if (excludeId != null) {
       cond = cond.and(WIKI_SPACE.ID.ne(excludeId));
     }
