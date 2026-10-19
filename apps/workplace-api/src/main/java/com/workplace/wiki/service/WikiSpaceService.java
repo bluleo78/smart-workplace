@@ -97,6 +97,8 @@ public class WikiSpaceService {
     if (membershipGuard.isForeignUser(userId)) {
       throw new WikiForbiddenException(spaceId, userId);
     }
+    // 추가는 이미 멤버면 역할을 덮어쓰는 업서트라, 마지막 OWNER 강등도 역할 변경과 같은 가드를 거친다(WP-557).
+    if (!"OWNER".equals(role)) requireAnotherOwner(spaceId, userId);
     members.add(spaceId, userId, role);
     notifier.spaceChanged(spaceId, callerId, Set.of());
     publishMembershipChanged(spaceId, userId);

@@ -291,6 +291,26 @@ class DriveSpaceServiceTest extends IntegrationTestBase {
         .satisfies(m -> assertThat(m.userId()).isEqualTo(owner));
   }
 
+  /** WP-557 — 「멤버 추가」로 이미 멤버인 마지막 OWNER 의 역할을 낮추는 것도 막는다(업서트로 WP-496 가드를 우회했다). */
+  @Test
+  void lastOwner_cannotBeDemotedThroughAddMember() {
+    long owner = seedUser();
+    long other = seedUser();
+    var team = spaceService.createTeamSpace(owner, "업서트강등");
+    spaceService.addMember(owner, team.id(), other, "EDITOR");
+
+    assertThatThrownBy(() -> spaceService.addMember(owner, team.id(), owner, "VIEWER"))
+        .isInstanceOf(DriveLastOwnerException.class);
+    assertThat(spaceService.listMembers(owner, team.id()))
+        .anySatisfy(
+            m -> {
+              assertThat(m.userId()).isEqualTo(owner);
+              assertThat(m.role()).isEqualTo("OWNER");
+            });
+    // 이미 멤버인 사람을 OWNER 로 다시 넣는 것은 그대로 된다.
+    spaceService.addMember(owner, team.id(), owner, "OWNER");
+  }
+
   /** WP-496 — 팀 공간의 마지막 OWNER 는 스스로 빠지거나 강등할 수 없다(관리자 없는 공간이 남는다). 다른 OWNER 가 있으면 된다. */
   @Test
   void lastOwner_cannotLeaveOrBeDemoted_butCanWhenAnotherOwnerExists() {
