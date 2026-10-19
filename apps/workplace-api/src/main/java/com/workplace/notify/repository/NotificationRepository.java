@@ -1,6 +1,7 @@
 package com.workplace.notify.repository;
 
 import static com.workplace.jooq.Tables.CALENDAR_EVENT;
+import static com.workplace.jooq.Tables.EVENT_ATTENDEE;
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_ASSIGNEE;
 import static com.workplace.jooq.Tables.ISSUE_WATCHER;
@@ -195,17 +196,42 @@ public class NotificationRepository {
 
   /**
    * 이슈 알림이면 받는 사람이 그 프로젝트를 지금 볼 수 있어야 한다(WP-491) — ProjectAccessGuard.isReadable 과 같은 규칙: OPEN 은
-   * 전원, TEAM 은 멤버 또는 ADMIN, PERSONAL 은 멤버(소유자)만. 이슈가 없는 알림(리마인더·캘린더)은 그대로 둔다. 쿼리는 ISSUE·PROJECT 를
-   * LEFT JOIN 해야 한다.
+   * 전원, TEAM 은 멤버 또는 ADMIN, PERSONAL 은 멤버(소유자)만. 쿼리는 ISSUE·PROJECT 를 LEFT JOIN 해야 한다.
+   *
+   * <p>일정 알림(초대·리마인더 등)이면 받는 사람이 그 일정을 지금 볼 수 있어야 한다(WP-517) — 주최자이거나 참석자. 참석자에서 빠진 사람에게 예전 초대 알림이
+   * 일정의 현재 제목·시각을 계속 보여 주지 않게 한다(캘린더 조회의 accessibleBy 와 같은 규칙).
    */
   private Condition readableByRecipient(long recipientId, boolean recipientIsAdmin) {
-    return NOTIFICATION
-        .ISSUE_ID
-        .isNull()
-        .or(
-            projectReadableBy(
-                DSL.val(recipientId),
-                recipientIsAdmin ? DSL.trueCondition() : DSL.falseCondition()));
+    Condition issueReadable =
+        NOTIFICATION
+            .ISSUE_ID
+            .isNull()
+            .or(
+                projectReadableBy(
+                    DSL.val(recipientId),
+                    recipientIsAdmin ? DSL.trueCondition() : DSL.falseCondition()));
+    Condition eventReadable =
+        NOTIFICATION
+            .EVENT_ID
+            .isNull()
+            .or(
+                DSL.exists(
+                    DSL.selectOne()
+                        .from(CALENDAR_EVENT.as("ev"))
+                        .where(CALENDAR_EVENT.as("ev").ID.eq(NOTIFICATION.EVENT_ID))
+                        .and(
+                            CALENDAR_EVENT
+                                .as("ev")
+                                .OWNER_ID
+                                .eq(recipientId)
+                                .or(
+                                    DSL.exists(
+                                        DSL.selectOne()
+                                            .from(EVENT_ATTENDEE)
+                                            .where(
+                                                EVENT_ATTENDEE.EVENT_ID.eq(NOTIFICATION.EVENT_ID))
+                                            .and(EVENT_ATTENDEE.USER_ID.eq(recipientId)))))));
+    return issueReadable.and(eventReadable);
   }
 
   /**

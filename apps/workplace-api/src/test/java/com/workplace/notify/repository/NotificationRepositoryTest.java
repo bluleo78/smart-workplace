@@ -1,6 +1,7 @@
 package com.workplace.notify.repository;
 
 import static com.workplace.jooq.Tables.CALENDAR_EVENT;
+import static com.workplace.jooq.Tables.EVENT_ATTENDEE;
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_TYPE_DEF;
 import static com.workplace.jooq.Tables.PROJECT;
@@ -278,5 +279,40 @@ class NotificationRepositoryTest extends IntegrationTestBase {
             .map(NotificationResponse::id)
             .toList();
     assertThat(allIds).doesNotHaveDuplicates().hasSize(5);
+  }
+
+  /**
+   * WP-517 — 일정 알림은 받는 사람이 그 일정을 지금 볼 수 있을 때(주최자 또는 참석자)만 보인다. 참석자에서 빠지면 목록·안읽음 수에서 사라진다 — 남겨 두면
+   * 일정의 현재 제목·시각을 계속 보여 준다.
+   */
+  @Test
+  void listRecent_hidesEventNotificationsAfterRecipientLeavesAttendees() {
+    long organizer = seedUser("HUMAN");
+    long attendee = seedUser("HUMAN");
+    long eventId = seedEvent(organizer, "주간 팀 회의");
+    dsl.insertInto(EVENT_ATTENDEE)
+        .set(EVENT_ATTENDEE.EVENT_ID, eventId)
+        .set(EVENT_ATTENDEE.USER_ID, attendee)
+        .execute();
+    repo.insertEventNotification(attendee, NotificationType.CALENDAR_INVITED, organizer, eventId);
+    repo.insertReminder(organizer, eventId);
+
+    assertThat(repo.listRecent(attendee, false, 20, 0)).hasSize(1);
+    assertThat(repo.countUnread(attendee, false)).isEqualTo(1);
+
+    dsl.deleteFrom(EVENT_ATTENDEE)
+        .where(EVENT_ATTENDEE.EVENT_ID.eq(eventId), EVENT_ATTENDEE.USER_ID.eq(attendee))
+        .execute();
+    dsl.update(CALENDAR_EVENT)
+        .set(CALENDAR_EVENT.TITLE, "SECRET 바뀐 제목")
+        .where(CALENDAR_EVENT.ID.eq(eventId))
+        .execute();
+
+    assertThat(repo.listRecent(attendee, false, 20, 0)).isEmpty();
+    assertThat(repo.countUnread(attendee, false)).isZero();
+    // 주최자 자신의 리마인더는 그대로 보인다.
+    assertThat(repo.listRecent(organizer, false, 20, 0))
+        .extracting(NotificationResponse::eventTitle)
+        .containsExactly("SECRET 바뀐 제목");
   }
 }
