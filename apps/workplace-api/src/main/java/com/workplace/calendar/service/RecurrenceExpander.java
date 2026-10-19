@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TimeZone;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.dmfs.rfc5545.DateTime;
@@ -28,6 +29,13 @@ public class RecurrenceExpander {
 
   /** 무한 규칙(예: FREQ=DAILY, 종료 없음) 폭주 방지 안전 상한 — fastForward 이후 적용. */
   private static final int SAFETY_CAP = 1000;
+
+  /**
+   * 회차를 펼치는 벽시계 시간대(WP-534). 일정에는 시간대가 따로 저장되지 않고 사용자가 보는 날짜가 한국 날짜라(이슈 날짜 필터 WP-307·AI 메모리 기한
+   * WP-380 과 같은 기준) Asia/Seoul 로 펼친다. UTC 로 펼치면 09시 이전 시작(종일 포함)의 날짜·요일이 하루 앞당겨져 매월 1일 반복이 「전달 말일」
+   * 기준이 되어 31일이 없는 달 다음 달이 빠지고, BYDAY 요일도 어긋난다.
+   */
+  private static final TimeZone EXPANSION_ZONE = TimeZone.getTimeZone("Asia/Seoul");
 
   /** RFC5545 UNTIL 의 UTC 절대 시각 포맷(yyyyMMdd'T'HHmmss'Z'). */
   private static final DateTimeFormatter UNTIL_FMT =
@@ -62,8 +70,9 @@ public class RecurrenceExpander {
     long fromMillis = from.toInstant().toEpochMilli();
     long toMillis = to.toInstant().toEpochMilli();
 
-    // dtStart 와 UNTIL 모두 절대(UTC) 시각이어야 floating/absolute 혼합 거부를 피한다.
-    DateTime dtStart = new DateTime(DateTime.UTC, startMillis);
+    // dtStart 는 한국 시간대가 붙은 절대 시각 — 날짜·요일은 한국 벽시계로 계산하고, UNTIL(UTC 절대 시각)과도 섞어 쓸 수 있다
+    // (floating 이 아니므로 floating/absolute 혼합 거부를 피한다).
+    DateTime dtStart = new DateTime(EXPANSION_ZONE, startMillis);
     RecurrenceRuleIterator it = parse(rrule).iterator(dtStart);
 
     // from 이 마스터 시작 이후일 때만 과거 회차를 건너뛴다.

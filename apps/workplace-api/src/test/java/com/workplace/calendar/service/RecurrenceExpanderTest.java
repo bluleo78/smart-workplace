@@ -50,6 +50,45 @@ class RecurrenceExpanderTest {
     assertThat(occ).hasSize(3);
   }
 
+  /**
+   * WP-534: 회차는 한국 시간 벽시계 기준으로 펼친다. KST 11/1 종일(UTC 로는 10/31 15:00) 매월 반복은 UTC 로 펼치면 31일이 없는 11월을
+   * 건너뛰어 12/1 이 빠졌다 — 11/1, 12/1, 1/1, 2/1 네 번이어야 한다.
+   */
+  @Test
+  void expand_monthlyAllDayKst_keepsEveryMonth() {
+    List<OffsetDateTime> occ =
+        expander.expand(
+            "FREQ=MONTHLY;COUNT=4",
+            OffsetDateTime.parse("2026-11-01T00:00:00+09:00"),
+            OffsetDateTime.parse("2026-10-01T00:00:00+09:00"),
+            OffsetDateTime.parse("2027-04-01T00:00:00+09:00"));
+    assertThat(occ)
+        .extracting(OffsetDateTime::toInstant)
+        .containsExactly(
+            OffsetDateTime.parse("2026-11-01T00:00:00+09:00").toInstant(),
+            OffsetDateTime.parse("2026-12-01T00:00:00+09:00").toInstant(),
+            OffsetDateTime.parse("2027-01-01T00:00:00+09:00").toInstant(),
+            OffsetDateTime.parse("2027-02-01T00:00:00+09:00").toInstant());
+  }
+
+  /** WP-534: 요일 지정(BYDAY)도 한국 날짜의 요일로 맞춘다 — 월 08:00 KST 는 UTC 로 일요일이라 UTC 로 펼치면 하루씩 밀렸다. */
+  @Test
+  void expand_weeklyByDayEarlyMorningKst_usesKstWeekday() {
+    List<OffsetDateTime> occ =
+        expander.expand(
+            "FREQ=WEEKLY;BYDAY=MO,WE;COUNT=4",
+            OffsetDateTime.parse("2026-11-02T08:00:00+09:00"),
+            OffsetDateTime.parse("2026-11-01T00:00:00+09:00"),
+            OffsetDateTime.parse("2026-12-01T00:00:00+09:00"));
+    assertThat(occ)
+        .extracting(OffsetDateTime::toInstant)
+        .containsExactly(
+            OffsetDateTime.parse("2026-11-02T08:00:00+09:00").toInstant(),
+            OffsetDateTime.parse("2026-11-04T08:00:00+09:00").toInstant(),
+            OffsetDateTime.parse("2026-11-09T08:00:00+09:00").toInstant(),
+            OffsetDateTime.parse("2026-11-11T08:00:00+09:00").toInstant());
+  }
+
   /** 잘못된 RRULE 은 IllegalArgumentException(전역 핸들러에서 400) 으로 전환되어야 한다. */
   @Test
   void validate_invalidRule_throws() {
