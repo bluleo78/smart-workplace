@@ -13,6 +13,7 @@ import {
   monthMatrix,
   proposalTimeRange,
   providerLabel,
+  timedEventBox,
   toggleCalendar,
   visibleRange,
   weekDays,
@@ -197,5 +198,27 @@ describe('isoToLocalInput / proposalTimeRange (KST)', () => {
   it('제안 카드 읽기전용 시간은 KST 날짜·시각 ~ 종료 시각', () => {
     expect(proposalTimeRange('2026-07-05T06:00:00Z', '2026-07-05T07:00:00Z')).toBe('2026-07-05 15:00 ~ 16:00')
     expect(proposalTimeRange('2026-07-05T06:00:00Z', null)).toBe('2026-07-05 15:00')
+  })
+})
+
+// WP-539: 시간 그리드 블록은 그날에 걸친 구간만 그린다(슬롯 1시간 = 48px). 시·분만 보면 자정을 넘기는 일정이 두 날 모두 시작 시각
+// 위치의 최소 높이 조각으로 그려졌다(11/12 23:00–11/13 01:30 이 12·13일 모두 23시에 16px).
+describe('timedEventBox', () => {
+  const night = ev(1, '2026-11-12T23:00:00+09:00', '2026-11-13T01:30:00+09:00')
+  it('시작한 날은 시작 시각부터 자정까지', () => {
+    expect(timedEventBox(night, new Date('2026-11-12T00:00:00'))).toEqual({ top: 23 * 48, height: 48 })
+  })
+  it('이어지는 날은 0시부터 종료 시각까지', () => {
+    expect(timedEventBox(night, new Date('2026-11-13T00:00:00'))).toEqual({ top: 0, height: 1.5 * 48 })
+  })
+  it('하루를 통째로 덮는 날은 0시부터 24시까지', () => {
+    const long = ev(2, '2026-11-12T22:00:00+09:00', '2026-11-14T02:00:00+09:00')
+    expect(timedEventBox(long, new Date('2026-11-13T00:00:00'))).toEqual({ top: 0, height: 24 * 48 })
+  })
+  it('같은 날 일정은 시작·종료 그대로, 아주 짧으면 최소 16px', () => {
+    expect(timedEventBox(ev(3, '2026-11-12T10:00:00+09:00', '2026-11-12T11:30:00+09:00'), new Date('2026-11-12T00:00:00')))
+      .toEqual({ top: 10 * 48, height: 1.5 * 48 })
+    expect(timedEventBox(ev(4, '2026-11-12T10:00:00+09:00', '2026-11-12T10:05:00+09:00'), new Date('2026-11-12T00:00:00')).height)
+      .toBe(16)
   })
 })

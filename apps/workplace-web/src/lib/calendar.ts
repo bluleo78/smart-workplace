@@ -81,6 +81,25 @@ export function eventsOnDay(events: CalendarEvent[], day: Date): CalendarEvent[]
   })
 }
 
+// 시간 그리드(주·일 보기) 한 칸 = 1시간 높이(px).
+export const HOUR_SLOT_PX = 48
+
+// 시간 그리드에서 타임드 일정 블록의 top·height(px) — 그 날에 걸친 구간만 그린다(WP-539). 자정을 넘기는 일정은 시작한 날엔
+// 시작~24시, 이어지는 날엔 0시~종료로 잘린다. 시·분만 보면 두 날 모두 시작 시각 위치의 최소 높이 조각이 됐다. 최소 16px.
+export function timedEventBox(event: CalendarEvent, day: Date): { top: number; height: number } {
+  const dayStart = startOfDay(day)
+  const nextDay = addDays(dayStart, 1)
+  const start = new Date(event.startsAt)
+  const end = new Date(event.endsAt)
+  // 그날 안으로 자른 시작·종료의 「시각(시간 단위)」 — 하루를 넘어가면 0시·24시로.
+  const startHour = start <= dayStart ? 0 : start.getHours() + start.getMinutes() / 60
+  const endHour = end >= nextDay ? 24 : end.getHours() + end.getMinutes() / 60
+  return {
+    top: startHour * HOUR_SLOT_PX,
+    height: Math.max((endHour - startHour) * HOUR_SLOT_PX, 16),
+  }
+}
+
 // 해당 날짜(yyyy-MM-dd)에 마감인 이슈 마커. dueDate 는 날짜 단위라 시각 비교 없이 키 매칭.
 export function issueDuesOnDay(dues: IssueDueMarker[], day: Date): IssueDueMarker[] {
   const key = format(day, 'yyyy-MM-dd')

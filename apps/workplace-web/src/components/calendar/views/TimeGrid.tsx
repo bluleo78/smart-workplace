@@ -4,7 +4,7 @@ import { format, isToday } from 'date-fns'
 import { ko } from 'date-fns/locale'
 
 import { IssueDueChip } from '@/components/calendar/IssueDueChip'
-import { eventsOnDay, HOURS, issueDuesOnDay } from '@/lib/calendar'
+import { eventsOnDay, HOURS, issueDuesOnDay, timedEventBox } from '@/lib/calendar'
 import { resolvePalette } from '@/lib/calendarPalette'
 import { formatClockTimePadded } from '@/lib/formatters'
 import type { CalendarEvent, IssueDueMarker } from '@/types/calendar'
@@ -28,18 +28,6 @@ interface TimeGridProps extends ViewProps {
   days: Date[]
   /** 루트 컨테이너 data-testid */
   testid: string
-}
-
-// 타임드 이벤트의 top / height (시간 슬롯 1칸 = 48px)
-function eventStyle(event: CalendarEvent): { top: number; height: number } {
-  const start = new Date(event.startsAt)
-  const end = new Date(event.endsAt)
-  const startHour = start.getHours() + start.getMinutes() / 60
-  const endHour = end.getHours() + end.getMinutes() / 60
-  return {
-    top: startHour * 48,
-    height: Math.max((endHour - startHour) * 48, 16), // 최소 16px
-  }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -154,7 +142,8 @@ export function TimeGrid({
 
               {/* 절대 위치 타임드 이벤트 블록 */}
               {timedEvts.map((e) => {
-                const style = eventStyle(e)
+                // 그날에 걸친 구간만(자정 넘김은 날짜별로 잘림 — WP-539)
+                const style = timedEventBox(e, day)
                 return (
                   <button
                     key={`${e.id}-${e.occurrenceDate ?? 'single'}`}
