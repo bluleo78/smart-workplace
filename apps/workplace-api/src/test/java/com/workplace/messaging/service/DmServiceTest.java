@@ -24,6 +24,8 @@ class DmServiceTest extends IntegrationTestBase {
 
   @Autowired DmService dmService;
   @Autowired DSLContext dsl;
+  @Autowired ChannelMemberService memberService;
+  @Autowired com.workplace.messaging.repository.ChannelMemberRepository memberRepo;
 
   /** 각 테스트 전 TenantContext 를 tenant#1 로 설정 — 멤버십 검증 통과를 위한 전제 조건. */
   @BeforeEach
@@ -173,5 +175,37 @@ class DmServiceTest extends IntegrationTestBase {
     assertThatThrownBy(() -> dmService.createOrGet(callerInTenant1, List.of(userBInTenant2Only)))
         .isInstanceOf(InvalidDmRequestException.class)
         .hasMessageContaining("멤버가 아닌 사용자");
+  }
+
+  /** WP-507: 1:1 DM 을 나간 사람이 같은 상대와 다시 DM 을 열면 500 대신 같은 DM 에 다시 참여한다. */
+  @Test
+  void createOrGet_afterLeavingOneToOne_rejoinsSameDm() {
+    long a = seedUser();
+    long b = seedUser();
+    var dm = dmService.createOrGet(a, List.of(b));
+    memberService.leave(a, dm.dm().id());
+    assertThat(memberRepo.isMember(dm.dm().id(), a)).isFalse();
+
+    var reopened = dmService.createOrGet(a, List.of(b));
+
+    assertThat(reopened.dm().id()).isEqualTo(dm.dm().id());
+    assertThat(reopened.created()).isFalse();
+    assertThat(memberRepo.isMember(dm.dm().id(), a)).isTrue();
+    assertThat(memberRepo.isMember(dm.dm().id(), b)).isTrue();
+  }
+
+  /** WP-507: 그룹 DM 을 나간 사람이 같은 구성으로 다시 열면 그 그룹 DM 에 다시 참여한다. */
+  @Test
+  void createOrGet_afterLeavingGroup_rejoinsSameDm() {
+    long a = seedUser();
+    long b = seedUser();
+    long c = seedUser();
+    var group = dmService.createOrGet(a, List.of(b, c));
+    memberService.leave(c, group.dm().id());
+
+    var reopened = dmService.createOrGet(c, List.of(a, b));
+
+    assertThat(reopened.dm().id()).isEqualTo(group.dm().id());
+    assertThat(memberRepo.isMember(group.dm().id(), c)).isTrue();
   }
 }

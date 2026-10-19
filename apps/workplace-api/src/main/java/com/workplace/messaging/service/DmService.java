@@ -72,7 +72,7 @@ public class DmService {
     // 기존 DM 재사용(idempotent).
     var existing = channelRepo.findDmIdByMemberKey(memberKey);
     if (existing.isPresent()) {
-      return new DmResult(channelRepo.findDmDetail(existing.get(), callerId).orElseThrow(), false);
+      return new DmResult(rejoinIfLeft(existing.get(), callerId), false);
     }
     // 신규 생성 — ON CONFLICT DO NOTHING 으로 동시 생성 레이스를 트랜잭션 abort 없이 처리.
     var inserted = channelRepo.insertDmIfAbsent(memberKey, callerId);
@@ -87,6 +87,21 @@ public class DmService {
     }
     // 레이스 패자: 동시 트랜잭션이 먼저 생성 → 기존 DM 재사용.
     long existingId = channelRepo.findDmIdByMemberKey(memberKey).orElseThrow();
-    return new DmResult(channelRepo.findDmDetail(existingId, callerId).orElseThrow(), false);
+    return new DmResult(rejoinIfLeft(existingId, callerId), false);
+  }
+
+  /**
+   * 기존 DM 의 상세를 돌려준다. 호출자가 그 DM 을 나갔으면(member_key 에는 남아 있음) 다시 참여시킨다(WP-507).
+   *
+   * <p>나가도 member_key 는 그대로라 같은 구성으로 다시 열면 이 DM 이 찾아진다. 호출자는 원래 참여자이므로 다시 넣어도 새 사람에게 이력이 노출되지 않는다.
+   * 다시 넣지 않으면 상세 조회가 비어 500 이 나고 그 상대와 영영 DM 을 할 수 없다.
+   */
+  private DmResponse rejoinIfLeft(long dmId, long callerId) {
+    if (!memberRepo.isMember(dmId, callerId)) {
+      memberRepo.add(dmId, callerId, "MEMBER");
+      // 호출자의 DM 목록에 다시 나타나도록 생성과 같은 이벤트를 발행한다.
+      changeNotifier.dmCreated(dmId, callerId);
+    }
+    return channelRepo.findDmDetail(dmId, callerId).orElseThrow();
   }
 }
