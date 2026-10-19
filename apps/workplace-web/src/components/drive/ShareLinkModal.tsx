@@ -29,6 +29,7 @@ import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { handleApiError } from '@/lib/api-error';
 import { formatDateOnly } from '@/lib/formatters';
+import { isPasswordWithinBytes, PASSWORD_BYTES_MESSAGE } from '@/lib/validations/user';
 import type { DriveFile } from '@/types/drive';
 
 interface ShareLinkModalProps {
@@ -66,6 +67,8 @@ export function ShareLinkModal({ file, onClose }: ShareLinkModalProps) {
 
   // 만료일 폼 에러(#673) — 과거 날짜 입력 시 생성 자체를 막기 위한 인라인 메시지
   const [expiresAtError, setExpiresAtError] = useState<string | null>(null);
+  // 비밀번호 한도(bcrypt 72바이트) 인라인 에러(WP-497) — 서버 영어 원문 토스트 대신 입력 아래에 안내한다.
+  const [passwordError, setPasswordError] = useState<string | null>(null);
 
   // 모달 열릴 때 기존 링크 목록 로드
   useEffect(() => {
@@ -81,6 +84,11 @@ export function ShareLinkModal({ file, onClose }: ShareLinkModalProps) {
     const expiresAtIso = expiresAt
       ? new Date(`${expiresAt}T23:59:59`).toISOString()
       : undefined;
+
+    if (!isPasswordWithinBytes(password)) {
+      setPasswordError(PASSWORD_BYTES_MESSAGE);
+      return;
+    }
 
     // 과거 날짜 가드(#673) — <input type=date min> 은 키보드 직접 입력으로 우회 가능해
     // API 호출 전에 명시적으로 재검증한다. 통과하면 이전 에러 메시지를 지운다.
@@ -182,9 +190,20 @@ export function ShareLinkModal({ file, onClose }: ShareLinkModalProps) {
               type="password"
               placeholder="비워두면 비밀번호 없음"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                // 한도 안으로 고치면 바로 에러를 지운다(넘는 동안은 처음 안내를 유지)
+                if (isPasswordWithinBytes(e.target.value)) setPasswordError(null);
+              }}
               autoComplete="new-password"
+              aria-invalid={passwordError != null}
+              aria-describedby={passwordError ? 'share-password-error' : undefined}
             />
+            {passwordError && (
+              <p id="share-password-error" className="text-xs text-destructive" data-testid="share-password-error">
+                {passwordError}
+              </p>
+            )}
           </div>
 
           {/* 만료일 입력 (선택) */}

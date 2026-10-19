@@ -258,4 +258,26 @@ class MemberCreateControllerTest extends IntegrationTestBase {
         .andExpect(jsonPath("$.errors.username").value("아이디는 이메일 형식이어야 합니다"));
     assertThat(dsl.fetchCount(USER, USER.USERNAME.eq(username))).isZero();
   }
+
+  /**
+   * WP-497: 128자 이하라 DTO 검증은 통과해도 bcrypt 한도(72바이트)를 넘는 비밀번호는 bcrypt 영어 원문이 아니라 한국어 안내로 400 이어야 한다.
+   * 한글 25자(75바이트)도 같은 경우다.
+   */
+  @Test
+  void createMember_passwordOver72Bytes_returns400InKorean() throws Exception {
+    String adminAuth = tokenFor(seedUserWithRole("admin", "ADMIN"));
+    String username = uniqueUsername("pw72");
+    String json =
+        objectMapper.writeValueAsString(
+            new CreateMemberRequest(username, null, "긴비번", "Aa1" + "가".repeat(25), "USER"));
+
+    mvc.perform(
+            post("/api/v1/users")
+                .header("Authorization", adminAuth)
+                .contentType("application/json")
+                .content(json))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message").value(Matchers.containsString("72바이트")));
+    assertThat(dsl.fetchCount(USER, USER.USERNAME.eq(username))).isZero();
+  }
 }

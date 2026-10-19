@@ -2,7 +2,7 @@
 // 「숫자 없음 에러」·「모두 포함하면 에러 없음」을 옮겼다. 규칙 위반이 UI 에러로 뜨고 서버 요청을 막는 배선은 대문자 케이스 E2E 가 지킨다.
 import { describe, expect, it } from 'vitest'
 
-import { changePasswordSchema, passwordRule } from './user'
+import { changePasswordSchema, PASSWORD_BYTES_MESSAGE, passwordRule } from './user'
 
 const messages = (v: string) => (passwordRule.safeParse(v).error?.issues ?? []).map((i) => i.message)
 
@@ -18,6 +18,12 @@ describe('passwordRule (#794)', () => {
   it('길이 8~128자', () => {
     expect(messages('Ab1')).toContain('비밀번호는 8자 이상이어야 합니다')
     expect(messages(`Ab1${'x'.repeat(126)}`)).toContain('비밀번호는 128자 이하여야 합니다')
+  })
+  it('bcrypt 한도 72바이트 — 한글은 24자까지(WP-497)', () => {
+    expect(passwordRule.safeParse(`Ab1${'x'.repeat(69)}`).success).toBe(true)
+    expect(messages(`Ab1${'x'.repeat(70)}`)).toEqual([PASSWORD_BYTES_MESSAGE])
+    expect(passwordRule.safeParse(`Ab1${'가'.repeat(23)}`).success).toBe(true)
+    expect(messages(`Ab1${'가'.repeat(24)}`)).toEqual([PASSWORD_BYTES_MESSAGE])
   })
 })
 

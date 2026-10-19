@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { isPasswordWithinBytes, PASSWORD_BYTES_MESSAGE } from './user';
+
 export const loginSchema = z.object({
   // 아이디는 로그인 ID(이메일 형식이 아닐 수 있음). 이메일 강제 제거 — 임의 문자열 허용.
   username: z.string().min(1, "아이디를 입력하세요"),
@@ -17,7 +19,9 @@ export const signupSchema = z
       .regex(
         /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+$/,
         "비밀번호는 영문 대문자, 소문자, 숫자를 각각 하나 이상 포함해야 합니다",
-      ),
+      )
+      // bcrypt 한도(72바이트) — 서버 영어 원문 오류 대신 필드 에러로 막는다(WP-497)
+      .refine(isPasswordWithinBytes, PASSWORD_BYTES_MESSAGE),
     // 비밀번호 확인 필드: password와 일치해야 함 (refine에서 검증)
     confirmPassword: z.string().min(1, "비밀번호 확인을 입력하세요"),
     // 이름 필드: 1자 이상 100자 이하 — DB 컬럼 제약과 일치, 100자 초과 시 서버 500 방지

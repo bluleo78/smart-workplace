@@ -289,6 +289,47 @@ test(
   },
 )
 
+test(
+  '공유 비밀번호가 72바이트를 넘으면 생성이 차단되고 한국어 인라인 에러가 표시된다(WP-497)',
+  async ({ authenticatedPage: page }) => {
+    const posts = trackRequests(page, 'POST', `/api/v1/drive/files/${FILE_ID}/share-links`)
+    await page.route(
+      (url) => url.pathname === `/api/v1/drive/files/${FILE_ID}/share-links`,
+      async (route) => {
+        if (route.request().method() === 'POST') {
+          await route.fulfill({ status: 201, contentType: 'application/json', body: '{}' })
+        } else {
+          await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) })
+        }
+      },
+    )
+    await stubSpaces(page)
+    await stubSpaceSingle(page)
+    await stubItems(page)
+
+    await page.goto(`/drive/spaces/${SPACE_ID}`)
+    await expect(page.getByTestId('drive-page')).toBeVisible()
+    const fileRow = page.getByRole('listitem').filter({ hasText: 'report.txt' })
+    await fileRow.hover()
+    await fileRow.getByTestId('share-link-btn').click()
+    await expect(page.getByTestId('share-link-modal')).toBeVisible()
+
+    // 한글 25자 = 75바이트 — bcrypt 한도(72바이트) 초과
+    await page.locator('#share-password').fill('가'.repeat(25))
+    await page.getByTestId('share-link-create-btn').click()
+
+    await expect(page.getByTestId('share-password-error')).toContainText('72바이트')
+    await expect(page.locator('#share-password')).toHaveAttribute('aria-invalid', 'true')
+    expect(posts.count()).toBe(0)
+
+    // 한도 안으로 고치면 에러가 사라지고 생성 요청이 간다
+    await page.locator('#share-password').fill('가'.repeat(24))
+    await expect(page.getByTestId('share-password-error')).toHaveCount(0)
+    await page.getByTestId('share-link-create-btn').click()
+    await expect.poll(() => posts.count()).toBe(1)
+  },
+)
+
 // ── 만료일 표시 포맷 — 공용 formatDateOnly(zero-pad, 하이픈) 사용 확인 (#617) ──
 test(
   '기존 링크 목록 — 만료일이 zero-pad 하이픈 포맷으로 표시된다',

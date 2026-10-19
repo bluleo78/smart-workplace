@@ -1,6 +1,7 @@
 package com.workplace.global.config;
 
 import com.workplace.global.security.ApiKeyAuthenticationFilter;
+import com.workplace.global.security.BcryptLimitPasswordEncoder;
 import com.workplace.global.security.JwtAuthenticationFilter;
 import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.UserTokenAuthenticationFilter;
@@ -15,7 +16,6 @@ import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
@@ -144,8 +144,9 @@ public class SecurityConfig {
     return source;
   }
 
+  /** bcrypt 72바이트 한도를 한국어 400 으로 안내하는 인코더(WP-497) — 해시 형식은 기존 BCrypt 와 같다. */
   @Bean
   public PasswordEncoder passwordEncoder() {
-    return new BCryptPasswordEncoder();
+    return new BcryptLimitPasswordEncoder();
   }
 }
