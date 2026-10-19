@@ -7,6 +7,7 @@ import {
   Folder,
   FolderInput,
   FolderOpen,
+  FolderX,
   History,
   Link2,
   MoreVertical,
@@ -17,11 +18,12 @@ import {
   X,
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
 import { Page, pageGutterClass } from '@/components/layout/Page'
+import { ResourceErrorState } from '@/components/layout/ResourceErrorState'
 import { MobileActionSheet, type MobileSheetAction } from '@/components/mobile/MobileActionSheet'
 import { TOUCH_ROW_TRIGGER, TouchRowActionsMenu } from '@/components/mobile/TouchRowActionsMenu'
 import {
@@ -195,7 +197,13 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
 
   // #76: 공간 메타데이터 — archived 여부로 읽기 전용 배너·액션 버튼 비활성 결정.
   // WP-63: useQuery 전환 — 실패 시 data 가 없어 배너 미표시로 폴백(기존 동작 유지).
-  const space = useDriveSpace(validSid).data ?? null
+  const spaceQuery = useDriveSpace(validSid)
+  const space = spaceQuery.data ?? null
+  // WP-529: 없는 공간·멤버가 아닌 공간(서버는 존재 은닉으로 404, 역할 미달 403)·숫자가 아닌 주소 — 빈 폴더 + 켜진 업로드로 보이면 안 된다.
+  // 일시적 오류(네트워크·5xx)는 「접근 권한 없음」이 아니므로 기존 화면을 유지한다.
+  const spaceStatus = axios.isAxiosError(spaceQuery.error) ? spaceQuery.error.response?.status : undefined
+  const spaceUnavailable = spaceStatus === 404 || spaceStatus === 403 || validSid === undefined
+  const navigate = useNavigate()
   // WP-63: 폴더 내용 — DriveWidget 과 같은 키(['drive','items',sid,folderId])로 캐시를 공유한다.
   // resource.changed 무효화나 사용자 액션 후 reload() 가 이 키를 재조회한다.
   const itemsQuery = useDriveItems(validSid, folderId ?? undefined, { keepPrevious: true })
@@ -1167,6 +1175,23 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
         <span className="w-20 shrink-0 text-right">크기</span>
         <span className="w-24 shrink-0 text-right">수정일</span>
       </div>
+    )
+  }
+
+  // WP-529: 공간을 열 수 없으면 목록·업로드 대신 「찾을 수 없음」 상태 — 프로젝트·노트와 같은 ResourceErrorState.
+  // 모든 훅 호출 뒤에서 분기한다(훅 순서 유지). 헤더는 남겨 모바일에서도 사이드바 시트로 다른 공간에 갈 수 있게 한다.
+  if (spaceUnavailable) {
+    return (
+      <Page data-testid="drive-page">
+        <Page.Header />
+        <ResourceErrorState
+          icon={FolderX}
+          title="드라이브 공간을 불러올 수 없습니다"
+          description="요청한 공간이 존재하지 않거나 접근 권한이 없습니다."
+          actionLabel="드라이브로"
+          onAction={() => navigate('/drive')}
+        />
+      </Page>
     )
   }
 

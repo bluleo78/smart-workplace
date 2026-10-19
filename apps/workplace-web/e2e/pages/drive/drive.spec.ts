@@ -1306,3 +1306,28 @@ test('데스크톱 — 폴더 행 이름·파일 행 이름·열 헤더 이름 �
   await expectStartAligned(folderName, fileName)
   await expectStartAligned(page.getByTestId('drive-column-header').getByText('이름', { exact: true }), fileName)
 })
+
+// WP-529 — 없는 공간·멤버가 아닌 공간(서버는 존재 은닉으로 404) 주소는 빈 폴더 + 업로드가 아니라 「찾을 수 없음」 상태로 보인다.
+test('열 수 없는 공간 주소는 빈 폴더 대신 찾을 수 없음 상태와 드라이브로 가는 버튼을 보인다', async ({ authenticatedPage: page }) => {
+  await stubSpaces(page)
+  const notFound = (route: Route) =>
+    route.fulfill({
+      status: 404,
+      contentType: 'application/json',
+      body: JSON.stringify({ status: 404, message: '드라이브 공간을 찾을 수 없습니다 (id: 999)' }),
+    })
+  await page.route((url) => url.pathname === '/api/v1/drive/spaces/999', notFound)
+  await page.route((url) => url.pathname === '/api/v1/drive/spaces/999/items', notFound)
+
+  await page.goto('/drive/spaces/999')
+  await expect(page.getByText('드라이브 공간을 불러올 수 없습니다')).toBeVisible()
+  await expect(page.getByText('요청한 공간이 존재하지 않거나 접근 권한이 없습니다.')).toBeVisible()
+  // 빈 폴더 안내·업로드·새 폴더 버튼은 나오지 않는다 — 누르면 「공간을 찾을 수 없습니다 (id)」 토스트만 뜨던 경로.
+  await expect(page.getByTestId('drive-empty-folder')).toHaveCount(0)
+  await expect(page.getByTestId('drive-upload')).toHaveCount(0)
+  await expect(page.getByTestId('drive-new-folder')).toHaveCount(0)
+
+  // 「드라이브로」 → /drive 진입점(데스크톱은 개인 공간으로 이동)
+  await page.getByRole('button', { name: '드라이브로' }).click()
+  await expect(page).not.toHaveURL(/\/drive\/spaces\/999/)
+})
