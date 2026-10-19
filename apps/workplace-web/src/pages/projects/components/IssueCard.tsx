@@ -155,47 +155,59 @@ export function IssueCard({
       {mobileBody && <MobileCardBody issue={issue} projectKey={projectKey} showStatus={showStatus} showType={showType} onOpenMenu={onOpenMenu} />}
       {!mobileBody && (
         <>
-      <div className="flex items-center justify-between gap-2">
-        <span className="flex min-w-0 items-center gap-1 font-medium">
-          {showStatus && <IssueStatusIcon status={issue.status} className="h-4 w-4" />}
-          {showType && issue.type && <IssueTypeBadge type={issue.type} size="sm" iconOnly />}
-          {/* SUBTASK 면 부모 식별자(└ KEY-N) 를 제목 앞에 작게 표시. */}
+      {/* 데스크톱 본문(WP-460 시안 C) — 모바일 카드와 같은 구성: 제목은 카드 폭 전체에서 최대 2줄, 키는 아래 메타 줄(nowrap).
+          예전엔 키·제목이 한 줄을 나눠 써서 좁은 컬럼에서 키가 「PLAT-/9」 로 꺾이고 제목은 앞 몇 글자만 남았다. */}
+      <div className="flex min-w-0 items-start justify-between gap-2">
+        <span className="flex min-w-0 items-start gap-1 font-medium">
+          {showStatus && <IssueStatusIcon status={issue.status} className="mt-0.5 h-4 w-4 shrink-0" />}
+          {showType && issue.type && (
+            <span className="mt-0.5 shrink-0">
+              <IssueTypeBadge type={issue.type} size="sm" iconOnly />
+            </span>
+          )}
+          <span className="line-clamp-2 min-w-0 break-words leading-snug" data-testid={`issue-card-${issue.number}-title`}>
+            {issue.title}
+          </span>
+        </span>
+        <span className="mt-0.5 shrink-0">
+          <IssuePriorityBars priority={issue.priority} />
+        </span>
+      </div>
+
+      <div className="mt-1.5 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+        <span className="flex min-w-0 items-center gap-2">
+          <span className="shrink-0 whitespace-nowrap font-mono" data-testid={`issue-card-${issue.number}-key`}>{identifier}</span>
+          {/* SUBTASK 면 부모 식별자(└ KEY-N) 를 키 옆에 작게 표시. */}
           {isSubtask && issue.parent && (
             <span
-              className="text-xs text-muted-foreground mr-1 font-mono"
+              className="shrink-0 whitespace-nowrap font-mono"
               data-testid={`issue-card-${issue.number}-parent`}
             >
               └ {projectKey}-{issue.parent.number}
             </span>
           )}
-          <span className="text-muted-foreground mr-1 font-mono text-xs">{identifier}</span>
-          <span className="truncate">{issue.title}</span>
+          <span
+            className="flex items-center -space-x-1"
+            data-testid={`issue-card-${issue.number}-assignees`}
+          >
+            {issue.assignees.length === 0 ? (
+              <span className="whitespace-nowrap">미지정</span>
+            ) : (
+              <>
+                {issue.assignees.slice(0, 3).map((u) => (
+                  // AGENT(AI) 담당자는 보라색 ring + Bot 마커로 사람과 시각 구분 (#199).
+                  <UserAvatar key={u.id} user={u} size="xs" ring agent={u.kind === 'AGENT'} />
+                ))}
+                {issue.assignees.length > 3 && (
+                  <span className="text-xs text-muted-foreground ml-1">
+                    +{issue.assignees.length - 3}
+                  </span>
+                )}
+              </>
+            )}
+          </span>
         </span>
-        <IssuePriorityBars priority={issue.priority} />
-      </div>
-
-      <div className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
-        <span
-          className="flex items-center -space-x-1"
-          data-testid={`issue-card-${issue.number}-assignees`}
-        >
-          {issue.assignees.length === 0 ? (
-            <span>미지정</span>
-          ) : (
-            <>
-              {issue.assignees.slice(0, 3).map((u) => (
-                // AGENT(AI) 담당자는 보라색 ring + Bot 마커로 사람과 시각 구분 (#199).
-                <UserAvatar key={u.id} user={u} size="xs" ring agent={u.kind === 'AGENT'} />
-              ))}
-              {issue.assignees.length > 3 && (
-                <span className="text-xs text-muted-foreground ml-1">
-                  +{issue.assignees.length - 3}
-                </span>
-              )}
-            </>
-          )}
-        </span>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           {issue.attachmentCount > 0 && (
             <span
               className="inline-flex items-center gap-0.5"
@@ -216,7 +228,7 @@ export function IssueCard({
               └ {issue.childDoneCount}/{issue.childCount}
             </span>
           )}
-          {issue.dueDate && <span>~{issue.dueDate}</span>}
+          {issue.dueDate && <span className="whitespace-nowrap">~{issue.dueDate}</span>}
         </div>
       </div>
 

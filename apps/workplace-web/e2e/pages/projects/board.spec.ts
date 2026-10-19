@@ -559,6 +559,48 @@ test.describe('태스크 보드/검색', () => {
       .toBeGreaterThanOrEqual(240);
   });
 
+  test('보드 카드(데스크톱): 좁은 컬럼에서도 키는 한 줄, 제목은 카드 폭 전체로 두 줄까지 (WP-460)', async ({
+    authenticatedPage: page,
+  }) => {
+    // 왜: 키·제목이 한 줄을 나눠 쓰던 때는 1024 폭(컬럼 ~240px)에서 키가 「WP-/1047」 로 꺾이고 제목은 앞 몇 글자만 남았다.
+    //     시안 C — 제목은 자기 줄에서 카드 폭 전체로 최대 2줄, 키는 아래 메타 줄(nowrap).
+    await page.setViewportSize({ width: 1024, height: 768 });
+    await stubProjectMeta(page);
+    const issue = createIssue({
+      id: 1,
+      number: 1047,
+      title: '로그인 페이지에서 새로고침하면 세션이 풀리고 다시 로그인해야 하는 문제 — 리프레시 토큰 재발급 경합',
+      status: 'TODO',
+    });
+    await routeIssueSearch(page, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(createIssueSearchResponse([issue])),
+      }),
+    );
+    await page.goto(`/projects/${PROJECT_KEY}?view=board`);
+
+    const card = page.getByTestId('issue-card-1047');
+    const key = card.getByTestId('issue-card-1047-key');
+    const title = card.getByTestId('issue-card-1047-title');
+    await expect(key).toHaveText(`${PROJECT_KEY}-1047`);
+    const metrics = () =>
+      Promise.all([card, key, title].map((l) => l.evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        return { w: r.width, h: r.height, lh: parseFloat(getComputedStyle(el).lineHeight) };
+      })));
+    // 레이아웃이 자리 잡은 뒤 값으로 판정한다(WP-225).
+    await expect.poll(async () => {
+      const [c, k, t] = await metrics();
+      return {
+        keyOneLine: k.h < k.lh * 1.5,
+        titleTwoLines: t.h > t.lh * 1.5 && t.h < t.lh * 2.5,
+        titleWide: t.w > c.w * 0.6,
+      };
+    }).toEqual({ keyOneLine: true, titleTwoLines: true, titleWide: true });
+  });
+
   test('보드: 컬럼 헤더가 카드 제목보다 강한 시각 계층 — text-sm + text-foreground 회귀 (#286)', async ({
     authenticatedPage: page,
   }) => {
@@ -591,11 +633,15 @@ test.describe('태스크 보드/검색', () => {
     expect(headerClass).not.toContain('text-xs');
     expect(headerClass).not.toContain('text-muted-foreground');
 
-    // 카드 이슈 번호: text-xs + text-muted-foreground (약화된 보조 텍스트)
+    // 카드 이슈 번호: 메타 줄(text-xs + text-muted-foreground)의 약화된 보조 텍스트 — WP-460 부터 키는 메타 줄에 있어 스타일을 상속한다.
     const card = page.getByTestId('issue-card-1');
     await expect(card).toBeVisible();
-    const identifierSpan = card.locator('span.font-mono.text-xs.text-muted-foreground');
-    await expect(identifierSpan).toHaveCount(1);
+    const key = card.getByTestId('issue-card-1-key');
+    const title = card.getByTestId('issue-card-1-title');
+    const style = (el: Element) => ({ size: parseFloat(getComputedStyle(el).fontSize), color: getComputedStyle(el).color });
+    const [keyStyle, titleStyle] = await Promise.all([key.evaluate(style), title.evaluate(style)]);
+    expect(keyStyle.size).toBeLessThan(titleStyle.size);
+    expect(keyStyle.color).not.toBe(titleStyle.color);
   });
 
   test('보드 카드 — hover 시 GripVertical 드래그 핸들 표시 (#288 회귀)', async ({
