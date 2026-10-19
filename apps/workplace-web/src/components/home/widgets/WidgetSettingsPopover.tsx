@@ -18,6 +18,9 @@ import type { DashboardWidgetConfig } from '@/types/dashboard'
 
 import type { CatalogWidget } from './catalogRegistry'
 
+/** 위젯 표시 이름 최대 길이 — 서버 DashboardService.MAX_LABEL_LENGTH 와 맞춘다(WP-519). */
+const WIDGET_LABEL_MAX_LENGTH = 40
+
 export function WidgetSettingsPopover({
   catalogDef,
   cfg,
@@ -60,6 +63,8 @@ export function WidgetSettingsPopover({
             id={`widget-label-${cfg.id}`}
             data-testid="widget-settings-label"
             placeholder={catalogDef.title}
+            // 서버 상한(DashboardService.MAX_LABEL_LENGTH)과 같은 40자 — 넘겨 저장하면 400 이 나고 헤더도 길어진다(WP-519).
+            maxLength={WIDGET_LABEL_MAX_LENGTH}
             value={label}
             onChange={(e) => setLabel(e.target.value)}
           />

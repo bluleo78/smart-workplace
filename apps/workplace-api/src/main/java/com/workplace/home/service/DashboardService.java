@@ -95,6 +95,18 @@ public class DashboardService {
   /** 사용자 1인당 저장 가능한 총 위젯 인스턴스 상한(시스템 + 카탈로그 합산). */
   static final int MAX_WIDGETS = 12;
 
+  /** 사용자 지정 표시 이름 상한(WP-519) — 헤더 한두 줄에 들어가는 길이. 넘으면 헤더 아이콘이 밀리고 저장 크기도 무한히 커진다. */
+  static final int MAX_LABEL_LENGTH = 40;
+
+  /** 위젯 id 상한(WP-519) — 시스템 위젯은 type, 카탈로그 위젯은 UUID(36자)라 64 면 넉넉하다. */
+  static final int MAX_ID_LENGTH = 64;
+
+  /**
+   * 카탈로그 위젯 params 직렬화 길이 상한(WP-519). 필터 몇 개짜리 객체라 4천 자면 충분하다 — 상한이 없으면 수 MB params 가 저장돼 홈을 열 때마다
+   * 그대로 내려간다.
+   */
+  static final int MAX_PARAMS_LENGTH = 4000;
+
   private final DashboardRepository repository;
   private final ObjectMapper objectMapper;
 
@@ -189,6 +201,18 @@ public class DashboardService {
     if (isCatalog && params != null && !params.isObject()) {
       throw new IllegalArgumentException("위젯 설정(params)은 객체여야 합니다: " + w.type());
     }
+    if (isCatalog && params != null && params.toString().length() > MAX_PARAMS_LENGTH) {
+      throw new IllegalArgumentException("위젯 설정(params)이 너무 큽니다.");
+    }
+    if (w.id() != null && w.id().length() > MAX_ID_LENGTH) {
+      throw new IllegalArgumentException("위젯 id 는 " + MAX_ID_LENGTH + "자까지 쓸 수 있습니다.");
+    }
+    // 표시 이름은 앞뒤 공백을 잘라 저장하고, 비면 미지정(null)으로 둔다 — 프론트가 기본 제목을 쓴다.
+    String label = (w.label() == null || w.label().isBlank()) ? null : w.label().strip();
+    if (label != null && label.length() > MAX_LABEL_LENGTH) {
+      throw new IllegalArgumentException(
+          "위젯 표시 이름은 " + MAX_LABEL_LENGTH + "자까지 입력할 수 있습니다.");
+    }
     String id =
         (w.id() == null || w.id().isBlank())
             ? (isCatalog ? UUID.randomUUID().toString() : w.type())
@@ -199,7 +223,7 @@ public class DashboardService {
         isCatalog ? 0 : count,
         w.hidden(),
         isCatalog ? params : null,
-        w.label(),
+        label,
         w.chromeless(),
         w.collapsed());
   }

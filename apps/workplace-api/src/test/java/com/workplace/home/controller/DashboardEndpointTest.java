@@ -546,4 +546,52 @@ class DashboardEndpointTest extends IntegrationTestBase {
         .andExpect(jsonPath("$.widgets.length()").value(1))
         .andExpect(jsonPath("$.widgets[0].type").value("calendar_today"));
   }
+
+  /** 카탈로그 위젯(issue_list) 하나로 PUT 한다(WP-519 크기 상한 검증용). */
+  private org.springframework.test.web.servlet.ResultActions putCatalog(
+      long userId, String id, String type, com.fasterxml.jackson.databind.JsonNode params, String label)
+      throws Exception {
+    String body =
+        om.writeValueAsString(
+            new DashboardUpdateRequest(
+                List.of(new DashboardWidgetConfig(id, type, 0, false, params, label, false, null))));
+    return mvc.perform(
+        put("/api/v1/me/dashboard")
+            .header("Authorization", "Bearer " + tokenFor(userId))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(body));
+  }
+
+  @Test
+  void put_limits_label_length_to_40() throws Exception {
+    long userId = createUser("lbl");
+    // 40자는 저장된다(앞뒤 공백은 잘라 저장).
+    putCatalog(userId, "w1", "issue_list", null, "  " + "가".repeat(40) + "  ")
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.widgets[0].label").value("가".repeat(40)));
+    // 41자는 한국어 사유와 함께 거부된다.
+    putCatalog(userId, "w1", "issue_list", null, "가".repeat(41))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message").value("위젯 표시 이름은 40자까지 입력할 수 있습니다."));
+  }
+
+  @Test
+  void put_rejects_oversized_params_and_id() throws Exception {
+    long userId = createUser("big");
+    var params = om.createObjectNode().put("status", "x".repeat(5000));
+    putCatalog(userId, "w1", "issue_list", params, null)
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message").value("위젯 설정(params)이 너무 큽니다."));
+    putCatalog(userId, "w".repeat(65), "issue_list", null, null)
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message").value("위젯 id 는 64자까지 쓸 수 있습니다."));
+  }
+
+  @Test
+  void put_blank_type_is_rejected_in_korean() throws Exception {
+    long userId = createUser("blank");
+    putCatalog(userId, "w1", "", null, null)
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message").value("알 수 없는 위젯 타입입니다: "));
+  }
 }

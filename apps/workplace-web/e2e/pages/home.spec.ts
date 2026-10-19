@@ -320,6 +320,35 @@ test('이슈 목록 위젯 — 담당자 「전체」는 담당자 조건 없이
   expect(url?.searchParams.get('priority')).toBe('HIGH')
 })
 
+test('카탈로그 위젯 — 긴 표시 이름에도 헤더 아이콘은 16px 을 유지하고, 입력은 40자에서 멈춘다 (WP-519)', async ({
+  authenticatedPage: page,
+}) => {
+  const longLabel = '마케팅본부 디지털전략팀 2026년 하반기 핵심 과제 및 신제품 출시 준비'
+  expect(longLabel.length).toBeLessThanOrEqual(40)
+  await mockWidgets(page)
+  await mockApi(
+    page,
+    'GET',
+    '/api/v1/me/dashboard',
+    layout([{ id: 'w-long', type: 'issue_list', count: 0, hidden: false, params: { assignee: 'me' }, label: longLabel }]),
+  )
+  await page.goto('/')
+
+  // 1/3 폭 카드에서 표시 이름이 두 줄로 감겨도 아이콘은 flex 축소되지 않는다.
+  const header = catalogHeaderLink(page, 'w-long')
+  await expect(header).toContainText(longLabel)
+  const icon = await header.locator('svg').first().boundingBox()
+  expect(icon?.width).toBe(16)
+  expect(icon?.height).toBe(16)
+
+  // 설정 팝오버의 표시 이름 입력은 서버 상한과 같은 40자에서 더 받지 않는다.
+  await page.getByTestId('dashboard-edit-toggle').click()
+  await page.locator('[data-testid="dashboard-widget"][data-widget-id="w-long"]').getByTestId('widget-settings').click()
+  const input = page.getByTestId('widget-settings-label')
+  await input.fill('가'.repeat(50))
+  await expect(input).toHaveValue('가'.repeat(40))
+})
+
 test('대시보드 — 알림 위젯 헤더 클릭 시 라우팅 대신 인박스 패널이 열린다 (refs #274)', async ({
   authenticatedPage: page,
 }) => {

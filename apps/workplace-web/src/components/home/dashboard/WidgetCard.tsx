@@ -23,7 +23,8 @@ export function WidgetCard({ entry }: { entry: ResolvedEntry }) {
     'flex items-center gap-2 text-muted-foreground hover:text-ai-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 rounded-sm'
   const headerInner = (
     <>
-      <Icon className="h-4 w-4" />
+      {/* shrink-0: 표시 이름이 길어 두 줄이 돼도 아이콘이 flex 축소로 찌그러지지 않게(WP-519). */}
+      <Icon className="h-4 w-4 shrink-0" />
       <CardTitle className="text-sm font-medium">{title}</CardTitle>
     </>
   )
