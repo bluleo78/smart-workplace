@@ -99,9 +99,6 @@ export default function TimelinePage() {
   // 프로젝트를 볼 수 없으면(403·404) 관리 화면 대신 접근 불가 안내(WP-480). 훅을 모두 부른 뒤에 분기한다.
   if (project.error) return <ProjectUnavailableState />;
 
-  // 프로젝트를 볼 수 없으면(403·404) 관리 화면 대신 접근 불가 안내(WP-480). 훅을 모두 부른 뒤에 분기한다.
-  if (project.error) return <ProjectUnavailableState />;
-
   return (
     <Page data-testid="timeline-page">
       <Page.Header
