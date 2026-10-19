@@ -78,7 +78,7 @@ public class IssueCommentService {
   private static final String DELETE_DENIED = "코멘트 삭제 권한이 없습니다";
 
   /**
-   * 코멘트 수정·삭제 술어 — 이슈 조회 가능 + 코멘트가 <b>그 이슈 소속</b> + 작성자 또는 프로젝트 OWNER.
+   * 코멘트 수정·삭제 술어 — 이슈 조회 가능 + 코멘트가 <b>그 이슈 소속</b> + 작성자 또는 프로젝트 OWNER + 이슈 쓰기 권한(WP-492).
    *
    * <p>#856: 소속 대조가 없으면 A 프로젝트 OWNER 가 자기 이슈 id 에 B 프로젝트 코멘트 id 를 붙여 남의 코멘트를 지울 수 있었다(OWNER 판정이 경로의
    * issueId 기준이므로). 다른 이슈의 코멘트는 없는 코멘트와 같은 404 로 응답한다.
@@ -102,6 +102,9 @@ public class IssueCommentService {
     if (!isAuthor && !isOwner) {
       throw new ProjectAccessDeniedException(deniedMessage);
     }
+    // WP-492: 작성자라도 지금 이 이슈에 글을 쓸 수 없으면(OPEN 프로젝트에서 빠진 멤버 등) 수정·삭제도 막는다 — 작성(create)과 같은 규칙·문구.
+    accessGuard.assertContentWritable(
+        issueAndProject.project(), issueAndProject.issue().reporterId(), callerId);
     return new MutableComment(issueAndProject, existing);
   }
 
