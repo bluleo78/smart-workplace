@@ -703,6 +703,26 @@ test.describe('종일 일정 타임존 렌더 (KST 고정)', () => {
       }
     },
   )
+
+  // WP-544: 날짜 열이 스크롤 영역의 보이는 높이로만 늘어나 그 아래(16시 이후)에서 세로 구분선(border-l)이 끊겼다 —
+  // 날짜 열은 24시간 슬롯 전체 높이(24 × 48px)여야 한다.
+  test(
+    '주 뷰 시간 그리드 — 날짜 열이 24시간 전체 높이라 세로 구분선이 끝까지 이어진다',
+    async ({ authenticatedPage: page }) => {
+      await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+      await stubCalendarEvents(page, [])
+
+      await page.goto('/calendar')
+      await page.getByTestId('calendar-view-week-btn').click()
+
+      const columns = page.getByTestId('calendar-day-column')
+      await expect(columns).toHaveCount(7)
+      for (let i = 0; i < 7; i++) {
+        const box = await columns.nth(i).boundingBox()
+        expect(box!.height, `${i}번째 열 높이`).toBeGreaterThanOrEqual(24 * 48)
+      }
+    },
+  )
 })
 
 test(

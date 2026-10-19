@@ -106,8 +106,10 @@ export function TimeGrid({
       </div>
 
       {/* ── 시간 그리드 ── 모바일(max-lg)은 본문 좌우 스와이프(WP-136)가 이 자체 스크롤 요소에서 pointercancel 로 끊기지 않게
-          세로 패닝만 브라우저에 맡긴다(useIsMobile 과 같은 lg 기준). */}
-      <div className="flex flex-1 overflow-auto max-lg:touch-pan-y">
+          세로 패닝만 브라우저에 맡긴다(useIsMobile 과 같은 lg 기준).
+          items-start: 기본 stretch 면 날짜 열이 스크롤 영역의 보이는 높이로만 늘어나 그 아래(16시 이후)에서
+          세로 구분선(border-l)이 끊긴다 — 열 높이를 24시간 슬롯 내용 높이로 둔다(WP-544). */}
+      <div className="flex flex-1 items-start overflow-auto max-lg:touch-pan-y">
         {/* 시간 거터 */}
         <div className="w-12 shrink-0">
           {HOURS.map((h) => (
@@ -125,7 +127,7 @@ export function TimeGrid({
           // 해당 날의 타임드(종일 아닌) 이벤트
           const timedEvts = eventsOnDay(events, day).filter((e) => !e.allDay)
           return (
-            <div key={day.toISOString()} className="flex-1 relative border-l">
+            <div key={day.toISOString()} data-testid="calendar-day-column" className="flex-1 relative border-l">
               {/* 클릭 가능한 시간 슬롯 */}
               {HOURS.map((h) => (
                 <div
