@@ -23,8 +23,12 @@ public class IssueLabelController {
 
   private final IssueLabelService issueLabelService;
 
-  /** 라벨 집합 교체 요청 본문. labelNames(선택, WP-394)는 이름으로 붙일 라벨 — 없으면 만들어 labelIds 와 합친다. */
-  public record ReplaceLabelsRequest(@NotNull List<Long> labelIds, List<String> labelNames) {}
+  /**
+   * 라벨 집합 교체 요청 본문. labelNames(선택, WP-394)는 이름으로 붙일 라벨 — 없으면 만들어 labelIds 와 합친다. labelIds 의 원소도
+   * null 이면 검증 오류(400)로 막는다 — 서비스까지 들어가면 NPE 로 500 이 난다(WP-500).
+   */
+  public record ReplaceLabelsRequest(
+      @NotNull List<@NotNull Long> labelIds, List<String> labelNames) {}
 
   /** 라벨 집합 통째로 교체. */
   @PutMapping
