@@ -4,13 +4,13 @@
 import { Check, Plus } from 'lucide-react';
 import { useState } from 'react';
 
-import { cn } from '@/lib/utils';
+import { cn, eulReul } from '@/lib/utils';
 
 import type { PickerOption } from './MobilePickerSheet';
 import { MOBILE_SHEET_ROW, MobileSheetShell } from './MobileSheetShell';
 
 export function MobileMultiPickerSheet({
-  open, onClose, title, options, value, searchable = false, testId = 'mobile-multi-picker-sheet', onCreate,
+  open, onClose, title, options, value, searchable = false, testId = 'mobile-multi-picker-sheet', onCreate, countUnit = '개',
 }: {
   open: boolean;
   onClose: (selected: string[]) => void;
@@ -21,6 +21,8 @@ export function MobileMultiPickerSheet({
   testId?: string;
   /** 검색어로 새 항목을 만들고 그 value 를 돌려준다(실패하면 reject — 오류 표시는 호출부 몫). searchable 일 때만 쓰인다. */
   onCreate?: (name: string) => Promise<string>;
+  /** 안내 문구의 세는 단위 — 사람(담당자)은 「명」, 그 밖(라벨 등)은 「개」(WP-499). */
+  countUnit?: '명' | '개';
 }) {
   const [picked, setPicked] = useState<string[]>(value);
   const [q, setQ] = useState('');
@@ -65,7 +67,7 @@ export function MobileMultiPickerSheet({
       open={open}
       onClose={close}
       title={title}
-      description={`${title}을 여러 명 고를 수 있습니다.`}
+      description={`${title}${eulReul(title)} 여러 ${countUnit} 고를 수 있습니다.`}
       testId={testId}
       autoFocus={searchable}
       headerAction={

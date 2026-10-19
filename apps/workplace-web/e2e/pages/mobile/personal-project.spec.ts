@@ -115,6 +115,8 @@ test.describe('작업 상세(전체 화면)', () => {
     await page.goto(`/projects/${KEY}?task=1`);
     const sheet = page.getByTestId('issue-label-sheet');
     await page.getByTestId('mobile-prop-label').tap();
+    // 라벨은 사람이 아니라 「개」로 센다(WP-499).
+    await expect(sheet.getByText('라벨을 여러 개 고를 수 있습니다.')).toBeAttached();
     await sheet.getByTestId('issue-label-sheet-done').tap();
     await expect(sheet).toBeHidden();
     expect(putLabels.requests).toHaveLength(0);

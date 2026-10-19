@@ -166,6 +166,8 @@ test.describe('속성 칩', () => {
     await openDetail(page);
     await page.getByTestId('mobile-prop-assignee').click();
     const sheet = page.getByTestId('issue-assignee-sheet');
+    // 스크린리더 안내는 받침에 맞는 조사와 사람 단위(명)로 읽힌다(WP-499 — 예전엔 「담당자을」).
+    await expect(sheet.getByText('담당자를 여러 명 고를 수 있습니다.')).toBeAttached();
     await sheet.getByTestId('multi-option-2').click();
     expect(calls().filter((c) => c.path.endsWith('/assignees'))).toHaveLength(0); // 닫을 때까지 커밋하지 않음
     await sheet.getByTestId('issue-assignee-sheet-done').click();

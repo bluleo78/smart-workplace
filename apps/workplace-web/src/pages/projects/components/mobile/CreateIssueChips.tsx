@@ -222,6 +222,7 @@ export function CreateIssueChips({
         testId="create-assignee-sheet"
         open={sheet === 'assignee'}
         title="담당자"
+        countUnit="명"
         searchable
         value={assigneeIds.map(String)}
         options={memberOptions(memberList)}

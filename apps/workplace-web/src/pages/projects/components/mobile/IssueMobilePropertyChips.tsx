@@ -183,6 +183,7 @@ export function IssueMobilePropertyChips({
         testId="issue-assignee-sheet"
         open={sheet === 'assignee'}
         title="담당자"
+        countUnit="명"
         searchable
         value={issue.assignees.map((a) => String(a.id))}
         options={memberOptions(members.data, issue.assignees.map((a) => a.id))}
