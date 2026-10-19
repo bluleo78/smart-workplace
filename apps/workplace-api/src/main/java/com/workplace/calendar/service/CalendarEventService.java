@@ -776,10 +776,16 @@ public class CalendarEventService {
     // ③ 로컬 반영(tx) — 기존 동작 보존(AGENT 포함 로컬 행 + 알림).
     txTemplate.execute(
         s -> {
+          // 반복 일정이면 「이 일정만」 고친 회차(오버라이드)에도 같이 넣는다(WP-536) — 오버라이드는 만들 때 마스터 참석자를 복사한
+          // 별도 일정이라, 마스터에만 넣으면 새 참석자가 고친 회차를 보지 못한다. 알림은 일정당 한 번(마스터)만.
+          List<Long> overrideIds = exceptionRepo.overrideEventIds(eventId);
           for (Long uid : userIds) {
             if (uid == null || uid == callerId) continue;
             String status = isAgent(uid) ? "ACCEPTED" : "NEEDS_ACTION";
             attendeeRepo.insert(eventId, uid, callerId, "ATTENDEE", status);
+            for (long overrideId : overrideIds) {
+              attendeeRepo.insert(overrideId, uid, callerId, "ATTENDEE", status);
+            }
             // AGENT 는 인박스 알림 제외 — HUMAN 초대자에게만 발행. 호출자가 알림을 끄면(WP-348) 발행하지 않는다.
             if (notifyAttendees && !isAgent(uid)) {
               eventPublisher.publishEvent(new CalendarAttendeeInvitedEvent(eventId, uid, callerId));
@@ -814,6 +820,10 @@ public class CalendarEventService {
           // 제거 대상은 커밋 후 명단에서 빠지므로 삭제 전 명단을 before 로 넘겨 본인도 갱신을 받게 한다.
           List<Long> beforeAttendees = internalAttendeeIds(eventId);
           attendeeRepo.deleteByEventAndUser(eventId, userId);
+          // 반복 일정이면 고친 회차(오버라이드)에서도 뺀다(WP-536) — 남기면 빠진 사람이 그 회차를 계속 보고 열 수 있다.
+          for (long overrideId : exceptionRepo.overrideEventIds(eventId)) {
+            attendeeRepo.deleteByEventAndUser(overrideId, userId);
+          }
           publishEventChanged(
               ResourceChangedEvent.OP_UPDATED,
               eventId,

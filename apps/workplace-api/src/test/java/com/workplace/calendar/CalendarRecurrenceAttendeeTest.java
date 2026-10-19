@@ -2,9 +2,11 @@ package com.workplace.calendar;
 
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.calendar.dto.CalendarEventRequest;
 import com.workplace.calendar.dto.EditScope;
+import com.workplace.calendar.exception.CalendarEventNotFoundException;
 import com.workplace.calendar.repository.EventAttendeeRepository;
 import com.workplace.calendar.repository.EventAttendeeRepository.AttendeeRow;
 import com.workplace.calendar.service.CalendarEventService;
@@ -125,5 +127,69 @@ class CalendarRecurrenceAttendeeTest extends IntegrationTestBase {
         .extracting(AttendeeRow::userId)
         .as("분할된 새 마스터 행에 주최자와 게스트가 모두 복사되어야 한다")
         .contains(org, guest);
+  }
+
+  /** THIS 오버라이드 하나를 만든 매일 반복 일정 — [마스터 id, 오버라이드 id]. */
+  private long[] seriesWithOverride(long org, List<Long> guests) {
+    long masterId =
+        service.create(org, newRecurringReq("daily", BASE, BASE.plusHours(1), guests)).id();
+    OffsetDateTime occ2 = BASE.plusDays(1);
+    long overrideId =
+        service
+            .update(
+                org,
+                masterId,
+                newReq("수정회의", occ2.plusHours(2), occ2.plusHours(3), List.of()),
+                EditScope.THIS,
+                occ2)
+            .id();
+    return new long[] {masterId, overrideId};
+  }
+
+  /**
+   * WP-536: 반복 일정(마스터)에 참석자를 추가하면 이미 「이 일정만」 고친 회차에도 들어가야 한다 — 마스터에만 넣으면 새 참석자는 고친 회차를 목록에서도 못 보고
+   * 열면 404 였다.
+   */
+  @Test
+  void inviteToMaster_alsoAddsToExistingOverrides() {
+    long org = seedUser("org");
+    long guest = seedUser("g");
+    long added = seedUser("add");
+    long[] ids = seriesWithOverride(org, List.of(guest));
+
+    service.inviteAttendees(org, ids[0], List.of(added));
+
+    assertThat(attendeeRepo.findByEvent(ids[1]))
+        .as("고친 회차에도 새 참석자가 들어가야 한다")
+        .anySatisfy(
+            a -> {
+              assertThat(a.userId()).isEqualTo(added);
+              assertThat(a.rsvpStatus()).isEqualTo("NEEDS_ACTION");
+            });
+    assertThat(service.get(added, ids[1]).id()).isEqualTo(ids[1]);
+  }
+
+  /** WP-536: 반복 일정(마스터)에서 참석자를 빼면 고친 회차에서도 빠져 더는 보거나 열 수 없어야 한다. */
+  @Test
+  void removeFromMaster_alsoRemovesFromOverrides() {
+    long org = seedUser("org");
+    long guest = seedUser("g");
+    long[] ids = seriesWithOverride(org, List.of(guest));
+
+    service.removeAttendee(org, ids[0], guest);
+
+    assertThat(attendeeRepo.findByEvent(ids[1]))
+        .extracting(AttendeeRow::userId)
+        .as("고친 회차에서도 빠져야 한다")
+        .doesNotContain(guest)
+        .contains(org);
+    assertThatThrownBy(() -> service.get(guest, ids[1]))
+        .isInstanceOf(CalendarEventNotFoundException.class);
+    assertThat(
+            service.list(guest, BASE.minusDays(1), BASE.plusDays(5)).stream()
+                .map(e -> e.id())
+                .toList())
+        .as("빠진 사람의 목록에 고친 회차가 남지 않아야 한다")
+        .doesNotContain(ids[1]);
   }
 }
