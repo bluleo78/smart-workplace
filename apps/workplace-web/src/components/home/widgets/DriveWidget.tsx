@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useDriveItems } from '@/hooks/queries/useDriveItems'
 import { useDriveSpaces } from '@/hooks/queries/useDriveSpaces'
+import { driveSpaceTypeLabel } from '@/lib/driveSpaces'
 import type { DriveSpace } from '@/types/drive'
 
 import { WidgetError } from './WidgetError'
@@ -63,8 +64,8 @@ export default function DriveWidget({
                 >
                   <HardDrive className="size-4 shrink-0 text-muted-foreground" aria-hidden />
                   <span className="flex-1 truncate font-medium">{space.name}</span>
-                  {/* 스페이스 유형 표식 */}
-                  <span className="shrink-0 text-xs text-muted-foreground">{space.type}</span>
+                  {/* 스페이스 유형 표식 — 영문 enum 대신 한국어(WP-522). */}
+                  <span className="shrink-0 text-xs text-muted-foreground">{driveSpaceTypeLabel(space.type)}</span>
                 </Link>
               </li>
             ))}

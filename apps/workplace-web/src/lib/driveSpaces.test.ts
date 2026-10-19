@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { DriveSpace } from '../types/drive'
-import { canManageDriveSpace, partitionSpaces } from './driveSpaces'
+import { canManageDriveSpace, driveSpaceTypeLabel, partitionSpaces } from './driveSpaces'
 
 function space(id: number, type: DriveSpace['type'], name: string): DriveSpace {
   return { id, type, name, ownerId: 1, role: 'EDITOR', archived: false, createdAt: '2026-06-01T00:00:00Z' }
@@ -38,5 +38,13 @@ describe('canManageDriveSpace — 사이드바 ⋯(이름 변경/삭제) 노출'
   it('개인·채널 공간은 OWNER 여도 false', () => {
     expect(canManageDriveSpace({ type: 'PERSONAL', role: 'OWNER' })).toBe(false)
     expect(canManageDriveSpace({ type: 'CHANNEL', role: 'OWNER' })).toBe(false)
+  })
+})
+
+describe('driveSpaceTypeLabel (WP-522)', () => {
+  it('space 유형을 한국어로 표기한다', () => {
+    expect(driveSpaceTypeLabel('PERSONAL')).toBe('개인')
+    expect(driveSpaceTypeLabel('TEAM')).toBe('팀')
+    expect(driveSpaceTypeLabel('CHANNEL')).toBe('채널')
   })
 })

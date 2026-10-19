@@ -65,6 +65,11 @@ test.describe('#460 홈 챗 도크 드라이브 위젯 렌더', () => {
       await expect(items).toBeVisible()
       await expect(items).toContainText('개인 드라이브')
       await expect(items).toContainText('팀 드라이브')
+      // WP-522: 유형은 영문 enum 이 아니라 한국어로 보인다.
+      const rows = items.getByRole('listitem')
+      await expect(rows.nth(0)).toHaveText(/개인 드라이브\s*개인$/)
+      await expect(rows.nth(1)).toHaveText(/팀 드라이브\s*팀$/)
+      await expect(items).not.toContainText('PERSONAL')
     },
   )
 

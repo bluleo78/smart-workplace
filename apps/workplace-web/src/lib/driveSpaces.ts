@@ -1,4 +1,11 @@
-import type { DriveSpace } from '../types/drive'
+import type { DriveSpace, DriveSpaceType } from '../types/drive'
+
+/** 드라이브 space 유형의 화면 표기(WP-522) — 영문 enum 코드를 그대로 보이지 않게 한다. */
+const SPACE_TYPE_LABEL: Record<DriveSpaceType, string> = { PERSONAL: '개인', TEAM: '팀', CHANNEL: '채널' }
+
+export function driveSpaceTypeLabel(type: DriveSpaceType): string {
+  return SPACE_TYPE_LABEL[type] ?? type
+}
 
 /**
  * 드라이브 space 목록을 사이드바 표시용 두 그룹으로 분리한다.
