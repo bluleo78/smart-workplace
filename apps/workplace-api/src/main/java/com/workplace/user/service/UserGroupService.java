@@ -169,9 +169,16 @@ public class UserGroupService {
     return toDetail(callerId, g);
   }
 
-  /** 멤버 제외. */
+  /**
+   * 멤버 제외. 대상 종류는 편입 요청과 같은 MEMBER·EXTERNAL 만 받는다(WP-551) — 경로 변수라 Bean Validation 을 거치지 않아,
+   * 오타·소문자가 0행 삭제 204 로 끝나 호출한 쪽이 뺐다고 믿게 되던 것을 400 으로 거절한다. 이미 없는 멤버를 빼는 것은 멱등 204 그대로다.
+   */
   @Transactional
   public void removeMember(long callerId, long id, String targetType, long targetId) {
+    if (!"MEMBER".equals(targetType) && !"EXTERNAL".equals(targetType)) {
+      throw new InvalidUserGroupException(
+          "알 수 없는 대상 종류입니다: " + targetType + " (MEMBER 또는 EXTERNAL)");
+    }
     requireWritable(callerId, id);
     repo.removeMember(id, targetType, targetId);
   }

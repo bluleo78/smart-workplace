@@ -281,6 +281,19 @@ class UserGroupServiceTest extends IntegrationTestBase {
   }
 
   @Test
+  void removeMember_unknownTargetType_throwsInvalidAndKeepsMember() {
+    // WP-551: 소문자 member 등 알 수 없는 대상 종류는 0행 삭제 204 로 끝내지 않고 400 으로 거절한다.
+    long caller = user();
+    long memberUser = user();
+    UserGroupDetail g = service.create(caller, req("내 그룹", null, "PERSONAL"));
+    service.addMember(caller, g.id(), new AddMemberRequest("MEMBER", memberUser));
+    assertThatThrownBy(() -> service.removeMember(caller, g.id(), "member", memberUser))
+        .isInstanceOf(InvalidUserGroupException.class)
+        .hasMessageContaining("대상 종류");
+    assertThat(service.getDetail(caller, g.id()).members()).hasSize(1);
+  }
+
+  @Test
   void getDetail_personalByNonOwner_throwsNotFound() {
     long a = user();
     long b = user();
