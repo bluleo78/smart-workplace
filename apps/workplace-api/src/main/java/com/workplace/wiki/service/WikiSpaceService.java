@@ -107,6 +107,7 @@ public class WikiSpaceService {
     perms.requireRole(spaceId, callerId, "OWNER");
     requireTeamSpace(spaceId);
     perms.validateRole(role);
+    if (!"OWNER".equals(role)) requireAnotherOwner(spaceId, userId);
     members.changeRole(spaceId, userId, role);
     notifier.spaceChanged(spaceId, callerId, Set.of());
     // 강등(EDITOR→VIEWER)이면 열린 연결을 읽기 전용으로 바꿔야 한다.
@@ -117,11 +118,23 @@ public class WikiSpaceService {
   public void removeMember(long callerId, long spaceId, long userId) {
     perms.requireRole(spaceId, callerId, "OWNER");
     requireTeamSpace(spaceId);
+    requireAnotherOwner(spaceId, userId);
     members.remove(spaceId, userId);
     // 제거된 멤버는 커밋 후 명단에서 빠지므로 extra 로 넘겨 자기 화면에서도 스페이스가 사라지게 한다.
     notifier.spaceChanged(spaceId, callerId, List.of(userId));
     // 제거된 사용자가 열어 둔 편집 연결을 끊게 한다.
     publishMembershipChanged(spaceId, userId);
+  }
+
+  /**
+   * 대상이 OWNER 이고 마지막 OWNER 면 제거·강등을 거부한다(WP-496) — 빠지면 멤버 관리·편집을 할 사람이 없는 공간이 남고, 공간 이름도 묶인다. 대상이
+   * OWNER 가 아니면(또는 다른 OWNER 가 있으면) 그대로 진행한다.
+   */
+  private void requireAnotherOwner(long spaceId, long userId) {
+    boolean targetIsOwner = members.findRole(spaceId, userId).map("OWNER"::equals).orElse(false);
+    if (targetIsOwner && members.countOwners(spaceId) <= 1) {
+      throw new com.workplace.wiki.exception.WikiLastOwnerException(spaceId);
+    }
   }
 
   /**

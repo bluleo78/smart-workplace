@@ -35,6 +35,13 @@ public class WikiSpaceMemberRepository {
         .fetchOptional(WIKI_SPACE_MEMBER.ROLE);
   }
 
+  /** 공간의 OWNER 수 — 마지막 OWNER 를 빼거나 강등하지 못하게 하는 데 쓴다(WP-496). */
+  public int countOwners(long spaceId) {
+    return dsl.fetchCount(
+        WIKI_SPACE_MEMBER,
+        WIKI_SPACE_MEMBER.SPACE_ID.eq(spaceId).and(WIKI_SPACE_MEMBER.ROLE.eq("OWNER")));
+  }
+
   public void changeRole(long spaceId, long userId, String role) {
     dsl.update(WIKI_SPACE_MEMBER)
         .set(WIKI_SPACE_MEMBER.ROLE, role)

@@ -11,6 +11,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.drive.dto.DriveSpaceResponse;
 import com.workplace.drive.exception.DriveForbiddenException;
+import com.workplace.drive.exception.DriveLastOwnerException;
 import com.workplace.drive.exception.DriveSpaceNameDuplicatedException;
 import com.workplace.drive.exception.DriveSpaceNotFoundException;
 import com.workplace.drive.exception.DriveSpaceTypeNotEditableException;
@@ -288,5 +289,27 @@ class DriveSpaceServiceTest extends IntegrationTestBase {
     assertThat(spaceService.listMembers(owner, personal.id()))
         .singleElement()
         .satisfies(m -> assertThat(m.userId()).isEqualTo(owner));
+  }
+
+  /** WP-496 — 팀 공간의 마지막 OWNER 는 스스로 빠지거나 강등할 수 없다(관리자 없는 공간이 남는다). 다른 OWNER 가 있으면 된다. */
+  @Test
+  void lastOwner_cannotLeaveOrBeDemoted_butCanWhenAnotherOwnerExists() {
+    long owner = seedUser();
+    long other = seedUser();
+    var team = spaceService.createTeamSpace(owner, "마지막주인");
+    spaceService.addMember(owner, team.id(), other, "VIEWER");
+
+    assertThatThrownBy(() -> spaceService.removeMember(owner, team.id(), owner))
+        .isInstanceOf(DriveLastOwnerException.class);
+    assertThatThrownBy(() -> spaceService.changeRole(owner, team.id(), owner, "EDITOR"))
+        .isInstanceOf(DriveLastOwnerException.class);
+
+    // 다른 OWNER 를 세우면 원래 OWNER 는 강등·제거할 수 있다.
+    spaceService.changeRole(owner, team.id(), other, "OWNER");
+    spaceService.changeRole(owner, team.id(), owner, "EDITOR");
+    spaceService.removeMember(other, team.id(), owner);
+    assertThat(spaceService.listMembers(other, team.id()))
+        .singleElement()
+        .satisfies(m -> assertThat(m.userId()).isEqualTo(other));
   }
 }

@@ -587,6 +587,14 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
   }
 
+  /** 팀 노트 공간의 마지막 OWNER 제거·강등 — 409(WP-496, 드라이브의 DriveLastOwnerException 과 같은 응답). */
+  @ExceptionHandler(com.workplace.wiki.exception.WikiLastOwnerException.class)
+  public ResponseEntity<ErrorResponse> handleWikiLastOwner(
+      com.workplace.wiki.exception.WikiLastOwnerException ex, HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.CONFLICT, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
+  }
+
   /** 위키 TEAM 공간 이름 중복 — 409(컨테이너류 이름 하드 차단 정책, #696). */
   @ExceptionHandler(com.workplace.wiki.exception.WikiSpaceNameDuplicatedException.class)
   public ResponseEntity<ErrorResponse> handleWikiSpaceNameDuplicated(
@@ -792,6 +800,7 @@ public class GlobalExceptionHandler {
     com.workplace.drive.exception.DriveSpaceNameDuplicatedException.class,
     com.workplace.drive.exception.DriveQuotaExceededException.class,
     com.workplace.drive.exception.DriveSpaceTypeNotEditableException.class,
+    com.workplace.drive.exception.DriveLastOwnerException.class,
     com.workplace.drive.exception.DriveNotTextFileException.class
   })
   public ResponseEntity<ErrorResponse> handleDriveConflict(
