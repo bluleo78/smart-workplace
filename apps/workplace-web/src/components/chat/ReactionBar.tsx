@@ -21,9 +21,11 @@ interface ReactionBarProps {
   currentUserId: number
   // 반응자 전체 보기 열기(호버 카드의 모두 보기). 미전달이면 호버 카드를 붙이지 않는다(미전송 메시지·터치 셸 등).
   onOpenReactors?: (emoji: string) => void
+  // 읽기 전용(보관된 채널, WP-508) — 칩은 개수만 보여 주고 눌러도 토글하지 않는다.
+  readOnly?: boolean
 }
 
-export function ReactionBar({ message, onToggle, align = 'start', currentUserId, onOpenReactors }: ReactionBarProps) {
+export function ReactionBar({ message, onToggle, align = 'start', currentUserId, onOpenReactors, readOnly }: ReactionBarProps) {
   if (message.reactions.length === 0) return null
   const hover = !!onOpenReactors && message.id >= 0
   return (
@@ -32,7 +34,7 @@ export function ReactionBar({ message, onToggle, align = 'start', currentUserId,
       data-testid={`reaction-bar-${message.id}`}
     >
       {message.reactions.map((r) => {
-        const pill = <ReactionPill key={r.emoji} messageId={message.id} reaction={r} onToggle={onToggle} />
+        const pill = <ReactionPill key={r.emoji} messageId={message.id} reaction={r} onToggle={onToggle} disabled={readOnly} />
         return hover ? (
           <ReactionHoverPill
             key={r.emoji}
@@ -72,7 +74,7 @@ function ReactionPill({
       data-reaction-emoji={r.emoji}
       aria-pressed={r.reacted}
       // 터치(coarse)에선 손가락으로 누르기 쉽게 높이 32px·좌우 여백을 키운다(L1). 마우스 환경은 그대로.
-      className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs pointer-coarse:min-h-8 pointer-coarse:px-2.5 ${
+      className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs pointer-coarse:min-h-8 pointer-coarse:px-2.5 disabled:cursor-default ${
         r.reacted ? 'border-primary bg-primary/10 text-primary' : 'border-muted bg-muted/50'
       }`}
     >

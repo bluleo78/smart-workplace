@@ -247,11 +247,13 @@ public class MessageService {
             .findAuthorId(messageId)
             .orElseThrow(() -> new MessageNotFoundException(messageId));
     if (authorId != callerId) throw new MessageAuthorMismatchException(messageId, callerId);
-    ensureMember(
+    long channelId =
         messageRepo
             .findChannelId(messageId)
-            .orElseThrow(() -> new MessageNotFoundException(messageId)),
-        callerId);
+            .orElseThrow(() -> new MessageNotFoundException(messageId));
+    ensureMember(channelId, callerId);
+    // 보관된 채널은 읽기 전용 — 새 메시지와 같이 수정도 막는다(WP-508).
+    if (channelRepo.isArchived(channelId)) throw new ChannelArchivedException(channelId);
     List<Long> mentionIds = mentionHydrator.filterExistingUserIds(MentionParser.parse(req.body()));
     messageRepo.update(messageId, req.body(), mentionIds);
     MessageResponse saved = findOne(messageId, callerId);
@@ -278,6 +280,8 @@ public class MessageService {
             .findChannelId(messageId)
             .orElseThrow(() -> new MessageNotFoundException(messageId));
     ensureMember(channelId, callerId);
+    // 보관된 채널은 읽기 전용 — 삭제도 막는다(WP-508).
+    if (channelRepo.isArchived(channelId)) throw new ChannelArchivedException(channelId);
     messageRepo.softDelete(messageId);
     // 메시지 삭제 시 연결된 드라이브 ref 정리 (source_id 는 비-FK 이므로 명시적 purge 필요)
     driveLinkService.purgeSource("MESSAGE", messageId);

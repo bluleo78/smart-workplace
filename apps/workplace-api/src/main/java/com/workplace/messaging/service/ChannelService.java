@@ -2,6 +2,7 @@ package com.workplace.messaging.service;
 
 import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.messaging.dto.ChannelResponse;
+import com.workplace.messaging.exception.ChannelArchivedException;
 import com.workplace.messaging.exception.ChannelForbiddenException;
 import com.workplace.messaging.exception.ChannelNameDuplicatedException;
 import com.workplace.messaging.exception.ChannelNotFoundException;
@@ -91,6 +92,8 @@ public class ChannelService {
     if (!"PUBLIC".equals(ch.visibility())) {
       throw new ChannelForbiddenException(channelId, callerId, "join-private");
     }
+    // 보관된 채널은 읽기 전용 — 새로 참여할 수 없다(WP-508).
+    if (channelRepo.isArchived(channelId)) throw new ChannelArchivedException(channelId);
     memberRepo.add(channelId, callerId, "MEMBER");
     changeNotifier.membershipChanged(channelId, callerId, Set.of());
   }
@@ -100,6 +103,8 @@ public class ChannelService {
   public ChannelResponse rename(long callerId, long channelId, String name) {
     ensureExists(channelId);
     perms.requireManage(channelId, callerId, "rename");
+    // 보관된 채널은 읽기 전용 — 이름을 바꾸려면 먼저 보관을 해제한다(WP-508).
+    if (channelRepo.isArchived(channelId)) throw new ChannelArchivedException(channelId);
     if (channelRepo.existsChannelName(name, channelId)) {
       throw new ChannelNameDuplicatedException(name);
     }

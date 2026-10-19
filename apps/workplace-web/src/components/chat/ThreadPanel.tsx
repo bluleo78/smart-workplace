@@ -86,6 +86,7 @@ export function ThreadPanel({ channelId, channelName, parent, members, me, archi
           currentUserId={me.id}
           members={members}
           disableMarkRead
+          readOnly={archived}
         />
         <div className="border-t" />
         {/* 답글 목록 — 답글 id 로 채널 watermark 가 전진하면 안 되므로 mark-read 비활성. */}
@@ -97,6 +98,7 @@ export function ThreadPanel({ channelId, channelName, parent, members, me, archi
           currentUserId={me.id}
           members={members}
           disableMarkRead
+          readOnly={archived}
           emptyState={
             /* 답글 0건일 때 빈 공백 대신 안내 메시지 표시 */
             <div className="flex flex-col items-center gap-2 py-8 text-center text-sm text-muted-foreground">

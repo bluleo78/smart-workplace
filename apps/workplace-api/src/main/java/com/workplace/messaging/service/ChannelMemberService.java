@@ -3,6 +3,7 @@ package com.workplace.messaging.service;
 import com.workplace.global.tenant.MembershipGuard;
 import com.workplace.messaging.dto.ChannelMemberResponse;
 import com.workplace.messaging.exception.AgentCannotOwnChannelException;
+import com.workplace.messaging.exception.ChannelArchivedException;
 import com.workplace.messaging.exception.ChannelForbiddenException;
 import com.workplace.messaging.exception.ChannelNotFoundException;
 import com.workplace.messaging.exception.OwnershipTransferRequiredException;
@@ -67,6 +68,8 @@ public class ChannelMemberService {
     ensureExists(channelId);
     requireNotDm(callerId, channelId, "add-member");
     perms.requireManage(channelId, callerId, "add-member");
+    // 보관된 채널은 읽기 전용 — 멤버를 새로 넣을 수 없다(WP-508). 내보내기·나가기는 정리용이라 허용한다.
+    if (channelRepo.isArchived(channelId)) throw new ChannelArchivedException(channelId);
     // 추가 대상 사용자가 현재 테넌트의 활성 멤버인지 확인 — 테넌트 경계를 넘는 채널 멤버십 차단(설계 §4).
     // project/wiki/drive 공간 addMember 와 공용 헬퍼(MembershipGuard)로 정책 통일 (#713).
     if (membershipGuard.isForeignUser(targetUserId)) {

@@ -26,15 +26,20 @@ export interface MessageSheetHandlers<T> {
   onThread?: (m: T) => void
   onEdit: (m: T) => void
   onDelete: (m: T) => void
+  // 보관된 채널처럼 읽기 전용이면 수정·삭제를 두지 않는다(WP-508).
+  readOnly?: boolean
 }
 
 /** 이 메시지에 허용된 작업 — 행 객체를 만들지 않고 판정만(행마다 "작업이 있나"를 볼 때 쓴다). */
-function permissions(m: SheetMessage, { currentUserId, onThread }: Pick<MessageSheetHandlers<never>, 'currentUserId' | 'onThread'>) {
+function permissions(
+  m: SheetMessage,
+  { currentUserId, onThread, readOnly }: Pick<MessageSheetHandlers<never>, 'currentUserId' | 'onThread' | 'readOnly'>,
+) {
   const confirmed = m.id >= 0 // 낙관적 미확정(음수 id)은 서버 작업 불가.
   return {
     thread: !!onThread && confirmed,
     copy: !m.deleted && m.body.trim() !== '',
-    edit: m.authorId === currentUserId && !m.deleted && confirmed,
+    edit: !readOnly && m.authorId === currentUserId && !m.deleted && confirmed,
   }
 }
 

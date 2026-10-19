@@ -2,11 +2,13 @@ package com.workplace.messaging.service;
 
 import com.workplace.messaging.dto.ReactorPage;
 import com.workplace.messaging.dto.ReactorResponse;
+import com.workplace.messaging.exception.ChannelArchivedException;
 import com.workplace.messaging.exception.ChannelNotMemberException;
 import com.workplace.messaging.exception.MessageNotFoundException;
 import com.workplace.messaging.outbound.MessagingDomainEvents.ReactionAddedEvent;
 import com.workplace.messaging.outbound.MessagingDomainEvents.ReactionRemovedEvent;
 import com.workplace.messaging.repository.ChannelMemberRepository;
+import com.workplace.messaging.repository.ChannelRepository;
 import com.workplace.messaging.repository.MessageRepository;
 import com.workplace.messaging.repository.MessageRepository.Cursor;
 import com.workplace.messaging.repository.ReactionRepository;
@@ -25,12 +27,13 @@ public class ReactionService {
   private final ReactionRepository reactionRepo;
   private final MessageRepository messageRepo;
   private final ChannelMemberRepository memberRepo;
+  private final ChannelRepository channelRepo;
   private final ApplicationEventPublisher publisher;
 
   /** 리액션 추가(멱등 — 이미 있으면 이벤트 미발행). */
   @Transactional
   public void add(long callerId, long messageId, String emoji) {
-    long channelId = ensureMessageMember(callerId, messageId);
+    long channelId = ensureWritableMessageMember(callerId, messageId);
     if (reactionRepo.add(messageId, callerId, emoji))
       publisher.publishEvent(new ReactionAddedEvent(channelId, messageId, emoji, callerId));
   }
@@ -38,9 +41,16 @@ public class ReactionService {
   /** 리액션 제거(멱등 — 없으면 이벤트 미발행). */
   @Transactional
   public void remove(long callerId, long messageId, String emoji) {
-    long channelId = ensureMessageMember(callerId, messageId);
+    long channelId = ensureWritableMessageMember(callerId, messageId);
     if (reactionRepo.remove(messageId, callerId, emoji))
       publisher.publishEvent(new ReactionRemovedEvent(channelId, messageId, emoji, callerId));
+  }
+
+  /** 멤버 검증에 더해 보관된 채널이면 막는다 — 보관된 채널은 읽기 전용이라 리액션도 바꿀 수 없다(WP-508). */
+  private long ensureWritableMessageMember(long callerId, long messageId) {
+    long channelId = ensureMessageMember(callerId, messageId);
+    if (channelRepo.isArchived(channelId)) throw new ChannelArchivedException(channelId);
+    return channelId;
   }
 
   /** 메시지의 채널 멤버 여부 검증 후 channelId 반환. */

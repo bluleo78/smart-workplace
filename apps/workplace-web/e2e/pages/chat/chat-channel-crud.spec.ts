@@ -2,7 +2,7 @@
 import type { Page } from '@playwright/test';
 
 import { expect, test } from '../../fixtures/auth.fixture';
-import { createChannel } from '../../factories/messaging.factory';
+import { createChannel, createMessage, createReaction } from '../../factories/messaging.factory';
 
 // 사이드바가 부르는 GET /channels(내 채널) + SSE stub. 메시지 GET 은 빈 목록.
 async function stubSidebar(page: Page, channels: ReturnType<typeof createChannel>[]) {
@@ -208,6 +208,7 @@ async function stubChannelView(
   page: Page,
   channel: ReturnType<typeof createChannel>,
   status = 200,
+  messages: ReturnType<typeof createMessage>[] = [],
 ) {
   await page.route(
     (url) => url.pathname === '/api/v1/messaging/channels',
@@ -233,7 +234,7 @@ async function stubChannelView(
     (url) => url.pathname === `/api/v1/messaging/channels/${channel.id}/messages`,
     (route) =>
       route.request().method() === 'GET'
-        ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [], nextCursor: null, hasMore: false }) })
+        ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: messages, nextCursor: null, hasMore: false }) })
         : route.fallback(),
   )
 }
@@ -248,6 +249,21 @@ test.describe('messaging 채널 헤더·아카이브', () => {
     // 비활성 표시하는 대신 아예 마운트하지 않고 안내 문구만 렌더한다.
     await expect(page.getByTestId('message-composer-input')).toHaveCount(0)
     await expect(page.getByText('이 채널은 보관되었습니다')).toBeVisible()
+  })
+
+  // WP-508: 보관된 채널은 읽기 전용 — 내 메시지라도 리액션 추가·수정·삭제를 보여 주지 않고, 반응 칩은 눌리지 않는다.
+  test('아카이브 채널 → 메시지 툴바에 리액션·수정·삭제 없음, 반응 칩 비활성', async ({ authenticatedPage: page }) => {
+    const archived = createChannel({ id: 48, name: '보관됨', archived: true, role: 'OWNER', member: true })
+    const msg = createMessage({ id: 480, channelId: 48, body: '보관 전 내 글', reactions: [createReaction({ emoji: '👍', count: 1 })] })
+    await stubChannelView(page, archived, 200, [msg])
+    await page.goto('/chat/channels/48')
+    await expect(page.getByTestId('message-body-480')).toHaveText('보관 전 내 글')
+    await page.getByTestId('message-480').hover()
+    await expect(page.getByTestId('message-reply-480')).toBeVisible()
+    await expect(page.getByTestId('message-480-react')).toHaveCount(0)
+    await expect(page.getByTestId('message-edit-480')).toHaveCount(0)
+    await expect(page.getByTestId('message-delete-480')).toHaveCount(0)
+    await expect(page.getByTestId('reaction-pill-480-👍')).toBeDisabled()
   })
 
   test('OWNER → 설정에서 이름 변경', async ({ authenticatedPage: page }) => {

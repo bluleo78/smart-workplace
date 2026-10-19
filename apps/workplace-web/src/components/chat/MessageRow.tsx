@@ -61,6 +61,8 @@ interface MessageRowProps {
   proposalBusy: boolean
   onConfirmProposal: (proposalId: number, arg: ProposalConfirmArg) => void
   onRejectProposal: (proposalId: number) => void
+  // 보관된 채널 등 읽기 전용(WP-508) — 리액션 추가·토글, 수정·삭제를 숨긴다. 스레드 보기·반응한 사람 보기는 남긴다.
+  readOnly?: boolean
 }
 
 export function MessageRow({
@@ -83,12 +85,13 @@ export function MessageRow({
   proposalBusy,
   onConfirmProposal,
   onRejectProposal,
+  readOnly = false,
 }: MessageRowProps) {
   const isPending = m.id < 0
   // 본인 메시지 여부 — 정렬(우측 말풍선)과 편집/삭제 권한 판정에 쓴다.
   const isOwn = m.authorId === currentUserId
   // 본인·미삭제·미전송중 메시지만 수정/삭제 노출.
-  const canEdit = isOwn && !m.deleted && !isPending
+  const canEdit = !readOnly && isOwn && !m.deleted && !isPending
 
   // 본인 메시지는 우측 말풍선. 수정 중에는 에디터가 말풍선 폭(75%)에 눌리지 않도록 전폭 레이아웃으로 빠진다.
   const ownBubble = isOwn && !isEditing
@@ -117,7 +120,7 @@ export function MessageRow({
       className={`${toolbarPosition} ${MESSAGE_TOOLBAR_CLASS}`}
     >
       {/* 낙관적 미확정 메시지(id<0)엔 리액션 불가 — 음수 id 로 POST 하면 실패하므로 숨김. */}
-      {!isPending && (
+      {!isPending && !readOnly && (
         <EmojiPicker
           testIdPrefix={`message-${m.id}`}
           onPick={onToggleReaction}
@@ -277,6 +280,7 @@ export function MessageRow({
       align={isOwn ? 'end' : 'start'}
       currentUserId={currentUserId}
       onToggle={onToggleReaction}
+      readOnly={readOnly}
       // 터치 셸은 호버 카드를 쓰지 않는다 — 길게 누르기 위임이 칩에서 반응자 시트를 연다.
       onOpenReactors={touchShell ? undefined : onOpenReactors}
     />

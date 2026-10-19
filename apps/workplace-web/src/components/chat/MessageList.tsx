@@ -52,9 +52,11 @@ interface MessageListProps {
   // 메시지 첫 조회가 끝났는지(WP-279) — 거짓이면 첨부 뷰어 호스트가 "그 메시지가 없다"로 판단해 열림 표식을 지우지 않는다.
   // 미전달 = 이미 받은 목록(스레드 부모 단건 등).
   ready?: boolean
+  // 보관된 채널 — 메시지 작업(리액션·수정·삭제)을 숨긴다(WP-508).
+  readOnly?: boolean
 }
 
-export function MessageList({ messages, channelId, currentUserId, members, onOpenThread, disableMarkRead, emptyState, unreadDividerBeforeId, catchupSlot, ready = true }: MessageListProps) {
+export function MessageList({ messages, channelId, currentUserId, members, onOpenThread, disableMarkRead, emptyState, unreadDividerBeforeId, catchupSlot, ready = true, readOnly = false }: MessageListProps) {
   // 페이지는 DESC 로 쌓이므로 화면에는 ASC(오래된 위)로 뒤집어 보여준다.
   const ordered = [...messages].reverse()
   // WP-279: 열린 첨부 키(msg:{메시지}:…) → 이 목록에 그린 그 메시지의 묶음. 앞으로가기·드라이브에서 돌아오기 뒤에도 키만으로 다시 연다.
@@ -124,6 +126,7 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
     onThread: onOpenThread ? (m) => onOpenThread(m.id) : undefined,
     onEdit: (m) => setEditingId(m.id),
     onDelete: startDelete,
+    readOnly,
   }
   // 확정 메시지는 반응 줄이 늘 있으므로 시트를 열 수 있다. 수정 중인 행은 제외(C2 — 에디터의 선택·붙여넣기 메뉴 유지).
   // 미전송(음수 id) 행은 위임 훅이 먼저 걸러낸다.
@@ -189,6 +192,7 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
                 proposalBusy={proposalActions.confirm.isPending || proposalActions.reject.isPending}
                 onConfirmProposal={(proposalId, arg) => proposalActions.confirm.mutate({ proposalId, arg })}
                 onRejectProposal={(proposalId) => proposalActions.reject.mutate(proposalId)}
+                readOnly={readOnly}
               />
             </Fragment>
           )
@@ -197,7 +201,7 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
           <MessageActionSheet
             open={sheet.open}
             onClose={sheet.close}
-            onReact={target && target.id >= 0 ? (emoji) => toggle(target, emoji) : undefined}
+            onReact={!readOnly && target && target.id >= 0 ? (emoji) => toggle(target, emoji) : undefined}
             actions={target ? buildMessageSheetActions(target, sheetHandlers) : []}
             preview={target ? messagePreview(target.authorName, target.body, target.mentions) : undefined}
           />

@@ -234,6 +234,7 @@ export default function ChannelPage() {
               currentUserId={me.id}
               members={mentionMembers}
               onOpenThread={(id) => threadParam.open(String(id))}
+              readOnly={channel.archived}
               unreadDividerBeforeId={unreadDividerBeforeId}
               catchupSlot={catchupSlot}
               emptyState={

@@ -8,11 +8,13 @@ import com.workplace.fileai.ExtractionProfile;
 import com.workplace.fileai.dto.ExtractedTextSlice;
 import com.workplace.fileai.inbound.FileExtractionRequestedEvent;
 import com.workplace.fileai.service.ExtractedTextService;
+import com.workplace.messaging.exception.ChannelArchivedException;
 import com.workplace.messaging.exception.ChannelNotMemberException;
 import com.workplace.messaging.exception.InvalidMessageAttachmentException;
 import com.workplace.messaging.exception.MessageAttachmentLimitExceededException;
 import com.workplace.messaging.exception.MessageAttachmentTooLargeException;
 import com.workplace.messaging.repository.ChannelMemberRepository;
+import com.workplace.messaging.repository.ChannelRepository;
 import com.workplace.messaging.repository.MessageAttachmentRepository;
 import com.workplace.messaging.repository.MessageRepository;
 import java.io.IOException;
@@ -37,6 +39,9 @@ public class MessageAttachmentService {
   /** 전송 시 스테이징 파일 클레임(WP-423) — 소유·임시·미바인딩 검증과 영구 승격을 한곳에서 한다. */
   private final StagedFileClaimer claimer;
 
+  /** 보관된 채널 업로드 차단용(WP-508). */
+  private final ChannelRepository channelRepo;
+
   /** 상대경로→절대경로 복원용 코어 파일 저장소. 다운로드 시 FileSystemResource 에 전달하기 전에 resolve() 호출. */
   private final FileStore fileStore;
 
@@ -60,7 +65,8 @@ public class MessageAttachmentService {
       FileStore fileStore,
       ApplicationEventPublisher eventPublisher,
       ExtractedTextService extractedText,
-      StagedFileClaimer claimer) {
+      StagedFileClaimer claimer,
+      ChannelRepository channelRepo) {
     this.storage = storage;
     this.repo = repo;
     this.memberRepo = memberRepo;
@@ -69,12 +75,15 @@ public class MessageAttachmentService {
     this.eventPublisher = eventPublisher;
     this.extractedText = extractedText;
     this.claimer = claimer;
+    this.channelRepo = channelRepo;
   }
 
   /** 선업로드: 채널 멤버 검증 + 크기/개수 게이트 후 임시 저장. fileId 메타 반환. */
   public List<UploadedFile> upload(long callerId, long channelId, List<MultipartFile> files)
       throws IOException {
     ensureMember(channelId, callerId);
+    // 보관된 채널은 읽기 전용 — 보낼 수 없는 첨부를 미리 올리지 못하게 한다(WP-508).
+    if (channelRepo.isArchived(channelId)) throw new ChannelArchivedException(channelId);
     if (files == null || files.isEmpty()) return List.of();
     if (files.size() > maxPerMessage) {
       throw new MessageAttachmentLimitExceededException(files.size(), maxPerMessage);
