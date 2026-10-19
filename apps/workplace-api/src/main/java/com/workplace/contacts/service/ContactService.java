@@ -18,6 +18,7 @@ import com.workplace.contacts.repository.FavoriteRepository;
 import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.global.security.PermissionChecker;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.global.util.UnicodeNames;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -60,7 +61,8 @@ public class ContactService {
         repo.findPage(
             TenantContext.require(),
             callerId,
-            search,
+            // 검색어 NFC 정규화(WP-554) — 맥 붙여넣기 등 NFD(자모 분리) 한글이 완성형 저장값과 맞지 않던 것을 맞춘다(UnicodeNames 참조).
+            UnicodeNames.toNfc(search),
             safeType,
             favorite,
             organization,

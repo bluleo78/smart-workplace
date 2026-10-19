@@ -2,6 +2,7 @@ package com.workplace.member.service;
 
 import com.workplace.global.dto.PageResponse;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.global.util.UnicodeNames;
 import com.workplace.member.dto.MemberSummary;
 import com.workplace.member.repository.MemberDirectoryRepository;
 import java.util.List;
@@ -26,12 +27,14 @@ public class MemberDirectoryService {
   public PageResponse<MemberSummary> list(
       String search, String kind, boolean includeInactive, int page, int size) {
     long tenantId = TenantContext.require();
+    // 검색어 NFC 정규화(WP-554) — 맥 붙여넣기 등 NFD(자모 분리) 한글이 완성형 저장값과 맞지 않던 것을 맞춘다(UnicodeNames 참조).
+    String nfc = UnicodeNames.toNfc(search);
     // offset 은 long 으로 — page×size 가 int 를 넘으면 음수 offset 이 되어 「음수」 400 이 났다(WP-552). 끝을 넘는 page 는 빈
     // 목록.
     List<MemberSummary> content =
-        repository.findPage(tenantId, search, kind, includeInactive, (long) page * size, size);
+        repository.findPage(tenantId, nfc, kind, includeInactive, (long) page * size, size);
     // 카운트도 같은 검색·필터 조건으로 — 조건이 갈라지면 검색 중 totalPages 가 부풀어 빈 페이지가 생긴다.
-    int total = repository.count(tenantId, search, kind, includeInactive);
+    int total = repository.count(tenantId, nfc, kind, includeInactive);
     return new PageResponse<>(content, page, size, total, (int) Math.ceil((double) total / size));
   }
 

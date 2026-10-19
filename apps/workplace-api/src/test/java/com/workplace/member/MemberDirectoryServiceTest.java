@@ -92,6 +92,16 @@ class MemberDirectoryServiceTest extends IntegrationTestBase {
         .toList();
   }
 
+  /** WP-554: 자모가 분리된(NFD) 한글 검색어도 완성형(NFC) 이름의 구성원을 찾는다. */
+  @Test
+  void list_nfdSearch_findsNfcNamedMember() {
+    String suffix = UUID.randomUUID().toString().substring(0, 6);
+    long id = seedNamed("nfd_" + suffix, "김서연" + suffix, "HUMAN", true);
+    linkMembership(id, 1L, "ACTIVE");
+    String nfd = java.text.Normalizer.normalize("김서연" + suffix, java.text.Normalizer.Form.NFD);
+    assertThat(listedIds(nfd)).contains(id);
+  }
+
   @Test
   void list_includesTenantMember_excludesOtherTenant() {
     List<Long> ids = listedIds(null);

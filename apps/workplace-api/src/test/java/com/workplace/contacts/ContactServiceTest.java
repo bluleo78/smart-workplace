@@ -47,6 +47,17 @@ class ContactServiceTest extends IntegrationTestBase {
         .getId();
   }
 
+  /** WP-554: 자모가 분리된(NFD) 한글 검색어도 완성형(NFC)으로 저장된 이름을 찾는다. */
+  @Test
+  void list_nfdSearch_findsNfcName() {
+    long c = caller();
+    String name = "김서연" + UUID.randomUUID().toString().substring(0, 4);
+    long id = seedExternal(name, c);
+    String nfd = java.text.Normalizer.normalize(name, java.text.Normalizer.Form.NFD);
+    ContactPage p = service.list(c, nfd, "EXTERNAL", false, null, null, null, 20);
+    assertThat(p.items()).extracting(ContactSummary::id).contains(id);
+  }
+
   @Test
   void list_paginatesWithCursor_acrossPersonalScope() {
     long c = caller();
