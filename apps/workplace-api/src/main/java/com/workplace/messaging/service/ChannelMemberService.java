@@ -66,8 +66,9 @@ public class ChannelMemberService {
   /** 멤버 추가 술어 — 채널 존재·DM 아님·관리 권한·대상이 현재 테넌트 구성원. */
   private void checkAdd(long callerId, long channelId, long targetUserId) {
     ensureExists(channelId);
-    requireNotDm(callerId, channelId, "add-member");
+    // 권한 먼저 — 비공개(DM 포함) 비멤버는 여기서 404 로 존재를 숨긴다(WP-511). DM 차단은 그 뒤.
     perms.requireManage(channelId, callerId, "add-member");
+    requireNotDm(callerId, channelId, "add-member");
     // 보관된 채널은 읽기 전용 — 멤버를 새로 넣을 수 없다(WP-508). 내보내기·나가기는 정리용이라 허용한다.
     if (channelRepo.isArchived(channelId)) throw new ChannelArchivedException(channelId);
     // 추가 대상 사용자가 현재 테넌트의 활성 멤버인지 확인 — 테넌트 경계를 넘는 채널 멤버십 차단(설계 §4).
@@ -81,8 +82,9 @@ public class ChannelMemberService {
   @Transactional
   public void remove(long callerId, long channelId, long targetUserId) {
     ensureExists(channelId);
-    requireNotDm(callerId, channelId, "remove-member");
+    // 권한 먼저 — 비공개(DM 포함) 비멤버는 여기서 404 로 존재를 숨긴다(WP-511). DM 차단은 그 뒤.
     perms.requireManage(channelId, callerId, "remove-member");
+    requireNotDm(callerId, channelId, "remove-member");
     if (memberRepo.findRole(channelId, targetUserId).filter("OWNER"::equals).isPresent()) {
       throw new ChannelForbiddenException(channelId, callerId, "remove-owner");
     }
@@ -126,9 +128,10 @@ public class ChannelMemberService {
   @Transactional
   public void updateRole(long callerId, long channelId, long targetUserId, String role) {
     ensureExists(channelId);
+    // 권한 먼저 — 비공개(DM 포함) 비멤버는 404 로 존재를 숨긴다(WP-511).
+    perms.requireOwner(channelId, callerId, "update-role");
     requireNotDm(callerId, channelId, "update-role");
     String normalized = normalizeRole(role);
-    perms.requireOwner(channelId, callerId, "update-role");
     if (memberRepo.findRole(channelId, targetUserId).isEmpty()) {
       throw new ChannelForbiddenException(channelId, callerId, "update-role-of-nonmember");
     }

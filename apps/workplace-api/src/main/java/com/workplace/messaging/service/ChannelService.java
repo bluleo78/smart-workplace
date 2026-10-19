@@ -90,6 +90,8 @@ public class ChannelService {
             .findDetail(channelId, callerId)
             .orElseThrow(() -> new ChannelNotFoundException(channelId));
     if (!"PUBLIC".equals(ch.visibility())) {
+      // 비공개 채널 비멤버에겐 존재를 숨긴다(WP-511). 이미 멤버면 403.
+      if (!ch.member()) throw new ChannelNotFoundException(channelId);
       throw new ChannelForbiddenException(channelId, callerId, "join-private");
     }
     // 보관된 채널은 읽기 전용 — 새로 참여할 수 없다(WP-508).

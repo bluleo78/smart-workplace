@@ -44,14 +44,26 @@ public class ChannelPermissions {
     if (isSystemAdmin(userId)) return;
     String role = memberRepo.findRole(channelId, userId).orElse(null);
     if ("OWNER".equals(role) || "ADMIN".equals(role)) return;
-    throw new ChannelForbiddenException(channelId, userId, action);
+    throw denied(channelId, userId, role, action);
   }
 
   /** 소유자 권한(OWNER 또는 시스템 ADMIN) 보장. */
   public void requireOwner(long channelId, long userId, String action) {
     if (isSystemAdmin(userId)) return;
-    if (memberRepo.findRole(channelId, userId).filter("OWNER"::equals).isPresent()) return;
-    throw new ChannelForbiddenException(channelId, userId, action);
+    String role = memberRepo.findRole(channelId, userId).orElse(null);
+    if ("OWNER".equals(role)) return;
+    throw denied(channelId, userId, role, action);
+  }
+
+  /**
+   * 권한 부족 예외. 비공개 채널(DM 포함)의 비멤버에게는 없는 채널과 같은 404 를 돌려 존재를 숨긴다(WP-511 — 403/404 차이로 비공개 채널 id 를 알아낼
+   * 수 있었다). 멤버이거나 공개 채널이면 403.
+   */
+  private RuntimeException denied(long channelId, long userId, String role, String action) {
+    if (role == null && !"PUBLIC".equals(channelRepo.findVisibility(channelId))) {
+      return new ChannelNotFoundException(channelId);
+    }
+    return new ChannelForbiddenException(channelId, userId, action);
   }
 
   /** 시스템 ADMIN 보장. */

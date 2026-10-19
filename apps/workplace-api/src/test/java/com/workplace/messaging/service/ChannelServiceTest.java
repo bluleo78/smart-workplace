@@ -66,11 +66,12 @@ class ChannelServiceTest extends IntegrationTestBase {
   }
 
   @Test
-  void join_privateChannel_throws403() {
+  void join_privateChannel_byNonMember_throws404() {
     long owner = seedUser();
     ChannelResponse priv = channelService.create(owner, "비공개", "PRIVATE");
+    // 비공개 채널 비멤버에겐 존재를 숨긴다(WP-511) — 403 이 아니라 없는 채널과 같은 404.
     assertThatThrownBy(() -> channelService.join(seedUser(), priv.id()))
-        .isInstanceOf(ChannelForbiddenException.class);
+        .isInstanceOf(ChannelNotFoundException.class);
   }
 
   @Test
