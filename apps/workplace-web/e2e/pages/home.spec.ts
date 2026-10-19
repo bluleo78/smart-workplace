@@ -403,6 +403,32 @@ test('모바일 홈 — 위젯을 모두 숨기면 빈 상태 안내가 보인�
   await expect(page.getByTestId('dashboard-add-widget-open')).toBeVisible()
 })
 
+test('대시보드 — 위젯이 12개(숨김 포함)면 「위젯 추가」가 막힌 이유를 안내하고, 하나 지우면 풀린다 (WP-521)', async ({
+  authenticatedPage: page,
+}) => {
+  await mockWidgets(page)
+  // 카탈로그 위젯 12개 중 2개는 숨김 — 숨긴 위젯도 상한에 들어간다.
+  const widgets = Array.from({ length: 12 }, (_, i) => ({
+    id: `w-${i}`,
+    type: 'issue_list',
+    count: 0,
+    hidden: i >= 10,
+    params: { assignee: 'me' },
+    label: `이슈 ${i + 1}`,
+  }))
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(widgets))
+  await page.goto('/')
+  await page.getByTestId('dashboard-edit-toggle').click()
+
+  const limit = page.getByTestId('dashboard-widget-limit')
+  await expect(limit).toHaveText('위젯은 숨긴 위젯을 포함해 최대 12개까지 둘 수 있습니다. 더 추가하려면 위젯을 삭제하세요.')
+  await expect(page.getByTestId('dashboard-add-widget-open')).toBeDisabled()
+
+  await page.locator('[data-testid="dashboard-widget"][data-widget-id="w-11"]').getByTestId('widget-remove').click()
+  await expect(limit).toHaveCount(0)
+  await expect(page.getByTestId('dashboard-add-widget-open')).toBeEnabled()
+})
+
 test('대시보드 — 알림 위젯 헤더 클릭 시 라우팅 대신 인박스 패널이 열린다 (refs #274)', async ({
   authenticatedPage: page,
 }) => {

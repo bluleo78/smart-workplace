@@ -173,6 +173,13 @@ export function Dashboard() {
                 {edit.isSaving ? '저장 중…' : '저장'}
               </Button>
             </div>
+            {/* 상한 안내(WP-521) — 「위젯 추가」가 말없이 회색이 되지 않게 이유와 풀 방법을 보인다. 비활성 버튼은 hover 를 받지 않아
+                툴팁 대신 배너 한 줄로 둔다(모바일도 같은 자리). 숨긴 위젯도 저장되는 위젯이라 상한에 들어간다. */}
+            {draft.length >= MAX_WIDGETS && (
+              <p className="basis-full text-xs text-muted-foreground" data-testid="dashboard-widget-limit">
+                위젯은 숨긴 위젯을 포함해 최대 {MAX_WIDGETS}개까지 둘 수 있습니다. 더 추가하려면 위젯을 삭제하세요.
+              </p>
+            )}
           </div>
         )}
 
