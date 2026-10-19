@@ -493,6 +493,25 @@ class UserGroupServiceTest extends IntegrationTestBase {
   }
 
   @Test
+  void create_nameWithTrailingSpace_isDuplicateAndStoredTrimmed() {
+    // WP-550: 끝 공백만 다른 이름은 같은 이름으로 보고, 저장도 앞뒤 공백을 다듬는다.
+    long caller = user();
+    String name = "협력사 담당자" + UUID.randomUUID();
+    UserGroupDetail g = service.create(caller, req(" " + name + "  ", null, "PERSONAL"));
+    assertThat(g.name()).isEqualTo(name);
+    assertThatThrownBy(() -> service.create(caller, req(name + " ", null, "PERSONAL")))
+        .isInstanceOf(InvalidUserGroupException.class);
+    UserGroupDetail other = service.create(caller, req("다른" + UUID.randomUUID(), null, "PERSONAL"));
+    assertThatThrownBy(
+            () ->
+                service.update(
+                    caller,
+                    other.id(),
+                    new UpdateUserGroupRequest(name + " ", null, null, null, null, null)))
+        .isInstanceOf(InvalidUserGroupException.class);
+  }
+
+  @Test
   void create_sameName_differentParent_succeeds() {
     long admin = user();
     makeAdmin(admin);

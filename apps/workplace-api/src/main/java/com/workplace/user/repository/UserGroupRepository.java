@@ -154,7 +154,7 @@ public class UserGroupRepository {
   public long insert(CreateUserGroupRequest req, Long ownerId) {
     return dsl.insertInto(USER_GROUP)
         .set(USER_GROUP.CODE, nullIfBlank(req.code()))
-        .set(USER_GROUP.NAME, req.name())
+        .set(USER_GROUP.NAME, req.name().strip())
         .set(USER_GROUP.PARENT_ID, req.parentId())
         .set(USER_GROUP.OWNER_ID, ownerId)
         .set(USER_GROUP.VISIBILITY, req.visibility())
@@ -170,7 +170,7 @@ public class UserGroupRepository {
    */
   public void update(long id, String name, Long parentId, String code, int sortOrder) {
     dsl.update(USER_GROUP)
-        .set(USER_GROUP.NAME, name)
+        .set(USER_GROUP.NAME, name.strip())
         .set(USER_GROUP.PARENT_ID, parentId)
         .set(USER_GROUP.CODE, nullIfBlank(code))
         .set(USER_GROUP.SORT_ORDER, sortOrder)
@@ -203,9 +203,9 @@ public class UserGroupRepository {
   }
 
   /**
-   * 동일 범위(형제) 내 이름 중복 존재 여부 — 대소문자 무시. 범위는 visibility 별로 다르다: SHARED 는 (parentId), PERSONAL 은
-   * (parentId, ownerId) — 서로 다른 소유자의 개인 그룹은 parentId 가 같아도(최상위=NULL) 형제가 아니다. excludeId 는 본인 수정 시
-   * 자기 자신을 제외하기 위함(null 이면 생성 시 전체 비교).
+   * 동일 범위(형제) 내 이름 중복 존재 여부 — 대소문자·앞뒤 공백 무시(WP-550, 저장도 다듬는다). 범위는 visibility 별로 다르다: SHARED 는
+   * (parentId), PERSONAL 은 (parentId, ownerId) — 서로 다른 소유자의 개인 그룹은 parentId 가 같아도(최상위=NULL) 형제가
+   * 아니다. excludeId 는 본인 수정 시 자기 자신을 제외하기 위함(null 이면 생성 시 전체 비교).
    */
   public boolean existsSiblingName(
       Long parentId, String visibility, Long ownerId, String name, Long excludeId) {
@@ -216,7 +216,7 @@ public class UserGroupRepository {
             .VISIBILITY
             .eq(visibility)
             .and(parentCond)
-            .and(DSL.lower(USER_GROUP.NAME).eq(name.toLowerCase()));
+            .and(DSL.lower(DSL.trim(USER_GROUP.NAME)).eq(name.strip().toLowerCase()));
     if ("PERSONAL".equals(visibility)) {
       cond =
           cond.and(

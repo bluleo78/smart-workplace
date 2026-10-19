@@ -449,4 +449,32 @@ class ContactRepositoryTest extends IntegrationTestBase {
     repo.insert(owner, new ExternalContactRequest(name, "", null, null, null, null, "PERSONAL"));
     assertThat(repo.existsDuplicate(owner, name, "", null)).isTrue();
   }
+
+  @Test
+  void existsDuplicate_emailCaseAndNameSpaces_ignored_returnsTrue() {
+    // WP-550: 이메일 대소문자·이름 앞뒤 공백만 바꾼 연락처도 중복으로 본다.
+    long owner = seedUser("D_" + tag(), "HUMAN");
+    String name = "이준혁" + tag();
+    repo.insert(
+        owner,
+        new ExternalContactRequest(
+            name, "junhyuk.lee@hanbit.co.kr", null, null, null, null, "PERSONAL"));
+    assertThat(repo.existsDuplicate(owner, name, "JunHyuk.Lee@Hanbit.co.kr", null)).isTrue();
+    assertThat(repo.existsDuplicate(owner, " " + name + " ", "junhyuk.lee@hanbit.co.kr ", null))
+        .isTrue();
+  }
+
+  @Test
+  void insert_stripsNameAndEmail() {
+    long owner = seedUser("D_" + tag(), "HUMAN");
+    String name = "공백" + tag();
+    long id =
+        repo.insert(
+            owner,
+            new ExternalContactRequest(
+                "  " + name + " ", " a@x.com ", null, null, null, null, "PERSONAL"));
+    var saved = repo.findExternal(owner, false, id).orElseThrow();
+    assertThat(saved.name()).isEqualTo(name);
+    assertThat(saved.email()).isEqualTo("a@x.com");
+  }
 }

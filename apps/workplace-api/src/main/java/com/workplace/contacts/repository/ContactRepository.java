@@ -299,14 +299,18 @@ public class ContactRepository {
   /**
    * 동일 이름+이메일 외부 연락처가 caller 가시 범위(SHARED 전체 + 본인 PERSONAL)에 이미 존재하는지 — 소프트 경고용(#790). excludeId 는
    * 수정 시 자기 자신 제외(null 이면 미적용).
+   *
+   * <p>이름은 앞뒤 공백을, 이메일은 공백·대소문자를 무시하고 비교한다(WP-550) — 저장 전 다듬기가 생기기 전의 행도 잡도록 컬럼 쪽도 다듬는다.
    */
   public boolean existsDuplicate(long callerId, String name, String email, Long excludeId) {
-    String normalizedEmail = nullIfBlank(email);
+    String normalizedEmail = nullIfBlank(strip(email));
     var condition =
-        CONTACT_ENTRY
-            .NAME
-            .eq(name)
-            .and(CONTACT_ENTRY.EMAIL.isNotDistinctFrom(normalizedEmail))
+        DSL.trim(CONTACT_ENTRY.NAME)
+            .eq(strip(name))
+            .and(
+                DSL.lower(DSL.trim(CONTACT_ENTRY.EMAIL))
+                    .isNotDistinctFrom(
+                        normalizedEmail == null ? null : normalizedEmail.toLowerCase()))
             .and(CONTACT_ENTRY.VISIBILITY.eq("SHARED").or(CONTACT_ENTRY.OWNER_ID.eq(callerId)));
     if (excludeId != null) {
       condition = condition.and(CONTACT_ENTRY.ID.ne(excludeId));
@@ -317,8 +321,8 @@ public class ContactRepository {
   /** 외부 연락처 생성 — 빈 문자열 optional 은 null 정규화. 생성된 id 반환. */
   public long insert(long ownerId, ExternalContactRequest req) {
     return dsl.insertInto(CONTACT_ENTRY)
-        .set(CONTACT_ENTRY.NAME, req.name())
-        .set(CONTACT_ENTRY.EMAIL, nullIfBlank(req.email()))
+        .set(CONTACT_ENTRY.NAME, strip(req.name()))
+        .set(CONTACT_ENTRY.EMAIL, nullIfBlank(strip(req.email())))
         .set(CONTACT_ENTRY.PHONE, nullIfBlank(req.phone()))
         .set(CONTACT_ENTRY.ORGANIZATION, nullIfBlank(req.organization()))
         .set(CONTACT_ENTRY.TITLE, nullIfBlank(req.title()))
@@ -333,8 +337,8 @@ public class ContactRepository {
   /** 외부 연락처 전체 교체 + updated_at 갱신. 권한은 service 에서 검증한 뒤 호출. */
   public void update(long id, ExternalContactRequest req) {
     dsl.update(CONTACT_ENTRY)
-        .set(CONTACT_ENTRY.NAME, req.name())
-        .set(CONTACT_ENTRY.EMAIL, nullIfBlank(req.email()))
+        .set(CONTACT_ENTRY.NAME, strip(req.name()))
+        .set(CONTACT_ENTRY.EMAIL, nullIfBlank(strip(req.email())))
         .set(CONTACT_ENTRY.PHONE, nullIfBlank(req.phone()))
         .set(CONTACT_ENTRY.ORGANIZATION, nullIfBlank(req.organization()))
         .set(CONTACT_ENTRY.TITLE, nullIfBlank(req.title()))
@@ -352,5 +356,10 @@ public class ContactRepository {
 
   private static String nullIfBlank(String s) {
     return (s == null || s.isBlank()) ? null : s;
+  }
+
+  /** 이름·이메일 앞뒤 공백 제거(WP-550) — 끝 공백만 다른 같은 사람이 따로 저장·표시되지 않게. */
+  private static String strip(String s) {
+    return s == null ? null : s.strip();
   }
 }
