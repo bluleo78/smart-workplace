@@ -488,13 +488,26 @@ public class GlobalExceptionHandler {
   }
 
   // 위키 도메인 — 미존재(404) / 권한미달(403) / 잘못된 입력(400) / 낙관적 충돌(409)
+  /**
+   * 노트 공간·페이지 미존재 404(WP-558). 비멤버에게 볼 수 없는 페이지는 공간 404, 없는 페이지는 페이지 404 로 갈려 문구가 달랐다 — 그 차이가 페이지
+   * 존재와 소속 공간 id 를 알려 줬다. 응답 문구는 하나로 고정하고(id 없음), 예외 원문(id 포함)은 로그에만 남긴다.
+   */
   @ExceptionHandler({
     com.workplace.wiki.exception.WikiSpaceNotFoundException.class,
-    com.workplace.wiki.exception.WikiPageNotFoundException.class,
-    com.workplace.wiki.exception.WikiRevisionNotFoundException.class
+    com.workplace.wiki.exception.WikiPageNotFoundException.class
   })
   public ResponseEntity<ErrorResponse> handleWikiNotFound(
       RuntimeException ex, HttpServletRequest request) {
+    log.debug("Wiki not found: {}", ex.getMessage());
+    ErrorResponse response =
+        buildError(HttpStatus.NOT_FOUND, "노트를 찾을 수 없거나 볼 수 없습니다", null, request);
+    return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
+  }
+
+  /** 노트 판 미존재 404(WP-297) — 페이지를 볼 수 있는 멤버에게만 닿는 경로라 원문을 그대로 쓴다. */
+  @ExceptionHandler(com.workplace.wiki.exception.WikiRevisionNotFoundException.class)
+  public ResponseEntity<ErrorResponse> handleWikiRevisionNotFound(
+      com.workplace.wiki.exception.WikiRevisionNotFoundException ex, HttpServletRequest request) {
     ErrorResponse response = buildError(HttpStatus.NOT_FOUND, ex.getMessage(), null, request);
     return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
   }
