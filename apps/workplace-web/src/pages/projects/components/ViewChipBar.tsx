@@ -71,7 +71,8 @@ export function ViewChipBar({
             <button
               type="button"
               data-testid={`view-chip-${v.id}`}
-              onClick={() => s.apply(v.query)}
+              aria-pressed={active}
+              onClick={() => s.apply(v)}
               className={cn(
                 'flex items-center gap-1 rounded-full border py-1 pl-3 pr-2 text-sm',
                 active ? cn(TOGGLE_ON_CLASS, 'font-medium') : 'text-muted-foreground hover:bg-accent/50',

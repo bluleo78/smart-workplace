@@ -81,7 +81,7 @@ export function MobileViewSheet({
               `mobile-view-option-${v.id}`,
               v.name,
               saved.isViewActive(v),
-              () => pick(() => saved.apply(v.query)),
+              () => pick(() => saved.apply(v)),
               <>
                 {v.visibility === 'SHARED' && <Users className="text-muted-foreground" aria-label="공유" />}
                 {v.pinned && <Star className="fill-current text-muted-foreground" aria-label="고정" />}

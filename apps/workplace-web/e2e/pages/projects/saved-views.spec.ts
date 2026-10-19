@@ -302,3 +302,24 @@ test('뷰 칩 ⋯ 메뉴 버튼은 hover 전 숨겨지고 hover 후 표시된다
   await chip.hover()
   await expect(menuBtn).toHaveCSS('opacity', '1')
 })
+
+// WP-473 — 조건이 같은 뷰가 여럿이어도 고른 뷰 하나만 활성이다(예전엔 같은 조건의 칩이 모두 강조되고 모바일엔 다른 이름이 보였다).
+test('저장된 뷰 — 조건이 같은 뷰가 여럿이면 고른 뷰 하나만 활성', async ({ authenticatedPage: page }) => {
+  const same = (id: number, name: string): SavedViewResponse => ({
+    id, name, query: 'priority=HIGH', visibility: 'PRIVATE',
+    ownerId: 1, mine: true, pinned: false, createdAt: '', updatedAt: '',
+  })
+  await setupCommonRoutes(page, [same(1, '첫 뷰'), same(2, '둘째 뷰'), same(3, '셋째 뷰')])
+  await page.goto(`/projects/${KEY}`)
+
+  await page.getByTestId('view-chip-2').click()
+  await expect(page).toHaveURL(/priority=HIGH/)
+  await expect(page.getByTestId('view-chip-2')).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByTestId('view-chip-1')).toHaveAttribute('aria-pressed', 'false')
+  await expect(page.getByTestId('view-chip-3')).toHaveAttribute('aria-pressed', 'false')
+
+  // 같은 조건의 다른 뷰로 바꿔도 그 하나만 활성.
+  await page.getByTestId('view-chip-3').click()
+  await expect(page.getByTestId('view-chip-3')).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByTestId('view-chip-2')).toHaveAttribute('aria-pressed', 'false')
+})

@@ -24,7 +24,7 @@ export interface SavedViewState {
   isViewDirty: boolean
   isViewActive: (v: SavedViewResponse) => boolean // !isAllActive && queriesEqualIgnoringView
   applyAll: () => void
-  apply: (query: string) => void
+  apply: (v: SavedViewResponse) => void // 고른 뷰를 기억한다(WP-473 — 조건이 같은 뷰가 여럿이어도 고른 하나만 활성)
   updateActiveView: (v: SavedViewResponse) => void // SHARED 면 확인 대상 설정
   updateConfirmTarget: SavedViewResponse | null
   setUpdateConfirmTarget: (v: SavedViewResponse | null) => void
@@ -66,8 +66,12 @@ export function useSavedViewState(projectKey: string): SavedViewState {
   // 현재 쿼리 내용과 일치하는 저장 뷰(있다면) — 칩 클릭/생성 직후 selectedViewId 동기화에 사용.
   // 기본 그룹 판정 보류 중엔 매칭하지 않는다 — 임시 그룹으로 잘못 매칭된 뷰가 selectedViewId 에 남으면,
   // 판정이 끝난 뒤 불일치(dirty)로 보여 「뷰 업데이트」가 뜬다.
+  // 조건이 같은 뷰가 여럿이면 마지막으로 고른 뷰를 우선한다(WP-473) — 첫 일치만 보면 다른 이름이 활성으로 보였다.
+  const views = viewsQuery.data ?? []
+  const matches = (v: SavedViewResponse) => queriesEqualIgnoringView(currentQuery, v.query)
+  const selectedView = selectedViewId != null ? views.find((v) => v.id === selectedViewId) : undefined
   const matchingView = !isAllActive && !groupPending
-    ? (viewsQuery.data ?? []).find((v) => queriesEqualIgnoringView(currentQuery, v.query))
+    ? (selectedView && matches(selectedView) ? selectedView : views.find(matches))
     : undefined
   // #777: 필터가 활성 뷰의 쿼리와 일치하는 동안에는 selectedViewId 를 그 뷰로 유지/동기화하고,
   // "전체" 로 돌아가면 초기화한다. 필터만 바뀌어 더 이상 일치하지 않는 경우(dirty)는 그대로 유지해
@@ -92,7 +96,11 @@ export function useSavedViewState(projectKey: string): SavedViewState {
   // 전체 칩 — 모든 파라미터 제거(그룹도 화면 기본값으로).
   const applyAll = () => setParams(new URLSearchParams(), { replace: true })
   // 저장 뷰 적용 — group 이 없는 (사이클 그룹 도입 전) 뷰는 group=none 을 명시해 예전처럼 평면 목록으로 연다(#878).
-  const apply = (query: string) => setParams(savedViewQueryToParams(query), { replace: true })
+  // 고른 뷰 id 를 먼저 기억해 둔다 — 같은 조건의 다른 뷰가 활성으로 잡히지 않게(WP-473).
+  const apply = (v: SavedViewResponse) => {
+    setSelectedViewId(v.id)
+    setParams(savedViewQueryToParams(v.query), { replace: true })
+  }
 
   // "뷰 업데이트" — 이름/가시성은 유지하고 query 만 현재 필터로 교체(재생성 아님, 동일 id PATCH).
   // 공유(SHARED) 뷰는 갱신이 다른 사람에게도 즉시 반영되므로 확인 대화상자를 거친다.
@@ -106,7 +114,8 @@ export function useSavedViewState(projectKey: string): SavedViewState {
 
   // 칩 활성 판정 — 필터 없이 view 만 저장된 뷰(예: "view=board" 전용)는 view 무시 비교 시 빈 쿼리와
   // 같아져 "전체"와 동시에 활성화될 수 있다 — 그 영역은 전체의 몫이므로 제외한다 (#599).
-  const isViewActive = (v: SavedViewResponse) => !isAllActive && queriesEqualIgnoringView(currentQuery, v.query)
+  // 조건이 같은 뷰가 여럿이어도 하나만 — 지금 일치하는 뷰(고른 뷰 우선)만 활성이다(WP-473).
+  const isViewActive = (v: SavedViewResponse) => matchingView?.id === v.id
 
   // 공유 뷰 업데이트 확인 대화상자의 「업데이트」 — 대상 뷰의 query 만 현재 필터로 교체하고 대화상자를 닫는다.
   const confirmUpdate = () => {
