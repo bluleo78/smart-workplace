@@ -323,3 +323,34 @@ test('저장된 뷰 — 조건이 같은 뷰가 여럿이면 고른 뷰 하나�
   await expect(page.getByTestId('view-chip-3')).toHaveAttribute('aria-pressed', 'true')
   await expect(page.getByTestId('view-chip-2')).toHaveAttribute('aria-pressed', 'false')
 })
+
+// WP-474 — 뷰 이름은 서버 상한(60자)까지만: 입력이 60자에서 멈추고, 그보다 긴 예전 이름은 저장 전에 필드 아래에서 안내한다
+// (예전엔 서버 검증 원문 「크기가 0에서 60 사이여야 합니다」 토스트만 떴다).
+test('저장된 뷰 — 이름 60자 제한: 입력은 60자에서 멈추고, 긴 예전 이름은 필드 오류로 막는다', async ({
+  authenticatedPage: page,
+}) => {
+  const longName = '가'.repeat(70)
+  await setupCommonRoutes(page, [
+    {
+      id: 1, name: longName, query: 'priority=HIGH', visibility: 'PRIVATE',
+      ownerId: 1, mine: true, pinned: false, createdAt: '', updatedAt: '',
+    },
+  ])
+  const patches = trackRequests(page, 'PATCH', `/api/v1/projects/${KEY}/saved-views/1`)
+  await page.goto(`/projects/${KEY}?priority=LOW`)
+
+  // 새 뷰 저장 — 120자를 넣어도 60자까지만 들어간다.
+  await page.getByTestId('save-view-button').click()
+  await page.getByTestId('save-view-name').fill('나'.repeat(120))
+  await expect(page.getByTestId('save-view-name')).toHaveValue('나'.repeat(60))
+  await page.keyboard.press('Escape')
+
+  // 예전에 저장된 70자 이름을 그대로 저장하려 하면 필드 아래 안내, 요청은 나가지 않는다.
+  await page.getByTestId('view-chip-1').hover()
+  await page.getByTestId('view-chip-menu-1').click()
+  await page.getByTestId('view-edit-1').click()
+  await page.getByTestId('save-view-submit').click()
+  await expect(page.getByTestId('save-view-name-error')).toHaveText('뷰 이름은 60자 이하로 입력하세요')
+  await expect(page.getByTestId('save-view-name')).toHaveAttribute('aria-invalid', 'true')
+  expect(patches.count()).toBe(0)
+})

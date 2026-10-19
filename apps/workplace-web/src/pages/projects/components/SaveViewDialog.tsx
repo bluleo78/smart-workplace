@@ -15,6 +15,10 @@ import { Input } from '@/components/ui/input'
 import { useCreateSavedView, useUpdateSavedView } from '../../../hooks/queries/useSavedViews'
 import type { SavedViewResponse, Visibility } from '../../../types/savedView'
 
+
+/** 뷰 이름 최대 길이 — 서버 SavedView 요청 검증(@Size max=60)과 같다(WP-474). */
+const SAVED_VIEW_NAME_MAX = 60
+
 export function SaveViewDialog({
   projectKey,
   query,
@@ -61,6 +65,11 @@ export function SaveViewDialog({
               setNameError('뷰 이름을 입력하세요')
               return
             }
+            // 서버 상한(60자)과 같은 규칙 — 넘기면 서버 검증 원문(「크기가 0에서 60 사이여야 합니다」) 토스트만 떴다(WP-474).
+            if (trimmed.length > SAVED_VIEW_NAME_MAX) {
+              setNameError(`뷰 이름은 ${SAVED_VIEW_NAME_MAX}자 이하로 입력하세요`)
+              return
+            }
             if (noFilter) return
             try {
               if (isEdit) {
@@ -99,6 +108,10 @@ export function SaveViewDialog({
               id="save-view-name"
               data-testid="save-view-name"
               value={name}
+              // 입력 단계에서 서버 상한까지만 받는다(WP-474). 예전에 저장된 긴 이름은 제출 시 위 검증이 안내한다.
+              maxLength={SAVED_VIEW_NAME_MAX}
+              aria-invalid={nameError ? true : undefined}
+              aria-describedby={nameError ? 'save-view-name-error' : undefined}
               onChange={(e) => {
                 setName(e.target.value)
                 if (nameError) setNameError('')
@@ -107,7 +120,7 @@ export function SaveViewDialog({
             />
             {/* 빈 이름 제출 시 표시되는 인라인 에러 메시지 */}
             {nameError && (
-              <p data-testid="save-view-name-error" className="text-sm text-destructive">
+              <p id="save-view-name-error" data-testid="save-view-name-error" className="text-sm text-destructive">
                 {nameError}
               </p>
             )}
