@@ -101,13 +101,74 @@ class CalendarReminderSchedulerTest {
     assertThat(rearms.get(0).nextFireAt()).isAfter(firedFireAt);
   }
 
+  /** WP-537: 살아 있는 반복 회차는 그대로 울린다(발화 직전 회차 확인이 정상 회차를 막지 않는다). */
+  @Test
+  void poll_liveRecurringOccurrence_publishes() {
+    OffsetDateTime occ = OffsetDateTime.now().plusMinutes(9).withNano(0);
+    when(repo.findDue())
+        .thenReturn(
+            List.of(
+                new DueReminder(
+                    100L, 10L, 1L, occ.minusMinutes(10), 10, occ.minusDays(7), "FREQ=WEEKLY")));
+
+    scheduler.poll();
+
+    verify(publisher, Mockito.times(1)).publishEvent(Mockito.<Object>any());
+  }
+
+  /**
+   * WP-537: 「이 일정만」 삭제(취소)한 회차는 울리지 않고 다음 회차로 넘어가야 한다 — 마스터 리마인더의 next_fire_at 이 취소 전에 그 회차로 잡혀 있어도
+   * 발화 시점에 예외 목록을 확인한다.
+   */
+  @Test
+  void poll_cancelledOccurrence_skipsAndRearmsToNext() {
+    OffsetDateTime occ = OffsetDateTime.now().plusMinutes(9).withNano(0);
+    when(repo.findDue())
+        .thenReturn(
+            List.of(new DueReminder(100L, 10L, 1L, occ.minusMinutes(10), 10, occ, "FREQ=DAILY")));
+    when(exceptionRepo.occurrencesByEvent(Mockito.any()))
+        .thenReturn(Map.of(10L, Set.of(occ.toInstant())));
+
+    scheduler.poll();
+
+    verify(publisher, never()).publishEvent(Mockito.<Object>any());
+    var rearmed = ArgumentCaptor.forClass(List.class);
+    verify(repo).rearm(rearmed.capture());
+    @SuppressWarnings("unchecked")
+    List<Rearm> rearms = (List<Rearm>) rearmed.getValue();
+    assertThat(rearms.get(0).nextFireAt().toInstant())
+        .isEqualTo(occ.plusDays(1).minusMinutes(10).toInstant());
+  }
+
+  /**
+   * WP-537: 「이후 모두」로 잘라 내 반복 규칙(UNTIL)에서 빠진 회차는 울리지 않고 더 이상 재무장하지 않는다 — 잘린 옛 시리즈와 새 시리즈가 같은 회차에 두 번
+   * 울렸다.
+   */
+  @Test
+  void poll_occurrenceCutByUntil_skipsAndStops() {
+    OffsetDateTime occ = OffsetDateTime.now().plusMinutes(9).withNano(0);
+    String truncated = RecurrenceExpander.withUntil("FREQ=DAILY", occ.minusSeconds(1));
+    when(repo.findDue())
+        .thenReturn(
+            List.of(new DueReminder(100L, 10L, 1L, occ.minusMinutes(10), 10, occ, truncated)));
+
+    scheduler.poll();
+
+    verify(publisher, never()).publishEvent(Mockito.<Object>any());
+    var rearmed = ArgumentCaptor.forClass(List.class);
+    verify(repo).rearm(rearmed.capture());
+    @SuppressWarnings("unchecked")
+    List<Rearm> rearms = (List<Rearm>) rearmed.getValue();
+    assertThat(rearms.get(0).nextFireAt()).isNull();
+  }
+
   @Test
   void poll_noDue_publishesNothing_andSkipsRearm() {
     when(repo.findDue()).thenReturn(List.of());
 
     scheduler.poll();
 
-    verify(publisher, never()).publishEvent(Mockito.any());
+    verify(publisher, never()).publishEvent(Mockito.<Object>any());
     verify(repo, never()).rearm(Mockito.any());
   }
 }

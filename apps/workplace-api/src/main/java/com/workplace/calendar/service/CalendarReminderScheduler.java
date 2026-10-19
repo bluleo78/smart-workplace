@@ -63,15 +63,41 @@ public class CalendarReminderScheduler {
         exceptionRepo.occurrencesByEvent(
             due.stream().map(DueReminder::eventId).distinct().toList());
     List<Rearm> rearms = new ArrayList<>();
+    int fired = 0;
     for (DueReminder r : due) {
-      publisher.publishEvent(new CalendarReminderDueEvent(r.eventId(), r.ownerId(), now));
-      rearms.add(
-          new Rearm(
-              r.reminderId(),
-              computeRearm(r, excludedByEvent.getOrDefault(r.eventId(), Set.of()))));
+      Set<Instant> excluded = excludedByEvent.getOrDefault(r.eventId(), Set.of());
+      // 취소·절단된 회차는 울리지 않고 다음 회차로만 넘어간다(WP-537).
+      if (isLiveOccurrence(r, excluded)) {
+        publisher.publishEvent(new CalendarReminderDueEvent(r.eventId(), r.ownerId(), now));
+        fired++;
+      }
+      rearms.add(new Rearm(r.reminderId(), computeRearm(r, excluded)));
     }
     reminderRepo.rearm(rearms);
-    log.info("[calendar] 리마인더 {}건 발화", due.size());
+    log.info("[calendar] 리마인더 {}건 발화(대상 {}건)", fired, due.size());
+  }
+
+  /**
+   * 이번에 울릴 회차가 지금도 살아 있는지(WP-537). next_fire_at 은 마지막 재무장 때 정해지므로, 그 뒤 「이 일정만」 삭제(취소 예외)나 「이후 모두」
+   * 분할(규칙에 UNTIL)로 그 회차가 사라져도 그대로 남는다. 그래서 발화 직전에 회차가 예외 목록에 없고 현재 규칙으로 실제 생기는지를 본다. 고친 회차(오버라이드)도
+   * 예외 목록에 있어 마스터는 울리지 않는다 — 오버라이드는 자기 리마인더로 울린다. 단발 일정은 늘 살아 있다.
+   */
+  private boolean isLiveOccurrence(DueReminder r, Set<Instant> excluded) {
+    if (r.recurrenceRule() == null || r.recurrenceRule().isBlank()) {
+      return true;
+    }
+    OffsetDateTime occurrenceStart = r.nextFireAt().plusMinutes(r.leadMinutes());
+    if (excluded.contains(occurrenceStart.toInstant())) {
+      return false;
+    }
+    // 전개는 밀리초 단위라 저장 시각의 마이크로초 차이로 빗나가지 않게 앞뒤 1초 창으로 찾는다(회차 간격이 1초보다 촘촘하지 않은 한 다른 회차가 걸리지 않는다).
+    return !expander
+        .expand(
+            r.recurrenceRule(),
+            r.startsAt(),
+            occurrenceStart.minusSeconds(1),
+            occurrenceStart.plusSeconds(1))
+        .isEmpty();
   }
 
   /**
