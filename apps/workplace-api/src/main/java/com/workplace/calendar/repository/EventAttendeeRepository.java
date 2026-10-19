@@ -46,18 +46,21 @@ public class EventAttendeeRepository {
   /**
    * 참석자 1명 삽입(tenant_id는 GUC DEFAULT가 채움). 중복은 무시(ON CONFLICT DO NOTHING). 주최자 자신이 삽입될 때는
    * invitedByUserId=null.
+   *
+   * @return 새로 넣었으면 true, 이미 참석자라 무시됐으면 false(초대 알림을 새 참석자에게만 보내려고 — WP-540)
    */
-  public void insert(
+  public boolean insert(
       long eventId, long userId, Long invitedByUserId, String role, String rsvpStatus) {
-    dsl.insertInto(EVENT_ATTENDEE)
-        .set(EVENT_ATTENDEE.EVENT_ID, eventId)
-        .set(EVENT_ATTENDEE.USER_ID, userId)
-        .set(EVENT_ATTENDEE.INVITED_BY_USER_ID, invitedByUserId)
-        .set(EVENT_ATTENDEE.ROLE, role)
-        .set(EVENT_ATTENDEE.RSVP_STATUS, rsvpStatus)
-        .onConflict(EVENT_ATTENDEE.EVENT_ID, EVENT_ATTENDEE.USER_ID)
-        .doNothing()
-        .execute();
+    return dsl.insertInto(EVENT_ATTENDEE)
+            .set(EVENT_ATTENDEE.EVENT_ID, eventId)
+            .set(EVENT_ATTENDEE.USER_ID, userId)
+            .set(EVENT_ATTENDEE.INVITED_BY_USER_ID, invitedByUserId)
+            .set(EVENT_ATTENDEE.ROLE, role)
+            .set(EVENT_ATTENDEE.RSVP_STATUS, rsvpStatus)
+            .onConflict(EVENT_ATTENDEE.EVENT_ID, EVENT_ATTENDEE.USER_ID)
+            .doNothing()
+            .execute()
+        > 0;
   }
 
   /**

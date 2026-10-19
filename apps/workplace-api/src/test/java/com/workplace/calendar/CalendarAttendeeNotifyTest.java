@@ -156,6 +156,27 @@ class CalendarAttendeeNotifyTest extends IntegrationTestBase {
   }
 
   @Test
+  @DisplayName("WP-540: 이미 참석 중인 사람을 다시 초대하면 초대 알림이 또 생기지 않는다")
+  void inviteAttendees_existingAttendee_noDuplicateNotification() throws Exception {
+    long org = seedUser("org");
+    long guest = seedUser("g");
+    long eventId = service.create(org, newReq("미팅", NOW, NOW.plusHours(1), List.of(guest))).id();
+    createdEventIds.add(eventId);
+    await()
+        .atMost(Duration.ofSeconds(3))
+        .untilAsserted(
+            () -> assertThat(notifCount(guest, eventId, "CALENDAR_INVITED")).isEqualTo(1));
+    service.respondRsvp(guest, eventId, "ACCEPTED");
+
+    // 같은 사람을 다시 초대(API·MCP update_event 경로) — 참석자 행은 그대로라 알림도 없어야 한다.
+    service.inviteAttendees(org, eventId, List.of(guest));
+
+    Thread.sleep(500);
+    assertThat(notifCount(guest, eventId, "CALENDAR_INVITED")).isEqualTo(1);
+    assertThat(service.get(guest, eventId).myRsvpStatus()).isEqualTo("ACCEPTED");
+  }
+
+  @Test
   @DisplayName("RSVP 변경 시 주최자에게 CALENDAR_RSVP_CHANGED 알림이 생성된다")
   void rsvp_notifiesOrganizer() {
     long org = seedUser("org");

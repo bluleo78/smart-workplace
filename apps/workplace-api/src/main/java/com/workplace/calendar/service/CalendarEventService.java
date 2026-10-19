@@ -194,10 +194,11 @@ public class CalendarEventService {
     for (Long uid : req.attendeeUserIdsOrEmpty()) {
       if (uid == null || uid == callerId) continue;
       String status = isAgent(uid) ? "ACCEPTED" : "NEEDS_ACTION";
-      attendeeRepo.insert(id, uid, callerId, "ATTENDEE", status);
+      boolean added = attendeeRepo.insert(id, uid, callerId, "ATTENDEE", status);
       attendeeUserIds.add(uid);
       // AGENT 는 인박스 알림 제외 — HUMAN 초대자에게만 발행. 호출자가 알림을 끄면(WP-348) 발행하지 않는다.
-      if (notifyAttendees && !isAgent(uid)) {
+      // 요청 목록에 같은 사람이 두 번 있어도 알림은 한 번(WP-540).
+      if (added && notifyAttendees && !isAgent(uid)) {
         eventPublisher.publishEvent(new CalendarAttendeeInvitedEvent(id, uid, callerId));
       }
     }
@@ -782,12 +783,13 @@ public class CalendarEventService {
           for (Long uid : userIds) {
             if (uid == null || uid == callerId) continue;
             String status = isAgent(uid) ? "ACCEPTED" : "NEEDS_ACTION";
-            attendeeRepo.insert(eventId, uid, callerId, "ATTENDEE", status);
+            boolean added = attendeeRepo.insert(eventId, uid, callerId, "ATTENDEE", status);
             for (long overrideId : overrideIds) {
               attendeeRepo.insert(overrideId, uid, callerId, "ATTENDEE", status);
             }
             // AGENT 는 인박스 알림 제외 — HUMAN 초대자에게만 발행. 호출자가 알림을 끄면(WP-348) 발행하지 않는다.
-            if (notifyAttendees && !isAgent(uid)) {
+            // 이미 참석자였던 사람(행이 그대로)에게는 다시 보내지 않는다(WP-540).
+            if (added && notifyAttendees && !isAgent(uid)) {
               eventPublisher.publishEvent(new CalendarAttendeeInvitedEvent(eventId, uid, callerId));
             }
           }
