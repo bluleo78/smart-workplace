@@ -237,3 +237,31 @@ test('외부 고급 필터(조직·직책)', async ({ authenticatedPage: page })
   await expect(page.getByTestId('contact-advanced-filter')).toHaveCount(0)
   expect(new URL(page.url()).searchParams.get('organization')).toBeNull()
 })
+
+// WP-555: 없거나 볼 수 없는 연락처(404)를 주소로 열면 「다시 시도」 대신 안내 + 목록으로 돌아가기만 보인다(데스크톱·모바일).
+for (const vp of [
+  { name: '데스크톱', width: 1280, height: 900 },
+  { name: '모바일', width: 390, height: 844 },
+]) {
+  test(`404 연락처 주소 — 찾을 수 없음 안내와 목록으로 (${vp.name})`, async ({ authenticatedPage: page }) => {
+    await stubList(page)
+    await page.route(
+      (url) => url.pathname === '/api/v1/contacts/external/999',
+      (route) =>
+        route.fulfill({
+          status: 404,
+          contentType: 'application/json',
+          body: JSON.stringify({ status: 404, message: '연락처를 찾을 수 없습니다' }),
+        }),
+    )
+    await page.setViewportSize({ width: vp.width, height: vp.height })
+    await page.goto('/contacts?contact=external:999')
+    const notFound = page.getByTestId('contact-detail-not-found')
+    await expect(notFound).toContainText('연락처를 찾을 수 없거나 볼 수 없습니다')
+    await expect(page.getByRole('button', { name: '다시 시도' })).toHaveCount(0)
+    await page.getByTestId('contact-detail-back-to-list').click()
+    await expect(page).not.toHaveURL(/contact=/)
+    await expect(page.getByTestId('contact-list')).toBeVisible()
+    await expect(notFound).toHaveCount(0)
+  })
+}

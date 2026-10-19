@@ -269,7 +269,7 @@ export function ContactsPage() {
           >
             {/* 모바일 상세 헤더 — ‹·연락처 이름·✦ 한 줄(탭바가 숨으므로 ✦ 포함). URL 이 탭 루트라 레이아웃 상세 분기 대신 직접 그린다. */}
             {isMobile && <MobileDetailBar data-testid="contact-back" title={detailName} onBack={contactParam.close} />}
-            <ContactDetailPanel selected={selected} onDeleted={contactParam.close} />
+            <ContactDetailPanel selected={selected} onDeleted={contactParam.close} onClose={contactParam.close} />
           </div>
         </Page.Body>
       </Page>

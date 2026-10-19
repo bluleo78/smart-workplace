@@ -1,8 +1,9 @@
-import { Star, Users } from 'lucide-react'
+import { Star, Users,UserX } from 'lucide-react'
 import { useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { DeleteConfirmDialog } from '@/components/ui/delete-confirm-dialog'
+import { isNotFoundError } from '@/lib/api-error'
 import { cn } from '@/lib/utils'
 import { CONTACT_NOTES_MAX } from '@/lib/validations/contact'
 
@@ -28,15 +29,20 @@ function truncateNotes(notes: string | null | undefined) {
   return notes && notes.length > CONTACT_NOTES_MAX ? `${notes.slice(0, CONTACT_NOTES_MAX)}…` : notes
 }
 
-/** 선택된 연락처 상세 패널. 멤버=프로필+그룹(읽기전용), 외부=연락 필드 + editable 시 수정/삭제. */
+/**
+ * 선택된 연락처 상세 패널. 멤버=프로필+그룹(읽기전용), 외부=연락 필드 + editable 시 수정/삭제.
+ * onClose 는 선택을 닫는다(목록으로) — 없거나 볼 수 없는 연락처(404)에서 「다시 시도」 대신 쓴다(WP-555).
+ */
 export function ContactDetailPanel({
   selected,
   onDeleted,
+  onClose,
 }: {
   selected: ContactSelection | null
   onDeleted?: () => void
+  onClose?: () => void
 }) {
-  const { data, isLoading, isError, refetch } = useContactDetail(selected)
+  const { data, isLoading, isError, error, refetch } = useContactDetail(selected)
   const [editOpen, setEditOpen] = useState(false)
   const del = useDeleteExternalContact()
   // 즐겨찾기 토글 — 멤버/외부 공통으로 사용
@@ -61,6 +67,26 @@ export function ContactDetailPanel({
   }
   if (isLoading) {
     return <div className="p-4 text-sm text-muted-foreground">불러오는 중…</div>
+  }
+  // 404 = 없거나(삭제) 볼 수 없는(남의 개인) 연락처 — 다시 시도해도 같으므로 안내와 목록으로 돌아가기만 둔다(WP-555).
+  if (isError && isNotFoundError(error)) {
+    return (
+      <div
+        data-testid="contact-detail-not-found"
+        className="flex h-full flex-col items-center justify-center gap-3 p-4 text-center"
+      >
+        <UserX className="h-10 w-10 text-muted-foreground/50" />
+        <div>
+          <p className="text-sm font-medium">연락처를 찾을 수 없거나 볼 수 없습니다</p>
+          <p className="mt-1 text-xs text-muted-foreground">삭제되었거나 볼 수 있는 권한이 없는 연락처입니다</p>
+        </div>
+        {onClose && (
+          <Button variant="outline" size="sm" data-testid="contact-detail-back-to-list" onClick={onClose}>
+            목록으로
+          </Button>
+        )}
+      </div>
+    )
   }
   if (isError || !data) {
     return (
