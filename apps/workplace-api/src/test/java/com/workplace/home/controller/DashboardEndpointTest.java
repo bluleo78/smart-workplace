@@ -549,12 +549,17 @@ class DashboardEndpointTest extends IntegrationTestBase {
 
   /** 카탈로그 위젯(issue_list) 하나로 PUT 한다(WP-519 크기 상한 검증용). */
   private org.springframework.test.web.servlet.ResultActions putCatalog(
-      long userId, String id, String type, com.fasterxml.jackson.databind.JsonNode params, String label)
+      long userId,
+      String id,
+      String type,
+      com.fasterxml.jackson.databind.JsonNode params,
+      String label)
       throws Exception {
     String body =
         om.writeValueAsString(
             new DashboardUpdateRequest(
-                List.of(new DashboardWidgetConfig(id, type, 0, false, params, label, false, null))));
+                List.of(
+                    new DashboardWidgetConfig(id, type, 0, false, params, label, false, null))));
     return mvc.perform(
         put("/api/v1/me/dashboard")
             .header("Authorization", "Bearer " + tokenFor(userId))

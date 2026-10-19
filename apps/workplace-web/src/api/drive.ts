@@ -97,7 +97,8 @@ export class ShareDownloadError extends Error {
  * 공유 토큰으로 파일 다운로드.
  *
  * - 로그인 중이면 Bearer 헤더를 함께 전송 (INTERNAL 링크 지원).
- * - 비밀번호가 있으면 X-Share-Password 헤더로 전달 — URL 쿼리 문자열 금지.
+ * - 비밀번호가 있으면 UTF-8 퍼센트 인코딩해 X-Share-Password-Encoded 헤더로 전달 — URL 쿼리 문자열 금지.
+ *   헤더 값에는 비ASCII(한글 등)를 넣을 수 없어 원문을 그대로 넣으면 fetch 자체가 실패한다(WP-528).
  * - 성공 시 Blob 을 받아 브라우저 다운로드(downloadBlob 재사용).
  * - 비성공 응답은 ShareDownloadError(status) 를 throw.
  */
@@ -108,7 +109,7 @@ export async function downloadSharedFile(token: string, password?: string): Prom
     headers['Authorization'] = `Bearer ${tok}`
   }
   if (password) {
-    headers['X-Share-Password'] = password
+    headers['X-Share-Password-Encoded'] = encodeURIComponent(password)
   }
 
   const res = await fetch(shareDownloadApiUrl(token), { headers })

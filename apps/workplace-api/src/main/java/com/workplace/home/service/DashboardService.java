@@ -210,8 +210,7 @@ public class DashboardService {
     // 표시 이름은 앞뒤 공백을 잘라 저장하고, 비면 미지정(null)으로 둔다 — 프론트가 기본 제목을 쓴다.
     String label = (w.label() == null || w.label().isBlank()) ? null : w.label().strip();
     if (label != null && label.length() > MAX_LABEL_LENGTH) {
-      throw new IllegalArgumentException(
-          "위젯 표시 이름은 " + MAX_LABEL_LENGTH + "자까지 입력할 수 있습니다.");
+      throw new IllegalArgumentException("위젯 표시 이름은 " + MAX_LABEL_LENGTH + "자까지 입력할 수 있습니다.");
     }
     String id =
         (w.id() == null || w.id().isBlank())

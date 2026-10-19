@@ -2,7 +2,7 @@
 // 시나리오:
 //   1. 생성→URL 노출(/s/ 랜딩 URL 확인)→폐기 흐름 (POST body payload 검증 포함)
 //   2. 공개 랜딩(/s/:token) — 인증 없이 접근 시 share-download-btn 표시
-//   3. 공개 랜딩 — 비밀번호를 X-Share-Password 헤더로 전달, URL 쿼리 미포함 확인
+//   3. 공개 랜딩 — 비밀번호를 X-Share-Password-Encoded 헤더(UTF-8 퍼센트 인코딩)로 전달, URL 쿼리 미포함 확인
 
 import type { Page } from '@playwright/test'
 
@@ -449,10 +449,10 @@ test('공개 공유 링크 랜딩 — 인증 없이 share-download-btn 표시', 
   expect(page.url()).not.toContain('/login')
 })
 
-// ── 비밀번호 헤더 계약 검증 — X-Share-Password 헤더로 전달, URL 쿼리 미포함 ──
+// ── 비밀번호 헤더 계약 검증 — X-Share-Password-Encoded 헤더로 전달, URL 쿼리 미포함 ──
 // 다운로드 엔드포인트를 page.route 로 가로채 요청 헤더와 URL 을 검증한다.
 test(
-  '공개 랜딩 — 비밀번호를 X-Share-Password 헤더로 전달하고 URL 쿼리에는 미포함',
+  '공개 랜딩 — 한글 비밀번호도 UTF-8 인코딩 헤더로 전달하고 URL 쿼리에는 미포함 (WP-528)',
   async ({ page }) => {
     // 공개 다운로드 엔드포인트 모킹 — 파일 응답 대신 200 + 빈 blob
     const downloads = trackRequests(page, 'ANY', /^\/api\/v1\/public\/drive\/share\/[^/]+\/download/)
@@ -472,7 +472,8 @@ test(
 
     // 비밀번호 입력 — 항상 표시됨(토글 불필요)
     await expect(page.getByLabel('공유 링크 비밀번호')).toBeVisible()
-    await page.getByLabel('공유 링크 비밀번호').fill('secret123')
+    // 한글·기호 섞인 비밀번호 — 원문을 헤더에 넣으면 fetch 가 요청도 못 보내고 실패했다(WP-528)
+    await page.getByLabel('공유 링크 비밀번호').fill('한글비번 +1%')
 
     // 다운로드 버튼 클릭 → fetch 요청 발생
     const [fetchReq] = await Promise.all([
@@ -480,10 +481,13 @@ test(
       page.getByTestId('share-download-btn').click(),
     ])
 
-    // 비밀번호가 X-Share-Password 헤더로 전달됐는지 확인
+    // 비밀번호가 UTF-8 퍼센트 인코딩돼 X-Share-Password-Encoded 헤더로 전달됐는지 확인
     // Playwright 는 헤더명을 소문자로 반환
     const downloadReq = downloads.requests().at(-1)
-    expect(downloadReq?.headers()['x-share-password']).toBe('secret123')
+    expect(downloadReq?.headers()['x-share-password-encoded']).toBe(
+      encodeURIComponent('한글비번 +1%'),
+    )
+    expect(downloadReq?.headers()['x-share-password']).toBeUndefined()
 
     // URL 에 password 쿼리가 포함되지 않아야 한다
     expect(downloadReq?.url()).not.toContain('password=')
