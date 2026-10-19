@@ -181,6 +181,46 @@ class NotificationRepositoryTest extends IntegrationTestBase {
   }
 
   /**
+   * WP-563 — 프로젝트가 삭제되면(소프트삭제, 이슈 행은 그대로) 그 프로젝트 이슈의 알림은 멤버·ADMIN 에게도 목록·안읽음 수에서 빠진다. 남겨 두면 누를 때마다
+   * 「프로젝트를 불러올 수 없습니다」로 가고 배지가 줄지 않는다. 새 알림 수신자 거르기(WP-501)도 같은 규칙이다.
+   */
+  @Test
+  void listRecent_hidesIssueNotificationsOfDeletedProject() {
+    long recipient = seedUser("HUMAN");
+    long actor = seedUser("HUMAN");
+    long issueId = seedIssue(actor, "삭제될 프로젝트의 이슈", "TEAM");
+    long projectId =
+        dsl.select(ISSUE.PROJECT_ID)
+            .from(ISSUE)
+            .where(ISSUE.ID.eq(issueId))
+            .fetchOne(ISSUE.PROJECT_ID);
+    dsl.insertInto(PROJECT_MEMBER)
+        .set(PROJECT_MEMBER.PROJECT_ID, projectId)
+        .set(PROJECT_MEMBER.USER_ID, recipient)
+        .set(PROJECT_MEMBER.ROLE, "MEMBER")
+        .execute();
+    long eventId = seedEvent(recipient, "일정");
+    repo.insertBatch(List.of(recipient), NotificationType.ASSIGNED, actor, issueId, null);
+    repo.insertReminder(recipient, eventId);
+    assertThat(repo.listRecent(recipient, false, 20, 0)).hasSize(2);
+    assertThat(repo.filterCanReadIssue(issueId, List.of(recipient))).containsExactly(recipient);
+
+    // ProjectService.softDelete 와 같이 프로젝트 행에만 deleted_at 을 찍는다.
+    dsl.update(PROJECT)
+        .set(PROJECT.DELETED_AT, java.time.OffsetDateTime.now())
+        .where(PROJECT.ID.eq(projectId))
+        .execute();
+
+    assertThat(repo.listRecent(recipient, false, 20, 0))
+        .extracting(NotificationResponse::type)
+        .containsExactly("REMINDER");
+    assertThat(repo.countUnread(recipient, false)).isEqualTo(1);
+    assertThat(repo.listRecent(recipient, true, 20, 0)).hasSize(1);
+    assertThat(repo.countUnread(recipient, true)).isEqualTo(1);
+    assertThat(repo.filterCanReadIssue(issueId, List.of(recipient))).isEmpty();
+  }
+
+  /**
    * WP-491 — 프로젝트에서 빠진 사람에게는 그 프로젝트 이슈의 예전 알림을 보이지 않는다(목록·안읽음 수 모두). 남겨 두면 이슈의 현재 제목을 계속 보여 준다.
    * ADMIN 은 비개인 프로젝트를 볼 수 있으므로 그대로 보인다.
    */

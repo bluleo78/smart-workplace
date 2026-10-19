@@ -259,7 +259,8 @@ public class NotificationRepository {
 
   /**
    * ISSUE·PROJECT 가 조인된 쿼리에서 userId 가 그 프로젝트를 볼 수 있는가 — ProjectAccessGuard.isReadable 과 같은 규칙: OPEN
-   * 은 전원, TEAM 은 멤버 또는 ADMIN, PERSONAL 은 멤버(소유자)만.
+   * 은 전원, TEAM 은 멤버 또는 ADMIN, PERSONAL 은 멤버(소유자)만. 삭제된 프로젝트는 누구도 볼 수 없다(WP-563) — 프로젝트 삭제는 프로젝트 행에만
+   * deleted_at 을 찍고 이슈는 그대로 두므로, 이슈 삭제(#618) 조건만으로는 그 알림이 목록·안읽음 수에 남는다.
    */
   private static Condition projectReadableBy(Field<Long> userId, Condition isAdmin) {
     Condition member =
@@ -269,7 +270,10 @@ public class NotificationRepository {
                 .where(
                     PROJECT_MEMBER.PROJECT_ID.eq(ISSUE.PROJECT_ID),
                     PROJECT_MEMBER.USER_ID.eq(userId)));
-    return PROJECT.TYPE.eq("OPEN").or(PROJECT.TYPE.ne("PERSONAL").and(isAdmin)).or(member);
+    return PROJECT
+        .DELETED_AT
+        .isNull()
+        .and(PROJECT.TYPE.eq("OPEN").or(PROJECT.TYPE.ne("PERSONAL").and(isAdmin)).or(member));
   }
 
   /** 단건 읽음 — recipient 스코프 + 이미 읽은 건 제외. 영향 행 수 반환(타인 id 면 0). */
