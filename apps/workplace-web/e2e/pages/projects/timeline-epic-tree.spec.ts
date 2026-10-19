@@ -311,6 +311,9 @@ function setupEpicWithUndatedStubs(page: Page) {
         createIssue({ number: 10, title: '온보딩 개편', type: EPIC_TYPE, startDate: '2026-07-01', dueDate: '2026-07-20', childCount: 2, childDoneCount: 1 }),
         createIssue({ number: 11, title: '가입 플로우', parent: { number: 10, title: '온보딩 개편', type: EPIC_TYPE }, startDate: '2026-07-02', dueDate: '2026-07-06', status: 'DONE' }),
         createIssue({ number: 12, title: '백엔드 설계', parent: { number: 10, title: '온보딩 개편', type: EPIC_TYPE } }),
+        // WP-484: 시작일만 있는 하위·단독 — 마감일이 없어 미정이지만 시작일은 보여 준다.
+        createIssue({ number: 13, title: '시작일만 하위', parent: { number: 10, title: '온보딩 개편', type: EPIC_TYPE }, startDate: '2026-07-10' }),
+        createIssue({ number: 14, title: '시작일만 단독', startDate: '2026-07-15' }),
       ];
       return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createIssueSearchResponse(issues)) });
     }),
@@ -339,8 +342,16 @@ test('에픽에 미정 하위가 있으면 펼침 가능하고 미정 행은 막
   await expect(
     page.locator(".timeline-gantt-root .wx-grid .wx-row[data-id*='undated-12']"),
   ).toContainText('미정');
+  // 시작일만 있는 미정 자식(13)은 「미정」 대신 실제 시작일을 보여 준다(WP-484). 막대는 없다.
+  const startOnlyRow = page.locator(".timeline-gantt-root .wx-grid .wx-row[data-id*='undated-13']");
+  await expect(startOnlyRow).toContainText('10-07-2026');
+  await expect(startOnlyRow).not.toContainText('미정');
+  await expect(page.locator(".timeline-gantt-root .wx-bar[data-task-id*='undated-13']")).toBeHidden();
   // "일정 미정" 섹션엔 미정 에픽 자식(12)이 없다(중복 제거).
   await expect(page.getByTestId('unscheduled-row-12')).toHaveCount(0);
+  // 에픽 없는 시작일만 있는 이슈(14)는 「일정 미정」 섹션에 시작일과 함께 나온다(WP-484).
+  await page.getByTestId('unscheduled-section').locator('summary').click();
+  await expect(page.getByTestId('unscheduled-row-14')).toContainText('7월 15일 ~');
   // 다시 접힘(▾) 토글 클릭 → 두 자식 행 모두 숨김.
   await expandGroup(page, '온보딩 개편');
   await expect(grid).not.toContainText('백엔드 설계');

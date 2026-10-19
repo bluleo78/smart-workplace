@@ -371,30 +371,61 @@ describe('buildAgendaSections', () => {
   const keys = (s: AgendaSection[]) => s.map((x) => x.key);
   const nums = (s: AgendaSection) => s.rows.map((r) => r.issueNumber);
 
-  it('기준일(시작일 우선, 없으면 마감일)의 월 섹션을 오름차순으로, 기준일 없는 이슈는 맨 아래 「일정 미정」', () => {
+  it('기준일(시작일 우선, 없으면 마감일)의 월 섹션을 오름차순으로, 마감일 없는 이슈는 맨 아래 「일정 미정」', () => {
     const s = buildAgendaSections(
       [
         issue({ number: 1, startDate: '2026-11-03', dueDate: '2026-11-10' }),
         issue({ number: 2, dueDate: '2026-09-20' }),
         issue({ number: 3 }),
-        // 시작일만 — 간트(마감 필수)와 달리 미정이 아니라 시작 월에 둔다(R3).
+        // 시작일만 — 간트와 같이 마감일이 있어야 일정이 정해진 것으로 본다(WP-484). 시작일은 행에 그대로 싣는다.
         issue({ number: 4, startDate: '2026-10-02' }),
       ],
       TODAY,
     );
-    expect(keys(s)).toEqual(['2026-09', '2026-10', '2026-11', 'undated']);
-    expect(s.map((x) => x.label)).toEqual(['2026년 9월', '2026년 10월', '2026년 11월', '일정 미정']);
-    expect(nums(s[1])).toEqual([4]);
-    expect(nums(s[3])).toEqual([3]);
-    expect(s[3].rows[0].bar).toBeNull();
-    expect(s[3].todayRatio).toBeNull();
+    expect(keys(s)).toEqual(['2026-09', '2026-11', 'undated']);
+    expect(s.map((x) => x.label)).toEqual(['2026년 9월', '2026년 11월', '일정 미정']);
+    expect(nums(s[2])).toEqual([3, 4]);
+    expect(s[2].rows.map((r) => r.bar)).toEqual([null, null]);
+    expect(s[2].rows[1]).toMatchObject({ start: '2026-10-02', due: null });
+    expect(s[2].todayRatio).toBeNull();
+  });
+
+  it('마감일 없는 하위는 에픽 기간·머리 행 날짜에 넣지 않고 막대도 그리지 않는다(간트와 같은 정의, WP-484)', () => {
+    const s = buildAgendaSections(
+      [
+        // 에픽 날짜 없음 — 머리 행은 마감일 있는 하위(81)만으로 롤업한다.
+        issue({ number: 80, title: '롤업 에픽', type: EPIC_TYPE }),
+        issue({ number: 81, parent: parentRef(80, '롤업 에픽'), startDate: '2026-10-24', dueDate: '2026-11-29' }),
+        issue({ number: 82, parent: parentRef(80, '롤업 에픽'), startDate: '2026-10-19' }),
+      ],
+      TODAY,
+    );
+    expect(keys(s)).toEqual(['2026-10']);
+    expect(s[0].rows[0]).toMatchObject({ issueNumber: 80, start: '2026-10-24', due: '2026-11-29' });
+    // 일정 있는 하위 먼저, 시작일만 있는 하위는 뒤 — 막대 없이 시작일만 싣는다.
+    expect(s[0].rows.slice(1).map((r) => [r.issueNumber, r.bar === null])).toEqual([
+      [81, false],
+      [82, true],
+    ]);
+  });
+
+  it('시작일만 있고 마감일 있는 하위도 없는 에픽은 「일정 미정」', () => {
+    const s = buildAgendaSections(
+      [
+        issue({ number: 90, title: '시작만 에픽', type: EPIC_TYPE, startDate: '2026-10-05' }),
+        issue({ number: 91, parent: parentRef(90, '시작만 에픽'), startDate: '2026-10-06' }),
+      ],
+      TODAY,
+    );
+    expect(keys(s)).toEqual(['undated']);
+    expect(nums(s[0])).toEqual([90, 91]);
   });
 
   it('같은 월 안은 기준일 오름차순, 같으면 번호 오름차순', () => {
     const s = buildAgendaSections(
       [
-        issue({ number: 7, startDate: '2026-10-05' }),
-        issue({ number: 5, startDate: '2026-10-05' }),
+        issue({ number: 7, startDate: '2026-10-05', dueDate: '2026-10-09' }),
+        issue({ number: 5, startDate: '2026-10-05', dueDate: '2026-10-09' }),
         issue({ number: 6, dueDate: '2026-10-01' }),
       ],
       TODAY,
@@ -409,7 +440,7 @@ describe('buildAgendaSections', () => {
         issue({ number: 41, parent: parentRef(40, '결제 개편'), startDate: '2026-11-05', dueDate: '2026-11-20' }),
         issue({ number: 42, parent: parentRef(40, '결제 개편'), dueDate: '2026-10-08' }),
         issue({ number: 43, parent: parentRef(40, '결제 개편') }),
-        issue({ number: 9, startDate: '2026-10-03' }),
+        issue({ number: 9, startDate: '2026-10-03', dueDate: '2026-10-04' }),
       ],
       TODAY,
     );
@@ -468,7 +499,7 @@ describe('buildAgendaSections', () => {
         issue({ number: 1, startDate: '2026-10-11', dueDate: '2026-10-20' }),
         issue({ number: 2, startDate: '2026-09-25', dueDate: '2026-10-05' }),
         issue({ number: 3, dueDate: '2026-10-31' }),
-        issue({ number: 40, type: EPIC_TYPE, startDate: '2026-10-01' }),
+        issue({ number: 40, type: EPIC_TYPE, startDate: '2026-10-01', dueDate: '2026-10-31' }),
         issue({ number: 41, parent: parentRef(40, '에픽'), startDate: '2026-11-05', dueDate: '2026-11-20' }),
         issue({ number: 4, startDate: '2026-10-20', dueDate: '2026-10-12' }), // 시작 > 마감(잘못된 데이터) — 뒤집어 그린다
       ],

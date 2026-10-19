@@ -71,10 +71,11 @@ test('간트 대신 아젠다 — 월 섹션 오름차순 + 일정 미정 맨 �
   await expect(page.getByTestId('timeline-gantt')).toHaveCount(0);
   await expect(page.getByTestId('agenda-row-10')).toBeVisible();
   const order = await page.locator('[data-testid^="agenda-month-"], [data-testid="agenda-undated"]').evaluateAll((els) => els.map((e) => e.getAttribute('data-testid')));
-  expect(order).toEqual(['agenda-month-2026-09', 'agenda-month-2026-10', 'agenda-month-2026-11', 'agenda-undated']);
+  // 시작일만 있는 이슈(13, 11/2 시작)는 데스크톱 간트와 같이 「일정 미정」 — 11월 섹션이 생기지 않는다(WP-484).
+  expect(order).toEqual(['agenda-month-2026-09', 'agenda-month-2026-10', 'agenda-undated']);
   await expect(page.getByTestId('agenda-month-2026-10').getByRole('heading')).toHaveText('2026년 10월');
   await expect(page.getByTestId('agenda-row-10')).toContainText('10월 11일 ~ 10월 20일');
-  await expect(page.getByTestId('agenda-row-13')).toContainText('11월 2일');
+  await expect(page.getByTestId('agenda-undated').getByTestId('agenda-row-13')).toContainText('11월 2일 ~');
   await expect(page.getByTestId('agenda-row-11')).toContainText('일정 미정');
   await expectNoHorizontalOverflow(page);
 });
@@ -121,7 +122,8 @@ test('「일정 미정 N」 칩 → 미정 섹션으로 스크롤, 「마일스�
   const undated = page.getByTestId('agenda-undated');
   await expect(undated).not.toBeInViewport();
   const chip = page.getByTestId('agenda-chip-undated');
-  await expect(chip).toHaveText('일정 미정 2');
+  // 날짜 없는 11·12 + 시작일만 있는 13(WP-484).
+  await expect(chip).toHaveText('일정 미정 3');
   await chip.tap();
   await expect(undated).toBeInViewport();
 

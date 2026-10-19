@@ -116,7 +116,12 @@ const GRID_COLUMNS: IColumnConfig[] = [
     width: 120,
     align: 'center',
     sort: true,
-    template: (value: Date, row: ITask) => (isUndatedRow(row) ? '미정' : value ? format(value, 'dd-MM-yyyy') : ''),
+    // 시작일만 있는 미정 하위는 「미정」 대신 실제 시작일을 보인다(WP-484) — 막대·기간은 여전히 없다(마감일 기준 일정).
+    template: (value: Date, row: ITask) => {
+      if (!isUndatedRow(row)) return value ? format(value, 'dd-MM-yyyy') : ''
+      const undatedStart = (row as { undatedStart?: string | null }).undatedStart
+      return undatedStart ? format(parseISO(undatedStart), 'dd-MM-yyyy') : '미정'
+    },
   },
   {
     id: 'duration',
@@ -250,6 +255,7 @@ export function TimelineGantt({
           type: 'task',
           unscheduled: true,
           undated: true,
+          undatedStart: kid.startDate, // 시작일 컬럼 표기용(WP-484) — 막대 날짜(start)는 placeholder 라 쓰지 않는다
           issueNumber: kid.number,
         })
       }

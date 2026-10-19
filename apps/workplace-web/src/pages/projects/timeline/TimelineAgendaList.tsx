@@ -22,8 +22,10 @@ import type { TimelineViewOptions } from './timelineTypes';
 import { useTimelineExpanded } from './useTimelineExpanded';
 import { useTimelineFilterControls } from './useTimelineFilterControls';
 
-// 행 날짜 문구 — 둘 다 있으면 범위, 한쪽만 있으면 그 날짜, 없으면 「일정 미정」.
+// 행 날짜 문구 — 둘 다 있으면 범위, 마감일만 있으면 그 날짜, 시작일만 있으면 「M월 D일 ~」(마감 전이라 일정 미정, WP-484),
+// 없으면 「일정 미정」.
 function rowDateText(r: AgendaRow): string {
+  if (!r.due) return formatDateRangeMonthDay(r.start, null, '일정 미정', { openEnded: true });
   return formatDateRangeMonthDay(r.start, r.due, '일정 미정', { collapseSameDay: true });
 }
 
@@ -62,8 +64,8 @@ export function TimelineAgendaList({
   const filter = useTimelineFilterControls(projectKey, { includeAssignee: true });
   const [sheet, setSheet] = useState<'filter' | 'milestones' | null>(null);
   const undatedRef = useRef<HTMLElement | null>(null);
-  // 「일정 미정 N」 = 미정 섹션의 날짜 없는 이슈 수 — 접힌 에픽의 하위도 센다(행이 숨어도 일정이 없는 건 같다).
-  const undatedCount = sections.find((s) => s.key === 'undated')?.rows.filter((r) => !r.start && !r.due).length ?? 0;
+  // 「일정 미정 N」 = 미정 섹션의 마감일 없는 이슈 수(시작일만 있는 이슈 포함, WP-484) — 접힌 에픽의 하위도 센다(행이 숨어도 일정이 없는 건 같다).
+  const undatedCount = sections.find((s) => s.key === 'undated')?.rows.filter((r) => !r.due).length ?? 0;
   const { isOpen, toggle } = useTimelineExpanded(projectKey);
   const groupKeyOf = (epicNumber: number | null) => (epicNumber == null ? null : epicGroupKey(epicNumber));
   const isEmpty = !loading && sections.length === 0;

@@ -374,7 +374,8 @@ export interface AgendaSection {
 }
 
 const UNDATED_KEY = 'undated';
-const basisOf = (i: { startDate: string | null; dueDate: string | null }) => i.startDate ?? i.dueDate;
+// 일정 기준일 — 마감일이 있어야 일정이 정해진 것으로 본다(간트와 같은 정의, WP-484). 시작일만 있으면 null(「일정 미정」).
+const basisOf = (i: { startDate: string | null; dueDate: string | null }) => (i.dueDate ? (i.startDate ?? i.dueDate) : null);
 const monthKeyOf = (date: string) => date.slice(0, 7);
 // 'YYYY-MM' 월의 일수 — m 은 1-based 라 Date 월 인덱스(0-based)로 바꿔 넘긴다.
 const daysInMonth = (key: string) => {
@@ -448,8 +449,9 @@ export function buildAgendaSections(issues: IssueResponse[], today: Date, opts: 
     const epic = epicByNumber.get(num);
     const kids = (children.get(num) ?? []).map((k) => ({ basis: basisOf(k), number: k.number, k })).sort(byBasis);
     const kidBases = kids.map((x) => x.basis).filter((b): b is string => b != null); // byBasis 정렬이라 이미 오름차순
-    // 하위 실제 범위 = 하위 날짜 전체의 최소 ~ 최대(시작 > 마감인 잘못된 데이터도 뒤집히지 않는다).
-    const kidSpan = childDateSpan(kids.map((x) => x.k));
+    // 하위 실제 범위 = 마감일 있는 하위 날짜 전체의 최소 ~ 최대(시작 > 마감인 잘못된 데이터도 뒤집히지 않는다).
+    // 시작일만 있는 하위는 간트처럼 에픽 기간에 넣지 않는다(WP-484).
+    const kidSpan = childDateSpan(kids.filter((x) => x.k.dueDate).map((x) => x.k));
     const own = epic ? basisOf(epic) : null;
     const epicRow = { epicNumber: num, progress: epicProgress(epic, kids.map((x) => x.k)), hasChildren: kids.length > 0 };
     // 에픽 자기 날짜가 있으면 그대로, 없으면(또는 응답에 에픽이 없으면) 하위 롤업으로 머리 행 날짜·막대를 만든다.
@@ -502,7 +504,8 @@ export function buildAgendaSections(issues: IssueResponse[], today: Date, opts: 
       const dated = key !== UNDATED_KEY;
       sec.rows.push({
         ...it,
-        bar: dated ? barIn(key, it.start, it.due) : null,
+        // 마감일 없는 행(일정 있는 에픽 아래 시작일만 있는 하위)은 막대를 그리지 않는다 — 간트도 막대가 없다(WP-484).
+        bar: dated && it.due ? barIn(key, it.start, it.due) : null,
         rollup:
           dated && rollupSpan
             ? {

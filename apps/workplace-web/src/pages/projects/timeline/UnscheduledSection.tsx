@@ -1,9 +1,10 @@
-// 일정 미정 이슈 섹션 — 간트에 막대로 그릴 수 없는(startDate/dueDate 모두 없는) 이슈를
-// 접이식 목록으로 노출한다. 멤버는 [타임라인에 배치] 로 기본 기간(오늘~+7일)을 부여해 막대로 승격시킬 수 있다.
+// 일정 미정 이슈 섹션 — 간트에 막대로 그릴 수 없는(마감일 없는) 이슈를
+// 접이식 목록으로 노출한다. 시작일만 있으면 「M월 D일 ~」로 함께 보인다(WP-484). 멤버는 [타임라인에 배치] 로 기본 기간(오늘~+7일)을 부여해 막대로 승격시킬 수 있다.
 import { ChevronRight } from 'lucide-react';
 
 import { pageGutterClass } from '@/components/layout/Page';
 import { Button } from '@/components/ui/button';
+import { formatDateRangeMonthDay } from '@/lib/formatters';
 import { cn } from '@/lib/utils';
 import type { IssueResponse } from '@/types/issue';
 
@@ -40,6 +41,11 @@ export function UnscheduledSection({ issues, readOnly, onSchedule }: Unscheduled
               {issue.projectKey}-{issue.number}
             </span>
             <span className="flex-1 truncate">{issue.title}</span>
+            {issue.startDate && (
+              <span className="shrink-0 text-xs text-muted-foreground" data-testid={`unscheduled-start-${issue.number}`}>
+                {formatDateRangeMonthDay(issue.startDate, null, '', { openEnded: true })}
+              </span>
+            )}
             {/* 미정 에픽 자식은 이제 에픽 아래 행으로 노출되므로(중복 제거) 여기(일정 미정)엔
                 에픽 소속 이슈가 오지 않는다 — 소속 에픽 배지(#649)는 제거. 이 섹션은 에픽 없는
                 loose 미정 이슈만 표시한다. */}
