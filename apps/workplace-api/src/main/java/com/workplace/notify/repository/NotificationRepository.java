@@ -6,6 +6,7 @@ import static com.workplace.jooq.Tables.ISSUE_ASSIGNEE;
 import static com.workplace.jooq.Tables.ISSUE_WATCHER;
 import static com.workplace.jooq.Tables.NOTIFICATION;
 import static com.workplace.jooq.Tables.PROJECT;
+import static com.workplace.jooq.Tables.PROJECT_MEMBER;
 import static com.workplace.jooq.Tables.USER;
 
 import com.workplace.notify.dto.NotificationResponse;
@@ -13,8 +14,10 @@ import com.workplace.notify.dto.NotificationType;
 import java.time.OffsetDateTime;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.jooq.Query;
+import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
 /** notification jOOQ 리포지토리. 모든 조회/변경은 recipientId 스코프로 격리한다. */
@@ -97,6 +100,15 @@ public class NotificationRepository {
    * 페이지 경계에서 안정적이다.
    */
   public List<NotificationResponse> listRecent(long recipientId, int limit, long offset) {
+    return listRecent(recipientId, false, limit, offset);
+  }
+
+  /**
+   * 받는 사람이 지금 볼 수 있는 이슈의 알림만(WP-491) — 프로젝트에서 빠진 사람에게 예전 알림이 이슈의 현재 제목을 계속 보여 주지 않게 한다.
+   * recipientIsAdmin 은 ADMIN 의 비개인 프로젝트 우회(ProjectAccessGuard 와 같은 규칙)를 위해 호출측이 넘긴다.
+   */
+  public List<NotificationResponse> listRecent(
+      long recipientId, boolean recipientIsAdmin, int limit, long offset) {
     return dsl.select(
             NOTIFICATION.ID,
             NOTIFICATION.TYPE,
@@ -122,7 +134,12 @@ public class NotificationRepository {
         .on(CALENDAR_EVENT.ID.eq(NOTIFICATION.EVENT_ID))
         .leftJoin(USER)
         .on(USER.ID.eq(NOTIFICATION.ACTOR_ID))
-        .where(NOTIFICATION.RECIPIENT_ID.eq(recipientId).and(ISSUE.DELETED_AT.isNull()))
+        .where(
+            NOTIFICATION
+                .RECIPIENT_ID
+                .eq(recipientId)
+                .and(ISSUE.DELETED_AT.isNull())
+                .and(readableByRecipient(recipientId, recipientIsAdmin)))
         .orderBy(NOTIFICATION.CREATED_AT.desc(), NOTIFICATION.ID.desc())
         .limit(limit)
         .offset(offset)
@@ -151,17 +168,42 @@ public class NotificationRepository {
 
   /** 안읽음 수. listRecent() 와 동일하게 소프트삭제된 이슈를 참조하는 알림은 제외한다(#618, 뱃지-목록 카운트 불일치 방지). */
   public long countUnread(long recipientId) {
+    return countUnread(recipientId, false);
+  }
+
+  /** 안읽음 수 — 목록과 같은 조건(볼 수 없는 프로젝트의 이슈 알림 제외, WP-491)이라 뱃지와 목록이 어긋나지 않는다. */
+  public long countUnread(long recipientId, boolean recipientIsAdmin) {
     return dsl.fetchCount(
         dsl.selectOne()
             .from(NOTIFICATION)
             .leftJoin(ISSUE)
             .on(ISSUE.ID.eq(NOTIFICATION.ISSUE_ID))
+            .leftJoin(PROJECT)
+            .on(PROJECT.ID.eq(ISSUE.PROJECT_ID))
             .where(
                 NOTIFICATION
                     .RECIPIENT_ID
                     .eq(recipientId)
                     .and(NOTIFICATION.READ_AT.isNull())
-                    .and(ISSUE.DELETED_AT.isNull())));
+                    .and(ISSUE.DELETED_AT.isNull())
+                    .and(readableByRecipient(recipientId, recipientIsAdmin))));
+  }
+
+  /**
+   * 이슈 알림이면 받는 사람이 그 프로젝트를 지금 볼 수 있어야 한다(WP-491) — ProjectAccessGuard.isReadable 과 같은 규칙: OPEN 은
+   * 전원, TEAM 은 멤버 또는 ADMIN, PERSONAL 은 멤버(소유자)만. 이슈가 없는 알림(리마인더·캘린더)은 그대로 둔다. 쿼리는 ISSUE·PROJECT 를
+   * LEFT JOIN 해야 한다.
+   */
+  private Condition readableByRecipient(long recipientId, boolean recipientIsAdmin) {
+    Condition member =
+        DSL.exists(
+            DSL.selectOne()
+                .from(PROJECT_MEMBER)
+                .where(
+                    PROJECT_MEMBER.PROJECT_ID.eq(ISSUE.PROJECT_ID),
+                    PROJECT_MEMBER.USER_ID.eq(recipientId)));
+    Condition admin = recipientIsAdmin ? PROJECT.TYPE.ne("PERSONAL") : DSL.falseCondition();
+    return NOTIFICATION.ISSUE_ID.isNull().or(PROJECT.TYPE.eq("OPEN")).or(admin).or(member);
   }
 
   /** 단건 읽음 — recipient 스코프 + 이미 읽은 건 제외. 영향 행 수 반환(타인 id 면 0). */

@@ -4,6 +4,7 @@ import static com.workplace.jooq.Tables.CALENDAR_EVENT;
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_TYPE_DEF;
 import static com.workplace.jooq.Tables.PROJECT;
+import static com.workplace.jooq.Tables.PROJECT_MEMBER;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -44,13 +45,19 @@ class NotificationRepositoryTest extends IntegrationTestBase {
   }
 
   /** project + issue 1건 시드 후 issueId 반환. */
+  /** 누구나 볼 수 있는 OPEN 프로젝트의 이슈 — 알림 목록이 프로젝트 조회 권한을 따지므로(WP-491) 권한과 무관한 테스트는 OPEN 을 쓴다. */
   private long seedIssue(long ownerId, String title) {
+    return seedIssue(ownerId, title, "OPEN");
+  }
+
+  private long seedIssue(long ownerId, String title, String projectType) {
     String s = tok();
     long projectId =
         dsl.insertInto(PROJECT)
             .set(PROJECT.KEY, "N" + s.substring(0, 5))
             .set(PROJECT.NAME, "P" + s)
             .set(PROJECT.OWNER_ID, ownerId)
+            .set(PROJECT.TYPE, projectType)
             .returning(PROJECT.ID)
             .fetchOne()
             .getId();
@@ -170,6 +177,45 @@ class NotificationRepositoryTest extends IntegrationTestBase {
     assertThat(list).hasSize(1);
     assertThat(list.get(0).type()).isEqualTo("REMINDER");
     assertThat(repo.countUnread(recipient)).isEqualTo(1);
+  }
+
+  /**
+   * WP-491 — 프로젝트에서 빠진 사람에게는 그 프로젝트 이슈의 예전 알림을 보이지 않는다(목록·안읽음 수 모두). 남겨 두면 이슈의 현재 제목을 계속 보여 준다.
+   * ADMIN 은 비개인 프로젝트를 볼 수 있으므로 그대로 보인다.
+   */
+  @Test
+  void listRecent_hidesIssueNotificationsOfProjectsTheRecipientCannotRead() {
+    long recipient = seedUser("HUMAN");
+    long actor = seedUser("HUMAN");
+    long issueId = seedIssue(actor, "팀 이슈", "TEAM");
+    long projectId =
+        dsl.select(ISSUE.PROJECT_ID)
+            .from(ISSUE)
+            .where(ISSUE.ID.eq(issueId))
+            .fetchOne(ISSUE.PROJECT_ID);
+    dsl.insertInto(PROJECT_MEMBER)
+        .set(PROJECT_MEMBER.PROJECT_ID, projectId)
+        .set(PROJECT_MEMBER.USER_ID, recipient)
+        .set(PROJECT_MEMBER.ROLE, "MEMBER")
+        .execute();
+    long eventId = seedEvent(recipient, "일정");
+    repo.insertBatch(List.of(recipient), NotificationType.COMMENTED, actor, issueId, 1L);
+    repo.insertReminder(recipient, eventId);
+
+    // 멤버일 때는 이슈 알림이 보인다.
+    assertThat(repo.listRecent(recipient, false, 20, 0)).hasSize(2);
+    assertThat(repo.countUnread(recipient, false)).isEqualTo(2);
+
+    // 프로젝트에서 빠지면 이슈 알림은 사라지고(목록·안읽음 수), 일정 알림은 남는다.
+    dsl.deleteFrom(PROJECT_MEMBER)
+        .where(PROJECT_MEMBER.PROJECT_ID.eq(projectId), PROJECT_MEMBER.USER_ID.eq(recipient))
+        .execute();
+    var list = repo.listRecent(recipient, false, 20, 0);
+    assertThat(list).extracting(NotificationResponse::type).containsExactly("REMINDER");
+    assertThat(repo.countUnread(recipient, false)).isEqualTo(1);
+
+    // ADMIN 은 비개인(TEAM) 프로젝트를 볼 수 있다.
+    assertThat(repo.listRecent(recipient, true, 20, 0)).hasSize(2);
   }
 
   @Test

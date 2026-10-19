@@ -37,6 +37,8 @@ class InboxPushEventTest extends IntegrationTestBase {
             .set(PROJECT.KEY, "I" + s)
             .set(PROJECT.NAME, "P" + s)
             .set(PROJECT.OWNER_ID, owner)
+            // 알림 목록은 프로젝트 조회 권한을 따진다(WP-491) — 권한과 무관한 테스트라 누구나 보는 OPEN 으로 둔다.
+            .set(PROJECT.TYPE, "OPEN")
             .returning(PROJECT.ID)
             .fetchOne()
             .getId();

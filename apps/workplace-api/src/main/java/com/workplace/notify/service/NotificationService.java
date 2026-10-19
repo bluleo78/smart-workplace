@@ -2,6 +2,7 @@ package com.workplace.notify.service;
 
 import com.workplace.global.dto.UserSummary;
 import com.workplace.global.realtime.SseRegistry;
+import com.workplace.global.security.PermissionChecker;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.notify.dto.NotificationResponse;
 import com.workplace.notify.dto.NotificationType;
@@ -35,6 +36,7 @@ public class NotificationService {
   private final IssueWatcherRepository watcherRepo;
   private final ApplicationEventPublisher publisher;
   private final NotificationChangeNotifier changeNotifier;
+  private final PermissionChecker permissionChecker;
 
   /** 수신자 확정(actor 제외·중복 제거) → batch insert → SSE fan-out. 빈 수신자면 no-op. */
   @Transactional
@@ -165,12 +167,18 @@ public class NotificationService {
 
   @Transactional(readOnly = true)
   public List<NotificationResponse> listRecent(long recipientId, int limit, long offset) {
-    return repo.listRecent(recipientId, limit, offset);
+    // 지금 볼 수 없는 프로젝트의 이슈 알림은 빼고 준다(WP-491) — 프로젝트에서 빠진 뒤에도 예전 알림이 바뀐 제목을 보여 주던 문제.
+    return repo.listRecent(recipientId, isAdmin(recipientId), limit, offset);
   }
 
   @Transactional(readOnly = true)
   public long countUnread(long recipientId) {
-    return repo.countUnread(recipientId);
+    return repo.countUnread(recipientId, isAdmin(recipientId));
+  }
+
+  /** ADMIN 은 비개인 프로젝트를 모두 볼 수 있다(ProjectAccessGuard 와 같은 우회 규칙). */
+  private boolean isAdmin(long userId) {
+    return permissionChecker.userHasRole(userId, "ADMIN");
   }
 
   /** 단건 읽음. 실제로 바뀐 경우(>0)에만 다른 탭·기기에 resource.changed 를 발행한다. */
