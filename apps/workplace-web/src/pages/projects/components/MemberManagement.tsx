@@ -36,10 +36,12 @@ interface MemberManagementProps {
   projectKey: string;
   // true 면 AI 어시스턴트(AGENT) 만 추가 가능 — 개인 프로젝트 전용 모드.
   agentOnly?: boolean;
+  // 멤버 추가·역할 변경·제거를 할 수 있는가(OWNER 또는 비개인 ADMIN, WP-479). false 면 명단만 읽기 전용으로 보인다.
+  canManage?: boolean;
 }
 
 // 프로젝트 멤버 관리 — 검색 picker 로 추가, 역할 변경/제거.
-export function MemberManagement({ projectKey, agentOnly = false }: MemberManagementProps) {
+export function MemberManagement({ projectKey, agentOnly = false, canManage = true }: MemberManagementProps) {
   const members = useProjectMembers(projectKey);
   const addMember = useAddMember(projectKey);
   const updateRole = useUpdateMemberRole(projectKey);
@@ -107,6 +109,8 @@ export function MemberManagement({ projectKey, agentOnly = false }: MemberManage
       description={agentOnly ? '이 개인 프로젝트에서 함께 일할 AI 예요.' : '이 프로젝트에 참여하는 사람과 AI 예요.'}
     >
 
+      {/* 관리 권한이 없으면 추가 줄을 그리지 않는다(WP-479 — 눌러야 403 이 났다). */}
+      {canManage && (
       <div className="flex gap-2 items-end">
         {/* agentOnly 모드면 역할 Select 숨김 — 항상 MEMBER 로 고정. */}
         {!agentOnly && (
@@ -143,6 +147,7 @@ export function MemberManagement({ projectKey, agentOnly = false }: MemberManage
           }
         />
       </div>
+      )}
 
       {members.isLoading ? (
         <p className="text-muted-foreground">로딩 중…</p>
@@ -168,7 +173,10 @@ export function MemberManagement({ projectKey, agentOnly = false }: MemberManage
                 </td>
                 <td className="hidden pr-3 text-muted-foreground @min-[640px]:table-cell">{m.username}</td>
                 <td>
-                  {/* shadcn Select — native <select> 대신 사용(다크모드 스타일 일관성 #270) */}
+                  {/* 관리 권한이 없으면 역할은 글자로만(WP-479). shadcn Select — native <select> 대신 사용(다크모드 스타일 일관성 #270) */}
+                  {!canManage ? (
+                    <span data-testid={`member-role-${m.userId}`}>{m.role === 'OWNER' ? '소유자' : '멤버'}</span>
+                  ) : (
                   <Select
                     value={m.role}
                     onValueChange={(v) => onChangeRole(m.userId, v as ProjectMemberRole)}
@@ -181,8 +189,10 @@ export function MemberManagement({ projectKey, agentOnly = false }: MemberManage
                       <SelectItem value="OWNER">소유자</SelectItem>
                     </SelectContent>
                   </Select>
+                  )}
                 </td>
                 <td>
+                  {canManage && (
                   <Button
                     variant="ghost"
                     size="sm"
@@ -192,6 +202,7 @@ export function MemberManagement({ projectKey, agentOnly = false }: MemberManage
                   >
                     제거
                   </Button>
+                  )}
                 </td>
               </tr>
             ))}

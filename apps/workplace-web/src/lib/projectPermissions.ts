@@ -29,3 +29,11 @@ export function isProjectOwner(
   if (userId == null) return false
   return members?.some((m) => m.userId === userId && m.role === 'OWNER') ?? false
 }
+
+/**
+ * 프로젝트 기본 정보 저장·멤버 관리·삭제를 할 수 있는가(WP-479) — 서버 assertWithRole(OWNER) 와 같은 규칙: OWNER, 또는 개인 프로젝트가
+ * 아닌 곳의 ADMIN. 예전엔 MEMBER 에게도 이 조작이 활성으로 보여 눌러야 403 「권한이 부족합니다: OWNER 필요」가 떴다.
+ */
+export function canManageProject(isOwner: boolean, isAdmin: boolean, isPersonal: boolean): boolean {
+  return isOwner || (isAdmin && !isPersonal)
+}

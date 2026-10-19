@@ -28,7 +28,7 @@ import { useProjectMembers } from '../../hooks/queries/useProjectMembers';
 import { useDeleteProject, useProject, useUpdateProject } from '../../hooks/queries/useProjects';
 import { useAuth } from '../../hooks/useAuth';
 import { handleApiError } from '../../lib/api-error';
-import { isProjectOwner } from '../../lib/projectPermissions';
+import { canManageProject, isProjectOwner } from '../../lib/projectPermissions';
 import { type UpdateProjectFormData,updateProjectSchema } from '../../lib/validations/project';
 import type { ProjectType } from '../../types/project';
 import { CustomFieldManagement } from './components/CustomFieldManagement';
@@ -54,6 +54,8 @@ export default function ProjectSettingsPage() {
   const isMember = members.data?.some((m) => m.userId === user?.id) ?? false;
   // 개인 프로젝트는 멤버 개념이 없어 멤버 관리 섹션을 숨긴다.
   const isPersonal = project.data?.type === 'PERSONAL';
+  // 기본 정보 저장·멤버 관리·삭제 권한(WP-479) — 서버와 같은 규칙. 멤버 목록을 받기 전엔 OWNER 여부를 몰라 잠시 읽기 전용으로 보인다.
+  const canManage = canManageProject(isOwner, isAdmin, isPersonal);
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<UpdateProjectFormData>({
     resolver: zodResolver(updateProjectSchema),
@@ -134,16 +136,24 @@ export default function ProjectSettingsPage() {
         <>
           <SettingsSection title="기본 정보" description="프로젝트 목록과 상단에 보이는 이름과 설명이에요.">
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+              {/* OWNER 가 아니면 읽기 전용(WP-479) — 저장을 눌러야 403 이 나던 것을 미리 알린다. */}
+              {!canManage && (
+                <p className="text-sm text-muted-foreground" data-testid="project-settings-readonly">
+                  기본 정보·멤버·삭제는 프로젝트 소유자만 바꿀 수 있어요.
+                </p>
+              )}
               <div className={cn('space-y-1', settingsFieldClass)}>
                 <label className="text-sm font-medium" htmlFor="settings-name">이름</label>
-                <Input id="settings-name" {...register('name')} />
+                <Input id="settings-name" {...register('name')} disabled={!canManage} />
                 {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
               </div>
               <div className="space-y-1">
                 <label className="text-sm font-medium" htmlFor="settings-desc">설명</label>
-                <Textarea id="settings-desc" {...register('description')} rows={4} />
+                <Textarea id="settings-desc" {...register('description')} rows={4} disabled={!canManage} />
               </div>
-              <Button type="submit" disabled={update.isPending}>{update.isPending ? '저장 중…' : '저장'}</Button>
+              {canManage && (
+                <Button type="submit" disabled={update.isPending}>{update.isPending ? '저장 중…' : '저장'}</Button>
+              )}
             </form>
           </SettingsSection>
 
@@ -152,8 +162,8 @@ export default function ProjectSettingsPage() {
 
           {/* 개인 프로젝트는 AI 어시스턴트만 추가 가능(agentOnly), 팀 프로젝트는 일반 멤버 관리 */}
           {isPersonal
-            ? <MemberManagement projectKey={key} agentOnly />
-            : <MemberManagement projectKey={key} />}
+            ? <MemberManagement projectKey={key} agentOnly canManage={canManage} />
+            : <MemberManagement projectKey={key} canManage={canManage} />}
 
           <LabelManagement
             projectKey={key}
@@ -165,11 +175,14 @@ export default function ProjectSettingsPage() {
 
           <CustomFieldManagement projectKey={key} isOwner={isOwner} />
 
-          <SettingsSection tone="danger" title="위험 구역" description="프로젝트를 삭제하면 이슈와 코멘트도 함께 숨겨져요.">
-            <Button variant="destructive" onClick={onDelete} disabled={remove.isPending} data-testid="project-delete">
-              프로젝트 삭제
-            </Button>
-          </SettingsSection>
+          {/* 삭제는 소유자만(WP-479) — 권한이 없으면 위험 구역 자체를 그리지 않는다. */}
+          {canManage && (
+            <SettingsSection tone="danger" title="위험 구역" description="프로젝트를 삭제하면 이슈와 코멘트도 함께 숨겨져요.">
+              <Button variant="destructive" onClick={onDelete} disabled={remove.isPending} data-testid="project-delete">
+                프로젝트 삭제
+              </Button>
+            </SettingsSection>
+          )}
         </>
       )}
       {/* 프로젝트 삭제 확인 AlertDialog — window.confirm() 대체. */}

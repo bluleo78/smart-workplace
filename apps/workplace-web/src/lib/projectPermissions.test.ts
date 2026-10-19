@@ -1,7 +1,7 @@
 // 이슈 생성 권한 — 보드·목록의 「+ 새 태스크」 노출 게이트(WP-413: OPEN 보드 E2E 의 분기 검증을 대체).
 import { describe, expect, it } from 'vitest'
 
-import { canCreateIssueIn, isIntakeOnly, isProjectOwner } from './projectPermissions'
+import { canCreateIssueIn, canManageProject, isIntakeOnly, isProjectOwner } from './projectPermissions'
 
 describe('canCreateIssueIn', () => {
   it('OPEN 프로젝트는 비멤버도 이슈를 만들 수 있다', () => {
@@ -43,5 +43,17 @@ describe('isProjectOwner', () => {
   it('멤버 미로드·비로그인이면 false', () => {
     expect(isProjectOwner(undefined, 1)).toBe(false)
     expect(isProjectOwner(members, undefined)).toBe(false)
+  })
+})
+
+describe('canManageProject (WP-479)', () => {
+  it('OWNER 는 관리할 수 있고 MEMBER 는 못 한다', () => {
+    expect(canManageProject(true, false, false)).toBe(true)
+    expect(canManageProject(false, false, false)).toBe(false)
+  })
+
+  it('ADMIN 은 개인 프로젝트가 아니면 관리할 수 있다', () => {
+    expect(canManageProject(false, true, false)).toBe(true)
+    expect(canManageProject(false, true, true)).toBe(false)
   })
 })

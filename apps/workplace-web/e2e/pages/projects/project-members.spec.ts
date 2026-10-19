@@ -40,6 +40,11 @@ const HUMAN_USER: MemberSummary = {
 type StubMember = Pick<MemberResponse, 'userId' | 'username' | 'name' | 'kind' | 'role' | 'createdAt'>;
 
 /** 개인 프로젝트 설정 페이지에 필요한 기본 스텁 세팅. */
+
+/** 로그인한 사람(auth.fixture id 1)이 OWNER 인 멤버 목록 — 이미 있으면 그대로(WP-479: 관리 조작은 OWNER 에게만 보인다). */
+function withMeAsOwner(members: StubMember[]): StubMember[] {
+  return members.some((m) => m.userId === 1) ? members : [{ userId: 1, username: 'me', name: 'Me', kind: 'HUMAN', role: 'OWNER', createdAt: null }, ...members]
+}
 async function setupPersonalProjectStubs(
   page: import('@playwright/test').Page,
   membersRef: { current: StubMember[] },
@@ -73,7 +78,8 @@ async function setupPersonalProjectStubs(
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify(membersRef.current),
+        // 설정 화면은 로그인한 사람(id 1)이 OWNER 일 때 관리 조작을 보인다(WP-479) — 시드에 없으면 OWNER 로 넣는다.
+        body: JSON.stringify(withMeAsOwner(membersRef.current)),
       });
     }
     return route.fallback();

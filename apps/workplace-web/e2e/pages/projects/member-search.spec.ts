@@ -79,6 +79,11 @@ function trackMemberSearches(page: import('@playwright/test').Page) {
 }
 
 // 공통 stub — 설정 페이지가 동시 요청하는 부수 endpoint 까지 모두 막는다.
+
+/** 로그인한 사람(auth.fixture id 1)이 OWNER 인 멤버 목록 — 이미 있으면 그대로(WP-479: 관리 조작은 OWNER 에게만 보인다). */
+function withMeAsOwner(members: StubMember[]): StubMember[] {
+  return members.some((m) => m.userId === 1) ? members : [{ userId: 1, username: 'me', name: 'Me', role: 'OWNER' }, ...members]
+}
 async function setupStubs(
   page: import('@playwright/test').Page,
   membersRef: { current: StubMember[] },
@@ -104,7 +109,8 @@ async function setupStubs(
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify(membersRef.current),
+        // 설정 화면은 로그인한 사람(id 1)이 OWNER 일 때 관리 조작을 보인다(WP-479) — 시드에 없으면 OWNER 로 넣는다.
+        body: JSON.stringify(withMeAsOwner(membersRef.current)),
       });
     }
     return route.fallback();
@@ -525,4 +531,24 @@ test.describe('멤버 행 hover 상태 (#308 회귀)', () => {
     await expect(firstRow).toHaveClass(/hover:bg-accent\/50/);
     await expect(firstRow).toHaveClass(/transition-colors/);
   });
+});
+
+// WP-479 — OWNER 가 아닌 MEMBER 에게는 기본 정보 저장·멤버 추가·역할 변경·제거·프로젝트 삭제를 보이지 않는다(예전엔 눌러야 403 이 났다).
+test('MEMBER 로 연 프로젝트 설정은 소유자 전용 조작을 숨기고 읽기 전용 안내를 보인다', async ({ authenticatedPage: page }) => {
+  const membersRef = {
+    current: [
+      { userId: 1, username: 'me', name: 'Me', role: 'MEMBER' },
+      { userId: 2, username: 'boss', name: 'Boss', role: 'OWNER' },
+    ] as StubMember[],
+  };
+  await setupStubs(page, membersRef);
+  await page.goto(SETTINGS_URL);
+
+  await expect(page.getByTestId('project-settings-readonly')).toBeVisible();
+  await expect(page.locator('#settings-name')).toBeDisabled();
+  await expect(page.getByRole('button', { name: '저장' })).toHaveCount(0);
+  await expect(page.getByTestId('member-add-trigger')).toHaveCount(0);
+  await expect(page.getByTestId('member-remove-2')).toHaveCount(0);
+  await expect(page.getByTestId('member-role-2')).toHaveText('소유자');
+  await expect(page.getByTestId('project-delete')).toHaveCount(0);
 });
