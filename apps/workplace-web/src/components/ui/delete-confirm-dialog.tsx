@@ -19,7 +19,10 @@ interface BaseProps {
   onConfirm: () => void;
   /** 기본 자동 생성 문구 대신 사용할 커스텀 설명. 미지정 시 자동 생성. */
   description?: ReactNode;
-  /** 설명 아래 덧붙이는 영향 안내(WP-488 — 「이슈 N개에서 라벨이 빠집니다」). 없으면 그리지 않는다. */
+  /**
+   * 설명 아래 덧붙이는 영향 안내(WP-488 — 「이슈 N개에서 라벨이 빠집니다」). 문자열이면 강조 문단으로 감싸고, 요소면 그대로 그린다
+   * (스스로 수를 받아 0건이면 아무것도 그리지 않는 컴포넌트용 — {@link DeleteImpactNote}).
+   */
   impact?: ReactNode;
 }
 
@@ -54,9 +57,7 @@ export function DeleteConfirmDialog({
               <>&quot;{itemName}&quot; {entityName}{eulReul(entityName)} 정말 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.</>
             )}
           </AlertDialogDescription>
-          {impact && (
-            <p className="text-sm font-medium text-foreground" data-testid="delete-impact">{impact}</p>
-          )}
+          {typeof impact === 'string' ? <DeleteImpactNote note={impact} /> : impact}
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>취소</AlertDialogCancel>
@@ -66,4 +67,10 @@ export function DeleteConfirmDialog({
       </AlertDialogContent>
     </AlertDialog>
   );
+}
+
+/** 삭제 확인창의 영향 안내 문단 — note 가 없으면(0건·모름) 그리지 않는다(WP-488). */
+export function DeleteImpactNote({ note }: { note: string | null | undefined }) {
+  if (!note) return null;
+  return <p className="text-sm font-medium text-foreground" data-testid="delete-impact">{note}</p>;
 }

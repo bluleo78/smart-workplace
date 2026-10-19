@@ -12,7 +12,7 @@ import { cn } from '@/lib/utils';
 
 import { getLabelIssueCount } from '../../../api/labels';
 import { LabelChip } from '../../../components/labels/LabelChip';
-import { DeleteConfirmDialog } from '../../../components/ui/delete-confirm-dialog';
+import { DeleteConfirmDialog, DeleteImpactNote } from '../../../components/ui/delete-confirm-dialog';
 import { RenameDialog } from '../../../components/ui/rename-dialog';
 import {
   useCreateLabel,
@@ -180,5 +180,5 @@ function LabelDeleteImpact({ projectKey, labelId }: { projectKey: string; labelI
     queryKey: ['labels', projectKey, labelId, 'issue-count'],
     queryFn: () => getLabelIssueCount(projectKey, labelId),
   });
-  return <>{deletionImpactNote('label', count.data)}</>;
+  return <DeleteImpactNote note={deletionImpactNote('label', count.data)} />;
 }

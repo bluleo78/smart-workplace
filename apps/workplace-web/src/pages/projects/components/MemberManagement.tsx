@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/select';
 
 import { projectsApi } from '../../../api/projects';
+import { DeleteImpactNote } from '../../../components/ui/delete-confirm-dialog';
 import {
   useAddMember,
   useProjectMembers,
@@ -213,9 +214,7 @@ export function MemberManagement({ projectKey, agentOnly = false }: MemberManage
           <AlertDialogDescription>
             {confirmRemove?.name}을(를) 프로젝트에서 제거하시겠습니까? 이 작업은 되돌릴 수 없습니다.
           </AlertDialogDescription>
-          {removeImpactNote && (
-            <p className="text-sm font-medium text-foreground" data-testid="delete-impact">{removeImpactNote}</p>
-          )}
+          <DeleteImpactNote note={removeImpactNote} />
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>취소</AlertDialogCancel>

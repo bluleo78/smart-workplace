@@ -412,6 +412,34 @@ test.describe('라벨', () => {
   );
 });
 
+// WP-488 — 붙은 이슈가 없으면(0건) 영향 안내를 그리지 않는다(빈 요소도 남기지 않음).
+test('라벨 삭제 확인창 — 붙은 이슈가 없으면 영향 안내가 없다 (WP-488)', async ({ authenticatedPage: page }) => {
+  const label = createLabel({ name: '빈라벨', colorToken: 'GRAY' });
+  await page.route(`**/api/v1/projects/${PROJECT_KEY}`, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createProject()) }),
+  );
+  await page.route(`**/api/v1/projects/${PROJECT_KEY}/members`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([createMember({ userId: 1, username: 'me', name: 'Me', role: 'OWNER' })]),
+    }),
+  );
+  await page.route(`**/api/v1/projects/${PROJECT_KEY}/labels`, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([label]) }),
+  );
+  const counts = trackRequests(page, 'GET', `/api/v1/projects/${PROJECT_KEY}/labels/${label.id}/issue-count`);
+  await page.route(`**/api/v1/projects/${PROJECT_KEY}/labels/${label.id}/issue-count`, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 0 }) }),
+  );
+
+  await page.goto(`/projects/${PROJECT_KEY}/settings`);
+  await page.getByTestId(`label-row-${label.id}`).getByRole('button', { name: `${label.name} 삭제` }).click();
+  await expect(page.getByRole('alertdialog')).toBeVisible();
+  await counts.waitFor();
+  await expect(page.getByTestId('delete-impact')).toHaveCount(0);
+});
+
 test.describe('라벨 행 hover 상태 (#308 회귀)', () => {
   // 라벨 목록 행에 hover:bg-accent/50 클래스가 있는지 검증 — 클릭 가능 행 시각 피드백 회귀 방지.
   test('라벨 목록 행에 hover 스타일 클래스가 적용된다', async ({ authenticatedPage: page }) => {
