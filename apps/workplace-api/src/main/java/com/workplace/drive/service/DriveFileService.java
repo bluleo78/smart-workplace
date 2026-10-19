@@ -636,12 +636,14 @@ public class DriveFileService {
 
   /**
    * 공유 링크 다운로드. 멤버십 검사 없이(capability URL) 컨텍스트 설정 후 file core 신뢰 read. trashed 파일은 findRow 가 제외 →
-   * 호출부에서 NotFound 처리.
+   * 없는 토큰과 같은 「공유 링크 없음」(404). 비로그인 사용자에게 내부 파일 id 와 토큰이 유효하다는 사실을 드러내지 않는다(WP-533).
    */
   @Transactional(readOnly = true)
   public FileContentResult downloadViaShareLink(long driveFileId) throws IOException {
     DriveFileRepository.DriveFileRow row =
-        files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
+        files
+            .findRow(driveFileId)
+            .orElseThrow(com.workplace.drive.exception.DriveShareLinkNotFoundException::new);
     return fileUpload.getFileContentTrusted(row.fileId()).withName(row.name());
   }
 

@@ -196,10 +196,12 @@ class DriveShareLinkDownloadTest extends IntegrationTestBase {
     fileService.delete(owner, fileId); // 휴지통(soft) → findRow 제외
     TenantContext.clear();
     var target = service.resolveForDownload(created.token(), null, null, false);
-    // 2-트랜잭션: 컨텍스트 설정 후 다운로드 시도 → trashed → NotFound
+    // 2-트랜잭션: 컨텍스트 설정 후 다운로드 시도 → trashed → 없는 토큰과 같은 「공유 링크 없음」(WP-533).
+    // 파일 NotFound(「드라이브 파일을 찾을 수 없습니다 (id: N)」)는 비로그인 사용자에게 내부 id 와 토큰 유효성을 드러낸다.
     TenantContext.set(target.tenantId());
     assertThatThrownBy(() -> fileService.downloadViaShareLink(target.driveFileId()))
-        .isInstanceOf(com.workplace.drive.exception.DriveFileNotFoundException.class);
+        .isInstanceOf(com.workplace.drive.exception.DriveShareLinkNotFoundException.class)
+        .hasMessage("공유 링크를 찾을 수 없습니다");
   }
 
   // --- 시드 헬퍼 ---
