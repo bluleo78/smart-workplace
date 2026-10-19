@@ -26,11 +26,13 @@ function issues(): IssueResponse[] {
   ];
 }
 
-function setupStubs(page: Page, list: IssueResponse[] = issues()) {
+async function setupStubs(page: Page, list: IssueResponse[] = issues()) {
+  // 오늘 = 픽스처 기간(7월) — 처음 열 때 오늘 쪽으로 스크롤하므로(WP-486) 실제 오늘이면 7월 막대가 화면 밖이 된다.
+  await page.clock.setFixedTime(new Date('2026-07-08T03:00:00Z'));
   const json = (body: unknown) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
   const get = (url: string, body: () => unknown) =>
     page.route(url, (route) => (route.request().method() === 'GET' ? route.fulfill(json(body())) : route.fallback()));
-  return Promise.all([
+  await Promise.all([
     get(`**/api/v1/projects/${KEY}/members`, () => [createMember({ userId: 2, name: '김개발', username: 'kim@example.com' })]),
     get(`**/api/v1/projects/${KEY}/labels`, () => []),
     get(`**/api/v1/projects/${KEY}`, () => createProject({ key: KEY })),

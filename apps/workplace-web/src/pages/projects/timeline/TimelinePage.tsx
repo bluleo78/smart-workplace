@@ -19,7 +19,7 @@ import { ProjectUnavailableState } from '../components/ProjectUnavailableState';
 import { MilestoneEditPopover } from './MilestoneEditPopover';
 import { MilestoneFormDialog } from './MilestoneFormDialog';
 import { TimelineAgendaList } from './TimelineAgendaList';
-import { resolvePeriod } from './timelineData';
+import { initialScrollDate, resolvePeriod } from './timelineData';
 import type { TimelineZoom } from './TimelineGantt';
 import { TimelineGanttBody } from './TimelineGanttBody';
 import { TimelinePeriodChip } from './TimelinePeriodChip';
@@ -90,6 +90,11 @@ export default function TimelinePage() {
 
   // 첫 로드·자동 다음 페이지 페치 중 — 간트·아젠다 모두 이 동안 빈 상태를 띄우지 않는다.
   const issuesLoading = search.isLoading || search.isFetchingNextPage || search.hasNextPage === true;
+  // 처음 열 때 한 번 오늘·조회 기간 쪽으로 스크롤한다(WP-486) — 간트는 가장 이른 막대부터 그려져 좁은 폭(1024)에선
+  // 오늘선·사이클 구간이 화면 밖이었다. 기간(사이클)이 풀리고 이슈를 다 받은 뒤에만 정한다. 렌더 중 상태 조정(effect 아님).
+  if (scrollToDate === undefined && periodCtl.ready && !issuesLoading) {
+    setScrollToDate(initialScrollDate(periodCtl.period, new Date()));
+  }
 
   // 프로젝트를 볼 수 없으면(403·404) 관리 화면 대신 접근 불가 안내(WP-480). 훅을 모두 부른 뒤에 분기한다.
   if (project.error) return <ProjectUnavailableState />;

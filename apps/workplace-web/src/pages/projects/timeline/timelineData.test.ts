@@ -13,6 +13,7 @@ import {
   filterRenderableDependencies,
   formatPeriodSpan,
   groupTimelineIssues,
+  initialScrollDate,
   milestonesToMarkers,
   parsePeriodParam,
   periodParamToString,
@@ -876,5 +877,24 @@ describe('prepareTimelineIssues — 조회 기간 (WP-247)', () => {
     const xs = [issue({ number: 1, dueDate: '2020-01-01' })];
     expect(nums(prepareTimelineIssues(xs))).toEqual([1]);
     expect(nums(prepareTimelineIssues(xs, { period: null }))).toEqual([1]);
+  });
+});
+
+describe('initialScrollDate (WP-486)', () => {
+  const TODAY = new Date(2026, 9, 19); // 2026-10-19(로컬)
+  const period = (from: string, to: string) => ({ from, to, label: '', fallbackNote: null });
+
+  it('기간이 없으면(전체) 오늘 −7일', () => {
+    expect(initialScrollDate(null, TODAY)).toBe('2026-10-12');
+  });
+  it('오늘을 포함한 긴 기간이면 오늘 −7일', () => {
+    expect(initialScrollDate(period('2026-07-19', '2027-04-19'), TODAY)).toBe('2026-10-12');
+  });
+  it('오늘 직전에 시작한 기간이면 기간 시작', () => {
+    expect(initialScrollDate(period('2026-10-16', '2026-10-29'), TODAY)).toBe('2026-10-16');
+  });
+  it('오늘을 포함하지 않는 기간이면 기간 시작', () => {
+    expect(initialScrollDate(period('2026-11-01', '2026-11-14'), TODAY)).toBe('2026-11-01');
+    expect(initialScrollDate(period('2026-07-01', '2026-07-14'), TODAY)).toBe('2026-07-01');
   });
 });

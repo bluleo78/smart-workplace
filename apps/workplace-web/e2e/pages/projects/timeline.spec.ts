@@ -507,3 +507,35 @@ test('마일스톤 facet 선택 시 URL 파라미터에 반영된다 (#638)', as
   await milestoneOption.click();
   await expect(page).toHaveURL(/milestone=1/);
 });
+
+// WP-486 — 1024 폭에서는 차트가 좁아 처음 열면 이른 이슈 쪽(차트 시작)만 보이고 오늘선·사이클 구간이 화면 밖이었다.
+// 처음 열 때 조회 기간 시작(기본은 활성 사이클)으로 스크롤해 오늘선과 사이클 구간이 차트 안에 보인다.
+test('1024 폭에서 처음 열면 조회 기간(활성 사이클)으로 스크롤돼 오늘선이 차트 안에 보인다', async ({ authenticatedPage: page }) => {
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await page.clock.setFixedTime(new Date('2026-07-08T03:00:00Z')); // 오늘 = 활성 사이클(7/1~7/14) 안
+  await setupTimelineStubs(page);
+  // 차트 시작을 앞당기는 이른 이슈(1월)를 더한다 — 나중에 등록한 route 가 우선한다.
+  await page.route(`**/api/v1/projects/${KEY}/issues?*`, (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    const issues = [
+      createIssue({ number: 9, title: '연초 이슈', startDate: '2026-01-05', dueDate: '2026-01-20' }),
+      createIssue({ number: 1, title: '기간 이슈', startDate: '2026-07-01', dueDate: '2026-07-05' }),
+    ];
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createIssueSearchResponse(issues)) });
+  });
+  const chart = page.locator('.timeline-gantt-root .wx-chart');
+  const todayLine = page.getByTestId('timeline-today-line');
+  const todayInChart = async () => {
+    const c = await chart.boundingBox();
+    const t = await todayLine.boundingBox();
+    return !!c && !!t && t.x >= c.x && t.x <= c.x + c.width;
+  };
+  // 기본(활성 사이클) 기간 — 사이클 시작으로 스크롤.
+  await page.goto(`/projects/${KEY}/timeline`);
+  await expect(page.getByTestId('timeline-gantt')).toBeVisible();
+  await expect.poll(todayInChart).toBe(true);
+  // 전체 기간 — 차트는 1월 이슈부터 시작하지만 처음 열 때 오늘 근처로 스크롤.
+  await page.goto(`/projects/${KEY}/timeline?period=all`);
+  await expect(page.getByTestId('timeline-gantt')).toBeVisible();
+  await expect.poll(todayInChart).toBe(true);
+});

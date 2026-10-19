@@ -598,6 +598,22 @@ function activePeriod(cycles: CycleResponse[], today: Date, note: string | null)
   return rollingPeriod(today, note ?? '활성·예정 사이클이 없어 최근 3개월 ~ 향후 6개월로 봅니다');
 }
 
+/** 처음 열 때 오늘을 차트 왼쪽 끝에서 이만큼 띄운다 — 오늘선 앞 맥락(지난주)이 보이게. */
+const INITIAL_SCROLL_LEAD_DAYS = 7;
+
+/**
+ * 간트를 처음 열 때 스크롤할 날짜(WP-486) — 차트는 가장 이른 막대부터 그려져, 1024 처럼 좁은 폭에선 오늘·조회 기간이 화면 밖이었다.
+ * 오늘이 조회 기간 안이거나 기간이 없으면(전체) 오늘 −7일, 기간이 오늘을 포함하지 않으면 그 기간 시작.
+ * 기간 시작이 그보다 늦으면(오늘 직전에 시작한 사이클) 기간 시작으로 — 기간 앞의 빈 구간을 보이지 않게.
+ */
+export function initialScrollDate(period: TimelinePeriod | null, today: Date): string {
+  const lead = format(addDays(today, -INITIAL_SCROLL_LEAD_DAYS), 'yyyy-MM-dd');
+  if (!period) return lead;
+  const todayStr = format(today, 'yyyy-MM-dd');
+  if (todayStr < period.from || todayStr > period.to) return period.from;
+  return period.from > lead ? period.from : lead;
+}
+
 /**
  * PeriodParam → 실제 조회 기간. all 이면 null(거르지 않음).
  * cyclesFailed: 사이클 조회 실패 — 사이클이 필요한 active·cycle 은 rolling 으로 대체하고 이유를 안내한다.
