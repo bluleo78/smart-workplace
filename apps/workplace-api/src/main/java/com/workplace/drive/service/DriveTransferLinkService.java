@@ -501,7 +501,7 @@ public class DriveTransferLinkService {
     DriveFileResponse saved;
     try {
       UploadSource source =
-          UploadSource.ofFile(link.fileName(), body.mimeType(), body.path(), body.size());
+          UploadSource.ofFile(link.fileName(), storedMime(link, body), body.path(), body.size());
       saved =
           link.driveFileId() != null
               // 파일 지정 링크 — 이름으로 찾지 않고 그 파일에 새 버전(저장 이름은 파일의 지금 이름)
@@ -543,6 +543,22 @@ public class DriveTransferLinkService {
     String mime = MimeNormalizer.normalize(fileName, bareMime);
     return Math.min(
         FileUploadService.sizeLimitOf(FileUploadService.categoryOf(mime)), multipartMaxBytes);
+  }
+
+  /**
+   * 저장 MIME(WP-523) — Content-Type 없이 올린({@code curl -T}) 실제 이미지는 바이트로 이미지 MIME 을 정해 미리보기·썸네일이 나오게
+   * 한다 ({@link MimeNormalizer#normalizeSniffing}). 다만 링크는 발급 때 이름으로 정한 상한(일반 파일이면 25MB)으로 받았으므로,
+   * 이미지 상한(10MB)을 넘으면 이미지로 바꾸지 않고 정규화 결과 그대로 둔다 — 이미 쓴 일회용 링크가 이미지 상한에 걸려 실패하지 않게. 파일 지정 링크(새 버전)도
+   * 같다 — 실제 바이트가 이미지면 그 버전은 이미지다.
+   */
+  private static String storedMime(TransferLinkRow link, BoundedBody.Received body) {
+    String normalized = MimeNormalizer.normalize(link.fileName(), body.mimeType());
+    String sniffed =
+        MimeNormalizer.normalizeSniffing(link.fileName(), body.mimeType(), body.path());
+    boolean upgraded =
+        !sniffed.equals(normalized)
+            && body.size() <= FileUploadService.sizeLimitOf(FileUploadService.categoryOf(sniffed));
+    return upgraded ? sniffed : normalized;
   }
 
   /** 링크 사용 성공 감사(R11) — actor 는 발급자, 실제 요청자는 익명이라 IP·User-Agent 를 남긴다. 토큰·해시는 남기지 않는다. */

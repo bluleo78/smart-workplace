@@ -516,6 +516,54 @@ class PublicDriveTransferControllerIntegrationTest extends IntegrationTestBase {
     assertThat(TenantContext.get()).isNull();
   }
 
+  /** PNG 시그니처 + IHDR 머리 — 이미지 판별(ImageSniffer)에 충분한 앞부분. */
+  private static byte[] pngBytes(int size) {
+    byte[] b = new byte[size];
+    byte[] head = {
+      (byte) 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0x0D, 'I', 'H', 'D', 'R'
+    };
+    System.arraycopy(head, 0, b, 0, head.length);
+    return b;
+  }
+
+  /**
+   * Content-Type 없이 올린({@code curl -T}) 실제 PNG 는 바이트로 image/png 가 된다(WP-523). 이미지 상한(10MB)을 넘는 큰
+   * 이미지는 이미 쓴 링크가 실패하지 않게 받은 그대로 저장하고, 이름만 .png 인 다른 바이트는 이미지로 바뀌지 않는다.
+   */
+  @Test
+  void put_withoutContentType_realImage_isStoredAsImage_largeOrFakeStaysAsIs() throws Exception {
+    mockMvc
+        .perform(put(issueUploadPath(owner, "{\"name\":\"화면.png\"}")).content(pngBytes(64)))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.mimeType").value("image/png"));
+
+    mockMvc
+        .perform(
+            put(issueUploadPath(owner, "{\"name\":\"큰 화면.png\"}"))
+                .content(pngBytes(11 * 1024 * 1024)))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.mimeType").value("application/octet-stream"));
+
+    mockMvc
+        .perform(
+            put(issueUploadPath(owner, "{\"name\":\"가짜.png\"}"))
+                .content("<html>오류</html>".getBytes(StandardCharsets.UTF_8)))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.mimeType").value("application/octet-stream"));
+  }
+
+  /**
+   * 파일 지정 링크(새 버전)는 이름으로 종류가 정해지는 파일이면 PNG 바이트가 와도 종류를 바꾸지 않는다(바이트 판별은 octet-stream 일 때만, WP-523).
+   */
+  @Test
+  void filePut_namedType_isNotChangedByImageBytes() throws Exception {
+    mockMvc
+        .perform(put(issueFileUploadPath(owner, driveFileId)).content(pngBytes(64)))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.id").value(driveFileId))
+        .andExpect(jsonPath("$.mimeType").value("text/markdown"));
+  }
+
   /** 같은 이름의 파일이 있으면 새 버전으로 흡수(업로드와 같은 의미). */
   @Test
   void put_sameName_becomesNewVersion() throws Exception {

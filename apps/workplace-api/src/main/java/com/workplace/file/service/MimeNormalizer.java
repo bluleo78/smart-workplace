@@ -1,6 +1,9 @@
 package com.workplace.file.service;
 
+import com.workplace.file.api.ImageSniffer;
 import com.workplace.file.storage.FilePathBuilder;
+import java.io.UncheckedIOException;
+import java.nio.file.Path;
 import java.util.Locale;
 import java.util.Map;
 
@@ -109,5 +112,21 @@ public final class MimeNormalizer {
     }
     // 빈 문자열("")을 그대로 돌려주면 다운로드 시 MediaType.parseMediaType("") 가 실패하므로 null/blank 는 안전 폴백
     return browserMime != null && !browserMime.isBlank() ? browserMime : "application/octet-stream";
+  }
+
+  /**
+   * 셸 업로드 링크용 정규화 — {@link #normalize} 결과가 그래도 octet-stream 이면 받아 둔 본문의 앞부분을 {@link ImageSniffer} 로
+   * 보고 실제 이미지(png·jpeg·gif·webp)면 그 MIME 을 쓴다(WP-515·WP-523). {@code curl -T} 는 Content-Type 을 보내지
+   * 않아 AI 가 올린 스크린샷이 이미지로 보이지 않았다. 확장자가 아니라 바이트로 정하므로 이름만 .png 인 다른 파일은 바뀌지 않고, 공용 확장자 표도 그대로다. 판정용
+   * 읽기 실패는 저장을 막지 않는다 — 판정 없이 정규화 결과로 둔다.
+   */
+  public static String normalizeSniffing(String fileName, String browserMime, Path body) {
+    String mime = normalize(fileName, browserMime);
+    if (!"application/octet-stream".equals(mime)) return mime;
+    try {
+      return ImageSniffer.detectFile(body).orElse(mime);
+    } catch (UncheckedIOException e) {
+      return mime;
+    }
   }
 }
