@@ -162,7 +162,20 @@ class PushControllerTest extends IntegrationTestBase {
                 .header("Authorization", "Bearer " + tokenA)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(notB64))
-        .andExpect(status().isBadRequest());
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message").value("푸시 키가 올바른 base64url 형식이 아닙니다"));
+    // WP-565 — base64 가 아닌 공개키도 JDK 내부 영어 문구(「Illegal base64 character 21」) 대신 한국어로 답한다.
+    String badPub =
+        """
+        {"endpoint":"%s","keys":{"p256dh":"!!!","auth":"###"}}"""
+            .formatted(ep());
+    mvc.perform(
+            post("/api/v1/push/subscriptions")
+                .header("Authorization", "Bearer " + tokenA)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(badPub))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message").value("푸시 키가 올바른 base64url 형식이 아닙니다"));
   }
 
   @Test

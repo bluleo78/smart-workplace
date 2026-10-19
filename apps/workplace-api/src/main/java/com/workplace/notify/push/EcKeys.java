@@ -95,9 +95,16 @@ public final class EcKeys {
     return new KeyPair(decodePublic(pub65), decodePrivate(d32));
   }
 
-  /** base64url 디코드(패딩 유무 모두 허용). 잘못된 문자면 IllegalArgumentException. */
+  /**
+   * base64url 디코드(패딩 유무 모두 허용). 잘못된 문자면 IllegalArgumentException — 구독 등록 응답에 그대로 실리므로 JDK 영어
+   * 문구(「Illegal base64 character 21」) 대신 한국어로 바꾸고 원인은 cause 로 남긴다(WP-565).
+   */
   public static byte[] b64d(String s) {
-    return Base64.getUrlDecoder().decode(s);
+    try {
+      return Base64.getUrlDecoder().decode(s);
+    } catch (IllegalArgumentException e) {
+      throw new IllegalArgumentException("푸시 키가 올바른 base64url 형식이 아닙니다", e);
+    }
   }
 
   /** base64url 인코드(패딩 없음). */
