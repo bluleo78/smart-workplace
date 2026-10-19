@@ -6,6 +6,7 @@ import com.workplace.file.service.MimeNormalizer;
 import com.workplace.file.storage.FilePathBuilder;
 import com.workplace.file.storage.FileStore;
 import com.workplace.file.storage.StorageDomain;
+import com.workplace.global.util.SafeFileNames;
 import com.workplace.issue.exception.AttachmentNotFoundException;
 import java.nio.file.Path;
 import java.time.OffsetDateTime;
@@ -57,7 +58,10 @@ public class IssueAttachmentStorage {
    * STORAGE_PATH 에는 상대 경로만 저장 — 절대 경로 복원은 load() 에서 FileStore.resolve() 가 담당.
    */
   public Long storeAndInsert(MultipartFile mf, Long uploaderId) {
-    String originalName = mf.getOriginalFilename() != null ? mf.getOriginalFilename() : "file";
+    // 저장 칸(255자)을 넘는 이름은 확장자를 살려 줄인다(WP-561).
+    String originalName =
+        SafeFileNames.fitLength(
+            mf.getOriginalFilename() != null ? mf.getOriginalFilename() : "file");
     // 코어 FilePathBuilder 가 UUID·날짜·확장자·테넌트 디렉토리를 일괄 생성
     String relativePath = pathBuilder.build(StorageDomain.ISSUE, originalName);
     fileStore.store(relativePath, mf);

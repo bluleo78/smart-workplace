@@ -6,6 +6,7 @@ import com.workplace.file.api.InternalFileCategories;
 import com.workplace.file.storage.FilePathBuilder;
 import com.workplace.file.storage.FileStore;
 import com.workplace.file.storage.StorageDomain;
+import com.workplace.global.util.SafeFileNames;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Optional;
@@ -75,7 +76,7 @@ public class MailExtractCopyStore {
     registerRollbackCleanup(relativePath);
     OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
     return dsl.insertInto(FILE)
-        .set(FILE.ORIGINAL_NAME, filename)
+        .set(FILE.ORIGINAL_NAME, SafeFileNames.fitLength(filename))
         .set(FILE.STORED_NAME, relativePath.substring(relativePath.lastIndexOf('/') + 1))
         .set(FILE.MIME_TYPE, mime)
         .set(FILE.SIZE_BYTES, (long) content.length)

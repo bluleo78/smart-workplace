@@ -6,6 +6,7 @@ import com.workplace.file.service.MimeNormalizer;
 import com.workplace.file.storage.FilePathBuilder;
 import com.workplace.file.storage.FileStore;
 import com.workplace.file.storage.StorageDomain;
+import com.workplace.global.util.SafeFileNames;
 import java.io.IOException;
 import java.time.OffsetDateTime;
 import org.jooq.DSLContext;
@@ -57,7 +58,10 @@ public class MessageAttachmentStorage {
    * @throws IOException 파일 저장 실패 시
    */
   public Long storeTemporary(MultipartFile mf, Long uploaderId) throws IOException {
-    String originalName = mf.getOriginalFilename() != null ? mf.getOriginalFilename() : "file";
+    // 저장 칸(255자)을 넘는 이름은 확장자를 살려 줄인다(WP-561) — 응답 이름(MessageAttachmentService)도 같은 규칙.
+    String originalName =
+        SafeFileNames.fitLength(
+            mf.getOriginalFilename() != null ? mf.getOriginalFilename() : "file");
     // 코어 FilePathBuilder 가 UUID·날짜·확장자·테넌트 디렉토리를 일괄 생성(상대경로)
     String relativePath = pathBuilder.build(StorageDomain.MESSAGING, originalName);
     fileStore.store(relativePath, mf);

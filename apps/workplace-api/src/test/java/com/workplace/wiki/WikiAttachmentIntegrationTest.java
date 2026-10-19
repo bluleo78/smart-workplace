@@ -180,6 +180,19 @@ class WikiAttachmentIntegrationTest extends IntegrationTestBase {
         .isEqualTo("/api/v1/wiki/pages/" + pageId + "/attachments/" + res.fileId() + "/content");
   }
 
+  /** 255자 넘는 파일명(WP-561) — 409 대신 확장자를 살려 255자로 줄여 저장하고, 응답 이름도 같다. */
+  @Test
+  void 파일명이_255자를_넘으면_줄여서_저장한다() throws Exception {
+    var res = upload(editorId, pageId, pngFile("a".repeat(300) + ".png", 50));
+    String stored =
+        dsl.select(FILE.ORIGINAL_NAME)
+            .from(FILE)
+            .where(FILE.ID.eq(res.fileId()))
+            .fetchOne(0, String.class);
+    assertThat(stored).hasSize(255).endsWith(".png");
+    assertThat(res.originalName()).isEqualTo(stored);
+  }
+
   @Test
   void 업로드_직후_file_expires_at_은_NOT_NULL_이다() throws Exception {
     var res = upload(editorId, pageId, pngFile("a.png", 50));

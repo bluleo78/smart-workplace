@@ -8,6 +8,7 @@ import com.workplace.fileai.ExtractionProfile;
 import com.workplace.fileai.dto.ExtractedTextSlice;
 import com.workplace.fileai.inbound.FileExtractionRequestedEvent;
 import com.workplace.fileai.service.ExtractedTextService;
+import com.workplace.global.util.SafeFileNames;
 import com.workplace.messaging.exception.ChannelArchivedException;
 import com.workplace.messaging.exception.ChannelNotMemberException;
 import com.workplace.messaging.exception.InvalidMessageAttachmentException;
@@ -102,7 +103,8 @@ public class MessageAttachmentService {
       out.add(
           new UploadedFile(
               id,
-              mf.getOriginalFilename() != null ? mf.getOriginalFilename() : "file",
+              SafeFileNames.fitLength(
+                  mf.getOriginalFilename() != null ? mf.getOriginalFilename() : "file"),
               mime,
               mf.getSize()));
     }

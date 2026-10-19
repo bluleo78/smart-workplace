@@ -6,6 +6,7 @@ import com.workplace.file.exception.FileBlobMissingException;
 import com.workplace.file.storage.FilePathBuilder;
 import com.workplace.file.storage.FileStore;
 import com.workplace.file.storage.StorageDomain;
+import com.workplace.global.util.SafeFileNames;
 import com.workplace.global.util.UnicodeNames;
 import com.workplace.wiki.exception.WikiAttachmentNotFoundException;
 import java.io.IOException;
@@ -60,7 +61,8 @@ public class WikiAttachmentStorage {
         mf.getOriginalFilename() != null && !mf.getOriginalFilename().isBlank()
             ? mf.getOriginalFilename()
             : "image";
-    String originalName = UnicodeNames.toNfc(rawName);
+    // 저장 칸(255자)을 넘는 이름은 확장자를 살려 줄인다(WP-561) — 응답 이름(WikiAttachmentService)도 같은 규칙.
+    String originalName = SafeFileNames.fitLength(UnicodeNames.toNfc(rawName));
     // 코어 FilePathBuilder 가 UUID·날짜·확장자·테넌트 디렉토리를 일괄 생성(상대경로)
     String relativePath = pathBuilder.build(StorageDomain.WIKI, originalName);
     fileStore.store(relativePath, mf);

@@ -18,6 +18,12 @@ public final class SafeFileNames {
 
   private static final Pattern FORBIDDEN_CHARS = Pattern.compile("[" + FORBIDDEN_CLASS + "]");
 
+  /** 이름 저장 칸 길이(문자 수) — file.original_name·drive_file.name·폴더 이름이 모두 varchar(255)(WP-561). */
+  public static final int MAX_LENGTH = 255;
+
+  /** 줄일 때 살리는 확장자 최대 길이(점 포함) — 이보다 긴 꼬리는 확장자가 아니라 이름의 일부로 본다. */
+  private static final int MAX_EXTENSION_LENGTH = 16;
+
   /**
    * 사용자가 지은 이름 정규화·검사 — 앞뒤 공백(유니코드 공백 포함)을 지우고 NFC 로 맞춘 뒤, 빈 이름·"."·".."·금지 문자는
    * IllegalArgumentException(400).
@@ -32,16 +38,40 @@ public final class SafeFileNames {
     if (FORBIDDEN_CHARS.matcher(name).find()) {
       throw new IllegalArgumentException(kind + " 이름에 / \\ 나 제어 문자는 쓸 수 없습니다.");
     }
+    if (name.codePointCount(0, name.length()) > MAX_LENGTH) {
+      throw new IllegalArgumentException(kind + " 이름은 " + MAX_LENGTH + "자까지 쓸 수 있습니다.");
+    }
     return name;
   }
 
-  /** 고칠 수 없는 이름 정리 — NFC 로 맞추고 금지 문자를 "_" 로 바꾼 뒤 앞뒤 공백을 지운다. null·빈 값·"."·".." 이면 fallback. */
+  /**
+   * 고칠 수 없는 이름 정리 — NFC 로 맞추고 금지 문자를 "_" 로 바꾼 뒤 앞뒤 공백을 지우고 저장 칸 길이에 맞춘다({@link #fitLength}). null·빈
+   * 값·"."·".." 이면 fallback.
+   */
   public static String sanitize(String raw, String fallback) {
     if (raw == null) {
       return fallback;
     }
     String s = FORBIDDEN_CHARS.matcher(UnicodeNames.toNfc(raw)).replaceAll("_").strip();
-    return isReserved(s) ? fallback : s;
+    return isReserved(s) ? fallback : fitLength(s);
+  }
+
+  /**
+   * 업로드 원본 파일명을 저장 칸({@link #MAX_LENGTH}자)에 맞춘다(WP-561) — 넘으면 확장자를 살리고 앞 이름을 줄인다. 이전에는 그대로 넣다가 DB 가
+   * 거절해 409 「Data integrity violation」이 났다. 문자 수는 코드포인트로 세어 서로게이트 쌍(이모지)을 가르지 않는다. null 은 그대로.
+   */
+  public static String fitLength(String name) {
+    if (name == null || name.codePointCount(0, name.length()) <= MAX_LENGTH) {
+      return name;
+    }
+    int dot = name.lastIndexOf('.');
+    String ext =
+        dot > 0 && name.codePointCount(dot, name.length()) <= MAX_EXTENSION_LENGTH
+            ? name.substring(dot)
+            : "";
+    String base = ext.isEmpty() ? name : name.substring(0, dot);
+    int keep = MAX_LENGTH - ext.codePointCount(0, ext.length());
+    return base.substring(0, base.offsetByCodePoints(0, keep)) + ext;
   }
 
   private static boolean isReserved(String name) {

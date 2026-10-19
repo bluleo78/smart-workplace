@@ -119,6 +119,28 @@ class DriveFileServiceTest extends IntegrationTestBase {
         .isInstanceOf(com.workplace.drive.exception.DriveSpaceNotFoundException.class);
   }
 
+  /** 255자 넘는 파일명(WP-561) — 409 대신 확장자를 살려 255자로 줄여 저장한다. */
+  @Test
+  void upload_withNameOver255_storesShortenedName() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    String longName = "q".repeat(300) + ".txt";
+    DriveFileResponse f =
+        fileService.upload(
+            u,
+            sp.id(),
+            null,
+            new MockMultipartFile("file", longName, "text/plain", "hi".getBytes()));
+    assertThat(f.name()).hasSize(255).endsWith(".txt");
+    assertThat(
+            dsl.select(FILE.ORIGINAL_NAME)
+                .from(FILE)
+                .where(FILE.ID.eq(f.fileId()))
+                .fetchOne(0, String.class))
+        .hasSize(255)
+        .endsWith(".txt");
+  }
+
   @Test
   void upload_makesFilePermanent_andListable() throws Exception {
     long u = seedUser();

@@ -10,6 +10,7 @@ import com.workplace.fileai.dto.ExtractedTextSlice;
 import com.workplace.fileai.inbound.FileExtractionRequestedEvent;
 import com.workplace.fileai.service.ExtractedTextService;
 import com.workplace.global.realtime.ResourceChangedEvent;
+import com.workplace.global.util.SafeFileNames;
 import com.workplace.global.util.UnicodeNames;
 import com.workplace.wiki.dto.WikiAttachmentResponse;
 import com.workplace.wiki.exception.WikiAttachmentLimitException;
@@ -125,7 +126,7 @@ public class WikiAttachmentService {
 
     String originalName =
         file.getOriginalFilename() != null && !file.getOriginalFilename().isBlank()
-            ? UnicodeNames.toNfc(file.getOriginalFilename())
+            ? SafeFileNames.fitLength(UnicodeNames.toNfc(file.getOriginalFilename()))
             : "image";
     return new WikiAttachmentResponse(
         fileId,
