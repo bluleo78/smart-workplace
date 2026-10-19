@@ -75,6 +75,34 @@ test('외부 연락처 생성', { tag: '@smoke' }, async ({ authenticatedPage: p
   await expect(page.getByTestId('contact-row-EXTERNAL-200')).toBeVisible()
 })
 
+// WP-546: 메모 2000자 상한 — 폼 검증 문구가 메모 칸 아래에 보이고 저장 요청은 나가지 않는다(전에는 문구 없이 저장만 안 됐다).
+test('외부 연락처 생성 — 메모 2000자를 넘으면 메모 칸에 안내가 보이고 저장하지 않는다', async ({
+  authenticatedPage: page,
+}) => {
+  await stubList(page)
+  const posts = trackRequests(page, 'POST', '/api/v1/contacts/external')
+
+  await page.goto('/contacts')
+  await page.getByTestId('contact-create').click()
+  await page.getByTestId('c-name').fill('남궁민수')
+  await page.getByTestId('c-notes').fill('가'.repeat(2001))
+  await page.getByTestId('c-save').click()
+
+  await expect(page.getByText('메모는 2000자 이하여야 합니다')).toBeVisible()
+  await expect(page.getByTestId('external-contact-dialog')).toBeVisible()
+  expect(posts.count()).toBe(0)
+})
+
+// WP-546: 이미 저장된 아주 긴 메모는 상세에서 앞부분만 보여 화면이 멈추지 않는다.
+test('외부 연락처 상세 — 2000자를 넘는 기존 메모는 앞부분만 줄여 보인다', async ({ authenticatedPage: page }) => {
+  await stubList(page)
+  await stubDetail(page, { notes: '가'.repeat(2000) + '나'.repeat(50_000) })
+
+  await page.goto('/contacts?contact=external:100')
+  await expect(page.getByText('가'.repeat(2000) + '…', { exact: true })).toBeVisible()
+  await expect(page.getByText('나나나나나')).toHaveCount(0)
+})
+
 test('외부 연락처 편집', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
   await stubList(page)
   await stubDetail(page)

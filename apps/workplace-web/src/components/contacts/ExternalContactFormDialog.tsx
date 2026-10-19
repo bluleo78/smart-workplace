@@ -151,7 +151,7 @@ export function ExternalContactFormDialog({ open, onOpenChange, contact }: Props
             <FormField label="직책" htmlFor="c-title" error={form.formState.errors.title?.message}>
               <Input id="c-title" data-testid="c-title" {...form.register('title')} />
             </FormField>
-            <FormField label="메모" htmlFor="c-notes">
+            <FormField label="메모" htmlFor="c-notes" error={form.formState.errors.notes?.message}>
               <Textarea id="c-notes" data-testid="c-notes" rows={3} {...form.register('notes')} />
             </FormField>
             <FormField label="공개 범위" htmlFor="c-visibility">

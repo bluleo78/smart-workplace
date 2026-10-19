@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { DeleteConfirmDialog } from '@/components/ui/delete-confirm-dialog'
 import { cn } from '@/lib/utils'
+import { CONTACT_NOTES_MAX } from '@/lib/validations/contact'
 
 import type { ContactSelection } from '../../hooks/queries/useContactDetail'
 import { useContactDetail } from '../../hooks/queries/useContactDetail'
@@ -20,6 +21,11 @@ function Row({ label, value }: { label: string; value: string | null | undefined
       <span className="min-w-0 break-words">{value || '-'}</span>
     </div>
   )
+}
+
+/** 메모를 상한 길이까지만 보여 준다(넘으면 말줄임). */
+function truncateNotes(notes: string | null | undefined) {
+  return notes && notes.length > CONTACT_NOTES_MAX ? `${notes.slice(0, CONTACT_NOTES_MAX)}…` : notes
 }
 
 /** 선택된 연락처 상세 패널. 멤버=프로필+그룹(읽기전용), 외부=연락 필드 + editable 시 수정/삭제. */
@@ -142,7 +148,8 @@ export function ContactDetailPanel({
       <Row label="전화" value={e.phone} />
       <Row label="소속" value={e.organization} />
       <Row label="직책" value={e.title} />
-      <Row label="메모" value={e.notes} />
+      {/* 상한 전에 저장된 아주 긴 메모는 앞부분만 — 전문을 그리면 탭이 멈췄다(WP-546). */}
+      <Row label="메모" value={truncateNotes(e.notes)} />
 
       <ExternalContactFormDialog open={editOpen} onOpenChange={setEditOpen} contact={e} />
     </div>

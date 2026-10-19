@@ -208,6 +208,19 @@ describe('외부 연락처 쓰기 (#333 M3, #839, WP-343)', () => {
     expect(c.updateExternalContact).toHaveBeenLastCalledWith(9, { phone: '010-1' }, true);
   });
 
+  it('외부 연락처 메모는 2000자까지 — 넘으면 스키마가 거부해 호출하지 않는다 (WP-546)', async () => {
+    const c = mockClient();
+    const notes = '가'.repeat(2001);
+    await expect(
+      tool(c, 'create_external_contact').handler({ name: '김거래', notes, visibility: 'SHARED' }),
+    ).rejects.toThrow();
+    await expect(tool(c, 'update_external_contact').handler({ externalId: 9, notes })).rejects.toThrow();
+    expect(c.createExternalContact).not.toHaveBeenCalled();
+    expect(c.updateExternalContact).not.toHaveBeenCalled();
+    await tool(c, 'update_external_contact').handler({ externalId: 9, notes: '가'.repeat(2000) });
+    expect(c.updateExternalContact).toHaveBeenCalledTimes(1);
+  });
+
   it('update_external_contact → 바꿀 필드가 없으면 호출하지 않고 거절한다', async () => {
     const c = mockClient();
     await expect(tool(c, 'update_external_contact').handler({ externalId: 9 })).rejects.toThrow('하나 이상');

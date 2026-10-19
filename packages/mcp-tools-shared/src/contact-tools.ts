@@ -51,7 +51,7 @@ const externalContactFields = {
   phone: z.string().max(40).optional(),
   organization: z.string().max(120).optional(),
   title: z.string().max(100).optional(),
-  notes: z.string().optional(),
+  notes: z.string().max(2000).optional(), // 서버 상한과 같다(WP-546)
   visibility: z.enum(['SHARED', 'PERSONAL']),
 };
 // 이름+이메일이 겹치는 연락처가 이미 있으면 서버가 409 경고를 준다 — 사용자가 그래도 저장하라고 확인했을 때만 true.

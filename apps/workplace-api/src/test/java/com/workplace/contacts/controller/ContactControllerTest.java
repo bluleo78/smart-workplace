@@ -166,6 +166,31 @@ class ContactControllerTest {
         .andExpect(status().isBadRequest());
   }
 
+  /** WP-546: 메모 2000자 상한 — 넘으면 생성·수정 모두 400 + 한국어 안내(수 MB 메모가 저장돼 상세 화면이 멈췄다). */
+  @Test
+  void externalNotesOverLimit_createAndPatch_return400() throws Exception {
+    when(permissionService.getUserPermissions(1L))
+        .thenReturn(Set.of("contact:read", "contact:write"));
+    String notes = "가".repeat(2001);
+    mockMvc
+        .perform(
+            post("/api/v1/contacts/external")
+                .header("Authorization", "Bearer v")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"name\":\"박외부\",\"notes\":\"" + notes + "\",\"visibility\":\"PERSONAL\"}"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.errors.notes").value("메모는 2000자 이하여야 합니다"));
+    mockMvc
+        .perform(
+            patch("/api/v1/contacts/external/100")
+                .header("Authorization", "Bearer v")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"notes\":\"" + notes + "\"}"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.errors.notes").value("메모는 2000자 이하여야 합니다"));
+  }
+
   @Test
   void createExternal_invalidVisibility_returns400() throws Exception {
     // visibility 의 @Pattern(SHARED|PERSONAL) 위반 → 400

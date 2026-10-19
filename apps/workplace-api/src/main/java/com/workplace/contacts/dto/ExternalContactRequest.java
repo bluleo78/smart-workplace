@@ -16,5 +16,6 @@ public record ExternalContactRequest(
     @Size(max = 40) String phone,
     @Size(max = 120) String organization,
     @Size(max = 100) String title,
-    String notes,
+    // 메모 상한(WP-546) — 없으면 수 MB 메모가 저장돼 상세 화면이 멈췄다. 웹 폼·MCP 도구와 같은 2000자.
+    @Size(max = 2000, message = "메모는 2000자 이하여야 합니다") String notes,
     @NotNull @Pattern(regexp = "SHARED|PERSONAL") String visibility) {}
