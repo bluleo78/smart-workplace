@@ -29,6 +29,7 @@ public class ChannelService {
   private final ApplicationEventPublisher publisher;
   private final ChannelChangeNotifier changeNotifier;
   private final LastMessageLookup lastMessageLookup;
+  private final ChannelRosterPublisher rosterPublisher;
 
   /**
    * 사이드바 — caller 가 멤버이고 아카이브되지 않은 채널만. 모바일 목록 미리보기용 lastMessage 를 배치로 채운다(WP-135). RLS GUC 주입
@@ -97,6 +98,8 @@ public class ChannelService {
     // 보관된 채널은 읽기 전용 — 새로 참여할 수 없다(WP-508).
     if (channelRepo.isArchived(channelId)) throw new ChannelArchivedException(channelId);
     memberRepo.add(channelId, callerId, "MEMBER");
+    // 참여도 멤버 변경 — roster 이벤트로 연동 드라이브 공간에 곧바로 반영한다(WP-531).
+    rosterPublisher.publish(channelId);
     changeNotifier.membershipChanged(channelId, callerId, Set.of());
   }
 

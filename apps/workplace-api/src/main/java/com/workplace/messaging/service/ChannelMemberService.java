@@ -8,15 +8,12 @@ import com.workplace.messaging.exception.ChannelForbiddenException;
 import com.workplace.messaging.exception.ChannelNotFoundException;
 import com.workplace.messaging.exception.OwnershipTransferRequiredException;
 import com.workplace.messaging.outbound.ChannelChangeNotifier;
-import com.workplace.messaging.outbound.MessagingDomainEvents.ChannelMembershipChangedEvent;
 import com.workplace.messaging.repository.ChannelMemberRepository;
 import com.workplace.messaging.repository.ChannelRepository;
 import com.workplace.user.dto.UserKind;
-import java.time.Instant;
 import java.util.List;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,8 +26,8 @@ public class ChannelMemberService {
   private final ChannelMemberRepository memberRepo;
   private final ChannelPermissions perms;
   private final MembershipGuard membershipGuard;
-  private final ApplicationEventPublisher publisher;
   private final ChannelChangeNotifier changeNotifier;
+  private final ChannelRosterPublisher rosterPublisher;
 
   private static final List<String> VALID_ROLES = List.of("OWNER", "ADMIN", "MEMBER");
 
@@ -47,7 +44,7 @@ public class ChannelMemberService {
   public void add(long callerId, long channelId, long targetUserId) {
     checkAdd(callerId, channelId, targetUserId);
     memberRepo.add(channelId, targetUserId, "MEMBER");
-    publishRoster(channelId);
+    rosterPublisher.publish(channelId);
     changeNotifier.membershipChanged(channelId, callerId, List.of(targetUserId));
   }
 
@@ -89,7 +86,7 @@ public class ChannelMemberService {
       throw new ChannelForbiddenException(channelId, callerId, "remove-owner");
     }
     memberRepo.remove(channelId, targetUserId);
-    publishRoster(channelId);
+    rosterPublisher.publish(channelId);
     // 제거된 사용자는 커밋 후 명단에서 빠지므로 extra 로 알린다.
     changeNotifier.membershipChanged(channelId, callerId, List.of(targetUserId));
   }
@@ -99,7 +96,7 @@ public class ChannelMemberService {
   public void leave(long callerId, long channelId) {
     if (!checkLeave(callerId, channelId)) return; // 이미 비멤버 — idempotent
     memberRepo.remove(channelId, callerId);
-    publishRoster(channelId);
+    rosterPublisher.publish(channelId);
     changeNotifier.membershipChanged(channelId, callerId, List.of(callerId));
   }
 
@@ -151,19 +148,8 @@ public class ChannelMemberService {
       }
       memberRepo.updateRole(channelId, targetUserId, normalized);
     }
-    publishRoster(channelId);
+    rosterPublisher.publish(channelId);
     changeNotifier.membershipChanged(channelId, callerId, Set.of());
-  }
-
-  /** 변경 후 현재 roster 로 멤버십 변경 이벤트 발행 — 드라이브 연동 공간 reconcile 소스. */
-  private void publishRoster(long channelId) {
-    String name = channelRepo.findName(channelId).orElse("");
-    List<ChannelMembershipChangedEvent.Member> roster =
-        memberRepo.listMembers(channelId).stream()
-            .map(m -> new ChannelMembershipChangedEvent.Member(m.userId(), m.role()))
-            .toList();
-    publisher.publishEvent(
-        new ChannelMembershipChangedEvent(channelId, name, roster, Instant.now()));
   }
 
   private void ensureExists(long channelId) {

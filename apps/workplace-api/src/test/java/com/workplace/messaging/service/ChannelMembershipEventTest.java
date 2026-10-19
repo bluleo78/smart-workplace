@@ -28,6 +28,8 @@ class ChannelMembershipEventTest extends IntegrationTestBase {
   @Autowired ChannelService channelService;
   @Autowired ChannelMemberService memberService;
   @Autowired ApplicationEvents events;
+  @Autowired com.workplace.drive.api.DriveChannelSpacePort drivePort;
+  @Autowired com.workplace.drive.repository.DriveSpaceMemberRepository driveMembers;
 
   @BeforeEach
   void setTenant() {
@@ -75,6 +77,36 @@ class ChannelMembershipEventTest extends IntegrationTestBase {
     // roster 에 owner + target 둘 다 포함.
     assertThat(last.members().stream().map(ChannelMembershipChangedEvent.Member::userId))
         .contains(owner, target);
+  }
+
+  // WP-531 — 공개 채널 참여(join)도 멤버 변경이다. roster 이벤트가 없으면 연동 드라이브 공간에 반영되지 않아
+  // 참여자에게 공간이 404·목록에서 빠진다.
+  @Test
+  void join_publishesRoster_andJoinerBecomesChannelSpaceEditor() {
+    long owner = seedUser();
+    long joiner = seedUser();
+    ChannelResponse ch = channelService.create(owner, "참여채널", "PUBLIC");
+    var space =
+        drivePort.ensureChannelSpace(
+            owner,
+            ch.id(),
+            "참여채널",
+            java.util.List.of(
+                new com.workplace.drive.api.DriveChannelSpacePort.ChannelMemberSnapshot(
+                    owner, "OWNER")));
+
+    channelService.join(joiner, ch.id());
+
+    var published =
+        events.stream(ChannelMembershipChangedEvent.class)
+            .filter(e -> e.channelId() == ch.id())
+            .toList();
+    assertThat(published).isNotEmpty();
+    assertThat(
+            published.get(published.size() - 1).members().stream()
+                .map(ChannelMembershipChangedEvent.Member::userId))
+        .contains(owner, joiner);
+    assertThat(driveMembers.findRole(space.id(), joiner)).contains("EDITOR");
   }
 
   @Test
