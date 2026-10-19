@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 
 import { useCycles, useIssueCycles, useUpdateIssueCycles } from '../../hooks/queries/useCycles';
+import { CYCLE_STATUS_LABEL } from '../../types/cycle';
 
 export function CyclePickerPopover({
   projectKey,
@@ -81,8 +82,8 @@ export function CyclePickerPopover({
                   aria-label={c.name}
                 />
                 <span className="text-sm">{c.name}</span>
-                <span className="ml-auto text-xs uppercase text-muted-foreground">
-                  {c.status}
+                <span className="ml-auto text-xs text-muted-foreground">
+                  {CYCLE_STATUS_LABEL[c.status] ?? c.status}
                 </span>
               </label>
             ))}

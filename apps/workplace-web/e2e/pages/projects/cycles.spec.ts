@@ -327,7 +327,7 @@ test.describe('사이클 관리', () => {
       await page.getByTestId('cycle-new').click();
       await expect(page.getByTestId('cycle-form-dialog')).toBeVisible();
       // 상태 셀렉트도 영문 enum 대신 한국어 라벨로 그려진다(배선 확인 — 매핑은 단위 테스트).
-      await expect(page.getByTestId('cycle-status-select')).toContainText('계획됨');
+      await expect(page.getByTestId('cycle-status-select')).toContainText('예정');
 
       await page.getByTestId('cycle-name-input').fill('종료일역전테스트');
       await page.getByLabel('시작일').fill('2026-09-10');
@@ -516,6 +516,9 @@ test.describe('사이클 피커', () => {
       // 피커 트리거 클릭 → 팝오버 열림.
       await page.getByTestId('cycle-picker-trigger').click();
       await expect(page.getByTestId('cycle-picker')).toBeVisible();
+      // 상태는 영어 원문(ACTIVE)이 아니라 다른 화면과 같은 한국어 이름으로 보인다(WP-490).
+      await expect(page.getByTestId('cycle-option-1')).toContainText('진행 중');
+      await expect(page.getByTestId('cycle-option-1')).not.toContainText('ACTIVE');
 
       // 사이클 옵션 체크.
       await page.getByTestId('cycle-option-1').click();

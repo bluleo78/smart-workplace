@@ -34,8 +34,6 @@ import type { IssueFilters, IssueResponse } from '../../../types/issue';
 import type { OpenRowMenu } from '../hooks/useIssueRowActions';
 import { IssueRow } from './IssueListRow';
 
-// 상태 배지 문구 — 목록 구간에선 PLANNED 를 「예정」으로 부른다(구간 순서 설명과 같은 말).
-const STATUS_BADGE_LABEL: Record<string, string> = { ...CYCLE_STATUS_LABEL, PLANNED: '예정' };
 // 상태 배지 의미 — 디자인 시스템 StatusBadge 매핑(진행 중=info, 예정=pending, 완료=inactive).
 const STATUS_BADGE_TYPE: Record<string, StatusBadgeType> = {
   ACTIVE: 'info',
@@ -228,7 +226,7 @@ export function IssueCycleSection({
                 data-testid={`list-cycle-badge-${def.key}`}
               >
                 {active && <span aria-hidden="true" className="size-1.5 rounded-full bg-current" />}
-                {STATUS_BADGE_LABEL[cycle.status] ?? cycle.status}
+                {CYCLE_STATUS_LABEL[cycle.status] ?? cycle.status}
               </StatusBadge>
             )}
             {backlogCount && (

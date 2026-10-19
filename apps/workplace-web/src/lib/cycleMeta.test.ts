@@ -35,6 +35,6 @@ describe('isCycleDateRangeInvalid (#804)', () => {
 
 describe('CYCLE_STATUS_LABEL', () => {
   it('모든 상태 enum 을 한국어로 표시한다(영문 enum 노출 금지)', () => {
-    expect(CYCLE_STATUSES.map((s) => CYCLE_STATUS_LABEL[s])).toEqual(['계획됨', '진행 중', '완료됨'])
+    expect(CYCLE_STATUSES.map((s) => CYCLE_STATUS_LABEL[s])).toEqual(['예정', '진행 중', '완료됨'])
   })
 })

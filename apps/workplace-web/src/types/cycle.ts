@@ -4,8 +4,9 @@ export const CYCLE_STATUSES = ['PLANNED', 'ACTIVE', 'COMPLETED'] as const;
 export type CycleStatus = (typeof CYCLE_STATUSES)[number];
 
 // 사이클 상태 한국어 레이블 매핑 — 백엔드 enum 값을 UI 문구로 변환.
+// 모든 화면(목록 구간·타임라인 기간·사이클 피커·사이클 관리)이 이 이름을 그대로 쓴다(WP-490).
 export const CYCLE_STATUS_LABEL: Record<CycleStatus, string> = {
-  PLANNED: '계획됨',
+  PLANNED: '예정',
   ACTIVE: '진행 중',
   COMPLETED: '완료됨',
 };
