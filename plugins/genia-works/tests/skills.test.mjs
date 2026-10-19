@@ -102,3 +102,15 @@ test('SKILL.md 는 맡길 AI 를 설명으로 고르고 내부 AI 는 피하게 
   assert.ok(text.includes("`search_members({ kind: 'AGENT' })`"));
   assert.ok(text.includes('`agentRuntime` 이 `INTERNAL` 인 AI 는 다른 AI 가 맡겨도 시작하지 않으니 맡기지 않는다'));
 });
+
+// WP-516 근거 첨부 — 로컬 경로만 적으면 다른 환경의 사람은 결함 화면·시안·검증 스크린샷을 볼 수 없다.
+test('SKILL.md 근거 이미지·파일은 첨부로 올리고, 이슈 설명은 이슈에·질문·보고 근거는 그 글에 붙인다', () => {
+  const text = workLoop('SKILL.md');
+  assert.ok(!text.includes('이미지는 올리지 않는다'));
+  assert.ok(text.includes('`upload_file({ name })`'));
+  assert.ok(text.includes('`create_issue` 의 `fileIds`'));
+  assert.ok(text.includes('`report_agent_work` 의 `fileIds`'));
+  assert.ok(text.includes('같은 파일을 두 곳에 올리지 않는다'));
+  // 첨부가 만료·이미 붙은 파일이면 보고 전체가 거절된다 — 첨부 없이 다시 보내야 상태 보고가 사라지지 않는다.
+  assert.ok(text.includes('`fileIds` 를 빼고 다시 보내며'));
+});
