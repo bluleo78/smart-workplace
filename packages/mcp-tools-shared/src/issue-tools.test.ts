@@ -204,6 +204,22 @@ describe('buildSharedIssueTools', () => {
       expect(c.reportAgentWork).not.toHaveBeenCalled();
     });
 
+    it('fileIds 는 message 와 함께 그대로 넘긴다(WP-515 — 챗 글 첨부)', async () => {
+      const c = mockClient();
+      await reportTool(c).handler({ issueKey: 'WP-12', state: 'INPUT_REQUIRED', message: 'A안/B안?', fileIds: [3, 4] });
+      expect(c.reportAgentWork).toHaveBeenCalledWith('WP-12', { state: 'INPUT_REQUIRED', message: 'A안/B안?', fileIds: [3, 4] });
+    });
+
+    it.each([
+      ['message 없이 fileIds', { state: 'REVIEW', fileIds: [3] }],
+      ['공백 message + fileIds', { message: '   ', fileIds: [3] }],
+      ['fileIds 11개', { message: '보고', fileIds: Array.from({ length: 11 }, (_, i) => i + 1) }],
+    ])('fileIds 검증 실패: %s', async (_label, extra) => {
+      const c = mockClient();
+      await expect(reportTool(c).handler({ issueKey: 'WP-12', ...extra })).rejects.toThrow();
+      expect(c.reportAgentWork).not.toHaveBeenCalled();
+    });
+
     it.each([
       ['stepsDone 만', { stepsDone: 2 }],
       ['stepsTotal 만', { stepsTotal: 5 }],

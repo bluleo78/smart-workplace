@@ -302,6 +302,28 @@ class StagedUploadIntegrationTest extends IntegrationTestBase {
     assertThat(TenantContext.get()).isNull();
   }
 
+  /**
+   * Content-Type 없이 올린 본문(curl -T)은 실제 바이트가 이미지면 그 MIME 으로 저장한다(WP-515) — AI 가 붙인 스크린샷이 이미지로 보이게.
+   * 이름만 .png 인 다른 바이트는 이미지로 바꾸지 않는다.
+   */
+  @Test
+  void link_Content_Type_없는_실제_PNG_는_image_png_이름만_png_면_그대로() throws Exception {
+    byte[] png = {
+      (byte) 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0x0D, 'I', 'H', 'D', 'R'
+    };
+    mockMvc
+        .perform(put(issuePath(owner, "시안.png")).content(png))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.mimeType").value("image/png"));
+
+    mockMvc
+        .perform(
+            put(issuePath(owner, "가짜.png"))
+                .content("<html>오류</html>".getBytes(StandardCharsets.UTF_8)))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.mimeType").value("application/octet-stream"));
+  }
+
   /** HEAD 는 405(Allow: PUT)이고 링크를 소비하지 않는다 — 링크 미리보기가 일회용 링크를 태우지 않게. */
   @Test
   void link_HEAD_는_405_이고_소비하지_않음() throws Exception {

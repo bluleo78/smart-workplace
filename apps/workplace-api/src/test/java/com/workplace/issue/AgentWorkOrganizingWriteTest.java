@@ -1,7 +1,5 @@
 package com.workplace.issue;
 
-import static com.workplace.jooq.Tables.FILE;
-import static com.workplace.jooq.Tables.ISSUE_ATTACHMENT;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.cycle.dto.CreateCycleRequest;
@@ -56,20 +54,6 @@ class AgentWorkOrganizingWriteTest extends AgentWorkTestSupport {
           }
         };
     context.addApplicationListener(listener);
-  }
-
-  /** 스테이징·첨부 테스트가 남긴 파일 — 사용자 삭제(FK) 전에 지운다. 하위 클래스 @AfterEach 가 기반 정리보다 먼저 돈다. */
-  @AfterEach
-  void deleteStagedFiles() {
-    inTenant(
-        () -> {
-          dsl.deleteFrom(ISSUE_ATTACHMENT)
-              .where(
-                  ISSUE_ATTACHMENT.FILE_ID.in(
-                      dsl.select(FILE.ID).from(FILE).where(FILE.UPLOADED_BY.eq(humanId))))
-              .execute();
-          return dsl.deleteFrom(FILE).where(FILE.UPLOADED_BY.eq(humanId)).execute();
-        });
   }
 
   @AfterEach
@@ -201,7 +185,7 @@ class AgentWorkOrganizingWriteTest extends AgentWorkTestSupport {
    */
   @Test
   void PAT_로_자기를_담당자로_첨부와_함께_이슈를_만들어도_작업을_시작하지_않음() {
-    long fileId = stageText("created.txt");
+    long fileId = stageText(jwtToken, "created.txt");
 
     var res =
         call(
@@ -223,7 +207,7 @@ class AgentWorkOrganizingWriteTest extends AgentWorkTestSupport {
 
   @Test
   void 첨부_클레임은_작업_쓰기라_담당_이슈의_작업을_시작() {
-    long fileId = stageText("claimed.txt");
+    long fileId = stageText(jwtToken, "claimed.txt");
 
     assertOk(
         call(
@@ -234,19 +218,6 @@ class AgentWorkOrganizingWriteTest extends AgentWorkTestSupport {
             TOOL));
 
     assertThat(activeWork(issueId, humanId).orElseThrow().state()).isEqualTo("WORKING");
-  }
-
-  /** 사람 JWT 로 텍스트 스테이징 파일을 만들고 fileId 를 돌려준다. */
-  private long stageText(String name) {
-    var res =
-        call(
-            HttpMethod.POST,
-            "/api/v1/staged-files/text",
-            jwtToken,
-            Map.of("name", name, "content", "내용"),
-            null);
-    assertOk(res);
-    return json(res).get("fileId").asLong();
   }
 
   /** 응답 JSON 의 이슈 경로 — 새 이슈의 번호로 만든다. */

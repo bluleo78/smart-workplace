@@ -3,7 +3,10 @@ package com.workplace.file.api;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 /** ImageSniffer 순수 단위 테스트 — 스프링 컨텍스트 불필요. */
 class ImageSnifferTest {
@@ -64,5 +67,38 @@ class ImageSnifferTest {
   @Test
   void null_입력은_거부한다() {
     assertThat(ImageSniffer.detect(null)).isEmpty();
+  }
+
+  /** 저장해 둔 파일은 앞부분만 읽어 같은 규칙으로 판정한다(스테이징 링크 업로드, WP-515). */
+  @Test
+  void 파일_앞부분으로_판정한다(@TempDir Path dir) throws Exception {
+    Path png =
+        Files.write(
+            dir.resolve("a.bin"),
+            new byte[] {
+              (byte) 0x89,
+              'P',
+              'N',
+              'G',
+              0x0D,
+              0x0A,
+              0x1A,
+              0x0A,
+              0,
+              0,
+              0,
+              0x0D,
+              'I',
+              'H',
+              'D',
+              'R',
+              1,
+              2,
+              3
+            });
+    Path html =
+        Files.write(dir.resolve("b.png"), "<html>오류 페이지</html>".getBytes(StandardCharsets.UTF_8));
+    assertThat(ImageSniffer.detectFile(png)).contains("image/png");
+    assertThat(ImageSniffer.detectFile(html)).isEmpty();
   }
 }

@@ -247,7 +247,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       description:
         'Reports work on your assigned issue (이슈) at start/on change: INPUT_REQUIRED before asking the user, AUTH_REQUIRED if you need ' +
         'credentials/permission, REVIEW done awaiting review, BLOCKED + why, SCHEDULED yield until nextRunAt (resend each time; none = resume after other work), PAUSED if told to stop; COMPLETED/FAILED/CANCELED/REJECTED end the ' +
-        'work. message posts to issue chat.',
+        'work. message posts to issue chat; fileIds attach staged files to it.',
       inputSchema: reportAgentWorkInput,
       async handler(args) {
         const { issueKey, nextRunAt, ...rest } = reportAgentWorkInput.parse(args);

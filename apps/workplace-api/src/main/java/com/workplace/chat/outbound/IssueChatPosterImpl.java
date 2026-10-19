@@ -3,6 +3,7 @@ package com.workplace.chat.outbound;
 import com.workplace.chat.service.ChatMessageService;
 import com.workplace.chat.service.ChatThreadService;
 import com.workplace.issue.outbound.IssueChatPoster;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -16,8 +17,13 @@ public class IssueChatPosterImpl implements IssueChatPoster {
 
   @Override
   public long post(
-      long callerId, String projectKey, int issueNumber, String body, boolean question) {
+      long callerId,
+      String projectKey,
+      int issueNumber,
+      String body,
+      boolean question,
+      List<Long> fileIds) {
     long threadId = threadService.getOrCreate(callerId, projectKey, issueNumber).threadId();
-    return messageService.createFromReport(callerId, threadId, body, question).id();
+    return messageService.createFromReport(callerId, threadId, body, question, fileIds).id();
   }
 }

@@ -90,11 +90,14 @@ export const reportAgentWorkInput = z
       })
       .optional()
       .describe('SCHEDULED only; ISO 8601, offset optional (KST). Resend on every SCHEDULED report; omitted = no time'),
+    fileIds: stagedFileIdsInput.optional(), // WP-515: message 챗 글에 붙인다 — 시안·검증 스크린샷을 질문·보고와 함께 보이게
   })
   .refine((v) => (v.stepsDone === undefined) === (v.stepsTotal === undefined), { message: 'stepsDone and stepsTotal go together' })
   .refine((v) => v.stepsDone === undefined || v.stepsDone <= (v.stepsTotal ?? 0), { message: 'stepsDone must not exceed stepsTotal' })
   // 서버(ReportAgentWorkRequest)와 같은 규칙 — 시각은 SCHEDULED 일 때만.
-  .refine((v) => v.nextRunAt === undefined || v.state === 'SCHEDULED', { message: 'nextRunAt is only allowed with state SCHEDULED' });
+  .refine((v) => v.nextRunAt === undefined || v.state === 'SCHEDULED', { message: 'nextRunAt is only allowed with state SCHEDULED' })
+  // 서버와 같은 규칙 — 첨부는 message 글에 붙으므로 message 가 있을 때만(없으면 붙일 글이 없다).
+  .refine((v) => !v.fileIds?.length || Boolean(v.message?.trim()), { message: 'fileIds need a message to attach to' });
 
 /** 코멘트 수정 입력. */
 export const editCommentInput = z.object({
