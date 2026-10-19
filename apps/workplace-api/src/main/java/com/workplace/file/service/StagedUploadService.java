@@ -3,7 +3,6 @@ package com.workplace.file.service;
 import static com.workplace.jooq.Tables.FILE;
 
 import com.workplace.audit.service.AuditLogService;
-import com.workplace.file.api.ImageSniffer;
 import com.workplace.file.api.StagedFileClaimer;
 import com.workplace.file.dto.StagedFileResponse;
 import com.workplace.file.dto.StagedUploadLinkResponse;
@@ -252,7 +251,8 @@ public class StagedUploadService {
 
   /**
    * 공개 업로드 5단계 — 받아 둔 본문을 저장소({@code staged} 도메인)로 옮기고 발급자의 임시 ATTACHMENT FILE 행을 만든 뒤 사용 감사(actor
-   * = 발급자, 요청 IP·User-Agent)를 같은 트랜잭션에 남긴다. 저장 MIME 은 {@link #storedMime}.
+   * = 발급자, 요청 IP·User-Agent)를 같은 트랜잭션에 남긴다. 저장 MIME 은 {@link MimeNormalizer#normalizeSniffing}(링크
+   * 이름, Content-Type, 받은 본문).
    */
   @Transactional
   public StagedFileResponse completeUpload(
@@ -268,7 +268,7 @@ public class StagedUploadService {
         insertStagedFile(
             link.userId(),
             link.fileName(),
-            storedMime(link.fileName(), body),
+            MimeNormalizer.normalizeSniffing(link.fileName(), body.mimeType(), body.path()),
             body.size(),
             relativePath);
     auditLogService.log(
@@ -284,23 +284,6 @@ public class StagedUploadService {
         null,
         Map.of("stagedLinkId", link.id(), "sizeBytes", saved.sizeBytes()));
     return saved;
-  }
-
-  /**
-   * 저장 MIME — {@link MimeNormalizer#normalize}(링크 이름, 매개변수를 뗀 Content-Type). 그래도 octet-stream 이면 받은
-   * 본문의 앞부분을 {@link ImageSniffer} 로 보고 실제 이미지(png·jpeg·gif·webp)면 그 MIME 을 쓴다(WP-515) — 셸
-   * 업로드({@code curl -T})는 Content-Type 을 보내지 않아 AI 가 붙인 스크린샷이 이미지로 보이지 않았다. 확장자가 아니라 바이트로 정하므로 이름만
-   * .png 인 다른 파일은 이미지로 바뀌지 않고, 공용 확장자 표·다른 업로드 경로의 범주 상한은 그대로다.
-   */
-  private static String storedMime(String fileName, BoundedBody.Received body) {
-    String mime = MimeNormalizer.normalize(fileName, body.mimeType());
-    if (!"application/octet-stream".equals(mime)) return mime;
-    try {
-      return ImageSniffer.detectFile(body.path()).orElse(mime);
-    } catch (UncheckedIOException e) {
-      // 판정용 읽기 실패는 저장을 막지 않는다 — 판정 없이 원래 MIME 으로 둔다.
-      return mime;
-    }
   }
 
   /** 임시 ATTACHMENT FILE 행을 만든다 — 클레임({@code StagedFileClaimer})이 요구하는 모양(업로더·category·만료)으로. */
