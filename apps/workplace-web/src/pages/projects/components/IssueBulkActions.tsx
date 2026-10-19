@@ -161,7 +161,9 @@ export function IssueBulkActions({
             isMobile
               ? // 하단 탭바(--mobile-tabbar-h, MobileTabBar 가 공개) 바로 위에 고정 — 키보드가 열려 있으면 키보드 위.
                 'fixed inset-x-0 z-40 flex items-center gap-1 border-t bg-background px-2 pt-1.5 pb-[calc(0.375rem+env(safe-area-inset-bottom))] text-sm shadow-[0_-2px_8px_rgb(0_0_0/0.06)] bottom-[max(var(--mobile-tabbar-h,0px),var(--kb-inset,0px))]'
-              : 'mb-2 flex shrink-0 items-center gap-2 rounded bg-muted px-3 py-2 text-sm'
+              : // 데스크톱은 스크롤 영역 위쪽에 붙어 있게(sticky) — 사이클 구간 목록처럼 바가 스크롤 영역 안에 있으면 아래에서 체크했을 때
+                // 바가 화면 위쪽 밖(top -1590px)에 남아 선택 표시도 조작도 보이지 않았다(WP-485). 표 머리(z-10) 위에 그린다.
+                'sticky top-0 z-20 mb-2 flex shrink-0 items-center gap-2 rounded bg-muted px-3 py-2 text-sm'
           }
         >
           {isMobile ? (

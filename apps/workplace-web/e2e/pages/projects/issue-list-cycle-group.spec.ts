@@ -339,6 +339,21 @@ test.describe('이슈 목록 사이클 그룹 (#878)', () => {
     await progressGets.waitFor(progressBefore + 1);
   });
 
+  // WP-485 — 목록 아래쪽에서 체크해도 일괄 작업 바가 보인다(스크롤 영역 위쪽에 붙음). 예전엔 바가 화면 위쪽 밖에 남았다.
+  test('아래로 스크롤해 체크해도 일괄 작업 바가 화면 안에 보인다', async ({ authenticatedPage: page }) => {
+    await page.setViewportSize({ width: 1440, height: 420 })
+    await setup(page)
+    await page.goto(`/projects/${KEY}`)
+
+    const backlogRow = section(page, 'backlog').getByTestId('select-issue-41')
+    await backlogRow.scrollIntoViewIfNeeded()
+    await backlogRow.check()
+
+    const bar = page.getByTestId('issue-bulk-toolbar')
+    await expect(bar).toContainText('선택 1개')
+    await expect(bar).toBeInViewport()
+  })
+
   test('로딩 중엔 평면 목록을 띄우지 않고 스켈레톤을 보인다', async ({ authenticatedPage: page }) => {
     const requests = await setup(page);
     // 사이클 목록 응답을 늦춰 판정 보류 상태를 만든다.
