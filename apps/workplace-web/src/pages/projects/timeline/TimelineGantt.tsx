@@ -65,6 +65,8 @@ export interface TimelineGanttProps {
 // translateX 가 음수에 가까워지며 라벨 위로 겹치는 것을 막는다. 라벨 실측 대신 고정 여백을
 // 쓴 것은 이 스코프에서 동적 폭 측정이 과설계이기 때문(YAGNI).
 const MILESTONE_LABEL_RESERVED_PX = 64
+// 겹치는 사이클 이름표 한 줄 높이(text-xs 줄 높이 16px) — 줄을 나눌 때 아래로 내리는 간격(WP-489).
+const CYCLE_LABEL_LANE_PX = 16
 
 const GROUP_ID_PREFIX = 'group-'
 const groupTaskId = (key: string) => `${GROUP_ID_PREFIX}${key}`
@@ -340,6 +342,8 @@ export function TimelineGantt({
     if (!scroller) return
 
     let todayLeft = 0
+    // 차트 영역 왼쪽 끝(containerRef 기준) — 사이클 이름표를 이보다 왼쪽(그리드 표 위)에 그리지 않는다(WP-489).
+    let chartLeft = 0
     const bandLefts = new Map<number, { left: number; width: number }>()
     // 마일스톤 오버레이 좌표(#648) — vline 은 항상 마감일 정확한 X, 칩은 겹칠 때 우측으로 밀어
     // 배치한 X. 두 값을 분리해야 칩이 밀려도 실제 마감 위치를 점선으로 정확히 알 수 있다.
@@ -363,9 +367,17 @@ export function TimelineGantt({
       // 헤더 눈금 텍스트와 겹치지 않는다 — `.wx-chart` 자체는 헤더까지 포함해 top 이 0이라 헤더 높이를 더한다.
       const scaleHeader = scroller.querySelector<HTMLElement>('.wx-scale')
       const baseTop = scaleHeader ? scaleHeader.getBoundingClientRect().height : 0
-      for (const el of cycleBandLabelRefs.current.values()) {
-        el.style.top = `${baseTop}px`
+      // 기간이 겹치는 사이클은 이름표 줄을 나눈다(WP-489) — 시작일 순으로 훑어, 앞 줄의 마지막 사이클이 끝난 뒤에
+      // 시작하면 그 줄에, 아니면 새 줄에 둔다. 날짜 기준이라 스크롤과 무관하다.
+      const laneEnds: string[] = []
+      for (const band of [...cycles].sort((a, b) => a.startDate.localeCompare(b.startDate))) {
+        let lane = laneEnds.findIndex((end) => end < band.startDate)
+        if (lane < 0) lane = laneEnds.length
+        laneEnds[lane] = band.endDate
+        const el = cycleBandLabelRefs.current.get(band.id)
+        if (el) el.style.top = `${baseTop + lane * CYCLE_LABEL_LANE_PX}px`
       }
+      chartLeft = baseLeft
       todayLeft = baseLeft + toOffset(new Date())
       bandLefts.clear()
       for (const band of cycles) {
@@ -398,8 +410,13 @@ export function TimelineGantt({
       for (const [id, { left, width }] of bandLefts) {
         const el = cycleBandLabelRefs.current.get(id)
         if (!el) continue
-        el.style.transform = `translateX(${left - scrollLeft}px)`
-        el.style.width = `${width}px`
+        // 차트 왼쪽 밖으로 스크롤된 부분은 잘라 낸다 — 이름표는 차트 왼쪽 끝에 붙고, 다 지나가면 숨긴다(WP-489).
+        const start = left - scrollLeft
+        const visibleLeft = Math.max(start, chartLeft)
+        const visibleWidth = start + width - visibleLeft
+        el.style.visibility = visibleWidth > 0 ? '' : 'hidden'
+        el.style.transform = `translateX(${visibleLeft}px)`
+        el.style.width = `${Math.max(visibleWidth, 0)}px`
       }
       for (const [id, left] of chipLefts) {
         const chip = milestoneChipRefs.current.get(id)

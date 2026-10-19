@@ -539,3 +539,56 @@ test('1024 폭에서 처음 열면 조회 기간(활성 사이클)으로 스크�
   await expect(page.getByTestId('timeline-gantt')).toBeVisible();
   await expect.poll(todayInChart).toBe(true);
 });
+
+// WP-489 — 기간이 겹치는 사이클 이름표가 서로 겹치고, 차트 왼쪽으로 지난 사이클 이름표가 왼쪽 표 위까지 그려지던 문제.
+// 겹치는 사이클은 줄을 나눠 쌓고, 이름표는 차트 영역 안에서만 그린다(차트 왼쪽 끝에 붙고 잘린다).
+test('겹치는 사이클 이름표는 줄을 나눠 겹치지 않고, 차트 왼쪽 밖(표 영역)으로 넘지 않는다', async ({ authenticatedPage: page }) => {
+  await page.clock.setFixedTime(new Date('2026-10-19T03:00:00Z'));
+  await setupTimelineStubs(page);
+  const now = new Date().toISOString();
+  const cyc = (id: number, name: string, startDate: string, endDate: string, status: CycleResponse['status']): CycleResponse => ({
+    id, projectId: 1, name, goal: null, startDate, endDate, status, createdAt: now, updatedAt: now,
+  });
+  await page.route(`**/api/v1/projects/${KEY}/cycles`, (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([
+        cyc(1, '스프린트 1 (지난)', '2026-10-01', '2026-10-14', 'COMPLETED'),
+        cyc(2, '스프린트 2 (현재)', '2026-10-15', '2026-10-28', 'ACTIVE'),
+        cyc(3, '스프린트 3 (겹침)', '2026-10-20', '2026-11-03', 'PLANNED'),
+      ]),
+    });
+  });
+  await page.route(`**/api/v1/projects/${KEY}/issues?*`, (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    const issues = [createIssue({ number: 1, title: '9월 이슈', startDate: '2026-09-01', dueDate: '2026-09-10' })];
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createIssueSearchResponse(issues)) });
+  });
+  await page.goto(`/projects/${KEY}/timeline?period=all`);
+  await expect(page.getByTestId('timeline-gantt')).toBeVisible();
+  const labels = page.getByTestId('timeline-cycle-band');
+  await expect(labels).toHaveCount(3);
+  // 지난 사이클이 차트 왼쪽 밖에 걸치도록 오른쪽으로 스크롤한다(10/8 을 왼쪽 끝에).
+  await page.getByRole('button', { name: '오늘' }).click();
+  const chart = (await page.locator('.timeline-gantt-root .wx-chart').boundingBox())!;
+  await expect
+    .poll(async () => {
+      const boxes = await labels.evaluateAll((els) =>
+        els.map((e) => {
+          const r = e.getBoundingClientRect();
+          return { x: r.x, y: r.y, right: r.right, bottom: r.bottom, w: r.width, shown: getComputedStyle(e).visibility !== 'hidden' };
+        }),
+      );
+      const shown = boxes.filter((b) => b.shown && b.w > 0);
+      // 차트 왼쪽 밖(표 영역)으로 넘지 않는다.
+      const inside = shown.every((b) => b.x >= chart.x - 0.5);
+      // 서로 겹치지 않는다(가로·세로 모두 겹치는 쌍이 없다).
+      const overlap = shown.some((a, i) =>
+        shown.some((b, j) => j > i && a.x < b.right && b.x < a.right && a.y < b.bottom && b.y < a.bottom),
+      );
+      return inside && !overlap;
+    })
+    .toBe(true);
+});
