@@ -19,6 +19,7 @@ import { cycleMetaText } from '../../lib/cycleMeta';
 import { deletionImpactNote } from '../../lib/deletionImpact';
 import type { CycleProgress, CycleResponse } from '../../types/cycle';
 import { CYCLE_STATUS_LABEL } from '../../types/cycle';
+import { ProjectUnavailableState } from './components/ProjectUnavailableState';
 
 export default function CyclesPage() {
   const { key = '' } = useParams();
@@ -38,6 +39,9 @@ export default function CyclesPage() {
     (progress.data ?? []).forEach((p) => m.set(p.cycleId, p));
     return m;
   }, [progress.data]);
+
+  // 프로젝트를 볼 수 없으면(403·404) 관리 화면 대신 접근 불가 안내(WP-480). 훅을 모두 부른 뒤에 분기한다.
+  if (project.error) return <ProjectUnavailableState />;
 
   return (
     <Page width="reading" data-testid="cycles-page">

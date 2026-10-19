@@ -15,6 +15,7 @@ import { useMilestones } from '../../../hooks/queries/useMilestones';
 import { useProject } from '../../../hooks/queries/useProjects';
 import { parseFilters } from '../../../lib/issueFilters';
 import type { MilestoneResponse } from '../../../types/milestone';
+import { ProjectUnavailableState } from '../components/ProjectUnavailableState';
 import { MilestoneEditPopover } from './MilestoneEditPopover';
 import { MilestoneFormDialog } from './MilestoneFormDialog';
 import { TimelineAgendaList } from './TimelineAgendaList';
@@ -89,6 +90,9 @@ export default function TimelinePage() {
 
   // 첫 로드·자동 다음 페이지 페치 중 — 간트·아젠다 모두 이 동안 빈 상태를 띄우지 않는다.
   const issuesLoading = search.isLoading || search.isFetchingNextPage || search.hasNextPage === true;
+
+  // 프로젝트를 볼 수 없으면(403·404) 관리 화면 대신 접근 불가 안내(WP-480). 훅을 모두 부른 뒤에 분기한다.
+  if (project.error) return <ProjectUnavailableState />;
 
   return (
     <Page data-testid="timeline-page">

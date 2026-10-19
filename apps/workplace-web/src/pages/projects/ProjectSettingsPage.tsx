@@ -35,6 +35,7 @@ import { CustomFieldManagement } from './components/CustomFieldManagement';
 import { IssueTypeManagement } from './components/IssueTypeManagement';
 import { LabelManagement } from './components/LabelManagement';
 import { MemberManagement } from './components/MemberManagement';
+import { ProjectUnavailableState } from './components/ProjectUnavailableState';
 
 /** WP-414: AI 화면 맥락에 싣는 프로젝트 종류 표시 문구. */
 const PROJECT_TYPE_LABEL: Record<ProjectType, string> = { TEAM: '팀', PERSONAL: '개인', OPEN: '접수함' };
@@ -97,6 +98,9 @@ export default function ProjectSettingsPage() {
       handleApiError(e, '삭제에 실패했습니다');
     }
   };
+
+  // 프로젝트를 볼 수 없으면(403·404) 관리 화면 대신 접근 불가 안내(WP-480). 훅을 모두 부른 뒤에 분기한다.
+  if (project.error) return <ProjectUnavailableState />;
 
   // 헤더는 로딩 중에도 같은 모양으로 먼저 보여, 데이터 도착 시 헤더가 뒤늦게 튀어나오지 않게 한다 — 로딩 분기는 본문 안에서만.
   // 설정 폼 폭 + 주석 섹션 — 다른 설정 화면과 같은 폭 체계(WP-397).
