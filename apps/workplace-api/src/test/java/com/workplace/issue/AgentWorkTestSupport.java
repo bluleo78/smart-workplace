@@ -6,6 +6,7 @@ import static com.workplace.jooq.Tables.AGENT_WORK_EVENT;
 import static com.workplace.jooq.Tables.AUDIT_LOG;
 import static com.workplace.jooq.Tables.CHAT_MESSAGE;
 import static com.workplace.jooq.Tables.CHAT_THREAD;
+import static com.workplace.jooq.Tables.FILE;
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.PROJECT;
@@ -165,13 +166,17 @@ public abstract class AgentWorkTestSupport extends IntegrationTestBase {
     }
   }
 
-  /** 시드 역순 정리: 작업 기록 → 이슈(코멘트·알림·담당자 CASCADE) → 프로젝트 → 감사 로그 → 사용자. */
+  /**
+   * 시드 역순 정리: 스테이징·첨부 파일(이슈·챗 첨부 CASCADE) → 작업 기록 → 이슈(코멘트·알림·담당자 CASCADE) → 프로젝트 → 감사 로그 → 사용자.
+   * 파일은 업로더(사용자)를 참조하므로 사용자보다 먼저 지운다.
+   */
   @AfterEach
   void cleanupAgentWorkFixture() {
     cleanupInTenant(
         TENANT_ID,
         () -> {
           if (!userIds.isEmpty()) {
+            dsl.deleteFrom(FILE).where(FILE.UPLOADED_BY.in(userIds)).execute();
             dsl.deleteFrom(AGENT_WORK).where(AGENT_WORK.WORKER_ID.in(userIds)).execute();
           }
           if (projectId != 0) {
@@ -317,7 +322,11 @@ public abstract class AgentWorkTestSupport extends IntegrationTestBase {
   protected ChatRow lastChatMessageOrNull(long issueId) {
     return inTenant(
         () ->
-            dsl.select(CHAT_MESSAGE.AUTHOR_ID, CHAT_MESSAGE.IS_QUESTION, CHAT_MESSAGE.BODY)
+            dsl.select(
+                    CHAT_MESSAGE.ID,
+                    CHAT_MESSAGE.AUTHOR_ID,
+                    CHAT_MESSAGE.IS_QUESTION,
+                    CHAT_MESSAGE.BODY)
                 .from(CHAT_MESSAGE)
                 .join(CHAT_THREAD)
                 .on(CHAT_THREAD.ID.eq(CHAT_MESSAGE.THREAD_ID))
@@ -327,13 +336,27 @@ public abstract class AgentWorkTestSupport extends IntegrationTestBase {
                 .fetchOne(
                     r ->
                         new ChatRow(
+                            r.get(CHAT_MESSAGE.ID),
                             r.get(CHAT_MESSAGE.AUTHOR_ID),
                             r.get(CHAT_MESSAGE.IS_QUESTION),
                             r.get(CHAT_MESSAGE.BODY))));
   }
 
   /** 챗 글 조회 결과. */
-  protected record ChatRow(long authorId, boolean isQuestion, String body) {}
+  protected record ChatRow(long id, long authorId, boolean isQuestion, String body) {}
+
+  /** 지정 토큰으로 텍스트 스테이징 파일(MCP upload_file 의 content 경로)을 만들고 fileId 를 돌려준다. */
+  protected long stageText(String token, String name) {
+    var res =
+        call(
+            HttpMethod.POST,
+            "/api/v1/staged-files/text",
+            token,
+            Map.of("name", name, "content", "내용"),
+            null);
+    assertOk(res);
+    return json(res).get("fileId").asLong();
+  }
 
   /** 이슈 상태. */
   protected String issueStatus() {

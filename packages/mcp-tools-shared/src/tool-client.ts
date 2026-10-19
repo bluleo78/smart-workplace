@@ -135,6 +135,8 @@ export interface ReportAgentWorkBody {
   message?: string;
   /** 다음 실행 시각(ISO 날짜시각, 오프셋 포함) — state 가 SCHEDULED 일 때만(WP-450). */
   nextRunAt?: string;
+  /** message 챗 글에 붙일 스테이징 파일 id(upload_file) — message 가 있을 때만(WP-515). */
+  fileIds?: number[];
 }
 
 /** PUT .../agent-work 응답 — work 는 raw AgentWorkView(끝났으면 null), ended 는 이번 보고로 기록이 끝났는지. */

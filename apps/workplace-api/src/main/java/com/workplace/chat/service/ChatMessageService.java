@@ -63,14 +63,15 @@ public class ChatMessageService {
   /**
    * AI 작업 보고(report_agent_work)의 글(WP-373). question 을 생성과 함께 저장하고, 작성자가 사람이어도 "사람의 답"
    * (IssueHumanReplyPosted)으로 치지 않는다 — 사람이 자기 AI 도구로 남긴 진행 보고가 다른 AI 의 답변 필요를 풀면 안 된다(스펙 §3.2).
+   * fileIds 는 보고와 함께 붙일 스테이징 파일 — 화면 작성과 같은 바인딩 경로로 클레임한다(WP-515).
    */
   @Transactional
   public ChatMessageResponse createFromReport(
-      long callerId, long threadId, String body, boolean question) {
+      long callerId, long threadId, String body, boolean question, List<Long> fileIds) {
     return doCreate(
         callerId,
         threadId,
-        new CreateChatMessageRequest(body),
+        new CreateChatMessageRequest(body, fileIds, List.of()),
         question ? ChatMessageOrigin.REPORT_QUESTION : ChatMessageOrigin.REPORT);
   }
 

@@ -69,7 +69,7 @@ public class AgentWorkReportService {
     if (AgentWorkState.isTerminal(req.state())) {
       // message 는 상태와 무관한 챗 글(스펙 §4.1) — 종료 보고여도 먼저 올린다(질문 표시 없음).
       if (hasMessage) {
-        chatPoster.post(callerId, projectKey, number, req.message(), false);
+        chatPoster.post(callerId, projectKey, number, req.message(), false, req.fileIds());
       }
       // 착수 전(SUBMITTED)에서 곧바로 종료 보고하면 행의 tool 이 비어 있으므로 요청의 도구를 종료와 함께 채우고, 보고에 담긴 마지막
       // note·progress·단계 수도 같은 문장에서 반영한다(note 는 일반 보고와 같은 규칙으로 정한다).
@@ -118,7 +118,7 @@ public class AgentWorkReportService {
       boolean question =
           AgentWorkState.INPUT_REQUIRED.equals(view.state())
               && UserKind.isAgent(view.worker().kind());
-      chatPoster.post(callerId, projectKey, number, req.message(), question);
+      chatPoster.post(callerId, projectKey, number, req.message(), question, req.fileIds());
     }
     return new AgentWorkReportResponse(view, false);
   }

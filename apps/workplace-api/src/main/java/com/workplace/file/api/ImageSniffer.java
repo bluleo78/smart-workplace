@@ -3,6 +3,8 @@ package com.workplace.file.api;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Optional;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -28,6 +30,15 @@ public final class ImageSniffer {
    */
   public static Optional<String> detectUpload(MultipartFile file) {
     try (InputStream in = file.getInputStream()) {
+      return detect(in.readNBytes(HEAD_BYTES));
+    } catch (IOException e) {
+      throw new UncheckedIOException(e);
+    }
+  }
+
+  /** 저장해 둔 파일의 앞 HEAD_BYTES 만 읽어 판정한다(스테이징 링크 업로드처럼 본문을 임시 파일로 받은 경로, WP-515). */
+  public static Optional<String> detectFile(Path file) {
+    try (InputStream in = Files.newInputStream(file)) {
       return detect(in.readNBytes(HEAD_BYTES));
     } catch (IOException e) {
       throw new UncheckedIOException(e);

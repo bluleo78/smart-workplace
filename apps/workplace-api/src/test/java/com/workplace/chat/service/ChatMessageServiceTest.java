@@ -18,6 +18,7 @@ import com.workplace.issue.outbound.IssueHumanReplyPosted;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.support.IntegrationTestBase;
 import java.time.Instant;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.event.ApplicationEvents;
@@ -163,7 +164,8 @@ class ChatMessageServiceTest extends IntegrationTestBase {
     var thread = threadService.getOrCreate(s.reporterId(), s.projectKey(), s.issueNumber());
 
     ChatMessageResponse msg =
-        messageService.createFromReport(s.reporterId(), thread.threadId(), "진행 보고", true);
+        messageService.createFromReport(
+            s.reporterId(), thread.threadId(), "진행 보고", true, List.of());
 
     assertThat(msg.question()).isTrue();
     var created = events.stream(ChatMessageCreatedEvent.class).toList();
@@ -191,7 +193,7 @@ class ChatMessageServiceTest extends IntegrationTestBase {
   void createFromReport_진행보고는_REPORT_경로로_이벤트에_싣는다() {
     ChatFixtures.Setup s = fx.setup();
     var thread = threadService.getOrCreate(s.reporterId(), s.projectKey(), s.issueNumber());
-    messageService.createFromReport(s.reporterId(), thread.threadId(), "진행 보고", false);
+    messageService.createFromReport(s.reporterId(), thread.threadId(), "진행 보고", false, List.of());
     var e = events.stream(ChatMessageCreatedEvent.class).findFirst().orElseThrow();
     assertThat(e.origin()).isEqualTo(ChatMessageOrigin.REPORT);
     assertThat(e.question()).isFalse();
