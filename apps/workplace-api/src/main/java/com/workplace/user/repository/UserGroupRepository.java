@@ -13,6 +13,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
+import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
@@ -89,8 +90,13 @@ public class UserGroupRepository {
    *
    * <p>MEMBER 는 편입 시점 이후 비활성화·멤버십 해지될 수 있으므로 읽기 시점에도 연락처 목록과 동일한 술어(현재 테넌트 ACTIVE 멤버십 + 활성 HUMAN)로
    * 거른다(#832). 걸러진 행은 삭제하지 않고 숨기기만 한다 — 멤버십이 복구되면 그대로 되살아난다.
+   *
+   * <p>EXTERNAL 은 호출자가 읽을 수 있는 연락처(SHARED·본인 소유·관리자)만 — 관리자가 남의 PERSONAL 연락처를 공유 그룹에 넣었거나 넣은 뒤 소유자가
+   * PERSONAL 로 바꾸면, 상세는 404 인데 그룹 목록으로 이름·이메일이 새던 문제(WP-547). 편입 검증({@link #externalReadable})과 같은
+   * 술어다.
    */
-  public List<UserGroupMemberSummary> findMembers(long tenantId, long groupId) {
+  public List<UserGroupMemberSummary> findMembers(
+      long tenantId, long callerId, boolean admin, long groupId) {
     List<UserGroupMemberSummary> all = new ArrayList<>();
     dsl.select(USER.ID, USER.NAME, USER.EMAIL, USER.TITLE, USER.USERNAME)
         .from(USER_GROUP_MEMBER)
@@ -127,6 +133,7 @@ public class UserGroupRepository {
         .on(CONTACT_ENTRY.ID.eq(USER_GROUP_MEMBER.TARGET_ID))
         .where(USER_GROUP_MEMBER.GROUP_ID.eq(groupId))
         .and(USER_GROUP_MEMBER.TARGET_TYPE.eq("EXTERNAL"))
+        .and(externalReadableBy(callerId, admin))
         .fetch()
         .forEach(
             r ->
@@ -244,12 +251,16 @@ public class UserGroupRepository {
         dsl.selectOne()
             .from(CONTACT_ENTRY)
             .where(CONTACT_ENTRY.ID.eq(contactId))
-            .and(
-                CONTACT_ENTRY
-                    .VISIBILITY
-                    .eq("SHARED")
-                    .or(CONTACT_ENTRY.OWNER_ID.eq(callerId))
-                    .or(DSL.condition(admin))));
+            .and(externalReadableBy(callerId, admin)));
+  }
+
+  /** 호출자가 읽을 수 있는 contact_entry 술어(SHARED|owner|admin) — 편입 검증과 멤버 목록이 같이 쓴다. */
+  private static Condition externalReadableBy(long callerId, boolean admin) {
+    return CONTACT_ENTRY
+        .VISIBILITY
+        .eq("SHARED")
+        .or(CONTACT_ENTRY.OWNER_ID.eq(callerId))
+        .or(DSL.condition(admin));
   }
 
   private static String nullIfBlank(String s) {

@@ -214,6 +214,43 @@ class UserGroupServiceTest extends IntegrationTestBase {
     assertThat(after.members()).hasSize(1);
   }
 
+  /**
+   * WP-547: 공유 그룹 상세에는 호출자가 볼 수 있는 외부 연락처만 — 관리자가 남의 PERSONAL 연락처를 넣었거나, 넣은 뒤 소유자가 PERSONAL 로 바꿨어도
+   * 다른 구성원에게 이름·이메일이 새지 않는다. 소유자·관리자에게는 그대로 보인다.
+   */
+  @Test
+  void getDetail_sharedGroup_hidesExternalsCallerCannotRead() {
+    long admin = user();
+    makeAdmin(admin);
+    long owner = user();
+    long viewer = user();
+    long personal =
+        dsl.insertInto(com.workplace.jooq.Tables.CONTACT_ENTRY)
+            .set(com.workplace.jooq.Tables.CONTACT_ENTRY.NAME, "오세훈")
+            .set(com.workplace.jooq.Tables.CONTACT_ENTRY.OWNER_ID, owner)
+            .set(com.workplace.jooq.Tables.CONTACT_ENTRY.VISIBILITY, "PERSONAL")
+            .returning(com.workplace.jooq.Tables.CONTACT_ENTRY.ID)
+            .fetchOne()
+            .getId();
+    long shared =
+        dsl.insertInto(com.workplace.jooq.Tables.CONTACT_ENTRY)
+            .set(com.workplace.jooq.Tables.CONTACT_ENTRY.NAME, "한지민")
+            .set(com.workplace.jooq.Tables.CONTACT_ENTRY.OWNER_ID, owner)
+            .set(com.workplace.jooq.Tables.CONTACT_ENTRY.VISIBILITY, "SHARED")
+            .returning(com.workplace.jooq.Tables.CONTACT_ENTRY.ID)
+            .fetchOne()
+            .getId();
+    UserGroupDetail g = service.create(admin, req("전략 파트너사", null, "SHARED"));
+    service.addMember(admin, g.id(), new AddMemberRequest("EXTERNAL", personal));
+    service.addMember(admin, g.id(), new AddMemberRequest("EXTERNAL", shared));
+
+    assertThat(service.getDetail(viewer, g.id()).members())
+        .extracting(m -> m.targetId())
+        .containsExactly(shared);
+    assertThat(service.getDetail(owner, g.id()).members()).hasSize(2);
+    assertThat(service.getDetail(admin, g.id()).members()).hasSize(2);
+  }
+
   @Test
   void addMember_invisibleExternal_rejected() {
     long caller = user();

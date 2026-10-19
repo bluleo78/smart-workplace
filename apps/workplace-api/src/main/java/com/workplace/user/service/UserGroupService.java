@@ -56,7 +56,7 @@ public class UserGroupService {
         && !permissionChecker.userHasRole(callerId, "ADMIN")) {
       throw new UserGroupNotFoundException(id); // 존재 은닉
     }
-    return toDetail(g);
+    return toDetail(callerId, g);
   }
 
   /** 그룹 생성. SHARED→manage 권한, PERSONAL→owner=caller. parent 검증 포함. */
@@ -74,7 +74,8 @@ public class UserGroupService {
       throw new InvalidUserGroupException("이미 존재하는 그룹 이름입니다: " + req.name());
     }
     long id = repo.insert(req, ownerId);
-    return toDetail(repo.findById(id).orElseThrow(() -> new UserGroupNotFoundException(id)));
+    return toDetail(
+        callerId, repo.findById(id).orElseThrow(() -> new UserGroupNotFoundException(id)));
   }
 
   /**
@@ -112,7 +113,8 @@ public class UserGroupService {
       throw new InvalidUserGroupException("이미 존재하는 그룹 이름입니다: " + name);
     }
     repo.update(id, name, parentId, code, sortOrder);
-    return toDetail(repo.findById(id).orElseThrow(() -> new UserGroupNotFoundException(id)));
+    return toDetail(
+        callerId, repo.findById(id).orElseThrow(() -> new UserGroupNotFoundException(id)));
   }
 
   /** 그룹 삭제(서브트리·멤버십 캐스케이드). */
@@ -149,7 +151,7 @@ public class UserGroupService {
       }
     }
     repo.addMember(id, req.targetType(), req.targetId());
-    return toDetail(g);
+    return toDetail(callerId, g);
   }
 
   /** 멤버 제외. */
@@ -247,8 +249,8 @@ public class UserGroupService {
         .toList();
   }
 
-  /** FlatGroup → 상세(직속 멤버 포함). */
-  private UserGroupDetail toDetail(FlatGroup g) {
+  /** FlatGroup → 상세(직속 멤버 포함). 외부 연락처 멤버는 호출자가 읽을 수 있는 것만(WP-547). */
+  private UserGroupDetail toDetail(long callerId, FlatGroup g) {
     return new UserGroupDetail(
         g.id(),
         g.code(),
@@ -257,6 +259,10 @@ public class UserGroupService {
         g.ownerId(),
         g.visibility(),
         g.sortOrder(),
-        repo.findMembers(TenantContext.require(), g.id()));
+        repo.findMembers(
+            TenantContext.require(),
+            callerId,
+            permissionChecker.userHasRole(callerId, "ADMIN"),
+            g.id()));
   }
 }
