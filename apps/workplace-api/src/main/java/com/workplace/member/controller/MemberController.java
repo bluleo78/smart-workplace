@@ -4,6 +4,7 @@ import com.workplace.global.dto.PageResponse;
 import com.workplace.global.security.RequirePermission;
 import com.workplace.member.dto.MemberSummary;
 import com.workplace.member.service.MemberDirectoryService;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Pattern;
 import lombok.RequiredArgsConstructor;
@@ -40,8 +41,14 @@ public class MemberController {
           String kind,
       @RequestParam(value = "includeInactive", required = false, defaultValue = "false")
           boolean includeInactive,
-      @RequestParam(value = "page", required = false, defaultValue = "0") @Min(0) int page,
-      @RequestParam(value = "size", required = false, defaultValue = "20") @Min(1) int size) {
+      @RequestParam(value = "page", required = false, defaultValue = "0")
+          @Min(value = 0, message = "page 는 0 이상이어야 합니다")
+          int page,
+      // 한 번에 받는 양 상한(WP-552) — 연락처 목록과 같은 100. 웹·MCP 호출은 모두 100 이하다.
+      @RequestParam(value = "size", required = false, defaultValue = "20")
+          @Min(value = 1, message = "size 는 1~100 이어야 합니다")
+          @Max(value = 100, message = "size 는 1~100 이어야 합니다")
+          int size) {
     return ResponseEntity.ok(service.list(search, kind, includeInactive, page, size));
   }
 

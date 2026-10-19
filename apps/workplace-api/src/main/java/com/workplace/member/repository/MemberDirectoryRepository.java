@@ -93,7 +93,7 @@ public class MemberDirectoryRepository {
    */
   @Transactional(readOnly = true)
   public List<MemberSummary> findPage(
-      long tenantId, String search, String kind, boolean includeInactive, int offset, int limit) {
+      long tenantId, String search, String kind, boolean includeInactive, long offset, int limit) {
     return base()
         .where(scope(tenantId, search, kind, includeInactive))
         .orderBy(sortFields(search))

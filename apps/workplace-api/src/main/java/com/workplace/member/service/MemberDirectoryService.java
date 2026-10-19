@@ -26,8 +26,10 @@ public class MemberDirectoryService {
   public PageResponse<MemberSummary> list(
       String search, String kind, boolean includeInactive, int page, int size) {
     long tenantId = TenantContext.require();
+    // offset 은 long 으로 — page×size 가 int 를 넘으면 음수 offset 이 되어 「음수」 400 이 났다(WP-552). 끝을 넘는 page 는 빈
+    // 목록.
     List<MemberSummary> content =
-        repository.findPage(tenantId, search, kind, includeInactive, page * size, size);
+        repository.findPage(tenantId, search, kind, includeInactive, (long) page * size, size);
     // 카운트도 같은 검색·필터 조건으로 — 조건이 갈라지면 검색 중 totalPages 가 부풀어 빈 페이지가 생긴다.
     int total = repository.count(tenantId, search, kind, includeInactive);
     return new PageResponse<>(content, page, size, total, (int) Math.ceil((double) total / size));
