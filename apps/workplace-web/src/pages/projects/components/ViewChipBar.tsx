@@ -74,12 +74,15 @@ export function ViewChipBar({
               aria-pressed={active}
               onClick={() => s.apply(v)}
               className={cn(
-                'flex items-center gap-1 rounded-full border py-1 pl-3 pr-2 text-sm',
+                'flex min-w-0 items-center gap-1 rounded-full border py-1 pl-3 pr-2 text-sm',
                 active ? cn(TOGGLE_ON_CLASS, 'font-medium') : 'text-muted-foreground hover:bg-accent/50',
               )}
             >
-              {v.visibility === 'SHARED' && <Users className="h-3.5 w-3.5" aria-label="공유" />}
-              <span>{v.name}</span>
+              {v.visibility === 'SHARED' && <Users className="h-3.5 w-3.5 shrink-0" aria-label="공유" />}
+              {/* 이름은 최대 60자라 그대로 두면 칩 하나가 줄을 다 차지한다(WP-502) — 240px 에서 말줄임, 전체 이름은 title(툴팁). */}
+              <span data-testid={`view-chip-name-${v.id}`} className="max-w-60 truncate" title={v.name}>
+                {v.name}
+              </span>
             </button>
             {v.mine && (
               <DropdownMenu>

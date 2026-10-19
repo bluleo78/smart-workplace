@@ -354,3 +354,27 @@ test('저장된 뷰 — 이름 60자 제한: 입력은 60자에서 멈추고, �
   await expect(page.getByTestId('save-view-name')).toHaveAttribute('aria-invalid', 'true')
   expect(patches.count()).toBe(0)
 })
+
+// WP-502 — 60자 이름의 뷰 칩이 칩 줄 폭을 다 차지하지 않게 일정 폭에서 말줄임하고, 전체 이름은 title(툴팁)로 본다.
+test('저장된 뷰 — 긴 이름 칩은 말줄임되고 전체 이름은 title 로 남는다', async ({ authenticatedPage: page }) => {
+  const longName = '분기 마감 전 반드시 확인해야 하는 고객사 결제 오류 및 정산 지연 관련 높은 우선순위 이슈 모음'.slice(0, 60)
+  const view = (id: number, name: string): SavedViewResponse => ({
+    id, name, query: 'priority=HIGH', visibility: 'PRIVATE',
+    ownerId: 1, mine: true, pinned: false, createdAt: '', updatedAt: '',
+  })
+  await setupCommonRoutes(page, [view(1, longName), view(2, '짧은 뷰')])
+  await page.goto(`/projects/${KEY}`)
+
+  const chip = page.getByTestId('view-chip-1')
+  const label = chip.getByTestId('view-chip-name-1')
+  await expect(label).toHaveAttribute('title', longName)
+  await expect(chip).toHaveAccessibleName(longName) // 화면에선 잘려도 접근 이름은 전체
+  // 칩 폭은 상한(약 240px + 여백) 안 — 예전엔 약 700px 로 줄을 거의 다 차지했다.
+  const box = await chip.boundingBox()
+  expect(box!.width).toBeLessThan(300)
+  // 실제로 잘려 있다(내용 폭 > 보이는 폭).
+  expect(await label.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true)
+  // 다른 칩·「뷰 저장」 버튼이 같은 줄에 남는다.
+  const top = (await chip.boundingBox())!.y
+  expect((await page.getByTestId('view-chip-2').boundingBox())!.y).toBe(top)
+})
