@@ -33,15 +33,26 @@ public class DrivePermissions {
    * @return 호출자의 실제 역할
    */
   public String requireRole(long spaceId, long userId, String minRole) {
+    String role = requireRoleEvenIfArchived(spaceId, userId, minRole);
+    // 보관된 공간은 읽기전용 — 쓰기 역할(EDITOR 이상=RANK>VIEWER) 요구 시 차단.
+    if (RANK.get(minRole) > RANK.get("VIEWER") && spaces.isArchived(spaceId)) {
+      throw new DriveForbiddenException(spaceId, userId);
+    }
+    return role;
+  }
+
+  /**
+   * 보관 여부와 상관없이 역할만 검증. 공간 내용을 바꾸지 않고 바깥 노출을 줄이는 작업(공유 링크 목록·폐기)용 — 보관 공간이어도 이미 나간 링크는 끊을 수 있어야
+   * 한다(WP-526).
+   *
+   * @return 호출자의 실제 역할
+   */
+  public String requireRoleEvenIfArchived(long spaceId, long userId, String minRole) {
     String role =
         members
             .findRole(spaceId, userId)
             .orElseThrow(() -> new DriveSpaceNotFoundException(spaceId));
     if (RANK.get(role) < RANK.get(minRole)) {
-      throw new DriveForbiddenException(spaceId, userId);
-    }
-    // 보관된 공간은 읽기전용 — 쓰기 역할(EDITOR 이상=RANK>VIEWER) 요구 시 차단.
-    if (RANK.get(minRole) > RANK.get("VIEWER") && spaces.isArchived(spaceId)) {
       throw new DriveForbiddenException(spaceId, userId);
     }
     return role;

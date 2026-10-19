@@ -89,21 +89,21 @@ public class DriveShareLinkService {
     return new CreatedShareLinkResponse(id, token, audience, pwHash != null, expiresAt);
   }
 
-  /** 파일의 링크 목록. EDITOR 검증. 토큰 미포함. */
+  /** 파일의 링크 목록. EDITOR 검증(보관 공간도 허용 — 폐기할 링크를 찾아야 하므로). 토큰 미포함. */
   @Transactional(readOnly = true)
   public List<ShareLinkResponse> list(long callerId, long driveFileId) {
     DriveFileRepository.DriveFileRow row =
         files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
-    perms.requireRole(row.spaceId(), callerId, "EDITOR");
+    perms.requireRoleEvenIfArchived(row.spaceId(), callerId, "EDITOR");
     return links.listByFile(driveFileId);
   }
 
-  /** 링크 폐기. 링크의 공간 EDITOR 검증. 미존재/이미폐기 → 404. */
+  /** 링크 폐기. 링크의 공간 EDITOR 검증(보관 공간도 허용 — 공유 중단은 노출을 줄이는 작업). 미존재/이미폐기 → 404. */
   @Transactional
   public void revoke(long callerId, long linkId) {
     Long spaceId =
         links.findSpaceIdOfActive(linkId).orElseThrow(DriveShareLinkNotFoundException::new);
-    perms.requireRole(spaceId, callerId, "EDITOR");
+    perms.requireRoleEvenIfArchived(spaceId, callerId, "EDITOR");
     links.revoke(linkId);
   }
 

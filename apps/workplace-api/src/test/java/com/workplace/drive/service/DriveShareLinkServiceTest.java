@@ -11,6 +11,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.workplace.drive.dto.CreateShareLinkRequest;
 import com.workplace.drive.exception.DriveForbiddenException;
 import com.workplace.drive.exception.DriveInvalidTargetException;
+import com.workplace.drive.repository.DriveSpaceRepository;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
 import java.time.Instant;
@@ -27,6 +28,7 @@ import org.springframework.transaction.annotation.Transactional;
 class DriveShareLinkServiceTest extends IntegrationTestBase {
   @Autowired DSLContext dsl;
   @Autowired DriveShareLinkService service;
+  @Autowired DriveSpaceRepository spaces;
 
   @BeforeEach
   void setCtx() {
@@ -96,6 +98,40 @@ class DriveShareLinkServiceTest extends IntegrationTestBase {
     var created = service.create(owner, fileId, new CreateShareLinkRequest("EXTERNAL", null, null));
     service.revoke(owner, created.id());
     assertThat(service.list(owner, fileId).get(0).revoked()).isTrue();
+  }
+
+  // 보관 공간(WP-526) — 읽기전용이어도 이미 나간 링크를 보고 끊을 수는 있어야 한다. 새 링크 발급은 여전히 막는다.
+  @Test
+  void archivedSpace_allowsListAndRevoke_butBlocksCreate() {
+    long owner = seedUser();
+    long spaceId = seedSpace(owner);
+    long fileId = seedFile(owner, spaceId);
+    var created = service.create(owner, fileId, new CreateShareLinkRequest("EXTERNAL", null, null));
+    spaces.setArchived(spaceId, true);
+
+    assertThat(service.list(owner, fileId)).hasSize(1);
+    service.revoke(owner, created.id());
+    assertThat(service.list(owner, fileId).get(0).revoked()).isTrue();
+    assertThatThrownBy(
+            () -> service.create(owner, fileId, new CreateShareLinkRequest("EXTERNAL", null, null)))
+        .isInstanceOf(DriveForbiddenException.class);
+  }
+
+  // 보관 공간이어도 역할 검증은 그대로 — VIEWER 는 목록·폐기 불가.
+  @Test
+  void archivedSpace_viewerStillForbidden() {
+    long owner = seedUser();
+    long viewer = seedUser();
+    long spaceId = seedSpace(owner);
+    addMember(spaceId, viewer, "VIEWER");
+    long fileId = seedFile(owner, spaceId);
+    var created = service.create(owner, fileId, new CreateShareLinkRequest("EXTERNAL", null, null));
+    spaces.setArchived(spaceId, true);
+
+    assertThatThrownBy(() -> service.list(viewer, fileId))
+        .isInstanceOf(DriveForbiddenException.class);
+    assertThatThrownBy(() -> service.revoke(viewer, created.id()))
+        .isInstanceOf(DriveForbiddenException.class);
   }
 
   // --- 시드 헬퍼 (DriveShareLinkRepositoryTest UUID-suffix 패턴) ---
