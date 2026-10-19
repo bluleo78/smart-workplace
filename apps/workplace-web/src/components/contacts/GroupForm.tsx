@@ -159,7 +159,12 @@ export function GroupForm({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent data-testid="group-form-dialog" className="max-h-[85vh] overflow-y-auto">
+      {/* grid-cols-[minmax(0,1fr)]: 기본 auto 열은 내용의 min-content(긴 이름 검색 결과·칩)만큼 넓어져 창 밖으로 넘쳤다 —
+          열을 창 폭에 묶어 안쪽 말줄임이 먹게 한다(WP-548). */}
+      <DialogContent
+        data-testid="group-form-dialog"
+        className="max-h-[85vh] grid-cols-[minmax(0,1fr)] overflow-y-auto"
+      >
         <DialogHeader>
           <DialogTitle>{isEdit ? '그룹 수정' : '새 그룹'}</DialogTitle>
           <DialogDescription className="sr-only">{isEdit ? '그룹 수정' : '새 그룹'}</DialogDescription>
@@ -210,15 +215,16 @@ export function GroupForm({
                     type="button"
                     data-testid={`g-member-result-${c.type}-${c.id}`}
                     onClick={() => togglePick(c)}
-                    className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-accent/50"
+                    className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-accent/50"
                   >
-                    <span className="truncate">
+                    {/* min-w-0: flex 자식은 기본 min-width:auto 라 truncate 가 안 먹어 긴 이름이 창을 옆으로 늘렸다(WP-548) */}
+                    <span className="min-w-0 truncate">
                       {c.name}{' '}
                       <span className="text-xs text-muted-foreground">
                         {c.type === 'MEMBER' ? '멤버' : '외부'}
                       </span>
                     </span>
-                    {isPicked(c) && <span className="text-xs text-primary">선택됨</span>}
+                    {isPicked(c) && <span className="shrink-0 text-xs text-primary">선택됨</span>}
                   </button>
                 ))}
               </div>
@@ -227,9 +233,12 @@ export function GroupForm({
               {picked.map((p) => (
                 <span
                   key={`${p.targetType}-${p.targetId}`}
-                  className="flex items-center gap-1 rounded bg-accent px-2 py-1 text-xs"
+                  className="flex max-w-full min-w-0 items-center gap-1 rounded bg-accent px-2 py-1 text-xs"
                 >
-                  {p.name}
+                  {/* 선택 칩도 창 폭 안에서 말줄임 — 긴 이름 칩이 창을 넓히지 않게(WP-548) */}
+                  <span className="min-w-0 truncate" title={p.name}>
+                    {p.name}
+                  </span>
                   <button
                     type="button"
                     data-testid={`g-picked-remove-${p.targetType}-${p.targetId}`}
@@ -240,7 +249,7 @@ export function GroupForm({
                         ),
                       )
                     }
-                    className="text-muted-foreground hover:text-foreground"
+                    className="shrink-0 text-muted-foreground hover:text-foreground"
                   >
                     ×
                   </button>

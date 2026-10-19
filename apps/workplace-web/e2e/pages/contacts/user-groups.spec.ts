@@ -355,3 +355,52 @@ test('비-admin: 조직도 노드 호버 액션 미노출(읽기 전용)', async
   await expect(page.getByTestId('org-edit-10')).toHaveCount(0)
   await expect(page.getByTestId('org-delete-10')).toHaveCount(0)
 })
+
+// WP-548: 멤버 검색 결과·선택 칩의 이름이 아주 길어도 창이 옆으로 늘어나지 않고 저장 버튼이 창 안에 남는다(데스크톱·모바일).
+for (const viewport of [
+  { name: '데스크톱', width: 1440, height: 900 },
+  { name: '모바일', width: 390, height: 844 },
+]) {
+  test(`새 그룹 창 — 긴 이름 검색 결과·선택 칩이 창 폭을 넘기지 않는다 (${viewport.name})`, async ({
+    authenticatedPage: page,
+  }) => {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height })
+    const longName =
+      '남궁민수 (주)대한글로벌에너지솔루션 해외사업개발본부 중동아프리카 신규시장개척팀 수석컨설턴트 겸 파트너십 총괄'
+    await stubTree(page)
+    await stubDetail(page)
+    await page.route(
+      (url) => url.pathname === '/api/v1/contacts',
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            items: [{ type: 'EXTERNAL', id: 7, name: longName, email: null, title: null, organization: null }],
+            nextCursor: null,
+            hasMore: false,
+          }),
+        }),
+    )
+
+    await page.goto('/contacts')
+    if (viewport.width < 1024) await page.getByTestId('mobile-sidebar-trigger').click()
+    await page.getByTestId('group-create').click()
+    const dialog = page.getByTestId('group-form-dialog')
+    await expect(dialog).toBeVisible()
+    const before = (await dialog.boundingBox())!.width
+
+    await page.getByTestId('g-member-search').fill('남궁')
+    await page.getByTestId('g-member-result-EXTERNAL-7').click()
+    await expect(page.getByTestId('g-picked-remove-EXTERNAL-7')).toBeVisible()
+
+    const box = (await dialog.boundingBox())!
+    expect(box.width).toBeLessThanOrEqual(before + 1)
+    expect(box.x + box.width).toBeLessThanOrEqual(viewport.width)
+    // 저장 버튼이 창 안에 있다(창 밖으로 밀려나지 않음)
+    const save = (await page.getByTestId('g-save').boundingBox())!
+    expect(save.x + save.width).toBeLessThanOrEqual(box.x + box.width)
+    // 창 내용이 가로로 스크롤되지 않는다
+    expect(await dialog.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0)
+  })
+}
