@@ -45,7 +45,8 @@ test('딥링크(?contact) 진입 후 ‹ → 연락처 목록', async ({ authent
 test('없는 연락처 딥링크는 찾을 수 없음 상태를 보이고 ‹ 로 닫힌다', async ({ authenticatedPage: page }) => {
   await stubContacts(page)
   await page.goto('/contacts?contact=member:999')
-  await expect(page.getByText('연락처를 찾을 수 없습니다')).toBeVisible()
+  // 404 는 「찾을 수 없거나 볼 수 없습니다」 안내로 보인다(WP-555).
+  await expect(page.getByTestId('contact-detail-not-found')).toBeVisible()
   await page.getByTestId('contact-back').getByTestId('mobile-back').click()
   await expect(page).toHaveURL(/\/contacts$/)
 })
