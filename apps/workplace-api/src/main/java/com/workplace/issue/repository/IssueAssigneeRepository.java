@@ -87,13 +87,25 @@ public class IssueAssigneeRepository {
   /**
    * 프로젝트 멤버 제거(#714) 시 호출 — 해당 프로젝트의 이슈들 중 대상 사용자가 담당자로 걸린 매핑을 모두 제거한다. AssigneePolicy 불변식("담당자는 항상
    * 프로젝트 멤버")을 멤버십 철회 시점에도 유지하기 위함 — 정리하지 않으면 제거된 사용자가 담당자로 남아 자신은 접근 불가한 유령 담당자 상태가 된다.
+   *
+   * @return 담당자에서 빠진 이슈 id — 호출측이 이슈 이력에 「담당자 해제」를 남긴다(WP-488)
    */
-  public void removeByProjectAndUser(Long projectId, Long userId) {
-    dsl.deleteFrom(ISSUE_ASSIGNEE)
+  public List<Long> removeByProjectAndUser(Long projectId, Long userId) {
+    return dsl.deleteFrom(ISSUE_ASSIGNEE)
         .where(
             ISSUE_ASSIGNEE.USER_ID.eq(userId),
             ISSUE_ASSIGNEE.ISSUE_ID.in(
                 dsl.select(ISSUE.ID).from(ISSUE).where(ISSUE.PROJECT_ID.eq(projectId))))
-        .execute();
+        .returning(ISSUE_ASSIGNEE.ISSUE_ID)
+        .fetch(ISSUE_ASSIGNEE.ISSUE_ID);
+  }
+
+  /** 프로젝트에서 이 사용자가 담당 중인 (삭제되지 않은) 이슈 수 — 멤버 제거 확인창의 영향 안내(WP-488). */
+  public int countByProjectAndUser(Long projectId, Long userId) {
+    return dsl.fetchCount(
+        ISSUE_ASSIGNEE.join(ISSUE).on(ISSUE.ID.eq(ISSUE_ASSIGNEE.ISSUE_ID)),
+        ISSUE_ASSIGNEE.USER_ID.eq(userId),
+        ISSUE.PROJECT_ID.eq(projectId),
+        ISSUE.DELETED_AT.isNull());
   }
 }

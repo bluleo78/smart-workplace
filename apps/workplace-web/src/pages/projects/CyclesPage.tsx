@@ -16,6 +16,7 @@ import { CycleProgressBar } from '../../components/cycle/CycleProgressBar';
 import { useCycleProgress, useCycles, useDeleteCycle } from '../../hooks/queries/useCycles';
 import { useProject } from '../../hooks/queries/useProjects';
 import { cycleMetaText } from '../../lib/cycleMeta';
+import { deletionImpactNote } from '../../lib/deletionImpact';
 import type { CycleProgress, CycleResponse } from '../../types/cycle';
 import { CYCLE_STATUS_LABEL } from '../../types/cycle';
 
@@ -126,6 +127,7 @@ export default function CyclesPage() {
                   <DeleteConfirmDialog
                     entityName="사이클"
                     itemName={c.name}
+                    impact={deletionImpactNote('cycle', progressById.get(c.id)?.total)}
                     onConfirm={() => del.mutate(c.id)}
                     trigger={
                       <Button
@@ -166,6 +168,7 @@ export default function CyclesPage() {
             setOpen(true);
           }}
           onDelete={(c) => del.mutate(c.id)}
+          issueCountOf={(id) => progressById.get(id)?.total}
         />
       )}
     </Page>
@@ -219,11 +222,14 @@ function CycleMobileActions({
   onClose,
   onEdit,
   onDelete,
+  issueCountOf,
 }: {
   cycle: CycleResponse | null;
   onClose: () => void;
   onEdit: (c: CycleResponse | undefined) => void;
   onDelete: (c: CycleResponse) => void;
+  /** 사이클의 이슈 수(진행률 total) — 삭제 확인창의 영향 안내(WP-488). */
+  issueCountOf: (cycleId: number) => number | undefined;
 }) {
   const [deleteTarget, setDeleteTarget] = useState<CycleResponse | null>(null);
   return (
@@ -247,6 +253,7 @@ function CycleMobileActions({
       <DeleteConfirmDialog
         entityName="사이클"
         itemName={deleteTarget?.name ?? ''}
+        impact={deletionImpactNote('cycle', deleteTarget ? issueCountOf(deleteTarget.id) : undefined)}
         open={deleteTarget != null}
         onOpenChange={(o) => { if (!o) setDeleteTarget(null); }}
         onConfirm={() => { if (deleteTarget) onDelete(deleteTarget); }}

@@ -1,5 +1,6 @@
 package com.workplace.issue.repository;
 
+import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_LABEL;
 import static com.workplace.jooq.Tables.LABEL;
 
@@ -73,5 +74,21 @@ public class IssueLabelRepository {
     dsl.deleteFrom(ISSUE_LABEL)
         .where(ISSUE_LABEL.ISSUE_ID.eq(issueId).and(ISSUE_LABEL.LABEL_ID.eq(labelId)))
         .execute();
+  }
+
+  /** 이 라벨이 붙은 이슈 id — 라벨 삭제(cascade) 전에 읽어 이슈 이력에 「라벨 제거」를 남긴다(WP-488). */
+  public List<Long> findIssueIdsByLabel(Long labelId) {
+    return dsl.select(ISSUE_LABEL.ISSUE_ID)
+        .from(ISSUE_LABEL)
+        .where(ISSUE_LABEL.LABEL_ID.eq(labelId))
+        .fetch(ISSUE_LABEL.ISSUE_ID);
+  }
+
+  /** 이 라벨이 붙은 (삭제되지 않은) 이슈 수 — 라벨 삭제 확인창의 영향 안내(WP-488). */
+  public int countLiveIssuesByLabel(Long labelId) {
+    return dsl.fetchCount(
+        ISSUE_LABEL.join(ISSUE).on(ISSUE.ID.eq(ISSUE_LABEL.ISSUE_ID)),
+        ISSUE_LABEL.LABEL_ID.eq(labelId),
+        ISSUE.DELETED_AT.isNull());
   }
 }

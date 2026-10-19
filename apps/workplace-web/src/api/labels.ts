@@ -33,6 +33,12 @@ export async function deleteLabel(projectKey: string, id: number): Promise<void>
   await client.delete<void>(`/projects/${projectKey}/labels/${id}`);
 }
 
+// 라벨이 붙은 이슈 수 — 삭제 확인창의 영향 안내(WP-488).
+export async function getLabelIssueCount(projectKey: string, id: number): Promise<number> {
+  const { data } = await client.get<{ count: number }>(`/projects/${projectKey}/labels/${id}/issue-count`);
+  return data.count;
+}
+
 // 이슈 라벨 집합 통째 교체 — diff 만 백엔드가 처리.
 export async function replaceIssueLabels(
   projectKey: string,

@@ -391,6 +391,11 @@ test.describe('라벨', () => {
         return route.fulfill({ status: 204, body: '' });
       });
 
+      // WP-488 — 확인창이 이 라벨이 붙은 이슈 수를 알린다.
+      await page.route(`**/api/v1/projects/${PROJECT_KEY}/labels/${label.id}/issue-count`, (route) =>
+        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 3 }) }),
+      );
+
       await page.goto(`/projects/${PROJECT_KEY}/settings`);
       const row = page.getByTestId(`label-row-${label.id}`);
       await expect(row).toBeVisible();
@@ -398,6 +403,7 @@ test.describe('라벨', () => {
       // 삭제 버튼 클릭 → AlertDialog 확인 버튼 클릭 → DELETE 발생.
       await row.getByRole('button', { name: `${label.name} 삭제` }).click();
       await expect(page.getByRole('alertdialog')).toBeVisible();
+      await expect(page.getByTestId('delete-impact')).toHaveText('이 라벨이 붙은 이슈 3개에서 라벨이 빠집니다.');
       await page.getByRole('button', { name: '삭제' }).last().click();
 
       await deletes.waitFor();

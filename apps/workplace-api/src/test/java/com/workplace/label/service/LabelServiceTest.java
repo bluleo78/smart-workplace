@@ -1,5 +1,8 @@
 package com.workplace.label.service;
 
+import static com.workplace.jooq.Tables.ISSUE;
+import static com.workplace.jooq.Tables.ISSUE_HISTORY;
+import static com.workplace.jooq.Tables.ISSUE_LABEL;
 import static com.workplace.jooq.Tables.LABEL;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
@@ -7,6 +10,7 @@ import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.workplace.issue.repository.IssueRepository;
 import com.workplace.label.dto.CreateLabelRequest;
 import com.workplace.label.exception.InvalidColorTokenException;
 import com.workplace.label.exception.LabelNameDuplicatedException;
@@ -30,6 +34,7 @@ class LabelServiceTest extends IntegrationTestBase {
   @Autowired LabelService labelService;
   @Autowired ProjectService projectService;
   @Autowired ProjectMemberRepository memberRepository;
+  @Autowired IssueRepository issueRepository;
 
   private Long createUser(String prefix) {
     String suffix = UUID.randomUUID().toString().substring(0, 8);
@@ -112,6 +117,40 @@ class LabelServiceTest extends IntegrationTestBase {
 
     labelService.delete(member, p.key(), label.id());
     assertThat(labelService.list(owner, p.key())).isEmpty();
+  }
+
+  /** WP-488 — 라벨 삭제는 붙어 있던 이슈 이력에 「라벨 제거」를 남기고, 확인창용 이슈 수를 센다(삭제된 이슈 제외). */
+  @Test
+  void delete_records_label_removal_history_and_counts_issues() {
+    Long owner = createUser("o10");
+    ProjectResponse p = newProject(owner, "LK");
+    var label = labelService.create(owner, p.key(), new CreateLabelRequest("버그", "RED"));
+    Long live = issueRepository.insert(p.id(), 1, "a", null, "MID", null, owner).id();
+    Long gone = issueRepository.insert(p.id(), 2, "b", null, "MID", null, owner).id();
+    dsl.insertInto(ISSUE_LABEL)
+        .set(ISSUE_LABEL.ISSUE_ID, live)
+        .set(ISSUE_LABEL.LABEL_ID, label.id())
+        .execute();
+    dsl.insertInto(ISSUE_LABEL)
+        .set(ISSUE_LABEL.ISSUE_ID, gone)
+        .set(ISSUE_LABEL.LABEL_ID, label.id())
+        .execute();
+    dsl.update(ISSUE)
+        .set(ISSUE.DELETED_AT, java.time.OffsetDateTime.now())
+        .where(ISSUE.ID.eq(gone))
+        .execute();
+
+    assertThat(labelService.issueCount(owner, p.key(), label.id())).isEqualTo(1);
+
+    labelService.delete(owner, p.key(), label.id());
+
+    var history =
+        dsl.selectFrom(ISSUE_HISTORY)
+            .where(ISSUE_HISTORY.ISSUE_ID.eq(live), ISSUE_HISTORY.EVENT_TYPE.eq("LABELS_CHANGED"))
+            .fetch();
+    assertThat(history).hasSize(1);
+    assertThat(history.get(0).getActorId()).isEqualTo(owner);
+    assertThat(history.get(0).getToValue()).contains("\"removed\"").contains("버그");
   }
 
   @Test

@@ -52,6 +52,16 @@ public class LabelController {
     return ResponseEntity.ok(labelService.update((Long) auth.getPrincipal(), key, labelId, req));
   }
 
+  /** 라벨이 붙은 이슈 수 — 삭제 확인창의 영향 안내(WP-488). */
+  @GetMapping("/{labelId}/issue-count")
+  @RequirePermission("project:read")
+  public ResponseEntity<java.util.Map<String, Integer>> issueCount(
+      Authentication auth, @PathVariable String key, @PathVariable Long labelId) {
+    return ResponseEntity.ok(
+        java.util.Map.of(
+            "count", labelService.issueCount((Long) auth.getPrincipal(), key, labelId)));
+  }
+
   /** 라벨 삭제 — OWNER 또는 만든 사람. */
   @DeleteMapping("/{labelId}")
   @RequirePermission("label:manage")

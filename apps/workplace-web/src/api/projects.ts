@@ -27,4 +27,7 @@ export const projectsApi = {
     client.patch<void>(`/projects/${key}/members/${userId}`, data),
   removeMember: (key: string, userId: number) =>
     client.delete<void>(`/projects/${key}/members/${userId}`),
+  // 멤버가 담당 중인 이슈 수 — 제거 확인창의 영향 안내(WP-488).
+  memberAssignedIssueCount: (key: string, userId: number) =>
+    client.get<{ count: number }>(`/projects/${key}/members/${userId}/assigned-issue-count`).then((r) => r.data.count),
 };

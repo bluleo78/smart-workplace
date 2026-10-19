@@ -1,3 +1,4 @@
+import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -17,6 +18,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 
+import { projectsApi } from '../../../api/projects';
 import {
   useAddMember,
   useProjectMembers,
@@ -25,6 +27,7 @@ import {
 } from '../../../hooks/queries/useProjectMembers';
 import type { MemberPickerCandidate } from '../../../hooks/queries/useUserSearch';
 import { handleApiError } from '../../../lib/api-error';
+import { deletionImpactNote } from '../../../lib/deletionImpact';
 import type { ProjectMemberRole } from '../../../types/project';
 import { MemberSearchPopover } from './MemberSearchPopover';
 
@@ -70,6 +73,14 @@ export function MemberManagement({ projectKey, agentOnly = false }: MemberManage
       handleApiError(e, '역할 변경에 실패했습니다');
     }
   };
+
+  // 제거 확인창의 영향 안내(WP-488) — 확인창을 연 멤버가 담당 중인 이슈 수. 열렸을 때만 받는다.
+  const removeImpact = useQuery({
+    queryKey: ['projects', projectKey, 'members', confirmRemove?.userId, 'assigned-issue-count'],
+    queryFn: () => projectsApi.memberAssignedIssueCount(projectKey, confirmRemove!.userId),
+    enabled: confirmRemove != null,
+  });
+  const removeImpactNote = deletionImpactNote('member', removeImpact.data);
 
   // 제거 버튼 클릭 시 확인 다이얼로그 표시 — 실제 제거는 onRemoveConfirm에서 수행.
   const onRemove = (userId: number, name: string) => {
@@ -202,6 +213,9 @@ export function MemberManagement({ projectKey, agentOnly = false }: MemberManage
           <AlertDialogDescription>
             {confirmRemove?.name}을(를) 프로젝트에서 제거하시겠습니까? 이 작업은 되돌릴 수 없습니다.
           </AlertDialogDescription>
+          {removeImpactNote && (
+            <p className="text-sm font-medium text-foreground" data-testid="delete-impact">{removeImpactNote}</p>
+          )}
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>취소</AlertDialogCancel>

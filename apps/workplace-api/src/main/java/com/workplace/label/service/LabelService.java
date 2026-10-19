@@ -5,10 +5,13 @@ import static com.workplace.global.realtime.ResourceChangedEvent.OP_DELETED;
 import static com.workplace.global.realtime.ResourceChangedEvent.OP_UPDATED;
 
 import com.workplace.global.security.PermissionChecker;
+import com.workplace.issue.repository.IssueLabelRepository;
+import com.workplace.issue.service.IssueHistoryRecorder;
 import com.workplace.label.dto.ColorToken;
 import com.workplace.label.dto.CreateLabelRequest;
 import com.workplace.label.dto.LabelResponse;
 import com.workplace.label.dto.LabelRow;
+import com.workplace.label.dto.LabelSummary;
 import com.workplace.label.exception.InvalidLabelNameException;
 import com.workplace.label.exception.LabelNameDuplicatedException;
 import com.workplace.label.exception.LabelNotFoundException;
@@ -38,6 +41,8 @@ public class LabelService {
   private final ProjectAccessGuard accessGuard;
   private final ProjectChangeNotifier changeNotifier;
   private final PermissionChecker permissionChecker;
+  private final IssueLabelRepository issueLabelRepository;
+  private final IssueHistoryRecorder historyRecorder;
 
   /**
    * 라벨 목록(라벨 picker) — read 진입점. OPEN 은 테넌트 전원 조회 허용(assertReadable). 항목마다 요청자의 수정·삭제 가능 여부를 함께 준다
@@ -168,10 +173,23 @@ public class LabelService {
   /** OWNER·ADMIN 또는 만든 멤버 — 라벨 삭제(cascade, 다른 사람이 붙인 이슈에서도 빠진다). */
   public void delete(Long callerId, String projectKey, Long labelId) {
     var project = accessGuard.assertMember(projectKey, callerId);
-    assertCanManage(project, callerId, findInProject(project, labelId));
+    LabelRow label = findInProject(project, labelId);
+    assertCanManage(project, callerId, label);
+    // 붙어 있던 이슈마다 「라벨 제거」 이력을 남긴다(WP-488) — cascade 로 조용히 빠지면 이슈에서 이유를 알 수 없다. cascade 전에 읽는다.
+    var summary = new LabelSummary(label.id(), label.name(), label.colorToken());
+    for (Long issueId : issueLabelRepository.findIssueIdsByLabel(labelId)) {
+      historyRecorder.recordLabelsChanged(callerId, issueId, List.of(), List.of(summary));
+    }
     labelRepository.delete(labelId);
     changeNotifier.changed(
         ProjectChangeNotifier.RESOURCE_LABEL, OP_DELETED, project, labelId, callerId);
+  }
+
+  /** 이 라벨이 붙은 (삭제되지 않은) 이슈 수 — 라벨 삭제 확인창의 영향 안내(WP-488). 라벨 목록과 같은 읽기 권한. */
+  @Transactional(readOnly = true)
+  public int issueCount(Long callerId, String projectKey, Long labelId) {
+    var project = accessGuard.assertReadable(projectKey, callerId);
+    return issueLabelRepository.countLiveIssuesByLabel(findInProject(project, labelId).id());
   }
 
   /** 프로젝트에 속한 라벨을 찾는다 — 다른 프로젝트 라벨 id 는 없는 것과 같게 404. */

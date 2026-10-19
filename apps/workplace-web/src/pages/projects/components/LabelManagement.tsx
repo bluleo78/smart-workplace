@@ -2,6 +2,7 @@
 // 생성은 프로젝트 멤버, 수정·삭제는 OWNER 또는 그 라벨을 만든 사람(WP-394) — 백엔드 가드가 최종 검증하고,
 // 화면은 canCreate·라벨별 viewerCanManage 로 버튼을 숨긴다.
 
+import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 
 import { settingsFieldClass, SettingsSection } from '@/components/layout/SettingsSection';
@@ -9,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 
+import { getLabelIssueCount } from '../../../api/labels';
 import { LabelChip } from '../../../components/labels/LabelChip';
 import { DeleteConfirmDialog } from '../../../components/ui/delete-confirm-dialog';
 import { RenameDialog } from '../../../components/ui/rename-dialog';
@@ -18,6 +20,7 @@ import {
   useLabels,
   useUpdateLabel,
 } from '../../../hooks/queries/useLabels';
+import { deletionImpactNote } from '../../../lib/deletionImpact';
 import { LABEL_COLORS } from '../../../lib/labelColors';
 import { COLOR_TOKENS, type ColorToken, DEFAULT_LABEL_COLOR } from '../../../types/label';
 
@@ -135,6 +138,7 @@ export function LabelManagement({
                   <DeleteConfirmDialog
                     entityName="라벨"
                     itemName={l.name}
+                    impact={<LabelDeleteImpact projectKey={projectKey} labelId={l.id} />}
                     onConfirm={() => del.mutate(l.id)}
                     trigger={
                       <Button variant="ghost" size="sm" aria-label={`${l.name} 삭제`}>
@@ -168,4 +172,13 @@ export function LabelManagement({
       />
     </SettingsSection>
   );
+}
+
+/** 라벨 삭제 확인창의 영향 안내(WP-488) — 확인창이 열릴 때(마운트) 이 라벨이 붙은 이슈 수를 받아 「이슈 N개에서 라벨이 빠집니다」를 보인다. */
+function LabelDeleteImpact({ projectKey, labelId }: { projectKey: string; labelId: number }) {
+  const count = useQuery({
+    queryKey: ['labels', projectKey, labelId, 'issue-count'],
+    queryFn: () => getLabelIssueCount(projectKey, labelId),
+  });
+  return <>{deletionImpactNote('label', count.data)}</>;
 }

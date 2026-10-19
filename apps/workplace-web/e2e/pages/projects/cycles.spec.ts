@@ -417,9 +417,14 @@ test.describe('사이클 관리', () => {
         });
       });
 
+      // WP-488 — 진행률 total(이슈 4개)이 삭제 확인창의 영향 안내가 된다.
       await page.route(`**/api/v1/projects/${KEY}/cycles/progress`, (route) => {
         if (route.request().method() !== 'GET') return route.fallback();
-        return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([{ cycleId: 1, total: 4, done: 1, byStatus: { TODO: 3, DONE: 1 } }]),
+        });
       });
 
       // DELETE /cycles/1 — 204 응답 + cycleList 비우기.
@@ -435,6 +440,9 @@ test.describe('사이클 관리', () => {
 
       // 삭제 버튼 클릭 → shadcn AlertDialog 표시.
       await page.getByTestId('cycle-delete-1').click();
+      await expect(page.getByTestId('delete-impact')).toHaveText(
+        '이 사이클의 이슈 4개가 사이클에서 빠집니다(이슈는 지워지지 않습니다).',
+      );
 
       // AlertDialog 의 삭제 확인 버튼 클릭 — window.confirm 대신 shadcn AlertDialog 사용 (#145).
       await page.getByRole('alertdialog').getByRole('button', { name: '삭제' }).click();

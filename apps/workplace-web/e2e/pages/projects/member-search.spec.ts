@@ -489,10 +489,15 @@ test.describe('멤버 제거 AlertDialog (#139)', () => {
       }
       return route.fallback();
     });
+    // WP-488 — 확인창이 담당 중인 이슈 수를 알린다.
+    await page.route(`**/api/v1/projects/${PROJECT_KEY}/members/2/assigned-issue-count`, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 2 }) }),
+    );
 
     await page.goto(SETTINGS_URL);
     await page.getByTestId('member-remove-2').click();
     await expect(page.getByRole('alertdialog')).toBeVisible();
+    await expect(page.getByTestId('delete-impact')).toHaveText('담당 중인 이슈 2개에서 담당자가 해제됩니다.');
 
     // 제거 확인 → DELETE API 호출.
     await page.getByRole('button', { name: '제거' }).click();

@@ -316,6 +316,54 @@ class ProjectServiceTest extends IntegrationTestBase {
                 .where(
                     ISSUE_ASSIGNEE.ISSUE_ID.eq(issueId), ISSUE_ASSIGNEE.USER_ID.eq(otherUserId)));
     assertThat(stillAssigned).isFalse();
+    // WP-488 — 조용히 지우지 않고 이슈 이력에 「담당자 해제」를 남긴다(행위자 = 제거한 사람).
+    var history =
+        dsl.selectFrom(ISSUE_HISTORY)
+            .where(
+                ISSUE_HISTORY.ISSUE_ID.eq(issueId),
+                ISSUE_HISTORY.EVENT_TYPE.eq("ASSIGNEES_CHANGED"))
+            .fetch();
+    assertThat(history).hasSize(1);
+    assertThat(history.get(0).getActorId()).isEqualTo(ownerId);
+    assertThat(history.get(0).getToValue())
+        .contains("\"removed\"")
+        .contains("\"id\":" + otherUserId);
+  }
+
+  /** WP-488 — 멤버 제거 확인창이 담당 중인 이슈 수를 알리도록 센다(삭제된 이슈는 빼고). */
+  @Test
+  void assignedIssueCount_countsLiveIssuesOfTheMember() {
+    String key = uniqueKey("GC");
+    ProjectResponse project =
+        projectService.create(ownerId, new CreateProjectRequest(key, "Pjt", null));
+    projectService.addMember(ownerId, key, new AddMemberRequest(otherUserId, "MEMBER"));
+    long typeId =
+        dsl.select(ISSUE_TYPE_DEF.ID)
+            .from(ISSUE_TYPE_DEF)
+            .where(ISSUE_TYPE_DEF.PROJECT_ID.eq(project.id()))
+            .limit(1)
+            .fetchOne(ISSUE_TYPE_DEF.ID);
+    for (int n = 1; n <= 3; n++) {
+      Long id =
+          dsl.insertInto(ISSUE)
+              .set(ISSUE.PROJECT_ID, project.id())
+              .set(ISSUE.NUMBER, n)
+              .set(ISSUE.TITLE, "i" + n)
+              .set(ISSUE.REPORTER_ID, ownerId)
+              .set(ISSUE.TYPE_ID, typeId)
+              .set(ISSUE.DELETED_AT, n == 3 ? java.time.OffsetDateTime.now() : null)
+              .returning(ISSUE.ID)
+              .fetchOne()
+              .getId();
+      dsl.insertInto(ISSUE_ASSIGNEE)
+          .set(ISSUE_ASSIGNEE.ISSUE_ID, id)
+          .set(ISSUE_ASSIGNEE.USER_ID, otherUserId)
+          .set(ISSUE_ASSIGNEE.ASSIGNED_BY, ownerId)
+          .execute();
+    }
+
+    assertThat(projectService.assignedIssueCount(ownerId, key, otherUserId)).isEqualTo(2);
+    assertThat(projectService.assignedIssueCount(ownerId, key, ownerId)).isZero();
   }
 
   @Test

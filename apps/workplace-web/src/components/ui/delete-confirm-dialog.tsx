@@ -19,6 +19,8 @@ interface BaseProps {
   onConfirm: () => void;
   /** 기본 자동 생성 문구 대신 사용할 커스텀 설명. 미지정 시 자동 생성. */
   description?: ReactNode;
+  /** 설명 아래 덧붙이는 영향 안내(WP-488 — 「이슈 N개에서 라벨이 빠집니다」). 없으면 그리지 않는다. */
+  impact?: ReactNode;
 }
 
 /** 트리거 모드(트리거 버튼이 연다) 또는 controlled 모드(모바일 액션 시트처럼 트리거 밖에서 연다, WP-223) — 둘 중 하나만. */
@@ -35,6 +37,7 @@ export function DeleteConfirmDialog({
   open,
   onOpenChange,
   description,
+  impact,
 }: DeleteConfirmDialogProps) {
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
@@ -51,6 +54,9 @@ export function DeleteConfirmDialog({
               <>&quot;{itemName}&quot; {entityName}{eulReul(entityName)} 정말 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.</>
             )}
           </AlertDialogDescription>
+          {impact && (
+            <p className="text-sm font-medium text-foreground" data-testid="delete-impact">{impact}</p>
+          )}
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>취소</AlertDialogCancel>

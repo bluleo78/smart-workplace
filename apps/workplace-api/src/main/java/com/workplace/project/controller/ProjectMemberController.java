@@ -54,6 +54,16 @@ public class ProjectMemberController {
     return ResponseEntity.noContent().build();
   }
 
+  /** 멤버가 담당 중인 이슈 수 — 제거 확인창의 영향 안내(WP-488). */
+  @GetMapping("/{userId}/assigned-issue-count")
+  @RequirePermission("project:read")
+  public ResponseEntity<java.util.Map<String, Integer>> assignedIssueCount(
+      Authentication auth, @PathVariable String key, @PathVariable Long userId) {
+    return ResponseEntity.ok(
+        java.util.Map.of(
+            "count", projectService.assignedIssueCount((Long) auth.getPrincipal(), key, userId)));
+  }
+
   /** 멤버 제거. OWNER 필요. */
   @DeleteMapping("/{userId}")
   @RequirePermission("project:manage")

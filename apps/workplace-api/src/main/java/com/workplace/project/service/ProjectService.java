@@ -5,6 +5,7 @@ import static com.workplace.global.realtime.ResourceChangedEvent.OP_DELETED;
 import static com.workplace.global.realtime.ResourceChangedEvent.OP_UPDATED;
 
 import com.workplace.global.dto.PageResponse;
+import com.workplace.global.dto.UserSummary;
 import com.workplace.global.security.PermissionChecker;
 import com.workplace.global.tenant.MembershipGuard;
 import com.workplace.global.tenant.WorkspaceActive;
@@ -12,6 +13,7 @@ import com.workplace.issue.dto.AgentWorkState;
 import com.workplace.issue.repository.AgentWorkRepository;
 import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.service.IssueHistoryRecorder;
 import com.workplace.issue.service.IssueTypeService;
 import com.workplace.project.dto.AddMemberRequest;
 import com.workplace.project.dto.CreateProjectRequest;
@@ -55,6 +57,7 @@ public class ProjectService {
   private final UserRepository userRepository;
   private final IssueRepository issueRepository;
   private final IssueAssigneeRepository issueAssigneeRepository;
+  private final IssueHistoryRecorder historyRecorder;
   private final AgentWorkRepository agentWorkRepository;
   private final MembershipGuard membershipGuard;
   private final ProjectChangeNotifier changeNotifier;
@@ -230,6 +233,16 @@ public class ProjectService {
   }
 
   /**
+   * 이 멤버가 담당 중인 (삭제되지 않은) 이슈 수 — 멤버 제거 확인창이 「담당 중인 이슈 N개에서 해제됩니다」를 알리는 데 쓴다(WP-488). 멤버 목록과 같은 읽기
+   * 권한.
+   */
+  @Transactional(readOnly = true)
+  public int assignedIssueCount(Long callerId, String projectKey, Long memberUserId) {
+    ProjectRow project = accessGuard.assertReadable(projectKey, callerId);
+    return issueAssigneeRepository.countByProjectAndUser(project.id(), memberUserId);
+  }
+
+  /**
    * 프로젝트 멤버 목록 조회. 멤버 권한 필요. 실제 project_member 행만 반환 — 합성 AGENT 주입 없음. 개인 프로젝트에 AGENT 를 담당자로 쓰려면
    * addMember 로 실제 멤버 등록 후 issueService 에서 담당 지정한다 (#418 정책 통일).
    */
@@ -345,8 +358,19 @@ public class ProjectService {
    */
   public void removeMember(Long callerId, String projectKey, Long memberUserId) {
     ProjectRow project = checkRemoveMember(callerId, projectKey, memberUserId);
+    // 이력에 남길 담당자 요약 — 멤버 행을 지우기 전에 읽는다.
+    var removed = memberRepository.findMemberWithUser(project.id(), memberUserId).orElse(null);
     memberRepository.delete(project.id(), memberUserId);
-    issueAssigneeRepository.removeByProjectAndUser(project.id(), memberUserId);
+    List<Long> unassignedIssueIds =
+        issueAssigneeRepository.removeByProjectAndUser(project.id(), memberUserId);
+    // 담당자가 빠진 이슈마다 이력을 남긴다(WP-488) — 조용히 지우면 누가 왜 담당자를 뺐는지 이슈에서 알 수 없다. 행위자 = 제거한 사람.
+    if (removed != null) {
+      var summary =
+          new UserSummary(removed.userId(), removed.username(), removed.name(), removed.kind());
+      for (Long issueId : unassignedIssueIds) {
+        historyRecorder.recordAssigneesChanged(callerId, issueId, List.of(), List.of(summary));
+      }
+    }
     // 담당 매핑이 사라진 이슈에 진행 중 AI 작업이 고아로 남지 않게 함께 끝낸다(WP-377).
     agentWorkRepository.endActiveForWorkerInProject(
         project.id(), memberUserId, AgentWorkState.CANCELED);
