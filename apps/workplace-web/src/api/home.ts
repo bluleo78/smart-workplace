@@ -24,10 +24,20 @@ export function toQueryParams(params: Record<string, unknown> = {}): Record<stri
   return out;
 }
 
+/**
+ * issue_list/my_tasks 위젯 params → /me/issues 쿼리. 위젯 담당자 옵션 「전체」(assignee=all)는 담당자 조건 없음이라 쿼리에서
+ * 뺀다 — 서버는 me·숫자·username 만 받아 'all' 을 구성원 username 으로 보고 400 을 낸다(WP-518). 범위는 서버가 내가 멤버인 프로젝트로 묶는다.
+ */
+export function meIssuesQueryParams(params: Record<string, unknown> = {}): Record<string, string> {
+  const out = toQueryParams(params);
+  if (out.assignee?.trim().toLowerCase() === 'all') delete out.assignee;
+  return out;
+}
+
 export const homeApi = {
   /** 프로젝트 횡단 내 이슈 검색 (issue_list/my_tasks 위젯). */
   myIssues: (params: Record<string, unknown>) =>
-    client.get<IssueSearchResponse>('/me/issues', { params: toQueryParams(params) }),
+    client.get<IssueSearchResponse>('/me/issues', { params: meIssuesQueryParams(params) }),
 
   /** 워치 이슈(my_tasks 워치 카운트). */
   watchedIssues: (size = 50) =>

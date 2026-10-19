@@ -298,6 +298,28 @@ test('카탈로그 위젯 — 필터 params 가 헤더 딥링크 URL 쿼리로 �
   await expect(page).toHaveURL(/\/contacts\?q=%EA%B9%80&type=MEMBER$/)
 })
 
+test('이슈 목록 위젯 — 담당자 「전체」는 담당자 조건 없이 조회해 목록을 보여준다 (WP-518)', async ({
+  authenticatedPage: page,
+}) => {
+  await mockWidgets(page)
+  await mockApi(
+    page,
+    'GET',
+    '/api/v1/me/dashboard',
+    layout([{ id: 'w-issues-all', type: 'issue_list', count: 0, hidden: false, params: { assignee: 'all', priority: 'HIGH' } }]),
+  )
+  const issueLists = trackRequests(page, 'GET', '/api/v1/me/issues')
+  await page.goto('/')
+
+  // 서버는 'all' 을 username 으로 보고 400 을 내므로 쿼리에서 빠져야 한다 — 다른 필터는 그대로.
+  const widget = page.locator('[data-testid="dashboard-widget"][data-widget-id="w-issues-all"]')
+  await expect(widget).toContainText('로그인 버그')
+  await expect(widget.getByTestId('issuelist-error')).toHaveCount(0)
+  const url = issueLists.lastUrl()
+  expect(url?.searchParams.has('assignee')).toBe(false)
+  expect(url?.searchParams.get('priority')).toBe('HIGH')
+})
+
 test('대시보드 — 알림 위젯 헤더 클릭 시 라우팅 대신 인박스 패널이 열린다 (refs #274)', async ({
   authenticatedPage: page,
 }) => {
