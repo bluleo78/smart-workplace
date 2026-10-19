@@ -330,6 +330,16 @@ public class MessageRepository {
                     r.value1(), r.value2(), r.value3(), r.value4(), fromJson(r.value5())));
   }
 
+  /** 채널에 실제로 있는 가장 큰 메시지 id(삭제·답글 포함). 메시지 없으면 0 — 읽음 위치 상한용(WP-514). */
+  public long maxIdInChannel(long channelId) {
+    Long v =
+        dsl.select(DSL.max(MESSAGE.ID))
+            .from(MESSAGE)
+            .where(MESSAGE.CHANNEL_ID.eq(channelId))
+            .fetchOne(0, Long.class);
+    return v == null ? 0L : v;
+  }
+
   /** watermark 게이트용 — 채널의 미삭제 최신 채널 본문 메시지 id. 메시지 없으면 0. */
   public long maxMessageId(long channelId) {
     Long v =

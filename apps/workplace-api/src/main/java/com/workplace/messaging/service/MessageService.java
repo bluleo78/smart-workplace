@@ -307,8 +307,12 @@ public class MessageService {
   @Transactional
   public void markRead(long callerId, long channelId, long uptoMessageId) {
     ensureMember(channelId, callerId);
-    memberRepo.markRead(channelId, callerId, uptoMessageId);
-    publisher.publishEvent(new MessageReadEvent(channelId, callerId, uptoMessageId));
+    // 읽음 위치는 이 채널에 있는 최신 메시지까지만 — 범위 밖 큰 id 로 미래를 읽음 처리하면 이후 새 메시지 미읽음이 0 으로
+    // 고정됐다(WP-514). 메시지가 없으면 올릴 위치가 없다.
+    long upto = Math.min(uptoMessageId, messageRepo.maxIdInChannel(channelId));
+    if (upto <= 0) return;
+    memberRepo.markRead(channelId, callerId, upto);
+    publisher.publishEvent(new MessageReadEvent(channelId, callerId, upto));
   }
 
   /** 채널 멤버만 히스토리 조회. 리액션 집계 + 제안 batch enrich 포함. RLS GUC 주입 위해 @Transactional 필요(없으면 빈 결과). */

@@ -120,4 +120,27 @@ class MessageServiceTest extends IntegrationTestBase {
     assertThat(row.getEditedAt()).isNull();
     assertThat(row.getDeletedAt()).isEqualTo(deletedAt);
   }
+
+  /** WP-514: 읽음 위치는 그 채널의 최신 메시지까지만 올라간다 — 범위 밖 id 로 미래를 읽음 처리해 새 메시지 미읽음이 0 으로 고정되지 않게. */
+  @Test
+  void markRead_beyondLatest_isCappedToChannelLatest() {
+    long uid = seedUser();
+    long other = seedUser();
+    long chId = channelService.create(uid, "읽음상한-" + UUID.randomUUID(), "PUBLIC").id();
+    channelService.join(other, chId);
+    long m1 = messageService.create(uid, chId, new CreateMessageRequest("첫 글")).id();
+
+    messageService.markRead(other, chId, Long.MAX_VALUE / 2);
+    assertThat(lastRead(chId, other)).isEqualTo(m1);
+
+    long m2 = messageService.create(uid, chId, new CreateMessageRequest("새 글")).id();
+    assertThat(m2).isGreaterThan(lastRead(chId, other));
+  }
+
+  private Long lastRead(long channelId, long userId) {
+    return dsl.select(CHANNEL_MEMBER.LAST_READ_MESSAGE_ID)
+        .from(CHANNEL_MEMBER)
+        .where(CHANNEL_MEMBER.CHANNEL_ID.eq(channelId).and(CHANNEL_MEMBER.USER_ID.eq(userId)))
+        .fetchOne(CHANNEL_MEMBER.LAST_READ_MESSAGE_ID);
+  }
 }
