@@ -11,6 +11,7 @@ import java.util.List;
 /**
  * 일정 생성/수정 요청. endsAt 은 startsAt 보다 뒤여야 한다.
  *
+ * @param description 설명(선택). 10000자 이하 — 목록 응답에도 실리므로 상한을 둔다.
  * @param reminderMinutes 시작 N분 전 리마인더(예: 10·60·1440). null 이면 리마인더 없음(수정 시 기존 리마인더 제거).
  * @param recurrenceRule RFC5545 RRULE 문자열(예: FREQ=WEEKLY). null 이면 단일(비반복) 일정.
  * @param attendeeUserIds 초대할 참석자 user_id 목록(주최자 제외). null 허용 — 빈 리스트로 정규화.
@@ -18,7 +19,8 @@ import java.util.List;
  */
 public record CalendarEventRequest(
     @NotBlank @Size(max = 200) String title,
-    String description,
+    // 상한이 없어 2MB 설명이 저장되고 그 달 목록 응답이 2MB 가 됐다 — 이슈 본문과 같은 10000자(WP-543).
+    @Size(max = 10000, message = "설명은 10000자 이하여야 합니다") String description,
     @NotNull OffsetDateTime startsAt,
     @NotNull OffsetDateTime endsAt,
     boolean allDay,

@@ -166,7 +166,7 @@ export const rsvpEventInput = z.object({
 // calendarId 는 받지 않는다 — 카드와 같이 기본 캘린더(항상 로컬, 외부 동기화 캘린더는 기본이 될 수 없다)에 만든다.
 export const createEventInput = z.object({
   title: z.string().min(1).max(200),
-  description: z.string().optional(),
+  description: z.string().max(10000).optional(), // API 상한과 같다(WP-543)
   startsAt: z.string().min(1), // ISO-8601, 핸들러에서 타임존 보정
   endsAt: z.string().min(1),
   allDay: z.boolean().default(false),
@@ -186,7 +186,7 @@ export const updateEventInput = z.object({
   scope: z.enum(['THIS', 'THIS_AND_FOLLOWING', 'ALL']).default('ALL'),
   occurrenceDate: nullAsOmitted(z.string().min(1)), // ISO-8601, 반복 일정의 대상 회차 시작시각
   title: nullAsOmitted(z.string().min(1).max(200)),
-  description: nullableToClear(z.string()),
+  description: nullableToClear(z.string().max(10000)), // API 상한과 같다(WP-543)
   startsAt: nullAsOmitted(z.string().min(1)),
   endsAt: nullAsOmitted(z.string().min(1)),
   allDay: nullAsOmitted(z.boolean()),

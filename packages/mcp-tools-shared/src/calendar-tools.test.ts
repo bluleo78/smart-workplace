@@ -1,11 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   buildCalendarTools,
+  createEventInput,
   listConflicts,
   normalizeTimezone,
   resolveAttendees,
   resolveAttendeeToRemove,
   type CalendarToolsClient,
+  updateEventInput,
 } from './calendar-tools.js';
 import type { MemberRow } from './tool-client.js';
 import { resultText } from './mcp-content.js';
@@ -355,5 +357,15 @@ describe('update_event (WP-348)', () => {
     const c = withCurrent();
     await tool(c, 'update_event').handler({ eventId: 7, location: '4층' });
     expect(vi.mocked(c.updateEvent).mock.calls[0][1]).not.toHaveProperty('attendeeUserIds');
+  });
+});
+
+// WP-543: 설명은 API 상한(10000자)과 같게 도구 입력에서 먼저 막는다.
+describe('일정 설명 길이 상한', () => {
+  it('create_event·update_event 모두 10000자까지 허용, 넘으면 거절', () => {
+    const base = { title: '회의', startsAt: '2026-11-20T10:00:00+09:00', endsAt: '2026-11-20T11:00:00+09:00' };
+    expect(createEventInput.safeParse({ ...base, description: '가'.repeat(10000) }).success).toBe(true);
+    expect(createEventInput.safeParse({ ...base, description: '가'.repeat(10001) }).success).toBe(false);
+    expect(updateEventInput.safeParse({ eventId: 1, description: '가'.repeat(10001) }).success).toBe(false);
   });
 });

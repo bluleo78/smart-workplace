@@ -17,7 +17,8 @@ export const eventFormSchema = z
     start: z.string().min(1, '시작을 입력하세요'),
     end: z.string().min(1, '종료를 입력하세요'),
     location: z.string().max(200, '장소는 200자 이하여야 합니다').optional(),
-    description: z.string().optional(),
+    // 서버 CalendarEventRequest 상한과 같다(WP-543).
+    description: z.string().max(10000, '설명은 10000자 이하여야 합니다').optional(),
     // 캘린더 컨테이너 — undefined 이면 기본 캘린더로 폴백
     calendarId: z.number().optional(),
     // 색 override — null 이면 캘린더 색 상속

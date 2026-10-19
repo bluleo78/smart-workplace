@@ -228,3 +228,15 @@ describe('eventFormSchema 반복 종료일 (#114)', () => {
     ).toBe(true)
   })
 })
+
+// WP-543: 설명은 서버 상한(10000자)과 같게 폼에서 먼저 막는다 — 상한이 없어 2MB 설명이 저장되고 그 달 목록이 2MB 가 됐다.
+describe('eventFormSchema 설명 길이 (WP-543)', () => {
+  it('10000자까지 허용, 넘으면 description 에러', () => {
+    expect(eventFormSchema.safeParse({ ...base, description: '가'.repeat(10000) }).success).toBe(true)
+    const r = eventFormSchema.safeParse({ ...base, description: '가'.repeat(10001) })
+    expect(r.success).toBe(false)
+    expect(r.error?.issues.find((i) => i.path[0] === 'description')?.message).toBe(
+      '설명은 10000자 이하여야 합니다',
+    )
+  })
+})

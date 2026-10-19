@@ -307,4 +307,21 @@ class CalendarEventControllerTest {
               jsonPath("$.errors.status").value("참석 응답(ACCEPTED·DECLINED·TENTATIVE)을 골라 주세요"));
     }
   }
+
+  /** WP-543: 설명은 10000자까지 — 넘으면 400(한국어 안내). 상한이 없어 2MB 설명이 저장되고 그 달 목록이 2MB 가 됐다. */
+  @Test
+  void create_descriptionOverLimit_returns400() throws Exception {
+    CalendarEventRequest req =
+        new CalendarEventRequest(
+            "회의", "가".repeat(10001), STARTS, ENDS, false, null, null, null, null, null, null);
+
+    mockMvc
+        .perform(
+            post("/api/v1/calendar/events")
+                .header("Authorization", "Bearer v")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(req)))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.errors.description").value("설명은 10000자 이하여야 합니다"));
+  }
 }

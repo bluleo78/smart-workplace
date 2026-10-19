@@ -567,7 +567,11 @@ export function EventDialog({
           />
 
           {/* 설명 */}
-          <FormField label="설명" htmlFor="ev-description">
+          <FormField
+            label="설명"
+            htmlFor="ev-description"
+            error={form.formState.errors.description?.message}
+          >
             <Textarea
               id="ev-description"
               data-testid="calendar-form-description"
