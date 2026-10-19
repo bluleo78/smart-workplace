@@ -12,10 +12,11 @@ import { cn } from '@/lib/utils';
 
 import { Button } from '../../../components/ui/button';
 import { LoadMoreFooter } from '../../../components/ui/load-more-footer';
+import { useIssueGroupCounts } from '../../../hooks/queries/useIssueGroupCounts';
 import { useIssueSearch } from '../../../hooks/queries/useIssueSearch';
 import { useIssueSelection } from '../../../hooks/useIssueSelection';
 import { filtersToParams, withDefaultIssueScope } from '../../../lib/issueFilters';
-import { groupIssues } from '../../../lib/issueGrouping';
+import { groupCountsByKey, groupIssues } from '../../../lib/issueGrouping';
 import { labelFg } from '../../../lib/labelColors';
 import type { IssueClientGroupBy, IssueFilters, IssueResponse } from '../../../types/issue';
 import { useIssueRowActions } from '../hooks/useIssueRowActions';
@@ -51,7 +52,11 @@ export function IssueListView({
 }) {
   // 보드와 같은 기본 범위 — 에픽 행 제외, 에픽 하위 이슈 노출, SUBTASK 숨김(withDefaultIssueScope).
   const isMobile = useIsMobile();
-  const searchQuery = useIssueSearch(projectKey, withDefaultIssueScope(filters));
+  const scopedFilters = useMemo(() => withDefaultIssueScope(filters), [filters]);
+  const searchQuery = useIssueSearch(projectKey, scopedFilters);
+  // 그룹 헤더 수는 서버 총계(WP-472) — 30개씩 불러오므로 화면이 센 수는 불러온 행 수일 뿐이다. 총계가 오기 전·에픽 그룹은 불러온 행 수.
+  const groupCounts = useIssueGroupCounts(projectKey, scopedFilters, groupBy);
+  const countByKey = useMemo(() => groupCountsByKey(groupCounts.data), [groupCounts.data]);
   const { data, isLoading } = searchQuery;
   // 테이블 스크롤 컨테이너 — 목록 끝 LoadMoreFooter sentinel 의 IntersectionObserver root(콜백 ref 라 마운트 후 재부착).
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
@@ -220,7 +225,9 @@ export function IssueListView({
                         </span>
                       )}
                       <span className="min-w-0 truncate">{g.label}</span>
-                      <span className="shrink-0 font-normal">{g.issues.length}</span>
+                      <span className="shrink-0 font-normal" data-testid={`list-group-count-${g.key}`}>
+                        {countByKey.get(g.key) ?? g.issues.length}
+                      </span>
                     </button>
                   </td>
                 </tr>

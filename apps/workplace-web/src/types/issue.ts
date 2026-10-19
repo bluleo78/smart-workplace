@@ -316,5 +316,14 @@ export type IssueGroupBy = 'status' | 'assignee' | 'priority' | 'cycle' | 'epic'
 // 클라이언트에서 받은 이슈를 묶는 그룹 기준 — 보드·개인 체크리스트·평탄 목록 그룹이 쓴다(cycle 제외).
 export type IssueClientGroupBy = Exclude<IssueGroupBy, 'cycle'>;
 
+// 서버가 그룹별 총계를 내는 기준(WP-472) — 에픽 그룹은 「에픽 없음」 필터가 없어 대상이 아니다.
+export type IssueCountableGroupBy = Exclude<IssueClientGroupBy, 'epic'>;
+
+// 목록 그룹별 총계 응답(WP-472). key 는 상태·우선순위 값, assignee 면 담당자 user id 문자열(담당자 없음은 null). 0건 그룹은 없다.
+export interface IssueGroupCountsResponse {
+  groupBy: IssueCountableGroupBy;
+  groups: { key: string | null; count: number }[];
+}
+
 // URL group 파라미터 원값 — 'none' 은 "그룹 없음" 명시(#878). 부재(null)는 화면별 기본값에 맡긴다.
 export type IssueGroupParam = IssueGroupBy | 'none';

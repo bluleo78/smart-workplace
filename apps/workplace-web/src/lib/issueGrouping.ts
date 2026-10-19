@@ -1,7 +1,9 @@
 // 이슈 목록을 group 기준(상태/우선순위/담당자)으로 클라이언트에서 묶는 순수 함수 (#58).
 // 보드 뷰와 리스트 뷰가 동일한 그룹 결과를 공유한다.
 
-import type { IssueClientGroupBy, IssueGroupBy, IssuePriority, IssueResponse, IssueStatus } from '../types/issue';
+import type {
+  IssueClientGroupBy, IssueGroupBy, IssueGroupCountsResponse, IssuePriority, IssueResponse, IssueStatus,
+} from '../types/issue';
 import { ownLookup } from './ownLookup';
 
 // 하나의 그룹 — key 는 React key·data-testid·droppable id 에 사용, label 은 헤더 표시.
@@ -148,4 +150,17 @@ export function groupIssues(
     groups.push({ key: 'unassigned', label: '미지정', issues: unassigned });
   }
   return groups;
+}
+
+/**
+ * 서버 그룹 총계(WP-472)를 groupIssues 의 그룹 key 로 옮긴 맵 — 헤더가 「불러온 행 수」 대신 정확한 수를 쓴다.
+ * 상태·우선순위는 값 그대로, 담당자는 `u-{id}`, 담당자 없음(null)은 `unassigned`.
+ */
+export function groupCountsByKey(res: IssueGroupCountsResponse | undefined): ReadonlyMap<string, number> {
+  const out = new Map<string, number>();
+  for (const g of res?.groups ?? []) {
+    const key = res!.groupBy === 'assignee' ? (g.key == null ? 'unassigned' : `u-${g.key}`) : (g.key ?? '');
+    out.set(key, g.count);
+  }
+  return out;
 }

@@ -5,6 +5,7 @@ import static com.workplace.issue.service.SearchParams.trimToNull;
 
 import com.workplace.global.dto.UserSummary;
 import com.workplace.issue.dto.IssueCursor;
+import com.workplace.issue.dto.IssueGroupCountsResponse;
 import com.workplace.issue.dto.IssueResponse;
 import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.dto.IssueSearchQuery;
@@ -52,6 +53,29 @@ public class IssueSearchService {
   private final IssueFilterResolver filterResolver;
   // 7c: 횡단 검색 시 row 별 projectId → projectKey 일괄 해석용.
   private final com.workplace.project.repository.ProjectRepository projectRepository;
+
+  /** 그룹별 총계를 낼 수 있는 기준(WP-472) — 에픽·사이클 그룹은 구간별로 따로 불러오거나 필터가 없어 대상이 아니다. */
+  private static final java.util.Set<String> COUNTABLE_GROUPS =
+      java.util.Set.of("status", "priority", "assignee");
+
+  /**
+   * 목록 그룹별 총계(WP-472) — 검색과 같은 params(cursor·size 무시)로 거른 이슈를 groupBy 기준으로 센다. 권한도 검색과
+   * 같다(assertReadable).
+   */
+  public IssueGroupCountsResponse groupCounts(
+      Long callerId, String projectKey, Map<String, String> params) {
+    String groupBy = params.get("groupBy");
+    if (groupBy == null || !COUNTABLE_GROUPS.contains(groupBy)) {
+      throw new InvalidCursorException("groupBy 는 status·priority·assignee 중 하나여야 합니다");
+    }
+    var project = accessGuard.assertReadable(projectKey, callerId);
+    IssueSearchQuery query = parse(callerId, project.id(), params);
+    var groups =
+        issueRepository.countGrouped(project.id(), query, groupBy).entrySet().stream()
+            .map(e -> new IssueGroupCountsResponse.GroupCount(e.getKey(), e.getValue()))
+            .toList();
+    return new IssueGroupCountsResponse(groupBy, groups);
+  }
 
   /**
    * 검색. params 키: q, status, assignee, priority, dueFrom, dueTo, label, type, cursor, size,

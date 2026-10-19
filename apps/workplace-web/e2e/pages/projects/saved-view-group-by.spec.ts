@@ -68,6 +68,45 @@ test.describe('Saved View group-by', () => {
     await expect(page.getByTestId('list-group-MID')).toHaveCount(0);
   });
 
+  test('그룹 헤더 수는 불러온 행 수가 아니라 서버 그룹 총계 — 같은 필터로 요청 (WP-472)', async ({
+    authenticatedPage: page,
+  }) => {
+    await stubProjectMeta(page);
+    // 첫 페이지에는 TODO 2건만 왔지만(뒤에 더 있음) 서버 총계는 TODO 32 · DONE 3.
+    const issues = [
+      createIssue({ id: 1, number: 1, title: 'Todo one', status: 'TODO' }),
+      createIssue({ id: 2, number: 2, title: 'Todo two', status: 'TODO' }),
+    ];
+    await routeIssueSearch(page, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ...createIssueSearchResponse(issues), hasMore: true, nextCursor: 'c1' }),
+      }),
+    );
+    let countsUrl: URL | undefined;
+    await page.route(
+      (url) => url.pathname === `${ISSUES_PATH}/group-counts`,
+      (route) => {
+        countsUrl = new URL(route.request().url());
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ groupBy: 'status', groups: [{ key: 'TODO', count: 32 }, { key: 'DONE', count: 3 }] }),
+        });
+      },
+    );
+
+    await page.goto(`/projects/${KEY}?group=status&q=todo`);
+
+    await expect(page.getByTestId('list-group-count-TODO')).toHaveText('32');
+    // 목록과 같은 필터(검색어·기본 범위)로 센다.
+    expect(countsUrl?.searchParams.get('groupBy')).toBe('status');
+    expect(countsUrl?.searchParams.get('q')).toBe('todo');
+    expect(countsUrl?.searchParams.get('excludeSubtasks')).toBe('true');
+    expect(countsUrl?.searchParams.has('cursor')).toBe(false);
+  });
+
   test('그룹 셀렉터 클릭 → URL group 파라미터 동기화', async ({
     authenticatedPage: page,
   }) => {

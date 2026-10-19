@@ -4,6 +4,7 @@ import static com.workplace.jooq.Tables.CHAT_MESSAGE;
 import static com.workplace.jooq.Tables.CHAT_THREAD;
 import static com.workplace.jooq.Tables.CYCLE;
 import static com.workplace.jooq.Tables.ISSUE;
+import static com.workplace.jooq.Tables.ISSUE_ASSIGNEE;
 import static com.workplace.jooq.Tables.ISSUE_CYCLE;
 import static com.workplace.jooq.Tables.ISSUE_TYPE_DEF;
 import static com.workplace.jooq.Tables.ISSUE_WATCHER;
@@ -404,11 +405,11 @@ public class IssueRepository {
   }
 
   /**
-   * 검색/필터 + cursor 페이징. 활성(deleted_at IS NULL) 이슈만 대상. 정렬은 (updated_at DESC, id DESC) 고정. size 는
-   * 호출자가 1..100 으로 클램프한 값을 넘긴다. assignee 필터는 issue_assignee 매핑에 대한 EXISTS/NOT EXISTS 로 변환된다.
-   * typeIds 는 OR 결합. Phase 4a: parentNumber/topLevel 필터.
+   * 단일 프로젝트 검색 필터 조건(cursor 제외) — 목록(search)과 그룹 총계(countGrouped, WP-472)가 같은 조건을 쓰게 한 곳에 둔다. 둘이 따로
+   * 만들면 필터 하나만 바뀌어도 헤더 수와 목록이 어긋난다.
    */
-  public List<IssueRow> search(Long projectId, com.workplace.issue.dto.IssueSearchQuery query) {
+  private org.jooq.Condition searchCondition(
+      Long projectId, com.workplace.issue.dto.IssueSearchQuery query) {
     org.jooq.Condition where = ISSUE.PROJECT_ID.eq(projectId).and(ISSUE.DELETED_AT.isNull());
 
     if (query.q() != null && !query.q().isBlank()) {
@@ -572,6 +573,59 @@ public class IssueRepository {
                                       .cast(String.class)
                                       .eq(query.fieldValue())))));
     }
+    return where;
+  }
+
+  /**
+   * 검색 필터에 걸리는 이슈를 그룹별로 센다(WP-472) — 목록 그룹 헤더의 정확한 수. 키는 status·priority 값, assignee 는 담당자 user id
+   * 문자열(담당자가 여럿이면 각자에 한 번씩 — 목록 그룹과 같다)이고 담당자 없는 이슈는 null 키로 센다. 0건인 그룹은 돌려주지 않는다.
+   */
+  public java.util.Map<String, Integer> countGrouped(
+      Long projectId, com.workplace.issue.dto.IssueSearchQuery query, String groupBy) {
+    org.jooq.Condition where = searchCondition(projectId, query);
+    java.util.Map<String, Integer> out = new java.util.LinkedHashMap<>();
+    switch (groupBy) {
+      case "status", "priority" -> {
+        var field = "status".equals(groupBy) ? ISSUE.STATUS : ISSUE.PRIORITY;
+        dsl.select(field, org.jooq.impl.DSL.count())
+            .from(ISSUE)
+            .where(where)
+            .groupBy(field)
+            .forEach(r -> out.put(r.value1(), r.value2()));
+      }
+      case "assignee" -> {
+        dsl.select(ISSUE_ASSIGNEE.USER_ID, org.jooq.impl.DSL.count())
+            .from(ISSUE)
+            .join(ISSUE_ASSIGNEE)
+            .on(ISSUE_ASSIGNEE.ISSUE_ID.eq(ISSUE.ID))
+            .where(where)
+            .groupBy(ISSUE_ASSIGNEE.USER_ID)
+            .forEach(r -> out.put(String.valueOf(r.value1()), r.value2()));
+        int unassigned =
+            dsl.fetchCount(
+                ISSUE,
+                where.and(
+                    org.jooq.impl.DSL.notExists(
+                        org.jooq
+                            .impl
+                            .DSL
+                            .selectOne()
+                            .from(ISSUE_ASSIGNEE)
+                            .where(ISSUE_ASSIGNEE.ISSUE_ID.eq(ISSUE.ID)))));
+        if (unassigned > 0) out.put(null, unassigned);
+      }
+      default -> throw new IllegalArgumentException("groupBy: " + groupBy);
+    }
+    return out;
+  }
+
+  /**
+   * 검색/필터 + cursor 페이징. 활성(deleted_at IS NULL) 이슈만 대상. 정렬은 (updated_at DESC, id DESC) 고정. size 는
+   * 호출자가 1..100 으로 클램프한 값을 넘긴다. assignee 필터는 issue_assignee 매핑에 대한 EXISTS/NOT EXISTS 로 변환된다.
+   * typeIds 는 OR 결합. Phase 4a: parentNumber/topLevel 필터.
+   */
+  public List<IssueRow> search(Long projectId, com.workplace.issue.dto.IssueSearchQuery query) {
+    org.jooq.Condition where = searchCondition(projectId, query);
     if (query.cursor() != null) {
       var ts = query.cursor().updatedAt().atOffset(java.time.ZoneOffset.UTC);
       var cursorId = query.cursor().id();

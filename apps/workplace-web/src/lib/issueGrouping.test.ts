@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { IssueResponse } from '../types/issue';
-import { groupIssues, priorityLabel, statusLabel } from './issueGrouping';
+import { groupCountsByKey, groupIssues, priorityLabel, statusLabel } from './issueGrouping';
 
 // 필수 필드가 많은 IssueResponse 를 최소 오버라이드로 생성하는 테스트 팩토리.
 function mk(over: Partial<IssueResponse>): IssueResponse {
@@ -145,5 +145,24 @@ describe('statusLabel / priorityLabel', () => {
     expect(statusLabel('toString')).toBe('toString');
     expect(priorityLabel('URGENT')).toBe('URGENT');
     expect(priorityLabel('constructor')).toBe('constructor');
+  });
+});
+
+describe('groupCountsByKey (WP-472)', () => {
+  it('상태·우선순위 총계는 값 그대로 그룹 key 가 된다', () => {
+    const m = groupCountsByKey({ groupBy: 'status', groups: [{ key: 'TODO', count: 32 }, { key: 'DONE', count: 3 }] });
+    expect(m.get('TODO')).toBe(32);
+    expect(m.get('DONE')).toBe(3);
+    expect(m.get('IN_PROGRESS')).toBeUndefined();
+  });
+
+  it('담당자 총계는 u-{id}, 담당자 없음은 unassigned 로 옮긴다', () => {
+    const m = groupCountsByKey({ groupBy: 'assignee', groups: [{ key: '7', count: 2 }, { key: null, count: 5 }] });
+    expect(m.get('u-7')).toBe(2);
+    expect(m.get('unassigned')).toBe(5);
+  });
+
+  it('응답이 없으면 빈 맵', () => {
+    expect(groupCountsByKey(undefined).size).toBe(0);
   });
 });

@@ -4,8 +4,10 @@ import type {
   CreateIssueRequest,
   IssueAiClassifyResponse,
   IssueAiContext,
+  IssueCountableGroupBy,
   IssueDetailResponse,
   IssueFilters,
+  IssueGroupCountsResponse,
   IssueResponse,
   IssueSearchResponse,
   UpdateIssueRequest,
@@ -30,14 +32,8 @@ export const issuesApi = {
     client.post<IssueAiClassifyResponse>(`/projects/${key}/issues/ai-classify`, data),
 };
 
-// 이슈 검색 — cursor 페이지네이션 + 필터 단일 엔드포인트.
-// IssueFilters 를 백엔드가 받는 쿼리 파라미터 표현으로 직렬화한다.
-export async function searchIssues(
-  projectKey: string,
-  filters: IssueFilters,
-  cursor: string | null,
-  size = 30,
-): Promise<IssueSearchResponse> {
+// IssueFilters 를 백엔드가 받는 검색 쿼리 파라미터 표현으로 직렬화한다 — 목록 검색과 그룹 총계(WP-472)가 같은 필터를 보내게 공용.
+function issueFilterParams(filters: IssueFilters): URLSearchParams {
   const params = new URLSearchParams();
   if (filters.q) params.set('q', filters.q);
   if (filters.statuses.length) params.set('status', filters.statuses.join(','));
@@ -72,10 +68,35 @@ export async function searchIssues(
   if (filters.hideInactiveClosed) params.set('hideInactiveClosed', 'true');
   // Phase 4b — blocked 검색 송신. UI 노출은 deferred.
   if (filters.blocked) params.set('blocked', 'true');
+  return params;
+}
+
+// 이슈 검색 — cursor 페이지네이션 + 필터 단일 엔드포인트.
+export async function searchIssues(
+  projectKey: string,
+  filters: IssueFilters,
+  cursor: string | null,
+  size = 30,
+): Promise<IssueSearchResponse> {
+  const params = issueFilterParams(filters);
   if (cursor) params.set('cursor', cursor);
   params.set('size', String(size));
   const { data } = await client.get<IssueSearchResponse>(
     `/projects/${projectKey}/issues?${params.toString()}`,
+  );
+  return data;
+}
+
+// 목록 그룹별 총계(WP-472) — 검색과 같은 필터로 센 정확한 수. 목록은 30개씩 불러오므로 화면이 센 수는 불러온 행 수일 뿐이다.
+export async function getIssueGroupCounts(
+  projectKey: string,
+  filters: IssueFilters,
+  groupBy: IssueCountableGroupBy,
+): Promise<IssueGroupCountsResponse> {
+  const params = issueFilterParams(filters);
+  params.set('groupBy', groupBy);
+  const { data } = await client.get<IssueGroupCountsResponse>(
+    `/projects/${projectKey}/issues/group-counts?${params.toString()}`,
   );
   return data;
 }

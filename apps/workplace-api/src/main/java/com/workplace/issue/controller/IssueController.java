@@ -5,6 +5,7 @@ import com.workplace.issue.dto.CreateIssueRequest;
 import com.workplace.issue.dto.IssueAiClassifyResponse;
 import com.workplace.issue.dto.IssueAiContext;
 import com.workplace.issue.dto.IssueDetailResponse;
+import com.workplace.issue.dto.IssueGroupCountsResponse;
 import com.workplace.issue.dto.IssueResponse;
 import com.workplace.issue.dto.IssueSearchResponse;
 import com.workplace.issue.dto.UpdateIssueRequest;
@@ -45,6 +46,15 @@ public class IssueController {
   public ResponseEntity<IssueSearchResponse> list(
       Authentication auth, @PathVariable String key, @RequestParam Map<String, String> params) {
     return ResponseEntity.ok(issueSearchService.search((Long) auth.getPrincipal(), key, params));
+  }
+
+  /** 목록 그룹별 총계(WP-472) — 검색과 같은 필터 params + groupBy(status·priority·assignee). */
+  @GetMapping("/group-counts")
+  @RequirePermission("project:read")
+  public ResponseEntity<IssueGroupCountsResponse> groupCounts(
+      Authentication auth, @PathVariable String key, @RequestParam Map<String, String> params) {
+    return ResponseEntity.ok(
+        issueSearchService.groupCounts((Long) auth.getPrincipal(), key, params));
   }
 
   /** 신규 이슈 생성. */
