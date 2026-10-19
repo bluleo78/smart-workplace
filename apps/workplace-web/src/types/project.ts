@@ -37,6 +37,8 @@ export interface MemberResponse {
   role: ProjectMemberRole;
   // AGENT 후보(개인 프로젝트 assignee 후보)의 합성 row 는 서버가 null 을 내려준다.
   createdAt: string | null;
+  // 이 워크스페이스에서 활성인가(전역 비활성·WP-417 정지면 false) — 담당자 후보에서 뺀다(WP-487). 예전 응답·목에는 없을 수 있다.
+  active?: boolean;
 }
 
 export interface CreateProjectRequest {

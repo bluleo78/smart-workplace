@@ -21,6 +21,7 @@ import { IssuePriorityBars } from '../../../components/issues/IssuePriorityBars'
 import { IssueStatusIcon } from '../../../components/issues/IssueStatusIcon';
 import { AgentBadge } from '../../../components/users/AgentBadge';
 import { UserAvatar } from '../../../components/users/UserAvatar';
+import { assigneeCandidates } from '../../../lib/assigneeCandidates';
 import { ISSUE_PRIORITY_OPTIONS, ISSUE_STATUS_LABEL } from '../../../lib/issueGrouping';
 import { type RowMenuItems, toSummary } from '../../../lib/issueRowMenu';
 import type { IssuePriority, IssueResponse, IssueStatus } from '../../../types/issue';
@@ -129,7 +130,8 @@ export function IssueRowMenu({
               {bulk && (
                 <DropdownMenuItem onSelect={() => onBulkAssign([])} data-testid="row-menu-assignee-none">미지정</DropdownMenuItem>
               )}
-              {members.map((m) =>
+              {/* 비활성 구성원은 후보에서 빼되, 단건이면 이미 담당 중인 사람은 해제할 수 있게 남긴다(WP-487). */}
+              {assigneeCandidates(members, bulk ? [] : assigneeIds).map((m) =>
                 bulk ? (
                   <DropdownMenuItem key={m.userId} onSelect={() => onBulkAssign([m.userId])} data-testid={`row-menu-assignee-${m.userId}`}>
                     <UserAvatar user={toSummary(m)} size="xs" agent={m.kind === 'AGENT'} />

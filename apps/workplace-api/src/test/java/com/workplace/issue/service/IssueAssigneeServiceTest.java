@@ -11,6 +11,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.workplace.issue.dto.CreateIssueRequest;
 import com.workplace.issue.dto.IssueResponse;
 import com.workplace.issue.dto.IssueRow;
+import com.workplace.issue.exception.InactiveAssigneeException;
 import com.workplace.issue.exception.InvalidAssigneeForProjectException;
 import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueHistoryRepository;
@@ -274,8 +275,10 @@ class IssueAssigneeServiceTest extends IntegrationTestBase {
     issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
     dsl.update(USER).set(USER.IS_ACTIVE, false).where(USER.ID.eq(member)).execute();
 
+    // WP-487 — 멤버인데 「프로젝트 멤버만…」으로 거부하면 원인을 알 수 없다. 비활성 전용 메시지로 알린다.
     assertThatThrownBy(() -> service.replace(owner, p.key(), 1, List.of(member)))
-        .isInstanceOf(InvalidAssigneeForProjectException.class);
+        .isInstanceOf(InactiveAssigneeException.class)
+        .hasMessage("비활성화된 구성원은 담당자로 지정할 수 없습니다");
   }
 
   /**

@@ -185,7 +185,7 @@ export function IssueMobilePropertyChips({
         title="담당자"
         searchable
         value={issue.assignees.map((a) => String(a.id))}
-        options={memberOptions(members.data)}
+        options={memberOptions(members.data, issue.assignees.map((a) => a.id))}
         onClose={(picked) => {
           close();
           const next = picked.map(Number);

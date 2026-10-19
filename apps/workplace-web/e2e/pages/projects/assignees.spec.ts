@@ -264,6 +264,52 @@ test.describe('이슈 담당자(다중)', () => {
     await expect(agentOption.getByTestId('agent-badge')).toBeVisible();
   });
 
+  // WP-487: 비활성 구성원은 후보에서 빠지고, 이미 담당 중이면 「비활성」 표시로 남아 해제만 할 수 있다.
+  test('비활성 구성원은 후보에서 빠지고, 담당 중인 비활성 구성원은 표시와 함께 해제할 수 있다', async ({
+    authenticatedPage: page,
+  }) => {
+    const INACTIVE_ASSIGNED: UserSummary = { id: 3, username: 'left', name: '퇴사자', kind: 'HUMAN' };
+    const detailRef = {
+      current: createIssueDetail({
+        summary: createIssue({ id: 1, number: 1, title: '담당자 테스트', assignees: [INACTIVE_ASSIGNED] }),
+      }),
+    };
+    await setupCommonStubs(page, detailRef);
+    // 멤버 라우트를 덮어쓴다 — USER2 는 비활성(미담당), 3 은 비활성(담당 중).
+    await page.route(`**/api/v1/projects/${PROJECT_KEY}/members`, (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([
+          createMember({ userId: USER1.id, username: USER1.username, name: USER1.name, role: 'OWNER', active: true }),
+          createMember({ userId: USER2.id, username: USER2.username, name: USER2.name, role: 'MEMBER', active: false }),
+          createMember({ userId: 3, username: 'left', name: '퇴사자', role: 'MEMBER', active: false }),
+        ]),
+      });
+    });
+    const puts = trackRequests(page, 'PUT', `/api/v1/projects/${PROJECT_KEY}/issues/1/assignees`);
+    await page.route(
+      (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1/assignees`,
+      (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(detailRef.current) }),
+    );
+
+    await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+    await page.getByTestId('assignee-picker-trigger').click();
+    await expect(page.getByTestId('assignee-picker')).toBeVisible();
+
+    await expect(page.getByTestId(`assignee-option-${USER1.id}`)).toBeVisible();
+    await expect(page.getByTestId(`assignee-option-${USER2.id}`)).toHaveCount(0);
+    const kept = page.getByTestId('assignee-option-3');
+    await expect(kept.getByTestId('assignee-option-3-inactive')).toHaveText('비활성');
+
+    // 해제 → 닫으면 PUT {userIds: []}
+    await kept.getByRole('checkbox').uncheck();
+    await expect(kept.getByRole('checkbox')).toBeDisabled();
+    await page.keyboard.press('Escape');
+    await expect.poll(() => puts.bodies()).toEqual([{ userIds: [] }]);
+  });
+
   // WP-461: 긴 이름·긴 아이디도 한 줄 — 이름이 글자 단위로 여러 줄 쪼개지지 않고, 아이디가 먼저 말줄임된다.
   test('긴 이름·아이디의 멤버도 픽커에서 한 줄로 보이고 전체 값은 title 로 남는다', async ({ authenticatedPage: page }) => {
     const LONG = { id: 7, username: 'kim.minsu.platform-infra@example.com', name: '김민수 선임연구원 (플랫폼개발본부 인프라팀)' };

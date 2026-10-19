@@ -13,6 +13,8 @@ import {
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 
+import { assigneeCandidates } from '../../lib/assigneeCandidates'
+
 export interface IssueDraftValue {
   title: string
   body: string
@@ -27,7 +29,7 @@ export interface IssueDraftFieldsProps {
   /** 프로젝트 후보 목록 */
   candidateProjects: { key: string; name: string }[]
   /** 선택 프로젝트 멤버 (HUMAN | AGENT) */
-  members: { userId: number; name: string; kind: 'HUMAN' | 'AGENT' }[]
+  members: { userId: number; name: string; kind: 'HUMAN' | 'AGENT'; active?: boolean }[]
   editable: boolean
   /**
    * 읽기 전용(editable=false) 시 프로젝트 행 표시 여부 (기본 true).
@@ -144,7 +146,8 @@ export function IssueDraftFields(props: IssueDraftFieldsProps) {
                 <SelectValue placeholder="미지정" />
               </SelectTrigger>
               <SelectContent>
-                {members.map((m) => (
+                {/* 비활성 구성원은 담당자 후보에서 뺀다(WP-487). */}
+                {assigneeCandidates(members).map((m) => (
                   <SelectItem key={m.userId} value={String(m.userId)}>
                     <span className="inline-flex items-center gap-1">
                       {m.name}

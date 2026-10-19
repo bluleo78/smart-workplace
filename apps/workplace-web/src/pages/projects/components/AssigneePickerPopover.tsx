@@ -11,6 +11,7 @@ import { AgentBadge } from '../../../components/users/AgentBadge';
 import { UserAvatar } from '../../../components/users/UserAvatar';
 import { useProjectMembers } from '../../../hooks/queries/useProjectMembers';
 import { useUpdateIssueAssignees } from '../../../hooks/queries/useUpdateIssueAssignees';
+import { assigneeCandidates, isInactiveMember } from '../../../lib/assigneeCandidates';
 import type { UserSummary } from '../../../types/user';
 
 export function AssigneePickerPopover({
@@ -34,10 +35,11 @@ export function AssigneePickerPopover({
   // 이름/유저명 부분일치 검색 — 대소문자 무시.
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
-    return (members.data ?? []).filter((m) =>
+    // 비활성 구성원은 후보에서 빼되, 이미 담당 중이면 해제할 수 있게 남긴다(WP-487).
+    return assigneeCandidates(members.data, current.map((u) => u.id)).filter((m) =>
       `${m.name} ${m.username}`.toLowerCase().includes(q),
     );
-  }, [members.data, search]);
+  }, [members.data, search, current]);
 
   function toggle(id: number) {
     setSelected((prev) =>
@@ -119,6 +121,8 @@ export function AssigneePickerPopover({
                 type="checkbox"
                 className="shrink-0"
                 checked={selected.includes(m.userId)}
+                // 비활성 구성원은 해제만 — 다시 고르면 서버가 거부한다(WP-487).
+                disabled={isInactiveMember(m) && !selected.includes(m.userId)}
                 onChange={() => toggle(m.userId)}
                 aria-label={m.name}
               />
@@ -129,6 +133,9 @@ export function AssigneePickerPopover({
               <span className="min-w-0 truncate text-sm">{m.name}</span>
               <span className="min-w-0 flex-1 basis-0 truncate text-xs text-muted-foreground">@{m.username}</span>
               {m.kind === 'AGENT' && <AgentBadge size="xs" />}
+              {isInactiveMember(m) && (
+                <span className="shrink-0 text-xs text-muted-foreground" data-testid={`assignee-option-${m.userId}-inactive`}>비활성</span>
+              )}
             </label>
           ))}
           {filtered.length === 0 && (

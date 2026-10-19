@@ -5,4 +5,9 @@ public class InvalidAssigneeForProjectException extends RuntimeException {
   public InvalidAssigneeForProjectException() {
     super("프로젝트 멤버만 담당자로 지정할 수 있습니다");
   }
+
+  /** 하위 원인(비활성 등)이 자기 메시지를 쓰도록 — 같은 400 매핑·호출측 처리를 그대로 쓴다. */
+  protected InvalidAssigneeForProjectException(String message) {
+    super(message);
+  }
 }

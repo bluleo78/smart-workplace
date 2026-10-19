@@ -6,6 +6,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import { UserPlus, X } from 'lucide-react';
 import { useState } from 'react';
 
+import { assigneeCandidates } from '@/lib/assigneeCandidates';
+
 import { IssueStatusIcon } from '../../../components/issues/IssueStatusIcon';
 import { MobilePickerSheet } from '../../../components/mobile/MobilePickerSheet';
 import {
@@ -81,7 +83,8 @@ export function IssueBulkActions({
   const triggerCls = `${triggerBase} text-muted-foreground`;
   const memberOptions = [
     { value: 'none', label: '미지정', icon: <UserPlus /> },
-    ...(members.data ?? []).map((m) => ({
+    // 비활성 구성원은 후보에서 뺀다(WP-487 — 서버가 새 지정을 거부).
+    ...assigneeCandidates(members.data).map((m) => ({
       value: String(m.userId),
       label: m.name,
       icon: <UserAvatar user={{ id: m.userId, username: m.username, name: m.name }} size="xs" />,
@@ -132,7 +135,7 @@ export function IssueBulkActions({
             <UserPlus className="h-4 w-4" />
             미지정
           </DropdownMenuItem>
-          {(members.data ?? []).map((m) => (
+          {assigneeCandidates(members.data).map((m) => (
             <DropdownMenuItem
               key={m.userId}
               data-testid={`bulk-assignee-option-${m.userId}`}

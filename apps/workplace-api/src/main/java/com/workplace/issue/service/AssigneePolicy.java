@@ -1,6 +1,6 @@
 package com.workplace.issue.service;
 
-import com.workplace.issue.exception.InvalidAssigneeForProjectException;
+import com.workplace.issue.exception.InactiveAssigneeException;
 import com.workplace.project.dto.ProjectRow;
 import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.user.dto.AssigneeInfo;
@@ -26,11 +26,11 @@ final class AssigneePolicy {
    * tenantId)} 가 워크스페이스 기준으로 채운 값이다. 이미 담당 중인 사람을 그대로 두는 것은 막지 않도록 호출측이 새로 추가되는 사용자만 넘긴다(교체는 diff 의
    * 추가분, 생성은 전원).
    *
-   * @throws InvalidAssigneeForProjectException 추가 대상 중 이 워크스페이스에서 활성이 아닌 사용자가 있을 때
+   * @throws InactiveAssigneeException 추가 대상 중 이 워크스페이스에서 활성이 아닌 사용자가 있을 때(WP-487 — 멤버 아님과 구분되는 메시지)
    */
   static void requireActive(Collection<AssigneeInfo> newAssignees) {
     if (newAssignees.stream().anyMatch(u -> !u.isActive())) {
-      throw new InvalidAssigneeForProjectException();
+      throw new InactiveAssigneeException();
     }
   }
 }
