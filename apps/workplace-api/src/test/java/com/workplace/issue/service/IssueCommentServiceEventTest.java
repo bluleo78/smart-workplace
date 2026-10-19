@@ -46,6 +46,23 @@ class IssueCommentServiceEventTest extends IntegrationTestBase {
     return OpenScenario.create(dsl, issueTypeService, issueRepository, sequenceRepository, 1L);
   }
 
+  /** WP-564 — 프로젝트가 삭제된 이슈에 코멘트를 쓰면 404 안내에 내부 프로젝트 id 를 싣지 않는다. */
+  @Test
+  void create_onDeletedProject_messageHasNoInternalId() {
+    var s = openScenario();
+    dsl.update(com.workplace.jooq.Tables.PROJECT)
+        .set(com.workplace.jooq.Tables.PROJECT.DELETED_AT, java.time.OffsetDateTime.now())
+        .where(com.workplace.jooq.Tables.PROJECT.KEY.eq(s.projectKey()))
+        .execute();
+
+    org.assertj.core.api.Assertions.assertThatThrownBy(
+            () ->
+                commentService.create(
+                    s.reporterId(), s.issueId(), new CreateCommentRequest("삭제 후")))
+        .isInstanceOf(com.workplace.project.exception.ProjectNotFoundException.class)
+        .hasMessage("프로젝트를 찾을 수 없습니다");
+  }
+
   /** 코멘트 수정 시 IssueCommentUpdatedEvent 가 정확한 issueId/commentId/body 로 발행돼야 한다. */
   @Test
   void update_publishesCommentUpdatedEvent() {

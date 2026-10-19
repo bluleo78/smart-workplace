@@ -64,8 +64,8 @@ public class IssueCommentService {
             .findById(issue.projectId())
             .orElseThrow(
                 () ->
-                    new ProjectNotFoundException(
-                        "프로젝트를 찾을 수 없습니다 (id: " + issue.projectId() + ")"));
+                    // 내부 프로젝트 id 는 싣지 않는다(WP-564) — 삭제된 프로젝트의 이슈에 쓰면 그대로 보인다.
+                    new ProjectNotFoundException("프로젝트를 찾을 수 없습니다"));
     accessGuard.assertReadable(project.key(), callerId);
     return new IssueAndProject(issue, project);
   }
@@ -133,8 +133,8 @@ public class IssueCommentService {
             .findById(issue.projectId())
             .orElseThrow(
                 () ->
-                    new ProjectNotFoundException(
-                        "프로젝트를 찾을 수 없습니다 (id: " + issue.projectId() + ")"));
+                    // 내부 프로젝트 id 는 싣지 않는다(WP-564) — 삭제된 프로젝트의 이슈에 쓰면 그대로 보인다.
+                    new ProjectNotFoundException("프로젝트를 찾을 수 없습니다"));
     // 댓글 작성 자격: 멤버/ADMIN 또는 OPEN 이슈 reporter 본인. 그 외(임의 테넌트 reader)는 403.
     accessGuard.assertContentWritable(project, issue.reporterId(), callerId);
     var resp = commentRepository.insert(issueId, callerId, req.body());
