@@ -40,7 +40,10 @@ export function FolderPickerModal({
   onPickFile,
   onClose,
 }: Props) {
-  const [current, setCurrent] = useState<number | null>(null)
+  // 루트부터 지금 폴더까지 들어온 경로(이름 포함) — 경로 표시와 중간 단계로 돌아가기에 쓴다(WP-530).
+  // 예전엔 지금 폴더 id 만 들고 「/ 폴더 9」처럼 내부 id 를 보였고 루트로만 돌아갈 수 있었다.
+  const [trail, setTrail] = useState<{ id: number; name: string }[]>([])
+  const current = trail.at(-1)?.id ?? null
   // WP-63: 현재 탐색 폴더의 내용 — DrivePage 와 같은 ['drive','items',spaceId,folderId] 키로 캐시를 공유해
   // resource.changed 무효화 시 함께 갱신된다. 폴더·파일은 응답에서 그대로 분리해 쓴다(미로드 시 빈 목록).
   const { data, isLoading } = useDriveItems(spaceId, current ?? undefined)
@@ -55,23 +58,42 @@ export function FolderPickerModal({
           <DialogTitle className="text-sm font-semibold">{title}</DialogTitle>
           <DialogDescription className="sr-only">{title}</DialogDescription>
         </DialogHeader>
-        <div className="mb-2 flex items-center gap-2 text-xs">
-          <button
-            type="button"
-            onClick={() => setCurrent(null)}
-            className="text-primary hover:underline"
-          >
-            루트
-          </button>
-          {current != null && <span className="text-muted-foreground">/ 폴더 {current}</span>}
-        </div>
+        <nav aria-label="폴더 경로" className="mb-2 flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5 text-xs" data-testid="folder-picker-path">
+          {/* 지금 위치가 아닌 단계는 눌러서 그 단계로 돌아간다. 지금 위치는 글자만. */}
+          {trail.length > 0 ? (
+            <button type="button" onClick={() => setTrail([])} className="text-primary hover:underline">
+              루트
+            </button>
+          ) : (
+            <span aria-current="location" className="font-medium">루트</span>
+          )}
+          {trail.map((step, i) => (
+            <span key={step.id} className="flex min-w-0 items-center gap-1">
+              <span className="text-muted-foreground" aria-hidden>/</span>
+              {i < trail.length - 1 ? (
+                <button
+                  type="button"
+                  onClick={() => setTrail(trail.slice(0, i + 1))}
+                  className="max-w-40 truncate text-primary hover:underline"
+                  title={step.name}
+                >
+                  {step.name}
+                </button>
+              ) : (
+                <span aria-current="location" className="max-w-40 truncate font-medium" title={step.name}>
+                  {step.name}
+                </span>
+              )}
+            </span>
+          ))}
+        </nav>
         <ul className="mb-3 max-h-60 divide-y divide-border overflow-auto">
           {folders.map((f) => (
             <li key={f.id}>
               <button
                 type="button"
                 disabled={f.id === disabledFolderId}
-                onClick={() => setCurrent(f.id)}
+                onClick={() => setTrail([...trail, { id: f.id, name: f.name }])}
                 className="flex w-full items-center gap-2 py-1.5 text-left text-sm hover:underline disabled:opacity-40"
               >
                 {/* 폴더 아이콘 — lucide Folder SVG, DrivePage와 일관성 유지 */}

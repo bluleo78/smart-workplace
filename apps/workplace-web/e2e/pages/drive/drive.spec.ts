@@ -1331,3 +1331,49 @@ test('열 수 없는 공간 주소는 빈 폴더 대신 찾을 수 없음 상태
   await page.getByRole('button', { name: '드라이브로' }).click()
   await expect(page).not.toHaveURL(/\/drive\/spaces\/999/)
 })
+
+// WP-530 — 이동 폴더 선택 창 경로가 내부 id(「폴더 9」) 대신 폴더 이름으로 보이고, 중간 단계로 돌아가 그곳을 대상으로 확정한다.
+test('FolderPickerModal — 경로를 폴더 이름으로 보이고 중간 단계로 돌아가 그 폴더로 옮긴다', async ({ authenticatedPage: page }) => {
+  const folder = (id: number, name: string, parentId: number | null) => ({ id, parentId, name, createdAt: '2026-06-03T00:00:00Z' })
+  const children: Record<string, unknown[]> = {
+    root: [folder(10, '2026 마케팅 자료', null), folder(12, '보관함', null)],
+    '10': [folder(11, '분기 보고서', 10)],
+    '11': [],
+  }
+  await stubSpaces(page)
+  await page.route(
+    (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/items`,
+    (route) => {
+      if (route.request().method() !== 'GET') return route.fallback()
+      const fid = new URL(route.request().url()).searchParams.get('parentId') ?? 'root'
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ folders: children[fid] ?? [], files: [] }),
+      })
+    },
+  )
+  const moves = trackRequests(page, 'PATCH', '/api/v1/drive/folders/12/move')
+  await page.route(
+    (url) => url.pathname === '/api/v1/drive/folders/12/move',
+    (route) => route.fulfill({ status: 204 }),
+  )
+
+  await page.goto(`/drive/spaces/${SPACE_ID}`)
+  const row = page.getByRole('listitem').filter({ hasText: '보관함' })
+  await row.hover()
+  await row.getByRole('button', { name: '이동' }).click()
+  const picker = page.getByTestId('folder-picker')
+  const path = picker.getByTestId('folder-picker-path')
+
+  await picker.getByRole('button', { name: '2026 마케팅 자료' }).click()
+  await picker.getByRole('button', { name: '분기 보고서' }).click()
+  await expect(path).toHaveText('루트/2026 마케팅 자료/분기 보고서')
+
+  // 중간 단계로 돌아가 거기로 확정 → targetParentId 10
+  await path.getByRole('button', { name: '2026 마케팅 자료' }).click()
+  await expect(path).toHaveText('루트/2026 마케팅 자료')
+  await picker.getByTestId('folder-picker-confirm').click()
+  await expect.poll(() => moves.requests().length).toBe(1)
+  expect(moves.requests()[0].postDataJSON()).toEqual({ targetParentId: 10 })
+})
