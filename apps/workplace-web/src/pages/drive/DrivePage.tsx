@@ -1739,7 +1739,9 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
           actions={rowSheet ? rowActionsFor(rowSheet) : []}
           testId="drive-row-sheet"
         />
-        {shareFile && <ShareLinkModal file={shareFile} onClose={() => setShareFile(null)} />}
+        {shareFile && (
+          <ShareLinkModal file={shareFile} archived={!!space?.archived} onClose={() => setShareFile(null)} />
+        )}
         {/* 파일 이름 변경(WP-335) — 확장자 앞까지만 선택해 바로 타이핑하면 이름만 바뀐다(확장자도 직접 고칠 수 있음).
             실패(이름 중복 409 등)는 다이얼로그를 유지한 채 인라인으로 보인다. */}
         <RenameDialog

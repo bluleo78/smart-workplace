@@ -545,3 +545,54 @@ test('공개 랜딩 — 브랜드/홈 링크로 앱 복귀 가능', async ({ pag
   await expect(homeLink).toBeVisible()
   await expect(homeLink).toHaveAttribute('href', '/')
 })
+
+// ── 보관 공간(WP-527) — 공유 창은 생성 폼 대신 안내, 기존 링크는 보이고 폐기된다 ──
+test('보관된 공간의 공유 창은 새 링크 생성 대신 안내를 보이고 기존 링크를 폐기할 수 있다', async ({ authenticatedPage: page }) => {
+  let links: ShareLink[] = [
+    { id: 7, audience: 'EXTERNAL', hasPassword: false, expiresAt: null, revoked: false, createdAt: '2026-10-19T00:00:00Z', createdBy: 1 },
+  ]
+  const posts = trackRequests(page, 'POST', `/api/v1/drive/files/${FILE_ID}/share-links`)
+  const deletes = trackRequests(page, 'DELETE', '/api/v1/drive/share-links/7')
+  await page.route(
+    (url) => url.pathname === `/api/v1/drive/files/${FILE_ID}/share-links`,
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(links) })
+        : route.fallback(),
+  )
+  await page.route(
+    (url) => url.pathname === '/api/v1/drive/share-links/7',
+    (route) => {
+      links = links.map((l) => ({ ...l, revoked: true }))
+      return route.fulfill({ status: 204 })
+    },
+  )
+  await stubSpaces(page)
+  await page.route(
+    (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}`,
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(createSpace({ id: SPACE_ID, archived: true })),
+          })
+        : route.fallback(),
+  )
+  await stubItems(page)
+
+  await page.goto(`/drive/spaces/${SPACE_ID}`)
+  const fileRow = page.getByRole('listitem').filter({ hasText: 'report.txt' })
+  await fileRow.hover()
+  await fileRow.getByTestId('share-link-btn').click()
+
+  const modal = page.getByTestId('share-link-modal')
+  await expect(modal.getByTestId('share-link-archived-notice')).toBeVisible()
+  await expect(modal.getByTestId('share-link-create-btn')).toHaveCount(0)
+  await expect(modal.getByTestId('share-link-item')).toHaveCount(1)
+
+  await modal.getByTestId('share-link-revoke-btn').click()
+  await expect(modal.getByText('폐기됨')).toBeVisible()
+  expect(deletes.requests()).toHaveLength(1)
+  expect(posts.requests()).toHaveLength(0)
+})

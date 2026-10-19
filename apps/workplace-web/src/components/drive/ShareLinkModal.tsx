@@ -34,6 +34,8 @@ import type { DriveFile } from '@/types/drive';
 
 interface ShareLinkModalProps {
   file: DriveFile;
+  /** 보관된 공간(읽기 전용) — 새 링크는 만들 수 없고 기존 링크 확인·폐기만 한다(WP-527). */
+  archived?: boolean;
   onClose: () => void;
 }
 
@@ -49,7 +51,7 @@ function isExpired(iso: string | null): boolean {
   return iso != null && new Date(iso) < new Date();
 }
 
-export function ShareLinkModal({ file, onClose }: ShareLinkModalProps) {
+export function ShareLinkModal({ file, archived = false, onClose }: ShareLinkModalProps) {
   // 폼 상태 — 가시성(기본 외부), 비밀번호(선택), 만료일(선택)
   const [audience, setAudience] = useState<'EXTERNAL' | 'INTERNAL'>('EXTERNAL');
   const [password, setPassword] = useState('');
@@ -60,6 +62,8 @@ export function ShareLinkModal({ file, onClose }: ShareLinkModalProps) {
 
   // 기존 링크 목록
   const [links, setLinks] = useState<ShareLink[]>([]);
+  // 목록 조회 실패 — 링크가 있는데 「없음」처럼 보이지 않게 안내한다(WP-527).
+  const [listFailed, setListFailed] = useState(false);
 
   // 진행 중 플래그
   const [creating, setCreating] = useState(false);
@@ -74,7 +78,7 @@ export function ShareLinkModal({ file, onClose }: ShareLinkModalProps) {
   useEffect(() => {
     void listShareLinks(file.id)
       .then(setLinks)
-      .catch(() => {/* 목록 로드 실패는 무음 처리 */});
+      .catch(() => setListFailed(true));
   }, [file.id]);
 
   /** 공유 링크 생성 */
@@ -156,7 +160,16 @@ export function ShareLinkModal({ file, onClose }: ShareLinkModalProps) {
           <DialogDescription className="sr-only">{file.name} 공유 링크 관리</DialogDescription>
         </DialogHeader>
 
-        {/* ── 링크 생성 폼 ── */}
+        {/* ── 보관 공간: 생성 폼 대신 안내(WP-527) — 누르면 내부 id 가 담긴 403 토스트만 뜨던 경로 ── */}
+        {archived ? (
+          <p
+            className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground"
+            data-testid="share-link-archived-notice"
+          >
+            보관된 공간이라 새 링크를 만들 수 없습니다. 기존 링크는 확인하고 폐기할 수 있습니다.
+          </p>
+        ) : (
+        /* ── 링크 생성 폼 ── */
         <div className="space-y-4">
           {/* 가시성 라디오 */}
           <div className="space-y-2">
@@ -236,6 +249,7 @@ export function ShareLinkModal({ file, onClose }: ShareLinkModalProps) {
             {creating ? '생성 중...' : '링크 생성'}
           </Button>
         </div>
+        )}
 
         {/* ── 생성 직후 URL 1회 표시 ── */}
         {created && (
@@ -261,6 +275,12 @@ export function ShareLinkModal({ file, onClose }: ShareLinkModalProps) {
               </Button>
             </div>
           </div>
+        )}
+
+        {listFailed && (
+          <p className="text-xs text-destructive" data-testid="share-link-list-error">
+            기존 링크를 불러오지 못했습니다. 잠시 후 다시 열어 주세요.
+          </p>
         )}
 
         {/* ── 기존 링크 목록 ── */}
