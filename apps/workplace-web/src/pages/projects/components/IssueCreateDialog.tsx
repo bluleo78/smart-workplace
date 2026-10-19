@@ -13,6 +13,7 @@ import { useIsMobile } from '@/hooks/useIsMobile';
 import { AiClassifyButton } from '../../../components/issue/AiClassifyButton';
 import { IssueBodyImageButton } from '../../../components/issue/IssueBodyImageButton';
 import { getIssueTypeLabel } from '../../../lib/issueTypeLabels';
+import type { IssueStatus } from '../../../types/issue';
 import { useIssueCreateForm } from '../hooks/useIssueCreateForm';
 import { MobileIssueCreateSheet } from './mobile/MobileIssueCreateSheet';
 
@@ -20,6 +21,8 @@ type Props = {
   projectKey: string; open: boolean; onOpenChange: (v: boolean) => void; personal?: boolean;
   // 유형 기본값 오버라이드 — 에픽 패널 「＋ 에픽 만들기」가 EPIC id 를 넘긴다. 미지정 시 기존 TASK 기본.
   initialTypeId?: number;
+  // 처음 상태(WP-464) — 보드 컬럼의 「이슈 추가」가 그 컬럼 상태를 넘긴다.
+  initialStatus?: IssueStatus;
 };
 
 // 새 이슈 생성 진입점 — 모바일(<1024px)은 전체 화면 시트(WP-196), 데스크톱은 기존 모달.
@@ -33,8 +36,8 @@ export function IssueCreateDialog(props: Props) {
 // 유형 select 의 기본값은 프로젝트 유형 목록에서 name === 'TASK' 인 id (없으면 첫 번째).
 // personal=true 면 개인 프로젝트(#226) — 유형 select 를 숨긴다. 기본값 effect 가 typeId 를 TASK 로
 // 채우므로 셀렉트가 없어도 payload 의 typeId 는 TASK 로 유지된다.
-function DesktopIssueCreateDialog({ projectKey, open, onOpenChange, personal = false, initialTypeId }: Props) {
-  const f = useIssueCreateForm({ projectKey, open, onOpenChange, initialTypeId });
+function DesktopIssueCreateDialog({ projectKey, open, onOpenChange, personal = false, initialTypeId, initialStatus }: Props) {
+  const f = useIssueCreateForm({ projectKey, open, onOpenChange, initialTypeId, initialStatus });
   const { register, watch, setValue, formState: { errors } } = f.form;
   const { types, images, bodyField, bodyRef, classify, classifyReason, isSubtaskSelected, intakeOnly } = f;
   const currentTypeId = watch('typeId');
@@ -45,6 +48,10 @@ function DesktopIssueCreateDialog({ projectKey, open, onOpenChange, personal = f
         {/* 유형 드롭다운(에픽/버그/스토리 등)과 무관한 중립 문구로 통일 — 유형별 동적 제목보다 단순하고 확장에 안전 (#641) */}
         <DialogHeader><DialogTitle>새 이슈</DialogTitle><DialogDescription className="sr-only">새 이슈</DialogDescription></DialogHeader>
         <form onSubmit={f.onSubmit} className="space-y-4">
+          {/* 보드 컬럼에서 연 경우 그 상태로 만들어진다는 것을 알린다(WP-464). */}
+          {f.statusNote && (
+            <p className="text-sm text-muted-foreground" data-testid="create-status-note">상태: {f.statusNote}</p>
+          )}
           {/* 제목 — 필수 필드: FormField required 로 붉은 별표 표시 (캘린더 EventDialog 동일 패턴) */}
           <FormField label="제목" htmlFor="issue-title" required error={errors.title?.message}>
             <Input id="issue-title" {...register('title')} />

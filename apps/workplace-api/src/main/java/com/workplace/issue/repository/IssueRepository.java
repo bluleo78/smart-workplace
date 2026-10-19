@@ -207,18 +207,58 @@ public class IssueRepository {
       Long parentIssueId,
       LocalDate startDate,
       Long milestoneId) {
-    return dsl.insertInto(ISSUE)
-        .set(ISSUE.PROJECT_ID, projectId)
-        .set(ISSUE.NUMBER, number)
-        .set(ISSUE.TITLE, title)
-        .set(ISSUE.BODY, body)
-        .set(ISSUE.PRIORITY, priority)
-        .set(ISSUE.DUE_DATE, dueDate)
-        .set(ISSUE.START_DATE, startDate)
-        .set(ISSUE.REPORTER_ID, reporterId)
-        .set(ISSUE.TYPE_ID, typeId)
-        .set(ISSUE.PARENT_ISSUE_ID, parentIssueId)
-        .set(ISSUE.MILESTONE_ID, milestoneId)
+    return insert(
+        projectId,
+        number,
+        title,
+        body,
+        priority,
+        dueDate,
+        reporterId,
+        typeId,
+        parentIssueId,
+        startDate,
+        milestoneId,
+        null);
+  }
+
+  /**
+   * 처음 상태를 지정해 INSERT(WP-464 — 보드 컬럼의 「이슈 추가」). status 가 null 이면 DB default('TODO'). 종료
+   * 상태(DONE·CANCELED)면 closed_at 을 지금으로 채운다 — 상태 변경 경로의 종료 진입 규칙과 같다.
+   */
+  public IssueRow insert(
+      Long projectId,
+      int number,
+      String title,
+      String body,
+      String priority,
+      LocalDate dueDate,
+      Long reporterId,
+      Long typeId,
+      Long parentIssueId,
+      LocalDate startDate,
+      Long milestoneId,
+      String status) {
+    var insert =
+        dsl.insertInto(ISSUE)
+            .set(ISSUE.PROJECT_ID, projectId)
+            .set(ISSUE.NUMBER, number)
+            .set(ISSUE.TITLE, title)
+            .set(ISSUE.BODY, body)
+            .set(ISSUE.PRIORITY, priority)
+            .set(ISSUE.DUE_DATE, dueDate)
+            .set(ISSUE.START_DATE, startDate)
+            .set(ISSUE.REPORTER_ID, reporterId)
+            .set(ISSUE.TYPE_ID, typeId)
+            .set(ISSUE.PARENT_ISSUE_ID, parentIssueId)
+            .set(ISSUE.MILESTONE_ID, milestoneId);
+    if (status != null) {
+      insert = insert.set(ISSUE.STATUS, status);
+      if (com.workplace.issue.dto.IssueStatuses.CLOSED.contains(status)) {
+        insert = insert.set(ISSUE.CLOSED_AT, OffsetDateTime.now());
+      }
+    }
+    return insert
         .returning(ROW_FIELDS)
         .fetchOptional()
         .map(this::mapToRow)

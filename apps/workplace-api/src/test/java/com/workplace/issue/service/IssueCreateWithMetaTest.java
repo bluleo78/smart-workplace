@@ -266,6 +266,38 @@ class IssueCreateWithMetaTest extends IntegrationTestBase {
         .fetchOne(ISSUE_TYPE_DEF.ID);
   }
 
+  /** 처음 상태만 지정한 생성 요청(WP-464). */
+  private static CreateIssueRequest withStatus(String title, String status) {
+    return new CreateIssueRequest(
+        title, null, null, null, null, null, null, null, null, null, null, null, null, status);
+  }
+
+  /** WP-464 — 보드 컬럼의 「이슈 추가」처럼 처음 상태를 지정해 만든다. 종료 상태면 closed_at 도 채운다. 미지정은 할 일. */
+  @Test
+  void create_withStatus_setsInitialStatusAndClosedAt() {
+    var inProgress = issueService.create(ownerId, projectKey, withStatus("a", "IN_PROGRESS"));
+    var done = issueService.create(ownerId, projectKey, withStatus("b", "DONE"));
+    var plain = issueService.create(ownerId, projectKey, withStatus("c", null));
+
+    assertThat(inProgress.status()).isEqualTo("IN_PROGRESS");
+    assertThat(done.status()).isEqualTo("DONE");
+    assertThat(plain.status()).isEqualTo("TODO");
+    assertThat(issueRepository.findById(inProgress.id()).orElseThrow().closedAt()).isNull();
+    assertThat(issueRepository.findById(done.id()).orElseThrow().closedAt()).isNotNull();
+  }
+
+  /** WP-464 — 처음 상태도 상태 변경처럼 멤버 전용: OPEN 비멤버는 할 일 외 상태를 지정할 수 없다(WP-477 규칙). */
+  @Test
+  void create_openProjectNonMember_withStatus_isDenied() {
+    var s = OpenScenario.create(dsl, issueTypeService, issueRepository, sequenceRepository, 1L);
+
+    assertThatThrownBy(
+            () -> issueService.create(s.strangerId(), s.projectKey(), withStatus("x", "DONE")))
+        .isInstanceOf(ProjectAccessDeniedException.class);
+    assertThat(issueService.create(s.strangerId(), s.projectKey(), withStatus("y", "TODO")))
+        .isNotNull();
+  }
+
   /** 같은 id 를 두 번 줘도 한 번만 붙는다(소속 검증의 개수 비교가 어긋나지 않는다). */
   @Test
   void create_duplicateLabelIds_attachOnce() {

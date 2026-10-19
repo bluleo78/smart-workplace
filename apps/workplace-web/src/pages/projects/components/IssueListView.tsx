@@ -142,7 +142,7 @@ export function IssueListView({
           </p>
         </div>
         {onOpenCreate && (
-          <Button size="sm" onClick={onOpenCreate} data-testid="empty-create-issue">
+          <Button size="sm" onClick={() => onOpenCreate()} data-testid="empty-create-issue">
             새 태스크 만들기
           </Button>
         )}

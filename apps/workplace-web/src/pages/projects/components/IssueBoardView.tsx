@@ -60,7 +60,7 @@ function IssueBoardViewInner({
   // 유형 아이콘 표시(기본 true). 개인 보드는 TASK 고정이라 false 로 숨김.
   showType?: boolean;
   // 빈 컬럼 CTA — "이슈 추가" 버튼 클릭 시 이슈 생성 다이얼로그를 여는 콜백.
-  onOpenCreate?: () => void;
+  onOpenCreate?: (status?: IssueStatus) => void;
   // 서버 플래그 — 상태 drag-to-change 허용 여부(멤버만). false 이면 DnD 이벤트를 무시한다.
   canDragStatus?: boolean;
   // 길게 누르기 액션(상태·에픽) 권한 — 미지정 시 canDragStatus 와 같다(개인 보드).
@@ -331,7 +331,7 @@ function BoardColumn({
   // 유형 아이콘 표시(기본 true). 개인 보드는 TASK 고정이라 false 로 숨김.
   showType?: boolean;
   // 빈 컬럼 CTA 콜백 — 제공 시 "이슈 추가" 버튼 표시.
-  onOpenCreate?: () => void;
+  onOpenCreate?: (status?: IssueStatus) => void;
   // 비멤버는 카드 드래그 차단.
   dragDisabled?: boolean;
   onLongPress?: (issue: IssueResponse) => void;
@@ -372,7 +372,8 @@ function BoardColumn({
               <p className="text-xs text-muted-foreground">드래그하거나 새 이슈를 추가하세요</p>
             </div>
             {onOpenCreate && (
-              <Button size="sm" variant="ghost" onClick={onOpenCreate} data-testid={`board-col-add-${status}`}>
+              // 컬럼 상태로 만든다(WP-464) — 예전엔 상태 없이 열려 어느 컬럼에서 눌러도 할 일로 만들어졌다.
+              <Button size="sm" variant="ghost" onClick={() => onOpenCreate(status as IssueStatus)} data-testid={`board-col-add-${status}`}>
                 <Plus className="h-4 w-4" />
                 이슈 추가
               </Button>
@@ -406,13 +407,13 @@ function ColumnLoadMore({ status, query }: { status: string; query: BoardColumnQ
 
 // 모바일 보드 빈 상태(WP-195) — 상태 컬럼·그룹 보드 탭이 같은 모양을 쓰도록 통일.
 // 추가 버튼은 터치 타깃 44px(h-11) 확보, onOpenCreate 가 있을 때만 노출.
-function MobileBoardEmpty({ status, onOpenCreate }: { status: string; onOpenCreate?: () => void }) {
+function MobileBoardEmpty({ status, onOpenCreate }: { status: string; onOpenCreate?: (status?: IssueStatus) => void }) {
   return (
     <div className="flex flex-col items-center justify-center gap-3 py-12 text-center" data-testid={`board-col-empty-${status}`}>
       <Inbox className="h-8 w-8 text-muted-foreground/50" aria-hidden="true" />
       <p className="text-sm font-medium text-muted-foreground">이슈 없음</p>
       {onOpenCreate && (
-        <Button size="sm" variant="ghost" className="h-11 px-4" onClick={onOpenCreate} data-testid={`board-col-add-${status}`}>
+        <Button size="sm" variant="ghost" className="h-11 px-4" onClick={() => onOpenCreate(status as IssueStatus)} data-testid={`board-col-add-${status}`}>
           <Plus className="h-4 w-4" />
           이슈 추가
         </Button>
@@ -438,7 +439,7 @@ function MobileStatusColumn({
   projectKey: string;
   cardTo?: (issue: IssueResponse) => string;
   showType: boolean;
-  onOpenCreate?: () => void;
+  onOpenCreate?: (status?: IssueStatus) => void;
   onLongPress?: (issue: IssueResponse) => void;
 }) {
   // 첫 페이지 응답 전에는 빈 상태를 띄우지 않는다(「이슈 없음」 깜빡임 방지).
@@ -478,7 +479,7 @@ function MobileGroupedColumn({
   projectKey: string;
   cardTo?: (issue: IssueResponse) => string;
   showType: boolean;
-  onOpenCreate?: () => void;
+  onOpenCreate?: (status?: IssueStatus) => void;
   onLongPress?: (issue: IssueResponse) => void;
 }) {
   return (
@@ -521,7 +522,7 @@ function ReadOnlyColumn({
   // 유형 아이콘 표시(기본 true). 개인 보드는 TASK 고정이라 false 로 숨김.
   showType?: boolean;
   // 빈 컬럼 CTA 콜백 — 제공 시 "이슈 추가" 버튼 표시.
-  onOpenCreate?: () => void;
+  onOpenCreate?: (status?: IssueStatus) => void;
   // 비멤버는 카드 드래그 차단.
   dragDisabled?: boolean;
   onLongPress?: (issue: IssueResponse) => void;
@@ -547,8 +548,9 @@ function ReadOnlyColumn({
             <p className="text-sm font-medium text-muted-foreground">이슈 없음</p>
             <p className="text-xs text-muted-foreground">드래그하거나 새 이슈를 추가하세요</p>
           </div>
+          {/* 그룹(담당자·우선순위) 컬럼은 상태가 아니라 기본(할 일)으로 만든다. */}
           {onOpenCreate && (
-            <Button size="sm" variant="ghost" onClick={onOpenCreate} data-testid={`board-col-add-${group.key}`}>
+            <Button size="sm" variant="ghost" onClick={() => onOpenCreate()} data-testid={`board-col-add-${group.key}`}>
               <Plus className="h-4 w-4" />
               이슈 추가
             </Button>

@@ -17,14 +17,15 @@ import { useSingleLineEnter } from '@/hooks/useSingleLineEnter';
 import { normalizeSingleLineInput } from '@/lib/singleLine';
 
 import { formatDateMonthDay } from '../../../../lib/formatters';
+import type { IssueStatus } from '../../../../types/issue';
 import { useIssueCreateForm } from '../../hooks/useIssueCreateForm';
 import { HIT_EXPAND } from './chipStyles';
 import { CreateIssueChips } from './CreateIssueChips';
 
-type Props = { projectKey: string; open: boolean; onOpenChange: (v: boolean) => void; personal?: boolean; initialTypeId?: number };
+type Props = { projectKey: string; open: boolean; onOpenChange: (v: boolean) => void; personal?: boolean; initialTypeId?: number; initialStatus?: IssueStatus };
 
-export function MobileIssueCreateSheet({ projectKey, open, onOpenChange, personal = false, initialTypeId }: Props) {
-  const f = useIssueCreateForm({ projectKey, open, onOpenChange, initialTypeId });
+export function MobileIssueCreateSheet({ projectKey, open, onOpenChange, personal = false, initialTypeId, initialStatus }: Props) {
+  const f = useIssueCreateForm({ projectKey, open, onOpenChange, initialTypeId, initialStatus });
   const { register, watch, formState: { errors } } = f.form;
   const { bodyRef, bodyField } = f;
   const [confirmDiscard, setConfirmDiscard] = useState(false);
@@ -126,6 +127,8 @@ export function MobileIssueCreateSheet({ projectKey, open, onOpenChange, persona
                   {errors.parentNumber && <p className="text-sm text-destructive">{errors.parentNumber.message}</p>}
                 </div>
               )}
+              {/* 보드 컬럼에서 연 경우 그 상태로 만들어진다는 것을 알린다(WP-464). */}
+              {f.statusNote && <p className="text-sm text-muted-foreground" data-testid="create-status-note">상태: {f.statusNote}</p>}
               {startDate && <p className="text-sm text-muted-foreground">시작일 {formatDateMonthDay(startDate)}</p>}
               {errors.startDate && <p className="text-sm text-destructive">{errors.startDate.message}</p>}
               {f.classifyReason && <p data-testid="create-ai-reason" className="line-clamp-2 text-xs text-muted-foreground">✦ {f.classifyReason}</p>}

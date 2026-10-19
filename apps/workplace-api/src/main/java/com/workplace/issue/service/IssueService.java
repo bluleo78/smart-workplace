@@ -140,7 +140,8 @@ public class IssueService {
             typeId,
             parentIssueId,
             req.startDate(),
-            plan.milestoneId());
+            plan.milestoneId(),
+            req.status());
     // INSERT RETURNING 은 마일스톤 이름(서브쿼리 컬럼)을 돌려주지 않는다 — 마일스톤을 지정했을 때만 다시 읽어 응답에 이름을 싣는다(WP-356).
     if (plan.milestoneId() != null) {
       row = issueRepository.findById(row.id()).orElseThrow();
@@ -332,9 +333,11 @@ public class IssueService {
         labelNames);
   }
 
-  /** 요청이 기본값이 아닌 멤버 전용 값(우선순위≠MID·날짜·담당자·유형≠TASK·부모)을 지정했는지 — WP-477 비멤버 생성 검사. */
+  /** 요청이 기본값이 아닌 멤버 전용 값(우선순위≠MID·상태≠TODO·날짜·담당자·유형≠TASK·부모)을 지정했는지 — WP-477 비멤버 생성 검사. */
   private boolean specifiesMemberOnlyFields(ProjectRow project, CreateIssueRequest req) {
     if (req.priority() != null && !"MID".equals(req.priority())) return true;
+    // 처음 상태(WP-464)도 상태 변경처럼 멤버 전용 — 할 일은 기본값과 같다.
+    if (req.status() != null && !"TODO".equals(req.status())) return true;
     if (req.startDate() != null || req.dueDate() != null || req.parentNumber() != null) return true;
     if (req.assigneeIds() != null && !req.assigneeIds().isEmpty()) return true;
     return req.typeId() != null

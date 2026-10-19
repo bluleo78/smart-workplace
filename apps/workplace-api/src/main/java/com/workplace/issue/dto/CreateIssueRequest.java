@@ -17,6 +17,9 @@ import java.util.List;
  * 생성 뒤 따로 클레임하면 그 클레임이 작업 쓰기라 담당 AI 작업을 시작해 버려서 생성 요청 안에 둔다. 한 요청은 10개까지(400), 이슈당 한도(10개)를 넘으면
  * 409.
  *
+ * <p>WP-464: status 는 처음 상태(미지정이면 할 일) — 보드 컬럼의 「이슈 추가」가 그 컬럼 상태로 만든다. 종료 상태면 closed_at 도 함께 채운다. 할
+ * 일이 아닌 상태 지정은 멤버 전용(WP-477 — 상태 변경이 멤버 전용이라 생성이 우회로가 되면 안 된다).
+ *
  * <p>WP-394: labelNames 는 이름으로 붙일 라벨 — 프로젝트에 없는 이름은 같은 트랜잭션에서 기본 색으로 만들어 붙인다(labelIds 와 합친다).
  */
 public record CreateIssueRequest(
@@ -32,7 +35,40 @@ public record CreateIssueRequest(
     Long milestoneId,
     List<Long> cycleIds,
     List<String> labelNames,
-    @Size(max = 10) List<Long> fileIds) {
+    @Size(max = 10) List<Long> fileIds,
+    @Pattern(regexp = "TODO|IN_PROGRESS|DONE|CANCELED") String status) {
+
+  /** WP-464 이전의 13-인자 호환 생성자 — 상태 없이(할 일) 만든다. */
+  public CreateIssueRequest(
+      String title,
+      String body,
+      String priority,
+      LocalDate dueDate,
+      List<Long> assigneeIds,
+      Long typeId,
+      Integer parentNumber,
+      LocalDate startDate,
+      List<Long> labelIds,
+      Long milestoneId,
+      List<Long> cycleIds,
+      List<String> labelNames,
+      List<Long> fileIds) {
+    this(
+        title,
+        body,
+        priority,
+        dueDate,
+        assigneeIds,
+        typeId,
+        parentNumber,
+        startDate,
+        labelIds,
+        milestoneId,
+        cycleIds,
+        labelNames,
+        fileIds,
+        null);
+  }
 
   /** WP-422 이전의 12-인자 호환 생성자 — 첨부(fileIds) 없이 만든다. 기존 호출부(JSON 역직렬화는 정식 생성자)가 그대로 쓴다. */
   public CreateIssueRequest(

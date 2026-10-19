@@ -795,6 +795,46 @@ test.describe('태스크 보드/검색', () => {
     await expect(page.getByRole('dialog')).toBeVisible();
   });
 
+  test('빈 컬럼의 「이슈 추가」는 그 컬럼 상태로 만든다 — 헤더 「+ 새 태스크」는 상태 없이 (WP-464)', async ({
+    authenticatedPage: page,
+  }) => {
+    // 왜: 컬럼 CTA 가 상태 없이 다이얼로그를 열어 「완료」 컬럼에서 눌러도 할 일로 만들어졌다.
+    await stubProjectMeta(page);
+    await routeIssueSearch(page, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createIssueSearchResponse([])) }),
+    );
+    const posted: Record<string, unknown>[] = [];
+    await page.route(
+      (url) => url.pathname === ISSUES_PATH,
+      async (route) => {
+        if (route.request().method() !== 'POST') return route.fallback();
+        posted.push(route.request().postDataJSON() as Record<string, unknown>);
+        await route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify(createIssue({ id: 9, number: 9, title: '새 이슈', status: 'DONE' })),
+        });
+      },
+    );
+    await page.goto(`/projects/${PROJECT_KEY}?view=board`);
+
+    await page.getByTestId('board-col-add-DONE').click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.getByTestId('create-status-note')).toHaveText('상태: 완료');
+    await dialog.getByLabel('제목').fill('완료로 만든 이슈');
+    await dialog.getByRole('button', { name: '생성' }).click();
+    await expect.poll(() => posted[0]?.status).toBe('DONE');
+    await expect(dialog).toBeHidden();
+
+    // 헤더 버튼은 기본(할 일) — 앞서 고른 컬럼 상태가 남지 않는다.
+    await page.getByRole('button', { name: '+ 새 태스크' }).click();
+    await expect(page.getByRole('dialog').getByTestId('create-status-note')).toHaveCount(0);
+    await page.getByRole('dialog').getByLabel('제목').fill('기본 이슈');
+    await page.getByRole('dialog').getByRole('button', { name: '생성' }).click();
+    await expect.poll(() => posted.length).toBe(2);
+    expect(posted[1]).not.toHaveProperty('status');
+  });
+
   // #875 — 보드는 컬럼마다 status 로 좁힌 독립 쿼리를 쓰고, 컬럼 끝까지 스크롤하면 그 컬럼의 다음 페이지를 받는다.
   // 왜: 단일 쿼리 100건×2페이지 상한이라 200건을 넘는 프로젝트에서 카드가 안내 없이 누락됐다.
   test('보드 컬럼별 무한 스크롤 — TODO 컬럼 끝에서 다음 페이지를 cursor+status=TODO 로 로드 (#875)', async ({

@@ -225,6 +225,8 @@ export interface CreateIssueRequest {
   parentNumber?: number | null;
   // 타임라인 간트 뷰 시작일 (#620).
   startDate?: string;
+  // 처음 상태(WP-464) — 보드 컬럼의 「이슈 추가」가 그 컬럼 상태로 만든다. 생략 시 할 일. 할 일 외 지정은 멤버 전용.
+  status?: IssueStatus;
 }
 
 export interface UpdateIssueRequest {

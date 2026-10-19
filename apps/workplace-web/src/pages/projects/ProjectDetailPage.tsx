@@ -22,6 +22,7 @@ import { useIssueGroupBy } from '../../hooks/useIssueGroupBy';
 import { buildIssueListContext } from '../../lib/aiScreenContext/builders/issue';
 import { parseFilters, parseView, toClientGroupBy, withDefaultIssueScope } from '../../lib/issueFilters';
 import { canCreateIssueIn } from '../../lib/projectPermissions';
+import type { IssueStatus } from '../../types/issue';
 import { EpicSidePanel } from './components/EpicSidePanel';
 import { IssueBoardView } from './components/IssueBoardView';
 import { IssueCreateDialog } from './components/IssueCreateDialog';
@@ -40,6 +41,12 @@ export default function ProjectDetailPage() {
   const { key = '' } = useParams();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+  // 새 이슈의 처음 상태(WP-464) — 보드 컬럼의 「이슈 추가」는 그 컬럼 상태를, 헤더 「+ 새 태스크」는 기본(할 일)을 넘긴다.
+  const [createStatus, setCreateStatus] = useState<IssueStatus | undefined>(undefined);
+  const openCreate = (status?: IssueStatus) => {
+    setCreateStatus(status);
+    setOpen(true);
+  };
   const project = useProject(key);
   const isMobile = useIsMobile();
 
@@ -85,13 +92,13 @@ export default function ProjectDetailPage() {
               <Button variant="outline">설정</Button>
             </Link>
             {canCreateIssue && (
-              <Button onClick={() => setOpen(true)}>+ 새 태스크</Button>
+              <Button onClick={() => openCreate()}>+ 새 태스크</Button>
             )}
           </>
         }
         // 모바일: 주 액션(새 태스크)만 ＋ 아이콘으로 인라인, 사이클·타임라인·설정은 ⋯ 메뉴로(U1-2).
         mobilePrimaryAction={canCreateIssue && (
-          <HeaderIconAction label="새 태스크" data-testid="mobile-new-issue" onClick={() => setOpen(true)}><Plus /></HeaderIconAction>
+          <HeaderIconAction label="새 태스크" data-testid="mobile-new-issue" onClick={() => openCreate()}><Plus /></HeaderIconAction>
         )}
         // 메뉴 항목은 링크 하나씩(포커스 한 번) — Link 안에 Button 을 중첩하지 않는다(U3-C3). 모양은 ⋯ 패널이 입힌다.
         mobileActions={
@@ -108,12 +115,12 @@ export default function ProjectDetailPage() {
       <Page.Body padded={false} className={cn('flex-col overflow-hidden', pageGutterClass, isMobile ? 'pt-1 pb-0' : 'py-6')}>
         <IssueArea
           projectKey={key}
-          onOpenCreate={canCreateIssue ? () => setOpen(true) : undefined}
+          onOpenCreate={canCreateIssue ? openCreate : undefined}
           canDragStatus={canDragStatus}
           canEdit={isMember}
         />
       </Page.Body>
-      <IssueCreateDialog projectKey={key} open={open} onOpenChange={setOpen} />
+      <IssueCreateDialog projectKey={key} open={open} onOpenChange={setOpen} initialStatus={createStatus} />
     </Page>
   );
 }
@@ -128,7 +135,7 @@ function IssueArea({
   canEdit,
 }: {
   projectKey: string;
-  onOpenCreate?: () => void;
+  onOpenCreate?: (status?: IssueStatus) => void;
   canDragStatus?: boolean;
   canEdit: boolean;
 }) {
@@ -147,7 +154,7 @@ function ProjectIssuesSection({
   canEdit,
 }: {
   projectKey: string;
-  onOpenCreate?: () => void;
+  onOpenCreate?: (status?: IssueStatus) => void;
   canDragStatus: boolean;
   // 길게 누르기 액션(상태·에픽) 권한 = 멤버 여부 — 모바일에선 canDragStatus 가 꺼져도 유지된다.
   canEdit: boolean;

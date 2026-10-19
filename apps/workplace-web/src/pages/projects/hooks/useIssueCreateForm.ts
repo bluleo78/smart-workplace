@@ -12,16 +12,20 @@ import { useUnsavedChangesWarning } from '../../../hooks/useUnsavedChangesWarnin
 import { handleApiError } from '../../../lib/api-error';
 import { resolveParentNumber } from '../../../lib/issueCreateParent';
 import { hasIssueDraftContent } from '../../../lib/issueDraft';
+import { statusLabel } from '../../../lib/issueGrouping';
 import { isIntakeOnly } from '../../../lib/projectPermissions';
 import { type CreateIssueFormData, createIssueSchema } from '../../../lib/validations/issue';
+import type { IssueStatus } from '../../../types/issue';
 
 // 이슈 생성 폼 로직 — 데스크톱 다이얼로그와 모바일 시트가 공유한다(WP-196). 렌더링은 각 컴포넌트 몫.
 export function useIssueCreateForm({
-  projectKey, open, onOpenChange, initialTypeId,
+  projectKey, open, onOpenChange, initialTypeId, initialStatus,
 }: {
   projectKey: string; open: boolean; onOpenChange: (v: boolean) => void;
   // 유형 기본값 오버라이드 — 에픽 패널 「＋ 에픽 만들기」가 EPIC id 를 넘긴다. 미지정 시 기존 TASK 기본.
   initialTypeId?: number;
+  // 처음 상태(WP-464) — 보드 컬럼의 「이슈 추가」가 그 컬럼 상태를 넘긴다. 미지정이면 할 일.
+  initialStatus?: IssueStatus;
 }) {
   const create = useCreateIssue(projectKey);
   const classify = useIssueAiClassify(projectKey);
@@ -127,6 +131,7 @@ export function useIssueCreateForm({
       startDate: data.startDate || undefined,
       body: data.body || undefined,
       typeId: data.typeId ?? undefined,
+      status: initialStatus,
       // SUBTASK=부모 태스크 번호, 일반 이슈=모바일 에픽 칩(R8, 백엔드는 일반 이슈 부모로 EPIC 만 허용), EPIC=부모 불가.
       parentNumber: resolveParentNumber({
         isSubtask: isSubtaskSelected,
@@ -146,6 +151,8 @@ export function useIssueCreateForm({
   };
 
   return {
+    // 할 일이 아닌 처음 상태면 다이얼로그에 「상태: 진행 중」처럼 보인다(접수 전용은 상태를 보내지 않으므로 없음).
+    statusNote: !intakeOnly && initialStatus && initialStatus !== 'TODO' ? statusLabel(initialStatus) : null,
     form, types, intakeOnly, selectedType, isSubtaskSelected, isEpicSelected,
     classify, classifyReason, handleClassify, images, bodyRef, bodyField,
     onSubmit: handleSubmit(submit),
