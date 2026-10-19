@@ -5,6 +5,7 @@ import { expect, test } from '../../fixtures/auth.fixture';
 import { expectTheme, textContrast, withTheme } from '../../fixtures/contrast';
 import { trackRequests } from '../../fixtures/requests';
 import { createIssue, createIssueDetail } from '../../factories/issue.factory';
+import { makeEpicType } from '../../factories/issueType.factory';
 import { createProject } from '../../factories/project.factory';
 
 const PROJECT_KEY = 'WP';
@@ -14,6 +15,7 @@ const ISSUE_NUMBER = 2;
 async function setupDeleteStubs(
   page: import('@playwright/test').Page,
   childCount = 0,
+  type?: ReturnType<typeof makeEpicType>,
 ) {
   await page.route(`**/api/v1/projects/${PROJECT_KEY}`, (route) =>
     route.fulfill({
@@ -34,7 +36,7 @@ async function setupDeleteStubs(
         contentType: 'application/json',
         body: JSON.stringify(
           createIssueDetail({
-            summary: createIssue({ id: ISSUE_NUMBER, number: ISSUE_NUMBER, title: '삭제 대상 태스크', childCount }),
+            summary: createIssue({ id: ISSUE_NUMBER, number: ISSUE_NUMBER, title: '삭제 대상 태스크', childCount, ...(type ? { type } : {}) }),
             body: '본문',
             comments: [],
             history: [],
@@ -129,6 +131,20 @@ test.describe('IssueDetailPage 삭제 확인 AlertDialog (#161)', () => {
       ).toBeVisible();
     },
   );
+
+  // WP-469 — 에픽은 「에픽 삭제」·「하위 이슈(태스크·버그 등)도 함께 삭제」로 알린다(태스크·하위 태스크 문구로는 드러나지 않았다).
+  test('에픽 삭제 확인창은 에픽 문구와 하위 이슈 경고를 보인다', async ({ authenticatedPage: page }) => {
+    await setupDeleteStubs(page, 2, makeEpicType());
+
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    await page.getByTestId('issue-delete').click();
+
+    const dialog = page.getByRole('alertdialog');
+    await expect(dialog.getByRole('heading', { name: '에픽 삭제' })).toBeVisible();
+    await expect(dialog).toContainText(
+      '이 에픽에는 하위 이슈가 2개 있습니다. 하위 이슈(태스크·버그 등)도 함께 삭제됩니다. 이 작업은 되돌릴 수 없습니다.',
+    );
+  });
 });
 
 // 채움 버튼 글자 대비(WP-322) — 다크 기본 버튼(밝은 primary 위 흰 글자 3.25:1)·라이트 삭제 버튼(밝은 빨강 위 흰 글자 3.6:1)이 AA 미달이던 회귀 방지.

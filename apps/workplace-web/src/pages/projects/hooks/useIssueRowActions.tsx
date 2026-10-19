@@ -27,6 +27,7 @@ import { useProjectMembers } from '../../../hooks/queries/useProjectMembers';
 import { useUpdateIssueStatus } from '../../../hooks/queries/useUpdateIssueStatus';
 import { epicDragBlockReason } from '../../../lib/epicDnd';
 import { bulkDeleteDescription, countCascadedChildren } from '../../../lib/issueBulkDelete';
+import { issueDeleteChildrenWarning, issueDeleteEntityName } from '../../../lib/issueDeleteText';
 import { ISSUE_PRIORITY_LABEL, ISSUE_PRIORITY_OPTIONS, ISSUE_STATUS_LABEL, ISSUE_STATUSES } from '../../../lib/issueGrouping';
 import { rowMenuItems, toggleAssigneeIds, toSummary } from '../../../lib/issueRowMenu';
 import { isProjectOwner } from '../../../lib/projectPermissions';
@@ -211,7 +212,7 @@ export function useIssueRowActions({
     <DeleteConfirmDialog
       open={pendingDelete != null}
       onOpenChange={(o) => !o && setPendingDelete(null)}
-      entityName="태스크"
+      entityName={deleteCount > 1 ? '태스크' : issueDeleteEntityName(pendingDelete?.issue.type?.name)}
       itemName={pendingDelete?.issue.title ?? ''}
       onConfirm={confirmDelete}
       description={
@@ -223,9 +224,8 @@ export function useIssueRowActions({
                 (pendingDelete?.numbers ?? []).map((n) => findIssueInSearchCache(qc, projectKey, n)),
               ),
             )
-          : deleteChildren > 0
-            ? `「${pendingDelete?.issue.title}」에는 하위 태스크가 ${deleteChildren}개 있습니다. 함께 삭제됩니다. 이 작업은 되돌릴 수 없습니다.`
-            : undefined
+          // 에픽이면 「하위 이슈(태스크·버그 등)」로 알린다(WP-469). 하위가 없으면 기본 문구.
+          : (issueDeleteChildrenWarning(pendingDelete?.issue.type?.name, deleteChildren, pendingDelete?.issue.title) ?? undefined)
       }
     />
   );

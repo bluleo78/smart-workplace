@@ -53,8 +53,10 @@ import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import { questionWork } from '../../lib/agentWork';
 import { buildIssueDetailContext } from '../../lib/aiScreenContext/builders/issue';
 import { isNotFoundError } from '../../lib/api-error';
+import { issueDeleteChildrenWarning, issueDeleteEntityName } from '../../lib/issueDeleteText';
 import { isBodyDraftDirty } from '../../lib/issueDraft';
 import { isProjectOwner } from '../../lib/projectPermissions';
+import { eulReul } from '../../lib/utils';
 import type { UpdateIssueRequest } from '../../types/issue';
 import { IssueChatButton } from './components/chat/IssueChatButton';
 import { IssueChatDrawer } from './components/chat/IssueChatDrawer';
@@ -888,11 +890,11 @@ export default function IssueDetailPage() {
       <AlertDialog open={deletePending} onOpenChange={setDeletePending}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>태스크 삭제</AlertDialogTitle>
+            {/* 에픽은 「에픽 삭제」·「하위 이슈도 함께 삭제」로 알린다(WP-469). */}
+            <AlertDialogTitle>{issueDeleteEntityName(summary.type?.name)} 삭제</AlertDialogTitle>
             <AlertDialogDescription>
-              {summary.childCount > 0
-                ? `이 태스크에는 하위 태스크가 ${summary.childCount}개 있습니다. 함께 삭제됩니다. 이 작업은 되돌릴 수 없습니다.`
-                : '이 태스크를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.'}
+              {issueDeleteChildrenWarning(summary.type?.name, summary.childCount)
+                ?? `이 ${issueDeleteEntityName(summary.type?.name)}${eulReul(issueDeleteEntityName(summary.type?.name))} 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
