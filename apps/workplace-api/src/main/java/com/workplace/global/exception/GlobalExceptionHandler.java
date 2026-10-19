@@ -100,6 +100,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
@@ -994,6 +995,16 @@ public class GlobalExceptionHandler {
    * 필수 쿼리 파라미터가 빠진 경우 500 대신 400 반환(WP-494). 예: 채널 캐치업의 {@code since} 누락. 타입 불일치와 같은 클라이언트 입력 오류라
    * 같은 형태(Validation failed + 파라미터별 메시지)로 응답한다.
    */
+  /** 필수 multipart 파트(예: 첨부 업로드의 files)가 빠진 요청 → 500 대신 400, 빠진 파트 이름을 errors 에 싣는다(WP-512). */
+  @ExceptionHandler(MissingServletRequestPartException.class)
+  public ResponseEntity<ErrorResponse> handleMissingPart(
+      MissingServletRequestPartException ex, HttpServletRequest request) {
+    Map<String, String> fieldErrors = Map.of(ex.getRequestPartName(), "필수 파라미터입니다.");
+    ErrorResponse response =
+        buildError(HttpStatus.BAD_REQUEST, "Validation failed", fieldErrors, request);
+    return ResponseEntity.badRequest().body(response);
+  }
+
   @ExceptionHandler(MissingServletRequestParameterException.class)
   public ResponseEntity<ErrorResponse> handleMissingParameter(
       MissingServletRequestParameterException ex, HttpServletRequest request) {

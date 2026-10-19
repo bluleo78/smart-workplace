@@ -161,7 +161,8 @@ public class MessageRepository {
    * Cursor 페이징. nextCursor 는 base64(epochSecond|nano|id). DESC 정렬. parent IS NULL 인 최상위 메시지만 반환.
    */
   public MessagePage findPage(long channelId, String cursor, int limit, MentionResolver resolver) {
-    int safeLimit = Math.min(limit, MAX_LIMIT);
+    // 0·음수 limit 는 subList 범위 오류(400 원문)를 냈다 — 1~MAX_LIMIT 로 맞춘다(WP-512).
+    int safeLimit = Math.clamp(limit, 1, MAX_LIMIT);
     SelectConditionStep<?> query =
         dsl.select(
                 MESSAGE.ID,
@@ -211,7 +212,8 @@ public class MessageRepository {
   /** 특정 부모 메시지의 답글 페이지. 오래된→최신(ASC) keyset. soft-deleted 답글도 마스킹해 포함. */
   public MessagePage findThreadPage(
       long parentMessageId, String cursor, int limit, MentionResolver resolver) {
-    int safeLimit = Math.min(limit, MAX_LIMIT);
+    // 0·음수 limit 는 subList 범위 오류(400 원문)를 냈다 — 1~MAX_LIMIT 로 맞춘다(WP-512).
+    int safeLimit = Math.clamp(limit, 1, MAX_LIMIT);
     SelectConditionStep<?> query =
         dsl.select(
                 MESSAGE.ID,
@@ -364,12 +366,17 @@ public class MessageRepository {
                   .getBytes(StandardCharsets.UTF_8));
     }
 
+    /** 커서 해석. 깨진 값은 base64·숫자 파싱 원문 대신 한국어 안내의 IllegalArgumentException(→ 400)으로 바꾼다(WP-512). */
     public static Cursor decode(String s) {
-      String raw = new String(Base64.getUrlDecoder().decode(s), StandardCharsets.UTF_8);
-      String[] parts = raw.split("\\|");
-      return new Cursor(
-          Instant.ofEpochSecond(Long.parseLong(parts[0]), Long.parseLong(parts[1])),
-          Long.parseLong(parts[2]));
+      try {
+        String raw = new String(Base64.getUrlDecoder().decode(s), StandardCharsets.UTF_8);
+        String[] parts = raw.split("\\|");
+        return new Cursor(
+            Instant.ofEpochSecond(Long.parseLong(parts[0]), Long.parseLong(parts[1])),
+            Long.parseLong(parts[2]));
+      } catch (RuntimeException e) {
+        throw new IllegalArgumentException("목록 위치(cursor)가 올바르지 않습니다", e);
+      }
     }
   }
 }
