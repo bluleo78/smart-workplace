@@ -192,6 +192,8 @@ export function MessageRow({
         submitLabel="저장"
         autoFocus
         disableWhenEmpty
+        // 작성 입력창과 같은 서버 상한(4000자) — 넘으면 카운터를 보이고 저장을 막는다(WP-513).
+        maxLength={4000}
         inputTestId={`message-editor-input-${m.id}`}
         submitTestId={`message-editor-save-${m.id}`}
         cancelTestId={`message-editor-cancel-${m.id}`}

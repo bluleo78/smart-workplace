@@ -462,6 +462,39 @@ test.describe('messaging Phase 4 — 멘션·수정/삭제·unread', () => {
     await expect(saveBtn).toBeDisabled()
   })
 
+  // WP-513: 수정 편집기도 작성 입력창처럼 4000자를 넘으면 카운터가 보이고 저장이 막힌다(서버 400 토스트 대신).
+  test('인라인 편집 — 4000자를 넘기면 카운터가 뜨고 저장 버튼이 비활성화된다', async ({
+    authenticatedPage: page,
+  }) => {
+    const CHANNEL_ID = 205
+    const MSG_ID = 902
+    const channel = createChannel({ id: CHANNEL_ID, name: '길이제한채널', member: true })
+    await stubChannelsList(page, [channel])
+    await stubDmsList(page)
+    await stubStream(page)
+    await stubChannelDetail(page, channel)
+    await stubMembers(page, CHANNEL_ID, [createChannelMember({ userId: ME_ID, name: '나' })])
+    await stubMessages(page, CHANNEL_ID, [
+      createMessage({ id: MSG_ID, channelId: CHANNEL_ID, authorId: ME_ID, authorName: '나', body: '원본' }),
+    ])
+    const patches = trackRequests(page, 'PATCH', `/api/v1/messaging/messages/${MSG_ID}`)
+
+    await page.goto(`/chat/channels/${CHANNEL_ID}`)
+    await page.getByTestId(`message-${MSG_ID}`).hover()
+    await page.getByTestId(`message-edit-${MSG_ID}`).click()
+    const editorInput = page.getByTestId(`message-editor-input-${MSG_ID}`)
+    await editorInput.click()
+    await page.keyboard.press('End')
+    await page.keyboard.insertText('가'.repeat(4000))
+
+    const saveBtn = page.getByTestId(`message-editor-save-${MSG_ID}`)
+    await expect(page.getByTestId(`message-editor-input-${MSG_ID}-wrap`).getByTestId('char-count')).toHaveText('4002 / 4000')
+    await expect(saveBtn).toBeDisabled()
+    // Enter 경로도 막혀 PATCH 가 나가지 않는다.
+    await page.keyboard.press('Enter')
+    await expectStays(page, patches.count, 0)
+  })
+
   // 3) unread 배지: 사이드바에 unread>0 배지 → SSE read 이벤트(본인) 로 목록 invalidate
   //    → 재조회가 unreadCount:0 반환 → 배지 사라짐.
   //    레이스 회피: SSE read 이벤트를 mount 즉시 흘리지 않고, 배지가 화면에 뜬 것을 확인한
