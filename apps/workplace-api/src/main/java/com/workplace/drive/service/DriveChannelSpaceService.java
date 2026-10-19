@@ -19,6 +19,7 @@ public class DriveChannelSpaceService implements DriveChannelSpacePort {
 
   private final DriveSpaceRepository spaces;
   private final DriveSpaceMemberRepository members;
+  private final DriveSpaceService spaceService;
 
   /** 채널 역할 → 공간 역할: OWNER→OWNER, 그 외(ADMIN/MEMBER)→EDITOR. */
   private static String mapRole(String channelRole) {
@@ -100,5 +101,13 @@ public class DriveChannelSpaceService implements DriveChannelSpacePort {
     spaces
         .findIdByLinkedChannel(channelId)
         .ifPresent(spaceId -> spaces.setArchived(spaceId, archived));
+  }
+
+  @Override
+  @Transactional
+  public void deleteChannelSpace(long channelId, long actorId) {
+    spaces
+        .findIdByLinkedChannel(channelId)
+        .ifPresent(spaceId -> spaceService.purgeSpace(spaceId, actorId));
   }
 }

@@ -73,6 +73,12 @@ public final class MessagingDomainEvents {
   /** 채널 이름 변경 — 연동 드라이브 공간 이름 동기화 소스(WP-532). name 은 바뀐 뒤 이름. */
   public record ChannelRenamedEvent(long channelId, String name, Instant occurredAt) {}
 
+  /**
+   * 채널 하드 삭제 직전 — 연동 드라이브 공간을 함께 영구 삭제하는 소스(WP-525). 채널 행이 지워지면 drive_space.linked_channel_id 가 SET
+   * NULL 로 끊겨 공간을 찾을 수 없으므로, 삭제 전에 같은 트랜잭션에서 동기 발행한다. actorId 는 삭제한 사람(변경 알림 발신자).
+   */
+  public record ChannelDeletingEvent(long channelId, long actorId, Instant occurredAt) {}
+
   /** 채널 보관 토글 — 연동 공간 읽기전용 반영 소스. */
   public record ChannelArchivedEvent(long channelId, boolean archived, Instant occurredAt) {}
 

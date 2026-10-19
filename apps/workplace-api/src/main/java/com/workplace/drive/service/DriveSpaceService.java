@@ -170,11 +170,20 @@ public class DriveSpaceService {
   public void deleteTeamSpace(long callerId, long spaceId) {
     perms.requireRole(spaceId, callerId, "OWNER");
     requireTeamSpace(spaceId);
+    purgeSpace(spaceId, callerId);
+  }
+
+  /**
+   * 공간 영구 삭제 본체(권한 확인 없음) — 파일·버전 blob 을 만료 표시(FileCleanupService 가 회수)하고 공간 행을 지운다. 파일·폴더·멤버·공유 링크
+   * 행은 cascade. 팀 공간 삭제와 채널 삭제에 따른 연동 공간 삭제(WP-525)가 같이 쓴다. 권한·유형 확인은 호출측 책임.
+   */
+  @Transactional
+  public void purgeSpace(long spaceId, long actorId) {
     // 하드삭제 cascade 로 멤버 행이 사라지므로 삭제 전에 명단을 확보한다.
     List<Long> before = members.memberUserIds(spaceId);
     files.expireFiles(files.allFileIdsInSpace(spaceId));
     files.expireFiles(versions.fileIdsForSpace(spaceId));
     spaces.deleteSpace(spaceId);
-    notifier.spaceChanged(OP_DELETED, spaceId, callerId, before);
+    notifier.spaceChanged(OP_DELETED, spaceId, actorId, before);
   }
 }

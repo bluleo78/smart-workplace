@@ -24,4 +24,10 @@ public interface DriveChannelSpacePort {
 
   /** 보관 상태 동기화 — 연동 공간이 있으면 archived 반영, 없으면 no-op. */
   void setChannelSpaceArchived(long channelId, boolean archived);
+
+  /**
+   * 채널 삭제 반영 — 연동 공간이 있으면 팀 공간 삭제와 같은 방식으로 영구 삭제(파일·버전 blob 만료 후 공간 행 삭제, 공유 링크·멤버는 cascade), 없으면
+   * no-op(WP-525). actorId 는 변경 알림 발신자.
+   */
+  void deleteChannelSpace(long channelId, long actorId);
 }

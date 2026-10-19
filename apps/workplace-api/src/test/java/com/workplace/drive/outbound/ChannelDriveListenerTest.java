@@ -7,8 +7,10 @@ import com.workplace.drive.api.DriveChannelSpacePort;
 import com.workplace.drive.api.DriveChannelSpacePort.ChannelMemberSnapshot;
 import com.workplace.drive.dto.DriveSpaceResponse;
 import com.workplace.drive.repository.DriveSpaceMemberRepository;
+import com.workplace.drive.service.DriveFileService;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.messaging.outbound.MessagingDomainEvents.ChannelArchivedEvent;
+import com.workplace.messaging.outbound.MessagingDomainEvents.ChannelDeletingEvent;
 import com.workplace.messaging.outbound.MessagingDomainEvents.ChannelMembershipChangedEvent;
 import com.workplace.messaging.outbound.MessagingDomainEvents.ChannelRenamedEvent;
 import com.workplace.support.IntegrationTestBase;
@@ -21,6 +23,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.transaction.annotation.Transactional;
 
 /** 채널 이벤트 → drive 연동 공간 투영 리스너. */
@@ -31,6 +34,7 @@ class ChannelDriveListenerTest extends IntegrationTestBase {
   @Autowired DriveChannelSpacePort port;
   @Autowired DriveSpaceMemberRepository members;
   @Autowired ApplicationEventPublisher publisher;
+  @Autowired DriveFileService fileService;
 
   @BeforeEach
   void setTenant() {
@@ -134,5 +138,45 @@ class ChannelDriveListenerTest extends IntegrationTestBase {
             owner, channelId, "지금이름", List.of(new ChannelMemberSnapshot(owner, "OWNER")));
 
     assertThat(after.name()).isEqualTo("지금이름");
+  }
+
+  // WP-525 — 채널을 삭제하면 연동 공간도 팀 공간 삭제처럼 함께 영구 삭제된다(파일 행 cascade·blob 만료). 전에는 연결만 끊긴 채
+  // 남아 예전 멤버가 계속 읽고 쓰고 외부 공유 링크도 살아 있었다.
+  @Test
+  void deletingEvent_hardDeletesLinkedSpaceAndExpiresBlobs() throws Exception {
+    long owner = seedUser();
+    long channelId = seedChannel(owner);
+    DriveSpaceResponse sp =
+        port.ensureChannelSpace(
+            owner, channelId, "채널", List.of(new ChannelMemberSnapshot(owner, "OWNER")));
+    var f =
+        fileService.upload(
+            owner,
+            sp.id(),
+            null,
+            new MockMultipartFile("file", "회의록.txt", "text/plain", "hello".getBytes()));
+
+    publisher.publishEvent(new ChannelDeletingEvent(channelId, owner, Instant.now()));
+
+    assertThat(
+            dsl.fetchExists(
+                dsl.selectOne()
+                    .from(com.workplace.jooq.Tables.DRIVE_SPACE)
+                    .where(com.workplace.jooq.Tables.DRIVE_SPACE.ID.eq(sp.id()))))
+        .isFalse();
+    assertThat(
+            dsl.select(com.workplace.jooq.Tables.FILE.EXPIRES_AT)
+                .from(com.workplace.jooq.Tables.FILE)
+                .where(com.workplace.jooq.Tables.FILE.ID.eq(f.fileId()))
+                .fetchOne(com.workplace.jooq.Tables.FILE.EXPIRES_AT))
+        .isNotNull();
+  }
+
+  // 연동 공간을 한 번도 만들지 않은 채널 삭제는 아무 일도 하지 않는다.
+  @Test
+  void deletingEvent_withoutLinkedSpace_isNoop() {
+    long owner = seedUser();
+    long channelId = seedChannel(owner);
+    publisher.publishEvent(new ChannelDeletingEvent(channelId, owner, Instant.now()));
   }
 }

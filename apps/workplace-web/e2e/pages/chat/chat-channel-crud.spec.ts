@@ -396,6 +396,8 @@ test.describe('messaging 채널 헤더·아카이브', () => {
     const confirmBtn = page.getByTestId('channel-delete-confirm')
     await expect(confirmBtn).toBeVisible()
     await expect(confirmBtn).toHaveClass(/bg-destructive/)
+    // WP-525: 연동 드라이브 공간도 함께 영구 삭제되므로 확인 문구가 그 사실을 알린다.
+    await expect(page.getByRole('alertdialog')).toContainText('채널 드라이브의 파일도 함께 삭제됩니다')
   })
 
   test('시스템 ADMIN → 채널 삭제 → /chat 이동', async ({ adminPage: page }) => {

@@ -8,6 +8,7 @@ import com.workplace.messaging.exception.ChannelNameDuplicatedException;
 import com.workplace.messaging.exception.ChannelNotFoundException;
 import com.workplace.messaging.outbound.ChannelChangeNotifier;
 import com.workplace.messaging.outbound.MessagingDomainEvents.ChannelArchivedEvent;
+import com.workplace.messaging.outbound.MessagingDomainEvents.ChannelDeletingEvent;
 import com.workplace.messaging.outbound.MessagingDomainEvents.ChannelRenamedEvent;
 import com.workplace.messaging.repository.ChannelMemberRepository;
 import com.workplace.messaging.repository.ChannelRepository;
@@ -158,6 +159,8 @@ public class ChannelService {
     // cascade 로 멤버가 사라지므로 삭제 전 명단을 확보해 추가 수신자로 넘긴다.
     List<Long> before = memberRepo.findMemberIds(channelId);
     boolean isPublic = isPublicChannel(channelId, callerId);
+    // 연동 드라이브 공간도 함께 영구 삭제(WP-525) — 채널 행을 지우면 연결이 끊겨 공간을 못 찾으므로 먼저 알린다.
+    publisher.publishEvent(new ChannelDeletingEvent(channelId, callerId, Instant.now()));
     channelRepo.hardDelete(channelId);
     changeNotifier.channelChanged(
         ResourceChangedEvent.OP_DELETED, channelId, isPublic, callerId, before);

@@ -3,6 +3,7 @@ package com.workplace.drive.outbound;
 import com.workplace.drive.api.DriveChannelSpacePort;
 import com.workplace.drive.api.DriveChannelSpacePort.ChannelMemberSnapshot;
 import com.workplace.messaging.outbound.MessagingDomainEvents.ChannelArchivedEvent;
+import com.workplace.messaging.outbound.MessagingDomainEvents.ChannelDeletingEvent;
 import com.workplace.messaging.outbound.MessagingDomainEvents.ChannelMembershipChangedEvent;
 import com.workplace.messaging.outbound.MessagingDomainEvents.ChannelRenamedEvent;
 import java.util.List;
@@ -40,6 +41,13 @@ public class ChannelDriveListener {
   @Transactional
   public void onChannelRenamed(ChannelRenamedEvent e) {
     port.renameChannelSpace(e.channelId(), e.name());
+  }
+
+  /** 채널 하드 삭제 직전 → 연동 공간 함께 영구 삭제(WP-525). */
+  @EventListener
+  @Transactional
+  public void onChannelDeleting(ChannelDeletingEvent e) {
+    port.deleteChannelSpace(e.channelId(), e.actorId());
   }
 
   /** 채널 보관 토글 → 연동 공간 읽기전용 반영. */

@@ -83,7 +83,8 @@ export function ChannelHeader({
           <AlertDialogHeader>
             <AlertDialogTitle>채널 삭제</AlertDialogTitle>
             <AlertDialogDescription>
-              채널과 모든 메시지가 영구 삭제됩니다. 되돌릴 수 없습니다.
+              {/* 연동 드라이브 공간도 함께 영구 삭제된다(WP-525) — 파일을 잃는다는 것을 미리 알린다. */}
+              채널과 모든 메시지가 영구 삭제됩니다. 채널 드라이브의 파일도 함께 삭제됩니다. 되돌릴 수 없습니다.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
