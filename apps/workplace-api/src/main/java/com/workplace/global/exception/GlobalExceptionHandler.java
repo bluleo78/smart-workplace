@@ -94,6 +94,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.util.StringUtils;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -984,6 +985,19 @@ public class GlobalExceptionHandler {
     String typeName = ex.getRequiredType() != null ? ex.getRequiredType().getSimpleName() : "올바른";
     Map<String, String> fieldErrors =
         Map.of(ex.getName(), String.format("'%s'는 %s 타입이어야 합니다.", ex.getValue(), typeName));
+    ErrorResponse response =
+        buildError(HttpStatus.BAD_REQUEST, "Validation failed", fieldErrors, request);
+    return ResponseEntity.badRequest().body(response);
+  }
+
+  /**
+   * 필수 쿼리 파라미터가 빠진 경우 500 대신 400 반환(WP-494). 예: 채널 캐치업의 {@code since} 누락. 타입 불일치와 같은 클라이언트 입력 오류라
+   * 같은 형태(Validation failed + 파라미터별 메시지)로 응답한다.
+   */
+  @ExceptionHandler(MissingServletRequestParameterException.class)
+  public ResponseEntity<ErrorResponse> handleMissingParameter(
+      MissingServletRequestParameterException ex, HttpServletRequest request) {
+    Map<String, String> fieldErrors = Map.of(ex.getParameterName(), "필수 파라미터입니다.");
     ErrorResponse response =
         buildError(HttpStatus.BAD_REQUEST, "Validation failed", fieldErrors, request);
     return ResponseEntity.badRequest().body(response);
