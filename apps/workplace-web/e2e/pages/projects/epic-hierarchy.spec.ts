@@ -206,6 +206,9 @@ test.describe('EPIC 계층', () => {
               attachmentCount: 0,
               assignees: [],
             },
+            // 멤버 시나리오 — 「에픽 연결」은 워크플로 편집 권한이 있어야 활성(WP-481).
+            viewerCanEditContent: true,
+            viewerCanEditWorkflow: true,
             body: '',
             comments: [],
             history: [],
@@ -240,6 +243,9 @@ test.describe('EPIC 계층', () => {
               attachmentCount: 0,
               assignees: [],
             },
+            // 멤버 시나리오 — 「에픽 연결」은 워크플로 편집 권한이 있어야 활성(WP-481).
+            viewerCanEditContent: true,
+            viewerCanEditWorkflow: true,
             body: '',
             comments: [],
             history: [],

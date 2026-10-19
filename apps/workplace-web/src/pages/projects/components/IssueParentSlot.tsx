@@ -16,11 +16,14 @@ export function IssueParentSlot({
   issueNumber,
   parent,
   isSubtask,
+  disabled = false,
 }: {
   projectKey: string;
   issueNumber: number;
   parent: ParentRef | null;
   isSubtask: boolean;
+  /** 워크플로 편집 권한이 없으면 「에픽 연결」·「변경」을 비활성(WP-481 — 저장하면 403 이었다). */
+  disabled?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const label = isSubtask ? '부모' : '상위 에픽';
@@ -37,12 +40,13 @@ export function IssueParentSlot({
           variant="outline"
           size="sm"
           onClick={() => setEditing((v) => !v)}
+          disabled={disabled}
           data-testid="issue-parent-edit"
         >
           {parent ? '변경' : isSubtask ? '부모 설정' : '에픽 연결'}
         </Button>
       </div>
-      {editing ? (
+      {editing && !disabled ? (
         <IssueParentPicker
           projectKey={projectKey}
           issueNumber={issueNumber}

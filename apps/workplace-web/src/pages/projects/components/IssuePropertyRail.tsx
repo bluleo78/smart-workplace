@@ -131,6 +131,7 @@ export function IssuePropertyRail({
           issueNumber={issueNumber}
           parent={parent}
           isSubtask={isSubtask}
+          disabled={!canEditWorkflow}
         />
       )}
 
@@ -229,7 +230,7 @@ export function IssuePropertyRail({
         {/* 사이클 피커 — 이슈에 연결된 사이클 조회·변경 */}
         <section data-testid="issue-cycles-section">
           <h3 className="mb-1 text-xs font-medium text-muted-foreground">사이클</h3>
-          <CyclePickerPopover projectKey={projectKey} issueNumber={issueNumber} />
+          <CyclePickerPopover projectKey={projectKey} issueNumber={issueNumber} disabled={!canEditWorkflow} />
         </section>
         {/* 마일스톤 피커 — 이슈당 단일 마일스톤 연결(#620) */}
         <section data-testid="issue-milestone-section">

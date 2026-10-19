@@ -174,6 +174,10 @@ test(
     // 삭제 버튼 미표시
     await expect(page.getByTestId('issue-delete')).not.toBeVisible();
 
+    // 사이클 편집·「에픽 연결」도 워크플로 권한이 없으면 비활성(WP-481 — 저장하면 403 이었다).
+    await expect(page.getByTestId('cycle-picker-trigger')).toBeDisabled();
+    await expect(page.getByTestId('issue-parent-edit')).toBeDisabled();
+
     // 하위 태스크 추가 칸 미표시 — 부모·유형 지정은 멤버 전용(WP-477, 서버 403)
     await expect(page.getByTestId('issue-children-section')).toBeVisible();
     await expect(page.getByTestId('child-add-form')).toHaveCount(0);

@@ -10,9 +10,12 @@ import { useCycles, useIssueCycles, useUpdateIssueCycles } from '../../hooks/que
 export function CyclePickerPopover({
   projectKey,
   issueNumber,
+  disabled = false,
 }: {
   projectKey: string;
   issueNumber: number;
+  /** 워크플로 편집 권한이 없으면 트리거를 비활성(WP-481 — OPEN 비멤버가 골라도 저장 403 이었다). */
+  disabled?: boolean;
 }) {
   const cycles = useCycles(projectKey);
   const current = useIssueCycles(projectKey, issueNumber);
@@ -57,6 +60,7 @@ export function CyclePickerPopover({
             size="sm"
             aria-label="사이클 편집"
             data-testid="cycle-picker-trigger"
+            disabled={disabled}
             className="w-full justify-start gap-2 font-normal"
           >
             <CalendarRange className="h-4 w-4 shrink-0 text-muted-foreground" /> 사이클
