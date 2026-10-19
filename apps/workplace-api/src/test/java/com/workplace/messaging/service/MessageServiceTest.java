@@ -1,11 +1,13 @@
 package com.workplace.messaging.service;
 
+import static com.workplace.jooq.Tables.CHANNEL_MEMBER;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.messaging.dto.CreateMessageRequest;
 import com.workplace.messaging.dto.MessageResponse;
+import com.workplace.messaging.dto.UpdateMessageRequest;
 import com.workplace.messaging.exception.ChannelArchivedException;
 import com.workplace.messaging.exception.ChannelNotMemberException;
 import com.workplace.messaging.repository.ChannelRepository;
@@ -68,5 +70,26 @@ class MessageServiceTest extends IntegrationTestBase {
 
     assertThatThrownBy(() -> messageService.create(uid, channelId, new CreateMessageRequest("막힘")))
         .isInstanceOf(ChannelArchivedException.class);
+  }
+
+  /**
+   * WP-493 — 채널에서 나간(내보내진) 사람은 자기 예전 메시지도 수정·삭제할 수 없다. 작성자 일치만 보면 내보낸 뒤에도 고치고, 응답으로 그 뒤의 답글·리액션
+   * 정보까지 받았다.
+   */
+  @Test
+  void updateAndDelete_byAuthorNoLongerMember_throws403() {
+    long uid = seedUser();
+    long channelId = channelRepo.insertPublic("내보냄", uid);
+    channelService.join(uid, channelId);
+    long messageId = messageService.create(uid, channelId, new CreateMessageRequest("원문")).id();
+    dsl.deleteFrom(CHANNEL_MEMBER)
+        .where(CHANNEL_MEMBER.CHANNEL_ID.eq(channelId), CHANNEL_MEMBER.USER_ID.eq(uid))
+        .execute();
+
+    assertThatThrownBy(
+            () -> messageService.update(uid, messageId, new UpdateMessageRequest("수정 시도")))
+        .isInstanceOf(ChannelNotMemberException.class);
+    assertThatThrownBy(() -> messageService.delete(uid, messageId))
+        .isInstanceOf(ChannelNotMemberException.class);
   }
 }
