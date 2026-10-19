@@ -15,6 +15,7 @@ description: Use when the user runs /genia-works:work-loop <프로젝트 키> (u
 - **하지 않는다**: push, 태그, 운영 배포, 이슈 DONE 처리. 예외는 아래 「본문 지시」가 시킨 이슈 닫기뿐이다.
 - **이슈 만들기·담당 바꾸기는 사람처럼 한다** — 내 역할 권한으로 서버가 허락하는 일이다. 일을 나누거나 다른 AI·사람에게 맡겨야 하면 이슈를 만들고 담당자를 지정하고, 찾은 결함도 이슈로 등록한다.
   - 만들기 전에 같은 범위의 이슈가 이미 있는지(닫힌 것까지) `list_issues` 로 찾고, 없을 때만 만든다.
+  - 결함 이슈에는 재현 근거(화면 캡처·오류 응답)를 첨부한다(아래 「근거 이미지·파일」).
   - **맡길 AI 는 설명을 보고 고른다** — `search_members({ kind: 'AGENT' })` 결과의 `description`(설명·역할)을 읽고 그 일에 맞는 AI 를 고른다. `agentRuntime` 이 `INTERNAL` 인 AI 는 다른 AI 가 맡겨도 시작하지 않으니 맡기지 않는다. 맞는 AI 가 없으면 AI 를 넣지 않고 사람에게 맡기거나 이슈 챗으로 묻는다.
   - **담당자를 바꿀 때는(넣든 빼든) 그 이슈에 이유를 댓글로 남긴다** — `add_comment` 로 누구를 넣고 뺐는지와 왜인지(예: 「구현을 마쳐 리뷰를 review-ai 에게 맡깁니다」). 이슈를 만들며 담당자를 정했으면 만든 이슈에 남긴다. 나 자신만 넣거나 빼는 경우는 남기지 않는다.
   - `assignees` 는 통째로 바꾸는 집합이다 — 기존 담당자를 남기려면 `get_issue_detail` 의 기존 username 을 함께 넘긴다.
@@ -30,7 +31,9 @@ description: Use when the user runs /genia-works:work-loop <프로젝트 키> (u
 - 보고 규칙(상태·note·질문·되돌리기)은 work-on 과 같다: 이 스킬 폴더 기준 `../work-on/SKILL.md` 의 4번을 읽고 따른다(하위 맡기는 3번 — 아래 3번에서 쓴다). 다만 마무리는 work-on 5번(work-done)을 따르지 않는다 — 두 가지가 다르다.
   - 끝낼 방식을 묻지 않고 DONE 처리도 하지 않는다. 다 끝나면 늘 검토 대기(REVIEW)이고, 마무리·리소스 정리는 `process-issue.md` 11번대로 한다.
   - 끝내는 상태(COMPLETED·CANCELED·REJECTED·FAILED)는 **보고하지 않는다**. 끝난 작업은 목록에 내 행이 없는 것으로 보여 새 작업으로 다시 골라지기 때문이다. 사람이 그만두라고 하면 `PAUSED` + note 에 이유, 받은 말을 `message` 한 줄로 확인한다. 할 수 없는 일이거나 시도했지만 실패했으면 `BLOCKED` + `message` 에 이유를 적는다. 본문 지시로 이슈를 닫을 때도 마찬가지다(`process-issue.md` 「본문 지시 회차」 5번).
-- **근거 이미지**(시안·스크린샷)는 워크트리를 지워도 남게 `MAIN/.work-loop/state/evidence/<이슈 키>/` 에 저장하고, 이슈 챗에는 그 경로와 각 장면에서 보이는 것을 글로 적는다(이미지는 올리지 않는다).
+- **근거 이미지·파일**(시안·스크린샷·재현 요청/응답)은 `upload_file({ name })` 로 올려 받은 `fileId` 로 **첨부한다**(work-on 4번) — 로컬 경로는 다른 환경의 사람이 열 수 없다.
+  - 이슈 자체를 설명하는 것(결함의 재현 화면·오류 응답)은 `create_issue` 의 `fileIds` 로 그 이슈에, 그 시점의 질문 시안·검토 보고의 전·후 스크린샷은 `report_agent_work` 의 `fileIds` 로 그 글에 붙인다. 같은 파일을 두 곳에 올리지 않는다. 글·본문에는 각 첨부에서 볼 것을 적는다.
+  - 첨부 때문에 보고가 거절되면(400 「유효하지 않은 첨부」 — 보고 전체가 되돌려진다) `fileIds` 를 빼고 다시 보내며 첨부하지 못했다고 적는다. 원본은 `MAIN/.work-loop/state/evidence/<이슈 키>/` 에 백업으로만 둔다.
 - **격리 라이브 스택은 늘 이름 `work-loop` 로** 띄우고 확인하고 내린다(이 저장소는 `LIVE_STACK_NAME=work-loop` — `.work-loop/project.md` 4번). 이름이 다르면 상태 파일이 갈려, 사람이 같은 스크립트로 띄운 스택을 보거나 내리게 된다. 내리는 것도 그 이름의 스택, 곧 내가 띄운 프로세스·컨테이너뿐이다.
 - **MAIN** = main 작업 폴더 = `git rev-parse --path-format=absolute --git-common-dir` 의 부모 폴더. 워크트리 안에 있어도 이 값은 같다. 실행 상태는 `MAIN/.work-loop/state/`(git 무시), 저장소 안내는 `MAIN/.work-loop/project.md` 다. 이슈마다 이어 할 기록은 notes 파일 `MAIN/.work-loop/state/notes/<이슈 키>.md` 다.
 - **플러그인 스크립트**는 이 스킬 폴더 기준 `../../scripts/` 에 있다(스킬을 불러올 때 알려 주는 기준 폴더에서 두 단계 위). 경로는 따옴표로 감싸 부른다.

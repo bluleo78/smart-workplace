@@ -49,8 +49,9 @@ function describeSkillTools(name: string, uses: Record<string, string[]>) {
 describeSkillTools('work-on', {
   get_issue_detail: ['issueKey'],
   list_issues: ['parent', 'assignee', 'pendingForMe'],
-  report_agent_work: ['issueKey', 'state', 'note', 'message', 'stepsDone', 'stepsTotal'],
+  report_agent_work: ['issueKey', 'state', 'note', 'message', 'stepsDone', 'stepsTotal', 'fileIds'],
   update_issue: ['issueKey', 'assignees'],
+  upload_file: ['name'],
   get_issue_chat: ['issueKey', 'after'],
   read_file: ['source', 'issueKey', 'messageId', 'attachmentId'],
 });
@@ -67,14 +68,16 @@ describeSkillTools('work-done', {
 // WP-376: 할당된 이슈를 하나씩 처리하는 스킬 — 신원 확인(get_member me)·후보 고르기·하위 맡기·질문과 답에 쓰는 도구.
 // WP-451: 본문 지시 회차 — 다음 회차 대기(nextRunAt), 만들기 전 찾기(reporter·createdFrom·createdTo·q), 하위·결함 만들기, 닫기(status).
 // WP-453: 담당을 바꾼 이유를 남기는 댓글(add_comment). WP-455: 맡길 AI 를 설명으로 고르는 구성원 찾기(search_members).
+// WP-516: 근거 이미지·파일을 올려(upload_file) 결함 이슈(create_issue)나 질문·보고 글(report_agent_work)에 fileIds 로 붙인다.
 describeSkillTools('work-loop', {
   get_member: ['username'],
   list_issues: ['projectKey', 'assignee', 'status', 'parent', 'pendingForMe', 'reporter', 'createdFrom', 'createdTo', 'q'],
-  report_agent_work: ['issueKey', 'state', 'note', 'message', 'stepsDone', 'stepsTotal', 'nextRunAt'],
+  report_agent_work: ['issueKey', 'state', 'note', 'message', 'stepsDone', 'stepsTotal', 'nextRunAt', 'fileIds'],
   get_issue_chat: ['issueKey', 'after'],
   update_issue: ['issueKey', 'assignees', 'status'],
   get_issue_detail: ['issueKey'],
-  create_issue: ['projectKey', 'title', 'body', 'priority', 'dueDate', 'assignees', 'parent'],
+  create_issue: ['projectKey', 'title', 'body', 'priority', 'dueDate', 'assignees', 'parent', 'fileIds'],
+  upload_file: ['name'],
   add_comment: ['issueKey', 'body'],
   search_members: ['kind'],
 });
