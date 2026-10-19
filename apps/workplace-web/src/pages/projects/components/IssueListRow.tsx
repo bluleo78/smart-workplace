@@ -70,6 +70,8 @@ export const IssueRow = memo(function IssueRow({
 }) {
   const navigate = useNavigate();
   const to = `/projects/${projectKey}/issues/${it.number}`;
+  // 행에 그릴 소속 칩 — 에픽 그룹·에픽 필터 안에선 에픽이 중복이라 숨긴다(상위 이슈는 그대로).
+  const shownParent = it.parent && !(hideEpic && isEpicParent(it)) ? it.parent : null;
   const isMobile = useIsMobile();
   // 모바일: 체크박스 대신 길게 누르기 → 액션 시트, 선택 모드에선 탭=선택 토글(이동 없음).
   // onLongPress 는 모바일에서만 호출처(useIssueRowActions)가 넘기고, selectionMode 도 모바일에서만 켜진다.
@@ -168,36 +170,56 @@ export const IssueRow = memo(function IssueRow({
             w-full max-w-0 — 자동 레이아웃 표에서 nowrap 제목의 최소 폭이 글자 폭 전체라 긴 제목이 표를 가로로 넘기던 것을 막는다
             (셀이 남은 폭에 맞춰 줄어야 안쪽 flex 의 truncate/min-w-0 가 동작, WP-194). */}
         <td className="w-full max-w-0 pr-2">
-          <div className="flex min-w-0 items-center gap-1.5 font-medium">
-            {/* 제목 = 실제 링크(키보드 포커스·스크린리더 접근점). 행 onClick 은 마우스 편의용.
-                stopPropagation 으로 링크 클릭이 행 onClick 까지 버블해 history 가 이중 push 되는 것을 막는다. */}
-            <Link
-              to={to}
-              onClick={(e) => e.stopPropagation()}
-              className="min-w-[8rem] truncate rounded hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              {it.title}
-            </Link>
-            {/* 소속(에픽/상위 이슈) 은 Jira 처럼 제목과 분리해 행 오른쪽 끝에 색상 칩으로 표시. */}
-            {it.parent && !(hideEpic && isEpicParent(it)) && (
-              <ParentChip projectKey={projectKey} parent={it.parent} issueNumber={it.number} />
-            )}
-            {/* 하위를 가진 이슈엔 진행률(└ done/total)을 표시한다. 목록에서 SUBTASK 를 숨긴 부모는
-                이 배지로 하위 존재를 알리고, 에픽은 자식이 행으로 노출되므로 롤업 진행률로 읽힌다.
-                childCount 는 유형과 무관하게 활성 자식 전체를 세므로(보드 카드와 동일 기준) 둘 다 표시된다. */}
-            <ChildProgress
-              done={it.childDoneCount}
-              total={it.childCount}
-              testId={`issue-row-${it.number}-child-progress`}
-            />
-          </div>
-          {it.labels.length > 0 && (
-            <div className="mt-1 flex flex-wrap gap-1">
-              {it.labels.map((l) => (
-                <LabelChip key={l.id} label={l} size="sm" />
-              ))}
+          {/* @container — 레이블 노출을 뷰포트가 아니라 제목 칸 폭으로 정한다(에픽 패널을 열고 닫으면 같은 창에서도 칸 폭이 바뀐다, WP-505). */}
+          <div className="@container">
+            <div className="flex min-w-0 items-center gap-1.5 font-medium">
+              {/* 제목 = 실제 링크(키보드 포커스·스크린리더 접근점). 행 onClick 은 마우스 편의용.
+                  stopPropagation 으로 링크 클릭이 행 onClick 까지 버블해 history 가 이중 push 되는 것을 막는다. */}
+              <Link
+                to={to}
+                onClick={(e) => e.stopPropagation()}
+                className="min-w-[8rem] truncate rounded hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {it.title}
+              </Link>
+              {/* 오른쪽 메타 묶음 — 레이블(최대 2 + N)·소속 칩을 제목과 한 줄에 둔다(WP-505, 아래 줄에 두면 행이 2줄).
+                  레이블은 제목 칸 ≥40rem 일 때만 보이고, 그때 묶음은 줄지 않고 제목만 말줄임한다(함께 줄면 「A…」).
+                  40rem = 6rem 레이블 둘 + N · 12rem 소속 칩 · 8rem 제목 하한 · 하위 배지가 넘치지 않는 폭. */}
+              {(shownParent || it.labels.length > 0) && (
+                <div
+                  className={cn(
+                    'flex min-w-0 shrink items-center gap-1.5 @min-[40rem]:shrink-0',
+                    // 소속 칩이 없으면 레이블이 보일 때만 오른쪽으로 민다 — 숨겨진 레이블의 빈 묶음이 하위 진행률 배지를 끝으로 밀지 않게.
+                    shownParent ? 'ml-auto' : '@min-[40rem]:ml-auto',
+                  )}
+                >
+                  {it.labels.length > 0 && (
+                    <span
+                      className="hidden items-center gap-1 @min-[40rem]:flex"
+                      title={it.labels.map((l) => l.name).join(', ')}
+                      data-testid={`issue-row-${it.number}-labels`}
+                    >
+                      {it.labels.slice(0, 2).map((l) => (
+                        <LabelChip key={l.id} label={l} size="sm" variant="outline" />
+                      ))}
+                      {it.labels.length > 2 && (
+                        <span className="text-xs font-normal text-muted-foreground">+{it.labels.length - 2}</span>
+                      )}
+                    </span>
+                  )}
+                  {shownParent && <ParentChip projectKey={projectKey} parent={shownParent} issueNumber={it.number} />}
+                </div>
+              )}
+              {/* 하위를 가진 이슈엔 진행률(└ done/total)을 표시한다. 목록에서 SUBTASK 를 숨긴 부모는
+                  이 배지로 하위 존재를 알리고, 에픽은 자식이 행으로 노출되므로 롤업 진행률로 읽힌다.
+                  childCount 는 유형과 무관하게 활성 자식 전체를 세므로(보드 카드와 동일 기준) 둘 다 표시된다. */}
+              <ChildProgress
+                done={it.childDoneCount}
+                total={it.childCount}
+                testId={`issue-row-${it.number}-child-progress`}
+              />
             </div>
-          )}
+          </div>
         </td>
         {/* 제목 셀이 w-full 로 남은 폭을 가져가므로 칸 폭은 헤더 min-w-* 하한에 의존한다 — 그래도
             whitespace-nowrap 으로 날짜가 글자 단위로 꺾이지 않게, pr-3 으로 「+N」 이 마감 칸에 붙지 않게 한다(WP-194). */}

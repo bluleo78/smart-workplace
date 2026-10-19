@@ -40,6 +40,7 @@ export function ParentChip({
     </>
   );
   // row 변형 칩은 줄어든다(min-w-0 shrink) — 칩이 제목을 밀어내지 않게, 제목은 min-w-[8rem] 을 보장(WP-194).
+  // 오른쪽 정렬(ml-auto)은 호출처가 정한다 — 이슈 행은 레이블과 한 묶음으로 민다(WP-505).
   if (variant === 'card') {
     return (
       <span
@@ -57,7 +58,7 @@ export function ParentChip({
       onClick={(e) => e.stopPropagation()}
       data-testid={`issue-row-${issueNumber}-parent`}
       title={title}
-      className={`ml-auto inline-flex max-w-[12rem] min-w-0 shrink items-center gap-1 rounded px-1.5 py-0.5 text-xs font-normal ${colors.bg} ${colors.text} hover:opacity-80`}
+      className={`inline-flex max-w-[12rem] min-w-0 shrink items-center gap-1 rounded px-1.5 py-0.5 text-xs font-normal ${colors.bg} ${colors.text} hover:opacity-80`}
     >
       {content}
     </Link>

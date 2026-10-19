@@ -133,6 +133,60 @@ test.describe('팀 리스트 뷰', () => {
     await expect(page).toHaveURL(new RegExp(`/projects/${KEY}/issues/3$`));
   });
 
+  test('레이블은 행 한 줄 안에서 소속 칩 앞에 최대 2개 + N 으로 보이고, 제목 칸이 좁으면 숨는다 (WP-505)', async ({ authenticatedPage: page }) => {
+    const epicType = makeEpicType();
+    const parent = { number: 3, title: '버그 수정 및 이슈 대응', type: epicType };
+    // 실데이터처럼 긴 제목 — 레이블 3개(2개 + 「+1」) 행과 레이블 없는 행의 높이를 비교한다.
+    const labeled = createIssue({
+      id: 1,
+      number: 481,
+      title: 'OPEN 프로젝트 비멤버의 자기 이슈 상세에서 사이클 편집·「에픽 연결」만 활성으로 보이고 저장하면 403',
+      parent,
+      labels: [
+        { id: 1, name: 'AI 탐색', colorToken: 'GRAY' },
+        { id: 2, name: 'security', colorToken: 'RED' },
+        { id: 3, name: '권한', colorToken: 'ORANGE' },
+      ],
+    });
+    const plain = createIssue({ id: 2, number: 485, title: '이슈 목록 아래쪽에서 체크하면 일괄 작업 바가 화면 위쪽 밖에 있어 보이지 않음', parent });
+    await mock(page, [labeled, plain]);
+
+    // 넓은 화면 — 제목 칸이 40rem 이상이라 레이블이 보인다.
+    await page.setViewportSize({ width: 1920, height: 1000 });
+    await page.goto(`/projects/${KEY}`);
+    const row = page.getByTestId('issue-row-481');
+    const labels = row.getByTestId('issue-row-481-labels');
+    await expect(labels).toBeVisible();
+    await expect(labels).toContainText('AI 탐색');
+    await expect(labels).toContainText('security');
+    await expect(labels).not.toContainText('권한');
+    await expect(labels).toContainText('+1');
+    await expect(labels).toHaveAttribute('title', 'AI 탐색, security, 권한');
+
+    // 한 줄 — 레이블 있는 행과 없는 행의 높이가 같고(서브픽셀 반올림 1px 허용 — 2줄이면 ~20px 차이), 레이블은 제목 오른쪽·소속 칩 왼쪽에 같은 줄로 놓인다.
+    const rowBox = await row.boundingBox();
+    const plainBox = await page.getByTestId('issue-row-485').boundingBox();
+    const titleBox = await row.getByRole('link', { name: /OPEN 프로젝트 비멤버/ }).boundingBox();
+    const labelsBox = await labels.boundingBox();
+    const chipBox = await row.getByTestId('issue-row-481-parent').boundingBox();
+    expect(Math.abs(rowBox!.height - plainBox!.height)).toBeLessThanOrEqual(1);
+    expect(labelsBox!.x).toBeGreaterThan(titleBox!.x + titleBox!.width);
+    expect(labelsBox!.x + labelsBox!.width).toBeLessThanOrEqual(chipBox!.x);
+    expect(Math.abs(labelsBox!.y + labelsBox!.height / 2 - (titleBox!.y + titleBox!.height / 2))).toBeLessThan(3);
+    await page.screenshot({ path: 'test-results/tc/issue-list/row-labels-wide.png' });
+
+    // 좁은 화면(노트북 폭) — 제목 칸이 40rem 미만이면 레이블을 숨겨 제목 폭을 살리고, 행은 계속 한 줄이다.
+    await page.setViewportSize({ width: 1100, height: 800 });
+    // 전제 — 이 폭에서 제목 칸이 실제로 40rem(640px) 미만이어야 숨김 판정을 검증하는 것이다(레이아웃이 바뀌면 여기서 먼저 알린다).
+    await expect.poll(async () => (await row.locator('td').nth(4).boundingBox())!.width).toBeLessThan(640);
+    await expect(labels).toBeHidden();
+    await expect(row.getByTestId('issue-row-481-parent')).toBeVisible();
+    const narrowRow = await row.boundingBox();
+    const narrowPlain = await page.getByTestId('issue-row-485').boundingBox();
+    expect(Math.abs(narrowRow!.height - narrowPlain!.height)).toBeLessThanOrEqual(1);
+    await page.screenshot({ path: 'test-results/tc/issue-list/row-labels-narrow.png' });
+  });
+
   test('필터 상태·우선순위 드롭다운 옵션에 아이콘이 렌더된다 (#295)', async ({ authenticatedPage: page }) => {
     // 수정 전: 상태/우선순위 옵션은 render prop 없이 텍스트만 노출 — 이슈 행 아이콘과 시각 불일치.
     // 수정 후: IssueStatusIcon / IssuePriorityBars 가 render prop 으로 주입됨.
