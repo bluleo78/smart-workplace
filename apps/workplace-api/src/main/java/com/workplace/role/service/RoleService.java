@@ -23,6 +23,9 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class RoleService {
 
+  /** WP-571: 역할 NotFound 문구 — 요청한 id 를 되돌려 싣지 않는다(토스트로 그대로 보인다). */
+  private static final String ROLE_NOT_FOUND = "역할을 찾을 수 없습니다";
+
   private final RoleRepository roleRepository;
   private final PermissionRepository permissionRepository;
   // WP-567: 역할 생성·수정·삭제·권한 변경을 행위자와 함께 감사 로그에 남긴다.
@@ -37,9 +40,7 @@ public class RoleService {
   @Transactional(readOnly = true)
   public RoleDetailResponse getRoleById(Long id) {
     RoleResponse role =
-        roleRepository
-            .findById(id)
-            .orElseThrow(() -> new RoleNotFoundException("역할을 찾을 수 없습니다 (id: " + id + ")"));
+        roleRepository.findById(id).orElseThrow(() -> new RoleNotFoundException(ROLE_NOT_FOUND));
     List<PermissionResponse> permissions = permissionRepository.findByRoleId(id);
     return new RoleDetailResponse(
         role.id(), role.name(), role.description(), role.isSystem(), permissions);
@@ -58,13 +59,10 @@ public class RoleService {
   @Transactional
   public void updateRole(Long id, String name, String description, Long callerId) {
     RoleResponse role =
-        roleRepository
-            .findById(id)
-            .orElseThrow(() -> new RoleNotFoundException("역할을 찾을 수 없습니다 (id: " + id + ")"));
+        roleRepository.findById(id).orElseThrow(() -> new RoleNotFoundException(ROLE_NOT_FOUND));
 
     if (role.isSystem() && !role.name().equals(name)) {
-      throw new SystemRoleModificationException(
-          "시스템 역할의 이름은 바꿀 수 없습니다 (name: " + role.name() + ")");
+      throw new SystemRoleModificationException("시스템 역할의 이름은 바꿀 수 없습니다");
     }
 
     // #795: createRole() 과 동일하게, 이름이 실제로 바뀌는 경우에만 중복 여부를 사전 검사한다.
@@ -86,12 +84,10 @@ public class RoleService {
   @Transactional
   public void deleteRole(Long id, Long callerId) {
     RoleResponse role =
-        roleRepository
-            .findById(id)
-            .orElseThrow(() -> new RoleNotFoundException("역할을 찾을 수 없습니다 (id: " + id + ")"));
+        roleRepository.findById(id).orElseThrow(() -> new RoleNotFoundException(ROLE_NOT_FOUND));
 
     if (role.isSystem()) {
-      throw new SystemRoleModificationException("시스템 역할은 삭제할 수 없습니다 (name: " + role.name() + ")");
+      throw new SystemRoleModificationException("시스템 역할은 삭제할 수 없습니다");
     }
 
     // user_role FK 가 ON DELETE CASCADE 이므로, 삭제 전 할당된 사용자가 있으면 명시적으로 차단해
@@ -112,11 +108,10 @@ public class RoleService {
     RoleResponse role =
         roleRepository
             .findById(roleId)
-            .orElseThrow(() -> new RoleNotFoundException("역할을 찾을 수 없습니다 (id: " + roleId + ")"));
+            .orElseThrow(() -> new RoleNotFoundException(ROLE_NOT_FOUND));
 
     if (role.isSystem()) {
-      throw new SystemRoleModificationException(
-          "시스템 역할의 권한은 변경할 수 없습니다 (name: " + role.name() + ")");
+      throw new SystemRoleModificationException("시스템 역할의 권한은 변경할 수 없습니다");
     }
 
     // WP-570: 없는 권한 id 는 FK 위반(영어 409)이 되기 전에 한국어로 거절한다.

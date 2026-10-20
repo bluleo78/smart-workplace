@@ -450,7 +450,8 @@ public class UserService {
 
     if (email != null && !email.equals(user.email())) {
       if (userRepository.existsByEmailExcludingUser(email, userId)) {
-        throw new EmailAlreadyExistsException("이미 사용 중인 이메일입니다 (email: " + email + ")");
+        // WP-571: 다른 사람이 쓰는 이메일을 문구에 되돌려 싣지 않는다.
+        throw new EmailAlreadyExistsException("이미 사용 중인 이메일입니다");
       }
     }
 

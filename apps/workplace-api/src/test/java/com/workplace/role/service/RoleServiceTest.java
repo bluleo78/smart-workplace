@@ -45,8 +45,10 @@ class RoleServiceTest extends IntegrationTestBase {
 
   @Test
   void getRoleById_notFound_throwsException() {
+    // WP-571: 문구에 요청한 id 를 되돌려 싣지 않는다.
     assertThatThrownBy(() -> roleService.getRoleById(Long.MAX_VALUE))
-        .isInstanceOf(RoleNotFoundException.class);
+        .isInstanceOf(RoleNotFoundException.class)
+        .hasMessage("역할을 찾을 수 없습니다");
   }
 
   @Test
@@ -115,7 +117,8 @@ class RoleServiceTest extends IntegrationTestBase {
         dsl.select(ROLE.ID).from(ROLE).where(ROLE.NAME.eq("ADMIN")).fetchOne(ROLE.ID);
 
     assertThatThrownBy(() -> roleService.updateRole(adminRoleId, "RENAMED", "Try rename", null))
-        .isInstanceOf(SystemRoleModificationException.class);
+        .isInstanceOf(SystemRoleModificationException.class)
+        .hasMessage("시스템 역할의 이름은 바꿀 수 없습니다");
   }
 
   @Test
@@ -161,7 +164,8 @@ class RoleServiceTest extends IntegrationTestBase {
         dsl.select(ROLE.ID).from(ROLE).where(ROLE.NAME.eq("ADMIN")).fetchOne(ROLE.ID);
 
     assertThatThrownBy(() -> roleService.deleteRole(adminRoleId, null))
-        .isInstanceOf(SystemRoleModificationException.class);
+        .isInstanceOf(SystemRoleModificationException.class)
+        .hasMessage("시스템 역할은 삭제할 수 없습니다");
   }
 
   @Test
@@ -203,6 +207,6 @@ class RoleServiceTest extends IntegrationTestBase {
 
     assertThatThrownBy(() -> roleService.setRolePermissions(adminRoleId, permissionIds, null))
         .isInstanceOf(SystemRoleModificationException.class)
-        .hasMessageContaining("시스템 역할의 권한은 변경할 수 없습니다");
+        .hasMessage("시스템 역할의 권한은 변경할 수 없습니다");
   }
 }

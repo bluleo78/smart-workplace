@@ -325,8 +325,10 @@ class UserServiceTest extends IntegrationTestBase {
         .set(USER.EMAIL, "taken@example.com")
         .execute();
 
+    // WP-571: 다른 사람이 쓰는 이메일을 문구에 되돌려 싣지 않는다.
     assertThatThrownBy(() -> userService.updateProfile(testUserId, "New Name", "taken@example.com"))
-        .isInstanceOf(EmailAlreadyExistsException.class);
+        .isInstanceOf(EmailAlreadyExistsException.class)
+        .hasMessage("이미 사용 중인 이메일입니다");
   }
 
   @Test

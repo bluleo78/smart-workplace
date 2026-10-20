@@ -3,10 +3,10 @@ package com.workplace.home.exception;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.ResponseStatus;
 
-/** 세션이 없거나 호출자 소유가 아님(존재 노출 방지 위해 404 통일). */
+/** 세션이 없거나 호출자 소유가 아님(존재 노출 방지 위해 404 통일). WP-571: 요청한 세션 id 를 문구에 되돌려 싣지 않는다. */
 @ResponseStatus(HttpStatus.NOT_FOUND)
 public class HomeSessionNotFoundException extends RuntimeException {
   public HomeSessionNotFoundException(java.util.UUID id) {
-    super("대화 세션을 찾을 수 없습니다 (id: " + id + ")");
+    super("대화 세션을 찾을 수 없습니다");
   }
 }

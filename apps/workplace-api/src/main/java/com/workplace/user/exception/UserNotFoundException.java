@@ -6,8 +6,11 @@ public class UserNotFoundException extends RuntimeException {
     super(message);
   }
 
-  /** id 로 찾지 못한 경우의 표준 문구 — 호출 지점마다 문구를 복붙하지 않도록 모은다(#849). */
+  /**
+   * id 로 찾지 못한 경우의 표준 문구 — 호출 지점마다 문구를 복붙하지 않도록 모은다(#849). WP-571: 요청한 id 를 문구에 되돌려 싣지 않는다(토스트·확인카드
+   * 실패 사유로 그대로 보인다). 어떤 id 였는지는 요청 경로·로그로 안다.
+   */
   public static UserNotFoundException ofId(Long id) {
-    return new UserNotFoundException("사용자를 찾을 수 없습니다 (id: " + id + ")");
+    return new UserNotFoundException("사용자를 찾을 수 없습니다");
   }
 }
