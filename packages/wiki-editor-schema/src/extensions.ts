@@ -1,6 +1,4 @@
 import type { AnyExtension, Extensions } from '@tiptap/core'
-import { TableCell } from '@tiptap/extension-table-cell'
-import { TableHeader } from '@tiptap/extension-table-header'
 import { TableRow } from '@tiptap/extension-table-row'
 import StarterKit from '@tiptap/starter-kit'
 import { Markdown } from 'tiptap-markdown'
@@ -10,6 +8,7 @@ import { WikiImageSchema } from './imageNode'
 import { WikiLink } from './linkMark'
 import { WikiMarkdownText } from './markdownText'
 import { WikiMention } from './mentionNode'
+import { WikiTableCell, WikiTableHeader } from './tableCellAlign'
 import { WikiTable } from './tableNode'
 
 /**
@@ -50,7 +49,8 @@ export function wikiSchemaExtensions(
     // 직렬화기는 텍스트 없는 셀(멘션·이미지만)을 살리도록 대체했다(WP-299) — tableNode.ts 참조.
     WikiTable.configure({ resizable: false, renderWrapper: true }),
     TableRow,
-    TableHeader,
-    TableCell,
+    // 셀 가로 정렬(WP-584) — GFM 열 정렬 마커로 저장한다. tableCellAlign.ts 참조.
+    WikiTableHeader,
+    WikiTableCell,
   ]
 }

@@ -496,7 +496,7 @@ test('위키 — 페이지 로딩 중 skeleton이 표시되고 로드 후 에디
         : route.fallback(),
   )
 
-  // 페이지 상세 — 응답을 1.5초 지연시켜 skeleton 노출 시간 확보.
+  // 페이지 상세 — 테스트가 풀 때까지 응답을 붙잡아 skeleton 노출 시간 확보.
   let resolveSlowRoute!: () => void
   const slowRouteReady = new Promise<void>((res) => { resolveSlowRoute = res })
   await page.route(
@@ -523,17 +523,18 @@ test('위키 — 페이지 로딩 중 skeleton이 표시되고 로드 후 에디
     },
   )
 
-  // 1) 페이지 진입 — API 응답이 지연되므로 skeleton이 보여야 한다.
+  // 1) 페이지 진입 — API 응답을 붙잡아 두므로 skeleton이 보여야 한다.
+  // 응답을 풀기 전까지 skeleton 이 계속 떠 있으니 짧은 마감을 두지 않는다 — 부하 중 첫 로드가 늦으면 실패하던 원인.
   void page.goto(`/wiki/spaces/${SPACE_ID}/pages/${SLOW_PAGE_ID}`)
-  await expect(page.getByTestId('wiki-page-skeleton')).toBeVisible({ timeout: 3000 })
+  await expect(page.getByTestId('wiki-page-skeleton')).toBeVisible()
 
   // "불러오는 중…" 텍스트는 없어야 한다 (회귀 방지).
   await expect(page.getByText('불러오는 중…')).toHaveCount(0)
 
   // 2) API 응답 해제 → skeleton 사라지고 에디터(.ProseMirror) 등장.
   resolveSlowRoute()
-  await expect(page.getByTestId('wiki-page-skeleton')).toHaveCount(0, { timeout: 5000 })
-  await expect(page.locator('.ProseMirror')).toBeVisible({ timeout: 5000 })
+  await expect(page.getByTestId('wiki-page-skeleton')).toHaveCount(0)
+  await expect(page.locator('.ProseMirror')).toBeVisible()
 })
 
 // 존재하지 않는 페이지(404) 의 에러 상태·「노트 목록으로」 이동은 wiki-last-visited.spec.ts 가 맡는다.
