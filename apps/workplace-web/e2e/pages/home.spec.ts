@@ -3,7 +3,7 @@ import type { Page } from '@playwright/test'
 import { expect, test } from '../fixtures/auth.fixture'
 import { mockApi } from '../fixtures/api-mock'
 import { expectSelectedRow } from '../fixtures/selection'
-import { dropDnd, expectStays, measureBox, resizeAndSettle } from '../fixtures/wait'
+import { dropDnd, expectStays, measureBox, resizeAndSettle, startKeyboardDrag } from '../fixtures/wait'
 import { trackRequests } from '../fixtures/requests'
 import { createIssue, createIssueSearchResponse } from '../factories/issue.factory'
 import { detail as mailDetail, mailAccount, summary as mailRow } from '../factories/mail.factory'
@@ -929,9 +929,8 @@ test('편집 — 드래그 핸들에서 Space·→·Space 로 키보드만으로
 
   const handle = page.locator('[data-testid="dashboard-widget"][data-widget="my_tasks"]').getByTestId('widget-drag-handle')
   const liveRegion = page.locator('[id^="DndLiveRegion"]')
-  await handle.focus()
-  await page.keyboard.press('Space')
-  await expect(liveRegion).toContainText('집었습니다')
+  // 집은 뒤 센서가 방향키 리스너를 붙일 때까지 기다린다(부하에서 바로 누른 방향키가 버려지지 않게).
+  await startKeyboardDrag(handle, () => expect(liveRegion).toContainText('집었습니다'))
   await page.keyboard.press('ArrowRight')
   // 방향키 뒤 놓을 자리(over)는 다음 프레임에 잡힌다 — 그 안내가 나온 뒤 놓는다(사람의 키 입력 간격과 같은 순서).
   await expect(liveRegion).toContainText('2번째 자리 위에')
