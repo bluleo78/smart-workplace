@@ -311,6 +311,11 @@ test(
 
     // RSVP 컨트롤이 표시되는지 확인
     await expect(page.getByTestId('rsvp-controls')).toBeVisible()
+    // WP-637: 고른 상태를 색만이 아니라 aria-pressed 로도 알린다 — 응답 전(NEEDS_ACTION)엔 셋 다 눌리지 않음.
+    const rsvpGroup = page.getByRole('group', { name: '참석 여부' })
+    for (const name of ['수락', '미정', '거절']) {
+      await expect(rsvpGroup.getByRole('button', { name, pressed: false })).toBeVisible()
+    }
 
     // 수락 버튼 클릭 → PATCH /rsvp 호출
     const patchPromise = page.waitForRequest(
@@ -326,6 +331,10 @@ test(
     // RSVP 상태 반영 — 수락 버튼이 default(bg-primary) variant 로 변경되어야 함
     const acceptBtn = page.getByTestId('rsvp-btn-accepted')
     await expect(acceptBtn).toHaveClass(/bg-primary/, { timeout: 3000 })
+    // 스크린리더도 「수락」이 눌린 상태로 읽는다(나머지는 눌리지 않음).
+    await expect(acceptBtn).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.getByTestId('rsvp-btn-tentative')).toHaveAttribute('aria-pressed', 'false')
+    await expect(page.getByTestId('rsvp-btn-declined')).toHaveAttribute('aria-pressed', 'false')
   },
 )
 
