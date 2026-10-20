@@ -109,6 +109,10 @@ export function IssueChildrenSection({
   // 포커스 후 가운데 스크롤 타이머 — blur·언마운트 시 취소해 이미 떠난 입력칸으로 화면을 끌어오지 않는다.
   const scrollTimerRef = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearTimeout(scrollTimerRef.current), []);
+  // 모바일: 유형 셀렉트를 누른 순간의 입력칸 blur 는 폼 밖으로 나간 게 아니다(WP-653). iOS Safari 는 버튼에 포커스를 주지 않아
+  // relatedTarget 이 비어 「빈 채로 밖을 눌렀다」로 보이므로, 누름을 표시해 두고 다음 blur 한 번 또는 셀렉트가 닫힐 때 지운다.
+  const typePressRef = useRef(false);
+  const titleInputRef = useRef<HTMLInputElement>(null);
 
   // 인라인 추가 — 제목 입력, 유형은 EPIC 부모면 선택된 값/일반 부모면 SUBTASK 고정, parentNumber 동봉.
   // 보낸 제목은 요청 전에 바로 비운다 — 응답을 기다리는 동안 친 다음 제목을 응답 처리가 지우지 않게 하고(WP-467),
@@ -216,6 +220,9 @@ export function IssueChildrenSection({
         {isEpicParent && (
           <Select
             value={epicChildTypeId != null ? String(epicChildTypeId) : ''}
+            onOpenChange={(open) => {
+              if (!open) typePressRef.current = false;
+            }}
             onValueChange={(v) => {
               // Radix Select 의 hidden native <select> 폴백이 마운트 시 value="" 로
               // onValueChange 를 한 번 발화시켜 Number('')=0 이 state 에 들어가는 문제 방지.
@@ -223,13 +230,30 @@ export function IssueChildrenSection({
             }}
           >
             <SelectTrigger
+              onPointerDown={
+                isMobile
+                  ? () => {
+                      typePressRef.current = true;
+                    }
+                  : undefined
+              }
               data-testid="epic-child-type-select"
               aria-label="하위 이슈 유형"
               className="w-32"
             >
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent
+              // 모바일: 유형을 고른 다음 할 일은 제목 — 트리거 대신 제목칸으로 돌려 키보드가 바로 올라오게 한다.
+              onCloseAutoFocus={
+                isMobile
+                  ? (e) => {
+                      e.preventDefault();
+                      titleInputRef.current?.focus();
+                    }
+                  : undefined
+              }
+            >
               {epicChildTypes.map((t) => (
                 <SelectItem key={t.id} value={String(t.id)}>
                   {getIssueTypeLabel(t.name)}
@@ -239,6 +263,7 @@ export function IssueChildrenSection({
           </Select>
         )}
         <Input
+          ref={titleInputRef}
           value={newTitle}
           onChange={(e) => setNewTitle(e.target.value)}
           // 모바일은 「Enter」 안내 대신 짧은 제목 힌트 — 좁은 폭에서 안내문이 잘렸고, 키보드의 완료 키(enterKeyHint)가 같은 역할을 한다.
@@ -265,12 +290,14 @@ export function IssueChildrenSection({
                 }
               : undefined
           }
-          // 비운 채로 포커스를 잃으면 접는다 — 추가 버튼(submit) 탭은 relatedTarget 이 form 안이라 유지.
+          // 비운 채로 포커스를 잃으면 접는다 — 추가 버튼(submit) 탭은 relatedTarget 이 form 안이라, 유형 셀렉트 탭은 누름 표시로 유지.
           onBlur={
             isMobile
               ? (e) => {
                   window.clearTimeout(scrollTimerRef.current);
-                  if (!newTitle.trim() && !e.currentTarget.form?.contains(e.relatedTarget as Node)) {
+                  const pressedType = typePressRef.current;
+                  typePressRef.current = false;
+                  if (!pressedType && !newTitle.trim() && !e.currentTarget.form?.contains(e.relatedTarget as Node)) {
                     setAddOpen(false);
                   }
                 }

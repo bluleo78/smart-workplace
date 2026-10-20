@@ -383,6 +383,33 @@ test.describe('첨부·하위 태스크', () => {
     await input.blur();
     await expect(page.getByTestId('child-add-open')).toBeVisible();
   });
+
+  // WP-653 — 제목을 쓰기 전에 유형부터 누르면 입력칸 blur(relatedTarget 없음)로 폼 전체가 접혀 유형을 고를 수 없었다.
+  test('에픽 「＋ 하위 이슈 추가」 — 제목 전에 유형부터 골라도 칸이 유지되고, 고르면 제목칸으로 돌아온다', async ({ authenticatedPage: page }) => {
+    const calls = await mockDetail(page, { type: makeEpicType() });
+    await openDetail(page);
+    await page.getByTestId('child-add-open').click();
+    const input = page.getByTestId('child-add-input');
+    await expect(input).toBeFocused();
+    const typeSelect = page.getByTestId('epic-child-type-select');
+    // iOS Safari(WebKit)는 버튼을 탭해도 포커스를 주지 않아 입력칸이 relatedTarget 없이 blur 된다 — Chromium 에서 같은 순서를 재현.
+    await typeSelect.evaluate((el) => el.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      (document.activeElement as HTMLElement | null)?.blur();
+    }, { capture: true, once: true }));
+    await typeSelect.tap();
+    await page.getByRole('option', { name: '버그' }).click();
+    await expect(typeSelect).toHaveText('버그');
+    // 유형을 고른 다음은 제목 — 키보드가 바로 다시 올라오게 제목칸에 포커스.
+    await expect(input).toBeFocused();
+    await input.fill('결제 승인 실패 시 재시도');
+    await input.press('Enter');
+    await expect.poll(() => calls().filter((c) => c.method === 'POST' && c.path.endsWith('/issues')).length).toBe(1);
+    expect(calls().find((c) => c.method === 'POST')!.body).toMatchObject({ title: '결제 승인 실패 시 재시도', typeId: 2, parentNumber: 7 });
+    // 비운 채로 폼 밖을 누르면 지금처럼 접힌다.
+    await input.blur();
+    await expect(page.getByTestId('child-add-open')).toBeVisible();
+  });
 });
 
 test.describe('하단 코멘트 입력·편집 바', () => {
