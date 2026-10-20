@@ -115,7 +115,7 @@ test('에픽 그룹 행 + 하위 트리 + 에픽 없음 그룹이 렌더된다',
   // 한다 — 다른 그룹/오늘 날짜 등 하위 막대와 무관한 값이 뜨면 회귀(#662).
   await expect(
     page.locator('.timeline-gantt-root .wx-grid .wx-row', { hasText: '에픽 없음' }),
-  ).toContainText('08-07-2026');
+  ).toContainText('2026-07-08');
   // SUBTASK 는 어디에도 없다
   await expect(grid).not.toContainText('하위 태스크 이슈');
 });
@@ -344,7 +344,7 @@ test('에픽에 미정 하위가 있으면 펼침 가능하고 미정 행은 막
   ).toContainText('미정');
   // 시작일만 있는 미정 자식(13)은 「미정」 대신 실제 시작일을 보여 준다(WP-484). 막대는 없다.
   const startOnlyRow = page.locator(".timeline-gantt-root .wx-grid .wx-row[data-id*='undated-13']");
-  await expect(startOnlyRow).toContainText('10-07-2026');
+  await expect(startOnlyRow).toContainText('2026-07-10');
   await expect(startOnlyRow).not.toContainText('미정');
   await expect(page.locator(".timeline-gantt-root .wx-bar[data-task-id*='undated-13']")).toBeHidden();
   // "일정 미정" 섹션엔 미정 에픽 자식(12)이 없다(중복 제거).

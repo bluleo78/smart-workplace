@@ -17,6 +17,7 @@ import { Diamond } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
+import { formatDateKey } from '@/lib/formatters'
 import type { IssueStatus } from '@/types/issue'
 
 import {
@@ -135,7 +136,8 @@ const GRID_COLUMNS: IColumnConfig[] = [
   // 240 — 취소 에픽에서 옮겨진 이슈의 「← 원래 에픽」 접미사가 잘리지 않게(WP-247 UI 리뷰).
   { id: 'text', header: '이슈', width: 240, flexgrow: 1, sort: true },
   // 미정 행(날짜 없는 하위/막대 없는 에픽)은 시작일/기간 대신 "미정" 표기. template 을 주면 SVAR
-  // 기본 포매터(start=%d-%m-%Y) 대신 이 함수가 쓰이므로, 일반 행은 동일 포맷(dd-MM-yyyy)을 유지한다.
+  // 기본 포매터(start=%d-%m-%Y) 대신 이 함수가 쓰인다. 날짜는 다른 목록과 같은 연-월-일(WP-633) — SVAR 기본
+  // 일-월-연(「11-10-2026」)은 11월 10일로 읽히기 쉬웠다.
   {
     id: 'start',
     header: '시작일',
@@ -144,9 +146,9 @@ const GRID_COLUMNS: IColumnConfig[] = [
     sort: true,
     // 시작일만 있는 미정 하위는 「미정」 대신 실제 시작일을 보인다(WP-484) — 막대·기간은 여전히 없다(마감일 기준 일정).
     template: (value: Date, row: ITask) => {
-      if (!isUndatedRow(row)) return value ? format(value, 'dd-MM-yyyy') : ''
+      if (!isUndatedRow(row)) return value ? formatDateKey(value) : ''
       const undatedStart = (row as { undatedStart?: string | null }).undatedStart
-      return undatedStart ? format(parseISO(undatedStart), 'dd-MM-yyyy') : '미정'
+      return undatedStart ? formatDateKey(parseISO(undatedStart)) : '미정'
     },
   },
   {
@@ -155,7 +157,8 @@ const GRID_COLUMNS: IColumnConfig[] = [
     width: 100,
     align: 'center',
     sort: true,
-    template: (value: number, row: ITask) => (isUndatedRow(row) ? '' : String(value ?? '')),
+    // 기간은 일 단위 — 숫자만 보이면 며칠인지 알기 어려웠다(WP-633)
+    template: (value: number, row: ITask) => (isUndatedRow(row) || value == null ? '' : `${value}일`),
   },
 ]
 

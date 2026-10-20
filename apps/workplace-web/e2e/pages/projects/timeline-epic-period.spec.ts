@@ -75,10 +75,11 @@ function thinBar(bar: Locator) {
 test('에픽 막대·그리드 시작일이 에픽에 설정한 기간으로 표시된다 (WP-248)', async ({ authenticatedPage: page }) => {
   await setupStubs(page);
   await page.goto(`/projects/${KEY}/timeline?period=all`);
-  // 그리드 시작일 = 에픽 시작일(하위 최소 시작 07-06 이 아님)
-  await expect(page.locator('.timeline-gantt-root .wx-grid .wx-row', { hasText: '기간 에픽' })).toContainText(
-    '01-07-2026',
-  );
+  // 그리드 시작일 = 에픽 시작일(하위 최소 시작 07-06 이 아님). 표기는 다른 목록과 같은 연-월-일(WP-633 — 예전 일-월-연 「01-07-2026」)
+  const epicRow = page.locator('.timeline-gantt-root .wx-grid .wx-row', { hasText: '기간 에픽' })
+  await expect(epicRow).toContainText('2026-07-01');
+  // 기간은 단위와 함께 — 숫자만 보이면 며칠인지 알기 어려웠다(WP-633)
+  await expect(epicRow.locator('.wx-cell').nth(2)).toHaveText('31일');
   await expandGroup(page, '기간 에픽');
   const { box: child, perDay } = await pxPerDay(page);
   const epic = (await summaryBar(page, 40).boundingBox())!;
@@ -118,7 +119,7 @@ test('에픽 자체 기간이 없으면 막대는 하위 롤업이고 얇은 막
   await setupStubs(page);
   await page.goto(`/projects/${KEY}/timeline?period=all`);
   await expect(page.locator('.timeline-gantt-root .wx-grid .wx-row', { hasText: '기간 없는 에픽' })).toContainText(
-    '14-07-2026',
+    '2026-07-14',
   );
   const bar = summaryBar(page, 60);
   await expect(bar).toBeVisible();
