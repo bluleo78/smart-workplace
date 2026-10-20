@@ -116,6 +116,18 @@ class ReactionToggleTest extends IntegrationTestBase {
     assertThat(reactionsFor(reactor)).isEmpty();
   }
 
+  /** WP-594: 이모지 하나가 아닌 값(글자·HTML·여러 개·보이지 않는 문자)은 400 으로 거절하고 저장하지 않는다. */
+  @Test
+  void nonEmoji_reaction_isRejected() {
+    for (String bad : new String[] {"가나다라마바사", "<b>x</b>", "👍👍", "\u200B"}) {
+      assertThatThrownBy(() -> reactionService.add(reactor, messageId, bad))
+          .as(bad)
+          .isInstanceOf(IllegalArgumentException.class)
+          .hasMessage("리액션에는 이모지 하나만 쓸 수 있습니다");
+    }
+    assertThat(reactionsFor(reactor)).isEmpty();
+  }
+
   /** 비멤버는 리액션 불가 — 없는 메시지와 같은 404(WP-591). */
   @Test
   void nonMember_cannotReact() {

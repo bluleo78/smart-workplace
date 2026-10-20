@@ -29,10 +29,15 @@ public class ReactionService {
   private final ChannelRepository channelRepo;
   private final ApplicationEventPublisher publisher;
 
-  /** 리액션 추가(멱등 — 이미 있으면 이벤트 미발행). */
+  /** 리액션 추가(멱등 — 이미 있으면 이벤트 미발행). 이모지 하나가 아니면 400(WP-594). */
   @Transactional
   public void add(long callerId, long messageId, String emoji) {
     long channelId = ensureWritableMessageMember(callerId, messageId);
+    // 멤버 검사 뒤에 본다 — 볼 수 없는 메시지에 400 을 먼저 주면 존재가 드러난다(WP-591).
+    // 제거(remove)는 검사하지 않는다 — 이 규칙 전에 붙은 글자 리액션도 본인이 뗄 수 있게.
+    if (!ReactionEmojis.isSingleEmoji(emoji)) {
+      throw new IllegalArgumentException("리액션에는 이모지 하나만 쓸 수 있습니다");
+    }
     if (reactionRepo.add(messageId, callerId, emoji))
       publisher.publishEvent(new ReactionAddedEvent(channelId, messageId, emoji, callerId));
   }
