@@ -340,6 +340,8 @@ export interface AgendaRow {
   status: IssueStatus;
   /** 취소된 에픽에서 옮겨진 단독 행의 원래 에픽 제목(WP-247). */
   formerEpicTitle?: string;
+  /** 선행 이슈가 끝나지 않아 차단됐는지 — 이슈 카드와 같은 ⛔ 표시용(WP-646). 합성 에픽 머리 행은 false. */
+  blocked: boolean;
   /** 섹션 월 안 막대 위치(0~1 비율, 월 밖은 0/1 로 잘림). 날짜가 하나도 없으면 null. */
   bar: { left: number; right: number } | null;
   /** 소속 에픽 번호 — epic 행은 자기 번호, child 는 부모 에픽, issue 는 null. 접기(WP-251)에 쓴다. */
@@ -442,6 +444,7 @@ export function buildAgendaSections(issues: IssueResponse[], today: Date, opts: 
     progress: null,
     hasChildren: false,
     status: i.status,
+    blocked: i.blocked,
     ...(i.formerEpicTitle ? { formerEpicTitle: i.formerEpicTitle } : {}),
   });
 
@@ -471,6 +474,7 @@ export function buildAgendaSections(issues: IssueResponse[], today: Date, opts: 
         kind: 'epic',
         // 합성 머리 행은 하위가 실어 온 부모 상태(없으면 TODO) — 간트 합성 그룹과 같은 규칙.
         status: epic?.status ?? kids[0]?.k.parent?.status ?? 'TODO',
+        blocked: false,
         start: kidSpan?.start ?? null,
         due: kidSpan?.due ?? null,
         ...epicRow,

@@ -502,6 +502,21 @@ describe('buildAgendaSections', () => {
     expect(s.flatMap((x) => x.rows).find((r) => r.issueNumber === 71)).toMatchObject({ kind: 'issue', formerEpicTitle: '취소 에픽' });
   });
 
+  it('차단 여부를 행에 싣는다 — 에픽·하위·단독 모두, 합성 에픽 머리 행은 false (WP-646)', () => {
+    const s = buildAgendaSections(
+      [
+        issue({ number: 60, title: '에픽', type: EPIC_TYPE, dueDate: '2026-10-10', blocked: true }),
+        issue({ number: 61, parent: parentRef(60, '에픽'), dueDate: '2026-10-05', blocked: true }),
+        issue({ number: 62, dueDate: '2026-10-06', blocked: true }),
+        issue({ number: 63, dueDate: '2026-10-07' }),
+        issue({ number: 66, parent: parentRef(65, '응답에 없는 에픽'), dueDate: '2026-10-08', blocked: true }),
+      ],
+      TODAY,
+    );
+    const blocked = Object.fromEntries(s.flatMap((x) => x.rows).map((r) => [r.issueNumber, r.blocked]));
+    expect(blocked).toEqual({ 60: true, 61: true, 62: true, 63: false, 65: false, 66: true });
+  });
+
   it('막대 = 섹션 월 안 비율, 월 밖은 0/1 로 잘린다(보이는 최소 폭은 컴포넌트 몫)', () => {
     const s = buildAgendaSections(
       [

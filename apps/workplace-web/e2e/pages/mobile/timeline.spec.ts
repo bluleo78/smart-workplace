@@ -117,6 +117,16 @@ test('행 탭 → 이슈 상세', async ({ authenticatedPage: page }) => {
   await expect(page).toHaveURL(new RegExp(`/projects/${KEY}/issues/42$`));
 });
 
+test('차단된 이슈 행에 ⛔ 차단 표시 — 차단 안 된 행에는 없다 (WP-646)', async ({ authenticatedPage: page }) => {
+  await setup(page, { issues: ISSUES.map((i) => (i.number === 10 ? { ...i, blocked: true } : i)) });
+  const marker = page.getByTestId('agenda-row-10').getByTestId('agenda-blocked');
+  await expect(marker).toBeVisible();
+  await expect(marker).toHaveAccessibleName('차단됨');
+  await expect(page.getByTestId('agenda-row-9').getByTestId('agenda-blocked')).toHaveCount(0);
+  // 행 이름(스크린리더가 읽는 버튼 이름)에도 「차단됨」이 들어간다.
+  await expect(page.getByTestId('agenda-row-10')).toHaveAccessibleName(/차단됨/);
+});
+
 test('「일정 미정 N」 칩 → 미정 섹션으로 스크롤, 「마일스톤 N」 칩 → 이름·날짜 시트', async ({ authenticatedPage: page }) => {
   await setup(page);
   const undated = page.getByTestId('agenda-undated');

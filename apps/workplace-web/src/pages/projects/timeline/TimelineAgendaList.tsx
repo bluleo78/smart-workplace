@@ -174,6 +174,12 @@ export function TimelineAgendaList({
                           {r.kind === 'epic' && <Diamond className="mr-1 inline size-3.5 align-[-2px]" aria-hidden />}
                           <span className={cn(r.kind === 'epic' && r.status === 'CANCELED' && 'line-through')}>{r.title}</span>
                           {r.kind === 'epic' && <TimelineStatusBadge status={r.status} />}
+                          {/* 차단 표시 — 이슈 카드 우상단 ⛔ 와 같은 기호·이름(WP-646). */}
+                          {r.blocked && (
+                            <span data-testid="agenda-blocked" role="img" aria-label="차단됨" title="차단됨" className="ml-1.5 text-destructive">
+                              ⛔
+                            </span>
+                          )}
                           {r.formerEpicTitle && <span className="ml-1 text-xs text-muted-foreground">← {r.formerEpicTitle}</span>}
                           {r.progress && r.progress.total > 0 && (
                             <span data-testid="agenda-progress" className="ml-1.5 inline-block rounded-full bg-ai-accent/10 px-1.5 align-[1px] text-xs font-semibold">
