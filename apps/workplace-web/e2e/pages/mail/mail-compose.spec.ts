@@ -4,6 +4,7 @@ import { createPageResponse, mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { commitImeThenEnterInSameTask } from '../../fixtures/ime'
 import { trackRequests } from '../../fixtures/requests'
+import { expectOnTop } from '../../fixtures/mobile.fixture'
 import { expectToggle } from '../../fixtures/selection'
 
 test.describe('메일 작성·발송', () => {
@@ -211,6 +212,46 @@ test.describe('메일 작성·발송', () => {
     expect(sentBody!.to).toEqual(['alice@example.com'])
   })
 
+  test('인용문을 지워도 같은 작성이다 — 크게 보기·고친 제목·본문이 그대로 발송되고, 지운 것만으로도 ✕ 가 버릴지 묻는다', async ({ authenticatedPage: page }) => {
+    await page.route(
+      (url) => url.pathname === '/api/v1/mail/accounts/1/messages',
+      (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([summary({ id: 5, fromAddress: 'alice@example.com', subject: '원문' })]) }),
+    )
+    await mockApi(page, 'GET', '/api/v1/mail/messages/5', detail({ id: 5, fromAddress: 'alice@example.com', subject: '원문', bodyText: '기밀 원문', bodyHtml: null, attachments: [] }))
+    const sends = trackRequests(page, 'ANY', '/api/v1/mail/accounts/1/send')
+    await page.route(
+      (url) => url.pathname === '/api/v1/mail/accounts/1/send',
+      (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ localMessageId: 11, messageId: 'r@test.local' }) }),
+    )
+    await page.goto('/mail/1')
+    await page.getByTestId('mail-row-5').click()
+
+    // 인용문만 지워도 쓴 내용 — ✕ 가 묻는다.
+    await page.getByTestId('mail-reply').click()
+    await page.getByTestId('mail-compose-quote-remove').click()
+    await page.getByTestId('mail-compose-close').click()
+    await expect(page.getByTestId('mail-compose-discard-dialog')).toBeVisible()
+    await page.getByTestId('mail-compose-discard-confirm').click()
+    await expect(page.getByTestId('mail-compose-dock')).toHaveCount(0)
+
+    // 크게 보기에서 제목·본문을 고친 뒤 인용문을 지워도 크기·제목·본문이 그대로다.
+    await page.getByTestId('mail-reply').click()
+    await page.getByRole('button', { name: '크게 보기' }).click()
+    await page.getByTestId('mail-compose-subject').fill('고친 제목')
+    await page.getByTestId('mail-composer-body').click()
+    await page.keyboard.type('직접 쓴 회신')
+    await page.getByTestId('mail-compose-quote-remove').click()
+    await expect(page.getByTestId('mail-compose-quote')).toHaveCount(0)
+    await expect(page.getByTestId('mail-compose-backdrop')).toBeVisible()
+    await expect(page.getByTestId('mail-compose-subject')).toHaveValue('고친 제목')
+    await page.getByTestId('mail-compose-send').click()
+    await sends.waitFor()
+    const body = sends.lastBody<{ subject: string; bodyText: string }>()!
+    expect(body.subject).toBe('고친 제목')
+    expect(body.bodyText).toContain('직접 쓴 회신')
+    expect(body.bodyText).not.toContain('기밀 원문')
+  })
+
   test('메일 모듈 이탈 후 복귀 시 작성 도크 draft 유지 (#183)', async ({ authenticatedPage: page }) => {
     // /projects 이동을 위해 프로젝트 목록 API 모킹. 실제 응답 형태(페이지 응답)여야 한다 — 배열 [] 을 주면
     // ProjectListPage 가 content.length 에서 크래시해 최상위 에러 바운더리가 앱 레일까지 갈아엎는다(부하 시 복귀 클릭 실패).
@@ -261,5 +302,231 @@ test.describe('메일 작성·발송', () => {
     await page.getByTestId('mail-folder-sent').click()
     // folder=SENT 파라미터가 포함된 요청이 있어야 한다.
     await expect.poll(() => lists.urls().map((u) => u.searchParams.get('folder') ?? '')).toContain('SENT')
+  })
+})
+
+// WP-575 — 데스크톱 작성창 크게 보기. 가운데 큰 창 + 뒤 어둡게, Esc·배경 클릭은 닫지 않고 작은 창으로 돌아간다.
+test.describe('메일 작성창 크게 보기 (WP-575)', () => {
+  test.beforeEach(async ({ authenticatedPage: page }) => {
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
+    await page.route(
+      (url) => url.pathname === '/api/v1/mail/accounts/1/messages',
+      (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
+    )
+    await page.goto('/mail/1')
+    await page.getByTestId('mail-compose-new').click()
+    await expect(page.getByTestId('mail-compose-dock')).toBeVisible()
+  })
+
+  /** 작은 창 폭(32rem=512px) 근처인지 — 확대 여부를 크기로 판정한다. */
+  async function dockBox(page: import('@playwright/test').Page) {
+    return (await page.getByTestId('mail-compose-dock').boundingBox())!
+  }
+
+  test('크게 보기 → 가운데 큰 창 + 배경, 작게 보기 → 원래 작은 창', async ({ authenticatedPage: page }) => {
+    const small = await dockBox(page)
+    expect(small.width).toBeLessThan(560)
+
+    await page.getByRole('button', { name: '크게 보기' }).click()
+    await expect(page.getByTestId('mail-compose-backdrop')).toBeVisible()
+    const vp = page.viewportSize()!
+    const big = await dockBox(page)
+    // min(960px, 92vw) × 85vh, 화면 가운데.
+    expect(big.width).toBeGreaterThan(900)
+    expect(Math.abs(big.height - vp.height * 0.85)).toBeLessThanOrEqual(2)
+    expect(Math.abs(big.x + big.width / 2 - vp.width / 2)).toBeLessThanOrEqual(2)
+    expect(Math.abs(big.y + big.height / 2 - vp.height / 2)).toBeLessThanOrEqual(2)
+    // 에디터가 남은 높이를 채운다 — 작은 창 상한(40vh)보다 크다.
+    const editor = (await page.getByTestId('mail-composer-body').boundingBox())!
+    expect(editor.height).toBeGreaterThan(vp.height * 0.4)
+
+    await page.getByRole('button', { name: '작게 보기' }).click()
+    await expect(page.getByTestId('mail-compose-backdrop')).toHaveCount(0)
+    expect((await dockBox(page)).width).toBeLessThan(560)
+  })
+
+  test('확대 중 Esc 를 누르면 닫히지 않고 작은 창으로 돌아간다(쓰던 내용 유지)', async ({ authenticatedPage: page }) => {
+    await page.getByTestId('mail-compose-subject').fill('확대 중 제목')
+    await page.getByRole('button', { name: '크게 보기' }).click()
+    await page.getByTestId('mail-composer-body').click()
+    await page.keyboard.type('확대 본문')
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('mail-compose-backdrop')).toHaveCount(0)
+    await expect(page.getByTestId('mail-compose-dock')).toBeVisible()
+    expect((await dockBox(page)).width).toBeLessThan(560)
+    await expect(page.getByTestId('mail-compose-subject')).toHaveValue('확대 중 제목')
+    await expect(page.getByTestId('mail-composer-body')).toContainText('확대 본문')
+  })
+
+  test('확대 중 배경을 누르면 닫히지 않고 작은 창으로 돌아간다', async ({ authenticatedPage: page }) => {
+    await page.getByTestId('mail-compose-to').fill('keep@test.local')
+    await page.getByRole('button', { name: '크게 보기' }).click()
+    // 창 바깥(왼쪽 위 구석)을 누른다.
+    await page.getByTestId('mail-compose-backdrop').click({ position: { x: 10, y: 10 } })
+    await expect(page.getByTestId('mail-compose-backdrop')).toHaveCount(0)
+    await expect(page.getByTestId('mail-compose-to')).toHaveValue('keep@test.local')
+    expect((await dockBox(page)).width).toBeLessThan(560)
+  })
+
+  test('확대 중 최소화하면 작은 창의 최소화 상태가 되고, 다시 펼치면 작은 창이다', async ({ authenticatedPage: page }) => {
+    await page.getByRole('button', { name: '크게 보기' }).click()
+    await page.getByRole('button', { name: '최소화' }).click()
+    await expect(page.getByTestId('mail-compose-backdrop')).toHaveCount(0)
+    await expect(page.getByTestId('mail-compose-to')).toBeHidden()
+    await expect(page.getByRole('button', { name: '크게 보기' })).toBeVisible()
+    await page.getByRole('button', { name: '최소화' }).click()
+    await expect(page.getByTestId('mail-compose-to')).toBeVisible()
+    await expect(page.getByTestId('mail-compose-backdrop')).toHaveCount(0)
+    expect((await dockBox(page)).width).toBeLessThan(560)
+  })
+
+  test('확대한 채 닫았다 다시 열면 작은 창으로 열린다', async ({ authenticatedPage: page }) => {
+    await page.getByRole('button', { name: '크게 보기' }).click()
+    await page.getByTestId('mail-compose-close').click()
+    await expect(page.getByTestId('mail-compose-dock')).toHaveCount(0)
+    await page.getByTestId('mail-compose-new').click()
+    await expect(page.getByTestId('mail-compose-dock')).toBeVisible()
+    await expect(page.getByTestId('mail-compose-backdrop')).toHaveCount(0)
+    expect((await dockBox(page)).width).toBeLessThan(560)
+  })
+
+  test('크게 보기는 대화상자다 — 뒤 페이지는 inert 이고, 작게 보면 풀린다', async ({ authenticatedPage: page }) => {
+    const isInert = () => page.getByTestId('mail-compose-new').evaluate((el) => el.closest('[inert]') != null)
+    expect(await isInert()).toBe(false)
+    await page.getByRole('button', { name: '크게 보기' }).click()
+    const dock = page.getByTestId('mail-compose-dock')
+    await expect(dock).toHaveAttribute('role', 'dialog')
+    // AI 를 함께 쓰므로 aria-modal 은 달지 않는다(useAiPanelAwareDialog 와 같은 규칙).
+    await expect(dock).not.toHaveAttribute('aria-modal', /.*/)
+    expect(await isInert()).toBe(true)
+    await page.getByRole('button', { name: '작게 보기' }).click()
+    await expect(dock).toHaveAttribute('role', 'region')
+    expect(await isInert()).toBe(false)
+  })
+
+  test('크게 보기 중에도 AI 를 함께 쓴다 — 칩을 누르면 옆 패널이 열리고, 작성창은 패널을 뺀 영역 가운데로 옮긴다', async ({ authenticatedPage: page }) => {
+    await page.route('**/api/v1/home/sessions**', (r) => r.fulfill({ json: { items: [], nextCursor: null } }))
+    await page.getByTestId('mail-compose-subject').fill('AI 와 함께')
+    await page.getByRole('button', { name: '크게 보기' }).click()
+    const chip = page.getByTestId('chat-launcher')
+    // 칩은 어두운 배경 위에 남아 누를 수 있다(inert 아님).
+    await expectOnTop(page, chip, '[data-testid="chat-launcher"]')
+    expect(await chip.evaluate((el) => el.closest('[inert]') != null)).toBe(false)
+    await chip.click()
+    const panel = page.getByTestId('ai-side-panel')
+    await expect(panel).toBeVisible()
+    // 작성창은 크게 보기 그대로, 쓰던 내용 유지.
+    await expect(page.getByTestId('mail-compose-backdrop')).toBeVisible()
+    await expect(page.getByTestId('mail-compose-subject')).toHaveValue('AI 와 함께')
+    // 배경은 패널을 덮지 않고, 작성창은 패널 왼쪽 페이지 영역 가운데에 있다.
+    const p = (await panel.boundingBox())!
+    await expect.poll(async () => Math.round((await page.getByTestId('mail-compose-backdrop').boundingBox())!.width)).toBe(Math.round(p.x))
+    await expect(async () => {
+      const d = await dockBox(page)
+      expect(d.x + d.width).toBeLessThanOrEqual(p.x)
+      expect(Math.abs(d.x + d.width / 2 - p.x / 2)).toBeLessThanOrEqual(2)
+    }).toPass()
+    await expectOnTop(page, panel, '[data-testid="ai-side-panel"]')
+  })
+
+  test('크게 보기 중 AI 를 전체 화면으로 바꾸면 작은 창으로 비켜 주고, 옆 패널로 돌리면 다시 크게 보인다', async ({ authenticatedPage: page }) => {
+    await page.route('**/api/v1/home/sessions**', (r) => r.fulfill({ json: { items: [], nextCursor: null } }))
+    await page.getByTestId('mail-compose-subject').fill('전체 화면 전환')
+    await page.getByRole('button', { name: '크게 보기' }).click()
+    await page.getByTestId('chat-launcher').click()
+    await expect(page.getByTestId('ai-side-panel')).toBeVisible()
+    await page.getByTestId('ai-mode-fullscreen').click()
+    // AI 전체 화면은 가려지지 않고 쓸 수 있다 — 배경이 사라지고 작성창은 작은 창, 뒤 페이지 inert 도 풀린다.
+    await expect(page.getByTestId('mail-compose-backdrop')).toHaveCount(0)
+    expect((await dockBox(page)).width).toBeLessThan(560)
+    // 그동안 크게 보기 버튼은 꺼져 있다(눌러도 아무 일 없는 상태를 만들지 않게).
+    await expect(page.getByTestId('mail-compose-expand')).toBeDisabled()
+    const modeSide = page.getByTestId('ai-mode-side')
+    expect(await modeSide.evaluate((el) => el.closest('[inert]') != null)).toBe(false)
+    await modeSide.click()
+    await expect(page.getByTestId('mail-compose-backdrop')).toBeVisible()
+    expect((await dockBox(page)).width).toBeGreaterThan(560)
+    await expect(page.getByTestId('mail-compose-subject')).toHaveValue('전체 화면 전환')
+  })
+
+  test('쓴 내용이 있으면 ✕ 는 버릴지 묻는다 — 계속 작성하면 그대로, 버리면 닫힌다', async ({ authenticatedPage: page }) => {
+    await page.getByRole('button', { name: '크게 보기' }).click()
+    await page.getByTestId('mail-composer-body').click()
+    await page.keyboard.type('지우면 안 되는 본문')
+    await page.getByTestId('mail-compose-close').click()
+    const confirm = page.getByTestId('mail-compose-discard-dialog')
+    await expect(confirm).toBeVisible()
+    await expectOnTop(page, confirm, '[data-testid="mail-compose-discard-dialog"]')
+    await page.getByTestId('mail-compose-discard-keep').click()
+    await expect(page.getByTestId('mail-composer-body')).toContainText('지우면 안 되는 본문')
+    await page.getByTestId('mail-compose-close').click()
+    await page.getByTestId('mail-compose-discard-confirm').click()
+    await expect(page.getByTestId('mail-compose-dock')).toHaveCount(0)
+  })
+
+  test('확대한 채 셸이 모바일↔데스크톱으로 바뀌어도 새로 그린 뒤 페이지가 inert 다', async ({ authenticatedPage: page }) => {
+    await page.getByRole('button', { name: '크게 보기' }).click()
+    const pageArea = () =>
+      page.evaluate(() => Array.from(document.querySelector('[data-ai-page-root]')!.querySelectorAll('main')).every((el) => el.closest('[inert]') != null))
+    await page.setViewportSize({ width: 800, height: 900 }) // lg(1024px) 미만 → 모바일 셸
+    await expect.poll(pageArea).toBe(true)
+    await page.setViewportSize({ width: 1440, height: 900 }) // 다시 데스크톱 셸 — 크게 보기 상태 그대로
+    await expect(page.getByTestId('mail-compose-backdrop')).toBeVisible()
+    await expect.poll(pageArea).toBe(true)
+    expect(await page.getByTestId('mail-compose-new').evaluate((el) => el.closest('[inert]') != null)).toBe(true)
+  })
+
+  test('확대 중 창 안 빈 곳(제목 글자)을 누른 뒤 Esc 도 작은 창으로 돌아간다', async ({ authenticatedPage: page }) => {
+    await page.getByRole('button', { name: '크게 보기' }).click()
+    await page.locator('#mail-compose-dock-title').click()
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('mail-compose-backdrop')).toHaveCount(0)
+    expect((await dockBox(page)).width).toBeLessThan(560)
+  })
+
+  test('크게 보기에서 본문이 길어 스크롤돼도 서식 버튼과 보내기가 창 안에 보인다', async ({ authenticatedPage: page }) => {
+    await page.getByRole('button', { name: '크게 보기' }).click()
+    await page.getByTestId('mail-composer-body').click()
+    for (let i = 0; i < 60; i++) {
+      await page.keyboard.type(`줄 ${i}`)
+      await page.keyboard.press('Enter')
+    }
+    const dock = await dockBox(page)
+    const within = async (testId: string) => {
+      const box = (await page.getByTestId(testId).boundingBox())!
+      return box.y >= dock.y - 1 && box.y + box.height <= dock.y + dock.height + 1
+    }
+    // 본문 끝(커서 위치)으로 스크롤된 상태 — 툴바는 위에 붙어 있고 보내기는 아래에 남는다.
+    await expect.poll(() => within('mail-composer-toolbar')).toBe(true)
+    await expect.poll(() => within('mail-compose-send')).toBe(true)
+    await expectOnTop(page, page.getByRole('button', { name: '굵게' }), '[data-testid="mail-composer-toolbar"] button')
+    await expectOnTop(page, page.getByTestId('mail-compose-send'), '[data-testid="mail-compose-send"]')
+  })
+
+  test('크게 보기에서 AI 검토 탭을 열면 에디터는 숨고 검토 패널만 보인다', async ({ authenticatedPage: page }) => {
+    await page.route(
+      (u) => u.pathname === '/api/v1/mail/draft-coaching',
+      (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ notes: [], improvedBodyHtml: '<p>개선본</p>' }) }),
+    )
+    await page.getByRole('button', { name: '크게 보기' }).click()
+    await page.getByTestId('mail-composer-body').click()
+    await page.keyboard.type('검토할 본문')
+    await page.getByTestId('mail-review-tab').click()
+    await expect(page.getByTestId('mail-coaching-panel')).toBeVisible()
+    await expect(page.getByTestId('mail-composer-body')).toBeHidden()
+    await expect(page.getByTestId('mail-composer-toolbar')).toBeHidden()
+  })
+
+  test('확대 중 링크 삽입 창은 작성창 위에 뜨고, 그 Esc 는 링크 창만 닫는다', async ({ authenticatedPage: page }) => {
+    await page.getByRole('button', { name: '크게 보기' }).click()
+    await page.getByTestId('mail-composer-body').click()
+    await page.getByRole('button', { name: '링크' }).click()
+    const dialog = page.getByTestId('link-url-dialog')
+    await expect(dialog).toBeVisible()
+    await expectOnTop(page, dialog, '[data-testid="link-url-dialog"]')
+    // 링크 창의 Esc 는 링크 창만 닫고, 작성창은 확대 상태 그대로다.
+    await page.getByTestId('link-url-input').press('Escape')
+    await expect(dialog).toBeHidden()
+    await expect(page.getByTestId('mail-compose-backdrop')).toBeVisible()
   })
 })

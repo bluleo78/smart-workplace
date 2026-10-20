@@ -111,12 +111,12 @@ export function AppLayout() {
             </InboxProvider>
             {/* AI 칩 — fixed 상단 중앙, 데스크톱 전용(모바일은 탭바 가운데 AI 가 대신한다). 비서 있을 때만. */}
             {aiAvailable && !isMobile && <AIChip />}
+            {/* 메일 작성 도크 — fixed, 앱 전역. draft 없으면 null. AI 모드(전체화면이면 크게 보기를 접는다)를 읽으므로 AI 공급자 안. */}
+            <MailComposeDock />
           </AiScreenContextProvider>
         </AIAssistantProvider>
       </ChatSessionProvider>
       </MobileChromeProvider>
-      {/* 메일 작성 도크 — fixed, 앱 전역. draft 없으면 null. */}
-      <MailComposeDock />
     </MailComposeProvider>
   )
 }

@@ -149,23 +149,26 @@ test('키보드가 열리면 하단 시트가 키보드 바로 위로 올라온�
   expect((await sheet.boundingBox())!.y).toBeGreaterThanOrEqual(0)
 })
 
-test('키보드가 열리면 메일 작성 도크가 탭바 위·키보드 위에 남는다', async ({ authenticatedPage: page }) => {
+// WP-583: 모바일 작성 화면은 화면 전체 — 키보드가 열리면 그 위까지만 차지하고, 서식 버튼이 키보드 바로 위에 붙는다.
+test('키보드가 열리면 메일 작성 화면이 키보드 위에 들어오고 서식 버튼이 키보드 바로 위에 붙는다', async ({ authenticatedPage: page }) => {
   const sheet = await openMailSidebar(page)
   await sheet.getByTestId('mail-compose-new').click()
   const dock = page.getByTestId('mail-compose-dock')
   await expect(dock).toBeVisible()
-  // 작성을 눌러도 시트는 열린 채이므로 Esc 로 닫아 탭바를 드러낸다.
-  await page.keyboard.press('Escape')
+  // 편지쓰기를 누르면 시트는 닫힌다(WP-578) — 아직 열려 있으면 Esc 로 닫는다.
+  if (await sheet.isVisible()) await page.keyboard.press('Escape')
   await expect(sheet).toBeHidden()
   await dock.locator('input').first().focus()
-  await setKeyboard(page, true)
-  const bar = page.getByTestId('mobile-tabbar')
-  // 셸이 줄어 탭바가 키보드 바로 위로 오고, 도크는 그 탭바 위에 붙는다(상단은 화면 안).
+  const visible = await setKeyboard(page, true)
+  const toolbar = page.getByTestId('mail-composer-toolbar')
   await expect.poll(async () => {
     const d = (await dock.boundingBox())!
-    const b = (await bar.boundingBox())!
-    return Math.round(d.y + d.height) <= Math.round(b.y) && d.y >= 0
+    const t = (await toolbar.boundingBox())!
+    return d.y >= 0 && Math.round(d.y + d.height) <= visible && Math.round(t.y + t.height) === visible
   }).toBe(true)
+  // 보내기는 상단 바라 키보드에 가리지 않는다.
+  const send = (await page.getByTestId('mail-compose-send').boundingBox())!
+  expect(send.y + send.height).toBeLessThan(visible)
 })
 
 test('홈 화면 앱처럼 innerHeight 도 키보드와 함께 줄어도 키보드 열림으로 판정한다(지금까지 본 최대 높이 기준)', async ({ authenticatedPage: page }) => {

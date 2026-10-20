@@ -6,7 +6,7 @@ import { calendar, calendarEvent } from '../../factories/calendar.factory'
 import { detail, mailAccount, summary } from '../../factories/mail.factory'
 import { createProject } from '../../factories/project.factory'
 import { mockApi } from '../../fixtures/api-mock'
-import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture'
+import { expect, expectNoHorizontalOverflow, expectOnTop, stubChat, test } from '../../fixtures/mobile.fixture'
 
 test('AI 탭으로 시트를 열고 다른 탭으로도 닫는다 — 탭 루트 시트에도 × 가 있다(구 WP-111 이관, U2-3 → WP-191)', async ({ authenticatedPage: page }) => {
   await stubChat(page)
@@ -130,7 +130,8 @@ test('모바일(<lg): ⌘K 는 AI 시트를 토글하고 Esc 는 닫는다', asy
   await expect(fs).toHaveCount(0)
 })
 
-test('메일 작성 도크가 탭바와 겹치지 않는다', async ({ authenticatedPage: page }) => {
+// WP-583: 모바일 작성은 화면 전체 작성 화면이라 탭바를 덮는다 — 탭바가 작성 화면 위로 비치거나 눌리면 안 된다.
+test('메일 작성 화면이 탭바까지 덮는다', async ({ authenticatedPage: page }) => {
   await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
   await mockApi(page, 'GET', '/api/v1/mail/accounts/1/messages', [summary()])
   await page.goto('/mail')
@@ -138,15 +139,15 @@ test('메일 작성 도크가 탭바와 겹치지 않는다', async ({ authentic
   await page.getByTestId('mobile-sidebar-sheet').getByTestId('mail-compose-new').click()
   const dock = page.getByTestId('mail-compose-dock')
   await expect(dock).toBeVisible()
-  // 작성을 눌러도 시트는 열린 채이므로 Esc 로 명시적으로 닫아 탭바를 드러낸다.
-  await page.keyboard.press('Escape')
+  // 편지쓰기를 누르면 시트는 닫힌다(WP-578) — 아직 열려 있으면 Esc 로 닫아 탭바 자리만 본다.
+  if (await page.getByTestId('mobile-sidebar-sheet').isVisible()) await page.keyboard.press('Escape')
   await expect(page.getByTestId('mobile-sidebar-sheet')).toBeHidden()
   const bar = page.getByTestId('mobile-tabbar')
-  await expect(bar).toBeVisible()
-  const d = (await dock.boundingBox())!
   const b = (await bar.boundingBox())!
-  // 도크 하단이 탭바 상단 이상으로 내려가지 않아야 한다.
-  expect(d.y + d.height).toBeLessThanOrEqual(b.y + 0.5)
+  const d = (await dock.boundingBox())!
+  // 작성 화면이 탭바 영역을 완전히 덮고, 그 자리의 맨 위 요소는 작성 화면이다.
+  expect(d.y + d.height).toBeGreaterThanOrEqual(b.y + b.height - 0.5)
+  await expectOnTop(page, bar, '[data-testid="mail-compose-dock"]')
   await expectNoHorizontalOverflow(page)
 })
 

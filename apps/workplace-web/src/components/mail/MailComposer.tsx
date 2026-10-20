@@ -23,21 +23,58 @@ import { ImeCommitFlush } from '@/lib/imeCommitFlush';
 import { ghostToggleClass } from '@/lib/selectionStyles';
 import { cn } from '@/lib/utils';
 
+/**
+ * 에디터 배치 — 작성창 모양에 따라 본문 크기·툴바 위치가 달라진다.
+ * - dock: 작은 작성창. 본문 높이 상한(40vh) + 세로 스크롤.
+ * - fill: 데스크톱 크게 보기(WP-575). 상한을 풀고 남은 높이를 다 채운다.
+ * - mobile: 모바일 화면 전체 작성(WP-583). 테두리 없는 본문, 서식 버튼은 화면 맨 아래(키보드가 열리면 그 바로 위).
+ */
+export type MailComposerLayout = 'dock' | 'fill' | 'mobile';
+
 interface MailComposerProps {
   /** 초기 HTML(답장/전달 인용문). */
   initialHtml?: string;
-  /** 본문 변경 시 HTML+텍스트 동시 전달. */
-  onChange: (html: string, text: string) => void;
+  /** 본문 변경 시 HTML+텍스트 동시 전달. initial=true 는 에디터가 처음 만들어질 때(사용자 편집 아님)의 값이다. */
+  onChange: (html: string, text: string, initial: boolean) => void;
+  /** 작성창 모양에 맞춘 배치. 기본 dock. */
+  layout?: MailComposerLayout;
 }
 
-/** 툴바 버튼. */
+/**
+ * 배치별 본문(ProseMirror) 클래스. editorProps 는 렌더마다 setOptions 로 다시 적용되므로
+ * 같은 에디터 인스턴스로 작은 창 ↔ 크게 보기를 오가도 쓰던 내용을 잃지 않고 크기만 바뀐다.
+ */
+const BOXED_EDITOR_CLASS =
+  'overflow-y-auto rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
+const EDITOR_CLASS: Record<MailComposerLayout, string> = {
+  dock: `min-h-[180px] max-h-[40vh] ${BOXED_EDITOR_CLASS}`,
+  fill: `min-h-[12rem] flex-1 ${BOXED_EDITOR_CLASS}`,
+  mobile: 'min-h-[30vh] bg-background py-2 text-[15px] leading-relaxed focus-visible:outline-none',
+};
+
+/**
+ * 배치별 서식 툴바 클래스 — 모바일은 화면 하단 고정(키보드 높이 --kb-inset 만큼 띄움).
+ * z-10: 본문(ProseMirror, position:relative)이 DOM 상 뒤에 있어 길게 쓰면 글자가 툴바 위로 그려지므로 올린다.
+ * 크게 보기는 에디터가 끝없이 늘고 창 본문이 스크롤되므로 툴바를 위에 붙인다 — 비치지 않게 배경을 깔고 그 위에 같은 옅은 색을 겹친다.
+ */
+const BOXED_TOOLBAR_CLASS = 'flex items-center gap-0.5 rounded-md border bg-muted/40 p-1';
+const TOOLBAR_CLASS: Record<MailComposerLayout, string> = {
+  dock: BOXED_TOOLBAR_CLASS,
+  fill: cn(BOXED_TOOLBAR_CLASS, 'sticky top-0 z-10 bg-background bg-linear-to-r from-muted/40 to-muted/40'),
+  mobile:
+    'fixed inset-x-0 bottom-[var(--kb-inset,0px)] z-10 flex items-center gap-1 border-t bg-background px-2 pt-0.5 pb-[max(0.125rem,env(safe-area-inset-bottom))]',
+};
+
+/** 툴바 버튼. touch(모바일)는 44px 터치 크기·20px 아이콘, 그 밖엔 작은 버튼·16px 아이콘. */
 function ToolbarButton({
   active,
+  touch,
   onClick,
   label,
   children,
 }: {
   active?: boolean;
+  touch: boolean;
   onClick: () => void;
   label: string;
   children: ReactNode;
@@ -50,7 +87,8 @@ function ToolbarButton({
       onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
       className={cn(
-        'rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground',
+        'rounded text-muted-foreground hover:bg-accent hover:text-foreground',
+        touch ? 'flex h-11 w-11 items-center justify-center [&_svg]:size-5' : 'p-1.5 [&_svg]:size-4',
         ghostToggleClass(!!active),
       )}
     >
@@ -66,7 +104,7 @@ export interface MailComposerHandle {
 
 /** 메일 본문 작성 에디터. */
 export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(
-  function MailComposer({ initialHtml = '', onChange }, ref) {
+  function MailComposer({ initialHtml = '', onChange, layout = 'dock' }, ref) {
   // 링크 URL 입력 다이얼로그 — window.prompt 대체 (#148).
   const [linkDialog, setLinkDialog] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
@@ -84,20 +122,14 @@ export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(
     autofocus: false,
     // 마운트 직후 refs 를 초기화해 상위 도크가 빈 본문 상태를 정확히 알게 한다.
     // (인용문은 에디터 밖에서 관리되므로 여기 포함되지 않는다 — 설계 §3)
-    onCreate: ({ editor }) => onChange(editor.getHTML(), editor.getText()),
-    onUpdate: ({ editor }) => onChange(editor.getHTML(), editor.getText()),
+    onCreate: ({ editor }) => onChange(editor.getHTML(), editor.getText(), true),
+    onUpdate: ({ editor }) => onChange(editor.getHTML(), editor.getText(), false),
     editorProps: {
       attributes: {
         'data-testid': 'mail-composer-body',
         'aria-label': '메일 본문',
-        class:
-          // 본문이 길어도 도크가 무한정 늘어나지 않도록 최대 높이 + 세로 스크롤.
-          //
-          // prose/prose-sm/max-w-none 제거(#743): @tailwindcss/typography 플러그인이 설치되어 있지
-          // 않아 prose 계열은 아무 스타일도 적용하지 않는 죽은 클래스였다. 목록·코드블록 등 블록
-          // 요소 스타일은 index.css 의 .ProseMirror 규칙이 담당한다(#738). max-w-none 도 prose 의
-          // max-width 를 되돌리기 위한 것이라 함께 제거.
-          'min-h-[180px] max-h-[40vh] overflow-y-auto rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        // 배치별 크기(EDITOR_CLASS). prose 계열 클래스는 쓰지 않는다(#743) — 블록 요소 스타일은 index.css 의 .ProseMirror 규칙(#738).
+        class: EDITOR_CLASS[layout],
       },
     },
   });
@@ -115,39 +147,45 @@ export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(
   )
 
   if (!editor) return null;
+  const touch = layout === 'mobile';
 
   return (
-    <div className="flex flex-col gap-1.5">
-      <div className="flex items-center gap-0.5 rounded-md border bg-muted/40 p-1">
+    <div className={cn('flex flex-col', layout !== 'mobile' && 'gap-1.5', layout === 'fill' && 'flex-1')}>
+      <div data-testid="mail-composer-toolbar" className={TOOLBAR_CLASS[layout]}>
         <ToolbarButton
+          touch={touch}
           label="굵게"
           active={editor.isActive('bold')}
           onClick={() => editor.chain().focus().toggleBold().run()}
         >
-          <Bold className="h-4 w-4" />
+          <Bold />
         </ToolbarButton>
         <ToolbarButton
+          touch={touch}
           label="기울임"
           active={editor.isActive('italic')}
           onClick={() => editor.chain().focus().toggleItalic().run()}
         >
-          <Italic className="h-4 w-4" />
+          <Italic />
         </ToolbarButton>
         <ToolbarButton
+          touch={touch}
           label="글머리 목록"
           active={editor.isActive('bulletList')}
           onClick={() => editor.chain().focus().toggleBulletList().run()}
         >
-          <List className="h-4 w-4" />
+          <List />
         </ToolbarButton>
         <ToolbarButton
+          touch={touch}
           label="번호 목록"
           active={editor.isActive('orderedList')}
           onClick={() => editor.chain().focus().toggleOrderedList().run()}
         >
-          <ListOrdered className="h-4 w-4" />
+          <ListOrdered />
         </ToolbarButton>
         <ToolbarButton
+          touch={touch}
           label="링크"
           active={editor.isActive('link')}
           onClick={() => {
@@ -157,10 +195,11 @@ export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(
             setLinkDialog(true);
           }}
         >
-          <Link2 className="h-4 w-4" />
+          <Link2 />
         </ToolbarButton>
       </div>
-      <EditorContent editor={editor} />
+      {/* 크게 보기는 본문이 남은 높이를 채우도록 래퍼도 세로 flex 로 늘린다. */}
+      <EditorContent editor={editor} className={layout === 'fill' ? 'flex flex-1 flex-col' : undefined} />
 
       {/* 링크 URL 입력 다이얼로그 — window.prompt 대체 (#148) */}
       <Dialog

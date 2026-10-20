@@ -49,7 +49,7 @@ function scrollBodyToTop() {
 const TAB_BADGE_CLASS = 'absolute right-[calc(50%-18px)] top-0.5 h-4 min-w-4 text-[9px] font-normal leading-4'
 
 /**
- * 실제 탭바 높이(안전영역 포함)를 :root 의 --mobile-tabbar-h 로 공개한다 — 메일 작성 도크 등 fixed 부품이
+ * 실제 탭바 높이(안전영역 포함)를 :root 의 --mobile-tabbar-h 로 공개한다 — 모바일 AI 시트 등 셸 위 층이
  * 탭바 위로 뜨게 하되, 탭바가 숨으면(언마운트) 변수를 지워 폴백 0 으로 화면 하단에 붙는다.
  * 고정 px 를 복제하지 않도록 렌더된 높이를 관측한다(useObservedHeight — 뷰어 하단 바와 공용).
  * 반환값은 탭바 요소에 다는 콜백 ref.
