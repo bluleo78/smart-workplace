@@ -415,6 +415,41 @@ test('모바일 편집 — 드래그 핸들에서 Space·↓·Space 로 순서�
   expect(stub.puts()[0].widgets.map((w) => w.id)).toEqual(['unread_mail', 'my_tasks'])
 })
 
+test('모바일 편집 — 위젯 설정은 팝오버 대신 바텀시트로 열리고, 적용한 이름이 device=mobile PUT 에 저장된다 (WP-642)', async ({
+  authenticatedPage: page,
+}) => {
+  await stubWidgetData(page)
+  const stub = await stubDashboard(page, {
+    mobile: layout([
+      { id: 'il-1', type: 'issue_list', count: 0, hidden: false, params: { assignee: 'me' }, label: null },
+      'my_tasks',
+    ]),
+  })
+  await page.goto('/')
+  await page.getByTestId('dashboard-edit-toggle').click()
+  await page.locator('[data-testid="dashboard-widget"][data-widget-id="il-1"]').getByTestId('widget-settings').click()
+  // 다른 모바일 편집 흐름(위젯 추가·선택 시트)과 같이 배경을 덮는 바텀시트 — 화면 아래에 붙고 좌우 폭을 꽉 채운다.
+  const sheet = page.getByTestId('widget-settings-sheet')
+  await expect(sheet).toBeVisible()
+  await expect(page.getByTestId('widget-settings-popover')).toHaveCount(0)
+  await expect(sheet.getByRole('heading', { name: '위젯 설정' })).toBeVisible()
+  const box = (await sheet.boundingBox())!
+  const viewport = page.viewportSize()!
+  expect(box.x).toBeLessThanOrEqual(1)
+  expect(box.width).toBeGreaterThanOrEqual(viewport.width - 2)
+  expect(box.y + box.height).toBeGreaterThanOrEqual(viewport.height - 2)
+  await expectNoHorizontalOverflow(page)
+
+  await sheet.getByTestId('widget-settings-label').fill('내 담당 이슈')
+  await sheet.getByTestId('widget-settings-apply').click()
+  await expect(sheet).toHaveCount(0)
+  await page.getByTestId('dashboard-edit-save').click()
+  await expect(page.getByTestId('dashboard-edit-banner')).toHaveCount(0)
+  expect(stub.puts()).toHaveLength(1)
+  expect(stub.puts()[0].device).toBe('mobile')
+  expect(stub.puts()[0].widgets.find((w) => w.id === 'il-1')?.label).toBe('내 담당 이슈')
+})
+
 test('collapsed 필드 없는 저장본은 펼침으로, 미등록 위젯은 건너뛰고 렌더된다', async ({
   authenticatedPage: page,
 }) => {

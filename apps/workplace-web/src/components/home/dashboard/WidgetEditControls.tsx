@@ -91,7 +91,13 @@ export function WidgetEditControls({
       </Button>
       {afterHide}
       {entry.kind === 'catalog' && entry.def.fields.length > 0 && (
-        <WidgetSettingsPopover catalogDef={entry.def} cfg={cfg} onApply={onApplyCatalogConfig}>
+        // 모바일 편집 카드(44px 버튼)면 설정을 바텀시트로 연다(WP-642).
+        <WidgetSettingsPopover
+          catalogDef={entry.def}
+          cfg={cfg}
+          onApply={onApplyCatalogConfig}
+          mobile={buttonClassName === 'size-11'}
+        >
           <Button
             type="button"
             variant="ghost"
