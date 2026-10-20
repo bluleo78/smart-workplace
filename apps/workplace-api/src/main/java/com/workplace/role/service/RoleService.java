@@ -13,6 +13,8 @@ import com.workplace.user.dto.UserResponse;
 import com.workplace.user.repository.UserRepository;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -117,6 +119,14 @@ public class RoleService {
           "시스템 역할의 권한은 변경할 수 없습니다 (name: " + role.name() + ")");
     }
 
+    // WP-570: 없는 권한 id 는 FK 위반(영어 409)이 되기 전에 한국어로 거절한다.
+    Set<Long> known =
+        permissionRepository.findAll().stream()
+            .map(PermissionResponse::id)
+            .collect(Collectors.toSet());
+    if (!known.containsAll(permissionIds)) {
+      throw new IllegalArgumentException("없는 권한이 포함되어 있습니다");
+    }
     List<String> before = permissionCodesOf(roleId);
     roleRepository.setPermissions(roleId, permissionIds);
     List<String> after = permissionCodesOf(roleId);

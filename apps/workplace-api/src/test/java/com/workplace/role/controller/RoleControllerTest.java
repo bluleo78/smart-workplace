@@ -144,6 +144,39 @@ class RoleControllerTest {
   }
 
   @Test
+  void updateRole_invalidNameOrLongDescription_returns400() throws Exception {
+    // WP-570: 생성에만 있던 이름 규칙이 수정에도 적용되고, 설명은 DB(VARCHAR(255)) 상한에서 한국어로 막는다.
+    mockAuthentication("role:write");
+
+    mockMvc
+        .perform(
+            put("/api/v1/roles/3")
+                .header("Authorization", "Bearer valid-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"qa 담당 역할!!\",\"description\":\"x\"}"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.errors.name").value("역할 이름은 대문자, 숫자, 밑줄만 허용됩니다"));
+    mockMvc
+        .perform(
+            put("/api/v1/roles/3")
+                .header("Authorization", "Bearer valid-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"MOD\",\"description\":\"" + "x".repeat(256) + "\"}"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.errors.description").value("역할 설명은 255자까지 쓸 수 있습니다"));
+    mockMvc
+        .perform(
+            post("/api/v1/roles")
+                .header("Authorization", "Bearer valid-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"MOD\",\"description\":\"" + "x".repeat(256) + "\"}"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.errors.description").value("역할 설명은 255자까지 쓸 수 있습니다"));
+
+    org.mockito.Mockito.verifyNoInteractions(roleService);
+  }
+
+  @Test
   void deleteRole_withPermission_returnsNoContent() throws Exception {
     mockAuthentication("role:delete");
 

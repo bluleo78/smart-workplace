@@ -35,6 +35,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -539,6 +540,15 @@ public class UserService {
     }
     // 대상이 현재 테넌트 멤버가 아니면 타 테넌트 사용자의 전역 역할을 바꿀 수 없다 (#811).
     requireMember(userId, tenantId);
+    // WP-570: 이 워크스페이스에 없는 역할 id(없는 id·다른 테넌트 역할)는 FK 위반(영어 409)이 되기 전에 한국어로 거절한다.
+    // role 은 RLS 대상이라 findAll 은 현재 테넌트 역할만 돌려준다.
+    if (roleIds != null) {
+      Set<Long> known =
+          roleRepository.findAll().stream().map(RoleResponse::id).collect(Collectors.toSet());
+      if (!known.containsAll(roleIds)) {
+        throw new IllegalArgumentException("없는 역할이 포함되어 있습니다");
+      }
+    }
     Optional<RoleResponse> adminRole = roleRepository.findByName("ADMIN");
     if (adminRole.isEmpty()) return;
     boolean wouldRemoveAdmin = roleIds == null || !roleIds.contains(adminRole.get().id());

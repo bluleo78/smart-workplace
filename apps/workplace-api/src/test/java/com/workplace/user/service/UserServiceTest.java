@@ -347,6 +347,14 @@ class UserServiceTest extends IntegrationTestBase {
   }
 
   @Test
+  void setUserRoles_unknownRole_isRejectedInKorean() {
+    // WP-570: 없는(또는 이 워크스페이스에 없는) 역할 id 가 FK 위반 → 영어 409 로 새던 결함.
+    assertThatThrownBy(() -> userService.setUserRoles(testUserId, List.of(999_999L), null))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("없는 역할이 포함되어 있습니다");
+  }
+
+  @Test
   void setUserRoles_success() {
     Long adminRoleId =
         dsl.select(ROLE.ID).from(ROLE).where(ROLE.NAME.eq("ADMIN")).fetchOne(ROLE.ID);

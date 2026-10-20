@@ -181,6 +181,16 @@ class RoleServiceTest extends IntegrationTestBase {
   }
 
   @Test
+  void setRolePermissions_unknownPermission_isRejectedInKorean() {
+    // WP-570: 없는 권한 id 가 FK 위반 → 영어 409 로 새던 결함 — 저장 전에 한국어 400 으로 거절한다.
+    RoleResponse role = roleService.createRole("UNKNOWN_PERM_ROLE", "x", null);
+
+    assertThatThrownBy(() -> roleService.setRolePermissions(role.id(), List.of(999_999L), null))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("없는 권한이 포함되어 있습니다");
+  }
+
+  @Test
   void setRolePermissions_systemRole_throwsException() {
     Long adminRoleId =
         dsl.select(ROLE.ID).from(ROLE).where(ROLE.NAME.eq("ADMIN")).fetchOne(ROLE.ID);
