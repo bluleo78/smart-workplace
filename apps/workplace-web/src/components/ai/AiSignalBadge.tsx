@@ -1,14 +1,16 @@
 import { Sparkles } from 'lucide-react'
+import { Link } from 'react-router-dom'
 
 import { aiSignalBadgeClass, type AiSignalVariant } from './aiMarker'
 
 // ③ AI 판단신호 배지 — AI가 기존 콘텐츠에 매긴 라벨(회신필요/분류/확인필요 등).
 // icon-led: action/info 둘 다 미니 ✨ 보유(아이콘 유무로 비-AI 신호와 구분). reason 있으면 호버 툴팁(title).
-// onClick 주어지면 <button>(필터 등 인터랙션), 아니면 <span>.
+// to 주어지면 <Link>(페이지 이동 — ctrl/cmd/가운데 클릭 새 탭 등 기본 동작 유지), onClick 이면 <button>(필터 등 인터랙션), 아니면 <span>.
 export function AiSignalBadge({
   variant,
   reason,
   onClick,
+  to,
   className,
   children,
   'data-testid': testId,
@@ -16,6 +18,7 @@ export function AiSignalBadge({
   variant: AiSignalVariant
   reason?: string
   onClick?: (e: React.MouseEvent) => void
+  to?: string
   className?: string
   children: React.ReactNode
   'data-testid'?: string
@@ -32,6 +35,13 @@ export function AiSignalBadge({
       {children}
     </>
   )
+  if (to) {
+    return (
+      <Link to={to} data-testid={testId} title={reason} className={`${cls} hover:opacity-90`}>
+        {inner}
+      </Link>
+    )
+  }
   if (onClick) {
     return (
       <button type="button" data-testid={testId} title={reason} onClick={onClick} className={`${cls} hover:opacity-90`}>

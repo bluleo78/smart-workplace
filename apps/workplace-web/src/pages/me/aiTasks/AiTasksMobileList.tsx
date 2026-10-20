@@ -15,7 +15,7 @@ import {
   AgentToolChip,
 } from '@/components/ai/agentWork/AgentWorkBits'
 import { IssueStatusIcon } from '@/components/issues/IssueStatusIcon'
-import { displayState, primaryWork } from '@/lib/agentWork'
+import { displayState, issueChatPath, primaryWork } from '@/lib/agentWork'
 import { cn } from '@/lib/utils'
 import type { IssueResponse } from '@/types/issue'
 
@@ -47,7 +47,13 @@ function MobileRow({ it }: { it: IssueResponse }) {
               data-testid={`${tid}-meta`}
             >
               <span className="shrink-0 font-mono">{it.projectKey}-{it.number}</span>
-              {state && <AgentStateBadge state={state} data-testid={`${tid}-state`} />}
+              {state && (
+                <AgentStateBadge
+                  state={state}
+                  to={state === 'INPUT_REQUIRED' ? issueChatPath(it.projectKey, it.number) : undefined}
+                  data-testid={`${tid}-state`}
+                />
+              )}
               {w && <AgentNextRun w={w} className="shrink-0" data-testid={`${tid}-next-run`} />}
               {w && <AgentToolChip tool={w.tool} data-testid={`${tid}-tool`} />}
               {w && <AgentProgress w={w} variant="text" hideEmpty className="shrink-0" data-testid={`${tid}-progress`} />}
@@ -79,7 +85,7 @@ function MobileEpicHead({ epic, head }: { epic: EpicHead; head: IssueResponse | 
       </div>
       {head && state && (
         <div className="mt-1 flex min-w-0 items-center gap-1.5 pl-[22px] text-xs text-muted-foreground" data-testid={`${tid}-meta`}>
-          <AgentStateBadge state={state} />
+          <AgentStateBadge state={state} to={state === 'INPUT_REQUIRED' ? issueChatPath(head.projectKey, head.number) : undefined} />
           {w && <AgentNextRun w={w} className="shrink-0" data-testid={`${tid}-next-run`} />}
           {w?.note && <span className="min-w-0 truncate" title={w.note}>{w.note}</span>}
         </div>

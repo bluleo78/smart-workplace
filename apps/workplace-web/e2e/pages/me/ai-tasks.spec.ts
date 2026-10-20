@@ -116,6 +116,11 @@ test('행에 AI 진행·최근 보고·진행률·담당자·에이전트 유형
 
   // 제목은 이슈 상세 링크.
   await expect(row.getByRole('link', { name: '로그인 실패 시 재시도 제한' })).toHaveAttribute('href', '/projects/WP/issues/412')
+
+  // 답변 필요 칩은 바로 그 이슈 챗으로 이동하는 링크(클릭 한 번으로 질문에 답하러 간다). 인증/검토 필요 칩은 이동 없음(아직 답변 전용으로만 연결).
+  await expect(page.getByTestId('ai-row-412-state')).toHaveAttribute('href', '/projects/WP/issues/412?chat=1')
+  await expect(page.getByTestId('ai-row-416-state')).not.toHaveAttribute('href', /.+/)
+  await expect(page.getByTestId('ai-row-415-state')).not.toHaveAttribute('href', /.+/)
 })
 
 test('무소식 행은 마지막 보고에 경고 아이콘과 툴팁', async ({ authenticatedPage: page }) => {

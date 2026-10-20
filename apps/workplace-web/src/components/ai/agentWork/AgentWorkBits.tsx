@@ -11,14 +11,17 @@ import type { AgentWorkState, AgentWorkView } from '@/types/issue'
 /** AI 진행 배지 — 톤은 agentStateTone: 사람이 할 일은 AI 판단신호 action(채움), 작업 중 info, 막힘 경고, 완료 성공·실패 위험(WP-396), 그 외(일시 중지·시작 전·취소·반려)는 흐린 윤곽. */
 export function AgentStateBadge({
   state,
+  to,
   'data-testid': testId,
 }: {
   state: AgentWorkState | 'NOT_STARTED'
+  /** 주면 칩이 그 경로로 가는 링크가 된다 — 어느 상태에 줄지는 호출부가 정한다(예: 「답변 필요」만 이슈 챗 딥링크). */
+  to?: string
   'data-testid'?: string
 }) {
   const label = AGENT_STATE_LABEL[state]
   const tone = agentStateTone(state)
-  if (tone === 'action' || tone === 'info') return <AiSignalBadge variant={tone} data-testid={testId}>{label}</AiSignalBadge>
+  if (tone === 'action' || tone === 'info') return <AiSignalBadge variant={tone} to={to} data-testid={testId}>{label}</AiSignalBadge>
   if (tone === 'muted') return <Badge variant="outline" className="text-muted-foreground" data-testid={testId}>{label}</Badge>
   // 실패 — Badge 에 옅은 위험 variant 가 없어 success·warning 과 같은 결(/10 바탕·/20 테두리)의 tint 를 디자인 토큰으로 입힌다(진한 destructive 채움은 과하다).
   if (tone === 'destructive')

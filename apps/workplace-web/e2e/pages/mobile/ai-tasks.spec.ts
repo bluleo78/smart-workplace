@@ -53,6 +53,8 @@ test('행 구조 — 상태 아이콘·제목·메타 줄·최근 보고, 가로
   const meta = page.getByTestId('ai-row-412-meta')
   await expect(meta).toContainText('WP-412')
   await expect(page.getByTestId('ai-row-412-state')).toContainText('답변 필요')
+  // 답변 필요 칩은 바로 그 이슈 챗으로 이동하는 링크.
+  await expect(page.getByTestId('ai-row-412-state')).toHaveAttribute('href', '/projects/WP/issues/412?chat=1')
   await expect(page.getByTestId('ai-row-412-tool')).toContainText('Claude Code')
   await expect(page.getByTestId('ai-row-412-last')).toHaveText('1시간 전')
   await expect(page.getByTestId('ai-row-412-note')).toHaveText('잠금 시간을 5분/30분 중 어느 쪽으로 할까요?')

@@ -19,7 +19,7 @@ import { IssueStatusIcon } from '@/components/issues/IssueStatusIcon'
 import { ParentChip } from '@/components/issues/ParentChip'
 import { IssueTypeBadge } from '@/components/issueTypes/IssueTypeBadge'
 import { UserAvatar } from '@/components/users/UserAvatar'
-import { displayState, primaryWork } from '@/lib/agentWork'
+import { displayState, issueChatPath, primaryWork } from '@/lib/agentWork'
 import { cn } from '@/lib/utils'
 import type { AgentWorkView, IssueResponse } from '@/types/issue'
 
@@ -51,7 +51,15 @@ function AiCells({ it, tid }: { it: IssueResponse | null; tid: string }) {
   const state = displayState(it)
   return (
     <>
-      <td>{state ? <AgentStateBadge state={state} data-testid={`${tid}-state`} /> : DASH}</td>
+      <td>
+        {state ? (
+          <AgentStateBadge
+            state={state}
+            to={state === 'INPUT_REQUIRED' ? issueChatPath(it.projectKey, it.number) : undefined}
+            data-testid={`${tid}-state`}
+          />
+        ) : DASH}
+      </td>
       <td className="pr-4">
         {/* 다음 회차 대기 — 예정 라벨을 최근 보고 앞에 두고 보고는 남는 폭에서 말줄임(한 줄). */}
         <div className="flex min-w-0 items-center gap-1.5">

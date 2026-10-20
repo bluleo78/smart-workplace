@@ -94,6 +94,11 @@ export function agentToolLabel(tool: string): string {
   return ownLookup(TOOL_LABEL, tool) ?? tool
 }
 
+/** 이슈 상세 + 챗 드로워가 열린 채 진입하는 딥링크(`?chat=1`, useIssueChatDrawerParam 과 같은 규칙) — notifTarget 의 이슈 챗 알림과 같은 경로 조합. */
+export function issueChatPath(projectKey: string, issueNumber: number): string {
+  return `/projects/${projectKey}/issues/${issueNumber}?chat=1`
+}
+
 /** 이슈의 대표 작업 — 서버가 급한 순(상태 순위 → 최근 보고)으로 내려주므로 첫 건. 없으면 null. */
 export function primaryWork(list?: AgentWorkView[]): AgentWorkView | null {
   return list?.[0] ?? null
