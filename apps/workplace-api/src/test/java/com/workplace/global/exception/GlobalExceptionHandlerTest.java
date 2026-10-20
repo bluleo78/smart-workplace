@@ -124,7 +124,8 @@ class GlobalExceptionHandlerTest {
         handler.handleFileNotFound(new FileNotFoundException(83L), request);
     assertThat(res.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
     assertThat(res.getBody()).isNotNull();
-    assertThat(res.getBody().message()).contains("83");
+    // 문구에 내부 id 를 싣지 않는다(WP-619)
+    assertThat(res.getBody().message()).isEqualTo("파일을 찾을 수 없습니다").doesNotContain("83");
   }
 
   @Test
