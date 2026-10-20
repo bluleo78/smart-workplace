@@ -6,6 +6,7 @@ import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -14,6 +15,7 @@ import java.util.TimeZone;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.dmfs.rfc5545.DateTime;
+import org.dmfs.rfc5545.recur.Freq;
 import org.dmfs.rfc5545.recur.InvalidRecurrenceRuleException;
 import org.dmfs.rfc5545.recur.RecurrenceRule;
 import org.dmfs.rfc5545.recur.RecurrenceRuleIterator;
@@ -119,9 +121,44 @@ public class RecurrenceExpander {
     return Optional.empty();
   }
 
-  /** RRULE 유효성 검증(쓰기 시점) — 잘못된 규칙이면 IllegalArgumentException(전역 핸들러에서 400). 파싱 성공 여부만 확인한다. */
+  /** 쓰기에서 받는 반복 빈도 — 화면이 고르는 매일·매주·매월에 매년을 더한 것(WP-622). */
+  private static final Set<Freq> SUPPORTED_FREQS =
+      EnumSet.of(Freq.DAILY, Freq.WEEKLY, Freq.MONTHLY, Freq.YEARLY);
+
+  /**
+   * RRULE 유효성 검증(쓰기 시점) — 잘못된 규칙이면 IllegalArgumentException(전역 핸들러에서 400).
+   *
+   * <p>WP-622: 형식만 보면 초·분·시 단위 반복이나 간격 0 도 통과해, 초대받은 사람의 하루 칸에 같은 일정이 전개 상한(1000)까지 쏟아지고 그 뒤 회차는
+   * 잘렸다. 빈도는 매일·매주·매월·매년만, 간격·횟수는 1 이상만 받는다. 이미 저장된 규칙의 전개(목록·리마인더)는 그대로 둔다.
+   */
   public void validate(String rrule) {
-    parse(rrule);
+    RecurrenceRule rule = parse(rrule);
+    if (!SUPPORTED_FREQS.contains(rule.getFreq())) {
+      throw new IllegalArgumentException("반복은 매일·매주·매월·매년만 지원합니다");
+    }
+    // 관용 파싱은 INTERVAL=0·COUNT=0 을 기본값으로 바꿔 읽어 버리므로 원문 토큰으로 본다(저장되는 것은 원문이다).
+    if (!positiveToken(rrule, "INTERVAL")) {
+      throw new IllegalArgumentException("반복 간격은 1 이상이어야 합니다");
+    }
+    if (!positiveToken(rrule, "COUNT")) {
+      throw new IllegalArgumentException("반복 횟수는 1 이상이어야 합니다");
+    }
+  }
+
+  /** RRULE 원문에 name= 토큰이 없거나, 있으면 1 이상의 정수인지. */
+  private static boolean positiveToken(String rrule, String name) {
+    String prefix = name + "=";
+    for (String part : rrule.split(";")) {
+      String p = part.trim();
+      if (p.toUpperCase(Locale.ROOT).startsWith(prefix)) {
+        try {
+          return Integer.parseInt(p.substring(prefix.length()).trim()) >= 1;
+        } catch (NumberFormatException e) {
+          return false;
+        }
+      }
+    }
+    return true;
   }
 
   /**

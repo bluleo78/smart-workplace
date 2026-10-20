@@ -91,6 +91,36 @@ class RecurrenceExpanderTest {
 
   /** 잘못된 RRULE 은 IllegalArgumentException(전역 핸들러에서 400) 으로 전환되어야 한다. */
   @Test
+  void validate_subDailyFrequency_throws() {
+    // WP-622: 초·분·시 단위 반복은 하루에 수천 회차를 만들어 초대받은 사람의 캘린더를 덮는다 — 화면이 고를 수 있는 매일·매주·매월(+매년)만 받는다.
+    for (String rule : new String[] {"FREQ=SECONDLY", "FREQ=MINUTELY;INTERVAL=1", "FREQ=HOURLY"}) {
+      assertThatThrownBy(() -> expander.validate(rule))
+          .isInstanceOf(IllegalArgumentException.class)
+          .hasMessage("반복은 매일·매주·매월·매년만 지원합니다");
+    }
+  }
+
+  @Test
+  void validate_nonPositiveIntervalOrCount_throws() {
+    assertThatThrownBy(() -> expander.validate("FREQ=DAILY;INTERVAL=0"))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("반복 간격은 1 이상이어야 합니다");
+    assertThatThrownBy(() -> expander.validate("FREQ=DAILY;COUNT=0"))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("반복 횟수는 1 이상이어야 합니다");
+  }
+
+  @Test
+  void validate_supportedRules_pass() {
+    for (String rule :
+        new String[] {
+          "FREQ=DAILY", "FREQ=WEEKLY;BYDAY=MO,WE", "FREQ=MONTHLY;INTERVAL=2;COUNT=5", "FREQ=YEARLY"
+        }) {
+      expander.validate(rule);
+    }
+  }
+
+  @Test
   void validate_invalidRule_throws() {
     assertThatThrownBy(() -> expander.validate("GARBAGE"))
         .isInstanceOf(IllegalArgumentException.class);
