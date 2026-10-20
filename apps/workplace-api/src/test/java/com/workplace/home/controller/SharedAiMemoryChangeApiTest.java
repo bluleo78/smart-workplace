@@ -185,6 +185,45 @@ class SharedAiMemoryChangeApiTest extends IntegrationTestBase {
         .andExpect(jsonPath("$.errors.code").value("SHARED_MEMORY_CHANGED"));
   }
 
+  /** 기록 목록 — 지금 행 순서대로 각 기록의 undoable. */
+  private List<Boolean> undoables(long uid) throws Exception {
+    String body =
+        mvc.perform(
+                get("/api/v1/shared-ai-memories/changes")
+                    .param("spaceType", "PROJECT")
+                    .param("spaceId", String.valueOf(projectId))
+                    .with(as(uid)))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+    List<Boolean> out = new java.util.ArrayList<>();
+    om.readTree(body).get("items").forEach(i -> out.add(i.get("undoable").asBoolean()));
+    return out;
+  }
+
+  /** 그 뒤 바뀌거나 지워진 항목의 기록에는 「되돌리기」를 띄우지 않는다(WP-609) — 눌러야 409 로 실패하던 버튼. 마지막 고침만 되돌릴 수 있다. */
+  @Test
+  void 그_뒤_바뀌거나_지워진_항목의_기록은_되돌릴_수_없다고_알린다() throws Exception {
+    var a = service.add(member, "PROJECT", projectId, "첫 문장");
+    service.update(member, a.id(), "두 번째 문장");
+    service.update(member, a.id(), "세 번째 문장");
+    var b = service.add(member, "PROJECT", projectId, "곧 지울 규칙");
+    service.delete(member, b.id());
+    // 최신순: b 지움 · b 추가 · a 세 번째 고침 · a 두 번째 고침 · a 추가
+    assertThat(undoables(owner)).containsExactly(true, false, true, false, false);
+  }
+
+  /** 자리가 가득이면 지움 기록은 되살릴 수 없다고 알린다(WP-609) — 되돌리기의 409(가득)와 같은 판정. */
+  @Test
+  void 공간이_가득이면_지움_기록은_되돌릴_수_없다고_알린다() throws Exception {
+    var added = service.add(member, "PROJECT", projectId, "되살릴 규칙");
+    service.delete(member, added.id());
+    assertThat(undoables(owner).get(0)).isTrue();
+    for (int i = 0; i < 50; i++) repo.insert(k, "채움 " + i, "USER_ADDED", owner, owner, t0);
+    assertThat(undoables(owner).get(0)).isFalse();
+  }
+
   @Test
   void 고침을_되돌리면_이전_내용으로() throws Exception {
     var added = service.add(member, "PROJECT", projectId, "첫 문장");

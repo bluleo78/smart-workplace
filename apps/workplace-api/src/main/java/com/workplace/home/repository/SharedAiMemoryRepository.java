@@ -217,6 +217,15 @@ public class SharedAiMemoryRepository {
         .fetchOptional(SharedAiMemoryRepository::toRow);
   }
 
+  /** id 들로 한꺼번에(공간 무관) — 기록 목록이 「지금 되돌릴 수 있는가」를 한 번에 판정할 때 쓴다(WP-609). */
+  public Map<Long, Row> findByIds(Collection<Long> ids) {
+    if (ids.isEmpty()) return Map.of();
+    return dsl.select(ROW_FIELDS)
+        .from(SHARED_AI_MEMORY)
+        .where(SHARED_AI_MEMORY.ID.in(ids))
+        .fetchMap(SHARED_AI_MEMORY.ID, SharedAiMemoryRepository::toRow);
+  }
+
   /** 내용·출처·수정자 갱신 — 내용이 바뀌면 같은 UPDATE 에서 임베딩을 비운다(백필·커밋 뒤 채움). 없는 id 면 null. */
   public Row update(long id, String content, String origin, Long updatedBy, OffsetDateTime at) {
     return dsl.update(SHARED_AI_MEMORY)

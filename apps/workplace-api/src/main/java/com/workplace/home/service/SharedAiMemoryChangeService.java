@@ -14,6 +14,7 @@ import com.workplace.home.service.SharedSpace.SpaceKey;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -294,7 +295,11 @@ public class SharedAiMemoryChangeService {
     return target != null && spaces.canEdit(a, userId, target.origin(), target.authorUserId());
   }
 
-  /** 기록 행 → 응답 — 행위자 이름은 한 번에 읽고, AI 행위자에는 이름을 싣지 않는다. */
+  /**
+   * 기록 행 → 응답 — 행위자 이름은 한 번에 읽고, AI 행위자에는 이름을 싣지 않는다. undoable 은 권한({@link #canUndo})에 더해 지금 되돌려도
+   * 409 CHANGED 로 거절되지 않을 때만 true 다({@link #stillReversible}, WP-609) — 그 뒤 지워지거나 고쳐진 항목에 「되돌리기」를
+   * 띄우면 누른 뒤에야 「그 뒤에 메모리가 바뀌어 되돌릴 수 없어요」로 실패했다.
+   */
   private List<SharedAiMemoryChangeItem> items(Access a, long userId, List<ChangeRow> rows) {
     Map<Long, String> names =
         repo.userNames(
@@ -302,6 +307,20 @@ public class SharedAiMemoryChangeService {
                 .map(ChangeRow::actorUserId)
                 .filter(Objects::nonNull)
                 .collect(Collectors.toSet()));
+    // 되돌릴 때 건드릴 메모리(결과·되살릴 id)의 지금 행을 한 번에 읽는다 — 행마다 읽지 않게.
+    Set<Long> touched = new HashSet<>();
+    for (ChangeRow r : rows) {
+      SharedMemorySnapshot after = changeLog.readAfter(r.afterJson());
+      if (after != null) touched.add(after.id());
+      changeLog.readBefore(r.beforeJson()).forEach(b -> touched.add(b.id()));
+    }
+    Map<Long, Row> current = repo.findByIds(touched);
+    // 기록 목록은 한 공간의 것이라 자리 판정(되살릴 개수 + 지금 개수 ≤ 상한)도 공간 하나로 본다.
+    int room =
+        rows.isEmpty()
+            ? 0
+            : SharedAiMemoryRepository.limitOf(rows.get(0).spaceKey())
+                - repo.count(rows.get(0).spaceKey());
     List<SharedAiMemoryChangeItem> out = new ArrayList<>();
     for (ChangeRow r : rows) {
       boolean ai = SharedAiMemoryChangeLog.ACTOR_AI.equals(r.actorKind());
@@ -323,8 +342,43 @@ public class SharedAiMemoryChangeService {
               after,
               before,
               r.undoneAt(),
-              r.undoneAt() == null && canUndo(a, userId, r, before, after)));
+              r.undoneAt() == null
+                  && canUndo(a, userId, r, before, after)
+                  && stillReversible(r.action(), before, after, current, room)));
     }
     return out;
+  }
+
+  /**
+   * 지금 되돌려도 {@link #reverse} 가 409 CHANGED 로 거절하지 않는가(WP-609) — 결과 메모리가 그대로이고({@link #lockSame}),
+   * 되살릴 id 가 비어 있으며({@link #reinsert}), 되살릴 자리가 있을 때({@link #requireRoom}). 판정 규칙은 reverse 와 같아야
+   * 한다.
+   *
+   * @param current 결과·되살릴 id 의 지금 행(없으면 지워진 것)
+   * @param room 공간에 남은 자리
+   */
+  private static boolean stillReversible(
+      String action,
+      List<SharedMemorySnapshot> before,
+      SharedMemorySnapshot after,
+      Map<Long, Row> current,
+      int room) {
+    return switch (action) {
+      case SharedAiMemoryChangeLog.ADDED, SharedAiMemoryChangeLog.UPDATED ->
+          after != null && after.sameAs(current.get(after.id()));
+      case SharedAiMemoryChangeLog.MERGED ->
+          after != null
+              && after.sameAs(current.get(after.id()))
+              && canReinsert(before.subList(1, before.size()), current, room);
+      case SharedAiMemoryChangeLog.DELETED ->
+          !before.isEmpty() && canReinsert(before.subList(0, 1), current, room);
+      default -> false;
+    };
+  }
+
+  /** 스냅숏들을 원래 id 로 되살릴 수 있는가 — id 가 모두 비어 있고 자리가 남는다. */
+  private static boolean canReinsert(
+      List<SharedMemorySnapshot> snaps, Map<Long, Row> current, int room) {
+    return snaps.size() <= room && snaps.stream().noneMatch(s -> current.containsKey(s.id()));
   }
 }
