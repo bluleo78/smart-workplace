@@ -4,7 +4,7 @@
 
 import { type DragEndEvent, useDndMonitor, useDroppable } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
-import { Inbox, Plus } from 'lucide-react';
+import { CircleCheckBig, Inbox, Plus } from 'lucide-react';
 import { createContext, type ReactNode, useContext, useEffect, useMemo, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
@@ -18,6 +18,7 @@ import {
 } from '../../../hooks/queries/useIssueBoardColumns';
 import { useIssueSearch } from '../../../hooks/queries/useIssueSearch';
 import { useUpdateIssueStatus } from '../../../hooks/queries/useUpdateIssueStatus';
+import { CLOSED_HIDDEN_NOTE, CLOSED_ISSUE_STATUSES } from '../../../lib/closedHiding';
 import { groupIssues, type IssueGroup } from '../../../lib/issueGrouping';
 import type {
   IssueClientGroupBy,
@@ -25,6 +26,7 @@ import type {
   IssueResponse,
   IssueStatus,
 } from '../../../types/issue';
+import { useClosedHidingNotice } from '../hooks/useClosedHidingNotice';
 import { useIssueRowActions } from '../hooks/useIssueRowActions';
 import { IssueCard } from './IssueCard';
 import { IssueCardMenuContext } from './issueCardMenuContext';
@@ -76,9 +78,14 @@ function IssueBoardViewInner({
   const columnQueries = useIssueBoardColumns(projectKey, filters, statuses, !grouped);
   // 그룹 보드 — 단일 쿼리. 상태 보드에서는 비활성.
   const groupQuery = useIssueSearch(projectKey, filters, 100, grouped);
-  const updateStatus = useUpdateIssueStatus(projectKey);
+  // 종료 이슈 숨김 안내(WP-606) — 팀 보드 기본 범위만 숨김이 켜진다(개인 보드·「완료 모두 보기」·상태 필터는 꺼짐).
+  // 끌어 놓기·카드 메뉴로 종료한 이슈가 숨겨지면 토스트로, 빈 완료·취소 열은 안내 + 「완료 모두 보기」로 알린다.
+  const closedHiding = useClosedHidingNotice(!!filters.hideInactiveClosed);
+  const showAllClosedFor = (status: string) =>
+    closedHiding && CLOSED_ISSUE_STATUSES.has(status) ? closedHiding.onShowAll : undefined;
+  const updateStatus = useUpdateIssueStatus(projectKey, closedHiding);
   // 카드 길게 누르기 액션 시트(상태·에픽) — 선택 모드 없음. 시트는 컬럼과 형제로 렌더한다.
-  const cardActions = useIssueRowActions({ projectKey, canEdit, statuses: statuses as IssueStatus[], linkFor: cardTo });
+  const cardActions = useIssueRowActions({ projectKey, canEdit, statuses: statuses as IssueStatus[], linkFor: cardTo, closedHiding });
   // 카드 ⋯·우클릭 메뉴(WP-273) — 컬럼 컴포넌트를 거치지 않고 컨텍스트로 카드에 전달한다.
   const { openMenu, menuIssueNumber } = cardActions;
   const cardMenu = useMemo(() => ({ openMenu, menuIssueNumber }), [openMenu, menuIssueNumber]);
@@ -190,6 +197,7 @@ function IssueBoardViewInner({
                 cardTo={cardTo}
                 showType={showType}
                 onOpenCreate={onOpenCreate}
+                onShowAllClosed={showAllClosedFor(status)}
                 onLongPress={onCardLongPress}
               />
             ) : (
@@ -202,6 +210,7 @@ function IssueBoardViewInner({
                   cardTo={cardTo}
                   showType={showType}
                   onOpenCreate={onOpenCreate}
+                  onShowAllClosed={showAllClosedFor(status)}
                   onLongPress={onCardLongPress}
                 />
               </BoardScrollRootContext.Provider>
@@ -250,6 +259,7 @@ function IssueBoardViewInner({
             cardTo={cardTo}
             showType={showType}
             onOpenCreate={onOpenCreate}
+            onShowAllClosed={showAllClosedFor(col.status)}
             dragDisabled={!canDragStatus}
             onLongPress={onCardLongPress}
           />
@@ -317,6 +327,7 @@ function BoardColumn({
   cardTo,
   showType = true,
   onOpenCreate,
+  onShowAllClosed,
   dragDisabled = false,
   onLongPress,
 }: {
@@ -332,6 +343,8 @@ function BoardColumn({
   showType?: boolean;
   // 빈 컬럼 CTA 콜백 — 제공 시 "이슈 추가" 버튼 표시.
   onOpenCreate?: (status?: IssueStatus) => void;
+  // 종료 이슈를 숨긴 완료·취소 열 — 있으면 빈 열에 숨김 안내와 「완료 모두 보기」를 둔다(WP-606).
+  onShowAllClosed?: () => void;
   // 비멤버는 카드 드래그 차단.
   dragDisabled?: boolean;
   onLongPress?: (issue: IssueResponse) => void;
@@ -369,8 +382,12 @@ function BoardColumn({
             <Inbox className="h-8 w-8 text-muted-foreground/50" aria-hidden="true" />
             <div className="space-y-1">
               <p className="text-sm font-medium text-muted-foreground">이슈 없음</p>
-              <p className="text-xs text-muted-foreground">드래그하거나 새 이슈를 추가하세요</p>
+              {/* 좁은 열에서 음절 단위로 끊기지 않게 어절 단위 줄바꿈(break-keep) */}
+              <p className="break-keep px-2 text-xs text-muted-foreground">
+                {onShowAllClosed ? CLOSED_HIDDEN_NOTE : '드래그하거나 새 이슈를 추가하세요'}
+              </p>
             </div>
+            {onShowAllClosed && <ShowAllClosedButton status={status} onClick={onShowAllClosed} />}
             {onOpenCreate && (
               // 컬럼 상태로 만든다(WP-464) — 예전엔 상태 없이 열려 어느 컬럼에서 눌러도 할 일로 만들어졌다.
               <Button size="sm" variant="ghost" onClick={() => onOpenCreate(status as IssueStatus)} data-testid={`board-col-add-${status}`}>
@@ -405,13 +422,37 @@ function ColumnLoadMore({ status, query }: { status: string; query: BoardColumnQ
   );
 }
 
+// 빈 완료·취소 열의 「완료 모두 보기」(WP-606) — 필터 바 토글과 같은 상태(closed=all)를 켠다. 데스크톱·모바일 공용.
+function ShowAllClosedButton({ status, onClick, className }: { status: string; onClick: () => void; className?: string }) {
+  return (
+    <Button size="sm" variant="outline" className={className} onClick={onClick} data-testid={`board-col-show-closed-${status}`}>
+      <CircleCheckBig className="h-4 w-4" />
+      완료 모두 보기
+    </Button>
+  );
+}
+
 // 모바일 보드 빈 상태(WP-195) — 상태 컬럼·그룹 보드 탭이 같은 모양을 쓰도록 통일.
 // 추가 버튼은 터치 타깃 44px(h-11) 확보, onOpenCreate 가 있을 때만 노출.
-function MobileBoardEmpty({ status, onOpenCreate }: { status: string; onOpenCreate?: (status?: IssueStatus) => void }) {
+function MobileBoardEmpty({
+  status,
+  onOpenCreate,
+  onShowAllClosed,
+}: {
+  status: string;
+  onOpenCreate?: (status?: IssueStatus) => void;
+  onShowAllClosed?: () => void;
+}) {
   return (
     <div className="flex flex-col items-center justify-center gap-3 py-12 text-center" data-testid={`board-col-empty-${status}`}>
       <Inbox className="h-8 w-8 text-muted-foreground/50" aria-hidden="true" />
       <p className="text-sm font-medium text-muted-foreground">이슈 없음</p>
+      {onShowAllClosed && (
+        <>
+          <p className="break-keep px-6 text-xs text-muted-foreground">{CLOSED_HIDDEN_NOTE}</p>
+          <ShowAllClosedButton status={status} onClick={onShowAllClosed} className="h-11 px-4" />
+        </>
+      )}
       {onOpenCreate && (
         <Button size="sm" variant="ghost" className="h-11 px-4" onClick={() => onOpenCreate(status as IssueStatus)} data-testid={`board-col-add-${status}`}>
           <Plus className="h-4 w-4" />
@@ -431,6 +472,7 @@ function MobileStatusColumn({
   cardTo,
   showType,
   onOpenCreate,
+  onShowAllClosed,
   onLongPress,
 }: {
   status: string;
@@ -440,6 +482,7 @@ function MobileStatusColumn({
   cardTo?: (issue: IssueResponse) => string;
   showType: boolean;
   onOpenCreate?: (status?: IssueStatus) => void;
+  onShowAllClosed?: () => void;
   onLongPress?: (issue: IssueResponse) => void;
 }) {
   // 첫 페이지 응답 전에는 빈 상태를 띄우지 않는다(「이슈 없음」 깜빡임 방지).
@@ -447,7 +490,7 @@ function MobileStatusColumn({
   return (
     <section data-testid={`board-col-${status}`} className="flex flex-col gap-2">
       {issues.length === 0 ? (
-        <MobileBoardEmpty status={status} onOpenCreate={onOpenCreate} />
+        <MobileBoardEmpty status={status} onOpenCreate={onOpenCreate} onShowAllClosed={onShowAllClosed} />
       ) : (
         issues.map((it) => (
           <IssueCard key={it.id} projectKey={projectKey} issue={it} to={cardTo?.(it)} showType={showType} dragDisabled onLongPress={onLongPress} />
@@ -469,6 +512,7 @@ function MobileGroupedColumn({
   cardTo,
   showType,
   onOpenCreate,
+  onShowAllClosed,
   onLongPress,
 }: {
   status: string;
@@ -480,6 +524,7 @@ function MobileGroupedColumn({
   cardTo?: (issue: IssueResponse) => string;
   showType: boolean;
   onOpenCreate?: (status?: IssueStatus) => void;
+  onShowAllClosed?: () => void;
   onLongPress?: (issue: IssueResponse) => void;
 }) {
   return (
@@ -498,7 +543,7 @@ function MobileGroupedColumn({
             ))}
           </section>
         ))}
-      {issues.length === 0 && !pending && <MobileBoardEmpty status={status} onOpenCreate={onOpenCreate} />}
+      {issues.length === 0 && !pending && <MobileBoardEmpty status={status} onOpenCreate={onOpenCreate} onShowAllClosed={onShowAllClosed} />}
       {footer}
     </div>
   );

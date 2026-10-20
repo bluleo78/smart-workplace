@@ -197,3 +197,25 @@ test.describe('모바일 그룹·개인 보드', () => {
     await expect(page.getByTestId('board-tab-CANCELED')).toHaveCount(0);
   });
 });
+
+// WP-606 — 모바일 보드도 빈 완료·취소 탭에서 활성 사이클 밖 종료 이슈를 숨겼다고 알린다.
+test.describe('모바일 보드 종료 이슈 숨김 안내', () => {
+  test.beforeEach(async ({ authenticatedPage: page }) => {
+    await stubChat(page);
+  });
+
+  test('빈 취소 탭은 숨김 안내와 44px 「완료 모두 보기」를 보이고, 누르면 탭을 유지한 채 숨김을 해제한다', async ({ authenticatedPage: page }) => {
+    await mock(page);
+    await page.goto(`/projects/${KEY}?view=board&boardTab=CANCELED&group=none`);
+    const empty = page.getByTestId('board-col-empty-CANCELED');
+    await expect(empty).toContainText('활성 사이클 밖에서 끝난 이슈는 이 화면에서 숨겨집니다');
+    const button = page.getByTestId('board-col-show-closed-CANCELED');
+    expect((await button.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    await expectNoHorizontalOverflow(page);
+
+    await button.click();
+    await expect(page).toHaveURL(/closed=all/);
+    await expect(page).toHaveURL(/boardTab=CANCELED/);
+    await expect(page.getByTestId('board-col-show-closed-CANCELED')).toHaveCount(0);
+  });
+});

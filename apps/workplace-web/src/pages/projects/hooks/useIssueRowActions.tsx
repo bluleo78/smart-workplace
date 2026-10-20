@@ -25,6 +25,7 @@ import { useMoveIssueEpic } from '../../../hooks/queries/useMoveIssueEpic';
 import { useProjectEpics } from '../../../hooks/queries/useProjectEpics';
 import { useProjectMembers } from '../../../hooks/queries/useProjectMembers';
 import { useUpdateIssueStatus } from '../../../hooks/queries/useUpdateIssueStatus';
+import type { ClosedHidingNotice } from '../../../lib/closedHiding';
 import { epicDragBlockReason } from '../../../lib/epicDnd';
 import { bulkDeleteDescription, countCascadedChildren } from '../../../lib/issueBulkDelete';
 import { issueDeleteChildrenWarning, issueDeleteEntityName } from '../../../lib/issueDeleteText';
@@ -62,7 +63,7 @@ export function openRowMenuAtPointer(e: MouseEvent<HTMLElement>, issue: IssueRes
 }
 
 export function useIssueRowActions({
-  projectKey, canEdit, statuses = ISSUE_STATUSES, onSelect, isSelected, selected, onClearSelection, linkFor,
+  projectKey, canEdit, statuses = ISSUE_STATUSES, onSelect, isSelected, selected, onClearSelection, linkFor, closedHiding,
 }: {
   projectKey: string;
   /** 프로젝트 멤버 여부 — 아니면 변경 항목을 노출하지 않는다(서버 assertMember). */
@@ -79,6 +80,8 @@ export function useIssueRowActions({
   onClearSelection?: () => void;
   /** 링크 복사·새 탭 경로 — 미지정 시 팀 풀페이지 상세. 개인 보드는 drawer 경로를 넘긴다. */
   linkFor?: (issue: IssueResponse) => string;
+  /** 종료 이슈를 숨기는 화면 — 종료로 바꾼 이슈가 숨겨지면 토스트로 알린다(WP-606). */
+  closedHiding?: ClosedHidingNotice;
 }): {
   /** 모바일 길게 누르기 — 모바일에서만 값이 있다(데스크톱 행은 길게 누르기 대신 우클릭·⋯). */
   open: ((issue: IssueResponse) => void) | undefined;
@@ -97,12 +100,12 @@ export function useIssueRowActions({
   const agents = members.filter((m) => m.kind === 'AGENT');
   const viewerIsOwner = isProjectOwner(members, user?.id);
 
-  const updateStatus = useUpdateIssueStatus(projectKey);
+  const updateStatus = useUpdateIssueStatus(projectKey, closedHiding);
   const updatePriority = useUpdateIssuePriority(projectKey);
   const setAssignees = useSetIssueAssignees(projectKey);
   const moveEpic = useMoveIssueEpic(projectKey);
   const removeIssue = useRemoveIssue(projectKey);
-  const bulkStatus = useBulkUpdateStatus(projectKey);
+  const bulkStatus = useBulkUpdateStatus(projectKey, closedHiding);
   const bulkPriority = useBulkUpdatePriority(projectKey);
   const bulkAssign = useBulkAssign(projectKey);
   const bulkDelete = useBulkDeleteIssues(projectKey);

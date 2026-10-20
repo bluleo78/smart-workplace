@@ -9,8 +9,10 @@ import { toast } from 'sonner';
 import { replaceIssueAssignees } from '../../api/issueAssignees';
 import { issuesApi, updateIssueStatus } from '../../api/issues';
 import { bulkResultToast } from '../../lib/bulkResult';
+import type { ClosedHidingNotice } from '../../lib/closedHiding';
 import type { IssuePriority, IssueStatus } from '../../types/issue';
 import { chatKeys } from './chatKeys';
+import { toastStatusChange } from './closedHidingToast';
 import { issueKeys } from './useIssues';
 
 // 성공/실패 건수를 세어 결과 토스트를 띄우는 공통 헬퍼 — 문구·종류 판단은 bulkResultToast(실패 사유 노출, #710).
@@ -28,12 +30,17 @@ export function invalidateIssueCaches(qc: ReturnType<typeof useQueryClient>, pro
   qc.invalidateQueries({ queryKey: ['cycleProgress', projectKey] });
 }
 
-export function useBulkUpdateStatus(projectKey: string) {
+// closedHiding — 종료 이슈를 숨기는 화면이면, 바뀐 이슈 중 숨겨지는 것이 있을 때 결과 토스트에 이유와 「모두 보기」를 붙인다(WP-606).
+export function useBulkUpdateStatus(projectKey: string, closedHiding?: ClosedHidingNotice) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ numbers, status }: { numbers: number[]; status: IssueStatus }) =>
       Promise.allSettled(numbers.map((n) => updateIssueStatus(projectKey, n, status))),
-    onSuccess: (results) => reportBulkResult(results, '상태를 변경했습니다'),
+    onSuccess: (results, { numbers, status }) => {
+      const { level, message } = bulkResultToast(results, '상태를 변경했습니다');
+      const changed = numbers.filter((_, i) => results[i]?.status === 'fulfilled');
+      void toastStatusChange(projectKey, changed, status, closedHiding, level, message);
+    },
     onSettled: () => invalidateIssueCaches(qc, projectKey),
   });
 }

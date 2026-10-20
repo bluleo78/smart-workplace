@@ -4,7 +4,7 @@
 // #606: Drive DrivePage.tsx 의 체크박스+벌크 툴바 패턴을 재사용한 다중 선택/일괄 작업
 // (상태 변경/담당자 지정/삭제) — 보드 뷰(칸반)는 업계 관행(Linear/Jira/GitHub 등)대로 제외.
 
-import { ChevronRight, LayoutList } from 'lucide-react';
+import { ChevronRight, CircleCheckBig, LayoutList } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useIsMobile } from '@/hooks/useIsMobile';
@@ -15,10 +15,12 @@ import { LoadMoreFooter } from '../../../components/ui/load-more-footer';
 import { useIssueGroupCounts } from '../../../hooks/queries/useIssueGroupCounts';
 import { useIssueSearch } from '../../../hooks/queries/useIssueSearch';
 import { useIssueSelection } from '../../../hooks/useIssueSelection';
+import { CLOSED_HIDDEN_NOTE } from '../../../lib/closedHiding';
 import { filtersToParams, withDefaultIssueScope } from '../../../lib/issueFilters';
 import { groupCountsByKey, groupIssues } from '../../../lib/issueGrouping';
 import { labelFg } from '../../../lib/labelColors';
 import type { IssueClientGroupBy, IssueFilters, IssueResponse } from '../../../types/issue';
+import { useClosedHidingNotice } from '../hooks/useClosedHidingNotice';
 import { useIssueRowActions } from '../hooks/useIssueRowActions';
 import { BulkBarSpacer, IssueBulkActions } from './IssueBulkActions';
 import { IssueFilterEmptyState } from './IssueFilterEmptyState';
@@ -100,9 +102,11 @@ export function IssueListView({
   } = useIssueSelection(filtersToParams(filters, 'list', groupBy).toString());
 
   // 모바일 길게 누르기 액션 — 훅은 조기 반환 전에 둔다. canEdit 가 곧 멤버 여부.
+  // 종료 이슈 숨김 안내(WP-606) — 행 메뉴·일괄 바로 종료한 이슈가 숨겨지면 토스트로 알린다.
+  const closedHiding = useClosedHidingNotice(!!scopedFilters.hideInactiveClosed);
   const rowActions = useIssueRowActions({
     projectKey, canEdit, onSelect: (i) => toggleSelected(i.number), isSelected: (i) => selected.has(i.number),
-    selected, onClearSelection: clearSelected,
+    selected, onClearSelection: clearSelected, closedHiding,
   });
 
   // WP-54: 로드된 건수(무한 스크롤 누적)·다음 페이지 유무를 상위로 보고 — isLoading 조기 반환 전에 둔다.
@@ -140,7 +144,16 @@ export function IssueListView({
           <p className="text-xs text-muted-foreground">
             새 태스크를 만들어 프로젝트를 시작하세요.
           </p>
+          {/* 기본 범위가 종료 이슈를 숨겨 비었을 수 있다 — 숨겼다고 알리고 「완료 모두 보기」를 준다(WP-606). */}
+          {closedHiding && <p className="text-xs text-muted-foreground">{CLOSED_HIDDEN_NOTE}</p>}
         </div>
+        {closedHiding && (
+          // 모바일은 터치 타깃 44px(h-11).
+          <Button size="sm" variant="outline" className={cn(isMobile && 'h-11 px-4')} onClick={closedHiding.onShowAll} data-testid="empty-show-closed">
+            <CircleCheckBig className="h-4 w-4" />
+            완료 모두 보기
+          </Button>
+        )}
         {onOpenCreate && (
           <Button size="sm" onClick={() => onOpenCreate()} data-testid="empty-create-issue">
             새 태스크 만들기
@@ -165,7 +178,7 @@ export function IssueListView({
     // 높이를 안 주는 부모에서는 h-full 이 무시돼 기존처럼 콘텐츠 높이대로 늘어난다.
     <div className="flex h-full flex-col">
       {/* #606: 선택된 항목이 있을 때만 노출되는 벌크 액션 툴바(+삭제 확인) — 사이클 구간 목록과 공유. */}
-      <IssueBulkActions projectKey={projectKey} selected={selected} onClear={clearSelected} />
+      <IssueBulkActions projectKey={projectKey} selected={selected} onClear={clearSelected} closedHiding={closedHiding} />
       {/* 테이블 스크롤 영역 — thead 가 이 컨테이너 기준 sticky 로 붙는다(래퍼가 overflow-x 만 가지면 sticky 가 무력화됨).
           border-collapse 표에서 sticky 행은 테두리가 사라지므로 하단 구분선은 tr border 대신 inset shadow 로 그린다. */}
       <div ref={setScrollEl} className="min-h-0 flex-1 overflow-auto" data-testid="issue-list-scroll">

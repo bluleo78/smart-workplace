@@ -36,6 +36,7 @@ import {
 } from '../../../hooks/queries/useBulkIssueActions';
 import { useProjectMembers } from '../../../hooks/queries/useProjectMembers';
 import { useIsMobile } from '../../../hooks/useIsMobile';
+import type { ClosedHidingNotice } from '../../../lib/closedHiding';
 import { bulkDeleteDescription, countCascadedChildren } from '../../../lib/issueBulkDelete';
 import { ISSUE_STATUS_LABEL, ISSUE_STATUSES } from '../../../lib/issueGrouping';
 import type { IssueStatus } from '../../../types/issue';
@@ -60,19 +61,22 @@ export function IssueBulkActions({
   projectKey,
   selected,
   onClear,
+  closedHiding,
 }: {
   projectKey: string;
   /** 선택된 이슈 number 집합. */
   selected: Set<number>;
   /** 선택 해제 — 일괄 작업 성공 후에도 호출한다. */
   onClear: () => void;
+  /** 종료 이슈를 숨기는 목록 — 일괄 종료로 숨겨지는 이슈가 있으면 토스트로 알린다(WP-606). */
+  closedHiding?: ClosedHidingNotice;
 }) {
   const isMobile = useIsMobile();
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   // 모바일은 드롭다운(32px 항목) 대신 바텀 피커 시트로 고른다.
   const [picker, setPicker] = useState<'status' | 'assignee' | null>(null);
   const members = useProjectMembers(projectKey);
-  const bulkStatus = useBulkUpdateStatus(projectKey);
+  const bulkStatus = useBulkUpdateStatus(projectKey, closedHiding);
   const bulkAssign = useBulkAssign(projectKey);
   const bulkDelete = useBulkDeleteIssues(projectKey);
   const qc = useQueryClient();

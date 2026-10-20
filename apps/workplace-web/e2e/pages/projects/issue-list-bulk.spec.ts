@@ -124,6 +124,35 @@ test.describe('팀 리스트 뷰 — 벌크 작업 (#606)', () => {
     await expect(page.getByText('2개 상태를 변경했습니다')).toBeVisible();
   });
 
+  // WP-606 — 기본 목록은 활성 사이클 밖 종료 이슈를 숨겨, 일괄 완료한 행이 이유 없이 사라졌다.
+  test('일괄 완료로 숨겨지는 이슈가 있으면 토스트에 이유와 「모두 보기」를 붙인다', async ({ authenticatedPage: page }) => {
+    await mock(page, [
+      createIssue({ id: 1, number: 7, title: '이슈A' }),
+      createIssue({ id: 2, number: 8, title: '이슈B' }),
+    ]);
+    await page.route(
+      (url) => /\/api\/v1\/projects\/WP\/issues\/(7|8)\/status$/.test(url.pathname),
+      (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createIssue({ status: 'DONE' })) }),
+    );
+    const cycleLookups = trackRequests(page, 'GET', /\/issues\/(7|8)\/cycles$/);
+    await page.route(
+      (url) => /\/api\/v1\/projects\/WP\/issues\/(7|8)\/cycles$/.test(url.pathname),
+      (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+    );
+
+    await page.goto(`/projects/${KEY}`);
+    await page.getByTestId('select-issue-7').check();
+    await page.getByTestId('select-issue-8').check();
+    await page.getByTestId('bulk-status-trigger').click();
+    await page.getByTestId('bulk-status-option-DONE').click();
+
+    const toast = page.locator('[data-sonner-toast]', { hasText: '2개 상태를 변경했습니다 — 활성 사이클 밖에서 끝난 이슈는 이 화면에서 숨겨집니다' });
+    await expect(toast).toBeVisible();
+    await expect.poll(cycleLookups.count).toBe(2);
+    await toast.getByRole('button', { name: '모두 보기' }).click();
+    await expect(page).toHaveURL(/closed=all/);
+  });
+
   test('벌크 담당자 지정 — 선택 항목 각각에 PUT .../assignees 요청을 보낸다', async ({ authenticatedPage: page }) => {
     await mock(page, [
       createIssue({ id: 1, number: 7, title: '이슈A' }),

@@ -780,7 +780,9 @@ test.describe('태스크 보드/검색', () => {
     const doneEmptyState = page.getByTestId('board-col-empty-DONE');
     await expect(doneEmptyState).toBeVisible();
     await expect(doneEmptyState.getByText('이슈 없음')).toBeVisible();
-    await expect(doneEmptyState.getByText('드래그하거나 새 이슈를 추가하세요')).toBeVisible();
+    // 완료 열은 기본 범위가 종료 이슈를 숨겨 숨김 안내를 보인다(WP-606). 숨기지 않는 열은 드래그 안내.
+    await expect(doneEmptyState.getByText('활성 사이클 밖에서 끝난 이슈는 이 화면에서 숨겨집니다')).toBeVisible();
+    await expect(page.getByTestId('board-col-empty-IN_PROGRESS').getByText('드래그하거나 새 이슈를 추가하세요')).toBeVisible();
     // #812 — 로딩 스피너(끊긴 원)로 오인되기 쉬운 lucide-circle-dashed 대신 정적 empty-state 아이콘 사용.
     await expect(doneEmptyState.locator('.lucide-circle-dashed')).toHaveCount(0);
 
@@ -1044,6 +1046,103 @@ test.describe('종료 이슈 숨김 (#876)', () => {
     const toggle = page.getByTestId('show-all-closed-toggle');
     await expect(toggle).toBeDisabled();
     await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  // WP-606 — 숨김을 알리지 않으면 빈 완료·취소 열과 끌어 놓자마자 사라지는 카드가 「이슈가 없어졌다」로 보였다.
+  test('빈 완료·취소 열은 숨김 안내와 「완료 모두 보기」를 보이고, 누르면 숨김을 해제한다', async ({
+    authenticatedPage: page,
+  }) => {
+    await stubProjectMeta(page);
+    await routeIssueSearch(page, (route, url) => {
+      const showAll = url.searchParams.get('hideInactiveClosed') == null;
+      const status = url.searchParams.get('status');
+      const all = [
+        createIssue({ id: 1, number: 7, title: '진행 중 작업', status: 'IN_PROGRESS' }),
+        ...(showAll ? [createIssue({ id: 2, number: 8, title: '지난 사이클에 끝난 작업', status: 'DONE' })] : []),
+      ];
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(createIssueSearchResponse(all.filter((i) => !status || i.status === status))),
+      });
+    });
+
+    await page.goto(`/projects/WP?view=board`);
+    const doneEmpty = page.getByTestId('board-col-empty-DONE');
+    await expect(doneEmpty).toContainText('활성 사이클 밖에서 끝난 이슈는 이 화면에서 숨겨집니다');
+    await expect(page.getByTestId('board-col-empty-CANCELED')).toContainText('활성 사이클 밖에서 끝난 이슈는');
+    // 숨기지 않는 열은 기존 안내 그대로.
+    await expect(page.getByTestId('board-col-empty-TODO')).toContainText('드래그하거나 새 이슈를 추가하세요');
+    await expect(page.getByTestId('board-col-show-closed-TODO')).toHaveCount(0);
+
+    await page.getByTestId('board-col-show-closed-DONE').click();
+    await expect(page).toHaveURL(/closed=all/);
+    await expect(page).toHaveURL(/view=board/);
+    await expect(page.getByTestId('issue-card-8')).toBeVisible();
+    await expect(page.getByTestId('show-all-closed-toggle')).toHaveAttribute('aria-pressed', 'true');
+    // 숨김을 끈 뒤 빈 취소 열은 다시 기존 안내.
+    await expect(page.getByTestId('board-col-show-closed-CANCELED')).toHaveCount(0);
+  });
+
+  test('모든 이슈가 숨겨져 빈 목록이면 숨김 안내와 「완료 모두 보기」를 보이고, 누르면 숨긴 이슈가 나온다', async ({
+    authenticatedPage: page,
+  }) => {
+    await stubProjectMeta(page);
+    await routeIssueSearch(page, (route, url) => {
+      const showAll = url.searchParams.get('hideInactiveClosed') == null;
+      const items = showAll ? [createIssue({ id: 2, number: 8, title: '지난 사이클에 끝난 작업', status: 'DONE' })] : [];
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(createIssueSearchResponse(items)),
+      });
+    });
+
+    await page.goto(`/projects/WP`);
+    await expect(page.getByTestId('empty-no-issues')).toContainText('활성 사이클 밖에서 끝난 이슈는 이 화면에서 숨겨집니다');
+    await page.getByTestId('empty-show-closed').click();
+    await expect(page).toHaveURL(/closed=all/);
+    await expect(page.getByTestId('issue-row-8')).toBeVisible();
+  });
+
+  test('완료로 끌어 놓은 이슈가 숨겨지면 토스트로 이유와 「모두 보기」를 알리고, 활성 사이클 이슈는 그대로 둔다', async ({
+    authenticatedPage: page,
+  }) => {
+    await stubProjectMeta(page);
+    const issues = [
+      createIssue({ id: 1, number: 7, title: '사이클 없는 작업', status: 'IN_PROGRESS' }),
+      createIssue({ id: 2, number: 9, title: '이번 사이클 작업', status: 'IN_PROGRESS' }),
+    ];
+    await routeIssueSearch(page, (route, url) => {
+      const status = url.searchParams.get('status');
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(createIssueSearchResponse(issues.filter((i) => !status || i.status === status))),
+      });
+    });
+    await page.route('**/issues/*/status', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createIssueDetail()) }),
+    );
+    // 7번은 사이클 없음(숨겨짐), 9번은 진행 중 사이클 소속(남음).
+    const cycleLookups = trackRequests(page, 'GET', /\/issues\/\d+\/cycles$/);
+    await page.route(/\/api\/v1\/projects\/WP\/issues\/\d+\/cycles$/, (route) => {
+      const n = Number(new URL(route.request().url()).pathname.split('/').at(-2));
+      const cycles = n === 9 ? [{ id: 1, name: '10월 3주', status: 'ACTIVE' }] : [];
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(cycles) });
+    });
+
+    await page.goto(`/projects/WP?view=board`);
+    await dragCardTo(page, 'issue-card-9', 'board-col-DONE');
+    await expect(page.getByText('상태를 변경했습니다', { exact: true })).toBeVisible();
+    await expect.poll(cycleLookups.count).toBe(1);
+
+    await dragCardTo(page, 'issue-card-7', 'board-col-DONE');
+    const toast = page.locator('[data-sonner-toast]', { hasText: '활성 사이클 밖에서 끝난 이슈는 이 화면에서 숨겨집니다' });
+    await expect(toast).toBeVisible();
+    await toast.getByRole('button', { name: '모두 보기' }).click();
+    await expect(page).toHaveURL(/closed=all/);
+    await expect(page.getByTestId('show-all-closed-toggle')).toHaveAttribute('aria-pressed', 'true');
   });
 });
 

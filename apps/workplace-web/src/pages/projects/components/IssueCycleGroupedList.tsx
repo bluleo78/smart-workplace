@@ -10,9 +10,10 @@ import { useIsMobile } from '@/hooks/useIsMobile';
 import { useCycleProgress, useCycles } from '../../../hooks/queries/useCycles';
 import { useIssueSelection } from '../../../hooks/useIssueSelection';
 import { buildCycleSections } from '../../../lib/issueCycleSections';
-import { filtersToParams } from '../../../lib/issueFilters';
-import type { CycleProgress } from '../../../types/cycle';
+import { filtersToParams, withDefaultIssueScope } from '../../../lib/issueFilters';
+import type { CycleProgress, CycleStatus } from '../../../types/cycle';
 import type { IssueFilters } from '../../../types/issue';
+import { useClosedHidingNotice } from '../hooks/useClosedHidingNotice';
 import { useIssueRowActions } from '../hooks/useIssueRowActions';
 import { BulkBarSpacer, IssueBulkActions } from './IssueBulkActions';
 import { CycleSectionColumnHead, CycleSectionSkeletonRows, IssueCycleSection } from './IssueCycleSection';
@@ -39,6 +40,9 @@ export function IssueCycleListSkeleton() {
   );
 }
 
+// 종료돼도 구간에 남는 사이클 상태 — 진행 중·예정 구간은 종료 이슈를 숨기지 않는다(cycleSectionFilters).
+const SECTION_VISIBLE_CYCLES: readonly CycleStatus[] = ['ACTIVE', 'PLANNED'];
+
 export function IssueCycleGroupedList({
   projectKey,
   filters,
@@ -62,9 +66,12 @@ export function IssueCycleGroupedList({
   const { selected, toggle: toggleSelected, clear: clearSelected } = useIssueSelection(filterKey);
 
   // 모바일 길게 누르기 액션 — 시트는 구간 밖(목록 레벨)에서 하나만 소유한다.
+  // 종료 이슈 숨김 안내(WP-606) — 종료 이슈를 숨기는 구간은 백로그뿐이라(진행 중·예정 구간은 소속 전체를 보인다)
+  // 진행 중·예정 사이클 어디에도 없는 이슈를 종료했을 때만 숨겨진다.
+  const closedHiding = useClosedHidingNotice(!!withDefaultIssueScope(filters).hideInactiveClosed, SECTION_VISIBLE_CYCLES);
   const rowActions = useIssueRowActions({
     projectKey, canEdit, onSelect: (i) => toggleSelected(i.number), isSelected: (i) => selected.has(i.number),
-    selected, onClearSelection: clearSelected,
+    selected, onClearSelection: clearSelected, closedHiding,
   });
 
   const sections = useMemo(
@@ -109,7 +116,7 @@ export function IssueCycleGroupedList({
 
   return (
     <div data-testid="issue-cycle-grouped-list">
-      <IssueBulkActions projectKey={projectKey} selected={selected} onClear={clearSelected} />
+      <IssueBulkActions projectKey={projectKey} selected={selected} onClear={clearSelected} closedHiding={closedHiding} />
       {/* 컬럼명 — 구간마다 반복하지 않고 첫 구간 위에 한 번만. 구간과 같은 테두리·여백(border+pl-3)으로 컬럼을 맞춘다.
           구간 테이블마다 스크린리더용 컬럼명이 있으므로 이 행은 보조기기에서 숨긴다. */}
       {!isMobile && (
