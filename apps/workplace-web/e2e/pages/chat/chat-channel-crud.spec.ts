@@ -278,6 +278,8 @@ test.describe('messaging 채널 헤더·아카이브', () => {
     await expect(page.getByTestId('message-body-490')).toHaveText('보관 전 결정 사항')
     await expect(page.getByText('이 채널은 보관되었습니다')).toBeVisible()
     await expect(page.getByTestId('message-composer-input')).toHaveCount(0)
+    // 채널 파일(연동 드라이브)은 멤버 전용이라 비멤버 열람자에겐 버튼이 없다.
+    await expect(page.getByTestId('channel-files-button')).toHaveCount(0)
     await expectStays(page, () => reads.count(), 0, { message: '비멤버는 읽음 표시 요청을 보내지 않는다' })
   })
 

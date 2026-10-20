@@ -324,8 +324,12 @@ public class MessageService {
   public MessagePage list(long callerId, long channelId, String cursor, int limit) {
     ensureReadable(channelId, callerId);
     MessagePage page =
-        messageRepo.findPage(channelId, cursor, limit, mentionHydrator::asMentionResponses);
-    return enrichProposals(enrichThreadUnread(enrichReactions(page, callerId), callerId));
+        enrichReactions(
+            messageRepo.findPage(channelId, cursor, limit, mentionHydrator::asMentionResponses),
+            callerId);
+    // 스레드 미읽음은 멤버만 — 나간 뒤 보관된 공개 채널을 읽는 사람(WP-621)은 읽음 처리를 할 수 없어 예전 구독의 미읽음 표시가 영영 남는다.
+    if (memberRepo.isMember(channelId, callerId)) page = enrichThreadUnread(page, callerId);
+    return enrichProposals(page);
   }
 
   /**

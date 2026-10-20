@@ -120,6 +120,9 @@ class ArchivedChannelReadOnlyTest extends IntegrationTestBase {
     channelService.archive(owner, ch.id());
     memberService.leave(leaver, ch.id());
 
+    // 나간 사람은 루트 작성자라 스레드 구독 상태가 남아 있지만, 읽음 처리를 할 수 없는 열람자에게 미읽음은 싣지 않는다.
+    assertThat(messageService.list(leaver, ch.id(), null, 50).items().get(0).unreadReplyCount())
+        .isZero();
     for (long reader : List.of(leaver, outsider)) {
       assertThat(messageService.list(reader, ch.id(), null, 50).items())
           .extracting(m -> m.body())

@@ -73,6 +73,8 @@ export function ChannelHeader({
     staleTime: Infinity,
   })
   const openFiles = () => filesParam.open('1')
+  // 채널 파일(연동 드라이브 공간)은 멤버 전용 — 보관된 공개 채널을 읽는 비멤버(WP-621)에겐 버튼을 보이지 않는다.
+  const showFiles = channel.member
 
   // 삭제 확인 다이얼로그·파일 드로워 — 데스크톱 헤더 안(기존 위치) 또는 모바일 병합 헤더 옆에 둔다.
   const overlays: ReactNode = (
@@ -146,10 +148,13 @@ export function ChannelHeader({
             </button>
           }
           mobileActions={
+            showFiles || canManage || isAdmin ? (
             <>
-              <button type="button" data-testid="channel-files-button" onClick={openFiles}>
-                <Folder className="h-4 w-4" /> 파일
-              </button>
+              {showFiles && (
+                <button type="button" data-testid="channel-files-button" onClick={openFiles}>
+                  <Folder className="h-4 w-4" /> 파일
+                </button>
+              )}
               {canManage && (
                 <>
                   <button type="button" data-testid="channel-rename-action" onClick={onOpenRename}>이름 변경</button>
@@ -166,6 +171,9 @@ export function ChannelHeader({
                 </button>
               )}
             </>
+            ) : (
+              false
+            )
           }
         />
         {overlays}
@@ -208,15 +216,17 @@ export function ChannelHeader({
           <>
             {/* 우측 고정 그룹 — 채널명 길이와 무관하게 항상 같은 위치. 파일 버튼은 모든 멤버 노출,
                 설정 드롭다운은 관리자만(#76 파일 위치는 이슈 헤더 액션과 동일하게 우측 고정으로 통일). */}
-            <button
-              type="button"
-              data-testid="channel-files-button"
-              onClick={openFiles}
-              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm hover:bg-accent"
-            >
-              <Folder className="h-4 w-4" />
-              <span>파일</span>
-            </button>
+            {showFiles && (
+              <button
+                type="button"
+                data-testid="channel-files-button"
+                onClick={openFiles}
+                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm hover:bg-accent"
+              >
+                <Folder className="h-4 w-4" />
+                <span>파일</span>
+              </button>
+            )}
 
             {/* 채널 관리자 또는 시스템 ADMIN 에게만 설정 드롭다운 노출. */}
             {(canManage || isAdmin) && (
