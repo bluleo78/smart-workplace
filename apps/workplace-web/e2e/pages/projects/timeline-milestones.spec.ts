@@ -210,6 +210,31 @@ test('팝오버 — 이름을 지우고 blur하면 저장 요청 없이 에러 �
   expect(patches.count()).toBe(0);
 });
 
+test('팝오버 — 이름 변경이 거절되면(중복 409) 오류 토스트 + 입력칸을 원래 이름으로 되돌린다 (WP-615)', async ({
+  authenticatedPage: page,
+}) => {
+  await setupStubs(page);
+  const patches = trackRequests(page, 'PATCH', `/api/v1/projects/${KEY}/milestones/1`);
+  await page.route(`**/api/v1/projects/${KEY}/milestones/1`, (route) => {
+    if (route.request().method() === 'PATCH') {
+      return route.fulfill({
+        status: 409,
+        contentType: 'application/json',
+        body: JSON.stringify({ status: 409, message: '이미 존재하는 마일스톤 이름입니다: v2 출시' }),
+      });
+    }
+    return route.fallback();
+  });
+  await page.goto(`/projects/${KEY}/timeline?period=all`);
+  await page.getByTestId('milestone-chip-1').click();
+  const nameInput = page.getByTestId('milestone-popover-name-input');
+  await nameInput.fill('v2 출시');
+  await nameInput.blur();
+  await expect.poll(() => patches.count()).toBe(1);
+  await expect(page.getByText('이미 존재하는 마일스톤 이름입니다: v2 출시')).toBeVisible();
+  await expect(nameInput).toHaveValue('v1 출시');
+});
+
 test('팝오버 — 마감일을 지우고 blur하면 저장 요청 없이 에러 토스트 + 원래 값으로 복원 (#672)', async ({
   authenticatedPage: page,
 }) => {

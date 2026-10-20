@@ -37,16 +37,21 @@ export function MilestoneEditPopover({
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
 
-  function saveField(patch: Partial<{ name: string; dueDate: string }>) {
-    update.mutate({
-      id: milestone.id,
-      body: {
-        name: milestone.name,
-        dueDate: milestone.dueDate,
-        description: milestone.description ?? undefined,
-        ...patch,
+  // 저장이 거절되면(이름 중복 409 등) 입력칸을 서버 값으로 되돌린다(WP-615) — 입력칸은 defaultValue 라 그대로 두면 거절된 값이
+  // 저장된 것처럼 남았다. 오류 토스트는 훅(useUpdateMilestone)이 띄운다.
+  function saveField(patch: Partial<{ name: string; dueDate: string }>, revert: () => void) {
+    update.mutate(
+      {
+        id: milestone.id,
+        body: {
+          name: milestone.name,
+          dueDate: milestone.dueDate,
+          description: milestone.description ?? undefined,
+          ...patch,
+        },
       },
-    });
+      { onError: revert },
+    );
   }
 
   // 팝오버 예상 높이(~260px) 기준으로 아래쪽 공간이 부족하면 앵커 위로 뒤집어 화면 밖으로 밀리지 않게 한다.
@@ -80,7 +85,8 @@ export function MilestoneEditPopover({
               e.target.value = milestone.name;
               return;
             }
-            if (next !== milestone.name) saveField({ name: next });
+            const input = e.target;
+            if (next !== milestone.name) saveField({ name: next }, () => (input.value = milestone.name));
           }}
         />
         <Input
@@ -96,8 +102,9 @@ export function MilestoneEditPopover({
               e.target.value = milestone.dueDate;
               return;
             }
-            if (e.target.value !== milestone.dueDate) {
-              saveField({ dueDate: e.target.value });
+            const input = e.target;
+            if (input.value !== milestone.dueDate) {
+              saveField({ dueDate: input.value }, () => (input.value = milestone.dueDate));
             }
           }}
         />
