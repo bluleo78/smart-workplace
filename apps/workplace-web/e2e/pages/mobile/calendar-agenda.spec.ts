@@ -526,6 +526,22 @@ test('⑧ 행 탭 → 일정 다이얼로그(그 일정), 닫으면 목록 그�
   await expect(list.getByTestId('calendar-event-2')).toBeVisible()
 })
 
+test('⑧-1 일정 다이얼로그 — 시작·종료 칸은 한 줄씩 전체 폭이라 시각까지 보인다(WP-635)', async ({ authenticatedPage: page }) => {
+  await stubCalendar(page)
+  await page.goto('/calendar')
+  await agendaList(page).getByTestId('calendar-event-2').tap()
+  const start = page.getByTestId('calendar-form-start')
+  const end = page.getByTestId('calendar-form-end')
+  await expect(start).toHaveValue('2026-10-13T09:30')
+  const s = (await start.boundingBox())!
+  const e = (await end.boundingBox())!
+  // 반 폭(150px)이면 「10/13/2026,」 뒤 시각이 잘린다 — 전체 폭으로 세로로 쌓인다.
+  expect(s.width).toBeGreaterThan(300)
+  expect(Math.abs(e.x - s.x)).toBeLessThan(1)
+  expect(e.y).toBeGreaterThan(s.y + s.height)
+  await expectNoHorizontalOverflow(page)
+})
+
 test('⑨ 이슈 마감 행 — ⚑ 마감·이슈 키, 탭하면 이슈 상세로', async ({ authenticatedPage: page }) => {
   await stubCalendar(page)
   await page.goto('/calendar')

@@ -323,8 +323,9 @@ export function EventDialog({
             </label>
           </div>
 
-          {/* 시작 / 종료 */}
-          <div className="grid grid-cols-2 gap-2">
+          {/* 시작 / 종료 — 좁은 화면(<640px)에선 한 줄씩 전체 폭. 반 폭(150px)이면 datetime-local 값이 날짜에서 잘려
+              시각이 안 보였다(WP-635, 일정 제안 카드 WP-593 과 같은 처리). */}
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <FormField
               label="시작"
               htmlFor="ev-start"
