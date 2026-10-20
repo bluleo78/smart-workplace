@@ -309,7 +309,7 @@ class IssueControllerTest {
   void delete_byNonReporterNonOwner_returns403() throws Exception {
     // reporter/OWNER 가 아닌 사용자가 이슈 삭제 시도 시 403 — 권한 가드 검증
     mockAuthentication("issue:write");
-    doThrow(new ProjectAccessDeniedException("이슈 삭제는 reporter 또는 OWNER 만 가능합니다"))
+    doThrow(new ProjectAccessDeniedException("이슈는 작성자나 프로젝트 소유자만 삭제할 수 있습니다"))
         .when(issueService)
         .softDelete(eq(1L), eq("WP"), eq(1));
 

@@ -8,7 +8,7 @@ import { toast } from 'sonner';
 
 import { replaceIssueAssignees } from '../../api/issueAssignees';
 import { issuesApi, updateIssueStatus } from '../../api/issues';
-import { bulkResultToast } from '../../lib/bulkResult';
+import { type BulkLabels, bulkResultToast } from '../../lib/bulkResult';
 import type { ClosedHidingNotice } from '../../lib/closedHiding';
 import type { IssuePriority, IssueStatus } from '../../types/issue';
 import { chatKeys } from './chatKeys';
@@ -16,8 +16,8 @@ import { toastStatusChange } from './closedHidingToast';
 import { issueKeys } from './useIssues';
 
 // 성공/실패 건수를 세어 결과 토스트를 띄우는 공통 헬퍼 — 문구·종류 판단은 bulkResultToast(실패 사유 노출, #710).
-function reportBulkResult(results: PromiseSettledResult<unknown>[], successLabel: string) {
-  const { level, message } = bulkResultToast(results, successLabel);
+function reportBulkResult(results: PromiseSettledResult<unknown>[], labels: BulkLabels) {
+  const { level, message } = bulkResultToast(results, labels);
   toast[level](message);
 }
 
@@ -37,7 +37,7 @@ export function useBulkUpdateStatus(projectKey: string, closedHiding?: ClosedHid
     mutationFn: async ({ numbers, status }: { numbers: number[]; status: IssueStatus }) =>
       Promise.allSettled(numbers.map((n) => updateIssueStatus(projectKey, n, status))),
     onSuccess: (results, { numbers, status }) => {
-      const { level, message } = bulkResultToast(results, '상태를 변경했습니다');
+      const { level, message } = bulkResultToast(results, { done: '상태를 변경했습니다', fail: '상태를 변경하지 못했습니다' });
       const changed = numbers.filter((_, i) => results[i]?.status === 'fulfilled');
       void toastStatusChange(projectKey, changed, status, closedHiding, level, message);
     },
@@ -54,7 +54,7 @@ export function useBulkAssign(projectKey: string) {
     onSuccess: (results) => {
       // 담당 AI 가 바뀌면 이슈 챗 작성창 안내가 바뀐다 — 스레드 응답의 externalAgent (WP-373).
       qc.invalidateQueries({ queryKey: [...chatKeys.all, 'thread', projectKey] });
-      reportBulkResult(results, '담당자를 지정했습니다');
+      reportBulkResult(results, { done: '담당자를 지정했습니다', fail: '담당자를 지정하지 못했습니다' });
     },
     onSettled: () => invalidateIssueCaches(qc, projectKey),
   });
@@ -66,7 +66,7 @@ export function useBulkUpdatePriority(projectKey: string) {
   return useMutation({
     mutationFn: async ({ numbers, priority }: { numbers: number[]; priority: IssuePriority }) =>
       Promise.allSettled(numbers.map((n) => issuesApi.update(projectKey, n, { priority }))),
-    onSuccess: (results) => reportBulkResult(results, '우선순위를 변경했습니다'),
+    onSuccess: (results) => reportBulkResult(results, { done: '우선순위를 변경했습니다', fail: '우선순위를 변경하지 못했습니다' }),
     onSettled: () => invalidateIssueCaches(qc, projectKey),
   });
 }
@@ -76,7 +76,7 @@ export function useBulkDeleteIssues(projectKey: string) {
   return useMutation({
     mutationFn: async (numbers: number[]) =>
       Promise.allSettled(numbers.map((n) => issuesApi.remove(projectKey, n))),
-    onSuccess: (results) => reportBulkResult(results, '삭제했습니다'),
+    onSuccess: (results) => reportBulkResult(results, { done: '삭제했습니다', fail: '삭제하지 못했습니다' }),
     onSettled: () => invalidateIssueCaches(qc, projectKey),
   });
 }

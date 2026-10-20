@@ -9,15 +9,29 @@ export interface BulkResultToast {
   message: string;
 }
 
-/** allSettled 결과로 결과 토스트를 정한다. successLabel 은 "상태를 변경했습니다" 같은 완료 문구. */
-export function bulkResultToast(results: PromiseSettledResult<unknown>[], successLabel: string): BulkResultToast {
+/** 일괄 작업 문구 쌍 — done 은 「삭제했습니다」 같은 완료 문구, fail 은 「삭제하지 못했습니다」 같은 실패 문구(WP-608). */
+export interface BulkLabels {
+  done: string;
+  fail: string;
+}
+
+/**
+ * allSettled 결과로 결과 토스트를 정한다.
+ * 실패 문구를 따로 받는 이유(WP-608): 완료 문구에 「실패」를 덧붙이면 「삭제했습니다 실패 (2건)」처럼
+ * 성공·실패가 한 문장에 섞여, 하나도 처리되지 않았는데 처리된 것처럼 읽혔다.
+ */
+export function bulkResultToast(results: PromiseSettledResult<unknown>[], labels: BulkLabels): BulkResultToast {
   const rejected = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
   const failed = rejected.length;
   const succeeded = results.length - failed;
-  if (failed === 0) return { level: 'success', message: `${succeeded}개 ${successLabel}` };
+  if (failed === 0) return { level: 'success', message: `${succeeded}개 ${labels.done}` };
   // 실패 사유 중 첫 번째를 대표 메시지로 노출. 여러 건이 서로 다른 이유로 실패해도
-  // 사용자가 "왜 막혔는지" 최소 하나의 구체적 원인을 바로 알 수 있게 한다.
-  const firstReason = extractApiError(rejected[0].reason, `${successLabel} 실패`);
-  if (succeeded === 0) return { level: 'error', message: `${successLabel} 실패 (${failed}건): ${firstReason}` };
-  return { level: 'warning', message: `${succeeded}개 ${successLabel}, ${failed}건 실패: ${firstReason}` };
+  // 사용자가 "왜 막혔는지" 최소 하나의 구체적 원인을 바로 알 수 있게 한다. 사유를 못 꺼내면 붙이지 않는다.
+  const reason = extractApiError(rejected[0].reason, '');
+  const why = reason ? `: ${reason}` : '';
+  if (succeeded === 0) {
+    const scope = failed === 1 ? '' : `${failed}건 모두 `;
+    return { level: 'error', message: `${scope}${labels.fail}${why}` };
+  }
+  return { level: 'warning', message: `${succeeded}개 ${labels.done}. ${failed}건은 ${labels.fail}${why}` };
 }

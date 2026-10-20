@@ -105,7 +105,9 @@ class OpenIssueDeleteTest extends IntegrationTestBase {
     var s = openScenario();
     assertThatThrownBy(
             () -> issueService.softDelete(s.strangerId(), s.projectKey(), s.issueNumber()))
-        .isInstanceOf(ProjectAccessDeniedException.class);
+        .isInstanceOf(ProjectAccessDeniedException.class)
+        // 일괄 삭제 토스트에 그대로 실리는 사유 — 영어 역할명(reporter·OWNER) 없이 한국어로(WP-608).
+        .hasMessage("이슈는 작성자나 프로젝트 소유자만 삭제할 수 있습니다");
   }
 
   /**

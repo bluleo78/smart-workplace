@@ -898,7 +898,7 @@ public class IssueService {
         !"PERSONAL".equals(project.type()) && permissionChecker.userHasRole(callerId, "ADMIN");
 
     if (!isReporter && !isOwner && !isAdmin) {
-      throw new ProjectAccessDeniedException("이슈 삭제는 reporter 또는 OWNER 만 가능합니다");
+      throw new ProjectAccessDeniedException("이슈는 작성자나 프로젝트 소유자만 삭제할 수 있습니다");
     }
     // 비멤버 제보자(공개 접수함 등)는 처리팀이 손대기 전까지만 지울 수 있다(WP-634) — 담당·답변·진행이 생긴 뒤
     // 제보자가 지우면 처리팀의 기록이 함께 사라지기 때문이다. 그 뒤 삭제는 OWNER 에게 요청한다.
