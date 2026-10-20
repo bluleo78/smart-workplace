@@ -45,6 +45,15 @@ export async function stubNotificationPermission(page: Page, value: Notification
   }, value)
 }
 
+/**
+ * 서비스워커가 활성화될 때까지 기다린다. 구독은 navigator.serviceWorker.ready 를 기다리는데, preview 빌드의 실제 SW 는
+ * 설치 때 자산 전체를 미리 받아 두므로(precache) 부하가 걸리면 10초를 넘긴다 — 그동안 토글은 busy 로 잠기고 구독 요청도 나가지 않는다.
+ * 토글을 누르기 전에 준비를 끝내 두어 클릭 뒤 단언이 SW 설치 시간에 좌우되지 않게 한다.
+ */
+export async function waitForServiceWorkerReady(page: Page) {
+  await page.evaluate(() => navigator.serviceWorker.ready.then(() => undefined))
+}
+
 export async function mockPushApis(page: Page, opts: { enabled?: boolean } = {}) {
   const enabled = opts.enabled ?? true
   await mockApi(page, 'GET', '/api/v1/push/config', { enabled, vapidPublicKey: enabled ? VAPID_KEY : null })

@@ -44,12 +44,17 @@ async function mockSend(page: Page) {
   return sends
 }
 
-/** 숨은 파일 입력에 큰 파일을 넣는다 — 수십 MB 를 CDP 로 보내지 않게 페이지 안에서 만든다. */
+/**
+ * 숨은 파일 입력에 큰 파일을 넣는다. 내용은 몇 바이트이고 size 만 덮어쓴다 — 앱은 한도·합계를 file.size 로만 판정하므로 동작은 같고,
+ * 실제로 수십 MB 를 올리면 page.route 가 가로챌 때 본문이 통째로 CDP 를 건너와 부하가 걸린 전체 회귀에서 10초를 넘긴다.
+ */
 async function addLargeFile(page: Page, name: string, size: number, type = 'video/mp4') {
   await page.getByTestId('mail-compose-file-input').evaluate(
     (input, f) => {
+      const file = new File([f.name], f.name, { type: f.type })
+      Object.defineProperty(file, 'size', { value: f.size })
       const dt = new DataTransfer()
-      dt.items.add(new File([new Uint8Array(f.size)], f.name, { type: f.type }))
+      dt.items.add(file)
       ;(input as HTMLInputElement).files = dt.files
       input.dispatchEvent(new Event('change', { bubbles: true }))
     },
@@ -293,10 +298,13 @@ test.describe('메일 작성창 파일 첨부 (WP-574)', () => {
     const uploadReqs = trackRequests(page, 'POST', UPLOAD_PATH)
     await openNew(page)
     // 같은 스크립트 안에서 dragenter→drop 을 두 번 — 사이에 React 가 다시 그리지 못한다. 20MB + 20MB 는 25MB 를 넘는다.
+    // 크기만 큰 파일(addLargeFile 과 같은 이유).
     await page.getByTestId('mail-compose-dock').evaluate((dock, size) => {
       for (const name of ['영상A.mp4', '영상B.mp4']) {
+        const file = new File([name], name, { type: 'video/mp4' })
+        Object.defineProperty(file, 'size', { value: size })
         const dt = new DataTransfer()
-        dt.items.add(new File([new Uint8Array(size)], name, { type: 'video/mp4' }))
+        dt.items.add(file)
         dock.dispatchEvent(new DragEvent('dragenter', { bubbles: true, cancelable: true, dataTransfer: dt }))
         dock.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }))
       }

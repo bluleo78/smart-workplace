@@ -2,7 +2,13 @@
 // 설정 > 알림 — 기기 푸시 토글(권한→구독→서버 등록), 종류별 토글, 거부·iOS·비활성 안내, 로그아웃 시 구독 해제.
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
-import { FAKE_ENDPOINT, installPushManagerStub, mockPushApis, stubNotificationPermission } from '../../fixtures/push-mock'
+import {
+  FAKE_ENDPOINT,
+  installPushManagerStub,
+  mockPushApis,
+  stubNotificationPermission,
+  waitForServiceWorkerReady,
+} from '../../fixtures/push-mock'
 import { trackRequests } from '../../fixtures/requests'
 
 test.use({ serviceWorkers: 'allow' })
@@ -14,6 +20,7 @@ test.describe('알림 설정', () => {
     const { subscribe } = await mockPushApis(page)
 
     await page.goto('/settings/notifications')
+    await waitForServiceWorkerReady(page)
     const toggle = page.getByTestId('push-device-toggle')
     await expect(toggle).toHaveAttribute('aria-checked', 'false')
     await toggle.click()
@@ -30,6 +37,7 @@ test.describe('알림 설정', () => {
     const { unsubscribe } = await mockPushApis(page)
 
     await page.goto('/settings/notifications')
+    await waitForServiceWorkerReady(page)
     const toggle = page.getByTestId('push-device-toggle')
     await toggle.click()
     await expect(toggle).toHaveAttribute('aria-checked', 'true')
@@ -119,6 +127,7 @@ test.describe('알림 설정', () => {
     })
 
     await page.goto('/settings/notifications')
+    await waitForServiceWorkerReady(page)
     await page.getByTestId('push-device-toggle').click()
     await expect(page.getByTestId('push-device-toggle')).toHaveAttribute('aria-checked', 'true')
 
@@ -146,6 +155,7 @@ test.describe('알림 설정', () => {
     await page.route('**/api/v1/auth/logout', (route) => route.fulfill({ json: {} }))
 
     await page.goto('/settings/notifications')
+    await waitForServiceWorkerReady(page)
     await page.getByTestId('push-device-toggle').click()
     await expect(page.getByTestId('push-device-toggle')).toHaveAttribute('aria-checked', 'true')
 
@@ -196,6 +206,7 @@ test.describe('알림 설정', () => {
     })
     const { subscribe } = await mockPushApis(page)
     await page.goto('/')
+    await waitForServiceWorkerReady(page)
     const req = await subscribe.waitForRequest()
     expect((req.payload as { endpoint: string }).endpoint).toBe('https://push.example.test/sub/new')
   })
