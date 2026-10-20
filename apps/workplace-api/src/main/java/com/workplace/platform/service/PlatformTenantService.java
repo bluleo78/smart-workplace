@@ -4,6 +4,7 @@ import com.workplace.auth.exception.EmailAlreadyExistsException;
 import com.workplace.auth.exception.UsernameAlreadyExistsException;
 import com.workplace.global.tenant.DefaultTenant;
 import com.workplace.global.tenant.TenantStatusChecker;
+import com.workplace.global.util.PersonNames;
 import com.workplace.platform.dto.AddExistingTenantMemberRequest;
 import com.workplace.platform.dto.AddTenantMemberRequest;
 import com.workplace.platform.dto.CreateTenantRequest;
@@ -320,7 +321,9 @@ public class PlatformTenantService {
     }
     // 계정 생성 — 비밀번호는 로그인이 검증하는 동일 인코더로. is_active 는 DB DEFAULT TRUE(즉시 로그인 가능).
     String encodedPassword = passwordEncoder.encode(req.password());
-    UserResponse user = userRepository.save(email, email, encodedPassword, req.name());
+    // WP-572: 이름 앞뒤 공백·보이지 않는 문자를 다듬고, 비거나 제어 문자가 섞인 이름은 거절한다.
+    UserResponse user =
+        userRepository.save(email, email, encodedPassword, PersonNames.normalize(req.name()));
 
     // 두 역할 축 분리: 멤버십 직위(OWNER/MEMBER) vs RBAC 역할(ADMIN/USER).
     boolean isOwner = "OWNER".equals(req.role());

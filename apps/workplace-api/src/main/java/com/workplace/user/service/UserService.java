@@ -9,6 +9,7 @@ import com.workplace.global.dto.PageResponse;
 import com.workplace.global.security.AuthDetails;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.tenant.WorkspaceActive;
+import com.workplace.global.util.PersonNames;
 import com.workplace.role.dto.RoleResponse;
 import com.workplace.role.repository.RoleRepository;
 import com.workplace.tenant.repository.MembershipRepository;
@@ -285,7 +286,9 @@ public class UserService {
     }
     // 계정 생성 — 로그인이 검증하는 동일 인코더로. SSO 전용은 password=NULL(비밀번호 로그인 불가).
     String encoded = ssoOnly ? null : passwordEncoder.encode(req.password());
-    UserResponse user = userRepository.save(username, email, encoded, req.name());
+    // WP-572: 이름 앞뒤 공백·보이지 않는 문자를 다듬고, 비거나 제어 문자가 섞인 이름은 거절한다.
+    UserResponse user =
+        userRepository.save(username, email, encoded, PersonNames.normalize(req.name()));
 
     // 멤버십 직위는 항상 MEMBER.
     membershipRepository.createWithRole(user.id(), tenantId, "ACTIVE", "MEMBER");
@@ -444,7 +447,9 @@ public class UserService {
   }
 
   @Transactional
-  public void updateProfile(Long userId, String name, String email) {
+  public void updateProfile(Long userId, String rawName, String email) {
+    // WP-572: 이름 앞뒤 공백·보이지 않는 문자를 다듬고, 비거나 제어 문자가 섞인 이름은 거절한다.
+    String name = PersonNames.normalize(rawName);
     UserResponse user =
         userRepository.findById(userId).orElseThrow(() -> UserNotFoundException.ofId(userId));
 

@@ -10,6 +10,8 @@ import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.dto.AgentResponse;
+import com.workplace.user.dto.CreateMemberRequest;
+import com.workplace.user.dto.MemberResponse;
 import com.workplace.user.dto.UserDetailResponse;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.exception.UserNotFoundException;
@@ -314,6 +316,44 @@ class UserServiceTest extends IntegrationTestBase {
     UserDetailResponse updated = userService.getUserById(testUserId);
     assertThat(updated.name()).isEqualTo("New Name");
     assertThat(updated.email()).isEqualTo("new@example.com");
+  }
+
+  @Test
+  void updateProfile_trimsName() {
+    // WP-572: 앞뒤 공백은 다듬어 저장한다.
+    userService.updateProfile(testUserId, "  김지훈  ", "test@example.com");
+
+    assertThat(userService.getUserById(testUserId).name()).isEqualTo("김지훈");
+  }
+
+  @Test
+  void updateProfile_invisibleOnlyName_rejected() {
+    // WP-572: 제로폭 공백만 있는 이름은 보이지 않는 이름이라 거절한다.
+    assertThatThrownBy(() -> userService.updateProfile(testUserId, "\u200B\u200B", null))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("이름을 입력해 주세요");
+    assertThat(userService.getUserById(testUserId).name()).isEqualTo("Test User");
+  }
+
+  @Test
+  void updateProfile_controlCharName_rejected() {
+    // WP-572: 줄바꿈·탭은 목록·멘션 표시를 깨뜨리므로 거절한다.
+    assertThatThrownBy(() -> userService.updateProfile(testUserId, "a\nb\tc", null))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("이름에 줄바꿈·탭 같은 제어 문자는 쓸 수 없습니다");
+  }
+
+  @Test
+  void createMember_trimsName() {
+    // WP-572: 관리자 구성원 추가도 이름 앞뒤 공백을 다듬어 저장한다.
+    MemberResponse created =
+        userService.createMember(
+            new CreateMemberRequest(
+                "padded-name@example.com", null, "  정하늘  ", "Password123", "USER"),
+            testUserId);
+
+    assertThat(created.name()).isEqualTo("정하늘");
+    assertThat(userService.getUserById(created.userId()).name()).isEqualTo("정하늘");
   }
 
   @Test

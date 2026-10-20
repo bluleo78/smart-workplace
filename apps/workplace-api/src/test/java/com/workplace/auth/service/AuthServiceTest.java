@@ -81,6 +81,17 @@ class AuthServiceTest extends IntegrationTestBase {
   }
 
   @Test
+  void signup_trimsName() {
+    // WP-572: 가입 이름도 앞뒤 공백을 다듬어 저장한다.
+    UserResponse result =
+        authService.signup(
+            new SignupRequest(
+                "padded@example.com", "padded@example.com", "Password123", "  김지훈  "));
+
+    assertThat(result.name()).isEqualTo("김지훈");
+  }
+
+  @Test
   void signup_subsequentUser_assignsUserRoleOnly() {
     authService.signup(
         new SignupRequest("first@example.com", "first@example.com", "Password123", "First User"));

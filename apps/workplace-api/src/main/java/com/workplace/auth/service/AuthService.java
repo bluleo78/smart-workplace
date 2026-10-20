@@ -17,6 +17,7 @@ import com.workplace.global.security.AuthDetails;
 import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.DefaultTenant;
+import com.workplace.global.util.PersonNames;
 import com.workplace.role.exception.RoleNotFoundException;
 import com.workplace.role.repository.RoleRepository;
 import com.workplace.tenant.dto.MembershipResponse;
@@ -98,8 +99,13 @@ public class AuthService {
     boolean isFirstUser = userRepository.countAll(null) == 0;
 
     String encodedPassword = passwordEncoder.encode(request.password());
+    // WP-572: 이름 앞뒤 공백·보이지 않는 문자를 다듬고, 비거나 제어 문자가 섞인 이름은 거절한다.
     UserResponse user =
-        userRepository.save(request.username(), request.email(), encodedPassword, request.name());
+        userRepository.save(
+            request.username(),
+            request.email(),
+            encodedPassword,
+            PersonNames.normalize(request.name()));
 
     // Assign roles: first user gets ADMIN + USER, subsequent users get USER only
     Long userRoleId =

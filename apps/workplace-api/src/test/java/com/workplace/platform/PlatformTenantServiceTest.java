@@ -292,6 +292,20 @@ class PlatformTenantServiceTest extends IntegrationTestBase {
     assertThat(countRbacRole(tenant.id(), m.userId(), "ADMIN")).isZero();
   }
 
+  /** WP-572 — 운영자가 추가하는 구성원 이름도 앞뒤 공백을 다듬어 저장한다. */
+  @Test
+  void addMember_trimsName() {
+    TenantDetailResponse tenant =
+        service.createTenant(new CreateTenantRequest("TrimTenant", uniqueSlug(), null));
+    String email = "trim-" + UUID.randomUUID().toString().substring(0, 8) + "@example.com";
+
+    TenantMemberResponse m =
+        service.addMember(
+            tenant.id(), new AddTenantMemberRequest(email, "  정하늘  ", "Password123", "MEMBER"));
+
+    assertThat(m.name()).isEqualTo("정하늘");
+  }
+
   /** #497 — 중복 이메일로 멤버 추가 시 409. username=email 이므로 동일 이메일 재사용은 username 충돌로 먼저 잡힌다(둘 다 409 매핑). */
   @Test
   void addMember_duplicateEmail_throws() {
