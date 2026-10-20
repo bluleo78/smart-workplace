@@ -10,7 +10,7 @@ public final class PersonNames {
   private PersonNames() {}
 
   /** 보이지 않는 문자 — 공백류(유니코드 공백·전각 공백 포함), 서식 문자(제로폭 공백·결합자·BOM 등 \p{Cf}), 한글 채움 문자. */
-  private static final String INVISIBLE_CLASS = "[\\s\\p{Z}\\p{Cf}\\u115F\\u1160\\u3164\\uFFA0]";
+  static final String INVISIBLE_CLASS = "[\\s\\p{Z}\\p{Cf}\\u115F\\u1160\\u3164\\uFFA0]";
 
   private static final Pattern INVISIBLE_EDGES =
       Pattern.compile("^" + INVISIBLE_CLASS + "+|" + INVISIBLE_CLASS + "+$");

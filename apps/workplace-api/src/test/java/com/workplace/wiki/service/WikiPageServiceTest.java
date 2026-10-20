@@ -70,6 +70,26 @@ class WikiPageServiceTest extends IntegrationTestBase {
   }
 
   @Test
+  void title_is_single_line_and_trimmed_blank_becomes_untitled() {
+    // WP-601 — 공백뿐인 제목은 빈 제목(화면 「제목 없음」), 앞뒤 공백·제로폭은 다듬고, 줄바꿈·탭은 공백 하나로.
+    long u = seedUser();
+    WikiSpaceResponse sp = spaceService.ensurePersonalSpace(u);
+    assertThat(pageService.create(u, sp.id(), new CreatePageRequest(null, "   ")).title())
+        .isEmpty();
+    assertThat(pageService.create(u, sp.id(), new CreatePageRequest(null, "  A  ")).title())
+        .isEqualTo("A");
+    WikiPageDetail p = pageService.create(u, sp.id(), new CreatePageRequest(null, "첫줄\n둘째줄\t끝"));
+    assertThat(p.title()).isEqualTo("첫줄 둘째줄 끝");
+
+    WikiPageDetail saved =
+        pageService.save(u, p.id(), new SavePageRequest("\u200B 회의록 \n", null, null, false));
+    assertThat(saved.title()).isEqualTo("회의록");
+    assertThat(
+            pageService.save(u, p.id(), new SavePageRequest(" \u3000 ", null, null, false)).title())
+        .isEmpty();
+  }
+
+  @Test
   void save_bumpsVersion() {
     long u = seedUser();
     WikiSpaceResponse sp = spaceService.ensurePersonalSpace(u);
