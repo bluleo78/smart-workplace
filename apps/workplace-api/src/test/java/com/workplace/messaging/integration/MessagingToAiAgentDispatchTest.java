@@ -18,6 +18,7 @@ import com.workplace.messaging.repository.ChannelRepository;
 import com.workplace.messaging.service.ChannelService;
 import com.workplace.messaging.service.MessageService;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.user.dto.AgentUsernames;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -182,6 +183,76 @@ class MessagingToAiAgentDispatchTest extends IntegrationTestBase {
   }
 
   /** 1:1 DM 에서 사람이 메시지를 보내면 상대 AGENT 를 respondAsAgentId 로 담아 이벤트가 발사된다. */
+  /** 개인 비서 AGENT(username `__assistant_u{주인 id}`, tenant#1 멤버) — WP-638. */
+  private long seedPersonalAssistant(long ownerId) {
+    long id =
+        dsl.insertInto(USER)
+            .set(USER.USERNAME, AgentUsernames.PERSONAL_ASSISTANT_PREFIX + ownerId)
+            .set(USER.PASSWORD, "pw")
+            .set(USER.NAME, "Work Loop Admin")
+            .set(USER.EMAIL, "pa_" + ownerId + "@example.com")
+            .set(USER.KIND, "AGENT")
+            .returning(USER.ID)
+            .fetchOne()
+            .getId();
+    createdUserIds.add(id);
+    dsl.insertInto(MEMBERSHIP)
+        .set(MEMBERSHIP.USER_ID, id)
+        .set(MEMBERSHIP.TENANT_ID, 1L)
+        .set(MEMBERSHIP.STATUS, "ACTIVE")
+        .execute();
+    return id;
+  }
+
+  /** WP-638: 남의 개인 비서를 채널에서 멘션해도 채널에 들어오지 않고 주인의 키로 응답하지 않는다(메시지는 그대로 보내진다). */
+  @Test
+  void channel_mentionOfOthersPersonalAssistant_skipsAdd_andDoesNotPublish()
+      throws InterruptedException {
+    long owner = seedUser("HUMAN");
+    long other = seedUser("HUMAN");
+    long assistant = seedPersonalAssistant(owner);
+    long channelId = channelRepo.insertPublic("c7pa", other);
+    channelService.join(other, channelId);
+
+    var saved =
+        messageService.create(
+            other, channelId, new CreateMessageRequest("<@" + assistant + "> 이 채널 요약해 줘"));
+    assertThat(saved.body()).contains("요약해 줘");
+
+    Thread.sleep(800);
+    assertThat(memberRepo.isMember(channelId, assistant)).isFalse();
+    verify(client, never()).publish(any());
+  }
+
+  /** WP-638: 주인이 자기 개인 비서를 채널에서 부르는 것은 그대로 된다. */
+  @Test
+  void channel_ownerMentionsOwnPersonalAssistant_publishes() {
+    long owner = seedUser("HUMAN");
+    long assistant = seedPersonalAssistant(owner);
+    long channelId = channelRepo.insertPublic("c7pb", owner);
+    channelService.join(owner, channelId);
+
+    messageService.create(owner, channelId, new CreateMessageRequest("<@" + assistant + "> 정리해 줘"));
+
+    ArgumentCaptor<EventEnvelope> captor = ArgumentCaptor.forClass(EventEnvelope.class);
+    verify(client, timeout(2000).times(1)).publish(captor.capture());
+    assertThat(captor.getValue().payload().get("respondAsAgentId")).isEqualTo(assistant);
+  }
+
+  /** WP-638: 남의 개인 비서와의 1:1 DM 에서 보내도 응답하지 않는다. */
+  @Test
+  void dm1to1_withOthersPersonalAssistant_doesNotPublish() throws InterruptedException {
+    long owner = seedUser("HUMAN");
+    long other = seedUser("HUMAN");
+    long assistant = seedPersonalAssistant(owner);
+    long dmId = seedDm(other, assistant);
+
+    messageService.create(other, dmId, new CreateMessageRequest("안녕"));
+
+    Thread.sleep(800);
+    verify(client, never()).publish(any());
+  }
+
   @Test
   void dm1to1_humanMessage_publishesWithPartnerAgent() {
     long human = seedUser("HUMAN");

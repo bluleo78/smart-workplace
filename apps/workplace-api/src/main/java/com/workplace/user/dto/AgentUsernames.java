@@ -18,4 +18,17 @@ public final class AgentUsernames {
   public static boolean isPersonalAssistant(String username) {
     return username != null && username.startsWith(PERSONAL_ASSISTANT_PREFIX);
   }
+
+  /** requesterId 사용자의 개인 비서 username. */
+  public static String personalAssistantOf(long requesterId) {
+    return PERSONAL_ASSISTANT_PREFIX + requesterId;
+  }
+
+  /**
+   * requesterId 가 아닌 다른 사람의 개인 비서인지(WP-638). 개인 비서는 주인의 AI 자격(API 키)으로 도는 주인 전용 AGENT 라, 남이 멘션해
+   * 부르거나 디렉터리·멘션 후보에서 고를 수 없어야 한다. 주인은 결정적 username(접두어 + 주인 id)으로 가린다 — 개인 비서 username 은 바꿀 수 없다.
+   */
+  public static boolean isOthersPersonalAssistant(String username, long requesterId) {
+    return isPersonalAssistant(username) && !username.equals(personalAssistantOf(requesterId));
+  }
 }

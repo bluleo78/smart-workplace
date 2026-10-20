@@ -7,6 +7,7 @@ import com.workplace.auth.repository.AssistantConfigRepository;
 import com.workplace.auth.repository.AssistantConfigRepository.ConfigRow;
 import com.workplace.auth.repository.PersonalAssistantRepository;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.global.util.PersonNames;
 import com.workplace.role.repository.RoleRepository;
 import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.repository.UserRepository;
@@ -53,13 +54,23 @@ public class PersonalAssistantService {
     settingsWriter.apply(agentId, req);
   }
 
-  /** 개인 비서 표시 이름 변경 — 본인(callerId)의 비서만. 비서 미설정이면 예외. email/username 은 보존. */
+  /**
+   * 개인 비서 표시 이름 변경 — 본인(callerId)의 비서만. 비서 미설정이면 예외. email/username 은 보존.
+   *
+   * <p>WP-638: 이름은 사람 이름과 같은 규칙으로 다듬고(앞뒤 공백·제로폭 제거, 비거나 제어 문자면 400), 이 워크스페이스의 다른 구성원(사람·공용 AI)과 같은
+   * 이름(대소문자 무시)은 거절한다 — 관리자·동료 이름으로 꾸민 비서가 화면에 섞여 사칭처럼 보이지 않게. 다른 사람의 개인 비서는 서로에게 보이지 않으므로 기본 이름
+   * 「개인 비서」가 겹쳐도 막지 않는다.
+   */
   public void updateName(long callerId, String name) {
     long agentId =
         personalRepo
             .findAgentId(callerId)
             .orElseThrow(() -> new IllegalStateException("개인 비서가 설정되지 않았어요."));
-    userRepository.updateName(agentId, name);
+    String normalized = PersonNames.normalize(name);
+    if (userRepository.existsMemberNameIgnoreCase(TenantContext.require(), normalized, agentId)) {
+      throw new IllegalArgumentException("다른 구성원과 같은 이름은 쓸 수 없어요.");
+    }
+    userRepository.updateName(agentId, normalized);
   }
 
   /** 개인 비서 해제 — active 토큰을 revoke 하고 FK 를 null 로 끊는다(AGENT row 는 보존). */

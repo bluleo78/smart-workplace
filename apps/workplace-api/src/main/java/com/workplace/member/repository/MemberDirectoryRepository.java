@@ -6,6 +6,7 @@ import static com.workplace.jooq.Tables.USER;
 import com.workplace.global.tenant.WorkspaceActive;
 import com.workplace.global.util.LikePatternUtils;
 import com.workplace.member.dto.MemberSummary;
+import com.workplace.user.dto.AgentUsernames;
 import com.workplace.user.dto.UserKind;
 import java.util.Collection;
 import java.util.List;
@@ -93,13 +94,33 @@ public class MemberDirectoryRepository {
    */
   @Transactional(readOnly = true)
   public List<MemberSummary> findPage(
-      long tenantId, String search, String kind, boolean includeInactive, long offset, int limit) {
+      long tenantId,
+      Long viewerId,
+      String search,
+      String kind,
+      boolean includeInactive,
+      long offset,
+      int limit) {
     return base()
-        .where(scope(tenantId, search, kind, includeInactive))
+        .where(scope(tenantId, search, kind, includeInactive).and(hideOthersAssistants(viewerId)))
         .orderBy(sortFields(search))
         .offset(offset)
         .limit(limit)
         .fetch(this::map);
+  }
+
+  /**
+   * 목록에서 남의 개인 비서를 뺀다(WP-638) — 개인 비서는 주인의 AI 키로 도는 주인 전용이라, 디렉터리·멘션 후보(웹 @멘션·DM 받는 사람·MCP
+   * search_members)에 나오면 남이 불러 주인 키를 쓰게 된다. 보는 사람(viewerId)의 비서만 남기고, viewerId 가 없으면 개인 비서를 모두 뺀다.
+   * 단건 조회(findOne)에는 걸지 않는다 — 주인이 맡긴 이슈의 담당자처럼 이미 화면에 보이는 비서의 카드는 열려야 한다.
+   */
+  private static Condition hideOthersAssistants(Long viewerId) {
+    Condition personal = USER.USERNAME.startsWith(AgentUsernames.PERSONAL_ASSISTANT_PREFIX);
+    Condition mine =
+        viewerId == null
+            ? DSL.falseCondition()
+            : USER.USERNAME.eq(AgentUsernames.personalAssistantOf(viewerId));
+    return personal.not().or(mine);
   }
 
   /** 목록 정렬 키. 검색어가 있으면 정확일치(대소문자 무시) 행을 앞에 두는 키를 선두에 붙인다. */
@@ -120,13 +141,15 @@ public class MemberDirectoryRepository {
 
   /** 같은 조건의 총원. 검색·필터를 동일하게 적용해야 totalPages 가 실제 페이지 수와 맞는다. */
   @Transactional(readOnly = true)
-  public int count(long tenantId, String search, String kind, boolean includeInactive) {
+  public int count(
+      long tenantId, Long viewerId, String search, String kind, boolean includeInactive) {
     Integer count =
         dsl.selectCount()
             .from(USER)
             .join(MEMBERSHIP)
             .on(MEMBERSHIP.USER_ID.eq(USER.ID))
-            .where(scope(tenantId, search, kind, includeInactive))
+            .where(
+                scope(tenantId, search, kind, includeInactive).and(hideOthersAssistants(viewerId)))
             .fetchOne(0, Integer.class);
     return count == null ? 0 : count;
   }

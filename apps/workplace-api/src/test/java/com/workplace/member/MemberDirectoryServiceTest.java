@@ -8,6 +8,7 @@ import com.workplace.global.tenant.TenantContext;
 import com.workplace.member.dto.MemberSummary;
 import com.workplace.member.service.MemberDirectoryService;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.user.dto.AgentUsernames;
 import java.util.List;
 import java.util.UUID;
 import org.jooq.DSLContext;
@@ -151,6 +152,31 @@ class MemberDirectoryServiceTest extends IntegrationTestBase {
             .map(MemberSummary::userId)
             .toList();
     assertThat(agents).contains(agent).doesNotContain(insider);
+  }
+
+  @Test
+  void list_hidesOtherMembersPersonalAssistant_butShowsMine() {
+    // WP-638 — 개인 비서는 주인 전용. 남의 비서는 디렉터리·멘션 후보(kind=AGENT)에서 빠지고, 내 비서와 공용 에이전트는 남는다.
+    long owner = seedUser("dir_owner", "HUMAN", true);
+    linkMembership(owner, 1L, "ACTIVE");
+    long othersAssistant =
+        seedNamed(
+            AgentUsernames.PERSONAL_ASSISTANT_PREFIX + owner, "Work Loop Admin", "AGENT", true);
+    linkMembership(othersAssistant, 1L, "ACTIVE");
+    long myAssistant =
+        seedNamed(AgentUsernames.PERSONAL_ASSISTANT_PREFIX + insider, "내 비서", "AGENT", true);
+    linkMembership(myAssistant, 1L, "ACTIVE");
+    long workspaceAgent = seedUser("dir_agent", "AGENT", true);
+    linkMembership(workspaceAgent, 1L, "ACTIVE");
+
+    List<Long> agents =
+        service.list(insider, null, "AGENT", false, 0, 200).content().stream()
+            .map(MemberSummary::userId)
+            .toList();
+    assertThat(agents).contains(myAssistant, workspaceAgent).doesNotContain(othersAssistant);
+    assertThat(service.list(insider, "Work Loop", "ALL", false, 0, 200).content()).isEmpty();
+    // 단건 조회는 그대로 — 주인이 맡긴 이슈의 담당자 카드처럼 이미 보이는 자리에서는 열린다.
+    assertThat(service.get(othersAssistant)).isPresent();
   }
 
   @Test

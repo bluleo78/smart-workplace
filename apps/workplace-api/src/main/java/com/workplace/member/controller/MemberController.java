@@ -9,6 +9,7 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Pattern;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -35,6 +36,7 @@ public class MemberController {
   /** 구성원 목록/검색. kind 로 사람(HUMAN)/AI(AGENT) 를 좁히고, includeInactive 로 비활성까지 포함한다. */
   @GetMapping
   public ResponseEntity<PageResponse<MemberSummary>> list(
+      @AuthenticationPrincipal Long callerId,
       @RequestParam(value = "search", required = false) String search,
       @RequestParam(value = "kind", required = false, defaultValue = "ALL")
           @Pattern(regexp = "HUMAN|AGENT|ALL", message = "kind 는 HUMAN, AGENT, ALL 중 하나여야 합니다")
@@ -49,7 +51,8 @@ public class MemberController {
           @Min(value = 1, message = "size 는 1~100 이어야 합니다")
           @Max(value = 100, message = "size 는 1~100 이어야 합니다")
           int size) {
-    return ResponseEntity.ok(service.list(search, kind, includeInactive, page, size));
+    // 남의 개인 비서는 빼고 내 비서만 남긴다(WP-638).
+    return ResponseEntity.ok(service.list(callerId, search, kind, includeInactive, page, size));
   }
 
   /** 구성원 단건. 다른 테넌트 사용자는 404 — 존재 자체를 노출하지 않는다. */

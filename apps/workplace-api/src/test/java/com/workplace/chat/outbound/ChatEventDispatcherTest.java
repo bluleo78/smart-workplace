@@ -100,6 +100,24 @@ class ChatEventDispatcherTest {
         Instant.now());
   }
 
+  /** WP-638: 남(HUMAN id 1)의 것이 아닌 개인 비서(주인 id 7)를 멘션해도 주인의 키로 실행하지 않는다. */
+  @Test
+  void mentionOfOthersPersonalAssistant_doesNotPublish() {
+    var othersAssistant = new UserSummary(77L, "__assistant_u7", "Work Loop Admin", "AGENT");
+    internalAgents(othersAssistant.id());
+    dispatcher.onChatMessageCreated(event(HUMAN, List.of(othersAssistant)));
+    verify(client, never()).publish(any());
+  }
+
+  /** WP-638: 내(HUMAN id 1) 개인 비서는 그대로 부를 수 있다. */
+  @Test
+  void mentionOfOwnPersonalAssistant_publishes() {
+    var myAssistant = new UserSummary(78L, "__assistant_u1", "내 비서", "AGENT");
+    internalAgents(myAssistant.id());
+    dispatcher.onChatMessageCreated(event(HUMAN, List.of(myAssistant)));
+    verify(client, times(1)).publish(any());
+  }
+
   @Test
   void humanWithAgentMention_publishes() {
     dispatcher.onChatMessageCreated(event(HUMAN, List.of(AGENT)));

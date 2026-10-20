@@ -24,6 +24,7 @@ import com.workplace.global.dto.UserSummary;
 import com.workplace.global.service.UserMentionHydrator;
 import com.workplace.global.util.MentionParser;
 import com.workplace.issue.outbound.IssueHumanReplyPosted;
+import com.workplace.user.dto.AgentUsernames;
 import com.workplace.user.dto.UserKind;
 import java.time.Instant;
 import java.util.List;
@@ -103,6 +104,8 @@ public class ChatMessageService {
     List<Long> agentMentionIds =
         hydrator.summariesOf(mentionUserIds).stream()
             .filter(u -> "AGENT".equals(u.kind()))
+            // WP-638: 남의 개인 비서는 스레드에 들이지 않는다 — 주인 전용(주인 키로 도는 AGENT).
+            .filter(u -> !AgentUsernames.isOthersPersonalAssistant(u.username(), callerId))
             .map(UserSummary::id)
             .toList();
     if (!agentMentionIds.isEmpty()) {

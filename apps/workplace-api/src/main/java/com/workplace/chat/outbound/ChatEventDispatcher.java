@@ -8,6 +8,7 @@ import com.workplace.global.outbound.AiAgentEventClient;
 import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.global.outbound.EventEnvelope;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.user.dto.AgentUsernames;
 import com.workplace.user.dto.UserKind;
 import com.workplace.user.service.ServerAgentResolver;
 import java.util.LinkedHashMap;
@@ -54,7 +55,14 @@ public class ChatEventDispatcher {
     // WP-417: 정지된 에이전트를 빼려면 워크스페이스가 필요하다 — aiAgentEventExecutor 의 TenantContextTaskDecorator 가 발행
     // 스레드의 테넌트를
     // 전파하므로 그 값을 명시해 넘긴다(트랜잭션 GUC 에 의존하지 않는다).
-    Long acting = agentResolver.pickActingAgent(e.mentions(), TenantContext.get());
+    // WP-638: 남의 개인 비서 멘션은 실행 후보에서 뺀다 — 주인 전용(주인 키로 도는 AGENT).
+    long actorId = e.actor().id();
+    Long acting =
+        agentResolver.pickActingAgent(
+            e.mentions().stream()
+                .filter(u -> !AgentUsernames.isOthersPersonalAssistant(u.username(), actorId))
+                .toList(),
+            TenantContext.get());
     if (acting == null) return;
     client.publish(new EventEnvelope("chat.message.posted", buildPayload(e, acting)));
   }

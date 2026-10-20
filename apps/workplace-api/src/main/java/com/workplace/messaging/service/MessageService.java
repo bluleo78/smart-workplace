@@ -39,6 +39,7 @@ import com.workplace.messaging.repository.MessageRepository.MessageRef;
 import com.workplace.messaging.repository.ReactionRepository;
 import com.workplace.messaging.repository.ThreadReadStateRepository;
 import com.workplace.tenant.repository.MembershipRepository;
+import com.workplace.user.dto.AgentUsernames;
 import com.workplace.user.dto.UserKind;
 import com.workplace.user.service.ServerAgentResolver;
 import java.io.IOException;
@@ -185,6 +186,8 @@ public class MessageService {
             agentResolver.pickActingAgentId(
                 members.stream()
                     .filter(m -> m.userId() != callerId && UserKind.isAgent(m.kind()))
+                    // WP-638: 남의 개인 비서는 주인 전용 — DM 상대여도 주인 키로 응답하지 않는다.
+                    .filter(m -> !AgentUsernames.isOthersPersonalAssistant(m.username(), callerId))
                     .map(ChannelMemberResponse::userId)
                     .toList(),
                 tenantId);
@@ -198,6 +201,7 @@ public class MessageService {
             agentResolver.pickActingAgentId(
                 saved.mentions().stream()
                     .filter(m -> UserKind.isAgent(m.kind()) && memberIds.contains(m.id()))
+                    .filter(m -> !AgentUsernames.isOthersPersonalAssistant(m.username(), callerId))
                     .map(MentionResponse::id)
                     .toList(),
                 tenantId);
@@ -207,6 +211,8 @@ public class MessageService {
       java.util.List<Long> agentMentionIds =
           saved.mentions().stream()
               .filter(m -> "AGENT".equals(m.kind()))
+              // WP-638: 남의 개인 비서는 채널에 들이지도, 응답자로 고르지도 않는다(메시지 전송·멘션 표시는 그대로).
+              .filter(m -> !AgentUsernames.isOthersPersonalAssistant(m.username(), callerId))
               .map(MentionResponse::id)
               .toList();
       // 멘션된 AGENT 중 현재 테넌트의 활성 멤버만 채널에 추가·트리거 — 교차테넌트 에이전트 멘션은 조용히 무시(메시지 전송은 막지 않음).

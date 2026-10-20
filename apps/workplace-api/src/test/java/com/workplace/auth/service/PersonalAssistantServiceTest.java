@@ -124,6 +124,46 @@ class PersonalAssistantServiceTest extends IntegrationTestBase {
   }
 
   @Test
+  void 이름변경은_보이지_않는_문자를_다듬고_다른_구성원과_같은_이름은_거절() {
+    // WP-638 — 남의 비서 이름을 관리자·다른 구성원 이름으로 꾸며 멘션 후보에 섞이지 않게.
+    long human = TestFixtures.createHuman(dsl);
+    service.registerCredential(human, "anthropic", TOKEN, "t", null);
+    long admin = TestFixtures.createHuman(dsl);
+    dsl.update(com.workplace.jooq.Tables.USER)
+        .set(com.workplace.jooq.Tables.USER.NAME, "Work Loop Admin")
+        .where(com.workplace.jooq.Tables.USER.ID.eq(admin))
+        .execute();
+    dsl.insertInto(com.workplace.jooq.Tables.MEMBERSHIP)
+        .set(com.workplace.jooq.Tables.MEMBERSHIP.USER_ID, admin)
+        .set(com.workplace.jooq.Tables.MEMBERSHIP.TENANT_ID, TENANT_ID)
+        .set(com.workplace.jooq.Tables.MEMBERSHIP.STATUS, "ACTIVE")
+        .execute();
+
+    service.updateName(human, "\u200B  내 비서  ");
+    assertThat(service.getStatus(human).name()).isEqualTo("내 비서");
+
+    org.assertj.core.api.Assertions.assertThatThrownBy(
+            () -> service.updateName(human, " work loop admin "))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("다른 구성원");
+    org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.updateName(human, " \u200B "))
+        .isInstanceOf(IllegalArgumentException.class);
+    assertThat(service.getStatus(human).name()).isEqualTo("내 비서");
+  }
+
+  @Test
+  void 다른_사람의_개인비서와_같은_기본이름은_그대로_쓸_수_있다() {
+    // 개인 비서는 서로에게 보이지 않으므로(WP-638) 기본 이름 「개인 비서」가 겹쳐도 막지 않는다.
+    long a = TestFixtures.createHuman(dsl);
+    long b = TestFixtures.createHuman(dsl);
+    service.registerCredential(a, "anthropic", TOKEN, "t", null);
+    service.registerCredential(b, "anthropic", TOKEN, "t", null);
+    service.updateName(a, "잠깐 다른 이름");
+    service.updateName(a, "개인 비서");
+    assertThat(service.getStatus(a).name()).isEqualTo("개인 비서");
+  }
+
+  @Test
   void 미설정이면_이름변경_예외() {
     long human = TestFixtures.createHuman(dsl);
     org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.updateName(human, "x"))

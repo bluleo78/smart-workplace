@@ -377,6 +377,22 @@ public class UserRepository {
                     r.get(USER.AGENT_RUNTIME)));
   }
 
+  /**
+   * 이 워크스페이스(tenantId)의 다른 구성원 중 같은 표시 이름(대소문자 무시)이 있는지(WP-638) — 개인 비서 이름 사칭 방지. 개인 비서끼리는 서로 보이지
+   * 않아 비교에서 빼고, excludeUserId(이름을 바꾸는 본인)도 뺀다. 멤버십 상태와 무관하게 본다(정지된 동료 이름으로도 꾸밀 수 없게).
+   */
+  public boolean existsMemberNameIgnoreCase(long tenantId, String name, long excludeUserId) {
+    return dsl.fetchExists(
+        dsl.selectOne()
+            .from(USER)
+            .join(MEMBERSHIP)
+            .on(MEMBERSHIP.USER_ID.eq(USER.ID))
+            .where(MEMBERSHIP.TENANT_ID.eq(tenantId))
+            .and(USER.ID.ne(excludeUserId))
+            .and(USER.NAME.equalIgnoreCase(name))
+            .and(USER.USERNAME.startsWith(AgentUsernames.PERSONAL_ASSISTANT_PREFIX).not()));
+  }
+
   /** 표시 이름(name)만 변경한다 — 개인 비서 이름 변경 등. email/username 은 보존. */
   public void updateName(Long id, String name) {
     dsl.update(USER)
