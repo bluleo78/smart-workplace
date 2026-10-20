@@ -137,10 +137,14 @@ public class AuthController {
     return ResponseEntity.ok(body);
   }
 
+  /** 로그아웃 — 이 기기의 refresh 쿠키(경로 /api/v1/auth 라 함께 실려 온다)로 이 세션만 끊는다(WP-627). */
   @PostMapping("/logout")
-  public ResponseEntity<Void> logout(Authentication authentication, HttpServletResponse response) {
+  public ResponseEntity<Void> logout(
+      Authentication authentication,
+      @CookieValue(name = RefreshTokenCookies.NAME, required = false) String refreshToken,
+      HttpServletResponse response) {
     Long userId = (Long) authentication.getPrincipal();
-    authService.logout(userId);
+    authService.logout(userId, refreshToken);
     clearRefreshTokenCookie(response);
     return ResponseEntity.noContent().build();
   }

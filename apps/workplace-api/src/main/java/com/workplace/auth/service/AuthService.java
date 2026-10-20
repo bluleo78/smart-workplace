@@ -337,9 +337,20 @@ public class AuthService {
     return refreshToken;
   }
 
+  /**
+   * 로그아웃 — 이 기기 세션만 끊는다(WP-627). 요청에 실려 온 refresh 토큰의 family(같은 로그인에서 회전된 토큰들)를 폐기하고, 다른 기기·브라우저
+   * 로그인은 그대로 둔다. 모든 기기 끊기는 비밀번호 변경이 맡는다(WP-566). 토큰이 없거나 이 사용자 것이 아니면 아무 세션도 끊지 않는다(남의 세션을 끊는 통로가
+   * 되지 않게).
+   *
+   * @param rawRefreshToken 이 기기의 refresh 쿠키 값(없으면 null)
+   */
   @Transactional
-  public void logout(Long userId) {
-    refreshTokenRepository.revokeAllByUserId(userId);
+  public void logout(Long userId, String rawRefreshToken) {
+    if (rawRefreshToken != null && !rawRefreshToken.isBlank()) {
+      refreshTokenRepository
+          .findFamilyIdByTokenHashAndUser(hashToken(rawRefreshToken), userId)
+          .ifPresent(refreshTokenRepository::revokeByFamilyId);
+    }
     // 로그아웃 감사 로그 (#60/#92)
     userRepository
         .findById(userId)

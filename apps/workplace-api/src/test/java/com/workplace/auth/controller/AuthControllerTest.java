@@ -217,11 +217,16 @@ class AuthControllerTest {
     when(jwtTokenProvider.getUserIdFromToken("valid-token")).thenReturn(1L);
 
     mockMvc
-        .perform(post("/api/v1/auth/logout").header("Authorization", "Bearer valid-token"))
+        .perform(
+            post("/api/v1/auth/logout")
+                .header("Authorization", "Bearer valid-token")
+                .cookie(
+                    new jakarta.servlet.http.Cookie(RefreshTokenCookies.NAME, "rt-this-device")))
         .andExpect(status().isNoContent())
         .andExpect(header().exists("Set-Cookie"));
 
-    verify(authService).logout(1L);
+    // 이 기기의 refresh 쿠키를 넘겨 그 세션만 끊는다(WP-627).
+    verify(authService).logout(1L, "rt-this-device");
   }
 
   /**

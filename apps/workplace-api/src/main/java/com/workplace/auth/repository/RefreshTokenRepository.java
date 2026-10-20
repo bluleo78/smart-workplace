@@ -60,6 +60,15 @@ public class RefreshTokenRepository {
         .fetchOptional(FAMILY_ID);
   }
 
+  /** 그 사용자의 토큰일 때만 family 를 돌려준다 — 로그아웃이 남의 세션을 끊지 않게(WP-627). */
+  public Optional<UUID> findFamilyIdByTokenHashAndUser(String tokenHash, Long userId) {
+    return dsl.select(FAMILY_ID)
+        .from(REFRESH_TOKEN)
+        .where(REFRESH_TOKEN.TOKEN_HASH.eq(tokenHash))
+        .and(REFRESH_TOKEN.USER_ID.eq(userId))
+        .fetchOptional(FAMILY_ID);
+  }
+
   /**
    * 토큰 해시의 폐기 상태·시각·family를 한 번에 조회한다(#grace-period). 존재하지 않는 해시면 empty — 호출부는 "폐기되었거나 만료된 토큰" 으로
    * 처리한다.

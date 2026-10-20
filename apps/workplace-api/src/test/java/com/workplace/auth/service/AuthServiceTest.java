@@ -293,8 +293,8 @@ class AuthServiceTest extends IntegrationTestBase {
             new SignupRequest("test@example.com", "test@example.com", "Password123", "Test User"));
     var loginResult = authService.login(new LoginRequest("test@example.com", "Password123"));
 
-    // Logout revokes all tokens
-    authService.logout(user.id());
+    // 로그아웃 — 이 세션(family) 폐기(WP-627)
+    authService.logout(user.id(), loginResult.refreshToken());
 
     // Try to use the revoked refresh token — reuse detection kicks in
     // grace period 불변조건 회귀 가드도 겸함: logout으로 family 전체가 죽은 상태(familyAlive=false)이므로
@@ -367,17 +367,40 @@ class AuthServiceTest extends IntegrationTestBase {
         .hasMessage("이미 사용된 토큰입니다. 다시 로그인해 주세요.");
   }
 
+  /** WP-627: 로그아웃은 그 기기 세션(같은 family)만 끊는다 — 다른 기기(다른 로그인) 세션은 그대로 갱신된다. */
   @Test
-  void logout_revokesAllTokens() {
+  void logout_revokesOnlyThisSession_otherDevicesStayLoggedIn() {
     UserResponse user =
         authService.signup(
             new SignupRequest("test@example.com", "test@example.com", "Password123", "Test User"));
-    var loginResult = authService.login(new LoginRequest("test@example.com", "Password123"));
+    var laptop = authService.login(new LoginRequest("test@example.com", "Password123"));
+    var phone = authService.login(new LoginRequest("test@example.com", "Password123"));
+    // 회전된 뒤의 토큰으로 로그아웃해도 같은 family 전체가 끊긴다.
+    String laptopRotated = authService.refresh(laptop.refreshToken()).refreshToken();
 
-    authService.logout(user.id());
+    authService.logout(user.id(), laptopRotated);
 
-    assertThatThrownBy(() -> authService.refresh(loginResult.refreshToken()))
+    assertThatThrownBy(() -> authService.refresh(laptopRotated))
         .isInstanceOf(InvalidTokenException.class);
+    assertThat(authService.refresh(phone.refreshToken()).refreshToken()).isNotBlank();
+  }
+
+  /** WP-627: 쿠키 없는 로그아웃(다른 클라이언트)·남의 토큰으로는 아무 세션도 끊지 않는다. */
+  @Test
+  void logout_withoutOwnToken_revokesNothing() {
+    UserResponse user =
+        authService.signup(
+            new SignupRequest("test@example.com", "test@example.com", "Password123", "Test User"));
+    authService.signup(
+        new SignupRequest("other@example.com", "other@example.com", "Password123", "Other User"));
+    var mine = authService.login(new LoginRequest("test@example.com", "Password123"));
+    var others = authService.login(new LoginRequest("other@example.com", "Password123"));
+
+    authService.logout(user.id(), null);
+    authService.logout(user.id(), others.refreshToken());
+
+    assertThat(authService.refresh(mine.refreshToken()).refreshToken()).isNotBlank();
+    assertThat(authService.refresh(others.refreshToken()).refreshToken()).isNotBlank();
   }
 
   @Test
