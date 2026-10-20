@@ -541,6 +541,32 @@ test('모바일 위젯 추가 — 타일형에는 안내가 붙고, 추가는 �
   expect(stub.puts()[0].widgets.find((w) => w.type === 'calendar_today')?.count).toBe(3)
 })
 
+test('모바일 위젯 추가 — 낮은 화면(393×659)에서도 모달 안을 스크롤해 「+ 위젯 추가」를 누를 수 있다 (WP-648)', async ({
+  authenticatedPage: page,
+}) => {
+  await page.setViewportSize({ width: 393, height: 659 })
+  await stubWidgetData(page)
+  const stub = await stubDashboard(page, { mobile: layout(['my_tasks']) })
+  await page.goto('/')
+  await page.getByTestId('dashboard-edit-toggle').click()
+  await page.getByTestId('dashboard-add-widget-open').click()
+  const modal = page.getByTestId('add-widget-modal')
+  await expect(modal).toBeVisible()
+  // 모달은 화면 안에 들어오고(위아래가 잘리지 않음), 넘치는 내용은 모달 안에서 스크롤한다.
+  const box = (await modal.boundingBox())!
+  expect(box.y).toBeGreaterThanOrEqual(0)
+  expect(box.y + box.height).toBeLessThanOrEqual(659)
+  await modal.locator('[data-testid="add-widget-card"][data-widget-type="calendar_today"]').click()
+  const confirm = modal.getByTestId('add-widget-confirm')
+  await confirm.scrollIntoViewIfNeeded()
+  await expect(confirm).toBeInViewport()
+  await confirm.click()
+  await expect(modal).toHaveCount(0)
+  await page.getByTestId('dashboard-edit-save').click()
+  await expect.poll(() => stub.puts().length).toBe(1)
+  expect(stub.puts()[0].widgets.some((w) => w.type === 'calendar_today')).toBe(true)
+})
+
 test('접기 저장이 진행 중인 동안 편집 진입이 막혀 접기 PUT 이 편집 저장을 덮어쓰지 않는다', async ({
   authenticatedPage: page,
 }) => {

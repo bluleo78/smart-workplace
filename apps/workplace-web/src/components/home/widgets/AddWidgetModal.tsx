@@ -83,8 +83,10 @@ export function AddWidgetModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/* DialogContent 기본 클래스가 sm:max-w-lg 라 breakpoint 없는 max-w-6xl 은 tailwind-merge 가
           다른 variant 그룹으로 취급해 덮어쓰지 못한다(512px 로 눌린 채 lg:flex-row 만 켜져 3단이
-          찌그러지는 원인) — 반드시 동일 variant(sm:)로 지정해야 실제로 덮어써진다. */}
-      <DialogContent className="sm:max-w-6xl" data-testid="add-widget-modal">
+          찌그러지는 원인) — 반드시 동일 variant(sm:)로 지정해야 실제로 덮어써진다.
+          max-h + overflow-y-auto: 좁은 화면에선 카테고리·카드·미리보기가 세로로 쌓여 모달이 화면보다 길어지는데,
+          기본 DialogContent 는 높이 상한이 없어 위아래가 잘리고 「+ 위젯 추가」에 닿을 수 없었다(WP-648). */}
+      <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-6xl" data-testid="add-widget-modal">
         <DialogHeader>
           <DialogTitle>위젯 추가</DialogTitle>
         </DialogHeader>
