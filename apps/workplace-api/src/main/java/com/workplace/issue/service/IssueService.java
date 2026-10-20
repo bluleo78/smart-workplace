@@ -506,13 +506,20 @@ public class IssueService {
             blockers);
     // viewer capability — 프론트 단일 소스. write 가드와 정확히 일치시켜 플래그가 실제 허용 여부를 예측하게 한다.
     //   워크플로(상태/유형 등)=멤버/ADMIN(assertMember 경로), 내용=멤버/ADMIN or (OPEN && reporter 본인),
-    //   삭제=reporter 본인 or OWNER(softDelete 규칙).
+    //   삭제=OWNER or reporter 본인(비멤버 reporter 는 처리팀이 손대기 전까지만 — softDelete 규칙, WP-634).
     boolean memberOrAdmin = accessGuard.isMemberOrAdmin(project, callerId);
     boolean isReporter = row.reporterId() != null && row.reporterId().equals(callerId);
     boolean isOwner = accessGuard.isOwner(project, callerId);
     boolean canWorkflow = memberOrAdmin;
     boolean canContent = memberOrAdmin || ("OPEN".equals(project.type()) && isReporter);
-    boolean canDelete = isReporter || isOwner;
+    boolean canDelete =
+        isOwner
+            || (isReporter
+                && (memberOrAdmin
+                    || untouchedByTeam(
+                        row,
+                        !assignees.isEmpty(),
+                        comments.stream().anyMatch(c -> !row.reporterId().equals(c.authorId())))));
     // 보고자 요약(WP-272) — 상세 화면이 이름·AI 여부를 그릴 수 있게 한다. 사용자 행이 없으면 null(프론트는 「알 수 없음」).
     UserSummary reporter =
         row.reporterId() == null
@@ -893,7 +900,24 @@ public class IssueService {
     if (!isReporter && !isOwner && !isAdmin) {
       throw new ProjectAccessDeniedException("이슈 삭제는 reporter 또는 OWNER 만 가능합니다");
     }
+    // 비멤버 제보자(공개 접수함 등)는 처리팀이 손대기 전까지만 지울 수 있다(WP-634) — 담당·답변·진행이 생긴 뒤
+    // 제보자가 지우면 처리팀의 기록이 함께 사라지기 때문이다. 그 뒤 삭제는 OWNER 에게 요청한다.
+    if (!isOwner
+        && !isAdmin
+        && !accessGuard.isMemberOrAdmin(project, callerId)
+        && !untouchedByTeam(
+            row,
+            !assigneeRepository.findUserIdsByIssue(row.id()).isEmpty(),
+            commentRepository.existsFromOthers(row.id(), row.reporterId()))) {
+      throw new ProjectAccessDeniedException("처리팀이 이미 맡았거나 답한 제보는 지울 수 없습니다. 담당 팀에 삭제를 요청해 주세요");
+    }
     return new DeletableIssue(project, row);
+  }
+
+  /** 처리팀이 아직 손대지 않은 이슈인지(WP-634) — 「할 일」 상태이고 담당자도, 제보자 외 사람의 코멘트도 없다. */
+  private static boolean untouchedByTeam(
+      IssueRow row, boolean hasAssignee, boolean othersCommented) {
+    return "TODO".equals(row.status()) && !hasAssignee && !othersCommented;
   }
 
   /** checkDeletable 결과 — 삭제 대상 이슈 행과 이미 resolve 된 프로젝트(알림 발행에 재사용). */

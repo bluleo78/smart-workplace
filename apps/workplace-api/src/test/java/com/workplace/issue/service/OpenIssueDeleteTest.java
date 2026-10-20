@@ -1,11 +1,15 @@
 package com.workplace.issue.service;
 
+import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER_ROLE;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.issue.repository.IssueAssigneeRepository;
+import com.workplace.issue.repository.IssueCommentRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.repository.ProjectIssueSequenceRepository;
@@ -28,6 +32,8 @@ class OpenIssueDeleteTest extends IntegrationTestBase {
   @Autowired IssueTypeService issueTypeService;
   @Autowired IssueRepository issueRepository;
   @Autowired ProjectIssueSequenceRepository sequenceRepository;
+  @Autowired IssueAssigneeRepository assigneeRepository;
+  @Autowired IssueCommentRepository commentRepository;
   @Autowired DSLContext dsl;
 
   @BeforeEach
@@ -52,6 +58,45 @@ class OpenIssueDeleteTest extends IntegrationTestBase {
     var s = openScenario();
     assertThatCode(() -> issueService.softDelete(s.reporterId(), s.projectKey(), s.issueNumber()))
         .doesNotThrowAnyException();
+  }
+
+  /** 비멤버 제보자는 처리팀이 손대면(담당자) 더는 지울 수 없고, 화면 삭제 버튼도 꺼진다. OWNER 는 그대로 지운다(WP-634). */
+  @Test
+  void open_non_member_reporter_cannot_delete_after_team_assigned() {
+    var s = openScenario();
+    assigneeRepository.add(s.issueId(), s.ownerId(), s.ownerId());
+    assertThatThrownBy(
+            () -> issueService.softDelete(s.reporterId(), s.projectKey(), s.issueNumber()))
+        .isInstanceOf(ProjectAccessDeniedException.class)
+        .hasMessageContaining("처리팀");
+    assertThat(issueService.get(s.reporterId(), s.projectKey(), s.issueNumber()).viewerCanDelete())
+        .isFalse();
+    assertThatCode(() -> issueService.softDelete(s.ownerId(), s.projectKey(), s.issueNumber()))
+        .doesNotThrowAnyException();
+  }
+
+  /** 다른 사람이 코멘트를 달면 제보자는 지울 수 없다 — 제보자 자신의 코멘트는 막지 않는다(WP-634). */
+  @Test
+  void open_non_member_reporter_cannot_delete_after_others_comment() {
+    var s = openScenario();
+    long id = s.issueId();
+    commentRepository.insert(id, s.reporterId(), "추가 정보입니다");
+    assertThat(issueService.get(s.reporterId(), s.projectKey(), s.issueNumber()).viewerCanDelete())
+        .isTrue();
+    commentRepository.insert(id, s.ownerId(), "원인 분석: 내부 메모");
+    assertThatThrownBy(
+            () -> issueService.softDelete(s.reporterId(), s.projectKey(), s.issueNumber()))
+        .isInstanceOf(ProjectAccessDeniedException.class);
+  }
+
+  /** 상태가 「할 일」이 아니게 되면(진행 중 등) 제보자는 지울 수 없다(WP-634). */
+  @Test
+  void open_non_member_reporter_cannot_delete_after_status_changed() {
+    var s = openScenario();
+    dsl.update(ISSUE).set(ISSUE.STATUS, "IN_PROGRESS").where(ISSUE.ID.eq(s.issueId())).execute();
+    assertThatThrownBy(
+            () -> issueService.softDelete(s.reporterId(), s.projectKey(), s.issueNumber()))
+        .isInstanceOf(ProjectAccessDeniedException.class);
   }
 
   /** 비멤버·비reporter stranger 는 OPEN 이슈를 삭제할 수 없다 — 403. */

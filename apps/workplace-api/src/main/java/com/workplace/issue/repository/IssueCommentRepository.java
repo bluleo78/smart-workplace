@@ -74,6 +74,17 @@ public class IssueCommentRepository {
         .fetch(this::mapToResponse);
   }
 
+  /** 이 사람(authorId) 말고 다른 사람이 단 활성 코멘트가 있는지(WP-634 — 비멤버 제보자 삭제 가능 판정). */
+  public boolean existsFromOthers(Long issueId, Long authorId) {
+    return dsl.fetchExists(
+        ISSUE_COMMENT,
+        ISSUE_COMMENT
+            .ISSUE_ID
+            .eq(issueId)
+            .and(ISSUE_COMMENT.DELETED_AT.isNull())
+            .and(ISSUE_COMMENT.AUTHOR_ID.ne(authorId)));
+  }
+
   /** 신규 코멘트 INSERT 후 user JOIN 으로 응답 구성. */
   public IssueCommentResponse insert(Long issueId, Long authorId, String body) {
     Long id =
