@@ -226,8 +226,8 @@ export default function AgentManagementPage() {
                   {...clickableRowProps(() => agentParam.open(String(a.id)), `${a.name} 상세 보기`)}
                 >
                   <TableCell>
-                    <div className="flex items-start gap-2.5">
-                      {/* 아바타 — 이름 첫 글자. AGENT 정체성 색(ai-accent). */}
+                    <div className="flex items-start gap-2.5 md:items-center">
+                      {/* 아바타 — 이름 첫 글자. AGENT 정체성 색(ai-accent). 모바일은 이름 아래 줄이 붙어 위쪽 정렬. */}
                       <span
                         className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-ai-accent-subtle text-xs font-semibold text-ai-accent"
                         aria-hidden
