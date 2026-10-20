@@ -36,6 +36,11 @@ import { TokenIssueFormDialog } from './components/TokenIssueFormDialog';
 
 const COLUMN_COUNT = 6;
 
+/** 만료 표시 — 만료일이 없으면 「무기한」. */
+function expiryLabel(expiresAt: string | null): string {
+  return expiresAt ? formatDateShort(expiresAt) : '무기한';
+}
+
 export default function TokenSettingsPage() {
   const tokens = useMyTokens();
   const issue = useIssueMyToken();
@@ -75,9 +80,11 @@ export default function TokenSettingsPage() {
           <TableHeader>
             <TableRow>
               <TableHead className="max-w-[220px]">이름</TableHead>
-              <TableHead className="max-w-[200px]">prefix</TableHead>
-              <TableHead>만료</TableHead>
-              <TableHead>마지막 사용</TableHead>
+              {/* 휴대폰(<md)에서는 앞자리·만료·마지막 사용 열을 숨기고 이름 아래 한 줄로 모은다(WP-617) — 여섯 열이 화면 밖으로 밀려
+                  상태·「폐기」가 옆으로 밀어야만 보였다. 감사 로그 화면과 같은 hidden md:table-cell 방식. */}
+              <TableHead className="hidden max-w-[200px] md:table-cell">앞자리</TableHead>
+              <TableHead className="hidden md:table-cell">만료</TableHead>
+              <TableHead className="hidden md:table-cell">마지막 사용</TableHead>
               <TableHead>상태</TableHead>
               <TableHead className="w-20"></TableHead>
             </TableRow>
@@ -96,19 +103,28 @@ export default function TokenSettingsPage() {
             ) : (
               (tokens.data ?? []).map((t) => (
                 <TableRow key={t.id} data-testid={`token-row-${t.id}`}>
-                  <TableCell className="max-w-[220px] truncate font-medium" title={t.name}>
-                    {t.name}
+                  <TableCell className="max-w-[45vw] md:max-w-[220px]">
+                    <div className="truncate font-medium" title={t.name}>
+                      {t.name}
+                    </div>
+                    <div
+                      className="truncate text-xs text-muted-foreground md:hidden"
+                      data-testid={`token-meta-${t.id}`}
+                    >
+                      <span className="font-mono">{t.tokenPrefix}…</span> · 만료 {expiryLabel(t.expiresAt)} · 사용{' '}
+                      {formatDateShort(t.lastUsedAt)}
+                    </div>
                   </TableCell>
                   <TableCell
-                    className="max-w-[200px] truncate font-mono text-xs text-muted-foreground"
+                    className="hidden max-w-[200px] truncate font-mono text-xs text-muted-foreground md:table-cell"
                     title={t.tokenPrefix}
                   >
                     {t.tokenPrefix}…
                   </TableCell>
-                  <TableCell className="text-xs text-muted-foreground">
-                    {t.expiresAt ? formatDateShort(t.expiresAt) : '무기한'}
+                  <TableCell className="hidden text-xs text-muted-foreground md:table-cell">
+                    {expiryLabel(t.expiresAt)}
                   </TableCell>
-                  <TableCell className="text-xs text-muted-foreground">
+                  <TableCell className="hidden text-xs text-muted-foreground md:table-cell">
                     {formatDateShort(t.lastUsedAt)}
                   </TableCell>
                   <TableCell>
