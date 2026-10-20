@@ -8,8 +8,12 @@ import com.workplace.mail.outbound.MailAiMessages.AnalyzePersonalRequest;
 import com.workplace.mail.outbound.MailAiMessages.AnalyzePersonalResult;
 import com.workplace.mail.outbound.MailAiMessages.ClassifyBatchRequest;
 import com.workplace.mail.outbound.MailAiMessages.ClassifyBatchResult;
+import com.workplace.mail.outbound.MailAiMessages.ComposeDraftRequest;
+import com.workplace.mail.outbound.MailAiMessages.ComposeDraftResult;
 import com.workplace.mail.outbound.MailAiMessages.DraftCoachingRequest;
 import com.workplace.mail.outbound.MailAiMessages.DraftCoachingResult;
+import com.workplace.mail.outbound.MailAiMessages.IssueDraftRequest;
+import com.workplace.mail.outbound.MailAiMessages.IssueDraftResult;
 import com.workplace.mail.outbound.MailAiMessages.ReplyDraftRequest;
 import com.workplace.mail.outbound.MailAiMessages.ReplyDraftResult;
 import lombok.extern.slf4j.Slf4j;
@@ -19,8 +23,9 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
 /**
- * ai-agent 의 POST /mail/{analyze-content,analyze-personal,reply-draft,draft-coaching,issue-draft}
- * 동기 호출(7d · WP-149). 무재시도(CLI cold-start 동기). 503 → MailAiUnavailableException(친화 메시지), 그 외 실패 →
+ * ai-agent 의 POST
+ * /mail/{analyze-content,analyze-personal,reply-draft,draft-coaching,compose-draft,issue-draft} 동기
+ * 호출(7d · WP-149). 무재시도(CLI cold-start 동기). 503 → MailAiUnavailableException(친화 메시지), 그 외 실패 →
  * MailAiException(502). AiAgentComposeClient 미러.
  */
 @Slf4j
@@ -44,9 +49,14 @@ public class AiAgentMailClient {
     return post("/mail/draft-coaching", req, DraftCoachingResult.class);
   }
 
+  /** WP-576 새 메일 초안 요청 → 본문(+제목). */
+  public ComposeDraftResult composeDraft(ComposeDraftRequest req) {
+    return post("/mail/compose-draft", req, ComposeDraftResult.class);
+  }
+
   /** #520 이슈 초안 요청 → 제목·본문·우선순위·추천 프로젝트. */
-  public MailAiMessages.IssueDraftResult issueDraft(MailAiMessages.IssueDraftRequest req) {
-    return post("/mail/issue-draft", req, MailAiMessages.IssueDraftResult.class);
+  public IssueDraftResult issueDraft(IssueDraftRequest req) {
+    return post("/mail/issue-draft", req, IssueDraftResult.class);
   }
 
   /**

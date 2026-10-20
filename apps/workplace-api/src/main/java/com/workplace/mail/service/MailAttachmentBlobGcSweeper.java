@@ -1,6 +1,7 @@
 package com.workplace.mail.service;
 
 import static com.workplace.jooq.Tables.CONTENT_ATTACHMENT;
+import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
 import static com.workplace.jooq.Tables.MAIL_ATTACHMENT_BLOB;
 
 import com.workplace.global.tenant.TenantContext;
@@ -18,6 +19,7 @@ import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.jooq.DSLContext;
+import org.jooq.Select;
 import org.jooq.impl.DSL;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -31,7 +33,9 @@ import org.springframework.transaction.support.TransactionTemplate;
  * <p>삭제 트리거:
  *
  * <ol>
- *   <li><b>TTL 만료</b>: {@code now - last_accessed_at > ttl-days} — 장기 미사용 blob 퇴거.
+ *   <li><b>TTL 만료</b>: {@code now - last_accessed_at > ttl-days} — 장기 미사용 blob 퇴거. 단 로컬 보낸
+ *       메일(imap_uid· provider_message_id 모두 NULL)의 첨부가 참조하는 blob 은 제외한다(WP-574) — 원본 서버에서 다시 받을 좌표가
+ *       없어 blob 이 유일한 사본이다. 그 메일이 지워지면 아래 refcount-0 으로 지운다.
  *   <li><b>refcount-0</b>: 해당 hash 를 참조하는 content_attachment 가 없는 경우 — content GC 후 남은 고아 blob.
  * </ol>
  *
@@ -136,6 +140,7 @@ public class MailAttachmentBlobGcSweeper {
                         MAIL_ATTACHMENT_BLOB
                             .LAST_ACCESSED_AT
                             .lt(cutoff)
+                            .and(DSL.notExists(localSentReference()))
                             .or(
                                 DSL.notExists(
                                     dsl.selectOne()
@@ -171,6 +176,20 @@ public class MailAttachmentBlobGcSweeper {
 
     // 5) 미리보기 refcount-0 정리.
     sweepUnreferencedPreviews(tenantId);
+  }
+
+  /**
+   * 이 blob 해시를 참조하는 로컬 보낸 메일 첨부(WP-574) — 보낸 메일 행은 imap_uid·provider_message_id 가 모두 NULL 이다(V141 과
+   * 같은 판별). 그런 첨부는 다시 받을 원본이 없으므로 TTL 로 퇴거하지 않는다.
+   */
+  private Select<?> localSentReference() {
+    return dsl.selectOne()
+        .from(CONTENT_ATTACHMENT)
+        .join(EMAIL_MESSAGE)
+        .on(EMAIL_MESSAGE.CONTENT_ID.eq(CONTENT_ATTACHMENT.CONTENT_ID))
+        .where(CONTENT_ATTACHMENT.CONTENT_HASH.eq(MAIL_ATTACHMENT_BLOB.CONTENT_HASH))
+        .and(EMAIL_MESSAGE.IMAP_UID.isNull())
+        .and(EMAIL_MESSAGE.PROVIDER_MESSAGE_ID.isNull());
   }
 
   /**

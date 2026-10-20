@@ -65,7 +65,9 @@ class MailSentRepositoryTest extends IntegrationTestBase {
         null,
         null,
         "본문 텍스트",
-        Instant.now());
+        Instant.now(),
+        List.of(),
+        List.of());
   }
 
   @Test

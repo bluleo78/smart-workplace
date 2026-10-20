@@ -572,6 +572,14 @@ public class EmailMessageRepository {
    * 시점에 본문이 확정되므로 findOrCreate 직후 updateBody 를 호출해 즉시 적재한다.
    */
   public long insertSent(long accountId, long folderId, OutgoingMail m) {
+    return insertSentRow(accountId, folderId, m).messageId();
+  }
+
+  /** 보낸 메일 행과 그 전용 content id(WP-574 — 첨부 기록이 다시 조회하지 않게). */
+  public record SentRow(long messageId, long contentId) {}
+
+  /** {@link #insertSent} 와 같되 전용 content id 도 돌려준다. */
+  public SentRow insertSentRow(long accountId, long folderId, OutgoingMail m) {
     Instant sentAt = m.sentAt();
 
     // 보낸메일용 ParsedMessage: imapUid=0(사용하지 않음), 첨부 빈 목록
@@ -603,30 +611,32 @@ public class EmailMessageRepository {
     long contentId = contentRepo.createDedicated(tenantId, sentAsMsg);
     contentRepo.updateBody(contentId, m.bodyText(), m.bodyHtml(), m.snippet());
 
-    return dsl.insertInto(EMAIL_MESSAGE)
-        .set(EMAIL_MESSAGE.ACCOUNT_ID, accountId)
-        .set(EMAIL_MESSAGE.FOLDER_ID, folderId)
-        .set(EMAIL_MESSAGE.IMAP_UID, (Long) null)
-        .set(EMAIL_MESSAGE.MESSAGE_ID, m.messageId())
-        .set(EMAIL_MESSAGE.THREAD_ID, m.threadId())
-        .set(EMAIL_MESSAGE.IN_REPLY_TO, m.inReplyTo())
-        .set(EMAIL_MESSAGE.MAIL_REFERENCES, m.references())
-        .set(EMAIL_MESSAGE.FROM_ADDRESS, m.fromAddress())
-        .set(EMAIL_MESSAGE.FROM_NAME, m.fromName())
-        .set(EMAIL_MESSAGE.TO_ADDRESSES, joinOrNull(m.to()))
-        .set(EMAIL_MESSAGE.CC_ADDRESSES, joinOrNull(m.cc()))
-        .set(EMAIL_MESSAGE.BCC_ADDRESSES, joinOrNull(m.bcc()))
-        // subject 는 email_content.subject 에 저장(Task9: envelope 중복 제거)
-        .set(EMAIL_MESSAGE.SENT_AT, toOffset(sentAt))
-        .set(EMAIL_MESSAGE.RECEIVED_AT, toOffset(sentAt))
-        .set(EMAIL_MESSAGE.SEEN, true)
-        .set(EMAIL_MESSAGE.HAS_ATTACHMENT, false)
-        .set(EMAIL_MESSAGE.CONTENT_ID, contentId)
-        // 본문을 직접 기록한 전용 content — 적재·검증 완료로 표시해야 본문이 노출된다(WP-130 verified)
-        .set(EMAIL_MESSAGE.FETCHED_AT, OffsetDateTime.now())
-        .returning(EMAIL_MESSAGE.ID)
-        .fetchOne()
-        .get(EMAIL_MESSAGE.ID);
+    long messageId =
+        dsl.insertInto(EMAIL_MESSAGE)
+            .set(EMAIL_MESSAGE.ACCOUNT_ID, accountId)
+            .set(EMAIL_MESSAGE.FOLDER_ID, folderId)
+            .set(EMAIL_MESSAGE.IMAP_UID, (Long) null)
+            .set(EMAIL_MESSAGE.MESSAGE_ID, m.messageId())
+            .set(EMAIL_MESSAGE.THREAD_ID, m.threadId())
+            .set(EMAIL_MESSAGE.IN_REPLY_TO, m.inReplyTo())
+            .set(EMAIL_MESSAGE.MAIL_REFERENCES, m.references())
+            .set(EMAIL_MESSAGE.FROM_ADDRESS, m.fromAddress())
+            .set(EMAIL_MESSAGE.FROM_NAME, m.fromName())
+            .set(EMAIL_MESSAGE.TO_ADDRESSES, joinOrNull(m.to()))
+            .set(EMAIL_MESSAGE.CC_ADDRESSES, joinOrNull(m.cc()))
+            .set(EMAIL_MESSAGE.BCC_ADDRESSES, joinOrNull(m.bcc()))
+            // subject 는 email_content.subject 에 저장(Task9: envelope 중복 제거)
+            .set(EMAIL_MESSAGE.SENT_AT, toOffset(sentAt))
+            .set(EMAIL_MESSAGE.RECEIVED_AT, toOffset(sentAt))
+            .set(EMAIL_MESSAGE.SEEN, true)
+            .set(EMAIL_MESSAGE.HAS_ATTACHMENT, false)
+            .set(EMAIL_MESSAGE.CONTENT_ID, contentId)
+            // 본문을 직접 기록한 전용 content — 적재·검증 완료로 표시해야 본문이 노출된다(WP-130 verified)
+            .set(EMAIL_MESSAGE.FETCHED_AT, OffsetDateTime.now())
+            .returning(EMAIL_MESSAGE.ID)
+            .fetchOne()
+            .get(EMAIL_MESSAGE.ID);
+    return new SentRow(messageId, contentId);
   }
 
   /** 답장 헤더/스레드 구성용 부모 컨텍스트(thread_id, 부모 Message-ID, 부모 References). 소유 검증 포함. */

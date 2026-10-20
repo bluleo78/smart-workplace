@@ -4,14 +4,17 @@ import static com.workplace.jooq.Tables.FILE;
 
 import com.workplace.file.exception.StagedFileUnusableException;
 import com.workplace.jooq.tables.records.FileRecord;
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import org.jooq.DSLContext;
+import org.jooq.impl.DSL;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,8 +34,21 @@ public class StagedFileClaimer {
     /** 만료를 지워 영구 파일로 만든다(이슈·메시지·채팅 첨부). */
     PERMANENT,
     /** 만료를 그대로 둔다(노트처럼 본문 참조로 수명을 따로 관리하는 도메인). */
-    KEEP_TEMPORARY
+    KEEP_TEMPORARY,
+    /**
+     * 보류(WP-574 메일 발송) — 범주를 {@link #CATEGORY_HELD} 로 바꿔 다른 클레임을 막고, 만료를 지금 + {@link #HOLD_TTL} 로
+     * 늦춰 긴 본 작업(전송) 동안 만료 스윕이 행·파일을 지우지 않게 한다. 짧은 트랜잭션에서 커밋한 뒤 잠금 없이 본 작업을 하고, 성공하면 {@link
+     * #consumeHeld}(보류 그대로 지금 만료), 실패하면 {@link #releaseHeld}(원래 상태). 둘 다 못 하고 멈추면(파드 종료 등) 보류 만료 뒤
+     * 스윕이 지운다.
+     */
+    HOLD
   }
+
+  /** 보류 중인 스테이징 파일 범주 — 클레임 판정은 ATTACHMENT 만 받으므로 보류 중에는 누구도 다시 클레임할 수 없다. */
+  public static final String CATEGORY_HELD = "ATTACHMENT_HELD";
+
+  /** 보류 만료 — 전송 최대 소요(SMTP 2분, Graph 큰 메일 수 분)를 넉넉히 덮는다. */
+  public static final Duration HOLD_TTL = Duration.ofHours(1);
 
   /** 클레임할 수 있는 파일 범주 — 스테이징 업로드가 이 값으로 FILE 행을 만든다. */
   public static final String CATEGORY_ATTACHMENT = "ATTACHMENT";
@@ -75,39 +91,96 @@ public class StagedFileClaimer {
             .of(FILE)
             .fetchMap(FILE.ID);
     requireAllClaimable(callerId, fileIds, rows);
-
-    List<StagedFile> claimed = new ArrayList<>(fileIds.size());
-    for (Long id : fileIds) {
-      FileRecord row = rows.get(id);
-      claimed.add(
-          new StagedFile(
-              row.getId(),
-              row.getOriginalName(),
-              row.getMimeType(),
-              row.getSizeBytes(),
-              row.getStoragePath()));
-    }
+    List<StagedFile> claimed = toStagedFiles(fileIds, rows);
 
     if (retention == Retention.PERMANENT) {
       dsl.update(FILE).setNull(FILE.EXPIRES_AT).where(FILE.ID.in(fileIds)).execute();
+    } else if (retention == Retention.HOLD) {
+      dsl.update(FILE)
+          .set(FILE.CATEGORY, CATEGORY_HELD)
+          .set(FILE.EXPIRES_AT, OffsetDateTime.now().plus(HOLD_TTL))
+          .where(FILE.ID.in(fileIds))
+          .execute();
     }
     return claimed;
+  }
+
+  /**
+   * 보류 파일 사용 완료(WP-574) — 본 작업(전송)이 성공했으므로 지금 만료시킨다. 범주는 보류(HELD) 그대로 둔다 — 만료 스윕은 expires_at 만 보고
+   * 지우고, HELD 라 그 사이에도 다시 클레임할 수 없다. 내가 보류한 행만 바꾼다.
+   *
+   * @param held {@link #claim}(HOLD) 이 돌려준 파일
+   */
+  @Transactional
+  public void consumeHeld(long callerId, List<StagedFile> held) {
+    if (held.isEmpty()) {
+      return;
+    }
+    dsl.update(FILE)
+        .set(FILE.EXPIRES_AT, OffsetDateTime.now())
+        .where(FILE.ID.in(held.stream().map(StagedFile::fileId).toList()))
+        .and(FILE.UPLOADED_BY.eq(callerId))
+        .and(FILE.CATEGORY.eq(CATEGORY_HELD))
+        .execute();
+  }
+
+  /**
+   * 보류 되돌리기(WP-574) — 본 작업이 실패했으므로 클레임 전 상태(ATTACHMENT, 파일별 원래 만료)로 되살려 같은 파일로 다시 시도할 수 있게 한다. 한
+   * UPDATE 로 파일마다 원래 만료를 CASE 로 돌려놓는다. 내가 보류한 행만 바꾼다(남의 id 를 넘겨도 바뀌지 않는다).
+   *
+   * @param held {@link #claim}(HOLD) 이 돌려준 파일 — 원래 만료를 담고 있다
+   */
+  @Transactional
+  public void releaseHeld(long callerId, List<StagedFile> held) {
+    if (held.isEmpty()) {
+      return;
+    }
+    Map<Long, OffsetDateTime> original = new LinkedHashMap<>();
+    for (StagedFile f : held) {
+      original.put(f.fileId(), f.expiresAt());
+    }
+    dsl.update(FILE)
+        .set(FILE.CATEGORY, CATEGORY_ATTACHMENT)
+        .set(FILE.EXPIRES_AT, DSL.case_(FILE.ID).mapValues(original).else_(FILE.EXPIRES_AT))
+        .where(FILE.ID.in(original.keySet()))
+        .and(FILE.UPLOADED_BY.eq(callerId))
+        .and(FILE.CATEGORY.eq(CATEGORY_HELD))
+        .execute();
   }
 
   /**
    * 클레임 사전 검사(잠금·쓰기 없음) — {@link #claim} 과 같은 규칙으로 판정만 한다. 실제로 묶기 전에(예: 홈이 새 세션을 만들기 전에) 잘못된 파일을 먼저
    * 거르려는 호출자가 쓴다. 잠그지 않으므로 통과해도 뒤이은 {@link #claim} 이 다시 판정한다.
    *
+   * @return 입력 순서대로의 파일(크기 등 사전 판단용 — WP-574 메일 발송 사전검증이 합계 용량을 본다)
    * @throws IllegalArgumentException 목록 형태 오류(400)
    * @throws StagedFileUnusableException 클레임할 수 없는 파일이 있음(400) — 입력 순서상 첫 위반 id
    */
-  public void requireClaimable(long callerId, List<Long> fileIds) {
+  public List<StagedFile> requireClaimable(long callerId, List<Long> fileIds) {
     requireWellFormed(fileIds);
     if (fileIds.isEmpty()) {
-      return;
+      return List.of();
     }
-    requireAllClaimable(
-        callerId, fileIds, dsl.selectFrom(FILE).where(FILE.ID.in(fileIds)).fetchMap(FILE.ID));
+    Map<Long, FileRecord> rows = dsl.selectFrom(FILE).where(FILE.ID.in(fileIds)).fetchMap(FILE.ID);
+    requireAllClaimable(callerId, fileIds, rows);
+    return toStagedFiles(fileIds, rows);
+  }
+
+  /** 판정을 통과한 FILE 행을 입력 순서대로 {@link StagedFile} 로 옮긴다. */
+  private static List<StagedFile> toStagedFiles(List<Long> fileIds, Map<Long, FileRecord> rows) {
+    List<StagedFile> out = new ArrayList<>(fileIds.size());
+    for (Long id : fileIds) {
+      FileRecord row = rows.get(id);
+      out.add(
+          new StagedFile(
+              row.getId(),
+              row.getOriginalName(),
+              row.getMimeType(),
+              row.getSizeBytes(),
+              row.getStoragePath(),
+              row.getExpiresAt()));
+    }
+    return out;
   }
 
   /** 읽은 FILE 행과 도메인 정션으로 각 id 를 판정한다 — 입력 순서상 첫 위반 id 로 예외. */

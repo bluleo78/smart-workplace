@@ -10,6 +10,7 @@ import {
   runMailAnalyzeContent,
   runMailAnalyzePersonal,
   runMailClassifyBatch,
+  runMailComposeDraft,
   runMailDraftCoaching,
   runMailIssueDraft,
   runMailReplyDraft,
@@ -37,6 +38,18 @@ export const coachDraftSchema = z.object({
   replyingAs: z.string(),
   ...baseConfig,
   // WP-381: 공통 + 메일 메모리(읽기 전용). 구 API 는 생략 → 빈 배열.
+  memories: readOnlyMemoriesField,
+  ...sharedMemoryFields, // WP-386 조직 공용 메모리
+});
+// WP-576 새 메일 초안 — instruction 필수(공백 불가), subject 가 비어 있으면 제목도 만든다. 주소 목록은 생략 시 빈 배열.
+export const composeDraftSchema = z.object({
+  instruction: z.string().trim().min(1),
+  to: z.array(z.string()).default([]),
+  cc: z.array(z.string()).default([]),
+  subject: z.string().nullish().transform((v) => v ?? ''),
+  replyingAs: z.string(),
+  senderName: z.string().nullish(), // 맺음 인사용 보내는 사람 이름(없으면 생략)
+  ...baseConfig,
   memories: readOnlyMemoriesField,
   ...sharedMemoryFields, // WP-386 조직 공용 메모리
 });
@@ -175,6 +188,8 @@ export function createMailRouter(deps: RunAgentDeps): Router {
 
   // 답장 초안 생성: draft 텍스트 반환.
   router.post('/mail/reply-draft', handler(replyDraftSchema, runMailReplyDraft, deps, 'mail-reply-draft'));
+  // WP-576 새 메일 초안: subject(제목이 비었을 때만) + body(평문) 반환.
+  router.post('/mail/compose-draft', handler(composeDraftSchema, runMailComposeDraft, deps, 'mail-compose-draft'));
   // 초안 코칭: notes + improvedBodyHtml 반환.
   router.post('/mail/draft-coaching', handler(coachDraftSchema, runMailDraftCoaching, deps, 'mail-draft-coaching'));
   // #520 메일→이슈 초안: title/body/priority/projectKey 반환.

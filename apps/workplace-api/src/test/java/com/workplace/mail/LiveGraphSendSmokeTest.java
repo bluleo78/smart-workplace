@@ -81,7 +81,9 @@ class LiveGraphSendSmokeTest extends IntegrationTestBase {
               "<" + parentRfcId + ">", // references (꺾쇠 포함 원문, 파서 저장 규칙 일치)
               "테스트", // snippet
               Instant.now() // sentAt
-              );
+              ,
+              List.of(),
+              List.of());
 
       // MIME 조립 → base64 인코딩
       ByteArrayOutputStream out = new ByteArrayOutputStream();

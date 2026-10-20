@@ -7,12 +7,14 @@ import { finalText } from './runner-events.js';
 import {
   parseClassifyBatchJson,
   parseContentAnalysisJson,
+  parseComposeDraft,
   parseDraftCoachingJson,
   parseIssueDraftJson,
   parsePersonalAnalysisJson,
 } from './mail-parser.js';
 import {
   buildClassifyBatchPrompt,
+  buildComposeDraftPrompt,
   buildContentAnalysisPrompt,
   buildPersonalAnalysisPrompt,
   MAIL_DRAFT_COACHING_PROMPT,
@@ -76,6 +78,52 @@ export async function runMailReplyDraft(
     withSharedMemory(input, `당신은 ${input.replyingAs} 로서 아래 대화의 마지막 메일에 답장합니다.\n\n${convo}`),
   );
   return { draftBody: (await runText(MAIL_REPLY_DRAFT_PROMPT, userMessage, input, deps, 'mail-reply-draft')).trim() };
+}
+
+export interface ComposeDraftInput extends BaseConfig, SharedMemoryInput {
+  instruction: string;
+  to: string[];
+  cc: string[];
+  // 비었으면 AI 가 제목도 만든다(WP-576).
+  subject: string;
+  replyingAs: string;
+  // 보내는 사람 표시 이름 — 맺음 인사의 "{이름} 드림" 에 쓴다(없으면 이름 줄 생략).
+  senderName?: string | null;
+  memories?: MemoryItem[];
+}
+
+/** 새 메일 초안 사용자 메시지(WP-576) — 작성자·받는사람·제목·지시를 라벨 블록으로. 메모리 블록은 호출부가 앞에 붙인다. */
+export function buildComposeDraftUserMessage(input: ComposeDraftInput): string {
+  // 받는사람·제목은 사용자가 정한 값이라 줄바꿈으로 "[나] …" 같은 가짜 블록 줄을 만들지 못하게 oneLine 으로 접는다.
+  const list = (a: string[]) => {
+    const v = oneLines(a);
+    return v.length ? v.join(', ') : '(없음)';
+  };
+  const subject = oneLine(input.subject);
+  const name = oneLine(input.senderName);
+  const lines = [
+    `당신은 ${oneLine(input.replyingAs)} 로서 새 메일을 씁니다.`,
+    ...(name ? [`[나] ${name}`] : []),
+    `[받는사람] ${list(input.to)}`,
+    `[참조] ${list(input.cc)}`,
+    `[제목] ${subject || '(아직 없음)'}`,
+    `[작성 지시]\n${input.instruction.trim()}`,
+  ];
+  return lines.join('\n');
+}
+
+// 새 메일 초안(WP-576): 지시·받는사람·제목 → {subject(제목이 비었을 때만), body(평문)}. 파싱 실패 시 전체를 본문으로.
+export async function runMailComposeDraft(
+  input: ComposeDraftInput,
+  deps: RunAgentDeps,
+): Promise<{ subject: string | null; body: string }> {
+  const wantSubject = input.subject.trim() === '';
+  const userMessage = withReadOnlyMemory(
+    input.memories,
+    withSharedMemory(input, buildComposeDraftUserMessage(input)),
+  );
+  const text = await runText(buildComposeDraftPrompt(wantSubject), userMessage, input, deps, 'mail-compose-draft');
+  return parseComposeDraft(text, wantSubject);
 }
 
 export interface IssueDraftInput extends BaseConfig, SharedMemoryInput {

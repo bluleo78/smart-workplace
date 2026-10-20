@@ -19,6 +19,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { isFileDrag } from '@/lib/clipboardFiles';
 import { ImeCommitFlush } from '@/lib/imeCommitFlush';
 import { ghostToggleClass } from '@/lib/selectionStyles';
 import { cn } from '@/lib/utils';
@@ -38,6 +39,10 @@ interface MailComposerProps {
   onChange: (html: string, text: string, initial: boolean) => void;
   /** 작성창 모양에 맞춘 배치. 기본 dock. */
   layout?: MailComposerLayout;
+  /** 서식 툴바 오른쪽 끝에 붙일 것(새 메일 「AI로 쓰기」, WP-576). 붙일 쪽이 ml-auto 로 끝에 민다. */
+  toolbarEnd?: ReactNode;
+  /** 본문 위에 겹쳐 그릴 것(빈 본문 AI 칩·생성 중 스켈레톤, WP-576). 본문 글자 자리(안쪽 여백)에 맞춰 놓이고, 빈 곳은 클릭이 본문으로 통과한다. */
+  bodyOverlay?: ReactNode;
 }
 
 /**
@@ -63,6 +68,17 @@ const TOOLBAR_CLASS: Record<MailComposerLayout, string> = {
   fill: cn(BOXED_TOOLBAR_CLASS, 'sticky top-0 z-10 bg-background bg-linear-to-r from-muted/40 to-muted/40'),
   mobile:
     'fixed inset-x-0 bottom-[var(--kb-inset,0px)] z-10 flex items-center gap-1 border-t bg-background px-2 pt-0.5 pb-[max(0.125rem,env(safe-area-inset-bottom))]',
+};
+
+/**
+ * 본문 겹침 자리 — 에디터 안쪽 여백(boxed px-3 py-2, mobile py-2)과 맞춰 첫 줄 높이에 놓는다.
+ * pointer-events-none 이라 겹침의 빈 곳을 눌러도 본문에 커서가 간다(겹친 버튼은 스스로 pointer-events-auto).
+ */
+const BOXED_OVERLAY_CLASS = 'pointer-events-none absolute inset-x-3 top-1.5 [&_button]:pointer-events-auto';
+const OVERLAY_CLASS: Record<MailComposerLayout, string> = {
+  dock: BOXED_OVERLAY_CLASS,
+  fill: BOXED_OVERLAY_CLASS,
+  mobile: 'pointer-events-none absolute inset-x-0 top-1.5 [&_button]:pointer-events-auto',
 };
 
 /** 툴바 버튼. touch(모바일)는 44px 터치 크기·20px 아이콘, 그 밖엔 작은 버튼·16px 아이콘. */
@@ -99,12 +115,18 @@ function ToolbarButton({
 
 /** 부모(작성 도크)가 본문을 통째로 교체할 수 있게 노출하는 핸들. */
 export interface MailComposerHandle {
-  setContent: (html: string) => void
+  /**
+   * 본문 통째 교체(undo 히스토리에 쌓인다). focus=false 면 초점을 옮기지 않는다 — 응답이 늦게 도착한 AI 초안(WP-576)이
+   * 그사이 제목 등을 쓰던 사용자의 초점을 빼앗지 않게. 기본 true(개선본으로 교체처럼 사용자가 누른 직후).
+   */
+  setContent: (html: string, opts?: { focus?: boolean }) => void
+  /** 본문 끝에 초점 — AI 초안을 넣은 뒤 렌더가 끝나(inert 해제) 바로 이어 쓸 수 있게(WP-576). */
+  focusEnd: () => void
 }
 
 /** 메일 본문 작성 에디터. */
 export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(
-  function MailComposer({ initialHtml = '', onChange, layout = 'dock' }, ref) {
+  function MailComposer({ initialHtml = '', onChange, layout = 'dock', toolbarEnd, bodyOverlay }, ref) {
   // 링크 URL 입력 다이얼로그 — window.prompt 대체 (#148).
   const [linkDialog, setLinkDialog] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
@@ -125,6 +147,9 @@ export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(
     onCreate: ({ editor }) => onChange(editor.getHTML(), editor.getText(), true),
     onUpdate: ({ editor }) => onChange(editor.getHTML(), editor.getText(), false),
     editorProps: {
+      // 파일을 본문 위에 놓으면 에디터는 아무것도 넣지 않고 넘긴다 — 놓기 이벤트는 그대로 버블돼 작성창(useComposerFileDrop)이 첨부로 받는다(WP-574).
+      // 글자·서식 끌어 놓기(파일 아님)는 에디터 기본 동작 그대로.
+      handleDrop: (_view, event) => isFileDrag(event.dataTransfer),
       attributes: {
         'data-testid': 'mail-composer-body',
         'aria-label': '메일 본문',
@@ -138,9 +163,14 @@ export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(
   useImperativeHandle(
     ref,
     () => ({
-      setContent: (html: string) => {
+      setContent: (html: string, opts?: { focus?: boolean }) => {
+        if (!editor) return
         // Tiptap v2.27 — setContent(content, emitUpdate) 위치 인자. emitUpdate=true 로 onChange 발화 + undo 누적.
-        editor?.chain().focus().setContent(html, true).run()
+        const chain = opts?.focus === false ? editor.chain() : editor.chain().focus()
+        chain.setContent(html, true).run()
+      },
+      focusEnd: () => {
+        editor?.commands.focus('end')
       },
     }),
     [editor],
@@ -197,9 +227,13 @@ export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(
         >
           <Link2 />
         </ToolbarButton>
+        {toolbarEnd}
       </div>
-      {/* 크게 보기는 본문이 남은 높이를 채우도록 래퍼도 세로 flex 로 늘린다. */}
-      <EditorContent editor={editor} className={layout === 'fill' ? 'flex flex-1 flex-col' : undefined} />
+      {/* 크게 보기는 본문이 남은 높이를 채우도록 래퍼도 세로 flex 로 늘린다. 겹침 자리의 기준이 되도록 relative. */}
+      <div className={cn('relative', layout === 'fill' && 'flex flex-1 flex-col')}>
+        <EditorContent editor={editor} className={layout === 'fill' ? 'flex flex-1 flex-col' : undefined} />
+        {bodyOverlay && <div className={OVERLAY_CLASS[layout]}>{bodyOverlay}</div>}
+      </div>
 
       {/* 링크 URL 입력 다이얼로그 — window.prompt 대체 (#148) */}
       <Dialog

@@ -11,7 +11,6 @@ import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAi
 import { MessageActionSheet, type MessageSheetAction } from '@/components/chat/MessageActionSheet'
 import { Page } from '@/components/layout/Page'
 import { useHideTabBar } from '@/components/mobile/MobileChromeContext'
-import { MobileDetailBar } from '@/components/mobile/MobileDetailBar'
 import { MobileEmptyState } from '@/components/mobile/MobileEmptyState'
 import { Button } from '@/components/ui/button'
 import { useAiAvailable } from '@/hooks/useAiAvailable'
@@ -22,13 +21,16 @@ import { useMailDarkHtml } from '@/hooks/useMailDarkHtml'
 import { useMarkReadOnOpen } from '@/hooks/useMarkReadOnOpen'
 import { useMessageListLongPress } from '@/hooks/useMessageListLongPress'
 import { useMessageSheet } from '@/hooks/useMessageSheet'
-import { buildMailContext } from '@/lib/aiScreenContext/builders/mail'
+import { buildMailContext, type MailContextInput } from '@/lib/aiScreenContext/builders/mail'
 import { handleApiError } from '@/lib/api-error'
 import { formatClockTimePadded, formatDateMonthDayPadded, formatDateTime, formatFileSize, formatRelativeTime, parseUtcDate } from '@/lib/formatters'
 import { hasOpenMark, parseId } from '@/lib/historyParam'
+import { forwardAttachments } from '@/lib/mailComposeAttachments'
 import { markSeenInKept, mergeKeptRows, withOpenRow } from '@/lib/mailKeepRows'
 import { isNeedsReply } from '@/lib/mailNeedsReply'
-import { buildQuote, escapeHtml } from '@/lib/mailQuote'
+import { buildQuote, plainTextToMailHtml } from '@/lib/mailQuote'
+import { replyAllCc } from '@/lib/mailRecipients'
+import { firstSummaryLine } from '@/lib/mailSummary'
 import { mailViewHref, resolveMailView, unreadCountForView } from '@/lib/mailView'
 import { SELECTED_BG_CLASS, TOGGLE_ON_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
@@ -50,7 +52,6 @@ import {
   useMailMessage,
   useMailMessages,
   useMailMessageSeen,
-  useMailMessageSubject,
   useMailSummary,
   useMarkAllRead,
   useReplyDraft,
@@ -61,6 +62,7 @@ import {
 } from '../../hooks/queries/useMailMessages'
 import type { EmailAttachmentMeta, EmailMessageDetail, EmailMessageSummary, MailCategory, MailFolder, MailIssueDraft } from '../../types/mailMessage'
 import { MAIL_DETAIL_PARAM } from './mailHistory'
+import { MailMobileDetail, MailMobileDetailBar, MailMobileSummaryButton } from './MailMobileDetail'
 import { MailToIssueDialog } from './MailToIssueDialog'
 import { useMailAttachmentViewer } from './useMailAttachmentViewer'
 
@@ -229,29 +231,97 @@ function withPrefix(prefix: string, subject: string | null): string {
   const s = subject ?? ''
   return s.toLowerCase().startsWith(prefix.toLowerCase()) ? s : `${prefix} ${s}`
 }
-// "이름" <a@b> / a@b 모두에서 순수 이메일만 추출.
-function extractEmail(token: string): string {
-  const m = token.match(/<([^>]+)>/)
-  return m ? m[1].trim() : token.trim()
+
+/**
+ * WP-54 메일함 화면 컨텍스트 등록 — 원시값과 목록 행 요약만 받는 모듈 수준 훅.
+ * 페이지 본문에 useMemo 를 두면 같은 계정에서 나온 값(본인 주소)을 다른 곳(전체답장 조립)에 넘기는 것만으로 React Compiler 가
+ * 메모를 보존할 수 없다고 보므로, 등록을 이 훅으로 떼어 의존성이 여기서만 닫히게 한다(workplace-web CLAUDE.md 화면 컨텍스트 패턴).
+ */
+function useMailScreenContext({
+  accountId,
+  accountEmail,
+  folder,
+  q,
+  category,
+  needsReply,
+  count,
+  selected,
+}: Omit<MailContextInput, 'accountId' | 'selected'> & { accountId: number | null; selected: EmailMessageSummary | null }) {
+  const screenContext = useMemo(
+    () =>
+      accountId != null
+        ? buildMailContext({
+            accountId,
+            accountEmail,
+            folder,
+            q,
+            category,
+            needsReply,
+            count,
+            selected: selected
+              ? {
+                  id: selected.id,
+                  subject: selected.subject,
+                  fromName: selected.fromName,
+                  fromAddress: selected.fromAddress ?? '',
+                  receivedAt: selected.receivedAt ?? '',
+                  aiCategory: selected.aiCategory,
+                  aiNeedsReply: selected.aiNeedsReply,
+                }
+              : null,
+          })
+        : null,
+    [accountId, accountEmail, folder, q, category, needsReply, count, selected],
+  )
+  useRegisterAiScreenContext(screenContext)
+}
+
+/**
+ * 답장·전체답장 작성 초안. 전체답장 참조는 원본 받는사람·참조에서 나(selfAddress)와 보낸 사람을 뺀 나머지 —
+ * 따옴표 안 쉼표를 지키며 사람 단위로 나눈다(WP-400).
+ */
+function buildReplyDraft(detail: EmailMessageDetail, all: boolean, accountId: number, selfAddress: string): ComposeDraft {
+  return {
+    mode: 'reply',
+    accountId,
+    to: detail.fromAddress ? [detail.fromAddress] : [],
+    cc: all ? replyAllCc(detail.toAddresses, detail.ccAddresses, selfAddress, detail.fromAddress) : [],
+    bcc: [],
+    subject: withPrefix('Re:', detail.subject),
+    initialHtml: '',
+    // 인용문은 에디터 밖 raw HTML/text 로 보관 — AI 개선본 교체(setContent)가 지우지 않는다.
+    quote: buildQuote(detail, 'reply'),
+    inReplyToMessageId: detail.id,
+  }
 }
 
 // 첨부 파일 목록 — 칩을 누르면 통합 첨부 뷰어로 연다(WP-280). 다운로드는 뷰어의 ⬇ 가 맡는다.
+// compact(모바일 상세, WP-400) — 첨부가 첫 화면을 차지하지 않게 가로로 스크롤되는 한 줄 작은 칩. 화면 가장자리까지 스크롤되게
+// 좌우 여백(px-4)만큼 바깥으로 넓힌다. 칩은 32px 높이로 보이고, 위아래 투명 영역으로 44px 터치를 맞춘다(한 줄이라 이웃과 겹치지 않는다).
 function AttachmentList({
   attachments,
   onPreview,
+  compact = false,
 }: {
   attachments: EmailAttachmentMeta[]
   onPreview: (a: EmailAttachmentMeta) => void
+  compact?: boolean
 }) {
   return (
-    <ul data-testid="mail-attachments" className="mt-2 flex flex-wrap gap-2">
+    <ul
+      data-testid="mail-attachments"
+      className={cn(
+        'mt-2 flex gap-2',
+        compact ? '-mx-4 flex-nowrap overflow-x-auto px-4 py-1.5 [scrollbar-width:none]' : 'flex-wrap',
+      )}
+    >
       {attachments.map((a) => {
         const name = mailAttachmentName(a)
         // 확장자를 잃지 않게 앞부분만 말줄임하고 꼬리(확장자 포함)는 늘 보인다 — 뷰어 제목과 같은 규칙(splitName).
         const [head, tail] = splitName(name)
         return (
           // min-w-0·max-w-full — flex-wrap 줄 폭을 넘지 않아야 360px 에서도 이름이 줄바꿈 대신 말줄임된다.
-          <li key={a.id} className="min-w-0 max-w-full">
+          <li key={a.id} className={compact ? 'max-w-[14rem] shrink-0' : 'min-w-0 max-w-full'}>
             {/* 칩 전체가 미리보기 버튼(WP-280) — 이슈 첨부 칩과 같은 형식 아이콘·크기 표시, 테두리가 바뀌는 hover 로 누를 수 있음을 알린다.
                 포커스 링은 공용 Button 과 같은 토큰(border-ring + ring-ring/50 3px) — 다크에서도 테두리와 구분된다. */}
             <button
@@ -260,7 +330,12 @@ function AttachmentList({
               aria-label={`${name} 미리보기`}
               title={`${name} 미리보기`}
               onClick={() => onPreview(a)}
-              className="flex max-w-full cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md border bg-muted px-2 py-1 text-left text-xs outline-none transition-colors hover:border-foreground/30 hover:bg-accent focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 sm:max-w-[18rem] pointer-coarse:min-h-11"
+              className={cn(
+                'flex max-w-full cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md border bg-muted px-2 py-1 text-left text-xs outline-none transition-colors hover:border-foreground/30 hover:bg-accent focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50',
+                compact
+                  ? "relative h-8 after:absolute after:-inset-y-1.5 after:inset-x-0 after:content-['']"
+                  : 'sm:max-w-[18rem] pointer-coarse:min-h-11',
+              )}
             >
               <FileTypeIcon mimeType={mailAttachmentMime(a)} className="size-3.5" />
               {/* whitespace-pre — 잘리는 자리 끝 공백이 flex 항목 끝에서 사라지지 않게(ViewerTitle 과 같은 이유). */}
@@ -289,6 +364,7 @@ function MessageDetailPanel({
   onAiIssue,
   issueDraftPending,
   onMarkUnread,
+  onBack,
 }: {
   messageId: number | null
   aiEnabled: boolean
@@ -301,11 +377,13 @@ function MessageDetailPanel({
   issueDraftPending: boolean
   /** WP-187 열린 메일을 안읽음으로 표시하고 상세를 닫는다. */
   onMarkUnread: () => void
+  /** 모바일 상단바 ‹ — 상세를 닫고 목록으로(WP-400 부터 상단바를 이 패널이 그린다: ⋯ 메뉴가 패널 상태를 쓴다). */
+  onBack: () => void
 }) {
   const { data: detail, isLoading, isError, refetch } = useMailMessage(messageId)
   // 비서가 있을 때만 요약 조회 — aiAvailable false면 fetch 자체를 생략해 불필요한 API 호출을 막는다.
   const aiAvailable = useAiAvailable()
-  // WP-187: 데스크톱 상세의 "안읽음" 아이콘 판정 — 모바일은 상세 헤더 바(trailing)가 맡는다. 조기 return 앞(훅 순서 고정).
+  // 휴대폰 폭 판정 — 모바일은 상단바·하단 액션 바 배치(WP-400)로 그린다. 조기 return 앞(훅 순서 고정).
   const isMobile = useIsMobile()
   const { data: summaryData, isFetching: summaryFetching } = useMailSummary(messageId, aiAvailable)
   // WP-149 요약 생략 메일의 "AI 요약" 버튼 — 누를 때만 생성(결과는 요약 캐시에 바로 반영)
@@ -315,6 +393,10 @@ function MessageDetailPanel({
   const summaryLoading = summaryFetching || generatingThis
   const showSummaryButton =
     aiAvailable && !summaryLoading && !summaryData?.summary && summaryData?.status === 'SKIPPED'
+  // WP-400 모바일: 「AI 요약 보기」를 누른 메일 — 생성된 요약을 펼친 채 보여 준다. 열린 메일이 바뀌면 렌더 중에 비워
+  // 다른 메일을 갔다 돌아오면 다른 요약처럼 접힌 채 나온다(mutation 의 variables 는 다음 요청 전까지 남아 판정에 쓰지 않는다).
+  const [summaryRequestedId, setSummaryRequestedId] = useState<number | null>(null)
+  if (summaryRequestedId != null && summaryRequestedId !== messageId) setSummaryRequestedId(null)
   // #520 연결된 이슈 키 조회 — issueKey 있으면 배지 표시.
   const linked = useLinkedIssue(messageId, aiEnabled)
   // HTML 본문은 text 본문이 없을 때만 iframe 으로 보인다 — 다크 변환·인라인 치환·첨부 숨김 모두 이때만 적용.
@@ -365,15 +447,135 @@ function MessageDetailPanel({
       </div>,
     )
   }
+  // 모바일은 로딩·오류 화면에도 상단바(‹·안 읽음)를 둔다 — 상세가 화면 전체라 바가 없으면 돌아갈 길이 없다.
+  const withMobileBar = (body: ReactNode) =>
+    isMobile ? (
+      <>
+        <MailMobileDetailBar onBack={onBack} onMarkUnread={onMarkUnread} />
+        {body}
+      </>
+    ) : (
+      body
+    )
   if (isLoading) {
-    return withViewer(<div className="p-6 text-sm text-muted-foreground">불러오는 중…</div>)
+    return withViewer(withMobileBar(<div className="p-6 text-sm text-muted-foreground">불러오는 중…</div>))
   }
   if (isError || !detail) {
     return withViewer(
-      <div className="p-6 text-center">
-        <p className="text-sm text-destructive mb-2">메일을 불러오지 못했습니다</p>
-        <Button variant="outline" size="sm" onClick={() => refetch()}>다시 시도</Button>
-      </div>,
+      withMobileBar(
+        <div className="p-6 text-center">
+          <p className="text-sm text-destructive mb-2">메일을 불러오지 못했습니다</p>
+          <Button variant="outline" size="sm" onClick={() => refetch()}>다시 시도</Button>
+        </div>,
+      ),
+    )
+  }
+
+  // #520 이슈 승격 배지 — issueKey 있을 때만 표시. AI 표면이므로 ai-accent 시맨틱 토큰 사용. 데스크톱·모바일 공용.
+  const linkedBadge = linked.data?.issueKey ? (
+    <span
+      data-testid="mail-linked-issue"
+      className="inline-flex items-center gap-1 rounded bg-ai-accent-subtle px-1.5 py-0.5 text-xs text-ai-accent"
+    >
+      이슈로 만듦: {linked.data.issueKey}
+    </span>
+  ) : null
+  const attachmentList =
+    listedAttachments.length > 0 ? (
+      <AttachmentList attachments={listedAttachments} onPreview={attachmentViewer.onPreview} />
+    ) : null
+  const aiActions = aiAvailable && aiEnabled
+
+  // WP-400 모바일 — 첫 화면에 본문이 보이게 메타를 접고, 액션은 하단 고정 바·⋯ 메뉴로 옮긴다(데스크톱은 아래 원래 마크업).
+  if (isMobile) {
+    const mobileSummary = !aiAvailable ? null : summaryData?.summary || summaryLoading ? (
+      <AiContent
+        label="AI 요약"
+        collapsible
+        defaultOpen={summaryRequestedId === messageId}
+        preview={summaryData?.summary ? firstSummaryLine(summaryData.summary) : '요약을 만드는 중…'}
+        data-testid="mail-ai-summary"
+      >
+        {summaryData?.summary ? (
+          <span>{summaryData.summary}</span>
+        ) : (
+          <AiSummarySkeleton testId="mail-ai-summary-loading" />
+        )}
+      </AiContent>
+    ) : showSummaryButton ? (
+      <MailMobileSummaryButton
+        onClick={() => {
+          // 눌렀는데 접힌 카드만 남지 않게 — 이 메일을 펼침 대상으로 기억한다.
+          setSummaryRequestedId(messageId)
+          generateSummary.mutate(messageId)
+        }}
+      />
+    ) : null
+    // HTML 본문 iframe 은 스크롤 영역 높이(100cqh, 위아래 여백 1rem 제외)를 차지한다 — MailMobileDetail 주석 참조.
+    const mobileBody = detail.bodyText ? (
+      <pre className="whitespace-pre-wrap break-words font-sans text-sm">{detail.bodyText}</pre>
+    ) : bodyHtml ? (
+      <SandboxedHtmlFrame
+        data-testid="mail-body-html"
+        title="메일 본문"
+        html={bodyHtml}
+        className="block h-[calc(100cqh-1rem)] min-h-[300px] w-full border-0"
+      />
+    ) : (
+      <div className="text-sm text-muted-foreground">본문이 없습니다</div>
+    )
+    return withViewer(
+      <MailMobileDetail
+        key={detail.id}
+        detail={detail}
+        onBack={onBack}
+        onMarkUnread={onMarkUnread}
+        menuItems={
+          <>
+            {/* AI 이슈 생성 — 하단 바에 자리가 없어 메뉴로. AI 기능은 아이콘 색으로 구분(디자인 시스템 §7.2). */}
+            {aiActions && (
+              <button
+                type="button"
+                data-testid="mail-ai-issue"
+                disabled={issueDraftPending}
+                onClick={() => onAiIssue(detail)}
+              >
+                {issueDraftPending ? (
+                  <Loader2 aria-hidden className="h-4 w-4 animate-spin text-ai-accent" />
+                ) : (
+                  <Sparkles aria-hidden className="h-4 w-4 text-ai-accent" />
+                )}
+                {issueDraftPending ? '이슈 작성 중…' : 'AI로 이슈 만들기'}
+              </button>
+            )}
+            {/* 원본 배경 보기 — 체크 항목(aria-pressed → 메뉴가 menuitemcheckbox 로 알린다). 다크 변환된 HTML 본문에만. */}
+            {darkened && (
+              <button
+                type="button"
+                data-testid="mail-body-theme-toggle"
+                aria-pressed={showOriginal}
+                onClick={() => setOriginalShownId(showOriginal ? null : messageId)}
+              >
+                <Sun aria-hidden className="h-4 w-4" />
+                원본 배경으로 보기
+                {showOriginal && <Check aria-hidden className="ml-auto h-4 w-4" />}
+              </button>
+            )}
+          </>
+        }
+        summary={mobileSummary}
+        linkedIssue={linkedBadge}
+        attachments={
+          listedAttachments.length > 0 ? (
+            <AttachmentList compact attachments={listedAttachments} onPreview={attachmentViewer.onPreview} />
+          ) : null
+        }
+        body={mobileBody}
+        onReply={() => onReply(detail)}
+        onReplyAll={() => onReplyAll(detail)}
+        onForward={() => onForward(detail)}
+        aiReply={aiActions ? { onClick: () => onAiReplyDraft(detail), pending: aiDraftPending } : undefined}
+      />,
     )
   }
 
@@ -410,15 +612,7 @@ function MessageDetailPanel({
           </Button>
         )}
         <h2 className="text-lg font-semibold">{detail.subject || '(제목 없음)'}</h2>
-        {/* #520 이슈 승격 배지 — issueKey 있을 때만 표시. AI 표면이므로 ai-accent 시맨틱 토큰 사용. */}
-        {linked.data?.issueKey && (
-          <span
-            data-testid="mail-linked-issue"
-            className="inline-flex items-center gap-1 rounded bg-ai-accent-subtle px-1.5 py-0.5 text-xs text-ai-accent"
-          >
-            이슈로 만듦: {linked.data.issueKey}
-          </span>
-        )}
+        {linkedBadge}
         <div className="mt-1 text-sm text-muted-foreground">
           {detail.fromName ? `${detail.fromName} <${detail.fromAddress}>` : detail.fromAddress}
         </div>
@@ -458,21 +652,19 @@ function MessageDetailPanel({
           >
             <Forward className="h-3.5 w-3.5" /> 전달
           </Button>
-          {/* WP-187 안 읽음으로 표시(데스크톱) — 형제 버튼처럼 아이콘+글자(모바일 바와 같은 문구).
-              누르면 상세가 닫힌다(열린 상세가 재조회되면 다시 읽음 처리되므로). */}
-          {!isMobile && (
-            <Button
-              variant="outline"
-              size="sm"
-              data-testid="mail-mark-unread"
-              title="안 읽음으로 표시"
-              onClick={onMarkUnread}
-            >
-              <Mail className="h-3.5 w-3.5" /> 안 읽음
-            </Button>
-          )}
+          {/* WP-187 안 읽음으로 표시(데스크톱) — 형제 버튼처럼 아이콘+글자(모바일 ⋯ 메뉴와 같은 문구).
+              누르면 상세가 닫힌다(열린 상세가 재조회되면 다시 읽음 처리되므로). 모바일은 위에서 따로 그려 여기 오지 않는다. */}
+          <Button
+            variant="outline"
+            size="sm"
+            data-testid="mail-mark-unread"
+            title="안 읽음으로 표시"
+            onClick={onMarkUnread}
+          >
+            <Mail className="h-3.5 w-3.5" /> 안 읽음
+          </Button>
           {/* AI 답장 초안 버튼 — 비서 있고 AI 사용 계정에서만 노출. AI 기능이므로 ai-accent 보조 컬러(아이콘+색, 디자인시스템 §7.2). */}
-          {aiAvailable && aiEnabled && (
+          {aiActions && (
             <Button
               variant="outline"
               size="sm"
@@ -493,7 +685,7 @@ function MessageDetailPanel({
             </Button>
           )}
           {/* AI 이슈 생성 버튼 — 비서 있고 AI 사용 계정에서만 노출. #520. AI 기능이므로 ai-accent 보조 컬러(아이콘+색, 디자인시스템 §7.2). */}
-          {aiAvailable && aiEnabled && (
+          {aiActions && (
             <Button
               variant="outline"
               size="sm"
@@ -514,9 +706,7 @@ function MessageDetailPanel({
             </Button>
           )}
         </div>
-        {listedAttachments.length > 0 && (
-          <AttachmentList attachments={listedAttachments} onPreview={attachmentViewer.onPreview} />
-        )}
+        {attachmentList}
       </div>
       <div className="flex-1 p-4">
         {detail.bodyText ? (
@@ -757,8 +947,8 @@ export function MailInboxPage() {
 
   // 현재 계정 객체 — 이메일 주소·AI 활성화 여부·마지막 동기화 시각에 사용.
   const currentAccount = accounts?.find((a) => a.id === accountIdNum)
-  // 본인 이메일 주소(전체답장에서 자신을 수신자에서 제외).
-  const selfAddress = currentAccount?.emailAddress ?? ''
+  // 본인 이메일 주소 — 화면 컨텍스트와 전체답장(자신을 수신자에서 제외)이 같은 원시값을 쓴다.
+  const accountEmail = currentAccount?.emailAddress ?? null
   // 현재 계정의 AI 사용 여부 — 요약 스트립 표시 여부에 사용.
   const aiEnabled = currentAccount?.aiEnabled ?? false
 
@@ -807,74 +997,36 @@ export function MailInboxPage() {
   const [remembered, setRemembered] = useState<EmailMessageSummary | null>(null)
   if (found && found !== remembered) setRemembered(found)
   const selectedSummary = found ?? (remembered?.id === selectedId ? remembered : null)
-  // 모바일 상세 헤더 제목 = 열린 메일 제목(채팅·노트와 같은 "‹ 항목 이름" 규칙). 상세 패널과 같은 쿼리를 공유한다.
-  const openSubject = useMailMessageSubject(selectedId)
-  const detailTitle = openSubject.isSuccess ? openSubject.data || '(제목 없음)' : undefined
   // 모바일에서 본문이 열리면 목록 헤더(폴더명·🔍·☰·🔔)·동기화 줄 대신 상세 헤더 한 줄만 둔다(U1-1).
   const showListChrome = !(isMobile && selectedId != null)
-  const screenContext = useMemo(
-    () =>
-      accountIdNum != null
-        ? buildMailContext({
-            accountId: accountIdNum,
-            accountEmail: currentAccount?.emailAddress ?? null,
-            folder: folderParam,
-            q: search,
-            category: view.apiCategory || null,
-            needsReply: view.kind === 'needsReply',
-            count: messages?.length,
-            selected: selectedSummary
-              ? {
-                  id: selectedSummary.id,
-                  subject: selectedSummary.subject,
-                  fromName: selectedSummary.fromName,
-                  fromAddress: selectedSummary.fromAddress ?? '',
-                  receivedAt: selectedSummary.receivedAt ?? '',
-                  aiCategory: selectedSummary.aiCategory,
-                  aiNeedsReply: selectedSummary.aiNeedsReply,
-                }
-              : null,
-          })
-        : null,
-    [accountIdNum, currentAccount?.emailAddress, folderParam, search, view.apiCategory, view.kind, messages?.length, selectedSummary],
-  )
-  useRegisterAiScreenContext(screenContext)
+  useMailScreenContext({
+    accountId: accountIdNum ?? null,
+    accountEmail,
+    folder: folderParam,
+    q: search,
+    category: view.apiCategory || null,
+    needsReply: view.kind === 'needsReply',
+    count: messages?.length,
+    selected: selectedSummary,
+  })
 
-  // 답장 draft 생성.
-  function buildReply(detail: EmailMessageDetail, all: boolean): ComposeDraft {
-    const to = detail.fromAddress ? [detail.fromAddress] : []
-    const cc = all
-      ? [detail.toAddresses, detail.ccAddresses]
-          .filter(Boolean)
-          .join(', ')
-          .split(/[,;]/)
-          .map((s) => s.trim())
-          .filter((a) => {
-            const email = extractEmail(a)
-            return email && email !== selfAddress && email !== detail.fromAddress
-          })
-      : []
-    return {
-      accountId: accountIdNum as number,
-      to,
-      cc,
-      bcc: [],
-      subject: withPrefix('Re:', detail.subject),
-      initialHtml: '',
-      // 인용문은 에디터 밖 raw HTML/text 로 보관 — AI 개선본 교체(setContent)가 지우지 않는다.
-      quote: buildQuote(detail, 'reply'),
-      inReplyToMessageId: detail.id,
-    }
-  }
+  // 답장 draft 생성(조립은 모듈 함수 buildReplyDraft).
+  const buildReply = (detail: EmailMessageDetail, all: boolean) =>
+    buildReplyDraft(detail, all, accountIdNum as number, accountEmail ?? '')
   function onReply(d: EmailMessageDetail) { openCompose(buildReply(d, false)) }
   function onReplyAll(d: EmailMessageDetail) { openCompose(buildReply(d, true)) }
   function onForward(d: EmailMessageDetail) {
+    const quote = buildQuote(d, 'forward')
+    // 원본 첨부를 칩으로 미리 넣는다(WP-574). 인용문이 cid 로 다시 붙이는 본문 이미지는 빼 같은 그림이 두 번 붙지 않게 한다.
+    const inlined = new Set(quote.inlineImages.map((i) => i.attachment.id))
     openCompose({
+      mode: 'forward',
       accountId: accountIdNum as number,
       to: [], cc: [], bcc: [],
       subject: withPrefix('Fwd:', d.subject),
       initialHtml: '',
-      quote: buildQuote(d, 'forward'),
+      quote,
+      attachments: forwardAttachments(d.attachments ?? [], inlined),
       inReplyToMessageId: null,
     })
   }
@@ -883,9 +1035,8 @@ export function MailInboxPage() {
     const base = buildReply(d, false)
     try {
       const { draftBody } = await replyDraft.mutateAsync(d.id)
-      // draftBody 는 plain text — escape 후 개행만 <br/> 로 바꿔 넣는다(HTML 주입 방지).
-      const escaped = escapeHtml(draftBody).replace(/\n/g, '<br/>')
-      openCompose({ ...base, initialHtml: `<p>${escaped}</p>` })
+      // draftBody 는 plain text — 새 메일 AI 초안(WP-576)과 같은 변환으로 escape 후 문단 HTML 로 넣는다(HTML 주입 방지).
+      openCompose({ ...base, initialHtml: plainTextToMailHtml(draftBody) })
     } catch {
       /* 토스트는 훅 onError 가 처리 */
     }
@@ -1175,27 +1326,7 @@ export function MailInboxPage() {
           )}
           data-testid="mail-detail-pane"
         >
-          {/* 모바일 상세 헤더 — ‹·메일 제목·✦ 한 줄(탭바가 숨으므로 ✦ 포함). URL 이 탭 루트라 레이아웃 상세 분기 대신 직접 그린다. */}
-          {/* WP-187: ✦ 바로 왼쪽(trailing)에 "안읽음" — 누르면 목록으로 돌아간다. */}
-          {isMobile && (
-            <MobileDetailBar
-              data-testid="mail-back"
-              title={detailTitle}
-              onBack={mailParam.close}
-              trailing={
-                selectedId != null && (
-                  <button
-                    type="button"
-                    data-testid="mobile-mark-unread"
-                    onClick={() => markUnreadAndClose(selectedId)}
-                    className="flex h-11 shrink-0 items-center gap-1 px-3 text-sm text-primary"
-                  >
-                    <Mail className="h-4 w-4" /> 안 읽음
-                  </button>
-                )
-              }
-            />
-          )}
+          {/* 모바일 상세 헤더(‹·제목·⋯·✦)는 MessageDetailPanel 이 그린다 — ⋯ 메뉴(원본 배경·AI 이슈)가 패널 상태를 쓴다(WP-400). */}
           <MessageDetailPanel
             messageId={selectedId}
             aiEnabled={aiEnabled}
@@ -1209,6 +1340,7 @@ export function MailInboxPage() {
             onMarkUnread={() => {
               if (selectedId != null) markUnreadAndClose(selectedId)
             }}
+            onBack={mailParam.close}
           />
         </div>
       </Page.Body>

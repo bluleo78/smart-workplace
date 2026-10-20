@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { EmailAttachmentMeta } from '../types/mailMessage';
-import { buildQuote, unwrapMailHtml } from './mailQuote';
+import { buildQuote, plainTextToMailHtml, unwrapMailHtml } from './mailQuote';
 
 // EmailMessageDetail(src/types/mailMessage.ts) 실제 필드는 대부분 nullable 이다.
 // toAddresses 는 배열이 아니라 이미 콤마로 합쳐진 단일 문자열이다.
@@ -285,3 +285,14 @@ describe('buildQuote — 인라인 이미지(cid)', () => {
     expect(q.html.match(/cid:a\.png/g)).toHaveLength(2);
   });
 });
+
+describe('plainTextToMailHtml (WP-576)', () => {
+  it('한 줄은 한 문단, 빈 줄은 빈 문단 — 에디터에서 Enter 로 쓴 모양과 같다', () => {
+    expect(plainTextToMailHtml('안녕하세요.\n\n본문 첫 줄\n둘째 줄\n')).toBe(
+      '<p>안녕하세요.</p><p></p><p>본문 첫 줄</p><p>둘째 줄</p>',
+    )
+  })
+  it('글자는 escape 하고 CRLF 도 줄바꿈으로 본다', () => {
+    expect(plainTextToMailHtml('<b>a</b> & "b"\r\nc')).toBe('<p>&lt;b&gt;a&lt;/b&gt; &amp; &quot;b&quot;</p><p>c</p>')
+  })
+})

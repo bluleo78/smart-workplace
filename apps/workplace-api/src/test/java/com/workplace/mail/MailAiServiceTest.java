@@ -21,6 +21,8 @@ import com.workplace.global.ai.SharedMemoryLine;
 import com.workplace.global.security.EncryptionService;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.mail.dto.EmailAccountRequest;
+import com.workplace.mail.dto.MailComposeDraft;
+import com.workplace.mail.dto.MailComposeDraftRequest;
 import com.workplace.mail.dto.MailDraftCoaching;
 import com.workplace.mail.dto.MailDraftCoachingRequest;
 import com.workplace.mail.dto.MailSecurity;
@@ -29,6 +31,7 @@ import com.workplace.mail.dto.MailSummaryStatus;
 import com.workplace.mail.dto.ParsedMessage;
 import com.workplace.mail.exception.EmailAccountNotFoundException;
 import com.workplace.mail.exception.EmailMessageNotFoundException;
+import com.workplace.mail.exception.MailAiException;
 import com.workplace.mail.exception.MailAiUnavailableException;
 import com.workplace.mail.outbound.AiAgentMailClient;
 import com.workplace.mail.outbound.MailAiMessages.AnalyzeContentRequest;
@@ -36,6 +39,8 @@ import com.workplace.mail.outbound.MailAiMessages.AnalyzeContentResult;
 import com.workplace.mail.outbound.MailAiMessages.AnalyzePersonalRequest;
 import com.workplace.mail.outbound.MailAiMessages.AnalyzePersonalResult;
 import com.workplace.mail.outbound.MailAiMessages.CoachingNoteWire;
+import com.workplace.mail.outbound.MailAiMessages.ComposeDraftRequest;
+import com.workplace.mail.outbound.MailAiMessages.ComposeDraftResult;
 import com.workplace.mail.outbound.MailAiMessages.DraftCoachingRequest;
 import com.workplace.mail.outbound.MailAiMessages.DraftCoachingResult;
 import com.workplace.mail.outbound.MailAiMessages.ReplyDraftRequest;
@@ -594,6 +599,227 @@ class MailAiServiceTest extends IntegrationTestBase {
                 mailAiService.coachDraft(
                     stranger, new MailDraftCoachingRequest(accountId, "<p>x</p>", "x", null)))
         .isInstanceOf(EmailAccountNotFoundException.class);
+  }
+
+  /** WP-576: 새 메일 초안 — 제목이 비어 있으면 AI 제목을 돌려주고, 지시·받는사람·작성자가 요청에 실린다. */
+  @Test
+  void composeDraft_제목없으면_AI제목_반환하고_전달값을_싣는다() {
+    stubAssistant();
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = createAccount(userId, "cmp@test.local", true);
+    when(mailClient.composeDraft(any()))
+        .thenReturn(new ComposeDraftResult(" 회의 일정 안내 ", "안녕하세요.\n\n[ ] 일정입니다."));
+
+    MailComposeDraft out =
+        mailAiService.composeDraft(
+            userId,
+            accountId,
+            new MailComposeDraftRequest(
+                " 회의 일정 안내해줘 ", List.of("a@x.com"), List.of("b@x.com"), "  "));
+
+    assertThat(out.subject()).isEqualTo("회의 일정 안내");
+    assertThat(out.body()).isEqualTo("안녕하세요.\n\n[ ] 일정입니다.");
+    ArgumentCaptor<ComposeDraftRequest> cap = ArgumentCaptor.forClass(ComposeDraftRequest.class);
+    verify(mailClient).composeDraft(cap.capture());
+    assertThat(cap.getValue().instruction()).isEqualTo("회의 일정 안내해줘");
+    assertThat(cap.getValue().to()).containsExactly("a@x.com");
+    assertThat(cap.getValue().cc()).containsExactly("b@x.com");
+    assertThat(cap.getValue().subject()).isEmpty();
+    assertThat(cap.getValue().replyingAs()).isEqualTo("cmp@test.local");
+    assertThat(cap.getValue().assistantAgentId()).isEqualTo(5L);
+    // 맺음 인사용 보내는 사람 이름 — 사용자 이름(게이트와 같은 읽기 트랜잭션에서 읽는다)
+    String userName =
+        dsl.select(com.workplace.jooq.Tables.USER.NAME)
+            .from(com.workplace.jooq.Tables.USER)
+            .where(com.workplace.jooq.Tables.USER.ID.eq(userId))
+            .fetchOne(com.workplace.jooq.Tables.USER.NAME);
+    assertThat(cap.getValue().senderName()).isEqualTo(userName);
+  }
+
+  /** WP-576: 요청에 제목이 있으면 AI 가 제목을 지어도 응답 subject 는 null(사용자 제목 보존). 목록 null 은 빈 목록으로. */
+  @Test
+  void composeDraft_제목있으면_subject_null() {
+    stubAssistant();
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = createAccount(userId, "cmp2@test.local", true);
+    when(mailClient.composeDraft(any())).thenReturn(new ComposeDraftResult("멋대로 만든 제목", "본문"));
+
+    MailComposeDraft out =
+        mailAiService.composeDraft(
+            userId, accountId, new MailComposeDraftRequest("써줘", null, null, "내 제목"));
+
+    assertThat(out.subject()).isNull();
+    assertThat(out.body()).isEqualTo("본문");
+    ArgumentCaptor<ComposeDraftRequest> cap = ArgumentCaptor.forClass(ComposeDraftRequest.class);
+    verify(mailClient).composeDraft(cap.capture());
+    assertThat(cap.getValue().subject()).isEqualTo("내 제목");
+    assertThat(cap.getValue().to()).isEmpty();
+    assertThat(cap.getValue().cc()).isEmpty();
+  }
+
+  /** WP-576: ai_enabled=false 계정 → 503, ai-agent 는 호출하지 않는다. */
+  @Test
+  void composeDraft_aiEnabled_false_차단() {
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = createAccount(userId, "no-ai-cmp@test.local", false);
+
+    assertThatThrownBy(
+            () ->
+                mailAiService.composeDraft(
+                    userId, accountId, new MailComposeDraftRequest("써줘", null, null, null)))
+        .isInstanceOf(MailAiUnavailableException.class);
+    verify(mailClient, never()).composeDraft(any());
+  }
+
+  /** WP-576: 타 계정 accountId → 404, ai-agent 는 호출하지 않는다. */
+  @Test
+  void composeDraft_타계정_404() {
+    long owner = TestFixtures.createHuman(dsl);
+    long accountId = createAccount(owner, "owner-cmp@test.local", true);
+    long stranger = TestFixtures.createHuman(dsl);
+
+    assertThatThrownBy(
+            () ->
+                mailAiService.composeDraft(
+                    stranger, accountId, new MailComposeDraftRequest("써줘", null, null, null)))
+        .isInstanceOf(EmailAccountNotFoundException.class);
+    verify(mailClient, never()).composeDraft(any());
+  }
+
+  /** WP-576: 에이전트가 빈 본문을 돌려주면 성공으로 넘기지 않고 502(MailAiException). */
+  @Test
+  void composeDraft_빈_본문이면_MailAiException() {
+    stubAssistant();
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = createAccount(userId, "blank-cmp@test.local", true);
+    when(mailClient.composeDraft(any())).thenReturn(new ComposeDraftResult("제목", "  "));
+
+    assertThatThrownBy(
+            () ->
+                mailAiService.composeDraft(
+                    userId, accountId, new MailComposeDraftRequest("써줘", null, null, null)))
+        .isInstanceOf(MailAiException.class);
+  }
+
+  /** WP-576: AI 꺼짐 503 은 사유 코드 AI_DISABLED 를 싣는다. */
+  @Test
+  void composeDraft_aiEnabled_false_코드_AI_DISABLED() {
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = createAccount(userId, "code-off@test.local", false);
+
+    assertThatThrownBy(
+            () ->
+                mailAiService.composeDraft(
+                    userId, accountId, new MailComposeDraftRequest("써줘", null, null, null)))
+        .isInstanceOfSatisfying(
+            MailAiUnavailableException.class,
+            e -> assertThat(e.code()).isEqualTo(MailAiUnavailableException.AI_DISABLED));
+  }
+
+  /** WP-576: 비서 미설정 503 은 사유 코드 ASSISTANT_NOT_CONFIGURED 를 싣는다(coachDraft 도 같다). */
+  @Test
+  void composeDraft_비서_미설정_코드_ASSISTANT_NOT_CONFIGURED() {
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = createAccount(userId, "code-nospec@test.local", true);
+    when(assistantResolver.resolve(anyLong())).thenThrow(new IllegalStateException("no assistant"));
+
+    assertThatThrownBy(
+            () ->
+                mailAiService.composeDraft(
+                    userId, accountId, new MailComposeDraftRequest("써줘", null, null, null)))
+        .isInstanceOfSatisfying(
+            MailAiUnavailableException.class,
+            e ->
+                assertThat(e.code())
+                    .isEqualTo(MailAiUnavailableException.ASSISTANT_NOT_CONFIGURED));
+    assertThatThrownBy(
+            () ->
+                mailAiService.coachDraft(
+                    userId, new MailDraftCoachingRequest(accountId, "<p>x</p>", "x", null)))
+        .isInstanceOfSatisfying(
+            MailAiUnavailableException.class,
+            e ->
+                assertThat(e.code())
+                    .isEqualTo(MailAiUnavailableException.ASSISTANT_NOT_CONFIGURED));
+    verify(mailClient, never()).composeDraft(any());
+  }
+
+  /** WP-576: 보내는 사람 이름(사용자 이름)을 요청에 싣는다 — 맺음 인사용, 직함·연락처는 없다. */
+  @Test
+  void composeDraft_보내는_사람_이름을_싣는다() {
+    stubAssistant();
+    long userId = TestFixtures.createHuman(dsl);
+    String name =
+        dsl.select(USER.NAME).from(USER).where(USER.ID.eq(userId)).fetchOneInto(String.class);
+    long accountId = createAccount(userId, "name-cmp@test.local", true);
+    when(mailClient.composeDraft(any())).thenReturn(new ComposeDraftResult(null, "본문"));
+
+    mailAiService.composeDraft(
+        userId, accountId, new MailComposeDraftRequest("써줘", null, null, "제목"));
+
+    ArgumentCaptor<ComposeDraftRequest> cap = ArgumentCaptor.forClass(ComposeDraftRequest.class);
+    verify(mailClient).composeDraft(cap.capture());
+    assertThat(cap.getValue().senderName()).isEqualTo(name).isNotBlank();
+  }
+
+  /** WP-576: 새 메일 초안도 메일 메모리와 조직 공용 메모리(항목 + 더 있는 개수)를 싣는다. */
+  @Test
+  void composeDraft_메모리와_공용_메모리를_요청에_싣는다() {
+    stubAssistant();
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = createAccount(userId, "mem-cmp@test.local", true);
+    List<AiMemoryLine> lines =
+        List.of(new AiMemoryLine(5L, "PREFERENCE", "메일은 존댓말로", "MAIL", null, null));
+    var shared = new SharedMemories(List.of(new SharedMemoryLine("조직", "끝인사는 감사합니다")), 2);
+    when(memoryReader.readForEntry(userId, AiMemoryReader.MAIL, null)).thenReturn(lines);
+    when(sharedReader.readForUser(userId, null, null)).thenReturn(shared);
+    when(mailClient.composeDraft(any())).thenReturn(new ComposeDraftResult(null, "본문"));
+
+    mailAiService.composeDraft(
+        userId, accountId, new MailComposeDraftRequest("써줘", null, null, "제목"));
+
+    ArgumentCaptor<ComposeDraftRequest> cap = ArgumentCaptor.forClass(ComposeDraftRequest.class);
+    verify(mailClient).composeDraft(cap.capture());
+    assertThat(cap.getValue().memories()).isEqualTo(lines);
+    assertThat(cap.getValue().sharedMemories()).isEqualTo(shared.items());
+    assertThat(cap.getValue().sharedMemoryMoreCount()).isEqualTo(2);
+  }
+
+  /** WP-576: 새 메일 초안도 메모리·이름 조회를 읽기 트랜잭션 밖에서 한다(coachDraft 테스트와 같은 방식). */
+  @Test
+  @Transactional(propagation = Propagation.NOT_SUPPORTED)
+  void composeDraft_메모리는_트랜잭션_밖에서_읽는다() {
+    stubAssistant();
+    TenantContext.set(1L);
+    long[] ids =
+        new TransactionTemplate(txManager)
+            .execute(
+                s -> {
+                  long uid = TestFixtures.createHuman(dsl);
+                  return new long[] {
+                    uid, createAccount(uid, "notx-cmp-" + uid + "@test.local", true)
+                  };
+                });
+    try {
+      AtomicReference<Boolean> txActiveAtRead = new AtomicReference<>();
+      when(memoryReader.readForEntry(ids[0], AiMemoryReader.MAIL, null))
+          .thenAnswer(
+              inv -> {
+                txActiveAtRead.set(TransactionSynchronizationManager.isActualTransactionActive());
+                return List.of();
+              });
+      when(mailClient.composeDraft(any())).thenReturn(new ComposeDraftResult(null, "본문"));
+
+      mailAiService.composeDraft(
+          ids[0], ids[1], new MailComposeDraftRequest("써줘", null, null, "제목"));
+
+      assertThat(txActiveAtRead.get()).isFalse();
+    } finally {
+      cleanupInTenant(
+          1L, () -> baseDsl.deleteFrom(EMAIL_ACCOUNT).where(EMAIL_ACCOUNT.ID.eq(ids[1])).execute());
+      baseDsl.deleteFrom(USER).where(USER.ID.eq(ids[0])).execute();
+      TenantContext.clear();
+    }
   }
 
   /** WP-381: 답장 초안 코칭(AI 검토)에 공통 + 메일(MAIL) 메모리를 싣는다. */

@@ -46,6 +46,30 @@ public final class MailAiMessages {
       List<SharedMemoryLine> sharedMemories,
       int sharedMemoryMoreCount) {}
 
+  /**
+   * WP-576 새 메일 초안 요청: 지시·받는사람·제목 + 작성자 주소. memories — 코칭과 같은 공통 + 메일 메모리(질의 없음: 고정 + 최신). subject
+   * 가 비어 있으면 agent 가 제목도 만든다.
+   */
+  public record ComposeDraftRequest(
+      String instruction,
+      List<String> to,
+      List<String> cc,
+      String subject,
+      String replyingAs,
+      /** 보내는 사람 표시 이름(맺음 인사 "{이름} 드림" 용). 모르면 null — 직함·연락처는 싣지 않는다. */
+      String senderName,
+      long assistantAgentId,
+      String model,
+      int maxTurns,
+      int timeoutMs,
+      List<AiMemoryLine> memories,
+      /** WP-386 조직 공용 메모리. */
+      List<SharedMemoryLine> sharedMemories,
+      int sharedMemoryMoreCount) {}
+
+  /** WP-576 새 메일 초안 결과 — subject 는 요청 제목이 비었을 때만 값이 있다(없으면 null). body 는 평문. */
+  public record ComposeDraftResult(String subject, String body) {}
+
   /** 초안 코칭 결과: 코칭 노트 목록 + 다듬은 개선본 HTML. */
   public record DraftCoachingResult(List<CoachingNoteWire> notes, String improvedBodyHtml) {}
 

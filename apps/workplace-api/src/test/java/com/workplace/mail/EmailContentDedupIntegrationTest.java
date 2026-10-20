@@ -752,7 +752,9 @@ class EmailContentDedupIntegrationTest extends IntegrationTestBase {
                         null,
                         null,
                         "보낸메일 미리보기",
-                        Instant.now());
+                        Instant.now(),
+                        List.of(),
+                        List.of());
 
                 long envId = messageRepo.insertSent(acc, fld, sent);
 

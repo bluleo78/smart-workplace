@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   extractJsonObject,
   parseClassifyBatchJson,
+  parseComposeDraft,
   parseContentAnalysisJson,
   parseDraftCoachingJson,
   parseIssueDraftJson,
@@ -158,5 +159,46 @@ describe('parseClassifyBatchJson', () => {
   });
   it('results 배열이 없으면 예외', () => {
     expect(() => parseClassifyBatchJson('{"foo":1}', [1])).toThrow();
+  });
+});
+
+describe('parseComposeDraft', () => {
+  it('정상 JSON 의 subject/body', () => {
+    expect(parseComposeDraft('{"subject":"제목","body":"안녕하세요,\\n\\n본문"}', true)).toEqual({
+      subject: '제목',
+      body: '안녕하세요,\n\n본문',
+    });
+  });
+  it('wantSubject=false 면 subject 는 null', () => {
+    expect(parseComposeDraft('{"subject":"제목","body":"본문"}', false)).toEqual({ subject: null, body: '본문' });
+  });
+  it('코드펜스로 감싼 JSON', () => {
+    expect(parseComposeDraft('```json\n{"subject":"s","body":"b"}\n```', true)).toEqual({ subject: 's', body: 'b' });
+  });
+  it('본문 안 이스케이프 안 된 큰따옴표(subject 앞)', () => {
+    expect(parseComposeDraft('{"subject":"제목","body":"그가 "안녕" 했다"}', true)).toEqual({
+      subject: '제목',
+      body: '그가 "안녕" 했다',
+    });
+  });
+  it('본문 안 큰따옴표 + body 가 subject 앞이고 이스케이프(\\n) 포함', () => {
+    expect(parseComposeDraft('{"body":"가 "나"\\n다","subject":"s"}', true)).toEqual({ subject: 's', body: '가 "나"\n다' });
+  });
+  it('JSON 뒤 군더더기 텍스트', () => {
+    expect(parseComposeDraft('{"subject":"s","body":"b"}\n\n위 초안입니다.', true)).toEqual({ subject: 's', body: 'b' });
+  });
+  it('본문이 비면 던진다', () => {
+    expect(() => parseComposeDraft('{"subject":"s","body":"  "}', true)).toThrow();
+    expect(() => parseComposeDraft('{"foo":"bar"}', true)).toThrow();
+    expect(() => parseComposeDraft('   ', true)).toThrow();
+  });
+  it('평문이면 코드펜스를 걷은 전체가 본문', () => {
+    expect(parseComposeDraft('```\n안녕하세요.\n감사합니다.\n```', true)).toEqual({
+      subject: null,
+      body: '안녕하세요.\n감사합니다.',
+    });
+  });
+  it('잘려서 본문을 못 꺼내면 던진다', () => {
+    expect(() => parseComposeDraft('{"subject":"제목","body":"끝이 잘린', true)).toThrow();
   });
 });

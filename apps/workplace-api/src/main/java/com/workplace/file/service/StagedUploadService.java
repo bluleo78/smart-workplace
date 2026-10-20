@@ -41,6 +41,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 /**
  * 스테이징 업로드(WP-421) — MCP·AI 가 이슈·메시지·노트 등에 붙일 파일을 먼저 올려 두는 임시 첨부. 두 가지 길이 있다.
@@ -50,6 +51,8 @@ import org.springframework.transaction.annotation.Transactional;
  *   <li><b>일회용 PUT 링크</b>({@link #issueLink} → 공개 PUT): 바이트가 MCP 를 거치지 않게 셸의 {@code curl -T} 가 공개
  *       경로로 직접 올린다(25MB 이하, 10분, 한 번).
  * </ul>
+ *
+ * <p>WP-574: 메일 작성창의 브라우저 멀티파트 업로드({@link #createFromMultipart})도 같은 행을 만든다.
  *
  * <p>어느 길이든 결과는 같은 모양의 FILE 행이다: 업로더 = 호출자(링크는 발급자), category ATTACHMENT, 경로 {@code
  * tenant-*&#47;staged/…}, 만료 = 지금 + {@code temp-expiry-hours}(24). 그래야 {@link
@@ -151,6 +154,23 @@ public class StagedUploadService {
     fileStore.deleteOnRollback(relativePath);
     return insertStagedFile(
         callerId, safeName, MimeNormalizer.textMimeOf(safeName), bytes.length, relativePath);
+  }
+
+  /**
+   * 브라우저 멀티파트 파일로 스테이징 파일 만들기(WP-574 메일 작성 첨부) — 다른 길과 같은 모양의 임시 ATTACHMENT FILE 행을 만든다. 크기 상한은 호출
+   * 도메인이 자기 문구로 먼저 본다(여기선 다시 보지 않는다 — 멀티파트 상한 25MB 가 이미 걸려 있다). MIME 은 이름·브라우저 값으로 정규화하고, 형식이 깨졌거나
+   * 와일드카드면 octet-stream 으로 둔다(발송 MIME 파트 헤더로 쓰이므로).
+   */
+  @Transactional
+  public StagedFileResponse createFromMultipart(long callerId, MultipartFile file) {
+    String safeName = SafeFileNames.sanitize(file.getOriginalFilename(), "file");
+    String mime =
+        MimeNormalizer.concreteOrOctetStream(
+            MimeNormalizer.normalize(safeName, file.getContentType()));
+    String relativePath = pathBuilder.build(StorageDomain.STAGED, safeName);
+    fileStore.store(relativePath, file);
+    fileStore.deleteOnRollback(relativePath);
+    return insertStagedFile(callerId, safeName, mime, file.getSize(), relativePath);
   }
 
   /**

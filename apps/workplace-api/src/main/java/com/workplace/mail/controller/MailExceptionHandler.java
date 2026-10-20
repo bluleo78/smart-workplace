@@ -8,6 +8,7 @@ import com.workplace.mail.exception.MailConnectionException;
 import com.workplace.mail.exception.MailValidationException;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.Instant;
+import java.util.Map;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
@@ -45,7 +46,11 @@ public class MailExceptionHandler {
     return ResponseEntity.badRequest().body(body);
   }
 
-  /** AI 비서 서비스 미설정·일시 불가 → 503 + ErrorResponse(message 포함). */
+  /**
+   * AI 비서 서비스 미설정·일시 불가 → 503 + ErrorResponse(message 포함). 영구
+   * 사유(AI_DISABLED·ASSISTANT_NOT_CONFIGURED)면 {@code errors.code} 를 싣고, 일시 불가(ai-agent 재기동 등)는
+   * errors 가 null 이다.
+   */
   @ExceptionHandler(MailAiUnavailableException.class)
   public ResponseEntity<ErrorResponse> handleAiUnavailable(
       MailAiUnavailableException e, HttpServletRequest request) {
@@ -54,7 +59,7 @@ public class MailExceptionHandler {
             HttpStatus.SERVICE_UNAVAILABLE.value(),
             HttpStatus.SERVICE_UNAVAILABLE.getReasonPhrase(),
             e.getMessage(),
-            null,
+            e.code() == null ? null : Map.of("code", e.code()),
             Instant.now().toString(),
             request.getRequestURI());
     return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(body);

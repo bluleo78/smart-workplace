@@ -16,6 +16,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -42,6 +43,9 @@ public class GraphApiClient {
    * AAD 토큰 요청 타임아웃(WP-188) — 공용 HttpClient 엔 타임아웃이 없어, 토큰 갱신이 걸리면 트랜잭션 커넥션과 읽음 역동기화 리스를 무기한 붙잡는다.
    */
   static final Duration TOKEN_TIMEOUT = Duration.ofSeconds(20);
+
+  /** 첨부 업로드 요청 타임아웃(WP-574) — 3MB 남짓 조각·첨부 한 건이 느린 회선에서도 끝나도록 넉넉히, 그러나 무기한 걸리지 않게. */
+  static final Duration UPLOAD_TIMEOUT = Duration.ofMinutes(2);
 
   private final HttpClient http;
   private final ObjectMapper mapper;
@@ -188,6 +192,153 @@ public class GraphApiClient {
   }
 
   /**
+   * MIME 으로 초안을 만든다(WP-574 큰 메일 경로 1단계 — POST /me/messages, Content-Type text/plain + base64 MIME).
+   * sendMail 과 같은 raw MIME 모드라 In-Reply-To/References 스레딩 헤더가 유지된다. 첨부는 뒤이어 attachments API 로 붙인다.
+   *
+   * @return 만든 초안의 Graph 메시지 id 와 internetMessageId(응답에 있으면)
+   * @throws MailSendException 2xx 외 응답·id 없는 응답·네트워크 실패
+   */
+  public DraftRef createDraftFromMime(String accessToken, String base64Mime) {
+    JsonNode draft =
+        post(
+            accessToken,
+            "/me/messages",
+            "text/plain",
+            HttpRequest.BodyPublishers.ofString(base64Mime),
+            JsonNode.class,
+            null);
+    JsonNode imid = draft.path("internetMessageId");
+    return new DraftRef(
+        requireText(draft, "id", "createDraft"),
+        imid.isTextual() && !imid.asText().isBlank() ? imid.asText() : null);
+  }
+
+  /**
+   * 만든 초안 참조(WP-574).
+   *
+   * @param id Graph 메시지 id
+   * @param internetMessageId Exchange 가 붙인 RFC Message-ID(꺾쇠 포함 원문, 응답에 없으면 null)
+   */
+  public record DraftRef(String id, String internetMessageId) {}
+
+  /**
+   * 메시지의 internetMessageId 를 읽는다(WP-574 — GET /me/messages/{id}?$select=internetMessageId). 초안 생성
+   * 응답에 없을 때 실제 값을 확인하는 데 쓴다.
+   *
+   * @return 꺾쇠 포함 원문, 없으면 null
+   * @throws MailSyncException 2xx 외 응답 또는 네트워크 실패
+   */
+  public String getInternetMessageId(String accessToken, String messageId) {
+    JsonNode node =
+        get(
+            accessToken,
+            "/me/messages/" + messageId + "?$select=internetMessageId",
+            JsonNode.class);
+    JsonNode imid = node == null ? null : node.path("internetMessageId");
+    return imid != null && imid.isTextual() && !imid.asText().isBlank() ? imid.asText() : null;
+  }
+
+  /**
+   * 초안에 작은 첨부(3MB 미만)를 한 번에 붙인다(WP-574 — POST /me/messages/{id}/attachments, fileAttachment).
+   *
+   * @throws MailSendException 2xx 외 응답 또는 네트워크 실패
+   */
+  public void addFileAttachment(
+      String accessToken, String messageId, String name, String contentType, byte[] content) {
+    Map<String, Object> body = new LinkedHashMap<>();
+    body.put("@odata.type", "#microsoft.graph.fileAttachment");
+    body.put("name", name);
+    body.put("contentType", contentType);
+    body.put("contentBytes", Base64.getEncoder().encodeToString(content));
+    post(
+        accessToken,
+        "/me/messages/" + messageId + "/attachments",
+        "application/json",
+        HttpRequest.BodyPublishers.ofByteArray(toJsonBytes(body)),
+        JsonNode.class,
+        UPLOAD_TIMEOUT);
+  }
+
+  /**
+   * 큰 첨부(3MB 이상) 업로드 세션을 만든다(WP-574 — POST /me/messages/{id}/attachments/createUploadSession).
+   *
+   * @return 조각을 PUT 할 사전 인증 uploadUrl(Authorization 헤더 없이 쓴다)
+   * @throws MailSendException 2xx 외 응답·uploadUrl 없는 응답·네트워크 실패
+   */
+  public String createAttachmentUploadSession(
+      String accessToken, String messageId, String name, String contentType, long size) {
+    Map<String, Object> item = new LinkedHashMap<>();
+    item.put("attachmentType", "file");
+    item.put("name", name);
+    item.put("size", size);
+    item.put("contentType", contentType);
+    JsonNode session =
+        post(
+            accessToken,
+            "/me/messages/" + messageId + "/attachments/createUploadSession",
+            "application/json",
+            HttpRequest.BodyPublishers.ofByteArray(toJsonBytes(Map.of("AttachmentItem", item))),
+            JsonNode.class,
+            null);
+    return requireText(session, "uploadUrl", "createUploadSession");
+  }
+
+  /**
+   * 업로드 세션에 한 조각을 PUT 한다(WP-574). uploadUrl 은 사전 인증 URL 이라 Authorization 헤더를 보내지 않는다(보내면 401).
+   * Content-Range 는 {@code bytes 시작-끝/전체}(끝 포함), Content-Length 는 HttpClient 가 조각 길이로 채운다. 중간 조각은
+   * 200, 마지막 조각은 201 — 둘 다 2xx 로 성공.
+   *
+   * @param from 조각 시작(포함)
+   * @param toExclusive 조각 끝(제외)
+   * @throws MailSendException 2xx 외 응답 또는 네트워크 실패
+   */
+  public void uploadAttachmentChunk(String uploadUrl, byte[] content, int from, int toExclusive) {
+    HttpRequest req =
+        HttpRequest.newBuilder()
+            .uri(URI.create(uploadUrl))
+            .header("Content-Type", "application/octet-stream")
+            .header(
+                "Content-Range", "bytes " + from + "-" + (toExclusive - 1) + "/" + content.length)
+            .timeout(UPLOAD_TIMEOUT)
+            .PUT(HttpRequest.BodyPublishers.ofByteArray(content, from, toExclusive - from))
+            .build();
+    sendWrite(req, "uploadChunk");
+  }
+
+  /**
+   * 초안을 보낸다(WP-574 큰 메일 경로 마지막 단계 — POST /me/messages/{id}/send, 빈 본문). 보낸편지함 저장은 Graph 가 한다.
+   *
+   * @throws MailSendException 2xx 외 응답 또는 네트워크 실패
+   */
+  public void sendDraft(String accessToken, String messageId) {
+    HttpRequest req =
+        HttpRequest.newBuilder()
+            .uri(URI.create(GRAPH_BASE_URL + "/me/messages/" + messageId + "/send"))
+            .header("Authorization", "Bearer " + accessToken)
+            .POST(HttpRequest.BodyPublishers.noBody())
+            .build();
+    sendWrite(req, "sendDraft");
+  }
+
+  /** 요청 본문을 JSON 바이트로 직렬화한다(문자열을 거치지 않아 큰 contentBytes 복사를 줄인다) — 실패는 쓰기 실패로 던진다. */
+  private byte[] toJsonBytes(Object body) {
+    try {
+      return mapper.writeValueAsBytes(body);
+    } catch (JsonProcessingException e) {
+      throw new MailSendException("Graph 요청 직렬화 실패", e);
+    }
+  }
+
+  /** 응답 JSON 의 필수 문자열 필드 — 없으면 쓰기 실패. */
+  private static String requireText(JsonNode node, String field, String op) {
+    JsonNode v = node.path(field);
+    if (!v.isTextual() || v.asText().isBlank()) {
+      throw new MailSendException("Graph " + op + " 응답에 " + field + " 없음");
+    }
+    return v.asText();
+  }
+
+  /**
    * Graph 리소스에 PATCH 요청을 전송한다(예: 메시지 isRead 갱신).
    *
    * @param accessToken Mail.ReadWrite scope 를 포함한 유효 access_token(평문)
@@ -225,13 +376,30 @@ public class GraphApiClient {
    */
   private <T> T post(
       String accessToken, String path, String jsonBody, Class<T> type, Duration timeout) {
+    return post(
+        accessToken,
+        path,
+        "application/json",
+        HttpRequest.BodyPublishers.ofString(jsonBody),
+        type,
+        timeout);
+  }
+
+  /** POST 공통 — 본문 형식·발행자를 받아 보내고 2xx 응답 바디를 역직렬화한다(WP-574 초안·첨부 요청도 이 길을 쓴다). */
+  private <T> T post(
+      String accessToken,
+      String path,
+      String contentType,
+      HttpRequest.BodyPublisher body,
+      Class<T> type,
+      Duration timeout) {
     HttpRequest.Builder b =
         HttpRequest.newBuilder()
             .uri(URI.create(GRAPH_BASE_URL + path))
             .header("Authorization", "Bearer " + accessToken)
-            .header("Content-Type", "application/json")
+            .header("Content-Type", contentType)
             .header("Accept", "application/json")
-            .POST(HttpRequest.BodyPublishers.ofString(jsonBody));
+            .POST(body);
     if (timeout != null) {
       b.timeout(timeout);
     }

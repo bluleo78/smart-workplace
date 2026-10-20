@@ -86,6 +86,23 @@ export interface MailSendRequest {
   inReplyToMessageId: number | null;
   /** 인용문 cid 이미지 재첨부 대상(WP-69) — 생략하면 인라인 파트 없음. */
   inlineImages?: { attachmentId: number; contentId: string }[];
+  /** 작성창에서 먼저 올린 첨부 id(WP-574, POST /mail/compose-attachments 응답 id). 생략·빈 목록이면 없음. */
+  attachmentIds?: number[];
+  /** 전달하며 함께 보낼 받은 메일 원본 첨부 id(WP-574, email_attachment.id). 생략·빈 목록이면 없음. */
+  forwardAttachmentIds?: number[];
+}
+
+/**
+ * 작성창 첨부 업로드 응답(WP-574) — POST /mail/compose-attachments(201)가 파일 하나를 임시 보관하고 돌려주는 메타.
+ * 발송 때 이 id 를 MailSendRequest.attachmentIds 로 넘긴다.
+ */
+export interface ComposeAttachmentUpload {
+  id: number;
+  name: string;
+  size: number;
+  mimeType: string;
+  /** 이 시각(ISO-8601)까지 보내지 않으면 서버가 지운다(올린 뒤 24시간). */
+  expiresAt: string;
 }
 
 /** 발송 결과. */
@@ -112,6 +129,26 @@ export interface DraftCoachingRequest {
   bodyHtml: string
   bodyText: string
   inReplyToMessageId: number | null
+}
+
+/**
+ * WP-576 새 메일 AI 초안 요청 — 사용자 지시 + 지금 작성창의 받는사람·참조·제목(모델이 참고).
+ * instruction 은 필수·4000자 이하(어기면 서버가 400 오류). subject 가 비었거나 null 일 때만 서버가 제목을 만든다.
+ */
+export interface ComposeDraftRequest {
+  instruction: string
+  to: string[]
+  cc: string[]
+  subject: string | null
+}
+
+/**
+ * WP-576 새 메일 AI 초안(미영속). body 는 평문.
+ * subject 는 요청 제목이 비었을 때만 채워지고, 요청에 제목이 있었으면 null(사용자 제목을 덮지 않는다).
+ */
+export interface ComposeDraftResult {
+  subject: string | null
+  body: string
 }
 
 /** #520 메일→이슈 AI 초안(미영속). */

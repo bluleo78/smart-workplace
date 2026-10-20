@@ -5,6 +5,7 @@ import request from 'supertest';
 
 vi.mock('../agent/run-mail-ai.js', () => ({
   runMailReplyDraft: vi.fn(),
+  runMailComposeDraft: vi.fn(),
   runMailDraftCoaching: vi.fn(),
   runMailIssueDraft: vi.fn(),
   runMailAnalyzeContent: vi.fn(),
@@ -17,6 +18,7 @@ import {
   runMailAnalyzeContent,
   runMailAnalyzePersonal,
   runMailClassifyBatch,
+  runMailComposeDraft,
   runMailReplyDraft,
   runMailDraftCoaching,
 } from '../agent/run-mail-ai.js';
@@ -256,5 +258,55 @@ describe('읽기 전용 메모리 스키마 (WP-381)', () => {
     expect(replyDraftSchema.parse({ ...cfg, thread: [], replyingAs: 'me', ...shared }).sharedMemories).toEqual([s]);
     expect(coachDraftSchema.parse({ ...cfg, thread: [], replyingAs: 'me', draftBody: 'd', ...shared }).sharedMemories).toEqual([s]);
     expect(issueDraftSchema.parse({ ...cfg, subject: 's', body: 'b', candidateProjects: [], ...shared }).sharedMemoryMoreCount).toBe(2);
+  });
+});
+
+// WP-576 새 메일 초안 라우트.
+describe('POST /mail/compose-draft', () => {
+  const valid = {
+    instruction: '다음 주 회의 일정 안내',
+    to: ['a@x.com'],
+    cc: [],
+    subject: '',
+    replyingAs: 'me@example.com',
+    assistantAgentId: 7,
+    model: 'm',
+    maxTurns: 1,
+    timeoutMs: 60000,
+  };
+  it('정상 200 + 결과, 러너에 검증된 입력을 넘긴다', async () => {
+    vi.mocked(runMailComposeDraft).mockResolvedValue({ subject: '회의 안내', body: '본문' });
+    const res = await request(app()).post('/mail/compose-draft').send(valid);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ subject: '회의 안내', body: '본문' });
+    expect(vi.mocked(runMailComposeDraft).mock.calls[0][0]).toMatchObject({ instruction: valid.instruction, to: ['a@x.com'], subject: '' });
+  });
+  it('to/cc/subject 생략·subject null 도 허용(빈 값으로 정규화)', async () => {
+    vi.mocked(runMailComposeDraft).mockResolvedValue({ subject: null, body: 'b' });
+    const { to: _t, cc: _c, subject: _s, ...rest } = valid;
+    const res = await request(app()).post('/mail/compose-draft').send({ ...rest, subject: null });
+    expect(res.status).toBe(200);
+    expect(vi.mocked(runMailComposeDraft).mock.calls[0][0]).toMatchObject({ to: [], cc: [], subject: '' });
+  });
+  it('senderName 을 러너에 넘기고, null·생략도 허용한다', async () => {
+    vi.mocked(runMailComposeDraft).mockResolvedValue({ subject: null, body: 'b' });
+    expect((await request(app()).post('/mail/compose-draft').send({ ...valid, senderName: '홍길동' })).status).toBe(200);
+    expect(vi.mocked(runMailComposeDraft).mock.calls[0][0]).toMatchObject({ senderName: '홍길동' });
+    expect((await request(app()).post('/mail/compose-draft').send({ ...valid, senderName: null })).status).toBe(200);
+    expect((await request(app()).post('/mail/compose-draft').send(valid)).status).toBe(200);
+  });
+  it.each([
+    ['instruction 누락', { ...valid, instruction: undefined }],
+    ['instruction 공백', { ...valid, instruction: '   ' }],
+    ['replyingAs 누락', { ...valid, replyingAs: undefined }],
+  ])('스키마 위반 400 — %s', async (_n, body) => {
+    const res = await request(app()).post('/mail/compose-draft').send(body);
+    expect(res.status).toBe(400);
+    expect(runMailComposeDraft).not.toHaveBeenCalled();
+  });
+  it('러너 실패 502', async () => {
+    vi.mocked(runMailComposeDraft).mockRejectedValue(new Error('boom'));
+    const res = await request(app()).post('/mail/compose-draft').send(valid);
+    expect(res.status).toBe(502);
   });
 });

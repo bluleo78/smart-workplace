@@ -63,12 +63,24 @@ public class UserMailProfileBuilder {
     return new UserMailProfileCache(this);
   }
 
-  private UserMailProfile withProfile(long userId, List<String> addresses) {
-    ProfileBasics b = peopleRepo.findProfileBasics(userId).orElse(null);
-    if (b == null) {
-      return UserMailProfile.addressesOnly(userId, addresses);
-    }
-    // 대소문자만 다른 중복은 먼저 나온 표기를 남긴다
+  /**
+   * 사용자 표시 이름 — 사용자 이름(한 줄), 비었으면 첫 계정 표시 이름, 둘 다 없으면 null. 프로필 전체가 필요 없는 호출자(WP-576 새 메일 초안의 맺음
+   * 인사)가 이미 연 읽기 트랜잭션 안에서 {@link MailPeopleRepository#findProfileBasics} 결과로 바로 쓴다.
+   */
+  public static String nameOf(ProfileBasics b) {
+    return nameOf(b, distinctDisplayNames(b));
+  }
+
+  private static String nameOf(ProfileBasics b, List<String> displayNames) {
+    String userName = UserMailProfile.oneLine(b.name());
+    // 이름이 비었으면 첫 계정 표시 이름을 이름으로 쓴다
+    return StringUtils.hasText(userName)
+        ? userName
+        : displayNames.isEmpty() ? null : displayNames.get(0);
+  }
+
+  /** 계정 표시 이름(한 줄) — 대소문자만 다른 중복은 먼저 나온 표기를 남긴다. */
+  private static List<String> distinctDisplayNames(ProfileBasics b) {
     Set<String> seen = new HashSet<>();
     List<String> displayNames = new ArrayList<>();
     for (String raw : b.accountDisplayNames()) {
@@ -77,12 +89,16 @@ public class UserMailProfileBuilder {
         displayNames.add(n);
       }
     }
-    String userName = UserMailProfile.oneLine(b.name());
-    // 이름이 비었으면 첫 계정 표시 이름을 이름으로 쓴다
-    String name =
-        StringUtils.hasText(userName)
-            ? userName
-            : displayNames.isEmpty() ? null : displayNames.get(0);
+    return displayNames;
+  }
+
+  private UserMailProfile withProfile(long userId, List<String> addresses) {
+    ProfileBasics b = peopleRepo.findProfileBasics(userId).orElse(null);
+    if (b == null) {
+      return UserMailProfile.addressesOnly(userId, addresses);
+    }
+    List<String> displayNames = distinctDisplayNames(b);
+    String name = nameOf(b, displayNames);
     List<String> others =
         displayNames.stream()
             .filter(n -> name == null || !n.equalsIgnoreCase(name))

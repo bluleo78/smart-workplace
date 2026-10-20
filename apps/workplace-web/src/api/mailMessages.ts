@@ -1,5 +1,10 @@
 // 받은편지함/보낸편지함 동기화·읽기·발송 API. baseURL '/api/v1' 가 client 에 포함.
+import type { AxiosProgressEvent } from 'axios';
+
 import type {
+  ComposeAttachmentUpload,
+  ComposeDraftRequest,
+  ComposeDraftResult,
   DraftCoachingRequest,
   EmailMessageDetail,
   EmailMessageSummary,
@@ -153,6 +158,19 @@ export async function generateReplyDraft(messageId: number): Promise<{ draftBody
   return data
 }
 
+/**
+ * WP-576 새 메일 AI 초안 생성(미영속). signal 로 [중지] 시 요청을 끊는다.
+ * 응답 body 는 평문 — 호출 측이 plainTextToMailHtml 로 escape·문단화해 에디터에 넣는다.
+ */
+export async function generateComposeDraft(
+  accountId: number,
+  req: ComposeDraftRequest,
+  signal?: AbortSignal,
+): Promise<ComposeDraftResult> {
+  const { data } = await client.post<ComposeDraftResult>(`/mail/accounts/${accountId}/compose-draft`, req, { signal })
+  return data
+}
+
 /** #520 AI 이슈 초안 생성(미영속). */
 export async function generateIssueDraft(messageId: number): Promise<MailIssueDraft> {
   const { data } = await client.post<MailIssueDraft>(`/mail/messages/${messageId}/issue-draft`)
@@ -189,6 +207,28 @@ export async function sendMail(
     `/mail/accounts/${accountId}/send`,
     body,
   );
+  return data;
+}
+
+/**
+ * 작성창 첨부 1개 업로드(WP-574) — multipart 필드명 `file`. 파일마다 따로 올려 칩마다 진행률·실패를 따로 보여 준다.
+ * onProgress 는 0~100 정수(%). signal 로 업로드 중 「첨부 빼기」·작성창 닫기를 취소한다.
+ */
+export async function uploadComposeAttachment(
+  file: File,
+  opts: { onProgress?: (percent: number) => void; signal?: AbortSignal } = {},
+): Promise<ComposeAttachmentUpload> {
+  const fd = new FormData();
+  fd.append('file', file);
+  const { data } = await client.post<ComposeAttachmentUpload>('/mail/compose-attachments', fd, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    signal: opts.signal,
+    onUploadProgress: (e: AxiosProgressEvent) => {
+      // total 을 모르면(청크 전송 등) 진행률을 낼 수 없으니 건너뛴다 — 칩은 0% 에 머물다 완료로 바뀐다.
+      if (!opts.onProgress || !e.total) return;
+      opts.onProgress(Math.min(100, Math.round((e.loaded / e.total) * 100)));
+    },
+  });
   return data;
 }
 

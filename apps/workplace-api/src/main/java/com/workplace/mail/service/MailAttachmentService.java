@@ -16,6 +16,7 @@ import jakarta.mail.Store;
 import jakarta.mail.UIDFolder;
 import java.security.MessageDigest;
 import java.util.Base64;
+import java.util.function.LongConsumer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -51,14 +52,26 @@ public class MailAttachmentService {
   @Value("${workplace.storage.mail.max-cache-bytes:26214400}")
   private long maxCacheBytes;
 
-  /** 다운로드 결과 캐리어. */
-  public record AttachmentDownload(byte[] content, String filename, String contentType) {}
+  /**
+   * 다운로드 결과 캐리어.
+   *
+   * @param contentHash 바이트의 sha256(캐시에 있거나 이번에 캐시했으면 그 키, 모르면 null) — WP-574 보낸 메일 첨부 기록이 다시 해시하지
+   *     않게
+   */
+  public record AttachmentDownload(
+      byte[] content, String filename, String contentType, String contentHash) {
+
+    /** 해시를 모르는 다운로드. */
+    public AttachmentDownload(byte[] content, String filename, String contentType) {
+      this(content, filename, contentType, null);
+    }
+  }
 
   /** IMAP 접속 정보 — 짧은 트랜잭션에서 읽어 두고 접속·받기는 트랜잭션 밖에서 한다. Graph 는 null(토큰 서비스가 자기 트랜잭션으로 읽는다). */
   private record ImapLogin(EmailAccountResponse account, String password) {}
 
   /** 캐시 조회 결과 — 적중이면 fileRef, 아니면 provider 접속 정보(Graph 는 null). */
-  private record Lookup(String cachedFileRef, ImapLogin login) {}
+  private record Lookup(String cachedFileRef, long cachedSize, ImapLogin login) {}
 
   /**
    * 첨부 파일 바이너리 다운로드. 소유 검증 포함. 캐시 hit 시 blob 에서 즉시 반환, miss 시 provider fetch 후 캐시에 등록한다.
@@ -129,6 +142,17 @@ public class MailAttachmentService {
    * @throws EmailAttachmentNotFoundException 원본이 provider 에 없을 때
    */
   public AttachmentDownload downloadForPreview(long userId, AttachmentDownloadContext ctx) {
+    return downloadForPreview(userId, ctx, size -> {});
+  }
+
+  /**
+   * {@link #downloadForPreview(long, AttachmentDownloadContext)} 에 캐시 적중 시 받기 전 크기 확인을 더한 형태(WP-574
+   * — 발송이 첨부 합계 상한을 캐시 blob 의 실제 크기로 먼저 본다). 확인이 예외를 던지면 blob 을 읽지 않고 그대로 전파한다.
+   *
+   * @param beforeCachedLoad 캐시 적중 시 blob 실제 크기를 받는 확인(예외로 중단)
+   */
+  public AttachmentDownload downloadForPreview(
+      long userId, AttachmentDownloadContext ctx, LongConsumer beforeCachedLoad) {
     String filename = ctx.filename() != null ? ctx.filename() : "attachment";
     String contentType = ctx.contentType() != null ? ctx.contentType() : "application/octet-stream";
     TransactionTemplate tx = new TransactionTemplate(txManager);
@@ -140,13 +164,15 @@ public class MailAttachmentService {
                 var hit = blobRepo.findByHash(ctx.contentHash());
                 if (hit.isPresent()) {
                   blobRepo.touch(ctx.contentHash());
-                  return new Lookup(hit.get().fileRef(), null);
+                  return new Lookup(hit.get().fileRef(), hit.get().sizeBytes(), null);
                 }
               }
-              return new Lookup(null, providerLogin(userId, ctx));
+              return new Lookup(null, 0, providerLogin(userId, ctx));
             });
     if (lookup.cachedFileRef() != null) {
-      return new AttachmentDownload(blobStore.load(lookup.cachedFileRef()), filename, contentType);
+      beforeCachedLoad.accept(lookup.cachedSize());
+      return new AttachmentDownload(
+          blobStore.load(lookup.cachedFileRef()), filename, contentType, ctx.contentHash());
     }
 
     byte[] content = fetchWith(lookup.login(), userId, ctx);
@@ -155,6 +181,7 @@ public class MailAttachmentService {
       String hash = sha256Hex(content);
       String fileRef = storeBlob(hash, content);
       tx.executeWithoutResult(s -> registerCache(ctx, hash, fileRef, content.length));
+      return new AttachmentDownload(content, filename, contentType, hash);
     }
     return new AttachmentDownload(content, filename, contentType);
   }

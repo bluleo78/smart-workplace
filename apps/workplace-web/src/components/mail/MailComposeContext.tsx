@@ -4,10 +4,19 @@
 import type { ReactNode } from 'react';
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
 
+import type { ComposeAttachment } from '@/lib/mailComposeAttachments';
 import type { MailQuote } from '@/lib/mailQuote';
+
+/**
+ * 작성 종류 — 새 메일 / 회신 / 전달.
+ * 인용문·답장 대상만으로 추론하면 전달에서 인용문을 지운 순간 새 메일과 구분되지 않으므로(WP-576 — 새 메일 전용 AI 초안) 명시한다.
+ */
+export type ComposeMode = 'new' | 'reply' | 'forward';
 
 /** 작성 초기값(새/답장/전달이 채워 보낸다). */
 export interface ComposeDraft {
+  /** 작성 종류. 화면 제목과 새 메일 전용 기능(AI 초안)이 이 값으로 갈린다. */
+  mode: ComposeMode;
   accountId: number;
   to: string[];
   cc: string[];
@@ -21,6 +30,11 @@ export interface ComposeDraft {
    * "quoteHtml 만 있고 meta 없음" 같은 불가능한 상태를 타입으로 배제하지 못했다.
    */
   quote: MailQuote | null;
+  /**
+   * 처음 붙어 있는 첨부(WP-574) — 전달은 원본 메일의 첨부가 미리 들어간다(각각 ✕ 로 뺄 수 있다).
+   * 없으면 빈 목록. 작성 중 바뀌는 첨부 상태는 작성창(useMailComposeAttachments)이 들고, 이 값은 시작값으로만 쓴다.
+   */
+  attachments?: ComposeAttachment[];
   /** 답장 대상 로컬 message id(없으면 새 메일/전달). */
   inReplyToMessageId: number | null;
   /** openCompose 마다 부여되는 고유 인스턴스 id(에디터 재마운트 key 용). */

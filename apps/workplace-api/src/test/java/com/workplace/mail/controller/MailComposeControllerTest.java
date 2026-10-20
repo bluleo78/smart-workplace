@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -18,16 +19,19 @@ import com.workplace.global.security.JwtAuthenticationFilter;
 import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.security.UserTokenAuthenticationFilter;
+import com.workplace.mail.dto.ComposeAttachmentResponse;
 import com.workplace.mail.dto.MailSendRequest;
 import com.workplace.mail.dto.MailSendRequest.InlineImageRef;
 import com.workplace.mail.dto.SendResult;
 import com.workplace.mail.exception.MailValidationException;
+import com.workplace.mail.service.MailComposeAttachmentService;
 import com.workplace.mail.service.MailComposeService;
 import com.workplace.permission.service.PermissionService;
 import com.workplace.support.AlwaysActiveTenantStatusChecker;
 import com.workplace.support.PermissionMocks;
 import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.repository.UserRepository;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
@@ -37,6 +41,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -57,6 +62,7 @@ class MailComposeControllerTest {
   @Autowired ObjectMapper objectMapper;
 
   @MockitoBean MailComposeService composeService;
+  @MockitoBean MailComposeAttachmentService attachmentService;
   @MockitoBean JwtTokenProvider jwt;
   @MockitoBean JwtProperties jwtProps;
   @MockitoBean PermissionService permissionService;
@@ -161,5 +167,66 @@ class MailComposeControllerTest {
     ArgumentCaptor<MailSendRequest> cap = ArgumentCaptor.forClass(MailSendRequest.class);
     verify(composeService).send(eq(1L), eq(10L), cap.capture());
     assertThat(cap.getValue().inlineImages()).isEmpty();
+    // WP-574 새 필드도 생략하면 빈 목록 — 첨부 없이 기존처럼 보낸다
+    assertThat(cap.getValue().attachmentIds()).isEmpty();
+    assertThat(cap.getValue().forwardAttachmentIds()).isEmpty();
+  }
+
+  /** WP-574: attachmentIds·forwardAttachmentIds 가 요청 레코드로 바인딩된다. */
+  @Test
+  void send_bindsAttachmentIds() throws Exception {
+    when(composeService.send(eq(1L), eq(10L), any()))
+        .thenReturn(new SendResult(100L, "gen@test.local"));
+    String json =
+        """
+        {"to":["a@test.local"],"subject":"s","bodyHtml":"<p>b</p>","bodyText":"b",
+         "attachmentIds":[31,32],"forwardAttachmentIds":[7]}
+        """;
+
+    mockMvc
+        .perform(
+            post("/api/v1/mail/accounts/{id}/send", 10L)
+                .header("Authorization", "Bearer v")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json))
+        .andExpect(status().isOk());
+
+    ArgumentCaptor<MailSendRequest> cap = ArgumentCaptor.forClass(MailSendRequest.class);
+    verify(composeService).send(eq(1L), eq(10L), cap.capture());
+    assertThat(cap.getValue().attachmentIds()).containsExactly(31L, 32L);
+    assertThat(cap.getValue().forwardAttachmentIds()).containsExactly(7L);
+  }
+
+  /** WP-574: 작성 첨부 업로드 — multipart file → 201 + {id, name, size, mimeType, expiresAt}. */
+  @Test
+  void uploadAttachment_returns201WithMeta() throws Exception {
+    when(attachmentService.upload(eq(1L), any()))
+        .thenReturn(
+            new ComposeAttachmentResponse(
+                55L,
+                "보고서.pdf",
+                4L,
+                "application/pdf",
+                OffsetDateTime.parse("2026-10-21T00:00:00Z")));
+
+    mockMvc
+        .perform(
+            multipart("/api/v1/mail/compose-attachments")
+                .file(new MockMultipartFile("file", "보고서.pdf", "application/pdf", new byte[4]))
+                .header("Authorization", "Bearer v"))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.id").value(55))
+        .andExpect(jsonPath("$.name").value("보고서.pdf"))
+        .andExpect(jsonPath("$.size").value(4))
+        .andExpect(jsonPath("$.mimeType").value("application/pdf"));
+  }
+
+  @Test
+  void uploadAttachment_requiresAuth() throws Exception {
+    mockMvc
+        .perform(
+            multipart("/api/v1/mail/compose-attachments")
+                .file(new MockMultipartFile("file", "a.pdf", "application/pdf", new byte[1])))
+        .andExpect(status().isUnauthorized());
   }
 }

@@ -203,7 +203,7 @@ public class MailIssueService {
 
   private void requireEnabled(AiContext ctx) {
     if (!ctx.aiEnabled()) {
-      throw new MailAiUnavailableException("이 계정은 AI 비서가 꺼져 있어요. 계정 설정에서 켜주세요.");
+      throw MailAiUnavailableException.aiDisabled();
     }
   }
 
@@ -211,7 +211,7 @@ public class MailIssueService {
     try {
       return assistantResolver.resolve(userId);
     } catch (Exception e) {
-      throw new MailAiUnavailableException("AI 비서가 아직 설정되지 않았어요. 관리자에게 문의해주세요.");
+      throw MailAiUnavailableException.assistantNotConfigured();
     }
   }
 

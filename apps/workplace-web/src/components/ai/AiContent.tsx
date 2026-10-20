@@ -12,6 +12,7 @@ export function AiContent({
   reason,
   collapsible = false,
   defaultOpen = true,
+  preview,
   className,
   'data-testid': dataTestId,
   children,
@@ -20,6 +21,8 @@ export function AiContent({
   reason?: string
   collapsible?: boolean
   defaultOpen?: boolean
+  /** collapsible 일 때 접힌 동안 라벨 옆에 한 줄로 보이는 미리보기(말줄임). 펼치면 숨는다 — 모바일 메일 요약(WP-400). */
+  preview?: React.ReactNode
   className?: string
   'data-testid'?: string
   children: React.ReactNode
@@ -55,6 +58,9 @@ export function AiContent({
             aria-hidden="true"
           />
           {header}
+          {preview != null && (
+            <span className="min-w-0 flex-1 truncate text-sm text-foreground/80 group-open:hidden">{preview}</span>
+          )}
         </summary>
         <div className="mt-1 text-sm whitespace-pre-wrap">{children}</div>
       </details>

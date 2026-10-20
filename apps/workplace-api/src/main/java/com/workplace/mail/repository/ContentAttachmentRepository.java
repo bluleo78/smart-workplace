@@ -31,6 +31,18 @@ public class ContentAttachmentRepository {
       String contentType,
       Long sizeBytes,
       String mimeContentId) {
+    return findOrCreate(contentId, ordinal, filename, contentType, sizeBytes, mimeContentId, null);
+  }
+
+  /** content_hash 를 새 행에 바로 넣는 형태(WP-574 보낸 메일 첨부). 기존 행이면 해시는 건드리지 않는다. */
+  public long findOrCreate(
+      long contentId,
+      int ordinal,
+      String filename,
+      String contentType,
+      Long sizeBytes,
+      String mimeContentId,
+      String contentHash) {
     dsl.insertInto(CONTENT_ATTACHMENT)
         .set(CONTENT_ATTACHMENT.CONTENT_ID, contentId)
         .set(CONTENT_ATTACHMENT.ORDINAL, ordinal)
@@ -38,6 +50,7 @@ public class ContentAttachmentRepository {
         .set(CONTENT_ATTACHMENT.CONTENT_TYPE, contentType)
         .set(CONTENT_ATTACHMENT.SIZE_BYTES, sizeBytes)
         .set(CONTENT_ATTACHMENT.MIME_CONTENT_ID, mimeContentId)
+        .set(CONTENT_ATTACHMENT.CONTENT_HASH, contentHash)
         .onConflict(CONTENT_ATTACHMENT.CONTENT_ID, CONTENT_ATTACHMENT.ORDINAL)
         .doNothing()
         .execute();

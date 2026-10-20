@@ -1,10 +1,7 @@
 package com.workplace.mail.service;
 
-import com.workplace.global.security.EncryptionService;
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.dto.MailSecurity;
-import com.workplace.mail.exception.EmailAccountNotFoundException;
-import com.workplace.mail.repository.EmailAccountRepository;
 import jakarta.mail.Folder;
 import jakarta.mail.Message;
 import jakarta.mail.MessagingException;
@@ -34,8 +31,7 @@ public class MailSentAppender {
     "Sent", "Sent Items", "[Gmail]/Sent Mail", "Sent Messages", "INBOX.Sent"
   };
 
-  private final EmailAccountRepository accountRepo;
-  private final EncryptionService encryption;
+  private final MailAccountCredentials credentials;
 
   /**
    * 발송본을 Sent 폴더에 추가. 비밀번호는 내부에서 직접 조회·복호화한다. 어떤 실패도 던지지 않는다(로그만).
@@ -47,12 +43,8 @@ public class MailSentAppender {
   public void appendQuietly(EmailAccountResponse account, long userId, MimeMessage message) {
     Store store = null;
     try {
-      // 암호화된 비밀번호 조회 후 복호화 — 자격증명은 MailSentAppender 가 직접 관리
-      String password =
-          accountRepo
-              .findEncryptedPassword(userId, account.id())
-              .map(encryption::decrypt)
-              .orElseThrow(() -> new EmailAccountNotFoundException(account.id()));
+      // 자격증명 조회(RLS 읽기 트랜잭션)는 MailAccountCredentials 가 맡고, 여기서는 I/O 만 한다(WP-574).
+      String password = credentials.password(userId, account.id());
 
       store = connect(account, password);
       Folder sent = findSentFolder(store);

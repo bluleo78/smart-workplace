@@ -2,17 +2,21 @@ package com.workplace.mail.service;
 
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.dto.OutgoingMail;
+import com.workplace.mail.dto.OutgoingMail.AttachmentPart;
 import com.workplace.mail.dto.OutgoingMail.InlineImagePart;
 import jakarta.activation.DataHandler;
 import jakarta.mail.Message;
 import jakarta.mail.MessagingException;
 import jakarta.mail.Part;
 import jakarta.mail.Session;
+import jakarta.mail.internet.ContentDisposition;
+import jakarta.mail.internet.ContentType;
 import jakarta.mail.internet.InternetAddress;
 import jakarta.mail.internet.MimeBodyPart;
 import jakarta.mail.internet.MimeMessage;
 import jakarta.mail.internet.MimeMultipart;
 import jakarta.mail.internet.MimeUtility;
+import jakarta.mail.internet.ParameterList;
 import jakarta.mail.util.ByteArrayDataSource;
 import java.io.UnsupportedEncodingException;
 import java.util.Date;
@@ -23,6 +27,10 @@ import org.springframework.stereotype.Component;
 /**
  * OutgoingMail 을 MIME 메시지로 조립하는 공유 빌더. SMTP 전송과 Graph base64 발송이 동일한 MIME(특히 In-Reply-To/References
  * 스레딩 헤더와 직접 지정한 Message-ID)을 공유하도록 단일 출처로 둔다. 전송 계층과 무관하므로 인증 없는 기본 Session 으로 조립한다.
+ *
+ * <p>구조: 본문은 multipart/alternative(text+html), 인용문 인라인 이미지가 있으면 multipart/related 로 감싸고(WP-69), 일반
+ * 첨부가 있으면 그 바깥을 다시 multipart/mixed 로 감싼다(WP-574) — mixed[ related[ alternative, 이미지… ] |
+ * alternative, 첨부… ].
  */
 @Component
 public class MailMimeBuilder {
@@ -63,22 +71,76 @@ public class MailMimeBuilder {
     MimeMultipart alt = new MimeMultipart("alternative");
     alt.addBodyPart(textPart);
     alt.addBodyPart(htmlPart);
+    MimeMultipart body = alt;
     List<InlineImagePart> images = mail.inlineImages();
-    if (images.isEmpty()) {
-      msg.setContent(alt);
-    } else {
+    if (!images.isEmpty()) {
       // WP-69: 인용문 인라인 이미지 — multipart/related(alternative + 이미지들). 본문 cid: 가 Content-ID 로 파트를 찾는다.
       MimeMultipart related = new MimeMultipart("related");
-      MimeBodyPart altWrapper = new MimeBodyPart();
-      altWrapper.setContent(alt);
-      related.addBodyPart(altWrapper);
+      related.addBodyPart(wrap(alt));
       for (InlineImagePart img : images) {
         related.addBodyPart(inlinePart(img));
       }
-      msg.setContent(related);
+      body = related;
     }
+    List<AttachmentPart> attachments = mail.attachments();
+    if (!attachments.isEmpty()) {
+      // WP-574: 일반 첨부 — multipart/mixed(본문 + 첨부들). 본문 구조(alternative/related)는 첫 파트로 그대로 둔다.
+      MimeMultipart mixed = new MimeMultipart("mixed");
+      mixed.addBodyPart(wrap(body));
+      for (AttachmentPart att : attachments) {
+        mixed.addBodyPart(attachmentPart(att));
+      }
+      body = mixed;
+    }
+    msg.setContent(body);
     msg.saveChanges();
     return msg;
+  }
+
+  /** 하위 multipart 를 상위 multipart 의 한 파트로 감싼다. */
+  private static MimeBodyPart wrap(MimeMultipart inner) throws MessagingException {
+    MimeBodyPart part = new MimeBodyPart();
+    part.setContent(inner);
+    return part;
+  }
+
+  /**
+   * 일반 첨부 파트(WP-574) — Content-Type 은 파일 것을 쓰되 해석할 수 없으면 application/octet-stream. 파일명은 수신 클라이언트
+   * 호환을 위해 두 곳에 다르게 인코딩한다: Content-Disposition filename 은 RFC 2231(filename*=UTF-8''…),
+   * Content-Type name 은 RFC 2047 encoded-word(구형 Outlook 등이 이쪽만 읽는다). 전송 인코딩은 base64 로 고정해 text/*
+   * 파일도 줄바꿈 정규화 없이 바이트가 그대로 전달되게 한다.
+   */
+  private MimeBodyPart attachmentPart(AttachmentPart att) throws MessagingException {
+    String filename = att.filenameOrDefault();
+    // 구체 타입(type/subtype)만 남긴다 — 비었거나 깨진 값(헤더 인젝션 포함)은 octet-stream(공용 규칙, MimeNormalizer).
+    String[] type = att.concreteContentType().split("/", 2);
+    ContentType ct = new ContentType(type[0], type[1], null);
+    ParameterList cdParams = new ParameterList();
+    if (isAscii(filename)) {
+      ct.setParameter("name", filename);
+      cdParams.set("filename", filename);
+    } else {
+      try {
+        ct.setParameter("name", MimeUtility.encodeText(filename, "UTF-8", "B"));
+      } catch (UnsupportedEncodingException e) {
+        throw new MessagingException("첨부 파일명 인코딩 실패", e);
+      }
+      // charset 을 주면 ParameterList 가 RFC 2231 로 인코딩한다(filename*=UTF-8''%ED%95%9C…).
+      cdParams.set("filename", filename, "UTF-8");
+    }
+    ContentDisposition cd = new ContentDisposition(Part.ATTACHMENT, cdParams);
+    MimeBodyPart part = new MimeBodyPart();
+    part.setDataHandler(new DataHandler(new ByteArrayDataSource(att.content(), ct.getBaseType())));
+    // setDataHandler 가 Content-Type 헤더를 지우므로 그 뒤에 name 파라미터를 포함한 헤더를 단다(saveChanges 는 있는 헤더를 유지).
+    part.setHeader("Content-Type", ct.toString());
+    part.setHeader("Content-Disposition", cd.toString());
+    part.setHeader("Content-Transfer-Encoding", "base64");
+    return part;
+  }
+
+  /** 7비트 ASCII 출력 가능 문자만으로 된 이름인지 — 아니면 파일명 인코딩이 필요하다. */
+  private static boolean isAscii(String s) {
+    return s.chars().allMatch(c -> c >= 0x20 && c < 0x7F);
   }
 
   /** 인라인 이미지 파트 — Content-ID(꺾쇠 포함 헤더 표기) + inline disposition + base64 전송 인코딩. */

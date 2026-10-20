@@ -8,14 +8,19 @@ import com.workplace.global.ai.SharedMemories;
 import com.workplace.global.util.Texts;
 import com.workplace.mail.dto.CoachingNote;
 import com.workplace.mail.dto.EmailAccountResponse;
+import com.workplace.mail.dto.MailComposeDraft;
+import com.workplace.mail.dto.MailComposeDraftRequest;
 import com.workplace.mail.dto.MailDraftCoaching;
 import com.workplace.mail.dto.MailDraftCoachingRequest;
 import com.workplace.mail.dto.MailReplyDraft;
 import com.workplace.mail.dto.MailSummary;
 import com.workplace.mail.exception.EmailAccountNotFoundException;
 import com.workplace.mail.exception.EmailMessageNotFoundException;
+import com.workplace.mail.exception.MailAiException;
 import com.workplace.mail.exception.MailAiUnavailableException;
 import com.workplace.mail.outbound.AiAgentMailClient;
+import com.workplace.mail.outbound.MailAiMessages.ComposeDraftRequest;
+import com.workplace.mail.outbound.MailAiMessages.ComposeDraftResult;
 import com.workplace.mail.outbound.MailAiMessages.DraftCoachingRequest;
 import com.workplace.mail.outbound.MailAiMessages.DraftCoachingResult;
 import com.workplace.mail.outbound.MailAiMessages.ReplyDraftRequest;
@@ -25,6 +30,7 @@ import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.mail.repository.EmailMessageRepository.AiContext;
 import com.workplace.mail.repository.EmailMessageRepository.AnalysisContext;
+import com.workplace.mail.repository.MailPeopleRepository;
 import com.workplace.mail.service.MailSummaryDecider.Decision;
 import com.workplace.mail.service.MailSummaryDecider.Outcome;
 import java.util.List;
@@ -34,9 +40,9 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * 메일 AI 사용자 기능(7d · WP-149): 요약 표시·강제 생성("AI 요약" 버튼)·답장 초안·초안 코칭. 분류·요약 생성 자체는 {@link
- * MailAnalysisService} (③ 원본 분석 · ④ 개인 분석)가 맡는다. 비서 사양은 home 과 동일하게 AssistantResolver 로 해석(미설정 시
- * 503).
+ * 메일 AI 사용자 기능(7d · WP-149): 요약 표시·강제 생성("AI 요약" 버튼)·답장 초안·초안 코칭·새 메일 초안(WP-576 compose-draft).
+ * 분류·요약 생성 자체는 {@link MailAnalysisService} (③ 원본 분석 · ④ 개인 분석)가 맡는다. 비서 사양은 home 과 동일하게
+ * AssistantResolver 로 해석(미설정 시 503).
  */
 @Slf4j
 @Service
@@ -57,6 +63,10 @@ public class MailAiService {
   /** WP-386: 답장 초안·초안 코칭에 싣는 조직 공용 메모리 리더(메일은 공간이 없다). */
   private final SharedAiMemoryReader sharedReader;
 
+  /** WP-576: 새 메일 초안의 보내는 사람 이름("나" 프로필) 조회용. */
+  /** 보내는 사람 이름 조회(WP-576 새 메일 초안의 맺음 인사) — 게이트와 같은 읽기 트랜잭션에서 이름만 읽는다. */
+  private final MailPeopleRepository peopleRepo;
+
   /**
    * 답장 초안·초안 코칭의 짧은 읽기 트랜잭션 — @Primary TenantAwareTransactionManager 로 구성해 진입 시 RLS
    * GUC(app.tenant_id) 가 주입된다. 소유권·ai_enabled·스레드 조회만 감싸고 메모리 읽기·LLM 호출은 밖에서 한다.
@@ -71,7 +81,8 @@ public class MailAiService {
       AssistantResolver assistantResolver,
       AiMemoryReader memoryReader,
       PlatformTransactionManager txManager,
-      SharedAiMemoryReader sharedReader) {
+      SharedAiMemoryReader sharedReader,
+      MailPeopleRepository peopleRepo) {
     this.analysis = analysis;
     this.mailClient = mailClient;
     this.messageRepo = messageRepo;
@@ -79,6 +90,7 @@ public class MailAiService {
     this.assistantResolver = assistantResolver;
     this.memoryReader = memoryReader;
     this.sharedReader = sharedReader;
+    this.peopleRepo = peopleRepo;
     this.readTx = new TransactionTemplate(txManager);
     this.readTx.setReadOnly(true);
   }
@@ -138,7 +150,7 @@ public class MailAiService {
    */
   private MailAiUnavailableException unavailable(boolean personalTier) {
     if (!personalTier && assistantResolver.resolveWorkspaceOrEmpty().isEmpty()) {
-      return new MailAiUnavailableException("AI 비서가 아직 설정되지 않았어요. 관리자에게 문의해주세요.");
+      return MailAiUnavailableException.assistantNotConfigured();
     }
     return new MailAiUnavailableException("요약을 아직 만들 수 없어요. 잠시 후 다시 시도해 주세요.");
   }
@@ -180,7 +192,7 @@ public class MailAiService {
                   messageRepo
                       .findAiContextByIdAndUser(userId, messageId)
                       .orElseThrow(() -> new EmailMessageNotFoundException(messageId));
-              requireEnabled(ctx);
+              requireEnabled(ctx.aiEnabled());
               AssistantSpec spec = requireSpec(userId);
               return new TxInput(
                   ctx.selfAddress(),
@@ -216,16 +228,8 @@ public class MailAiService {
     TxInput in =
         readTx.execute(
             s -> {
-              // 소유권 검증 먼저 — 타 계정/없음이면 404.
-              EmailAccountResponse acct =
-                  accountRepo
-                      .findByIdAndUser(userId, req.accountId())
-                      .orElseThrow(() -> new EmailAccountNotFoundException(req.accountId()));
-              // ai_enabled 게이트.
-              if (!acct.aiEnabled()) {
-                throw new MailAiUnavailableException("이 계정은 AI 비서가 꺼져 있어요. 계정 설정에서 켜주세요.");
-              }
-              AssistantSpec spec = requireSpec(userId);
+              // 소유권(404)·ai_enabled(503)·비서(503) 게이트 — 새 메일 초안과 공통.
+              AiAccount acct = requireAiAccount(userId, req.accountId());
               // 답장이면 원문 스레드 동봉(소유 검증 포함), 새 메일이면 빈 리스트.
               List<ThreadMessage> thread =
                   req.inReplyToMessageId() == null
@@ -239,7 +243,7 @@ public class MailAiService {
                           .findAiContextByIdAndUser(userId, req.inReplyToMessageId())
                           .map(MailAiService::memoryQuery)
                           .orElse(null);
-              return new TxInput(acct.emailAddress(), spec, thread, memoryQuery);
+              return new TxInput(acct.emailAddress(), acct.spec(), thread, memoryQuery);
             });
     // WP-386: 메일은 공간이 없어 조직 공용 메모리만(메모리 꺼짐과 무관).
     SharedMemories shared = SharedMemories.orEmpty(sharedReader.readForUser(userId, null, null));
@@ -267,6 +271,55 @@ public class MailAiService {
     return new MailDraftCoaching(notes, nz(r.improvedBodyHtml()));
   }
 
+  /**
+   * 새 메일 AI 초안(WP-576, 미영속). 지시·받는사람·제목으로 평문 본문(제목이 비었으면 제목도)을 만든다. 타 계정이면 404, ai_enabled=false 면
+   * 503(AI_DISABLED), 비서 미설정이면 503(ASSISTANT_NOT_CONFIGURED) — coachDraft 와 같은 게이트({@link
+   * #requireAiAccount})를 LLM 호출보다 먼저 통과시킨다. 새 메일이라 스레드·메모리 질의가 없다(고정 + 최신 메모리). 에이전트가 빈 본문을 돌려주면
+   * 502({@link MailAiException}).
+   *
+   * <p>소유권·ai_enabled·비서 해석과 보내는 사람 이름 조회는 짧은 읽기 트랜잭션({@link #readTx})에서 하고, 메모리 읽기와 LLM 호출은 그 뒤에
+   * 한다 — coachDraft 와 같은 이유. 보내는 사람 이름은 맺음 인사("{이름} 드림")용이며 직함·연락처는 보내지 않는다.
+   */
+  public MailComposeDraft composeDraft(long userId, long accountId, MailComposeDraftRequest req) {
+    // 게이트와 보내는 사람 이름(맺음 인사용)을 같은 읽기 트랜잭션에서 — 이름만 필요해 프로필 전체를 만들지 않는다.
+    ComposeInput in =
+        readTx.execute(
+            s ->
+                new ComposeInput(
+                    requireAiAccount(userId, accountId),
+                    peopleRepo
+                        .findProfileBasics(userId)
+                        .map(UserMailProfileBuilder::nameOf)
+                        .orElse(null)));
+    SharedMemories shared = SharedMemories.orEmpty(sharedReader.readForUser(userId, null, null));
+    // 요청 제목이 있으면 그대로 두고 AI 는 제목을 만들지 않는다(응답 subject=null).
+    boolean hasSubject = req.subject() != null && !req.subject().isBlank();
+    ComposeDraftResult r =
+        mailClient.composeDraft(
+            new ComposeDraftRequest(
+                req.instruction().strip(),
+                req.to() == null ? List.of() : req.to(),
+                req.cc() == null ? List.of() : req.cc(),
+                hasSubject ? req.subject().strip() : "",
+                nz(in.account().emailAddress()),
+                in.senderName(),
+                in.account().spec().agentUserId(),
+                in.account().spec().model(),
+                MAX_TURNS,
+                in.account().spec().timeoutMs(),
+                // 새 메일이라 메모리 질의가 없다(고정 + 최신)
+                memoryReader.readForEntry(userId, AiMemoryReader.MAIL, null),
+                shared.items(),
+                shared.moreCount()));
+    String body = nz(r.body());
+    if (body.isBlank()) {
+      // 빈 본문을 성공으로 돌려주면 사용자가 "초안이 비었다"를 결과로 오해한다 — 실패(502)로 알려 다시 시도하게 한다.
+      throw new MailAiException("AI가 초안을 만들지 못했어요. 잠시 후 다시 시도해주세요.", null);
+    }
+    String aiSubject = r.subject() == null ? "" : r.subject().strip();
+    return new MailComposeDraft(hasSubject || aiSubject.isEmpty() ? null : aiSubject, body);
+  }
+
   /** 메모리 고르기 질의 상한(WP-383) — 제목 + 요약 앞부분이면 관련도를 매기기에 충분하다. */
   static final int MEMORY_QUERY_CHARS = 200;
 
@@ -287,9 +340,10 @@ public class MailAiService {
     return q.isEmpty() ? null : Texts.headUtf16(q, MEMORY_QUERY_CHARS);
   }
 
-  private void requireEnabled(AiContext ctx) {
-    if (!ctx.aiEnabled()) {
-      throw new MailAiUnavailableException("이 계정은 AI 비서가 꺼져 있어요. 계정 설정에서 켜주세요.");
+  /** ai_enabled 게이트 — 꺼져 있으면 503(AI_DISABLED). */
+  private void requireEnabled(boolean aiEnabled) {
+    if (!aiEnabled) {
+      throw MailAiUnavailableException.aiDisabled();
     }
   }
 
@@ -297,9 +351,28 @@ public class MailAiService {
     try {
       return assistantResolver.resolve(userId);
     } catch (Exception e) {
-      throw new MailAiUnavailableException("AI 비서가 아직 설정되지 않았어요. 관리자에게 문의해주세요.");
+      throw MailAiUnavailableException.assistantNotConfigured();
     }
   }
+
+  /**
+   * 계정 기반 AI 호출(코칭·새 메일 초안)의 공통 게이트 — 소유권(타 계정/없음 404) → ai_enabled(503 AI_DISABLED) → 비서 사양(503
+   * ASSISTANT_NOT_CONFIGURED) 순. 반드시 {@link #readTx} 안에서 부른다(RLS GUC).
+   */
+  private AiAccount requireAiAccount(long userId, long accountId) {
+    EmailAccountResponse acct =
+        accountRepo
+            .findByIdAndUser(userId, accountId)
+            .orElseThrow(() -> new EmailAccountNotFoundException(accountId));
+    requireEnabled(acct.aiEnabled());
+    return new AiAccount(acct.emailAddress(), requireSpec(userId));
+  }
+
+  /** 계정 게이트 통과 결과 — 계정 메일 주소와 비서 사양. */
+  private record AiAccount(String emailAddress, AssistantSpec spec) {}
+
+  /** 새 메일 초안의 트랜잭션 안 조회 결과 — 게이트 통과 계정 + 보내는 사람 이름(없으면 null). */
+  private record ComposeInput(AiAccount account, String senderName) {}
 
   private String nz(String s) {
     return s == null ? "" : s;

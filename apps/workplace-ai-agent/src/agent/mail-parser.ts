@@ -200,3 +200,64 @@ export function parsePersonalAnalysisJson(
     category: flags.includeCategory ? pickCategory(obj.category) : null,
   };
 }
+
+/** JSON 문자열 값의 이스케이프(\n·\r·\t·\"·\\·\/)를 풀어 원문으로 되돌린다 — 느슨한 추출 전용. */
+function unescapeJsonString(s: string): string {
+  return s.replace(/\\([nrt"\\/])/g, (_m, c: string) =>
+    c === 'n' ? '\n' : c === 'r' ? '\r' : c === 't' ? '\t' : c,
+  );
+}
+
+/**
+ * 깨진 JSON 에서 `"key":"…"` 문자열 값을 느슨하게 꺼낸다. 모델이 본문 안 큰따옴표를 이스케이프하지 않아도 값 끝을 찾도록,
+ * 끝을 "다른 키가 뒤따르는 따옴표(`","other":`)" 또는 "마지막 `"}`" 로 잡는다(값 안쪽의 따옴표는 그대로 본문으로 본다).
+ * 끝을 못 찾으면(출력이 잘림) null — 잘린 본문을 그대로 쓰면 사용자가 불완전한 메일을 모르고 보내기 때문에 복구하지 않는다.
+ */
+function looseStringValue(text: string, key: string, otherKey: string): string | null {
+  const head = new RegExp(`"${key}"\\s*:\\s*"`).exec(text);
+  if (!head) return null;
+  const rest = text.slice(head.index + head[0].length);
+  const next = new RegExp(`"\\s*,\\s*"${otherKey}"\\s*:`).exec(rest);
+  let end = next ? next.index : -1;
+  if (end < 0) {
+    const closers = [...rest.matchAll(/"\s*\}/g)];
+    if (closers.length === 0) return null;
+    end = closers[closers.length - 1].index;
+  }
+  return unescapeJsonString(rest.slice(0, end));
+}
+
+/**
+ * WP-576 새 메일 초안 출력 파싱. 모델이 JSON({subject?, body})을 주면 그 값을 쓴다.
+ * - 출력이 `{` 로 시작(코드펜스 제외)하면 JSON 으로 본다. 파싱이 깨졌으면 body·subject 문자열만 느슨하게 꺼내고, body 를 못 꺼내면 throw —
+ *   깨진 JSON 원문(`{"subject":…`)이 메일 본문으로 들어가는 것을 막는다(라우트가 502 로 돌려준다).
+ * - `{` 로 시작하지 않는 평문이면 코드펜스를 걷은 전체를 본문으로 쓴다.
+ * - 본문이 비면 throw. wantSubject=false 면 subject 는 항상 null(사용자가 이미 쓴 제목을 덮지 않는다).
+ */
+export function parseComposeDraft(
+  text: string,
+  wantSubject: boolean,
+): { subject: string | null; body: string } {
+  const plain = text.trim().replace(/^```[a-z]*\s*/i, '').replace(/\s*```$/, '').trim();
+  let subject = '';
+  let body = plain;
+  if (plain.startsWith('{')) {
+    let obj: Record<string, unknown> | null = null;
+    try {
+      obj = extractJsonObject(plain);
+    } catch {
+      // 깨진 JSON → 아래 느슨한 추출
+    }
+    if (obj && typeof obj.body === 'string') {
+      body = obj.body;
+      subject = typeof obj.subject === 'string' ? obj.subject : '';
+    } else {
+      body = looseStringValue(plain, 'body', 'subject') ?? '';
+      subject = looseStringValue(plain, 'subject', 'body') ?? '';
+    }
+  }
+  body = body.trim();
+  if (!body) throw new Error(`compose-draft: 본문을 얻지 못함: ${text.slice(0, 120)}`);
+  subject = wantSubject ? subject.trim() : '';
+  return { subject: subject || null, body };
+}

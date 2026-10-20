@@ -608,6 +608,25 @@ test.describe('AI 채팅 화면 컨텍스트 — 캘린더', () => {
     await expect(page.locator('main')).not.toHaveAttribute('inert')
   })
 
+  test('side 모드 다이얼로그가 열린 채 셸이 모바일↔데스크톱으로 바뀌어도 새로 그린 페이지 영역이 inert 다', async ({ authenticatedPage: page }) => {
+    await captureChat(page)
+    await mockCalendar(page)
+    await page.goto('/calendar')
+    await page.getByTestId('chat-launcher').click()
+    await page.getByTestId('calendar-event-42').click()
+    const dialog = page.getByTestId('calendar-event-dialog')
+    await expect(dialog).toBeVisible()
+    // 셸이 바뀌면 페이지 영역 DOM 이 새로 그려진다 — 새 main 도 inert 조상 아래 있어야 한다.
+    const mainInert = () =>
+      page.evaluate(() => Array.from(document.querySelectorAll('[data-ai-page-root] main')).every((el) => el.closest('[inert]') != null))
+    await page.setViewportSize({ width: 800, height: 900 }) // lg(1024px) 미만 → 모바일 셸
+    await expect(dialog).toBeVisible()
+    await expect.poll(mainInert).toBe(true)
+    await page.setViewportSize({ width: 1440, height: 900 }) // 다시 데스크톱 셸
+    await expect(dialog).toBeVisible()
+    await expect.poll(mainInert).toBe(true)
+  })
+
   test('패널 칩 툴팁(body 포털)을 클릭해도 다이얼로그는 닫히지 않는다', async ({ authenticatedPage: page }) => {
     await captureChat(page)
     await mockCalendar(page)

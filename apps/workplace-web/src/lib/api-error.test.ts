@@ -35,4 +35,20 @@ describe('extractApiError', () => {
     expect(extractApiError(apiError(500, { message: '' }), 'fb')).toBe('fb');
     expect(extractApiError(new Error('x'), 'fb')).toBe('fb');
   });
+  // WP-576 — 도메인 오류 코드(errors.code)를 실은 응답은 코드 문자열이 아니라 message 를 보인다(토스트·패널 공통).
+  it('errors 가 도메인 오류 코드면 코드 대신 message', () => {
+    expect(
+      extractApiError(apiError(503, { message: '이 계정은 AI 비서가 꺼져 있어요.', errors: { code: 'AI_DISABLED' } }), 'fb'),
+    ).toBe('이 계정은 AI 비서가 꺼져 있어요.');
+    expect(extractApiError(apiError(409, { message: '가득 찼어요', errors: { code: 'AI_MEMORY_FULL', scope: 'MAIL' } }), 'fb')).toBe(
+      '가득 찼어요',
+    );
+    // 코드는 있는데 message 가 비면 fallback.
+    expect(extractApiError(apiError(503, { message: '', errors: { code: 'AI_DISABLED' } }), 'fb')).toBe('fb');
+  });
+  it('code 라는 이름의 필드 검증 문구는 그대로 첫 메시지로 쓴다', () => {
+    expect(extractApiError(apiError(400, { message: 'Validation failed', errors: { code: '코드는 6자리입니다.' } }), 'fb')).toBe(
+      '코드는 6자리입니다.',
+    );
+  });
 });

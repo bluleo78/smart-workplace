@@ -6,6 +6,8 @@ import java.io.UncheckedIOException;
 import java.nio.file.Path;
 import java.util.Locale;
 import java.util.Map;
+import org.springframework.http.InvalidMediaTypeException;
+import org.springframework.http.MediaType;
 
 /**
  * 업로드 경계 mime 정규화(#735). 브라우저가 확장자를 모르는 파일(.hwp/.hwpx 등)은 {@code application/octet-stream} 으로 보내는데,
@@ -128,5 +130,23 @@ public final class MimeNormalizer {
     } catch (UncheckedIOException e) {
       return mime;
     }
+  }
+
+  /**
+   * 구체 타입(type/subtype)이면 파라미터를 뗀 값, 비었거나 형식이 깨졌거나(헤더 인젝션 포함) 와일드카드면
+   * application/octet-stream(WP-574). 스테이징 업로드 저장 MIME 과 메일 첨부 파트의 Content-Type 이 같은 규칙을 쓴다.
+   */
+  public static String concreteOrOctetStream(String mime) {
+    if (mime != null && !mime.isBlank()) {
+      try {
+        MediaType parsed = MediaType.parseMediaType(mime.trim());
+        if (parsed.isConcrete()) {
+          return parsed.getType() + "/" + parsed.getSubtype();
+        }
+      } catch (InvalidMediaTypeException ignored) {
+        // 깨진 값 → 기본값
+      }
+    }
+    return MediaType.APPLICATION_OCTET_STREAM_VALUE;
   }
 }

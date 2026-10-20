@@ -21,6 +21,9 @@ public interface MailTransport {
    * @param account 발신 계정
    * @param message MailMimeBuilder 로 조립된 전송본(스레딩 헤더 포함)
    * @param mail 봉투 수신자(SMTP Bcc 등) 산출용 원본
+   * @return 실제로 나간 Message-ID(꺾쇠 제외) — 늘 값이 있다. 대개 MIME 에 넣은 값이고, Graph 초안 경로는 Exchange 가 붙인 값을
+   *     확인하면 그 값(확인하지 못하면 MIME 값)이다. 로컬 SENT 행이 이 값으로 스레드를 묶는다(WP-574).
    */
-  void transmit(long userId, EmailAccountResponse account, MimeMessage message, OutgoingMail mail);
+  String transmit(
+      long userId, EmailAccountResponse account, MimeMessage message, OutgoingMail mail);
 }

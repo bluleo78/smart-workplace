@@ -132,7 +132,9 @@ class MailComposeServiceTest extends IntegrationTestBase {
             null,
             null,
             "원문본문",
-            Instant.now());
+            Instant.now(),
+            List.of(),
+            List.of());
     long parentId = messageRepo.insertSent(accountId, folderId, parent);
 
     MailSendRequest reply =
@@ -178,7 +180,9 @@ class MailComposeServiceTest extends IntegrationTestBase {
             null,
             null,
             "본문",
-            Instant.now());
+            Instant.now(),
+            List.of(),
+            List.of());
     long parentId = messageRepo.insertSent(accountId, folderId, parent);
 
     MailSendRequest reply =

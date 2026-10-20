@@ -2,7 +2,7 @@
 // handleApiError 는 errors 의 첫 값(코드 문자열)을 토스트로 띄우므로 메모리 오류는 이 코드로 문구를 고른다.
 import { addDays, addMonths } from 'date-fns';
 
-import { apiErrorResponse, extractApiError, extractApiErrorCode } from '@/lib/api-error';
+import { apiErrorResponse, extractApiError } from '@/lib/api-error';
 import { formatDateKey, parseDateKey } from '@/lib/formatters';
 import { HIT_AREA_Y_COARSE } from '@/lib/hitArea';
 import { cn } from '@/lib/utils';
@@ -54,10 +54,8 @@ export function listCountTone(count: number): string {
   return count >= MEMORY_WARN_AT ? 'text-warning-text' : 'text-muted-foreground';
 }
 
-/** 저장 실패 문구 — 메모리 오류 코드가 있으면 서버 문구(errors 의 코드 문자열 대신), 아니면 공용 추출 규칙. */
+/** 저장 실패 문구 — 공용 추출 규칙(extractApiError: 메모리 오류 코드가 있으면 코드 문자열 대신 서버 문구). */
 export function memoryErrorMessage(error: unknown, fallback: string): string {
-  const message = apiErrorResponse(error)?.message;
-  if (message && extractApiErrorCode(error)) return message;
   return extractApiError(error, fallback);
 }
 

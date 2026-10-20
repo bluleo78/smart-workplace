@@ -130,6 +130,20 @@ export function escapeHtml(s: string): string {
     .replace(/"/g, '&quot;');
 }
 
+/**
+ * AI 가 돌려준 평문 본문(회신 초안·새 메일 초안 WP-576)을 작성 에디터에 넣을 HTML 로 바꾼다.
+ * 한 줄 = 한 문단(<p>), 빈 줄 = 빈 문단 — 에디터는 문단 여백이 0 이고 사람이 Enter 로 줄을 나누면 이 모양이 된다
+ * (빈 줄을 문단 경계로만 쓰면 문단 사이가 붙어 보인다). 글자는 모두 escape 한다(모델 출력의 HTML 주입 방지).
+ */
+export function plainTextToMailHtml(text: string): string {
+  return text
+    .replace(/\r\n?/g, '\n')
+    .replace(/^\n+|\s+$/g, '')
+    .split('\n')
+    .map((line) => (line.trim() ? `<p>${escapeHtml(line)}</p>` : '<p></p>'))
+    .join('');
+}
+
 /** 표시용 발신자 — 이름이 있으면 이름, 없으면 주소(둘 다 nullable). */
 function displayFrom(detail: EmailMessageDetail): string {
   return detail.fromName?.trim() || detail.fromAddress || '';

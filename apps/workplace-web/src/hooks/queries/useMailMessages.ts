@@ -158,20 +158,13 @@ export function useMarkAllRead(accountId: number | undefined) {
   });
 }
 
-/** 메시지 단건 상세 쿼리 정의 — useMailMessage·useMailMessageSubject 가 같은 캐시를 쓰도록 한 곳에 둔다. */
+/** 메시지 단건 상세 쿼리 정의 — useMailMessage·useMailMessageSeen 이 같은 캐시를 쓰도록 한 곳에 둔다. */
 const mailMessageQuery = (messageId: number | null) =>
   queryOptions({
     queryKey: mailMessageKeys.detail(messageId ?? 0),
     queryFn: () => getMessage(messageId as number),
     enabled: !!messageId,
   });
-
-const selectSubject = (d: EmailMessageDetail) => d.subject;
-
-/** 메시지 제목만 구독 — 모바일 상세 헤더 제목용. 상세와 같은 쿼리를 공유해 추가 요청이 없다. */
-export function useMailMessageSubject(messageId: number | null) {
-  return useQuery({ ...mailMessageQuery(messageId), select: selectSubject });
-}
 
 const selectSeen = (d: EmailMessageDetail) => d.seen;
 

@@ -1,35 +1,53 @@
 package com.workplace.mail.service;
 
+import com.workplace.file.api.StagedFile;
+import com.workplace.file.api.StagedFileClaimer;
+import com.workplace.file.exception.StagedFileUnusableException;
+import com.workplace.file.storage.FileStore;
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.dto.MailProvider;
 import com.workplace.mail.dto.MailSendRequest;
 import com.workplace.mail.dto.MailSendRequest.InlineImageRef;
 import com.workplace.mail.dto.OutgoingMail;
+import com.workplace.mail.dto.OutgoingMail.AttachmentPart;
 import com.workplace.mail.dto.OutgoingMail.InlineImagePart;
 import com.workplace.mail.dto.ReplyContext;
 import com.workplace.mail.dto.SendResult;
 import com.workplace.mail.exception.EmailAccountNotFoundException;
+import com.workplace.mail.exception.EmailAttachmentNotFoundException;
 import com.workplace.mail.exception.EmailMessageNotFoundException;
 import com.workplace.mail.exception.MailSendException;
 import com.workplace.mail.exception.MailValidationException;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailAttachmentRepository;
+import com.workplace.mail.repository.EmailAttachmentRepository.AttachmentDownloadContext;
 import com.workplace.mail.repository.EmailAttachmentRepository.InlineSourceMeta;
 import com.workplace.mail.repository.EmailFolderRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
+import com.workplace.mail.repository.EmailMessageRepository.SentRow;
 import com.workplace.mail.service.MailAttachmentService.AttachmentDownload;
+import com.workplace.mail.service.MailSentAttachmentRecorder.PreparedAttachment;
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.AddressException;
 import jakarta.mail.internet.InternetAddress;
 import jakarta.mail.internet.MimeMessage;
+import java.io.UncheckedIOException;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * 메일 작성+발송 오케스트레이션. 순서가 핵심:
@@ -39,13 +57,19 @@ import org.springframework.transaction.annotation.Transactional;
  *   <li>수신자 검증, Message-ID 직접 생성, 답장이면 부모 thread_id/Message-ID/References 상속.
  *   <li>MIME 조립(공유 MailMimeBuilder) + 공급자별 전송기(MailTransport) 디스패치 — 유일한 사용자 노출 실패 지점(실패 시 502, 로컬
  *       저장 안 함).
- *   <li>로컬 SENT 행 저장(표시 원본).
+ *   <li>로컬 SENT 행 저장(표시 원본) + 첨부 기록(WP-574, blob 은 전송 전에 써 둔다).
  *   <li>IMAP 계정만 best-effort APPEND(Graph 는 saveToSentItems 로 서버가 자동 저장).
  * </ol>
  *
  * <p>WP-69: 답장·전달 인용문이 cid: 로 참조하는 원본 첨부(inlineImages)는 prepare 에서 소유·타입·용량만 검증하고, send 에서 바이트를 조회해
  * 같은 Content-ID 의 인라인 파트로 다시 붙인다.
+ *
+ * <p>WP-574: 일반 첨부 — 작성창 임시 업로드(attachmentIds, 스테이징 파일 규칙)와 전달 원본 첨부(forwardAttachmentIds). prepare
+ * 는 소유·만료와 메타 크기 합계(인라인 포함 25MB)만 읽기로 본다. send 는 짧은 트랜잭션에서 임시 업로드를 클레임해 만료로 커밋하고(동시 발송 차단), 전송 전에
+ * 실패하면 되돌린다. 바이트는 하나씩 받으며 실제 바이트 누적으로 25MB 를 센다(메타 크기는 IMAP 인코딩 크기 추정·NULL 일 수 있다). 단계별 트랜잭션은
+ * {@link #send} 참조.
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class MailComposeService {
@@ -64,6 +88,10 @@ public class MailComposeService {
 
   static final long MAX_INLINE_TOTAL_SMTP = 10L * 1024 * 1024;
 
+  static final String UPLOAD_UNUSABLE_MESSAGE = "첨부 파일을 찾을 수 없어요. 만료됐을 수 있으니 파일을 다시 올려 주세요";
+
+  static final String FORWARD_MISSING_MESSAGE = "전달할 원본 첨부를 찾을 수 없어요";
+
   /** Content-ID 허용 문자 — 출력 가능 ASCII 중 공백·꺾쇠·따옴표 제외(헤더 인젝션 차단), 최대 250자. */
   private static final Pattern CONTENT_ID = Pattern.compile("^[\\x21-\\x7E&&[^<>\"]]{1,250}$");
 
@@ -75,13 +103,24 @@ public class MailComposeService {
   private final MailSentAppender appender;
   private final EmailAttachmentRepository attachmentRepo;
   private final MailAttachmentService attachmentService;
+  private final StagedFileClaimer stagedFileClaimer;
+  private final FileStore fileStore;
+  private final MailSentAttachmentRecorder sentAttachmentRecorder;
+  private final PlatformTransactionManager txManager;
+
+  /**
+   * 첨부 원본 합계 상한(WP-574) — 업로드 + 전달 + 인용문 이미지, 메일 한 통 기준. IMAP·M365 공통(M365 는 4MB 를 넘으면 초안+첨부 API
+   * 경로로 보낸다). 첨부 파일 하나 상한과 같은 설정값(기본 25MB)을 쓴다 — 업로드 상한과 어긋나지 않게.
+   */
+  @Value("${workplace.storage.attachment.max-file-size-bytes:26214400}")
+  private long maxAttachmentTotal;
 
   /**
    * 발송 사전검증(#842) — 확인카드 승인 전에 "승인 후에야 드러날 실패"를 미리 드러내기 위한 dry-run. 실행 경로(send)와 완전히 동일한 술어를
    * 공유하며(prepare) 전송·폴더 생성 등 어떤 쓰기도 하지 않는다.
    *
    * @throws EmailAccountNotFoundException 내 계정이 아님
-   * @throws MailValidationException 수신자 0명 또는 잘못된 주소 형식
+   * @throws MailValidationException 수신자 0명·잘못된 주소 형식·쓸 수 없는 첨부·첨부 합계 상한(기본 25MB) 초과
    * @throws EmailMessageNotFoundException 답장 대상 원본 메일 없음
    * @throws MailSendException 지원하지 않는 메일 공급자
    */
@@ -123,7 +162,167 @@ public class MailComposeService {
     MailTransport transport = transportFor(account.provider());
     List<InlineSource> inline =
         validateInlineImages(userId, account.provider(), req.inlineImages());
-    return new SendPlan(account, to, cc, bcc, replyCtx, transport, inline);
+    List<StagedFile> uploads = checkUploads(userId, req.attachmentIds());
+    List<ForwardSource> forwards = validateForwards(userId, req.forwardAttachmentIds());
+    long total = 0;
+    for (InlineSource src : inline) {
+      total += src.meta().sizeBytes();
+    }
+    for (StagedFile f : uploads) {
+      total += f.sizeBytes();
+    }
+    for (ForwardSource f : forwards) {
+      total += f.meta().sizeBytes();
+    }
+    requireWithinTotal(total);
+    return new SendPlan(account, to, cc, bcc, replyCtx, transport, inline, forwards);
+  }
+
+  /**
+   * 임시 업로드 사전검증(WP-574) — 잠그지도 쓰지도 않는다(validateSendable 읽기 전용 유지). 내가 올렸고 만료 전이며 다른 곳에 묶이지 않은
+   * ATTACHMENT 파일이어야 한다. 남의 것·없는 것·만료된 것은 구분하지 않고 같은 문구로 거절한다(남의 id 존재를 떠볼 수 없게).
+   */
+  private List<StagedFile> checkUploads(long userId, List<Long> ids) {
+    return uploadsOrReject(ids, () -> stagedFileClaimer.requireClaimable(userId, ids));
+  }
+
+  /** 발송 시 임시 업로드를 잠가 클레임한다 — 사전검증 이후 만료·동시 발송을 다시 거른다. 보류(HOLD)로 커밋해 전송 동안 다른 발송·만료 스윕을 막는다. */
+  private List<StagedFile> claimUploads(long userId, List<Long> ids) {
+    return uploadsOrReject(
+        ids, () -> stagedFileClaimer.claim(userId, ids, StagedFileClaimer.Retention.HOLD));
+  }
+
+  /** 업로드 판정 공통 — 빈 목록은 그대로, 쓸 수 없는 파일·형태 오류는 구분 없이 같은 사용자 문구(남의 id 존재를 떠볼 수 없게). */
+  private static List<StagedFile> uploadsOrReject(
+      List<Long> ids, Supplier<List<StagedFile>> claimer) {
+    if (ids.isEmpty()) {
+      return List.of();
+    }
+    try {
+      return claimer.get();
+    } catch (StagedFileUnusableException | IllegalArgumentException e) {
+      throw new MailValidationException(UPLOAD_UNUSABLE_MESSAGE);
+    }
+  }
+
+  /** 전달 원본 첨부 검증(WP-574) — 내 계정 메일의 첨부여야 한다. 바이트는 읽지 않는다. 빈 값·중복 id 는 거절. */
+  private List<ForwardSource> validateForwards(long userId, List<Long> ids) {
+    if (ids.isEmpty()) {
+      return List.of();
+    }
+    Set<Long> seen = new HashSet<>();
+    List<ForwardSource> out = new ArrayList<>();
+    for (Long id : ids) {
+      if (id == null || !seen.add(id)) {
+        throw new MailValidationException("전달할 원본 첨부 목록이 올바르지 않아요");
+      }
+      InlineSourceMeta meta =
+          attachmentRepo
+              .findInlineSourceMeta(userId, id)
+              .orElseThrow(() -> new MailValidationException(FORWARD_MISSING_MESSAGE));
+      out.add(new ForwardSource(id, meta));
+    }
+    return out;
+  }
+
+  /** 첨부 원본 합계가 상한을 넘으면 발송 전에 거절한다. */
+  private void requireWithinTotal(long totalBytes) {
+    if (totalBytes > maxAttachmentTotal) {
+      throw new MailValidationException(
+          "첨부 파일이 너무 커요. 메일 한 통에 모두 합쳐 " + (maxAttachmentTotal / (1024 * 1024)) + "MB까지 보낼 수 있어요");
+    }
+  }
+
+  /** 검증을 통과한 전달 원본 첨부 — send 에서 바이트를 조회한다. */
+  private record ForwardSource(long attachmentId, InlineSourceMeta meta) {}
+
+  /**
+   * 첨부 원본 누적 합계(WP-574) — 파트를 하나씩 확보할 때마다 더하고, 25MB 를 넘는 즉시 중단한다. 메타 크기는 NULL·추정치(IMAP 인코딩 크기)일 수
+   * 있어 실제 바이트로 센다.
+   */
+  private final class Budget {
+    private long used;
+
+    /** 받기 전에 알고 있는 실제 크기(캐시 blob 크기 등)로 먼저 판정 — 넘으면 받지 않고 거절. */
+    void requireRoomFor(long knownBytes) {
+      requireWithinTotal(used + knownBytes);
+    }
+
+    /** 받은 바이트를 더한다 — 넘으면 거절. */
+    byte[] add(byte[] content) {
+      used += content.length;
+      requireWithinTotal(used);
+      return content;
+    }
+  }
+
+  /** 업로드 첨부 바이트를 읽는다(디스크, 트랜잭션 밖). 크기는 우리가 저장할 때 잰 값이라 믿을 수 있지만 읽은 바이트로 다시 센다. */
+  private List<AttachmentPart> loadUploads(List<StagedFile> uploads, Budget budget) {
+    List<AttachmentPart> parts = new ArrayList<>();
+    for (StagedFile f : uploads) {
+      budget.requireRoomFor(f.sizeBytes());
+      byte[] content;
+      try {
+        content = fileStore.readAllBytes(f.storagePath());
+      } catch (UncheckedIOException e) {
+        throw new MailSendException("첨부 파일을 읽지 못했어요. 파일을 다시 올려 주세요", e);
+      }
+      parts.add(new AttachmentPart(f.originalName(), f.mimeType(), budget.add(content)));
+    }
+    return parts;
+  }
+
+  /**
+   * 전달 원본 첨부 바이트를 받는다(WP-574) — 받은 메일 순서. 캐시에 없으면 원본 서버에서 바로 받는다. 실패는 발송 전체 실패 — 첨부를 빼고 보내지 않는다.
+   */
+  private List<AttachmentPart> loadForwards(
+      long userId, List<ForwardSource> forwards, Budget budget) {
+    List<AttachmentPart> parts = new ArrayList<>();
+    for (ForwardSource src : forwards) {
+      AttachmentDownload dl =
+          fetchOwnedAttachment(
+              userId,
+              src.attachmentId(),
+              budget,
+              FORWARD_MISSING_MESSAGE,
+              "전달할 원본 첨부를 가져오지 못했어요. 잠시 뒤 다시 보내 주세요");
+      parts.add(
+          new AttachmentPart(
+              src.meta().filename(), src.meta().contentType(), dl.content(), dl.contentHash()));
+    }
+    return parts;
+  }
+
+  /**
+   * 내 메일 첨부 바이트를 받는다 — 소유 확인만 짧은 읽기 트랜잭션에서 하고, 원본 서버 받기는 DB 연결 없이 한다({@link
+   * MailAttachmentService#downloadForPreview}). 캐시에 있으면 그 blob 의 실제 크기로 읽기 전에 상한을 판정하고, 받은 뒤에도 실제
+   * 바이트로 센다. 상한 초과(400)는 그대로, 원본 없음은 notFoundMessage 가 있으면 400 으로, 나머지 실패는 failMessage 의 502 로 바꾼다.
+   */
+  private AttachmentDownload fetchOwnedAttachment(
+      long userId, long attachmentId, Budget budget, String notFoundMessage, String failMessage) {
+    try {
+      TransactionTemplate readTx = new TransactionTemplate(txManager);
+      readTx.setReadOnly(true);
+      AttachmentDownloadContext ctx =
+          readTx.execute(
+              status ->
+                  attachmentRepo
+                      .findContextForDownload(userId, attachmentId)
+                      .orElseThrow(() -> new EmailAttachmentNotFoundException(attachmentId)));
+      AttachmentDownload dl =
+          attachmentService.downloadForPreview(userId, ctx, budget::requireRoomFor);
+      budget.add(dl.content());
+      return dl;
+    } catch (MailValidationException e) {
+      throw e;
+    } catch (EmailAttachmentNotFoundException e) {
+      if (notFoundMessage != null) {
+        throw new MailValidationException(notFoundMessage);
+      }
+      throw new MailSendException(failMessage, e);
+    } catch (RuntimeException e) {
+      throw new MailSendException(failMessage, e);
+    }
   }
 
   /**
@@ -169,20 +368,24 @@ public class MailComposeService {
   private record InlineSource(InlineImageRef ref, InlineSourceMeta meta) {}
 
   /** 원본 첨부 바이트를 조회해 인라인 파트로 만든다. 실패 시 발송 전체를 실패시킨다 — 이미지를 빼고 보내면 수신자에게 깨진 참조가 남으므로 조용히 누락하지 않는다. */
-  private List<InlineImagePart> loadInlineImages(long userId, List<InlineSource> sources) {
+  private List<InlineImagePart> loadInlineImages(
+      long userId, List<InlineSource> sources, Budget budget) {
     List<InlineImagePart> parts = new ArrayList<>();
     for (InlineSource src : sources) {
-      try {
-        AttachmentDownload dl = attachmentService.download(userId, src.ref().attachmentId());
-        parts.add(
-            new InlineImagePart(
-                src.ref().contentId(),
-                src.meta().filename(),
-                src.meta().contentType(),
-                dl.content()));
-      } catch (RuntimeException e) {
-        throw new MailSendException("인용문 이미지를 가져오지 못했습니다. 인용문을 제거하고 다시 보내세요", e);
-      }
+      AttachmentDownload dl =
+          fetchOwnedAttachment(
+              userId,
+              src.ref().attachmentId(),
+              budget,
+              null,
+              "인용문 이미지를 가져오지 못했습니다. 인용문을 제거하고 다시 보내세요");
+      parts.add(
+          new InlineImagePart(
+              src.ref().contentId(),
+              src.meta().filename(),
+              src.meta().contentType(),
+              dl.content(),
+              dl.contentHash()));
     }
     return parts;
   }
@@ -195,18 +398,80 @@ public class MailComposeService {
       List<String> bcc,
       ReplyContext replyCtx,
       MailTransport transport,
-      List<InlineSource> inline) {}
+      List<InlineSource> inline,
+      List<ForwardSource> forwards) {}
 
-  /** 본인 계정으로 메일 발송. 발송 성공 시 로컬 SENT 행 id + Message-ID 반환. */
-  @Transactional
+  /**
+   * 본인 계정으로 메일 발송. 발송 성공 시 로컬 SENT 행 id + Message-ID 반환.
+   *
+   * <p>WP-574 — 트랜잭션을 단계로 나눈다(메서드 전체를 한 트랜잭션으로 묶지 않는다):
+   *
+   * <ol>
+   *   <li><b>짧은 트랜잭션</b>: 검증(prepare) + 임시 업로드 보류 클레임(HOLD — 범주 ATTACHMENT_HELD, 만료 1시간 뒤). 커밋되면 같은
+   *       업로드로 동시에 보내는 두 번째 요청은 거절되고, 긴 전송 동안 만료 스윕이 행·파일을 지우지 않는다 — 잠금·DB 연결을 전송 내내 붙잡지 않는다.
+   *   <li><b>트랜잭션 밖</b>: 첨부 바이트 확보(누적 25MB) → MIME → 전송. 여기서 실패하면 보류를 원래 상태(ATTACHMENT, 원래 만료)로 되돌려
+   *       같은 업로드로 다시 보낼 수 있게 한다. 성공하면 보류를 사용 완료(지금 만료)로 바꾼다.
+   *   <li><b>기록 트랜잭션</b>(호출자 트랜잭션이 있으면 세이브포인트): SENT 행 + 첨부 기록(blob 저장 포함 — 전송 경로에 얹지 않는다). 메일은 이미
+   *       나갔으므로 실패해도 발송 성공으로 응답하고 경고만 남긴다 — 롤백 뒤 실패로 보이면 사용자가 다시 보내 같은 메일이 두 번 나간다. 이때
+   *       localMessageId 는 0. Graph 초안 경로에서 Exchange 가 다른 Message-ID 를 붙였으면 그 값으로 남긴다.
+   *   <li>IMAP 계정만 best-effort APPEND.
+   * </ol>
+   *
+   * <p>호출자 트랜잭션 안에서 불리면(AI 확인카드 ActionService.confirm) 1·3 단계가 거기에 합류한다 — 그 경로는 기존처럼 바깥 트랜잭션이 끝날 때
+   * 커밋된다.
+   */
   public SendResult send(long userId, long accountId, MailSendRequest req) {
-    // 검증은 사전검증(validateSendable)과 동일 경로 — 술어 포크 금지.
-    SendPlan plan = prepare(userId, accountId, req);
+    // ① 검증은 사전검증(validateSendable)과 동일 경로 — 술어 포크 금지. 업로드 클레임까지 한 트랜잭션.
+    Claimed claimed =
+        new TransactionTemplate(txManager)
+            .execute(
+                status -> {
+                  SendPlan plan = prepare(userId, accountId, req);
+                  return new Claimed(plan, claimUploads(userId, req.attachmentIds()));
+                });
+    SendPlan plan = claimed.plan();
     EmailAccountResponse account = plan.account();
-    List<String> to = plan.to();
-    List<String> cc = plan.cc();
-    List<String> bcc = plan.bcc();
 
+    OutgoingMail mail;
+    MimeMessage message;
+    String sentMessageId;
+    try {
+      // ② 트랜잭션 밖 — 바이트 확보부터 전송까지
+      mail = buildMail(userId, plan, req, claimed.uploads());
+      try {
+        message = mimeBuilder.build(account, mail);
+      } catch (MessagingException e) {
+        throw new MailSendException("메일 구성에 실패했습니다", e);
+      }
+      sentMessageId = plan.transport().transmit(userId, account, message, mail);
+    } catch (RuntimeException e) {
+      releaseUploads(userId, claimed.uploads(), e);
+      throw e;
+    }
+    // 로컬 기록·응답은 실제로 나간 Message-ID 로(Graph 초안 경로는 Exchange 가 다른 값을 붙일 수 있다)
+    if (!sentMessageId.equals(mail.messageId())) {
+      mail = mail.withMessageId(sentMessageId);
+    }
+
+    // ③ 업로드 사용 완료 + 기록 — 실패해도 발송은 성공
+    consumeUploads(userId, claimed.uploads());
+    long localId = recordSent(accountId, mail);
+
+    // ④ IMAP 계정만 best-effort APPEND(Graph 는 saveToSentItems 로 서버가 자동 저장).
+    if (account.provider() == MailProvider.IMAP) {
+      appender.appendQuietly(account, userId, message);
+    }
+
+    return new SendResult(localId, mail.messageId());
+  }
+
+  /** ① 단계 산출물 — 검증 결과 + 클레임한 업로드. */
+  private record Claimed(SendPlan plan, List<StagedFile> uploads) {}
+
+  /** 첨부 바이트를 확보하고(누적 25MB — 넘으면 그 자리에서 중단) 발송 캐리어를 만든다. 업로드 → 인용문 이미지 → 전달 원본 순으로 센다. */
+  private OutgoingMail buildMail(
+      long userId, SendPlan plan, MailSendRequest req, List<StagedFile> uploads) {
+    EmailAccountResponse account = plan.account();
     // Message-ID 직접 생성(전송본·APPEND·로컬 행 공유).
     String messageId = UUID.randomUUID() + "@" + domainOf(account.emailAddress());
 
@@ -221,44 +486,100 @@ public class MailComposeService {
       references = buildReferences(ctx.parentReferences(), ctx.parentMessageId());
     }
 
-    Instant now = Instant.now();
-    OutgoingMail mail =
-        new OutgoingMail(
-            messageId,
-            threadId,
-            account.emailAddress(),
-            account.displayName(),
-            to,
-            cc,
-            bcc,
-            nz(req.subject()),
-            req.bodyText(),
-            req.bodyHtml(),
-            inReplyTo,
-            references,
-            snippet(req.bodyText()),
-            now,
-            loadInlineImages(userId, plan.inline()));
+    Budget budget = new Budget();
+    List<AttachmentPart> uploadParts = loadUploads(uploads, budget);
+    List<InlineImagePart> inlineParts = loadInlineImages(userId, plan.inline(), budget);
+    // 메일 안 첨부 순서: 전달 원본(받은 메일 순서) 다음 업로드
+    List<AttachmentPart> attachments =
+        new ArrayList<>(loadForwards(userId, plan.forwards(), budget));
+    attachments.addAll(uploadParts);
 
-    // 1) MIME 조립(공유 빌더) + 공급자별 전송기 디스패치 — 유일한 사용자 노출 실패.
-    MimeMessage message;
+    return new OutgoingMail(
+        messageId,
+        threadId,
+        account.emailAddress(),
+        account.displayName(),
+        plan.to(),
+        plan.cc(),
+        plan.bcc(),
+        nz(req.subject()),
+        req.bodyText(),
+        req.bodyHtml(),
+        inReplyTo,
+        references,
+        snippet(req.bodyText()),
+        Instant.now(),
+        inlineParts,
+        attachments);
+  }
+
+  /**
+   * 전송 전 실패 시 보류 되돌리기 — 원래 상태(ATTACHMENT, 원래 만료)로 살려 같은 업로드로 다시 보낼 수 있게 한다. 되돌리기 실패가 원래 오류를 가리지 않게
+   * 덧붙이기만 한다(보류 만료 1시간 뒤 스윕이 지우므로 그때는 다시 올리면 된다).
+   */
+  private void releaseUploads(long userId, List<StagedFile> held, RuntimeException cause) {
+    if (held.isEmpty()) {
+      return;
+    }
     try {
-      message = mimeBuilder.build(account, mail);
-    } catch (MessagingException e) {
-      throw new MailSendException("메일 구성에 실패했습니다", e);
+      stagedFileClaimer.releaseHeld(userId, held);
+    } catch (RuntimeException e) {
+      log.warn("발송 실패 뒤 첨부 업로드 되살리기 실패 — 다시 올려야 함: {}", e.toString());
+      cause.addSuppressed(e);
     }
-    plan.transport().transmit(userId, account, message, mail);
+  }
 
-    // 2) 로컬 SENT 행(표시 원본).
-    long folderId = folderRepo.ensureFolder(accountId, SENT).id();
-    long localId = messageRepo.insertSent(accountId, folderId, mail);
-
-    // 3) IMAP 계정만 best-effort APPEND(Graph 는 saveToSentItems 로 서버가 자동 저장).
-    if (account.provider() == MailProvider.IMAP) {
-      appender.appendQuietly(account, userId, message);
+  /** 전송 성공 뒤 보류 업로드를 사용 완료(보류 그대로 지금 만료)로 — 실패해도 발송은 성공(보류 만료 뒤 스윕이 지운다). */
+  private void consumeUploads(long userId, List<StagedFile> held) {
+    if (held.isEmpty()) {
+      return;
     }
+    try {
+      stagedFileClaimer.consumeHeld(userId, held);
+    } catch (RuntimeException e) {
+      log.warn("메일은 보냈지만 첨부 업로드 정리 실패 — 보류 만료 뒤 정리됨: {}", e.toString());
+    }
+  }
 
-    return new SendResult(localId, messageId);
+  /**
+   * 전송 뒤 기록(SENT 행 + 첨부) — 따로 커밋되는 트랜잭션(호출자 트랜잭션이 있으면 세이브포인트)이라 실패해도 발송 결과를 뒤집지 않는다.
+   *
+   * @return 로컬 SENT 행 id, 기록 실패면 0
+   */
+  private long recordSent(long accountId, OutgoingMail mail) {
+    // 해시·암호화 파일 쓰기는 트랜잭션 밖(준비 실패도 발송 결과를 뒤집지 않는다), 트랜잭션 안에서는 행만.
+    List<PreparedAttachment> prepared;
+    try {
+      prepared = sentAttachmentRecorder.prepare(mail);
+    } catch (RuntimeException e) {
+      log.warn(
+          "메일은 보냈지만 보낸 메일 첨부 준비 실패 — 첨부 없이 기록 (account={}, messageId={}): {}",
+          accountId,
+          mail.messageId(),
+          e.toString());
+      prepared = List.of();
+    }
+    List<PreparedAttachment> parts = prepared;
+    TransactionTemplate recordTx = new TransactionTemplate(txManager);
+    recordTx.setPropagationBehavior(TransactionDefinition.PROPAGATION_NESTED);
+    try {
+      Long id =
+          recordTx.execute(
+              status -> {
+                long folderId = folderRepo.ensureFolder(accountId, SENT).id();
+                SentRow row = messageRepo.insertSentRow(accountId, folderId, mail);
+                sentAttachmentRecorder.record(row.messageId(), row.contentId(), parts);
+                return row.messageId();
+              });
+      return id == null ? 0L : id;
+    } catch (RuntimeException e) {
+      log.warn(
+          "메일은 보냈지만 보낸편지함 기록 실패 (account={}, messageId={}): {}",
+          accountId,
+          mail.messageId(),
+          e.toString());
+      return 0L;
+    }
   }
 
   /** 공급자에 맞는 전송기 선택. 미지원 공급자는 MailSendException 으로 조기 실패. */

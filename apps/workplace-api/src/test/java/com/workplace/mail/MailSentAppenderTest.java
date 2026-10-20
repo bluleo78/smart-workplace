@@ -12,6 +12,7 @@ import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.dto.MailProvider;
 import com.workplace.mail.dto.MailSecurity;
 import com.workplace.mail.repository.EmailAccountRepository;
+import com.workplace.mail.service.MailAccountCredentials;
 import com.workplace.mail.service.MailSentAppender;
 import jakarta.mail.Folder;
 import jakarta.mail.Message;
@@ -48,7 +49,8 @@ class MailSentAppenderTest {
 
   @BeforeEach
   void setUp() {
-    appender = new MailSentAppender(accountRepo, encryption);
+    // 자격증명 조회는 실제 MailAccountCredentials 에 목 repo/encryption 을 넣어 쓴다(단위 테스트라 트랜잭션 프록시 없음).
+    appender = new MailSentAppender(new MailAccountCredentials(accountRepo, encryption));
     // 비밀번호 스텁: findEncryptedPassword(1L, 1L) → "encrypted_pw" → decrypt → "pw"
     when(accountRepo.findEncryptedPassword(anyLong(), anyLong()))
         .thenReturn(Optional.of("encrypted_pw"));

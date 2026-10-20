@@ -1,9 +1,9 @@
 // 메일 작성창. 보내기 = useSendMail. MailComposeProvider 의 draft 가 있으면 렌더, 없으면 null.
 // - 데스크톱: Gmail식 우하단 작은 창. 최소화/크게 보기(WP-575)/닫기.
-// - 모바일: 다른 메일 앱처럼 처음부터 화면 전체 작성 화면(WP-583). 상단 바 [✕] 제목 … [➤ 보내기].
+// - 모바일: 다른 메일 앱처럼 처음부터 화면 전체 작성 화면(WP-583). 상단 바 [✕] 제목 … [📎 파일 첨부] [➤ 보내기].
+// - 첨부(WP-574): 📎(데스크톱은 보내기 옆, 모바일은 상단 바)·창 위로 끌어다 놓기 → 바로 올리고 본문 아래 칩으로 보인다.
 
-import axios from 'axios';
-import { Loader2, Maximize2, Minimize2, Minus, Send, Sparkles, X } from 'lucide-react';
+import { Loader2, Maximize2, Minimize2, Minus, Paperclip, Send, Sparkles, X } from 'lucide-react';
 import type { ReactNode, Ref } from 'react';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -13,6 +13,7 @@ import { inertPageArea } from '@/components/ai/aiPanelSurface';
 import { AI_SIDE_CENTER_CLASS, AI_SIDE_OVERLAY_CLASS } from '@/components/ai/useAiPanelAwareDialog';
 import { mobileBackButtonClass, mobileDetailBarClass, mobileDetailTitleClass } from '@/components/mobile/headerClass';
 import { HeaderIconAction } from '@/components/mobile/HeaderIconAction';
+import { isKeyboardEditable } from '@/components/mobile/useVisualViewport';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -23,27 +24,30 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { useMailAccounts } from '@/hooks/queries/useMailAccounts';
+import { useAiAvailable } from '@/hooks/useAiAvailable';
+import { useComposerFileDrop } from '@/hooks/useComposerFileDrop';
 import { useIsMobile } from '@/hooks/useIsMobile';
+import { useMailComposeAttachments } from '@/hooks/useMailComposeAttachments';
 import { useMailDarkHtml } from '@/hooks/useMailDarkHtml';
 import { useSheetHistory } from '@/hooks/useSheetHistory';
+import { extractApiError } from '@/lib/api-error';
 import { withComposerPreviewStyle } from '@/lib/composerPreviewHtml';
 import { isImeComposing } from '@/lib/imeKey';
+import { quoteInlineBytes, sendAttachmentIds } from '@/lib/mailComposeAttachments';
+import { parseRecipientInput } from '@/lib/mailRecipients';
 import { cn } from '@/lib/utils';
 
 import { useCoachDraft, useSendMail } from '../../hooks/queries/useMailMessages';
 import type { CoachingNote } from '../../types/mailMessage';
 import { SandboxedHtmlFrame } from '../SandboxedHtmlFrame';
+import { AiDraftBar, AiDraftChip, AiDraftPanel, AiDraftSkeleton, AiDraftToolbarButton } from './MailAiDraft';
+import { MailComposeAttachmentChips } from './MailComposeAttachmentChips';
 import { type ComposeDraft, useMailCompose } from './MailComposeContext';
+import { MailComposeDropOverlay } from './MailComposeDropOverlay';
 import { MailComposer, type MailComposerHandle, type MailComposerLayout } from './MailComposer';
 import { MailQuoteBlock } from './MailQuoteBlock';
-
-/** 주소 문자열("a@x, b@y")을 배열로 파싱. */
-function parseAddresses(raw: string): string[] {
-  return raw
-    .split(/[,;]/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
+import { useMailAiDraft } from './useMailAiDraft';
 
 /**
  * 작성창 껍데기 — 모바일 화면 전체 / 데스크톱 가운데 큰 창 / 데스크톱 우하단 작은 창. 에디터 배치(MailComposerLayout)와 같은 축.
@@ -63,15 +67,16 @@ const PANEL_CLASS: Record<MailComposerLayout, string> = {
 
 /** 본문 영역 — 모바일은 하단 고정 서식 버튼(44px+여백+홈 인디케이터 안전영역)만큼 아래 여백, 크게 보기는 남은 높이를 채움, 작은 창은 화면 높이 안으로 제한. */
 const BODY_CLASS: Record<MailComposerLayout, string> = {
-  mobile: 'flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-4 pb-[calc(3.5rem+env(safe-area-inset-bottom))]',
+  // 모바일 아래 여백은 서식 줄 높이(3.5rem)에 0.5rem 을 더해 마지막 첨부 칩과 서식 줄 사이를 띄운다.
+  mobile: 'flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-4 pb-[calc(4rem+env(safe-area-inset-bottom))]',
   fill: 'flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3',
   dock: 'flex max-h-[min(75vh,calc(100vh-3rem))] flex-col gap-2 overflow-y-auto p-3',
 };
 
 /** 모바일 상단 바 제목 — 전달(인용문이 전달용) / 회신(답장 대상 있음) / 새 메일. */
 function composeTitle(draft: ComposeDraft): string {
-  if (draft.quote?.variant === 'forward') return '전달';
-  if (draft.inReplyToMessageId != null) return '회신';
+  if (draft.mode === 'forward') return '전달';
+  if (draft.mode === 'reply') return '회신';
   return '새 메일';
 }
 
@@ -159,6 +164,16 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
   const lastCoachedRef = useRef<string | null>(null);
 
   const isMobile = useIsMobile();
+  // 새 메일 AI 초안(WP-576) — 새 메일에서만, 회신 AI 초안 버튼과 같은 조건(쓸 수 있는 비서 + 이 계정 AI 사용)일 때.
+  const aiAvailable = useAiAvailable();
+  const { data: accounts } = useMailAccounts();
+  const accountAiEnabled = accounts?.find((a) => a.id === draft?.accountId)?.aiEnabled ?? false;
+  const aiDraftEnabled = draft?.mode === 'new' && aiAvailable && accountAiEnabled;
+  const ai = useMailAiDraft(draft?.accountId);
+  const aiGenerating = ai.phase === 'generating';
+  // AI 초안을 넣은 뒤 본문 초점 요청(회차) — 생성 중 inert 가 풀린 렌더 뒤에 처리한다. 처리한 회차는 ref 로 기억한다.
+  const [aiFocusRequest, setAiFocusRequest] = useState(0);
+  const aiFocusDoneRef = useRef(0);
   // 데스크톱 창 크기 — 작은 창 / 최소화 / 크게 보기(WP-575). 하나의 상태라 최소화와 크게 보기가 동시에 걸리지 않는다.
   // 새 작성마다 작은 창으로 시작한다("항상 크게" 설정 없음). 모바일은 항상 화면 전체라 이 값을 쓰지 않는다.
   const [size, setSize] = useState<'dock' | 'min' | 'fill'>('dock');
@@ -167,6 +182,8 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
   const [bcc, setBcc] = useState('');
   const [showCcBcc, setShowCcBcc] = useState(false);
   const [subject, setSubject] = useState('');
+  // 지금 제목 — 늦게 도착한 AI 초안이 "응답 때의 제목"으로 판정하도록(생성 중 쓴 제목을 덮지 않게, WP-576) 화면 값과 함께 갱신한다.
+  const subjectRef = useRef('');
   // 본문은 ref 로 보관(매 키 입력마다 리렌더 방지).
   const bodyHtmlRef = useRef('');
   const bodyTextRef = useRef('');
@@ -175,6 +192,15 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
   const [bodyEdited, setBodyEdited] = useState(false);
   // 인용문을 지웠는지 — 기밀 문단을 빼고 회신하는 것도 쓴 내용으로 본다.
   const [quoteRemoved, setQuoteRemoved] = useState(false);
+  // 첨부(WP-574) — 📎·끌어다 놓기로 받은 파일을 바로 올린다. 창 전체가 놓을 자리라 패널에 dropProps 를 편다.
+  // 인용문이 다시 붙이는 본문 이미지도 한 통 합계(25MB)에 든다 — 인용문을 지우면 0.
+  const attachments = useMailComposeAttachments(quoteInlineBytes(draft?.quote));
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  // 최소화한 창에 놓아도 첨부된 것이 보이게 작은 창으로 펼친다.
+  const { isDragging, dropProps } = useComposerFileDrop((files) => {
+    setSize((v) => (v === 'min' ? 'dock' : v));
+    attachments.addFiles(files);
+  });
 
   // AI 전체화면은 페이지(main) 안에 그려져 크게 보기의 inert·배경에 함께 가려지므로, 그동안은 작은 창으로 보인다.
   // AI 를 닫거나 옆 패널로 돌리면 다시 크게 보기로 돌아온다(크기 상태는 그대로). 그동안 크게 보기 버튼은 끈다.
@@ -196,6 +222,11 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
   // 새 draft 가 열릴 때마다 폼 초기화. 인용문 제거(clearQuote)도 draft 객체를 바꾸지만 같은 작성이므로
   // instanceId 로만 판단한다 — 안 그러면 지우는 순간 받는사람·제목·크기가 처음 값으로 돌아가고 본문 ref 가 화면과 어긋난다.
   useEffect(() => {
+    // 올리던 첨부·진행 중인 AI 초안 요청은 닫힐 때도 새로 열릴 때도 멈추고 비운다 — 본체는 닫혀도 언마운트되지 않으므로(null 렌더)
+    // 닫힌 작성창에 늦게 도착한 초안이 반영되지 않게. 첨부는 draft 에서 매 렌더 끌어오지 않고 여기서 한 번 채운다
+    // — 인용문 지우기(clearQuote)가 draft 를 바꿔도 첨부가 되돌아가지 않게.
+    attachments.reset(draft?.attachments);
+    ai.reset();
     if (!draft) return;
     setSize('dock');
     setConfirmDiscard(false);
@@ -204,6 +235,7 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
     setBcc(draft.bcc.join(', '));
     setShowCcBcc(draft.cc.length > 0 || draft.bcc.length > 0);
     setSubject(draft.subject);
+    subjectRef.current = draft.subject;
     bodyHtmlRef.current = draft.initialHtml;
     bodyTextRef.current = '';
     // 새 draft 진입 시 탭/코칭 결과 초기화.
@@ -228,12 +260,22 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
   );
   const improvedPreviewHtml = useMailDarkHtml(styledImprovedHtml);
 
+  // AI 초안을 넣은 뒤 본문 끝에 초점(WP-576) — 렌더가 끝나 생성 중 inert 가 풀린 다음에 준다(그 전엔 focus 가 무시된다).
+  // 최소화로 숨어 있으면 옮기지 않는다 — 숨은 에디터는 초점을 받지 못하고, 페이지에서 하던 일을 빼앗지 않게. 요청은 처리한 것으로 친다.
+  const minimized = size === 'min' && !isMobile;
+  useEffect(() => {
+    if (aiGenerating || aiFocusRequest === aiFocusDoneRef.current) return;
+    aiFocusDoneRef.current = aiFocusRequest;
+    if (!minimized) composerRef.current?.focusEnd();
+  }, [aiFocusRequest, aiGenerating, minimized]);
+
   if (!draft) return null;
 
-  // 사용자가 쓴 내용이 있는가 — 본문·받는사람·참조·숨은참조·제목·인용문 중 하나라도 처음 채워진 값에서 바뀌었다.
+  // 사용자가 쓴 내용이 있는가 — 본문·받는사람·참조·숨은참조·제목·인용문·첨부 중 하나라도 처음 채워진 값에서 바뀌었다.
   const hasContent =
     bodyEdited ||
     quoteRemoved ||
+    attachments.changed ||
     to !== draft.to.join(', ') ||
     cc !== draft.cc.join(', ') ||
     bcc !== draft.bcc.join(', ') ||
@@ -241,6 +283,26 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
   // ✕·모바일 back 공통 — 쓴 내용이 있으면 버릴지 묻고, 없으면 바로 닫는다.
   const requestClose = () => (hasContent ? setConfirmDiscard(true) : closeCompose());
   const expandLabel = isExpanded ? '작게 보기' : '크게 보기';
+  // 올리는 중이거나 실패한 첨부가 있으면 보내지 않는다 — 빠진 채 나가지 않게. 이유는 칩 목록 위 한 줄(모바일 포함)과 데스크톱 보내기 툴팁으로 알린다.
+  const { block } = attachments;
+  const blockedReason = block?.reason ?? null;
+  // 보내기 잠금 — 발송 중, AI 초안 생성 중(반쯤 찬 본문이 나가지 않게, WP-576), 첨부 업로드 중·실패(WP-574).
+  const sendDisabled = send.isPending || aiGenerating || blockedReason != null;
+  const openFilePicker = () => fileInputRef.current?.click();
+  const attachmentChips = (
+    <MailComposeAttachmentChips
+      items={attachments.items}
+      totals={attachments.totals}
+      onRemove={attachments.remove}
+      onRetry={attachments.retry}
+      failedCount={attachments.failedCount}
+      block={block}
+      // 모바일은 잠금 이유를 상단 바 아래 상태 줄로 보이고, 칩은 본문 흐름 안에 다 펼친다.
+      // 데스크톱 아래 고정 줄은 칩을 한 줄로 접는다(고정 줄이 커져 본문을 덮지 않게).
+      showBlockLine={!isMobile}
+      collapsible={!isMobile}
+    />
+  );
 
   // "AI 검토" 진입 시 호출. 본문이 직전 코칭과 같으면 캐시 재사용, 다르면 새로 코칭.
   const runCoaching = () => {
@@ -256,12 +318,41 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
     });
   };
 
+  // 제목 변경 — 입력·AI 반영·되돌리기 모두 이 함수로 바꿔 subjectRef 가 화면과 어긋나지 않게 한다.
+  const changeSubject = (v: string) => {
+    subjectRef.current = v;
+    setSubject(v);
+  };
+
+  // [초안 만들기]·[다시 시도] — 지금 받는사람·참조·제목·본문을 문맥과 되돌리기 스냅숏으로 넘기고, 결과를 본문(과 빈 제목)에 넣는다.
+  const runAiDraft = async () => {
+    const result = await ai.generate(
+      { to: parseRecipientInput(to), cc: parseRecipientInput(cc), subject, html: bodyHtmlRef.current },
+      // 다른 칸(입력·편집 영역)에 쓰고 있었는가 — 늦게 도착한 AI 초안이 그 초점을 빼앗지 않게(키보드 판정과 같은 편집 요소 기준).
+      () => ({ subject: subjectRef.current, typingElsewhere: isKeyboardEditable(document.activeElement) }),
+    );
+    if (!result) return;
+    // 같은 틱에 넣어야 useMailAiDraft 가 이 변경을 AI 본문으로 받아 둔다. 에디터를 다시 만들지 않으므로
+    // 처음 본문(bodyBaselineRef)과 달라져 ✕ 때 버릴지 묻는다(AI 가 채운 본문도 쓴 내용).
+    // 초점은 여기서 주지 않는다 — 아직 래퍼가 inert(생성 중)라 무시된다. 렌더가 끝난 뒤 초점 effect(aiFocusRequest)가 준다.
+    composerRef.current?.setContent(result.html, { focus: false });
+    changeSubject(result.subject);
+    if (result.focusBody) setAiFocusRequest((n) => n + 1);
+  };
+  // [되돌리기] — 생성 직전 본문으로, 제목은 AI 가 넣은 그대로일 때만 되돌린다.
+  const undoAiDraft = () => {
+    const restored = ai.undo(subjectRef.current);
+    if (!restored) return;
+    composerRef.current?.setContent(restored.html);
+    changeSubject(restored.subject);
+  };
+
   const onSend = () => {
     send.mutate(
       {
-        to: parseAddresses(to),
-        cc: parseAddresses(cc),
-        bcc: parseAddresses(bcc),
+        to: parseRecipientInput(to),
+        cc: parseRecipientInput(cc),
+        bcc: parseRecipientInput(bcc),
         subject,
         // 인용문은 에디터 밖에 있으므로 발송 시점에 뒤에 이어붙인다(설계 §7).
         bodyHtml: bodyHtmlRef.current + (draft.quote?.html ?? ''),
@@ -272,6 +363,8 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
           attachmentId: attachment.id,
           contentId,
         })),
+        // WP-574 첨부 — 올린 파일은 업로드 id, 전달 원본은 받은 메일 첨부 id. 서버 거절(합계 초과·만료 등)은 useSendMail 토스트로 보인다.
+        ...sendAttachmentIds(attachments.items),
       },
       { onSuccess: () => closeCompose() },
     );
@@ -281,7 +374,8 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
     <button
       type="button"
       onClick={() => setShowCcBcc(true)}
-      className="shrink-0 text-xs text-muted-foreground hover:text-foreground"
+      // 터치에선 44px 높이 — 음수 세로 여백으로 줄 높이는 그대로 둔다(칸 줄 py-3 안에서 커진다).
+      className="shrink-0 text-xs text-muted-foreground hover:text-foreground pointer-coarse:-my-3 pointer-coarse:min-h-11 pointer-coarse:px-1"
     >
       참조/숨은참조
     </button>
@@ -296,7 +390,7 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
         <AlertDialogContent data-testid="mail-compose-discard-dialog">
           <AlertDialogHeader>
             <AlertDialogTitle>작성 중인 메일을 버릴까요?</AlertDialogTitle>
-            <AlertDialogDescription>입력한 받는사람·제목·본문이 사라집니다.</AlertDialogDescription>
+            <AlertDialogDescription>입력한 받는사람·제목·본문·첨부가 사라집니다.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel data-testid="mail-compose-discard-keep">계속 작성</AlertDialogCancel>
@@ -324,6 +418,7 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
         aria-labelledby="mail-compose-dock-title"
         tabIndex={isExpanded ? -1 : undefined}
         className={PANEL_CLASS[layout]}
+        {...dropProps}
         onKeyDown={(e) => {
           // 크게 보기 중 Esc → 작은 창으로. 링크 삽입 창(포털)의 Esc 는 React 트리로 여기까지 올라오므로
           // 실제 DOM 이 작성창 안일 때만 처리해 링크 창만 닫히게 한다. 한글 조합 중 Esc 는 조합 취소라 건드리지 않는다.
@@ -333,6 +428,19 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
           setSize('dock');
         }}
       >
+        <MailComposeDropOverlay active={isDragging} />
+        {/* 📎 이 여는 파일 선택 — 같은 파일을 다시 고를 수 있게 고른 뒤 값을 비운다. */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          hidden
+          data-testid="mail-compose-file-input"
+          onChange={(e) => {
+            attachments.addFiles(Array.from(e.target.files ?? []));
+            e.target.value = '';
+          }}
+        />
         {isMobile ? (
           // 모바일 상단 바 — 메일 상세 헤더와 같은 56px 규격. 보내기를 위에 둬 키보드가 올라와도 가리지 않는다.
           <div className={mobileDetailBarClass}>
@@ -348,7 +456,12 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
             <h2 id="mail-compose-dock-title" className={mobileDetailTitleClass}>
               {composeTitle(draft)}
             </h2>
-            <HeaderIconAction label="보내기" onClick={onSend} disabled={send.isPending} data-testid="mail-compose-send">
+            {/* 📎 — 보내기 왼쪽. 하단 서식 줄은 글자 서식만 두고, 첨부는 메일 앱들처럼 상단 바에 둔다. */}
+            {/* 곁 동작이라 보내기(주 색)보다 덜 눈에 띄게 기본 글자색. */}
+            <HeaderIconAction label="파일 첨부" tone="default" onClick={openFilePicker} data-testid="mail-compose-attach">
+              <Paperclip />
+            </HeaderIconAction>
+            <HeaderIconAction label="보내기" onClick={onSend} disabled={sendDisabled} data-testid="mail-compose-send">
               {send.isPending ? <Loader2 className="animate-spin" /> : <Send />}
             </HeaderIconAction>
           </div>
@@ -393,47 +506,90 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
           </div>
         )}
 
-        {/* 모바일엔 최소화가 없다 — 데스크톱에서 최소화한 채 모바일 폭으로 줄어도 본문은 보인다. */}
-        {(size !== 'min' || isMobile) && (
-          <div className={BODY_CLASS[layout]}>
-            <FieldRow label="받는사람" mobile={isMobile} testId="mail-compose-to" value={to} onChange={setTo} inputRef={toInputRef} trailing={ccBccToggle} />
-            {showCcBcc && (
-              <>
-                <FieldRow label="참조" mobile={isMobile} testId="mail-compose-cc" value={cc} onChange={setCc} />
-                <FieldRow label="숨은참조" mobile={isMobile} testId="mail-compose-bcc" value={bcc} onChange={setBcc} />
-              </>
+        {/* 모바일 잠금 이유 상태 줄 — 상단 바(보내기) 바로 아래. 보내기가 왜 꺼졌는지 보내기 가까이에서 알린다(데스크톱은 칩 목록 위 줄·보내기 툴팁).
+            낭독은 칩 목록의 live 영역이 하므로 aria-hidden. */}
+        {isMobile && block && (
+          <div
+            aria-hidden
+            data-testid="mail-compose-send-blocked"
+            className={cn(
+              'shrink-0 border-b px-4 py-1.5 text-xs',
+              block.tone === 'error' ? 'bg-destructive-subtle text-destructive-text' : 'bg-muted text-muted-foreground',
             )}
-            <FieldRow label="제목" mobile={isMobile} testId="mail-compose-subject" value={subject} onChange={setSubject} />
-            {/* 작성/AI 검토 탭 */}
-            <div className="flex border-b border-border text-sm" data-testid="mail-compose-tabs">
-              <button
-                type="button"
-                className={`flex-1 py-1.5 font-medium ${tab === 'compose' ? 'border-b-2 border-primary text-primary' : 'text-muted-foreground'}`}
-                onClick={() => setTab('compose')}
-              >
-                작성
-              </button>
-              <button
-                type="button"
-                data-testid="mail-review-tab"
-                // 코칭 payload 에는 인용문이 실리지 않으므로(§6) 본문이 비어 있으면 검토 대상이 없다
-                disabled={!hasBody}
-                className={`flex-1 py-1.5 font-medium disabled:opacity-50 ${tab === 'review' ? 'border-b-2 border-primary text-primary' : 'text-muted-foreground'}`}
-                onClick={() => {
-                  setTab('review');
-                  runCoaching();
-                }}
-              >
-                {/* 장식 기호 → lucide 아이콘으로 교체 */}
-                <span className="inline-flex items-center justify-center gap-1">
-                  <Sparkles className="h-3 w-3" />
-                  AI 검토
-                </span>
-              </button>
-            </div>
+          >
+            {block.reason}
+          </div>
+        )}
+        {/* 모바일엔 최소화가 없다 — 데스크톱에서 최소화한 채 모바일 폭으로 줄어도 본문은 보인다.
+            최소화는 숨기기만 한다(언마운트 금지) — 에디터가 다시 만들어지면 쓰던 본문·진행 중 AI 초안 반영·되돌리기 기준을 잃는다(WP-576).
+            display:none 이라 숨은 동안엔 초점·단축키가 안으로 가지 않는다. */}
+        <div className={cn(BODY_CLASS[layout], minimized && 'hidden')}>
+          <FieldRow label="받는사람" mobile={isMobile} testId="mail-compose-to" value={to} onChange={setTo} inputRef={toInputRef} trailing={ccBccToggle} />
+          {showCcBcc && (
+            <>
+              <FieldRow label="참조" mobile={isMobile} testId="mail-compose-cc" value={cc} onChange={setCc} />
+              <FieldRow label="숨은참조" mobile={isMobile} testId="mail-compose-bcc" value={bcc} onChange={setBcc} />
+            </>
+          )}
+          <FieldRow label="제목" mobile={isMobile} testId="mail-compose-subject" value={subject} onChange={changeSubject} />
+          {/* 작성/AI 검토 탭 */}
+          <div className="flex border-b border-border text-sm" data-testid="mail-compose-tabs">
+            <button
+              type="button"
+              className={`flex-1 py-1.5 font-medium pointer-coarse:min-h-11 ${tab === 'compose' ? 'border-b-2 border-primary text-primary' : 'text-muted-foreground'}`}
+              onClick={() => setTab('compose')}
+            >
+              작성
+            </button>
+            <button
+              type="button"
+              data-testid="mail-review-tab"
+              // 코칭 payload 에는 인용문이 실리지 않으므로(§6) 본문이 비어 있으면 검토 대상이 없다
+              disabled={!hasBody || aiGenerating}
+              className={`flex-1 py-1.5 font-medium pointer-coarse:min-h-11 disabled:opacity-50 ${tab === 'review' ? 'border-b-2 border-primary text-primary' : 'text-muted-foreground'}`}
+              onClick={() => {
+                setTab('review');
+                runCoaching();
+              }}
+            >
+              {/* 장식 기호 → lucide 아이콘으로 교체 */}
+              <span className="inline-flex items-center justify-center gap-1">
+                <Sparkles className="h-3 w-3" />
+                AI 검토
+              </span>
+            </button>
+          </div>
 
-            {/* 본문(작성 탭) — review 일 때 숨김(언마운트 금지). 크게 보기는 에디터가 남은 높이를 채우도록 세로로 늘린다. */}
-            <div className={cn(isExpanded && 'flex flex-1 flex-col', tab === 'review' && 'hidden')}>
+          {/* 본문(작성 탭) — review 일 때 숨김(언마운트 금지). 크게 보기는 에디터가 남은 높이를 채우도록 세로로 늘린다. */}
+          <div className={cn(isExpanded && 'flex flex-1 flex-col', tab === 'review' && 'hidden')}>
+            {/* AI 초안(WP-576) — 제목 줄 아래·본문 바로 위. 패널이 열려 있으면 패널, 끝난 뒤 손대지 않았으면 얇은 줄. */}
+            {/* 실패 패널은 계정 AI 가 방금 꺼져 진입점이 사라져도(계정 목록 재조회) 문구를 읽고 닫을 수 있게 남긴다. */}
+            {draft.mode === 'new' && ai.phase !== 'closed' && (aiDraftEnabled || ai.phase === 'error') && (
+              <div className="mb-2">
+                <AiDraftPanel
+                  phase={ai.phase}
+                  instruction={ai.instruction}
+                  onInstructionChange={ai.setInstruction}
+                  hasBody={hasBody}
+                  error={ai.error}
+                  onGenerate={runAiDraft}
+                  onCancel={ai.close}
+                  onStop={ai.stop}
+                  touch={isMobile}
+                />
+              </div>
+            )}
+            {aiDraftEnabled && ai.phase === 'closed' && ai.filled && (
+              <div className="mb-1.5">
+                <AiDraftBar onRewrite={ai.open} onUndo={undoAiDraft} />
+              </div>
+            )}
+            {/* 생성 중 본문은 손댈 수 없게(inert) 흐리게 — 빈 본문이면 글줄 스켈레톤을 겹친다. */}
+            <div
+              inert={aiGenerating}
+              aria-busy={aiGenerating || undefined}
+              className={cn(isExpanded && 'flex flex-1 flex-col', aiGenerating && 'opacity-50 transition-opacity')}
+            >
               <MailComposer
                 key={`composer-${draft.instanceId}`}
                 ref={composerRef}
@@ -445,123 +601,166 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
                   setHasBody(text.trim().length > 0);
                   if (initial) bodyBaselineRef.current = html;
                   setBodyEdited(html !== bodyBaselineRef.current);
+                  ai.noteBodyChange(html);
                 }}
+                toolbarEnd={
+                  aiDraftEnabled && (
+                    <AiDraftToolbarButton
+                      touch={isMobile}
+                      // 패널이나 「AI 초안이에요」 줄이 이미 AI 표식을 보이고 있으면 버튼엔 표식을 빼고 기능만(디자인 시스템 §7.2).
+                      marked={ai.phase === 'closed' && !ai.filled}
+                      expanded={ai.phase !== 'closed'}
+                      onClick={ai.phase === 'closed' ? ai.open : ai.close}
+                    />
+                  )
+                }
+                bodyOverlay={
+                  aiDraftEnabled &&
+                  (aiGenerating && !hasBody ? (
+                    <AiDraftSkeleton />
+                  ) : ai.phase === 'closed' && !hasBody && !ai.filled ? (
+                    <div className="flex justify-end">
+                      <AiDraftChip onClick={ai.open} />
+                    </div>
+                  ) : null)
+                }
               />
-              {/* 인용문 — 에디터 밖(읽기 전용). AI 개선본 교체 대상이 아니므로 원문이 보존된다. */}
-              {draft.quote && (
-                <MailQuoteBlock
-                  key={`quote-${draft.instanceId}`}
-                  quoteHtml={draft.quote.html}
-                  meta={draft.quote.meta}
-                  variant={draft.quote.variant}
-                  onRemove={() => {
-                    clearQuote();
-                    setQuoteRemoved(true);
-                  }}
-                  inlineImages={draft.quote.inlineImages}
-                />
+            </div>
+            {/* 인용문 — 에디터 밖(읽기 전용). AI 개선본 교체 대상이 아니므로 원문이 보존된다. */}
+            {draft.quote && (
+              <MailQuoteBlock
+                key={`quote-${draft.instanceId}`}
+                quoteHtml={draft.quote.html}
+                meta={draft.quote.meta}
+                variant={draft.quote.variant}
+                onRemove={() => {
+                  clearQuote();
+                  setQuoteRemoved(true);
+                }}
+                inlineImages={draft.quote.inlineImages}
+              />
+            )}
+          </div>
+
+          {/* 첨부 칩(모바일) — 본문(·인용문) 아래 흐름 안. 본문 영역 아래 여백(BODY_CLASS)이 하단 서식 줄 높이만큼 있어 마지막 줄이 가리지 않는다.
+              데스크톱은 아래 고정 줄에서 보내기와 함께 보인다. AI 검토 탭에서도 보여 무엇이 함께 나가는지 놓치지 않게 한다. */}
+          {isMobile && attachmentChips}
+
+          {/* 코칭 패널(검토 탭) — AI 생성물이므로 AiContent 아우라로 감쌈 */}
+          {tab === 'review' && (
+            <AiContent label="AI 검토" data-testid="mail-coaching-panel">
+            <div className="flex flex-col gap-2 text-sm">
+              {coach.isPending && (
+                <p className="text-muted-foreground" data-testid="mail-coaching-loading">
+                  AI가 초안을 검토하는 중…
+                </p>
+              )}
+              {coach.isError && (
+                // 503(AI off·비서 미설정) 등 서버가 친화적 메시지를 내려주면 그 메시지를 우선 표시(오류 코드 문자열은 보이지 않는다).
+                // 본문이 없으면 일반 재시도 안내로 폴백.
+                <p className="text-destructive" data-testid="mail-coaching-error">
+                  {extractApiError(coach.error, 'AI 검토에 실패했어요. 다시 시도해주세요.')}
+                </p>
+              )}
+              {coach.data && (
+                <>
+                  <div className="flex flex-col gap-1.5">
+                    <span className="text-xs font-semibold uppercase text-muted-foreground">전체 코칭</span>
+                    {coach.data.notes.length === 0 ? (
+                      <p className="text-muted-foreground" data-testid="mail-coaching-clean">
+                        특별히 고칠 곳이 없어요. 보내셔도 좋아요.
+                      </p>
+                    ) : (
+                      coach.data.notes.map((n: CoachingNote, i) => (
+                        <div key={i} className="flex gap-2" data-testid="mail-coaching-note">
+                          <span className="flex-none rounded bg-muted px-1.5 text-xs font-bold text-muted-foreground">
+                            {dimensionLabel(n.dimension)}
+                          </span>
+                          <span className="text-foreground">{n.message}</span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                  {improvedPreviewHtml && (
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-xs font-semibold uppercase text-muted-foreground">다듬은 개선본</span>
+                      {/* LLM 생성 HTML 은 공용 격리 iframe(SandboxedHtmlFrame, sandbox="")으로 렌더해 XSS 방지. */}
+                      <SandboxedHtmlFrame
+                        data-testid="mail-coaching-improved"
+                        title="다듬은 개선본"
+                        html={improvedPreviewHtml}
+                        // 에디터 입력칸과 같은 테두리·배경.
+                        className="min-h-[8rem] w-full rounded-md border border-input bg-background"
+                      />
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          data-testid="mail-coaching-apply"
+                          className="rounded bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground"
+                          onClick={() => {
+                            // 개선본 교체 → 본문이 바뀌므로 코칭 결과는 stale. reset 하고 다음 검토 진입 시 재실행.
+                            composerRef.current?.setContent(coach.data!.improvedBodyHtml);
+                            coach.reset();
+                            lastCoachedRef.current = null;
+                            setTab('compose');
+                          }}
+                        >
+                          개선본으로 교체
+                        </button>
+                        <button
+                          type="button"
+                          data-testid="mail-coaching-keep"
+                          className="rounded border border-border px-3 py-1 text-xs font-medium"
+                          onClick={() => setTab('compose')}
+                        >
+                          그대로 두기
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </div>
+            </AiContent>
+          )}
 
-            {/* 코칭 패널(검토 탭) — AI 생성물이므로 AiContent 아우라로 감쌈 */}
-            {tab === 'review' && (
-              <AiContent label="AI 검토" data-testid="mail-coaching-panel">
-              <div className="flex flex-col gap-2 text-sm">
-                {coach.isPending && (
-                  <p className="text-muted-foreground" data-testid="mail-coaching-loading">
-                    AI가 초안을 검토하는 중…
-                  </p>
-                )}
-                {coach.isError && (
-                  // 503(AI off·비서 미설정) 등 서버가 친화적 메시지를 내려주면 그 메시지를 우선 표시.
-                  // Axios 에러가 아니거나 response.data.message 가 없으면 일반 재시도 안내로 폴백.
-                  <p className="text-destructive" data-testid="mail-coaching-error">
-                    {axios.isAxiosError(coach.error) &&
-                    typeof (coach.error.response?.data as { message?: string })?.message === 'string' &&
-                    (coach.error.response!.data as { message: string }).message
-                      ? (coach.error.response!.data as { message: string }).message
-                      : 'AI 검토에 실패했어요. 다시 시도해주세요.'}
-                  </p>
-                )}
-                {coach.data && (
-                  <>
-                    <div className="flex flex-col gap-1.5">
-                      <span className="text-xs font-semibold uppercase text-muted-foreground">전체 코칭</span>
-                      {coach.data.notes.length === 0 ? (
-                        <p className="text-muted-foreground" data-testid="mail-coaching-clean">
-                          특별히 고칠 곳이 없어요. 보내셔도 좋아요.
-                        </p>
-                      ) : (
-                        coach.data.notes.map((n: CoachingNote, i) => (
-                          <div key={i} className="flex gap-2" data-testid="mail-coaching-note">
-                            <span className="flex-none rounded bg-muted px-1.5 text-xs font-bold text-muted-foreground">
-                              {dimensionLabel(n.dimension)}
-                            </span>
-                            <span className="text-foreground">{n.message}</span>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                    {improvedPreviewHtml && (
-                      <div className="flex flex-col gap-1.5">
-                        <span className="text-xs font-semibold uppercase text-muted-foreground">다듬은 개선본</span>
-                        {/* LLM 생성 HTML 은 공용 격리 iframe(SandboxedHtmlFrame, sandbox="")으로 렌더해 XSS 방지. */}
-                        <SandboxedHtmlFrame
-                          data-testid="mail-coaching-improved"
-                          title="다듬은 개선본"
-                          html={improvedPreviewHtml}
-                          // 에디터 입력칸과 같은 테두리·배경.
-                          className="min-h-[8rem] w-full rounded-md border border-input bg-background"
-                        />
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            data-testid="mail-coaching-apply"
-                            className="rounded bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground"
-                            onClick={() => {
-                              // 개선본 교체 → 본문이 바뀌므로 코칭 결과는 stale. reset 하고 다음 검토 진입 시 재실행.
-                              composerRef.current?.setContent(coach.data!.improvedBodyHtml);
-                              coach.reset();
-                              lastCoachedRef.current = null;
-                              setTab('compose');
-                            }}
-                          >
-                            개선본으로 교체
-                          </button>
-                          <button
-                            type="button"
-                            data-testid="mail-coaching-keep"
-                            className="rounded border border-border px-3 py-1 text-xs font-medium"
-                            onClick={() => setTab('compose')}
-                          >
-                            그대로 두기
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-              </AiContent>
-            )}
-
-            {/* 액션 — 모바일은 보내기가 상단 바에 있다. 크게 보기는 본문이 길어 스크롤돼도 보내기가 창 아래에 남는다. */}
-            {!isMobile && (
-              <div className={cn('flex justify-end pt-1', isExpanded && 'sticky bottom-0 bg-background')}>
+          {/* 아래 고정 줄(데스크톱) — 첨부 칩 + 📎·보내기. 작은 창·크게 보기 모두 본문(긴 전달 인용 등)이 스크롤돼도 창 아래에 남는다.
+              본문 영역 패딩(p-3) 아래까지 덮어 그 틈으로 스크롤되는 글이 비치지 않게 하고, 위 경계선으로 스크롤되는 본문과 나눈다. 모바일은 보내기가 상단 바에 있다. */}
+          {!isMobile && (
+            <div
+              data-testid="mail-compose-footer"
+              // -bottom-3 — sticky 는 스크롤 영역 padding(p-3) 안쪽 끝에 붙으므로 그만큼 내려 창 아래끝에 맞춘다
+              // (bottom-0 이면 12px 떠서 본문과 겹치고 아래 틈으로 뒤 글이 비쳤다).
+              className="sticky -bottom-3 z-10 -mx-3 -mb-3 flex flex-col gap-2 border-t bg-background px-3 pt-2 pb-3"
+            >
+              {attachmentChips}
+              <div className="flex items-center justify-end gap-1">
+                {/* 📎 — 보내기 바로 옆(Gmail 처럼 보내기와 한 묶음). 보내기가 오른쪽 끝이라 그 왼쪽에 둔다. */}
+                <button
+                  type="button"
+                  aria-label="파일 첨부"
+                  title="파일 첨부"
+                  data-testid="mail-compose-attach"
+                  onClick={openFilePicker}
+                  className="flex size-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                >
+                  <Paperclip className="size-4" />
+                </button>
                 <button
                   type="button"
                   data-testid="mail-compose-send"
                   onClick={onSend}
-                  disabled={send.isPending}
+                  disabled={sendDisabled}
+                  title={blockedReason ?? undefined}
                   className="flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
                 >
                   <Send className="h-4 w-4" />
                   {send.isPending ? '전송 중…' : '보내기'}
                 </button>
               </div>
-            )}
-          </div>
-        )}
+            </div>
+          )}
+        </div>
       </div>
     </>
   );

@@ -3,14 +3,19 @@ import { toast } from 'sonner';
 
 import type { ErrorResponse } from '@/types/auth';
 
+/** 도메인 오류 코드 모양(AI_DISABLED·AI_MEMORY_FULL 등) — 필드 검증 문구(한국어 문장)와 구분한다. */
+const DOMAIN_ERROR_CODE = /^[A-Z][A-Z0-9_]*$/;
+
 /**
  * ErrorResponse에서 사용자에게 표시할 메시지를 추출한다.
  * errors 필드(필드별 검증 오류)가 있으면 첫 번째 값을 우선 반환하여
  * 한국어 검증 메시지가 그대로 토스트에 뜨도록 한다.
+ * 단 errors 가 도메인 오류 코드(errors.code — 예: AI_DISABLED)를 싣고 있으면 그 코드 문자열 대신 message 를 쓴다.
  * errors 없으면 최상위 message, 그것도 없으면 fallback 사용.
  */
 function pickBestMessage(errData: ErrorResponse, fallback: string): string {
-  if (errData.errors) {
+  const code = errData.errors?.code;
+  if (errData.errors && !(typeof code === 'string' && DOMAIN_ERROR_CODE.test(code))) {
     const firstFieldMsg = Object.values(errData.errors)[0];
     if (firstFieldMsg) return firstFieldMsg;
   }

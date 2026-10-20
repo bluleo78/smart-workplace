@@ -7,6 +7,7 @@ import com.workplace.mail.dto.AttachmentCacheUsage;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import org.jooq.impl.DSL;
@@ -19,23 +20,37 @@ public class MailAttachmentBlobRepository {
 
   private final DSLContext dsl;
 
-  /** blob 참조(id + 디스크 file_ref). */
-  public record BlobRef(long id, String fileRef) {}
+  /** blob 참조(id + 디스크 file_ref + 평문 크기 — WP-574 발송이 받기 전에 합계 상한을 본다). */
+  public record BlobRef(long id, String fileRef, long sizeBytes) {}
 
   /** 테넌트 GUC 스코프에서 hash 로 blob 조회. evict 됐으면 empty. */
   public Optional<BlobRef> findByHash(String contentHash) {
-    return dsl.select(MAIL_ATTACHMENT_BLOB.ID, MAIL_ATTACHMENT_BLOB.FILE_REF)
+    return dsl.select(
+            MAIL_ATTACHMENT_BLOB.ID, MAIL_ATTACHMENT_BLOB.FILE_REF, MAIL_ATTACHMENT_BLOB.SIZE_BYTES)
         .from(MAIL_ATTACHMENT_BLOB)
         .where(MAIL_ATTACHMENT_BLOB.CONTENT_HASH.eq(contentHash))
-        .fetchOptional(r -> new BlobRef(r.value1(), r.value2()));
+        .fetchOptional(r -> new BlobRef(r.value1(), r.value2(), r.value3()));
+  }
+
+  /** 이 해시들 중 blob 행이 있는 것(WP-574 보낸 메일 첨부 — 없는 것만 트랜잭션 밖에서 파일을 쓴다). */
+  public Set<String> existingHashes(Collection<String> contentHashes) {
+    if (contentHashes.isEmpty()) {
+      return Set.of();
+    }
+    return dsl.select(MAIL_ATTACHMENT_BLOB.CONTENT_HASH)
+        .from(MAIL_ATTACHMENT_BLOB)
+        .where(MAIL_ATTACHMENT_BLOB.CONTENT_HASH.in(contentHashes))
+        .fetchSet(MAIL_ATTACHMENT_BLOB.CONTENT_HASH);
   }
 
   /** 캐시 hit 시 슬라이딩 TTL 갱신. */
-  public void touch(String contentHash) {
-    dsl.update(MAIL_ATTACHMENT_BLOB)
-        .set(MAIL_ATTACHMENT_BLOB.LAST_ACCESSED_AT, DSL.currentOffsetDateTime())
-        .where(MAIL_ATTACHMENT_BLOB.CONTENT_HASH.eq(contentHash))
-        .execute();
+  public boolean touch(String contentHash) {
+    // 갱신 행 수로 존재 여부를 함께 돌려준다(WP-574) — 존재 확인과 TTL 갱신을 한 문장으로 해 그 사이 GC 퇴거 경합을 줄인다.
+    return dsl.update(MAIL_ATTACHMENT_BLOB)
+            .set(MAIL_ATTACHMENT_BLOB.LAST_ACCESSED_AT, DSL.currentOffsetDateTime())
+            .where(MAIL_ATTACHMENT_BLOB.CONTENT_HASH.eq(contentHash))
+            .execute()
+        > 0;
   }
 
   /**

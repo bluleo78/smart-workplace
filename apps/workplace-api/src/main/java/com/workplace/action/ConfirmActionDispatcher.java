@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.workplace.action.dto.MailSendActionParams;
 import com.workplace.calendar.dto.CalendarEventRequest;
 import com.workplace.calendar.dto.EditScope;
 import com.workplace.calendar.dto.InviteAttendeesRequest;
@@ -430,10 +431,14 @@ public class ConfirmActionDispatcher {
    */
   private PreparedAction prepareMailSend(long callerId, JsonNode params) {
     long accountId = requireLong(params, "accountId");
-    // accountId 를 제거한 복사본으로 MailSendRequest 매핑(레코드에 없는 필드 → unknown-property 오류 방지).
+    // accountId 를 제거한 복사본으로 매핑(레코드에 없는 필드 → unknown-property 오류 방지).
     ObjectNode paramsWithoutAccountId = (ObjectNode) params.deepCopy();
     paramsWithoutAccountId.remove("accountId");
-    MailSendRequest req = mapAndValidate(paramsWithoutAccountId, MailSendRequest.class);
+    // WP-574: 웹 발송 요청이 아닌 확인카드 전용 DTO 로 매핑 — 첨부 필드(attachmentIds·forwardAttachmentIds)는 모르는 필드로
+    // 거절된다.
+    // 확인카드가 첨부를 보여 주지 않아, 메일에 심은 지시로 AI 가 민감한 첨부를 몰래 붙여 내보내는 길을 막는다.
+    MailSendRequest req =
+        mapAndValidate(paramsWithoutAccountId, MailSendActionParams.class).toRequest();
     return new PreparedAction(
         () -> mailComposeService.validateSendable(callerId, accountId, req),
         () -> mailComposeService.send(callerId, accountId, req));

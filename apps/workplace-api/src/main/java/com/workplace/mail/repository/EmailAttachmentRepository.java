@@ -100,11 +100,28 @@ public class EmailAttachmentRepository {
    *
    * <p>Graph 첨부의 경우 provider_attachment_id 도 저장한다(IMAP 은 null). filename/content_type/size_bytes 등은
    * content_attachment 에 기록하며 email_attachment 에는 설정하지 않는다(V101 에서 컬럼 제거 예정).
+   *
+   * @return 링크한 content_attachment id(보낸 메일 첨부 기록이 content_hash 를 채울 때 쓴다 — WP-574)
    */
-  public void insert(long messageId, long contentId, int ordinal, ParsedAttachment a) {
+  public long insert(long messageId, long contentId, int ordinal, ParsedAttachment a) {
+    return insert(messageId, contentId, ordinal, a, null);
+  }
+
+  /**
+   * {@link #insert(long, long, int, ParsedAttachment)} 에 content_hash(첨부 캐시 키)를 manifest 생성과 함께 넣는
+   * 형태(WP-574 보낸 메일 첨부 — 바이트를 이미 갖고 있어 해시를 안다). null 이면 기존처럼 첫 다운로드 때 채운다.
+   */
+  public long insert(
+      long messageId, long contentId, int ordinal, ParsedAttachment a, String contentHash) {
     long contentAttachmentId =
         contentAttachmentRepo.findOrCreate(
-            contentId, ordinal, a.filename(), a.contentType(), a.sizeBytes(), a.contentId());
+            contentId,
+            ordinal,
+            a.filename(),
+            a.contentType(),
+            a.sizeBytes(),
+            a.contentId(),
+            contentHash);
     // find-or-create 는 기존 공유 행을 갱신하지 않는다 — 규칙 도입(WP-68) 전에 만들어진 행도 Content-ID 를 얻도록 보강
     if (a.contentId() != null) {
       contentAttachmentRepo.setMimeContentIdIfNull(contentAttachmentId, a.contentId());
@@ -115,6 +132,7 @@ public class EmailAttachmentRepository {
         .set(EMAIL_ATTACHMENT.CONTENT_ATTACHMENT_ID, contentAttachmentId)
         .set(EMAIL_ATTACHMENT.PROVIDER_ATTACHMENT_ID, a.providerAttachmentId())
         .execute();
+    return contentAttachmentId;
   }
 
   /**
