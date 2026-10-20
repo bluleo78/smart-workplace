@@ -8,9 +8,9 @@ import {
   type WikiTableSnapshot,
 } from './wikiTableCommands'
 
-const inBody: WikiTableSnapshot = { inTable: true, inHeaderRow: false, columnCount: 3, rowCount: 3 }
-const inHeader: WikiTableSnapshot = { inTable: true, inHeaderRow: true, columnCount: 3, rowCount: 3 }
-const outside: WikiTableSnapshot = { inTable: false, inHeaderRow: false, columnCount: 0, rowCount: 0 }
+const inBody: WikiTableSnapshot = { inTable: true, inHeaderRow: false, columnCount: 3, rowCount: 3, columnAlign: null }
+const inHeader: WikiTableSnapshot = { inTable: true, inHeaderRow: true, columnCount: 3, rowCount: 3, columnAlign: null }
+const outside: WikiTableSnapshot = { inTable: false, inHeaderRow: false, columnCount: 0, rowCount: 0, columnAlign: null }
 
 describe('isTableCommandEnabled', () => {
   it('표 밖에서는 모든 명령이 비활성', () => {
@@ -38,7 +38,7 @@ describe('isTableCommandEnabled', () => {
   })
 
   it('헤더 행만 남은 표에서도 행 추가는 가능', () => {
-    const headerOnly: WikiTableSnapshot = { inTable: true, inHeaderRow: true, columnCount: 2, rowCount: 1 }
+    const headerOnly: WikiTableSnapshot = { inTable: true, inHeaderRow: true, columnCount: 2, rowCount: 1, columnAlign: null }
     expect(isTableCommandEnabled('addRowAfter', headerOnly)).toBe(true)
     expect(isTableCommandEnabled('deleteRow', headerOnly)).toBe(false)
   })

@@ -3,11 +3,17 @@
 //
 // 명령 집합이 7개뿐인 이유는 마크다운 직렬화 제약이다. tiptap-markdown 은 (1) 첫 행 전체가
 // 헤더이고 (2) 병합 셀이 없고 (3) 셀마다 문단이 1개일 때만 GFM 표로 저장하고, 하나라도
-// 어기면 표 전체를 raw HTML 로 뱉는다. 정렬 마커(`:---`)는 아예 직렬화되지 않는다.
-// 따라서 정렬·병합·헤더 토글은 "눌리는데 저장이 안 되는" 기능이 되므로 넣지 않는다.
+// 어기면 표 전체를 raw HTML 로 뱉는다. 따라서 병합·헤더 토글은 "눌리는데 저장이 안 되는"
+// 기능이 되므로 넣지 않는다. 가로 정렬은 직렬화기가 GFM 열 정렬 마커(`:---:`)를 쓰도록 바꿔
+// 열 단위로만 제공한다(WP-584, 아래 WIKI_TABLE_ALIGNS — 셀 단위는 마크다운으로 저장할 수 없다).
 // 행/열 이동은 @tiptap/extension-table 에 명령 자체가 없다.
+import type { WikiCellAlign } from '@smart-workplace/wiki-editor-schema'
 import type { Editor } from '@tiptap/core'
+import { isInTable, selectedRect } from '@tiptap/pm/tables'
 import {
+  AlignCenter,
+  AlignLeft,
+  AlignRight,
   ArrowDownToLine,
   ArrowLeftToLine,
   ArrowRightToLine,
@@ -49,12 +55,32 @@ export const WIKI_TABLE_COMMANDS: readonly WikiTableCommand[] = [
   { key: 'deleteTable', label: '표 삭제', icon: Trash2, destructive: true },
 ] as const
 
+/** 툴바·우클릭 메뉴 묶음 — 삽입(일반) | 열 정렬 | 삭제(파괴적) 순으로 그린다. */
+export const INSERT_TABLE_COMMANDS = WIKI_TABLE_COMMANDS.filter((c) => !c.destructive)
+export const DESTRUCTIVE_TABLE_COMMANDS = WIKI_TABLE_COMMANDS.filter((c) => c.destructive)
+
+/** 열 가로 정렬 선택지(WP-584) — 툴바·우클릭 메뉴가 함께 쓴다. 왼쪽은 정렬 없음(null)과 같다. key 는 React key·testid 용. */
+export interface WikiTableAlign {
+  key: 'left' | 'center' | 'right'
+  value: WikiCellAlign
+  label: string
+  icon: LucideIcon
+}
+
+export const WIKI_TABLE_ALIGNS: readonly WikiTableAlign[] = [
+  { key: 'left', value: null, label: '왼쪽 정렬', icon: AlignLeft },
+  { key: 'center', value: 'center', label: '가운데 정렬', icon: AlignCenter },
+  { key: 'right', value: 'right', label: '오른쪽 정렬', icon: AlignRight },
+] as const
+
 /** 가드 판정에 필요한 표 상태만 뽑은 스냅샷. 에디터 없이 단위 테스트 가능하게 하려는 분리다. */
 export interface WikiTableSnapshot {
   inTable: boolean
   inHeaderRow: boolean
   columnCount: number
   rowCount: number
+  /** 커서(또는 고른 셀 중 첫) 열의 정렬 — 툴바·메뉴의 현재 정렬 표시용. */
+  columnAlign: WikiCellAlign
 }
 
 const EMPTY_SNAPSHOT: WikiTableSnapshot = {
@@ -62,6 +88,7 @@ const EMPTY_SNAPSHOT: WikiTableSnapshot = {
   inHeaderRow: false,
   columnCount: 0,
   rowCount: 0,
+  columnAlign: null,
 }
 
 /** 명령 활성 여부 — 순수 함수. 두 가드가 핵심이다:
@@ -83,8 +110,11 @@ export function isTableCommandEnabled(
 export function readTableSnapshot(editor: Editor | null): WikiTableSnapshot {
   if (!editor) return EMPTY_SNAPSHOT
   const { $from } = editor.state.selection
+  // 표까지 올라가는 길에 지나는 셀 — 커서 셀(여러 셀 선택이면 문서 순 첫 셀)이고, 같은 열은 늘 같은 정렬이라 그 값을 쓴다.
+  let cellAlign: WikiCellAlign = null
   for (let depth = $from.depth; depth > 0; depth--) {
     const node = $from.node(depth)
+    if (node.type.name === 'tableCell' || node.type.name === 'tableHeader') cellAlign = node.attrs.align
     if (node.type.name !== 'table') continue
     const firstRow = node.firstChild
     return {
@@ -92,6 +122,7 @@ export function readTableSnapshot(editor: Editor | null): WikiTableSnapshot {
       inHeaderRow: $from.index(depth) === 0,
       columnCount: firstRow?.childCount ?? 0,
       rowCount: node.childCount,
+      columnAlign: cellAlign,
     }
   }
   return EMPTY_SNAPSHOT
@@ -106,6 +137,24 @@ export function readTableSnapshot(editor: Editor | null): WikiTableSnapshot {
 export function runTableCommand(editor: Editor, key: WikiTableCommandKey): void {
   if (!isTableCommandEnabled(key, readTableSnapshot(editor))) return
   editor.chain().focus()[key]().run()
+}
+
+/**
+ * 열 정렬 적용(WP-584) — 커서가 있는 열, 여러 셀을 골랐으면 고른 셀이 걸친 열들의 셀 전체에 같은 값을 넣는다.
+ * 마크다운 표는 열 단위 정렬만 저장하므로(구분 행 `:---:`) 셀 하나만 바꾸지 않는다. 마크다운 표는 스키마 패키지의 열 정렬 맞춤이
+ * 헤더 값을 퍼뜨리지만, HTML 로 저장되는 표(병합 셀 등)는 맞춤 대상이 아니라 열 전체를 여기서 직접 바꾼다.
+ */
+export function setTableColumnAlign(editor: Editor, align: WikiCellAlign): void {
+  if (!isInTable(editor.state)) return
+  const rect = selectedRect(editor.state)
+  const tr = editor.state.tr
+  // 고른 열들의 맨 위부터 맨 아래까지 — cellsInRect 가 병합 셀을 한 번씩만 돌려준다.
+  for (const pos of rect.map.cellsInRect({ left: rect.left, right: rect.right, top: 0, bottom: rect.map.height })) {
+    const cell = rect.table.nodeAt(pos)
+    if (cell && cell.attrs.align !== align) tr.setNodeMarkup(rect.tableStart + pos, null, { ...cell.attrs, align })
+  }
+  if (tr.docChanged) editor.view.dispatch(tr)
+  editor.commands.focus()
 }
 
 /** 커서가 속한 표 DOM 의 뷰포트 사각형. 툴바를 셀이 아니라 표 상단에 앵커하기 위해 쓴다.

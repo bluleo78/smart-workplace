@@ -12,6 +12,9 @@ import { getHTMLFromFragment } from '@tiptap/core'
 import { Table } from '@tiptap/extension-table'
 import type { MarkdownSerializerState } from '@tiptap/pm/markdown'
 import { Fragment, type Node as PMNode } from '@tiptap/pm/model'
+import { Plugin, PluginKey, type Transaction } from '@tiptap/pm/state'
+import { TableMap } from '@tiptap/pm/tables'
+import { Mapping } from '@tiptap/pm/transform'
 
 /** tiptap-markdown 이 state 에 얹는 표 구간 플래그 — WikiMarkdownText(| 이스케이프)와 hardBreak 직렬화기가 읽는다. */
 type TableState = MarkdownSerializerState & { inTable?: boolean }
@@ -63,8 +66,79 @@ function serializeTableHTML(state: TableState, node: PMNode, parent: PMNode | Fr
   state.closeBlock(node)
 }
 
-/** 표 노드 확장 — 스키마·옵션은 @tiptap/extension-table 그대로, 마크다운 직렬화기만 대체한다. */
+/** 열 정렬 값 → GFM 구분 행 마커. 기본(왼쪽)은 정렬 없음(`---`)으로 쓴다 — tableCellAlign.ts 참조. */
+function delimiterOf(align: unknown): string {
+  if (align === 'center') return ':---:'
+  if (align === 'right') return '---:'
+  return '---'
+}
+
+/**
+ * 열 정렬 맞춤(WP-584) — GFM 으로 저장되는 표는 열마다 헤더 셀의 align 을 그 열의 모든 셀에 맞춘다.
+ *
+ * 왜: 저장은 헤더 셀 값 하나(열 마커)뿐인데, 행 추가(prosemirror-tables addRow 는 빈 셀을 align=null 로 만든다)·붙여넣기·동시 편집은
+ * 열 안의 값을 어긋나게 둔다. 그러면 화면은 왼쪽인데 저장본은 가운데처럼 보이는 것과 저장되는 것이 갈린다. 표 명령마다 고치는 대신 문서가 바뀔 때마다
+ * 한곳에서 맞춘다. 마크다운으로 못 쓰는(HTML 로 저장되는) 표는 셀마다 style 로 남으므로 건드리지 않는다.
+ * 같은 값을 여러 접속자가 동시에 넣어도 결과가 같아(멱등) 동시 편집에서 다투지 않는다. 남이 보낸 변경도 맞춘다 — 행 추가와 열 정렬이
+ * 동시에 일어나면 어느 쪽도 자기 변경만으로는 어긋남을 볼 수 없다.
+ */
+const columnAlignSync = new Plugin({
+  key: new PluginKey('wikiTableColumnAlign'),
+  appendTransaction(transactions, _old, state) {
+    if (!transactions.some((t) => t.docChanged)) return null
+    const tr = state.tr
+    // 이번에 바뀐 범위에 걸친 표만 본다 — 입력마다 문서 전체를 훑지 않게. nodesBetween 은 범위를 감싼 조상(표)도 방문한다.
+    const seen = new Set<number>()
+    for (const [from, to] of changedRanges(transactions, state.doc.content.size)) {
+      state.doc.nodesBetween(from, to, (node, pos) => {
+        if (node.type.name !== 'table') return !node.isTextblock
+        if (!seen.has(pos)) {
+          seen.add(pos)
+          syncColumnAligns(tr, node, pos)
+        }
+        return false
+      })
+    }
+    return tr.docChanged ? tr : null
+  },
+})
+
+/** 트랜잭션들이 바꾼 범위를 마지막 문서 좌표로 — 각 단계의 새 범위(속성만 바꾼 단계는 그 노드)를 뒤 단계들의 매핑으로 옮긴다. */
+function changedRanges(transactions: readonly Transaction[], docSize: number): [number, number][] {
+  const maps = transactions.flatMap((t) => t.mapping.maps)
+  const steps = transactions.flatMap((t) => t.steps)
+  const ranges: [number, number][] = []
+  steps.forEach((step, i) => {
+    const rest = new Mapping(maps.slice(i + 1))
+    const push = (from: number, to: number) =>
+      ranges.push([Math.min(rest.map(from, -1), docSize), Math.min(rest.map(to, 1), docSize)])
+    maps[i].forEach((_os, _oe, from, to) => push(from, to))
+    // 속성만 바꾸는 단계(AttrStep)는 위치 매핑이 비어 있어 따로 넣는다.
+    const attrPos = (step as { pos?: number }).pos
+    if (typeof attrPos === 'number') push(attrPos, attrPos + 1)
+  })
+  return ranges
+}
+
+/** GFM 으로 저장되는 표의 열마다 헤더 셀 align 을 본문 셀에 맞춘다. 표 위치(tablePos) 기준으로 TableMap 의 셀 위치를 쓴다. */
+function syncColumnAligns(tr: Transaction, table: PMNode, tablePos: number): void {
+  if (!isMarkdownSerializable(table)) return
+  const map = TableMap.get(table)
+  for (let col = 0; col < map.width; col++) {
+    const want = table.nodeAt(map.map[col])!.attrs.align
+    for (let row = 1; row < map.height; row++) {
+      const cellPos = map.map[row * map.width + col]
+      const cell = table.nodeAt(cellPos)!
+      if (cell.attrs.align !== want) tr.setNodeMarkup(tablePos + 1 + cellPos, null, { ...cell.attrs, align: want })
+    }
+  }
+}
+
+/** 표 노드 확장 — 스키마·옵션은 @tiptap/extension-table 그대로, 마크다운 직렬화기만 대체하고 열 정렬 맞춤을 더한다. */
 export const WikiTable = Table.extend({
+  addProseMirrorPlugins() {
+    return [...(this.parent?.() ?? []), columnAlignSync]
+  },
   addStorage() {
     return {
       markdown: {
@@ -84,7 +158,8 @@ export const WikiTable = Table.extend({
             state.write(' |')
             state.ensureNewLine()
             if (!i) {
-              const delimiterRow = Array(row.childCount).fill('---').join(' | ')
+              // 열 정렬(WP-584) — 첫 행 셀의 align 이 그 열의 마커다(에디터 명령이 열 전체를 같은 값으로 맞춘다).
+              const delimiterRow = row.content.content.map((cell) => delimiterOf(cell.attrs.align)).join(' | ')
               state.write(`| ${delimiterRow} |`)
               state.ensureNewLine()
             }

@@ -49,9 +49,11 @@ describe('dryRunReport', () => {
     const r = dryRunReport([
       { id: 1, body: '# 제목\n\n본문' },
       { id: 2, body: '_기울임_' },
-      { id: 3, body: '| a |\n| :---: |\n| 1 |\n' },
+      // 왼쪽 정렬 마커는 정렬 없음(---)으로 정규화된다 — 가운데·오른쪽은 WP-584 부터 그대로 남는다.
+      { id: 3, body: '| a |\n| :--- |\n| 1 |\n' },
+      { id: 4, body: '| a | b |\n| --- | :---: |\n| 1 | 2 |\n' },
     ])
-    expect(r.total).toBe(3)
+    expect(r.total).toBe(4)
     expect(r.changed.map((c) => c.id)).toEqual([2, 3])
     expect(r.changed[0].categories).toContain('emphasis')
     expect(r.changed[1].categories).toContain('table-align')

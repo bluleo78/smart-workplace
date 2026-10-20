@@ -4,12 +4,22 @@ import { EditorFloatingToolbar } from '@/components/editor/EditorFloatingToolbar
 import { Button } from '@/components/ui/button'
 
 import {
+  DESTRUCTIVE_TABLE_COMMANDS,
+  INSERT_TABLE_COMMANDS,
   isTableCommandEnabled,
   readTableRect,
   readTableSnapshot,
   runTableCommand,
-  WIKI_TABLE_COMMANDS,
+  setTableColumnAlign,
+  WIKI_TABLE_ALIGNS,
+  type WikiTableCommand,
 } from './wikiTableCommands'
+
+
+/** 묶음 사이 세로 구분선. */
+function Divider() {
+  return <span className="mx-1 h-4 w-px bg-border" aria-hidden="true" />
+}
 
 /** 표 조작 툴바 — 커서가 표 안에 있고 선택이 비어 있을 때 표 위에 뜬다.
  *  선택이 비어 있지 않을 때는 AI 변형 툴바가 뜨므로(셀 안 텍스트 축약·번역이 그대로 동작),
@@ -27,6 +37,29 @@ export function WikiTableToolbar({
 
   const snap = readTableSnapshot(editor)
 
+  /** 표 명령 버튼 하나 — 삽입·삭제 묶음이 함께 쓴다. */
+  const renderCommand = (cmd: WikiTableCommand) => {
+    const Icon = cmd.icon
+    return (
+      <Button
+        key={cmd.key}
+        type="button"
+        variant="ghost"
+        size="xs"
+        aria-label={cmd.label}
+        title={cmd.label}
+        data-testid={`wiki-table-cmd-${cmd.key}`}
+        disabled={!isTableCommandEnabled(cmd.key, snap)}
+        // mousedown 기본동작 차단 — 클릭이 에디터 커서를 잃지 않게 한다.
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => runTableCommand(editor, cmd.key)}
+        className={cmd.destructive ? 'text-destructive' : undefined}
+      >
+        <Icon aria-hidden="true" />
+      </Button>
+    )
+  }
+
   return (
     <EditorFloatingToolbar
       editor={editor}
@@ -41,31 +74,32 @@ export function WikiTableToolbar({
       // 뷰포트 기준 좌표라 그대로 성립한다.
       getReferenceClientRect={() => readTableRect(editor)}
     >
-      {WIKI_TABLE_COMMANDS.map((cmd, i) => {
-        const Icon = cmd.icon
-        // 파괴적 명령 앞에 구분선 — 삽입 4종과 삭제 3종을 시각적으로 가른다.
-        const divider = cmd.destructive && !WIKI_TABLE_COMMANDS[i - 1]?.destructive
+      {/* 삽입 4종 | 열 정렬 3종(WP-584, 지금 열의 정렬을 눌린 상태로) | 삭제 3종 — 구분선으로 세 묶음을 가른다. */}
+      {INSERT_TABLE_COMMANDS.map(renderCommand)}
+      <Divider />
+      {WIKI_TABLE_ALIGNS.map((a) => {
+        const AlignIcon = a.icon
+        const active = snap.columnAlign === a.value
         return (
-          <span key={cmd.key} className="flex items-center gap-1">
-            {divider && <span className="mx-1 h-4 w-px bg-border" aria-hidden="true" />}
-            <Button
-              type="button"
-              variant="ghost"
-              size="xs"
-              aria-label={cmd.label}
-              title={cmd.label}
-              data-testid={`wiki-table-cmd-${cmd.key}`}
-              disabled={!isTableCommandEnabled(cmd.key, snap)}
-              // mousedown 기본동작 차단 — 클릭이 에디터 커서를 잃지 않게 한다.
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => runTableCommand(editor, cmd.key)}
-              className={cmd.destructive ? 'text-destructive' : undefined}
-            >
-              <Icon aria-hidden="true" />
-            </Button>
-          </span>
+          <Button
+            key={a.key}
+            type="button"
+            variant="ghost"
+            size="xs"
+            aria-label={a.label}
+            aria-pressed={active}
+            title={a.label}
+            data-testid={`wiki-table-align-${a.key}`}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => setTableColumnAlign(editor, a.value)}
+            className={active ? 'bg-accent text-accent-foreground' : undefined}
+          >
+            <AlignIcon aria-hidden="true" />
+          </Button>
         )
       })}
+      <Divider />
+      {DESTRUCTIVE_TABLE_COMMANDS.map(renderCommand)}
     </EditorFloatingToolbar>
   )
 }
