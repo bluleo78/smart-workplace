@@ -74,7 +74,7 @@ export function EventProposalCard({
   return (
     <div
       data-testid={`event-proposal-card-${proposal.id}`}
-      className="rounded-md border bg-card p-3 text-sm"
+      className="@container rounded-md border bg-card p-3 text-sm"
     >
       <AiContent label="AI 제안">
         <div className="flex items-center gap-1 font-medium text-foreground">
@@ -105,15 +105,19 @@ export function EventProposalCard({
             onChange={(e) => setTitle(e.target.value)}
             placeholder="제목"
           />
-          <div className="flex gap-2">
+          {/* 시작·종료 — 카드 폭이 좁으면(모바일 채팅 등) 세로로 쌓아 칸마다 날짜·시각이 다 보이게 한다. 한 줄에 반씩 두면 시각이 잘려
+              몇 시 일정인지 모른 채 승인하게 된다(WP-593). 뷰포트가 아니라 카드 폭(@container)으로 정해 좁은 패널 안에서도 맞는다. */}
+          <div className="grid grid-cols-1 gap-2 @md:grid-cols-2">
             <Input
               type="datetime-local"
+              aria-label="시작"
               data-testid={`event-proposal-starts-${proposal.id}`}
               value={startsAt}
               onChange={(e) => setStartsAt(e.target.value)}
             />
             <Input
               type="datetime-local"
+              aria-label="종료"
               data-testid={`event-proposal-ends-${proposal.id}`}
               value={endsAt}
               onChange={(e) => setEndsAt(e.target.value)}

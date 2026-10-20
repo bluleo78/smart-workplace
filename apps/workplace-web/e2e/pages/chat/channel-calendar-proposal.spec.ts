@@ -236,3 +236,59 @@ test.describe('채팅 일정 제안 카드', () => {
     await expect(page.getByTestId('event-proposal-attendees-84')).toHaveCount(0)
   })
 })
+
+// WP-593: 시작·종료 칸 배치 — 카드 폭이 좁으면(모바일 390) 세로로 쌓아 칸마다 시각까지 보이게, 넓으면(데스크톱) 한 줄에 나란히.
+// 칸 안 글자가 잘렸는지는 브라우저가 그리는 datetime-local 내부라 직접 볼 수 없어, 칸 폭·위치(기하)로 지킨다.
+async function openPendingEventProposal(page: import('@playwright/test').Page) {
+  const channel = createChannel({ id: CHANNEL_ID, member: true })
+  await setupChannelStubs(page, channel)
+  await stubMembers(page)
+  const proposalMessage = createMessage({
+    id: 300,
+    channelId: CHANNEL_ID,
+    authorId: 99,
+    authorName: 'AI 어시스턴트',
+    authorKind: 'AGENT',
+    body: '💡 일정 생성을 제안했어요',
+    proposal: makeEventProposal(),
+  })
+  await page.route(
+    (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}/messages`,
+    (route) => {
+      if (route.request().method() !== 'GET') return route.fallback()
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ items: [proposalMessage], nextCursor: null, hasMore: false }),
+      })
+    },
+  )
+  await page.goto(`/chat/channels/${CHANNEL_ID}`)
+  const starts = page.getByTestId(`event-proposal-starts-${PROPOSAL_ID}`)
+  const ends = page.getByTestId(`event-proposal-ends-${PROPOSAL_ID}`)
+  await expect(starts).toBeVisible()
+  return { starts: (await starts.boundingBox())!, ends: (await ends.boundingBox())! }
+}
+
+test.describe('일정 제안 카드 시작·종료 칸 배치(WP-593)', () => {
+  test.describe('모바일 390', () => {
+    test.use({ viewport: { width: 390, height: 844 } })
+    test('시작·종료를 세로로 쌓고 칸마다 날짜·시각이 들어갈 폭을 준다', async ({ authenticatedPage: page }) => {
+      const { starts, ends } = await openPendingEventProposal(page)
+      // 종료 칸이 시작 칸 아래 — 한 줄에 반씩 놓이면 날짜만 보이고 시각이 잘린다.
+      expect(ends.y).toBeGreaterThanOrEqual(starts.y + starts.height - 1)
+      // 「2026. 07. 05. 오후 03:00」 이 다 들어갈 폭(반씩 놓였을 때는 약 130px 이었다).
+      expect(starts.width).toBeGreaterThanOrEqual(220)
+      expect(ends.width).toBeGreaterThanOrEqual(220)
+    })
+  })
+
+  test.describe('데스크톱 1440', () => {
+    test.use({ viewport: { width: 1440, height: 900 } })
+    test('넓은 카드에서는 시작·종료를 한 줄에 나란히 둔다', async ({ authenticatedPage: page }) => {
+      const { starts, ends } = await openPendingEventProposal(page)
+      expect(Math.abs(ends.y - starts.y)).toBeLessThanOrEqual(1)
+      expect(ends.x).toBeGreaterThan(starts.x + starts.width - 1)
+    })
+  })
+})
