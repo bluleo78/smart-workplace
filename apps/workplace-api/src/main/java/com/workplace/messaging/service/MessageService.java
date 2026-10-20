@@ -478,7 +478,7 @@ public class MessageService {
     MessageResponse m =
         messageRepo
             .findById(messageId, mentionHydrator::asMentionResponses)
-            .orElseThrow(() -> new IllegalStateException("메시지를 찾을 수 없습니다 (id: " + messageId + ")"));
+            .orElseThrow(() -> new IllegalStateException("메시지를 찾을 수 없습니다"));
     // 목록과 같은 enrich 를 재사용한다 — 삭제된 메시지 규칙도 함께 따른다(WP-366).
     return enrichReactions(new MessagePage(java.util.List.of(m), null, false), callerId)
         .items()

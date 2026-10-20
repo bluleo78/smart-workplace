@@ -106,7 +106,7 @@ public class CollabClient {
               .retrieve()
               .body(CollabApplyResult.class);
       if (res == null) {
-        throw new CollabUnavailableException("동기화 서버 응답이 비어 있습니다: page=" + pageId, null);
+        throw new CollabUnavailableException("동기화 서버 응답이 비어 있습니다", null);
       }
       return res;
     } catch (HttpClientErrorException e) {
@@ -129,13 +129,13 @@ public class CollabClient {
           pageId,
           e.getStatusCode(),
           e.getResponseBodyAsString());
-      throw new CollabRequestRejectedException("노트 동기화 서버가 본문 적용 요청을 거부했습니다: page=" + pageId, e);
+      throw new CollabRequestRejectedException("노트 동기화 서버가 본문 적용 요청을 거부했습니다", e);
     } catch (RestClientException e) {
       // 500 = 병합 계산 실패(아무것도 적용 안 됨) → 502.
       if (e instanceof HttpServerErrorException se
           && se.getStatusCode().isSameCodeAs(HttpStatus.INTERNAL_SERVER_ERROR)) {
         log.error("collab apply-markdown 병합 실패: page={} {}", pageId, e.getMessage());
-        throw new CollabMergeFailedException("노트 본문 병합에 실패했습니다: page=" + pageId, e);
+        throw new CollabMergeFailedException("노트 본문 병합에 실패했습니다", e);
       }
       // 그 밖의 5xx(503 문서 로드·저장 실패·병합 시간 초과 등)·연결 실패·읽기 타임아웃 — 일시 장애 503. 타임아웃은 적용 여부를 모르지만
       // 호출자가 같은 기준본으로 재시도해도 내용이 중복되지 않는다.

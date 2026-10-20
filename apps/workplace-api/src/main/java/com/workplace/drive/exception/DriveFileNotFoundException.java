@@ -3,6 +3,7 @@ package com.workplace.drive.exception;
 /** 드라이브 파일 미존재 또는 접근 불가. → 404. */
 public class DriveFileNotFoundException extends RuntimeException {
   public DriveFileNotFoundException(long driveFileId) {
-    super("드라이브 파일을 찾을 수 없습니다 (id: " + driveFileId + ")");
+    // 문구에 id 를 넣지 않는다 — 응답 message 로 그대로 나가 화면·AI 에 내부 번호가 보였다(WP-619)
+    super("드라이브 파일을 찾을 수 없습니다");
   }
 }

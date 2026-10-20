@@ -113,8 +113,7 @@ class WikiPageControllerTest {
    */
   @Test
   void move_invalidParent_returns400WithReason() throws Exception {
-    org.mockito.Mockito.doThrow(
-            new WikiInvalidMoveException("자기 자신이나 자기 하위 페이지를 부모로 지정할 수 없습니다: page=7"))
+    org.mockito.Mockito.doThrow(new WikiInvalidMoveException("자기 자신이나 자기 하위 페이지를 부모로 지정할 수 없습니다"))
         .when(pageService)
         .move(anyLong(), anyLong(), org.mockito.ArgumentMatchers.any());
 
@@ -125,7 +124,7 @@ class WikiPageControllerTest {
                 .contentType("application/json")
                 .content("{\"parentId\":7,\"position\":0}"))
         .andExpect(status().isBadRequest())
-        .andExpect(jsonPath("$.message").value("자기 자신이나 자기 하위 페이지를 부모로 지정할 수 없습니다: page=7"));
+        .andExpect(jsonPath("$.message").value("자기 자신이나 자기 하위 페이지를 부모로 지정할 수 없습니다"));
   }
 
   /** mentions: VIEWER 가드 통과 후 하이드레이션 결과를 200 으로 반환. */

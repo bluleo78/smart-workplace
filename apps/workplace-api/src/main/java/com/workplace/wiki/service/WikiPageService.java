@@ -278,7 +278,7 @@ public class WikiPageService {
   /** 본문 저장에는 기준 version 이 필요하다 — 없으면 400(위임·기존 낙관적 저장 공통). */
   private static void requireVersionPresent(SavePageRequest req, long pageId) {
     if (req.version() == null) {
-      throw new IllegalArgumentException("본문을 저장하려면 version 이 필요합니다: page=" + pageId);
+      throw new IllegalArgumentException("본문을 저장하려면 version 이 필요합니다");
     }
   }
 
@@ -425,7 +425,7 @@ public class WikiPageService {
     requireParentInSpace(spaceId, parentId);
     // 새 부모의 조상 체인(자기 자신 포함)에 이동 대상이 있으면 사이클이 된다 — parentId == pageId 도 체인 첫 행이라 여기서 걸린다.
     if (pages.ancestorIdsInclusive(parentId).contains(pageId)) {
-      throw new WikiInvalidMoveException("자기 자신이나 자기 하위 페이지를 부모로 지정할 수 없습니다: page=" + pageId);
+      throw new WikiInvalidMoveException("자기 자신이나 자기 하위 페이지를 부모로 지정할 수 없습니다");
     }
   }
 
@@ -443,9 +443,9 @@ public class WikiPageService {
     long parentSpaceId =
         pages
             .findSpaceId(parentId)
-            .orElseThrow(() -> new WikiInvalidMoveException("부모 페이지를 찾을 수 없습니다: page=" + parentId));
+            .orElseThrow(() -> new WikiInvalidMoveException("부모 페이지를 찾을 수 없습니다"));
     if (parentSpaceId != spaceId) {
-      throw new WikiInvalidMoveException("다른 공간의 페이지를 부모로 지정할 수 없습니다: page=" + parentId);
+      throw new WikiInvalidMoveException("다른 공간의 페이지를 부모로 지정할 수 없습니다");
     }
   }
 
