@@ -1,10 +1,12 @@
 package com.workplace.user.service;
 
 import com.workplace.audit.service.AuditLogService;
+import com.workplace.auth.exception.AccountLockedException;
 import com.workplace.auth.exception.EmailAlreadyExistsException;
 import com.workplace.auth.exception.UsernameAlreadyExistsException;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AuthService;
+import com.workplace.auth.service.LoginAttemptService;
 import com.workplace.global.dto.PageResponse;
 import com.workplace.global.security.AuthDetails;
 import com.workplace.global.tenant.TenantContext;
@@ -24,6 +26,7 @@ import com.workplace.user.dto.RenameAgentRequest;
 import com.workplace.user.dto.UserDetailResponse;
 import com.workplace.user.dto.UserKind;
 import com.workplace.user.dto.UserResponse;
+import com.workplace.user.exception.CurrentPasswordMismatchException;
 import com.workplace.user.exception.PersonalAssistantRenameForbiddenException;
 import com.workplace.user.exception.UserNotFoundException;
 import com.workplace.user.outbound.AgentRuntimeChanged;
@@ -62,6 +65,8 @@ public class UserService {
   private final AssistantResolver assistantResolver;
   // WP-566: 비밀번호 변경 뒤 다른 세션 refresh 폐기·바꾼 세션 재발급.
   private final AuthService authService;
+
+  private final LoginAttemptService loginAttemptService;
   // 실행 방식 변경 이벤트 발행(AgentRuntimeChanged) — issue 모듈이 AI 작업 기록을 정리한다.
   private final ApplicationEventPublisher publisher;
 
@@ -494,7 +499,7 @@ public class UserService {
    * @return 일반 변경이면 바꾼 브라우저 세션이 이어 쓸 새 refresh 토큰(WP-566 — 옛 세션은 모두 폐기된다), 브라우저 세션이 아니거나 SSO 전용 계정의
    *     최초 설정이면 null
    */
-  @Transactional
+  @Transactional(noRollbackFor = CurrentPasswordMismatchException.class)
   public String changePassword(
       Long userId, String currentPassword, String newPassword, String authMethod) {
     if (!userRepository.existsById(userId)) throw UserNotFoundException.ofId(userId);
@@ -521,14 +526,35 @@ public class UserService {
           null);
       return null;
     }
+    // WP-626: 현재 비밀번호 확인이 대입 창구가 되지 않게 로그인과 같은 계정별 실패 카운터(5회·15분)를 함께 쓴다 — 탈취한 토큰으로
+    // 현재 비밀번호를 무제한 추측해 바꿔 계정을 가져가거나, 로그인 잠금을 우회해 비밀번호를 맞혀 보는 길을 막는다.
+    String username = resolveUsername(userId);
+    if (loginAttemptService.isBlocked(username)) {
+      throw new AccountLockedException("비밀번호를 여러 번 틀려 잠시 막았습니다. 15분 뒤 다시 시도해 주세요.");
+    }
     // 현재 비밀번호 불일치 시 400 Bad Request로 명확한 한국어 메시지 반환 (#27)
     if (currentPassword == null
         || !passwordEncoder.matches(currentPassword, storedPassword.get())) {
-      throw new IllegalArgumentException("현재 비밀번호가 올바르지 않습니다");
+      // 카운터는 별도 트랜잭션(REQUIRES_NEW)에, 실패 감사는 롤백하지 않는 이 트랜잭션에 남긴다.
+      loginAttemptService.loginFailed(username);
+      auditLogService.log(
+          userId,
+          username,
+          "PASSWORD_CHANGE_FAILED",
+          "user",
+          String.valueOf(userId),
+          "비밀번호 변경 실패 — 현재 비밀번호 불일치",
+          null,
+          null,
+          "FAILURE",
+          null,
+          null);
+      throw new CurrentPasswordMismatchException();
     }
+    loginAttemptService.loginSucceeded(username);
     userRepository.updatePassword(userId, passwordEncoder.encode(newPassword));
     // WP-567: 본인 비밀번호 변경 기록(행위자=대상=본인).
-    auditUserAction(userId, resolveUsername(userId), "PASSWORD_CHANGED", userId, "비밀번호 변경", null);
+    auditUserAction(userId, username, "PASSWORD_CHANGED", userId, "비밀번호 변경", null);
     // WP-566: 다른 기기·브라우저 세션을 끊는다(바꾼 브라우저 세션은 돌려준 새 refresh 토큰으로 이어진다).
     return authService.revokeSessionsAfterPasswordChange(userId, TenantContext.get(), authMethod);
   }
