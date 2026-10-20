@@ -359,3 +359,34 @@ test.describe('드라이브 행 액션 — 터치 태블릿(≥1024px)', () => {
     await expect(page).toHaveURL(new RegExp(`/drive/spaces/${SPACE_ID}\\?preview=70$`))
   })
 })
+
+// WP-643: 모바일은 헤더 업로드 버튼이 ⋯ 메뉴 안이라, 업로드 중 진행률·취소를 목록 위 진행 줄로 보인다.
+test('모바일 단일 파일 업로드 — 목록 위에 진행률(%)과 취소가 보이고, 끝나면 사라진다', async ({ authenticatedPage: page }) => {
+  // 라우트 가로채기에선 실제 전송 진행 이벤트가 한 번에 끝나므로 업로드 XHR 에 42% 진행 이벤트를 직접 흘린다.
+  await page.addInitScript(() => {
+    const send = XMLHttpRequest.prototype.send
+    XMLHttpRequest.prototype.send = function (body) {
+      if (body instanceof FormData) {
+        const upload = this.upload
+        setTimeout(() => upload.dispatchEvent(new ProgressEvent('progress', { lengthComputable: true, loaded: 42, total: 100 })), 0)
+      }
+      return send.call(this, body)
+    }
+  })
+  await stubDrive(page)
+  let resolveUpload!: () => void
+  const held = new Promise<void>((r) => (resolveUpload = r))
+  await page.route((u) => u.pathname === `/api/v1/drive/spaces/${SPACE_ID}/files`, async (r) => {
+    await held
+    await r.fulfill(json(createFile({ id: 90, name: 'big.pdf' })))
+  })
+  await page.goto(`/drive/spaces/${SPACE_ID}`)
+  await expect(page.getByTestId('drive-row-file-70')).toBeVisible()
+  await page.getByTestId('file-input').setInputFiles({ name: 'big.pdf', mimeType: 'application/pdf', buffer: Buffer.alloc(1024) })
+  const progress = page.getByTestId('upload-progress')
+  await expect(progress).toBeVisible()
+  await expect(progress).toContainText('업로드 중… 42%')
+  await expect(progress.getByTestId('upload-progress-cancel')).toBeVisible()
+  resolveUpload()
+  await expect(progress).toHaveCount(0)
+})

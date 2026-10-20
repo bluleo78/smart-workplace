@@ -707,6 +707,9 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     }
   }
 
+  // 단일 파일 업로드 중 문구 — 100% 뒤에는 서버가 저장·처리하는 중이라 퍼센트를 떼고 「업로드 중…」만 보인다(WP-643).
+  const uploadingLabel = uploadPercent != null && uploadPercent < 100 ? `업로드 중… ${uploadPercent}%` : '업로드 중…'
+
   // WP-216: 모바일 선택 모드 하단 일괄 작업 바 — 스크롤 영역 밖(페이지 맨 아래)에 둬 목록을 내려도 항상 보인다.
   // 셸은 탭바 위까지만 페이지를 그리므로 탭바와 겹치지 않는다. 드로워(embedded)는 셸 밖 전체폭 시트라 하단 안전영역을 직접 띄운다.
   // testid 는 데스크톱 툴바와 같다(둘 중 하나만 렌더).
@@ -1240,12 +1243,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                 disabled={uploading || !!space?.archived}
                 className="rounded bg-primary px-2 py-1 text-sm text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {/* 100% 뒤에는 서버가 저장·처리하는 중이라 퍼센트를 떼고 「업로드 중…」만 보인다(WP-643). */}
-                {uploading
-                  ? uploadPercent != null && uploadPercent < 100
-                    ? `업로드 중… ${uploadPercent}%`
-                    : '업로드 중…'
-                  : '업로드'}
+                {uploading ? uploadingLabel : '업로드'}
               </button>
             )}
             {/* #658: 업로드 중인 파일(들) 전체 취소 — 개별 파일별 취소는 범위 밖.
@@ -1372,6 +1370,21 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
               type="button"
               onClick={onCancelUpload}
               data-testid="drop-progress-cancel"
+              className="rounded border px-2 py-0.5 text-xs text-destructive hover:bg-destructive/10"
+            >
+              취소
+            </button>
+          </div>
+        )}
+        {/* WP-643: 모바일은 헤더 동작(업로드 버튼·취소)이 ⋯ 메뉴 안이라 업로드 중임이 화면에 안 보인다 —
+            단일 파일 업로드도 위 드롭 진행 줄과 같은 자리·모양으로 진행률과 취소를 보인다. 데스크톱은 툴바 버튼이 맡는다. */}
+        {isMobile && uploading && !dropProgress && (
+          <div data-testid="upload-progress" role="status" className="mb-2 flex items-center gap-2 text-sm text-muted-foreground">
+            <span>{uploadingLabel}</span>
+            <button
+              type="button"
+              onClick={onCancelUpload}
+              data-testid="upload-progress-cancel"
               className="rounded border px-2 py-0.5 text-xs text-destructive hover:bg-destructive/10"
             >
               취소
