@@ -108,6 +108,42 @@ class WikiPageControllerTest {
   }
 
   /**
+   * WP-625: 본문 크기 상한(100만 자). 넘으면 서비스까지 가지 않고 400 + 한국어 안내 — 예전엔 약 10MB 본문이 그대로 저장돼 그 페이지를 열 때마다 수
+   * MB 가 내려갔다. 딱 상한까지는 받는다.
+   */
+  @Test
+  void save_bodyOverLimit_returns400_andLimitItselfPasses() throws Exception {
+    String over = "가".repeat(1_000_001);
+    mockMvc
+        .perform(
+            put("/api/v1/wiki/pages/7")
+                .header("Authorization", "Bearer test-token")
+                .contentType("application/json")
+                .content(
+                    "{\"title\":\"t\",\"body\":\"" + over + "\",\"version\":1,\"snapshot\":false}"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.errors.body").value("노트 본문은 1,000,000자 이하여야 합니다"));
+    org.mockito.Mockito.verify(pageService, org.mockito.Mockito.never())
+        .save(
+            anyLong(),
+            anyLong(),
+            org.mockito.ArgumentMatchers.any(SavePageRequest.class),
+            org.mockito.ArgumentMatchers.anyBoolean());
+
+    String atLimit = "가".repeat(1_000_000);
+    mockMvc
+        .perform(
+            put("/api/v1/wiki/pages/7")
+                .header("Authorization", "Bearer test-token")
+                .contentType("application/json")
+                .content(
+                    "{\"title\":\"t\",\"body\":\""
+                        + atLimit
+                        + "\",\"version\":1,\"snapshot\":false}"))
+        .andExpect(status().isOk());
+  }
+
+  /**
    * #758 트리를 깨는 이동 → WikiInvalidMoveException → 400 + 사유 메시지. 서비스 테스트는 예외 "타입" 만 단언하므로 이 매핑을 고정하지
    * 못한다 — 핸들러를 지우면 catch-all 이 500 을 돌려 사용자가 사유를 못 보는데도 전건 초록이었다.
    */
