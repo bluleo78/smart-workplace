@@ -4,6 +4,7 @@ import com.workplace.audit.dto.AuditLogResponse;
 import com.workplace.audit.service.AuditLogService;
 import com.workplace.global.dto.PageResponse;
 import com.workplace.global.security.RequirePermission;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import java.time.LocalDateTime;
 import lombok.RequiredArgsConstructor;
@@ -39,7 +40,11 @@ public class AuditLogController {
       @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
           LocalDateTime endDate,
       @Min(value = 0, message = "page는 0 이상이어야 합니다") @RequestParam(defaultValue = "0") int page,
-      @Min(value = 1, message = "size는 1 이상이어야 합니다") @RequestParam(defaultValue = "20") int size) {
+      // 한 번에 받는 양 상한(WP-644) — 구성원 목록(WP-552)과 같은 100. 상한이 없어 size=999999 로 수십만 행을 끌어올 수 있었다.
+      @Min(value = 1, message = "size 는 1~100 이어야 합니다")
+          @Max(value = 100, message = "size 는 1~100 이어야 합니다")
+          @RequestParam(defaultValue = "20")
+          int size) {
     // userId 파라미터: 특정 사용자(user_id)로 정확히 일치 필터링.
     // free-text search 와 별도로 동작해 동명이인/오타 노이즈 없이 사용자별 활동 추적이 가능하다 (#89).
     PageResponse<AuditLogResponse> logs =

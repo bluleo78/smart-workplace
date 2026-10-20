@@ -8,6 +8,7 @@ import com.workplace.user.dto.*;
 import com.workplace.user.service.UserService;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
@@ -91,7 +92,11 @@ public class UserController {
   public ResponseEntity<PageResponse<UserResponse>> getUsers(
       @RequestParam(required = false) String search,
       @Min(value = 0, message = "page는 0 이상이어야 합니다") @RequestParam(defaultValue = "0") int page,
-      @Min(value = 1, message = "size는 1 이상이어야 합니다") @RequestParam(defaultValue = "20") int size,
+      // 한 번에 받는 양 상한(WP-644) — 구성원 목록(WP-552)과 같은 100. 상한이 없어 size=999999 로 수십만 행을 끌어올 수 있었다.
+      @Min(value = 1, message = "size 는 1~100 이어야 합니다")
+          @Max(value = 100, message = "size 는 1~100 이어야 합니다")
+          @RequestParam(defaultValue = "20")
+          int size,
       @jakarta.validation.constraints.Pattern(
               regexp = "HUMAN|AGENT|ALL",
               message = "kind는 HUMAN, AGENT, ALL 중 하나여야 합니다")

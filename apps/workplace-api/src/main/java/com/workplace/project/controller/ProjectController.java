@@ -7,6 +7,7 @@ import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.dto.UpdateProjectRequest;
 import com.workplace.project.service.ProjectService;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -37,7 +38,11 @@ public class ProjectController {
   public ResponseEntity<PageResponse<ProjectResponse>> list(
       Authentication auth,
       @Min(value = 0, message = "page는 0 이상이어야 합니다") @RequestParam(defaultValue = "0") int page,
-      @Min(value = 1, message = "size는 1 이상이어야 합니다") @RequestParam(defaultValue = "20") int size) {
+      // 한 번에 받는 양 상한(WP-644) — 구성원 목록(WP-552)과 같은 100. 상한이 없어 size=999999 로 수십만 행을 끌어올 수 있었다.
+      @Min(value = 1, message = "size 는 1~100 이어야 합니다")
+          @Max(value = 100, message = "size 는 1~100 이어야 합니다")
+          @RequestParam(defaultValue = "20")
+          int size) {
     return ResponseEntity.ok(projectService.list((Long) auth.getPrincipal(), page, size));
   }
 

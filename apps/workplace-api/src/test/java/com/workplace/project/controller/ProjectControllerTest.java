@@ -201,6 +201,29 @@ class ProjectControllerTest {
         .andExpect(jsonPath("$.totalElements").value(1));
   }
 
+  /**
+   * WP-644: size 상한 100 — 100 은 서비스까지 그대로 가고, 101 은 400(통합 테스트 ListSizeLimitIntegrationTest 와 짝).
+   */
+  @Test
+  void list_size100_passes_size101_rejected() throws Exception {
+    mockAuthentication("project:read");
+    when(projectService.list(1L, 0, 100)).thenReturn(new PageResponse<>(List.of(), 0, 100, 0, 0));
+
+    mockMvc
+        .perform(
+            get("/api/v1/projects")
+                .header("Authorization", "Bearer valid-token")
+                .param("size", "100"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.size").value(100));
+    mockMvc
+        .perform(
+            get("/api/v1/projects")
+                .header("Authorization", "Bearer valid-token")
+                .param("size", "101"))
+        .andExpect(status().isBadRequest());
+  }
+
   @Test
   void get_existingProject_returns200() throws Exception {
     mockAuthentication("project:read");
