@@ -147,6 +147,43 @@ class IssueTypeServiceTest extends IntegrationTestBase {
         .isInstanceOf(TypeNameDuplicatedException.class);
   }
 
+  /** 시스템 유형의 화면 이름·코드(대소문자 무관)나 다른 유형 이름의 대소문자 변형으로는 만들 수 없다(WP-614). */
+  @Test
+  void name_that_looks_like_existing_type_throws_409() {
+    Long owner = createUser("look");
+    ProjectResponse p = newProject(owner, "TLK");
+    for (String n : new String[] {"버그", "태스크", "하위 태스크", "에픽", "bug", "Task"}) {
+      assertThatThrownBy(
+              () -> service.create(owner, p.key(), new CreateIssueTypeRequest(n, "RED", "Bug")))
+          .as(n)
+          .isInstanceOf(TypeNameDuplicatedException.class);
+    }
+    var design =
+        service.create(owner, p.key(), new CreateIssueTypeRequest("Design", "PURPLE", "Star"));
+    assertThatThrownBy(
+            () ->
+                service.create(owner, p.key(), new CreateIssueTypeRequest("design", "RED", "Bug")))
+        .isInstanceOf(TypeNameDuplicatedException.class);
+    // 고칠 때도 같은 규칙 — 자기 이름의 대소문자만 바꾸는 것은 된다.
+    assertThatThrownBy(
+            () ->
+                service.update(
+                    owner,
+                    p.key(),
+                    design.id(),
+                    new CreateIssueTypeRequest("버그", "PURPLE", "Star")))
+        .isInstanceOf(TypeNameDuplicatedException.class);
+    assertThat(
+            service
+                .update(
+                    owner,
+                    p.key(),
+                    design.id(),
+                    new CreateIssueTypeRequest("DESIGN", "PURPLE", "Star"))
+                .name())
+        .isEqualTo("DESIGN");
+  }
+
   @Test
   void invalid_icon_throws_400() {
     Long owner = createUser("g");

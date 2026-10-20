@@ -17,6 +17,8 @@ import com.workplace.label.dto.ColorToken;
 import com.workplace.project.outbound.ProjectChangeNotifier;
 import com.workplace.project.service.ProjectAccessGuard;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
@@ -34,6 +36,19 @@ public class IssueTypeService {
   private final IssueTypeRepository repo;
   private final ProjectAccessGuard accessGuard;
   private final ProjectChangeNotifier changeNotifier;
+
+  /**
+   * 시스템 유형 코드 → 화면 이름(웹 {@code lib/issueTypeLabels.ts} 와 같은 표). 유형 고르기·필터는 시스템 유형을 이 이름으로 그리므로, 새
+   * 유형 이름이 코드나 이 이름과 겹치면 같은 「버그」가 두 번 보였다(WP-614).
+   */
+  static final Map<String, String> SYSTEM_TYPE_LABELS =
+      Map.of(
+          "TASK", "태스크",
+          "BUG", "버그",
+          "STORY", "스토리",
+          "CHORE", "기타",
+          "SUBTASK", "하위 태스크",
+          "EPIC", "에픽");
 
   /**
    * 신규 프로젝트 생성 직후 시스템 유형을 시드한다. ProjectService.create / PersonalProjectProvisioner.createPersonal
@@ -64,6 +79,7 @@ public class IssueTypeService {
     String color = ColorToken.validate(req.colorToken());
     String icon = IssueTypeIcon.validate(req.icon());
     String name = req.name().trim();
+    assertNameDistinct(project.id(), name, null);
     try {
       var row = repo.insert(project.id(), name, color, icon, false, 99);
       changeNotifier.changed(
@@ -88,6 +104,7 @@ public class IssueTypeService {
     String color = ColorToken.validate(req.colorToken());
     String icon = IssueTypeIcon.validate(req.icon());
     String name = req.name().trim();
+    assertNameDistinct(project.id(), name, typeId);
     try {
       repo.update(typeId, name, color, icon);
     } catch (DuplicateKeyException e) {
@@ -115,6 +132,27 @@ public class IssueTypeService {
     repo.delete(typeId);
     changeNotifier.changed(
         ProjectChangeNotifier.RESOURCE_ISSUE_TYPE, OP_DELETED, project, typeId, callerId);
+  }
+
+  /**
+   * 화면에서 다른 유형과 같은 이름으로 보이는가 — 대소문자를 무시하고, 시스템 유형은 코드(BUG)와 화면 이름(버그)을 모두, 사용자 유형은 이름을 비교한다. 시스템
+   * 유형은 프로젝트에 없더라도(개인 프로젝트의 에픽) 늘 본다. DB 유일 제약은 글자 그대로만 막아 「bug」·「버그」가 따로 들어갔다(WP-614).
+   *
+   * @param excludeId 고치는 유형 자신(만들 때는 null)
+   */
+  private void assertNameDistinct(Long projectId, String name, Long excludeId) {
+    String key = nameKey(name);
+    boolean clash =
+        SYSTEM_TYPE_LABELS.entrySet().stream()
+                .anyMatch(e -> key.equals(nameKey(e.getKey())) || key.equals(nameKey(e.getValue())))
+            || repo.findByProject(projectId).stream()
+                .anyMatch(t -> !t.id().equals(excludeId) && key.equals(nameKey(t.name())));
+    if (clash) throw new TypeNameDuplicatedException(name);
+  }
+
+  /** 이름 비교 키 — 대소문자 무시. */
+  private static String nameKey(String name) {
+    return name.toLowerCase(Locale.ROOT);
   }
 
   private IssueTypeResponse toResponse(IssueTypeRow r) {
