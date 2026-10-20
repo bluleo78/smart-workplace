@@ -144,7 +144,8 @@ public class AuthService {
       throw new UserDeactivatedException("비활성화된 계정입니다.");
     }
 
-    loginAttemptService.loginSucceeded(request.username());
+    // 실패 카운터는 실제 아이디로 센다(WP-624) — 입력값이 아니라 검증된 사용자의 아이디로 초기화한다
+    loginAttemptService.loginSucceeded(user.username());
 
     // 활성 멤버십을 먼저 조회 — 정확히 1개면 자동 선택해 tenant-scoped 토큰 발급.
     // (P3 테넌트 선택 UI 전까지 단일 소속 사용자가 도메인 RLS 하에서도 정상 동작하도록.)

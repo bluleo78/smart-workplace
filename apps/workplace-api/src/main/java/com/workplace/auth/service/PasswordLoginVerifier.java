@@ -5,6 +5,7 @@ import com.workplace.auth.exception.InvalidCredentialsException;
 import com.workplace.user.dto.UserKind;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.repository.UserRepository;
+import java.util.List;
 import java.util.Optional;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
@@ -41,7 +42,8 @@ public class PasswordLoginVerifier {
    * 잠금 확인 후 자격을 검증해 사용자를 돌려준다. 실패는 모두 같은 {@link InvalidCredentialsException}. 비활성 계정 판정은 비밀번호가 맞은 뒤
    * 호출자가 한다(비밀번호를 모르면 알 수 없게).
    */
-  public UserResponse verify(String username, String rawPassword) {
+  public UserResponse verify(String rawUsername, String rawPassword) {
+    String username = canonicalUsername(rawUsername);
     if (loginAttemptService.isBlocked(username)) {
       throw new AccountLockedException("로그인 시도 횟수를 초과하였습니다. 잠시 후 다시 시도해 주세요.");
     }
@@ -60,5 +62,16 @@ public class PasswordLoginVerifier {
       throw new InvalidCredentialsException(INVALID);
     }
     return user.get();
+  }
+
+  /**
+   * 입력한 아이디를 저장된 실제 아이디로 맞춘다(WP-624). 휴대폰 키보드가 첫 글자를 대문자로 바꾸거나 앞뒤 공백이 붙어도 같은 계정으로 들어가고, 잠금 카운터도 실제
+   * 아이디 하나로 센다(대소문자를 바꿔 가며 잠금을 피하지 못하게). 대소문자만 다른 계정이 둘 이상이면 어느 쪽인지 정할 수 없으니 입력 그대로 둔다 — 정확히 같은
+   * 아이디만 맞는다.
+   */
+  private String canonicalUsername(String rawUsername) {
+    String trimmed = rawUsername == null ? "" : rawUsername.strip();
+    List<String> matches = userRepository.findUsernamesIgnoreCase(trimmed);
+    return matches.size() == 1 ? matches.get(0) : trimmed;
   }
 }

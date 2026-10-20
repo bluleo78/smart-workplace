@@ -120,6 +120,18 @@ public class UserRepository {
         .fetch(USER.ID);
   }
 
+  /**
+   * WP-624: 로그인 아이디 대소문자 무시 조회 — 실제 저장된 아이디들을 돌려준다. 대소문자만 다른 계정이 공존할 수 있어(유니크 제약이 대소문자 구분) 호출자가 둘
+   * 이상이면 모호한 것으로 처리하도록 최대 2건까지만 읽는다.
+   */
+  public List<String> findUsernamesIgnoreCase(String username) {
+    return dsl.select(USER.USERNAME)
+        .from(USER)
+        .where(lower(USER.USERNAME).eq(username.toLowerCase(Locale.ROOT)))
+        .limit(2)
+        .fetch(USER.USERNAME);
+  }
+
   public Optional<UserResponse> findById(Long id) {
     return dsl.select(
             USER.ID,

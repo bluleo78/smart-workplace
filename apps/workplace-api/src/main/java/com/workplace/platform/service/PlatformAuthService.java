@@ -74,7 +74,8 @@ public class PlatformAuthService {
       throw new PlatformAccessDeniedException("운영자 권한이 없습니다.");
     }
 
-    loginAttemptService.loginSucceeded(request.username());
+    // 실패 카운터는 실제 아이디로 센다(WP-624) — 입력값이 아니라 검증된 사용자의 아이디로 초기화한다
+    loginAttemptService.loginSucceeded(user.username());
 
     String accessToken = jwtTokenProvider.generatePlatformAccessToken(user.id(), user.username());
     String refreshToken = jwtTokenProvider.generatePlatformRefreshToken(user.id());

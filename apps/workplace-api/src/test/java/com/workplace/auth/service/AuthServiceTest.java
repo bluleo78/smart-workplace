@@ -9,6 +9,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.workplace.auth.dto.LoginRequest;
 import com.workplace.auth.dto.SignupRequest;
 import com.workplace.auth.dto.TokenResponse;
+import com.workplace.auth.exception.AccountLockedException;
 import com.workplace.auth.exception.EmailAlreadyExistsException;
 import com.workplace.auth.exception.InvalidCredentialsException;
 import com.workplace.auth.exception.InvalidTokenException;
@@ -20,6 +21,7 @@ import com.workplace.user.dto.UserResponse;
 import com.workplace.user.exception.UserDeactivatedException;
 import com.workplace.user.repository.UserRepository;
 import java.time.LocalDateTime;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.jdbc.Sql;
@@ -208,6 +210,55 @@ class AuthServiceTest extends IntegrationTestBase {
 
     assertThatThrownBy(
             () -> authService.login(new LoginRequest("test@example.com", "wrongpassword")))
+        .isInstanceOf(InvalidCredentialsException.class);
+  }
+
+  /**
+   * WP-624: 휴대폰 키보드가 첫 글자를 대문자로 바꾸거나 앞뒤 공백이 붙어도 같은 계정으로 로그인한다. 잠금 카운터도 실제 아이디 하나로 센다 — 대소문자를 바꿔 가며
+   * 틀리면 잠금을 피해 가지 못한다.
+   */
+  @Test
+  void login_ignoresCaseAndSurroundingSpaces_andLocksOnCanonicalName() {
+    String name = "wp624-" + UUID.randomUUID().toString().substring(0, 8) + "@example.com";
+    UserResponse user =
+        authService.signup(new SignupRequest(name, name, "Password123", "Test User"));
+
+    var ok = authService.login(new LoginRequest("  " + name.toUpperCase() + " ", "Password123"));
+    assertThat(jwtTokenProvider.getUserIdFromToken(ok.accessToken())).isEqualTo(user.id());
+
+    // 대소문자를 바꿔 가며 5번 틀리면 실제 아이디가 잠긴다
+    for (String variant :
+        new String[] {
+          name.toUpperCase(),
+          " " + name,
+          "W" + name.substring(1),
+          name + " ",
+          name.toUpperCase() + " "
+        }) {
+      assertThatThrownBy(() -> authService.login(new LoginRequest(variant, "wrong")))
+          .isInstanceOf(InvalidCredentialsException.class);
+    }
+    assertThatThrownBy(() -> authService.login(new LoginRequest(name, "Password123")))
+        .isInstanceOf(AccountLockedException.class);
+  }
+
+  /** WP-624: 대소문자만 다른 두 계정이 이미 있으면 어느 쪽인지 정할 수 없으니, 정확히 같은 아이디로만 들어간다. */
+  @Test
+  void login_ambiguousCaseVariants_requireExactName() {
+    String base = "wp624d-" + UUID.randomUUID().toString().substring(0, 8) + "@x.io";
+    String lower = "a" + base;
+    String upper = "A" + base;
+    authService.signup(new SignupRequest(lower, null, "Password123", "소문자"));
+    authService.signup(new SignupRequest(upper, null, "Password456", "대문자"));
+
+    // 각자 정확한 아이디로는 들어간다
+    assertThat(authService.login(new LoginRequest(lower, "Password123")).accessToken())
+        .isNotBlank();
+    assertThat(authService.login(new LoginRequest(upper, "Password456")).accessToken())
+        .isNotBlank();
+    // 어느 쪽과도 정확히 같지 않은 변형은 거절한다
+    assertThatThrownBy(
+            () -> authService.login(new LoginRequest(upper.toUpperCase(), "Password456")))
         .isInstanceOf(InvalidCredentialsException.class);
   }
 
