@@ -31,6 +31,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useIsMobile } from '@/hooks/useIsMobile'
+import { parseId } from '@/lib/historyParam'
 
 import { useDeletePage, useMovePage } from '../../hooks/queries/useWikiMutations'
 import { useWikiSpaces } from '../../hooks/queries/useWikiSpaces'
@@ -169,8 +170,9 @@ function getProjection(
 export function WikiSidebar() {
   const navigate = useNavigate()
   const { spaceId: spaceIdParam, pageId: pageIdParam } = useParams()
-  const spaceId = spaceIdParam ? Number(spaceIdParam) : null
-  const activePageId = pageIdParam ? Number(pageIdParam) : null
+  // 숫자가 아닌 주소 번호는 없는 것으로 본다(WP-612) — NaN 으로 트리·삭제 API 를 부르지 않게.
+  const spaceId = parseId(spaceIdParam ?? null)
+  const activePageId = parseId(pageIdParam ?? null)
 
   const spacesQuery = useWikiSpaces()
   const spaces = spacesQuery.data

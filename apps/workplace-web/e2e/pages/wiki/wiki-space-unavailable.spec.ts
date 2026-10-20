@@ -50,3 +50,27 @@ for (const mobile of [false, true]) {
     await expect(page.getByTestId('wiki-space-unavailable')).toHaveCount(0)
   })
 }
+
+// WP-612 — 주소의 공간·페이지 번호가 숫자가 아니면(깨진 링크·직접 입력) NaN 이 렌더 중 상태 갱신을 끝없이 돌려 오류 화면이 떴다.
+// 없는 공간·없는 페이지와 같은 안내를 보이고, 화면 오류(경계)는 뜨지 않는다.
+for (const mobile of [false, true]) {
+  test(`${mobile ? '모바일' : '데스크톱'} — 숫자가 아닌 노트 주소는 오류 화면 대신 없는 공간·페이지 안내를 보인다`, async ({
+    authenticatedPage: page,
+  }) => {
+    if (mobile) await page.setViewportSize({ width: 390, height: 844 })
+    await mockWiki(page)
+    const loops: string[] = []
+    page.on('console', (m) => {
+      if (m.type() === 'error' && /Too many re-renders/.test(m.text())) loops.push(m.text())
+    })
+
+    await page.goto(`/wiki/spaces/${MY_SPACE_ID}/pages/undefined`)
+    await expect(page.getByTestId('wiki-page-unavailable').getByText('페이지를 불러올 수 없습니다')).toBeVisible()
+    await expect(page.getByText('페이지를 불러오는 중 문제가 발생했습니다')).toHaveCount(0)
+
+    await page.goto('/wiki/spaces/abc/pages/undefined')
+    await expect(page.getByTestId('wiki-space-unavailable').getByText('노트 공간을 찾을 수 없습니다')).toBeVisible()
+    await expect(page.getByText('페이지를 불러오는 중 문제가 발생했습니다')).toHaveCount(0)
+    expect(loops).toEqual([])
+  })
+}

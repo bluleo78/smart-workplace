@@ -102,15 +102,7 @@ export function WikiPageView({ pageId, spaceId }: { pageId: number | null; space
   }
   if (mode === 'error') {
     /** #788: 존재하지 않는 페이지 ID 등 로드 실패 — 무한 skeleton 대신 ResourceErrorState(4요소) 표시. */
-    return (
-      <ResourceErrorState
-        icon={FileQuestion}
-        title="페이지를 불러올 수 없습니다"
-        description="요청한 노트 페이지가 존재하지 않거나 접근 권한이 없습니다."
-        actionLabel="노트 목록으로"
-        onAction={() => navigate('/wiki')}
-      />
-    )
+    return <WikiPageUnavailableState onBack={() => navigate('/wiki')} />
   }
   // !page 는 타입 좁히기용 — 모드가 'editor' 면 page 가 있다.
   if (mode === 'loading' || !page) {
@@ -118,4 +110,19 @@ export function WikiPageView({ pageId, spaceId }: { pageId: number | null; space
     return <WikiPageSkeleton testId="wiki-page-skeleton" />
   }
   return <WikiEditor key={page.id} page={page} spaceId={spaceId} />
+}
+
+/** 없거나 볼 수 없는 노트 페이지 안내(#788) — 로드 실패와 숫자가 아닌 페이지 주소(WP-612)가 같이 쓴다. */
+export function WikiPageUnavailableState({ onBack }: { onBack: () => void }) {
+  return (
+    <div data-testid="wiki-page-unavailable" className="flex flex-1 flex-col">
+      <ResourceErrorState
+        icon={FileQuestion}
+        title="페이지를 불러올 수 없습니다"
+        description="요청한 노트 페이지가 존재하지 않거나 접근 권한이 없습니다."
+        actionLabel="노트 목록으로"
+        onAction={onBack}
+      />
+    </div>
+  )
 }
