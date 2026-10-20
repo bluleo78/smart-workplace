@@ -11,7 +11,7 @@ import { MobileSheetShell } from '@/components/mobile/MobileSheetShell';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
-import { formatDateMonthDay, formatDateRangeMonthDay } from '../../../lib/formatters';
+import { formatDateOnlyMonthDay, formatDateRangeMonthDay } from '../../../lib/formatters';
 import type { IssueResponse } from '../../../types/issue';
 import type { MilestoneResponse } from '../../../types/milestone';
 import { HIDE_SCROLLBAR, MOBILE_CHIP, MOBILE_CHIP_ACTIVE } from '../components/mobile/chipStyles';
@@ -263,7 +263,8 @@ export function TimelineAgendaList({
               <li key={m.id} className="flex min-h-11 items-center gap-3 px-4 text-base">
                 <Diamond className="size-4 shrink-0 text-ai-accent" aria-hidden />
                 <span className="min-w-0 flex-1 truncate">{m.name}</span>
-                <span className="shrink-0 text-sm text-muted-foreground">{formatDateMonthDay(m.dueDate)}</span>
+                {/* 올해가 아닌 마감일은 연도까지(WP-616) — 월·일만이면 지난 해·내년 마일스톤을 구분할 수 없었다. */}
+                <span className="shrink-0 text-sm text-muted-foreground">{formatDateOnlyMonthDay(m.dueDate)}</span>
               </li>
             ))}
         </ul>

@@ -45,7 +45,7 @@ function createCycle(o: Partial<CycleResponse>): CycleResponse {
 }
 
 /** period: 기본 'all'(기간 거름 없이 기존 검증 유지), null 이면 period 없이 진입해 기본(활성 사이클) 기간을 쓴다. */
-async function setup(page: Page, opts: { member?: boolean; query?: string; cycles?: CycleResponse[]; period?: string | null; issues?: IssueResponse[] } = {}) {
+async function setup(page: Page, opts: { member?: boolean; query?: string; cycles?: CycleResponse[]; period?: string | null; issues?: IssueResponse[]; milestones?: MilestoneResponse[] } = {}) {
   await page.clock.setFixedTime(new Date('2026-10-15T03:00:00Z')); // 오늘 = 2026-10-15(KST)
   await stubChat(page);
   await page.route(`**/api/v1/projects/${KEY}`, (r) => r.fulfill(json(createProject({ key: KEY, viewerIsMember: opts.member ?? true }))));
@@ -54,7 +54,7 @@ async function setup(page: Page, opts: { member?: boolean; query?: string; cycle
     const status = new URL(r.request().url()).searchParams.get('status') ?? '';
     return r.fulfill(json(createIssueSearchResponse(status.includes('DONE') ? [] : (opts.issues ?? ISSUES), null)));
   });
-  await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/milestones`, (r) => r.fulfill(json(MILESTONES)));
+  await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/milestones`, (r) => r.fulfill(json(opts.milestones ?? MILESTONES)));
   await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/cycles`, (r) => r.fulfill(json(opts.cycles ?? [])));
   await page.route((u) => [`/api/v1/projects/${KEY}/issue-dependencies`, `/api/v1/projects/${KEY}/members`, `/api/v1/projects/${KEY}/labels`].includes(u.pathname), (r) => r.fulfill(json([])));
   // 기간 필터 고정(WP-247) — 기본 period=all 을 쿼리에 덧붙인다(null 이면 붙이지 않음).
@@ -132,6 +132,19 @@ test('「일정 미정 N」 칩 → 미정 섹션으로 스크롤, 「마일스�
   await expect(sheet).toContainText('v2 베타');
   await expect(sheet).toContainText('11월 1일');
   await expect(sheet).toContainText('v2 정식 출시');
+});
+
+test('마일스톤 시트 — 올해가 아닌 마감일은 연도까지 보인다 (WP-616)', async ({ authenticatedPage: page }) => {
+  await setup(page, {
+    milestones: [
+      { id: 7, projectId: 1, name: '작년 회고', dueDate: '2025-03-01', description: null, createdAt: '', updatedAt: '' },
+      { id: 8, projectId: 1, name: '올해 베타', dueDate: '2026-11-01', description: null, createdAt: '', updatedAt: '' },
+      { id: 9, projectId: 1, name: '내년 정식', dueDate: '2027-03-01', description: null, createdAt: '', updatedAt: '' },
+    ],
+  });
+  await page.getByTestId('agenda-chip-milestones').tap();
+  const rows = page.getByTestId('agenda-milestone-sheet').locator('li');
+  await expect(rows).toHaveText([/작년 회고\s*2025년 3월 1일/, /올해 베타\s*11월 1일/, /내년 정식\s*2027년 3월 1일/]);
 });
 
 test('필터 칩 → 필터 시트(활성 수 표시), 0건이면 빈 상태 + 칩 줄 유지', async ({ authenticatedPage: page }) => {
