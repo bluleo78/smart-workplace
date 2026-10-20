@@ -104,6 +104,18 @@ class UserCreateAgentTest extends IntegrationTestBase {
   }
 
   @Test
+  void create_agent_with_case_variant_email_throws() {
+    // WP-613: 기존 구성원 이메일의 대소문자만 바꾼 이메일도 막는다.
+    userService.createAgent(
+        callerId, new CreateAgentRequest("bot-c", "C", "case-shared@example.com"));
+    assertThatThrownBy(
+            () ->
+                userService.createAgent(
+                    callerId, new CreateAgentRequest("bot-d", "D", "Case-Shared@EXAMPLE.COM")))
+        .isInstanceOf(EmailAlreadyExistsException.class);
+  }
+
+  @Test
   void create_agent_with_duplicate_email_throws() {
     userService.createAgent(callerId, new CreateAgentRequest("bot-a", "A", "shared@example.com"));
     assertThatThrownBy(

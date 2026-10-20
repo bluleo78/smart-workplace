@@ -71,20 +71,25 @@ public class UserRepository {
         .fetchOptional(userMapper(USER.IS_ACTIVE));
   }
 
-  /** 이메일로 사용자 조회 (대소문자 무시). */
+  /**
+   * 이메일로 사용자 조회 (대소문자 무시). 대소문자만 다른 이메일 계정이 둘 이상이면(WP-613 이전에 생긴 데이터) 누구인지 정할 수 없어 없음으로 돌려준다 — 아무나
+   * 고르면 캘린더 참석자가 엉뚱한 사람에게 붙는다.
+   */
   public Optional<UserResponse> findByEmailIgnoreCase(String email) {
-    return dsl.select(
-            USER.ID,
-            USER.USERNAME,
-            USER.EMAIL,
-            USER.NAME,
-            USER.IS_ACTIVE,
-            USER.CREATED_AT,
-            USER.KIND)
-        .from(USER)
-        .where(USER.EMAIL.equalIgnoreCase(email))
-        .limit(1)
-        .fetchOptional(userMapper(USER.IS_ACTIVE));
+    List<UserResponse> matches =
+        dsl.select(
+                USER.ID,
+                USER.USERNAME,
+                USER.EMAIL,
+                USER.NAME,
+                USER.IS_ACTIVE,
+                USER.CREATED_AT,
+                USER.KIND)
+            .from(USER)
+            .where(USER.EMAIL.equalIgnoreCase(email))
+            .limit(2)
+            .fetch(userMapper(USER.IS_ACTIVE));
+    return matches.size() == 1 ? Optional.of(matches.get(0)) : Optional.empty();
   }
 
   /** id 집합으로 일괄 조회 (N+1 회피). 빈 입력은 빈 리스트 반환. */
@@ -249,13 +254,20 @@ public class UserRepository {
     return dsl.fetchExists(dsl.selectOne().from(USER).where(USER.USERNAME.eq(username)));
   }
 
+  /**
+   * 이메일 사용 여부 — 대소문자 무시(WP-613). 이메일로 사람을 찾는 곳(캘린더 참석자 매칭·운영자 조회)이 대소문자를 무시하므로, 대소문자만 다른 이메일이 두 계정에
+   * 있으면 엉뚱한 사람을 고른다.
+   */
   public boolean existsByEmail(String email) {
-    return dsl.fetchExists(dsl.selectOne().from(USER).where(USER.EMAIL.eq(email)));
+    return dsl.fetchExists(dsl.selectOne().from(USER).where(USER.EMAIL.equalIgnoreCase(email)));
   }
 
+  /** 나를 뺀 다른 계정의 이메일 사용 여부 — 대소문자 무시(WP-613). 내 이메일의 대소문자만 바꾸는 것은 충돌이 아니다. */
   public boolean existsByEmailExcludingUser(String email, Long excludeUserId) {
     return dsl.fetchExists(
-        dsl.selectOne().from(USER).where(USER.EMAIL.eq(email).and(USER.ID.ne(excludeUserId))));
+        dsl.selectOne()
+            .from(USER)
+            .where(USER.EMAIL.equalIgnoreCase(email).and(USER.ID.ne(excludeUserId))));
   }
 
   /**

@@ -15,6 +15,7 @@ import com.workplace.user.dto.MemberResponse;
 import com.workplace.user.dto.UserDetailResponse;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.exception.UserNotFoundException;
+import com.workplace.user.repository.UserRepository;
 import java.util.List;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
@@ -37,6 +38,8 @@ class UserServiceTest extends IntegrationTestBase {
   @Autowired private MembershipRepository membershipRepository;
 
   @Autowired private DSLContext dsl;
+
+  @Autowired private UserRepository userRepository;
 
   private Long testUserId;
 
@@ -354,6 +357,66 @@ class UserServiceTest extends IntegrationTestBase {
 
     assertThat(created.name()).isEqualTo("정하늘");
     assertThat(userService.getUserById(created.userId()).name()).isEqualTo("정하늘");
+  }
+
+  @Test
+  void updateProfile_emailCaseVariantOfOther_throwsException() {
+    // WP-613: 대소문자만 바꾼 남의 이메일도 같은 이메일이다 — 이메일로 사람을 찾는 곳(캘린더 참석자·운영자 조회)이 대소문자를 무시한다.
+    dsl.insertInto(USER)
+        .set(USER.USERNAME, "case-other@example.com")
+        .set(USER.PASSWORD, "password")
+        .set(USER.NAME, "Other User")
+        .set(USER.EMAIL, "case-taken@example.com")
+        .execute();
+
+    assertThatThrownBy(
+            () -> userService.updateProfile(testUserId, "New Name", "Case-Taken@EXAMPLE.com"))
+        .isInstanceOf(EmailAlreadyExistsException.class)
+        .hasMessage("이미 사용 중인 이메일입니다");
+  }
+
+  @Test
+  void updateProfile_ownEmailCaseChange_allowed() {
+    // 내 이메일의 대소문자만 바꾸는 것은 충돌이 아니다.
+    userService.updateProfile(testUserId, "Test User", "Test@Example.com");
+
+    assertThat(userService.getUserById(testUserId).email()).isEqualTo("Test@Example.com");
+  }
+
+  @Test
+  void createMember_emailCaseVariantOfOther_throwsException() {
+    assertThatThrownBy(
+            () ->
+                userService.createMember(
+                    new CreateMemberRequest(
+                        "case-member@example.com",
+                        "TEST@example.COM",
+                        "새 구성원",
+                        "Password123",
+                        "USER"),
+                    testUserId))
+        .isInstanceOf(EmailAlreadyExistsException.class);
+  }
+
+  @Test
+  void findByEmailIgnoreCase_ambiguousExistingDuplicates_returnsEmpty() {
+    // WP-613: 이 수정 전에 이미 대소문자만 다른 이메일 두 계정이 있으면 누구인지 정할 수 없다 — 아무나 고르지 않고 없음으로 본다.
+    dsl.insertInto(USER)
+        .set(USER.USERNAME, "dup-case-a@example.com")
+        .set(USER.PASSWORD, "password")
+        .set(USER.NAME, "A")
+        .set(USER.EMAIL, "dup-case@example.com")
+        .execute();
+    dsl.insertInto(USER)
+        .set(USER.USERNAME, "dup-case-b@example.com")
+        .set(USER.PASSWORD, "password")
+        .set(USER.NAME, "B")
+        .set(USER.EMAIL, "DUP-CASE@example.com")
+        .execute();
+
+    assertThat(userRepository.findByEmailIgnoreCase("Dup-Case@example.com")).isEmpty();
+    assertThat(userRepository.findByEmailIgnoreCase("TEST@example.com"))
+        .hasValueSatisfying(u -> assertThat(u.id()).isEqualTo(testUserId));
   }
 
   @Test
