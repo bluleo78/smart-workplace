@@ -50,15 +50,30 @@ public class ChannelRepository {
   }
 
   /**
-   * 동일 테넌트(RLS 자동 적용) 내 활성(비아카이브) CHANNEL 이름 중복 여부(대소문자 무시, #688). excludeId 는 이름변경 시 자기 자신 제외용(생성
-   * 시 null).
+   * callerId 가 볼 수 있는 활성(비아카이브) CHANNEL 중 같은 이름이 있는지(대소문자 무시, #688). 볼 수 있는 채널 = 공개 채널 + 자기가 멤버인
+   * 비공개 채널(WP-590) — 볼 수 없는 비공개 채널까지 견주면 거절 여부로 그 채널이 있다는 게 드러난다. 공개 채널끼리의 유일성은 DB 인덱스(V191)도 막는다.
+   * excludeId 는 이름변경 시 자기 자신 제외용(생성 시 null).
    */
-  public boolean existsChannelName(String name, Long excludeId) {
+  public boolean existsVisibleChannelName(String name, long callerId, Long excludeId) {
+    Condition visible =
+        CHANNEL
+            .VISIBILITY
+            .eq("PUBLIC")
+            .or(
+                DSL.exists(
+                    DSL.selectOne()
+                        .from(CHANNEL_MEMBER)
+                        .where(
+                            CHANNEL_MEMBER
+                                .CHANNEL_ID
+                                .eq(CHANNEL.ID)
+                                .and(CHANNEL_MEMBER.USER_ID.eq(callerId)))));
     Condition cond =
         CHANNEL
             .KIND
             .eq("CHANNEL")
             .and(CHANNEL.ARCHIVED_AT.isNull())
+            .and(visible)
             // 저장값도 다듬어 비교한다 — WP-592 이전에 공백째 저장된 옛 이름도 같은 이름으로 본다.
             .and(DSL.lower(DSL.trim(CHANNEL.NAME)).eq(name.strip().toLowerCase()));
     if (excludeId != null) {

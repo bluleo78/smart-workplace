@@ -53,13 +53,13 @@ public class ChannelService {
   }
 
   /**
-   * 채널 생성 — 생성자를 OWNER 로 add. visibility null → PUBLIC. 동일 테넌트 내 활성 채널 이름 중복은 하드 차단(#688 —
-   * Wiki/Drive 팀 스페이스 #696, 연락처 조직 그룹 #803 과 동일한 "컨테이너류 이름은 식별자" 정책).
+   * 채널 생성 — 생성자를 OWNER 로 add. visibility null → PUBLIC. 이름은 만드는 사람이 볼 수 있는 활성 채널(공개 + 내가 멤버인 비공개)과
+   * 겹칠 수 없다(#688 의 "컨테이너류 이름은 식별자" 정책을 WP-590 에서 볼 수 있는 범위로 좁힘 — 볼 수 없는 비공개 채널 존재를 숨기려고).
    */
   @Transactional
   public ChannelResponse create(long callerId, String rawName, String visibility) {
     String name = normalizeName(rawName);
-    if (channelRepo.existsChannelName(name, null)) {
+    if (channelRepo.existsVisibleChannelName(name, callerId, null)) {
       throw new ChannelNameDuplicatedException(name);
     }
     String vis = normalizeVisibility(visibility);
@@ -107,7 +107,7 @@ public class ChannelService {
     changeNotifier.membershipChanged(channelId, callerId, Set.of());
   }
 
-  /** 이름 변경 — OWNER/ADMIN 또는 시스템 ADMIN. 동일 테넌트 내 활성 채널 이름 중복은 하드 차단(#688). */
+  /** 이름 변경 — OWNER/ADMIN 또는 시스템 ADMIN. 바꾸는 사람이 볼 수 있는 활성 채널 이름과는 겹칠 수 없다(#688·WP-590). */
   @Transactional
   public ChannelResponse rename(long callerId, long channelId, String rawName) {
     String name = normalizeName(rawName);
@@ -115,7 +115,7 @@ public class ChannelService {
     perms.requireManage(channelId, callerId, "rename");
     // 보관된 채널은 읽기 전용 — 이름을 바꾸려면 먼저 보관을 해제한다(WP-508).
     if (channelRepo.isArchived(channelId)) throw new ChannelArchivedException(channelId);
-    if (channelRepo.existsChannelName(name, channelId)) {
+    if (channelRepo.existsVisibleChannelName(name, callerId, channelId)) {
       throw new ChannelNameDuplicatedException(name);
     }
     channelRepo.rename(channelId, name);

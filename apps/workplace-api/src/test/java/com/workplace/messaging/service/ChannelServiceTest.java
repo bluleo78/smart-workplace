@@ -193,4 +193,33 @@ class ChannelServiceTest extends IntegrationTestBase {
     ChannelResponse reused = channelService.create(u, "보관후재사용", "PUBLIC");
     assertThat(reused.name()).isEqualTo("보관후재사용");
   }
+
+  /**
+   * WP-590 — 비공개 채널 이름은 그 채널을 볼 수 없는 사람의 채널 만들기·이름 변경을 막지 않는다(막으면 409 냐 201 이냐로 비공개 채널이 있다는 게
+   * 드러난다). 공개 채널 이름은 워크스페이스 전체에서, 비공개 채널 이름은 내가 볼 수 있는 채널 안에서 유일하다.
+   */
+  @Test
+  void privateChannelName_isHiddenFromNonMembers_butUniqueAmongVisibleChannels() {
+    long owner = seedUser();
+    long other = seedUser();
+    long third = seedUser();
+    long fourth = seedUser();
+    channelService.create(owner, "인사비밀", "PRIVATE");
+
+    // 볼 수 없는 사람은 같은 이름으로 비공개·공개 채널을 만들 수 있다.
+    assertThat(channelService.create(other, "인사비밀", "PRIVATE").name()).isEqualTo("인사비밀");
+    assertThat(channelService.create(third, "인사비밀", "PUBLIC").name()).isEqualTo("인사비밀");
+    // 이름 변경도 마찬가지.
+    channelService.create(owner, "재무비밀", "PRIVATE");
+    ChannelResponse misc = channelService.create(other, "기타", "PUBLIC");
+    assertThat(channelService.rename(other, misc.id(), "재무비밀").name()).isEqualTo("재무비밀");
+
+    // 내가 볼 수 있는 채널과는 겹칠 수 없다 — 내 비공개 채널, 그리고 이제 누구나 보는 공개 「인사비밀」.
+    assertThatThrownBy(() -> channelService.create(owner, "인사비밀", "PRIVATE"))
+        .isInstanceOf(ChannelNameDuplicatedException.class);
+    assertThatThrownBy(() -> channelService.create(fourth, "인사비밀", "PUBLIC"))
+        .isInstanceOf(ChannelNameDuplicatedException.class);
+    assertThatThrownBy(() -> channelService.create(fourth, "인사비밀", "PRIVATE"))
+        .isInstanceOf(ChannelNameDuplicatedException.class);
+  }
 }
