@@ -178,7 +178,22 @@ class RoleServiceTest extends IntegrationTestBase {
             .where(PERMISSION.CATEGORY.eq("user"))
             .fetch(PERMISSION.ID);
 
-    roleService.setRolePermissions(customRole.id(), permissionIds, null);
+    // WP-599: 권한을 넣는 사람은 그 권한을 가져야 한다 — 호출자를 ADMIN 으로 둔다.
+    Long callerId =
+        dsl.insertInto(USER)
+            .set(USER.USERNAME, "role-perm-caller@example.com")
+            .set(USER.PASSWORD, "pw")
+            .set(USER.NAME, "caller")
+            .returning(USER.ID)
+            .fetchOne()
+            .getId();
+    Long adminRoleId =
+        dsl.select(ROLE.ID).from(ROLE).where(ROLE.NAME.eq("ADMIN")).fetchOne(ROLE.ID);
+    dsl.insertInto(USER_ROLE)
+        .set(USER_ROLE.USER_ID, callerId)
+        .set(USER_ROLE.ROLE_ID, adminRoleId)
+        .execute();
+    roleService.setRolePermissions(customRole.id(), permissionIds, callerId);
 
     RoleDetailResponse detail = roleService.getRoleById(customRole.id());
     assertThat(detail.permissions()).hasSize(permissionIds.size());

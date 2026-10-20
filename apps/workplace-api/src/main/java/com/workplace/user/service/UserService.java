@@ -12,6 +12,7 @@ import com.workplace.global.tenant.WorkspaceActive;
 import com.workplace.global.util.PersonNames;
 import com.workplace.role.dto.RoleResponse;
 import com.workplace.role.repository.RoleRepository;
+import com.workplace.role.service.RoleGrantGuard;
 import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.tenant.repository.TenantRepository;
 import com.workplace.user.dto.AgentRuntime;
@@ -50,6 +51,7 @@ public class UserService {
   private final UserRepository userRepository;
   private final AgentRuntimePolicy agentRuntimePolicy;
   private final RoleRepository roleRepository;
+  private final RoleGrantGuard roleGrantGuard;
   private final PasswordEncoder passwordEncoder;
   private final AuditLogService auditLogService;
   private final MembershipRepository membershipRepository;
@@ -555,6 +557,11 @@ public class UserService {
         throw new IllegalArgumentException("없는 역할이 포함되어 있습니다");
       }
     }
+    // WP-599: ADMIN 이 아니면 자기 권한 안의 역할만 주고뺄 수 있다(role:assign 만으로 자기에게 ADMIN 을 주던 권한 상승 차단).
+    roleGrantGuard.requireCanChangeRoles(
+        callerId,
+        roleRepository.findByUserId(userId).stream().map(RoleResponse::id).toList(),
+        roleIds == null ? List.of() : roleIds);
     Optional<RoleResponse> adminRole = roleRepository.findByName("ADMIN");
     if (adminRole.isEmpty()) return;
     boolean wouldRemoveAdmin = roleIds == null || !roleIds.contains(adminRole.get().id());

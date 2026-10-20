@@ -413,6 +413,11 @@ class UserServiceTest extends IntegrationTestBase {
             .returning(USER.ID)
             .fetchOne()
             .getId();
+    // WP-599: 역할을 주고빼는 사람은 그만한 권한이 있어야 한다 — 호출자를 ADMIN 으로 둔다.
+    dsl.insertInto(USER_ROLE)
+        .set(USER_ROLE.USER_ID, callerId)
+        .set(USER_ROLE.ROLE_ID, adminRoleId)
+        .execute();
     userService.setUserRoles(testUserId, List.of(adminRoleId, userRoleId), callerId);
 
     UserDetailResponse detail = userService.getUserById(testUserId);

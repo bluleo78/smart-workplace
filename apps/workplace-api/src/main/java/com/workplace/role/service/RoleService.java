@@ -13,7 +13,6 @@ import com.workplace.user.dto.UserResponse;
 import com.workplace.user.repository.UserRepository;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -28,6 +27,7 @@ public class RoleService {
 
   private final RoleRepository roleRepository;
   private final PermissionRepository permissionRepository;
+  private final RoleGrantGuard roleGrantGuard;
   // WP-567: 역할 생성·수정·삭제·권한 변경을 행위자와 함께 감사 로그에 남긴다.
   private final AuditLogService auditLogService;
   private final UserRepository userRepository;
@@ -115,14 +115,16 @@ public class RoleService {
     }
 
     // WP-570: 없는 권한 id 는 FK 위반(영어 409)이 되기 전에 한국어로 거절한다.
-    Set<Long> known =
+    Map<Long, String> codeById =
         permissionRepository.findAll().stream()
-            .map(PermissionResponse::id)
-            .collect(Collectors.toSet());
-    if (!known.containsAll(permissionIds)) {
+            .collect(Collectors.toMap(PermissionResponse::id, PermissionResponse::code));
+    if (!codeById.keySet().containsAll(permissionIds)) {
       throw new IllegalArgumentException("없는 권한이 포함되어 있습니다");
     }
     List<String> before = permissionCodesOf(roleId);
+    // WP-599: ADMIN 이 아니면 자기 권한 안에서만 넣거나 뺄 수 있다(role:write 로 자기 역할에 전체 권한을 넣던 권한 상승 차단).
+    roleGrantGuard.requireCanChangePermissions(
+        callerId, before, permissionIds.stream().map(codeById::get).toList());
     roleRepository.setPermissions(roleId, permissionIds);
     List<String> after = permissionCodesOf(roleId);
     audit(

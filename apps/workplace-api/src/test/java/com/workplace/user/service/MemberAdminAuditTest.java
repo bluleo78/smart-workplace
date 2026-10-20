@@ -1,6 +1,7 @@
 package com.workplace.user.service;
 
 import static com.workplace.jooq.Tables.*;
+import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.audit.dto.AuditLogResponse;
@@ -44,6 +45,11 @@ class MemberAdminAuditTest extends IntegrationTestBase {
   void setUp() {
     TenantContext.set(TENANT_ID);
     adminId = insertMember("audit-admin@example.com");
+    // WP-599: 역할을 주고빼는 사람은 그만한 권한이 있어야 한다 — 호출자를 ADMIN 으로 둔다.
+    dsl.insertInto(USER_ROLE)
+        .set(USER_ROLE.USER_ID, adminId)
+        .set(USER_ROLE.ROLE_ID, roleId("ADMIN"))
+        .execute();
     targetId = insertMember("audit-target@example.com");
   }
 
