@@ -362,6 +362,26 @@ public class AuthService {
     return new SsoSession(refreshToken, tenantId);
   }
 
+  /**
+   * 비밀번호를 바꾼 뒤 세션 정리(WP-566). 이 사용자의 refresh 토큰을 모두 폐기해 다른 기기·브라우저 세션이 더는 연장되지 않게 한다 — 비밀번호가 새어 바꾼
+   * 경우 침입자 세션을 끊기 위해서다. 바꾼 브라우저 세션에는 같은 테넌트·인증 수단으로 새 refresh 토큰을 발급해 돌려준다(새 family — 폐기된 옛 토큰의
+   * grace 재발급이 이 토큰의 family 에 기대지 못하게). PAT·API 키·Internal 호출(authMethod null)은 이어 줄 세션이 없어 null.
+   *
+   * @param tenantId 바꾸는 요청의 active-tenant(없으면 null — tenant-less 토큰으로 이어진다)
+   */
+  @Transactional
+  public String revokeSessionsAfterPasswordChange(Long userId, Long tenantId, String authMethod) {
+    refreshTokenRepository.revokeAllByUserId(userId);
+    if (authMethod == null) {
+      return null;
+    }
+    // 토큰 amr 은 SSO 세션만 싣는다(selectTenant 와 같은 규칙).
+    String amr = AuthDetails.SSO.equals(authMethod) ? AuthDetails.SSO : null;
+    String refreshToken = jwtTokenProvider.generateRefreshToken(userId, tenantId, amr);
+    storeRefreshToken(userId, refreshToken, UUID.randomUUID());
+    return refreshToken;
+  }
+
   @Transactional
   public void logout(Long userId) {
     refreshTokenRepository.revokeAllByUserId(userId);

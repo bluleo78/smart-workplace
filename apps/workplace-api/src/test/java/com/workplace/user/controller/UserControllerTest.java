@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.repository.AgentApiKeyRepository;
 import com.workplace.auth.repository.UserApiTokenRepository;
+import com.workplace.auth.web.RefreshTokenCookies;
 import com.workplace.global.config.SecurityConfig;
 import com.workplace.global.dto.PageResponse;
 import com.workplace.global.security.ApiKeyAuthenticationFilter;
@@ -43,7 +44,8 @@ import org.springframework.test.web.servlet.MockMvc;
   SecurityConfig.class,
   JwtAuthenticationFilter.class,
   ApiKeyAuthenticationFilter.class,
-  UserTokenAuthenticationFilter.class
+  UserTokenAuthenticationFilter.class,
+  RefreshTokenCookies.class
 })
 class UserControllerTest {
 
@@ -138,6 +140,31 @@ class UserControllerTest {
             "oldpassword",
             "newPassword123",
             com.workplace.global.security.AuthDetails.PASSWORD);
+  }
+
+  @Test
+  void changePassword_reissuedSession_setsNewRefreshCookie() throws Exception {
+    // WP-566: 서비스가 옛 세션을 모두 폐기하고 새 refresh 토큰을 돌려주면, 바꾼 세션이 이어지도록 그 토큰을 쿠키로 싣는다.
+    mockAuthentication("user:write:self");
+    when(userService.changePassword(eq(1L), anyString(), anyString(), any()))
+        .thenReturn("reissued-refresh");
+    ChangePasswordRequest request = new ChangePasswordRequest("oldpassword", "newPassword123");
+
+    mockMvc
+        .perform(
+            put("/api/v1/users/me/password")
+                .header("Authorization", "Bearer valid-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+        .andExpect(status().isNoContent())
+        .andExpect(
+            header()
+                .string(
+                    "Set-Cookie",
+                    org.hamcrest.Matchers.allOf(
+                        org.hamcrest.Matchers.containsString("refreshToken=reissued-refresh"),
+                        org.hamcrest.Matchers.containsString("Path=/api/v1/auth"),
+                        org.hamcrest.Matchers.containsString("HttpOnly"))));
   }
 
   @Test

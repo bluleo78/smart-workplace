@@ -4,6 +4,7 @@ import com.workplace.audit.service.AuditLogService;
 import com.workplace.auth.exception.EmailAlreadyExistsException;
 import com.workplace.auth.exception.UsernameAlreadyExistsException;
 import com.workplace.auth.service.AssistantResolver;
+import com.workplace.auth.service.AuthService;
 import com.workplace.global.dto.PageResponse;
 import com.workplace.global.security.AuthDetails;
 import com.workplace.global.tenant.TenantContext;
@@ -54,6 +55,8 @@ public class UserService {
   private final TenantRepository tenantRepository;
   // AI 가용성 해석 — 개인/공통 비서 중 active token 보유 여부를 판단. /users/me 응답에 aiAvailable 노출.
   private final AssistantResolver assistantResolver;
+  // WP-566: 비밀번호 변경 뒤 다른 세션 refresh 폐기·바꾼 세션 재발급.
+  private final AuthService authService;
   // 실행 방식 변경 이벤트 발행(AgentRuntimeChanged) — issue 모듈이 AI 작업 기록을 정리한다.
   private final ApplicationEventPublisher publisher;
 
@@ -452,8 +455,14 @@ public class UserService {
     userRepository.update(userId, name, email);
   }
 
+  /**
+   * 본인 비밀번호 변경·최초 설정.
+   *
+   * @return 일반 변경이면 바꾼 브라우저 세션이 이어 쓸 새 refresh 토큰(WP-566 — 옛 세션은 모두 폐기된다), 브라우저 세션이 아니거나 SSO 전용 계정의
+   *     최초 설정이면 null
+   */
   @Transactional
-  public void changePassword(
+  public String changePassword(
       Long userId, String currentPassword, String newPassword, String authMethod) {
     if (!userRepository.existsById(userId)) throw UserNotFoundException.ofId(userId);
     Optional<String> storedPassword = userRepository.findPasswordById(userId);
@@ -477,7 +486,7 @@ public class UserService {
           "SUCCESS",
           null,
           null);
-      return;
+      return null;
     }
     // 현재 비밀번호 불일치 시 400 Bad Request로 명확한 한국어 메시지 반환 (#27)
     if (currentPassword == null
@@ -485,6 +494,8 @@ public class UserService {
       throw new IllegalArgumentException("현재 비밀번호가 올바르지 않습니다");
     }
     userRepository.updatePassword(userId, passwordEncoder.encode(newPassword));
+    // WP-566: 다른 기기·브라우저 세션을 끊는다(바꾼 브라우저 세션은 돌려준 새 refresh 토큰으로 이어진다).
+    return authService.revokeSessionsAfterPasswordChange(userId, TenantContext.get(), authMethod);
   }
 
   @Transactional

@@ -1,13 +1,16 @@
 package com.workplace.user.controller;
 
+import com.workplace.auth.web.RefreshTokenCookies;
 import com.workplace.global.dto.PageResponse;
 import com.workplace.global.security.AuthDetails;
 import com.workplace.global.security.RequirePermission;
 import com.workplace.user.dto.*;
 import com.workplace.user.service.UserService;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -22,6 +25,7 @@ import org.springframework.web.bind.annotation.*;
 public class UserController {
 
   private final UserService userService;
+  private final RefreshTokenCookies refreshTokenCookies;
 
   /**
    * 구성원(계정) 추가 — 테넌트 ADMIN 셀프서비스.
@@ -54,16 +58,27 @@ public class UserController {
     return ResponseEntity.noContent().build();
   }
 
+  /**
+   * 본인 비밀번호 변경. WP-566: 바꾸면 다른 기기·브라우저 세션의 refresh 가 모두 폐기되므로, 바꾼 브라우저 세션에는 새 refresh 쿠키를 실어 로그인이
+   * 이어지게 한다.
+   */
   @PutMapping("/me/password")
   @RequirePermission("user:write:self")
   public ResponseEntity<Void> changeMyPassword(
-      Authentication authentication, @Valid @RequestBody ChangePasswordRequest request) {
+      Authentication authentication,
+      @Valid @RequestBody ChangePasswordRequest request,
+      HttpServletResponse response) {
     Long userId = (Long) authentication.getPrincipal();
-    userService.changePassword(
-        userId,
-        request.currentPassword(),
-        request.newPassword(),
-        AuthDetails.methodOf(authentication));
+    String refreshToken =
+        userService.changePassword(
+            userId,
+            request.currentPassword(),
+            request.newPassword(),
+            AuthDetails.methodOf(authentication));
+    if (refreshToken != null) {
+      response.addHeader(
+          HttpHeaders.SET_COOKIE, refreshTokenCookies.issue(refreshToken).toString());
+    }
     return ResponseEntity.noContent().build();
   }
 
