@@ -56,6 +56,7 @@ import { buildDriveContext } from '@/lib/aiScreenContext/builders/drive'
 import { extractApiError, handleApiError } from '@/lib/api-error'
 import { dragItemsFor, type DriveDragItem, driveDragItem, type DriveDropData, moveToastMessage } from '@/lib/driveDnd'
 import { driveFileActionDisabled, isDriveViewer, visibleDriveRowActions } from '@/lib/driveRowActions'
+import { isDriveSpaceReadOnly } from '@/lib/driveSpaces'
 import { fileStemLength } from '@/lib/fileName'
 import { formatDateOnly, formatDateShort, formatFileSize } from '@/lib/formatters'
 import { parseId } from '@/lib/historyParam'
@@ -195,7 +196,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   // typeof NaN === 'number' 라 훅의 enabled 판정을 통과하므로 여기서 undefined 로 바꾼다.
   const validSid = Number.isNaN(sid) ? undefined : sid
 
-  // #76: 공간 메타데이터 — archived 여부로 읽기 전용 배너·액션 버튼 비활성 결정.
+  // #76: 공간 메타데이터 — archived·내 역할로 읽기 전용 배너·액션 버튼 비활성 결정(WP-582).
   // WP-63: useQuery 전환 — 실패 시 data 가 없어 배너 미표시로 폴백(기존 동작 유지).
   const spaceQuery = useDriveSpace(validSid)
   const space = spaceQuery.data ?? null
@@ -205,6 +206,8 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   // 일시적 오류(네트워크·5xx)는 「접근 권한 없음」이 아니므로 기존 화면을 유지한다.
   const spaceStatus = axios.isAxiosError(spaceQuery.error) ? spaceQuery.error.response?.status : undefined
   const spaceUnavailable = spaceStatus === 404 || spaceStatus === 403 || validSid === undefined
+  // WP-582: 쓰기 동작을 막을지 — 보관된 채널 공간이거나 내 역할이 보기 전용이면 읽기 전용. 서버도 막지만 누르기 전에 흐리게 둔다.
+  const readOnly = isDriveSpaceReadOnly(space)
   const navigate = useNavigate()
   // WP-63: 폴더 내용 — DriveWidget 과 같은 키(['drive','items',sid,folderId])로 캐시를 공유한다.
   // resource.changed 무효화나 사용자 액션 후 reload() 가 이 키를 재조회한다.
@@ -610,7 +613,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   async function onDrop(e: React.DragEvent) {
     e.preventDefault()
     setDragOver(false)
-    if (space?.archived || readOnlyRole) return
+    if (readOnly) return
     const dropped = await readDroppedTree(e.dataTransfer.items)
     await uploadDroppedTree(dropped)
   }
@@ -832,21 +835,20 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   }
 
   // 행 작업 목록 — 휴대폰 ⋮ 시트(WP-216)·터치 태블릿 ⋯(WP-237)·데스크톱 hover 묶음(WP-363)이 모두 이 목록 하나를 쓴다.
-  // 보관된 공간은 쓰기 작업, 원본 유실 파일은 바이트가 필요한 작업(다운로드·공유·복사)을 막는다.
+  // 읽기 전용 공간(보관·보기 전용, WP-582)은 쓰기 작업, 원본 유실 파일은 바이트가 필요한 작업(다운로드·공유·복사)을 막는다.
   function rowActionsFor(target: RowTarget): MobileSheetAction[] {
-    // 폴더는 보관 여부 하나로 모두 막힌다. 파일 비활성 판정은 driveRowActions 순수 함수가 맡는다(단위 테스트로 지킴, WP-413).
-    const archived = !!space?.archived
+    // 폴더는 읽기 전용 여부 하나로 모두 막힌다. 파일 비활성 판정은 driveRowActions 순수 함수가 맡는다(단위 테스트로 지킴, WP-413).
     if (target.kind === 'folder') {
       const f = target.item
       return visibleDriveRowActions([
-        { key: 'rename', label: '이름 변경', icon: <Pencil />, onSelect: () => onRenameFolder(f.id, f.name), disabled: archived },
-        { key: 'move', label: '이동', icon: <FolderInput />, onSelect: () => setPicker({ mode: 'move', kind: 'folder', id: f.id, name: f.name }), disabled: archived },
-        { key: 'copy', label: '복사', icon: <Copy />, onSelect: () => setPicker({ mode: 'copy', kind: 'folder', id: f.id, name: f.name }), disabled: archived },
-        { key: 'delete', label: '삭제', icon: <Trash2 />, onSelect: () => onDeleteFolder(f.id), disabled: archived, destructive: true },
+        { key: 'rename', label: '이름 변경', icon: <Pencil />, onSelect: () => onRenameFolder(f.id, f.name), disabled: readOnly },
+        { key: 'move', label: '이동', icon: <FolderInput />, onSelect: () => setPicker({ mode: 'move', kind: 'folder', id: f.id, name: f.name }), disabled: readOnly },
+        { key: 'copy', label: '복사', icon: <Copy />, onSelect: () => setPicker({ mode: 'copy', kind: 'folder', id: f.id, name: f.name }), disabled: readOnly },
+        { key: 'delete', label: '삭제', icon: <Trash2 />, onSelect: () => onDeleteFolder(f.id), disabled: readOnly, destructive: true },
       ], readOnlyRole)
     }
     const f = target.item
-    const off = driveFileActionDisabled({ archived, missing: isMissingBlob(f) })
+    const off = driveFileActionDisabled({ space, missing: isMissingBlob(f) })
     // VIEWER 는 다운로드·버전 이력만(WP-602) — 순수 함수 visibleDriveRowActions 가 고른다.
     return visibleDriveRowActions([
       { key: 'download', label: '다운로드', icon: <Download />, onSelect: () => driveApi.downloadFile(f.id, f.name), disabled: off.download },
@@ -1338,6 +1340,11 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
         data-testid="drive-dropzone"
         onDragOver={(e) => {
           e.preventDefault()
+          // 읽기 전용이면 놓아도 올리지 않으므로 놓기 표시(테두리·커서)도 하지 않는다.
+          if (readOnly) {
+            e.dataTransfer.dropEffect = 'none'
+            return
+          }
           setDragOver(true)
         }}
         onDragLeave={() => setDragOver(false)}
@@ -1395,12 +1402,13 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
           <div data-testid="trash-view">
             <div className="mb-2 flex items-center justify-between">
               <span className="text-sm text-muted-foreground">휴지통 ({trash.length})</span>
-              {/* 휴지통 비우기는 EDITOR 이상(WP-602). */}
+              {/* 휴지통 비우기는 EDITOR 이상(WP-602) — VIEWER 는 감추고, 보관 공간(편집자)은 보이되 막는다(WP-582). */}
               {trash.length > 0 && !readOnlyRole && (
                 <button
                   type="button"
                   onClick={onEmptyTrash}
-                  className="text-xs text-destructive"
+                  disabled={readOnly}
+                  className="text-xs text-destructive disabled:cursor-not-allowed disabled:opacity-50"
                   data-testid="empty-trash"
                 >
                   휴지통 비우기
@@ -1430,10 +1438,21 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                   {/* 복원·영구삭제는 EDITOR 이상(WP-602) — VIEWER 는 목록만 본다. */}
                   {!readOnlyRole && (
                     <>
-                      <button type="button" onClick={() => onRestore(it)} className="text-xs text-primary">
+                      {/* 보관 공간(편집자)은 보이되 막는다(WP-582) — 서버도 거부한다. */}
+                      <button
+                        type="button"
+                        onClick={() => onRestore(it)}
+                        disabled={readOnly}
+                        className="text-xs text-primary disabled:cursor-not-allowed disabled:opacity-50"
+                      >
                         복원
                       </button>
-                      <button type="button" onClick={() => onPurge(it)} className="text-xs text-destructive">
+                      <button
+                        type="button"
+                        onClick={() => onPurge(it)}
+                        disabled={readOnly}
+                        className="text-xs text-destructive disabled:cursor-not-allowed disabled:opacity-50"
+                      >
                         영구삭제
                       </button>
                     </>
@@ -1738,18 +1757,21 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
               >
                 <FolderOpen className="h-12 w-12 text-muted-foreground" />
                 <p className="text-sm font-semibold">이 폴더는 비어 있어요</p>
-                <p className="text-xs text-muted-foreground">
-                  {readOnlyRole ? '이 공간은 보기 권한만 있어요' : '파일을 업로드하거나 새 폴더를 만들어보세요'}
-                </p>
-                {!readOnlyRole && (
-                  <button
-                    type="button"
-                    onClick={() => fileInput.current?.click()}
-                    className="mt-1 inline-flex items-center gap-1.5 rounded-md border border-input bg-background px-3 py-1.5 text-xs font-medium shadow-sm hover:bg-accent"
-                  >
-                    <Upload className="h-3.5 w-3.5" />
-                    업로드
-                  </button>
+                {readOnlyRole && <p className="text-xs text-muted-foreground">이 공간은 보기 권한만 있어요</p>}
+                {/* WP-582: 읽기 전용 공간(보관·보기 전용)엔 올릴 수 없으니 업로드 권유(설명·CTA)를 뺀다. */}
+                {!readOnly && (
+                  <>
+                    <p className="text-xs text-muted-foreground">파일을 업로드하거나 새 폴더를 만들어보세요</p>
+                    <button
+                      type="button"
+                      onClick={() => fileInput.current?.click()}
+                      data-testid="drive-empty-upload"
+                      className="mt-1 inline-flex items-center gap-1.5 rounded-md border border-input bg-background px-3 py-1.5 text-xs font-medium shadow-sm hover:bg-accent"
+                    >
+                      <Upload className="h-3.5 w-3.5" />
+                      업로드
+                    </button>
+                  </>
                 )}
               </li>
             )}
@@ -1820,6 +1842,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
           <VersionHistoryModal
             file={versionFile}
             open={!!versionFile}
+            readOnly={readOnly}
             onClose={() => setVersionFile(null)}
             onChanged={() => {
               // 롤백은 새 버전을 만들어 파일 크기가 바뀔 수 있으므로 사용량도 함께 무효화 (#820).

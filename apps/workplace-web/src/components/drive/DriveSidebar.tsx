@@ -32,7 +32,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { RenameDialog } from '@/components/ui/rename-dialog'
 import { extractApiError } from '@/lib/api-error'
-import { canManageDriveSpace, partitionSpaces } from '@/lib/driveSpaces'
+import { canManageDriveSpace, hasDriveSpaceMembers, partitionSpaces } from '@/lib/driveSpaces'
 import { formatFileSize } from '@/lib/formatters'
 import { SELECTED_NAV_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
@@ -42,6 +42,7 @@ import { driveKeys } from '../../hooks/queries/driveKeys'
 import { useDriveQuota } from '../../hooks/queries/useDriveQuota'
 import { useDriveSpaces } from '../../hooks/queries/useDriveSpaces'
 import type { DriveSpace } from '../../types/drive'
+import { DriveSpaceMemberDialog } from './DriveSpaceMemberDialog'
 
 /** 사용량 바 경고 단계 — 임계치 기반 색상 분기(#822). */
 type DriveUsageLevel = 'normal' | 'warning' | 'critical'
@@ -99,6 +100,10 @@ export function DriveSidebar() {
   // TEAM 공간 이름 변경/삭제 대상 — kebab 메뉴에서 설정(제어형 다이얼로그).
   const [renameTarget, setRenameTarget] = useState<DriveSpace | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<DriveSpace | null>(null)
+  // 멤버 다이얼로그 대상(WP-582) — 공간 행 ⋯ 의 「멤버」에서 설정. id 만 들고 공간은 목록에서 찾는다 —
+  // 내 역할이 바뀌거나(소유자 → 편집자) 내가 빠지면 재조회된 목록을 따라 관리 버튼이 사라지거나 창이 닫히게.
+  const [membersTargetId, setMembersTargetId] = useState<number | null>(null)
+  const membersTarget = spaces.find((s) => s.id === membersTargetId)
 
   // 생성·이름 변경·삭제 후 공간 목록 갱신 — 재조회 완료까지 대기해 이후 navigate 시점에 목록이 최신이게 한다.
   async function reload() {
@@ -186,8 +191,9 @@ export function DriveSidebar() {
         </div>
         <nav className="mt-2 space-y-1" data-testid="drive-space-list">
           {primary.map((s) => {
-            // TEAM 공간 + OWNER 만 이름 변경/삭제 메뉴 노출(개인·채널 공간 제외).
-            const hasMenu = canManageDriveSpace(s)
+            // TEAM 공간이면 ⋯ — 「멤버」는 모든 멤버, 이름 변경/삭제는 OWNER 만(개인·채널 공간은 ⋯ 없음, WP-582).
+            const canManage = canManageDriveSpace(s)
+            const hasMenu = hasDriveSpaceMembers(s)
             return (
               <div key={s.id} className="group/space relative flex items-center">
                 {/* 메뉴가 있는 행은 ⋯ 자리를 비운다 — 터치 기기(pointer: coarse)는 ⋯ 가 상시 44px 라 더 넓게(WP-237). */}
@@ -216,18 +222,28 @@ export function DriveSidebar() {
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                       <DropdownMenuItem
-                        data-testid={`drive-space-rename-${s.id}`}
-                        onSelect={() => setRenameTarget(s)}
+                        data-testid={`drive-space-members-${s.id}`}
+                        onSelect={() => setMembersTargetId(s.id)}
                       >
-                        이름 변경
+                        멤버
                       </DropdownMenuItem>
-                      <DropdownMenuItem
-                        variant="destructive"
-                        data-testid={`drive-space-delete-${s.id}`}
-                        onSelect={() => setDeleteTarget(s)}
-                      >
-                        삭제
-                      </DropdownMenuItem>
+                      {canManage && (
+                        <>
+                          <DropdownMenuItem
+                            data-testid={`drive-space-rename-${s.id}`}
+                            onSelect={() => setRenameTarget(s)}
+                          >
+                            이름 변경
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            variant="destructive"
+                            data-testid={`drive-space-delete-${s.id}`}
+                            onSelect={() => setDeleteTarget(s)}
+                          >
+                            삭제
+                          </DropdownMenuItem>
+                        </>
+                      )}
                     </DropdownMenuContent>
                   </DropdownMenu>
                 )}
@@ -326,6 +342,16 @@ export function DriveSidebar() {
         </DialogContent>
       </Dialog>
 
+      {/* 팀 공간 멤버(WP-582) — 닫으면 대상을 비워 다음에 다른 공간을 열 수 있게 한다. */}
+      {membersTarget && (
+        <DriveSpaceMemberDialog
+          space={membersTarget}
+          open
+          onOpenChange={(o) => {
+            if (!o) setMembersTargetId(null)
+          }}
+        />
+      )}
       {/* TEAM 공간 이름 변경 — 제어형 RenameDialog. 이름 중복(409)은 인라인 에러로 노출(#696). */}
       <RenameDialog
         open={renameTarget != null}

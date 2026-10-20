@@ -1,30 +1,34 @@
 // 드라이브 파일 행 작업의 비활성 판정 — 휴대폰 ⋮ 시트·터치 태블릿 ⋯·데스크톱 hover 묶음이 모두 같은 목록을 쓴다(WP-363).
 // 판정을 DrivePage 안에서 꺼내 단위 테스트로 지킨다(WP-413 — 비활성만 보던 E2E 를 대체).
+import type { DriveSpace } from '../types/drive'
+import { isDriveSpaceReadOnly, isDriveSpaceViewer } from './driveSpaces'
 
 /** 파일 행 작업 key. */
 export type DriveFileActionKey = 'download' | 'share' | 'rename' | 'move' | 'copy' | 'versions' | 'delete'
 
 /**
  * 파일 행 작업별 비활성 여부.
- * - 보관된 공간: 쓰기 작업(이름 변경·이동·복사·삭제) 차단.
+ * - 보관된 채널 공간이거나 내 역할이 보기 전용(WP-582): 쓰기 작업(이름 변경·이동·복사·삭제) 차단.
+ * - 보기 전용 역할: 공유 링크도 차단 — 서버가 편집자 이상만 링크를 만들고 보게 한다. 보관 공간(편집자)은 이미 나간 링크를 끊으려 열어 둔다.
  * - 원본 유실(missing, #739): 바이트가 필요한 작업(다운로드·공유·복사) 차단. 이동은 메타데이터만 바꾸므로 허용.
  * - 버전 이력은 읽기라 항상 허용.
  */
 export function driveFileActionDisabled({
-  archived,
+  space,
   missing,
 }: {
-  archived: boolean
+  space: Pick<DriveSpace, 'archived' | 'role'> | null | undefined
   missing: boolean
 }): Record<DriveFileActionKey, boolean> {
+  const readOnly = isDriveSpaceReadOnly(space)
   return {
     download: missing,
-    share: missing,
-    rename: archived,
-    move: archived,
-    copy: archived || missing,
+    share: missing || isDriveSpaceViewer(space),
+    rename: readOnly,
+    move: readOnly,
+    copy: readOnly || missing,
     versions: false,
-    delete: archived,
+    delete: readOnly,
   }
 }
 

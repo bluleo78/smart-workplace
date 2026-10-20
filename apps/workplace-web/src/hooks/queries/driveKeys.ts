@@ -5,6 +5,8 @@ export const driveKeys = {
   all: ['drive'] as const,
   spaces: () => ['drive', 'spaces'] as const,
   space: (spaceId: number | undefined) => ['drive', 'space', spaceId] as const,
+  /** 공간 멤버 목록(WP-582). */
+  members: (spaceId: number) => ['drive', 'members', spaceId] as const,
   /** 공간의 모든 폴더 목록 prefix. */
   itemsAll: (spaceId: number | undefined) => ['drive', 'items', spaceId] as const,
   /** 특정 폴더 목록 — 루트는 null. */

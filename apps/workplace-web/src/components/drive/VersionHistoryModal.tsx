@@ -32,10 +32,12 @@ interface Props {
   open: boolean;
   onClose: () => void;
   onChanged: () => void; // 롤백 후 목록 reload
+  /** 읽기 전용 공간(보관·보기 전용, WP-582) — 롤백은 쓰기라 감추고 목록·다운로드만 둔다. */
+  readOnly?: boolean;
 }
 
 /** 파일 버전 이력 모달(#79) — 버전 목록·다운로드·롤백. */
-export function VersionHistoryModal({ file, open, onClose, onChanged }: Props) {
+export function VersionHistoryModal({ file, open, onClose, onChanged, readOnly = false }: Props) {
   const [versions, setVersions] = useState<DriveFileVersion[]>([]);
   const [busy, setBusy] = useState(false);
   // 롤백 확인 대기 중인 버전 번호 — null 이면 확인 다이얼로그 닫힘 (#815)
@@ -102,7 +104,7 @@ export function VersionHistoryModal({ file, open, onClose, onChanged }: Props) {
                 >
                   다운로드
                 </button>
-                {!v.current && (
+                {!v.current && !readOnly && (
                   <button
                     type="button"
                     disabled={busy}

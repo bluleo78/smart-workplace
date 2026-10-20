@@ -146,9 +146,12 @@ const RULES: Record<string, Rule> = {
     { queryKey: ['drive-attachments'] },
     { queryKey: ['drive-file-backlinks'] },
   ],
+  // 멤버 목록도 함께(WP-582) — 다른 소유자가 멤버를 바꾸면 열어 둔 멤버 창에 바로 보이게(노트 wiki-space 와 같은 규칙).
   'drive-space': (p) => [
     { queryKey: driveKeys.spaces() },
-    ...(p.spaceId != null ? [{ queryKey: driveKeys.space(p.spaceId) }, { queryKey: driveKeys.itemsAll(p.spaceId) }] : []),
+    ...(p.spaceId != null
+      ? [{ queryKey: driveKeys.space(p.spaceId) }, { queryKey: driveKeys.members(p.spaceId) }, { queryKey: driveKeys.itemsAll(p.spaceId) }]
+      : []),
   ],
   dm: () => [{ queryKey: messagingKeys.dms() }, { queryKey: ['messaging-summary'] }],
   // 연락처·알림 — 즐겨찾기/전체 읽음처럼 ids 가 비어도 루트 전체를 갱신한다.

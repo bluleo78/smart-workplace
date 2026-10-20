@@ -238,10 +238,11 @@ describe('규칙 키 값 고정', () => {
     ]);
   });
 
-  it('drive-space → 공간 목록·단건·items prefix', () => {
+  it('drive-space → 공간 목록·단건·멤버·items prefix', () => {
     expect(keys({ resource: 'drive-space', op: 'updated', spaceId: 2 })).toEqual([
       { queryKey: ['drive', 'spaces'] },
       { queryKey: ['drive', 'space', 2] },
+      { queryKey: ['drive', 'members', 2] },
       { queryKey: ['drive', 'items', 2] },
     ]);
   });

@@ -12,6 +12,7 @@ import type {
   DriveItemList,
   DriveMember,
   DriveQuota,
+  DriveRole,
   DriveSearchResult,
   DriveSpace,
   DriveTrashList,
@@ -150,6 +151,18 @@ export const driveApi = {
 
   listMembers: (spaceId: number) =>
     client.get<DriveMember[]>(`/drive/spaces/${spaceId}/members`),
+
+  // 멤버 추가 — TEAM 공간 OWNER 전용. 이미 멤버면 역할을 덮어쓴다(서버 업서트).
+  addMember: (spaceId: number, userId: number, role: DriveRole) =>
+    client.post<void>(`/drive/spaces/${spaceId}/members`, { userId, role }),
+
+  // 멤버 역할 변경 — OWNER 전용. 마지막 OWNER 강등은 서버가 거부한다.
+  changeMemberRole: (spaceId: number, userId: number, role: DriveRole) =>
+    client.patch<void>(`/drive/spaces/${spaceId}/members/${userId}`, { role }),
+
+  // 멤버 제거 — OWNER 전용. 마지막 OWNER 제거는 서버가 거부한다.
+  removeMember: (spaceId: number, userId: number) =>
+    client.delete<void>(`/drive/spaces/${spaceId}/members/${userId}`),
 
   listItems: (spaceId: number, parentId: number | null) =>
     client.get<DriveItemList>(`/drive/spaces/${spaceId}/items`, {

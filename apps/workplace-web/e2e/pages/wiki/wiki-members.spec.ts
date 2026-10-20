@@ -92,11 +92,13 @@ test('위키 멤버 — OWNER 가 멤버 검색·추가(POST payload 검증 + �
   await page.goto('/wiki')
   await expect(page).toHaveURL(new RegExp(`/wiki/spaces/${SPACE_ID}$`))
 
-  // 2) 멤버 관리 버튼 → 다이얼로그 노출.
-  await page.getByRole('button', { name: '멤버 관리' }).click()
+  // 2) 스페이스 선택 상자 옆 ⋯ → 멤버 → 다이얼로그 노출(WP-582: 드라이브 공간 ⋯ 와 같은 자리).
+  await page.getByTestId('wiki-space-menu').click()
+  await page.getByTestId('wiki-space-members').click()
   await expect(page.getByTestId('wiki-members-dialog')).toBeVisible()
-  // 소유자 행은 읽기 전용 Badge.
-  await expect(page.getByTestId('wiki-member-role-1')).toContainText('OWNER')
+  // 마지막 소유자(나)는 역할 변경이 잠기고, 역할은 한국어로 보인다.
+  await expect(page.getByTestId('wiki-member-role-select-1')).toBeDisabled()
+  await expect(page.getByTestId('wiki-member-role-select-1').locator('option:checked')).toHaveText('소유자')
 
   // 3) 멤버 추가 popover → 검색 → 김편집 선택.
   await page.getByTestId('wiki-member-add-trigger').click()

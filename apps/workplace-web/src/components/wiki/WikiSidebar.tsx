@@ -16,12 +16,17 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
-import { BookOpen } from 'lucide-react'
+import { BookOpen, MoreHorizontal } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 
 import { sidebarTitleClass } from '@/components/layout/sidebar-link'
-import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import {
   Select,
   SelectContent,
@@ -343,8 +348,8 @@ export function WikiSidebar() {
         <BookOpen className="h-[18px] w-[18px] shrink-0 text-muted-foreground" />
         노트
       </div>
-      {/* 스페이스 전환 — shadcn/ui Select로 디자인 시스템 일관성 유지 */}
-      <div className="border-b p-2">
+      {/* 스페이스 전환 — shadcn/ui Select로 디자인 시스템 일관성 유지. 옆 ⋯ 는 스페이스 단위 메뉴(WP-582: 멤버) */}
+      <div className="flex items-center gap-1 border-b p-2">
         <Select
           value={String(spaceId ?? '')}
           onValueChange={(v) => {
@@ -356,7 +361,7 @@ export function WikiSidebar() {
             navigate(`/wiki/spaces/${v}`)
           }}
         >
-          <SelectTrigger className="h-8 w-full text-sm">
+          <SelectTrigger className="h-8 w-full min-w-0 flex-1 text-sm">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -371,21 +376,30 @@ export function WikiSidebar() {
             </SelectItem>
           </SelectContent>
         </Select>
+        {/* TEAM 스페이스만 ⋯ — 개인 스페이스는 나 혼자라 멤버가 없다. 드라이브 공간 줄 ⋯ 와 같은 자리·같은 항목(WP-582). */}
+        {isTeamSpace && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                aria-label={`${selectedSpace?.name ?? '스페이스'} 메뉴`}
+                data-testid="wiki-space-menu"
+                className="flex size-8 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground pointer-coarse:size-11"
+              >
+                <MoreHorizontal className="h-4 w-4" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem data-testid="wiki-space-members" onSelect={() => setMembersOpen(true)}>
+                멤버
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </div>
       <div className="flex items-center justify-between px-3 py-2">
         <span className="text-xs font-semibold uppercase text-muted-foreground">페이지</span>
         <div className="flex items-center gap-1">
-          {/* TEAM 위키만 멤버 관리 노출 — 개인(PERSONAL) 위키는 공유 대상 아님. */}
-          {isTeamSpace && (
-            <Button
-              variant="ghost"
-              size="sm"
-              aria-label="멤버 관리"
-              onClick={() => setMembersOpen(true)}
-            >
-              멤버
-            </Button>
-          )}
           {!spaceUnavailable && canEdit && (
             <button
               type="button"
