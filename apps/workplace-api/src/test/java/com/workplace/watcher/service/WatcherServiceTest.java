@@ -9,7 +9,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
-import com.workplace.project.exception.ProjectAccessDeniedException;
+import com.workplace.project.exception.ProjectNotFoundException;
 import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
@@ -78,8 +78,32 @@ class WatcherServiceTest extends IntegrationTestBase {
     ProjectResponse p = newProject(owner, "W2");
     issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
 
+    // 볼 수 없는 TEAM 프로젝트는 없는 프로젝트와 같은 404(WP-588) — 구독·해제 모두.
     assertThatThrownBy(() -> watcherService.watch(other, p.key(), 1))
-        .isInstanceOf(ProjectAccessDeniedException.class);
+        .isInstanceOf(ProjectNotFoundException.class);
+    assertThatThrownBy(() -> watcherService.unwatch(other, p.key(), 1))
+        .isInstanceOf(ProjectNotFoundException.class);
+  }
+
+  @Test
+  void open_project_non_member_can_toggle_own_watch_and_sees_it_in_watched_tab() {
+    // WP-631 — 공개 접수함(OPEN)에 이슈를 올린 비멤버 제보자는 자동 구독된다. 자기 구독을 끄고 켤 수 있어야 하고,
+    // 구독 중인 이슈는 「구독」 탭(/me/watched-issues)에 보여야 한다.
+    Long owner = createUser("w4");
+    Long reporter = createUser("x4");
+    ProjectResponse p =
+        projectService.create(
+            owner, new CreateProjectRequest(uniqueKey("PUB"), "공개 접수함", "x", "OPEN"));
+    issueRepository.insert(p.id(), 1, "제보", null, "MID", null, reporter);
+
+    watcherService.watch(reporter, p.key(), 1);
+    assertThat(watcherService.watchedIssues(reporter, null, 30).items())
+        .extracting(i -> i.number())
+        .containsExactly(1);
+
+    watcherService.unwatch(reporter, p.key(), 1);
+    assertThat(watcherService.list(owner, p.key(), 1)).isEmpty();
+    assertThat(watcherService.watchedIssues(reporter, null, 30).items()).isEmpty();
   }
 
   @Test

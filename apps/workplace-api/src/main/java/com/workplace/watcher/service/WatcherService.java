@@ -36,11 +36,15 @@ public class WatcherService {
   private final IssueChangeNotifier changeNotifier;
 
   /**
-   * 멤버가 본인을 issue watcher 로 등록. 신규 row 가 실제로 insert 된 경우에만 WatcherAddedEvent 를 발행 — 이미 watcher 인
-   * 경우(멱등 no-op) 이벤트 중복 발행을 방지.
+   * 본인을 issue watcher 로 등록. 신규 row 가 실제로 insert 된 경우에만 WatcherAddedEvent 를 발행 — 이미 watcher 인 경우(멱등
+   * no-op) 이벤트 중복 발행을 방지.
+   *
+   * <p>볼 수 있는 이슈면 구독할 수 있다(assertReadable, WP-631) — 공개 접수함(OPEN)은 비멤버도 이슈를 올리고 코멘트하며 제보자로 자동
+   * 구독되는데, 멤버만 허용하면 자기 구독을 끄지도 다시 켜지도 못했다. 구독은 자기 알림 설정일 뿐 이슈를 바꾸지 않고, 알림으로 받는 내용도 이미 볼 수 있는 이슈의
+   * 것이다.
    */
   public void watch(Long callerId, String projectKey, int number) {
-    var project = accessGuard.assertMember(projectKey, callerId);
+    var project = accessGuard.assertReadable(projectKey, callerId);
     var issue =
         issueRepository
             .findByProjectAndNumber(project.id(), number)
@@ -52,9 +56,9 @@ public class WatcherService {
     }
   }
 
-  /** 본인 watcher 해제. */
+  /** 본인 watcher 해제 — 구독과 같은 규칙(볼 수 있는 이슈, WP-631). */
   public void unwatch(Long callerId, String projectKey, int number) {
-    var project = accessGuard.assertMember(projectKey, callerId);
+    var project = accessGuard.assertReadable(projectKey, callerId);
     var issue =
         issueRepository
             .findByProjectAndNumber(project.id(), number)
@@ -64,10 +68,7 @@ public class WatcherService {
     changeNotifier.updatedWithoutTouch(project, number, issue.id(), callerId);
   }
 
-  /**
-   * 이슈 watcher 목록(user JOIN) — read 진입점. OPEN 은 테넌트 전원 조회 허용(assertReadable). 단, watch/unwatch(구독
-   * 토글)는 write 이므로 assertMember 유지 — 비멤버는 목록은 보되 구독은 불가.
-   */
+  /** 이슈 watcher 목록(user JOIN) — read 진입점. OPEN 은 테넌트 전원 조회 허용(assertReadable). */
   @Transactional(readOnly = true)
   public List<WatcherResponse> list(Long callerId, String projectKey, int number) {
     var project = accessGuard.assertReadable(projectKey, callerId);
@@ -82,7 +83,10 @@ public class WatcherService {
         .toList();
   }
 
-  /** /me/watched-issues — 멤버십 필터로 비멤버 프로젝트 이슈는 자동 숨김. */
+  /**
+   * /me/watched-issues — 멤버인 프로젝트와 공개 접수함(OPEN) 프로젝트의 이슈만. 멤버에서 빠진 TEAM 프로젝트 이슈는 숨긴다. OPEN 은 비멤버도
+   * 구독할 수 있어(WP-631) 함께 보여 준다 — 알림은 오는데 어디서 구독 중인지 볼 수 없던 문제.
+   */
   @Transactional(readOnly = true)
   public IssueSearchResponse watchedIssues(Long callerId, String cursorStr, int size) {
     int clamped = Math.max(1, Math.min(100, size));
@@ -91,7 +95,7 @@ public class WatcherService {
     var issueIds = watcherRepository.findIssueIdsByUser(callerId);
     if (issueIds.isEmpty()) return new IssueSearchResponse(List.of(), null, false);
 
-    var rows = issueRepository.findByIdsActiveMemberOf(issueIds, callerId, cursor, clamped);
+    var rows = issueRepository.findByIdsReadableWatchedBy(issueIds, callerId, cursor, clamped);
     Map<Long, List<LabelSummary>> labelsByIssue =
         issueLabelRepository.findLabelsByIssueIds(rows.stream().map(IssueRow::id).toList());
     var items =

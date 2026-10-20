@@ -1084,39 +1084,36 @@ public class IssueRepository {
   }
 
   /**
-   * watched-issues 전용 헬퍼. 호출자가 현재 멤버인 프로젝트의 활성 이슈만, ids 제한 + (updated_at, id) DESC cursor 페이징. 프로젝트
-   * soft-delete 는 소속 이슈/watcher 를 정리하지 않으므로, 삭제된 프로젝트는 여기서 직접 제외한다(#623 후속, 그렇지 않으면 이후 project 조회에서
-   * orElseThrow 가 터진다).
+   * watched-issues 전용 헬퍼. 호출자가 현재 멤버인 프로젝트 또는 공개 접수함(OPEN) 프로젝트의 활성 이슈만, ids 제한 + (updated_at, id)
+   * DESC cursor 페이징. OPEN 은 비멤버도 구독할 수 있다(WP-631). 프로젝트 soft-delete 는 소속 이슈/watcher 를 정리하지 않으므로,
+   * 삭제된 프로젝트는 여기서 직접 제외한다(#623 후속, 그렇지 않으면 이후 project 조회에서 orElseThrow 가 터진다).
    */
-  public List<IssueRow> findByIdsActiveMemberOf(
+  public List<IssueRow> findByIdsReadableWatchedBy(
       List<Long> issueIds,
-      Long memberUserId,
+      Long watcherUserId,
       com.workplace.issue.dto.IssueCursor cursor,
       int size) {
     if (issueIds == null || issueIds.isEmpty()) return List.of();
+    var project = com.workplace.jooq.Tables.PROJECT;
+    var member = com.workplace.jooq.Tables.PROJECT_MEMBER;
     org.jooq.Condition where = ISSUE.ID.in(issueIds).and(ISSUE.DELETED_AT.isNull());
     where =
         where.and(
             org.jooq.impl.DSL.exists(
                 dsl.selectOne()
-                    .from(com.workplace.jooq.Tables.PROJECT_MEMBER)
-                    .where(
-                        com.workplace.jooq.Tables.PROJECT_MEMBER
-                            .PROJECT_ID
-                            .eq(ISSUE.PROJECT_ID)
-                            .and(
-                                com.workplace.jooq.Tables.PROJECT_MEMBER.USER_ID.eq(
-                                    memberUserId)))));
-    where =
-        where.and(
-            org.jooq.impl.DSL.exists(
-                dsl.selectOne()
-                    .from(com.workplace.jooq.Tables.PROJECT)
-                    .where(
-                        com.workplace.jooq.Tables.PROJECT
-                            .ID
-                            .eq(ISSUE.PROJECT_ID)
-                            .and(com.workplace.jooq.Tables.PROJECT.DELETED_AT.isNull()))));
+                    .from(project)
+                    .where(project.ID.eq(ISSUE.PROJECT_ID))
+                    .and(project.DELETED_AT.isNull())
+                    .and(
+                        project
+                            .TYPE
+                            .eq("OPEN")
+                            .or(
+                                org.jooq.impl.DSL.exists(
+                                    dsl.selectOne()
+                                        .from(member)
+                                        .where(member.PROJECT_ID.eq(ISSUE.PROJECT_ID))
+                                        .and(member.USER_ID.eq(watcherUserId)))))));
     if (cursor != null) {
       var ts = cursor.updatedAt().atOffset(java.time.ZoneOffset.UTC);
       var cursorId = cursor.id();
@@ -1133,8 +1130,8 @@ public class IssueRepository {
 
   /**
    * 전역 issue.id 목록 중 호출자가 멤버인 프로젝트의 활성 이슈만 경량 참조로 배치 조회한다. wiki 멘션 하이드레이션용 — 가시성은 PROJECT_MEMBER
-   * 멤버십 EXISTS 로 스코핑(같은 패턴이 {@link #findByIdsActiveMemberOf}). PROJECT 조인으로 projectKey/number/title
-   * 을 함께 반환한다. 빈 ids 면 빈 리스트.
+   * 멤버십 EXISTS 로 스코핑(비슷한 패턴이 {@link #findByIdsReadableWatchedBy}). PROJECT 조인으로
+   * projectKey/number/title 을 함께 반환한다. 빈 ids 면 빈 리스트.
    */
   public List<com.workplace.issue.dto.IssueRef> findVisibleRefsByIds(
       long callerId, List<Long> issueIds) {

@@ -360,7 +360,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       // WP-421: 구독·해제를 합쳤다 — watching 이 최종 상태라 멱등이고(서버 POST·DELETE 모두 이미 그 상태면 no-op), 해제 갈래가 있어 destructive.
       hints: { destructive: true, idempotent: true },
       description:
-        'Watches or stops watching an issue; watchers are notified of its comments and status/priority changes. Project members only; ' +
+        'Watches or stops watching an issue; watchers are notified of its comments and status/priority changes. Anyone who can read the issue (public intake: non-members too); ' +
         'repeating is a no-op.',
       inputSchema: watchIssueInput,
       async handler(args) {
