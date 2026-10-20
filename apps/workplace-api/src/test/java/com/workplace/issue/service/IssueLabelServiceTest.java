@@ -13,7 +13,7 @@ import com.workplace.label.exception.InvalidLabelForProjectException;
 import com.workplace.label.service.LabelService;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
-import com.workplace.project.exception.ProjectAccessDeniedException;
+import com.workplace.project.exception.ProjectNotFoundException;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
@@ -148,7 +148,7 @@ class IssueLabelServiceTest extends IntegrationTestBase {
 
     assertThatThrownBy(
             () -> issueLabelService.replace(outsider, p.key(), 1, List.of(), List.of("new")))
-        .isInstanceOf(ProjectAccessDeniedException.class);
+        .isInstanceOf(ProjectNotFoundException.class);
     assertThat(labelService.list(owner, p.key())).isEmpty();
   }
 }

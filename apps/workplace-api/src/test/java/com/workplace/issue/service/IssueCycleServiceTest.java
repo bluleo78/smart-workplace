@@ -14,7 +14,7 @@ import com.workplace.cycle.service.CycleService;
 import com.workplace.issue.dto.CreateIssueRequest;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
-import com.workplace.project.exception.ProjectAccessDeniedException;
+import com.workplace.project.exception.ProjectNotFoundException;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
 import java.util.List;
@@ -215,7 +215,7 @@ class IssueCycleServiceTest extends IntegrationTestBase {
     int number = newIssue(owner, p, "T");
 
     assertThatThrownBy(() -> issueCycleService.move(outsider, p.key(), number, null, a.id()))
-        .isInstanceOf(ProjectAccessDeniedException.class);
+        .isInstanceOf(ProjectNotFoundException.class);
   }
 
   @Test

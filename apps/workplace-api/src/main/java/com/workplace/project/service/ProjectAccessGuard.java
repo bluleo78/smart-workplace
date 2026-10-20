@@ -25,8 +25,8 @@ public class ProjectAccessGuard {
   /**
    * 프로젝트가 존재하고, 호출자가 멤버(또는 ADMIN)인지 확인. 통과 시 프로젝트 row 반환.
    *
-   * @throws ProjectNotFoundException 프로젝트가 없거나 soft-deleted 인 경우
-   * @throws ProjectAccessDeniedException 멤버가 아닌 경우
+   * @throws ProjectNotFoundException 프로젝트가 없거나 soft-deleted 이거나, 볼 수 없는 프로젝트인 경우(WP-629)
+   * @throws ProjectAccessDeniedException 볼 수는 있지만(OPEN) 멤버가 아닌 경우
    */
   public ProjectRow assertMember(String projectKey, Long userId) {
     return assertWithRole(projectKey, userId, null);
@@ -57,10 +57,15 @@ public class ProjectAccessGuard {
     if (adminBypass(project, userId)) {
       return project;
     }
-    MemberRow member =
-        memberRepository
-            .find(project.id(), userId)
-            .orElseThrow(() -> new ProjectAccessDeniedException("프로젝트 멤버가 아닙니다"));
+    MemberRow member = memberRepository.find(project.id(), userId).orElse(null);
+    if (member == null) {
+      // 볼 수조차 없는 프로젝트면 없는 프로젝트와 같은 404(WP-629) — 쓰기 경로가 403 이면 키를 바꿔 넣어 비공개 프로젝트의 존재를 알 수 있다.
+      // 볼 수 있는 프로젝트(OPEN)의 비멤버만 403.
+      if (!isReadable(project, userId)) {
+        throw ProjectNotFoundException.hidden();
+      }
+      throw new ProjectAccessDeniedException("프로젝트 멤버가 아닙니다");
+    }
     if (requiredRole != null && !requiredRole.equals(member.role())) {
       throw new ProjectAccessDeniedException("권한이 부족합니다: " + requiredRole + " 필요");
     }

@@ -8,7 +8,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
-import com.workplace.project.exception.ProjectAccessDeniedException;
+import com.workplace.project.exception.ProjectNotFoundException;
 import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
@@ -152,7 +152,7 @@ class SavedViewServiceTest extends IntegrationTestBase {
     Long outsider = createUser("out6");
     ProjectResponse p = newProject(owner, "VG");
     assertThatThrownBy(() -> service.list(outsider, p.key()))
-        .isInstanceOf(ProjectAccessDeniedException.class);
+        .isInstanceOf(ProjectNotFoundException.class);
   }
 
   @Test

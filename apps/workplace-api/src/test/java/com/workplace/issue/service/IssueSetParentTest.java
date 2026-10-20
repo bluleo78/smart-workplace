@@ -15,7 +15,7 @@ import com.workplace.issue.repository.IssueHistoryRepository;
 import com.workplace.issue.repository.IssueTypeRepository;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
-import com.workplace.project.exception.ProjectAccessDeniedException;
+import com.workplace.project.exception.ProjectNotFoundException;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
 import java.util.UUID;
@@ -237,7 +237,7 @@ class IssueSetParentTest extends IntegrationTestBase {
             new CreateIssueRequest("s", null, null, null, null, subId, parent.number(), null));
 
     assertThatThrownBy(() -> issueService.setParent(stranger, p.key(), sub.number(), null))
-        .isInstanceOf(ProjectAccessDeniedException.class);
+        .isInstanceOf(ProjectNotFoundException.class);
   }
 
   @Test

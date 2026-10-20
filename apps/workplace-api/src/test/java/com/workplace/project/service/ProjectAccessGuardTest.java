@@ -12,6 +12,7 @@ import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.dto.ProjectRow;
 import com.workplace.project.exception.ProjectAccessDeniedException;
+import com.workplace.project.exception.ProjectNotFoundException;
 import com.workplace.support.IntegrationTestBase;
 import java.util.UUID;
 import org.jooq.DSLContext;
@@ -61,7 +62,7 @@ class ProjectAccessGuardTest extends IntegrationTestBase {
         .execute();
   }
 
-  /** PERSONAL 은 ADMIN(비소유자)도 거부하고 소유자만 통과. */
+  /** PERSONAL 은 ADMIN(비소유자)도 거부하고 소유자만 통과. 볼 수 없는 프로젝트라 없는 프로젝트와 같은 404(WP-629). */
   @Test
   void assertMember_personalDeniesAdminNonOwner() {
     Long owner = createUser("owner");
@@ -70,9 +71,42 @@ class ProjectAccessGuardTest extends IntegrationTestBase {
     Long admin = createUser("admin");
     grantRole(admin, "ADMIN");
     assertThatThrownBy(() -> accessGuard.assertMember(personal.key(), admin))
-        .isInstanceOf(ProjectAccessDeniedException.class);
+        .isInstanceOf(ProjectNotFoundException.class)
+        .hasMessage(ProjectNotFoundException.HIDDEN_MESSAGE);
     assertThatCode(() -> accessGuard.assertMember(personal.key(), owner))
         .doesNotThrowAnyException();
+  }
+
+  /**
+   * WP-629: 쓰기 가드(assertMember·assertWithRole)도 볼 수 없는 프로젝트는 없는 프로젝트와 같은 404 — 예전엔 TEAM 비멤버에게 403
+   * 「프로젝트 멤버가 아닙니다」라 키를 바꿔 넣어 보면 비공개 프로젝트가 있는지 알 수 있었다. 볼 수 있는데 자격만 모자라면(OPEN 비멤버, 역할 부족) 403 그대로.
+   */
+  @Test
+  void writeGuard_hidesInvisibleProject_but_keeps403ForVisible() {
+    Long owner = createUser("team-owner");
+    ProjectResponse team =
+        projectService.create(
+            owner,
+            new CreateProjectRequest("TG" + (System.nanoTime() % 100000), "팀", null, "TEAM"));
+    Long stranger = createUser("stranger");
+
+    assertThatThrownBy(() -> accessGuard.assertMember(team.key(), stranger))
+        .isInstanceOf(ProjectNotFoundException.class)
+        .hasMessage(ProjectNotFoundException.HIDDEN_MESSAGE);
+    assertThatThrownBy(() -> accessGuard.assertWithRole(team.key(), stranger, "OWNER"))
+        .isInstanceOf(ProjectNotFoundException.class)
+        .hasMessage(ProjectNotFoundException.HIDDEN_MESSAGE);
+    assertThatThrownBy(
+            () ->
+                accessGuard.assertWithRole("NOPE" + (System.nanoTime() % 1000), stranger, "OWNER"))
+        .isInstanceOf(ProjectNotFoundException.class)
+        .hasMessage(ProjectNotFoundException.HIDDEN_MESSAGE);
+
+    // OPEN 은 비멤버도 볼 수 있으니 쓰기 거절은 403
+    var open = OpenFixtures.openProject(dsl, 1L, owner);
+    long openStranger = OpenFixtures.member(dsl, 1L);
+    assertThatThrownBy(() -> accessGuard.assertWithRole(open.key(), openStranger, "OWNER"))
+        .isInstanceOf(ProjectAccessDeniedException.class);
   }
 
   // ─── OPEN 프로젝트 가드 검증 ────────────────────────────────────────────────

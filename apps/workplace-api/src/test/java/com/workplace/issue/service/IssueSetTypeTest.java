@@ -13,7 +13,7 @@ import com.workplace.issue.repository.IssueHistoryRepository;
 import com.workplace.issue.repository.IssueTypeRepository;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
-import com.workplace.project.exception.ProjectAccessDeniedException;
+import com.workplace.project.exception.ProjectNotFoundException;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
 import java.util.UUID;
@@ -124,7 +124,7 @@ class IssueSetTypeTest extends IntegrationTestBase {
             owner, p.key(), new CreateIssueRequest("t", null, null, null, null, null, null, null));
 
     assertThatThrownBy(() -> issueService.setType(stranger, p.key(), issue.number(), bug.id()))
-        .isInstanceOf(ProjectAccessDeniedException.class);
+        .isInstanceOf(ProjectNotFoundException.class);
   }
 
   @Test

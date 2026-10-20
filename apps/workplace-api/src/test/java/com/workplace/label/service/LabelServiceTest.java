@@ -17,6 +17,7 @@ import com.workplace.label.exception.LabelNameDuplicatedException;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.exception.ProjectAccessDeniedException;
+import com.workplace.project.exception.ProjectNotFoundException;
 import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
@@ -98,7 +99,7 @@ class LabelServiceTest extends IntegrationTestBase {
 
     assertThatThrownBy(
             () -> labelService.create(outsider, p.key(), new CreateLabelRequest("버그", "RED")))
-        .isInstanceOf(ProjectAccessDeniedException.class);
+        .isInstanceOf(ProjectNotFoundException.class);
   }
 
   @Test
@@ -197,7 +198,7 @@ class LabelServiceTest extends IntegrationTestBase {
             () ->
                 labelService.update(
                     member, p.key(), label.id(), new CreateLabelRequest("x", "RED")))
-        .isInstanceOf(ProjectAccessDeniedException.class);
+        .isInstanceOf(ProjectNotFoundException.class);
   }
 
   @Test

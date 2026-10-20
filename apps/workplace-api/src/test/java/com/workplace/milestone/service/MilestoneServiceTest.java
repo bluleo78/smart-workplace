@@ -16,7 +16,7 @@ import com.workplace.milestone.exception.MilestoneNameDuplicatedException;
 import com.workplace.milestone.exception.MilestoneNotFoundException;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
-import com.workplace.project.exception.ProjectAccessDeniedException;
+import com.workplace.project.exception.ProjectNotFoundException;
 import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
@@ -101,7 +101,7 @@ class MilestoneServiceTest extends IntegrationTestBase {
     ProjectResponse p = newProject(owner, "MC");
 
     assertThatThrownBy(() -> milestoneService.create(stranger, p.key(), req("스프린트")))
-        .isInstanceOf(ProjectAccessDeniedException.class);
+        .isInstanceOf(ProjectNotFoundException.class);
   }
 
   @Test

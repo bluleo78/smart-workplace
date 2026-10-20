@@ -19,7 +19,6 @@ import com.workplace.drive.exception.DriveFolderNotFoundException;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.mail.exception.EmailAccountNotFoundException;
 import com.workplace.project.dto.CreateProjectRequest;
-import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.exception.ProjectConflictException;
 import com.workplace.project.exception.ProjectNotFoundException;
 import com.workplace.project.service.ProjectService;
@@ -197,15 +196,15 @@ class ConfirmActionValidateTest extends IntegrationTestBase {
   }
 
   @Test
-  @DisplayName("project.delete_project — 비멤버의 삭제 제안은 사전검증에서 403 으로 드러난다")
+  @DisplayName("project.delete_project — 볼 수 없는 프로젝트의 삭제 제안은 사전검증에서 없는 프로젝트와 같은 404 로 드러난다(WP-629)")
   void validate_projectDeleteProject_nonOwner_throwsAccessDenied() {
     // 무엇을·왜: RBAC(project:manage)는 통과하지만 프로젝트 OWNER 경계는 도메인 술어만 알 수 있다.
     ObjectNode p = params();
     p.put("key", projectKey);
 
     assertThatThrownBy(() -> dispatcher.validate(outsider, "project.delete_project", p))
-        .isInstanceOf(ProjectAccessDeniedException.class)
-        .hasMessageContaining("프로젝트 멤버가 아닙니다");
+        .isInstanceOf(ProjectNotFoundException.class)
+        .hasMessage(ProjectNotFoundException.HIDDEN_MESSAGE);
   }
 
   @Test

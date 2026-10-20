@@ -121,6 +121,6 @@ class IssueCycleMoveEndpointTest extends IntegrationTestBase {
     var cycle =
         cycleService.create(owner, key, new CreateCycleRequest("S", null, null, null, null));
 
-    move(other, key, moveToCycle(cycle.id())).andExpect(status().isForbidden());
+    move(other, key, moveToCycle(cycle.id())).andExpect(status().isNotFound());
   }
 }
