@@ -19,6 +19,9 @@ public final class FieldTypeValidator {
   private static final int TEXT_MAX = 2000;
   private static final int OPTION_MAX = 40;
 
+  /** NUMBER 값 절댓값 상한 — JavaScript Number.MAX_SAFE_INTEGER(2^53-1). 이보다 크면 웹에서 값이 바뀌어 보인다. */
+  private static final double NUMBER_MAX = 9007199254740991d;
+
   /** options 검증 — SELECT/MULTI_SELECT 는 필수 (≥1, 각 1..40, UNIQUE), 그 외는 NULL/null-node 이어야 함. */
   public static void validateOptions(String type, JsonNode options) {
     if (FieldType.hasOptions(type)) {
@@ -60,6 +63,13 @@ public final class FieldTypeValidator {
       case "NUMBER" -> {
         if (!value.isNumber()) {
           throw new InvalidFieldValueException("NUMBER 는 숫자");
+        }
+        // WP-587: 1e400 같은 값은 Jackson 이 double Infinity 로 읽어 문자열 "Infinity" 로 저장됐다. 웹(JS)이 정확히 다룰 수
+        // 있는
+        // 범위(안전 정수)의 유한한 수만 받는다 — 큰 정수(BigInteger)도 double 로 바꿔 같은 기준으로 본다.
+        double d = value.doubleValue();
+        if (!Double.isFinite(d) || Math.abs(d) > NUMBER_MAX) {
+          throw new InvalidFieldValueException("숫자 필드에는 ±9007199254740991 안의 숫자만 쓸 수 있습니다");
         }
       }
       case "DATE" -> {

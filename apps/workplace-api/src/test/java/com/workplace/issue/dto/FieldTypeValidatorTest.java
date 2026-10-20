@@ -91,4 +91,19 @@ class FieldTypeValidatorTest {
                     "MULTI_SELECT", opts, om.valueToTree(java.util.List.of("a", "c"))))
         .isInstanceOf(InvalidFieldValueException.class);
   }
+
+  /** WP-587: 무한대(1e400 → Infinity)·JS 가 정확히 다루지 못하는 큰 수는 거절하고, 범위 안의 유한한 수만 받는다. */
+  @Test
+  void number_rejects_non_finite_and_out_of_range() throws Exception {
+    for (String json :
+        new String[] {"1e400", "-1e400", "12345678901234567890123", "9007199254740992"}) {
+      assertThatThrownBy(() -> FieldTypeValidator.validateValue("NUMBER", null, om.readTree(json)))
+          .as(json)
+          .isInstanceOf(InvalidFieldValueException.class)
+          .hasMessageContaining("숫자 필드에는 ±9007199254740991 안의 숫자만 쓸 수 있습니다");
+    }
+    for (String json : new String[] {"3.14", "-9007199254740991", "9007199254740991", "0"}) {
+      FieldTypeValidator.validateValue("NUMBER", null, om.readTree(json));
+    }
+  }
 }
