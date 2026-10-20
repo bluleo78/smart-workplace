@@ -343,7 +343,19 @@ public class WikiAttachmentService {
    * blob 을 가리키는" 상태가 영구히 남는다.
    */
   public void reclaimPageTree(long rootPageId) {
-    var attached = attachments.attachedFilesOfPageTree(rootPageId);
+    reclaim(attachments.attachedFilesOfPageTree(rootPageId), "rootPageId=" + rootPageId);
+  }
+
+  /**
+   * 스페이스 안 모든 페이지의 첨부를 회수한다(WP-580) — 스페이스 삭제 직전에 호출한다. 인가는 호출자(OWNER 검증) 책임이고, 회수 방식은 {@link
+   * #reclaimPageTree} 와 같다.
+   */
+  public void reclaimSpace(long spaceId) {
+    reclaim(attachments.attachedFilesOfSpace(spaceId), "spaceId=" + spaceId);
+  }
+
+  /** file 행은 이 트랜잭션에서 지우고 바이너리(원본·썸네일·보기 캐시)는 커밋 후에만 지운다 — reclaimPageTree·reclaimSpace 공통. */
+  private void reclaim(List<WikiAttachmentRepository.AttachedFile> attached, String scope) {
     if (attached.isEmpty()) return;
     List<Long> fileIds =
         attached.stream().map(WikiAttachmentRepository.AttachedFile::fileId).toList();
@@ -354,10 +366,7 @@ public class WikiAttachmentService {
     // 라 정상적으로는 발산하지 않아야 한다.
     if (deleted != fileIds.size()) {
       log.warn(
-          "reclaimPageTree: 삭제 대상 file 행 수({})와 실제 삭제된 행 수({})가 다릅니다. rootPageId={}",
-          fileIds.size(),
-          deleted,
-          rootPageId);
+          "reclaim: 삭제 대상 file 행 수({})와 실제 삭제된 행 수({})가 다릅니다. {}", fileIds.size(), deleted, scope);
     }
     // 원본뿐 아니라 썸네일·이미지 보기 캐시(WP-250)도 커밋 후 함께 지운다.
     List<WikiAttachmentStorage.StoredPaths> paths =

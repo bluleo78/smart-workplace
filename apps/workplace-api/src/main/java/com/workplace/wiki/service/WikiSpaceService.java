@@ -10,7 +10,9 @@ import com.workplace.wiki.exception.WikiSpaceNameDuplicatedException;
 import com.workplace.wiki.exception.WikiSpaceNotFoundException;
 import com.workplace.wiki.exception.WikiSpaceTypeNotEditableException;
 import com.workplace.wiki.outbound.WikiChangeNotifier;
+import com.workplace.wiki.outbound.WikiDomainEvents.WikiPageAccessRevokedEvent;
 import com.workplace.wiki.outbound.WikiDomainEvents.WikiSpaceMembershipChangedEvent;
+import com.workplace.wiki.repository.WikiPageRepository;
 import com.workplace.wiki.repository.WikiSpaceMemberRepository;
 import com.workplace.wiki.repository.WikiSpaceRepository;
 import java.time.Instant;
@@ -27,6 +29,9 @@ import org.springframework.transaction.annotation.Transactional;
 public class WikiSpaceService {
   private final WikiSpaceRepository spaces;
   private final WikiSpaceMemberRepository members;
+  // WP-580: 스페이스 삭제 때 페이지 잠금·첨부 회수.
+  private final WikiPageRepository pages;
+  private final WikiAttachmentService attachments;
   private final WikiPermissions perms;
   private final MembershipGuard membershipGuard;
   // WP-64: 멤버 변경 resource.changed 발행기.
@@ -129,6 +134,32 @@ public class WikiSpaceService {
     notifier.spaceChanged(spaceId, callerId, List.of(userId));
     // 제거된 사용자가 열어 둔 편집 연결을 끊게 한다.
     publishMembershipChanged(spaceId, userId);
+  }
+
+  /**
+   * 팀 스페이스 영구 삭제(WP-580). OWNER 전용이고 개인 스페이스는 거부한다 — 개인 스페이스는 목록을 열 때 다시 자동 생성되므로 지울 의미가 없다.
+   *
+   * <p>페이지는 휴지통 없이 하드 삭제다. 공간 행 하나를 지우면 페이지·멤버와 그 하위 행은 FK CASCADE 로 사라지지만, CASCADE 뒤에는 조회할 수 없는
+   * 것들을 먼저 처리한다: 멤버 명단(실시간 알림 수신자), 페이지 id(열린 편집 연결 끊기), 첨부 파일 행·바이너리(매핑이 CASCADE 로 사라지면 회수할 길이 없다
+   * — {@link WikiPageService#delete} 와 같은 순서). 공용 AI 메모리는 삭제 알림을 받은 SharedAiMemorySpaceCleanup 이 같은
+   * 트랜잭션에서 지운다.
+   */
+  @Transactional
+  public void deleteTeamSpace(long callerId, long spaceId) {
+    perms.requireRole(spaceId, callerId, "OWNER");
+    requireTeamSpace(spaceId);
+    // 공간 행 → 페이지 행 순으로 잠가 동시 페이지 생성·첨부 업로드가 아래 목록에서 빠지지 않게 한다(각 잠금 주석 참조).
+    spaces.lockForDelete(spaceId);
+    List<Long> pageIds = pages.lockPageIdsOfSpace(spaceId);
+    List<Long> memberIds = members.memberUserIds(spaceId);
+    attachments.reclaimSpace(spaceId);
+    spaces.delete(spaceId);
+    notifier.spaceDeleted(spaceId, callerId, memberIds);
+    if (!pageIds.isEmpty()) {
+      // 테넌트는 지금 담는다 — 재검증 리스너는 커밋 후 별도 스레드에서 돈다. 사유는 "삭제"(4404)라 웹이 삭제됨으로 안내한다.
+      publisher.publishEvent(
+          new WikiPageAccessRevokedEvent(TenantContext.require(), spaceId, pageIds, Instant.now()));
+    }
   }
 
   /**

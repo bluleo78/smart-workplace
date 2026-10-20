@@ -204,6 +204,18 @@ public class WikiAttachmentRepository {
                     r.get(0, Long.class), r.get(1, String.class), r.get(2, String.class)));
   }
 
+  /** 스페이스 안 모든 페이지에 바인딩된 첨부 file 행(WP-580) — 스페이스 삭제 직전에 한 번에 모은다(페이지 CASCADE 뒤에는 남지 않는다). */
+  public List<AttachedFile> attachedFilesOfSpace(long spaceId) {
+    return dsl.select(FILE.ID, FILE.STORAGE_PATH, FILE.THUMBNAIL_PATH)
+        .from(WIKI_PAGE_ATTACHMENT)
+        .join(WIKI_PAGE)
+        .on(WIKI_PAGE.ID.eq(WIKI_PAGE_ATTACHMENT.PAGE_ID))
+        .join(FILE)
+        .on(FILE.ID.eq(WIKI_PAGE_ATTACHMENT.FILE_ID))
+        .where(WIKI_PAGE.SPACE_ID.eq(spaceId))
+        .fetch(r -> new AttachedFile(r.value1(), r.value2(), r.value3()));
+  }
+
   /**
    * file 행 일괄 삭제 — wiki_page_attachment.file_id 가 CASCADE 라 매핑은 함께 사라진다. 실제로 삭제된 행 수를 반환한다 —
    * 호출자(reclaimPageTree)가 요청한 fileIds 개수와 비교해 어긋나면(같은 커넥션·같은 GUC 라 정상적으로는 발생하지 않아야 함) unlink 등록 대상과

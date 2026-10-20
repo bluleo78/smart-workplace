@@ -187,9 +187,13 @@ const RULES: Record<string, Rule> = {
     { queryKey: ['mail-summary'], exact: true },
     { queryKey: calendarKeys.all },
   ],
+  // 삭제(WP-580)는 목록만 — 지운 스페이스의 트리·멤버를 다시 받으면 404 만 난다. 그 스페이스를 보던 멤버는 목록에서 빠진 것으로
+  // "볼 수 없는 공간" 안내(WP-559)를 본다.
   'wiki-space': (p) => [
     { queryKey: wikiKeys.spaces() },
-    ...(p.spaceId != null ? [{ queryKey: wikiKeys.members(p.spaceId) }, { queryKey: wikiKeys.tree(p.spaceId) }] : []),
+    ...(p.spaceId != null && p.op !== 'deleted'
+      ? [{ queryKey: wikiKeys.members(p.spaceId) }, { queryKey: wikiKeys.tree(p.spaceId) }]
+      : []),
   ],
   'wiki-attachment': (p) => (p.pageId != null ? [{ queryKey: wikiKeys.page(p.pageId) }] : []),
 };

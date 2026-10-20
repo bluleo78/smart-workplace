@@ -19,12 +19,14 @@ import {
 import { BookOpen, MoreHorizontal } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { toast } from 'sonner'
 
 import { sidebarTitleClass } from '@/components/layout/sidebar-link'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import {
@@ -37,14 +39,16 @@ import {
 } from '@/components/ui/select'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { parseId } from '@/lib/historyParam'
+import { canDeleteWikiSpace } from '@/lib/wikiSpaces'
 
-import { useDeletePage, useMovePage } from '../../hooks/queries/useWikiMutations'
+import { useDeletePage, useDeleteSpace, useMovePage } from '../../hooks/queries/useWikiMutations'
 import { useWikiSpaces } from '../../hooks/queries/useWikiSpaces'
 import { useWikiTree } from '../../hooks/queries/useWikiTree'
 import type { WikiPageSummary } from '../../types/wiki'
 import { useCreateWikiPageAndOpen } from './useCreateWikiPageAndOpen'
 import { useWikiCreateSpaceDialog } from './useWikiCreateSpaceDialog'
 import { WikiDeletePageDialog } from './WikiDeletePageDialog'
+import { WikiDeleteSpaceDialog } from './WikiDeleteSpaceDialog'
 import { WikiNoPages } from './WikiNoPages'
 import { WikiNoSpaces } from './WikiNoSpaces'
 import { WikiSpaceMemberDialog } from './WikiSpaceMemberDialog'
@@ -187,6 +191,16 @@ export function WikiSidebar() {
   const movePage = useMovePage(spaceId ?? 0)
   // 멤버 관리 다이얼로그 열림 상태 — TEAM 스페이스에서만 노출.
   const [membersOpen, setMembersOpen] = useState(false)
+  // 스페이스 삭제 확인 열림 상태(WP-580).
+  const [spaceDeleteOpen, setSpaceDeleteOpen] = useState(false)
+  // 지운 뒤 /wiki 로 보내 남은 첫 스페이스(또는 빈 상태)를 연다.
+  const deleteSpace = useDeleteSpace({
+    onDeleted: () => {
+      setSpaceDeleteOpen(false)
+      toast.success('스페이스를 삭제했습니다')
+      navigate('/wiki', { replace: true })
+    },
+  })
   // 스페이스 생성 다이얼로그(선택 상자 "＋ 새 스페이스"·공간 0개 빈 상태의 [공간 만들기]가 함께 연다).
   const { openCreateSpace, dialog: createSpaceDialog } = useWikiCreateSpaceDialog()
   const isMobile = useIsMobile()
@@ -232,6 +246,8 @@ export function WikiSidebar() {
   const isTeamSpace = selectedSpace?.type === 'TEAM'
   // 이 공간에 페이지를 만들고·지우고·옮길 수 있는지(WP-602) — VIEWER 에게 쓰기 버튼을 보여 주면 눌러도 403 이다.
   const canEdit = canEditWikiSpace(spaces, spaceId)
+  // 스페이스 삭제는 TEAM + OWNER 만 — 개인 스페이스는 다음 접속 때 자동으로 다시 생기므로 대상이 아니다(WP-580).
+  const canDeleteSpace = canDeleteWikiSpace(selectedSpace)
   // 모바일 빈 공간(페이지 0개) — 트리 대신 생성 진입점 빈 상태(WP-179). 데스크톱은 본문(WikiPageView)이 빈 상태를 그린다.
   const showNoPages = isMobile && pages?.length === 0
   // 볼 수 없거나 없는 공간 주소(WP-559) — 만들어도 404 라 ＋ 를 숨기고, 모바일은 목록이 화면 전체라 여기서 안내한다(데스크톱은 본문이 그린다).
@@ -348,7 +364,7 @@ export function WikiSidebar() {
         <BookOpen className="h-[18px] w-[18px] shrink-0 text-muted-foreground" />
         노트
       </div>
-      {/* 스페이스 전환 — shadcn/ui Select로 디자인 시스템 일관성 유지. 옆 ⋯ 는 스페이스 단위 메뉴(WP-582: 멤버) */}
+      {/* 스페이스 전환 — shadcn/ui Select로 디자인 시스템 일관성 유지. 옆 ⋯ 는 스페이스 단위 메뉴(WP-582: 멤버, WP-580: 삭제) */}
       <div className="flex items-center gap-1 border-b p-2">
         <Select
           value={String(spaceId ?? '')}
@@ -393,6 +409,19 @@ export function WikiSidebar() {
               <DropdownMenuItem data-testid="wiki-space-members" onSelect={() => setMembersOpen(true)}>
                 멤버
               </DropdownMenuItem>
+              {/* 삭제는 소유자에게만 — 되돌릴 수 없는 동작이라 구분선으로 떼어 둔다. */}
+              {canDeleteSpace && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    variant="destructive"
+                    data-testid="wiki-space-delete"
+                    onSelect={() => setSpaceDeleteOpen(true)}
+                  >
+                    스페이스 삭제
+                  </DropdownMenuItem>
+                </>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         )}
@@ -467,6 +496,15 @@ export function WikiSidebar() {
         />
       )}
       {createSpaceDialog}
+      <WikiDeleteSpaceDialog
+        open={spaceDeleteOpen}
+        onOpenChange={setSpaceDeleteOpen}
+        spaceName={selectedSpace?.name ?? ''}
+        pageCount={pages?.length ?? null}
+        pending={deleteSpace.isPending}
+        // 이동·토스트는 useDeleteSpace 의 onDeleted 가 한다.
+        onConfirm={() => spaceId != null && deleteSpace.mutate(spaceId)}
+      />
       {/* 페이지 삭제 확인(사이드바 행 ⋯). hasChildren 은 flatItems 에서 파생. */}
       <WikiDeletePageDialog
         open={deleteTarget != null}

@@ -269,6 +269,8 @@ describe('규칙 키 값 고정', () => {
       { queryKey: ['wiki', 'members', 2] },
       { queryKey: ['wiki', 'tree', 2] },
     ]);
+    // 삭제(WP-580)는 목록만 — 지운 스페이스의 트리·멤버를 다시 받지 않는다.
+    expect(keys({ resource: 'wiki-space', op: 'deleted', spaceId: 2 })).toEqual([{ queryKey: ['wiki', 'spaces'] }]);
     expect(keys({ resource: 'wiki-attachment', op: 'created', spaceId: 2, pageId: 8 })).toEqual([
       { queryKey: ['wiki', 'page', 8] },
     ]);

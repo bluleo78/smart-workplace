@@ -51,6 +51,14 @@ public class WikiSpaceController {
     return ResponseEntity.ok(spaceService.getSpace(callerId, spaceId));
   }
 
+  /** 팀 스페이스 영구 삭제(WP-580) — OWNER 전용, 개인 스페이스는 거부. */
+  @DeleteMapping("/spaces/{id}")
+  public ResponseEntity<Void> delete(
+      @AuthenticationPrincipal Long callerId, @PathVariable("id") long spaceId) {
+    spaceService.deleteTeamSpace(callerId, spaceId);
+    return ResponseEntity.noContent().build();
+  }
+
   @GetMapping("/spaces/{id}/members")
   public ResponseEntity<List<WikiMemberResponse>> members(
       @AuthenticationPrincipal Long callerId, @PathVariable("id") long spaceId) {

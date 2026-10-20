@@ -366,6 +366,18 @@ public class WikiPageRepository {
         .map(r -> r.get(0, Long.class));
   }
 
+  /**
+   * 공간의 페이지 id 를 모으며 행을 잠근다(WP-580 스페이스 삭제). 첨부 매핑(wiki_page_attachment.page_id FK)이 페이지 행에 KEY
+   * SHARE 를 걸어 FOR UPDATE 와 충돌하므로, 진행 중인 첨부 업로드는 커밋을 기다렸다가 회수 대상에 들어오고 새 업로드는 삭제 뒤 FK 위반으로 실패한다.
+   */
+  public java.util.List<Long> lockPageIdsOfSpace(long spaceId) {
+    return dsl.select(WIKI_PAGE.ID)
+        .from(WIKI_PAGE)
+        .where(WIKI_PAGE.SPACE_ID.eq(spaceId))
+        .forUpdate()
+        .fetch(WIKI_PAGE.ID);
+  }
+
   /** 위키 트리 이동 잠금 전용 classId — 2-인자 pg_advisory_xact_lock(classId, spaceId) 형태에서 사용. */
   private static final int WIKI_TREE_LOCK_CLASS = 758;
 
