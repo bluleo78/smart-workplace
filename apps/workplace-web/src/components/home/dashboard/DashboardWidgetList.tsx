@@ -1,18 +1,25 @@
 // 홈 대시보드 위젯 목록(WP-161 에서 Dashboard.tsx 로부터 분리) — 데스크톱 그리드 / 모바일 세로 목록 × 보기 / 편집.
 // 편집 모드의 dnd 골격(센서·충돌 판정·SortableContext)과 카드 DOM ref(포커스 복원·추가 위젯 스크롤)를 이 컴포넌트가 단독 소유한다.
 import {
+  type Announcements,
   closestCenter,
   type CollisionDetection,
   DndContext,
   type DragEndEvent,
+  KeyboardSensor,
   PointerSensor,
   pointerWithin,
   rectIntersection,
   useSensor,
   useSensors,
 } from '@dnd-kit/core'
-import { rectSortingStrategy, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
-import { useEffect, useRef } from 'react'
+import {
+  rectSortingStrategy,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
+import { useEffect, useMemo, useRef } from 'react'
 
 import { useInboxPanel } from '@/components/layout/InboxContext'
 import { useToggleWidgetCollapsed } from '@/hooks/queries/useDashboard'
@@ -39,6 +46,11 @@ const collisionDetection: CollisionDetection = (args) => {
   const rectCollisions = rectIntersection(args)
   if (rectCollisions.length > 0) return rectCollisions
   return closestCenter(args)
+}
+
+// 드래그 핸들의 스크린리더 사용법 안내(aria-describedby) — dnd-kit 기본값은 영어라 한국어로 바꾼다(WP-641).
+const SCREEN_READER_INSTRUCTIONS = {
+  draggable: 'Space 키로 위젯을 집고, 방향키로 옮길 자리를 고른 뒤 Space 키로 놓으세요. Esc 키를 누르면 취소됩니다.',
 }
 
 interface Props {
@@ -89,13 +101,42 @@ export function DashboardWidgetList({ isMobile, savedEntries, edit }: Props) {
   }
 
   // 드래그앤드랍 센서 — PointerSensor distance:8 로 일반 클릭(버튼)과 드래그 제스처를 분리.
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
+  // KeyboardSensor — 핸들이 dnd-kit 기본 ARIA(role=button·aria-roledescription=sortable)로 키보드 조작을 알리므로
+  // 실제로 Space 집기 → 방향키 → Space 놓기가 되게 한다(WP-641). 리스너는 핸들에만 있어 카드 안 다른 버튼의 키 입력은 받지 않는다.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
   // 드래그 종료 — active 위젯을 over 위젯 자리로 재배치(같은 자리면 훅이 무시).
   function handleDragEnd({ active, over }: DragEndEvent) {
     if (!over) return
     edit.reorderWidget(String(active.id), String(over.id))
   }
   const sortableIds = draftEntries.map((e) => e.cfg.id)
+  // 스크린리더 안내 — dnd-kit 기본 문구는 영어에 원시 id(my_tasks)를 읽는다. 위젯 이름과 몇 번째 자리인지로 읽는다(WP-641).
+  const accessibility = useMemo(() => {
+    const titleOf = (id: string | number) => {
+      const entry = draftEntries.find((e) => e.cfg.id === id)
+      return entry ? entryTitle(entry) : '위젯'
+    }
+    const positionOf = (id: string | number) => draftEntries.findIndex((e) => e.cfg.id === id) + 1
+    const announcements: Announcements = {
+      onDragStart: ({ active }) => `${titleOf(active.id)} 위젯을 집었습니다. 지금 ${positionOf(active.id)}번째 자리입니다.`,
+      // 집은 직후 over 가 자기 자신으로 잡혀 onDragOver 가 바로 불린다 — 자기 자리면 읽지 않아 「집었습니다」를 덮지 않는다.
+      onDragOver: ({ active, over }) => {
+        if (over?.id === active.id) return undefined
+        return over
+          ? `${titleOf(active.id)} 위젯이 ${positionOf(over.id)}번째 자리 위에 있습니다.`
+          : `${titleOf(active.id)} 위젯이 놓을 자리 밖에 있습니다.`
+      },
+      onDragEnd: ({ active, over }) =>
+        over && over.id !== active.id
+          ? `${titleOf(active.id)} 위젯을 ${positionOf(over.id)}번째 자리에 놓았습니다.`
+          : `${titleOf(active.id)} 위젯을 놓았습니다. 순서는 그대로입니다.`,
+      onDragCancel: ({ active }) => `${titleOf(active.id)} 위젯 이동을 취소했습니다.`,
+    }
+    return { announcements, screenReaderInstructions: SCREEN_READER_INSTRUCTIONS }
+  }, [draftEntries])
   const visibleSaved = visibleEntries(savedEntries)
 
   // 빈 상태(WP-520) — 보기 모드에서 모두 숨김이거나, 편집 초안에서 모두 지웠으면 빈 캔버스 대신 안내와 다음 행동을 준다.
@@ -117,7 +158,12 @@ export function DashboardWidgetList({ isMobile, savedEntries, edit }: Props) {
     return (
       <div className="flex flex-col gap-3" data-testid="dashboard">
         {editing ? (
-          <DndContext sensors={sensors} collisionDetection={collisionDetection} onDragEnd={handleDragEnd}>
+          <DndContext
+            sensors={sensors}
+            collisionDetection={collisionDetection}
+            onDragEnd={handleDragEnd}
+            accessibility={accessibility}
+          >
             <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
               {draftEntries.map((entry) => (
                 <MobileEditableWidgetCard
@@ -158,7 +204,12 @@ export function DashboardWidgetList({ isMobile, savedEntries, edit }: Props) {
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-3" data-testid="dashboard">
       {editing ? (
-        <DndContext sensors={sensors} collisionDetection={collisionDetection} onDragEnd={handleDragEnd}>
+        <DndContext
+            sensors={sensors}
+            collisionDetection={collisionDetection}
+            onDragEnd={handleDragEnd}
+            accessibility={accessibility}
+          >
           <SortableContext items={sortableIds} strategy={rectSortingStrategy}>
             {draftEntries.map((entry, i) => (
               <EditableWidgetCard

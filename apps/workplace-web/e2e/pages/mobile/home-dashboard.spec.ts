@@ -380,6 +380,41 @@ test('모바일 편집 — 오른쪽 드래그 핸들로 순서를 바꾸면 dev
   expect(stub.puts()[0].widgets.every((w) => w.collapsed === true)).toBe(true)
 })
 
+test('모바일 편집 — 드래그 핸들에서 Space·↓·Space 로 순서를 바꾸고, 스크린리더 안내는 위젯 이름으로 읽는다 (WP-641)', async ({
+  authenticatedPage: page,
+}) => {
+  await stubWidgetData(page)
+  const stub = await stubDashboard(page, {
+    mobile: layout([
+      { id: 'my_tasks', type: 'my_tasks', count: 3, hidden: false, collapsed: true },
+      { id: 'unread_mail', type: 'unread_mail', count: 3, hidden: false, collapsed: true },
+    ]),
+  })
+  await page.goto('/')
+  await page.getByTestId('dashboard-edit-toggle').click()
+  const myTasks = page.locator('[data-testid="dashboard-widget"][data-widget="my_tasks"]')
+  const handle = myTasks.getByTestId('widget-drag-handle')
+  // dnd-kit 이 만드는 안내 영역(role=status) — 집기·놓기를 한국어·위젯 이름으로 읽어야 한다(원시 id 금지).
+  const liveRegion = page.locator('[id^="DndLiveRegion"]')
+  await handle.focus()
+  await page.keyboard.press('Space')
+  await expect(liveRegion).toContainText('집었습니다')
+  await expect(liveRegion).not.toContainText('my_tasks')
+  await page.keyboard.press('ArrowDown')
+  // 방향키 뒤 놓을 자리(over)는 다음 프레임에 잡힌다 — 그 안내가 나온 뒤 놓는다.
+  await expect(liveRegion).toContainText('2번째 자리 위에')
+  await page.keyboard.press('Space')
+  await expect(liveRegion).toContainText('2번째 자리에 놓았습니다')
+  const cards = page.getByTestId('dashboard-widget')
+  await expect(cards.nth(0)).toHaveAttribute('data-widget', 'unread_mail')
+  await expect(cards.nth(1)).toHaveAttribute('data-widget', 'my_tasks')
+
+  await page.getByTestId('dashboard-edit-save').click()
+  await expect(page.getByTestId('dashboard-edit-banner')).toHaveCount(0)
+  expect(stub.puts()).toHaveLength(1)
+  expect(stub.puts()[0].widgets.map((w) => w.id)).toEqual(['unread_mail', 'my_tasks'])
+})
+
 test('collapsed 필드 없는 저장본은 펼침으로, 미등록 위젯은 건너뛰고 렌더된다', async ({
   authenticatedPage: page,
 }) => {

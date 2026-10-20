@@ -910,6 +910,42 @@ test('편집 — 드래그로 위젯 순서 변경 → 저장 시 PUT payload �
   expect(puts.lastBody<DashboardPut>()!.widgets.map((w) => w.type)).toEqual(['unread_mail', 'my_tasks'])
 })
 
+test('편집 — 드래그 핸들에서 Space·→·Space 로 키보드만으로 순서를 바꾼다 (WP-641)', async ({
+  authenticatedPage: page,
+}) => {
+  const puts = trackRequests(page, 'PUT', '/api/v1/me/dashboard')
+  await page.route(
+    (url) => url.pathname === '/api/v1/me/dashboard',
+    (route) => {
+      if (route.request().method() === 'GET') return route.fulfill({ json: layout(['my_tasks', 'unread_mail']) })
+      if (route.request().method() !== 'PUT') return route.continue()
+      return route.fulfill({ json: route.request().postDataJSON() as unknown })
+    },
+  )
+  await mockWidgets(page)
+  await page.goto('/')
+  await page.getByTestId('dashboard-edit-toggle').click()
+  await expectWidgetBodiesLoaded(page, ['my_tasks', 'unread_mail'])
+
+  const handle = page.locator('[data-testid="dashboard-widget"][data-widget="my_tasks"]').getByTestId('widget-drag-handle')
+  const liveRegion = page.locator('[id^="DndLiveRegion"]')
+  await handle.focus()
+  await page.keyboard.press('Space')
+  await expect(liveRegion).toContainText('집었습니다')
+  await page.keyboard.press('ArrowRight')
+  // 방향키 뒤 놓을 자리(over)는 다음 프레임에 잡힌다 — 그 안내가 나온 뒤 놓는다(사람의 키 입력 간격과 같은 순서).
+  await expect(liveRegion).toContainText('2번째 자리 위에')
+  await page.keyboard.press('Space')
+  await expect(liveRegion).toContainText('2번째 자리에 놓았습니다')
+  const cards = page.getByTestId('dashboard-widget')
+  await expect(cards.nth(0)).toHaveAttribute('data-widget', 'unread_mail')
+  await expect(cards.nth(1)).toHaveAttribute('data-widget', 'my_tasks')
+
+  await page.getByTestId('dashboard-edit-save').click()
+  await expect(page.getByTestId('dashboard-edit-banner')).toHaveCount(0)
+  expect(puts.lastBody<DashboardPut>()!.widgets.map((w) => w.type)).toEqual(['unread_mail', 'my_tasks'])
+})
+
 test('편집 — wide(col-span-3) 위젯을 좁은 위젯 바로 다음으로 드래그하면 건너뛰지 않고 정확히 그 자리로 이동한다 (#645)', async ({
   authenticatedPage: page,
 }) => {
