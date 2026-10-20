@@ -1,14 +1,14 @@
 // 이슈 모듈 2차 사이드바 — 개인 영역(내 작업/AI 위임) + 프로젝트(컬러 식별자).
 import { LayoutGrid, LayoutList, ListChecks, Plus, Sparkles, Star } from 'lucide-react'
 import { useState } from 'react'
-import { NavLink } from 'react-router-dom'
+import { Link, NavLink, useLocation } from 'react-router-dom'
 
 import { sidebarLinkClass, sidebarTitleClass } from '@/components/layout/sidebar-link'
 import { ProjectBadge } from '@/components/ProjectBadge'
 import { useProjects } from '@/hooks/queries/useProjects'
 import { useMyPinnedViews } from '@/hooks/queries/useSavedViews'
 import { useProjectFavorites } from '@/hooks/useProjectFavorites'
-import { savedViewQueryToParams } from '@/lib/savedViewQuery'
+import { queriesEqualIgnoringView, savedViewQueryToParams } from '@/lib/savedViewQuery'
 import { ProjectCreateDialog } from '@/pages/projects/components/ProjectCreateDialog'
 
 export function IssueSidebar() {
@@ -18,6 +18,10 @@ export function IssueSidebar() {
   const projects = useProjects()
   // 사용자가 고정한 뷰 — 프로젝트 교차 빠른 접근(사이드바 상단 노출).
   const pinned = useMyPinnedViews()
+  // 고정 뷰 활성 판정(WP-607) — NavLink 는 쿼리를 보지 않고 경로 접두만 맞춰, 그 프로젝트의 어느 화면(전체 목록·설정)에서도
+  // 고정 뷰가 모두 선택돼 보였다. 프로젝트 목록 경로가 정확히 같고 필터 쿼리가 뷰와 같을 때만(뷰 칩과 같은 기준) 선택으로
+  // 보고, 링크도 NavLink 대신 Link + 직접 계산한 aria-current 로 그린다(NavLink 는 자체 판정으로 aria-current 를 붙인다).
+  const location = useLocation()
 
   // 즐겨찾기(localStorage) — 사이드바 팀 프로젝트 목록은 즐겨찾기한 것만 노출한다.
   const { isFav } = useProjectFavorites()
@@ -56,19 +60,25 @@ export function IssueSidebar() {
               고정된 뷰
             </div>
             <nav className="mt-2 space-y-1">
-              {(pinned.data ?? []).map((v) => (
-                <NavLink
+              {(pinned.data ?? []).map((v) => {
+                const active =
+                  location.pathname === `/projects/${v.projectKey}` &&
+                  queriesEqualIgnoringView(location.search, v.query)
+                return (
+                <Link
                   key={v.id}
                   // group 없는 (사이클 그룹 도입 전) 저장 뷰는 group=none 을 붙여 예전처럼 평면 목록으로 연다(#878).
                   to={`/projects/${v.projectKey}?${savedViewQueryToParams(v.query).toString()}`}
                   data-testid={`pinned-view-${v.id}`}
-                  className={sidebarLinkClass}
+                  className={sidebarLinkClass({ isActive: active })}
+                  aria-current={active ? 'page' : undefined}
                 >
                   <Star className="h-4 w-4 shrink-0 fill-current text-muted-foreground" />
                   <span className="truncate">{v.name}</span>
                   <span className="ml-auto shrink-0 text-xs text-muted-foreground">{v.projectKey}</span>
-                </NavLink>
-              ))}
+                </Link>
+                )
+              })}
             </nav>
           </div>
         )}

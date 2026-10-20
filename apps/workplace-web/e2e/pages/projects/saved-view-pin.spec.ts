@@ -105,6 +105,15 @@ test.describe('Saved View 사이드바 고정', () => {
     // (c) 사이드바 링크 클릭 → URL 이 /projects/{key}?{query} 로 이동.
     await pinnedLink.click()
     await expect(page).toHaveURL(new RegExp(`/projects/${KEY}\\?priority=HIGH`))
+
+    // (d) 선택 표시는 그 뷰를 연 때만(WP-607) — 같은 프로젝트의 전체 목록·설정 화면에서는 선택으로 보이지 않는다.
+    await expect(pinnedLink).toHaveAttribute('aria-current', 'page')
+    await page.getByTestId('view-chip-all').click()
+    await expect(page).not.toHaveURL(/priority=HIGH/)
+    await expect(pinnedLink).not.toHaveAttribute('aria-current', 'page')
+    await page.goto(`/projects/${KEY}/settings`)
+    await expect(page.getByTestId('pinned-view-10')).toBeVisible()
+    await expect(page.getByTestId('pinned-view-10')).not.toHaveAttribute('aria-current', 'page')
   })
 
   test('뷰 메뉴 트리거 rect — 열림 중에도 유효해 Radix 앵커가 좌상단으로 폴백하지 않음 (#693)', async ({
