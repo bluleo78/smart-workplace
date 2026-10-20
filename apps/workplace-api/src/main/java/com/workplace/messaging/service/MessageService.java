@@ -59,6 +59,7 @@ public class MessageService {
   private final MessageRepository messageRepo;
   private final ChannelMemberRepository memberRepo;
   private final ChannelRepository channelRepo;
+  private final ChannelPermissions perms;
   private final ApplicationEventPublisher publisher;
   private final UserMentionHydrator mentionHydrator;
   private final ReactionRepository reactionRepo;
@@ -315,23 +316,30 @@ public class MessageService {
     publisher.publishEvent(new MessageReadEvent(channelId, callerId, upto));
   }
 
-  /** 채널 멤버만 히스토리 조회. 리액션 집계 + 제안 batch enrich 포함. RLS GUC 주입 위해 @Transactional 필요(없으면 빈 결과). */
+  /**
+   * 읽을 수 있는 사람만 히스토리 조회(멤버, 보관된 공개 채널은 누구나 — WP-621). 리액션 집계 + 제안 batch enrich 포함. RLS GUC 주입
+   * 위해 @Transactional 필요(없으면 빈 결과).
+   */
   @Transactional(readOnly = true)
   public MessagePage list(long callerId, long channelId, String cursor, int limit) {
-    ensureMember(channelId, callerId);
+    ensureReadable(channelId, callerId);
     MessagePage page =
         messageRepo.findPage(channelId, cursor, limit, mentionHydrator::asMentionResponses);
     return enrichProposals(enrichThreadUnread(enrichReactions(page, callerId), callerId));
   }
 
-  /** 채널 멤버만 특정 부모 메시지의 답글 조회(비멤버=404, WP-591). RLS GUC 주입 위해 @Transactional 필요(없으면 빈 결과). */
+  /**
+   * 읽을 수 있는 사람만 특정 부모 메시지의 답글 조회(그 밖의 비멤버=404, WP-591·621). RLS GUC 주입 위해 @Transactional 필요(없으면 빈
+   * 결과).
+   */
   @Transactional(readOnly = true)
   public MessagePage listThread(long callerId, long parentMessageId, String cursor, int limit) {
     MessageRef ref =
         messageRepo
             .findRef(parentMessageId)
             .orElseThrow(() -> new MessageNotFoundException(parentMessageId));
-    ensureMessageVisible(ref.channelId(), callerId, parentMessageId);
+    if (!perms.canRead(ref.channelId(), callerId))
+      throw new MessageNotFoundException(parentMessageId);
     MessagePage page =
         messageRepo.findThreadPage(
             parentMessageId, cursor, limit, mentionHydrator::asMentionResponses);
@@ -506,7 +514,7 @@ public class MessageService {
   @Transactional(readOnly = true)
   public FileUploadService.FileContentResult driveLinkContent(
       long callerId, long channelId, long messageId, long driveFileId) throws IOException {
-    ensureMember(channelId, callerId); // 채널 멤버십 = 다운로드 인가
+    ensureReadable(channelId, callerId); // 채널을 읽을 수 있음 = 다운로드 인가(WP-621)
     // 메시지가 해당 채널 소속인지 확인 — 다른 채널의 messageId 를 주입한 크로스채널 접근 차단
     if (!messageRepo.belongsToChannel(messageId, channelId))
       throw new MessageNotFoundException(messageId);
@@ -534,5 +542,10 @@ public class MessageService {
   private void ensureMember(long channelId, long userId) {
     if (!memberRepo.isMember(channelId, userId))
       throw new ChannelNotMemberException(channelId, userId);
+  }
+
+  /** 채널 id 경로의 읽기 검사 — 멤버 또는 보관된 공개 채널(WP-621). 그 밖의 비멤버는 {@link #ensureMember} 와 같은 403. */
+  private void ensureReadable(long channelId, long userId) {
+    if (!perms.canRead(channelId, userId)) throw new ChannelNotMemberException(channelId, userId);
   }
 }

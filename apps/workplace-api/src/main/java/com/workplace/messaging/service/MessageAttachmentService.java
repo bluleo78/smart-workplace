@@ -43,6 +43,9 @@ public class MessageAttachmentService {
   /** 보관된 채널 업로드 차단용(WP-508). */
   private final ChannelRepository channelRepo;
 
+  /** 읽기 권한 판정(멤버 또는 보관된 공개 채널, WP-621). */
+  private final ChannelPermissions perms;
+
   /** 상대경로→절대경로 복원용 코어 파일 저장소. 다운로드 시 FileSystemResource 에 전달하기 전에 resolve() 호출. */
   private final FileStore fileStore;
 
@@ -67,7 +70,8 @@ public class MessageAttachmentService {
       ApplicationEventPublisher eventPublisher,
       ExtractedTextService extractedText,
       StagedFileClaimer claimer,
-      ChannelRepository channelRepo) {
+      ChannelRepository channelRepo,
+      ChannelPermissions perms) {
     this.storage = storage;
     this.repo = repo;
     this.memberRepo = memberRepo;
@@ -77,6 +81,7 @@ public class MessageAttachmentService {
     this.extractedText = extractedText;
     this.claimer = claimer;
     this.channelRepo = channelRepo;
+    this.perms = perms;
   }
 
   /** 선업로드: 채널 멤버 검증 + 크기/개수 게이트 후 임시 저장. fileId 메타 반환. */
@@ -151,7 +156,7 @@ public class MessageAttachmentService {
   @Transactional(readOnly = true)
   public MessageAttachmentRepository.StoredFileRow download(
       long callerId, long channelId, long messageId, Long fileId) {
-    ensureMember(channelId, callerId);
+    ensureReadable(channelId, callerId);
     if (!messageRepo.belongsToChannel(messageId, channelId)) {
       throw new InvalidMessageAttachmentException(fileId);
     }
@@ -185,12 +190,17 @@ public class MessageAttachmentService {
    */
   @Transactional(readOnly = true)
   public long resolveViewFileId(long callerId, long channelId, long messageId, long fileId) {
-    ensureMember(channelId, callerId);
+    ensureReadable(channelId, callerId);
     if (!messageRepo.belongsToChannel(messageId, channelId)
         || repo.findStoredFile(fileId, messageId).isEmpty()) {
       throw new InvalidMessageAttachmentException(fileId);
     }
     return fileId;
+  }
+
+  /** 읽기 검사 — 멤버 또는 보관된 공개 채널(WP-621). 그 밖의 비멤버는 ChannelNotMemberException(403). */
+  private void ensureReadable(long channelId, long userId) {
+    if (!perms.canRead(channelId, userId)) throw new ChannelNotMemberException(channelId, userId);
   }
 
   /** 채널 멤버 여부 확인. 비멤버면 ChannelNotMemberException 발생. */

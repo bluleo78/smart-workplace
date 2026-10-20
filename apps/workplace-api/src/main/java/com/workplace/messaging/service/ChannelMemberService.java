@@ -31,11 +31,14 @@ public class ChannelMemberService {
 
   private static final List<String> VALID_ROLES = List.of("OWNER", "ADMIN", "MEMBER");
 
-  /** 멤버 목록 — 멤버만(비공개 비멤버 404 은닉). RLS GUC 주입 위해 @Transactional 필요(없으면 빈 결과). */
+  /**
+   * 멤버 목록 — 읽을 수 있는 사람만(멤버, 또는 보관된 공개 채널이면 누구나 — WP-621). 그 밖의 비멤버는 404 은닉. RLS GUC 주입
+   * 위해 @Transactional 필요(없으면 빈 결과).
+   */
   @Transactional(readOnly = true)
   public List<ChannelMemberResponse> listMembers(long callerId, long channelId) {
     ensureExists(channelId);
-    perms.requireMember(channelId, callerId);
+    if (!perms.canRead(channelId, callerId)) throw new ChannelNotFoundException(channelId);
     return memberRepo.listMembers(channelId);
   }
 
@@ -67,7 +70,8 @@ public class ChannelMemberService {
     perms.requireManage(channelId, callerId, "add-member");
     requireNotDm(callerId, channelId, "add-member");
     // 보관된 채널은 읽기 전용 — 멤버를 새로 넣을 수 없다(WP-508). 내보내기·나가기는 정리용이라 허용한다.
-    if (channelRepo.isArchived(channelId)) throw new ChannelArchivedException(channelId);
+    if (channelRepo.isArchived(channelId))
+      throw new ChannelArchivedException(channelId, "보관된 채널에는 구성원을 초대할 수 없습니다");
     // 추가 대상 사용자가 현재 테넌트의 활성 멤버인지 확인 — 테넌트 경계를 넘는 채널 멤버십 차단(설계 §4).
     // project/wiki/drive 공간 addMember 와 공용 헬퍼(MembershipGuard)로 정책 통일 (#713).
     if (membershipGuard.isForeignUser(targetUserId)) {

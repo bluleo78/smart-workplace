@@ -262,6 +262,20 @@ public class ChannelRepository {
             .where(CHANNEL.ID.eq(channelId).and(CHANNEL.ARCHIVED_AT.isNotNull())));
   }
 
+  /** 보관된 공개 채널(DM 아님)인지 — 비멤버 읽기 전용 열람 판정용(WP-621). */
+  public boolean isArchivedPublicChannel(long channelId) {
+    return dsl.fetchExists(
+        dsl.selectOne()
+            .from(CHANNEL)
+            .where(
+                CHANNEL
+                    .ID
+                    .eq(channelId)
+                    .and(CHANNEL.KIND.eq("CHANNEL"))
+                    .and(CHANNEL.VISIBILITY.eq("PUBLIC"))
+                    .and(CHANNEL.ARCHIVED_AT.isNotNull())));
+  }
+
   /** 채널 공개 범위('PUBLIC'|'PRIVATE'). 채널이 없으면 빈 문자열 — 비멤버 존재 은닉 판단용(WP-511). */
   public String findVisibility(long channelId) {
     return dsl.select(CHANNEL.VISIBILITY)

@@ -24,10 +24,12 @@ interface ThreadPanelProps {
   members: MentionCandidate[]
   me: { id: number; name: string; kind: UserKind }
   archived: boolean
+  /** 읽음 표시 여부 — 멤버가 아닌 열람자(보관된 공개 채널, WP-621)는 읽음 상태가 없어 보내지 않는다. 기본 true. */
+  canMarkRead?: boolean
   onClose: () => void
 }
 
-export function ThreadPanel({ channelId, channelName, parent, members, me, archived, onClose }: ThreadPanelProps) {
+export function ThreadPanel({ channelId, channelName, parent, members, me, archived, canMarkRead = true, onClose }: ThreadPanelProps) {
   const isMobile = useIsMobile()
   const { data } = useThreadReplies(parent.id)
   // 스레드 답글은 ASC 페이지. MessageList 가 내부에서 reverse 하므로 reverse 해서 넘긴다(원복).
@@ -39,7 +41,7 @@ export function ThreadPanel({ channelId, channelName, parent, members, me, archi
   // markThreadRead/parent.unreadReplyCount 는 deps 에서 의도적으로 제외(부모 전환 시에만 1회 발화).
    
   useEffect(() => {
-    markThreadRead(parent.id, parent.unreadReplyCount)
+    if (canMarkRead) markThreadRead(parent.id, parent.unreadReplyCount)
   }, [parent.id])
 
   return (

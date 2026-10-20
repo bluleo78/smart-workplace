@@ -100,7 +100,8 @@ public class ChannelService {
       throw new ChannelForbiddenException(channelId, callerId, "join-private");
     }
     // 보관된 채널은 읽기 전용 — 새로 참여할 수 없다(WP-508).
-    if (channelRepo.isArchived(channelId)) throw new ChannelArchivedException(channelId);
+    if (channelRepo.isArchived(channelId))
+      throw new ChannelArchivedException(channelId, "보관된 채널에는 참여할 수 없습니다");
     memberRepo.add(channelId, callerId, "MEMBER");
     // 참여도 멤버 변경 — roster 이벤트로 연동 드라이브 공간에 곧바로 반영한다(WP-531).
     rosterPublisher.publish(channelId);
@@ -114,7 +115,8 @@ public class ChannelService {
     ensureExists(channelId);
     perms.requireManage(channelId, callerId, "rename");
     // 보관된 채널은 읽기 전용 — 이름을 바꾸려면 먼저 보관을 해제한다(WP-508).
-    if (channelRepo.isArchived(channelId)) throw new ChannelArchivedException(channelId);
+    if (channelRepo.isArchived(channelId))
+      throw new ChannelArchivedException(channelId, "보관된 채널은 이름을 바꿀 수 없습니다");
     if (channelRepo.existsVisibleChannelName(name, callerId, channelId)) {
       throw new ChannelNameDuplicatedException(name);
     }

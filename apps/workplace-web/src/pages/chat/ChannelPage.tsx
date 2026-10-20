@@ -235,6 +235,8 @@ export default function ChannelPage() {
               members={mentionMembers}
               onOpenThread={(id) => threadParam.open(String(id))}
               readOnly={channel.archived}
+              // 멤버가 아닌 열람자(보관된 공개 채널, WP-621)는 읽음 상태가 없다 — 읽음 표시 요청을 보내지 않는다.
+              disableMarkRead={!channel.member}
               unreadDividerBeforeId={unreadDividerBeforeId}
               catchupSlot={catchupSlot}
               emptyState={
@@ -279,6 +281,7 @@ export default function ChannelPage() {
             members={mentionMembers}
             me={me}
             archived={channel.archived}
+            canMarkRead={channel.member}
             onClose={threadParam.close}
           />
         )}

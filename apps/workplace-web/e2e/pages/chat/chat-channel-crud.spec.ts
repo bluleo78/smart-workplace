@@ -3,6 +3,8 @@ import type { Page } from '@playwright/test';
 
 import { expect, test } from '../../fixtures/auth.fixture';
 import { createChannel, createMessage, createReaction } from '../../factories/messaging.factory';
+import { trackRequests } from '../../fixtures/requests';
+import { expectStays } from '../../fixtures/wait';
 
 // 사이드바가 부르는 GET /channels(내 채널) + SSE stub. 메시지 GET 은 빈 목록.
 async function stubSidebar(page: Page, channels: ReturnType<typeof createChannel>[]) {
@@ -264,6 +266,19 @@ test.describe('messaging 채널 헤더·아카이브', () => {
     await expect(page.getByTestId('message-edit-480')).toHaveCount(0)
     await expect(page.getByTestId('message-delete-480')).toHaveCount(0)
     await expect(page.getByTestId('reaction-pill-480-👍')).toBeDisabled()
+  })
+
+  // WP-621: 보관된 공개 채널은 멤버가 아니어도(나간 사람) 메시지를 읽기 전용으로 본다 — 읽음 표시 요청은 보내지 않는다(멤버 전용 API).
+  test('보관된 공개 채널 비멤버 → 메시지가 보이고 입력 대신 보관 안내, 읽음 요청은 없음', async ({ authenticatedPage: page }) => {
+    const archived = createChannel({ id: 49, name: '보관공개', visibility: 'PUBLIC', archived: true, role: null, member: false })
+    const msg = createMessage({ id: 490, channelId: 49, body: '보관 전 결정 사항' })
+    await stubChannelView(page, archived, 200, [msg])
+    const reads = trackRequests(page, 'POST', '/api/v1/messaging/channels/49/read')
+    await page.goto('/chat/channels/49')
+    await expect(page.getByTestId('message-body-490')).toHaveText('보관 전 결정 사항')
+    await expect(page.getByText('이 채널은 보관되었습니다')).toBeVisible()
+    await expect(page.getByTestId('message-composer-input')).toHaveCount(0)
+    await expectStays(page, () => reads.count(), 0, { message: '비멤버는 읽음 표시 요청을 보내지 않는다' })
   })
 
   test('OWNER → 설정에서 이름 변경', async ({ authenticatedPage: page }) => {

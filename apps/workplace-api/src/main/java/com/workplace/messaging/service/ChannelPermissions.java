@@ -39,6 +39,15 @@ public class ChannelPermissions {
     throw new ChannelNotFoundException(channelId);
   }
 
+  /**
+   * 채널 내용(메시지·스레드·첨부·반응자·멤버 목록)을 읽을 수 있는지 — 멤버, 또는 보관된 공개 채널이면 워크스페이스 구성원 누구나(WP-621). 보관된 공개 채널은
+   * 원래 누구나 들어와 읽던 대화의 기록이라, 나간 사람·처음 보는 사람도 읽기 전용으로 본다(쓰기는 각 쓰기 경로의 보관 검사가 막는다). 비공개 채널·DM 은 보관돼도
+   * 멤버만.
+   */
+  public boolean canRead(long channelId, long userId) {
+    return memberRepo.isMember(channelId, userId) || channelRepo.isArchivedPublicChannel(channelId);
+  }
+
   /** 관리 권한(OWNER/ADMIN 또는 시스템 ADMIN) 보장. */
   public void requireManage(long channelId, long userId, String action) {
     if (isSystemAdmin(userId)) return;

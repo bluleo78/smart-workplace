@@ -27,6 +27,7 @@ public class ReactionService {
   private final MessageRepository messageRepo;
   private final ChannelMemberRepository memberRepo;
   private final ChannelRepository channelRepo;
+  private final ChannelPermissions perms;
   private final ApplicationEventPublisher publisher;
 
   /** 리액션 추가(멱등 — 이미 있으면 이벤트 미발행). 이모지 하나가 아니면 400(WP-594). */
@@ -72,13 +73,17 @@ public class ReactionService {
   private static final int MAX_REACTOR_LIMIT = 50;
 
   /**
-   * 메시지의 이모지별 반응자 페이지. 채널 멤버만(목록과 같은 권한). 메시지 목록에는 개수만 싣고, 반응자는 호버·전체 보기 때 이 API 로 필요한 만큼만
-   * 받는다(WP-106 지연 로딩).
+   * 메시지의 이모지별 반응자 페이지. 메시지 목록과 같은 읽기 권한(멤버, 보관된 공개 채널은 누구나 — WP-621). 메시지 목록에는 개수만 싣고, 반응자는 호버·전체
+   * 보기 때 이 API 로 필요한 만큼만 받는다(WP-106 지연 로딩).
    */
   @Transactional(readOnly = true)
   public ReactorPage listReactors(
       long callerId, long messageId, String emoji, String cursor, int limit) {
-    ensureMessageMember(callerId, messageId);
+    long channelId =
+        messageRepo
+            .findChannelId(messageId)
+            .orElseThrow(() -> new MessageNotFoundException(messageId));
+    if (!perms.canRead(channelId, callerId)) throw new MessageNotFoundException(messageId);
     int size = Math.clamp(limit, 1, MAX_REACTOR_LIMIT);
     List<ReactorRow> rows = reactionRepo.findReactors(messageId, emoji, decodeCursor(cursor), size);
     boolean hasMore = rows.size() > size;
