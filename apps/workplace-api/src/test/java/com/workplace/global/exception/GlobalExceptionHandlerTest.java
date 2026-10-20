@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.web.multipart.MultipartException;
 
 /**
  * GlobalExceptionHandler 단위 테스트 — 클라이언트 연결 종료(Broken pipe 등) 노이즈 억제 검증.
@@ -113,6 +114,20 @@ class GlobalExceptionHandlerTest {
     assertThat(res.getBody()).isNotNull();
     assertThat(res.getBody().message()).doesNotContainIgnoringCase("invalid move/copy target");
     assertThat(res.getBody().message()).contains("하위 폴더로는 이동/복사할 수 없습니다");
+  }
+
+  /**
+   * WP-632: multipart 본문을 읽지 못하면(boundary 없음·본문 없음·multipart 가 아닌 요청) 500 대신 400 + 한국어 안내. 원인 문구는
+   * 서버 내부 표현이라 싣지 않는다.
+   */
+  @Test
+  void 깨진_multipart_요청은_400과_안내를_반환한다() {
+    ResponseEntity<ErrorResponse> res =
+        handler.handleMultipart(
+            new MultipartException("Failed to parse multipart servlet request"), request);
+    assertThat(res.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    assertThat(res.getBody()).isNotNull();
+    assertThat(res.getBody().message()).isEqualTo("파일 업로드 요청 형식이 올바르지 않습니다");
   }
 
   @Test

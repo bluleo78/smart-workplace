@@ -92,6 +92,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.util.StringUtils;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
@@ -100,6 +101,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.MultipartException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
@@ -1005,6 +1007,30 @@ public class GlobalExceptionHandler {
   }
 
   /** 지원하지 않는 HTTP 메서드로 요청 시 500 대신 405 반환 */
+  /**
+   * 요청 Content-Type 이 이 API 가 받는 형식과 다름(WP-632) → 415. 처리기가 없어 500 과 ERROR 스택이 남았다 — 로그인 전 공개 경로에서도
+   * 누구나 요청마다 남길 수 있었다. 클라이언트 입력 오류라 로그는 남기지 않는다.
+   */
+  @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+  public ResponseEntity<ErrorResponse> handleMediaTypeNotSupported(
+      HttpMediaTypeNotSupportedException ex, HttpServletRequest request) {
+    ErrorResponse response =
+        buildError(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "지원하지 않는 요청 형식입니다", null, request);
+    return ResponseEntity.status(HttpStatus.UNSUPPORTED_MEDIA_TYPE).body(response);
+  }
+
+  /**
+   * multipart 본문을 읽지 못함(boundary 없음·본문 없음·multipart 가 아닌 요청, WP-632) → 400. 원인 문구는 서버 내부 표현이라 싣지
+   * 않는다. 크기 초과({@link MaxUploadSizeExceededException})는 더 구체적인 처리기가 먼저 잡는다.
+   */
+  @ExceptionHandler(MultipartException.class)
+  public ResponseEntity<ErrorResponse> handleMultipart(
+      MultipartException ex, HttpServletRequest request) {
+    ErrorResponse response =
+        buildError(HttpStatus.BAD_REQUEST, "파일 업로드 요청 형식이 올바르지 않습니다", null, request);
+    return ResponseEntity.badRequest().body(response);
+  }
+
   @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
   public ResponseEntity<ErrorResponse> handleMethodNotAllowed(
       HttpRequestMethodNotSupportedException ex, HttpServletRequest request) {
