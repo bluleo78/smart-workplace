@@ -709,6 +709,39 @@ test('업로드 중 버튼이 비활성화되고 완료 후 다시 활성화된�
   await expect(btn).toHaveText('업로드')
 })
 
+// WP-643 — 단일 파일 업로드 중 버튼에 진행률(%)을 보인다. 라우트 가로채기에선 실제 전송 진행 이벤트가 한 번에 끝나므로,
+// 업로드 XHR 의 upload 객체에 42% 진행 이벤트를 직접 흘려(브라우저가 보내는 것과 같은 ProgressEvent) 표시를 확인한다.
+test('단일 파일 업로드 중 버튼에 진행률(%)이 보이고, 끝나면 「업로드」로 돌아온다', async ({ authenticatedPage: page }) => {
+  await page.addInitScript(() => {
+    const send = XMLHttpRequest.prototype.send
+    XMLHttpRequest.prototype.send = function (body) {
+      if (body instanceof FormData) {
+        const upload = this.upload
+        setTimeout(() => upload.dispatchEvent(new ProgressEvent('progress', { lengthComputable: true, loaded: 42, total: 100 })), 0)
+      }
+      return send.call(this, body)
+    }
+  })
+  await stubSpaces(page)
+  await stubItems(page, () => ({ folders: [], files: [] }))
+  let resolveUpload!: () => void
+  const held = new Promise<void>((r) => (resolveUpload = r))
+  await page.route(
+    (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/files`,
+    async (route) => {
+      await held
+      await route.fulfill({ status: 201, json: {} })
+    },
+  )
+  await page.goto(`/drive/spaces/${SPACE_ID}`)
+  await expect(page.getByTestId('drive-page')).toBeVisible()
+  await page.getByTestId('file-input').setInputFiles({ name: 'big.pdf', mimeType: 'application/pdf', buffer: Buffer.alloc(1024) })
+  const btn = page.getByTestId('drive-upload')
+  await expect(btn).toHaveText('업로드 중… 42%')
+  resolveUpload()
+  await expect(btn).toHaveText('업로드')
+})
+
 // #658 — 업로드 진행 중 취소 버튼: 클릭 시 요청이 중단되고(AbortController), 목록에 파일이 추가되지 않으며
 // 취소 안내 토스트가 뜨고 업로드 버튼이 정상 상태로 복원된다.
 test('업로드 중 취소 버튼을 클릭하면 요청이 중단되고 파일이 목록에 추가되지 않는다', async ({ authenticatedPage: page }) => {

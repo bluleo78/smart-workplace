@@ -169,13 +169,25 @@ export const driveApi = {
   deleteFolder: (folderId: number) => client.delete<void>(`/drive/folders/${folderId}`),
 
   // #658: signal(AbortSignal) 옵션 — 업로드 중 취소 버튼에서 controller.abort() 로 요청 중단.
-  uploadFile: (spaceId: number, folderId: number | null, file: File, signal?: AbortSignal) => {
+  // WP-643: onProgress — 보낸 바이트 비율(0~100 정수)을 알려 업로드 버튼에 진행률을 보인다(전체 크기를 알 때만).
+  uploadFile: (
+    spaceId: number,
+    folderId: number | null,
+    file: File,
+    signal?: AbortSignal,
+    onProgress?: (percent: number) => void,
+  ) => {
     const fd = new FormData()
     fd.append('file', file)
     if (folderId != null) fd.append('folderId', String(folderId))
     return client.post<DriveFile>(`/drive/spaces/${spaceId}/files`, fd, {
       headers: { 'Content-Type': 'multipart/form-data' },
       signal,
+      onUploadProgress: onProgress
+        ? (e) => {
+            if (e.total) onProgress(Math.min(100, Math.floor((e.loaded * 100) / e.total)))
+          }
+        : undefined,
     })
   },
 

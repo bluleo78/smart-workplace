@@ -274,6 +274,8 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
 
   // 파일 업로드 진행 상태 — 업로드 중 버튼 비활성화·텍스트 변경으로 중복 업로드 방지 (#170).
   const [uploading, setUploading] = useState(false)
+  // WP-643: 단일 파일 업로드 진행률(0~100) — 큰 파일이 멈췄는지 올라가는 중인지 보이게. null 이면 아직 모름.
+  const [uploadPercent, setUploadPercent] = useState<number | null>(null)
   // #658: 현재 업로드 배치(단일/다중/드롭)를 취소할 수 있는 AbortController.
   // 배치 전체에 하나만 두고(개별 파일별 취소는 범위 밖) 취소 버튼에서 abort() 호출.
   const uploadAbortRef = useRef<AbortController | null>(null)
@@ -625,7 +627,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     e.target.value = ''
     if (files.length === 0) return
 
-    // 단일 파일: 기존 동작 그대로(개별 에러 토스트, 진행률 표시 없음).
+    // 단일 파일: 개별 에러 토스트 + 업로드 버튼에 진행률(%)(WP-643).
     // #658: AbortController 를 배선해 "업로드 취소" 버튼에서 요청을 중단할 수 있게 한다.
     if (files.length === 1) {
       const file = files[0]
@@ -639,7 +641,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
       // 업로드 시작 — 버튼 비활성화로 중복 업로드 방지 (#170).
       setUploading(true)
       try {
-        await driveApi.uploadFile(sid, folderId, file, controller.signal)
+        await driveApi.uploadFile(sid, folderId, file, controller.signal, setUploadPercent)
         invalidateQuota()
         await reloadAndClear()
       } catch (err) {
@@ -651,6 +653,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
       } finally {
         uploadAbortRef.current = null
         setUploading(false)
+        setUploadPercent(null)
       }
       return
     }
@@ -1237,7 +1240,12 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                 disabled={uploading || !!space?.archived}
                 className="rounded bg-primary px-2 py-1 text-sm text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {uploading ? '업로드 중…' : '업로드'}
+                {/* 100% 뒤에는 서버가 저장·처리하는 중이라 퍼센트를 떼고 「업로드 중…」만 보인다(WP-643). */}
+                {uploading
+                  ? uploadPercent != null && uploadPercent < 100
+                    ? `업로드 중… ${uploadPercent}%`
+                    : '업로드 중…'
+                  : '업로드'}
               </button>
             )}
             {/* #658: 업로드 중인 파일(들) 전체 취소 — 개별 파일별 취소는 범위 밖.
