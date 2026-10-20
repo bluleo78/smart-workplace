@@ -17,6 +17,7 @@ import com.workplace.global.security.AuthDetails;
 import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.DefaultTenant;
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.util.PersonNames;
 import com.workplace.role.exception.RoleNotFoundException;
 import com.workplace.role.repository.RoleRepository;
@@ -192,20 +193,8 @@ public class AuthService {
     UUID familyId = UUID.randomUUID();
     storeRefreshToken(user.id(), refreshToken, familyId);
 
-    // 로그인 감사 로그 (#60/#92)
-    String[] requestInfo = extractRequestInfo();
-    auditLogService.log(
-        user.id(),
-        user.username(),
-        "LOGIN",
-        "auth",
-        null,
-        "로그인 성공",
-        requestInfo[0],
-        requestInfo[1],
-        "SUCCESS",
-        null,
-        null);
+    // 로그인 감사 로그 (#60/#92) — 바로 들어간 워크스페이스가 있으면 그 워크스페이스에 남긴다(WP-598).
+    logLogin(user, autoTenantId, "로그인 성공", null);
 
     return new LoginResult(
         accessToken, refreshToken, jwtProperties.accessExpiration() / 1000, memberships);
@@ -236,6 +225,12 @@ public class AuthService {
         jwtTokenProvider.generateAccessToken(userId, user.username(), tenantId, amr);
     String refreshToken = jwtTokenProvider.generateRefreshToken(userId, tenantId, amr);
     storeRefreshToken(userId, refreshToken, UUID.randomUUID());
+    // 여러 워크스페이스 소속은 고르거나 바꾸는 순간 그 워크스페이스에 「로그인」을 남긴다(WP-598) — 로그인 시점엔 어디로 들어갈지 몰랐다.
+    logLogin(
+        user,
+        tenantId,
+        "워크스페이스 선택으로 로그인",
+        AuthDetails.SSO.equals(authMethod) ? Map.of("method", "sso") : null);
     return new TokenResponse(
         accessToken, refreshToken, "Bearer", jwtProperties.accessExpiration() / 1000);
   }
@@ -352,19 +347,7 @@ public class AuthService {
     String refreshToken =
         jwtTokenProvider.generateRefreshToken(user.id(), tenantId, AuthDetails.SSO);
     storeRefreshToken(user.id(), refreshToken, UUID.randomUUID());
-    String[] requestInfo = extractRequestInfo();
-    auditLogService.log(
-        user.id(),
-        user.username(),
-        "LOGIN",
-        "auth",
-        null,
-        "SSO 로그인 성공",
-        requestInfo[0],
-        requestInfo[1],
-        "SUCCESS",
-        null,
-        Map.of("method", "sso"));
+    logLogin(user, tenantId, "SSO 로그인 성공", Map.of("method", "sso"));
     return new SsoSession(refreshToken, tenantId);
   }
 
@@ -396,20 +379,51 @@ public class AuthService {
         .findById(userId)
         .ifPresent(
             user -> {
-              String[] requestInfo = extractRequestInfo();
-              auditLogService.log(
-                  userId,
-                  user.username(),
-                  "LOGOUT",
-                  "auth",
-                  null,
-                  "로그아웃",
-                  requestInfo[0],
-                  requestInfo[1],
-                  "SUCCESS",
-                  null,
-                  null);
+              // 토큰에 워크스페이스가 있으면 그 워크스페이스에 남긴다(WP-598) — 로그인 기록과 같은 곳.
+              logAuth(user, TenantContext.get(), "LOGOUT", "로그아웃", null);
             });
+  }
+
+  /** 로그인 감사 — {@link #logAuth} 의 LOGIN. */
+  private void logLogin(UserResponse user, Long tenantId, String description, Object metadata) {
+    logAuth(user, tenantId, "LOGIN", description, metadata);
+  }
+
+  /**
+   * 인증 감사를 남긴다(#60/#92). 들어간 워크스페이스(tenantId)가 있으면 그 워크스페이스의 감사로 남겨 그 관리자 화면에 보이게 하고(WP-598), 아직
+   * 고르기 전(null)이면 지금처럼 워크스페이스 없는 행(운영자 열람)으로 남긴다.
+   */
+  private void logAuth(
+      UserResponse user, Long tenantId, String action, String description, Object metadata) {
+    String[] requestInfo = extractRequestInfo();
+    if (tenantId == null) {
+      auditLogService.log(
+          user.id(),
+          user.username(),
+          action,
+          "auth",
+          null,
+          description,
+          requestInfo[0],
+          requestInfo[1],
+          "SUCCESS",
+          null,
+          metadata);
+      return;
+    }
+    auditLogService.logInTenant(
+        tenantId,
+        user.id(),
+        user.username(),
+        action,
+        "auth",
+        null,
+        description,
+        requestInfo[0],
+        requestInfo[1],
+        "SUCCESS",
+        null,
+        metadata);
   }
 
   @Transactional(readOnly = true)

@@ -94,6 +94,17 @@ public class AuditLogRepository {
         .get(AL_ID);
   }
 
+  /** 현재 트랜잭션의 app.tenant_id GUC(없으면 null) — 잠시 바꾼 뒤 되돌릴 값(WP-598). */
+  public String currentTenantGuc() {
+    return dsl.select(field("current_setting('app.tenant_id', true)", String.class))
+        .fetchOne(0, String.class);
+  }
+
+  /** 현재 트랜잭션의 app.tenant_id GUC 를 바꾼다(트랜잭션-로컬 — 끝나면 풀 커넥션에 남지 않는다). */
+  public void setTenantGuc(String tenantId) {
+    dsl.execute("select set_config('app.tenant_id', ?, true)", tenantId);
+  }
+
   public Optional<AuditLogResponse> findById(Long id) {
     return dsl.select(
             AL_ID,

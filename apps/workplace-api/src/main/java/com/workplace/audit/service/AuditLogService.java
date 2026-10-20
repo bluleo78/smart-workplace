@@ -11,6 +11,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jooq.JSONB;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
@@ -54,6 +55,47 @@ public class AuditLogService {
         result,
         errorMessage,
         metadataJsonb);
+  }
+
+  /**
+   * tenantId 워크스페이스의 감사 로그로 남긴다(WP-598). 로그인·워크스페이스 선택은 테넌트를 고르기 전(GUC 없음)이나 다른 테넌트 토큰으로 오는 요청이라
+   * 그대로 두면 tenant_id 가 비거나 엉뚱한 곳에 남아, 실제로 들어간 워크스페이스 관리자의 감사 로그에 보이지 않는다.
+   *
+   * <p>현재 트랜잭션의 GUC 를 잠시 그 테넌트로 바꿔 넣고(tenant_id DEFAULT·RLS WITH CHECK 가 GUC 를 따른다) 이전 값으로 되돌린다. 새
+   * 트랜잭션이 아니라 같은 커넥션이라 같은 트랜잭션에서 만든 행도 FK 로 참조할 수 있고, 로그인이 롤백되면 기록도 함께 롤백된다.
+   */
+  @Transactional(propagation = Propagation.MANDATORY)
+  public Long logInTenant(
+      long tenantId,
+      Long userId,
+      String username,
+      String actionType,
+      String resource,
+      String resourceId,
+      String description,
+      String ipAddress,
+      String userAgent,
+      String result,
+      String errorMessage,
+      Object metadata) {
+    String previous = auditLogRepository.currentTenantGuc();
+    auditLogRepository.setTenantGuc(String.valueOf(tenantId));
+    try {
+      return log(
+          userId,
+          username,
+          actionType,
+          resource,
+          resourceId,
+          description,
+          ipAddress,
+          userAgent,
+          result,
+          errorMessage,
+          metadata);
+    } finally {
+      auditLogRepository.setTenantGuc(previous == null ? "" : previous);
+    }
   }
 
   @Transactional(readOnly = true)
