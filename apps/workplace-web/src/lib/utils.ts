@@ -17,6 +17,12 @@ export function iGa(word: string) {
   return code >= 0 && code % 28 > 0 ? '이' : '가';
 }
 
+/** 이름 뒤 주격 조사 — 한글 음절로 끝나면 받침에 따라 이/가, 아니면(영문·숫자 등) 「이(가)」. 사용자가 정한 이름에 쓴다. */
+export function subjectParticle(name: string) {
+  const code = name.charCodeAt(name.length - 1);
+  return code >= 0xac00 && code <= 0xd7a3 ? iGa(name) : '이(가)';
+}
+
 /** 마지막 음절 받침 유무에 따라 "은"/"는" 반환 */
 export function eunNeun(word: string) {
   const code = word.charCodeAt(word.length - 1) - 0xac00;

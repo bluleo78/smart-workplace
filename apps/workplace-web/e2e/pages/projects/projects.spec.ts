@@ -189,7 +189,8 @@ test('상태 변경 시 활동 타임라인에 한국어 라벨로 노출', asyn
 
 // non-smoke: 프로젝트 삭제 후 목록에서 사라짐
 test('프로젝트 삭제 후 목록에서 사라진다', async ({ authenticatedPage: page }) => {
-  await mockApi(page, 'GET', '/api/v1/projects/WP', createProject());
+  // 받침 없는 이름 — 토스트 조사가 「가」로 붙는지 본다(WP-647).
+  await mockApi(page, 'GET', '/api/v1/projects/WP', createProject({ name: '결제 테스트 프로젝트' }));
   await mockApi(page, 'GET', '/api/v1/projects/WP/members', [createMember()]);
 
   let deleted = false;
@@ -223,7 +224,7 @@ test('프로젝트 삭제 후 목록에서 사라진다', async ({ authenticated
   await expect(page.getByRole('alertdialog')).toBeVisible();
   await page.getByRole('button', { name: '삭제' }).last().click();
   // 삭제 토스트에 프로젝트명 포함 확인 (refs #323)
-  await expect(page.getByText('프로젝트 "Workplace"이 삭제되었습니다')).toBeVisible();
+  await expect(page.getByText('프로젝트 "결제 테스트 프로젝트"가 삭제되었습니다')).toBeVisible();
   await expect(page).toHaveURL(/\/projects$/);
   // 빈 상태 empty state: 아이콘+제목+설명+CTA 4요소 확인
   await expect(page.getByTestId('projects-empty')).toBeVisible();

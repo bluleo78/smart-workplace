@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { euroRo, initialOf } from './utils'
+import { euroRo, initialOf, subjectParticle } from './utils'
 
 // 아바타 이니셜 — 법인 표기·기호로 시작하는 이름이 '(' 같은 기호를 이니셜로 쓰던 문제(WP-198).
 describe('initialOf', () => {
@@ -24,6 +24,15 @@ describe('initialOf', () => {
     expect(initialOf('***')).toBe('*')
     expect(initialOf('   ')).toBe('·')
     expect(initialOf(null)).toBe('·')
+  })
+})
+
+describe('subjectParticle', () => {
+  it('한글 음절로 끝나면 받침에 따라 이/가, 아니면 「이(가)」 (WP-647)', () => {
+    expect(subjectParticle('결제 테스트 프로젝트')).toBe('가')
+    expect(subjectParticle('모바일 앱')).toBe('이')
+    expect(subjectParticle('Workplace')).toBe('이(가)')
+    expect(subjectParticle('v2')).toBe('이(가)')
   })
 })
 

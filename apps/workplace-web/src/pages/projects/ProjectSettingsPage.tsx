@@ -22,7 +22,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { cn } from '@/lib/utils';
+import { cn, subjectParticle } from '@/lib/utils';
 
 import { useProjectMembers } from '../../hooks/queries/useProjectMembers';
 import { useDeleteProject, useProject, useUpdateProject } from '../../hooks/queries/useProjects';
@@ -92,7 +92,7 @@ export default function ProjectSettingsPage() {
   const onDeleteConfirm = async () => {
     try {
       await remove.mutateAsync(key);
-      toast.success(`프로젝트 "${projectName}"이 삭제되었습니다`);
+      toast.success(`프로젝트 "${projectName}"${subjectParticle(projectName)} 삭제되었습니다`);
       navigate('/projects');
     } catch (e) {
       handleApiError(e, '삭제에 실패했습니다');
