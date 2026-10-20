@@ -4,10 +4,7 @@ import com.workplace.audit.service.AuditLogService;
 import com.workplace.auth.dto.LoginRequest;
 import com.workplace.auth.dto.SignupRequest;
 import com.workplace.auth.dto.TokenResponse;
-import com.workplace.auth.exception.AccountLockedException;
-import com.workplace.auth.exception.AgentCannotLoginException;
 import com.workplace.auth.exception.EmailAlreadyExistsException;
-import com.workplace.auth.exception.InvalidCredentialsException;
 import com.workplace.auth.exception.InvalidTokenException;
 import com.workplace.auth.exception.TenantAccessDeniedException;
 import com.workplace.auth.exception.UsernameAlreadyExistsException;
@@ -24,7 +21,6 @@ import com.workplace.role.repository.RoleRepository;
 import com.workplace.tenant.dto.MembershipResponse;
 import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.tenant.repository.TenantRepository;
-import com.workplace.user.dto.UserKind;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.exception.UserDeactivatedException;
 import com.workplace.user.repository.UserRepository;
@@ -55,6 +51,7 @@ public class AuthService {
   private final JwtProperties jwtProperties;
   private final RefreshTokenRepository refreshTokenRepository;
   private final LoginAttemptService loginAttemptService;
+  private final PasswordLoginVerifier passwordLoginVerifier;
   private final AuditLogService auditLogService;
   private final MembershipRepository membershipRepository;
   private final TenantRepository tenantRepository;
@@ -139,40 +136,8 @@ public class AuthService {
 
   @Transactional
   public LoginResult login(LoginRequest request) {
-    if (loginAttemptService.isBlocked(request.username())) {
-      // 과도한 로그인 실패로 계정이 잠긴 경우 한국어 메시지 반환
-      throw new AccountLockedException("로그인 시도 횟수를 초과하였습니다. 잠시 후 다시 시도해 주세요.");
-    }
-
-    UserResponse user =
-        userRepository
-            .findByUsername(request.username())
-            .orElseThrow(
-                () -> {
-                  loginAttemptService.loginFailed(request.username());
-                  // 사용자 존재 여부 노출 방지를 위해 동일한 메시지 반환
-                  return new InvalidCredentialsException("아이디 또는 비밀번호가 올바르지 않습니다.");
-                });
-
-    // Phase 5a — AGENT 는 비밀번호 로그인 흐름 사용 금지. login_attempts 카운터는 증가시키지 않는다.
-    if (UserKind.isAgent(user.kind())) {
-      throw new AgentCannotLoginException();
-    }
-
-    String storedPassword =
-        userRepository
-            .findPasswordByUsername(request.username())
-            .orElseThrow(
-                () -> {
-                  loginAttemptService.loginFailed(request.username());
-                  // 사용자 존재 여부 노출 방지를 위해 동일한 메시지 반환
-                  return new InvalidCredentialsException("아이디 또는 비밀번호가 올바르지 않습니다.");
-                });
-
-    if (!passwordEncoder.matches(request.password(), storedPassword)) {
-      loginAttemptService.loginFailed(request.username());
-      throw new InvalidCredentialsException("아이디 또는 비밀번호가 올바르지 않습니다.");
-    }
+    // 잠금·자격 검증 — 실패는 모두 같은 문구·같은 해시 계산 시간(WP-623, PasswordLoginVerifier).
+    UserResponse user = passwordLoginVerifier.verify(request.username(), request.password());
 
     if (!user.isActive()) {
       // 비활성화된 계정 접근 시 한국어 메시지 반환

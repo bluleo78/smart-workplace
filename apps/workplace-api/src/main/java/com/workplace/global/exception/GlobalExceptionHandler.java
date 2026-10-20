@@ -1557,14 +1557,6 @@ public class GlobalExceptionHandler {
         .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
   }
 
-  /** Phase 5a — AGENT 로그인 시도 → 401. login_attempts 카운터는 증가시키지 않는다. */
-  @ExceptionHandler(com.workplace.auth.exception.AgentCannotLoginException.class)
-  public ResponseEntity<ErrorResponse> handleAgentCannotLogin(
-      com.workplace.auth.exception.AgentCannotLoginException ex, HttpServletRequest request) {
-    return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-        .body(buildError(HttpStatus.UNAUTHORIZED, ex.getMessage(), null, request));
-  }
-
   /** Phase 5a — 존재하지 않거나 user 와 불일치하는 키 id → 404. */
   @ExceptionHandler(com.workplace.auth.exception.KeyNotFoundException.class)
   public ResponseEntity<ErrorResponse> handleKeyNotFound(

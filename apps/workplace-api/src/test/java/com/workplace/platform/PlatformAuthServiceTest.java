@@ -7,7 +7,6 @@ import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.workplace.auth.exception.AgentCannotLoginException;
 import com.workplace.auth.exception.InvalidCredentialsException;
 import com.workplace.auth.exception.InvalidTokenException;
 import com.workplace.global.security.JwtTokenProvider;
@@ -108,7 +107,7 @@ class PlatformAuthServiceTest extends IntegrationTestBase {
 
     assertThatThrownBy(
             () -> platformAuthService.login(new PlatformLoginRequest(username, RAW_PASSWORD)))
-        .isInstanceOf(AgentCannotLoginException.class);
+        .isInstanceOf(InvalidCredentialsException.class);
   }
 
   @Test

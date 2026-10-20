@@ -1,11 +1,10 @@
 package com.workplace.platform.service;
 
 import com.workplace.audit.service.AuditLogService;
-import com.workplace.auth.exception.AgentCannotLoginException;
-import com.workplace.auth.exception.InvalidCredentialsException;
 import com.workplace.auth.exception.InvalidTokenException;
 import com.workplace.auth.repository.RefreshTokenRepository;
 import com.workplace.auth.service.LoginAttemptService;
+import com.workplace.auth.service.PasswordLoginVerifier;
 import com.workplace.global.exception.CryptoException;
 import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.JwtTokenProvider;
@@ -13,7 +12,6 @@ import com.workplace.platform.dto.PlatformLoginRequest;
 import com.workplace.platform.dto.PlatformUserResponse;
 import com.workplace.platform.exception.PlatformAccessDeniedException;
 import com.workplace.platform.repository.PlatformRoleRepository;
-import com.workplace.user.dto.UserKind;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.exception.UserDeactivatedException;
 import com.workplace.user.repository.UserRepository;
@@ -54,6 +52,7 @@ public class PlatformAuthService {
   private final JwtProperties jwtProperties;
   private final RefreshTokenRepository refreshTokenRepository;
   private final LoginAttemptService loginAttemptService;
+  private final PasswordLoginVerifier passwordLoginVerifier;
   private final AuditLogService auditLogService;
 
   /** 운영자 로그인/리프레시 결과(내부 운반용): accessToken/refreshToken 분리 + 만료(초) + 사용자. */
@@ -63,40 +62,8 @@ public class PlatformAuthService {
   /** 운영자 로그인 — 자격 검증 + 플랫폼 역할 보유 확인 후 platform 토큰 발급. */
   @Transactional
   public PlatformLoginResult login(PlatformLoginRequest request) {
-    // 일반 로그인과 동일한 브루트포스 잠금 정책을 적용한다.
-    if (loginAttemptService.isBlocked(request.username())) {
-      throw new com.workplace.auth.exception.AccountLockedException(
-          "로그인 시도 횟수를 초과하였습니다. 잠시 후 다시 시도해 주세요.");
-    }
-
-    UserResponse user =
-        userRepository
-            .findByUsername(request.username())
-            .orElseThrow(
-                () -> {
-                  loginAttemptService.loginFailed(request.username());
-                  // 사용자 존재 여부 노출 방지를 위해 동일한 메시지 반환
-                  return new InvalidCredentialsException("아이디 또는 비밀번호가 올바르지 않습니다.");
-                });
-
-    // AGENT 는 비밀번호 로그인 흐름 사용 금지. login_attempts 카운터는 증가시키지 않는다.
-    if (UserKind.isAgent(user.kind())) {
-      throw new AgentCannotLoginException();
-    }
-
-    String storedPassword =
-        userRepository
-            .findPasswordByUsername(request.username())
-            .orElseThrow(
-                () -> {
-                  loginAttemptService.loginFailed(request.username());
-                  return new InvalidCredentialsException("아이디 또는 비밀번호가 올바르지 않습니다.");
-                });
-
-    if (!passwordEncoder.matches(request.password(), storedPassword)) {
-      loginAttemptService.loginFailed(request.username());
-      throw new InvalidCredentialsException("아이디 또는 비밀번호가 올바르지 않습니다.");
-    }
+    // 일반 로그인과 같은 잠금·자격 검증 — 실패는 모두 같은 문구·같은 해시 계산 시간(WP-623).
+    UserResponse user = passwordLoginVerifier.verify(request.username(), request.password());
 
     if (!user.isActive()) {
       throw new UserDeactivatedException("비활성화된 계정입니다.");
