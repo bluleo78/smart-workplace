@@ -44,7 +44,7 @@ export function useUpdateCustomField(projectKey: string) {
       qc.invalidateQueries({ queryKey: ['customFields', projectKey] });
       toast.success('필드를 수정했습니다');
     },
-    onError: (e) => handleApiError(e, '필드 변경에 실패했습니다'),
+    // 실패 문구는 편집 대화상자가 안에 보인다(WP-611) — 토스트까지 띄우면 같은 말이 두 번 나온다.
   });
 }
 

@@ -24,6 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { parseFieldOptions } from '@/lib/customFieldOptions';
 import { cn } from '@/lib/utils';
 
 import {
@@ -31,7 +32,8 @@ import {
   useCustomFields,
   useDeleteCustomField,
 } from '../../../hooks/queries/useCustomFields';
-import { FIELD_TYPE_LABEL, FIELD_TYPES, type FieldType } from '../../../types/customField';
+import { FIELD_TYPE_LABEL, FIELD_TYPES, type FieldType, type IssueFieldDef } from '../../../types/customField';
+import { CustomFieldEditDialog } from './CustomFieldEditDialog';
 
 export function CustomFieldManagement({
   projectKey,
@@ -49,6 +51,8 @@ export function CustomFieldManagement({
   const [optionsText, setOptionsText] = useState('');
   // 삭제 확인 다이얼로그 — window.confirm 대체 (#148).
   const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
+  // 이름·옵션 편집 대화상자 대상(WP-611).
+  const [editing, setEditing] = useState<IssueFieldDef | null>(null);
 
   const needsOptions = type === 'SELECT' || type === 'MULTI_SELECT';
 
@@ -56,12 +60,7 @@ export function CustomFieldManagement({
   async function onCreate() {
     const trimmed = name.trim();
     if (!trimmed) return;
-    const opts = needsOptions
-      ? optionsText
-          .split(',')
-          .map((s) => s.trim())
-          .filter((s) => s.length > 0)
-      : null;
+    const opts = needsOptions ? parseFieldOptions(optionsText) : null;
     try {
       await create.mutateAsync({ name: trimmed, type, options: opts });
       setName('');
@@ -165,6 +164,16 @@ export function CustomFieldManagement({
               )}
               {isOwner && (
                 <div className="ml-auto flex gap-2">
+                  {/* 편집 — 이름·옵션 고치기(WP-611). 예전엔 없어서 옵션 하나를 더하려면 필드를 지워야 했다. */}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setEditing(f)}
+                    data-testid={`custom-field-edit-${f.id}`}
+                    aria-label={`${f.name} 편집`}
+                  >
+                    편집
+                  </Button>
                   {/* 삭제 — window.confirm 대신 shadcn AlertDialog (#148). cascade 경고 포함. */}
                   <Button
                     variant="ghost"
@@ -181,6 +190,8 @@ export function CustomFieldManagement({
           ))}
         </ul>
       )}
+
+      <CustomFieldEditDialog projectKey={projectKey} field={editing} onClose={() => setEditing(null)} />
 
       {/* 커스텀 필드 삭제 확인 — 이슈 값 cascade 경고 포함 (#148) */}
       <AlertDialog

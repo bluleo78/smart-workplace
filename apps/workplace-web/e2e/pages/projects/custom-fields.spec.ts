@@ -664,4 +664,69 @@ test.describe('커스텀 필드', () => {
       await expect(rowSelect.locator('span', { hasText: '[' })).toHaveCount(0);
     },
   );
+
+  // WP-611 — 프로젝트 필드 이름·옵션을 고칠 방법이 없어 옵션 하나를 더하려면 필드를 지워 모든 이슈 값을 잃어야 했다.
+  // 「편집」 대화상자에서 이름·옵션을 고쳐 PATCH 하고, 쓰는 중인 옵션을 빼면 서버 거절 문구를 대화상자 안에 보인다.
+  test('프로젝트 필드 편집 — 이름·옵션을 고쳐 저장하고, 쓰는 옵션을 빼면 거절 문구를 보인다', async ({ authenticatedPage: page }) => {
+    let field = {
+      id: 400,
+      projectId: 1,
+      name: '진행 단계',
+      type: 'SELECT',
+      options: ['기획', '개발'] as string[] | null,
+      position: 1,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    await page.route(`**/api/v1/projects/${KEY}`, (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 1, key: KEY, name: 'P', description: '', ownerId: 1, ownerName: 'T', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }) }),
+    );
+    await page.route(`**/api/v1/projects/${KEY}/members`, (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ userId: 1, username: 'me', name: 'Me', role: 'OWNER' }]) }),
+    );
+    await page.route(`**/api/v1/projects/${KEY}/types`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
+    await page.route(`**/api/v1/projects/${KEY}/labels`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
+    await page.route(`**/api/v1/projects/${KEY}/fields`, (r) =>
+      r.request().method() === 'GET'
+        ? r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([field]) })
+        : r.fallback(),
+    );
+    const patches: unknown[] = [];
+    let rejectNext = false;
+    await page.route(`**/api/v1/projects/${KEY}/fields/${field.id}`, async (route) => {
+      if (route.request().method() !== 'PATCH') return route.fallback();
+      const body = route.request().postDataJSON() as { name: string; options: string[] };
+      patches.push(body);
+      if (rejectNext) {
+        return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ status: 409, message: '2건의 이슈가 참조 중인 옵션은 삭제할 수 없습니다: 기획' }) });
+      }
+      field = { ...field, name: body.name, options: body.options };
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(field) });
+    });
+
+    await page.goto(`/projects/${KEY}/settings`);
+    const row = page.getByTestId(`custom-field-row-${field.id}`);
+    await expect(row).toContainText('진행 단계');
+
+    // 편집 — 이름과 옵션이 채워져 열린다. 이름을 바꾸고 옵션을 하나 더한다.
+    await page.getByTestId(`custom-field-edit-${field.id}`).click();
+    const dialog = page.getByTestId('custom-field-edit-dialog');
+    await expect(dialog.getByLabel('이름')).toHaveValue('진행 단계');
+    await expect(dialog.getByLabel('옵션 (콤마 구분)')).toHaveValue('기획, 개발');
+    await dialog.getByLabel('이름').fill('개발 단계');
+    await dialog.getByLabel('옵션 (콤마 구분)').fill('기획, 개발,  검수 ,');
+    await dialog.getByRole('button', { name: '저장' }).click();
+    await expect(dialog).toHaveCount(0);
+    expect(patches[0]).toEqual({ name: '개발 단계', type: 'SELECT', options: ['기획', '개발', '검수'] });
+    await expect(row).toContainText('개발 단계');
+    await expect(row).toContainText('검수');
+
+    // 쓰는 중인 옵션(기획)을 빼면 서버가 거절 — 대화상자를 닫지 않고 그 문구를 보인다.
+    rejectNext = true;
+    await page.getByTestId(`custom-field-edit-${field.id}`).click();
+    await dialog.getByLabel('옵션 (콤마 구분)').fill('개발, 검수');
+    await dialog.getByRole('button', { name: '저장' }).click();
+    await expect(dialog.getByRole('alert')).toHaveText('2건의 이슈가 참조 중인 옵션은 삭제할 수 없습니다: 기획');
+    await expect(dialog).toBeVisible();
+  });
 });
