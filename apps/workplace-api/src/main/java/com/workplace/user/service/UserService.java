@@ -37,6 +37,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
@@ -182,6 +183,21 @@ public class UserService {
   }
 
   /** 감사 로그용 username 조회 — caller 사용자가 없는 테스트 환경에서는 "system" 으로 대체. */
+  /** WP-600: 에이전트 아이디에 쓸 수 있는 글자 — 글자(한글 포함)·숫자와 . _ @ + -. 공백·꺾쇠·따옴표·보이지 않는 문자는 막는다. */
+  private static final Pattern AGENT_USERNAME = Pattern.compile("[\\p{L}\\p{N}._@+-]+");
+
+  /**
+   * 에이전트 아이디를 다듬고 형식을 검사한다(WP-600). 앞뒤 공백이 그대로 저장되면 같은 아이디로 보이는 계정이 생기고, 꺾쇠·보이지 않는 문자는 목록·멘션에서 아이디를
+   * 알아볼 수 없게 만든다.
+   */
+  private static String normalizeAgentUsername(String raw) {
+    String username = raw.strip();
+    if (!AGENT_USERNAME.matcher(username).matches()) {
+      throw new IllegalArgumentException("아이디에는 글자·숫자와 . _ @ + - 만 쓸 수 있습니다");
+    }
+    return username;
+  }
+
   private String resolveUsername(Long callerId) {
     if (callerId == null) return "system";
     return userRepository.findById(callerId).map(UserResponse::username).orElse("system");
@@ -220,13 +236,15 @@ public class UserService {
    */
   @Transactional
   public UserResponse createAgent(Long callerId, CreateAgentRequest req) {
-    if (userRepository.existsByUsername(req.username())) {
+    String username = normalizeAgentUsername(req.username());
+    // WP-600: 대소문자 무시로 중복 검사 — SSO 첫 연결 매칭이 대소문자 무시라, 사람 아이디의 대소문자 변형 에이전트가 생기면 그 사람의 연결이 막힌다.
+    if (!userRepository.findIdsByUsernameIgnoreCase(username).isEmpty()) {
       throw new UsernameAlreadyExistsException("이미 사용 중인 아이디입니다.");
     }
     if (userRepository.existsByEmail(req.email())) {
       throw new EmailAlreadyExistsException("이미 사용 중인 이메일입니다.");
     }
-    UserResponse created = userRepository.createAgent(req.username(), req.email(), req.name());
+    UserResponse created = userRepository.createAgent(username, req.email(), req.name());
     // 에이전트를 현재 active 테넌트에 귀속 — 콜백 시 단일-멤버십으로 RLS 컨텍스트가 해석되도록.
     // 인증된 ADMIN 경로이므로 active 테넌트가 반드시 있어야 한다(테넌트 없는 고아 에이전트 방지).
     Long tenantId = TenantContext.get();
@@ -366,14 +384,19 @@ public class UserService {
       throw new PersonalAssistantRenameForbiddenException(
           "개인 비서는 관리자가 변경할 수 없습니다. 소유자가 프로필에서 변경할 수 있어요.");
     }
-    // 예약 접두어로 username 을 바꾸면 목록에서 사라지고(개인 비서로 오인) 이후 rename 도 막히므로 차단.
-    if (AgentUsernames.isPersonalAssistant(req.username())) {
-      throw new IllegalArgumentException("사용할 수 없는 아이디입니다.");
-    }
-    // username 변경 시에만 중복 검사(자신 제외) — 이름만 바꾸는 경우 통과.
-    if (!req.username().equals(user.username())
-        && userRepository.existsByUsernameExcludingUser(req.username(), userId)) {
-      throw new UsernameAlreadyExistsException("이미 사용 중인 아이디입니다.");
+    // username 을 바꿀 때만 형식·중복을 본다 — 이름만 바꾸는 경우 기존 아이디는 그대로 통과(옛 규칙으로 만든 아이디 포함).
+    String username = req.username().strip();
+    if (!username.equals(user.username())) {
+      username = normalizeAgentUsername(username);
+      // 예약 접두어로 username 을 바꾸면 목록에서 사라지고(개인 비서로 오인) 이후 rename 도 막히므로 차단.
+      if (AgentUsernames.isPersonalAssistant(username)) {
+        throw new IllegalArgumentException("사용할 수 없는 아이디입니다.");
+      }
+      // 중복 검사(자신 제외)는 대소문자 무시(WP-600) — 자기 아이디의 대소문자만 바꾸는 것은 허용.
+      if (userRepository.findIdsByUsernameIgnoreCase(username).stream()
+          .anyMatch(id -> !id.equals(userId))) {
+        throw new UsernameAlreadyExistsException("이미 사용 중인 아이디입니다.");
+      }
     }
     // 설명: 빠지면(null) 그대로 둔다 — 설명 칸을 모르는 옛 화면(배포 중·캐시된 PWA)이 이름만 바꿔도 지워지지 않게. 공백뿐이면 지운다.
     String oldDescription = userRepository.findDescription(userId);
@@ -381,18 +404,18 @@ public class UserService {
         req.description() == null
             ? oldDescription
             : (req.description().isBlank() ? null : req.description().strip());
-    userRepository.renameAgentIdentity(userId, req.username(), req.name(), description);
+    userRepository.renameAgentIdentity(userId, username, req.name(), description);
     // 감사 로그 — AGENT_RENAMED (이전/이후 username·name 메타).
     // 설명 문구엔 실제로 바뀐 필드만 반영한다 — username 이 그대로인 채 name 만 바뀌면
     // "username → 동일 username" 만 찍혀 변경이 없었던 것처럼 보이는 오해를 방지(#796).
     List<String> changes = new ArrayList<>();
     Map<String, String> meta = new LinkedHashMap<>();
     meta.put("oldUsername", user.username());
-    meta.put("newUsername", req.username());
+    meta.put("newUsername", username);
     meta.put("oldName", user.name());
     meta.put("newName", req.name());
-    if (!user.username().equals(req.username())) {
-      changes.add("아이디 " + user.username() + " → " + req.username());
+    if (!user.username().equals(username)) {
+      changes.add("아이디 " + user.username() + " → " + username);
     }
     if (!user.name().equals(req.name())) {
       changes.add("이름 " + user.name() + " → " + req.name());

@@ -258,14 +258,6 @@ public class UserRepository {
         dsl.selectOne().from(USER).where(USER.EMAIL.eq(email).and(USER.ID.ne(excludeUserId))));
   }
 
-  /** username 중복 검사 — 자신(excludeUserId)은 제외. 관리자 rename 시 이름 무변경도 통과시키기 위함. */
-  public boolean existsByUsernameExcludingUser(String username, Long excludeUserId) {
-    return dsl.fetchExists(
-        dsl.selectOne()
-            .from(USER)
-            .where(USER.USERNAME.eq(username).and(USER.ID.ne(excludeUserId))));
-  }
-
   /**
    * AGENT 의 식별자(username)·표시 이름(name)·설명(description)만 변경한다. email/password 등 다른 필드는 절대 건드리지
    * 않는다(관리자 rename 전용). description 이 null 이면 지운다.

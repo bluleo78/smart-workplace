@@ -112,4 +112,55 @@ class UserCreateAgentTest extends IntegrationTestBase {
                     callerId, new CreateAgentRequest("bot-b", "B", "shared@example.com")))
         .isInstanceOf(EmailAlreadyExistsException.class);
   }
+
+  /**
+   * WP-600: 사람 구성원 아이디의 대소문자 변형으로는 에이전트를 만들 수 없다 — SSO 첫 연결 매칭이 대소문자 무시라 같은 아이디로 보이는 계정이 둘이면 그 구성원의
+   * 연결이 「충돌」로 막힌다.
+   */
+  @Test
+  void create_agent_with_case_variant_of_existing_username_throws() {
+    String human = "case-human-" + System.nanoTime() + "@x.io";
+    dsl.insertInto(USER)
+        .set(USER.USERNAME, human)
+        .set(USER.PASSWORD, "x")
+        .set(USER.NAME, "사람")
+        .set(USER.EMAIL, human)
+        .execute();
+    assertThatThrownBy(
+            () ->
+                userService.createAgent(
+                    callerId,
+                    new CreateAgentRequest(human.toUpperCase(), "가짜", "fake-case@example.com")))
+        .isInstanceOf(UsernameAlreadyExistsException.class);
+  }
+
+  /** WP-600: 앞뒤 공백은 다듬어 저장하고, 다듬은 값으로 중복을 검사한다. */
+  @Test
+  void create_agent_trims_username() {
+    UserResponse agent =
+        userService.createAgent(
+            callerId, new CreateAgentRequest("  trim-bot  ", "Trim", "trim-bot@example.com"));
+    assertThat(agent.username()).isEqualTo("trim-bot");
+    assertThatThrownBy(
+            () ->
+                userService.createAgent(
+                    callerId,
+                    new CreateAgentRequest("trim-bot ", "Trim2", "trim-bot2@example.com")))
+        .isInstanceOf(UsernameAlreadyExistsException.class);
+  }
+
+  /** WP-600: 아이디 안의 공백·꺾쇠·따옴표·보이지 않는 문자는 거절한다(글자·숫자와 . _ @ + - 만). */
+  @Test
+  void create_agent_with_disallowed_username_chars_throws() {
+    for (String bad : new String[] {"a b", "<i>", "bot\"x", "bot\u200Bx", "bot\tx"}) {
+      assertThatThrownBy(
+              () ->
+                  userService.createAgent(
+                      callerId,
+                      new CreateAgentRequest(bad, "Bad", "bad-" + bad.hashCode() + "@x.io")))
+          .as(bad)
+          .isInstanceOf(IllegalArgumentException.class)
+          .hasMessage("아이디에는 글자·숫자와 . _ @ + - 만 쓸 수 있습니다");
+    }
+  }
 }

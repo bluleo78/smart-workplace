@@ -246,4 +246,43 @@ class UserRenameAgentTest extends IntegrationTestBase {
                     callerId, callerId, new RenameAgentRequest("human-new", "Human New", null)))
         .isInstanceOf(IllegalArgumentException.class);
   }
+
+  /** WP-600: 다른 구성원 아이디의 대소문자 변형으로 바꿀 수 없다. 자기 아이디의 대소문자만 바꾸는 것은 된다. */
+  @Test
+  void rename_to_case_variant_username() {
+    userService.createAgent(
+        callerId, new CreateAgentRequest("case-taken", "Taken", "case-taken@example.com"));
+    UserResponse agent =
+        userService.createAgent(
+            callerId, new CreateAgentRequest("case-free", "Free", "case-free@example.com"));
+
+    assertThatThrownBy(
+            () ->
+                userService.renameAgent(
+                    callerId, agent.id(), new RenameAgentRequest("CASE-TAKEN", "Free", null)))
+        .isInstanceOf(UsernameAlreadyExistsException.class);
+
+    userService.renameAgent(
+        callerId, agent.id(), new RenameAgentRequest(" Case-Free ", "Free", null));
+    assertThat(
+            dsl.select(USER.USERNAME)
+                .from(USER)
+                .where(USER.ID.eq(agent.id()))
+                .fetchOne(USER.USERNAME))
+        .isEqualTo("Case-Free");
+  }
+
+  /** WP-600: 바꾸는 아이디에도 공백·꺾쇠 같은 문자는 쓸 수 없다. */
+  @Test
+  void rename_to_disallowed_username_chars_throws() {
+    UserResponse agent =
+        userService.createAgent(
+            callerId, new CreateAgentRequest("chars-bot", "Chars", "chars-bot@example.com"));
+    assertThatThrownBy(
+            () ->
+                userService.renameAgent(
+                    callerId, agent.id(), new RenameAgentRequest("a <b>", "Chars", null)))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("아이디에는 글자·숫자와 . _ @ + - 만 쓸 수 있습니다");
+  }
 }
