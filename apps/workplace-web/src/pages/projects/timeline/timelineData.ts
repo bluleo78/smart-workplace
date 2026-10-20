@@ -650,3 +650,27 @@ export function resolvePeriod(
       return activePeriod(cycles, today, null);
   }
 }
+
+/** 간트 축을 조회 기간 앞뒤로 넓혀 둘 여유(개월) — 기간을 걸치는 이슈 막대가 축 끝에서 바로 잘리지 않게. */
+const GANTT_AXIS_MARGIN_MONTHS = 12;
+/** 기간 「전체」일 때 오늘 앞뒤로 둘 축 범위(개월). */
+const GANTT_AXIS_ALL_MONTHS = 60;
+
+/**
+ * 간트 축 범위 상한(WP-595). SVAR 는 기본으로 모든 막대를 덮게 축을 넓히는데, 1900~2099 같은 이슈 하나가 축을 200년(약 100만 px)으로
+ * 늘리면 처음 열 때도 「오늘」을 눌러도 엉뚱한 해(2005년 근처)가 보였다. 막대 범위가 조회 기간 앞뒤 12개월(전체면 오늘 앞뒤 5년)을 넘을
+ * 때만 그 안으로 자른 범위를 돌려주고, 넘지 않으면 null — SVAR 자동 범위를 그대로 쓴다. 넘는 막대는 축 끝에서 잘려 보인다.
+ */
+export function ganttAxisBounds(
+  dataStart: Date | null,
+  dataEnd: Date | null,
+  period: Pick<TimelinePeriod, 'from' | 'to'> | null | undefined,
+  today: Date,
+): { start: Date; end: Date } | null {
+  if (!dataStart || !dataEnd) return null;
+  const margin = period ? GANTT_AXIS_MARGIN_MONTHS : GANTT_AXIS_ALL_MONTHS;
+  const lo = subMonths(period ? parseISO(period.from) : today, margin);
+  const hi = addMonths(period ? parseISO(period.to) : today, margin);
+  if (dataStart >= lo && dataEnd <= hi) return null;
+  return { start: dataStart < lo ? lo : dataStart, end: dataEnd > hi ? hi : dataEnd };
+}

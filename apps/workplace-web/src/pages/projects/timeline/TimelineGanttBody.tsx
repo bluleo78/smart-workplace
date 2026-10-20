@@ -114,6 +114,7 @@ export function TimelineGanttBody({
             zoom={zoom}
             readOnly={readOnly}
             scrollToDate={scrollToDate}
+            period={view.period}
             onBarChange={(issueNumber, change) =>
               updateIssue.mutateAsync({
                 number: issueNumber,

@@ -18,7 +18,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 import type { IssueStatus } from '@/types/issue'
 
-import { rollupOverlay } from './timelineData'
+import { ganttAxisBounds, rollupOverlay } from './timelineData'
 import type {
   TimelineCycleBand,
   TimelineDependencyEdge,
@@ -53,6 +53,8 @@ export interface TimelineGanttProps {
   readOnly: boolean
   /** [오늘] 버튼 등에서 특정 날짜로 스크롤 이동 */
   scrollToDate?: string
+  /** 조회 기간(WP-595) — 간트 축을 이 기간 앞뒤로 자르는 기준. null/없음이면 「전체」라 오늘 기준. */
+  period?: { from: string; to: string } | null
   /** 막대 이동/리사이즈 저장. 실패하면 reject 해야 간트가 서버 상태로 되돌린다(아래 saveFailures 참조). */
   onBarChange: (issueNumber: number, change: { startDate: string; dueDate: string }) => Promise<unknown>
   onBarClick: (issueNumber: number) => void
@@ -150,6 +152,7 @@ export function TimelineGantt({
   zoom,
   readOnly,
   scrollToDate,
+  period,
   onBarChange,
   onBarClick,
   onMilestoneClick,
@@ -287,6 +290,21 @@ export function TimelineGantt({
     for (const bar of bars) map.set(bar.issueNumber, bar.due)
     return map
   }, [bars])
+
+  // 간트 축 범위(WP-595) — 막대가 조회 기간 앞뒤로 크게 넘으면(예: 1900~2099) 축을 그 안으로 자른다. 넘지 않으면 undefined 라
+  // SVAR 자동 범위(autoScale)를 그대로 쓴다. 200년 축에서는 처음 열 때도 「오늘」을 눌러도 엉뚱한 해가 보였다.
+  const periodFrom = period?.from
+  const periodTo = period?.to
+  const axis = useMemo(() => {
+    let min: Date | null = null
+    let max: Date | null = null
+    for (const t of tasks) {
+      if (t.start && (!min || t.start < min)) min = t.start
+      if (t.end && (!max || t.end > max)) max = t.end
+    }
+    const range = periodFrom && periodTo ? { from: periodFrom, to: periodTo } : null
+    return ganttAxisBounds(min, max, range, new Date())
+  }, [tasks, periodFrom, periodTo])
 
   const links = useMemo(
     () =>
@@ -661,6 +679,8 @@ export function TimelineGantt({
             tasks={tasks}
             links={links}
             scales={scales}
+            // 축을 자를 때만 고정 범위(autoScale 끔) — SVAR 는 start·end 가 둘 다 있고 autoScale 이 꺼져야 그 범위를 쓴다.
+            {...(axis ? { start: axis.start, end: axis.end, autoScale: false } : {})}
             columns={GRID_COLUMNS}
             readonly={readOnly}
             // 행 40px·스케일 36px — Jira 급 밀도(#646). 제목 잘림 해소, 4px 그리드 준수

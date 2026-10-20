@@ -592,3 +592,40 @@ test('겹치는 사이클 이름표는 줄을 나눠 겹치지 않고, 차트 �
     })
     .toBe(true);
 });
+
+// WP-595 — 기간이 아주 긴 이슈(1900~2099) 하나가 간트 축을 200년으로 늘려, 처음 열 때도 「오늘」을 눌러도 2005년 근처가 보였다.
+// 축 범위를 조회 기간 앞뒤로 자르므로 오늘선이 차트 안에 보이고, 긴 이슈 막대는 잘린 채 남는다.
+test('기간이 아주 긴 이슈가 있어도 처음 열 때·「오늘」 뒤 오늘선이 차트 안에 보인다', async ({ authenticatedPage: page }) => {
+  await page.clock.setFixedTime(new Date('2026-07-08T03:00:00Z')); // 오늘 = 스텁의 활성 사이클(7/1~7/14) 안
+  await setupTimelineStubs(page);
+  await page.route(`**/api/v1/projects/${KEY}/issues?*`, (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    const issues = [
+      createIssue({ number: 7, title: '아주 긴 이슈', startDate: '1900-01-01', dueDate: '2099-12-31' }),
+      createIssue({ number: 1, title: '이번 주 이슈', startDate: '2026-07-06', dueDate: '2026-07-10' }),
+    ];
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createIssueSearchResponse(issues)) });
+  });
+  const chart = page.locator('.timeline-gantt-root .wx-chart');
+  const todayLine = page.getByTestId('timeline-today-line');
+  const todayInChart = async () => {
+    const c = await chart.boundingBox();
+    const t = await todayLine.boundingBox();
+    return !!c && !!t && t.x >= c.x && t.x <= c.x + c.width;
+  };
+  for (const period of ['', '?period=all']) {
+    await page.goto(`/projects/${KEY}/timeline${period}`);
+    await expect(page.getByTestId('timeline-gantt')).toBeVisible();
+    await expect.poll(todayInChart).toBe(true);
+    // 축이 200년(약 100만 px)으로 늘지 않는다 — 조회 기간 앞뒤로 자른 폭.
+    const scrollWidth = await chart.evaluate((el) => el.scrollWidth);
+    expect(scrollWidth).toBeLessThan(200_000);
+    // 오른쪽 끝으로 밀어 둔 뒤 「오늘」을 누르면 다시 오늘선이 보인다.
+    await chart.evaluate((el) => el.scrollTo({ left: el.scrollWidth }));
+    await page.getByRole('button', { name: '오늘' }).click();
+    await expect.poll(todayInChart).toBe(true);
+  }
+  // 긴 이슈 막대는 잘린 채로 남는다(사라지지 않는다).
+  await expandNoEpicGroup(page);
+  await expect(page.locator('.wx-bar[data-task-id$="7"]')).toBeVisible();
+});

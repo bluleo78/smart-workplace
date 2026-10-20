@@ -12,6 +12,7 @@ import {
   defaultScheduleRange,
   filterRenderableDependencies,
   formatPeriodSpan,
+  ganttAxisBounds,
   groupTimelineIssues,
   initialScrollDate,
   milestonesToMarkers,
@@ -896,5 +897,42 @@ describe('initialScrollDate (WP-486)', () => {
   it('오늘을 포함하지 않는 기간이면 기간 시작', () => {
     expect(initialScrollDate(period('2026-11-01', '2026-11-14'), TODAY)).toBe('2026-11-01');
     expect(initialScrollDate(period('2026-07-01', '2026-07-14'), TODAY)).toBe('2026-07-01');
+  });
+});
+
+// WP-595 — 아주 긴 이슈 하나가 간트 축을 200년으로 늘리지 않게 조회 기간 앞뒤로 자른다.
+describe('ganttAxisBounds', () => {
+  const d = (s: string) => new Date(`${s}T00:00:00`);
+  const today = d('2026-10-20');
+  const period = { from: '2026-07-20', to: '2027-04-20' };
+
+  it('막대 범위가 조회 기간 앞뒤 12개월 안이면 null(SVAR 자동 범위 그대로)', () => {
+    expect(ganttAxisBounds(d('2026-01-01'), d('2027-12-31'), period, today)).toBeNull();
+  });
+
+  it('넘으면 조회 기간 앞뒤 12개월로 자른다', () => {
+    expect(ganttAxisBounds(d('1900-01-01'), d('2100-01-01'), period, today)).toEqual({
+      start: d('2025-07-20'),
+      end: d('2028-04-20'),
+    });
+  });
+
+  it('한쪽만 넘으면 그쪽만 자른다', () => {
+    expect(ganttAxisBounds(d('2026-09-01'), d('9999-12-31'), period, today)).toEqual({
+      start: d('2026-09-01'),
+      end: d('2028-04-20'),
+    });
+  });
+
+  it('기간 「전체」(null)면 오늘 앞뒤 5년이 기준', () => {
+    expect(ganttAxisBounds(d('2024-01-01'), d('2027-01-01'), null, today)).toBeNull();
+    expect(ganttAxisBounds(d('1900-01-01'), d('2099-12-31'), null, today)).toEqual({
+      start: d('2021-10-20'),
+      end: d('2031-10-20'),
+    });
+  });
+
+  it('막대가 없으면 null', () => {
+    expect(ganttAxisBounds(null, null, period, today)).toBeNull();
   });
 });
