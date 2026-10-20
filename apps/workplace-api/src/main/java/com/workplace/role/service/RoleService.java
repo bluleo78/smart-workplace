@@ -1,5 +1,6 @@
 package com.workplace.role.service;
 
+import com.workplace.audit.service.AuditLogService;
 import com.workplace.permission.dto.PermissionResponse;
 import com.workplace.permission.repository.PermissionRepository;
 import com.workplace.role.dto.RoleDetailResponse;
@@ -8,7 +9,10 @@ import com.workplace.role.exception.RoleAssignedException;
 import com.workplace.role.exception.RoleNotFoundException;
 import com.workplace.role.exception.SystemRoleModificationException;
 import com.workplace.role.repository.RoleRepository;
+import com.workplace.user.dto.UserResponse;
+import com.workplace.user.repository.UserRepository;
 import java.util.List;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,6 +23,9 @@ public class RoleService {
 
   private final RoleRepository roleRepository;
   private final PermissionRepository permissionRepository;
+  // WP-567: 역할 생성·수정·삭제·권한 변경을 행위자와 함께 감사 로그에 남긴다.
+  private final AuditLogService auditLogService;
+  private final UserRepository userRepository;
 
   @Transactional(readOnly = true)
   public List<RoleResponse> getAllRoles() {
@@ -37,15 +44,17 @@ public class RoleService {
   }
 
   @Transactional
-  public RoleResponse createRole(String name, String description) {
+  public RoleResponse createRole(String name, String description, Long callerId) {
     if (roleRepository.existsByName(name)) {
       throw new IllegalArgumentException("이미 존재하는 역할 이름입니다: " + name);
     }
-    return roleRepository.save(name, description);
+    RoleResponse created = roleRepository.save(name, description);
+    audit(callerId, "ROLE_CREATED", created.id(), "역할 생성: " + name, null);
+    return created;
   }
 
   @Transactional
-  public void updateRole(Long id, String name, String description) {
+  public void updateRole(Long id, String name, String description, Long callerId) {
     RoleResponse role =
         roleRepository
             .findById(id)
@@ -64,10 +73,16 @@ public class RoleService {
     }
 
     roleRepository.update(id, name, description);
+    audit(
+        callerId,
+        "ROLE_UPDATED",
+        id,
+        role.name().equals(name) ? "역할 수정: " + name : "역할 수정: " + role.name() + " → " + name,
+        Map.of("beforeName", role.name(), "afterName", name));
   }
 
   @Transactional
-  public void deleteRole(Long id) {
+  public void deleteRole(Long id, Long callerId) {
     RoleResponse role =
         roleRepository
             .findById(id)
@@ -87,10 +102,11 @@ public class RoleService {
     }
 
     roleRepository.deleteById(id);
+    audit(callerId, "ROLE_DELETED", id, "역할 삭제: " + role.name(), null);
   }
 
   @Transactional
-  public void setRolePermissions(Long roleId, List<Long> permissionIds) {
+  public void setRolePermissions(Long roleId, List<Long> permissionIds, Long callerId) {
     RoleResponse role =
         roleRepository
             .findById(roleId)
@@ -101,6 +117,50 @@ public class RoleService {
           "시스템 역할의 권한은 변경할 수 없습니다 (name: " + role.name() + ")");
     }
 
+    List<String> before = permissionCodesOf(roleId);
     roleRepository.setPermissions(roleId, permissionIds);
+    List<String> after = permissionCodesOf(roleId);
+    audit(
+        callerId,
+        "ROLE_PERMISSIONS_CHANGED",
+        roleId,
+        "역할 권한 변경: " + role.name() + " (" + before.size() + "개 → " + after.size() + "개)",
+        Map.of("before", String.join(",", before), "after", String.join(",", after)));
+  }
+
+  /** 역할이 가진 권한 코드(정렬) — 권한 변경 전후 기록용. */
+  private List<String> permissionCodesOf(Long roleId) {
+    return permissionRepository.findByRoleId(roleId).stream()
+        .map(PermissionResponse::code)
+        .sorted()
+        .toList();
+  }
+
+  /**
+   * 역할 관리 행위의 성공 감사 로그(WP-567) — resource=role, resource_id=역할 id. 행위자가 없으면(테스트·내부 호출) username 은
+   * "system".
+   */
+  private void audit(
+      Long callerId,
+      String actionType,
+      Long roleId,
+      String description,
+      Map<String, String> metadata) {
+    String username =
+        callerId == null
+            ? "system"
+            : userRepository.findById(callerId).map(UserResponse::username).orElse("system");
+    auditLogService.log(
+        callerId,
+        username,
+        actionType,
+        "role",
+        String.valueOf(roleId),
+        description,
+        null,
+        null,
+        "SUCCESS",
+        null,
+        metadata);
   }
 }

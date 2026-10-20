@@ -67,6 +67,12 @@ class LastAdminConcurrencyTest extends IntegrationTestBase {
     var c = PostgresTestContainer.INSTANCE;
     try (Connection conn =
         DriverManager.getConnection(c.getJdbcUrl(), c.getUsername(), c.getPassword())) {
+      // WP-567: 정지가 감사 로그를 남기므로 tenant·user FK 를 잡은 그 행부터 지운다.
+      try (PreparedStatement ps =
+          conn.prepareStatement("DELETE FROM audit_log WHERE tenant_id = ?")) {
+        ps.setLong(1, tenantId);
+        ps.executeUpdate();
+      }
       try (PreparedStatement ps =
           conn.prepareStatement("DELETE FROM user_role WHERE tenant_id = ?")) {
         ps.setLong(1, tenantId);
@@ -143,7 +149,7 @@ class LastAdminConcurrencyTest extends IntegrationTestBase {
                 new TransactionTemplate(txManager)
                     .executeWithoutResult(
                         status -> {
-                          userService.setUserActive(y, false);
+                          userService.setUserActive(y, false, null);
                           firstSuspended.countDown();
                           try {
                             secondFinished.await(1, TimeUnit.SECONDS);
@@ -167,7 +173,7 @@ class LastAdminConcurrencyTest extends IntegrationTestBase {
               TenantContext.set(tenantId);
               try {
                 firstSuspended.await(10, TimeUnit.SECONDS);
-                userService.setUserActive(x, false);
+                userService.setUserActive(x, false, null);
               } catch (Throwable t) {
                 secondError.set(t);
               } finally {

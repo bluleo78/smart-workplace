@@ -92,7 +92,7 @@ class SuspendedMembershipJwtTest extends IntegrationTestBase {
     expect("/api/v1/users", tokenA, TENANT_A, status().isOk());
 
     useTenant(TENANT_A);
-    userService.setUserActive(u, false);
+    userService.setUserActive(u, false, null);
 
     // 같은(아직 만료되지 않은) T_A 토큰 → 인증 자체가 서지 않아 401. 남은 ADMIN user_role 로도 통과하지 못한다.
     expect("/api/v1/auth/me", tokenA, TENANT_A, status().isUnauthorized());
@@ -112,7 +112,7 @@ class SuspendedMembershipJwtTest extends IntegrationTestBase {
 
     // 다시 활성화하면 같은 T_A 토큰이 다시 통과한다 — 토큰 폐기가 아니라 요청마다의 멤버십 판정이다. 재개는 이벤트를 내지 않는다.
     useTenant(TENANT_A);
-    userService.setUserActive(u, true);
+    userService.setUserActive(u, true, null);
     expect("/api/v1/auth/me", tokenA, TENANT_A, status().isOk());
     expect("/api/v1/users", tokenA, TENANT_A, status().isOk());
     assertThat(events.stream(WorkspaceMembershipSuspended.class)).hasSize(1);

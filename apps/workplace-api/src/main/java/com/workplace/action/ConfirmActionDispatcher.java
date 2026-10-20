@@ -197,7 +197,7 @@ public class ConfirmActionDispatcher {
           () -> userService.validateSetActive(userId, active),
           returning(
               Map.of("userId", userId, "active", active),
-              () -> userService.setUserActive(userId, active)));
+              () -> userService.setUserActive(userId, active, callerId)));
     }
     if ("project.create_project".equals(actionType)) {
       // params → CreateProjectRequest 매핑·검증 후 ProjectService.create 로 위임.

@@ -299,7 +299,7 @@ class UserControllerTest {
                 .content(objectMapper.writeValueAsString(request)))
         .andExpect(status().isNoContent());
 
-    verify(userService).setUserActive(2L, false);
+    verify(userService).setUserActive(2L, false, 1L);
   }
 
   @Test

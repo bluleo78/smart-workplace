@@ -51,7 +51,7 @@ class RoleServiceTest extends IntegrationTestBase {
 
   @Test
   void createRole_success() {
-    RoleResponse result = roleService.createRole("MODERATOR", "Moderator role");
+    RoleResponse result = roleService.createRole("MODERATOR", "Moderator role", null);
 
     assertThat(result.id()).isNotNull();
     assertThat(result.name()).isEqualTo("MODERATOR");
@@ -60,16 +60,16 @@ class RoleServiceTest extends IntegrationTestBase {
 
   @Test
   void createRole_duplicateName_throwsException() {
-    assertThatThrownBy(() -> roleService.createRole("ADMIN", "Duplicate"))
+    assertThatThrownBy(() -> roleService.createRole("ADMIN", "Duplicate", null))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("이미 존재하는 역할 이름입니다");
   }
 
   @Test
   void updateRole_success() {
-    RoleResponse created = roleService.createRole("MODERATOR", "Moderator");
+    RoleResponse created = roleService.createRole("MODERATOR", "Moderator", null);
 
-    roleService.updateRole(created.id(), "MOD", "Updated moderator");
+    roleService.updateRole(created.id(), "MOD", "Updated moderator", null);
 
     RoleDetailResponse updated = roleService.getRoleById(created.id());
     assertThat(updated.name()).isEqualTo("MOD");
@@ -80,10 +80,10 @@ class RoleServiceTest extends IntegrationTestBase {
   void updateRole_duplicateName_throwsException() {
     // #795: 커스텀 역할 이름 변경 시 다른 커스텀 역할과 이름이 겹치면 DB unique 제약이 아니라
     // createRole 과 동일한 사전 검사로 친화적 예외가 발생해야 한다.
-    roleService.createRole("EXISTING_ROLE", "Existing role");
-    RoleResponse target = roleService.createRole("TARGET_ROLE", "Target role");
+    roleService.createRole("EXISTING_ROLE", "Existing role", null);
+    RoleResponse target = roleService.createRole("TARGET_ROLE", "Target role", null);
 
-    assertThatThrownBy(() -> roleService.updateRole(target.id(), "EXISTING_ROLE", "Renamed"))
+    assertThatThrownBy(() -> roleService.updateRole(target.id(), "EXISTING_ROLE", "Renamed", null))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("이미 존재하는 역할 이름입니다");
   }
@@ -91,9 +91,9 @@ class RoleServiceTest extends IntegrationTestBase {
   @Test
   void updateRole_renameToExistingSystemRoleName_throwsException() {
     // #795: 시스템 역할 이름(ADMIN)으로 변경 시도해도 동일하게 사전 검사에서 걸러져야 한다.
-    RoleResponse target = roleService.createRole("TARGET_ROLE2", "Target role 2");
+    RoleResponse target = roleService.createRole("TARGET_ROLE2", "Target role 2", null);
 
-    assertThatThrownBy(() -> roleService.updateRole(target.id(), "ADMIN", "Renamed"))
+    assertThatThrownBy(() -> roleService.updateRole(target.id(), "ADMIN", "Renamed", null))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("이미 존재하는 역할 이름입니다");
   }
@@ -101,9 +101,9 @@ class RoleServiceTest extends IntegrationTestBase {
   @Test
   void updateRole_sameName_doesNotThrow() {
     // #795: 이름을 변경하지 않고 설명만 바꾸는 경우엔 중복검사에 걸리면 안 된다 (자기 자신 제외).
-    RoleResponse created = roleService.createRole("UNCHANGED_ROLE", "Original description");
+    RoleResponse created = roleService.createRole("UNCHANGED_ROLE", "Original description", null);
 
-    roleService.updateRole(created.id(), "UNCHANGED_ROLE", "Updated description");
+    roleService.updateRole(created.id(), "UNCHANGED_ROLE", "Updated description", null);
 
     RoleDetailResponse updated = roleService.getRoleById(created.id());
     assertThat(updated.description()).isEqualTo("Updated description");
@@ -114,15 +114,15 @@ class RoleServiceTest extends IntegrationTestBase {
     Long adminRoleId =
         dsl.select(ROLE.ID).from(ROLE).where(ROLE.NAME.eq("ADMIN")).fetchOne(ROLE.ID);
 
-    assertThatThrownBy(() -> roleService.updateRole(adminRoleId, "RENAMED", "Try rename"))
+    assertThatThrownBy(() -> roleService.updateRole(adminRoleId, "RENAMED", "Try rename", null))
         .isInstanceOf(SystemRoleModificationException.class);
   }
 
   @Test
   void deleteRole_success() {
-    RoleResponse created = roleService.createRole("MODERATOR", "Moderator");
+    RoleResponse created = roleService.createRole("MODERATOR", "Moderator", null);
 
-    roleService.deleteRole(created.id());
+    roleService.deleteRole(created.id(), null);
 
     assertThatThrownBy(() -> roleService.getRoleById(created.id()))
         .isInstanceOf(RoleNotFoundException.class);
@@ -132,7 +132,7 @@ class RoleServiceTest extends IntegrationTestBase {
   void deleteRole_assignedToUser_throwsRoleAssignedException() {
     // #678: 역할이 사용자에게 할당된 상태에서 삭제 시도 → user_role CASCADE 로 조용히
     // 권한이 사라지는 것을 방지하기 위해 하드 차단해야 한다.
-    RoleResponse created = roleService.createRole("ASSIGNED_ROLE", "Assigned role");
+    RoleResponse created = roleService.createRole("ASSIGNED_ROLE", "Assigned role", null);
     Long assigneeId =
         dsl.insertInto(USER)
             .set(USER.USERNAME, "role678-assignee@example.com")
@@ -146,7 +146,7 @@ class RoleServiceTest extends IntegrationTestBase {
         .set(USER_ROLE.ROLE_ID, created.id())
         .execute();
 
-    assertThatThrownBy(() -> roleService.deleteRole(created.id()))
+    assertThatThrownBy(() -> roleService.deleteRole(created.id(), null))
         .isInstanceOf(RoleAssignedException.class)
         .hasMessageContaining("1")
         .hasMessageContaining("ASSIGNED_ROLE");
@@ -160,13 +160,13 @@ class RoleServiceTest extends IntegrationTestBase {
     Long adminRoleId =
         dsl.select(ROLE.ID).from(ROLE).where(ROLE.NAME.eq("ADMIN")).fetchOne(ROLE.ID);
 
-    assertThatThrownBy(() -> roleService.deleteRole(adminRoleId))
+    assertThatThrownBy(() -> roleService.deleteRole(adminRoleId, null))
         .isInstanceOf(SystemRoleModificationException.class);
   }
 
   @Test
   void setRolePermissions_customRole_success() {
-    RoleResponse customRole = roleService.createRole("CUSTOM_ROLE", "Custom role for test");
+    RoleResponse customRole = roleService.createRole("CUSTOM_ROLE", "Custom role for test", null);
 
     List<Long> permissionIds =
         dsl.select(PERMISSION.ID)
@@ -174,7 +174,7 @@ class RoleServiceTest extends IntegrationTestBase {
             .where(PERMISSION.CATEGORY.eq("user"))
             .fetch(PERMISSION.ID);
 
-    roleService.setRolePermissions(customRole.id(), permissionIds);
+    roleService.setRolePermissions(customRole.id(), permissionIds, null);
 
     RoleDetailResponse detail = roleService.getRoleById(customRole.id());
     assertThat(detail.permissions()).hasSize(permissionIds.size());
@@ -191,7 +191,7 @@ class RoleServiceTest extends IntegrationTestBase {
             .where(PERMISSION.CATEGORY.eq("user"))
             .fetch(PERMISSION.ID);
 
-    assertThatThrownBy(() -> roleService.setRolePermissions(adminRoleId, permissionIds))
+    assertThatThrownBy(() -> roleService.setRolePermissions(adminRoleId, permissionIds, null))
         .isInstanceOf(SystemRoleModificationException.class)
         .hasMessageContaining("시스템 역할의 권한은 변경할 수 없습니다");
   }

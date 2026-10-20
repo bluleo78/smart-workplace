@@ -20,6 +20,20 @@ describe('formatAuditAction / formatAuditResource (#109, #778, WP-335, WP-369)',
     expect(warn).not.toHaveBeenCalled();
   });
 
+  it('WP-567: 구성원·역할 관리 기록과 이미 기록되던 인증·SSO 액션도 한글 라벨로', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(formatAuditAction('MEMBER_ROLES_CHANGED')).toBe('구성원 역할 변경');
+    expect(formatAuditAction('MEMBER_SUSPENDED')).toBe('구성원 정지');
+    expect(formatAuditAction('MEMBER_REACTIVATED')).toBe('구성원 정지 해제');
+    expect(formatAuditAction('PASSWORD_CHANGED')).toBe('비밀번호 변경');
+    expect(formatAuditAction('ROLE_PERMISSIONS_CHANGED')).toBe('역할 권한 변경');
+    expect(formatAuditAction('LOGIN_FAILED')).toBe('로그인 실패');
+    expect(formatAuditAction('SSO_SETTING_CHANGED')).toBe('SSO 설정 변경');
+    expect(formatAuditResource('role')).toBe('역할');
+    expect(formatAuditResource('tenant')).toBe('워크스페이스');
+    expect(warn).not.toHaveBeenCalled();
+  });
+
   it('모르는 값은 raw 를 보여 주고 경고, 빈 값은 「-」', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     expect(formatAuditAction('FUTURE_EVENT')).toBe('FUTURE_EVENT');

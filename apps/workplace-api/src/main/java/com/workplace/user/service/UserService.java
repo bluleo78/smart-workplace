@@ -184,10 +184,11 @@ public class UserService {
   }
 
   /**
-   * AGENT 관리 행위(생성·삭제·이름 변경·실행 방식 변경)의 성공 감사 로그 — resource=user, resource_id=대상 AGENT id 로 형식을 맞춘다.
-   * callerUsername 은 호출자가 넘긴다: 삭제처럼 대상 행이 사라지기 전에 미리 읽어 둬야 하는 경로가 있어서다.
+   * 사용자 관리 행위의 성공 감사 로그 — AGENT 관리(생성·삭제·이름 변경·실행 방식 변경)와 구성원 관리(WP-567: 역할 변경·정지·정지 해제·비밀번호 변경).
+   * resource=user, resource_id=대상 사용자 id 로 형식을 맞춘다. callerUsername 은 호출자가 넘긴다: 삭제처럼 대상 행이 사라지기 전에
+   * 미리 읽어 둬야 하는 경로가 있어서다.
    */
-  private void auditAgent(
+  private void auditUserAction(
       Long callerId,
       String callerUsername,
       String actionType,
@@ -236,7 +237,7 @@ public class UserService {
         .ifPresent(role -> userRepository.addRole(created.id(), role.id()));
     String callerUsername = resolveUsername(callerId);
     // 감사 로그 — AGENT_CREATED (action_type, resource=user, resource_id=신규 user id)
-    auditAgent(
+    auditUserAction(
         callerId,
         callerUsername,
         "AGENT_CREATED",
@@ -335,7 +336,7 @@ public class UserService {
     }
     String callerUsername = resolveUsername(callerId);
     userRepository.deleteById(userId);
-    auditAgent(
+    auditUserAction(
         callerId, callerUsername, "AGENT_DELETED", userId, "AGENT 유저 삭제: " + user.username(), null);
   }
 
@@ -396,7 +397,7 @@ public class UserService {
       meta.put("oldDescription", Objects.requireNonNullElse(oldDescription, ""));
       meta.put("newDescription", Objects.requireNonNullElse(description, ""));
     }
-    auditAgent(
+    auditUserAction(
         callerId,
         resolveUsername(callerId),
         "AGENT_RENAMED",
@@ -432,7 +433,7 @@ public class UserService {
     // 같은 트랜잭션 안에서 동기 처리되는 리스너가 이 에이전트의 AI 작업 기록을 실행 방식에 맞게 정리한다(EXTERNAL→INTERNAL 이면 "시작 전" 취소, 반대면
     // 담당 이슈마다 생성).
     if (changed) publisher.publishEvent(new AgentRuntimeChanged(userId, runtime));
-    auditAgent(
+    auditUserAction(
         callerId,
         resolveUsername(callerId),
         "AGENT_RUNTIME_CHANGED",
@@ -494,6 +495,8 @@ public class UserService {
       throw new IllegalArgumentException("현재 비밀번호가 올바르지 않습니다");
     }
     userRepository.updatePassword(userId, passwordEncoder.encode(newPassword));
+    // WP-567: 본인 비밀번호 변경 기록(행위자=대상=본인).
+    auditUserAction(userId, resolveUsername(userId), "PASSWORD_CHANGED", userId, "비밀번호 변경", null);
     // WP-566: 다른 기기·브라우저 세션을 끊는다(바꾼 브라우저 세션은 돌려준 새 refresh 토큰으로 이어진다).
     return authService.revokeSessionsAfterPasswordChange(userId, TenantContext.get(), authMethod);
   }
@@ -503,7 +506,7 @@ public class UserService {
     // WP-420: 판정 전에 테넌트 관리자 잠금(동시 정지·역할 변경과 직렬화).
     Long tenantId = lockTenantAdmins();
     checkSetRoles(userId, roleIds, callerId, tenantId);
-    userRepository.setRoles(userId, roleIds);
+    replaceRoles(userId, roleIds, callerId);
   }
 
   /**
@@ -565,7 +568,32 @@ public class UserService {
     // WP-420: 실행 경로만 판정 전에 테넌트 관리자 잠금(사전검증 validateSetRolesByNames 는 잠금 없음).
     Long tenantId = lockTenantAdmins();
     List<Long> roleIds = resolveRolesByNames(userId, roleNames, callerId, tenantId);
+    replaceRoles(userId, roleIds, callerId);
+  }
+
+  /**
+   * 역할 집합을 통째로 바꾸고, 실제로 달라졌으면 감사 로그를 남긴다(WP-567 — ADMIN 부여 같은 권한 상승을 나중에 추적할 수 있게). 화면(roleId)·AI
+   * 확인카드(역할명) 두 실행 경로가 함께 쓴다.
+   */
+  private void replaceRoles(Long userId, List<Long> roleIds, Long callerId) {
+    List<String> before = roleNamesOf(userId);
     userRepository.setRoles(userId, roleIds);
+    List<String> after = roleNamesOf(userId);
+    if (before.equals(after)) return;
+    String beforeText = before.isEmpty() ? "없음" : String.join(", ", before);
+    String afterText = after.isEmpty() ? "없음" : String.join(", ", after);
+    auditUserAction(
+        callerId,
+        resolveUsername(callerId),
+        "MEMBER_ROLES_CHANGED",
+        userId,
+        "구성원 역할 변경: " + resolveUsername(userId) + " (" + beforeText + " → " + afterText + ")",
+        Map.of("before", String.join(",", before), "after", String.join(",", after)));
+  }
+
+  /** 현재 테넌트에서 사용자가 가진 역할 이름(정렬) — 역할 변경 전후 비교용. */
+  private List<String> roleNamesOf(Long userId) {
+    return roleRepository.findByUserId(userId).stream().map(RoleResponse::name).sorted().toList();
   }
 
   /**
@@ -625,7 +653,7 @@ public class UserService {
    * 워크스페이스 선택·토큰 갱신·구성원 검색·담당자 지정에서 빠지고(ACTIVE 멤버십 술어), 다른 워크스페이스는 그대로 쓴다.
    */
   @Transactional
-  public void setUserActive(Long userId, boolean active) {
+  public void setUserActive(Long userId, boolean active, Long callerId) {
     // WP-420: 판정 전에 테넌트 관리자 잠금(사전검증 validateSetActive 는 잠금 없음).
     Long tenantId = lockTenantAdmins();
     checkSetActive(userId, active, tenantId);
@@ -638,6 +666,17 @@ public class UserService {
     // 이미 정지된 멤버를 다시 끄는 멱등 호출은 아무것도 내보내지 않는다. 새 요청은 JWT 필터가 멤버십으로 막는다.
     if (!active && changed > 0)
       publisher.publishEvent(new WorkspaceMembershipSuspended(tenantId, userId));
+    // WP-567: 실제로 상태가 바뀐 경우에만 정지·정지 해제를 기록한다(멱등 호출은 남기지 않는다).
+    if (changed > 0) {
+      String target = resolveUsername(userId);
+      auditUserAction(
+          callerId,
+          resolveUsername(callerId),
+          active ? "MEMBER_REACTIVATED" : "MEMBER_SUSPENDED",
+          userId,
+          (active ? "구성원 정지 해제: " : "구성원 정지: ") + target,
+          null);
+    }
   }
 
   /**

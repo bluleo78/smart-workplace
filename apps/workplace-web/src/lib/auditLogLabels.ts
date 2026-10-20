@@ -9,6 +9,8 @@
  *   운영자 콘솔(PlatformAuthService)/AGENT 유저 CRUD·구성원 생성(UserService)/드라이브 파일(DriveFileService/DriveBulkService/DriveShareLinkService)
  *   호출부에서 최근 추가된 값 보강.
  * - WP-369: 드라이브 전송 링크(DriveTransferLinkService) 발급·사용 — 사용 기록의 actor 는 링크 발급자다.
+ * - WP-567: 구성원 역할 변경·정지·정지 해제·비밀번호 변경(UserService), 역할 생성·수정·삭제·권한 변경(RoleService) 기록 추가.
+ *   이미 기록되던 로그인 실패·비밀번호 설정·SSO 연결·SSO 설정 변경·AGENT 실행 방식 변경도 라벨이 빠져 있어 함께 보강.
  */
 export const AUDIT_ACTION_TYPES = [
   { value: 'CREATE', label: '생성' },
@@ -32,6 +34,19 @@ export const AUDIT_ACTION_TYPES = [
   { value: 'AGENT_DELETED', label: 'AGENT 유저 삭제' },
   { value: 'AGENT_RENAMED', label: 'AGENT 유저 변경' },
   { value: 'MEMBER_CREATED', label: '구성원 계정 생성' },
+  { value: 'MEMBER_ROLES_CHANGED', label: '구성원 역할 변경' },
+  { value: 'MEMBER_SUSPENDED', label: '구성원 정지' },
+  { value: 'MEMBER_REACTIVATED', label: '구성원 정지 해제' },
+  { value: 'PASSWORD_CHANGED', label: '비밀번호 변경' },
+  { value: 'PASSWORD_SET', label: '비밀번호 설정' },
+  { value: 'LOGIN_FAILED', label: '로그인 실패' },
+  { value: 'USER_SSO_LINK', label: 'SSO 계정 연결' },
+  { value: 'SSO_SETTING_CHANGED', label: 'SSO 설정 변경' },
+  { value: 'AGENT_RUNTIME_CHANGED', label: 'AGENT 실행 방식 변경' },
+  { value: 'ROLE_CREATED', label: '역할 생성' },
+  { value: 'ROLE_UPDATED', label: '역할 수정' },
+  { value: 'ROLE_DELETED', label: '역할 삭제' },
+  { value: 'ROLE_PERMISSIONS_CHANGED', label: '역할 권한 변경' },
   { value: 'FILE_UPLOAD', label: '파일 업로드' },
   { value: 'FILE_VERSION_CREATED', label: '파일 새 버전 생성' },
   { value: 'FILE_RENAME', label: '파일 이름 변경' },
@@ -64,6 +79,7 @@ export const AUDIT_RESOURCES = [
   { value: 'ai_agent_credential', label: 'AGENT 자격증명' },
   { value: 'platform', label: '플랫폼' },
   { value: 'drive', label: '드라이브' },
+  { value: 'tenant', label: '워크스페이스' },
 ];
 
 /**

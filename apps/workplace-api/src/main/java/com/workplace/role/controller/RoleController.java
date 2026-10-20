@@ -8,6 +8,7 @@ import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -33,31 +34,40 @@ public class RoleController {
 
   @PostMapping
   @RequirePermission("role:write")
-  public ResponseEntity<RoleResponse> createRole(@Valid @RequestBody CreateRoleRequest request) {
-    RoleResponse role = roleService.createRole(request.name(), request.description());
+  public ResponseEntity<RoleResponse> createRole(
+      Authentication authentication, @Valid @RequestBody CreateRoleRequest request) {
+    RoleResponse role =
+        roleService.createRole(
+            request.name(), request.description(), (Long) authentication.getPrincipal());
     return ResponseEntity.status(HttpStatus.CREATED).body(role);
   }
 
   @PutMapping("/{id}")
   @RequirePermission("role:write")
   public ResponseEntity<Void> updateRole(
-      @PathVariable Long id, @Valid @RequestBody UpdateRoleRequest request) {
-    roleService.updateRole(id, request.name(), request.description());
+      Authentication authentication,
+      @PathVariable Long id,
+      @Valid @RequestBody UpdateRoleRequest request) {
+    roleService.updateRole(
+        id, request.name(), request.description(), (Long) authentication.getPrincipal());
     return ResponseEntity.noContent().build();
   }
 
   @DeleteMapping("/{id}")
   @RequirePermission("role:delete")
-  public ResponseEntity<Void> deleteRole(@PathVariable Long id) {
-    roleService.deleteRole(id);
+  public ResponseEntity<Void> deleteRole(Authentication authentication, @PathVariable Long id) {
+    roleService.deleteRole(id, (Long) authentication.getPrincipal());
     return ResponseEntity.noContent().build();
   }
 
   @PutMapping("/{id}/permissions")
   @RequirePermission("role:write")
   public ResponseEntity<Void> setRolePermissions(
-      @PathVariable Long id, @Valid @RequestBody SetPermissionsRequest request) {
-    roleService.setRolePermissions(id, request.permissionIds());
+      Authentication authentication,
+      @PathVariable Long id,
+      @Valid @RequestBody SetPermissionsRequest request) {
+    roleService.setRolePermissions(
+        id, request.permissionIds(), (Long) authentication.getPrincipal());
     return ResponseEntity.noContent().build();
   }
 }

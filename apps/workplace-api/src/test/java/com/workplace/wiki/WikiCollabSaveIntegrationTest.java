@@ -831,12 +831,12 @@ class WikiCollabSaveIntegrationTest extends IntegrationTestBase {
   @Test
   void suspendingWorkspaceMembershipRevalidatesCollabAndClosesSseAfterCommit() {
     clearInvocations(collab, sse);
-    inRollbackTx(soft -> userService.setUserActive(otherUserId, false));
+    inRollbackTx(soft -> userService.setUserActive(otherUserId, false, null));
     verify(collab, after(500).never()).revalidate(any());
     verify(sse, never()).closeAll(otherUserId);
 
     tenant1();
-    userService.setUserActive(otherUserId, false);
+    userService.setUserActive(otherUserId, false, null);
     verify(collab, timeout(2000))
         .revalidate(
             argThat(

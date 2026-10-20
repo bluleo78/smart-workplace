@@ -120,7 +120,7 @@ class MembershipSuspendTest extends IntegrationTestBase {
         authService.selectTenant(u.id(), tenantA, AuthDetails.PASSWORD).refreshToken();
 
     useTenant(tenantA);
-    userService.setUserActive(u.id(), false);
+    userService.setUserActive(u.id(), false, null);
 
     // 전역 계정은 그대로, T_A 멤버십만 정지.
     assertThat(globalActive(u.id())).isTrue();
@@ -147,7 +147,7 @@ class MembershipSuspendTest extends IntegrationTestBase {
     // T_A 관리자는 그 사용자를 계속 보고 다시 활성화할 수 있다.
     useTenant(tenantA);
     assertThat(userService.getUserById(u.id()).isActive()).isFalse();
-    userService.setUserActive(u.id(), true);
+    userService.setUserActive(u.id(), true, null);
     assertThat(membershipStatus(u.id(), tenantA)).isEqualTo("ACTIVE");
     assertThat(userService.getUserById(u.id()).isActive()).isTrue();
     assertThat(authService.selectTenant(u.id(), tenantA, AuthDetails.PASSWORD).accessToken())
@@ -160,7 +160,7 @@ class MembershipSuspendTest extends IntegrationTestBase {
     membershipRepository.create(u.id(), tenantA, "ACTIVE");
 
     useTenant(tenantA);
-    userService.setUserActive(u.id(), false);
+    userService.setUserActive(u.id(), false, null);
 
     // 활성 멤버십 0개 — 로그인은 200(500 아님), 선택 가능한 워크스페이스 없음 + tenant-less 토큰(웹이 "소속 없음" 안내).
     var login = authService.login(new LoginRequest(u.username(), PASSWORD));
@@ -176,13 +176,13 @@ class MembershipSuspendTest extends IntegrationTestBase {
 
     // Y 가 T_B 에서 정지돼도 T_A 에서는 활성 ADMIN 이므로, T_A 에서 X 정지는 허용돼야 한다.
     useTenant(tenantB);
-    userService.setUserActive(y, false);
+    userService.setUserActive(y, false, null);
     useTenant(tenantA);
-    userService.setUserActive(x, false);
+    userService.setUserActive(x, false, null);
     assertThat(membershipStatus(x, tenantA)).isEqualTo("SUSPENDED");
 
     // 이제 Y 가 T_A 의 유일한 활성 ADMIN — 정지 거부.
-    assertThatThrownBy(() -> userService.setUserActive(y, false))
+    assertThatThrownBy(() -> userService.setUserActive(y, false, null))
         .isInstanceOf(IllegalStateException.class)
         .hasMessageContaining("마지막 활성 ADMIN");
   }
@@ -195,7 +195,7 @@ class MembershipSuspendTest extends IntegrationTestBase {
     TestFixtures.suspendMember(dsl, y, tenantA);
 
     useTenant(tenantA);
-    assertThatThrownBy(() -> userService.setUserActive(x, false))
+    assertThatThrownBy(() -> userService.setUserActive(x, false, null))
         .isInstanceOf(IllegalStateException.class)
         .hasMessageContaining("마지막 활성 ADMIN");
   }
@@ -207,7 +207,7 @@ class MembershipSuspendTest extends IntegrationTestBase {
     TestFixtures.suspendMember(dsl, x, tenantA);
 
     useTenant(tenantA);
-    userService.setUserActive(x, false);
+    userService.setUserActive(x, false, null);
     assertThat(membershipStatus(x, tenantA)).isEqualTo("SUSPENDED");
     // WP-420: 상태가 바뀌지 않았으니 열린 연결을 닫으라는 정지 이벤트도 나가지 않는다.
     assertThat(events.stream(WorkspaceMembershipSuspended.class)).isEmpty();
@@ -221,7 +221,7 @@ class MembershipSuspendTest extends IntegrationTestBase {
     membershipRepository.create(target, tenantA, "ACTIVE");
 
     useTenant(tenantA);
-    userService.setUserActive(target, false);
+    userService.setUserActive(target, false, null);
 
     assertThat(events.stream(WorkspaceMembershipSuspended.class))
         .containsExactly(new WorkspaceMembershipSuspended(tenantA, target));
@@ -270,7 +270,7 @@ class MembershipSuspendTest extends IntegrationTestBase {
     membershipRepository.create(u.id(), tenantB, "ACTIVE");
 
     useTenant(tenantA);
-    userService.setUserActive(u.id(), false);
+    userService.setUserActive(u.id(), false, null);
 
     // T_A 기본 디렉터리(검색·담당자 후보 등)에서는 빠지고, includeInactive 에서는 active=false 로 보인다.
     assertThat(directory(u.username(), false)).isEmpty();
@@ -301,7 +301,7 @@ class MembershipSuspendTest extends IntegrationTestBase {
     LoginableHuman u = createLoginableHuman();
     membershipRepository.create(u.id(), tenantA, "ACTIVE");
     useTenant(tenantA);
-    userService.setUserActive(u.id(), false);
+    userService.setUserActive(u.id(), false, null);
 
     // 운영자 콘솔 「기존 사용자 추가」 — UNIQUE 충돌 500 대신 409 + 다시 활성화 안내.
     assertThatThrownBy(

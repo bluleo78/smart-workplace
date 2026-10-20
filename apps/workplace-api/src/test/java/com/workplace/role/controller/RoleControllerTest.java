@@ -115,7 +115,7 @@ class RoleControllerTest {
     mockAuthentication("role:write");
     CreateRoleRequest request = new CreateRoleRequest("MODERATOR", "Moderator role");
     RoleResponse created = new RoleResponse(3L, "MODERATOR", "Moderator role", false);
-    when(roleService.createRole("MODERATOR", "Moderator role")).thenReturn(created);
+    when(roleService.createRole("MODERATOR", "Moderator role", 1L)).thenReturn(created);
 
     mockMvc
         .perform(
@@ -140,7 +140,7 @@ class RoleControllerTest {
                 .content(objectMapper.writeValueAsString(request)))
         .andExpect(status().isNoContent());
 
-    verify(roleService).updateRole(3L, "MOD", "Updated moderator");
+    verify(roleService).updateRole(3L, "MOD", "Updated moderator", 1L);
   }
 
   @Test
@@ -151,7 +151,7 @@ class RoleControllerTest {
         .perform(delete("/api/v1/roles/3").header("Authorization", "Bearer valid-token"))
         .andExpect(status().isNoContent());
 
-    verify(roleService).deleteRole(3L);
+    verify(roleService).deleteRole(3L, 1L);
   }
 
   @Test
@@ -167,7 +167,7 @@ class RoleControllerTest {
                 .content(objectMapper.writeValueAsString(request)))
         .andExpect(status().isNoContent());
 
-    verify(roleService).setRolePermissions(1L, List.of(1L, 2L, 3L));
+    verify(roleService).setRolePermissions(1L, List.of(1L, 2L, 3L), 1L);
   }
 
   @Test

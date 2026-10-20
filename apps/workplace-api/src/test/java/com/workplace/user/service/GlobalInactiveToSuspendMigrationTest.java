@@ -148,7 +148,7 @@ class GlobalInactiveToSuspendMigrationTest extends IntegrationTestBase {
 
     // T_A 관리자가 사용자 상세에서 다시 켬 → T_A 만 로그인·선택 가능, T_B 는 여전히 정지.
     useTenant(tenantA);
-    userService.setUserActive(human, true);
+    userService.setUserActive(human, true, null);
 
     var login = authService.login(new LoginRequest(username, PASSWORD));
     assertThat(login.memberships().stream().map(MembershipResponse::tenantId).toList())
