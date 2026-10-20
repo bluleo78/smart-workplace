@@ -910,25 +910,25 @@ describe('ganttAxisBounds', () => {
     expect(ganttAxisBounds(d('2026-01-01'), d('2027-12-31'), period, today)).toBeNull();
   });
 
-  it('넘으면 조회 기간 앞뒤 12개월로 자른다', () => {
+  it('넘으면 조회 기간 앞뒤 12개월로 자르고 월 경계에 맞춘다', () => {
     expect(ganttAxisBounds(d('1900-01-01'), d('2100-01-01'), period, today)).toEqual({
-      start: d('2025-07-20'),
-      end: d('2028-04-20'),
+      start: d('2025-07-01'),
+      end: d('2028-05-01'),
     });
   });
 
-  it('한쪽만 넘으면 그쪽만 자른다', () => {
-    expect(ganttAxisBounds(d('2026-09-01'), d('9999-12-31'), period, today)).toEqual({
+  it('한쪽만 넘으면 그쪽만 자른다(안쪽 끝도 월 경계로)', () => {
+    expect(ganttAxisBounds(d('2026-09-10'), d('9999-12-31'), period, today)).toEqual({
       start: d('2026-09-01'),
-      end: d('2028-04-20'),
+      end: d('2028-05-01'),
     });
   });
 
   it('기간 「전체」(null)면 오늘 앞뒤 5년이 기준', () => {
     expect(ganttAxisBounds(d('2024-01-01'), d('2027-01-01'), null, today)).toBeNull();
     expect(ganttAxisBounds(d('1900-01-01'), d('2099-12-31'), null, today)).toEqual({
-      start: d('2021-10-20'),
-      end: d('2031-10-20'),
+      start: d('2021-10-01'),
+      end: d('2031-11-01'),
     });
   });
 

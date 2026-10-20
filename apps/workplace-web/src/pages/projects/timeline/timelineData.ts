@@ -1,7 +1,7 @@
 // 이슈/사이클/마일스톤 응답을 TimelineGantt 가 소비하는 모델로 변환하는 순수 함수 모음.
 // 네트워크/상태와 분리해 vitest 로 검증한다.
 
-import { addDays, addMonths, differenceInCalendarDays, endOfQuarter, format, getDaysInMonth, isValid, parseISO, startOfQuarter, subMonths } from 'date-fns';
+import { addDays, addMonths, differenceInCalendarDays, endOfQuarter, format, getDaysInMonth, isValid, parseISO, startOfMonth, startOfQuarter, subMonths } from 'date-fns';
 
 import type { CycleResponse } from '@/types/cycle';
 import type { IssueResponse, IssueStatus } from '@/types/issue';
@@ -672,5 +672,9 @@ export function ganttAxisBounds(
   const lo = subMonths(period ? parseISO(period.from) : today, margin);
   const hi = addMonths(period ? parseISO(period.to) : today, margin);
   if (dataStart >= lo && dataEnd <= hi) return null;
-  return { start: dataStart < lo ? lo : dataStart, end: dataEnd > hi ? hi : dataEnd };
+  // 축 끝은 월 경계에 맞춘다 — 월 중간에서 시작하면 SVAR 의 월 칸이 어긋나 오늘(10월) 위에 「8월」이 적혔다.
+  return {
+    start: startOfMonth(dataStart < lo ? lo : dataStart),
+    end: startOfMonth(addMonths(dataEnd > hi ? hi : dataEnd, 1)),
+  };
 }
