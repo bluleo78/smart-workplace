@@ -19,6 +19,7 @@ import { useUpdateIssueLabels } from '../../../../hooks/queries/useUpdateIssueLa
 import { useUpdateIssueParent } from '../../../../hooks/queries/useUpdateIssueParent';
 import { formatDateMonthDay } from '../../../../lib/formatters';
 import { ISSUE_PRIORITY_LABEL, ISSUE_PRIORITY_OPTIONS, ISSUE_STATUS_LABEL, ISSUE_STATUSES } from '../../../../lib/issueGrouping';
+import { isOverdue } from '../../../../lib/issueOverdue';
 import type { IssuePriority, IssueResponse, IssueStatus, UpdateIssueRequest } from '../../../../types/issue';
 import { DEFAULT_LABEL_COLOR } from '../../../../types/label';
 import { incompleteBlockers } from '../incompleteBlockers';
@@ -113,7 +114,18 @@ export function IssueMobilePropertyChips({
       case 'priority':
         return chip('priority', '우선순위', <><Flag className="size-4" aria-hidden />{ISSUE_PRIORITY_LABEL[issue.priority]}</>);
       case 'due':
-        return chip('due', '마감일', <><CalendarDays className="size-4" aria-hidden />{issue.dueDate ? formatDateMonthDay(issue.dueDate) : '마감 없음'}</>, !issue.dueDate);
+        // 마감 지난 미완료 이슈는 차단 칩과 같은 경고 톤 + 「· 지남」(WP-649).
+        return chip(
+          'due',
+          isOverdue(issue) ? '마감일, 마감 지남' : '마감일',
+          <>
+            <CalendarDays className="size-4" aria-hidden />
+            {issue.dueDate ? formatDateMonthDay(issue.dueDate) : '마감 없음'}
+            {isOverdue(issue) && <span data-testid="issue-overdue-badge">· 지남</span>}
+          </>,
+          !issue.dueDate,
+          isOverdue(issue) ? 'border-destructive/30 bg-destructive/15 text-destructive' : undefined,
+        );
       case 'epic':
         // EPIC·SUBTASK 이슈(또는 구성에 에픽이 없을 때)는 칩을 그리지 않는다.
         return (

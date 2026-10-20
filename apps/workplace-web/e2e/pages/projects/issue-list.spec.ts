@@ -68,6 +68,22 @@ test.describe('팀 리스트 뷰', () => {
     await expect(page).toHaveURL(new RegExp(`/projects/${KEY}/issues/7$`));
   });
 
+  test('마감 지난 미완료 이슈 행만 마감일이 빨간색 + 「마감 지남」 — 완료·미래 마감은 그대로 (WP-649)', async ({ authenticatedPage: page }) => {
+    await mock(page, [
+      createIssue({ id: 1, number: 1, title: '지난 마감', status: 'IN_PROGRESS', dueDate: '2020-01-15' }),
+      createIssue({ id: 2, number: 2, title: '완료된 지난 마감', status: 'DONE', dueDate: '2020-01-15' }),
+      createIssue({ id: 3, number: 3, title: '먼 미래 마감', status: 'TODO', dueDate: '2099-01-15' }),
+    ]);
+    await page.goto(`/projects/${KEY}`);
+    const due = (n: number) => page.getByTestId(`issue-row-${n}-due`);
+    await expect(due(1)).toContainText('마감 지남');
+    await expect(due(1)).toHaveClass(/text-destructive/);
+    for (const n of [2, 3]) {
+      await expect(due(n)).not.toContainText('마감 지남');
+      await expect(due(n)).not.toHaveClass(/text-destructive/);
+    }
+  });
+
   test('필터 없이 진입하면 검색 요청에 topLevel 없이 excludeSubtasks·excludeEpics=true 가 실린다 (에픽 행 숨김·에픽 자식 유지·SUBTASK 숨김)', async ({ authenticatedPage: page }) => {
     // 목록 기본(Jira 관례, #874): 에픽 행은 숨기고, 루트 + 에픽 직속 자식은 노출하되 SUBTASK 는 숨긴다.
     // → topLevel(루트만) 은 끄고(미송신), excludeSubtasks·excludeEpics 는 켜서 요청한다.

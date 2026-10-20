@@ -179,6 +179,24 @@ test.describe('태스크 보드/검색', () => {
     },
   );
 
+  test('마감 지난 미완료 카드만 마감일이 빨간색 + 「마감 지남」 (WP-649)', async ({ authenticatedPage: page }) => {
+    await stubProjectMeta(page);
+    const issues = [
+      createIssue({ id: 1, number: 1, title: '지난 마감', status: 'TODO', dueDate: '2020-01-15' }),
+      createIssue({ id: 2, number: 2, title: '완료된 지난 마감', status: 'DONE', dueDate: '2020-01-15' }),
+    ];
+    await routeIssueSearch(page, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createIssueSearchResponse(issues)) }),
+    );
+    await page.goto(`/projects/${PROJECT_KEY}?view=board`);
+    const overdue = page.getByTestId('issue-card-1').getByTestId('issue-card-1-due');
+    await expect(overdue).toContainText('마감 지남');
+    await expect(overdue).toHaveClass(/text-destructive/);
+    const done = page.getByTestId('issue-card-2').getByTestId('issue-card-2-due');
+    await expect(done).toBeVisible();
+    await expect(done).not.toHaveClass(/text-destructive/);
+  });
+
   test('검색 입력 → 300ms debounce 후 q 쿼리 파라미터 + URL 동기화', async ({
     authenticatedPage: page,
   }) => {

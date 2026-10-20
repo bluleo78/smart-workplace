@@ -167,10 +167,11 @@ test.describe('이슈 목록 데스크톱 에픽 칩', () => {
         const cb = await measureBox(chip);
         expect(cb.x + cb.width).toBeLessThanOrEqual(sb.x + sb.width + 1);
         // (d) 제목 칸이 폭을 가져가도 마감 날짜는 한 줄로(글자 단위로 꺾이지 않는다).
-        // 텍스트 줄 수 = Range 의 클라이언트 사각형 수(한 줄이면 1).
+        // 텍스트 줄 수 = 날짜 글자 노드 Range 의 클라이언트 사각형 수(한 줄이면 1). 마감이 지나면 붙는
+        // 스크린리더 전용 「마감 지남」(sr-only, WP-649)은 화면에 안 보이므로 재지 않는다.
         const dueLines = await row.getByTestId('issue-row-21-due').evaluate((el) => {
           const r = document.createRange();
-          r.selectNodeContents(el);
+          r.selectNodeContents(el.firstChild!);
           return r.getClientRects().length;
         });
         expect(dueLines, `${width}px 마감 칸 줄바꿈`).toBe(1);

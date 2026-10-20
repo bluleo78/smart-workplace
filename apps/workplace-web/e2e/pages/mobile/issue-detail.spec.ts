@@ -103,6 +103,17 @@ test.describe('속성 칩', () => {
     await expectNoHorizontalOverflow(page);
   });
 
+  test('마감 지난 미완료 이슈는 마감 칩이 경고 톤 + 「· 지남」, 이름에도 「마감 지남」 (WP-649)', async ({ authenticatedPage: page }) => {
+    await mockDetail(page, { dueDate: '2020-01-15' });
+    await openDetail(page);
+    const due = page.getByTestId('mobile-prop-due');
+    await expect(due).toContainText('1월 15일');
+    await expect(due.getByTestId('issue-overdue-badge')).toHaveText('· 지남');
+    await expect(due).toHaveAttribute('aria-label', '마감일, 마감 지남');
+    await expect(due).toHaveClass(/text-destructive/);
+    await expectNoHorizontalOverflow(page);
+  });
+
   test('차단됨은 상태 칩에 합쳐지고(별도 칩 없음), 긴 담당자 이름이어도 +N 은 보인다', async ({ authenticatedPage: page }) => {
     await mockDetail(page, {
       blocked: true,

@@ -8,6 +8,7 @@ import { AgentWorkRailSection } from '../../../components/issue/agentWork/AgentW
 import { AiClassifyButton } from '../../../components/issue/AiClassifyButton';
 import { LabelChip } from '../../../components/labels/LabelChip';
 import { LabelPickerPopover } from '../../../components/labels/LabelPickerPopover';
+import { isOverdue } from '../../../lib/issueOverdue';
 import type { IssueFieldEntry } from '../../../types/customField';
 import type {
   AgentWorkView,
@@ -219,6 +220,7 @@ export function IssuePropertyRail({
               value={dueDate}
               disabled={updatePending || !canEditWorkflow}
               warningText={dateWarning(dueDate)}
+              overdue={isOverdue({ status, dueDate })}
               onChange={(date) =>
                 onPatch({
                   dueDate: date,

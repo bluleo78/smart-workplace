@@ -12,6 +12,8 @@ interface DueDatePickerPopoverProps {
   disabled?: boolean;
   /** 인라인 경고 문구 — 선행 이슈 마감일보다 이른 날짜 선택 등(#669, soft 경고). */
   warningText?: string | null;
+  /** 마감 지난 미완료 이슈면 true — 날짜를 빨간 글씨 + 「· 마감 지남」으로(WP-649). */
+  overdue?: boolean;
 }
 
 /**
@@ -22,6 +24,7 @@ export function DueDatePickerPopover({
   onChange,
   disabled,
   warningText,
+  overdue,
 }: DueDatePickerPopoverProps) {
   return (
     <DatePickerPopover
@@ -32,6 +35,7 @@ export function DueDatePickerPopover({
       clearAriaLabel="마감일 지우기"
       testIdPrefix="due-date"
       warningText={warningText}
+      overdueText={overdue ? '마감 지남' : null}
     />
   );
 }

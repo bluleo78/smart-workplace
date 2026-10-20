@@ -157,4 +157,22 @@ test.describe('이슈 상세 마감일 DatePicker (#284)', () => {
       await expect(page.getByTestId('due-date-clear')).toHaveCount(0);
     },
   );
+  test('마감 지난 미완료 이슈는 마감일이 빨간색 + 「마감 지남」, 미래 마감은 그대로 (WP-649)', async ({ authenticatedPage: page }) => {
+    await setupStubs(page, '2020-01-15');
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    const trigger = page.getByTestId('due-date-trigger');
+    await expect(trigger).toContainText('2020년 1월 15일');
+    await expect(trigger.getByTestId('due-date-overdue')).toHaveText('· 마감 지남');
+    await expect(trigger).toHaveAccessibleName('마감일 선택, 마감 지남');
+    await expect(trigger.getByText('2020년 1월 15일')).toHaveClass(/text-destructive/);
+  });
+
+  test('먼 미래 마감은 강조하지 않는다 (WP-649)', async ({ authenticatedPage: page }) => {
+    await setupStubs(page, '2099-01-15');
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    const trigger = page.getByTestId('due-date-trigger');
+    await expect(trigger).toContainText('2099년 1월 15일');
+    await expect(trigger.getByTestId('due-date-overdue')).toHaveCount(0);
+    await expect(trigger).toHaveAccessibleName('마감일 선택');
+  });
 });

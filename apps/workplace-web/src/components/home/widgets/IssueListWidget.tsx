@@ -6,11 +6,11 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useMyIssues } from '@/hooks/queries/useHomeQueries';
 import { extractApiError } from '@/lib/api-error';
+import { countOverdue } from '@/lib/issueOverdue';
 // 이슈 상태 전용 배지 — 범용 StatusBadge(type 기반)가 아니라 IssueStatus 를 직접 받는다.
 import { IssueStatusBadge } from '@/pages/projects/components/IssueStatusBadge';
 import type { IssueSearchResponse } from '@/types/issue';
 
-import { countOverdue } from './issueOverdue';
 import { WidgetError } from './WidgetError';
 import { WidgetFrame } from './WidgetFrame';
 

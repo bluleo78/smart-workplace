@@ -18,6 +18,7 @@ import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
 import { LabelChip } from '../../../components/labels/LabelChip';
 import { UserAvatar } from '../../../components/users/UserAvatar';
 import type { IssueDragData } from '../../../lib/epicDnd';
+import { isOverdue } from '../../../lib/issueOverdue';
 import type { IssueResponse } from '../../../types/issue';
 import { type OpenRowMenu, openRowMenuAtPointer } from '../hooks/useIssueRowActions';
 import { IssueCardMenuContext } from './issueCardMenuContext';
@@ -228,7 +229,16 @@ export function IssueCard({
               └ {issue.childDoneCount}/{issue.childCount}
             </span>
           )}
-          {issue.dueDate && <span className="whitespace-nowrap">~{issue.dueDate}</span>}
+          {/* 마감 지난 미완료 카드는 마감일을 빨간 굵은 글씨로(WP-649). */}
+          {issue.dueDate && (
+            <span
+              className={isOverdue(issue) ? 'whitespace-nowrap font-semibold text-destructive' : 'whitespace-nowrap'}
+              data-testid={`issue-card-${issue.number}-due`}
+            >
+              ~{issue.dueDate}
+              {isOverdue(issue) && <span className="sr-only"> 마감 지남</span>}
+            </span>
+          )}
         </div>
       </div>
 

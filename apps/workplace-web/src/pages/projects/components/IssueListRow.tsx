@@ -18,6 +18,7 @@ import { UserAvatar } from '../../../components/users/UserAvatar';
 import type { CycleSectionRef, IssueDragData } from '../../../lib/epicDnd';
 import { formatDateKorean } from '../../../lib/formatters';
 import { isEpicParent } from '../../../lib/issueGrouping';
+import { isOverdue } from '../../../lib/issueOverdue';
 import { MULTI_SELECTED_ROW_CLASS } from '../../../lib/selectionStyles';
 import { cn } from '../../../lib/utils';
 import type { IssueResponse } from '../../../types/issue';
@@ -242,8 +243,13 @@ export const IssueRow = memo(function IssueRow({
             )}
           </span>
         </td>
-        <td className="hidden whitespace-nowrap pr-2 text-muted-foreground sm:table-cell" data-testid={`issue-row-${it.number}-due`}>
+        {/* 마감 지난 미완료 이슈는 홈 「내 작업」처럼 빨간 굵은 글씨로 구분한다(WP-649). */}
+        <td
+          className={cn('hidden whitespace-nowrap pr-2 sm:table-cell', isOverdue(it) ? 'font-semibold text-destructive' : 'text-muted-foreground')}
+          data-testid={`issue-row-${it.number}-due`}
+        >
           {formatDateKorean(it.dueDate)}
+          {isOverdue(it) && <span className="sr-only"> 마감 지남</span>}
         </td>
         {/* ⋯ 메뉴(WP-273 시안 A) — 호버·포커스 때만 보인다. 행 클릭(이동)·드래그로 새지 않게 버튼이 이벤트를 막는다. */}
         <td className="w-8 pr-1">

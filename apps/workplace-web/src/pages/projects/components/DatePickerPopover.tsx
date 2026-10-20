@@ -32,6 +32,8 @@ interface DatePickerPopoverProps {
    * 값이 있으면 트리거 아래 destructive 톤 텍스트로 노출한다.
    */
   warningText?: string | null;
+  /** 값 강조 — true 면 날짜를 빨간 굵은 글씨로 + 「· {overdueText}」(마감 지남, WP-649). */
+  overdueText?: string | null;
 }
 
 /**
@@ -47,6 +49,7 @@ export function DatePickerPopover({
   emptyLabel = '없음',
   testIdPrefix = 'date',
   warningText,
+  overdueText,
 }: DatePickerPopoverProps) {
   const [open, setOpen] = useState(false);
 
@@ -77,12 +80,19 @@ export function DatePickerPopover({
               size="sm"
               className="flex-1 justify-start gap-2 font-normal"
               disabled={disabled}
-              aria-label={ariaLabel}
+              aria-label={overdueText ? `${ariaLabel}, ${overdueText}` : ariaLabel}
               data-testid={`${testIdPrefix}-trigger`}
             >
               <CalendarIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
               {selected ? (
-                <span>{format(selected, 'yyyy년 M월 d일', { locale: ko })}</span>
+                <>
+                  <span className={overdueText ? 'font-semibold text-destructive' : undefined}>{format(selected, 'yyyy년 M월 d일', { locale: ko })}</span>
+                  {overdueText && (
+                    <span className="text-xs text-destructive" data-testid={`${testIdPrefix}-overdue`}>
+                      · {overdueText}
+                    </span>
+                  )}
+                </>
               ) : (
                 <span className="text-muted-foreground">{emptyLabel}</span>
               )}
