@@ -141,6 +141,34 @@ class ChannelServiceTest extends IntegrationTestBase {
         .isInstanceOf(ChannelNameDuplicatedException.class);
   }
 
+  /** WP-592 — 이름 앞뒤 공백은 다듬어 저장하고, 다듬은 이름으로 중복을 판정한다(공백만 다른 같은 이름 채널 방지). */
+  @Test
+  void create_trimsName_andTreatsPaddedNameAsDuplicate() {
+    long u = seedUser();
+    ChannelResponse ch = channelService.create(u, "  공백채널\t", "PUBLIC");
+    assertThat(ch.name()).isEqualTo("공백채널");
+
+    assertThatThrownBy(() -> channelService.create(u, "공백채널 ", "PUBLIC"))
+        .isInstanceOf(ChannelNameDuplicatedException.class);
+    assertThatThrownBy(() -> channelService.create(u, " 공백채널", "PRIVATE"))
+        .isInstanceOf(ChannelNameDuplicatedException.class);
+    assertThatThrownBy(() -> channelService.create(u, "   ", "PUBLIC"))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("채널 이름을 입력해 주세요");
+  }
+
+  /** WP-592 — 이름 변경도 앞뒤 공백을 다듬고, 공백만 덧붙인 다른 채널 이름으로는 바꿀 수 없다. */
+  @Test
+  void rename_trimsName_andRejectsPaddedDuplicate() {
+    long u = seedUser();
+    channelService.create(u, "다듬기A", "PUBLIC");
+    ChannelResponse b = channelService.create(u, "다듬기B", "PUBLIC");
+
+    assertThatThrownBy(() -> channelService.rename(u, b.id(), " 다듬기A "))
+        .isInstanceOf(ChannelNameDuplicatedException.class);
+    assertThat(channelService.rename(u, b.id(), "  다듬기C  ").name()).isEqualTo("다듬기C");
+  }
+
   /** #688 — 이름변경도 동일 정책. 자기 자신 이름으로의 "변경"(no-op)은 차단하지 않는다. */
   @Test
   void rename_duplicateName_throws_selfRenameOk() {

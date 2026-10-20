@@ -59,7 +59,8 @@ public class ChannelRepository {
             .KIND
             .eq("CHANNEL")
             .and(CHANNEL.ARCHIVED_AT.isNull())
-            .and(DSL.lower(CHANNEL.NAME).eq(name.toLowerCase()));
+            // 저장값도 다듬어 비교한다 — WP-592 이전에 공백째 저장된 옛 이름도 같은 이름으로 본다.
+            .and(DSL.lower(DSL.trim(CHANNEL.NAME)).eq(name.strip().toLowerCase()));
     if (excludeId != null) {
       cond = cond.and(CHANNEL.ID.ne(excludeId));
     }

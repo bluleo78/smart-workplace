@@ -1,6 +1,7 @@
 package com.workplace.messaging.service;
 
 import com.workplace.global.realtime.ResourceChangedEvent;
+import com.workplace.global.util.UnicodeNames;
 import com.workplace.messaging.dto.ChannelResponse;
 import com.workplace.messaging.exception.ChannelArchivedException;
 import com.workplace.messaging.exception.ChannelForbiddenException;
@@ -56,7 +57,8 @@ public class ChannelService {
    * Wiki/Drive 팀 스페이스 #696, 연락처 조직 그룹 #803 과 동일한 "컨테이너류 이름은 식별자" 정책).
    */
   @Transactional
-  public ChannelResponse create(long callerId, String name, String visibility) {
+  public ChannelResponse create(long callerId, String rawName, String visibility) {
+    String name = normalizeName(rawName);
     if (channelRepo.existsChannelName(name, null)) {
       throw new ChannelNameDuplicatedException(name);
     }
@@ -107,7 +109,8 @@ public class ChannelService {
 
   /** 이름 변경 — OWNER/ADMIN 또는 시스템 ADMIN. 동일 테넌트 내 활성 채널 이름 중복은 하드 차단(#688). */
   @Transactional
-  public ChannelResponse rename(long callerId, long channelId, String name) {
+  public ChannelResponse rename(long callerId, long channelId, String rawName) {
+    String name = normalizeName(rawName);
     ensureExists(channelId);
     perms.requireManage(channelId, callerId, "rename");
     // 보관된 채널은 읽기 전용 — 이름을 바꾸려면 먼저 보관을 해제한다(WP-508).
@@ -185,6 +188,16 @@ public class ChannelService {
 
   private void ensureExists(long channelId) {
     if (!channelRepo.exists(channelId)) throw new ChannelNotFoundException(channelId);
+  }
+
+  /**
+   * 채널 이름을 앞뒤 공백을 다듬고 NFC 로 맞춘다(WP-592) — 공백만 다른 이름이 중복 검사를 지나 사이드바·탐색에 같은 이름으로 여러 번 보이지 않게. 웹은 이미
+   * 다듬어 보내지만 API 를 직접 부르는 AI 도구(MCP create_channel 등)는 그대로 보낸다.
+   */
+  private static String normalizeName(String raw) {
+    String name = raw == null ? "" : UnicodeNames.toNfc(raw.strip());
+    if (name.isEmpty()) throw new IllegalArgumentException("채널 이름을 입력해 주세요");
+    return name;
   }
 
   private String normalizeVisibility(String visibility) {
