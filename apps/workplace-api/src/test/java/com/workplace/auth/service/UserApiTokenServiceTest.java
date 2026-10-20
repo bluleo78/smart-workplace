@@ -122,7 +122,14 @@ class UserApiTokenServiceTest extends IntegrationTestBase {
   @Test
   void expired_token_not_found_by_hash() throws Exception {
     UserApiTokenIssueResponse res =
-        service.issue(userId, new IssueUserTokenRequest("t", Instant.now().minusSeconds(60)));
+        service.issue(userId, new IssueUserTokenRequest("t", Instant.now().plusSeconds(3600)));
+    // WP-597: 지난 만료일로는 발급하지 않으므로, 유효하게 발급한 뒤 만료 시각을 과거로 돌린다.
+    dsl.update(com.workplace.jooq.Tables.USER_API_TOKEN)
+        .set(
+            com.workplace.jooq.Tables.USER_API_TOKEN.EXPIRES_AT,
+            java.time.OffsetDateTime.now().minusSeconds(60))
+        .where(com.workplace.jooq.Tables.USER_API_TOKEN.ID.eq(res.id()))
+        .execute();
     assertThat(repo.findActiveByHash(sha256Hex(res.plaintextToken()))).isEmpty();
   }
 }

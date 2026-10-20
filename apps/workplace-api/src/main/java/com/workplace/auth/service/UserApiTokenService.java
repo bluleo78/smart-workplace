@@ -48,6 +48,10 @@ public class UserApiTokenService {
    * USER_TOKEN_ISSUED.
    */
   public UserApiTokenIssueResponse issue(Long callerId, IssueUserTokenRequest req) {
+    // WP-597: 이미 지난 만료일로는 발급하지 않는다 — 발급되자마자 쓸 수 없는 토큰이 목록에 남는다.
+    if (req.expiresAt() != null && !req.expiresAt().isAfter(Instant.now())) {
+      throw new IllegalArgumentException("만료일은 지금보다 뒤여야 합니다");
+    }
     Long tenantId = TenantContext.get();
     if (tenantId == null) throw new ActiveTenantRequiredException();
 

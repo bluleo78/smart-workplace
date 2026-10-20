@@ -5,6 +5,7 @@ import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.auth.dto.IssueUserTokenRequest;
 import com.workplace.auth.dto.UserApiTokenIssueResponse;
@@ -34,6 +35,7 @@ class MyApiTokenControllerTest extends IntegrationTestBase {
 
   @Autowired private UserApiTokenService tokenService;
   @Autowired private DSLContext dsl;
+  @Autowired private com.workplace.global.security.JwtTokenProvider jwt;
   @LocalServerPort private int port;
 
   private static final long DEFAULT_TENANT_ID = 1L;
@@ -111,16 +113,55 @@ class MyApiTokenControllerTest extends IntegrationTestBase {
   }
 
   private ResponseEntity<UserApiTokenIssueResponse> issueViaHttp(String authValue, String name) {
+    return issueViaHttp(authValue, name, null);
+  }
+
+  private ResponseEntity<UserApiTokenIssueResponse> issueViaHttp(
+      String authValue, String name, java.time.Instant expiresAt) {
     HttpHeaders headers = new HttpHeaders();
     if (authValue != null) headers.set("Authorization", authValue);
     headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
     HttpEntity<IssueUserTokenRequest> entity =
-        new HttpEntity<>(new IssueUserTokenRequest(name, null), headers);
+        new HttpEntity<>(new IssueUserTokenRequest(name, expiresAt), headers);
     return rest.exchange(
         "http://localhost:" + port + "/api/v1/users/me/api-tokens",
         HttpMethod.POST,
         entity,
         UserApiTokenIssueResponse.class);
+  }
+
+  /** 웹 로그인 세션과 같은 access JWT. */
+  private String sessionBearer(Long userId) {
+    return "Bearer " + jwt.generateAccessToken(userId, "u" + userId, DEFAULT_TENANT_ID);
+  }
+
+  /** WP-597: PAT 로 새 PAT 를 만들면 원래 PAT 를 폐기해도 만든 PAT 가 남는다 — 발급은 웹 로그인 세션에서만. */
+  @Test
+  void issue_withPat_isForbidden() {
+    String pat = "Bearer " + issueToken(humanUserId, "인증용").plaintextToken();
+
+    assertThatThrownBy(() -> issueViaHttp(pat, "PAT로 만든 PAT"))
+        .isInstanceOfSatisfying(
+            org.springframework.web.client.HttpClientErrorException.class,
+            e -> {
+              assertThat(e.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+              assertThat(e.getResponseBodyAsString(java.nio.charset.StandardCharsets.UTF_8))
+                  .contains("API 토큰은 웹 로그인 세션에서만 만들 수 있습니다");
+            });
+  }
+
+  /** WP-597: 이미 지난 만료일로는 발급하지 않는다(발급되자마자 못 쓰는 토큰). */
+  @Test
+  void issue_withPastExpiry_isBadRequest() {
+    assertThatThrownBy(
+            () ->
+                issueViaHttp(
+                    sessionBearer(humanUserId),
+                    "과거만료",
+                    java.time.Instant.parse("2000-01-01T00:00:00Z")))
+        .isInstanceOfSatisfying(
+            org.springframework.web.client.HttpClientErrorException.class,
+            e -> assertThat(e.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST));
   }
 
   @Test
@@ -129,7 +170,9 @@ class MyApiTokenControllerTest extends IntegrationTestBase {
     String bearer = "Bearer " + authToken.plaintextToken();
 
     // POST — 새 PAT 발급, 평문 포함
-    ResponseEntity<UserApiTokenIssueResponse> issueRes = issueViaHttp(bearer, "내 노트북");
+    // WP-597: 새 PAT 발급은 웹 로그인 세션(JWT)으로만 — 목록·회수는 PAT 로도 된다.
+    ResponseEntity<UserApiTokenIssueResponse> issueRes =
+        issueViaHttp(sessionBearer(humanUserId), "내 노트북");
     assertThat(issueRes.getStatusCode()).isIn(HttpStatus.OK, HttpStatus.CREATED);
     assertThat(issueRes.getBody()).isNotNull();
     assertThat(issueRes.getBody().plaintextToken()).startsWith("swp_");

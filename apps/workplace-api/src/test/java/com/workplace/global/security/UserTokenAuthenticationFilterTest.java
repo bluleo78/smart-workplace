@@ -165,10 +165,17 @@ class UserTokenAuthenticationFilterTest extends IntegrationTestBase {
       res =
           tokenService.issue(
               humanUserId,
-              new IssueUserTokenRequest("test", java.time.Instant.now().minusSeconds(60)));
+              new IssueUserTokenRequest("test", java.time.Instant.now().plusSeconds(3600)));
     } finally {
       TenantContext.clear();
     }
+    // WP-597: 지난 만료일로는 발급하지 않으므로, 유효하게 발급한 뒤 만료 시각을 과거로 돌린다.
+    dsl.update(com.workplace.jooq.Tables.USER_API_TOKEN)
+        .set(
+            com.workplace.jooq.Tables.USER_API_TOKEN.EXPIRES_AT,
+            java.time.OffsetDateTime.now().minusSeconds(60))
+        .where(com.workplace.jooq.Tables.USER_API_TOKEN.ID.eq(res.id()))
+        .execute();
     ResponseEntity<String> me = callMe("Bearer " + res.plaintextToken());
     assertThat(me.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
   }

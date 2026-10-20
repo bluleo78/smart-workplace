@@ -4,10 +4,13 @@ import com.workplace.auth.dto.IssueUserTokenRequest;
 import com.workplace.auth.dto.UserApiTokenIssueResponse;
 import com.workplace.auth.dto.UserApiTokenResponse;
 import com.workplace.auth.service.UserApiTokenService;
+import com.workplace.global.security.AuthDetails;
 import jakarta.validation.Valid;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -33,7 +36,14 @@ public class MyApiTokenController {
   /** 신규 PAT 발급 — 평문은 이 응답에서만 1회 노출된다. */
   @PostMapping
   public UserApiTokenIssueResponse issue(
-      @AuthenticationPrincipal Long callerId, @Valid @RequestBody IssueUserTokenRequest req) {
+      @AuthenticationPrincipal Long callerId,
+      Authentication authentication,
+      @Valid @RequestBody IssueUserTokenRequest req) {
+    // WP-597: 새 PAT 는 웹 로그인 세션(JWT)에서만 만든다. PAT 로 PAT 를 만들 수 있으면 원래 PAT 를 폐기해도 그 PAT 로 만든 PAT 가
+    // 남아(비밀번호를 바꿔도) 유출된 토큰을 끊어 낼 수 없다. PAT·API 키·Internal 인증은 AuthDetails 가 없다.
+    if (AuthDetails.methodOf(authentication) == null) {
+      throw new AccessDeniedException("API 토큰은 웹 로그인 세션에서만 만들 수 있습니다");
+    }
     return service.issue(callerId, req);
   }
 
