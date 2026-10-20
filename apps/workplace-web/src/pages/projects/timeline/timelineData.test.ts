@@ -1,3 +1,4 @@
+import { addDays, addMonths, differenceInCalendarDays, format, parseISO } from 'date-fns';
 import { describe, expect, it } from 'vitest';
 
 import type { CycleResponse } from '@/types/cycle';
@@ -21,6 +22,12 @@ import {
   prepareTimelineIssues,
   resolvePeriod,
   rollupOverlay,
+  weekMonthAdd,
+  weekMonthDiff,
+  weekMonthEnd,
+  weekMonthOf,
+  weekMonthStart,
+  weeksInWeekMonth,
 } from './timelineData';
 import type { TimelineBar } from './timelineTypes';
 
@@ -936,3 +943,54 @@ describe('ganttAxisBounds', () => {
     expect(ganttAxisBounds(null, null, period, today)).toBeNull();
   });
 });
+
+// WP-605 — 주 보기 위쪽 월 칸을 주 경계에 맞춘 「주 단위 달」로 그린다. 한 주는 그 달이 4일 이상 차지하는 달(주 시작+3일의 달) 소속.
+describe('주 단위 달(weekMonth)', () => {
+  const d = (s: string) => parseISO(s)
+  const ymd = (x: Date) => format(x, 'yyyy-MM-dd')
+
+  it('목요일에 시작하는 달 — 1일이 든 주는 앞달 소속, 경계는 4일이 든 주의 일요일', () => {
+    // 2026-10-01 은 목요일: 9/27~10/3 주는 10월이 3일뿐이라 9월
+    expect(ymd(weekMonthOf(d('2026-10-01')))).toBe('2026-09-01')
+    expect(ymd(weekMonthStart(d('2026-10-01')))).toBe('2026-08-30')
+    expect(ymd(weekMonthOf(d('2026-10-20')))).toBe('2026-10-01')
+    expect(ymd(weekMonthStart(d('2026-10-20')))).toBe('2026-10-04')
+  })
+
+  it('일·월·금요일에 시작하는 달의 경계', () => {
+    expect(ymd(weekMonthStart(d('2026-11-01')))).toBe('2026-11-01') // 일요일 시작 — 그날이 경계
+    expect(ymd(weekMonthStart(d('2026-06-01')))).toBe('2026-05-31') // 월요일 시작 — 6월이 6일 차지
+    expect(ymd(weekMonthOf(d('2026-05-31')))).toBe('2026-06-01')
+    expect(ymd(weekMonthOf(d('2026-05-02')))).toBe('2026-04-01') // 금요일 시작 — 4/26~5/2 주는 4월
+    expect(ymd(weekMonthStart(d('2026-05-03')))).toBe('2026-05-03')
+  })
+
+  it('12월→1월 경계와 더하기·끝·차이', () => {
+    expect(ymd(weekMonthOf(d('2027-01-01')))).toBe('2026-12-01')
+    expect(ymd(weekMonthAdd(d('2026-11-29'), 1))).toBe('2027-01-03')
+    // 달 중간에서 더하면 달 시작에서 떨어진 거리를 유지 — 월말에 「다음 경계」가 주보다 가까워 보이지 않게
+    expect(ymd(weekMonthAdd(d('2026-10-30'), 1))).toBe('2026-11-27')
+    expect(weekMonthAdd(d('2026-10-30'), 1).getTime()).toBeGreaterThan(addDays(d('2026-10-30'), 7).getTime())
+    expect(weekMonthEnd(d('2026-10-20')).getTime()).toBe(d('2026-11-01').getTime() - 1)
+    expect(weekMonthEnd(d('2026-10-04')).getTime()).toBe(d('2026-11-01').getTime() - 1)
+    expect(weekMonthDiff(d('2027-01-10'), d('2026-10-20'))).toBe(3)
+    expect(weeksInWeekMonth(d('2026-10-20'))).toBe(4) // 10/4~10/31
+    expect(weeksInWeekMonth(d('2026-08-30'))).toBe(5) // 8/30~10/3 (9월)
+  })
+
+  it('60개월 — 달마다 한 칸, 빈틈·겹침 없이 일요일 경계로 이어진다', () => {
+    let cur = weekMonthStart(d('2024-01-15'))
+    let weeks = 0
+    const first = cur
+    for (let i = 0; i < 60; i++) {
+      const next = weekMonthAdd(cur, 1)
+      expect(cur.getDay()).toBe(0)
+      expect(ymd(weekMonthOf(cur))).toBe(format(addMonths(d('2024-01-01'), i), 'yyyy-MM-dd'))
+      expect([28, 35]).toContain(differenceInCalendarDays(next, cur))
+      expect(weekMonthStart(addDays(next, -1)).getTime()).toBe(cur.getTime())
+      weeks += weeksInWeekMonth(cur)
+      cur = next
+    }
+    expect(weeks * 7).toBe(differenceInCalendarDays(cur, first))
+  })
+})

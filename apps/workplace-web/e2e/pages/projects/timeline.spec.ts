@@ -629,3 +629,50 @@ test('기간이 아주 긴 이슈가 있어도 처음 열 때·「오늘」 뒤 
   await expandNoEpicGroup(page);
   await expect(page.locator('.wx-bar[data-task-id$="7"]')).toBeVisible();
 });
+
+// WP-605 — 주 보기 위쪽 월 칸이 축 시작에서 멀어질수록 밀려(21개월에 3달) 오늘(10월) 위에 「7월」이 적혔다.
+// 위쪽 행을 주 경계에 맞춘 달로 그리므로, 오늘선 위 월 칸이 실제 달이고 월 칸 경계가 주 칸 경계와 겹친다.
+test('주 보기 — 축이 길어도 오늘선 위 월 칸이 실제 달이고 월 칸 경계가 주 칸 경계와 맞는다', async ({ authenticatedPage: page }) => {
+  await page.clock.setFixedTime(new Date('2026-10-20T03:00:00Z'));
+  await setupTimelineStubs(page);
+  await page.route(`**/api/v1/projects/${KEY}/issues?*`, (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    const issues = [
+      createIssue({ number: 1, title: '작년 초 이슈', startDate: '2025-01-06', dueDate: '2025-01-20' }),
+      createIssue({ number: 2, title: '이번 주 이슈', startDate: '2026-10-20', dueDate: '2026-10-25' }),
+    ];
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createIssueSearchResponse(issues)) });
+  });
+  await page.goto(`/projects/${KEY}/timeline?period=all`);
+  await expect(page.getByTestId('timeline-gantt')).toBeVisible();
+  await page.getByRole('button', { name: '오늘' }).click();
+  const todayLine = page.getByTestId('timeline-today-line');
+  await expect(todayLine).toBeVisible();
+
+  // 오늘선 x 를 덮는 위·아래 스케일 칸의 글자
+  const cellAt = (row: 'first' | 'last') =>
+    todayLine.evaluate((line, which) => {
+      const x = line.getBoundingClientRect().left;
+      const rows = document.querySelectorAll('.timeline-gantt-root .wx-scale .wx-row');
+      const r = which === 'first' ? rows[0] : rows[rows.length - 1];
+      const cell = [...r.querySelectorAll<HTMLElement>('.wx-cell')].find((c) => {
+        const b = c.getBoundingClientRect();
+        return b.left <= x && x < b.right;
+      });
+      return cell?.textContent?.trim() ?? null;
+    }, row);
+  await expect.poll(() => cellAt('first')).toBe('2026년 10월');
+  expect(await cellAt('last')).toBe('W43');
+
+  // 그려진 월 칸의 왼쪽 경계는 모두 주 칸 경계 위에 있다(달이 주 중간에서 갈리지 않는다).
+  // 스케일은 보이는 칸만 그리므로 그려진 주 칸 범위 안의 월 경계만 본다.
+  const bounds = await page.locator('.timeline-gantt-root .wx-scale').evaluate((scale) => {
+    const rows = scale.querySelectorAll('.wx-row');
+    const lefts = (r: Element) => [...r.querySelectorAll<HTMLElement>('.wx-cell')].map((c) => Math.round(c.getBoundingClientRect().left));
+    return { months: lefts(rows[0]), weeks: lefts(rows[rows.length - 1]) };
+  });
+  const [lo, hi] = [Math.min(...bounds.weeks), Math.max(...bounds.weeks)];
+  const inRange = bounds.months.filter((l) => l >= lo && l <= hi);
+  expect(inRange.length).toBeGreaterThan(0);
+  for (const l of inRange) expect(bounds.weeks.some((w) => Math.abs(w - l) <= 1)).toBe(true);
+});

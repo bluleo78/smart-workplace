@@ -8,6 +8,7 @@ import {
   type IColumnConfig,
   type IScaleConfig,
   type ITask,
+  registerScaleUnit,
   Willow,
   WillowDark,
 } from '@svar-ui/react-gantt'
@@ -18,7 +19,16 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 import type { IssueStatus } from '@/types/issue'
 
-import { ganttAxisBounds, rollupOverlay } from './timelineData'
+import {
+  ganttAxisBounds,
+  rollupOverlay,
+  weekMonthAdd,
+  weekMonthDiff,
+  weekMonthEnd,
+  weekMonthOf,
+  weekMonthStart,
+  weeksInWeekMonth,
+} from './timelineData'
 import type {
   TimelineCycleBand,
   TimelineDependencyEdge,
@@ -97,8 +107,20 @@ const STATUS_BAR_COLOR: Record<IssueStatus, string> = {
 const ROLLUP_VARS = ['--rollup-left', '--rollup-width', '--rollup-in-start', '--rollup-in-end'] as const
 const NO_ROLLUP_VALUES = ROLLUP_VARS.map(() => '')
 
+// 주 보기 위쪽 행은 주 경계에 맞춘 달(WP-605) — SVAR 기본 'month' 는 달 경계 주를 양쪽 달에 두 번 세어 축이 길수록
+// 아래쪽 주 칸보다 밀린다. 단위는 모듈 로드 때 한 번 등록한다(같은 이름 재등록은 덮어쓰기라 HMR 에도 안전).
+const WEEK_MONTH_UNIT = 'weekmonth'
+registerScaleUnit(WEEK_MONTH_UNIT, {
+  start: weekMonthStart,
+  end: weekMonthEnd,
+  isSame: (a, b) => weekMonthOf(a).getTime() === weekMonthOf(b).getTime(),
+  add: weekMonthAdd,
+  diff: weekMonthDiff,
+  smallerCount: { week: weeksInWeekMonth, day: (date: Date) => weeksInWeekMonth(date) * 7 },
+})
+
 const WEEK_SCALES: IScaleConfig[] = [
-  { unit: 'month', step: 1, format: (date) => format(date, 'yyyy년 M월') },
+  { unit: WEEK_MONTH_UNIT, step: 1, format: (date) => format(weekMonthOf(date), 'yyyy년 M월') },
   { unit: 'week', step: 1, format: (date) => format(date, "'W'w") },
 ]
 

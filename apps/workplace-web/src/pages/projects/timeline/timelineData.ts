@@ -1,7 +1,7 @@
 // 이슈/사이클/마일스톤 응답을 TimelineGantt 가 소비하는 모델로 변환하는 순수 함수 모음.
 // 네트워크/상태와 분리해 vitest 로 검증한다.
 
-import { addDays, addMonths, differenceInCalendarDays, endOfQuarter, format, getDaysInMonth, isValid, parseISO, startOfMonth, startOfQuarter, subMonths } from 'date-fns';
+import { addDays, addMonths, differenceInCalendarDays, differenceInCalendarMonths, endOfQuarter, format, getDaysInMonth, isValid, parseISO, startOfMonth, startOfQuarter, startOfWeek, subMonths } from 'date-fns';
 
 import type { CycleResponse } from '@/types/cycle';
 import type { IssueResponse, IssueStatus } from '@/types/issue';
@@ -677,4 +677,51 @@ export function ganttAxisBounds(
     start: startOfMonth(dataStart < lo ? lo : dataStart),
     end: startOfMonth(addMonths(dataEnd > hi ? hi : dataEnd, 1)),
   };
+}
+
+// ── 주 보기 위쪽 월 칸(WP-605) ─────────────────────────────────────────────
+// SVAR 는 월 칸 폭을 「그 달이 걸친 주 수(앞뒤 주 올림)」로 재서 달 경계 주를 양쪽 달에 두 번 센다 — 축이 길수록
+// 위쪽 월 칸이 아래쪽 주 칸보다 밀린다(21개월에 3달). 주 보기에서는 달을 주 경계에 맞춘 「주 단위 달」로 그린다.
+// 한 주는 그 달이 4일 이상 차지하는 달(= 주 시작 + 3일이 든 달) 소속이다. 아래쪽 주 칸('W'w)과 같은 일요일 시작.
+
+/** 타임라인 간트의 주 시작 요일 — SVAR 기본 로케일·date-fns 'w' 와 같은 일요일. */
+export const TIMELINE_WEEK_STARTS_ON = 0;
+
+/** date 가 든 주가 속한 달의 1일. */
+export function weekMonthOf(date: Date): Date {
+  return startOfMonth(addDays(startOfWeek(date, { weekStartsOn: TIMELINE_WEEK_STARTS_ON }), 3));
+}
+
+/** month(그 달 1일)의 주 단위 달이 시작하는 주의 첫날 — 그 달 4일이 든 주. */
+function weekMonthBoundary(month: Date): Date {
+  return startOfWeek(addDays(startOfMonth(month), 3), { weekStartsOn: TIMELINE_WEEK_STARTS_ON });
+}
+
+/** date 가 든 주 단위 달의 시작(주 첫날). */
+export function weekMonthStart(date: Date): Date {
+  return weekMonthBoundary(weekMonthOf(date));
+}
+
+/**
+ * date 에서 주 단위 달 n 개 뒤 — 달 시작에서 떨어진 거리는 그대로 둔다(달 시작이면 n 달 뒤 달 시작).
+ * SVAR 는 단위들의 add(오늘, 1) 을 견줘 가장 작은 단위를 고르므로, 경계로 붙이면 월말에 주보다 작아 보인다.
+ */
+export function weekMonthAdd(date: Date, n: number): Date {
+  const offset = date.getTime() - weekMonthStart(date).getTime();
+  return new Date(weekMonthBoundary(addMonths(weekMonthOf(date), n)).getTime() + offset);
+}
+
+/** date 가 든 주 단위 달의 마지막 순간(다음 달 시작 1ms 전) — SVAR 단위 end 규약. */
+export function weekMonthEnd(date: Date): Date {
+  return new Date(weekMonthAdd(weekMonthStart(date), 1).getTime() - 1);
+}
+
+/** a 가 b 보다 몇 주 단위 달 뒤인지. */
+export function weekMonthDiff(a: Date, b: Date): number {
+  return differenceInCalendarMonths(weekMonthOf(a), weekMonthOf(b));
+}
+
+/** date 가 든 주 단위 달의 주 수(4 또는 5). */
+export function weeksInWeekMonth(date: Date): number {
+  return differenceInCalendarDays(weekMonthAdd(weekMonthStart(date), 1), weekMonthStart(date)) / 7;
 }
