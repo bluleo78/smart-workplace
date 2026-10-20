@@ -21,7 +21,7 @@ import { useCreateWikiPageAndOpen } from './useCreateWikiPageAndOpen'
 import { WikiEditor } from './WikiEditor'
 import { WikiPageSkeleton } from './WikiPageSkeleton'
 import { type ConfirmedLoadState, trackConfirmedLoad, wikiPageViewMode } from './wikiPageViewMode'
-import { isWikiSpaceUnavailable } from './wikiSpaceUnavailable'
+import { canEditWikiSpace, isWikiSpaceUnavailable } from './wikiSpaceUnavailable'
 import { WikiSpaceUnavailableState } from './WikiSpaceUnavailableState'
 
 /** 선택된 페이지를 로드해 에디터를 마운트. 미선택 시 DS §2.5 빈 상태(4요소) 표시. */
@@ -71,15 +71,19 @@ export function WikiPageView({ pageId, spaceId }: { pageId: number | null; space
     return <WikiSpaceUnavailableState onBack={() => navigate('/wiki')} />
   }
   if (mode === 'empty') {
+    // 읽기 전용 공간(VIEWER)이면 만들기 버튼 대신 안내만 둔다(WP-602) — 눌러도 403 이다.
+    const canCreate = canEditWikiSpace(spaces.data, spaceId)
     /** 빈 상태 — DS §2.5: 아이콘 + 제목 + 설명 + CTA 버튼 4요소(데스크톱 본문. 모바일 목록은 WikiNoPages, WP-179) */
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 text-center" data-testid="wiki-empty-state">
         <BookOpen className="h-10 w-10 text-muted-foreground/50" aria-hidden="true" />
         <div>
           <p className="text-sm font-medium">표시할 페이지가 없습니다</p>
-          <p className="mt-1 text-xs text-muted-foreground">페이지를 선택하거나 새 페이지를 만드세요</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {canCreate ? '페이지를 선택하거나 새 페이지를 만드세요' : '페이지를 선택하세요 — 이 공간은 읽기만 할 수 있어요'}
+          </p>
         </div>
-        <div className="flex items-center gap-2">
+        {canCreate && <div className="flex items-center gap-2">
           <Button size="sm" onClick={() => createPage(null)} disabled={createPending}>
             새 페이지 만들기
           </Button>
@@ -92,7 +96,7 @@ export function WikiPageView({ pageId, spaceId }: { pageId: number | null; space
           >
             <AiLabel>AI 초안으로 시작</AiLabel>
           </Button>
-        </div>
+        </div>}
       </div>
     )
   }

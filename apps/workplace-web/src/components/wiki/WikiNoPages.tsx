@@ -15,7 +15,8 @@ export function WikiNoPages({
   pending,
 }: {
   className?: string
-  onCreate: (withAiDraft: boolean) => void
+  /** 없으면(읽기 전용 공간, WP-602) 만들기 버튼 없이 안내만 둔다. */
+  onCreate?: (withAiDraft: boolean) => void
   pending: boolean
 }) {
   return (
@@ -24,9 +25,9 @@ export function WikiNoPages({
       className={className}
       icon={FileText}
       title="아직 페이지가 없습니다"
-      description="새 페이지를 만들거나 AI 초안으로 시작해 보세요."
+      description={onCreate ? '새 페이지를 만들거나 AI 초안으로 시작해 보세요.' : '이 공간은 읽기만 할 수 있어요.'}
       action={
-        <div className="flex w-56 flex-col gap-2">
+        onCreate && <div className="flex w-56 flex-col gap-2">
           <Button className="h-11 w-full" onClick={() => onCreate(false)} disabled={pending} data-testid="wiki-no-pages-create">
             새 페이지 만들기
           </Button>

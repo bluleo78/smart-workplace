@@ -36,6 +36,7 @@ export function WikiTreeRow({
   onOpen,
   onAddChild,
   onRequestDelete,
+  canEdit,
 }: {
   id: number
   title: string
@@ -49,6 +50,8 @@ export function WikiTreeRow({
   onOpen: (id: number) => void
   onAddChild: (id: number) => void
   onRequestDelete: (id: number) => void
+  /** 이 공간에 쓸 수 있는지(WP-602) — 거짓(VIEWER)이면 하위 페이지·삭제 버튼을 감추고 끌어 옮기기를 끈다(눌러도 403). */
+  canEdit: boolean
 }) {
   // role: 'group' — dnd-kit 기본값(role="button")을 쓰면 행 안에 실제 button 3개(열기/자식추가/메뉴)가
   // 중첩되어 무효한 interactive-in-interactive 구조가 되고, accname 계산 시 세 버튼 이름이 하나로
@@ -57,6 +60,7 @@ export function WikiTreeRow({
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id,
     attributes: { role: 'group' },
+    disabled: !canEdit,
   })
   const style = { transform: CSS.Translate.toString(transform), transition }
   const label = title || '제목 없음'
@@ -110,7 +114,7 @@ export function WikiTreeRow({
             </AiSignalBadge>
           )}
         </button>
-        {coarse ? (
+        {!canEdit ? null : coarse ? (
           // 터치: 제목 옆 제자리(absolute 아님)에 ⋯ 하나 — 제목을 덮지 않는다(WP-237).
           // 행의 DnD 리스너로 이벤트가 새지 않게 isolateEvents 로 버블링을 끊는다.
           <TouchRowActionsMenu

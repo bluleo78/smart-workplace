@@ -138,7 +138,9 @@ class WikiSpaceServiceTest extends IntegrationTestBase {
     WikiSpaceResponse team = spaceService.createTeamSpace(owner, "팀");
 
     assertThatThrownBy(() -> spaceService.addMember(owner, team.id(), otherTenantUser, "VIEWER"))
-        .isInstanceOf(WikiForbiddenException.class);
+        .isInstanceOf(WikiForbiddenException.class)
+        // WP-602: 문구에 공간·사용자 id 를 싣지 않는다(화면 토스트에 그대로 뜬다).
+        .hasMessage("이 노트 공간에서 이 작업을 할 권한이 없습니다");
   }
 
   /** #696 — 동일 테넌트 내 동일 이름(대소문자 무시) TEAM 공간 생성은 하드 차단된다(컨테이너류 이름은 식별자 — #688/#803 과 동일 정책). */

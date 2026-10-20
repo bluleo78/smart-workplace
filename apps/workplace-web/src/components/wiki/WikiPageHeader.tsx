@@ -61,6 +61,7 @@ export function WikiPageHeader({
   onNavigate,
   onAiAction,
   onDelete,
+  canDelete,
   onViewSource,
   onViewHistory,
   presence,
@@ -76,6 +77,8 @@ export function WikiPageHeader({
   onNavigate: (pageId: number) => void
   onAiAction: (action: GenerateActionKey) => void
   onDelete: () => void
+  /** 페이지를 지울 수 있는지(WP-602) — 읽기 전용(VIEWER)이면 「페이지 삭제」를 감춘다(눌러도 403). */
+  canDelete: boolean
   /** 마크다운 소스 모달 열기(#753). 읽기 권한만 있으면 되므로 canEdit 과 무관하게 노출한다. */
   onViewSource: () => void
   /** 버전 기록 열기(WP-282). 읽기 권한만 있으면 볼 수 있다 — 복원 버튼만 편집 권한으로 가린다. 없으면 항목을 두지 않는다. */
@@ -170,6 +173,7 @@ export function WikiPageHeader({
     <DropdownMenu>
       <DropdownMenuTrigger
         aria-label="페이지 메뉴"
+        data-testid="wiki-page-menu"
         // 모바일 병합 헤더에선 44px 터치 타깃(데스크톱은 기존 p-1).
         className={cn(
           'rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground',
@@ -221,7 +225,7 @@ export function WikiPageHeader({
           </DropdownMenuItem>
         )}
         {/* 이미 지워졌거나 접근을 잃은 노트(종료 상태)는 지울 수 없다 — 눌러도 404 뿐이라 항목(과 구분선)을 감춘다. */}
-        {!isAccessLost(syncStatus) && (
+        {!isAccessLost(syncStatus) && canDelete && (
           <>
             <DropdownMenuSeparator />
             <DropdownMenuItem

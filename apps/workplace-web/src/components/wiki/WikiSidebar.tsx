@@ -42,7 +42,7 @@ import { WikiDeletePageDialog } from './WikiDeletePageDialog'
 import { WikiNoPages } from './WikiNoPages'
 import { WikiNoSpaces } from './WikiNoSpaces'
 import { WikiSpaceMemberDialog } from './WikiSpaceMemberDialog'
-import { isWikiSpaceUnavailable } from './wikiSpaceUnavailable'
+import { canEditWikiSpace, isWikiSpaceUnavailable } from './wikiSpaceUnavailable'
 import { WikiSpaceUnavailableState } from './WikiSpaceUnavailableState'
 import { WikiTreeRow } from './WikiTreeRow'
 
@@ -223,6 +223,8 @@ export function WikiSidebar() {
     [spaces, spaceId],
   )
   const isTeamSpace = selectedSpace?.type === 'TEAM'
+  // 이 공간에 페이지를 만들고·지우고·옮길 수 있는지(WP-602) — VIEWER 에게 쓰기 버튼을 보여 주면 눌러도 403 이다.
+  const canEdit = canEditWikiSpace(spaces, spaceId)
   // 모바일 빈 공간(페이지 0개) — 트리 대신 생성 진입점 빈 상태(WP-179). 데스크톱은 본문(WikiPageView)이 빈 상태를 그린다.
   const showNoPages = isMobile && pages?.length === 0
   // 볼 수 없거나 없는 공간 주소(WP-559) — 만들어도 404 라 ＋ 를 숨기고, 모바일은 목록이 화면 전체라 여기서 안내한다(데스크톱은 본문이 그린다).
@@ -382,7 +384,7 @@ export function WikiSidebar() {
               멤버
             </Button>
           )}
-          {!spaceUnavailable && (
+          {!spaceUnavailable && canEdit && (
             <button
               type="button"
               onClick={() => createPage(null)}
@@ -398,7 +400,11 @@ export function WikiSidebar() {
       {showSpaceUnavailable ? (
         <WikiSpaceUnavailableState onBack={() => navigate('/wiki')} />
       ) : showNoPages ? (
-        <WikiNoPages className="flex-1" onCreate={(withAiDraft) => createPage(null, withAiDraft)} pending={createPending} />
+        <WikiNoPages
+          className="flex-1"
+          onCreate={canEdit ? (withAiDraft) => createPage(null, withAiDraft) : undefined}
+          pending={createPending}
+        />
       ) : (
         <nav className="min-h-0 flex-1 overflow-y-auto px-1 pb-4">
           <DndContext
@@ -428,6 +434,7 @@ export function WikiSidebar() {
                   onOpen={openPage}
                   onAddChild={addSubPage}
                   onRequestDelete={setDeleteTarget}
+                  canEdit={canEdit}
                 />
               ))}
             </SortableContext>

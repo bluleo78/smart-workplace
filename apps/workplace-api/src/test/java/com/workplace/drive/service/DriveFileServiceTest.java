@@ -314,7 +314,9 @@ class DriveFileServiceTest extends IntegrationTestBase {
     var folder = folderService.create(owner, sp.id(), null, "대상");
 
     assertThatThrownBy(() -> fileService.move(viewer, f.id(), folder.id()))
-        .isInstanceOf(com.workplace.drive.exception.DriveForbiddenException.class);
+        .isInstanceOf(com.workplace.drive.exception.DriveForbiddenException.class)
+        // WP-602: 문구에 공간·사용자 id 를 싣지 않는다(화면 토스트에 그대로 뜬다).
+        .hasMessage("이 드라이브 공간에서 이 작업을 할 권한이 없습니다");
   }
 
   @Test

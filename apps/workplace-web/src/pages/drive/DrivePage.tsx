@@ -55,7 +55,7 @@ import { useSingleLineEnter } from '@/hooks/useSingleLineEnter'
 import { buildDriveContext } from '@/lib/aiScreenContext/builders/drive'
 import { extractApiError, handleApiError } from '@/lib/api-error'
 import { dragItemsFor, type DriveDragItem, driveDragItem, type DriveDropData, moveToastMessage } from '@/lib/driveDnd'
-import { driveFileActionDisabled } from '@/lib/driveRowActions'
+import { driveFileActionDisabled, isDriveViewer, visibleDriveRowActions } from '@/lib/driveRowActions'
 import { fileStemLength } from '@/lib/fileName'
 import { formatDateOnly, formatDateShort, formatFileSize } from '@/lib/formatters'
 import { parseId } from '@/lib/historyParam'
@@ -199,6 +199,8 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   // WP-63: useQuery 전환 — 실패 시 data 가 없어 배너 미표시로 폴백(기존 동작 유지).
   const spaceQuery = useDriveSpace(validSid)
   const space = spaceQuery.data ?? null
+  // WP-602: 팀 공간 VIEWER — 쓰기 버튼(새 폴더·업로드·이동·삭제·공유 링크 등)을 감추고 읽기 동작만 둔다. 눌러도 서버가 403 이다.
+  const readOnlyRole = isDriveViewer(space)
   // WP-529: 없는 공간·멤버가 아닌 공간(서버는 존재 은닉으로 404, 역할 미달 403)·숫자가 아닌 주소 — 빈 폴더 + 켜진 업로드로 보이면 안 된다.
   // 일시적 오류(네트워크·5xx)는 「접근 권한 없음」이 아니므로 기존 화면을 유지한다.
   const spaceStatus = axios.isAxiosError(spaceQuery.error) ? spaceQuery.error.response?.status : undefined
@@ -606,7 +608,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   async function onDrop(e: React.DragEvent) {
     e.preventDefault()
     setDragOver(false)
-    if (space?.archived) return
+    if (space?.archived || readOnlyRole) return
     const dropped = await readDroppedTree(e.dataTransfer.items)
     await uploadDroppedTree(dropped)
   }
@@ -727,30 +729,34 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
           <X className="size-5" aria-hidden />
         </button>
         <span className="px-1 font-medium">{selCount}개 선택</span>
-        <button
-          type="button"
-          data-testid="bulk-move"
-          onClick={() => setBulkPicker(true)}
-          disabled={!!space?.archived}
-          className={cn(btn, 'ml-auto')}
-        >
-          <FolderInput aria-hidden />
-          이동
-        </button>
+        {!readOnlyRole && (
+          <button
+            type="button"
+            data-testid="bulk-move"
+            onClick={() => setBulkPicker(true)}
+            disabled={!!space?.archived}
+            className={cn(btn, 'ml-auto')}
+          >
+            <FolderInput aria-hidden />
+            이동
+          </button>
+        )}
         <button type="button" data-testid="bulk-zip" onClick={onBulkZip} className={btn}>
           <Download aria-hidden />
           ZIP
         </button>
-        <button
-          type="button"
-          data-testid="bulk-delete"
-          onClick={onBulkDelete}
-          disabled={!!space?.archived}
-          className={cn(btn, 'text-destructive')}
-        >
-          <Trash2 aria-hidden />
-          삭제
-        </button>
+        {!readOnlyRole && (
+          <button
+            type="button"
+            data-testid="bulk-delete"
+            onClick={onBulkDelete}
+            disabled={!!space?.archived}
+            className={cn(btn, 'text-destructive')}
+          >
+            <Trash2 aria-hidden />
+            삭제
+          </button>
+        )}
       </div>
     )
   }
@@ -789,7 +795,10 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   function renderHoverActions(target: RowTarget) {
     const name = target.item.name
     const actions = rowActionsFor(target)
+    // VIEWER 의 폴더처럼 할 수 있는 작업이 없으면 묶음 자체를 그리지 않는다(WP-602).
+    if (actions.length === 0) return null
     const inline = ROW_INLINE_ACTIONS[target.kind]
+    const overflow = actions.filter((a) => !inline.some((i) => i.key === a.key))
     return (
       <div
         className={ROW_HOVER_ACTIONS}
@@ -811,10 +820,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
             </Button>
           )
         })}
-        <RowOverflowMenu
-          triggerAriaLabel={`${name} 더보기`}
-          items={actions.filter((a) => !inline.some((i) => i.key === a.key))}
-        />
+        {overflow.length > 0 && <RowOverflowMenu triggerAriaLabel={`${name} 더보기`} items={overflow} />}
       </div>
     )
   }
@@ -826,16 +832,17 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     const archived = !!space?.archived
     if (target.kind === 'folder') {
       const f = target.item
-      return [
+      return visibleDriveRowActions([
         { key: 'rename', label: '이름 변경', icon: <Pencil />, onSelect: () => onRenameFolder(f.id, f.name), disabled: archived },
         { key: 'move', label: '이동', icon: <FolderInput />, onSelect: () => setPicker({ mode: 'move', kind: 'folder', id: f.id, name: f.name }), disabled: archived },
         { key: 'copy', label: '복사', icon: <Copy />, onSelect: () => setPicker({ mode: 'copy', kind: 'folder', id: f.id, name: f.name }), disabled: archived },
         { key: 'delete', label: '삭제', icon: <Trash2 />, onSelect: () => onDeleteFolder(f.id), disabled: archived, destructive: true },
-      ]
+      ], readOnlyRole)
     }
     const f = target.item
     const off = driveFileActionDisabled({ archived, missing: isMissingBlob(f) })
-    return [
+    // VIEWER 는 다운로드·버전 이력만(WP-602) — 순수 함수 visibleDriveRowActions 가 고른다.
+    return visibleDriveRowActions([
       { key: 'download', label: '다운로드', icon: <Download />, onSelect: () => driveApi.downloadFile(f.id, f.name), disabled: off.download },
       { key: 'share', label: '공유 링크', icon: <Link2 />, onSelect: () => setShareFile(f), disabled: off.share },
       { key: 'rename', label: '이름 변경', icon: <Pencil />, onSelect: () => setRenameFile(f), disabled: off.rename },
@@ -843,7 +850,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
       { key: 'copy', label: '복사', icon: <Copy />, onSelect: () => setPicker({ mode: 'copy', kind: 'file', id: f.id, name: f.name }), disabled: off.copy },
       { key: 'versions', label: '버전 이력', icon: <History />, onSelect: () => setVersionFile(f), disabled: off.versions },
       { key: 'delete', label: '삭제', icon: <Trash2 />, onSelect: () => onDeleteFile(f.id), disabled: off.delete, destructive: true },
-    ]
+    ], readOnlyRole)
   }
 
   // #658: 현재 업로드 배치를 취소 — abort() 는 진행 중인 axios 요청을 중단시키고,
@@ -1092,15 +1099,17 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
         className="mb-2 flex items-center gap-2 rounded bg-muted px-3 py-2 text-sm"
       >
         <span>선택 {selCount}개</span>
-        <button
-          type="button"
-          data-testid="bulk-move"
-          onClick={() => setBulkPicker(true)}
-          disabled={!!space?.archived}
-          className="text-muted-foreground hover:underline disabled:opacity-50"
-        >
-          이동
-        </button>
+        {!readOnlyRole && (
+          <button
+            type="button"
+            data-testid="bulk-move"
+            onClick={() => setBulkPicker(true)}
+            disabled={!!space?.archived}
+            className="text-muted-foreground hover:underline disabled:opacity-50"
+          >
+            이동
+          </button>
+        )}
         <button
           type="button"
           data-testid="bulk-zip"
@@ -1109,15 +1118,17 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
         >
           ZIP 다운로드
         </button>
-        <button
-          type="button"
-          data-testid="bulk-delete"
-          onClick={onBulkDelete}
-          disabled={!!space?.archived}
-          className="text-destructive hover:underline disabled:opacity-50"
-        >
-          삭제
-        </button>
+        {!readOnlyRole && (
+          <button
+            type="button"
+            data-testid="bulk-delete"
+            onClick={onBulkDelete}
+            disabled={!!space?.archived}
+            className="text-destructive hover:underline disabled:opacity-50"
+          >
+            삭제
+          </button>
+        )}
         <button
           type="button"
           data-testid="bulk-clear"
@@ -1207,24 +1218,28 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
               placeholder="이 공간에서 검색..."
               aria-label="파일명 및 콘텐츠 검색"
             />
-            <button
-              type="button"
-              onClick={onNewFolder}
-              data-testid="drive-new-folder"
-              disabled={!!space?.archived}
-              className="rounded border px-2 py-1 text-sm hover:bg-accent/50 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              새 폴더
-            </button>
-            <button
-              type="button"
-              onClick={() => fileInput.current?.click()}
-              data-testid="drive-upload"
-              disabled={uploading || !!space?.archived}
-              className="rounded bg-primary px-2 py-1 text-sm text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {uploading ? '업로드 중…' : '업로드'}
-            </button>
+            {!readOnlyRole && (
+              <button
+                type="button"
+                onClick={onNewFolder}
+                data-testid="drive-new-folder"
+                disabled={!!space?.archived}
+                className="rounded border px-2 py-1 text-sm hover:bg-accent/50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                새 폴더
+              </button>
+            )}
+            {!readOnlyRole && (
+              <button
+                type="button"
+                onClick={() => fileInput.current?.click()}
+                data-testid="drive-upload"
+                disabled={uploading || !!space?.archived}
+                className="rounded bg-primary px-2 py-1 text-sm text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {uploading ? '업로드 중…' : '업로드'}
+              </button>
+            )}
             {/* #658: 업로드 중인 파일(들) 전체 취소 — 개별 파일별 취소는 범위 밖.
                 다중/드롭 업로드는 drop-progress 쪽에 취소 버튼이 별도로 노출되므로 중복 방지. */}
             {uploading && !dropProgress && (
@@ -1259,7 +1274,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
       <DriveDndProvider
         // 공간 정보가 오기 전(null)엔 보관 여부를 몰라 켜지 않는다. 폴더 전환 중 이전 폴더 목록(placeholder)·이동 처리 중에도 끈다 —
         // 옛 행을 끌면 현재 폴더 기준의 판정·되돌리기 목적지가 어긋난다.
-        enabled={!isMobile && !isCoarse && space != null && !space.archived && !itemsQuery.isPlaceholderData && !dragMoving}
+        enabled={!isMobile && !isCoarse && space != null && !space.archived && !readOnlyRole && !itemsQuery.isPlaceholderData && !dragMoving}
         currentFolderId={folderId ?? null}
         resolveItems={resolveDragItems}
         onMove={(dragged, target) => void onDragMove(dragged, target)}
@@ -1332,6 +1347,15 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
             보관된 채널의 공간입니다 — 읽기 전용입니다.
           </div>
         )}
+        {/* WP-602: 보기 권한(VIEWER)만 있는 공간 — 쓰기 버튼이 없는 이유를 알린다. */}
+        {!space?.archived && readOnlyRole && (
+          <div
+            data-testid="drive-viewer-banner"
+            className="mb-2 rounded-md border border-border bg-muted px-3 py-2 text-sm text-muted-foreground"
+          >
+            이 공간은 보기 권한만 있어 내려받기만 할 수 있습니다.
+          </div>
+        )}
         {/* #82: 폴더 드롭 업로드 진행 표시. #658: 전체 취소 버튼 동반(드래그앤드롭은 툴바 버튼이 비활성화되지 않으므로 별도 노출). */}
         {dropProgress && (
           <div data-testid="drop-progress" className="mb-2 flex items-center gap-2 text-sm text-muted-foreground">
@@ -1350,7 +1374,8 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
           <div data-testid="trash-view">
             <div className="mb-2 flex items-center justify-between">
               <span className="text-sm text-muted-foreground">휴지통 ({trash.length})</span>
-              {trash.length > 0 && (
+              {/* 휴지통 비우기는 EDITOR 이상(WP-602). */}
+              {trash.length > 0 && !readOnlyRole && (
                 <button
                   type="button"
                   onClick={onEmptyTrash}
@@ -1381,12 +1406,17 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                       </span>
                     )}
                   </span>
-                  <button type="button" onClick={() => onRestore(it)} className="text-xs text-primary">
-                    복원
-                  </button>
-                  <button type="button" onClick={() => onPurge(it)} className="text-xs text-destructive">
-                    영구삭제
-                  </button>
+                  {/* 복원·영구삭제는 EDITOR 이상(WP-602) — VIEWER 는 목록만 본다. */}
+                  {!readOnlyRole && (
+                    <>
+                      <button type="button" onClick={() => onRestore(it)} className="text-xs text-primary">
+                        복원
+                      </button>
+                      <button type="button" onClick={() => onPurge(it)} className="text-xs text-destructive">
+                        영구삭제
+                      </button>
+                    </>
+                  )}
                 </li>
               ))}
               {trash.length === 0 && (
@@ -1610,7 +1640,8 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                 <span className="w-24 shrink-0 text-right text-xs text-muted-foreground max-lg:hidden">
                   {formatDateOnly(f.updatedAt)}
                 </span>
-                {isMobile ? (
+                {readOnlyRole ? null : isMobile ? (
+                  // VIEWER 는 폴더에 할 수 있는 작업이 없어 ⋮/⋯ 를 그리지 않는다(WP-602).
                   !mobileSelecting && renderRowMore(f.name, `folder-${f.id}`, () => setRowSheet({ kind: 'folder', item: f }))
                 ) : tabletRowMenu ? (
                   renderTabletRowMenu(f.name, `folder-${f.id}`, rowActionsFor({ kind: 'folder', item: f }))
@@ -1686,15 +1717,19 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
               >
                 <FolderOpen className="h-12 w-12 text-muted-foreground" />
                 <p className="text-sm font-semibold">이 폴더는 비어 있어요</p>
-                <p className="text-xs text-muted-foreground">파일을 업로드하거나 새 폴더를 만들어보세요</p>
-                <button
-                  type="button"
-                  onClick={() => fileInput.current?.click()}
-                  className="mt-1 inline-flex items-center gap-1.5 rounded-md border border-input bg-background px-3 py-1.5 text-xs font-medium shadow-sm hover:bg-accent"
-                >
-                  <Upload className="h-3.5 w-3.5" />
-                  업로드
-                </button>
+                <p className="text-xs text-muted-foreground">
+                  {readOnlyRole ? '이 공간은 보기 권한만 있어요' : '파일을 업로드하거나 새 폴더를 만들어보세요'}
+                </p>
+                {!readOnlyRole && (
+                  <button
+                    type="button"
+                    onClick={() => fileInput.current?.click()}
+                    className="mt-1 inline-flex items-center gap-1.5 rounded-md border border-input bg-background px-3 py-1.5 text-xs font-medium shadow-sm hover:bg-accent"
+                  >
+                    <Upload className="h-3.5 w-3.5" />
+                    업로드
+                  </button>
+                )}
               </li>
             )}
           </ul>

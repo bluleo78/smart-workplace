@@ -1021,6 +1021,39 @@ test('보관된 공간 — 폴더 행 이동 버튼과 ⋯ 메뉴의 이름 변�
   }
 })
 
+// WP-602 — 팀 공간 VIEWER 에게는 쓰기 버튼(새 폴더·업로드·공유·이름 변경·이동·복사·삭제)을 감추고 다운로드·버전 이력만 둔다.
+test('VIEWER 팀 공간 — 쓰기 버튼 없이 다운로드·버전 이력만 보인다', async ({ authenticatedPage: page }) => {
+  const team = createSpace({ role: 'VIEWER' })
+  const fulfillGet = (body: unknown) => (route: Route) =>
+    route.request().method() === 'GET'
+      ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
+      : route.fallback()
+  await page.route((url) => url.pathname === '/api/v1/drive/spaces', fulfillGet([personalSpace(), team]))
+  await page.route((url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}`, fulfillGet(team))
+  await stubItems(page, () => ({
+    folders: [createFolder({ id: 10, name: '문서' })],
+    files: [createFile({ id: 20, name: '보고서.pdf' })],
+  }))
+
+  await page.goto(`/drive/spaces/${SPACE_ID}`)
+  await expect(page.getByTestId('drive-viewer-banner')).toBeVisible()
+  await expect(page.getByTestId('drive-new-folder')).toHaveCount(0)
+  await expect(page.getByTestId('drive-upload')).toHaveCount(0)
+
+  // 폴더 행 — 할 수 있는 작업이 없어 이동·⋯ 가 없다.
+  const folderItem = page.getByRole('listitem').filter({ hasText: '문서' })
+  await folderItem.hover()
+  await expect(folderItem.getByRole('button', { name: /이동|더보기/ })).toHaveCount(0)
+
+  // 파일 행 — 다운로드는 있고 공유는 없으며, ⋯ 에는 버전 이력만.
+  const fileItem = page.getByRole('listitem').filter({ hasText: '보고서.pdf' })
+  await fileItem.hover()
+  await expect(fileItem.getByRole('button', { name: /다운로드/ })).toBeVisible()
+  await expect(fileItem.getByTestId('share-link-btn')).toHaveCount(0)
+  await fileItem.getByRole('button', { name: /더보기/ }).click()
+  await expect(page.getByRole('menuitem')).toHaveText(['버전 이력'])
+})
+
 // #148 — DriveSidebar 팀 공간 생성 — window.prompt → Dialog 교체 검증
 test('팀 공간 생성 — Dialog 표시, 이름 입력 후 만들기 클릭 시 POST 호출', async ({ authenticatedPage: page }) => {
   const newSpace = createSpace({ id: 99, name: '신규팀', type: 'TEAM' })

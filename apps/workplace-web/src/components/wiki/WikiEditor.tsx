@@ -819,6 +819,8 @@ export function WikiEditor({
     setConfirmDelete(false)
     del.mutate(page.id, {
       onSuccess: () => navigate(`/wiki/spaces/${spaceId}`),
+      // 실패하면 알린다 — 예전엔 아무 안내 없이 페이지가 그대로 남았다(WP-602).
+      onError: (e) => handleApiError(e, '페이지를 삭제하지 못했습니다'),
     })
   }, [del, page.id, navigate, spaceId])
 
@@ -857,6 +859,8 @@ export function WikiEditor({
         onNavigate={(id) => navigate(`/wiki/spaces/${spaceId}/pages/${id}`)}
         onAiAction={onHeaderAiAction}
         onDelete={() => setConfirmDelete(true)}
+        // 읽기 전용(VIEWER·서버가 강등)이면 삭제 항목을 감춘다(WP-602) — 편집 게이트와 같은 readOnly 를 따른다.
+        canDelete={!readOnly}
         onViewSource={onViewSource}
         onViewHistory={revisions.open}
         presence={<WikiPresence people={visiblePeople} compact={isMobile} stale={stale} onJump={jumpToPerson} />}
