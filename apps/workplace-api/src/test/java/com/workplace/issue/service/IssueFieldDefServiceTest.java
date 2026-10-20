@@ -107,6 +107,28 @@ class IssueFieldDefServiceTest extends IntegrationTestBase {
         .isInstanceOf(ProjectAccessDeniedException.class);
   }
 
+  /** 만들기·고치기 모두 다듬은 옵션으로 저장한다(WP-610) — 앞뒤 공백 옵션이 그대로 남지 않는다. */
+  @Test
+  void options_are_saved_trimmed_on_create_and_update() {
+    Long owner = createUser("trim");
+    var p = newProject(owner, "FTR");
+    var created =
+        service.create(
+            owner,
+            p.key(),
+            new CreateIssueFieldDefRequest(
+                "단계", "SELECT", om.createArrayNode().add(" 기획 ").add("개발\t")));
+    assertThat(created.options()).isEqualTo(om.createArrayNode().add("기획").add("개발"));
+    var updated =
+        service.update(
+            owner,
+            p.key(),
+            created.id(),
+            new CreateIssueFieldDefRequest(
+                "단계", "SELECT", om.createArrayNode().add("기획").add("개발").add("  배포")));
+    assertThat(updated.options()).isEqualTo(om.createArrayNode().add("기획").add("개발").add("배포"));
+  }
+
   @Test
   void select_without_options_throws_400() {
     Long owner = createUser("c");

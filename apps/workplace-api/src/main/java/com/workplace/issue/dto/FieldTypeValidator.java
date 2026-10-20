@@ -1,6 +1,9 @@
 package com.workplace.issue.dto;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.workplace.global.util.SingleLineTitles;
 import com.workplace.issue.exception.InvalidFieldOptionsException;
 import com.workplace.issue.exception.InvalidFieldValueException;
 import java.time.LocalDate;
@@ -22,28 +25,48 @@ public final class FieldTypeValidator {
   /** NUMBER 값 절댓값 상한 — JavaScript Number.MAX_SAFE_INTEGER(2^53-1). 이보다 크면 웹에서 값이 바뀌어 보인다. */
   private static final double NUMBER_MAX = 9007199254740991d;
 
-  /** options 검증 — SELECT/MULTI_SELECT 는 필수 (≥1, 각 1..40, UNIQUE), 그 외는 NULL/null-node 이어야 함. */
-  public static void validateOptions(String type, JsonNode options) {
-    if (FieldType.hasOptions(type)) {
-      if (options == null || !options.isArray() || options.size() == 0) {
-        throw new InvalidFieldOptionsException(FieldType.label(type) + " 필드는 최소 1개 이상의 옵션이 필요합니다");
+  /** 한 필드의 옵션 개수 상한(WP-610) — 수천 개를 받으면 설정 목록·고르기 메뉴가 수천 px 로 길어졌다. */
+  static final int OPTIONS_COUNT_MAX = 100;
+
+  /**
+   * options 검증·정리 — SELECT/MULTI_SELECT 는 필수(1..100개, 각 1..40자, 중복 없음), 그 외는 NULL/null-node 이어야 함.
+   * 정리한 옵션 배열을 돌려준다(그 외 타입은 null) — 저장은 이 값으로 한다.
+   *
+   * <p>각 옵션은 한 줄 제목처럼 다듬는다(WP-610 — {@link SingleLineTitles}): 앞뒤 공백·줄바꿈·보이지 않는 문자를 지운 뒤 비면 거절하고,
+   * 다듬은 값끼리 중복을 본다. 다듬지 않으면 공백뿐인 옵션이 빈 칩으로, 「A」와 「 A 」가 같은 「A」 칩 두 개로 보였다.
+   */
+  public static JsonNode normalizeOptions(String type, JsonNode options) {
+    if (!FieldType.hasOptions(type)) {
+      if (options != null && !options.isNull()) {
+        throw new InvalidFieldOptionsException(FieldType.label(type) + " 필드는 옵션을 지정할 수 없습니다");
       }
-      Set<String> seen = new HashSet<>();
-      for (JsonNode opt : options) {
-        if (!opt.isTextual()) {
-          throw new InvalidFieldOptionsException("옵션은 문자열이어야 합니다");
-        }
-        String s = opt.asText();
-        if (s.isEmpty() || s.length() > OPTION_MAX) {
-          throw new InvalidFieldOptionsException("옵션 길이 1..40");
-        }
-        if (!seen.add(s)) {
-          throw new InvalidFieldOptionsException("중복 옵션: " + s);
-        }
-      }
-    } else if (options != null && !options.isNull()) {
-      throw new InvalidFieldOptionsException(FieldType.label(type) + " 필드는 옵션을 지정할 수 없습니다");
+      return null;
     }
+    if (options == null || !options.isArray() || options.size() == 0) {
+      throw new InvalidFieldOptionsException(FieldType.label(type) + " 필드는 최소 1개 이상의 옵션이 필요합니다");
+    }
+    if (options.size() > OPTIONS_COUNT_MAX) {
+      throw new InvalidFieldOptionsException("옵션은 " + OPTIONS_COUNT_MAX + "개까지 만들 수 있습니다");
+    }
+    ArrayNode out = JsonNodeFactory.instance.arrayNode();
+    Set<String> seen = new HashSet<>();
+    for (JsonNode opt : options) {
+      if (!opt.isTextual()) {
+        throw new InvalidFieldOptionsException("옵션은 문자열이어야 합니다");
+      }
+      String s = SingleLineTitles.normalize(opt.asText());
+      if (s.isEmpty()) {
+        throw new InvalidFieldOptionsException("빈 옵션은 만들 수 없습니다");
+      }
+      if (s.length() > OPTION_MAX) {
+        throw new InvalidFieldOptionsException("옵션은 " + OPTION_MAX + "자 이하여야 합니다");
+      }
+      if (!seen.add(s)) {
+        throw new InvalidFieldOptionsException("중복 옵션: " + s);
+      }
+      out.add(s);
+    }
+    return out;
   }
 
   /** value 검증 — type 별 모양 + (SELECT/MULTI_SELECT 의 경우) options 화이트리스트. */
@@ -94,12 +117,17 @@ public final class FieldTypeValidator {
         if (!value.isArray()) {
           throw new InvalidFieldValueException("MULTI_SELECT 는 배열");
         }
+        // 같은 옵션을 두 번 고른 값은 거절한다(WP-610) — 그대로 저장하면 같은 칩이 두 번 보였다.
+        Set<String> picked = new HashSet<>();
         for (JsonNode v : value) {
           if (!v.isTextual()) {
             throw new InvalidFieldValueException("MULTI_SELECT 요소는 문자열");
           }
           if (!optionsContains(options, v.asText())) {
             throw new InvalidFieldValueException("옵션 외 값: " + v.asText());
+          }
+          if (!picked.add(v.asText())) {
+            throw new InvalidFieldValueException("같은 옵션을 두 번 고를 수 없습니다: " + v.asText());
           }
         }
       }

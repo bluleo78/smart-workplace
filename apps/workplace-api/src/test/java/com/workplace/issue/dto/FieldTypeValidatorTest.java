@@ -30,12 +30,12 @@ class FieldTypeValidatorTest {
   @Test
   void options_required_for_select_and_multi_select() {
     // 메시지에 영문 enum(SELECT)이 아닌 한국어 레이블(선택)이 노출돼야 한다 (#805).
-    assertThatThrownBy(() -> FieldTypeValidator.validateOptions("SELECT", null))
+    assertThatThrownBy(() -> FieldTypeValidator.normalizeOptions("SELECT", null))
         .isInstanceOf(InvalidFieldOptionsException.class)
         .hasMessageContaining("선택 필드는 최소 1개 이상의 옵션이 필요합니다")
         .hasMessageNotContaining("SELECT");
     assertThatThrownBy(
-            () -> FieldTypeValidator.validateOptions("MULTI_SELECT", om.createArrayNode()))
+            () -> FieldTypeValidator.normalizeOptions("MULTI_SELECT", om.createArrayNode()))
         .isInstanceOf(InvalidFieldOptionsException.class)
         .hasMessageContaining("복수 선택 필드는 최소 1개 이상의 옵션이 필요합니다")
         .hasMessageNotContaining("MULTI_SELECT");
@@ -44,10 +44,56 @@ class FieldTypeValidatorTest {
   @Test
   void options_forbidden_for_text_number_date() {
     var arr = om.createArrayNode().add("a");
-    assertThatThrownBy(() -> FieldTypeValidator.validateOptions("TEXT", arr))
+    assertThatThrownBy(() -> FieldTypeValidator.normalizeOptions("TEXT", arr))
         .isInstanceOf(InvalidFieldOptionsException.class)
         .hasMessageContaining("텍스트 필드는 옵션을 지정할 수 없습니다")
         .hasMessageNotContaining("TEXT");
+  }
+
+  /** 옵션은 앞뒤 공백·줄바꿈을 지운 값으로 저장하고, 비거나 다듬은 뒤 겹치면 거절한다(WP-610). */
+  @Test
+  void options_are_trimmed_and_blank_or_duplicate_after_trim_rejected() {
+    assertThat(
+            FieldTypeValidator.normalizeOptions(
+                "SELECT", om.createArrayNode().add("  높음 ").add("낮음\n")))
+        .isEqualTo(om.createArrayNode().add("높음").add("낮음"));
+    assertThatThrownBy(
+            () ->
+                FieldTypeValidator.normalizeOptions(
+                    "SELECT", om.createArrayNode().add("A").add("   ")))
+        .isInstanceOf(InvalidFieldOptionsException.class)
+        .hasMessageEndingWith("빈 옵션은 만들 수 없습니다");
+    assertThatThrownBy(
+            () ->
+                FieldTypeValidator.normalizeOptions(
+                    "SELECT", om.createArrayNode().add("A").add(" A ")))
+        .isInstanceOf(InvalidFieldOptionsException.class)
+        .hasMessageEndingWith("중복 옵션: A");
+  }
+
+  /** 옵션은 100개까지(WP-610). */
+  @Test
+  void options_count_is_capped() {
+    var ok = om.createArrayNode();
+    for (int i = 0; i < 100; i++) ok.add("옵션" + i);
+    assertThat(FieldTypeValidator.normalizeOptions("MULTI_SELECT", ok)).hasSize(100);
+    var tooMany = ok.deepCopy().add("옵션100");
+    assertThatThrownBy(() -> FieldTypeValidator.normalizeOptions("MULTI_SELECT", tooMany))
+        .isInstanceOf(InvalidFieldOptionsException.class)
+        .hasMessageEndingWith("옵션은 100개까지 만들 수 있습니다");
+  }
+
+  /** 다중 선택 값에 같은 옵션을 두 번 넣으면 거절한다(WP-610). */
+  @Test
+  void multi_select_value_rejects_duplicate_pick() {
+    var opts = om.createArrayNode().add("X").add("Y");
+    FieldTypeValidator.validateValue("MULTI_SELECT", opts, om.createArrayNode().add("X").add("Y"));
+    assertThatThrownBy(
+            () ->
+                FieldTypeValidator.validateValue(
+                    "MULTI_SELECT", opts, om.createArrayNode().add("X").add("X")))
+        .isInstanceOf(InvalidFieldValueException.class)
+        .hasMessageContaining("같은 옵션을 두 번");
   }
 
   @Test

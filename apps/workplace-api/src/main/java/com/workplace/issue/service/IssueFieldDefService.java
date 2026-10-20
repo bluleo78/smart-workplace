@@ -53,10 +53,10 @@ public class IssueFieldDefService {
       Long callerId, String projectKey, CreateIssueFieldDefRequest req) {
     var project = accessGuard.assertWithRole(projectKey, callerId, "OWNER");
     String type = FieldType.validate(req.type());
-    FieldTypeValidator.validateOptions(type, req.options());
+    JsonNode options = FieldTypeValidator.normalizeOptions(type, req.options());
     String name = req.name().trim();
     try {
-      var row = repo.insert(project.id(), name, type, req.options(), 99);
+      var row = repo.insert(project.id(), name, type, options, 99);
       changeNotifier.changed(
           ProjectChangeNotifier.RESOURCE_FIELD_DEF, OP_CREATED, project, row.id(), callerId);
       return toResponse(row);
@@ -76,9 +76,9 @@ public class IssueFieldDefService {
     if (req.type() != null && !row.type().equals(req.type())) {
       throw new TypeImmutableException();
     }
-    FieldTypeValidator.validateOptions(row.type(), req.options());
+    JsonNode options = FieldTypeValidator.normalizeOptions(row.type(), req.options());
     if (FieldType.hasOptions(row.type())) {
-      Set<String> removed = removedOptions(row.options(), req.options());
+      Set<String> removed = removedOptions(row.options(), options);
       if (!removed.isEmpty()) {
         int refCount = valueRepo.countReferencingOptions(fieldId, row.type(), removed);
         if (refCount > 0) {
@@ -88,7 +88,7 @@ public class IssueFieldDefService {
     }
     String name = req.name().trim();
     try {
-      repo.update(fieldId, name, req.options());
+      repo.update(fieldId, name, options);
     } catch (DuplicateKeyException e) {
       throw new FieldNameDuplicatedException(name);
     }
