@@ -35,7 +35,11 @@ export function IssueLinkPicker({
   async function onSave() {
     const trimmed = value.trim();
     const n = Number(trimmed);
-    if (!Number.isFinite(n) || n <= 0 || !Number.isInteger(n)) return;
+    // 0·음수·소수는 보낼 수 없다 — 예전엔 조용히 return 해 창만 그대로 남았다(WP-618). 이유를 알린다.
+    if (!Number.isFinite(n) || n <= 0 || !Number.isInteger(n)) {
+      toast.error('이슈 번호는 1 이상의 정수로 입력해 주세요');
+      return;
+    }
     // 서버 번호 범위(int)를 넘으면 요청 본문을 읽지 못해 「요청 본문을 해석할 수 없습니다」가 떴다(WP-470) — 보내기 전에 화면 문구로 알린다.
     if (n > MAX_ISSUE_NUMBER) {
       toast.error('이 프로젝트에 없는 이슈 번호입니다');

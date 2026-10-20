@@ -233,6 +233,12 @@ test.describe('의존성', () => {
     await page.getByTestId('issue-link-picker-input-blocks').fill('99999999999');
     await page.getByTestId('issue-link-picker-save-blocks').click();
     await expect(page.getByText('이 프로젝트에 없는 이슈 번호입니다')).toBeVisible();
+    // WP-618 — 0·음수·소수도 요청 없이 이유를 알린다(예전엔 아무 안내 없이 창만 남았다).
+    for (const bad of ['0', '-1', '1.5']) {
+      await page.getByTestId('issue-link-picker-input-blocks').fill(bad);
+      await page.getByTestId('issue-link-picker-save-blocks').click();
+      await expect(page.getByText('이슈 번호는 1 이상의 정수로 입력해 주세요').first()).toBeVisible();
+    }
     expect(posts).toBe(0);
     await page.getByTestId('issue-link-picker-input-blocks').fill('7');
     await page.getByTestId('issue-link-picker-save-blocks').click();
