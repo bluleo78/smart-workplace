@@ -34,6 +34,7 @@ import {
 } from '@/hooks/queries/useCalendarMutations'
 import { useCalendars } from '@/hooks/queries/useCalendars'
 import { useAuth } from '@/hooks/useAuth'
+import { INVITED_CALENDAR_LABEL } from '@/lib/calendar'
 // 폼 스키마·요청 조립·편집 가능 판정은 @/lib/calendarEventForm 의 순수 함수(WP-412)
 import {
   eventEditability,
@@ -134,7 +135,7 @@ export function EventDialog({
 
   // 읽기전용(외부 읽기전용 캘린더 #501 / 주최자 아님 WP-200)·사유 라벨·참석자 관리 가능 여부.
   // 이벤트 API 응답을 건드리지 않고 내 캘린더 목록에서 derive 한다.
-  const { isReadOnly, readOnlyLabel, canManageAttendees } = eventEditability({
+  const { isReadOnly, readOnlyLabel, canManageAttendees, isInvited } = eventEditability({
     isEdit,
     calendars,
     event,
@@ -144,6 +145,8 @@ export function EventDialog({
   // 편집 모드 참석자 invite/remove 뮤테이션 — eventId 0 은 dummy(생성 모드에서 훅 호출 유지) (이슈 #489)
   const inviteAttendees = useInviteAttendees(event?.id ?? 0)
   const removeAttendee = useRemoveAttendee(event?.id ?? 0)
+
+  const dialogTitle = !isEdit ? '새 일정' : isReadOnly ? '일정 보기' : '일정 수정'
 
   // 현재 사용자가 참석자이고 주최자·AGENT·외부 일정이 아닌 경우 RSVP 컨트롤 표시 (이슈 #489, #547)
   const showRsvp = shouldShowRsvp(isEdit, user?.id, eventWithDetail)
@@ -262,8 +265,9 @@ export function EventDialog({
         {...aiAware.contentProps}
       >
         <DialogHeader>
-          <DialogTitle>{isEdit ? '일정 수정' : '새 일정'}</DialogTitle>
-          <DialogDescription className="sr-only">{isEdit ? '일정 수정' : '새 일정'}</DialogDescription>
+          {/* 읽기 전용(초대받은·동기화 일정)은 고칠 수 없으니 「일정 보기」(WP-604). */}
+          <DialogTitle>{dialogTitle}</DialogTitle>
+          <DialogDescription className="sr-only">{dialogTitle}</DialogDescription>
           {/* 읽기전용 사유 안내 — 외부 동기화 캘린더(#501) 또는 주최자 아님(WP-200) */}
           {readOnlyLabel && (
             <span
@@ -369,14 +373,15 @@ export function EventDialog({
             />
           </FormField>
 
-          {/* 캘린더 — 드롭다운으로 컨테이너 선택. 기본값=isDefault 캘린더 */}
+          {/* 캘린더 — 드롭다운으로 컨테이너 선택. 기본값=isDefault 캘린더.
+              초대받은 일정은 주최자 캘린더라 내 목록에 없어 빈 칸으로 보였다 — 사이드바 범례와 같은 「초대받은 일정」으로(WP-604). */}
           <FormField label="캘린더" htmlFor="ev-calendar">
             <Controller
               control={form.control}
               name="calendarId"
               render={({ field }) => (
                 <Select
-                  value={field.value?.toString() ?? ''}
+                  value={isInvited ? '' : (field.value?.toString() ?? '')}
                   onValueChange={(v) => field.onChange(Number(v))}
                   disabled={isReadOnly}
                 >
@@ -385,7 +390,7 @@ export function EventDialog({
                     data-testid="calendar-form-calendar"
                     className="w-full"
                   >
-                    <SelectValue placeholder="캘린더 선택" />
+                    <SelectValue placeholder={isInvited ? INVITED_CALENDAR_LABEL : '캘린더 선택'} />
                   </SelectTrigger>
                   <SelectContent>
                     {/* 읽기전용(외부 동기화) 컨테이너는 생성/이동 대상에서 제외 — 백엔드 resolveCalendarId 가드와 일치 */}
@@ -482,7 +487,7 @@ export function EventDialog({
             </Select>
           </FormField>
 
-          {/* freq ≠ NONE 일 때만 간격/종료 조건 표시 */}
+          {/* freq ≠ NONE 일 때만 간격/종료 조건 표시. 읽기 전용이면 하위 칸도 잠근다 — 열자마자 간격 칸에 포커스가 가 숫자 키보드가 뜨던 문제(WP-604). */}
           {form.watch('recurrenceFreq') !== 'NONE' && (
             <>
               <FormField
@@ -495,6 +500,7 @@ export function EventDialog({
                   type="number"
                   min={1}
                   data-testid="calendar-form-recurrence-interval"
+                  disabled={isReadOnly}
                   {...form.register('recurrenceInterval', { valueAsNumber: true })}
                 />
               </FormField>
@@ -505,6 +511,7 @@ export function EventDialog({
                   onValueChange={(v) =>
                     form.setValue('recurrenceEnd', v as FormValues['recurrenceEnd'])
                   }
+                  disabled={isReadOnly}
                 >
                   <SelectTrigger
                     id="ev-recurrence-end"
@@ -532,6 +539,7 @@ export function EventDialog({
                     id="ev-recurrence-until"
                     type="date"
                     data-testid="calendar-form-recurrence-until"
+                    disabled={isReadOnly}
                     {...form.register('recurrenceUntil')}
                   />
                 </FormField>
@@ -549,6 +557,7 @@ export function EventDialog({
                     type="number"
                     min={1}
                     data-testid="calendar-form-recurrence-count"
+                    disabled={isReadOnly}
                     {...form.register('recurrenceCount', { valueAsNumber: true })}
                   />
                 </FormField>

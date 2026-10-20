@@ -9,6 +9,8 @@ import { MobileEmptyState } from '@/components/mobile/MobileEmptyState'
 import { LoadMoreFooter } from '@/components/ui/load-more-footer'
 import { Skeleton } from '@/components/ui/skeleton'
 import type { AgendaChunks } from '@/hooks/queries/useAgendaChunks'
+import { useCalendars } from '@/hooks/queries/useCalendars'
+import { eventCalendarLabel } from '@/lib/calendar'
 import {
   AGENDA_CHUNK_DAYS,
   type AgendaDay,
@@ -307,7 +309,10 @@ function EventRow({
   isNext: boolean
   onSelect: (e: CalendarEvent) => void
 }) {
-  const sub = [event.calendarName, event.location].filter(Boolean).join(' · ')
+  // 캘린더 이름 — 초대받은 일정은 주최자 캘린더 이름 대신 「초대받은 일정」(WP-604). 목록은 캐시된 내 캘린더 목록으로 판정한다.
+  const { data: calendars } = useCalendars()
+  const myCalendarIds = useMemo(() => (calendars ? new Set(calendars.map((c) => c.id)) : null), [calendars])
+  const sub = [eventCalendarLabel(event, myCalendarIds), event.location].filter(Boolean).join(' · ')
   // 시간 칸 첫 줄(시작)과 둘째 줄(끝). 둘째 줄이 없으면 한 줄(하루짜리 종일).
   const { start, end } = agendaTimeLabels(event, continuedOn)
   return (

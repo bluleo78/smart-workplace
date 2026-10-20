@@ -40,6 +40,7 @@ describe('eventEditability (#501, WP-200)', () => {
       isReadOnly: true,
       readOnlyLabel: { testId: 'event-organizer-only-label', text: '주최자만 수정할 수 있어요' },
       canManageAttendees: false,
+      isInvited: false,
     })
   })
 
@@ -52,6 +53,8 @@ describe('eventEditability (#501, WP-200)', () => {
     })
     expect(r.isReadOnly).toBe(true)
     expect(r.readOnlyLabel?.testId).toBe('event-organizer-only-label')
+    // 캘린더 칸은 「초대받은 일정」으로 보인다(WP-604).
+    expect(r.isInvited).toBe(true)
   })
 
   it('캘린더 목록 로드 전엔 "내 캘린더 아님"으로 잠그지 않는다', () => {
@@ -62,6 +65,7 @@ describe('eventEditability (#501, WP-200)', () => {
       detailEvent: undefined,
     })
     expect(r.isReadOnly).toBe(false)
+    expect(r.isInvited).toBe(false)
   })
 
   it('내가 주최한 동기화 일정은 쓰기 가능 캘린더에서 그대로 수정·참석자 관리 가능', () => {
@@ -71,7 +75,7 @@ describe('eventEditability (#501, WP-200)', () => {
       event: { calendarId: 10, myRole: 'ORGANIZER' },
       detailEvent: { myRole: 'ORGANIZER', attendees: [att('ORGANIZER', 1), att('ATTENDEE', 2)] },
     })
-    expect(r).toEqual({ isReadOnly: false, readOnlyLabel: null, canManageAttendees: true })
+    expect(r).toEqual({ isReadOnly: false, readOnlyLabel: null, canManageAttendees: true, isInvited: false })
   })
 
   it('읽기전용 외부 캘린더 일정은 "동기화됨" 사유', () => {
@@ -88,7 +92,7 @@ describe('eventEditability (#501, WP-200)', () => {
 
   it('생성 모드는 항상 편집 가능이고 참석자 즉시 관리는 없다', () => {
     const r = eventEditability({ isEdit: false, calendars: [M365_READONLY], event: null, detailEvent: undefined })
-    expect(r).toEqual({ isReadOnly: false, readOnlyLabel: null, canManageAttendees: false })
+    expect(r).toEqual({ isReadOnly: false, readOnlyLabel: null, canManageAttendees: false, isInvited: false })
   })
 })
 

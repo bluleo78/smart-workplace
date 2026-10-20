@@ -194,6 +194,22 @@ export function isEventVisible(
   return myCalendarIds.has(event.calendarId) ? isCalendarVisible(layers, event.calendarId) : layers.invited
 }
 
+/** 내 캘린더가 아닌(초대받아 보이는) 일정의 캘린더 라벨 — 사이드바 범례 「초대받은 일정」과 같은 말. */
+export const INVITED_CALENDAR_LABEL = '초대받은 일정'
+
+/**
+ * 일정에 붙일 캘린더 이름(WP-604). 내 캘린더 일정이면 그 캘린더 이름, 초대받아 보이는 다른 사람 캘린더 일정이면 「초대받은 일정」 —
+ * 주최자 캘린더 이름(「기본」 등)이 그대로 나오면 내 캘린더처럼 보였다. 내 캘린더 목록을 아직 못 받았으면(null) 판정할 수 없어 이름을 비운다 —
+ * 일정의 이름을 먼저 보였다가 바꾸면 초대 일정에 주최자 캘린더 이름이 잠깐 비친다.
+ */
+export function eventCalendarLabel(
+  event: Pick<CalendarEvent, 'calendarId' | 'calendarName'>,
+  myCalendarIds: ReadonlySet<number> | null,
+): string | null {
+  if (myCalendarIds == null) return null
+  return myCalendarIds.has(event.calendarId) ? event.calendarName : INVITED_CALENDAR_LABEL
+}
+
 /**
  * 미니 캘린더에 점을 찍을 날 — month 의 6주 그리드 중 보이는 일정이 있거나, 마감 레이어가 켜져 있고 마감 이슈가 있는 날.
  * 표시 토글을 끈 캘린더·레이어는 점에서도 빠져야 그리드와 어긋나지 않는다.

@@ -4,6 +4,7 @@ import type { Attendee, Calendar, CalendarEvent, IssueDueMarker } from '../types
 import {
   allDayLocalDate,
   type CalendarLayers,
+  eventCalendarLabel,
   eventsOnDay,
   groupCalendarsBySource,
   isEventVisible,
@@ -220,5 +221,21 @@ describe('timedEventBox', () => {
       .toEqual({ top: 10 * 48, height: 1.5 * 48 })
     expect(timedEventBox(ev(4, '2026-11-12T10:00:00+09:00', '2026-11-12T10:05:00+09:00'), new Date('2026-11-12T00:00:00')).height)
       .toBe(16)
+  })
+})
+
+describe('eventCalendarLabel (WP-604)', () => {
+  const mine = new Set([1, 2])
+  it('내 캘린더 일정은 그 캘린더 이름', () => {
+    expect(eventCalendarLabel({ calendarId: 2, calendarName: '팀 일정' }, mine)).toBe('팀 일정')
+  })
+  it('다른 사람 캘린더(초대받은) 일정은 주최자 캘린더 이름 대신 「초대받은 일정」', () => {
+    expect(eventCalendarLabel({ calendarId: 99, calendarName: '기본' }, mine)).toBe('초대받은 일정')
+  })
+  it('내 캘린더 목록을 아직 못 받았으면 이름을 비운다(주최자 캘린더 이름이 잠깐 비치지 않게)', () => {
+    expect(eventCalendarLabel({ calendarId: 99, calendarName: '기본' }, null)).toBeNull()
+  })
+  it('내 캘린더가 하나도 없으면 보이는 일정은 모두 초대받은 일정', () => {
+    expect(eventCalendarLabel({ calendarId: 99, calendarName: '기본' }, new Set())).toBe('초대받은 일정')
   })
 })

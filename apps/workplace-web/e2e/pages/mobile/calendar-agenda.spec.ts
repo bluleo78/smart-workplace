@@ -542,6 +542,37 @@ test('⑧-1 일정 다이얼로그 — 시작·종료 칸은 한 줄씩 전체 �
   await expectNoHorizontalOverflow(page)
 })
 
+test('⑧-2 초대받은 일정 — 목록은 「초대받은 일정」, 창은 「일정 보기」·캘린더 칸 「초대받은 일정」·반복 하위 칸도 잠김(WP-604)', async ({
+  authenticatedPage: page,
+}) => {
+  // 다른 사람(주최자) 캘린더(id 99, 이름 「기본」)의 매주 반복 일정에 초대받았다.
+  const invited = calendarEvent({
+    id: 50,
+    title: '주간 회의',
+    startsAt: kst('2026-10-13', '11:00'),
+    endsAt: kst('2026-10-13', '12:00'),
+    calendarId: 99,
+    calendarName: '기본',
+    myRole: 'ATTENDEE',
+    recurrenceRule: 'FREQ=WEEKLY;INTERVAL=1;COUNT=5',
+  })
+  await stubCalendar(page, { events: [...baseEvents(), invited] })
+  await page.goto('/calendar')
+  const row = agendaList(page).getByTestId('calendar-event-50')
+  // 주최자 캘린더 이름(「기본」)이 아니라 사이드바 범례와 같은 「초대받은 일정」.
+  await expect(row).toContainText('초대받은 일정')
+  await expect(row).not.toContainText('기본')
+  await row.tap()
+  const dialog = page.getByTestId('calendar-event-dialog')
+  await expect(dialog.getByRole('heading', { name: '일정 보기' })).toBeVisible()
+  await expect(page.getByTestId('calendar-form-calendar')).toContainText('초대받은 일정')
+  for (const id of ['calendar-form-recurrence-interval', 'calendar-form-recurrence-end', 'calendar-form-recurrence-count']) {
+    await expect(page.getByTestId(id)).toBeDisabled()
+  }
+  // 읽기 전용 창이 열리자마자 숫자 칸에 포커스(휴대폰 숫자 키보드)가 가지 않는다.
+  await expect(page.getByTestId('calendar-form-recurrence-interval')).not.toBeFocused()
+})
+
 test('⑨ 이슈 마감 행 — ⚑ 마감·이슈 키, 탭하면 이슈 상세로', async ({ authenticatedPage: page }) => {
   await stubCalendar(page)
   await page.goto('/calendar')

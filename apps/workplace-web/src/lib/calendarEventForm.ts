@@ -175,6 +175,8 @@ export interface EventEditability {
   readOnlyLabel: ReadOnlyLabel | null
   /** 편집 모드 참석자 즉시 초대·제거 가능 여부 */
   canManageAttendees: boolean
+  /** 내 캘린더가 아닌 일정(초대받아 보이는 다른 사람 캘린더 일정) — 캘린더 칸을 「초대받은 일정」으로 보인다(WP-604) */
+  isInvited: boolean
 }
 
 /**
@@ -197,8 +199,8 @@ export function eventEditability(args: {
 }): EventEditability {
   const { isEdit, calendars, event, detailEvent } = args
   const eventCalendar = calendars.find((c) => c.id === event?.calendarId)
-  const notOrganizer =
-    isEdit && ((calendars.length > 0 && !eventCalendar) || isNotEventOrganizer(detailEvent))
+  const isInvited = isEdit && calendars.length > 0 && !eventCalendar
+  const notOrganizer = isInvited || (isEdit && isNotEventOrganizer(detailEvent))
   const isReadOnly = isEdit && ((eventCalendar?.isReadOnly ?? false) || notOrganizer)
   const readOnlyLabel: ReadOnlyLabel | null = notOrganizer
     ? { testId: 'event-organizer-only-label', text: '주최자만 수정할 수 있어요' }
@@ -206,7 +208,7 @@ export function eventEditability(args: {
       ? { testId: 'event-synced-label', text: 'M365에서 동기화됨' }
       : null
   const myRole = (detailEvent ?? event)?.myRole
-  return { isReadOnly, readOnlyLabel, canManageAttendees: !isReadOnly && myRole === 'ORGANIZER' }
+  return { isReadOnly, readOnlyLabel, canManageAttendees: !isReadOnly && myRole === 'ORGANIZER', isInvited }
 }
 
 /**
