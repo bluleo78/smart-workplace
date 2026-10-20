@@ -331,9 +331,10 @@ export default function AuditLogListPage() {
           <TableHeader>
             <TableRow>
               <TableHead>시간</TableHead>
-              <TableHead>사용자</TableHead>
+              {/* 좁은 화면(WP-183)은 리소스·설명·IP 를 숨긴다 — 행을 누르면 상세 다이얼로그에서 전부 보인다.
+                  사용자 열도 숨기고 액션 아래 줄로 옮긴다 — 네 열이면 「결과」가 화면 밖으로 밀렸다(WP-639) */}
+              <TableHead className="hidden md:table-cell">사용자</TableHead>
               <TableHead>액션</TableHead>
-              {/* 좁은 화면(WP-183)은 리소스·설명·IP 를 숨긴다 — 행을 누르면 상세 다이얼로그에서 전부 보인다 */}
               <TableHead className="hidden md:table-cell">리소스</TableHead>
               <TableHead className="hidden md:table-cell">설명</TableHead>
               <TableHead>결과</TableHead>
@@ -360,13 +361,17 @@ export default function AuditLogListPage() {
                     `${log.username} — ${formatAuditAction(log.actionType)} 상세 보기`,
                   )}
                 >
-                  {/* 모바일은 날짜·시각을 두 줄로 접어 표 폭을 줄인다(첫 공백 → 줄바꿈) */}
-                  <TableCell className="whitespace-pre-line text-sm md:whitespace-nowrap">
+                  {/* 모바일은 날짜·시각을 두 줄로 접어 표 폭을 줄인다(첫 공백 → 줄바꿈).
+                      각 줄은 꺾지 않는다 — 칸이 좁으면 「2026- / 10-21」 로 꺾여 세 줄이 됐다(WP-639) */}
+                  <TableCell className="whitespace-pre text-sm md:whitespace-nowrap">
                     {formatDateTime(log.actionTime).replace(' ', '\n')}
                   </TableCell>
-                  {/* 모바일은 긴 아이디(이메일)를 잘라 표가 넘치지 않게 한다 — 전체 값은 상세 다이얼로그에 */}
-                  <TableCell className="max-w-[7.5rem] truncate font-medium md:max-w-none">{log.username}</TableCell>
-                  <TableCell>{formatAuditAction(log.actionType)}</TableCell>
+                  <TableCell className="hidden font-medium md:table-cell">{log.username}</TableCell>
+                  <TableCell>
+                    {formatAuditAction(log.actionType)}
+                    {/* 모바일 전용 — 숨긴 사용자 열의 값. 긴 아이디는 잘라 표가 넘치지 않게 하고 전체 값은 상세 다이얼로그에 */}
+                    <div className="max-w-[45vw] truncate text-xs text-muted-foreground md:hidden">{log.username}</div>
+                  </TableCell>
                   <TableCell className="hidden md:table-cell">{formatAuditResource(log.resource)}</TableCell>
                   <TableCell className="hidden max-w-xs truncate md:table-cell">{log.description ?? '-'}</TableCell>
                   <TableCell>

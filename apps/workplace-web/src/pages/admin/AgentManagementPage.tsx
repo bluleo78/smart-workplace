@@ -61,6 +61,7 @@ import {
   runtimeBadgeLabel,
 } from '../../lib/agentRuntime';
 import { clickableRowProps } from '../../lib/clickableRowProps';
+import type { AgentResponse } from '../../types/agent';
 import { AgentConnectionSection } from './components/AgentConnectionSection';
 import { AgentIdentitySection } from './components/AgentIdentitySection';
 import { AgentKeyIssueDialog } from './components/AgentKeyIssueDialog';
@@ -190,10 +191,11 @@ export default function AgentManagementPage() {
           <TableHeader>
             <TableRow>
               <TableHead>에이전트</TableHead>
-              <TableHead>아이디</TableHead>
-              <TableHead>유형</TableHead>
-              <TableHead>실행</TableHead>
-              <TableHead>생성일</TableHead>
+              {/* 좁은 화면은 나머지 열을 숨기고 이름 아래 한 줄로 모은다 — 표가 휴대폰 폭을 넘었다(WP-639) */}
+              <TableHead className="hidden md:table-cell">아이디</TableHead>
+              <TableHead className="hidden md:table-cell">유형</TableHead>
+              <TableHead className="hidden md:table-cell">실행</TableHead>
+              <TableHead className="hidden md:table-cell">생성일</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -224,7 +226,7 @@ export default function AgentManagementPage() {
                   {...clickableRowProps(() => agentParam.open(String(a.id)), `${a.name} 상세 보기`)}
                 >
                   <TableCell>
-                    <div className="flex items-center gap-2.5">
+                    <div className="flex items-start gap-2.5">
                       {/* 아바타 — 이름 첫 글자. AGENT 정체성 색(ai-accent). */}
                       <span
                         className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-ai-accent-subtle text-xs font-semibold text-ai-accent"
@@ -232,30 +234,30 @@ export default function AgentManagementPage() {
                       >
                         {a.name.slice(0, 1)}
                       </span>
-                      <span className="font-medium">{a.name}</span>
+                      <div className="min-w-0">
+                        {/* 모바일은 긴 이름을 줄바꿈해 칸 안에 둔다(데스크톱은 그대로 한 줄) */}
+                        <span className="font-medium break-words whitespace-normal md:whitespace-nowrap">{a.name}</span>
+                        {/* 모바일 전용 — 숨긴 아이디·유형·실행 열의 값(WP-639) */}
+                        <div
+                          className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground md:hidden"
+                          data-testid={`agent-meta-${a.id}`}
+                        >
+                          <span className="max-w-[60vw] truncate">{a.username}</span>
+                          <AgentTypeBadge agent={a} />
+                          <Badge variant={a.runtime === 'EXTERNAL' ? 'info' : 'secondary'}>
+                            {runtimeBadgeLabel(a.runtime)}
+                          </Badge>
+                        </div>
+                      </div>
                     </div>
                   </TableCell>
-                  <TableCell className="text-muted-foreground">
+                  <TableCell className="hidden text-muted-foreground md:table-cell">
                     {a.username}
                   </TableCell>
-                  <TableCell data-testid={`agent-type-${a.id}`}>
-                    {a.type === 'WORKSPACE' ? (
-                      // 공통 비서 = 이 페이지의 초점이므로 채워진 primary 배지로 강조.
-                      <Badge variant="default">공통</Badge>
-                    ) : a.type === 'PERSONAL' ? (
-                      // 개인 비서 = secondary 배지 + 소유자 이름(누구의 비서인지). 줄바꿈 방지.
-                      <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
-                        <Badge variant="secondary">개인</Badge>
-                        <span className="text-xs text-muted-foreground">
-                          {a.ownerName ?? '소유자 미상'}
-                        </span>
-                      </span>
-                    ) : (
-                      // 일반 에이전트 = 가장 낮은 강조의 outline 배지.
-                      <Badge variant="outline">일반</Badge>
-                    )}
+                  <TableCell className="hidden md:table-cell" data-testid={`agent-type-${a.id}`}>
+                    <AgentTypeBadge agent={a} />
                   </TableCell>
-                  <TableCell data-testid={`agent-runtime-cell-${a.id}`}>
+                  <TableCell className="hidden md:table-cell" data-testid={`agent-runtime-cell-${a.id}`}>
                     {/* 실행 방식 배지 — 외부는 info 토큰. 외부는 키 사용 시각을 함께 보여 연결 여부를 가늠하게 한다. */}
                     <div className="flex flex-col items-start gap-0.5">
                       <Badge variant={a.runtime === 'EXTERNAL' ? 'info' : 'secondary'}>
@@ -271,7 +273,7 @@ export default function AgentManagementPage() {
                       )}
                     </div>
                   </TableCell>
-                  <TableCell className="text-xs text-muted-foreground">
+                  <TableCell className="hidden text-xs text-muted-foreground md:table-cell">
                     {formatDateOnly(a.createdAt)}
                   </TableCell>
                 </TableRow>
@@ -481,4 +483,23 @@ export default function AgentManagementPage() {
       </AlertDialog>
     </SettingsPage>
   );
+}
+
+/** 에이전트 유형 배지 — 표의 유형 열과 모바일 이름 아래 줄이 같이 쓴다. */
+function AgentTypeBadge({ agent }: { agent: AgentResponse }) {
+  if (agent.type === 'WORKSPACE') {
+    // 공통 비서 = 이 페이지의 초점이므로 채워진 primary 배지로 강조.
+    return <Badge variant="default">공통</Badge>;
+  }
+  if (agent.type === 'PERSONAL') {
+    // 개인 비서 = secondary 배지 + 소유자 이름(누구의 비서인지). 줄바꿈 방지.
+    return (
+      <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+        <Badge variant="secondary">개인</Badge>
+        <span className="text-xs text-muted-foreground">{agent.ownerName ?? '소유자 미상'}</span>
+      </span>
+    );
+  }
+  // 일반 에이전트 = 가장 낮은 강조의 outline 배지.
+  return <Badge variant="outline">일반</Badge>;
 }
