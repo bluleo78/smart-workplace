@@ -84,13 +84,15 @@ public class IssueCommentService {
   private static final String DELETE_DENIED = "코멘트 삭제 권한이 없습니다";
 
   /**
-   * 코멘트 수정·삭제 술어 — 이슈 조회 가능 + 코멘트가 <b>그 이슈 소속</b> + 작성자 또는 프로젝트 OWNER + 이슈 쓰기 권한(WP-492).
+   * 코멘트 수정·삭제 술어 — 이슈 조회 가능 + 코멘트가 <b>그 이슈 소속</b> + 작성자(삭제는 프로젝트 OWNER 도) + 이슈 쓰기 권한(WP-492).
+   *
+   * <p>WP-620: 수정은 작성자만 — 화면은 코멘트를 원래 작성자 이름으로 보이므로 OWNER 가 고치면 남의 말을 지어낼 수 있다. OWNER 의 관리는 삭제로 한다.
    *
    * <p>#856: 소속 대조가 없으면 A 프로젝트 OWNER 가 자기 이슈 id 에 B 프로젝트 코멘트 id 를 붙여 남의 코멘트를 지울 수 있었다(OWNER 판정이 경로의
    * issueId 기준이므로). 다른 이슈의 코멘트는 없는 코멘트와 같은 404 로 응답한다.
    */
   private MutableComment checkCommentMutable(
-      Long callerId, Long issueId, Long commentId, String deniedMessage) {
+      Long callerId, Long issueId, Long commentId, boolean ownerAllowed, String deniedMessage) {
     var issueAndProject = assertIssueReadableWithIssue(issueId, callerId);
     var existing =
         commentRepository
@@ -99,11 +101,13 @@ public class IssueCommentService {
             .orElseThrow(() -> new IssueCommentNotFoundException(commentId));
     boolean isAuthor = existing.authorId().equals(callerId);
     boolean isOwner = false;
-    try {
-      accessGuard.assertWithRole(issueAndProject.project().key(), callerId, "OWNER");
-      isOwner = true;
-    } catch (ProjectAccessDeniedException ignored) {
-      // OWNER 아님 — isAuthor 만으로 판단
+    if (ownerAllowed && !isAuthor) {
+      try {
+        accessGuard.assertWithRole(issueAndProject.project().key(), callerId, "OWNER");
+        isOwner = true;
+      } catch (ProjectAccessDeniedException ignored) {
+        // OWNER 아님 — isAuthor 만으로 판단
+      }
     }
     if (!isAuthor && !isOwner) {
       throw new ProjectAccessDeniedException(deniedMessage);
@@ -117,7 +121,7 @@ public class IssueCommentService {
   /** 코멘트 삭제 사전검증(#856) — 확인 카드 dry-run 이 {@link #delete} 와 같은 {@link #checkCommentMutable} 를 쓴다. */
   @Transactional(readOnly = true)
   public void validateDeletable(Long callerId, Long issueId, Long commentId) {
-    checkCommentMutable(callerId, issueId, commentId, DELETE_DENIED);
+    checkCommentMutable(callerId, issueId, commentId, true, DELETE_DENIED);
   }
 
   /** 이슈 코멘트 목록 조회. OPEN 은 테넌트 전원 조회 가능(readable). */
@@ -176,10 +180,10 @@ public class IssueCommentService {
     return resp;
   }
 
-  /** 코멘트 수정 (본인 또는 프로젝트 OWNER) — delete 와 동일한 권한 모델. */
+  /** 코멘트 수정 (본인만, WP-620) — 프로젝트 OWNER 도 남의 코멘트는 고칠 수 없다(삭제는 가능). */
   public IssueCommentResponse update(
       Long callerId, Long issueId, Long commentId, UpdateCommentRequest req) {
-    var mutable = checkCommentMutable(callerId, issueId, commentId, "본인 코멘트 또는 OWNER 만 수정할 수 있습니다");
+    var mutable = checkCommentMutable(callerId, issueId, commentId, false, "본인 코멘트만 수정할 수 있습니다");
     var issue = mutable.target().issue();
     var project = mutable.target().project();
     commentRepository.update(commentId, req.body());
@@ -214,7 +218,7 @@ public class IssueCommentService {
 
   /** 코멘트 soft-delete (본인 또는 프로젝트 OWNER). */
   public void delete(Long callerId, Long issueId, Long commentId) {
-    var mutable = checkCommentMutable(callerId, issueId, commentId, DELETE_DENIED);
+    var mutable = checkCommentMutable(callerId, issueId, commentId, true, DELETE_DENIED);
     var issue = mutable.target().issue();
     var project = mutable.target().project();
     commentRepository.softDelete(commentId);

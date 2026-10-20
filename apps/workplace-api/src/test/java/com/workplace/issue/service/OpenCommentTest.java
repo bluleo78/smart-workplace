@@ -80,6 +80,30 @@ class OpenCommentTest extends IntegrationTestBase {
   }
 
   /**
+   * WP-620: 프로젝트 OWNER 라도 남의 댓글 본문은 바꿀 수 없다 — 화면에는 원래 작성자 이름으로 보여 남의 말을 지어낼 수 있었다. 관리(지우기)는 그대로 할 수
+   * 있다.
+   */
+  @Test
+  void owner_cannot_edit_others_comment_but_can_delete() {
+    var s = openScenario();
+    var c = commentService.create(s.memberId(), s.issueId(), new CreateCommentRequest("원래 글"));
+
+    assertThatThrownBy(
+            () ->
+                commentService.update(
+                    s.ownerId(), s.issueId(), c.id(), new UpdateCommentRequest("지어낸 글")))
+        .isInstanceOf(ProjectAccessDeniedException.class)
+        .hasMessage("본인 코멘트만 수정할 수 있습니다");
+    assertThat(commentService.list(s.ownerId(), s.issueId()))
+        .singleElement()
+        .satisfies(r -> assertThat(r.body()).isEqualTo("원래 글"));
+
+    commentService.validateDeletable(s.ownerId(), s.issueId(), c.id());
+    commentService.delete(s.ownerId(), s.issueId(), c.id());
+    assertThat(commentService.list(s.ownerId(), s.issueId())).isEmpty();
+  }
+
+  /**
    * WP-492: 프로젝트에서 빠진 사람은 OPEN 이라 이슈를 계속 읽을 수 있어도, 예전에 단 자기 댓글을 수정·삭제할 수 없다 — 작성과 같은 쓰기
    * 권한(assertContentWritable)을 본다.
    */

@@ -514,6 +514,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "array",
         },
         "description": {
+          "maxLength": 10000,
           "type": "string",
         },
         "endsAt": {
@@ -576,6 +577,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "string",
         },
         "notes": {
+          "maxLength": 2000,
           "type": "string",
         },
         "organization": {
@@ -2694,6 +2696,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
         "description": {
           "anyOf": [
             {
+              "maxLength": 10000,
               "type": "string",
             },
             {
@@ -2845,6 +2848,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "string",
         },
         "notes": {
+          "maxLength": 2000,
           "type": "string",
         },
         "organization": {
