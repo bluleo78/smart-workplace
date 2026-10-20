@@ -129,7 +129,8 @@ export function WidgetSettingsPopover({
         <Button
           type="button"
           size="sm"
-          className="w-full"
+          // 모바일 시트에서는 44px 터치 대상(10-accessibility).
+          className={mobile ? 'h-11 w-full' : 'w-full'}
           data-testid="widget-settings-apply"
           onClick={apply}
         >

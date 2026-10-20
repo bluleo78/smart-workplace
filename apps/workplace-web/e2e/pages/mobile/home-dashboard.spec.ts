@@ -439,6 +439,8 @@ test('모바일 편집 — 위젯 설정은 팝오버 대신 바텀시트로 열
   expect(box.y + box.height).toBeGreaterThanOrEqual(viewport.height - 2)
   await expectNoHorizontalOverflow(page)
 
+  // 「적용」은 모바일 터치 대상 44px 이상.
+  expect((await sheet.getByTestId('widget-settings-apply').boundingBox())!.height).toBeGreaterThanOrEqual(44)
   await sheet.getByTestId('widget-settings-label').fill('내 담당 이슈')
   await sheet.getByTestId('widget-settings-apply').click()
   await expect(sheet).toHaveCount(0)
