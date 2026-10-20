@@ -132,7 +132,7 @@ public class IssueService {
         issueRepository.insert(
             project.id(),
             number,
-            req.title(),
+            normalizeTitle(req.title()),
             req.body(),
             req.priority() != null ? req.priority() : "MID",
             req.dueDate(),
@@ -588,7 +588,7 @@ public class IssueService {
       throw new IssueConflictException(project.key() + "-" + number);
     }
 
-    String newTitle = req.title() != null ? req.title() : before.title();
+    String newTitle = req.title() != null ? normalizeTitle(req.title()) : before.title();
     String newBody = req.body() != null ? req.body() : before.body();
     String newStatus = req.status() != null ? req.status() : before.status();
     String newPriority = req.priority() != null ? req.priority() : before.priority();
@@ -818,6 +818,18 @@ public class IssueService {
     // 유형 변경은 정리성 쓰기 — AI 작업을 시작·터치하지 않는다(WP-425).
     changeNotifier.updatedWithoutTouch(project, number, issue.id(), callerId);
     return get(callerId, projectKey, number);
+  }
+
+  /**
+   * 이슈 제목 정규화(WP-585) — 앞뒤 공백을 다듬고, 남는 것이 없으면(빈 문자열·공백뿐) 400. 생성은 @NotBlank 가 막지만 수정은 null=미변경이라
+   * DTO 로 막을 수 없어, 생성·수정(웹·MCP·AI 도구 공통) 모두 이 경로로 저장한다.
+   */
+  private static String normalizeTitle(String raw) {
+    String title = raw == null ? "" : raw.strip();
+    if (title.isEmpty()) {
+      throw new IllegalArgumentException("이슈 제목을 입력해 주세요");
+    }
+    return title;
   }
 
   /**

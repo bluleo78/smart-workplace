@@ -23,7 +23,7 @@ import java.util.List;
  * <p>WP-394: labelNames 는 이름으로 붙일 라벨 — 프로젝트에 없는 이름은 같은 트랜잭션에서 기본 색으로 만들어 붙인다(labelIds 와 합친다).
  */
 public record CreateIssueRequest(
-    @NotBlank @Size(max = 200) String title,
+    @NotBlank(message = "이슈 제목을 입력해 주세요") @Size(max = 200) String title,
     @Size(max = 10000) String body,
     @Pattern(regexp = "LOW|MID|HIGH") String priority,
     LocalDate dueDate,

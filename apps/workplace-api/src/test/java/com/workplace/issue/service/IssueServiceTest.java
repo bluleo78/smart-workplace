@@ -252,6 +252,51 @@ class IssueServiceTest extends IntegrationTestBase {
     assertThat(stored).isEqualTo("MID");
   }
 
+  /** WP-585: 수정으로 제목을 빈 문자열·공백만으로 바꾸면 거절하고 제목은 그대로 둔다. */
+  @Test
+  void update_blankTitle_rejected() {
+    IssueResponse created =
+        issueService.create(
+            ownerId,
+            projectKey,
+            new CreateIssueRequest("원래 제목", "b", null, null, null, null, null, null));
+
+    for (String blank : List.of("", "   ", "\u3000")) {
+      assertThatThrownBy(
+              () ->
+                  issueService.update(
+                      ownerId,
+                      projectKey,
+                      created.number(),
+                      new UpdateIssueRequest(
+                          blank, null, null, null, null, null, null, false, null, false, null)))
+          .isInstanceOf(IllegalArgumentException.class)
+          .hasMessage("이슈 제목을 입력해 주세요");
+    }
+    assertThat(issueService.get(ownerId, projectKey, created.number()).summary().title())
+        .isEqualTo("원래 제목");
+  }
+
+  /** WP-585: 생성·수정 모두 제목 앞뒤 공백을 다듬어 저장한다. */
+  @Test
+  void createAndUpdate_trimTitle() {
+    IssueResponse created =
+        issueService.create(
+            ownerId,
+            projectKey,
+            new CreateIssueRequest("  만든 제목  ", "b", null, null, null, null, null, null));
+    assertThat(created.title()).isEqualTo("만든 제목");
+
+    issueService.update(
+        ownerId,
+        projectKey,
+        created.number(),
+        new UpdateIssueRequest(
+            "  고친 제목  ", null, null, null, null, null, null, false, null, false, null));
+    assertThat(issueService.get(ownerId, projectKey, created.number()).summary().title())
+        .isEqualTo("고친 제목");
+  }
+
   @Test
   void update_toDoneStatus_setsClosedAt() {
     IssueResponse created =
