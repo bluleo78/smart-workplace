@@ -5,6 +5,7 @@ import com.workplace.calendar.outbound.CalendarAttendeeEvents.CalendarRsvpChange
 import com.workplace.calendar.outbound.CalendarReminderEvents.CalendarReminderDueEvent;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageCreatedEvent;
 import com.workplace.global.dto.UserSummary;
+import com.workplace.global.util.MentionParser;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueAssignedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssuePriorityChangedEvent;
@@ -93,7 +94,8 @@ public class NotificationDispatcher {
   }
 
   /**
-   * 코멘트: 담당자 ∪ 워처. 워처 조회는 service 트랜잭션 내에서 실행 — GUC 주입 후 RLS 통과.
+   * 코멘트: 본문에서 멘션된 사람은 코멘트 멘션(WP-650), 나머지 담당자 ∪ 워처는 COMMENTED. 워처 조회·사람 거르기는 service 트랜잭션 내에서 실행 —
+   * GUC 주입 후 RLS 통과.
    *
    * <p>기존에는 watcherRepo.findUserIdsByIssue() 를 @Async 핸들러에서 직접 호출해 트랜잭션 밖 bare jOOQ 조회가 발생했다.
    * TenantContext 도 없어 RLS 가 issue_watcher 를 0행 반환(fail-closed). 수정:
@@ -103,10 +105,10 @@ public class NotificationDispatcher {
   @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
   public void onIssueCommented(IssueCommentedEvent e) {
     try {
-      service.createWithWatchersAndFanOut(
-          NotificationType.COMMENTED,
+      service.createCommentedAndFanOut(
           e.issueId(),
           e.assignees(),
+          MentionParser.parse(e.commentBody()),
           actorId(e.actor()),
           e.commentId());
     } catch (Exception ex) {

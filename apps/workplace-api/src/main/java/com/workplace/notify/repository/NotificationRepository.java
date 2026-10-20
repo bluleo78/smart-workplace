@@ -56,6 +56,16 @@ public class NotificationRepository {
         .fetch(USER.ID);
   }
 
+  /** 주어진 id 중 존재하는 HUMAN 사용자만(입력 순서 무관, id 오름차순). 멘션 토큰처럼 검증 전 id 를 거를 때 쓴다(WP-650). */
+  public List<Long> filterHumanIds(Collection<Long> userIds) {
+    if (userIds == null || userIds.isEmpty()) return List.of();
+    return dsl.select(USER.ID)
+        .from(USER)
+        .where(USER.ID.in(userIds).and(USER.KIND.eq("HUMAN")))
+        .orderBy(USER.ID)
+        .fetch(USER.ID);
+  }
+
   /** 수신자별 1행씩 batch insert. created_at 은 DB default, read_at 은 null(안읽음). */
   public void insertBatch(
       List<Long> recipientIds, NotificationType type, Long actorId, long issueId, Long commentId) {

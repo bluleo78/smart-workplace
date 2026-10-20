@@ -12,6 +12,8 @@ export interface NotificationResponse {
     // WP-452: 이슈 챗 알림 — AI 가 답변 필요 질문을 올림 / 이슈 챗 글에서 나를 멘션.
     | 'AI_QUESTION'
     | 'ISSUE_CHAT_MENTION'
+    // WP-650: 이슈 코멘트에서 나를 멘션.
+    | 'ISSUE_COMMENT_MENTION'
   actorId: number | null
   actorName: string | null
   actorKind: string | null // 'HUMAN' | 'AGENT' | null

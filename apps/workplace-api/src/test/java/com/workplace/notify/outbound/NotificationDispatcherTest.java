@@ -65,11 +65,11 @@ class NotificationDispatcherTest {
   }
 
   /**
-   * commented: dispatcher 는 service.createWithWatchersAndFanOut 에 assignees 와 issueId 를 넘긴다. 워처 조회는
-   * 서비스 트랜잭션 내에서 발생(RLS-safe). 여기서는 service 메서드 호출 인수만 검증.
+   * commented: dispatcher 는 service.createCommentedAndFanOut 에 assignees·issueId 와 본문에서 뽑은 멘션 id 를
+   * 넘긴다(WP-650). 워처 조회·사람 거르기는 서비스 트랜잭션 내에서 발생(RLS-safe). 여기서는 service 메서드 호출 인수만 검증.
    */
   @Test
-  void onIssueCommented_delegatesToCreateWithWatchersAndFanOut() {
+  void onIssueCommented_delegatesToCreateCommentedAndFanOut_withMentions() {
     var e =
         new IssueCommentedEvent(
             11L,
@@ -80,14 +80,14 @@ class NotificationDispatcherTest {
             HUMAN_ACTOR,
             List.of(ASSIGNEE_A),
             55L,
-            "hi",
+            "확인 부탁 <@7> <@8> 그리고 다시 <@7>",
             Instant.now());
 
     dispatcher.onIssueCommented(e);
 
     verify(service)
-        .createWithWatchersAndFanOut(
-            eq(NotificationType.COMMENTED), eq(11L), eq(List.of(ASSIGNEE_A)), eq(1L), eq(55L));
+        .createCommentedAndFanOut(
+            eq(11L), eq(List.of(ASSIGNEE_A)), eq(List.of(7L, 8L)), eq(1L), eq(55L));
   }
 
   /**

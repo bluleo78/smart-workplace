@@ -247,12 +247,15 @@ public class PriorityClassificationScheduler {
       }
     }
 
-    // 멘션(안읽은 COMMENTED·이슈 챗 멘션·AI 질문 알림) — 프론트 notifTarget.ts 의 isMentionLike() 와 동일 규칙(COMMENTED 는
-    // 멘션 프록시, 이슈 챗 알림은 WP-452 의 전용 유형). notifTarget() 라우팅 규칙도 그대로 포팅(projectKey+issueNumber 딥링크,
+    // 멘션(안읽은 COMMENTED·코멘트 멘션·이슈 챗 멘션·AI 질문 알림) — 프론트 notifTarget.ts 의 isMentionLike() 와 동일 규칙
+    // (COMMENTED 는 멘션 프록시, 코멘트 멘션은 WP-650·이슈 챗 알림은 WP-452 의 전용 유형). notifTarget() 라우팅 규칙도 그대로
+    // 포팅(projectKey+issueNumber 딥링크,
     // 이슈 챗 알림은 ?chat=1 로 챗 드로워를 연다).
     for (var n : notificationService.listRecent(userId, SOURCE_LIMIT, 0)) {
       boolean issueChat = "AI_QUESTION".equals(n.type()) || "ISSUE_CHAT_MENTION".equals(n.type());
-      if (!n.read() && ("COMMENTED".equals(n.type()) || issueChat)) {
+      boolean commentLike =
+          "COMMENTED".equals(n.type()) || "ISSUE_COMMENT_MENTION".equals(n.type());
+      if (!n.read() && (commentLike || issueChat)) {
         out.add(
             new PriorityCandidate(
                 userId,

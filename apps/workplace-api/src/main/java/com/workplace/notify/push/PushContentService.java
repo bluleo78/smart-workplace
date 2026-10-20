@@ -86,6 +86,7 @@ public class PushContentService {
       case REMINDER -> "일정 알림";
       case AI_QUESTION -> "님이 이슈 챗에서 질문했습니다";
       case ISSUE_CHAT_MENTION -> "님이 이슈 챗에서 회원님을 멘션했습니다";
+      case ISSUE_COMMENT_MENTION -> "님이 코멘트에서 회원님을 멘션했습니다";
     };
   }
 }

@@ -43,9 +43,9 @@ export function notifLabel(n: NotificationResponse): string {
 }
 
 /**
- * "나를 호출한" 알림 판별 — 이슈 챗 멘션·AI 질문(WP-452 전용 유형)과, 코멘트 멘션 전용 유형이 없어 프록시로 쓰는 COMMENTED.
+ * "나를 호출한" 알림 판별 — 이슈 챗 멘션·AI 질문(WP-452 전용 유형), 코멘트 멘션(WP-650 전용 유형), 그리고 멘션 프록시로 쓰던 COMMENTED.
  * 합성 레이어의 멘션 카운트/주의 필요 필터가 동일 규칙을 공유한다(백엔드 PriorityClassificationScheduler 도 같은 규칙).
  */
 export function isMentionLike(n: NotificationResponse): boolean {
-  return n.type === 'COMMENTED' || isIssueChatType(n)
+  return n.type === 'COMMENTED' || n.type === 'ISSUE_COMMENT_MENTION' || isIssueChatType(n)
 }

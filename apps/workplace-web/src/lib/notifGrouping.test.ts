@@ -39,6 +39,17 @@ describe('notifSection', () => {
     expect(notifSection(notif({ type: 'AI_QUESTION' }))).toBe('mine')
     expect(notifSection(notif({ type: 'ISSUE_CHAT_MENTION' }))).toBe('mine')
   })
+
+  it('코멘트 멘션도 내 차례, 델타는 「코멘트 멘션」 (WP-650)', () => {
+    expect(notifSection(notif({ type: 'ISSUE_COMMENT_MENTION' }))).toBe('mine')
+    const { mine } = groupNotifications([
+      notif({ id: 1, type: 'COMMENTED', createdAt: '2026-06-16T01:00:00Z' }),
+      notif({ id: 2, type: 'ISSUE_COMMENT_MENTION', createdAt: '2026-06-16T02:00:00Z' }),
+    ])
+    expect(mine).toHaveLength(1)
+    expect(mine[0].deltaSummary).toBe('코멘트 멘션 · 코멘트 1건')
+    expect(mine[0].target).toBe('/projects/WP/issues/7')
+  })
 })
 
 describe('groupNotifications', () => {

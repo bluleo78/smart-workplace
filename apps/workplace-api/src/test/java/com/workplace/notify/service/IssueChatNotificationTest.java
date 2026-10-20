@@ -27,7 +27,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 이슈 챗 알림(WP-452) 통합 테스트 — AI 질문 수신자 해석(사람 관계자 ∪ 멘션, AGENT·작성자 제외, 1인 1건)과 수신자별 푸시 카테고리(멘션된 사람
- * MENTION, 나머지 ISSUE), 이슈 챗 멘션 알림(본인 제외).
+ * MENTION, 나머지 ISSUE), 이슈 챗 멘션 알림(본인 제외). 코멘트 멘션 알림(WP-650)도 같은 수신자 규칙이라 여기서 함께 본다.
  */
 @Transactional
 @RecordApplicationEvents
@@ -262,5 +262,76 @@ class IssueChatNotificationTest extends IntegrationTestBase {
                 .flatMap(p -> p.recipientIds().stream())
                 .toList())
         .containsExactly(owner);
+  }
+
+  @Test
+  void commented_mentionedHumansGetCommentMention_othersGetCommented_oncePerPerson() {
+    long actor = TestFixtures.createHuman(dsl);
+    long assignee = TestFixtures.createHuman(dsl);
+    long watcher = TestFixtures.createHuman(dsl);
+    long mentioned = TestFixtures.createHuman(dsl);
+    long assigneeMentioned = TestFixtures.createHuman(dsl);
+    long agent = TestFixtures.createAgentNoToken(dsl);
+    long issueId = seedIssue(actor);
+    assign(issueId, assignee, actor);
+    assign(issueId, assigneeMentioned, actor);
+    watch(issueId, watcher);
+    watch(issueId, actor);
+
+    // 작성자 본인·AGENT 멘션은 알림이 없다. 담당자이면서 멘션된 사람은 멘션 1건만.
+    service.createCommentedAndFanOut(
+        issueId,
+        List.of(
+            new com.workplace.global.dto.UserSummary(assignee, "a", "a", "HUMAN"),
+            new com.workplace.global.dto.UserSummary(assigneeMentioned, "b", "b", "HUMAN")),
+        List.of(mentioned, assigneeMentioned, agent, actor),
+        actor,
+        77L);
+
+    assertThat(recipientsOf(issueId, NotificationType.ISSUE_COMMENT_MENTION))
+        .containsExactlyInAnyOrder(mentioned, assigneeMentioned);
+    assertThat(recipientsOf(issueId, NotificationType.COMMENTED))
+        .containsExactlyInAnyOrder(assignee, watcher);
+    // 멘션 알림도 어느 코멘트인지 남긴다.
+    assertThat(
+            dsl.select(NOTIFICATION.COMMENT_ID)
+                .from(NOTIFICATION)
+                .where(
+                    NOTIFICATION
+                        .ISSUE_ID
+                        .eq(issueId)
+                        .and(NOTIFICATION.TYPE.eq(NotificationType.ISSUE_COMMENT_MENTION.name())))
+                .fetch(NOTIFICATION.COMMENT_ID))
+        .containsOnly(77L);
+
+    // 푸시: 멘션된 사람은 MENTION, 나머지는 ISSUE.
+    List<InboxPushRequestedEvent> pushes = events.stream(InboxPushRequestedEvent.class).toList();
+    assertThat(pushes).hasSize(2);
+    InboxPushRequestedEvent mentionPush =
+        pushes.stream().filter(p -> p.category() == PushCategory.MENTION).findFirst().orElseThrow();
+    InboxPushRequestedEvent issuePush =
+        pushes.stream().filter(p -> p.category() == PushCategory.ISSUE).findFirst().orElseThrow();
+    assertThat(mentionPush.type()).isEqualTo(NotificationType.ISSUE_COMMENT_MENTION);
+    assertThat(mentionPush.recipientIds()).containsExactlyInAnyOrder(mentioned, assigneeMentioned);
+    assertThat(issuePush.type()).isEqualTo(NotificationType.COMMENTED);
+    assertThat(issuePush.recipientIds()).containsExactlyInAnyOrder(assignee, watcher);
+  }
+
+  @Test
+  void commented_mentionOfSomeoneWhoCannotReadIssue_isDropped() {
+    // TEAM 프로젝트 — 멤버가 아닌 사람은 멘션돼도 알림(이슈 제목)을 받지 않는다(WP-501 규칙 그대로).
+    long actor = TestFixtures.createHuman(dsl);
+    long memberMentioned = TestFixtures.createHuman(dsl);
+    long outsider = TestFixtures.createHuman(dsl);
+    long issueId = seedIssue(actor, "TEAM");
+    member(issueId, actor);
+    member(issueId, memberMentioned);
+
+    service.createCommentedAndFanOut(
+        issueId, List.of(), List.of(memberMentioned, outsider), actor, 78L);
+
+    assertThat(recipientsOf(issueId, NotificationType.ISSUE_COMMENT_MENTION))
+        .containsExactly(memberMentioned);
+    assertThat(recipientsOf(issueId, NotificationType.COMMENTED)).isEmpty();
   }
 }

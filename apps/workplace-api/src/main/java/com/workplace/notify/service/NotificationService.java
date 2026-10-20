@@ -132,11 +132,49 @@ public class NotificationService {
       List<UserSummary> assignees,
       Long actorId,
       Long commentId) {
+    createAndFanOut(type, assigneesAndWatchers(issueId, assignees), actorId, issueId, commentId);
+  }
+
+  /**
+   * 코멘트 알림(WP-650) — 본문에서 멘션된 사람(HUMAN)에게 ISSUE_COMMENT_MENTION(푸시 MENTION), 나머지 담당자 ∪ 워처에게
+   * COMMENTED. 멘션 알림을 받은 사람은 COMMENTED 에서 빼 한 사람에 1건만 만든다. 볼 수 없는 사람·작성자 제외는 insertAndFanOut 이 그대로
+   * 건다. 워처 구독은 하지 않는다(이슈 챗 멘션과 같음).
+   *
+   * @param mentionedIds 코멘트 본문의 멘션 토큰 id(존재·종류 미검증 — 여기서 HUMAN 만 남긴다)
+   */
+  @Transactional
+  public void createCommentedAndFanOut(
+      long issueId,
+      List<UserSummary> assignees,
+      List<Long> mentionedIds,
+      Long actorId,
+      Long commentId) {
+    List<Long> mentioned =
+        insertAndFanOut(
+            NotificationType.ISSUE_COMMENT_MENTION,
+            repo.filterHumanIds(mentionedIds),
+            actorId,
+            issueId,
+            commentId);
+    if (!mentioned.isEmpty())
+      publishPush(
+          NotificationType.ISSUE_COMMENT_MENTION,
+          PushCategory.MENTION,
+          mentioned,
+          actorId,
+          issueId,
+          null);
+    List<Long> others = new ArrayList<>(assigneesAndWatchers(issueId, assignees));
+    others.removeAll(mentioned);
+    createAndFanOut(NotificationType.COMMENTED, others, actorId, issueId, commentId);
+  }
+
+  /** 담당자(이벤트 페이로드) ∪ 워처. 트랜잭션 내에서 조회 — TenantAwareTransactionManager 가 GUC 를 주입한 후이므로 RLS 정책 통과. */
+  private List<Long> assigneesAndWatchers(long issueId, List<UserSummary> assignees) {
     List<Long> ids = new ArrayList<>();
     if (assignees != null) assignees.forEach(u -> ids.add(u.id()));
-    // 트랜잭션 내에서 조회 — TenantAwareTransactionManager 가 GUC 를 주입한 후이므로 RLS 정책 통과.
     ids.addAll(watcherRepo.findUserIdsByIssue(issueId));
-    createAndFanOut(type, ids, actorId, issueId, commentId);
+    return ids;
   }
 
   /**

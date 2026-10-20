@@ -31,7 +31,7 @@ export interface GroupedNotifs {
 // 알림 단건 섹션 분류. ASSIGNED(나에게 직접 배정)·이슈 챗 AI 질문·이슈 챗 멘션(WP-452) = 행동 필요.
 // COMMENTED 는 담당자∪워처 공통 수신이라 "나를 멘션"인지 구분 불가 → 보수적으로 updates.
 export function notifSection(n: NotificationResponse): NotifSection {
-  return n.type === 'ASSIGNED' || isIssueChatType(n) ? 'mine' : 'updates'
+  return n.type === 'ASSIGNED' || n.type === 'ISSUE_COMMENT_MENTION' || isIssueChatType(n) ? 'mine' : 'updates'
 }
 
 // 그룹 키 — 같은 대상 객체를 한 줄로 묶는다.
@@ -57,6 +57,7 @@ function repLabel(n: NotificationResponse): string {
 const TYPE_ORDER: NotificationResponse['type'][] = [
   'AI_QUESTION',
   'ISSUE_CHAT_MENTION',
+  'ISSUE_COMMENT_MENTION',
   'ASSIGNED',
   'COMMENTED',
   'STATUS_CHANGED',
@@ -74,6 +75,7 @@ function deltaSummary(group: NotificationResponse[]): string {
     if (!c) continue
     if (t === 'AI_QUESTION') parts.push(c > 1 ? `AI 질문 ${c}건` : 'AI 질문')
     else if (t === 'ISSUE_CHAT_MENTION') parts.push(c > 1 ? `멘션 ${c}건` : '멘션')
+    else if (t === 'ISSUE_COMMENT_MENTION') parts.push(c > 1 ? `코멘트 멘션 ${c}건` : '코멘트 멘션')
     else if (t === 'ASSIGNED') parts.push(c > 1 ? `배정 ${c}건` : '배정')
     else if (t === 'COMMENTED') parts.push(`코멘트 ${c}건`)
     else if (t === 'STATUS_CHANGED') parts.push(c > 1 ? `상태 변경 ${c}건` : '상태 변경')

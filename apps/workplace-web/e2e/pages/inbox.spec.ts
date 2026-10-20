@@ -335,3 +335,38 @@ test('이슈 챗 AI 질문·멘션 알림을 렌더하고, 클릭하면 이슈 �
   await expect(page).toHaveURL(/\/projects\/WP\/issues\/12\?chat=1$/)
   await expect(page.getByTestId('issue-chat-drawer')).toBeVisible()
 })
+
+// WP-650 — 코멘트에서 나를 멘션한 알림은 전용 문구로 보이고, 클릭하면 (챗 드로워 없이) 그 이슈 상세로 간다.
+test('코멘트 멘션 알림을 전용 문구로 렌더하고, 클릭하면 이슈 상세로 이동한다 (WP-650)', async ({
+  authenticatedPage: page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await mockApi(page, 'GET', '/api/v1/notifications/unread-count', { count: 1 })
+  await mockApi(page, 'GET', '/api/v1/notifications', [
+    notif({
+      id: 31,
+      type: 'ISSUE_COMMENT_MENTION',
+      actorName: '박민수',
+      actorKind: 'HUMAN',
+      commentId: 501,
+      issueNumber: 12,
+      issueTitle: '알림 연결',
+    }),
+  ])
+  const readCapture = await mockApi(page, 'POST', '/api/v1/notifications/31/read', {}, {
+    status: 204,
+    capture: true,
+  })
+  await mockAgentWorkDetail(page, undefined)
+  await page.goto('/')
+  await page.getByTestId('inbox-trigger').click()
+
+  const item = page.getByTestId('inbox-item').first()
+  await expect(item).toContainText('박민수님이 코멘트에서 회원님을 멘션했습니다')
+  await expect(item).toContainText('WP-12 알림 연결')
+
+  await item.click()
+  await readCapture.waitForRequest()
+  await expect(page).toHaveURL(/\/projects\/WP\/issues\/12$/)
+  await expect(page.getByTestId('issue-chat-drawer')).toHaveCount(0)
+})

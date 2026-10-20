@@ -17,6 +17,7 @@ const TYPE_ICON: Record<NotificationResponse['type'], typeof UserPlus> = {
   CALENDAR_RSVP_CHANGED: Calendar,
   AI_QUESTION: MessageCircleQuestion, // 이슈 챗 AI 질문(WP-452)
   ISSUE_CHAT_MENTION: AtSign, // 이슈 챗 멘션(WP-452)
+  ISSUE_COMMENT_MENTION: AtSign, // 코멘트 멘션(WP-650)
 }
 
 // 백엔드가 유니온에 없는 새 타입을 보내더라도(#585 재발 방지) 크래시 대신 폴백 아이콘을 렌더한다.

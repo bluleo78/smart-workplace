@@ -20,8 +20,8 @@ import type { PushCategory } from '@/types/push'
 
 const CATEGORIES: { key: PushCategory; label: string; description: string }[] = [
   { key: 'DM', label: '다이렉트 메시지', description: '나에게 온 DM' },
-  // WP-452: MENTION 은 이슈 챗 멘션·나를 멘션한 AI 질문도 포함, ISSUE 는 이슈 챗 AI 질문도 포함.
-  { key: 'MENTION', label: '멘션', description: '채널·이슈 챗에서 나를 멘션한 메시지' },
+  // WP-452: MENTION 은 이슈 챗 멘션·나를 멘션한 AI 질문도 포함, ISSUE 는 이슈 챗 AI 질문도 포함. WP-650: 코멘트 멘션도 MENTION.
+  { key: 'MENTION', label: '멘션', description: '채널·이슈 챗·코멘트에서 나를 멘션한 메시지' },
   { key: 'ISSUE', label: '이슈', description: '배정·코멘트·상태·우선순위 변경·AI 질문' },
   { key: 'CALENDAR', label: '캘린더', description: '일정 초대·참석 응답·리마인더' },
 ]

@@ -35,6 +35,8 @@ describe('notifTarget', () => {
 
   it('그 외 이슈 알림은 이슈 상세 그대로', () => {
     expect(notifTarget(notif({ type: 'COMMENTED' }))).toBe('/projects/WP/issues/452')
+    // 코멘트 멘션(WP-650)은 코멘트가 있는 이슈 상세로 — 챗 드로워를 열지 않는다.
+    expect(notifTarget(notif({ type: 'ISSUE_COMMENT_MENTION' }))).toBe('/projects/WP/issues/452')
     expect(notifTarget(notif({ type: 'ASSIGNED' }))).toBe('/projects/WP/issues/452')
   })
 })
@@ -44,6 +46,7 @@ describe('isMentionLike', () => {
     expect(isMentionLike(notif({ type: 'AI_QUESTION' }))).toBe(true)
     expect(isMentionLike(notif({ type: 'ISSUE_CHAT_MENTION' }))).toBe(true)
     expect(isMentionLike(notif({ type: 'COMMENTED' }))).toBe(true)
+    expect(isMentionLike(notif({ type: 'ISSUE_COMMENT_MENTION' }))).toBe(true)
     expect(isMentionLike(notif({ type: 'STATUS_CHANGED' }))).toBe(false)
   })
 })
