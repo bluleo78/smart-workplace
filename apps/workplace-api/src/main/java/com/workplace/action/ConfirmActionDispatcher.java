@@ -194,7 +194,7 @@ public class ConfirmActionDispatcher {
       long userId = requireLong(params, "userId");
       boolean active = requireBoolean(params, "active");
       return new PreparedAction(
-          () -> userService.validateSetActive(userId, active),
+          () -> userService.validateSetActive(userId, active, callerId),
           returning(
               Map.of("userId", userId, "active", active),
               () -> userService.setUserActive(userId, active, callerId)));

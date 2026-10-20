@@ -370,6 +370,17 @@ class UserServiceTest extends IntegrationTestBase {
   }
 
   @Test
+  void setUserActive_self_isRejected() {
+    // WP-568: 자기 ADMIN 제거처럼 자기 자신 정지도 서버가 막는다(화면만 막으면 API·AI 확인카드 경로로 잠길 수 있다).
+    assertThatThrownBy(() -> userService.setUserActive(testUserId, false, testUserId))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("자기 자신은 정지할 수 없습니다");
+    assertThatThrownBy(() -> userService.validateSetActive(testUserId, false, testUserId))
+        .isInstanceOf(IllegalArgumentException.class);
+    assertThat(userService.getUserById(testUserId).isActive()).isTrue();
+  }
+
+  @Test
   void setUserActive_success() {
     // 일반 유저(ADMIN 아님) 비활성화는 정상 동작
     userService.setUserActive(testUserId, false, null);

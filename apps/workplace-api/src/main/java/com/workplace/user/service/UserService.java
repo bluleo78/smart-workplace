@@ -656,7 +656,7 @@ public class UserService {
   public void setUserActive(Long userId, boolean active, Long callerId) {
     // WP-420: 판정 전에 테넌트 관리자 잠금(사전검증 validateSetActive 는 잠금 없음).
     Long tenantId = lockTenantAdmins();
-    checkSetActive(userId, active, tenantId);
+    checkSetActive(userId, active, callerId, tenantId);
     int changed =
         membershipRepository.updateStatus(
             userId,
@@ -687,14 +687,18 @@ public class UserService {
    * @throws IllegalStateException 마지막 활성 ADMIN 을 비활성화하려 함
    */
   @Transactional(readOnly = true)
-  public void validateSetActive(Long userId, boolean active) {
-    checkSetActive(userId, active, requireTenant());
+  public void validateSetActive(Long userId, boolean active, Long callerId) {
+    checkSetActive(userId, active, callerId, requireTenant());
   }
 
   /** {@link #validateSetActive} 술어 본체 — 실행 경로는 잠금과 함께 이미 확정한 테넌트를 넘긴다. */
-  private void checkSetActive(Long userId, boolean active, Long tenantId) {
+  private void checkSetActive(Long userId, boolean active, Long callerId, Long tenantId) {
     if (!userRepository.existsById(userId)) {
       throw UserNotFoundException.ofId(userId);
+    }
+    // WP-568: 자기 자신 정지 차단 — 자기 ADMIN 제거(#57)와 같은 자기 잠금 방지. 화면만 막으면 API·AI 확인카드 경로로 잠길 수 있었다.
+    if (!active && userId.equals(callerId)) {
+      throw new IllegalArgumentException("자기 자신은 정지할 수 없습니다");
     }
     // 대상이 현재 테넌트 멤버가 아니면 타 테넌트 사용자를 비활성화할 수 없다 (#811).
     requireMember(userId, tenantId);

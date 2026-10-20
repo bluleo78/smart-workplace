@@ -303,6 +303,23 @@ class UserControllerTest {
   }
 
   @Test
+  void setUserActive_missingActive_returns400_andDoesNotCallService() throws Exception {
+    // WP-568: 빈 본문 {} 이 원시 boolean 기본값 false 로 바뀌어 「정지」가 되던 결함 — 필수값 누락은 400.
+    mockAuthentication("user:write");
+
+    mockMvc
+        .perform(
+            put("/api/v1/users/2/active")
+                .header("Authorization", "Bearer valid-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.errors.active").value("활성 여부(active)를 보내 주세요"));
+
+    org.mockito.Mockito.verifyNoInteractions(userService);
+  }
+
+  @Test
   void getUsers_unauthenticated_returnsUnauthorized() throws Exception {
     mockMvc.perform(get("/api/v1/users")).andExpect(status().isUnauthorized());
   }
