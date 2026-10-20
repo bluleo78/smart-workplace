@@ -231,6 +231,14 @@ public class GlobalExceptionHandler {
   }
 
   /** L3 위임 제안 승인/거부를 위임자가 아닌 사용자가 시도 → 403. */
+  /** WP-589: AI 제안 카드는 AI 만 만든다 — 사람 호출자는 403. */
+  @ExceptionHandler(com.workplace.messaging.exception.ProposalAgentOnlyException.class)
+  public ResponseEntity<ErrorResponse> handleProposalAgentOnly(
+      com.workplace.messaging.exception.ProposalAgentOnlyException ex, HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.FORBIDDEN, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
+  }
+
   @ExceptionHandler(com.workplace.messaging.exception.ProposalNotDelegatorException.class)
   public ResponseEntity<ErrorResponse> handleProposalNotDelegator(
       com.workplace.messaging.exception.ProposalNotDelegatorException ex,

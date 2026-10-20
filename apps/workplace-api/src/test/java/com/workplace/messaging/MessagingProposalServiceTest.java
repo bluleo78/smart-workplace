@@ -211,6 +211,36 @@ class MessagingProposalServiceTest extends IntegrationTestBase {
   }
 
   /** parentMessageId 를 지정하면 스레드 미러 — 응답의 parentMessageId 가 루트와 일치해야 한다. */
+  /** WP-589: 제안 카드는 AI 만 만든다 — 사람이 다른 멤버를 위임자로 「AI 제안」을 만들면 위임자가 AI 제안으로 믿고 승인하게 된다. */
+  @Test
+  void propose_byHuman_isRejected() {
+    long other = seedUser("proposal_other", "HUMAN");
+    memberRepo.add(channelId, other, "MEMBER");
+    var req =
+        new CreateProposalRequest(
+            "CREATE_ISSUE",
+            "사람이 만든 제안",
+            null,
+            null,
+            null,
+            human,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null);
+
+    assertThatThrownBy(() -> proposalService.propose(other, channelId, req))
+        .isInstanceOf(com.workplace.messaging.exception.ProposalAgentOnlyException.class)
+        .hasMessage("AI 제안은 AI 만 만들 수 있습니다");
+    assertThatThrownBy(() -> proposalService.candidateProjectsForAgent(other, human))
+        .isInstanceOf(com.workplace.messaging.exception.ProposalAgentOnlyException.class);
+  }
+
   @Test
   void propose_inThread_mirrorsParent() {
     long root = postMessage(human, channelId, "스레드 루트");

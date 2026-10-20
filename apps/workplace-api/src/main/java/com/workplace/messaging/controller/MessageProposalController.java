@@ -51,6 +51,6 @@ public class MessageProposalController {
   @GetMapping("/delegation-candidates")
   public List<ProjectCandidateDto> candidates(
       @AuthenticationPrincipal Long agentId, @RequestParam long delegatorId) {
-    return proposalService.candidateProjects(delegatorId, agentId);
+    return proposalService.candidateProjectsForAgent(agentId, delegatorId);
   }
 }

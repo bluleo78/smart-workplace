@@ -14,6 +14,7 @@ import com.workplace.messaging.dto.ProjectCandidateDto;
 import com.workplace.messaging.exception.ChannelNotMemberException;
 import com.workplace.messaging.exception.InvalidDelegationProjectException;
 import com.workplace.messaging.exception.NoDelegationCandidateException;
+import com.workplace.messaging.exception.ProposalAgentOnlyException;
 import com.workplace.messaging.exception.ProposalNotDelegatorException;
 import com.workplace.messaging.outbound.MessagingDomainEvents.MessageCreatedEvent;
 import com.workplace.messaging.repository.ChannelMemberRepository;
@@ -21,6 +22,7 @@ import com.workplace.messaging.repository.MessageActionProposalRepository;
 import com.workplace.messaging.repository.MessageRepository;
 import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.repository.ProjectRepository;
+import com.workplace.user.dto.UserKind;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.repository.UserRepository;
 import java.time.format.DateTimeFormatter;
@@ -56,6 +58,8 @@ public class MessagingProposalService {
    */
   @Transactional
   public MessageResponse propose(long agentId, long channelId, CreateProposalRequest req) {
+    // WP-589: 제안 카드는 AI 만 만든다 — 사람이 다른 멤버를 위임자로 「AI 제안」을 띄우지 못하게.
+    requireAgent(agentId);
     // Fix 1: 채널 멤버십 가드 — AI 에이전트(agentId)와 위임자(proposedByUserId) 모두 채널 멤버여야 한다.
     // 채널 밖 위임자 스푸핑 및 미가입 에이전트 제안을 차단한다(Spec §3.3).
     if (!memberRepo.isMember(channelId, agentId))
@@ -402,6 +406,18 @@ public class MessagingProposalService {
    * 액션(ProjectService.addMember)으로만 생성 — 자동추가 절대 없음(#418 정책 통일).
    */
   @Transactional(readOnly = true)
+  /** AI 의 위임 후보 조회(API 진입점) — 사람이 남의 위임 후보 프로젝트를 들여다보지 못하게 AI 호출자만 받는다(WP-589). */
+  public List<ProjectCandidateDto> candidateProjectsForAgent(long agentId, long delegatorId) {
+    requireAgent(agentId);
+    return candidateProjects(delegatorId, agentId);
+  }
+
+  /** 호출자가 AI(AGENT) 인지 — 아니면 403(WP-589). */
+  private void requireAgent(long callerId) {
+    boolean agent = userRepo.findById(callerId).map(u -> UserKind.isAgent(u.kind())).orElse(false);
+    if (!agent) throw new ProposalAgentOnlyException();
+  }
+
   public List<ProjectCandidateDto> candidateProjects(long delegatorId, long agentId) {
     List<ProjectCandidateDto> out = new ArrayList<>();
     // 위임자가 속한 프로젝트(개인·팀 공통)를 순회하며 AI 멤버 여부만 확인.
