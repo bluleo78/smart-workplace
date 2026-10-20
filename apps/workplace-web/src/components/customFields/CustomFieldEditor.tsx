@@ -11,28 +11,27 @@ export function CustomFieldEditor({
   def,
   value,
   onChange,
+  disabled = false,
 }: {
   def: IssueFieldDef;
   value: unknown;
   onChange: (next: unknown) => void;
+  /** 편집 권한 없음 — 값은 보이되 바꿀 수 없다(서버는 멤버만 저장 허용). */
+  disabled?: boolean;
 }) {
+  // 위젯 공통 props — 유형별로 다른 건 value 의 모양뿐이다.
+  const common = { def, onChange, disabled };
   switch (def.type) {
     case 'TEXT':
-      return <FieldTextInput def={def} value={(value as string | null) ?? null} onChange={onChange} />;
+      return <FieldTextInput {...common} value={(value as string | null) ?? null} />;
     case 'NUMBER':
-      return <FieldNumberInput def={def} value={(value as number | null) ?? null} onChange={onChange} />;
+      return <FieldNumberInput {...common} value={(value as number | null) ?? null} />;
     case 'DATE':
-      return <FieldDateInput def={def} value={(value as string | null) ?? null} onChange={onChange} />;
+      return <FieldDateInput {...common} value={(value as string | null) ?? null} />;
     case 'SELECT':
-      return <FieldSelect def={def} value={(value as string | null) ?? null} onChange={onChange} />;
+      return <FieldSelect {...common} value={(value as string | null) ?? null} />;
     case 'MULTI_SELECT':
-      return (
-        <FieldMultiSelect
-          def={def}
-          value={(value as string[] | null) ?? null}
-          onChange={onChange}
-        />
-      );
+      return <FieldMultiSelect {...common} value={(value as string[] | null) ?? null} />;
     default:
       return null;
   }

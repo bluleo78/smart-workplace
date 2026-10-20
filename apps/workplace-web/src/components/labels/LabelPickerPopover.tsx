@@ -20,10 +20,13 @@ export function LabelPickerPopover({
   projectKey,
   issueNumber,
   current,
+  disabled = false,
 }: {
   projectKey: string;
   issueNumber: number;
   current: LabelSummary[];
+  /** 워크플로 편집 권한 없음(OPEN 비멤버) — 서버가 멤버만 라벨 부착을 허용해 고르면 403 이었다(WP-503). */
+  disabled?: boolean;
 }) {
   const labels = useLabels(projectKey);
   const update = useUpdateIssueLabels(projectKey, issueNumber);
@@ -88,7 +91,7 @@ export function LabelPickerPopover({
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
-        <Button variant="outline" size="sm" aria-label="라벨 편집" data-testid="label-picker-trigger">
+        <Button variant="outline" size="sm" aria-label="라벨 편집" data-testid="label-picker-trigger" disabled={disabled}>
           <Tag className="h-4 w-4" />
         </Button>
       </PopoverTrigger>

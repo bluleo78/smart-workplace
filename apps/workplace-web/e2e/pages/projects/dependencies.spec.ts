@@ -8,7 +8,7 @@ import type { Page, Route } from '@playwright/test';
 
 import { expect, test } from '../../fixtures/auth.fixture';
 import { trackRequests } from '../../fixtures/requests';
-import { createIssue } from '../../factories/issue.factory';
+import { createIssue, createIssueDetail } from '../../factories/issue.factory';
 import { makeTaskType, systemTypes } from '../../factories/issueType.factory';
 import type { IssueLinkSummary } from '../../../src/types/issue';
 
@@ -84,7 +84,7 @@ test.describe('의존성', () => {
           route.fulfill({
             status: 200,
             contentType: 'application/json',
-            body: JSON.stringify({
+            body: JSON.stringify(createIssueDetail({
               summary: {
                 ...createIssue({ id: 1, number: 1, title: 'task A' }),
                 type: taskType,
@@ -93,10 +93,7 @@ test.describe('의존성', () => {
                 blocked: false,
               },
               body: '',
-              comments: [],
-              history: [],
-              attachments: [],
-            }),
+            })),
           }),
       );
 
@@ -120,7 +117,7 @@ test.describe('의존성', () => {
             return route.fulfill({
               status: 200,
               contentType: 'application/json',
-              body: JSON.stringify({
+              body: JSON.stringify(createIssueDetail({
                 summary: {
                   ...createIssue({ id: 1, number: 1, title: 'task A' }),
                   type: taskType,
@@ -129,10 +126,7 @@ test.describe('의존성', () => {
                   blocked: false,
                 },
                 body: '',
-                comments: [],
-                history: [],
-                attachments: [],
-              }),
+              })),
             });
           }
           if (req.method() === 'DELETE') {
@@ -195,7 +189,7 @@ test.describe('의존성', () => {
         route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify({
+          body: JSON.stringify(createIssueDetail({
             summary: {
               ...createIssue({ id: 1, number: 1, title: 'task A' }),
               type: taskType,
@@ -204,10 +198,7 @@ test.describe('의존성', () => {
               blocked: false,
             },
             body: '',
-            comments: [],
-            history: [],
-            attachments: [],
-          }),
+          })),
         }),
     );
 
@@ -280,7 +271,7 @@ test.describe('의존성', () => {
         route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify({
+          body: JSON.stringify(createIssueDetail({
             summary: {
               ...createIssue({ id: 1, number: 1, title: 'task A' }),
               type: taskType,
@@ -289,10 +280,7 @@ test.describe('의존성', () => {
               blocked: true,
             },
             body: '',
-            comments: [],
-            history: [],
-            attachments: [],
-          }),
+          })),
         }),
     );
 

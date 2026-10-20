@@ -24,7 +24,8 @@ export function IssueLinkRow({
 }: {
   projectKey: string;
   link: IssueLinkSummary;
-  onRemove: () => void;
+  /** 없으면 제거 조작을 그리지 않는다 — 워크플로 편집 권한이 없는 OPEN 비멤버(WP-503, 서버는 멤버만 허용). */
+  onRemove?: () => void;
 }) {
   const isCoarse = useIsCoarsePointer();
 
@@ -45,7 +46,7 @@ export function IssueLinkRow({
         {link.title}
       </Link>
       <IssueStatusBadge status={link.status as IssueStatus} />
-      {isCoarse ? (
+      {onRemove && (isCoarse ? (
         // WP-237: 터치용 ⋯ — 44px 터치 영역이 행 높이를 키우지 않도록 음수 세로 마진으로 시각 크기만 유지.
         <TouchRowActionsMenu
           title={`${projectKey}-${link.number} ${link.title}`}
@@ -70,7 +71,7 @@ export function IssueLinkRow({
         >
           <X className="h-4 w-4" />
         </Button>
-      )}
+      ))}
     </li>
   );
 }

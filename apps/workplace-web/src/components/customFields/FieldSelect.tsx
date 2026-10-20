@@ -15,14 +15,17 @@ export function FieldSelect({
   def,
   value,
   onChange,
+  disabled = false,
 }: {
   def: IssueFieldDef;
   value: string | null;
   onChange: (next: string | null) => void;
+  disabled?: boolean;
 }) {
   return (
     <Select
       value={value ?? '__none__'}
+      disabled={disabled}
       onValueChange={(v) => onChange(v === '__none__' ? null : v)}
     >
       <SelectTrigger

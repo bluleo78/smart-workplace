@@ -6,10 +6,12 @@ export function FieldMultiSelect({
   def,
   value,
   onChange,
+  disabled = false,
 }: {
   def: IssueFieldDef;
   value: string[] | null;
   onChange: (next: string[] | null) => void;
+  disabled?: boolean;
 }) {
   const set = new Set(value ?? []);
   function toggle(opt: string) {
@@ -30,8 +32,9 @@ export function FieldMultiSelect({
           key={opt}
           type="button"
           onClick={() => toggle(opt)}
+          disabled={disabled}
           aria-pressed={set.has(opt)}
-          className={`px-2 py-0.5 rounded text-xs border ${
+          className={`px-2 py-0.5 rounded text-xs border disabled:opacity-50 ${
             set.has(opt) ? 'bg-primary text-primary-foreground' : 'bg-background'
           }`}
         >

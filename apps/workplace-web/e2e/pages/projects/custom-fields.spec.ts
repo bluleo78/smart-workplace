@@ -5,8 +5,9 @@
 import { expect, test } from '../../fixtures/auth.fixture';
 import { trackRequests } from '../../fixtures/requests';
 import { expectStays } from '../../fixtures/wait';
-import { createIssue } from '../../factories/issue.factory';
+import { createIssue, createIssueDetail } from '../../factories/issue.factory';
 import { makeTaskType, systemTypes } from '../../factories/issueType.factory';
+import type { FieldType } from '../../../src/types/customField';
 
 const KEY = 'WP';
 
@@ -20,7 +21,7 @@ test.describe('커스텀 필드', () => {
         id: number;
         projectId: number;
         name: string;
-        type: string;
+        type: FieldType;
         options: string[] | null;
         position: number;
         createdAt: string;
@@ -39,7 +40,7 @@ test.describe('커스텀 필드', () => {
         blockedBy: [],
         blocks: [],
         blocked: false,
-        customFields: [] as Array<{ defId: number; name: string; type: string; value: unknown }>,
+        customFields: [] as Array<{ defId: number; name: string; type: FieldType; value: unknown }>,
       };
       let issue = baseIssue;
 
@@ -96,7 +97,7 @@ test.describe('커스텀 필드', () => {
         if (req.method() === 'POST') {
           const body = req.postDataJSON() as {
             name: string;
-            type: string;
+            type: FieldType;
             options: string[] | null;
           };
           const f = {
@@ -123,13 +124,10 @@ test.describe('커스텀 필드', () => {
         r.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify({
+          body: JSON.stringify(createIssueDetail({
             summary: issue,
             body: '',
-            comments: [],
-            history: [],
-            attachments: [],
-          }),
+          })),
         }),
       );
 
@@ -140,7 +138,7 @@ test.describe('커스텀 필드', () => {
           .values;
         const map = new Map<
           number,
-          { defId: number; name: string; type: string; value: unknown }
+          { defId: number; name: string; type: FieldType; value: unknown }
         >();
         for (const e of issue.customFields) map.set(e.defId, e);
         for (const v of incoming) {
@@ -153,13 +151,10 @@ test.describe('커스텀 필드', () => {
         return route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify({
+          body: JSON.stringify(createIssueDetail({
             summary: issue,
             body: '',
-            comments: [],
-            history: [],
-            attachments: [],
-          }),
+          })),
         });
       });
 
@@ -238,7 +233,7 @@ test.describe('커스텀 필드', () => {
         customFields: [{ defId: numberDef.id, name: numberDef.name, type: 'NUMBER', value: 5 }] as Array<{
           defId: number;
           name: string;
-          type: string;
+          type: FieldType;
           value: unknown;
         }>,
       };
@@ -273,7 +268,7 @@ test.describe('커스텀 필드', () => {
         r.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify({ summary: issue, body: '', comments: [], history: [], attachments: [] }),
+          body: JSON.stringify(createIssueDetail({ summary: issue, body: '' })),
         }),
       );
 
@@ -283,7 +278,7 @@ test.describe('커스텀 필드', () => {
         route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify({ summary: issue, body: '', comments: [], history: [], attachments: [] }),
+          body: JSON.stringify(createIssueDetail({ summary: issue, body: '' })),
         }),
       );
 
@@ -427,7 +422,7 @@ test.describe('커스텀 필드', () => {
         id: 400,
         projectId: 1,
         name: '마감목표일',
-        type: 'DATE',
+        type: 'DATE' as FieldType,
         options: null,
         position: 1,
         createdAt: new Date().toISOString(),
@@ -446,7 +441,7 @@ test.describe('커스텀 필드', () => {
         blockedBy: [],
         blocks: [],
         blocked: false,
-        customFields: [] as Array<{ defId: number; name: string; type: string; value: unknown }>,
+        customFields: [] as Array<{ defId: number; name: string; type: FieldType; value: unknown }>,
       };
       let issue = baseIssue;
 
@@ -479,14 +474,14 @@ test.describe('커스텀 필드', () => {
         r.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify({ summary: issue, body: '', comments: [], history: [], attachments: [] }),
+          body: JSON.stringify(createIssueDetail({ summary: issue, body: '' })),
         }),
       );
 
       const puts = trackRequests(page, 'PUT', `/api/v1/projects/${KEY}/issues/1/fields`);
       await page.route(`**/api/v1/projects/${KEY}/issues/1/fields`, (route) => {
         const incoming = (route.request().postDataJSON() as { values: Array<{ defId: number; value: unknown }> }).values;
-        const map = new Map<number, { defId: number; name: string; type: string; value: unknown }>();
+        const map = new Map<number, { defId: number; name: string; type: FieldType; value: unknown }>();
         for (const e of issue.customFields) map.set(e.defId, e);
         for (const v of incoming) {
           if (v.value == null) map.delete(v.defId);
@@ -496,7 +491,7 @@ test.describe('커스텀 필드', () => {
         return route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify({ summary: issue, body: '', comments: [], history: [], attachments: [] }),
+          body: JSON.stringify(createIssueDetail({ summary: issue, body: '' })),
         });
       });
 

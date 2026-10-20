@@ -34,7 +34,7 @@ const TEAM_FIELDS: MobilePropField[] = ['status', 'assignee', 'priority', 'due',
 type Sheet = Exclude<MobilePropField, 'label'> | null; // 라벨 시트는 LabelPropChip 이 자체 상태로 연다
 
 export function IssueMobilePropertyChips({
-  projectKey, issue, canEditWorkflow, updatePending, onPatch, onOpenMore, fields = TEAM_FIELDS,
+  projectKey, issue, canEditWorkflow, updatePending, onPatch, onOpenMore, fields = TEAM_FIELDS, trailing,
 }: {
   projectKey: string;
   issue: IssueResponse;
@@ -45,6 +45,8 @@ export function IssueMobilePropertyChips({
   onOpenMore?: () => void;
   /** 렌더할 칩과 순서. 기본 = 팀 상세(상태·담당자·우선순위·마감·에픽). */
   fields?: MobilePropField[];
+  /** 칩 줄 맨 끝에 덧붙일 요소 — 이슈 상세의 잠김 표시(WP-503). */
+  trailing?: React.ReactNode;
 }) {
   const [sheet, setSheet] = useState<Sheet>(null);
   // 완료 전환 확인 대기 — 미완료 선행 이슈가 있을 때만(#827, 데스크톱 Select 와 같은 다이얼로그).
@@ -144,6 +146,7 @@ export function IssueMobilePropertyChips({
             <Plus className="size-4" aria-hidden />속성
           </button>
         )}
+        {trailing}
       </div>
 
       <MobilePickerSheet

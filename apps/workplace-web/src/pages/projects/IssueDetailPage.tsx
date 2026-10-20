@@ -51,11 +51,12 @@ import { useIssueImageUpload } from '../../hooks/useIssueImageUpload';
 import { useReturnOnEscape, useReturnToIssueOrigin } from '../../hooks/useIssueOrigin';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import { questionWork } from '../../lib/agentWork';
+import { aiClassifyApplyToast } from '../../lib/aiClassifyResult';
 import { buildIssueDetailContext } from '../../lib/aiScreenContext/builders/issue';
 import { isNotFoundError } from '../../lib/api-error';
 import { issueDeleteChildrenWarning, issueDeleteEntityName } from '../../lib/issueDeleteText';
 import { isBodyDraftDirty } from '../../lib/issueDraft';
-import { isProjectOwner } from '../../lib/projectPermissions';
+import { isProjectOwner, workflowLockedNotice } from '../../lib/projectPermissions';
 import { eulReul } from '../../lib/utils';
 import type { UpdateIssueRequest } from '../../types/issue';
 import { IssueChatButton } from './components/chat/IssueChatButton';
@@ -72,6 +73,7 @@ import { IssueReporterField } from './components/IssueReporterField';
 import { IssueMobilePropertyChips } from './components/mobile/IssueMobilePropertyChips';
 import { type EditBarControls, MobileEditBar } from './components/mobile/MobileEditBar';
 import { useEditBarControls } from './components/mobile/useEditBarControls';
+import { WorkflowLockedHint } from './components/WorkflowLockedHint';
 
 // 본문 편집 draft localStorage 키 — 프로젝트+이슈 단위로 특정(#824).
 function bodyDraftKey(projectKey: string, issueNumber: number): string {
@@ -510,6 +512,8 @@ export default function IssueDetailPage() {
   const canEditContent = data.viewerCanEditContent ?? false;
   const canEditWorkflow = data.viewerCanEditWorkflow ?? false;
   const canDelete = data.viewerCanDelete ?? false;
+  // 워크플로 필드가 권한으로 막혔을 때 안내(WP-503) — 제목 아래 속성 줄 끝엔 짧은 표시(누르면 문구), 모바일 「속성」 시트 맨 위엔 문구 한 줄.
+  const lockedNotice = workflowLockedNotice(canEditWorkflow, canEditContent);
 
   // 삭제 — cascade soft-delete. childCount > 0 이면 AlertDialog 경고 문구에 자식 수 포함.
   // 성공 시 프로젝트 보드로 이동. 권한(첨부자/OWNER) 검증은 백엔드가 수행.
@@ -574,9 +578,10 @@ export default function IssueDetailPage() {
             tasks.push(updateLabels.mutateAsync(merged));
           }
           // 각 mutation 의 실패는 훅 자체 onError 가 이미 에러 토스트로 알리므로
-          // 여기서는 완료 대기만 하고(allSettled) 성공 토스트 1개만 통합 노출한다.
-          await Promise.allSettled(tasks);
-          toast.success('AI 제안을 적용했습니다');
+          // 여기서는 완료 대기만 하고(allSettled) 성공 토스트 1개만 통합 노출한다 — 하나도 적용되지 않았으면 띄우지 않는다(WP-503).
+          const message = aiClassifyApplyToast(await Promise.allSettled(tasks));
+          if (message === null) return;
+          toast.success(message);
           setClassifyReason(result.reason);
         },
         onError: () => toast.error('AI 제안을 받지 못했습니다'),
@@ -727,6 +732,7 @@ export default function IssueDetailPage() {
                     updatePending={update.isPending}
                     onPatch={(c) => void patch(c)}
                     onOpenMore={() => setMoreOpen(true)}
+                    trailing={lockedNotice && <WorkflowLockedHint message={lockedNotice} variant="chip" />}
                   />
                 ) : (
                   <div className="flex flex-wrap items-center gap-2">
@@ -747,6 +753,7 @@ export default function IssueDetailPage() {
                         ⛔ 차단됨
                       </span>
                     )}
+                    {lockedNotice && <WorkflowLockedHint message={lockedNotice} variant="inline" />}
                   </div>
                 )}
               </div>
@@ -854,6 +861,7 @@ export default function IssueDetailPage() {
           className="min-h-[50dvh]"
         >
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 pb-4">
+            {lockedNotice && <WorkflowLockedHint message={lockedNotice} variant="line" />}
             {/* 유형은 레일에 없고 모바일 제목 아래 유형 줄도 칩 줄로 대체됐으므로 시트 맨 위에서 편집한다. */}
             {summary.type && (
               <div className="flex items-center justify-between gap-2" data-testid="issue-more-props-type">

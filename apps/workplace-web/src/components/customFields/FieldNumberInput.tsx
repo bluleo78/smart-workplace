@@ -16,10 +16,12 @@ export function FieldNumberInput({
   def,
   value,
   onChange,
+  disabled = false,
 }: {
   def: IssueFieldDef;
   value: number | null;
   onChange: (next: number | null) => void;
+  disabled?: boolean;
 }) {
   // 안전 정수 범위 초과로 입력을 거부했을 때, controlled input 이 실제로 재렌더되도록
   // 강제하기 위한 더미 상태 (React 는 controlled <input> 커밋 시 DOM value 를 항상
@@ -31,6 +33,7 @@ export function FieldNumberInput({
     <Input
       type="number"
       value={value ?? ''}
+      disabled={disabled}
       onChange={(e) => {
         const parsed = parseFieldNumber(e.target.value);
         if (parsed.kind === 'clear') {

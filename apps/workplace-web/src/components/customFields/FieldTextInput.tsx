@@ -8,14 +8,17 @@ export function FieldTextInput({
   def,
   value,
   onChange,
+  disabled = false,
 }: {
   def: IssueFieldDef;
   value: string | null;
   onChange: (next: string | null) => void;
+  disabled?: boolean;
 }) {
   return (
     <Input
       value={value ?? ''}
+      disabled={disabled}
       onChange={(e) => onChange(e.target.value === '' ? null : e.target.value)}
       placeholder="값을 입력하세요"
       maxLength={2000}

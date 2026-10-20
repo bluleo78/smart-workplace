@@ -19,10 +19,13 @@ export function IssueLinkPicker({
   projectKey,
   issueNumber,
   direction,
+  disabled = false,
 }: {
   projectKey: string;
   issueNumber: number;
   direction: DependencyDirection;
+  /** 워크플로 편집 권한 없음(OPEN 비멤버) — 서버가 멤버만 허용한다(WP-503). */
+  disabled?: boolean;
 }) {
   const add = useAddIssueDependency(projectKey, issueNumber);
   const [open, setOpen] = useState(false);
@@ -57,6 +60,7 @@ export function IssueLinkPicker({
           size="sm"
           aria-label={label}
           data-testid={`issue-link-picker-trigger-${direction}`}
+          disabled={disabled}
         >
           + 추가
         </Button>

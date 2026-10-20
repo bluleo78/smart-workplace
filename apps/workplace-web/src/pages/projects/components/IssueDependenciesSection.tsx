@@ -2,6 +2,7 @@
 // 두 슬롯 노출: 차단됨(blockedBy, 선행 필요) / 차단 중(blocks).
 // 각 슬롯은 IssueLinkPicker(추가) + IssueLinkRow 목록(제거).
 
+import type { DependencyDirection } from '../../../api/issueDependencies';
 import { IssueLinkRow } from '../../../components/issues/IssueLinkRow';
 import { useRemoveIssueDependency } from '../../../hooks/queries/useIssueDependencies';
 import type { IssueLinkSummary } from '../../../types/issue';
@@ -12,13 +13,19 @@ export function IssueDependenciesSection({
   issueNumber,
   blockedBy,
   blocks,
+  disabled = false,
 }: {
   projectKey: string;
   issueNumber: number;
   blockedBy: IssueLinkSummary[];
   blocks: IssueLinkSummary[];
+  /** 워크플로 편집 권한 없음(OPEN 비멤버) — 추가 버튼을 막고 제거 조작은 그리지 않는다(WP-503, 서버는 멤버만 허용). */
+  disabled?: boolean;
 }) {
   const remove = useRemoveIssueDependency(projectKey, issueNumber);
+  // 행 제거 핸들러 — 편집할 수 없으면 undefined 를 넘겨 행이 제거 조작을 그리지 않게 한다.
+  const removeFor = (otherNumber: number, direction: DependencyDirection) =>
+    disabled ? undefined : () => remove.mutate({ otherNumber, direction });
 
   return (
     <section
@@ -34,6 +41,7 @@ export function IssueDependenciesSection({
             projectKey={projectKey}
             issueNumber={issueNumber}
             direction="blockedBy"
+            disabled={disabled}
           />
         </div>
         <ul data-testid="blocked-by-list">
@@ -45,9 +53,7 @@ export function IssueDependenciesSection({
                 key={`bb-${l.number}`}
                 projectKey={projectKey}
                 link={l}
-                onRemove={() =>
-                  remove.mutate({ otherNumber: l.number, direction: 'blockedBy' })
-                }
+                onRemove={removeFor(l.number, 'blockedBy')}
               />
             ))
           )}
@@ -61,6 +67,7 @@ export function IssueDependenciesSection({
             projectKey={projectKey}
             issueNumber={issueNumber}
             direction="blocks"
+            disabled={disabled}
           />
         </div>
         <ul data-testid="blocks-list">
@@ -72,9 +79,7 @@ export function IssueDependenciesSection({
                 key={`b-${l.number}`}
                 projectKey={projectKey}
                 link={l}
-                onRemove={() =>
-                  remove.mutate({ otherNumber: l.number, direction: 'blocks' })
-                }
+                onRemove={removeFor(l.number, 'blocks')}
               />
             ))
           )}

@@ -188,6 +188,58 @@ test('OPEN 비멤버: 새 이슈 다이얼로그는 접수 칸만 보이고 제�
   await expect.poll(() => posted).toEqual({ title: '접수 건의', body: '내용' });
 });
 
+// ─── 이슈 상세 — 워크플로 잠김 안내 (WP-503) ───────────────────────────────────
+// 왜: 비멤버에겐 유형·상태 등이 흐리게만 보여 「기능이 없다」고 받아들였다(VOC WPV-8). 서버 플래그 → 배지 줄 표시 → 팝오버 문구 배선만 본다.
+//     문구 분기(멤버·reporter·열람자)는 projectPermissions.test.ts 의 workflowLockedNotice 가 맡는다(WP-413).
+
+test('OPEN reporter(비멤버): 유형 배지 옆 「멤버만 변경」을 누르면 이유와 코멘트 안내가 뜬다', async ({ authenticatedPage: page }) => {
+  await setupOpenProjectMocks(page, {
+    viewerCanEditContent: true,
+    viewerCanEditWorkflow: false,
+    viewerCanDelete: true,
+    viewerIsMember: false,
+  });
+  await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+
+  await expect(page.getByTestId('issue-type-trigger')).toBeDisabled();
+  const hint = page.getByTestId('issue-workflow-locked-hint');
+  await expect(hint).toHaveText('멤버만 변경');
+  await hint.click();
+  await expect(page.getByTestId('issue-workflow-locked-popover')).toHaveText(
+    '이슈 속성(유형·상태·일정 등)은 프로젝트 멤버만 바꿀 수 있어요. 바꿔야 하면 코멘트로 알려 주세요.',
+  );
+});
+
+// 서버가 멤버만 허용하는 라벨·의존성·커스텀 필드·AI 제안(우선순위·유형·라벨 변경)도 비멤버에겐 막는다 — 예전엔 열려 있어 누르면 403,
+// AI 제안은 셋 다 403 인데도 「적용했습니다」 토스트가 떴다(WP-503). 위젯별 분기는 IssueDependenciesSection·CustomFieldEditor 컴포넌트 테스트.
+test('OPEN reporter(비멤버): 라벨·의존성·커스텀 필드는 꺼져 있고 AI 제안 버튼은 없다', async ({ authenticatedPage: page }) => {
+  await setupOpenProjectMocks(page, {
+    viewerCanEditContent: true,
+    viewerCanEditWorkflow: false,
+    viewerCanDelete: true,
+    viewerIsMember: false,
+  });
+  await page.route(
+    (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/fields`,
+    (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([{ id: 11, name: '고객사', type: 'TEXT', options: null, position: 0 }]),
+      }),
+  );
+  await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+
+  await expect(page.getByTestId('issue-workflow-locked-hint')).toBeVisible();
+  await expect(page.getByRole('button', { name: /AI 제안/ })).toHaveCount(0);
+  await page.getByTestId('property-group-classification').getByRole('button', { name: /분류/ }).click();
+  await expect(page.getByTestId('label-picker-trigger')).toBeDisabled();
+  await page.getByTestId('property-group-dependencies').getByRole('button', { name: /의존성/ }).click();
+  await expect(page.getByTestId('issue-link-picker-trigger-blockedBy')).toBeDisabled();
+  await page.getByTestId('property-group-custom-fields').getByRole('button', { name: /커스텀 필드/ }).click();
+  await expect(page.getByTestId('field-input-11')).toBeDisabled();
+});
+
 // ─── 이슈 상세 — 첨부 드롭존 노출 (WP-202) ─────────────────────────────────────
 // 왜: 첨부 업로드 권한은 본문 편집 권한과 같다. 편집 가능한 OPEN reporter 에겐 드롭존을 보여주고,
 //     편집 불가 열람자에겐 숨겨 클릭 후 403("프로젝트 멤버가 아닙니다")을 받는 일이 없게 한다.

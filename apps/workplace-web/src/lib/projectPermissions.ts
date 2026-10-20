@@ -37,3 +37,15 @@ export function isProjectOwner(
 export function canManageProject(isOwner: boolean, isAdmin: boolean, isPersonal: boolean): boolean {
   return isOwner || (isAdmin && !isPersonal)
 }
+
+/**
+ * 이슈 상세에서 워크플로 필드(유형·상태·우선순위·담당자·일정 등)가 막혔을 때 보여 줄 안내(WP-503) — 막히지 않았으면 null.
+ * 왜: 비활성 필드가 흐리게만 보여 OPEN 비멤버가 「기능이 없다」고 받아들였다(VOC WPV-8). 저장 중 잠깐 막히는 경우는 권한이 아니므로
+ * 서버 플래그(viewerCanEditWorkflow)만 본다. 코멘트를 쓸 수 있으면(내용 편집 권한 = 코멘트 권한) 바꿀 방법도 함께 알려 준다.
+ */
+export function workflowLockedNotice(canEditWorkflow: boolean, canEditContent: boolean): string | null {
+  if (canEditWorkflow) return null
+  // 막히는 건 유형·상태뿐 아니라 담당자·라벨·의존성·커스텀 필드까지라 「속성」으로 묶어 말한다.
+  const base = '이슈 속성(유형·상태·일정 등)은 프로젝트 멤버만 바꿀 수 있어요.'
+  return canEditContent ? `${base} 바꿔야 하면 코멘트로 알려 주세요.` : base
+}

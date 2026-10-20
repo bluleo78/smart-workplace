@@ -21,10 +21,12 @@ export function FieldDateInput({
   def,
   value,
   onChange,
+  disabled = false,
 }: {
   def: IssueFieldDef;
   value: string | null;
   onChange: (next: string | null) => void;
+  disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -52,6 +54,7 @@ export function FieldDateInput({
             variant="outline"
             size="sm"
             className="flex-1 justify-start gap-2 font-normal"
+            disabled={disabled}
             aria-label={def.name}
             data-testid={`field-input-${def.id}`}
           >
@@ -71,8 +74,8 @@ export function FieldDateInput({
           />
         </PopoverContent>
       </Popover>
-      {/* 날짜 지우기 버튼 — 날짜가 설정된 경우에만 표시 */}
-      {selected && (
+      {/* 날짜 지우기 버튼 — 날짜가 설정되어 있고 편집할 수 있을 때만 표시 */}
+      {selected && !disabled && (
         <Button
           variant="ghost"
           size="icon"

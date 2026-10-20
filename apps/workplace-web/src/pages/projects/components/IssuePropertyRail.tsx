@@ -52,7 +52,7 @@ interface IssuePropertyRailProps {
   customFields: IssueFieldEntry[];    // summary.customFields
   updatePending: boolean;     // update.isPending
   onPatch: (changes: UpdateIssueRequest) => void;
-  /** 서버 플래그 — 상태·우선순위·담당자·마감일·사이클 편집 가능 여부(멤버만). */
+  /** 서버 플래그 — 상태·우선순위·담당자·일정·사이클·라벨·의존성·커스텀 필드·AI 제안 사용 가능 여부(멤버만). */
   canEditWorkflow?: boolean;
   /** AI 분류 제안 버튼 — undefined 이면 렌더 안 함 */
   onAiClassify?: () => void;
@@ -92,7 +92,8 @@ export function IssuePropertyRail({
   variant = 'rail',
 }: IssuePropertyRailProps) {
   // AI 분류 제안 버튼 — 레일(상태·담당 그룹 맨 아래, 구분선 뒤)과 시트(단독) 두 위치가 같은 버튼을 쓴다. 핸들러가 없으면 렌더하지 않는다.
-  const aiButton = onAiClassify !== undefined && (
+  // 제안은 우선순위·유형·라벨을 바꾸므로 워크플로 권한이 없으면 숨긴다 — 비멤버가 누르면 셋 다 403 인데 성공 토스트가 떴다(WP-503).
+  const aiButton = onAiClassify !== undefined && canEditWorkflow && (
     <AiClassifyButton
       hasTitle={true}
       isPending={isAiClassifying ?? false}
@@ -261,6 +262,7 @@ export function IssuePropertyRail({
               projectKey={projectKey}
               issueNumber={issueNumber}
               current={labels}
+              disabled={!canEditWorkflow}
             />
           </div>
           <div className="flex flex-wrap gap-1" data-testid="issue-labels">
@@ -287,6 +289,7 @@ export function IssuePropertyRail({
           issueNumber={issueNumber}
           blockedBy={blockedBy}
           blocks={blocks}
+          disabled={!canEditWorkflow}
         />
       </IssuePropertyGroup>
 
@@ -302,6 +305,7 @@ export function IssuePropertyRail({
           projectKey={projectKey}
           issueNumber={issueNumber}
           current={customFields}
+          disabled={!canEditWorkflow}
         />
       </IssuePropertyGroup>
 

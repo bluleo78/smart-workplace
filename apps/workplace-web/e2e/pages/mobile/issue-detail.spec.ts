@@ -1,7 +1,7 @@
 // 모바일 이슈 상세(WP-196) — 제목 아래 속성 칩 · 「＋ 속성」 시트 · 첨부/하위 태스크 · 하단 코멘트 입력/편집 바.
 import type { Page } from '@playwright/test';
 
-import type { IssueResponse } from '../../../src/types/issue';
+import type { IssueDetailResponse, IssueResponse } from '../../../src/types/issue';
 import { createChatThread } from '../../factories/chat.factory';
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../factories/issue.factory';
 import { makeEpicType, makeSubtaskType, makeTaskType, systemTypes } from '../../factories/issueType.factory';
@@ -27,7 +27,13 @@ const MEMBERS = [
 ];
 
 /** 이슈 7 상세 + 주변 API 스텁(PATCH 는 상세 응답에 반영). 돌려주는 calls() 는 쓰기 요청(PATCH/PUT/POST) 기록이다. */
-async function mockDetail(page: Page, over: Partial<IssueResponse> = {}, body = '본문 첫 줄') {
+async function mockDetail(
+  page: Page,
+  over: Partial<IssueResponse> = {},
+  body = '본문 첫 줄',
+  /** 상세 응답의 권한 플래그 등 — 비멤버 화면(WP-503)에서 viewerCanEditWorkflow 를 끈다. */
+  detailOver: Partial<IssueDetailResponse> = {},
+) {
   let issue = createIssue({
     id: 7, number: 7, projectKey: KEY, type: makeTaskType(), status: 'TODO', priority: 'MID',
     title: '모바일 상세에서 속성을 첫 화면에 보여주기',
@@ -58,7 +64,7 @@ async function mockDetail(page: Page, over: Partial<IssueResponse> = {}, body = 
     if (r.request().method() === 'PATCH') {
       issue = { ...issue, ...(r.request().postDataJSON() as Partial<IssueResponse>) };
     }
-    return r.fulfill(json(createIssueDetail({ summary: issue, body })));
+    return r.fulfill(json(createIssueDetail({ summary: issue, body, ...detailOver })));
   });
   await page.route((u) => [`${BASE}/assignees`, `${BASE}/parent`].includes(u.pathname), (r) =>
     r.fulfill(json(r.request().url().endsWith('/assignees') ? [] : createIssueDetail({ summary: issue, body }))));
@@ -234,6 +240,23 @@ test.describe('속성 칩', () => {
     await expect(page.getByTestId('mobile-prop-status')).toBeVisible();
     await expect(page.getByTestId('mobile-prop-epic')).toHaveCount(0);
   });
+});
+
+// WP-503 — 비멤버에겐 칩이 흐리게만 보여 「기능이 없다」고 받아들였다. 칩 줄 끝 자물쇠 칩 → 팝오버, 시트 맨 위 한 줄 배선만 본다
+// (문구 분기는 projectPermissions.test.ts 의 workflowLockedNotice).
+test('비멤버: 칩 줄 끝 자물쇠를 누르면 이유가 뜨고, ＋ 속성 시트 맨 위에도 같은 안내가 있다', async ({ authenticatedPage: page }) => {
+  await mockDetail(page, {}, '본문 첫 줄', { viewerCanEditContent: true, viewerCanEditWorkflow: false });
+  await openDetail(page);
+  const notice = '이슈 속성(유형·상태·일정 등)은 프로젝트 멤버만 바꿀 수 있어요. 바꿔야 하면 코멘트로 알려 주세요.';
+  const chips = page.getByTestId('mobile-prop-chips');
+  await expect(chips.getByTestId('mobile-prop-status')).toBeDisabled();
+  await chips.getByTestId('issue-workflow-locked-hint').click();
+  await expect(page.getByTestId('issue-workflow-locked-popover')).toHaveText(notice);
+  await expectNoHorizontalOverflow(page);
+  await page.keyboard.press('Escape');
+
+  await page.getByTestId('mobile-prop-more').click();
+  await expect(page.getByTestId('issue-more-props-sheet').getByTestId('issue-workflow-locked-notice')).toHaveText(notice);
 });
 
 test.describe('＋ 속성 시트', () => {
