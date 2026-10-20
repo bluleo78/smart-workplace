@@ -98,7 +98,7 @@ export default function ProfileSettingsPage() {
             />
           </FormField>
           <FormField label="이름" htmlFor="profile-name" error={profileForm.formState.errors.name?.message}>
-            <Input id="profile-name" type="text" maxLength={100} {...profileForm.register('name')} />
+            <Input id="profile-name" type="text" maxLength={50} {...profileForm.register('name')} />
           </FormField>
           <FormField label="이메일" htmlFor="profile-email" error={profileForm.formState.errors.email?.message}>
             <Input

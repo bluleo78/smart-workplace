@@ -287,6 +287,23 @@ class UserControllerTest {
   }
 
   @Test
+  void updateProfile_nameOver50_returns400_andDoesNotCallService() throws Exception {
+    // WP-569: DTO 가 100자까지 받고 DB 는 50자라 51~100자가 영어 「Data integrity violation」 409 로 새던 결함.
+    mockAuthentication("user:write:self");
+
+    mockMvc
+        .perform(
+            put("/api/v1/users/me")
+                .header("Authorization", "Bearer valid-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"" + "가".repeat(51) + "\"}"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.errors.name").value("이름은 50자까지 쓸 수 있습니다"));
+
+    org.mockito.Mockito.verifyNoInteractions(userService);
+  }
+
+  @Test
   void setUserActive_withPermission_returnsNoContent() throws Exception {
     mockAuthentication("user:write");
     SetActiveRequest request = new SetActiveRequest(false);
