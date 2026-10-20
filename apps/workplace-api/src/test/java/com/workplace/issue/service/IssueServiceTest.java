@@ -262,7 +262,7 @@ class IssueServiceTest extends IntegrationTestBase {
             projectKey,
             new CreateIssueRequest("원래 제목", "b", null, null, null, null, null, null));
 
-    for (String blank : List.of("", "   ", "\u3000")) {
+    for (String blank : List.of("", "   ", "\u3000", "\u200B", "\u200B\u200B")) {
       assertThatThrownBy(
               () ->
                   issueService.update(

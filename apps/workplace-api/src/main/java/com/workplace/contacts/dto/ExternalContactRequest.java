@@ -1,5 +1,6 @@
 package com.workplace.contacts.dto;
 
+import com.workplace.global.util.SingleLineTitles;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -11,11 +12,16 @@ import jakarta.validation.constraints.Size;
  * UpdateExternalContactRequest}(부분 수정, #839).
  */
 public record ExternalContactRequest(
-    @NotBlank @Size(max = 120) String name,
+    @NotBlank(message = "이름을 입력해 주세요") @Size(max = 120) String name,
     @Email @Size(max = 255) String email,
     @Size(max = 40) String phone,
     @Size(max = 120) String organization,
     @Size(max = 100) String title,
     // 메모 상한(WP-546) — 없으면 수 MB 메모가 저장돼 상세 화면이 멈췄다. 웹 폼·MCP 도구와 같은 2000자.
     @Size(max = 2000, message = "메모는 2000자 이하여야 합니다") String notes,
-    @NotNull @Pattern(regexp = "SHARED|PERSONAL") String visibility) {}
+    @NotNull @Pattern(regexp = "SHARED|PERSONAL") String visibility) {
+  public ExternalContactRequest {
+    // 이름은 한 줄로 다듬는다 — 앞뒤 공백·제로폭 문자만 남은 이름이 목록에 빈 줄로 보였다(WP-628). 다듬어 비면 아래 검증이 한국어로 거절한다
+    name = SingleLineTitles.normalize(name);
+  }
+}

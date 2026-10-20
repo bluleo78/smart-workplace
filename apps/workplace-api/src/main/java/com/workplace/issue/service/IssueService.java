@@ -8,6 +8,7 @@ import com.workplace.global.dto.UserSummary;
 import com.workplace.global.security.AgentToolContext;
 import com.workplace.global.security.PermissionChecker;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.global.util.SingleLineTitles;
 import com.workplace.issue.dto.CreateIssueRequest;
 import com.workplace.issue.dto.IssueAiContext;
 import com.workplace.issue.dto.IssueDetailResponse;
@@ -832,7 +833,8 @@ public class IssueService {
    * DTO 로 막을 수 없어, 생성·수정(웹·MCP·AI 도구 공통) 모두 이 경로로 저장한다.
    */
   private static String normalizeTitle(String raw) {
-    String title = raw == null ? "" : raw.strip();
+    // 한 줄로 다듬는다 — 앞뒤 공백뿐 아니라 제로폭 문자만 남은 제목도 빈 제목으로 본다(WP-628)
+    String title = raw == null ? "" : SingleLineTitles.normalize(raw);
     if (title.isEmpty()) {
       throw new IllegalArgumentException("이슈 제목을 입력해 주세요");
     }
