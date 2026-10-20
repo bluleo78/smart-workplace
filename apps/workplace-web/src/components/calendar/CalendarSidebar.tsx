@@ -3,6 +3,7 @@ import { CalendarDays, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react
 
 import { miniCalendarDotClass } from '@/components/calendar/miniCalendarClass'
 import { sidebarTitleClass } from '@/components/layout/sidebar-link'
+import { useCloseSheetAfterMenu } from '@/components/mobile/MobileSidebarSheetContext'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Calendar } from '@/components/ui/calendar'
@@ -66,6 +67,9 @@ export function CalendarSidebar({
   markedDates,
   hideMiniCalendar = false,
 }: CalendarSidebarProps) {
+  // 모바일 시트 안에서 시트 밖 다이얼로그를 여는 동작은 시트를 닫는다 — 남으면 다이얼로그를 닫은 뒤에도 본문을 덮는다(WP-578).
+  // 버튼은 data-sheet-dismiss, ⋯ 메뉴 항목은 메뉴가 닫힌 뒤 닫는다. 캘린더·레이어 토글은 시트 안에서 이어 고르므로 둔다.
+  const rowMenu = useCloseSheetAfterMenu()
   return (
     <aside className="flex w-56 shrink-0 flex-col overflow-y-auto border-r bg-sidebar/40">
       <div className={sidebarTitleClass}>
@@ -73,7 +77,7 @@ export function CalendarSidebar({
         캘린더
       </div>
       <div className="p-3">
-        <Button data-testid="calendar-new-event" className="w-full gap-1" onClick={onNew}>
+        <Button data-testid="calendar-new-event" className="w-full gap-1" data-sheet-dismiss onClick={onNew}>
           <Plus className="h-4 w-4" /> 새 일정
         </Button>
       </div>
@@ -150,10 +154,13 @@ export function CalendarSidebar({
                       <MoreHorizontal className="h-3.5 w-3.5" />
                     </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
+                  <DropdownMenuContent align="end" onCloseAutoFocus={rowMenu.onCloseAutoFocus}>
                     <DropdownMenuItem
                       data-testid={`calendar-edit-${c.id}`}
-                      onClick={() => onEditCalendar(c)}
+                      onClick={() => {
+                        rowMenu.closeAfterMenu()
+                        onEditCalendar(c)
+                      }}
                     >
                       <Pencil className="mr-2 h-3.5 w-3.5" /> 편집
                     </DropdownMenuItem>
@@ -162,7 +169,10 @@ export function CalendarSidebar({
                       <DropdownMenuItem
                         data-testid={`calendar-reset-${c.id}`}
                         className="text-destructive focus:text-destructive"
-                        onClick={() => onResetCalendar(c)}
+                        onClick={() => {
+                          rowMenu.closeAfterMenu()
+                          onResetCalendar(c)
+                        }}
                       >
                         <Trash2 className="mr-2 h-3.5 w-3.5" /> 모든 일정 삭제
                       </DropdownMenuItem>
@@ -189,6 +199,7 @@ export function CalendarSidebar({
                   className="h-5 w-5"
                   data-testid="calendar-add"
                   aria-label="캘린더 추가"
+                  data-sheet-dismiss
                   onClick={onAddCalendar}
                 >
                   <Plus className="h-3.5 w-3.5" />

@@ -75,6 +75,9 @@ function TreeNode({ node, depth, selectedId, onSelect, editable, onEdit, onDelet
           data-testid={`group-node-${node.id}`}
           // 다시 누르면 해제되는 필터라 aria-current 가 아닌 aria-pressed(그룹 멤버 행과 같은 규칙).
           aria-pressed={selectedId === node.id}
+          // 모바일 시트에서 그룹을 고르면 시트를 닫아 그 그룹 목록을 보여 준다(WP-578). 그룹 추가·수정·삭제 버튼엔 달지 않는다 —
+          // 그 다이얼로그는 이 컴포넌트(시트) 안에 있어 시트를 닫으면 함께 사라진다.
+          data-sheet-dismiss
           onClick={() => onSelect(node.id)}
           className="min-w-0 flex-1 truncate text-left"
         >

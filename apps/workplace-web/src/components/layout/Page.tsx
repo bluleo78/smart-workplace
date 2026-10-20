@@ -142,7 +142,7 @@ function MobilePageHeader({
         <MobileHeaderMore icon={mobileMenuIcon} label={mobileMenuLabel}>{menu}</MobileHeaderMore>
       )}
       {sheet && !mobileHideSheetTrigger && (
-        <button type="button" data-testid="mobile-sidebar-trigger" aria-label="목록 열기" onClick={sheet.openSheet}
+        <button type="button" data-mobile-sidebar-trigger data-testid="mobile-sidebar-trigger" aria-label="목록 열기" onClick={sheet.openSheet}
           className="flex h-11 w-11 shrink-0 items-center justify-center text-muted-foreground">
           <Menu className="h-5 w-5" />
         </button>

@@ -32,6 +32,44 @@ test('메일: 계정 사이드바는 바텀시트로 연다', async ({ authentic
   await expect(page.getByTestId('mobile-sidebar-sheet').getByTestId('mail-sidebar')).toBeVisible()
 })
 
+// WP-578: 편지쓰기는 링크가 아닌 버튼이라 시트가 남아 작성 도크를 덮었다 — 시트가 닫히고 도크 입력이 실제로 눌려야 한다.
+test('메일: 바텀시트에서 편지쓰기를 누르면 시트가 닫히고 작성 도크를 쓸 수 있다', async ({ authenticatedPage: page }) => {
+  await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
+  await mockApi(page, 'GET', '/api/v1/mail/accounts/1/messages', [summary()])
+  await page.goto('/mail')
+  await page.getByTestId('mobile-sidebar-trigger').click()
+  await page.getByTestId('mobile-sidebar-sheet').getByTestId('mail-compose-new').click()
+  await expect(page.getByTestId('mobile-sidebar-sheet')).toBeHidden()
+  await expect(page.getByTestId('mail-compose-dock')).toBeVisible()
+  // 도크가 열리면 받는사람에 스스로 초점이 가야 한다(#802) — 닫히는 시트의 포커스 트랩·초점 복귀가 빼앗지 않아야 한다.
+  await expect(page.getByTestId('mail-compose-to')).toBeFocused()
+  // 덮는 요소가 있으면 fill 의 hit-test·입력이 막힌다 — 보이기만 하는 게 아니라 조작 가능해야 한다.
+  await page.getByTestId('mail-compose-to').fill('rcpt@test.local')
+  await expect(page.getByTestId('mail-compose-to')).toHaveValue('rcpt@test.local')
+})
+
+// WP-578: 계정 전환 메뉴 항목도 링크가 아니어서 이동 뒤 시트가 남았다.
+test('메일: 바텀시트에서 계정을 바꾸면 시트가 닫힌다', async ({ authenticatedPage: page }) => {
+  await mockApi(page, 'GET', '/api/v1/mail/accounts', [
+    mailAccount(),
+    mailAccount({ id: 2, emailAddress: 'other@example.com', imapUsername: 'other@example.com', smtpUsername: 'other@example.com' }),
+  ])
+  await mockApi(page, 'GET', '/api/v1/mail/accounts/1/messages', [summary()])
+  await mockApi(page, 'GET', '/api/v1/mail/accounts/2/messages', [])
+  await page.goto('/mail')
+  await page.getByTestId('mobile-sidebar-trigger').click()
+  await page.getByTestId('mobile-sidebar-sheet').getByTestId('mail-account-switcher').click()
+  await page.getByTestId('mail-account-2').click()
+  await expect(page).toHaveURL(/\/mail\/2/)
+  await expect(page.getByTestId('mobile-sidebar-sheet')).toBeHidden()
+  // 시트가 닫히면 초점은 시트를 연 ☰ 로 돌아가야 한다 — body 로 빠지면 키보드·스크린리더 사용자가 처음부터 다시 찾아야 한다.
+  await expect(page.getByTestId('mobile-sidebar-trigger')).toBeFocused()
+  // 메뉴와 시트가 함께 닫혀도 body 의 pointer-events 잠금이 남지 않아 화면을 계속 누를 수 있어야 한다.
+  await expect(page.locator('body')).not.toHaveCSS('pointer-events', 'none')
+  await page.getByTestId('mobile-sidebar-trigger').click()
+  await expect(page.getByTestId('mobile-sidebar-sheet')).toBeVisible()
+})
+
 test('캘린더: 모바일 헤더에도 오늘/이전/다음이 보이고 다음 클릭 시 제목이 바뀐다', async ({ authenticatedPage: page }) => {
   await page.goto('/calendar')
   // 모바일 첫 보기(일정 목록)엔 ‹ › 가 없다(WP-136 — 무한 스크롤) — 이동 버튼이 있는 월 보기로 바꿔 확인한다.

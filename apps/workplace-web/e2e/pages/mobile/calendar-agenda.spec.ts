@@ -453,6 +453,34 @@ test('⑥ ☰ 시트 — 미니 달력 없이 [새 일정]과 캘린더 토글, 
   await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
 })
 
+// WP-578: 시트 안 버튼·메뉴 항목은 링크가 아니라 시트가 남아 다이얼로그를 닫은 뒤에도 화면을 덮었다.
+// 시트 밖 다이얼로그를 여는 동작은 누르는 즉시(메뉴 항목은 메뉴가 닫힌 뒤) 시트를 닫아야 하고, 화면 잠금이 남지 않아야 한다.
+for (const { name, act, dialog } of [
+  { name: '새 일정', act: ['calendar-new-event'], dialog: 'calendar-event-dialog' },
+  { name: '캘린더 추가', act: ['calendar-add'], dialog: 'calendar-edit-dialog' },
+  { name: '⋯ 편집', act: ['calendar-menu-1', 'calendar-edit-1'], dialog: 'calendar-edit-dialog' },
+  { name: '⋯ 모든 일정 삭제', act: ['calendar-menu-1', 'calendar-reset-1'], dialog: 'calendar-reset-confirm' },
+]) {
+  test(`☰ 시트 [${name}] — 시트가 닫히고 다이얼로그만 남으며, 닫은 뒤 화면을 계속 쓸 수 있다`, async ({ authenticatedPage: page }) => {
+    await stubCalendar(page)
+    await page.goto('/calendar')
+    await page.getByTestId('mobile-sidebar-trigger').click()
+    const sheet = page.getByTestId('mobile-sidebar-sheet')
+    await expect(sheet).toBeVisible()
+    for (const id of act) await page.getByTestId(id).click()
+    await expect(page.getByTestId(dialog)).toBeVisible()
+    await expect(sheet).toBeHidden()
+    // 닫히는 시트의 초점 복귀(☰)가 다이얼로그의 초점을 빼앗지 않아야 한다.
+    await expect.poll(() => page.getByTestId(dialog).evaluate((el) => el.contains(document.activeElement))).toBe(true)
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId(dialog)).toBeHidden()
+    await expect(sheet).toBeHidden()
+    await expect(page.locator('body')).not.toHaveCSS('pointer-events', 'none')
+    await page.getByTestId('mobile-sidebar-trigger').click()
+    await expect(sheet).toBeVisible()
+  })
+}
+
 test('⑦ [오늘] — 멀리 스크롤했거나 다른 날로 옮겼어도 오늘 묶음부터 맨 위로, 뒤 청크는 버린다', async ({ authenticatedPage: page }) => {
   await stubCalendar(page)
   await page.goto('/calendar')

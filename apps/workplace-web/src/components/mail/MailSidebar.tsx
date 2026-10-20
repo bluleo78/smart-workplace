@@ -2,6 +2,7 @@ import { Check, ChevronDown, Inbox, Mail, PenSquare, Send, Settings, Tag } from 
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
 import { sidebarTitleClass } from '@/components/layout/sidebar-link'
+import { useCloseSheetAfterMenu } from '@/components/mobile/MobileSidebarSheetContext'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,6 +30,8 @@ export function MailSidebar() {
   const navigate = useNavigate()
   const { data: accounts, isLoading } = useMailAccounts()
   const { openCompose } = useMailCompose()
+  // 계정 전환 메뉴 항목은 링크가 아니라 시트가 자동으로 닫히지 않는다 — 메뉴가 닫힌 뒤 시트를 닫는다(WP-578).
+  const accountMenu = useCloseSheetAfterMenu()
 
   // 현재 계정: URL 파라미터 우선, 없으면 첫 계정(페이지의 /mail → 첫 계정 리다이렉트와 일치).
   const current = accounts?.find((a) => String(a.id) === accountId) ?? accounts?.[0] ?? null
@@ -104,12 +107,19 @@ export function MailSidebar() {
                 <span className="min-w-0 flex-1 truncate">{current!.emailAddress}</span>
                 <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-52">
+              <DropdownMenuContent
+                align="start"
+                className="w-52"
+                onCloseAutoFocus={accountMenu.onCloseAutoFocus}
+              >
                 {accounts.map((a) => (
                   <DropdownMenuItem
                     key={a.id}
                     data-testid={`mail-account-${a.id}`}
-                    onSelect={() => navigate(`/mail/${a.id}`)}
+                    onSelect={() => {
+                      accountMenu.closeAfterMenu()
+                      navigate(`/mail/${a.id}`)
+                    }}
                     className="gap-2"
                   >
                     <Mail className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -126,6 +136,8 @@ export function MailSidebar() {
             <button
               type="button"
               data-testid="mail-compose-new"
+              // 모바일 시트가 남으면(z-50, body 포탈) 같은 z-50 인 작성 도크를 덮는다 — 누르면 시트를 닫는다(WP-578).
+              data-sheet-dismiss
               onClick={onCompose}
               className="mt-3 flex w-full items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
             >

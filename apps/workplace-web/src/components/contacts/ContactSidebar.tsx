@@ -94,6 +94,9 @@ export function ContactSidebar() {
             data-testid={`contact-filter-${f.value}`}
             disabled={selectedGroupId != null}
             aria-current={type === f.value ? 'true' : undefined}
+            // 모바일 시트에서 고르면 시트를 닫아 바뀐 목록을 보여 준다(WP-578). 단 '외부'는 시트 안에
+            // 조직·직책 필터가 이어 나타나므로 둔다. 검색·조직/직책 필터도 시트 안에서 이어 입력하므로 닫지 않는다.
+            data-sheet-dismiss={f.value === 'EXTERNAL' ? undefined : true}
             onClick={() =>
               patch(
                 f.value === 'EXTERNAL'

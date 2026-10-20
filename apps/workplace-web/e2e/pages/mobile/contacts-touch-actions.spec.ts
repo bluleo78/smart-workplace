@@ -101,3 +101,30 @@ test('즐겨찾기 ★: 안 보이는 ★ 는 탭해도 요청이 없고, 즐겨
   await page.touchscreen.tap(sb.x + sb.width / 2, sb.y + sb.height / 2)
   await expect.poll(() => favs.requests().map((r) => r.method())).toEqual(['DELETE'])
 })
+
+// WP-578: 시트 안 타입 필터·그룹은 링크가 아닌 버튼이라 골라도 시트가 남아 바뀐 목록을 덮었다 — 고르면 닫혀야 한다.
+// 검색 입력처럼 시트 안에서 이어 가는 동작은 닫지 않는다.
+test('☰ 시트 — 검색 입력·외부 필터는 시트를 두고(조직·직책 필터가 이어 나옴), 다른 타입 필터를 고르면 시트가 닫힌다', async ({ authenticatedPage: page }) => {
+  await stubBase(page)
+  await page.goto('/contacts')
+  await openSidebar(page)
+  const sheet = page.getByTestId('mobile-sidebar-sheet')
+  await sheet.getByTestId('contact-search').fill('김')
+  await expect(sheet).toBeVisible()
+  await sheet.getByTestId('contact-filter-EXTERNAL').click()
+  await expect(page).toHaveURL(/type=EXTERNAL/)
+  await expect(sheet.getByTestId('contact-advanced-filter')).toBeVisible()
+  await sheet.getByTestId('contact-filter-FAVORITE').click()
+  await expect(page).toHaveURL(/type=FAVORITE/)
+  await expect(sheet).toBeHidden()
+})
+
+test('☰ 시트 — 그룹을 고르면 시트가 닫힌다', async ({ authenticatedPage: page }) => {
+  await stubBase(page)
+  await page.goto('/contacts')
+  await openSidebar(page)
+  const sheet = page.getByTestId('mobile-sidebar-sheet')
+  await sheet.getByTestId('group-node-20').click()
+  await expect(page).toHaveURL(/group=20/)
+  await expect(sheet).toBeHidden()
+})
