@@ -154,3 +154,20 @@ for (const width of DESKTOP_WIDTHS) {
     })
   })
 }
+
+test('내 작업 — 긴 제목이어도 유형 배지는 한 줄로 유지된다(WP-630)', async ({ authenticatedPage: page }) => {
+  const long = '긴 제목 '.repeat(40).trim()
+  await mockApi(
+    page,
+    'GET',
+    '/api/v1/me/issues',
+    createIssueSearchResponse([createIssue({ id: 31, title: long })]),
+  )
+  await page.goto('/me/tasks/assigned')
+  const row = page.getByTestId('assigned-row-31')
+  await expect(row).toContainText('긴 제목')
+  const badge = row.locator('[data-testid^="issue-type-badge-"]')
+  // 배지 글자(「작업」)가 음절 단위로 접히면 높이가 두 줄(>20px)이 된다.
+  expect((await badge.boundingBox())!.height).toBeLessThanOrEqual(20)
+  expect(await badge.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
+})

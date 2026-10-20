@@ -42,6 +42,29 @@ test('내 작업 — 제목 h1 한 번, 행 노출, 본문 스크롤로 마지�
   await expectSmoke(page, '내 작업', 'assigned-row')
 })
 
+test('내 작업 — 표 대신 모바일 행: 긴 제목이 폭을 쓰고 메타 줄은 한 줄(WP-630)', async ({ authenticatedPage: page }) => {
+  const long = '모바일에서 아주 긴 제목이 글자 단위로 접히지 않고 화면 폭을 다 써야 한다 '.repeat(3).trim()
+  await stubChat(page)
+  await mockApi(
+    page,
+    'GET',
+    '/api/v1/me/issues',
+    createIssueSearchResponse([createIssue({ id: 200, number: 7, title: long, priority: 'HIGH', assignees: [agent] })]),
+  )
+  await page.goto('/me/tasks/assigned')
+  const title = page.getByTestId('assigned-row-200-title')
+  await expect(title).toBeVisible()
+  // 표 칸(w-32/w-28/w-24)에 눌려 한두 글자씩 접히던 회귀 — 제목이 행 폭 대부분을 쓴다.
+  expect((await title.boundingBox())!.width).toBeGreaterThan(250)
+  expect((await title.boundingBox())!.height).toBeLessThan(48) // line-clamp-2
+  const meta = page.getByTestId('assigned-row-200-meta')
+  await expect(meta).toContainText('WP-7')
+  await expect(meta).toContainText('높음')
+  expect((await meta.boundingBox())!.height).toBeLessThan(24)
+  await expect(page.locator('thead')).toHaveCount(0)
+  await expectNoHorizontalOverflow(page)
+})
+
 test('AI 위임 작업 — 제목 h1 한 번, 행 노출, 본문 스크롤로 마지막 행까지 보인다', async ({ authenticatedPage: page }) => {
   await setup(page, '/me/ai-tasks')
   await expectSmoke(page, 'AI 위임 작업', 'ai-row')
