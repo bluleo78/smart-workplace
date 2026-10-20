@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 
 import { wikiApi } from '../../api/wiki'
 import { handleApiError } from '../../lib/api-error'
-import type { WikiPageDetail } from '../../types/wiki'
+import type { WikiPageDetail, WikiSpace } from '../../types/wiki'
 import { dropInactiveWikiPage, wikiKeys } from './wikiKeys'
 
 export function useCreatePage(spaceId: number) {
@@ -74,5 +74,21 @@ export function useCreateSpace() {
   return useMutation({
     mutationFn: (name: string) => wikiApi.createSpace(name).then((r) => r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: wikiKeys.spaces() }),
+  })
+}
+
+// 팀 노트 스페이스 삭제(WP-580). onDeleted(화면 이동)를 캐시 정리보다 먼저 부른다 — 지운 스페이스 화면에 머문 채 캐시를 지우면
+// 사이드바가 "볼 수 없는 공간"으로 깜박이고 트리를 다시 받다 404 가 난다. 목록에서는 바로 빼 /wiki 리다이렉트가 지운 스페이스로
+// 돌아가지 않게 한다(다시 받기는 실시간 wiki-space/deleted 알림이 한다 — resourceInvalidation).
+export function useDeleteSpace({ onDeleted }: { onDeleted?: (spaceId: number) => void } = {}) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: wikiApi.deleteSpace,
+    onSuccess: (_, spaceId) => {
+      onDeleted?.(spaceId)
+      qc.setQueryData<WikiSpace[]>(wikiKeys.spaces(), (prev) => prev?.filter((s) => s.id !== spaceId))
+      qc.removeQueries({ queryKey: wikiKeys.tree(spaceId) })
+    },
+    onError: (e) => handleApiError(e, '스페이스를 삭제할 수 없습니다'),
   })
 }

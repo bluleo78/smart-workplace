@@ -19,6 +19,8 @@ export const wikiApi = {
   listSpaces: () => client.get<WikiSpace[]>('/wiki/spaces'),
   createSpace: (name: string) => client.post<WikiSpace>('/wiki/spaces', { name }),
   getSpace: (spaceId: number) => client.get<WikiSpace>(`/wiki/spaces/${spaceId}`),
+  // 팀 스페이스 영구 삭제(WP-580) — OWNER 만, 개인 스페이스는 서버가 거부한다.
+  deleteSpace: (spaceId: number) => client.delete<void>(`/wiki/spaces/${spaceId}`),
   listMembers: (spaceId: number) => client.get<WikiMember[]>(`/wiki/spaces/${spaceId}/members`),
   // 멤버 추가 — TEAM 스페이스 공유. 기본 EDITOR 로 초대(호출처 지정).
   addMember: (spaceId: number, userId: number, role: string) =>

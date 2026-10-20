@@ -28,6 +28,24 @@ public class WikiSpaceRepository {
   }
 
   /**
+   * 삭제할 공간 행을 잠근다(WP-580) — 페이지 생성(wiki_page.space_id FK 가 공간 행에 KEY SHARE 를 건다)과 FOR UPDATE 가
+   * 충돌하므로, 진행 중인 생성은 커밋을 기다렸다가 보고 새 생성은 삭제가 끝날 때까지 막혔다가 FK 위반으로 실패한다. 그래서 이어 모으는 페이지·첨부 목록에 빠지는 것이
+   * 없다.
+   */
+  public void lockForDelete(long spaceId) {
+    dsl.select(WIKI_SPACE.ID)
+        .from(WIKI_SPACE)
+        .where(WIKI_SPACE.ID.eq(spaceId))
+        .forUpdate()
+        .execute();
+  }
+
+  /** 공간 행 삭제 — 멤버·페이지와 그 하위 행(판·참조·첨부 매핑·동기화 문서·본문 기록)은 FK CASCADE 로 함께 지워진다(WP-580). */
+  public void delete(long spaceId) {
+    dsl.deleteFrom(WIKI_SPACE).where(WIKI_SPACE.ID.eq(spaceId)).execute();
+  }
+
+  /**
    * 동일 테넌트(RLS 자동 적용) 내 TEAM 공간 이름 중복 여부(대소문자 무시). excludeId 는 이름변경 시 자기 자신 제외용(현재 TEAM 공간은 이름변경
    * API 가 없어 항상 null).
    */

@@ -25,16 +25,28 @@ public class WikiChangeNotifier {
 
   /** 스페이스 멤버 추가·역할 변경·제거. 제거된 멤버는 커밋 후 멤버 조회에서 빠지므로 extraRecipients 로 넘겨 자기 화면에서도 스페이스가 사라지게 한다. */
   public void spaceChanged(long spaceId, long actorId, Collection<Long> removedUserIds) {
+    publishSpace(ResourceChangedEvent.OP_UPDATED, spaceId, actorId, removedUserIds);
+  }
+
+  /**
+   * 스페이스 삭제(WP-580). 삭제 뒤에는 멤버 행이 없어 수신자를 찾을 수 없으므로 삭제 전에 모은 명단을 extraRecipients 로 넘긴다. 같은 트랜잭션의 공용
+   * AI 메모리 정리(SharedAiMemorySpaceCleanup)도 이 이벤트를 받아 스페이스의 메모리를 지운다.
+   */
+  public void spaceDeleted(long spaceId, long actorId, Collection<Long> memberUserIds) {
+    publishSpace(ResourceChangedEvent.OP_DELETED, spaceId, actorId, memberUserIds);
+  }
+
+  private void publishSpace(String op, long spaceId, long actorId, Collection<Long> extra) {
     publisher.publishEvent(
         ResourceChangedEvent.of(
             RESOURCE_WIKI_SPACE,
-            ResourceChangedEvent.OP_UPDATED,
+            op,
             WikiSpaceAudienceResolver.SCOPE,
             spaceId,
             List.of(spaceId),
             Map.of("spaceId", spaceId),
             actorId,
-            removedUserIds));
+            extra));
   }
 
   /** 페이지 첨부 업로드·삭제. */
