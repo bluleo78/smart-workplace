@@ -75,6 +75,27 @@ test('외부 연락처 생성', { tag: '@smoke' }, async ({ authenticatedPage: p
   await expect(page.getByTestId('contact-row-EXTERNAL-200')).toBeVisible()
 })
 
+// WP-636: 전화 칸은 휴대폰에서 전화 키패드가 뜨도록 type=tel — 입력한 번호는 그대로 저장 payload 로 간다.
+test('외부 연락처 생성 — 전화 칸은 전화 키패드(type=tel)로 받고 입력한 번호를 저장한다', async ({
+  authenticatedPage: page,
+}) => {
+  await stubList(page)
+  const posts = trackRequests(page, 'POST', '/api/v1/contacts/external')
+  await page.route(
+    (url) => url.pathname === '/api/v1/contacts/external',
+    (route) => route.fulfill({ status: 201, json: externalDetail({ id: 201, name: '전화연락처' }) }),
+  )
+  await page.goto('/contacts')
+  await page.getByTestId('contact-create').click()
+  const phone = page.getByTestId('c-phone')
+  await expect(phone).toHaveAttribute('type', 'tel')
+  await page.getByTestId('c-name').fill('전화연락처')
+  await phone.fill('010-1234-5678')
+  await page.getByTestId('c-save').click()
+  await posts.waitFor()
+  expect(posts.lastBody()).toMatchObject({ name: '전화연락처', phone: '010-1234-5678' })
+})
+
 // WP-546: 메모 2000자 상한 — 폼 검증 문구가 메모 칸 아래에 보이고 저장 요청은 나가지 않는다(전에는 문구 없이 저장만 안 됐다).
 test('외부 연락처 생성 — 메모 2000자를 넘으면 메모 칸에 안내가 보이고 저장하지 않는다', async ({
   authenticatedPage: page,

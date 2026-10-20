@@ -138,7 +138,9 @@ export function ExternalContactFormDialog({ open, onOpenChange, contact }: Props
             </FormField>
             <div className="grid grid-cols-2 gap-2">
               <FormField label="전화" htmlFor="c-phone" error={form.formState.errors.phone?.message}>
-                <Input id="c-phone" data-testid="c-phone" {...form.register('phone')} />
+                {/* type=tel — 휴대폰에서 일반 자판 대신 전화 키패드가 뜬다(WP-636). 남의 번호를 적는 칸이라
+                    autoComplete="tel"(내 번호 자동 채우기)은 붙이지 않는다. 형식 검사는 하지 않는다(내선·국제번호 그대로). */}
+                <Input id="c-phone" type="tel" data-testid="c-phone" {...form.register('phone')} />
               </FormField>
               <FormField
                 label="소속"
