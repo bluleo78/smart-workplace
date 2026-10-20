@@ -7,6 +7,7 @@ import { memoryError, memoryTool, mockMemoryUndo } from '../fixtures/ai-memory-m
 import { mockAiPreferences } from '../fixtures/ai-suggestions-mock'
 import { expect, test } from '../fixtures/auth.fixture'
 import { gate, stableBox } from '../fixtures/wait'
+import type { MemoryBlock } from '../../src/types/home'
 
 const C = { correlationId: 'corr-a', sessionId: 's-a' }
 const lines = (page: Page) => page.getByTestId('chat-memory-result')
@@ -64,6 +65,8 @@ test('여러 줄은 동작별로 생기고 줄마다 따로 되돌린다', async
 
   // 동작별 문구 규칙(저장함·고침·지움·범위 이름)은 aiMemory 단위 테스트(memoryActionText)가 맡는다(WP-412) — 여기선 줄이 동작대로 생기는지만 본다.
   await expect(lines(page)).toHaveCount(3)
+  // WP-581: 답보다 먼저 기억한 줄은 흐름에 끼지 않고 답 아래에 둔다.
+  await expectStacked(page.getByTestId('chat-block').last(), lines(page).first())
   await expect(lines(page).nth(0)).toHaveAttribute('data-action', 'saved')
   await expect(lines(page).nth(1)).toHaveAttribute('data-action', 'updated')
   await expect(lines(page).nth(2)).toHaveAttribute('data-action', 'forgotten')
@@ -203,6 +206,101 @@ test('앱 범위 결과 줄은 "이슈 메모리에 저장함" 이고, 되돌리
   await lines(page).nth(2).getByTestId('chat-memory-undo').click()
   await expect(page.getByText('메일 메모리가 가득 찼어요. 설정에서 정리해 주세요')).toBeVisible()
   await expect(lines(page).nth(2)).toHaveAttribute('data-undone', 'false')
+})
+
+/** 이벤트의 memory → 이력 블록(서버 ChatBlockRecorder.Memory 모양 — 메모리 종류는 memoryKind). at 은 앞에 오는 표시 블록 수. */
+const historyBlock = (m: Record<string, unknown>, at?: number) =>
+  ({ ...m, kind: 'memory', memoryKind: m.kind, undone: false, ...(at === undefined ? {} : { at }) }) as unknown as MemoryBlock
+
+/** 노트 도구 start·result 한 쌍(표시되는 단계). */
+async function wikiTool(live: Awaited<ReturnType<typeof setupLiveChat>>, seq: number, toolName: string) {
+  await live.push('tool', { ...C, seq, phase: 'start', toolName, args: {} })
+  await live.push('tool', { ...C, seq, phase: 'result', toolName, isError: false })
+}
+
+/** 위에서 아래로 놓인 순서대로인가 — 앞 요소의 아래 끝이 뒤 요소의 위 끝보다 위다. */
+async function expectStacked(...locators: ReturnType<Page['getByTestId']>[]) {
+  const boxes = []
+  for (const l of locators) boxes.push(await stableBox(l))
+  for (let k = 1; k < boxes.length; k++) expect(boxes[k].y).toBeGreaterThan(boxes[k - 1].y + boxes[k - 1].height - 1)
+}
+
+// WP-581: 결과 줄은 도착한 자리에 들어간다 — 뒤이은 도구 호출은 결과 줄 앞 도구 그룹에 이어 붙지 않고 결과 줄 아래 새 그룹으로 시작한다.
+test('메모리 결과 줄 뒤의 도구 호출은 결과 줄 아래 새 단계 묶음으로 보인다', async ({ authenticatedPage: page }) => {
+  const live = await setupLiveChat(page)
+  live.queueStart({ correlationId: 'corr-a', sessionId: 's-a' })
+  await openChatPanel(page)
+  await ask(page, live, '오늘 업무 노트 정리해줘')
+  await live.push('progress', { ...C, label: '노트 전문가에게 위임 중' })
+  await wikiTool(live, 1, 'get_wiki_page')
+  await wikiTool(live, 2, 'update_wiki_page')
+  await memoryTool(live, 3, 'update_memory', updated)
+  await wikiTool(live, 4, 'move_wiki_page')
+  await wikiTool(live, 5, 'list_wiki_pages')
+
+  // 답변 전(본문 없음)에도 결과 줄이 제자리에 보인다.
+  const groups = page.getByTestId('chat-block-tools')
+  await expect(groups).toHaveCount(2)
+  await expect(groups.nth(0)).toContainText('노트 수정')
+  await expect(groups.nth(0)).not.toContainText('노트 이동')
+  await expect(groups.nth(1)).toContainText('노트 이동')
+  await expect(groups.nth(1)).toContainText('노트 목록')
+  await expect(lines(page)).toHaveCount(1)
+  await expectStacked(groups.nth(0), lines(page), groups.nth(1))
+  // 끊겨 이어지는 그룹도 위임 아래로 들여 쓴다 — 앞 그룹의 도구와 같은 들여쓰기.
+  const indent = (l: ReturnType<Page['getByTestId']>) => l.getByTestId('tool-step-tool').first().evaluate((e) => getComputedStyle(e).paddingLeft)
+  expect(await indent(groups.nth(1))).toBe(await indent(groups.nth(0)))
+  expect(await indent(groups.nth(1))).not.toBe('0px')
+
+  await live.push('delta', { ...C, text: '노트를 정리했어요.' })
+  await live.push('done', { ...C, widgets: null, messageId: 5 })
+  await expectStacked(groups.nth(1), page.getByTestId('chat-block').last())
+  // 흐름 안에 그렸으니 답 아래에 한 번 더 그리지 않는다.
+  await expect(page.getByTestId('chat-memory-results')).toHaveCount(1)
+  await expect(undoLinks(page)).toBeEnabled()
+})
+
+test('이력의 결과 줄은 저장된 자리(at)에 복원되고, 자리가 없는 구 이력은 답 아래에 모인다', async ({ authenticatedPage: page }) => {
+  const undo = await mockMemoryUndo(page)
+  const live = await setupLiveChat(page)
+  live.setSessions([summary('s-a', TITLE_A, 1), summary('s-b', TITLE_B, 1)])
+  const steps = ['get_wiki_page', 'move_wiki_page'].map((toolName, k) => ({ kind: 'tool' as const, seq: k + 1, toolName, status: 'done' as const }))
+  live.setMessages('s-a', [
+    msg(1, 'USER', TITLE_A),
+    {
+      ...msg(2, 'ASSISTANT', '노트를 정리했어요.'),
+      toolCalls: steps,
+      contentBlocks: [{ kind: 'tools', stepStart: 0 }, { kind: 'tools', stepStart: 1 }, { kind: 'text', textStart: 0 }],
+      memoryBlocks: [historyBlock(saved, 1), historyBlock(updated, 1)],
+    },
+  ])
+  live.setMessages('s-b', [
+    msg(1, 'USER', TITLE_B),
+    {
+      ...msg(2, 'ASSISTANT', '기억했어요.'),
+      toolCalls: steps.slice(0, 1),
+      contentBlocks: [{ kind: 'tools', stepStart: 0 }, { kind: 'text', textStart: 0 }],
+      memoryBlocks: [historyBlock(saved)],
+    },
+  ])
+  await openChatPanel(page)
+  await page.getByTestId('chat-session-switcher').click()
+  await sessionItem(page, TITLE_A).getByTestId('chat-session-select').click()
+
+  const groups = page.getByTestId('chat-block-tools')
+  await expect(lines(page)).toHaveCount(2)
+  await expect(page.getByTestId('chat-memory-results')).toHaveCount(1) // 같은 자리의 연속 줄은 한 묶음
+  await expectStacked(groups.nth(0), page.getByTestId('chat-memory-results'), groups.nth(1), page.getByTestId('chat-block').last())
+  // 되돌리기 순번은 끼운 자리와 상관없이 memoryBlocks 원본 순번이다.
+  await lines(page).nth(1).getByTestId('chat-memory-undo').click()
+  await undo.waitFor()
+  expect(undo.lastBody()).toEqual({ messageId: 2, blockIndex: 1 })
+
+  await page.getByTestId('chat-session-switcher').click()
+  await sessionItem(page, TITLE_B).getByTestId('chat-session-select').click()
+  await expect(page.getByText('기억했어요.')).toBeVisible()
+  await expect(lines(page)).toHaveCount(1)
+  await expectStacked(page.getByTestId('chat-block').last(), lines(page))
 })
 
 test.describe('기한 (WP-380)', () => {

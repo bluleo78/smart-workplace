@@ -61,7 +61,8 @@ class ChatBlockRecorderSharedTest {
     assertThat(json)
         .contains(
             "{\"kind\":\"memory\",\"action\":\"shared\",\"changeId\":7,\"memoryId\":3,"
-                + "\"spaceName\":\"Smart Workplace(WP)\",\"content\":\"PR 설명에는 캡처를 붙인다\",\"undone\":false}");
+                + "\"spaceName\":\"Smart Workplace(WP)\",\"content\":\"PR 설명에는 캡처를 붙인다\",\"undone\":false,"
+                + "\"at\":1}");
     assertThat(out.get(out.size() - 2)).isInstanceOf(ChatBlockRecorder.Memory.class);
     assertThat(out.get(out.size() - 1)).isInstanceOf(ChatBlockRecorder.SharedMemory.class);
   }

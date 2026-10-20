@@ -41,7 +41,7 @@ import { useIsMobile } from '@/hooks/useIsMobile';
 import { useStarterSuggestions } from '@/hooks/useStarterSuggestions';
 import { useStickToBottom } from '@/hooks/useStickToBottom';
 import { sessionListLabel } from '@/lib/ai/aiActivity';
-import { isRenderableMemoryBlock } from '@/lib/ai/chatTurns';
+import { isRenderableMemoryBlock, memoryLinesBelow } from '@/lib/ai/chatTurns';
 import { applyPromptSeed } from '@/lib/ai/promptSeed';
 import { contextIdentity } from '@/lib/aiScreenContext/common';
 import { visibleSteps } from '@/lib/aiToolLabels';
@@ -52,7 +52,7 @@ import { keepFocusProps } from '@/lib/keepFocus';
 import { spaceOfScreenContext } from '@/lib/sharedAiMemory';
 import { isSubmitEnter } from '@/lib/submitEnter';
 import { cn } from '@/lib/utils';
-import type { MessageTurn } from '@/types/home';
+import type { MemoryBlock, MessageTurn } from '@/types/home';
 
 // 사용자 말풍선 — whitespace-pre-wrap 로 공백/개행 보존 + [overflow-wrap:anywhere] 로 URL·토큰 등 무공백 긴 문자열도
 // 강제 줄바꿈해 말풍선이 폭 상한을 넘어 가로 오버플로하지 않도록 한다(#202).
@@ -193,6 +193,18 @@ export function AIChatPanel({
   // 빈 대화 추천과 후속 질문이 같이 쓴다. 설정은 5분 캐시라 두 번째 열기부터는 바로 보인다.
   // WP-55: 메모리 결과 줄 되돌리기 — 줄마다 훅(뮤테이션 관찰자·navigate)을 두지 않고 패널이 하나를 공유한다. 진행 중 표시는 줄마다 따로.
   const memoryUndo = useUndoAiMemory();
+  // WP-55: 메모리 결과 줄 1개 — 답변 흐름 안(memories 블록)과 답 아래 폴백이 같이 쓴다. mi 는 memoryBlocks 원본 순번(되돌리기 blockIndex).
+  const renderMemoryLine = (t: MessageTurn, b: MemoryBlock, mi: number) => (
+    <MemoryResultLine
+      key={`${mi}-${b.memoryId}`}
+      block={b}
+      // 되돌리기는 저장된 메시지 id 가 있어야 한다(답변 중엔 없다 — 회색·클릭 불가).
+      messageId={t.messageId}
+      blockIndex={mi}
+      onUndo={memoryUndo.undo}
+      pending={memoryUndo.isUndoing(t.messageId, mi)}
+    />
+  );
   const aiPrefs = useAiPreferences();
   const suggestionsOn = aiPrefs.data?.suggestionsEnabled === true;
   // 빈 새 대화(세션 없음·턴 없음)에만 — 기존 대화를 고르면 currentSessionId 가 먼저 정해져 이력 로딩 중에도 거짓이다.
@@ -388,9 +400,14 @@ export function AIChatPanel({
                               // WP-157: 도구 그룹 = steps[stepStart ~ 다음 tools 블록의 stepStart). result 이벤트는 steps 만
                               // 갱신하므로 상태 전이(실행 중→✓)가 그대로 반영된다. 표시할 단계가 없으면 ToolStepList 가 null.
                               const [from, to] = sliceRange(blocks, bi);
+                              const steps = t.steps ?? [];
                               return (
                                 <div key={bi} className="self-start" data-testid="chat-block-tools">
-                                  <ToolStepList steps={(t.steps ?? []).slice(from, to)} />
+                                  <ToolStepList
+                                    steps={steps.slice(from, to)}
+                                    // 메모리 결과 줄로 끊겨 이어지는 그룹은 앞 그룹의 위임 아래로 들여 쓴다(텍스트로 끊긴 그룹은 기존대로).
+                                    inDelegation={blocks[bi - 1]?.kind === 'memories' && steps.slice(0, from).some((s) => s.kind === 'delegation')}
+                                  />
                                 </div>
                               );
                             }
@@ -403,6 +420,17 @@ export function AIChatPanel({
                               return (
                                 <div key={bi} className="self-start rounded-2xl bg-muted px-3 py-1.5 text-foreground" data-testid="chat-block">
                                   <MarkdownMessage internalLinks onPageLink={onPageLink}>{text}</MarkdownMessage>
+                                </div>
+                              );
+                            }
+                            if (b.kind === 'memories') {
+                              // 메모리 결과 줄 — 도착한 자리에 그린다. 순번(mi)은 memoryBlocks 원본 순번(되돌리기 blockIndex).
+                              const [from, to] = sliceRange(blocks, bi);
+                              const lines = (t.memoryBlocks ?? []).slice(from, to);
+                              if (!lines.some(isRenderableMemoryBlock)) return null;
+                              return (
+                                <div key={bi} className="flex flex-col gap-1 pointer-coarse:gap-4" data-testid="chat-memory-results">
+                                  {lines.map((m, j) => renderMemoryLine(t, m, from + j))}
                                 </div>
                               );
                             }
@@ -486,19 +514,10 @@ export function AIChatPanel({
                       터치 기기는 줄 간격을 넓힌다 — 되돌리기의 위아래 터치 확장(8px)이 이웃 줄과 겹치지 않게(겹치면 뒤 형제가 이긴다).
                       바로 아래 후속 질문은 누를 수 없는 머리말로 시작해(WP-398) 따로 여백을 두지 않는다. */}
                   {/* WP-386: 그릴 수 있는 줄이 하나도 없으면(깨진 공용 줄뿐) 빈 래퍼(여백)도 내지 않는다. 줄 순번(mi)은 걸러내지 않은 원본 그대로. */}
-                  {t.role === 'assistant' && t.memoryBlocks?.some(isRenderableMemoryBlock) && !(i === turns.length - 1 && pending && t.content === '') ? (
+                  {/* WP-581: 답변 흐름 안(memories 블록)에 그린 줄은 빼고, 앞에 블록이 없던 줄(답보다 먼저 기억)·자리를 모르는 구 이력만 여기 모은다. */}
+                  {t.role === 'assistant' && memoryLinesBelow(t).some(isRenderableMemoryBlock) && !(i === turns.length - 1 && pending && t.content === '') ? (
                     <li data-testid="chat-memory-results" className="flex flex-col gap-1 pointer-coarse:gap-4">
-                      {t.memoryBlocks?.map((b, mi) => (
-                        <MemoryResultLine
-                          key={`${mi}-${b.memoryId}`}
-                          block={b}
-                          // 되돌리기는 저장된 메시지 id 가 있어야 한다(답변 중엔 없다 — 회색·클릭 불가).
-                          messageId={t.messageId}
-                          blockIndex={mi}
-                          onUndo={memoryUndo.undo}
-                          pending={memoryUndo.isUndoing(t.messageId, mi)}
-                        />
-                      ))}
+                      {memoryLinesBelow(t).map((b, mi) => renderMemoryLine(t, b, mi))}
                     </li>
                   ) : null}
                   {/* WP-139: 후속 질문 — 마지막 턴이고 답변 중·확인 카드가 아니며 추천을 끄지 않았을 때만. 새 질문을 보내면 마지막 턴이 아니게 되어 사라진다.

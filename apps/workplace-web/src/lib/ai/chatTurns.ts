@@ -1,7 +1,7 @@
 // 챗 transcript 순수 변환(WP-190) — 라이브 스트림 이벤트와 복원 메시지를 ChatTurn[] 으로 바꾼다.
 // 원래 useChatSession 안의 setTurns 콜백이었다. 대화별 스트림 저장소(chatStreams)가 칸마다 같은 규칙을 적용하도록 분리했다.
 import { isVisibleStep, visibleSteps, widgetTypeFromToolName } from '@/lib/aiToolLabels';
-import { pushTextBlock, pushToolsBlock, pushWidgetBlock, reconcileBlocks } from '@/lib/chatBlocks';
+import { insertMemoryBlocks, pushMemoriesBlock, pushTextBlock, pushToolsBlock, pushWidgetBlock, reconcileBlocks } from '@/lib/chatBlocks';
 import { toTurnAttachments } from '@/lib/homeChatAttachments';
 import type {
   ActionOutcome,
@@ -77,7 +77,10 @@ export function messageToTurn(m: HomeMessage): ChatTurn {
     attachments: toTurnAttachments(m),
     widgets: m.widgets ?? undefined,
     steps: m.toolCalls ?? undefined,
-    contentBlocks: m.contentBlocks ? reconcileBlocks(m.contentBlocks, m.widgets ?? []) : undefined,
+    // 메모리 결과 줄은 서버가 남긴 자리(at)에 끼운 뒤 위젯을 재조정한다(위젯이 빠져도 결과 줄 자리가 같이 움직인다).
+    contentBlocks: m.contentBlocks
+      ? reconcileBlocks(insertMemoryBlocks(m.contentBlocks, m.memoryBlocks ?? []), m.widgets ?? [])
+      : undefined,
     // WP-55: 메모리 결과 줄 — 서버가 영속 순서대로 따로 보낸다(순번 = 되돌리기 blockIndex).
     ...(m.memoryBlocks?.length ? { memoryBlocks: m.memoryBlocks } : {}),
     ...(interrupted && !emptyInterrupted ? { interrupted } : {}),
@@ -140,7 +143,11 @@ export function applyTool(turns: ChatTurn[], evt: ToolEventDto): ChatTurn[] {
       const idx = steps.findIndex((s) => s.kind === 'tool' && s.seq === evt.seq && s.status === 'running');
       if (idx !== -1) steps[idx] = { ...steps[idx], status: evt.isError ? 'error' : 'done' };
       // WP-55: 메모리 도구 성공 결과 → 결과 줄(도착순). 오류 결과는 줄을 만들지 않는다(AI 가 말로 안내).
-      if (evt.memory && !evt.isError) memoryBlocks = [...(memoryBlocks ?? []), toMemoryBlock(evt.memory)];
+      // WP-581: 결과 줄은 도착한 자리에 끼운다 — 뒤이은 도구 호출이 결과 줄 앞의 도구 그룹에 이어 붙지 않게.
+      if (evt.memory && !evt.isError) {
+        contentBlocks = pushMemoriesBlock(contentBlocks, memoryBlocks?.length ?? 0);
+        memoryBlocks = [...(memoryBlocks ?? []), toMemoryBlock(evt.memory)];
+      }
     }
     return { ...last, steps, widgets, contentBlocks, memoryBlocks };
   });
@@ -163,6 +170,15 @@ export function applyDoneWidgets(turns: ChatTurn[], widgets?: WidgetSpec[] | nul
 export function applyDoneMessageId(turns: ChatTurn[], messageId: unknown): ChatTurn[] {
   if (typeof messageId !== 'number') return turns;
   return updateLastAssistant(turns, (last) => ({ ...last, messageId }));
+}
+
+/**
+ * WP-581: 답 아래에 모아 그릴 결과 줄 — 첫 memories 블록 앞의 줄(답보다 먼저 기억한 줄). 흐름 안에 끼운 줄이 없으면(구 이력 등) 전부.
+ * 앞쪽 줄만 잘라 내므로 배열 순번이 그대로 되돌리기 blockIndex 다.
+ */
+export function memoryLinesBelow(t: MessageTurn): MemoryBlock[] {
+  const first = t.contentBlocks?.find((b) => b.kind === 'memories');
+  return (t.memoryBlocks ?? []).slice(0, first?.kind === 'memories' ? first.memoryStart : undefined);
 }
 
 /** WP-55: tool result 의 memory → 결과 줄 블록(API ChatBlockRecorder.Memory 와 같은 모양). source 가 없으면 AI(서버와 같은 기본값). WP-386: shared 는 공용 블록. */

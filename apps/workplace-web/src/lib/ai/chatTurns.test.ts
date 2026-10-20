@@ -12,6 +12,7 @@ import {
   isRenderableMemoryBlock,
   markInterrupted,
   markMemoryUndone,
+  memoryLinesBelow,
   messageToTurn,
   STOPPED_EMPTY,
   toMemoryBlock,
@@ -232,5 +233,77 @@ describe('메모리 결과 줄 (WP-55)', () => {
     const stopped = markInterrupted(t, 'stopped')[1] as MessageTurn;
     expect(stopped.content).toBe(STOPPED_EMPTY);
     expect(stopped.memoryBlocks).toEqual([savedBlock]);
+  });
+});
+
+describe('결과 줄 자리 (WP-581)', () => {
+  const memory = { action: 'saved' as const, memoryId: 12, kind: 'PREFERENCE' as const, content: '짧은 목록', source: 'AI' as const };
+  const block = (at?: number): MemoryBlock => ({
+    kind: 'memory', action: 'saved', memoryId: 12, memoryKind: 'PREFERENCE', content: '짧은 목록', source: 'AI', undone: false,
+    ...(at === undefined ? {} : { at }),
+  });
+  const tool = (t: ChatTurn[], seq: number, toolName: string) =>
+    applyTool(applyTool(t, { seq, phase: 'start', toolName, args: {} }), { seq, phase: 'result', toolName, isError: false });
+  const remember = (t: ChatTurn[], seq: number) =>
+    applyTool(applyTool(t, { seq, phase: 'start', toolName: 'remember_memory', args: {} }), { seq, phase: 'result', toolName: 'remember_memory', isError: false, memory });
+
+  it('도구 뒤 결과 줄은 흐름에 끼고, 뒤이은 도구·텍스트는 새 블록으로 시작한다', () => {
+    let t = appendProgress(base(), '노트 전문가에게 위임 중');
+    t = tool(t, 1, 'update_wiki_page');
+    t = remember(t, 2);
+    t = remember(t, 3);
+    t = tool(t, 4, 'move_wiki_page');
+    t = appendDelta(t, '정리했어요.');
+    const last = t[1] as MessageTurn;
+    expect(last.contentBlocks).toEqual([
+      { kind: 'tools', stepStart: 0 },
+      { kind: 'memories', memoryStart: 0 }, // 연속 결과 줄은 한 묶음
+      { kind: 'tools', stepStart: 4 }, // 웹 steps 엔 숨김 단계(메모리 도구)도 있다
+      { kind: 'text', textStart: 0 },
+    ]);
+    expect(memoryLinesBelow(last)).toEqual([]);
+  });
+
+  it('앞에 블록이 없으면(답보다 먼저 기억) 끼우지 않고 답 아래에 둔다 — 다음 결과 줄부터는 흐름에 낀다', () => {
+    let t = remember(base(), 1);
+    t = appendDelta(t, '알겠어요.');
+    t = remember(t, 2);
+    const last = t[1] as MessageTurn;
+    expect(last.contentBlocks).toEqual([{ kind: 'text', textStart: 0 }, { kind: 'memories', memoryStart: 1 }]);
+    expect(memoryLinesBelow(last)).toHaveLength(1); // 첫 줄만 답 아래(순번 0 그대로)
+  });
+
+  it('이력: at 자리에 끼우고, at 0 은 답 아래, 끝을 넘는 at 은 마지막 블록 뒤로', () => {
+    const t = messageToTurn(
+      msg({
+        contentBlocks: [{ kind: 'tools', stepStart: 0 }, { kind: 'tools', stepStart: 1 }, { kind: 'text', textStart: 0 }],
+        memoryBlocks: [block(0), block(1), block(1), block(9)],
+      }),
+    ) as MessageTurn;
+    expect(t.contentBlocks).toEqual([
+      { kind: 'tools', stepStart: 0 },
+      { kind: 'memories', memoryStart: 1 },
+      { kind: 'tools', stepStart: 1 },
+      { kind: 'text', textStart: 0 },
+      { kind: 'memories', memoryStart: 3 },
+    ]);
+    expect(memoryLinesBelow(t)).toEqual([block(0)]);
+  });
+
+  it('이력: 위젯이 걸러져도 결과 줄 자리가 함께 움직인다', () => {
+    const t = messageToTurn(
+      msg({
+        widgets: [],
+        contentBlocks: [{ kind: 'widget', widget: { type: 'issue_list' } }, { kind: 'text', textStart: 0 }],
+        memoryBlocks: [block(2)],
+      }),
+    ) as MessageTurn;
+    expect(t.contentBlocks).toEqual([{ kind: 'text', textStart: 0 }, { kind: 'memories', memoryStart: 0 }]);
+  });
+
+  it('이력: at 이 없는 줄이 하나라도 있으면(구 이력) 끼우지 않고 전부 답 아래', () => {
+    const t = messageToTurn(msg({ contentBlocks: [{ kind: 'text', textStart: 0 }], memoryBlocks: [block(1), block()] })) as MessageTurn;
+    expect(t.contentBlocks).toEqual([{ kind: 'text', textStart: 0 }]);
+    expect(memoryLinesBelow(t)).toHaveLength(2);
   });
 });

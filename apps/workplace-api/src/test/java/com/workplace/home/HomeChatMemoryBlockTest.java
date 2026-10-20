@@ -39,6 +39,11 @@ class HomeChatMemoryBlockTest extends HomeAttachmentTestSupport {
       "{\"kind\":\"memory\",\"action\":\"forgotten\",\"memoryId\":9,\"memoryKind\":\"CONTEXT\","
           + "\"content\":\"백엔드 팀이다\",\"source\":\"USER\",\"undone\":false}";
 
+  /** 결과 줄 블록 JSON 에 자리(at — 앞에 오는 표시 블록 수, WP-581)를 붙인다. */
+  private static String at(String block, int at) {
+    return block.substring(0, block.length() - 1) + ",\"at\":" + at + "}";
+  }
+
   /** 스트림 시나리오 — tool 은 tool 이벤트 JSON 을 그대로 흘린다. 최종 fullText 를 돌려준다. */
   @FunctionalInterface
   private interface Script {
@@ -125,7 +130,8 @@ class HomeChatMemoryBlockTest extends HomeAttachmentTestSupport {
 
     // 이력 응답은 memory 블록을 contentBlocks 에서 떼어 memoryBlocks 로 따로 싣는다(구 웹 보호 — 영속은 끝에 붙인 그대로).
     assertThat(a.contentBlocks()).isEqualTo(om.readTree("[{\"kind\":\"text\",\"textStart\":0}]"));
-    assertThat(a.memoryBlocks()).isEqualTo(om.readTree("[" + SAVED_BLOCK + "]"));
+    // 답보다 먼저 기억했으니 앞에 오는 표시 블록이 없다(at 0 — 웹이 답 아래에 둔다).
+    assertThat(a.memoryBlocks()).isEqualTo(om.readTree("[" + at(SAVED_BLOCK, 0) + "]"));
     assertThat(a.toolCalls()).isNull(); // 메모리 도구는 도구 단계 목록에 없다(결과 줄과 중복)
     Map<?, ?> saved = om.readValue(SAVED, Map.class);
     assertThat(emitted("home.chat.tool"))
@@ -152,10 +158,14 @@ class HomeChatMemoryBlockTest extends HomeAttachmentTestSupport {
         .isEqualTo(
             om.readTree(
                 "{\"kind\":\"memory\",\"action\":\"updated\",\"memoryId\":12,\"memoryKind\":\"PREFERENCE\","
-                    + "\"content\":\"표 대신 목록\",\"previousContent\":\"짧은 목록\",\"source\":\"AI\",\"undone\":false}"));
+                    + "\"content\":\"표 대신 목록\",\"previousContent\":\"짧은 목록\",\"source\":\"AI\",\"undone\":false,"
+                    + "\"at\":1}"));
   }
 
-  /** Review Focus 5: 위임 답은 라우터 안내 text 블록이 버려지지만 memory 블록은 도착순 그대로 끝에 남는다(순번 = 라이브 순번). */
+  /**
+   * Review Focus 5: 위임 답은 라우터 안내 text 블록이 버려지지만 memory 블록은 도착순 그대로 끝에 남는다(순번 = 라이브 순번). WP-581: 결과
+   * 줄 뒤의 도구는 새 그룹이라, 안내 text 가 버려져도 결과 줄 사이 두 그룹을 합치지 않는다 — 결과 줄은 그 사이(at 1)에 온다.
+   */
   @Test
   void 위임_답이어도_memory_블록은_순번_그대로_남는다() throws Exception {
     long uid = user();
@@ -178,9 +188,10 @@ class HomeChatMemoryBlockTest extends HomeAttachmentTestSupport {
     assertThat(a.contentBlocks())
         .isEqualTo(
             om.readTree(
-                "[{\"kind\":\"tools\",\"stepStart\":0},{\"kind\":\"text\",\"textStart\":0}]"));
+                "[{\"kind\":\"tools\",\"stepStart\":0},{\"kind\":\"tools\",\"stepStart\":1},"
+                    + "{\"kind\":\"text\",\"textStart\":0}]"));
     assertThat(a.memoryBlocks())
-        .isEqualTo(om.readTree("[" + SAVED_BLOCK + "," + FORGOTTEN_BLOCK + "]"));
+        .isEqualTo(om.readTree("[" + at(SAVED_BLOCK, 1) + "," + at(FORGOTTEN_BLOCK, 3) + "]"));
   }
 
   /** 판정 5: 오프셋을 못 믿어 표시 블록을 버리는 턴에도 memory 블록은 남는다 — 되돌리기가 동작해야 한다. */
@@ -273,7 +284,7 @@ class HomeChatMemoryBlockTest extends HomeAttachmentTestSupport {
 
     JsonNode json = om.valueToTree(a);
     assertThat(json.path("contentBlocks").findValuesAsText("kind")).doesNotContain("memory");
-    assertThat(json.path("memoryBlocks")).isEqualTo(om.readTree("[" + SAVED_BLOCK + "]"));
+    assertThat(json.path("memoryBlocks")).isEqualTo(om.readTree("[" + at(SAVED_BLOCK, 1) + "]"));
   }
 
   /** F-g: opencode 접두(workplace_)도 벗긴다 — show_* 는 위젯 블록, propose_* 는 숨김이라 도구 단계가 없다. */
@@ -446,9 +457,10 @@ class HomeChatMemoryBlockTest extends HomeAttachmentTestSupport {
             om.readTree(
                 "[{\"kind\":\"memory\",\"action\":\"updated\",\"memoryId\":12,\"memoryKind\":\"CONTEXT\","
                     + "\"content\":\"백엔드 팀이다\",\"previousContent\":\"짧은 목록\",\"previousKind\":\"PREFERENCE\","
-                    + "\"source\":\"AI\",\"undone\":false},"
+                    + "\"source\":\"AI\",\"undone\":false,\"at\":0},"
                     + "{\"kind\":\"memory\",\"action\":\"updated\",\"memoryId\":13,\"memoryKind\":\"CONTEXT\","
-                    + "\"content\":\"프론트 팀이다\",\"previousContent\":\"짧은 목록\",\"source\":\"AI\",\"undone\":false}]"));
+                    + "\"content\":\"프론트 팀이다\",\"previousContent\":\"짧은 목록\",\"source\":\"AI\",\"undone\":false,"
+                    + "\"at\":0}]"));
     Map<?, ?> knownMap = om.readValue(known, Map.class);
     assertThat(emitted("home.chat.tool"))
         .anySatisfy(p -> assertThat(p.get("memory")).isEqualTo(knownMap));
@@ -482,7 +494,7 @@ class HomeChatMemoryBlockTest extends HomeAttachmentTestSupport {
             om.readTree(
                 "{\"kind\":\"memory\",\"action\":\"updated\",\"memoryId\":12,\"memoryKind\":\"PREFERENCE\","
                     + "\"content\":\"이슈는 짧게\",\"previousContent\":\"짧게\",\"source\":\"AI\",\"undone\":false,"
-                    + "\"scope\":\"ISSUE\"}"));
+                    + "\"scope\":\"ISSUE\",\"at\":0}"));
   }
 
   /** WP-380: 결과의 기한·이전 기한을 블록에 남기고(없으면 빠짐), yyyy-MM-dd 가 아닌 기한이면 줄을 만들지 않는다. */

@@ -21,7 +21,8 @@ import java.util.Set;
  *   <li>tools: 직전 블록이 tools 가 아닐 때만 새 블록. stepStart 는 영속 steps(tool_calls) 인덱스.
  *   <li>widget: show_* 도구마다 1블록(웹 WidgetSpec 과 같은 {type, params, layout?}).
  *   <li>memory: 메모리 도구 결과 줄(WP-55, 개인 Memory + WP-386 공용 SharedMemory) — 도착순으로 따로 모아 finish 결과 끝에
- *       붙인다(판정 4·5).
+ *       붙인다(판정 4·5). 표시 블록 목록에는 넣지 않지만(구 웹 보호) 도착한 자리를 at 으로 남기고, 뒤이은 text·tools 는 새 블록으로
+ *       시작한다(WP-581 — 결과 줄 뒤 도구가 앞 그룹에 이어 붙지 않게).
  * </ul>
  *
  * <p>펌프 스레드에서 쓰고 done 핸들러에서 읽으므로 메서드를 동기화한다(호출 빈도가 낮아 경합 비용 무시 가능).
@@ -36,6 +37,11 @@ class ChatBlockRecorder {
   sealed interface Block permits Text, Tools, Widget, Memory, SharedMemory {
     @JsonProperty("kind")
     String kind();
+
+    /** 결과 줄 블록의 자리(at)를 채운 사본 — 결과 줄만 쓴다(WP-581). */
+    default Block withAt(int at) {
+      return this;
+    }
   }
 
   /** 텍스트 구간 시작(content 문자 오프셋). */
@@ -71,6 +77,8 @@ class ChatBlockRecorder {
    * 빠지고, 필드가 없는 구 블록과 같은 해석(공통)이 된다.
    *
    * <p>WP-380: expiresOn·previousExpiresOn(yyyy-MM-dd, 없으면 빠짐 = 기한 없음 — 구 블록과 같은 해석).
+   *
+   * <p>WP-581: at — 이 줄 앞에 오는 표시 블록 수(finish 가 채운다). 표시 블록을 버린 턴·구 블록은 없다(웹이 답 아래에 모은다).
    */
   record Memory(
       String action,
@@ -84,7 +92,8 @@ class ChatBlockRecorder {
       @JsonInclude(JsonInclude.Include.NON_NULL) String scope,
       @JsonInclude(JsonInclude.Include.NON_NULL) String previousScope,
       @JsonInclude(JsonInclude.Include.NON_NULL) String expiresOn,
-      @JsonInclude(JsonInclude.Include.NON_NULL) String previousExpiresOn)
+      @JsonInclude(JsonInclude.Include.NON_NULL) String previousExpiresOn,
+      @JsonInclude(JsonInclude.Include.NON_NULL) Integer at)
       implements Block {
     /**
      * 개인 메모리 결과 줄의 action 허용 목록 — 공용 결과 줄("shared")은 SharedMemory 가 따로 다룬다. 정리 수집기도 이 목록으로 개인 줄만
@@ -95,6 +104,24 @@ class ChatBlockRecorder {
     @Override
     public String kind() {
       return "memory";
+    }
+
+    @Override
+    public Block withAt(int at) {
+      return new Memory(
+          action,
+          memoryId,
+          memoryKind,
+          content,
+          previousContent,
+          previousKind,
+          source,
+          undone,
+          scope,
+          previousScope,
+          expiresOn,
+          previousExpiresOn,
+          at);
     }
 
     /**
@@ -135,7 +162,8 @@ class ChatBlockRecorder {
           textOrNull(m.path("scope")),
           "updated".equals(action) ? textOrNull(m.path("previousScope")) : null,
           textOrNull(m.path("expiresOn")),
-          "updated".equals(action) ? textOrNull(m.path("previousExpiresOn")) : null);
+          "updated".equals(action) ? textOrNull(m.path("previousExpiresOn")) : null,
+          null);
     }
 
     /** 범위 값이 없거나(키 없음·null = 공통) 앱 6개 중 하나인가. */
@@ -160,16 +188,37 @@ class ChatBlockRecorder {
   /**
    * 공용 메모리 저장 결과 줄(WP-386 스펙 6.2) — 판별자는 개인 결과 줄과 같은 "memory" 라 같은 목록·같은 순번(되돌리기 blockIndex)을 쓴다.
    * action 은 늘 "shared". changeId 는 되돌릴 공간 기록, spaceName 은 결과 줄 문구 「{공간} 공용 메모리에 기억했어요」의 공간 라벨.
-   * undone 은 되돌리기가 같은 트랜잭션에서 true 로 바꾼다(AiMemoryUndoService — 레코드가 아니라 JSON 트리로 고친다).
+   * undone 은 되돌리기가 같은 트랜잭션에서 true 로 바꾼다(AiMemoryUndoService — 레코드가 아니라 JSON 트리로 고친다). at 은 개인 결과 줄과
+   * 같다(WP-581).
    */
-  @JsonPropertyOrder({"kind", "action", "changeId", "memoryId", "spaceName", "content", "undone"})
+  @JsonPropertyOrder({
+    "kind",
+    "action",
+    "changeId",
+    "memoryId",
+    "spaceName",
+    "content",
+    "undone",
+    "at"
+  })
   record SharedMemory(
-      String action, long changeId, long memoryId, String spaceName, String content, boolean undone)
+      String action,
+      long changeId,
+      long memoryId,
+      String spaceName,
+      String content,
+      boolean undone,
+      @JsonInclude(JsonInclude.Include.NON_NULL) Integer at)
       implements Block {
 
     @Override
     public String kind() {
       return "memory";
+    }
+
+    @Override
+    public Block withAt(int at) {
+      return new SharedMemory(action, changeId, memoryId, spaceName, content, undone, at);
     }
 
     /**
@@ -185,7 +234,7 @@ class ChatBlockRecorder {
         return null;
       if (!id.isIntegralNumber() || !id.canConvertToLong() || id.asLong() <= 0) return null;
       if (space.isBlank() || content.isBlank()) return null;
-      return new SharedMemory("shared", change.asLong(), id.asLong(), space, content, false);
+      return new SharedMemory("shared", change.asLong(), id.asLong(), space, content, false, null);
     }
   }
 
@@ -202,9 +251,12 @@ class ChatBlockRecorder {
   private final StringBuilder streamed = new StringBuilder();
   private final List<Block> memories = new ArrayList<>();
 
+  /** memories[i] 가 도착했을 때의 blocks 크기 — 표시 블록 사이 어디에 왔는지(WP-581). 도착순이라 줄지 않는다. */
+  private final List<Integer> memoryRawAt = new ArrayList<>();
+
   /** 텍스트 delta 도착. */
   synchronized void onDelta(String delta) {
-    if (!(last() instanceof Text)) blocks.add(new Text(streamed.length()));
+    if (!(last() instanceof Text) || memoryAtEnd()) blocks.add(new Text(streamed.length()));
     streamed.append(delta);
   }
 
@@ -214,7 +266,7 @@ class ChatBlockRecorder {
    * @param stepIndex 추가될 단계의 steps 인덱스(= 추가 전 steps 크기)
    */
   synchronized void onStep(int stepIndex) {
-    if (!(last() instanceof Tools)) blocks.add(new Tools(stepIndex));
+    if (!(last() instanceof Tools) || memoryAtEnd()) blocks.add(new Tools(stepIndex));
   }
 
   /** show_* 위젯 도구 시작. widget 은 웹 WidgetSpec 과 같은 형태({type, params, layout?}). */
@@ -225,6 +277,12 @@ class ChatBlockRecorder {
   /** 메모리 도구 결과 줄(WP-55) — 표시 블록과 따로 모은다(위임 답 보정·오프셋 불일치에도 버려지지 않게, 판정 5). */
   synchronized void onMemory(Block memory) {
     memories.add(memory);
+    memoryRawAt.add(blocks.size());
+  }
+
+  /** 마지막 블록 뒤에 결과 줄이 왔는가 — 그러면 뒤이은 text·tools 는 그 블록에 이어 붙지 않고 결과 줄 아래 새 블록으로 시작한다(WP-581). */
+  private boolean memoryAtEnd() {
+    return !memoryRawAt.isEmpty() && memoryRawAt.get(memoryRawAt.size() - 1) == blocks.size();
   }
 
   /** 메모리 결과 줄이 하나라도 있는가 — 텍스트 없이 끝난 턴도 결과 줄 때문에 저장할지 가른다(WP-55). */
@@ -234,15 +292,18 @@ class ChatBlockRecorder {
 
   /**
    * 영속할 블록 목록 — 표시 블록(displayBlocks) 뒤에 메모리 블록을 도착순으로 붙인다. 표시 블록을 신뢰할 수 없어 null 이어도 메모리 블록은 돌려준다 —
-   * 되돌리기의 순번(blockIndex)이 이 목록의 memory 순번이다(판정 4·5).
+   * 되돌리기의 순번(blockIndex)이 이 목록의 memory 순번이다(판정 4·5). 표시 블록이 있으면 메모리 블록마다 그 앞에 오는 표시 블록 수(at)를
+   * 채운다(WP-581) — 웹이 복원 때 그 자리에 끼운다.
    *
    * @return 영속할 블록(없으면 null)
    */
   synchronized List<Block> finish(String fullText) {
-    List<Block> display = displayBlocks(fullText);
+    int[] memoryAt = new int[memories.size()];
+    List<Block> display = displayBlocks(fullText, memoryAt);
     if (memories.isEmpty()) return display;
     List<Block> out = display == null ? new ArrayList<>() : new ArrayList<>(display);
-    out.addAll(memories);
+    for (int i = 0; i < memories.size(); i++)
+      out.add(display == null ? memories.get(i) : memories.get(i).withAt(memoryAt[i]));
     return out;
   }
 
@@ -253,14 +314,18 @@ class ChatBlockRecorder {
    * 결정 우선순위). 위임 답이면 앞의 안내 문장은 본문에 저장되지 않으므로, 그 길이만큼 textStart 를 당기고 안내 문장에만 해당하던 text 블록은 버린다. 이
    * 관계가 깨지면 오프셋을 신뢰할 수 없어 null(웹 폴백 렌더)을 돌려준다 — 텍스트를 엉뚱한 곳에서 자르는 것보다 기존 표시가 낫다.
    *
+   * @param memoryAt 결과 줄마다 그 앞에 오는 표시 블록 수를 채울 배열(memories 와 같은 길이) — 버린 블록은 세지 않는다
    * @return 영속할 블록(없으면 null)
    */
-  private List<Block> displayBlocks(String fullText) {
+  private List<Block> displayBlocks(String fullText, int[] memoryAt) {
     String content = fullText == null ? "" : fullText;
     if (!streamed.toString().endsWith(content)) return null;
     int prefix = streamed.length() - content.length();
     List<Block> out = new ArrayList<>();
+    int mi = 0;
     for (int i = 0; i < blocks.size(); i++) {
+      // 이 블록 앞에 도착한 결과 줄의 자리 = 지금까지 남긴 표시 블록 수.
+      while (mi < memoryAt.length && memoryRawAt.get(mi) <= i) memoryAt[mi++] = out.size();
       Block b = blocks.get(i);
       if (b instanceof Text t) {
         // 이 text 블록의 끝 = 다음 text 블록 시작(없으면 스트리밍 끝). 안내 문장 구간에 다 들어가면 버린다.
@@ -268,10 +333,15 @@ class ChatBlockRecorder {
         b = new Text(Math.max(0, t.textStart() - prefix));
       }
       // text 블록을 버려 tools 가 연속되면 앞 그룹으로 합친다(앞 그룹 범위가 다음 tools 시작까지 늘어나 단계 유실 없음).
-      if (b instanceof Tools && !out.isEmpty() && out.get(out.size() - 1) instanceof Tools)
-        continue;
+      // 단 사이에 결과 줄이 있으면 합치지 않는다 — 결과 줄이 두 그룹 사이에 그려져야 한다(WP-581).
+      boolean memoryBefore = mi > 0 && memoryAt[mi - 1] == out.size();
+      if (b instanceof Tools
+          && !out.isEmpty()
+          && out.get(out.size() - 1) instanceof Tools
+          && !memoryBefore) continue;
       out.add(b);
     }
+    while (mi < memoryAt.length) memoryAt[mi++] = out.size();
     return out.isEmpty() ? null : out;
   }
 

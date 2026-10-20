@@ -111,6 +111,8 @@ interface PersonalMemoryBlock {
   /** WP-380: 기한 — 있을 때만(결과 줄 " · 10월 24일까지"). */
   expiresOn?: string;
   previousExpiresOn?: string;
+  /** 이 줄 앞에 오는 표시 블록 수(이력 전용) — 복원 때 답변 흐름의 이 자리에 끼운다. 없으면(구 블록·표시 블록을 버린 턴) 답 아래에 모아 그린다. */
+  at?: number;
 }
 
 /** WP-386: 공용 저장 결과 줄 블록 — API ChatBlockRecorder.SharedMemory 와 같은 모양. 개인 결과 줄과 같은 목록·순번(blockIndex)을 쓴다. */
@@ -122,6 +124,8 @@ interface SharedMemoryBlock {
   spaceName: string;
   content: string;
   undone: boolean;
+  /** 개인 결과 줄의 at 과 같다. */
+  at?: number;
 }
 
 /** 결과 줄 블록 — 판별은 action('shared' 면 공용). */
@@ -136,7 +140,9 @@ export type ContentBlock =
   | { kind: 'text'; textStart: number }
   | { kind: 'widget'; widget: WidgetSpec }
   // WP-157: 연속 도구 호출/위임 그룹 — steps[stepStart ~ 다음 tools 블록의 stepStart) 구간을 한 풍선으로 렌더.
-  | { kind: 'tools'; stepStart: number };
+  | { kind: 'tools'; stepStart: number }
+  // 연속 메모리 결과 줄 — memoryBlocks[memoryStart ~ 다음 memories 블록의 memoryStart). 웹 안에서만 쓴다(서버는 메모리 블록의 at 으로 위치만 보낸다).
+  | { kind: 'memories'; memoryStart: number };
 
 /** #843: 확인카드 처리 결과 종류 — 대화 이력의 ACTION_* 메시지와 1:1. */
 export type ActionOutcome = 'done' | 'failed' | 'rejected';

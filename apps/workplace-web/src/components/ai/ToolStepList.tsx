@@ -12,7 +12,10 @@ function StatusMark({ status }: { status?: ToolStep['status'] }) {
   return <span className="shrink-0 animate-pulse text-muted-foreground">실행 중…</span>;
 }
 
-export function ToolStepList({ steps }: { steps: ToolStep[] }) {
+/**
+ * @param inDelegation 앞 그룹에서 위임이 이미 시작됐다 — 메모리 결과 줄 등으로 끊겨 이어지는 그룹도 위임 아래로 들여 쓴다.
+ */
+export function ToolStepList({ steps, inDelegation = false }: { steps: ToolStep[]; inDelegation?: boolean }) {
   const vis = visibleSteps(steps);
   if (vis.length === 0) return null;
   return (
@@ -27,8 +30,8 @@ export function ToolStepList({ steps }: { steps: ToolStep[] }) {
           );
         }
         const { label, icon, detail } = getToolStepDisplay(s.toolName ?? '', s.args);
-        // 앞에 위임 헤더가 있을 때만 그 아래로 들여 쓴다.
-        const nested = vis.slice(0, i).some((p) => p.kind === 'delegation');
+        // 앞에(이 그룹이나 앞 그룹에) 위임 헤더가 있을 때만 그 아래로 들여 쓴다.
+        const nested = inDelegation || vis.slice(0, i).some((p) => p.kind === 'delegation');
         return (
           <li key={i} className={cn('flex items-center gap-1.5', nested && 'pl-4')} data-testid="tool-step-tool">
             <span>{icon}</span>
