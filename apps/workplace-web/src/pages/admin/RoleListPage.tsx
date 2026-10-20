@@ -132,6 +132,7 @@ export default function RoleListPage() {
               <FormField
                 label="설명 (선택)"
                 htmlFor="role-description"
+                error={form.formState.errors.description?.message}
               >
                 <Input
                   id="role-description"

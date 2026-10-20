@@ -208,6 +208,10 @@ export default function RoleDetailPage() {
               disabled={role.isSystem}
               className="disabled:bg-muted disabled:text-muted-foreground"
             />
+            {/* WP-570: 설명 상한(255자) 위반을 칸 아래에 보여 준다 — 없으면 저장이 아무 안내 없이 막혔다 */}
+            {form.formState.errors.description && (
+              <p className="text-sm text-destructive">{form.formState.errors.description.message}</p>
+            )}
           </div>
           {roleError && (
             <p className="text-sm text-destructive">{roleError}</p>
