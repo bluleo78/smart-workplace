@@ -255,7 +255,8 @@ class ConfirmActionValidateTest extends IntegrationTestBase {
 
     assertThatThrownBy(() -> dispatcher.validate(owner, "issue.create", p))
         .isInstanceOf(ProjectNotFoundException.class)
-        .hasMessageContaining(ghostKey);
+        // WP-588: 없는 프로젝트와 볼 수 없는 프로젝트는 같은 문구.
+        .hasMessage(ProjectNotFoundException.HIDDEN_MESSAGE);
   }
 
   @Test

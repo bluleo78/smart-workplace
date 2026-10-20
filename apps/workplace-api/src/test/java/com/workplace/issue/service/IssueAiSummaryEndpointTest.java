@@ -161,7 +161,7 @@ class IssueAiSummaryEndpointTest extends IntegrationTestBase {
       Authentication auth = new UsernamePasswordAuthenticationToken(nonMemberId, null, List.of());
 
       org.junit.jupiter.api.Assertions.assertThrows(
-          com.workplace.project.exception.ProjectAccessDeniedException.class,
+          com.workplace.project.exception.ProjectNotFoundException.class,
           () -> issueController.generateAiSummary(auth, projectKey, 1));
 
     } finally {

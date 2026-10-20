@@ -16,6 +16,7 @@ import com.workplace.project.dto.AddMemberRequest;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.exception.ProjectAccessDeniedException;
+import com.workplace.project.exception.ProjectNotFoundException;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
 import java.util.List;
@@ -199,7 +200,7 @@ class IssueServiceTest extends IntegrationTestBase {
     assertThat(agentView.summary().title()).isEqualTo("이슈제목");
     // 보안 경계: 멤버도 담당자도 아닌 비멤버는 여전히 거부
     assertThatThrownBy(() -> issueService.get(stranger, personal.key(), resp.number()))
-        .isInstanceOf(ProjectAccessDeniedException.class);
+        .isInstanceOf(ProjectNotFoundException.class);
   }
 
   /** 개인 프로젝트: 일반 HUMAN 은 담당자로 지정 불가 (멤버 추가 자체가 차단). */

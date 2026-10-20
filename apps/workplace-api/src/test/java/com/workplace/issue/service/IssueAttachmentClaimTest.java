@@ -23,7 +23,7 @@ import com.workplace.issue.exception.AttachmentTooLargeException;
 import com.workplace.issue.repository.IssueHistoryRepository;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
-import com.workplace.project.exception.ProjectAccessDeniedException;
+import com.workplace.project.exception.ProjectNotFoundException;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
 import java.util.ArrayList;
@@ -269,7 +269,7 @@ class IssueAttachmentClaimTest extends IntegrationTestBase {
     long fileId = stage(outsider, "x.txt");
 
     assertThatThrownBy(() -> service.claim(outsider, projectKey, issueNumber, List.of(fileId)))
-        .isInstanceOf(ProjectAccessDeniedException.class);
+        .isInstanceOf(ProjectNotFoundException.class);
   }
 
   @Test

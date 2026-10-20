@@ -6,7 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.workplace.cycle.service.CycleService;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.repository.IssueRepository;
-import com.workplace.project.exception.ProjectAccessDeniedException;
+import com.workplace.project.exception.ProjectNotFoundException;
 import com.workplace.project.repository.ProjectIssueSequenceRepository;
 import com.workplace.support.IntegrationTestBase;
 import org.jooq.DSLContext;
@@ -92,6 +92,6 @@ class OpenDetailReadTest extends IntegrationTestBase {
   void team_stranger_cannot_list_field_defs() {
     var s = OpenScenario.createTeam(dsl, issueTypeService, issueRepository, sequenceRepository, 1L);
     assertThatThrownBy(() -> issueFieldDefService.list(s.strangerId(), s.projectKey()))
-        .isInstanceOf(ProjectAccessDeniedException.class);
+        .isInstanceOf(ProjectNotFoundException.class);
   }
 }

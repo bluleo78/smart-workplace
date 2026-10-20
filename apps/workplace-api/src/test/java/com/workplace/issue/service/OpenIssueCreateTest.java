@@ -6,7 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.dto.CreateIssueRequest;
 import com.workplace.issue.repository.IssueRepository;
-import com.workplace.project.exception.ProjectAccessDeniedException;
+import com.workplace.project.exception.ProjectNotFoundException;
 import com.workplace.project.repository.ProjectIssueSequenceRepository;
 import com.workplace.support.IntegrationTestBase;
 import org.jooq.DSLContext;
@@ -66,6 +66,6 @@ class OpenIssueCreateTest extends IntegrationTestBase {
   void non_member_cannot_create_in_team_project() {
     var s = teamScenario();
     assertThatThrownBy(() -> issueService.create(s.strangerId(), s.projectKey(), suggestion("x")))
-        .isInstanceOf(ProjectAccessDeniedException.class);
+        .isInstanceOf(ProjectNotFoundException.class);
   }
 }

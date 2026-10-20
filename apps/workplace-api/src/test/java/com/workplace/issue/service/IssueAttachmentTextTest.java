@@ -26,7 +26,7 @@ import com.workplace.issue.exception.AttachmentNotFoundException;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
-import com.workplace.project.exception.ProjectAccessDeniedException;
+import com.workplace.project.exception.ProjectNotFoundException;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
 import java.util.List;
@@ -226,7 +226,7 @@ class IssueAttachmentTextTest extends IntegrationTestBase {
     long fileId = uploadPdf();
     Long outsider = createUser("outsider");
     assertThatThrownBy(() -> service.readText(outsider, projectKey, issueNumber, fileId, 0, 10))
-        .isInstanceOf(ProjectAccessDeniedException.class);
+        .isInstanceOf(ProjectNotFoundException.class);
   }
 
   // ---- WP-250: GET .../attachments/{fileId}/view — 첨부 PDF 쪽·이미지를 모델 입력용 이미지로 ----
@@ -265,7 +265,7 @@ class IssueAttachmentTextTest extends IntegrationTestBase {
             get(viewUrl(projectKey, issueNumber, fileId))
                 .param("page", "1")
                 .header("Authorization", tokenFor(outsider)))
-        .andExpect(status().isForbidden());
+        .andExpect(status().isNotFound());
     verifyNoInteractions(worker);
   }
 

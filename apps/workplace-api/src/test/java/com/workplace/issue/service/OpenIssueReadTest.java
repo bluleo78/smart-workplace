@@ -5,7 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.repository.IssueRepository;
-import com.workplace.project.exception.ProjectAccessDeniedException;
+import com.workplace.project.exception.ProjectNotFoundException;
 import com.workplace.project.repository.ProjectIssueSequenceRepository;
 import com.workplace.support.IntegrationTestBase;
 import org.jooq.DSLContext;
@@ -79,6 +79,6 @@ class OpenIssueReadTest extends IntegrationTestBase {
   void non_member_cannot_read_team_issue() {
     var s = OpenScenario.createTeam(dsl, issueTypeService, issueRepository, sequenceRepository, 1L);
     assertThatThrownBy(() -> issueService.get(s.strangerId(), s.projectKey(), s.issueNumber()))
-        .isInstanceOf(ProjectAccessDeniedException.class);
+        .isInstanceOf(ProjectNotFoundException.class);
   }
 }

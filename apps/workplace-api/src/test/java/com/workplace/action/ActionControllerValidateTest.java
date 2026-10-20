@@ -126,7 +126,8 @@ class ActionControllerValidateTest extends IntegrationTestBase {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(body))
         .andExpect(status().isNotFound())
-        .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString(ghostKey)));
+        // WP-588: 없는 프로젝트와 볼 수 없는 프로젝트는 같은 문구 — 사용자가 넣은 키도 되돌려 싣지 않는다.
+        .andExpect(jsonPath("$.message").value("프로젝트를 찾을 수 없거나 볼 수 없습니다"));
   }
 
   @Test

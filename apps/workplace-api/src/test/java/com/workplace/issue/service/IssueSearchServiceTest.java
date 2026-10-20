@@ -10,7 +10,7 @@ import com.workplace.issue.exception.InvalidCursorException;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
-import com.workplace.project.exception.ProjectAccessDeniedException;
+import com.workplace.project.exception.ProjectNotFoundException;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
 import java.util.UUID;
@@ -88,7 +88,7 @@ class IssueSearchServiceTest extends IntegrationTestBase {
     projectService.create(owner, new CreateProjectRequest(key, "P", "x"));
 
     assertThatThrownBy(() -> searchService.search(other, key, java.util.Map.of()))
-        .isInstanceOf(ProjectAccessDeniedException.class);
+        .isInstanceOf(ProjectNotFoundException.class);
   }
 
   @Test

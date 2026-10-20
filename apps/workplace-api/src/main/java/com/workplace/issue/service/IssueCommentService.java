@@ -16,7 +16,6 @@ import com.workplace.issue.repository.IssueCommentRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.project.dto.ProjectRow;
 import com.workplace.project.exception.ProjectAccessDeniedException;
-import com.workplace.project.exception.ProjectNotFoundException;
 import com.workplace.project.repository.ProjectRepository;
 import com.workplace.project.service.ProjectAccessGuard;
 import com.workplace.user.dto.UserKind;
@@ -55,18 +54,25 @@ public class IssueCommentService {
     return assertIssueReadableWithIssue(issueId, callerId).project();
   }
 
+  /**
+   * 볼 수 없는 프로젝트의 이슈는 없는 이슈와 같은 404 로 돌려준다(WP-588) — 이슈 id 로 들어오는 경로라 403 이면 볼 수 없는 프로젝트의 이슈가 있다는 것이
+   * 드러난다. 볼 수 있는 프로젝트에서 작성 자격만 없는 경우(OPEN 의 임의 reader)는 호출부가 403 으로 거른다.
+   */
+  private void requireVisible(ProjectRow project, Long callerId) {
+    if (!accessGuard.canRead(project.id(), callerId)) {
+      throw new IssueNotFoundException();
+    }
+  }
+
   /** issue/project 를 함께 반환하는 버전 — update/delete 에서 이벤트 payload(issueNumber/title) 구성에 재사용. */
   private IssueAndProject assertIssueReadableWithIssue(Long issueId, Long callerId) {
-    var issue =
-        issueRepository.findById(issueId).orElseThrow(() -> new IssueNotFoundException(issueId));
+    var issue = issueRepository.findById(issueId).orElseThrow(IssueNotFoundException::new);
     var project =
         projectRepository
             .findById(issue.projectId())
-            .orElseThrow(
-                () ->
-                    // 내부 프로젝트 id 는 싣지 않는다(WP-564) — 삭제된 프로젝트의 이슈에 쓰면 그대로 보인다.
-                    new ProjectNotFoundException("프로젝트를 찾을 수 없습니다"));
-    accessGuard.assertReadable(project.key(), callerId);
+            // 삭제된 프로젝트의 이슈도 없는 이슈와 같게 본다(WP-564·588).
+            .orElseThrow(IssueNotFoundException::new);
+    requireVisible(project, callerId);
     return new IssueAndProject(issue, project);
   }
 
@@ -126,16 +132,14 @@ public class IssueCommentService {
    * 가능하고 작성은 403. 작성자를 자동으로 issue watcher 로 등록한다.
    */
   public IssueCommentResponse create(Long callerId, Long issueId, CreateCommentRequest req) {
-    var issue =
-        issueRepository.findById(issueId).orElseThrow(() -> new IssueNotFoundException(issueId));
+    var issue = issueRepository.findById(issueId).orElseThrow(IssueNotFoundException::new);
     var project =
         projectRepository
             .findById(issue.projectId())
-            .orElseThrow(
-                () ->
-                    // 내부 프로젝트 id 는 싣지 않는다(WP-564) — 삭제된 프로젝트의 이슈에 쓰면 그대로 보인다.
-                    new ProjectNotFoundException("프로젝트를 찾을 수 없습니다"));
-    // 댓글 작성 자격: 멤버/ADMIN 또는 OPEN 이슈 reporter 본인. 그 외(임의 테넌트 reader)는 403.
+            // 삭제된 프로젝트의 이슈도 없는 이슈와 같게 본다(WP-564·588).
+            .orElseThrow(IssueNotFoundException::new);
+    requireVisible(project, callerId);
+    // 댓글 작성 자격: 멤버/ADMIN 또는 OPEN 이슈 reporter 본인. 그 외(볼 수는 있는 임의 테넌트 reader)는 403.
     accessGuard.assertContentWritable(project, issue.reporterId(), callerId);
     var resp = commentRepository.insert(issueId, callerId, req.body());
     // 코멘트 이미지 연결(WP-362) — 이미지 참조가 없는 코멘트(대부분)는 syncIssueImages 가 쿼리 없이 돌아간다.

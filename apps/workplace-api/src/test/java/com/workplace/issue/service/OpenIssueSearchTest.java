@@ -5,7 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.repository.IssueRepository;
-import com.workplace.project.exception.ProjectAccessDeniedException;
+import com.workplace.project.exception.ProjectNotFoundException;
 import com.workplace.project.repository.ProjectIssueSequenceRepository;
 import com.workplace.support.IntegrationTestBase;
 import java.util.Map;
@@ -59,6 +59,6 @@ class OpenIssueSearchTest extends IntegrationTestBase {
   void non_member_cannot_search_team_project_board() {
     var s = teamScenario();
     assertThatThrownBy(() -> issueSearchService.search(s.strangerId(), s.projectKey(), Map.of()))
-        .isInstanceOf(ProjectAccessDeniedException.class);
+        .isInstanceOf(ProjectNotFoundException.class);
   }
 }

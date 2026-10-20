@@ -19,6 +19,7 @@ import com.workplace.project.dto.AddMemberRequest;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.exception.ProjectAccessDeniedException;
+import com.workplace.project.exception.ProjectNotFoundException;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
 import java.io.IOException;
@@ -209,7 +210,7 @@ class IssueAttachmentServiceTest extends IntegrationTestBase {
 
     assertThatThrownBy(
             () -> service.upload(stranger, p.key(), 1, List.of(mockFile("a.txt", new byte[] {1}))))
-        .isInstanceOf(ProjectAccessDeniedException.class);
+        .isInstanceOf(ProjectNotFoundException.class);
   }
 
   @Test
@@ -347,8 +348,8 @@ class IssueAttachmentServiceTest extends IntegrationTestBase {
 
     assertThatThrownBy(
             () -> service.upload(reporter, p.key(), 1, List.of(mockFile("b.txt", new byte[] {2}))))
-        .isInstanceOf(ProjectAccessDeniedException.class);
+        .isInstanceOf(ProjectNotFoundException.class);
     assertThatThrownBy(() -> service.download(reporter, p.key(), 1, fileId))
-        .isInstanceOf(ProjectAccessDeniedException.class);
+        .isInstanceOf(ProjectNotFoundException.class);
   }
 }

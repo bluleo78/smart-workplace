@@ -11,6 +11,7 @@ import com.workplace.project.dto.AddMemberRequest;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.exception.ProjectAccessDeniedException;
+import com.workplace.project.exception.ProjectNotFoundException;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
 import java.io.IOException;
@@ -163,7 +164,7 @@ class IssueDriveLinkServiceTest extends IntegrationTestBase {
 
     // then: ProjectAccessDeniedException (RuntimeException 하위)
     assertThatThrownBy(() -> service.add(stranger, p.key(), 1, df))
-        .isInstanceOf(ProjectAccessDeniedException.class);
+        .isInstanceOf(ProjectNotFoundException.class);
   }
 
   @Test
@@ -243,8 +244,8 @@ class IssueDriveLinkServiceTest extends IntegrationTestBase {
     service.add(owner, p.key(), 1, df);
 
     assertThatThrownBy(() -> service.add(reporter, p.key(), 1, reporterFile))
-        .isInstanceOf(ProjectAccessDeniedException.class);
+        .isInstanceOf(ProjectNotFoundException.class);
     assertThatThrownBy(() -> service.content(reporter, p.key(), 1, df))
-        .isInstanceOf(ProjectAccessDeniedException.class);
+        .isInstanceOf(ProjectNotFoundException.class);
   }
 }

@@ -59,8 +59,9 @@ class IssueCommentServiceEventTest extends IntegrationTestBase {
             () ->
                 commentService.create(
                     s.reporterId(), s.issueId(), new CreateCommentRequest("삭제 후")))
-        .isInstanceOf(com.workplace.project.exception.ProjectNotFoundException.class)
-        .hasMessage("프로젝트를 찾을 수 없습니다");
+        // WP-588: 삭제된 프로젝트의 이슈도 없는 이슈와 같은 404·같은 문구.
+        .isInstanceOf(com.workplace.issue.exception.IssueNotFoundException.class)
+        .hasMessage("이슈를 찾을 수 없습니다");
   }
 
   /** 코멘트 수정 시 IssueCommentUpdatedEvent 가 정확한 issueId/commentId/body 로 발행돼야 한다. */

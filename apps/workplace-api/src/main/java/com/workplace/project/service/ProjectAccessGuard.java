@@ -39,9 +39,7 @@ public class ProjectAccessGuard {
    * @throws ProjectNotFoundException 프로젝트가 없거나 soft-deleted 인 경우
    */
   public ProjectRow resolve(String projectKey) {
-    return projectRepository
-        .findByKey(projectKey)
-        .orElseThrow(() -> new ProjectNotFoundException(projectKey));
+    return projectRepository.findByKey(projectKey).orElseThrow(ProjectNotFoundException::hidden);
   }
 
   /**
@@ -54,9 +52,7 @@ public class ProjectAccessGuard {
    */
   public ProjectRow assertWithRole(String projectKey, Long userId, String requiredRole) {
     ProjectRow project =
-        projectRepository
-            .findByKey(projectKey)
-            .orElseThrow(() -> new ProjectNotFoundException(projectKey));
+        projectRepository.findByKey(projectKey).orElseThrow(ProjectNotFoundException::hidden);
     // ADMIN 은 멤버십/역할 검증을 우회 — 단, PERSONAL 은 소유자만 접근 (완전 비공개)
     if (adminBypass(project, userId)) {
       return project;
@@ -77,11 +73,10 @@ public class ProjectAccessGuard {
    */
   public ProjectRow assertReadable(String projectKey, Long userId) {
     ProjectRow project =
-        projectRepository
-            .findByKey(projectKey)
-            .orElseThrow(() -> new ProjectNotFoundException(projectKey));
+        projectRepository.findByKey(projectKey).orElseThrow(ProjectNotFoundException::hidden);
     if (!isReadable(project, userId)) {
-      throw new ProjectAccessDeniedException("프로젝트 멤버가 아닙니다");
+      // 볼 수 없는 프로젝트는 없는 프로젝트와 같은 404 로 돌려준다(WP-588) — 403 이면 비공개 프로젝트 키의 존재가 드러난다.
+      throw ProjectNotFoundException.hidden();
     }
     return project;
   }
@@ -156,6 +151,10 @@ public class ProjectAccessGuard {
    */
   public void assertContentWritable(ProjectRow project, Long reporterId, Long callerId) {
     if (!canWriteContent(project, reporterId, callerId)) {
+      // 볼 수조차 없는 프로젝트면 없는 프로젝트와 같은 404(WP-588) — 볼 수 있는데 쓸 자격만 없는 경우(OPEN 의 임의 reader)만 403.
+      if (!isReadable(project, callerId)) {
+        throw ProjectNotFoundException.hidden();
+      }
       throw new ProjectAccessDeniedException("이 이슈를 수정할 권한이 없습니다");
     }
   }
