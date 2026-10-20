@@ -40,6 +40,7 @@ public class IssueDependencyService {
    */
   public void add(Long callerId, String projectKey, int number, int otherNumber, String direction) {
     var project = accessGuard.assertMember(projectKey, callerId);
+    requireDirection(direction);
     var thisRow =
         issueRepository
             .findByProjectAndNumber(project.id(), number)
@@ -52,16 +53,10 @@ public class IssueDependencyService {
             .findByProjectAndNumber(project.id(), otherNumber)
             .orElseThrow(() -> new InvalidDependencyException("이 프로젝트에 없는 이슈 번호입니다"));
 
-    Long fromId;
-    Long toId;
-    if ("blockedBy".equals(direction)) {
-      fromId = otherRow.id();
-      toId = thisRow.id();
-    } else {
-      // 기본 "blocks"
-      fromId = thisRow.id();
-      toId = otherRow.id();
-    }
+    // 관계는 늘 (막는 쪽 → 막히는 쪽) 으로 저장한다.
+    boolean blockedBy = "blockedBy".equals(direction);
+    Long fromId = blockedBy ? otherRow.id() : thisRow.id();
+    Long toId = blockedBy ? thisRow.id() : otherRow.id();
 
     if (depRepository.exists(fromId, toId)) {
       // 멱등 — history 미기록.
@@ -80,6 +75,7 @@ public class IssueDependencyService {
   public void remove(
       Long callerId, String projectKey, int number, int otherNumber, String direction) {
     var project = accessGuard.assertMember(projectKey, callerId);
+    requireDirection(direction);
     var thisRow =
         issueRepository
             .findByProjectAndNumber(project.id(), number)
@@ -89,21 +85,26 @@ public class IssueDependencyService {
             .findByProjectAndNumber(project.id(), otherNumber)
             .orElseThrow(() -> new InvalidDependencyException("이 프로젝트에 없는 이슈 번호입니다"));
 
-    Long fromId;
-    Long toId;
-    if ("blockedBy".equals(direction)) {
-      fromId = otherRow.id();
-      toId = thisRow.id();
-    } else {
-      fromId = thisRow.id();
-      toId = otherRow.id();
-    }
+    // 관계는 늘 (막는 쪽 → 막히는 쪽) 으로 저장한다.
+    boolean blockedBy = "blockedBy".equals(direction);
+    Long fromId = blockedBy ? otherRow.id() : thisRow.id();
+    Long toId = blockedBy ? thisRow.id() : otherRow.id();
 
     int removed = depRepository.remove(fromId, toId);
     if (removed > 0) {
       historyRecorder.recordDependencyRemoved(
           callerId, thisRow.id(), otherRow.number(), otherRow.title(), direction);
       notifyBoth(project, thisRow, otherRow, callerId);
+    }
+  }
+
+  /**
+   * direction 값 검사(WP-586) — blocks·blockedBy 만 받는다. 전에는 blockedBy 가 아니면 모두 blocks 로 보아 「blockedby」
+   * 같은 오타가 반대 방향 관계로 저장·삭제되고 이력에 알 수 없는 값이 남았다(MCP·AI 도구도 같은 API). 멤버 검사 뒤에 둬 비멤버에게 다른 응답을 주지 않는다.
+   */
+  private static void requireDirection(String direction) {
+    if (!"blocks".equals(direction) && !"blockedBy".equals(direction)) {
+      throw new InvalidDependencyException("의존성 방향은 blocks 또는 blockedBy 만 쓸 수 있습니다");
     }
   }
 

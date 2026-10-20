@@ -200,6 +200,29 @@ class IssueDependencyServiceTest extends IntegrationTestBase {
     assertThat(events).isZero();
   }
 
+  /** WP-586: direction 은 blocks·blockedBy 만 받는다 — 오타가 반대 방향 관계로 저장·삭제되지 않게 400. */
+  @Test
+  void unknown_direction_rejected_on_add_and_remove() {
+    Long owner = createUser("sa11");
+    var p = newProject(owner, "SA11");
+    var i1 = newTask(p.id(), 1, "i1", owner);
+    newTask(p.id(), 2, "i2", owner);
+
+    for (String bad : new String[] {"blockedby", "zzz", ""}) {
+      assertThatThrownBy(() -> service.add(owner, p.key(), 1, 2, bad))
+          .isInstanceOf(InvalidDependencyException.class)
+          .hasMessage("의존성 방향은 blocks 또는 blockedBy 만 쓸 수 있습니다");
+    }
+    assertThat(depRepository.findBlocksOf(i1.id())).isEmpty();
+
+    service.add(owner, p.key(), 1, 2, "blocks");
+    assertThatThrownBy(() -> service.remove(owner, p.key(), 1, 2, "zzz"))
+        .isInstanceOf(InvalidDependencyException.class)
+        .hasMessage("의존성 방향은 blocks 또는 blockedBy 만 쓸 수 있습니다");
+    // 거절된 제거는 기존 관계를 지우지 않는다.
+    assertThat(depRepository.findBlocksOf(i1.id())).hasSize(1);
+  }
+
   /** addMember 헬퍼 — 컴파일러 hint 용 (사용 안 함 경고 방지). */
   @SuppressWarnings("unused")
   private void addMember(Long owner, String key, Long user) {
