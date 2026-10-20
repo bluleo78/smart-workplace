@@ -75,10 +75,10 @@ class MessageServiceTest extends IntegrationTestBase {
 
   /**
    * WP-493 — 채널에서 나간(내보내진) 사람은 자기 예전 메시지도 수정·삭제할 수 없다. 작성자 일치만 보면 내보낸 뒤에도 고치고, 응답으로 그 뒤의 답글·리액션
-   * 정보까지 받았다.
+   * 정보까지 받았다. 멤버가 아니면 메시지를 볼 수 없으므로 없는 메시지와 같은 404 다(WP-591).
    */
   @Test
-  void updateAndDelete_byAuthorNoLongerMember_throws403() {
+  void updateAndDelete_byAuthorNoLongerMember_throws404() {
     long uid = seedUser();
     long channelId = channelRepo.insertPublic("내보냄", uid);
     channelService.join(uid, channelId);
@@ -89,9 +89,9 @@ class MessageServiceTest extends IntegrationTestBase {
 
     assertThatThrownBy(
             () -> messageService.update(uid, messageId, new UpdateMessageRequest("수정 시도")))
-        .isInstanceOf(ChannelNotMemberException.class);
+        .isInstanceOf(MessageNotFoundException.class);
     assertThatThrownBy(() -> messageService.delete(uid, messageId))
-        .isInstanceOf(ChannelNotMemberException.class);
+        .isInstanceOf(MessageNotFoundException.class);
   }
 
   /** WP-509: 삭제된 메시지는 수정할 수 없고(404), DB 본문도 바뀌지 않는다. 다시 삭제해도 삭제 시각이 바뀌지 않는다. */

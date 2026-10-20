@@ -3,7 +3,6 @@ package com.workplace.messaging.service;
 import com.workplace.messaging.dto.ReactorPage;
 import com.workplace.messaging.dto.ReactorResponse;
 import com.workplace.messaging.exception.ChannelArchivedException;
-import com.workplace.messaging.exception.ChannelNotMemberException;
 import com.workplace.messaging.exception.MessageNotFoundException;
 import com.workplace.messaging.outbound.MessagingDomainEvents.ReactionAddedEvent;
 import com.workplace.messaging.outbound.MessagingDomainEvents.ReactionRemovedEvent;
@@ -53,14 +52,14 @@ public class ReactionService {
     return channelId;
   }
 
-  /** 메시지의 채널 멤버 여부 검증 후 channelId 반환. */
+  /** 메시지의 채널 멤버 여부 검증 후 channelId 반환. 메시지가 없거나 비멤버면 404. */
   private long ensureMessageMember(long callerId, long messageId) {
     long channelId =
         messageRepo
             .findChannelId(messageId)
             .orElseThrow(() -> new MessageNotFoundException(messageId));
-    if (!memberRepo.isMember(channelId, callerId))
-      throw new ChannelNotMemberException(channelId, callerId);
+    // 비멤버는 없는 메시지와 같은 404 — 403 으로 갈리면 비공개 채널·DM 메시지의 존재가 드러난다(WP-591).
+    if (!memberRepo.isMember(channelId, callerId)) throw new MessageNotFoundException(messageId);
     return channelId;
   }
 

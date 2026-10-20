@@ -7,7 +7,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.workplace.messaging.dto.CreateMessageRequest;
 import com.workplace.messaging.dto.MessageResponse;
 import com.workplace.messaging.dto.ReactionResponse;
-import com.workplace.messaging.exception.ChannelNotMemberException;
+import com.workplace.messaging.exception.MessageNotFoundException;
 import com.workplace.messaging.repository.ChannelRepository;
 import com.workplace.messaging.service.ChannelService;
 import com.workplace.messaging.service.MessageService;
@@ -116,10 +116,10 @@ class ReactionToggleTest extends IntegrationTestBase {
     assertThat(reactionsFor(reactor)).isEmpty();
   }
 
-  /** 비멤버는 리액션 불가(403). */
+  /** 비멤버는 리액션 불가 — 없는 메시지와 같은 404(WP-591). */
   @Test
   void nonMember_cannotReact() {
     assertThatThrownBy(() -> reactionService.add(nonMember, messageId, "👍"))
-        .isInstanceOf(ChannelNotMemberException.class);
+        .isInstanceOf(MessageNotFoundException.class);
   }
 }

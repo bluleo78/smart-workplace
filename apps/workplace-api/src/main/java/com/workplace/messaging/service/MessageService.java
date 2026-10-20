@@ -242,16 +242,13 @@ public class MessageService {
    */
   @Transactional
   public MessageResponse update(long callerId, long messageId, UpdateMessageRequest req) {
+    // 채널 멤버인지 먼저 본다 — 볼 수 없는 메시지에 「본인 글만」 403 을 주면 메시지 존재가 드러난다(WP-591).
+    long channelId = visibleChannelOf(callerId, messageId);
     long authorId =
         messageRepo
             .findAuthorId(messageId)
             .orElseThrow(() -> new MessageNotFoundException(messageId));
     if (authorId != callerId) throw new MessageAuthorMismatchException(messageId, callerId);
-    long channelId =
-        messageRepo
-            .findChannelId(messageId)
-            .orElseThrow(() -> new MessageNotFoundException(messageId));
-    ensureMember(channelId, callerId);
     // 보관된 채널은 읽기 전용 — 새 메시지와 같이 수정도 막는다(WP-508).
     if (channelRepo.isArchived(channelId)) throw new ChannelArchivedException(channelId);
     List<Long> mentionIds = mentionHydrator.filterExistingUserIds(MentionParser.parse(req.body()));
@@ -273,16 +270,13 @@ public class MessageService {
   /** 작성자만 자신의 메시지 soft-delete. 작성자라도 지금 채널 멤버여야 한다(WP-493). AFTER_COMMIT SSE 발행. */
   @Transactional
   public void delete(long callerId, long messageId) {
+    // 채널 멤버인지 먼저 본다 — 볼 수 없는 메시지에 「본인 글만」 403 을 주면 메시지 존재가 드러난다(WP-591).
+    long channelId = visibleChannelOf(callerId, messageId);
     long authorId =
         messageRepo
             .findAuthorId(messageId)
             .orElseThrow(() -> new MessageNotFoundException(messageId));
     if (authorId != callerId) throw new MessageAuthorMismatchException(messageId, callerId);
-    long channelId =
-        messageRepo
-            .findChannelId(messageId)
-            .orElseThrow(() -> new MessageNotFoundException(messageId));
-    ensureMember(channelId, callerId);
     // 보관된 채널은 읽기 전용 — 삭제도 막는다(WP-508).
     if (channelRepo.isArchived(channelId)) throw new ChannelArchivedException(channelId);
     // 이미 삭제된 메시지면 아무것도 하지 않는다(멱등 — 삭제 시각·이벤트를 다시 만들지 않음).
@@ -292,12 +286,12 @@ public class MessageService {
     publisher.publishEvent(new MessageDeletedEvent(channelId, messageId));
   }
 
-  /** 스레드 패널 열기 시 호출 — 해당 스레드를 최신 답글까지 읽음 처리. 비멤버=403. */
+  /** 스레드 패널 열기 시 호출 — 해당 스레드를 최신 답글까지 읽음 처리. 비멤버=404(WP-591). */
   @Transactional
   public void markThreadRead(long callerId, long rootId) {
     MessageRef ref =
         messageRepo.findRef(rootId).orElseThrow(() -> new MessageNotFoundException(rootId));
-    ensureMember(ref.channelId(), callerId);
+    ensureMessageVisible(ref.channelId(), callerId, rootId);
     long maxReply = messageRepo.maxReplyId(rootId);
     // 답글이 0개여도 팔로우 행은 보장(watermark=0). 이후 새 답글이 미읽음으로 잡힌다.
     threadReadRepo.markRead(rootId, callerId, maxReply);
@@ -324,14 +318,14 @@ public class MessageService {
     return enrichProposals(enrichThreadUnread(enrichReactions(page, callerId), callerId));
   }
 
-  /** 채널 멤버만 특정 부모 메시지의 답글 조회. RLS GUC 주입 위해 @Transactional 필요(없으면 빈 결과). */
+  /** 채널 멤버만 특정 부모 메시지의 답글 조회(비멤버=404, WP-591). RLS GUC 주입 위해 @Transactional 필요(없으면 빈 결과). */
   @Transactional(readOnly = true)
   public MessagePage listThread(long callerId, long parentMessageId, String cursor, int limit) {
     MessageRef ref =
         messageRepo
             .findRef(parentMessageId)
             .orElseThrow(() -> new MessageNotFoundException(parentMessageId));
-    ensureMember(ref.channelId(), callerId);
+    ensureMessageVisible(ref.channelId(), callerId, parentMessageId);
     MessagePage page =
         messageRepo.findThreadPage(
             parentMessageId, cursor, limit, mentionHydrator::asMentionResponses);
@@ -511,6 +505,24 @@ public class MessageService {
     if (!messageRepo.belongsToChannel(messageId, channelId))
       throw new MessageNotFoundException(messageId);
     return driveLinkService.getLinkContent("MESSAGE", messageId, driveFileId);
+  }
+
+  /**
+   * 메시지 id 로 들어온 요청의 채널을 돌려준다. 메시지가 없거나 호출자가 그 채널 멤버가 아니면 똑같이 404(WP-591) — 메시지 id 는 전역 일련번호라
+   * 403/404 가 갈리면 비멤버가 비공개 채널·DM 에 글이 쌓이는 것을 알 수 있다.
+   */
+  private long visibleChannelOf(long callerId, long messageId) {
+    long channelId =
+        messageRepo
+            .findChannelId(messageId)
+            .orElseThrow(() -> new MessageNotFoundException(messageId));
+    ensureMessageVisible(channelId, callerId, messageId);
+    return channelId;
+  }
+
+  /** 메시지 id 경로의 멤버 검사 — 비멤버는 없는 메시지와 같은 404(WP-591). 채널 id 경로는 {@link #ensureMember} 의 403 을 쓴다. */
+  private void ensureMessageVisible(long channelId, long userId, long messageId) {
+    if (!memberRepo.isMember(channelId, userId)) throw new MessageNotFoundException(messageId);
   }
 
   private void ensureMember(long channelId, long userId) {

@@ -7,8 +7,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.workplace.messaging.dto.CreateMessageRequest;
 import com.workplace.messaging.dto.MessagePage;
 import com.workplace.messaging.dto.MessageResponse;
-import com.workplace.messaging.exception.ChannelNotMemberException;
 import com.workplace.messaging.exception.InvalidThreadParentException;
+import com.workplace.messaging.exception.MessageNotFoundException;
 import com.workplace.messaging.repository.ChannelRepository;
 import com.workplace.messaging.service.ChannelService;
 import com.workplace.messaging.service.MessageService;
@@ -96,11 +96,11 @@ class MessageThreadTest extends IntegrationTestBase {
         .isInstanceOf(InvalidThreadParentException.class);
   }
 
-  /** 비멤버는 스레드 조회 불가(403). */
+  /** 비멤버는 스레드 조회 불가 — 없는 메시지와 같은 404(WP-591). */
   @Test
   void nonMember_cannotListThread() {
     long parent = messageService.create(author, channelId, new CreateMessageRequest("부모")).id();
     assertThatThrownBy(() -> messageService.listThread(nonMember, parent, null, 50))
-        .isInstanceOf(ChannelNotMemberException.class);
+        .isInstanceOf(MessageNotFoundException.class);
   }
 }

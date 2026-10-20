@@ -7,7 +7,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.workplace.messaging.dto.CreateMessageRequest;
 import com.workplace.messaging.dto.ReactorPage;
 import com.workplace.messaging.dto.ReactorResponse;
-import com.workplace.messaging.exception.ChannelNotMemberException;
 import com.workplace.messaging.exception.MessageNotFoundException;
 import com.workplace.messaging.repository.ChannelRepository;
 import com.workplace.messaging.service.ChannelService;
@@ -115,12 +114,12 @@ class ReactorListTest extends IntegrationTestBase {
     assertThat(reactionService.listReactors(author, messageId, "👍", null, 999).items()).hasSize(1);
   }
 
-  /** 비멤버는 403(ChannelNotMemberException), 없는 메시지는 404(MessageNotFoundException). */
+  /** 비멤버도 없는 메시지와 같은 404(MessageNotFoundException, WP-591). */
   @Test
   void list_guards() {
     long outsider = seedUser("외부인");
     assertThatThrownBy(() -> reactionService.listReactors(outsider, messageId, "👍", null, 20))
-        .isInstanceOf(ChannelNotMemberException.class);
+        .isInstanceOf(MessageNotFoundException.class);
     assertThatThrownBy(() -> reactionService.listReactors(author, Long.MAX_VALUE, "👍", null, 20))
         .isInstanceOf(MessageNotFoundException.class);
   }
