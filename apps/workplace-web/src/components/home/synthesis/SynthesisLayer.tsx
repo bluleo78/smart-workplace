@@ -303,15 +303,16 @@ export function SynthesisLayer({ previewData }: { previewData?: SynthesisPreview
             className="mt-2 flex items-center gap-2 rounded-lg border border-dashed border-ai-accent/70 bg-ai-accent-subtle/40 px-3 py-2 text-xs text-muted-foreground"
           >
             <Sparkles className="h-3.5 w-3.5 shrink-0 text-ai-accent" />
-            <span>AI로 회신이 필요한 메일을 가려낼 수 있어요</span>
-            <Link to="/settings/mail" className="font-medium text-ai-accent hover:underline">
+            {/* 좁은 폭에선 문구가 어절 단위로 줄어들고 「켜기」·닫기는 줄지 않는다 — 링크가 「켜 / 기」로 꺾이던 문제(WP-603). */}
+            <span className="min-w-0 break-keep">AI로 회신이 필요한 메일을 가려낼 수 있어요</span>
+            <Link to="/settings/mail" className="shrink-0 whitespace-nowrap font-medium text-ai-accent hover:underline">
               켜기
             </Link>
             <button
               type="button"
               aria-label="닫기"
               onClick={dismissCta}
-              className="ml-auto text-muted-foreground hover:text-foreground"
+              className="ml-auto shrink-0 text-muted-foreground hover:text-foreground"
             >
               <X className="h-3.5 w-3.5" />
             </button>

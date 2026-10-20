@@ -420,6 +420,22 @@ test('요약 — KPI 3열(3+2)·라벨 한 줄, 안쪽 카드 테두리 없음, 
   await expectNoHorizontalOverflow(page)
 })
 
+test('요약 — AI 메일 분류 안내의 「켜기」는 한 줄로 남고 문구가 줄어든다(WP-603)', async ({
+  authenticatedPage: page,
+}) => {
+  await stubWidgetData(page) // classificationActive=false → 안내 표시
+  await stubDashboard(page, { mobile: layout(['synthesis']) })
+  // 작은 휴대폰 폭(360px) — 안내 문구가 두 줄이 되는 폭에서 링크가 눌려 꺾였다.
+  await page.setViewportSize({ width: 360, height: 780 })
+  await page.goto('/')
+  const cta = page.getByTestId('dashboard-mail-cta')
+  const enable = cta.getByRole('link', { name: '켜기' })
+  await expect(enable).toBeVisible()
+  // 좁은 폭에서 링크가 「켜 / 기」 두 줄로 꺾이면 높이가 한 줄(≈16px)의 두 배가 된다.
+  expect((await enable.boundingBox())!.height).toBeLessThan(20)
+  await expectNoHorizontalOverflow(page)
+})
+
 test('빠른 액션 — 모바일은 버튼 2열 격자', async ({ authenticatedPage: page }) => {
   await stubWidgetData(page)
   await stubDashboard(page, { mobile: layout(['quick_actions']) })
