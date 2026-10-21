@@ -77,9 +77,10 @@ export function MailAccountsSection({ onEdit }: MailAccountsSectionProps) {
           <TableHeader>
             <TableRow>
               <TableHead>이메일</TableHead>
-              <TableHead>공급자</TableHead>
+              {/* 좁은 화면은 공급자·마지막 동기화 열을 숨기고 이메일 아래 줄로 모은다 — 다섯 열이면 수정·삭제 버튼이 화면 밖으로 밀렸다(WP-686) */}
+              <TableHead className="hidden md:table-cell">공급자</TableHead>
               <TableHead>상태</TableHead>
-              <TableHead>마지막 동기화</TableHead>
+              <TableHead className="hidden md:table-cell">마지막 동기화</TableHead>
               <TableHead className="w-20"></TableHead>
             </TableRow>
           </TableHeader>
@@ -97,10 +98,22 @@ export function MailAccountsSection({ onEdit }: MailAccountsSectionProps) {
             ) : (
               (accounts ?? []).map((acc) => (
                 <TableRow key={acc.id} data-testid={`mail-account-row-${acc.id}`}>
-                  <TableCell className="max-w-[280px] truncate font-medium" title={acc.emailAddress}>
-                    {acc.emailAddress}
+                  <TableCell className="max-w-[40vw] font-medium md:max-w-[280px]" title={acc.emailAddress}>
+                    <div className="truncate">{acc.emailAddress}</div>
+                    {/* 모바일 전용 — 숨긴 공급자·마지막 동기화 열의 값 */}
+                    {/* 공급자는 길면 자르고 동기화 시각은 늘 보인다 */}
+                    <div
+                      className="flex gap-1 text-xs font-normal text-muted-foreground md:hidden"
+                      data-testid={`mail-account-mobile-meta-${acc.id}`}
+                    >
+                      <span className="truncate">{mailAccountProviderLabel(acc)}</span>
+                      <span className="shrink-0">· {formatRelativeTime(acc.lastSyncedAt)}</span>
+                    </div>
                   </TableCell>
-                  <TableCell className="max-w-[220px] truncate text-xs text-muted-foreground" title={mailAccountProviderLabel(acc)}>
+                  <TableCell
+                    className="hidden max-w-[220px] truncate text-xs text-muted-foreground md:table-cell"
+                    title={mailAccountProviderLabel(acc)}
+                  >
                     {mailAccountProviderLabel(acc)}
                   </TableCell>
                   <TableCell>
@@ -108,10 +121,10 @@ export function MailAccountsSection({ onEdit }: MailAccountsSectionProps) {
                       {acc.lastTestedAt ? '연결됨' : '미검증'}
                     </Badge>
                   </TableCell>
-                  <TableCell className="text-xs text-muted-foreground">
+                  <TableCell className="hidden text-xs text-muted-foreground md:table-cell">
                     {formatRelativeTime(acc.lastSyncedAt)}
                   </TableCell>
-                  <TableCell className="w-20 text-right">
+                  <TableCell className="w-20 whitespace-nowrap text-right">
                     <Button size="sm" variant="ghost" onClick={() => onEdit(acc)}>
                       수정
                     </Button>

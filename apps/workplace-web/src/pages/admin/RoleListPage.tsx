@@ -155,8 +155,9 @@ export default function RoleListPage() {
           <TableHeader>
             <TableRow>
               <TableHead>이름</TableHead>
-              <TableHead>유형</TableHead>
-              <TableHead>설명</TableHead>
+              {/* 좁은 화면은 유형·설명 열을 숨기고 이름 아래 줄로 모은다 — 설명 길이만큼 표가 넓어져 삭제 버튼이 화면 밖에 있었다(WP-686) */}
+              <TableHead className="hidden md:table-cell">유형</TableHead>
+              <TableHead className="hidden md:table-cell">설명</TableHead>
               <TableHead className="w-[60px]" />
             </TableRow>
           </TableHeader>
@@ -170,15 +171,20 @@ export default function RoleListPage() {
                   className="cursor-pointer hover:bg-muted/50 transition-colors row-hover focus-visible:ring-2 focus-visible:ring-ring"
                   {...clickableRowProps(() => navigate(`/settings/roles/${role.id}`), `${role.name} 상세 보기`)}
                 >
-                  <TableCell className="font-medium">{role.name}</TableCell>
-                  <TableCell>
-                    {role.isSystem ? (
-                      <Badge variant="outline">시스템</Badge>
-                    ) : (
-                      <Badge variant="secondary">사용자 정의</Badge>
-                    )}
+                  <TableCell className="whitespace-normal font-medium md:whitespace-nowrap">
+                    <span className="break-all">{role.name}</span>
+                    {/* 모바일 전용 — 숨긴 유형·설명 열의 값. 긴 설명은 두 줄까지만 보이고 전체는 상세 화면에 */}
+                    <div className="mt-1 space-y-1 font-normal md:hidden">
+                      <RoleKindBadge isSystem={role.isSystem} />
+                      {role.description && (
+                        <p className="line-clamp-2 text-xs text-muted-foreground">{role.description}</p>
+                      )}
+                    </div>
                   </TableCell>
-                  <TableCell>{role.description ?? '-'}</TableCell>
+                  <TableCell className="hidden md:table-cell">
+                    <RoleKindBadge isSystem={role.isSystem} />
+                  </TableCell>
+                  <TableCell className="hidden md:table-cell">{role.description ?? '-'}</TableCell>
                   <TableCell>
                     {!role.isSystem && (
                       <DeleteConfirmDialog
@@ -208,4 +214,9 @@ export default function RoleListPage() {
       </div>
     </SettingsPage>
   );
+}
+
+/** 역할 유형 배지 — 시스템 / 사용자 정의. 데스크톱 유형 열과 모바일 이름 아래 줄이 같이 쓴다. */
+function RoleKindBadge({ isSystem }: { isSystem: boolean }) {
+  return isSystem ? <Badge variant="outline">시스템</Badge> : <Badge variant="secondary">사용자 정의</Badge>;
 }
