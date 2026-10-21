@@ -24,6 +24,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -92,6 +93,12 @@ public class FileExtractionPipeline {
   private final TransactionTemplate txTemplate;
 
   /**
+   * 커밋 뒤 콜백(afterCommit) 안에서 쓰는 REQUIRES_NEW 트랜잭션(WP-756). afterCommit 시점엔 끝난 트랜잭션 자원이 아직 스레드에 묶여
+   * 있어 REQUIRED(txTemplate)는 새 트랜잭션을 열지 않고 거기에 합류한다 — 테넌트 GUC 주입도 별도 커밋도 없어 쓰기가 반영되지 않는다.
+   */
+  private final TransactionTemplate afterCommitTx;
+
+  /**
    * 요약 nudge 전용 executor. applyExtractResult afterCommit 에서 summarizePending 을 백그라운드로 실행.
    * TenantContext 를 전파하는 데코레이터를 사용한다.
    */
@@ -117,6 +124,8 @@ public class FileExtractionPipeline {
     this.assistantResolver = assistantResolver;
     this.dsl = dsl;
     this.txTemplate = new TransactionTemplate(txManager);
+    this.afterCommitTx = new TransactionTemplate(txManager);
+    this.afterCommitTx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     this.summaryExecutor = summaryExecutor;
     this.events = events;
   }
@@ -198,11 +207,14 @@ public class FileExtractionPipeline {
               // ⚠️ TenantContext 를 set/clear 하지 않는다. afterCommit 은 커밋 스레드에서 동기 실행되며 그 스레드의
               // ambient TenantContext 는 이미 set 되어 있다(직전 claimForExtraction RLS UPDATE 가 성공했으므로).
               // 여기서 clear 하면 호출자(FileExtractionScheduler.runOnce 의 다음 줄 summarizePending)가 컨텍스트를
-              // 잃어 RLS fail-closed 가 된다. txTemplate(TenantAwareTransactionManager) 가 ambient 로 GUC
+              // 잃어 RLS fail-closed 가 된다. afterCommitTx(TenantAwareTransactionManager) 가 ambient 로
+              // GUC
               // 를 주입한다.
               // (대조: 같은 파일의 summarizePending 은 pooled summaryExecutor 스레드로 hop 하므로 set/clear 가 정당.)
+              // REQUIRES_NEW 필수 — REQUIRED 면 끝난 트랜잭션에 합류해 GUC·커밋 없이 되돌리기가 사라졌다(WP-756). 이 경로는 실패
+              // 때만 타고, 부르는 쪽은 nudge 실행기·스케줄러 스레드라 요청 스레드가 두 번째 커넥션을 기다리지 않는다(WP-751).
               log.debug("워커 추출 디스패치 실패 — claim 해제 후 재개 예약: jobId={}", capturedJobId, ex);
-              txTemplate.executeWithoutResult(s -> jobs.releaseExtractionClaim(capturedFileId));
+              afterCommitTx.executeWithoutResult(s -> jobs.releaseExtractionClaim(capturedFileId));
             }
           }
         });
