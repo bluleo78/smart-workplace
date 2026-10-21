@@ -37,3 +37,17 @@ export function canEditSpaceRole(role: string | null | undefined): boolean {
 export function isSoleOwner(member: Pick<SpaceMember, 'role'>, members: readonly Pick<SpaceMember, 'role'>[]): boolean {
   return member.role === 'OWNER' && members.filter((m) => m.role === 'OWNER').length <= 1
 }
+
+/**
+ * 멤버 창에서 그 행의 역할 변경·제거를 막을지(WP-656) — 마지막 소유자이거나, 내 행이거나, 공간을 만든 사람의 행일 때.
+ * 내 행을 늘 잠그는 이유: OWNER 가 여럿인 공간에서 나중에 OWNER 가 된 사람이 스스로 강등·제거하면 그 자리에서 관리 권한을 잃는다.
+ * 생성자 행을 늘 잠그는 이유: 공간을 처음 만든 사람 행은 다른 OWNER 가 강등·제거할 수 없다.
+ */
+export function isLockedMemberRow(
+  member: Pick<SpaceMember, 'userId' | 'role'>,
+  members: readonly Pick<SpaceMember, 'role'>[],
+  myUserId: number | undefined,
+  ownerId: number,
+): boolean {
+  return isSoleOwner(member, members) || member.userId === myUserId || member.userId === ownerId
+}

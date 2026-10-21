@@ -1,7 +1,7 @@
 // 노트·드라이브 공간 역할 공통 규칙(WP-582) — 표기·편집 가능 판정·마지막 소유자 잠금.
 import { describe, expect, it } from 'vitest'
 
-import { canEditSpaceRole, isSoleOwner, spaceRoleLabel } from './spaceRoles'
+import { canEditSpaceRole, isLockedMemberRow, isSoleOwner, spaceRoleLabel } from './spaceRoles'
 
 describe('spaceRoleLabel', () => {
   it('영문 코드 대신 한국어로 보인다', () => {
@@ -41,5 +41,31 @@ describe('isSoleOwner', () => {
 
   it('소유자가 아닌 멤버는 잠그지 않는다', () => {
     expect(isSoleOwner(editor, [owner, editor])).toBe(false)
+  })
+})
+
+describe('isLockedMemberRow (WP-656)', () => {
+  // OWNER 가 둘(1·9) 이라 isSoleOwner 는 아무도 잠그지 않는 공간. 9 는 생성자, 1 은 나.
+  const members = [
+    { userId: 9, role: 'OWNER' as const },
+    { userId: 1, role: 'OWNER' as const },
+    { userId: 3, role: 'VIEWER' as const },
+  ]
+
+  it('내 행은 OWNER 가 여럿이어도 잠긴다 — 스스로 강등·제거 방지', () => {
+    expect(isLockedMemberRow(members[1], members, 1, 9)).toBe(true)
+  })
+
+  it('생성자 행은 내가 아니어도 잠긴다', () => {
+    expect(isLockedMemberRow(members[0], members, 1, 9)).toBe(true)
+  })
+
+  it('생성자도 나도 아닌 멤버 행은 잠기지 않는다', () => {
+    expect(isLockedMemberRow(members[2], members, 1, 9)).toBe(false)
+  })
+
+  it('마지막 소유자면 생성자·나 여부와 상관없이 잠긴다', () => {
+    const solo = [{ userId: 4, role: 'OWNER' as const }]
+    expect(isLockedMemberRow(solo[0], solo, 1, 9)).toBe(true)
   })
 })

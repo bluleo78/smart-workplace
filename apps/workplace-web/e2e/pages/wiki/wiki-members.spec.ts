@@ -113,3 +113,32 @@ test('위키 멤버 — OWNER 가 멤버 검색·추가(POST payload 검증 + �
   // 5) 멤버 목록 invalidate→refetch → 김편집 행이 다이얼로그에 나타난다.
   await expect(page.getByTestId('wiki-member-row-2')).toContainText('김편집')
 })
+
+// WP-656 — 나중에 OWNER 가 된 사람(생성자 아님)이 멤버 창을 열면 자기 행에 역할 고르기·제거가 보여 스스로 강등·제거할 수 있었다.
+test('위키 멤버 — 승격된 OWNER 의 내 행·생성자 행은 읽기 전용, 다른 멤버 행만 편집', async ({ authenticatedPage: page }) => {
+  // 로그인 사용자 id 1 = 나중에 OWNER 로 승격된 사람. 공간 생성자는 id 9.
+  const members: WikiMember[] = [
+    { userId: 9, name: '생성자', role: 'OWNER' },
+    { userId: 1, name: '나', role: 'OWNER' },
+    { userId: 3, name: '박열람', role: 'VIEWER' },
+  ]
+  await page.route(
+    (url) => url.pathname === '/api/v1/wiki/spaces',
+    (route) => (route.request().method() === 'GET' ? route.fulfill({ json: [{ ...teamSpace(), ownerId: 9 }] }) : route.fallback()),
+  )
+  await page.route((url) => url.pathname === `/api/v1/wiki/spaces/${SPACE_ID}/pages`, (route) => route.fulfill({ json: [] }))
+  await page.route((url) => url.pathname === `/api/v1/wiki/spaces/${SPACE_ID}/members`, (route) => route.fulfill({ json: members }))
+
+  await page.goto(`/wiki/spaces/${SPACE_ID}`)
+  await page.getByTestId('wiki-space-menu').click()
+  await page.getByTestId('wiki-space-members').click()
+  await expect(page.getByTestId('wiki-members-dialog')).toBeVisible()
+  // 생성자도 나도 아닌 멤버 행은 OWNER 가 고칠 수 있다(배선이 살아 있는지).
+  await expect(page.getByTestId('wiki-member-role-select-3')).toBeEnabled()
+  // 내 행 — OWNER 가 여럿이어도 역할 고르기·제거가 잠긴다.
+  await expect(page.getByTestId('wiki-member-role-select-1')).toBeDisabled()
+  await expect(page.getByTestId('wiki-member-remove-1')).toBeDisabled()
+  // 생성자 행도 내가 아니지만 똑같이 잠긴다.
+  await expect(page.getByTestId('wiki-member-role-select-9')).toBeDisabled()
+  await expect(page.getByTestId('wiki-member-remove-9')).toBeDisabled()
+})

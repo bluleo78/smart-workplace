@@ -18,12 +18,13 @@ const onChangeRole = vi.fn()
 const onRemove = vi.fn()
 const onOpenChange = vi.fn()
 
-function renderDialog(members: SpaceMember[], canManage: boolean) {
+function renderDialog(members: SpaceMember[], canManage: boolean, ownerId = 1) {
   return renderWithProviders(
     <SpaceMemberDialog
       open
       onOpenChange={onOpenChange}
       spaceName="제품기획팀"
+      ownerId={ownerId}
       members={members}
       canManage={canManage}
       roleHint="편집자는 고칠 수 있어요."
@@ -75,9 +76,19 @@ describe('SpaceMemberDialog', () => {
     expect(screen.getByTestId('drive-member-remove-2')).toBeEnabled()
   })
 
-  it('소유자가 둘이면 어느 소유자도 막지 않는다', () => {
-    renderDialog([ME_OWNER, { userId: 4, name: '정도윤', role: 'OWNER' }], true)
-    expect(screen.getByTestId('drive-member-role-select-1')).toBeEnabled()
+  it('소유자가 둘이면 내 행(=생성자)만 막히고, 다른 소유자는 바꿀 수 있다', () => {
+    renderDialog([ME_OWNER, { userId: 4, name: '정도윤', role: 'OWNER' }], true, 1)
+    expect(screen.getByTestId('drive-member-role-select-1')).toBeDisabled()
+    expect(screen.getByTestId('drive-member-role-select-4')).toBeEnabled()
+  })
+
+  it('생성자 행은 내가 아니어도, 소유자가 여럿이어도 막힌다(WP-656)', () => {
+    renderDialog(
+      [{ userId: 9, name: '만든이', role: 'OWNER' }, { userId: 4, name: '정도윤', role: 'OWNER' }, EDITOR],
+      true,
+      9,
+    )
+    expect(screen.getByTestId('drive-member-role-select-9')).toBeDisabled()
     expect(screen.getByTestId('drive-member-role-select-4')).toBeEnabled()
   })
 
@@ -98,11 +109,8 @@ describe('SpaceMemberDialog', () => {
     expect(onOpenChange).not.toHaveBeenCalledWith(false)
   })
 
-  it('소유자가 둘일 때 나를 빼면 창을 닫는다 — 더는 이 공간 멤버가 아니다', () => {
-    renderDialog([ME_OWNER, { userId: 4, name: '정도윤', role: 'OWNER' }], true)
-    fireEvent.click(screen.getByTestId('drive-member-remove-1'))
-    fireEvent.click(screen.getByTestId('drive-member-remove-confirm'))
-    expect(onRemove).toHaveBeenCalledWith(1)
-    expect(onOpenChange).toHaveBeenCalledWith(false)
+  it('소유자가 둘이어도 내 행 제거는 막혀 스스로 뺄 수 없다(WP-656)', () => {
+    renderDialog([ME_OWNER, { userId: 4, name: '정도윤', role: 'OWNER' }], true, 1)
+    expect(screen.getByTestId('drive-member-remove-1')).toBeDisabled()
   })
 })

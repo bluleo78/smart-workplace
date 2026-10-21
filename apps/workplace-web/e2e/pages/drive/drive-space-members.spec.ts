@@ -105,25 +105,29 @@ test.describe('드라이브 팀 공간 멤버', () => {
     await expect(dialog.getByText('멤버 2명')).toBeVisible()
   })
 
-  test('소유자 — 서버가 역할 변경을 거부하면(409) 그 이유를 알린다', async ({ authenticatedPage: page }) => {
-    await mockDrive(page, createSpace({ id: SPACE_ID, name: '제품기획팀', role: 'OWNER' }))
+  test('소유자 — 내 행·생성자 행은 소유자가 여럿이어도 잠긴다(WP-656)', async ({ authenticatedPage: page }) => {
+    // 공간을 만든 사람은 4(정도윤) — 나(1)는 나중에 OWNER 로 승격됐다.
+    await mockDrive(page, { ...createSpace({ id: SPACE_ID, name: '제품기획팀', role: 'OWNER' }), ownerId: 4 })
     await page.route((u) => u.pathname === `/api/v1/drive/spaces/${SPACE_ID}/members`, (r) =>
       r.fulfill({
         json: [
           { userId: 1, name: '테스트 사용자', role: 'OWNER' },
           { userId: 4, name: '정도윤', role: 'OWNER' },
+          { userId: 3, name: '박서준', role: 'EDITOR' },
         ],
       }),
-    )
-    // 다른 창에서 정도윤이 먼저 빠져 이제 내가 마지막 소유자인 경우 — 화면은 아직 둘이라 막지 않고, 서버가 거부한다.
-    await page.route((u) => u.pathname === `/api/v1/drive/spaces/${SPACE_ID}/members/1`, (r) =>
-      r.fulfill({ status: 409, json: { status: 409, message: '마지막 소유자는 역할을 바꾸거나 뺄 수 없습니다.' } }),
     )
     await page.goto(`/drive/spaces/${SPACE_ID}`)
     await page.getByTestId(`drive-space-menu-${SPACE_ID}`).click()
     await page.getByTestId(`drive-space-members-${SPACE_ID}`).click()
-    await page.getByTestId('drive-member-role-select-1').selectOption('EDITOR')
-    await expect(page.getByText('마지막 소유자는 역할을 바꾸거나 뺄 수 없습니다.')).toBeVisible()
+    // 생성자도 나도 아닌 멤버 행은 바꿀 수 있다(배선 확인).
+    await expect(page.getByTestId('drive-member-role-select-3')).toBeEnabled()
+    // 내 행(1) — 소유자가 여럿이어도 잠긴다.
+    await expect(page.getByTestId('drive-member-role-select-1')).toBeDisabled()
+    await expect(page.getByTestId('drive-member-remove-1')).toBeDisabled()
+    // 생성자 행(4)도 내가 아니지만 잠긴다.
+    await expect(page.getByTestId('drive-member-role-select-4')).toBeDisabled()
+    await expect(page.getByTestId('drive-member-remove-4')).toBeDisabled()
   })
 
   test('소유자가 아닌 멤버 — ⋯ 에는 「멤버」만 있고, 멤버 창은 명단만 보인다', async ({ authenticatedPage: page }) => {

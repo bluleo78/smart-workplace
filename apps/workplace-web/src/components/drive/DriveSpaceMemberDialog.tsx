@@ -28,6 +28,7 @@ export function DriveSpaceMemberDialog({
       open={open}
       onOpenChange={onOpenChange}
       spaceName={space.name}
+      ownerId={space.ownerId}
       members={members}
       canManage={space.role === 'OWNER'}
       roleHint="편집자는 파일을 올리고 정리할 수 있고, 보기 전용은 보고 내려받기만 할 수 있어요."

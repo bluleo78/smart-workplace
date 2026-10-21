@@ -27,6 +27,7 @@ export function WikiSpaceMemberDialog({
       open={open}
       onOpenChange={onOpenChange}
       spaceName={space.name}
+      ownerId={space.ownerId}
       members={members}
       canManage={space.role === 'OWNER'}
       roleHint="편집자는 페이지를 쓰고 고칠 수 있고, 보기 전용은 읽기만 할 수 있어요."

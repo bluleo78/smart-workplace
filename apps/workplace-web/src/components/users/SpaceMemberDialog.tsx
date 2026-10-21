@@ -18,13 +18,14 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { UserAvatar } from '@/components/users/UserAvatar'
 import { useAuth } from '@/hooks/useAuth'
-import { isSoleOwner, SPACE_ROLES, type SpaceMember, type SpaceRole, spaceRoleLabel } from '@/lib/spaceRoles'
+import { isLockedMemberRow, SPACE_ROLES, type SpaceMember, type SpaceRole, spaceRoleLabel } from '@/lib/spaceRoles'
 import { MemberSearchPopover } from '@/pages/projects/components/MemberSearchPopover'
 
 export function SpaceMemberDialog({
   open,
   onOpenChange,
   spaceName,
+  ownerId,
   members,
   canManage,
   roleHint,
@@ -37,6 +38,8 @@ export function SpaceMemberDialog({
   open: boolean
   onOpenChange: (v: boolean) => void
   spaceName: string
+  /** 공간을 만든 사람(WP-656) — 생성자 행은 내가 OWNER 여도 늘 읽기 전용. */
+  ownerId: number
   /** 멤버 목록 — 조회 전이면 undefined. */
   members: SpaceMember[] | undefined
   /** 내가 소유자라 추가·역할 변경·제거를 할 수 있는지. 아니면 명단만 본다. */
@@ -90,8 +93,8 @@ export function SpaceMemberDialog({
 
           <div className="max-h-80 space-y-1 overflow-y-auto">
             {members?.map((m) => {
-              // 마지막 소유자는 역할 변경·제거 불가 — 서버도 거부하지만 누르기 전에 막는다.
-              const locked = isSoleOwner(m, members)
+              // 마지막 소유자·내 행·생성자 행은 역할 변경·제거 불가(WP-656) — 서버도 마지막 소유자는 거부하지만 누르기 전에 막는다.
+              const locked = isLockedMemberRow(m, members, user?.id, ownerId)
               return (
                 <div
                   key={m.userId}
@@ -109,7 +112,7 @@ export function SpaceMemberDialog({
                       aria-label={`${m.name} 역할`}
                       value={m.role}
                       disabled={locked}
-                      title={locked ? '소유자가 한 명뿐이라 역할을 바꿀 수 없어요' : undefined}
+                      title={locked ? '내 행·생성자 행·마지막 소유자는 역할을 바꿀 수 없어요' : undefined}
                       onChange={(e) => onChangeRole(m.userId, e.target.value as SpaceRole)}
                       className="rounded border bg-background px-1 py-0.5 text-xs disabled:cursor-not-allowed disabled:opacity-50"
                     >
@@ -155,11 +158,8 @@ export function SpaceMemberDialog({
               variant="destructive"
               data-testid={tid('member-remove-confirm')}
               onClick={() => {
-                if (confirmRemove) {
-                  onRemove(confirmRemove.userId)
-                  // 나를 뺐으면 더는 이 공간 멤버가 아니라 창을 닫는다(다른 소유자가 있을 때만 가능).
-                  if (confirmRemove.userId === user?.id) onOpenChange(false)
-                }
+                // 내 행은 늘 잠겨 있어 여기로 올 수 없다(WP-656) — 제거는 항상 남의 행.
+                if (confirmRemove) onRemove(confirmRemove.userId)
                 setConfirmRemove(null)
               }}
             >
