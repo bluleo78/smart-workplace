@@ -37,7 +37,7 @@ public record CalendarEventRequest(
   }
 
   /** 종료가 시작보다 뒤인지 교차 검증 — 위반 시 400. */
-  @AssertTrue(message = "endsAt must be after startsAt")
+  @AssertTrue(message = "종료 시각은 시작 시각보다 뒤여야 합니다")
   public boolean isValidRange() {
     return startsAt == null || endsAt == null || endsAt.isAfter(startsAt);
   }

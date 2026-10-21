@@ -24,19 +24,19 @@ public record ReportAgentWorkRequest(
     @Size(max = 10) List<Long> fileIds) {
 
   /** 상태는 보고 가능한 값(진행 중 7종 + 종료 4종)만 — 없으면 통과. 값 목록은 {@link AgentWorkState} 한 곳에서 나온다. */
-  @AssertTrue(message = "state must be a reportable agent work state")
+  @AssertTrue(message = "보고할 수 없는 작업 상태입니다")
   public boolean isStateReportable() {
     return state == null || AgentWorkState.isReportable(state);
   }
 
   /** nextRunAt 은 상태가 SCHEDULED 일 때만 — 다른 상태(미지정 포함)에 시각이 붙으면 어느 상태의 시각인지 모호해 거절한다. */
-  @AssertTrue(message = "nextRunAt is only allowed with state SCHEDULED")
+  @AssertTrue(message = "nextRunAt 은 state 가 SCHEDULED 일 때만 쓸 수 있습니다")
   public boolean isNextRunAtWithScheduled() {
     return nextRunAt == null || AgentWorkState.SCHEDULED.equals(state);
   }
 
   /** 첨부는 message 챗 글에 붙으므로 message 가 있을 때만 — 없으면 붙일 글이 없어 파일이 조용히 버려진다. */
-  @AssertTrue(message = "fileIds are only allowed with a message")
+  @AssertTrue(message = "fileIds 는 message 와 함께만 쓸 수 있습니다")
   public boolean isFileIdsWithMessage() {
     return fileIds().isEmpty() || (message != null && !message.isBlank());
   }
@@ -47,8 +47,7 @@ public record ReportAgentWorkRequest(
   }
 
   /** 단계 수는 짝으로만 — 둘 다 없거나 둘 다 있고 done ≤ total. */
-  @AssertTrue(
-      message = "stepsDone and stepsTotal must be given together with stepsDone <= stepsTotal")
+  @AssertTrue(message = "stepsDone 과 stepsTotal 은 함께 주어야 하고 stepsDone 은 stepsTotal 이하여야 합니다")
   public boolean isStepsPaired() {
     if (stepsDone == null && stepsTotal == null) return true;
     return stepsDone != null && stepsTotal != null && stepsDone <= stepsTotal;
