@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 
 import { CYCLE_STATUS_LABEL, CYCLE_STATUSES } from '@/types/cycle'
 
-import { cycleMetaText, isCycleDateRangeInvalid } from './cycleMeta'
+import { canPickCycle, cycleMetaText, isCycleDateRangeInvalid } from './cycleMeta'
 
 const progress = { cycleId: 1, total: 20, done: 9, byStatus: { DONE: 9, TODO: 11 } }
 
@@ -36,5 +36,18 @@ describe('isCycleDateRangeInvalid (#804)', () => {
 describe('CYCLE_STATUS_LABEL', () => {
   it('모든 상태 enum 을 한국어로 표시한다(영문 enum 노출 금지)', () => {
     expect(CYCLE_STATUSES.map((s) => CYCLE_STATUS_LABEL[s])).toEqual(['예정', '진행 중', '완료됨'])
+  })
+})
+
+describe('canPickCycle (WP-659)', () => {
+  it('완료 사이클은 붙어 있지 않으면 고를 수 없다', () => {
+    expect(canPickCycle({ id: 2, status: 'COMPLETED' }, new Set([1]))).toBe(false)
+  })
+  it('이미 붙은 완료 사이클은 뗄 수 있게 고를 수 있다', () => {
+    expect(canPickCycle({ id: 2, status: 'COMPLETED' }, new Set([2]))).toBe(true)
+  })
+  it('완료가 아닌 사이클은 늘 고를 수 있다', () => {
+    expect(canPickCycle({ id: 3, status: 'ACTIVE' }, new Set())).toBe(true)
+    expect(canPickCycle({ id: 4, status: 'PLANNED' }, new Set())).toBe(true)
   })
 })

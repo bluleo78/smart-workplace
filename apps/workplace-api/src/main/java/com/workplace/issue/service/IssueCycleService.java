@@ -42,7 +42,12 @@ public class IssueCycleService {
     return issueCycleRepository.findCyclesByIssue(issue.id());
   }
 
-  /** 이슈 사이클 집합 교체 — 멤버 가드, 프로젝트 일관성 검증, diff INSERT/DELETE. */
+  /**
+   * 이슈 사이클 집합 교체 — 멤버 가드, 프로젝트 일관성 검증, diff INSERT/DELETE.
+   *
+   * <p>새로 붙는 사이클이 완료(COMPLETED)면 거절한다 — 사이클 보드 드래그(move)와 같은 규칙(WP-659). 이미 붙어 있던 완료 사이클은 그대로 두거나 뗄
+   * 수 있다(완료 전에 배정된 이슈 기록).
+   */
   public List<CycleSummary> replace(
       Long callerId, String projectKey, int number, List<Long> cycleIds) {
     var project = accessGuard.assertMember(projectKey, callerId);
@@ -53,7 +58,8 @@ public class IssueCycleService {
 
     List<Long> normalized = cycleIds == null ? List.of() : cycleIds;
 
-    // 1) 모든 cycleIds 가 같은 프로젝트 소속인지 검증
+    // 1) 모든 cycleIds 가 같은 프로젝트 소속인지 검증 — 완료 여부는 diff 뒤 새로 붙는 것만 본다.
+    Set<Long> completedIds = new HashSet<>();
     if (!normalized.isEmpty()) {
       var cycles = cycleRepository.findByIds(normalized);
       Set<Long> normalizedSet = new HashSet<>(normalized);
@@ -64,6 +70,7 @@ public class IssueCycleService {
         if (!c.projectId().equals(project.id())) {
           throw new InvalidCycleForProjectException();
         }
+        if (CycleStatus.COMPLETED.equals(c.status())) completedIds.add(c.id());
       }
     }
 
@@ -74,6 +81,9 @@ public class IssueCycleService {
     toAdd.removeAll(current);
     Set<Long> toRemove = new HashSet<>(current);
     toRemove.removeAll(target);
+    if (toAdd.stream().anyMatch(completedIds::contains)) {
+      throw new CompletedCycleNotAssignableException();
+    }
 
     for (Long id : toAdd) issueCycleRepository.add(issue.id(), id);
     for (Long id : toRemove) issueCycleRepository.remove(issue.id(), id);

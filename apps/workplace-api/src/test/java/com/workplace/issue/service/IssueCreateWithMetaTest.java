@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.cycle.dto.CreateCycleRequest;
+import com.workplace.cycle.exception.CompletedCycleNotAssignableException;
 import com.workplace.cycle.exception.InvalidCycleForProjectException;
 import com.workplace.cycle.service.CycleService;
 import com.workplace.global.tenant.TenantContext;
@@ -150,6 +151,21 @@ class IssueCreateWithMetaTest extends IntegrationTestBase {
                 issueService.create(
                     ownerId, projectKey, withMeta("bad", null, null, List.of(foreign.id()))))
         .isInstanceOf(InvalidCycleForProjectException.class);
+    assertThat(issueRepository.countByProject(projectId)).isZero();
+  }
+
+  // WP-659: 새 이슈도 완료 사이클에는 넣을 수 없다 — 피커·보드 드래그와 같은 규칙.
+  @Test
+  void create_withCompletedCycle_fails() {
+    var done =
+        cycleService.create(
+            ownerId, projectKey, new CreateCycleRequest("Done", null, null, null, "COMPLETED"));
+
+    assertThatThrownBy(
+            () ->
+                issueService.create(
+                    ownerId, projectKey, withMeta("late", null, null, List.of(done.id()))))
+        .isInstanceOf(CompletedCycleNotAssignableException.class);
     assertThat(issueRepository.countByProject(projectId)).isZero();
   }
 

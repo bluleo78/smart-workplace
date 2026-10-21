@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 
 import { useCycles, useIssueCycles, useUpdateIssueCycles } from '../../hooks/queries/useCycles';
+import { canPickCycle } from '../../lib/cycleMeta';
+import { cn } from '../../lib/utils';
 import { CYCLE_STATUS_LABEL } from '../../types/cycle';
 
 export function CyclePickerPopover({
@@ -40,6 +42,8 @@ export function CyclePickerPopover({
   }
 
   const attached = current.data ?? [];
+  // 완료 사이클은 이미 붙어 있을 때만 고를 수 있다(새로 붙이면 서버가 거절 — WP-659).
+  const attachedIds = new Set(attached.map((c) => c.id));
 
   return (
     <div data-testid="issue-cycles">
@@ -69,15 +73,22 @@ export function CyclePickerPopover({
         </PopoverTrigger>
         <PopoverContent className="w-72 p-2" data-testid="cycle-picker">
           <div className="max-h-64 space-y-1 overflow-y-auto">
-            {(cycles.data ?? []).map((c) => (
+            {(cycles.data ?? []).map((c) => {
+              const pickable = canPickCycle(c, attachedIds);
+              return (
               <label
                 key={c.id}
-                className="flex cursor-pointer items-center gap-2 rounded p-1 hover:bg-accent"
+                className={cn(
+                  'flex items-center gap-2 rounded p-1',
+                  pickable ? 'cursor-pointer hover:bg-accent' : 'cursor-not-allowed opacity-50',
+                )}
+                title={pickable ? undefined : '완료된 사이클에는 이슈를 추가할 수 없습니다'}
                 data-testid={`cycle-option-${c.id}`}
               >
                 <input
                   type="checkbox"
                   checked={selected.includes(c.id)}
+                  disabled={!pickable}
                   onChange={() => toggle(c.id)}
                   aria-label={c.name}
                 />
@@ -86,7 +97,8 @@ export function CyclePickerPopover({
                   {CYCLE_STATUS_LABEL[c.status] ?? c.status}
                 </span>
               </label>
-            ))}
+              );
+            })}
             {(cycles.data?.length ?? 0) === 0 && (
               <p className="py-2 text-center text-xs text-muted-foreground">사이클 없음</p>
             )}

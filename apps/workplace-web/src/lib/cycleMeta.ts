@@ -22,3 +22,11 @@ export function cycleMetaText(c: Pick<CycleResponse, 'startDate' | 'endDate'>, p
 export function isCycleDateRangeInvalid(startDate: string, endDate: string): boolean {
   return Boolean(startDate && endDate && endDate < startDate)
 }
+
+/**
+ * 이슈 사이클 피커에서 이 사이클을 고를 수 있는가(WP-659). 완료 사이클에는 새로 붙일 수 없다(서버 replace·move 와 같은 규칙) —
+ * 다만 이미 붙어 있던 완료 사이클은 떼거나 다시 체크할 수 있게 둔다(완료 전에 배정된 기록).
+ */
+export function canPickCycle(c: Pick<CycleResponse, 'id' | 'status'>, attachedIds: ReadonlySet<number>): boolean {
+  return c.status !== 'COMPLETED' || attachedIds.has(c.id)
+}

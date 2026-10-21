@@ -1,5 +1,7 @@
 package com.workplace.issue.service;
 
+import com.workplace.cycle.dto.CycleStatus;
+import com.workplace.cycle.exception.CompletedCycleNotAssignableException;
 import com.workplace.cycle.exception.InvalidCycleForProjectException;
 import com.workplace.cycle.repository.CycleRepository;
 import com.workplace.drive.service.DriveLinkService;
@@ -319,6 +321,10 @@ public class IssueService {
       if (cycles.size() != cycleIds.size()
           || cycles.stream().anyMatch(c -> !c.projectId().equals(project.id()))) {
         throw new InvalidCycleForProjectException();
+      }
+      // 완료 사이클에는 새 이슈를 넣지 않는다 — 사이클 피커(replace)·보드 드래그(move)와 같은 규칙(WP-659).
+      if (cycles.stream().anyMatch(c -> CycleStatus.COMPLETED.equals(c.status()))) {
+        throw new CompletedCycleNotAssignableException();
       }
     }
 

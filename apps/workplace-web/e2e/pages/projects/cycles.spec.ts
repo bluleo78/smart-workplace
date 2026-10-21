@@ -535,6 +535,37 @@ test.describe('사이클 피커', () => {
   );
 });
 
+// WP-659 — 이슈 상세 사이클 피커도 완료 사이클에 새로 붙이지 못한다(보드 드래그와 같은 규칙). 이미 붙은 완료 사이클은 뗄 수 있다.
+test('사이클 피커 — 안 붙은 완료 사이클은 고를 수 없고, 붙은 완료 사이클은 떼어 PUT', async ({ authenticatedPage: page }) => {
+  await setupIssueDetailStubs(page);
+  const cycles = [
+    createCycle({ id: 1, name: '스프린트 1', status: 'ACTIVE' }),
+    createCycle({ id: 2, name: '지난 스프린트', status: 'COMPLETED' }),
+    createCycle({ id: 3, name: '9월 스프린트', status: 'COMPLETED' }),
+  ];
+  await page.route(`**/api/v1/projects/${KEY}/cycles`, (route) =>
+    route.request().method() === 'GET' ? route.fulfill({ json: cycles }) : route.fallback());
+  const attached: CycleSummary[] = [{ id: 3, name: '9월 스프린트', status: 'COMPLETED' }];
+  const puts = trackRequests(page, 'PUT', `/api/v1/projects/${KEY}/issues/1/cycles`);
+  await page.route(
+    (url) => url.pathname === `/api/v1/projects/${KEY}/issues/1/cycles`,
+    (route) => route.fulfill({ json: route.request().method() === 'PUT' ? [] : attached }),
+  );
+
+  await page.goto(`/projects/${KEY}/issues/1`);
+  await page.getByTestId('cycle-picker-trigger').click();
+  await expect(page.getByTestId('cycle-picker')).toBeVisible();
+  // 안 붙은 완료 사이클 — 체크박스 비활성.
+  await expect(page.getByTestId('cycle-option-2').getByRole('checkbox')).toBeDisabled();
+  await expect(page.getByTestId('cycle-option-1').getByRole('checkbox')).toBeEnabled();
+  // 붙어 있던 완료 사이클 — 떼기는 된다.
+  const linked = page.getByTestId('cycle-option-3').getByRole('checkbox');
+  await expect(linked).toBeChecked();
+  await linked.click();
+  await page.keyboard.press('Escape');
+  await expect.poll(() => puts.lastBody()).toEqual({ cycleIds: [] });
+});
+
 // ─────────────────────────────────────────────
 // 사이클 필터 (프로젝트 이슈 목록 페이지)
 // ─────────────────────────────────────────────

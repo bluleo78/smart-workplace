@@ -82,6 +82,12 @@ class IssueCycleServiceTest extends IntegrationTestBase {
     return newCycle(owner, p, name, null);
   }
 
+  // 사이클을 완료로 바꾸는 헬퍼 — 완료 사이클엔 새로 붙일 수 없어(WP-659) 붙인 뒤 완료한다.
+  private void complete(Long owner, ProjectResponse p, CycleResponse c) {
+    cycleService.update(
+        owner, p.key(), c.id(), new CreateCycleRequest(c.name(), null, null, null, "COMPLETED"));
+  }
+
   @Test
   void replace_attaches_and_detaches_cycles() {
     Long owner = createUser("o");
@@ -111,6 +117,45 @@ class IssueCycleServiceTest extends IntegrationTestBase {
     assertThatThrownBy(
             () -> issueCycleService.replace(owner, p1.key(), number, List.of(other.id())))
         .isInstanceOf(InvalidCycleForProjectException.class);
+  }
+
+  // --- WP-659: 집합 교체(이슈 상세 사이클 피커)도 완료 사이클에 새로 붙이지 못한다(move 와 같은 규칙) ---
+
+  @Test
+  void replace_adding_completed_cycle_throws_400_and_keeps_links() {
+    Long owner = createUser("rc");
+    ProjectResponse p = newProject(owner, "RC");
+    var a = newCycle(owner, p, "A");
+    var done = newCycle(owner, p, "D", "COMPLETED");
+    int number = newIssue(owner, p, "T");
+    issueCycleService.replace(owner, p.key(), number, List.of(a.id()));
+
+    assertThatThrownBy(
+            () -> issueCycleService.replace(owner, p.key(), number, List.of(a.id(), done.id())))
+        .isInstanceOf(CompletedCycleNotAssignableException.class);
+    assertThat(issueCycleService.list(owner, p.key(), number))
+        .extracting("id")
+        .containsExactly(a.id());
+  }
+
+  @Test
+  void replace_keeps_or_detaches_already_linked_completed_cycle() {
+    Long owner = createUser("rk");
+    ProjectResponse p = newProject(owner, "RK");
+    var done = newCycle(owner, p, "D");
+    var b = newCycle(owner, p, "B");
+    int number = newIssue(owner, p, "T");
+    issueCycleService.replace(owner, p.key(), number, List.of(done.id()));
+    complete(owner, p, done);
+
+    // 이미 붙은 완료 사이클은 그대로 둔 채 다른 사이클을 더할 수 있다.
+    assertThat(issueCycleService.replace(owner, p.key(), number, List.of(done.id(), b.id())))
+        .extracting("id")
+        .containsExactlyInAnyOrder(done.id(), b.id());
+    // 떼기도 된다.
+    assertThat(issueCycleService.replace(owner, p.key(), number, List.of(b.id())))
+        .extracting("id")
+        .containsExactly(b.id());
   }
 
   // --- move (#881: 사이클 페이지 드래그 이동) ---
@@ -187,9 +232,10 @@ class IssueCycleServiceTest extends IntegrationTestBase {
   void move_out_of_completed_cycle_is_allowed() {
     Long owner = createUser("mo");
     ProjectResponse p = newProject(owner, "MO");
-    var done = newCycle(owner, p, "D", "COMPLETED");
+    var done = newCycle(owner, p, "D");
     int number = newIssue(owner, p, "T");
     issueCycleService.replace(owner, p.key(), number, List.of(done.id()));
+    complete(owner, p, done);
 
     assertThat(issueCycleService.move(owner, p.key(), number, done.id(), null).cycles()).isEmpty();
   }

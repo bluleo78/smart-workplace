@@ -178,8 +178,7 @@ class IssueSearchServiceCyclesTest extends IntegrationTestBase {
     var planned =
         cycleService.create(owner, p.key(), new CreateCycleRequest("Plan", null, null, null, null));
     var completed =
-        cycleService.create(
-            owner, p.key(), new CreateCycleRequest("Done", null, null, null, "COMPLETED"));
+        cycleService.create(owner, p.key(), new CreateCycleRequest("Done", null, null, null, null));
 
     int multi = newIssue(owner, p, "multi");
     int activeOnly = newIssue(owner, p, "active-only");
@@ -196,6 +195,12 @@ class IssueSearchServiceCyclesTest extends IntegrationTestBase {
     // 완료 + 진행 중 동시 연결 — 열린 사이클에 있으므로 백로그가 아니다
     issueCycleService.replace(
         owner, p.key(), completedAndActive, List.of(completed.id(), active.id()));
+    // 완료 사이클엔 새로 붙일 수 없어(WP-659) 붙인 뒤 완료로 바꾼다.
+    cycleService.update(
+        owner,
+        p.key(),
+        completed.id(),
+        new CreateCycleRequest("Done", null, null, null, "COMPLETED"));
 
     var resp = searchService.search(owner, p.key(), Map.of("cycle", "null"));
 
@@ -213,14 +218,16 @@ class IssueSearchServiceCyclesTest extends IntegrationTestBase {
         cycleService.create(owner, p.key(), new CreateCycleRequest("S1", null, null, null, null));
 
     var done =
-        cycleService.create(
-            owner, p.key(), new CreateCycleRequest("Done", null, null, null, "COMPLETED"));
+        cycleService.create(owner, p.key(), new CreateCycleRequest("Done", null, null, null, null));
 
     int linked = newIssue(owner, p, "linked");
     int unlinked = newIssue(owner, p, "unlinked");
     int completedOnly = newIssue(owner, p, "completed-only");
     issueCycleService.replace(owner, p.key(), linked, List.of(c1.id()));
+    // 완료 사이클엔 새로 붙일 수 없어(WP-659) 진행 중에 붙인 뒤 완료로 바꾼다 — 실제 흐름과 같다.
     issueCycleService.replace(owner, p.key(), completedOnly, List.of(done.id()));
+    cycleService.update(
+        owner, p.key(), done.id(), new CreateCycleRequest("Done", null, null, null, "COMPLETED"));
 
     // 프로젝트 검색(search)과 횡단 검색(searchMemberOf) 두 술어 경로가 같은 결과를 내야 한다.
     var project = searchService.search(owner, p.key(), Map.of("cycle", "null"));
@@ -248,14 +255,19 @@ class IssueSearchServiceCyclesTest extends IntegrationTestBase {
         cycleService.create(
             owner, p.key(), new CreateCycleRequest("Active", null, null, null, "ACTIVE"));
     var completed =
-        cycleService.create(
-            owner, p.key(), new CreateCycleRequest("Done", null, null, null, "COMPLETED"));
+        cycleService.create(owner, p.key(), new CreateCycleRequest("Done", null, null, null, null));
 
     int activeOnly = newIssue(owner, p, "active-only");
     int completedOnly = newIssue(owner, p, "completed-only");
     int none = newIssue(owner, p, "none");
     issueCycleService.replace(owner, p.key(), activeOnly, List.of(active.id()));
+    // 완료 사이클엔 새로 붙일 수 없어(WP-659) 진행 중에 붙인 뒤 완료로 바꾼다.
     issueCycleService.replace(owner, p.key(), completedOnly, List.of(completed.id()));
+    cycleService.update(
+        owner,
+        p.key(),
+        completed.id(),
+        new CreateCycleRequest("Done", null, null, null, "COMPLETED"));
 
     // 완료 사이클에만 연결된 이슈는 백로그(null)에는 들어가지만 none 에는 들어가지 않는다. 대소문자 무시.
     var resp = searchService.search(owner, p.key(), Map.of("cycle", "NONE"));
