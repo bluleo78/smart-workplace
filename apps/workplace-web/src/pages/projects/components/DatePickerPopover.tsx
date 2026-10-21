@@ -4,7 +4,7 @@
 // DueDatePickerPopover 에서 마감일 전용으로 쓰이던 컴포넌트를 시작일 등 다른 날짜 필드에도
 // 재사용할 수 있도록 제네릭으로 추출 (Task 11, testIdPrefix/라벨 파라미터화).
 
-import { format, parse } from 'date-fns';
+import { format } from 'date-fns';
 import { ko } from 'date-fns/locale';
 import { CalendarIcon, X } from 'lucide-react';
 import { useState } from 'react';
@@ -12,6 +12,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { parseValidDateKey } from '@/lib/formatters';
 
 interface DatePickerPopoverProps {
   /** YYYY-MM-DD 형식 또는 null (미설정) */
@@ -53,10 +54,10 @@ export function DatePickerPopover({
 }: DatePickerPopoverProps) {
   const [open, setOpen] = useState(false);
 
-  // YYYY-MM-DD 문자열 → Date 객체 변환 (로컬 타임존 기준으로 파싱)
-  const selected = value
-    ? parse(value, 'yyyy-MM-dd', new Date())
-    : undefined;
+  // YYYY-MM-DD 문자열 → Date 객체 변환 (로컬 타임존 기준으로 파싱). 해석할 수 없는 값(API 로 들어간 +10000-01-01 등)은
+  // 화면 전체를 깨뜨리지 않고 「잘못된 날짜」로 보여 지울 수 있게 한다(WP-725).
+  const selected = parseValidDateKey(value);
+  const invalid = !!value && !selected;
 
   function handleSelect(date: Date | undefined) {
     if (date) {
@@ -93,6 +94,10 @@ export function DatePickerPopover({
                     </span>
                   )}
                 </>
+              ) : invalid ? (
+                <span className="text-destructive" title={value ?? undefined} data-testid={`${testIdPrefix}-invalid`}>
+                  잘못된 날짜
+                </span>
               ) : (
                 <span className="text-muted-foreground">{emptyLabel}</span>
               )}
@@ -106,8 +111,8 @@ export function DatePickerPopover({
             />
           </PopoverContent>
         </Popover>
-        {/* 지우기 버튼 — 날짜가 설정된 경우에만 표시 */}
-        {selected && (
+        {/* 지우기 버튼 — 날짜가 설정된 경우(해석할 수 없는 값 포함)에만 표시 */}
+        {value && (
           <Button
             variant="ghost"
             size="icon"

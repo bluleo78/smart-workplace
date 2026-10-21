@@ -3,6 +3,7 @@ package com.workplace.issue.dto;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.workplace.global.time.SupportedDates;
 import com.workplace.global.util.SingleLineTitles;
 import com.workplace.issue.exception.InvalidFieldOptionsException;
 import com.workplace.issue.exception.InvalidFieldValueException;
@@ -99,10 +100,15 @@ public final class FieldTypeValidator {
         if (!value.isTextual()) {
           throw new InvalidFieldValueException("DATE 는 ISO 문자열");
         }
+        LocalDate date;
         try {
-          LocalDate.parse(value.asText());
+          date = LocalDate.parse(value.asText());
         } catch (DateTimeParseException e) {
           throw new InvalidFieldValueException("DATE 형식 (YYYY-MM-DD)");
+        }
+        // 큰 연도(+999999999)·음수 연도가 저장되면 이슈 상세가 열리지 않았다(WP-725) — 다른 날짜 입력과 같은 범위.
+        if (!SupportedDates.isSupported(date)) {
+          throw new InvalidFieldValueException(SupportedDates.MESSAGE);
         }
       }
       case "SELECT" -> {

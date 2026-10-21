@@ -1,7 +1,7 @@
 // DATE 타입 위젯 — ISO (YYYY-MM-DD) 문자열만 다룬다. 빈 입력은 null.
 // shadcn Popover + Calendar 조합으로 구현하여 이슈 마감일 DatePicker 와 디자인 일관성 유지 (#318).
 
-import { format, parse } from 'date-fns';
+import { format } from 'date-fns';
 import { ko } from 'date-fns/locale';
 import { CalendarIcon, X } from 'lucide-react';
 import { useState } from 'react';
@@ -9,6 +9,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { parseValidDateKey } from '@/lib/formatters';
 
 import type { IssueFieldDef } from '../../types/customField';
 
@@ -30,8 +31,10 @@ export function FieldDateInput({
 }) {
   const [open, setOpen] = useState(false);
 
-  // YYYY-MM-DD 문자열 → Date 객체 변환 (로컬 타임존 기준으로 파싱하여 UTC 오프셋 문제 방지)
-  const selected = value ? parse(value, 'yyyy-MM-dd', new Date()) : undefined;
+  // YYYY-MM-DD 문자열 → Date 객체 변환 (로컬 타임존 기준으로 파싱하여 UTC 오프셋 문제 방지). 해석할 수 없는 값은
+  // 화면 전체를 깨뜨리지 않고 「잘못된 날짜」로 보여 지울 수 있게 한다(WP-725).
+  const selected = parseValidDateKey(value);
+  const invalid = !!value && !selected;
 
   function handleSelect(date: Date | undefined) {
     if (date) {
@@ -61,6 +64,10 @@ export function FieldDateInput({
             <CalendarIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
             {selected ? (
               <span>{format(selected, 'yyyy년 M월 d일', { locale: ko })}</span>
+            ) : invalid ? (
+              <span className="text-destructive" title={value ?? undefined}>
+                잘못된 날짜
+              </span>
             ) : (
               <span className="text-muted-foreground">날짜 선택</span>
             )}
@@ -74,8 +81,8 @@ export function FieldDateInput({
           />
         </PopoverContent>
       </Popover>
-      {/* 날짜 지우기 버튼 — 날짜가 설정되어 있고 편집할 수 있을 때만 표시 */}
-      {selected && !disabled && (
+      {/* 날짜 지우기 버튼 — 날짜가 설정되어 있고(해석할 수 없는 값 포함) 편집할 수 있을 때만 표시 */}
+      {value && !disabled && (
         <Button
           variant="ghost"
           size="icon"

@@ -6,7 +6,7 @@
  * ESLint(no-restricted-syntax)로 금지(#632). 용도별 선택 기준은 docs/CODING_CONVENTION.md
  * "날짜/시간 표시 포맷" 표 참조. 이 파일만 규칙 예외.
  */
-import { format, parse } from 'date-fns';
+import { format, isValid, parse } from 'date-fns';
 
 /** 타임존 정보가 이미 붙어 있는지 판별 — 'Z' 또는 ±HH:MM / ±HHMM 오프셋(#617). */
 const TZ_SUFFIX_RE = /Z$|[+-]\d{2}:?\d{2}$/;
@@ -292,6 +292,16 @@ export function kstDateKey(d: Date): string {
  */
 export function parseDateKey(key: string): Date {
   return parse(key, 'yyyy-MM-dd', new Date());
+}
+
+/**
+ * 날짜 키(YYYY-MM-DD) → 로컬 자정 Date, 해석할 수 없으면 undefined(WP-725). API·MCP 로 들어간 +10000-01-01·음수 연도·없는 날짜가
+ * Invalid Date 로 date-fns format() 에 넘어가면 RangeError 로 화면 전체가 깨졌다 — 날짜 선택기는 이 값으로 「잘못된 날짜」를 보여 준다.
+ */
+export function parseValidDateKey(key: string | null | undefined): Date | undefined {
+  if (!key || !/^\d{4}-\d{2}-\d{2}$/.test(key)) return undefined;
+  const d = parse(key, 'yyyy-MM-dd', new Date());
+  return isValid(d) ? d : undefined;
 }
 
 /** Date(로컬 날짜) → 날짜 키(YYYY-MM-DD) — parseDateKey 의 반대. 달력이 고른 로컬 날짜를 그대로 키로 만든다. */

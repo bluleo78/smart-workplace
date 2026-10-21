@@ -1105,6 +1105,13 @@ public class GlobalExceptionHandler {
   @ExceptionHandler(HttpMessageNotReadableException.class)
   public ResponseEntity<ErrorResponse> handleMessageNotReadable(
       HttpMessageNotReadableException ex, HttpServletRequest request) {
+    // 지원 범위 밖 날짜(WP-725)는 본문 해석 중에 걸린다 — 일반 문구 대신 그 이유를 그대로 알린다.
+    for (Throwable t = ex; t != null; t = t.getCause()) {
+      if (t instanceof UnsupportedDateException) {
+        return ResponseEntity.badRequest()
+            .body(buildError(HttpStatus.BAD_REQUEST, t.getMessage(), null, request));
+      }
+    }
     ErrorResponse response =
         buildError(HttpStatus.BAD_REQUEST, "요청 본문을 해석할 수 없습니다.", null, request);
     return ResponseEntity.badRequest().body(response);

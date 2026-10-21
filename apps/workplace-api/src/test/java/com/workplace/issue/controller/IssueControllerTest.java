@@ -244,6 +244,32 @@ class IssueControllerTest {
         .andExpect(status().isOk());
   }
 
+  /**
+   * WP-725: 날짜는 1900-01-01 ~ 9999-12-31 만 받는다 — 10000년 이후는 저장돼 이슈 상세가 열리지 않았고, 음수 연도는 다른 날짜로 바뀌어
+   * 저장됐다. JSON 날짜 해석 단계에서 한국어 400 으로 거절해 서비스까지 가지 않는다.
+   */
+  @Test
+  void patch_dateOutsideSupportedRange_returns400() throws Exception {
+    mockAuthentication("issue:write");
+    for (String body :
+        new String[] {
+          "{\"dueDate\":\"+10000-01-01\"}",
+          "{\"startDate\":\"-0001-01-01\"}",
+          "{\"dueDate\":\"+999999999-12-31\"}"
+        }) {
+      mockMvc
+          .perform(
+              patch("/api/v1/projects/WP/issues/1")
+                  .header("Authorization", "Bearer valid-token")
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content(body))
+          .andExpect(status().isBadRequest())
+          .andExpect(jsonPath("$.message").value("날짜는 1900-01-01 ~ 9999-12-31 사이여야 합니다"));
+    }
+    verify(issueService, org.mockito.Mockito.never())
+        .update(any(), any(), any(Integer.class), any());
+  }
+
   /** #611 옛 version 으로 수정하면 409 + 충돌 안내 문구. */
   @Test
   void patch_staleVersion_returns409() throws Exception {

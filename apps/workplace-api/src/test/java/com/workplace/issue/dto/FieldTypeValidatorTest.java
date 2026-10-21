@@ -152,4 +152,18 @@ class FieldTypeValidatorTest {
       FieldTypeValidator.validateValue("NUMBER", null, om.readTree(json));
     }
   }
+
+  /** WP-725: DATE 필드는 1900-01-01 ~ 9999-12-31 만 — 큰 연도(+999999999)·음수 연도가 저장되면 이슈 상세가 열리지 않았다. */
+  @Test
+  void date_outsideSupportedRange_rejected() {
+    ObjectMapper om = new ObjectMapper();
+    for (String v :
+        new String[] {"+10000-01-01", "+999999999-12-31", "-0001-01-01", "1899-12-31"}) {
+      assertThatThrownBy(() -> FieldTypeValidator.validateValue("DATE", null, om.valueToTree(v)))
+          .isInstanceOf(InvalidFieldValueException.class)
+          .hasMessageContaining("1900-01-01 ~ 9999-12-31");
+    }
+    FieldTypeValidator.validateValue("DATE", null, om.valueToTree("9999-12-31"));
+    FieldTypeValidator.validateValue("DATE", null, om.valueToTree("1900-01-01"));
+  }
 }

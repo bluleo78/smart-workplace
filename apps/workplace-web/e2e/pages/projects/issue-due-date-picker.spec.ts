@@ -133,6 +133,19 @@ test.describe('이슈 상세 마감일 DatePicker (#284)', () => {
     },
   );
 
+  // WP-725: 해석할 수 없는 날짜(+10000-01-01 등 API 로 들어간 값)가 와도 상세 화면 전체가 깨지지 않는다 —
+  // 「잘못된 날짜」로 보이고, 지우기로 바로 고칠 수 있다.
+  test('해석할 수 없는 마감일이 와도 화면이 열리고 지울 수 있다', async ({ authenticatedPage: page }) => {
+    const { patches } = await setupStubs(page, '+10000-01-01');
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+
+    await expect(page.getByTestId('due-date-trigger')).toContainText('잘못된 날짜');
+    await page.getByTestId('due-date-clear').click();
+    await patches.waitFor();
+    expect(patches.lastBody<Record<string, unknown>>()!.clearDueDate).toBe(true);
+    await expect(page.getByTestId('due-date-trigger')).toContainText('없음');
+  });
+
   test(
     '마감일 설정 상태에서 지우기 → PATCH {clearDueDate: true} + "없음" 복원',
     async ({ authenticatedPage: page }) => {
