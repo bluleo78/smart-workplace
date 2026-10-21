@@ -149,7 +149,7 @@ test.describe('H2·M5 이슈 채팅', () => {
     await expect(drawer).toBeVisible()
     await expect(page).toHaveURL(/[?&]chat=1$/)
     await expect(drawer.getByTestId('issue-chat-drawer-title')).toHaveText(`${KEY}-1 채팅`)
-    await expect(drawer.getByRole('button', { name: 'Close' })).toHaveCount(0)
+    await expect(drawer.getByRole('button', { name: '닫기', exact: true })).toHaveCount(0)
     const bar = (await drawer.getByTestId('issue-chat-drawer-back').boundingBox())!
     expect(bar.height).toBeGreaterThanOrEqual(44)
     await expectNoHorizontalOverflow(page)

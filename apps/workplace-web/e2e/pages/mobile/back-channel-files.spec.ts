@@ -50,7 +50,7 @@ test('폴더 3단 진입 → goBack 은 상위 폴더로 한 단계씩, ✕ 는 
   await expect(drawer).toBeVisible()
   await expect(drawer.getByRole('button', { name: FOLDERS[2].name, exact: true })).toBeVisible()
 
-  await drawer.getByRole('button', { name: 'Close' }).tap()
+  await drawer.getByRole('button', { name: '닫기' }).tap()
   await expect(drawer).toHaveCount(0)
   await expect(page).toHaveURL(/\/chat\/channels\/1$/)
   // 풀페이지 드라이브 키(folderId)는 채널 URL 에 섞이지 않는다.
@@ -62,7 +62,7 @@ test('딥링크 ?files=1&filesFolder=102 → ✕ 는 하위 키까지 지우고 
   await page.goto('/chat/channels/1?files=1&filesFolder=102')
   const drawer = page.getByTestId('drive-space-drawer')
   await expect(drawer.getByRole('button', { name: FOLDERS[2].name, exact: true })).toBeVisible()
-  await drawer.getByRole('button', { name: 'Close' }).tap()
+  await drawer.getByRole('button', { name: '닫기' }).tap()
   await expect(page).toHaveURL(/\/chat\/channels\/1$/)
   await expect(page.getByTestId('channel-column')).toBeVisible()
 })
@@ -96,7 +96,7 @@ test('전체에서 열기(폴더 2단) → goBack 은 드로워의 상위 폴더
   await expect(drawer).toBeVisible()
   await expect(drawer.getByRole('button', { name: FOLDERS[1].name, exact: true })).toBeVisible()
   // 이 상태에서 ✕ 는 마크를 이어받았으므로 한 번에 채널로 닫힌다.
-  await drawer.getByRole('button', { name: 'Close' }).tap()
+  await drawer.getByRole('button', { name: '닫기' }).tap()
   await expect(page).toHaveURL(/\/chat\/channels\/1$/)
 })
 
