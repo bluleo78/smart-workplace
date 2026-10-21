@@ -8,6 +8,7 @@ import {
   eventFormSchema,
   type EventFormValues,
   normalizeAllDayRange,
+  restoreTimedRange,
   shouldShowRsvp,
   toEventRequest,
 } from './calendarEventForm'
@@ -242,5 +243,29 @@ describe('eventFormSchema 설명 길이 (WP-543)', () => {
     expect(r.error?.issues.find((i) => i.path[0] === 'description')?.message).toBe(
       '설명은 10000자 이하여야 합니다',
     )
+  })
+})
+
+describe('restoreTimedRange (WP-711)', () => {
+  it('종일을 켰다 끄면 체크 전 시각으로 돌아온다', () => {
+    const remembered = { start: '2026-10-22T10:00', end: '2026-10-22T11:00' }
+    const allDay = normalizeAllDayRange(remembered.start, remembered.end)
+    expect(restoreTimedRange(allDay, remembered)).toEqual(remembered)
+  })
+  it('종일인 동안 날짜를 옮겼으면 옮긴 날짜에 원래 시각·길이로', () => {
+    expect(
+      restoreTimedRange(
+        { start: '2026-10-25T00:00', end: '2026-10-26T00:00' },
+        { start: '2026-10-22T10:00', end: '2026-10-22T11:30' },
+      ),
+    ).toEqual({ start: '2026-10-25T10:00', end: '2026-10-25T11:30' })
+  })
+  it('자정을 넘는 일정은 길이를 지켜 다음 날로 넘어간다', () => {
+    expect(
+      restoreTimedRange(
+        { start: '2026-12-31T00:00', end: '2027-01-01T00:00' },
+        { start: '2026-12-31T23:00', end: '2027-01-01T01:00' },
+      ),
+    ).toEqual({ start: '2026-12-31T23:00', end: '2027-01-01T01:00' })
   })
 })

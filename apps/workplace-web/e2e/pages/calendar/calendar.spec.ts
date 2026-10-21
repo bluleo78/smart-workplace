@@ -175,6 +175,39 @@ test(
   },
 )
 
+// WP-711 종일을 켰다 끄면 체크 전 시각으로 돌아온다 — 체크가 시각을 자정으로 덮어써, 풀어도 00:00~익일 00:00 의
+// 24시간짜리 시간 일정으로 저장되던 문제. 날짜를 옮긴 경우 등 복원 규칙은 calendarEventForm.test(restoreTimedRange)가 지킨다.
+test('종일을 켰다 끄면 원래 시각으로 돌아오고 그 시각으로 저장된다 (WP-711)', async ({ authenticatedPage: page }) => {
+  await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+  const store: CalendarEvent[] = [calendarEvent({ id: 1, title: '주간 회의' })]
+  await stubCalendarEvents(page, store)
+
+  await page.goto('/calendar')
+  await page.getByTestId('calendar-event-1').first().click()
+  await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
+
+  const start = page.getByTestId('calendar-form-start')
+  const end = page.getByTestId('calendar-form-end')
+  const before = { start: await start.inputValue(), end: await end.inputValue() }
+  expect(before.start).not.toMatch(/T00:00$/)
+
+  const allDay = page.getByTestId('calendar-form-allday')
+  await allDay.click()
+  await expect(start).toHaveValue(/T00:00$/)
+  await allDay.click()
+  await expect(start).toHaveValue(before.start)
+  await expect(end).toHaveValue(before.end)
+
+  const patchPromise = page.waitForRequest(
+    (req) => req.method() === 'PATCH' && req.url().includes('/api/v1/calendar/events/1'),
+  )
+  await page.getByTestId('calendar-form-submit').click()
+  const body = (await patchPromise).postDataJSON() as { allDay: boolean; startsAt: string; endsAt: string }
+  expect(body.allDay).toBe(false)
+  expect(new Date(body.startsAt).toISOString()).toBe(new Date('2026-06-10T01:00:00Z').toISOString())
+  expect(new Date(body.endsAt).toISOString()).toBe(new Date('2026-06-10T02:00:00Z').toISOString())
+})
+
 // 리마인더/반복/참석자 → 요청 바디 변환·반복 종료일 같은 날 허용(#114)은
 // calendarEventForm.test(normalizeAllDayRange·toEventRequest·eventFormSchema)가 지킨다.
 test(
