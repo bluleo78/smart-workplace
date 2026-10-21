@@ -1,5 +1,6 @@
 package com.workplace.issue.service;
 
+import com.workplace.drive.api.DriveFileUsage;
 import com.workplace.file.api.StagedFile;
 import com.workplace.file.api.StagedFileClaimer;
 import com.workplace.fileai.ExtractionProfile;
@@ -43,6 +44,7 @@ public class IssueAttachmentService {
   private final ApplicationEventPublisher eventPublisher;
   private final ExtractedTextService extractedText;
   private final StagedFileClaimer stagedFileClaimer;
+  private final DriveFileUsage driveFileUsage;
 
   @Value("${workplace.storage.attachment.max-file-size-bytes:26214400}")
   private long maxFileSize;
@@ -268,8 +270,8 @@ public class IssueAttachmentService {
   }
 
   /**
-   * 삭제 — 첨부자 본인 또는 프로젝트 OWNER. 매핑 + file row + 디스크 정리 후 history. 선검증은 조회 가드로 두어 OPEN 프로젝트의 비멤버 첨부자도
-   * 자기 첨부를 지울 수 있게 한다(WP-202). 그 외 비멤버는 아래 첨부자/OWNER 판정에서 거부된다.
+   * 삭제 — 첨부자 본인 또는 프로젝트 OWNER. 매핑 + file row + 디스크 정리 후 history(드라이브가 쓰는 file 은 매핑만). 선검증은 조회 가드로
+   * 두어 OPEN 프로젝트의 비멤버 첨부자도 자기 첨부를 지울 수 있게 한다(WP-202). 그 외 비멤버는 아래 첨부자/OWNER 판정에서 거부된다.
    */
   public void delete(Long callerId, String projectKey, int number, Long fileId) {
     var project = accessGuard.assertReadable(projectKey, callerId);
@@ -298,7 +300,10 @@ public class IssueAttachmentService {
     }
 
     repo.delete(fileId);
-    storage.deleteFileRowAndBinary(fileId);
+    // 드라이브로 가져간 첨부는 drive_file 이 같은 file 행을 쓰므로 이슈 연결만 끊는다(WP-722) — file 행·원본은 드라이브 수명주기가 정리한다.
+    if (!driveFileUsage.referencesFile(fileId)) {
+      storage.deleteFileRowAndBinary(fileId);
+    }
     historyRecorder.recordAttachmentsChanged(callerId, issue.id(), List.of(), List.of(att));
     changeNotifier.updated(project, number, issue.id(), callerId);
   }

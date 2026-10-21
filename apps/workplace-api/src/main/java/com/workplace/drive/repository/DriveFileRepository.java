@@ -35,6 +35,15 @@ public class DriveFileRepository {
   private final FileStore fileStore;
 
   /**
+   * fileId 를 가리키는 drive_file(휴지통 포함) 또는 drive_file_version 이 있는지(WP-722). 둘 다 file 에 NO ACTION FK
+   * 라, 있으면 file 행을 지울 수 없다.
+   */
+  public boolean anyReferencesFile(long fileId) {
+    return dsl.fetchExists(DRIVE_FILE, DRIVE_FILE.FILE_ID.eq(fileId))
+        || dsl.fetchExists(DRIVE_FILE_VERSION, DRIVE_FILE_VERSION.FILE_ID.eq(fileId));
+  }
+
+  /**
    * listInFolder/searchByName/findResponse 세 projection 이 동일하게 중복하던 DriveFileResponse 생성 로직을 단일화한
    * 매퍼(#739). 각 projection 은 FILE.STORAGE_PATH 를 반드시 select 해야 한다.
    */

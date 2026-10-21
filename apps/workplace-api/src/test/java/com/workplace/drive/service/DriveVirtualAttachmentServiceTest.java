@@ -46,6 +46,7 @@ class DriveVirtualAttachmentServiceTest extends IntegrationTestBase {
   @Autowired ChannelRepository channelRepo;
   @Autowired ChannelService channelService;
   @Autowired MessageService messageService;
+  @Autowired com.workplace.issue.service.IssueAttachmentService issueAttachmentService;
 
   @BeforeEach
   void setTenant() {
@@ -293,6 +294,61 @@ class DriveVirtualAttachmentServiceTest extends IntegrationTestBase {
     VirtualAttachmentPage page = service.virtualAttachments(caller, "ALL", null, null, 0);
     assertThat(page).isNotNull();
     assertThat(page.items()).isNotNull();
+  }
+
+  // ─── WP-722: 드라이브로 가져간 이슈 첨부 삭제 ─────────────────────────────
+
+  /** 가져간 첨부를 이슈에서 지우면 이슈 연결만 지우고, 드라이브가 쓰는 file 행은 남긴다(예전엔 FK 로 409). */
+  @Test
+  void deleteIssueAttachment_importedToDrive_unlinksOnly() {
+    long caller = seedUser("wp722a");
+    long spaceId = seedSpace(caller, "EDITOR");
+    ProjectResponse proj = newProject(caller, "DA");
+    IssueRow issue = issueRepo.insert(proj.id(), 1, "가져간 첨부", null, "MID", null, caller);
+    long fileId = seedFile(caller, "메모.txt", null);
+    bindIssueAttachment(fileId, issue.id(), caller, OffsetDateTime.now(ZoneOffset.UTC));
+    DriveFileResponse imported = service.importAttachment(caller, spaceId, null, fileId);
+
+    issueAttachmentService.delete(caller, proj.key(), 1, fileId);
+
+    assertThat(dsl.fetchCount(ISSUE_ATTACHMENT, ISSUE_ATTACHMENT.FILE_ID.eq(fileId))).isZero();
+    assertThat(dsl.fetchCount(FILE, File.FILE.ID.eq(fileId))).isEqualTo(1);
+    assertThat(dsl.fetchCount(DRIVE_FILE, DRIVE_FILE.ID.eq(imported.id()))).isEqualTo(1);
+  }
+
+  /** 드라이브 쪽이 휴지통에 있어도(영구 삭제 전까지 file 을 가리킨다) 이슈 첨부 삭제는 성공하고 file 은 남는다. */
+  @Test
+  void deleteIssueAttachment_importedThenTrashedInDrive_unlinksOnly() {
+    long caller = seedUser("wp722b");
+    long spaceId = seedSpace(caller, "EDITOR");
+    ProjectResponse proj = newProject(caller, "DB");
+    IssueRow issue = issueRepo.insert(proj.id(), 1, "휴지통 첨부", null, "MID", null, caller);
+    long fileId = seedFile(caller, "메모.txt", null);
+    bindIssueAttachment(fileId, issue.id(), caller, OffsetDateTime.now(ZoneOffset.UTC));
+    DriveFileResponse imported = service.importAttachment(caller, spaceId, null, fileId);
+    dsl.update(DRIVE_FILE)
+        .set(DRIVE_FILE.TRASHED_AT, OffsetDateTime.now(ZoneOffset.UTC))
+        .where(DRIVE_FILE.ID.eq(imported.id()))
+        .execute();
+
+    issueAttachmentService.delete(caller, proj.key(), 1, fileId);
+
+    assertThat(dsl.fetchCount(ISSUE_ATTACHMENT, ISSUE_ATTACHMENT.FILE_ID.eq(fileId))).isZero();
+    assertThat(dsl.fetchCount(FILE, File.FILE.ID.eq(fileId))).isEqualTo(1);
+  }
+
+  /** 드라이브로 가져가지 않은 첨부는 예전처럼 file 행까지 지운다. */
+  @Test
+  void deleteIssueAttachment_notImported_removesFileRow() {
+    long caller = seedUser("wp722c");
+    ProjectResponse proj = newProject(caller, "DC");
+    IssueRow issue = issueRepo.insert(proj.id(), 1, "일반 첨부", null, "MID", null, caller);
+    long fileId = seedFile(caller, "메모.txt", null);
+    bindIssueAttachment(fileId, issue.id(), caller, OffsetDateTime.now(ZoneOffset.UTC));
+
+    issueAttachmentService.delete(caller, proj.key(), 1, fileId);
+
+    assertThat(dsl.fetchCount(FILE, File.FILE.ID.eq(fileId))).isZero();
   }
 
   // ─── importAttachment 테스트 ─────────────────────────────────────────
