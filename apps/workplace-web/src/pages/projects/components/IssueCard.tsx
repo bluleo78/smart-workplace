@@ -102,10 +102,11 @@ export function IssueCard({
     <div
       ref={asOverlay ? undefined : setNodeRef}
       style={style}
-      // 모바일에서 드래그 불가면 dnd-kit 속성(role=button·roledescription="sortable")도 붙이지 않는다 —
-      // 끌 수 없는 카드를 정렬 가능으로 안내하지 않게(카드 이동은 오버레이 Link 가 담당). 데스크톱 DOM 은 그대로.
-      {...(asOverlay || (dragDisabled && isMobile) ? {} : attributes)}
-      {...(asOverlay || (dragDisabled && isMobile) ? {} : listeners)}
+      // 드래그 불가면 dnd-kit 속성(role=button·roledescription="sortable"·aria-disabled)도 붙이지 않는다 — 끌 수 없는 카드를
+      // 정렬 가능으로 안내하지 않게(카드 이동은 오버레이 Link 가 담당). 데스크톱도 aria-disabled="true" 가 카드와 안의 「상세 보기」
+      // 링크까지 「사용 불가」로 읽히게 해 모바일과 같이 뺀다(WP-713).
+      {...(asOverlay || dragDisabled ? {} : attributes)}
+      {...(asOverlay || dragDisabled ? {} : listeners)}
       {...(asOverlay ? {} : press)}
       {...(desktopContextMenu && { onContextMenu: desktopContextMenu })}
       // 오버레이(드래그 고스트)는 불투명 표면(bg-popover)만 쓴다 — 포인터가 항상 위에 있어 hover:bg-accent/30(반투명)이
