@@ -35,9 +35,27 @@ test('즐겨찾기 토글 시 상단으로 핀되고 localStorage 반영', async
   await page.getByTestId('fav-toggle-DONE1').click()
   // 핀 그룹 헤더 노출
   await expect(page.getByTestId('fav-group')).toBeVisible()
-  // localStorage 에 key 포함 여부 확인
-  const stored = await page.evaluate(() => localStorage.getItem('project-favorites'))
-  expect(stored).toContain('DONE1')
+  // localStorage 에 key 포함 여부 확인 — 키는 사용자·워크스페이스별(WP-701), 예전 브라우저 단위 키에는 쓰지 않는다.
+  const stored = await page.evaluate(() =>
+    Object.keys(localStorage)
+      .filter((k) => k.startsWith('project-favorites'))
+      .map((k) => [k, localStorage.getItem(k)]),
+  )
+  expect(stored).toHaveLength(1)
+  expect(stored[0][0]).toMatch(/^project-favorites:1:/)
+  expect(stored[0][1]).toContain('DONE1')
+})
+
+// WP-701 — 같은 브라우저의 다른 사용자(또는 예전 브라우저 단위 키)가 고른 즐겨찾기는 내 목록에 보이지 않는다.
+test('다른 사용자·예전 브라우저 단위로 저장된 즐겨찾기는 보이지 않는다', async ({ authenticatedPage: page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('project-favorites', JSON.stringify(['DONE1']))
+    localStorage.setItem('project-favorites:99:1', JSON.stringify(['DONE1']))
+  })
+  await page.goto('/projects')
+  await expect(page.getByTestId('project-row-DONE1')).toBeVisible()
+  await expect(page.getByTestId('fav-group')).toHaveCount(0)
+  await expect(page.getByTestId('fav-toggle-DONE1')).toHaveAttribute('aria-pressed', 'false')
 })
 
 test('행 클릭 시 상세로 이동', async ({ authenticatedPage: page }) => {
