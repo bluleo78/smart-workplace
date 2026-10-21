@@ -2,6 +2,7 @@ package com.workplace.fileai;
 
 import static com.workplace.jooq.Tables.FILE;
 import static com.workplace.jooq.Tables.FILE_EXTRACTION;
+import static com.workplace.jooq.Tables.TENANT;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -9,12 +10,16 @@ import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.timeout;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.workplace.fileai.inbound.FileExtractionRequestedEvent;
 import com.workplace.fileai.outbound.WorkerClient;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.TestFixtures;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -48,20 +53,32 @@ class FileExtractionListenerTest extends IntegrationTestBase {
   /** 테스트에서 생성한 user_id 목록 — @AfterEach 정리용. */
   private final List<Long> createdUserIds = new ArrayList<>();
 
+  /** 테넌트 1 이 아닌 곳에서 확인할 때 만든 테넌트 — @AfterEach 정리용. */
+  private Long otherTenant;
+
   /** 테스트 종료 후 삽입한 행을 삭제해 공유 테스트 DB 오염 방지(#512). */
   @AfterEach
   void cleanup() {
     if (!createdFileIds.isEmpty()) {
-      cleanupInTenant(
-          1L,
-          () -> {
-            // FK 순서: file_extraction 먼저, 이후 file
-            dsl.deleteFrom(FILE_EXTRACTION)
-                .where(FILE_EXTRACTION.FILE_ID.in(createdFileIds))
-                .execute();
-            dsl.deleteFrom(FILE).where(FILE.ID.in(createdFileIds)).execute();
-          });
+      // RLS 라 테넌트마다 따로 지운다 — 다른 테넌트에 만든 파일(WP-756)은 그 테넌트 GUC 로만 보인다.
+      List<Long> tenants = otherTenant == null ? List.of(1L) : List.of(1L, otherTenant);
+      for (long t : tenants) {
+        cleanupInTenant(
+            t,
+            () -> {
+              // FK 순서: file_extraction 먼저, 이후 file
+              dsl.deleteFrom(FILE_EXTRACTION)
+                  .where(FILE_EXTRACTION.FILE_ID.in(createdFileIds))
+                  .execute();
+              dsl.deleteFrom(FILE).where(FILE.ID.in(createdFileIds)).execute();
+            });
+      }
       createdFileIds.clear();
+    }
+    if (otherTenant != null) {
+      // 다른 테스트의 테넌트 순회에 끼지 않게 비활성으로 돌린다(AiMemoryExpiryCleanupTest 와 같은 정리).
+      dsl.update(TENANT).set(TENANT.STATUS, "SUSPENDED").where(TENANT.ID.eq(otherTenant)).execute();
+      otherTenant = null;
     }
     // USER 는 RLS 비대상 — 트랜잭션 없이 삭제 가능(FileExtractionRlsTest 패턴)
     if (!createdUserIds.isEmpty()) {
@@ -86,6 +103,30 @@ class FileExtractionListenerTest extends IntegrationTestBase {
     await()
         .atMost(Duration.ofSeconds(10))
         .untilAsserted(() -> assertThat(readStatusInTenant(1L, fileId)).isEqualTo("EXTRACTING"));
+  }
+
+  @Test
+  void 워커에_보내지_못하면_claim_을_PENDING_으로_되돌려_다음_틱에_재개한다() {
+    // 워커 도달 실패 → dispatchPending 의 커밋 뒤 콜백이 EXTRACTING→PENDING 으로 되돌린다(WP-756). 예전엔 이 되돌리기가 이미 끝난
+    // 트랜잭션에 합류해(GUC 없음·별도 커밋 없음) 반영되지 않아, lease 만료(10분)까지 EXTRACTING 에 머물렀다.
+    doThrow(new IllegalStateException("워커 연결 거부"))
+        .when(workerClient)
+        .dispatchExtract(any(Long.class), any(), any(), any(Long.class), anyBoolean());
+    // 테넌트 1 이 아닌 곳에서 확인한다 — 테스트 풀 커넥션은 세션 GUC 가 1 로 깔려 있어(application-test.yml
+    // connection-init-sql), 테넌트
+    // 1 이면 트랜잭션-로컬 GUC 없이도 RLS 를 통과해 결함이 가려진다. 운영 커넥션엔 세션 GUC 가 없다.
+    otherTenant = TestFixtures.createTenant(dsl, "ACTIVE");
+    long tenantId = otherTenant;
+    long fileId = createFileInTenant(tenantId, "text/plain");
+    publishInTenant(
+        tenantId,
+        new FileExtractionRequestedEvent(fileId, tenantId, "text/plain", ExtractionProfile.FULL));
+    // nudge 가 선점(EXTRACTING)한 뒤 워커 호출까지 갔는지 — 그 전의 PENDING 과 구분한다.
+    verify(workerClient, timeout(10_000))
+        .dispatchExtract(any(Long.class), any(), any(), any(Long.class), anyBoolean());
+    await()
+        .atMost(Duration.ofSeconds(10))
+        .untilAsserted(() -> assertThat(readStatusInTenant(tenantId, fileId)).isEqualTo("PENDING"));
   }
 
   @Test
