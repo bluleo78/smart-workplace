@@ -2,6 +2,7 @@
 import { useCallback, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
+import { OPEN_OVERLAY_SELECTOR } from '@/lib/escapeOverlay';
 import { currentHistoryIdx } from '@/lib/historyParam';
 import { backDeltaToOrigin, type HistoryEntries, isIssueDetailPath } from '@/lib/issueOrigin';
 
@@ -32,11 +33,6 @@ export function useReturnToIssueOrigin(projectKey: string): () => void {
     else navigate(`/projects/${projectKey}`, { replace: true });
   }, [navigate, projectKey]);
 }
-
-// 열려 있는 오버레이(다이얼로그·드로워·메뉴·팝오버·툴팁) — ESC 는 이것을 닫는 데 먼저 쓰인다.
-// Radix 는 닫을 때 preventDefault 를 하지 않으므로 defaultPrevented 만으로는 구분되지 않아 DOM 으로 판정한다.
-const OPEN_OVERLAY_SELECTOR =
-  '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"], [data-radix-popper-content-wrapper]';
 
 // 글자를 입력받는 요소 — 제목·본문·코멘트 편집의 ESC(편집 취소)를 가로채지 않기 위한 판정.
 function isEditableTarget(target: EventTarget | null): boolean {
