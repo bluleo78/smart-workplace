@@ -60,6 +60,7 @@ import org.springframework.web.multipart.MultipartFile;
 public class DriveFileService {
   private final DriveFileRepository files;
   private final FileUploadService fileUpload;
+  private final DriveBlobCopier blobCopier;
   private final DrivePermissions perms;
   private final DriveFolderRepository folders;
   private final org.jooq.DSLContext dsl;
@@ -766,7 +767,8 @@ public class DriveFileService {
             .lockActiveRow(driveFileId)
             .orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
     quota.assertWithinQuota(target.sizeBytes());
-    long newFileId = fileUpload.copyFile(target.fileId(), callerId);
+    // 복제 + 내용 추출 요청(WP-695) — 되돌린 버전이 원본의 검색·요약을 잃지 않게.
+    long newFileId = blobCopier.copy(target.fileId(), callerId);
     int newVersionNo = versions.nextVersionNo(driveFileId);
     versions.insert(
         driveFileId,
@@ -880,7 +882,8 @@ public class DriveFileService {
             .fetchOne(com.workplace.jooq.Tables.FILE.SIZE_BYTES);
     quota.assertWithinQuota(copiedSizeBytes == null ? 0L : copiedSizeBytes);
     requireNameFree(row.spaceId(), targetFolderId, row.name());
-    long newFileId = fileUpload.copyFile(row.fileId(), callerId);
+    // 복제 + 내용 추출 요청(WP-695) — 복사본도 내용 검색·AI 요약 대상.
+    long newFileId = blobCopier.copy(row.fileId(), callerId);
     // insertWithInitialVersion 으로 복사본도 v1 버전 행을 즉시 생성(#79 불변식 — copy 도 quota 집계·purge 대상)
     long newDriveFileId =
         files.insertWithInitialVersion(

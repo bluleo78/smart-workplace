@@ -14,7 +14,6 @@ import com.workplace.drive.exception.DriveInvalidTargetException;
 import com.workplace.drive.outbound.DriveChangeNotifier;
 import com.workplace.drive.repository.DriveFileRepository;
 import com.workplace.drive.repository.DriveFolderRepository;
-import com.workplace.file.service.FileUploadService;
 import com.workplace.global.util.SafeFileNames;
 import java.io.IOException;
 import java.util.ArrayDeque;
@@ -34,7 +33,7 @@ public class DriveFolderService {
   private final DriveFolderRepository folders;
   private final DriveFileRepository files;
   private final DrivePermissions perms;
-  private final FileUploadService fileUpload;
+  private final DriveBlobCopier blobCopier;
   private final org.jooq.DSLContext dsl;
 
   /** 드라이브 변경 resource.changed 발행(WP-63). */
@@ -235,7 +234,8 @@ public class DriveFolderService {
       throws IOException {
     long newFolderId = folders.insert(spaceId, destParentId, name);
     for (DriveFileResponse f : files.listInFolder(spaceId, srcFolderId)) {
-      long newFid = fileUpload.copyFile(f.fileId(), callerId);
+      // 복제 + 내용 추출 요청(WP-695) — 폴더 복사 안 파일도 내용 검색·AI 요약 대상.
+      long newFid = blobCopier.copy(f.fileId(), callerId);
       // insertWithInitialVersion 으로 폴더 복사 내 파일도 v1 버전 행 생성(#79 불변식 강제)
       files.insertWithInitialVersion(
           spaceId, newFolderId, newFid, f.name(), f.sizeBytes(), callerId);

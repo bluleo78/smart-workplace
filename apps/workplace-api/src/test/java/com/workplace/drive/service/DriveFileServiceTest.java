@@ -881,6 +881,39 @@ class DriveFileServiceTest extends IntegrationTestBase {
   }
 
   /** 멀티파트로 올린 파일(실제 Content-Type 유지) — 텍스트 갱신 MIME 판정용. */
+  /**
+   * WP-695: 복사본·폴더 복사 안 파일·버전 되돌리기로 생긴 file 도 업로드처럼 내용 추출(FULL)을 요청한다 — 추출 행이 없으면 드라이브에는 백필이 없어 내용
+   * 검색·AI 요약·AI 읽기에서 영구히 빠졌다.
+   */
+  @Test
+  void copy_folderCopy_rollback_requestFullExtraction() throws Exception {
+    long u = seedUser();
+    DriveSpaceResponse sp = spaceService.createTeamSpace(u, "팀");
+    DriveFolderResponse src = folderService.create(u, sp.id(), null, "원본 폴더");
+    DriveFileResponse f = fileService.upload(u, sp.id(), src.id(), txt());
+
+    DriveFileResponse copied = fileService.copy(u, f.id(), null);
+    DriveFolderResponse dest = folderService.create(u, sp.id(), null, "대상");
+    DriveFolderResponse folderCopy = folderService.copy(u, src.id(), dest.id());
+    long inFolderCopy =
+        dsl.select(com.workplace.jooq.Tables.DRIVE_FILE.FILE_ID)
+            .from(com.workplace.jooq.Tables.DRIVE_FILE)
+            .where(com.workplace.jooq.Tables.DRIVE_FILE.FOLDER_ID.eq(folderCopy.id()))
+            .fetchOne(com.workplace.jooq.Tables.DRIVE_FILE.FILE_ID);
+    DriveFileResponse rolled = fileService.rollback(u, f.id(), 1);
+
+    for (long fileId : new long[] {copied.fileId(), inFolderCopy, rolled.fileId()}) {
+      assertThat(fileId).isNotEqualTo(f.fileId());
+      assertThat(
+              dsl.select(FILE_EXTRACTION.PROFILE)
+                  .from(FILE_EXTRACTION)
+                  .where(FILE_EXTRACTION.FILE_ID.eq(fileId))
+                  .fetchOne(FILE_EXTRACTION.PROFILE))
+          .as("file %d 추출 요청", fileId)
+          .isEqualTo("FULL");
+    }
+  }
+
   private DriveFileResponse uploadAs(long u, long spaceId, String name, String mime, String body)
       throws Exception {
     return fileService.upload(
