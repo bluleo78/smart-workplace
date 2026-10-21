@@ -39,6 +39,10 @@ public class HomeChatController {
     if (!request.hasContent()) {
       throw new HomeAttachmentInvalidException(HomeAttachmentService.MSG_EMPTY);
     }
+    // WP-674: 본문 상한 — 저장·AI 호출 전에 끊는다.
+    if (request.queryTooLong()) {
+      throw new IllegalArgumentException(HomeChatRequest.MSG_QUERY_TOO_LONG);
+    }
     return chatService.startChat(
         callerId,
         request.sessionId(),

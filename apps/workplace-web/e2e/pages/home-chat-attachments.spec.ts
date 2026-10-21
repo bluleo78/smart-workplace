@@ -613,4 +613,30 @@ test.describe('메인 AI 채팅 첨부 입력창 (WP-234)', () => {
     const atts = await userTurn.getByTestId('message-attachments').boundingBox()
     expect(bubble!.y + bubble!.height).toBeLessThanOrEqual(atts!.y)
   })
+
+  test('WP-674: 본문이 10000자를 넘으면 글자 수가 빨갛게 보이고 보내기·Enter 가 막히며, 줄이면 그대로 보낸다', async ({ authenticatedPage: page }) => {
+    const starts = await mockHomeChatGeneration(page, { frames: [{ event: 'done', data: { sessionId: 's-long' } }] })
+    await openPanel(page)
+    const input = page.getByTestId('chat-input')
+    const send = page.getByTestId('chat-send')
+    const count = page.getByTestId('chat-char-count')
+
+    // 상한의 80% 아래에선 카운터를 보이지 않는다.
+    await input.fill('가'.repeat(100))
+    await expect(count).toHaveCount(0)
+
+    await input.fill('가'.repeat(10_001))
+    await expect(count).toHaveText('10001 / 10000')
+    await expect(count).toHaveClass(/text-destructive/)
+    await expect(send).toBeDisabled()
+    await input.press('Enter')
+    await expectStays(page, starts.count, 0)
+
+    // 상한 안으로 줄이면 카운터가 보통 색이 되고 전체 글이 그대로 나간다(잘리지 않는다).
+    await input.fill('가'.repeat(10_000))
+    await expect(count).toHaveText('10000 / 10000')
+    await expect(count).not.toHaveClass(/text-destructive/)
+    await send.click()
+    await expect.poll(() => starts.lastBody<HomeChatStartBody>()?.query.length).toBe(10_000)
+  })
 })

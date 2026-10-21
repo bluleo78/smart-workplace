@@ -43,6 +43,12 @@ describe('wikiComposeSchema', () => {
     expect(wikiComposeSchema.safeParse(validBody()).success).toBe(true);
   });
 
+  // WP-674: 초안 지시문(prompt)은 API 와 같은 4000자 상한.
+  it('prompt 가 4000자를 넘으면 파싱 실패, 4000자는 통과', () => {
+    expect(wikiComposeSchema.safeParse(validBody({ prompt: '가'.repeat(4000) })).success).toBe(true);
+    expect(wikiComposeSchema.safeParse(validBody({ prompt: '가'.repeat(4001) })).success).toBe(false);
+  });
+
   it('action 이 enum 밖이면 파싱 실패', () => {
     expect(wikiComposeSchema.safeParse(validBody({ action: 'unknown_action' })).success).toBe(
       false

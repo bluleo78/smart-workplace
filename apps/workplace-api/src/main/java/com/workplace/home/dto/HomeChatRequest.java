@@ -34,6 +34,20 @@ public record HomeChatRequest(
       @jakarta.validation.constraints.Size(max = 10) String key,
       Long id) {}
 
+  /**
+   * 본문 상한(WP-674) — 상한이 없어 아주 긴 글도 그대로 저장되고 AI 에 넘어갔다. 긴 자료는 첨부로 보내게 하고, 붙여 넣은 메일·문서 한두 쪽은 들어갈 만큼
+   * 이슈 본문과 같은 10000자. 웹 입력창·ai-agent 검증과 같은 값.
+   */
+  public static final int QUERY_MAX = 10_000;
+
+  /** 본문 상한을 넘었을 때 안내 — 다른 검사처럼 컨트롤러가 한국어 문구로 400 을 낸다. */
+  public static final String MSG_QUERY_TOO_LONG = "AI 에게 보내는 글은 10000자 이하로 입력해 주세요.";
+
+  /** 본문이 상한을 넘는지 — 웹·ai-agent 와 같이 앞뒤 공백을 뺀 길이로 잰다. */
+  public boolean queryTooLong() {
+    return query != null && query.strip().length() > QUERY_MAX;
+  }
+
   /** 보낼 내용이 있는지 — 공백 아닌 본문 또는 첨부 1개 이상. */
   public boolean hasContent() {
     return (query != null && !query.isBlank()) || (fileIds != null && !fileIds.isEmpty());

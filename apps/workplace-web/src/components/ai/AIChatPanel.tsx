@@ -54,6 +54,9 @@ import { isSubmitEnter } from '@/lib/submitEnter';
 import { cn } from '@/lib/utils';
 import type { MemoryBlock, MessageTurn } from '@/types/home';
 
+/** 홈 AI 대화 본문 상한 — 서버 HomeChatRequest.QUERY_MAX·ai-agent chatSchema 와 같은 값(WP-674). */
+export const HOME_CHAT_QUERY_MAX = 10000;
+
 // 사용자 말풍선 — whitespace-pre-wrap 로 공백/개행 보존 + [overflow-wrap:anywhere] 로 URL·토큰 등 무공백 긴 문자열도
 // 강제 줄바꿈해 말풍선이 폭 상한을 넘어 가로 오버플로하지 않도록 한다(#202).
 const USER_BUBBLE = 'whitespace-pre-wrap [overflow-wrap:anywhere] rounded-2xl bg-ai-accent px-3 py-1.5 text-sm text-ai-accent-foreground';
@@ -226,8 +229,12 @@ export function AIChatPanel({
   const attach = useHomeChatAttachments({ sessionAttachmentCount, resetNonce: attachmentResetNonce });
   // 입력창 영역 파일 드롭 → 사전 업로드(WP-235 부품 재사용).
   const { isDragging, dropProps } = useComposerFileDrop((files) => void attach.addFiles(files));
-  // 보낼 수 있는지 — 글이나 첨부가 있어야 하고, 업로드 중이면 막는다(늦게 끝난 파일이 빠진 채 나가지 않게).
-  const canSend = (input.trim().length > 0 || attach.pending.length > 0) && !attach.uploading;
+  // WP-674: 서버 상한(HomeChatRequest.QUERY_MAX)과 같은 기준 — 앞뒤 공백을 뺀 길이. 넘으면 카운터를 빨갛게 보이고 전송을 막는다
+  // (maxLength 로 자르면 붙여 넣은 글 뒤가 말없이 잘린다 — 팀 채팅 입력창 WP-513 과 같은 방식).
+  const queryLength = input.trim().length;
+  const overLimit = queryLength > HOME_CHAT_QUERY_MAX;
+  // 보낼 수 있는지 — 글이나 첨부가 있어야 하고, 업로드 중이거나 상한을 넘으면 막는다(늦게 끝난 파일이 빠진 채 나가지 않게).
+  const canSend = (queryLength > 0 || attach.pending.length > 0) && !attach.uploading && !overLimit;
 
   // 입력창 위 안내 — 다른 창에서 답변 중(WP-266)이 상한(WP-190)보다 우선. 보내기 버튼의 aria-describedby 도 같은 안내를 가리킨다.
   const notice = busyElsewhere
@@ -770,6 +777,18 @@ export function AIChatPanel({
             </Button>
           )}
         </div>
+        {/* WP-674: 상한 80% 를 넘으면 글자 수를 보인다 — 평소엔 입력창 높이를 늘리지 않는다. */}
+        {queryLength > HOME_CHAT_QUERY_MAX * 0.8 && (
+          <p
+            className={cn(
+              'mt-1 text-right text-xs tabular-nums',
+              overLimit ? 'font-medium text-destructive' : 'text-muted-foreground',
+            )}
+            data-testid="chat-char-count"
+          >
+            {queryLength} / {HOME_CHAT_QUERY_MAX}
+          </p>
+        )}
       </form>
     </div>
   );

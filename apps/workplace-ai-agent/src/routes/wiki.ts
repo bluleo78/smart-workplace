@@ -35,7 +35,8 @@ export const wikiComposeSchema = z.object({
   pageTitle: z.string(),
   pageBody: z.string(),
   selection: z.string().optional(),
-  prompt: z.string().optional(),
+  // WP-674: 초안 지시문은 API(WikiAiRequest.prompt)와 같은 4000자 상한 — selection 은 본문 상한(WP-625)을 따르므로 두지 않는다.
+  prompt: z.string().max(4000).optional(),
   // 비서 설정(ai/compose 와 동일 계약).
   assistantAgentId: z.number().int().positive(),
   model: z.string().min(1),

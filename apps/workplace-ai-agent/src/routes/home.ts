@@ -47,7 +47,8 @@ export const chatSchema = z
   .object({
     // 공백 전용 쿼리("   ")는 trim 후 빈 문자열 — 아래 refine 이 이번 메시지 첨부가 없으면 거부한다 (#430).
     // WP-234: 첨부만 보낸 메시지는 query 가 빈 문자열로 온다(러너가 DEFAULT_ATTACHMENT_QUERY 로 대체).
-    query: z.string().trim(),
+    // WP-674: API(HomeChatRequest.QUERY_MAX)와 같은 10000자 상한 — 넘는 글이 그대로 모델에 넘어가지 않게.
+    query: z.string().trim().max(10000),
     recentContext: z
       .array(z.object({ role: z.string(), content: z.string() }))
       .optional(),

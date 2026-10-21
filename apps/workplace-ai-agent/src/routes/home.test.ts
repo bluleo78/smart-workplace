@@ -153,6 +153,12 @@ describe('chatSchema', () => {
     expect(chatSchema.safeParse(validBody({ query: '   ' })).success).toBe(false);
   });
 
+  // WP-674: API 와 같은 10000자 상한 — 넘는 글을 그대로 모델에 넘기지 않는다(trim 뒤 길이 기준).
+  it('query 가 10000자를 넘으면 파싱 실패, 10000자는 통과', () => {
+    expect(chatSchema.safeParse(validBody({ query: '가'.repeat(10000) })).success).toBe(true);
+    expect(chatSchema.safeParse(validBody({ query: '가'.repeat(10001) })).success).toBe(false);
+  });
+
   it('thinkingDepth 가 enum 밖이면 파싱 실패', () => {
     expect(chatSchema.safeParse(validBody({ thinkingDepth: 'WAT' })).success).toBe(false);
   });

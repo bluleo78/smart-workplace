@@ -252,6 +252,20 @@ class HomeChatControllerTest {
         .andExpect(jsonPath("$.message").value("메시지를 입력하거나 파일을 첨부해 주세요."));
   }
 
+  /** WP-674: 본문이 10000자를 넘으면 저장·AI 호출 전에 한국어 문구로 400 — 서비스는 부르지 않는다. */
+  @Test
+  void query_10000자를_넘으면_400() throws Exception {
+    mockMvc
+        .perform(
+            post("/api/v1/ai/chat")
+                .header("Authorization", "Bearer v")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(om.writeValueAsString(java.util.Map.of("query", "가".repeat(10_001)))))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message").value("AI 에게 보내는 글은 10000자 이하로 입력해 주세요."));
+    org.mockito.Mockito.verifyNoInteractions(chatService);
+  }
+
   /** WP-234: 본문이 비어도 fileIds 가 있으면 서비스로 넘긴다. */
   @Test
   void 첨부만_보내면_fileIds_를_서비스로_전달한다() throws Exception {
