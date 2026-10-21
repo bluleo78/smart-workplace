@@ -3,6 +3,8 @@
 import { renderHook } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
+import { hasUnsavedInput } from '@/lib/unsavedInput'
+
 import { useUnsavedChangesWarning } from './useUnsavedChangesWarning'
 
 /** 실제 확인창은 띄울 수 없으므로 이벤트를 직접 보내 리스너가 preventDefault 했는지로 판정한다. */
@@ -36,5 +38,16 @@ describe('useUnsavedChangesWarning', () => {
     const { unmount } = renderHook(() => useUnsavedChangesWarning(true))
     unmount()
     expect(dispatchBeforeUnload()).toBe(false)
+  })
+
+  it('경고가 켜진 동안만 저장 안 한 입력으로 알린다(WP-664)', () => {
+    const { rerender, unmount } = renderHook(({ dirty }) => useUnsavedChangesWarning(dirty), {
+      initialProps: { dirty: false },
+    })
+    expect(hasUnsavedInput()).toBe(false)
+    rerender({ dirty: true })
+    expect(hasUnsavedInput()).toBe(true)
+    unmount()
+    expect(hasUnsavedInput()).toBe(false)
   })
 })

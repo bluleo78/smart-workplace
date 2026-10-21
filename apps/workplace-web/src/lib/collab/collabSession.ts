@@ -16,6 +16,7 @@ import * as Y from 'yjs'
 import { getAccessToken, refreshAccessTokenOutcome } from '../../api/client'
 import { backoffDelay } from '../backoff'
 import { mobileWidthStore } from '../mobile/mediaQueryStore'
+import { registerUnsavedInputSource } from '../unsavedInput'
 import {
   advancedClients,
   AWAY_TOAST_MS,
@@ -717,6 +718,9 @@ export function hasUnsentCollabChanges(): boolean {
   for (const entry of entries.values()) if (isPending(entry)) return true
   return false
 }
+
+// 다른 창이 새 버전을 적용해도 못 보낸 노트 입력이 있으면 자동 새로고침하지 않게 알린다(WP-664).
+registerUnsavedInputSource(hasUnsentCollabChanges)
 
 // 탭 닫기·새로고침 경고 — 화면이 떠난 뒤 붙잡아 둔 세션도 대상이라 훅이 아니라 캐시 단위로 건다.
 // 리스너가 있으면 일부 브라우저가 bfcache 를 끄므로 미전송이 있는 동안만 붙인다.
