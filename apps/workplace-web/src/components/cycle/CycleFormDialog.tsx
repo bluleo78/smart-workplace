@@ -78,6 +78,7 @@ export function CycleFormDialog({
             placeholder="이름"
             value={name}
             onChange={(e) => setName(e.target.value)}
+            maxLength={60} // 서버 상한(CreateCycleRequest.name) — 넘긴 채 저장하면 400 이었다(WP-687)
             aria-label="사이클 이름"
             data-testid="cycle-name-input"
           />
@@ -85,6 +86,7 @@ export function CycleFormDialog({
             placeholder="목표 (선택)"
             value={goal}
             onChange={(e) => setGoal(e.target.value)}
+            maxLength={2000} // 서버 상한(CreateCycleRequest.goal)
             aria-label="사이클 목표"
           />
           <div className="flex gap-2">

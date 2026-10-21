@@ -72,6 +72,7 @@ export function CalendarEditDialog({
               data-testid="calendar-edit-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
+              maxLength={100} // 서버 상한(CalendarRequest.name) — 넘긴 채 저장하면 400 이었다(WP-687)
               placeholder="캘린더 이름"
               autoFocus={!isExternal}
             />

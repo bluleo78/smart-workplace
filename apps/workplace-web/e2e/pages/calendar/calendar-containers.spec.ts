@@ -63,6 +63,10 @@ test(
     await page.getByTestId('calendar-add').click()
     await expect(page.getByTestId('calendar-edit-dialog')).toBeVisible()
 
+    // WP-687: 이름은 서버 상한(100자)에서 더 입력되지 않는다.
+    await page.getByTestId('calendar-edit-name').fill('가'.repeat(101))
+    await expect(page.getByTestId('calendar-edit-name')).toHaveValue('가'.repeat(100))
+
     // 이름 입력.
     await page.getByTestId('calendar-edit-name').fill('업무')
 

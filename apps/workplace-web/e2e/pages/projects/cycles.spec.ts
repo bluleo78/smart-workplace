@@ -297,6 +297,13 @@ test.describe('사이클 관리', () => {
       await page.getByTestId('cycle-new').click();
       await expect(page.getByTestId('cycle-form-dialog')).toBeVisible();
 
+      // WP-687: 이름·목표는 서버 상한(60·2000자)에서 더 입력되지 않는다.
+      await page.getByTestId('cycle-name-input').fill('가'.repeat(61));
+      await expect(page.getByTestId('cycle-name-input')).toHaveValue('가'.repeat(60));
+      await page.getByLabel('사이클 목표').fill('나'.repeat(2001));
+      await expect(page.getByLabel('사이클 목표')).toHaveValue('나'.repeat(2000));
+      await page.getByLabel('사이클 목표').fill('');
+
       // 이름 입력.
       await page.getByTestId('cycle-name-input').fill('스프린트 A');
 

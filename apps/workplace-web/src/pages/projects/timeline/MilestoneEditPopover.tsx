@@ -74,6 +74,7 @@ export function MilestoneEditPopover({
       >
         <Input
           defaultValue={milestone.name}
+          maxLength={100} // 서버 상한(CreateMilestoneRequest.name) — 수정도 같은 DTO(WP-687)
           aria-label="마일스톤 이름"
           data-testid="milestone-popover-name-input"
           onBlur={(e) => {

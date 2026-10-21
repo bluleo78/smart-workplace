@@ -71,6 +71,7 @@ export function MilestoneFormDialog({
             placeholder="이름"
             value={name}
             onChange={(e) => setName(e.target.value)}
+            maxLength={100} // 서버 상한(CreateMilestoneRequest.name)과 같다 — 넘긴 채 저장하면 400 이었다(WP-687)
             aria-label="마일스톤 이름"
             data-testid="milestone-name-input"
             autoFocus
@@ -86,6 +87,7 @@ export function MilestoneFormDialog({
             placeholder="설명 (선택)"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
+            maxLength={2000} // 서버 상한(CreateMilestoneRequest.description)
             aria-label="마일스톤 설명"
           />
         </div>

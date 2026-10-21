@@ -156,6 +156,15 @@ test.describe('채팅 일정 제안 카드', () => {
       await expect(page.getByTestId(`event-proposal-starts-${PROPOSAL_ID}`)).toHaveValue('2026-07-05T15:00')
       await expect(page.getByTestId(`event-proposal-ends-${PROPOSAL_ID}`)).toHaveValue('2026-07-05T16:00')
 
+      // WP-687: 제목·장소는 서버 상한(200자)에서 더 입력되지 않는다.
+      await page.getByTestId(`event-proposal-title-${PROPOSAL_ID}`).fill('가'.repeat(201))
+      await expect(page.getByTestId(`event-proposal-title-${PROPOSAL_ID}`)).toHaveValue('가'.repeat(200))
+      const location = page.getByTestId(`event-proposal-location-${PROPOSAL_ID}`)
+      const originalLocation = await location.inputValue()
+      await location.fill('나'.repeat(201))
+      await expect(location).toHaveValue('나'.repeat(200))
+      await location.fill(originalLocation)
+
       // 4. 제목만 편집(시간은 그대로) → 승인 round-trip 으로 instant 보존 확인.
       await page.getByTestId(`event-proposal-title-${PROPOSAL_ID}`).fill('스프린트 리뷰(수정)')
 

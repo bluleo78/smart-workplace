@@ -119,6 +119,47 @@ test('툴바 버튼으로 마일스톤 생성', async ({ authenticatedPage: page
   await expect(page.getByTestId('milestone-form-dialog')).toBeHidden();
 });
 
+// WP-687: 이름·설명 칸은 서버 상한(100·2000자)에서 더 입력되지 않는다 — 넘긴 채 저장하면 400 영문 토스트만 떴다.
+test('마일스톤 이름·설명은 서버 상한에서 더 입력되지 않고 상한까지 그대로 저장된다', async ({ authenticatedPage: page }) => {
+  await setupStubs(page);
+  const posts = trackRequests(page, 'POST', `/api/v1/projects/${KEY}/milestones`);
+  await page.route(`**/api/v1/projects/${KEY}/milestones`, (route) => {
+    if (route.request().method() !== 'POST') return route.fallback();
+    const posted = route.request().postDataJSON() as Record<string, unknown>;
+    return route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({ id: 2, projectId: 1, name: posted.name, dueDate: posted.dueDate, description: posted.description, createdAt: '', updatedAt: '' }),
+    });
+  });
+  await page.goto(`/projects/${KEY}/timeline?period=all`);
+  await page.getByTestId('milestone-add-button').click();
+  await page.getByTestId('milestone-name-input').fill('가'.repeat(101));
+  await expect(page.getByTestId('milestone-name-input')).toHaveValue('가'.repeat(100));
+  await page.getByLabel('마일스톤 설명').fill('나'.repeat(2001));
+  await expect(page.getByLabel('마일스톤 설명')).toHaveValue('나'.repeat(2000));
+  await page.getByTestId('milestone-due-date-input').fill('2026-07-18');
+  await page.getByTestId('milestone-submit').click();
+  await expect.poll(() => (posts.lastBody() as { name?: string } | undefined)?.name?.length).toBe(100);
+});
+
+test('팝오버 — 마일스톤 이름도 100자에서 더 입력되지 않는다 (WP-687)', async ({ authenticatedPage: page }) => {
+  await setupStubs(page);
+  const patches = trackRequests(page, 'PATCH', `/api/v1/projects/${KEY}/milestones/1`);
+  await page.route(`**/api/v1/projects/${KEY}/milestones/1`, (route) => {
+    if (route.request().method() !== 'PATCH') return route.fallback();
+    const patch = route.request().postDataJSON() as Record<string, unknown>;
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...baseMilestones()[0], ...patch }) });
+  });
+  await page.goto(`/projects/${KEY}/timeline?period=all`);
+  await page.getByTestId('milestone-chip-1').click();
+  const nameInput = page.getByTestId('milestone-popover-name-input');
+  await nameInput.fill('다'.repeat(101));
+  await expect(nameInput).toHaveValue('다'.repeat(100));
+  await nameInput.blur();
+  await expect.poll(() => (patches.lastBody() as { name?: string } | undefined)?.name?.length).toBe(100);
+});
+
 test('레인 빈 곳 클릭 → 클릭 좌표 날짜가 채워진 생성 다이얼로그', async ({ authenticatedPage: page }) => {
   await setupStubs(page);
   const posts = trackRequests(page, 'POST', `/api/v1/projects/${KEY}/milestones`);

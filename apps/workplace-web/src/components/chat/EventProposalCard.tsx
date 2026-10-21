@@ -103,6 +103,7 @@ export function EventProposalCard({
             data-testid={`event-proposal-title-${proposal.id}`}
             value={title}
             onChange={(e) => setTitle(e.target.value)}
+            maxLength={200} // 서버 상한(CalendarEventRequest.title) — 넘긴 채 승인하면 400 이었다(WP-687)
             placeholder="제목"
           />
           {/* 시작·종료 — 카드 폭이 좁으면(모바일 채팅 등) 세로로 쌓아 칸마다 날짜·시각이 다 보이게 한다. 한 줄에 반씩 두면 시각이 잘려
@@ -127,6 +128,7 @@ export function EventProposalCard({
             data-testid={`event-proposal-location-${proposal.id}`}
             value={location}
             onChange={(e) => setLocation(e.target.value)}
+            maxLength={200} // 서버 상한(CalendarEventRequest.location)
             placeholder="장소(선택)"
           />
           <AttendeeLine proposal={proposal} />
