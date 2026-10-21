@@ -7,6 +7,8 @@ import com.icegreen.greenmail.junit5.GreenMailExtension;
 import com.workplace.mail.dto.ConnectionTestResult;
 import com.workplace.mail.dto.MailSecurity;
 import com.workplace.mail.service.MailConnectionTester;
+import com.workplace.mail.service.MailHostGuard;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
@@ -22,7 +24,9 @@ class MailConnectionTesterTest {
           .withConfiguration(
               GreenMailConfiguration.aConfig().withUser("u@test.local", "u@test.local", "pw"));
 
-  private final MailConnectionTester tester = new MailConnectionTester();
+  /** GreenMail 이 루프백에 떠 있으므로 127.0.0.1 만 허용 목록에 넣는다(WP-740 내부망 차단 예외). */
+  private final MailConnectionTester tester =
+      new MailConnectionTester(new MailHostGuard(List.of("127.0.0.1")));
 
   @Test
   void success_whenCredentialsValid() {
