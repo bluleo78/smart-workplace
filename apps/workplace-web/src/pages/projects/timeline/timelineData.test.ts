@@ -569,6 +569,21 @@ describe('buildAgendaSections', () => {
     expect(row(9).progress).toBeNull();
   });
 
+  // WP-688 — 필터로 에픽이 빠져 합성한 에픽도 서버 집계(WP-243)처럼 취소된 하위를 완료로 센다.
+  it('합성 에픽 진행률은 완료·취소 하위를 함께 센다', () => {
+    const s = buildAgendaSections(
+      [
+        issue({ number: 71, parent: parentRef(70, '합성'), dueDate: '2026-10-10', status: 'DONE' }),
+        issue({ number: 72, parent: parentRef(70, '합성'), dueDate: '2026-10-12', status: 'CANCELED' }),
+        issue({ number: 73, parent: parentRef(70, '합성'), dueDate: '2026-10-14', status: 'IN_PROGRESS' }),
+      ],
+      TODAY,
+      { includeCanceled: true }, // 「취소」 상태 필터 — 취소 하위가 화면에 남는 경우
+    );
+    const epicRow = s.flatMap((x) => x.rows).find((r) => r.issueNumber === 70)!;
+    expect(epicRow.progress).toEqual({ done: 2, total: 3 });
+  });
+
   it('에픽 자체 기간이 있으면 rollup = 하위 실제 범위 막대 + 에픽 기간 안쪽 구간(월 비율)', () => {
     const s = buildAgendaSections(
       [

@@ -3,6 +3,7 @@
 
 import { addDays, addMonths, differenceInCalendarDays, differenceInCalendarMonths, endOfQuarter, format, getDaysInMonth, isValid, parseISO, startOfMonth, startOfQuarter, startOfWeek, subMonths } from 'date-fns';
 
+import { CLOSED_ISSUE_STATUSES } from '@/lib/closedHiding';
 import type { CycleResponse } from '@/types/cycle';
 import type { IssueResponse, IssueStatus } from '@/types/issue';
 import type { MilestoneResponse } from '@/types/milestone';
@@ -141,11 +142,14 @@ function epicOwnRange(epic: Pick<IssueResponse, 'startDate' | 'dueDate'>): DateS
   return { start: epic.startDate && epic.startDate <= epic.dueDate ? epic.startDate : epic.dueDate, due: epic.dueDate };
 }
 
-/** 에픽 진행률 — 응답에 에픽이 있으면 서버 집계, 필터로 빠져 합성한 에픽이면 보이는 하위 기준. 간트·아젠다 공용. */
+/**
+ * 에픽 진행률 — 응답에 에픽이 있으면 서버 집계, 필터로 빠져 합성한 에픽이면 보이는 하위 기준. 간트·아젠다 공용.
+ * 합성 쪽도 서버 집계(WP-243)처럼 완료·취소 하위를 완료로 센다 — DONE 만 세면 같은 에픽이 이슈 상세 2/2, 타임라인 1/2 로 갈렸다(WP-688).
+ */
 function epicProgress(epic: IssueResponse | null | undefined, kids: IssueResponse[]): { done: number; total: number } {
   return epic
     ? { done: epic.childDoneCount, total: epic.childCount }
-    : { done: kids.filter((k) => k.status === 'DONE').length, total: kids.length };
+    : { done: kids.filter((k) => CLOSED_ISSUE_STATUSES.has(k.status)).length, total: kids.length };
 }
 
 /**
