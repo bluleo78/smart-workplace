@@ -97,6 +97,10 @@ test('digest 자리에 태그를 넣으면 렌더가 실패한다', () => {
   assert.match(err, /images\.api\.digest 가 sha256:<64자 hex> 형식이 아닙니다/);
 });
 
+test('메일 서버 내부망 허용 목록은 api 가 ConfigMap 으로 받고 기본은 비어 있다(WP-740)', () => {
+  assert.match(BASE_DOCS.get('ConfigMap/smart-workplace-config'), /MAIL_ALLOWED_INTERNAL_HOSTS: ""/);
+});
+
 test('모델 서버 주소 허용 목록은 api(ConfigMap)·ai-agent 가 같은 키로 받고 기본은 비어 있다(WP-596)', () => {
   assert.match(BASE_DOCS.get('ConfigMap/smart-workplace-config'), /MODEL_URL_ALLOWED_HOSTS: ""/);
   assert.match(

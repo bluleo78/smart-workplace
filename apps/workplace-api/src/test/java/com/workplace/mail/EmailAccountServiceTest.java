@@ -78,6 +78,64 @@ class EmailAccountServiceTest extends IntegrationTestBase {
     assertThat(encryption.decrypt(enc)).isEqualTo("pw");
   }
 
+  /** GreenMail 요청에서 IMAP 호스트·포트만 바꾼 요청 — SMTP 는 허용 목록의 127.0.0.1(GreenMail) 그대로. */
+  private EmailAccountRequest withImap(String host, int port, String password) {
+    EmailAccountRequest g = greenMailReq(password);
+    return new EmailAccountRequest(
+        g.emailAddress(),
+        g.displayName(),
+        host,
+        port,
+        g.imapSecurity(),
+        g.imapUsername(),
+        g.smtpHost(),
+        g.smtpPort(),
+        g.smtpSecurity(),
+        g.smtpUsername(),
+        g.password(),
+        g.aiEnabled());
+  }
+
+  @Test
+  void test_internalImapHost_isBlockedBeforeConnecting_smtpCheckedSeparately() {
+    // WP-740: ::1(허용 목록 밖 루프백) 1번 포트 — 예전엔 실제로 접속해 「서버에 연결할 수 없습니다」(닫힌 포트)를 돌려줘 포트 탐색이 됐다
+    var r = service.test(withImap("::1", 1, "pw"));
+
+    assertThat(r.imapOk()).isFalse();
+    assertThat(r.imapError()).isEqualTo("내부망 주소로는 접속할 수 없습니다 — 메일 서버 주소를 확인하세요");
+    // 호스트마다 따로 판정 — 허용된 SMTP(GreenMail)는 정상 검증된다
+    assertThat(r.smtpOk()).isTrue();
+  }
+
+  @Test
+  void create_internalHost_isRejectedAndNotPersisted() {
+    long user = TestFixtures.createHuman(dsl);
+    // 127.1 은 127.0.0.1 의 축약형 — 문자열은 허용 목록과 달라도 풀린 주소로 판정해 막는다
+    assertThatThrownBy(() -> service.create(user, withImap("127.1", 1, "pw")))
+        .isInstanceOfSatisfying(
+            MailConnectionException.class,
+            e ->
+                assertThat(e.result().imapError())
+                    .isEqualTo("내부망 주소로는 접속할 수 없습니다 — 메일 서버 주소를 확인하세요"));
+    assertThat(service.list(user)).isEmpty();
+  }
+
+  @Test
+  void update_toInternalHost_isRejected() {
+    long user = TestFixtures.createHuman(dsl);
+    EmailAccountResponse created = service.create(user, greenMailReq("pw"));
+
+    assertThatThrownBy(() -> service.update(user, created.id(), withImap("::1", 1, "")))
+        .isInstanceOfSatisfying(
+            MailConnectionException.class,
+            e ->
+                assertThat(e.result().imapError())
+                    .isEqualTo("내부망 주소로는 접속할 수 없습니다 — 메일 서버 주소를 확인하세요"));
+    // 저장된 계정 기준 테스트(/{id}/test)도 같은 판정
+    assertThat(service.test(user, created.id(), withImap("::1", 1, "")).imapError())
+        .isEqualTo("내부망 주소로는 접속할 수 없습니다 — 메일 서버 주소를 확인하세요");
+  }
+
   @Test
   void create_blankPassword_throwsValidation() {
     long user = TestFixtures.createHuman(dsl);
