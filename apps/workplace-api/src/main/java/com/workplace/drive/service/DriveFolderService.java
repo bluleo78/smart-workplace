@@ -20,8 +20,10 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -189,6 +191,8 @@ public class DriveFolderService {
     long spaceId =
         folders.findSpaceId(folderId).orElseThrow(() -> new DriveFolderNotFoundException(folderId));
     perms.requireRole(spaceId, callerId, "EDITOR");
+    // 하위 여부 확인과 부모 변경 사이에 같은 공간의 다른 이동이 끼어들면 순환이 생긴다(WP-762) — 확인 전에 공간 구조를 잠근다.
+    folders.lockSpaceTree(spaceId);
     validateTarget(spaceId, folderId, targetParentId);
     // 같은 부모로의 이동은 no-op — 자기 자신과의 이름 충돌로 인한 잘못된 409 방지
     if (java.util.Objects.equals(self.parentId(), targetParentId)) {
@@ -216,6 +220,8 @@ public class DriveFolderService {
     long spaceId =
         folders.findSpaceId(folderId).orElseThrow(() -> new DriveFolderNotFoundException(folderId));
     perms.requireRole(spaceId, callerId, "EDITOR");
+    // 이동과 같은 이유로 확인 전에 공간 구조를 잠근다(WP-762) — 복사 중 대상이 원본 하위로 옮겨지면 복제가 끝없이 이어진다.
+    folders.lockSpaceTree(spaceId);
     validateTarget(spaceId, folderId, targetParentId);
     DriveFolderResponse src =
         folders.findById(folderId).orElseThrow(() -> new DriveFolderNotFoundException(folderId));
@@ -225,17 +231,27 @@ public class DriveFolderService {
     // 쿼터 강제(WP-697): 서브트리 파일을 모두 새 blob 으로 복제하므로 파일 복사·업로드와 같이 advisory lock + 검사를 한다.
     // 복제 전에 합계로 한 번 검사해 넘치면 blob 을 하나도 만들지 않는다(파일마다 검사하면 실패 전 복제분이 디스크 고아로 남는다).
     quota.assertWithinQuotaLocked(folders.sumLiveFileBytesInSubtree(folderId));
-    long newRootId = copyTree(callerId, spaceId, folderId, targetParentId, src.name());
+    long newRootId =
+        copyTree(callerId, spaceId, folderId, targetParentId, src.name(), new HashSet<>());
     notifier.itemsChanged(OP_CREATED, spaceId, List.of(newRootId), callerId);
     return folders
         .findById(newRootId)
         .orElseThrow(() -> new DriveFolderNotFoundException(newRootId));
   }
 
-  /** 한 폴더를 대상 밑에 만들고, 그 안의 파일(blob 복제)·하위 폴더를 재귀 복제. 새 루트 폴더 id 반환. */
+  /**
+   * 한 폴더를 대상 밑에 만들고, 그 안의 파일(blob 복제)·하위 폴더를 재귀 복제. 새 루트 폴더 id 반환. visited 는 이미 복제한 원본 폴더 — 경합으로
+   * 저장된 순환(WP-762)이 원본에 있어도 같은 폴더를 다시 복제하며 끝없이 내려가지 않게 한다.
+   */
   private long copyTree(
-      long callerId, long spaceId, long srcFolderId, Long destParentId, String name)
+      long callerId,
+      long spaceId,
+      long srcFolderId,
+      Long destParentId,
+      String name,
+      Set<Long> visited)
       throws IOException {
+    visited.add(srcFolderId);
     long newFolderId = folders.insert(spaceId, destParentId, name);
     for (DriveFileResponse f : files.listInFolder(spaceId, srcFolderId)) {
       // 복제 + 내용 추출 요청(WP-695) — 폴더 복사 안 파일도 내용 검색·AI 요약 대상.
@@ -245,7 +261,8 @@ public class DriveFolderService {
           spaceId, newFolderId, newFid, f.name(), f.sizeBytes(), callerId);
     }
     for (DriveFolderResponse child : folders.listChildFolders(spaceId, srcFolderId)) {
-      copyTree(callerId, spaceId, child.id(), newFolderId, child.name());
+      if (visited.contains(child.id())) continue;
+      copyTree(callerId, spaceId, child.id(), newFolderId, child.name(), visited);
     }
     return newFolderId;
   }

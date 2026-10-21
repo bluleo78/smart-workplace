@@ -8,8 +8,10 @@ import com.workplace.drive.dto.DriveFolderResponse;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
@@ -137,19 +139,39 @@ public class DriveFolderRepository {
 
   /** 폴더 서브트리 id(자기 자신 포함) — 이동/복사 사이클 검사용. BFS(CTE 미사용). */
   public List<Long> findSubtreeFolderIds(long folderId) {
-    List<Long> subtree = new ArrayList<>();
+    return collectSubtree(folderId, false);
+  }
+
+  /**
+   * 폴더 서브트리 id(자기 포함)를 BFS 로 모은다. liveOnly 면 휴지통 하위 폴더는 건너뛴다.
+   *
+   * <p>이미 본 폴더는 다시 넣지 않는다(WP-762). 동시 이동 경합으로 저장된 순환(A→B→A)이 있으면 방문 기록 없는 BFS 가 끝없이 돌아, 그 폴더를 지우는
+   * 요청이 메모리와 DB 커넥션을 쥔 채 끝나지 않았다.
+   */
+  private List<Long> collectSubtree(long rootFolderId, boolean liveOnly) {
+    Set<Long> seen = new LinkedHashSet<>();
     Deque<Long> queue = new ArrayDeque<>();
-    queue.add(folderId);
+    queue.add(rootFolderId);
     while (!queue.isEmpty()) {
       long cur = queue.poll();
-      subtree.add(cur);
+      if (!seen.add(cur)) continue;
+      Condition children = DRIVE_FOLDER.PARENT_ID.eq(cur);
+      if (liveOnly) children = children.and(DRIVE_FOLDER.TRASHED_AT.isNull());
       queue.addAll(
-          dsl.select(DRIVE_FOLDER.ID)
-              .from(DRIVE_FOLDER)
-              .where(DRIVE_FOLDER.PARENT_ID.eq(cur))
-              .fetch(DRIVE_FOLDER.ID));
+          dsl.select(DRIVE_FOLDER.ID).from(DRIVE_FOLDER).where(children).fetch(DRIVE_FOLDER.ID));
     }
-    return subtree;
+    return new ArrayList<>(seen);
+  }
+
+  /** 공간 폴더 구조 잠금 전용 classId — 2-인자 advisory lock 네임스페이스(드라이브 쿼터 81 과 겹치지 않게 이슈 번호). */
+  private static final int DRIVE_TREE_LOCK_CLASS = 762;
+
+  /**
+   * 공간 단위 폴더 구조 잠금(트랜잭션 종료 시 해제, WP-762). 폴더 이동·복사는 「대상이 내 하위가 아닌지」 확인한 뒤 바꾸므로, 같은 공간의 이동이 동시에 들어오면
+   * 서로의 확인을 지나친 뒤 각자 바꿔 순환이 생겼다. 확인 전에 이 잠금을 잡으면 나중 요청은 먼저 요청이 커밋된 구조로 다시 판정한다.
+   */
+  public void lockSpaceTree(long spaceId) {
+    dsl.execute("SELECT pg_advisory_xact_lock(?, ?)", DRIVE_TREE_LOCK_CLASS, (int) spaceId);
   }
 
   /**
@@ -157,19 +179,7 @@ public class DriveFolderRepository {
    * 폴더를 BFS 로 모으고, 그 안의 휴지통에 없는 파일의 현재 버전 FILE.SIZE_BYTES 를 더한다.
    */
   public long sumLiveFileBytesInSubtree(long folderId) {
-    List<Long> subtree = new ArrayList<>();
-    Deque<Long> queue = new ArrayDeque<>();
-    queue.add(folderId);
-    while (!queue.isEmpty()) {
-      long cur = queue.poll();
-      subtree.add(cur);
-      queue.addAll(
-          dsl.select(DRIVE_FOLDER.ID)
-              .from(DRIVE_FOLDER)
-              .where(DRIVE_FOLDER.PARENT_ID.eq(cur))
-              .and(DRIVE_FOLDER.TRASHED_AT.isNull())
-              .fetch(DRIVE_FOLDER.ID));
-    }
+    List<Long> subtree = collectSubtree(folderId, true);
     Long sum =
         dsl.select(DSL.sum(FILE.SIZE_BYTES).cast(Long.class))
             .from(DRIVE_FILE)
@@ -382,18 +392,7 @@ public class DriveFolderRepository {
    * 폴더 서브트리(자기 자신 포함)의 모든 drive_file.file_id — 삭제 전 FILE 만료 처리용. BFS 로 하위 폴더를 수집해 CTE 없이 안전하게 처리.
    */
   public List<Long> findFileIdsUnderFolder(long folderId) {
-    List<Long> subtree = new ArrayList<>();
-    Deque<Long> queue = new ArrayDeque<>();
-    queue.add(folderId);
-    while (!queue.isEmpty()) {
-      long cur = queue.poll();
-      subtree.add(cur);
-      queue.addAll(
-          dsl.select(DRIVE_FOLDER.ID)
-              .from(DRIVE_FOLDER)
-              .where(DRIVE_FOLDER.PARENT_ID.eq(cur))
-              .fetch(DRIVE_FOLDER.ID));
-    }
+    List<Long> subtree = collectSubtree(folderId, false);
     // 서브트리 내 모든 drive_file 의 "전 버전" blob file_id (#79 — 과거 버전 누락 방지)
     return dsl.select(com.workplace.jooq.Tables.DRIVE_FILE_VERSION.FILE_ID)
         .from(com.workplace.jooq.Tables.DRIVE_FILE_VERSION)
