@@ -314,6 +314,21 @@ test('팝오버에서 삭제 — AlertDialog 경고 경유', async ({ authentica
   await deletes.waitFor();
 });
 
+// WP-698 — 삭제 확인 창을 Esc 로 닫으면 확인 창만 닫히고 편집 팝오버는 남는다.
+test('팝오버의 삭제 확인 창을 Esc 로 닫으면 팝오버는 남는다', async ({ authenticatedPage: page }) => {
+  await setupStubs(page);
+  await page.goto(`/projects/${KEY}/timeline?period=all`);
+  await page.getByTestId('milestone-chip-1').click();
+  await page.getByTestId('milestone-delete-trigger').click();
+  await expect(page.getByRole('alertdialog')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('alertdialog')).toHaveCount(0);
+  await expect(page.getByTestId('milestone-edit-popover')).toBeVisible();
+
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('milestone-edit-popover')).toHaveCount(0);
+});
+
 test('readOnly(비멤버) — 칩 편집·레인 클릭 생성이 비활성', async ({ authenticatedPage: page }) => {
   await setupStubs(page, { viewerIsMember: false });
   await page.goto(`/projects/${KEY}/timeline?period=all`);
