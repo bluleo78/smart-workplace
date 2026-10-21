@@ -7,6 +7,7 @@ import { toast } from 'sonner'
 import { z } from 'zod'
 
 import { platformTenants } from '../api/platformTenants'
+import { tenantNameField, tenantSlugField } from '../lib/tenantFormSchema'
 import type { ErrorResponse, TenantDetail, UpdateTenantRequest } from '../types/platform'
 import { Button } from './ui/button'
 import {
@@ -24,12 +25,8 @@ import { Input } from './ui/input'
 // - name: 필수(공백만은 불가)
 // - slug: 선택. 비우면 서버가 이름에서 자동 생성. 값이 있으면 서버 규칙과 같은 형식(영문 소문자·숫자·하이픈)만 허용.
 const editTenantSchema = z.object({
-  name: z.string().trim().min(1, '이름을 입력하세요').max(255, '255자 이하로 입력하세요'),
-  slug: z
-    .string()
-    .trim()
-    .max(64, '64자 이하로 입력하세요')
-    .regex(/^$|^[a-z0-9]+(-[a-z0-9]+)*$/, '영문 소문자·숫자·하이픈만 사용할 수 있습니다'),
+  name: tenantNameField,
+  slug: tenantSlugField,
 })
 
 type EditTenantFormData = z.infer<typeof editTenantSchema>

@@ -11,9 +11,7 @@ import jakarta.validation.constraints.Size;
  * 다른 테넌트와 겹치면 400.
  */
 public record UpdateTenantRequest(
-    @NotBlank @Size(max = 255) String name,
-    @Size(max = 64)
-        @Pattern(
-            regexp = "^\\s*([a-z0-9]+(-[a-z0-9]+)*)?\\s*$",
-            message = "slug 는 영문 소문자·숫자·하이픈만 사용할 수 있습니다")
+    @NotBlank @Size(max = 255, message = "이름은 255자 이하로 입력하세요") String name,
+    @Size(max = TenantSlugRule.MAX, message = TenantSlugRule.SIZE_MESSAGE)
+        @Pattern(regexp = TenantSlugRule.REGEX, message = TenantSlugRule.MESSAGE)
         String slug) {}

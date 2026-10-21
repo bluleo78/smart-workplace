@@ -13,8 +13,9 @@ import jakarta.validation.constraints.Size;
  * 동일.
  */
 public record AddTenantMemberRequest(
-    @NotBlank @Email String email,
-    @NotBlank String name,
+    // 이메일이 로그인 아이디(user.username VARCHAR(50))가 되고 이름도 50자 컬럼이라, 넘으면 409 대신 400 필드 오류로 알린다(WP-669).
+    @NotBlank @Email @Size(max = 50, message = "이메일은 50자 이하로 입력하세요") String email,
+    @NotBlank @Size(max = 50, message = "이름은 50자 이하로 입력하세요") String name,
     @NotBlank
         @Size(min = 8, max = 128)
         @Pattern(

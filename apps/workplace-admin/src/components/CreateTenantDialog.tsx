@@ -9,6 +9,7 @@ import { z } from 'zod'
 
 import { platformTenants } from '../api/platformTenants'
 import { useUserEmailLookup } from '../hooks/useUserEmailLookup'
+import { tenantNameField, tenantSlugField } from '../lib/tenantFormSchema'
 import type { CreateTenantRequest, ErrorResponse } from '../types/platform'
 import { FoundUserCard } from './FoundUserCard'
 import { Button } from './ui/button'
@@ -25,13 +26,13 @@ import { Input } from './ui/input'
 import { UserEmailLookupField } from './UserEmailLookupField'
 
 // 테넌트 생성 폼 스키마.
-// - name: 필수
-// - slug: 선택(빈 문자열은 미전송 → 서버가 이름에서 자동 생성, #695)
+// - name: 필수(255자 이하)
+// - slug: 선택(빈 문자열은 미전송 → 서버가 이름에서 자동 생성, #695). 값이 있으면 수정 폼과 같은 형식 규칙(WP-669)
 // 소유자(#496)는 폼 스키마 밖에서 "이메일 + 확인" 정확일치 조회로 지정한다(WP-337, useUserEmailLookup).
 // 비우면 소유자 없는 빈 테넌트를 생성한다.
 const createTenantSchema = z.object({
-  name: z.string().min(1, '이름을 입력하세요'),
-  slug: z.string().optional(),
+  name: tenantNameField,
+  slug: tenantSlugField.optional(),
 })
 
 type CreateTenantFormData = z.infer<typeof createTenantSchema>

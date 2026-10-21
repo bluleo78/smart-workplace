@@ -121,6 +121,67 @@ class PlatformTenantControllerTest extends IntegrationTestBase {
         .andExpect(jsonPath("$[0].userId").value(owner));
   }
 
+  /**
+   * WP-669: 생성도 수정(WP-336)과 같은 규칙으로 slug 형식·길이와 이름 길이를 검사해 400 필드 오류로 알린다. 예전엔 형식이 틀린 slug 가 그대로
+   * 저장돼(이후 이름만 고쳐도 수정이 거절됨), 길이를 넘기면 409 「Data integrity violation」이 났다.
+   */
+  @Test
+  void create_invalidSlugOrTooLong_returns400FieldErrors() throws Exception {
+    String auth = "Bearer " + platformToken();
+    String[][] cases = {
+      {"r112-a", "Bad Slug/한글", "slug"},
+      {"r112-b", "a".repeat(65), "slug"},
+      {"a".repeat(256), null, "name"},
+    };
+    for (String[] c : cases) {
+      mvc.perform(
+              post("/api/platform/tenants")
+                  .header("Authorization", auth)
+                  .contentType("application/json")
+                  .content(
+                      objectMapper.writeValueAsString(new CreateTenantRequest(c[0], c[1], null))))
+          .andExpect(status().isBadRequest())
+          .andExpect(jsonPath("$.errors." + c[2]).exists());
+    }
+  }
+
+  /** WP-669: 새 멤버 이름이 저장 한도(50자)를 넘으면 409 가 아니라 400 필드 오류. */
+  @Test
+  void addMember_tooLongName_returns400() throws Exception {
+    String auth = "Bearer " + platformToken();
+    String slug = "ctl-" + UUID.randomUUID().toString().substring(0, 8);
+    MvcResult created =
+        mvc.perform(
+                post("/api/platform/tenants")
+                    .header("Authorization", auth)
+                    .contentType("application/json")
+                    .content(
+                        objectMapper.writeValueAsString(
+                            new CreateTenantRequest("멤버이름", slug, null))))
+            .andExpect(status().isCreated())
+            .andReturn();
+    long tenantId =
+        objectMapper.readTree(created.getResponse().getContentAsString()).get("id").asLong();
+    String body =
+        objectMapper.writeValueAsString(
+            java.util.Map.of(
+                "email",
+                "p669-" + UUID.randomUUID().toString().substring(0, 6) + "@x.io",
+                "name",
+                "가".repeat(51),
+                "password",
+                "Passw0rdxx",
+                "role",
+                "MEMBER"));
+    mvc.perform(
+            post("/api/platform/tenants/" + tenantId + "/members")
+                .header("Authorization", auth)
+                .contentType("application/json")
+                .content(body))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.errors.name").exists());
+  }
+
   @Test
   void getTenant_unknownId_returns404() throws Exception {
     mvc.perform(

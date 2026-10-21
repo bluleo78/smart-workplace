@@ -229,6 +229,43 @@ test.describe('테넌트 목록', () => {
     await expect(page.getByTestId('tenant-row')).toHaveCount(1)
   })
 
+  // WP-669 — 생성 폼도 수정 폼과 같은 slug 규칙으로 막는다(형식·64자). 고치면 그대로 생성된다.
+  test('형식이 틀리거나 64자를 넘는 slug 는 생성 요청 없이 필드 오류로 막는다', async ({
+    authenticatedPage: page,
+  }) => {
+    const state = await stubTenantList(page, [])
+    let body: Record<string, unknown> | undefined
+    let posts = 0
+    await page.route('**/api/platform/tenants', async (route) => {
+      if (route.request().method() === 'POST') {
+        posts++
+        body = route.request().postDataJSON()
+        const created = tenant({ id: 12, name: 'Slug Check', slug: 'slug-check' })
+        state.list = [created]
+        return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(created) })
+      }
+      return route.fallback()
+    })
+
+    await page.goto('/')
+    await page.getByTestId('create-tenant-button').click()
+    await page.getByTestId('create-tenant-name').fill('Slug Check')
+    for (const [bad, msg] of [
+      ['Bad Slug/한글', '영문 소문자·숫자·하이픈만 사용할 수 있습니다'],
+      ['a'.repeat(65), '64자 이하로 입력하세요'],
+    ]) {
+      await page.getByTestId('create-tenant-slug').fill(bad)
+      await page.getByTestId('create-tenant-submit').click()
+      await expect(page.getByText(msg)).toBeVisible()
+    }
+    expect(posts).toBe(0)
+
+    await page.getByTestId('create-tenant-slug').fill('slug-check')
+    await page.getByTestId('create-tenant-submit').click()
+    await expect(page.getByText('테넌트를 생성했습니다.')).toBeVisible()
+    expect(body).toEqual({ name: 'Slug Check', slug: 'slug-check' })
+  })
+
   // (c-1) 소유자를 비우고 생성 → payload 에 ownerUserId 키가 없어야 한다(#496).
   test('소유자를 비우면 payload 에 ownerUserId 가 없다', async ({ authenticatedPage: page }) => {
     const state = await stubTenantList(page, [])

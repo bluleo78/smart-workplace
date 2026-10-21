@@ -15,7 +15,8 @@ import { Input } from './ui/input'
 
 // 신규 계정 생성 폼 스키마. email 은 상위(AddTenantMemberDialog)에서 확인 완료된 값을 props 로 받으므로 여기서는 다루지 않는다.
 const newMemberSchema = z.object({
-  name: z.string().min(1, '이름을 입력하세요'),
+  // 이름은 user.name VARCHAR(50) — 넘기면 서버가 400 으로 거절한다(WP-669).
+  name: z.string().trim().min(1, '이름을 입력하세요').max(50, '50자 이하로 입력하세요'),
   password: z
     .string()
     .min(8, '비밀번호는 8자 이상이어야 합니다')
