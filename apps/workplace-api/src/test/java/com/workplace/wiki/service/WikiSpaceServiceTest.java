@@ -157,6 +157,19 @@ class WikiSpaceServiceTest extends IntegrationTestBase {
         .isInstanceOf(WikiSpaceNameDuplicatedException.class);
   }
 
+  /** WP-693 — 비멤버는 볼 수 없는 팀 스페이스와 같은 이름으로 만들 수 있다(거절하면 남의 비공개 스페이스 존재·이름이 드러난다, 채널 WP-590 과 같음). */
+  @Test
+  void createTeamSpace_onlyConflictsWithSpacesCallerCanSee() {
+    long owner = seedUser();
+    long stranger = seedUser();
+    spaceService.createTeamSpace(owner, "임원회의록");
+
+    assertThat(spaceService.createTeamSpace(stranger, "임원회의록").name()).isEqualTo("임원회의록");
+    // 이제 자기가 멤버인 같은 이름 스페이스가 있으니 또 만들면 거절된다.
+    assertThatThrownBy(() -> spaceService.createTeamSpace(stranger, "임원회의록"))
+        .isInstanceOf(WikiSpaceNameDuplicatedException.class);
+  }
+
   /** WP-562 — 앞뒤 공백은 다듬어 저장하고 중복 판정한다. 다듬기 전 공백째 저장된 옛 행도 같은 이름으로 본다. */
   @Test
   void createTeamSpace_stripsNameAndTreatsPaddedNameAsDuplicate() {
