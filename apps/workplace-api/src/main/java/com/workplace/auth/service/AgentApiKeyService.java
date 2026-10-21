@@ -79,15 +79,21 @@ public class AgentApiKeyService {
         "AGENT_KEY_ISSUED",
         "agent_api_key",
         String.valueOf(id),
-        "AGENT 키 발급",
+        // WP-706 대상 AI 를 아이디로 적는다 — id 만 남기면 AI 를 지운 뒤 누구 키였는지 알 수 없다(다른 AGENT 기록과 같은 꼴).
+        "AGENT 키 발급: " + user.username(),
         null,
         null,
         "SUCCESS",
         null,
         Map.of(
-            "userId", userId,
-            "keyPrefix", prefix,
-            "label", label == null ? "" : label));
+            "userId",
+            userId,
+            "agentUsername",
+            user.username(),
+            "keyPrefix",
+            prefix,
+            "label",
+            label == null ? "" : label));
 
     return new AgentApiKeyIssueResponse(id, userId, plaintext, prefix, label, Instant.now());
   }
@@ -101,6 +107,7 @@ public class AgentApiKeyService {
     if (!key.userId().equals(userId)) throw new KeyNotFoundException(keyId);
     int updated = repo.revoke(keyId);
     if (updated == 0) throw new KeyNotFoundException(keyId);
+    String agentUsername = resolveUsername(userId);
 
     auditLogService.log(
         callerId,
@@ -108,12 +115,12 @@ public class AgentApiKeyService {
         "AGENT_KEY_REVOKED",
         "agent_api_key",
         String.valueOf(keyId),
-        "AGENT 키 회수",
+        "AGENT 키 회수: " + agentUsername,
         null,
         null,
         "SUCCESS",
         null,
-        Map.of("userId", userId));
+        Map.of("userId", userId, "agentUsername", agentUsername));
   }
 
   /** ak_ + base62(32 random bytes). */

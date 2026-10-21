@@ -11,6 +11,7 @@
  * - WP-369: 드라이브 전송 링크(DriveTransferLinkService) 발급·사용 — 사용 기록의 actor 는 링크 발급자다.
  * - WP-567: 구성원 역할 변경·정지·정지 해제·비밀번호 변경(UserService), 역할 생성·수정·삭제·권한 변경(RoleService) 기록 추가.
  *   이미 기록되던 로그인 실패·비밀번호 설정·SSO 연결·SSO 설정 변경·AGENT 실행 방식 변경도 라벨이 빠져 있어 함께 보강.
+ * - WP-706: 공용 비서 지정·해제·설정 변경(WorkspaceAssistantService) 기록 추가.
  */
 export const AUDIT_ACTION_TYPES = [
   { value: 'CREATE', label: '생성' },
@@ -43,6 +44,9 @@ export const AUDIT_ACTION_TYPES = [
   { value: 'USER_SSO_LINK', label: 'SSO 계정 연결' },
   { value: 'SSO_SETTING_CHANGED', label: 'SSO 설정 변경' },
   { value: 'AGENT_RUNTIME_CHANGED', label: 'AGENT 실행 방식 변경' },
+  { value: 'WORKSPACE_ASSISTANT_SET', label: '공용 비서 지정' },
+  { value: 'WORKSPACE_ASSISTANT_CLEARED', label: '공용 비서 해제' },
+  { value: 'WORKSPACE_ASSISTANT_SETTINGS_CHANGED', label: '공용 비서 설정 변경' },
   { value: 'ROLE_CREATED', label: '역할 생성' },
   { value: 'ROLE_UPDATED', label: '역할 수정' },
   { value: 'ROLE_DELETED', label: '역할 삭제' },
@@ -80,6 +84,7 @@ export const AUDIT_RESOURCES = [
   { value: 'platform', label: '플랫폼' },
   { value: 'drive', label: '드라이브' },
   { value: 'tenant', label: '워크스페이스' },
+  { value: 'workspace_assistant', label: '공용 비서' },
 ];
 
 /**

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.audit.dto.AuditLogResponse;
 import com.workplace.audit.repository.AuditLogRepository;
 import com.workplace.global.dto.PageResponse;
+import com.workplace.global.util.ClientIpExtractor;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -13,6 +14,8 @@ import org.jooq.JSONB;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 @Service
 @RequiredArgsConstructor
@@ -22,6 +25,10 @@ public class AuditLogService {
   private final AuditLogRepository auditLogRepository;
   private final ObjectMapper objectMapper;
 
+  /**
+   * 감사 로그 한 건을 남긴다. ipAddress 를 넘기지 않으면(null) 지금 처리 중인 HTTP 요청의 클라이언트 IP 를 쓴다(WP-706) — 관리 작업 호출부
+   * 대부분이 IP 를 넘기지 않아 감사 로그의 IP 열이 로그인 행 말고는 늘 비어 있었다. 요청 밖(스케줄러·비동기)이면 null 그대로.
+   */
   public Long log(
       Long userId,
       String username,
@@ -34,6 +41,9 @@ public class AuditLogService {
       String result,
       String errorMessage,
       Object metadata) {
+    if (ipAddress == null) {
+      ipAddress = currentRequestIp();
+    }
     JSONB metadataJsonb = null;
     if (metadata != null) {
       try {
@@ -96,6 +106,14 @@ public class AuditLogService {
     } finally {
       auditLogRepository.setTenantGuc(previous == null ? "" : previous);
     }
+  }
+
+  /** 지금 스레드가 처리 중인 HTTP 요청의 클라이언트 IP(감사 열 길이로 자름). 요청 밖이면 null. */
+  private static String currentRequestIp() {
+    if (RequestContextHolder.getRequestAttributes() instanceof ServletRequestAttributes attrs) {
+      return ClientIpExtractor.forAudit(ClientIpExtractor.extract(attrs.getRequest()));
+    }
+    return null;
   }
 
   @Transactional(readOnly = true)
