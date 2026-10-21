@@ -216,7 +216,7 @@ public class MessageRepository {
 
   /** 특정 부모 메시지의 답글 페이지. 오래된→최신(ASC) keyset. soft-deleted 답글도 마스킹해 포함. */
   public MessagePage findThreadPage(
-      long parentMessageId, String cursor, int limit, MentionResolver resolver) {
+      long parentMessageId, long channelId, String cursor, int limit, MentionResolver resolver) {
     // 0·음수 limit 는 subList 범위 오류(400 원문)를 냈다 — 1~MAX_LIMIT 로 맞춘다(WP-512).
     int safeLimit = Math.clamp(limit, 1, MAX_LIMIT);
     SelectConditionStep<?> query =
@@ -236,7 +236,9 @@ public class MessageRepository {
             .from(MESSAGE)
             .join(USER)
             .on(USER.ID.eq(MESSAGE.AUTHOR_ID))
-            .where(MESSAGE.PARENT_MESSAGE_ID.eq(parentMessageId));
+            // 부모와 같은 채널의 답글만(WP-726 — 다른 채널 메시지가 답글로 붙어 있으면 새지 않게).
+            .where(MESSAGE.PARENT_MESSAGE_ID.eq(parentMessageId))
+            .and(MESSAGE.CHANNEL_ID.eq(channelId));
 
     if (cursor != null && !cursor.isEmpty()) {
       Cursor c = Cursor.decode(cursor);

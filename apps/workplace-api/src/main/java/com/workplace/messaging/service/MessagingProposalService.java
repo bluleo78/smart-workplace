@@ -66,6 +66,9 @@ public class MessagingProposalService {
       throw new ChannelNotMemberException(channelId, agentId);
     if (!memberRepo.isMember(channelId, req.proposedByUserId()))
       throw new ChannelNotMemberException(channelId, req.proposedByUserId());
+    // WP-726: 스레드 부모는 일반 메시지와 같은 규칙(같은 채널·최상위) — 다른 채널 메시지에 붙으면 그 채널 멤버에게 이 채널의 제안이 보였다.
+    if (req.parentMessageId() != null)
+      messageService.requireThreadParent(channelId, req.parentMessageId());
 
     // 일정 제안 — 프로젝트 개념이 없으므로 후보 계산을 건너뛰고 일정 payload 로 분기한다.
     if ("calendar.create_event".equals(req.actionType())) {

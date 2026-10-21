@@ -14,6 +14,7 @@ import com.workplace.global.tenant.TenantContext;
 import com.workplace.messaging.dto.CreateMessageRequest;
 import com.workplace.messaging.dto.CreateProposalRequest;
 import com.workplace.messaging.exception.ChannelNotMemberException;
+import com.workplace.messaging.exception.InvalidThreadParentException;
 import com.workplace.messaging.repository.ChannelMemberRepository;
 import com.workplace.messaging.repository.ChannelRepository;
 import com.workplace.messaging.service.MessageService;
@@ -344,5 +345,91 @@ class MessagingProposalServiceTest extends IntegrationTestBase {
     assertThat(resp.proposal().status()).isEqualTo("PENDING");
     assertThat(resp.proposal().projectName())
         .isEqualTo(projectRepo.findDefaultPersonal(freshHuman).orElseThrow().name());
+  }
+
+  // ── WP-726: 제안의 스레드 부모·actionType 검증 ────────────────────────────────
+
+  private CreateProposalRequest issueProposal(String actionType, Long parentMessageId) {
+    return new CreateProposalRequest(
+        actionType,
+        "스레드 교차",
+        null,
+        null,
+        null,
+        human,
+        parentMessageId,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null);
+  }
+
+  /** 다른 채널 메시지를 스레드 부모로 줄 수 없다 — 그 채널 멤버에게 비공개 채널의 제안 카드가 보였다. */
+  @Test
+  void propose_parentInOtherChannel_rejected() {
+    long other = channelRepo.insertPublic("proposal-other-" + UUID.randomUUID(), human);
+    createdChannelIds.add(other);
+    memberRepo.add(other, human, "MEMBER");
+    long foreignParent = postMessage(human, other, "다른 채널 글");
+    long before = countMessages(channelId);
+
+    assertThatThrownBy(
+            () ->
+                proposalService.propose(
+                    agentId, channelId, issueProposal("CREATE_ISSUE", foreignParent)))
+        .isInstanceOf(InvalidThreadParentException.class);
+    assertThat(countMessages(channelId)).isEqualTo(before);
+    assertThat(countMessages(other)).isEqualTo(1);
+  }
+
+  /** 답글을 부모로 줄 수도 없다(대댓글 금지 — 일반 메시지와 같은 규칙). 같은 채널 최상위 메시지는 그대로 된다. */
+  @Test
+  void propose_parentMustBeTopLevelInSameChannel() {
+    long root = postMessage(human, channelId, "최상위 글");
+    long reply =
+        messageService
+            .create(human, channelId, new CreateMessageRequest("답글", root, List.of(), List.of()))
+            .id();
+
+    assertThatThrownBy(
+            () -> proposalService.propose(agentId, channelId, issueProposal("CREATE_ISSUE", reply)))
+        .isInstanceOf(InvalidThreadParentException.class);
+    var ok = proposalService.propose(agentId, channelId, issueProposal("CREATE_ISSUE", root));
+    assertThat(ok.parentMessageId()).isEqualTo(root);
+  }
+
+  /** 스레드 답글 조회는 부모와 다른 채널의 답글을 내보내지 않는다(방어 — 예전에 잘못 붙은 행). */
+  @Test
+  void listThread_skipsRepliesFromOtherChannel() {
+    long other = channelRepo.insertPublic("proposal-other-" + UUID.randomUUID(), human);
+    createdChannelIds.add(other);
+    memberRepo.add(other, human, "MEMBER");
+    long root = postMessage(human, other, "다른 채널 글");
+    // 예전 결함으로 채널 A 메시지가 채널 B 메시지의 답글로 붙은 상태를 직접 만든다.
+    dsl.insertInto(MESSAGE)
+        .set(MESSAGE.CHANNEL_ID, channelId)
+        .set(MESSAGE.AUTHOR_ID, agentId)
+        .set(MESSAGE.BODY, "비공개 채널 제안")
+        .set(MESSAGE.PARENT_MESSAGE_ID, root)
+        .execute();
+
+    var page = messageService.listThread(human, root, null, 50);
+
+    assertThat(page.items()).noneMatch(m -> m.channelId() == channelId);
+  }
+
+  /** actionType 은 CREATE_ISSUE·calendar.create_event 만 — 임의 값(DELETE_ALL)이 이슈 생성 제안으로 저장·승인됐다. */
+  @Test
+  void createProposalRequest_unknownActionType_invalid() {
+    var validator = jakarta.validation.Validation.buildDefaultValidatorFactory().getValidator();
+    assertThat(validator.validate(issueProposal("DELETE_ALL", null)))
+        .anyMatch(v -> v.getPropertyPath().toString().equals("actionType"));
+    assertThat(validator.validate(issueProposal("CREATE_ISSUE", null))).isEmpty();
+    assertThat(validator.validate(issueProposal("calendar.create_event", null)))
+        .noneMatch(v -> v.getPropertyPath().toString().equals("actionType"));
   }
 }

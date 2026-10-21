@@ -18,7 +18,12 @@ import java.util.List;
  * 다시 검증한다.
  */
 public record CreateProposalRequest(
-    @NotBlank String actionType,
+    // WP-726: 처리할 수 있는 두 종류만 — 임의 값(DELETE_ALL 등)이 이슈 생성 제안으로 저장·승인됐다.
+    @NotBlank
+        @Pattern(
+            regexp = "CREATE_ISSUE|calendar\\.create_event",
+            message = "제안 종류는 CREATE_ISSUE 또는 calendar.create_event 만 쓸 수 있습니다")
+        String actionType,
     @NotBlank @Size(max = 200) String title,
     // --- 이슈 전용(CREATE_ISSUE) ---
     @Size(max = 10000) String body,

@@ -91,13 +91,7 @@ public class MessageService {
     // 자동 팔로우를 위해 parentId != null 일 때 ref 를 블록 밖에서 참조할 수 있도록 미리 선언.
     final MessageRef parentRef;
     if (parentId != null) {
-      MessageRef ref =
-          messageRepo
-              .findRef(parentId)
-              .orElseThrow(() -> new InvalidThreadParentException(parentId));
-      if (ref.channelId() != channelId || ref.parentMessageId() != null)
-        throw new InvalidThreadParentException(parentId);
-      parentRef = ref;
+      parentRef = requireThreadParent(channelId, parentId);
     } else {
       parentRef = null;
     }
@@ -333,6 +327,18 @@ public class MessageService {
   }
 
   /**
+   * 스레드 부모 검증 — 존재 + 같은 채널 + 최상위(대댓글 금지). 아니면 InvalidThreadParentException(400). 일반 메시지와 AI
+   * 제안(WP-726)이 같은 규칙을 쓴다 — 제안이 다른 채널 메시지의 답글로 붙으면 그 채널 멤버에게 비공개 채널의 제안 카드가 보였다.
+   */
+  public MessageRef requireThreadParent(long channelId, long parentId) {
+    MessageRef ref =
+        messageRepo.findRef(parentId).orElseThrow(() -> new InvalidThreadParentException(parentId));
+    if (ref.channelId() != channelId || ref.parentMessageId() != null)
+      throw new InvalidThreadParentException(parentId);
+    return ref;
+  }
+
+  /**
    * 읽을 수 있는 사람만 특정 부모 메시지의 답글 조회(그 밖의 비멤버=404, WP-591·621). RLS GUC 주입 위해 @Transactional 필요(없으면 빈
    * 결과).
    */
@@ -344,9 +350,10 @@ public class MessageService {
             .orElseThrow(() -> new MessageNotFoundException(parentMessageId));
     if (!perms.canRead(ref.channelId(), callerId))
       throw new MessageNotFoundException(parentMessageId);
+    // 부모와 같은 채널의 답글만 — 예전 결함으로 다른 채널 메시지가 답글로 붙어 있어도 내보내지 않는다(WP-726).
     MessagePage page =
         messageRepo.findThreadPage(
-            parentMessageId, cursor, limit, mentionHydrator::asMentionResponses);
+            parentMessageId, ref.channelId(), cursor, limit, mentionHydrator::asMentionResponses);
     return enrichProposals(enrichReactions(page, callerId));
   }
 
