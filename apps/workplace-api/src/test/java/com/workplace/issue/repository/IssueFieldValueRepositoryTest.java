@@ -127,4 +127,19 @@ class IssueFieldValueRepositoryTest extends IntegrationTestBase {
 
     assertThat(valueRepo.countByDef(def.id())).isEqualTo(2);
   }
+
+  /** WP-691 — 삭제된 이슈의 값은 정의 사용 수에 넣지 않는다. */
+  @Test
+  void count_by_def_excludes_deleted_issues() {
+    Long owner = createUser("f");
+    var p = newProject(owner, "FVF");
+    var def = defRepo.insert(p.id(), "x", "TEXT", null, 0);
+    var i1 = issueRepository.insert(p.id(), 1, "t1", null, "MID", null, owner);
+    var i2 = issueRepository.insert(p.id(), 2, "t2", null, "MID", null, owner);
+    valueRepo.upsert(i1.id(), def.id(), om.valueToTree("a"));
+    valueRepo.upsert(i2.id(), def.id(), om.valueToTree("b"));
+    issueRepository.softDelete(i2.id(), java.time.Instant.now());
+
+    assertThat(valueRepo.countByDef(def.id())).isEqualTo(1);
+  }
 }
