@@ -6,15 +6,23 @@ import com.workplace.auth.exception.KeyNotFoundException;
 import com.workplace.auth.exception.UserTokenNotFoundException;
 import com.workplace.calendar.exception.CalendarEventNotFoundException;
 import com.workplace.calendar.exception.CalendarNotFoundException;
+import com.workplace.calendar.exception.ExternalCalendarDeletionNotAllowedException;
+import com.workplace.calendar.exception.ExternalCalendarResetNotAllowedException;
+import com.workplace.calendar.exception.ReadOnlyCalendarException;
 import com.workplace.contacts.exception.ContactForbiddenException;
 import com.workplace.contacts.exception.ContactNotFoundException;
 import com.workplace.cycle.exception.CycleNotFoundException;
 import com.workplace.drive.exception.DriveFileNotFoundException;
 import com.workplace.drive.exception.DriveFolderNotFoundException;
+import com.workplace.drive.exception.DriveLastOwnerException;
+import com.workplace.drive.exception.DriveNotInTrashException;
 import com.workplace.drive.exception.DriveSpaceNotFoundException;
+import com.workplace.drive.exception.DriveSpaceTypeNotEditableException;
 import com.workplace.file.exception.FileNotFoundException;
 import com.workplace.home.exception.HomeAttachmentNotFoundException;
+import com.workplace.home.exception.HomeProposalAlreadyResolvedException;
 import com.workplace.home.exception.HomeProposalNotFoundException;
+import com.workplace.issue.exception.AttachmentNotFoundException;
 import com.workplace.issue.exception.FieldNotFoundException;
 import com.workplace.issue.exception.IssueCommentNotFoundException;
 import com.workplace.issue.exception.TypeNotFoundException;
@@ -26,8 +34,11 @@ import com.workplace.milestone.exception.MilestoneNotFoundException;
 import com.workplace.user.exception.UserGroupForbiddenException;
 import com.workplace.user.exception.UserGroupNotFoundException;
 import com.workplace.view.exception.SavedViewNotFoundException;
+import com.workplace.wiki.exception.WikiAttachmentNotFoundException;
+import com.workplace.wiki.exception.WikiLastOwnerException;
 import com.workplace.wiki.exception.WikiPageNotFoundException;
 import com.workplace.wiki.exception.WikiSpaceNotFoundException;
+import com.workplace.wiki.exception.WikiSpaceTypeNotEditableException;
 import java.util.List;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
@@ -84,6 +95,40 @@ class ErrorMessageNoInternalIdTest {
           .doesNotContainIgnoringCase("id")
           .doesNotContain("EXTERNAL")
           .endsWith("니다");
+    }
+  }
+
+  /**
+   * WP-672: 첨부 없음·마지막 소유자·개인 공간 편집·휴지통 복원·읽기 전용 캘린더·처리된 확인 카드 문구에도 내부 id 와 영문
+   * 값(PERSONAL·file·OWNER)이 남지 않는다.
+   */
+  @Test
+  void 상태_충돌_예외_문구에도_id_와_영문_값이_없다() {
+    List<Supplier<RuntimeException>> cases =
+        List.of(
+            () -> new AttachmentNotFoundException(ID),
+            () -> new WikiAttachmentNotFoundException(ID),
+            () -> new DriveLastOwnerException(ID),
+            () -> new WikiLastOwnerException(ID),
+            () -> new DriveSpaceTypeNotEditableException(ID, "PERSONAL"),
+            () -> new WikiSpaceTypeNotEditableException(ID, "PERSONAL"),
+            () -> new DriveNotInTrashException("file", ID),
+            () -> new ReadOnlyCalendarException(ID),
+            () -> new ExternalCalendarResetNotAllowedException(ID),
+            () -> new ExternalCalendarDeletionNotAllowedException(ID),
+            () -> new HomeProposalAlreadyResolvedException(ID));
+
+    for (Supplier<RuntimeException> c : cases) {
+      RuntimeException ex = c.get();
+      assertThat(ex.getMessage())
+          .as(ex.getClass().getSimpleName())
+          .doesNotContain(String.valueOf(ID))
+          .doesNotContainIgnoringCase("id")
+          .doesNotContain("PERSONAL")
+          .doesNotContain("OWNER")
+          .doesNotContain("file")
+          .doesNotContain("type")
+          .satisfies(m -> assertThat(m.endsWith("세요") || m.endsWith("니다")).isTrue());
     }
   }
 }

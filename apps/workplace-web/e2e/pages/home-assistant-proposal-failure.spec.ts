@@ -113,7 +113,7 @@ test('AI에게 수정 요청 — 실패 요약을 담아 새 질문을 보낸다
 });
 
 test('이미 처리된 카드(409) — 사유를 카드에 표시하고 다시 승인할 수 없다', async ({ authenticatedPage: page }) => {
-  await mockHomeProposals(page, { reply: () => ({ httpStatus: 409, message: '이미 처리된 확인 카드입니다: 31' }) });
+  await mockHomeProposals(page, { reply: () => ({ httpStatus: 409, message: '이미 처리된 확인 카드입니다' }) });
   await openWithProposal(page);
 
   const item = page.getByTestId('pending-action-item');
