@@ -293,9 +293,11 @@ test(
       externalEmail: null,
     }
     const store: CalendarEvent[] = [calendarEvent({ id: 100, title: 'RSVP 테스트' })]
+    // 내 참석자 행이 ATTENDEE 면 서버의 myRole 도 ATTENDEE — 주최자가 아니니 읽기 전용 상세 보기로 열린다(WP-708)
     const detail = makeDetailEvent({
       attendees: [ORGANIZER_ATTENDEE, myAttendee, AGENT_ATTENDEE],
       myRsvpStatus: 'NEEDS_ACTION',
+      myRole: 'ATTENDEE',
     })
     // 주최자는 user id 10 (현재 사용자와 다름) 으로 설정
     detail.attendees = [

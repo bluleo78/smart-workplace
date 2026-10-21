@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { AgentBadge } from '@/components/users/AgentBadge'
 import type { MemberPickerCandidate } from '@/hooks/queries/useUserSearch'
+import { attendeeDisplayName, attendeeKey } from '@/lib/calendarEventView'
 import type { Attendee, RsvpStatus } from '@/types/calendar'
 import type { UserKind } from '@/types/user'
 
@@ -21,18 +22,19 @@ export interface SelectedMember {
 
 import { MemberSearchPopover } from '../../pages/projects/components/MemberSearchPopover'
 
-// RSVP 상태 아이콘 — ACCEPTED=초록체크, DECLINED=회색X, TENTATIVE=물음표, NEEDS_ACTION=시계
-function RsvpIcon({ status }: { status: RsvpStatus }) {
+// RSVP 상태 아이콘 — ACCEPTED=초록체크, DECLINED=회색X, TENTATIVE=물음표, NEEDS_ACTION=시계.
+// 편집 칩과 상세 보기 참석자 목록(EventDetailView, WP-708)이 같은 아이콘을 쓴다. className 으로 크기만 바꾼다.
+export function RsvpIcon({ status, className = 'h-3 w-3' }: { status: RsvpStatus; className?: string }) {
   switch (status) {
     case 'ACCEPTED':
-      return <Check className="h-3 w-3 text-green-600" aria-label="수락" />
+      return <Check className={`${className} text-green-600`} aria-label="수락" />
     case 'DECLINED':
-      return <X className="h-3 w-3 text-muted-foreground" aria-label="거절" />
+      return <X className={`${className} text-muted-foreground`} aria-label="거절" />
     case 'TENTATIVE':
-      return <HelpCircle className="h-3 w-3 text-yellow-500" aria-label="미정" />
+      return <HelpCircle className={`${className} text-yellow-500`} aria-label="미정" />
     case 'NEEDS_ACTION':
     default:
-      return <Clock className="h-3 w-3 text-muted-foreground" aria-label="응답 대기" />
+      return <Clock className={`${className} text-muted-foreground`} aria-label="응답 대기" />
   }
 }
 
@@ -98,8 +100,8 @@ export function AttendeeSection({
       {/* 참석자 칩 목록 */}
       {sortedAttendees && sortedAttendees.length > 0 && (
         <div className="flex flex-wrap gap-1.5" data-testid="attendee-chips">
-          {sortedAttendees.map((a) => {
-              const chipKey = a.userId != null ? `u-${a.userId}` : `e-${a.externalEmail}`
+          {sortedAttendees.map((a, i) => {
+              const chipKey = attendeeKey(a, i)
               const removeId = a.userId // 외부 참석자는 제거 대상 아님(null)
               return (
                 <span
@@ -107,7 +109,7 @@ export function AttendeeSection({
                   className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs"
                   data-testid={`attendee-chip-${chipKey}`}
                 >
-                  <span>{a.kind === 'EXTERNAL' ? (a.externalEmail ?? a.name) : a.name}</span>
+                  <span>{attendeeDisplayName(a)}</span>
                   {a.kind === 'AGENT' && <AgentBadge size="xs" />}
                   <RsvpIcon status={a.rsvpStatus} />
                   {/* 주최자·외부 참석자가 아닌 경우에만 제거 버튼 표시 */}

@@ -64,17 +64,47 @@ export function buildRRule(form: RecurrenceForm): string | null {
   return parts.join(';')
 }
 
+/**
+ * "KEY=VALUE;KEY=VALUE" → 키(대문자)·값 맵. parseRRule 과 isFormEditableRRule 이 같은 방식으로 읽게 한 곳에 둔다.
+ * clean=false: 형식이 깨진 조각이나 같은 키가 두 번 있어 맵이 원문을 다 담지 못했다(같은 키는 뒤엣것이 남는다). 빈 조각(끝의 ;)은 무해.
+ */
+function tokenizeRRule(rrule: string): { map: Map<string, string>; clean: boolean } {
+  const map = new Map<string, string>()
+  let clean = true
+  for (const seg of rrule.split(';')) {
+    if (seg === '') continue
+    const [key, value] = seg.split('=')
+    if (!key || value === undefined) {
+      clean = false
+      continue
+    }
+    const k = key.toUpperCase()
+    if (map.has(k)) clean = false
+    map.set(k, value)
+  }
+  return { map, clean }
+}
+
+/** 반복 빈도별 간격 단위 — 폼의 「N주마다」 칸 이름과 상세 보기 반복 문구가 같이 쓴다. */
+export function recurrenceUnitLabel(freq: RecurrenceFreq): string {
+  switch (freq) {
+    case 'DAILY':
+      return '일'
+    case 'WEEKLY':
+      return '주'
+    case 'MONTHLY':
+      return '개월'
+    default:
+      return ''
+  }
+}
+
 // RRULE 문자열 → 폼 모델. null/빈 문자열/미지원 FREQ 는 반복 없음으로.
 // startsAt(일정 시작 시각, ISO)을 주면 종료일을 「마지막 회차가 생기는 한국 날짜」로 복원한다(untilToKstDate).
 export function parseRRule(rrule: string | null, startsAt?: string): RecurrenceForm {
   if (!rrule) return { ...NONE_FORM }
 
-  // "KEY=VALUE;KEY=VALUE" 를 맵으로 파싱
-  const map = new Map<string, string>()
-  for (const seg of rrule.split(';')) {
-    const [key, value] = seg.split('=')
-    if (key && value !== undefined) map.set(key.toUpperCase(), value)
-  }
+  const { map } = tokenizeRRule(rrule)
 
   const freq = map.get('FREQ')
   if (freq !== 'DAILY' && freq !== 'WEEKLY' && freq !== 'MONTHLY') {
@@ -97,4 +127,31 @@ export function parseRRule(rrule: string | null, startsAt?: string): RecurrenceF
   }
 
   return { freq, interval, end }
+}
+
+// 반복 폼(RecurrenceForm)이 그대로 옮겨 담을 수 있는 RRULE 토큰. WKST 는 이 앱의 빈도(일·주·월)에선 결과에 영향이 없다.
+const FORM_RRULE_KEYS = new Set(['FREQ', 'INTERVAL', 'UNTIL', 'COUNT', 'WKST'])
+
+/**
+ * 반복 폼으로 잃는 것 없이 다룰 수 있는 규칙인가 — 반복 없음이거나, FREQ 가 DAILY·WEEKLY·MONTHLY 이고 위 토큰만 있을 때.
+ * MCP 등으로 만든 BYDAY(여러 요일)·BYMONTHDAY·YEARLY 같은 규칙은 parseRRule 이 버리거나 반복 없음으로 읽어,
+ * 그대로 저장하면 규칙이 바뀌거나 반복이 사라진다(WP-708). 이런 규칙은 폼이 반복 칸을 잠그고 원래 규칙을 보낸다.
+ */
+export function isFormEditableRRule(rrule: string | null | undefined): boolean {
+  if (!rrule?.trim()) return true
+  // parseRRule 과 같은 토큰화로 읽어야 「다룰 수 있음」이 손실 없는 왕복을 뜻한다. 깨진 조각·중복 키는 parseRRule 이 버리므로 잠근다.
+  const { map, clean } = tokenizeRRule(rrule)
+  if (!clean) return false
+  // UNTIL·COUNT 가 함께면 parseRRule 이 COUNT 를 버린다
+  if (![...map.keys()].every((k) => FORM_RRULE_KEYS.has(k)) || (map.has('UNTIL') && map.has('COUNT'))) return false
+  const freq = map.get('FREQ')
+  if (freq !== 'DAILY' && freq !== 'WEEKLY' && freq !== 'MONTHLY') return false
+  // 값도 폼이 그대로 되돌려 쓸 수 있어야 한다 — 1 이상의 정수 간격·횟수, UNTIL 은 날짜(·UTC 시각)만.
+  const positiveInt = (v: string | undefined) => v === undefined || /^[1-9]\d*$/.test(v)
+  const until = map.get('UNTIL')
+  return (
+    positiveInt(map.get('INTERVAL')) &&
+    positiveInt(map.get('COUNT')) &&
+    (until === undefined || /^\d{8}(T\d{6}Z)?$/.test(until))
+  )
 }

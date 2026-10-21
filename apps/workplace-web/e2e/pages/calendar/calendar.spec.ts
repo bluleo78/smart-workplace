@@ -417,6 +417,57 @@ test(
 )
 
 test(
+  '폼이 담을 수 없는 반복 규칙(여러 요일)은 반복 칸이 잠기고 저장해도 원래 규칙 그대로(WP-708)',
+  async ({ authenticatedPage: page }) => {
+    await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+    // MCP 로 만든 「매주 월·수」 일정 — 예전엔 폼이 BYDAY 를 버려 저장하면 「매주 월요일」로 바뀌었다.
+    const store: CalendarEvent[] = recurringCalendarEvent(MASTER_ID, OCC_DATES, { recurrenceRule: 'FREQ=WEEKLY;BYDAY=MO,WE' })
+    await stubCalendarEvents(page, store)
+    await page.goto('/calendar')
+
+    await page.getByTestId(`calendar-event-${MASTER_ID}-${OCC_DATES[0]}`).click()
+    await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
+    // 반복 드롭다운·간격·종료 칸 대신 안내 문구
+    await expect(page.getByTestId('calendar-form-recurrence-locked')).toContainText('저장해도 원래 규칙이 유지돼요')
+    await expect(page.getByTestId('calendar-form-recurrence-freq')).toHaveCount(0)
+    await expect(page.getByTestId('calendar-form-recurrence-interval')).toHaveCount(0)
+
+    await page.getByTestId('calendar-form-title').fill('수정된 회의')
+    await page.getByTestId('calendar-form-submit').click()
+    const patchPromise = page.waitForRequest(
+      (req) => req.method() === 'PATCH' && req.url().includes('/api/v1/calendar/events'),
+    )
+    await page.getByTestId('calendar-recurrence-scope-all').click()
+    const patch = await patchPromise
+    expect(patch.postDataJSON()).toMatchObject({ title: '수정된 회의', recurrenceRule: 'FREQ=WEEKLY;BYDAY=MO,WE' })
+  },
+)
+
+test(
+  '잠긴 반복 규칙은 「새 규칙으로 바꾸기」로 풀어 반복 없음으로 저장할 수 있다(WP-708)',
+  async ({ authenticatedPage: page }) => {
+    await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+    const store: CalendarEvent[] = recurringCalendarEvent(MASTER_ID, OCC_DATES, { recurrenceRule: 'FREQ=WEEKLY;BYDAY=MO,WE' })
+    await stubCalendarEvents(page, store)
+    await page.goto('/calendar')
+    await page.getByTestId(`calendar-event-${MASTER_ID}-${OCC_DATES[0]}`).click()
+
+    // 풀면 폼이 담을 수 있는 「매주」로 채워진 드롭다운이 나온다 → 「없음」으로 바꿔 저장
+    await page.getByTestId('calendar-form-recurrence-unlock').click()
+    await expect(page.getByTestId('calendar-form-recurrence-locked')).toHaveCount(0)
+    await expect(page.getByTestId('calendar-form-recurrence-freq')).toContainText('매주')
+    await page.getByTestId('calendar-form-recurrence-freq').click()
+    await page.getByRole('option', { name: '없음' }).click()
+    await page.getByTestId('calendar-form-submit').click()
+    const patchPromise = page.waitForRequest(
+      (req) => req.method() === 'PATCH' && req.url().includes('/api/v1/calendar/events'),
+    )
+    await page.getByTestId('calendar-recurrence-scope-all').click()
+    expect((await patchPromise).postDataJSON().recurrenceRule ?? null).toBeNull()
+  },
+)
+
+test(
   '반복 회차 단일 삭제 — DELETE scope=THIS + occurrenceDate(verbatim)',
   { tag: '@smoke' },
   async ({ authenticatedPage: page }) => {

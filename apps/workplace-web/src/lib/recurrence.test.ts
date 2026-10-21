@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest'
 
-import { buildRRule, parseRRule } from './recurrence'
+import { buildRRule, isFormEditableRRule, parseRRule } from './recurrence'
 
 test('build weekly interval2 until', () => {
   expect(
@@ -109,4 +109,25 @@ test('parse until — 종일 일정(00:00 KST 시작)은 한국 날짜 그대로
     type: 'until',
     date: '2026-11-05',
   })
+})
+
+// WP-708: 폼이 담을 수 없는 규칙은 잠근다 — 그대로 저장하면 BYDAY 가 빠지거나 YEARLY 가 반복 없음이 됐다.
+test('isFormEditableRRule — 반복 없음·폼이 만드는 규칙만 true', () => {
+  expect(isFormEditableRRule(null)).toBe(true)
+  expect(isFormEditableRRule('')).toBe(true)
+  expect(isFormEditableRRule('FREQ=WEEKLY;INTERVAL=2;COUNT=5')).toBe(true)
+  expect(isFormEditableRRule('FREQ=DAILY;UNTIL=20261118T145959Z;WKST=MO')).toBe(true)
+  expect(isFormEditableRRule('FREQ=WEEKLY;BYDAY=MO,WE,FR')).toBe(false)
+  expect(isFormEditableRRule('FREQ=MONTHLY;BYMONTHDAY=15')).toBe(false)
+  expect(isFormEditableRRule('FREQ=YEARLY')).toBe(false)
+  // parseRRule 이 못 읽는 키(앞 공백)·값(0·숫자 아님·TZID 붙은 UNTIL)은 저장하면 바뀌므로 잠근다
+  expect(isFormEditableRRule('FREQ=WEEKLY; COUNT=5')).toBe(false)
+  expect(isFormEditableRRule('FREQ=DAILY;COUNT=abc')).toBe(false)
+  expect(isFormEditableRRule('FREQ=DAILY;INTERVAL=0')).toBe(false)
+  expect(isFormEditableRRule('FREQ=DAILY;UNTIL=20261118T145959')).toBe(false)
+  expect(isFormEditableRRule('FREQ=DAILY;UNTIL=20261118')).toBe(true)
+  // 끝의 ; 는 무해, UNTIL·COUNT 동시·중복 키는 parseRRule 이 하나를 버려 잠근다
+  expect(isFormEditableRRule('FREQ=WEEKLY;')).toBe(true)
+  expect(isFormEditableRRule('FREQ=WEEKLY;COUNT=10;UNTIL=20261231T145959Z')).toBe(false)
+  expect(isFormEditableRRule('FREQ=DAILY;FREQ=WEEKLY')).toBe(false)
 })

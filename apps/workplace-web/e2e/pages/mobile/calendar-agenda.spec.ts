@@ -542,7 +542,7 @@ test('⑧-1 일정 다이얼로그 — 시작·종료 칸은 한 줄씩 전체 �
   await expectNoHorizontalOverflow(page)
 })
 
-test('⑧-2 초대받은 일정 — 목록은 「초대받은 일정」, 창은 「일정 보기」·캘린더 칸 「초대받은 일정」·반복 하위 칸도 잠김(WP-604)', async ({
+test('⑧-2 초대받은 일정 — 목록은 「초대받은 일정」, 창은 입력칸 없는 상세 보기·캘린더 칩 「초대받은 일정」·반복은 문장으로(WP-604·WP-708)', async ({
   authenticatedPage: page,
 }) => {
   // 다른 사람(주최자) 캘린더(id 99, 이름 「기본」)의 매주 반복 일정에 초대받았다.
@@ -564,13 +564,16 @@ test('⑧-2 초대받은 일정 — 목록은 「초대받은 일정」, 창은 
   await expect(row).not.toContainText('기본')
   await row.tap()
   const dialog = page.getByTestId('calendar-event-dialog')
-  await expect(dialog.getByRole('heading', { name: '일정 보기' })).toBeVisible()
-  await expect(page.getByTestId('calendar-form-calendar')).toContainText('초대받은 일정')
-  for (const id of ['calendar-form-recurrence-interval', 'calendar-form-recurrence-end', 'calendar-form-recurrence-count']) {
-    await expect(page.getByTestId(id)).toBeDisabled()
-  }
-  // 읽기 전용 창이 열리자마자 숫자 칸에 포커스(휴대폰 숫자 키보드)가 가지 않는다.
-  await expect(page.getByTestId('calendar-form-recurrence-interval')).not.toBeFocused()
+  // 다이얼로그 제목은 일정 제목, 캘린더는 칩으로 「초대받은 일정」(WP-708).
+  await expect(dialog.getByRole('heading', { name: '주간 회의' })).toBeVisible()
+  await expect(dialog.getByTestId('event-detail-calendar')).toHaveText('초대받은 일정')
+  // 시간은 휴대폰에서 날짜·시각 두 줄, 반복은 입력칸 대신 문장으로.
+  await expect(dialog.getByTestId('event-detail-time')).toContainText('10월 13일 (화)')
+  await expect(dialog.getByTestId('event-detail-time')).toContainText('오전 11:00 – 오후 12:00')
+  await expect(dialog.getByTestId('event-detail-recurrence')).toHaveText('매주 화요일 · 5회')
+  // 입력칸이 없으니 열자마자 숫자 칸 포커스(휴대폰 숫자 키보드)가 생길 수 없다(WP-604).
+  await expect(dialog.locator('input, textarea, select')).toHaveCount(0)
+  await expectNoHorizontalOverflow(page)
 })
 
 test('⑨ 이슈 마감 행 — ⚑ 마감·이슈 키, 탭하면 이슈 상세로', async ({ authenticatedPage: page }) => {

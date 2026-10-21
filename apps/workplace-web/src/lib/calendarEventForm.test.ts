@@ -169,6 +169,16 @@ const base: EventFormValues = {
 }
 
 describe('toEventRequest', () => {
+  it('잠긴 반복 규칙(폼이 담을 수 없는 규칙)은 폼 값 대신 원래 규칙을 보낸다(WP-708)', () => {
+    const opts = { isEdit: true, defaultCalendarId: 1, attendeeUserIds: [] }
+    // parseRRule 이 BYDAY 를 버려 폼 값은 「매주」만 남은 상태
+    const values = { ...base, recurrenceFreq: 'WEEKLY' as const }
+    expect(toEventRequest(values, { ...opts, lockedRecurrenceRule: 'FREQ=WEEKLY;BYDAY=MO,WE,FR' }).recurrenceRule).toBe(
+      'FREQ=WEEKLY;BYDAY=MO,WE,FR',
+    )
+    expect(toEventRequest(values, { ...opts, lockedRecurrenceRule: null }).recurrenceRule).toBe('FREQ=WEEKLY')
+  })
+
   it('리마인더 선택값은 분 단위 숫자로, "none" 은 null 로', () => {
     const opts = { isEdit: false, defaultCalendarId: 1, attendeeUserIds: [] }
     expect(toEventRequest({ ...base, reminderMinutes: '10' }, opts).reminderMinutes).toBe(10)

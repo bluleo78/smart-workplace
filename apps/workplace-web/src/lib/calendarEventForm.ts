@@ -136,6 +136,19 @@ export function restoreTimedRange(
 // 제출 요청 조립
 // ────────────────────────────────────────────────────────────
 
+/** 반복 폼 모델 → 평탄한 폼 필드 — 다이얼로그를 열 때 프리필과 잠긴 규칙 풀기(WP-708)가 같이 쓴다. toEventRequest 의 반대 방향. */
+export function recurrenceToFormValues(
+  rec: RecurrenceForm,
+): Pick<EventFormValues, 'recurrenceFreq' | 'recurrenceInterval' | 'recurrenceEnd' | 'recurrenceUntil' | 'recurrenceCount'> {
+  return {
+    recurrenceFreq: rec.freq,
+    recurrenceInterval: rec.interval,
+    recurrenceEnd: rec.end.type,
+    recurrenceUntil: rec.end.type === 'until' ? rec.end.date : '',
+    recurrenceCount: rec.end.type === 'count' ? rec.end.count : 1,
+  }
+}
+
 /**
  * 검증된 폼 값 → 일정 생성/수정 요청 바디.
  *
@@ -144,7 +157,13 @@ export function restoreTimedRange(
  */
 export function toEventRequest(
   values: EventFormValues,
-  opts: { isEdit: boolean; defaultCalendarId: number | undefined; attendeeUserIds: number[] },
+  opts: {
+    isEdit: boolean
+    defaultCalendarId: number | undefined
+    attendeeUserIds: number[]
+    /** 폼이 담을 수 없는 반복 규칙(isFormEditableRRule=false)이면 그 원래 규칙 — 폼 값 대신 그대로 보낸다(WP-708) */
+    lockedRecurrenceRule?: string | null
+  },
 ): CalendarEventRequest {
   const recForm: RecurrenceForm = {
     freq: values.recurrenceFreq,
@@ -171,7 +190,7 @@ export function toEventRequest(
     calendarId: values.calendarId ?? opts.defaultCalendarId,
     // 'none'(없음) → null, 그 외 분 단위 숫자로 변환
     reminderMinutes: values.reminderMinutes === 'none' ? null : Number(values.reminderMinutes),
-    recurrenceRule: buildRRule(recForm),
+    recurrenceRule: opts.lockedRecurrenceRule ?? buildRRule(recForm),
     attendeeUserIds: opts.isEdit ? undefined : opts.attendeeUserIds,
   }
 }

@@ -520,15 +520,15 @@ export function formatListTime(at: string, now: Date = new Date()): string {
   const t = kstParts(date)
   const rel = kstDayRelative(t, now)
   if (rel === 'today') {
-    const h12 = t.h % 12 === 0 ? 12 : t.h % 12
-    return `${t.h < 12 ? '오전' : '오후'} ${h12}:${String(t.min).padStart(2, '0')}`
+    const { meridiem, clock } = meridiemClock(t.h, t.min)
+    return `${meridiem} ${clock}`
   }
   if (rel === 'yesterday') return '어제'
   if (t.y === kstParts(now).y) return `${t.m}월 ${t.d}일`
   return `${t.y}. ${t.m}. ${t.d}.`
 }
 
-const WEEKDAY_KO = ['일', '월', '화', '수', '목', '금', '토'] as const
+export const WEEKDAY_KO = ['일', '월', '화', '수', '목', '금', '토'] as const
 
 /** KST 연·월·일 부품의 요일 한 글자(일~토) — ICU 로케일 데이터에 기대지 않고 직접 계산한다. */
 export function kstWeekday(t: Pick<Ymdhm, 'y' | 'm' | 'd'>): string {
@@ -547,4 +547,24 @@ export function formatDayGroupLabel(at: string, now: Date = new Date()): string 
   if (rel) return rel === 'today' ? '오늘' : '어제'
   const day = `${t.m}월 ${t.d}일 ${kstWeekday(t)}요일`
   return t.y === kstParts(now).y ? day : `${t.y}년 ${day}`
+}
+
+/**
+ * 로컬 날짜 + 요일 — "10월 21일 (수)", 올해(now 기준)가 아니면 "2027년 1월 4일 (월)" (WP-708 일정 상세 보기).
+ * 캘린더 화면은 날짜 판정을 브라우저 로컬 타임존으로 하므로(#828) 로컬 부품을 쓴다. 요일은 직접 계산(ICU 로케일 비의존).
+ */
+export function formatLocalDateWithWeekday(d: Date, now: Date = new Date()): string {
+  const md = `${d.getMonth() + 1}월 ${d.getDate()}일 (${WEEKDAY_KO[d.getDay()]})`
+  return d.getFullYear() === now.getFullYear() ? md : `${d.getFullYear()}년 ${md}`
+}
+
+/** 시(0~23)·분 → 오전/오후와 12시간제 "3:00" 부분. 정오는 오후 12시, 자정은 오전 12시. */
+function meridiemClock(h: number, min: number): { meridiem: '오전' | '오후'; clock: string } {
+  const h12 = h % 12 === 0 ? 12 : h % 12
+  return { meridiem: h < 12 ? '오전' : '오후', clock: `${h12}:${String(min).padStart(2, '0')}` }
+}
+
+/** 로컬 시각의 오전/오후와 "3:00" 부분 — 일정 시간 범위에서 끝 시각의 오전/오후를 생략할 수 있게 나눠 준다(WP-708). */
+export function localClockParts(d: Date): { meridiem: '오전' | '오후'; clock: string } {
+  return meridiemClock(d.getHours(), d.getMinutes())
 }

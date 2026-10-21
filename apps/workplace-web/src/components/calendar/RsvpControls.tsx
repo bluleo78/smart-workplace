@@ -3,6 +3,7 @@
 // 본인이 참석자이고 주최자가 아니며 AGENT 가 아닐 때만 렌더. (이슈 #489)
 import { Button } from '@/components/ui/button'
 import { useRsvp } from '@/hooks/queries/useCalendarMutations'
+import { RSVP_LABEL } from '@/lib/calendarEventView'
 import type { RsvpStatus } from '@/types/calendar'
 
 interface RsvpControlsProps {
@@ -11,12 +12,8 @@ interface RsvpControlsProps {
   current: RsvpStatus
 }
 
-// 버튼 순서: 수락 → 미정 → 거절
-const RSVP_OPTIONS: { status: RsvpStatus; label: string }[] = [
-  { status: 'ACCEPTED', label: '수락' },
-  { status: 'TENTATIVE', label: '미정' },
-  { status: 'DECLINED', label: '거절' },
-]
+// 버튼 순서: 수락 → 미정 → 거절 — 문구는 상세 보기 요약과 같은 RSVP_LABEL(WP-708)
+const RSVP_OPTIONS = (['ACCEPTED', 'TENTATIVE', 'DECLINED'] as const).map((status) => ({ status, label: RSVP_LABEL[status] }))
 
 /**
  * RSVP 응답 버튼 그룹.
