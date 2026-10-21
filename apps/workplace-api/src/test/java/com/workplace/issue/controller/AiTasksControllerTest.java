@@ -256,6 +256,21 @@ class AiTasksControllerTest extends IntegrationTestBase {
         .containsExactlyInAnyOrder("inputRequired", "review", "working");
   }
 
+  /** WP-661: 이슈 상태·우선순위 필터는 이슈 검색과 같은 규칙 — 없는 값은 400(빈 목록을 정답처럼 돌려주지 않는다), 소문자는 정식 값으로. */
+  @Test
+  void 이슈_상태_우선순위_필터의_없는_값은_400_소문자는_받아준다() throws Exception {
+    work(issue("todo", other), me, "WORKING");
+
+    assertThat(titles(getJson("/api/v1/me/ai-tasks?status=todo&priority=mid")))
+        .containsExactly("todo");
+    var badStatus = perform("/api/v1/me/ai-tasks?status=FOO").getResponse();
+    assertThat(badStatus.getStatus()).isEqualTo(400);
+    assertThat(badStatus.getContentAsString(java.nio.charset.StandardCharsets.UTF_8))
+        .contains("FOO");
+    assertThat(perform("/api/v1/me/ai-tasks/counts?priority=XYZ").getResponse().getStatus())
+        .isEqualTo(400);
+  }
+
   // ---------------------------------------------------------------- 완료 보기(WP-396)
 
   /**

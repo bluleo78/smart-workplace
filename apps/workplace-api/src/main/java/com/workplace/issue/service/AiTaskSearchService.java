@@ -124,8 +124,8 @@ public class AiTaskSearchService {
 
   /**
    * 파라미터 정규화. scope 는 대소문자 무시 ALL 만 전체(그 외 "나와 관련"), size 기본 30·최대 100, CSV 는 trim·빈 값 제외,
-   * agentState 는 진행 중·종료 상태만 남기고(종료 상태 = 완료 보기, WP-396) 모르는 값은 무시한다. 잘못된 cursor 는
-   * InvalidCursorException(400).
+   * agentState 는 진행 중·종료 상태만 남기고(종료 상태 = 완료 보기, WP-396) 모르는 값은 무시한다. 이슈 status·priority 는 이슈 검색과 같이
+   * 없는 값이면 400(WP-661). 잘못된 cursor 는 InvalidCursorException(400).
    */
   AiTaskQuery parse(Map<String, String> p) {
     boolean all = "ALL".equalsIgnoreCase(trimToNull(p.get("scope")));
@@ -139,6 +139,11 @@ public class AiTaskSearchService {
 
     int size = SearchParams.size(p.get("size"));
     return new AiTaskQuery(
-        all, agentStates, csv(p.get("status")), csv(p.get("priority")), cursor, size);
+        all,
+        agentStates,
+        SearchParams.statuses(p.get("status")),
+        SearchParams.priorities(p.get("priority")),
+        cursor,
+        size);
   }
 }

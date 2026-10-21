@@ -192,8 +192,9 @@ public class IssueSearchService {
    */
   private IssueSearchQuery parse(Long callerId, Long projectId, Map<String, String> p) {
     String q = trimToNull(p.get("q"));
-    List<String> statuses = csv(p.get("status"));
-    List<String> priorities = csv(p.get("priority"));
+    // WP-661: 없는 상태·우선순위는 빈 목록 대신 400, 소문자는 정식 값으로.
+    List<String> statuses = SearchParams.statuses(p.get("status"));
+    List<String> priorities = SearchParams.priorities(p.get("priority"));
 
     // 7a: assignee — 'me' 는 호출자 본인(홈 컴포저가 사용자 ID 를 몰라도 "내 담당" 조회), 'null' 은 미지정 포함.
     // #841: 숫자 외 토큰은 username 으로 해석하고 없으면 400(예전엔 조용히 버려 필터가 빠진 결과를 반환했다).

@@ -266,4 +266,43 @@ class IssueSearchFilterNamesTest extends IntegrationTestBase {
     assertThatThrownBy(() -> searchService.searchMine(caller.id(), Map.of("projectKey", "NOPE404")))
         .isInstanceOf(ProjectNotFoundException.class);
   }
+
+  /**
+   * WP-661: 상태·우선순위 필터도 없는 값을 조용히 빈 목록으로 돌려주지 않고 400 으로 거부한다(라벨·유형 #841 과 같은 규칙). 대소문자만 다른 값은 정식
+   * 값으로 받아 준다 — 예전엔 "todo" 가 아무것도 맞지 않아 빈 목록이 정답처럼 보였다.
+   */
+  @Test
+  void unknown_status_or_priority_is_rejected_and_lowercase_is_normalized() {
+    TestUser owner = createUser("fs", true);
+    ProjectResponse p = newProject(owner.id(), "FST");
+    issueRepository.insert(p.id(), 1, "todo-high", null, "HIGH", null, owner.id());
+
+    var byLower =
+        searchService.search(owner.id(), p.key(), Map.of("status", "todo", "priority", "high"));
+    assertThat(byLower.items()).extracting(i -> i.number()).containsExactly(1);
+
+    assertThatThrownBy(
+            () -> searchService.search(owner.id(), p.key(), Map.of("status", "TODO,FOO")))
+        .isInstanceOf(InvalidIssueFilterException.class)
+        .hasMessageContaining("FOO")
+        .hasMessageContaining("TODO, IN_PROGRESS, DONE, CANCELED")
+        .satisfies(
+            e -> assertThat(((InvalidIssueFilterException) e).getField()).isEqualTo("status"));
+    assertThatThrownBy(
+            () -> searchService.search(owner.id(), p.key(), Map.of("status", "COMPLETED")))
+        .isInstanceOf(InvalidIssueFilterException.class);
+    assertThatThrownBy(() -> searchService.search(owner.id(), p.key(), Map.of("priority", "XYZ")))
+        .isInstanceOf(InvalidIssueFilterException.class)
+        .hasMessageContaining("LOW, MID, HIGH")
+        .satisfies(
+            e -> assertThat(((InvalidIssueFilterException) e).getField()).isEqualTo("priority"));
+    // 횡단 검색(내 이슈)·그룹 총계도 같은 파서를 쓴다.
+    assertThatThrownBy(() -> searchService.searchMine(owner.id(), Map.of("status", "FOO")))
+        .isInstanceOf(InvalidIssueFilterException.class);
+    assertThatThrownBy(
+            () ->
+                searchService.groupCounts(
+                    owner.id(), p.key(), Map.of("groupBy", "status", "priority", "XYZ")))
+        .isInstanceOf(InvalidIssueFilterException.class);
+  }
 }
