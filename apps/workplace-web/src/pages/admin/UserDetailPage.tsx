@@ -26,6 +26,7 @@ import { Label } from '../../components/ui/label';
 import { Skeleton } from '../../components/ui/skeleton';
 import { Switch } from '../../components/ui/switch';
 import { useAuth } from '../../hooks/useAuth';
+import { assignableRoles } from '../../lib/assignableRoles';
 import { formatDateShort } from '../../lib/formatters';
 import type { ErrorResponse } from '../../types/auth';
 import type { RoleResponse } from '../../types/role';
@@ -249,9 +250,17 @@ export default function UserDetailPage() {
       </SettingsSection>
 
       {/* 역할 할당 — 체크한 역할을 '역할 저장'으로 한 번에 반영 */}
-      <SettingsSection title="역할 할당" description="이 구성원에게 줄 역할을 골라요.">
+      <SettingsSection
+        title="역할 할당"
+        description={
+          user.kind === 'AGENT'
+            ? '이 AI 에게 줄 역할을 골라요. AI 에게는 관리자 역할이나 관리 권한이 든 역할을 줄 수 없어요.'
+            : '이 구성원에게 줄 역할을 골라요.'
+        }
+      >
         <div className="space-y-3">
-          {allRoles.map((role) => {
+          {/* 대상 종류에 맞는 역할만(WP-728) — 이미 가진 역할은 뺄 수 있게 그대로 보인다. */}
+          {assignableRoles(allRoles, user.kind, user.roles.map((r) => r.id)).map((role) => {
             // 자기 자신의 ADMIN 역할 제거 차단 (#57)
             const isSelf = currentUser?.id === Number(id);
             const isOwnAdminRole = isSelf && role.name === 'ADMIN';
