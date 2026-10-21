@@ -14,12 +14,12 @@ import {
 import { handleApiError } from '../../lib/api-error';
 import type { SaveViewRequest } from '../../types/savedView';
 
-// 프로젝트의 저장된 뷰 목록.
-export function useSavedViews(projectKey: string) {
+// 프로젝트의 저장된 뷰 목록. enabled=false 면 요청하지 않는다(서버가 멤버 전용이라 비멤버는 403 — WP-741).
+export function useSavedViews(projectKey: string, enabled = true) {
   return useQuery({
     queryKey: ['savedViews', projectKey],
     queryFn: () => listSavedViews(projectKey),
-    enabled: !!projectKey,
+    enabled: !!projectKey && enabled,
   });
 }
 

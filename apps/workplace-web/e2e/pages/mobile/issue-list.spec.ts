@@ -254,6 +254,22 @@ test.describe('모바일 툴바', () => {
     await expect(page.getByTestId('mobile-view-sheet')).toBeVisible();
   });
 
+  // WP-741 — OPEN 비멤버는 저장된 뷰를 쓸 수 없다(서버 멤버 전용): 목록을 요청하지 않고 시트에 저장 행도 없다.
+  test('뷰 시트 — OPEN 비멤버는 저장된 뷰를 요청하지 않고 「뷰 저장」 행이 없다', async ({ authenticatedPage: page }) => {
+    let savedViewRequests = 0;
+    page.on('request', (r) => {
+      if (new URL(r.url()).pathname === `/api/v1/projects/${KEY}/saved-views`) savedViewRequests += 1;
+    });
+    await mock(page);
+    await page.route(`**/api/v1/projects/${KEY}`, (r) => r.fulfill(json(createProject({ key: KEY, type: 'OPEN', viewerIsMember: false }))));
+    await page.goto(`/projects/${KEY}`);
+    await page.getByTestId('mobile-chip-view').click();
+    await expect(page.getByTestId('mobile-view-sheet')).toBeVisible();
+    await expect(page.getByTestId('mobile-view-option-all')).toBeVisible();
+    await expect(page.getByTestId('mobile-view-save')).toHaveCount(0);
+    expect(savedViewRequests).toBe(0);
+  });
+
   test('저장된 에픽 패널 열림 상태가 있어도 모바일에선 패널을 그리지 않는다', async ({ authenticatedPage: page }) => {
     await page.addInitScript(() => localStorage.setItem('epicSidePanel.open.WP', 'true'));
     await mock(page);

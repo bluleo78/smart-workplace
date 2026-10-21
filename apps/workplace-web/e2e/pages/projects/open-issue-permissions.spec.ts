@@ -180,6 +180,28 @@ test('OPEN 비멤버: 드래그 못 하는 보드 카드도 사용 불가로 표
   await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_KEY}/issues/7$`));
 });
 
+// WP-741 — 저장된 뷰는 서버가 멤버 전용이라 비멤버가 보드를 열 때마다 목록 요청이 403 이었고, 쓸 수 없는 「뷰 저장」이 보였다.
+test('OPEN 비멤버: 저장된 뷰를 요청하지 않고 「뷰 저장」도 없다 (멤버는 그대로)', async ({ authenticatedPage: page }) => {
+  let savedViewRequests = 0;
+  page.on('request', (r) => {
+    if (new URL(r.url()).pathname === `/api/v1/projects/${PROJECT_KEY}/saved-views`) savedViewRequests += 1;
+  });
+  await setupBoardMocks(page, false);
+  await page.goto(`/projects/${PROJECT_KEY}?view=board`);
+  await expect(page.getByTestId('view-chip-bar')).toBeVisible();
+  await expect(page.getByRole('button', { name: '+ 새 태스크' })).toBeVisible();
+  await expect(page.getByTestId('save-view-button')).toHaveCount(0);
+  expect(savedViewRequests).toBe(0);
+});
+
+test('OPEN 멤버: 저장된 뷰를 불러오고 「뷰 저장」이 보인다 (WP-741 반대쪽)', async ({ authenticatedPage: page }) => {
+  const savedViews = page.waitForRequest((r) => new URL(r.url()).pathname === `/api/v1/projects/${PROJECT_KEY}/saved-views`);
+  await setupBoardMocks(page, true);
+  await page.goto(`/projects/${PROJECT_KEY}?view=board`);
+  await savedViews;
+  await expect(page.getByTestId('save-view-button')).toBeVisible();
+});
+
 // WP-477 — OPEN 비멤버는 접수만 한다: 새 이슈 다이얼로그가 유형·우선순위·일정 칸 대신 안내를 보이고, 제목·본문만 보낸다
 // (서버는 기본값이 아닌 멤버 전용 값을 403 으로 거부). 판정은 projectPermissions.test.ts 의 isIntakeOnly 가 맡는다.
 test('OPEN 비멤버: 새 이슈 다이얼로그는 접수 칸만 보이고 제목·본문만 보낸다', async ({ authenticatedPage: page }) => {
