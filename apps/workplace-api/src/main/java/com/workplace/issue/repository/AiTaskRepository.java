@@ -39,6 +39,7 @@ import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.jooq.Field;
 import org.jooq.SelectField;
+import org.jooq.SortField;
 import org.jooq.Table;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
@@ -50,6 +51,12 @@ import org.springframework.stereotype.Repository;
  * 에픽 묶음 단위로 감싸 한 에픽의 행이 연속으로 나오고, WP-426 부터 다시 프로젝트 단위로 감싸 한 프로젝트의 행이 페이지를 넘어서도 연속으로 나온다(가장 급한 행을
  * 가진 프로젝트가 먼저 — 그래서 뒤 프로젝트의 답변 필요 행은 앞 프로젝트의 작업 중 행 뒤에 온다) — 정렬 키 10개(프로젝트 순위, 프로젝트 최근 시각, 프로젝트 id,
  * 묶음 순위, 묶음 최근 시각, 묶음 키, 머리 순서, rank, sortAt, id)를 같은 10개로 된 복합 커서({@link AiTaskCursor})로 넘긴다.
+ *
+ * <p><b>미완료(live) 보기에서만</b> 최근 시각보다 id 를 먼저 비교해, 같은 순위 안에서는 불변 id 로 동률을 깬다(WP-690) — 미완료 보기의 최근
+ * 시각(진행 중 작업의 마지막 보고 시각)은 보고가 올 때마다 바뀌어, 같은 순위 프로젝트/에픽/행 순서가 조회마다 흔들리는 원인이었다. 완료(done) 보기의 최근 시각(종료
+ * 시각)은 작업이 끝난 뒤 바뀌지 않는 안정적인 값이고 "최근 종료가 있는 프로젝트가 먼저" 라는 의도된 기능이라 그대로 최근 시각을 id 보다 먼저 둔다. 어느 쪽인지는
+ * 요청이 종료 상태만 묻는지(terminal states 만 있고 active 가 없음 — 화면이 미완료/완료 두 보기를 배타적으로 요청)로 판정한다({@link
+ * #search} 의 {@code liveTieBreak}).
  *
  * <p>WP-396 부터 보기가 둘로 나뉜다 — 미완료(기본: 진행 중 작업이 있는 이슈)와 완료(진행 중 작업 없이 종료 작업이 있는 이슈, 최근 종료순). 작업
  * 기록(agent_work)이 하나도 없는 이슈는 AI 담당이어도 어느 보기에도 나오지 않는다.
@@ -313,8 +320,10 @@ public class AiTaskRepository {
 
   /**
    * 프로젝트·에픽 묶음 단위 급한 순 한 페이지(WP-375 §3.6, WP-426 §4.1). 묶음 키 = 에픽이면 자기 id, 부모가 에픽이면 부모 id, 그 밖은 자기
-   * id. 정렬: 프로젝트 순위 ASC → 프로젝트 최근 시각 DESC → 프로젝트 id DESC → 묶음 안 최소 순위 ASC → 묶음 안 최근 보고 DESC → 묶음 키
-   * DESC → 머리(에픽 행) 먼저 → 순위 ASC, 정렬 시각 DESC, id DESC.
+   * id. 정렬: 프로젝트 순위 ASC → (최근 시각, id) 두 키(미완료면 id 가 먼저 — WP-690) → 묶음 안 최소 순위 ASC → (묶음 최근 보고, 묶음
+   * 키) 두 키(미완료면 묶음 키가 먼저) → 머리(에픽 행) 먼저 → 순위 ASC, (정렬 시각, id) 두 키(미완료면 id 가 먼저). 미완료 보기는 최근 시각이
+   * 보고마다 바뀌는 휘발성 값이라 id 를 먼저 비교해 같은 순위 동률을 고정하고, 완료 보기는 최근 시각(종료 시각)이 안정적이고 "최근 종료가 있는 프로젝트가 위"가
+   * 의도된 동작이라 그대로 최근 시각을 먼저 둔다(어느 쪽인지는 {@link #search} 의 {@code liveTieBreak}).
    *
    * <p>프로젝트 자리는 "그 프로젝트의 첫 행이 프로젝트 키 없는 정렬에서 서는 자리"다 — 프로젝트 순위 = 프로젝트 안 최소 묶음 순위, 프로젝트 최근 시각 = 그
    * 순위인 묶음들의 최근 시각 중 가장 최근((묶음 순위 ASC, 묶음 최근 시각 DESC) 첫 값). 프로젝트 전체의 최근 시각을 쓰면 덜 급한 최근 행이 프로젝트를 위로
@@ -443,40 +452,57 @@ public class AiTaskRepository {
             rHead,
             rEndedWork));
 
+    // 미완료(live) 보기인지 — terminal 상태만 요청했으면(active 없음) 완료 보기(WP-396 두 보기는 배타적으로 요청된다).
+    // 미완료 보기의 최근 시각은 보고마다 바뀌는 휘발성 값이라 id 를 먼저 비교해 동률을 고정하고(WP-690), 완료 보기의 최근
+    // 시각(종료 시각)은 바뀌지 않는 안정적인 값이자 "최근 종료가 있는 프로젝트가 위" 라는 의도된 동작이라 그대로 둔다.
+    boolean liveTieBreak = terminal.isEmpty();
+
     Condition seek = noCondition();
     if (q.cursor() != null) {
       AiTaskCursor c = q.cursor();
-      seek =
-          after(
-              List.of(
-                  SeekKey.asc(pRank, c.projectRank()),
-                  SeekKey.desc(pSortAt, utc(c.projectSortAt())),
-                  SeekKey.desc(rProject, c.projectId()),
-                  SeekKey.asc(rGroupRank, c.groupRank()),
-                  SeekKey.desc(rGroupSortAt, utc(c.groupSortAt())),
-                  SeekKey.desc(rGroup, c.groupKey()),
-                  SeekKey.asc(rHead, c.headOrder()),
-                  SeekKey.asc(rRank, c.rank()),
-                  SeekKey.desc(rSortAt, utc(c.sortAt())),
-                  SeekKey.desc(ISSUE.ID, c.id())));
+      SeekKey<?> projectId = SeekKey.desc(rProject, c.projectId());
+      SeekKey<?> projectSortAt = SeekKey.desc(pSortAt, utc(c.projectSortAt()));
+      SeekKey<?> groupIdKey = SeekKey.desc(rGroup, c.groupKey());
+      SeekKey<?> groupSortAt = SeekKey.desc(rGroupSortAt, utc(c.groupSortAt()));
+      SeekKey<?> id = SeekKey.desc(ISSUE.ID, c.id());
+      SeekKey<?> rowSortAt = SeekKey.desc(rSortAt, utc(c.sortAt()));
+      List<SeekKey<?>> keys = new ArrayList<>();
+      keys.add(SeekKey.asc(pRank, c.projectRank()));
+      keys.addAll(
+          liveTieBreak ? List.of(projectId, projectSortAt) : List.of(projectSortAt, projectId));
+      keys.add(SeekKey.asc(rGroupRank, c.groupRank()));
+      keys.addAll(
+          liveTieBreak ? List.of(groupIdKey, groupSortAt) : List.of(groupSortAt, groupIdKey));
+      keys.add(SeekKey.asc(rHead, c.headOrder()));
+      keys.add(SeekKey.asc(rRank, c.rank()));
+      keys.addAll(liveTieBreak ? List.of(id, rowSortAt) : List.of(rowSortAt, id));
+      seek = after(keys);
     }
+
+    List<SortField<?>> order = new ArrayList<>();
+    order.add(pRank.asc());
+    order.addAll(
+        liveTieBreak
+            ? List.<SortField<?>>of(rProject.desc(), pSortAt.desc())
+            : List.<SortField<?>>of(pSortAt.desc(), rProject.desc()));
+    order.add(rGroupRank.asc());
+    order.addAll(
+        liveTieBreak
+            ? List.<SortField<?>>of(rGroup.desc(), rGroupSortAt.desc())
+            : List.<SortField<?>>of(rGroupSortAt.desc(), rGroup.desc()));
+    order.add(rHead.asc());
+    order.add(rRank.asc());
+    order.addAll(
+        liveTieBreak
+            ? List.<SortField<?>>of(ISSUE.ID.desc(), rSortAt.desc())
+            : List.<SortField<?>>of(rSortAt.desc(), ISSUE.ID.desc()));
 
     return dsl.select(fields)
         .from(ISSUE)
         .join(sorted)
         .on(rId.eq(ISSUE.ID))
         .where(seek)
-        .orderBy(
-            pRank.asc(),
-            pSortAt.desc(),
-            rProject.desc(),
-            rGroupRank.asc(),
-            rGroupSortAt.desc(),
-            rGroup.desc(),
-            rHead.asc(),
-            rRank.asc(),
-            rSortAt.desc(),
-            ISSUE.ID.desc())
+        .orderBy(order)
         .limit(q.size())
         .fetch(
             r ->

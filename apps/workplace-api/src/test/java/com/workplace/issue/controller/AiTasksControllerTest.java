@@ -225,12 +225,17 @@ class AiTasksControllerTest extends IntegrationTestBase {
     assertThat(titles(getJson("/api/v1/me/ai-tasks"))).containsExactly("working", "scheduled");
   }
 
+  /**
+   * WP-690: 같은 순위는 보고 시각이 아니라 이슈 id(최근 생성 먼저)로 동률을 깬다 — older 의 보고가 newer 보다 더 최근이어도 순서는 바뀌지
+   * 않는다(재조회해도 항상 같은 순서).
+   */
   @Test
-  void 같은_순위는_마지막_보고_최근순() throws Exception {
+  void 같은_순위는_id_역순으로_고정되고_보고_시각과_무관하다() throws Exception {
     long older = issue("older", other);
-    work(older, me, "WORKING", Instant.parse("2026-10-01T00:00:00Z"));
+    // older 를 더 늦게, 더 최근 시각으로 보고해도 — id 가 더 작으므로 뒤로 간다.
     long newer = issue("newer", other);
-    work(newer, me, "WORKING", Instant.parse("2026-10-02T00:00:00Z"));
+    work(newer, me, "WORKING", Instant.parse("2026-09-01T00:00:00Z"));
+    work(older, me, "WORKING", Instant.parse("2026-10-02T00:00:00Z"));
     // 한 이슈에 여러 작업이면 가장 급한 상태가 순위 — AI 구성원 INPUT_REQUIRED 가 사람 WORKING 보다 앞선다.
     long mixed = issue("mixed", me);
     assign(mixed, agent);
@@ -238,6 +243,38 @@ class AiTasksControllerTest extends IntegrationTestBase {
     work(mixed, agent, "INPUT_REQUIRED");
 
     assertThat(titles(getJson("/api/v1/me/ai-tasks"))).containsExactly("mixed", "newer", "older");
+    // 재조회해도 흔들리지 않는다.
+    assertThat(titles(getJson("/api/v1/me/ai-tasks"))).containsExactly("mixed", "newer", "older");
+  }
+
+  /**
+   * WP-690: 같은 에픽 묶음 안, 같은 순위인 행끼리도 보고 시각이 아니라 id 로 동률을 깐다 — c1 에 c2 보다 훨씬 최근인 새 보고가 들어와도(묶음 안 머리
+   * 다음 자리의 순서가 sortAt 기준이면 뒤바뀌어야 하지만) id 로 고정돼 바뀌지 않는다.
+   */
+  @Test
+  void 같은_묶음_안_같은_순위도_id_역순으로_고정되고_보고_시각과_무관하다() throws Exception {
+    long e = issue("E", me);
+    setType(e, epicTypeId());
+    assign(e, agent);
+    work(e, agent, "WORKING", Instant.parse("2026-10-01T00:00:00Z"));
+    long c1 = issue("C1", me);
+    setParent(c1, e);
+    assign(c1, agent);
+    work(c1, agent, "WORKING", Instant.parse("2026-10-01T00:00:00Z"));
+    long c2 = issue("C2", me);
+    setParent(c2, e);
+    assign(c2, agent);
+    work(c2, agent, "WORKING", Instant.parse("2026-10-02T00:00:00Z"));
+
+    // c1·c2 는 같은 순위(WORKING) — id 가 더 큰(나중에 만든) c2 가 앞.
+    assertThat(titles(getJson("/api/v1/me/ai-tasks?size=100"))).containsExactly("E", "C2", "C1");
+
+    // c1 에 c2 보다 훨씬 최근인 새 보고가 들어와도 순서는 그대로다(id 로 고정, WP-690).
+    dsl.update(AGENT_WORK)
+        .set(AGENT_WORK.UPDATED_AT, Instant.parse("2026-10-10T00:00:00Z").atOffset(ZoneOffset.UTC))
+        .where(AGENT_WORK.ISSUE_ID.eq(c1))
+        .execute();
+    assertThat(titles(getJson("/api/v1/me/ai-tasks?size=100"))).containsExactly("E", "C2", "C1");
   }
 
   @Test
@@ -274,8 +311,9 @@ class AiTasksControllerTest extends IntegrationTestBase {
   // ---------------------------------------------------------------- 완료 보기(WP-396)
 
   /**
-   * 완료 보기 = 진행 중 작업이 없고 종료 작업이 있는 이슈. 대표 작업(agentWork[0])은 가장 최근 종료 1건이고, 최근 종료순으로 정렬한다. 진행 중 작업이
-   * 하나라도 남은 이슈는 종료 작업이 있어도 미완료 쪽에만 나온다(두 보기는 배타적).
+   * 완료 보기 = 진행 중 작업이 없고 종료 작업이 있는 이슈. 대표 작업(agentWork[0])은 가장 최근 종료 1건이고, 최근 종료순으로 정렬한다(완료 보기의 종료
+   * 시각은 보고처럼 다시 바뀌지 않는 안정적인 값이라 WP-690 의 id-우선 동률 깨기 대상이 아니다). 진행 중 작업이 하나라도 남은 이슈는 종료 작업이 있어도 미완료
+   * 쪽에만 나온다(두 보기는 배타적).
    */
   @Test
   void 완료_보기는_진행중_작업이_없고_종료작업이_있는_이슈만_최근종료순() throws Exception {
@@ -560,20 +598,21 @@ class AiTasksControllerTest extends IntegrationTestBase {
   void 에픽_묶음은_연속이고_가장_급한_행_순위로_자리잡으며_머리가_먼저() throws Exception {
     EpicSeed s = seedEpicGroup();
 
-    // E 묶음 순위 = min(작업중 4, 답변 필요 0, 검토 2) = 0, 최근 = t-30분. S2 도 순위 0 이지만 t-60분이라 뒤, S1(막힘 3)이 맨 뒤.
+    // E 묶음 순위 = min(작업중 4, 답변 필요 0, 검토 2) = 0. S2 도 순위 0 이지만 보고 시각이 아니라 묶음 id 역순(WP-690)으로 동률을
+    // 깨 — s2 가 e 보다 나중에 만들어져 id 가 더 크므로 S2 가 먼저. S1(막힘 3)이 맨 뒤.
     JsonNode body = getJson("/api/v1/me/ai-tasks?size=100");
-    assertThat(titles(body)).containsExactly("E", "C1", "C2", "S2", "S1");
+    assertThat(titles(body)).containsExactly("S2", "E", "C1", "C2", "S1");
     JsonNode items = body.get("items");
-    JsonNode head = items.get(0).get("aiGroup");
+    // 비에픽 단독 행(S2)은 aiGroup 생략.
+    assertThat(items.get(0).has("aiGroup")).isFalse();
+    JsonNode head = items.get(1).get("aiGroup");
     assertThat(head.get("epicNumber").asInt()).isEqualTo(number(s.e()));
     assertThat(head.get("size").asInt()).isEqualTo(3);
     assertThat(head.get("epicChildCount").asInt()).isEqualTo(3); // C1·C2·C3
     assertThat(head.get("epicChildDoneCount").asInt()).isEqualTo(1); // C3
     // 하위 행도 같은 묶음 정보를 싣는다.
-    assertThat(items.get(1).at("/aiGroup/epicNumber").asInt()).isEqualTo(number(s.e()));
-    assertThat(items.get(2).at("/aiGroup/size").asInt()).isEqualTo(3);
-    // 비에픽 단독 행은 aiGroup 생략.
-    assertThat(items.get(3).has("aiGroup")).isFalse();
+    assertThat(items.get(2).at("/aiGroup/epicNumber").asInt()).isEqualTo(number(s.e()));
+    assertThat(items.get(3).at("/aiGroup/size").asInt()).isEqualTo(3);
     assertThat(items.get(4).has("aiGroup")).isFalse();
   }
 
@@ -625,14 +664,15 @@ class AiTasksControllerTest extends IntegrationTestBase {
   void 빠른_필터를_켜면_걸러진_행끼리만_묶는다() throws Exception {
     EpicSeed s = seedEpicGroup();
 
-    // 답변 필요만: C1(t-40분, 묶음 E 의 유일한 행) 이 S2(t-60분) 보다 앞. 에픽 행이 빠져도 C1 은 에픽 묶음 정보를 싣는다.
+    // 답변 필요만: C1(묶음 E 의 유일한 남은 행)과 S2 가 같은 순위라 묶음 id 역순(WP-690)으로 — S2(단독, id 가 더 큼)가 먼저. 에픽 행이
+    // 빠져도 C1 은 에픽 묶음 정보를 싣는다.
     JsonNode body = getJson("/api/v1/me/ai-tasks?agentState=INPUT_REQUIRED&size=100");
-    assertThat(titles(body)).containsExactly("C1", "S2");
-    JsonNode g = body.get("items").get(0).get("aiGroup");
+    assertThat(titles(body)).containsExactly("S2", "C1");
+    JsonNode g = body.get("items").get(1).get("aiGroup");
     assertThat(g.get("epicNumber").asInt()).isEqualTo(number(s.e()));
     assertThat(g.get("size").asInt()).isEqualTo(1);
     assertThat(g.get("epicChildCount").asInt()).isEqualTo(3);
-    assertThat(body.get("items").get(1).has("aiGroup")).isFalse();
+    assertThat(body.get("items").get(0).has("aiGroup")).isFalse();
   }
 
   @Test
@@ -655,8 +695,8 @@ class AiTasksControllerTest extends IntegrationTestBase {
   // ---------------------------------------------------------------- 프로젝트 묶음(WP-426)
 
   /**
-   * 프로젝트 자리는 "그 프로젝트의 첫 행이 지금 정렬에서 서는 자리" — 프로젝트 안 최소 묶음 순위, 그 순위 묶음들의 최근 시각. 프로젝트 전체 max(sort_at)
-   * 를 쓰면 A(1분 전 작업 중)가 위로 잘못 올라간다.
+   * 프로젝트 자리는 "그 프로젝트의 첫 행이 지금 정렬에서 서는 자리" — 프로젝트 안 최소 묶음 순위, 동률은 프로젝트 id 역순(WP-690, 보고 시각이 아니라 불변
+   * id 로 깨 순서가 고정된다). B 가 나중에 만든 프로젝트라 A 보다 id 가 커서 위로 온다.
    */
   @Test
   void 프로젝트는_그_프로젝트_첫_행의_자리로_정렬되고_연속이다() throws Exception {
@@ -667,30 +707,32 @@ class AiTasksControllerTest extends IntegrationTestBase {
     work(a2, me, "WORKING", now.minusSeconds(60));
     long pb = otherProject("P-b");
     long b1 = issueIn(pb, "B-input", other);
+    // A 쪽 보고가 B 보다 훨씬 최근이어도(sortAt 기준이면 A 가 위) — id 기준이라 여전히 B 가 위.
     work(b1, me, "INPUT_REQUIRED", now.minusSeconds(600));
-    // 프로젝트 전체 max(sort_at) 를 쓰면 A 가 위로 잘못 올라간다 — 첫 행 자리(같은 순위에서 더 최근) 기준이면 B 가 위.
     assertThat(titles(getJson("/api/v1/me/ai-tasks")))
         .containsExactly("B-input", "A-old-input", "A-new-working");
   }
 
   /**
    * 세 프로젝트에 급한 정도가 엇갈리는 행 8개(A 에 에픽 묶음 포함) — 크기 1·2·3 으로 커서를 끝까지 따라가도 한 번에 받은 id 순서와 같고, 프로젝트 키
-   * 순서열에서 한 번 끝난 프로젝트가 다시 나오지 않는다(지금 정렬 그대로면 B 의 일시 중지 행이 맨 뒤로 떨어져 B 가 다시 나온다).
+   * 순서열에서 한 번 끝난 프로젝트가 다시 나오지 않는다.
    */
   @Test
   void 프로젝트_묶음은_커서로_나눠_받아도_한번에_받은_순서와_같고_다시_나타나지_않는다() throws Exception {
-    // A(기본 프로젝트): E 묶음(E·C1·C2, 묶음 순위 0·최근 t-30분)·S2(답변 필요 t-60분)·S1(막힘 t-5분).
+    // A(기본 프로젝트): E 묶음(E·C1·C2)·S2(답변 필요)·S1(막힘). B: 답변 필요 + 일시 중지. 둘 다 순위 0 이라 A·B 는 프로젝트 id
+    // 역순(WP-690)
+    // — B 가 나중에 만든 프로젝트라 위.
     seedEpicGroup();
-    // B: 답변 필요 t-20분(A 의 첫 행 t-30분보다 최근 → B 가 위) + 일시 중지 t-1분(지금 정렬이면 맨 뒤).
     long pb = otherProject("P-b");
     work(issueIn(pb, "B1", other), me, "INPUT_REQUIRED", REF.minus(Duration.ofMinutes(20)));
     work(issueIn(pb, "B2", other), me, "PAUSED", REF.minus(Duration.ofMinutes(1)));
-    // C: 검토 필요 t-10분 — 순위 2 라 답변 필요가 있는 A·B 뒤.
+    // C: 검토 필요 — 순위 2 라 답변 필요가 있는 A·B 뒤.
     long pc = otherProject("P-c");
     work(issueIn(pc, "C-review", other), me, "REVIEW", REF.minus(Duration.ofMinutes(10)));
 
     JsonNode one = getJson("/api/v1/me/ai-tasks?size=100");
-    assertThat(titles(one)).containsExactly("B1", "B2", "E", "C1", "C2", "S2", "S1", "C-review");
+    // A 안에서는 S2(단독, id 가 E 보다 큼)가 에픽 묶음 E 보다 먼저(WP-690, 같은 묶음 순위 0).
+    assertThat(titles(one)).containsExactly("B1", "B2", "S2", "E", "C1", "C2", "S1", "C-review");
     List<String> all = field(one.get("items"), "id");
     List<String> keys = field(one.get("items"), "projectKey");
     // 한 번 끝난 프로젝트 키가 다시 나오지 않는다 — 연속 구간 수 = 서로 다른 키 수.
