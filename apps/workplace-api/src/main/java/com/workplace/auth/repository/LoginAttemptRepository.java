@@ -6,7 +6,6 @@ import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
-import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -32,11 +31,15 @@ public class LoginAttemptRepository {
   private final DSLContext dsl;
 
   /**
-   * 실패 카운터를 원자적으로 1 증가시킨다. 부모 트랜잭션이 롤백돼도 카운터는 유지되도록 REQUIRES_NEW로 독립 커밋한다.
+   * 실패 카운터를 원자적으로 1 증가시킨다.
+   *
+   * <p>REQUIRES_NEW 를 쓰지 않는다(WP-752). 요청 트랜잭션이 커넥션을 쥔 채 두 번째 커넥션을 빌리면, 풀 크기만큼 틀린 로그인이 동시에 들어올 때 모두가
+   * 두 번째 커넥션을 기다려 풀 타임아웃까지 API 전체가 멈췄다(인증 없는 서비스 거부). 대신 호출 쪽이 카운터가 롤백되지 않게 한다 — 로그인은 자격 검증을 트랜잭션
+   * 밖에서 해 여기서 짧은 트랜잭션이 새로 열리고, 비밀번호 변경은 불일치 예외에 롤백하지 않는 트랜잭션에 함께 커밋한다.
    *
    * @return 증가 후 카운터 값
    */
-  @Transactional(propagation = Propagation.REQUIRES_NEW)
+  @Transactional
   public int incrementAttempts(String username) {
     return dsl.fetchOne(INCREMENT_SQL, username).get(0, Integer.class);
   }
@@ -55,8 +58,8 @@ public class LoginAttemptRepository {
     return attempts == null ? 0 : attempts;
   }
 
-  /** 성공 로그인 시 카운터 제거. */
-  @Transactional(propagation = Propagation.REQUIRES_NEW)
+  /** 성공 로그인 시 카운터 제거. 증가와 같은 이유로 두 번째 커넥션을 빌리지 않는다(WP-752). */
+  @Transactional
   public void clear(String username) {
     dsl.deleteFrom(LOGIN_ATTEMPTS).where(LOGIN_ATTEMPTS.USERNAME.eq(username)).execute();
   }

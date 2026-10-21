@@ -26,6 +26,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
@@ -55,12 +56,19 @@ public class PlatformAuthService {
   private final PasswordLoginVerifier passwordLoginVerifier;
   private final AuditLogService auditLogService;
 
+  /** 로그인의 발급 단계만 트랜잭션으로 묶는다(WP-752 — 자격 검증은 트랜잭션 밖). */
+  private final TransactionTemplate tx;
+
   /** 운영자 로그인/리프레시 결과(내부 운반용): accessToken/refreshToken 분리 + 만료(초) + 사용자. */
   public record PlatformLoginResult(
       String accessToken, String refreshToken, long expiresIn, UserResponse user) {}
 
-  /** 운영자 로그인 — 자격 검증 + 플랫폼 역할 보유 확인 후 platform 토큰 발급. */
-  @Transactional
+  /**
+   * 운영자 로그인 — 자격 검증 + 플랫폼 역할 보유 확인 후 platform 토큰 발급.
+   *
+   * <p>자격 검증·역할 확인은 트랜잭션 밖에서 한다(WP-752, {@code AuthService.login} 과 같은 이유 — 커넥션을 쥔 채 실패 카운터가 두 번째
+   * 커넥션을 빌리면 동시 실패만으로 풀이 교착된다). 토큰 저장과 감사만 트랜잭션으로 묶는다.
+   */
   public PlatformLoginResult login(PlatformLoginRequest request) {
     // 일반 로그인과 같은 잠금·자격 검증 — 실패는 모두 같은 문구·같은 해시 계산 시간(WP-623).
     UserResponse user = passwordLoginVerifier.verify(request.username(), request.password());
@@ -77,6 +85,11 @@ public class PlatformAuthService {
     // 실패 카운터는 실제 아이디로 센다(WP-624) — 입력값이 아니라 검증된 사용자의 아이디로 초기화한다
     loginAttemptService.loginSucceeded(user.username());
 
+    return tx.execute(status -> issueLogin(user));
+  }
+
+  /** 검증된 운영자에게 platform 토큰을 발급·저장하고 감사를 남긴다 — {@link #login} 의 트랜잭션 부분. */
+  private PlatformLoginResult issueLogin(UserResponse user) {
     String accessToken = jwtTokenProvider.generatePlatformAccessToken(user.id(), user.username());
     String refreshToken = jwtTokenProvider.generatePlatformRefreshToken(user.id());
 

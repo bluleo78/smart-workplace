@@ -37,6 +37,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
@@ -58,6 +59,9 @@ public class AuthService {
   // 최초 가입자 부트스트랩용 플랫폼 RBAC 저장소. platform 모듈 의존이지만 DSLContext 만 참조하므로
   // 순환 빈 의존이 없다(AuthService → PlatformRoleRepository → DSLContext).
   private final com.workplace.platform.repository.PlatformRoleRepository platformRoleRepository;
+
+  /** 로그인의 발급 단계만 트랜잭션으로 묶는다(WP-752 — 자격 검증은 트랜잭션 밖). */
+  private final TransactionTemplate tx;
 
   /** WP-48: SSO 로그인 결과 — refresh 토큰(쿠키로 설정)과 자동 선택된 테넌트(없으면 null). */
   public record SsoSession(String refreshToken, Long tenantId) {}
@@ -134,7 +138,13 @@ public class AuthService {
     return user;
   }
 
-  @Transactional
+  /**
+   * 비밀번호 로그인.
+   *
+   * <p>자격 검증은 트랜잭션 밖에서 한다(WP-752). 검증 단계가 커넥션을 쥐면 실패 카운터 기록이 두 번째 커넥션을 빌려야 해, 인증 없이 틀린 로그인만 풀 크기만큼
+   * 동시에 보내도 풀이 교착됐다. 밖에서는 조회·카운터 기록이 각자 커넥션 하나를 잠깐 쓰고 돌려주며, 비밀번호 해시 계산 동안 커넥션을 쥐지도 않는다. 토큰 발급·저장과
+   * 감사는 그 뒤 트랜잭션 하나로 한다.
+   */
   public LoginResult login(LoginRequest request) {
     // 잠금·자격 검증 — 실패는 모두 같은 문구·같은 해시 계산 시간(WP-623, PasswordLoginVerifier).
     UserResponse user = passwordLoginVerifier.verify(request.username(), request.password());
@@ -147,6 +157,11 @@ public class AuthService {
     // 실패 카운터는 실제 아이디로 센다(WP-624) — 입력값이 아니라 검증된 사용자의 아이디로 초기화한다
     loginAttemptService.loginSucceeded(user.username());
 
+    return tx.execute(status -> issueLogin(user));
+  }
+
+  /** 검증된 사용자에게 토큰을 발급·저장하고 로그인 감사를 남긴다 — {@link #login} 의 트랜잭션 부분. */
+  private LoginResult issueLogin(UserResponse user) {
     // 활성 멤버십을 먼저 조회 — 정확히 1개면 자동 선택해 tenant-scoped 토큰 발급.
     // (P3 테넌트 선택 UI 전까지 단일 소속 사용자가 도메인 RLS 하에서도 정상 동작하도록.)
     var memberships = membershipRepository.findActiveByUser(user.id());

@@ -554,7 +554,8 @@ public class UserService {
     // 현재 비밀번호 불일치 시 400 Bad Request로 명확한 한국어 메시지 반환 (#27)
     if (currentPassword == null
         || !passwordEncoder.matches(currentPassword, storedPassword.get())) {
-      // 카운터는 별도 트랜잭션(REQUIRES_NEW)에, 실패 감사는 롤백하지 않는 이 트랜잭션에 남긴다.
+      // 카운터와 실패 감사는 불일치 예외에 롤백하지 않는 이 트랜잭션에 함께 남긴다 — 별도 트랜잭션(REQUIRES_NEW)으로 두 번째 커넥션을 빌리면
+      // 동시 요청이 풀을 교착시킨다(WP-752).
       loginAttemptService.loginFailed(username);
       auditLogService.log(
           userId,
