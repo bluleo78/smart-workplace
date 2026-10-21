@@ -20,6 +20,7 @@ import com.workplace.messaging.dto.UpdateMessageRequest;
 import com.workplace.messaging.exception.ChannelArchivedException;
 import com.workplace.messaging.exception.ChannelNotMemberException;
 import com.workplace.messaging.exception.EmptyMessageException;
+import com.workplace.messaging.exception.InactiveMemberException;
 import com.workplace.messaging.exception.InvalidThreadParentException;
 import com.workplace.messaging.exception.MessageAuthorMismatchException;
 import com.workplace.messaging.exception.MessageNotFoundException;
@@ -81,6 +82,7 @@ public class MessageService {
     ensureMember(channelId, callerId);
     // 아카이브된 채널에는 새 메시지를 작성할 수 없다 (409).
     if (channelRepo.isArchived(channelId)) throw new ChannelArchivedException(channelId);
+    requireActiveDmRecipient(callerId, channelId);
     // 빈 메시지 거부: 본문도 첨부도 드라이브 링크도 없으면 작성 불가 (400).
     boolean bodyEmpty = req.body() == null || req.body().isBlank();
     if (bodyEmpty && req.fileIds().isEmpty() && req.driveFileIds().isEmpty()) {
@@ -548,6 +550,19 @@ public class MessageService {
   /** 메시지 id 경로의 멤버 검사 — 비멤버는 없는 메시지와 같은 404(WP-591). 채널 id 경로는 {@link #ensureMember} 의 403 을 쓴다. */
   private void ensureMessageVisible(long channelId, long userId, long messageId) {
     if (!memberRepo.isMember(channelId, userId)) throw new MessageNotFoundException(messageId);
+  }
+
+  /**
+   * WP-723: DM 에서 나 말고 남은 참여자가 모두 이 워크스페이스에서 비활성(정지)이면 보내지 않는다 — 받는 사람이 로그인할 수 없어 읽히지 않는 메시지를 보낸
+   * 사람이 모른 채 쌓던 문제. 그룹 DM 에 활성 참여자가 한 명이라도 남으면 그대로 보낸다. 나만 남은 DM(개인 메모·상대가 나감)은 대상이 아니다.
+   */
+  private void requireActiveDmRecipient(long callerId, long channelId) {
+    if (!"DM".equals(channelRepo.findKind(channelId))) return;
+    var others =
+        memberRepo.listMembers(channelId).stream().filter(m -> m.userId() != callerId).toList();
+    if (!others.isEmpty() && others.stream().noneMatch(ChannelMemberResponse::active)) {
+      throw new InactiveMemberException("비활성화된 구성원에게는 메시지를 보낼 수 없습니다");
+    }
   }
 
   private void ensureMember(long channelId, long userId) {

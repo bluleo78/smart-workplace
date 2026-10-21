@@ -31,7 +31,7 @@ import { buildDmContext } from '@/lib/aiScreenContext/builders/messaging'
 import { shouldAutoShowCatchup } from '@/lib/catchupGate'
 import { catchupWatermark } from '@/lib/catchupWatermark'
 import { chatEntryAnchor } from '@/lib/chatEntryAnchor'
-import { dmDisplayName } from '@/lib/dm'
+import { dmDisplayName, isDmRecipientInactive } from '@/lib/dm'
 import { channelMentionCandidates } from '@/lib/mentionCandidates'
 import { firstUnreadMessageId, unreadFromOthersCount } from '@/lib/unreadBoundary'
 import { cn } from '@/lib/utils'
@@ -203,6 +203,10 @@ export default function DmPage() {
         <MessageComposer
           channelId={dm.id}
           members={mentionMembers}
+          // 받는 사람이 모두 정지됐으면 입력창 대신 안내 — 서버도 전송을 막는다(WP-723).
+          blockedNotice={
+            isDmRecipientInactive(dm, me.id) ? '비활성화된 구성원이라 메시지를 보낼 수 없습니다' : undefined
+          }
           onSend={(body, fileIds, driveFileIds) =>
             create.mutateAsync({
               body,

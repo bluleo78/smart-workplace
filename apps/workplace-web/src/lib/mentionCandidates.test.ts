@@ -36,3 +36,14 @@ describe('channelMentionCandidates (DM — 참여자만, agents 없음)', () => 
     expect(channelMentionCandidates(members, undefined, true).map((m) => m.userId)).toEqual([1, 99])
   })
 })
+
+describe('channelMentionCandidates — 정지된 구성원 (WP-723)', () => {
+  it('active=false 인 멤버는 후보에서 빠지고, 필드가 없거나 true 면 남는다', () => {
+    const ms = [
+      { userId: 1, name: '나', kind: 'HUMAN' as const },
+      { userId: 2, name: '퇴사자', kind: 'HUMAN' as const, active: false },
+      { userId: 3, name: '밥', kind: 'HUMAN' as const, active: true },
+    ]
+    expect(channelMentionCandidates(ms, undefined, true).map((m) => m.userId)).toEqual([1, 3])
+  })
+})

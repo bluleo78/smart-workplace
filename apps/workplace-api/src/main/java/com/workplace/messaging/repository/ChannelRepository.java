@@ -2,10 +2,12 @@ package com.workplace.messaging.repository;
 
 import static com.workplace.jooq.Tables.CHANNEL;
 import static com.workplace.jooq.Tables.CHANNEL_MEMBER;
+import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.MESSAGE;
 import static com.workplace.jooq.Tables.THREAD_READ_STATE;
 import static com.workplace.jooq.Tables.USER;
 
+import com.workplace.global.tenant.WorkspaceActive;
 import com.workplace.global.util.LikePatternUtils;
 import com.workplace.messaging.dto.ChannelResponse;
 import com.workplace.messaging.dto.DmParticipant;
@@ -18,6 +20,8 @@ import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
+import org.jooq.Field;
+import org.jooq.Record;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
@@ -394,14 +398,14 @@ public class ChannelRepository {
     if (ids.isEmpty()) return List.of();
     // 참여자 일괄 조회(N+1 회피).
     Map<Long, List<DmParticipant>> byChannel =
-        dsl.select(CHANNEL_MEMBER.CHANNEL_ID, USER.ID, USER.NAME, USER.KIND)
+        dsl.select(CHANNEL_MEMBER.CHANNEL_ID, USER.ID, USER.NAME, USER.KIND, PARTICIPANT_ACTIVE)
             .from(CHANNEL_MEMBER)
             .join(USER)
             .on(USER.ID.eq(CHANNEL_MEMBER.USER_ID))
+            .leftJoin(MEMBERSHIP)
+            .on(WorkspaceActive.join(CHANNEL_MEMBER.USER_ID, CHANNEL_MEMBER.TENANT_ID))
             .where(CHANNEL_MEMBER.CHANNEL_ID.in(ids))
-            .fetchGroups(
-                r -> r.get(CHANNEL_MEMBER.CHANNEL_ID),
-                r -> new DmParticipant(r.get(USER.ID), r.get(USER.NAME), r.get(USER.KIND)));
+            .fetchGroups(r -> r.get(CHANNEL_MEMBER.CHANNEL_ID), ChannelRepository::toParticipant);
     return rows.stream()
         .map(
             r -> {
@@ -425,12 +429,26 @@ public class ChannelRepository {
 
   /** 채널 참여자(user 조인) — DM 표시명 파생용. */
   private List<DmParticipant> participantsOf(long channelId) {
-    return dsl.select(USER.ID, USER.NAME, USER.KIND)
+    return dsl.select(USER.ID, USER.NAME, USER.KIND, PARTICIPANT_ACTIVE)
         .from(CHANNEL_MEMBER)
         .join(USER)
         .on(USER.ID.eq(CHANNEL_MEMBER.USER_ID))
+        .leftJoin(MEMBERSHIP)
+        .on(WorkspaceActive.join(CHANNEL_MEMBER.USER_ID, CHANNEL_MEMBER.TENANT_ID))
         .where(CHANNEL_MEMBER.CHANNEL_ID.eq(channelId))
-        .fetch(r -> new DmParticipant(r.get(USER.ID), r.get(USER.NAME), r.get(USER.KIND)));
+        .fetch(ChannelRepository::toParticipant);
+  }
+
+  /** DM 참여자의 이 워크스페이스 활성 여부(WP-723) — 정지된 상대를 화면이 구분하도록 참여자 응답에 싣는다. */
+  static final Field<Boolean> PARTICIPANT_ACTIVE = WorkspaceActive.field();
+
+  /** 참여자 행(USER.ID·NAME·KIND·활성) → DmParticipant. */
+  static DmParticipant toParticipant(Record r) {
+    return new DmParticipant(
+        r.get(USER.ID),
+        r.get(USER.NAME),
+        r.get(USER.KIND),
+        Boolean.TRUE.equals(r.get(PARTICIPANT_ACTIVE)));
   }
 
   /** 이 채널에 caller 가 팔로우하는 미읽음 스레드가 하나라도 있으면 true. */
