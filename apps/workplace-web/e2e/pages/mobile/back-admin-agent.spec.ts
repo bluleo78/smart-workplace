@@ -48,7 +48,7 @@ test('딥링크(?agent) → 닫기는 에이전트 관리에 남는다', async (
   await stubAgents(page)
   await page.goto('/settings/agents?agent=100')
   await expect(page.getByTestId('agent-detail-drawer')).toBeVisible()
-  await page.getByTestId('agent-detail-drawer').getByRole('button', { name: 'Close' }).tap()
+  await page.getByTestId('agent-detail-drawer').getByRole('button', { name: '닫기' }).tap()
   await expect(page).toHaveURL(/\/settings\/agents$/)
 })
 
