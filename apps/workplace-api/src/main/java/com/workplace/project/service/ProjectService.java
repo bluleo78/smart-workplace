@@ -108,6 +108,12 @@ public class ProjectService {
       throw new ProjectConflictException("공유 프로젝트는 key 가 필요합니다");
     }
     if (projectRepository.existsByKey(req.key())) {
+      // 삭제된 프로젝트의 key 도 예약해 둔다(옛 이슈 키 참조가 새 프로젝트를 가리키지 않게) — 목록에 없는 프로젝트라
+      // 「이미 사용 중」만으로는 이유를 알 수 없으니 삭제된 프로젝트 몫임을 알린다(WP-692).
+      if (projectRepository.existsDeletedByKey(req.key())) {
+        throw new ProjectConflictException(
+            "삭제된 프로젝트가 쓰던 key 라 다시 쓸 수 없습니다: " + req.key() + " — 다른 key 를 써 주세요");
+      }
       throw new ProjectConflictException("이미 사용 중인 key 입니다: " + req.key());
     }
   }

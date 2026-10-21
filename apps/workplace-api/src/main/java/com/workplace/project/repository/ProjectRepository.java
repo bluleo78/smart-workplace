@@ -259,4 +259,13 @@ public class ProjectRepository {
   public boolean existsByKey(String key) {
     return dsl.fetchExists(dsl.selectOne().from(PROJECT).where(PROJECT.KEY.eq(key)));
   }
+
+  /** 삭제된(soft-deleted) 프로젝트가 이 key 를 쥐고 있는지 — 중복 key 거절 문구를 가르는 데만 쓴다(WP-692). */
+  public boolean existsDeletedByKey(String key) {
+    return dsl.fetchExists(
+        dsl.selectOne()
+            .from(PROJECT)
+            .where(PROJECT.KEY.eq(key))
+            .and(PROJECT.DELETED_AT.isNotNull()));
+  }
 }
