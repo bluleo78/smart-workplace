@@ -28,6 +28,7 @@ public class RoleService {
   private final RoleRepository roleRepository;
   private final PermissionRepository permissionRepository;
   private final RoleGrantGuard roleGrantGuard;
+  private final RoleKindGuard roleKindGuard;
   // WP-567: 역할 생성·수정·삭제·권한 변경을 행위자와 함께 감사 로그에 남긴다.
   private final AuditLogService auditLogService;
   private final UserRepository userRepository;
@@ -123,8 +124,10 @@ public class RoleService {
     }
     List<String> before = permissionCodesOf(roleId);
     // WP-599: ADMIN 이 아니면 자기 권한 안에서만 넣거나 뺄 수 있다(role:write 로 자기 역할에 전체 권한을 넣던 권한 상승 차단).
-    roleGrantGuard.requireCanChangePermissions(
-        callerId, before, permissionIds.stream().map(codeById::get).toList());
+    List<String> newCodes = permissionIds.stream().map(codeById::get).toList();
+    roleGrantGuard.requireCanChangePermissions(callerId, before, newCodes);
+    // WP-728: AI 가 가진 역할에 관리 권한을 더하면 역할 할당 검사를 거치지 않고 AI 가 관리 권한을 얻는다.
+    roleKindGuard.requireNoAdminPermissionForAgentRole(roleId, before, newCodes);
     roleRepository.setPermissions(roleId, permissionIds);
     List<String> after = permissionCodesOf(roleId);
     audit(
