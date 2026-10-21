@@ -437,7 +437,7 @@ public class CalendarTagRepository {
 
   /**
    * 공개 구독 주소 토큰 → 태그·테넌트·주인. 테넌트 컨텍스트가 없는 공개 요청에서 부르므로 SECURITY DEFINER 함수({@code
-   * calendar_tag_feed_resolve}, V196)로 RLS 를 우회한다.
+   * calendar_tag_feed_resolve}, V197)로 RLS 를 우회한다.
    */
   public Optional<FeedTagRow> resolveFeedToken(String token) {
     return Optional.ofNullable(

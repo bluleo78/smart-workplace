@@ -108,7 +108,7 @@ class PermissionServiceTest extends IntegrationTestBase {
 
     assertThat(result)
         .hasSize(31); // V42 audit:read, V70 platform:* 4종, V120 milestone:manage, V132 member:read,
-    // V138 sso:manage, V194 wiki_share:manage 추가 → 31
+    // V138 sso:manage, V195 wiki_share:manage 추가 → 31
     // V20 저장된 뷰 권한 + V26 사이클 권한 + V31 연락처 권한 + V39 캘린더 권한이 시드에 포함되는지 함께 확인.
     assertThat(result)
         .extracting(PermissionResponse::code)

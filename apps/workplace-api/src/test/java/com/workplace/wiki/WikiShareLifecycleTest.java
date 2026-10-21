@@ -295,7 +295,7 @@ class WikiShareLifecycleTest extends IntegrationTestBase {
    * 단위 재검증 이벤트(AgentDeleted)로 닫힌다.
    *
    * <p>에이전트는 실제처럼 스페이스 멤버가 되어 설정 API 로 공유를 만든다 — 그래서 스페이스 멤버 행과 자기가 행위자인 감사 행(공유 생성)이 남는다. 멤버 행은 FK
-   * CASCADE 가 아니라 멤버 제거 경로로 지워져(멤버 변경 이벤트가 스페이스마다 나간다) 삭제를 막지 않고, 감사 행은 V195 로 user_id 만 비워 남아
+   * CASCADE 가 아니라 멤버 제거 경로로 지워져(멤버 변경 이벤트가 스페이스마다 나간다) 삭제를 막지 않고, 감사 행은 V196 으로 user_id 만 비워 남아
    * username 으로 누가 했는지 읽힌다.
    */
   @Test
@@ -349,7 +349,7 @@ class WikiShareLifecycleTest extends IntegrationTestBase {
   @Transactional(propagation = Propagation.NOT_SUPPORTED)
   void deleting_last_owner_agent_is_rejected_and_rolled_back() throws Exception {
     committed = true;
-    long admin = human();
+    long admin = admin();
     long agentId = withMembership(TestFixtures.createAgentNoToken(dsl));
     spaceService.addMember(ownerId, spaceId, agentId, "OWNER");
     spaceService.changeRole(agentId, spaceId, ownerId, "EDITOR");
@@ -366,15 +366,15 @@ class WikiShareLifecycleTest extends IntegrationTestBase {
   }
 
   /**
-   * 작업 기록(작성자·소유자 NOT NULL FK)이 남은 AGENT 는 완전히 지울 수 없어 사용 중지로 대신한다(WP-705) — 삭제 시도는 savepoint 째 되돌아가
-   * 먼저 한 공유 해제·멤버 제거도 남지 않고, 공유는 정지 경로가 다시 해제한다(기록 문구가 「정지되어」). 작업 기록으로는 노트 목록을 열 때 생기는 개인 노트
+   * 작업 기록(작성자·소유자 NOT NULL FK)이 남은 AGENT 는 완전히 지울 수 없어 사용 중지로 대신한다(WP-705) — 삭제 시도는 savepoint 째
+   * 되돌아가 먼저 한 공유 해제·멤버 제거도 남지 않고, 공유는 정지 경로가 다시 해제한다(기록 문구가 「정지되어」). 작업 기록으로는 노트 목록을 열 때 생기는 개인 노트
    * 공간(wiki_space.owner_id)을 쓴다 — 실제로 일한 에이전트가 가장 흔히 갖는 것이고, 개인 스페이스를 멤버 제거 대상에서 빼는 것도 함께 본다.
    */
   @Test
   @Transactional(propagation = Propagation.NOT_SUPPORTED)
   void deleting_agent_with_work_records_falls_back_to_deactivation() throws Exception {
     committed = true;
-    long admin = human();
+    long admin = admin();
     long agentId = withMembership(TestFixtures.createAgentNoToken(dsl));
     spaceService.addMember(ownerId, spaceId, agentId, "EDITOR");
     saveShare(agentId, rootId, "WORKSPACE", "VIEW", false);
@@ -450,6 +450,13 @@ class WikiShareLifecycleTest extends IntegrationTestBase {
   /** 테넌트#1 ACTIVE 멤버인 사람 사용자. */
   private long human() {
     return withMembership(TestFixtures.createHuman(dsl));
+  }
+
+  /** 워크스페이스 ADMIN — AI 관리 API 는 권한 코드와 함께 ADMIN 역할도 본다(WP-729). */
+  private long admin() {
+    long id = human();
+    TestFixtures.grantRole(dsl, id, "ADMIN");
+    return id;
   }
 
   private long page(long inSpaceId, Long parentId, String title) {

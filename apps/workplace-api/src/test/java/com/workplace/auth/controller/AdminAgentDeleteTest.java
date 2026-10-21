@@ -11,7 +11,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.workplace.audit.repository.AuditLogRepository;
 import com.workplace.auth.repository.AgentApiKeyRepository;
 import com.workplace.auth.repository.WorkspaceAssistantRepository;
 import com.workplace.auth.service.AiAgentCredentialService;
@@ -19,6 +18,7 @@ import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import com.workplace.user.dto.AgentUsernames;
+import com.workplace.wiki.service.WikiSpaceService;
 import java.util.List;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
@@ -43,7 +43,7 @@ class AdminAgentDeleteTest extends IntegrationTestBase {
   @Autowired MockMvc mvc;
   @Autowired DSLContext dsl;
   @Autowired AgentApiKeyRepository keyRepo;
-  @Autowired AuditLogRepository auditRepo;
+  @Autowired WikiSpaceService wikiSpaceService;
   @Autowired WorkspaceAssistantRepository assistantRepo;
   @Autowired AiAgentCredentialService credentialService;
 
@@ -81,10 +81,12 @@ class AdminAgentDeleteTest extends IntegrationTestBase {
     return agent;
   }
 
-  /** 이 AI 가 남긴 기록 한 줄 — 감사 로그는 user 를 NO ACTION 으로 가리킨다. */
+  /**
+   * 이 AI 가 남긴 기록 — 노트 목록을 열 때 생기는 개인 노트 공간(wiki_space.owner_id 가 user 를 NO ACTION 으로 가리킨다). 감사 로그는
+   * user_id 가 ON DELETE SET NULL(V196)이라 삭제를 막지 않는다.
+   */
   private void leaveRecord(long agent) {
-    auditRepo.save(
-        agent, "agent", "API_CALL", "issue", "1", "AI 작업", null, null, "SUCCESS", null, null);
+    wikiSpaceService.ensurePersonalSpace(agent);
   }
 
   private boolean userExists(long id) {

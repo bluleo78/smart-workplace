@@ -19,7 +19,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * V194 노트 페이지 공유 스키마 검증(WP-579): 새 4개 테이블의 tenant_id RLS(NULLIF fail-closed) 격리, 외부(비로그인) 조회용
+ * V195 노트 페이지 공유 스키마 검증(WP-579): 새 4개 테이블의 tenant_id RLS(NULLIF fail-closed) 격리, 외부(비로그인) 조회용
  * SECURITY DEFINER 함수 {@code wiki_page_share_resolve_public} / {@code wiki_page_share_tenant} 의 판정,
  * 그리고 외부 공유는 보기 전용이라는 DB CHECK. {@link WikiRlsTest} 와 같이 전체를 롤백되는 단일 트랜잭션으로 수행해 공유 DB 를 오염시키지 않는다.
  */

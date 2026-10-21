@@ -1,4 +1,4 @@
--- V195 (WP-579): 감사 기록이 있는 AI 에이전트도 하드 삭제(UserService.deleteAgent)할 수 있게 audit_log.user_id 의 삭제 동작만 바꾼다.
+-- V196 (WP-579): 감사 기록이 있는 AI 에이전트도 하드 삭제(UserService.deleteAgent)할 수 있게 audit_log.user_id 의 삭제 동작만 바꾼다.
 -- 사유: 에이전트의 모든 행위(노트 공유 등)는 감사 행을 남기는데, audit_log.user_id 가 NO ACTION FK 라 감사 기록이 하나라도 있으면 지워지지 않았다.
 --       사용자 행을 지우는 경로는 deleteAgent 하나뿐이다(사람 사용자는 하드 삭제 경로가 없다).
 -- 범위: 감사 로그 하나만. 노트 스페이스 멤버십은 FK CASCADE 가 아니라 앱 경로(WikiSpaceService 의 AgentDeleted 리스너 — 마지막 OWNER 보호 WP-496 과
