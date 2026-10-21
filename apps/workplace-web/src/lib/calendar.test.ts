@@ -8,6 +8,7 @@ import {
   eventsOnDay,
   groupCalendarsBySource,
   isEventVisible,
+  isLocalRangeReversed,
   isNotEventOrganizer,
   isoToLocalInput,
   markedDays,
@@ -237,5 +238,18 @@ describe('eventCalendarLabel (WP-604)', () => {
   })
   it('내 캘린더가 하나도 없으면 보이는 일정은 모두 초대받은 일정', () => {
     expect(eventCalendarLabel({ calendarId: 99, calendarName: '기본' }, new Set())).toBe('초대받은 일정')
+  })
+})
+
+describe('isLocalRangeReversed (WP-727)', () => {
+  it('종료가 시작보다 앞서거나 같으면 true', () => {
+    expect(isLocalRangeReversed('2026-07-05T15:00', '2026-07-05T14:30')).toBe(true)
+    expect(isLocalRangeReversed('2026-07-05T15:00', '2026-07-05T15:00')).toBe(true)
+    expect(isLocalRangeReversed('2026-07-05T23:00', '2026-07-04T23:30')).toBe(true)
+  })
+  it('종료가 뒤이거나 한쪽이 비면 false', () => {
+    expect(isLocalRangeReversed('2026-07-05T15:00', '2026-07-05T16:00')).toBe(false)
+    expect(isLocalRangeReversed('', '2026-07-05T16:00')).toBe(false)
+    expect(isLocalRangeReversed('2026-07-05T15:00', '')).toBe(false)
   })
 })

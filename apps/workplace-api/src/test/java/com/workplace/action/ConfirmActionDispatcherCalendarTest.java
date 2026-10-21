@@ -148,6 +148,31 @@ class ConfirmActionDispatcherCalendarTest extends IntegrationTestBase {
         .hasMessage("잘못된 params: 알 수 없는 필드 'attendees'");
   }
 
+  /**
+   * WP-727: 승인 카드에서 고친 값의 검증 실패는 사람이 읽는 문장으로 돌려준다 — 예전엔 「잘못된 params: validRange — …」 같은 내부 경로가 토스트에
+   * 그대로 보였다.
+   */
+  @Test
+  void confirm_calendarCreateEvent_invalidOverrides_returnReadableKoreanMessages() {
+    ObjectNode reversed = eventParams("회의");
+    reversed.put("startsAt", "2026-08-03T12:00:00+09:00");
+    reversed.put("endsAt", "2026-08-03T09:00:00+09:00");
+    assertThatThrownBy(() -> dispatcher.confirm(caller, "calendar.create_event", reversed))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("종료 시각은 시작 시각보다 뒤여야 합니다");
+
+    ObjectNode longTitle = eventParams("가".repeat(600));
+    assertThatThrownBy(() -> dispatcher.confirm(caller, "calendar.create_event", longTitle))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("제목: 최대 200까지 입력할 수 있습니다");
+
+    ObjectNode longLocation = eventParams("회의");
+    longLocation.put("location", "x".repeat(5000));
+    assertThatThrownBy(() -> dispatcher.confirm(caller, "calendar.create_event", longLocation))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("장소: 최대 200까지 입력할 수 있습니다");
+  }
+
   /** [케이스 4] conflicts 는 카드 표시용이라 엄격 매핑에서도 받아들인다(생성 입력에서 떼어냄). */
   @Test
   void confirm_calendarCreateEvent_withDisplayOnlyConflicts_creates() {

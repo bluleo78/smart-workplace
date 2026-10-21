@@ -31,6 +31,7 @@ import com.workplace.user.service.UserService;
 import com.workplace.wiki.service.WikiPageService;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
+import jakarta.validation.constraints.AssertTrue;
 import java.io.IOException;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
@@ -573,11 +574,30 @@ public class ConfirmActionDispatcher {
     }
     Set<ConstraintViolation<T>> violations = validator.validate(dto);
     if (!violations.isEmpty()) {
-      ConstraintViolation<T> v = violations.iterator().next();
-      throw new IllegalArgumentException(
-          "잘못된 params: " + v.getPropertyPath() + " — " + v.getMessage());
+      throw new IllegalArgumentException(describeViolation(violations.iterator().next()));
     }
     return dto;
+  }
+
+  /** 검증 실패 문장에 붙이는 필드 이름 — 승인 카드에서 사람이 고치는 칸(제목·시간·장소 등). 없는 필드는 원래 이름을 쓴다. */
+  private static final Map<String, String> FIELD_LABELS =
+      Map.of(
+          "title", "제목",
+          "location", "장소",
+          "description", "설명",
+          "startsAt", "시작 시각",
+          "endsAt", "종료 시각",
+          "name", "이름",
+          "body", "본문");
+
+  /**
+   * 검증 실패를 사람이 읽는 문장으로(WP-727) — 승인 카드 토스트에 그대로 보인다. 예전엔 「잘못된 params: validRange — …」처럼 내부 경로를 붙였다.
+   * 교차 검증(@AssertTrue 메서드, 예: 종료가 시작보다 뒤)은 그 문구만, 필드 검증은 「제목: 최대 200까지 입력할 수 있습니다」처럼 칸 이름을 앞에 붙인다.
+   */
+  static String describeViolation(ConstraintViolation<?> v) {
+    if (v.getConstraintDescriptor().getAnnotation() instanceof AssertTrue) return v.getMessage();
+    String path = v.getPropertyPath().toString();
+    return FIELD_LABELS.getOrDefault(path, path) + ": " + v.getMessage();
   }
 
   /** 매핑 실패 원인에서 문제 필드 경로를 뽑아 사용자·AI 가 고칠 수 있는 문장으로 만든다. */
