@@ -393,6 +393,29 @@ test(
   },
 )
 
+// WP-760: 간격은 서버 상한(999)까지만 — 넘기면 저장 요청을 보내지 않고 입력칸에 안내한다.
+test('반복 간격이 999 를 넘으면 저장하지 않고 안내한다', async ({ authenticatedPage: page }) => {
+  await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+  const store: CalendarEvent[] = []
+  await stubCalendarEvents(page, store)
+  let posted = false
+  page.on('request', (req) => {
+    if (req.method() === 'POST' && req.url().includes('/api/v1/calendar/events')) posted = true
+  })
+
+  await page.goto('/calendar')
+  await page.getByTestId('calendar-new-event').click()
+  await page.getByTestId('calendar-form-title').fill('매일 점검')
+  await page.getByTestId('calendar-form-recurrence-freq').click()
+  await page.getByRole('option', { name: '매일' }).click()
+  await page.getByTestId('calendar-form-recurrence-interval').fill('1000')
+  await page.getByTestId('calendar-form-submit').click()
+
+  await expect(page.getByText('간격은 999 이하여야 합니다')).toBeVisible()
+  await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
+  expect(posted).toBe(false)
+})
+
 test('반복 일정 — 여러 회차가 월 뷰에 표시된다', async ({ authenticatedPage: page }) => {
   await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
 

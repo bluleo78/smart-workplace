@@ -244,6 +244,17 @@ describe('eventFormSchema 반복 종료일 (#114)', () => {
   })
 })
 
+// WP-760: 반복 간격은 서버 상한(999)과 같게 폼에서 먼저 막는다 — 상한이 없어 매일·2147483647 일정 하나가 1년 조회를 약 60초 붙잡았다.
+describe('eventFormSchema 반복 간격 상한 (WP-760)', () => {
+  it('999 까지 허용, 넘으면 recurrenceInterval 에러', () => {
+    const daily = { ...base, recurrenceFreq: 'DAILY' as const }
+    expect(eventFormSchema.safeParse({ ...daily, recurrenceInterval: 999 }).success).toBe(true)
+    const r = eventFormSchema.safeParse({ ...daily, recurrenceInterval: 1000 })
+    expect(r.success).toBe(false)
+    expect(r.error?.issues.find((i) => i.path[0] === 'recurrenceInterval')?.message).toBe('간격은 999 이하여야 합니다')
+  })
+})
+
 // WP-543: 설명은 서버 상한(10000자)과 같게 폼에서 먼저 막는다 — 상한이 없어 2MB 설명이 저장되고 그 달 목록이 2MB 가 됐다.
 describe('eventFormSchema 설명 길이 (WP-543)', () => {
   it('10000자까지 허용, 넘으면 description 에러', () => {

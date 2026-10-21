@@ -37,9 +37,9 @@ test('워크스페이스 관리 그룹에서 에이전트가 구성원 바로 �
 
   const adminGroup = page.getByTestId('settings-admin-group')
   await expect(adminGroup).toBeVisible()
-  // 항목 순서: 구성원 → 에이전트 → 역할 → SSO → 감사 로그.
+  // 항목 순서: 구성원 → 에이전트 → 역할 → SSO → 노트 공유(WP-579) → 감사 로그.
   const labels = await adminGroup.getByRole('link').allTextContents()
-  expect(labels.map((label) => label.trim())).toEqual(['구성원', '에이전트', '역할', 'SSO', '감사 로그'])
+  expect(labels.map((label) => label.trim())).toEqual(['구성원', '에이전트', '역할', 'SSO', '노트 공유', '감사 로그'])
 })
 
 // 비관리자의 /settings/users 접근 차단(홈 리다이렉트)은 settings/settings-nav.spec.ts 가 맡는다.

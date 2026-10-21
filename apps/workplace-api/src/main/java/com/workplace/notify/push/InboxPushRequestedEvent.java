@@ -23,8 +23,8 @@ public record InboxPushRequestedEvent(
     String eventTitle) {
 
   /**
-   * 이슈·일정 알림용 — 노트 공유 알림이 아니면 wikiPageId 는 없고, 일정 제목은 싣지 않는다(가리킬 일정이 있으면 푸시가 일정 행에서 제목을
-   * 읽는다). eventTitle 은 일정 행이 없는 취소 알림(WP-712)만 채운다.
+   * 이슈·일정 알림용 — 노트 공유 알림이 아니면 wikiPageId 는 없고, 일정 제목은 싣지 않는다(가리킬 일정이 있으면 푸시가 일정 행에서 제목을 읽는다).
+   * eventTitle 은 일정 행이 없는 취소 알림(WP-712)만 채운다.
    */
   public InboxPushRequestedEvent(
       long tenantId,
@@ -45,6 +45,7 @@ public record InboxPushRequestedEvent(
       Long actorId,
       Long issueId,
       Long eventId) {
-    this(tenantId, type, PushCategory.of(type), recipientIds, actorId, issueId, eventId, null, null);
+    this(
+        tenantId, type, PushCategory.of(type), recipientIds, actorId, issueId, eventId, null, null);
   }
 }

@@ -33,6 +33,14 @@ public class RecurrenceExpander {
   private static final int SAFETY_CAP = 1000;
 
   /**
+   * 받는 반복 간격(INTERVAL)의 상한(WP-760). Outlook 이 고를 수 있는 최댓값과 같다.
+   *
+   * <p>lib-recur 는 int 최댓값 근처 간격(예: 매일·2147483647)에서 일수 계산이 넘쳐 다음 회차를 찾느라 약 60초를 쓴 뒤 포기한다. 기간 조회가
+   * DB 커넥션을 쥔 채 그동안 멈춰, 그런 일정 하나와 조회 10건만으로 풀이 고갈됐다.
+   */
+  static final int MAX_INTERVAL = 999;
+
+  /**
    * 회차를 펼치는 벽시계 시간대(WP-534). 일정에는 시간대가 따로 저장되지 않고 사용자가 보는 날짜가 한국 날짜라(이슈 날짜 필터 WP-307·AI 메모리 기한
    * WP-380 과 같은 기준) Asia/Seoul 로 펼친다. UTC 로 펼치면 09시 이전 시작(종일 포함)의 날짜·요일이 하루 앞당겨져 매월 1일 반복이 「전달 말일」
    * 기준이 되어 31일이 없는 달 다음 달이 빠지고, BYDAY 요일도 어긋난다.
@@ -96,6 +104,16 @@ public class RecurrenceExpander {
     long startMillis = masterStart.toInstant().toEpochMilli();
     long fromMillis = from.toInstant().toEpochMilli();
     long toMillis = to.toInstant().toEpochMilli();
+
+    // 상한 전에 저장된(또는 밖에서 들어온) 큰 간격 규칙은 전개기에 넘기지 않는다(WP-760). 간격이 999 를 넘으면 매일이어도 다음 회차가 2.7년 뒤
+    // 이후라 첫 회차만 둔다 — 전개기에 넘기면 int 끝 근처 값에서 조회 하나가 약 60초 멈춘다.
+    Integer interval = intervalOf(rrule);
+    if (interval != null && interval > MAX_INTERVAL) {
+      log.warn("반복 간격 상한({}) 초과 규칙 — 첫 회차만 전개. rrule={}", MAX_INTERVAL, rrule);
+      return startMillis >= fromMillis && startMillis < toMillis
+          ? List.of(OffsetDateTime.ofInstant(masterStart.toInstant(), ZoneOffset.UTC))
+          : List.of();
+    }
 
     // dtStart 는 한국 시간대가 붙은 절대 시각 — 날짜·요일은 한국 벽시계로 계산하고, UNTIL(UTC 절대 시각)과도 섞어 쓸 수 있다
     // (floating 이 아니므로 floating/absolute 혼합 거부를 피한다).
@@ -165,9 +183,29 @@ public class RecurrenceExpander {
     if (!positiveToken(rrule, "INTERVAL")) {
       throw new IllegalArgumentException("반복 간격은 1 이상이어야 합니다");
     }
+    Integer interval = intervalOf(rrule);
+    if (interval != null && interval > MAX_INTERVAL) {
+      throw new IllegalArgumentException("반복 간격은 " + MAX_INTERVAL + " 이하여야 합니다");
+    }
     if (!positiveToken(rrule, "COUNT")) {
       throw new IllegalArgumentException("반복 횟수는 1 이상이어야 합니다");
     }
+  }
+
+  /** RRULE 원문의 INTERVAL 값 — 없거나 int 정수가 아니면 null. 원문 토큰으로 본다(관용 파싱은 잘못된 값을 기본값으로 바꿔 읽는다). */
+  private static Integer intervalOf(String rrule) {
+    if (rrule == null) return null;
+    for (String part : rrule.split(";")) {
+      String p = part.trim();
+      if (p.toUpperCase(Locale.ROOT).startsWith("INTERVAL=")) {
+        try {
+          return Integer.parseInt(p.substring("INTERVAL=".length()).trim());
+        } catch (NumberFormatException e) {
+          return null;
+        }
+      }
+    }
+    return null;
   }
 
   /** RRULE 원문에 name= 토큰이 없거나, 있으면 1 이상의 정수인지. */

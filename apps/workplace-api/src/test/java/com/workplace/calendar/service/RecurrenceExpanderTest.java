@@ -2,7 +2,9 @@ package com.workplace.calendar.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Set;
@@ -108,6 +110,54 @@ class RecurrenceExpanderTest {
     assertThatThrownBy(() -> expander.validate("FREQ=DAILY;COUNT=0"))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessage("반복 횟수는 1 이상이어야 합니다");
+  }
+
+  @Test
+  void validate_intervalAbove999_throws() {
+    // WP-760: int 최댓값 근처 INTERVAL 은 전개기가 일수 계산 끝에서 넘쳐 1년 조회 한 번에 약 60초를 쓴다 — 999 까지만 받는다(Outlook 과
+    // 같은 상한).
+    for (String rule :
+        new String[] {
+          "FREQ=DAILY;INTERVAL=1000",
+          "FREQ=WEEKLY;INTERVAL=2147483647",
+          "FREQ=DAILY;INTERVAL=2147483646"
+        }) {
+      assertThatThrownBy(() -> expander.validate(rule))
+          .isInstanceOf(IllegalArgumentException.class)
+          .hasMessage("반복 간격은 999 이하여야 합니다");
+    }
+    expander.validate("FREQ=DAILY;INTERVAL=999");
+  }
+
+  @Test
+  void expand_storedHugeInterval_returnsFirstOccurrenceQuickly() {
+    // WP-760: 상한 전에 저장된 규칙도 조회를 붙잡지 않는다 — 간격이 상한을 넘으면 다음 회차는 2.7년 뒤 이후라 첫 회차만 둔다.
+    var start = OffsetDateTime.parse("2026-11-01T02:00:00Z");
+    List<OffsetDateTime> occ =
+        assertTimeoutPreemptively(
+            Duration.ofSeconds(2),
+            () ->
+                expander.expand(
+                    "FREQ=DAILY;INTERVAL=2147483647",
+                    start,
+                    OffsetDateTime.parse("2026-11-01T00:00:00Z"),
+                    OffsetDateTime.parse("2027-11-01T00:00:00Z")));
+    assertThat(occ).containsExactly(start);
+    // 첫 회차가 구간 밖이면 비고, 다음 회차 탐색(리마인더)도 곧바로 끝난다.
+    assertThat(
+            expander.expand(
+                "FREQ=DAILY;INTERVAL=2147483647",
+                start,
+                OffsetDateTime.parse("2026-12-01T00:00:00Z"),
+                OffsetDateTime.parse("2027-12-01T00:00:00Z")))
+        .isEmpty();
+    assertThat(
+            assertTimeoutPreemptively(
+                Duration.ofSeconds(2),
+                () ->
+                    expander.nextOccurrenceAfter(
+                        "FREQ=DAILY;INTERVAL=2147483647", start, start, Set.of())))
+        .isEmpty();
   }
 
   @Test

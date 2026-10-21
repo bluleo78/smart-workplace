@@ -10,6 +10,9 @@ import type { Calendar, CalendarEvent, CalendarEventRequest } from '@/types/cale
 // ────────────────────────────────────────────────────────────
 // Zod 스키마
 // ────────────────────────────────────────────────────────────
+/** 반복 간격 상한 — 서버(RecurrenceExpander.MAX_INTERVAL, WP-760)·Outlook 과 같다. */
+export const MAX_RECURRENCE_INTERVAL = 999
+
 export const eventFormSchema = z
   .object({
     title: z.string().min(1, '제목을 입력하세요').max(200, '제목은 200자 이하여야 합니다'),
@@ -47,6 +50,13 @@ export const eventFormSchema = z
       ctx.addIssue({
         code: 'custom',
         message: '간격은 1 이상이어야 합니다',
+        path: ['recurrenceInterval'],
+      })
+    } else if ((v.recurrenceInterval ?? 0) > MAX_RECURRENCE_INTERVAL) {
+      // 서버 상한(WP-760)과 같다 — 넘으면 서버가 400 으로 거절하므로 저장 전에 알린다.
+      ctx.addIssue({
+        code: 'custom',
+        message: `간격은 ${MAX_RECURRENCE_INTERVAL} 이하여야 합니다`,
         path: ['recurrenceInterval'],
       })
     }
