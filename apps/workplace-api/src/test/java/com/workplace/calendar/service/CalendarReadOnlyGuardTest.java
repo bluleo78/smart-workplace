@@ -55,7 +55,7 @@ class CalendarReadOnlyGuardTest extends IntegrationTestBase {
               accountId = seedGraphAccount(ownerId);
               externalCalendarId =
                   extRepo.upsertExternalCalendar(
-                      ownerId, accountId, "ext-cal-1", "업무", "blue", true);
+                      ownerId, accountId, "ext-cal-1", "업무", "blue", true, true);
               externalEventId =
                   extRepo.upsertExternalEvent(
                       ownerId,
@@ -67,6 +67,8 @@ class CalendarReadOnlyGuardTest extends IntegrationTestBase {
                           OffsetDateTime.parse("2026-07-10T09:00:00Z"),
                           OffsetDateTime.parse("2026-07-10T10:00:00Z"),
                           false,
+                          null,
+                          null,
                           null,
                           null,
                           null));

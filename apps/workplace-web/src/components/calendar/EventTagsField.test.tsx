@@ -46,7 +46,23 @@ describe('EventTagsField', () => {
     expect(screen.getByTestId('calendar-form-tag-add')).toBeInTheDocument()
   })
 
-  it('M365 일정은 칩과 Outlook 범주 안내만 보이고 붙이기 버튼이 없다', () => {
+  it('내 Outlook 달력의 M365 일정은 「＋ 태그」와 「Outlook 범주에도 반영」 안내가 보인다 (WP-716)', () => {
+    renderWithProviders(
+      <EventTagsField
+        event={{
+          ...base,
+          tags: [{ id: 2, name: '사내 공유', color: 'violet' }],
+          tagsEditable: true,
+          outlookTagScope: 'EVENT',
+        }}
+      />,
+    )
+    expect(screen.getByTestId('calendar-form-tag-add')).toBeInTheDocument()
+    expect(screen.getByTestId('calendar-form-tags-hint')).toHaveTextContent('Outlook 범주에도 함께 반영돼요')
+    expect(screen.queryByText(/Outlook에서 바꿀 수 있어요/)).not.toBeInTheDocument()
+  })
+
+  it('붙일 수 없는 M365 일정(공유받은 읽기 전용 달력)은 칩과 Outlook 범주 안내만 보이고 붙이기 버튼이 없다', () => {
     renderWithProviders(
       <EventTagsField event={{ ...base, tags: [{ id: 2, name: '사내 공유', color: 'violet' }], tagsEditable: false }} />,
     )

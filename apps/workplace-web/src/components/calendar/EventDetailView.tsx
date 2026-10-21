@@ -27,6 +27,7 @@ import {
   splitTextLinks,
 } from '@/lib/calendarEventView'
 import { resolvePalette } from '@/lib/calendarPalette'
+import { eventTagHint } from '@/lib/calendarTag'
 import { hashString } from '@/lib/project-color'
 import type { Attendee, CalendarEvent } from '@/types/calendar'
 
@@ -156,6 +157,8 @@ export function EventDetailView({ event, calendarLabel, readOnlyLabel, showRsvp,
   // 태그 — 응답에 없으면(구버전·모킹) 태그 없음·수정 불가로 본다(WP-714)
   const tags = event.tags ?? []
   const tagsEditable = event.tagsEditable ?? false
+  // 칩 줄 아래 안내 — 붙일 수 있는 M365 일정은 「Outlook 범주에도 반영」, 붙일 수 없는 M365 일정은 「Outlook에서 바꾸기」 (WP-716)
+  const tagHint = eventTagHint(event)
 
   return (
     <>
@@ -185,7 +188,7 @@ export function EventDetailView({ event, calendarLabel, readOnlyLabel, showRsvp,
                 {readOnlyLabel.text}
               </span>
             )}
-            {/* 태그 칩은 같은 칩 줄에 이어 붙인다(넘치면 다음 줄). 앱 일정이면 끝에 「＋ 태그」 (WP-714, 시안 ②-A) */}
+            {/* 태그 칩은 같은 칩 줄에 이어 붙인다(넘치면 다음 줄). 붙일 수 있으면(앱 일정·내 Outlook 달력 일정) 끝에 「＋ 태그」 (WP-714·716, 시안 ②-A) */}
             {tags.map((t) => (
               <CalendarTagChip key={t.id} tag={t} />
             ))}
@@ -195,10 +198,9 @@ export function EventDetailView({ event, calendarLabel, readOnlyLabel, showRsvp,
               </CalendarTagPicker>
             )}
           </div>
-          {/* M365 일정의 태그는 Outlook 범주에서 온 것 — 앱에서는 보기만 된다(쓰기는 WP-716). 태그가 없으면 안내할 게 없다 */}
-          {!tagsEditable && tags.length > 0 && (
+          {tagHint && (
             <p className="text-xs text-muted-foreground" data-testid="event-detail-tags-hint">
-              Outlook 범주에서 가져온 태그예요 · Outlook에서 바꿀 수 있어요
+              {tagHint}
             </p>
           )}
           {/* 회의 참가 — 일정을 여는 이유가 대개 「들어가기」라 칩 줄 바로 아래 넓은 버튼으로 둔다 (WP-710) */}

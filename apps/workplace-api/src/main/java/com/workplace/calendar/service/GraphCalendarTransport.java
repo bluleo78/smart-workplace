@@ -1,6 +1,7 @@
 package com.workplace.calendar.service;
 
 import com.workplace.calendar.exception.ExternalCalendarWriteException;
+import com.workplace.global.util.Texts;
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.dto.MailProvider;
 import com.workplace.mail.outbound.GraphCalendarClient;
@@ -71,6 +72,35 @@ public class GraphCalendarTransport implements CalendarTransport {
       graphClient.patchAttendees(token, externalEventId, attendees);
     } catch (RuntimeException e) {
       throw new ExternalCalendarWriteException("Graph 참석자 갱신 실패", e);
+    }
+  }
+
+  @Override
+  public LiveCategories readCategories(
+      long userId, EmailAccountResponse account, String externalEventId) {
+    try {
+      String token = tokenService.getAccessToken(userId, account.id());
+      var state = graphClient.getEventCategoryState(token, externalEventId);
+      return new LiveCategories(
+          state.type(),
+          Texts.blankToNull(state.seriesMasterId()),
+          state.categories() == null ? java.util.List.of() : state.categories());
+    } catch (RuntimeException e) {
+      throw new ExternalCalendarWriteException("Graph 범주 읽기 실패", e);
+    }
+  }
+
+  @Override
+  public void updateCategories(
+      long userId,
+      EmailAccountResponse account,
+      String externalEventId,
+      java.util.List<String> categories) {
+    try {
+      String token = tokenService.getAccessToken(userId, account.id());
+      graphClient.patchCategories(token, externalEventId, categories);
+    } catch (RuntimeException e) {
+      throw new ExternalCalendarWriteException("Graph 범주 갱신 실패", e);
     }
   }
 }

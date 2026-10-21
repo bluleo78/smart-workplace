@@ -74,8 +74,8 @@ public class CalendarEventService {
   private final CalendarService calendarService;
   private final CalendarRepository calendarRepo;
   private final EmailAccountRepository emailAccountRepo;
-  // 일정 역동기화 전송기 목록 — 공급자별 분기는 호출 시점에 transportFor 로 해소(구성 시 캐싱 금지).
-  private final List<CalendarTransport> transports;
+  // 공급자 → 일정 역동기화 전송기 해소(태그 → Outlook 범주 써 넣기와 같은 규칙, WP-716 리뷰).
+  private final CalendarTransports transports;
   // 비-@Transactional 오케스트레이터의 모든 DB 접근을 감싸는 트랜잭션 템플릿(GraphCalendarFetcher 패턴).
   private final TransactionTemplate txTemplate;
   // 일정 변경 → resource.changed 발행(WP-61). 반드시 txTemplate 쓰기 람다/@Transactional 안에서 호출.
@@ -99,7 +99,7 @@ public class CalendarEventService {
       CalendarService calendarService,
       CalendarRepository calendarRepo,
       EmailAccountRepository emailAccountRepo,
-      List<CalendarTransport> transports,
+      CalendarTransports transports,
       PlatformTransactionManager txManager,
       CalendarChangeNotifier changeNotifier,
       CalendarTagService tagService) {
@@ -275,12 +275,9 @@ public class CalendarEventService {
     return list.isEmpty() ? null : list;
   }
 
-  /** 공급자 전송기 조회 — 호출 시점 해소(구성 시 캐싱 금지). 미지원이면 IllegalStateException(라우팅 누락 가드). */
+  /** 공급자 전송기 조회 — {@link CalendarTransports} 에 위임(미지원이면 IllegalStateException). */
   private CalendarTransport transportFor(MailProvider provider) {
-    return transports.stream()
-        .filter(t -> t.provider() == provider)
-        .findFirst()
-        .orElseThrow(() -> new IllegalStateException("일정 역동기화 전송기 없음: " + provider));
+    return transports.forProvider(provider);
   }
 
   /**
@@ -473,7 +470,8 @@ public class CalendarEventService {
         m.iCalUid(), // iCalUid — 마스터에서 복사(반복 회차)
         null, // onlineMeeting — 목록 응답에서는 판정하지 않는다(단건 get 에서만)
         m.tags(), // tags — 마스터 것을 따른다(applyTags 가 마스터 키로 다시 채움)
-        m.tagsEditable());
+        m.tagsEditable(),
+        m.outlookTagScope());
   }
 
   /**
@@ -1228,7 +1226,8 @@ public class CalendarEventService {
         e.iCalUid(),
         onlineMeeting,
         e.tags(),
-        e.tagsEditable());
+        e.tagsEditable(),
+        e.outlookTagScope());
   }
 
   /**

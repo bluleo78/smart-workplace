@@ -172,3 +172,61 @@ calendar_event_tag(
   붙은 경우인데 — iCalUId 가 있는 일정은 M365 동기화 일정뿐이고 그 Outlook 연결은 그 달력 주인의 태그라 생기지 않는다.
 - **태그 주인 확인은 `CalendarTagService.requireOwned` 하나** — 구독 주소 서비스도 그것을 쓴다(404 은닉 규칙이 갈라지지 않게).
 - `IcsWriter.fold` 는 글자마다 String·byte[] 를 만들지 않고 코드 포인트 범위로 UTF-8 바이트 수를 센다(짝 없는 서로게이트는 3으로 세어 조금 일찍 접힐 뿐).
+
+### 716
+
+- **마이그레이션 V197**(`V197__calendar_outlook_category_write.sql` — 리뷰 반영 때 파일 이름을 바꾸고 컬럼을 더했다, 아직 배포 전):
+  `calendar_event.series_master_id VARCHAR(500)`·`external_type VARCHAR(20)`(Graph `type`)·`categories_written_at TIMESTAMPTZ` +
+  `(calendar_id, series_master_id)` 부분 인덱스, `calendar.is_own_mailbox BOOLEAN NOT NULL DEFAULT FALSE`. 동기화 `$select` 에 `seriesMasterId`·`type`
+  (일정)·`owner`(달력)를 더해 upsert 의 넣기·갱신 양쪽에서 쓴다. 이미 동기화된 행은 다음 동기화에 채워진다 — 써 넣을 Graph 대상은 저장값이 아니라 써 넣기
+  직전에 읽은 값으로 정하므로 비어 있어도 회차를 예외로 떼어 내지 않는다. 옛 달력은 `is_own_mailbox=FALSE` 라 다음 동기화(10분)까지 태그를 바꿀 수 없다(안전한 쪽).
+- **태그를 바꿀 수 있는 M365 일정** = 호출자가 그 일정 사본의 주인 + 읽기 전용 아님(`is_read_only=false`, Graph `canEdit`) + 내 사서함 달력
+  (`is_own_mailbox` — 리뷰 반영) + 달력이 이어진 메일 계정이 호출자 것이고 끊기지 않음(`disabled_at IS NULL` — 리뷰 반영, 써 넣기 경로의
+  `findByIdAndUser` 와 같은 조건). 조건식 하나(`CalendarEventRepository.tagsEditableCondition`)를 응답 `tagsEditable` 과 PUT 허용 판정이 같이 쓴다. **주최자일 필요는 없다** — 범주는 사서함마다
+  따로라 Teams 로 초대받은 회의의 내 사본에도 붙일 수 있고, 이게 이 기능의 주 용도다. 주인 조건은 초대받아 남의 사본을 보는 사람을 막는다(그 사람의 `/me`
+  토큰으로는 주인 사서함에 쓸 수 없고 OUTLOOK 연결도 주인 태그다). 계정이 끊겨 메일 계정을 찾지 못해도 409.
+- **409 문구**는 「이 Outlook 일정의 태그는 Outlook 범주에서 바꿀 수 있습니다」로 바꿨다(이제 모든 Outlook 일정이 아니라 바꿀 수 없는 것만 해당).
+- **응답 `outlookTagScope`**(`EVENT` | `SERIES` | null)를 더했다 — M365 회차 행은 `recurrenceRule` 이 없어 화면이 반복 회의인지 알 수 없어서다. 화면 안내는
+  순수 함수 `eventTagHint` 하나가 고른다: 바꿀 수 있는 M365 일정은 「Outlook 범주에도 함께 반영돼요 (없던 범주는 색 없이)」, 반복 회의는 「반복 일정 전체의
+  Outlook 범주에 함께 반영돼요 (없던 범주는 색 없이)」, 바꿀 수 없는 일정(공유받은 읽기 전용 달력 등)은 태그가 있을 때만 옛 안내. 바꿀 수 없는 쪽은
+  `outlookTagScope` 를 보지 않는다(필드가 없는 응답·모킹과도 맞게 — 앱 일정은 늘 바꿀 수 있다).
+- **PUT 흐름**은 다른 외부 쓰기와 같은 3단계(`CalendarTagService.setEventTags` 가 비-@Transactional 이 됨, 리뷰 반영으로 아래처럼 바뀜): 확인(tx — 볼 수
+  있음 404, 써 넣기 허용 409, 바깥 tx 가드, 태그 주인 404 순 — 앱이 아는 OUTLOOK 연결과 요청의 차이를 정함) → Graph 읽기 `GET /me/events/{id}?$select=
+  id,type,seriesMasterId,categories` 뒤 대상마다 `PATCH /me/events/{id} {"categories":[…]}`(tx 밖) → 저장(tx — Outlook 이 바꿔 보일 행에 같은 차이).
+  앱 일정은 첫 tx 에서 저장까지 끝난다. Graph 실패는 기존 502 로 끝나고 로컬은 그대로. 마지막 범주를 떼면 `{"categories":[]}` 를 그대로 보낸다.
+- **반복 회의**: 써 넣기 직전에 읽은 `type` 으로 대상을 정한다 — 보통 회차(occurrence)는 시리즈 마스터만, 따로 고친 회차(exception)는 그 회차와 시리즈
+  마스터 둘 다(각자의 지금 범주에 같은 차이), 단일·마스터·모름은 자기 자신. 로컬은 누른 행 + 같은 달력·같은 시리즈의 **occurrence 행만** 바꾼다 — 다른
+  고친 회차는 자기 범주가 있어 마스터를 바꿔도 그대로일 수 있으므로 건드리지 않는다(다음 동기화가 원본).
+- **연결 맞추기 공용화**: 동기화의 「바뀐 연결만 지우고 넣기」를 `CalendarTagRepository.replaceOutlookLinks` 로 옮겨 동기화와 써 넣기가 같이 쓴다.
+- **범주 목록(masterCategories)은 만들지 않는다** — 설계대로. 경로는 기존 수정과 같은 `/me/events/{id}` 다 — 이제 내 사서함 달력만 허용하므로 맞는 경로다.
+- **앱에서 만든 태그도 M365 일정에 붙이면 이름이 잠긴다** — OUTLOOK 연결이 생겨 `fromOutlook` 이 되므로 이름 바꾸기는 409·이름 칸 잠금(「Outlook 범주에서 온
+  태그라…」 안내)이 된다. 이제 그 이름이 Outlook 범주로 쓰이고 있어, 앱에서 바꾸면 다음 동기화가 옛 이름 태그를 다시 만들어 갈라지는 같은 문제가 생기기 때문이다.
+  안내 문구는 그대로 두었다(정확히는 「Outlook 범주로 쓰이는 태그」).
+
+### 리뷰 반영(716)
+
+- **바뀐 것만 써 넣는다** — 전에는 앱이 아는 집합 전체로 PATCH 해 마지막 동기화 뒤 Outlook 에서 붙인 범주가 지워졌다. 이제 확인 단계에서 더할 태그(요청
+  − 누른 행의 OUTLOOK 연결)·뺄 태그(연결 − 요청)를 정하고, Graph 에서 읽은 지금 범주에서 뺄 이름과 같은 범주를 지우고 더할 이름 중 없는 것만 뒤에 붙인다
+  (`CalendarTagService.mergeCategories`). 이름 비교는 앞뒤 공백을 떼고 대소문자 무시(Java `equalsIgnoreCase` — 두 문자열을 같은 규칙으로 비교하므로 PG
+  `lower()` 와 어긋나는 문제와 무관). 손대지 않은 범주와, 이미 있는 이름을 더한 경우는 **Outlook 표기 그대로** 보낸다(「 Project X 」·「ops」가 앱 표기로 바뀌지
+  않는다). 결과가 지금 범주와 같으면 PATCH 하지 않고, 요청이 지금 연결과 같으면 Graph 를 읽지도 않는다.
+- **로컬 행도 차이로 바꾼다** — 저장 단계는 각 행의 OUTLOOK 연결에서 뺄 태그를 지우고 더할 태그를 넣는다(전체 교체 아님). 고친 회차를 눌러 마스터에도 썼을 때
+  보통 회차 행은 마스터 범주를 따르므로, 누른 회차의 집합으로 덮으면 틀리기 때문이다. 동기화 뒤 Outlook 에만 있는 범주의 태그는 다음 동기화가 채운다.
+- **편집 권한으로 공유받은 동료 달력은 바꿀 수 없다** — `/me/calendars` 는 동료가 편집 권한으로 공유한 달력도 `canEdit=true` 로 주지만 일정은 그 사람
+  사서함에 있어 `/me/events/{id}` 가 404 → 502 였다. 달력 `owner.address` 가 **기본 달력의 owner 주소**와 같거나 기본 달력이면 내 사서함으로 본다
+  (`GraphCalendarFetcher.isOwnMailbox`). 메일 계정에 저장한 주소와 비교하지 않은 것은 로그인 이름(UPN)과 기본 SMTP 주소가 다른 계정에서 내 달력이 모두 남의
+  것이 되기 때문이다. owner 를 모르면 아니다(안전한 쪽). 같은 기준으로 **그 달력들의 범주도 태그로 가져오지 않는다**(WP-714 리뷰의 읽기 전용 달력과 같은 이유 —
+  남의 사서함 범주라 지울 수도 써 넣을 수도 없다. 아직 배포 전이라 정리는 두지 않았다).
+- **동기화와의 경합** — 써 넣기 전에 Graph 를 읽은 동기화가 써 넣은 뒤에 저장하면 새 연결이 옛 범주로 돌아갔다. 저장 단계가 그 행들에
+  `categories_written_at`(앱 서버 시계)을 먼저 찍고(행 잠금 겸), 동기화는 Graph 를 읽기 전 시각보다 늦게 찍힌 일정의 범주 연결을 건너뛴다(다음 동기화가
+  맞춘다). 두 시계를 모두 JVM 시계로 맞췄다 — DB `now()` 와 섞으면 시계 차이로 판정이 흔들린다. 동시에 도는 경우는 행 잠금이 순서를 정한다: 써 넣기가 먼저
+  잡으면 동기화 upsert 가 기다렸다가 표시를 보고 건너뛰고, 동기화가 먼저 잡으면 써 넣기가 그 결과 위에 차이를 더한다.
+- **써 넣는 사이 지워진 태그** — 저장 단계에서 더할 태그를 지금 남아 있는 내 태그로 거른다(FK 500 대신 남은 것만 연결, 다음 동기화가 Outlook 범주로 맞춘다).
+- **바깥 tx 가드 순서** — 바깥 tx 여부를 txTemplate 에 들어가기 전에 잡고, M365 일정이면 써 넣기 허용(409) 확인 바로 뒤, 계정·태그를 읽고 Graph 를 읽기
+  전에 `ExternalCalendarWriteInTransactionException` 으로 막는다(남의 태그를 보내도 같은 예외). 바꿀 수 없는 일정은 여전히 409 `ExternalEventTagNotSupported`.
+- **전송기 해소 공용화** — `CalendarTransports.forProvider` 하나를 일정 쓰기와 태그 써 넣기가 같이 쓴다.
+- **범주 직렬화 실패는 `ExternalCalendarWriteException`(502)** — 메일 보내기 예외(`MailSendException`)를 쓰지 않는다. 이 때문에 `mail.outbound` 가
+  `calendar.exception` 을 처음 참조한다(ArchUnit 규칙에 걸리지 않음). 다른 일정 직렬화 실패는 전송기가 같은 예외로 감싸므로 그대로 두었다.
+- **알고 둔 한계**: 고친 회차를 누르면 그 회차를 먼저, 마스터를 나중에 PATCH 한다 — 마스터 PATCH 만 실패하면 502 지만 그 회차는 이미 Outlook 에 바뀌어
+  있다(로컬은 그대로, 다음 동기화가 맞춘다). 써 넣은 직후 Outlook 에만 있던 범주의 태그는 다음 동기화 전까지 화면에 없다. 써 넣기 표시보다 이른 시각에
+  Graph 를 읽은 동기화는 그 일정의 범주 연결만 한 번 건너뛴다.

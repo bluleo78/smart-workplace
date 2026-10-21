@@ -1,6 +1,7 @@
 package com.workplace.calendar.service;
 
 import com.workplace.calendar.CalendarPalette;
+import com.workplace.calendar.GraphEventTypes;
 import com.workplace.calendar.dto.CalendarEventResponse;
 import com.workplace.calendar.dto.CalendarTagRef;
 import com.workplace.calendar.dto.CalendarTagRequest;
@@ -8,32 +9,45 @@ import com.workplace.calendar.dto.CalendarTagResponse;
 import com.workplace.calendar.exception.CalendarEventNotFoundException;
 import com.workplace.calendar.exception.CalendarTagDuplicateNameException;
 import com.workplace.calendar.exception.CalendarTagNotFoundException;
+import com.workplace.calendar.exception.ExternalCalendarWriteInTransactionException;
 import com.workplace.calendar.exception.ExternalEventTagNotSupportedException;
 import com.workplace.calendar.exception.OutlookTagRenameNotAllowedException;
 import com.workplace.calendar.repository.CalendarEventExceptionRepository;
 import com.workplace.calendar.repository.CalendarEventExceptionRepository.MasterOccurrence;
 import com.workplace.calendar.repository.CalendarEventRepository;
+import com.workplace.calendar.repository.CalendarEventRepository.TagWriteTarget;
 import com.workplace.calendar.repository.CalendarTagRepository;
+import com.workplace.calendar.repository.CalendarTagRepository.EventTagLink;
 import com.workplace.calendar.repository.CalendarTagRepository.TagRow;
+import com.workplace.calendar.service.CalendarTransport.LiveCategories;
+import com.workplace.global.util.Texts;
+import com.workplace.mail.dto.EmailAccountResponse;
+import com.workplace.mail.repository.EmailAccountRepository;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * 캘린더 태그 유스케이스(WP-714) — 사용자별 태그 CRUD, 일정에 태그 붙이기, 일정 응답에 호출자 태그 채우기.
  *
  * <p>태그는 사람마다 따로다: 같은 일정이라도 각자 자기 태그만 붙이고 본다. 반복 일정은 마스터에 붙이고, 가상 회차·고친 회차(오버라이드)는 마스터의 태그를 따른다.
- * 외부(M365) 일정의 태그는 Outlook 범주 동기화가 정하므로 앱에서 붙이지 못한다(WP-716 전까지).
+ * 외부(M365) 일정의 태그는 그 사서함의 Outlook 범주가 원본이다 — 앱에서 바꾸면 Graph 로 범주를 먼저 써 넣고 성공해야 OUTLOOK 연결을
+ * 바꾼다(WP-716).
  */
 @Service
-@RequiredArgsConstructor
 public class CalendarTagService {
   /** 태그 이름 최대 길이(앞뒤 공백 제외). 사이드바·칩에서 읽히는 길이로 정했다 — Outlook 범주는 이 제한 없이 동기화된다. */
   static final int NAME_MAX = 50;
@@ -41,6 +55,30 @@ public class CalendarTagService {
   private final CalendarTagRepository tagRepo;
   private final CalendarEventRepository eventRepo;
   private final CalendarEventExceptionRepository exceptionRepo;
+  // Outlook 범주 써 넣기(WP-716) — 일정 사본 주인의 메일 계정과 공급자별 전송기(일정 쓰기와 같은 해소 규칙).
+  private final EmailAccountRepository emailAccountRepo;
+  private final CalendarTransports transports;
+  // 범주 써 넣기는 Graph HTTP 를 트랜잭션 밖에서 하므로 DB 접근을 짧은 트랜잭션으로 감싼다(CalendarEventService 와 같은 패턴).
+  private final TransactionTemplate txTemplate;
+
+  /**
+   * 명시적 생성자 — TransactionTemplate 을 PlatformTransactionManager 로 구성해야 해서 @RequiredArgsConstructor 를
+   * 쓰지 않는다.
+   */
+  public CalendarTagService(
+      CalendarTagRepository tagRepo,
+      CalendarEventRepository eventRepo,
+      CalendarEventExceptionRepository exceptionRepo,
+      EmailAccountRepository emailAccountRepo,
+      CalendarTransports transports,
+      PlatformTransactionManager txManager) {
+    this.tagRepo = tagRepo;
+    this.eventRepo = eventRepo;
+    this.exceptionRepo = exceptionRepo;
+    this.emailAccountRepo = emailAccountRepo;
+    this.transports = transports;
+    this.txTemplate = new TransactionTemplate(txManager);
+  }
 
   /** 내 태그 목록 — 이름순, 일정 수·구독 주소 여부 포함. */
   @Transactional(readOnly = true)
@@ -97,30 +135,207 @@ public class CalendarTagService {
   }
 
   /**
-   * 일정의 내 태그를 tagIds 로 바꾼다. 일정은 볼 수 있어야 하고(주인 또는 참석자 — 아니면 404), 태그는 모두 내 것이어야 한다(아니면 404). 고친 회차
-   * id 면 마스터에 붙인다(가상 회차 id 는 이미 마스터 id). 외부(M365) 일정은 409. 다른 사람의 태그와 Outlook 범주 연결은 건드리지 않는다.
+   * 일정의 내 태그를 tagIds 로 바꾼다. 일정은 볼 수 있어야 하고(주인 또는 참석자 — 아니면 404), 태그는 모두 내 것이어야 한다(아니면 404). 다른 사람의
+   * 태그는 건드리지 않는다.
+   *
+   * <ul>
+   *   <li>앱 일정: APP 연결을 바꾼다. 고친 회차 id 면 마스터에 붙인다(가상 회차 id 는 이미 마스터 id).
+   *   <li>M365 일정(WP-716): 앱이 아는 연결과 요청의 차이(더할 태그·뺄 태그)만 그 일정의 지금 Outlook 범주에 더하고 빼서 Graph 에 써 넣는다
+   *       — 마지막 동기화 뒤 Outlook 에서 붙인 범주는 그대로 두고, 손대지 않은 범주는 Outlook 표기 그대로 보낸다. 성공하면 Outlook 이 바꿔 보일
+   *       로컬 행의 OUTLOOK 연결에 같은 차이를 반영한다. 바꿀 수 없는 M365 일정(tagsEditable=false)은 409.
+   * </ul>
+   *
+   * <p>비-@Transactional 오케스트레이터(CalendarEventService 외부 쓰기와 같은 3단계): 확인(tx) → Graph 읽기·쓰기(tx 밖) →
+   * 저장(tx). Graph 가 실패하면(502) 로컬은 그대로다. 앱 일정은 첫 트랜잭션에서 저장까지 끝난다.
    */
-  @Transactional
   public void setEventTags(long callerId, long eventId, List<Long> tagIds) {
-    eventRepo
-        .findById(callerId, eventId)
-        .orElseThrow(() -> new CalendarEventNotFoundException(eventId));
-    long masterId =
-        exceptionRepo
-            .findMasterOccurrenceByOverride(eventId)
-            .map(MasterOccurrence::eventId)
-            .orElse(eventId);
-    boolean external =
-        eventRepo.findExternalRef(masterId).map(r -> r.eventExternalId() != null).orElse(false);
-    if (external) {
-      throw new ExternalEventTagNotSupportedException();
-    }
     Set<Long> wanted = new LinkedHashSet<>();
     for (Long id : tagIds) if (id != null) wanted.add(id);
+
+    // 호출자(AI·채팅 등)의 바깥 tx 가 열려 있는지는 txTemplate 에 들어가기 전에 본다 — 안에서는 늘 열려 있다. M365 일정이면 확인 단계에서
+    // 다른 판정보다 먼저 막는다(Graph 를 읽기 전에, #232·#548).
+    boolean ambientTx = TransactionSynchronizationManager.isActualTransactionActive();
+
+    // ① 확인(tx) — 앱 일정이면 여기서 저장까지 하고 null, M365 일정이면 써 넣을 차이를 돌려준다.
+    OutlookWrite write =
+        txTemplate.execute(s -> applyOrPrepare(callerId, eventId, wanted, ambientTx));
+    if (write == null || write.isEmpty()) return;
+
+    // ② Graph(tx 밖) — 누른 일정의 지금 종류·시리즈·범주를 읽고, 대상마다 자기 범주에 같은 차이를 반영해 써 넣는다.
+    CalendarTransport transport = transports.forProvider(write.account().provider());
+    LiveCategories live = transport.readCategories(callerId, write.account(), write.externalId());
+    List<String> addedNames = write.addedNames();
+    List<String> removedNames = write.removedNames();
+    for (String target : live.targets(write.externalId())) {
+      // 보통 회차의 범주는 시리즈 마스터의 것이라 읽어 둔 값을 그대로 쓴다. 자기 자신이거나, 고친 회차의 마스터처럼 다른 일정만 다시 읽는다.
+      boolean sameCategories =
+          target.equals(write.externalId()) || GraphEventTypes.OCCURRENCE.equals(live.type());
+      List<String> current =
+          sameCategories
+              ? live.categories()
+              : transport.readCategories(callerId, write.account(), target).categories();
+      List<String> merged = mergeCategories(current, addedNames, removedNames);
+      if (!merged.equals(current)) {
+        transport.updateCategories(callerId, write.account(), target, merged);
+      }
+    }
+
+    // ③ 저장(tx) — Outlook 이 바꿔 보일 로컬 행에만 같은 차이를 반영하고 써 넣은 시각을 남긴다(동기화 경합 표시).
+    OffsetDateTime writtenAt = OffsetDateTime.now(ZoneOffset.UTC);
+    txTemplate.execute(
+        s -> {
+          persistOutlookWrite(callerId, eventId, write, live, writtenAt);
+          return null;
+        });
+  }
+
+  /**
+   * setEventTags 의 확인 단계(tx 안) — 볼 수 있는지·써 넣기 허용·태그 주인을 확인한다. 앱 일정은 APP 연결 저장까지 하고 null 을, M365 일정은
+   * 앱이 아는 OUTLOOK 연결과 요청의 차이를 돌려준다. 409(쓸 수 없는 M365 일정)는 태그 주인 확인보다 먼저 낸다 — 무엇을 보내든 바꿀 수 없는 일정이기
+   * 때문이다. 바깥 tx 가드는 그 다음, 계정·태그를 읽기 전에 둔다.
+   */
+  private OutlookWrite applyOrPrepare(
+      long callerId, long eventId, Set<Long> wanted, boolean ambientTx) {
+    TagWriteTarget target =
+        eventRepo
+            .findTagWriteTarget(callerId, eventId)
+            .orElseThrow(() -> new CalendarEventNotFoundException(eventId));
+    if (target.externalId() == null) {
+      requireOwnedTags(callerId, wanted);
+      long masterId =
+          exceptionRepo
+              .findMasterOccurrenceByOverride(eventId)
+              .map(MasterOccurrence::eventId)
+              .orElse(eventId);
+      tagRepo.replaceAppLinks(callerId, masterId, wanted);
+      return null;
+    }
+    // 허용 판정은 두 단계다 — 일정 사본의 규칙(내 사본·쓸 수 있는 내 사서함 달력)과 이어진 내 활성 계정. 응답 tagsEditable 도 같은 두 조건이다.
+    if (!target.ownWritableCopy() || target.externalAccountId() == null) {
+      throw new ExternalEventTagNotSupportedException();
+    }
+    EmailAccountResponse account =
+        emailAccountRepo
+            .findByIdAndUser(callerId, target.externalAccountId())
+            .orElseThrow(ExternalEventTagNotSupportedException::new);
+    if (ambientTx) throw new ExternalCalendarWriteInTransactionException();
+    requireOwnedTags(callerId, wanted);
+    Set<Long> linked =
+        tagRepo.outlookLinks(callerId, List.of(eventId)).getOrDefault(eventId, Set.of());
+    Set<Long> added = new LinkedHashSet<>(wanted);
+    added.removeAll(linked);
+    Set<Long> removed = new LinkedHashSet<>(linked);
+    removed.removeAll(wanted);
+    // 더할·뺄 이름을 한 번에 읽는다(이름순 맵) — 뒤에서 이 맵을 나눠 쓴다.
+    Set<Long> changed = new LinkedHashSet<>(added);
+    changed.addAll(removed);
+    return new OutlookWrite(
+        account,
+        target.calendarId(),
+        target.externalId(),
+        added,
+        removed,
+        tagRepo.namesOf(callerId, changed));
+  }
+
+  /**
+   * 지금 범주에 차이만 반영한 범주 목록(WP-716 리뷰) — 뺄 이름과 같은 범주를 지우고, 더할 이름 중 아직 없는 것만 뒤에 붙인다. 손대지 않은 범주는 Outlook
+   * 표기(앞뒤 공백·대소문자) 그대로 남기고, 이미 있는 범주를 더하면 Outlook 표기를 그대로 둔다. 이름 비교는 앞뒤 공백을 떼고 대소문자를 무시한다.
+   */
+  static List<String> mergeCategories(
+      List<String> current, Collection<String> added, Collection<String> removed) {
+    List<String> out = new ArrayList<>();
+    for (String c : current) {
+      if (!containsName(removed, c)) out.add(c);
+    }
+    for (String a : added) {
+      if (!containsName(out, a)) out.add(a);
+    }
+    return out;
+  }
+
+  /** names 에 name 과 같은 범주 이름이 있는가 — 앞뒤 공백을 떼고 대소문자 무시(Outlook 범주 이름 규칙). */
+  private static boolean containsName(Collection<String> names, String name) {
+    for (String x : names) {
+      if (Texts.equalsStrippedIgnoreCase(x, name)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * setEventTags 의 저장 단계(tx 안) — Outlook 이 실제로 바꿔 보일 로컬 행(누른 행 + 시리즈 마스터에 썼다면 같은 시리즈의 보통 회차 행)에 써
+   * 넣은 시각을 남기고(행 잠금 겸) OUTLOOK 연결에 같은 차이를 반영한다. 따로 고친 다른 회차는 자기 범주가 있어 건드리지 않는다(다음 동기화가 원본). 그 사이
+   * 지워진 태그는 더하지 않는다 — 없는 태그로 넣다 FK 로 500 이 나지 않게, 다음 동기화가 Outlook 범주로 다시 맞춘다.
+   */
+  private void persistOutlookWrite(
+      long callerId,
+      long eventId,
+      OutlookWrite write,
+      LiveCategories live,
+      OffsetDateTime writtenAt) {
+    Set<Long> rows = new LinkedHashSet<>();
+    rows.add(eventId);
+    if (live.writesSeries()) {
+      rows.addAll(eventRepo.findSeriesOccurrenceIds(write.calendarId(), live.seriesMasterId()));
+    }
+    // 먼저 표시해 행 잠금을 잡는다 — 동시에 도는 동기화의 같은 행 upsert 는 이 tx 가 끝난 뒤에 이어지고, 그때 이 표시를 보고 범주 연결을 건너뛴다.
+    eventRepo.markCategoriesWritten(rows, writtenAt);
+    eventRepo.updateExternalSeries(eventId, live.seriesMasterId(), live.type());
+    Set<Long> addable = tagRepo.ownedIds(callerId, write.addedIds());
+    List<EventTagLink> adds = new ArrayList<>();
+    List<EventTagLink> removes = new ArrayList<>();
+    for (long row : rows) {
+      for (long tagId : addable) adds.add(new EventTagLink(row, tagId));
+      for (long tagId : write.removedIds()) removes.add(new EventTagLink(row, tagId));
+    }
+    tagRepo.deleteOutlookLinks(removes);
+    tagRepo.insertOutlookLinks(adds);
+  }
+
+  /** 태그가 모두 호출자 것인지 — 남의 태그·없는 태그가 섞이면 404(존재 은닉). */
+  private void requireOwnedTags(long callerId, Set<Long> wanted) {
     if (!tagRepo.ownedIds(callerId, wanted).containsAll(wanted)) {
       throw new CalendarTagNotFoundException();
     }
-    tagRepo.replaceAppLinks(callerId, masterId, wanted);
+  }
+
+  /**
+   * Outlook 범주 써 넣기 내용(WP-716) — 확인 단계(tx)에서 앱이 아는 OUTLOOK 연결과 요청의 차이를 정해 Graph 호출·저장 단계로 넘긴다.
+   *
+   * @param calendarId 누른 일정의 달력 — 같은 시리즈의 로컬 회차 행을 찾는다
+   * @param externalId 누른 일정의 Graph id
+   * @param addedIds 더할 태그 id(요청에 있고 아직 연결 안 됨)
+   * @param removedIds 뺄 태그 id(연결돼 있고 요청에 없음)
+   * @param names 더할·뺄 태그의 id → 범주 이름(이름순) — 더할 이름·뺄 이름은 여기서 나눠 쓴다
+   */
+  private record OutlookWrite(
+      EmailAccountResponse account,
+      long calendarId,
+      String externalId,
+      Set<Long> addedIds,
+      Set<Long> removedIds,
+      Map<Long, String> names) {
+    /** 바꿀 것이 없으면 Graph 를 부르지 않는다. */
+    boolean isEmpty() {
+      return addedIds.isEmpty() && removedIds.isEmpty();
+    }
+
+    /** 더할 범주 이름(이름순). */
+    List<String> addedNames() {
+      return namesIn(addedIds);
+    }
+
+    /** 뺄 범주 이름(이름순). */
+    List<String> removedNames() {
+      return namesIn(removedIds);
+    }
+
+    private List<String> namesIn(Set<Long> ids) {
+      return names.entrySet().stream()
+          .filter(e -> ids.contains(e.getKey()))
+          .map(Map.Entry::getValue)
+          .toList();
+    }
   }
 
   /**

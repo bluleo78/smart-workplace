@@ -2,7 +2,6 @@ package com.workplace.calendar.service;
 
 import com.workplace.calendar.CalendarPalette;
 import com.workplace.calendar.repository.CalendarTagRepository;
-import com.workplace.calendar.repository.CalendarTagRepository.EventTagLink;
 import com.workplace.calendar.repository.EventAttendeeRepository;
 import com.workplace.calendar.repository.ExternalCalendarRepository;
 import com.workplace.calendar.repository.ExternalCalendarRepository.ExternalEventRow;
@@ -122,6 +121,8 @@ public class GraphCalendarFetcher implements CalendarFetcher {
    */
   @Override
   public int sync(long userId, long accountId, EmailAccountResponse account) {
+    // 수집 시작 시각 — Graph 를 읽기 전에 잡는다. 이보다 늦게 앱이 범주를 써 넣은 일정은 이번에 읽은 범주가 낡았으므로 연결을 건너뛴다(WP-716).
+    // 써 넣기 표시(CalendarTagService)와 같은 앱 서버 시계를 쓴다.
     OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
     OffsetDateTime from = now.minus(WINDOW_BACK);
     OffsetDateTime to = now.plus(WINDOW_FWD);
@@ -138,6 +139,7 @@ public class GraphCalendarFetcher implements CalendarFetcher {
     }
 
     // ── 2단계: DB persist — 달력별 짧은 트랜잭션 ──────────────────────────────────
+    String mailboxOwner = mailboxOwnerAddress(calendars);
     int totalUpserted = 0;
     Set<Long> seenCalendarIds = new HashSet<>();
     // 계정 안의 캘린더끼리 색이 겹치지 않도록 이번 sync 호출 동안 배정된 색을 추적한다 (#825).
@@ -151,13 +153,17 @@ public class GraphCalendarFetcher implements CalendarFetcher {
 
       int[] count = {0};
       long[] calIdHolder = {0L};
+      // 내 사서함 달력인가(WP-716) — 편집 권한으로 공유받은 동료 달력(canEdit=true)은 아니다. 범주 ↔ 태그는 내 사서함의 쓸 수 있는 달력만
+      // 잇는다: 남의 사서함 범주로 태그를 만들면 지울 수도, 써 넣을 수도 없다.
+      boolean ownMailbox = isOwnMailbox(cal, mailboxOwner);
+      boolean categoryTags = cal.canEdit() && ownMailbox;
 
       txTemplate.execute(
           status -> {
             // canEdit=false(공휴일·생일 등) → is_read_only=true, canEdit=true → is_read_only=false
             long calId =
                 extRepo.upsertExternalCalendar(
-                    userId, accountId, cal.id(), cal.name(), color, !cal.canEdit());
+                    userId, accountId, cal.id(), cal.name(), color, !cal.canEdit(), ownMailbox);
             calIdHolder[0] = calId;
 
             Set<String> keep = new HashSet<>();
@@ -174,14 +180,19 @@ public class GraphCalendarFetcher implements CalendarFetcher {
               if (cal.canEdit()) {
                 syncAttendees(localEventId, evt, userId, account.emailAddress());
               }
-              // 범주 → 태그도 쓸 수 있는 달력만(WP-714 리뷰) — 동료가 공유한 달력·공휴일·생일 같은 읽기 전용 달력의 범주는 남의 사서함 것이라,
-              // 내 태그로 만들면 지울 수도 없는 태그가 쌓인다. 참석자 동기화와 같은 기준(cal.canEdit())이다.
-              if (cal.canEdit() && evt.categories() != null) {
+              // 범주 → 태그는 내 사서함의 쓸 수 있는 달력만(WP-714 리뷰·WP-716 리뷰) — 동료가 공유한 달력(읽기 전용이든 편집 권한이든)·
+              // 공휴일·생일 달력의 범주는 남의 사서함 것이라, 내 태그로 만들면 지울 수도 Outlook 에 써 넣을 수도 없는 태그가 쌓인다.
+              if (categoryTags && evt.categories() != null) {
                 categoriesByEvent.put(localEventId, evt.categories());
               }
               keep.add(evt.id());
               count[0]++;
             }
+            // 이번 수집 뒤에 앱이 범주를 써 넣은 일정은 건너뛴다(WP-716) — 써 넣기 전에 읽은 범주로 새 연결을 되돌리지 않게. 다음 동기화가 맞춘다.
+            categoriesByEvent
+                .keySet()
+                .removeAll(
+                    extRepo.eventIdsWithCategoriesWrittenAfter(categoriesByEvent.keySet(), now));
             syncCategoryTags(userId, categoriesByEvent);
             extRepo.pruneEventsNotIn(calId, keep, from, to);
             return null;
@@ -272,6 +283,29 @@ public class GraphCalendarFetcher implements CalendarFetcher {
     return OnlineMeetingResolver.isHttpUrl(url) && url.length() <= JOIN_URL_MAX ? url : null;
   }
 
+  /**
+   * 이 계정 사서함의 주인 주소 — 기본 달력의 owner 주소(WP-716). 메일 계정에 저장한 주소와 비교하지 않는 것은 로그인 이름(UPN)과 기본 SMTP 주소가
+   * 다른 계정에서 내 달력이 모두 남의 것으로 보이기 때문이다. 기본 달력이 없거나 owner 가 없으면 null.
+   */
+  static String mailboxOwnerAddress(List<GraphCalendar> calendars) {
+    return calendars.stream()
+        .filter(GraphCalendar::isDefaultCalendar)
+        .map(c -> c.owner() == null ? null : Texts.blankToNull(c.owner().address()))
+        .filter(Objects::nonNull)
+        .findFirst()
+        .orElse(null);
+  }
+
+  /**
+   * 내 사서함 달력인가(WP-716) — 기본 달력이거나 owner 주소가 기본 달력의 owner 와 같다(대소문자 무시). owner 를 모르면 아니다(안전한 쪽 — 태그
+   * 써 넣기를 막을 뿐 일정 동기화는 그대로다).
+   */
+  static boolean isOwnMailbox(GraphCalendar cal, String mailboxOwner) {
+    if (cal.isDefaultCalendar()) return true;
+    if (cal.owner() == null) return false;
+    return Texts.equalsStrippedIgnoreCase(cal.owner().address(), mailboxOwner);
+  }
+
   /** CRLF·CR → LF 로 맞추고 NUL(Postgres 텍스트에 저장 불가)을 지운 뒤 앞뒤 공백을 자른다. null 은 빈 문자열. */
   private static String normalizeText(String raw) {
     if (raw == null) return "";
@@ -305,7 +339,9 @@ public class GraphCalendarFetcher implements CalendarFetcher {
         evt.isAllDay(),
         location,
         evt.iCalUId(),
-        mapJoinUrl(evt));
+        mapJoinUrl(evt),
+        Texts.blankToNull(evt.seriesMasterId()),
+        Texts.blankToNull(evt.type()));
   }
 
   /**
@@ -394,9 +430,9 @@ public class GraphCalendarFetcher implements CalendarFetcher {
    * Outlook 범주 → 캘린더 주인의 태그(WP-714). 범주 이름으로 주인의 태그를 찾고(대소문자 무시, 없으면 이름 해시 색으로 만든다) 일정마다 OUTLOOK 출처
    * 연결을 범주 목록과 똑같이 맞춘다. 앱에서 붙인 연결(APP)·다른 사람의 태그는 건드리지 않는다.
    *
-   * <p>달력 하나의 일정을 모아 배치로 처리한다: 이름 → 태그 id 한 번, 기존 OUTLOOK 연결 한 번 읽고 바뀐 연결만 DELETE 한 문장·INSERT 한
-   * 문장으로 지우고 넣는다(10분마다 도는 동기화가 매번 모든 연결을 다시 쓰지 않게). 범주 이름은 API 의 50자 제한을 받지 않는다 — Outlook 이 허용한 이름을
-   * 그대로 쓴다(최대 255).
+   * <p>달력 하나의 일정을 모아 배치로 처리한다: 이름 → 태그 id 한 번, 연결 맞추기 한 번({@link
+   * CalendarTagRepository#replaceOutlookLinks} — 바뀐 연결만 지우고 넣는다). 범주 이름은 API 의 50자 제한을 받지 않는다 —
+   * Outlook 이 허용한 이름을 그대로 쓴다(최대 255).
    */
   private void syncCategoryTags(long userId, Map<Long, List<String>> categoriesByEvent) {
     if (categoriesByEvent.isEmpty()) return;
@@ -410,28 +446,17 @@ public class GraphCalendarFetcher implements CalendarFetcher {
     // 키는 정리한 범주 이름 그대로 — 대소문자 접기는 DB(lower)만 한다(Java 와 PG 의 소문자 규칙이 어긋나는 이름에서 연결이 빠지지 않게).
     Map<String, Long> tagIdByName =
         tagRepo.findOrCreateByNames(userId, names, CalendarPalette::forName);
-    Map<Long, Set<Long>> existing = tagRepo.outlookLinks(userId, categoriesByEvent.keySet());
-    // 바뀐 연결만 모아 DELETE 하나·INSERT 하나로 보낸다(일정마다 두 문장씩 보내지 않게).
-    List<EventTagLink> removes = new ArrayList<>();
-    List<EventTagLink> adds = new ArrayList<>();
+    Map<Long, Set<Long>> wantByEvent = new HashMap<>();
     for (var entry : categoriesByEvent.entrySet()) {
-      long eventId = entry.getKey();
       Set<Long> want = new HashSet<>();
       for (String c : entry.getValue()) {
         String n = cleanCategory(c);
         if (n != null) want.add(tagIdByName.get(n));
       }
       want.removeIf(Objects::isNull);
-      Set<Long> have = existing.getOrDefault(eventId, Set.of());
-      for (Long tagId : have) {
-        if (!want.contains(tagId)) removes.add(new EventTagLink(eventId, tagId));
-      }
-      for (Long tagId : want) {
-        if (!have.contains(tagId)) adds.add(new EventTagLink(eventId, tagId));
-      }
+      wantByEvent.put(entry.getKey(), want);
     }
-    tagRepo.deleteOutlookLinks(removes);
-    tagRepo.insertOutlookLinks(adds);
+    tagRepo.replaceOutlookLinks(userId, wantByEvent);
   }
 
   /** 범주 이름 정리 — 앞뒤 공백 제거, 빈 이름은 버리고 컬럼 상한(255)을 넘으면 자른다. */

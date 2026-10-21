@@ -65,9 +65,15 @@ export interface CalendarEvent {
   onlineMeeting?: { provider: OnlineMeetingProvider; joinUrl: string } | null
   // 이 일정에 붙은 태그 — 현재 사용자 것만(태그는 사람마다). 없으면 빈 배열로 본다. (WP-714)
   tags?: CalendarTagRef[]
-  // 태그를 붙이고 뗄 수 있는지. M365 동기화 일정은 Outlook 범주 써 넣기(WP-716) 전까지 false. 없으면 false 로 본다. (WP-714)
+  // 태그를 붙이고 뗄 수 있는지. 앱 일정은 true, M365 일정은 내 사서함의 쓸 수 있는 달력 사본일 때만 true
+  // (바꾸면 Outlook 범주에도 써 넣는다 — WP-716). 공유받은 읽기 전용 달력은 false. 없으면 false 로 본다. (WP-714)
   tagsEditable?: boolean
+  // 태그가 Outlook 범주와 이어진 M365 일정이면 범주가 붙는 단위 — 'EVENT'(이 일정) | 'SERIES'(반복 회의 전체). 앱 일정은 null/없음. (WP-716)
+  outlookTagScope?: OutlookTagScope | null
 }
+
+/** Outlook 범주가 붙는 단위 — 이 일정 하나 또는 반복 회의 시리즈 전체 (WP-716) */
+export type OutlookTagScope = 'EVENT' | 'SERIES'
 
 /** 일정에 달려 오는 태그 요약 — 칩을 그리는 데 필요한 값만. color 는 팔레트 키(blue … gray). (WP-714) */
 export interface CalendarTagRef {

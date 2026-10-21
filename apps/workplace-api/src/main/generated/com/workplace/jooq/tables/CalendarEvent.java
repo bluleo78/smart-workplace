@@ -155,6 +155,21 @@ public class CalendarEvent extends TableImpl<CalendarEventRecord> {
      */
     public final TableField<CalendarEventRecord, String> ONLINE_MEETING_URL = createField(DSL.name("online_meeting_url"), SQLDataType.VARCHAR(2000), this, "");
 
+    /**
+     * The column <code>public.calendar_event.series_master_id</code>.
+     */
+    public final TableField<CalendarEventRecord, String> SERIES_MASTER_ID = createField(DSL.name("series_master_id"), SQLDataType.VARCHAR(500), this, "");
+
+    /**
+     * The column <code>public.calendar_event.external_type</code>.
+     */
+    public final TableField<CalendarEventRecord, String> EXTERNAL_TYPE = createField(DSL.name("external_type"), SQLDataType.VARCHAR(20), this, "");
+
+    /**
+     * The column <code>public.calendar_event.categories_written_at</code>.
+     */
+    public final TableField<CalendarEventRecord, OffsetDateTime> CATEGORIES_WRITTEN_AT = createField(DSL.name("categories_written_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "");
+
     private CalendarEvent(Name alias, Table<CalendarEventRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }
@@ -224,7 +239,7 @@ public class CalendarEvent extends TableImpl<CalendarEventRecord> {
 
     @Override
     public List<Index> getIndexes() {
-        return Arrays.asList(Indexes.IDX_CALENDAR_EVENT_CALENDAR, Indexes.IDX_CALENDAR_EVENT_OWNER_RANGE, Indexes.IDX_CALENDAR_EVENT_TENANT, Indexes.UQ_EVENT_EXTERNAL);
+        return Arrays.asList(Indexes.IDX_CALENDAR_EVENT_CALENDAR, Indexes.IDX_CALENDAR_EVENT_OWNER_RANGE, Indexes.IDX_CALENDAR_EVENT_SERIES_MASTER, Indexes.IDX_CALENDAR_EVENT_TENANT, Indexes.UQ_EVENT_EXTERNAL);
     }
 
     @Override

@@ -123,6 +123,11 @@ public class Calendar extends TableImpl<CalendarRecord> {
      */
     public final TableField<CalendarRecord, Boolean> IS_READ_ONLY = createField(DSL.name("is_read_only"), SQLDataType.BOOLEAN.nullable(false).defaultValue(DSL.field(DSL.raw("false"), SQLDataType.BOOLEAN)), this, "");
 
+    /**
+     * The column <code>public.calendar.is_own_mailbox</code>.
+     */
+    public final TableField<CalendarRecord, Boolean> IS_OWN_MAILBOX = createField(DSL.name("is_own_mailbox"), SQLDataType.BOOLEAN.nullable(false).defaultValue(DSL.field(DSL.raw("false"), SQLDataType.BOOLEAN)), this, "");
+
     private Calendar(Name alias, Table<CalendarRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

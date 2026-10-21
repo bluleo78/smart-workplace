@@ -67,7 +67,8 @@ class GraphCalendarClientTest {
     GraphApiClient api = mock(GraphApiClient.class);
     String page =
         "{\"value\":[{\"id\":\"e1\",\"subject\":\"A\",\"bodyPreview\":\"짧게\","
-            + "\"body\":{\"contentType\":\"text\",\"content\":\"긴 본문\\r\\n둘째 줄\"}}]}";
+            + "\"body\":{\"contentType\":\"text\",\"content\":\"긴 본문\\r\\n둘째 줄\"},"
+            + "\"seriesMasterId\":\"SM-1\",\"type\":\"occurrence\"}]}";
     ArgumentCaptor<String> url = ArgumentCaptor.forClass(String.class);
     when(api.get(
             eq("tok"),
@@ -85,6 +86,12 @@ class GraphCalendarClientTest {
                 OffsetDateTime.parse("2026-09-01T00:00:00Z"));
 
     assertThat(url.getValue()).contains("bodyPreview,body,");
+    // WP-716: 반복 회의 회차의 시리즈 마스터 id 도 받는다(태그를 시리즈에 써 넣기 위해)
+    assertThat(url.getValue()).contains(",seriesMasterId");
+    assertThat(events.get(0).seriesMasterId()).isEqualTo("SM-1");
+    // WP-716 리뷰: 일정 종류도 받는다(써 넣은 뒤 Outlook 이 바꿔 보일 occurrence 행만 고르려고)
+    assertThat(url.getValue()).contains(",type");
+    assertThat(events.get(0).type()).isEqualTo("occurrence");
     assertThat(events.get(0).body().contentType()).isEqualTo("text");
     assertThat(events.get(0).body().content()).isEqualTo("긴 본문\r\n둘째 줄");
   }
@@ -96,10 +103,11 @@ class GraphCalendarClientTest {
 
     String page =
         "{\"value\":[{\"id\":\"c1\",\"name\":\"내 캘린더\",\"color\":\"auto\","
-            + "\"hexColor\":\"#0078d4\",\"isDefaultCalendar\":true}]}";
+            + "\"hexColor\":\"#0078d4\",\"isDefaultCalendar\":true,"
+            + "\"owner\":{\"name\":\"나\",\"address\":\"me@test.local\"}}]}";
 
-    when(api.get(
-            eq("tok"), contains("/me/calendars"), eq(GraphCalendarClient.GraphCalendarPage.class)))
+    ArgumentCaptor<String> url = ArgumentCaptor.forClass(String.class);
+    when(api.get(eq("tok"), url.capture(), eq(GraphCalendarClient.GraphCalendarPage.class)))
         .thenReturn(mapCalPage(page));
 
     GraphCalendarClient client = new GraphCalendarClient(api, MAPPER);
@@ -108,6 +116,9 @@ class GraphCalendarClientTest {
     assertThat(cals).hasSize(1);
     assertThat(cals.get(0).id()).isEqualTo("c1");
     assertThat(cals.get(0).isDefaultCalendar()).isTrue();
+    // WP-716 리뷰: 달력 주인 사서함도 받는다(편집 권한으로 공유받은 동료 달력을 가리려고)
+    assertThat(url.getValue()).contains(",owner");
+    assertThat(cals.get(0).owner().address()).isEqualTo("me@test.local");
   }
 
   // ── 헬퍼 ────────────────────────────────────────────────────────────────────

@@ -37,4 +37,21 @@ class TextsTest {
     assertThat(Texts.headUtf16("abc", 0)).isEmpty();
     assertThat(Texts.headUtf16(null, 3)).isNull();
   }
+
+  @Test
+  void blankToNull_빈값과_공백만_null_그_밖은_그대로() {
+    assertThat(Texts.blankToNull(null)).isNull();
+    assertThat(Texts.blankToNull("")).isNull();
+    assertThat(Texts.blankToNull("  ")).isNull();
+    assertThat(Texts.blankToNull(" a ")).isEqualTo(" a ");
+  }
+
+  @Test
+  void equalsStrippedIgnoreCase_앞뒤_공백과_대소문자를_무시하고_null_은_다르다() {
+    assertThat(Texts.equalsStrippedIgnoreCase(" Ops ", "ops")).isTrue();
+    assertThat(Texts.equalsStrippedIgnoreCase("a", "b")).isFalse();
+    assertThat(Texts.equalsStrippedIgnoreCase(null, "a")).isFalse();
+    assertThat(Texts.equalsStrippedIgnoreCase("a", null)).isFalse();
+    assertThat(Texts.equalsStrippedIgnoreCase(null, null)).isFalse();
+  }
 }

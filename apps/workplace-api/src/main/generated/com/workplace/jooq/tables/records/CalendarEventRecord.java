@@ -258,6 +258,48 @@ public class CalendarEventRecord extends UpdatableRecordImpl<CalendarEventRecord
         return (String) get(16);
     }
 
+    /**
+     * Setter for <code>public.calendar_event.series_master_id</code>.
+     */
+    public void setSeriesMasterId(String value) {
+        set(17, value);
+    }
+
+    /**
+     * Getter for <code>public.calendar_event.series_master_id</code>.
+     */
+    public String getSeriesMasterId() {
+        return (String) get(17);
+    }
+
+    /**
+     * Setter for <code>public.calendar_event.external_type</code>.
+     */
+    public void setExternalType(String value) {
+        set(18, value);
+    }
+
+    /**
+     * Getter for <code>public.calendar_event.external_type</code>.
+     */
+    public String getExternalType() {
+        return (String) get(18);
+    }
+
+    /**
+     * Setter for <code>public.calendar_event.categories_written_at</code>.
+     */
+    public void setCategoriesWrittenAt(OffsetDateTime value) {
+        set(19, value);
+    }
+
+    /**
+     * Getter for <code>public.calendar_event.categories_written_at</code>.
+     */
+    public OffsetDateTime getCategoriesWrittenAt() {
+        return (OffsetDateTime) get(19);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -281,7 +323,7 @@ public class CalendarEventRecord extends UpdatableRecordImpl<CalendarEventRecord
     /**
      * Create a detached, initialised CalendarEventRecord
      */
-    public CalendarEventRecord(Long id, Long ownerId, String title, String description, OffsetDateTime startsAt, OffsetDateTime endsAt, Boolean allDay, String location, String color, OffsetDateTime createdAt, OffsetDateTime updatedAt, String recurrenceRule, Long tenantId, Long calendarId, String externalId, String icalUid, String onlineMeetingUrl) {
+    public CalendarEventRecord(Long id, Long ownerId, String title, String description, OffsetDateTime startsAt, OffsetDateTime endsAt, Boolean allDay, String location, String color, OffsetDateTime createdAt, OffsetDateTime updatedAt, String recurrenceRule, Long tenantId, Long calendarId, String externalId, String icalUid, String onlineMeetingUrl, String seriesMasterId, String externalType, OffsetDateTime categoriesWrittenAt) {
         super(CalendarEvent.CALENDAR_EVENT);
 
         setId(id);
@@ -301,6 +343,9 @@ public class CalendarEventRecord extends UpdatableRecordImpl<CalendarEventRecord
         setExternalId(externalId);
         setIcalUid(icalUid);
         setOnlineMeetingUrl(onlineMeetingUrl);
+        setSeriesMasterId(seriesMasterId);
+        setExternalType(externalType);
+        setCategoriesWrittenAt(categoriesWrittenAt);
         resetChangedOnNotNull();
     }
 }

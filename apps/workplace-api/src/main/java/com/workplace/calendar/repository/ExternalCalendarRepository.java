@@ -4,6 +4,8 @@ import static com.workplace.jooq.Tables.CALENDAR;
 import static com.workplace.jooq.Tables.CALENDAR_EVENT;
 
 import java.time.OffsetDateTime;
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
@@ -36,6 +38,8 @@ public class ExternalCalendarRepository {
    * @param color 달력 색
    * @param readOnly Graph canEdit=false 이면 true (공휴일·생일 달력 등 편집 불가 컨테이너). 재동기화 시 doUpdate 에도 반영해
    *     canEdit 변화를 즉시 반영한다.
+   * @param ownMailbox 연결 계정 자신의 사서함 달력인지(Graph owner = 기본 달력의 owner, WP-716). 편집 권한으로 공유받은 동료 달력은
+   *     false — 앱 태그를 Outlook 범주로 써 넣지 못한다. 재동기화 때도 갱신한다.
    * @return 컨테이너 calendar.id
    */
   public long upsertExternalCalendar(
@@ -44,7 +48,8 @@ public class ExternalCalendarRepository {
       String externalId,
       String name,
       String color,
-      boolean readOnly) {
+      boolean readOnly,
+      boolean ownMailbox) {
     return dsl.insertInto(CALENDAR)
         .set(CALENDAR.OWNER_ID, ownerId)
         .set(CALENDAR.EXTERNAL_ACCOUNT_ID, externalAccountId)
@@ -52,6 +57,7 @@ public class ExternalCalendarRepository {
         .set(CALENDAR.NAME, name)
         .set(CALENDAR.COLOR, color)
         .set(CALENDAR.IS_READ_ONLY, readOnly)
+        .set(CALENDAR.IS_OWN_MAILBOX, ownMailbox)
         .set(CALENDAR.IS_DEFAULT, false)
         .set(CALENDAR.POSITION, 0)
         // 부분 유니크 인덱스(WHERE external_account_id IS NOT NULL) 기준 충돌
@@ -61,6 +67,7 @@ public class ExternalCalendarRepository {
         .set(CALENDAR.NAME, name)
         .set(CALENDAR.COLOR, color)
         .set(CALENDAR.IS_READ_ONLY, readOnly) // canEdit 변화 반영 — 배포 후 첫 동기화에서 기존 RO 정정
+        .set(CALENDAR.IS_OWN_MAILBOX, ownMailbox) // 배포 후 첫 동기화에서 옛 행(기본 FALSE)을 채운다
         .set(CALENDAR.UPDATED_AT, OffsetDateTime.now())
         .returning(CALENDAR.ID)
         .fetchOne()
@@ -93,6 +100,8 @@ public class ExternalCalendarRepository {
         .set(CALENDAR_EVENT.LOCATION, row.location())
         .set(CALENDAR_EVENT.ICAL_UID, row.iCalUid())
         .set(CALENDAR_EVENT.ONLINE_MEETING_URL, row.onlineMeetingUrl())
+        .set(CALENDAR_EVENT.SERIES_MASTER_ID, row.seriesMasterId())
+        .set(CALENDAR_EVENT.EXTERNAL_TYPE, row.externalType())
         // 부분 유니크 인덱스(WHERE external_id IS NOT NULL) 기준 충돌
         .onConflict(CALENDAR_EVENT.CALENDAR_ID, CALENDAR_EVENT.EXTERNAL_ID)
         .where(CALENDAR_EVENT.EXTERNAL_ID.isNotNull())
@@ -105,6 +114,8 @@ public class ExternalCalendarRepository {
         .set(CALENDAR_EVENT.LOCATION, row.location())
         .set(CALENDAR_EVENT.ICAL_UID, row.iCalUid())
         .set(CALENDAR_EVENT.ONLINE_MEETING_URL, row.onlineMeetingUrl())
+        .set(CALENDAR_EVENT.SERIES_MASTER_ID, row.seriesMasterId())
+        .set(CALENDAR_EVENT.EXTERNAL_TYPE, row.externalType())
         .set(CALENDAR_EVENT.UPDATED_AT, OffsetDateTime.now())
         .returning(CALENDAR_EVENT.ID)
         .fetchOne()
@@ -136,6 +147,23 @@ public class ExternalCalendarRepository {
       cond = cond.and(CALENDAR_EVENT.EXTERNAL_ID.notIn(keepExternalIds));
     }
     return dsl.deleteFrom(CALENDAR_EVENT).where(cond).execute();
+  }
+
+  /**
+   * 주어진 일정 중 앱에서 Outlook 범주를 {@code since} 이후에 써 넣은 일정 id(WP-716) — 동기화가 수집을 시작한 뒤 앱이 범주를 써 넣었다면 그
+   * 동기화가 가진 범주는 써 넣기 전 값이라, 그 일정의 범주 연결은 건너뛰고 다음 동기화에 맡긴다.
+   *
+   * @param since 동기화 수집 시작 시각(앱 서버 시계 — 써 넣기 표시와 같은 시계)
+   */
+  public Set<Long> eventIdsWithCategoriesWrittenAfter(
+      Collection<Long> eventIds, OffsetDateTime since) {
+    if (eventIds.isEmpty()) return Set.of();
+    return new HashSet<>(
+        dsl.select(CALENDAR_EVENT.ID)
+            .from(CALENDAR_EVENT)
+            .where(CALENDAR_EVENT.ID.in(eventIds))
+            .and(CALENDAR_EVENT.CATEGORIES_WRITTEN_AT.gt(since))
+            .fetch(CALENDAR_EVENT.ID));
   }
 
   /**
@@ -173,6 +201,10 @@ public class ExternalCalendarRepository {
    *
    * <p>onlineMeetingUrl: Graph onlineMeeting.joinUrl(WP-710). 회의가 아니거나 주소가 없으면 null — 갱신 때도 덮어써 회의가
    * 해제된 일정의 옛 주소가 남지 않게 한다.
+   *
+   * <p>seriesMasterId·externalType: 반복 회의 회차·예외 회차의 Graph 시리즈 마스터 id 와 Graph 일정 종류(WP-716 —
+   * singleInstance | occurrence | exception). 단일 일정의 마스터 id 는 null. 앱에서 시리즈 마스터에 범주를 써 넣은 뒤 Outlook
+   * 에서 바뀌어 보이는 같은 시리즈의 occurrence 행만 태그를 함께 바꾸는 데 쓴다.
    */
   public record ExternalEventRow(
       String title,
@@ -182,5 +214,7 @@ public class ExternalCalendarRepository {
       boolean allDay,
       String location,
       String iCalUid,
-      String onlineMeetingUrl) {}
+      String onlineMeetingUrl,
+      String seriesMasterId,
+      String externalType) {}
 }

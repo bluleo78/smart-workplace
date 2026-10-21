@@ -15,7 +15,8 @@ class GraphCalendarFetcherDescriptionTest {
 
   private static GraphEvent event(String preview, GraphItemBody body) {
     return new GraphEvent(
-        "e", "s", preview, body, null, null, false, null, null, null, false, null, null, null);
+        "e", "s", preview, body, null, null, false, null, null, null, false, null, null, null, null,
+        null);
   }
 
   @Test

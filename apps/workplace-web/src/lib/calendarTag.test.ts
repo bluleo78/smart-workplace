@@ -2,7 +2,17 @@ import { describe, expect, it } from 'vitest'
 
 import { PALETTE_KEYS } from '@/lib/calendarPalette'
 
-import { filterTagsByName, pickTagColor, sameTagIds, tagNameToCreate, toggleTagId } from './calendarTag'
+import {
+  eventTagHint,
+  filterTagsByName,
+  pickTagColor,
+  sameTagIds,
+  TAG_HINT_OUTLOOK_EVENT,
+  TAG_HINT_OUTLOOK_READ_ONLY,
+  TAG_HINT_OUTLOOK_SERIES,
+  tagNameToCreate,
+  toggleTagId,
+} from './calendarTag'
 
 describe('pickTagColor', () => {
   it('같은 이름은 항상 같은 팔레트 키이고, 대소문자·앞뒤 공백은 무시한다', () => {
@@ -73,5 +83,29 @@ describe('sameTagIds', () => {
   it('원소나 개수가 다르면 다르다', () => {
     expect(sameTagIds([1, 2], [1, 2, 3])).toBe(false)
     expect(sameTagIds([1, 2], [1, 3])).toBe(false)
+  })
+})
+
+describe('eventTagHint', () => {
+  const tag = { id: 1, name: '운영', color: 'amber' }
+
+  it('붙일 수 있는 M365 일정은 Outlook 범주에도 반영된다고 알리고, 반복 회의면 시리즈 전체라고 알린다 (WP-716)', () => {
+    expect(eventTagHint({ tags: [], tagsEditable: true, outlookTagScope: 'EVENT' })).toBe(TAG_HINT_OUTLOOK_EVENT)
+    expect(eventTagHint({ tags: [tag], tagsEditable: true, outlookTagScope: 'SERIES' })).toBe(TAG_HINT_OUTLOOK_SERIES)
+    // 처음 쓰는 범주 이름은 Outlook 에서 색 없이 붙는다는 것도 짧게 단다(범주 목록에 만들지 않으므로)
+    expect(TAG_HINT_OUTLOOK_EVENT).toContain('색 없이')
+    expect(TAG_HINT_OUTLOOK_SERIES).toContain('반복 일정 전체')
+  })
+
+  it('앱 일정은 안내가 없다', () => {
+    expect(eventTagHint({ tags: [tag], tagsEditable: true, outlookTagScope: null })).toBeNull()
+    expect(eventTagHint({ tags: [tag], tagsEditable: true })).toBeNull()
+  })
+
+  it('붙일 수 없는 일정(공유받은 읽기 전용 달력 등)은 태그가 있을 때만 「Outlook에서 바꾸기」 안내 — 범주 단위 필드가 없어도 같다', () => {
+    expect(eventTagHint({ tags: [tag], tagsEditable: false, outlookTagScope: 'EVENT' })).toBe(TAG_HINT_OUTLOOK_READ_ONLY)
+    expect(eventTagHint({ tags: [tag], tagsEditable: false })).toBe(TAG_HINT_OUTLOOK_READ_ONLY)
+    expect(eventTagHint({ tags: [], tagsEditable: false, outlookTagScope: 'EVENT' })).toBeNull()
+    expect(eventTagHint({})).toBeNull()
   })
 })

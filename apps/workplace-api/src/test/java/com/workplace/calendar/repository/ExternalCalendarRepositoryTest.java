@@ -76,6 +76,8 @@ class ExternalCalendarRepositoryTest extends IntegrationTestBase {
         false,
         null,
         null,
+        null,
+        null,
         null);
   }
 
@@ -110,7 +112,8 @@ class ExternalCalendarRepositoryTest extends IntegrationTestBase {
               long accountId = emailAccount(ownerId);
 
               long calId =
-                  repo.upsertExternalCalendar(ownerId, accountId, "graphCal1", "업무", "blue", true);
+                  repo.upsertExternalCalendar(
+                      ownerId, accountId, "graphCal1", "업무", "blue", true, true);
 
               var row =
                   new ExternalCalendarRepository.ExternalEventRow(
@@ -121,12 +124,23 @@ class ExternalCalendarRepositoryTest extends IntegrationTestBase {
                       false,
                       "회의실",
                       null,
+                      null,
+                      null,
                       null);
               long first = repo.upsertExternalEvent(ownerId, calId, "graphEvt1", row);
 
               var row2 =
                   new ExternalCalendarRepository.ExternalEventRow(
-                      "회의(수정)", null, row.startsAt(), row.endsAt(), false, "회의실B", null, null);
+                      "회의(수정)",
+                      null,
+                      row.startsAt(),
+                      row.endsAt(),
+                      false,
+                      "회의실B",
+                      null,
+                      null,
+                      null,
+                      null);
               long second = repo.upsertExternalEvent(ownerId, calId, "graphEvt1", row2);
 
               // 같은 행 갱신 — id 는 동일
@@ -148,7 +162,8 @@ class ExternalCalendarRepositoryTest extends IntegrationTestBase {
               long ownerId = TestFixtures.createHuman(dsl);
               long accountId = emailAccount(ownerId);
 
-              long calId = repo.upsertExternalCalendar(ownerId, accountId, "c", "업무", "blue", true);
+              long calId =
+                  repo.upsertExternalCalendar(ownerId, accountId, "c", "업무", "blue", true, true);
               long keep = repo.upsertExternalEvent(ownerId, calId, "keep", sampleRow());
               long gone = repo.upsertExternalEvent(ownerId, calId, "gone", sampleRow());
 
@@ -178,7 +193,8 @@ class ExternalCalendarRepositoryTest extends IntegrationTestBase {
               long ownerId = TestFixtures.createHuman(dsl);
               long accountId = emailAccount(ownerId);
               long calId =
-                  repo.upsertExternalCalendar(ownerId, accountId, "graphCal1", "업무", "blue", true);
+                  repo.upsertExternalCalendar(
+                      ownerId, accountId, "graphCal1", "업무", "blue", true, true);
 
               var row =
                   new ExternalCalendarRepository.ExternalEventRow(
@@ -189,6 +205,8 @@ class ExternalCalendarRepositoryTest extends IntegrationTestBase {
                       false,
                       "회의실",
                       "ICAL-UID-1",
+                      null,
+                      null,
                       null);
               long id = repo.upsertExternalEvent(ownerId, calId, "graphEvt1", row);
 

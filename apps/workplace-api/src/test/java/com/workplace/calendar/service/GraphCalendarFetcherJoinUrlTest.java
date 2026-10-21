@@ -11,7 +11,8 @@ class GraphCalendarFetcherJoinUrlTest {
 
   private static GraphEvent event(GraphOnlineMeeting meeting) {
     return new GraphEvent(
-        "e", "s", null, null, null, null, false, null, null, null, false, null, meeting, null);
+        "e", "s", null, null, null, null, false, null, null, null, false, null, meeting, null, null,
+        null);
   }
 
   @Test

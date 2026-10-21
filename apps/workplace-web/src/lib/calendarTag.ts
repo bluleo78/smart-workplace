@@ -1,6 +1,7 @@
 // 캘린더 태그 순수 함수(WP-714) — 태그 피커·사이드바가 공유한다. 화면 없이 단위 테스트로 고정한다(calendarTag.test.ts).
 import { PALETTE_KEYS } from '@/lib/calendarPalette'
 import { hashString } from '@/lib/project-color'
+import type { CalendarEvent } from '@/types/calendar'
 
 /**
  * 새 태그의 색을 이름에서 정한다 — 같은 이름은 항상 같은 팔레트 키.
@@ -43,4 +44,26 @@ export function sameTagIds(a: number[], b: number[]): boolean {
   if (a.length !== b.length) return false
   const set = new Set(a)
   return b.every((id) => set.has(id))
+}
+
+/** 태그 줄 아래 안내 문구 (WP-716) — 상세 보기 머리·편집 폼 태그 줄이 같은 문구를 쓴다 */
+export const TAG_HINT_OUTLOOK_READ_ONLY = 'Outlook 범주에서 가져온 태그예요 · Outlook에서 바꿀 수 있어요'
+export const TAG_HINT_OUTLOOK_EVENT = 'Outlook 범주에도 함께 반영돼요 (없던 범주는 색 없이)'
+export const TAG_HINT_OUTLOOK_SERIES = '반복 일정 전체의 Outlook 범주에 함께 반영돼요 (없던 범주는 색 없이)'
+
+/**
+ * 일정 태그 줄 아래에 둘 안내 — 없으면 null.
+ * - 붙일 수 있는 M365 일정: 앱에서 바꾼 태그가 Outlook 범주에도 써 넣어진다는 것(반복 회의면 시리즈 전체). Outlook 범주 목록(masterCategories)에
+ *   새로 만들지는 않아 처음 쓰는 이름은 Outlook 에서 색 없이 보인다는 것도 짧게 단다.
+ * - 붙일 수 없는 일정(공유받은 읽기 전용 달력의 M365 일정 등): 태그가 있을 때만 Outlook 에서 바꾸라는 안내.
+ * - 앱 일정: 안내 없음.
+ * 붙일 수 없는 일정은 outlookTagScope 를 보지 않는다 — 앱 일정은 늘 붙일 수 있어, 붙일 수 없으면 Outlook 일정이다(필드가 없는 응답·모킹 호환).
+ */
+export function eventTagHint(event: Pick<CalendarEvent, 'tags' | 'tagsEditable' | 'outlookTagScope'>): string | null {
+  if (event.tagsEditable ?? false) {
+    if (event.outlookTagScope === 'SERIES') return TAG_HINT_OUTLOOK_SERIES
+    if (event.outlookTagScope === 'EVENT') return TAG_HINT_OUTLOOK_EVENT
+    return null
+  }
+  return (event.tags ?? []).length > 0 ? TAG_HINT_OUTLOOK_READ_ONLY : null
 }

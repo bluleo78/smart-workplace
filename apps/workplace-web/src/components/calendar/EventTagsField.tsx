@@ -3,16 +3,19 @@
 // 이미 있는 일정에서만 보인다 — 새 일정은 아직 id 가 없어 붙일 곳이 없다(만든 뒤 상세·편집에서 붙인다).
 import { CalendarTagAddButton, CalendarTagChip } from '@/components/calendar/CalendarTagChip'
 import { CalendarTagPicker } from '@/components/calendar/CalendarTagPicker'
+import { eventTagHint } from '@/lib/calendarTag'
 import type { CalendarEvent } from '@/types/calendar'
 
 /**
- * 편집 폼 태그 줄 — 태그 칩 + (붙일 수 있으면) 「＋ 태그」. 붙일 수 없는 외부(M365) 일정은 칩과 Outlook 범주 안내만 보이고,
- * 그런 일정에 태그도 없으면 줄째 숨긴다. event 는 상세 응답(태그 포함)이어야 한다.
+ * 편집 폼 태그 줄 — 태그 칩 + (붙일 수 있으면) 「＋ 태그」. 붙일 수 있는 M365 일정은 Outlook 범주에도 반영된다는 안내를 달고(WP-716),
+ * 붙일 수 없는 M365 일정(공유받은 읽기 전용 달력 등)은 칩과 「Outlook에서 바꾸기」 안내만 보이며, 태그도 없으면 줄째 숨긴다.
+ * event 는 상세 응답(태그 포함)이어야 한다.
  */
 export function EventTagsField({ event }: { event: CalendarEvent }) {
   const tags = event.tags ?? []
   const editable = event.tagsEditable ?? false
   if (!editable && tags.length === 0) return null
+  const hint = eventTagHint(event)
 
   return (
     <div className="space-y-1.5" data-testid="calendar-form-tags">
@@ -27,8 +30,10 @@ export function EventTagsField({ event }: { event: CalendarEvent }) {
           </CalendarTagPicker>
         )}
       </div>
-      {!editable && (
-        <p className="text-xs text-muted-foreground">Outlook 범주에서 가져온 태그예요 · Outlook에서 바꿀 수 있어요</p>
+      {hint && (
+        <p className="text-xs text-muted-foreground" data-testid="calendar-form-tags-hint">
+          {hint}
+        </p>
       )}
     </div>
   )

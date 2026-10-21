@@ -1,4 +1,4 @@
-// 캘린더 태그 E2E (WP-714) — 일정 상세·편집 폼의 태그 칩·피커, 사이드바 「태그」 묶음의 실제 배선.
+// 캘린더 태그 E2E (WP-714·716) — 일정 상세·편집 폼의 태그 칩·피커, 사이드바 「태그」 묶음의 실제 배선.
 // 백엔드 없이 page.route 로 /api/v1/calendar/** 를 모킹한다. 칩 노출·분기 판정은 화면마다 1건씩만 둔다(WP-413).
 import type { Page } from '@playwright/test'
 
@@ -35,6 +35,8 @@ async function stub(page: Page, events: CalendarEvent[], tags: CalendarTag[] = T
   await mockApi(page, 'GET', '/api/v1/calendars', [
     calendar({ id: 1, name: '기본', isDefault: true }),
     calendar({ id: 10, name: '회사 일정', isDefault: false, isReadOnly: true, accountEmail: 'me@corp.kr', provider: 'M365_GRAPH' }),
+    // 내 사서함의 쓸 수 있는 Outlook 달력 — 여기 일정의 태그는 Outlook 범주로 써 넣는다(WP-716)
+    calendar({ id: 11, name: 'Outlook 일정', isDefault: false, isReadOnly: false, accountEmail: 'me@corp.kr', provider: 'M365_GRAPH' }),
   ])
   await mockApi(page, 'GET', '/api/v1/me/issues', [])
   await mockApi(page, 'GET', '/api/v1/calendar/tags', tags)
@@ -51,7 +53,7 @@ async function stub(page: Page, events: CalendarEvent[], tags: CalendarTag[] = T
   )
 }
 
-test('M365 일정의 태그는 보기만 되고 Outlook 범주 안내가 붙는다', async ({ authenticatedPage: page }) => {
+test('공유받은 읽기 전용 달력의 M365 일정은 태그를 보기만 되고 「Outlook에서 바꾸기」 안내가 붙는다', async ({ authenticatedPage: page }) => {
   await stub(page, [
     calendarEvent({
       id: 42, title: 'M365 회의', calendarId: 10, calendarName: '회사 일정', external: true,
@@ -64,6 +66,34 @@ test('M365 일정의 태그는 보기만 되고 Outlook 범주 안내가 붙는�
   await expect(page.getByTestId('event-detail-tags-hint')).toHaveText('Outlook 범주에서 가져온 태그예요 · Outlook에서 바꿀 수 있어요')
   // 읽기 전용이라 「＋ 태그」가 없다
   await expect(page.getByTestId('event-detail-tag-add')).toHaveCount(0)
+})
+
+test('내 Outlook 달력의 M365 일정은 피커로 태그를 바꾸고 Outlook 범주에도 반영된다고 알린다 (WP-716)', async ({ authenticatedPage: page }) => {
+  // Teams 로 초대받은 회의의 내 사본 — 주최자가 아니라 상세 보기로 열리지만 태그(내 사서함의 범주)는 바꿀 수 있다
+  await stub(page, [
+    calendarEvent({
+      id: 43, title: 'Teams 회의', calendarId: 11, calendarName: 'Outlook 일정', external: true, myRole: 'ATTENDEE',
+      tags: [{ id: 1, name: '사내 공유', color: 'violet' }],
+      tagsEditable: true, outlookTagScope: 'EVENT',
+    }),
+    calendarEvent({
+      id: 44, title: '주간 Teams 회의', calendarId: 11, calendarName: 'Outlook 일정', external: true, myRole: 'ATTENDEE',
+      tags: [], tagsEditable: true, outlookTagScope: 'SERIES',
+    }),
+  ])
+  const put = await mockApi(page, 'PUT', '/api/v1/calendar/events/43/tags', {}, { capture: true })
+
+  await page.goto('/calendar?eventId=43')
+  await expect(page.getByTestId('event-detail-tag')).toHaveText(['사내 공유'])
+  await expect(page.getByTestId('event-detail-tags-hint')).toHaveText('Outlook 범주에도 함께 반영돼요 (없던 범주는 색 없이)')
+  await page.getByTestId('event-detail-tag-add').click()
+  await page.getByTestId('calendar-tag-picker').getByTestId('calendar-tag-option-2').click()
+  expect((await put.waitForRequest()).payload).toEqual({ tagIds: [1, 2] })
+
+  // 반복 회의 회차는 시리즈 전체에 붙는다고 알린다
+  await page.goto('/calendar?eventId=44')
+  await expect(page.getByTestId('event-detail-tags-hint')).toHaveText('반복 일정 전체의 Outlook 범주에 함께 반영돼요 (없던 범주는 색 없이)')
+  await expect(page.getByTestId('event-detail-tag-add')).toBeVisible()
 })
 
 test('태그가 없고 수정도 못 하는 일정에는 태그 줄이 없다(응답에 tags 가 없는 기존 일정 포함)', async ({ authenticatedPage: page }) => {

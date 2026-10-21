@@ -8,9 +8,13 @@ import static com.workplace.jooq.Tables.EMAIL_ACCOUNT;
 import static com.workplace.jooq.Tables.EVENT_ATTENDEE;
 import static com.workplace.jooq.Tables.EVENT_REMINDER;
 
+import com.workplace.calendar.GraphEventTypes;
 import com.workplace.calendar.dto.CalendarEventRequest;
 import com.workplace.calendar.dto.CalendarEventResponse;
+import com.workplace.calendar.dto.OutlookTagScope;
+import com.workplace.jooq.tables.EmailAccount;
 import java.time.OffsetDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
@@ -57,6 +61,58 @@ public class CalendarEventRepository {
                     .from(EMAIL_ACCOUNT)
                     .where(EMAIL_ACCOUNT.ID.eq(CALENDAR.EXTERNAL_ACCOUNT_ID))
                     .and(EMAIL_ACCOUNT.DISABLED_AT.isNull())));
+  }
+
+  /**
+   * 태그 써 넣기에 쓰는 메일 계정의 별칭 테이블(WP-716) — 달력이 이어진 계정이 호출자 것이고 끊기지 않았을 때만 조인에 걸린다. 일정 행마다 상관 서브쿼리를 돌리지
+   * 않고 기본키로 한 번 조인한다(계정은 달력당 하나라 행이 늘지 않는다). 쓰기 경로({@code EmailAccountRepository.findByIdAndUser})와
+   * 같은 조건이다.
+   */
+  private static final EmailAccount TAG_ACCOUNT = EMAIL_ACCOUNT.as("tag_account");
+
+  /** {@link #TAG_ACCOUNT} 조인 조건 — CALENDAR 가 조인돼 있어야 한다. leftJoin 의 on 에 쓴다. */
+  private static Condition tagAccountJoin(long callerId) {
+    return TAG_ACCOUNT
+        .ID
+        .eq(CALENDAR.EXTERNAL_ACCOUNT_ID)
+        .and(TAG_ACCOUNT.USER_ID.eq(callerId))
+        .and(TAG_ACCOUNT.DISABLED_AT.isNull());
+  }
+
+  /**
+   * 호출자가 M365 일정 사본의 태그를 써 넣을 수 있는 자리인가(WP-716) — 응답 {@code tagsEditable} 과 태그 저장의 허용 판정이 함께 쓰는 공통
+   * 규칙.
+   *
+   * <ol>
+   *   <li>호출자가 그 일정 사본의 주인 — 초대받아 남의 사본을 보는 사람은 그 사서함에 쓸 수 없다.
+   *   <li>읽기 전용 달력(동료가 공유한 읽기 전용 달력·공휴일·생일 — Graph canEdit=false)이 아니다.
+   *   <li>연결 계정 자신의 사서함 달력({@code is_own_mailbox}) — 편집 권한으로 공유받은 동료 달력은 일정이 남의 사서함에 있어 {@code
+   *       /me/events/{id}} 로 쓸 수 없다.
+   * </ol>
+   *
+   * 여기에 「달력이 이어진 내 활성 메일 계정이 있다」가 더해져야 최종 허용이다 — 응답은 {@link #TAG_ACCOUNT} 조인으로, 저장 경로는 계정을 직접 읽어 같은
+   * 조건을 확인한다. CALENDAR 가 조인돼 있어야 한다.
+   */
+  private static Condition ownWritableCopy(long callerId) {
+    return CALENDAR_EVENT
+        .OWNER_ID
+        .eq(callerId)
+        .and(CALENDAR.IS_READ_ONLY.isFalse())
+        .and(CALENDAR.IS_OWN_MAILBOX.isTrue());
+  }
+
+  /**
+   * 응답 행에 싣는 태그 편집 가능 열(별칭 tags_editable) — 앱 일정(external_id 없음)은 늘 된다. M365 일정은 {@link
+   * #ownWritableCopy} 이고 내 활성 메일 계정이 이어져 있어야 한다. CALENDAR 와 {@link #TAG_ACCOUNT}(leftJoin, {@link
+   * #tagAccountJoin}) 가 조인돼 있어야 한다.
+   */
+  private static org.jooq.Field<Boolean> tagsEditable(long callerId) {
+    return DSL.field(
+            CALENDAR_EVENT
+                .EXTERNAL_ID
+                .isNull()
+                .or(ownWritableCopy(callerId).and(TAG_ACCOUNT.ID.isNotNull())))
+        .as("tags_editable");
   }
 
   /** 일정 생성 — calendarId resolve 완료 후 호출. 생성된 id 반환. */
@@ -131,6 +187,79 @@ public class CalendarEventRepository {
                     r.get(CALENDAR_EVENT.ONLINE_MEETING_URL)));
   }
 
+  /**
+   * 태그 저장 대상(WP-716) — 호출자가 볼 수 있는 일정의 외부 참조와 써 넣을 수 있는 자리인지. 써 넣을 Graph 대상(반복 회의면 시리즈 마스터)은 저장값이
+   * 아니라 써 넣기 직전에 Graph 에서 읽은 값으로 정하므로 여기 싣지 않는다.
+   *
+   * @param calendarId 소속 달력 id — 같은 시리즈의 로컬 회차 행을 찾을 때 쓴다
+   * @param externalId Graph 일정 id(앱 일정이면 null)
+   * @param externalAccountId 달력이 이어진 메일 계정 id(로컬 달력이면 null) — 활성 여부는 호출자가 계정을 읽으며 함께 확인한다
+   * @param ownWritableCopy 호출자 사본·쓸 수 있는 내 사서함 달력인가({@link #ownWritableCopy}) — 계정 조건은 뺀 나머지 규칙
+   */
+  public record TagWriteTarget(
+      long calendarId, String externalId, Long externalAccountId, boolean ownWritableCopy) {}
+
+  /** 호출자가 볼 수 있는(주인·참석자) 일정의 태그 저장 대상. 못 보면 empty(→ 404). */
+  public Optional<TagWriteTarget> findTagWriteTarget(long callerId, long eventId) {
+    return dsl.select(
+            CALENDAR_EVENT.CALENDAR_ID,
+            CALENDAR_EVENT.EXTERNAL_ID,
+            CALENDAR.EXTERNAL_ACCOUNT_ID,
+            DSL.field(ownWritableCopy(callerId)).as("own_writable_copy"))
+        .from(CALENDAR_EVENT)
+        .join(CALENDAR)
+        .on(CALENDAR.ID.eq(CALENDAR_EVENT.CALENDAR_ID))
+        .where(CALENDAR_EVENT.ID.eq(eventId))
+        .and(accessibleBy(callerId))
+        .fetchOptional()
+        .map(
+            r ->
+                new TagWriteTarget(
+                    r.get(CALENDAR_EVENT.CALENDAR_ID),
+                    r.get(CALENDAR_EVENT.EXTERNAL_ID),
+                    r.get(CALENDAR.EXTERNAL_ACCOUNT_ID),
+                    Boolean.TRUE.equals(r.get("own_writable_copy", Boolean.class))));
+  }
+
+  /**
+   * 한 달력에서 같은 Graph 시리즈의 보통 회차(occurrence) 행 id(WP-716) — 시리즈 마스터에 범주를 써 넣으면 Outlook 에서 바뀌어 보이는 행은
+   * 이 회차들뿐이다. 따로 고친 회차(exception)는 자기 범주가 있어 마스터를 바꿔도 그대로일 수 있으므로 넣지 않는다(다음 동기화가 원본).
+   */
+  public List<Long> findSeriesOccurrenceIds(long calendarId, String seriesMasterId) {
+    return dsl.select(CALENDAR_EVENT.ID)
+        .from(CALENDAR_EVENT)
+        .where(CALENDAR_EVENT.CALENDAR_ID.eq(calendarId))
+        .and(CALENDAR_EVENT.SERIES_MASTER_ID.eq(seriesMasterId))
+        .and(CALENDAR_EVENT.EXTERNAL_TYPE.eq(GraphEventTypes.OCCURRENCE))
+        .fetch(CALENDAR_EVENT.ID);
+  }
+
+  /**
+   * 앱에서 Outlook 범주를 써 넣은 시각을 남긴다(WP-716) — 이 시각보다 먼저 Graph 를 읽어 둔 동기화가 범주 연결을 옛 값으로 되돌리지 않게 한다. 같은
+   * 트랜잭션에서 이어지는 연결 갱신 동안 행 잠금도 잡아, 동시에 도는 동기화의 같은 행 upsert 가 이 트랜잭션이 끝난 뒤에 이어지게 한다.
+   *
+   * @param writtenAt 앱 서버 시계 — 동기화의 수집 시작 시각과 같은 시계로 비교한다
+   */
+  public void markCategoriesWritten(Collection<Long> eventIds, OffsetDateTime writtenAt) {
+    if (eventIds.isEmpty()) return;
+    dsl.update(CALENDAR_EVENT)
+        .set(CALENDAR_EVENT.CATEGORIES_WRITTEN_AT, writtenAt)
+        .where(CALENDAR_EVENT.ID.in(eventIds))
+        .execute();
+  }
+
+  /**
+   * 써 넣기 직전에 Graph 에서 읽은 시리즈 마스터 id·일정 종류를 누른 행에 저장한다(WP-716) — 이 컬럼이 생기기 전에 동기화된 행도 다음 동기화를 기다리지
+   * 않고 바로 맞춘다.
+   */
+  public void updateExternalSeries(long eventId, String seriesMasterId, String externalType) {
+    dsl.update(CALENDAR_EVENT)
+        .set(CALENDAR_EVENT.SERIES_MASTER_ID, seriesMasterId)
+        .set(CALENDAR_EVENT.EXTERNAL_TYPE, externalType)
+        .where(CALENDAR_EVENT.ID.eq(eventId))
+        .execute();
+  }
+
   /** 단일 일정의 소속 캘린더 변경(수정 시 캘린더 이동). */
   public void moveSingleEventToCalendar(long id, long calendarId) {
     dsl.update(CALENDAR_EVENT)
@@ -149,12 +278,15 @@ public class CalendarEventRepository {
             CALENDAR_EVENT.asterisk(),
             EVENT_REMINDER.LEAD_MINUTES,
             CALENDAR.NAME.as("cal_name"),
-            CALENDAR.COLOR.as("cal_color"))
+            CALENDAR.COLOR.as("cal_color"),
+            tagsEditable(callerId))
         .from(CALENDAR_EVENT)
         .leftJoin(EVENT_REMINDER)
         .on(EVENT_REMINDER.EVENT_ID.eq(CALENDAR_EVENT.ID))
         .leftJoin(CALENDAR)
         .on(CALENDAR.ID.eq(CALENDAR_EVENT.CALENDAR_ID))
+        .leftJoin(TAG_ACCOUNT)
+        .on(tagAccountJoin(callerId))
         .where(CALENDAR_EVENT.ID.eq(id))
         .and(accessibleBy(callerId))
         .fetchOptional()
@@ -199,12 +331,15 @@ public class CalendarEventRepository {
             CALENDAR_EVENT.asterisk(),
             EVENT_REMINDER.LEAD_MINUTES,
             CALENDAR.NAME.as("cal_name"),
-            CALENDAR.COLOR.as("cal_color"))
+            CALENDAR.COLOR.as("cal_color"),
+            tagsEditable(callerId))
         .from(CALENDAR_EVENT)
         .leftJoin(EVENT_REMINDER)
         .on(EVENT_REMINDER.EVENT_ID.eq(CALENDAR_EVENT.ID))
         .leftJoin(CALENDAR)
         .on(CALENDAR.ID.eq(CALENDAR_EVENT.CALENDAR_ID))
+        .leftJoin(TAG_ACCOUNT)
+        .on(tagAccountJoin(callerId))
         .where(accessibleBy(callerId))
         .and(visibleExternalCondition())
         .and(CALENDAR_EVENT.STARTS_AT.lt(to))
@@ -233,12 +368,15 @@ public class CalendarEventRepository {
             CALENDAR_EVENT.asterisk(),
             EVENT_REMINDER.LEAD_MINUTES,
             CALENDAR.NAME.as("cal_name"),
-            CALENDAR.COLOR.as("cal_color"))
+            CALENDAR.COLOR.as("cal_color"),
+            tagsEditable(callerId))
         .from(CALENDAR_EVENT)
         .leftJoin(EVENT_REMINDER)
         .on(EVENT_REMINDER.EVENT_ID.eq(CALENDAR_EVENT.ID))
         .leftJoin(CALENDAR)
         .on(CALENDAR.ID.eq(CALENDAR_EVENT.CALENDAR_ID))
+        .leftJoin(TAG_ACCOUNT)
+        .on(tagAccountJoin(callerId))
         .where(accessibleBy(callerId))
         .and(visibleExternalCondition())
         .and(CALENDAR_EVENT.RECURRENCE_RULE.isNotNull())
@@ -345,8 +483,18 @@ public class CalendarEventRepository {
         r.get(CALENDAR_EVENT.ICAL_UID), // iCalUid — 동기화 이벤트만 non-null
         null, // onlineMeeting — 서비스 계층 enrichForGet 에서 채워짐(목록마다 최대 1만 자 설명을 정규식으로 훑지 않게 단건 조회에서만)
         List.of(), // tags — 서비스 계층(호출자 기준)에서 채워짐(WP-714)
-        // tagsEditable — 외부(M365) 동기화 일정은 Outlook 범주가 태그라 앱에서 못 바꾼다(WP-716 전까지)
-        r.get(CALENDAR_EVENT.EXTERNAL_ID) == null);
+        // tagsEditable — 앱 일정은 늘, M365 일정은 내 사서함의 쓸 수 있는 달력 사본일 때만(WP-716, tagsEditable)
+        Boolean.TRUE.equals(r.get("tags_editable", Boolean.class)),
+        outlookTagScope(r.get(CALENDAR_EVENT.EXTERNAL_ID), r.get(CALENDAR_EVENT.SERIES_MASTER_ID)));
+  }
+
+  /**
+   * M365 일정의 Outlook 범주 단위(WP-716) — 앱 일정은 null, 반복 회의 회차(시리즈 마스터 id 있음)는 시리즈, 그 밖은 이 일정. 화면이 「반복
+   * 일정 전체에 붙어요」 안내를 고르는 데 쓴다.
+   */
+  private static OutlookTagScope outlookTagScope(String externalId, String seriesMasterId) {
+    if (externalId == null) return null;
+    return seriesMasterId != null ? OutlookTagScope.SERIES : OutlookTagScope.EVENT;
   }
 
   private static String nullIfBlank(String s) {

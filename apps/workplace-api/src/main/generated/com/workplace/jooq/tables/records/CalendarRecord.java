@@ -188,6 +188,20 @@ public class CalendarRecord extends UpdatableRecordImpl<CalendarRecord> {
         return (Boolean) get(11);
     }
 
+    /**
+     * Setter for <code>public.calendar.is_own_mailbox</code>.
+     */
+    public void setIsOwnMailbox(Boolean value) {
+        set(12, value);
+    }
+
+    /**
+     * Getter for <code>public.calendar.is_own_mailbox</code>.
+     */
+    public Boolean getIsOwnMailbox() {
+        return (Boolean) get(12);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -211,7 +225,7 @@ public class CalendarRecord extends UpdatableRecordImpl<CalendarRecord> {
     /**
      * Create a detached, initialised CalendarRecord
      */
-    public CalendarRecord(Long id, Long ownerId, String name, String color, Boolean isDefault, Integer position, Long tenantId, OffsetDateTime createdAt, OffsetDateTime updatedAt, Long externalAccountId, String externalId, Boolean isReadOnly) {
+    public CalendarRecord(Long id, Long ownerId, String name, String color, Boolean isDefault, Integer position, Long tenantId, OffsetDateTime createdAt, OffsetDateTime updatedAt, Long externalAccountId, String externalId, Boolean isReadOnly, Boolean isOwnMailbox) {
         super(Calendar.CALENDAR);
 
         setId(id);
@@ -226,6 +240,7 @@ public class CalendarRecord extends UpdatableRecordImpl<CalendarRecord> {
         setExternalAccountId(externalAccountId);
         setExternalId(externalId);
         setIsReadOnly(isReadOnly);
+        setIsOwnMailbox(isOwnMailbox);
         resetChangedOnNotNull();
     }
 }

@@ -65,6 +65,8 @@ public class GraphCalendarClient {
    * @param hexColor 16진수 색상 코드 (예: "#0078d4")
    * @param isDefaultCalendar 기본 캘린더 여부
    * @param canEdit 편집 가능 여부 (공휴일·생일 캘린더는 false)
+   * @param owner 달력 주인 사서함(WP-716) — 기본 달력의 주인과 같으면 내 사서함 달력이다. 편집 권한으로 공유받은 동료 달력은 canEdit=true 여도
+   *     주인이 다르다. 응답에 없으면 null
    */
   public record GraphCalendar(
       String id,
@@ -72,7 +74,8 @@ public class GraphCalendarClient {
       String color,
       String hexColor,
       boolean isDefaultCalendar,
-      boolean canEdit) {}
+      boolean canEdit,
+      GraphEmail owner) {}
 
   /**
    * Graph 일정 항목.
@@ -92,6 +95,10 @@ public class GraphCalendarClient {
    * @param iCalUId 공급자 표준 미팅 식별자 — 크로스소스 dedup 키
    * @param onlineMeeting 온라인 회의 정보 — joinUrl 만 사용(WP-710)
    * @param categories Outlook 범주 이름 목록(WP-714) — 캘린더 주인의 태그로 동기화한다. 응답에 없으면 null(태그를 건드리지 않음)
+   * @param seriesMasterId 반복 회의 회차·예외 회차면 그 시리즈 마스터 id(WP-716), 단일 일정이면 null — 앱에서 태그를 바꿀 때 범주를 시리즈
+   *     마스터에 써 넣는다
+   * @param type Graph 일정 종류(WP-716) — singleInstance | occurrence | exception | seriesMaster. 태그를 써
+   *     넣은 뒤 Outlook 이 실제로 바꿔 보일 로컬 행(같은 시리즈의 occurrence)을 고르는 데 쓴다. 응답에 없으면 null
    */
   public record GraphEvent(
       String id,
@@ -107,7 +114,9 @@ public class GraphCalendarClient {
       boolean isCancelled,
       String iCalUId,
       GraphOnlineMeeting onlineMeeting,
-      List<String> categories) {}
+      List<String> categories,
+      String seriesMasterId,
+      String type) {}
 
   /** Graph onlineMeetingInfo 구조 — 참가 주소만 사용(WP-710). */
   public record GraphOnlineMeeting(String joinUrl) {}
@@ -163,6 +172,25 @@ public class GraphCalendarClient {
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public record GraphAttendeesPatch(List<GraphAttendeeWrite> attendees) {}
 
+  /**
+   * 범주만 바꾸는 부분 PATCH 봉투(WP-716) — 제목·시각 등 다른 필드는 보내지 않는다.
+   *
+   * <p>빈 목록도 그대로 직렬화해야 한다({@code "categories":[]} = 모든 범주 떼기). 그래서 NON_EMPTY 가 아니라 기본 포함 규칙을 쓴다.
+   */
+  public record GraphCategoriesPatch(List<String> categories) {}
+
+  /**
+   * 범주 써 넣기 직전에 읽는 일정의 현재 상태(WP-716) — 앱이 마지막 동기화 뒤 모르는 Outlook 범주를 덮지 않도록 바뀐 것만 더하고 빼는 바탕이고, 써 넣을
+   * 대상(회차면 시리즈 마스터)도 저장값이 아니라 이 값으로 정한다.
+   *
+   * @param id Graph 일정 id
+   * @param type singleInstance | occurrence | exception | seriesMaster
+   * @param seriesMasterId 반복 회의 회차·예외 회차면 시리즈 마스터 id
+   * @param categories 지금 붙은 범주 이름 그대로(없으면 null 또는 빈 목록)
+   */
+  public record GraphEventCategoryState(
+      String id, String type, String seriesMasterId, List<String> categories) {}
+
   /** Graph 일정 생성 응답 — id 만 사용. */
   public record GraphEventCreated(@JsonProperty("id") String id) {}
 
@@ -178,7 +206,7 @@ public class GraphCalendarClient {
    */
   public List<GraphCalendar> listCalendars(String accessToken) {
     List<GraphCalendar> all = new ArrayList<>();
-    String url = "/me/calendars?$select=id,name,color,hexColor,isDefaultCalendar,canEdit";
+    String url = "/me/calendars?$select=id,name,color,hexColor,isDefaultCalendar,canEdit,owner";
     while (url != null) {
       GraphCalendarPage page = api.get(accessToken, url, GraphCalendarPage.class);
       if (page.value() != null) all.addAll(page.value());
@@ -212,7 +240,7 @@ public class GraphCalendarClient {
             + start
             + "&endDateTime="
             + end
-            + "&$select=id,subject,bodyPreview,body,start,end,isAllDay,location,organizer,attendees,isCancelled,iCalUId,onlineMeeting,categories"
+            + "&$select=id,subject,bodyPreview,body,start,end,isAllDay,location,organizer,attendees,isCancelled,iCalUId,onlineMeeting,categories,seriesMasterId,type"
             + "&$top=50";
     while (url != null) {
       GraphEventPage page = api.get(accessToken, url, GraphEventPage.class, BODY_AS_TEXT);
@@ -281,6 +309,43 @@ public class GraphCalendarClient {
       String accessToken, String externalEventId, List<GraphAttendeeWrite> attendees) {
     String json = serializeAttendees(new GraphAttendeesPatch(attendees));
     api.patch(accessToken, "/me/events/" + externalEventId, json);
+  }
+
+  /**
+   * 외부 일정의 Outlook 범주만 바꾼다(PATCH /me/events/{id}, body={"categories":[...]}) — 앱 태그 써 넣기(WP-716).
+   *
+   * <p>목록에 없는 범주(masterCategories 에 없는 이름)도 일정에는 붙고 Outlook 에서 색 없이 보인다. 범주 목록에 새로 만들려면 {@code
+   * MailboxSettings.ReadWrite} 권한이 필요해 모든 사용자의 M365 재연결을 부르므로 만들지 않는다.
+   *
+   * @param accessToken Graph API Bearer 토큰
+   * @param externalEventId 바꿀 Graph 일정 id(반복 회의면 시리즈 마스터 id)
+   * @param categories 붙일 범주 이름 전체(빈 목록이면 모두 뗀다)
+   */
+  public void patchCategories(String accessToken, String externalEventId, List<String> categories) {
+    String json;
+    try {
+      json = mapper.writeValueAsString(new GraphCategoriesPatch(categories));
+    } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+      // 메일 보내기 실패(MailSendException)로 보이지 않게 메일과 무관한 예외를 던진다. calendar 예외를 직접 쓰면
+      // mail → calendar 패키지 순환이 생기므로, 502 변환은 GraphCalendarTransport 의 catch(RuntimeException)에
+      // 맡긴다.
+      throw new IllegalStateException("Graph 범주 직렬화 실패", e);
+    }
+    api.patch(accessToken, "/me/events/" + externalEventId, json);
+  }
+
+  /**
+   * 일정 하나의 현재 종류·시리즈 마스터 id·범주를 읽는다(GET /me/events/{id}?$select=type,seriesMasterId,categories) —
+   * 범주 써 넣기 직전(WP-716). 반복 회의 회차 id 로 읽어도 회차의 범주(= 마스터 범주)와 시리즈 마스터 id 가 온다.
+   *
+   * @param accessToken Graph API Bearer 토큰
+   * @param externalEventId 읽을 Graph 일정 id
+   */
+  public GraphEventCategoryState getEventCategoryState(String accessToken, String externalEventId) {
+    return api.get(
+        accessToken,
+        "/me/events/" + externalEventId + "?$select=id,type,seriesMasterId,categories",
+        GraphEventCategoryState.class);
   }
 
   /**

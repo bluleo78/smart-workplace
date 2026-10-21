@@ -109,4 +109,18 @@ class GraphCalendarTransportTest {
     org.assertj.core.api.Assertions.assertThatNoException()
         .isThrownBy(() -> transport.deleteEvent(1L, account(), "EXT_GONE"));
   }
+
+  /** WP-716 — updateCategories 는 토큰을 해석해 patchCategories 에 위임하고, Graph 실패는 502 의미의 예외로 바꾼다. */
+  @Test
+  void updateCategories_delegates_and_wraps_failure() {
+    when(tokens.getAccessToken(1L, 7L)).thenReturn("tok");
+    transport.updateCategories(1L, account(), "SM1", java.util.List.of("ops"));
+    verify(client).patchCategories("tok", "SM1", java.util.List.of("ops"));
+
+    doThrow(new MailSendException("Graph patch 실패: 403"))
+        .when(client)
+        .patchCategories(any(), any(), any());
+    assertThatThrownBy(() -> transport.updateCategories(1L, account(), "SM1", java.util.List.of()))
+        .isInstanceOf(ExternalCalendarWriteException.class);
+  }
 }

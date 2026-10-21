@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -192,6 +193,22 @@ public class CalendarTagRepository {
   }
 
   /**
+   * 이 사용자의 태그 id → 이름, 이름순(대소문자 무시) — Outlook 범주로 써 넣을 이름(WP-716). 순서를 고정해 같은 집합이면 Graph 에 같은 본문이
+   * 가도록 이름순으로 담은 맵을 돌려준다. 이 사용자 것이 아니거나 없는 id 는 빠진다.
+   */
+  public Map<Long, String> namesOf(long userId, Collection<Long> tagIds) {
+    Map<Long, String> out = new LinkedHashMap<>();
+    if (tagIds.isEmpty()) return out;
+    dsl.select(CALENDAR_TAG.ID, CALENDAR_TAG.NAME)
+        .from(CALENDAR_TAG)
+        .where(CALENDAR_TAG.USER_ID.eq(userId))
+        .and(CALENDAR_TAG.ID.in(tagIds))
+        .orderBy(nameOrder(), CALENDAR_TAG.ID)
+        .forEach(r -> out.put(r.get(CALENDAR_TAG.ID), r.get(CALENDAR_TAG.NAME)));
+    return out;
+  }
+
+  /**
    * 일정들(키 = 마스터 또는 단일 일정 id)에 붙은 이 사용자의 태그 — 목록 응답 N+1 을 피하는 배치 조회. 일정마다 이름순(대소문자 무시).
    *
    * @return event_id → 태그 목록(태그가 없는 일정은 키 없음)
@@ -329,6 +346,33 @@ public class CalendarTagRepository {
                 out.computeIfAbsent(r.get(CALENDAR_EVENT_TAG.EVENT_ID), k -> new HashSet<>())
                     .add(r.get(CALENDAR_EVENT_TAG.TAG_ID)));
     return out;
+  }
+
+  /**
+   * 일정마다 이 사용자의 OUTLOOK 연결을 want 와 똑같이 맞춘다 — Outlook 범주 동기화(WP-714)와 앱 태그 써 넣기(WP-716)가 같이 쓴다. 기존
+   * 연결을 한 번 읽고 바뀐 연결만 DELETE 한 문장·INSERT 한 문장으로 지우고 넣는다(10분마다 도는 동기화가 매번 모든 연결을 다시 쓰지 않게). APP
+   * 연결·다른 사람의 태그는 건드리지 않는다. want 의 태그는 모두 이 사용자 것이어야 한다.
+   *
+   * @param wantByEvent 일정 id → 붙어 있어야 할 태그 id(빈 집합이면 그 일정의 OUTLOOK 연결을 모두 뗀다)
+   */
+  public void replaceOutlookLinks(long userId, Map<Long, Set<Long>> wantByEvent) {
+    if (wantByEvent.isEmpty()) return;
+    Map<Long, Set<Long>> existing = outlookLinks(userId, wantByEvent.keySet());
+    List<EventTagLink> removes = new ArrayList<>();
+    List<EventTagLink> adds = new ArrayList<>();
+    for (var entry : wantByEvent.entrySet()) {
+      long eventId = entry.getKey();
+      Set<Long> want = entry.getValue();
+      Set<Long> have = existing.getOrDefault(eventId, Set.of());
+      for (Long tagId : have) {
+        if (!want.contains(tagId)) removes.add(new EventTagLink(eventId, tagId));
+      }
+      for (Long tagId : want) {
+        if (!have.contains(tagId)) adds.add(new EventTagLink(eventId, tagId));
+      }
+    }
+    deleteOutlookLinks(removes);
+    insertOutlookLinks(adds);
   }
 
   /** 일정-태그 연결 한 쌍 — Outlook 범주 동기화가 바뀐 연결을 모아 한 번에 지우고 넣을 때 쓴다. */

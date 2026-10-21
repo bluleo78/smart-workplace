@@ -12,6 +12,7 @@ import com.workplace.calendar.CalendarPalette;
 import com.workplace.calendar.dto.CalendarTagRef;
 import com.workplace.calendar.dto.CalendarTagRequest;
 import com.workplace.calendar.dto.CalendarTagResponse;
+import com.workplace.calendar.dto.OutlookTagScope;
 import com.workplace.calendar.repository.CalendarRepository;
 import com.workplace.calendar.repository.EventAttendeeRepository;
 import com.workplace.calendar.repository.ExternalCalendarRepository;
@@ -135,7 +136,7 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
   void sync_maps_allDay_endExclusive_minusOneDay_and_utc() {
     when(graphTokenService.getAccessToken(ownerId, accountId)).thenReturn("tok");
     when(graphCalendarClient.listCalendars("tok"))
-        .thenReturn(List.of(new GraphCalendar("gcal", "업무", "lightBlue", "", true, true)));
+        .thenReturn(List.of(new GraphCalendar("gcal", "업무", "lightBlue", "", true, true, null)));
 
     // 종일 1일 일정: Graph end 는 배타적(다음날 자정) 2026-07-11T00:00:00Z — 그대로 저장
     GraphEvent allDay =
@@ -151,6 +152,8 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
             null,
             null,
             false,
+            null,
+            null,
             null,
             null,
             null);
@@ -190,7 +193,7 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
   void sync_blankSubject_fallsBackToPlaceholder() {
     when(graphTokenService.getAccessToken(ownerId, accountId)).thenReturn("tok");
     when(graphCalendarClient.listCalendars("tok"))
-        .thenReturn(List.of(new GraphCalendar("gcal2", "개인", "auto", "", false, true)));
+        .thenReturn(List.of(new GraphCalendar("gcal2", "개인", "auto", "", false, true, null)));
 
     // subject = "" (빈 문자열)
     GraphEvent blankSubject =
@@ -208,6 +211,8 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
             false,
             null,
             null,
+            null,
+            null,
             null);
     // subject = null
     GraphEvent nullSubject =
@@ -223,6 +228,8 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
             null,
             null,
             false,
+            null,
+            null,
             null,
             null,
             null);
@@ -248,7 +255,7 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
   void sync_prune_does_not_delete_out_of_window_events() {
     when(graphTokenService.getAccessToken(ownerId, accountId)).thenReturn("tok");
     when(graphCalendarClient.listCalendars("tok"))
-        .thenReturn(List.of(new GraphCalendar("gcalP", "업무", "lightBlue", "", true, true)));
+        .thenReturn(List.of(new GraphCalendar("gcalP", "업무", "lightBlue", "", true, true, null)));
     when(graphCalendarClient.listCalendarView(eq("tok"), eq("gcalP"), any(), any()))
         .thenReturn(List.of()); // 서버는 윈도우 내 일정 0건
 
@@ -301,6 +308,8 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
         false,
         null,
         null,
+        null,
+        null,
         null);
   }
 
@@ -326,7 +335,7 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
   void sync_stores_full_body_and_resync_overwrites_old_preview() {
     when(graphTokenService.getAccessToken(ownerId, accountId)).thenReturn("tok");
     when(graphCalendarClient.listCalendars("tok"))
-        .thenReturn(List.of(new GraphCalendar("gcalB", "업무", "lightBlue", "", true, true)));
+        .thenReturn(List.of(new GraphCalendar("gcalB", "업무", "lightBlue", "", true, true, null)));
 
     // 1차: 예전 동작처럼 미리보기만 있는 일정(본문 없음) → 미리보기가 설명이 된다(폴백)
     when(graphCalendarClient.listCalendarView(eq("tok"), eq("gcalB"), any(), any()))
@@ -353,7 +362,7 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
   void sync_caps_body_at_10000_chars_with_ellipsis() {
     when(graphTokenService.getAccessToken(ownerId, accountId)).thenReturn("tok");
     when(graphCalendarClient.listCalendars("tok"))
-        .thenReturn(List.of(new GraphCalendar("gcalC", "업무", "lightBlue", "", true, true)));
+        .thenReturn(List.of(new GraphCalendar("gcalC", "업무", "lightBlue", "", true, true, null)));
     when(graphCalendarClient.listCalendarView(eq("tok"), eq("gcalC"), any(), any()))
         .thenReturn(
             List.of(
@@ -378,7 +387,7 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
     String join = "https://teams.microsoft.com/l/meetup-join/19%3ameeting_x%40thread.v2/0";
     when(graphTokenService.getAccessToken(ownerId, accountId)).thenReturn("tok");
     when(graphCalendarClient.listCalendars("tok"))
-        .thenReturn(List.of(new GraphCalendar("gcalM", "업무", "lightBlue", "", true, true)));
+        .thenReturn(List.of(new GraphCalendar("gcalM", "업무", "lightBlue", "", true, true, null)));
     when(graphCalendarClient.listCalendarView(eq("tok"), eq("gcalM"), any(), any()))
         .thenReturn(
             List.of(
@@ -445,6 +454,8 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
         false,
         null,
         meeting,
+        null,
+        null,
         null);
   }
 
@@ -465,7 +476,7 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
             new com.workplace.mail.outbound.GraphCalendarClient.GraphEmail("주최", organizerEmail));
     return new com.workplace.mail.outbound.GraphCalendarClient.GraphEvent(
         id, "동기화 회의", "본문", null, start, end, false, null, organizer, attendees, false, null, null,
-        null);
+        null, null, null);
   }
 
   private com.workplace.mail.outbound.GraphCalendarClient.GraphEventAttendee attendee(
@@ -481,7 +492,7 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
     // writable 캘린더 1개 + 이벤트 1건(내부 user 1명 + 외부 1명).
     var cal =
         new com.workplace.mail.outbound.GraphCalendarClient.GraphCalendar(
-            "gcal", "Calendar", "auto", "#0078d4", true, true);
+            "gcal", "Calendar", "auto", "#0078d4", true, true, null);
     long internalAttendeeId =
         new TransactionTemplate(txManager)
             .execute(s -> TestFixtures.createHumanWithEmail(dsl, "member@iacloud.kr"));
@@ -542,7 +553,7 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
   void sync_removes_attendee_no_longer_in_graph() {
     var cal =
         new com.workplace.mail.outbound.GraphCalendarClient.GraphCalendar(
-            "gcal", "Calendar", "auto", "#0078d4", true, true);
+            "gcal", "Calendar", "auto", "#0078d4", true, true, null);
     when(graphTokenService.getAccessToken(anyLong(), anyLong())).thenReturn("tok");
     when(graphCalendarClient.listCalendars("tok")).thenReturn(java.util.List.of(cal));
 
@@ -593,7 +604,7 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
   void sync_does_not_delete_agent_attendee_on_resync() {
     var cal =
         new com.workplace.mail.outbound.GraphCalendarClient.GraphCalendar(
-            "gcalA", "Calendar", "auto", "#0078d4", true, true);
+            "gcalA", "Calendar", "auto", "#0078d4", true, true, null);
     long agentId =
         new TransactionTemplate(txManager).execute(s -> TestFixtures.createAgentNoToken(dsl));
 
@@ -651,7 +662,7 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
 
     // 1차: 편집 가능 달력으로 동기화 → isReadOnly=false
     when(graphCalendarClient.listCalendars("tok"))
-        .thenReturn(List.of(new GraphCalendar("gcalW", "업무", "lightBlue", "", true, true)));
+        .thenReturn(List.of(new GraphCalendar("gcalW", "업무", "lightBlue", "", true, true, null)));
     when(graphCalendarClient.listCalendarView(eq("tok"), eq("gcalW"), any(), any()))
         .thenReturn(List.of());
     syncService.sync(ownerId, accountId);
@@ -661,7 +672,7 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
 
     // 2차: 같은 달력이 canEdit=false 로 바뀌면 isReadOnly=true 로 플립(doUpdate)
     when(graphCalendarClient.listCalendars("tok"))
-        .thenReturn(List.of(new GraphCalendar("gcalW", "업무", "lightBlue", "", true, false)));
+        .thenReturn(List.of(new GraphCalendar("gcalW", "업무", "lightBlue", "", true, false, null)));
     syncService.sync(ownerId, accountId);
     assertThat(calendarRepo.isReadOnly(calId)).isTrue();
   }
@@ -676,9 +687,9 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
     when(graphCalendarClient.listCalendars("tok"))
         .thenReturn(
             List.of(
-                new GraphCalendar("gcalOrange", "기본", "lightOrange", "", true, true),
-                new GraphCalendar("gcalBrown", "생일", "lightBrown", "", false, true),
-                new GraphCalendar("gcalYellow", "한국의 공휴일", "lightYellow", "", false, true)));
+                new GraphCalendar("gcalOrange", "기본", "lightOrange", "", true, true, null),
+                new GraphCalendar("gcalBrown", "생일", "lightBrown", "", false, true, null),
+                new GraphCalendar("gcalYellow", "한국의 공휴일", "lightYellow", "", false, true, null)));
     when(graphCalendarClient.listCalendarView(any(), any(), any(), any())).thenReturn(List.of());
 
     syncService.sync(ownerId, accountId);
@@ -712,13 +723,15 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
         false,
         null,
         null,
-        categories);
+        categories,
+        null,
+        null);
   }
 
   /**
    * WP-714 — Outlook 범주가 캘린더 주인의 태그가 된다: 없는 이름은 만들고(이름 해시 색), 있는 이름은 대소문자 무시로 재사용한다. 다음 동기화에서 범주가
-   * 바뀌면 그 일정의 OUTLOOK 연결이 범주와 똑같이 바뀌고(태그 자체는 남음), categories 가 응답에 없으면(null) 연결을 건드리지 않는다. 외부 일정은
-   * tagsEditable=false.
+   * 바뀌면 그 일정의 OUTLOOK 연결이 범주와 똑같이 바뀌고(태그 자체는 남음), categories 가 응답에 없으면(null) 연결을 건드리지 않는다. 내 사서함의 쓸
+   * 수 있는 달력 일정이라 앱에서 태그를 바꿀 수 있다(tagsEditable=true — 바꾸면 Outlook 범주에 써 넣는다, WP-716).
    */
   @Test
   void sync_mapsOutlookCategoriesToOwnerTags() {
@@ -726,7 +739,7 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
     long opsTag = tagService.create(ownerId, new CalendarTagRequest("OPS", "teal")).id();
     when(graphTokenService.getAccessToken(ownerId, accountId)).thenReturn("tok");
     when(graphCalendarClient.listCalendars("tok"))
-        .thenReturn(List.of(new GraphCalendar("gcatT", "업무", "lightBlue", "", true, true)));
+        .thenReturn(List.of(new GraphCalendar("gcatT", "업무", "lightBlue", "", true, true, null)));
     when(graphCalendarClient.listCalendarView(eq("tok"), eq("gcatT"), any(), any()))
         .thenReturn(
             List.of(
@@ -743,7 +756,8 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
     assertThat(byName.get("OPS").id()).isEqualTo(opsTag);
     assertThat(tagNamesOf("공유 회의")).containsExactly("OPS", "사내 공유");
     assertThat(tagNamesOf("범주 없음")).isEmpty();
-    assertThat(eventTitled("공유 회의").tagsEditable()).isFalse();
+    assertThat(eventTitled("공유 회의").tagsEditable()).isTrue();
+    assertThat(eventTitled("공유 회의").outlookTagScope()).isEqualTo(OutlookTagScope.EVENT);
 
     // 다음 동기화: c1 은 「사내 공유」가 빠지고, c3 는 categories 가 응답에 없다(null → 그대로).
     when(graphCalendarClient.listCalendarView(eq("tok"), eq("gcatT"), any(), any()))
@@ -776,7 +790,7 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
         .isNotEqualTo(names.stream().map(n -> n.toLowerCase(Locale.ROOT)).toList());
     when(graphTokenService.getAccessToken(ownerId, accountId)).thenReturn("tok");
     when(graphCalendarClient.listCalendars("tok"))
-        .thenReturn(List.of(new GraphCalendar("gcatU", "업무", "lightBlue", "", true, true)));
+        .thenReturn(List.of(new GraphCalendar("gcatU", "업무", "lightBlue", "", true, true, null)));
     when(graphCalendarClient.listCalendarView(eq("tok"), eq("gcatU"), any(), any()))
         .thenReturn(List.of(categorized("u1", "해외 회의", 14, List.of("ΟΔΟΣ", "İstanbul"))));
 
@@ -803,7 +817,8 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
   void sync_skipsCategoriesOfReadOnlyCalendars() {
     when(graphTokenService.getAccessToken(ownerId, accountId)).thenReturn("tok");
     when(graphCalendarClient.listCalendars("tok"))
-        .thenReturn(List.of(new GraphCalendar("gshared", "동료 일정", "lightBlue", "", false, false)));
+        .thenReturn(
+            List.of(new GraphCalendar("gshared", "동료 일정", "lightBlue", "", false, false, null)));
     when(graphCalendarClient.listCalendarView(eq("tok"), eq("gshared"), any(), any()))
         .thenReturn(List.of(categorized("s1", "동료 회의", 15, List.of("동료 범주"))));
 
@@ -811,6 +826,8 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
 
     assertThat(tagNamesOf("동료 회의")).isEmpty();
     assertThat(tagService.list(ownerId)).isEmpty();
+    // 남의 사서함 달력이라 앱에서 태그를 써 넣을 수도 없다(WP-716)
+    assertThat(eventTitled("동료 회의").tagsEditable()).isFalse();
   }
 
   private com.workplace.calendar.dto.CalendarEventResponse eventTitled(String title) {

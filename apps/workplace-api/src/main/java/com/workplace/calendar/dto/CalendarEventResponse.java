@@ -22,8 +22,10 @@ import java.util.List;
  *     null.
  * @param tags 이 일정에 붙은 호출자 본인의 태그(WP-714) — 태그는 사람마다 따로라 남의 태그는 싣지 않는다. 반복 회차·고친 회차는 마스터의 태그를 따른다.
  *     서비스가 채우기 전(저장소 행 변환 직후)에는 빈 목록.
- * @param tagsEditable 앱에서 태그를 붙이고 뗄 수 있는지 — 외부(M365) 동기화 일정은 Outlook 범주에서 오므로 범주 써 넣기(WP-716) 전까지
- *     false.
+ * @param tagsEditable 앱에서 태그를 붙이고 뗄 수 있는지 — 앱 일정은 늘 true. M365 일정은 호출자가 그 일정 사본의 주인이고 내 사서함의 쓸 수 있는
+ *     달력(공유받은 읽기 전용 달력이 아님)일 때만 true — 태그를 바꾸면 Outlook 범주에도 써 넣는다(WP-716).
+ * @param outlookTagScope 이 일정의 태그가 Outlook 범주와 이어진 M365 일정이면 범주가 붙는 단위 — {@code EVENT}(이 일정) 또는
+ *     {@code SERIES}(반복 회의 전체 — 회차에서 바꿔도 시리즈에 붙는다). 앱 일정은 null(WP-716).
  */
 public record CalendarEventResponse(
     long id,
@@ -51,7 +53,8 @@ public record CalendarEventResponse(
     String iCalUid,
     OnlineMeeting onlineMeeting,
     List<CalendarTagRef> tags,
-    boolean tagsEditable) {
+    boolean tagsEditable,
+    OutlookTagScope outlookTagScope) {
 
   /** 태그만 바꾼 복사본 — 서비스가 목록·상세 응답에 호출자 태그를 한 번에 채울 때 쓴다(WP-714). */
   public CalendarEventResponse withTags(List<CalendarTagRef> newTags) {
@@ -81,6 +84,7 @@ public record CalendarEventResponse(
         iCalUid,
         onlineMeeting,
         newTags,
-        tagsEditable);
+        tagsEditable,
+        outlookTagScope);
   }
 }

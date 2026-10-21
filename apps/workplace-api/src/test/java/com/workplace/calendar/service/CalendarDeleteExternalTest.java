@@ -77,12 +77,13 @@ class CalendarDeleteExternalTest extends IntegrationTestBase {
             status -> {
               long ext =
                   extRepo.upsertExternalCalendar(
-                      ownerId, accountId, "ext-rw", "Calendar", "blue", false);
+                      ownerId, accountId, "ext-rw", "Calendar", "blue", false, true);
               extRepo.upsertExternalEvent(
                   ownerId,
                   ext,
                   "e-rw",
-                  new ExternalEventRow("외부", null, S, S.plusHours(1), false, null, null, null));
+                  new ExternalEventRow(
+                      "외부", null, S, S.plusHours(1), false, null, null, null, null, null));
 
               assertThatThrownBy(() -> calendarService.delete(ownerId, ext))
                   .isInstanceOf(ExternalCalendarDeletionNotAllowedException.class);
@@ -101,7 +102,8 @@ class CalendarDeleteExternalTest extends IntegrationTestBase {
         .execute(
             status -> {
               long ext =
-                  extRepo.upsertExternalCalendar(ownerId, accountId, "ext-ro", "공휴일", "blue", true);
+                  extRepo.upsertExternalCalendar(
+                      ownerId, accountId, "ext-ro", "공휴일", "blue", true, true);
 
               assertThatThrownBy(() -> calendarService.delete(ownerId, ext))
                   .isInstanceOf(ReadOnlyCalendarException.class);

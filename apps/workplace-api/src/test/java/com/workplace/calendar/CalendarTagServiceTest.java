@@ -249,7 +249,10 @@ class CalendarTagServiceTest extends IntegrationTestBase {
         .isInstanceOf(CalendarEventNotFoundException.class);
   }
 
-  /** 외부(M365) 동기화 일정은 앱에서 태그를 붙이지 못하고(409) 응답의 tagsEditable 이 false 다. */
+  /**
+   * 외부 계정에 이어지지 않은 달력의 외부 일정(external_id 만 있음)은 Outlook 에 써 넣을 곳이 없어 앱에서 태그를 붙이지 못하고(409) 응답의
+   * tagsEditable 이 false 다. 내 사서함 달력의 M365 일정 써 넣기는 CalendarTagOutlookWriteTest(WP-716).
+   */
   @Test
   void externalEvent_isNotTaggable() {
     long me = seedUser("me");

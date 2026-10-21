@@ -26,4 +26,17 @@ public final class Texts {
     int end = Character.isHighSurrogate(s.charAt(max - 1)) ? max - 1 : max;
     return s.substring(0, end);
   }
+
+  /** 빈 문자열·공백뿐인 문자열은 null 로, 그 밖은 그대로 — 선택 값이 비어 오면 "없음"으로 통일해 저장·비교하려고 쓴다. */
+  public static String blankToNull(String s) {
+    return s == null || s.isBlank() ? null : s;
+  }
+
+  /**
+   * 앞뒤 공백을 떼고 대소문자를 무시해 같은 이름인가 — Outlook 범주 이름·메일 주소처럼 표기가 조금 달라도 같은 것으로 보는 비교. 어느 쪽이든 null 이면 같지
+   * 않다.
+   */
+  public static boolean equalsStrippedIgnoreCase(String a, String b) {
+    return a != null && b != null && a.strip().equalsIgnoreCase(b.strip());
+  }
 }

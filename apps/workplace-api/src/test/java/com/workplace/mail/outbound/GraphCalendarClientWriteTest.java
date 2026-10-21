@@ -220,4 +220,35 @@ class GraphCalendarClientWriteTest {
     assertThat(json.getValue()).contains("\"isAllDay\":true");
     assertThat(json.getValue()).contains("\"dateTime\":\"2026-07-11T00:00:00\""); // no minusDays
   }
+
+  /**
+   * WP-716 — 범주만 바꾸는 부분 PATCH. 본문은 categories 하나뿐이고(제목·시각을 덮지 않게), 마지막 태그를 떼면 빈 배열을 그대로 보내야 Outlook
+   * 에서도 범주가 모두 빠진다(키를 생략하면 아무것도 바뀌지 않는다).
+   */
+  @Test
+  void patchCategories_sendsOnlyCategories_includingEmptyList() {
+    client.patchCategories("tok", "EVT1", java.util.List.of("ops", "고객사"));
+    client.patchCategories("tok", "EVT1", java.util.List.of());
+
+    ArgumentCaptor<String> json = ArgumentCaptor.forClass(String.class);
+    verify(api, org.mockito.Mockito.times(2))
+        .patch(eq("tok"), eq("/me/events/EVT1"), json.capture());
+    assertThat(json.getAllValues())
+        .containsExactly("{\"categories\":[\"ops\",\"고객사\"]}", "{\"categories\":[]}");
+  }
+
+  /** WP-716 리뷰 — 범주 써 넣기 직전에 일정의 종류·시리즈 마스터 id·범주만 골라 읽는다(바뀐 것만 반영하고 써 넣을 대상을 정하려고). */
+  @Test
+  void getEventCategoryState_selectsTypeSeriesAndCategories() {
+    var state =
+        new GraphCalendarClient.GraphEventCategoryState(
+            "EVT1", "occurrence", "SM-1", java.util.List.of("ops"));
+    when(api.get(
+            "tok",
+            "/me/events/EVT1?$select=id,type,seriesMasterId,categories",
+            GraphCalendarClient.GraphEventCategoryState.class))
+        .thenReturn(state);
+
+    assertThat(client.getEventCategoryState("tok", "EVT1")).isEqualTo(state);
+  }
 }
