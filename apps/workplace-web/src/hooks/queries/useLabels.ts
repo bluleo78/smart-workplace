@@ -37,7 +37,7 @@ export function useUpdateLabel(projectKey: string) {
       qc.invalidateQueries({ queryKey: ['labels', projectKey] });
       toast.success('라벨을 수정했습니다');
     },
-    onError: (e) => handleApiError(e, '라벨 수정에 실패했습니다'),
+    // 실패 문구는 편집 대화상자가 안에 보인다(WP-660) — 토스트까지 띄우면 같은 말이 두 번 나온다.
   });
 }
 

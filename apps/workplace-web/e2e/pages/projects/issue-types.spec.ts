@@ -346,11 +346,11 @@ test.describe('이슈 유형', () => {
   );
 
   test(
-    '이슈 유형 이름 변경 — shadcn Dialog 로 PATCH 발생, window.prompt 없음 (#160)',
+    '이슈 유형 편집 — 이름·색상·아이콘을 함께 고쳐 PATCH, 이름이 겹치면 창을 연 채 인라인 오류 (#160, WP-660)',
     async ({ authenticatedPage: page }) => {
-      // CUSTOM 유형 1개 (isSystem:false 여야 이름 변경 버튼이 렌더됨)
+      // CUSTOM 유형 1개 (isSystem:false 여야 편집 버튼이 렌더됨)
       const customType = makeIssueType({ id: 99, name: '원래유형', colorToken: 'GREEN', icon: 'Circle', isSystem: false });
-      // 이름 변경은 PUT/PATCH 어느 쪽이든 받는다 — 이 경로엔 다른 요청이 없어 메서드 구분 없이 기록.
+      // 편집은 PUT/PATCH 어느 쪽이든 받는다 — 이 경로엔 다른 요청이 없어 메서드 구분 없이 기록.
       const typeUpdates = trackRequests(page, 'ANY', `/api/v1/projects/${KEY}/types/${customType.id}`);
 
       await page.route(`**/api/v1/projects/${KEY}`, (route) =>
@@ -374,7 +374,16 @@ test.describe('이슈 유형', () => {
       await page.route(`**/api/v1/projects/${KEY}/types/${customType.id}`, (route) => {
         const method = route.request().method();
         if (method !== 'PUT' && method !== 'PATCH') return route.fallback();
-        customType.name = (route.request().postDataJSON() as { name: string }).name;
+        const body = route.request().postDataJSON() as { name: string; colorToken: string; icon: string };
+        // 「다른유형」은 이미 있는 이름 — 서버는 409 와 문구로 거절한다.
+        if (body.name === '다른유형') {
+          return route.fulfill({
+            status: 409,
+            contentType: 'application/json',
+            body: JSON.stringify({ status: 409, message: '이미 존재하는 유형 이름입니다: 다른유형' }),
+          });
+        }
+        Object.assign(customType, body);
         return route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -386,21 +395,35 @@ test.describe('이슈 유형', () => {
       const row = page.getByTestId(`issue-type-row-${customType.id}`);
       await expect(row).toBeVisible();
 
-      // 이름 변경 버튼 클릭 → native prompt 가 아닌 shadcn Dialog 가 떠야 함.
-      await row.getByRole('button', { name: '원래유형 이름 변경' }).click();
+      // 편집 버튼 → shadcn Dialog. 현재 이름·색·아이콘이 채워져 있다.
+      await row.getByRole('button', { name: '원래유형 편집' }).click();
       const dialog = page.getByRole('dialog');
       await expect(dialog).toBeVisible();
-      await expect(dialog).toContainText('이슈 유형 이름 변경');
+      await expect(dialog).toContainText('이슈 유형 편집');
+      const input = dialog.getByLabel('이름');
+      await expect(input).toHaveValue('원래유형');
+      await expect(dialog.getByTestId('meta-edit-color-GREEN')).toHaveAttribute('aria-pressed', 'true');
+      await expect(dialog.getByTestId('meta-edit-icon-Circle')).toHaveAttribute('aria-pressed', 'true');
 
-      // 새 이름 입력 후 확인 — PATCH payload 검증.
-      const input = page.getByTestId('rename-dialog-input');
-      await input.clear();
+      // 겹치는 이름 — 창은 그대로, 서버 문구가 창 안에 보인다(예전엔 창이 닫히고 토스트만 떴다).
+      await input.fill('다른유형');
+      await dialog.getByTestId('meta-edit-color-PURPLE').click();
+      await dialog.getByTestId('meta-edit-icon-Star').click();
+      await dialog.getByRole('button', { name: '저장' }).click();
+      await expect(dialog.getByRole('alert')).toHaveText('이미 존재하는 유형 이름입니다: 다른유형');
+      await expect(dialog).toBeVisible();
+
+      // 이름을 고쳐 다시 저장 — 고른 색·아이콘까지 PATCH payload 에 실린다.
       await input.fill('새유형이름');
-      await page.getByTestId('rename-dialog-confirm').click();
+      await dialog.getByRole('button', { name: '저장' }).click();
 
-      await expect.poll(() => typeUpdates.lastBody<{ name?: string }>()?.name).toBe('새유형이름');
-      // Dialog 가 닫혀야 함.
+      await expect.poll(() => typeUpdates.lastBody<{ name?: string; colorToken?: string; icon?: string }>()).toEqual({
+        name: '새유형이름',
+        colorToken: 'PURPLE',
+        icon: 'Star',
+      });
       await expect(dialog).toBeHidden();
+      await expect(row).toContainText('새유형이름');
     },
   );
 

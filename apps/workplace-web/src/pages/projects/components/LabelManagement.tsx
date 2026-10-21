@@ -13,7 +13,6 @@ import { cn } from '@/lib/utils';
 import { getLabelIssueCount } from '../../../api/labels';
 import { LabelChip } from '../../../components/labels/LabelChip';
 import { DeleteConfirmDialog, DeleteImpactNote } from '../../../components/ui/delete-confirm-dialog';
-import { RenameDialog } from '../../../components/ui/rename-dialog';
 import {
   useCreateLabel,
   useDeleteLabel,
@@ -21,8 +20,8 @@ import {
   useUpdateLabel,
 } from '../../../hooks/queries/useLabels';
 import { deletionImpactNote } from '../../../lib/deletionImpact';
-import { LABEL_COLORS } from '../../../lib/labelColors';
-import { COLOR_TOKENS, type ColorToken, DEFAULT_LABEL_COLOR } from '../../../types/label';
+import { type ColorToken, DEFAULT_LABEL_COLOR } from '../../../types/label';
+import { ColorTokenPicker, ProjectMetaEditDialog } from './ProjectMetaEditDialog';
 
 export function LabelManagement({
   projectKey,
@@ -40,8 +39,8 @@ export function LabelManagement({
   const [name, setName] = useState('');
   const [color, setColor] = useState<ColorToken>(DEFAULT_LABEL_COLOR);
 
-  // 이름 변경 Dialog 상태 — window.prompt() 대체 (#160)
-  const [renameTarget, setRenameTarget] = useState<{
+  // 편집 Dialog 대상 — 이름·색상을 함께 고친다(#160 window.prompt 대체 → WP-660 색상까지)
+  const [editTarget, setEditTarget] = useState<{
     id: number;
     name: string;
     colorToken: ColorToken;
@@ -84,24 +83,9 @@ export function LabelManagement({
               placeholder="예: 버그"
             />
           </div>
-          {/* 견본 줄을 입력(h-9) 높이에 맞춰야 items-end 정렬에서 '색상' 라벨이 '이름' 라벨과 같은 줄에 선다(WP-397). */}
           <div className="space-y-1">
             <span className="text-sm font-medium">색상</span>
-            <div role="group" aria-label="라벨 색상" className="flex min-h-9 items-center gap-1 flex-wrap">
-              {COLOR_TOKENS.map((tok) => (
-                <button
-                  key={tok}
-                  type="button"
-                  onClick={() => setColor(tok)}
-                  aria-label={tok}
-                  aria-pressed={color === tok}
-                  className={`h-6 w-6 rounded-full ${LABEL_COLORS[tok].dot} ${
-                    color === tok ? 'ring-2 ring-foreground' : ''
-                  }`}
-                  data-testid={`label-color-${tok}`}
-                />
-              ))}
-            </div>
+            <ColorTokenPicker value={color} onChange={setColor} ariaLabel="라벨 색상" testIdPrefix="label-color-" />
           </div>
           <Button type="submit" disabled={create.isPending}>
             추가
@@ -128,11 +112,11 @@ export function LabelManagement({
                     variant="ghost"
                     size="sm"
                     onClick={() =>
-                      setRenameTarget({ id: l.id, name: l.name, colorToken: l.colorToken })
+                      setEditTarget({ id: l.id, name: l.name, colorToken: l.colorToken })
                     }
-                    aria-label={`${l.name} 이름 변경`}
+                    aria-label={`${l.name} 편집`}
                   >
-                    이름 변경
+                    편집
                   </Button>
                   {/* 삭제 — window.confirm 대신 shadcn AlertDialog (#148) */}
                   <DeleteConfirmDialog
@@ -156,19 +140,12 @@ export function LabelManagement({
         </ul>
       )}
 
-      {/* 이름 변경 Dialog — window.prompt() 대체 (#160) */}
-      <RenameDialog
-        open={renameTarget != null}
-        title="라벨 이름 변경"
-        initialValue={renameTarget?.name ?? ''}
-        onConfirm={(newName) => {
-          if (!renameTarget) return;
-          update.mutate({
-            id: renameTarget.id,
-            body: { name: newName, colorToken: renameTarget.colorToken },
-          });
-        }}
-        onClose={() => setRenameTarget(null)}
+      {/* 편집 Dialog — 이름 중복(409) 등 실패는 창 안에 보이고 닫지 않는다(WP-660) */}
+      <ProjectMetaEditDialog
+        title="라벨 편집"
+        target={editTarget}
+        onSave={(v) => update.mutateAsync({ id: editTarget!.id, body: { name: v.name, colorToken: v.colorToken } })}
+        onClose={() => setEditTarget(null)}
       />
     </SettingsSection>
   );

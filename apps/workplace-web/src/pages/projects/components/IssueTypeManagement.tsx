@@ -10,17 +10,15 @@ import { cn } from '@/lib/utils';
 
 import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
 import { DeleteConfirmDialog } from '../../../components/ui/delete-confirm-dialog';
-import { RenameDialog } from '../../../components/ui/rename-dialog';
 import {
   useCreateIssueType,
   useDeleteIssueType,
   useIssueTypes,
   useUpdateIssueTypeDef,
 } from '../../../hooks/queries/useIssueTypes';
-import { ISSUE_TYPE_ICONS } from '../../../lib/issueTypeIcons';
-import { LABEL_COLORS } from '../../../lib/labelColors';
-import { ICON_NAMES, type IconName } from '../../../types/issueType';
-import { COLOR_TOKENS, type ColorToken } from '../../../types/label';
+import { type IconName } from '../../../types/issueType';
+import { type ColorToken } from '../../../types/label';
+import { ColorTokenPicker, IssueTypeIconPicker, ProjectMetaEditDialog } from './ProjectMetaEditDialog';
 
 export function IssueTypeManagement({
   projectKey,
@@ -37,11 +35,11 @@ export function IssueTypeManagement({
   const [color, setColor] = useState<ColorToken>('BLUE');
   const [icon, setIcon] = useState<IconName>('Circle');
 
-  // 이름 변경 Dialog 상태 — window.prompt() 대체 (#160)
-  const [renameTarget, setRenameTarget] = useState<{
+  // 편집 Dialog 대상 — 이름·색상·아이콘을 함께 고친다(#160 window.prompt 대체 → WP-660 색상·아이콘까지)
+  const [editTarget, setEditTarget] = useState<{
     id: number;
     name: string;
-    colorToken: string;
+    colorToken: ColorToken;
     icon: IconName;
   } | null>(null);
 
@@ -82,46 +80,13 @@ export function IssueTypeManagement({
               aria-label="이름"
             />
           </div>
-          {/* 견본 줄을 입력(h-9) 높이에 맞춰야 items-end 정렬에서 '색상' 라벨이 '이름' 라벨과 같은 줄에 선다(WP-397). */}
           <div className="space-y-1">
             <span className="text-sm font-medium block">색상</span>
-            <div role="group" aria-label="유형 색상" className="flex min-h-9 items-center gap-1">
-              {COLOR_TOKENS.map((tok) => (
-                <button
-                  key={tok}
-                  type="button"
-                  onClick={() => setColor(tok)}
-                  aria-label={tok}
-                  aria-pressed={color === tok}
-                  className={`h-6 w-6 rounded-full ${LABEL_COLORS[tok].dot} ${
-                    color === tok ? 'ring-2 ring-foreground' : ''
-                  }`}
-                />
-              ))}
-            </div>
+            <ColorTokenPicker value={color} onChange={setColor} ariaLabel="유형 색상" />
           </div>
           <div className="space-y-1">
             <span className="text-sm font-medium block">아이콘</span>
-            <div role="group" aria-label="유형 아이콘" className="flex min-h-9 items-center gap-1">
-              {ICON_NAMES.map((n) => {
-                const I = ISSUE_TYPE_ICONS[n];
-                return (
-                  <button
-                    key={n}
-                    type="button"
-                    onClick={() => setIcon(n)}
-                    aria-label={n}
-                    aria-pressed={icon === n}
-                    data-testid={`issue-type-icon-${n}`}
-                    className={`h-6 w-6 inline-flex items-center justify-center rounded-full border ${
-                      icon === n ? 'ring-2 ring-foreground' : ''
-                    }`}
-                  >
-                    <I className="h-3 w-3" />
-                  </button>
-                );
-              })}
-            </div>
+            <IssueTypeIconPicker value={icon} onChange={setIcon} testIdPrefix="issue-type-icon-" />
           </div>
           <Button type="submit" disabled={create.isPending}>
             추가
@@ -156,16 +121,17 @@ export function IssueTypeManagement({
                     variant="ghost"
                     size="sm"
                     onClick={() =>
-                      setRenameTarget({
+                      setEditTarget({
                         id: t.id,
                         name: t.name,
-                        colorToken: t.colorToken,
+                        // 서버 응답 타입은 string 이지만 값은 12색 화이트리스트 중 하나다.
+                        colorToken: t.colorToken as ColorToken,
                         icon: t.icon,
                       })
                     }
-                    aria-label={`${t.name} 이름 변경`}
+                    aria-label={`${t.name} 편집`}
                   >
-                    이름 변경
+                    편집
                   </Button>
                   {/* 삭제 — window.confirm 대신 shadcn AlertDialog (#148) */}
                   <DeleteConfirmDialog
@@ -185,19 +151,17 @@ export function IssueTypeManagement({
         </ul>
       )}
 
-      {/* 이름 변경 Dialog — window.prompt() 대체 (#160) */}
-      <RenameDialog
-        open={renameTarget != null}
-        title="이슈 유형 이름 변경"
-        initialValue={renameTarget?.name ?? ''}
-        onConfirm={(newName) => {
-          if (!renameTarget) return;
-          update.mutate({
-            id: renameTarget.id,
-            body: { name: newName, colorToken: renameTarget.colorToken, icon: renameTarget.icon },
-          });
-        }}
-        onClose={() => setRenameTarget(null)}
+      {/* 편집 Dialog — 이름 중복(409) 등 실패는 창 안에 보이고 닫지 않는다(WP-660) */}
+      <ProjectMetaEditDialog
+        title="이슈 유형 편집"
+        target={editTarget}
+        onSave={(v) =>
+          update.mutateAsync({
+            id: editTarget!.id,
+            body: { name: v.name, colorToken: v.colorToken, icon: v.icon ?? editTarget!.icon },
+          })
+        }
+        onClose={() => setEditTarget(null)}
       />
     </SettingsSection>
   );

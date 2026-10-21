@@ -165,9 +165,9 @@ test.describe('라벨', () => {
       await expect(form).toBeVisible();
       // 남이 만든 라벨엔 버튼이 없고, 내가 만든 라벨엔 있다.
       await expect(page.getByTestId('label-row-1')).toBeVisible();
-      await expect(page.getByRole('button', { name: '남의라벨 이름 변경' })).toHaveCount(0);
+      await expect(page.getByRole('button', { name: '남의라벨 편집' })).toHaveCount(0);
       await expect(page.getByRole('button', { name: '남의라벨 삭제' })).toHaveCount(0);
-      await expect(page.getByRole('button', { name: '내라벨 이름 변경' })).toBeVisible();
+      await expect(page.getByRole('button', { name: '내라벨 편집' })).toBeVisible();
       await expect(page.getByRole('button', { name: '내라벨 삭제' })).toBeVisible();
 
       await form.getByLabel('이름').fill('새라벨');
@@ -293,10 +293,10 @@ test.describe('라벨', () => {
   );
 
   test(
-    '라벨 이름 변경 — shadcn Dialog 로 PATCH 발생, window.prompt 없음 (#160)',
+    '라벨 편집 — 이름·색상을 함께 고쳐 PATCH, 이름이 겹치면 창을 연 채 인라인 오류 (#160, WP-660)',
     async ({ authenticatedPage: page }) => {
       const label = createLabel({ name: '원래이름', colorToken: 'GRAY' });
-      // 이름 변경은 PUT/PATCH 어느 쪽이든 받는다 — 이 경로엔 다른 요청이 없어 메서드 구분 없이 기록.
+      // 편집은 PUT/PATCH 어느 쪽이든 받는다 — 이 경로엔 다른 요청이 없어 메서드 구분 없이 기록.
       const labelUpdates = trackRequests(page, 'ANY', `/api/v1/projects/${PROJECT_KEY}/labels/${label.id}`);
 
       await page.route(`**/api/v1/projects/${PROJECT_KEY}`, (route) =>
@@ -321,7 +321,16 @@ test.describe('라벨', () => {
       await page.route(`**/api/v1/projects/${PROJECT_KEY}/labels/${label.id}`, (route) => {
         const method = route.request().method();
         if (method !== 'PUT' && method !== 'PATCH') return route.fallback();
-        label.name = (route.request().postDataJSON() as { name: string }).name;
+        const body = route.request().postDataJSON() as { name: string; colorToken: ColorToken };
+        // 「다른라벨」은 이미 있는 이름 — 서버는 409 와 문구로 거절한다.
+        if (body.name === '다른라벨') {
+          return route.fulfill({
+            status: 409,
+            contentType: 'application/json',
+            body: JSON.stringify({ status: 409, message: '이미 존재하는 라벨 이름입니다: 다른라벨' }),
+          });
+        }
+        Object.assign(label, body);
         return route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -333,25 +342,33 @@ test.describe('라벨', () => {
       const row = page.getByTestId(`label-row-${label.id}`);
       await expect(row).toBeVisible();
 
-      // 이름 변경 버튼 클릭 → native prompt 가 아닌 shadcn Dialog 가 떠야 함.
-      await row.getByRole('button', { name: '원래이름 이름 변경' }).click();
+      // 편집 버튼 → native prompt 가 아닌 shadcn Dialog. 현재 이름과 현재 색이 채워져 있다.
+      await row.getByRole('button', { name: '원래이름 편집' }).click();
       const dialog = page.getByRole('dialog');
       await expect(dialog).toBeVisible();
-      await expect(dialog).toContainText('라벨 이름 변경');
-
-      // 열리면 현재 이름에 포커스, 선택 없이 커서는 끝 — 이어서 치면 이름 뒤에 붙는다.
-      const input = page.getByTestId('rename-dialog-input');
+      await expect(dialog).toContainText('라벨 편집');
+      const input = dialog.getByLabel('이름');
       await expect(input).toHaveValue('원래이름');
       await expect(input).toBeFocused();
-      expect(await input.evaluate((el: HTMLInputElement) => [el.selectionStart, el.selectionEnd])).toEqual([4, 4]);
+      await expect(dialog.getByTestId('meta-edit-color-GRAY')).toHaveAttribute('aria-pressed', 'true');
 
-      // 새 이름 입력 후 확인 — PATCH payload 검증.
-      await input.clear();
+      // 겹치는 이름 — 창은 그대로, 서버 문구가 창 안에 보인다.
+      await input.fill('다른라벨');
+      await dialog.getByTestId('meta-edit-color-BLUE').click();
+      await dialog.getByRole('button', { name: '저장' }).click();
+      await expect(dialog.getByRole('alert')).toHaveText('이미 존재하는 라벨 이름입니다: 다른라벨');
+      await expect(dialog).toBeVisible();
+      await expect(input).toHaveValue('다른라벨');
+
+      // 이름을 고쳐 다시 저장 — 고른 색까지 PATCH payload 에 실린다.
       await input.fill('새이름');
-      await page.getByTestId('rename-dialog-confirm').click();
+      await expect(dialog.getByRole('alert')).toHaveCount(0);
+      await input.press('Enter');
 
-      await expect.poll(() => labelUpdates.lastBody<{ name?: string }>()?.name).toBe('새이름');
-      // Dialog 가 닫혀야 함.
+      await expect.poll(() => labelUpdates.lastBody<{ name?: string; colorToken?: string }>()).toEqual({
+        name: '새이름',
+        colorToken: 'BLUE',
+      });
       await expect(dialog).toBeHidden();
     },
   );
