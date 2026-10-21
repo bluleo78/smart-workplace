@@ -103,6 +103,21 @@ describe('buildAttentionRows — 마감 이슈', () => {
   })
 })
 
+describe('buildAttentionRows — 완료·취소 이슈 제외(WP-675)', () => {
+  it('마감 지남·오늘 마감 행에 완료(DONE)·취소(CANCELED) 이슈는 넣지 않는다', () => {
+    const rows = build({
+      dues: [
+        due({ issueId: 1, title: '오늘-TODO', dueDate: TODAY, status: 'TODO' }),
+        due({ issueId: 2, title: '오늘-DONE', dueDate: TODAY, status: 'DONE' }),
+        due({ issueId: 3, title: '오늘-CANCELED', dueDate: TODAY, status: 'CANCELED' }),
+        due({ issueId: 4, title: '어제-DONE', dueDate: '2020-01-01', status: 'DONE' }),
+        due({ issueId: 5, title: '어제-IN_PROGRESS', dueDate: '2020-01-01', status: 'IN_PROGRESS' }),
+      ],
+    })
+    expect(rows.map((r) => r.title)).toEqual(['오늘-TODO', '어제-IN_PROGRESS'])
+  })
+})
+
 describe('buildAttentionRows — 메일', () => {
   it('회신 필요(aiNeedsReply true·안읽음)만 진입하고 pending(null)·읽은 메일·일반 안읽음은 제외한다', () => {
     const rows = build({

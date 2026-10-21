@@ -1,4 +1,6 @@
 // 캘린더 일정 — 백엔드 DTO 1:1.
+import type { IssueStatus } from './issue'
+
 export type CalendarViewType = 'month' | 'week' | 'day' | 'agenda'
 
 // 반복 일정 편집/삭제 적용 범위 (이슈 #111)
@@ -65,6 +67,8 @@ export interface IssueDueMarker {
   number: number
   title: string
   dueDate: string // yyyy-MM-dd (백엔드 LocalDate, 날짜 단위)
+  /** 이슈 상태 — 홈 요약이 완료·취소 이슈를 「오늘 마감」·「지금 신경 쓸 일」에서 빼는 데 쓴다(WP-675). 미리보기 등 없는 곳은 열린 이슈로 본다. */
+  status?: IssueStatus
 }
 
 export interface CalendarEventRequest {

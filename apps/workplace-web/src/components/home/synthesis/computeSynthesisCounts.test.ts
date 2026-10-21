@@ -96,3 +96,22 @@ describe('computeSynthesisCounts', () => {
     expect(r.chat).toBe(4)
   })
 })
+
+describe('computeSynthesisCounts — 완료·취소 이슈 제외(WP-675)', () => {
+  it('오늘 마감 수에 완료(DONE)·취소(CANCELED) 이슈는 세지 않는다', () => {
+    const counts = computeSynthesisCounts({
+      dues: [
+        { ...due(TODAY, 1), status: 'TODO' },
+        { ...due(TODAY, 2), status: 'IN_PROGRESS' },
+        { ...due(TODAY, 3), status: 'DONE' },
+        { ...due(TODAY, 4), status: 'CANCELED' },
+      ],
+      notifications: [],
+      mail: undefined,
+      events: [],
+      messaging: undefined,
+      todayKey: TODAY,
+    })
+    expect(counts.dueToday).toBe(2)
+  })
+})

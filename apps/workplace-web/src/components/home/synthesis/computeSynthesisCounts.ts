@@ -1,5 +1,6 @@
 // 요약 위젯 KPI 5종 건수 집계(WP-161) — 데스크톱 펼친 화면(SynthesisLayer)과 모바일 접힘 한 줄(useSynthesisCounts)이
 // 같은 규칙을 쓰도록 계산 경로를 이 순수 함수 하나로 모은다. 규칙이 한 곳에서만 바뀌므로 두 화면 숫자가 어긋나지 않는다.
+import { isClosedStatus } from '@/lib/issueGrouping'
 import type { CalendarEvent, IssueDueMarker } from '@/types/calendar'
 import type { MailSummary, MessagingSummary } from '@/types/dashboard'
 import type { NotificationResponse } from '@/types/notification'
@@ -20,7 +21,7 @@ export interface SynthesisCountsInput {
 
 /** KPI 5종 건수 + 메일 칸 라벨 스왑 여부(classifyOn). */
 export interface SynthesisCounts {
-  /** 오늘 마감 이슈 수(마감일 == 오늘). 지난 마감은 '지금 신경 쓸 일' 행에서만 다룬다. */
+  /** 오늘 마감 이슈 수(마감일 == 오늘, 완료·취소 제외 — WP-675). 지난 마감은 '지금 신경 쓸 일' 행에서만 다룬다. */
   dueToday: number
   /** 안 읽은 멘션성 알림 수(묶기 전 건수). */
   mention: number
@@ -37,11 +38,16 @@ export interface SynthesisCounts {
 /** KPI 5종 건수를 계산한다. 로딩·에러 판정은 호출부(셀 단위 격리) 몫이다. */
 export function computeSynthesisCounts(input: SynthesisCountsInput): SynthesisCounts {
   return {
-    dueToday: input.dues.filter((d) => d.dueDate === input.todayKey).length,
+    dueToday: input.dues.filter((d) => d.dueDate === input.todayKey && !isClosedDue(d)).length,
     mention: input.notifications.filter((n) => isMentionLike(n) && !n.read).length,
     mail: mailBadgeCount(input.mail),
     event: input.events.length,
     chat: input.messaging?.attentionCount ?? 0,
     classifyOn: input.mail?.classificationActive ?? false,
   }
+}
+
+/** 완료·취소된 이슈의 마감 마커인가 — 끝난 일은 「오늘 마감」·「지금 신경 쓸 일」에 넣지 않는다(WP-675). 상태가 없으면 열린 이슈로 본다. */
+export function isClosedDue(d: IssueDueMarker): boolean {
+  return d.status != null && isClosedStatus(d.status)
 }

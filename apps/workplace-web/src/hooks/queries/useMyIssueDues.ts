@@ -28,6 +28,7 @@ export function myIssueDuesQueryOptions(from: string, to: string) {
           number: i.number,
           title: i.title,
           dueDate: i.dueDate as string,
+          status: i.status,
         }))
     },
     staleTime: 10_000,

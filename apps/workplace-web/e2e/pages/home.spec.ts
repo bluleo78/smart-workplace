@@ -596,6 +596,33 @@ test('합성 — 카운트 스트립이 모킹된 카운트로 렌더된다', as
   )
 })
 
+test('합성 — 완료·취소된 이슈는 오늘 마감 수와 주의 필요 목록에서 빠진다 (WP-675)', async ({
+  authenticatedPage: page,
+}) => {
+  await mockWidgets(page)
+  // 오늘 마감 TODO·DONE·CANCELED + 마감 지난 TODO·DONE — 열린 이슈(TODO 2건)만 남아야 한다.
+  await mockApi(
+    page,
+    'GET',
+    '/api/v1/me/issues',
+    createIssueSearchResponse([
+      createIssue({ id: 1, number: 1, title: '오늘마감-TODO', status: 'TODO', dueDate: todayKey() }),
+      createIssue({ id: 2, number: 2, title: '오늘마감-DONE', status: 'DONE', dueDate: todayKey() }),
+      createIssue({ id: 3, number: 3, title: '오늘마감-CANCELED', status: 'CANCELED', dueDate: todayKey() }),
+      createIssue({ id: 4, number: 4, title: '어제마감-TODO', status: 'TODO', dueDate: '2020-01-01' }),
+      createIssue({ id: 5, number: 5, title: '어제마감-DONE', status: 'DONE', dueDate: '2020-01-01' }),
+    ]),
+  )
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['synthesis']))
+  await page.goto('/')
+
+  await expect(page.getByTestId('dashboard-counts').getByRole('link', { name: '오늘 마감 1건' })).toBeVisible()
+  const attention = page.getByTestId('dashboard-attention')
+  await expect(attention.getByRole('link', { name: '이슈 열기: 오늘마감-TODO' })).toBeVisible()
+  await expect(attention.getByRole('link', { name: '이슈 열기: 어제마감-TODO' })).toBeVisible()
+  await expect(attention.getByRole('link', { name: /이슈 열기: .*-(DONE|CANCELED)$/ })).toHaveCount(0)
+})
+
 test('합성 — 멘션 셀 클릭 시 라우팅 대신 알림 인박스 패널이 열린다 (refs #273)', async ({
   authenticatedPage: page,
 }) => {

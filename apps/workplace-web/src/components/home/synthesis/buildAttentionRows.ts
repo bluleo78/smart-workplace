@@ -8,6 +8,7 @@ import type { MailSummary, MessagingSummary } from '@/types/dashboard'
 import type { NotificationResponse } from '@/types/notification'
 
 import { notifLabel } from '../notifTarget'
+import { isClosedDue } from './computeSynthesisCounts'
 import { groupMentionNotifs } from './groupMentions'
 
 // 지금 신경 쓸 일 한 행의 표준 모델.
@@ -57,7 +58,8 @@ export function buildAttentionRows(input: AttentionRowsInput): AttentionRow[] {
 
   // 1) 마감 지남/오늘 이슈 — urgency 0.
   for (const d of input.dues) {
-    if (d.dueDate <= todayKey) {
+    // 완료·취소된 이슈는 이미 끝난 일이라 넣지 않는다(WP-675).
+    if (d.dueDate <= todayKey && !isClosedDue(d)) {
       const overdue = d.dueDate < todayKey
       rows.push({
         key: `due-${d.issueId}`,
