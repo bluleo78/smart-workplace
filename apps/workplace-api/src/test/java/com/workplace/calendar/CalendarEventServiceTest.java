@@ -244,4 +244,33 @@ class CalendarEventServiceTest extends IntegrationTestBase {
         .extracting(CalendarEventResponse::id)
         .containsExactlyInAnyOrder(inside.id(), edge.id());
   }
+
+  /** WP-766: 뒤집힌 구간(from > to)은 빈 목록(200)이 아니라 400 이다. */
+  @Test
+  void list_reversedRange_rejected() {
+    long u = user();
+    assertThatThrownBy(() -> service.list(u, BASE.plusDays(1), BASE))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("조회 기간의 시작(from)이 끝(to)보다 늦습니다");
+  }
+
+  /** WP-766: 조회 구간은 366일까지 — 넘으면 끝없는 반복 일정 수십 건으로 응답이 수십 MB 가 되던 것을 막는다. */
+  @Test
+  void list_rangeOverMax_rejected() {
+    long u = user();
+    assertThatThrownBy(() -> service.list(u, BASE, BASE.plusDays(366).plusSeconds(1)))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("조회 기간은 366일 이하여야 합니다");
+  }
+
+  /** WP-766: 경계 — 정확히 366일과 빈 구간(from == to)은 그대로 조회된다. */
+  @Test
+  void list_rangeAtMaxOrEmpty_allowed() {
+    long u = user();
+    CalendarEventResponse e = service.create(u, req(BASE, BASE.plusHours(1)));
+    assertThat(service.list(u, BASE.minusDays(1), BASE.plusDays(365)))
+        .extracting(CalendarEventResponse::id)
+        .containsExactly(e.id());
+    assertThat(service.list(u, BASE, BASE)).isEmpty();
+  }
 }

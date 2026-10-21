@@ -64,6 +64,9 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 @Slf4j
 public class CalendarEventService {
+  /** 목록 조회 구간 상한(WP-766) — 윤년을 포함한 1년. */
+  static final Duration MAX_LIST_RANGE = Duration.ofDays(366);
+
   private final CalendarEventRepository repo;
   private final EventReminderRepository reminderRepo;
   private final CalendarEventExceptionRepository exceptionRepo;
@@ -466,9 +469,23 @@ public class CalendarEventService {
    */
   @Transactional(readOnly = true)
   public List<CalendarEventResponse> list(long callerId, OffsetDateTime from, OffsetDateTime to) {
+    validateListRange(from, to);
     List<CalendarEventResponse> result = collect(callerId, from, to, null);
     // 배치로 참석자 count/myRsvpStatus 채움 — attendees 는 null(경량). 이어서 호출자 태그를 배치로 채운다(WP-714).
     return tagService.withCallerTags(callerId, enrichForList(callerId, result));
+  }
+
+  /**
+   * 목록 조회 구간 검사(WP-766) — 뒤집힌 구간은 400, 구간은 {@link #MAX_LIST_RANGE} 까지. 끝없는 반복 일정은 일정마다 회차를 펼치므로 구간이
+   * 길수록 응답이 커진다(일정 40건·수년 구간이면 17MB). 웹은 최대 42일(월 보기)·AI 도구는 1년 안팎을 쓰니 윤년을 포함한 1년으로 자른다.
+   */
+  private static void validateListRange(OffsetDateTime from, OffsetDateTime to) {
+    if (from.isAfter(to)) {
+      throw new IllegalArgumentException("조회 기간의 시작(from)이 끝(to)보다 늦습니다");
+    }
+    if (Duration.between(from, to).compareTo(MAX_LIST_RANGE) > 0) {
+      throw new IllegalArgumentException("조회 기간은 " + MAX_LIST_RANGE.toDays() + "일 이하여야 합니다");
+    }
   }
 
   /**
