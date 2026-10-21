@@ -262,8 +262,15 @@ public class UserRepository {
         dsl.selectFrom(USER).where(USER.ID.eq(id)).and(USER.PASSWORD.isNotNull()));
   }
 
+  /**
+   * 아이디 사용 여부 — 대소문자 무시(WP-666). 로그인(WP-624)·SSO 첫 연결(WP-48)이 아이디를 대소문자 무시로 찾으므로, 대소문자만 다른 아이디가 새로
+   * 생기면 누구인지 정할 수 없어 기존 사람이 로그인하지 못한다. 이메일(WP-613)과 같은 규칙.
+   */
   public boolean existsByUsername(String username) {
-    return dsl.fetchExists(dsl.selectOne().from(USER).where(USER.USERNAME.eq(username)));
+    return dsl.fetchExists(
+        dsl.selectOne()
+            .from(USER)
+            .where(lower(USER.USERNAME).eq(username.toLowerCase(Locale.ROOT))));
   }
 
   /**

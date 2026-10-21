@@ -140,6 +140,23 @@ class AuthServiceTest extends IntegrationTestBase {
         .isInstanceOf(UsernameAlreadyExistsException.class);
   }
 
+  /**
+   * WP-666: 대소문자만 다른 아이디로도 가입할 수 없다. 로그인(WP-624)·SSO 첫 연결(WP-48)이 아이디를 대소문자 무시로 찾으므로, 둘이 공존하면 누구인지
+   * 정할 수 없어 기존 사람이 로그인하지 못하게 된다.
+   */
+  @Test
+  void signup_usernameDifferingOnlyByCase_throws() {
+    authService.signup(
+        new SignupRequest("alice-case@example.com", "a1@example.com", "Password123", "앨리스"));
+
+    assertThatThrownBy(
+            () ->
+                authService.signup(
+                    new SignupRequest(
+                        "Alice-Case@Example.com", "a2@example.com", "Password123", "멜러리")))
+        .isInstanceOf(UsernameAlreadyExistsException.class);
+  }
+
   @Test
   void signup_duplicateEmail_throws() {
     authService.signup(
@@ -249,7 +266,13 @@ class AuthServiceTest extends IntegrationTestBase {
     String lower = "a" + base;
     String upper = "A" + base;
     authService.signup(new SignupRequest(lower, null, "Password123", "소문자"));
-    authService.signup(new SignupRequest(upper, null, "Password456", "대문자"));
+    // 대소문자만 다른 아이디는 이제 가입이 막힌다(WP-666) — 그 규칙 전에 생긴 옛 데이터를 만들려고, 다른 아이디로 가입한 뒤 DB 에서 바꾼다.
+    authService.signup(new SignupRequest("tmp-" + base, null, "Password456", "대문자"));
+    baseDsl
+        .update(com.workplace.jooq.Tables.USER)
+        .set(com.workplace.jooq.Tables.USER.USERNAME, upper)
+        .where(com.workplace.jooq.Tables.USER.USERNAME.eq("tmp-" + base))
+        .execute();
 
     // 각자 정확한 아이디로는 들어간다
     assertThat(authService.login(new LoginRequest(lower, "Password123")).accessToken())
