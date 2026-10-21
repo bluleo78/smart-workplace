@@ -120,6 +120,27 @@ test('모바일 묶음 머리 — 아이콘·키·제목·하위 진행, 에픽 
 })
 
 // WP-396: 완료 보기 — 모바일 메타 줄엔 칸 제목이 없어 시간 앞에 「종료」를 붙이고, 실패 배지는 옅은 위험 tint.
+// WP-676: 「완료」·「다음 회차 대기」처럼 오른쪽 끝 칩이 켜진 채 열리면 칩 줄을 그 칩까지 굴려 어떤 보기인지 보이게 한다.
+// 칩 줄만 가로로 굴리고 페이지는 움직이지 않는다. 다른 칩을 눌러 바꿔도 켜진 칩이 화면 안에 있다.
+for (const [state, key] of [['DONE', 'done'], ['SCHEDULED', 'scheduled']] as const) {
+  test(`${state} 칩이 켜진 채 열리면 그 칩이 화면 안에 보인다`, async ({ authenticatedPage: page }) => {
+    await stubChat(page)
+    await mockApi(page, 'GET', '/api/v1/me/ai-tasks', createIssueSearchResponse(ROWS.slice(0, 1)))
+    await mockApi(page, 'GET', '/api/v1/me/ai-tasks/counts', createAiTaskCounts({ all: 6, done: 3, scheduled: 2 }))
+    await page.goto(`/me/ai-tasks?state=${state}`)
+    const chip = page.getByTestId(`ai-quick-${key}`)
+    await expect(chip).toHaveAttribute('aria-pressed', 'true')
+    await expect(chip).toBeInViewport({ ratio: 1 })
+    expect(await page.evaluate(() => window.scrollY)).toBe(0)
+
+    // 맨 앞 칩으로 바꾸면 줄이 다시 앞으로 돌아와 그 칩이 보인다.
+    await page.getByTestId('ai-quick-chips').evaluate((el) => el.scrollTo({ left: el.scrollWidth }))
+    await page.getByTestId('ai-quick-chips').evaluate((el) => (el.querySelector('[data-testid="ai-quick-all"]') as HTMLElement).click())
+    await expect(page.getByTestId('ai-quick-all')).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.getByTestId('ai-quick-all')).toBeInViewport({ ratio: 1 })
+  })
+}
+
 test('완료 보기 행은 「종료 n분 전」과 결과 배지를 보인다', async ({ authenticatedPage: page }) => {
   await stubChat(page)
   const failed = createIssue({

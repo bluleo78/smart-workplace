@@ -1,9 +1,11 @@
 // AI 위임 작업 툴바(WP-377) — 1줄: 범위(나와 관련/전체) + 기존 facet 필터, 2줄: AI 진행 빠른 필터 칩(건수) — 미완료·상태 다섯·완료(WP-396).
 // 모든 선택은 URL(scope·state)에 쓰고 읽는다 — 새로고침·링크 공유에도 같은 화면, 다른 쿼리 키(status/priority)는 보존.
+import { useLayoutEffect, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import type { AiTaskCounts } from '@/api/aiTasks'
 import { Button } from '@/components/ui/button'
+import { revealInScrollX } from '@/lib/revealInScrollX'
 import { TOGGLE_ON_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
 import { HIDE_SCROLLBAR } from '@/pages/projects/components/mobile/chipStyles'
@@ -38,6 +40,23 @@ export function AiTasksToolbar({
   counts?: AiTaskCounts
 }) {
   const [params, setParams] = useSearchParams()
+  // WP-676: 켜진 칩이 줄 밖(모바일 가로 스크롤)에 있으면 그 칩까지 줄을 굴린다 — 「완료」·「다음 회차 대기」로 열면 어떤 보기인지 안 보였다.
+  // 칩이 바뀔 때(링크로 열기·칩 누르기) 맞추고, 그 뒤 칩 폭이 바뀌면(건수 도착·웹폰트 적용) 다시 맞춘다 — 한 번만 맞추면 늦게 넓어진 칩에
+  // 다시 밀려 잘렸다. 사용자가 손으로 굴리는 것은 칩 폭을 바꾸지 않으므로 되돌리지 않는다. 데스크톱처럼 다 보이면 아무것도 하지 않는다.
+  const chipsRef = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const row = chipsRef.current
+    if (!row) return
+    const reveal = () => {
+      const on = row.querySelector<HTMLElement>('[aria-pressed="true"]')
+      if (on) revealInScrollX(row, on)
+    }
+    reveal()
+    if (typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(reveal)
+    for (const chip of Array.from(row.children)) ro.observe(chip)
+    return () => ro.disconnect()
+  }, [state])
 
   // 한 키만 바꾸고 나머지 쿼리(facet 등)는 보존. 기본값(나와 관련·미완료 칩)은 키를 지워 URL 을 짧게 둔다.
   const setParam = (key: 'scope' | 'state', value: string | null) => {
@@ -72,6 +91,7 @@ export function AiTasksToolbar({
       {/* 빠른 필터 — 메일 「안 읽은 메일만」과 같은 둥근 토글. 모바일은 줄바꿈 대신 가로 스크롤. */}
       {/* 모바일은 py-2 로 칩 터치 영역(::after)이 스크롤 영역에 잘리지 않게 하고 -my-2 로 레이아웃 높이는 그대로 둔다. */}
       <div
+        ref={chipsRef}
         className={cn('flex items-center gap-2 overflow-x-auto max-lg:-my-2 max-lg:py-2', HIDE_SCROLLBAR)}
         role="group"
         aria-label="AI 진행 빠른 필터"
