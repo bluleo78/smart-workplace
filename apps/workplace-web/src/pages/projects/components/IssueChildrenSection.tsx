@@ -39,12 +39,14 @@ export function IssueChildrenSection({
   projectKey,
   parentNumber,
   parentTypeName,
+  parentStatus,
   childCount,
   childDoneCount,
 }: {
   projectKey: string;
   parentNumber: number;
   parentTypeName: string;
+  parentStatus: string;
   childCount: number;
   childDoneCount: number;
 }) {
@@ -53,6 +55,8 @@ export function IssueChildrenSection({
   const isEpicParent = parentTypeName === 'EPIC';
   // OPEN 프로젝트 비멤버는 하위를 만들 수 없다(WP-477 — 부모·유형 지정은 멤버 전용, 서버 403) — 추가 입력을 숨긴다.
   const intakeOnly = isIntakeOnly(useProject(projectKey).data);
+  // 완료(DONE) 에픽에는 미완료 하위를 넣을 수 없다(WP-689, 서버 400) — 추가 입력 대신 다시 열라는 안내를 둔다.
+  const doneEpic = isEpicParent && parentStatus === 'DONE';
   // 일반 이슈(비EPIC) 부모 — SUBTASK 시스템 유형의 id (인라인 생성에 필요).
   const subtaskTypeId =
     (types.data ?? []).find((t) => t.name === 'SUBTASK')?.id ?? null;
@@ -199,7 +203,11 @@ export function IssueChildrenSection({
         </ul>
       )}
 
-      {intakeOnly ? null : isMobile && !addOpen ? (
+      {intakeOnly ? null : doneEpic ? (
+        <p className="text-xs text-muted-foreground" data-testid="child-add-done-epic-hint">
+          완료된 에픽에는 하위 이슈를 추가할 수 없습니다. 에픽을 다시 열면 추가할 수 있습니다.
+        </p>
+      ) : isMobile && !addOpen ? (
         <button
           type="button"
           data-testid="child-add-open"

@@ -790,6 +790,7 @@ export default function IssueDetailPage() {
                     projectKey={key}
                     parentNumber={issueNumber}
                     parentTypeName={summary.type?.name ?? ''}
+                    parentStatus={summary.status}
                     childCount={summary.childCount}
                     childDoneCount={summary.childDoneCount}
                   />
