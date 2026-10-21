@@ -223,6 +223,43 @@ test.describe('messaging Phase 5 — 스레드·리액션', () => {
     },
   )
 
+  // WP-665: 삭제된 메시지엔 새 리액션을 달 수 없다(서버 400) — 이모지 피커를 숨기고 남은 칩도 눌리지 않게 한다.
+  test('삭제된 메시지엔 이모지 피커가 없고 남은 반응 칩은 눌리지 않는다 (WP-665)', async ({ authenticatedPage: page }) => {
+    const CHANNEL_ID = 509
+    const MSG_ID = 9250
+    const ALIVE_ID = 9251
+    const channel = createChannel({ id: CHANNEL_ID, name: '삭제채널' })
+    const deleted = createMessage({
+      id: MSG_ID,
+      channelId: CHANNEL_ID,
+      authorId: 2,
+      body: '(삭제됨)',
+      deleted: true,
+      reactions: [createReaction({ emoji: '👍', count: 1, reacted: false })],
+      createdAt: '2026-10-21T01:00:00Z',
+    })
+    const alive = createMessage({ id: ALIVE_ID, channelId: CHANNEL_ID, authorId: 2, body: '살아있는 메시지', createdAt: '2026-10-21T01:05:00Z' })
+
+    await stubChannelsList(page, [channel])
+    await stubDmsList(page)
+    await stubStream(page)
+    await stubChannelDetail(page, channel)
+    await stubMembers(page, CHANNEL_ID, [createChannelMember({ userId: ME_ID, name: '나' })])
+    await stubMessages(page, CHANNEL_ID, [alive, deleted])
+    const posts = trackRequests(page, 'POST', `/api/v1/messaging/messages/${MSG_ID}/reactions`)
+
+    await page.goto(`/chat/channels/${CHANNEL_ID}`)
+    // 살아 있는 메시지엔 피커가 있다(대조군).
+    await page.getByTestId(`message-${ALIVE_ID}`).hover()
+    await expect(page.getByTestId(`message-${ALIVE_ID}-react`)).toBeVisible()
+    // 삭제된 메시지엔 피커가 없고, 남은 칩은 비활성이라 눌러도 요청이 없다.
+    await page.getByTestId(`message-${MSG_ID}`).hover()
+    await expect(page.getByTestId(`message-toolbar-${MSG_ID}`)).toBeVisible()
+    await expect(page.getByTestId(`message-${MSG_ID}-react`)).toHaveCount(0)
+    await expect(page.getByTestId(`reaction-pill-${MSG_ID}-👍`)).toBeDisabled()
+    expect(posts.count()).toBe(0)
+  })
+
   // 3) 리액션 토글 off: reacted pill 클릭 → DELETE 호출 + pill 제거.
   test('이미 누른 리액션을 다시 누르면 DELETE 되고 pill 이 사라진다', async ({
     authenticatedPage: page,

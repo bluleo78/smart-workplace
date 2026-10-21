@@ -201,7 +201,8 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
           <MessageActionSheet
             open={sheet.open}
             onClose={sheet.close}
-            onReact={!readOnly && target && target.id >= 0 ? (emoji) => toggle(target, emoji) : undefined}
+            // 삭제된 메시지엔 새 리액션을 달 수 없다(서버 400, WP-665) — 이모지 줄을 숨긴다.
+            onReact={!readOnly && target && target.id >= 0 && !target.deleted ? (emoji) => toggle(target, emoji) : undefined}
             actions={target ? buildMessageSheetActions(target, sheetHandlers) : []}
             preview={target ? messagePreview(target.authorName, target.body, target.mentions) : undefined}
           />

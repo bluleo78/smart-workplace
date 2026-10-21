@@ -57,6 +57,26 @@ test.describe('H1 메시지 길게 누르기 작업 시트', () => {
     expect((await page.getByTestId('reaction-pill-10-👍').boundingBox())!.height).toBeGreaterThanOrEqual(32)
   })
 
+  // WP-665: 삭제된 메시지엔 새 리액션을 달 수 없다 — 길게 누르기 시트에 이모지 줄이 없다(스레드 작업은 남는다).
+  test('삭제된 메시지를 길게 누르면 이모지 줄 없이 작업만 보인다 (WP-665)', async ({ authenticatedPage: page }) => {
+    await stubChat(page)
+    const deleted = createMessage({
+      id: 30, channelId: 1, authorId: 20, authorName: '동료', body: '(삭제됨)', deleted: true, replyCount: 1,
+      createdAt: '2026-09-30T03:00:00Z',
+    })
+    await page.route((u) => u.pathname === '/api/v1/messaging/channels/1/messages', (r) =>
+      r.request().method() === 'GET' ? r.fulfill(json({ items: [deleted], nextCursor: null, hasMore: false })) : r.fallback())
+    await page.route((u) => u.pathname === '/api/v1/messaging/channels/1/members', (r) =>
+      r.request().method() === 'GET' ? r.fulfill(json([])) : r.fallback())
+    await page.goto('/chat/channels/1')
+    await longPress(page, page.getByTestId('message-body-30'))
+
+    const sheet = page.getByTestId('message-action-sheet')
+    await expect(sheet.getByTestId('message-action-thread')).toBeVisible()
+    await expect(sheet.getByTestId('message-action-react-👍')).toHaveCount(0)
+    await expect(sheet.getByTestId('message-action-react-more')).toHaveCount(0)
+  })
+
   test('답글 링크 위에서 길게 누르면 시트만 열리고 스레드는 열리지 않는다(발동 뒤 click 억제)', async ({ authenticatedPage: page }) => {
     await stubChannelMessages(page)
     await page.goto('/chat/channels/1')

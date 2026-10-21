@@ -92,6 +92,11 @@ public class MessageRepository {
         .fetchOptional(MESSAGE.CHANNEL_ID);
   }
 
+  /** soft-delete 된 메시지인가(없는 메시지는 false). */
+  public boolean isDeleted(long id) {
+    return dsl.fetchExists(MESSAGE, MESSAGE.ID.eq(id).and(MESSAGE.DELETED_AT.isNotNull()));
+  }
+
   /** 메시지가 해당 채널 소속인지. 다운로드 시 메시지-채널 정합성 검증용. */
   public boolean belongsToChannel(long messageId, long channelId) {
     return dsl.fetchExists(

@@ -37,6 +37,39 @@ public class ReactionRepository {
         > 0;
   }
 
+  /** 이 사람이 이 메시지에 이미 단 리액션인가(멱등 재요청은 상한 검사 없이 통과시킨다). */
+  public boolean exists(long messageId, long userId, String emoji) {
+    return dsl.fetchExists(
+        MESSAGE_REACTION,
+        MESSAGE_REACTION
+            .MESSAGE_ID
+            .eq(messageId)
+            .and(MESSAGE_REACTION.USER_ID.eq(userId))
+            .and(MESSAGE_REACTION.EMOJI.eq(emoji)));
+  }
+
+  /** 이 사람이 이 메시지에 단 리액션 수(WP-665 1인 상한). */
+  public int countByUser(long messageId, long userId) {
+    return dsl.fetchCount(
+        MESSAGE_REACTION,
+        MESSAGE_REACTION.MESSAGE_ID.eq(messageId).and(MESSAGE_REACTION.USER_ID.eq(userId)));
+  }
+
+  /** 이 메시지에 emoji 가 이미 달려 있는가(WP-665 종류 상한 — 이미 있는 이모지에 더하는 것은 종류를 늘리지 않는다). */
+  public boolean hasEmoji(long messageId, String emoji) {
+    return dsl.fetchExists(
+        MESSAGE_REACTION,
+        MESSAGE_REACTION.MESSAGE_ID.eq(messageId).and(MESSAGE_REACTION.EMOJI.eq(emoji)));
+  }
+
+  /** 이 메시지에 달린 서로 다른 이모지 수. */
+  public int countDistinctEmojis(long messageId) {
+    return dsl.fetchCount(
+        dsl.selectDistinct(MESSAGE_REACTION.EMOJI)
+            .from(MESSAGE_REACTION)
+            .where(MESSAGE_REACTION.MESSAGE_ID.eq(messageId)));
+  }
+
   /** 리액션 제거. 실제 삭제됐으면 true. */
   public boolean remove(long messageId, long userId, String emoji) {
     return dsl.deleteFrom(MESSAGE_REACTION)

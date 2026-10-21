@@ -119,8 +119,8 @@ export function MessageRow({
       data-message-toolbar=""
       className={`${toolbarPosition} ${MESSAGE_TOOLBAR_CLASS}`}
     >
-      {/* 낙관적 미확정 메시지(id<0)엔 리액션 불가 — 음수 id 로 POST 하면 실패하므로 숨김. */}
-      {!isPending && !readOnly && (
+      {/* 낙관적 미확정 메시지(id<0)엔 리액션 불가 — 음수 id 로 POST 하면 실패하므로 숨김. 삭제된 메시지도 서버가 새 리액션을 거절한다(WP-665). */}
+      {!isPending && !readOnly && !m.deleted && (
         <EmojiPicker
           testIdPrefix={`message-${m.id}`}
           onPick={onToggleReaction}
@@ -282,7 +282,8 @@ export function MessageRow({
       align={isOwn ? 'end' : 'start'}
       currentUserId={currentUserId}
       onToggle={onToggleReaction}
-      readOnly={readOnly}
+      // 삭제된 메시지에 남은 칩은 보여 주기만 한다 — 누르면 새로 다는 경우 서버가 거절한다(WP-665).
+      readOnly={readOnly || m.deleted}
       // 터치 셸은 호버 카드를 쓰지 않는다 — 길게 누르기 위임이 칩에서 반응자 시트를 연다.
       onOpenReactors={touchShell ? undefined : onOpenReactors}
     />

@@ -134,4 +134,56 @@ class ReactionToggleTest extends IntegrationTestBase {
     assertThatThrownBy(() -> reactionService.add(nonMember, messageId, "👍"))
         .isInstanceOf(MessageNotFoundException.class);
   }
+
+  /** 이모지 n 개(서로 다른 한 글자 이모지 — 😀 부터 차례로). */
+  private static List<String> emojis(int n) {
+    return java.util.stream.IntStream.range(0, n)
+        .mapToObj(i -> new String(Character.toChars(0x1F600 + i)))
+        .toList();
+  }
+
+  /** WP-665: 삭제된 메시지에는 리액션을 새로 달 수 없다(400). 이미 달린 것을 떼는 것은 된다. */
+  @Test
+  void deletedMessage_cannotGetNewReaction() {
+    reactionService.add(reactor, messageId, "👍");
+    messageService.delete(author, messageId);
+
+    assertThatThrownBy(() -> reactionService.add(author, messageId, "🎉"))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("삭제된 메시지에는 리액션을 달 수 없습니다");
+    reactionService.remove(reactor, messageId, "👍");
+    assertThat(reactionsFor(reactor)).isEmpty();
+  }
+
+  /** WP-665: 한 사람이 한 메시지에 다는 리액션은 20개까지 — 21번째 새 이모지는 400, 이미 단 것은 그대로. */
+  @Test
+  void perUserReactionLimit_isEnforced() {
+    List<String> e = emojis(21);
+    e.subList(0, 20).forEach(x -> reactionService.add(reactor, messageId, x));
+
+    assertThatThrownBy(() -> reactionService.add(reactor, messageId, e.get(20)))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("20개");
+    // 같은 이모지를 다시 누르는 것(멱등)과 다른 사람의 리액션은 막지 않는다.
+    reactionService.add(reactor, messageId, e.get(0));
+    reactionService.add(author, messageId, e.get(20));
+    assertThat(reactionsFor(reactor)).hasSize(21);
+  }
+
+  /** WP-665: 한 메시지의 서로 다른 이모지는 50종까지 — 51번째 새 이모지는 400, 이미 있는 이모지에 더하는 것은 된다. */
+  @Test
+  void perMessageDistinctEmojiLimit_isEnforced() {
+    List<String> e = emojis(51);
+    long third = seedUser();
+    channelService.join(third, channelId);
+    e.subList(0, 20).forEach(x -> reactionService.add(reactor, messageId, x));
+    e.subList(20, 40).forEach(x -> reactionService.add(author, messageId, x));
+    e.subList(40, 50).forEach(x -> reactionService.add(third, messageId, x));
+
+    assertThatThrownBy(() -> reactionService.add(third, messageId, e.get(50)))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("50종");
+    reactionService.add(third, messageId, e.get(0));
+    assertThat(reactionsFor(third)).hasSize(50);
+  }
 }

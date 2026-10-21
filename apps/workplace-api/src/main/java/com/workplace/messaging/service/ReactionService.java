@@ -30,7 +30,16 @@ public class ReactionService {
   private final ChannelPermissions perms;
   private final ApplicationEventPublisher publisher;
 
-  /** 리액션 추가(멱등 — 이미 있으면 이벤트 미발행). 이모지 하나가 아니면 400(WP-594). */
+  /** 한 사람이 한 메시지에 달 수 있는 리액션 수(WP-665) — Slack 의 1인 상한(23)과 비슷한 수준. */
+  static final int MAX_REACTIONS_PER_USER = 20;
+
+  /** 한 메시지에 달릴 수 있는 서로 다른 이모지 수(WP-665) — Slack 과 같은 50종. */
+  static final int MAX_DISTINCT_EMOJIS = 50;
+
+  /**
+   * 리액션 추가(멱등 — 이미 있으면 이벤트 미발행). 이모지 하나가 아니면 400(WP-594). 삭제된 메시지, 1인 상한·이모지 종류 상한을 넘는 새 리액션도
+   * 400(WP-665) — 예전엔 한 사람이 같은 메시지에 수십 개를 달아 대화가 칩으로 덮였다.
+   */
   @Transactional
   public void add(long callerId, long messageId, String emoji) {
     long channelId = ensureWritableMessageMember(callerId, messageId);
@@ -38,6 +47,19 @@ public class ReactionService {
     // 제거(remove)는 검사하지 않는다 — 이 규칙 전에 붙은 글자 리액션도 본인이 뗄 수 있게.
     if (!ReactionEmojis.isSingleEmoji(emoji)) {
       throw new IllegalArgumentException("리액션에는 이모지 하나만 쓸 수 있습니다");
+    }
+    if (messageRepo.isDeleted(messageId)) {
+      throw new IllegalArgumentException("삭제된 메시지에는 리액션을 달 수 없습니다");
+    }
+    // 이미 단 리액션을 다시 누르는 멱등 요청은 상한과 무관하게 통과(아무것도 늘지 않는다).
+    if (reactionRepo.exists(messageId, callerId, emoji)) return;
+    if (reactionRepo.countByUser(messageId, callerId) >= MAX_REACTIONS_PER_USER) {
+      throw new IllegalArgumentException("한 메시지에 리액션은 " + MAX_REACTIONS_PER_USER + "개까지 달 수 있습니다");
+    }
+    if (!reactionRepo.hasEmoji(messageId, emoji)
+        && reactionRepo.countDistinctEmojis(messageId) >= MAX_DISTINCT_EMOJIS) {
+      throw new IllegalArgumentException(
+          "한 메시지에는 이모지를 " + MAX_DISTINCT_EMOJIS + "종까지 달 수 있습니다 — 이미 달린 이모지를 눌러 주세요");
     }
     if (reactionRepo.add(messageId, callerId, emoji))
       publisher.publishEvent(new ReactionAddedEvent(channelId, messageId, emoji, callerId));
