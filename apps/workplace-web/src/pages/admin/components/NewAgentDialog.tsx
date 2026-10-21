@@ -78,7 +78,8 @@ export function NewAgentDialog({ open, onOpenChange }: NewAgentDialogProps) {
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
-              maxLength={100}
+              // 저장 한도(user.name 50자)와 같게 — 100 이면 51자부터 서버가 거절했다(WP-670).
+              maxLength={50}
               aria-label="이름"
             />
           </div>

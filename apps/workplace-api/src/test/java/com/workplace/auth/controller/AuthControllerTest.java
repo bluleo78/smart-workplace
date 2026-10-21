@@ -152,6 +152,21 @@ class AuthControllerTest {
         .andExpect(status().isBadRequest());
   }
 
+  /** WP-670: 가입 이름도 저장 한도(user.name 50자)와 같은 50자까지 — 넘으면 400 필드 오류. */
+  @Test
+  void signup_tooLongName_returnsBadRequest() throws Exception {
+    SignupRequest request =
+        new SignupRequest("long@example.com", "long@example.com", "Password123", "가".repeat(51));
+
+    mockMvc
+        .perform(
+            post("/api/v1/auth/signup")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.errors.name").value("이름은 50자 이하로 입력하세요"));
+  }
+
   @Test
   void login_returnsOkWithCookie() throws Exception {
     LoginRequest request = new LoginRequest("test@example.com", "Password123");

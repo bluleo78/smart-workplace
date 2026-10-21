@@ -4,6 +4,7 @@ import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -119,5 +120,25 @@ class AdminAgentDescriptionControllerTest extends IntegrationTestBase {
   void 설명이_500자를_넘으면_400() throws Exception {
     putIdentity("가".repeat(501)).andExpect(status().isBadRequest());
     assertThat(descriptionOf()).isNull();
+  }
+
+  /**
+   * WP-670: 에이전트 이름은 저장 한도(user.name 50자)와 같은 50자까지 — 넘으면 409 「Data integrity violation」이 아니라 400
+   * 필드 오류.
+   */
+  @Test
+  void 에이전트_생성_이름이_50자를_넘으면_400() throws Exception {
+    TenantContext.set(1L);
+    Map<String, Object> body = new HashMap<>();
+    body.put("username", "bot670" + System.nanoTime() % 100000);
+    body.put("name", "에".repeat(51));
+    body.put("email", "bot670-" + System.nanoTime() % 100000 + "@x.io");
+    mvc.perform(
+            post("/api/v1/admin/agents")
+                .with(authentication(adminAuth()))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(body)))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.errors.name").value("이름은 50자 이하로 입력하세요"));
   }
 }

@@ -277,6 +277,8 @@ test.describe('/admin/agents', () => {
       ).toBeVisible();
 
       await page.getByTestId('new-agent-trigger').click();
+      // 이름 칸은 저장 한도(user.name 50자)까지만 받는다(WP-670) — 100 이면 51자부터 서버가 409 로 거절했다.
+      await expect(page.getByLabel('이름')).toHaveAttribute('maxlength', '50');
       await page.getByLabel('아이디').fill('claude_bot');
       await page.getByLabel('이름').fill('Claude 봇');
       await page.getByLabel('이메일').fill('claude@bot.local');
