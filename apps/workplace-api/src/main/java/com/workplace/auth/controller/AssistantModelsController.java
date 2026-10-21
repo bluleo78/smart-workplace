@@ -17,6 +17,7 @@ import com.workplace.auth.service.AssistantModels;
 import com.workplace.auth.service.ModelBaseUrlGuard;
 import com.workplace.global.exception.CryptoException;
 import com.workplace.global.security.RequirePermission;
+import com.workplace.user.service.WorkspaceMemberGuard;
 import jakarta.validation.Valid;
 import java.util.List;
 import java.util.stream.Stream;
@@ -45,6 +46,7 @@ public class AssistantModelsController {
   private final PersonalAssistantRepository personalRepo;
   private final ObjectMapper objectMapper;
   private final ModelBaseUrlGuard urlGuard;
+  private final WorkspaceMemberGuard memberGuard;
 
   /**
    * 관리자 — 임의 baseURL+apiKey 로 등록 전 모델 프로브. 이 핸들러 자체는 리포지토리를 호출하지 않지만, 같은 컨트롤러가 {@link
@@ -69,6 +71,8 @@ public class AssistantModelsController {
   @RequirePermission("user:write")
   @Transactional(readOnly = true)
   public AgentModelsResponse adminModels(@PathVariable Long userId) {
+    // WP-703: 다른 워크스페이스 AI 의 연결로 모델을 조회하지 못하게(404).
+    memberGuard.require(userId);
     return resolveAgentModels(userId);
   }
 

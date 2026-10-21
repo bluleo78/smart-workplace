@@ -21,7 +21,7 @@ class WorkspaceAssistantClearTest extends IntegrationTestBase {
   void clear_removesDesignation() {
     // given: 어떤 AGENT 를 공용 비서로 지정
     long admin = TestFixtures.createHuman(dsl);
-    long agent = TestFixtures.createAgentNoToken(dsl);
+    long agent = withMembership(TestFixtures.createAgentNoToken(dsl));
     service.setAgent(admin, agent);
     assertThat(service.get().agentUserId()).isEqualTo(agent);
 

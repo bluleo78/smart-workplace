@@ -267,7 +267,7 @@ class AssistantModelsControllerTest extends IntegrationTestBase {
   @Test // #873: 관리자 AGENT 모델 목록도 anthropic 이면 실시간 조회
   void 관리자_AGENT_anthropic_모델목록_실시간조회() throws Exception {
     Long admin = createHumanUserForTest("ADMIN");
-    Long agent = createAgentUser("models-agent");
+    Long agent = createAgentUserWithMembership("models-agent");
     String token = "sk-ant-oat01-" + "Y".repeat(64);
     mvc.perform(
             post("/api/v1/admin/agents/" + agent + "/provider-credential")
@@ -278,6 +278,8 @@ class AssistantModelsControllerTest extends IntegrationTestBase {
     when(modelsClient.listAnthropicModels(token))
         .thenReturn(List.of(new ModelOption("claude-opus-5-5", "Claude Opus 5.5")));
 
+    // 요청 필터 체인이 끝나면 TenantContext 가 비워진다 — 관리자 경로의 구성원 검사(WP-703)가 테넌트를 보므로 다시 맞춘다.
+    TenantContext.set(1L);
     mvc.perform(
             get("/api/v1/admin/agents/" + agent + "/models")
                 .with(authentication(authWith(admin, "user:write"))))

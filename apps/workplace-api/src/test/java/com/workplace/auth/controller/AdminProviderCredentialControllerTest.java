@@ -61,7 +61,7 @@ class AdminProviderCredentialControllerTest extends IntegrationTestBase {
   @Test
   void register_생략시_anthropic_하위호환_그리고_평문미포함() throws Exception {
     Long admin = createHumanUserForTest();
-    Long agentId = createAgentUserForTest();
+    Long agentId = withMembership(createAgentUserForTest());
     var req = new ProviderCredentialRegisterRequest(null, "X".repeat(64), null, null, "main");
     mvc.perform(
             post("/api/v1/admin/agents/" + agentId + "/provider-credential")
@@ -79,7 +79,7 @@ class AdminProviderCredentialControllerTest extends IntegrationTestBase {
   @Test
   void register_opencode_등록시_provider와_baseUrl_메타반환() throws Exception {
     Long admin = createHumanUserForTest();
-    Long agentId = createAgentUserForTest();
+    Long agentId = withMembership(createAgentUserForTest());
     var config =
         new ProviderConfig(
             "openai", null, Map.of("baseURL", "https://api.example.com/v1", "apiKey", "sk-xxxx"));
@@ -99,7 +99,7 @@ class AdminProviderCredentialControllerTest extends IntegrationTestBase {
   @Test // WP-250: providerConfig.vision 이 컨트롤러 직렬화에서 버려지지 않고 redeem 페이로드까지 남는다
   void register_opencode_vision_redeem페이로드에_보존() throws Exception {
     Long admin = createHumanUserForTest();
-    Long agentId = createAgentUserForTest();
+    Long agentId = withMembership(createAgentUserForTest());
     var config =
         new ProviderConfig(
             "custom",
@@ -123,7 +123,7 @@ class AdminProviderCredentialControllerTest extends IntegrationTestBase {
   @Test // WP-250: 문자열 vision 은 400
   void register_opencode_vision_잘못된값이면_400() throws Exception {
     Long admin = createHumanUserForTest();
-    Long agentId = createAgentUserForTest();
+    Long agentId = withMembership(createAgentUserForTest());
     var config =
         new ProviderConfig(
             "custom",
@@ -143,7 +143,7 @@ class AdminProviderCredentialControllerTest extends IntegrationTestBase {
   @Test
   void register_opencode_model_누락시_400() throws Exception {
     Long admin = createHumanUserForTest();
-    Long agentId = createAgentUserForTest();
+    Long agentId = withMembership(createAgentUserForTest());
     var config =
         new ProviderConfig(
             "openai", null, Map.of("baseURL", "https://api.example.com/v1", "apiKey", "sk-xxxx"));
@@ -159,7 +159,7 @@ class AdminProviderCredentialControllerTest extends IntegrationTestBase {
   @Test
   void delete_returns_204() throws Exception {
     Long admin = createHumanUserForTest();
-    Long agentId = createAgentUserForTest();
+    Long agentId = withMembership(createAgentUserForTest());
     mvc.perform(
             delete("/api/v1/admin/agents/" + agentId + "/provider-credential")
                 .with(authentication(authWith(admin, "user:write"))))
@@ -169,7 +169,7 @@ class AdminProviderCredentialControllerTest extends IntegrationTestBase {
   @Test
   void get_meta_without_active_returns_404() throws Exception {
     Long admin = createHumanUserForTest();
-    Long agentId = createAgentUserForTest();
+    Long agentId = withMembership(createAgentUserForTest());
     mvc.perform(
             get("/api/v1/admin/agents/" + agentId + "/provider-credential")
                 .with(authentication(authWith(admin, "user:write"))))

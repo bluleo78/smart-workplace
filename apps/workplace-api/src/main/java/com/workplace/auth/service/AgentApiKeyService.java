@@ -11,6 +11,7 @@ import com.workplace.user.dto.UserKind;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.exception.UserNotFoundException;
 import com.workplace.user.repository.UserRepository;
+import com.workplace.user.service.WorkspaceMemberGuard;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -39,12 +40,15 @@ public class AgentApiKeyService {
 
   private final AgentApiKeyRepository repo;
   private final UserRepository userRepository;
+  private final WorkspaceMemberGuard memberGuard;
   private final AuditLogService auditLogService;
   private final SecureRandom secureRandom = new SecureRandom();
 
   /** AGENT 의 키 목록. HUMAN 대상이면 400. 평문/해시는 응답에 포함되지 않는다. */
   @Transactional(readOnly = true)
   public List<AgentApiKeyResponse> list(Long userId) {
+    // WP-703: 다른 워크스페이스의 AI 는 없는 것과 같다(404) — 이름 변경·삭제(#811)와 같은 가드.
+    memberGuard.require(userId);
     UserResponse user =
         userRepository.findById(userId).orElseThrow(() -> UserNotFoundException.ofId(userId));
     if (!UserKind.isAgent(user.kind())) throw new KeyTargetMustBeAgentException();
@@ -56,6 +60,7 @@ public class AgentApiKeyService {
    * AGENT_KEY_ISSUED.
    */
   public AgentApiKeyIssueResponse issue(Long callerId, Long userId, IssueAgentKeyRequest req) {
+    memberGuard.require(userId);
     UserResponse user =
         userRepository.findById(userId).orElseThrow(() -> UserNotFoundException.ofId(userId));
     if (!UserKind.isAgent(user.kind())) throw new KeyTargetMustBeAgentException();
@@ -87,6 +92,7 @@ public class AgentApiKeyService {
 
   /** 키 회수. 키 id 가 없거나 user 와 불일치하거나 이미 회수된 경우 모두 404 로 통일한다. 감사 로그 AGENT_KEY_REVOKED. */
   public void revoke(Long callerId, Long userId, Long keyId) {
+    memberGuard.require(userId);
     AgentApiKeyResponse key =
         repo.findById(keyId).orElseThrow(() -> new KeyNotFoundException(keyId));
     if (!key.userId().equals(userId)) throw new KeyNotFoundException(keyId);

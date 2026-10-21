@@ -5,6 +5,7 @@ import com.workplace.auth.dto.OAuthTokenMetaResponse;
 import com.workplace.auth.dto.ProviderCredentialRegisterRequest;
 import com.workplace.auth.service.AiAgentCredentialService;
 import com.workplace.global.security.RequirePermission;
+import com.workplace.user.service.WorkspaceMemberGuard;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -29,6 +30,7 @@ public class AdminProviderCredentialController {
 
   private final AiAgentCredentialService service;
   private final ObjectMapper objectMapper;
+  private final WorkspaceMemberGuard memberGuard;
 
   /**
    * 등록(또는 재발급 — 기존 active 자동 revoke). provider 생략 시 anthropic(하위호환). anthropic 은 token, opencode 는
@@ -41,6 +43,9 @@ public class AdminProviderCredentialController {
       @PathVariable Long userId,
       @Valid @RequestBody ProviderCredentialRegisterRequest req) {
     Long callerId = (Long) auth.getPrincipal();
+    // WP-703: 다른 워크스페이스의 AI 연결은 없는 것과 같다(404). 서비스의 register/revoke 는 개인 비서 경로도 함께 쓰므로 관리자 경로에서
+    // 막는다.
+    memberGuard.require(userId);
     String provider = ProviderCredentialSecrets.resolveProvider(req.provider());
     String secret =
         ProviderCredentialSecrets.resolveSecret(
@@ -55,6 +60,7 @@ public class AdminProviderCredentialController {
   @RequirePermission("user:write")
   public ResponseEntity<Void> revoke(Authentication auth, @PathVariable Long userId) {
     Long callerId = (Long) auth.getPrincipal();
+    memberGuard.require(userId);
     service.revoke(callerId, userId);
     return ResponseEntity.noContent().build();
   }
@@ -63,6 +69,7 @@ public class AdminProviderCredentialController {
   @GetMapping
   @RequirePermission("user:write")
   public ResponseEntity<OAuthTokenMetaResponse> getMeta(@PathVariable Long userId) {
+    memberGuard.require(userId);
     return ResponseEntity.ok(service.getActiveMeta(userId));
   }
 }

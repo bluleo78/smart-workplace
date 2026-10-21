@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.workplace.auth.dto.AgentApiKeyIssueResponse;
 import com.workplace.auth.dto.IssueAgentKeyRequest;
 import com.workplace.auth.service.AgentApiKeyService;
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.user.dto.UserKind;
 import org.jooq.DSLContext;
@@ -60,18 +61,27 @@ class ApiKeyAuthenticationFilterTest extends IntegrationTestBase {
             .returning(USER.ID)
             .fetchOne()
             .getId();
+    // WP-703: 키 발급·회수는 대상 AI 가 지금 워크스페이스 구성원일 때만 된다 — 실제 AI 처럼 tenant#1 멤버로 두고 그 컨텍스트에서 부른다.
+    withMembership(agentId);
+    TenantContext.set(1L);
   }
 
   @AfterEach
   void cleanup() {
+    TenantContext.clear();
     // audit_log 가 user 를 참조하므로 먼저 정리, 이후 user 삭제 (agent_api_key 는 CASCADE)
-    if (agentId != null) {
-      dsl.deleteFrom(com.workplace.jooq.Tables.AUDIT_LOG)
-          .where(com.workplace.jooq.Tables.AUDIT_LOG.USER_ID.in(agentId, adminId))
-          .execute();
-      dsl.deleteFrom(USER).where(USER.ID.eq(agentId)).execute();
-    }
-    if (adminId != null) dsl.deleteFrom(USER).where(USER.ID.eq(adminId)).execute();
+    // 키 발급 감사 로그가 tenant#1 로 남으므로 그 테넌트 GUC 안에서 지운다(#512 — 밖에서 지우면 RLS 에 가려 남는다).
+    cleanupInTenant(
+        1L,
+        () -> {
+          if (agentId != null) {
+            dsl.deleteFrom(com.workplace.jooq.Tables.AUDIT_LOG)
+                .where(com.workplace.jooq.Tables.AUDIT_LOG.USER_ID.in(agentId, adminId))
+                .execute();
+            dsl.deleteFrom(USER).where(USER.ID.eq(agentId)).execute();
+          }
+          if (adminId != null) dsl.deleteFrom(USER).where(USER.ID.eq(adminId)).execute();
+        });
   }
 
   private ResponseEntity<String> callMe(String authValue) {

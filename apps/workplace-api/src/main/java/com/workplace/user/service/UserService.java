@@ -59,6 +59,7 @@ public class UserService {
   private final PasswordEncoder passwordEncoder;
   private final AuditLogService auditLogService;
   private final MembershipRepository membershipRepository;
+  private final WorkspaceMemberGuard memberGuard;
   // WP-48: SSO 전용 구성원 등록 시 워크스페이스 SSO 켜짐 여부 확인
   private final TenantRepository tenantRepository;
   // AI 가용성 해석 — 개인/공통 비서 중 active token 보유 여부를 판단. /users/me 응답에 aiAvailable 노출.
@@ -98,24 +99,14 @@ public class UserService {
     return TenantContext.require();
   }
 
-  /**
-   * 단건 조회/변경계 API(getUserById/setUserRoles/setUserActive) 공통 가드 (#811). user 는 전역 테이블이라 id 만으로는 다른
-   * 테넌트 사용자에도 접근 가능하므로, 대상이 현재 active 테넌트의 멤버인지 명시 검증한다. 비멤버는 존재 자체를 노출하지 않도록 404(Not Found)로 응답한다
-   * — project 도메인의 멤버십 가드와 동일 패턴.
-   *
-   * <p>WP-417: 정지(SUSPENDED)된 멤버도 멤버로 본다 — 관리자가 정지한 구성원을 사용자 목록·상세에서 계속 보고 다시 활성화할 수 있어야 한다.
-   *
-   * @return 대상의 이 워크스페이스 멤버십 상태(ACTIVE/SUSPENDED)
-   */
+  /** 단건 조회/변경계 API 공통 가드 (#811) — 대상이 현재 테넌트 멤버가 아니면 404. 상세는 {@link WorkspaceMemberGuard}. */
   private String requireMember(Long userId) {
-    return requireMember(userId, requireTenant());
+    return memberGuard.require(userId);
   }
 
   /** {@link #requireMember(Long)} 의 테넌트를 이미 받은 호출용. */
   private String requireMember(Long userId, Long tenantId) {
-    return membershipRepository
-        .findStatus(userId, tenantId)
-        .orElseThrow(() -> UserNotFoundException.ofId(userId));
+    return memberGuard.require(userId, tenantId);
   }
 
   /**

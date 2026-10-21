@@ -183,7 +183,7 @@ class AssistantSuggestionModelTest extends IntegrationTestBase {
   @Test
   void 공용_비서_모델만_바꿔도_생각의_깊이와_추천_모델은_그대로다() throws Exception {
     long admin = TestFixtures.createHuman(dsl);
-    long agent = TestFixtures.createAgentNoToken(dsl);
+    long agent = withMembership(TestFixtures.createAgentNoToken(dsl));
     workspaceService.setAgent(admin, agent);
 
     workspaceService.updateSettings(
@@ -205,7 +205,7 @@ class AssistantSuggestionModelTest extends IntegrationTestBase {
   @Test
   void 공용_비서_자동_모델은_연결_제공자를_따른다() throws Exception {
     long admin = TestFixtures.createHuman(dsl);
-    long agent = TestFixtures.createAgentWithToken(dsl, credentialService, admin);
+    long agent = withMembership(TestFixtures.createAgentWithToken(dsl, credentialService, admin));
     workspaceService.setAgent(admin, agent);
     assertThat(workspaceService.get().suggestionModelAuto()).isEqualTo("claude-haiku-test");
   }

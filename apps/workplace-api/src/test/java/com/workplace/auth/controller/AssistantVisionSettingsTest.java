@@ -191,7 +191,7 @@ class AssistantVisionSettingsTest extends IntegrationTestBase {
   @Test
   void 공용_비서도_모델을_바꾸며_이미지_입력을_지정할_수_있다() throws Exception {
     long admin = TestFixtures.createHuman(dsl);
-    long agent = TestFixtures.createAgentNoToken(dsl);
+    long agent = withMembership(TestFixtures.createAgentNoToken(dsl));
     credentialService.register(
         admin,
         agent,

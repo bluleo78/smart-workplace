@@ -22,7 +22,7 @@ class WorkspaceAssistantServiceTest extends IntegrationTestBase {
   @Test
   void HUMAN_을_공용비서로_지정하면_거부() {
     long admin = TestFixtures.createHuman(dsl);
-    long human = TestFixtures.createHuman(dsl);
+    long human = withMembership(TestFixtures.createHuman(dsl));
     assertThatThrownBy(() -> service.setAgent(admin, human))
         .isInstanceOf(com.workplace.auth.exception.KeyTargetMustBeAgentException.class);
   }
@@ -30,7 +30,7 @@ class WorkspaceAssistantServiceTest extends IntegrationTestBase {
   @Test
   void AGENT_지정후_조회_그리고_설정변경() {
     long admin = TestFixtures.createHuman(dsl);
-    long agent = TestFixtures.createAgentNoToken(dsl);
+    long agent = withMembership(TestFixtures.createAgentNoToken(dsl));
     service.setAgent(admin, agent);
 
     var res = service.get();

@@ -66,6 +66,9 @@ class AgentApiKeyServiceTest extends IntegrationTestBase {
             .returning(USER.ID)
             .fetchOne()
             .getId();
+    // WP-703: 키 API 는 대상이 이 워크스페이스 구성원일 때만 동작한다 — 실제 AI 처럼 멤버십을 준다.
+    withMembership(humanId);
+    withMembership(agentId);
   }
 
   private String sha256Hex(String plaintext) throws Exception {
