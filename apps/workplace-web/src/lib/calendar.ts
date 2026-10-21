@@ -4,6 +4,7 @@ import {
 } from 'date-fns'
 
 import type { Calendar, CalendarEvent, CalendarViewType, IssueDueMarker } from '../types/calendar'
+import { type StorageOwner, userScopedKey } from './userScopedKey'
 
 // 보기 → 사용자에게 보이는 탭 이름. 캘린더 헤더의 뷰 전환 탭과 AI 화면 컨텍스트(WP-54, '<이름> 보기')가 공유한다.
 export const CALENDAR_VIEW_LABEL: Record<CalendarViewType, string> = {
@@ -140,12 +141,13 @@ export interface CalendarLayers {
   invited: boolean
 }
 
-const LAYERS_KEY = 'calendar.layers'
+// 표시 설정은 사용자·워크스페이스별로 저장한다(WP-701) — 같은 브라우저의 다음 사용자에게 앞 사용자의 숨김 설정이 남지 않게.
+const LAYERS_BASE = 'calendar.layers'
 const DEFAULT_LAYERS: CalendarLayers = { hiddenCalendarIds: [], issueDues: true, invited: true }
 
-export function loadLayers(): CalendarLayers {
+export function loadLayers(owner: StorageOwner): CalendarLayers {
   try {
-    const raw = localStorage.getItem(LAYERS_KEY)
+    const raw = localStorage.getItem(userScopedKey(LAYERS_BASE, owner))
     if (!raw) return { ...DEFAULT_LAYERS, hiddenCalendarIds: [] }
     const p = JSON.parse(raw) as Partial<CalendarLayers>
     return {
@@ -158,9 +160,9 @@ export function loadLayers(): CalendarLayers {
   }
 }
 
-export function saveLayers(layers: CalendarLayers): void {
+export function saveLayers(owner: StorageOwner, layers: CalendarLayers): void {
   try {
-    localStorage.setItem(LAYERS_KEY, JSON.stringify(layers))
+    localStorage.setItem(userScopedKey(LAYERS_BASE, owner), JSON.stringify(layers))
   } catch {
     // 저장 불가 — 무시.
   }

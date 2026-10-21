@@ -36,6 +36,7 @@ import {
 } from '@/hooks/queries/useCalendarMutations'
 import { useCalendars, useCreateCalendar, useDeleteCalendar, useResetCalendarEvents, useUpdateCalendar } from '@/hooks/queries/useCalendars'
 import { useMyIssueDues } from '@/hooks/queries/useMyIssueDues'
+import { useAuth } from '@/hooks/useAuth'
 import { useHistoryParam } from '@/hooks/useHistoryParam'
 import { useHorizontalSwipe } from '@/hooks/useHorizontalSwipe'
 import { getIsMobile, useIsMobile } from '@/hooks/useIsMobile'
@@ -129,7 +130,10 @@ export function CalendarPage() {
   const [editingCal, setEditingCal] = useState<Calendar | null>(null)
 
   // 사이드바 표시 레이어 토글 — localStorage 에서 초기화.
-  const [layers, setLayers] = useState<CalendarLayers>(loadLayers)
+  // 표시 설정은 사용자·워크스페이스별 저장(WP-701). 캘린더 화면은 로그인 뒤에만 열리므로 user 가 있다.
+  const { user, activeTenant } = useAuth()
+  const layersOwner = { userId: user?.id ?? 0, tenantId: activeTenant?.tenantId ?? null }
+  const [layers, setLayers] = useState<CalendarLayers>(() => loadLayers(layersOwner))
 
   // 내 캘린더 목록.
   const { data: calendars = [] } = useCalendars()
@@ -241,14 +245,14 @@ export function CalendarPage() {
   // issueDues / invited 토글(keyof Pick 으로 타입 안전).
   const toggleLayer = (key: keyof Pick<CalendarLayers, 'issueDues' | 'invited'>, value: boolean) => {
     const next = { ...layers, [key]: value }
-    saveLayers(next)
+    saveLayers(layersOwner, next)
     setLayers(next)
   }
 
   // 캘린더 컨테이너 표시 토글.
   const onToggleCalendar = (id: number) => {
     const next = toggleCalendar(layers, id)
-    saveLayers(next)
+    saveLayers(layersOwner, next)
     setLayers(next)
   }
 

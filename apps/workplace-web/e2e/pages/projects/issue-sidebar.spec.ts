@@ -24,7 +24,9 @@ test('이슈 모듈에 2차 사이드바가 보이고 홈에는 없다', { tag: 
 test('사이드바가 즐겨찾기한 팀 프로젝트를 링크로 렌더한다 (name → href)', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
   // 팀 프로젝트는 즐겨찾기한 것만 사이드바에 노출 — localStorage 에 ENG 를 미리 즐겨찾기로 시드.
   await page.addInitScript(() => {
-    localStorage.setItem('project-favorites', JSON.stringify(['ENG']))
+    // 즐겨찾기 키는 사용자·워크스페이스별(WP-701) — 목 사용자 id 1, 워크스페이스는 목 토큰에 따라 1 또는 없음.
+    localStorage.setItem('project-favorites:1:1', JSON.stringify(['ENG']))
+    localStorage.setItem('project-favorites:1:-', JSON.stringify(['ENG']))
   })
   // API 응답(name/key) → 사이드바 NavLink(text/href) 매핑까지 검증한다.
   const project: ProjectResponse = {
