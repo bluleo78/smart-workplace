@@ -263,7 +263,17 @@ class IssueServiceTest extends IntegrationTestBase {
             projectKey,
             new CreateIssueRequest("원래 제목", "b", null, null, null, null, null, null));
 
-    for (String blank : List.of("", "   ", "\u3000", "\u200B", "\u200B\u200B")) {
+    // WP-724: 점자 빈칸(U+2800)·결합 문자 CGJ(U+034F)·변형 선택자(U+FE0F)만 있는 제목도 빈 제목이다.
+    for (String blank :
+        List.of(
+            "",
+            "   ",
+            "\u3000",
+            "\u200B",
+            "\u200B\u200B",
+            "\u2800\u2800",
+            "\u034F\u034F",
+            "\uFE0F")) {
       assertThatThrownBy(
               () ->
                   issueService.update(

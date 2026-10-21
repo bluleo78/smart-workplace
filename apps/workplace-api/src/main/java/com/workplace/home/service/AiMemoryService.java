@@ -2,6 +2,7 @@ package com.workplace.home.service;
 
 import com.workplace.global.ai.AiMemoryLine;
 import com.workplace.global.ai.MemoryTextNormalizer;
+import com.workplace.global.util.PersonNames;
 import com.workplace.global.util.TokenEstimates;
 import com.workplace.home.dto.AiMemoryItem;
 import com.workplace.home.dto.AiMemoryListResponse;
@@ -383,6 +384,8 @@ public class AiMemoryService {
    */
   static String normalizeContent(String raw) {
     String c = raw == null ? "" : MemoryTextNormalizer.stripControl(raw).strip();
+    // 그려지는 글자가 없으면 빈 내용 — 공용 메모리와 같은 규칙(WP-724).
+    if (!PersonNames.hasVisibleChar(c)) c = "";
     int n = c.codePointCount(0, c.length());
     if (n == 0 || n > MAX_CHARS) {
       throw AiMemoryException.invalid("메모리 내용은 1~" + MAX_CHARS + "자여야 해요");

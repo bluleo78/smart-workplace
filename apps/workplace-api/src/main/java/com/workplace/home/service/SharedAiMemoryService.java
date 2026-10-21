@@ -2,6 +2,7 @@ package com.workplace.home.service;
 
 import com.workplace.global.ai.MemoryTextNormalizer;
 import com.workplace.global.ai.TextEmbedder;
+import com.workplace.global.util.PersonNames;
 import com.workplace.home.dto.SharedAiMemoryItem;
 import com.workplace.home.dto.SharedAiMemoryPage;
 import com.workplace.home.dto.SharedMemorySpaceItem;
@@ -76,6 +77,8 @@ public class SharedAiMemoryService {
    */
   public static String normalizeContent(String content) {
     String c = content == null ? "" : MemoryTextNormalizer.stripControl(content).strip();
+    // 점자 빈칸·결합 문자처럼 공백이 아니어도 그려지지 않는 글자만 있으면 빈 내용으로 본다(WP-724) — 목록에 빈 줄 지침이 생기지 않게.
+    if (!PersonNames.hasVisibleChar(c)) c = "";
     int n = c.codePointCount(0, c.length());
     if (n < 1 || n > SharedAiMemoryRepository.MAX_CHARS) {
       throw SharedAiMemoryException.invalid("내용은 1~300자로 적어 주세요.");
