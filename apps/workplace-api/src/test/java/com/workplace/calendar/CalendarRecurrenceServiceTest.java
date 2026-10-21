@@ -164,6 +164,76 @@ class CalendarRecurrenceServiceTest extends IntegrationTestBase {
             });
   }
 
+  /**
+   * WP-662: 횟수(COUNT)로 끝나는 시리즈를 중간 회차부터 「이후 모든 일정」으로 고치면, 수정 창이 보낸 COUNT 는 시리즈 전체 횟수다 — 새 시리즈는 앞에서
+   * 이미 지난 회차를 뺀 나머지만 가진다. 예전엔 새 시리즈가 COUNT=4 를 새로 세어 4회가 6회로 늘었다.
+   */
+  @Test
+  void updateFollowing_countSeries_keepsTotalCount() {
+    long u = user();
+    CalendarEventResponse master =
+        service.create(u, recurringReq("FREQ=WEEKLY;COUNT=4", BASE, BASE.plusHours(1)));
+    OffsetDateTime occ3 = BASE.plusWeeks(2);
+
+    CalendarEventResponse newMaster =
+        service.update(
+            u,
+            master.id(),
+            editReq("변경", "FREQ=WEEKLY;COUNT=4", occ3),
+            EditScope.THIS_AND_FOLLOWING,
+            occ3);
+
+    List<CalendarEventResponse> r = service.list(u, BASE.minusDays(1), BASE.plusWeeks(10));
+    assertThat(r)
+        .extracting(e -> e.startsAt().toInstant())
+        .containsExactly(
+            BASE.toInstant(),
+            BASE.plusWeeks(1).toInstant(),
+            occ3.toInstant(),
+            BASE.plusWeeks(3).toInstant());
+    assertThat(newMaster.recurrenceRule()).isEqualTo("FREQ=WEEKLY;COUNT=2");
+  }
+
+  /** WP-662: 횟수를 늘려 저장하면 전체 횟수가 그만큼 — 4회를 6회로 바꾸면 앞 2회 + 뒤 4회. */
+  @Test
+  void updateFollowing_countSeries_changedCountIsTotal() {
+    long u = user();
+    CalendarEventResponse master =
+        service.create(u, recurringReq("FREQ=WEEKLY;COUNT=4", BASE, BASE.plusHours(1)));
+    OffsetDateTime occ3 = BASE.plusWeeks(2);
+
+    service.update(
+        u,
+        master.id(),
+        editReq("변경", "FREQ=WEEKLY;COUNT=6", occ3),
+        EditScope.THIS_AND_FOLLOWING,
+        occ3);
+
+    assertThat(service.list(u, BASE.minusDays(1), BASE.plusWeeks(10))).hasSize(6);
+  }
+
+  /** WP-662: 전체 횟수를 이 회차 앞에서 끝나게 줄이면 이후 회차가 하나도 없다 — 조용히 늘리거나 비우지 않고 400. */
+  @Test
+  void updateFollowing_countSeries_countEndingBeforeOccurrenceIsRejected() {
+    long u = user();
+    CalendarEventResponse master =
+        service.create(u, recurringReq("FREQ=WEEKLY;COUNT=4", BASE, BASE.plusHours(1)));
+    OffsetDateTime occ3 = BASE.plusWeeks(2);
+
+    assertThatThrownBy(
+            () ->
+                service.update(
+                    u,
+                    master.id(),
+                    editReq("변경", "FREQ=WEEKLY;COUNT=2", occ3),
+                    EditScope.THIS_AND_FOLLOWING,
+                    occ3))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("횟수");
+    // 거절되면 원래 시리즈 그대로.
+    assertThat(service.list(u, BASE.minusDays(1), BASE.plusWeeks(10))).hasSize(4);
+  }
+
   /** THIS_AND_FOLLOWING 삭제 → 해당 회차 이후가 모두 잘려 이전 회차만 남는다. */
   @Test
   void deleteScopeFollowing_truncatesSeries() {

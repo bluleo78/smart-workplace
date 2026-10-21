@@ -62,6 +62,31 @@ public class RecurrenceExpander {
     return cleaned.isEmpty() ? until : cleaned + ";" + until;
   }
 
+  /** RRULE 원문의 COUNT 값 — 없거나 숫자가 아니면 null. 원문 토큰으로 본다(관용 파싱은 잘못된 값을 기본값으로 바꿔 읽는다). */
+  public static Integer countOf(String rrule) {
+    if (rrule == null) return null;
+    for (String part : rrule.split(";")) {
+      String p = part.trim();
+      if (p.toUpperCase(Locale.ROOT).startsWith("COUNT=")) {
+        try {
+          return Integer.parseInt(p.substring("COUNT=".length()).trim());
+        } catch (NumberFormatException e) {
+          return null;
+        }
+      }
+    }
+    return null;
+  }
+
+  /** RRULE 의 COUNT 를 count 로 바꾼 새 규칙(다른 토큰 순서는 그대로). COUNT 가 없는 규칙엔 쓰지 않는다. */
+  public static String withCount(String rrule, int count) {
+    return Arrays.stream(rrule.split(";"))
+        .map(String::trim)
+        .filter(p -> !p.isEmpty())
+        .map(p -> p.toUpperCase(Locale.ROOT).startsWith("COUNT=") ? "COUNT=" + count : p)
+        .collect(Collectors.joining(";"));
+  }
+
   /**
    * [from, to) 안의 회차 시작 시각(UTC) 목록. fastForward 로 과거 회차를 건너뛴 뒤, to 직전까지 순회한다. from 이 마스터 시작 이전이면
    * 건너뛸 것이 없으므로 fastForward 를 호출하지 않는다(타깃이 첫 인스턴스 이전일 때의 미정의 동작 회피).

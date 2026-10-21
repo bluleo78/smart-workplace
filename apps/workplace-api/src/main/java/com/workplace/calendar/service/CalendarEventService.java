@@ -610,6 +610,7 @@ public class CalendarEventService {
       CalendarEventResponse master,
       CalendarEventRequest req,
       OffsetDateTime occurrenceDate) {
+    req = withRemainingCount(master, req, occurrenceDate);
     String truncated =
         RecurrenceExpander.withUntil(master.recurrenceRule(), occurrenceDate.minusSeconds(1));
     repo.updateRecurrenceRule(master.id(), truncated);
@@ -623,6 +624,44 @@ public class CalendarEventService {
     // 기존 마스터의 참석자(ORGANIZER 포함)를 새 마스터에 복제. role/rsvp_status/invited_by 보존.
     copyAttendees(master.id(), newMasterId);
     return get(callerId, newMasterId);
+  }
+
+  /**
+   * 횟수(COUNT)로 끝나는 시리즈를 「이후 모든 일정」으로 나눌 때 새 시리즈의 COUNT 를 남은 횟수로 바꾼다(WP-662).
+   *
+   * <p>수정 창은 원래 시리즈의 COUNT(전체 횟수)를 그대로 보여 주고 보내므로, 요청의 COUNT 는 시리즈 전체 횟수다. 그대로 새 시리즈에 쓰면 처음부터 다시 세어
+   * 4회가 6회로 늘었다. 앞에서 지난 회차 수(취소된 회차도 RFC5545 상 횟수에 든다)를 빼고, 남는 회차가 없으면 400 으로 거절한다. 원래 시리즈에 COUNT 가
+   * 없거나(무한·UNTIL) 요청에 COUNT 가 없으면 요청 그대로 둔다 — 그때의 COUNT 는 새 시리즈만의 횟수다.
+   */
+  private CalendarEventRequest withRemainingCount(
+      CalendarEventResponse master, CalendarEventRequest req, OffsetDateTime occurrenceDate) {
+    Integer total = RecurrenceExpander.countOf(req.recurrenceRule());
+    if (total == null || RecurrenceExpander.countOf(master.recurrenceRule()) == null) return req;
+    int before =
+        expander
+            .expand(master.recurrenceRule(), master.startsAt(), master.startsAt(), occurrenceDate)
+            .size();
+    int remaining = total - before;
+    if (remaining < 1) {
+      throw new IllegalArgumentException(
+          "반복 횟수 "
+              + total
+              + "회는 이 회차 앞에서 끝납니다 — 이 회차부터 남길 횟수가 있도록 "
+              + (before + 1)
+              + "회 이상으로 정하세요");
+    }
+    return new CalendarEventRequest(
+        req.title(),
+        req.description(),
+        req.startsAt(),
+        req.endsAt(),
+        req.allDay(),
+        req.location(),
+        req.color(),
+        req.reminderMinutes(),
+        RecurrenceExpander.withCount(req.recurrenceRule(), remaining),
+        req.attendeeUserIds(),
+        req.calendarId());
   }
 
   /**
