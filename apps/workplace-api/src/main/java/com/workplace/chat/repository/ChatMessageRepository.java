@@ -75,21 +75,26 @@ public class ChatMessageRepository {
         .getId();
   }
 
-  /** body 수정 + edited_at = now + mentions 재저장. */
-  public void update(long id, String body, List<Long> mentionUserIds) {
-    dsl.update(CHAT_MESSAGE)
+  /**
+   * body 수정 + edited_at = now + mentions 재저장. 삭제된 메시지는 건드리지 않는다(WP-680 — 삭제 뒤 수정 요청이 가려진 본문을 덮어썼다).
+   * 바뀐 행 수를 돌려준다(0 = 없거나 삭제됨).
+   */
+  public int update(long id, String body, List<Long> mentionUserIds) {
+    return dsl.update(CHAT_MESSAGE)
         .set(CHAT_MESSAGE.BODY, body)
         .set(CHAT_MESSAGE.MENTIONS, JSONB.valueOf(toJson(mentionUserIds)))
         .set(CHAT_MESSAGE.EDITED_AT, OffsetDateTime.now())
         .where(CHAT_MESSAGE.ID.eq(id))
+        .and(CHAT_MESSAGE.DELETED_AT.isNull())
         .execute();
   }
 
-  /** soft-delete. */
-  public void softDelete(long id) {
-    dsl.update(CHAT_MESSAGE)
+  /** soft-delete. 이미 삭제된 메시지는 처음 삭제 시각을 지킨다. 바뀐 행 수를 돌려준다(0 = 이미 삭제됨). */
+  public int softDelete(long id) {
+    return dsl.update(CHAT_MESSAGE)
         .set(CHAT_MESSAGE.DELETED_AT, OffsetDateTime.now())
         .where(CHAT_MESSAGE.ID.eq(id))
+        .and(CHAT_MESSAGE.DELETED_AT.isNull())
         .execute();
   }
 

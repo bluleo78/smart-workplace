@@ -134,7 +134,7 @@ public class ChatMessageService {
     return saved;
   }
 
-  /** 본인만 수정. mention 재파싱. edited_at 갱신. */
+  /** 본인만 수정. mention 재파싱. edited_at 갱신. 삭제된 메시지는 404. */
   @Transactional
   public ChatMessageResponse update(long callerId, long messageId, UpdateChatMessageRequest req) {
     long authorId =
@@ -146,7 +146,10 @@ public class ChatMessageService {
     threadAccess.ensureCanWrite(threadIdOf(messageId), callerId);
     List<Long> mentionUserIds =
         userMentionHydrator.filterExistingUserIds(MentionParser.parse(req.body()));
-    messageRepo.update(messageId, req.body(), mentionUserIds);
+    // 삭제된 메시지는 수정 대상이 아니다 — 없는 메시지와 같게 404(WP-680, 팀 채팅 WP-509 와 같은 규칙).
+    if (messageRepo.update(messageId, req.body(), mentionUserIds) == 0) {
+      throw new ChatMessageNotFoundException(messageId);
+    }
     ChatMessageResponse saved = findOne(messageId);
     // SSE fan-out 용 수정 이벤트 발행 (mention 은 hydrate 후 전달).
     publisher.publishEvent(
@@ -171,7 +174,8 @@ public class ChatMessageService {
     long threadId = threadIdOf(messageId);
     // 작성자여도 지금 쓰기 권한이 있어야 한다(WP-475).
     threadAccess.ensureCanWrite(threadId, callerId);
-    messageRepo.softDelete(messageId);
+    // 이미 삭제된 메시지면 아무것도 하지 않는다(멱등 — 삭제 시각·이벤트를 다시 만들지 않음).
+    if (messageRepo.softDelete(messageId) == 0) return;
     publisher.publishEvent(new ChatMessageDeletedEvent(threadId, messageId));
   }
 
