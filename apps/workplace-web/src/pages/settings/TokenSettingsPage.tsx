@@ -28,6 +28,7 @@ import {
 } from '@/components/ui/table';
 import { TableEmptyRow } from '@/components/ui/table-empty';
 import { TableSkeletonRows } from '@/components/ui/table-skeleton';
+import { API_TOKEN_STATUS_LABEL, apiTokenStatus } from '@/lib/apiTokenStatus';
 import { formatDateShort, formatDateTimeLocale } from '@/lib/formatters';
 
 import { useIssueMyToken, useMyTokens, useRevokeMyToken } from '../../hooks/queries/useUserTokens';
@@ -39,6 +40,20 @@ const COLUMN_COUNT = 6;
 /** 만료 표시 — 만료일이 없으면 「무기한」. */
 function expiryLabel(expiresAt: string | null): string {
   return expiresAt ? formatDateShort(expiresAt) : '무기한';
+}
+
+/**
+ * 상태 배지 — 활성은 강조, 만료됨·폐기됨은 회색(WP-702: 만료일이 지난 토큰은 서버가 거절하므로 「활성」으로 보이면 안 된다).
+ * 마우스를 올리면 만료·폐기 시각을 보인다.
+ */
+function TokenStatusBadge({ revokedAt, expiresAt }: { revokedAt: string | null; expiresAt: string | null }) {
+  const status = apiTokenStatus({ revokedAt, expiresAt });
+  const at = status === 'revoked' ? revokedAt : status === 'expired' ? expiresAt : null;
+  return (
+    <Badge variant={status === 'active' ? 'default' : 'secondary'} title={at ? formatDateTimeLocale(at) : undefined}>
+      {API_TOKEN_STATUS_LABEL[status]}
+    </Badge>
+  );
 }
 
 export default function TokenSettingsPage() {
@@ -128,12 +143,7 @@ export default function TokenSettingsPage() {
                     {formatDateShort(t.lastUsedAt)}
                   </TableCell>
                   <TableCell>
-                    <Badge
-                      variant={t.revokedAt == null ? 'default' : 'secondary'}
-                      title={t.revokedAt == null ? undefined : formatDateTimeLocale(t.revokedAt)}
-                    >
-                      {t.revokedAt == null ? '활성' : '폐기됨'}
-                    </Badge>
+                    <TokenStatusBadge revokedAt={t.revokedAt} expiresAt={t.expiresAt} />
                   </TableCell>
                   {/* 액션 컬럼 — 고정폭 + 우측 정렬(디자인 가이드 04-components.md 패턴3, RoleListPage 관례) */}
                   <TableCell className="w-20 text-right">

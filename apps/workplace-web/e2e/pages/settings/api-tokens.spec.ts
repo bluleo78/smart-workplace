@@ -176,4 +176,23 @@ test.describe('/settings/tokens', () => {
     const row = page.getByTestId(/^token-row-\d+$/).first();
     await expect(row).toContainText('무기한');
   });
+
+  // WP-702 — 만료일이 지난 토큰은 서버가 거절하므로 「활성」이 아니라 「만료됨」으로 보이고, 폐기 버튼은 남는다.
+  test('만료일이 지난 토큰은 「만료됨」으로 표시된다', async ({ authenticatedPage: page }) => {
+    const base = { tenantId: 1, createdAt: '2026-09-01T00:00:00Z', lastUsedAt: null, revokedAt: null };
+    const tokens: UserApiTokenFixture[] = [
+      { ...base, id: 1, name: 'expired-token', tokenPrefix: 'swp_old', expiresAt: '2020-01-01T00:00:00Z' },
+      { ...base, id: 2, name: 'live-token', tokenPrefix: 'swp_new', expiresAt: '2999-01-01T00:00:00Z' },
+    ];
+    await page.route(/\/api\/v1\/users\/me\/api-tokens$/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(tokens) }),
+    );
+    await page.goto('/settings/tokens');
+
+    const expired = page.getByTestId('token-row-1');
+    await expect(expired.getByText('만료됨', { exact: true })).toBeVisible();
+    await expect(expired.getByText('활성', { exact: true })).toHaveCount(0);
+    await expect(page.getByTestId('token-revoke-1')).toBeVisible();
+    await expect(page.getByTestId('token-row-2').getByText('활성', { exact: true })).toBeVisible();
+  });
 });
