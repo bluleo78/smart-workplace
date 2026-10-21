@@ -127,8 +127,9 @@ export function ViewChipBar({
 
       {/* #777: 활성 뷰가 있고 필터가 바뀐(dirty) 상태면 "뷰 업데이트"/"새 뷰로 저장" 두 액션을
           제공한다. 활성 뷰가 있지만 dirty 가 아니면 저장할 변경이 없으므로 버튼 비활성(중복 뷰
-          생성 방지). 활성 뷰가 없으면(전체 보기) 기존과 동일하게 "새 뷰로 저장"만 제공. */}
-      {activeView ? (
+          생성 방지). 활성 뷰가 없으면(전체 보기) 기존과 동일하게 "새 뷰로 저장"만 제공.
+          OPEN 비멤버는 뷰를 저장할 수 없어(서버 멤버 전용) 저장 영역을 두지 않는다(WP-741). */}
+      {!s.canUseViews ? null : activeView ? (
         s.isViewDirty ? (
           <div className="flex items-center gap-1">
             <button

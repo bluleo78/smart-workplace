@@ -3,10 +3,12 @@
 import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
+import { useProject } from '../../../hooks/queries/useProjects'
 import { useSavedViews, useUpdateSavedView } from '../../../hooks/queries/useSavedViews'
 import { useIssueGroupBy } from '../../../hooks/useIssueGroupBy'
 import { isAllIgnoringEpicScope } from '../../../lib/issueFacetFilters'
 import { filtersToParams, parseFilters, parseView } from '../../../lib/issueFilters'
+import { isIntakeOnly } from '../../../lib/projectPermissions'
 import {
   normalizeIssueQueryIgnoringViewAndGroup,
   queriesEqualIgnoringView,
@@ -15,6 +17,8 @@ import {
 import type { SavedViewResponse } from '../../../types/savedView'
 
 export interface SavedViewState {
+  // 저장된 뷰를 쓸 수 있는가 — 서버가 목록·저장 모두 멤버 전용이라 OPEN 비멤버(접수만 하는 열람자)는 false(WP-741)
+  canUseViews: boolean
   views: SavedViewResponse[]
   currentQuery: string
   isAllActive: boolean
@@ -33,7 +37,10 @@ export interface SavedViewState {
 
 export function useSavedViewState(projectKey: string): SavedViewState {
   const [params, setParams] = useSearchParams()
-  const viewsQuery = useSavedViews(projectKey)
+  // 프로젝트를 불러오기 전엔 멤버인지 모르므로 요청을 미룬다 — 비멤버에게 403 이 매번 나던 문제(WP-741).
+  const project = useProject(projectKey).data
+  const canUseViews = !!project && !isIntakeOnly(project)
+  const viewsQuery = useSavedViews(projectKey, canUseViews)
   const update = useUpdateSavedView(projectKey)
   // 필터 갱신(#777) — "마지막으로 선택된 뷰" id. 칩 클릭/생성 직후엔 쿼리 내용으로 자동
   // 동기화되지만, 이후 사용자가 필터를 바꿔 더 이상 어떤 뷰의 쿼리와도 일치하지 않게 되어도
@@ -129,6 +136,7 @@ export function useSavedViewState(projectKey: string): SavedViewState {
   }
 
   return {
+    canUseViews,
     views: viewsQuery.data ?? [],
     currentQuery,
     isAllActive,

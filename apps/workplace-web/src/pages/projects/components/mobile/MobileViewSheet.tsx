@@ -65,7 +65,7 @@ export function MobileViewSheet({
         open={open}
         onClose={onClose}
         title="뷰"
-        description="저장된 뷰를 고르거나 현재 조건을 뷰로 저장하세요."
+        description={saved.canUseViews ? '저장된 뷰를 고르거나 현재 조건을 뷰로 저장하세요.' : '보기 조건을 고르세요.'}
         testId="mobile-view-sheet"
       >
         <div className="min-h-0 flex-1 overflow-y-auto py-1">
@@ -107,9 +107,10 @@ export function MobileViewSheet({
             </>
           )}
 
-          <div className="my-1 border-t" />
-          {/* 저장 영역(#777 과 같은 규칙) — 활성 뷰가 바뀌었으면 업데이트/새로 저장, 아니면 현재 조건 저장. */}
-          {activeView && saved.isViewDirty ? (
+          {saved.canUseViews && <div className="my-1 border-t" />}
+          {/* 저장 영역(#777 과 같은 규칙) — 활성 뷰가 바뀌었으면 업데이트/새로 저장, 아니면 현재 조건 저장.
+              OPEN 비멤버는 뷰를 저장할 수 없어(서버 멤버 전용) 두지 않는다(WP-741). */}
+          {!saved.canUseViews ? null : activeView && saved.isViewDirty ? (
             <>
               <button
                 type="button"
