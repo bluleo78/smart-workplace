@@ -251,6 +251,46 @@ class CalendarRecurrenceServiceTest extends IntegrationTestBase {
         .containsExactly(BASE, BASE.plusWeeks(1));
   }
 
+  /**
+   * WP-663: 첫 회차에서 「이후 모든 일정」 삭제 → 남는 회차가 없으므로 시리즈 자체를 지운다. 예전엔 UNTIL 만 첫 회차 직전으로 잘라 회차 0개짜리 원본
+   * 일정(상세 조회 200)이 남았다. 첫 회차에 고친 회차(오버라이드)가 있으면 그것도 함께 지운다.
+   */
+  @Test
+  void deleteFollowing_fromFirstOccurrence_deletesWholeSeries() {
+    long u = user();
+    CalendarEventResponse master =
+        service.create(u, recurringReq("FREQ=WEEKLY;COUNT=3", BASE, BASE.plusHours(1)));
+    OffsetDateTime occ2 = BASE.plusWeeks(1);
+    service.update(u, master.id(), editReq("수정회의", "FREQ=WEEKLY", occ2), EditScope.THIS, occ2);
+
+    service.delete(u, master.id(), EditScope.THIS_AND_FOLLOWING, BASE);
+
+    assertThat(service.list(u, BASE.minusDays(1), BASE.plusWeeks(4))).isEmpty();
+    assertThat(dsl.fetchCount(CALENDAR_EVENT, CALENDAR_EVENT.OWNER_ID.eq(u))).isZero();
+  }
+
+  /** WP-663: 첫 회차에서 「이후 모든 일정」으로 고치면 새 시리즈만 남는다 — 옛 시리즈는 회차가 0개라 지운다(빈 원본이 남지 않게). */
+  @Test
+  void updateFollowing_fromFirstOccurrence_leavesOnlyNewSeries() {
+    long u = user();
+    CalendarEventResponse master =
+        service.create(u, recurringReq("FREQ=WEEKLY;COUNT=3", BASE, BASE.plusHours(1)));
+
+    CalendarEventResponse newMaster =
+        service.update(
+            u,
+            master.id(),
+            editReq("변경", "FREQ=WEEKLY;COUNT=3", BASE),
+            EditScope.THIS_AND_FOLLOWING,
+            BASE);
+
+    List<CalendarEventResponse> r = service.list(u, BASE.minusDays(1), BASE.plusWeeks(6));
+    assertThat(r).hasSize(3).allSatisfy(e -> assertThat(e.title()).isEqualTo("변경"));
+    assertThat(dsl.fetchCount(CALENDAR_EVENT, CALENDAR_EVENT.OWNER_ID.eq(u))).isEqualTo(1);
+    assertThat(dsl.fetchExists(CALENDAR_EVENT, CALENDAR_EVENT.ID.eq(master.id()))).isFalse();
+    assertThat(newMaster.recurrenceRule()).isEqualTo("FREQ=WEEKLY;COUNT=3");
+  }
+
   /** 반복 일정의 THIS 인데 occurrenceDate 누락 → IllegalArgumentException(전역 핸들러 400). */
   @Test
   void updateScopeThis_withoutOccurrenceDate_rejected() {

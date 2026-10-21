@@ -623,7 +623,23 @@ public class CalendarEventService {
     truncateExceptionsFrom(master.id(), occurrenceDate);
     // 기존 마스터의 참석자(ORGANIZER 포함)를 새 마스터에 복제. role/rsvp_status/invited_by 보존.
     copyAttendees(master.id(), newMasterId);
+    // 첫 회차부터 고쳤으면 옛 시리즈는 회차가 0개 — 빈 원본이 남지 않게 지운다(WP-663). 참석자는 위에서 이미 복제했다.
+    if (noOccurrenceBefore(master, occurrenceDate)) deleteSeries(master.id());
     return get(callerId, newMasterId);
+  }
+
+  /** occurrenceDate 앞에 시리즈 회차가 하나도 없는가 — 첫 회차에서 자르면 원래 시리즈는 빈 껍데기가 된다(WP-663). */
+  private boolean noOccurrenceBefore(CalendarEventResponse master, OffsetDateTime occurrenceDate) {
+    return expander
+        .expand(master.recurrenceRule(), master.startsAt(), master.startsAt(), occurrenceDate)
+        .isEmpty();
+  }
+
+  /** 마스터와 그 오버라이드 일정까지 삭제 — 오버라이드는 FK 가 master→exception 방향이라 cascade 되지 않아 먼저 수집해 직접 지운다. */
+  private void deleteSeries(long masterId) {
+    List<Long> overrides = exceptionRepo.overrideEventIds(masterId);
+    repo.delete(masterId);
+    repo.deleteAllById(overrides);
   }
 
   /**
@@ -766,10 +782,7 @@ public class CalendarEventService {
     }
 
     if (target.recurrenceRule() == null || scope == EditScope.ALL) {
-      // 마스터에 매달린 오버라이드 일정들은 FK 가 master→exception 방향이라 cascade 되지 않음 — 먼저 수집해 직접 삭제.
-      List<Long> overrides = exceptionRepo.overrideEventIds(id);
-      repo.delete(id);
-      repo.deleteAllById(overrides);
+      deleteSeries(id);
       return;
     }
 
@@ -777,6 +790,11 @@ public class CalendarEventService {
       // 이미 오버라이드가 있던 회차를 취소하면 예외 행은 cancel 로 repoint 되지만 오버라이드 별도 일정은 남는다 → 고아 ghost 방지로 먼저 삭제.
       exceptionRepo.findOverrideEventId(id, occurrenceDate).ifPresent(repo::delete);
       exceptionRepo.insertCancellation(id, occurrenceDate);
+      return;
+    }
+    // 첫 회차부터 지우면 남는 회차가 없다 — 회차 0개짜리 원본을 남기지 않고 시리즈째 지운다(WP-663).
+    if (noOccurrenceBefore(target, occurrenceDate)) {
+      deleteSeries(id);
       return;
     }
     // THIS_AND_FOLLOWING — UNTIL 로 시리즈를 자르고 잘린 구간의 예외·오버라이드 일정 정리.
