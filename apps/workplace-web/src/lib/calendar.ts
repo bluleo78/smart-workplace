@@ -122,6 +122,14 @@ export function isoToLocalInput(iso: string | null | undefined): string {
 }
 
 /**
+ * datetime-local 두 값의 순서가 뒤집혔는지(WP-727) — 둘 다 있고 종료가 시작과 같거나 앞서면 true. 같은 형식(YYYY-MM-DDTHH:mm)이라 문자열 비교가
+ * 시각 순서와 같다. 일정 제안 카드가 승인 전에 막는 데 쓴다(서버도 「종료 시각은 시작 시각보다 뒤여야 합니다」로 거절한다).
+ */
+export function isLocalRangeReversed(startsAt: string, endsAt: string): boolean {
+  return !!startsAt && !!endsAt && endsAt <= startsAt
+}
+
+/**
  * 일정 제안 카드의 읽기전용 시간 표시 — 'YYYY-MM-DD HH:mm ~ HH:mm'(종료 없으면 시작만).
  * UTC 로 저장된 제안 시각을 브라우저 로컬(KST)로 바꿔 보여 준다 — 확인 대기·확정 블록이 같은 규칙을 쓴다.
  */

@@ -10,7 +10,7 @@ import { AiContent } from '@/components/ai/AiContent'
 import { AiSignalBadge } from '@/components/ai/AiSignalBadge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { isoToLocalInput, proposalTimeRange } from '@/lib/calendar'
+import { isLocalRangeReversed, isoToLocalInput, proposalTimeRange } from '@/lib/calendar'
 import type { MessageProposal } from '@/types/messaging'
 
 interface EventProposalCardProps {
@@ -70,6 +70,8 @@ export function EventProposalCard({
   const [location, setLocation] = useState(proposal.location ?? '')
 
   const conflictCount = proposal.conflicts?.length ?? 0
+  // 종료가 시작과 같거나 앞서면 승인 전에 막는다 — 예전엔 그대로 보내 서버 원문 오류가 토스트에 떴다(WP-727).
+  const rangeReversed = isLocalRangeReversed(startsAt, endsAt)
 
   return (
     <div
@@ -122,8 +124,20 @@ export function EventProposalCard({
               data-testid={`event-proposal-ends-${proposal.id}`}
               value={endsAt}
               onChange={(e) => setEndsAt(e.target.value)}
+              aria-invalid={rangeReversed || undefined}
+              aria-describedby={rangeReversed ? `event-proposal-range-error-${proposal.id}` : undefined}
             />
           </div>
+          {rangeReversed && (
+            <p
+              id={`event-proposal-range-error-${proposal.id}`}
+              data-testid={`event-proposal-range-error-${proposal.id}`}
+              role="alert"
+              className="text-xs text-destructive"
+            >
+              종료는 시작보다 뒤여야 합니다
+            </p>
+          )}
           <Input
             data-testid={`event-proposal-location-${proposal.id}`}
             value={location}
@@ -136,7 +150,7 @@ export function EventProposalCard({
             <Button
               size="sm"
               data-testid={`event-proposal-confirm-${proposal.id}`}
-              disabled={busy}
+              disabled={busy || rangeReversed}
               onClick={() =>
                 onConfirm({
                   title,

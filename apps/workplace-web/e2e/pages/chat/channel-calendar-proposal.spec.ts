@@ -181,6 +181,51 @@ test.describe('채팅 일정 제안 카드', () => {
     },
   )
 
+  test('종료를 시작보다 앞으로 고치면 안내가 뜨고 승인이 막힌다 (WP-727)', async ({ authenticatedPage: page }) => {
+    const channel = createChannel({ id: CHANNEL_ID, member: true })
+    await setupChannelStubs(page, channel)
+    await stubMembers(page)
+    const proposalMessage = createMessage({
+      id: 301,
+      channelId: CHANNEL_ID,
+      authorId: 99,
+      authorName: 'AI 어시스턴트',
+      authorKind: 'AGENT',
+      body: '💡 일정 생성을 제안했어요',
+      proposal: makeEventProposal(),
+    })
+    await page.route(
+      (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}/messages`,
+      (route) =>
+        route.request().method() === 'GET'
+          ? route.fulfill({
+              status: 200,
+              contentType: 'application/json',
+              body: JSON.stringify({ items: [proposalMessage], nextCursor: null, hasMore: false }),
+            })
+          : route.fallback(),
+    )
+    const confirms = trackRequests(page, 'POST', `/api/v1/messaging/proposals/${PROPOSAL_ID}/confirm`)
+    await page.goto(`/chat/channels/${CHANNEL_ID}`)
+
+    const ends = page.getByTestId(`event-proposal-ends-${PROPOSAL_ID}`)
+    const confirm = page.getByTestId(`event-proposal-confirm-${PROPOSAL_ID}`)
+    await expect(confirm).toBeEnabled()
+    // 시작 15:00 인데 종료를 14:30 으로 — 안내가 뜨고 승인 버튼이 꺼진다
+    await ends.fill('2026-07-05T14:30')
+    await expect(page.getByTestId(`event-proposal-range-error-${PROPOSAL_ID}`)).toHaveText('종료는 시작보다 뒤여야 합니다')
+    await expect(ends).toHaveAttribute('aria-invalid', 'true')
+    await expect(confirm).toBeDisabled()
+    // 같은 시각도 막는다
+    await ends.fill('2026-07-05T15:00')
+    await expect(confirm).toBeDisabled()
+    // 고치면 안내가 사라지고 다시 승인할 수 있다
+    await ends.fill('2026-07-05T16:30')
+    await expect(page.getByTestId(`event-proposal-range-error-${PROPOSAL_ID}`)).toHaveCount(0)
+    await expect(confirm).toBeEnabled()
+    expect(confirms.count()).toBe(0)
+  })
+
   // 비위임자 읽기전용(확인 대기) 블록의 UTC→KST 시간 표시는 calendar.test(proposalTimeRange)가 지킨다.
 
   // #852: 승인하면 그대로 초대되므로 위임자·비위임자·확정 후 모두 누구를 부르는지 보여야 한다. 참석자 없는 카드엔 줄이 없다.
