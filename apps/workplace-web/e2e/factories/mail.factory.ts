@@ -1,5 +1,6 @@
 // 받은편지함 E2E 모킹 픽스처 — 계정 + 메시지 목록/상세.
 import type { MailAccountResponse } from '../../src/types/mailAccount'
+import type { MailDraftDetail } from '../../src/types/mailDraft'
 import type {
   EmailMessageDetail,
   EmailMessageSummary,
@@ -69,6 +70,26 @@ export function detail(overrides?: Partial<EmailMessageDetail>): EmailMessageDet
     attachments: [
       { id: 1, filename: '안건.pdf', contentType: 'application/pdf', sizeBytes: 1024, contentId: null },
     ],
+    ...overrides,
+  }
+}
+
+/** 임시저장 상세 한 건(WP-577) — 받는사람·본문 등은 덮어쓴다. */
+export function draftDetail(overrides: Partial<MailDraftDetail> = {}): MailDraftDetail {
+  return {
+    id: 7,
+    accountId: 1,
+    mode: 'new',
+    to: ['rcpt@test.local'],
+    cc: [],
+    bcc: [],
+    subject: '쓰다 만 메일',
+    bodyHtml: '<p>쓰다 만 본문</p>',
+    sourceMessageId: null,
+    quoteRemoved: false,
+    attachments: [],
+    version: 1,
+    updatedAt: '2026-10-21T01:00:00Z',
     ...overrides,
   }
 }

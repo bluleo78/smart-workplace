@@ -96,49 +96,38 @@ test('쓴 내용이 없으면 시스템 뒤로가기는 묻지 않고 작성 화
   await expect(page.getByTestId('mail-reply')).toBeVisible()
 })
 
-test('쓴 내용이 있으면 시스템 뒤로가기·✕ 는 버릴지 묻는다 — 계속 작성하면 그대로, 버리면 닫히고 보던 메일에 머문다', async ({ authenticatedPage: page }) => {
+test('쓴 내용이 있으면 시스템 뒤로가기는 묻지 않고 임시저장한 뒤 닫고 보던 메일에 머문다(WP-577)', async ({ authenticatedPage: page }) => {
   await openInbox(page)
   await page.getByTestId('mail-row-10').click()
   const url = page.url()
+  const draftPosts = trackRequests(page, 'POST', '/api/v1/mail/drafts')
   await page.getByTestId('mail-reply').click()
   await expectFullScreen(page)
   await page.getByTestId('mail-composer-body').click()
   await page.keyboard.type('길게 쓴 답장')
 
-  // 뒤로가기 → 확인창, 계속 작성 → 작성 화면과 내용 그대로.
+  // 뒤로가기 → 확인창 없이 남은 저장을 마치고 닫힌다. 보던 메일 그대로, 다음 뒤로가기가 헛돌지 않게 표식도 남지 않는다.
   await page.goBack()
-  const confirm = page.getByTestId('mail-compose-discard-dialog')
-  await expect(confirm).toBeVisible()
-  await expectOnTop(page, confirm, '[data-testid="mail-compose-discard-dialog"]')
-  await page.getByTestId('mail-compose-discard-keep').click()
-  await expect(confirm).toBeHidden()
-  await expect(page.getByTestId('mail-composer-body')).toContainText('길게 쓴 답장')
-
-  // ✕ 도 같은 확인창.
-  await page.getByTestId('mail-compose-close').click()
-  await expect(confirm).toBeVisible()
-  await page.getByTestId('mail-compose-discard-keep').click()
-  await expect(page.getByTestId('mail-compose-dock')).toBeVisible()
-
-  // 다시 뒤로가기 → 버리기 → 닫히고 보던 메일 그대로. 다음 뒤로가기가 헛돌지 않게 표식도 남지 않는다.
-  await page.goBack()
-  await expect(confirm).toBeVisible()
-  await page.getByTestId('mail-compose-discard-confirm').click()
   await expect(page.getByTestId('mail-compose-dock')).toHaveCount(0)
+  await draftPosts.waitFor()
+  expect(draftPosts.lastBody()).toMatchObject({ mode: 'reply', sourceMessageId: 10 })
+  expect(draftPosts.lastBody<{ bodyText: string }>()!.bodyText).toContain('길게 쓴 답장')
+  await expect(page.getByText('임시보관함에 저장했어요')).toBeVisible()
   expect(page.url()).toBe(url)
   await expect(page.getByTestId('mail-reply')).toBeVisible()
   expect(await page.evaluate(() => JSON.stringify(history.state?.usr ?? null))).not.toContain('mailCompose')
 })
 
-test('받는사람만 고쳐도 쓴 내용으로 본다 — ✕ 가 버릴지 묻는다', async ({ authenticatedPage: page }) => {
+test('받는사람만 고쳐도 쓴 내용으로 본다 — ✕ 가 임시저장한다', async ({ authenticatedPage: page }) => {
   await openInbox(page)
   await page.getByTestId('mail-row-10').click()
+  const draftPosts = trackRequests(page, 'POST', '/api/v1/mail/drafts')
   await page.getByTestId('mail-reply').click()
   await page.getByTestId('mail-compose-to').fill('other@test.local')
   await page.getByTestId('mail-compose-close').click()
-  await expect(page.getByTestId('mail-compose-discard-dialog')).toBeVisible()
-  await page.getByTestId('mail-compose-discard-confirm').click()
   await expect(page.getByTestId('mail-compose-dock')).toHaveCount(0)
+  await draftPosts.waitFor()
+  expect(draftPosts.lastBody()).toMatchObject({ to: ['other@test.local'] })
 })
 
 test('전달은 제목이 「전달」이다', async ({ authenticatedPage: page }) => {

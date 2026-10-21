@@ -395,19 +395,19 @@ test.describe('메일 작성창 파일 첨부 (WP-574)', () => {
     await expect(page.getByTestId('mail-compose-send')).toBeEnabled()
   })
 
-  test('첨부만 붙인 상태에서 ✕ 를 누르면 버릴지 묻는다(문구에 첨부 포함)', async ({ authenticatedPage: page }) => {
+  test('첨부만 붙인 상태에서 ✕ 를 누르면 묻지 않고 그 첨부와 함께 임시저장한다(WP-577)', async ({ authenticatedPage: page }) => {
     const uploads = await holdUploads(page)
+    const draftPosts = trackRequests(page, 'POST', '/api/v1/mail/drafts')
     await openNew(page)
     await page.getByTestId('mail-compose-file-input').setInputFiles({ name: 'a.pdf', mimeType: 'application/pdf', buffer: Buffer.from('A') })
     await uploads.respond(0, 201, uploaded(901, 'a.pdf', 1))
     expect(await chipStatuses(page)).toEqual(['done'])
 
     await page.getByTestId('mail-compose-close').click()
-    const dialog = page.getByTestId('mail-compose-discard-dialog')
-    await expect(dialog).toBeVisible()
-    await expect(dialog).toContainText('입력한 받는사람·제목·본문·첨부가 사라집니다.')
-    await page.getByTestId('mail-compose-discard-confirm').click()
     await expect(page.getByTestId('mail-compose-dock')).toHaveCount(0)
+    await draftPosts.waitFor()
+    expect(draftPosts.lastBody()).toMatchObject({ attachmentIds: [901], forwardAttachmentIds: [] })
+    await expect(page.getByText('임시보관함에 저장했어요')).toBeVisible()
   })
 
   test('발송을 서버가 400 으로 거절하면 그 문구를 보여 주고 작성창과 첨부를 그대로 둔다', async ({ authenticatedPage: page }) => {

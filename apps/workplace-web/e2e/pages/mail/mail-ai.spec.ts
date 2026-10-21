@@ -208,7 +208,7 @@ test.describe('메일 AI 비서', () => {
     await expect(page.getByTestId('mail-composer-body')).toContainText('AI가 작성한 답장')
   })
 
-  test('AI 답장 초안은 처음 채워진 본문이라 그대로 ✕ 하면 바로 닫고, 고친 뒤엔 버릴지 묻는다', async ({ authenticatedPage: page }) => {
+  test('AI 답장 초안은 처음 채워진 본문이라 그대로 ✕ 하면 저장 없이 닫고, 고친 뒤엔 임시저장하고 닫는다', async ({ authenticatedPage: page }) => {
     await mockInboxMessage(page)
     await mockApi(page, 'GET', '/api/v1/mail/messages/7/summary', { summary: '• 요약' })
     await page.route((u) => u.pathname === '/api/v1/mail/messages/7/reply-draft',
@@ -216,21 +216,26 @@ test.describe('메일 AI 비서', () => {
     await page.goto('/mail/1')
     await page.getByTestId('mail-row-7').click()
     const dock = page.getByTestId('mail-compose-dock')
+    const draftPosts = trackRequests(page, 'POST', '/api/v1/mail/drafts')
 
-    // 손대지 않은 초안 — 묻지 않고 닫힌다.
+    // 손대지 않은 초안 — 임시저장하지 않고 바로 닫힌다(WP-577).
     await page.getByTestId('mail-ai-reply-draft').click()
     await expect(page.getByTestId('mail-composer-body')).toContainText('AI가 작성한 답장')
     await page.getByTestId('mail-compose-close').click()
     await expect(dock).toHaveCount(0)
+    expect(draftPosts.count()).toBe(0)
 
-    // 본문을 고친 초안 — 버릴지 묻는다.
+    // 본문을 고친 초안 — 묻지 않고 임시저장한 뒤 닫는다.
     await page.getByTestId('mail-ai-reply-draft').click()
     await expect(page.getByTestId('mail-composer-body')).toContainText('AI가 작성한 답장')
     await page.getByTestId('mail-composer-body').click()
     await page.keyboard.press('End')
     await page.keyboard.type(' 덧붙임')
     await page.getByTestId('mail-compose-close').click()
-    await expect(page.getByTestId('mail-compose-discard-dialog')).toBeVisible()
+    await expect(dock).toHaveCount(0)
+    await draftPosts.waitFor()
+    expect(draftPosts.lastBody<{ bodyHtml: string }>()!.bodyHtml).toContain('AI가 작성한 답장 덧붙임')
+    expect(draftPosts.count()).toBe(1)
   })
 
   // 인용문 분리(#765) 회귀 — AI 검토 요청에 남의 원문이 실려 AI 가 착각하지 않는지 검증.

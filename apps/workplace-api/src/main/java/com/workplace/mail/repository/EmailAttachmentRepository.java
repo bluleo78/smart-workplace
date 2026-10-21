@@ -7,7 +7,9 @@ import static com.workplace.jooq.Tables.EMAIL_FOLDER;
 import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
 
 import com.workplace.mail.dto.ParsedAttachment;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
@@ -202,14 +204,30 @@ public class EmailAttachmentRepository {
    * #findContextForDownload} 와 동일(account.user_id + 비활성 계정 제외).
    */
   public Optional<InlineSourceMeta> findInlineSourceMeta(long userId, long attachmentId) {
+    // 한 건 조회도 배치 조회와 같은 소유 규칙·같은 쿼리를 쓴다(규칙이 둘로 갈리지 않게).
+    return Optional.ofNullable(findOwnedMetas(userId, List.of(attachmentId)).get(attachmentId));
+  }
+
+  /**
+   * 내 메일 첨부 메타를 한 번에 조회한다(WP-577 임시저장의 전달 원본 첨부) — {@link #findInlineSourceMeta} 와 같은 소유 규칙. 남의
+   * 것·없는 것·비활성 계정의 것은 결과에서 빠진다(원본 메일이 지워지면 상세 조회에서 사라지게).
+   *
+   * @return email_attachment.id → 메타(순서 없음). 빈 입력이면 쿼리 없이 빈 맵
+   */
+  public Map<Long, InlineSourceMeta> findOwnedMetas(long userId, Collection<Long> attachmentIds) {
+    if (attachmentIds.isEmpty()) {
+      return Map.of();
+    }
     return dsl.select(
+            EMAIL_ATTACHMENT.ID,
             CONTENT_ATTACHMENT.FILENAME,
             CONTENT_ATTACHMENT.CONTENT_TYPE,
             CONTENT_ATTACHMENT.SIZE_BYTES)
         .from(ownedAttachmentJoin())
         .where(ownedBy(userId))
-        .and(EMAIL_ATTACHMENT.ID.eq(attachmentId))
-        .fetchOptional(
+        .and(EMAIL_ATTACHMENT.ID.in(attachmentIds))
+        .fetchMap(
+            r -> r.get(EMAIL_ATTACHMENT.ID),
             r ->
                 new InlineSourceMeta(
                     r.get(CONTENT_ATTACHMENT.FILENAME),

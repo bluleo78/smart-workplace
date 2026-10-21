@@ -45,6 +45,7 @@ import com.workplace.jooq.tables.IssueDependency.IssueDependencyPath;
 import com.workplace.jooq.tables.IssueHistory.IssueHistoryPath;
 import com.workplace.jooq.tables.IssueWatcher.IssueWatcherPath;
 import com.workplace.jooq.tables.Label.LabelPath;
+import com.workplace.jooq.tables.MailDraft.MailDraftPath;
 import com.workplace.jooq.tables.Membership.MembershipPath;
 import com.workplace.jooq.tables.Message.MessagePath;
 import com.workplace.jooq.tables.MessageAttachment.MessageAttachmentPath;
@@ -844,6 +845,19 @@ public class User extends TableImpl<UserRecord> {
             _label = new LabelPath(this, null, Keys.LABEL__LABEL_CREATED_BY_FKEY.getInverseKey());
 
         return _label;
+    }
+
+    private transient MailDraftPath _mailDraft;
+
+    /**
+     * Get the implicit to-many join path to the <code>public.mail_draft</code>
+     * table
+     */
+    public MailDraftPath mailDraft() {
+        if (_mailDraft == null)
+            _mailDraft = new MailDraftPath(this, null, Keys.MAIL_DRAFT__MAIL_DRAFT_USER_ID_FKEY.getInverseKey());
+
+        return _mailDraft;
     }
 
     private transient MembershipPath _membership;

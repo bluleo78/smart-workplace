@@ -47,6 +47,13 @@ describe('resolveMailView', () => {
   it('보낸편지함 — 분류·토글 없음', () => {
     expect(resolveMailView(p('folder=sent&category=개인&unread=true'), true)).toMatchObject({ kind: 'sent', apiCategory: '', unreadOnly: false, unreadToggleVisible: false, title: '보낸편지함' })
   })
+  // WP-577 임시보관함 — 앱 서버 임시저장 목록. 분류·안 읽음 토글이 없고, 다른 보기와 key 가 겹치지 않는다.
+  it('임시보관함 — 분류·토글 없음, 제목 임시보관함', () => {
+    expect(resolveMailView(p('folder=drafts&category=개인&unread=true'), true)).toMatchObject({
+      kind: 'drafts', apiCategory: '', activeCategory: null, unreadOnly: false, unreadToggleVisible: false, title: '임시보관함', breadcrumb: ['임시보관함'], key: 'drafts',
+    })
+    expect(resolveMailView(p('folder=drafts&messageId=55'), true).kind).toBe('drafts')
+  })
   it('unread=true 는 key 를 바꾼다', () => {
     expect(resolveMailView(p('unread=true'), true).key).not.toBe(resolveMailView(p(''), true).key)
   })
@@ -74,4 +81,5 @@ describe('unreadCountForView', () => {
   it('category = 해당 분류', () => expect(unreadCountForView(view('category=개인'), counts)).toBe(3))
   it('needsReply = 회신필요 수', () => expect(unreadCountForView(view('needsReply=true'), counts)).toBe(4))
   it('sent = 0', () => expect(unreadCountForView(view('folder=sent'), counts)).toBe(0))
+  it('drafts = 0', () => expect(unreadCountForView(view('folder=drafts'), counts)).toBe(0))
 })

@@ -30,13 +30,16 @@ import com.workplace.support.TestFixtures;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
@@ -239,6 +242,70 @@ class StagedFileClaimerTest extends IntegrationTestBase {
       }
       assertThat(expiresAt(bound)).isNotNull();
     }
+  }
+
+  /**
+   * 바인딩 지목(다시 가져오기) — 보류 클레임이 지목한 바인딩이 다시 가져오게 한 파일만 받는다. 지목하지 않았거나 다른 바인딩을 지목하면 거절, 지목한 바인딩 말고 다른
+   * 바인딩에도 묶였으면 거절, 영구·임시 유지 클레임은 지목할 수 없다(형태 오류).
+   */
+  @Test
+  void claim_지목한_바인딩의_묶임만_건너뛰고_다른_바인딩에도_묶였으면_거절() {
+    OffsetDateTime future = OffsetDateTime.now().plusHours(24);
+    long mineBound = seedFile(me, "ATTACHMENT", null); // A 에 묶여 영구
+    long alsoElsewhere = seedFile(me, "ATTACHMENT", null); // A 와 B 모두에 묶임
+    long free = seedFile(me, "ATTACHMENT", future);
+    AttachmentBindingLookup a =
+        fakeLookup("a", Set.of(mineBound, alsoElsewhere), Set.of(mineBound, alsoElsewhere));
+    AttachmentBindingLookup b = fakeLookup("b", Set.of(alsoElsewhere), Set.of());
+    StagedFileClaimer scoped = new StagedFileClaimer(dsl, List.of(a, b));
+
+    assertThat(scoped.requireClaimable(me, List.of(mineBound, free), Retention.HOLD, "a"))
+        .hasSize(2);
+    assertThat(scoped.claim(me, List.of(mineBound), Retention.HOLD, "a")).hasSize(1);
+    scoped.releaseHeld(me, scoped.requireClaimable(me, List.of(free), Retention.HOLD, "a"));
+
+    // 지목 없음·다른 바인딩 지목 → 묶인 파일로 거절
+    for (String key : new String[] {null, "b", "없는 바인딩"}) {
+      long target = seedFile(me, "ATTACHMENT", null);
+      StagedFileClaimer only =
+          new StagedFileClaimer(dsl, List.of(fakeLookup("a", Set.of(target), Set.of(target))));
+      assertThatThrownBy(() -> only.claim(me, List.of(target), Retention.HOLD, key))
+          .isInstanceOfSatisfying(
+              StagedFileUnusableException.class, e -> assertThat(e.fileId()).isEqualTo(target));
+    }
+    // 지목한 바인딩이 내줘도 다른 바인딩(B)에 묶였으면 거절
+    assertThatThrownBy(() -> scoped.claim(me, List.of(alsoElsewhere), Retention.HOLD, "a"))
+        .isInstanceOfSatisfying(
+            StagedFileUnusableException.class,
+            e -> assertThat(e.fileId()).isEqualTo(alsoElsewhere));
+    // 영구·임시 유지는 지목할 수 없다
+    for (Retention r : new Retention[] {Retention.PERMANENT, Retention.KEEP_TEMPORARY}) {
+      assertThatThrownBy(() -> scoped.claim(me, List.of(free), r, "a"))
+          .isInstanceOf(IllegalArgumentException.class);
+      assertThatThrownBy(() -> scoped.requireClaimable(me, List.of(free), r, "a"))
+          .isInstanceOf(IllegalArgumentException.class);
+    }
+  }
+
+  /** 테스트용 바인딩 — 키·묶인 id·다시 가져올 수 있는 id 를 고정한다. */
+  private static AttachmentBindingLookup fakeLookup(
+      String key, Set<Long> bound, Set<Long> reclaimable) {
+    return new AttachmentBindingLookup() {
+      @Override
+      public String bindingKey() {
+        return key;
+      }
+
+      @Override
+      public Set<Long> boundAmong(Collection<Long> fileIds) {
+        return bound.stream().filter(fileIds::contains).collect(Collectors.toSet());
+      }
+
+      @Override
+      public Set<Long> reclaimableBy(long callerId, Collection<Long> fileIds) {
+        return reclaimable.stream().filter(fileIds::contains).collect(Collectors.toSet());
+      }
+    };
   }
 
   /** 같은 id 가 두 번·빈 값은 형태 오류(IllegalArgumentException → 400) — 잠그거나 고치기 전에 거른다. */

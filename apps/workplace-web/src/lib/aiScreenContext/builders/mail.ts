@@ -8,7 +8,11 @@ import { buildFacts, buildRefs, clip, fmtKst, LIMITS, withListState } from '../c
 export interface MailContextInput {
   accountId: number;
   accountEmail: string | null;
-  folder: 'INBOX' | 'SENT';
+  /**
+   * INBOX·SENT 는 list_mail 의 folder 인자 그대로. DRAFTS(WP-577)는 앱 서버 임시보관함이라 IMAP 폴더도 MCP 도구 인자도 아니다
+   * — 이름표만 「임시보관함」으로 두고 refs 에 folder 를 싣지 않는다(AI 가 없는 폴더로 list_mail 을 부르지 않게).
+   */
+  folder: 'INBOX' | 'SENT' | 'DRAFTS';
   q: string;
   category: string | null;
   needsReply: boolean;
@@ -27,11 +31,11 @@ export interface MailContextInput {
 
 /** 메일함 화면 → AI 화면 컨텍스트. scope=계정·폴더·필터, focus=열린 메일. */
 export function buildMailContext(input: MailContextInput): AiScreenContext {
-  const folderLabel = input.folder === 'SENT' ? '보낸편지함' : '받은편지함';
+  const folderLabel = input.folder === 'SENT' ? '보낸편지함' : input.folder === 'DRAFTS' ? '임시보관함' : '받은편지함';
   const scope = withListState(
     {
       label: clip(input.accountEmail ? `${input.accountEmail} · ${folderLabel}` : folderLabel, LIMITS.label),
-      refs: buildRefs({ accountId: input.accountId, folder: input.folder }),
+      refs: buildRefs({ accountId: input.accountId, folder: input.folder === 'DRAFTS' ? null : input.folder }),
       facts: buildFacts([['검색어', input.q], ['분류', input.category], ['답장 필요만', input.needsReply]]),
     },
     { count: input.count },

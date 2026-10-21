@@ -8,6 +8,7 @@ import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailContentRepository;
 import com.workplace.mail.repository.MailAttachmentBlobRepository;
 import com.workplace.mail.repository.MailAttachmentPreviewRepository;
+import com.workplace.mail.repository.MailDraftRepository;
 import java.util.ArrayList;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -36,6 +37,7 @@ public class AccountPurgeService {
   private final EmailContentRepository contentRepo;
   private final MailAttachmentBlobRepository blobRepo;
   private final MailAttachmentPreviewRepository previewRepo;
+  private final MailDraftRepository draftRepo;
   private final FileStore fileStore;
   private final PlatformTransactionManager txManager;
 
@@ -72,6 +74,8 @@ public class AccountPurgeService {
                               .where(CONTENT_ATTACHMENT.CONTENT_ID.in(contentIds))
                               .and(CONTENT_ATTACHMENT.CONTENT_HASH.isNotNull())
                               .fetch(CONTENT_ATTACHMENT.CONTENT_HASH);
+                  // WP-577: 임시저장에 묶인 업로드는 영구라 CASCADE(정션만 삭제) 뒤 고아가 된다 — 먼저 만료를 걸어 스윕이 지우게 한다.
+                  draftRepo.expireBoundFilesOfAccount(accountId);
                   accountRepo.hardDelete(accountId);
                   contentRepo.deleteOrphans(contentIds);
                   List<String> refs =

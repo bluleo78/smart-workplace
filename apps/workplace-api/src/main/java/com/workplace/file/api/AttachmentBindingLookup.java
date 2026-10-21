@@ -22,4 +22,18 @@ public interface AttachmentBindingLookup {
    * @return 묶인 파일 id 의 부분집합
    */
   Set<Long> boundAmong(Collection<Long> fileIds);
+
+  /**
+   * 바인딩 키 — 클레임 호출자가 "이 바인딩에서 다시 가져온다"고 지목할 때 쓰는 이름(정션 표 이름). {@link StagedFileClaimer} 는 호출자가 넘긴
+   * 키와 같은 lookup 에만 {@link #reclaimableBy} 를 묻는다.
+   */
+  String bindingKey();
+
+  /**
+   * {@code fileIds} 중 이 정션에 묶여 있지만 호출자가 다시 가져올 수 있는 id(예: 호출자 본인 소유 엔터티에 묶인 파일). 호출자가 이 lookup 의
+   * {@link #bindingKey()} 를 지목했을 때만 불린다. 기본은 없음.
+   */
+  default Set<Long> reclaimableBy(long callerId, Collection<Long> fileIds) {
+    return Set.of();
+  }
 }

@@ -339,23 +339,25 @@ test.describe('새 메일 AI 초안', () => {
     await expect(page.getByTestId('mail-ai-compose-chip')).toBeVisible()
   })
 
-  test('본문을 고치면 「AI 초안이에요」 줄이 사라지고, ✕ 는 버릴지 묻는다', async ({ authenticatedPage: page }) => {
+  test('본문을 고치면 「AI 초안이에요」 줄이 사라지고, ✕ 는 AI 초안과 고친 내용을 임시저장한다', async ({ authenticatedPage: page }) => {
     await mockMail(page)
     await mockDraft(page)
+    const draftPosts = trackRequests(page, 'POST', '/api/v1/mail/drafts')
     await openPanel(page)
     await page.getByTestId('mail-ai-compose-generate').click()
-    await expect(page.getByTestId('mail-ai-compose-bar')).toBeVisible()
-
-    // 손대지 않은 AI 초안도 쓴 내용 — 버릴지 묻는다.
-    await page.getByTestId('mail-compose-close').click()
-    await expect(page.getByTestId('mail-compose-discard-dialog')).toBeVisible()
-    await page.getByTestId('mail-compose-discard-keep').click()
     await expect(page.getByTestId('mail-ai-compose-bar')).toBeVisible()
 
     await page.getByTestId('mail-composer-body').click()
     await page.keyboard.press('ControlOrMeta+End')
     await page.keyboard.type('!')
     await expect(page.getByTestId('mail-ai-compose-bar')).toHaveCount(0)
+
+    // AI 초안도 쓴 내용 — ✕ 는 묻지 않고 임시저장한 뒤 닫는다(WP-577).
+    await page.getByTestId('mail-compose-close').click()
+    await expect(page.getByTestId('mail-compose-dock')).toHaveCount(0)
+    await draftPosts.waitFor()
+    expect(draftPosts.lastBody()).toMatchObject({ mode: 'new', subject: '회의 일정 변경 요청' })
+    expect(draftPosts.lastBody<{ bodyText: string }>()!.bodyText).toContain('!')
   })
 
   test('크게 보기에서 지시 칸 Esc 는 패널만 닫고 크게 보기는 그대로', async ({ authenticatedPage: page }) => {
@@ -374,7 +376,7 @@ test.describe('새 메일 AI 초안', () => {
     await expect(page.getByTestId('mail-compose-backdrop')).toHaveCount(0)
   })
 
-  test('생성 중 작성창을 버리고 닫으면 요청이 끊기고, 다시 연 새 메일은 빈 상태', async ({ authenticatedPage: page }) => {
+  test('생성 중 작성창을 버리면(🗑) 요청이 끊기고, 다시 연 새 메일은 빈 상태', async ({ authenticatedPage: page }) => {
     await mockMail(page)
     const release = await gateDraft(page)
     await page.goto('/mail/1')
@@ -385,8 +387,7 @@ test.describe('새 메일 AI 초안', () => {
     const aborted = page.waitForEvent('requestfailed', (r) => new URL(r.url()).pathname === DRAFT_PATH)
     await page.getByTestId('mail-ai-compose-generate').click()
     await expect(page.getByTestId('mail-ai-compose-generating')).toBeVisible()
-    await page.getByTestId('mail-compose-close').click()
-    await page.getByTestId('mail-compose-discard-confirm').click()
+    await page.getByTestId('mail-compose-discard').click()
     await expect(page.getByTestId('mail-compose-dock')).toHaveCount(0)
     await aborted
 
@@ -420,9 +421,11 @@ test.describe('새 메일 AI 초안', () => {
     await expect(body).toBeHidden()
     await page.getByTestId('mail-compose-minimize').click()
     await expect(body).toHaveText('최소화 전에 쓴 글')
-    // 처음 본문과 달라 쓴 내용으로 본다.
+    // 처음 본문과 달라 쓴 내용으로 본다 — ✕ 가 임시저장한다(WP-577).
+    const draftPosts = trackRequests(page, 'POST', '/api/v1/mail/drafts')
     await page.getByTestId('mail-compose-close').click()
-    await expect(page.getByTestId('mail-compose-discard-dialog')).toBeVisible()
+    await draftPosts.waitFor()
+    expect(draftPosts.lastBody<{ bodyText: string }>()!.bodyText).toContain('최소화 전에 쓴 글')
   })
 
   test('생성 중 최소화 → 응답 도착 → 복원하면 AI 본문과 안내 줄이 정상이고, 숨은 동안 초점은 페이지에 남는다', async ({ authenticatedPage: page }) => {

@@ -7,7 +7,6 @@ import { toast } from 'sonner'
 import { AiContent } from '@/components/ai/AiContent'
 import { AiSignalBadge } from '@/components/ai/AiSignalBadge'
 import { AiSummarySkeleton } from '@/components/ai/AiSummarySkeleton'
-import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
 import { MessageActionSheet, type MessageSheetAction } from '@/components/chat/MessageActionSheet'
 import { Page } from '@/components/layout/Page'
 import { useHideTabBar } from '@/components/mobile/MobileChromeContext'
@@ -21,12 +20,12 @@ import { useMailDarkHtml } from '@/hooks/useMailDarkHtml'
 import { useMarkReadOnOpen } from '@/hooks/useMarkReadOnOpen'
 import { useMessageListLongPress } from '@/hooks/useMessageListLongPress'
 import { useMessageSheet } from '@/hooks/useMessageSheet'
-import { buildMailContext, type MailContextInput } from '@/lib/aiScreenContext/builders/mail'
 import { handleApiError } from '@/lib/api-error'
-import { formatClockTimePadded, formatDateMonthDayPadded, formatDateTime, formatFileSize, formatRelativeTime, parseUtcDate } from '@/lib/formatters'
+import { formatDateTime, formatFileSize, formatRelativeTime } from '@/lib/formatters'
 import { hasOpenMark, parseId } from '@/lib/historyParam'
 import { forwardAttachments } from '@/lib/mailComposeAttachments'
 import { markSeenInKept, mergeKeptRows, withOpenRow } from '@/lib/mailKeepRows'
+import { formatReceivedAt } from '@/lib/mailListTime'
 import { isNeedsReply } from '@/lib/mailNeedsReply'
 import { buildQuote, plainTextToMailHtml } from '@/lib/mailQuote'
 import { replyAllCc } from '@/lib/mailRecipients'
@@ -61,22 +60,15 @@ import {
   useUnreadCounts,
 } from '../../hooks/queries/useMailMessages'
 import type { EmailAttachmentMeta, EmailMessageDetail, EmailMessageSummary, MailCategory, MailFolder, MailIssueDraft } from '../../types/mailMessage'
+import { MailDraftsPage } from './MailDraftsPage'
 import { MAIL_DETAIL_PARAM } from './mailHistory'
 import { MailMobileDetail, MailMobileDetailBar, MailMobileSummaryButton } from './MailMobileDetail'
 import { MailToIssueDialog } from './MailToIssueDialog'
 import { useMailAttachmentViewer } from './useMailAttachmentViewer'
+import { useMailScreenContext } from './useMailScreenContext'
 
 // 목록 로딩 중 시트·길게 누르기에 넘길 빈 목록 — 렌더마다 새 배열을 만들지 않게 모듈에 하나만 둔다.
 const EMPTY_MESSAGES: EmailMessageSummary[] = []
-
-// 수신 시각을 간략 표기(오늘=시각, 그 외=월/일).
-function formatReceivedAt(iso: string | null): string {
-  if (!iso) return ''
-  const d = parseUtcDate(iso)
-  const now = new Date()
-  const sameDay = d.toDateString() === now.toDateString()
-  return sameDay ? formatClockTimePadded(iso) : formatDateMonthDayPadded(iso)
-}
 
 // 목록 한 행 — 안 읽음은 굵게, 첨부 클립 표시.
 function MessageRow({
@@ -233,50 +225,6 @@ function withPrefix(prefix: string, subject: string | null): string {
 }
 
 /**
- * WP-54 메일함 화면 컨텍스트 등록 — 원시값과 목록 행 요약만 받는 모듈 수준 훅.
- * 페이지 본문에 useMemo 를 두면 같은 계정에서 나온 값(본인 주소)을 다른 곳(전체답장 조립)에 넘기는 것만으로 React Compiler 가
- * 메모를 보존할 수 없다고 보므로, 등록을 이 훅으로 떼어 의존성이 여기서만 닫히게 한다(workplace-web CLAUDE.md 화면 컨텍스트 패턴).
- */
-function useMailScreenContext({
-  accountId,
-  accountEmail,
-  folder,
-  q,
-  category,
-  needsReply,
-  count,
-  selected,
-}: Omit<MailContextInput, 'accountId' | 'selected'> & { accountId: number | null; selected: EmailMessageSummary | null }) {
-  const screenContext = useMemo(
-    () =>
-      accountId != null
-        ? buildMailContext({
-            accountId,
-            accountEmail,
-            folder,
-            q,
-            category,
-            needsReply,
-            count,
-            selected: selected
-              ? {
-                  id: selected.id,
-                  subject: selected.subject,
-                  fromName: selected.fromName,
-                  fromAddress: selected.fromAddress ?? '',
-                  receivedAt: selected.receivedAt ?? '',
-                  aiCategory: selected.aiCategory,
-                  aiNeedsReply: selected.aiNeedsReply,
-                }
-              : null,
-          })
-        : null,
-    [accountId, accountEmail, folder, q, category, needsReply, count, selected],
-  )
-  useRegisterAiScreenContext(screenContext)
-}
-
-/**
  * 답장·전체답장 작성 초안. 전체답장 참조는 원본 받는사람·참조에서 나(selfAddress)와 보낸 사람을 뺀 나머지 —
  * 따옴표 안 쉼표를 지키며 사람 단위로 나눈다(WP-400).
  */
@@ -292,6 +240,8 @@ function buildReplyDraft(detail: EmailMessageDetail, all: boolean, accountId: nu
     // 인용문은 에디터 밖 raw HTML/text 로 보관 — AI 개선본 교체(setContent)가 지우지 않는다.
     quote: buildQuote(detail, 'reply'),
     inReplyToMessageId: detail.id,
+    // 임시저장을 다시 열 때 인용문을 원본으로 다시 만든다(WP-577).
+    sourceMessageId: detail.id,
   }
 }
 
@@ -742,11 +692,22 @@ function MessageDetailPanel({
 }
 
 /**
+ * 메일 라우트 — ?folder=drafts 면 임시보관함(WP-577, 앱 서버 임시저장 — 메시지 목록 API 를 쓰지 않는다)을, 그 밖에는 메일함을 그린다.
+ * 화면을 나눠 임시보관함에서는 메일함의 목록·동기화·읽음 훅이 돌지 않게 한다. 계정이 없으면 메일함이 첫 계정으로 보낸다.
+ */
+export function MailInboxPage() {
+  const { accountId } = useParams()
+  const [params] = useSearchParams()
+  if (accountId && params.get('folder') === 'drafts') return <MailDraftsPage accountId={Number(accountId)} />
+  return <MailInbox />
+}
+
+/**
  * 받은편지함/보낸편지함 — 좌측 메시지 목록(검색·동기화) + 우측 본문(마스터-디테일).
  * 계정은 /mail/:accountId 로 선택하며, accountId 가 없으면 첫 계정으로 리다이렉트한다.
  * 폴더 토글: ?folder=sent → SENT, 기본 INBOX.
  */
-export function MailInboxPage() {
+function MailInbox() {
   const { accountId } = useParams()
   const isMobile = useIsMobile()
   const [params, setParams] = useSearchParams()
@@ -1028,6 +989,8 @@ export function MailInboxPage() {
       quote,
       attachments: forwardAttachments(d.attachments ?? [], inlined),
       inReplyToMessageId: null,
+      // 전달은 답장 대상이 없어 원본 id 를 따로 둔다 — 임시저장을 다시 열 때 인용문을 다시 만든다(WP-577).
+      sourceMessageId: d.id,
     })
   }
   // AI 답장 초안 — 인용문은 buildReply 가 이미 담은 것을 승계하고, 초안 본문만 얹는다.

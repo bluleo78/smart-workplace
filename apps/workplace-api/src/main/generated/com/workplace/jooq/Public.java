@@ -68,6 +68,9 @@ import com.workplace.jooq.tables.Label;
 import com.workplace.jooq.tables.LoginAttempts;
 import com.workplace.jooq.tables.MailAttachmentBlob;
 import com.workplace.jooq.tables.MailAttachmentPreview;
+import com.workplace.jooq.tables.MailDraft;
+import com.workplace.jooq.tables.MailDraftAttachment;
+import com.workplace.jooq.tables.MailDraftForward;
 import com.workplace.jooq.tables.MailInbox;
 import com.workplace.jooq.tables.Membership;
 import com.workplace.jooq.tables.Message;
@@ -461,6 +464,21 @@ public class Public extends SchemaImpl {
     public final MailAttachmentPreview MAIL_ATTACHMENT_PREVIEW = MailAttachmentPreview.MAIL_ATTACHMENT_PREVIEW;
 
     /**
+     * The table <code>public.mail_draft</code>.
+     */
+    public final MailDraft MAIL_DRAFT = MailDraft.MAIL_DRAFT;
+
+    /**
+     * The table <code>public.mail_draft_attachment</code>.
+     */
+    public final MailDraftAttachment MAIL_DRAFT_ATTACHMENT = MailDraftAttachment.MAIL_DRAFT_ATTACHMENT;
+
+    /**
+     * The table <code>public.mail_draft_forward</code>.
+     */
+    public final MailDraftForward MAIL_DRAFT_FORWARD = MailDraftForward.MAIL_DRAFT_FORWARD;
+
+    /**
      * envelope-first 메일 받은편지함 뷰: email_content 직접 조회 금지 표면. account 소유 필터는 소비
      * 쿼리에서 account_id 조건으로 추가한다.
      */
@@ -793,6 +811,9 @@ public class Public extends SchemaImpl {
             LoginAttempts.LOGIN_ATTEMPTS,
             MailAttachmentBlob.MAIL_ATTACHMENT_BLOB,
             MailAttachmentPreview.MAIL_ATTACHMENT_PREVIEW,
+            MailDraft.MAIL_DRAFT,
+            MailDraftAttachment.MAIL_DRAFT_ATTACHMENT,
+            MailDraftForward.MAIL_DRAFT_FORWARD,
             MailInbox.MAIL_INBOX,
             Membership.MEMBERSHIP,
             Message.MESSAGE,

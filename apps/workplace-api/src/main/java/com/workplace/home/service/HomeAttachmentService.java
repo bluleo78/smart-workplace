@@ -136,7 +136,7 @@ public class HomeAttachmentService {
     validateIds(ids);
     if (newSession) {
       try {
-        claimer.requireClaimable(callerId, ids);
+        claimer.requireClaimable(callerId, ids, StagedFileClaimer.Retention.PERMANENT);
       } catch (StagedFileUnusableException e) {
         throw new HomeAttachmentInvalidException(MSG_INVALID_FILE);
       }

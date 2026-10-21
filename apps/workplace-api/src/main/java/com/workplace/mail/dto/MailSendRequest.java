@@ -20,6 +20,10 @@ import java.util.List;
  *
  * <p>첨부 원본 합계(attachmentIds + forwardAttachmentIds + inlineImages)는 메일 한 통에 25MB 까지다. 두 필드 모두
  * null/빈 목록이면 첨부 없이 지금처럼 보낸다(AI 확인카드 등 기존 호출처 호환).
+ *
+ * <p>draftId(WP-577, 선택): 이 발송이 이어받은 내 임시저장 — 발송에 성공하면 지운다(실패하면 남긴다). 없거나 남의 id 면 임시저장 없이 보낸 것과 같다.
+ * 내 임시저장(어느 것이든)에 묶인 업로드는 draftId 와 상관없이 attachmentIds 로 다시 쓸 수 있다(남의 임시저장 업로드는 거절). AI
+ * 확인카드(MailSendActionParams)는 이 필드를 받지 않는다.
  */
 public record MailSendRequest(
     List<String> to,
@@ -31,7 +35,8 @@ public record MailSendRequest(
     Long inReplyToMessageId,
     List<InlineImageRef> inlineImages,
     List<Long> attachmentIds,
-    List<Long> forwardAttachmentIds) {
+    List<Long> forwardAttachmentIds,
+    Long draftId) {
 
   /**
    * 목록 필드 생략(null)은 빈 목록으로 정규화 — 소비처가 null 을 다루지 않게 한다. id 목록의 null 원소·중복은 그대로 둔다(발송 검증이 사용자 문구로
@@ -49,6 +54,32 @@ public record MailSendRequest(
             : Collections.unmodifiableList(new ArrayList<>(forwardAttachmentIds));
   }
 
+  /** 임시저장 없는 발송(WP-574 호출처 호환). */
+  public MailSendRequest(
+      List<String> to,
+      List<String> cc,
+      List<String> bcc,
+      String subject,
+      String bodyHtml,
+      String bodyText,
+      Long inReplyToMessageId,
+      List<InlineImageRef> inlineImages,
+      List<Long> attachmentIds,
+      List<Long> forwardAttachmentIds) {
+    this(
+        to,
+        cc,
+        bcc,
+        subject,
+        bodyHtml,
+        bodyText,
+        inReplyToMessageId,
+        inlineImages,
+        attachmentIds,
+        forwardAttachmentIds,
+        null);
+  }
+
   /** 일반 첨부 없는 발송(WP-69 인라인 이미지 호출처 호환). */
   public MailSendRequest(
       List<String> to,
@@ -59,7 +90,18 @@ public record MailSendRequest(
       String bodyText,
       Long inReplyToMessageId,
       List<InlineImageRef> inlineImages) {
-    this(to, cc, bcc, subject, bodyHtml, bodyText, inReplyToMessageId, inlineImages, null, null);
+    this(
+        to,
+        cc,
+        bcc,
+        subject,
+        bodyHtml,
+        bodyText,
+        inReplyToMessageId,
+        inlineImages,
+        null,
+        null,
+        null);
   }
 
   /** 인라인 이미지 없는 발송(기존 호출처 호환). */

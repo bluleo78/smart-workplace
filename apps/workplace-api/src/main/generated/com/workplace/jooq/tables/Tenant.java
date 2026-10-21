@@ -63,6 +63,9 @@ import com.workplace.jooq.tables.IssueTypeDef.IssueTypeDefPath;
 import com.workplace.jooq.tables.IssueWatcher.IssueWatcherPath;
 import com.workplace.jooq.tables.Label.LabelPath;
 import com.workplace.jooq.tables.MailAttachmentPreview.MailAttachmentPreviewPath;
+import com.workplace.jooq.tables.MailDraft.MailDraftPath;
+import com.workplace.jooq.tables.MailDraftAttachment.MailDraftAttachmentPath;
+import com.workplace.jooq.tables.MailDraftForward.MailDraftForwardPath;
 import com.workplace.jooq.tables.Membership.MembershipPath;
 import com.workplace.jooq.tables.Message.MessagePath;
 import com.workplace.jooq.tables.MessageAttachment.MessageAttachmentPath;
@@ -1222,6 +1225,45 @@ public class Tenant extends TableImpl<TenantRecord> {
             _mailAttachmentPreview = new MailAttachmentPreviewPath(this, null, Keys.MAIL_ATTACHMENT_PREVIEW__MAIL_ATTACHMENT_PREVIEW_TENANT_ID_FKEY.getInverseKey());
 
         return _mailAttachmentPreview;
+    }
+
+    private transient MailDraftAttachmentPath _mailDraftAttachment;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.mail_draft_attachment</code> table
+     */
+    public MailDraftAttachmentPath mailDraftAttachment() {
+        if (_mailDraftAttachment == null)
+            _mailDraftAttachment = new MailDraftAttachmentPath(this, null, Keys.MAIL_DRAFT_ATTACHMENT__MAIL_DRAFT_ATTACHMENT_TENANT_ID_FKEY.getInverseKey());
+
+        return _mailDraftAttachment;
+    }
+
+    private transient MailDraftForwardPath _mailDraftForward;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.mail_draft_forward</code> table
+     */
+    public MailDraftForwardPath mailDraftForward() {
+        if (_mailDraftForward == null)
+            _mailDraftForward = new MailDraftForwardPath(this, null, Keys.MAIL_DRAFT_FORWARD__MAIL_DRAFT_FORWARD_TENANT_ID_FKEY.getInverseKey());
+
+        return _mailDraftForward;
+    }
+
+    private transient MailDraftPath _mailDraft;
+
+    /**
+     * Get the implicit to-many join path to the <code>public.mail_draft</code>
+     * table
+     */
+    public MailDraftPath mailDraft() {
+        if (_mailDraft == null)
+            _mailDraft = new MailDraftPath(this, null, Keys.MAIL_DRAFT__MAIL_DRAFT_TENANT_ID_FKEY.getInverseKey());
+
+        return _mailDraft;
     }
 
     private transient MembershipPath _membership;

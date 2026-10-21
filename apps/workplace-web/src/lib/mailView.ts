@@ -3,7 +3,8 @@
 // 원칙: "업무"는 어디서나 업무 + 미분류(백엔드 workViewCondition), AI 분류가 꺼진 계정은 받은편지함 = 전체.
 import { MAIL_CATEGORIES, type MailCategory, type MailUnreadCounts } from '@/types/mailMessage'
 
-export type MailViewKind = 'work' | 'all' | 'category' | 'needsReply' | 'sent'
+// drafts(WP-577) — 앱 서버 임시보관함. IMAP 폴더가 아니라 메시지 목록 API 를 쓰지 않는다.
+export type MailViewKind = 'work' | 'all' | 'category' | 'needsReply' | 'sent' | 'drafts'
 
 export interface MailView {
   kind: MailViewKind
@@ -35,6 +36,9 @@ export function resolveMailView(
   if (params.get('folder') === 'sent') {
     return { kind: 'sent', apiCategory: '', activeCategory: null, unreadOnly: false, unreadToggleVisible: false, title: '보낸편지함', breadcrumb: ['보낸편지함'], key: 'sent' }
   }
+  if (params.get('folder') === 'drafts') {
+    return { kind: 'drafts', apiCategory: '', activeCategory: null, unreadOnly: false, unreadToggleVisible: false, title: '임시보관함', breadcrumb: ['임시보관함'], key: 'drafts' }
+  }
   if (params.get('needsReply') === 'true') {
     return { kind: 'needsReply', apiCategory: '', activeCategory: null, unreadOnly: false, unreadToggleVisible: false, title: '회신필요', breadcrumb: ['회신필요'], key: 'needsReply' }
   }
@@ -64,7 +68,7 @@ export function mailViewHref(accountId: number, view: 'work' | 'all' | MailCateg
 
 /**
  * WP-187 보기에 해당하는 안 읽은 수 — 모두 읽음 버튼 비활성 판단용.
- * work=업무 버킷, all=받은편지함 전체, category=해당 분류, needsReply=회신필요. 보낸편지함은 안 읽음 개념이 없어 0.
+ * work=업무 버킷, all=받은편지함 전체, category=해당 분류, needsReply=회신필요. 보낸편지함·임시보관함은 안 읽음 개념이 없어 0.
  */
 export function unreadCountForView(view: MailView, counts: MailUnreadCounts): number {
   switch (view.kind) {
@@ -77,6 +81,7 @@ export function unreadCountForView(view: MailView, counts: MailUnreadCounts): nu
     case 'needsReply':
       return counts.needsReply
     case 'sent':
+    case 'drafts':
       return 0
   }
 }

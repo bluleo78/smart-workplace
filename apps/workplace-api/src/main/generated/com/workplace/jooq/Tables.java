@@ -68,6 +68,9 @@ import com.workplace.jooq.tables.Label;
 import com.workplace.jooq.tables.LoginAttempts;
 import com.workplace.jooq.tables.MailAttachmentBlob;
 import com.workplace.jooq.tables.MailAttachmentPreview;
+import com.workplace.jooq.tables.MailDraft;
+import com.workplace.jooq.tables.MailDraftAttachment;
+import com.workplace.jooq.tables.MailDraftForward;
 import com.workplace.jooq.tables.MailInbox;
 import com.workplace.jooq.tables.Membership;
 import com.workplace.jooq.tables.Message;
@@ -444,6 +447,21 @@ public class Tables {
      * The table <code>public.mail_attachment_preview</code>.
      */
     public static final MailAttachmentPreview MAIL_ATTACHMENT_PREVIEW = MailAttachmentPreview.MAIL_ATTACHMENT_PREVIEW;
+
+    /**
+     * The table <code>public.mail_draft</code>.
+     */
+    public static final MailDraft MAIL_DRAFT = MailDraft.MAIL_DRAFT;
+
+    /**
+     * The table <code>public.mail_draft_attachment</code>.
+     */
+    public static final MailDraftAttachment MAIL_DRAFT_ATTACHMENT = MailDraftAttachment.MAIL_DRAFT_ATTACHMENT;
+
+    /**
+     * The table <code>public.mail_draft_forward</code>.
+     */
+    public static final MailDraftForward MAIL_DRAFT_FORWARD = MailDraftForward.MAIL_DRAFT_FORWARD;
 
     /**
      * envelope-first 메일 받은편지함 뷰: email_content 직접 조회 금지 표면. account 소유 필터는 소비

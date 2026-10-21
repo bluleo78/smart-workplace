@@ -25,8 +25,10 @@ import com.workplace.mail.repository.EmailAttachmentRepository.InlineSourceMeta;
 import com.workplace.mail.repository.EmailFolderRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.mail.repository.EmailMessageRepository.SentRow;
+import com.workplace.mail.repository.MailDraftRepository;
 import com.workplace.mail.service.MailAttachmentService.AttachmentDownload;
 import com.workplace.mail.service.MailSentAttachmentRecorder.PreparedAttachment;
+import com.workplace.mail.util.MailComposeLimits;
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.AddressException;
 import jakarta.mail.internet.InternetAddress;
@@ -36,6 +38,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Supplier;
@@ -68,6 +71,9 @@ import org.springframework.transaction.support.TransactionTemplate;
  * 는 소유·만료와 메타 크기 합계(인라인 포함 25MB)만 읽기로 본다. send 는 짧은 트랜잭션에서 임시 업로드를 클레임해 만료로 커밋하고(동시 발송 차단), 전송 전에
  * 실패하면 되돌린다. 바이트는 하나씩 받으며 실제 바이트 누적으로 25MB 를 센다(메타 크기는 IMAP 인코딩 크기 추정·NULL 일 수 있다). 단계별 트랜잭션은
  * {@link #send} 참조.
+ *
+ * <p>WP-577: 내 임시저장(어느 것이든)에 묶인 업로드는 임시저장 lookup 이 보류 클레임에 내줘 같은 보류·소비 흐름으로 보낸다(남의 임시저장 업로드는 묶여 있어
+ * 거절). 발송에 성공하면 보낸 업로드를 임시저장 정션에서 빼고 draftId 임시저장을 지우며, 실패하면 남긴다. 받는사람·제목 상한은 임시저장과 같다.
  */
 @Slf4j
 @Service
@@ -107,6 +113,7 @@ public class MailComposeService {
   private final FileStore fileStore;
   private final MailSentAttachmentRecorder sentAttachmentRecorder;
   private final PlatformTransactionManager txManager;
+  private final MailDraftService draftService;
 
   /**
    * 첨부 원본 합계 상한(WP-574) — 업로드 + 전달 + 인용문 이미지, 메일 한 통 기준. IMAP·M365 공통(M365 는 4MB 를 넘으면 초안+첨부 API
@@ -139,12 +146,14 @@ public class MailComposeService {
             .findByIdAndUser(userId, accountId)
             .orElseThrow(() -> new EmailAccountNotFoundException(accountId));
 
-    List<String> to = clean(req.to());
-    List<String> cc = clean(req.cc());
-    List<String> bcc = clean(req.bcc());
+    List<String> to = MailComposeLimits.clean(req.to());
+    List<String> cc = MailComposeLimits.clean(req.cc());
+    List<String> bcc = MailComposeLimits.clean(req.bcc());
     if (to.isEmpty() && cc.isEmpty() && bcc.isEmpty()) {
       throw new MailValidationException("수신자를 한 명 이상 입력하세요");
     }
+    // 받는사람 수·주소·제목 상한은 임시저장과 같은 검사(WP-577). 본문 상한은 없다 — 인용한 원본이 붙어 임시저장 본문보다 클 수 있다.
+    MailComposeLimits.requireWithin(to, cc, bcc, req.subject());
     validateAddresses(to);
     validateAddresses(cc);
     validateAddresses(bcc);
@@ -180,21 +189,31 @@ public class MailComposeService {
 
   /**
    * 임시 업로드 사전검증(WP-574) — 잠그지도 쓰지도 않는다(validateSendable 읽기 전용 유지). 내가 올렸고 만료 전이며 다른 곳에 묶이지 않은
-   * ATTACHMENT 파일이어야 한다. 남의 것·없는 것·만료된 것은 구분하지 않고 같은 문구로 거절한다(남의 id 존재를 떠볼 수 없게).
+   * ATTACHMENT 파일이어야 한다. 내 임시저장에 묶인 업로드는 그 바인딩을 지목해 다시 가져온다(WP-577 — 다른 도메인에도 묶였으면 거절). 남의 것·없는
+   * 것·만료된 것은 구분하지 않고 같은 문구로 거절한다(남의 id 존재를 떠볼 수 없게).
    */
   private List<StagedFile> checkUploads(long userId, List<Long> ids) {
-    return uploadsOrReject(ids, () -> stagedFileClaimer.requireClaimable(userId, ids));
+    return uploadsOrReject(
+        ids,
+        () ->
+            stagedFileClaimer.requireClaimable(
+                userId, ids, StagedFileClaimer.Retention.HOLD, MailDraftRepository.UPLOAD_BINDING));
   }
 
   /** 발송 시 임시 업로드를 잠가 클레임한다 — 사전검증 이후 만료·동시 발송을 다시 거른다. 보류(HOLD)로 커밋해 전송 동안 다른 발송·만료 스윕을 막는다. */
   private List<StagedFile> claimUploads(long userId, List<Long> ids) {
     return uploadsOrReject(
-        ids, () -> stagedFileClaimer.claim(userId, ids, StagedFileClaimer.Retention.HOLD));
+        ids,
+        () ->
+            stagedFileClaimer.claim(
+                userId, ids, StagedFileClaimer.Retention.HOLD, MailDraftRepository.UPLOAD_BINDING));
   }
 
-  /** 업로드 판정 공통 — 빈 목록은 그대로, 쓸 수 없는 파일·형태 오류는 구분 없이 같은 사용자 문구(남의 id 존재를 떠볼 수 없게). */
-  private static List<StagedFile> uploadsOrReject(
-      List<Long> ids, Supplier<List<StagedFile>> claimer) {
+  /**
+   * 업로드 판정 공통 — 빈 목록은 그대로, 쓸 수 없는 파일·형태 오류는 구분 없이 같은 사용자 문구(남의 id 존재를 떠볼 수 없게). 임시저장의 업로드
+   * 묶기(WP-577)도 같은 규칙으로 쓴다.
+   */
+  static List<StagedFile> uploadsOrReject(List<Long> ids, Supplier<List<StagedFile>> claimer) {
     if (ids.isEmpty()) {
       return List.of();
     }
@@ -211,15 +230,19 @@ public class MailComposeService {
       return List.of();
     }
     Set<Long> seen = new HashSet<>();
-    List<ForwardSource> out = new ArrayList<>();
     for (Long id : ids) {
       if (id == null || !seen.add(id)) {
         throw new MailValidationException("전달할 원본 첨부 목록이 올바르지 않아요");
       }
-      InlineSourceMeta meta =
-          attachmentRepo
-              .findInlineSourceMeta(userId, id)
-              .orElseThrow(() -> new MailValidationException(FORWARD_MISSING_MESSAGE));
+    }
+    // 한 번에 조회 — 내 메일 첨부가 아닌 id 가 하나라도 있으면 거절(어느 것인지 드러내지 않는다).
+    Map<Long, InlineSourceMeta> metas = attachmentRepo.findOwnedMetas(userId, ids);
+    List<ForwardSource> out = new ArrayList<>(ids.size());
+    for (Long id : ids) {
+      InlineSourceMeta meta = metas.get(id);
+      if (meta == null) {
+        throw new MailValidationException(FORWARD_MISSING_MESSAGE);
+      }
       out.add(new ForwardSource(id, meta));
     }
     return out;
@@ -446,6 +469,7 @@ public class MailComposeService {
       sentMessageId = plan.transport().transmit(userId, account, message, mail);
     } catch (RuntimeException e) {
       releaseUploads(userId, claimed.uploads(), e);
+      afterSendQuietly(userId, req.attachmentIds(), false, e);
       throw e;
     }
     // 로컬 기록·응답은 실제로 나간 Message-ID 로(Graph 초안 경로는 Exchange 가 다른 값을 붙일 수 있다)
@@ -456,6 +480,10 @@ public class MailComposeService {
     // ③ 업로드 사용 완료 + 기록 — 실패해도 발송은 성공
     consumeUploads(userId, claimed.uploads());
     long localId = recordSent(accountId, mail);
+    // WP-577: 이어받은 임시저장 정리 — 메일은 이미 나갔으므로 실패해도 발송은 성공(기록과 따로 커밋해 기록 실패가 임시저장을 남겨 재발송을 부르지 않게)
+    deleteDraftQuietly(userId, req.draftId());
+    // 보낸(소비된) 업로드를 다른 임시저장에서도 뺀다 — 남겨 두면 그 임시저장이 사라진 파일을 첨부로 보여 주고 다시 보내면 400 이다.
+    afterSendQuietly(userId, req.attachmentIds(), true, null);
 
     // ④ IMAP 계정만 best-effort APPEND(Graph 는 saveToSentItems 로 서버가 자동 저장).
     if (account.provider() == MailProvider.IMAP) {
@@ -529,6 +557,37 @@ public class MailComposeService {
     }
   }
 
+  /**
+   * 발송 뒤 임시저장 업로드 정리(WP-577, {@link MailDraftService#afterSend}) — 성공이면 보낸 업로드를 내 임시저장에서 빼고, 실패면 그
+   * 사이 묶임이 사라진 영구 업로드에 만료를 다시 건다. 정리가 실패해도 발송 결과를 바꾸지 않는다(실패 경로면 원래 오류에 덧붙인다).
+   */
+  private void afterSendQuietly(
+      long userId, List<Long> uploadIds, boolean sent, RuntimeException cause) {
+    if (uploadIds.isEmpty()) {
+      return;
+    }
+    try {
+      draftService.afterSend(userId, uploadIds, sent);
+    } catch (RuntimeException e) {
+      log.warn("발송 뒤 임시저장 업로드 정리 실패(sent={}): {}", sent, e.toString());
+      if (cause != null) {
+        cause.addSuppressed(e);
+      }
+    }
+  }
+
+  /** 발송 성공 뒤 임시저장 삭제(WP-577) — 없으면(다른 탭이 버림) 그대로, 실패해도 경고만 남긴다(메일은 이미 나갔다). */
+  private void deleteDraftQuietly(long userId, Long draftId) {
+    if (draftId == null) {
+      return;
+    }
+    try {
+      draftService.deleteIfPresent(userId, draftId);
+    } catch (RuntimeException e) {
+      log.warn("메일은 보냈지만 임시저장 삭제 실패 (draftId={}): {}", draftId, e.toString());
+    }
+  }
+
   /** 전송 성공 뒤 보류 업로드를 사용 완료(보류 그대로 지금 만료)로 — 실패해도 발송은 성공(보류 만료 뒤 스윕이 지운다). */
   private void consumeUploads(long userId, List<StagedFile> held) {
     if (held.isEmpty()) {
@@ -588,20 +647,6 @@ public class MailComposeService {
         .filter(t -> t.provider() == provider)
         .findFirst()
         .orElseThrow(() -> new MailSendException("지원하지 않는 메일 공급자: " + provider));
-  }
-
-  /** null 제거 + trim + 공백 제거. */
-  private List<String> clean(List<String> addrs) {
-    List<String> out = new ArrayList<>();
-    if (addrs == null) {
-      return out;
-    }
-    for (String a : addrs) {
-      if (a != null && !a.isBlank()) {
-        out.add(a.trim());
-      }
-    }
-    return out;
   }
 
   /** strict 파싱으로 주소 형식 검증(헤더 인젝션 방지). 실패 시 400. */

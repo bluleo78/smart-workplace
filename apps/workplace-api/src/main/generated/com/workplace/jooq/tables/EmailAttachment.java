@@ -9,6 +9,8 @@ import com.workplace.jooq.Keys;
 import com.workplace.jooq.Public;
 import com.workplace.jooq.tables.ContentAttachment.ContentAttachmentPath;
 import com.workplace.jooq.tables.EmailMessage.EmailMessagePath;
+import com.workplace.jooq.tables.MailDraft.MailDraftPath;
+import com.workplace.jooq.tables.MailDraftForward.MailDraftForwardPath;
 import com.workplace.jooq.tables.Tenant.TenantPath;
 import com.workplace.jooq.tables.records.EmailAttachmentRecord;
 
@@ -214,6 +216,27 @@ public class EmailAttachment extends TableImpl<EmailAttachmentRecord> {
             _tenant = new TenantPath(this, Keys.EMAIL_ATTACHMENT__FK_EMAIL_ATTACHMENT_TENANT, null);
 
         return _tenant;
+    }
+
+    private transient MailDraftForwardPath _mailDraftForward;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.mail_draft_forward</code> table
+     */
+    public MailDraftForwardPath mailDraftForward() {
+        if (_mailDraftForward == null)
+            _mailDraftForward = new MailDraftForwardPath(this, null, Keys.MAIL_DRAFT_FORWARD__MAIL_DRAFT_FORWARD_EMAIL_ATTACHMENT_ID_FKEY.getInverseKey());
+
+        return _mailDraftForward;
+    }
+
+    /**
+     * Get the implicit many-to-many join path to the
+     * <code>public.mail_draft</code> table
+     */
+    public MailDraftPath mailDraft() {
+        return mailDraftForward().mailDraft();
     }
 
     @Override

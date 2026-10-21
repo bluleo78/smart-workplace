@@ -10,6 +10,7 @@ import com.workplace.jooq.Public;
 import com.workplace.jooq.tables.Calendar.CalendarPath;
 import com.workplace.jooq.tables.EmailFolder.EmailFolderPath;
 import com.workplace.jooq.tables.EmailMessage.EmailMessagePath;
+import com.workplace.jooq.tables.MailDraft.MailDraftPath;
 import com.workplace.jooq.tables.Tenant.TenantPath;
 import com.workplace.jooq.tables.User.UserPath;
 import com.workplace.jooq.tables.records.EmailAccountRecord;
@@ -349,6 +350,19 @@ public class EmailAccount extends TableImpl<EmailAccountRecord> {
             _emailMessage = new EmailMessagePath(this, null, Keys.EMAIL_MESSAGE__EMAIL_MESSAGE_ACCOUNT_ID_FKEY.getInverseKey());
 
         return _emailMessage;
+    }
+
+    private transient MailDraftPath _mailDraft;
+
+    /**
+     * Get the implicit to-many join path to the <code>public.mail_draft</code>
+     * table
+     */
+    public MailDraftPath mailDraft() {
+        if (_mailDraft == null)
+            _mailDraft = new MailDraftPath(this, null, Keys.MAIL_DRAFT__MAIL_DRAFT_ACCOUNT_ID_FKEY.getInverseKey());
+
+        return _mailDraft;
     }
 
     @Override

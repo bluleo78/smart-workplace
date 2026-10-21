@@ -8,6 +8,7 @@ import { coachDraft, fetchMailAttachmentDataUri, generateIssueDraft, generateMai
 import { handleApiError } from '../../lib/api-error';
 import { replaceCidRefs, resolveCidTargets } from '../../lib/mailInlineImages';
 import type { DraftCoachingRequest, EmailAttachmentMeta, EmailMessageDetail, EmailMessageSummary, MailFolder, MailSendRequest, PromoteToIssuePayload } from '../../types/mailMessage';
+import { invalidateMailDrafts } from './mailDraftKeys';
 import { mailMessageKeys } from './mailMessageKeys';
 
 export { mailMessageKeys };
@@ -158,8 +159,8 @@ export function useMarkAllRead(accountId: number | undefined) {
   });
 }
 
-/** 메시지 단건 상세 쿼리 정의 — useMailMessage·useMailMessageSeen 이 같은 캐시를 쓰도록 한 곳에 둔다. */
-const mailMessageQuery = (messageId: number | null) =>
+/** 메시지 단건 상세 쿼리 정의 — useMailMessage·useMailMessageSeen·임시저장 열기(인용문 원본)가 같은 캐시를 쓰도록 한 곳에 둔다. */
+export const mailMessageQuery = (messageId: number | null) =>
   queryOptions({
     queryKey: mailMessageKeys.detail(messageId ?? 0),
     queryFn: () => getMessage(messageId as number),
@@ -347,14 +348,17 @@ export function useLinkedIssue(messageId: number | null, enabled: boolean) {
 }
 
 /** 메일 발송 — 성공 시 보낸편지함 목록 무효화 + 토스트. */
-export function useSendMail(accountId: number | undefined) {
+export function useSendMail() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: MailSendRequest) => sendMail(accountId as number, body),
-    onSuccess: () => {
+    // 계정은 요청마다 싣는다 — 보내는 동안 다른 계정의 작성으로 바뀌어도 보낸 계정의 목록·임시보관함을 다시 받게.
+    mutationFn: ({ accountId, body }: { accountId: number; body: MailSendRequest }) => sendMail(accountId, body),
+    onSuccess: (_r, { accountId, body }) => {
       qc.invalidateQueries({ queryKey: ['mail-messages', accountId, 'SENT'] });
+      // 임시저장에서 보냈으면 서버가 그 임시저장을 지웠다 — 임시보관함 목록·개수를 다시 받는다(WP-577).
+      if (body.draftId != null) void invalidateMailDrafts(qc, accountId);
       toast.success('메일을 보냈습니다');
     },
-    onError: (e) => handleApiError(e, '메일 발송에 실패했습니다'),
+    // 실패 알림은 작성창이 정한다 — 보내는 동안 작성창을 닫았으면 「보내지 못해 임시보관함에 저장했어요」로 함께 알린다(WP-577).
   });
 }

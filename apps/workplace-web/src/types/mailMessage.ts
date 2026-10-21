@@ -90,6 +90,8 @@ export interface MailSendRequest {
   attachmentIds?: number[];
   /** 전달하며 함께 보낼 받은 메일 원본 첨부 id(WP-574, email_attachment.id). 생략·빈 목록이면 없음. */
   forwardAttachmentIds?: number[];
+  /** 이 작성의 임시저장 id(WP-577) — 보내면 서버가 그 임시저장을 지운다. 저장된 적 없으면 생략. */
+  draftId?: number;
 }
 
 /**

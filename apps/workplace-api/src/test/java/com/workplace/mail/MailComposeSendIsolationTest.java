@@ -220,7 +220,10 @@ class MailComposeSendIsolationTest extends IntegrationTestBase {
         .isInstanceOf(MailSendException.class);
 
     assertThat(expiresAt(up.id())).isAfter(OffsetDateTime.now().plusHours(23));
-    assertThat(claimer.requireClaimable(ua[0], List.of(up.id()))).hasSize(1);
+    assertThat(
+            claimer.requireClaimable(
+                ua[0], List.of(up.id()), StagedFileClaimer.Retention.PERMANENT))
+        .hasSize(1);
     assertThat(dsl.fetchCount(EMAIL_MESSAGE, EMAIL_MESSAGE.ACCOUNT_ID.eq(ua[1]))).isZero();
   }
 }

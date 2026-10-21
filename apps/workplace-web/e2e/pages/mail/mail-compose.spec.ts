@@ -212,7 +212,7 @@ test.describe('메일 작성·발송', () => {
     expect(sentBody!.to).toEqual(['alice@example.com'])
   })
 
-  test('인용문을 지워도 같은 작성이다 — 크게 보기·고친 제목·본문이 그대로 발송되고, 지운 것만으로도 ✕ 가 버릴지 묻는다', async ({ authenticatedPage: page }) => {
+  test('인용문을 지워도 같은 작성이다 — 크게 보기·고친 제목·본문이 그대로 발송되고, 지운 것만으로도 ✕ 가 임시저장한다', async ({ authenticatedPage: page }) => {
     await page.route(
       (url) => url.pathname === '/api/v1/mail/accounts/1/messages',
       (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([summary({ id: 5, fromAddress: 'alice@example.com', subject: '원문' })]) }),
@@ -226,13 +226,15 @@ test.describe('메일 작성·발송', () => {
     await page.goto('/mail/1')
     await page.getByTestId('mail-row-5').click()
 
-    // 인용문만 지워도 쓴 내용 — ✕ 가 묻는다.
+    // 인용문만 지워도 쓴 내용 — ✕ 는 묻지 않고 임시저장(인용문 지움 표시)한 뒤 닫는다(WP-577).
+    const draftPosts = trackRequests(page, 'POST', '/api/v1/mail/drafts')
     await page.getByTestId('mail-reply').click()
     await page.getByTestId('mail-compose-quote-remove').click()
     await page.getByTestId('mail-compose-close').click()
-    await expect(page.getByTestId('mail-compose-discard-dialog')).toBeVisible()
-    await page.getByTestId('mail-compose-discard-confirm').click()
     await expect(page.getByTestId('mail-compose-dock')).toHaveCount(0)
+    await draftPosts.waitFor()
+    expect(draftPosts.lastBody()).toMatchObject({ mode: 'reply', sourceMessageId: 5, quoteRemoved: true })
+    await expect(page.getByText('임시보관함에 저장했어요')).toBeVisible()
 
     // 크게 보기에서 제목·본문을 고친 뒤 인용문을 지워도 크기·제목·본문이 그대로다.
     await page.getByTestId('mail-reply').click()
@@ -449,19 +451,17 @@ test.describe('메일 작성창 크게 보기 (WP-575)', () => {
     await expect(page.getByTestId('mail-compose-subject')).toHaveValue('전체 화면 전환')
   })
 
-  test('쓴 내용이 있으면 ✕ 는 버릴지 묻는다 — 계속 작성하면 그대로, 버리면 닫힌다', async ({ authenticatedPage: page }) => {
+  test('크게 보기에서도 ✕ 는 묻지 않고 임시저장한 뒤 닫는다 — 배경도 함께 걷힌다(WP-577)', async ({ authenticatedPage: page }) => {
+    const draftPosts = trackRequests(page, 'POST', '/api/v1/mail/drafts')
     await page.getByRole('button', { name: '크게 보기' }).click()
     await page.getByTestId('mail-composer-body').click()
     await page.keyboard.type('지우면 안 되는 본문')
     await page.getByTestId('mail-compose-close').click()
-    const confirm = page.getByTestId('mail-compose-discard-dialog')
-    await expect(confirm).toBeVisible()
-    await expectOnTop(page, confirm, '[data-testid="mail-compose-discard-dialog"]')
-    await page.getByTestId('mail-compose-discard-keep').click()
-    await expect(page.getByTestId('mail-composer-body')).toContainText('지우면 안 되는 본문')
-    await page.getByTestId('mail-compose-close').click()
-    await page.getByTestId('mail-compose-discard-confirm').click()
     await expect(page.getByTestId('mail-compose-dock')).toHaveCount(0)
+    await expect(page.getByTestId('mail-compose-backdrop')).toHaveCount(0)
+    await draftPosts.waitFor()
+    expect(draftPosts.lastBody<{ bodyHtml: string }>()!.bodyHtml).toContain('지우면 안 되는 본문')
+    await expect(page.getByText('임시보관함에 저장했어요')).toBeVisible()
   })
 
   test('확대한 채 셸이 모바일↔데스크톱으로 바뀌어도 새로 그린 뒤 페이지가 inert 다', async ({ authenticatedPage: page }) => {

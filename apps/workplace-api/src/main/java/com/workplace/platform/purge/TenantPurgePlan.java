@@ -109,6 +109,10 @@ public final class TenantPurgePlan {
           CALENDAR_EVENT_EXCEPTION,
           CALENDAR_EVENT,
           CALENDAR,
+          // 메일 임시저장(WP-577) — email_attachment·email_account·file 을 참조하므로 그보다 먼저
+          MAIL_DRAFT_FORWARD,
+          MAIL_DRAFT_ATTACHMENT,
+          MAIL_DRAFT,
           // 메일 (email_message.content_id RESTRICT 때문에 메시지·첨부가 본문보다 먼저)
           EMAIL_ATTACHMENT,
           EMAIL_MESSAGE,

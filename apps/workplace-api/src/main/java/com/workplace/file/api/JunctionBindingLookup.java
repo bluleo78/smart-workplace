@@ -24,6 +24,12 @@ public final class JunctionBindingLookup implements AttachmentBindingLookup {
     this.fileIdField = fileIdField;
   }
 
+  /** 바인딩 키 = 정션 표 이름. */
+  @Override
+  public String bindingKey() {
+    return fileIdField.getTable().getName();
+  }
+
   /** 주어진 파일 중 정션에 행이 있는 id. 빈 입력은 쿼리 없이 빈 집합. */
   @Override
   public Set<Long> boundAmong(Collection<Long> fileIds) {

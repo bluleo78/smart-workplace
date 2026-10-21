@@ -1,4 +1,4 @@
-import { Check, ChevronDown, Inbox, Mail, PenSquare, Send, Settings, Tag } from 'lucide-react'
+import { Check, ChevronDown, FilePen, Inbox, Mail, PenSquare, Send, Settings, Tag } from 'lucide-react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
 import { sidebarTitleClass } from '@/components/layout/sidebar-link'
@@ -16,12 +16,13 @@ import { cn } from '@/lib/utils'
 import { MAIL_CATEGORIES } from '@/types/mailMessage'
 
 import { useMailAccounts } from '../../hooks/queries/useMailAccounts'
+import { useMailDraftCount } from '../../hooks/queries/useMailDrafts'
 import { useUnreadCounts } from '../../hooks/queries/useMailMessages'
 import { useMailCompose } from './MailComposeContext'
 
 /**
  * 메일 모듈 2차 사이드바 — 공유 셸(타이틀 헤더) 보존 + 계정 스위처 + 편지쓰기
- * + 폴더 nav(받은편지함 + 하위 분류 + 보낸편지함) + 회신필요.
+ * + 폴더 nav(받은편지함 + 하위 분류 + 보낸편지함 + 임시보관함) + 회신필요.
  * 폴더/계정 상태는 URL(:accountId, ?folder) 단일 소스. accountId 미지정 시 첫 계정을 현재로 본다.
  */
 export function MailSidebar() {
@@ -38,6 +39,8 @@ export function MailSidebar() {
 
   // WP-186: 안 읽은 수(회신필요 포함) + AI 분류 활성 여부. 로딩 중에는 활성으로 가정해 깜빡임을 줄인다.
   const { data: counts } = useUnreadCounts(current?.id)
+  // WP-577 임시보관함 개수 — 앱 서버 임시저장(IMAP 폴더 아님).
+  const { data: draftCount } = useMailDraftCount(current?.id)
   // 앱 안에서 연 메일(열림 마크)은 딥링크로 보지 않는다 — 페이지와 같은 판정이라 활성 표시가 어긋나지 않는다(WP-218).
   const location = useLocation()
   const view = resolveMailView(params, counts?.classificationActive ?? true, {
@@ -184,6 +187,16 @@ export function MailSidebar() {
                 className={folderClass(view.kind === 'sent')}
               >
                 <Send className="h-4 w-4 shrink-0" /> 보낸편지함
+              </Link>
+              {/* WP-577 임시보관함 — 쓰다가 닫은 메일. 배지는 안 읽은 수가 아니라 임시저장 개수라 이름표도 그렇게 읽힌다. */}
+              <Link
+                to={`/mail/${current!.id}?folder=drafts`}
+                data-testid="mail-folder-drafts"
+                aria-current={view.kind === 'drafts' ? 'page' : undefined}
+                className={folderClass(view.kind === 'drafts')}
+              >
+                <FilePen className="h-4 w-4 shrink-0" /> 임시보관함
+                {count(draftCount?.count, 'mail-count-drafts', view.kind === 'drafts', `임시저장 ${draftCount?.count}개`)}
               </Link>
             </nav>
 

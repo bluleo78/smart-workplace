@@ -23,6 +23,11 @@ import org.springframework.transaction.annotation.Transactional;
  * 스테이징 파일 클레임(WP-421) — 도메인(이슈·메시징·채팅·홈·노트)이 호출자가 먼저 올려 둔 임시 ATTACHMENT 파일을 묶기 전에 검증하고, 필요하면 영구로
  * 바꾼다. 클레임할 수 있는 파일은 내가 올렸고, 아직 살아 있는 임시 파일이며, 어느 정션({@link AttachmentBindingLookup})에도 묶이지 않은 것이다.
  *
+ * <p>보류(HOLD) 클레임은 호출자가 바인딩 하나를 지목해({@code reclaimFrom} = {@link
+ * AttachmentBindingLookup#bindingKey()}) 그 바인딩이 "호출자가 다시 가져올 수 있다"고 한 묶인 파일도 받을 수 있다 — 그 바인딩의 묶임만
+ * 건너뛰고, 다른 바인딩에도 묶인 파일은 그대로 거절한다. 보류는 묶임을 옮기지 않고 잠깐 잡았다가 소비·되돌리므로 원래 묶음을 깨지 않는다. 영구·임시 유지 클레임은 새로
+ * 묶는 것이라 지목할 수 없다(한 파일이 두 곳에 걸리지 않게).
+ *
  * <p>FILE 행을 id 순으로 잠근 뒤 검사하므로 같은 파일의 동시 클레임은 한 번만 성공한다(KEEP_TEMPORARY 는 호출 도메인이 같은 트랜잭션에서 정션 행을
  * 넣어야 뒤 클레임이 그 행을 본다). 추출 이벤트는 묶은 도메인이 낸다.
  */
@@ -77,6 +82,22 @@ public class StagedFileClaimer {
       propagation = Propagation.MANDATORY,
       noRollbackFor = {StagedFileUnusableException.class, IllegalArgumentException.class})
   public List<StagedFile> claim(long callerId, List<Long> fileIds, Retention retention) {
+    return claim(callerId, fileIds, retention, null);
+  }
+
+  /**
+   * {@link #claim(long, List, Retention)} 에 다시 가져올 바인딩을 지목한다 — 그 바인딩이 호출자에게 다시 가져오게 한 묶인 파일도
+   * 받는다(보류만).
+   *
+   * @param reclaimFrom 다시 가져올 바인딩 키({@link AttachmentBindingLookup#bindingKey()}), 없으면 null
+   * @throws IllegalArgumentException 보류가 아닌 클레임에 바인딩을 지목함(호출 코드 오류)
+   */
+  @Transactional(
+      propagation = Propagation.MANDATORY,
+      noRollbackFor = {StagedFileUnusableException.class, IllegalArgumentException.class})
+  public List<StagedFile> claim(
+      long callerId, List<Long> fileIds, Retention retention, String reclaimFrom) {
+    requireReclaimOnHold(retention, reclaimFrom);
     requireWellFormed(fileIds);
     if (fileIds.isEmpty()) {
       return List.of();
@@ -90,7 +111,7 @@ public class StagedFileClaimer {
             .forUpdate()
             .of(FILE)
             .fetchMap(FILE.ID);
-    requireAllClaimable(callerId, fileIds, rows);
+    requireAllClaimable(callerId, fileIds, rows, reclaimFrom);
     List<StagedFile> claimed = toStagedFiles(fileIds, rows);
 
     if (retention == Retention.PERMANENT) {
@@ -125,8 +146,8 @@ public class StagedFileClaimer {
   }
 
   /**
-   * 보류 되돌리기(WP-574) — 본 작업이 실패했으므로 클레임 전 상태(ATTACHMENT, 파일별 원래 만료)로 되살려 같은 파일로 다시 시도할 수 있게 한다. 한
-   * UPDATE 로 파일마다 원래 만료를 CASE 로 돌려놓는다. 내가 보류한 행만 바꾼다(남의 id 를 넘겨도 바뀌지 않는다).
+   * 보류 되돌리기(WP-574) — 본 작업이 실패했으므로 클레임 전 상태(ATTACHMENT, 파일별 원래 만료 — 묶여 있던 영구 파일이면 NULL)로 되살려 같은 파일로
+   * 다시 시도할 수 있게 한다. 한 UPDATE 로 파일마다 원래 만료를 CASE 로 돌려놓는다. 내가 보류한 행만 바꾼다(남의 id 를 넘겨도 바뀌지 않는다).
    *
    * @param held {@link #claim}(HOLD) 이 돌려준 파일 — 원래 만료를 담고 있다
    */
@@ -152,17 +173,25 @@ public class StagedFileClaimer {
    * 클레임 사전 검사(잠금·쓰기 없음) — {@link #claim} 과 같은 규칙으로 판정만 한다. 실제로 묶기 전에(예: 홈이 새 세션을 만들기 전에) 잘못된 파일을 먼저
    * 거르려는 호출자가 쓴다. 잠그지 않으므로 통과해도 뒤이은 {@link #claim} 이 다시 판정한다.
    *
+   * @param retention 뒤이을 클레임의 수명
    * @return 입력 순서대로의 파일(크기 등 사전 판단용 — WP-574 메일 발송 사전검증이 합계 용량을 본다)
    * @throws IllegalArgumentException 목록 형태 오류(400)
    * @throws StagedFileUnusableException 클레임할 수 없는 파일이 있음(400) — 입력 순서상 첫 위반 id
    */
-  public List<StagedFile> requireClaimable(long callerId, List<Long> fileIds) {
+  public List<StagedFile> requireClaimable(long callerId, List<Long> fileIds, Retention retention) {
+    return requireClaimable(callerId, fileIds, retention, null);
+  }
+
+  /** {@link #requireClaimable(long, List, Retention)} 에 뒤이을 클레임과 같은 다시 가져올 바인딩을 지목한다. */
+  public List<StagedFile> requireClaimable(
+      long callerId, List<Long> fileIds, Retention retention, String reclaimFrom) {
+    requireReclaimOnHold(retention, reclaimFrom);
     requireWellFormed(fileIds);
     if (fileIds.isEmpty()) {
       return List.of();
     }
     Map<Long, FileRecord> rows = dsl.selectFrom(FILE).where(FILE.ID.in(fileIds)).fetchMap(FILE.ID);
-    requireAllClaimable(callerId, fileIds, rows);
+    requireAllClaimable(callerId, fileIds, rows, reclaimFrom);
     return toStagedFiles(fileIds, rows);
   }
 
@@ -183,19 +212,50 @@ public class StagedFileClaimer {
     return out;
   }
 
-  /** 읽은 FILE 행과 도메인 정션으로 각 id 를 판정한다 — 입력 순서상 첫 위반 id 로 예외. */
-  private void requireAllClaimable(long callerId, List<Long> fileIds, Map<Long, FileRecord> rows) {
+  /**
+   * 읽은 FILE 행과 도메인 정션으로 각 id 를 판정한다 — 입력 순서상 첫 위반 id 로 예외. 지목한 바인딩({@code reclaimFrom})이 다시 가져오게 한
+   * 파일은 그 바인딩의 묶임과 영구 조건만 건너뛴다({@link #isReclaimable}) — 다른 바인딩에도 묶였으면 거절한다.
+   */
+  private void requireAllClaimable(
+      long callerId, List<Long> fileIds, Map<Long, FileRecord> rows, String reclaimFrom) {
     Set<Long> bound = new HashSet<>();
+    Set<Long> reclaimable = new HashSet<>();
     for (AttachmentBindingLookup lookup : lookups) {
-      bound.addAll(lookup.boundAmong(fileIds));
+      Set<Long> boundHere = new HashSet<>(lookup.boundAmong(fileIds));
+      if (lookup.bindingKey().equals(reclaimFrom)) {
+        Set<Long> mine = lookup.reclaimableBy(callerId, fileIds);
+        boundHere.removeAll(mine);
+        reclaimable.addAll(mine);
+      }
+      bound.addAll(boundHere);
     }
     OffsetDateTime now = OffsetDateTime.now();
     for (Long id : fileIds) {
       FileRecord row = rows.get(id);
-      if (row == null || !isClaimable(row, callerId, now) || bound.contains(id)) {
+      boolean ok =
+          row != null
+              && !bound.contains(id)
+              && (reclaimable.contains(id)
+                  ? isReclaimable(row, callerId, now)
+                  : isClaimable(row, callerId, now));
+      if (!ok) {
         throw new StagedFileUnusableException(id);
       }
     }
+  }
+
+  /** 바인딩 지목은 보류 클레임에서만 — 영구·임시 유지는 새로 묶는 것이라 묶인 파일을 가져가면 한 파일이 두 곳에 걸린다. */
+  private static void requireReclaimOnHold(Retention retention, String reclaimFrom) {
+    if (reclaimFrom != null && retention != Retention.HOLD) {
+      throw new IllegalArgumentException("다시 가져올 바인딩은 보류 클레임에서만 지목할 수 있어요.");
+    }
+  }
+
+  /** 다시 쓸 수 있는 묶인 파일 — 내 파일·ATTACHMENT, 만료가 있으면 아직 살아 있음(묶인 동안은 대개 영구라 만료 없음). */
+  private static boolean isReclaimable(FileRecord row, long callerId, OffsetDateTime now) {
+    return Objects.equals(row.getUploadedBy(), callerId)
+        && CATEGORY_ATTACHMENT.equals(row.getCategory())
+        && (row.getExpiresAt() == null || row.getExpiresAt().isAfter(now));
   }
 
   /** 내 파일·ATTACHMENT·임시·아직 살아 있음. 만료 판정은 잠근 뒤의 행으로 한다(동시 PERMANENT 클레임의 두 번째를 거르는 근거). */

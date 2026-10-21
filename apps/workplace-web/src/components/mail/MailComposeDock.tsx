@@ -2,50 +2,49 @@
 // - 데스크톱: Gmail식 우하단 작은 창. 최소화/크게 보기(WP-575)/닫기.
 // - 모바일: 다른 메일 앱처럼 처음부터 화면 전체 작성 화면(WP-583). 상단 바 [✕] 제목 … [📎 파일 첨부] [➤ 보내기].
 // - 첨부(WP-574): 📎(데스크톱은 보내기 옆, 모바일은 상단 바)·창 위로 끌어다 놓기 → 바로 올리고 본문 아래 칩으로 보인다.
+// - 임시저장(WP-577): 쓰는 동안 1.5초마다 자동 저장하고 상태를 제목 옆(모바일은 제목 아래)에 보인다. ✕·뒤로가기는 묻지 않고
+//   남은 저장을 마친 뒤 닫는다. 버리기(🗑)는 임시저장을 지우고 「되돌리기」 토스트를 띄운다.
 
-import { Loader2, Maximize2, Minimize2, Minus, Paperclip, Send, Sparkles, X } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
+import { Loader2, Maximize2, Minimize2, Minus, Paperclip, Send, Sparkles, Trash2, X } from 'lucide-react';
 import type { ReactNode, Ref } from 'react';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { toast } from 'sonner';
 
 import { useAssistant } from '@/components/ai/AIAssistantContext';
 import { AiContent } from '@/components/ai/AiContent';
 import { inertPageArea } from '@/components/ai/aiPanelSurface';
 import { AI_SIDE_CENTER_CLASS, AI_SIDE_OVERLAY_CLASS } from '@/components/ai/useAiPanelAwareDialog';
-import { mobileBackButtonClass, mobileDetailBarClass, mobileDetailTitleClass } from '@/components/mobile/headerClass';
+import { mobileBackButtonClass, mobileDetailBarClass } from '@/components/mobile/headerClass';
 import { HeaderIconAction } from '@/components/mobile/HeaderIconAction';
 import { isKeyboardEditable } from '@/components/mobile/useVisualViewport';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
 import { useMailAccounts } from '@/hooks/queries/useMailAccounts';
+import { restoreMailDraft, toastDraftDiscarded, useOpenMailDraft } from '@/hooks/queries/useMailDrafts';
 import { useAiAvailable } from '@/hooks/useAiAvailable';
 import { useComposerFileDrop } from '@/hooks/useComposerFileDrop';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { useMailComposeAttachments } from '@/hooks/useMailComposeAttachments';
 import { useMailDarkHtml } from '@/hooks/useMailDarkHtml';
+import { type DraftFlushResult, type DraftSnapshot, hasUnsavedDraft, useMailDraftAutosave } from '@/hooks/useMailDraftAutosave';
 import { useSheetHistory } from '@/hooks/useSheetHistory';
+import { useUnsavedChangesWarning } from '@/hooks/useUnsavedChangesWarning';
 import { extractApiError } from '@/lib/api-error';
 import { withComposerPreviewStyle } from '@/lib/composerPreviewHtml';
 import { isImeComposing } from '@/lib/imeKey';
-import { quoteInlineBytes, sendAttachmentIds } from '@/lib/mailComposeAttachments';
+import { type ComposeAttachment, quoteInlineBytes, sendAttachmentIds } from '@/lib/mailComposeAttachments';
+import { buildDraftSavePayload } from '@/lib/mailDraftCompose';
 import { parseRecipientInput } from '@/lib/mailRecipients';
 import { cn } from '@/lib/utils';
 
 import { useCoachDraft, useSendMail } from '../../hooks/queries/useMailMessages';
-import type { CoachingNote } from '../../types/mailMessage';
+import type { CoachingNote, MailSendRequest } from '../../types/mailMessage';
 import { SandboxedHtmlFrame } from '../SandboxedHtmlFrame';
 import { AiDraftBar, AiDraftChip, AiDraftPanel, AiDraftSkeleton, AiDraftToolbarButton } from './MailAiDraft';
 import { MailComposeAttachmentChips } from './MailComposeAttachmentChips';
 import { type ComposeDraft, useMailCompose } from './MailComposeContext';
 import { MailComposeDropOverlay } from './MailComposeDropOverlay';
 import { MailComposer, type MailComposerHandle, type MailComposerLayout } from './MailComposer';
+import { MailDraftSaveStatus } from './MailDraftSaveStatus';
 import { MailQuoteBlock } from './MailQuoteBlock';
 import { useMailAiDraft } from './useMailAiDraft';
 
@@ -92,6 +91,7 @@ function FieldRow({
   onChange,
   inputRef,
   trailing,
+  maxLength,
 }: {
   label: string;
   mobile: boolean;
@@ -100,6 +100,8 @@ function FieldRow({
   onChange: (v: string) => void;
   inputRef?: Ref<HTMLInputElement>;
   trailing?: ReactNode;
+  /** 입력 길이 상한 — 서버 상한(제목 500자)을 넘겨 저장·발송이 거절되지 않게 입력에서 막는다. */
+  maxLength?: number;
 }) {
   return (
     <div className={cn('flex items-center gap-2 border-b focus-within:border-primary', mobile ? 'py-3' : 'pb-2')}>
@@ -114,6 +116,7 @@ function FieldRow({
         data-testid={testId}
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        maxLength={maxLength}
         placeholder={mobile ? undefined : label}
         className={cn('min-w-0 flex-1 bg-transparent outline-none', mobile ? 'text-[15px]' : 'text-sm')}
       />
@@ -122,21 +125,19 @@ function FieldRow({
   );
 }
 
+/** 제목 길이 상한 — 서버 MailComposeLimits.MAX_SUBJECT_LENGTH(임시저장·발송 공통)와 같은 값. */
+const MAIL_SUBJECT_MAX = 500;
+
+/** 버림 확인이 없어졌으므로(WP-577 — back 은 자동 저장 후 닫기) 막힌 back 처리가 쓰이지 않는다. */
+const noop = () => {};
+
 /**
  * 모바일 작성 화면은 페이지처럼 보이므로 시스템 back 이 작성 화면을 닫게 히스토리 항목 하나에 묶는다(WP-222 공용 훅).
- * 쓴 내용이 있으면 back 으로 바로 닫지 않고 버림 확인을 띄운다(✕ 와 같은 규칙) — 임시저장(WP-577)이 오면 자동 저장으로 바뀐다.
+ * back 은 ✕ 와 같이 묻지 않고 남은 임시저장을 마친 뒤 닫는다(WP-577) — 그래서 hasContent 를 늘 false 로 넘겨 막지 않는다.
  * 열려 있을 때만 마운트한다 — 훅이 위치(useLocation)를 구독하므로, 작성창 본체에 두면 모든 페이지 이동마다 작성창이 다시 렌더된다.
  */
-function MobileComposeHistory({
-  hasContent,
-  onClose,
-  onBlockedBack,
-}: {
-  hasContent: boolean;
-  onClose: () => void;
-  onBlockedBack: () => void;
-}) {
-  useSheetHistory({ historyKey: 'mailCompose', open: true, hasContent, onClose, onBlockedBack });
+function MobileComposeHistory({ onClose }: { onClose: () => void }) {
+  useSheetHistory({ historyKey: 'mailCompose', open: true, hasContent: false, onClose, onBlockedBack: noop });
   return null;
 }
 
@@ -151,8 +152,10 @@ export function MailComposeDock() {
 
 /** 작성창 본체. draft 없으면 렌더 안 함. */
 const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: { aiFullscreen: boolean }) {
-  const { draft, closeCompose, clearQuote } = useMailCompose();
-  const send = useSendMail(draft?.accountId);
+  const { draft, openCompose, closeCompose, closeInstance, clearQuote, bindDraftId, setComposeHandlers } = useMailCompose();
+  const send = useSendMail();
+  const qc = useQueryClient();
+  const openDraft = useOpenMailDraft();
 
   const composerRef = useRef<MailComposerHandle>(null);
   const toInputRef = useRef<HTMLInputElement>(null);
@@ -216,8 +219,61 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
   const isModal = !!draft && (isMobile || isExpanded);
   // 대상은 켤 때 한 번 모으므로 셸이 바뀌면(lg 경계 리사이즈) 새 셸 DOM 에 다시 건다 — isMobile 도 deps.
   useEffect(() => (isModal ? inertPageArea() : undefined), [isModal, isMobile]);
-  // 버림 확인창(✕·모바일 시스템 back 에서 쓴 내용이 있을 때).
-  const [confirmDiscard, setConfirmDiscard] = useState(false);
+
+  // 사용자가 쓴 내용이 있는가 — 본문·받는사람·참조·숨은참조·제목·인용문·첨부 중 하나라도 처음 채워진 값에서 바뀌었다.
+  // 빈 새 메일(이 값이 false)은 임시저장하지 않는다. 조기 return 앞에서 계산해 자동 저장 훅이 읽는다.
+  const hasContent =
+    !!draft &&
+    (bodyEdited ||
+      quoteRemoved ||
+      attachments.changed ||
+      to !== draft.to.join(', ') ||
+      cc !== draft.cc.join(', ') ||
+      bcc !== draft.bcc.join(', ') ||
+      subject !== draft.subject);
+
+  // 임시저장(WP-577) 지금 내용 — 본문은 에디터 HTML 만(인용문은 다시 열 때 원본으로 다시 만든다), 첨부는 올라간 것만.
+  const getSnapshot = (): DraftSnapshot => ({
+    payload: buildDraftSavePayload({
+      draft: draft ?? { accountId: 0, mode: 'new', sourceMessageId: null },
+      to,
+      cc,
+      bcc,
+      subject: subjectRef.current,
+      bodyHtml: bodyHtmlRef.current,
+      bodyText: bodyTextRef.current,
+      quoteRemoved,
+      attachments: attachments.items,
+    }),
+    // 「다시 열기」로 연 저장 안 된 내용은 처음 값과 같아도 저장 대상이다(새 메일도 POST 한다).
+    empty: !hasContent && !draft?.unsaved,
+  });
+  const autosave = useMailDraftAutosave({
+    instanceId: draft?.instanceId,
+    initialDraftId: draft?.draftId,
+    initialVersion: draft?.draftVersion,
+    initialUnsaved: draft?.unsaved,
+    accountId: draft?.accountId,
+    getSnapshot,
+    onCreated: bindDraftId,
+  });
+  // 보내기 준비 중(진행 중인 임시저장을 기다리는 동안) — send.isPending 이 켜지기 전에도 보내기를 잠가 두 번 나가지 않게 한다.
+  // 상태는 버튼 표시용, ref 는 같은 틱의 두 번째 클릭을 막는 동기 잠금.
+  const [preparingSend, setPreparingSend] = useState(false);
+  const sendLock = useRef(false);
+  // 저장하지 않은 변경(대기·저장 중·실패·충돌)이 있을 때만 새로고침·탭 닫기를 경고한다.
+  useUnsavedChangesWarning(!!draft && hasUnsavedDraft(autosave.status));
+
+  // 첨부가 올라가 끝나거나 빠지면 저장한다 — 올리는 중인 칩은 저장에 싣지 않으므로 완료 목록이 바뀔 때만.
+  // 새 작성의 처음 첨부(전달 원본·임시저장)는 아래 초기화가 기준값으로 맞춰 저장을 부르지 않는다.
+  const doneAttachmentKey = attachments.items.filter((a) => a.status === 'done').map((a) => a.key).join('|');
+  const doneAttachmentBase = useRef('');
+  useEffect(() => {
+    if (doneAttachmentKey === doneAttachmentBase.current) return;
+    doneAttachmentBase.current = doneAttachmentKey;
+    autosave.schedule();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [doneAttachmentKey]);
 
   // 새 draft 가 열릴 때마다 폼 초기화. 인용문 제거(clearQuote)도 draft 객체를 바꾸지만 같은 작성이므로
   // instanceId 로만 판단한다 — 안 그러면 지우는 순간 받는사람·제목·크기가 처음 값으로 돌아가고 본문 ref 가 화면과 어긋난다.
@@ -226,10 +282,10 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
     // 닫힌 작성창에 늦게 도착한 초안이 반영되지 않게. 첨부는 draft 에서 매 렌더 끌어오지 않고 여기서 한 번 채운다
     // — 인용문 지우기(clearQuote)가 draft 를 바꿔도 첨부가 되돌아가지 않게.
     attachments.reset(draft?.attachments);
+    doneAttachmentBase.current = (draft?.attachments ?? []).filter((a) => a.status === 'done').map((a) => a.key).join('|');
     ai.reset();
     if (!draft) return;
     setSize('dock');
-    setConfirmDiscard(false);
     setTo(draft.to.join(', '));
     setCc(draft.cc.join(', '));
     setBcc(draft.bcc.join(', '));
@@ -244,7 +300,8 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
     lastCoachedRef.current = null;
     setHasBody(false);
     setBodyEdited(false);
-    setQuoteRemoved(false);
+    // 임시보관함에서 연 작성은 지웠던 인용문 상태를 이어받는다 — 다음 저장이 quoteRemoved 를 false 로 되돌려 인용문이 되살아나지 않게.
+    setQuoteRemoved(!!draft.quoteRemoved);
     // 본문 리치텍스트 에디터가 자동으로 포커스를 가져가 수신자→제목→본문 순서를 건너뛰던
     // 문제 수정 — 패널이 열리면 "받는사람"으로 초점을 명시적으로 이동 (#802).
     toInputRef.current?.focus();
@@ -269,25 +326,122 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
     if (!minimized) composerRef.current?.focusEnd();
   }, [aiFocusRequest, aiGenerating, minimized]);
 
+  /**
+   * 지금 작성 내용을 작성창 초기값으로 — 닫은 뒤 저장이 실패했을 때 「다시 열기」, 버린 뒤 「되돌리기」로 같은 내용을 다시 연다.
+   * 본문은 에디터 HTML, 인용문은 지금 것(지웠으면 null), 첨부는 올라간 것만.
+   */
+  function snapshotDraft(): ComposeDraft {
+    const d = draft as ComposeDraft;
+    return {
+      ...d,
+      to: parseRecipientInput(to),
+      cc: parseRecipientInput(cc),
+      bcc: parseRecipientInput(bcc),
+      subject: subjectRef.current,
+      initialHtml: bodyHtmlRef.current,
+      attachments: attachments.items.filter((a): a is ComposeAttachment => a.status === 'done'),
+      quoteRemoved,
+      // 「다시 열기」 표시는 그 자리에서 정한다(되돌리기로 연 작성은 이미 저장된 것이다).
+      unsaved: undefined,
+      instanceId: undefined,
+    };
+  }
+
+  /**
+   * 닫은 뒤 저장 결과 알림 — 저장된 임시저장이 있으면 「임시보관함에 저장했어요」.
+   * 실패하면 쓴 내용을 잃지 않게 「다시 열기」로 같은 내용의 작성창을 다시 연다(그 창이 다시 자동 저장한다).
+   */
+  function notifySaved(r: DraftFlushResult, reopen: ComposeDraft) {
+    if (!r.ok) {
+      toast.error('임시저장하지 못했어요', {
+        action: {
+          label: '다시 열기',
+          // 저장 안 된 내용으로 연다 — 열자마자 다시 저장하고(새 메일 POST, 기존 임시저장 PUT), 그냥 닫아도 저장한다.
+          onClick: () =>
+            openCompose({ ...reopen, draftId: r.draftId ?? undefined, draftVersion: r.version ?? undefined, unsaved: true }),
+        },
+      });
+      return;
+    }
+    if (r.wrote) toast.success('임시보관함에 저장했어요');
+  }
+
+  /** 남은 저장을 바로 돌리고 결과를 알린다 — flush 가 지금 세션을 동기로 잡으므로 닫기·바꾸기보다 먼저 부른다. */
+  function saveAndNotify() {
+    const reopen = snapshotDraft();
+    void autosave.flush().then((r) => notifySaved(r, reopen));
+  }
+
+  // 다른 작성으로 바뀌기 직전(다른 메일 답장·임시저장 열기) 이 작성을 저장하고, 같은 임시저장을 다시 열면 이 창을 앞으로 가져오고(최소화를 푼다),
+  // 임시보관함에서 이 임시저장을 지우면 저장을 멈춘다. 매 렌더 최신 내용을 읽는 함수로 다시 건다.
+  useEffect(() => {
+    if (!draft) return;
+    setComposeHandlers({
+      save: saveAndNotify,
+      raise: () => setSize((v) => (v === 'min' ? 'dock' : v)),
+      abandon: autosave.end,
+    });
+    return () => setComposeHandlers(null);
+  });
+
   if (!draft) return null;
 
-  // 사용자가 쓴 내용이 있는가 — 본문·받는사람·참조·숨은참조·제목·인용문·첨부 중 하나라도 처음 채워진 값에서 바뀌었다.
-  const hasContent =
-    bodyEdited ||
-    quoteRemoved ||
-    attachments.changed ||
-    to !== draft.to.join(', ') ||
-    cc !== draft.cc.join(', ') ||
-    bcc !== draft.bcc.join(', ') ||
-    subject !== draft.subject;
-  // ✕·모바일 back 공통 — 쓴 내용이 있으면 버릴지 묻고, 없으면 바로 닫는다.
-  const requestClose = () => (hasContent ? setConfirmDiscard(true) : closeCompose());
+  // ✕·모바일 back 공통 — 묻지 않고 남은 저장을 바로 돌린 뒤 닫는다. 저장 결과는 닫힌 뒤 토스트로 알린다.
+  const closeWithSave = () => {
+    saveAndNotify();
+    closeCompose();
+  };
+
+  // 🗑 버리기 — 임시저장을 지우고 닫는다. 쓴 것이 있었으면 「되돌리기」로 같은 내용을 새 임시저장으로 만들어 다시 연다.
+  const discardDraft = () => {
+    const reopen = snapshotDraft();
+    const { payload } = getSnapshot();
+    // 다른 곳에서 보냈거나 버린 임시저장(gone)이면 지울 것(id 가 이미 비었다)도 되살릴 것도 없다 — 조용히 닫는다.
+    const worth = autosave.status !== 'gone' && (hasContent || autosave.currentDraftId() != null);
+    const deleting = autosave.discard();
+    closeCompose();
+    // 지우기가 끝난 뒤에 알린다 — 실패하면 임시저장이 그대로 남으므로 「되돌리기」(사본 만들기)를 내밀지 않는다.
+    deleting.then(
+      () => {
+        if (!worth) return;
+        toastDraftDiscarded(() => {
+          void restoreMailDraft(qc, payload).then((r) => {
+            if (r) openCompose({ ...reopen, draftId: r.id, draftVersion: r.version });
+          });
+        });
+      },
+      () => toast.error('임시저장을 버리지 못했어요', { description: '임시보관함에 그대로 있어요' }),
+    );
+  };
+
+  // 충돌 「다시 불러오기」 — 내 변경은 저장하지 않고 서버의 최신 내용으로 작성창을 다시 연다.
+  // 세션은 서버 내용을 받아 와 바꾸기 직전에 끝낸다 — 받지 못하면 충돌 상태 그대로 두어 계속 쓰고 ✕ 로 새 임시저장에 남길 수 있게.
+  const reloadDraft = () => {
+    const id = autosave.currentDraftId();
+    if (id != null) void openDraft(id, { force: true, beforeOpen: autosave.end });
+  };
+
+  // 입력 칸 변경 — 화면 값을 바꾸고 자동 저장을 예약한다.
+  const edit = (set: (v: string) => void) => (v: string) => {
+    set(v);
+    autosave.schedule();
+  };
+
+  const saveStatus = (
+    <MailDraftSaveStatus
+      status={autosave.status}
+      reason={autosave.statusReason}
+      onRetry={autosave.retry}
+      onReload={reloadDraft}
+      mobile={isMobile}
+    />
+  );
   const expandLabel = isExpanded ? '작게 보기' : '크게 보기';
   // 올리는 중이거나 실패한 첨부가 있으면 보내지 않는다 — 빠진 채 나가지 않게. 이유는 칩 목록 위 한 줄(모바일 포함)과 데스크톱 보내기 툴팁으로 알린다.
   const { block } = attachments;
   const blockedReason = block?.reason ?? null;
   // 보내기 잠금 — 발송 중, AI 초안 생성 중(반쯤 찬 본문이 나가지 않게, WP-576), 첨부 업로드 중·실패(WP-574).
-  const sendDisabled = send.isPending || aiGenerating || blockedReason != null;
+  const sendDisabled = send.isPending || preparingSend || aiGenerating || blockedReason != null;
   const openFilePicker = () => fileInputRef.current?.click();
   const attachmentChips = (
     <MailComposeAttachmentChips
@@ -322,6 +476,7 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
   const changeSubject = (v: string) => {
     subjectRef.current = v;
     setSubject(v);
+    autosave.schedule();
   };
 
   // [초안 만들기]·[다시 시도] — 지금 받는사람·참조·제목·본문을 문맥과 되돌리기 스냅숏으로 넘기고, 결과를 본문(과 빈 제목)에 넣는다.
@@ -333,7 +488,7 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
     );
     if (!result) return;
     // 같은 틱에 넣어야 useMailAiDraft 가 이 변경을 AI 본문으로 받아 둔다. 에디터를 다시 만들지 않으므로
-    // 처음 본문(bodyBaselineRef)과 달라져 ✕ 때 버릴지 묻는다(AI 가 채운 본문도 쓴 내용).
+    // 처음 본문(bodyBaselineRef)과 달라져 임시저장 대상이 된다(AI 가 채운 본문도 쓴 내용).
     // 초점은 여기서 주지 않는다 — 아직 래퍼가 inert(생성 중)라 무시된다. 렌더가 끝난 뒤 초점 effect(aiFocusRequest)가 준다.
     composerRef.current?.setContent(result.html, { focus: false });
     changeSubject(result.subject);
@@ -347,28 +502,79 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
     changeSubject(restored.subject);
   };
 
-  const onSend = () => {
-    send.mutate(
-      {
-        to: parseRecipientInput(to),
-        cc: parseRecipientInput(cc),
-        bcc: parseRecipientInput(bcc),
-        subject,
-        // 인용문은 에디터 밖에 있으므로 발송 시점에 뒤에 이어붙인다(설계 §7).
-        bodyHtml: bodyHtmlRef.current + (draft.quote?.html ?? ''),
-        bodyText: bodyTextRef.current + (draft.quote?.text ? '\n\n' + draft.quote.text : ''),
-        inReplyToMessageId: draft.inReplyToMessageId,
-        // WP-69 인용문 cid 이미지 — 서버가 원본 첨부를 같은 Content-ID 로 재첨부. 인용문을 지웠으면 보내지 않는다.
-        inlineImages: draft.quote?.inlineImages.map(({ attachment, contentId }) => ({
-          attachmentId: attachment.id,
-          contentId,
-        })),
-        // WP-574 첨부 — 올린 파일은 업로드 id, 전달 원본은 받은 메일 첨부 id. 서버 거절(합계 초과·만료 등)은 useSendMail 토스트로 보인다.
-        ...sendAttachmentIds(attachments.items),
-      },
-      { onSuccess: () => closeCompose() },
-    );
+  // 보내기 — 자동 저장을 멈추고 진행 중인 저장이 끝나 id 가 정해지면 draftId 로 싣는다(서버가 보낸 뒤 그 임시저장을 지운다).
+  // 기다리는 동안에도 잠가 두 번 눌러도 한 번만 나간다. 보내는 동안 작성창을 닫거나 다른 작성으로 바꿔도 결과는 이 작성에 묶어 처리한다.
+  const onSend = async () => {
+    if (sendLock.current) return;
+    sendLock.current = true;
+    setPreparingSend(true);
+    const instanceId = draft.instanceId as number;
+    // 실패한 채 작성창이 닫혀 있고 저장도 못 했을 때 「다시 열기」로 열 내용
+    const reopen = snapshotDraft();
+    const ticket = await autosave.beginSend();
+    const body: MailSendRequest = {
+      to: parseRecipientInput(to),
+      cc: parseRecipientInput(cc),
+      bcc: parseRecipientInput(bcc),
+      subject,
+      // 인용문은 에디터 밖에 있으므로 발송 시점에 뒤에 이어붙인다(설계 §7).
+      bodyHtml: bodyHtmlRef.current + (draft.quote?.html ?? ''),
+      bodyText: bodyTextRef.current + (draft.quote?.text ? '\n\n' + draft.quote.text : ''),
+      inReplyToMessageId: draft.inReplyToMessageId,
+      // WP-69 인용문 cid 이미지 — 서버가 원본 첨부를 같은 Content-ID 로 재첨부. 인용문을 지웠으면 보내지 않는다.
+      inlineImages: draft.quote?.inlineImages.map(({ attachment, contentId }) => ({
+        attachmentId: attachment.id,
+        contentId,
+      })),
+      // WP-574 첨부 — 올린 파일은 업로드 id, 전달 원본은 받은 메일 첨부 id. 서버 거절(합계 초과·만료 등)은 실패 토스트로 보인다.
+      ...sendAttachmentIds(attachments.items),
+      draftId: ticket.draftId,
+    };
+    try {
+      await send.mutateAsync({ accountId: draft.accountId, body });
+      ticket.succeeded();
+      closeInstance(instanceId);
+    } catch (e) {
+      notifySendFailed(e, ticket.failed(), reopen);
+    } finally {
+      sendLock.current = false;
+      setPreparingSend(false);
+    }
   };
+
+  /**
+   * 보내기 실패 알림. 작성창이 그대로면(saving 없음) 서버 사유만 알린다 — 자동 저장은 훅이 다시 켰다.
+   * 작성창을 닫았거나 다른 작성으로 바꿨으면 훅이 그 작성의 내용을 저장한 결과를 받아 한 토스트로 알린다 — 저장했으면 그 임시저장을 다시 열고,
+   * 못 했으면 저장 안 된 내용으로 다시 연다(열자마자 다시 저장한다).
+   */
+  function notifySendFailed(e: unknown, saving: Promise<DraftFlushResult> | null, reopen: ComposeDraft) {
+    const reason = extractApiError(e, '메일 발송에 실패했습니다');
+    if (!saving) {
+      toast.error(reason);
+      return;
+    }
+    void saving.then((r) => {
+      if (r.ok && r.draftId != null) {
+        const id = r.draftId;
+        toast.error('보내지 못해 임시보관함에 저장했어요', {
+          description: reason,
+          action: { label: '다시 열기', onClick: () => void openDraft(id) },
+        });
+      } else if (!r.ok) {
+        toast.error('보내지 못했어요', {
+          description: reason,
+          action: {
+            label: '다시 열기',
+            onClick: () =>
+              openCompose({ ...reopen, draftId: r.draftId ?? undefined, draftVersion: r.version ?? undefined, unsaved: true }),
+          },
+        });
+      } else {
+        // 저장할 것이 없던 빈 새 메일
+        toast.error(reason);
+      }
+    });
+  }
 
   const ccBccToggle = !showCcBcc && (
     <button
@@ -383,23 +589,7 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
 
   return (
     <>
-      {isMobile && (
-        <MobileComposeHistory hasContent={hasContent} onClose={closeCompose} onBlockedBack={() => setConfirmDiscard(true)} />
-      )}
-      <AlertDialog open={confirmDiscard} onOpenChange={setConfirmDiscard}>
-        <AlertDialogContent data-testid="mail-compose-discard-dialog">
-          <AlertDialogHeader>
-            <AlertDialogTitle>작성 중인 메일을 버릴까요?</AlertDialogTitle>
-            <AlertDialogDescription>입력한 받는사람·제목·본문·첨부가 사라집니다.</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel data-testid="mail-compose-discard-keep">계속 작성</AlertDialogCancel>
-            <AlertDialogAction variant="destructive" data-testid="mail-compose-discard-confirm" onClick={closeCompose}>
-              버리기
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {isMobile && <MobileComposeHistory onClose={closeWithSave} />}
       {/* 크게 보기 배경 — 누르면 닫지 않고 작은 창으로 돌아간다(쓰던 내용을 실수로 잃지 않게). */}
       {isExpanded && (
         <div
@@ -448,29 +638,42 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
               type="button"
               aria-label="닫기"
               data-testid="mail-compose-close"
-              onClick={requestClose}
+              onClick={closeWithSave}
               className={mobileBackButtonClass}
             >
               <X className="h-6 w-6" />
             </button>
-            <h2 id="mail-compose-dock-title" className={mobileDetailTitleClass}>
-              {composeTitle(draft)}
-            </h2>
+            {/* 제목 + 그 아래 임시저장 상태 한 줄(WP-577). 56px 바 안에 두 줄이 들어가게 제목 줄 높이를 줄인다.
+                오른쪽 pr-2 — 상태 옆 동작(다시 불러오기 등)의 투명 터치 영역(좌우 8px)이 🗑 위로 넘어가 🗑 가장자리 탭을 가로채지 않게. */}
+            <div className="flex min-w-0 flex-1 flex-col justify-center pr-2">
+              <h2 id="mail-compose-dock-title" className="truncate text-[17px] font-semibold leading-snug">
+                {composeTitle(draft)}
+              </h2>
+              {autosave.status !== 'idle' && <div className="flex min-w-0 leading-4">{saveStatus}</div>}
+            </div>
+            {/* 🗑 버리기 — 📎 왼쪽. 보내기와 사이에 📎 를 두어 잘못 누르기 어렵게 하고, 곁 동작이라 기본 글자색. */}
+            <HeaderIconAction label="버리기" tone="default" onClick={discardDraft} data-testid="mail-compose-discard">
+              <Trash2 />
+            </HeaderIconAction>
             {/* 📎 — 보내기 왼쪽. 하단 서식 줄은 글자 서식만 두고, 첨부는 메일 앱들처럼 상단 바에 둔다. */}
             {/* 곁 동작이라 보내기(주 색)보다 덜 눈에 띄게 기본 글자색. */}
             <HeaderIconAction label="파일 첨부" tone="default" onClick={openFilePicker} data-testid="mail-compose-attach">
               <Paperclip />
             </HeaderIconAction>
-            <HeaderIconAction label="보내기" onClick={onSend} disabled={sendDisabled} data-testid="mail-compose-send">
-              {send.isPending ? <Loader2 className="animate-spin" /> : <Send />}
+            <HeaderIconAction label="보내기" onClick={() => void onSend()} disabled={sendDisabled} data-testid="mail-compose-send">
+              {send.isPending || preparingSend ? <Loader2 className="animate-spin" /> : <Send />}
             </HeaderIconAction>
           </div>
         ) : (
-          <div className="flex items-center justify-between rounded-t-lg bg-muted px-3 py-2">
-            <span id="mail-compose-dock-title" className="truncate text-sm font-medium">
-              {subject || '새 메일'}
-            </span>
-            <div className="flex items-center gap-1">
+          <div className="flex items-center justify-between gap-2 rounded-t-lg bg-muted px-3 py-2">
+            {/* 제목 + 임시저장 상태(WP-577) — 제목이 길면 제목만 말줄임하고 상태는 그대로 보인다. */}
+            <div className="flex min-w-0 items-baseline gap-2">
+              <span id="mail-compose-dock-title" className="truncate text-sm font-medium">
+                {subject || '새 메일'}
+              </span>
+              {saveStatus}
+            </div>
+            <div className="flex shrink-0 items-center gap-1">
               <button
                 type="button"
                 aria-label="최소화"
@@ -496,8 +699,8 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
                 type="button"
                 aria-label="닫기"
                 data-testid="mail-compose-close"
-                // 모바일과 같은 규칙 — 쓴 내용이 있으면 버릴지 묻는다.
-                onClick={requestClose}
+                // 모바일과 같은 규칙 — 묻지 않고 임시저장한 뒤 닫는다(WP-577).
+                onClick={closeWithSave}
                 className="rounded p-1 hover:bg-accent"
               >
                 <X className="h-4 w-4" />
@@ -524,14 +727,14 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
             최소화는 숨기기만 한다(언마운트 금지) — 에디터가 다시 만들어지면 쓰던 본문·진행 중 AI 초안 반영·되돌리기 기준을 잃는다(WP-576).
             display:none 이라 숨은 동안엔 초점·단축키가 안으로 가지 않는다. */}
         <div className={cn(BODY_CLASS[layout], minimized && 'hidden')}>
-          <FieldRow label="받는사람" mobile={isMobile} testId="mail-compose-to" value={to} onChange={setTo} inputRef={toInputRef} trailing={ccBccToggle} />
+          <FieldRow label="받는사람" mobile={isMobile} testId="mail-compose-to" value={to} onChange={edit(setTo)} inputRef={toInputRef} trailing={ccBccToggle} />
           {showCcBcc && (
             <>
-              <FieldRow label="참조" mobile={isMobile} testId="mail-compose-cc" value={cc} onChange={setCc} />
-              <FieldRow label="숨은참조" mobile={isMobile} testId="mail-compose-bcc" value={bcc} onChange={setBcc} />
+              <FieldRow label="참조" mobile={isMobile} testId="mail-compose-cc" value={cc} onChange={edit(setCc)} />
+              <FieldRow label="숨은참조" mobile={isMobile} testId="mail-compose-bcc" value={bcc} onChange={edit(setBcc)} />
             </>
           )}
-          <FieldRow label="제목" mobile={isMobile} testId="mail-compose-subject" value={subject} onChange={changeSubject} />
+          <FieldRow label="제목" mobile={isMobile} testId="mail-compose-subject" value={subject} onChange={changeSubject} maxLength={MAIL_SUBJECT_MAX} />
           {/* 작성/AI 검토 탭 */}
           <div className="flex border-b border-border text-sm" data-testid="mail-compose-tabs">
             <button
@@ -602,6 +805,8 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
                   if (initial) bodyBaselineRef.current = html;
                   setBodyEdited(html !== bodyBaselineRef.current);
                   ai.noteBodyChange(html);
+                  // 에디터가 처음 채운 본문은 쓴 내용이 아니다 — 그 뒤 바뀔 때만 자동 저장을 예약한다.
+                  if (!initial) autosave.schedule();
                 }}
                 toolbarEnd={
                   aiDraftEnabled && (
@@ -636,6 +841,7 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
                 onRemove={() => {
                   clearQuote();
                   setQuoteRemoved(true);
+                  autosave.schedule();
                 }}
                 inlineImages={draft.quote.inlineImages}
               />
@@ -735,6 +941,17 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
             >
               {attachmentChips}
               <div className="flex items-center justify-end gap-1">
+                {/* 🗑 버리기(WP-577) — 줄 왼쪽 끝. 보내기와 멀리 두어 잘못 누르기 어렵게 한다. */}
+                <button
+                  type="button"
+                  aria-label="버리기"
+                  title="버리기"
+                  data-testid="mail-compose-discard"
+                  onClick={discardDraft}
+                  className="mr-auto flex size-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                >
+                  <Trash2 className="size-4" />
+                </button>
                 {/* 📎 — 보내기 바로 옆(Gmail 처럼 보내기와 한 묶음). 보내기가 오른쪽 끝이라 그 왼쪽에 둔다. */}
                 <button
                   type="button"
@@ -749,13 +966,13 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
                 <button
                   type="button"
                   data-testid="mail-compose-send"
-                  onClick={onSend}
+                  onClick={() => void onSend()}
                   disabled={sendDisabled}
                   title={blockedReason ?? undefined}
                   className="flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
                 >
                   <Send className="h-4 w-4" />
-                  {send.isPending ? '전송 중…' : '보내기'}
+                  {send.isPending || preparingSend ? '전송 중…' : '보내기'}
                 </button>
               </div>
             </div>

@@ -222,7 +222,10 @@ class MailComposeAttachmentTest extends IntegrationTestBase {
     // 메일 캐시 GC 의 고아 백스톱(tenant-*/mail)에 걸리지 않는 staged 경로
     assertThat(row.getStoragePath()).contains("/staged/");
     // 스테이징 규칙으로 클레임 가능 = 발송에 쓸 수 있다
-    assertThat(claimer.requireClaimable(user, List.of(res.id()))).hasSize(1);
+    assertThat(
+            claimer.requireClaimable(
+                user, List.of(res.id()), StagedFileClaimer.Retention.PERMANENT))
+        .hasSize(1);
   }
 
   @Test
@@ -465,7 +468,9 @@ class MailComposeAttachmentTest extends IntegrationTestBase {
         .isInstanceOf(MailSendException.class);
 
     assertThat(expiresAt(up.id())).isEqualTo(before);
-    assertThat(claimer.requireClaimable(user, List.of(up.id()))).hasSize(1);
+    assertThat(
+            claimer.requireClaimable(user, List.of(up.id()), StagedFileClaimer.Retention.PERMANENT))
+        .hasSize(1);
   }
 
   /** 새 필드 없이 보내는 기존 경로 — 첨부 없는 multipart/alternative 그대로(AI 확인카드 등 기존 호출처 회귀). */

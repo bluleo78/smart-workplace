@@ -1,5 +1,6 @@
 package com.workplace.mail.dto;
 
+import com.workplace.mail.util.MailComposeLimits;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import java.util.List;
@@ -11,9 +12,12 @@ import java.util.List;
  * @param to 받는사람 주소(없으면 null/빈 목록 허용)
  * @param cc 참조 주소(없으면 null/빈 목록 허용)
  * @param subject 이미 쓴 제목. 비어 있을 때만 AI 가 제목을 만든다.
+ *     <p>받는사람·제목 상한은 임시저장·발송과 같은 {@link MailComposeLimits} 상수다.
  */
 public record MailComposeDraftRequest(
     @NotBlank @Size(max = 4000) String instruction,
-    @Size(max = 100) List<@Size(max = 320) String> to,
-    @Size(max = 100) List<@Size(max = 320) String> cc,
-    @Size(max = 500) String subject) {}
+    @Size(max = MailComposeLimits.MAX_RECIPIENTS)
+        List<@Size(max = MailComposeLimits.MAX_ADDRESS_LENGTH) String> to,
+    @Size(max = MailComposeLimits.MAX_RECIPIENTS)
+        List<@Size(max = MailComposeLimits.MAX_ADDRESS_LENGTH) String> cc,
+    @Size(max = MailComposeLimits.MAX_SUBJECT_LENGTH) String subject) {}

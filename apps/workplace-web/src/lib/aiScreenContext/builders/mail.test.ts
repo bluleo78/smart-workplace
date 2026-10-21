@@ -51,6 +51,15 @@ describe('buildMailContext', () => {
     expect(buildMailContext({ ...base, selected: sel }).focus!.facts).toContainEqual({ label: '보낸이', value: '김철수' });
   });
 
+  // WP-577 임시보관함 — 앱 서버 임시저장이라 MCP 도구(list_mail) folder 인자가 아니다. 이름표만 바꾸고 folder ref 는 싣지 않는다.
+  it('임시보관함 — 이름표 「임시보관함」, refs 에 folder 없음, 건수는 임시저장 수', () => {
+    expect(buildMailContext({ ...base, folder: 'DRAFTS', count: 2 })).toEqual({
+      view: '메일함',
+      app: 'MAIL',
+      scope: { label: 'me@x.com · 임시보관함', refs: { accountId: '3' }, count: 2 },
+    });
+  });
+
   it('count 미제공이면 scope.count 없음', () => {
     expect(buildMailContext({ ...base, count: undefined }).scope).not.toHaveProperty('count');
   });

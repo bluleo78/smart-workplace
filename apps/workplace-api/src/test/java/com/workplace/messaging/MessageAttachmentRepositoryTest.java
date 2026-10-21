@@ -80,7 +80,7 @@ class MessageAttachmentRepositoryTest extends IntegrationTestBase {
     var mf = new MockMultipartFile("file", "promote.png", "image/png", new byte[] {4, 5, 6});
     Long fileId = storage.storeTemporary(mf, userId);
 
-    claimer.requireClaimable(userId, List.of(fileId));
+    claimer.requireClaimable(userId, List.of(fileId), StagedFileClaimer.Retention.PERMANENT);
     claimer.claim(userId, List.of(fileId), StagedFileClaimer.Retention.PERMANENT);
     repo.bind(fileId, messageId, userId);
 
@@ -110,7 +110,10 @@ class MessageAttachmentRepositoryTest extends IntegrationTestBase {
     Long fileId = storage.storeTemporary(mf, userId);
     repo.bind(fileId, messageId, userId);
 
-    assertThatThrownBy(() -> claimer.requireClaimable(userId, List.of(fileId)))
+    assertThatThrownBy(
+            () ->
+                claimer.requireClaimable(
+                    userId, List.of(fileId), StagedFileClaimer.Retention.PERMANENT))
         .isInstanceOf(StagedFileUnusableException.class);
   }
 

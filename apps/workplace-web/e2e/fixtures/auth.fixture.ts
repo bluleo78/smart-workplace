@@ -5,6 +5,7 @@ import type { RoleResponse } from '../../src/types/role'
 import { createTokenResponse, createUser } from '../factories/auth.factory'
 import { mockApi } from './api-mock'
 import { collabTestToken, injectCollabNamespace } from './collab'
+import { stubDraftsDefault } from './mail-drafts-mock'
 
 // 인증 모킹 fixture.
 // - 실제 백엔드 없이 인증된 상태 / 관리자 권한 상태의 page 를 제공.
@@ -199,6 +200,8 @@ export async function setupAuthMocks(page: Page, user: UserResponse, roles: Role
   await mockApi(page, 'GET', '/api/v1/notifications', [])
   // 메일 모바일 탭바 '업무' 미읽음 배지 기본 스텁(WP-186) — 미스텁 시 dev 프록시로 누수된다. 스펙이 나중에 등록한 route 가 우선(LIFO).
   await mockApi(page, 'GET', '/api/v1/mail/unread-summary', { workUnread: 0 })
+  // 메일 임시저장(WP-577) 기본 스텁 — 사이드바 개수·작성창 자동 저장이 dev 프록시로 새지 않게(상세는 stubDraftsDefault).
+  await stubDraftsDefault(page)
   // WP-214: 메일을 열면 상세 조회와 별도로 읽음 요청(POST /mail/messages/{id}/read)이 나간다 — 미스텁 시 dev 프록시로 누수되고
   // 실패 롤백(행이 다시 안 읽음 + 오류 토스트)이 메일 상세를 여는 모든 스펙을 흔든다. 읽음 요청을 검증하는 스펙은 나중에 등록(LIFO 우선).
   await page.route(

@@ -5,6 +5,8 @@ import com.workplace.mail.dto.ConnectionTestResult;
 import com.workplace.mail.exception.MailAiException;
 import com.workplace.mail.exception.MailAiUnavailableException;
 import com.workplace.mail.exception.MailConnectionException;
+import com.workplace.mail.exception.MailDraftConflictException;
+import com.workplace.mail.exception.MailDraftNotFoundException;
 import com.workplace.mail.exception.MailValidationException;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.Instant;
@@ -35,15 +37,7 @@ public class MailExceptionHandler {
   @ExceptionHandler(MailValidationException.class)
   public ResponseEntity<ErrorResponse> handleValidation(
       MailValidationException e, HttpServletRequest request) {
-    ErrorResponse body =
-        new ErrorResponse(
-            HttpStatus.BAD_REQUEST.value(),
-            HttpStatus.BAD_REQUEST.getReasonPhrase(),
-            e.getMessage(),
-            null,
-            Instant.now().toString(),
-            request.getRequestURI());
-    return ResponseEntity.badRequest().body(body);
+    return error(HttpStatus.BAD_REQUEST, e.getMessage(), null, request);
   }
 
   /**
@@ -54,28 +48,55 @@ public class MailExceptionHandler {
   @ExceptionHandler(MailAiUnavailableException.class)
   public ResponseEntity<ErrorResponse> handleAiUnavailable(
       MailAiUnavailableException e, HttpServletRequest request) {
-    ErrorResponse body =
-        new ErrorResponse(
-            HttpStatus.SERVICE_UNAVAILABLE.value(),
-            HttpStatus.SERVICE_UNAVAILABLE.getReasonPhrase(),
-            e.getMessage(),
-            e.code() == null ? null : Map.of("code", e.code()),
-            Instant.now().toString(),
-            request.getRequestURI());
-    return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(body);
+    return error(
+        HttpStatus.SERVICE_UNAVAILABLE,
+        e.getMessage(),
+        e.code() == null ? null : Map.of("code", e.code()),
+        request);
   }
 
   /** AI 비서 호출 실패(IO/4xx/5xx) → 502 + ErrorResponse(message 포함). */
   @ExceptionHandler(MailAiException.class)
   public ResponseEntity<ErrorResponse> handleAi(MailAiException e, HttpServletRequest request) {
+    return error(HttpStatus.BAD_GATEWAY, e.getMessage(), null, request);
+  }
+
+  /**
+   * 없거나 남의 임시저장(WP-577) → 404 + errors.code=DRAFT_NOT_FOUND — 웹이 계정 404 같은 다른 404 와 가려 「다른 곳에서 보냈거나
+   * 버린 메일」로 다룬다.
+   */
+  @ExceptionHandler(MailDraftNotFoundException.class)
+  public ResponseEntity<ErrorResponse> handleDraftNotFound(
+      MailDraftNotFoundException e, HttpServletRequest request) {
+    return error(
+        HttpStatus.NOT_FOUND,
+        e.getMessage(),
+        Map.of("code", MailDraftNotFoundException.CODE),
+        request);
+  }
+
+  /** 임시저장 버전 충돌(WP-577) → 409 + errors.code=DRAFT_CONFLICT — 웹이 코드로 가려 최신본을 다시 불러온다. */
+  @ExceptionHandler(MailDraftConflictException.class)
+  public ResponseEntity<ErrorResponse> handleDraftConflict(
+      MailDraftConflictException e, HttpServletRequest request) {
+    return error(
+        HttpStatus.CONFLICT,
+        e.getMessage(),
+        Map.of("code", MailDraftConflictException.CODE),
+        request);
+  }
+
+  /** 표준 ErrorResponse 응답. */
+  private static ResponseEntity<ErrorResponse> error(
+      HttpStatus status, String message, Map<String, String> errors, HttpServletRequest request) {
     ErrorResponse body =
         new ErrorResponse(
-            HttpStatus.BAD_GATEWAY.value(),
-            HttpStatus.BAD_GATEWAY.getReasonPhrase(),
-            e.getMessage(),
-            null,
+            status.value(),
+            status.getReasonPhrase(),
+            message,
+            errors,
             Instant.now().toString(),
             request.getRequestURI());
-    return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(body);
+    return ResponseEntity.status(status).body(body);
   }
 }
