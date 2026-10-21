@@ -34,6 +34,15 @@ describe('formatAuditAction / formatAuditResource (#109, #778, WP-335, WP-369)',
     expect(warn).not.toHaveBeenCalled();
   });
 
+  it('WP-706: 공용 비서 지정·해제·설정 변경 기록도 한글 라벨로', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(formatAuditAction('WORKSPACE_ASSISTANT_SET')).toBe('공용 비서 지정');
+    expect(formatAuditAction('WORKSPACE_ASSISTANT_CLEARED')).toBe('공용 비서 해제');
+    expect(formatAuditAction('WORKSPACE_ASSISTANT_SETTINGS_CHANGED')).toBe('공용 비서 설정 변경');
+    expect(formatAuditResource('workspace_assistant')).toBe('공용 비서');
+    expect(warn).not.toHaveBeenCalled();
+  });
+
   it('모르는 값은 raw 를 보여 주고 경고, 빈 값은 「-」', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     expect(formatAuditAction('FUTURE_EVENT')).toBe('FUTURE_EVENT');

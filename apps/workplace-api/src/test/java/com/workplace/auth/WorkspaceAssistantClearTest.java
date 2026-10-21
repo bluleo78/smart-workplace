@@ -26,7 +26,7 @@ class WorkspaceAssistantClearTest extends IntegrationTestBase {
     assertThat(service.get().agentUserId()).isEqualTo(agent);
 
     // when: 해제
-    service.clear();
+    service.clear(admin);
 
     // then: 미지정 상태(agentUserId = null)
     assertThat(service.get().agentUserId()).isNull();
