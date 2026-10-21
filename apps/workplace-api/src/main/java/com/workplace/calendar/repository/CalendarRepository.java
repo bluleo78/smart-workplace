@@ -65,6 +65,22 @@ public class CalendarRepository {
         .getId();
   }
 
+  /**
+   * 기본 캘린더를 없을 때만 넣는다(WP-757) — 이미 있거나 다른 트랜잭션이 막 넣었으면 유일 인덱스(uq_calendar_default)에서 아무것도 하지 않고
+   * empty. 같은 사용자의 첫 요청 둘이 동시에 들어와도 늦은 쪽이 409 로 실패하지 않게 한다. 먼저 넣은 쪽이 아직 커밋 전이면 그 커밋까지 기다린다.
+   */
+  public Optional<Long> insertDefaultIfAbsent(long ownerId, String name, String color) {
+    return dsl.insertInto(CALENDAR)
+        .set(CALENDAR.OWNER_ID, ownerId)
+        .set(CALENDAR.NAME, name)
+        .set(CALENDAR.COLOR, color)
+        .set(CALENDAR.IS_DEFAULT, true)
+        .set(CALENDAR.POSITION, 0)
+        .onConflictDoNothing()
+        .returning(CALENDAR.ID)
+        .fetchOptional(CALENDAR.ID);
+  }
+
   /** 소유자 본인 캘린더 단건. */
   public Optional<CalendarResponse> findByIdForOwner(long ownerId, long id) {
     return dsl.select(CALENDAR.asterisk(), EMAIL_ACCOUNT.EMAIL_ADDRESS, EMAIL_ACCOUNT.PROVIDER)

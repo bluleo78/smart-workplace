@@ -34,11 +34,16 @@ public class CalendarService {
     return repo.listByOwner(callerId);
   }
 
-  /** 기본 캘린더 보장 — 없으면 생성하고, 기본 캘린더 id 를 반환한다. 일정 생성 chokepoint 가 호출. */
+  /**
+   * 기본 캘린더 보장 — 없으면 생성하고, 기본 캘린더 id 를 반환한다. 일정 생성 chokepoint 가 호출. 첫 요청들이 동시에 만들면 늦은 쪽은 넣지 않고 먼저 만든
+   * 것을 다시 읽어 쓴다(WP-757 — 예전엔 유일 인덱스에 걸려 409).
+   */
   @Transactional
   public long ensureDefault(long callerId) {
     return repo.findDefaultId(callerId)
-        .orElseGet(() -> repo.insert(callerId, "기본", CalendarPalette.DEFAULT, true, 0));
+        .or(() -> repo.insertDefaultIfAbsent(callerId, "기본", CalendarPalette.DEFAULT))
+        .or(() -> repo.findDefaultId(callerId))
+        .orElseThrow(() -> new IllegalStateException("기본 캘린더를 만들지도 찾지도 못함: " + callerId));
   }
 
   /** 캘린더 생성 — 색 팔레트 검증, position 미지정 시 말미 배치. is_default=false. */
