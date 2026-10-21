@@ -80,18 +80,27 @@ export function formatDateOnlyMonthDay(dateStr: string | null | undefined, now: 
 
 /**
  * 월·일 날짜 범위("8월 12일 ~ 8월 20일") — 모바일 사이클 행·타임라인 아젠다 행이 공유한다.
+ * 올해(KST)가 아닌 날짜는 연도까지 붙인다(「12월 1일 ~ 2027년 1월 5일」, WP-678) — 월·일만이면 해를 넘는 기간이 같은 해 일정처럼 읽혔다.
+ * 마일스톤 목록(formatDateOnlyMonthDay, WP-616)과 같은 규칙.
  * 둘 다 없으면 empty. 화면마다 문구가 달라 옵션으로 고정한다:
  * - collapseSameDay: 시작=마감이면 한 날짜만(아젠다).
  * - openEnded: 한쪽만 있을 때 「8월 12일 ~」/「~ 8월 20일」 열린 범위(사이클). 끄면 그 날짜만(아젠다).
+ * - now: 「올해」 기준 시각(테스트용, 기본 지금).
  */
 export function formatDateRangeMonthDay(
   start: string | null | undefined,
   end: string | null | undefined,
   empty: string,
-  { collapseSameDay = false, openEnded = false }: { collapseSameDay?: boolean; openEnded?: boolean } = {},
+  {
+    collapseSameDay = false,
+    openEnded = false,
+    now = new Date(),
+  }: { collapseSameDay?: boolean; openEnded?: boolean; now?: Date } = {},
 ): string {
-  const s = start ? formatDateMonthDay(start) : '';
-  const e = end ? formatDateMonthDay(end) : '';
+  // 날짜 전용 값(YYYY-MM-DD)은 시간대 변환 없이 연도까지 판정하고, 그 밖의 형식은 예전처럼 월·일만.
+  const one = (d: string | null | undefined) => (d ? formatDateOnlyMonthDay(d, now) || formatDateMonthDay(d) : '');
+  const s = one(start);
+  const e = one(end);
   if (s && e) return collapseSameDay && s === e ? s : `${s} ~ ${e}`;
   if (openEnded) return s ? `${s} ~` : e ? `~ ${e}` : empty;
   return s || e || empty;

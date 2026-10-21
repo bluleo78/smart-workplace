@@ -157,6 +157,17 @@ test('마일스톤 시트 — 올해가 아닌 마감일은 연도까지 보인�
   await expect(rows).toHaveText([/작년 회고\s*2025년 3월 1일/, /올해 베타\s*11월 1일/, /내년 정식\s*2027년 3월 1일/]);
 });
 
+test('이슈 행 — 해를 넘는 기간은 올해가 아닌 쪽에 연도가 붙는다 (WP-678)', async ({ authenticatedPage: page }) => {
+  await setup(page, {
+    issues: [
+      I({ id: 70, number: 70, title: '해를 넘는 이슈', startDate: '2026-12-01', dueDate: '2027-01-05' }),
+      I({ id: 71, number: 71, title: '올해 이슈', startDate: '2026-10-11', dueDate: '2026-10-20' }),
+    ],
+  });
+  await expect(page.getByTestId('agenda-row-70')).toContainText('12월 1일 ~ 2027년 1월 5일');
+  await expect(page.getByTestId('agenda-row-71')).toContainText('10월 11일 ~ 10월 20일');
+});
+
 test('필터 칩 → 필터 시트(활성 수 표시), 0건이면 빈 상태 + 칩 줄 유지', async ({ authenticatedPage: page }) => {
   await setup(page, { query: '?status=DONE' });
   await expect(page.getByTestId('timeline-agenda-empty')).toBeVisible();
