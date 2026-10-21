@@ -45,6 +45,9 @@ const ACTION_LABEL: Record<NotificationResponse["type"], string> = {
   WIKI_SHARED: "님이 노트를 공유했습니다",
   WIKI_SHARE_ACCESS_REQUESTED: "님이 접근을 요청했습니다",
   WIKI_SHARE_ACCESS_APPROVED: "접근이 승인됐습니다",
+  // WP-712 주최자의 일정 변경(시간·장소)·취소 — 일정 제목·시각은 아래 줄에 함께 보인다.
+  CALENDAR_EVENT_UPDATED: "님이 일정을 변경했습니다",
+  CALENDAR_EVENT_CANCELED: "님이 일정을 취소했습니다",
 };
 
 /**

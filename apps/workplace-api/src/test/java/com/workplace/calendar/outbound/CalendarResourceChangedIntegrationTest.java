@@ -3,8 +3,10 @@ package com.workplace.calendar.outbound;
 import static com.workplace.jooq.Tables.CALENDAR;
 import static com.workplace.jooq.Tables.CALENDAR_EVENT;
 import static com.workplace.jooq.Tables.EMAIL_ACCOUNT;
+import static com.workplace.jooq.Tables.NOTIFICATION;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -27,6 +29,7 @@ import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.ResourceChangedCapture;
 import com.workplace.support.ResourceChangedCapture.Captured;
 import com.workplace.support.TestFixtures;
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -93,6 +96,10 @@ class CalendarResourceChangedIntegrationTest extends IntegrationTestBase {
   void cleanup() {
     dsl.deleteFrom(EMAIL_ACCOUNT).where(EMAIL_ACCOUNT.ID.in(accountIds)).execute();
     dsl.deleteFrom(CALENDAR_EVENT).where(CALENDAR_EVENT.OWNER_ID.in(userIds)).execute();
+    // 일정 취소 알림(WP-712)은 event_id 가 없어 일정 삭제의 cascade 로 지워지지 않는다 — 사람을 지우기 전에 받은 알림을 지운다.
+    dsl.deleteFrom(NOTIFICATION)
+        .where(NOTIFICATION.RECIPIENT_ID.in(userIds).or(NOTIFICATION.ACTOR_ID.in(userIds)))
+        .execute();
     dsl.deleteFrom(CALENDAR).where(CALENDAR.OWNER_ID.in(userIds)).execute();
     dsl.deleteFrom(USER).where(USER.ID.in(userIds)).execute();
     accountIds.clear();
@@ -126,6 +133,18 @@ class CalendarResourceChangedIntegrationTest extends IntegrationTestBase {
     clearInvocations(registry);
     eventService.delete(owner, id, EditScope.ALL, null);
     assertThat(capture("calendar-event", "deleted").recipients()).contains(owner, attendee);
+    // 참석자에게 가는 「일정 취소」 알림(WP-712, 비동기)이 들어온 뒤 정리한다 — 정리 뒤에 들어오면 사람 삭제가 FK 에 걸린다.
+    await()
+        .atMost(Duration.ofSeconds(5))
+        .until(
+            () ->
+                dsl.fetchCount(
+                        NOTIFICATION,
+                        NOTIFICATION
+                            .RECIPIENT_ID
+                            .eq(attendee)
+                            .and(NOTIFICATION.TYPE.eq("CALENDAR_EVENT_CANCELED")))
+                    == 1);
   }
 
   @Test

@@ -114,6 +114,27 @@ public class NotificationRepository {
         .execute();
   }
 
+  /**
+   * 일정 변경·취소 알림 1건 insert(WP-712) — 그때의 일정 제목·시작 시각을 함께 남긴다. 취소면 eventId 가 null(가리킬 일정이 없다)이고
+   * 목록·푸시는 남긴 제목·시각을 보인다.
+   */
+  public void insertEventNotice(
+      long recipientId,
+      NotificationType type,
+      long actorId,
+      Long eventId,
+      String eventTitle,
+      OffsetDateTime eventStartsAt) {
+    dsl.insertInto(NOTIFICATION)
+        .set(NOTIFICATION.RECIPIENT_ID, recipientId)
+        .set(NOTIFICATION.ACTOR_ID, actorId)
+        .set(NOTIFICATION.TYPE, type.name())
+        .set(NOTIFICATION.EVENT_ID, eventId)
+        .set(NOTIFICATION.EVENT_TITLE, eventTitle)
+        .set(NOTIFICATION.EVENT_STARTS_AT, eventStartsAt)
+        .execute();
+  }
+
   /** REMINDER 알림 1건 insert — actor/issue 없음(event_id 만), type=REMINDER, 안읽음. */
   public void insertReminder(long recipientId, long eventId) {
     dsl.insertInto(NOTIFICATION)
@@ -152,8 +173,8 @@ public class NotificationRepository {
             ISSUE.TITLE,
             NOTIFICATION.COMMENT_ID,
             NOTIFICATION.EVENT_ID,
-            CALENDAR_EVENT.TITLE,
-            CALENDAR_EVENT.STARTS_AT,
+            EVENT_TITLE,
+            EVENT_STARTS_AT,
             NOTIFICATION.WIKI_PAGE_ID,
             WIKI_PAGE.TITLE,
             NOTIFICATION.MESSAGE,
@@ -182,7 +203,7 @@ public class NotificationRepository {
         .fetch(
             r -> {
               OffsetDateTime created = r.get(NOTIFICATION.CREATED_AT);
-              OffsetDateTime eventStart = r.get(CALENDAR_EVENT.STARTS_AT);
+              OffsetDateTime eventStart = r.get(EVENT_STARTS_AT);
               return new NotificationResponse(
                   r.get(NOTIFICATION.ID),
                   r.get(NOTIFICATION.TYPE),
@@ -195,7 +216,7 @@ public class NotificationRepository {
                   r.get(ISSUE.TITLE),
                   r.get(NOTIFICATION.COMMENT_ID),
                   r.get(NOTIFICATION.EVENT_ID),
-                  r.get(CALENDAR_EVENT.TITLE),
+                  r.get(EVENT_TITLE),
                   eventStart == null ? null : eventStart.toInstant(),
                   r.get(NOTIFICATION.WIKI_PAGE_ID),
                   r.get(WIKI_PAGE.TITLE),
@@ -204,6 +225,17 @@ public class NotificationRepository {
                   created == null ? null : created.toInstant());
             });
   }
+
+  /**
+   * 알림에 보일 일정 제목·시작 시각 — 알림에 남긴 값(변경·취소 알림, WP-712)이 있으면 그것, 없으면(초대·응답·리마인더) 지금 일정 행의 값. 취소 알림은 일정
+   * 행이 없어 남긴 값만 있다.
+   */
+  private static final org.jooq.Field<String> EVENT_TITLE =
+      DSL.coalesce(NOTIFICATION.EVENT_TITLE, CALENDAR_EVENT.TITLE).as("event_title_shown");
+
+  private static final org.jooq.Field<OffsetDateTime> EVENT_STARTS_AT =
+      DSL.coalesce(NOTIFICATION.EVENT_STARTS_AT, CALENDAR_EVENT.STARTS_AT)
+          .as("event_starts_at_shown");
 
   /** 안읽음 수. listRecent() 와 동일하게 소프트삭제된 이슈를 참조하는 알림은 제외한다(#618, 뱃지-목록 카운트 불일치 방지). */
   public long countUnread(long recipientId) {

@@ -2,6 +2,8 @@ import {
   AtSign,
   Bell,
   Calendar,
+  CalendarClock,
+  CalendarX,
   FileText,
   MessageCircleQuestion,
   MessageSquare,
@@ -27,6 +29,8 @@ const TYPE_ICON: Record<NotificationResponse["type"], typeof UserPlus> = {
   AI_QUESTION: MessageCircleQuestion, // 이슈 챗 AI 질문(WP-452)
   ISSUE_CHAT_MENTION: AtSign, // 이슈 챗 멘션(WP-452)
   ISSUE_COMMENT_MENTION: AtSign, // 코멘트 멘션(WP-650)
+  CALENDAR_EVENT_UPDATED: CalendarClock, // 일정 시간·장소 변경(WP-712)
+  CALENDAR_EVENT_CANCELED: CalendarX, // 일정 취소(WP-712)
   WIKI_SHARED: FileText, // 노트 공유 알림(WP-579)
   WIKI_SHARE_ACCESS_REQUESTED: FileText,
   WIKI_SHARE_ACCESS_APPROVED: FileText,

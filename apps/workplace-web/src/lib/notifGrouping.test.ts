@@ -148,6 +148,35 @@ describe('groupNotifications', () => {
     expect(updates2[0].target).toBe('/calendar?eventId=7')
   })
 
+  it('일정 변경은 그 일정으로 딥링크하고, 일정 취소는 일정이 없어 알림마다 따로 두고 캘린더로 간다 (WP-712)', () => {
+    const { updates } = groupNotifications([
+      notif({
+        id: 20,
+        type: 'CALENDAR_EVENT_UPDATED',
+        eventId: 8,
+        eventTitle: '주간 회의',
+        issueNumber: 0,
+        projectKey: '',
+        createdAt: '2026-06-16T02:00:00Z',
+      }),
+      notif({
+        id: 21,
+        type: 'CALENDAR_EVENT_CANCELED',
+        eventId: null,
+        eventTitle: '분기 리뷰',
+        issueNumber: 0,
+        projectKey: '',
+        createdAt: '2026-06-16T01:00:00Z',
+      }),
+    ])
+    expect(updates.map((g) => g.key)).toEqual(['event:8', 'id:21'])
+    expect(updates[0].deltaSummary).toBe('일정 변경')
+    expect(updates[0].target).toBe('/calendar?eventId=8')
+    expect(updates[1].title).toBe('분기 리뷰')
+    expect(updates[1].deltaSummary).toBe('일정 취소')
+    expect(updates[1].target).toBe('/calendar')
+  })
+
   it('이슈 챗 알림은 내 차례로 묶고, 델타를 따로 세고, 챗 드로워로 딥링크한다 (WP-452)', () => {
     const { mine, updates } = groupNotifications([
       notif({ id: 1, type: 'COMMENTED', createdAt: '2026-06-16T01:00:00Z' }),

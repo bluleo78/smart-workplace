@@ -1,6 +1,7 @@
 package com.workplace.notify.outbound;
 
 import com.workplace.calendar.outbound.CalendarAttendeeEvents.CalendarAttendeeInvitedEvent;
+import com.workplace.calendar.outbound.CalendarAttendeeEvents.CalendarEventNoticeEvent;
 import com.workplace.calendar.outbound.CalendarAttendeeEvents.CalendarRsvpChangedEvent;
 import com.workplace.calendar.outbound.CalendarReminderEvents.CalendarReminderDueEvent;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageCreatedEvent;
@@ -82,6 +83,29 @@ public class NotificationDispatcher {
           "[notify] RSVP 알림 실패 eventId={} recipientId={}: {}",
           e.eventId(),
           e.recipientId(),
+          ex.getMessage());
+    }
+  }
+
+  /** 일정 시간·장소 변경·취소 → 참석자에게 CALENDAR_EVENT_UPDATED / CALENDAR_EVENT_CANCELED 알림(WP-712). */
+  @Async("notifyEventExecutor")
+  @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+  public void onCalendarEventNotice(CalendarEventNoticeEvent e) {
+    try {
+      service.createEventNoticesAndFanOut(
+          e.recipientIds(),
+          e.canceled()
+              ? NotificationType.CALENDAR_EVENT_CANCELED
+              : NotificationType.CALENDAR_EVENT_UPDATED,
+          e.actorId(),
+          e.eventId(),
+          e.title(),
+          e.startsAt());
+    } catch (Exception ex) {
+      log.warn(
+          "[notify] 일정 변경·취소 알림 실패 eventId={} canceled={}: {}",
+          e.eventId(),
+          e.canceled(),
           ex.getMessage());
     }
   }

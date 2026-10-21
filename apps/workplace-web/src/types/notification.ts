@@ -17,7 +17,10 @@ export interface NotificationResponse {
     // WP-579: 노트 공유 알림 — 공유받음 / 접근 요청(공유한 사람) / 접근 승인(요청자). wikiPageId 를 채운다.
     | "WIKI_SHARED"
     | "WIKI_SHARE_ACCESS_REQUESTED"
-    | "WIKI_SHARE_ACCESS_APPROVED";
+    | "WIKI_SHARE_ACCESS_APPROVED"
+    // WP-712: 주최자가 일정 시간·장소를 바꿈 / 일정을 지움 — 참석자 수신. 취소는 eventId 없이 제목·원래 시각만.
+    | "CALENDAR_EVENT_UPDATED"
+    | "CALENDAR_EVENT_CANCELED";
   actorId: number | null;
   actorName: string | null;
   actorKind: string | null; // 'HUMAN' | 'AGENT' | null
@@ -26,7 +29,8 @@ export interface NotificationResponse {
   issueNumber: number;
   issueTitle: string;
   commentId: number | null;
-  // REMINDER/CALENDAR_INVITED/CALENDAR_RSVP_CHANGED 타입 전용 — 일정 알림 정보 (이슈 #110, #489). 그 외 타입에선 null.
+  // 일정 알림(REMINDER·CALENDAR_*) 전용 — 일정 알림 정보 (이슈 #110, #489). 그 외 타입에선 null.
+  // 변경·취소 알림(WP-712)은 알림 때의 제목·시각이고, 취소면 eventId 가 null(지운 일정)이다.
   eventId: number | null;
   eventTitle: string | null;
   eventStartsAt: string | null;

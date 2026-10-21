@@ -346,7 +346,7 @@ class WikiShareNotificationTest extends IntegrationTestBase {
 
   private InboxPushRequestedEvent wikiPush(NotificationType type, long pageId, long actorId) {
     return new InboxPushRequestedEvent(
-        1L, type, PushCategory.MENTION, List.of(listedId), actorId, null, null, pageId);
+        1L, type, PushCategory.MENTION, List.of(listedId), actorId, null, null, pageId, null);
   }
 
   private long human() {

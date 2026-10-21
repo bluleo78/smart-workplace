@@ -158,6 +158,26 @@ public class EventAttendeeRepository {
         .execute();
   }
 
+  /**
+   * 시간이 바뀐 일정의 응답을 「응답 필요」로 되돌린다(WP-712) — 새 시간에 다시 답하게 한다(Google·Outlook 방식). 주최자 행과 AI(AGENT)
+   * 참석자는 그대로 둔다 — 주최자는 응답 대상이 아니고, AI 는 항상 수락으로 고정돼 다시 답할 방법이 없다. 외부 이메일 참석자(user_id null)는 되돌린다.
+   */
+  public int resetRsvpForReschedule(long eventId) {
+    return dsl.update(EVENT_ATTENDEE)
+        .set(EVENT_ATTENDEE.RSVP_STATUS, "NEEDS_ACTION")
+        .setNull(EVENT_ATTENDEE.RESPONDED_AT)
+        .where(EVENT_ATTENDEE.EVENT_ID.eq(eventId))
+        .and(EVENT_ATTENDEE.ROLE.ne("ORGANIZER"))
+        .and(
+            EVENT_ATTENDEE
+                .USER_ID
+                .isNull()
+                .or(
+                    EVENT_ATTENDEE.USER_ID.notIn(
+                        dsl.select(USER.ID).from(USER).where(USER.KIND.eq("AGENT")))))
+        .execute();
+  }
+
   /** 이벤트에서 특정 참석자 제거. 반환값: 실제 삭제된 행 수(0=원래 미등록). */
   public int deleteByEventAndUser(long eventId, long userId) {
     return dsl.deleteFrom(EVENT_ATTENDEE)

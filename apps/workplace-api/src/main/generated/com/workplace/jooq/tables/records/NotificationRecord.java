@@ -188,6 +188,34 @@ public class NotificationRecord extends UpdatableRecordImpl<NotificationRecord> 
         return (String) get(11);
     }
 
+    /**
+     * Setter for <code>public.notification.event_title</code>.
+     */
+    public void setEventTitle(String value) {
+        set(12, value);
+    }
+
+    /**
+     * Getter for <code>public.notification.event_title</code>.
+     */
+    public String getEventTitle() {
+        return (String) get(12);
+    }
+
+    /**
+     * Setter for <code>public.notification.event_starts_at</code>.
+     */
+    public void setEventStartsAt(OffsetDateTime value) {
+        set(13, value);
+    }
+
+    /**
+     * Getter for <code>public.notification.event_starts_at</code>.
+     */
+    public OffsetDateTime getEventStartsAt() {
+        return (OffsetDateTime) get(13);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -211,7 +239,7 @@ public class NotificationRecord extends UpdatableRecordImpl<NotificationRecord> 
     /**
      * Create a detached, initialised NotificationRecord
      */
-    public NotificationRecord(Long id, Long recipientId, Long actorId, String type, Long issueId, Long commentId, OffsetDateTime readAt, OffsetDateTime createdAt, Long eventId, Long tenantId, Long wikiPageId, String message) {
+    public NotificationRecord(Long id, Long recipientId, Long actorId, String type, Long issueId, Long commentId, OffsetDateTime readAt, OffsetDateTime createdAt, Long eventId, Long tenantId, Long wikiPageId, String message, String eventTitle, OffsetDateTime eventStartsAt) {
         super(Notification.NOTIFICATION);
 
         setId(id);
@@ -226,6 +254,8 @@ public class NotificationRecord extends UpdatableRecordImpl<NotificationRecord> 
         setTenantId(tenantId);
         setWikiPageId(wikiPageId);
         setMessage(message);
+        setEventTitle(eventTitle);
+        setEventStartsAt(eventStartsAt);
         resetChangedOnNotNull();
     }
 }

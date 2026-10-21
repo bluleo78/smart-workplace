@@ -43,7 +43,19 @@ public class PushContentService {
                       INBOX_TTL))
           .orElse(null);
     }
-    if (e.eventId() == null) return null;
+    if (e.eventId() == null) {
+      // 취소 알림(WP-712) — 일정 행이 없어 알림에 담긴 제목으로 보낸다. 지운 일정으로 가는 링크 대신 캘린더를 연다.
+      if (e.eventTitle() == null) return null;
+      return new PushMessage(
+          e.tenantId(),
+          category,
+          Texts.truncateCodePoints(e.eventTitle(), 120),
+          actor + label(e.type()),
+          "/calendar",
+          "event-canceled-" + e.eventTitle().hashCode(),
+          "normal",
+          INBOX_TTL);
+    }
     return repo.findEventTitle(e.eventId())
         .map(
             title -> {
@@ -130,6 +142,8 @@ public class PushContentService {
       case WIKI_SHARED -> "님이 노트를 공유했습니다";
       case WIKI_SHARE_ACCESS_REQUESTED -> "님이 접근을 요청했습니다";
       case WIKI_SHARE_ACCESS_APPROVED -> "접근이 승인됐습니다";
+      case CALENDAR_EVENT_UPDATED -> "님이 일정을 변경했습니다";
+      case CALENDAR_EVENT_CANCELED -> "님이 일정을 취소했습니다";
     };
   }
 }

@@ -15,6 +15,7 @@ import com.workplace.calendar.exception.ExternalEventRsvpNotSupportedException;
 import com.workplace.calendar.exception.ReadOnlyCalendarException;
 import com.workplace.calendar.exception.RecurringNotSupportedOnExternalCalendarException;
 import com.workplace.calendar.outbound.CalendarAttendeeEvents.CalendarAttendeeInvitedEvent;
+import com.workplace.calendar.outbound.CalendarAttendeeEvents.CalendarEventNoticeEvent;
 import com.workplace.calendar.outbound.CalendarAttendeeEvents.CalendarRsvpChangedEvent;
 import com.workplace.calendar.outbound.CalendarChangeNotifier;
 import com.workplace.calendar.repository.CalendarEventExceptionRepository;
@@ -230,6 +231,111 @@ public class CalendarEventService {
     Set<Long> audience = new HashSet<>(before);
     audience.addAll(internalAttendeeIds(eventId));
     changeNotifier.eventChanged(op, eventId, ownerId, audience, callerId);
+  }
+
+  /**
+   * 시간·장소 변경을 참석자에게 알린다(WP-712). 시간이 바뀌면 resetRsvp 일 때 응답을 「응답 필요」로 되돌려 새 시간에 다시 답하게 하고, 시간이나 장소가
+   * 바뀌면 「일정 변경」 알림을 보낸다. 제목·설명·색만 바뀌면 아무것도 하지 않는다(알림 소음 방지). 쓰기 트랜잭션 안에서 호출 — 알림은 커밋 뒤 나간다.
+   */
+  private void noticeIfRescheduled(
+      long callerId,
+      long eventId,
+      boolean timeChanged,
+      boolean locationChanged,
+      boolean resetRsvp) {
+    if (!timeChanged && !locationChanged) return;
+    if (timeChanged && resetRsvp) attendeeRepo.resetRsvpForReschedule(eventId);
+    repo.findById(callerId, eventId)
+        .ifPresent(
+            after ->
+                publishNotice(
+                    callerId,
+                    eventId,
+                    noticeRecipients(eventId, callerId),
+                    after.title(),
+                    after.startsAt(),
+                    false));
+  }
+
+  /** 참석자 알림 발행 — 받을 사람이 없으면 발행하지 않는다. 쓰기 트랜잭션 안에서 호출(AFTER_COMMIT 리스너가 받는다). */
+  private void publishNotice(
+      long callerId,
+      Long eventId,
+      List<Long> recipients,
+      String title,
+      OffsetDateTime startsAt,
+      boolean canceled) {
+    if (recipients.isEmpty()) return;
+    eventPublisher.publishEvent(
+        new CalendarEventNoticeEvent(eventId, recipients, callerId, canceled, title, startsAt));
+  }
+
+  /** 변경·취소를 알릴 참석자 — 내부 사용자 중 주최자·행위자·AI 를 뺀다(AI 는 초대 알림도 받지 않는다). */
+  private List<Long> noticeRecipients(long eventId, long callerId) {
+    return attendeeRepo.findByEvent(eventId).stream()
+        .filter(a -> a.userId() != null && a.userId() != callerId)
+        .filter(a -> !"ORGANIZER".equals(a.role()) && !"AGENT".equals(a.kind()))
+        .map(AttendeeRow::userId)
+        .distinct()
+        .toList();
+  }
+
+  /**
+   * 시간이 바뀌었나(WP-712) — 시작·끝·종일·반복 규칙. 시각은 같은 순간인지로 비교한다(같은 시각을 다른 오프셋으로 보내도 변경이 아니다 — equals 는
+   * 오프셋까지 비교해 제목만 고쳐도 시간이 바뀐 것으로 볼 수 있다).
+   */
+  private static boolean timeChanged(
+      OffsetDateTime beforeStart,
+      OffsetDateTime beforeEnd,
+      boolean beforeAllDay,
+      String beforeRule,
+      CalendarEventRequest req) {
+    return !sameInstant(beforeStart, req.startsAt())
+        || !sameInstant(beforeEnd, req.endsAt())
+        || beforeAllDay != req.allDay()
+        || !Objects.equals(blankToNull(beforeRule), blankToNull(req.recurrenceRule()));
+  }
+
+  private static boolean sameInstant(OffsetDateTime a, OffsetDateTime b) {
+    return a == null ? b == null : b != null && a.isEqual(b);
+  }
+
+  /** 장소가 바뀌었나 — 앞뒤 공백·빈 값은 「장소 없음」과 같게 본다. */
+  private static boolean locationChanged(String before, String after) {
+    return !Objects.equals(blankToNull(before), blankToNull(after));
+  }
+
+  private static String blankToNull(String s) {
+    return s == null || s.isBlank() ? null : s.strip();
+  }
+
+  /** 취소 알림 내용 — 지우기 전에 모은다(지우면 행·참석자가 사라진다). */
+  private record CancelNotice(List<Long> recipients, String title, OffsetDateTime startsAt) {}
+
+  /**
+   * 지울 일정의 취소 알림 내용(WP-712). 일정 전체를 지우면 그 일정의 제목·시작 시각, 반복의 한 회차(THIS)·이후 회차(THIS_AND_FOLLOWING)를
+   * 지우면 그 회차의 원래 시각을 보인다. 한 회차만 따로 고쳐 둔(오버라이드) 회차를 지우면 그 오버라이드의 제목·시각·참석자를 쓴다.
+   */
+  private CancelNotice cancelNotice(
+      long callerId, long id, EditScope scope, OffsetDateTime occurrenceDate) {
+    CalendarEventResponse target =
+        repo.findById(callerId, id).orElseThrow(() -> new CalendarEventNotFoundException(id));
+    boolean wholeEvent =
+        occurrenceDate == null || target.recurrenceRule() == null || scope == EditScope.ALL;
+    if (!wholeEvent && scope == EditScope.THIS) {
+      var override =
+          exceptionRepo
+              .findOverrideEventId(id, occurrenceDate)
+              .flatMap(oid -> repo.findById(callerId, oid));
+      if (override.isPresent()) {
+        CalendarEventResponse o = override.get();
+        return new CancelNotice(noticeRecipients(o.id(), callerId), o.title(), o.startsAt());
+      }
+    }
+    return new CancelNotice(
+        noticeRecipients(id, callerId),
+        target.title(),
+        wholeEvent ? target.startsAt() : occurrenceDate);
   }
 
   /**
@@ -526,6 +632,13 @@ public class CalendarEventService {
             boolean scheduleChanged = !before.startsAt().equals(req.startsAt());
             applyReminder(
                 id, req.reminderMinutes(), req.startsAt(), req.recurrenceRule(), scheduleChanged);
+            // 내부 참석자에게 변경 알림(WP-712). 응답은 되돌리지 않는다 — 외부 일정의 응답은 동기화가 원본(Graph)에서 다시 덮어쓴다.
+            noticeIfRescheduled(
+                callerId,
+                id,
+                timeChanged(before.startsAt(), before.endsAt(), before.allDay(), null, req),
+                locationChanged(before.location(), req.location()),
+                false);
             publishEventChanged(
                 ResourceChangedEvent.OP_UPDATED,
                 id,
@@ -578,6 +691,13 @@ public class CalendarEventService {
               || !Objects.equals(target.recurrenceRule(), req.recurrenceRule());
       applyReminder(
           id, req.reminderMinutes(), req.startsAt(), req.recurrenceRule(), scheduleChanged);
+      noticeIfRescheduled(
+          callerId,
+          id,
+          timeChanged(
+              target.startsAt(), target.endsAt(), target.allDay(), target.recurrenceRule(), req),
+          locationChanged(target.location(), req.location()),
+          true);
       return get(callerId, id);
     }
 
@@ -638,15 +758,17 @@ public class CalendarEventService {
     boolean[] isNew = {false};
     // 기존 오버라이드 재편집 시 시작시각 변경 여부 판단용(리마인더 재계산 필요성 — #705).
     OffsetDateTime[] prevStartsAt = {null};
+    // 변경 전 회차 — 기존 오버라이드가 있으면 그 일정, 없으면 마스터의 그 회차(WP-712 알림 판단용).
+    CalendarEventResponse[] prevOverride = {null};
     long overrideId =
         exceptionRepo
             .findOverrideEventId(masterId, occurrenceDate)
             .map(
                 existing -> {
-                  prevStartsAt[0] =
+                  prevOverride[0] =
                       repo.findById(callerId, existing)
-                          .orElseThrow(() -> new CalendarEventNotFoundException(existing))
-                          .startsAt();
+                          .orElseThrow(() -> new CalendarEventNotFoundException(existing));
+                  prevStartsAt[0] = prevOverride[0].startsAt();
                   repo.moveSingleEventToCalendar(existing, calId);
                   repo.update(existing, overrideReq);
                   return existing;
@@ -669,6 +791,20 @@ public class CalendarEventService {
     if (isNew[0]) {
       copyAttendees(masterId, overrideId);
     }
+    // 이 회차만의 변경 알림·응답 초기화(WP-712) — 오버라이드(이 회차)에만 적용하고 시리즈의 다른 회차 응답은 그대로 둔다.
+    CalendarEventResponse prev = prevOverride[0];
+    boolean timeChanged =
+        prev != null
+            ? timeChanged(prev.startsAt(), prev.endsAt(), prev.allDay(), null, overrideReq)
+            : timeChanged(
+                occurrenceDate,
+                occurrenceDate.plus(Duration.between(master.startsAt(), master.endsAt())),
+                master.allDay(),
+                null,
+                overrideReq);
+    boolean locationChanged =
+        locationChanged(prev != null ? prev.location() : master.location(), overrideReq.location());
+    noticeIfRescheduled(callerId, overrideId, timeChanged, locationChanged, true);
     return get(callerId, overrideId);
   }
 
@@ -682,6 +818,15 @@ public class CalendarEventService {
       CalendarEventResponse master,
       CalendarEventRequest req,
       OffsetDateTime occurrenceDate) {
+    // 변경 판단(WP-712)은 남은 횟수로 고치기 전의 요청으로 한다 — 수정 창은 시리즈 전체 횟수를 그대로 보내므로 고친 뒤와 비교하면 늘 반복이 바뀐 것으로 보인다.
+    boolean timeChanged =
+        timeChanged(
+            occurrenceDate,
+            occurrenceDate.plus(Duration.between(master.startsAt(), master.endsAt())),
+            master.allDay(),
+            master.recurrenceRule(),
+            req);
+    boolean locationChanged = locationChanged(master.location(), req.location());
     req = withRemainingCount(master, req, occurrenceDate);
     String truncated =
         RecurrenceExpander.withUntil(master.recurrenceRule(), occurrenceDate.minusSeconds(1));
@@ -699,6 +844,8 @@ public class CalendarEventService {
     tagService.copyTags(master.id(), newMasterId);
     // 첫 회차부터 고쳤으면 옛 시리즈는 회차가 0개 — 빈 원본이 남지 않게 지운다(WP-663). 참석자는 위에서 이미 복제했다.
     if (noOccurrenceBefore(master, occurrenceDate)) deleteSeries(master.id());
+    // 이후 회차(새 시리즈)에만 변경 알림·응답 초기화(WP-712) — 잘린 앞 회차의 응답은 그대로 둔다.
+    noticeIfRescheduled(callerId, newMasterId, timeChanged, locationChanged, true);
     return get(callerId, newMasterId);
   }
 
@@ -807,7 +954,11 @@ public class CalendarEventService {
             // 삭제 시 참석자 행이 cascade 로 사라지므로 삭제 전에 명단·소유자를 확보한다.
             List<Long> beforeAttendees = internalAttendeeIds(id);
             long ownerId = repo.findOwnerId(id).orElse(callerId);
+            CancelNotice notice = cancelNotice(callerId, id, EditScope.ALL, null);
             repo.delete(id);
+            // 내부 참석자에게 「일정 취소」(WP-712) — 행이 사라졌으니 가리킬 일정 없이 제목·원래 시각만 담는다.
+            publishNotice(
+                callerId, null, notice.recipients(), notice.title(), notice.startsAt(), true);
             // 삭제는 참석자를 늘리지 않으므로(cascade 로 사라질 뿐) 삭제 전 명단만으로 충분 — 재조회하지 않는다.
             changeNotifier.eventChanged(
                 ResourceChangedEvent.OP_DELETED, id, ownerId, beforeAttendees, callerId);
@@ -820,7 +971,11 @@ public class CalendarEventService {
         s -> {
           List<Long> beforeAttendees = internalAttendeeIds(id);
           long ownerId = repo.findOwnerId(id).orElse(callerId);
+          CancelNotice notice = cancelNotice(callerId, id, scope, occurrenceDate);
           doDeleteLocal(callerId, id, scope, occurrenceDate);
+          // 참석자에게 「일정 취소」(WP-712) — 회차 취소는 마스터가 남지만 그 회차를 가리킬 일정이 없어 제목·원래 시각만 담는다.
+          publishNotice(
+              callerId, null, notice.recipients(), notice.title(), notice.startsAt(), true);
           // 회차 취소·시리즈 절단도 이 일정(id)의 참석자를 늘리지 않으므로 삭제 전 명단만으로 충분 — 재조회하지 않는다.
           changeNotifier.eventChanged(
               ResourceChangedEvent.OP_DELETED, id, ownerId, beforeAttendees, callerId);

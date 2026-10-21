@@ -11,6 +11,7 @@ import com.workplace.notify.push.InboxPushRequestedEvent;
 import com.workplace.notify.push.PushCategory;
 import com.workplace.notify.repository.NotificationRepository;
 import com.workplace.watcher.repository.IssueWatcherRepository;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -124,7 +125,7 @@ public class NotificationService {
     if (tenantId == null) return;
     publisher.publishEvent(
         new InboxPushRequestedEvent(
-            tenantId, type, category, recipients, actorId, issueId, eventId, wikiPageId));
+            tenantId, type, category, recipients, actorId, issueId, eventId, wikiPageId, null));
   }
 
   /**
@@ -218,6 +219,40 @@ public class NotificationService {
     registry.fanOut(
         List.of(recipientId), "notify.created", Map.of("type", type.name(), "wikiPageId", pageId));
     publishPush(type, PushCategory.of(type), List.of(recipientId), actorId, null, null, pageId);
+  }
+
+  /**
+   * 일정 변경·취소 알림(WP-712) — 주최자가 시간·장소를 바꿨거나 일정을 지웠을 때 참석자에게. 알림 행에 그때의 제목·시작 시각을 남긴다(취소는 가리킬 일정이 없어
+   * eventId=null). 행위자 본인은 받지 않는다. insert 후 SSE fan-out·푸시.
+   */
+  @Transactional
+  public void createEventNoticesAndFanOut(
+      List<Long> recipientIds,
+      NotificationType type,
+      long actorId,
+      Long eventId,
+      String eventTitle,
+      OffsetDateTime eventStartsAt) {
+    List<Long> recipients = recipientIds.stream().filter(id -> id != actorId).distinct().toList();
+    if (recipients.isEmpty()) return;
+    for (long recipientId : recipients) {
+      repo.insertEventNotice(recipientId, type, actorId, eventId, eventTitle, eventStartsAt);
+    }
+    // eventId 가 null 일 수 있어 Map.of 대신 type 만 싣는다 — 클라는 수신 즉시 목록을 다시 읽는다.
+    registry.fanOut(recipients, "notify.created", Map.of("type", type.name()));
+    Long tenantId = TenantContext.get();
+    if (tenantId == null) return;
+    publisher.publishEvent(
+        new InboxPushRequestedEvent(
+            tenantId,
+            type,
+            PushCategory.of(type),
+            recipients,
+            actorId,
+            null,
+            eventId,
+            null,
+            eventId == null ? eventTitle : null));
   }
 
   /**

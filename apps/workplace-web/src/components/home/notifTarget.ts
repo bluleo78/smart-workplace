@@ -3,11 +3,18 @@
 import type { NotificationResponse } from '@/types/notification'
 
 /**
- * 캘린더(일정) 기반 알림 판별 — REMINDER/CALENDAR_INVITED/CALENDAR_RSVP_CHANGED 는
+ * 캘린더(일정) 기반 알림 판별 — REMINDER/CALENDAR_INVITED/CALENDAR_RSVP_CHANGED/CALENDAR_EVENT_UPDATED 는
  * issueId/projectKey 없이 eventId 만 채워진다(백엔드 insertEventNotification/insertReminder 공통 형태, #489).
+ * CALENDAR_EVENT_CANCELED(WP-712)는 지운 일정이라 eventId 도 없다 — 캘린더 첫 화면으로 간다.
  */
 export function isCalendarType(n: NotificationResponse): boolean {
-  return n.type === 'REMINDER' || n.type === 'CALENDAR_INVITED' || n.type === 'CALENDAR_RSVP_CHANGED'
+  return (
+    n.type === 'REMINDER' ||
+    n.type === 'CALENDAR_INVITED' ||
+    n.type === 'CALENDAR_RSVP_CHANGED' ||
+    n.type === 'CALENDAR_EVENT_UPDATED' ||
+    n.type === 'CALENDAR_EVENT_CANCELED'
+  )
 }
 
 /**

@@ -124,6 +124,16 @@ public class Notification extends TableImpl<NotificationRecord> {
      */
     public final TableField<NotificationRecord, String> MESSAGE = createField(DSL.name("message"), SQLDataType.CLOB, this, "");
 
+    /**
+     * The column <code>public.notification.event_title</code>.
+     */
+    public final TableField<NotificationRecord, String> EVENT_TITLE = createField(DSL.name("event_title"), SQLDataType.VARCHAR(200), this, "");
+
+    /**
+     * The column <code>public.notification.event_starts_at</code>.
+     */
+    public final TableField<NotificationRecord, OffsetDateTime> EVENT_STARTS_AT = createField(DSL.name("event_starts_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "");
+
     private Notification(Name alias, Table<NotificationRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

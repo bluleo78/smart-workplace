@@ -85,6 +85,8 @@ const TYPE_ORDER: NotificationResponse["type"][] = [
   "REMINDER",
   "CALENDAR_INVITED",
   "CALENDAR_RSVP_CHANGED",
+  "CALENDAR_EVENT_UPDATED",
+  "CALENDAR_EVENT_CANCELED",
   "WIKI_SHARE_ACCESS_REQUESTED",
   "WIKI_SHARED",
   "WIKI_SHARE_ACCESS_APPROVED",
@@ -109,6 +111,8 @@ function deltaSummary(group: NotificationResponse[]): string {
       parts.push(c > 1 ? `우선순위 변경 ${c}건` : "우선순위 변경");
     else if (t === "CALENDAR_INVITED") parts.push("일정 초대");
     else if (t === "CALENDAR_RSVP_CHANGED") parts.push("참석 응답 변경");
+    else if (t === "CALENDAR_EVENT_UPDATED") parts.push("일정 변경");
+    else if (t === "CALENDAR_EVENT_CANCELED") parts.push("일정 취소");
     else if (t === "REMINDER") parts.push("일정 알림");
     else if (t === "WIKI_SHARE_ACCESS_REQUESTED")
       parts.push(c > 1 ? `접근 요청 ${c}건` : "접근 요청");

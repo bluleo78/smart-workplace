@@ -189,6 +189,52 @@ test('CALENDAR_INVITED 알림은 크래시 없이 일정 정보를 렌더하고 
   await expect(page).toHaveURL(/\/calendar\?eventId=\d+$/)
 })
 
+// 주최자가 시간·장소를 바꾸면 「일정 변경」, 지우면 「일정 취소」가 온다(WP-712).
+// 취소는 일정이 사라져 eventId 가 없으므로 알림에 남긴 제목으로 보이고 클릭하면 캘린더로 간다.
+test('일정 변경·취소 알림은 라벨과 제목을 보이고, 취소 클릭은 캘린더로 간다 (WP-712)', async ({
+  authenticatedPage: page,
+}) => {
+  await mockApi(page, 'GET', '/api/v1/notifications/unread-count', { count: 2 })
+  await mockApi(page, 'GET', '/api/v1/notifications', [
+    notif({
+      id: 21,
+      type: 'CALENDAR_EVENT_UPDATED',
+      actorId: 2,
+      actorName: '양동희',
+      actorKind: 'HUMAN',
+      commentId: null,
+      eventId: 8,
+      eventTitle: '주간 회의',
+      eventStartsAt: '2026-07-10T03:00:00Z',
+      createdAt: '2026-07-01T02:00:00Z',
+    }),
+    notif({
+      id: 22,
+      type: 'CALENDAR_EVENT_CANCELED',
+      actorId: 2,
+      actorName: '양동희',
+      actorKind: 'HUMAN',
+      commentId: null,
+      eventId: null,
+      eventTitle: '분기 리뷰',
+      eventStartsAt: '2026-07-11T01:00:00Z',
+      createdAt: '2026-07-01T01:00:00Z',
+    }),
+  ])
+  await mockApi(page, 'POST', '/api/v1/notifications/22/read', {}, { status: 204 })
+  await page.goto('/')
+  await page.getByTestId('inbox-trigger').click()
+
+  const updated = page.getByTestId('inbox-item').filter({ hasText: '주간 회의' })
+  await expect(updated).toContainText('일정을 변경했습니다')
+  const canceled = page.getByTestId('inbox-item').filter({ hasText: '분기 리뷰' })
+  await expect(canceled).toContainText('일정을 취소했습니다')
+
+  await canceled.click()
+  await expect(page).toHaveURL(/\/calendar$/)
+  await expect(page.getByTestId('calendar-view-month')).toBeVisible()
+})
+
 // 삭제됐거나 접근 권한 없는 eventId 로 직접 진입 시 다이얼로그 없이 캘린더를 보이고 안내한다.
 // 안내 후 eventId 는 replace 로 지운다 — 남기면 다음 일정 탭이 push 되지 않아 닫기가 캘린더를 떠난다(WP-208).
 test('존재하지 않는 eventId 딥링크는 다이얼로그 없이 캘린더를 보이고 안내한다 (#659)', async ({

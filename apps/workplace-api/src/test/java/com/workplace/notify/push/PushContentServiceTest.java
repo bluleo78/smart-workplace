@@ -108,6 +108,29 @@ class PushContentServiceTest extends IntegrationTestBase {
         .isNull();
   }
 
+  /** 일정 취소(WP-712) — 일정 행이 없어도 알림에 담긴 제목으로 푸시하고, 지운 일정 대신 캘린더를 연다. */
+  @Test
+  void forInbox_calendarCanceled_usesSnapshotTitle() {
+    PushMessage m =
+        content.forInbox(
+            new InboxPushRequestedEvent(
+                1L,
+                NotificationType.CALENDAR_EVENT_CANCELED,
+                PushCategory.CALENDAR,
+                List.of(99L),
+                null,
+                null,
+                null,
+                null,
+                "분기 리뷰"));
+
+    assertThat(m).isNotNull();
+    assertThat(m.category()).isEqualTo(PushCategory.CALENDAR);
+    assertThat(m.title()).isEqualTo("분기 리뷰");
+    assertThat(m.body()).isEqualTo("시스템님이 일정을 취소했습니다");
+    assertThat(m.url()).isEqualTo("/calendar");
+  }
+
   /** 이슈 챗 AI 질문(WP-452) — MENTION 카테고리여도 이슈 문구로 조립되고, 이동 경로는 챗 드로워(?chat=1). */
   @Test
   void forInbox_aiQuestion_mentionCategory_buildsIssueChatMessage() {

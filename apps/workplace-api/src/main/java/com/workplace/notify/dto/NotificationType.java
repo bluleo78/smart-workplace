@@ -18,5 +18,7 @@ public enum NotificationType {
   ISSUE_COMMENT_MENTION, // 이슈 코멘트에서 멘션됨(WP-650) — 멘션된 사람(HUMAN), comment_id 를 채운다
   WIKI_SHARED, // 노트 공유 대상으로 지정됨(WP-579) — 새로 추가된 사람. wiki_page_id·message 를 채운다
   WIKI_SHARE_ACCESS_REQUESTED, // 노트 접근 요청(WP-579) — 공유를 만든 사람
-  WIKI_SHARE_ACCESS_APPROVED // 노트 접근 요청 승인(WP-579) — 요청자
+  WIKI_SHARE_ACCESS_APPROVED, // 노트 접근 요청 승인(WP-579) — 요청자
+  CALENDAR_EVENT_UPDATED, // 주최자가 일정 시간·장소를 바꿈(WP-712) — 참석자 수신, event_id + 그때의 제목·새 시각
+  CALENDAR_EVENT_CANCELED // 주최자가 일정을 지움(WP-712) — 참석자 수신, event_id 없이 제목·원래 시각만
 }

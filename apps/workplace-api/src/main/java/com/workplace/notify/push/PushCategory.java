@@ -23,7 +23,12 @@ public enum PushCategory {
           WIKI_SHARE_ACCESS_REQUESTED,
           WIKI_SHARE_ACCESS_APPROVED ->
           MENTION;
-      case REMINDER, CALENDAR_INVITED, CALENDAR_RSVP_CHANGED -> CALENDAR;
+      case REMINDER,
+          CALENDAR_INVITED,
+          CALENDAR_RSVP_CHANGED,
+          CALENDAR_EVENT_UPDATED,
+          CALENDAR_EVENT_CANCELED ->
+          CALENDAR;
     };
   }
 }
