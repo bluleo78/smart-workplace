@@ -44,8 +44,8 @@ public class WorkspaceAssistantController {
 
   /** 공용 비서 지정 해제. */
   @DeleteMapping
-  public ResponseEntity<Void> clear() {
-    service.clear();
+  public ResponseEntity<Void> clear(Authentication auth) {
+    service.clear((Long) auth.getPrincipal());
     return ResponseEntity.noContent().build();
   }
 

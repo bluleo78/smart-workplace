@@ -62,7 +62,7 @@ public class AiAgentCredentialService {
       String plaintextSecret,
       String label,
       String model) {
-    assertAgent(agentUserId);
+    UserResponse agent = assertAgent(agentUserId);
     if (!PROVIDERS.contains(provider)) {
       throw new InvalidProviderCredentialException("지원하지 않는 provider 입니다: " + provider);
     }
@@ -111,13 +111,15 @@ public class AiAgentCredentialService {
         "AGENT_OAUTH_TOKEN_REGISTERED",
         "ai_agent_credential",
         String.valueOf(id),
-        "AGENT 프로바이더 자격증명 등록",
+        // WP-706 대상 AI 를 아이디로 적는다(키 기록과 같은 이유).
+        "AGENT 프로바이더 자격증명 등록: " + agent.username(),
         null,
         null,
         "SUCCESS",
         null,
         Map.of(
             "agent_user_id", String.valueOf(agentUserId),
+            "agentUsername", agent.username(),
             "provider", provider,
             "label", String.valueOf(label)));
 
@@ -129,7 +131,7 @@ public class AiAgentCredentialService {
 
   /** AGENT 의 active 자격증명 회수. 없으면 noop (idempotent). */
   public void revoke(Long callerId, Long agentUserId) {
-    assertAgent(agentUserId);
+    UserResponse agent = assertAgent(agentUserId);
     int affected = repo.revokeActive(agentUserId);
     if (affected > 0) {
       auditLogService.log(
@@ -138,12 +140,12 @@ public class AiAgentCredentialService {
           "AGENT_OAUTH_TOKEN_REVOKED",
           "ai_agent_credential",
           String.valueOf(agentUserId),
-          "AGENT 프로바이더 자격증명 회수",
+          "AGENT 프로바이더 자격증명 회수: " + agent.username(),
           null,
           null,
           "SUCCESS",
           null,
-          Map.of("agent_user_id", String.valueOf(agentUserId)));
+          Map.of("agent_user_id", String.valueOf(agentUserId), "agentUsername", agent.username()));
     }
   }
 
