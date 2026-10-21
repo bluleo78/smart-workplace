@@ -80,13 +80,16 @@ public class DriveLinkService {
             .collect(Collectors.toMap(AttachmentSourceProvider::sourceType, Function.identity()));
   }
 
-  /** 링크 생성: 요청자가 파일에 ≥VIEWER 여야 함. 중복은 무시(멱등). */
+  /** 링크 생성: 요청자가 파일에 ≥VIEWER 여야 함. 중복은 무시(멱등). 휴지통 파일은 드라이브 화면에서처럼 없는 파일로 본다(404, WP-685). */
   public void createLink(long callerId, long driveFileId, String sourceType, long sourceId) {
     var meta =
         fileRepo
             .findLinkMeta(driveFileId)
             .orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
     perms.requireRole(meta.spaceId(), callerId, "VIEWER");
+    if (meta.trashed()) {
+      throw new DriveFileNotFoundException(driveFileId);
+    }
     refRepo.insertIgnore(driveFileId, sourceType, sourceId, callerId);
   }
 
@@ -163,7 +166,10 @@ public class DriveLinkService {
     return out;
   }
 
-  /** 링크된 파일 바이트. ref 존재(=이 소스에 실제 링크됨)를 검증해 임의 파일 접근 차단. */
+  /**
+   * 링크된 파일 바이트. ref 존재(=이 소스에 실제 링크됨)를 검증해 임의 파일 접근 차단. 휴지통 파일은 링크가 남아 있어도 내려주지 않는다 — 드라이브 화면·공유
+   * 링크와 같은 404(WP-685). 복원하면 다시 내려받을 수 있다.
+   */
   @Transactional(readOnly = true)
   public FileUploadService.FileContentResult getLinkContent(
       String sourceType, long sourceId, long driveFileId) throws java.io.IOException {
@@ -173,6 +179,7 @@ public class DriveLinkService {
     var meta =
         fileRepo
             .findLinkMeta(driveFileId)
+            .filter(m -> !m.trashed())
             .orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
     // 이름을 바꾼 파일도 바뀐 이름으로 내려받게 드라이브 이름을 쓴다(WP-335).
     return fileUpload.getFileContentTrusted(meta.fileId()).withName(meta.name());

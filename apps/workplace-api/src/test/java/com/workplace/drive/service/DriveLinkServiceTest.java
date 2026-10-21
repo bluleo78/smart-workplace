@@ -154,6 +154,39 @@ class DriveLinkServiceTest extends IntegrationTestBase {
     assertThat(service.getLinkContent("ISSUE", 100L, df).originalName()).isEqualTo("최종.txt");
   }
 
+  /** 휴지통에 넣은 파일은 이미 걸린 링크로도 내려받을 수 없다 — 드라이브 화면·공유 링크와 같은 404(WP-685). */
+  @Test
+  void getLinkContent_trashedFile_notFound() throws Exception {
+    long owner = user("owner");
+    long df = driveFile(owner, null);
+    service.createLink(owner, df, "ISSUE", 100L);
+    trash(df);
+
+    assertThatThrownBy(() -> service.getLinkContent("ISSUE", 100L, df))
+        .isInstanceOf(DriveFileNotFoundException.class);
+    // 목록에는 남아 '휴지통' 으로 보인다(링크 자체는 지우지 않는다).
+    assertThat(service.listLinks("ISSUE", 100L).get(0).availability()).isEqualTo("TRASHED");
+  }
+
+  /** 휴지통에 있는 파일로는 새 링크를 만들 수 없다(WP-685). */
+  @Test
+  void createLink_trashedFile_notFound() {
+    long owner = user("owner");
+    long df = driveFile(owner, null);
+    trash(df);
+
+    assertThatThrownBy(() -> service.createLink(owner, df, "ISSUE", 100L))
+        .isInstanceOf(DriveFileNotFoundException.class);
+    assertThat(service.listLinks("ISSUE", 100L)).isEmpty();
+  }
+
+  private void trash(long driveFileId) {
+    dsl.update(DRIVE_FILE)
+        .set(DRIVE_FILE.TRASHED_AT, OffsetDateTime.now())
+        .where(DRIVE_FILE.ID.eq(driveFileId))
+        .execute();
+  }
+
   @Test
   void removeLink_onlyCreatorOrManager() {
     long owner = user("owner");
