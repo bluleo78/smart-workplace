@@ -228,6 +228,31 @@ class ProjectServiceTest extends IntegrationTestBase {
         .isInstanceOf(ProjectConflictException.class);
   }
 
+  /** 삭제된 프로젝트의 key 는 예약 유지하되, 거절 문구가 삭제된 프로젝트 몫임을 알린다(WP-692). */
+  @Test
+  void create_keyOfDeletedProject_throwsConflictWithDeletedMessage() {
+    String key = uniqueKey("GONE");
+    projectService.create(ownerId, new CreateProjectRequest(key, "Old", null));
+    projectService.softDelete(ownerId, key);
+
+    assertThatThrownBy(
+            () -> projectService.create(ownerId, new CreateProjectRequest(key, "New", null)))
+        .isInstanceOf(ProjectConflictException.class)
+        .hasMessage("삭제된 프로젝트가 쓰던 key 라 다시 쓸 수 없습니다: " + key + " — 다른 key 를 써 주세요");
+  }
+
+  /** 지금 쓰는 프로젝트의 key 는 기존 문구 그대로(WP-692). */
+  @Test
+  void create_keyOfLiveProject_keepsInUseMessage() {
+    String key = uniqueKey("LIVE");
+    projectService.create(ownerId, new CreateProjectRequest(key, "First", null));
+
+    assertThatThrownBy(
+            () -> projectService.create(ownerId, new CreateProjectRequest(key, "Second", null)))
+        .isInstanceOf(ProjectConflictException.class)
+        .hasMessage("이미 사용 중인 key 입니다: " + key);
+  }
+
   @Test
   void softDelete_byOwner_marksDeleted() {
     String key = uniqueKey("DEL");
