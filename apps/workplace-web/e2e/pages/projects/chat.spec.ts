@@ -944,6 +944,51 @@ test.describe('이슈 chat panel', () => {
     await expectStays(page, sent.patches.count, 0);
   });
 
+  // WP-683: 수정 편집기도 작성 입력창처럼 4000자를 넘으면 카운터가 보이고 저장이 막힌다(서버 400 영문 토스트 대신, 팀 채팅 WP-513 과 같은 규칙).
+  test('수정 편집기 — 4000자를 넘기면 카운터가 뜨고 저장이 막힌다', async ({
+    authenticatedPage: page,
+  }) => {
+    const detailRef = {
+      current: createIssueDetail({
+        summary: createIssue({ id: 1, number: ISSUE_NUMBER, title: 'edit limit' }),
+      }),
+    };
+    await setupCommonStubs(page, detailRef);
+    const stubs = freshStubs();
+    stubs.thread = {
+      ...stubs.thread,
+      recentMessages: [
+        createChatMessage({
+          id: 810,
+          threadId: THREAD_ID,
+          authorId: ME_ID,
+          authorName: '테스트 사용자',
+          authorKind: 'HUMAN',
+          body: '원본',
+        }),
+      ],
+    };
+    stubs.messages = stubs.thread.recentMessages;
+    const sent = await setupChatStubs(page, stubs);
+
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    await page.getByTestId('issue-chat-open').click();
+    await page.getByTestId('chat-message-810').hover();
+    await page.getByTestId('chat-message-edit-810').click();
+    const editor = page.getByTestId('chat-message-editor-input');
+    await editor.click();
+    await page.keyboard.press('End');
+    await page.keyboard.insertText('가'.repeat(4000));
+
+    await expect(
+      page.getByTestId('chat-message-editor-input-wrap').getByTestId('char-count'),
+    ).toHaveText('4002 / 4000');
+    await expect(page.getByTestId('chat-message-editor-save')).toBeDisabled();
+    // Enter 경로도 막혀 PATCH 가 나가지 않는다.
+    await page.keyboard.press('Enter');
+    await expectStays(page, sent.patches.count, 0);
+  });
+
   // #43 회귀 — 멘션 메시지 전송 시 서버 응답 전 optimistic 칩이 올바른 이름으로 보인다(@알 수 없음 X).
   test('optimistic 멘션 칩이 서버 응답 전에도 올바른 이름으로 보인다', async ({
     authenticatedPage: page,

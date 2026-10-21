@@ -29,6 +29,8 @@ export function ChatMessageEditor({
         onCancel={onCancel}
         submitLabel="저장"
         autoFocus
+        // 작성 입력창과 같은 서버 상한(4000자) — 넘으면 카운터를 보이고 저장을 막는다(WP-683, 팀 채팅 WP-513 과 같은 규칙).
+        maxLength={4000}
         inputTestId="chat-message-editor-input"
         submitTestId="chat-message-editor-save"
         cancelTestId="chat-message-editor-cancel"
