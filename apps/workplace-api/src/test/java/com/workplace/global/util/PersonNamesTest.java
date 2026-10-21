@@ -43,6 +43,27 @@ class PersonNamesTest {
   }
 
   @Test
+  void rejectsNamesWithoutAnyDrawnCharacter_wp724() {
+    // 점자 빈칸(U+2800, So)·결합 문자 CGJ(U+034F, Mn)·변형 선택자(U+FE0F, Mn) — 공백이 아니어도 화면에 아무것도 그려지지 않는다.
+    for (String raw :
+        new String[] {"\u2800\u2800", "\u034F\u034F", "\uFE0F", " \u2800\u034F\uFE0F "}) {
+      assertThatThrownBy(() -> PersonNames.normalize(raw))
+          .as(raw.codePoints().mapToObj(Integer::toHexString).toList().toString())
+          .isInstanceOf(IllegalArgumentException.class)
+          .hasMessage("이름을 입력해 주세요");
+    }
+  }
+
+  @Test
+  void keepsMeaningfulMarksAndTrimsBrailleBlankEdges_wp724() {
+    // 점자 빈칸은 앞뒤에서 지운다.
+    assertThat(PersonNames.normalize("\u2800김지훈\u2800")).isEqualTo("김지훈");
+    // 결합 문자는 앞 글자에 붙어 뜻이 있으므로 남긴다(힌디 「क्」, 이모지 변형 선택자).
+    assertThat(PersonNames.normalize("क्")).isEqualTo("क्");
+    assertThat(PersonNames.normalize("하트❤\uFE0F")).isEqualTo("하트❤\uFE0F");
+  }
+
+  @Test
   void rejectsControlAndBidiChars() {
     assertThatThrownBy(() -> PersonNames.normalize("a\nb\tc"))
         .isInstanceOf(IllegalArgumentException.class)
