@@ -274,6 +274,24 @@ class ChatMessageAttachmentIntegrationTest extends IntegrationTestBase {
 
   /** WP-423: 공용 스테이징 업로드로 올린 파일도 챗 메시지에 묶이고 영구가 된다. */
   @Test
+  void 본문_없이_첨부만_보내도_응답_본문은_빈_문자열이다() throws Exception {
+    // WP-717: 본문을 생략(null)한 첨부 메시지가 null 본문으로 내려가면 웹 대화 화면이 깨진다 — 웹이 보내는 '' 와 같게 맞춘다.
+    ChatFixtures.Setup s = fx.setup();
+    long threadId =
+        threadService.getOrCreate(s.reporterId(), s.projectKey(), s.issueNumber()).threadId();
+    long fileId = stagedUploadService.createText(s.reporterId(), "only.md", "# 메모").fileId();
+
+    var resp =
+        chatMessageService.create(
+            s.reporterId(),
+            threadId,
+            new CreateChatMessageRequest(null, List.of(fileId), List.of()));
+
+    assertThat(resp.body()).isEmpty();
+    assertThat(resp.attachments()).hasSize(1);
+  }
+
+  @Test
   void 스테이징_파일로도_메시지를_만들_수_있다() throws Exception {
     ChatFixtures.Setup s = fx.setup();
     long threadId =

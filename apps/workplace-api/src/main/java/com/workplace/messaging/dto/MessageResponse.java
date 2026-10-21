@@ -33,6 +33,14 @@ public record MessageResponse(
     MessageProposalResponse proposal) { // L3 위임 제안 카드 — service 가 batch enrich, 없으면 null
 
   /**
+   * 본문 없이 첨부만 있는 메시지는 DB 에 body NULL 로 남는다(MCP 가 body 를 생략). 응답은 늘 문자열로 맞춘다 — null 이 내려가면 웹 메시지 행이
+   * {@code body.trim()} 에서 터져 그 채널·DM 화면 전체가 오류 화면이 됐다(WP-717). 웹 작성창이 보내는 '' 와 같은 모양이 된다.
+   */
+  public MessageResponse {
+    if (body == null) body = "";
+  }
+
+  /**
    * 리액션 집계를 채워 새 인스턴스 반환(repository 는 reactions 를 비워서 만들고 service 가 enrich). attachments 는 그대로 전달.
    */
   public MessageResponse withReactions(List<ReactionResponse> reactions) {

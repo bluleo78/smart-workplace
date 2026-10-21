@@ -24,6 +24,11 @@ public record ChatMessageResponse(
     // AI 가 사람의 답을 기다리는 질문(WP-373)
     boolean question) {
 
+  /** 첨부만 있는 메시지의 NULL 본문은 빈 문자열로 내린다 — 웹 대화 행이 null 본문에서 터지지 않게(WP-717, 팀 채팅과 같은 규칙). */
+  public ChatMessageResponse {
+    if (body == null) body = "";
+  }
+
   /** 첨부 목록을 교체한 복사본. (하이드레이션용) */
   public ChatMessageResponse withAttachments(List<ChatMessageAttachmentResponse> a) {
     return new ChatMessageResponse(

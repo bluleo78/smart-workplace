@@ -82,9 +82,13 @@ class MessageServiceAttachmentTest extends IntegrationTestBase {
         messageService.create(
             userId, channelId, new CreateMessageRequest(null, null, List.of(fileId)));
 
-    assertThat(res.body()).isNull();
+    // WP-717: 본문 없이 보낸 첨부 메시지도 응답 본문은 빈 문자열 — null 이면 웹 채널 화면 전체가 깨졌다(MCP 가 body 를 생략한다).
+    assertThat(res.body()).isEmpty();
     assertThat(res.attachments()).hasSize(1);
     assertThat(res.attachments().get(0).originalName()).isEqualTo("only.txt");
+    assertThat(messageService.list(userId, channelId, null, 50).items())
+        .singleElement()
+        .satisfies(m -> assertThat(m.body()).isEmpty());
   }
 
   /** create_emptyBodyNoAttachments_rejected: 본문도 첨부도 없으면 EmptyMessageException. */
