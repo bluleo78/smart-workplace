@@ -784,6 +784,9 @@ public class UserService {
     }
     // 대상이 현재 테넌트 멤버가 아니면 타 테넌트 사용자를 비활성화할 수 없다 (#811).
     requireMember(userId, tenantId);
+    // WP-729: 역할 할당(WP-599)과 같은 위임 상한 — 자기보다 넓은 권한을 가진 구성원(관리자 등)은 정지·해제하지 못한다.
+    // 호출자 없음(null)은 사람 요청이 아닌 내부 호출이다 — API·확인 카드·AI 삭제 경로는 늘 로그인한 호출자를 넘긴다.
+    if (callerId != null) roleGrantGuard.requireCanManageUser(callerId, userId);
     // 마지막 활성 ADMIN 비활성화 방지 — 모든 ADMIN이 잠기면 시스템 관리 불가 (#146).
     // WP-417: 활성 ADMIN 수는 현재 워크스페이스 기준 — 다른 워크스페이스의 정지는 영향 없다. 대상이 지금 이 워크스페이스의 활성 ADMIN 일 때만
     // 끄기가 그 수를 줄이므로 그때만 검사한다(이미 정지된 대상을 다시 끄는 것은 멱등 no-op).

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.dto.OAuthTokenMetaResponse;
 import com.workplace.auth.dto.ProviderCredentialRegisterRequest;
 import com.workplace.auth.service.AiAgentCredentialService;
+import com.workplace.global.security.RequireAdmin;
 import com.workplace.global.security.RequirePermission;
 import com.workplace.user.service.WorkspaceMemberGuard;
 import jakarta.validation.Valid;
@@ -26,6 +27,8 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/v1/admin/agents/{userId}/provider-credential")
 @RequiredArgsConstructor
+// WP-729: AI 관리는 ADMIN 만 — 「사용자 쓰기」만 받은 구성원이 AI 키를 발급해 그 AI 로 행동하던 길을 막는다.
+@RequireAdmin
 public class AdminProviderCredentialController {
 
   private final AiAgentCredentialService service;

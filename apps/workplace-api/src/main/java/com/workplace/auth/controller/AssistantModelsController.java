@@ -16,6 +16,7 @@ import com.workplace.auth.service.AiAgentCredentialService;
 import com.workplace.auth.service.AssistantModels;
 import com.workplace.auth.service.ModelBaseUrlGuard;
 import com.workplace.global.exception.CryptoException;
+import com.workplace.global.security.RequireAdmin;
 import com.workplace.global.security.RequirePermission;
 import com.workplace.user.service.WorkspaceMemberGuard;
 import jakarta.validation.Valid;
@@ -54,6 +55,7 @@ public class AssistantModelsController {
    */
   @PostMapping("/api/v1/admin/agents/models/probe")
   @RequirePermission("user:write")
+  @RequireAdmin // WP-729: AI 관리는 ADMIN 만
   @Transactional(readOnly = true)
   public ProbeModelsResponse adminProbe(@Valid @RequestBody ProbeModelsRequest req) {
     return probe(req.providerConfig());
@@ -69,6 +71,7 @@ public class AssistantModelsController {
   /** 관리자 — AGENT 의 저장된 자격증명 기준 모델 목록. */
   @GetMapping("/api/v1/admin/agents/{userId}/models")
   @RequirePermission("user:write")
+  @RequireAdmin // WP-729: AI 관리는 ADMIN 만
   @Transactional(readOnly = true)
   public AgentModelsResponse adminModels(@PathVariable Long userId) {
     // WP-703: 다른 워크스페이스 AI 의 연결로 모델을 조회하지 못하게(404).

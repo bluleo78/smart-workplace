@@ -1,6 +1,7 @@
 package com.workplace.auth.controller;
 
 import com.workplace.auth.service.AgentRemovalService;
+import com.workplace.global.security.RequireAdmin;
 import com.workplace.global.security.RequirePermission;
 import com.workplace.user.dto.AgentResponse;
 import com.workplace.user.dto.CreateAgentRequest;
@@ -27,6 +28,8 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/v1/admin/agents")
 @RequiredArgsConstructor
+// WP-729: AI 관리는 ADMIN 만 — 「사용자 쓰기」만 받은 구성원이 AI 키를 발급해 그 AI 로 행동하던 길을 막는다.
+@RequireAdmin
 public class AdminAgentController {
 
   private final UserService userService;

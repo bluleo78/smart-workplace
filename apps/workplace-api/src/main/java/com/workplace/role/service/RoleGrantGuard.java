@@ -50,6 +50,20 @@ public class RoleGrantGuard {
     }
   }
 
+  /**
+   * 구성원을 정지하거나 정지 해제할 자격(WP-729) — ADMIN 이 아니면 대상의 권한이 모두 호출자 권한 안이어야 한다. 「사용자 쓰기」만 받은 구성원이 관리자를
+   * 잠그던 길을 역할 할당과 같은 기준으로 막는다. 대상 권한은 멤버십 상태와 상관없이 역할로 읽는다 — 정지된 관리자는 유효 권한이 비어 보여, 그대로 비교하면 정지 해제를
+   * 막지 못한다.
+   */
+  public void requireCanManageUser(Long callerId, Long targetId) {
+    if (isAdmin(callerId)) return;
+    if (!permissionService
+        .getUserPermissions(callerId)
+        .containsAll(permissionRepository.findPermissionCodesByUserId(targetId))) {
+      throw new AccessDeniedException("자신보다 넓은 권한을 가진 구성원은 정지하거나 정지 해제할 수 없습니다");
+    }
+  }
+
   private boolean isAdmin(Long callerId) {
     return permissionChecker.userHasRole(callerId, "ADMIN");
   }

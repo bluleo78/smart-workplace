@@ -1,8 +1,10 @@
 package com.workplace.support;
 
 import static com.workplace.jooq.Tables.MEMBERSHIP;
+import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.TENANT;
 import static com.workplace.jooq.Tables.USER;
+import static com.workplace.jooq.Tables.USER_ROLE;
 
 import com.workplace.auth.service.AiAgentCredentialService;
 import com.workplace.user.dto.UserKind;
@@ -142,6 +144,15 @@ public final class TestFixtures {
         return rec.getId();
       }
     }
+  }
+
+  /** 현재 테넌트(TenantContext)의 시스템 역할을 사용자에게 준다 — 예: ADMIN 전용 API(WP-729)를 부를 관리자. */
+  public static void grantRole(DSLContext dsl, long userId, String roleName) {
+    Long roleId = dsl.select(ROLE.ID).from(ROLE).where(ROLE.NAME.eq(roleName)).fetchOne(ROLE.ID);
+    dsl.insertInto(USER_ROLE)
+        .set(USER_ROLE.USER_ID, userId)
+        .set(USER_ROLE.ROLE_ID, roleId)
+        .execute();
   }
 
   /**

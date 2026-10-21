@@ -53,6 +53,7 @@ class AdminAgentDeleteTest extends IntegrationTestBase {
   void seed() {
     TenantContext.set(1L);
     admin = TestFixtures.createHuman(dsl);
+    TestFixtures.grantRole(dsl, admin, "ADMIN"); // WP-729: AI 관리는 ADMIN 만
     TestFixtures.addMember(dsl, admin, 1L);
   }
 

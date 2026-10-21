@@ -4,6 +4,7 @@ import com.workplace.auth.dto.AgentApiKeyIssueResponse;
 import com.workplace.auth.dto.AgentApiKeyResponse;
 import com.workplace.auth.dto.IssueAgentKeyRequest;
 import com.workplace.auth.service.AgentApiKeyService;
+import com.workplace.global.security.RequireAdmin;
 import com.workplace.global.security.RequirePermission;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -22,6 +23,8 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/v1/admin/agents/{userId}/keys")
 @RequiredArgsConstructor
+// WP-729: AI 관리는 ADMIN 만 — 「사용자 쓰기」만 받은 구성원이 AI 키를 발급해 그 AI 로 행동하던 길을 막는다.
+@RequireAdmin
 public class AdminAgentKeyController {
 
   private final AgentApiKeyService service;

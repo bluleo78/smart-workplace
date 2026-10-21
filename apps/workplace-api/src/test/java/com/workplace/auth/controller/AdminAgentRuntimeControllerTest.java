@@ -65,6 +65,13 @@ class AdminAgentRuntimeControllerTest extends IntegrationTestBase {
     return new UsernamePasswordAuthenticationToken(userId, "n/a", authorities);
   }
 
+  /** AI 관리 API 를 부를 테넌트#1 관리자 — ADMIN 역할까지 준다(WP-729). */
+  private Long createAdmin() {
+    Long id = createUser("admin", "HUMAN");
+    TestFixtures.grantRole(dsl, id, "ADMIN");
+    return id;
+  }
+
   /** 테넌트#1 ACTIVE 멤버십을 가진 사용자(HUMAN/AGENT)를 만든다 — 목록 쿼리가 멤버십 join 이라 필요. */
   private Long createUser(String prefix, String kind) {
     return createUser(prefix, kind, 1L);
@@ -120,7 +127,7 @@ class AdminAgentRuntimeControllerTest extends IntegrationTestBase {
 
   @Test
   void PUT_runtime_EXTERNAL_로_바꾸고_다시_INTERNAL_로_되돌린다_204() throws Exception {
-    Long admin = createUser("admin", "HUMAN");
+    Long admin = createAdmin();
     Long agent = createUser("ai", "AGENT");
 
     putRuntime(admin, agent, "{\"runtime\":\"EXTERNAL\"}", "user:write")
@@ -134,7 +141,7 @@ class AdminAgentRuntimeControllerTest extends IntegrationTestBase {
 
   @Test
   void PUT_runtime_변경은_감사_로그를_남긴다() throws Exception {
-    Long admin = createUser("admin", "HUMAN");
+    Long admin = createAdmin();
     Long agent = createUser("ai", "AGENT");
 
     putRuntime(admin, agent, "{\"runtime\":\"EXTERNAL\"}", "user:write")
@@ -151,7 +158,7 @@ class AdminAgentRuntimeControllerTest extends IntegrationTestBase {
 
   @Test
   void PUT_runtime_잘못된_값은_400() throws Exception {
-    Long admin = createUser("admin", "HUMAN");
+    Long admin = createAdmin();
     Long agent = createUser("ai", "AGENT");
     putRuntime(admin, agent, "{\"runtime\":\"CLOUD\"}", "user:write")
         .andExpect(status().isBadRequest());
@@ -160,7 +167,7 @@ class AdminAgentRuntimeControllerTest extends IntegrationTestBase {
 
   @Test
   void PUT_runtime_권한없으면_403() throws Exception {
-    Long admin = createUser("admin", "HUMAN");
+    Long admin = createAdmin();
     Long agent = createUser("ai", "AGENT");
     putRuntime(admin, agent, "{\"runtime\":\"EXTERNAL\"}", "other:perm")
         .andExpect(status().isForbidden());
@@ -168,7 +175,7 @@ class AdminAgentRuntimeControllerTest extends IntegrationTestBase {
 
   @Test
   void PUT_runtime_사람_또는_없는_유저는_404() throws Exception {
-    Long admin = createUser("admin", "HUMAN");
+    Long admin = createAdmin();
     Long human = createUser("bob", "HUMAN");
     putRuntime(admin, human, "{\"runtime\":\"EXTERNAL\"}", "user:write")
         .andExpect(status().isNotFound());
@@ -178,7 +185,7 @@ class AdminAgentRuntimeControllerTest extends IntegrationTestBase {
 
   @Test
   void 공통_비서는_EXTERNAL_로_못_바꾼다_409() throws Exception {
-    Long admin = createUser("admin", "HUMAN");
+    Long admin = createAdmin();
     Long agent = createUser("ai", "AGENT");
     workspaceAssistantService.setAgent(admin, agent);
 
@@ -193,7 +200,7 @@ class AdminAgentRuntimeControllerTest extends IntegrationTestBase {
 
   @Test
   void 개인_비서는_EXTERNAL_로_못_바꾼다_409() throws Exception {
-    Long admin = createUser("admin", "HUMAN");
+    Long admin = createAdmin();
     Long owner = createUser("owner", "HUMAN");
     Long agent = createUser("ai", "AGENT");
     dsl.update(USER)
@@ -213,7 +220,7 @@ class AdminAgentRuntimeControllerTest extends IntegrationTestBase {
    */
   @Test
   void 해제된_개인_비서도_EXTERNAL_로_못_바꾼다_409() throws Exception {
-    Long admin = createUser("admin", "HUMAN");
+    Long admin = createAdmin();
     Long agent = createUser("ai", "AGENT");
     dsl.update(USER).set(USER.USERNAME, "__assistant_u" + agent).where(USER.ID.eq(agent)).execute();
 
@@ -225,7 +232,7 @@ class AdminAgentRuntimeControllerTest extends IntegrationTestBase {
 
   @Test
   void EXTERNAL_에이전트를_공통_비서로_지정하면_409() throws Exception {
-    Long admin = createUser("admin", "HUMAN");
+    Long admin = createAdmin();
     Long agent = createUser("ai", "AGENT");
     dsl.update(USER).set(USER.AGENT_RUNTIME, "EXTERNAL").where(USER.ID.eq(agent)).execute();
 
@@ -240,7 +247,7 @@ class AdminAgentRuntimeControllerTest extends IntegrationTestBase {
 
   @Test
   void 목록은_runtime_과_lastKeyUsedAt_을_준다_폐기_키는_제외() throws Exception {
-    Long admin = createUser("admin", "HUMAN");
+    Long admin = createAdmin();
     Long used = createUser("used", "AGENT");
     Long unused = createUser("unused", "AGENT");
     dsl.update(USER).set(USER.AGENT_RUNTIME, "EXTERNAL").where(USER.ID.eq(used)).execute();
@@ -297,7 +304,7 @@ class AdminAgentRuntimeControllerTest extends IntegrationTestBase {
   @Test
   void 다른_테넌트의_공통_비서인_에이전트도_EXTERNAL_로_못_바꾼다_409() throws Exception {
     // 에이전트가 T1·T2 모두의 멤버이고, T2 의 공통 비서다. T1 관리자는 RLS 때문에 T2 의 workspace_assistant 행이 안 보인다.
-    Long admin = createUser("admin", "HUMAN");
+    Long admin = createAdmin();
     Long agent = createUser("ai", "AGENT");
     long t2 = TestFixtures.createTenant(dsl, "ACTIVE");
     TestFixtures.addMember(dsl, agent, t2);
@@ -319,7 +326,7 @@ class AdminAgentRuntimeControllerTest extends IntegrationTestBase {
 
   @Test
   void 다른_테넌트_에이전트의_runtime_변경은_404() throws Exception {
-    Long admin = createUser("admin", "HUMAN");
+    Long admin = createAdmin();
     Long agent = createForeignAgent();
     putRuntime(admin, agent, "{\"runtime\":\"EXTERNAL\"}", "user:write")
         .andExpect(status().isNotFound());
@@ -328,7 +335,7 @@ class AdminAgentRuntimeControllerTest extends IntegrationTestBase {
 
   @Test
   void 다른_테넌트_에이전트의_이름_변경은_404() throws Exception {
-    Long admin = createUser("admin", "HUMAN");
+    Long admin = createAdmin();
     Long agent = createForeignAgent();
     TenantContext.set(1L);
     mvc.perform(
@@ -343,7 +350,7 @@ class AdminAgentRuntimeControllerTest extends IntegrationTestBase {
 
   @Test
   void 다른_테넌트_에이전트의_삭제는_404() throws Exception {
-    Long admin = createUser("admin", "HUMAN");
+    Long admin = createAdmin();
     Long agent = createForeignAgent();
     TenantContext.set(1L);
     mvc.perform(
@@ -355,7 +362,7 @@ class AdminAgentRuntimeControllerTest extends IntegrationTestBase {
   /** 공통 비서 지정과 runtime 변경은 같은 user 행 락을 먼저 잡아 직렬화된다(동시 실행 시 검사-후-변경 경합 방지). */
   @Test
   void 공통_비서_지정과_runtime_변경은_둘_다_에이전트_행_락을_잡는다() throws Exception {
-    Long admin = createUser("admin", "HUMAN");
+    Long admin = createAdmin();
     Long agent = createUser("ai", "AGENT");
 
     workspaceAssistantService.setAgent(admin, agent);

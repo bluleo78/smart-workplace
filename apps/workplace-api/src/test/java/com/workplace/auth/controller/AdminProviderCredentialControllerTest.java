@@ -15,6 +15,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.dto.ProviderConfig;
 import com.workplace.auth.dto.ProviderCredentialRegisterRequest;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.TestFixtures;
 import java.util.Map;
 import java.util.UUID;
 import org.jooq.DSLContext;
@@ -181,8 +182,11 @@ class AdminProviderCredentialControllerTest extends IntegrationTestBase {
     return createUserForTest("ai", "AGENT");
   }
 
+  /** AI 연결 API 를 부를 관리자 — ADMIN 역할까지 준다(WP-729). */
   private Long createHumanUserForTest() {
-    return createUserForTest("admin", "HUMAN");
+    Long id = createUserForTest("admin", "HUMAN");
+    TestFixtures.grantRole(dsl, id, "ADMIN");
+    return id;
   }
 
   private Long createUserForTest(String prefix, String kind) {
