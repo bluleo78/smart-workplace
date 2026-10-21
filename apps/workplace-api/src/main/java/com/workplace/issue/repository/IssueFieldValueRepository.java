@@ -1,5 +1,6 @@
 package com.workplace.issue.repository;
 
+import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_FIELD_DEF;
 import static com.workplace.jooq.Tables.ISSUE_FIELD_VALUE;
 import static org.jooq.impl.DSL.count;
@@ -108,12 +109,15 @@ public class IssueFieldValueRepository {
     return result;
   }
 
-  /** 정의 사용 카운트 — 삭제 가드/통계용. */
+  /** 정의 사용 카운트 — 삭제 가드/통계용. 삭제된 이슈의 값은 세지 않는다(WP-691). */
   public int countByDef(Long defId) {
     Integer c =
         dsl.select(count())
             .from(ISSUE_FIELD_VALUE)
+            .join(ISSUE)
+            .on(ISSUE.ID.eq(ISSUE_FIELD_VALUE.ISSUE_ID))
             .where(ISSUE_FIELD_VALUE.FIELD_DEF_ID.eq(defId))
+            .and(ISSUE.DELETED_AT.isNull())
             .fetchOne(0, Integer.class);
     return c == null ? 0 : c;
   }
@@ -121,7 +125,8 @@ public class IssueFieldValueRepository {
   /**
    * 옵션 삭제 가드(#707) — 해당 필드 정의의 값 중 removedOptions 에 포함된 옵션을 참조하는 이슈 수를 센다. SELECT 는 값 문자열이
    * removedOptions 중 하나와 정확히 일치하는지, MULTI_SELECT 는 배열이 removedOptions 중 하나라도 포함하는지 검사한다. 값이 소수(필드당
-   * 이슈 수)이므로 JSONB 연산자 대신 애플리케이션에서 파싱해 판정 — countByDef 와 동일한 스캔 비용.
+   * 이슈 수)이므로 JSONB 연산자 대신 애플리케이션에서 파싱해 판정 — countByDef 와 동일한 스캔 비용. 삭제된 이슈는 되살릴 수도 볼 수도 없으므로 그 값은
+   * 「참조」로 세지 않는다(WP-691) — 세면 그 옵션을 영영 뺄 수 없다.
    */
   public int countReferencingOptions(Long defId, String type, Set<String> removedOptions) {
     if (removedOptions.isEmpty()) {
@@ -132,7 +137,10 @@ public class IssueFieldValueRepository {
     for (var r :
         dsl.select(ISSUE_FIELD_VALUE.VALUE)
             .from(ISSUE_FIELD_VALUE)
+            .join(ISSUE)
+            .on(ISSUE.ID.eq(ISSUE_FIELD_VALUE.ISSUE_ID))
             .where(ISSUE_FIELD_VALUE.FIELD_DEF_ID.eq(defId))
+            .and(ISSUE.DELETED_AT.isNull())
             .fetch()) {
       try {
         JsonNode node = objectMapper.readTree(r.value1().data());
