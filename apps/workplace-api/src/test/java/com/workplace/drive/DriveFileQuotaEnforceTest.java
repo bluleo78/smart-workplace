@@ -9,6 +9,7 @@ import com.workplace.drive.dto.DriveFileResponse;
 import com.workplace.drive.dto.DriveSpaceResponse;
 import com.workplace.drive.exception.DriveQuotaExceededException;
 import com.workplace.drive.service.DriveFileService;
+import com.workplace.drive.service.DriveFolderService;
 import com.workplace.drive.service.DriveSpaceService;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
@@ -28,6 +29,7 @@ class DriveFileQuotaEnforceTest extends IntegrationTestBase {
   @Autowired DSLContext dsl;
   @Autowired DriveFileService driveFileService;
   @Autowired DriveSpaceService spaceService;
+  @Autowired DriveFolderService folderService;
 
   /** 테넌트 #1 RLS 컨텍스트 설정. */
   @BeforeEach
@@ -54,9 +56,15 @@ class DriveFileQuotaEnforceTest extends IntegrationTestBase {
 
   /** 파일 업로드 헬퍼 — text/plain(허용 타입)으로 업로드. */
   private DriveFileResponse uploadFile(long spaceId, byte[] content) throws Exception {
+    return uploadFile(spaceId, null, content);
+  }
+
+  /** 폴더 안 업로드 헬퍼 — folderId null 이면 공간 루트. */
+  private DriveFileResponse uploadFile(long spaceId, Long folderId, byte[] content)
+      throws Exception {
     long u = ownerOfSpace(spaceId);
     MockMultipartFile f = new MockMultipartFile("file", "data.txt", "text/plain", content);
-    return driveFileService.upload(u, spaceId, null, f);
+    return driveFileService.upload(u, spaceId, folderId, f);
   }
 
   /** 공간 소유자 사용자 ID(seedUser 로 생성 후 공간에 연결). 동일 tx 이라 공간 소유자를 직접 얻기 위해 별도 생성. */
@@ -128,5 +136,35 @@ class DriveFileQuotaEnforceTest extends IntegrationTestBase {
     // then: 복사도 쿼터를 강제하므로 DriveQuotaExceededException 발생해야 한다
     assertThatThrownBy(() -> driveFileService.copy(owner, original.id(), null))
         .isInstanceOf(DriveQuotaExceededException.class);
+  }
+
+  @Test
+  void 한도_초과_폴더_복사는_서브트리_합계로_거부() throws Exception {
+    // given: 원본/ 에 4바이트, 원본/하위/ 에 3바이트 — 서브트리 합계 7바이트, 사용량 7
+    DriveSpaceResponse space = createSpace();
+    long owner = ownerOfSpace(space.id());
+    long src = folderService.create(owner, space.id(), null, "원본").id();
+    long child = folderService.create(owner, space.id(), src, "하위").id();
+    long dest = folderService.create(owner, space.id(), null, "대상").id();
+    uploadFile(space.id(), src, "aaaa".getBytes());
+    uploadFile(space.id(), child, "bbb".getBytes());
+    // when: 한도 13 — 파일 하나(4·3)씩은 들어가지만 합계 7 은 7+7=14 > 13 이라 넘친다(WP-697)
+    setTenantQuota(13L);
+    // then: 폴더 복사도 파일 복사처럼 거부되고 대상 폴더에 아무것도 생기지 않는다
+    assertThatThrownBy(() -> folderService.copy(owner, src, dest))
+        .isInstanceOf(DriveQuotaExceededException.class);
+    assertThat(folderService.listItems(owner, space.id(), dest).folders()).isEmpty();
+  }
+
+  @Test
+  void 한도_안의_폴더_복사는_허용() throws Exception {
+    DriveSpaceResponse space = createSpace();
+    long owner = ownerOfSpace(space.id());
+    long src = folderService.create(owner, space.id(), null, "원본").id();
+    long dest = folderService.create(owner, space.id(), null, "대상").id();
+    uploadFile(space.id(), src, "aaaa".getBytes());
+    // 한도 정확히 8 = 사용 4 + 복사 4
+    setTenantQuota(8L);
+    assertThat(folderService.copy(owner, src, dest).name()).isEqualTo("원본");
   }
 }

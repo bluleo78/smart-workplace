@@ -34,6 +34,7 @@ public class DriveFolderService {
   private final DriveFileRepository files;
   private final DrivePermissions perms;
   private final DriveBlobCopier blobCopier;
+  private final DriveQuotaService quota;
   private final org.jooq.DSLContext dsl;
 
   /** 드라이브 변경 resource.changed 발행(WP-63). */
@@ -221,6 +222,9 @@ public class DriveFolderService {
     if (folders.existsInSpace(spaceId, targetParentId, src.name())) {
       throw new DriveDuplicateNameException(src.name());
     }
+    // 쿼터 강제(WP-697): 서브트리 파일을 모두 새 blob 으로 복제하므로 파일 복사·업로드와 같이 advisory lock + 검사를 한다.
+    // 복제 전에 합계로 한 번 검사해 넘치면 blob 을 하나도 만들지 않는다(파일마다 검사하면 실패 전 복제분이 디스크 고아로 남는다).
+    quota.assertWithinQuotaLocked(folders.sumLiveFileBytesInSubtree(folderId));
     long newRootId = copyTree(callerId, spaceId, folderId, targetParentId, src.name());
     notifier.itemsChanged(OP_CREATED, spaceId, List.of(newRootId), callerId);
     return folders

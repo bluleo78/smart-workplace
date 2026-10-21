@@ -2,6 +2,7 @@ package com.workplace.drive.repository;
 
 import static com.workplace.jooq.Tables.DRIVE_FILE;
 import static com.workplace.jooq.Tables.DRIVE_FOLDER;
+import static com.workplace.jooq.Tables.FILE;
 
 import com.workplace.drive.dto.DriveFolderResponse;
 import java.util.ArrayDeque;
@@ -149,6 +150,35 @@ public class DriveFolderRepository {
               .fetch(DRIVE_FOLDER.ID));
     }
     return subtree;
+  }
+
+  /**
+   * 폴더 서브트리(자기 포함)의 살아 있는 파일 크기 합 — 폴더 복사가 새로 쓸 바이트(WP-697). 복사(copyTree)와 같은 범위만 센다: 휴지통에 없는 하위
+   * 폴더를 BFS 로 모으고, 그 안의 휴지통에 없는 파일의 현재 버전 FILE.SIZE_BYTES 를 더한다.
+   */
+  public long sumLiveFileBytesInSubtree(long folderId) {
+    List<Long> subtree = new ArrayList<>();
+    Deque<Long> queue = new ArrayDeque<>();
+    queue.add(folderId);
+    while (!queue.isEmpty()) {
+      long cur = queue.poll();
+      subtree.add(cur);
+      queue.addAll(
+          dsl.select(DRIVE_FOLDER.ID)
+              .from(DRIVE_FOLDER)
+              .where(DRIVE_FOLDER.PARENT_ID.eq(cur))
+              .and(DRIVE_FOLDER.TRASHED_AT.isNull())
+              .fetch(DRIVE_FOLDER.ID));
+    }
+    Long sum =
+        dsl.select(DSL.sum(FILE.SIZE_BYTES).cast(Long.class))
+            .from(DRIVE_FILE)
+            .join(FILE)
+            .on(FILE.ID.eq(DRIVE_FILE.FILE_ID))
+            .where(DRIVE_FILE.FOLDER_ID.in(subtree))
+            .and(DRIVE_FILE.TRASHED_AT.isNull())
+            .fetchOne(0, Long.class);
+    return sum == null ? 0L : sum;
   }
 
   public List<DriveFolderResponse> listChildFolders(long spaceId, Long parentId) {
